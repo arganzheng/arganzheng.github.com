@@ -50,7 +50,7 @@ Table: 本文的章节安排
 
 假设 Scheduler 需要根据硬件特性决定是否允许某种调度策略，于是代码变成：
 
-```python
+```python title="反例：Scheduler 里按硬件分支"
 if is_cuda():
     ...
 elif is_ascend():
@@ -61,7 +61,7 @@ elif is_rocm():
 
 KV Cache 管理器也出现类似判断：
 
-```python
+```python title="反例：KV Cache 管理器里按硬件分支"
 if is_cuda():
     allocate_cuda_blocks()
 elif is_ascend():
@@ -175,7 +175,7 @@ graph TD
 
 从抽象上看，上层代码依赖的是这样的接口：
 
-```python
+```python title="Platform 接口的抽象"
 class Platform:
     device_name: str
     device_type: str
@@ -225,7 +225,7 @@ class Platform:
 
 因此，后续代码不需要到处重新判断设备类型，而是统一读取：
 
-```python
+```python title="统一读取 current_platform"
 from vllm.platforms import current_platform
 ```
 
@@ -283,7 +283,7 @@ Attention 是 vLLM 中最重要的动态后端选择场景之一。
 
 典型入口可以抽象为：
 
-```python
+```python title="get_attn_backend 的典型入口"
 def get_attn_backend(
     head_size,
     dtype,
@@ -330,7 +330,7 @@ def get_attn_backend(
 
 可以用一个简化后的伪代码表示：
 
-```python
+```python title="CudaPlatform.get_attn_backend_cls 的伪代码"
 class CudaPlatform(Platform):
 
     @classmethod
@@ -352,7 +352,7 @@ class CudaPlatform(Platform):
 
 平台可能直接加载自己的 C++、CUDA、HIP 或 CANN 扩展：
 
-```python
+```python title="CudaPlatform.import_kernels"
 class CudaPlatform(Platform):
 
     @classmethod
@@ -416,7 +416,7 @@ flowchart TB
 
 集合通信同样可能由平台直接决定：
 
-```python
+```python title="CudaPlatform.get_device_communicator_cls"
 class CudaPlatform(Platform):
 
     @classmethod
@@ -438,13 +438,13 @@ LoRA、量化、内存管理以及平台特有的执行组件，也可能走类�
 
 因此，系统级的真实关系不是：
 
-```text
+```text title="不是单链：Platform → Attention Backend → Kernel"
 Platform → Attention Backend → 所有 Kernel
 ```
 
 而是：
 
-```text
+```text title="current_platform 的多路派发"
                          ┌─ Attention Backend Selector
                          │
 current_platform ────────┼─ Kernel Import
@@ -553,7 +553,7 @@ Table: vLLM 主仓库与 Ascend 插件的分工
 
 因此，“接入昇腾”绝不是简单地把：
 
-```python
+```python title="接入昇腾不是加一个 if"
 if device == "npu":
     ...
 ```
@@ -570,7 +570,7 @@ if device == "npu":
 
 平台对象需要提供基础信息，例如：
 
-```python
+```python title="AscendPlatform 的基础信息"
 class AscendPlatform(Platform):
     device_name = "npu"
     device_type = "npu"
@@ -675,7 +675,7 @@ Attention 通常是昇腾适配中最关键的部分之一。
 
 一个简化的后端结构可能如下：
 
-```python
+```python title="AscendAttentionBackend 的简化结构"
 class AscendAttentionBackend(AttentionBackend):
 
     @staticmethod
@@ -781,7 +781,7 @@ vLLM 的 KV Cache 管理器通常应该保持平台无关。它负责的是逻�
 
 因此，算子适配需要同时验证：
 
-```text
+```text title="算子适配要验证的三项"
 数值正确性
     +
 形状正确性
@@ -810,7 +810,7 @@ vLLM 的 KV Cache 管理器通常应该保持平台无关。它负责的是逻�
 
 平台层可以提供能力查询：
 
-```python
+```python title="get_supported_quantization 能力查询"
 @classmethod
 def get_supported_quantization(cls):
     return {
@@ -858,7 +858,7 @@ def get_supported_quantization(cls):
 
 逻辑上，Serving 核心只需要表达：
 
-```python
+```python title="Serving 核心只表达 all_reduce"
 communicator.all_reduce(tensor)
 ```
 
@@ -977,7 +977,7 @@ sequenceDiagram
 
 例如：
 
-```python
+```python title="平台能力的查询入口"
 current_platform.get_attn_backend_cls(...)
 current_platform.get_device_communicator_cls()
 current_platform.import_kernels()

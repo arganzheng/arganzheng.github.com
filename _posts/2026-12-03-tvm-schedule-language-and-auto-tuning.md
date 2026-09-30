@@ -66,7 +66,7 @@ v0.26 把原来的 `tir` 模块拆成两个：**`tirx`**——核心 IR 定义�
 
 ### 1. 一个 PrimFunc
 
-```python
+```python title="一个 PrimFunc：matmul"
 @I.ir_module
 class MyModule:
     @T.prim_func(s_tir=True)
@@ -118,7 +118,7 @@ Table: matmul 调度的五步与耗时
 
 第 1 步后的 IR（`sch.mod.show()`）：
 
-```python
+```python title="第 1 步 split + reorder 之后的 IR"
 for i, j_0, k, j_1 in T.grid(128, 16, 128, 8):
     with T.sblock("Y"):
         vi = T.axis.spatial(128, i)
@@ -133,7 +133,7 @@ for i, j_0, k, j_1 in T.grid(128, 16, 128, 8):
 
 **block 的语义一个字没变**——`Y[vi, vj] += A[vi, vk] * B[vk, vj]`——变的只是外面的循环与 `vj` 的绑定表达式。这就是"算法 / 调度分离"在 IR 上的形态：block 是算法，block 之外的循环结构是调度。第 4 步后：
 
-```python
+```python title="第 4 步之后的 IR"
 for i_0 in T.parallel(32):
     for i_1, j_0 in T.grid(4, 16):
         for j_1_init in T.vectorized(8):
@@ -147,7 +147,7 @@ for i_0 in T.parallel(32):
 
 trace（`sch.trace.show()`）是这一切的可重放记录：
 
-```python
+```python title="sch.trace：可重放的记录"
 def apply_trace(sch: s_tir.Schedule) -> None:
   b0 = sch.get_sblock(name="Y", func_name="main")
   l1, l2, l3 = sch.get_loops(block=b0)
@@ -165,7 +165,7 @@ def apply_trace(sch: s_tir.Schedule) -> None:
 
 第 4 步之后再对 `Y_update` 的最内层调 `sch.vectorize`：
 
-```text
+```text title="被拒绝的 vectorize：ScheduleError"
 ScheduleError: An error occurred in the schedule primitive 'vectorize'.
 Error message: The queried subtree root tirx.For#0 in SRef tree does not have compact dataflow,
 because its child block tirx.SBlock#1 on SRef tree is neither a local complete block nor a local reduction block.
@@ -207,7 +207,7 @@ Table: Schedule 原语一览及 Triton 里的对应
 
 1024³ f32 matmul，目标 Metal（Mac 的 GPU）与 CUDA：
 
-```python
+```python title="十四行手写 GPU 调度"
 sch = tvm.s_tir.Schedule(MM); blk = sch.get_sblock("C"); i, j, k = sch.get_loops(blk)
 i0, i1, i2 = sch.split(i, factors=[None, 16, 4])          # block 64 行：16 个线程 × 每线程 4 行
 j0, j1, j2 = sch.split(j, factors=[None, 16, 4])          # block 64 列
@@ -227,7 +227,7 @@ sch.decompose_reduction(blk, k0)
 
 十四行调度写出了 Triton 编译器为 matmul 自动做的一半事情（tile、线程映射、shared memory 缓冲、向量化搬运、寄存器累加器）——没有流水（`software_pipeline` 注解可以加）、没有 Tensor Core（`tensorize` 可以加，§六.2）。调度后的 TensorIR 里每一层循环都有了 kind：
 
-```python
+```python title="调度后每层循环的 kind"
 for i_0 in T.thread_binding(16, thread="blockIdx.y"):
     for j_0 in T.thread_binding(16, thread="blockIdx.x"):
         for i_1 in T.thread_binding(16, thread="threadIdx.y"):
@@ -251,7 +251,7 @@ for i_0 in T.thread_binding(16, thread="blockIdx.y"):
 
 `tvm.tirx.build(sch.mod, target="metal")` 生成 Metal Shading Language，在 Mac 的 GPU 上跑：
 
-```c
+```c title="生成的 Metal Shading Language"
 kernel void main_kernel(device float* A_ptr [[ buffer(0) ]], device float* B_ptr [[ buffer(1) ]], device float* C_ptr [[ buffer(2) ]],
   uint2 blockIdx [[threadgroup_position_in_grid]], uint2 threadIdx [[thread_position_in_threadgroup]]) {
   thread float C_local[16];
@@ -270,13 +270,13 @@ kernel void main_kernel(device float* A_ptr [[ buffer(0) ]], device float* B_ptr
 }
 ```
 
-```text
+```text title="Metal 上的实测"
 metal: 3.067 ms, 700 GFLOP/s          （1024³，f32，Apple M 系列 GPU）
 ```
 
 同一份调度 `target={"kind": "cuda", "arch": "sm_80"}` 生成 CUDA C（没有 nvcc 时 TVM 把源码存进 `CUDAFallbackModule` 供以后编译；用 `tvm_callback_cuda_postproc` 钩子能看到）：
 
-```c
+```c title="生成的 CUDA C"
 extern "C" __global__ void __launch_bounds__(256) main_kernel(float* __restrict__ A_ptr, float* __restrict__ B_ptr, float* __restrict__ C_ptr) {
   __shared__ alignas(64) float A_shared_ptr[1024];
   __shared__ alignas(64) float B_shared_ptr[1024];
@@ -326,7 +326,7 @@ Tensor Core 在 TVM 里是**用户（或规则）显式替换的 intrinsic**：`
 
 `Matmul` 规则在 `sm_80` 上对一个 Relax 模型里的 `[128, 1024] × [1024, 1024]` f16 矩阵乘（§八）排出的调度，就是 Triton 第七到十篇讲的全部决定的**显式版本**——`MatmulTensorization::apply` 的骨架：
 
-```python
+```python title="MatmulTensorization::apply 的骨架"
 micro_size_x = micro_size_y = micro_size_k = 16; warp_size = 32
 i_factors, j_factors, k_factors = (由 shape 查表：例如 [None, 1, 4, 2], [1, None, 4, 2], [None, 4])
 reindex_a = sch.reindex(main_block, ("read", 0)); ...                         # 规范化访问下标
@@ -355,7 +355,7 @@ sch.tensorize(..., intrin_group["load_a"]); sch.tensorize(..., intrin_group["loa
 
 产出的 TensorIR（节选）：
 
-```python
+```python title="DLight 产出的 TensorIR（节选）"
 relu_reindex_shared_dyn = T.sblock_alloc_buffer((1, 128, 1024), "float16", scope="shared.dyn")
 relu_reindex_shared_dyn_wmma_matrix_a = T.sblock_alloc_buffer((1, 128, 1024), "float16", scope="wmma.matrix_a")
 matmul_intermediate_reindex_shared_dyn_wmma_accumulator = T.sblock_alloc_buffer((1, 128, 1024), "float16", scope="wmma.accumulator")
@@ -379,7 +379,7 @@ for ax1_0_1_ax2_0_1_fused in T.thread_binding(8, thread="blockIdx.y"):
 
 规则覆盖不到的形状交给搜索。MetaSchedule 的搜索空间不是"一组参数"而是**带采样点的 trace**：
 
-```python
+```python title="MetaSchedule 的带采样点 trace"
 def apply_trace(sch):
   b0 = sch.get_sblock(name="C", func_name="main")
   sch.annotate(block_or_loop=b0, ann_key="meta_schedule.tiling_structure", ann_val="SSRSRS")      # ① 分块结构：S 空间层 / R 规约层的嵌套模式
@@ -400,7 +400,7 @@ def apply_trace(sch):
 
 这是 `PostOrderApply` 空间生成器用内置的 **schedule rule**（`MultiLevelTiling`、`AutoInline`、`ParallelizeVectorizeUnroll`、`RandomComputeLocation`、GPU 上还有 `MultiLevelTilingTensorCore`、`CrossThreadReduction`）对 256³ matmul 生成的三个设计空间之一。trace 里的 `sample_*` 是**决策点**（`decision=` 是这一次的取值），其余是决定性的结构。搜索 = 反复重放 trace、在决策点取不同的值、编译、在真机上测时、用代价模型（XGBoost，`cost_model/xgb_model.py`）预测下一批候选、进化搜索（`EvolutionarySearch`）。在 Mac CPU 上跑 32 次试验（`ms.tune_tir`，`LocalBuilder` 10 进程、`LocalRunner`）：
 
-```text
+```text title="ms.tune_tir 的 32 次试验"
  ID | Name |     FLOP | Weight | Speed (GFLOPS) | Latency (us) | Trials | Done
   0 | main | 33554432 |      1 |       225.6548 |     148.6981 |     16 |
   0 | main | 33554432 |      1 |       254.0569 |     132.0745 |     32 |    Y
@@ -413,7 +413,7 @@ XGB iter 0: tr-p-rmse 0.362819 → iter 21: 0.03891（代价模型在 16 个样�
 
 TVM 的图层。`relax.frontend.nn` 用 PyTorch 风格写模型，`export_tvm` 得到 Relax `IRModule`：
 
-```python
+```python title="export_tvm 得到的 Relax 函数"
 @R.function
 def forward(x: R.Tensor((128, 1024), dtype="float16"), fc1_weight: R.Tensor((1024, 1024), dtype="float16"), fc1_bias: ..., fc2_weight: ..., fc2_bias: ...):
     R.func_attr({"num_input": 1})

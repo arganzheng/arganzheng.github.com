@@ -77,7 +77,7 @@ Table: 本文的章节安排
 
 下图画的正是这种队列被抽干、算力不饱和的最坏情形（Launch-Bound 状态）——注意它不是常态，而是 Decode 小 kernel 场景下才会退化成的样子：
 
-```
+``` title="无 CUDA Graph：Decode 阶段的 Launch-Bound 气泡"
 ┌───────────────── 无 CUDA Graph: Decode 阶段的 Launch-Bound 气泡 ──────────────────┐
 │                                                                                   │
 │  CPU (Host Thread):                                                               │
@@ -107,7 +107,7 @@ Table: 本文的章节安排
 
 为了消灭上述图中高达 62.5% 的恐怖气泡，CUDA Graph 改变了游戏规则。它在模型初始化或第一轮时将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
 
-```
+``` title="CUDA Graph：一次 Launch 重放整个 Decode 步"
 ┌───────── CUDA Graph: 一次 Launch 重放整个 Decode 步 ─────────────────┐
 │                                                                       │
 │  Capture 阶段 (启动时一次性完成):                                       │
@@ -132,7 +132,7 @@ Table: 本文的章节安排
 
 捕获与重放在默认的 `GPUModelRunner` 路径下由 `CUDAGraphWrapper`（`vllm/compilation/cuda_graph.py`）负责，"这一步用哪种模式、哪个 batch size 的图"由 `CudagraphDispatcher`（`vllm/v1/cudagraph_dispatcher.py`）在每次 forward 前决定；V2 Model Runner（`vllm/v1/worker/gpu/`）则用 `CudaGraphManager`（`cudagraph_utils.py`）承担同样职责。"用哪种模式"由配置枚举 `CUDAGraphMode`（`vllm/config/compilation.py`）描述：
 
-```python
+```python title="compilation.py：CUDAGraphMode 枚举"
 # vllm/config/compilation.py
 class CUDAGraphMode(enum.Enum):
     NONE = 0                        # 不录图，全程 eager
@@ -146,7 +146,7 @@ class CUDAGraphMode(enum.Enum):
 
 "按 batch size 分桶提前录好"具体是怎么做的？图里 kernel 的形状是固定的，所以不可能给每一个可能的 batch 大小都录一张图；vLLM 的做法是只在一组离散的 `cudagraph_capture_sizes` 上录图，运行时把实际 batch **向上 pad** 到最近的桶：
 
-```text
+```text title="cudagraph_capture_sizes 的分桶与 pad"
 cudagraph_capture_sizes（默认生成规则，vllm/config/compilation.py）：
   [1, 2, 4] + range(8, 256, 8) + range(256, max+1, 16)
   max = max_cudagraph_capture_size，默认 min(max_num_seqs × 2, 512)
@@ -240,7 +240,7 @@ Attention 算子的硬件执行效率高度依赖于工作负载（Workload）�
 FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过**分块计算（Tiling）**和 **Online Softmax**，让 N×N 的中间矩阵**根本不必在 HBM 里出现**。注意它优化的是**访存**，计算量（FLOPs）一分没少。
 
 
-```
+``` title="Standard Attention 与 FlashAttention 的对照"
 ┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
 │                                                                       │
 │  Standard Attention:                                                  │
@@ -291,7 +291,7 @@ FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过
 
 Standard Attention的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
 
-```
+``` title="Standard Attention 的三次 HBM 读写"
 Q[N,d] × K[N,d]^T  ->  S[N,N]                # O(N²) **写入** HBM
 S[N,N]             ->  softmax  ->  P[N,N]   # O(N²) **读 + 写** HBM 
 P[N,N] × V[N,d]    ->  O[N,d]                # O(N²) **读取** HBM
@@ -315,7 +315,7 @@ HBM 中的代价：
 
 FlashAttention 把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 的 L1/shared 合计 192 KB，可作 shared memory 的约 164 KB）：
 
-```
+``` title="FlashAttention 的 Tiling：只在 SRAM 里出现"
 Q 被切成 Q_tile
 K、V 被切成 K_tile / V_tile
 
@@ -355,7 +355,7 @@ softmax 看起来需要先知道一整行的最大值和总和，才能归一化
 当新块到来时，如果发现最大值变了，就把历史结果按比例重新缩放，再把新块的贡献加进去。
 这样就能保证：**分块计算的结果，和一次性算完整 softmax 的结果严格等价。**
 
-```
+``` title="Online Softmax 的循环"
 m, l, O_acc = -inf, 0, 0
 for each K_tile, V_tile:                               # 沿 KV 方向循环
     S_tile = Q_tile @ K_tileᵀ                          # SRAM 内，不写回
@@ -610,7 +610,7 @@ Table: 混合精度组合的显存、延迟与质量
 
 Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 token，但需要完整读取模型权重和 KV Cache。GPU 算力的绝大部分处于闲置状态（低 arithmetic intensity）。
 
-```
+``` title="传统 Decode 的逐 token 串行"
 传统 Decode：
   Step 1 → token₁ → Step 2 → token₂ → Step 3 → token₃ → …
   每一步都要：读完整模型权重 + 读全部历史 KV，却只算出 1 个 token
@@ -745,7 +745,7 @@ $$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(
 
 不同 Speculative Decoding 方法的核心区别，主要在于**“候选 token 如何生成”**。它们整体都遵循类似的流程：
 
-```text
+```text title="Speculative Decoding 的通用流程"
 Candidate Generation
         │
         ▼
@@ -763,7 +763,7 @@ Target Model Verification
 
 但在看表之前要先做一个分类上的澄清，因为下表把六种方法平铺在一起，容易掩盖一件事：**它们并不都是"推理技巧"。**
 
-```
+``` title="六种方法的分类：推理侧还是模型侧"
 Speculative Decoding（一种推理时的加速框架）
 │
 ├── 纯推理侧，不碰模型：
@@ -820,7 +820,7 @@ EAGLE 的核心思想是：
 
 可以粗略理解为：
 
-```text
+```text title="EAGLE：复用 target 的 hidden feature"
                  Target Model
                       │
                       ▼
@@ -851,7 +851,7 @@ EAGLE 并不是一个可以对任意模型直接通用的插件。EAGLE Head 需
 
 Medusa 的思路与 EAGLE 类似，也是在 Target Model 上增加额外的预测组件，但它采用的是**多 Head**设计。
 
-```text
+```text title="Medusa：多个 head 同时预测"
                      Target Model
                           │
                           ▼
@@ -887,7 +887,7 @@ MTP 与前面的 EAGLE / Medusa 最大的区别在于：
 
 可以理解为：
 
-```text
+```text title="MTP：训练阶段就具备的多 token 预测"
                   Target Model
                        │
                        ▼
@@ -936,7 +936,7 @@ MTP 与前面的 EAGLE / Medusa 最大的区别在于：
 
 如果从一个非常直观的工程视角来看（注意：这只是**工程上的理解框架，而不是严格的算法演进顺序**），可以把这些方法理解成 Target Model 的 speculative 能力逐渐与模型本身融合：
 
-```text
+```text title='从"外挂程度"看四种方法'
 Draft Model
     │
     │ 另找一个小模型来猜

@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 `torch.Tensor` 在 Python 里是一个再普通不过的对象：能 `isinstance`、能子类化、能 `t.foo = 1` 挂属性、能被 `gc` 收集。但它在 C++ 里的定义，在 `torch/csrc/autograd/python_variable.h` 开头：
 
-```cpp
+```cpp title="THPVariable 的定义：PyObject_HEAD 加一个 at::Tensor"
 // Python object that backs torch.autograd.Variable
 struct THPVariable {
   PyObject_HEAD
@@ -32,7 +32,7 @@ inline const at::Tensor& THPVariable_Unpack(PyObject* obj) {
 
 再看一个 `torch.Tensor` 方法的实现。`tools/autograd/templates/python_variable_methods.cpp` 里 `contiguous()` 是这样写的：
 
-```cpp
+```cpp title="python_variable_methods.cpp 里 contiguous() 的实现"
 static Tensor dispatch_contiguous(const Tensor & self, at::MemoryFormat memory_format) {
   pybind11::gil_scoped_release no_gil;
   OptionalDeviceGuard device_guard(device_of(self));
@@ -104,7 +104,7 @@ pybind11 是建在 Python C API 之上的一层 C++ 模板。PyTorch 的 Python 
 
 CPython 里每个 Python 对象在内存里都以同一个头部开始：引用计数 `ob_refcnt` 和类型指针 `ob_type`。`PyObject_HEAD` 宏展开成这两个字段。任何"派生"对象就是在这个头部后面追加自己的字段：
 
-```cpp
+```cpp title="THPVariable：头部后追加自己的字段"
 struct THPVariable {
   PyObject_HEAD          // Py_ssize_t ob_refcnt; PyTypeObject* ob_type;
   at::Tensor cdata;      // 自己的字段
@@ -115,7 +115,7 @@ struct THPVariable {
 
 因为头部布局一致，一个 `THPVariable*` 可以 `reinterpret_cast` 成 `PyObject*` 交给解释器，解释器只看头部；反过来，拿到一个 `PyObject*`、确认它的 `ob_type` 是 `torch.Tensor` 之后，就可以 cast 回 `THPVariable*` 去读 `cdata`。这就是 `THPVariable_Unpack` 的全部内容：
 
-```cpp
+```cpp title="THPVariable_Unpack：reinterpret_cast 后读 cdata"
 inline const at::Tensor& THPVariable_Unpack(THPVariable* var) {
   return var->cdata;
 }
@@ -137,7 +137,7 @@ Python 的内存管理是引用计数（外加一个处理环的 GC）。C API �
 
 还有第三种约定——**stealing**：某些函数接收一个 `PyObject*` 并把调用方的计数"偷"走。`PyList_SET_ITEM`、`PyTuple_SET_ITEM` 是。`python_variable.h` 里的 `THPVariable_WrapList` 把两种约定拼在一起：
 
-```cpp
+```cpp title="THPVariable_WrapList：new reference 交给 PyList_SET_ITEM 偷走"
 inline PyObject* THPVariable_WrapList(
     const torch::autograd::variable_list& inputs) {
   PyObject* pyinput = PyList_New(static_cast<Py_ssize_t>(inputs.size()));
@@ -152,7 +152,7 @@ inline PyObject* THPVariable_WrapList(
 
 `torch/csrc/jit/python/pybind_utils.cpp` 里 `_maybe_handle_torch_function` 有一段注释直接点出了两种引用的性能差别：
 
-```cpp
+```cpp title="pybind_utils.cpp 的注释：py::object 索引多一对 INCREF/DECREF"
     // Because pybind object indexing is implemented generically for
     // all objects, operator[] returns py::object instead of
     // py::handle, so args[i].ptr() would cause a reference count
@@ -168,7 +168,7 @@ inline PyObject* THPVariable_WrapList(
 
 裸 `PyObject*` 加手工 `Py_DECREF` 和裸 `new/delete` 一样容易漏。PyTorch 在 C API 层的 RAII 包装是 `torch/csrc/utils/object_ptr.h` 的 `THPPointer<T>`（别名 `THPObjectPtr`）：
 
-```cpp
+```cpp title="THPPointer：PyObject* 的 RAII 包装"
 template <class T>
 class TORCH_PYTHON_API THPPointer {
  public:
@@ -214,7 +214,7 @@ C++ 调用 Python 可调用对象的原语是 `PyObject_Call(callable, args_tupl
 
 C API 的错误约定和 C++ 异常是两套机制：C API 用"返回 `nullptr`/`-1` + 全局错误指示器"，C++ 用 `throw`。PyTorch 用 `python_error` 这个异常类型把前者转成后者（`torch/csrc/Exceptions.h`）：
 
-```cpp
+```cpp title="python_error：把 C API 错误指示器转成 C++ 异常"
 // Throwing this exception means that the python error flags have been already
 // set and control should be immediately returned to the interpreter.
 struct python_error : public std::exception {
@@ -244,7 +244,7 @@ struct python_error : public std::exception {
 
 `python_variable.h` 里 `THPVariable_Check` 展示了"C API 返回 -1 → throw python_error"的转换点：
 
-```cpp
+```cpp title="THPVariable_Check：C API 返回 -1 时 throw python_error"
 inline bool THPVariable_Check(PyObject* obj) {
   if (!THPVariableClass)
     return false;
@@ -263,7 +263,7 @@ inline bool THPVariable_Check(PyObject* obj) {
 
 Python 的一个类，在 C API 层是一个 `PyTypeObject` 结构体，里面是一张函数指针表：怎么分配（`tp_alloc`）、怎么释放（`tp_dealloc`）、怎么被 GC 遍历（`tp_traverse`/`tp_clear`）、有哪些方法（`tp_methods`）、有哪些属性（`tp_getset`）。`torch.Tensor` 的基类 `torch._C.TensorBase` 就是 `python_variable.cpp` 末尾这张表（删节）：
 
-```cpp
+```cpp title="THPVariableType：torch._C.TensorBase 的 PyTypeObject 表"
 static PyTypeObject THPVariableType = {
     PyVarObject_HEAD_INIT(&THPVariableMetaType, 0)
     "torch._C.TensorBase", /* tp_name */
@@ -289,7 +289,7 @@ static PyTypeObject THPVariableType = {
 
 属性表里的每一项是一个 C 函数：
 
-```cpp
+```cpp title="THPVariable_is_cuda：属性表里的一个 C 函数"
 static PyObject* THPVariable_is_cuda(THPVariable* self, void* unused) {
   HANDLE_TH_ERRORS
   if (check_has_torch_function((PyObject*)self)) {
@@ -323,7 +323,7 @@ PyTorch v2.10.0 源码树把 pybind11 作为 `third_party/pybind11` 子模块（
 
 第一篇讲过 `import torch._C` 最终是 `dlopen` 一个 `.so` 再 `dlsym` 一个名字精确为 `PyInit__C` 的 C 符号。`PYBIND11_MODULE(name, m)` 宏就是生成这个入口。它大致展开为：
 
-```cpp
+```cpp title="PYBIND11_MODULE 的展开骨架"
 // 示意：pybind11 detail/common.h 中 PYBIND11_MODULE 的骨架（省略了错误处理与多阶段初始化细节）
 extern "C" PyObject* PyInit__minic10();          // extern "C"：名字不能被 mangle
 static void pybind11_init__minic10(pybind11::module_&);
@@ -338,7 +338,7 @@ void pybind11_init__minic10(pybind11::module_& m)   // 宏后面跟的 { ... } �
 
 一个有意思的对照是 vLLM 的 `csrc/core/registration.h`：
 
-```cpp
+```cpp title="vLLM REGISTER_EXTENSION：手写的 PyInit_ 入口"
 // REGISTER_EXTENSION allows the shared library to be loaded and initialized
 // via python's import statement.
 #define REGISTER_EXTENSION(NAME)                                               \
@@ -360,7 +360,7 @@ pybind11 把 2.2 节的两种引用做成了两个类型：
 
 `pybind11/pytypes.h` 里 `object` 的核心就是四个特殊成员函数：
 
-```cpp
+```cpp title="py::object 的四个特殊成员函数"
 class object : public handle {
 public:
     object() = default;
@@ -382,14 +382,14 @@ public:
 
 这和第二篇的 `intrusive_ptr`、2.2 节的 `THPPointer` 是同一个模式。从裸 `PyObject*` 构造 `py::object` 时必须说明拿到的是哪种引用：
 
-```cpp
+```cpp title="reinterpret_borrow 与 reinterpret_steal"
 py::object a = py::reinterpret_borrow<py::object>(p);   // p 是 borrowed：我要 +1
 py::object b = py::reinterpret_steal<py::object>(p);    // p 是 new reference：我接管，不 +1
 ```
 
 `python_variable.cpp` 里 `THPVariableMetaType_init` 就是这样把 C API 的返回值接进 pybind11 世界的：
 
-```cpp
+```cpp title="THPVariableMetaType_init：把 C API 返回值接进 pybind11"
   py::tuple mro =
       py::reinterpret_borrow<py::tuple>(((PyTypeObject*)cls)->tp_mro);   // tp_mro 字段：borrowed
   // ...
@@ -410,7 +410,7 @@ pybind11 的核心抽象是 `pybind11::detail::type_caster<T>`：一个模板类
 
 `pybind11/cast.h` 里 `PYBIND11_TYPE_CASTER` 宏给出了一个 caster 的样板：
 
-```cpp
+```cpp title="PYBIND11_TYPE_CASTER 宏：type_caster 的样板"
 #define PYBIND11_TYPE_CASTER(type, py_name)                                                       \
 protected:                                                                                        \
     type value;                                                                                   \
@@ -436,7 +436,7 @@ PyTorch 在 `torch/csrc/utils/pybind.h` 里为 `at::Tensor`、`at::Device`、`at
 
 ### 4. 函数绑定：`m.def`、默认参数、关键字参数、`py::arg`
 
-```cpp
+```cpp title="m.def 绑定 empty：默认参数与 py::arg"
 m.def("empty", &minic10::empty,
       py::arg("sizes"), py::arg("dtype") = ScalarType::Float,
       py::arg("key") = DispatchKey::CPU,
@@ -447,7 +447,7 @@ m.def("empty", &minic10::empty,
 
 `py::args`/`py::kwargs` 让一个绑定接收任意参数，PyTorch 把 `torch.ops` 的调用入口就绑成这样（`torch/csrc/jit/python/init.cpp`）：
 
-```cpp
+```cpp title="torch.ops 的调用入口：接 py::args 与 py::kwargs"
           auto func = py::cpp_function(
               [sortedOps, symbol, allow_numbers_as_tensors](
                   const py::args& args, const py::kwargs& kwargs) {
@@ -465,7 +465,7 @@ m.def("empty", &minic10::empty,
 
 ### 5. 类绑定：`py::class_` 与 holder
 
-```cpp
+```cpp title="py::class_ 绑定 Tensor 的最小写法"
 py::class_<Tensor>(m, "Tensor")
     .def(py::init<>())
     .def_property_readonly("shape", &Tensor::sizes)
@@ -477,7 +477,7 @@ py::class_<Tensor>(m, "Tensor")
 
 holder 可以换成 `std::shared_ptr<T>`，也可以换成自定义智能指针。第二篇已经看到过 `torch/csrc/utils/pybind.h` 的这一行：
 
-```cpp
+```cpp title="PYBIND11_DECLARE_HOLDER_TYPE：让 intrusive_ptr 做 holder"
 PYBIND11_DECLARE_HOLDER_TYPE(T, c10::intrusive_ptr<T>, true)
 ```
 
@@ -491,7 +491,7 @@ pybind11 生成的胶水函数用 `try/catch` 包住整个调用。默认翻译�
 
 PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::ValueError`、`c10::NotImplementedError`、`c10::OutOfMemoryError`……），默认规则只会把它们全变成 `RuntimeError`。所以 `torch/csrc/Module.cpp` 的 `initModule` 里注册了自己的翻译器：
 
-```cpp
+```cpp title="initModule 里注册 c10::Error 的异常翻译器"
   // Automatically translate errors thrown from pybind11 functions
   py::register_exception_translator([](std::exception_ptr e) {
     try {
@@ -505,7 +505,7 @@ PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::Value
 
 `CATCH_TH_ERRORS` 展开为 `torch/csrc/Exceptions.h` 里那一长串 `catch`：
 
-```cpp
+```cpp title="_CATCH_GENERIC_ERROR：把 c10 异常映射到 Python 异常类型"
 #define _CATCH_GENERIC_ERROR(ErrorType, PythonErrorType, retstmnt) \
   catch (const c10::ErrorType& e) {                                \
     auto msg = torch::get_cpp_stacktraces_enabled()                \
@@ -543,7 +543,7 @@ PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::Value
 
 同一套 `catch` 也被 C API 风格的函数用，就是开头看到的 `HANDLE_TH_ERRORS` / `END_HANDLE_TH_ERRORS`：
 
-```cpp
+```cpp title="HANDLE_TH_ERRORS 与 END_HANDLE_TH_ERRORS 的展开"
 #define HANDLE_TH_ERRORS                              \
   try {                                               \
     torch::PyWarningHandler __enforce_warning_buffer; \
@@ -574,7 +574,7 @@ Java 对照：JNI 里 C++ 异常**不能**穿过 native 边界（穿过就是未
 
 pybind11 把 2.3 节的 C API 原语包成两个 RAII 守卫。`pybind11/gil.h`：
 
-```cpp
+```cpp title="gil_scoped_release 与 gil_scoped_acquire 的实现"
 class gil_scoped_release {
 public:
     // PRECONDITION: The GIL must be held when this constructor is called.
@@ -613,7 +613,7 @@ private:
 
 1. **耗时计算**：一个 matmul 可能跑几十毫秒，期间持有 GIL 意味着 DataLoader 的工作线程、监控线程全部停摆。开头的 `dispatch_contiguous` 就是典型：
 
-```cpp
+```cpp title="dispatch_contiguous：进 ATen 前放掉 GIL"
 static Tensor dispatch_contiguous(const Tensor & self, at::MemoryFormat memory_format) {
   pybind11::gil_scoped_release no_gil;
   OptionalDeviceGuard device_guard(device_of(self));
@@ -625,7 +625,7 @@ static Tensor dispatch_contiguous(const Tensor & self, at::MemoryFormat memory_f
 
 2. **算子调用**：`torch.ops.xxx` 的路径在 `torch/csrc/jit/python/pybind_utils.cpp`：
 
-```cpp
+```cpp title="invokeOperatorFromPython：torch.ops 路径上的 GIL 释放"
 py::object invokeOperatorFromPython(
     c10::ArrayRef<std::shared_ptr<Operator>> operations,
     const py::args& args,
@@ -651,7 +651,7 @@ py::object invokeOperatorFromPython(
 
 4. **释放大对象**：`python_variable.cpp` 的 `THPVariable_clear`：
 
-```cpp
+```cpp title="THPVariable_clear：释放大 tensor 时放掉 GIL"
   {
     // MapAllocator can take significant time to release large tensors;
     // release the GIL here to avoid impacting main thread perf.
@@ -676,7 +676,7 @@ pybind11 还提供了声明式写法 `py::call_guard<py::gil_scoped_release>()`�
 
 但有一个微妙的地方。第六章会讲，`TensorImpl` 的 C++ 引用计数从 1 变 2 或从 2 变 1 时，会 `Py_INCREF/Py_DECREF` 它的 Python 包装对象。这可能发生在无 GIL 的算子执行中——kernel 拷贝了一份 `Tensor`，或者 `IValue` 栈被清空。PyTorch 的处理是让这两个操作自己去拿 GIL（`torch/csrc/PyInterpreter.cpp`）：
 
-```cpp
+```cpp title="ConcretePyInterpreterVTable::decref：自己拿 GIL 再改计数"
 void ConcretePyInterpreterVTable::decref(PyObject* pyobj) const {
   // Leak the pyobj if not initialized.  This can happen if we are running
   // exit handlers that are destructing tensors with residual (owned)
@@ -703,7 +703,7 @@ void ConcretePyInterpreterVTable::incref(PyObject* pyobj) const {
 
 反方向：一个纯 C++ 线程（autograd 引擎的工作线程、`at::parallel_for` 的 OpenMP 线程、NCCL watchdog）需要调 Python（用户注册的 hook、`__torch_dispatch__`）。它必须先 `gil_scoped_acquire`。`torch/csrc/PyInterpreter.cpp` 的 `CONCRETE_GPU_TRACE` 宏是一个完整的例子：
 
-```cpp
+```cpp title="CONCRETE_GPU_TRACE：C++ 线程回调 Python 的完整样板"
 #define CONCRETE_GPU_TRACE(device_type, func_name, ...)                       \
   at::impl::MaybeSetTLSOnEntryGuard guard;                                    \
   if (Py_IsInitialized()) {                                                   \
@@ -745,7 +745,7 @@ Table: torch/csrc/ 里并存的两条绑定路线
 
 `torch/csrc/Module.cpp` 的 `initModule` 是两者混用的地方：它先用 C API 创建模块、调用 `THPVariable_initModule` 等一系列 `xxx_initModule` 把 C API 类型加进模块，然后：
 
-```cpp
+```cpp title="initModule 里 C API 模块转成 py::module 再 def"
   auto py_module = py::reinterpret_borrow<py::module>(module);
   py_module.def("_initCrashHandler", &_initCrashHandler);
   py_module.def("_demangle", &c10::demangle);
@@ -768,7 +768,7 @@ Table: torch/csrc/ 里并存的两条绑定路线
 
 5. **性能。** 每个 `torch.Tensor` 方法调用都要经过参数解析。`PythonArgParser` 是为 PyTorch 的 schema 定制的：一次解析同时处理重载选择、`Tensor`/`Scalar` 的二义性、`__torch_function__` 检查，并且大量使用 borrowed reference 和 `THPVariable_CheckExact` 快速路径。`torch/csrc/utils/python_arg_parser.h`：
 
-```cpp
+```cpp title="PythonArgs::tensor：THPVariable_CheckExact 快速路径"
 inline at::Tensor PythonArgs::tensor(int i) {
   if (args[i] && THPVariable_CheckExact(args[i])) {
     return THPVariable_Unpack(args[i]);
@@ -781,7 +781,7 @@ inline at::Tensor PythonArgs::tensor(int i) {
 
 `python_arg_parser.h` 文件头的注释描述了它的用法：
 
-```cpp
+```cpp title="python_arg_parser.h 文件头注释：schema 定制的参数解析"
 // Parse arguments to Python functions implemented in C++
 // This is similar to PyArg_ParseTupleAndKeywords(), but specifically handles
 // the types relevant to PyTorch and distinguishes between overloaded function
@@ -813,7 +813,7 @@ inline at::Tensor PythonArgs::tensor(int i) {
 
 `python_variable.cpp` 里三个 `THPVariable_Wrap` 重载都转到一个模板：
 
-```cpp
+```cpp title="THPVariable_WrapWithType：三个 Wrap 重载共用的模板"
 // Generic for const Tensor& or Tensor&&
 template <typename T>
 static PyObject* THPVariable_WrapWithType(
@@ -884,7 +884,7 @@ static PyObject* THPVariable_WrapWithType(
 
 两个登记函数在 `torch/csrc/utils/pyobject_preservation.cpp`：
 
-```cpp
+```cpp title="PyObjectPreservation 的两个登记函数"
 void PyObjectPreservation::init_fresh_nonatomic(
     intrusive_ptr_target* target,
     PyObjectSlot* slot,
@@ -945,7 +945,7 @@ Python → C++ 方向已经在 2.1 节看过：`THPVariable_Unpack` 返回 `cons
 
 Python 对象释放时走 `tp_dealloc`：
 
-```cpp
+```cpp title="THPVariable_dealloc：tp_dealloc 手工析构 cdata"
 static void THPVariable_dealloc(PyObject* self) {
   PyObject_GC_UnTrack(self);
   THPVariable_clear((THPVariable*)self);
@@ -958,7 +958,7 @@ static void THPVariable_dealloc(PyObject* self) {
 
 `THPVariable_clear` 中有一个断言值得注意：
 
-```cpp
+```cpp title="THPVariable_clear 里的 use_count 断言"
     if (pyobj_slot->load_pyobj() == (PyObject*)self) {
       // A Tensor's Python object should only be destroyed when the Tensor has
       // no other references too.
@@ -977,7 +977,7 @@ static void THPVariable_dealloc(PyObject* self) {
 
 第一步，`c10/util/python_stub.h` 只声明不定义：
 
-```cpp
+```cpp title="python_stub.h：只前向声明 PyObject"
 #pragma once
 
 struct _object;
@@ -988,7 +988,7 @@ using PyObject = _object;
 
 第二步，`c10/core/impl/PyInterpreter.h` 定义一个纯虚接口 `PyInterpreterVTable`：
 
-```cpp
+```cpp title="PyInterpreterVTable：c10 里的纯虚解释器接口"
 struct C10_API PyInterpreterVTable {
   virtual ~PyInterpreterVTable() = default;
 
@@ -1013,7 +1013,7 @@ struct C10_API PyInterpreterVTable {
 
 第三步，`libtorch_python.so` 里 `torch/csrc/PyInterpreter.cpp` 的 `ConcretePyInterpreterVTable` 实现它（4.3 节看过 `incref/decref` 的实现），并在加载时注册为全局解释器（`c10::impl::getGlobalPyInterpreter()`）。`TensorImpl` 里存指针的地方是 `c10/core/impl/PyObjectSlot.h`，它只是两个原子指针：
 
-```cpp
+```cpp title="PyObjectSlot：TensorImpl 里的两个原子指针"
 struct C10_API PyObjectSlot {
  public:
   PyObjectSlot() : pyobj_interpreter_(nullptr), pyobj_(nullptr) {}
@@ -1049,7 +1049,7 @@ struct C10_API PyObjectSlot {
 
 真正调 `incref/decref` 的是 `TensorImpl` 覆写的三个虚函数（`c10/core/TensorImpl.cpp`，`StorageImpl` 有一份一模一样的）：
 
-```cpp
+```cpp title="TensorImpl::incref_pyobject 等三个覆写"
 void TensorImpl::incref_pyobject() const noexcept {
   // Because intrusive_ptr incref uses relaxed memory order, we need to
   // do an acquire fence to ensure that the kHasPyObject bit was
@@ -1103,7 +1103,7 @@ flowchart LR
 
 `cdata` 方向简单：Python 对象活着，就贡献一个 C++ 强引用。难的是反方向。考虑这段 Python：
 
-```python
+```python title="Python 对象与 C++ 引用的生命期问题示例"
 t = torch.ones(3)
 t.my_tag = "hello"
 saved = some_cpp_module.keep(t)   # C++ 侧把 at::Tensor 存进了一个 std::vector
@@ -1118,7 +1118,7 @@ u.my_tag                          # 期望还是 "hello"
 
 `c10/util/intrusive_ptr.h` 里 `intrusive_ptr_target` 的成员注释把规则写得很清楚：
 
-```cpp
+```cpp title="Note [PyObject preservation for Tensor and Storages]"
   // Note [PyObject preservation for Tensor and Storages]
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   // intrusive_ptr has special support for preserving PyObject wrappers
@@ -1141,14 +1141,14 @@ u.my_tag                          # 期望还是 "hello"
 
 `combined_refcount_` 是第二篇和第六篇讲过的合并计数：低 32 位强计数，高 31 位弱计数，最高位 `kHasPyObject`：
 
-```cpp
+```cpp title="kHasPyObject：combined_refcount_ 的最高位"
 // Indicates whether the object has a PyObject wrapper.
 constexpr uint64_t kHasPyObject = (uint64_t(1) << 63);
 ```
 
 对应的钩子在 `intrusive_ptr` 的 `retain_` 和 `reset_` 里（第二篇引过，这里只看和 PyObject 有关的分支）：
 
-```cpp
+```cpp title="retain_ 与 reset_ 里 PyObject 联动的分支"
       // retain_ 中：
       if constexpr (detail::TargetTraits<TTarget>::can_have_pyobject) {
         // If the refcount transitioned from 1 to 2, we need to incref the
@@ -1195,7 +1195,7 @@ PyTorch 2.x 中的变化：早期 2.x 版本（如 2.4）用的是另一套叫 "
 
 Python 的引用计数处理不了环。`torch.Tensor` 能形成环：`t.backward_hooks` 是一个 Python dict，dict 里的闭包可能捕获了 `t`；`t.grad_fn` 是一个 C++ `Node`，`Node` 的 Python 包装对象可能被存进 `t` 的某个属性。为了让 CPython 的循环 GC 能发现这些环，`THPVariableType` 设置了 `Py_TPFLAGS_HAVE_GC` 并实现了 `tp_traverse`：
 
-```cpp
+```cpp title="THPVariable_traverse：tp_traverse 的实现"
 static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
   THPVariable* var = reinterpret_cast<THPVariable*>(self);
   Py_VISIT(var->backward_hooks);
@@ -1236,7 +1236,7 @@ static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
 
 函数上方的 `NOTE [ PyObject Traversal ]` 把这个规则一般化了：
 
-```cpp
+```cpp title="NOTE [ PyObject Traversal ]：哪些字段该报告给 GC"
 /// A more mechanical algorithm to know what to traverse/clear is as follows:
 ///   - Any field on this PyObject that contains a strong reference to another
 ///   PyObject
@@ -1262,7 +1262,7 @@ Java 对照：JVM 的 GC 是全局可达性分析，跨 JNI 的引用只要注�
 
 ### 1. `at::Tensor`：转发到 `THPVariable_Wrap/Unpack`
 
-```cpp
+```cpp title="type_caster<at::Tensor> 的声明"
 namespace pybind11::detail {
 
 // torch.Tensor <-> at::Tensor conversions (without unwrapping)
@@ -1282,7 +1282,7 @@ struct TORCH_PYTHON_API type_caster<at::Tensor> {
 
 声明在头文件，定义在 `torch/csrc/utils.cpp`：
 
-```cpp
+```cpp title="type_caster<at::Tensor>::load 与 cast 的定义"
 bool type_caster<at::Tensor>::load(handle src, bool /*unused*/) {
   PyObject* obj = src.ptr();
   if (THPVariable_Check(obj)) {
@@ -1311,7 +1311,7 @@ handle type_caster<at::Tensor>::cast(
 
 ### 2. `at::Device`、`at::ScalarType`：值类型的直接读取
 
-```cpp
+```cpp title="type_caster<at::Device>：值类型直接读取"
 template <>
 struct type_caster<at::Device> {
  public:
@@ -1347,7 +1347,7 @@ struct type_caster<at::Device> {
 
 ### 3. `at::IntArrayRef`：视图类型的 caster 要自带存储
 
-```cpp
+```cpp title="type_caster<at::IntArrayRef> 的声明：多一个 vector 成员"
 template <>
 struct TORCH_PYTHON_API type_caster<at::IntArrayRef> {
  public:
@@ -1366,7 +1366,7 @@ struct TORCH_PYTHON_API type_caster<at::IntArrayRef> {
 
 第三篇讲过 `IntArrayRef` 是一个不拥有数据的视图（指针 + 长度）。从 Python 的 list/tuple 转过来时，数据必须放在**某个地方**，caster 于是多了一个 `std::vector<int64_t> v_value` 成员，`load` 把元素读进 `v_value`，再让 `value = v_value`（`IntArrayRef` 指向 vector 的存储）：
 
-```cpp
+```cpp title="type_caster<at::IntArrayRef>::load：先读进 v_value"
 bool type_caster<at::IntArrayRef>::load(handle src, bool /*unused*/) {
   PyObject* source = src.ptr();
   auto tuple = PyTuple_Check(source);
@@ -1396,7 +1396,7 @@ bool type_caster<at::IntArrayRef>::load(handle src, bool /*unused*/) {
 
 ### 4. `c10::DispatchKey`：在 `type_caster_base` 上加一个宽松路径
 
-```cpp
+```cpp title="type_caster<c10::DispatchKey>：基类之上加宽松路径"
 template <>
 struct type_caster<c10::DispatchKey>
     : public type_caster_base<c10::DispatchKey> {
@@ -1437,7 +1437,7 @@ struct type_caster<c10::DispatchKey>
 
 `torch/_ops.py`：`torch.ops.myops` 是一个 `_OpNamespace`，第一次访问 `.scale` 走 `__getattr__`：
 
-```python
+```python title="_OpNamespace.__getattr__：第一次访问时构造 OpOverloadPacket"
     def __getattr__(self, op_name: str) -> OpOverloadPacket:
         # ...
         namespace_name = self.name
@@ -1469,7 +1469,7 @@ def _get_packet(qualname, op_module):
 
 调用 `self._op(t, 2.0)` 时，CPython 调用 `py::cpp_function` 生成的 C API 函数。这个函数的参数签名是 `(const py::args& args, const py::kwargs& kwargs)`，所以 pybind11 做的类型转换只是把 `args` 元组和 `kwargs` 字典包成 `py::args`/`py::kwargs`（`py::object` 子类，各 `Py_INCREF` 一次）。**此时持有 GIL**。lambda 体：
 
-```cpp
+```cpp title="pybind11 胶水 lambda 的函数体"
                 ToIValueAllowNumbersAsTensors g(allow_numbers_as_tensors);
                 return _get_operation_for_overload_or_packet(
                     sortedOps, symbol, args, kwargs, false);
@@ -1477,7 +1477,7 @@ def _get_packet(qualname, op_module):
 
 `_get_operation_for_overload_or_packet`（`pybind_utils.cpp`）先看要不要走 `__torch_function__`：
 
-```cpp
+```cpp title="_get_operation_for_overload_or_packet：先查 __torch_function__"
   std::string ns = symbol.ns().toUnqualString();
   std::string method_name = symbol.toUnqualString();
   std::string overload_name = operations[0]->schema().overload_name();
@@ -1495,7 +1495,7 @@ def _get_packet(qualname, op_module):
 
 `invokeOperatorFromPython` → `getOpWithStack` → `createStackForSchema(op->schema(), args, kwargs, std::nullopt)`。这个函数（`pybind_utils.h`）按 schema 逐个参数转换：
 
-```cpp
+```cpp title="createStackForSchema：按 schema 逐个参数转 IValue"
   // First push all positional args.
   for (const auto& arg : args) {
     // ...
@@ -1511,7 +1511,7 @@ def _get_packet(qualname, op_module):
 
 `argumentToIValue` → `toIValue(obj, argument.real_type(), ...)`，对 `Tensor` 类型的参数（`pybind_utils.cpp`）：
 
-```cpp
+```cpp title="toIValue 对 TensorType 参数的分支"
 IValue toIValue(py::handle obj, const TypePtr& type, std::optional<int32_t> N) {
   switch (type->kind()) {
     case TypeKind::TensorType: {
@@ -1529,7 +1529,7 @@ IValue toIValue(py::handle obj, const TypePtr& type, std::optional<int32_t> N) {
 
 `py::cast<autograd::Variable>(obj)` 走 7.1 节的 `type_caster<at::Tensor>::load` → `THPVariable_Unpack`，得到局部变量 `var`（**第一次类型转换：`PyObject*` → `at::Tensor`**，C++ 计数 +1）。`return var;` 把 `at::Tensor` 隐式转成 `IValue`（**第二次类型转换**）：`aten/src/ATen/core/ivalue.h`
 
-```cpp
+```cpp title="IValue(at::TensorBase)：Tensor 到 IValue 的构造"
   IValue(at::TensorBase t) : tag(Tag::Tensor) {
     new (&payload.as_tensor) at::Tensor(std::move(t));
   }
@@ -1541,7 +1541,7 @@ IValue toIValue(py::handle obj, const TypePtr& type, std::optional<int32_t> N) {
 
 ### 4. 释放 GIL，进 Dispatcher（第三次类型转换）
 
-```cpp
+```cpp title="invokeOperatorFromPython 里放 GIL 调 dispatcher"
   {
     pybind11::gil_scoped_release no_gil_guard;
     if (dk) {
@@ -1560,13 +1560,13 @@ IValue toIValue(py::handle obj, const TypePtr& type, std::optional<int32_t> N) {
 
 `no_gil_guard` 析构，`PyEval_RestoreThread`。然后：
 
-```cpp
+```cpp title="createPyObjectForStack：返回值转回 Python"
   return createPyObjectForStack(std::move(stack));
 ```
 
 → `toPyObject(std::move(stack[0]))`（`pybind_utils.cpp`）：
 
-```cpp
+```cpp title="toPyObject：IValue 到 py::object"
 py::object toPyObject(IValue ivalue) {
   if (ivalue.isNone()) {
     return py::none();
@@ -1636,7 +1636,7 @@ Java 对照：一次 JNI 调用 `nativeScale(tensorObj, 2.0)`：`jobject` 进来
 
 v0.15.0 的 `csrc/torch_bindings.cpp` 有八百多行，全部是 `def`/`impl` 对，没有一个 Python 类型（删节）：
 
-```cpp
+```cpp title="vLLM csrc/torch_bindings.cpp：全是 def/impl 对"
 #include "cache.h"
 #include "cuda_utils.h"
 #include "ops.h"
@@ -1695,7 +1695,7 @@ REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 
 `csrc/ops.h` 是这些函数的 C++ 声明，全是普通签名，没有任何 Python 类型：
 
-```cpp
+```cpp title="vLLM csrc/ops.h：普通 C++ 声明"
 void rms_norm(torch::Tensor& out, torch::Tensor& input, torch::Tensor& weight,
               double epsilon);
 
@@ -1705,7 +1705,7 @@ void silu_and_mul(torch::Tensor& out, torch::Tensor& input);
 
 Python 侧 `vllm/_custom_ops.py` 通过 `torch.ops._C` 调用：
 
-```python
+```python title="vllm/_custom_ops.py：通过 torch.ops._C 调用"
 current_platform.import_kernels()   # import vllm._C、vllm._moe_C，只为触发静态注册
 
 # layer norm ops
@@ -1742,7 +1742,7 @@ Table: pybind11 直接绑定与 TORCH_LIBRARY 的对比
 
 PyTorch 2.9 之后开始提供一层 **libtorch stable ABI**，v2.10.0 源码树里在 `torch/csrc/stable/`：
 
-```text
+```text title="torch/csrc/stable/ 的目录结构"
 torch/csrc/stable/
 ├── library.h                 # STABLE_TORCH_LIBRARY / _IMPL / _FRAGMENT、TORCH_BOX
 ├── tensor.h, tensor_struct.h, tensor_inl.h   # torch::stable::Tensor
@@ -1758,7 +1758,7 @@ torch/headeronly/             # 完全不依赖 libtorch 的 header-only 部分�
 
 它的原理在 `torch/csrc/inductor/aoti_torch/c/shim.h` 文件头写得很清楚：
 
-```cpp
+```cpp title="aoti_torch/c/shim.h 文件头：stable C API 的原理"
 // This header defines a stable C API for certain ATen functionality in
 // libtorch. The AOTInductor compiled model.so will only refer to this header
 // instead of other headers from aten/c10, which means it will NOT be able to
@@ -1778,7 +1778,7 @@ torch/headeronly/             # 完全不依赖 libtorch 的 header-only 部分�
 
 思路是经典的：**C++ ABI 不稳定，C ABI 稳定，所以在两者之间放一层 `extern "C"` 的函数（`aoti_torch_*`），扩展只调这层 C 函数，PyTorch 升级时只要保证这些 C 函数的签名不变就行。** `torch::stable::Tensor` 是这层 C 接口上的一个 header-only C++ 包装（`torch/csrc/stable/tensor_struct.h`）：
 
-```cpp
+```cpp title="torch::stable::Tensor：shared_ptr 包 C 句柄"
 class Tensor {
  private:
   std::shared_ptr<AtenTensorOpaque> ath_;
@@ -1797,7 +1797,7 @@ class Tensor {
 
 注册宏 `STABLE_TORCH_LIBRARY` 的展开和第五篇的 `TORCH_LIBRARY` 同构——一个静态对象的构造函数在加载时运行——只是构造函数体里调的是 C 函数 `aoti_torch_library_init_def`（`torch/csrc/stable/library.h`）：
 
-```cpp
+```cpp title="StableLibrary 的构造函数：调 C 函数注册"
 class StableLibrary final {
  private:
   TorchLibraryHandle lib_;
@@ -1824,7 +1824,7 @@ class StableLibrary final {
 
 PyTorch 源码树里自带一个用这套写的示例扩展 `test/cpp_extensions/libtorch_agnostic_2_9_extension/`，它的 `csrc/kernel.cpp` 是 9.1 节 vLLM 写法的 stable 版本：
 
-```cpp
+```cpp title="libtorch_agnostic_2_9_extension 的 kernel.cpp"
 STABLE_TORCH_LIBRARY(libtorch_agnostic_2_9, m) {
   m.def("sgd_out_of_place(Tensor param, Tensor grad, float weight_decay, float lr, bool maximize) -> Tensor");
 }
@@ -1850,7 +1850,7 @@ STABLE_TORCH_LIBRARY_IMPL(libtorch_agnostic_2_9, CUDA, m) {
 
 它的 `setup.py` 说明了想达到的效果：
 
-```python
+```python title="libtorch_agnostic 扩展的 setup.py：TORCH_STABLE_ONLY 与目标版本"
     extra_compile_args = {
         "cxx": [
             "-fdiagnostics-color=always",
@@ -1885,7 +1885,7 @@ PyTorch 2.x 中的变化：`torch/csrc/stable/` 和 `torch/headeronly/` 是 2.9 
 
 第一篇 5.2 节讲过基本规则。这里关注它和 ABI 的关系：**C++ 把参数类型编进符号名，所以同一个函数如果参数类型的"名字"变了，符号就变了，链接就对不上。** 用 macOS 上的 `c++filt` 看两个 PyTorch 里真实会出现的符号：
 
-```bash
+```bash title="c++filt 还原两个 c10::Error 构造函数符号"
 $ echo _ZN3c105ErrorC1ENS_14SourceLocationESs | c++filt
 c10::Error::Error(c10::SourceLocation, std::string)
 
@@ -1899,7 +1899,7 @@ c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::cha
 
 GCC 5 为了让 `std::string` 和 `std::list` 符合 C++11 标准（`std::string` 不再允许写时复制 COW、`std::list::size()` 必须 O(1)），改变了这两个类的内存布局。为了不一夜之间破坏所有已编译的二进制，libstdc++ 引入了**双 ABI**：新布局的类放进一个 **inline namespace** `std::__cxx11` 里，旧布局的保留在 `std::`。宏 `_GLIBCXX_USE_CXX11_ABI` 控制用哪一套：
 
-```cpp
+```cpp title="libstdc++ 双 ABI 的 inline namespace（示意）"
 // libstdc++ 的做法（示意）
 namespace std {
 #if _GLIBCXX_USE_CXX11_ABI
@@ -1919,7 +1919,7 @@ inline namespace __cxx11 {
 
 两边各自内部一致，互相之间**任何一个跨 `.so` 边界、参数含 `std::string` 的函数都对不上**。表现就是加载时：
 
-```text
+```text title="ABI 不匹配时的 ImportError：undefined symbol"
 ImportError: .../my_ext.so: undefined symbol: _ZN3c105ErrorC2ENS_14SourceLocationENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE
 ```
 
@@ -1938,7 +1938,7 @@ PyTorch 2.x 中的变化（版本敏感，按官方发布说明和 v2.10.0 源�
 
 macOS 用的是 libc++ 而不是 libstdc++，**没有** `_GLIBCXX_USE_CXX11_ABI` 这个宏，在 macOS 上复现不出上述错误。但 libc++ 用了同样的 inline namespace 技巧——它的所有类型都在 `std::__1` 里，所以在 macOS 上编译一个接受 `std::string` 的函数：
 
-```bash
+```bash title="macOS 上 libc++ 的 std::__1 符号"
 $ printf '#include <string>\nvoid f(const std::string&) {}\n' > s.cpp
 $ clang++ -std=c++17 -c s.cpp -o s.o && nm s.o | grep " T "
 0000000000000000 T __Z1fRKNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEE
@@ -1952,13 +1952,13 @@ $ nm s.o | grep " T " | c++filt
 
 即使 ABI 开关一致，还有第二层：**运行时加载的 `libstdc++.so.6` 版本够不够新**。libstdc++ 用 ELF 符号版本（symbol versioning）标记每个符号是哪个版本引入的，版本号形如 `GLIBCXX_3.4.29`（GCC 11）、`GLIBCXX_3.4.30`（GCC 12）、`GLIBCXX_3.4.31`/`GLIBCXX_3.4.32`（GCC 13.1/13.2）。一个用 GCC 12 编译、用到了 GCC 12 新增符号的 `.so`，在只有 GCC 9 的 `libstdc++.so.6` 的机器上加载时：
 
-```text
+```text title="GLIBCXX_3.4.30 not found 的 ImportError"
 ImportError: /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by .../my_ext.so)
 ```
 
 排查命令：
 
-```bash
+```bash title="排查 GLIBCXX 符号版本的两条命令"
 strings /lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX_3.4    # 系统的 libstdc++ 支持到哪个版本
 objdump -T my_ext.so | grep GLIBCXX | sort -u                       # 扩展需要哪些版本
 ```
@@ -1986,7 +1986,7 @@ wheel 里的 `.so` 只能依赖这个基线上有的系统库版本，`auditwhee
 
 CPython 提供了一个受限的 **limited API**（定义 `Py_LIMITED_API` 宏后只暴露不依赖布局的函数），用它编的扩展叫 `abi3`，一个 `.so` 可以在 3.x 的多个版本上加载。vLLM 的 `.so` 全是 `abi3`（`CMakeLists.txt` 里 `USE_SABI 3`，产物 `vllm/_C.abi3.so`）——因为 vLLM 完全不用 `libtorch_python.so`（9.2 节：`TORCH_LIBRARY` 不需要 Python），它对 CPython 的依赖只剩 `REGISTER_EXTENSION` 里那个 `PyModule_Create`。`torch.utils.cpp_extension` 也支持这个选项，`CppExtension(..., py_limited_api=True)` 时 `BuildExtension` 会加 `-DPy_LIMITED_API=<最低支持的 CPython 版本>`，同时 `CppExtension` **不再把 `torch_python` 加进链接库列表**（`cpp_extension.py` 里 `if not kwargs.get('py_limited_api', False): libraries.append('torch_python')`，旁边注释 "torch_python uses more than the python limited api"），文档字符串说得很直接：
 
-```python
+```python title="cpp_extension.py 关于 py_limited_api 的文档字符串"
         The PyTorch python API (as provided in libtorch_python) cannot be built
         with the flag ``py_limited_api=True``.  When this flag is passed, it is
         the user's responsibility in their library to not use APIs from
@@ -2000,7 +2000,7 @@ CPython 提供了一个受限的 **limited API**（定义 `Py_LIMITED_API` 宏�
 
 三层 ABI 叠起来：
 
-```text
+```text title="扩展 .so 要同时匹配的三层 ABI"
 扩展 .so 必须同时匹配
 ├── CPython ABI      cp312 / abi3                  ← 由 Python 版本决定
 ├── C++ 标准库 ABI    _GLIBCXX_USE_CXX11_ABI、GLIBCXX_3.4.x、libstdc++ vs libc++
@@ -2021,7 +2021,7 @@ Windows 上 MSVC 用另一套 name mangling（`?Error@c10@@QEAA@...`），libstd
 
 头文件路径（`include_paths`）：`<torch>/include`、`<torch>/include/torch/csrc/api/include`，CUDA 扩展再加 `$CUDA_HOME/include`。链接（`_prepare_ldflags`，Linux 分支）：
 
-```python
+```python title="_prepare_ldflags：自动加的 -l 链接库"
     else:
         extra_ldflags.append(f'-L{TORCH_LIB_PATH}')
         extra_ldflags.append('-lc10')
@@ -2041,7 +2041,7 @@ Windows 上 MSVC 用另一套 name mangling（`?Error@c10@@QEAA@...`），libstd
 
 编译选项里有两个宏和一个标准版本：
 
-```python
+```python title="cpp_extension 自动加的两个宏与 -std=c++17"
             self._add_compile_flag(extension, '-DTORCH_API_INCLUDE_EXTENSION_H')
 # ...
         define = f'-DTORCH_EXTENSION_NAME={name}'
@@ -2055,13 +2055,13 @@ Windows 上 MSVC 用另一套 name mangling（`?Error@c10@@QEAA@...`），libstd
 
 ### 2. 编译器检查：`check_compiler_ok_for_platform` 与 `get_compiler_abi_compatibility_and_version`
 
-```python
+```python title="_accepted_compilers_for_platform：各平台允许的编译器"
 def _accepted_compilers_for_platform() -> list[str]:
     # gnu-c++ and gnu-cc are the conda gcc compilers
     return ['clang++', 'clang'] if IS_MACOS else ['g++', 'gcc', 'gnu-c++', 'gnu-cc', 'clang++', 'clang']
 ```
 
-```python
+```python title="get_compiler_abi_compatibility_and_version：编译器 ABI 检查"
 def get_compiler_abi_compatibility_and_version(compiler) -> tuple[bool, TorchVersion]:
     if not _is_binary_build():
         return (True, TorchVersion('0.0.0'))
@@ -2110,7 +2110,7 @@ def get_compiler_abi_compatibility_and_version(compiler) -> tuple[bool, TorchVer
 
 ### 3. CUDA 检查：`_check_cuda_version`
 
-```python
+```python title="_check_cuda_version：nvcc 版本与编译器版本检查"
 def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> None:
     if not CUDA_HOME:
         raise RuntimeError(CUDA_NOT_FOUND_MESSAGE)
@@ -2179,7 +2179,7 @@ Table: C++ 扩展成功 import 的契约清单
 
 ### 1. `python/minic10_python.cpp`
 
-```cpp
+```cpp title="python/minic10_python.cpp：PYBIND11_MODULE 暴露 Tensor 与 add/mul"
 // python/minic10_python.cpp
 // PYBIND11_MODULE(_minic10, m): 把 minic10::Tensor 与 add/mul 暴露给 Python。
 #include <pybind11/pybind11.h>
@@ -2337,7 +2337,7 @@ PYBIND11_MODULE(_minic10, m) {
 
 ### 2. 编译与运行
 
-```bash
+```bash title="编译 _minic10 扩展的 clang++ 命令"
 # 在 mini-c10 根目录；INC 由 python -m pybind11 --includes 给出，EXT 由 sysconfig 给出
 clang++ -std=c++17 -Wall -Wextra -O2 -fPIC -shared -undefined dynamic_lookup \
     $(python -m pybind11 --includes) -I. \
@@ -2349,7 +2349,7 @@ clang++ -std=c++17 -Wall -Wextra -O2 -fPIC -shared -undefined dynamic_lookup \
 
 测试脚本：
 
-```python
+```python title="测试脚本：empty/add/mul、GIL 释放与 no_grad"
 import threading, time
 import _minic10 as mc
 
@@ -2400,7 +2400,7 @@ print("after:", mc.is_grad_enabled())
 
 实际输出（macOS）：
 
-```text
+```text title="测试脚本的实际输出（macOS）"
 Tensor(sizes=[4], dtype=Float) use_count = 1
 add: [11.0, 22.0, 33.0, 44.0]
 mul: [22.0, 44.0, 66.0, 88.0]
@@ -2427,7 +2427,7 @@ after: True
 
 用 `nm` 看这个 `.so` 导出了什么（第一篇的工具）：
 
-```bash
+```bash title="nm 看 _minic10.so 导出的符号"
 $ nm -g python/_minic10.cpython-39-darwin.so | grep -i "PyInit\|minic103add\|minic103mul"
 00000000000007e0 T _PyInit__minic10
 000000000002e0fc T __ZN7minic103addERKNS_6TensorES2_
@@ -2446,7 +2446,7 @@ macOS 用 libc++，没有 `_GLIBCXX_USE_CXX11_ABI`，不能直接用 `std::strin
 
 `mystring.h` 模仿 libstdc++ 的 `<string>`：
 
-```cpp
+```cpp title="mystring.h：用 inline namespace 模仿双 ABI"
 // mystring.h —— 模仿 libstdc++ 的双 ABI：同一个类名，放在不同的 inline namespace 里
 #pragma once
 #include <cstddef>
@@ -2469,7 +2469,7 @@ struct string {           // 两个版本布局不同：这正是 libstdc++ 引�
 
 `lib.cpp` 扮演 `libc10.so`，导出一个形状像 `c10::Error` 构造函数的符号：
 
-```cpp
+```cpp title="lib.cpp：扮演 libc10.so 导出 c10::Error 构造函数"
 #include "mystring.h"
 namespace c10 {
 struct Error {
@@ -2481,7 +2481,7 @@ Error::Error(const char*, const mylib::string&) {}
 
 `ext.cpp` 扮演扩展：
 
-```cpp
+```cpp title="ext.cpp：扮演扩展调用 c10::Error"
 #include "mystring.h"
 namespace c10 {
 struct Error {
@@ -2497,7 +2497,7 @@ int main() {
 
 库用新 ABI 编，扩展用旧 ABI 编：
 
-```bash
+```bash title="库用新 ABI、扩展用旧 ABI 编译并链接"
 $ clang++ -std=c++17 -Wall -DMYLIB_NEW_ABI=1 -fPIC -shared lib.cpp -o libfake_torch.dylib
 $ nm -g libfake_torch.dylib | grep Error
 000000000000032c T __ZN3c105ErrorC1EPKcRKN5mylib7__cxx116stringE
@@ -2516,7 +2516,7 @@ ld: symbol(s) not found for architecture arm64
 
 两边各自编译都成功——编译器只看头文件，头文件在各自的宏定义下都是自洽的。到链接才发现：库导出的是 `...N5mylib7__cxx116stringE`（`mylib::__cxx11::string`），扩展要的是 `...N5mylib6stringE`（`mylib::string`）。`c++filt` 一对比就清楚了：
 
-```bash
+```bash title="c++filt 对比两个不匹配的符号"
 $ echo __ZN3c105ErrorC1EPKcRKN5mylib7__cxx116stringE | c++filt
 c10::Error::Error(char const*, mylib::__cxx11::string const&)
 $ echo __ZN3c105ErrorC1EPKcRKN5mylib6stringE | c++filt

@@ -72,7 +72,7 @@ Table: 本文的章节安排
 
 ### 1. `get_peft_model`
 
-```python
+```python title="get_peft_model 一行"
 model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", lora_dropout=0.05))
 ```
 
@@ -82,7 +82,7 @@ model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="al
 
 `LoraConfig.target_modules` 三种写法：列表 `["q_proj", "v_proj"]`（按模块名的**最后一段**精确匹配），字符串（当作正则对完整路径 `re.fullmatch`），或字面量 `"all-linear"`。第三种在 `tuners_utils._maybe_include_all_linear_layers` 里展开：
 
-```python
+```python title="_maybe_include_all_linear_layers 展开 all-linear"
 linear_classes = (torch.nn.Linear, Conv1D)
 linear_module_names = set()
 for name, module in model.named_modules():
@@ -99,7 +99,7 @@ linear_module_names -= module_names_to_exclude
 
 ### 3. `inject_adapter`
 
-```python
+```python title="BaseTuner.inject_adapter：找到目标并替换"
 # tuners_utils.BaseTuner.inject_adapter（节选）
 for key, target in model.named_modules():          # 全部模块，约 900 个
     if not self._check_target_module_exists(peft_config, key):
@@ -115,7 +115,7 @@ self._mark_only_adapters_as_trainable(model)        # 除了名字带 "lora_" �
 
 ### 1. `lora.Linear`
 
-```python
+```python title="lora.Linear.__init__"
 class Linear(nn.Module, LoraLayer):
     def __init__(self, base_layer, adapter_name, r=0, lora_alpha=1, lora_dropout=0.0, ...):
         super().__init__()
@@ -125,7 +125,7 @@ class Linear(nn.Module, LoraLayer):
 
 四个属性都是 `nn.ModuleDict` / `dict`，**键是 adapter 名**——一个层可以同时挂多个 adapter（`"default"`、`"math"`、`"code"`），`set_adapter` 切换、`add_weighted_adapter` 合并，这是多 LoRA 的数据结构基础。`update_layer` 里：
 
-```python
+```python title="update_layer：建 lora_A / lora_B / scaling"
 self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)     # [r, in]
 self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=False)    # [out, r]
 if use_rslora:
@@ -142,7 +142,7 @@ nn.init.zeros_(self.lora_B[adapter_name].weight)                               #
 
 ### 2. `forward`：一行
 
-```python
+```python title="lora.Linear.forward"
 def forward(self, x, *args, **kwargs):
     if self.disable_adapters:
         if self.merged: self.unmerge()
@@ -163,7 +163,7 @@ def forward(self, x, *args, **kwargs):
 
 ### 3. `merge`、`unmerge` 与 `get_delta_weight`
 
-```python
+```python title="get_delta_weight、merge 与 unmerge"
 def get_delta_weight(self, adapter):
     return transpose(weight_B @ weight_A, self.fan_in_fan_out) * self.scaling[adapter]    # [out, r] @ [r, in] → [out, in]
 def merge(self, safe_merge=False, adapter_names=None):
@@ -196,7 +196,7 @@ Table: SFTTrainer 的三种数据格式与 loss mask 来源
 
 ### 2. `build_labels`：`-100` 在这里填
 
-```python
+```python title="SFTTrainer._prepare_dataset：build_labels 填 -100"
 # SFTTrainer._prepare_dataset（节选）
 column_names = get_dataset_column_names(dataset)
 if "labels" not in column_names:
@@ -235,7 +235,7 @@ Table: pack_dataset 的三种策略
 
 ### 1. collator 只做 padding
 
-```python
+```python title="DataCollatorForLanguageModeling.torch_call"
 # DataCollatorForLanguageModeling.torch_call（节选）
 labels = [example.get("labels", example["input_ids"]) for example in examples]
 output["input_ids"] = pad(input_ids, padding_value=self.pad_token_id, padding_side="right", ...)
@@ -250,7 +250,7 @@ if self.padding_free:
 
 ### 2. `compute_loss`
 
-```python
+```python title="SFTTrainer.compute_loss"
 def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
     ...
     (loss, outputs) = super().compute_loss(model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch)
@@ -277,7 +277,7 @@ def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=N
 
 ### 3. `dpo_loss`
 
-```python
+```python title="DPOTrainer.dpo_loss"
 chosen_logratios = chosen_logps - ref_chosen_logps
 rejected_logratios = rejected_logps - ref_rejected_logps
 # f_divergence_type == "reverse_kl"（默认）：scores = logratios
@@ -310,7 +310,7 @@ $$
 
 ### 2. 组内优势
 
-```python
+```python title="GRPOTrainer：组内优势"
 mean_grouped_rewards = torch.nanmean(rewards.view(-1, num_generations), dim=1).repeat_interleave(num_generations)
 std_rewards = nanstd(rewards.view(-1, num_generations), dim=1).repeat_interleave(num_generations)   # scale_rewards="group"
 advantages = rewards - mean_grouped_rewards
@@ -322,7 +322,7 @@ if self.scale_rewards != "none":
 
 ### 3. `_compute_loss`
 
-```python
+```python title="GRPOTrainer._compute_loss：PPO 裁剪"
 coef_1 = torch.exp(log_importance_weights)                      # π_θ / π_old，token 级或 sequence 级
 coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
 per_token_loss1 = coef_1 * advantages

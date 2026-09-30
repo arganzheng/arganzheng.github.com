@@ -87,7 +87,7 @@ Table: 本文的章节安排
 
 例如，下面的代码看起来只是进行一次简单的数据转换：
 
-```python
+```python title="一次请求里的多次对象创建与格式转换"
 payload = request.json()
 values = payload["values"]
 
@@ -122,7 +122,7 @@ result = tensor.tolist()
 
 Python 变量本质上不是一个固定大小的内存槽位，而是指向对象的名称绑定。
 
-```python
+```python title="b = a 之后 append 影响 a"
 a = [1, 2, 3]
 b = a
 
@@ -136,7 +136,7 @@ print(a)
 
 可以使用 `id()` 验证对象身份：
 
-```python
+```python title="id(a) == id(b) 为 True"
 print(id(a) == id(b))
 # True
 ```
@@ -149,7 +149,7 @@ print(id(a) == id(b))
 
 值得注意的是，CPython 对部分常用对象做了缓存优化：小整数（-5 到 256）在解释器启动时预先创建并全局共享，短字符串也可能被驻留（intern）。这意味着对同一个小整数的多次引用实际指向同一个对象：
 
-```python
+```python title="小整数缓存：256 是同一对象、257 不是"
 a = 256
 b = 256
 print(a is b)
@@ -167,7 +167,7 @@ print(a is b)
 
 在底层语言中，一个整数通常可以直接表示为固定大小的机器数据。但在 Python 中，整数是完整的对象：
 
-```python
+```python title="value = 42 是一个完整对象"
 value = 42
 ```
 
@@ -175,7 +175,7 @@ value = 42
 
 因此，大量 Python 标量组成的列表会产生较高的额外开销：
 
-```python
+```python title="一百万个 Python float 组成的列表"
 values = [float(i) for i in range(1_000_000)]
 ```
 
@@ -187,7 +187,7 @@ values = [float(i) for i in range(1_000_000)]
 
 如果数据本质上是规则的数值集合，使用 NumPy 数组通常更适合：
 
-```python
+```python title="同样一百万个数用 np.arange 存"
 import numpy as np
 
 values = np.arange(1_000_000, dtype=np.float32)
@@ -204,7 +204,7 @@ NumPy 数组通常将数据存储在连续的原生内存中，避免为每个�
 
 Python 容器通常保存的是对象引用，而不是对象内联数据。
 
-```python
+```python title="列表保存的是三个引用"
 items = [1, 2, 3]
 ```
 
@@ -212,7 +212,7 @@ items = [1, 2, 3]
 
 对于字典而言，除了键和值对象本身，还需要维护哈希表结构：
 
-```python
+```python title="字典还要维护哈希表结构"
 metadata = {
     "request_id": "abc",
     "model": "embedding",
@@ -233,7 +233,7 @@ metadata = {
 
 普通类实例通常拥有一个 `__dict__`，用于保存实例属性：
 
-```python
+```python title="普通类实例带 __dict__"
 class RequestContext:
     def __init__(self, request_id, model_name, deadline):
         self.request_id = request_id
@@ -245,7 +245,7 @@ class RequestContext:
 
 可以使用 `__slots__`：
 
-```python
+```python title="用 __slots__ 去掉实例字典"
 class RequestContext:
     __slots__ = ("request_id", "model_name", "deadline")
 
@@ -276,7 +276,7 @@ class RequestContext:
 
 对于结构化数据，可以使用 `dataclass` 提高可读性：
 
-```python
+```python title="dataclass(slots=True) 表达结构化对象"
 from dataclasses import dataclass
 
 @dataclass(slots=True)
@@ -296,7 +296,7 @@ class RequestContext:
 
 ### 1. 赋值不是复制
 
-```python
+```python title="backup = config 只是同一个字典的第二个名字"
 config = {"timeout": 1.0}
 backup = config
 
@@ -310,13 +310,13 @@ print(config["timeout"])
 
 如果确实需要复制，可以使用浅拷贝：
 
-```python
+```python title="config.copy() 做浅拷贝"
 backup = config.copy()
 ```
 
 此时修改顶层键值不会影响原字典：
 
-```python
+```python title="浅拷贝后改顶层键不影响原字典"
 backup["timeout"] = 2.0
 print(config["timeout"])
 # 1.0
@@ -324,7 +324,7 @@ print(config["timeout"])
 
 但浅拷贝只复制最外层容器：
 
-```python
+```python title="浅拷贝只复制最外层：嵌套的 limits 仍共享"
 config = {
     "limits": {
         "max_tokens": 1024,
@@ -342,7 +342,7 @@ print(config["limits"]["max_tokens"])
 
 ### 2. 深拷贝可能代价很高
 
-```python
+```python title="copy.deepcopy 整棵复制"
 import copy
 
 backup = copy.deepcopy(config)
@@ -365,7 +365,7 @@ backup = copy.deepcopy(config)
 
 例如：
 
-```python
+```python title="用字典展开构造新的 limits 而不深拷贝"
 new_limits = {
     **config["limits"],
     "max_tokens": 2048,
@@ -383,7 +383,7 @@ new_config = {
 
 对于列表，切片会创建新的列表：
 
-```python
+```python title="列表切片创建新列表"
 items = list(range(1_000_000))
 part = items[:500_000]
 ```
@@ -392,7 +392,7 @@ part = items[:500_000]
 
 如果只需要遍历一段数据，可以考虑使用迭代器：
 
-```python
+```python title="用 islice 只遍历一段而不复制"
 from itertools import islice
 
 part = islice(items, 500_000)
@@ -406,7 +406,7 @@ part = islice(items, 500_000)
 
 对于 NumPy 数组，某些切片操作会产生视图：
 
-```python
+```python title="NumPy 切片得到视图：改 view 会改 array"
 import numpy as np
 
 array = np.arange(10)
@@ -422,13 +422,13 @@ print(array)
 
 如果需要独立副本，需要显式调用：
 
-```python
+```python title="用 .copy() 得到独立副本"
 copy_array = array[2:6].copy()
 ```
 
 视图能够减少内存复制，但也带来生命周期问题：一个很小的视图可能继续持有一个很大的底层数组。
 
-```python
+```python title="一个 10 元素的视图钉住一亿元素的数组"
 large_array = np.zeros(100_000_000, dtype=np.float32)
 small_view = large_array[:10]
 ```
@@ -437,7 +437,7 @@ small_view = large_array[:10]
 
 如果只需要保留少量数据，可以显式复制：
 
-```python
+```python title="只保留少量数据时显式复制"
 small_copy = large_array[:10].copy()
 ```
 
@@ -457,7 +457,7 @@ small_copy = large_array[:10].copy()
 - `bytearray`：可变字节序列；
 - `memoryview`：对已有缓冲区的视图。
 
-```python
+```python title="memoryview 改 bytearray 的第一个字节"
 data = bytearray(b"abcdef")
 view = memoryview(data)
 
@@ -471,7 +471,7 @@ print(data)
 
 例如：
 
-```python
+```python title="parse_header 用 memoryview 切片不复制"
 def parse_header(buffer: memoryview) -> memoryview:
     return buffer[:16]
 
@@ -489,7 +489,7 @@ header = parse_header(memoryview(data))
 
 在处理固定格式的二进制协议时，`struct` 模块可以与 `memoryview` 配合使用，在不复制数据的前提下解析字段：
 
-```python
+```python title="struct.unpack_from 直接从 memoryview 解析字段"
 import struct
 
 data = bytearray(b"\x01\x00\x00\x00\x00\x00\x80\x3f")  # int32(1) + float32(1.0)
@@ -510,7 +510,7 @@ version, score = struct.unpack_from("<if", view)
 
 以下代码可能共享底层内存：
 
-```python
+```python title="torch.from_numpy 与 numpy 共享内存"
 import numpy as np
 import torch
 
@@ -525,7 +525,7 @@ print(array[0])
 
 但如果数据类型或接口不兼容，转换可能发生复制：
 
-```python
+```python title="dtype 不一致时 torch.tensor 会复制"
 array = np.zeros(8, dtype=np.float64)
 tensor = torch.tensor(array, dtype=torch.float32)
 ```
@@ -546,7 +546,7 @@ tensor = torch.tensor(array, dtype=torch.float32)
 
 底层数值库通常更喜欢连续内存。对数组转置或跨步切片后，得到的对象可能是非连续的：
 
-```python
+```python title="转置后 C_CONTIGUOUS 从 True 变 False"
 array = np.arange(12, dtype=np.float32).reshape(3, 4)
 transposed = array.T
 
@@ -561,7 +561,7 @@ print(transposed.flags["C_CONTIGUOUS"])
 
 可以显式检查：
 
-```python
+```python title="不连续时用 np.ascontiguousarray 补一份连续副本"
 if not transposed.flags["C_CONTIGUOUS"]:
     transposed = np.ascontiguousarray(transposed)
 ```
@@ -575,7 +575,7 @@ if not transposed.flags["C_CONTIGUOUS"]:
 
 ### 2. dtype 转换也可能产生新内存
 
-```python
+```python title="astype 创建新数组"
 array = np.zeros(1024, dtype=np.float64)
 float32_array = array.astype(np.float32)
 ```
@@ -584,7 +584,7 @@ float32_array = array.astype(np.float32)
 
 如果 dtype 已经符合要求，可以使用：
 
-```python
+```python title="astype(copy=False) 尽量避免复制"
 float32_array = array.astype(np.float32, copy=False)
 ```
 
@@ -592,7 +592,7 @@ float32_array = array.astype(np.float32, copy=False)
 
 类似地，`np.asarray()` 通常倾向于避免不必要的复制：
 
-```python
+```python title="np.asarray 倾向不复制"
 array = np.asarray(source, dtype=np.float32)
 ```
 
@@ -602,7 +602,7 @@ array = np.asarray(source, dtype=np.float32)
 
 以下代码会将 Python 列表转换为 NumPy 数组：
 
-```python
+```python title="列表转成 float32 数组"
 values = [1.0, 2.0, 3.0]
 array = np.asarray(values, dtype=np.float32)
 ```
@@ -611,7 +611,7 @@ array = np.asarray(values, dtype=np.float32)
 
 相反，以下操作会将连续数组重新转换成大量 Python 对象：
 
-```python
+```python title="tolist 把连续数组拆回大量 Python 对象"
 values = array.tolist()
 ```
 
@@ -644,7 +644,7 @@ values = array.tolist()
 
 例如：
 
-```python
+```python title="tracemalloc 只看到 Python 层的分配"
 import tracemalloc
 
 tracemalloc.start()
@@ -675,7 +675,7 @@ print(f"current={current}, peak={peak}")
 
 释放一个 Python 引用：
 
-```python
+```python title="del tensor 只是释放一个引用"
 del tensor
 ```
 
@@ -688,7 +688,7 @@ del tensor
 
 如果还有其他引用存在，底层数据自然不会释放：
 
-```python
+```python title="还有别的引用时 del 不会释放显存"
 outputs = model(inputs)
 saved = outputs
 del outputs
@@ -700,7 +700,7 @@ del outputs
 
 这些操作可能改变数据所在的位置、表示形式或所有权关系：
 
-```python
+```python title=".cpu()、.numpy()、.tolist() 三步各换一次位置或表示"
 cpu_tensor = gpu_tensor.cpu()
 array = cpu_tensor.numpy()
 values = array.tolist()
@@ -714,7 +714,7 @@ values = array.tolist()
 
 在调试代码中，下面这种写法尤其需要注意：
 
-```python
+```python title="调试时 print(gpu_tensor.cpu().tolist()) 的代价"
 print(gpu_tensor.cpu().tolist())
 ```
 
@@ -722,7 +722,7 @@ print(gpu_tensor.cpu().tolist())
 
 更稳妥的方式是：
 
-```python
+```python title="只打印 shape、device、dtype"
 print(gpu_tensor.shape)
 print(gpu_tensor.device)
 print(gpu_tensor.dtype)
@@ -730,7 +730,7 @@ print(gpu_tensor.dtype)
 
 如果只需要查看少量值，应限制范围：
 
-```python
+```python title="只取前 8 个值再传回 CPU"
 print(gpu_tensor.flatten()[:8].cpu().tolist())
 ```
 
@@ -742,7 +742,7 @@ print(gpu_tensor.flatten()[:8].cpu().tolist())
 
 CPython 中，每个对象都有一个引用计数器（`ob_refcnt`）。当引用计数降为零时，对象立即释放：
 
-```python
+```python title="sys.getrefcount 观察引用计数的增减"
 import sys
 
 a = [1, 2, 3]
@@ -762,7 +762,7 @@ print(sys.getrefcount(a))
 
 但引用计数无法处理循环引用：
 
-```python
+```python title="两个 Node 互相引用：引用计数回不到零"
 class Node:
     def __init__(self):
         self.ref = None
@@ -787,7 +787,7 @@ del b
 
 可以查看和调整各代的阈值：
 
-```python
+```python title="gc.get_threshold() 与各代阈值的含义"
 import gc
 
 print(gc.get_threshold())
@@ -807,7 +807,7 @@ print(gc.get_threshold())
 
 `__del__` 是 Python 的终结器方法，在对象被回收前调用。它看起来适合做资源清理，但实际使用中有严重的陷阱：
 
-```python
+```python title="带 __del__ 的 Resource 类"
 class Resource:
     def __init__(self, name):
         self.name = name
@@ -824,7 +824,7 @@ class Resource:
 
 更安全的替代方案：
 
-```python
+```python title="用 weakref.finalize 替代 __del__"
 import weakref
 
 class Resource:
@@ -845,7 +845,7 @@ class Resource:
 
 CPython 使用名为 pymalloc 的专用分配器来管理小对象（≤ 512 bytes）。它的结构是：
 
-```text
+```text title="pymalloc 的 Arena、Pool、Block 三层结构"
 Arena (向 OS 申请；3.10 以前 256 KiB，3.10+ 64 位平台 1 MiB)
   └── Pool (3.10 以前 4 KiB，3.10+ 16 KiB；按 size class 划分)
         └── Block (8, 16, 24, ..., 512 bytes)
@@ -876,7 +876,7 @@ Arena (向 OS 申请；3.10 以前 256 KiB，3.10+ 64 位平台 1 MiB)
 
 下面的代码会让缓存持续增长：
 
-```python
+```python title="无界的全局 cache 字典"
 cache = {}
 
 def remember(key, value):
@@ -887,7 +887,7 @@ def remember(key, value):
 
 更合理的方式是设置边界：
 
-```python
+```python title="lru_cache(maxsize=1024) 给缓存设边界"
 from functools import lru_cache
 
 @lru_cache(maxsize=1024)
@@ -915,7 +915,7 @@ def load_config(model_name: str):
 
 ### 2. 闭包和回调可能延长对象生命周期
 
-```python
+```python title="闭包 handler 持有 large_model"
 def create_handler(large_model):
     def handler(request):
         return large_model.predict(request)
@@ -963,7 +963,7 @@ def create_handler(large_model):
 
 当一个容器只需要观察对象，而不应该延长对象生命周期时，可以考虑 `weakref`：
 
-```python
+```python title="weakref.WeakValueDictionary 观察对象而不持有"
 import weakref
 
 class Model:
@@ -1007,7 +1007,7 @@ del model
 
 ### 2. 使用 `sys.getsizeof()` 时要注意边界
 
-```python
+```python title="sys.getsizeof 一个三元素列表"
 import sys
 
 value = [1, 2, 3]
@@ -1016,7 +1016,7 @@ print(sys.getsizeof(value))
 
 `sys.getsizeof()` 通常只返回对象自身的浅层大小，不会递归计算嵌套对象：
 
-```python
+```python title="getsizeof 不递归嵌套列表"
 items = [[1, 2, 3], [4, 5, 6]]
 print(sys.getsizeof(items))
 ```
@@ -1027,7 +1027,7 @@ print(sys.getsizeof(items))
 
 ### 3. 使用 `tracemalloc` 定位 Python 分配
 
-```python
+```python title="tracemalloc 前后快照对比找分配点"
 import tracemalloc
 
 tracemalloc.start()
@@ -1062,7 +1062,7 @@ for statistic in snapshot_after.compare_to(
 
 可以使用垃圾回收模块观察对象：
 
-```python
+```python title="gc.collect 返回不可达对象数"
 import gc
 
 unreachable = gc.collect()
@@ -1071,7 +1071,7 @@ print("unreachable objects:", unreachable)
 
 如果需要追踪某个对象为什么没有被释放，可以使用 `gc.get_referrers()` 查看引用链：
 
-```python
+```python title="gc.get_referrers 查看谁还引用着 obj"
 import gc
 
 obj = SomeLargeObject()
@@ -1084,7 +1084,7 @@ for r in referrers:
 
 对于更复杂的引用图分析，`objgraph` 库可以生成可视化的引用关系图：
 
-```python
+```python title="objgraph 展示增长最快的类型与引用图"
 import objgraph
 
 # 查看增长最快的对象类型
@@ -1123,7 +1123,7 @@ objgraph.show_backrefs(obj, max_depth=5, filename="refs.png")
 
 对于使用 PyTorch 的 AI-Infra 服务，GPU 显存问题需要使用专门的工具：
 
-```python
+```python title="torch.cuda 的 memory_allocated、memory_reserved 与 memory_summary"
 import torch
 
 # 当前已分配的 GPU 显存
@@ -1143,7 +1143,7 @@ print(torch.cuda.memory_summary())
 
 如果需要从命令行监控，可以使用：
 
-```bash
+```bash title="nvidia-smi 每秒查询显存占用"
 nvidia-smi --query-gpu=memory.used,memory.free --format=csv -l 1
 ```
 
@@ -1220,7 +1220,7 @@ AI-Infra 服务经常受到峰值内存限制。即使平均内存占用正常�
 
 假设服务中存在如下代码：
 
-```python
+```python title="待审查的 predict：列表 → 数组 → 张量 → 列表"
 def predict(payload):
     values = payload["values"]
 
@@ -1253,7 +1253,7 @@ def predict(payload):
 
 优化后的代码可能类似：
 
-```python
+```python title="优化后的 predict：按需转 dtype 与连续性，避免 tolist"
 def predict(array: np.ndarray):
     if array.dtype != np.float32:
         array = array.astype(np.float32, copy=False)

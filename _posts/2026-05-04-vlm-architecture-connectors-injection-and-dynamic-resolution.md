@@ -98,13 +98,13 @@ Table: 本文的章节安排
 
 本章用同一份缩小的输入把四种 connector 各跑一遍：一个 $$4 \times 4 = 16$$ 个 patch 的网格，编码器特征 $$d_v = 8$$ 维，LLM 输入 $$d = 12$$ 维（真实是 576 个 patch、1024 → 4096）：
 
-```python
+```python title="MLP projector：16 个 patch 进、16 个 token 出"
 h = torch.randn(16, 8)                                               # 编码器输出：16 个 patch 特征 [16, d_v]
 mlp = torch.nn.Sequential(torch.nn.Linear(8, 12), torch.nn.GELU(), torch.nn.Linear(12, 12))
 z_mlp = mlp(h)                                                       # [16, 12]：16 个 token 进去、16 个出来
 ```
 
-```text
+```text title="MLP projector 的形状与参数量"
 MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 ```
 
@@ -116,13 +116,13 @@ MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 
 - **2×2 merge / concat**（Qwen2-VL）：把 $$2 \times 2$$ 的四个 $$d_v$$ 维特征**拼接**成 $$4 d_v$$ 维，再过 MLP 到 $$d$$。信息全部保留（拼接不丢），只是让 LLM 用一个 token 处理原来四个的内容；MLP 的参数量变为 $$4 d_v d + d^2$$。代码就是一次 reshape：
 
-  ```python
+  ```python title="2×2 merge：一次 reshape"
   grid = h.view(4, 4, 8)                                                                  # 16 个特征摆回 4×4 的网格
   merged = grid.view(2, 2, 2, 2, 8).permute(0, 2, 1, 3, 4).reshape(-1, 32)                # [4, 32]：每个新 token = 2×2 邻域的 4 个特征首尾相接
   z_merge = torch.nn.Linear(32, 12)(merged)                                               # [4, 12]
   ```
 
-  ```text
+  ```text title="2×2 merge 的形状：16 → 4 个 token"
   2×2 merge：(16, 8) → 拼接 (4, 32) → MLP (4, 12)；token 数 16 → 4，拼接不丢任何数（32 个数原样在）
   ```
 - **pixel shuffle**（InternVL）：同一件事的另一个名字——来自超分辨率里的 space-to-depth 操作，把 $$H \times W \times C$$ 重排成 $$H/2 \times W/2 \times 4C$$（PyTorch 里叫 `pixel_unshuffle`，与上面手工拼接的结果只差通道顺序，验证过 `True`）。InternVL 把 $$448^2$$ 的 1024 个 patch 压成 256 个。
@@ -138,13 +138,13 @@ MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 
 **Perceiver resampler**（Flamingo，Alayrac 等 2022）：$$K$$ 个**可学习的** query 向量（$$K = 64$$，是模型参数，与输入图片无关）对编码器的全部 patch 特征做若干层 cross-attention（key / value 是 patch 特征），输出 $$K$$ 个向量。任意数量的 patch → 固定 $$K$$ 个 token。toy 上 $$K = 3$$：
 
-```python
+```python title="resampler：K = 3 个可学习 query 的 cross-attention"
 queries = torch.nn.Parameter(torch.randn(3, 12))                     # 与图片内容无关的 3 个 query（模型参数）
 att = torch.softmax(Wq(queries) @ Wk(h).T / 12 ** 0.5, dim=-1)       # [3, 16]：每个 query 在 16 个 patch 上的注意力权重
 z_res = att @ Wv(h)                                                  # [3, 12]：按权重加权平均 patch 的 value
 ```
 
-```text
+```text title="resampler 的输出与 query 的注意力分布"
 resampler（K = 3 个 query）：(16, 8) → (3, 12)；不论图有多少 patch，永远输出 3 个 token
    第 0 个 query 的注意力分布（16 个 patch）：[0.07 0.06 0.08 0.07 0.07 0.04 0.06 0.05 0.02 0.05 0.09 0.07 0.07 0.08 0.07 0.05]
 ```
@@ -199,7 +199,7 @@ LLaVA-NeXT（2024）：把图按预设的网格（$$1 \times 2$$、$$2 \times 2$
 
 AnyRes 的网格候选是超参数：LLaVA-NeXT 用 $$\{1 \times 1, 1 \times 2, 2 \times 1, 2 \times 2, 1 \times 3, 3 \times 1\}$$（≤ 4 tile）；InternVL 用 1 到 40 个 tile 的所有宽高比组合。选择规则（LLaVA-NeXT 的 `select_best_resolution`）：对每个候选网格，把图保持宽高比缩放到刚好装进去，算"有效像素"（缩小后剩下的像素数，放大不算）与"浪费"（网格面积减有效像素），选有效像素最多、浪费最少的：
 
-```python
+```python title="tokens_anyres：LLaVA-NeXT 的网格选择"
 def tokens_anyres(h, w, side=336, patch=14):
     grids = [(1, 1), (1, 2), (2, 1), (2, 2), (1, 3), (3, 1)]             # (行, 列) 的候选网格
     best, best_key = None, None
@@ -231,7 +231,7 @@ Qwen2-VL（Wang 等 2024）让 ViT 直接处理任意大小的图：
 
 算法是三行：
 
-```python
+```python title="tokens_native：Qwen2-VL 的原生分辨率 token 数"
 def tokens_native(h, w, unit=28, lo=256, hi=1280):
     n = round(h / unit) * round(w / unit)                                # 每 28×28 像素一个 token
     return int(min(max(n, lo), hi))                                      # 夹在上下限之间

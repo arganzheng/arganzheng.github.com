@@ -28,7 +28,7 @@ updated: 2026-09-14
 
 理解 PyTorch 性能的起点是一个事实：**CPU 和 GPU 是两个独立运行的处理器，通过一条队列连接**。
 
-```text
+```text title="CPU 时间线与 GPU 时间线：通过队列连接"
 CPU 时间线   Python 解释 → Dispatcher → launch Kernel A → launch Kernel B → launch Kernel C → ...
                                               │                │                │
                                               ▼ 入队           ▼ 入队           ▼ 入队
@@ -158,7 +158,7 @@ Table: 本文的章节安排
 
 ### 1. 为什么 `time.time()` 会骗你
 
-```python
+```python title="time.time() 测到的是提交耗时"
 import time
 start = time.time()
 y = model(x)                    # 提交几百个 Kernel 到队列，立即返回
@@ -169,7 +169,7 @@ elapsed = time.time() - start   # 测到的是"提交"耗时，不是"执行"耗
 
 这是性能分析中最常见的误读来源。修正方法是在计时前后显式同步：
 
-```python
+```python title="计时前后显式 synchronize"
 torch.cuda.synchronize()
 start = time.time()
 y = model(x)
@@ -179,7 +179,7 @@ elapsed = time.time() - start
 
 或者用 CUDA Event 在 GPU 时间线上打点，避免 CPU 参与：
 
-```python
+```python title="用 CUDA Event 在 GPU 时间线上打点"
 start = torch.cuda.Event(enable_timing=True)
 end = torch.cuda.Event(enable_timing=True)
 
@@ -252,7 +252,7 @@ sequenceDiagram
 
 手写计时循环需要处理 warmup、同步、多次采样、统计。`torch.utils.benchmark` 把这些封装好了：
 
-```python
+```python title="用 torch.utils.benchmark.Timer 测 matmul"
 import torch.utils.benchmark as benchmark
 
 x = torch.randn(4096, 4096, device="cuda")
@@ -268,7 +268,7 @@ m = t.blocked_autorange(min_run_time=1.0)
 print(m)
 ```
 
-```text
+```text title="benchmark 的输出：Median 与 IQR"
 matmul 4096: fp32
   Median: 8.21 ms
   IQR:    0.03 ms (8.20 to 8.23)
@@ -311,7 +311,7 @@ Table: 几种性能口径及其陷阱
 
 优化必然改变实现。改之前就要有测试证明改之后结果仍然正确：
 
-```python
+```python title="check：优化前后用 assert_close 对照"
 def check(fn_new, fn_ref, *inputs, rtol=1e-3, atol=1e-3):
     out_new = fn_new(*inputs)
     out_ref = fn_ref(*inputs)
@@ -336,7 +336,7 @@ Benchmark 告诉你"多慢"。要知道"为什么慢"，必须看时间线。
 
 ### 1. `torch.profiler`
 
-```python
+```python title="torch.profiler 的典型用法：schedule 与 record_function"
 from torch.profiler import profile, ProfilerActivity, schedule, record_function
 
 with profile(
@@ -367,7 +367,7 @@ print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=15))
 
 `key_averages().table()` 输出类似：
 
-```text
+```text title="key_averages().table() 的输出"
 Name                          Self CPU %  Self CPU   CPU total  Self CUDA   CUDA total  # of Calls
 aten::mm                           2.1%    1.2 ms     1.8 ms     42.3 ms     42.3 ms        96
 aten::add_                         1.5%    0.9 ms     0.9 ms      8.1 ms      8.1 ms       384
@@ -390,7 +390,7 @@ Self CUDA time total: 71.5 ms
 
 导出的 trace 用 Chrome 的 `chrome://tracing` 或 Perfetto 打开，能看到两条（或更多）泳道：
 
-```text
+```text title="trace 时间线里的两条泳道"
 CPU 线程    ▓▓ aten::mm ▓▓ aten::add_ ▓ aten::gelu ▓▓ aten::mm ▓▓ ...    ← 密集，几乎无空隙
 GPU Stream  ░░░[mm]░░░░░░[add]░░░░[gelu]░░░░░░░░[mm]░░░░░░░ ...          ← 稀疏，Kernel 之间大量空白
 ```
@@ -401,13 +401,13 @@ GPU Stream  ░░░[mm]░░░░░░[add]░░░░[gelu]░░░░�
 
 `torch.profiler` 看的是 PyTorch 眼中的世界。Nsight Systems（`nsys`）看的是操作系统眼中的世界：所有线程、CUDA API 调用、Kernel、内存拷贝、甚至 NCCL 通信（第九篇），以及 PyTorch 之外的进程。
 
-```bash
+```bash title="nsys profile 采集系统级时间线"
 nsys profile -t cuda,nvtx,osrt -o report python train.py
 ```
 
 PyTorch 用 NVTX 在时间线上标记算子，也可以手动标记：
 
-```python
+```python title="手动 NVTX 标记"
 torch.cuda.nvtx.range_push("attention")
 ...
 torch.cuda.nvtx.range_pop()
@@ -419,7 +419,7 @@ torch.cuda.nvtx.range_pop()
 
 前两个工具回答"哪个 Kernel 慢"。Nsight Compute（`ncu`）回答"这个 Kernel **为什么**慢"：它重放单个 Kernel，采集硬件计数器。
 
-```bash
+```bash title="ncu 重放单个 Kernel"
 ncu --set full --kernel-name regex:triton_poi_fused_add_relu -c 1 python demo.py
 ```
 
@@ -462,7 +462,7 @@ CPU 侧的两类瓶颈有同一个症状——**GPU 在等 CPU**——但原因�
 
 对比 GPU 侧：对 `[128, 64]` 的 fp32 Tensor 做一次 `add`，Kernel 执行时间约 3～5 µs。CPU 提交它的时间是执行时间的几倍。此时 GPU 大部分时间空转，等下一个 Kernel 到达。
 
-```text
+```text title="Launch-bound：CPU 提交 20 µs，GPU 执行 4 µs"
 CPU    |--提交 add 20µs--|--提交 relu 20µs--|--提交 mm 25µs--|
 GPU         |add 4µs|          |relu 3µs|         |mm 8µs|         ← 利用率 ~25%
 ```
@@ -492,7 +492,7 @@ Profiler 里的信号是：CPU 泳道密集，但顶部的耗时项不是 `aten:
 
 Launch-bound 的本质是 Kernel 的 GPU 时间低于 CPU 提交时间。最直接的解法是让每个 Kernel 处理更多数据：batch 从 8 到 64，`add` Kernel 的执行时间从 4 µs 变成 30 µs，超过了提交它的 20 µs，GPU 不再空转。
 
-```text
+```text title="增大 batch 后 GPU 成为长边"
 CPU    |--提交 add 20µs--|--提交 relu 20µs--|
 GPU         |------ add 30µs ------|------ relu 25µs ------|     ← GPU 成为长边，CPU 提交被隐藏
 ```
@@ -505,7 +505,7 @@ GPU         |------ add 30µs ------|------ relu 25µs ------|     ← GPU 成�
 
 第七篇讨论的算子融合在这里的价值是 CPU 侧的：N 个逐元素 Kernel 融合成 1 个，提交成本从 N × 20 µs 变成 20 µs。
 
-```python
+```python title="torch.compile 融合逐元素 Kernel 链"
 compiled_model = torch.compile(model)      # Inductor 把 LayerNorm → 残差 → GeLU → cast 链融合
 ```
 
@@ -515,13 +515,13 @@ compiled_model = torch.compile(model)      # Inductor 把 LayerNorm → 残差 �
 
 优化器是 launch-bound 的高发区，且常被忽略。一个有 100 个参数 Tensor 的模型，朴素的 Adam 实现每个参数要做约 10 个逐元素操作：
 
-```text
+```text title="朴素 Adam 的 launch 次数"
 100 个参数 × 10 个操作 = 1000 次 launch，每次处理一个参数 Tensor（可能只有几千个元素）
 ```
 
 PyTorch 提供两级合并：
 
-```python
+```python title="foreach 与 fused 两级合并"
 torch.optim.AdamW(params, foreach=True)    # 默认：把同一操作对所有参数的调用合并成一次多 Tensor Kernel
 torch.optim.AdamW(params, fused=True)      # 更进一步：整个 Adam 更新一个 Kernel，只支持 CUDA 上的浮点参数
 ```
@@ -532,7 +532,7 @@ torch.optim.AdamW(params, fused=True)      # 更进一步：整个 Adam 更新�
 
 Python 循环里的 Tensor 操作是 launch-bound 和 Python-bound 的叠加：每次迭代既有解释开销，又有几次 launch。
 
-```python
+```python title="Python 循环里的 Tensor 操作：慢与向量化写法"
 # 慢：seq_len 次迭代，每次 3 个 Kernel，seq_len=512 时 1500 次 launch
 out = []
 for t in range(seq_len):
@@ -555,7 +555,7 @@ Python 侧的其他细节同理：`x.shape[0]` 比 `x.size(0)` 慢一点、`torc
 
 原理是把一段固定的 Kernel 序列（含参数、依赖关系）录制成一张图，之后每次只需一次 `cudaGraphLaunch` 就能整体重放，CPU 侧成本从"每 Kernel 十几微秒"降到"每图几微秒"。GPU 侧也受益：图内 Kernel 之间的调度间隙更小。
 
-```python
+```python title='mode="reduce-overhead"：CUDA Graphs'
 compiled_model = torch.compile(model, mode="reduce-overhead")     # Inductor 自动录制并重放
 ```
 
@@ -567,7 +567,7 @@ compiled_model = torch.compile(model, mode="reduce-overhead")     # Inductor 自
 
 Python-bound 的处方与 launch 无关，是把 CPU 在做的"别的事"挪走：
 
-```text
+```text title="Python-bound 的处方：把非计算工作挪走"
 数据预处理     交给 DataLoader 的 worker 进程（第七章 §4），主进程只负责取现成的 batch
 日志与监控     每 N 步一次；.item() 批量取回（第七章 §3）；TensorBoard 写入放到后台线程
 框架开销       推理用 torch.inference_mode() 而非 no_grad()，跳过更多 Autograd 簿记；
@@ -600,7 +600,7 @@ GPU 已经满负荷，问题变成：它在忙什么？GPU 执行一个 Kernel �
 
 从显存读入数据、写出结果是**访存**；对数据做算术是**计算**。两者在硬件上由不同单元执行，可以重叠。因此一个 Kernel 的时间下界是：
 
-```text
+```text title="一个 Kernel 的时间下界"
 T ≥ max( 数据量 / 显存带宽 ,  运算量 / 峰值算力 )
 ```
 
@@ -610,7 +610,7 @@ T ≥ max( 数据量 / 显存带宽 ,  运算量 / 峰值算力 )
 
 把两项的比值定义为 **Arithmetic Intensity**（算术强度）：
 
-```text
+```text title="Arithmetic Intensity 的定义"
 AI = 运算量 (FLOPs) / 数据量 (Bytes)
 ```
 
@@ -744,7 +744,7 @@ Table: autocast 对三类算子的处理
 
 第二篇讲过 stride 和连续性。对 memory-bound 的 Kernel，访存模式直接决定实际带宽：warp 内相邻线程访问相邻地址才能合并成整扇区，跨 stride 的访问浪费带宽。但"非连续就慢"是一个常见的误解——TensorIterator 会**按物理布局重排遍历顺序**（第五篇），一个转置 view 单独参与运算时，输出会按同样的 stride 分配，遍历仍然沿着内存连续方向走，速度与连续情形相当。真正吃亏的是**多个输入布局互相打架**的情形：
 
-```python
+```python title="单输入转置不慢，多输入布局打架才慢"
 x = torch.randn(4096, 4096, device="cuda")
 y = x.t()                    # view，非连续
 z = y + 1                    # 单输入：TensorIterator 沿 y 的物理布局遍历，输出也按该布局分配，不慢
@@ -804,7 +804,7 @@ Table: 同一次同步在三种场景下的代价
 
 同步的代价与频率成正比。把每步的 `loss` 留在 GPU 上累加，每 N 步 `.item()` 一次：
 
-```python
+```python title="loss 留在 GPU 上累加，每 N 步 .item() 一次"
 running = torch.zeros((), device="cuda")
 for step, batch in enumerate(loader, start=1):
     loss = train_step(batch)
@@ -822,7 +822,7 @@ if step % 100:                                # 收尾：不足 100 步的余数
 
 Host 到 Device 的传输默认是同步的：CPU 发起拷贝后等它完成。让它异步需要两个条件：源内存是 **pinned memory**（页锁定，不会被操作系统换出，GPU 的 DMA 引擎可以直接读），且调用时指定 `non_blocking=True`：
 
-```python
+```python title="pin_memory 加 non_blocking 的异步拷贝"
 loader = DataLoader(dataset, batch_size=64, pin_memory=True, num_workers=4)
 for batch in loader:
     batch = batch.to("cuda", non_blocking=True)     # 拷贝在传输引擎上进行，CPU 不等
@@ -835,7 +835,7 @@ for batch in loader:
 
 `non_blocking` 让 CPU 不等拷贝，但拷贝仍在默认 Stream 上排队，与计算 Kernel 串行。要让传输与计算真正并发，需要把它们放到不同的 Stream：
 
-```python
+```python title="用独立 copy_stream 重叠传输与计算"
 copy_stream = torch.cuda.Stream()
 compute_stream = torch.cuda.current_stream()
 
@@ -887,7 +887,7 @@ sequenceDiagram
 
 `tensor[mask]`、`torch.nonzero`、`torch.unique` 的同步来自输出 shape 未知：CPU 必须等 GPU 算出有多少个元素，才能分配输出。这类同步无法用异步手段消除，只能改写算法让 shape 固定：
 
-```python
+```python title="tensor[mask] 的同步与固定 shape 的改写"
 # 同步：输出长度取决于 mask 中 True 的个数
 selected = x[mask]
 loss = selected.pow(2).mean()
@@ -902,7 +902,7 @@ loss = torch.where(mask, x.pow(2), 0.0).sum() / mask.sum()
 
 前四条处方针对已知的同步点。未知的同步点用调试模式找：
 
-```python
+```python title="set_sync_debug_mode 找出隐式同步"
 torch.cuda.set_sync_debug_mode("warn")     # 每次隐式同步打印警告和 Python 调用栈
 # 或 "error"：直接抛异常，用于 CI 中确保热路径无同步
 ```
@@ -945,7 +945,7 @@ torch.cuda.set_sync_debug_mode("warn")     # 每次隐式同步打印警告和 P
 
 以 Adam 为例，每个参数的静态占用，取两种常见 recipe：
 
-```text
+```text title="Adam 下每个参数的静态占用：三种 recipe"
 纯 fp32                    fp32 参数 4 + fp32 梯度 4 + m 4 + v 4                 = 16 B/参数
 PyTorch 原生 autocast      fp32 参数 4 + fp32 梯度 4 + m 4 + v 4                 = 16 B/参数
                            （参数 leaf 仍是 fp32，autocast 只在算子内部临时转 bf16；.grad 也是 fp32）
@@ -958,7 +958,7 @@ Megatron 式 bf16 主流程    bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 
 
 `cudaMalloc` / `cudaFree` 很慢（微秒到毫秒级，且 `cudaFree` 隐式同步）。PyTorch 的 CUDA Caching Allocator 在中间加了一层：向驱动申请大块（Segment），切成 Block 分配给 Tensor；Tensor 释放时 Block 回到缓存池，不还给驱动。
 
-```python
+```python title="Caching Allocator 的四个查询接口"
 torch.cuda.memory_allocated()       # 当前 Tensor 实际占用
 torch.cuda.memory_reserved()        # 已向驱动申请的总量（allocated + 缓存中的空闲 Block）
 torch.cuda.max_memory_allocated()   # 峰值，OOM 分析的关键数字
@@ -971,7 +971,7 @@ torch.cuda.reset_peak_memory_stats()
 
 缓存池中的空闲 Block 可能总量足够但没有一块连续的足够大：
 
-```text
+```text title="碎片：空闲总量够但无连续块"
 Segment: [  已用 1MB  ][ 空闲 3MB ][  已用 1MB  ][ 空闲 3MB ]
 请求 5MB → 空闲总量 6MB，但无连续 5MB → 向驱动申请新 Segment → 可能 OOM
 ```
@@ -984,7 +984,7 @@ OOM 报错信息里能直接看到这个状态：
 
 "reserved but unallocated" 接近 8 GB 是碎片的**线索**而不是证明：这个数还包含刚释放、等着下一步复用的正常缓存，以及峰值过后留下的空闲块。判断办法是看它在稳态里是否持续偏大、且 OOM 时请求的大小小于空闲总量——那才是"有空间但不连续"。下面把一个 Segment 内部画出来（1 MB = 2 格），并标出两种常见"处方"各自作用在哪一层：
 
-```text
+```text title="一个 20 MB Segment 内部的碎片与两种处方"
 一个 20 MB 的 Segment（reserved 20 MB，allocated 11 MB，空闲 9 MB）
 
 ┌────────┬──────┬──────────┬──────┬────┬──────┐
@@ -1023,7 +1023,7 @@ empty_cache()              只把"整块全空"的 Segment 还给驱动；
 
 用 memory snapshot 精确定位：
 
-```python
+```python title="memory snapshot 定位峰值"
 torch.cuda.memory._record_memory_history(max_entries=100000)
 train_step()
 torch.cuda.memory._dump_snapshot("snapshot.pickle")
@@ -1035,7 +1035,7 @@ torch.cuda.memory._dump_snapshot("snapshot.pickle")
 
 `allocated` 随 step 单调增长，常见原因都是**无意中持有了计算图**：
 
-```python
+```python title="total_loss 累加的三种写法"
 total_loss += loss            # loss 带 grad_fn，整张图被引用，激活值无法释放
 total_loss += loss.item()     # 正确，但是同步点（第七章）
 total_loss += loss.detach()   # 正确且不同步
@@ -1047,7 +1047,7 @@ total_loss += loss.detach()   # 正确且不同步
 
 激活值占用 ∝ 层数。Activation Checkpointing 只保存部分层的输入，反向时重新计算这段前向：
 
-```python
+```python title="checkpoint 包住一个 transformer_block"
 from torch.utils.checkpoint import checkpoint
 
 y = checkpoint(transformer_block, x, use_reentrant=False)
@@ -1115,7 +1115,7 @@ flowchart TB
 
 一个标准的 Transformer block（Pre-LN）：
 
-```python
+```python title="Block：标准的 Pre-LN Transformer block"
 class Block(nn.Module):
     def __init__(self, d=512, heads=8):
         super().__init__()
@@ -1150,7 +1150,7 @@ model = nn.Sequential(*[Block() for _ in range(12)]).cuda()
 
 ### 2. 基线与正确性测试
 
-```python
+```python title="step 函数与正确性测试"
 def step(model, x):
     loss = model(x).float().pow(2).mean()
     loss.backward()
@@ -1166,13 +1166,13 @@ t = benchmark.Timer(stmt="step(model, x)", globals={...})
 print(t.blocked_autorange(min_run_time=5))
 ```
 
-```text
+```text title="基线：batch=8 fp32 eager"
 基线  batch=8   fp32   eager        step: 48.2 ms      吞吐: 166 samples/s     峰值显存: 3.1 GB
 ```
 
 ### 3. 第一轮：采集与归类
 
-```text
+```text title="第一轮 Profiler 归类：GPU 只忙 44%"
 Profiler 表格
   Self CUDA total: 21 ms / step          ← GPU 只忙了 44%
   cudaLaunchKernel: 2100 次 / step       ← 平均 12 µs CPU 成本，共 25 ms
@@ -1187,13 +1187,13 @@ Profiler 表格
 
 最直接的处方。显存有余量（3.1 GB），把 batch 提到 64：
 
-```text
+```text title="修改一 batch=64：吞吐 3.3 倍"
 batch=64  fp32   eager        step: 118 ms       吞吐: 542 samples/s     峰值显存: 19.6 GB
 ```
 
 吞吐提升 3.3 倍。再看 Profiler：
 
-```text
+```text title="batch=64 后的 Profiler：矩阵乘主导"
   Self CUDA total: 112 ms / step         ← GPU 忙 95%
   aten::mm: 68 ms（61%）                 ← 矩阵乘主导
   aten::softmax + aten::_softmax_backward_data: 14 ms
@@ -1206,11 +1206,11 @@ batch=64  fp32   eager        step: 118 ms       吞吐: 542 samples/s     峰�
 
 矩阵乘 compute-bound，fp32 只能用 19.5 TFLOPs 的算力。切到 bf16 autocast：
 
-```text
+```text title="修改二 bf16 autocast：吞吐 1255 samples/s"
 batch=64  bf16   eager        step: 51 ms        吞吐: 1255 samples/s    峰值显存: 12.8 GB
 ```
 
-```text
+```text title="bf16 后的 Profiler：Tensor Core 与新出现的 cast"
   aten::mm: 21 ms（Tensor Core，约 3 倍）
   逐元素与归约: 13 ms（数据量减半）
   aten::_to_copy: 4 ms                   ← 新出现：autocast 的 cast Kernel
@@ -1222,7 +1222,7 @@ batch=64  bf16   eager        step: 51 ms        吞吐: 1255 samples/s    峰�
 
 剩余时间里逐元素算子链（LayerNorm → 残差 → GeLU → cast）仍是一串独立的 memory-bound Kernel。交给 Inductor 融合：
 
-```text
+```text title="修改三 torch.compile：吞吐 1684 samples/s"
 batch=64  bf16   compile      step: 38 ms        吞吐: 1684 samples/s    峰值显存: 11.9 GB
                               首次调用: 47 s（冷编译）
 ```
@@ -1240,14 +1240,14 @@ Profiler 里 `softmax` 及其反向仍占 8 ms，且 memory snapshot 显示峰�
 
 换成融合的 `scaled_dot_product_attention`：
 
-```python
+```python title="attention 换成 scaled_dot_product_attention"
 def attention(self, x):
     ...
     y = F.scaled_dot_product_attention(q, k, v)      # 内部选择 FlashAttention 等融合实现
     ...
 ```
 
-```text
+```text title="修改四 sdpa：吞吐 2207 samples/s"
 batch=64  bf16   compile+sdpa step: 29 ms        吞吐: 2207 samples/s    峰值显存: 8.4 GB
 ```
 
@@ -1257,7 +1257,7 @@ score 矩阵不再物化，显存降 3.5 GB，时间降 9 ms。这是编译器�
 
 峰值显存降到 8.4 GB 后，可以考虑用 checkpointing 换更大的 batch：
 
-```text
+```text title="第二轮：checkpoint 换更大 batch 的结果"
 batch=64  + checkpoint 每个 Block   step: 36 ms    峰值显存: 4.1 GB
 batch=128 + checkpoint 每个 Block   step: 68 ms    吞吐: 1882 samples/s    峰值显存: 7.6 GB
 ```
@@ -1299,7 +1299,7 @@ Table: 优化报告：每项改动的收益与转移的成本
 
 ### 1. 异步与测量：`CompletableFuture`
 
-```java
+```java title="Java 里的同一误读：CompletableFuture 测的是提交"
 long start = System.nanoTime();
 CompletableFuture<Result> f = executor.submit(task);   // 立即返回
 long elapsed = System.nanoTime() - start;              // 测的是提交，不是执行

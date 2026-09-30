@@ -17,7 +17,7 @@ catalog: true
 
 一个典型例子。PyTorch 的 `at::Tensor` 在 Python 侧看起来是一个普通对象，但它的 C++ 定义大致是：
 
-```cpp
+```cpp title="TensorBase 的 C++ 定义只有一个 impl_ 成员"
 class TensorBase {
  protected:
   c10::intrusive_ptr<TensorImpl, UndefinedTensorImpl> impl_;
@@ -64,7 +64,7 @@ Table: 核心项目的 Python 层与 C++ 层目录
 
 PyTorch 的 C++ 扩展文档和大多数教程，会直接给出这样的代码：
 
-```cpp
+```cpp title="scale_shift_cpu：一个典型的 PyTorch C++ 扩展算子"
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
   TORCH_CHECK(x.is_floating_point(), "expected floating point tensor");
   auto x_c = x.contiguous();
@@ -458,7 +458,7 @@ mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](h
 
 读完这套系列之后，读者应该能够回到开篇的那段代码：
 
-```cpp
+```cpp title="读完系列后应能读懂的同一段 scale_shift_cpu"
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
   TORCH_CHECK(x.is_floating_point(), "expected floating point tensor");
   auto x_c = x.contiguous();

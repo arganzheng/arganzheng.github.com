@@ -81,7 +81,7 @@ Table: 一维 K-Means 手算三轮
 
 ![四张图：初始化时三个随机挑的中心（黑叉）两个落在同一团点里；第 1 步分配后一个中心被拉到两团之间；第 2 步三个中心各自靠近一团；第 6 步收敛，三个中心分别停在三团点的中央](/img/in-post/classical-ml-07-kmeans-iterations.svg)
 
-```text
+```text title="K-Means 6 步收敛的簇内平方和"
 6 步收敛；每步的簇内平方和： 10665 3594 841 320
 ```
 
@@ -89,7 +89,7 @@ Table: 一维 K-Means 手算三轮
 
 ### 2. 十二行实现
 
-```python
+```python title="kmeans：十二行实现"
 def kmeans(X, k, n_iter=100, seed=0):
     rng = np.random.default_rng(seed)
     centers = X[rng.choice(len(X), k, replace=False)]                     # ① 初始化：随机挑 k 个点当中心
@@ -109,7 +109,7 @@ def kmeans(X, k, n_iter=100, seed=0):
 
 在一份真实有 6 簇、3000 个点的数据上，跑 10 个 seed 取簇内平方和最小的：
 
-```text
+```text title="手写 K-Means 与 sklearn 的结果"
 手写（10 个 seed 取簇内平方和最小）：inertia 7281，ARI 0.762
 sklearn KMeans(6, n_init=10)：       inertia 7281，ARI 0.761
 每簇样本数 [569, 500, 504, 500, 459, 468]
@@ -151,7 +151,7 @@ Table: 不同 k 下的簇内平方和与轮廓系数
 
 ![直方图：随机初始化的 50 次结果（灰）大部分落在最优值 7281 附近，但有一条长尾拖到 16541——两倍于最优；k-means++（红）全部集中在 7281–7861 之间](/img/in-post/classical-ml-07-init-kmeanspp.svg)
 
-```text
+```text title="随机初始化与 k-means++ 的 50 个 seed 对照"
 50 个 seed：随机初始化的簇内平方和 中位数 7285，最差 16541，落到最优（≈7281）的比例 64%
          k-means++            中位数 7292，最差 7861，落到最优的比例 66%
 ```
@@ -170,7 +170,7 @@ K-Means 用"到中心的欧氏距离"分配，等于假设**簇是球形的、�
 
 ![左：两个月牙上 K-Means k = 2 的结果——一条直线把两个月牙各切一半，两个中心（黑叉）落在月牙之间，ARI 0.25；中：DBSCAN 沿密度把两个月牙完整分开，ARI 1.00；右：200 个点加 8 个离群点上 DBSCAN 的三种点——190 个核心点（实心蓝）、10 个边界点（空心橙）、8 个噪声（黑叉）](/img/in-post/classical-ml-07-kmeans-vs-dbscan.svg)
 
-```text
+```text title="月牙数据：K-Means 与 DBSCAN 的 ARI"
 K-Means k=2:  ARI 0.255（球形假设不成立，一刀切在中间）
 DBSCAN(eps=0.15, min_samples=8): ARI 1.000，2 簇 + 0 个噪声点
 ```
@@ -198,7 +198,7 @@ $$\varepsilon$$ 太小，月牙碎成 8 段、167 个点被当成噪声；合适
 
 ![左：30 个点分成三团、编了号；右：树状图——叶子是 30 个点，每次合并画一条横线、高度是合并时两簇的距离，最下面密密麻麻的小合并、最上面三次大合并，一条红色虚线在倒数第二次合并之上横切，切出 3 个分支](/img/in-post/classical-ml-07-hierarchical-dendrogram.svg)
 
-```text
+```text title="Ward 层次聚类的最后三次合并距离"
 30 个点、Ward 链接：最后三次合并的距离 [5.01, 22.13, 54.12]——最后一次跳得很大 → 切成 3 簇；ARI 1.000
 ```
 
@@ -225,7 +225,7 @@ flowchart LR
 
 78 句话：6 个主题（体育、编程、烹饪、金融、天气、医学）各 12 句，外加 6 句同一个模板换几个数字的文本（模拟爬虫抓到的模板页）。把每句话过一遍 Qwen2.5-0.5B，取最后一层隐状态对 token 做平均，得到 896 维的句向量：
 
-```python
+```python title="Qwen2.5-0.5B 句向量的 mean pooling 与聚类"
 h = model(**batch).last_hidden_state                          # [batch, T, 896]：每个 token 一个向量
 m = batch["attention_mask"][..., None].float()
 E = (h * m).sum(1) / m.sum(1)                                   # mean pooling：对真实 token 取平均 → 每句一个向量
@@ -291,7 +291,7 @@ flowchart TB
 
 三列都是长尾（M 中位数 £670、最大 £280,206），直接算欧氏距离会被几个大客户主导——先 `log1p` 再标准化（第二章的"必须标准化"在真实数据上的样子）。
 
-```python
+```python title="RFM：清洗与聚合"
 df = raw[raw.customer_id.notna() & (raw.quantity > 0) & ~raw.invoice.str.startswith("C")]
 now = df.invoice_date.max() + pd.Timedelta(days=1)
 rfm = df.groupby("customer_id").agg(R=("invoice_date", lambda d: (now - d.max()).days),   # 最近一次距今几天
@@ -328,7 +328,7 @@ Table: 4,338 个客户的四群画像
 
 **思路与代码**：每个像素是 RGB 空间里的一个点，K-Means 找 $$k$$ 个簇中心（"代表色"），每个像素换成离它最近的代表色。拟合只用随机抽的 1 万个像素就够：
 
-```python
+```python title="颜色量化：16 色 K-Means"
 img = load_sample_image("china.jpg")                  # [427, 640, 3]，scikit-learn 自带的示例图
 pixels = img.reshape(-1, 3) / 255                     # 273,280 个三维的点
 km = KMeans(16, n_init=4, random_state=0).fit(pixels[rng.choice(len(pixels), 10000)])

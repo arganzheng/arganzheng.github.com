@@ -59,7 +59,7 @@ Triton 把 layout 作为 `RankedTensorType` 的 encoding（上上篇 §八.2）�
 
 TTGIR 文件头：
 
-```mlir
+```mlir title="TTGIR 的模块属性"
 module attributes {"ttg.num-ctas" = 1 : i32, "ttg.num-warps" = 4 : i32, ttg.target = "cuda:80", "ttg.threads-per-warp" = 32 : i32} {
 ```
 
@@ -71,7 +71,7 @@ Triton 的 layout 分两族：**分布式**（distributed，张量在寄存器�
 
 ### 1. `#blocked`
 
-```text
+```text title="一个 #blocked layout"
 #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [8, 4], warpsPerCTA = [4, 1], order = [1, 0]}>
 ```
 
@@ -79,11 +79,11 @@ Triton 的 layout 分两族：**分布式**（distributed，张量在寄存器�
 
 用 `triton-tensor-layout` 看一个小例子（`T<线程号>:<寄存器号>`）：
 
-```bash
+```bash title="用 triton-tensor-layout 看小例子"
 triton-tensor-layout -l "#ttg.blocked<{sizePerThread=[1,2], threadsPerWarp=[4,8], warpsPerCTA=[2,1], order=[1,0]}>" -t "tensor<8x16xf32>"
 ```
 
-```text
+```text title="triton-tensor-layout 的输出"
 [[ T0:0,  T0:1,  T1:0,  T1:1,  T2:0,  T2:1,  T3:0,  T3:1,  T4:0,  T4:1,  T5:0,  T5:1,  T6:0,  T6:1,  T7:0,  T7:1]
 [  T8:0,  T8:1,  T9:0,  T9:1, T10:0, T10:1, T11:0, T11:1, T12:0, T12:1, T13:0, T13:1, T14:0, T14:1, T15:0, T15:1]
 [ T16:0, T16:1, T17:0, T17:1, T18:0, T18:1, T19:0, T19:1, T20:0, T20:1, T21:0, T21:1, T22:0, T22:1, T23:0, T23:1]
@@ -96,7 +96,7 @@ triton-tensor-layout -l "#ttg.blocked<{sizePerThread=[1,2], threadsPerWarp=[4,8]
 
 读法：每个线程 2 个连续元素（`T0:0, T0:1`）；一个 warp 的 32 个线程排成 4 行 × 8 个线程 = 4 行 × 16 列；第二个 warp（T32 起）接着排下 4 行。`--use-hw-view` 从硬件角度打印同一个 layout——每个 warp 每个寄存器一行，32 个 lane 各持有的下标：
 
-```text
+```text title="--use-hw-view 的输出"
 Warp0:
 (0, 0), (0, 2), (0, 4), ..., (0,14), (1, 0), (1, 2), ..., (3,14)     ← 寄存器 0：lane 0..31
 (0, 1), (0, 3), (0, 5), ..., (0,15), (1, 1), (1, 3), ..., (3,15)     ← 寄存器 1
@@ -108,7 +108,7 @@ Warp0:
 
 四个参数里通常只有两个是"选择"，另两个是推出来的。`BlockedEncodingAttr::get(ctx, shape, sizePerThread, order, numWarps, threadsPerWarp, cga)` 这个 builder（`TritonGPUAttrDefs.td` 里的 `AttrBuilder`）从 shape 推 `threadsPerWarp` 与 `warpsPerCTA`：
 
-```cpp
+```cpp title="AttrBuilder 从 shape 推 threadsPerWarp 与 warpsPerCTA"
 unsigned remainingLanes = numThreadsPerWarp;        // 32
 unsigned remainingThreads = numWarps * numThreadsPerWarp;   // 128
 unsigned remainingWarps = numWarps;                 // 4
@@ -139,13 +139,13 @@ Linear Layout 用一个词统一这两种情况：layout 是**非单射**的（�
 
 ### 4. `#slice`
 
-```text
+```text title="一个 #slice layout"
 #ttg.slice<{dim = 1, parent = #blocked}>
 ```
 
 `tt.reduce`（沿 dim 规约）的结果比输入少一维。它的 layout 是什么？Triton 不另选一个，而是**从父 layout 去掉那一维**：`#slice<{dim = 1, parent = P}>` 作用在 `[128]` 上，等价于把 P 作用在 `[128, ?]` 上再把第 1 维压掉——原来一行里的所有线程现在持有**同一个**元素（复制）。`TritonGPUAttrDefs.td` 里的例子：
 
-```text
+```text title="#slice 从父 layout 去掉一维"
 父 layout（16 个线程排成 4×4）：      dim = 0 压掉行：              dim = 1 压掉列：
 [ 0  1  2  3 ]                     [{0,4,8,12} {1,5,9,13}      [{0,1,2,3} {4,5,6,7}
 [ 4  5  6  7 ]          →           {2,6,10,14} {3,7,11,15}]     {8,9,10,11} {12,13,14,15}]
@@ -157,13 +157,13 @@ Linear Layout 用一个词统一这两种情况：layout 是**非单射**的（�
 
 ### 5. `#nvidia_mma`
 
-```text
+```text title="一个 #nvidia_mma layout"
 #ttg.nvidia_mma<{versionMajor = 2, versionMinor = 0, warpsPerCTA = [2, 2], instrShape = [16, 8]}>
 ```
 
 Tensor Core 指令的**输出**在寄存器里的固定布局。`versionMajor = 2` 是 Ampere 的 `mma.sync`（1 是 Volta，3 是 Hopper 的 `wgmma`，5 是 Blackwell 的 `tcgen05`），`instrShape = [16, 8]` 是一条 `mma.m16n8k16` 的 C 矩阵形状，`warpsPerCTA = [2, 2]` 是 4 个 warp 在 M × N 上的排布。一个 warp 的一条 `m16n8` 指令输出的 `[16, 8]` f32 累加器，在 32 个 lane 上的分布：
 
-```text
+```text title="m16n8 累加器在 32 个 lane 上的分布"
 [[ T0:0,  T0:1,  T1:0,  T1:1,  T2:0,  T2:1,  T3:0,  T3:1]      ← 行 0：lane 0..3 各持 2 个相邻列
 [  T4:0,  T4:1,  T5:0,  T5:1,  T6:0,  T6:1,  T7:0,  T7:1]      ← 行 1：lane 4..7
 ...
@@ -177,7 +177,7 @@ lane t 持有 `(t / 4, (t % 4) × 2 + {0, 1})` 和 `(t / 4 + 8, …)`——这�
 
 ### 6. `#dot_op`
 
-```text
+```text title="一个 #dot_op layout"
 #ttg.dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>
 ```
 
@@ -195,7 +195,7 @@ GF(2) 是只有 `{0, 1}` 两个元素的域，加法是 XOR（⊕），乘法是
 
 为什么 layout 是线性的？看 `#blocked`：lane 号的第 k 位决定的是"沿某一维偏移 `2^j` 个元素"，warp 号的每一位、寄存器号的每一位同理；两个位同时为 1 就是两个偏移相加——对 2 的幂对齐的偏移，相加就是 XOR。所以**硬件位置的每一位独立地贡献张量下标的某一位**，这正是线性。`LinearLayout.h` 里的例子：一个 4 warp × 4 线程、`4 × 4` 张量的 layout，只需指定四个基向量
 
-```text
+```text title="LinearLayout.h 里的四个基向量"
 L(t=1, w=0) = (1, 1)    L(t=2, w=0) = (2, 2)    L(t=0, w=1) = (0, 1)    L(t=0, w=2) = (0, 2)
 ```
 
@@ -203,7 +203,7 @@ L(t=1, w=0) = (1, 1)    L(t=2, w=0) = (2, 2)    L(t=0, w=1) = (0, 1)    L(t=0, w
 
 LL 的数据结构（`LinearLayout` 类）：
 
-```cpp
+```cpp title="LinearLayout 的数据结构"
 // bases[inDim][i] = L(0, ..., inDim = 2^i, ..., 0)
 llvm::MapVector<StringAttr /*inDim*/, std::vector<std::vector<int32_t>>> bases;
 llvm::MapVector<StringAttr /*outDim*/, int32_t /*size*/> outDims;
@@ -259,7 +259,7 @@ Table: 同一张量 #nvidia_mma 的基向量表
 
 ### 4. `#blocked` 怎样变成 LL
 
-```cpp
+```cpp title="BlockedEncodingAttr::toLinearLayout"
 LinearLayout BlockedEncodingAttr::toLinearLayout(ArrayRef<int64_t> shape) const {
   auto order = getOrder();
   LinearLayout ctaLayout =
@@ -274,7 +274,7 @@ LinearLayout BlockedEncodingAttr::toLinearLayout(ArrayRef<int64_t> shape) const 
 
 LL 也有自己的属性写法 `#ttg.linear`，就是把基向量表直接写出来。lit 测试 `test/TritonGPU/combine.mlir` 里的一个：
 
-```text
+```text title="一个 #ttg.linear 属性"
 #linear = #ttg.linear<{register = [[0, 1], [0, 2], [0, 4], [0, 8], [0, 16]],
                        lane = [[1, 0], [2, 0], [4, 0], [8, 0], [0, 32]],
                        warp = [[16, 0], [32, 0]], block = []}>
@@ -304,7 +304,7 @@ Table: linear layout 上的运算
 
 `ttg.convert_layout %x : #A -> #B` 生成什么代码，由 `lib/Analysis/Utility.cpp` 的三个函数决定，它们只看 LL：
 
-```cpp
+```cpp title="minimalCvtLayout：判定转换代价"
 LinearLayout minimalCvtLayout(Type srcTy, Type dstTy) {
   LinearLayout srcLayout = toLinearLayout(srcTy);
   LinearLayout dstLayout = toLinearLayout(dstTy);
@@ -336,7 +336,7 @@ bool cvtNeedsSharedMemory(src, dst) { 两者都不是 }                    // �
 
 第四篇 §四.4 讲了这个 pass 的 Dialect Conversion 骨架。TypeConverter 对每个无 encoding 的张量调：
 
-```cpp
+```cpp title="getDefaultBlockedEncoding"
 BlockedEncodingAttr getDefaultBlockedEncoding(ctx, shape, numWarps, threadsPerWarp, numCTAs) {
   order = reverse(0..rank-1);           // 最后一维最快：行优先
   sizePerThread = 全 1;                 // 每线程 1 个元素
@@ -361,7 +361,7 @@ Table: matmul 各 shape 的默认 layout
 
 转换后的 IR 里出现了默认 layout 之外的东西：
 
-```mlir
+```mlir title="转换后出现的 #slice"
 %offs_m_1 = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32, #ttg.slice<{dim = 1, parent = #blocked}>>
 %a_ptrs   = tt.expand_dims %offs_m_2 {axis = 1 : i32} : tensor<128xi32, #ttg.slice<{dim = 1, parent = #blocked}>> -> tensor<128x1xi32, #blocked>
 ```
@@ -400,7 +400,7 @@ flowchart TB
 
 `triton-opt after_convert.ttgir --tritongpu-coalesce` 之后循环体：
 
-```mlir
+```mlir title="Coalesce 之后的循环体"
 %59 = ttg.convert_layout %arg10 : tensor<128x32x!tt.ptr<bf16>, #blocked1> -> tensor<128x32x!tt.ptr<bf16>, #blocked6>   // ① 指针转到 coalesced layout
 %60 = tt.load %59 : tensor<128x32x!tt.ptr<bf16>, #blocked6>                                                             // ② load 在新 layout 上
 %61 = ttg.convert_layout %60 : tensor<128x32xbf16, #blocked6> -> tensor<128x32xbf16, #blocked1>                        // ③ 结果转回去
@@ -420,13 +420,13 @@ Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后�
 
 ### 1. `#swizzled_shared`
 
-```text
+```text title="一个 #swizzled_shared layout"
 #ttg.swizzled_shared<{vec = 8, perPhase = 2, maxPhase = 4, order = [1, 0]}>
 ```
 
 张量在 shared memory 里时，layout 描述的是**下标 → 字节偏移**（LL 里输入维叫 `offset`）。行优先直接放会有 bank conflict：`ldmatrix` 读一个 8 × 8 的子块时，8 行的同一列落在同一个 bank。解决是 **XOR swizzle**：第 r 行的元素以 `vec` 个为一组，组号与 `(r / perPhase) % maxPhase` 做 XOR 后再放。`TritonGPUAttrDefs.td` 里的例子（`vec = 1, perPhase = 1, maxPhase = 4`）：
 
-```text
+```text title="XOR swizzle 的例子"
 [ 0,  1,  2,  3]   // 行 0：XOR 0
 [ 5,  4,  7,  6]   // 行 1：XOR 1
 [10, 11,  8,  9]   // 行 2：XOR 2

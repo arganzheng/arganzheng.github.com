@@ -178,7 +178,7 @@ FlashAttention 下每层的激活随 $$N$$ 线性：10 份 $$[N, d]$$ 的 bf16 �
 
 稀疏化的依据是稠密 attention 的分数矩阵实际上有结构。视频 DiT 里观察到的三种：
 
-```text
+```text title="视频 DiT 稠密 attention 的三种结构"
 （a）spatial head：分数集中在对角线附近的块        （b）temporal head：分数集中在等间距的斜线
      （同一帧内的 token 互相看）                         （跨帧同一空间位置的 token 互相看）
      帧1  帧2  帧3  帧4                                  帧1  帧2  帧3  帧4

@@ -12,7 +12,7 @@ updated: 2026-09-14
 
 这一篇把视角从单个算子拉远到**一段程序**。当我们写下：
 
-```python
+```python title="贯穿全文的函数 f"
 def f(x, weight, bias):
     y = x @ weight + bias
     if x.shape[0] > 64:
@@ -36,7 +36,7 @@ compiled_f = torch.compile(f)
 
 第五篇建立的模型是：每个算子独立经过 **入口 → 分发 → 执行**。对 `f` 而言，当 `x` 是 `[128, 32]` 时，Eager 模式下一次前向是：
 
-```text
+```text title="Eager 模式下 f 的一次前向：四步各自独立"
 x @ weight          → Python 调用 → Dispatcher → matmul Kernel → 中间 Tensor t1
 t1 + bias           → Python 调用 → Dispatcher → add Kernel    → 中间 Tensor y
 x.shape[0] > 64     → Python 比较，得到 True
@@ -80,7 +80,7 @@ Table: torch.compile 的前端、中端、后端
 
 上表的"输入 / 输出"两列里反复出现同一个名字。三段之间传递的是**同一种数据结构**：`torch.fx.Graph`。前端产出它，中端消费并再次产出它，后端消费它。
 
-```text
+```text title="三段之间传递的都是 FX Graph"
 Python 字节码 ──前端──▶ FX Graph（torch 级） ──中端──▶ FX Graph（ATen 级）× 2 ──后端──▶ Triton / C++
 ```
 
@@ -94,7 +94,7 @@ FX Graph 的设计非常克制：它只规定"程序是一串对 Tensor 的操�
 
 三段式描述的是编译器**运行一次**做什么。但 `torch.compile` 的编译不是一个发生在固定时刻的静态步骤。先区分三个事件：
 
-```python
+```python title="包装、首次调用、命中缓存、重编译：三个事件"
 compiled_f = torch.compile(f)      # 事件 A：包装。什么都不发生，不是"编译"
 y = compiled_f(x1, weight, bias)   # 事件 B：调用。第一次 → 运行编译器流水线，然后执行
 y = compiled_f(x2, weight, bias)   # 事件 B：调用。假设仍成立 → 直接执行，流水线不运行
@@ -156,7 +156,7 @@ Table: 编译器与运行时两个维度
 
 **"backend"**。`torch.compile` 有一个 `backend` 参数：
 
-```python
+```python title="torch.compile 的 backend 参数"
 torch.compile(f)                         # 等价于 backend="inductor"
 torch.compile(f, backend="eager")
 torch.compile(f, backend="aot_eager")
@@ -230,7 +230,7 @@ Table: torch.fx 的三个类
 
 直接对 `f` 使用它会失败：
 
-```python
+```python title="symbolic_trace 直接追踪 f：TraceError"
 import torch
 import torch.fx
 
@@ -240,7 +240,7 @@ gm = torch.fx.symbolic_trace(f)
 
 `x.shape[0]` 在追踪时也是一个 `Proxy`，Python 执行 `if` 需要它给出一个 `bool`，而 `Proxy` 给不出——它不知道自己代表的 Tensor 是什么 shape。这个失败是第三章的起点。此处为了先看清数据结构本身，暂时只追踪 `f` 里没有分支的直线部分：
 
-```python
+```python title="只追踪 f 的直线部分 f_body"
 def f_body(x, weight, bias):
     return torch.relu(x @ weight + bias)
 
@@ -248,7 +248,7 @@ gm = torch.fx.symbolic_trace(f_body)
 print(gm.graph)
 ```
 
-```text
+```text title="gm.graph 打印出的 FX Graph"
 graph():
     %x : [num_users=1] = placeholder[target=x]
     %weight : [num_users=1] = placeholder[target=weight]
@@ -261,7 +261,7 @@ graph():
 
 `gm.code` 是这张图生成回来的 Python：
 
-```python
+```python title="gm.code：从图生成回来的 Python"
 def forward(self, x, weight, bias):
     matmul = x @ weight;  x = weight = None
     add = matmul + bias;  matmul = bias = None
@@ -275,7 +275,7 @@ def forward(self, x, weight, bias):
 
 有了显式的图，就可以在执行前改写它。一个最小的 pass：把所有 `torch.relu` 替换为 `torch.nn.functional.gelu`：
 
-```python
+```python title="最小的 pass：把 relu 替换为 gelu"
 for node in gm.graph.nodes:
     if node.op == "call_function" and node.target is torch.relu:
         node.target = torch.nn.functional.gelu
@@ -371,7 +371,7 @@ FakeTensor 是第五篇 Meta Tensor 的扩展：只有 shape、stride、dtype �
 
 第一章说过，`backend` 参数决定 Dynamo 捕获完图之后交给谁。它除了接受 `"inductor"`、`"eager"`、`"aot_eager"` 这些内置名字，也接受任意一个函数：接收捕获到的 `GraphModule` 和示例输入，返回一个可调用对象。传一个只打印不优化的函数，就能直接观察 Dynamo 的图：
 
-```python
+```python title="print_backend：只打印不优化的自定义 backend"
 def print_backend(gm: torch.fx.GraphModule, example_inputs):
     gm.graph.print_tabular()
     return gm.forward          # 不做优化，原样返回；效果等同于 backend="eager"
@@ -385,7 +385,7 @@ torch.compile(f, backend=print_backend)(x, weight, bias)
 
 `symbolic_trace` 在这个函数上失败了，Dynamo 则成功，而且图里**只有被走到的那个分支**：
 
-```text
+```text title="Dynamo 捕获的图：只有被走到的分支"
 opcode         name       target                      args                 kwargs
 -------------  ---------  --------------------------  -------------------  --------
 placeholder    l_x_       L_x_                        ()                   {}
@@ -405,7 +405,7 @@ output         output     output                      ((relu,),)           {}
 
 这张图**只对 `x.shape[0] == 128` 正确**。换一个 batch 为 32 的输入，正确的程序应该走 `tanh`，而这张图会算 `relu`。所以 Dynamo 在捕获的同时记录了它依赖的假设，称为 Guard：
 
-```text
+```text title="Dynamo 记录的 Guard"
 L['x'].size()[0] == 128        # 以及 dtype、device、requires_grad 等，第六章展开
 ```
 
@@ -425,7 +425,7 @@ Table: symbolic_trace 与 Dynamo 的根本分歧
 
 ### 6. 两个时间点
 
-```python
+```python title="两个时间点：包装与第一次调用"
 compiled_f = torch.compile(f)     # 什么都没发生，只是包了一层
 y = compiled_f(x, weight, bias)   # 第一次调用：捕获 → 编译 → 执行
 ```
@@ -512,13 +512,13 @@ AOTAutograd 同时完成两件事，让图对后端更友好：
 
 编译栈的每一段都可以通过环境变量 `TORCH_LOGS` 打开日志，值是逗号分隔的日志类别名。本文后面会多次用到它，各段对应的类别在小结里汇总。查看 AOTAutograd 产出的两张图：
 
-```bash
+```bash title="TORCH_LOGS=aot_graphs 查看 AOTAutograd 的图"
 TORCH_LOGS="aot_graphs" python demo.py
 ```
 
 前向图（简化）：
 
-```python
+```python title="AOTAutograd 的前向图（简化）"
 def forward(self, primals_1, primals_2, primals_3):
     mm = torch.ops.aten.mm.default(primals_1, primals_2)
     add = torch.ops.aten.add.Tensor(mm, primals_3)
@@ -528,7 +528,7 @@ def forward(self, primals_1, primals_2, primals_3):
 
 反向图（简化）：
 
-```python
+```python title="AOTAutograd 的反向图（简化）"
 def forward(self, primals_1, primals_2, relu, tangents_1):
     threshold_backward = torch.ops.aten.threshold_backward.default(tangents_1, relu, 0)
     t = torch.ops.aten.t.default(primals_2)
@@ -623,13 +623,13 @@ Table: Eager 与 Inductor 对同一段代码的 Kernel 序列
 
 ### 4. 生成的代码长什么样
 
-```bash
+```bash title="TORCH_LOGS=output_code 查看生成代码"
 TORCH_LOGS="output_code" python demo.py
 ```
 
 前向的融合 Kernel（简化，Triton）：
 
-```python
+```python title="Inductor 生成的融合 Kernel（Triton，简化）"
 @triton.jit
 def triton_poi_fused_add_relu_0(in_out_ptr0, in_ptr0, xnumel, XBLOCK: tl.constexpr):
     xoffset = tl.program_id(0) * XBLOCK
@@ -647,7 +647,7 @@ def triton_poi_fused_add_relu_0(in_out_ptr0, in_ptr0, xnumel, XBLOCK: tl.constex
 
 调度代码：
 
-```python
+```python title="Inductor 生成的调度代码 call()"
 def call(args):
     primals_1, primals_2, primals_3 = args
     args.clear()
@@ -670,7 +670,7 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 
 把 `call()` 里的 buffer 生命周期画出来，可以看清"内存复用是静态决定的"这句话：三个逻辑中间值（`mm`、`add`、`relu` 的输出）最终只对应一次显存分配。
 
-```text
+```text title="call() 里 buffer 的生命周期：三个中间值一次分配"
 时间 →              extern mm        fused add_relu             return
                     |----------------|--------------------------|------>
 逻辑中间值
@@ -695,7 +695,7 @@ Triton 是一种用 Python 语法编写 GPU Kernel 的语言和编译器。与 C
 
 以一个长度 1024 的向量、`BLOCK = 256` 为例，两种模型的分工差别如下：
 
-```text
+```text title="CUDA 与 Triton 的分工：1024 元素、BLOCK=256"
 x[0..1023]，BLOCK = 256 → grid = 4 个 program，pid = tl.program_id(0)
 
   pid = 0          pid = 1          pid = 2          pid = 3
@@ -776,7 +776,7 @@ Table: 运行时的四个机制
 
 Dynamo 遇到无法符号化求值的代码时，不报错，而是**在此处切断图**：
 
-```text
+```text title="Graph Break：图被切成两段，中间 Eager 执行"
 图 1（编译）→ 无法捕获的 Python（Eager 执行）→ 图 2（编译）→ …
 ```
 
@@ -796,14 +796,14 @@ Table: Graph Break 的常见触发原因
 
 诊断工具：
 
-```python
+```python title="torch._dynamo.explain：数图的数量与 break 原因"
 explanation = torch._dynamo.explain(f)(x, weight, bias)
 print(explanation.graph_count, explanation.graph_break_count)
 for reason in explanation.break_reasons:
     print(reason)
 ```
 
-```bash
+```bash title="TORCH_LOGS=graph_breaks 查看 Graph Break"
 TORCH_LOGS="graph_breaks" python demo.py
 ```
 
@@ -817,7 +817,7 @@ TORCH_LOGS="graph_breaks" python demo.py
 
 Dynamo 捕获时做的每一个假设都被记录为 Guard。对 `f` 的第一次调用，Guard 大致包括：
 
-```text
+```text title="对 f 第一次调用记录的 Guard"
 L['x']       是 Tensor，dtype=float32，device=cuda:0，requires_grad=True，size=[128, 32]，stride=[32, 1]
 L['weight']  是 Tensor，dtype=float32，device=cuda:0，requires_grad=True，size=[32, 64]，stride=[64, 1]
 L['bias']    是 Tensor，dtype=float32，device=cuda:0，requires_grad=True，size=[64]，stride=[1]
@@ -834,11 +834,11 @@ torch.relu   仍然是同一个函数对象（没有被 monkey patch）
 
 一个函数可以积累多个缓存条目（默认上限 8，配置项名称随版本变化）。超过上限，Dynamo 放弃对这个函数的编译，回退 Eager。
 
-```bash
+```bash title="TORCH_LOGS=recompiles 查看重编译"
 TORCH_LOGS="recompiles" python demo.py
 ```
 
-```text
+```text title="recompiles 日志：size mismatch 触发重编译"
 Recompiling function f in demo.py:3
     triggered by the following guard failure(s):
     - tensor 'L['x']' size mismatch at index 0. expected 128, actual 256
@@ -854,7 +854,7 @@ Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64`
 
 默认策略是**自动动态**：
 
-```text
+```text title="自动动态：第二次调用把第 0 维标记为符号 s0"
 第一次调用   size=[128, 32]     → 静态编译，所有维度都是常量
 第二次调用   size=[256, 32]     → 第 0 维 Guard 失败
                                 → 重编译，但把第 0 维标记为符号 s0，其他维仍为常量
@@ -931,7 +931,7 @@ Table: 四个运行时机制在"假设成立 / 不成立"两种情况下的行�
 
 ### 1. 第一次调用：冷编译
 
-```python
+```python title="第一次调用：冷编译"
 compiled_f = torch.compile(f)
 y = compiled_f(x, weight, bias)       # x: [128, 32]
 ```
@@ -958,7 +958,7 @@ flowchart TB
 
 ### 2. 第二次调用：热路径
 
-```python
+```python title="第二次调用：同 shape 命中缓存"
 y = compiled_f(x2, weight, bias)      # x2: [128, 32]，同 shape
 ```
 
@@ -973,7 +973,7 @@ Dynamo、AOTAutograd、Inductor 都不再参与。相比 Eager 的三次分发�
 
 ### 3. 反向
 
-```python
+```python title="反向：y.sum().backward()"
 y.sum().backward()
 ```
 
@@ -983,7 +983,7 @@ y.sum().backward()
 
 ### 4. 第三次调用：shape 变化，同一分支
 
-```python
+```python title="第三次调用：shape 变化，同一分支"
 y = compiled_f(x3, weight, bias)      # x3: [256, 32]
 ```
 
@@ -999,7 +999,7 @@ y = compiled_f(x3, weight, bias)      # x3: [256, 32]
 
 ### 5. 第四次调用：走到另一条分支
 
-```python
+```python title="第四次调用：走到 tanh 分支"
 y = compiled_f(x4, weight, bias)      # x4: [32, 32]
 ```
 
@@ -1172,7 +1172,7 @@ Table: 四个运行时机制小结
 
 ### 2. `f` 经历了什么
 
-```text
+```text title="f 在前端、中端、后端、运行时各经历了什么"
 Python      y = x @ weight + bias; if x.shape[0] > 64: relu(y) else: tanh(y)
     ↓ 前端    if 用 FakeTensor 的 shape 特化掉，图里只剩 matmul → add → relu；Guard 记下 size[0] == 128
     ↓ 中端    降到 aten.mm / aten.add / aten.relu，反向图 threshold_backward → mm × 2 → sum；整体包成一个 grad_fn

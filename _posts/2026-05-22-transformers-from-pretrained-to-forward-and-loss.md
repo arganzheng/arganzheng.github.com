@@ -73,7 +73,7 @@ Table: 本文的章节安排
 
 `AutoModelForCausalLM` 本身没有 `__init__`，它是 `models/auto/auto_factory.py` 里 `_BaseAutoModelClass` 的子类，类属性 `_model_mapping` 指向一张表。`from_pretrained` 做的第一件事是把 `config.json` 读成配置对象：
 
-```python
+```python title="auto_factory.py：from_pretrained 先读 config 再查表"
 # models/auto/auto_factory.py  _BaseAutoModelClass.from_pretrained（节选）
 config, kwargs = AutoConfig.from_pretrained(pretrained_model_name_or_path, return_unused_kwargs=True, ...)
 ...
@@ -92,7 +92,7 @@ Table: Auto 类依赖的两张表
 
 `AutoModelForCausalLM`、`AutoModelForSequenceClassification`、`AutoModel` 各有自己的第二张表，第一张表共用。所以"一个 Hub 名字怎么变成一个类"只有一条链：**`config.json` → `model_type` → 配置类 → 查本任务头的表 → 模型类**。配套脚本打印这条链：
 
-```text
+```text title="配套脚本打印的 model_type → 模型类链"
 model_type qwen2 -> Qwen2ForCausalLM | config class Qwen2Config
 ```
 
@@ -114,7 +114,7 @@ model_type qwen2 -> Qwen2ForCausalLM | config class Qwen2Config
 
 接着是本文最值得记住的一段：
 
-```python
+```python title="modeling_utils.py：在 init context 里先搭骨架"
 # modeling_utils.py  PreTrainedModel.from_pretrained（节选）
 model_init_context = cls.get_init_context(dtype, is_quantized, _is_ds_init_called, allow_all_kernels)
 config = copy.deepcopy(config)
@@ -128,7 +128,7 @@ with ContextManagers(model_init_context):
 
 `_load_pretrained_model` 对每个 safetensors 文件调 `safe_open(file, framework="pt", device="cpu", backend="mmap")`，然后：
 
-```python
+```python title="safe_open 后按名字取 get_slice"
 for k in file_pointer.keys():
     merged_state_dict[k] = file_pointer.get_slice(k)  # don't materialize yet
 ```
@@ -176,7 +176,7 @@ Table: 结构图方框 → modeling_llama.py 里的类
 
 ### 2. RMSNorm：三行
 
-```python
+```python title="Qwen2RMSNorm.forward"
 def forward(self, hidden_states):
     input_dtype = hidden_states.dtype
     hidden_states = hidden_states.to(torch.float32)
@@ -189,7 +189,7 @@ def forward(self, hidden_states):
 
 ### 3. RoPE：算一次 cos / sin，每层用
 
-```python
+```python title="LlamaRotaryEmbedding：inv_freq 与 cos / sin"
 # LlamaRotaryEmbedding.compute_default_rope_parameters
 inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
 # LlamaRotaryEmbedding.forward
@@ -201,7 +201,7 @@ sin = emb.sin() * self.attention_scaling
 
 `inv_freq` 就是 [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html) 的 $$\theta_i = \text{base}^{-2i/d_h}$$——`dim = head_dim = 64`，所以 `inv_freq` 有 32 个数（配套脚本打印 `(32,)`，fp32 buffer）。`freqs = inv_freq ⊗ position_ids` 是每个位置每一对的角度 $$m\theta_i$$；`cat((freqs, freqs))` 把 32 个角度复制成 64 个，因为 transformers 的实现把 64 维**前后两半**配对（第 $$i$$ 维与第 $$i + 32$$ 维一对），而不是相邻两维配对——这决定了 `rotate_half` 的写法：
 
-```python
+```python title="rotate_half 与 apply_rotary_pos_emb"
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
@@ -218,7 +218,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
 
 ### 4. MLP：一行
 
-```python
+```python title="Qwen2MLP.forward：一行"
 def forward(self, x):
     return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 ```
@@ -227,7 +227,7 @@ SwiGLU：$$W_{down}\,(\text{SiLU}(W_{gate} x) \odot W_{up} x)$$。`act_fn = ACT2
 
 ### 5. DecoderLayer：pre-norm 的两条残差
 
-```python
+```python title="DecoderLayer.forward：两条残差"
 residual = hidden_states
 hidden_states = self.input_layernorm(hidden_states)
 hidden_states, _ = self.self_attn(hidden_states=hidden_states, ...)
@@ -244,7 +244,7 @@ hidden_states = residual + hidden_states
 
 ### 1. `LlamaAttention.forward`
 
-```python
+```python title="LlamaAttention.forward：投影、reshape、调用注册表"
 input_shape = hidden_states.shape[:-1]                  # [B, T]
 hidden_shape = (*input_shape, -1, self.head_dim)        # [B, T, h, d_h]
 query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)   # [B, h, T, d_h]
@@ -268,7 +268,7 @@ attn_output = self.o_proj(attn_output)
 
 `ALL_ATTENTION_FUNCTIONS` 是 `modeling_utils.py` 末尾的 `AttentionInterface`，一个字典：
 
-```python
+```python title="ALL_ATTENTION_FUNCTIONS 的 _global_mapping"
 _global_mapping = {
     "flash_attention_4": flash_attention_forward,
     "flash_attention_3": flash_attention_forward,
@@ -285,7 +285,7 @@ _global_mapping = {
 
 ### 3. eager 与 SDPA 各做什么
 
-```python
+```python title="eager_attention_forward 与 sdpa_attention_forward"
 # eager_attention_forward（modeling_llama.py）
 key_states = repeat_kv(key, module.num_key_value_groups)        # [B, 2, T, 64] → [B, 14, T, 64]
 value_states = repeat_kv(value, module.num_key_value_groups)
@@ -306,7 +306,7 @@ attn_output = attn_output.transpose(1, 2).contiguous()           # [B, T, h, d_h
 
 `LlamaModel.forward` 里 `causal_mask = create_causal_mask(config, inputs_embeds, attention_mask, past_key_values, position_ids)`（`masking_utils.py`）。它的核心是一个四参数的布尔函数：
 
-```python
+```python title="causal_mask_function"
 def causal_mask_function(batch_idx, head_idx, q_idx, kv_idx) -> bool:
     return kv_idx <= q_idx
 ```
@@ -319,7 +319,7 @@ def causal_mask_function(batch_idx, head_idx, q_idx, kv_idx) -> bool:
 
 `use_cache=True` 且没传 cache 时，`LlamaModel.forward` 建 `past_key_values = DynamicCache(config=self.config)`：每层一个 `DynamicLayer`，`update` 是全部秘密：
 
-```python
+```python title="DynamicLayer.update：一个 torch.cat"
 # cache_utils.py  DynamicLayer.update
 if not self.is_initialized:
     self.lazy_initialization(key_states, value_states)
@@ -332,7 +332,7 @@ return self.keys, self.values
 
 ### 2. `position_ids` 从 cache 长度来
 
-```python
+```python title="position_ids 从 past_seen_tokens 起算"
 past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
 position_ids = torch.arange(inputs_embeds.shape[1], device=...) + past_seen_tokens
 ```
@@ -347,7 +347,7 @@ decode 第 6 个 token 时 `position_ids = [5]`——RoPE 才知道它在第 5 �
 
 ### 1. `logits_to_keep`
 
-```python
+```python title="LlamaForCausalLM.forward：logits_to_keep 切片"
 # LlamaForCausalLM.forward
 hidden_states = outputs.last_hidden_state
 slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
@@ -365,7 +365,7 @@ if labels is not None:
 
 ### 3. `ForCausalLMLoss`：shift、`-100`、`num_items_in_batch`
 
-```python
+```python title="ForCausalLMLoss"
 def ForCausalLMLoss(logits, labels, vocab_size, num_items_in_batch=None, ignore_index=-100, shift_labels=None, **kwargs):
     logits = logits.float()
     if shift_labels is None:
@@ -388,7 +388,7 @@ def ForCausalLMLoss(logits, labels, vocab_size, num_items_in_batch=None, ignore_
 
 `models/qwen2/modeling_qwen2.py` 开头有一段大字警告：这个文件是从 `modular_qwen2.py` **自动生成**的，不要手改。打开 `modular_qwen2.py`，只有不到 200 行：
 
-```python
+```python title="modular_qwen2.py：不到 200 行的继承"
 from ..llama.modeling_llama import LlamaAttention, LlamaDecoderLayer, LlamaForCausalLM, LlamaMLP, ...
 from ..mistral.modeling_mistral import MistralModel
 

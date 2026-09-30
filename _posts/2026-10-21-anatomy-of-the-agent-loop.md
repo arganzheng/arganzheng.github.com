@@ -37,7 +37,7 @@ flowchart TB
 ```
 
 
-```text
+```text title="最小 agent 循环（伪代码）"
 loop(task):
     ctx = [system, tools, task]
     for step in 1..MAX_STEPS:                       # 卫士 ①：步数

@@ -33,7 +33,7 @@ flowchart TB
 ```
 
 
-```text
+```text title="检索侧与生成侧的两段评测"
                ┌──────────── 检索侧 ────────────┐   ┌──────────── 生成侧 ────────────┐
 查询 ──→ 解析 · 分块 · 索引 · 召回 · 融合 · rerank ──→ top-k 块 ──→ prompt · 模型 · 引用 ──→ 答案
          评：recall@k · MRR · nDCG                    评：faithfulness · answer relevance

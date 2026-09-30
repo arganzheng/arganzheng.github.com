@@ -115,7 +115,7 @@ Rombach 等 2022（Latent Diffusion Models）的观察：图像生成的"感知�
 
 L2 第八篇的 PCA 就是最简单的自编码器：编码器 = 投影到前 $$k$$ 个主成分，解码器 = 乘回去加均值。用它当"VAE"，在 1797 张 $$8 \times 8$$ 手写数字上把 64 个像素压成 16 个数：
 
-```text
+```text title="PCA 当 VAE：不同 latent 维度的压缩与重建"
 latent  4 维：压缩 16.0 倍，重建 MSE 0.0376，保留方差 48.7%
 latent  8 维：压缩  8.0 倍，重建 MSE 0.0239，保留方差 67.4%
 latent 16 维：压缩  4.0 倍，重建 MSE 0.0110，保留方差 84.9%
@@ -126,7 +126,7 @@ latent 32 维：压缩  2.0 倍，重建 MSE 0.0025，保留方差 96.6%
 
 16 维保留 85% 的方差，重建的数字都认得出、只是边缘略糊——这正是"感知压缩"：丢掉的是像素级的锐利度。然后把上一篇的 DDPM 原样搬到这 16 维的 latent 上（只把 `dim=2` 改成 16，把 latent 除以它的标准差归一到单位方差——SD 的 scale factor 0.18215 做的是同一件事）：
 
-```python
+```python title="在 16 维 latent 上跑上一篇的 DDPM"
 pca = PCA(16).fit(X64)                                 # 「VAE」：编码器 = 投影到前 16 个主成分，解码器 = 乘回去加均值
 Zn = torch.tensor(pca.transform(X64) / Z_STD)          # 1797 张图 → 1797 个 16 维 latent，归一到单位方差
 model = MLP(dim=16); train(model, ddpm_loss, Zn)       # 上一篇的 DDPM，一个字不改，只是 2 维变 16 维
@@ -136,7 +136,7 @@ imgs = pca.inverse_transform(z).reshape(-1, 8, 8)      # ② 「VAE 解码器」
 
 ![5 行 12 列共 60 张 8×8 的生成图：大多是可辨认的手写数字——0、1、2、3、5、6、9 等，笔画粗细与真实数据相近，少数几张像两个数字的混合](/img/in-post/multimodal-08-latent-samples.svg)
 
-```text
+```text title="latent 生成图到最近真实数字的距离"
 生成图到最近真实数字的平均像素距离 1.06（真实数字彼此之间约 1.03）
 ```
 

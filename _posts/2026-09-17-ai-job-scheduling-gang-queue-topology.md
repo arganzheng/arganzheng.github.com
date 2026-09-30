@@ -57,7 +57,7 @@ kube-scheduler 的调度单元是 Pod。它从队列里取出一个 Pod，跑一
 
 两条路线的位置画在同一张图上：
 
-```text
+```text title="Kueue 路线与 Volcano 路线的位置"
                   用户提交 TrainJob / vcjob / RayJob / Job
                                  │
        ┌─────────────────────────┴─────────────────────────┐
@@ -123,7 +123,7 @@ Table: 本文的章节安排
 
 把 t3 时刻的节点占用摊开看，再对照 gang 调度在同一时刻会做什么，差别一目了然——不在于"放了几个 Pod"，而在于**那 4 台空机器最终归谁**：
 
-```text
+```text title="逐 Pod 调度与 gang 调度在 t3 时刻的对照"
 逐 Pod 调度，t3 时刻（■ 其他任务  J 任务 J 的 Pod  · 空闲）
         GPU: 0 1 2 3 4 5 6 7
 node-A       J J J J J J J J   Pod-0 已绑定，等 rendezvous，利用率 0%
@@ -208,7 +208,7 @@ Volcano 调度器不是事件驱动的，而是**周期性**的：每个周期�
 
 Helm chart 的默认配置（`volcano installer/helm/chart/volcano/config/volcano-scheduler.conf`）：
 
-```yaml
+```yaml title="volcano-scheduler.conf 的默认配置"
 actions: "enqueue, allocate, backfill"
 tiers:
 - plugins:
@@ -228,7 +228,7 @@ tiers:
 
 action 是"做什么"，`volcano pkg/scheduler/actions/` 下每个目录一个：
 
-```text
+```text title="Volcano 的 action 列表"
 enqueue      把 PodGroup 从 Pending 变成 Inqueue：问 plugin 的 JobEnqueueable（配额上放不放得下 minResources）
 allocate     核心：按 QueueOrderFn 选队列 → JobOrderFn 选 Job → TaskOrderFn 选 task → PredicateFn 过滤节点 → NodeOrderFn 打分
              为一个 Job 的所有 task 在 Statement 里模拟分配，JobReady 才 Commit，否则 Discard
@@ -303,7 +303,7 @@ Table: gangPlugin 注册的六类回调
 
 把队列 A 的用量画成一条数轴，三个字段就是三条刻度线，每一段的"归属"不同（Kueue 的对应字段一并标出，第四章会展开）：
 
-```text
+```text title="队列 A 的用量数轴：guarantee / deserved / capability"
 队列 A 的 GPU 用量 →
  0        8                16                             32
  ├────────┼────────────────┼───────────────────────────────┤
@@ -364,7 +364,7 @@ sequenceDiagram
 
 ### 2. 五个对象
 
-```text
+```text title="Kueue 的五个对象"
 Workload          一次准入请求。spec.podSets[]（每个 podSet 一个 PodTemplate + count）、queueName、priorityClassRef
                   status.admission（分到哪个 ClusterQueue、每个 podSet 用了哪个 flavor）、conditions（QuotaReserved / Admitted / Finished / Evicted）
 LocalQueue        命名空间级。spec.clusterQueue 指向一个 ClusterQueue。用户只看得到它
@@ -392,7 +392,7 @@ Workload 的 `status.conditions` 里有一串 reason 常量（`workload_types.go
 
 `ClusterQueuePreemption`（`clusterqueue_types.go`）有三个独立的开关，对应三种场景：
 
-```text
+```text title="ClusterQueuePreemption 的三个开关"
 withinClusterQueue      同一个 ClusterQueue 内，待准入的 Workload 放不进 nominalQuota 时能否抢占已准入的低优先级 Workload
                         Never（默认）/ LowerPriority / LowerOrNewerEqualPriority
 reclaimWithinCohort     待准入的 Workload 在自己的 nominalQuota 之内，但配额被 cohort 里别的 ClusterQueue 借走了——能否抢回来
@@ -484,7 +484,7 @@ Table: Volcano v1.15.2 与 Kueue v0.19.2 对比
 
 同一个 8 节点任务的两种落法，对照网络的层级看，差别在 all_reduce 要跨几跳、和多少别的任务分享链路：
 
-```text
+```text title="同一个 8 节点任务的两种落法"
                      ┌─────────┐
                      │  spine  │   block（tier 2，跨 leaf 3 跳）
                      └──┬───┬──┘
@@ -517,7 +517,7 @@ Kueue 从 v0.14 起 TAS 进入 beta（`kueue site/content/en/docs/concepts/topol
 
 **`Topology` CRD** 定义层级。它在 v0.19.2 里同时存在于 `kueue apis/kueue/v1beta1/topology_types.go` 和 `apis/kueue/v1beta2/topology_types.go`，v1beta2 是存储版本。`TopologySpec.Levels[]` 是从粗到细的一组 `TopologyLevel{NodeLabel}`：
 
-```yaml
+```yaml title="Topology CRD 定义层级"
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: Topology
 metadata:
@@ -593,7 +593,7 @@ Volcano 则直接用 `PodGroupSpec.PriorityClassName` / `JobSpec.PriorityClassNa
 
 ### 3. 一组可用的默认值
 
-```text
+```text title="一组可用的默认值：Kueue 与 Volcano"
 Kueue     生产队列 preemption.withinClusterQueue: LowerPriority，reclaimWithinCohort: Any，borrowWithinCohort.policy: Never
           （自己的 nominal 一定能拿回来；借来的随时可能被收回；不为借用去抢别人）
           研发/实验队列 lendingLimit 设为全部（nominal 全可借），生产队列 lendingLimit 设小甚至 0
@@ -609,7 +609,7 @@ Volcano   生产 Queue guarantee = deserved（不借出）；实验 Queue guaran
 
 Kubeflow Trainer v2 用三个 CRD（`trainer pkg/apis/trainer/v1alpha1/`）把"一个 `torchrun` 命令"变成 K8s 对象：
 
-```text
+```text title="Kubeflow Trainer v2 的三个 CRD"
 ClusterTrainingRuntime  集群级模板（平台管理员写）：spec.mlPolicy（numNodes、torch/mpi/...）、spec.podGroupPolicy、spec.template（一个 JobSetSpec）
 TrainingRuntime         同上，命名空间级
 TrainJob                用户写：spec.runtimeRef（指向上面二者之一）、spec.trainer（image/command/args/env/numNodes/numProcPerNode/resourcesPerNode）
@@ -707,7 +707,7 @@ KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kub
 
 两个团队 A、B，各 16 卡配额，集群共 32 卡。A 提交一个 32 卡任务 J，此时 B 空闲。J 的三种可能结局——借到 B 的 16 卡跑起来（借用）、等 B 有任务时被收回（抢占/回收）、或一直等到 A 自己有 32 卡（等待，即永远不跑）——在三个系统里分别由什么配置决定：
 
-```text
+```text title="借用、抢占、等待在三个系统里的配置"
                 Volcano v1.15.2（capacity 插件）              Kueue v0.19.2                                       Slurm
 借用：J 能否用 B 的 16 卡
                 Queue A: deserved 16, capability ≥ 32         CQ A: nominalQuota 16, borrowingLimit ≥ 16（或 null）  A、B 在同一 partition，各自 association 的
@@ -740,7 +740,7 @@ KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kub
 
 ### 1. 机制线上的这一段
 
-```text
+```text title="机制线上的这一段：调度"
 引擎需求                         K8s 空缺                              平台机制                                      代价
 一组进程同时起（all-or-nothing） 逐 Pod 调度，无"组"的概念              Volcano PodGroup.minMember + allocate 的模拟/提交  等待时间：大任务要凑齐才能开始，集群空转等它
                                  （v1.37 WAS 的 PodGroup 为 beta）      Kueue Workload.podSets + suspend 准入             Kueue 只保证配额，不保证节点放得下（需 TAS / waitForPodsReady）
@@ -773,7 +773,7 @@ torchrun 需要稳定的 rendezvous   Pod IP 不稳定                          
 
 本篇给练手项目加一个 `sched/` 目录：Kueue 的两队列 cohort、一个 2 节点 DDP 的 TrainJob、同一任务的 Volcano 版本，以及观察 suspended → admitted 的方法。硬件要求：两个各有至少一张 GPU 的节点（`numProcPerNode: 1`）；没有 GPU 也可以把 `nvidia.com/gpu` 换成 `cpu` 走通流程。
 
-```text
+```text title="mini-platform/sched/ 目录"
 mini-platform/sched/
   kueue/flavor.yaml            ResourceFlavor（按 GPU 型号标签选节点）
   kueue/clusterqueue-a.yaml    团队 A：nominal 16 卡，可借可贷
@@ -789,7 +789,7 @@ mini-platform/sched/
 
 `sched/kueue/flavor.yaml`：
 
-```yaml
+```yaml title="sched/kueue/flavor.yaml"
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
@@ -807,7 +807,7 @@ spec:
 
 `sched/kueue/clusterqueue-a.yaml`：
 
-```yaml
+```yaml title="sched/kueue/clusterqueue-a.yaml"
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -840,7 +840,7 @@ spec:
 
 `sched/kueue/clusterqueue-b.yaml`——B 团队保守：把自己的全部 nominal 借出去，但自己不借别人的：
 
-```yaml
+```yaml title="sched/kueue/clusterqueue-b.yaml"
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
@@ -871,7 +871,7 @@ spec:
 
 `sched/kueue/localqueue.yaml`（命名空间要先建好并打上 `team` 标签）：
 
-```yaml
+```yaml title="sched/kueue/localqueue.yaml"
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -909,7 +909,7 @@ spec:
 
 安装 Kubeflow Trainer v2.3.0（它依赖 JobSet），随包安装的 `torch-distributed` ClusterTrainingRuntime 可以直接用。`sched/trainjob-ddp.yaml`：
 
-```yaml
+```yaml title="sched/trainjob-ddp.yaml：2 节点 DDP"
 apiVersion: trainer.kubeflow.org/v1alpha1
 kind: TrainJob
 metadata:
@@ -952,7 +952,7 @@ spec:
 
 提交后马上看：
 
-```console
+```console title="提交后：suspend 为 true、Workload 排队"
 $ kubectl apply -f sched/trainjob-ddp.yaml
 $ kubectl -n team-a get trainjob ddp-2node -o jsonpath='{.spec.suspend}{"\n"}'
 true
@@ -963,7 +963,7 @@ trainjob-ddp-2node-7f2c1  gpu                                         3s
 
 Kueue 的 webhook 已经把 `suspend` 翻成 `true`，Workload 已创建但 `RESERVED IN` 为空——还在排队。如果此时 team-a 已经有 16 卡在跑、B 也满了，`describe` 会告诉你原因（消息格式来自 `flavorassigner.go`，以下为示意）：
 
-```console
+```console title="describe workload：配额不够的原因（示意）"
 $ kubectl -n team-a describe workload trainjob-ddp-2node-7f2c1
 ...
 Status:
@@ -976,7 +976,7 @@ Status:
 
 配额够时，几秒内：
 
-```console
+```console title="配额够时：Workload 已准入、suspend 变 false"
 $ kubectl -n team-a get workloads
 NAME                      QUEUE   RESERVED IN   ADMITTED   FINISHED   AGE
 trainjob-ddp-2node-7f2c1  gpu     team-a        True                  9s
@@ -998,7 +998,7 @@ $ kubectl -n team-a get workload trainjob-ddp-2node-7f2c1 -o jsonpath='{.status.
 
 换到 Volcano（另一个集群或先卸载 Kueue 的 webhook，两者对 `suspend` 的处理不冲突，但不要让同一个任务同时被两边排队）。先建队列：
 
-```yaml
+```yaml title="Volcano Queue：team-a"
 apiVersion: scheduling.volcano.sh/v1beta1
 kind: Queue
 metadata:
@@ -1027,7 +1027,7 @@ spec:
 
 `deserved` / `capability` / `guarantee` 需要调度器配置启用 `capacity` 插件（替换默认的 `proportion`）并加上 `reclaim` action，否则 `deserved` 无人解释。`sched/volcano/vcjob.yaml`：
 
-```yaml
+```yaml title="sched/volcano/vcjob.yaml"
 apiVersion: batch.volcano.sh/v1alpha1
 kind: Job
 metadata:
@@ -1096,7 +1096,7 @@ spec:
 
 对比两份 YAML 能看到两种对象模型的差别：TrainJob 只写 `numNodes: 2`，节点角色、rendezvous、环境变量都由 runtime 决定；vcjob 要自己分 `master` / `worker` 两个 task，用 `pytorch` 插件注入 `MASTER_ADDR` / `MASTER_PORT` / `RANK`（`WORLD_SIZE` 也会注入，但这里让 torchrun 按 `--nnodes` × `--nproc-per-node` 自己算），再手工拼 `--rdzv-endpoint`。gang 的表达是 `minAvailable: 2`；观察方式是：
 
-```console
+```console title="观察 PodGroup 与 vcjob 状态"
 $ kubectl -n team-a get podgroup
 NAME                 STATUS    MINMEMBER   RUNNINGS   AGE
 ddp-2node-<uid>      Running   2           2          15s
@@ -1112,7 +1112,7 @@ Running
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：死锁、gang、Volcano、Kueue"
 死锁          kube-scheduler 逐 Pod 决定；32 卡任务凑不齐 → 已起的 Pod 空转等 rendezvous 超时 → 重建 → 活锁；两个大任务互相卡死
 gang          一组 Pod 要么 ≥ minMember 个同时调度，要么都不；必须在调度器/准入层做，应用重试无效；K8s v1.37 的 WAS（scheduling.k8s.io/v1beta1 PodGroup）是原生雏形
 Volcano       Job → PodGroup(minMember) → Queue；周期 Session，actions enqueue/allocate/preempt/reclaim/backfill + tiers of plugins
@@ -1196,7 +1196,7 @@ Table: 本篇涉及的源码与 CRD 位置
 
 ### 4. 练手项目本篇增量
 
-```text
+```text title="练手项目本篇增量：sched/"
 mini-platform/sched/
   kueue/flavor.yaml             ResourceFlavor gpu-default（nodeLabels + GPU toleration）
   kueue/clusterqueue-a.yaml     team-a：nominal 16 / borrowingLimit 16 / lendingLimit 16；reclaimWithinCohort Any

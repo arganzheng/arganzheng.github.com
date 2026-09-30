@@ -71,7 +71,7 @@ Table: 降维方法的来历
 
 ![左：中心化后的点云与两个互相垂直的箭头——红色 PC1 沿着云的长轴、橙色 PC2 沿短轴；中：把每个点投影到 PC1 上（红点排成一条斜线），投影后方差 3.44；右：投影到竖直方向（灰点排成一条竖线），方差 1.34](/img/in-post/classical-ml-08-pca-geometry.svg)
 
-```text
+```text title="二维点云的主成分与投影方差"
 两个主成分方向 [-0.825 -0.565], [ 0.565 -0.825]（互相垂直）
 解释方差比 [0.907 0.093]：第一主成分占 90.7%
 投影到 PC1（方差最大的方向）：投影后的方差 3.442
@@ -100,7 +100,7 @@ Table: 四个点沿三个方向的投影方差
 
 ### 1. 四行
 
-```python
+```python title="pca：四行 SVD"
 def pca(X, k):
     Xc = X - X.mean(0)                                        # ① 中心化
     U, S, Vt = np.linalg.svd(Xc, full_matrices=False)         # ② 数据矩阵的 SVD：Vt 的每一行是一个主成分方向
@@ -113,7 +113,7 @@ def pca(X, k):
 3. ③ 奇异值的平方除以 $$n - 1$$ 就是该方向上的方差（第四章证明；四个点用 $$n$$ 而不是 $$n - 1$$ 除：$$4^2 / 4 = 4$$、$$2^2 / 4 = 1$$，正是上一章手算的两个方差）；
 4. ④ 投影 = 数据矩阵乘前 $$k$$ 个方向。
 
-```text
+```text title="手写 PCA 与 sklearn 的最大差"
 前 10 维投影坐标与 sklearn 的最大差 3.2e-13（符号对齐后）
 ```
 
@@ -137,7 +137,7 @@ Table: 手写数字前 k 个主成分的累计解释方差
 
 降维之后能还原吗？**重建** = 均值 + 前 $$k$$ 个坐标 × 前 $$k$$ 个方向：
 
-```python
+```python title="用前 k 个主成分重建"
 rec = mu + Z[i, :k] @ V[:k]        # Z[i, :k]：这张图在前 k 个主成分上的坐标；V[:k]：前 k 个方向
 ```
 
@@ -182,7 +182,7 @@ Table: 特征分解、SVD 与 PCA 算出的同一组方差
 
 ![横轴奇异值序号 1 到 896，纵轴归一化后的奇异值（对数轴）：真实权重（红）从 1 开始持续下降到约 0.01；随机矩阵（灰）在前 600 个几乎平坦、末尾才掉下来](/img/in-post/classical-ml-08-weight-spectrum.svg)
 
-```text
+```text title="真实权重与随机矩阵的有效秩"
 解释 90% 能量需要的秩：真实权重 299 / 896，随机矩阵 458 / 896
 ```
 
@@ -277,7 +277,7 @@ flowchart LR
 
 ### 3. 代码
 
-```python
+```python title="Olivetti 人脸：PCA 加分类"
 X, y = olivetti_faces()                                          # [400, 4096]，[400]
 Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, stratify=y, random_state=0)
 pca = PCA(n_components=150).fit(Xtr)                             # 第三章的四行 SVD，scikit-learn 版

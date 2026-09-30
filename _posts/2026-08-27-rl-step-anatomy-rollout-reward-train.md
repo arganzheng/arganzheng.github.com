@@ -41,7 +41,7 @@ flowchart TB
 
 在线 RL 后训练（PPO、GRPO 及其一族）的一步，展开是这样的：
 
-```text
+```text title="一步 RL：生成 rollout、打分、训练"
  ┌──────────────── 生成 rollout ────────────────┐   ┌──── 打分 ────┐   ┌────── 训练 ──────┐
  │ 推理引擎：B 个 prompt × G 条回答，decode 为主   │   │ 规则 / 验证器 │   │ 参考前向  log π_ref │
  │ 形态：serving —— 请求、批、KV 池、连续批处理     │──►│ 或奖励模型    │──►│ 旧策略前向 log π_old│
@@ -61,7 +61,7 @@ flowchart TB
 
 三个作业各有一本 FLOP 账和一本字节账，加起来再算一本时间账：
 
-```text
+```text title="三本账：FLOP、字节、秒"
 FLOP 的账    生成 2N/token · 前向 2N/token · 训练 6N/token（PPO 价值模型再加 8N）
              合计 ≈ 12N × 一步的 token 数（GRPO）
 字节的账     训练状态 16N + 参考 2N + 推理权重副本 2N + KV cache（token 数 × 每 token KV）+ 激活
@@ -78,7 +78,7 @@ FLOP 账在算法侧已经算过（[《后训练》第三篇](/online-rl-ppo-grp
 
 全系列使用同一套符号，后续各篇在总览里复述用到的部分：
 
-```text
+```text title="全系列的记账符号"
 N  N_a           总参数量、每 token 激活参数量（dense 模型两者相等；MoE 只有 N_a 进 FLOP 账）
 B  G             一步的 prompt 数、每个 prompt 的回答数；序列数 S = B·G
 P  L̄  L_max      prompt 平均长度、回答平均长度、回答最大长度（token）
@@ -123,7 +123,7 @@ Table: 本文的章节安排
 
 以 GRPO 为例（PPO 只多一个价值模型，第 3 节说），严格 on-policy 的一步按时间展开：
 
-```text
+```text title="GRPO 严格 on-policy 的一步"
  t0  推理引擎持有第 t 步的权重 θ_t
      ├─ prefill：B 个 prompt 各一次（前缀缓存：同一 prompt 的 G 条回答共享）
      ├─ decode：S = B·G 条序列并发生成，连续批处理，完成一条补一条
@@ -187,7 +187,7 @@ Table: RL 一步每 token 的 FLOP 系数
 
 $$B = 512$$、$$G = 16$$、$$P = 500$$、$$\bar L = 8192$$：$$S = 8192$$ 条序列，$$T_{resp} = 6.71 \times 10^7$$，$$T_{all} = 7.12 \times 10^7$$。
 
-```text
+```text title="8B 推理场景的 FLOP 分项"
 生成            2 × 8.03e9 × 6.71e7  =  1.08 EFLOP    15.9%
 prompt prefill  2 × 8.03e9 × 2.56e5  =  4.1  PFLOP     0.1%
 参考前向        2 × 8.03e9 × 7.12e7  =  1.14 EFLOP    16.8%
@@ -216,7 +216,7 @@ PPO 的重要性比需要 $$\log \pi_{old}$$——采样时策略的对数概率
 
 一步里显存中要出现过的东西：
 
-```text
+```text title="一步里的四份显存"
                             字节                      8B 推理场景（64 卡）           每卡（均分）
 ① 训练状态                   16 N（bf16 参数 + 梯度 + fp32 主参数 + Adam 两个矩）
                                                       128.5 GB                     2.0 GB
@@ -298,7 +298,7 @@ Table: 8B 推理场景（64 张 H100）一步的五段时间与占比
 
 四个场景放在一起：
 
-```text
+```text title="四个场景的墙钟与全步 MFU"
                             一步墙钟    生成占比    全步 MFU    每卡 decode token/s
 8B 对话  B=512 G=8  L̄=1K    111 s      42%        29%        11900
 8B 推理  B=512 G=16 L̄=8K    810 s      74%        13%         2600
@@ -408,7 +408,7 @@ R1 那一行值得单独说：**账不是静态的**。RL 训练的目标之一�
 
 核心是 `ledger()` 函数，把前面五章的公式按顺序算一遍：
 
-```python
+```python title="rl_ledger.py：ledger() 函数"
 def ledger(m: ModelSpec, c: RLConfig, hw: Hardware):
     seqs = c.B * c.G
     resp_tokens = seqs * c.L
@@ -465,7 +465,7 @@ def ledger(m: ModelSpec, c: RLConfig, hw: Hardware):
 
 不带参数运行打印四个内置场景，本篇第五章的表就是从这里来的。8B 推理场景的完整输出：
 
-```text
+```text title="python rl_ledger.py --model 8b --profile reasoning 的输出"
 $ python rl_ledger.py --model 8b --profile reasoning
 == Llama-3-8B  GRPO  B=512 G=16 P=500 L=8192 L_max=32768  64xH100 SXM tp=1
   序列 8,192   回答 token  67.11 M   前向要过的 token  71.20 M
@@ -531,7 +531,7 @@ Table: rl_ledger.py 改一个参数看账怎么变
 
 ### 2. 公式速查
 
-```text
+```text title="公式速查"
 FLOP        F = 2N_a T_resp + 2N_a BP + (2 + 2[重算] + 2[RM]) N_a T_all + 6N_a T_all (+ 8N_a T_all [PPO])
 KV 总量     T_all × k_kv                    k_kv(GQA) = 2 × 层 × KV头 × 头维 × 2 B
 单实例并发   c = ⌊(0.9 t M − 权重副本) / ((P + L̄/2) k_kv)⌋

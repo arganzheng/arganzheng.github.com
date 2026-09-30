@@ -288,7 +288,7 @@ Table: 各篇末尾「实践」对应的动手内容
 
 与它平行的源码阅读线：
 
-```text
+```text title="与实践线平行的源码阅读线"
 第一篇    verl  verl/trainer/ppo/ 的一步控制流（只看阶段划分）
 第二篇    verl  verl/trainer/ppo/v1/ 三种 trainer 模式 · verl/single_controller/ · Ray 资源池
 第三篇    vLLM  vllm/device_allocator/cumem.py · sleep / wake_up 路径；SGLang  torch_memory_saver

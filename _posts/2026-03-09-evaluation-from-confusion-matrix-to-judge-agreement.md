@@ -111,7 +111,7 @@ Table: 混淆矩阵的派生指标
 
 ### 3. 十二行手写
 
-```python
+```python title="confusion 与 roc_auc：十二行手写"
 def confusion(y, pred):
     tp = int(((pred == 1) & (y == 1)).sum()); fp = int(((pred == 1) & (y == 0)).sum())   # ① 四个格子就是四次计数
     fn = int(((pred == 0) & (y == 1)).sum()); tn = int(((pred == 0) & (y == 0)).sum())
@@ -130,7 +130,7 @@ def roc_auc(y, p):
     return float(np.trapezoid(tpr, fpr)), fpr, tpr                                      # ⑥ 曲线下面积
 ```
 
-```text
+```text title="手写与 sklearn 的指标对照"
 混淆矩阵 (TP, FP, FN, TN) 手写 (1131, 98, 75, 1096)；sklearn (1131, 98, 75, 1096)
 精确率 0.9203 召回率 0.9378 F1 0.9290
 AUC 手写 0.9726；sklearn 0.9726
@@ -168,7 +168,7 @@ Table: 同一分类器在不同阈值下的混淆矩阵与指标
 
 **AUC** 是它下面的面积，取值 $$[0, 1]$$：0.5 是对角线（随机）、1 是完美，低于 0.5 说明分数方向反了（把分数取负就回到 $$1 - \text{AUC}$$）。它有一个直觉的解释：**随机取一个正例一个负例，分类器给正例更高分数的概率**。验证一下——随机抽 20 万对（一正一负）：
 
-```text
+```text title="AUC 的概率解释：20 万对随机抽样验证"
 随机抽 20 万对（一正一负），正例分数更高的比例 0.9721——这就是 AUC 的含义（AUC 0.9726）
 ```
 
@@ -200,7 +200,7 @@ Table: 类别不平衡时准确率的陷阱
 
 一个分类器说"90% 是正例"，实际上是不是十次里有九次对？是，就叫**校准良好**（calibrated）。度量：**可靠性图**——把预测概率分成若干档，每档画预测概率的均值 vs 实际正例率，理想是对角线；**期望校准误差**（ECE）——各档偏差按样本数加权平均：
 
-```python
+```python title="ece：期望校准误差"
 def ece(y, p, bins=10):
     edges = np.linspace(0, 1, bins + 1)
     e = 0.0
@@ -227,7 +227,7 @@ Table: 三个模型的 AUC 与 ECE
 
 把逻辑回归的 logit 乘 3 倍——排序完全不变（AUC 不变），概率被推向 0 和 1（模拟 RLHF 之后"学会自信"的模型）。再用两种方法校准：**Platt scaling**（在分数上再套一个逻辑回归）与 **isotonic regression**（拟合一个单调的分段常数映射），都只用一半数据拟合、另一半评估：
 
-```python
+```python title="Platt scaling 与 isotonic regression"
 platt = LogisticRegression().fit(logit[:half, None], yte[:half])             # Platt：分数 → 概率，一个 1 维逻辑回归
 p_platt = platt.predict_proba(logit[half:, None])[:, 1]
 iso = IsotonicRegression(out_of_bounds="clip").fit(p_over[:half], yte[:half]) # isotonic：单调分段常数映射
@@ -269,7 +269,7 @@ $$
 - $$p_e$$：随机一致的期望——两人各自选每个类别的比例相乘再相加；
 - $$\kappa = 1$$ 完全一致，0 与随机无异。
 
-```python
+```python title="cohen_kappa：三行实现"
 def cohen_kappa(a, b):
     po = (a == b).mean()                                                            # ① 观察到的一致率
     pe = sum((a == c).mean() * (b == c).mean() for c in np.unique(np.r_[a, b]))     # ② 随机一致的期望
@@ -278,7 +278,7 @@ def cohen_kappa(a, b):
 
 手算第二种情形：人类 90% 的题选 A、10% 选 B；judge 100% 选 A。随机一致的期望 $$p_e = 0.9 \times 1.0 + 0.1 \times 0 = 0.9$$（两人"都选 A"的概率加"都选 B"的概率）；观察到的一致率 $$p_o = 0.9$$（judge 选 A 的题里人也选 A 的占 90%）；$$\kappa = (0.9 - 0.9) / (1 - 0.9) = 0$$——一致率 90%，$$\kappa$$ 为零：这个 judge 什么都没看。
 
-```text
+```text title="两个 judge 的一致率与 κ 对照"
 二选一、人类偏好各半：judge 与人一致率 0.818，κ = 0.636（随机猜也有 50% 一致，κ 把它扣掉）
 若 90% 的题人类都选 A，一个永远选 A 的 judge：一致率 0.917，κ = 0.000——一致率高、κ 为零
 ```
@@ -295,7 +295,7 @@ def cohen_kappa(a, b):
 
 位置偏差可以直接量出来：同一批题，把 A、B 的顺序对换再评一次。模拟一个有 20% 概率无脑选"先出现的那个"的 judge：
 
-```text
+```text title="位置偏差的测量与对换顺序的修正"
 位置偏差：A 排前面时 judge 选 A 的比例 0.604，B 排前面时 0.392——同一批题，只换顺序，差 +0.212
 两次判断不一致的题占 43.4%；对换顺序各评一次、只信两次一致的（或取平均），位置偏差就消掉了：一致题上与人的一致率 0.906
 ```
@@ -335,14 +335,14 @@ MMLU 上差 0.5 个点在噪声里；100 题的私有集上差 8 个点也在噪
 
 公式假设题目独立同分布；更通用的办法是 **bootstrap**——把 $$n$$ 道题的结果有放回地重抽 $$n$$ 个、算一次正确率，重复几千次，看它抖多大：
 
-```python
+```python title="bootstrap 置信区间"
 boots = np.array([correct[r.integers(0, n, n)].mean() for _ in range(5000)])   # 有放回重抽 5000 次
 lo, hi = np.percentile(boots, [2.5, 97.5])                                      # 2.5%–97.5% 分位 = 95% 区间
 ```
 
 ![直方图：500 题有放回重抽 5000 次的正确率分布，钟形，中心 0.614，红色虚线标出 2.5% 与 97.5% 分位 0.570 与 0.656](/img/in-post/classical-ml-10-bootstrap-ci.svg)
 
-```text
+```text title="bootstrap 与公式的结果一致"
 bootstrap：500 题正确率 0.614，重抽 5000 次的 2.5%–97.5% 分位 [0.570, 0.656]；公式 ±0.043——两者一致
 ```
 

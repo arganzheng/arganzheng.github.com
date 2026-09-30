@@ -129,7 +129,7 @@ Table: 本文的章节安排
 
 排布由 `RankGenerator` 类完成。它接收各维度大小与 `order` 字符串，`get_ranks(token)` 对一个形如 `"tp"`、`"dp-cp"`、`"tp-ep-pp"` 的 token 调用 `generate_masked_orthogonal_rank_groups()`：把世界大小按 `order` 拆成一个多维网格，token 里出现的维度是"变化的"、其余维度是"固定的"，枚举固定维度的每一种取值，就得到一个进程组的 rank 列表。所以 `"tp-cp-ep-dp-pp"` 的含义是 TP 变化最快（相邻 rank、同节点）、PP 变化最慢——第二篇解释过这来自"TP 不可重叠必须 NVLink、PP 通信最少可放最远"。用本篇练手项目的 8 卡配置（TP 2 × PP 2 × DP 2）把"掩码"这件事画出来：
 
-```text
+```text title="RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2"
 world_size = 8，order = "tp-cp-ep-dp-pp"，TP 2 × DP 2 × PP 2（cp = ep = 1）
 rank = tp + 2·dp + 4·pp        tp 变化最快（相邻卡），pp 最慢
 
@@ -187,7 +187,7 @@ v0.3.0 多了一个 `spmd_backend` 字段（`"partial_dtensor" | "full_dtensor" 
 
 ### 4. 对照表
 
-```text
+```text title="三框架进程组管理的对照表"
                     Megatron Core 0.18.0                 DeepSpeed 0.19.2                     torchtitan v0.3.0
 ────────────────    ──────────────────────────────────   ──────────────────────────────────   ─────────────────────────────────
 数据结构            模块级全局变量 + get_*_group()          模块级 mpu 委托 + 字典                ParallelDims 持有的 DeviceMesh 视图
@@ -208,7 +208,7 @@ gloo 孪生            每组一个                                 —         
 
 ### 1. 目录地图
 
-```text
+```text title="Megatron Core 目录地图"
 megatron/core/
   parallel_state.py                    进程组（第二章）
   model_parallel_config.py             ModelParallelConfig：各并行度、sequence_parallel、overlap_p2p_comm、*_sync_func 回调
@@ -252,7 +252,7 @@ Megatron 的 `distributed/distributed_data_parallel.py` 的 `DistributedDataPara
 
 把这两段内存、bucket 与 DP 分片画在一起（下一节的分布式优化器就是在这张图上按字节区间切）：
 
-```text
+```text title="_ParamAndGradBuffer：param_data、grad_data 与 bucket"
 一个 _ParamAndGradBuffer：同一 (param_dtype, grad_dtype) 组的全部参数，
 按反向顺序排列（最后一层在最前）；dp_size = 4
 
@@ -289,7 +289,7 @@ step：fp32 主参数分片 -> param_data[本 rank 段]（转 bf16）-> all-gath
 
 一个 step 的优化器部分：
 
-```text
+```text title="DistributedOptimizer 一个 step 的优化器部分"
 _copy_model_grads_to_main_grads()     grad_data 里本 rank 那一段（reduce-scatter 的结果，fp32）→ 主参数分片的 .grad
 inner optimizer.step()                 Adam 更新 fp32 主参数分片与 m、v
 _copy_main_params_to_model_params()    fp32 主参数分片 → param_data 里本 rank 那一段（转 bf16）
@@ -305,7 +305,7 @@ step_with_ready_grads()                → start_param_sync_for_bucket_group_sub
 
 把上面三节串起来，以一个 `ColumnParallelLinear.weight` 为例（`--bf16 --use-distributed-optimizer --overlap-grad-reduce --overlap-param-gather`，TP 组内它是 $$1/N_t$$ 的分片，下面只看 DP 维）：
 
-```text
+```text title="一个 bf16 参数的一生：Megatron"
 时刻                    事件                                                      在哪里
 ─────────────────────   ──────────────────────────────────────────────────────    ────────────────────────────────────────────
 初始化                  weight.data ← param_data[a:b] 视图（bf16，完整）              _ParamAndGradBuffer.__init__
@@ -330,7 +330,7 @@ step i+1 前向 pre-hook  等 all-gather 完成 → weight 又是完整、更新
 
 `megatron/training/training.py` 是 Megatron 的训练入口。骨架：
 
-```text
+```text title="pretrain → train → train_step 的骨架"
 pretrain()
   initialize_megatron()                       解析参数、init_process_group、parallel_state.initialize_model_parallel()
   setup_model_and_optimizer()
@@ -397,7 +397,7 @@ sequenceDiagram
 
 ### 1. 目录地图
 
-```text
+```text title="DeepSpeed 目录地图"
 deepspeed/
   __init__.py                          initialize(model, optimizer, config, mpu, ...) → (engine, optimizer, dataloader, lr_scheduler)
   runtime/
@@ -425,7 +425,7 @@ deepspeed/
 
 DeepSpeed 的入口是 `deepspeed.initialize(model=..., optimizer=..., config=...)`，返回一个 `DeepSpeedEngine`（`runtime/engine.py`）。它继承 `nn.Module`，持有用户的 `self.module`，用户之后调用的是 `engine(batch)`、`engine.backward(loss)`、`engine.step()` 三个方法，模型代码一行不改。构造函数的顺序：
 
-```text
+```text title="DeepSpeedEngine.__init__ 的顺序"
 DeepSpeedEngine.__init__
   _configure_distributed_model(model)        把 module 移到设备、转 dtype；确定 data_parallel_group / seq_data_parallel_group / expert_data_parallel_group
                                              非 ZeRO 时广播参数使各 DP rank 一致
@@ -546,7 +546,7 @@ sequenceDiagram
 
 以一个 Transformer 层的 `nn.Linear.weight` 为例（`bf16.enabled=true`，`zero_optimization.stage=3`，不 offload）：
 
-```text
+```text title="一个 bf16 参数的一生：DeepSpeed Stage 3"
 时刻                    事件                                                          在哪里
 ─────────────────────   ──────────────────────────────────────────────────────────    ─────────────────────────────────────────
 zero.Init 内构造        weight 完整构造 → _convert_to_deepspeed_param → _partition       partition_parameters.py Init._post_init_method
@@ -575,7 +575,7 @@ step i+1，该层前向前     再 fetch_sub_module → all-gather              
 
 DeepSpeed 没有训练循环——用户写循环，engine 提供三个方法：
 
-```text
+```text title="DeepSpeed 的训练循环：forward / backward / step"
 for step in ...:
   for micro in range(gradient_accumulation_steps):
     loss = engine(batch)                     DeepSpeedEngine.forward：计时、flops profiler、Stage 3 的 root hook 起点
@@ -602,7 +602,7 @@ JSON 配置是 DeepSpeed 易用性的来源，也是它的代价所在。`runtim
 
 ### 1. 目录地图
 
-```text
+```text title="torchtitan 目录地图"
 torchtitan/
   train.py                             main()：ConfigManager 解析 --module / --config → Trainer(config).train()
   trainer.py                           Trainer：__init__ 装配、train_step、train
@@ -644,7 +644,7 @@ torchtitan/
 
 torchtitan 的架构最好的说明书是 `trainer.py` 里 `Trainer.__init__` 的执行顺序：
 
-```text
+```text title="Trainer.__init__ 的执行顺序"
 Trainer.__init__(config: Trainer.Config)
   init_distributed()                             dist_utils.init_distributed(config.comm) → ParallelDims.from_config(config.parallelism, world_size)
                                                  → parallel_dims.build_mesh()（第二章）
@@ -685,7 +685,7 @@ Trainer.__init__(config: Trainer.Config)
 
 `parallelize_llama()`（`models/llama3/parallelize.py`）的最后一步总是 `apply_fsdp_to_decoder()`（`distributed/fsdp.py`），即使 `dp_shard = 1`——注释说明这是为了安装 `MixedPrecisionPolicy`。它做的事：
 
-```text
+```text title="apply_fsdp_to_decoder 做的事"
 mp_policy = MixedPrecisionPolicy(param_dtype=bf16, reduce_dtype=fp32, cast_forward_inputs=False)
                                                        training.mixed_precision_param / mixed_precision_reduce
 reshard_after_forward = "default" → not pp_enabled     get_fsdp_reshard_after_forward_policy；PP 下默认不 reshard，避免每个 micro-batch 都 all-gather
@@ -730,7 +730,7 @@ flowchart TB
 
 以一个 Transformer 层里 `feed_forward.w1.weight` 为例（`dp_shard = 8`，`tp = 1`，`training.dtype = float32`，`mixed_precision_param = bfloat16`，`fsdp_reshard_after_forward = "default"`，无 PP）：
 
-```text
+```text title="一个 bf16 参数的一生：torchtitan"
 时刻                    事件                                                          在哪里
 ─────────────────────   ──────────────────────────────────────────────────────────    ─────────────────────────────────────────
 meta 构造               weight 是 meta 张量（fp32，完整形状，无内存）                        Trainer.__init__ 的 torch.device("meta")
@@ -760,7 +760,7 @@ step i+1，该层前向前     再 unshard：从更新后的 fp32 分片 all-gat
 
 `train_step()`：
 
-```text
+```text title="torchtitan train_step() 的骨架"
 optimizers.zero_grad()
 取 gradient_accumulation_steps × num_pipeline_parallel_microbatches 个 micro-batch，统计 local_valid_tokens
 global_valid_tokens = dist_sum_tensor(local_valid_tokens, batch_mesh)          loss 按全局 token 数归一，梯度累积不再需要 /N
@@ -782,7 +782,7 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 
 把三、四、五章的三张时序压成一张表，只看一个 DP 组内的一个参数：
 
-```text
+```text title="三条时序并排：一个 DP 组内的一个参数"
                           Megatron（DDP + 分布式优化器）      DeepSpeed Stage 3                    torchtitan（FSDP2）
 ────────────────────────  ────────────────────────────────  ──────────────────────────────────  ──────────────────────────────────
 bf16 参数常驻形态          完整；param_data buffer 的视图        1/N_d 碎片 ds_tensor；param.data 为空     无；常驻的是 fp32 Shard(0) DTensor
@@ -803,7 +803,7 @@ param.data 身份           固定                                一个 step �
 
 第二篇提出的对照题：同一个"前向前把分片参数拼回来"，三种实现。现在可以逐项回答。
 
-```text
+```text title="前向前 all-gather 分片参数：Stage 3 vs FSDP1 vs FSDP2"
                      DeepSpeed Stage 3                         FSDP1（FlatParameter）                       FSDP2（fully_shard）
 ───────────────────  ────────────────────────────────────────  ──────────────────────────────────────────  ──────────────────────────────────────────
 分片单位              每个参数各自切成 1/N_d（ds_tensor）           一个 wrap 单元的所有参数拍平成一个 FlatParameter 再切   每个参数各自沿第 0 维切（FSDPParam），组成 FSDPParamGroup
@@ -829,7 +829,7 @@ dtype 转换            all-gather 前 get_allgather_dtype             MixedPrec
 
 **Megatron：过程式**。`megatron/core/pipeline_parallel/schedules.py` 的 `forward_backward_pipelining_without_interleaving()` 是一个几百行的函数，三段循环直接对应 1F1B 的三个阶段：
 
-```text
+```text title="Megatron 过程式 1F1B：三段循环"
 num_warmup_microbatches = min(total_stages - current_stage - 1, num_microbatches)     stage i 预热 p - i - 1 个
 num_microbatches_remaining = num_microbatches - num_warmup_microbatches
 
@@ -870,7 +870,7 @@ Table: 1F1B 在三个框架里的写法
 
 ### 4. 取舍表
 
-```text
+```text title="三框架取舍表"
                   Megatron Core 0.18.0                          DeepSpeed 0.19.2                             torchtitan v0.3.0
 ────────────────  ────────────────────────────────────────────  ───────────────────────────────────────────  ────────────────────────────────────────────
 强项              极致性能：TE / FP8、手写重叠、MoE 全套            对模型零侵入；ZeRO-3 + offload 让小集群训大模型   可读、可组合；PyTorch 原生功能的参考实现
@@ -942,7 +942,7 @@ Table: 本篇涉及的源码位置
 
 **做什么**：在 8 张卡上用三个框架各跑一次同一个 Llama 风格的小模型（取 Llama 3.2 1B 的形状：16 层、$$h = 2048$$、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、$$s = 8192$$；三个框架都不共享 embedding 与输出层，$$N \approx 1.5 \times 10^9$$），每个框架用它最自然的 8 卡配置，然后用 `probe_memory.py` 读每卡的 `torch.cuda.memory_stats()`、用 `torch.profiler` 数每 step 各类集合通信的次数与时间，和第二篇 `ledger.parallel.place()` 的预测对账。目录：
 
-```text
+```text title="train-ledger/runs/ 目录"
 train-ledger/
   runs/
     megatron/run.sh              TP 2 × PP 2 × DP 2，分布式优化器（ZeRO-1），SP
@@ -954,7 +954,7 @@ train-ledger/
 
 **预期（先算再跑）**。用第二篇的 `ledger.parallel.report()` 对三个配置各算一遍，常驻状态（不含激活与临时 all-gather）大致是：
 
-```text
+```text title="三个配置的常驻状态预期"
 配置                         N_local    参数（常驻）    梯度（常驻）    优化器状态             常驻合计   每 step DP 系通信（每卡发出）                    其余
 Megatron TP2 PP2 DP2 ZeRO-1   375M     bf16 0.75 GB   fp32 1.5 GB    12 × 375M / 2 = 2.25 GB  ≈ 4.5 GB  RS(fp32 梯度 1.5 GB) + AG(bf16 参数 0.75 GB)，     TP ≈ 8.6 GB NVLink
                                                                                                         N_d = 2 各发一半 → ≈ 1.1 GB                    PP ≈ 0.27 GB
@@ -966,7 +966,7 @@ torchtitan FSDP4 TP2          750M     fp32 0.75 GB   fp32 0.75 GB    8 × 750M 
 
 **Megatron 配置**（`runs/megatron/run.sh`，参数名以 0.18.0 `arguments.py` 与 `training/config/` 为准）：
 
-```bash
+```bash title="runs/megatron/run.sh"
 #!/bin/bash
 # train-ledger / runs/megatron/run.sh -- Llama-3.2-1B shape, 8 GPUs: TP2 x PP2 x DP2, ZeRO-1 (distributed optimizer)
 torchrun --nproc_per_node 8 pretrain_gpt.py \
@@ -992,7 +992,7 @@ torchrun --nproc_per_node 8 pretrain_gpt.py \
 
 **DeepSpeed 配置**（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
 
-```json
+```json title="runs/deepspeed/ds_config.json"
 {
   "train_micro_batch_size_per_gpu": 1,
   "gradient_accumulation_steps": 2,
@@ -1022,7 +1022,7 @@ torchrun --nproc_per_node 8 pretrain_gpt.py \
 
 `train_batch_size` 省略，由 `1 × 2 × 8 = 16` 推出。`train_ds.py` 的骨架：
 
-```python
+```python title="runs/deepspeed/train_ds.py 的骨架"
 """train-ledger / runs/deepspeed/train_ds.py -- ZeRO-3 on any plain-PyTorch Llama implementation."""
 import deepspeed, torch
 from probe_memory import MemoryProbe
@@ -1051,7 +1051,7 @@ def main():
 
 **torchtitan 配置**（`runs/titan/ledger_llama3_1b.py`，v0.3.0 的配置是 Python 函数）：
 
-```python
+```python title="runs/titan/ledger_llama3_1b.py"
 """train-ledger / runs/titan/ledger_llama3_1b.py -- Llama 3.2 1B shape, 8 GPUs: FSDP 4 x TP 2.
 
 Run from the torchtitan repo root:
@@ -1104,7 +1104,7 @@ def llama3_1b_fsdp4_tp2() -> Trainer.Config:
 
 **probe_memory.py**：三个框架都能挂的探针。Megatron 与 torchtitan 自带内存日志与 profiler，探针在那里只作为独立的对照；DeepSpeed 的脚本里它是主要的观测手段。
 
-```python
+```python title="probe_memory.py：内存与集合通信探针"
 """train-ledger / probe_memory.py -- per-rank memory + collective-communication probe.
 
 Reads torch.cuda.memory_stats() at step boundaries and, for a few steps, runs

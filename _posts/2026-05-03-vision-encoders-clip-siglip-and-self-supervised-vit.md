@@ -65,7 +65,7 @@ Table: 本文的章节安排
 
 用一张 8×8 的手写数字、$$P = 2$$、$$d = 3$$ 把这三步缩小到能看清：
 
-```python
+```python title="patchify 与 patch embedding：8×8 图缩小版"
 def patchify(img, P):
     """[H, W] 的图 → [N, P*P] 的 patch 序列（按行扫描）。"""
     H, W = img.shape
@@ -75,7 +75,7 @@ patches = patchify(img, 2)          # [16, 4]：16 个 patch，每个 4 个像�
 tokens = patches @ W                # [16, 3]：乘一个 4×3 的矩阵，16 个 3 维 token
 ```
 
-```text
+```text title="patchify 的输出：16 个 patch 与 token 矩阵"
 图 (8, 8) → 16 个 patch，每个 2×2=4 个像素
 第 0 个 patch（左上角）的像素：[0 0 0 0]；乘 W 之后的向量：[0. 0. 0.]
 第 5 个 patch 的像素：[15  2 12  0]；向量：[8.87 4.16 0.94]
@@ -116,7 +116,7 @@ $$
 
 它没有告诉编码器"猫长什么样"，只要求"猫图的向量离猫的描述近、离其他 $$B - 1$$ 段描述远"。用一个能在 CPU 上几秒跑完的 toy 看它做到了什么：600 对"图"与"文"——"图"是 6 维的随机特征、"文"是 5 维的随机特征，两者来自完全不同的空间，唯一的联系是每对背后有同一个隐含"概念"（4 种之一）。两个编码器各是一个线性层，把 6 维和 5 维都映到 2 维：
 
-```python
+```python title="clip_loss：InfoNCE 的 toy 实现"
 f = torch.nn.Linear(6, 2); g = torch.nn.Linear(5, 2)                # 两个编码器（真实 CLIP 是两个 Transformer → 768 维）
 
 def encode(X, enc):
@@ -131,7 +131,7 @@ def clip_loss(u, v):
 
 每步随机抽 64 对、算 `clip_loss`、反传、Adam 更新，400 步：
 
-```text
+```text title="InfoNCE toy 训练 400 步的结果"
 训练前 loss 9.81（log 64 = 4.16 是随机猜的水平）；400 步后 2.99
 batch 里同一概念约有 16 条文本互相几乎一样，所以 loss 的下限约 log 16 = 2.77，不是 0
 图→文检索：最相似的文本与图同一概念的比例 98.0%

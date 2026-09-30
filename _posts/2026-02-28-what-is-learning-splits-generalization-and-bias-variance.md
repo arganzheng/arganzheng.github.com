@@ -86,7 +86,7 @@ Table: "测试集只看一次"这套规矩的来历
 
 本系列的代码用 scikit-learn，它的所有模型只有三个方法：
 
-```python
+```python title="scikit-learn 模型的三个方法"
 model.fit(X_train, y_train)      # 学：在训练数据上找参数
 model.predict(X_new)             # 用：对新输入给预测
 model.score(X_test, y_test)      # 评：在一批数据上算一个分数（分类是准确率，回归是 R²）
@@ -98,7 +98,7 @@ model.score(X_test, y_test)      # 评：在一批数据上算一个分数（分
 
 本文的模型是**多项式**：$$f(x) = w_0 + w_1 x + w_2 x^2 + \cdots + w_d x^d$$，次数 $$d$$ 越高、能画出的形状越复杂。"拟合"就是找一组系数 $$w$$，让 30 个点上的 MSE 最小。它只有三行：
 
-```python
+```python title="fit_poly：三行最小二乘"
 def fit_poly(x, y, degree):
     A = np.vander(x, degree + 1, increasing=True)      # ① 设计矩阵 [n, d+1]：每行 1, x, x², …, x^d
     w, *_ = np.linalg.lstsq(A, y, rcond=None)          # ② 最小二乘：让 ||A w − y||² 最小的 w
@@ -134,7 +134,7 @@ Table: 训练集、验证集与测试集各能看几次
 
 300 个点，先切出 60% 训练，剩下的对半分成验证与测试：
 
-```python
+```python title="一次划分：训练/验证/测试"
 Xtr, Xtmp, ytr, ytmp = train_test_split(X, y, test_size=0.4, random_state=0)
 Xva, Xte, yva, yte = train_test_split(Xtmp, ytmp, test_size=0.5, random_state=0)
 for d in range(1, 16):                                   # 在验证集上从 1 次试到 15 次
@@ -143,7 +143,7 @@ for d in range(1, 16):                                   # 在验证集上从 1 
     ...                                                  # 记下验证 MSE 最小的 d
 ```
 
-```text
+```text title="划分结果：验证选出 6 次，测试 MSE 0.084"
 训练 180 / 验证 60 / 测试 60
 用验证集选出次数 6（验证 MSE 0.085）；测试集只在最后看一次：测试 MSE 0.084
 ```
@@ -248,7 +248,7 @@ Table: 学习曲线：不同样本数下 4 次与 15 次多项式的 MSE
 
 ![200 次重复的直方图：差值集中在 0 到 0.1 之间（真实略差于报出的分数），右侧拖着一条长尾——少数几次挑到了高次多项式，真实误差比报出的高 1 以上](/img/in-post/classical-ml-01-test-set-selection-bias.svg)
 
-```text
+```text title="200 次重复：测试集选模型的乐观偏差"
 200 次重复：'在测试集上选出的最好分数' 比 '同一模型在全新数据上的真实分数' 平均乐观 0.255（MSE），68% 的情况下真实更差；中位数 0.015
 ```
 
@@ -265,7 +265,7 @@ Table: 学习曲线：不同样本数下 4 次与 15 次多项式的 MSE
 
 污染最常用的检测是 **n-gram 重叠**：把测试题切成连续 $$n$$ 个词的片段，到训练语料里查有多大比例出现过。代码只有几行：
 
-```python
+```python title="n-gram 重叠的污染检测"
 def ngrams(tokens, n):
     return {tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)}   # ① 所有连续 n 个词的片段
 
@@ -334,7 +334,7 @@ $$
 
 算出来的数字（对 200 个 $$x$$ 取平均）：
 
-```python
+```python title="偏差与方差的计算"
 preds = np.array([poly_model(d).fit(*make_data(30, seed=s)).predict(xs) for s in range(100)])  # ① [100 个模型, 200 个 x]
 bias2 = np.mean((preds.mean(0) - truth(xs[:, 0])) ** 2)   # ② 平均预测与真值的差的平方
 var = np.mean(preds.var(0))                                # ③ 100 个预测在每个 x 上的方差
@@ -430,7 +430,7 @@ flowchart LR
 
 完整脚本 [`case_01_housing_split.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_01_housing_split.py)，核心就是两种划分器和一个循环：
 
-```python
+```python title="case_01：随机切与按格子分组切"
 idx = np.arange(len(df))
 tr_r, te_r = train_test_split(idx, test_size=0.2, random_state=0)          # 随机切
 cell = (np.floor(df.longitude).astype(int).astype(str) + ","                 # 1°×1° 格子编号 = "组"

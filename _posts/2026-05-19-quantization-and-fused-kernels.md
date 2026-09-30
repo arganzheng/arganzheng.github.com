@@ -61,7 +61,7 @@ Table: 常见数值格式的位分配、范围与相对精度
 
 把位布局画出来（S = 符号，E = 指数位，M = 尾数位）：
 
-```text
+```text title="FP32 / BF16 / FP16 / E4M3 / E5M2 的位布局"
   FP32   [S][E E E E E E E E][M M M M M M M M M M M M M M M M M M M M M M M]   1 + 8 + 23
   BF16   [S][E E E E E E E E][M M M M M M M]                                 1 + 8 + 7   ← FP32 砍掉低 16 位
   FP16   [S][E E E E E][M M M M M M M M M M]                                 1 + 5 + 10  ← 指数少 3 位，65504 溢出
@@ -95,7 +95,7 @@ Table: 常见数值格式的位分配、范围与相对精度
 
 常用转换 intrinsic：
 
-```cpp
+```cpp title="BF16 / FP8 转换 intrinsic"
 float f = __bfloat162float(b);                 // BF16 -> FP32：只是移位，几乎免费
 __nv_bfloat16 b = __float2bfloat16(f);         // FP32 -> BF16：round-to-nearest-even
 float2 f2 = __bfloat1622float2(b2);            // 一对
@@ -115,7 +115,7 @@ INT4 没有 CUDA 类型。8 个 INT4 装进一个 `uint32_t`，第 $$j$$ 个元�
 
 Marlin 和 FasterTransformer 用的技巧是**不做整数到浮点的 `cvt`，而是直接把 4 位塞进一个 FP16 的尾数**。FP16 的 1024（十进制）编码是 `0x6400`：指数 $$2^{10}$$，尾数全 0。若把一个 4 位整数 $$q$$（0 到 15）放进这个编码的尾数低 4 位，得到 `0x6400 | q`，它表示的 FP16 值恰好是 $$1024 + q$$（因为尾数最低位的权重是 $$2^{10} \times 2^{-10} = 1$$）。于是 $$q = \text{fp16}(0x6400 \mid q) - 1024$$，两个 FP16 打包在一个 32 位寄存器里，一次处理两个元素：
 
-```cpp
+```cpp title="Marlin dequant.h：lop3 + magic number 解 INT4"
 // csrc/quantization/marlin/dequant.h（v0.20.0）：把 int32 里的 8 个 INT4 解成 4 个 half2
 // 这里的 lop3 是 PTX 的三输入逻辑运算：一条指令完成 (q & MASK) | EX
 template <>
@@ -139,7 +139,7 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 }
 ```
 
-```text
+```text title="一个 uint32 里 8 个 INT4 的位排布"
   一个 uint32 q 装 8 个 INT4，每格 4 bit（哪个逻辑权重放哪一格由 repack 决定）:
    bit 31   28   24   20   16   12    8    4    0
       [ e7 ][ e6 ][ e5 ][ e4 ][ e3 ][ e2 ][ e1 ][ e0 ]
@@ -169,7 +169,7 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 
 W4A16 的含义是：权重（W）4 位，激活（A）16 位，Tensor Core 做的仍然是 BF16/FP16 的 `mma`。所以 kernel 的主循环比第六篇的 BF16 GEMM 多了一段：
 
-```text
+```text title="BF16 GEMM 与 W4A16 GEMM 主循环对照"
 BF16 GEMM 主循环                  W4A16 GEMM 主循环
 cp.async A tile -> smem            cp.async A tile -> smem
 cp.async B tile (BF16) -> smem     cp.async B tile (INT4, 字节数 /4) -> smem
@@ -228,7 +228,7 @@ Marlin（Frantar 等 2024，"Mixed Auto-Regressive Linear kernel"）是专门为
 
 kernel 的签名与作者对 striped partitioning 的注释：
 
-```cpp
+```cpp title="marlin_template.h：kernel 签名与 striped partitioning 注释"
 // csrc/quantization/marlin/marlin_template.h（v0.20.0），摘要
 template <const vllm::ScalarTypeId a_type_id, const vllm::ScalarTypeId b_type_id,
           const vllm::ScalarTypeId c_type_id, const vllm::ScalarTypeId s_type_id,
@@ -265,7 +265,7 @@ __global__ void Marlin(
 
 把注释里这个 3×3 tile、5 个 block 的例子展开——哪个 block 算哪些 tile、哪些 slice 需要跨 block 归约：
 
-```text
+```text title="3×3 tile、5 个 block 的 stripe 分配"
   B 矩阵切成 3 个列 slice × 3 个 K 块 = 9 个 tile，5 个 block 按列优先各领一条
   stripe（9 / 5 → 前 4 个 block 各 2 个 tile，最后一个 1 个）
 
@@ -298,7 +298,7 @@ Machete 是 Hopper 上的 Marlin 继任者：基于 CUTLASS 3.x 的 mixed-input 
 
 ### 5. `csrc/quantization/` 目录导读
 
-```text
+```text title="csrc/quantization/ 目录导读"
 目录 / 文件                                   内容
 marlin/                                     Marlin W4A16 / W8A16（marlin_template.h 主体，dequant.h 反量化，
                                             gptq_marlin_repack.cu / awq_marlin_repack.cu 权重重排，
@@ -347,7 +347,7 @@ $$
 - **per-token**（激活按行）：$$s_a$$ 是长度 $$M$$ 的向量，每个 token 一个 scale——这是动态量化的自然粒度，因为一个 token 的激活是一次 reduction 就能拿到 absmax 的单位；
 - **per-channel**（权重按列）：$$s_b$$ 是长度 $$N$$ 的向量，每个输出通道一个 scale，离线算好。
 
-```text
+```text title="per-tensor / per-token / per-channel / per-block scale 的位置"
   D = s_a · s_b · (A_q · B_q)     哪些 scale 能提到求和号外面，看它是否依赖 k
 
   per-tensor            per-token (A 按行)      per-channel (B 按列)     per-block 128×128 (B) + 1×128 (A)
@@ -365,7 +365,7 @@ $$
 
 CUTLASS 3.x 用 Epilogue Visitor Tree（EVT）表达这件事。vLLM 的定义：
 
-```cpp
+```cpp title="ScaledEpilogue：EVT 表达 s_a · s_b · acc"
 // csrc/cutlass_extensions/epilogue/scaled_mm_epilogues_c3x.hpp（v0.20.0）
 // D = (a_scales * A) (b_scales * B)，scale 可为 per-tensor 或 per-row/col，numpy 广播语义
 template <typename ElementAcc, typename ElementD, typename TileShape>
@@ -443,7 +443,7 @@ A100 没有 FP8 Tensor Core。FP8 权重在 Ampere 上只能是**存储格式**�
 
 per-token 动态量化就是第四篇 reduction 的一个变体：一行 $$d$$ 个元素，先归约出 $$\max_k \lvert x_k \rvert$$，算 $$s = \max / 448$$（或 $$/127$$），再把每个元素除以 $$s$$、饱和、转 FP8 写出。vLLM 的实现：
 
-```cpp
+```cpp title="dynamic_per_token_scaled_fp8_quant_kernel_strided"
 // csrc/quantization/w8a8/fp8/common.cu（v0.20.0）
 template <typename scalar_t, typename fp8_type>
 __global__ void dynamic_per_token_scaled_fp8_quant_kernel_strided(
@@ -489,7 +489,7 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel_strided(
 
 **算字节**。在 decoder layer 里，动态量化紧跟在 RMSNorm 之后（attention 与 FFN 的输入都是 norm 的输出）。设一行 $$d$$ 个 BF16 元素、$$T$$ 行：
 
-```text
+```text title="RMSNorm 与动态量化分开 / 融合的字节数"
                        读                          写                       合计 / 元素
 分开：RMSNorm           x (2B)                      xn (2B)                  4 B
       + 动态量化         xn (2B)                     x_fp8 (1B) + scale        3 B
@@ -554,7 +554,7 @@ $$
 
 输入 $$[T, 2d]$$、输出 $$[T, d]$$，每个输出元素读 2 个写 1 个，**6 B/元素、约 5 FLOP/元素**（一个 exp、一个除、一个乘、几个加），memory-bound。Llama-3-8B 的 $$d_{ff} = 14336$$，$$T = 8192$$ 时读 448 MiB 写 224 MiB，A100 下界约 350 µs。vLLM 的实现是一个模板 `act_and_mul_kernel<scalar_t, packed_t, ACT_FN, PACKED_ACT_FN, act_first, use_vec, HAS_CLAMP, use_256b>`，一个 token 一个 block，向量化时每线程一次读 16 字节（8 个 BF16）的 gate 与 up，用 `packed_t`（`__nv_bfloat162`）两两计算：
 
-```cpp
+```cpp title="act_and_mul_kernel：SiLU-and-mul 的向量化"
 // csrc/activation_kernels.cu（v0.20.0），摘要
 template <typename scalar_t, typename packed_t,
           scalar_t (*ACT_FN)(const scalar_t&),
@@ -594,7 +594,7 @@ __device__ __forceinline__ T silu_kernel(const T& x) {
 
 Pre-norm Transformer 的每个子层是 $$h \leftarrow h + f(\text{norm}(h))$$，两个子层之间的模式是"上一个子层的输出加到残差流、再 norm 给下一个子层"。分开与融合的字节数（$$d$$ 个 BF16 一行）：
 
-```text
+```text title="residual add 与 RMSNorm 分开 / 融合的字节数"
                     读                      写                       合计 / 元素
 分开：add           x, residual (4B)        residual (2B)            6 B
       RMSNorm       residual (2B)           out (2B)                 4 B
@@ -604,7 +604,7 @@ Pre-norm Transformer 的每个子层是 $$h \leftarrow h + f(\text{norm}(h))$$�
 
 融合只省 20%，但更重要的是省了一次 kernel launch 和一次 $$T \times d$$ 的中间张量物化。vLLM 的 `fused_add_rms_norm_kernel`（`csrc/layernorm_kernels.cu`）签名是 `(input, residual, weight, epsilon)`，**就地**：`residual = input + residual`，`input = norm(residual) * weight`——两个输出都写回输入缓冲区，所以调用者不需要分配任何新张量。宽度 8 的 BF16/FP16 特化版每线程一次搬 16 字节：
 
-```cpp
+```cpp title="fused_add_rms_norm_kernel：width 8 特化"
 // csrc/layernorm_kernels.cu（v0.20.0），width > 0 的特化
   for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
     int id = blockIdx.x * vec_hidden_size + idx;
@@ -656,7 +656,7 @@ $$\cos$$ 与 $$\sin$$ 与输入无关，预先算成 `cos_sin_cache[max_position
 - **NEOX 风格**（GPT-NeoX、Llama、Qwen 等）：第 $$j$$ 个平面是 $$(x[j], x[j + d/2])$$——前半段与后半段配对，就是 HuggingFace 代码里的 `rotate_half`；
 - **GPT-J 风格**（GPT-J、ChatGLM 等，也叫 interleaved）：第 $$j$$ 个平面是 $$(x[2j], x[2j+1])$$——相邻两个元素配对。
 
-```text
+```text title="NEOX 与 GPT-J 两种 RoPE 配对布局（d = 8）"
   一个 head 的向量 x[0..d)，d = 8 示意。同色/同编号的两个分量组成一个旋转平面 j，用同一组 (cos θ_j, sin θ_j)
 
   NEOX（rotate_half）:  第 j 个平面 = (x[j], x[j + d/2])
@@ -677,7 +677,7 @@ $$\cos$$ 与 $$\sin$$ 与输入无关，预先算成 `cos_sin_cache[max_position
 
 vLLM 用一个 `IS_NEOX` 模板参数区分，差别只在索引：
 
-```cpp
+```cpp title="apply_token_rotary_embedding：IS_NEOX 决定索引"
 // csrc/pos_encoding_kernels.cu（v0.20.0）
 template <typename scalar_t, bool IS_NEOX>
 inline __device__ void apply_token_rotary_embedding(
@@ -717,7 +717,7 @@ inline __device__ void apply_token_rotary_embedding(
 
 kernel 的全部复杂性来自 cache 的**布局**。v0.20.0 有两个 kernel：
 
-```cpp
+```cpp title="reshape_and_cache_kernel：v1 布局"
 // csrc/cache_kernels.cu（v0.20.0）：v1 PagedAttention 的布局
 template <typename scalar_t, typename cache_t, Fp8KVCacheDataType kv_dt>
 __global__ void reshape_and_cache_kernel(
@@ -758,7 +758,7 @@ K cache 的 `[num_blocks, num_heads, head_size/x, block_size, x]` 布局里，$$
 
 把一个 cache block 里一个 KV head 的存放方式画出来（BF16，`head_size = 128`，`block_size = 16`，`x = 8`）：
 
-```text
+```text title="一个 cache block 内 K/V 的存放方式"
   K[t, h, d] 落在 key_cache[blk][h][d / 8][t][d % 8]   每格 = 8 个 BF16 = 16 B
 
   K cache（一个 blk、一个 h）: [head_size/x = 16 段][block_size = 16][x = 8]
@@ -844,7 +844,7 @@ router logits 一行只有 $$E$$ 个数（8 到 256），一个 block 一行太�
 
 一个小例子把三个输出的关系摆出来（$$T = 5$$、$$k = 2$$、$$E = 3$$、`block_size = 4`）：
 
-```text
+```text title="moe_align_block_size 三个输出的小例子"
   扁平索引 i = t·k + j
   topk_ids   t=0: [0,2]   t=1: [1,0]   t=2: [0,1]   t=3: [2,0]   t=4: [0,1]
   i           0   1        2   3        4   5        6   7        8   9
@@ -866,7 +866,7 @@ router logits 一行只有 $$E$$ 个数（8 到 256），一个 block 一行太�
   例: tile 1 只有 token 8//2 = 4 一行有效，其余 3 行是 pad；tile 3 读 token 0、3
 ```
 
-```cpp
+```cpp title="_moe_align_block_size：计数、前缀和、填充"
 // csrc/moe/moe_align_sum_kernels.cu（v0.20.0），_moe_align_block_size 核心
   // 1) 每个 expert 的 token 计数（shared memory 上原子加）
   for (size_t i = tid; i < numel; i += stride) {
@@ -899,7 +899,7 @@ router logits 一行只有 $$E$$ 个数（8 到 256），一个 block 一行太�
 
 第四步 `_count_and_sort_expert_tokens`（另一个 kernel，多 block 并行）再扫一遍 `topk_ids`，对每个 $$i$$ 用 `atomicAdd(&cumsum[expert_id], 1)` 拿到它在该 expert 段内的位置，写 `sorted_token_ids[pos] = i`。这是一个计数排序（counting sort），两遍扫描，$$O(Tk + E)$$；同一 expert 内的 token 顺序由原子操作的到达顺序决定，不稳定，但 GEMM 不在乎。`moe_permute_unpermute_op.cu` 提供另一条路径：用 CUB 的 radix sort 对 `topk_ids` 排序得到 `permuted_idx`，然后 `expandInputRowsKernel` 真的把 $$x$$ 的行按排序结果**物化**成 `permuted_input [T*k, d]`（gather，多写一份 $$Tk \cdot d \cdot 2$$ 字节），供 CUTLASS grouped GEMM 这类需要每个 expert 的输入连续的实现使用；`finalizeMoeRoutingKernel` 是它的逆——按 `inv_permuted_idx` gather 回来并乘 `topk_weights` 求和。Triton 的 `fused_moe_kernel` 则不物化，直接用 `sorted_token_ids` 做间接寻址：
 
-```python
+```python title="fused_moe_kernel 用 sorted_token_ids 间接寻址"
 # vllm/model_executor/layers/fused_moe/fused_moe.py（v0.20.0）fused_moe_kernel 摘要
 num_tokens_post_padded = tl.load(num_tokens_post_padded_ptr)
 if pid_m * BLOCK_SIZE_M >= num_tokens_post_padded:
@@ -917,7 +917,7 @@ A 的行地址是 `offs_token // top_k`（同一个 token 被 $$k$$ 个 expert �
 
 ### 4. 为什么 grouped GEMM 的效率低
 
-```text
+```text title="dense FFN 与 MoE grouped GEMM 的权重摊薄"
   dense FFN: 一份权重 W 被全部 T 行摊薄            MoE: E 份权重，每份只被 T·k/E 行摊薄，且分布不均
 
      T 行 ┌──────────┐                            E0 (热门)  ┌────┬────┬────┐  3 个 M-tile
@@ -937,7 +937,7 @@ A 的行地址是 `offs_token // top_k`（同一个 token 被 $$k$$ 个 expert �
 
 ### 5. `csrc/moe/` 目录导读
 
-```text
+```text title="csrc/moe/ 目录导读"
 文件                                内容
 topk_softmax_kernels.cu             topkGating：softmax + top-k 选择（FasterTransformer 系）
 grouped_topk_kernels.cu             DeepSeek-V3 的分组 top-k（先选 group 再选 expert）
@@ -996,7 +996,7 @@ Table: 各类 kernel 数值校验的 tolerance 经验表
 
 一行一个 block，两遍：第一遍 $$z = x + r$$ 写回 $$r$$、累加 $$z^2$$；block 归约得 $$\text{rstd} = 1/\sqrt{\text{mean}(z^2) + \epsilon}$$；第二遍从 $$r$$（L1/L2 命中）读 $$z$$，写 $$\text{out} = z \cdot \text{rstd} \cdot w$$。理论字节：8 B/元素。
 
-```cpp
+```cpp title="fused_add_rms_norm_kernel：两遍、8 B/元素"
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
@@ -1061,7 +1061,7 @@ __global__ void fused_add_rms_norm_kernel(__nv_bfloat16* __restrict__ out,
 
 一个 token 一个 block，`__nv_bfloat162` 向量化，每次算两个元素。理论字节：6 B/输出元素。
 
-```cpp
+```cpp title="silu_and_mul_kernel：__nv_bfloat162 向量化"
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
@@ -1095,7 +1095,7 @@ __global__ void silu_and_mul_kernel(__nv_bfloat16* __restrict__ out,       // [t
 
 一个 token 一个 block；线程编号 $$i$$ 先覆盖 q 的 `num_heads × half` 个平面，再覆盖 k 的 `num_kv_heads × half` 个平面；每个线程读写一对 $$(x_j, x_{j + d/2})$$，互不重叠，所以就地更新没有竞争。
 
-```cpp
+```cpp title="rope_neox_kernel：q/k 就地旋转"
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
@@ -1152,7 +1152,7 @@ __global__ void rope_neox_kernel(const int64_t* __restrict__ positions,   // [to
 
 权重格式（Python 侧准备）：`W` 逻辑形状 `[N, K]`（`nn.Linear` 的 `weight`），per-group 对称量化 $$g = 128$$，$$q \in [0, 15]$$，零点 8，真实值 $$\hat{w} = s \cdot (q - 8)$$；8 个连续 $$k$$ 的 $$q$$ 装进一个 32 位字，第 $$j$$ 个占 bit $$4j$$ 到 $$4j + 3$$：
 
-```python
+```python title="quantize_w4_g128：INT4 per-group 打包（Python 侧）"
 import torch
 
 def quantize_w4_g128(W: torch.Tensor, G: int = 128):
@@ -1173,7 +1173,7 @@ def quantize_w4_g128(W: torch.Tensor, G: int = 128):
 
 kernel：
 
-```cpp
+```cpp title="w4a16_gemv_kernel：寄存器内解包 INT4"
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
@@ -1258,7 +1258,7 @@ __global__ void w4a16_gemv_kernel(__nv_bfloat16* __restrict__ y,
 
 把本篇的四个 kernel 与前几篇的 GEMM（第六篇 BF16 `mma.sync` GEMM）、attention（第八篇 FlashAttention 前向 / paged decode）按下面的顺序接起来，就是一个 Llama 风格 decoder layer。以 Llama-3-8B（$$d = 4096$$、32 个 q head、8 个 KV head、$$d_{head} = 128$$、$$d_{ff} = 14336$$）、$$T$$ 个 token 为例：
 
-```text
+```text title="Llama 风格 decoder layer 的 10 步 kernel 序列"
 步  kernel                       输入 shape                       输出 shape            来源
 1   fused_add_rms_norm           x [T,4096], residual [T,4096]    xn [T,4096]           本篇 §9.1（第 0 层第一次用普通 RMSNorm）
 2   QKV GEMM                     xn [T,4096] x Wqkv [6144,4096]^T qkv [T,6144]          第六篇 BF16 GEMM，或 §9.4 INT4 GEMV（T 小）
@@ -1309,7 +1309,7 @@ flowchart TB
 
 PyTorch eager 对照实现（省略 KV cache，用 `F.scaled_dot_product_attention` 做 attention）：
 
-```python
+```python title="decoder layer 的 PyTorch eager 对照实现"
 import torch
 import torch.nn.functional as F
 
@@ -1377,7 +1377,7 @@ def decoder_layer_ref(h, residual, p, pos, cos_sin, n_h=32, n_kv=8, d_head=128):
 
 数字汇总：
 
-```text
+```text title="本篇数字汇总：格式、字节数与理论下界"
 格式                     位布局 (S/E/M)   最大值       eps          用途
 FP16                     1/5/10           65504        9.8e-4       激活（旧）、Marlin 反量化目标
 BF16                     1/8/7            3.4e38       7.8e-3       默认激活/权重

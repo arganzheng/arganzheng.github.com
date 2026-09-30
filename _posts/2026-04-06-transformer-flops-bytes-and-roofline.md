@@ -194,7 +194,7 @@ $$
 
 prefill 把 prompt 的 $$s$$ 个 token 一次送入模型。每个 `nn.Linear` 看到的输入是 $$[s, k]$$（多请求时是 $$[\sum s_i, k]$$），GEMM 是 $$[s, k] \times [k, n]$$，$$m = s$$。以 Llama-3-8B、$$s = 8192$$ 为例，每层的几个 GEMM 形状是：
 
-```text
+```text title="prefill 每层 GEMM 的形状（s = 8192）"
 W_Q      [8192, 4096] x [4096, 4096]
 W_K, W_V [8192, 4096] x [4096, 1024]
 W_O      [8192, 4096] x [4096, 4096]
@@ -210,7 +210,7 @@ $$m$$ 维是几千，$$k$$、$$n$$ 也是几千，这是 Tensor Core 最喜欢�
 
 decode 每步只处理每个请求最新的 1 个 token。batch 里有 $$B$$ 个请求，每个 `nn.Linear` 看到的输入是 $$[B, k]$$，GEMM 是 $$[B, k] \times [k, n]$$，$$m = B$$。$$B = 1$$ 时它退化为矩阵向量乘（GEMV）：
 
-```text
+```text title="decode 每层 GEMM 的形状（m = B）"
 W_Q      [B, 4096] x [4096, 4096]
 gate, up [B, 4096] x [4096, 14336]
 down     [B, 14336] x [14336, 4096]
@@ -224,7 +224,7 @@ PV       每 head 每请求 [1, s_i] x [s_i, 128]
 
 对 Llama-3-8B、上下文 8K：
 
-```text
+```text title="prefill 与 decode 一步的算量对照"
                         prefill (s=8192)            decode 一步 (B=1, s=8192)
 权重项                   8192 x 15.0 G = 123 TFLOP    15.0 GFLOPs
 attention 上下文项        8192 x 4.29 G /2 = 17.6 T   4.29 GFLOPs   （因果掩码减半，见第五节）
@@ -242,7 +242,7 @@ attention 上下文项        8192 x 4.29 G /2 = 17.6 T   4.29 GFLOPs   （因�
 
 以 chunked prefill 为例，把单张卡上的时间轴画出来，就能看到它解决的是什么：
 
-```text
+```text title="不切分与 chunked prefill 的单卡时间轴"
 不切分（一个 8K prefill 进来）：
   |<--------- prefill 8K，约 240 ms，I 约 8000 --------->|d|d|d|d|d|
   其他请求的 decode 在这 240 ms 里一步也走不了，token 间延迟出现尖峰
@@ -344,7 +344,7 @@ H100 SXM：$$989 / 3.35 \approx 295$$ FLOP/byte。A100：$$312 / 2.0 \approx 156
 
 ### 3. 图
 
-```text
+```text title="Roofline 图（ASCII）"
   实际算力
   (FLOP/s, 对数轴)
      |
@@ -634,7 +634,7 @@ MFU 与 HFU 的差别在有重算时才显现。全量重算下硬件每 token �
 
 ### 1. 新增函数
 
-```python
+```python title="llm_cost.py：FLOPs、字节与 Roofline 函数"
 from dataclasses import dataclass
 
 @dataclass
@@ -778,7 +778,7 @@ if __name__ == "__main__":
 
 ### 2. 输出示例
 
-```text
+```text title="Roofline 版的输出示例"
 == Llama-3-8B on H100 SXM (ridge = 295 FLOP/byte) ==
 params total 8.03 B, gemm 7.50 B
 weight FLOPs/token   15.01 GFLOPs
@@ -843,7 +843,7 @@ prefill 131072 causal=True      40.74 PFLOP  @60% MFU 68.651 s
 
 三个模型的数字汇总（BF16，H100 SXM 单卡，理论下界）：
 
-```text
+```text title="本篇数字汇总：三个模型的 FLOPs 与字节"
                            Llama-3-8B      Llama-3-70B     DeepSeek-V3
 参数量 N                    8.03 B          70.55 B         671 B（激活 37 B）
 权重 FLOPs/token (2N)       15.0 GFLOPs     141 GFLOPs      74 GFLOPs（按激活参数）

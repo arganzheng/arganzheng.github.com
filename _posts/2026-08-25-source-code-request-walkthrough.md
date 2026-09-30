@@ -76,7 +76,7 @@ Table: 控制面与数据面的对比
 **说明** 为什么控制面开销可被摊薄？
 这里用数字解释说明一下。下图以一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）为例——第七章那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
 
-```
+``` title="单次 Decode 迭代：Python 控制面与 GPU 数据面"
 单次 Decode 迭代
   Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
   GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
@@ -125,7 +125,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 
 这四个域和第一篇的四问是对应的：请求域是四问的输入，调度域是第一问的产物，显存域是第二问的产物，模型域是第三问的战场。
 
-```
+``` title="核心数据对象全景图：四个域"
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      核心数据对象全景图                               │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -258,7 +258,7 @@ stateDiagram-v2
     WAITING_FOR_STREAMING_REQ --> WAITING: 收到新输入继续
 ```
 
-```python
+```python title="request.py：RequestStatus 状态机"
 # vllm/v1/request.py
 class RequestStatus(enum.IntEnum):
     WAITING = enum.auto()
@@ -282,7 +282,7 @@ class RequestStatus(enum.IntEnum):
 
 在 vLLM V1 中，`Scheduler.schedule()` 的核心不是把系统硬切成 Prefill 阶段和 Decode 阶段，而是在每一轮迭代里分配统一的 token 预算。源码注释明确指出：调度器内部没有严格的 "decoding phase" 或 "prefill phase"；每个请求维护 `num_computed_tokens`，调度器尝试让它追赶 `num_tokens_with_spec`。
 
-```
+``` title="Scheduler.schedule() 的核心问题：输入与输出"
 ┌─────────────────────────────────────────────────────────────────┐
 │                  Scheduler.schedule() 核心问题                    │
 ├─────────────────────────────────────────────────────────────────┤
@@ -339,7 +339,7 @@ Table: prepare_inputs 的四步翻译
 
 大致流程如下所示：
 
-```
+``` title="SchedulerOutput → ModelRunner 的映射"
 ┌─────── SchedulerOutput → ModelRunner 映射 ───────────────────────────┐
 │                                                                      │
 │  Scheduler 输出:                                                     │
@@ -428,7 +428,7 @@ sequenceDiagram
 
 把前面所有环节串成一条链，可以清楚看到三道边界——两道进程边界（③ ZMQ、⑤ 共享内存队列）和一道 Python → CUDA 边界（⑦）——落在哪几个位置：
 
-```
+``` title="从 HTTP 请求到 GPU kernel 的时间顺序链"
   HTTP Request ("Hello")
        │
        │ ①  Python (FastAPI)
@@ -507,7 +507,7 @@ Table: 从请求到 GPU kernel 的完整调用链
 
 上面那条链是"时间顺序"，下面换成"调用栈"再看一遍。区别在于嵌套关系：`step()` 是一个普通函数，`schedule()`、`execute_model()`、`update_from_output()` 都是它的直接子调用，⑪ 返回的地方就是 ④ 出发的地方；而三段栈分别活在三个进程里，栈与栈之间只靠消息队列衔接，没有任何一个 Python 帧同时横跨两道边界：
 
-```text
+```text title="同一条链的调用栈：三个进程"
 进程 A · API Server                          vllm/entrypoints/, vllm/v1/engine/
 └─ create_chat_completion()                  chat_completion/serving.py
    └─ AsyncLLM.generate()                    async_llm.py

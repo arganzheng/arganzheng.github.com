@@ -46,7 +46,7 @@ Kubernetes 用 device plugin 把 GPU 表达为**整数个扩展资源**：节点
 
 四层共享机制及其在 K8s 上的接线：
 
-```text
+```text title="四层共享机制及其在 K8s 上的接线"
                  隔离弱 ───────────────────────────────────────────▶ 隔离强
 
   层次        不隔离            时间片              MPS                 MIG
@@ -165,7 +165,7 @@ MIG 的代价来自"硬"：分区几何是固定的枚举（第三章），改�
 
 把三种机制下两个进程的 kernel 在 SM 上的占用画到同一条时间轴上，"轮转"、"并发"、"分区"的差别就很直观：
 
-```text
+```text title="时间片、MPS、MIG 下 kernel 在 SM 上的占用"
   横轴 = 时间，纵轴 = SM；A / B = 两个进程的 kernel；s = context 切换；. = 空闲
 
   时间片：同一时刻只有一个 context 在 GPU 上，A、B 轮转，各自独占全部 SM
@@ -245,7 +245,7 @@ Table: MIG 的 profile 与合法组合
 
 把 A100 40 GB 的 7 个计算 slice 与 8 个显存 slice 画成一排格子，几个常见几何的占位如下（placement 以 NVIDIA MIG 用户指南为准，此处为示意）：
 
-```text
+```text title="A100 40 GB 的 slice 与常见几何占位（示意）"
   计算 slice（7 个，每个 14 SM）        显存 slice（8 个，每个 5 GB）
   位置:  0    1    2    3    4    5    6      0   1   2   3   4   5   6   7
 
@@ -289,7 +289,7 @@ MIG 的两级操作各有前提（以 NVIDIA MIG 用户指南为准）：
 
 GPU Operator v26.7.0 把 MIG 的生命周期拆给三个组件：
 
-```text
+```text title="MIG 生命周期的三个组件"
   运维改标签                     MIG Manager（DaemonSet）                    device plugin + GFD
   ────────────                   ────────────────────────                    ───────────────────
   kubectl label node n1 \    ──▶ 监听 nvidia.com/mig.config 变化         ──▶ migStrategy=single:
@@ -328,7 +328,7 @@ NVIDIA MIG 用户指南写明 MIG 实例之间**不支持 GPU 到 GPU 的 P2P**�
 
 k8s-device-plugin v0.20.0 的配置文件由 `api/config/v1/config.go` 的 `Config` 定义：`version: v1`，四个段 `flags`、`resources`、`sharing`、`imex`。共享相关的是 `sharing`（`sharing.go` 的 `Sharing`）：
 
-```go
+```go title="sharing.go：Sharing 结构"
 type Sharing struct {
     TimeSlicing ReplicatedResources  `yaml:"timeSlicing,omitempty"`
     MPS         *ReplicatedResources `yaml:"mps,omitempty"`
@@ -349,7 +349,7 @@ type Sharing struct {
 
 下面是一份可直接 `kubectl apply` 的 ConfigMap，配合 GPU Operator 使用时由 `ClusterPolicy.spec.devicePlugin.config`（`DevicePluginSpec.Config *DevicePluginConfig`，字段 `name` / `default`）引用；裸 Helm 部署时对应 chart 的 `config.name` / `config.default`：
 
-```yaml
+```yaml title="时间片的 device-plugin-config ConfigMap"
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -375,7 +375,7 @@ data:
           replicas: 4
 ```
 
-```yaml
+```yaml title="ClusterPolicy 引用 device plugin 配置"
 apiVersion: nvidia.com/v1
 kind: ClusterPolicy
 metadata:
@@ -410,7 +410,7 @@ spec:
 
 MPS 的配置形状与时间片相同，只是键换成 `mps`：
 
-```yaml
+```yaml title="MPS 的 device-plugin-config ConfigMap"
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -466,7 +466,7 @@ Table: HAMi 的四个资源
 
 一个完整的、按显存共卡的 vLLM Pod（`examples/nvidia/default_use.yaml` 的形状）：
 
-```yaml
+```yaml title="按显存共卡的 vLLM Pod"
 apiVersion: v1
 kind: Pod
 metadata:
@@ -553,7 +553,7 @@ flowchart TB
 
 按显存选卡需要调度器知道每张卡的剩余显存，kube-scheduler 不知道。HAMi 用 **scheduler extender** 补上（`pkg/scheduler`）：
 
-```text
+```text title="HAMi scheduler extender 的链路"
   Pod 提交 ──▶ MutatingWebhook（pkg/scheduler/webhook.go）
                  检测到 nvidia.com/gpu* 资源 → 改 schedulerName 为 hami-scheduler
                  （scheduler.forceOverwriteDefaultScheduler=true 时连 default-scheduler 也改）
@@ -633,7 +633,7 @@ Table: 各共享方案的资源份额与两个阶段的延迟
 
 ### 2. 决策树
 
-```text
+```text title="切分方案决策树"
 这个负载是训练或需要 NCCL？
 ├─ 是 ──▶ 不切分。整卡，且节点池不开 MIG（第三章第 4 节）
 └─ 否 ──▶ 是推理服务还是开发 / notebook / 批处理？
@@ -718,7 +718,7 @@ Table: 三个小模型与一张 A100 的三种方案
 
 ### 1. `mig-config.yaml`：节点标签与自定义几何
 
-```yaml
+```yaml title="share/mig-config.yaml：自定义 mig-parted 配置"
 # 自定义 mig-parted 配置：在默认配置之外加一个 "two-services" 几何
 # 由 ClusterPolicy.spec.migManager.config.name 引用；键名必须是 config.yaml
 apiVersion: v1
@@ -765,7 +765,7 @@ spec:
 
 应用步骤（命令与预期输出形态，非实测）：
 
-```bash
+```bash title="应用 MIG 配置的步骤"
 kubectl apply -f share/mig-config.yaml
 # 排空目标节点（MIG Manager 会停掉 GPU 客户端，但用户 Pod 要自己驱逐）
 kubectl cordon a100-1 && kubectl drain a100-1 --ignore-daemonsets --delete-emptydir-data
@@ -783,7 +783,7 @@ kubectl describe node a100-1 | grep -A3 Capacity
 
 `hami/values.yaml`（只列改动项，其余取 chart 默认）：
 
-```yaml
+```yaml title="share/hami/values.yaml"
 # helm install hami hami-charts/hami -n kube-system --version 2.10.0 -f share/hami/values.yaml
 scheduler:
   defaultSchedulerPolicy:
@@ -803,7 +803,7 @@ devices:
 
 `hami/pod.yaml`：两个 7B 级服务，显存 24 GB 与 40 GB 不对称，模拟真实平台上的差异化请求（80 GB 卡）：
 
-```yaml
+```yaml title="share/hami/pod.yaml：两个 vLLM 共卡"
 apiVersion: v1
 kind: Pod
 metadata:
@@ -873,7 +873,7 @@ spec:
 
 验证两者落在同一张卡上：
 
-```bash
+```bash title="验证两者落在同一张卡上"
 kubectl get pod svc-a svc-b -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.hami\.io/vgpu-devices-allocated}{"\n"}{end}'
 #   svc-a   GPU-xxxx,NVIDIA,24000,40:;
 #   svc-b   GPU-xxxx,NVIDIA,40000,60:;      ← 同一个 GPU UUID
@@ -887,7 +887,7 @@ kubectl exec svc-a -- python3 -c 'import torch; f,t=torch.cuda.mem_get_info(); p
 
 即第四章第 2 节的 ConfigMap 与 `ClusterPolicy.spec.devicePlugin.config` 片段，加一个节点标签步骤：
 
-```bash
+```bash title="应用 timeslicing-config.yaml 并打节点标签"
 kubectl apply -f share/timeslicing-config.yaml
 kubectl label node dev-1 nvidia.com/device-plugin.config=time-slicing-4 --overwrite
 kubectl describe node dev-1 | grep -E 'gpu.shared|sharing-strategy|gpu.replicas'
@@ -900,7 +900,7 @@ kubectl describe node dev-1 | grep -E 'gpu.shared|sharing-strategy|gpu.replicas'
 
 ### 4. `bench.sh`：两服务压测与 OOM 演练
 
-```bash
+```bash title="share/bench.sh：两服务压测与 OOM 演练"
 #!/usr/bin/env bash
 # bench.sh -- 两个共卡推理服务的压测与 OOM 隔离演练
 # 用法: bench.sh <scheme: mig|hami|ts> <svc-a-url> <svc-b-url>
@@ -1014,7 +1014,7 @@ Table: 本篇涉及的源码与配置位置
 
 `mini-platform/share/` 新增：
 
-```text
+```text title="练手项目本篇增量：share/"
 share/
 ├── mig-config.yaml          自定义 mig-parted ConfigMap（two-services、gpu0-only 两种几何）
 │                            + ClusterPolicy 片段（mig.strategy=mixed、migManager.config）

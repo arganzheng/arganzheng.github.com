@@ -66,7 +66,7 @@ Table: 四种学习率设置在同一个小模型上的结果
 
 第一篇那次 12 分钟的训练，日志里有一行不一样：
 
-```text
+```text title="第一篇训练日志里 step 833 的 spike"
 step   784  train 5.053  val 5.016  |g|  0.51  max qk  41.4
 step   833  train 5.645  val 5.017  |g|  6.99  max qk  23.6     ← 这里
 step   882  train 5.060  val 4.936  |g|  0.54  max qk  45.1
@@ -460,7 +460,7 @@ Table: 预训练监控的七条曲线
 
 PyTorch CPU，复用第三篇的语料与训练循环，attention 自己写（为了加 QK-norm 与读出最大 logit）：
 
-```python
+```python title="training_recipe_lab.py：带 QK-norm 的 Attention"
 class Attention(nn.Module):
     def forward(self, x, mask):
         q, k, v = ...                                  # [B, h, T, d_head]

@@ -176,7 +176,7 @@ Table: 去重的两步与找到的重复
 
 最早学到的合并全是英文最高频的碎片（`Ġt`、`Ġa`、`in`、`he`、`Ġthe`——`Ġ` 表示前面有空格）；最长的词表项是 `opportunities`、`International` 这类长而常见的词。一段样本的切分：
 
-```text
+```text title="4096 词表 BPE 的切分样本"
 The | ␣board | ␣requires | ␣you | ␣to | ␣be | ␣registered | ␣and | ␣log | ged | ␣in | ␣to | ␣view | ␣prof | iles | .
 ␣Res | idential | ␣and | ␣commercial | ␣roof | ing | ␣contract | ors | ␣in | ␣P | enn | sy | l | v | an | ia | ␣offer | ␣free | ␣est | im | ates | .
 de | f | ␣to | ken | ize | ( | text | ) | :  ⏎  ␣ | ␣ | ␣ | ␣return | ␣text | . | s | pl | it | ( | )
@@ -288,7 +288,7 @@ Table: 本文的训练配方，每一项的取值与理由
 
 `step7_train.py` 的日志节选（完整版在 `expected/step7_train.txt`）：
 
-```text
+```text title="step7_train.py 的训练日志节选"
 配方：4 层 × 192 宽，N = 1.77M（含 embedding 2.61M）
       数据 10,880,981 token × 3.0 epoch = 32,636,928 token；batch 64 × 256 = 16,384 token/步；1992 步
       AdamW β=(0.9, 0.95) wd 0.1 clip 1.0；峰值 lr 1.15e-03，warmup 59 步（3%），cosine 衰减到 10%
@@ -324,7 +324,7 @@ Table: 七条曲线各自的含义与异常形态
 
 `step8_eval.py` 在 val 的 40 篇文档上算（`expected/step8_eval.txt`）：
 
-```text
+```text title="step8_eval.py 的三个数字"
 我们的模型：4.514 nats/token（PPL 91.3），1.879 bits/byte，共 37,739 token
   参照：随机猜 = ln 4096 = 8.32 nats/token；训练前的 val loss 就是它
 GPT-2 small（124M，WebText 40 GB 训的）：3.362 nats/token（PPL 28.8，它的 token 更长所以 PPL 不可直接比），1.062 bits/byte，共 28,643 token
@@ -339,7 +339,7 @@ GPT-2 small（124M，WebText 40 GB 训的）：3.362 nats/token（PPL 28.8，它
 
 `step8_eval.py` 用温度 0.8、top-k 40 续写三个开头（数学系列第五篇讲这两个参数）：
 
-```text
+```text title="温度 0.8、top-k 40 的三段续写"
 'The city council announced' → ' that one and the MSFBE with the National PMS is the PCMA, and it has the only the
   NFLAABS to be an international GPI and the CRS. The company is the first towap the next step in'
 'In this tutorial we will' → ' be able to make a clear one.\nSince we have a lot of dyzzer thank. The other handp are
@@ -358,7 +358,7 @@ GPT-2 small（124M，WebText 40 GB 训的）：3.362 nats/token（PPL 28.8，它
 
 ### 3. 它为什么还不是一个助手
 
-```text
+```text title="问答与指令开头的续写：还不是助手"
 'Q: What is the capital of France?\nA:'
     → ' "Sureror a festic, Specialiskar Sweettech?\nSimal: Theme: The Octimulation and Mette Laser, is a grandmenial that'
 'Write a short poem about the sea.\n'

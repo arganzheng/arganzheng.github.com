@@ -93,7 +93,7 @@ $$
 
 右图：60 个点里只有**两个**落在间隔边界上（虚线）。这两个点叫**支持向量**（support vector）——它们"支撑"着边界；把其他 58 个点全删掉，解出来的直线一模一样。这与逻辑回归很不同：逻辑回归里每个点都对 $$w$$ 有贡献（远的贡献小但不为零）。
 
-```text
+```text title="最大间隔直线与两个支持向量"
 最大间隔直线：w = [0.819 1.753], b = 0.006；间隔宽度（到边界的距离）= 1/||w|| = 0.517
 支持向量：2 个（60 个训练点里只有它们决定了这条线）
 ```
@@ -135,7 +135,7 @@ $$C$$ 控制"少犯错"与"间隔大"之间的权衡，第四章。
 
 hinge 在折点（间隔恰好 1）不可导，但两边的导数都有——左边斜率 $$-1$$、右边 0——取其中任意一个当"导数"用，梯度下降照样收敛，这叫[**次梯度**](# "tip: subgradient：对折线这类有尖角的凸函数，尖角处任何介于左右斜率之间的值都可以当导数用。用它做的梯度下降叫次梯度下降")。间隔 $$< 1$$ 时，$$\max(0, 1 - y(w^T x + b))$$ 对 $$w$$ 的导数是 $$-y\, x$$（第三篇链式法则：外层对内层的导数 $$-y$$，乘内层 $$w^T x$$ 对 $$w$$ 的导数 $$x$$）；间隔 $$\ge 1$$ 时是 0。逐样本的随机梯度下降：
 
-```python
+```python title="fit_linear_svm：十二行次梯度下降"
 def fit_linear_svm(X, y, C_=1.0, lr=0.01, epochs=200, seed=0):       # y ∈ {−1, +1}
     r = np.random.default_rng(seed)
     n, d = X.shape
@@ -154,7 +154,7 @@ def fit_linear_svm(X, y, C_=1.0, lr=0.01, epochs=200, seed=0):       # y ∈ {�
 2. ③ 间隔不够时 hinge 的导数是 $$-y_i x_i$$，加上正则项的导数 $$w$$，一起走一步；
 3. ④ 间隔够时 hinge 为零，只剩正则项把 $$w$$ 往小拉——这就是"分对且够远的点不参与"。
 
-```text
+```text title="手写 SVM、LinearSVC 与逻辑回归的结果"
 手写：0.18s，测试准确率 0.897；LinearSVC：0.907；两个 w 方向的余弦相似度 0.9997
 同一份数据逻辑回归 0.920——线性可分程度高的数据上，两种线性分类器差别很小
 ```
@@ -190,7 +190,7 @@ $$C$$ 是正则化强度的**倒数**（第二篇 Ridge 的 $$\alpha$$ 越大越
 
 ![左：圆环数据上线性 SVM 的直线边界把内外圈各切一半，0.58；中：加上第三维 z = x₁² + x₂² 后的三维散点——内圈（红）在下、外圈（蓝）在上，一个灰色的水平平面把两层分开；右：直接用 RBF 核的 SVM 在二维上画出的边界是一个圆，1.00](/img/in-post/classical-ml-05-kernel-trick-circles.svg)
 
-```text
+```text title="圆环数据：线性、升维、RBF 核的准确率"
 二维线性 SVM 训练准确率 0.583（一条直线切圆环，只能对一半）
 加第三维 r² 后线性 SVM 1.000——三维里一个水平的平面就把内圈与外圈分开
 不显式升维、直接用 RBF 核的 SVM 1.000
@@ -251,7 +251,7 @@ $$\gamma = 200$$ 时每个训练点周围一个小岛，训练 100%、测试掉�
 
 把"用相似度加权"这个想法单独拿出来，就是比 SVM 更古老的**核回归**（Nadaraya-Watson，1964）：有一堆已知的 $$(x_k, v_k)$$，要预测新点 $$x_q$$ 的值，就用 $$x_q$$ 与每个 $$x_k$$ 的相似度做权重，对 $$v_k$$ 加权平均：
 
-```python
+```python title="kernel_regression：核回归三步"
 def kernel_regression(xq, xk, vk, gamma):
     K = np.exp(-gamma * (xq[:, None] - xk[None, :]) ** 2)      # ① 查询与每个键的相似度（RBF 核）
     W = K / K.sum(1, keepdims=True)                             # ② 每行归一化成权重（和为 1）
@@ -266,7 +266,7 @@ def kernel_regression(xq, xk, vk, gamma):
 
 现在把 Transformer 的 attention 写出来：
 
-```python
+```python title="attention：同样的三步"
 def attention(q, k, v, scale):
     S = q @ k.T / scale                                         # ① 查询与键的点积相似度
     W = np.exp(S - S.max(1, keepdims=True)); W /= W.sum(1, keepdims=True)   # ② softmax（归一化成权重）
@@ -275,7 +275,7 @@ def attention(q, k, v, scale):
 
 三步一一对应：**相似度 → 归一化 → 加权值**。名字换一下：核回归里的"查询点 / 已知点 / 已知值"，在 attention 里叫 query / key / value——当前 token 拿自己的 query 去和每个 token 的 key 比相似度，按相似度加权平均它们的 value。区别只在①：核回归用 RBF 核 $$e^{-\gamma \lVert q - k \rVert^2}$$，attention 用点积 $$q^T k$$ 再过 softmax（$$e^{q^T k}$$）。而 $$e^{-\gamma \lVert q - k \rVert^2} = e^{2\gamma q^T k} \cdot e^{-\gamma \lVert q \rVert^2} \cdot e^{-\gamma \lVert k \rVert^2}$$——把两个范数项当成额外的坐标塞进 $$q$$ 与 $$k$$，RBF 核回归就**恰好**是一个点积 attention：
 
-```text
+```text title="RBF 核回归与点积 attention 的最大差"
 RBF 核回归与用点积 + softmax 写的 attention，在 200 个查询点上的最大差 1.0e-15
 ```
 
@@ -322,7 +322,7 @@ flowchart LR
     S --> E3["1.43%"]
 ```
 
-```python
+```python title="MNIST 上核 SVM 的网格搜索"
 X, y = mnist("train"); Xt, yt = mnist("test")
 # 1. 10k 子集上扫 C × γ
 for c in [0.1, 1, 10, 100]:

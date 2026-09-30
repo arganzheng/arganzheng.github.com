@@ -63,7 +63,7 @@ Table: 本文的章节安排
 
 `TritonGPUToLLVMTypeConverter`（第四篇的 Dialect Conversion 框架，第二个实例）：
 
-```cpp
+```cpp title="TritonGPUToLLVMTypeConverter 的类型映射"
 addConversion([ctx](triton::PointerType type) { return LLVM::LLVMPointerType::get(ctx, 1); });      // !tt.ptr<T> → !llvm.ptr<1>（global）
 addConversion([&](RankedTensorType type) { return convertTritonTensorType(type, targetInfo); });
 addConversion([&](MemDescType type) { return convertMemDescType(type, targetInfo); });
@@ -82,7 +82,7 @@ Type convertTritonTensorType(RankedTensorType type, ...) {
 
 ### 2. `memdesc` 变成基址加偏移
 
-```cpp
+```cpp title="convertMemDescType"
 Type convertMemDescType(MemDescType type, ...) {
   auto ptrType = LLVM::LLVMPointerType::get(ctx, targetInfo.getAddressSpace(type.getMemorySpace()));   // shared → ptr<3>
   if (isa<TensorMemoryEncodingAttr>(type.getEncoding())) return ptrType;      // TMEM：只有地址
@@ -96,7 +96,7 @@ Type convertMemDescType(MemDescType type, ...) {
 
 ### 3. 函数签名
 
-```llvm
+```llvm title="matmul_kernel 的 LLVM 函数签名"
 define ptx_kernel void @matmul_kernel(ptr addrspace(1) %0, ptr addrspace(1) %1, ptr addrspace(1) %2, i32 %3, i32 %4, i32 %5, i32 %6, i32 %7, i32 %8,
                                       ptr addrspace(1) readnone captures(none) %9, ptr addrspace(1) readnone captures(none) %10) #0
 attributes #0 = { nounwind "nvvm.reqntid"="128" }
@@ -111,7 +111,7 @@ attributes #0 = { nounwind "nvvm.reqntid"="128" }
 
 每个 pattern 都要回答"本线程的第 r 个元素是张量的哪个下标"。`emitIndices(loc, rewriter, target, layout, type, withCTAOffset)` 返回一个 `[elemsPerThread × rank]` 的 `Value` 矩阵——每个元素每一维一个 SSA 值。实现是 `applyLinearLayout`：
 
-```cpp
+```cpp title="applyLinearLayout"
 // 输入：layout 的 LL、以及 (register = 常量 r, lane = %tid & 31, warp = %tid >> 5, block = %ctaid)
 // 输出：每个输出维一个 Value = 各输入位对应基向量的 XOR
 SmallVector<std::pair<StringAttr, Value>> applyLinearLayout(loc, rewriter, const LinearLayout &layout, indices) {
@@ -126,7 +126,7 @@ SmallVector<std::pair<StringAttr, Value>> applyLinearLayout(loc, rewriter, const
 
 第七篇 §四.2 的数学直接变成了代码：**输出下标 = 各置位的基向量的 XOR**。`register` 维的值是编译期常量（第 r 个元素），所以那部分在编译期折叠；`lane` 与 `warp` 来自 `%tid.x`（`nvvm.read.ptx.sreg.tid.x`，每个 kernel 开头那两次读取），是运行时值——它们的位提取与 XOR 就是 LLVM IR 开头那串 `lshr / and / xor`：
 
-```llvm
+```llvm title="LLVM IR 开头的 lane/warp 位提取"
 %15 = tail call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
 %16 = lshr i32 %15, 2
 %17 = and i32 %16, 31
@@ -139,7 +139,7 @@ SmallVector<std::pair<StringAttr, Value>> applyLinearLayout(loc, rewriter, const
 
 第二篇说 Triton 的 GPU 指令几乎全是内联 PTX。`PTXAsmFormat.cpp` 提供一个小型 builder：
 
-```cpp
+```cpp title="PTXBuilder 拼一条 ld"
 PTXBuilder ptxBuilder;
 auto *dstsOpr = ptxBuilder.newListOperand();                          // { $0, $1, $2, $3 }
 for (...) dstsOpr->listAppend(ptxBuilder.newOperand("=r", init));      // 输出约束 =r
@@ -161,7 +161,7 @@ Value ret = ptxBuilder.launch(rewriter, loc, retTy);                  // → llv
 
 `LoadOpConversion::matchAndRewrite`（`third_party/nvidia/.../LoadStoreOpToLLVM.cpp`）：
 
-```cpp
+```cpp title="LoadOpConversion::matchAndRewrite 的决定"
 unsigned vec = getVectorSize(ptr);                          // ① = min(128 / 元素位宽, AxisInfo 的 contiguity 与 alignment)
 if (mask) vec = std::min(vec, getMaskAlignment(mask));      // ② mask 的 constancy 也限制
 auto freeVarMasks = getFreeVariableMasks(ptr.getType());    // ③ 复制的元素不重复 load
@@ -182,14 +182,14 @@ for (size_t vecStart = 0; vecStart < numElems; vecStart += vec) {   // ④ 每 v
 
 ### 2. 实测：`add_kernel`
 
-```python
+```python title="add_kernel 的 load"
 offs = pid * 1024 + tl.arange(0, 1024); mask = offs < n
 x = tl.load(x_ptr + offs, mask=mask)
 ```
 
 TTGIR：`#blocked<{sizePerThread = [4], threadsPerWarp = [32], warpsPerCTA = [4], order = [0]}>`（Coalesce：f32 的 128 bit = 4 个），1024 / 128 = 8 元素每线程 → 两组。LLVM IR：
 
-```llvm
+```llvm title="add_kernel 的 LLVM IR：谓词 load"
 %20 = tail call { i32, i32, i32, i32 } asm sideeffect
   "mov.u32 $0, 0x0;\0A\09mov.u32 $1, 0x0;\0A\09mov.u32 $2, 0x0;\0A\09mov.u32 $3, 0x0;\0A\09@$5 ld.global.v4.b32 { $0, $1, $2, $3 }, [ $4 + 0 ];",
   "=r,=r,=r,=r,l,b"(ptr addrspace(1) %17, i1 %14)
@@ -198,7 +198,7 @@ TTGIR：`#blocked<{sizePerThread = [4], threadsPerWarp = [32], warpsPerCTA = [4]
 
 四条 `mov.u32 $N, 0x0`——没写 `other` 时默认 0（mask 掉的元素读到 0）；`@$5 ld.global.v4.b32`——一条 128 bit 的谓词 load；两个谓词 `%14`、`%15` 对应 mask 的 constancy 4（每 4 个元素一个谓词值，两组各一个）。PTX：
 
-```text
+```text title="add_kernel 的 PTX"
 	.reg .pred 	%p<3>;
 	setp.lt.s32 	%p1, %r31, %r27;                       // offs[0..3] < n
 	setp.lt.s32 	%p2, %r32, %r27;                       // offs[4..7] < n
@@ -215,7 +215,7 @@ TTGIR：`#blocked<{sizePerThread = [4], threadsPerWarp = [32], warpsPerCTA = [4]
 
 matmul 的 LLVM IR 里**没有一条 `ld.global`**——`tt.load` 在第九篇被 `async_copy_global_to_local` 取代，它的 lowering 是：
 
-```llvm
+```llvm title="cp.async 的 lowering"
 tail call void asm sideeffect "cp.async.cg.shared.global [ $0 + 0 ], [ $1 + 0 ], 0x10, $2;", "r,l,r"(ptr addrspace(3) %74, ptr addrspace(1) %46, i32 %75)
 ```
 
@@ -240,7 +240,7 @@ flowchart LR
 
 ### 2. 实测：`rowsum_kernel`
 
-```python
+```python title="rowsum_kernel 的归约"
 x = tl.load(x_ptr + row * stride + tl.arange(0, 1024)); s = tl.sum(x, axis=0)
 ```
 
@@ -254,7 +254,7 @@ x = tl.load(x_ptr + row * stride + tl.arange(0, 1024)); s = tl.sum(x, axis=0)
 
 Table: rowsum_kernel 归约三级生成的指令
 
-```llvm
+```llvm title="rowsum_kernel 的 warp 内 shuffle"
 %42 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %41, i32 16, i32 31)   ; 全 warp 参与（mask -1），与 lane ^ 16 交换
 %46 = tail call i32 @llvm.nvvm.shfl.sync.bfly.i32(i32 -1, i32 %45, i32 8, i32 31)
 ```
@@ -269,7 +269,7 @@ Table: rowsum_kernel 归约三级生成的指令
 
 `DotOpToLLVM/MMAv2.cpp`（Ampere）：`tt.dot` 的 A、B 已经是 `#dot_op` layout、C 是 `#mma`。每个 warp 要发 `(M/16) × (N/8) × (K/16)` 条 `mma.m16n8k16`，每条的操作数是 fragment 在本线程的那几个寄存器：
 
-```llvm
+```llvm title="一条 mma.sync 内联汇编"
 %562 = tail call { float, float, float, float } asm sideeffect
   "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 { $0, $1, $2, $3 }, { $8, $9, $10, $11 }, { $12, $13 }, { $4, $5, $6, $7 };",
   "=f,=f,=f,=f,0,1,2,3,r,r,r,r,r,r"(float %284, float %285, float %286, float %287, i32 %468, i32 %471, i32 %474, i32 %477, i32 %516, i32 %519)
@@ -311,7 +311,7 @@ TTGIR 里 shared memory 的使用者有两类：**显式**的 `ttg.local_alloc`�
 
 `lib/Analysis/Allocation.cpp`：
 
-```cpp
+```cpp title="Allocation.cpp 的 run"
 void run() {
   getValuesAndSizes();     // ① 收集：每个 local_alloc 的字节数与对齐；每个需要 scratch 的 op 的字节数
   resolveLiveness();       // ② 活跃区间：用 MLIR 的 Liveness 分析算每个缓冲从第几条 op 活到第几条（op 按程序顺序编号）
@@ -344,7 +344,7 @@ matmul 的 `ttg.shared = 32768`：流水线的两个缓冲 `2 × 128 × 32 × 2 
 
 ### 2. 算法
 
-```cpp
+```cpp title="BlockInfo：Membar 的读写区间"
 struct BlockInfo {
   SliceMapT syncReadSlices;    // 自上一个 barrier 以来，读过哪些 [offset, offset + size) 区间（含子切片信息）
   SliceMapT syncWriteSlices;   // 写过哪些
@@ -414,7 +414,7 @@ Table: matmul 里 10 个 barrier 的来源
 
 3. `Membar` 对下面的序列插几个 barrier、在哪？`A` 与 `B` 是两个 `local_alloc`，分配到**不同**偏移。
 
-   ```text
+   ```text title="自测：Membar 插几个 barrier"
    local_store %x, %A
    local_store %y, %B
    %p = local_load %A

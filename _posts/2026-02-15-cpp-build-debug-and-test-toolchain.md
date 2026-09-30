@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃四次**：
 
-```bash
+```bash title=".ci/pytorch/test.sh：ASan 构建下故意让 Python 崩溃"
 if [[ "$BUILD_ENVIRONMENT" == *asan* ]]; then
     export ASAN_OPTIONS=detect_leaks=0:symbolize=1:detect_stack_use_after_return=true:strict_init_order=true:detect_odr_violation=1:detect_container_overflow=0:check_initialization_order=true:debug=true
     # ...
@@ -30,7 +30,7 @@ fi
 
 被调用的 `_crash_if_csrc_asan` 在 `torch/csrc/Module.cpp` 里，实现只有几行：声明一个 3 字节的栈数组，然后写第 `arg` 个元素——传 3 就是越界写一个字节：
 
-```cpp
+```cpp title="THPModule_crashIfCsrcASAN：3 字节栈数组越界写"
 static PyObject* THPModule_crashIfCsrcASAN(PyObject* module, PyObject* arg) {
   HANDLE_TH_ERRORS
   TORCH_CHECK(
@@ -96,7 +96,7 @@ Table: 本文的章节安排
 
 CMake 自己不编译任何东西。它读 `CMakeLists.txt`，生成另一个构建系统的输入文件——Makefile、`build.ninja` 或 Visual Studio 工程——然后由 `make`/`ninja` 去调用编译器。所以流程是两步：
 
-```bash
+```bash title="CMake 的两步：配置与构建"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # 配置：生成 build/build.ninja
 cmake --build build                                        # 构建：等价于 (cd build && ninja)
 ```
@@ -107,7 +107,7 @@ Java 工程师习惯的 Maven/Gradle 把"描述项目"和"执行构建"合成一
 
 现代 CMake（3.x 之后）的核心概念是**目标（target）**：一个库或一个可执行文件。每个目标有一组属性——源文件、头文件搜索路径、编译选项、宏定义、链接的其他目标。四个最常用的命令：
 
-```cmake
+```cmake title="现代 CMake 四个最常用的目标命令"
 add_library(c10 ${C10_SRCS} ${C10_HEADERS})          # 创建一个库目标（静态还是动态由 BUILD_SHARED_LIBS 决定）
 add_executable(c10_intrusive_ptr_test intrusive_ptr_test.cpp)   # 创建一个可执行文件目标
 
@@ -119,7 +119,7 @@ target_link_libraries(c10_intrusive_ptr_test c10 gtest gtest_main)  # 链接依�
 
 这些都能在 `c10/CMakeLists.txt` 里找到原样。库目标部分（删节）：
 
-```cmake
+```cmake title="c10/CMakeLists.txt 的库目标部分（删节）"
 # c10/CMakeLists.txt
 file(GLOB C10_SRCS
         *.cpp
@@ -187,7 +187,7 @@ Java 对照：Maven 的 `compile` 与 `runtime`/`provided` scope 有类似的传
 
 写一个链接 libtorch 的项目，CMake 文件的第一行通常是：
 
-```cmake
+```cmake title="find_package(Torch) 加 target_link_libraries"
 find_package(Torch REQUIRED)
 target_link_libraries(my_ext torch)
 ```
@@ -196,7 +196,7 @@ target_link_libraries(my_ext torch)
 
 模板开头说明了它输出什么：
 
-```cmake
+```cmake title="TorchConfig.cmake.in 开头的说明"
 # cmake/TorchConfig.cmake.in
 # FindTorch
 # -------
@@ -217,7 +217,7 @@ target_link_libraries(my_ext torch)
 
 主体部分（删节）：
 
-```cmake
+```cmake title="TorchConfig.cmake.in 主体（删节）"
 if(DEFINED ENV{TORCH_INSTALL_PREFIX})
   set(TORCH_INSTALL_PREFIX $ENV{TORCH_INSTALL_PREFIX})
 else()
@@ -286,7 +286,7 @@ find_package_handle_standard_args(Torch DEFAULT_MSG TORCH_LIBRARY TORCH_INCLUDE_
 
 vLLM 是一个"链接 libtorch 的外部项目"的完整样本。它的 `CMakeLists.txt` 开头：
 
-```cmake
+```cmake title="vLLM CMakeLists.txt 开头"
 cmake_minimum_required(VERSION 3.26)
 # ...
 project(vllm_extensions LANGUAGES CXX)
@@ -325,7 +325,7 @@ find_package(Torch REQUIRED)
 
 `append_cmake_prefix_path` 定义在 `cmake/utils.cmake`，就是"问 Python 要路径"：
 
-```cmake
+```cmake title="vllm/cmake/utils.cmake 的 run_python：问 Python 要路径"
 # vllm/cmake/utils.cmake
 function (run_python OUT EXPR ERR_MSG)
   execute_process(
@@ -355,7 +355,7 @@ endmacro()
 
 最后创建扩展目标的函数 `define_extension_target`（同一文件末尾，删节）：
 
-```cmake
+```cmake title="define_extension_target：创建扩展目标（删节）"
 function (define_extension_target MOD_NAME)
   cmake_parse_arguments(PARSE_ARGV 1
     ARG
@@ -428,7 +428,7 @@ CMake 默认生成 Makefile。`make` 的问题是递归调用、依赖检查慢�
 
 PyTorch 的 `tools/setup_helpers/cmake.py` 在 PATH 上有 `ninja` 时自动使用它：
 
-```python
+```python title="tools/setup_helpers/cmake.py：PATH 上有 ninja 就用"
 # tools/setup_helpers/cmake.py
 # Ninja
 # Use ninja if it is on the PATH. Previous version of PyTorch required the
@@ -440,7 +440,7 @@ if "CMAKE_GENERATOR" in os.environ:
 
 并发数的决策在 `build()` 方法里：
 
-```python
+```python title="CMake.build()：并发数的决策"
     def build(self, my_env: dict[str, str]) -> None:
         """Runs cmake to build binaries."""
 
@@ -480,7 +480,7 @@ Ninja 解决的是"改一个文件只重编受影响的文件"。但有些场景
 
 PyTorch 顶层 `CMakeLists.txt` 默认开启：
 
-```cmake
+```cmake title="顶层 CMakeLists.txt 默认开启 ccache"
 cmake_dependent_option(
   USE_CCACHE "Attempt using CCache to wrap the compilation" ON "UNIX" OFF)
 # ...
@@ -517,7 +517,7 @@ Java 对照：Gradle 的 build cache 是同一个思路（按输入哈希缓存�
 
 **第一，用 develop 模式安装，不重复打包。** `setup.py` 开头的注释和末尾的提示都指向同一条命令：
 
-```python
+```python title="setup.py 开头的 build_update_message"
 # setup.py
 build_update_message = """
 It is no longer necessary to use the 'build' or 'rebuild' targets
@@ -533,7 +533,7 @@ To force cmake to re-generate native build files (off by default):
 
 `-e`（editable，即老的 `setup.py develop`——源码里还保留着把 `develop` 重定向到 `pip install -e` 的兼容逻辑）让 `import torch` 直接指向源码树里的 `torch/`，编出来的 `.so` 通过 `install` 目标拷到 `torch/lib/`。改 Python 文件不需要任何构建；改 C++ 文件重跑同一条命令，`tools/setup_helpers/cmake.py` 的 `generate()` 检测到 `build/CMakeCache.txt` 和 `build/build.ninja` 都在就跳过配置，直接 `ninja install`：
 
-```python
+```python title="generate()：CMakeCache.txt 与 build.ninja 都在就跳过配置"
         if cmake_cache_file_available and (
             not USE_NINJA or os.path.exists(self._ninja_build_file)
         ):
@@ -543,7 +543,7 @@ To force cmake to re-generate native build files (off by default):
 
 **第二，`USE_*` 开关关掉用不到的部分。** `setup.py` 开头几百行注释是一份开关清单：`USE_CUDA=0`、`USE_DISTRIBUTED=0`、`USE_MKLDNN=0`、`USE_FBGEMM=0`、`USE_NNPACK=0`、`USE_XNNPACK=0`、`USE_FLASH_ATTENTION=0`、`USE_MEM_EFF_ATTENTION=0`、`BUILD_TEST=0`……这些环境变量由 `tools/setup_helpers/cmake.py` 的 `generate()` 转成同名的 CMake 变量——它遍历环境，凡是以 `BUILD_`、`USE_`、`CMAKE_` 开头的都原样作为 `-D` 传给 cmake（注释说得很直白："We currently pass over all environment variables that start with `BUILD_`, `USE_`, and `CMAKE_`"），其他少数几个（`UBSAN_FLAGS`、`BLAS`、`CUDNN_ROOT`……）列在同一函数的 `additional_options` 表里。`CONTRIBUTING.md` 给的开发配置是：
 
-```bash
+```bash title="CONTRIBUTING.md 给的开发配置命令"
 DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 BUILD_TEST=0 \
     USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 \
     python -m pip install --no-build-isolation -v -e .
@@ -555,7 +555,7 @@ DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 BUILD_TEST=0 \
 
 **第四，选对构建类型。** `tools/setup_helpers/env.py` 把三个环境变量映射到 `CMAKE_BUILD_TYPE`：
 
-```python
+```python title="tools/setup_helpers/env.py：DEBUG/REL_WITH_DEB_INFO 映射到 CMAKE_BUILD_TYPE"
 # tools/setup_helpers/env.py
 # hotpatch environment variable 'CMAKE_BUILD_TYPE'. 'CMAKE_BUILD_TYPE' always prevails over DEBUG or REL_WITH_DEB_INFO.
 if "CMAKE_BUILD_TYPE" not in os.environ:
@@ -571,7 +571,7 @@ if "CMAKE_BUILD_TYPE" not in os.environ:
 
 **第五，只给几个文件加调试信息。** 一个常见困境：手头是 Release 构建，想调试某个函数，但不想花一小时重编 Debug 版。`setup.py` 注释里的 `USE_CUSTOM_DEBINFO="path/to/file1.cpp;path/to/file2.cpp"`——"build with debug info only for specified files"。顶层 `CMakeLists.txt` 的实现是给指定源文件单独加 `-g`：
 
-```cmake
+```cmake title="USE_CUSTOM_DEBINFO：只给指定源文件加 -g"
 # Parse custom debug info
 if(DEFINED USE_CUSTOM_DEBINFO)
   string(REPLACE ";" " " SOURCE_FILES "${USE_CUSTOM_DEBINFO}")
@@ -639,7 +639,7 @@ PyTorch 的选项分三层：顶层 `CMakeLists.txt` 里追加到全局 `CMAKE_C
 
 顶层（非 MSVC 分支，删节）：
 
-```cmake
+```cmake title="顶层 CMakeLists.txt 追加到 CMAKE_CXX_FLAGS 的选项（删节）"
 # CMakeLists.txt
 if(NOT MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -O2 -fPIC")
@@ -703,7 +703,7 @@ if(NOT MSVC)
 
 按目标加的部分在 `cmake/public/utils.cmake` 的 `torch_compile_options()`（删节）：
 
-```cmake
+```cmake title="torch_compile_options()：按目标加的编译选项（删节）"
 function(torch_compile_options libname)
   set_property(TARGET ${libname} PROPERTY CXX_STANDARD 17)
   # ...
@@ -773,7 +773,7 @@ function(torch_compile_options libname)
 
 PyTorch 的解决方案是**运行时分派**（第六篇 12.3 节提过 `inline namespace CPU_CAPABILITY`）：kernel 文件编多份，各自用不同的 `-m*` 选项，运行时检测 CPU 再选。`cmake/Codegen.cmake` 的实现（删节）：
 
-```cmake
+```cmake title="cmake/Codegen.cmake：kernel 文件按 CPU_CAPABILITY 编多份"
   # Handle source files that need to be compiled multiple times for
   # different vectorization options
   file(GLOB cpu_kernel_cpp_in "${PROJECT_SOURCE_DIR}/aten/src/ATen/native/cpu/*.cpp" "${PROJECT_SOURCE_DIR}/aten/src/ATen/native/quantized/cpu/kernels/*.cpp")
@@ -814,7 +814,7 @@ Java IDE 打开一个 Maven 项目，读 `pom.xml` 就知道 classpath，之后�
 
 `compile_commands.json` 就是把这些命令行导出来的标准格式（Clang 定义的 "JSON Compilation Database"）。CMake 原生支持：`set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` 或命令行 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`，配置后 `build/compile_commands.json` 就有了。PyTorch 顶层 `CMakeLists.txt` 和 `c10/CMakeLists.txt` 都写了这一行。文件内容是一个数组，每个元素对应一个翻译单元：
 
-```json
+```json title="compile_commands.json 的一个条目"
 [
   {
     "directory": "/path/to/pytorch/build",
@@ -877,7 +877,7 @@ Java 工程师熟悉的 IDE 调试器（JDWP 协议）是这些命令的图形�
 
 **方式一：用调试器启动 Python。** 最简单，适合可复现的问题：
 
-```bash
+```bash title="方式一：gdb --args 启动 Python 并设 pending 断点"
 gdb --args python -c "import torch; x = torch.rand(5); print(x[3])"
 (gdb) break at::indexing::impl::applySelect
 Function "at::indexing::impl::applySelect" not defined.
@@ -889,7 +889,7 @@ Make breakpoint pending on future shared library load? (y or [n]) y
 
 `CONTRIBUTING.md` 用 lldb 演示了完全相同的流程，其中 `-o` 让 lldb 启动时依次执行命令：
 
-```text
+```text title="CONTRIBUTING.md 的 lldb 会话：-o 依次执行命令"
 % lldb -o "b applySelect" -o "process launch" -- python3 -c "import torch;print(torch.rand(5)[3])"
 (lldb) target create "python"
 Current executable set to '/usr/bin/python3' (arm64).
@@ -909,7 +909,7 @@ libtorch_python.dylib`at::indexing::impl::applySelect:
 
 这是 Release 构建：断点命中了，但只有汇编。同一份文档接着用 `tools/build_with_debinfo.py` 只重编 `python_variable_indexing.cpp`（3.4 节）之后：
 
-```text
+```text title="重编 python_variable_indexing.cpp 带 -g 后的断点现场"
     frame #0: 0x00000001024e2628 libtorch_python.dylib`at::indexing::impl::applySelect(self=0x00000001004ee8a8, dim=0, index=(data_ = 3), real_dim=0, (null)=0x000000016fdfe535, self_sizes= Has Value=true ) at TensorIndexing.h:239:7
    236         const at::Device& /*self_device*/,
    237         const std::optional<SymIntArrayRef>& self_sizes) {
@@ -922,7 +922,7 @@ libtorch_python.dylib`at::indexing::impl::applySelect:
 
 **方式二：attach 到运行中的进程。** 适合服务进程（vLLM 的 engine 进程）或已经卡住的进程：
 
-```bash
+```bash title="方式二：gdb -p attach 到运行中的进程"
 # 在 Python 里打印 pid 然后等待
 python -c "import os, torch; print(os.getpid()); input('attach me, then press enter')"
 # 另一个终端
@@ -962,14 +962,14 @@ CUDA kernel 的"launch 前"是 host 侧最后一个 C++ 函数——kernel 名�
 
 在 gdb 里断到一个拿着 `const at::Tensor& self` 的函数，`p self` 看到的是：
 
-```text
+```text title="gdb 里 p self 只看到 impl_.target_"
 (gdb) p self
 $1 = (const at::Tensor &) @0x7ffb118a9c88: {impl_ = {target_ = 0x55629b5cd330}}
 ```
 
 第二篇讲过原因——`Tensor` 是句柄，唯一的成员是 `intrusive_ptr<TensorImpl>`；数据在 `TensorImpl` → `StorageImpl` → `DataPtr` 三层之外。要手工看，得 `p *self.impl_.target_`，再 `p *(float*)self.impl_.target_->storage_.storage_impl_.target_->data_ptr_.ptr_.data_`，还要自己算 stride。PyTorch 的解决方案是 `tools/gdb/pytorch-gdb.py`：一个 gdb Python 扩展，添加三条命令。`CONTRIBUTING.md` 的示例：
 
-```text
+```text title="CONTRIBUTING.md 示例：torch-tensor-repr 打印 Tensor 内容"
 (gdb) # the default repr of 'this' is not very useful
 (gdb) p this
 $1 = (const at::Tensor * const) 0x7ffb118a9c88
@@ -1000,7 +1000,7 @@ Table: pytorch-gdb.py 的命令与背后的 C++ 函数
 
 先用 Debug 选项编译，看符号表：
 
-```bash
+```bash title="Debug 选项编译并用 nm 看 add_cpu 与两个 lambda 符号"
 $ clang++ -std=c++17 -g -O0 -fno-omit-frame-pointer -I. minic10/ops/add.cpp minic10/ops/mul.cpp main.cpp -o demo_dbg
 $ nm -C demo_dbg | grep -E "add_cpu|minic10::add\("
 000000010000190c t minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&)
@@ -1012,7 +1012,7 @@ $ nm -C demo_dbg | grep -E "add_cpu|minic10::add\("
 
 `-O0` 下 `MINI_DISPATCH_FLOATING_TYPES` 展开出的外层 lambda（`$_0`）和两个 dtype 分支的内层 lambda（`'lambda'`、`'lambda0'`——按宏里 case 的顺序分别是 `double` 和 `float` 的实例化，第三篇的"lambda 被编译了几次"在这里有了答案：两次）都是独立的函数，各有自己的栈帧。lldb 的断点能精确落到源码行：
 
-```text
+```text title="lldb 断点精确落到 add_cpu 的源码行"
 $ lldb --batch -o 'breakpoint set --name add_cpu' ./demo_dbg
 (lldb) breakpoint set --name add_cpu
 Breakpoint 1: where = demo_dbg`minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&) + 32 at add.cpp:11:3, address = 0x000000010000192c
@@ -1020,7 +1020,7 @@ Breakpoint 1: where = demo_dbg`minic10::(anonymous namespace)::add_cpu(minic10::
 
 再用 `-O2 -g` 编译：
 
-```bash
+```bash title="-O2 -g 编译后的符号表：lambda 全部消失"
 $ clang++ -std=c++17 -g -O2 -I. minic10/ops/add.cpp minic10/ops/mul.cpp main.cpp -o demo_o2
 $ nm -C demo_o2 | grep -E "add_cpu|minic10::add\("
 0000000100000b8c t minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&)
@@ -1030,7 +1030,7 @@ $ nm -C demo_o2 | grep -E "add_cpu|minic10::add\("
 
 三个 lambda 全部消失——被内联进了 `add_cpu`。`(.cold.1)` 是编译器把 `MINI_CHECK` 失败时的抛异常路径拆到了单独的"冷"代码段。此时 lldb 的同一条断点命令：
 
-```text
+```text title="-O2 下 lldb 的断点与 image lookup 输出"
 $ lldb --batch -o 'breakpoint set --name add_cpu' -o 'image lookup -v -n add_cpu' ./demo_o2
 (lldb) breakpoint set --name add_cpu
 Breakpoint 1: where = demo_o2`minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&) + 40 [inlined] minic10::intrusive_ptr<minic10::TensorImpl>::operator->() const at intrusive_ptr.h:55:43, address = 0x0000000100000bb4
@@ -1072,7 +1072,7 @@ Table: 三种 C++ 崩溃在 Java 里的对应
 
 **第一步：让崩溃留下 core dump。** 默认 `ulimit -c` 是 0，进程崩了什么都不留。
 
-```bash
+```bash title="第一步：打开 core dump 并用 gdb 读栈"
 ulimit -c unlimited                  # 当前 shell 允许无限大的 core 文件
 cat /proc/sys/kernel/core_pattern    # core 文件写到哪里；systemd 系统通常是 |/usr/lib/systemd/systemd-coredump，用 coredumpctl 取
 python test.py                       # 崩
@@ -1084,7 +1084,7 @@ core dump 是崩溃时的内存快照。gdb 加载它之后可以 `bt`、切帧�
 
 **第二步：读栈。** 一个 PyTorch 段错误的栈典型长这样（示意）：
 
-```text
+```text title="一个 PyTorch 段错误栈的典型形状（示意）"
 #0  0x00007f... in at::native::(anonymous namespace)::add_kernel(...) at aten/src/ATen/native/cpu/BinaryOpsKernel.cpp:...
 #1  0x00007f... in at::native::add_out(...) at aten/src/ATen/native/BinaryOps.cpp:...
 #2  0x00007f... in at::(anonymous namespace)::wrapper_CPU_add_out_out(...) at build/aten/src/ATen/RegisterCPU.cpp:...
@@ -1100,7 +1100,7 @@ core dump 是崩溃时的内存快照。gdb 加载它之后可以 `bt`、切帧�
 
 **如果栈里只有地址没有函数名**（`#0 0x00007f8a3c2b1e40 in ?? ()`），有两种可能：那个库没有符号（strip 过），或者栈被破坏了。前者用 `addr2line`：
 
-```bash
+```bash title="addr2line：把地址还原成函数名与源码行"
 # 先算出地址在库内的偏移：地址 - 库的加载基址（gdb 里 info sharedlibrary 能看到）
 addr2line -e /path/to/libtorch_cpu.so -f -C -i 0x1a2b3c4
 # -f 打印函数名，-C demangle，-i 展开内联
@@ -1112,7 +1112,7 @@ addr2line -e /path/to/libtorch_cpu.so -f -C -i 0x1a2b3c4
 
 **不用调试器也能拿到 C++ 栈。** PyTorch 的 `TORCH_CHECK` 抛出的 `c10::Error` 可以携带 C++ 栈：设置 `TORCH_SHOW_CPP_STACKTRACES=1`，Python 侧看到的 `RuntimeError` 消息后面会附上 C++ 的回溯。实现在 `torch/csrc/utils/cpp_stacktraces.cpp`：
 
-```cpp
+```cpp title="cpp_stacktraces.cpp：TORCH_SHOW_CPP_STACKTRACES 的实现"
 bool compute_cpp_stack_traces_enabled() {
   return c10::utils::check_env("TORCH_SHOW_CPP_STACKTRACES") == true;
 }
@@ -1141,7 +1141,7 @@ static torch::unwind::Mode compute_symbolize_mode() {
 
 两种起因：无限递归（Java 也有），以及**栈上的大对象**（Java 没有——Java 的数组永远在堆上）。第二种在 kernel 代码里容易出现：
 
-```cpp
+```cpp title="栈上的大局部数组：4 MB buffer 撞爆线程栈"
 void kernel(...) {
   float buffer[1 << 20];   // 4 MB 局部数组；默认线程栈只有 8 MB（主线程）或更小（工作线程常常是 2 MB 甚至 512 KB）
   // ...
@@ -1156,7 +1156,7 @@ void kernel(...) {
 
 这是最难的一类，因为**症状与原因不在同一处**。典型场景（第二篇反复强调的）：
 
-```cpp
+```cpp title="use-after-free 的典型三行"
 const float* p = t.data_ptr<float>();   // 借了裸指针
 t = at::empty({0});                     // 原来的 Storage 引用计数归零，内存 free
 use(p[0]);                              // 读已释放的内存：可能读到旧值、可能读到别人的新数据、可能崩
@@ -1213,7 +1213,7 @@ Table: 三个常用 sanitizer 能抓什么
 
 用 mini-c10 复现 7.4 节的 use-after-free（`uaf.cpp`）：
 
-```cpp
+```cpp title="uaf.cpp：用 mini-c10 复现 use-after-free"
 #include <cstdio>
 #include "minic10/core/Tensor.h"
 using namespace minic10;
@@ -1230,13 +1230,13 @@ int main() {
 
 不开 sanitizer，`clang++ -std=c++17 -O1 -I. uaf.cpp -o uaf_plain && ./uaf_plain` 在 macOS 上输出 `0`，退出码 0——读到了已释放内存里的残留值，**没有任何报错**。这就是 7.1 节说的"通常不崩"。开 ASan：
 
-```bash
+```bash title="开 ASan 编译并运行 uaf.cpp"
 clang++ -std=c++17 -g -O1 -fsanitize=address -fno-omit-frame-pointer -I. uaf.cpp -o uaf && ./uaf
 ```
 
 macOS（Apple clang 21）上的实际输出（去掉了末尾的 shadow bytes 图例）：
 
-```text
+```text title="ASan 的实际报告：heap-use-after-free 与三张栈"
 =================================================================
 ==19753==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000110 at pc 0x000102f78d10 bp 0x00016ce86c50 sp 0x00016ce86c48
 READ of size 4 at 0x602000000110 thread T0
@@ -1265,7 +1265,7 @@ SUMMARY: AddressSanitizer: heap-use-after-free uaf.cpp:12 in main
 
 UBSan 的报告更简短。一个 `numel` 计算里的有符号溢出：
 
-```cpp
+```cpp title="ub.cpp：numel 计算里的有符号溢出"
 int64_t numel(const int64_t* sizes, int n) {
   int64_t r = 1;
   for (int i = 0; i < n; ++i) r *= sizes[i];   // 有符号溢出是 UB
@@ -1275,7 +1275,7 @@ int64_t numel(const int64_t* sizes, int n) {
 
 用两个 2^40 的 size 调它，`-fsanitize=undefined` 构建输出：
 
-```text
+```text title="UBSan 的输出：signed integer overflow"
 ub.cpp:5:33: runtime error: signed integer overflow: 1099511627776 * 1099511627776 cannot be represented in type 'int64_t' (aka 'long long')
 SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior ub.cpp:5:33
 0
@@ -1287,7 +1287,7 @@ SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior ub.cpp:5:33
 
 顶层 `CMakeLists.txt` 提供开关：
 
-```cmake
+```cmake title="顶层 CMakeLists.txt 的三个 sanitizer 开关"
 option(USE_ASAN "Use Address+Undefined Sanitizers" OFF)
 option(USE_LSAN "Use Leak Sanitizer" OFF)
 option(USE_TSAN "Use Thread Sanitizer" OFF)
@@ -1295,7 +1295,7 @@ option(USE_TSAN "Use Thread Sanitizer" OFF)
 
 注意 `USE_ASAN` 的描述是 "Address+Undefined"——PyTorch 把 ASan 和 UBSan 绑在一起开。实现在 `cmake/Dependencies.cmake`：
 
-```cmake
+```cmake title="cmake/Dependencies.cmake：把 Sanitizer::address 挂进依赖"
 if(USE_ASAN OR USE_LSAN OR USE_TSAN)
   find_package(Sanitizer REQUIRED)
   if(USE_ASAN)
@@ -1330,7 +1330,7 @@ endif()
 
 `find_package(Sanitizer)` 找的是 PyTorch 自己的模块 `cmake/Modules/FindSanitizer.cmake`。它对 `address`、`thread`、`undefined`、`leak`、`memory` 五种 sanitizer 各做一次 `check_cxx_source_runs`——用 `-fsanitize=<name> -fno-omit-frame-pointer` 编一个 hello world 并**运行**，能跑通就创建一个 `Sanitizer::<name>` 的 `INTERFACE IMPORTED` 目标，把编译和链接选项挂在它的 `INTERFACE_*` 属性上：
 
-```cmake
+```cmake title="FindSanitizer.cmake：check_cxx_source_runs 探测每种 sanitizer"
 # cmake/Modules/FindSanitizer.cmake
 foreach(sanitizer_name IN ITEMS address thread undefined leak memory)
   # ...
@@ -1372,7 +1372,7 @@ foreach(sanitizer_name IN ITEMS address thread undefined leak memory)
 
 构建侧在 `.ci/pytorch/build.sh`：
 
-```bash
+```bash title=".ci/pytorch/build.sh 的 ASan 构建分支"
 if [[ "$BUILD_ENVIRONMENT" == *-clang*-asan* ]]; then
   if [[ "$BUILD_ENVIRONMENT" == *cuda* ]]; then
     export USE_CUDA=1
@@ -1415,7 +1415,7 @@ ASan 不是"有空再跑"的东西。第二篇到第七篇讲的每一个所有�
 
 Google Test 是 C++ 世界的 JUnit。一个测试文件：
 
-```cpp
+```cpp title="gtest 测试文件的形状：TEST 与 EXPECT_*"
 #include <c10/util/intrusive_ptr.h>
 #include <gtest/gtest.h>
 
@@ -1456,7 +1456,7 @@ Table: PyTorch 的三个 C++ 测试目录
 
 `c10/test/CMakeLists.txt` 全文只有三十行，是 gtest 接进 CMake 的最小完整样本：
 
-```cmake
+```cmake title="c10/test/CMakeLists.txt：glob 加 foreach 生成测试目标"
 # ---[ Test binaries.
 
 file(GLOB_RECURSE C10_ALL_TEST_FILES *_test.cpp)
@@ -1497,7 +1497,7 @@ gtest 本身来自 `third_party/googletest` submodule，`cmake/Dependencies.cmak
 
 `aten/src/ATen/test/` 的做法不同：不 glob，而是在 `CMakeLists.txt` 里显式列出文件并追加到父目录的变量：
 
-```cmake
+```cmake title="aten/src/ATen/test/CMakeLists.txt：显式列出测试文件"
 list(APPEND ATen_CPU_TEST_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/Dict_test.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/MaybeOwned_test.cpp
@@ -1516,7 +1516,7 @@ list(APPEND ATen_CUDA_TEST_SRCS
 
 然后 `caffe2/CMakeLists.txt` 统一生成目标：
 
-```cmake
+```cmake title="caffe2/CMakeLists.txt 统一生成 ATen 测试目标"
   foreach(test_src ${Caffe2_CPU_TEST_SRCS})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} "${test_src}")
@@ -1581,7 +1581,7 @@ Table: C++ 代码质量的三类工具
 
 PyTorch 的 `.clang-format` 在仓库根，约一百行 YAML。关键条目：
 
-```yaml
+```yaml title="PyTorch 的 .clang-format 关键条目"
 ---
 AccessModifierOffset: -1
 AlignAfterOpenBracket: AlwaysBreak
@@ -1628,7 +1628,7 @@ vLLM 的 `.clang-format` 更短，`BasedOnStyle: Google` 打底，只覆盖几�
 
 ### 3. `.clang-tidy`
 
-```yaml
+```yaml title="PyTorch 的 .clang-tidy"
 ---
 InheritParentConfig: true
 Checks: '
@@ -1727,7 +1727,7 @@ CheckOptions:
 **`CLANGFORMAT`**：
 
 {% raw %}
-```toml
+```toml title=".lintrunner.toml 里的 CLANGFORMAT 条目"
 [[linter]]
 code = 'CLANGFORMAT'
 include_patterns = [
@@ -1777,7 +1777,7 @@ is_formatter = true
 **`CLANGTIDY`**：
 
 {% raw %}
-```toml
+```toml title=".lintrunner.toml 里的 CLANGTIDY 条目"
 [[linter]]
 code = 'CLANGTIDY'
 include_patterns = [
@@ -1844,7 +1844,7 @@ PyTorch 2.10 与 vLLM 0.15 都以 C++17 编译，与本系列各篇 mini-c10 用
 
 三个轴之间还有交叉约束。最重要的是 **CUDA 版本限制了主机编译器版本**：nvcc 把 host 代码交给 gcc/clang 编译，但每个 CUDA 版本只认证了一个 gcc 版本范围。`torch/utils/cpp_extension.py` 把这张表写成了代码：
 
-```python
+```python title="cpp_extension.py 的 CUDA_GCC_VERSIONS 表"
 MINIMUM_GCC_VERSION = (5, 0, 0)
 # ...
 # The second value is the exclusive(!) upper bound, i.e. min <= version < max
@@ -1873,7 +1873,7 @@ CUDA_CLANG_VERSIONS: VersionMap = {
 
 `.github/workflows/pull.yml`（以及同目录的 `linux-aarch64.yml`）里的 job 名直接编码了矩阵的一个切片：
 
-```text
+```text title="pull.yml 里编码构建矩阵的 job 名"
 linux-jammy-py3.10-gcc11
 linux-jammy-py3.10-gcc11-no-ops
 linux-jammy-py3.10-gcc11-pch          # 预编译头
@@ -1911,7 +1911,7 @@ Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --re
 
 **文件头**：
 
-```cpp
+```cpp title="intrusive_ptr_test.cpp 文件头：include 与警告压制"
 #include <c10/util/intrusive_ptr.h>
 
 #include <gtest/gtest.h>
@@ -1942,7 +1942,7 @@ using c10::weak_intrusive_ptr;
 
 **测试夹具：几个最小的类**：
 
-```cpp
+```cpp title="测试夹具：几个最小的 intrusive_ptr_target 子类"
 namespace {
 class SomeClass0Parameters : public intrusive_ptr_target {};
 class SomeClass1Parameter : public intrusive_ptr_target {
@@ -1987,7 +1987,7 @@ class DestructableMock : public intrusive_ptr_target {
 
 **编译期测试**：
 
-```cpp
+```cpp title="编译期测试：static_assert 检查 element_type"
 static_assert(
     std::is_same_v<SomeClass, intrusive_ptr<SomeClass>::element_type>,
     "intrusive_ptr<T>::element_type is wrong");
@@ -1997,7 +1997,7 @@ static_assert(
 
 **测试的命名与粒度**：
 
-```cpp
+```cpp title="given/when/then 命名的移动赋值测试"
 TEST(IntrusivePtrTest, givenValidPtr_whenMoveAssigning_thenPointsToSameObject) {
   intrusive_ptr<SomeClass> obj1 = make_intrusive<SomeClass>();
   intrusive_ptr<SomeClass> obj2 = make_intrusive<SomeClass>();
@@ -2029,7 +2029,7 @@ TEST(
 
 **引用计数与析构时序**（第二篇 11.5 节 mini-c10 手工打印的那些事，这里变成了断言）：
 
-```cpp
+```cpp title="引用计数与析构时序的断言"
 TEST(IntrusivePtrTest, givenNewPtr_thenHasUseCount1) {
   intrusive_ptr<SomeClass> obj = make_intrusive<SomeClass>();
   EXPECT_EQ(1, obj.use_count());
@@ -2051,7 +2051,7 @@ TEST(IntrusivePtrTest, givenPtr_whenDestructed_thenDestructsObject) {
 
 **`release`/`reclaim` 的所有权转移**（第二篇 9.7 节；第七篇 Python 绑定依赖它）：
 
-```cpp
+```cpp title="release/reclaim 所有权转移的测试"
 TEST(
     IntrusivePtrTest,
     givenPtr_whenReleasedAndReclaimed_thenIsDestructedAtEnd) {
@@ -2081,7 +2081,7 @@ TEST(
 
 **一个被注释掉的测试**：
 
-```cpp
+```cpp title="一个被注释掉的测试：栈对象 reclaim 会崩"
 /*
 TEST(IntrusivePtrTest, givenStackObject_whenReclaimed_thenCrashes) {
   // This would cause very weird bugs on destruction.
@@ -2106,7 +2106,7 @@ TEST(IntrusivePtrTest, givenStackObject_whenReclaimed_thenCrashes) {
 
 **第一部分：一个上下文管理器**：
 
-```python
+```python title="pytorch-gdb.py 第一部分：DisableBreakpoints 上下文管理器"
 import textwrap
 from typing import Any
 
@@ -2136,7 +2136,7 @@ class DisableBreakpoints:
 
 **第二部分：主命令**：
 
-```python
+```python title="pytorch-gdb.py 第二部分：TensorRepr 主命令"
 class TensorRepr(gdb.Command):  # type: ignore[misc, no-any-unimported]
     """
     Print a human readable representation of the given at::Tensor.
@@ -2176,7 +2176,7 @@ class TensorRepr(gdb.Command):  # type: ignore[misc, no-any-unimported]
 
 对应的 C++ 端 `torch/csrc/utils.cpp`：
 
-```cpp
+```cpp title="torch/csrc/utils.cpp 的 tensor_repr：malloc 的 C 字符串"
 // Return an human-readable representation of the given Tensor. The resulting
 // string is stored into a malloc()ed buffer. The caller is responsible to
 // free() it. We use malloc() instead of new[] because it's much easier to
@@ -2232,7 +2232,7 @@ error:
 
 **第三部分：另外两条命令与注册**：
 
-```python
+```python title="pytorch-gdb.py 第三部分：IntArrayRefRepr、DispatchKeysetRepr 与注册"
 class IntArrayRefRepr(gdb.Command):  # type: ignore[misc, no-any-unimported]
     """
     Print human readable representation of c10::IntArrayRef
@@ -2292,7 +2292,7 @@ Table: clang-tidy 检查模块的来源与性质
 
 ### 1. `CMakeLists.txt`
 
-```cmake
+```cmake title="mini-c10/CMakeLists.txt"
 # mini-c10/CMakeLists.txt
 cmake_minimum_required(VERSION 3.18)
 project(minic10 CXX)
@@ -2406,7 +2406,7 @@ install(EXPORT minic10Targets NAMESPACE minic10:: DESTINATION share/cmake/minic1
 
 用法：
 
-```bash
+```bash title="mini-c10 CMake 的日常用法"
 # 日常：Debug + 测试
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
@@ -2424,7 +2424,7 @@ ln -sf build/compile_commands.json .
 
 照 `c10/test/util/intrusive_ptr_test.cpp` 的结构，取其中与 mini-c10 版本（第二篇的接口、第六篇的原子计数）相关的子集，加一个多线程测试：
 
-```cpp
+```cpp title="test/intrusive_ptr_test.cpp：mini-c10 版子集加多线程测试"
 // test/intrusive_ptr_test.cpp
 #include "minic10/util/intrusive_ptr.h"
 
@@ -2584,7 +2584,7 @@ TEST(IntrusivePtrTest, givenSharedPtr_whenCopiedFromManyThreads_thenUseCountRetu
 
 测第四、五篇的 Dispatcher 和静态注册。这个文件依赖第四篇的 `Dispatcher::singleton()`、`registerOp`/`registerKernel`、`findOp`/`findOpOrThrow`、`call<Return, Args...>(op, args...)`，`OperatorHandle::hasKernelForDispatchKey`，`KernelFunction::makeFromUnboxedFunction<&fn>()`/`isValid`/`call<Return, Args...>(op, args...)`，以及 `minic10/ops/ops.h` 里声明的 `add`/`mul`（第五篇的自注册算子）。
 
-```cpp
+```cpp title="test/dispatcher_test.cpp"
 // test/dispatcher_test.cpp
 #include "minic10/dispatch/Dispatcher.h"
 
@@ -2710,7 +2710,7 @@ TEST(DispatcherTest, OutputIsFreshTensor) {
 
 用桩 gtest 头文件跑的结果（macOS）：
 
-```text
+```text title="用桩 gtest 头文件跑测试的结果（macOS）"
 [ RUN      ] DispatcherTest.OpsAreRegisteredByStaticInit
 [ RUN      ] DispatcherTest.AddDispatchesToCPUKernel
 [ RUN      ] DispatcherTest.MulDispatchesToCPUKernel
@@ -2728,14 +2728,14 @@ TEST(DispatcherTest, OutputIsFreshTensor) {
 
 目标是重现 6.2 节 `CONTRIBUTING.md` 的流程，但在 mini-c10 上。用 Debug 选项编一个调用 `minic10::add` 的程序（12.1 的 `CMakeLists.txt` 下就是 `cmake -DCMAKE_BUILD_TYPE=Debug` 再 `ninja hello`；这里为了不依赖 CMake 直接用 `clang++`）：
 
-```bash
+```bash title="Debug 选项编一个调用 minic10::add 的 hello"
 clang++ -std=c++17 -g -O0 -fno-omit-frame-pointer -I. \
     minic10/ops/add.cpp minic10/ops/mul.cpp examples/hello.cpp -o build/hello
 ```
 
 验证用的 `minic10/ops/add.cpp` 是第三、四、五篇约定接口的最小版本，kernel 部分（文件第 10–21 行，下面的行号以它为准）：
 
-```cpp
+```cpp title="验证用的 minic10/ops/add.cpp kernel 部分（带行号）"
 Tensor add_cpu(const Tensor& a, const Tensor& b) {                        // 10
   MINI_CHECK(a.sizes() == b.sizes(), "add: size mismatch");               // 11
   MINI_CHECK(a.dtype() == b.dtype(), "add: dtype mismatch");
@@ -2760,7 +2760,7 @@ MINI_LIBRARY_IMPL(minic10, Meta, m) { m.impl("add", minic10::add_meta); }
 
 会话（`$` 是 shell，`(lldb)` 是调试器）。**断点设置这一步在本机实际执行过**（6.5 节的输出）；`process launch` 之后的部分因为本机的调试授权限制没有实际运行，是根据 Debug 构建的调试信息和源码给出的预期输出：
 
-```text
+```text title="lldb 会话：从 add_cpu 断点到 kernel（launch 后为预期输出）"
 $ lldb ./build/hello
 (lldb) breakpoint set --name add_cpu
 Breakpoint 1: where = hello`minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&) + 32 at add.cpp:11:3, address = 0x000000010000192c
@@ -2816,7 +2816,7 @@ Process 12345 stopped ... stop reason = breakpoint 2.1
 
 取 PyTorch 同名文件里对 mini-c10 有意义的子集：
 
-```yaml
+```yaml title="mini-c10/.clang-format：取 PyTorch 同名文件的子集"
 # mini-c10/.clang-format
 ---
 BasedOnStyle: Google

@@ -101,7 +101,7 @@ verl 的是**按轨迹**的版本跨度、在消费时检查；AReaL 的是**准
 
 $$s_i$$ 里的 $$\tau_i$$ 是生成用时，与回答长度成正比。同步间隔 $$T_{sync}$$ 固定时，**长回答的 staleness 系统性地更大**：
 
-```text
+```text title="回答长度与 staleness 的关系"
 8B 推理场景，异步，T_sync ≈ 150 s（k = 1，训练池 22 卡、一个 mini-batch 的训练时间）
 回答长度      生成用时（并发下）    典型 staleness
 2K            ~40 s               0
@@ -125,7 +125,7 @@ $$s_i$$ 里的 $$\tau_i$$ 是生成用时，与回答长度成正比。同步间
 
 ### 4. 系统要为 staleness 记什么
 
-```text
+```text title="系统要为 staleness 记的东西"
 每条轨迹    生成开始时的策略版本 v_start；部分 rollout 下每一段的版本 [v_1, v_2, …]；进缓冲时间；被训练时的版本
 每个 batch  staleness 的均值 / 最大 / 直方图；被 drop 的组数与它们的长度分布；wait 阻塞的时间
 verl 里     ReplayBuffer 在 prompt 的 tag 里存 global_steps；sample() 返回 off_policy 指标：
@@ -291,7 +291,7 @@ Table: 频率
 
 回到核心问题。同步 → 异步（$$k \le 2$$）后 reward 斜率变缓，按下面的顺序看信号：
 
-```text
+```text title="诊断表：同步 → 异步后 reward 变缓"
 第一步：不一致有没有变？（与异步无关的基线）
    training/rollout_probs_diff_mean / max          异步前后应相同；若涨了 → 检查是否同时换了 FP8 / 引擎版本 / MoE 路由
    序列级 Σ|Δ log π| 的分布                         长回答的累计差；MoE 看专家命中一致率

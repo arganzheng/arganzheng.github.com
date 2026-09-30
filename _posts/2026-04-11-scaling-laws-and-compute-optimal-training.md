@@ -517,7 +517,7 @@ Table: 拟合 scaling law 的常见错误
 
 用 Python 标准库源码做字符级语料（3.8M 字符，164 个字符），训 7 个 2 层 Transformer，宽度 24 到 192，非 embedding 参数 14K 到 889K，每个训同样的 10.2M token（cosine 调度）：
 
-```text
+```text title="7 个模型的宽度、参数量、FLOPs 与 final loss"
     d   N(非embedding)   FLOPs(6ND)  final loss
    24          14,304     8.79e+11      2.0025
    32          25,216     1.55e+12      1.8828
@@ -534,7 +534,7 @@ Table: 拟合 scaling law 的常见错误
 
 拟合函数本身只有十几行：
 
-```python
+```python title="fit_power_law：对 E 网格加线性回归"
 def fit_power_law(xs, ys):
     """L = E + A / x^alpha：对 E 做一维网格，每个 E 下 log(L - E) 对 log x 线性回归。"""
     best = None
@@ -555,7 +555,7 @@ def fit_power_law(xs, ys):
 
 纯标准库，实现本文的全部公式：
 
-```python
+```python title="llm_cost_10_scaling.py 的五个函数"
 def chinchilla_loss(N, D)                      # E + A/N^α + B/D^β（Besiroglu 2024 常数）
 def compute_optimal(C, consts=None)            # 拉格朗日闭式解 N_opt, D_opt
 def gpu_hours(C, peak, mfu)                    # FLOPs → GPU 小时

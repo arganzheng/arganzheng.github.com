@@ -83,7 +83,7 @@ Table: 本文的章节安排
 
 同一个 Llama / Qwen / DeepSeek 层，在三个地方长得不一样：
 
-```text
+```text title="同一层在 HF、Megatron Core、vLLM 里的三套命名"
 HF（checkpoint 与 vLLM 的“语言”）               Megatron Core（训练器）                             vLLM 内部
 model.layers.3.self_attn.q_proj.weight        decoder.layers.3.self_attention.linear_qkv.weight   model.layers.3.self_attn.qkv_proj.weight
 model.layers.3.self_attn.k_proj.weight          （Q、K、V 交错融合成一个 [h + 2·h_kv, d] 的矩阵）      （Q、K、V 顺序拼接）
@@ -138,7 +138,7 @@ verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering T
 
 verl 的 FSDP 引擎 `get_per_tensor_param()`（`verl/workers/engine/fsdp/transformer_impl.py`）：
 
-```python
+```python title="FSDP 引擎的 get_per_tensor_param()"
 params = self.module.state_dict()                       # FSDP2：DTensor 的引用，不物化
 params = convert_weight_keys(params, module)            # FSDP 包装名 → HF 名
 per_tensor_param = (
@@ -227,7 +227,7 @@ MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 
 
 一个 bucket 的生命周期有三步——**填**（gather 张量、拷进 bucket）、**传**（NCCL / RDMA）、**装**（接收侧切出张量、`load_weights`）——三步各在不同的硬件上（NVLink + 显存拷贝、网卡、显存拷贝 + 可能的 dtype 转换），可以重叠。verl 的 NCCL 引擎用**双缓冲**：`send_buf` 填满 → 发起异步广播 → 换到 `recv_buf` 继续填 → 填满前等上一个广播完成。稳态下传输与填充重叠，同步时间 ≈ max(填, 传, 装)。
 
-```text
+```text title="填、传、装三步流水"
 时间 →
 填    [b0][b1][b2][b3]……
 传        [b0][b1][b2][b3]……

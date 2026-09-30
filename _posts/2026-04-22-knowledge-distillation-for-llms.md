@@ -285,7 +285,7 @@ Table: 公开蒸馏配方
 
 `trl` 的 `GKDTrainer` 把第二到四章的选项压成三个参数：
 
-```python
+```python title="trl 的 GKDTrainer：lmbda、beta 与 seq_kd"
 from trl import GKDTrainer, GKDConfig
 
 cfg = GKDConfig(

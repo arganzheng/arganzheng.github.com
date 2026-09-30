@@ -38,7 +38,7 @@ flowchart TB
 
 四个原因、四个信号、四个动作，按"最便宜的先看"排序：
 
-```text
+```text title="那十分钟：四个原因、四个信号、四个动作"
 看什么                                              两分钟内能确认的                                  若是，做什么
 ① reward 按数据源 / 任务池分组的曲线                    某一个池整体掉到 0，其余正常 → 沙箱池挂了            隔离该池（数据过滤），补沙箱；已训的几步回滚到 checkpoint
 ② 每个推理实例的 global_steps（版本号）                 有实例落后 → 同步漏了                              对该实例强制全量同步；查 update_weights 超时日志
@@ -97,7 +97,7 @@ Table: 从账推配置的六步：输入、输出与依据
 
 任务：Qwen3-32B 规格，GRPO，$$B = 512$$、$$G = 16$$、$$P = 1\text{K}$$、$$\bar L = 8\text{K}$$、$$L_{max} = 32\text{K}$$，规则奖励。
 
-```text
+```text title="算例一：32B 推理模型，128 × H100"
 1  账（128 卡全部做每段）
    T_all = 8192 × 9 K = 74 M token；FLOP = 12 × 32.8e9 × 74 M = 29 EFLOP
    KV：k_kv = 256 KiB → 每条在飞 (1 K + 4 K) × 256 KiB = 1.3 GB；TP = 2 一实例 2 × 80 × 0.9 − 66 GB 权重 = 78 GB KV 池 → c ≈ 58；64 实例 × 58 = 3700 并发，2.2 波
@@ -130,7 +130,7 @@ Table: 从账推配置的六步：输入、输出与依据
 
 DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$，代码任务（沙箱奖励）。
 
-```text
+```text title="算例二：671B MoE，512 × H100"
 1  账：FLOP 按 37B 激活算，一步 33 EFLOP；KV 按 MLA 70 KB/token，每条 0.35 GB；推理 FP8 671 GB → TP = 8 × EP = 4 的 32 卡实例，每卡权重 21 GB、KV 池 ~45 GB → c ≈ 130 / 实例
    512 卡全部推理 = 16 实例 × 130 = 2080 并发，4 波；T_thr ≈ 1300 s；T_tail ≈ 300 s；训练侧 16N = 10.7 TB → 每卡 21 GB（512 卡）+ 激活，FP8 训练
 2  形态：MoE + 沙箱 → separate_async 是唯一选项；f 含环境等待 > 60%；配比按时间 ≈ 3 : 1 → 384 推理 : 128 训练（训练侧每卡 84 GB 训练状态 —— 放不下！）
@@ -177,7 +177,7 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 
 从 100% 到实际值，8B 推理场景（64 卡、共置同步、810 秒）：
 
-```text
+```text title="8B 推理场景的损失瀑布"
 100%   全部卡全程按峰值算
  −64%  decode 是 memory-bound：生成段 602 s 里算力只用 4%             结构性，只能靠更大的 c / 更好的 kernel / MLA / FP8 缩短这段
  −13%  长尾：196 s 里几条序列占着 64 张卡                              第二、五篇：colocate_async / separate_async / 部分 rollout
@@ -264,7 +264,7 @@ Table: 随机性的来源
 
 `docs/advance/determinism.md`：
 
-```yaml
+```yaml title="verl 的 full_determinism 配置"
 actor_rollout_ref.rollout.full_determinism: true    # 推理侧：确定性采样 + batch-invariant；seed 每实例 replica_rank + 42
 actor_rollout_ref.rollout.seed: 42
 actor_rollout_ref.actor.fsdp_config.full_determinism: true    # 训练侧：确定性算法（Megatron 用 megatron_config.full_determinism）
@@ -365,7 +365,7 @@ Table: RL 系统特有的故障：信号、原因与排查
 
 ## 八、那十分钟
 
-```text
+```text title="那十分钟的诊断流程"
 告警：reward 平台，步时间不变，无报错
 │
 ├─ 看 reward 按源 ─── 某源 → 0，其余正常？ ── 是 ──► ⑪ 沙箱池 / 验证服务：查该源的环境错误率与容器数 → 隔离该源、补池、必要时回滚到平台前的 checkpoint

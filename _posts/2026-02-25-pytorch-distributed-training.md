@@ -120,7 +120,7 @@ PyTorch 分布式训练采用 **SPMD**（Single Program, Multiple Data）模型�
 
 一个最小的分布式脚本：
 
-```python
+```python title="一个最小的分布式脚本"
 import os, torch, torch.distributed as dist
 
 dist.init_process_group(backend="nccl")             # 从环境变量读取 RANK / WORLD_SIZE / MASTER_ADDR / MASTER_PORT
@@ -157,13 +157,13 @@ Table: 进程组的通信后端
 
 **子进程组**用于让一部分进程参与通信。多维并行（第九章）大量依赖它：例如 16 张卡做"2 路数据并行 × 8 路张量并行"，需要 2 个各含 8 卡的张量并行组和 8 个各含 2 卡的数据并行组。
 
-```python
+```python title="dist.new_group 建子进程组"
 tp_group = dist.new_group(ranks=[0, 1, 2, 3, 4, 5, 6, 7])       # 必须所有进程都调用，即使自己不在组里
 ```
 
 手工管理这些组容易出错，PyTorch 2.x 提供了 **DeviceMesh** 把进程按多维网格组织：
 
-```python
+```python title="init_device_mesh 把进程按 2×8 网格组织"
 from torch.distributed.device_mesh import init_device_mesh
 
 mesh = init_device_mesh("cuda", mesh_shape=(2, 8), mesh_dim_names=("dp", "tp"))
@@ -181,7 +181,7 @@ DeviceMesh 是 FSDP2、TP、CP API 的共同输入，第三至九章会反复用
 
 以 4 个进程为例，每个进程持有一个数据块，方框表示该 rank 上的数据：
 
-```text
+```text title="五种集合通信原语：4 个 rank 的数据流"
 broadcast（一份数据发给所有人）
   rank 0  [A]              [A]
   rank 1  [ ]      →       [A]
@@ -218,7 +218,7 @@ send/recv  点对点，一个 rank 发给另一个
 
 对应的 API（`torch.distributed` 命名空间）：
 
-```python
+```python title="对应的 torch.distributed API"
 dist.broadcast(t, src=0)
 dist.all_reduce(t, op=dist.ReduceOp.SUM)                  # 原地，op 可为 SUM / AVG / MAX / MIN / PRODUCT
 dist.all_gather_into_tensor(out, t)                       # out.shape[0] == N * t.shape[0]
@@ -253,7 +253,7 @@ Table: 集合通信原语在并行策略中的用途
 
 一次点对点传输的时间用 **α + β 模型**近似：
 
-```text
+```text title="α + β 模型"
 T(n) = α + β · n        α：延迟（固定开销，微秒级）    β：每字节传输时间 = 1 / 带宽    n：字节数
 ```
 
@@ -263,7 +263,7 @@ T(n) = α + β · n        α：延迟（固定开销，微秒级）    β：每
 
 集合通信的成本取决于算法。最常用的 **Ring** 算法把 N 个进程排成环，每个进程只和左右邻居通信。以 N=4、数据切成 4 块为例，all_reduce 的 reduce_scatter 阶段：
 
-```text
+```text title="Ring all-reduce 的 reduce_scatter 阶段：N=4 逐步"
 初始              第 1 步：每人把一块发给右邻并累加收到的       第 2 步                    第 3 步（结束）
 rank 0 [a₀ b₀ c₀ d₀]   发 a₀ → rank 1，收 d₃：[a₀ b₀ c₀ d₀+d₃]      收 c₂+c₃ → [.. c₀+c₂+c₃ ..]   收 b₁+b₂+b₃ → 持有 Σb
 rank 1 [a₁ b₁ c₁ d₁]   发 b₁ → rank 2，收 a₀：[a₀+a₁ b₁ c₁ d₁]      收 d₃+d₀ → [.. d₀+d₁+d₃]      收 c₀+c₂+c₃ → 持有 Σc
@@ -275,7 +275,7 @@ N−1 步后，每个 rank 持有**一块**的完整归约结果——这正是 
 
 对大小为 n 字节的数据，成本：
 
-```text
+```text title="Ring all_reduce 的成本"
 reduce_scatter 阶段    N-1 步，每步每个 rank 发送并接收 n/N 字节
 all_gather 阶段        N-1 步，每步每个 rank 发送并接收 n/N 字节
 
@@ -312,7 +312,7 @@ NCCL 还按消息大小选择**协议**：`LL`（8 字节数据 + 标志位一�
 
 第八篇建立的异步模型在这里延伸：**NCCL 的集合通信也是 GPU 上的 Kernel**，在 Profiler 里以 `ncclDevKernel_AllReduce_...` 之类的名字出现，运行在 PyTorch 为通信专门创建的 CUDA Stream 上，与计算 Stream 并行。
 
-```python
+```python title="async_op=True：通信在后台进行"
 work = dist.all_reduce(t, async_op=True)     # 立即返回 Work 句柄，通信在后台进行
 ...                                          # 这里可以继续提交计算 Kernel
 work.wait()                                  # 让当前 Stream 等待通信完成（是 Stream 间的依赖，不阻塞 CPU）
@@ -367,7 +367,7 @@ Table: DDP 对五类状态的决定
 
 数学上，N 个 rank 各算 batch/N 个样本的梯度再取平均，与单卡算整个 batch 的梯度完全等价。所以 DDP 训练在数值上等同于用 N 倍 batch 的单卡训练（浮点归约顺序的差异除外），学习率等超参数应按大 batch 调整。
 
-```python
+```python title="DDP 的用法"
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 model = Block(...).cuda(local_rank)
@@ -418,7 +418,7 @@ flowchart TB
 
 在时间轴上展开就是：
 
-```text
+```text title="Reducer 的时间轴：桶就位即发起 all_reduce"
 反向传播（计算 Stream）      layer L → layer L-1 → ... → layer 1
                                  │           │
 桶就位                        bucket 0 ready   bucket 1 ready   ...
@@ -449,7 +449,7 @@ DDP 解决的**只是吞吐极限**。它降低的是每卡的 batch，从而降
 
 DDP 允许替换桶的通信逻辑：
 
-```python
+```python title="register_comm_hook：bf16 压缩与 PowerSGD"
 from torch.distributed.algorithms.ddp_comm_hooks import default_hooks, powerSGD_hook
 
 # 方案一：梯度 cast 成 bf16 再 all_reduce，通信量减半
@@ -467,7 +467,7 @@ model.register_comm_hook(state, powerSGD_hook.powerSGD_hook)
 
 **梯度累积**：如果每次 `backward()` 都同步，累积 4 次就通信 4 次。`no_sync()` 关闭中间几次的同步：
 
-```python
+```python title="no_sync 做梯度累积"
 for i, x in enumerate(loader):
     ctx = model.no_sync() if (i + 1) % 4 != 0 else contextlib.nullcontext()
     with ctx:
@@ -480,7 +480,7 @@ for i, x in enumerate(loader):
 
 **不等长的输入**：各 rank 的数据量不同时，先跑完的 rank 退出循环，其他 rank 的 all_reduce 永远等不到它。`Join` 上下文让先结束的 rank 继续参与"影子"集合通信直到所有人结束：
 
-```python
+```python title="Join 处理不等长输入"
 from torch.distributed.algorithms.join import Join
 with Join([model]):
     for x in loader: ...
@@ -539,7 +539,7 @@ PyTorch 中 ZeRO-1 对应 `ZeroRedundancyOptimizer`（配合 DDP 使用），ZeR
 
 每个分片单元在 step 中经历一个状态循环：
 
-```text
+```text title="分片单元在 step 中的状态循环"
 sharded ──all_gather──► unsharded ──计算──► (前向后 reshard) sharded ──all_gather──► unsharded ──反向计算──► reshard + reduce_scatter ──► sharded
 ```
 
@@ -549,7 +549,7 @@ FSDP2 用两条专用 Stream 驱动这个循环：一条 all-gather Stream，一
 
 PyTorch 有两代 FSDP 实现。第一代 `FullyShardedDataParallel`（FSDP1）是一个包装类，把被包装模块的所有参数拍平成一个大 `FlatParameter` 再切分；第二代 **FSDP2** 以 `fully_shard` 函数为入口，按参数逐个切分，用 **DTensor** 表示分片后的参数。FSDP2 是 2.4 以后的推荐路径，本文以它为主线。
 
-```python
+```python title="FSDP2：fully_shard 与 MixedPrecisionPolicy"
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.device_mesh import init_device_mesh
 
@@ -617,7 +617,7 @@ Table: reshard_after_forward 的三种取值
 
 按 §2 的时间线，每层计算前要等 all_gather 完成，通信不重叠。FSDP 用 **prefetch** 解决：在计算第 i 层时，就在 all-gather Stream 上发起第 i+1 层的 all_gather。
 
-```text
+```text title="prefetch：all-gather 流提前一层"
 计算 Stream      [layer 1 计算    ][layer 2 计算    ][layer 3 计算    ]
 all-gather 流  [AG₁][AG₂          ][AG₃            ][AG₄            ]
 reduce-scatter 流                                     ...反向时 [RS₄][RS₃]...
@@ -625,7 +625,7 @@ reduce-scatter 流                                     ...反向时 [RS₄][RS�
 
 代价是显存中同时存在两层的完整参数。FSDP2 默认隐式 prefetch 下一层（按上一次迭代记录的执行顺序）；显式控制：
 
-```python
+```python title="显式控制 forward/backward prefetch"
 for i, block in enumerate(model.blocks):
     if i + 1 < len(model.blocks):
         block.set_modules_to_forward_prefetch([model.blocks[i + 1]])
@@ -639,7 +639,7 @@ for i, block in enumerate(model.blocks):
 
 FSDP2 的梯度累积用 `set_requires_gradient_sync`：
 
-```python
+```python title="set_requires_gradient_sync 做梯度累积"
 for i, x in enumerate(loader):
     model.set_requires_gradient_sync((i + 1) % 4 == 0)      # False：反向后不 reduce_scatter，梯度以完整形态累积在本地
     model(x).pow(2).mean().backward()
@@ -669,14 +669,14 @@ Table: 7B 模型 8 卡 FSDP 每 step 的通信量与传输时间
 
 节点内 190 ms 可以藏在几秒的计算里；跨节点 1.1 s 就很难藏。**HSDP**（Hybrid Sharded Data Parallel）用一个 2D mesh 折中：
 
-```python
+```python title="HSDP：2D mesh 分片加复制"
 mesh = init_device_mesh("cuda", (num_nodes, gpus_per_node), mesh_dim_names=("replicate", "shard"))
 fully_shard(block, mesh=mesh)    # 2D mesh：在 shard 维分片，在 replicate 维复制
 ```
 
 以 4 节点 × 8 卡为例，这个 2D mesh 的排布和两类通信各走哪条链路：
 
-```text
+```text title="4 节点 × 8 卡的 2D mesh 排布与两类通信的链路"
 mesh_shape = (4, 8), mesh_dim_names = ("replicate", "shard")
 
                  shard 维 →  (同一行 = 同一节点, NVLink)
@@ -704,7 +704,7 @@ replicate 组 = 一列，如 {0,8,16,24}    参数在组间复制
 
 FSDP 允许把分片后的参数、梯度和优化器状态放到 CPU 内存，只在计算时搬到 GPU：
 
-```python
+```python title="CPUOffloadPolicy"
 from torch.distributed.fsdp import CPUOffloadPolicy
 fully_shard(block, mesh=mesh, offload_policy=CPUOffloadPolicy())
 ```
@@ -731,7 +731,7 @@ DDP 和 FSDP 都是**数据并行**：每个 rank 处理不同的数据，对**�
 
 一个 Linear 层 Y = XW，X 是 [tokens, H_in]，W 是 [H_in, H_out]。切 W 有两种方向：
 
-```text
+```text title="列并行与行并行的两种切法"
 列并行（Colwise）：按输出维切
    W = [W₀ | W₁ | W₂ | W₃]         每个 rank 持有 W 的 H_out/N 列
    Yᵢ = X Wᵢ                       输入 X 完整（复制），输出 Yᵢ 是 Y 的第 i 段列
@@ -747,7 +747,7 @@ DDP 和 FSDP 都是**数据并行**：每个 rank 处理不同的数据，对**�
 
 列并行的输入是复制的、输出是分片的；行并行的输入是分片的、输出是部分和。**列并行的输出分片形状恰好是行并行需要的输入分片**——所以两者可以直接相连而不需要中间通信：
 
-```text
+```text title="列并行接行并行：中间无需通信"
 X（复制） ──列并行 W₁──► Yᵢ（分片） ──逐元素激活──► gelu(Yᵢ)（仍分片） ──行并行 W₂──► Zᵢ（部分和） ──all_reduce──► Z（复制）
 ```
 
@@ -757,7 +757,7 @@ X（复制） ──列并行 W₁──► Yᵢ（分片） ──逐元素激�
 
 训练不只有前向。把列并行和行并行的边界看成两个算子 f 和 g（Megatron-LM 的记法）：
 
-```text
+```text title="f 和 g 的前向与反向"
           f                                 g
 X ──────────► [列并行 → 本地计算 → 行并行] ──────────► Z
 
@@ -781,7 +781,7 @@ f 和 g 互为**共轭**：一个前向通信、反向不通信，另一个反�
 
 ### 4. PyTorch 的 TP API
 
-```python
+```python title="PyTorch 的 TP API：parallelize_module 与 tp_plan"
 from torch.distributed.tensor.parallel import (
     parallelize_module, ColwiseParallel, RowwiseParallel, SequenceParallel, PrepareModuleInput, loss_parallel
 )
@@ -870,7 +870,7 @@ flowchart TB
 
 reduce_scatter + all_gather 的总通信量与一次 all_reduce 相同，所以 SP **不增加通信**，却把 TP 区域外所有激活的显存降到 1/N。它总是与 TP 一起开。
 
-```python
+```python title="Sequence Parallel 的 tp_plan"
 parallelize_module(block, tp_mesh, {
     "attn_norm": SequenceParallel(),                                          # LayerNorm 输入按 Shard(1)（序列维）
     "attn":      PrepareModuleInput(input_layouts=Shard(1), desired_input_layouts=Replicate()),   # f：all_gather
@@ -886,7 +886,7 @@ parallelize_module(block, tp_mesh, {
 
 §5 说 TP 的 all_reduce 无法重叠，这在"整块通信、整块计算"的粒度上是对的。**异步 TP**（Async TP / 微流水线）把 all_gather + 矩阵乘、矩阵乘 + reduce_scatter 各拆成若干块，块间流水：
 
-```text
+```text title="异步 TP：all_gather 与 matmul 分块流水"
 不拆     [all_gather 全部        ][matmul 全部          ]
 拆 4 块  [AG₀][AG₁][AG₂][AG₃]
               [mm₀][mm₁][mm₂][mm₃]        ← 收到第 0 块就开始算第 0 块，通信只暴露第一块
@@ -894,7 +894,7 @@ parallelize_module(block, tp_mesh, {
 
 PyTorch 通过 **对称内存**（`torch.distributed._symmetric_memory`，节点内 GPU 直接读写彼此显存）实现块间的细粒度传输，Inductor 在编译时识别 SP 的 all_gather → matmul 和 matmul → reduce_scatter 模式并做替换：
 
-```python
+```python title="启用对称内存与 micro-pipeline TP"
 from torch.distributed._symmetric_memory import enable_symm_mem_for_group
 enable_symm_mem_for_group(tp_mesh.get_group().group_name)
 torch._inductor.config._micro_pipeline_tp = True
@@ -928,7 +928,7 @@ model = torch.compile(model)
 
 **GPipe**：所有 micro-batch 先做完前向，再做反向：
 
-```text
+```text title="GPipe 调度：K=4，M=4"
 K=4, M=4，F=前向，B=反向（B 通常约 2 倍 F 的时长，图中按等长画）
 stage 0   F₀ F₁ F₂ F₃ .  .  .  .  .  .  B₃ B₂ B₁ B₀
 stage 1   .  F₀ F₁ F₂ F₃ .  .  .  .  B₃ B₂ B₁ B₀ .
@@ -942,7 +942,7 @@ M 越大气泡越小，但 GPipe 要把 M 个 micro-batch 的激活全部保存�
 
 **1F1B**：进入稳态后，每个 stage 做一次前向就紧接着做一次（更早的 micro-batch 的）反向：
 
-```text
+```text title="1F1B 调度"
 stage 0   F₀ F₁ F₂ F₃ B₀ F₄ B₁ F₅ B₂ F₆ B₃ ...
 stage 1   .  F₀ F₁ F₂ B₀ F₃ B₁ F₄ B₂ F₅ B₃ ...
 stage 2   .  .  F₀ F₁ B₀ F₂ B₁ F₃ B₂ F₄ B₃ ...
@@ -970,7 +970,7 @@ Table: 四种流水线调度的气泡、激活显存与通信
 
 `torch.distributed.pipelining`（2.4 起以 prototype 状态进入主库）提供 stage 抽象和上述调度。手工切分是最可控的方式：
 
-```python
+```python title="torch.distributed.pipelining 手工切分"
 from torch.distributed.pipelining import PipelineStage, Schedule1F1B, ScheduleInterleaved1F1B
 
 # 每个 rank 只构造自己那段模型；其他 stage 的层根本不存在于本进程
@@ -991,7 +991,7 @@ for x, y in loader:
 
 也可以让框架自动切分——`pipeline()` 用 `torch.export` 追踪整个模型（第七篇的导出机制），在指定的模块边界切开：
 
-```python
+```python title="pipeline() 自动切分"
 from torch.distributed.pipelining import pipeline, SplitPoint
 pipe = pipeline(model, mb_args=(example_x,), split_spec={"blocks.8": SplitPoint.BEGINNING, "blocks.16": SplitPoint.BEGINNING, "blocks.24": SplitPoint.BEGINNING})
 stage = pipe.build_stage(rank, device)
@@ -1027,7 +1027,7 @@ Transformer 中除了 attention，所有算子都是逐 token 的（Linear、Lay
 
 以 N=4 为例，把每个 rank 在每一步手里持有的 K/V 块列成表，ring 的传递规律一目了然——Q 不动，K/V 每步整体右移一格：
 
-```text
+```text title="Ring Attention：每步各 rank 持有的 K/V 块"
 rank i 持有 Q_i 不动；K/V 块沿 ring 传给右邻（rank 3 → rank 0 回绕）
 每一步：用手里的 K/V 块算局部 attention 并 online-softmax 累加，
         同时把这块 K/V send 给右邻、从左邻 recv 下一块
@@ -1056,7 +1056,7 @@ rank i 持有 Q_i 不动；K/V 块沿 ring 传给右邻（rank 3 → rank 0 回�
 
 ### 2. PyTorch 的 CP API
 
-```python
+```python title="PyTorch 的 CP API"
 from torch.distributed.tensor.experimental import context_parallel
 from torch.distributed.tensor.experimental._attention import set_rotate_method
 
@@ -1214,7 +1214,7 @@ flowchart TB
 
 各维度组合成 DeviceMesh，从内到外的顺序要与拓扑对齐——**最内层的维度（TP）必须落在同一节点**。以 2 机 16 卡为例：
 
-```python
+```python title="2 机 16 卡的 dp × tp mesh"
 mesh = init_device_mesh("cuda", (2, 8), mesh_dim_names=("dp", "tp"))
 for block in model.blocks:
     parallelize_module(block, mesh["tp"], tp_plan)           # 先 TP：节点内 8 卡切分每一层
@@ -1250,7 +1250,7 @@ Table: 各并行策略的统一表
 
 SPMD 需要有人把同一脚本启动 N 次、告诉每个进程它的 rank、并让它们找到彼此。这就是 `torchrun`（`torch.distributed.run`）：
 
-```bash
+```bash title="torchrun 单机与多机启动"
 # 单机 8 卡
 torchrun --nproc_per_node=8 train.py
 
@@ -1275,7 +1275,7 @@ torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 \
 
 数据并行要求每个 rank 看到不同的数据。`DistributedSampler` 把数据集的索引按 rank 交错切分：
 
-```python
+```python title="DistributedSampler 与 set_epoch"
 sampler = DistributedSampler(dataset, shuffle=True)               # 自动读取 rank / world_size
 loader = DataLoader(dataset, batch_size=per_rank_batch, sampler=sampler, num_workers=4, pin_memory=True)
 
@@ -1297,7 +1297,7 @@ for epoch in range(epochs):
 
 单卡 checkpoint 是 `torch.save(model.state_dict())`。分布式下问题变复杂：FSDP 的参数是分片的，每个 rank 只有 1/N；TP 的参数按列/行切开。三种选择：
 
-```text
+```text title="分布式 checkpoint 的三种选择"
 Full state_dict      在 rank 0 上 all_gather 出完整参数再保存    → 一份文件；需要 rank 0 有足够 CPU 内存放下整个模型；保存慢
 Sharded state_dict   每个 rank 保存自己的分片                    → N 份文件；快；但加载时并行度必须相同
 DCP                  torch.distributed.checkpoint：保存 DTensor 及其 Placement 元数据    → 加载时可以 reshard 到不同并行度
@@ -1305,7 +1305,7 @@ DCP                  torch.distributed.checkpoint：保存 DTensor 及其 Placem
 
 **DCP**（Distributed Checkpoint）是推荐方案。它保存每个 DTensor 的本地分片和全局 Placement，加载时根据新的 mesh 重新切分——8 卡训练的 checkpoint 可以在 16 卡上恢复，或从 FSDP+TP 的布局加载到纯 FSDP，或在单卡上加载做推理。
 
-```python
+```python title="DCP 保存与加载"
 import torch.distributed.checkpoint as dcp
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 
@@ -1332,7 +1332,7 @@ set_state_dict(model, optimizer, model_state_dict=model_sd, optim_state_dict=opt
 
 NCCL 启动时探测拓扑，据此构建 ring 和 tree。`NCCL_DEBUG=INFO` 打印它的决定：
 
-```text
+```text title="NCCL_DEBUG=INFO 打印的 ring 与网卡"
 NCCL INFO Channel 00/08 :  0  1  2  3  4  5  6  7          ← 一条 ring 的顺序
 NCCL INFO NET/IB : Using [0]mlx5_0:1/IB ...                  ← 用了哪张网卡
 NCCL INFO Connected all rings, Connected all trees
@@ -1359,7 +1359,7 @@ NCCL INFO Connected all rings, Connected all trees
 
 **扩展效率**是评估分布式性能的核心指标：
 
-```text
+```text title="扩展效率的定义"
 扩展效率 = 吞吐(N 卡) / (N × 吞吐(1 卡))
 ```
 
@@ -1414,11 +1414,11 @@ flowchart TB
 
 排查工具：
 
-```python
+```python title="init_process_group 设超时"
 dist.init_process_group(backend="nccl", timeout=timedelta(minutes=10))   # 默认 10 分钟后抛异常而非永远等待
 ```
 
-```bash
+```bash title="hang 排查的三个工具"
 TORCH_DISTRIBUTED_DEBUG=DETAIL        # 在每次集合通信前校验所有 rank 的调用是否一致（很慢，仅调试用）
 NCCL_DEBUG=WARN                       # NCCL 层面的错误
 py-spy dump --pid <pid>               # 对每个 rank 打印 Python 栈，比较各 rank 停在哪一行
@@ -1426,7 +1426,7 @@ py-spy dump --pid <pid>               # 对每个 rank 打印 Python 栈，比�
 
 **Flight Recorder** 是 2.x 新增的工具：NCCL 后端记录最近若干次集合通信的元信息（哪个 rank、哪个原语、什么形状、是否完成），超时时 dump 出来：
 
-```bash
+```bash title="Flight Recorder：dump 与分析"
 TORCH_NCCL_TRACE_BUFFER_SIZE=2000 TORCH_NCCL_DUMP_ON_TIMEOUT=1 TORCH_NCCL_DEBUG_INFO_TEMP_FILE=/tmp/nccl_trace_rank_ torchrun ...
 torchfrtrace --prefix /tmp/nccl_trace_rank_          # 分析：哪个 rank 缺了哪次调用，或形状不匹配
 ```
@@ -1452,13 +1452,13 @@ torchfrtrace --prefix /tmp/nccl_trace_rank_          # 分析：哪个 rank 缺�
 
 模型放得下（8.4 GB），要的是吞吐。DDP：
 
-```python
+```python title="第一步：DDP 加 torch.compile"
 model = torch.compile(DDP(model, device_ids=[local_rank], gradient_as_bucket_view=True))
 ```
 
 每卡 B=64，总 batch 512：
 
-```text
+```text title="8 卡 DDP 的结果：扩展效率 95%"
 8 卡 DDP    step: 30.5 ms    吞吐: 16800 samples/s    扩展效率: 95%    每卡峰值显存: 8.6 GB
 ```
 
@@ -1470,7 +1470,7 @@ model = torch.compile(DDP(model, device_ids=[local_rank], gradient_as_bucket_vie
 
 把模型放大到 H=4096、L=32、S=4096，约 6.4B 参数（加 embedding 约 7B）。静态显存 16P = 112 GB。DDP 在任何卡数下都是每卡 112 GB——不可行。换 FSDP2：
 
-```python
+```python title="第二步：FSDP2 在 meta 设备上构造再分片"
 mesh = init_device_mesh("cuda", (8,))
 mp = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32)
 with torch.device("meta"):
@@ -1483,7 +1483,7 @@ model.to_empty(device="cuda"); model.init_weights()
 
 先算显存。静态 16P/8 = 14 GB，prefetch 时两层完整 bf16 参数 0.8 GB。激活值：不做 checkpointing 时 Transformer 每层每 token 约 34 × H 字节（bf16，SDPA 不物化 score 矩阵），H=4096 时 136 KB；每卡 B=8、S=4096 共 32k token，32 层 → **143 GB**，远超显存。第八篇第八章 §7 说 checkpointing 在那个案例里"不值得"，这里结论反过来：每个 block 做 checkpointing，只保存 block 输入（每层每 token 2H = 8 KB），激活值降到约 8.6 GB，加上重算时一层的完整激活 4.5 GB，共约 13 GB。代价是前向多算一遍，约增加 33% 计算。
 
-```text
+```text title="8 卡 FSDP 的结果：每卡峰值显存 31 GB"
 8 卡 FSDP   每卡 B=8    总 token 8 × 8 × 4096 = 262k / step
             step: 4.2 s     吞吐: 62k tokens/s     每卡峰值显存: 31 GB
             静态 14 GB + prefetch 0.8 GB + 激活 13 GB + workspace 与碎片约 3 GB
@@ -1497,7 +1497,7 @@ model.to_empty(device="cuda"); model.init_weights()
 
 再加 3 台机器。总 batch 保持 64 个序列不变（第十章 §7 的算法约束：总 batch 不能无限加大），每卡 B 从 8 降到 2。直接把 mesh 扩到 32：
 
-```text
+```text title="32 卡 FSDP 直接扩：扩展效率掉到 62%"
 32 卡 FSDP   每卡 B=2   step: 1.7 s    吞吐: 154k tokens/s    扩展效率（对 8 卡）: 62%    每卡峰值显存: 10 GB
 ```
 
@@ -1505,12 +1505,12 @@ model.to_empty(device="cuda"); model.init_weights()
 
 用 HSDP：节点内分片，节点间复制：
 
-```python
+```python title="改成 HSDP：(4, 8) 的 replicate × shard mesh"
 mesh = init_device_mesh("cuda", (4, 8), mesh_dim_names=("replicate", "shard"))
 fully_shard(block, mesh=mesh, mp_policy=mp)
 ```
 
-```text
+```text title="32 卡 HSDP 的结果：扩展效率 94%"
 32 卡 HSDP   每卡 B=2   step: 1.12 s    吞吐: 234k tokens/s    扩展效率: 94%    每卡峰值显存: 21 GB
 ```
 

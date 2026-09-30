@@ -53,7 +53,7 @@ Table: 模型网关需要什么、原生路径缺什么
 
 整条链路从外到内：
 
-```text
+```text title="模型网关链路：从客户端到引擎"
 客户端  POST /v1/chat/completions {"model": "llama-70b", "stream": true, ...}
    │
    ▼
@@ -148,7 +148,7 @@ GIE `docs/proposals/1199-inferencemodel-api-evolution/README.md` 记录了这个
 
 `api/v1/inferencepool_types.go` 的 `InferencePoolSpec` 只有四个字段，每一个都值得读一下注释：
 
-```go
+```go title="InferencePoolSpec 的四个字段"
 type InferencePoolSpec struct {
     Selector          LabelSelector      `json:"selector,omitzero"`          // 只有 matchLabels；同 namespace
     TargetPorts       []Port             `json:"targetPorts,omitempty"`      // 1~8 个，每个 podIP:port 是一个独立 endpoint
@@ -175,7 +175,7 @@ type EndpointPickerRef struct {
 
 下面两个对象是 `mini-platform/gateway/inferencepool.yaml` 与 `httproute.yaml` 的内容，字段全部来自 v1.6.0 的类型定义和 conformance 的 `resources/base.yaml`：
 
-```yaml
+```yaml title="gateway/inferencepool.yaml"
 apiVersion: inference.networking.k8s.io/v1
 kind: InferencePool
 metadata:
@@ -197,7 +197,7 @@ spec:
     failureMode: FailClose
 ```
 
-```yaml
+```yaml title="gateway/httproute.yaml"
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -280,7 +280,7 @@ KServe v0.20.0 的对照：`pkg/apis/serving/v1alpha1/llm_inference_service_type
 
 llm-d-router `docs/architecture.md` 把一个请求在 EPP 里的路径分成两段。**Request Control** 每请求跑一次（`pkg/epp/requestcontrol/director.go` 的 `Director.HandleRequest`）：
 
-```text
+```text title="Director.HandleRequest 的 Request Control 步骤"
 1. 解析 body（parser 插件：openai-parser / anthropic-parser / vllmhttp-parser），记 IncomingModelName
 2. modelRewriteIfNeeded：按 InferenceModelRewrite 的规则或 x-llm-d-model-name-rewrite 头改写 model → TargetModelName
 3. getInferenceObjective：按 x-llm-d-inference-objective 头查同 namespace 的 InferenceObjective，取 spec.priority（无则 0）
@@ -376,7 +376,7 @@ brief 里提到的 `lora-affinity`，在 v0.10.0 的类型名是 `lora-affinity-
 
 EPP 的配置是一个 YAML 文件（`--config-file`）或内联文本（`--config-text`），schema 是 `apix/config/v1alpha1/endpointpickerconfig_types.go` 的 `EndpointPickerConfig`：`plugins[]`（`name` / `type` / `parameters`）实例化插件，`schedulingProfiles[]`（`name` / `plugins[].pluginRef` / `weight`）把实例装进 profile；另有 `featureGates`、`dataLayer`、`flowControl`、`requestHandler` 几段。下面是 `mini-platform/gateway/epp-config.yaml`，它把 llm-d v0.9.0 的 `guides/flow-control/router/flow-control.values.yaml` 与 `optimized-baseline` 的配置合成一份，装进 ConfigMap 由 EPP Deployment 挂载：
 
-```yaml
+```yaml title="gateway/epp-config.yaml：EndpointPickerConfig"
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -469,7 +469,7 @@ $$
 
 用上面的配置对 4 个副本算一遍，能看到 filter 与 scorer 各自在哪一步起作用（假设 `prefix-cache-affinity-filter` 没有形成 sticky 子集，或已因 TTFT 惩罚打破亲和；`prefix-cache-scorer` 只按命中比例，忽略 `matchLengthWeight`；`queue-scorer` 在过滤后的候选内按最短 1 / 最长 0 线性）：
 
-```text
+```text title="4 个副本的 filter 与 scorer 打分过程"
 请求：8k token 前缀，model=support-v1；权重 prefix 3 / queue 2 / kv 2 / lora 1
 
       前缀   等待  KV    LoRA    drop-overloaded      各项原始分        加权
@@ -565,7 +565,7 @@ Table: EPP 读取的租户控制头
 
 `InferenceObjective`（llm-d-router `apix/v1alpha2/inferenceobjective_types.go`，`llm-d.ai/v1alpha2`）只有两个字段：`spec.priority *int32`（越大越优先，允许负值，未设视为 0）和 `spec.poolRef`。类型注释把语义写死了：**"flow control will always allow requests of higher priority to be served first. Fairness is only enforced and tracked between requests of the same priority."** 也就是优先级之间是严格的，公平只在同一优先级内。llm-d `guides/flow-control/objectives.yaml` 的三档：
 
-```yaml
+```yaml title="objectives.yaml：三档 InferenceObjective"
 apiVersion: llm-d.ai/v1alpha2
 kind: InferenceObjective
 metadata:
@@ -601,7 +601,7 @@ flow control（`pkg/epp/flowcontrol/`，`featureGates: ["flowControl"]` 打开�
 
 这几条规则叠在一起，在一次过载里的表现用一条时间线最清楚。下面假设池已饱和、每个 tick 恰好释放 1 个在途槽位；A 是 `premium-traffic`（band 100），B、C 是 `standard-traffic`（band 0，两个 fairness ID），D 是 `best-effort-traffic`（band -10，`maxRequests` 缩成 2 便于演示）；TTL 缩成 8 tick。记法 `B3` = fairness ID B 有 3 个请求在排队；每行是该 tick 处理完到达与出队后的队列状态：
 
-```text
+```text title="flow control 的逐 tick 队列状态"
 tick 到达         band100  band0     band-10  出队  说明
                   (A)      (B | C)   (D,上限2)
   0  A2 B3 C1 D3  A2       B3 | C1   D2       —     D 第 3 个进不了 band：
@@ -639,7 +639,7 @@ TPM 和并发之间还有一层：并发 × 每请求上下文长度 ≈ 占用�
 
 `mini-platform/gateway/tenants/quota-a.yaml` 与 `quota-b.yaml` 用 mini-platform **自己的** schema（`mini-platform.local/v1alpha1`，由认证层的小服务读取；不是任何上游项目的 CRD），把外层配额与内层身份绑在一起：
 
-```yaml
+```yaml title="gateway/tenants/quota-a.yaml"
 # mini-platform/gateway/tenants/quota-a.yaml —— mini-platform 自定 schema，由网关的认证 filter 强制执行
 apiVersion: mini-platform.local/v1alpha1
 kind: TenantQuota
@@ -672,7 +672,7 @@ spec:
     streamDisconnect: bill_generated   # 断开时按已生成计费
 ```
 
-```yaml
+```yaml title="gateway/tenants/quota-b.yaml"
 # mini-platform/gateway/tenants/quota-b.yaml
 apiVersion: mini-platform.local/v1alpha1
 kind: TenantQuota
@@ -721,7 +721,7 @@ Table: 三种配额的量纲
 
 外层配额执行器（认证层）在请求进入时不知道最终消耗，只能预扣再结算：
 
-```text
+```text title="预扣与结算的两步"
 到达      估算输入 token：tokenizer（精确，有 CPU 成本）或字节数/4（粗，零成本）
           预扣 = 输入估算 + min(max_completion_tokens 或缺省值, 单请求上限)
           若 租户.tpm 余量 < 预扣 或 并发 ≥ 上限 或 rpm 超 → 429（网关生成，未进 EPP）
@@ -733,7 +733,7 @@ Table: 三种配额的量纲
 
 把这两步放到一个租户的桶上连续走几个请求，能看到 TPM 余量与并发计数各自在什么时候变化、两种 429 分别由谁触发。取租户 B 在 `llama-70b` 上的规则，桶余量缩到 20,000 便于看清，忽略桶的按分钟补充：
 
-```text
+```text title="租户 B 的桶：连续几个请求的余量与并发"
 并发上限 2；预扣 = 输入估算 + min(max_completion_tokens 或缺省 1024, 上限)
 
 t  事件                        预扣 / 结算           余量    并发  结果
@@ -794,7 +794,7 @@ Table: 两个租户共用副本的决策规则表
 
 BF16 与 FP8 是两组不同的 Pod（不同镜像参数或不同权重文件），各自一个 `InferencePool`、各自一个 EPP。灰度用 Gateway API 的标准权重（llm-d `guides/rollouts/blue-green-update.md`；GIE conformance `gateway_weighted_two_pools` 验证 70/30）：
 
-```yaml
+```yaml title="池间灰度：HTTPRoute 权重"
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -826,7 +826,7 @@ spec:
 
 同一个池里、同一批引擎进程能服务多个模型名时（典型是一个基础模型 + 多个 LoRA），版本切换不需要动 Pod，用 llm-d-router 的 `InferenceModelRewrite`（`apix/v1alpha2/inferencemodelrewrite_types.go`，`llm-d.ai/v1alpha2`）：
 
-```yaml
+```yaml title="池内灰度：InferenceModelRewrite"
 apiVersion: llm-d.ai/v1alpha2
 kind: InferenceModelRewrite
 metadata:
@@ -971,7 +971,7 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：模型网关"
 为什么        轮询不看 KV 满不满、不看缓存在哪；64 会话 × 8k 的例子里前缀亲和把 TTFT 从 0.5 s 级降到几十 ms 级
 分工          GIE v1.6.0：InferencePool（api/v1）、InferencePoolImport（apix/v1alpha1）、ext_proc 协议、lwepp、conformance
               llm-d-router v0.10.0：EPP 实现、EndpointPickerConfig、InferenceObjective / InferenceModelRewrite（llm-d.ai/v1alpha2）
@@ -1022,7 +1022,7 @@ Table: 本篇涉及的源码与 CRD 位置
 
 ### 3. mini-platform 本篇增量：`gateway/`
 
-```text
+```text title="mini-platform/gateway/ 目录"
 mini-platform/gateway/
 ├── inferencepool.yaml        第三章 3 节：InferencePool llama-70b-bf16（selector app=vllm-llama-70b,variant=bf16；EPP Service 9002；FailClose）
 ├── httproute.yaml            第三章 3 节：HTTPRoute 按 X-Gateway-Base-Model-Name 匹配 → InferencePool；timeouts.request: 0s
@@ -1038,7 +1038,7 @@ mini-platform/gateway/
 
 **`ttft-compare.py` 做什么。** 模拟 N 个多轮对话（每个对话一个固定的长 system prompt + 逐轮追加的历史），把同样的请求序列分别打到轮询入口和 InferencePool 入口，流式接收，记录每个请求的 TTFT（发出请求到收到第一个带 `content` 的 SSE chunk），输出两侧的 p50 / p90 / p99 与均值；同时从 `usage` 里读 `prompt_tokens_details.cached_tokens` 算命中率。只用标准库。
 
-```python
+```python title="gateway/ttft-compare.py：轮询与 EPP 的 TTFT 对比"
 #!/usr/bin/env python3
 """mini-platform/gateway/ttft-compare.py
 
@@ -1195,7 +1195,7 @@ if __name__ == "__main__":
     main()
 ```
 
-```bash
+```bash title="运行 ttft-compare.py"
 python3 -m py_compile mini-platform/gateway/ttft-compare.py
 python3 mini-platform/gateway/ttft-compare.py \
   --rr-url http://gw.example.internal/rr --pool-url http://gw.example.internal \

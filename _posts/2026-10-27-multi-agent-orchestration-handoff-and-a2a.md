@@ -54,7 +54,7 @@ flowchart TB
 ```
 
 
-```text
+```text title="三种多 agent 模式"
 orchestrator-workers          handoff                      层级
       ┌─ worker A                agent A ──→ agent B         ┌─ 子 agent ─┬─ 子子 agent
 主 ───┼─ worker B  → 主综合         │  （控制权移交）            主 ┼─ 子 agent  └─ 子子 agent

@@ -129,7 +129,7 @@ $$
 
 ### 4. 十五行实现
 
-```python
+```python title="GaussianNaiveBayes：十五行实现"
 class GaussianNaiveBayes:
     def fit(self, X, y):
         self.classes = np.unique(y)
@@ -148,7 +148,7 @@ class GaussianNaiveBayes:
 2. ④ 正态分布密度取对数是 $$-\frac{1}{2}\big[\log(2\pi\sigma^2) + \frac{(x - \mu)^2}{\sigma^2}\big]$$，对全部特征求和（独立假设 → 对数相加）；
 3. ⑤ 加上先验的对数，每个样本取最大的类。
 
-```text
+```text title="手写与 sklearn GaussianNB 的结果"
 手写：fit 0.0004s，测试准确率 0.837；sklearn GaussianNB 0.837
 ```
 
@@ -185,7 +185,7 @@ Table: KNN 手算：5 个训练点到 (0, 0) 的距离
 
 最近的 3 个里两个 A、一个 B，判 A。$$k = 5$$ 时全部参与投票，3 个 B、2 个 A，判 B——同一个点，$$k$$ 不同结论不同，第 2 节会看这意味着什么。代码就是把这张表对所有测试样本一次算完：
 
-```python
+```python title="knn_predict：四行实现"
 def knn_predict(Xtrain, ytrain, Xtest, k=15):
     d2 = ((Xtest[:, None, :] - Xtrain[None, :, :]) ** 2).sum(-1)   # ① [n_test, n_train]：每对样本的欧氏距离平方
     idx = np.argpartition(d2, k, axis=1)[:, :k]                    # ② 每个测试样本最近的 k 个训练样本的下标
@@ -197,7 +197,7 @@ def knn_predict(Xtrain, ytrain, Xtest, k=15):
 2. ② `argpartition` 找每行最小的 $$k$$ 个（比完整排序快）；
 3. ③④ 取这些邻居的标签，多数投票。
 
-```text
+```text title="手写 KNN 与 sklearn 的结果"
 手写 KNN(15)：1500×3500 个距离，0.19s，测试准确率 0.889；sklearn 0.889
 ```
 
@@ -281,7 +281,7 @@ Table: 根节点第一刀切出的两堆及其 Gini
 
 ### 2. 二十五行实现
 
-```python
+```python title="决策树：二十五行实现"
 def gini(y):
     p = y.mean(); return 2 * p * (1 - p)                                          # 两类：全是一类 0，各占一半 0.5
 
@@ -379,7 +379,7 @@ Table: 朴素贝叶斯、KNN 与决策树怎么选
 
 **思路**：`CountVectorizer` 把每条短信变成词计数向量，`MultinomialNB` 对每个词各估一个 $$P(\text{词} \mid \text{spam})$$ 和 $$P(\text{词} \mid \text{ham})$$——"训练"就是数频率，一遍扫过就完。预测时把先验和每个词的对数比值加起来（第二章的公式）。
 
-```python
+```python title="MultinomialNB 与每个词的对数比值"
 Xtr, Xte, ytr, yte = train_test_split(df.text, y, test_size=0.2, random_state=0, stratify=y)   # 与第三篇一样
 nb = make_pipeline(CountVectorizer(), MultinomialNB(alpha=1.0)).fit(Xtr, ytr)               # 23 ms
 
@@ -412,7 +412,7 @@ Table: 垃圾短信——朴素贝叶斯 vs 逻辑回归
 
 **思路**：每张图是 784 维空间里的一个点，"模型"就是把 60,000 个训练点存下来；预测一张图 = 算它到 60,000 个点的距离，取最近 $$k$$ 个投票。没有训练，没有参数——第三章的 4 行实现放大到 6 万个点，唯一的工程问题是距离要算得快（`algorithm="brute"` 走 BLAS 矩阵乘，10,000 张 2 秒）。
 
-```python
+```python title="KNN 在 MNIST 上：错误率 0.0295"
 X, y = mnist("train"); Xt, yt = mnist("test")                       # [60000, 784], [10000, 784]，像素归一到 0–1
 m = KNeighborsClassifier(3, algorithm="brute", n_jobs=-1).fit(X, y)  # "训练" = 存下来，0 秒
 pred = m.predict(Xt)                                                 # 10,000 × 60,000 个距离，2.2 s
@@ -441,7 +441,7 @@ Table: KNN 在 MNIST 上的错误率
 
 **思路**：先立两个基线——全判死亡（61.8%）、"女的活男的死"一条规则（80.5%）——树必须打败它们才算学到了东西。然后扫深度，用训练集内 5 折交叉验证选（第一篇第三章），最后把选出的树整棵画出来。
 
-```python
+```python title="泰坦尼克：扫深度选树"
 X = prep(df)                                                     # 7 列，缺失补中位数、字符串转数字
 Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0, stratify=y)
 for d in [1, 2, 3, 4, 5, 8, None]:

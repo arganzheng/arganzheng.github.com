@@ -106,14 +106,14 @@ $$
 
 "码本 / 最近邻 / 查表"这些词在第四篇 RVQ 里已经出现过：**VQ 就是 K-Means**（L2 第七篇）——码本是簇中心，量化是归到最近的中心。先不用神经网络，把它做到最小：编码器 = 把 $$8 \times 8$$ 的手写数字切成 16 个 $$2 \times 2$$ 的 patch（每个 4 个像素），码本 = 对全部 patch 做 K-Means（$$K = 32$$），量化 = 每个 patch 取最近簇中心的编号，解码器 = 查码本、拼回 $$8 \times 8$$：
 
-```python
+```python title="K-Means 码本：最小的 VQ-VAE"
 km = KMeans(32).fit(ALL.reshape(-1, 4))                   # ① 训练码本 = 对 1797 × 16 个 2×2 patch 做 k-means
 CODEBOOK = km.cluster_centers_                            #    [32, 4]：32 个码字，每个是一个 2×2 的小块
 TOKENS = km.predict(ALL.reshape(-1, 4)).reshape(-1, 16)   # ② 每个 patch → 最近码字的编号：每张图 16 个整数
 rec = unpatchify(CODEBOOK[TOKENS[0]])                     # ③ 解码 = 查码本、拼回 8×8
 ```
 
-```text
+```text title="K = 32 码本的 token 序列与重建 MSE"
 码本 K = 32（5 bit / token）；一张图 = 16 个 token = 80 bit，原图 64 像素 × 4 bit = 256 bit
 第 0 张图（数字 0）的 token 序列：[3, 17, 0, 29, 9, 16, 14, 1, 25, 10, 18, 1, 3, 28, 4, 3]
 重建 MSE 0.0086；码字使用次数最多 9399、最少 267——0 个死码字
@@ -166,7 +166,7 @@ tokenizer 有两个客户：重建（解码器要从 token 还原图）与生成
 
 先用第二章那 1797 句"16 个词、词表 32"的话，做一个不用神经网络的 next-token 模型看清这件事：每个位置一张计数表，数"左边的 token 是 $$l$$、上边的 token 是 $$u$$ 时，这个位置出现过哪些 token 各几次"，生成时从左上角开始逐个位置查表、按频率抽（一个上下文没见过几次时退回只看左边）：
 
-```python
+```python title="计数表版 next-token 模型：训练与生成"
 for seq in TOKENS:                                            # ① 训练 = 数数：(位置, 左邻, 上邻) → 当前 token 出现了几次
     for i in range(1, 16):
         c2[i, seq[i - 1], seq[i - 4] if i >= 4 else 0, seq[i]] += 1
@@ -177,7 +177,7 @@ for i in range(1, 16):
 img = unpatchify(CODEBOOK[np.array(seq)])                     # ④ 查码本解码
 ```
 
-```text
+```text title="计数表模型的对数似然与生成开销"
 训练序列的平均对数似然 -22.58（每 token -1.41，即平均从约 4.1 个候选里选）；随机猜是每 token log(1/32) = -3.47
 生成一张图 = 16 次「查表 → 抽样」；一个 1024² 的图在 f16 下是 4096 次
 ```

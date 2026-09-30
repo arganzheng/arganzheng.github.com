@@ -49,7 +49,7 @@ Table: 本文的章节安排
 
 ### 1. `autocast` 做了什么
 
-```python
+```python title="autocast 上下文里前向与 loss 的写法"
 with torch.autocast("cuda", dtype=torch.bfloat16):
     logits = model(x)
     loss = F.cross_entropy(logits.float(), y)
@@ -59,7 +59,7 @@ with torch.autocast("cuda", dtype=torch.bfloat16):
 
 脚本量了一下：
 
-```text
+```text title="autocast 下 Linear 输出 bf16、softmax fp32、权重仍 fp32"
 autocast 下: Linear 输出 torch.bfloat16, .float() 后 softmax torch.float32; 权重本身仍是 torch.float32（主副本不变）
 ```
 
@@ -88,7 +88,7 @@ flowchart TB
 
 两种 16 位格式的差别只在把 16 位怎么分给指数和尾数：
 
-```text
+```text title="fp32 / bf16 / fp16 的指数与尾数位数"
             符号  指数（决定范围）        尾数（决定精度）
 fp32        1    8 位  ┌────────┐       23 位 ┌───────────────────────┐
 bf16        1    8 位  ┌────────┐        7 位 ┌───────┐                   ← 砍尾数，保范围
@@ -156,7 +156,7 @@ Table: Llama-3-8B 三种微调方案的显存：冻结权重、训练状态与�
 
 第三章的 16 字节全是"每个参数多少字节"，随参数量伸缩。显存里还有一类东西不按参数算——**激活**（activation）：前向传播每一层的中间结果。反向传播需要它们来算梯度（L0 第七篇：$$\partial L / \partial W$$ 需要该层的输入），所以前向时必须保存到反向结束。它的大小**与参数量无关**，与 **batch × 序列长度 × 层数 × 隐藏维度**成正比——同一个模型，batch 翻倍它翻倍，参数账一个字节不变。
 
-```text
+```text title="显存的两部分：按参数算的与按 B × T 算的"
 显存 = ┌── 按参数算的（第三章）──────────────────┐ + ┌── 按 B × T 算的（本章）──┐
        │ 权重 2 + 梯度 2 + 主权重 4 + m 4 + v 4  │   │ 激活                     │
        └── 随参数量伸缩 ─────────────────────────┘   └── 随 batch、序列长度伸缩 ─┘
@@ -180,7 +180,7 @@ Table: Llama-3-8B（B = 1、T = 4096）的激活账
 
 **激活重算**（gradient checkpointing / activation recomputation）：前向时只保存每层的**输入**（上面第一行的 1 GiB），丢掉中间量；反向到某一层时，用保存的输入重新前向一遍这一层，拿到中间量再算梯度。代价是多做一次前向——约 30% 的额外计算（L3 第一篇算：前向 1 份、反向 2 份，重算多 1 份，$$4/3$$）。换来的是激活从 16.5 GiB 降到 1 GiB。
 
-```python
+```python title="一行开启 gradient checkpointing"
 model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 # 或 torch.utils.checkpoint.checkpoint(block, x)  # 自己的模型逐块包
 ```
@@ -210,11 +210,11 @@ Table: OOM 归因：现象、落点与对策
 
 **DistributedDataParallel**：每张卡一份完整的模型与优化器状态，各算自己那份 batch 的梯度，`backward` 结束时用 all-reduce 把梯度平均，然后各自 `step`——数学上等价于一个 8 倍大的 batch。
 
-```bash
+```bash title="torchrun 起 8 个进程"
 torchrun --nproc_per_node=8 train.py
 ```
 
-```python
+```python title="DDP 三行：init_process_group、包模型、DistributedSampler"
 dist.init_process_group("nccl")
 model = DistributedDataParallel(model.to(local_rank), device_ids=[local_rank])
 sampler = DistributedSampler(ds)          # 让每张卡拿到不同的数据
@@ -226,7 +226,7 @@ sampler = DistributedSampler(ds)          # 让每张卡拿到不同的数据
 
 **FullyShardedDataParallel**：把参数、梯度、优化器状态**切成 8 份**分到各卡，前向 / 反向到某一层时临时 all-gather 那一层的完整参数，用完即丢。8 张 80 GB 卡上，128.5 GB 的训练状态切成每卡 16 GB，全量微调 8B 就放得下了。代价是通信：前向每层一次 all-gather，反向再一次 all-gather（除非 `reshard_after_forward=False` 留着不放）加一次 reduce-scatter 梯度。
 
-```python
+```python title="一行把模型切成 FSDP"
 model = FullyShardedDataParallel(model, ...)   # 或 accelerate / trl 的配置文件一行切换
 ```
 
@@ -240,7 +240,7 @@ model = FullyShardedDataParallel(model, ...)   # 或 accelerate / trl 的配置�
 
 脚本在有 CUDA 的机器上会跑一段：8 层 `Linear(2048, 2048)` 共 33.6M 参数、fp32 训练，算 4 + 4 + 4 + 4 = 16 字节 / 参数 = 0.54 GB，量峰值应在 0.5–0.7 GB（多出的是激活与临时量）。没有 GPU 的机器上它打印一句跳过——但 dtype 那一节在 CPU 上就能验证：
 
-```text
+```text title="三种 dtype 下 1000×1000 张量的实测字节数"
 torch.float32    1000×1000 = 4.0 MB  (element_size 4)
 torch.bfloat16   1000×1000 = 2.0 MB  (element_size 2)
 torch.int8       1000×1000 = 1.0 MB  (element_size 1)

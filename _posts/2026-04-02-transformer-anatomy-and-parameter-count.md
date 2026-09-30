@@ -44,7 +44,7 @@ Table: 本文的章节安排
 
 一个现代 decoder-only 语言模型（GPT、Llama、Mistral、DeepSeek 的 dense 部分都属于这一类）从输入 token id 到输出 logits，只有四段：
 
-```text
+```text title="decoder-only 模型的四段式数据流"
 token ids  [batch, seq]
     │
     ▼
@@ -182,7 +182,7 @@ $$
 
 把一个 head 的这条公式拆成循环，形状就不用记了——它只是"每个 token 对每个 token 打一个分，按分加权求和 V"：
 
-```python
+```python title="一个 head 的 attention 拆成循环"
 # 一个 head：q, k, v 形状 [s, d_head]，out 形状 [s, d_head]
 for i in range(s):                              # 第 i 个 token 在看
     for j in range(s):                          # 看第 j 个 token
@@ -220,7 +220,7 @@ Table: MHA / GQA / MQA 的区别只在 KV 头数
 
 三者的差别只在 Q head 到 K/V head 的映射：第 $$i$$ 个 Q head 使用第 $$\lfloor i / g \rfloor$$ 组 K/V。以 $$n_h = 8$$ 个 Q head 为例（Llama-3-8B 是 32 个，映射规律相同）：
 
-```text
+```text title="MHA / GQA / MQA：Q head 到 KV head 的映射（n_h = 8）"
 MHA   n_kv = n_h = 8,  g = 1        每个 Q head 独占一组 K/V
 Q head    0    1    2    3    4    5    6    7
           │    │    │    │    │    │    │    │
@@ -251,7 +251,7 @@ GQA 的动机不是省参数（后面会看到 $$W_K, W_V$$ 本来就不大）�
 
 四个矩阵的形状与参数量：
 
-```text
+```text title="Llama-3-8B attention 四个矩阵的形状与参数量"
 矩阵     形状 [in, out]           参数量
 W_Q      [4096, 32×128=4096]      16,777,216   = 16.78M
 W_K      [4096,  8×128=1024]       4,194,304   =  4.19M
@@ -463,7 +463,7 @@ $$
 
 超参数：$$d = 4096$$，$$L = 32$$，$$n_h = 32$$，$$n_{kv} = 8$$，$$d_{head} = 128$$，$$d_{ff} = 14336$$，$$V = 128256$$，不共享。
 
-```text
+```text title="Llama-3-8B 参数量逐项代入"
 attention 每层
   W_Q   4096 × 4096              =    16,777,216
   W_K   4096 × 1024              =     4,194,304
@@ -497,7 +497,7 @@ Meta 公布的 Llama-3-8B 参数量是 8.03B，与我们算出的 8,030,261,248 
 
 超参数：$$d = 8192$$，$$L = 80$$，$$n_h = 64$$，$$n_{kv} = 8$$，$$d_{head} = 128$$，$$d_{ff} = 28672$$，$$V = 128256$$，不共享。
 
-```text
+```text title="Llama-3-70B 参数量逐项代入"
 attention 每层   2 × 8192² + 2 × 8192 × 1024   =   150,994,944   (151.0M)
 FFN 每层         3 × 8192 × 28672              =   704,643,072   (704.6M)
 RMSNorm 每层     2 × 8192                      =        16,384
@@ -515,7 +515,7 @@ final norm                                     =          8,192
 
 同一个公式再往上代一次，作为它对超大 dense 模型是否仍然精确的检验。Llama-3.1-405B 的 config：$$d = 16384$$，$$L = 126$$，$$n_h = 128$$，$$n_{kv} = 8$$，$$d_{head} = 128$$，$$d_{ff} = 53248$$，$$V = 128256$$，不共享。
 
-```text
+```text title="Llama-3.1-405B 参数量逐项代入"
 attention 每层   2 × 16384² + 2 × 16384 × 1024  =    570,425,344   (570.4M)
 FFN 每层         3 × 16384 × 53248              =  2,617,245,696   (2.617B)
 RMSNorm 每层     2 × 16384                      =         32,768
@@ -533,7 +533,7 @@ final norm                                     =         16,384
 
 ### 5. 参数分布
 
-```text
+```text title="Llama-3-8B 与 70B 的参数分布"
                       Llama-3-8B                 Llama-3-70B
 attention（全部层）    1.342B    16.7%            12.08B    17.1%
 FFN（全部层）          5.637B    70.2%            56.37B    79.9%
@@ -578,7 +578,7 @@ lm_head               0.525B     6.5%            1.051B     1.5%
 
 DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都不是上面的形状，本篇只列出 config 里的关键字段并说明差异在哪里，推导留给第六篇（MLA）和第八篇（MoE）。
 
-```json
+```json title="DeepSeek-V3 config.json 的关键字段"
 {
   "hidden_size": 7168,
   "num_hidden_layers": 61,
@@ -616,7 +616,7 @@ DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都�
 
 ### 1. LlamaRMSNorm
 
-```python
+```python title="LlamaRMSNorm"
 class LlamaRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
         super().__init__()
@@ -635,7 +635,7 @@ class LlamaRMSNorm(nn.Module):
 
 ### 2. LlamaAttention
 
-```python
+```python title="LlamaAttention"
 class LlamaAttention(nn.Module):
     def __init__(self, config, layer_idx):
         super().__init__()
@@ -675,7 +675,7 @@ Table: 四个 nn.Linear 的输入与输出维度
 
 ### 3. LlamaMLP
 
-```python
+```python title="LlamaMLP"
 class LlamaMLP(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -695,7 +695,7 @@ forward 的一行就是 $$W_{down}[\text{SiLU}(W_{gate} x) \odot (W_{up} x)]$$�
 
 ### 4. LlamaDecoderLayer 与 LlamaModel、LlamaForCausalLM
 
-```python
+```python title="LlamaDecoderLayer"
 class LlamaDecoderLayer(nn.Module):
     def __init__(self, config, layer_idx):
         super().__init__()
@@ -719,7 +719,7 @@ class LlamaDecoderLayer(nn.Module):
 
 这是第二章的 pre-norm 结构逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
 
-```python
+```python title="LlamaModel 与 LlamaForCausalLM"
 class LlamaModel(LlamaPreTrainedModel):
     def __init__(self, config):
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size,
@@ -739,7 +739,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
 
 用 `transformers` 验证参数量只需要：
 
-```python
+```python title="用 transformers 在 meta 设备上验证参数量"
 from transformers import AutoConfig, AutoModelForCausalLM
 cfg = AutoConfig.from_pretrained("meta-llama/Meta-Llama-3-8B")
 with torch.device("meta"):                       # 只建图不分配内存
@@ -767,7 +767,7 @@ $$[m, k] \times [k, n] \to [m, n]$$，FLOPs 为 $$2mkn$$（每个输出元素 $$
 
 设 $$T = B \cdot S$$ 为本次前向的 token 总数。
 
-```text
+```text title="Llama-3-8B 一层里的全部 GEMM 形状与 FLOPs"
                     m      k        n         权重参数     FLOPs / token
 q_proj              T      4096     4096      16.78M      33.6M
 k_proj              T      4096     1024       4.19M       8.4M
@@ -789,7 +789,7 @@ lm_head（全模型一次）T     4096   128256     525.34M    1050.7M
 
 attention 计算那一行不是权重 GEMM。以 Q 为 `[B, n_h, S, d_head]`、K 为 `[B, n_kv, S, d_head]`（经 GQA 广播到 $$n_h$$）为例：
 
-```text
+```text title="attention 计算两项的形状与 FLOPs"
 QK^T   每个 (batch, head)：[S, 128] × [128, S] → [S, S]     2·S²·128 FLOPs
 PV     每个 (batch, head)：[S, S] × [S, 128] → [S, 128]     2·S²·128 FLOPs
 ```
@@ -843,7 +843,7 @@ Table: 8 路张量并行下各 GEMM 的切分与通信
 
 本系列的贯穿脚本 `llm_cost.py` 从本篇开始，每篇增加几个函数。第一版只做一件事：从超参数算出逐组件参数量并打印表格。完整可运行代码如下。
 
-```python
+```python title="llm_cost.py 第一版：从超参数算参数量"
 """llm_cost.py -- 第一版：从超参数算出参数量。
 
 用法：
@@ -975,7 +975,7 @@ if __name__ == "__main__":
 
 运行 `python llm_cost.py` 的输出：
 
-```text
+```text title="python llm_cost.py 的输出"
 == Llama-3-8B: d=4096 L=32 n_h=32 n_kv=8 d_head=128 d_ff=14336 V=128256
 component                 params             exact    share
 W_Q                       16.78M        16,777,216
@@ -1011,7 +1011,7 @@ total                    70.554B    70,553,706,496
 
 两个总数与 Meta 公布的 8.03B、70.6B 一致。用 Llama-3-8B 真实的 `config.json` 跑一遍也是同样的结果，下面是它的关键字段（省略了 token id、dtype 等与结构无关的项）：
 
-```json
+```json title="Llama-3-8B 的 config.json 关键字段"
 {
   "architectures": ["LlamaForCausalLM"],
   "attention_bias": false,

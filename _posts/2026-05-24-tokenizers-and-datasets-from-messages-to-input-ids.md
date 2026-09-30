@@ -78,7 +78,7 @@ Table: tokenizer.json 的五段与 Qwen2.5 的配置
 
 ### 2. `Ġ` 与字节级
 
-```text
+```text title="一句中英混合文本的 tokens 与 ids"
 "The cat sat on the mat. 猫坐在垫子上。"
 tokens: ['The', 'Ġcat', 'Ġsat', 'Ġon', 'Ġthe', 'Ġmat', '.', 'Ġç', 'Į', '«', 'åĿĲåľ¨', 'åŀ«', 'åŃĲ', 'ä¸Ĭ', 'ãĢĤ']
 ids:    [785, 8251, 7578, 389, 279, 5517, 13, 10236, 234, 104, 104427, 102628, 44729, 17447, 1773]
@@ -90,7 +90,7 @@ ids:    [785, 8251, 7578, 389, 279, 5517, 13, 10236, 234, 104, 104427, 102628, 4
 
 `pre_tokenizer` 里那条正则（GPT-2 / GPT-4 风格）：
 
-```text
+```text title="GPT-2 / GPT-4 风格的 pre_tokenizer 正则"
 (?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+
 ```
 
@@ -108,7 +108,7 @@ BPE 的合并**只在正则切出的一段内部**发生——这是为什么 `c
 
 ### 2. padding 与 `attention_mask`
 
-```text
+```text title="padding=True 时的 input_ids 与 attention_mask"
 tok(["Hi", "Hello world, hello"], padding=True)
 input_ids:      [[13048, 151643, 151643, 151643], [9707, 1879, 11, 23811]]
 attention_mask: [[1, 0, 0, 0],                    [1, 1, 1, 1]]
@@ -123,7 +123,7 @@ padding_side: right
 
 `tokenizer_config.json` 里的 `chat_template` 是一段 2427 字符的 Jinja 模板（工具箱第五篇提过）。`apply_chat_template(messages, tokenize=True)` 分两步：`render_jinja_template`（`utils/chat_template_utils.py`）把 `messages` 渲染成一个字符串，然后 `self(rendered, ...)` 走第三章的路。渲染结果：
 
-```text
+```text title="apply_chat_template 渲染出的字符串"
 <|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\nHello!<|im_end|>\n
 ```
 
@@ -131,7 +131,7 @@ padding_side: right
 
 ### 2. `add_generation_prompt`
 
-```text
+```text title="add_generation_prompt=True 的结尾"
 apply_chat_template(msgs[:2], add_generation_prompt=True)
 … <|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n
 ```
@@ -143,7 +143,7 @@ apply_chat_template(msgs[:2], add_generation_prompt=True)
 `return_assistant_tokens_mask=True` 让 `apply_chat_template` 额外返回一个 0/1 列表：哪些 token 属于 assistant 的回合。实现靠模板里的 `{% raw %}{% generation %}{% endraw %} ... {% raw %}{% endgeneration %}{% endraw %}` 标记：渲染时一个自定义的 Jinja 扩展记录这两个标记之间的**字符区间**，再用 `offsets` 映射成 token 区间。`render_jinja_template` 一进门就检查：
 
 {% raw %}
-```python
+```python title="render_jinja_template 对 generation 标记的检查"
 if return_assistant_tokens_mask and not re.search(r"\{\%-?\s*generation\s*-?\%\}", chat_template):
     raise ValueError("return_assistant_tokens_mask==True but chat template does not contain `{% generation %}` keyword.")
 ```
@@ -159,7 +159,7 @@ if return_assistant_tokens_mask and not re.search(r"\{\%-?\s*generation\s*-?\%\}
 
 ### 2. `Dataset` 是一个 mmap 视图
 
-```text
+```text title="load_dataset 得到的 Dataset 与 Arrow 表类型"
 Dataset({features: ['prompt', 'prompt_id', 'messages', 'category'], num_rows: 9500})
 features: {'prompt': Value('string'), ..., 'messages': List({'content': Value('string'), 'role': Value('string')}), ...}
 arrow table type: MemoryMappedTable
@@ -171,7 +171,7 @@ arrow table type: MemoryMappedTable
 
 ### 1. 取批、调函数、写文件
 
-```python
+```python title="ds.map 统计每条样本的 token 数"
 ds2 = ds.map(lambda ex: {"n_tok": len(tok.apply_chat_template(ex["messages"], tokenize=True))}, num_proc=1)
 ```
 
@@ -191,7 +191,7 @@ ds2 = ds.map(lambda ex: {"n_tok": len(tok.apply_chat_template(ex["messages"], to
 
 ### 1. `__getitem__`
 
-```python
+```python title="Dataset._getitem：切 Arrow 再格式化"
 def _getitem(self, key, **kwargs):
     formatter = get_formatter(format_type, features=self._info.features, **format_kwargs)
     pa_subtable = query_table(self._data, key, indices=self._indices)      # 切 Arrow：零拷贝

@@ -34,7 +34,7 @@ updated: 2026-09-14
 
 第一篇的原料是 Common Crawl 的 WET 文件——已经从 HTML 里抽出来的"正文"。它长这样（一个渥太华屋顶公司的服务页，`pretrain_e2e/show_before_after.py`，✗ 是被 C4 行级规则删掉的行）：
 
-```text
+```text title="一篇真实网页清洗前后：✗ 为 C4 行级规则删掉的行"
 ✗ Residential and Commercial Roofing – A1 Pro Roofing Commercial and Residential
 ✗ Skip to content
 ✗ [email protected]
@@ -135,7 +135,7 @@ Table: 同样的模型、同样的步数，只改两个域的配比
 
 预训练数据管线是一条漏斗，公开数据集给出了每一级的刻度。要先说清一点：下面两条分支来自**两个团队、两套抽取与过滤**，分母不同——DCLM-Pool 是 DCLM 团队用 resiliparse 抽取 2013–2022 快照得到的 240T；FineWeb 是 HF 团队用 trafilatura 抽取 96 个快照到 2023 年底、经过滤去重后的 15T，它**不是**从 DCLM-Pool 里筛出来的。把它们画在一起是为了给量级，百分比只在各自分支内有意义：
 
-```text
+```text title="Common Crawl 到 DCLM / FineWeb 的两条分支与量级"
 Common Crawl 全部快照的原始网页（WARC，约 100 个快照）              约 30+ PB 压缩
   │ 正文抽取（去掉 HTML、导航、广告、脚本）
   ├──────────────────────────────────┬────────────────────────────────────
@@ -352,7 +352,7 @@ $$
 P(\text{候选}) = 1 - \left(1 - J^{r}\right)^{b}
 $$
 
-```text
+```text title="MinHash 签名切成 band 分桶"
 签名（112 个 minhash）         band 0          band 1   ...  band 13
 文档 A  [17 903 44 ...]  ->  (17,903,44,..)  (…)      ...  (…)
 文档 B  [17 903 44 ...]  ->  (17,903,44,..)  (…)      ...  (…)   band 0 相同 → 同桶 → 候选对
@@ -527,7 +527,7 @@ Table: 15T token 数据管线的 CPU 账
 
 纯标准库，100 行，用 FineWeb 的配置（5-gram、112 个哈希、14 × 8）。核心三个函数：
 
-```python
+```python title="minhash_lsh.py 的核心三个函数"
 def shingles(text, n=5):            # 词级 n-gram → 64 位整数集合
 def MinHasher.signature(sh):        # 112 个 (a·x + b) mod p 的最小值
 def lsh_candidates(sigs, b=14, r=8): # 签名切段作 key 分桶，同桶即候选对

@@ -40,7 +40,7 @@ Table: 本文的章节安排
 
 ### 1. 问题
 
-```python
+```python title="未流水化的 K 循环"
 for k in range(0, K, BLOCK_K):
     a = tl.load(a_ptrs)          # 几百个时钟
     b = tl.load(b_ptrs)
@@ -69,7 +69,7 @@ flowchart TB
 
 `AssignLoadLatencies::run`：
 
-```cpp
+```cpp title="AssignLoadLatencies::run"
 loadOpToIndLevel = loadOpsToIndirectionLevel(forOp, ...);   // ① 找出值得流水的 load，以及它们的"间接层级"
 int maxIndirectionLevel = max(所有 load 的层级);
 unsigned loadLatency = (numStages - 1) / (maxIndirectionLevel + 1);   // ②
@@ -87,7 +87,7 @@ for (auto [loadOp, dist] : loadOpToIndLevel)
 
 `scheduleKeyOps` 从 latency 算 stage：
 
-```cpp
+```cpp title="scheduleKeyOps：从 latency 算 stage"
 // 对每个 op 算"到 yield 的最长路径"，路径长度 = 沿途 op 的 latency 之和
 computeDistance(op) = latency(op) + max over users(computeDistance(user))
 maxDistance = max over 有 latency 的 op;
@@ -104,7 +104,7 @@ stage(op) = maxDistance - distance(op);           // 离 yield 越远的越早
 
 对每个有 stage 的 `tt.load`：
 
-```cpp
+```cpp title="LowerLoops 对每个 tt.load 的处理"
 int stageDiff = useStage - defStage;                 // ① 使用者在几个 stage 之后 = 需要几个缓冲
 bool canUseAsyncCp = canBeConvertedToAsyncLoad(loadOp) && copyVecBytes >= 4;
 if (canUseAsyncCp || isTMALoad(op)) {
@@ -141,7 +141,7 @@ if (canUseAsyncCp || isTMALoad(op)) {
 
 上一篇结尾的 matmul（`sm_80`、`num_warps = 4`、`num_stages = 3`）流水化后的 TTGIR，删掉地址运算后按执行顺序读：
 
-```mlir
+```mlir title="Ampere 上流水化后的 TTGIR"
 %a = ttg.local_alloc : () -> !ttg.memdesc<2x128x32xbf16, #shared, #smem, mutable>        // ① 2 个缓冲
 %b = ttg.local_alloc : () -> !ttg.memdesc<2x32x128xbf16, #shared1, #smem, mutable>
 %acc = arith.cmpi sgt, %K, %c0_i32 : i32                                                  // ② 第 0 次迭代存在？
@@ -192,7 +192,7 @@ ttg.local_dealloc %a
 
 同一个 kernel 编到 `sm_90`（`GPUTarget("cuda", 90, 32)`），不改源码：
 
-```text
+```text title="同一 kernel 编到 sm_90 的 TTGIR"
 #mma = #ttg.nvidia_mma<{versionMajor = 3, versionMinor = 0, warpsPerCTA = [4, 1], instrShape = [16, 128, 16]}>
 #shared = #ttg.nvmma_shared<{swizzlingByteWidth = 64, transposed = false, elementBitWidth = 16}>
 #shared1 = #ttg.nvmma_shared<{swizzlingByteWidth = 128, transposed = false, elementBitWidth = 16}>
@@ -228,7 +228,7 @@ scf.for ... {
 
 上面的 Hopper 版本还在用 `cp.async`（每个线程算自己的地址、搬 16 字节）。TMA 需要源码用 **tensor descriptor**：
 
-```python
+```python title="matmul_tma_kernel：用 tensor descriptor"
 @triton.jit
 def matmul_tma_kernel(a_desc, b_desc, c_desc, K, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, WARP_SPECIALIZE: tl.constexpr):
     off_m = tl.program_id(0) * BLOCK_M
@@ -243,7 +243,7 @@ def matmul_tma_kernel(a_desc, b_desc, c_desc, K, BLOCK_M: tl.constexpr, BLOCK_N:
 
 `a_desc` 是 host 侧 `TensorDescriptor.from_tensor(a, [BLOCK_M, BLOCK_K])` 建的：底层是 CUDA 的 `CUtensorMap`（128 字节，描述 global 张量的基址、shape、stride、tile 大小、swizzle），由驱动 API `cuTensorMapEncodeTiled` 填充，作为 kernel 参数传入（签名里是 `tensordesc<bf16[128, 32]>`，TTIR 里是 `!tt.tensordesc<128x32xbf16>`）。`sm_90` 上编译（`num_stages = 3`）：
 
-```mlir
+```mlir title="TMA 版本在 sm_90 上的 TTGIR"
 %a = ttg.local_alloc : () -> !ttg.memdesc<3x128x32xbf16, #shared, #smem, mutable>
 %b = ttg.local_alloc : () -> !ttg.memdesc<3x32x128xbf16, #shared1, #smem, mutable>
 %acc = ttg.local_alloc : () -> !ttg.memdesc<3x1xi64, #shared2, #smem, mutable>            // ① 3 个 mbarrier（每个缓冲一个）
@@ -288,7 +288,7 @@ ttng.async_tma_store_wait {pendings = 0 : i32}
 
 同一份 TMA 源码编到 `sm_100`：
 
-```text
+```text title="同一源码编到 sm_100 的 TTGIR"
 #tmem = #ttng.tensor_memory_encoding<blockM = 128, blockN = 128, colStride = 1>
 %acc_3 = ttng.tmem_alloc : () -> !ttg.memdesc<1x128x128xf32, #tmem, #ttng.tensor_memory, mutable>   // ① 累加器在 Tensor Memory
 ttng.tmem_store %cst, %acc_4, %true : tensor<128x128xf32, #linear> -> !ttg.memdesc<128x128xf32, #tmem, ...>   // 清零
@@ -318,7 +318,7 @@ ttng.wait_barrier %acc_2, %c0_i32
 
 `sm_100`、`warp_specialize=True`：
 
-```mlir
+```mlir title="ttg.warp_specialize 的 IR"
 ttg.warp_specialize(%b_9, %a, %b, %acc_3, %b_5, %K, %acc_1, %a_desc, %off_m, %b_desc, %off_n) attributes {requestedRegisters = array<i32: 24, 24>}
 default {                                                       // ① 默认区：原来的 4 个 warp
   ttg.warp_yield                                                //    循环期间什么都不做
@@ -368,7 +368,7 @@ ttng.wait_barrier %acc_2, %c0_i32                               // ④ 默认区
 
 `python/tutorials/gluon/05-wgmma.py` 里的一个 Hopper kernel（节选）：
 
-```python
+```python title="Gluon 的 Hopper kernel（节选）"
 from triton.experimental import gluon
 from triton.experimental.gluon import language as gl
 from triton.experimental.gluon.language.nvidia.hopper import tma, mbarrier, fence_async_shared, warpgroup_mma, warpgroup_mma_wait

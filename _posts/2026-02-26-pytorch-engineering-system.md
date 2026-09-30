@@ -146,7 +146,7 @@ Table: 本文的章节安排
 
 ### 3. 从源码构建
 
-```bash
+```bash title="从源码构建 PyTorch：常用开关"
 git clone --recursive https://github.com/pytorch/pytorch && cd pytorch
 pip install -r requirements.txt && pip install cmake ninja
 export CMAKE_PREFIX_PATH=$(python -c "import sysconfig; print(sysconfig.get_paths()['data'])")
@@ -175,7 +175,7 @@ python setup.py develop
 
 Python 栈在 `torch._C` 处断掉。接上 C++ 栈的方法：
 
-```bash
+```bash title="接上 C++ 栈的几种方法"
 TORCH_SHOW_CPP_STACKTRACES=1 python test.py          # C++ 异常附带 C++ 栈（需要有符号的构建）
 gdb --args python test.py                            # 在 gdb 里 run；C++ 崩溃时 bt 看栈
 (gdb) break at::native::add_out                      # 在 C++ 函数上下断点，Python 调过来时停下
@@ -213,7 +213,7 @@ Table: PyTorch 测试用的五种 oracle
 
 `torch/testing/_internal/common_methods_invocations.py` 里有一个几千行的列表 `op_db`，每个元素是一个 `OpInfo`，描述一个算子的**测试相关元数据**：
 
-```python
+```python title="op_db 里一个 OpInfo 的样子"
 OpInfo(
     "add",
     dtypes=all_types_and_complex_and(torch.bool, torch.half, torch.bfloat16),   # CPU 支持哪些 dtype
@@ -234,7 +234,7 @@ OpInfo(
 
 另一边，`test/test_ops.py` 等文件里的测试是**模板**，用 `@ops(op_db)` 装饰，表示"对 `op_db` 里每一个算子都生成一个实例"：
 
-```python
+```python title="@ops(op_db) 装饰的测试模板"
 class TestCommon(TestCase):
     @ops(op_db)
     def test_noncontiguous_samples(self, device, dtype, op):
@@ -264,7 +264,7 @@ OpInfo 的每个字段都是一个"声明"，而模板负责验证声明属实�
 
 组合中设备和 dtype 两维靠 `torch/testing/_internal/common_device_type.py` 处理。一个测试类写一次，按设备实例化多份：
 
-```python
+```python title="instantiate_device_type_tests：按设备与 dtype 实例化"
 from torch.testing._internal.common_device_type import instantiate_device_type_tests, dtypes, onlyCUDA, skipCUDAIfNoMagma
 
 class TestFoo(TestCase):
@@ -411,7 +411,7 @@ Table: gradcheck 比较的两个 Jacobian
 
 `torch.utils.benchmark` 是第八篇用过的工具，`Compare` 把多组结果排成表：
 
-```python
+```python title="用 Timer 与 Compare 对比 native 与 fused"
 from torch.utils.benchmark import Timer, Compare
 
 results = []
@@ -423,7 +423,7 @@ for n in [1 << 10, 1 << 16, 1 << 22]:
 Compare(results).print()
 ```
 
-```text
+```text title="Compare 输出的表"
 [----------- scale_shift -----------]
                  |  native  |  fused
 1 threads: --------------------------
@@ -441,7 +441,7 @@ GPU 时间有噪声（时钟、温度、其他进程），CPU 侧的框架开销
 
 微基准看不到的问题（算子组合、显存分配模式、编译器的融合决策）要靠整模型。**TorchBench**（`pytorch/benchmark` 仓库）收集了上百个真实模型的可运行版本，统一接口；`benchmarks/dynamo/` 下的脚本在它之上加上 HuggingFace 和 TIMM 两个套件，构成 `torch.compile` 的三大基准集：
 
-```bash
+```bash title="benchmarks/dynamo/ 下的三大基准集脚本"
 python benchmarks/dynamo/torchbench.py --performance --training --amp --backend=inductor --only=resnet50
 python benchmarks/dynamo/huggingface.py --accuracy --inference --bfloat16 --backend=inductor
 ```
@@ -680,7 +680,7 @@ CI 里的 `test/forward_backward_compatibility/check_forward_backward_compatibil
 
 `torch.save` 的文件是一个 zip 包：
 
-```text
+```text title="torch.save 产物的 zip 结构"
 model.pt（zip 包）
 ├── data.pkl      pickle 序列化的对象图（不含 Tensor 数据本身）
 │                 OrderedDict（state_dict）
@@ -702,7 +702,7 @@ pickle 带来的问题是安全：反序列化可以执行任意代码。`torch.
 
 **`state_dict` 的版本**。`nn.Module` 子类有一个类属性 `_version`，保存进 `state_dict` 的 metadata；加载时 `_load_from_state_dict` 拿到旧版本号，可以做升级：
 
-```python
+```python title="_BatchNorm 用 _version 升级旧 state_dict"
 class _BatchNorm(nn.Module):
     _version = 2
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
@@ -762,7 +762,7 @@ Table: 三种场景的 PyTorch 版本策略
 
 第七章 §2 说 `FutureWarning` 是倒计时。让它在自己的 CI 里变成错误，就不会在升级那天集中爆发：
 
-```bash
+```bash title="pytest 里把弃用警告变成错误"
 python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 ```
 
@@ -895,7 +895,7 @@ flowchart TB
 
 `torch.testing._internal` 虽然名字带 internal，却是扩展项目最值得复用的部分——设备泛化、dtype 参数化、容差比较都不用自己写：
 
-```python
+```python title="test/test_ops.py：复用 PyTorch 的测试基础设施"
 # test/test_ops.py
 import torch, myops
 from torch.testing import assert_close, make_tensor
@@ -941,7 +941,7 @@ if __name__ == "__main__":
 
 Autograd 测试独立一个文件，因为它的输入要求（fp64、`requires_grad`）不同：
 
-```python
+```python title="test/test_autograd.py：gradcheck"
 # test/test_autograd.py
 from torch.autograd import gradcheck, gradgradcheck
 
@@ -956,7 +956,7 @@ class TestScaleShiftGrad(TestCase):
 
 编译器一致性（oracle 4）：
 
-```python
+```python title="test/test_compile.py：编译与 eager 一致"
 # test/test_compile.py
 def test_compile_matches_eager(self, device, dtype):
     x = make_tensor((64, 128), device=device, dtype=dtype, requires_grad=True)
@@ -971,7 +971,7 @@ def test_compile_matches_eager(self, device, dtype):
 
 分布式测试用第三章 §6 的 `MultiProcessTestCase`，oracle 是"DDP 两卡各 batch/2 的梯度 == 单进程整 batch 的梯度"（第九篇第三章 §1 的数学等价）：
 
-```python
+```python title="test/test_distributed.py：DDP 与单进程梯度等价"
 # test/test_distributed.py
 from torch.testing._internal.common_distributed import MultiProcessTestCase, skip_if_lt_x_gpu
 
@@ -995,7 +995,7 @@ class TestScaleShiftDDP(MultiProcessTestCase):
 
 ### 3. 第三关：Benchmark 与回归阈值
 
-```python
+```python title="benchmarks/bench_scale_shift.py：记录回归阈值"
 # benchmarks/bench_scale_shift.py
 results, record = [], {}
 for n in [1 << 10, 1 << 16, 1 << 22]:
@@ -1012,7 +1012,7 @@ CI 中与 `baseline.json` 比较：同一 GPU 型号下任一项中位数慢 15%
 ### 4. 第四、五关：CI 矩阵与发布
 
 {% raw %}
-```yaml
+```yaml title=".github/workflows/ci.yml 的结构示意"
 # .github/workflows/ci.yml（结构示意：矩阵与阶段依赖是重点，步骤内容压成了一行伪码，
 # 不是可直接运行的 workflow——真实文件里每个 step 是 uses:/run: 键值，镜像 tag 也不能带通配）
 jobs:
@@ -1047,7 +1047,7 @@ jobs:
 
 **Schema 快照**：
 
-```python
+```python title="test/test_schema.py：Schema 快照"
 # test/test_schema.py
 EXPECTED = "myops::scale_shift(Tensor x, float alpha, float beta) -> Tensor"
 
@@ -1059,7 +1059,7 @@ def test_schema_unchanged():
 
 **一次演进**：需求是给 `scale_shift` 加一个可选的 `mask`。按第七章 §3 的表，**末尾新增带默认值的参数**是 BC 的：
 
-```text
+```text title="BC 演进：末尾新增带默认值的 mask"
 myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tensor
 ```
 

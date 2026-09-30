@@ -23,7 +23,7 @@ catalog: true
 
 系列覆盖的范围可以概括为后训练流水线的五段（第四段有一个多轮的延伸）加一个贯穿的度量：
 
-```text
+```text title="后训练流水线的五段与对应篇目"
 第一段   SFT              指令数据、chat template、loss mask、packing、全量 vs LoRA、遗忘        → 第一篇
 第二段   偏好与奖励        偏好数据的三种形态、Bradley-Terry、奖励模型的训练与它的过拟合            → 第二篇
 第三段   用奖励优化策略    在线 RL：采样 - 打分 - 更新；PPO、GRPO、RLOO、REINFORCE++                → 第三篇
@@ -282,7 +282,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 本系列的贯穿物是**一条在单张消费级 GPU 上能跑完的后训练流水线**，用 `trl` 与 Qwen2.5 的 0.5B / 1.5B 模型：
 
-```text
+```text title="贯穿全系列的单卡后训练流水线"
 第一篇    SFT           Qwen2.5-0.5B + 指令数据子集 → 对话模型；loss mask、packing、LoRA 的对照
 第二篇    RM            UltraFeedback 子集 → 0.5B 奖励模型；过拟合曲线、长度偏好
 第三篇    GRPO          第一篇的模型 + 第二篇的 RM → 在线 RL；奖励 / KL / 长度曲线

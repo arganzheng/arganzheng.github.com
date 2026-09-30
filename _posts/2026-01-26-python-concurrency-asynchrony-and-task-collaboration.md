@@ -50,7 +50,7 @@ flowchart TB
 
 可以简单地表示为：
 
-```text
+```text title="并发与并行的时间线示意"
 并发：任务 A ──等待──继续
              任务 B ──等待──继续
 
@@ -168,7 +168,7 @@ Table: GIL 对各类任务能否线程加速的影响
 
 Python 3.13 引入了实验性的 free-threaded 模式（PEP 703），允许多个线程真正并行执行 Python 字节码：
 
-```bash
+```bash title="运行 free-threaded 的 python3.13t"
 # 需要专门编译的 free-threaded 版本
 python3.13t script.py
 ```
@@ -213,7 +213,7 @@ Python 的 `threading` 模块和 `concurrent.futures.ThreadPoolExecutor` 与 `ja
 
 一个真实例子是 `huggingface_hub` 下载模型权重。`snapshot_download` 内部用线程池并发拉取多个 shard 文件，因为 HTTP 下载和磁盘写入都会释放 GIL：
 
-```python
+```python title="snapshot_download 用 max_workers 并发下载 shard"
 from huggingface_hub import snapshot_download
 
 # max_workers 控制并发下载的文件数，默认 8
@@ -225,7 +225,7 @@ snapshot_download(
 
 自己写的话大概是这个样子：
 
-```python
+```python title="用 ThreadPoolExecutor.map 并发调用同步模型服务"
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -241,7 +241,7 @@ def run_batch(request_ids: list[str]) -> list[str]:
 
 `executor.map()` 是"提交一批、按顺序取结果"的便捷写法。更通用的接口是 `submit()`，它返回一个 `concurrent.futures.Future`——任务的句柄：
 
-```python
+```python title="submit 返回 Future，用 as_completed 先完成先处理"
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 
 with ThreadPoolExecutor(max_workers=16) as executor:
@@ -270,13 +270,13 @@ with ThreadPoolExecutor(max_workers=16) as executor:
 
 线程之间传递工作最常用的结构是生产者—消费者队列。AI-Infra 里一个典型形态是：
 
-```text
+```text title="推理服务里的生产者—消费者流水线"
 请求输入 → 预处理 → 排队 → 批处理 → GPU 推理 → 结果返回
 ```
 
 如果输入速度高于消费速度，队列就会积压。`queue.Queue(maxsize=N)` 是标准库的**有界阻塞队列**，满了 `put()` 就阻塞——这就是最基本的**背压**（backpressure）：让生产者慢下来。
 
-```python
+```python title="有界 queue.Queue 加哨兵：带背压的批处理消费者"
 import queue
 import threading
 
@@ -335,7 +335,7 @@ Table: queue.Queue 与 Java BlockingQueue 的方法对照
 
 `threading` 提供了一套和 `java.util.concurrent` 对应的同步原语。GIL 保证了单条字节码的原子性，但**复合操作**（读—改—写、检查再执行）仍然需要锁，`self.counter += 1` 在多线程下会丢更新，和 Java 里没用 `AtomicInteger` 一样。
 
-```python
+```python title="用 Lock 保护复合操作的 ModelManager"
 import threading
 
 
@@ -357,7 +357,7 @@ class ModelManager:
 
 `Semaphore` 限制并发度（限制同时打开的连接、同时使用的 GPU slot）；`Event` 是一个可以 `set()`/`clear()` 的布尔信号，`wait()` 阻塞直到它被置位；`Condition` 是条件变量，"等待某个谓词成立"。
 
-```python
+```python title="Event 与 Semaphore：模型就绪门与并发度上限"
 model_ready = threading.Event()
 
 def serve(request: dict) -> dict:
@@ -391,7 +391,7 @@ Table: threading 同步原语与 Java 的对照
 
 日志字段、Trace ID、租户 ID 这类"横切"数据，不适合作为参数层层传递。线程模型下的答案是 `threading.local()`：每个线程一份独立的属性集合，对应 Java 的 `ThreadLocal`。
 
-```python
+```python title="threading.local 存每线程的 request_id"
 import threading
 
 _ctx = threading.local()
@@ -412,7 +412,7 @@ def handle(request: dict) -> None:
 
 **超时只能约束等待方，不能停止执行方。** `future.result(timeout=2.0)` 超时后抛 `TimeoutError`，但 worker 线程里的任务**照常跑完**：
 
-```python
+```python title="future.result 超时后 worker 里的任务照常跑"
 with ThreadPoolExecutor(max_workers=1) as ex:
     f = ex.submit(slow_call)            # 内部 sleep 0.3s
     try:
@@ -422,14 +422,14 @@ with ThreadPoolExecutor(max_workers=1) as ex:
 # 离开 with 块时 executor.shutdown(wait=True)，仍然要等 0.3s
 ```
 
-```text
+```text title="超时实验的输出：running: True，退出 with 块仍等了 0.31 s"
 running: True
 exit with-block took 0.31s (waited for worker)
 ```
 
 **线程不能被取消。** Python 的 `threading.Thread` 没有 `interrupt()`，没有 `stop()`，没有任何从外部打断一个正在运行的线程的手段。`Future.cancel()` 只对**还没开始执行**的任务有效：
 
-```python
+```python title="Future.cancel 对正在跑与排队中的任务"
 with ThreadPoolExecutor(max_workers=1) as ex:
     f1 = ex.submit(slow_call)           # 立刻开始跑
     f2 = ex.submit(slow_call)           # 排队等 f1
@@ -437,7 +437,7 @@ with ThreadPoolExecutor(max_workers=1) as ex:
     print("cancel running:", f1.cancel(), "| cancel pending:", f2.cancel())
 ```
 
-```text
+```text title="cancel 实验的输出：正在跑的取消失败、排队的成功"
 cancel running: False | cancel pending: True
 ```
 
@@ -447,7 +447,7 @@ cancel running: False | cancel pending: True
 
 1. **停止标志 + 有限阻塞**。用 `threading.Event` 做标志，所有阻塞调用都带 `timeout`，循环里检查标志：
 
-```python
+```python title="停止标志加有限阻塞的协作式退出"
 stop = threading.Event()
 
 def worker() -> None:
@@ -466,7 +466,7 @@ t.join(timeout=5.0)                           # 等它退出，但最多等 5 �
 
 线程池层面，Python 3.9 起 `executor.shutdown(cancel_futures=True)` 会取消所有**排队中**的任务，但仍然要等正在跑的那几个结束：
 
-```python
+```python title="shutdown(cancel_futures=True) 只取消排队中的任务"
 ex.shutdown(cancel_futures=True)
 # states: ['done', 'cancelled', 'cancelled', 'cancelled']  —— 第一个已在跑，只能等它
 ```
@@ -477,7 +477,7 @@ ex.shutdown(cancel_futures=True)
 
 把 2.1 节的线程池写成 Java：
 
-```java
+```java title="Java 平台线程池的对应写法：newFixedThreadPool 与 invokeAll"
 // 平台线程池：与 ThreadPoolExecutor(max_workers=16) 语义最接近
 try (var pool = Executors.newFixedThreadPool(16)) {   // Java 19+ 实现了 AutoCloseable
     List<Future<String>> futures = pool.invokeAll(
@@ -507,7 +507,7 @@ try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
 
 ### 1. 进程池与启动方式：`fork` / `spawn` / `forkserver`
 
-```python
+```python title="ProcessPoolExecutor 做 CPU 密集型预处理"
 from concurrent.futures import ProcessPoolExecutor
 
 
@@ -537,7 +537,7 @@ Table: fork、spawn、forkserver 三种启动方式
 
 Python 3.14 把 Linux 的默认从 `fork` 改成 `forkserver`，直接原因是 `fork` 与多线程混用不安全：`fork()` 只复制调用它的那个线程，其他线程持有的锁（包括 CUDA 运行时、日志库、`malloc` 内部的锁）在子进程里永远不会被释放。PyTorch 的 `DataLoader` 在 CUDA 已初始化的进程里用 `fork` 启动 worker 时报 `Cannot re-initialize CUDA in forked subprocess`，就是这类问题的表现。显式指定启动方式：
 
-```python
+```python title="显式用 spawn 上下文创建进程池"
 import multiprocessing as mp
 
 ctx = mp.get_context("spawn")
@@ -547,7 +547,7 @@ with ProcessPoolExecutor(max_workers=8, mp_context=ctx) as executor:
 
 每个 worker 进程需要的昂贵初始化（加载模型、建立连接）用 `initializer` 做一次，而不是在每个任务里做：
 
-```python
+```python title="用 initializer 在每个 worker 里只加载一次模型"
 _model = None
 
 def _init_worker(model_path: str) -> None:
@@ -576,7 +576,7 @@ with ProcessPoolExecutor(max_workers=8, initializer=_init_worker, initargs=(mode
 
 共享内存的标准库入口是 `multiprocessing.shared_memory`：
 
-```python
+```python title="multiprocessing.shared_memory 承载 numpy 数组"
 from multiprocessing import shared_memory
 import numpy as np
 
@@ -590,7 +590,7 @@ shm.close(); shm.unlink()                     # 谁 create 谁 unlink，否则 /
 
 这个模式在 AI 生态里最典型的落地就是 `torch.utils.data.DataLoader`：
 
-```python
+```python title="DataLoader 的 num_workers 就是进程池加共享内存"
 from torch.utils.data import DataLoader
 
 loader = DataLoader(
@@ -634,7 +634,7 @@ Table: threading 与 multiprocessing 同名对应物的差别
 
 **取消。** `Future.cancel()` 在进程池里同样只对未开始的任务有效，而且成功率比线程池还低——`ProcessPoolExecutor` 会提前把若干任务派发到 worker 的输入队列，一旦进了那个队列就不可取消：
 
-```text
+```text title="进程池里 cancel 的输出：排队的任务也已被预派发"
 cancel running: False | cancel pending: False    # 排队的那个也已经被预派发
 ```
 
@@ -642,7 +642,7 @@ cancel running: False | cancel pending: False    # 排队的那个也已经被�
 
 **崩溃。** worker 进程被 OOM killer 杀掉、段错误、`os._exit()`，在线程池里没有对应场景（线程崩了整个进程都崩）。进程池的表现是 `BrokenProcessPool`：
 
-```python
+```python title="worker 里 os._exit 触发 BrokenProcessPool"
 from concurrent.futures.process import BrokenProcessPool
 
 with ProcessPoolExecutor(max_workers=1) as ex:
@@ -653,7 +653,7 @@ with ProcessPoolExecutor(max_workers=1) as ex:
         print(e)
 ```
 
-```text
+```text title="BrokenProcessPool 的报错原文"
 A process in the process pool was terminated abruptly while the future was running or pending.
 ```
 
@@ -661,13 +661,13 @@ A process in the process pool was terminated abruptly while the future was runni
 
 **上下文不传播。** 第二章的 `threading.local` 和第四章的 `contextvars`，在跨进程时都归零。子进程是一个新的解释器，主进程里 `set()` 的值它看不到：
 
-```python
+```python title="contextvars 在子进程里读不到主进程的值"
 cv.set("req-42")
 with ProcessPoolExecutor(max_workers=1) as ex:
     print("in worker:", ex.submit(lambda: cv.get()).result(), "| in main:", cv.get())
 ```
 
-```text
+```text title="跨进程读 contextvar 的输出：worker 为空、主进程有值"
 in worker: - | in main: req-42
 ```
 
@@ -701,7 +701,7 @@ Table: Java 多线程与 Python 多进程的连锁差异
 
 第二章末尾说过，Python 线程是 1:1 映射到 OS 线程的，`max_workers` 开到几千就有明显的调度和内存开销。当系统需要同时维护大量网络连接时，异步 I/O 通常更加合适：
 
-```python
+```python title="httpx.AsyncClient 并发抓取多个 URL"
 import asyncio
 import httpx
 
@@ -724,7 +724,7 @@ async def fetch_all(urls: list[str]) -> list[str]:
 
 但异步并不意味着所有代码都自动变快。下面的代码会阻塞整个事件循环：
 
-```python
+```python title="反例：协程里 time.sleep 阻塞整个事件循环"
 import asyncio
 import time
 
@@ -736,7 +736,7 @@ async def bad_task() -> None:
 
 应该改为：
 
-```python
+```python title="改法：用 await asyncio.sleep 让出循环"
 async def good_task() -> None:
     await asyncio.sleep(5)
     print("done")
@@ -750,7 +750,7 @@ async def good_task() -> None:
 
 当协程执行到：
 
-```python
+```python title="await 一次网络请求：一次协作式调度机会"
 result = await client.get(url)
 ```
 
@@ -814,7 +814,7 @@ Netty 那条铁律"**永远不要在 EventLoop 线程里执行阻塞操作**"，
 
 开发环境可以启用：
 
-```python
+```python title="开启 asyncio 调试模式检测慢回调"
 import asyncio
 
 asyncio.run(main(), debug=True)
@@ -836,7 +836,7 @@ BlockHound 的缺失是实打实的短板：Python 没有办法在运行时可�
 
 生产系统则应结合日志、指标和 tracing，定位具体是哪一个任务长时间没有让出执行权。一个便宜且有效的做法是常驻一个"心跳协程"来测量事件循环延迟，等价于监控 Netty EventLoop 的 pending task 积压：
 
-```python
+```python title="心跳协程测量事件循环延迟"
 async def monitor_loop_lag(interval: float = 0.5) -> None:
     loop = asyncio.get_running_loop()
     while True:
@@ -855,7 +855,7 @@ async def monitor_loop_lag(interval: float = 0.5) -> None:
 
 调用异步函数时，得到的是协程对象：
 
-```python
+```python title="调用异步函数只得到协程对象"
 coro = fetch_data()
 ```
 
@@ -863,26 +863,26 @@ coro = fetch_data()
 
 对应 Java：**没有对应物，而且这是最容易出 bug 的差异**。Java 里没有"惰性的异步计算"这个概念：
 
-```java
+```java title="Java 里 supplyAsync 一调用就开始跑"
 // Java: 调用的瞬间就已经提交给 ForkJoinPool 开始跑了
 CompletableFuture<String> f = CompletableFuture.supplyAsync(this::fetchData);
 ```
 
-```python
+```python title="Python 里 coro = fetch_data() 一行都没执行"
 # Python: 什么都没发生，函数体一行都没执行
 coro = fetch_data()
 ```
 
 如果你按 Java 的直觉写下面这段，两个请求是**串行**的，总耗时是两者之和：
 
-```python
+```python title="按 Java 直觉写的两个 await 是串行的"
 a = await fetch_user()      # 等它完成
 b = await fetch_orders()    # 再开始下一个
 ```
 
 要并发必须显式转成 Task：
 
-```python
+```python title="用 create_task 让两个请求真正并发"
 task_a = asyncio.create_task(fetch_user())    # 现在才开始调度
 task_b = asyncio.create_task(fetch_orders())
 a, b = await task_a, await task_b
@@ -894,7 +894,7 @@ a, b = await task_a, await task_b
 
 Task 是事件循环中被调度执行的协程：
 
-```python
+```python title="create_task 把协程变成被调度的 Task"
 task = asyncio.create_task(fetch_data())
 ```
 
@@ -919,7 +919,7 @@ Table: asyncio.Task 与 CompletableFuture 的 API 对照
 
 还有一个 Python 独有的陷阱：**`create_task()` 返回的 Task 只被事件循环弱引用**。如果不保存引用，任务可能在执行到一半时被 GC 回收：
 
-```python
+```python title="create_task 的 Task 只被弱引用：必须自己持有"
 # 错误：task 随时可能被 GC
 asyncio.create_task(background_job())
 
@@ -957,7 +957,7 @@ Table: asyncio.Future 与 CompletableFuture 的对照
 
 在需要启动多个相互关联的任务时，推荐使用结构化并发：
 
-```python
+```python title="TaskGroup 结构化并发的流水线"
 import asyncio
 
 
@@ -982,7 +982,7 @@ async def run_pipeline(request_id: str) -> str:
 
 > **版本说明：** `StructuredTaskScope` 到 **JDK 25 仍是 preview**（JEP 505，第五次预览；JDK 26 的 JEP 525 是第六次），编译运行需要 `--enable-preview`。JDK 25 对 API 做了较大改动：不再用构造器，改为静态工厂 `open()`，并引入 `Joiner` 表达完成策略。网上 JDK 21 时代的 `new StructuredTaskScope.ShutdownOnFailure()` 示例已经过时。
 
-```java
+```java title="JDK 25 的 StructuredTaskScope.open 与 Joiner"
 // JDK 25 (preview)
 Response handle() throws InterruptedException {
     try (var scope = StructuredTaskScope.open()) {     // 默认：任一失败则全体取消
@@ -1018,7 +1018,7 @@ Table: TaskGroup 与 StructuredTaskScope 的逐条对照
 
 **2. 多重失败的表达。** 这是 Python 更完整的一处。两个子任务同时失败时：
 
-```python
+```python title="用 except* 处理 TaskGroup 里的多重失败"
 try:
     async with asyncio.TaskGroup() as group:
         group.create_task(encode(request_id))
@@ -1035,7 +1035,7 @@ except* ValueError as eg:
 
 相比之下，随意创建后台任务容易造成任务泄漏：
 
-```python
+```python title="随手 create_task 造成任务泄漏"
 asyncio.create_task(background_job())
 ```
 
@@ -1047,7 +1047,7 @@ asyncio.create_task(background_job())
 
 在 AI 服务中，超时不是异常情况，而是正常的控制手段。
 
-```python
+```python title="asyncio.timeout 给推理调用加超时"
 import asyncio
 
 
@@ -1063,7 +1063,7 @@ async def infer_with_timeout(payload: dict) -> dict:
 
 对应 Java：
 
-```java
+```java title="CompletableFuture 的 orTimeout 与 exceptionally"
 // CompletableFuture：超时后 future 以 TimeoutException 完成
 CompletableFuture<Response> f = inferAsync(payload)
         .orTimeout(2, TimeUnit.SECONDS)
@@ -1082,7 +1082,7 @@ future.get(2, TimeUnit.SECONDS);   // 抛 TimeoutException
 
 超时通常意味着取消底层任务。协程应该正确响应取消：
 
-```python
+```python title="消费者协程正确响应 CancelledError 并重新抛出"
 async def worker() -> None:
     try:
         while True:
@@ -1099,7 +1099,7 @@ async def worker() -> None:
 
 对应 Java：`asyncio.CancelledError` 的对应物是 **`InterruptedException`**，而且连"不要吞掉"这条铁律都一模一样。Java 侧的标准写法：
 
-```java
+```java title="Java 消费者响应 InterruptedException 的标准写法"
 try {
     while (true) {
         Item item = queue.take();
@@ -1113,11 +1113,11 @@ try {
 
 `Thread.currentThread().interrupt()` 这行的作用，和 Python 里那句 `raise` 完全一致：把"我被要求停止"这个信号继续往上传，否则调用栈上层永远不知道发生过取消。两个语言里最经典的并发代码坏味道，都是空的 catch 块：
 
-```java
+```java title="Java 反模式：空的 catch InterruptedException"
 catch (InterruptedException e) { }        // Java 反模式
 ```
 
-```python
+```python title="Python 反模式：吞掉 CancelledError"
 except asyncio.CancelledError: pass       # Python 反模式，效果完全相同
 ```
 
@@ -1136,7 +1136,7 @@ Table: 超时、取消与异常传播：Python 与 Java 对照
 
 倒数第二行是 Python 设计得更好的一处。Python 3.8 起把 `CancelledError` 挪到了 `BaseException` 之下，所以下面这种到处都是的代码**不会**误吞取消信号：
 
-```python
+```python title="except Exception 不会误吞 CancelledError"
 try:
     await do_work()
 except Exception:            # CancelledError 不会被这里捕获
@@ -1166,7 +1166,7 @@ Table: 线程、进程、asyncio 的取消语义
 
 错误示例：
 
-```python
+```python title="反例：无超时地 await 下游调用"
 result = await remote_call()
 ```
 
@@ -1185,7 +1185,7 @@ result = await remote_call()
 
 2.4 节用 `threading.local` 传递 Trace ID、Request ID 这类横切数据，前提是"一个请求独占一个线程"。asyncio 下这个前提不成立：成千上万个协程共享一个线程，`threading.local` 里的值会在请求之间串。用一个实验直接看：
 
-```python
+```python title="实验：同一线程里 threading.local 与 ContextVar 的取值"
 tl = threading.local()
 cv: ContextVar[str] = ContextVar("rid", default="-")
 
@@ -1198,7 +1198,7 @@ async def handler(rid: str) -> None:
 await asyncio.gather(handler("A"), handler("B"))
 ```
 
-```text
+```text title="实验输出：threading.local 串了、ContextVar 各归各"
 task A: local=B ctxvar=A
 task B: local=B ctxvar=B
 ```
@@ -1218,7 +1218,7 @@ AI-Infra 服务通常需要在日志、指标和链路追踪中传递：
 
 可以使用 `contextvars`：
 
-```python
+```python title="定义带默认值的 ContextVar"
 from contextvars import ContextVar
 
 request_id_var: ContextVar[str] = ContextVar(
@@ -1242,7 +1242,7 @@ async def handle_request(request_id: str) -> None:
 
 **`InheritableThreadLocal` —— 更接近，但传播时机不同。** 它在**创建**子线程时复制父线程的值，之后各自独立。`asyncio.create_task()` 的行为几乎一样：Task 创建时通过 `contextvars.copy_context()` 拷贝一份当前上下文的**快照**，子任务里 `set()` 的值不会回流给父任务。
 
-```python
+```python title="create_task 拷贝上下文快照，子任务 set 不回流"
 request_id_var.set("req-1")
 task = asyncio.create_task(handler())   # handler 内看到 "req-1"
 # handler 里再 set，不影响这里
@@ -1252,7 +1252,7 @@ task = asyncio.create_task(handler())   # handler 内看到 "req-1"
 
 **`ScopedValue` —— 语义上最接近的对应物**，Java 21 预览、**JDK 25 正式转正**（JEP 506）：
 
-```java
+```java title="Java 的 ScopedValue.where(...).run 作用域绑定"
 private static final ScopedValue<String> REQUEST_ID = ScopedValue.newInstance();
 
 // 绑定只在这个作用域内有效，退出即自动解绑
@@ -1280,7 +1280,7 @@ Table: ContextVar、ThreadLocal 与 ScopedValue 的对照
 1. **`ScopedValue` 比 `ContextVar` 更严格**（不可变 + 强制作用域），Python 的 `set()`/`reset(token)` 更灵活但更容易忘记 `reset`。所以 Python 侧务必用 `try/finally` 包住，就像上面的例子那样。
 2. **真实项目里通常不直接用它们。** OpenTelemetry 在两个生态里都做了封装：Python 的 `opentelemetry.context` 底层就是 `ContextVar`，Java 的 `io.opentelemetry.context.Context` 配 `try (Scope s = context.makeCurrent())`。日志侧，Python 用 `structlog.contextvars.bind_contextvars()`，Java 用 SLF4J 的 `MDC`（其实现正是 `ThreadLocal`，所以在 WebFlux/虚拟线程下同样有传播问题，需要 `MDCAdapter` 或 Reactor 的 `contextWrite`）。
 
-```python
+```python title="structlog 用 bind_contextvars 给日志自动带字段"
 # 真实项目里更常见的形态（structlog）
 import structlog
 
@@ -1290,7 +1290,7 @@ logger.info("inference started")   # 自动带上这两个字段
 
 **上下文能跨越 Sync/Async Bridge。** `asyncio.to_thread()` 在把函数丢进线程池之前会 `contextvars.copy_context()`，所以线程池里的同步代码能读到调用协程的 `ContextVar`（读不到 `threading.local`，那是另一个线程）：
 
-```python
+```python title="to_thread 里能读到 ContextVar、读不到 threading.local"
 in_thread = await asyncio.to_thread(lambda: (getattr(tl, "rid", None), cv.get()))
 # task A: in to_thread: local=None ctxvar=A
 ```
@@ -1312,7 +1312,7 @@ in_thread = await asyncio.to_thread(lambda: (getattr(tl, "rid", None), cv.get())
 
 没有背压的实现可能类似这样：
 
-```python
+```python title="没有背压：来一个请求就 create_task 一个"
 tasks = []
 
 for request in incoming_requests:
@@ -1323,7 +1323,7 @@ for request in incoming_requests:
 
 #### 1. 使用有界队列
 
-```python
+```python title="创建有界的 asyncio.Queue"
 import asyncio
 
 
@@ -1332,7 +1332,7 @@ queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=1000)
 
 生产者：
 
-```python
+```python title="生产者：await queue.put"
 async def producer(request: dict) -> None:
     await queue.put(request)
 ```
@@ -1343,7 +1343,7 @@ async def producer(request: dict) -> None:
 
 消费者：
 
-```python
+```python title="消费者：get、process、task_done"
 async def consumer() -> None:
     while True:
         request = await queue.get()
@@ -1355,7 +1355,7 @@ async def consumer() -> None:
 
 启动多个消费者：
 
-```python
+```python title="启动多个消费者协程"
 async def start_workers(worker_count: int) -> None:
     workers = [
         asyncio.create_task(consumer())
@@ -1390,7 +1390,7 @@ Table: 背压策略：Java 内置实现与 Python 写法
 
 Python 没有这层抽象，所有策略都要在业务代码里手写。一个可用的模板：
 
-```python
+```python title="put_nowait 满则 429：AbortPolicy 的 Python 写法"
 async def submit(request: dict) -> None:
     try:
         queue.put_nowait(request)          # 对应 AbortPolicy
@@ -1418,7 +1418,7 @@ async def submit(request: dict) -> None:
 
 Semaphore 是最常用的限流工具。当系统需要限制同时执行的任务数量时：
 
-```python
+```python title="asyncio.Semaphore 限制并发抓取数"
 import asyncio
 
 
@@ -1447,7 +1447,7 @@ async def fetch_all(urls: list[str]) -> list[str]:
 
 对应 Java：`java.util.concurrent.Semaphore`，语义几乎逐字对应：
 
-```java
+```java title="Java Semaphore 的 acquire/release 对应写法"
 private final Semaphore semaphore = new Semaphore(10);
 
 String limitedFetch(String url) throws Exception {
@@ -1478,7 +1478,7 @@ Table: asyncio.Semaphore 与 Java Semaphore 对照
 
 顺带一提，真实项目里限流常常不需要自己写 Semaphore。`httpx` 内建了连接池限制：
 
-```python
+```python title="httpx.Limits 内建的连接池限制"
 limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
 async with httpx.AsyncClient(limits=limits, timeout=10.0) as client:
     ...
@@ -1490,7 +1490,7 @@ async with httpx.AsyncClient(limits=limits, timeout=10.0) as client:
 
 当多个协程需要互斥地访问共享资源时：
 
-```python
+```python title="asyncio.Lock 保护 reload 与 predict 的互斥"
 import asyncio
 
 
@@ -1516,7 +1516,7 @@ class ModelManager:
 
 对应 Java：**这里是最容易踩坑的一处，因为 Java 的两种锁都是可重入的。**
 
-```java
+```java title="Java 的 synchronized 与 ReentrantLock 都可重入"
 synchronized void a() { b(); }     // 可以，同一线程重入
 synchronized void b() { }
 
@@ -1525,7 +1525,7 @@ private final ReentrantLock lock = new ReentrantLock();   // 名字就写着 Ree
 
 `asyncio.Lock` 不可重入，意味着这段在 Java 里天经地义的代码，在 Python 里是永久死锁：
 
-```python
+```python title="asyncio.Lock 不可重入：predict_batch 调 predict 永久死锁"
 class ModelManager:
     async def predict(self, inputs: dict) -> dict:
         async with self._lock:
@@ -1559,7 +1559,7 @@ Table: asyncio.Lock 与 Java 锁的对照
 
 `Event` 适合"等待某个条件就绪"的场景：
 
-```python
+```python title="asyncio.Event 做模型就绪信号"
 import asyncio
 
 
@@ -1597,7 +1597,7 @@ Table: asyncio.Event 覆盖的 Java 场景
 
 上面模型加载的例子，Java 里就是经典的 `CountDownLatch`：
 
-```java
+```java title="Java 里对应的 CountDownLatch"
 private final CountDownLatch modelReady = new CountDownLatch(1);
 
 Response handleRequest(Request req) throws InterruptedException {
@@ -1623,7 +1623,7 @@ void loadAndServe(String path) {
 
 当必须调用同步库时，可以使用 `asyncio.to_thread()`：
 
-```python
+```python title="asyncio.to_thread 包同步 SDK"
 import asyncio
 
 
@@ -1638,7 +1638,7 @@ async def call_sdk(payload: dict) -> dict:
 
 在较早版本的 Python 中，也可以使用：
 
-```python
+```python title="旧版写法：loop.run_in_executor"
 loop = asyncio.get_running_loop()
 result = await loop.run_in_executor(
     None,
@@ -1651,7 +1651,7 @@ result = await loop.run_in_executor(
 
 这个桥在 FastAPI 里是自动的，而且是它最重要的设计决策之一。Starlette 的实现只有几行：
 
-```python
+```python title="Starlette 的 run_in_threadpool 只有几行"
 # starlette/concurrency.py
 async def run_in_threadpool(func, *args, **kwargs):
     if kwargs:
@@ -1661,7 +1661,7 @@ async def run_in_threadpool(func, *args, **kwargs):
 
 FastAPI 据此分流：**`async def` 端点在事件循环上跑，普通 `def` 端点自动丢进线程池**。
 
-```python
+```python title="FastAPI 的分流：async def 上循环、def 进线程池"
 @app.post("/embed")
 async def embed_async(req: Request):
     # 在事件循环上执行——这里面绝不能有阻塞调用
@@ -1678,7 +1678,7 @@ def predict_sync(req: Request):
 
 对应 Java：
 
-```java
+```java title="WebFlux 用 boundedElastic 承载阻塞调用"
 // Reactor / WebFlux：把阻塞调用外包给弹性线程池
 Mono.fromCallable(() -> blockingSdk.call(payload))
     .subscribeOn(Schedulers.boundedElastic());
@@ -1692,14 +1692,14 @@ Mono.fromCallable(() -> blockingSdk.call(payload))
 
 下面这种写法仍然可能阻塞事件循环所在的执行环境：
 
-```python
+```python title="反例：async def 里直接做 CPU 密集计算"
 async def bad_preprocess(data: bytes) -> list[int]:
     return expensive_python_computation(data)
 ```
 
 更合适的方式是交给进程池：
 
-```python
+```python title="用 run_in_executor 把 CPU 密集计算交给进程池"
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 
@@ -1742,7 +1742,7 @@ Table: 三种工作类型在事件循环桥上的角色
 
 这一章是两个生态**分歧最大**的地方。同样的"并发抓一批 URL"（4.1 节），Java 有三种写法，演进脉络很清楚：
 
-```java
+```java title="Java 并发抓 URL 的三种写法：CompletableFuture、平台线程、虚拟线程"
 // 1. Java 8 起：CompletableFuture，回调式，可读性差
 List<CompletableFuture<String>> futures = urls.stream()
         .map(url -> client.sendAsync(request(url), BodyHandlers.ofString())
@@ -1786,7 +1786,7 @@ GPU 推理通常不是单个请求越快越好，而是需要在延迟和批量�
 
 这是 AI-Infra 里最有价值的一个并发模式，主流框架都内置了。先看真实实现长什么样——Ray Serve 的 `@serve.batch`：
 
-```python
+```python title="Ray Serve 的 @serve.batch 装饰器"
 from ray import serve
 
 
@@ -1804,7 +1804,7 @@ vLLM 更进一步，用的是 **continuous batching**（也叫 in-flight batchin
 
 理解内部机制仍然重要——下面手写一个最小可用的动态批处理器：
 
-```python
+```python title="手写最小动态批处理器 BatchProcessor"
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
@@ -1898,7 +1898,7 @@ class BatchProcessor:
 
 Ray Serve 的 `@serve.batch` 让调用方"传一个、收一个"，攒批完全不可见。用上面的 `BatchProcessor` 加二十行就能做到同样的事——这也是第一篇讲的装饰器在真实系统里的样子：装饰器收到的是那个"接收一批"的异步函数，返回的是一个"接收单个"的异步函数，中间藏着一个惰性启动的后台 Task：
 
-```python
+```python title="把 BatchProcessor 封装成 @batched 装饰器"
 import functools
 
 
@@ -1937,7 +1937,7 @@ async def main():
 
 对应 Java：同一个模式在 Java 里是"攒批线程 + `BlockingQueue` + `CompletableFuture`"，`drainTo` 让攒批代码比 Python 短得多：
 
-```java
+```java title="Java 版攒批：BlockingQueue.drainTo 加 CompletableFuture"
 record Job<T, R>(T item, CompletableFuture<R> future) { }
 
 private final BlockingQueue<Job<T, R>> queue = new ArrayBlockingQueue<>(1000);
@@ -1994,7 +1994,7 @@ Table: 异步批处理的角色：Python 与 Java 逐行对照
 
 Python 可以使用异步生成器表达流式结果：
 
-```python
+```python title="异步生成器 stream_tokens 表达流式结果"
 from collections.abc import AsyncIterator
 
 
@@ -2005,7 +2005,7 @@ async def stream_tokens(prompt: str) -> AsyncIterator[str]:
 
 调用方可以边生成边发送：
 
-```python
+```python title="调用方边生成边发送"
 async def handle_request(prompt: str) -> None:
     async for token in stream_tokens(prompt):
         await send_to_client(token)
@@ -2013,7 +2013,7 @@ async def handle_request(prompt: str) -> None:
 
 这正是 vLLM 暴露的接口形态——`AsyncLLMEngine.generate()` 返回一个异步生成器，逐步产出 `RequestOutput`：
 
-```python
+```python title="vLLM 的 engine.generate 返回异步生成器"
 async def stream(prompt: str, request_id: str):
     results = engine.generate(prompt, SamplingParams(max_tokens=512), request_id)
     async for output in results:
@@ -2022,7 +2022,7 @@ async def stream(prompt: str, request_id: str):
 
 配 FastAPI 的 `StreamingResponse` 就是一个完整的 SSE 接口：
 
-```python
+```python title="配 StreamingResponse 做成 SSE 接口"
 from fastapi.responses import StreamingResponse
 
 
@@ -2038,7 +2038,7 @@ async def completions(req: CompletionRequest):
 
 对应 Java：`AsyncIterator` 对应 **Reactive Streams 的 `Publisher`**，实践中是 Reactor 的 `Flux` 或 RxJava 的 `Flowable`。同一个 SSE 接口在 WebFlux 里：
 
-```java
+```java title="WebFlux 里同一个 SSE 接口：返回 Flux"
 @PostMapping(value = "/v1/completions", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 public Flux<String> completions(@RequestBody CompletionRequest req) {
     return engine.generate(req.prompt())
@@ -2073,7 +2073,7 @@ Table: 异步流式处理：Python、Reactor 与虚拟线程的对照
 
 这在 LLM 服务里是实打实的成本问题：用户关掉浏览器，后端还在为一个没人要的回答烧 GPU。vLLM 的做法是显式中止：
 
-```python
+```python title="客户端断开时调用 engine.abort 中止序列"
 async def event_stream(request: Request, request_id: str):
     try:
         async for chunk in stream(prompt, request_id):
@@ -2106,7 +2106,7 @@ async def event_stream(request: Request, request_id: str):
 
 可以使用异步上下文管理器统一处理生命周期：
 
-```python
+```python title="用 asynccontextmanager 统一管理推理会话的生命周期"
 from contextlib import asynccontextmanager
 
 
@@ -2139,7 +2139,7 @@ async def inference_session(request_id: str):
 
 一个常见的做法是将推理放到独立线程中，避免阻塞事件循环：
 
-```python
+```python title="推理放到独立线程池，与事件循环隔离"
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -2175,7 +2175,7 @@ async def infer_async(
 
 上面代码里 `.to("cuda")` 和 `.cpu()` 都是**同步阻塞**的拷贝。真实项目会用 pinned memory + 异步拷贝把传输和计算重叠起来：
 
-```python
+```python title="pinned memory 加 non_blocking 拷贝重叠传输与计算"
 # 输入张量在 pinned memory 中（DataLoader 的 pin_memory=True 会做这件事）
 inputs = inputs.pin_memory()
 
@@ -2218,7 +2218,7 @@ Table: 进入 native 层：Python + PyTorch 与 Java + JNI / Panama
 
 一个请求的总延迟可以拆解为：
 
-```text
+```text title="一个请求总延迟的五段拆解"
 总延迟 =
     排队时间
   + 预处理时间
@@ -2235,7 +2235,7 @@ Table: 进入 native 层：Python + PyTorch 与 Java + JNI / Panama
 
 资源监控任务通常不应该阻塞主调度循环。
 
-```python
+```python title="后台协程 report_gpu_metrics 周期上报"
 import asyncio
 
 
@@ -2253,7 +2253,7 @@ async def report_gpu_metrics() -> None:
 
 启动监控任务：
 
-```python
+```python title="serve 启动监控任务并在 finally 里取消等待"
 async def serve() -> None:
     monitor_task = asyncio.create_task(report_gpu_metrics())
 
@@ -2280,7 +2280,7 @@ async def serve() -> None:
 
 在 FastAPI 里，这套生命周期由 `lifespan` 上下文管理器承载：
 
-```python
+```python title="FastAPI 的 lifespan 承载后台任务的启停"
 from contextlib import asynccontextmanager
 
 
@@ -2318,7 +2318,7 @@ Table: 后台任务与资源监控：Python 与 Java 对照
 
 异步适合 I/O，不适合自动解决 CPU 瓶颈。
 
-```python
+```python title="反例：async def 包一个纯 CPU 计算"
 async def compute() -> int:
     return heavy_python_computation()
 ```
@@ -2327,7 +2327,7 @@ async def compute() -> int:
 
 ### 2. 在协程中调用同步网络库
 
-```python
+```python title="反例：协程里调用同步的 requests.get"
 async def handler() -> None:
     response = requests.get(url)
 ```
@@ -2341,14 +2341,14 @@ async def handler() -> None:
 
 ### 3. 无限制创建 Task
 
-```python
+```python title="反例：循环里无限制 create_task"
 for item in items:
     asyncio.create_task(process(item))
 ```
 
 改进方式：使用有界队列（2.2、4.7 节）、Semaphore（4.8 节）或固定数量的 worker。
 
-```python
+```python title="改法：Semaphore 限制并发的 limited_process"
 semaphore = asyncio.Semaphore(100)
 
 

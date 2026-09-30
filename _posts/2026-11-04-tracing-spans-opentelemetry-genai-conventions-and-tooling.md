@@ -33,7 +33,7 @@ flowchart TB
 ```
 
 
-```text
+```text title="三级 span 树"
 会话 span（session）
   属性：用户 / 租户 · 模型版本 · prompt 版本 · 工具集版本
         检索配置 · 权限档 · 开始 / 结束 · 总成本

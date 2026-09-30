@@ -59,7 +59,7 @@ $$
 
 自回归生成第 $$t$$ 个 token 时，它的 query 要与前面全部 $$t$$ 个位置的 key 做点积，再对 $$t$$ 个 value 加权求和。这 $$t$$ 个位置的 $$K$$、$$V$$ 在生成第 $$t-1$$ 个 token 时已经算过一遍，而且**数值完全不变**（causal 模型里，前面的 token 看不到后面的 token）。把 decode 的前几步排开看，cache 每步只追加一行，但每步都要被整份读一遍：
 
-```text
+```text title="decode 前几步的 KV cache 追加与读取"
 步    本步新算     KV cache（每层，只追加、不修改）        读取    score 行
 t=1   q1 k1 v1     [k1 v1]                                1 行    q1·k1
 t=2   q2 k2 v2     [k1 v1][k2 v2]                         2 行    q2·[k1 k2]
@@ -139,7 +139,7 @@ Grouped-Query Attention（Ainslie 等 2023）取中间值：把 $$n_h$$ 个 quer
 
 $$g = 1$$ 是 MHA，$$g = n_h$$ 是 MQA。四种结构的差别，就是 query head 到 KV head 的映射方式不同（以 $$n_h = 8$$ 为例；MLA 放在第四章展开，这里先看它在这张图里的位置）：
 
-```text
+```text title="MHA / GQA / MQA / MLA 的 query 到 KV head 映射"
                  q0   q1   q2   q3   q4   q5   q6   q7     每层每 token 缓存
 MHA  (n_kv=8)    │    │    │    │    │    │    │    │
                  kv0  kv1  kv2  kv3  kv4  kv5  kv6  kv7    8 × 2 × d_head
@@ -162,7 +162,7 @@ Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字�
 
 在代码上，GQA 相对第三篇 nanoGPT 的 `CausalSelfAttention` 只改三处：K、V 的投影变窄，拆头时 K、V 的头数用 $$n_{kv}$$，打分前把每组 K、V **复制** $$g$$ 份对齐到 $$n_h$$ 个 query head（`repeat_interleave`；用 SDPA 时传 `enable_gqa=True` 可以省掉这次复制）：
 
-```python
+```python title="GQAttention：相对 nanoGPT 只改三处"
 class GQAttention(nn.Module):
     def __init__(self, d, n_head, n_kv, block_size):
         super().__init__()
@@ -224,7 +224,7 @@ $$n_{kv}$$ 还悄悄决定了另一件事：tensor parallel 的切分粒度。at
 
 TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了，只能**复制**：两张卡持有同一个 KV 头的副本，各算 4 个 query head：
 
-```text
+```text title="Llama-3-70B 在 TP=8 与 TP=16 下的 KV head 分配"
 Llama-3-70B：n_h = 64，n_kv = 8，320 KiB/token
 
 TP = 8    卡0        卡1        卡2        …   卡7
@@ -340,7 +340,7 @@ flowchart TB
 
 这些量在 DeepSeek-V3 的 `config.json` 里对应的字段是：
 
-```json
+```json title="MLA 各量在 DeepSeek-V3 config.json 里的字段"
 {
   "hidden_size": 7168,
   "num_hidden_layers": 61,
@@ -544,7 +544,7 @@ $$
 
 两种 mask 在 score 矩阵上的形状，以及分块实现能跳过哪些块：
 
-```text
+```text title="因果掩码与 sliding window 在 score 矩阵上的形状"
 因果掩码（s = 12，块大小 4）          sliding window（w = 4）
 t↓  j = 0 … 11 →                      t↓  j = 0 … 11 →
 0    ■ · · · │ · · · · │ · · · ·      0    ■ · · · · · · · · · · ·
@@ -605,7 +605,7 @@ $$
 
 本篇在贯穿脚本里新增 `attn_type` 字段（`"mha" | "gqa" | "mqa" | "mla"`）、MLA 用到的 `kv_lora_rank`（$$d_c$$）与 `qk_rope_head_dim`（$$d_h^R$$）字段，以及 `n_params`（总参数量，取第五篇与第八篇的结果，用来估权重显存）。新增三个函数：`kv_bytes_per_token`、`decode_attn_intensity`、`max_concurrency`。
 
-```python
+```python title="llm_cost.py：kv_bytes_per_token、decode_attn_intensity、max_concurrency"
 from dataclasses import dataclass
 
 @dataclass
@@ -728,7 +728,7 @@ if __name__ == "__main__":
 
 运行输出：
 
-```text
+```text title="三个模型的 KV cache 与算术强度输出"
 model         attn    KV B/token  KiB/token   128K ctx  FLOP/byte
 Llama-3-8B    gqa         131072      128.0     16.0 G          4
 Llama-3-70B   gqa         327680      320.0     40.0 G          8

@@ -105,7 +105,7 @@ Table: bagging 测试准确率随棵数的变化
 
 为什么？第一篇的分解：一棵树偏差小（容量够）、**方差大**（换几个训练点结构就变）。第一篇第六章那个骰子的比喻：一个骰子的结果在 1–6 乱跳，20 个骰子的平均稳稳落在 3.5 附近——平均 $$B$$ 个方差为 $$\sigma^2$$ 的**独立**估计，方差变成 $$\sigma^2 / B$$。树之间不完全独立（它们的重采样数据有大量重叠，像 20 个被胶水粘在一起的骰子），降不到 $$1/B$$，但降得很多。直接量一下——换 20 批训练数据，看模型对测试样本预测概率的方差：
 
-```text
+```text title="单棵树与 bagging 的预测方差"
 换 20 批训练数据：单棵树预测概率的方差 0.094；50 棵 bagging 的 0.007
 ```
 
@@ -133,7 +133,7 @@ $$m$$ 越小，树彼此越不像（相关从 0.59 降到 0.37），平均后方
 
 每棵树的重采样漏掉了约 37% 的样本（**袋外**，out-of-bag），这些样本对这棵树来说就是没见过的数据。用每个样本"没见过它的那些树"来预测它，得到一个不用切验证集的泛化估计：
 
-```text
+```text title="随机森林的测试准确率与 OOB 估计"
 300 棵、默认 max_features=√20≈4：测试 0.919；袋外（OOB）估计 0.913
 ```
 
@@ -188,7 +188,7 @@ $$
 
 ### 3. 十五行实现
 
-```python
+```python title="fit_gbdt：十五行实现"
 def fit_gbdt(X, y, n_trees=100, lr=0.1, max_depth=2):
     f0 = y.mean()                                                  # ① 初始预测：常数（均值）
     pred = np.full(len(y), f0)
@@ -207,7 +207,7 @@ def predict_gbdt(model, X, lr=0.1):
 
 500 个样本、4 个特征、带交互项的非线性回归：
 
-```text
+```text title="手写 GBDT 与 sklearn 的结果"
 手写 GBDT（300 棵深度 3、lr 0.1）测试 MSE 0.4101；sklearn 0.4090
 对比：一棵深度 8 的回归树 1.7368
 ```
@@ -253,7 +253,7 @@ Table: XGBoost、LightGBM、CatBoost 三个实现
 
 ![横条图，30 个特征里前 12 个的重要性：worst perimeter 0.51 一条长条，worst concave points 0.16、mean concave points 0.13，之后迅速衰减到 0.05 以下](/img/in-post/classical-ml-06-feature-importance.svg)
 
-```text
+```text title="乳腺癌数据上的特征重要性"
 测试准确率 0.942
   worst perimeter            0.506
   worst concave points       0.161
@@ -310,7 +310,7 @@ Table: 给 15T token 打分的算力账
 
 fastText 一类文本分类器就是**[词袋](# "tip: bag of words：不管词序，只数每个词出现了几次，一段文本变成一个「词表长度」维的计数向量。词表 5 万就是 5 万维，绝大多数位置是 0（稀疏）")特征 + 线性分类器**：把每个词（和相邻两个词组成的 bigram）映射成一个向量，整段文本的向量是它们的平均，上面接一个第三篇的 softmax 回归。scikit-learn 里等价的写法：
 
-```python
+```python title="fastText 形态的 scikit-learn 等价写法"
 vec = TfidfVectorizer(sublinear_tf=True, min_df=2, ngram_range=(1, 2))   # ① 每段文本 → 几万维的词 / 词对计数（稀疏），TF-IDF 加权
 Xtr = vec.fit_transform(train_texts)
 clf = LogisticRegression(max_iter=3000, C=5).fit(Xtr, train_labels)     # ② 第三篇的逻辑回归 / softmax 回归
@@ -334,7 +334,7 @@ clf = LogisticRegression(max_iter=3000, C=5).fit(Xtr, train_labels)     # ② �
 
 **思路**：按本篇的顺序——一棵树、一片森林、逐轮修正——在同一份数据上各跑一次，逻辑回归做对照。类别特征两种编码：逻辑回归要 one-hot（7 列变 100 列）、要标准化；树模型用序数编码（每个类别一个整数）直接吃，缺失当成一个类别。指标用 AUC 而不只是准确率——正类只有 24%，全判"≤50K"的准确率已有 76%（第十篇第四章）。
 
-```python
+```python title="人口普查收入：两种编码与四个模型"
 onehot  = ColumnTransformer([("num", make_pipeline(SimpleImputer(), StandardScaler()), NUM),
                              ("cat", OneHotEncoder(handle_unknown="ignore"), CAT)])        # 逻辑回归用
 ordinal = ColumnTransformer([("num", "passthrough", NUM),

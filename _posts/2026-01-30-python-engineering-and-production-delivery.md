@@ -96,7 +96,7 @@ Python 曾经有过 `setup.py`、`setup.cfg`、`requirements.txt`、`Pipfile`、
 
 ### 1. `[project]` 段：项目元数据
 
-```toml
+```toml title="[project] 段：名称、版本、依赖与 Python 版本"
 [project]
 name = "inference-service"
 version = "0.1.0"
@@ -126,7 +126,7 @@ dependencies = [
 
 开发工具不应该进入生产环境。有两种表达方式，含义不同：
 
-```toml
+```toml title="optional-dependencies 与 dependency-groups 的区别"
 # 方式一：optional-dependencies（PEP 621）
 # 这是"包的可选特性"，会随包发布，用户可以 pip install inference-service[gpu]
 [project.optional-dependencies]
@@ -156,7 +156,7 @@ dev = [
 
 ### 3. `[project.scripts]`：命令行入口
 
-```toml
+```toml title="[project.scripts] 声明两个命令行入口"
 [project.scripts]
 inference-server = "inference_service.cli:main"
 inference-bench = "inference_service.bench:main"
@@ -164,7 +164,7 @@ inference-bench = "inference_service.bench:main"
 
 安装后会在环境的 `bin/` 目录生成可执行脚本，直接 `inference-server --port 8000` 即可运行。等号右边是 `模块路径:函数名`。
 
-```python
+```python title="cli.py 里的 main：argparse 解析 --port"
 # src/inference_service/cli.py
 import argparse
 
@@ -184,7 +184,7 @@ def main() -> None:
 
 ### 4. `[build-system]`：构建后端
 
-```toml
+```toml title="[build-system] 用 setuptools"
 [build-system]
 requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -206,7 +206,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 
 `src` 布局下还需要告诉 setuptools 去哪里找包：
 
-```toml
+```toml title="src 布局下告诉 setuptools 去 src/ 找包"
 [tool.setuptools.packages.find]
 where = ["src"]
 ```
@@ -217,7 +217,7 @@ where = ["src"]
 
 `pyproject.toml` 的另一个价值是把散落的工具配置集中起来。原先 Ruff 要 `.ruff.toml`、mypy 要 `mypy.ini`、pytest 要 `pytest.ini`，现在都能写在一处：
 
-```toml
+```toml title="Ruff、mypy、pytest 配置都集中在 pyproject.toml"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -269,7 +269,7 @@ JVM 的依赖隔离是**天然的**：每个应用启动时通过 `-cp` 指定�
 
 Python 没有 classpath 的概念。`import` 的查找路径是 `sys.path`，而它默认包含**解释器全局的 `site-packages` 目录**。也就是说：
 
-```text
+```text title="全局 site-packages：每个库只能装一个版本"
 /usr/lib/python3.11/site-packages/     ← 所有项目共用这一个目录
 ├── pydantic/          版本只能有一个
 ├── torch/             版本只能有一个
@@ -287,7 +287,7 @@ Python 没有 classpath 的概念。`import` 的查找路径是 `sys.path`，而
 
 ### 2. venv 基本操作
 
-```bash
+```bash title="venv 创建、激活、退出"
 # 创建（会在当前目录生成 .venv/）
 python -m venv .venv
 
@@ -304,7 +304,7 @@ deactivate
 
 激活的本质很朴素——它只是改了几个环境变量：
 
-```bash
+```bash title="激活前后 which python 的变化"
 # 激活前
 $ which python
 /usr/bin/python
@@ -318,7 +318,7 @@ $ which python
 
 因为激活只是改 `PATH`，所以**不激活也完全可以用**——直接给出完整路径即可：
 
-```bash
+```bash title="不激活直接用 .venv/bin/python"
 .venv/bin/python -m pytest
 .venv/bin/python -m pip install httpx
 ```
@@ -350,7 +350,7 @@ Table: 虚拟环境隔离与不隔离的层次
 
 这是第五章的主题。而**解释器版本**的隔离需要额外工具：
 
-```bash
+```bash title="用 uv 或 pyenv 管理解释器版本"
 # uv 可以直接管理解释器版本
 uv python install 3.11
 uv venv --python 3.11
@@ -418,7 +418,7 @@ Table: 依赖管理的五件事：Maven 与 Python 的对应
 
 **抽象依赖**（abstract）回答"我的代码需要什么"：
 
-```toml
+```toml title="抽象依赖：pyproject.toml 里只写下界"
 # pyproject.toml
 dependencies = [
     "fastapi>=0.115",
@@ -428,7 +428,7 @@ dependencies = [
 
 **锁定依赖**（concrete / pinned）回答"这次实际装了什么"：
 
-```text
+```text title="锁定依赖：每个包都钉到具体版本"
 # 锁文件（示意）
 annotated-types==0.7.0
 anyio==4.7.0
@@ -464,7 +464,7 @@ Table: 抽象依赖与锁定依赖的职责
 
 一个典型的 `requirements.txt`：
 
-```text
+```text title="一个典型的 requirements.txt"
 fastapi>=0.115
 pydantic>=2.9
 httpx>=0.27
@@ -478,7 +478,7 @@ httpx>=0.27
 
 即使把所有版本都写成 `==`（所谓 "fully pinned requirements"），仍缺第 3 点。真正的可复现需要 **hash 校验**：
 
-```text
+```text title="带 --hash 的 requirements.lock"
 # requirements.lock（pip-compile --generate-hashes 生成）
 fastapi==0.115.6 \
     --hash=sha256:9ec46f7addc14ea472958a96aae5b5de65f39721a46aaf5705c480d9a8b8...
@@ -486,7 +486,7 @@ pydantic==2.10.4 \
     --hash=sha256:597e135ea68be3a37552fb524bc7d0d66dcf93d395acd93a00682f1efcb8...
 ```
 
-```bash
+```bash title="pip install --require-hashes 严格校验"
 # 安装时严格校验，任何 hash 不匹配都会失败
 pip install --require-hashes -r requirements.lock
 ```
@@ -518,7 +518,7 @@ Table: Python 依赖管理工具的当前格局
 
 常用命令：
 
-```bash
+```bash title="uv 常用命令：venv、add、sync、lock"
 uv venv                        # 创建虚拟环境
 uv add fastapi                 # 加依赖（同时更新 pyproject.toml 和 uv.lock）
 uv add --dev pytest ruff       # 加开发依赖
@@ -537,7 +537,7 @@ uv run pytest                  # 在项目环境里执行命令，无需激活
 
 这是个有争议的话题，我给出的判断是**分情况**：
 
-```toml
+```toml title="四种版本约束写法的含义"
 # 语义化版本约束
 "pydantic>=2.9"           # 只有下界，接受未来任何版本
 "pydantic>=2.9,<3"        # 排除下一个大版本
@@ -564,7 +564,7 @@ uv run pytest                  # 在项目环境里执行命令，无需激活
 
 **区分直接和传递依赖**。只把真正 `import` 的包写进 `pyproject.toml`。一个常见错误是把锁文件的内容抄进抽象依赖，导致一堆传递依赖变成直接依赖，日后无法自动升级。
 
-```bash
+```bash title="uv tree 与 pipdeptree 看依赖树"
 # 看依赖树，确认谁引入了什么
 uv tree
 pip install pipdeptree && pipdeptree
@@ -572,7 +572,7 @@ pip install pipdeptree && pipdeptree
 
 **扫描漏洞**：
 
-```bash
+```bash title="pip-audit 扫描已知漏洞"
 # 检查已知漏洞（对照 PyPI Advisory Database）
 uv pip list | pip-audit
 # 或
@@ -581,7 +581,7 @@ pip install pip-audit && pip-audit
 
 **约束镜像源**。企业环境常用私有索引，注意 `--extra-index-url` 的**优先级陷阱**：pip 会在所有索引里找同名包并选版本最高的，这意味着公网上有人注册同名高版本包就可能被装进来（dependency confusion 攻击）。更安全的做法是用 `--index-url` 指定唯一索引，或用 uv 的 `index` 配置显式声明每个包的来源：
 
-```toml
+```toml title="uv 里声明唯一的内部索引"
 [[tool.uv.index]]
 name = "internal"
 url = "https://pypi.internal.example.com/simple"
@@ -600,7 +600,7 @@ default = true
 
 你会看到这样的版本号：
 
-```text
+```text title="torch 的四种本地版本标识"
 torch==2.4.0+cu121
 torch==2.4.0+cu124
 torch==2.4.0+cpu
@@ -617,7 +617,7 @@ torch==2.4.0+rocm6.1
 
 那 `pip install torch` 从默认 PyPI 装到的是什么？在 Linux 上是**捆绑了 CUDA 运行时的默认变体**（当前默认对应某个 CUDA 版本，随 torch 发布而变），体积极大（2GB+），因为它把 `nvidia-*` 系列的 CUDA 库作为依赖一起拉下来了：
 
-```bash
+```bash title="默认 PyPI 装 torch 会顺带拉进一堆 nvidia-* 库"
 $ pip install torch
 # 会顺带装进来一堆：
 #   nvidia-cublas-cu12
@@ -633,7 +633,7 @@ $ pip install torch
 
 这两个参数的差别在 AI 项目里会造成实际故障，必须分清：
 
-```bash
+```bash title="--index-url 替换索引、--extra-index-url 追加索引"
 # --index-url：替换默认索引（只从这里找）
 pip install torch==2.4.0+cu121 --index-url https://download.pytorch.org/whl/cu121
 
@@ -647,7 +647,7 @@ pip install torch --extra-index-url https://download.pytorch.org/whl/cu121
 
 但这带来新问题——用了 `--index-url` 就只能从 PyTorch 索引找包，而你的 `fastapi`、`pydantic` 在那里没有。解决办法是按包指定索引来源。uv 直接支持：
 
-```toml
+```toml title="uv 按包指定索引来源：torch 走 PyTorch 索引"
 [project]
 dependencies = ["torch==2.4.0", "fastapi>=0.115"]
 
@@ -666,7 +666,7 @@ torch = { index = "pytorch-cu121" }    # 只有 torch 走这个索引
 
 新人最常见的误解是"CUDA 版本"只有一个。实际有三层，各自的兼容规则不同：
 
-```text
+```text title="CUDA 兼容矩阵的三层"
 ┌─────────────────────────────────────────────┐
 │ 3. torch wheel（编译时链接的 CUDA runtime）  │  ← pip 装进来的，可多版本共存
 │    torch 2.4.0+cu121                        │
@@ -687,7 +687,7 @@ torch = { index = "pytorch-cu121" }    # 只有 torch 走这个索引
 
 诊断命令：
 
-```bash
+```bash title="三层 CUDA 版本各自的诊断命令"
 # 第 1 层：driver 支持的最高 CUDA 版本
 nvidia-smi                     # 右上角 "CUDA Version: 12.2"
 
@@ -729,7 +729,7 @@ Table: CUDA 兼容性典型报错与对应层次
 
 **方式一：锁文件支持多平台**（uv 的做法）。`uv.lock` 会为多个平台各记录一套解析结果，并用环境标记区分：
 
-```toml
+```toml title="uv 的 environments：多平台各锁一套"
 [tool.uv]
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -739,7 +739,7 @@ environments = [
 
 **方式二：用环境标记声明平台差异**：
 
-```toml
+```toml title="用环境标记声明只在 Linux x86_64 装 flash-attn"
 dependencies = [
     "torch==2.4.0",
     "flash-attn>=2.6; sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -748,7 +748,7 @@ dependencies = [
 
 **方式三（最省事，也最常见）：只锁一个目标平台**。既然交付形态是容器，就统一在与生产一致的 Linux 镜像里生成锁文件，本地开发环境不追求和锁文件完全一致：
 
-```bash
+```bash title="在与生产同构的容器里生成锁文件"
 # 在与生产同构的容器里生成锁文件
 docker run --rm -v "$PWD:/app" -w /app python:3.11-slim \
     sh -c "pip install uv && uv lock"
@@ -766,14 +766,14 @@ docker run --rm -v "$PWD:/app" -w /app python:3.11-slim \
 
 **做法**：把 torch 及其 CUDA 依赖交给**基础镜像**，项目依赖里只声明"我需要 torch，但别帮我装"。
 
-```dockerfile
+```dockerfile title="Dockerfile 用自带 torch 的 NGC 基础镜像"
 # 基础镜像已经带好了对应 CUDA 版本的 torch
 FROM nvcr.io/nvidia/pytorch:24.10-py3
 ```
 
 配合 uv 的方式之一是把 torch 放进可选依赖，日常开发装、镜像里不装：
 
-```toml
+```toml title="torch 放进可选依赖，本地装、镜像里不装"
 [project]
 dependencies = ["fastapi>=0.115", "pydantic>=2.9"]   # 不含 torch
 
@@ -782,14 +782,14 @@ dependencies = ["fastapi>=0.115", "pydantic>=2.9"]   # 不含 torch
 torch-cu121 = ["torch==2.4.0"]
 ```
 
-```dockerfile
+```dockerfile title="镜像里 uv sync 只装业务依赖"
 # 镜像里只装业务依赖，torch 用基础镜像自带的
 RUN uv sync --frozen --no-install-project --no-dev
 ```
 
 **代价要说清楚**：这样做之后，"torch 版本"不再由锁文件保证，而是由基础镜像的 tag 保证。所以基础镜像的 tag **必须固定**，不能用 `latest`：
 
-```dockerfile
+```dockerfile title="基础镜像 tag 固定 vs latest"
 # 好：可复现
 FROM nvcr.io/nvidia/pytorch:24.10-py3
 
@@ -822,7 +822,7 @@ Python 的 lint 工具链曾经是这样拼起来的：
 
 Ruff 用 Rust 实现，把上面这些的能力合并成一个工具，且快 10–100 倍：
 
-```bash
+```bash title="ruff check、--fix、format、--watch"
 ruff check .              # Lint
 ruff check --fix .        # Lint 并自动修复
 ruff format .             # 格式化（兼容 Black 的风格）
@@ -831,7 +831,7 @@ ruff check --watch .      # 监听模式
 
 配置集中在 `pyproject.toml`：
 
-```toml
+```toml title="pyproject.toml 里的 Ruff 配置：规则集与 per-file-ignores"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -871,14 +871,14 @@ ignore = [
 
 **第一步，只开自动修复的规则并全量修复。** `I`（import 排序）、`UP`（语法升级）几乎 100% 能自动修，一次提交搞定：
 
-```bash
+```bash title="第一步：只开 I、UP 并全量自动修复"
 ruff check --select I,UP --fix .
 ruff format .
 ```
 
 **第二步，开 `F` 和 `E`，把存量问题记录下来。** Ruff 支持生成基线：
 
-```bash
+```bash title="第二步：ruff check --statistics 看存量"
 # 先看有多少
 ruff check --statistics .
 ```
@@ -887,7 +887,7 @@ ruff check --statistics .
 
 **关于 `noqa`**：它是必要的逃逸舱，但要有纪律。
 
-```python
+```python title="noqa 好坏对照：写规则码与理由"
 # 好：说明了为什么
 import torch  # noqa: F401  # 需要导入以触发算子注册
 
@@ -897,7 +897,7 @@ value = compute()  # noqa
 
 两条原则：**永远指定规则码**（`# noqa: F401` 而不是裸 `# noqa`），**永远写理由**。裸 `# noqa` 会屏蔽掉这一行所有现在和未来的规则，等于埋雷。可以用规则强制：
 
-```toml
+```toml title="PGH004 禁止裸 noqa"
 [tool.ruff.lint]
 select = ["PGH004"]      # 禁止裸 noqa
 ```
@@ -908,7 +908,7 @@ select = ["PGH004"]      # 禁止裸 noqa
 
 CI 里发现格式问题再修，一来一回要几分钟。pre-commit 在 `git commit` 时本地跑检查，问题当场暴露。
 
-```yaml
+```yaml title=".pre-commit-config.yaml：ruff、mypy 与基础钩子"
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -937,7 +937,7 @@ repos:
         args: [--config-file=pyproject.toml]
 ```
 
-```bash
+```bash title="安装 pre-commit 并首次全量运行"
 pip install pre-commit
 pre-commit install              # 安装 git hook
 pre-commit run --all-files      # 首次全量跑一遍
@@ -966,7 +966,7 @@ Table: Ruff 与 mypy / pyright 的分工
 
 一个直观的例子：
 
-```python
+```python title="Ruff 通过、mypy 报错：Optional 未处理"
 def get_user(uid: int) -> User | None: ...
 
 user = get_user(1)
@@ -975,13 +975,13 @@ print(user.name)        # Ruff 通过；mypy 报错：user 可能是 None
 
 反过来：
 
-```python
+```python title="mypy 通过、Ruff 报错：一行多个 import"
 import os, sys         # mypy 通过；Ruff 报错 E401（一行多个 import）
 ```
 
 CI 里的完整检查链：
 
-```bash
+```bash title="CI 里的完整检查链：ruff、format、mypy、pytest"
 ruff check .           # 风格与 bug 模式
 ruff format --check .  # 格式（--check 只检查不改）
 mypy src/              # 类型
@@ -1026,7 +1026,7 @@ Python 有两种分发格式：
 
 Table: sdist 与 wheel 的对比
 
-```bash
+```bash title="python -m build 产出 sdist 与 wheel"
 # 构建两种产物
 pip install build
 python -m build
@@ -1037,7 +1037,7 @@ python -m build
 
 wheel 的文件名编码了兼容性信息，这是理解 AI 包分发的关键：
 
-```text
+```text title="torch wheel 文件名各段的含义"
 torch-2.4.0+cu121-cp311-cp311-linux_x86_64.whl
 │     │          │     │      │
 │     │          │     │      └── 平台：Linux x86_64
@@ -1049,7 +1049,7 @@ torch-2.4.0+cu121-cp311-cp311-linux_x86_64.whl
 
 对比一个纯 Python 包：
 
-```text
+```text title="纯 Python 包的 py3-none-any wheel 文件名"
 fastapi-0.115.6-py3-none-any.whl
                 │   │    │
                 │   │    └── 任意平台
@@ -1065,7 +1065,7 @@ fastapi-0.115.6-py3-none-any.whl
 
 **纯 Python 包**很简单，`setuptools` 或 `hatchling` 直接搞定，产出 `py3-none-any` 的 wheel：
 
-```toml
+```toml title="纯 Python 包用 hatchling 构建"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -1075,7 +1075,7 @@ build-backend = "hatchling.build"
 
 用 `scikit-build-core` + CMake 的骨架：
 
-```toml
+```toml title="scikit-build-core 构建带 CUDA 扩展的包"
 [build-system]
 requires = ["scikit-build-core>=0.10", "torch"]
 build-backend = "scikit_build_core.build"
@@ -1085,7 +1085,7 @@ cmake.version = ">=3.26"
 wheel.packages = ["src/myops"]
 ```
 
-```cmake
+```cmake title="对应的 CMakeLists.txt 骨架"
 # CMakeLists.txt（示意）
 cmake_minimum_required(VERSION 3.26)
 project(myops LANGUAGES CXX CUDA)
@@ -1104,7 +1104,7 @@ install(TARGETS _C DESTINATION myops)
 
 **manylinux**。Linux 上的 wheel 如果链接了构建机的 glibc，拿到别的发行版可能因为 glibc 太老而跑不起来。解决方案是在标准化的 `manylinux` 容器里构建：
 
-```bash
+```bash title="在 manylinux 容器里构建并用 auditwheel 修复"
 # 在 manylinux 容器里构建，保证 glibc 兼容性下限
 docker run --rm -v "$PWD:/io" quay.io/pypa/manylinux_2_28_x86_64 \
     /io/scripts/build-wheels.sh
@@ -1125,7 +1125,7 @@ auditwheel repair dist/*.whl --plat manylinux_2_28_x86_64
 
 包发布出去之后，下游用 mypy 检查代码时能不能看到你的类型注解？默认**不能**——需要显式声明。
 
-```text
+```text title="py.typed 与 _C.pyi 在包里的位置"
 src/myops/
 ├── __init__.py
 ├── py.typed              ← 空文件，声明本包提供类型信息
@@ -1133,7 +1133,7 @@ src/myops/
 └── _C.pyi                ← C 扩展的类型存根
 ```
 
-```toml
+```toml title="package-data 把 py.typed 与 .pyi 打进 wheel"
 [tool.setuptools.package-data]
 myops = ["py.typed", "*.pyi"]
 ```
@@ -1160,7 +1160,7 @@ myops = ["py.typed", "*.pyi"]
 
 **单一版本源**。版本号写在两个地方就会不一致，让构建后端从代码里读：
 
-```toml
+```toml title="dynamic version 从代码里读版本号"
 [project]
 name = "myops"
 dynamic = ["version"]
@@ -1169,14 +1169,14 @@ dynamic = ["version"]
 version = { attr = "myops.__version__" }
 ```
 
-```python
+```python title="__init__.py 里的 __version__"
 # src/myops/__init__.py
 __version__ = "0.1.0"
 ```
 
 或者从 git tag 推导（`setuptools-scm` / `hatch-vcs`），这样打 tag 就等于定版本，不会忘记改代码：
 
-```toml
+```toml title="setuptools-scm 从 git tag 推导版本"
 [build-system]
 requires = ["setuptools>=75", "setuptools-scm>=8"]
 
@@ -1185,7 +1185,7 @@ requires = ["setuptools>=75", "setuptools-scm>=8"]
 
 **发布流程**：
 
-```bash
+```bash title="构建、twine check、先发 TestPyPI 再正式发布"
 python -m build                          # 构建
 pip install twine
 twine check dist/*                       # 检查元数据和 README 渲染
@@ -1210,7 +1210,7 @@ Java 的交付物是一个 `jar`——自包含、平台无关，`java -jar` 就
 
 先看一个**反面例子**：
 
-```dockerfile
+```dockerfile title="反面例子：COPY . . 后再 pip install"
 FROM python:3.11-slim
 WORKDIR /app
 COPY . .                                  # ← 问题在这里
@@ -1222,7 +1222,7 @@ CMD ["uvicorn", "inference_service.main:app"]
 
 正确做法是**先拷依赖声明，装完依赖，再拷代码**：
 
-```dockerfile
+```dockerfile title="正确分层：先拷依赖声明装依赖，再拷代码"
 FROM python:3.11-slim
 WORKDIR /app
 
@@ -1247,7 +1247,7 @@ CMD [".venv/bin/uvicorn", "inference_service.main:app", "--host", "0.0.0.0"]
 
 如果用 BuildKit，还可以让 pip/uv 的缓存跨构建复用，同时不进镜像：
 
-```dockerfile
+```dockerfile title="BuildKit 缓存挂载让 uv 缓存跨构建复用"
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 ```
@@ -1270,7 +1270,7 @@ Table: 一个装了 torch 的镜像的体积构成
 
 **其一，用官方 CUDA/PyTorch 基础镜像，别自己 pip 装 torch。**
 
-```dockerfile
+```dockerfile title="用 NGC PyTorch 镜像或 CUDA runtime 镜像做基础"
 # 推荐：torch 和 CUDA 已在基础镜像里，且被多个镜像共享缓存
 FROM nvcr.io/nvidia/pytorch:24.10-py3
 
@@ -1298,7 +1298,7 @@ Table: nvidia/cuda 镜像的三个变体
 
 **其四，用 `.dockerignore`。** 否则 `.venv/`（几 GB）、`.git/`、模型文件、`__pycache__` 都会进构建上下文：
 
-```text
+```text title=".dockerignore：排除 .venv、.git、缓存与模型文件"
 .venv/
 .git/
 __pycache__/
@@ -1318,7 +1318,7 @@ data/
 
 理由是**多阶段构建时便于整体拷贝**。虚拟环境是一个自包含目录，可以从构建阶段整体拷到运行阶段：
 
-```dockerfile
+```dockerfile title="多阶段构建：builder 里装 venv，运行阶段整体拷贝"
 # ---------- 构建阶段 ----------
 FROM python:3.11-slim AS builder
 WORKDIR /app
@@ -1354,7 +1354,7 @@ CMD ["uvicorn", "inference_service.main:app", "--host", "0.0.0.0", "--port", "80
 
 Java 的 servlet 容器用线程池处理并发请求。Python 这里的模型不同，而且**直接受 GIL 约束**。
 
-```bash
+```bash title="uvicorn 单进程与多 worker 启动"
 # 单进程，适合开发和调试
 uvicorn inference_service.main:app --host 0.0.0.0 --port 8000
 
@@ -1390,7 +1390,7 @@ Table: uvicorn worker 数按瓶颈的建议
 
 **健康检查**要区分两种探针：
 
-```python
+```python title="/healthz 与 /readyz 两种探针"
 @app.get("/healthz")          # liveness：进程还活着吗
 async def healthz():
     return {"status": "ok"}
@@ -1412,7 +1412,7 @@ Python Web 生态里 Django、Flask、FastAPI 三者并存，但 AI-Infra 的模
 
 **其二，流式响应是刚需。** token 逐个返回（SSE 或 chunked），需要框架原生支持异步生成器：
 
-```python
+```python title="StreamingResponse 逐 token 返回"
 from fastapi.responses import StreamingResponse
 
 @app.post("/v1/completions")
@@ -1435,7 +1435,7 @@ async def create_completion(request: CompletionRequest):
 
 ### 1. 目录结构
 
-```text
+```text title="inference-service 的完整目录结构"
 inference-service/
 ├── pyproject.toml              # 元数据、依赖、工具配置（第二章）
 ├── uv.lock                     # 锁文件，提交进 git（第四章）
@@ -1466,7 +1466,7 @@ inference-service/
 
 ### 2. pyproject.toml
 
-```toml
+```toml title="完整的 pyproject.toml"
 [project]
 name = "inference-service"
 version = "0.1.0"
@@ -1546,7 +1546,7 @@ addopts = "-q --cov=inference_service --cov-report=term-missing"
 
 ### 3. Dockerfile
 
-```dockerfile
+```dockerfile title="完整的多阶段 Dockerfile"
 # syntax=docker/dockerfile:1
 
 # ---------- 构建阶段 ----------
@@ -1592,7 +1592,7 @@ CMD ["uvicorn", "inference_service.main:app", \
 
 把常用命令固化下来，新人不用记一堆参数：
 
-```makefile
+```makefile title="Makefile：install、lint、test、build、docker"
 .PHONY: install lint format typecheck test check build docker
 
 install:
@@ -1625,7 +1625,7 @@ docker:
 
 ### 5. CI
 
-```yaml
+```yaml title=".github/workflows/ci.yml"
 # .github/workflows/ci.yml
 name: CI
 

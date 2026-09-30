@@ -58,7 +58,7 @@ Table: 本文的章节安排
 
 项目通常采用如下结构：
 
-```text
+```text title="src/ 与 tests/ 分开的项目结构"
 project/
 ├── src/
 │   └── inference/
@@ -73,13 +73,13 @@ project/
 
 安装依赖：
 
-```bash
+```bash title="安装 pytest、pytest-asyncio、pytest-cov"
 python -m pip install pytest pytest-asyncio pytest-cov
 ```
 
 运行测试：
 
-```bash
+```bash title="按目录、文件、用例、关键字运行 pytest"
 pytest
 pytest -q
 pytest tests/test_batching.py
@@ -89,7 +89,7 @@ pytest -k "batch"
 
 常用参数：
 
-```bash
+```bash title="pytest 常用参数：-x、-vv、-s、--tb"
 pytest -x                 # 第一个失败后停止
 pytest -vv                # 输出详细信息
 pytest -s                 # 保留 print 输出
@@ -103,7 +103,7 @@ pytest --pdb              # 失败后自动进入 pdb
 
 AI-Infra 中常见的边界包括空输入、最大 batch、非法 shape 和无效 dtype。
 
-```python
+```python title="split_batches 的边界输入测试：空输入、最大 batch、非法 shape"
 import pytest
 
 from inference.batching import split_batches
@@ -134,7 +134,7 @@ def test_split_batches_rejects_invalid_batch_size(batch_size):
 
 AI-Infra 项目中，部分测试需要 GPU 或执行时间较长，不适合每次提交都运行。可以通过自定义 marker 分类：
 
-```python
+```python title="用 @pytest.mark.slow 与 @pytest.mark.gpu 分类测试"
 import pytest
 
 
@@ -150,7 +150,7 @@ def test_inference_on_cuda():
 
 在 `pyproject.toml` 中注册 marker，避免警告：
 
-```toml
+```toml title="pyproject.toml 里注册 marker"
 [tool.pytest.ini_options]
 markers = [
     "slow: 执行时间较长的测试",
@@ -160,7 +160,7 @@ markers = [
 
 按 marker 筛选测试：
 
-```bash
+```bash title="按 marker 筛选：跳过 GPU、只跑慢测、冒烟"
 pytest -m "not gpu"         # CI 中跳过 GPU 测试
 pytest -m "slow"            # 只运行慢速测试
 pytest -m "not slow and not gpu"  # 快速冒烟测试
@@ -170,7 +170,7 @@ pytest -m "not slow and not gpu"  # 快速冒烟测试
 
 `fixture` 适合创建测试所需的后端、配置和临时资源。
 
-```python
+```python title="FakeBackend 与 backend fixture"
 import pytest
 
 
@@ -197,7 +197,7 @@ def backend():
 
 测试生命周期：
 
-```python
+```python title="测试 backend 的 start / stop 生命周期"
 @pytest.mark.asyncio
 async def test_backend_lifecycle(backend):
     assert backend.started is False
@@ -211,7 +211,7 @@ async def test_backend_lifecycle(backend):
 
 对于临时文件、环境变量和配置，可以使用内置 fixture：
 
-```python
+```python title="tmp_path 与 monkeypatch 内置 fixture"
 def test_load_config(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yaml"
     config_file.write_text("batch_size: 8")
@@ -227,7 +227,7 @@ def test_load_config(tmp_path, monkeypatch):
 
 默认情况下，fixture 在每个测试函数执行前重新创建。对于代价较高的资源（如加载模型、建立连接池），可以使用 `scope` 控制生命周期：
 
-```python
+```python title='scope="session" 的 fixture 与 yield 清理'
 @pytest.fixture(scope="session")
 def model():
     """整个测试会话只加载一次。"""
@@ -248,14 +248,14 @@ def db_connection():
 
 pytest 会自动从 `conftest.py` 文件中收集 fixture，无需显式导入。通常将多个测试模块共用的 fixture 放在 `tests/conftest.py`：
 
-```text
+```text title="tests/conftest.py 的位置"
 tests/
 ├── conftest.py          # 共享 fixture：fake_backend, test_config, ...
 ├── test_batching.py
 └── test_backend.py
 ```
 
-```python
+```python title="conftest.py 里的共享 fixture"
 # tests/conftest.py
 import pytest
 
@@ -278,7 +278,7 @@ def test_config(tmp_path):
 
 单元测试通常不应真的访问外部服务或执行代价高昂的初始化。可以用 `AsyncMock` 模拟异步依赖。
 
-```python
+```python title="用 AsyncMock 替代真实后端测试 predict"
 from unittest.mock import AsyncMock
 
 import pytest
@@ -299,7 +299,7 @@ async def test_predict_passes_inputs_to_backend():
 
 模拟异常：
 
-```python
+```python title="side_effect 模拟后端超时"
 @pytest.mark.asyncio
 async def test_predict_translates_backend_timeout():
     backend = AsyncMock()
@@ -313,7 +313,7 @@ async def test_predict_translates_backend_timeout():
 
 检查调用参数：
 
-```python
+```python title="assert_awaited_once 与 await_args 检查调用参数"
 backend.predict.assert_awaited_once()
 inputs = backend.predict.await_args.args[0]
 
@@ -322,7 +322,7 @@ assert inputs["text"] == "hello"
 
 ### 1. `Mock` 与 `AsyncMock` 的区别
 
-```python
+```python title="Mock 与 AsyncMock 各造一个客户端"
 from unittest.mock import Mock, AsyncMock
 
 sync_client = Mock()
@@ -337,7 +337,7 @@ async_client = AsyncMock()
 
 前面的例子直接创建 `AsyncMock()` 并注入，适合构造函数接收依赖的场景。对于已经在模块中绑定的对象，可以使用 `unittest.mock.patch`：
 
-```python
+```python title="@patch 替换模块里的 GPUBackend"
 from unittest.mock import patch, AsyncMock
 
 
@@ -354,7 +354,7 @@ def test_service_uses_backend(MockBackend):
 
 也可以作为上下文管理器使用：
 
-```python
+```python title="patch 作为上下文管理器"
 async def test_patch_as_context_manager():
     with patch("inference.client.httpx.AsyncClient") as MockClient:
         MockClient.return_value.post = AsyncMock(
@@ -374,7 +374,7 @@ async def test_patch_as_context_manager():
 
 安装并配置 `pytest-asyncio`：
 
-```toml
+```toml title='pyproject.toml 里 asyncio_mode = "auto"'
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 ```
@@ -383,7 +383,7 @@ asyncio_mode = "auto"
 
 测试异步函数：
 
-```python
+```python title="一个 asyncio 测试：start 后 predict"
 @pytest.mark.asyncio
 async def test_async_predict(backend):
     await backend.start()
@@ -395,7 +395,7 @@ async def test_async_predict(backend):
 
 ### 1. 测试超时
 
-```python
+```python title="测试超时：慢后端在 asyncio.timeout 下抛 TimeoutError"
 @pytest.mark.asyncio
 async def test_request_timeout():
     backend = AsyncMock()
@@ -414,7 +414,7 @@ async def test_request_timeout():
 
 ### 2. 测试取消
 
-```python
+```python title="测试取消：用两个 Event 观察任务确实停下"
 @pytest.mark.asyncio
 async def test_request_cancellation():
     started = asyncio.Event()
@@ -442,13 +442,13 @@ async def test_request_cancellation():
 
 ### 3. 检测未等待的协程
 
-```bash
+```bash title="把 RuntimeWarning 当错误：抓未 await 的协程"
 pytest -W error::RuntimeWarning
 ```
 
 也可以使用静态检查工具：
 
-```bash
+```bash title="ruff 与 mypy 静态检查"
 ruff check .
 mypy src/
 ```
@@ -467,7 +467,7 @@ mypy src/
 - 系统时间；
 - 外部调用。
 
-```python
+```python title="monkeypatch.setenv 注入 BACKEND_URL"
 def test_backend_url_from_environment(monkeypatch):
     monkeypatch.setenv("BACKEND_URL", "http://test-backend")
 
@@ -478,7 +478,7 @@ def test_backend_url_from_environment(monkeypatch):
 
 替换外部函数：
 
-```python
+```python title="monkeypatch.setattr 替换 download_model"
 def test_model_path(monkeypatch):
     monkeypatch.setattr(
         "inference.loader.download_model",
@@ -494,20 +494,20 @@ def test_model_path(monkeypatch):
 
 例如：
 
-```python
+```python title="service.py 里 from loader import download_model"
 # service.py
 from loader import download_model
 ```
 
 此时应替换：
 
-```python
+```python title="正确：替换 service.download_model"
 monkeypatch.setattr("service.download_model", fake_download)
 ```
 
 而不是：
 
-```python
+```python title="错误：替换 loader.download_model"
 monkeypatch.setattr("loader.download_model", fake_download)
 ```
 
@@ -517,13 +517,13 @@ monkeypatch.setattr("loader.download_model", fake_download)
 
 最直接的方式是在代码中插入：
 
-```python
+```python title="breakpoint()"
 breakpoint()
 ```
 
 或：
 
-```python
+```python title="pdb.set_trace()"
 import pdb
 
 pdb.set_trace()
@@ -531,7 +531,7 @@ pdb.set_trace()
 
 运行测试：
 
-```bash
+```bash title="带 -s 运行以进入 pdb"
 pytest -s tests/test_scheduler.py
 ```
 
@@ -551,13 +551,13 @@ pytest -s tests/test_scheduler.py
 
 测试失败时自动进入调试器：
 
-```bash
+```bash title="pytest --pdb 失败时自动进调试器"
 pytest --pdb
 ```
 
 只调试某个测试：
 
-```bash
+```bash title="只调试一个测试用例"
 pytest -s tests/test_scheduler.py::test_timeout_request
 ```
 
@@ -578,7 +578,7 @@ pytest -s tests/test_scheduler.py::test_timeout_request
 
 调试异步和并发代码时，`print()` 往往无法说明日志来自哪个任务。应使用结构化日志或至少带上关键上下文。
 
-```python
+```python title="带 request_id 与任务名的结构化日志"
 import logging
 
 logger = logging.getLogger(__name__)
@@ -611,13 +611,13 @@ async def predict(self, request_id, inputs):
 
 启用调试日志：
 
-```bash
+```bash title="pytest 里开 log_cli 看 DEBUG 日志"
 pytest -o log_cli=true --log-cli-level=DEBUG
 ```
 
 或在应用中：
 
-```python
+```python title="应用里 logging.basicConfig 到 DEBUG"
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -651,7 +651,7 @@ Table: logging 的四个组件与 Logback 对应
 
 一条日志的流动路径是：`Logger` → `Filter` → 沿 logger 树向上传播 → 各级 `Handler` → `Formatter` → 输出。
 
-```python
+```python title="Logger、Handler、Formatter 手工装配一遍"
 import logging
 import sys
 
@@ -685,7 +685,7 @@ logger.addHandler(handler)
 
 **其二，可以按模块粒度调级别**，这在排查问题时非常有用：
 
-```python
+```python title="按模块粒度调日志级别、压掉啰嗦的第三方库"
 # 全局 INFO，但把某个模块单独开到 DEBUG
 logging.getLogger("inference").setLevel(logging.INFO)
 logging.getLogger("inference.backends.torch").setLevel(logging.DEBUG)
@@ -699,7 +699,7 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 如果同一条日志出现了两遍，通常是**同时给子 logger 和 root 加了 handler**，而 `propagate` 还是默认的 `True`。要么只在一处加 handler，要么显式关闭传播：
 
-```python
+```python title="logger.propagate = False 关闭传播"
 logger.propagate = False
 ```
 
@@ -709,7 +709,7 @@ logger.propagate = False
 
 **库（library）只创建 logger，不配置输出。**
 
-```python
+```python title="库代码里正确的做法：只 getLogger"
 # 库代码里：正确
 import logging
 
@@ -721,7 +721,7 @@ def predict(x):
     ...
 ```
 
-```python
+```python title="库代码里错误的做法：basicConfig 与 addHandler"
 # 库代码里：错误
 logging.basicConfig(level=logging.DEBUG)      # 篡改了调用方的全局配置
 logger.addHandler(logging.StreamHandler())    # 强加输出，可能导致重复日志
@@ -731,7 +731,7 @@ logger.addHandler(logging.StreamHandler())    # 强加输出，可能导致重�
 
 **应用（application）在入口处配置一次输出。**
 
-```python
+```python title="应用入口处配置一次 root logger"
 # main.py / cli.py：应用入口
 import logging
 import sys
@@ -750,7 +750,7 @@ def setup_logging(level: str = "INFO") -> None:
 
 如果库确实想在没有任何配置时避免"No handlers could be found"这类警告，标准做法是加一个 `NullHandler`——它什么也不做，只是占位：
 
-```python
+```python title="库的 __init__.py 里加 NullHandler"
 # 库的 __init__.py
 import logging
 
@@ -763,7 +763,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 生产环境的日志要被机器消费（检索、聚合、告警），纯文本不好解析。JSON 格式更合适：
 
-```python
+```python title="JsonFormatter：把日志记录输出成 JSON"
 import json
 import logging
 
@@ -789,7 +789,7 @@ class JsonFormatter(logging.Formatter):
 
 **输出到 stdout，不要自己写文件**。容器化部署下，日志采集是平台的职责：容器运行时会捕获 stdout/stderr 交给采集侧。应用自己写文件和做轮转会带来额外问题——文件在容器里、需要挂卷、需要自己处理轮转和清理。
 
-```python
+```python title="日志写 stdout 而不是文件"
 logging.basicConfig(stream=sys.stdout, ...)     # 推荐
 # 而不是 logging.FileHandler("/var/log/app.log")
 ```
@@ -804,7 +804,7 @@ logging.basicConfig(stream=sys.stdout, ...)     # 推荐
 
 `contextvars` 配合 `logging.Filter` 可以自动注入：
 
-```python
+```python title="用 contextvars 加 logging.Filter 自动注入 request_id"
 import contextvars
 import logging
 
@@ -829,7 +829,7 @@ handler.setFormatter(
 
 在请求入口处设置一次，之后该请求内所有日志自动带上：
 
-```python
+```python title="中间件在请求入口设置一次 request_id"
 @app.middleware("http")
 async def add_request_id(request, call_next):
     token = request_id_var.set(request.headers.get("x-request-id", str(uuid.uuid4())))
@@ -862,7 +862,7 @@ Table: logging 与 SLF4J + Logback 对照
 
 最后一行值得强调：**Python 也要用惰性格式化**。
 
-```python
+```python title="惰性格式化：%s 占位 vs f-string"
 # 好：只有该级别真的会输出时才做字符串格式化
 logger.debug("shape=%s dtype=%s", tensor.shape, tensor.dtype)
 
@@ -874,7 +874,7 @@ logger.debug(f"shape={tensor.shape} dtype={tensor.dtype}")
 
 如果日志量本身成为瓶颈，可以像 Logback 的 `AsyncAppender` 一样把 I/O 移出主线程：
 
-```python
+```python title="QueueHandler 加 QueueListener 把日志 I/O 移出主线程"
 import logging.handlers
 import queue
 
@@ -890,7 +890,7 @@ listener.start()
 
 不要吞掉原始异常：
 
-```python
+```python title="raise ... from exc 保留原始异常"
 try:
     result = await backend.predict(inputs)
 except TimeoutError as exc:
@@ -899,7 +899,7 @@ except TimeoutError as exc:
 
 查看完整异常：
 
-```python
+```python title="traceback.print_exc 查看完整异常链"
 import traceback
 
 try:
@@ -910,7 +910,7 @@ except Exception:
 
 测试异常链：
 
-```python
+```python title="用 __cause__ 测试异常链"
 with pytest.raises(BackendTimeoutError) as exc_info:
     await service.predict(inputs)
 
@@ -919,7 +919,7 @@ assert isinstance(exc_info.value.__cause__, TimeoutError)
 
 如果只写：
 
-```python
+```python title="没有 from 的 raise 丢掉因果链"
 except Exception:
     raise RuntimeError("prediction failed")
 ```
@@ -930,7 +930,7 @@ except Exception:
 
 插件、装饰器和适配器出问题时，可以使用 `inspect` 检查实际对象。
 
-```python
+```python title="inspect 查看插件的模块、源文件与签名"
 import inspect
 
 print(inspect.getmodule(plugin))
@@ -941,7 +941,7 @@ print(plugin.__class__.__mro__)
 
 检查异步函数：
 
-```python
+```python title="iscoroutinefunction 检查插件是否真是异步实现"
 if not inspect.iscoroutinefunction(plugin.predict):
     # 插件声明为异步接口但实际是同步实现，
     # 需要用 run_in_executor 包装以避免阻塞事件循环
@@ -966,7 +966,7 @@ if not inspect.iscoroutinefunction(plugin.predict):
 
 ## 十一、使用 tracemalloc 定位 Python 内存增长
 
-```python
+```python title="tracemalloc 快照对比定位内存增长点"
 import tracemalloc
 
 tracemalloc.start()
@@ -986,7 +986,7 @@ for statistic in snapshot_after.compare_to(
 
 命令行调试：
 
-```bash
+```bash title="用 PYTHONTRACEMALLOC 环境变量开启追踪"
 PYTHONTRACEMALLOC=25 python app.py
 ```
 
@@ -999,7 +999,7 @@ PYTHONTRACEMALLOC=25 python app.py
 
 检查对象是否仍被引用：
 
-```python
+```python title="gc.collect 后看 gc.get_stats"
 import gc
 
 gc.collect()
@@ -1008,7 +1008,7 @@ print(gc.get_stats())
 
 对于特定对象，可以使用：
 
-```python
+```python title="weakref.ref 检查对象是否已释放"
 import weakref
 
 reference = weakref.ref(obj)
@@ -1024,13 +1024,13 @@ assert reference() is None
 
 当 Python 进程没有崩溃，但长时间无响应时，可以启用：
 
-```bash
+```bash title="python -X faulthandler 启用"
 python -X faulthandler app.py
 ```
 
 也可以在代码中启用：
 
-```python
+```python title="代码里 faulthandler.enable()"
 import faulthandler
 
 faulthandler.enable()
@@ -1038,13 +1038,13 @@ faulthandler.enable()
 
 定时打印所有线程的调用栈：
 
-```python
+```python title="每 10 秒转储所有线程调用栈"
 faulthandler.dump_traceback_later(10, repeat=True)
 ```
 
 取消定时转储：
 
-```python
+```python title="取消定时转储"
 faulthandler.cancel_dump_traceback_later()
 ```
 
@@ -1060,19 +1060,19 @@ faulthandler.cancel_dump_traceback_later()
 
 对单个函数进行分析：
 
-```bash
+```bash title="cProfile 按累计时间排序输出"
 python -m cProfile -s cumulative script.py
 ```
 
 生成可视化分析文件：
 
-```bash
+```bash title="cProfile 输出到 profile.out"
 python -m cProfile -o profile.out script.py
 ```
 
 使用 `pstats` 查看：
 
-```python
+```python title="pstats 读取并打印前 20 条"
 import pstats
 
 stats = pstats.Stats("profile.out")
@@ -1094,13 +1094,13 @@ stats.print_stats(20)
 
 运行：
 
-```bash
+```bash title="pytest-cov 输出未覆盖行"
 pytest --cov=src --cov-report=term-missing
 ```
 
 生成 HTML 报告：
 
-```bash
+```bash title="生成 HTML 覆盖率报告"
 pytest \
   --cov=src \
   --cov-report=html
@@ -1108,7 +1108,7 @@ pytest \
 
 查看：
 
-```text
+```text title="报告入口文件"
 htmlcov/index.html
 ```
 

@@ -36,7 +36,7 @@ flowchart TB
 
 ### 1. 在三篇地图上的位置
 
-```
+``` title="类型信息提供层的分层结构"
                    类型信息提供层
 ┌──────────────────────────────────────────────┐
 │ 类型表达                                      │
@@ -110,7 +110,7 @@ Table: 本文的章节安排
 
 以类似 PyTorch `torch._C` 的底层扩展模块为例，类型检查器通常无法直接分析 `.so`、`.pyd` 等二进制文件内部的 C/C++ 实现。因此，库作者需要通过其他类型载体描述其对外暴露的 Python API，例如：
 
-```python
+```python title="_native.pyi：给二进制扩展模块写签名"
 # _native.pyi
 
 def matmul(a: Tensor, b: Tensor) -> Tensor: ...
@@ -143,7 +143,7 @@ Table: 类型信息载体的分工
 
 `.pyi`（Python Interface）文件只包含签名，不包含实现。它告诉类型检查器一个模块里有什么函数、什么类型：
 
-```python
+```python title="torch/_C/__init__.pyi 里的存根写法"
 # torch/_C/__init__.pyi — PyTorch 的 C++ 扩展模块的类型存根
 
 def _get_tracing_state() -> bool: ...
@@ -170,7 +170,7 @@ mypy 和 pyright 都**内置了 typeshed**，所以你用标准库时不需要�
 
 对于 typeshed 不覆盖的第三方库，社区通过 PyPI 发布独立的存根包，命名规则为 `types-<package>`：
 
-```bash
+```bash title="安装 types-* 独立存根包"
 pip install types-requests     # requests 的类型存根
 pip install types-PyYAML       # PyYAML 的类型存根
 pip install types-redis        # redis 的类型存根
@@ -200,7 +200,7 @@ mypy 安装后会自动发现并使用这些存根。
 
 核心机制非常简单——在包的根目录放一个空文件 `py.typed`：
 
-```
+``` title="带 py.typed 标记的包目录"
 mypackage/
 ├── __init__.py
 ├── py.typed          ← 标记文件，可以是空文件
@@ -243,7 +243,7 @@ Table: Inline types 与 .pyi 存根的选择考量
 
 **推荐**：如果你的库是纯 Python，直接在源码中写类型注解 + 加 `py.typed` 标记。只有 C 扩展模块才需要 `.pyi` 存根。
 
-```bash
+```bash title="发布带类型信息的包：py.typed 与 .pyi 的摆放"
 # 发布一个带类型信息的包
 mypackage/
 ├── __init__.py
@@ -254,7 +254,7 @@ mypackage/
 
 在 `pyproject.toml` 中确保 `py.typed` 被打包：
 
-```toml
+```toml title="pyproject.toml 里把 py.typed 与 .pyi 打进包"
 [tool.setuptools.package-data]
 mypackage = ["py.typed", "*.pyi"]
 ```
@@ -275,7 +275,7 @@ mypackage = ["py.typed", "*.pyi"]
 
 mypy 是 Python 官方的类型检查器，由 Guido van Rossum 本人发起，也是历史最久、社区最广的选择。
 
-```bash
+```bash title="安装并运行 mypy"
 pip install mypy
 
 mypy src/                 # 基本检查
@@ -286,7 +286,7 @@ mypy --strict src/        # 严格模式（推荐新项目）
 
 pyright 由 Microsoft 开发，用 TypeScript 编写，是 VS Code 插件 Pylance 的后端。速度是它的最大优势。
 
-```bash
+```bash title="安装并运行 pyright"
 pip install pyright
 
 pyright src/
@@ -312,7 +312,7 @@ Table: mypy 与 pyright 对比
 
 和 Java 的 `var` 一样，类型检查器也能自动推断类型，不需要处处手写注解：
 
-```python
+```python title="类型推断：不写注解也能推出 int、list[int]、dict[str, int]"
 x = 42              # mypy/pyright 推断 x: int
 items = [1, 2, 3]   # 推断 items: list[int]
 d = {"a": 1}        # 推断 d: dict[str, int]
@@ -325,7 +325,7 @@ result = double(5)  # 推断 result: int
 
 但在以下场景推断会失败，需要显式注解：
 
-```python
+```python title="推断失败需要显式注解的三种场景"
 # 空容器——无法推断元素类型
 items: list[str] = []
 
@@ -342,7 +342,7 @@ def process(data):    # mypy --strict: error: Function is missing a type annotat
 
 **pyproject.toml 配置**
 
-```toml
+```toml title="pyproject.toml 里的 mypy 配置"
 # mypy 配置
 [tool.mypy]
 python_version = "3.11"
@@ -360,7 +360,7 @@ module = "transformers.*"
 ignore_missing_imports = true
 ```
 
-```toml
+```toml title="pyproject.toml 里的 pyright 配置"
 # pyright 配置
 [tool.pyright]
 pythonVersion = "3.11"
@@ -375,7 +375,7 @@ reportMissingTypeStubs = false
 
 **第一步：仅检查新代码**
 
-```toml
+```toml title="渐进第一步：只检查有注解的代码"
 [tool.mypy]
 # 不开 strict，只检查有注解的代码
 check_untyped_defs = true
@@ -383,7 +383,7 @@ check_untyped_defs = true
 
 **第二步：对关键模块开启严格检查**
 
-```toml
+```toml title="渐进第二步：对关键模块单独开 strict"
 [[tool.mypy.overrides]]
 module = "myproject.api.*"
 strict = true
@@ -395,14 +395,14 @@ strict = true
 
 **第三步：CI 中逐步收紧**
 
-```bash
+```bash title="渐进第三步：CI 只检查本次 PR 改动的文件"
 # 只检查本次 PR 修改的文件
 git diff --name-only origin/main | grep '\.py$' | xargs mypy
 ```
 
 **第四步：全面严格模式**
 
-```toml
+```toml title="渐进第四步：全面 strict"
 [tool.mypy]
 strict = true
 ```
@@ -418,7 +418,7 @@ vLLM、FastAPI 等项目都是逐步引入类型检查的——早期代码有�
 
 **1. 运行时动态行为**
 
-```python
+```python title="静态检查做不到的事一：运行时动态属性"
 # 动态属性——类型检查器无法追踪
 class Config:
     pass
@@ -438,7 +438,7 @@ f.anything   # 运行时返回 42，但 mypy 无法推断
 
 **2. 复杂的元编程**
 
-```python
+```python title="静态检查做不到的事二：dataclass 与 ORM 的元编程"
 # dataclass 的 __init__ 由装饰器在运行时生成
 # mypy 有专门的插件支持 dataclass，但自定义元类可能无法推断
 
@@ -451,7 +451,7 @@ class User(Base):
 
 **3. 跨进程/跨语言边界**
 
-```python
+```python title="静态检查做不到的事三：C 扩展与序列化返回 Any"
 # C 扩展模块——需要 .pyi 存根文件提供类型信息（见"类型载体与分发"部分）
 import numpy as np
 arr = np.array([1, 2, 3])  # 没有存根就是 Any
@@ -464,7 +464,7 @@ result = pickle.loads(data)  # result: Any
 
 合理的使用场景：
 
-```python
+```python title="type: ignore 的三种合理用法"
 # 1. 你确认代码正确，但类型检查器的能力有限
 value = getattr(obj, attr_name)  # type: ignore[attr-defined]
 
@@ -479,7 +479,7 @@ result = complex_dynamic_call()  # type: ignore[no-any-return]  # TODO: add prop
 
 **不同检查器对同一代码的判断可能不同**
 
-```python
+```python title="不同检查器对同一段泛型代码的判断可能不同"
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -508,7 +508,7 @@ reveal_type(identity(42))
 
 **isinstance：最基本的运行时类型检查**
 
-```python
+```python title="isinstance 做运行时类型分派"
 def process(value: int | str) -> str:
     if isinstance(value, int):
         return str(value * 2)
@@ -526,7 +526,7 @@ def process(value: int | str) -> str:
 
 在 Python 中，当你在类内部写下 `id: int` 但不赋值时，解释器并不会把它当作普通类变量，而是把这个映射关系存入类的 `__annotations__` 字典：
 
-```python
+```python title="类属性注解落在 __annotations__ 字典里"
 class RawUser:
     id: int
     name: str
@@ -539,7 +539,7 @@ print(RawUser.__annotations__)
 
 函数也一样：
 
-```python
+```python title="函数注解同样落在 __annotations__ 里"
 def greet(name: str, age: int = 18) -> str:
     return f"{name} is {age}"
 
@@ -549,7 +549,7 @@ print(greet.__annotations__)
 
 **get_type_hints()：更可靠的注解读取**
 
-```python
+```python title="get_type_hints() 读取类注解"
 from typing import get_type_hints
 
 class User:
@@ -573,7 +573,7 @@ Table: __annotations__ 与 get_type_hints() 的差别
 
 第一点尤其重要。开启 `from __future__ import annotations` 后（或使用前向引用），所有注解都会以字符串形式保存：
 
-```python
+```python title="from __future__ import annotations 后注解变成字符串"
 from __future__ import annotations
 
 class Node:
@@ -592,7 +592,7 @@ print(get_type_hints(Node))
 
 对应 Java：`get_type_hints()` 类似 Java 的反射 API `Field.getGenericType()`，但由于 Java 有类型擦除，运行时拿不到完整的泛型信息。Python 反而更好——注解信息在运行时完整保留。
 
-```python
+```python title="框架底层示意：读注解生成校验逻辑"
 # 框架底层原理示意
 def validate(cls, data: dict) -> object:
     hints = get_type_hints(cls)
@@ -620,7 +620,7 @@ def validate(cls, data: dict) -> object:
 
 本质是在类定义完成之后，由外挂的装饰器往类里塞方法。可以直接把生成的结果打印出来：
 
-```python
+```python title="用 inspect 打印 dataclass 生成的 __init__"
 from dataclasses import dataclass
 import inspect
 
@@ -635,7 +635,7 @@ print(inspect.signature(User.__init__))
 
 这里有一个**必须说清楚的点**：`@dataclass` 只用注解做了"字段声明"这一件事，它**完全不做类型校验**。注解在这里是触发器，不是检查依据：
 
-```python
+```python title="dataclass 不校验类型：错误类型照样构造成功"
 user = User(id="not an int", name=123)   # 不报错！
 print(user.id)                            # 'not an int'
 ```
@@ -654,7 +654,7 @@ Pydantic v2 中元类的核心流程：
 
 关键在于**时机**：验证树是在类定义时一次性构建好的，实例化时只是执行它。这也是 Pydantic v2 比 v1 快一个数量级的原因之一——把工作从"每次实例化"挪到了"仅一次的类创建"。
 
-```python
+```python title="Pydantic BaseModel：类定义时构建验证树"
 from pydantic import BaseModel
 
 class User(BaseModel):
@@ -694,7 +694,7 @@ Table: @dataclass 与 Pydantic BaseModel 消费注解的两条路线
 
 如果你不需要 Pydantic 的完整数据建模能力，只想在运行时检查函数参数类型，[beartype](https://github.com/beartype/beartype) 是一个轻量级选择：
 
-```python
+```python title="beartype 装饰器做函数参数的运行时检查"
 from beartype import beartype
 
 @beartype
@@ -721,7 +721,7 @@ Table: beartype、Pydantic 与纯 isinstance 的对比
 
 **typeguard：另一个运行时检查库**
 
-```python
+```python title="typeguard 的 typechecked 装饰器"
 from typeguard import typechecked
 
 @typechecked
@@ -764,7 +764,7 @@ Table: 静态检查与运行时检查的分工
 
 **1. 信任边界（Trust Boundary）模式**：在系统的**入口处**做运行时校验，内部用静态检查。
 
-```python
+```python title="信任边界模式：入口用 Pydantic 校验，内部信任类型"
 # 入口：运行时校验——外部数据不可信
 @app.post("/v1/completions")
 async def create_completion(request: CompletionRequest):  # Pydantic 校验
@@ -780,7 +780,7 @@ def generate(prompt: str, params: SamplingParams) -> GenerateOutput:
 
 **2. 保持一致**：静态注解和运行时校验的类型要匹配。
 
-```python
+```python title="好坏对照：Pydantic 字段注解与 mypy 类型是否一致"
 # 好：Pydantic 模型的字段注解 == mypy 看到的类型
 class Config(BaseModel):
     batch_size: int = 32
@@ -792,7 +792,7 @@ class Config(BaseModel):
 
 **3. 不要在热路径上做运行时检查**
 
-```python
+```python title="好坏对照：运行时检查不要放在 forward 热路径"
 # 坏：每次 forward 都做运行时类型检查
 @beartype
 def forward(self, x: torch.Tensor) -> torch.Tensor:  # GPU 推理瓶颈

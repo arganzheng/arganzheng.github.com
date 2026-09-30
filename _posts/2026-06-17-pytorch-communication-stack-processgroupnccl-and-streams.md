@@ -26,7 +26,7 @@ updated: 2026-09-14
 
 ### 1. 一次调用穿过的层次
 
-```text
+```text title="dist.all_reduce 一次调用穿过的层次"
 Python   dist.all_reduce(t, op, group, async_op)          torch/distributed/distributed_c10d.py
             │  组装 AllreduceOptions{reduceOp, asyncOp}
             ▼
@@ -54,7 +54,7 @@ NCCL     ncclAllReduce → enqueue → kernel launch（上一篇）
 
 `async_op=True` 时的运行时对象关系是本篇的主线：
 
-```text
+```text title="async_op=True 时两条 stream、两个 event 与一个 Work"
 当前 stream（计算）     ──┬── 前序 kernel ──┐(record ncclEvents_[key])
                          │                  │
                          │                  ▼(block)
@@ -107,7 +107,7 @@ Table: 本文的章节安排
 
 `torch/csrc/distributed/c10d/ProcessGroup.hpp` 里的 `ProcessGroup` 不是后端，而是一个**按 device 类型路由到 Backend 的外壳**。它的 `allreduce` 方法体不直接干活，而是通过 dispatcher 查一个算子：
 
-```cpp
+```cpp title="ProcessGroup::allreduce 通过 dispatcher 查算子"
 // ProcessGroup.hpp, ProcessGroup::allreduce
 static auto op = c10::Dispatcher::singleton()
     .findSchemaOrThrow("c10d::allreduce_", "")
@@ -124,7 +124,7 @@ auto work = std::get<1>(op.call(tensors, /*this*/, reduceOp, sparseIndices,
 
 第 4 篇讲过 `ncclCommInitRank` 需要所有 rank 拿到同一个 `ncclUniqueId`（本质是 rank 0 bootstrap socket 的地址），NCCL 自己不负责把它送到其他 rank。PyTorch 用 Store 做这件事，`ProcessGroupNCCL::broadcastUniqueNCCLID`：
 
-```cpp
+```cpp title="broadcastUniqueNCCLID：Store 分发 ncclUniqueId"
 // ProcessGroupNCCL.cpp, broadcastUniqueNCCLID（删节）
 if (!isSingleP2POp) {
   storeKey = std::to_string(ncclCommCounter_++);   // 第几个 communicator
@@ -157,7 +157,7 @@ if (rank_ == 0 || (isSingleP2POp && p2pRank == 0)) {
 
 `collective()` 的开头：
 
-```cpp
+```cpp title="collective() 开头：按 key 懒创建 communicator"
 const auto key = getKeyFromDevice(device);
 std::shared_ptr<NCCLComm> ncclComm = getNCCLComm(key);
 if (ncclComm == nullptr) {
@@ -173,7 +173,7 @@ if (ncclComm == nullptr) {
 
 `NCCLUtils.hpp` 的 `class NCCLComm` 包装 `ncclComm_t`，附带：`rank_`、`deviceIndex_`、`aborted_`、`ncclAsyncErr_`、`commFailureReason_`、`nonBlocking_`、`initialized_`、一把 mutex、已注册的内存段 `registeredSegmentHandles_`。核心方法：
 
-```cpp
+```cpp title="NCCLComm::create：非阻塞初始化"
 // NCCLUtils.cpp, NCCLComm::create（删节）
 comm->nonBlocking_ = config.blocking == 0;
 C10D_NCCL_CHECK_NONBLOCKING(
@@ -245,7 +245,7 @@ end event 默认用 `cudaEventDisableTiming` 创建（`WorkNCCL` 构造函数里
 
 `initNCCLComm` 里：
 
-```cpp
+```cpp title="initNCCLComm：从 pool 取内部 stream"
 bool force_high = getCvarBool(TORCH_NCCL_HIGH_PRIORITY, false);
 auto streamVal = at::cuda::getStreamFromPool(
     options_->is_high_priority_stream || force_high);
@@ -295,7 +295,7 @@ flowchart TB
 
 `ProcessGroupNCCL::collective` 是所有集合通信的模板，`allreduce_impl` 只是往里传一个 lambda。把它的主干抽出来（删掉 Flight Recorder、nan check、profiler 相关的行）：
 
-```cpp
+```cpp title="ProcessGroupNCCL::collective 主干"
 // ProcessGroupNCCL.cpp, ProcessGroupNCCL::collective（删节）
 auto device = getDevice(inputs[0]);
 at::cuda::OptionalCUDAGuard gpuGuard(device);
@@ -338,7 +338,7 @@ return asyncOp ? work : nullptr;
 
 `syncStream` 只有两行：
 
-```cpp
+```cpp title="syncStream：record 再 block"
 void syncStream(at::Device& device, at::cuda::CUDAEvent& ncclEvent, at::cuda::CUDAStream& ncclStream) {
   ncclEvent.record(at::cuda::getCurrentCUDAStream(device.index()));
   ncclEvent.block(ncclStream);   // cudaStreamWaitEvent(ncclStream, event)
@@ -351,7 +351,7 @@ void syncStream(at::Device& device, at::cuda::CUDAEvent& ncclEvent, at::cuda::CU
 
 默认模式下 `ncclStream` 就是当前 stream，所以 NCCL kernel 与前后的计算 kernel 排在同一条队列里，天然有序：前面的 kernel 算完输入，NCCL kernel 归约，后面的 kernel 读结果。不需要 event，不需要 stash（tensor 的分配 stream 就是使用 stream，Caching Allocator 的规则自然满足），也不返回 `Work`。Python 侧：
 
-```python
+```python title="Python 侧：async_op 决定是否 wait"
 work = group.allreduce([tensor], opts)
 if async_op:
     return work
@@ -397,7 +397,7 @@ NCCL kernel "开始执行"还有一层：即使本 rank 的 NCCL stream 轮到�
 
 ### 4. `work.wait()` 等的是谁
 
-```cpp
+```cpp title="WorkNCCL::synchronizeStream"
 // ProcessGroupNCCL.cpp（删节）
 void ProcessGroupNCCL::WorkNCCL::synchronizeStream() {
   auto currentStream = at::cuda::getCurrentCUDAStream(device_.index());
@@ -469,7 +469,7 @@ PyTorch 的 CUDA Caching Allocator 按 stream 管理块：一个 tensor 在 stre
 
 但 `async_op=True` 让 tensor 被另一条 stream（NCCL stream）使用。考虑：
 
-```python
+```python title="跨 stream 的 use-after-free 例子"
 t = torch.randn(N, device="cuda")          # 在当前 stream 分配
 work = dist.all_reduce(t, async_op=True)    # NCCL stream 将读写 t
 del t                                       # 引用归零，块回到当前 stream 的空闲池
@@ -491,7 +491,7 @@ u.fill_(0)                                  # 当前 stream 上的 kernel，与 
 
 用上一节那段代码的时间线对比两种情况（横轴是时间，`[...]` 是 GPU 上实际执行的 kernel，CPU 一行是入队顺序）：
 
-```text
+```text title="无保护与 stash 保护下的时间线"
 无保护：del t 让块立刻回池，u 拿到同一地址
 CPU          randn  all_reduce  del t   empty(u)  fill_(u)
                                   ▲ 引用归零 → 块回当前 stream 空闲池 → u 复用
@@ -555,7 +555,7 @@ $$
 
 ### 3. 重叠杀手清单
 
-```text
+```text title="重叠杀手清单"
 杀手                       机制                                                    表现
 ─────────────────────────────────────────────────────────────────────────────────────────────────
 .item() / .cpu() /         cudaMemcpy 到 pageable 内存 = 当前 stream 同步 + CPU 阻塞    CPU 停在这一行，GPU 队列跑空；
@@ -576,7 +576,7 @@ Caching Allocator 那一行需要解释。`c10/cuda/CUDACachingAllocator.cpp` �
 
 `torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])` 导出的 Chrome trace 里，每条 CUDA stream 一行，kernel 按 stream 分行显示。要检查的东西：
 
-```text
+```text title="profiler trace 里要检查的三件事"
 1. NCCL kernel 在哪一行     名字以 ncclDevKernel_ 开头（如 ncclDevKernel_AllReduce_Sum_f32_RING_LL），
                              它所在的 stream id 应与 GEMM 不同；同一行说明 async_op 没生效或走了同步模式
 2. 时间轴上是否重叠          NCCL kernel 的 [start, end] 与 GEMM kernel 的 [start, end] 有交集才算重叠；
@@ -596,7 +596,7 @@ Caching Allocator 那一行需要解释。`c10/cuda/CUDACachingAllocator.cpp` �
 
 PyTorch 提供两级合并。`dist.all_reduce_coalesced(tensors)`（已标 deprecated，推荐用 `_coalescing_manager`）对应 `ProcessGroupNCCL::allreduce_coalesced` → `collectiveCoalesced`，一次 `WorkNCCL`、一次 event、一个 `ncclGroupStart/End` 里若干次 `ncclAllReduce`：
 
-```cpp
+```cpp title="collectiveCoalesced：一个 ncclGroup 里若干次 ncclAllReduce"
 // ProcessGroupNCCL.cpp, collectiveCoalesced（删节）
 {
   torch::cuda::nccl::AutoNcclGroup nccl_group_guard(comm, useNonblocking());
@@ -609,7 +609,7 @@ work->ncclEndEvent_->record(ncclStream);
 
 `_coalescing_manager` 是 Python 侧的上下文管理器：
 
-```python
+```python title="_coalescing_manager 的用法"
 with dist._coalescing_manager(group, async_ops=True) as cm:
     for t in tensors:
         dist.all_reduce(t)       # 不发出，只记到 _world.pg_coalesce_state[group]
@@ -636,7 +636,7 @@ Table: 独立 all_reduce、coalesced 与 bucket 的对比
 
 `dist.all_reduce(t)` 是 in-place 的、有副作用的、返回一个不透明 `Work`；`torch.compile` 的 tracer 处理不了这三点：它要求算子是函数式的（输入不变、输出是新 tensor）、依赖通过数据流表达而不是通过 `Work` 句柄。`torch/distributed/_functional_collectives.py` 提供了这套函数式版本：
 
-```python
+```python title="_functional_collectives 的函数式 all_reduce"
 from torch.distributed import _functional_collectives as fcol
 y = fcol.all_reduce(x, "sum", group)   # 不修改 x，返回新 tensor（或 AsyncCollectiveTensor）
 z = y * 2                               # 首次使用时自动 wait
@@ -711,7 +711,7 @@ flowchart TB
 
 `Watchdog::runLoop` 对 `workMetaList_` 里每个未完成的 work 依次做：
 
-```cpp
+```cpp title="Watchdog::runLoop 对每个 work 做的检查"
 // ProcessGroupNCCL.cpp, Watchdog::runLoop（删节）
 work.checkAndSetException();                    // ncclCommGetAsyncError：NCCL 后台报错了吗
 bool timedout = !work.exception() && work.checkTimeout();   // steady_clock::now() - workStartTime_ >= opTimeout_
@@ -732,7 +732,7 @@ if (work.isCompleted()) { /* 转移 shelf、更新 lastCompletedSeq、Flight Rec
 
 ### 3. 超时之后：`TORCH_NCCL_ASYNC_ERROR_HANDLING` 的四种模式
 
-```cpp
+```cpp title="ErrorHandlingMode 的四种模式"
 enum ErrorHandlingMode {
   NoHandling = 0,   // 不处理异步错误，watchdog 只清理完成的 work
   TearDown = 1,     // abort communicator，然后 rethrow 让进程退出
@@ -762,7 +762,7 @@ watchdog 自己会 hang。它每轮调 `cudaEventQuery`（`finishedGPUExecutionI
 
 所以一个 hang 的完整时间线是：集合通信入队 → 10 分钟（`timeout`）后 watchdog 报超时 → 广播 dump 信号、sleep 约 60 秒 → 抛异常进程退出；如果 watchdog 自己也卡了，再等最多 8 分钟由 heartbeat monitor 强杀。按默认配置把这条时间线摊开：
 
-```text
+```text title="一个 hang 的默认时间线"
 t = 0        主线程 workEnqueue(work)，workStartTime_ = now
    │           GPU 上 NCCL kernel 自旋等 peer，没有任何错误可报
    │         watchdog 每 100 ms：checkAndSetException / checkTimeout / isCompleted
@@ -787,7 +787,7 @@ t + 8 min    HeartbeatMonitor 判定 watchdog 卡死 → dump + C++ 栈 → abor
 
 以下变量名均在 2.12 的 `ProcessGroupNCCL.hpp` 的 `static std::vector<std::string> TORCH_NCCL_*` 声明中核对过（最后两个例外，见备注），默认值取自 `ProcessGroupNCCL.cpp` 里对应的 `getCvarBool/getCvarInt` 调用：
 
-```text
+```text title="TORCH_NCCL_* 环境变量速查"
 变量                                        默认            作用
 ──────────────────────────────────────────────────────────────────────────────────────────────
 TORCH_NCCL_BLOCKING_WAIT                    0               wait() 阻塞 CPU 轮询；不启 watchdog
@@ -869,7 +869,7 @@ vLLM v0.23.0 的 `vllm/distributed/device_communicators/pynccl_wrapper.py` 用 `
 
 框架这一层出问题时先看这些：
 
-```text
+```text title="排障检查项"
 现象：重叠没发生
   □ profiler 里 NCCL kernel 与计算 kernel 是否在不同 stream 行；同一行 → async_op 没开或用了同步模式
   □ 两者之间 CPU 行上有没有 cudaStreamSynchronize / cudaDeviceSynchronize / 非 Async 的 cudaMemcpy / cudaFree
@@ -927,7 +927,7 @@ Table: 本篇涉及的源码与工具位置
 
 关键实现：
 
-```python
+```python title="comm-probe/overlap_bench.py 关键实现"
 # comm-probe/overlap_bench.py（节选，约 110 行；完整脚本另附）
 import argparse, os, time
 import torch, torch.distributed as dist
@@ -1025,7 +1025,7 @@ if __name__ == "__main__":
 
 运行方式：
 
-```bash
+```bash title="overlap_bench.py 的五种 killer 运行方式"
 torchrun --nproc_per_node=8 overlap_bench.py --killer none
 torchrun --nproc_per_node=8 overlap_bench.py --killer item
 torchrun --nproc_per_node=8 overlap_bench.py --killer early_wait

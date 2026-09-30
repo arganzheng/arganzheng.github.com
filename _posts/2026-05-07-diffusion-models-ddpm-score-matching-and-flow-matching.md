@@ -95,7 +95,7 @@ $$
 
 本文的数据：4000 个二维点，排成两个交错的月牙（scikit-learn 的 `make_moons`），归一到 $$[-1, 1]$$ 附近。对同一批点按闭式加噪到不同的 $$t$$：
 
-```text
+```text title="不同 t 下 ᾱ_t 与信号 / 噪声系数"
 t =    0: ᾱ_t = 0.9999，信号系数 sqrt(ᾱ) = 1.000，噪声系数 sqrt(1−ᾱ) = 0.010
 t =  100: ᾱ_t = 0.8951，信号系数 sqrt(ᾱ) = 0.946，噪声系数 sqrt(1−ᾱ) = 0.324
 t =  300: ᾱ_t = 0.3940，信号系数 sqrt(ᾱ) = 0.628，噪声系数 sqrt(1−ᾱ) = 0.778
@@ -107,7 +107,7 @@ t =  999: ᾱ_t = 0.0000，信号系数 sqrt(ᾱ) = 0.006，噪声系数 sqrt(1�
 
 $$t = 100$$ 还看得出月牙，$$t = 300$$ 只剩大致的两团，$$t = 600$$ 以后与纯噪声无法区分。再验算闭式解：对同一个点 $$x_0 = (1.0, -0.5)$$ 复制 2 万份，一份逐步加噪 1000 次、一份用闭式一步到位：
 
-```text
+```text title="逐步加噪 1000 次与闭式一步的对照"
 逐步 1000 次：均值 [ 0.004 -0.004]，标准差 [1.011 1.001]
 闭式一步：  均值 [0.015 0.002]，标准差 [1.001 1.001]
 理论：均值 sqrt(ᾱ_T) x_0 = [ 0.006 -0.003]，标准差 sqrt(1−ᾱ_T) = 1.000  → 几乎就是 N(0, I)
@@ -188,7 +188,7 @@ $$
 
 采一张图 $$x_0$$、一个 $$t \sim \text{Uniform}\{1..T\}$$、一个 $$\epsilon$$，算 $$x_t$$，让网络从 $$(x_t, t)$$ 预测 $$\epsilon$$，MSE。就这么简单：
 
-```python
+```python title="ddpm_loss：训练算法四行"
 def ddpm_loss(model, x0):
     t = torch.randint(0, T, (len(x0),))                                   # ① 每个样本随机抽一个时间步
     eps = torch.randn_like(x0)                                            # ② 抽一份噪声
@@ -198,7 +198,7 @@ def ddpm_loss(model, x0):
 
 `model` 是任何"输入与输出同形状、外加一个时间 $$t$$"的网络：图片用 U-Net 或 DiT（第八篇），本文的二维 toy 用一个四层 MLP（时间 $$t$$ 编码成 16 维的正弦余弦向量拼在输入上，与 Transformer 的位置编码同款）。12000 步、每步 512 个点，CPU 上 30 秒：
 
-```text
+```text title="toy DDPM 的训练 loss 与各 t 的预测误差"
 step  3000  loss 0.2205
 step 12000  loss 0.2110
 t =  50：预测噪声的 MSE 0.662
@@ -217,7 +217,7 @@ t = 990：预测噪声的 MSE 0.000
 
 从 $$x_T \sim \mathcal{N}(0, I)$$ 开始，每步 $$x_{t-1} = \mu_\theta(x_t, t) + \sigma_t z$$，$$z \sim \mathcal{N}(0, I)$$，1000 步：
 
-```python
+```python title="ddpm_sample：1000 步反向采样"
 @torch.no_grad()
 def ddpm_sample(model, n):
     x = torch.randn(n, 2)                                                 # ① 从纯噪声出发
@@ -232,7 +232,7 @@ def ddpm_sample(model, n):
 
 ![六张散点图：t = 999 与 600 是圆形的噪声云；t = 300 云开始变扁；t = 150 隐约出现两个弧；t = 50 两个月牙已清晰但边缘发毛；t = 0 是两个干净的月牙](/img/in-post/multimodal-06-reverse-sampling.svg)
 
-```text
+```text title="生成样本到最近真实点的距离"
 2000 个生成样本到最近真实数据点的平均距离 0.021（真实数据点彼此之间约 0.014）
 ```
 
@@ -254,7 +254,7 @@ $$
 
 $$\sigma_t = \eta \sqrt{\tilde\beta_t}$$。$$\eta = 1$$ 回到 DDPM（随机）；$$\eta = 0$$ **没有随机项**——给定 $$x_T$$，整条轨迹确定。直觉：先用 $$\epsilon_\theta$$ 估出 $$\hat x_0$$（把闭式解 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$ 反解出 $$x_0$$），再按 $$t - 1$$ 的噪声水平重新"加噪"到 $$x_{t-1}$$——但用的是**预测的**噪声方向而不是新采的。代码里就是两行：
 
-```python
+```python title="DDIM 一步：先估 x̂_0 再重新加噪"
 x0_hat = (x - (1 - abar[t]).sqrt() * eps) / abar[t].sqrt()           # ① 先估 x̂_0
 x = abar[s].sqrt() * x0_hat + (1 - abar[s]).sqrt() * eps                # ② 按下一个时间步 s 的噪声水平「重新加噪」，用预测的方向（η = 0）
 ```

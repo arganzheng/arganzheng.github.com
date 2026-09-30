@@ -91,7 +91,7 @@ $$
 
 后验均值等于观测加 $$\sigma^2$$ 倍的分数——"最好的去噪结果 = 带噪点沿分数方向走 $$\sigma^2$$ 那么远"。用 toy 验算（$$t = 300$$，DDPM 的记号里 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sigma_t \epsilon$$，所以走完还要除以 $$\sqrt{\bar\alpha_t}$$）：
 
-```text
+```text title="Tweedie 公式的 toy 验算"
 真实 x_0 = [-0.45 -0.17]，带噪 x_t = [ 0.81 -1.31]，x_t + σ²·s 再除以 √ᾱ = [ 0.53 -0.85]
 ```
 
@@ -139,7 +139,7 @@ $$
 
 读法：随机抽一个数据点 $$x_0$$、一个噪声点 $$\epsilon$$、一个时刻 $$t$$，在两点连线的 $$t$$ 处取 $$x_t$$，让网络在 $$(x_t, t)$$ 输出这条线的方向 $$\epsilon - x_0$$。代码与上篇的 `ddpm_loss` 几乎一样，只是 $$x_t$$ 的算法与目标换了：
 
-```python
+```python title="fm_loss：flow matching 的训练目标"
 def fm_loss(model, x0):
     t = torch.rand(len(x0))                                                    # ① t ~ U[0, 1]（0 = 数据，1 = 噪声）
     eps = torch.randn_like(x0)
@@ -171,13 +171,13 @@ $$
 
 采样是解 ODE。ODE 的轨迹越直，Euler 法一步走得越远、误差越小——一条直线一步就能走完，一条弯路必须分很多小段。flow matching 的**条件**路径是直线，但**边缘**速度场（多条直线的平均）不一定直——训练时 $$x_0$$ 与 $$\epsilon$$ 是随机配对的，两条相交的直线在交点处方向不同，网络只能输出它们的平均，轨迹就在那里拐弯。toy 上把 12 个噪声起点的轨迹画出来，用"弦长 / 路径长"量直线度（1 = 完全直）：
 
-```text
+```text title="DDIM 与 flow matching 轨迹的直线度"
 同一批 12 个噪声起点：DDIM（DDPM 模型）轨迹的直线度 0.74，flow matching 轨迹 0.49（1 = 完全直）
 ```
 
 flow matching 的轨迹**比 DDIM 的还弯**——随机配对的代价。Rectified flow 的 **reflow** 操作修的就是它：用训好的模型从噪声生成样本，得到新的 $$(\epsilon, x_0)$$ 配对——它们由 ODE 轨迹连接、彼此不相交——在这些固定的配对上重训一轮：
 
-```text
+```text title="reflow 一轮后的直线度"
 reflow 一轮后同一批起点的轨迹直线度 1.00
 ```
 
@@ -235,7 +235,7 @@ $$
 
 在 toy 上做一遍：条件 $$c$$ 是"上面的月牙 / 下面的月牙"（两类），训练时 15% 的样本把 $$c$$ 换成 $$\emptyset$$，采样时每步两次前向：
 
-```python
+```python title="CFG：训练时丢条件、采样时两次前向"
 c = torch.where(torch.rand(len(y)) < 0.15, torch.full_like(y, 2), y)          # 训练：15% 的概率把条件换成 ∅（编号 2）
 
 v_c, v_0 = model(x, t, cc), model(x, t, nul)                                  # 采样：有条件、无条件各算一次
@@ -244,7 +244,7 @@ v = v_0 + w * (v_c - v_0)                                                      #
 
 指定"类 0"，扫 $$w$$：
 
-```text
+```text title="扫 guidance 权重 w 的结果"
 w = 0：条件「类 0」的 1500 个样本里落在类 0 一侧的 59.9%，样本坐标的标准差 0.827
 w = 1：95.1%，标准差 0.602
 w = 2：99.6%，标准差 0.459

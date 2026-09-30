@@ -424,7 +424,7 @@ Table: 公开在线 RL 配方
 
 `trl` 的 `GRPOTrainer` 把第五章第 1 节的目标函数封装成一个 trainer，用户只需要提供奖励函数：
 
-```python
+```python title="trl 的 GRPOTrainer 骨架"
 from trl import GRPOTrainer, GRPOConfig
 
 def rm_reward(prompts, completions, **kw):          # 第二篇的 RM：返回每条回答一个分

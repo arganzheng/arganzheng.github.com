@@ -24,7 +24,7 @@ updated: 2026-09-14
 
 先把"最后一步"画清楚。第六篇的 forward 结束在 `hidden_states`；接下来是：
 
-```text
+```text title="从 hidden_states 到采样的最后一步"
 hidden_states [num_tokens, hidden]
       │  只取每个请求最后一个位置（logits_indices）
       ▼
@@ -90,7 +90,7 @@ Table: 本文的章节安排
 
 `Sampler`（`vllm/v1/sample/sampler.py`）的 docstring 把顺序写得很清楚，这里按它的编号照抄骨架：
 
-```python
+```python title="sampler.py：Sampler 的流水线顺序"
 # vllm/v1/sample/sampler.py（docstring 顺序，代码略去分支）
 class Sampler(nn.Module):
     """
@@ -157,7 +157,7 @@ flowchart TB
 
 `LogitsProcessor`（`vllm/v1/sample/logits_processor/interface.py`）只有四个方法：
 
-```python
+```python title="interface.py：LogitsProcessor 的四个方法"
 # vllm/v1/sample/logits_processor/interface.py
 class LogitsProcessor(ABC):
     def __init__(self, vllm_config, device, is_pin_memory): ...
@@ -168,7 +168,7 @@ class LogitsProcessor(ABC):
 
 关键在 `update_state()` 的参数 `BatchUpdate`：
 
-```python
+```python title="BatchUpdate dataclass"
 @dataclass(frozen=True)
 class BatchUpdate:
     batch_size: int
@@ -209,7 +209,7 @@ Table: 内置三个 LogitsProcessor 的状态组织
 
 penalties 不是 `LogitsProcessor`，而是流水线里一段硬编码的步骤（`Sampler.apply_penalties()` → `apply_all_penalties()`，`vllm/v1/sample/ops/penalties.py` → `apply_penalties()`，`vllm/model_executor/layers/utils.py`）。它做的事很直白：
 
-```python
+```python title="utils.py：apply_penalties 的实现"
 # vllm/model_executor/layers/utils.py（简化）
 def apply_penalties(logits, prompt_tokens_tensor, output_tokens_tensor,
                     presence_penalties, frequency_penalties, repetition_penalties):
@@ -256,7 +256,7 @@ Table: 不同采样参数的成本形态
 
 答案是三个角色加两处约束：
 
-```text
+```text title="投机解码在 vLLM 里改的三个角色"
 Proposer（vllm/v1/spec_decode/）        ── 产出 draft_token_ids（可选 draft_probs）
         │
         ▼
@@ -301,7 +301,7 @@ Table: 投机解码 proposer 的家族
 
 第四篇讲 `schedule()` 时反复出现的 `num_tokens_with_spec`，在这里终于落地：
 
-```text
+```text title="num_tokens_with_spec 的定义"
 num_tokens_with_spec = len(prompt_token_ids) + len(output_token_ids) + len(spec_token_ids)
 ```
 
@@ -309,7 +309,7 @@ num_tokens_with_spec = len(prompt_token_ids) + len(output_token_ids) + len(spec_
 
 **① 把 draft 算进 token 预算。** `num_new_tokens = num_tokens_with_spec + num_output_placeholders - num_computed_tokens`，普通 decode 是 1，带 K 个 draft 就是 `1+K`。它和 prefill chunk 一样受 `token_budget` 约束，所以当预算紧张时 draft 会被**截断**：
 
-```python
+```python title="Scheduler.schedule()：draft 进预算并可截断"
 # Scheduler.schedule()（简化）
 if request.spec_token_ids:
     num_scheduled_spec_tokens = (num_new_tokens + request.num_computed_tokens
@@ -330,7 +330,7 @@ if request.spec_token_ids:
 
 **③ step 之后按接受数回滚。** `update_from_output()` 里：
 
-```python
+```python title="update_from_output()：按接受数回滚"
 num_draft_tokens = len(scheduled_spec_token_ids)
 num_accepted = max(len(generated_token_ids) - num_sampled, 0)   # 减掉 bonus
 num_rejected = num_draft_tokens - num_accepted
@@ -341,7 +341,7 @@ request.num_computed_tokens -= num_rejected                    # 被拒的位置
 
 用一个请求连续两步的 KV 槽位把这件事画出来（K=3，第一步接受 1 个、拒绝 2 个）：
 
-```text
+```text title="连续两步的 KV 槽位（K=3）"
 step t   调度前 num_computed_tokens = N，draft = [d1 d2 d3]
   slot        N      N+1    N+2    N+3    N+4    N+5
             +------+------+------+------+------+------+
@@ -382,7 +382,7 @@ step t+1  num_new_tokens = 1 + 3，slot_mapping 从 N+2 开始
 
 调度器交出的 `SchedulerOutput.scheduled_spec_decode_tokens` 在 model runner 里变成 `SpecDecodeMetadata`（`vllm/v1/spec_decode/metadata.py`）。`GPUModelRunner._calc_spec_decode_metadata()` 的注释自带一个例子，照抄：
 
-```python
+```python title="_calc_spec_decode_metadata 注释里的例子"
 # Inputs:
 # cu_num_scheduled_tokens:  [  4, 104, 107, 207, 209]   ← 5 个请求，本步各调度 4/100/3/100/2 个 token
 # num_draft_tokens:         [  3,   0,   2,   0,   1]   ← 请求 0 带 3 个 draft，请求 1 和 3 在 prefill
@@ -397,7 +397,7 @@ step t+1  num_new_tokens = 1 + 3，slot_mapping 从 N+2 开始
 
 **这一步和 CUDA graph 的关系**是本章最容易被忽略的约束。第六篇讲 `FULL_AND_PIECEWISE` 时说"纯 decode batch 形状规则、可以按 batch size 分桶录图"——投机解码把"规则"的定义改了：
 
-```python
+```python title="gpu_model_runner.py：uniform_decode_query_len"
 # vllm/v1/worker/gpu_model_runner.py
 self.uniform_decode_query_len = 1 + self.num_spec_tokens
 
@@ -418,7 +418,7 @@ def _is_uniform_decode(max_num_scheduled_tokens, uniform_decode_query_len, num_t
 
 `RejectionSampler`（`vllm/v1/sample/rejection_sampler.py`）的 docstring 先给了术语表：**accepted tokens**（按 draft/target 概率比接受的）、**recovered tokens**（拒绝后从修正分布采出的）、**bonus tokens**（全部接受后额外的一个，用普通 `Sampler` 采）、**output tokens = accepted + recovered + bonus**。`forward()` 分四步：
 
-```python
+```python title="RejectionSampler.forward() 的四步"
 # RejectionSampler.forward()（简化）
 bonus_logits  = logits[metadata.bonus_logits_indices]            # [batch, V]
 bonus_token_ids = self.sampler(bonus_logits, sampling_metadata, predict_bonus_token=True)
@@ -458,7 +458,7 @@ output_token_ids = rejection_sample(metadata.draft_token_ids, metadata.num_draft
 
 **"验证几乎免费"的边界在哪里？** 一步 decode 的时间约等于 `max(权重读取时间, 计算时间)`。每张卡 17.6 GB 权重、3.35 TB/s → 读取 5.3 ms；每 token 每卡的计算量约 `2 × 8.75 GFLOP`，H100 BF16 稠密 989 TFLOPS。两者相等时的 token 数：
 
-```text
+```text title="权重读取与计算相等的 T_ridge"
 T_ridge ≈ (989e12 FLOP/s × 2 B/param) / (2 × 3.35e12 B/s) ≈ 295 token / 步 / 卡
 ```
 
@@ -508,7 +508,7 @@ Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 
 结构化输出（`SamplingParams.structured_outputs`，支持 `json` / `json_object` / `regex` / `choice` / `grammar` / `structural_tag`，对应 `StructuredOutputOptions` 枚举）看起来只是"采样时把不合法 token 屏蔽掉"，但它在请求生命周期上分布在四个位置：
 
-```text
+```text title="结构化输出生效的四个位置"
 ① 前端（vllm/sampling_params.py: SamplingParams._validate_structured_outputs）
    校验请求、选后端：backend="auto" 时先试 xgrammar，不支持的 JSON schema 特性落到 guidance，
    非 tekken 的 Mistral tokenizer 落到 outlines
@@ -530,7 +530,7 @@ Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 
 第 ③ 步里有一个时序细节值得看 `EngineCore.step()`（`vllm/v1/engine/core.py`）：
 
-```python
+```python title="EngineCore.step()：forward 与 bitmask 重叠"
 scheduler_output = self.scheduler.schedule(...)
 future = self.model_executor.execute_model(scheduler_output, non_block=True)   # 先把 forward 发出去
 grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)          # GPU 在算 forward 时，CPU 填 bitmask
@@ -541,7 +541,7 @@ if model_output is None:
 
 **bitmask 的生成与 forward 是重叠的**。这是 V1 把 `execute_model` 和 `sample_tokens` 拆成两个 RPC 的原因之一——掩码不需要在 forward 之前就绪，只需要在采样之前就绪。两条时间线并排看：
 
-```text
+```text title="GPU worker 与 CPU 调度器的两条时间线"
 时间 --------------------------------------------------------------->
 
 GPU worker  |<--- execute_model(): forward --->|      |<- sample_tokens() ->|
@@ -563,7 +563,7 @@ CPU 调度器  | get_grammar_bitmask():           |      |
 
 `vllm/v1/structured_output/backend_types.py` 定义了两层：
 
-```python
+```python title="backend_types.py：后端抽象的两层"
 @dataclass
 class StructuredOutputBackend(ABC):                 # 引擎级，一个引擎只有一个
     def compile_grammar(self, request_type: StructuredOutputOptions, grammar_spec: str) -> StructuredOutputGrammar
@@ -596,7 +596,7 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 
 重排这一步用一个三请求的 batch 画出来。A 不用结构化输出但带 1 个 draft，B 用 JSON 约束、没有 draft，C 用 JSON 约束、带 2 个 draft；调度器按 `structured_output_request_ids = [C, B]` 的顺序填，worker 的 logits 却按 `req_ids = [A, B, C]` 排：
 
-```text
+```text title="三请求 batch 的 bitmask 重排"
 调度器侧 GrammarOutput.bitmask    worker 侧：按 logits 行重排后的 bitmask
 行序 = [C, B]                     行序 = req_ids = [A, B, C]
 每行 4008 x int32 = 16 KB         每请求占 1 + num_drafts 行
@@ -631,7 +631,7 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 
 用一个最小的例子把"FSM 状态 ↔ 掩码行"的对应画出来。grammar 是 `{"n": <整数>}`，请求已经输出了 `{"n":`，draft 是 `[4, 2, }]`（K=3）：
 
-```text
+```text title="FSM 状态与掩码行的对应（K=3）"
 FSM 状态 / 当前允许什么       grammar_bitmask() 动作     bitmask 行 (bit=1 允许)
 ---------------------------  -------------------------  ------------------------
 S0  刚输出 {"n":              fill_bitmask(row 0) ---->  row 0: 数字类 token = 1
@@ -691,7 +691,7 @@ Table: 结构化输出的代价
 
 把三章的内容按一步（`EngineCore.step()`）的时间轴排开，投机解码 + 结构化输出 + penalties 同时开启时是这样：
 
-```text
+```text title="一步之内的顺序：投机 + 结构化 + penalties"
 Scheduler.schedule()
   ├─ num_new_tokens = 1 + K（draft 进预算，预算不够则截断 K）
   ├─ allocate_slots(..., num_lookahead_tokens=K)

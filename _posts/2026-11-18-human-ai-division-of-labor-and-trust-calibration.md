@@ -32,7 +32,7 @@ flowchart TB
 ```
 
 
-```text
+```text title="信任校准的四象限"
               用户的信任
                  ↑
    过度信任      │      校准

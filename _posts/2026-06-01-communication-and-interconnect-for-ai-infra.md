@@ -196,7 +196,7 @@ $$
 
 第四篇是全系列的中心。它沿着一次 `ncclAllReduce` 从初始化到 kernel 结束的完整路径，讲 NCCL 如何把前三篇的硬件能力组织成一次集合通信：
 
-```text
+```text title="一次 ncclAllReduce 的完整路径与对应源码文件"
 ncclCommInitRank
   bootstrap        TCP 交换地址，所有 rank 互相认识                    src/bootstrap.cc
   topo detect      读 /sys 与 NVML，建出 GPU/NIC/PCIe/CPU 的树         src/graph/xml.cc · topo.cc
@@ -354,7 +354,7 @@ Table: comm-probe 逐篇生长的工具
 
 与它平行的源码阅读线（NCCL 以 2.28.9 的源码树为准；2.29 起 `transport/net_ib.cc` 拆为目录，更新版本的目录调整随文标注）：
 
-```text
+```text title="与实践线平行的源码阅读线"
 第一篇    nccl-tests  src/all_reduce.cu · src/common.cu（algbw / busbw 的计算）
 第二篇    NCCL  src/graph/xml.cc · src/graph/topo.cc · src/graph/paths.cc（拓扑的发现与路径带宽）
 第三篇    NCCL  src/transport/net_ib.cc · src/misc/ibvwrap.cc · src/misc/gdrwrap.cc（verbs 与 GDRCopy 的封装）

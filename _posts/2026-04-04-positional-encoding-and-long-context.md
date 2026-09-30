@@ -159,7 +159,7 @@ $$
 
 两种配对的维度布局对照如下（$$d_{head} = 128$$，第 $$i$$ 对共用同一个 $$\theta_i$$）：
 
-```text
+```text title="RoPE 两种维度配对的布局对照"
 原论文（相邻配对）  第 i 对 = (x_2i, x_2i+1)
   x0 x1 | x2 x3 | x4 x5 | ... | x126 x127
   └─┬─┘   └─┬─┘   └─┬─┘         └───┬────┘
@@ -194,7 +194,7 @@ $$
 
 代入 $$d_{head} = 128$$（Llama、Mistral、Qwen、DeepSeek 的 RoPE 头都是 128 或 64 维，前者更普遍），base 分别取 10000（原论文、Llama 2、Mistral 7B）和 500000（Llama 3）：
 
-```text
+```text title="各维度对的波长：base 10000 与 500000"
                       base = 10000                     base = 500000
  i     theta_i        wavelength lambda_i      theta_i        wavelength lambda_i
  0     1.000e+00           6.28                1.000e+00           6.28
@@ -230,7 +230,7 @@ $$
 
 把几个代表性维度对在训练（8K）与推理（32K）下扫过的相位范围画在同一把 0°–360° 的尺子上（base 10000，每格 15°；满格表示至少转完一圈、全部相位见过）：
 
-```text
+```text title="训练 8K 与推理 32K 各维度对扫过的相位"
 维度对          场景       0°  转过的相位（每格 15°）  360°
 i=48  λ=6283    训练 8K    [########################]  1.30 圈，全相位见过
                 推理 32K   [########################]  5.2 圈，没有新相位
@@ -337,7 +337,7 @@ YaRN 在 Llama 2 上以 factor 16、约 400 步微调扩到 64K，比 PI 需要�
 
 Llama 3.1 的 `config.json` 里 `rope_scaling` 是：
 
-```json
+```json title="Llama 3.1 的 rope_scaling 配置"
 {
   "rope_type": "llama3",
   "factor": 8.0,
@@ -367,7 +367,7 @@ $$
 
 DeepSeek-V3 的 `config.json`：
 
-```json
+```json title="DeepSeek-V3 的 YaRN 配置"
 {
   "rope_scaling": {
     "type": "yarn",
@@ -441,7 +441,7 @@ Table: 五种位置编码从 Infra 维度的对照
 
 Llama-3-8B 的权重 GEMM 部分每 token $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs（embedding 查表不算 GEMM，lm_head 算）。attention 部分每层 $$4 \times 4096 \times s = 16384\,s$$，32 层 $$0.524 \times 10^6 \cdot s$$ FLOPs：
 
-```text
+```text title="attention 算量占比随上下文变化"
                       Llama-3-8B                       Llama-3-70B
 上下文 s      attention/token   占比           attention/token   占比
   8192          4.3 GFLOPs      22.2%            21.5 GFLOPs     13.2%
@@ -522,7 +522,7 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第四章的问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
 
-```text
+```text title="StreamingLLM：cache 槽与 RoPE 位置"
 原始位置   0   1   2   3 | 4 … 9996 | 9997 9998 9999 10000 10001 10002 | 10003
            └ sink 保留 ┘   └ 已丢弃┘  └─────── 窗口 W=6 ─────────────┘ 新 token
 cache 槽   0   1   2   3               4    5    6     7     8     9
@@ -544,7 +544,7 @@ RoPE 位置  0   1   2   3               4    5    6     7     8     9      10
 
 以每层每 token 的 KV 字节 $$b$$、模型层数 $$L$$、上下文 $$s$$、窗口 $$W$$、全局层占比 $$1/k$$、稀疏度 $$\rho$$ 表示：
 
-```text
+```text title="五种手段的 KV cache 与算量函数"
 手段                    KV cache（每请求）                   attention 算量（每 token）
 full attention          b · L · s                            4 d L · s
 sliding window (W)      b · L · min(s, W)                    4 d L · min(s, W)
@@ -568,7 +568,7 @@ MLA（DeepSeek-V3）      (d_c + d_h^R) · L · s（系数减 57 倍） 与 full
 
 **chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi-Serve，Agrawal 等 2023；vLLM 与 SGLang 默认启用）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。两种调度下同一段时间内 GPU 上发生的事对比如下（P = 128K 请求的 prefill，D = 已在 decode 的请求各出一个 token）：
 
-```text
+```text title="不分块与 chunked prefill 的时间轴"
 时间 →      0 s                                     11 s
 不分块      [PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP][D][D][D][D]…
 decode 请求  ←──────── 停顿 11 s，没有新 token ────────→ 恢复，每步几十 ms
@@ -588,7 +588,7 @@ decode 请求  每步都出 token，步长略增（batch 里多了一个 compute
 
 按 HF 的 rotate_half 布局实现，并检查 $$q_m \cdot k_n$$ 与 $$q_{m+t} \cdot k_{n+t}$$ 相等：
 
-```python
+```python title="NumPy 实现 RoPE 并验证相对性"
 import numpy as np
 
 def rope_inv_freq(head_dim, base=10000.0):
@@ -634,7 +634,7 @@ print(f"closed form     = {closed:+.6f}")
 
 输出：
 
-```text
+```text title="RoPE 相对性验证的输出"
 q_100  . k_37   = +2.210451
 q_5100 . k_5037 = +2.210451   diff = 1.2e-12
 q_100  . k_38   = +2.006575   (相对距离 62，应当不同)
@@ -645,7 +645,7 @@ closed form     = +2.210451
 
 ### 2. 波长表与三种缩放方法扰动后的频率
 
-```python
+```python title="三种缩放方法扰动后的频率"
 d_head, L, factor = 128, 8192, 4
 base = 10000.0
 theta = rope_inv_freq(d_head, base)
@@ -676,7 +676,7 @@ print("YaRN 不动 / 混合 / 全插值 的对数:",
 
 输出：
 
-```text
+```text title="波长表与 PI / NTK / YaRN 频率输出"
 NTK base' = 40890, YaRN sqrt(1/t) = 1.1386
   i    lambda   r=L/lam      theta         PI        NTK       YaRN
   0       6.3   1303.80  1.000e+00  2.500e-01  1.000e+00  1.000e+00
@@ -699,7 +699,7 @@ YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 
 在第五、六、十篇脚本的骨架上新增 `context_scan(cfg, gpu, ctxs)`，输出"上下文长度 → KV cache、prefill FLOPs、attention 占比"：
 
-```python
+```python title="llm_cost.py：context_scan"
 from dataclasses import dataclass
 from typing import Optional
 
@@ -793,7 +793,7 @@ if __name__ == "__main__":
 
 输出：
 
-```text
+```text title="上下文长度扫描的输出"
 Llama-3-8B: KV 128.0 KiB/token, weights 15.0 GFLOPs/token
      ctx   KV cache      prefill  prefill@60%   attn/token attn share
     8192      1.0 G      0.14 PF       0.24 s       4.3 GF      22.2%
@@ -821,7 +821,7 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
 
 本篇算出的数字汇总（theoretical，BF16，H100 60% MFU）：
 
-```text
+```text title="本篇数字汇总：三个模型的位置编码与长上下文成本"
                               Llama-3-8B        Llama-3-70B       DeepSeek-V3
 RoPE base                     500000            500000            10000 (+YaRN ×40)
 d_head (RoPE 维度)            128               128               64 (decoupled)

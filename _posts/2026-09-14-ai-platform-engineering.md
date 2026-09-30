@@ -25,7 +25,7 @@ catalog: true
 
 这个系列采用的组织方式就是这条因果链：**每一篇先说引擎提出了什么要求，再说平台用什么机制满足，再说这个机制的代价和边界**。
 
-```text
+```text title="系列的组织：资源层与交付层"
 资源层    容器里的 GPU    → 驱动 / CUDA 兼容矩阵、device plugin、DRA、镜像
           任务调度        → gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray
           GPU 切分        → MIG、时间片、MPS、HAMi：隔离与利用率的取舍
@@ -315,7 +315,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 与它平行的源码与文档阅读线。平台层的"源码"更多是 CRD 定义、Operator 的 reconcile 逻辑和官方设计文档：
 
-```text
+```text title="与实践线平行的源码与文档阅读线"
 第二篇    k8s-device-plugin  cmd/nvidia-device-plugin · api/config/v1；kubernetes  KEP-4381（DRA structured parameters）
 第三篇    kueue  apis/kueue/v1beta2 · pkg/scheduler；volcano  pkg/scheduler/plugins/gang；trainer  pkg/runtime
 第四篇    k8s-device-plugin  internal/rm（MIG 与 sharing 的资源上报）；HAMi  pkg/scheduler · libvgpu 的拦截点

@@ -124,7 +124,7 @@ flowchart TB
 
 下面是 MoE 层的循环版参考实现，只为说明数据流；生产实现（vLLM 的 fused MoE kernel、Megatron 的 grouped GEMM）会把所有专家的计算合并成一个 grouped GEMM，第六章解释为什么：
 
-```python
+```python title="MoE 层的循环版参考实现"
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -287,7 +287,7 @@ $$\mathbb{E}[\text{激活专家数}] = E \cdot \left[1 - \left(1 - \frac{k}{E}\r
 
 $$B = 1$$ 时它等于 $$k$$（一个 token 恰好激活 $$k$$ 个）；$$B \to \infty$$ 时趋于 $$E$$。代入 DeepSeek-V3（$$E = 256$$，$$k = 8$$，$$1 - k/E = 0.96875$$）和 Mixtral（$$E = 8$$，$$k = 2$$，$$1 - k/E = 0.75$$）：
 
-```text
+```text title="期望激活专家数随 batch 变化"
 B         DeepSeek-V3 (E=256, k=8)      Mixtral (E=8, k=2)
           期望激活专家   占 E 比例        期望激活专家   占 E 比例
 1           8.0           3.1%           2.0           25%
@@ -326,7 +326,7 @@ Table: 不同 batch 下 DeepSeek-V3 每步读取的参数量
 
 现在可以完整回答核心问题：
 
-```text
+```text title="DeepSeek-V3 与 Llama-3-70B 的三个数"
                                    DeepSeek-V3            Llama-3-70B          两者之比
 参数量（决定显存）                    671B                   70.55B               9.5x
 激活参数量（决定 FLOPs/token）        37B                    70.55B               0.52x
@@ -376,7 +376,7 @@ attention 部分在 EP 下通常是数据并行的（每卡处理 batch 的一�
 
 用一个缩小的例子把 token、专家、卡三者的映射摆出来（EP4，$$E = 8$$，$$k = 2$$，每卡持有 2 个 token）：
 
-```text
+```text title="EP4 下 token、专家、卡的映射与 dispatch/combine"
            rank0        rank1        rank2        rank3
 持有专家    e0  e1       e2  e3       e4  e5       e6  e7
 持有 token  t0  t1       t2  t3       t4  t5       t6  t7
@@ -488,7 +488,7 @@ flowchart TB
 
 MoE 的 FFN 有两种切法。先看两种切法下权重与 token 各自怎么分布（4 个专家、4 张卡，$$f = d_{ff}$$）：
 
-```text
+```text title="TP-4 与 EP-4 两种切法的权重与 token 分布"
 TP-4：切矩阵。每卡持有所有专家的 1/4（W_gate/W_up 切列，W_down 切行）
 
            expert0     expert1     expert2     expert3
@@ -590,7 +590,7 @@ $$C = 1$$ 时容量恰好等于均匀分配下的平均行数；Switch Transform
 
 固定容量的动机是系统性的：训练框架希望每个专家的输入是一个形状固定的张量 $$[\text{capacity}, d]$$，这样 all-to-all 的缓冲区大小、GEMM 的形状在编译期就能确定，不需要动态分配。代价是两头浪费——欠载的专家要 padding 到 capacity，超载的专家要丢 token。以 DeepSeek-V3 prefill 4096 token、$$C = 1.25$$ 为例，每专家容量 160 行；若某个专家实际收到 200 行，40 行被丢弃（20%）；若只收到 80 行，另外 80 行是零填充，GEMM 的一半算力浪费。把几个专家的实际行数画在同一条容量线上：
 
-```text
+```text title="容量因子下各专家的 padding 与 drop"
 T = 4096, k = 8, E = 256：平均 Tk/E = 128 行；C = 1.25 -> capacity = 160 行
 每个字符 = 8 行：# 实际 token   . 零填充 padding   x 超出容量被 drop
 
@@ -625,7 +625,7 @@ EP 下一层的时间由最慢的那张卡决定——所有卡都要等 combine
 
 用 4 张卡的时间线看"谁在等谁"（每格 = 均衡时一个阶段的时间）：
 
-```text
+```text title="负载均衡与不均衡的 4 卡时间线"
 均衡（每专家都收到 Tk/E 行）：
 rank0-3     |disp|GEMM|comb|
             0    1    2    3                        全层 = 3 格
@@ -659,7 +659,7 @@ DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Pred
 
 在系列脚本 `llm_cost.py` 的 `ModelConfig` 上增加 MoE 字段，并增加四个函数：`moe_param_count`、`active_params`、`expected_active_experts`、`ep_all_to_all_bytes_per_layer`。为了让本篇代码独立可运行，把用到的 attention 参数函数（含 MLA）也一并给出：
 
-```python
+```python title="llm_cost.py：MoE 的四个函数"
 from dataclasses import dataclass
 from math import comb
 
@@ -810,7 +810,7 @@ if __name__ == "__main__":
 
 运行输出（节选）：
 
-```text
+```text title="MoE 支持的运行输出（节选）"
 == Mixtral-8x7B
   attention           1.342 B
   routed_experts     45.097 B
@@ -866,7 +866,7 @@ MoE 把 dense 模型里绑在一起的三个数拆开了：
 
 本篇算出的数字汇总：
 
-```text
+```text title="本篇数字汇总：Mixtral、DeepSeek-V3 与 Llama-3-70B"
                                  Mixtral 8x7B      DeepSeek-V3        Llama-3-70B（dense 对照）
 专家配置                          8 × 14336, top-2  256 × 2048, top-8  —
                                                     + 1 共享

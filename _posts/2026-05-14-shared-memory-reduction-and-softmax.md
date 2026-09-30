@@ -101,7 +101,7 @@ shared memory 是每个 SM 上的一块片上 SRAM，由该 SM 上正在运行�
 
 有两种声明方式。**静态**：大小在编译期确定。
 
-```cpp
+```cpp title="静态 shared memory：编译期大小"
 __global__ void k_static(const float* in, float* out) {
   __shared__ float tile[256];          // 1 KiB，编译期确定
   tile[threadIdx.x] = in[threadIdx.x];
@@ -112,7 +112,7 @@ __global__ void k_static(const float* in, float* out) {
 
 **动态**：大小在 launch 时通过 `<<<grid, block, smem_bytes>>>` 的第三个参数给出，kernel 内用 `extern __shared__` 声明一个不定长数组：
 
-```cpp
+```cpp title="动态 shared memory：extern __shared__"
 __global__ void k_dynamic(const float* in, float* out, int n) {
   extern __shared__ float buf[];       // 大小由 launch 第三参数决定
   for (int i = threadIdx.x; i < n; i += blockDim.x) buf[i] = in[i];
@@ -128,7 +128,7 @@ k_dynamic<<<1, 256, n * sizeof(float)>>>(in, out, n);
 
 默认情况下，一个 block 最多申请 48 KB shared memory（静态加动态）。要用更多，必须在 launch 之前对该 kernel opt-in：
 
-```cpp
+```cpp title="超过 48 KB 需要 cudaFuncSetAttribute opt-in"
 constexpr int kSmem = 96 * 1024;     // 96 KB，超过 48 KB 默认上限
 cudaFuncSetAttribute(k_dynamic,
                      cudaFuncAttributeMaxDynamicSharedMemorySize, kSmem);
@@ -149,7 +149,7 @@ A100 每个 SM 有 192 KB 的片上存储，由 shared memory 和 L1 data cache 
 
 `__syncthreads()` 是 block 级栅栏：block 内所有线程都到达这一点之后，任何线程才能继续；同时它保证在它之前的 shared memory 与 global memory 写入对 block 内所有线程可见。典型用法是"写 shared → sync → 读 shared"：
 
-```cpp
+```cpp title="写 shared → sync → 读 shared"
 tile[threadIdx.x] = in[i];   // 每个线程写自己的位置
 __syncthreads();             // 等所有人写完
 float v = tile[(threadIdx.x + 1) % blockDim.x];   // 读别人写的位置
@@ -161,7 +161,7 @@ float v = tile[(threadIdx.x + 1) % blockDim.x];   // 读别人写的位置
 
 **第一，所有线程都必须执行到同一个 `__syncthreads()`**。放在条件分支里、而分支条件在 block 内不一致，就是死锁或未定义行为：
 
-```cpp
+```cpp title="错误：__syncthreads() 放在不一致的分支里"
 // 错误：部分线程永远到不了这个栅栏
 if (threadIdx.x < 128) {
   tile[threadIdx.x] = in[threadIdx.x];
@@ -176,7 +176,7 @@ __syncthreads();
 
 **第二，sync 是有代价的**。每次 `__syncthreads()` 都让 block 内先到的 warp 空转，等最慢的 warp。一个 1024 线程的 block 有 32 个 warp，某个 warp 因为一次 cache miss 晚到 500 个周期，其他 31 个 warp 就一起浪费 500 个周期。reduction 树每一级都 sync 一次，10 级就是 10 次全 block 等待。后面第四章的优化有一大半是在减少 sync 的次数。
 
-```text
+```text title="一次 __syncthreads() 的等待代价（4 个 warp 时间线）"
 一次 __syncthreads() 的代价：block 内 4 个 warp，warp 2 因一次 cache miss 晚到
 
 时间  ────────────────────────────────────────────────►
@@ -210,12 +210,12 @@ $$
 
 最经典的冲突场景是**二维 tile 的按列访问**。设 `__shared__ float tile[32][32]`，线程 `threadIdx.x` 访问 `tile[threadIdx.x][k]`（固定列 `k`，不同行）：
 
-```text
+```text title="tile[t][k] 按列访问：全部落在同一 bank"
 线程 t 访问的字地址 = t * 32 + k
 bank = (t * 32 + k) % 32 = k          ← 所有 32 个线程落在同一个 bank
 ```
 
-```text
+```text title="tile[32][32] 各元素所在的 bank"
 tile[32][32]，字地址 = 行·32 + 列，bank = 字地址 % 32  ⇒  同一列的所有元素都在同一个 bank
 
             bank 0   bank 1   bank 2   …   bank 31
@@ -236,13 +236,13 @@ tile[32][32]，字地址 = 行·32 + 列，bank = 字地址 % 32  ⇒  同一列
 
 **padding**：把行宽从 32 改成 33。
 
-```cpp
+```cpp title="padding：tile[32][33]"
 __shared__ float tile[32][33];   // 每行多一个字
 // 线程 t 访问 tile[t][k]：字地址 = t * 33 + k
 // bank = (t * 33 + k) % 32 = (t + k) % 32   ← 32 个线程落在 32 个不同 bank
 ```
 
-```text
+```text title="tile[32][33] 各元素所在的 bank"
 tile[32][33]，字地址 = 行·33 + 列，bank = (行 + 列) % 32  ⇒  每往下一行，整行向右错开一个 bank
 
             bank 0   bank 1   bank 2   bank 3   …
@@ -258,7 +258,7 @@ tile[32][33]，字地址 = 行·33 + 列，bank = (行 + 列) % 32  ⇒  每往�
 
 **swizzle**：不改变存储大小，而是把逻辑列索引和行索引做 XOR，让同一列在不同行上落到不同 bank：
 
-```cpp
+```cpp title="swizzle：列索引与行索引 XOR"
 __shared__ float tile[32][32];
 __device__ __forceinline__ int swz(int r, int c) { return c ^ (r & 31); }
 // 写：tile[r][swz(r, c)] = v;   读：v = tile[r][swz(r, c)];
@@ -267,7 +267,7 @@ __device__ __forceinline__ int swz(int r, int c) { return c ^ (r & 31); }
 
 用 8×8 的 tile 演示（实际 32×32 用 `c ^ (r & 31)`），每格写的是"存放在该物理位置的**逻辑列号**"：
 
-```text
+```text title="8×8 tile 的 swizzle 布局"
 tile[8][8]，物理列 = 逻辑列 ^ 行号，bank = 物理列（按 8 个 bank 演示）
 
           物理列  0  1  2  3  4  5  6  7
@@ -297,7 +297,7 @@ reduction 本身很少碰到 bank conflict，因为它的访问模式是连续�
 
 ### 1. v1：交错寻址 + 取模分支
 
-```cpp
+```cpp title="v1：交错寻址 + 取模分支"
 // v1: interleaved addressing, divergent branch
 for (int s = 1; s < blockDim.x; s *= 2) {
   if (tid % (2 * s) == 0) sdata[tid] += sdata[tid + s];
@@ -314,7 +314,7 @@ Harris 的 v2 把 `if (tid % (2*s) == 0)` 换成 `int i = 2*s*tid; if (i < block
 
 ### 2. v2：顺序寻址
 
-```cpp
+```cpp title="v2：顺序寻址"
 // v2: sequential addressing — no divergence within active warps, no bank conflict
 for (int s = blockDim.x / 2; s > 0; s >>= 1) {
   if (tid < s) sdata[tid] += sdata[tid + s];
@@ -324,7 +324,7 @@ for (int s = blockDim.x / 2; s > 0; s >>= 1) {
 
 两种寻址方式在 8 个元素上的对比（数字是线程 tid，箭头表示谁把谁加到自己身上）：
 
-```text
+```text title="v1 与 v2 在 8 个元素上的归约树"
 v1 交错寻址（活跃线程隔开）            v2 顺序寻址（stride 减半）
 sdata  0 1 2 3 4 5 6 7                  sdata  0 1 2 3 4 5 6 7
 s=1    0←1 2←3 4←5 6←7   活跃 tid 0,2,4,6   s=4    0←4 1←5 2←6 3←7   活跃 tid 0,1,2,3
@@ -341,7 +341,7 @@ s=4    0←4               活跃 tid 0         s=1    0←1               活�
 
 ### 3. v3：加载时先加一次
 
-```cpp
+```cpp title="v3：加载时先加一次"
 // v3: first add during global load — each block handles 2 * blockDim.x elements
 unsigned i = blockIdx.x * (blockDim.x * 2) + tid;
 float v = 0.f;
@@ -360,7 +360,7 @@ v2 的第一轮里 512 个线程各做一次加法，等价于"每个线程加�
 
 v2 的循环里当 $$s \le 16$$ 时，只有一个 warp 的一部分线程活跃，却还要全 block sync 5 次（s = 16, 8, 4, 2, 1）——去掉后循环里剩 $$s = 512, 256, 128, 64, 32$$ 五级；若把 $$s = 32$$ 那一级也交给 warp（读 `sdata[tid + 32]` 后再 shuffle），block 级同步只剩 4 次。这 5 级可以完全在 warp 内做，用 warp shuffle 指令直接读同 warp 其他 lane 的寄存器：
 
-```cpp
+```cpp title="v4：shared 树到 32，再 warp shuffle"
 // v4: shared-memory tree down to 32, then warp shuffle
 for (int s = blockDim.x / 2; s > 32; s >>= 1) {
   if (tid < s) sdata[tid] += sdata[tid + s];
@@ -379,7 +379,7 @@ if (tid < 32) {
 
 用 8 个 lane 演示 `__shfl_down_sync` 的归约树（实际 32 个 lane、`off = 16, 8, 4, 2, 1`），每格是"已累加进该 lane 的原始 lane 集合"：
 
-```text
+```text title="__shfl_down_sync 归约树（8 个 lane 演示）"
 每步 lane i 读 lane i+off 的值加到自己身上；i+off ≥ 8 的 lane 读回自己，于是 v += v 把自己翻倍
 （用 8 个 lane 演示、宽度 8；表里写的是数值，初值取 lane 编号，总和 = 28）
 
@@ -401,7 +401,7 @@ off=1  28   32   36   40   44   48   52   56
 
 v3 让每线程加载时加 2 个元素。为什么不加更多？把 grid 定为固定大小（比如 SM 数 × 每 SM 可驻留 block 数），每个线程用 grid-stride 循环把属于它的所有元素先在寄存器里累加：
 
-```cpp
+```cpp title="v5：grid-stride 加载后再走 v4 树"
 // v5: grid-stride load, many elements per thread, then v4 tree
 float v = 0.f;
 for (unsigned i = blockIdx.x * blockDim.x + tid; i < n; i += gridDim.x * blockDim.x)
@@ -419,7 +419,7 @@ __syncthreads();
 
 v4 还留着一棵 shared memory 树（1024 → 32 需要 5 级、5 次 sync）。反过来想：先让**每个 warp**用 shuffle 把自己的 32 个值归约成 1 个，32 个 warp 得到 32 个部分和，写进 shared 的 32 个 float，sync 一次，再由第一个 warp 用 shuffle 把这 32 个值归约成 1 个：
 
-```cpp
+```cpp title="v6：warp_reduce_sum 两级 shuffle"
 // v6: two-level warp shuffle — 1 (or 2) __syncthreads() for the whole block
 __device__ __forceinline__ float warp_reduce_sum(float v) {
 #pragma unroll
@@ -457,7 +457,7 @@ flowchart TB
 
 `__shfl_xor_sync` 的蝶形交换，以 8 个 lane 为例（实际 32 个 lane 5 步）：
 
-```text
+```text title="__shfl_xor_sync 的蝶形交换（8 个 lane）"
 lane      0    1    2    3    4    5    6    7
 初值      a    b    c    d    e    f    g    h
 off=4     a+e  b+f  c+g  d+h  e+a  f+b  g+c  h+d      每个 lane 与 lane^4 交换并相加
@@ -506,7 +506,7 @@ Table: 六版对比
 
 CUDA 9 引入的 cooperative groups（`#include <cooperative_groups.h>`）把"一组线程"变成一等对象，让归约代码不用手写 lane 索引：
 
-```cpp
+```cpp title="cooperative groups 版 warp 归约"
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 namespace cg = cooperative_groups;
@@ -538,7 +538,7 @@ RMSNorm、softmax、LayerNorm 都是**按行归约**：输入是 $$[R, d]$$，�
 
 **一行一个 warp**（warp-per-row）：一个 warp 的 32 个 lane 分担一行，每 lane $$d / 32$$ 个元素放在寄存器里，用 5 步 shuffle 汇总。一个 block 装若干个 warp（比如 4 或 8），grid 大小 = $$R / \text{warps\_per\_block}$$。不需要 shared memory，不需要 `__syncthreads()`。
 
-```text
+```text title="block-per-row 与 warp-per-row 的线程分配"
 输入 [R, d]                block-per-row                          warp-per-row
                     ┌──────────────────────────┐          ┌──────────────────────────┐
 行 0  ───────────►  │ block 0：T 个线程分担 d 个 │          │ block 0 ─ warp 0 ──► 行 0  │
@@ -573,7 +573,7 @@ $$e^x$$ 增长得很快。FP16 的最大值是 65504，$$\ln 65504 \approx 11.09
 
 **三遍**（朴素）：
 
-```text
+```text title="三遍 softmax"
 pass 1:  m = max_j x_j                    读 x
 pass 2:  l = sum_j exp(x_j - m)           读 x
 pass 3:  y_i = exp(x_i - m) / l           读 x，写 y
@@ -597,7 +597,7 @@ $$
 
 第一项把旧的和从"相对旧 max"换算成"相对新 max"——因为 $$\sum_{j<i} e^{x_j - m} \cdot e^{m - m_{\text{new}}} = \sum_{j<i} e^{x_j - m_{\text{new}}}$$；第二项是新元素相对新 max 的贡献。如果 $$m_{\text{new}} = m$$（新元素没有刷新最大值），修正因子 $$e^0 = 1$$，退化成普通累加。指数的参数永远 $$\le 0$$，不会溢出。
 
-```text
+```text title="online softmax 逐个吃进 (m, l) 的过程"
 x = [1, 3, 2, 5]，逐个吃进 (m, l)：
 
 看到 1    m=1   l = 1                                  = e⁰
@@ -665,7 +665,7 @@ RMSNorm 没有这个问题——它不减均值，$$\sum x^2$$ 直接就是要�
 
 Transformer 每一层里 norm 前面总有一个残差加：
 
-```text
+```text title="residual add 与 RMSNorm 的相邻两步"
 h = h + attn_out          # residual add（elementwise）
 x = rmsnorm(h) * gamma    # 下一层的输入
 ```
@@ -678,7 +678,7 @@ x = rmsnorm(h) * gamma    # 下一层的输入
 
 `csrc/layernorm_kernels.cu`（v0.20.0）的 `rms_norm_kernel` 是教科书式的 block-per-row 结构。核心部分：
 
-```cpp
+```cpp title="vLLM layernorm_kernels.cu：rms_norm_kernel"
 // vllm csrc/layernorm_kernels.cu（v0.20.0）, rms_norm_kernel，节选
 template <typename scalar_t, int VEC_SIZE, int NUM_DIMS>
 __global__ void rms_norm_kernel(scalar_t* __restrict__ out,
@@ -723,7 +723,7 @@ __global__ void rms_norm_kernel(scalar_t* __restrict__ out,
 
 `fused_add_rms_norm_kernel` 的 FP16/BF16 特化版本用了自定义的 `_f16Vec<scalar_t, width>`（定义在 `csrc/type_convert.cuh`）：
 
-```cpp
+```cpp title="vLLM fused_add_rms_norm_kernel 的 _f16Vec 向量化"
 // vllm csrc/layernorm_kernels.cu（v0.20.0）, fused_add_rms_norm_kernel 向量化版，节选
 for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
   int id = blockIdx.x * vec_hidden_size + idx;
@@ -749,7 +749,7 @@ for (int idx = threadIdx.x; idx < vec_hidden_size; idx += blockDim.x) {
 
 `aten/src/ATen/native/cuda/SoftMax.cu`（v2.10.0）的 `host_softmax` 按 `dim_size` 选实现：
 
-```cpp
+```cpp title="PyTorch SoftMax.cu：host_softmax 按 dim_size 分派"
 // pytorch aten/src/ATen/native/cuda/SoftMax.cu（v2.10.0）, host_softmax，节选
 if (dim_size <= 2048 && dim_size*sizeof(scalar_t) <= 8192) {
   int64_t remaining = outer_size;
@@ -790,7 +790,7 @@ flowchart TB
 
 **小行走 warp softmax**。`dispatch_softmax_forward`（`PersistentSoftmax.cuh`）在 `dim_size <= 2048` 且一行不超过 8 KiB 时被选中。它把 `dim_size` 向上取到 2 的幂 `next_power_of_two`，用 `log2_elements` 作为模板参数实例化 `softmax_warp_forward`：每个 warp 处理 `WARP_BATCH` 行（≤128 元素时 2 行，否则 1 行），每 lane 持有 `WARP_ITERATIONS = next_power_of_two / 32` 个元素在寄存器数组 `elements[WARP_BATCH][WARP_ITERATIONS]` 里；block 固定 128 线程 = 4 个 warp；max 和 sum 各用一次 `warp_reduce`：
 
-```cpp
+```cpp title="PersistentSoftmax.cuh：warp_reduce"
 // pytorch aten/src/ATen/native/cuda/PersistentSoftmax.cuh（v2.10.0）
 template <typename acc_t, int WARP_BATCH, int WARP_SIZE, template<typename> class ReduceOp>
 __device__ __forceinline__ void warp_reduce(acc_t* sum) {
@@ -810,7 +810,7 @@ __device__ __forceinline__ void warp_reduce(acc_t* sum) {
 
 **大行走 block softmax**。`cunn_SoftMaxForward` 是 block-per-row：`ilpReduce` 让每线程向量化（ILP = 8 个 BF16）读取并局部归约，然后 `blockReduceWarp` 做 block 归约。后者调用的 `cuda_utils::BlockReduce`（`block_reduce.cuh`）就是 v6：
 
-```cpp
+```cpp title="block_reduce.cuh：BlockReduceSum"
 // pytorch aten/src/ATen/native/cuda/block_reduce.cuh（v2.10.0）, BlockReduceSum
 template <typename T, typename B = Block1D>
 __inline__ __device__ T BlockReduceSum(T val, T* shared) {
@@ -841,7 +841,7 @@ __inline__ __device__ T BlockReduceSum(T val, T* shared) {
 - **block_x_reduce / block_y_reduce**：block 内沿 x 或 y 方向归约。`block_x_reduce` 先用 shared 树把 `blockDim.x` 压到 32（每级一次 `__syncthreads()`），再用 `warp_shfl_down` 做最后 5 级——这是第四章的 v4 形状。`block_y_reduce` 沿 y 方向纯 shared 树。选 x 还是 y 取决于归约维是否是最内层：是则沿 x（连续线程读连续地址），否则沿 y（让 x 方向的线程各自对应不同的输出以保持合并访存）。
 - **global_reduce**：一行太长、一个 block 不够时，`ctas_per_output` 个 block 分担一个输出，每个 block 把部分和写进 global 的 staging buffer，`__threadfence()` 之后 `atomicAdd(&semaphores[blockIdx.x], 1)`——**最后一个到达的 block**（`prev_blocks_finished == gridDim.y - 1`）负责读回所有部分和做最终归约。这就是第五章说的"跨 block 汇总少量值用原子、但不用原子累加浮点"的模式：原子操作只用来计数，浮点归约仍是确定性的树。
 
-```cpp
+```cpp title="Reduce.cuh：mark_block_finished 的 semaphore"
 // pytorch aten/src/ATen/native/cuda/Reduce.cuh（v2.10.0）, mark_block_finished，节选
 C10_DEVICE bool mark_block_finished() const {
   __shared__ bool is_last_block_done_shared;
@@ -882,7 +882,7 @@ flowchart TB
 
 ### 1. `warp_reduce_sum` / `block_reduce_sum` 模板
 
-```cpp
+```cpp title="reduce_utils.cuh：warp_reduce_sum 与 block_reduce_sum"
 // reduce_utils.cuh
 #pragma once
 #include <cuda_runtime.h>
@@ -926,7 +926,7 @@ __device__ __forceinline__ T block_reduce_sum(T v, T* shared) {
 
 ### 2. RMSNorm kernel：一行一个 block，8 个 BF16/线程，寄存器驻留
 
-```cpp
+```cpp title="rmsnorm.cu：block-per-row、8 个 BF16/线程"
 // rmsnorm.cu
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -1004,7 +1004,7 @@ void rmsnorm_bf16(__nv_bfloat16* out, const __nv_bfloat16* in,
 
 ### 3. softmax kernel：一行一个 warp，online 版本
 
-```cpp
+```cpp title="softmax_online.cu：warp-per-row 的 online softmax"
 // softmax_online.cu
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -1093,7 +1093,7 @@ void softmax_bf16(__nv_bfloat16* out, const __nv_bfloat16* in, int rows, int d,
 
 用 `torch.utils.cpp_extension.load_inline` 把两个 kernel 接到 Python，然后与 PyTorch 参考实现对照：
 
-```python
+```python title="与 PyTorch 参考实现对照测试"
 import torch
 
 rows, d = 8192, 4096
@@ -1139,7 +1139,7 @@ BF16 的默认容差 rtol = 1.6e-2 对应约 4 个 BF16 ulp（BF16 存 7 位尾�
 - **LayerNorm/RMSNorm**：均方与方差在 FP32 累加；LayerNorm 用 Welford 避免 $$E[x^2] - E[x]^2$$ 的相消；fused residual + RMSNorm 把读 3 写 2 变成读 2 写 2。
 - **源码**：vLLM `rms_norm_kernel` 是 block-per-row + `cub::BlockReduce` + 16 字节向量化；PyTorch `SoftMax.cu` 按 d ≤ 2048 分派 warp softmax（零 shared）与 block softmax（`BlockReduceSum` 两级 shuffle）；`Reduce.cuh` 加上 global semaphore 构成三级归约。
 
-```text
+```text title="本篇汇总：reduction 六版对比"
 reduction 六版对比（1024 线程 block）
 版本  寻址              sync   shared 流量     消除的问题
 v1    交错 + 取模        10     10 级树         —

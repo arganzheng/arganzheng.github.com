@@ -52,7 +52,7 @@ Table: 本文的章节安排
 
 在 PagedAttention 出现之前，每个请求的 KV Cache 必须在 GPU 显存中预分配一段**连续内存**，其长度等于模型支持的最大序列长度。这造成了两类碎片：
 
-```
+``` title="按 max_len 预留连续空间造成的两类碎片"
 GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
 ┌──────────────────────────────────────────────────────────┐
 │ Req A  ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
@@ -110,7 +110,7 @@ graph LR
 
 在 vLLM 中，每个物理块（Physical Block）存储固定数量 token 的 K 和 V 张量：
 
-```python
+```python title="KV Cache 物理块的张量布局（单层）"
 # KV Cache 物理布局 (单层)
 # shape: [num_physical_blocks, block_size, num_kv_heads, head_dim]
 # 例: [2048 blocks, 16 tokens/block, 8 heads, 128 dim]
@@ -140,7 +140,7 @@ graph TD
 
 `BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收。它的设计有一个容易看漏的关键点：**没有单独的"缓存块"集合**。所有 `ref_cnt == 0` 的块——无论是从未用过的空块，还是刚被请求释放、但仍带着 block hash 的"缓存块"——都挂在同一条 `free_block_queue` 双向链表上，按释放时间排序。带 hash 的块同时还被 `cached_block_hash_to_block` 索引着，供 Prefix Cache 查找。
 
-```python
+```python title="block_pool.py：BlockPool 的数据结构"
 # vllm/v1/core/block_pool.py (简化)
 class BlockPool:
     def __init__(self, num_gpu_blocks: int, enable_caching: bool, ...):
@@ -175,7 +175,7 @@ class BlockPool:
 
 用一个 6 块的小池子把这四个动作（`get_new_blocks` / `free_blocks` / 驱逐 / `touch`）在链表上走一遍，就能看清"空闲"和"缓存"是怎么共享同一条队列的：
 
-```text
+```text title="6 块小池子上的 free_block_queue 演变"
 free_block_queue：只放 ref_cnt==0 的块。head = 最先被分走；tail = 最近释放
 [n*] 表示该块仍挂着 block_hash（可被 Prefix Cache 命中）
 
@@ -205,7 +205,7 @@ T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**
 
 块分配的布局（引自 `allocate_slots()` 注释）：
 
-```
+``` title="allocate_slots() 的块布局"
   |<──── computed ────>|<─ new_computed ─>|<─ external ─>|<── new ──>|<─ lookahead ─>|
                                                           |<── to be computed ──────>|
                                           |<────────── to be allocated ──────>|
@@ -224,7 +224,7 @@ T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**
 
 上一章讲的是「块从哪来」，这一章讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
 
-```
+``` title="KV Cache 生命周期全景"
                      KV Cache 生命周期全景
 
   ┌─────── Prefill 阶段 ──────┐   ┌────── Decode 阶段 ──────┐
@@ -284,7 +284,7 @@ Table: Prefill 与 Decode 阶段的 KV 写入方式
 
 **② 读取**——Attention Kernel 不认识"请求"，只认 Block Table：
 
-```
+``` title="Attention kernel 通过 Block Table 读 KV"
 Block Table:  req_42 → [PB_7, PB_13, PB_21]
 
 for each query position:
@@ -359,7 +359,7 @@ sequenceDiagram
 
 vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。下图把三种情况摆在一起：B 与 A 共享前缀（命中 + 分叉），C 只在第一个 token 上与 A 不同（全部未命中）：
 
-```text
+```text title="链式哈希：三个请求的命中与分叉"
 链式哈希：h_i = hash(h_{i-1}, 本块 16 个 token, extra_keys)，h_0 前驱 = NONE_HASH
 查找：逐块沿链比对 hash，第一次未命中即停止，之后的块全部重算
 
@@ -392,7 +392,7 @@ Req C  h0'=hash(NONE, t1',t2..t16) ≠ h0 → 未命中，查找停止
 >
 > 在真实的多租户服务里，system prompt 往往被成百上千个请求共享——这就是为什么 Prefix Cache 是性价比最高的优化之一。
 
-```python
+```python title="kv_cache_utils.py：hash_block_tokens 签名"
 # vllm/v1/core/kv_cache_utils.py (签名照抄, 函数体简化)
 def hash_block_tokens(
     hash_function: Callable[[Any], bytes],
@@ -428,7 +428,7 @@ KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) �
 
 Table: MHA、GQA 与 MQA 的 KV 大小
 
-```
+``` title="MHA / GQA / MQA 的 Q 与 K/V 头对应"
 MHA   Q: [1][2][3][4][5][6][7][8]
       K: [1][2][3][4][5][6][7][8]      ← 一个 Q 配一个 K/V
 

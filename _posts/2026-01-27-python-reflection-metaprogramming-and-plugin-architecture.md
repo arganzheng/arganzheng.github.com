@@ -81,7 +81,7 @@ Table: 本文的章节安排
 
 如果所有能力都直接写在核心逻辑中，代码很快会变成：
 
-```python
+```python title="if / elif 堆出来的后端分派"
 if backend == "torch":
     ...
 elif backend == "tensorrt":
@@ -120,7 +120,7 @@ Python 源码里的类和函数是静态存在的，但 AI-Infra 的实际行为
 
 这些问题的答案在写代码时都不知道。所以系统必须建立一层从**名字**到**实现**的映射：
 
-```text
+```text title="名字到实现的映射：字符串、路由到类与函数"
 "onnx"                       -> ONNXModelLoader
 "tensorrt"                   -> TensorRTModelLoader
 "redis"                      -> RedisCache
@@ -192,7 +192,7 @@ Python 的反射能力主要来自：
 
 最简单的反射形式是根据字符串访问属性：
 
-```python
+```python title="getattr 按字符串读取 ModelConfig 属性"
 class ModelConfig:
     def __init__(self, model_name: str, device: str) -> None:
         self.model_name = model_name
@@ -209,13 +209,13 @@ print(value)  # cuda
 
 如果属性可能不存在，可以提供默认值：
 
-```python
+```python title="getattr 带默认值"
 batch_size = getattr(config, "batch_size", 1)
 ```
 
 反射也可以改变已有对象或类的结构。例如，`setattr()` 根据运行时名称写入属性：
 
-```python
+```python title="setattr 给实例和类写入属性"
 setattr(config, "batch_size", 8)
 setattr(ModelConfig, "version", "v1")
 
@@ -229,7 +229,7 @@ assert ModelConfig.version == "v1"
 
 例如，自动读取对象中的可观测字段：
 
-```python
+```python title="用 dir 收集对象的公开属性"
 def collect_public_attributes(obj: object) -> dict[str, object]:
     result: dict[str, object] = {}
 
@@ -253,7 +253,7 @@ def collect_public_attributes(obj: object) -> dict[str, object]:
 
 `inspect` 适合构建调试工具、依赖注入系统和接口校验工具。
 
-```python
+```python title="inspect.signature 读取 load_model 的参数与默认值"
 import inspect
 
 
@@ -274,7 +274,7 @@ for name, parameter in signature.parameters.items():
 
 可以利用它检查一个实现是否满足调用约定：
 
-```python
+```python title="用 inspect 校验 loader 是否满足调用约定"
 def validate_loader(loader: object) -> None:
     if not callable(loader):
         raise TypeError("loader must be callable")
@@ -297,7 +297,7 @@ def validate_loader(loader: object) -> None:
 
 Python 对象通常会暴露自己的属性字典：
 
-```python
+```python title="实例 __dict__ 与类 __dict__ 的内容"
 class Worker:
     max_batch_size = 16
 
@@ -343,7 +343,7 @@ Table: 元编程机制的介入时机与作用
 
 Python 中，实例是对象，类本身也是对象。
 
-```python
+```python title="type(model) 与 type(Model)：类也是对象"
 class Model:
     pass
 
@@ -356,7 +356,7 @@ print(type(Model))  # type
 
 `type` 不只是用来查询类型，也可以动态创建类：
 
-```python
+```python title="用 type() 三参数动态创建类"
 Model = type(
     "Model",
     (),
@@ -385,7 +385,7 @@ print(model.describe())
 
 装饰器本质上是一个接收可调用对象并返回新可调用对象的函数。
 
-```python
+```python title="ParamSpec 加 TypeVar 的类型安全装饰器"
 from collections.abc import Callable
 from functools import wraps
 from typing import ParamSpec, TypeVar
@@ -420,7 +420,7 @@ def traced(
 
 例如，为推理函数增加耗时统计：
 
-```python
+```python title="为异步推理函数加耗时统计的装饰器"
 import time
 from collections.abc import Awaitable, Callable
 from functools import wraps
@@ -454,7 +454,7 @@ def measure_async(
 
 不推荐：
 
-```python
+```python title="反例：五层装饰器把核心流程藏起来"
 @retry
 @cache
 @trace
@@ -493,7 +493,7 @@ async def infer(...):
 
 一个简单的验证描述符如下：
 
-```python
+```python title="PositiveInteger 验证描述符：__set_name__、__get__、__set__"
 class PositiveInteger:
     # __set_name__ 在类创建阶段由元类自动调用，
     # 将属性名注入描述符——这本身就是一种元编程钩子。
@@ -525,7 +525,7 @@ class BatchConfig:
 
 使用时：
 
-```python
+```python title="描述符的使用：负数赋值抛 ValueError"
 config = BatchConfig(16)
 print(config.batch_size)
 
@@ -548,7 +548,7 @@ config.batch_size = -1
 
 `__init_subclass__` 可以在子类创建后执行逻辑，通常比元类更简单。
 
-```python
+```python title="Backend 基类用 __init_subclass__ 自动注册子类"
 class Backend:
     registry: dict[str, type["Backend"]] = {}
     backend_name: str | None = None
@@ -573,7 +573,7 @@ class Backend:
 
 定义插件：
 
-```python
+```python title="定义两个后端子类即完成注册"
 class TorchBackend(Backend, name="torch"):
     pass
 
@@ -584,7 +584,7 @@ class TensorRTBackend(Backend, name="tensorrt"):
 
 查询：
 
-```python
+```python title="从 registry 按名字取回类"
 backend_cls = Backend.registry["torch"]
 ```
 
@@ -603,7 +603,7 @@ backend_cls = Backend.registry["torch"]
 
 元类可以介入类的创建过程：
 
-```python
+```python title="RegistryMeta 元类在 __new__ 里登记类"
 class RegistryMeta(type):
     # 所有使用此元类的类共享同一个 registry——
     # 这是元类的常见模式，因为元类实例本身就是类。
@@ -627,7 +627,7 @@ class RegistryMeta(type):
 
 使用：
 
-```python
+```python title="使用 RegistryMeta 的基类与两个后端"
 class BaseBackend(metaclass=RegistryMeta):
     backend_name: str | None = None
 
@@ -638,7 +638,7 @@ class TorchBackend(BaseBackend):
 
 此时：
 
-```python
+```python title="从元类的 registry 取回 TorchBackend"
 print(RegistryMeta.registry["torch"])
 ```
 
@@ -669,7 +669,7 @@ print(RegistryMeta.registry["torch"])
 
 Python 的模块导入本身就是一种运行时机制。
 
-```python
+```python title="importlib.import_module 加 getattr 动态取类"
 import importlib
 
 module = importlib.import_module("my_package.backends.torch")
@@ -678,7 +678,7 @@ backend_class = getattr(module, "TorchBackend")
 
 可以根据配置动态加载模块：
 
-```python
+```python title="load_object 解析 module:object 路径"
 def load_object(path: str) -> object:
     module_name, object_name = path.rsplit(":", 1)
 
@@ -688,13 +688,13 @@ def load_object(path: str) -> object:
 
 配置：
 
-```text
+```text title="配置里的 module:object 字符串"
 my_package.backends.torch:TorchBackend
 ```
 
 加载：
 
-```python
+```python title="按配置字符串加载 TorchBackend"
 backend_cls = load_object(
     "my_package.backends.torch:TorchBackend"
 )
@@ -784,7 +784,7 @@ Table: 元编程机制选型：侵入性、适用场景与代价
 
 假设一个模型服务需要支持多种模型格式。最初的实现通常是这样：
 
-```python
+```python title="最初的 create_loader：按格式名 if / elif"
 def create_loader(format_name: str):
     if format_name == "onnx":
         return ONNXLoader()
@@ -812,7 +812,7 @@ def create_loader(format_name: str):
 
 **一个简单的注册表**
 
-```python
+```python title="BackendRegistry：最简单的注册表"
 from collections.abc import Callable
 from typing import Any
 
@@ -849,7 +849,7 @@ class BackendRegistry:
 
 定义统一接口：
 
-```python
+```python title="InferenceBackend 协议定义统一接口"
 from typing import Protocol
 
 
@@ -860,7 +860,7 @@ class InferenceBackend(Protocol):
 
 注册具体实现：
 
-```python
+```python title="TorchBackend 与 TensorRTBackend 注册进注册表"
 class TorchBackend:
     def __init__(self, model_path: str) -> None:
         self.model_path = model_path
@@ -882,7 +882,7 @@ backend = registry.create(
 
 **用装饰器完成注册**
 
-```python
+```python title="用 register_backend 装饰器完成注册"
 registry = BackendRegistry()
 
 
@@ -913,7 +913,7 @@ class TorchBackend:
 
 **装饰器注册**
 
-```python
+```python title='装饰器注册：@LOADERS.register("onnx")'
 @LOADERS.register("onnx")
 class ONNXLoader:
     ...
@@ -926,7 +926,7 @@ class ONNXLoader:
 
 **`__init_subclass__` 注册**
 
-```python
+```python title="__init_subclass__ 注册：基类关键字参数"
 class ONNXLoader(ModelLoader, format_name="onnx"):
     ...
 ```
@@ -964,7 +964,7 @@ Table: 装饰器注册与 __init_subclass__ 注册的对比
 
 最简单的做法是在一个集中的位置手工导入：
 
-```python
+```python title="显式导入：集中手工 import 插件模块"
 # my_project/plugins/__init__.py
 def load_builtin_plugins() -> None:
     from my_project.plugins import onnx_loader      # noqa: F401
@@ -975,7 +975,7 @@ def load_builtin_plugins() -> None:
 
 一个在 AI-Infra 里很实用的变体是让导入失败可容忍，因为不同机器的硬件依赖不同：
 
-```python
+```python title="容忍 ImportError 的可选插件加载"
 import importlib
 import logging
 
@@ -1002,7 +1002,7 @@ def load_builtin_plugins() -> None:
 
 如果插件都在同一个包下，可以让系统自己扫描：
 
-```python
+```python title="pkgutil.iter_modules 扫描包下所有插件"
 import importlib
 import pkgutil
 from types import ModuleType
@@ -1039,7 +1039,7 @@ def load_plugins(package: ModuleType) -> list[str]:
 
 插件包声明入口点：
 
-```toml
+```toml title="pyproject.toml 里声明 entry-points"
 [project.entry-points."my_ai.backends"]
 torch = "my_package.torch_backend:TorchBackend"
 tensorrt = "my_package.trt_backend:TensorRTBackend"
@@ -1047,7 +1047,7 @@ tensorrt = "my_package.trt_backend:TensorRTBackend"
 
 主程序发现插件：
 
-```python
+```python title="用 importlib.metadata.entry_points 发现后端"
 from importlib.metadata import entry_points
 
 
@@ -1081,7 +1081,7 @@ def discover_backends() -> dict[str, object]:
 
 对于大型服务，可以采用延迟加载：
 
-```python
+```python title="LazyPlugin：入口点延迟到首次使用才加载"
 class LazyPlugin:
     def __init__(self, entry_point) -> None:
         self.entry_point = entry_point
@@ -1123,7 +1123,7 @@ Table: 三种插件发现机制的对比
 
 例如，插件加载后可以先进行运行时检查：
 
-```python
+```python title="load_backend 在加载后做 hasattr 与协议检查"
 from typing import cast
 
 
@@ -1136,7 +1136,7 @@ def load_backend(obj: object) -> InferenceBackend:
 
 但仅使用 `hasattr()` 还不够。更完整的校验可以检查：
 
-```python
+```python title="validate_backend：用 inspect 检查 infer 的签名与是否为协程"
 import inspect
 
 
@@ -1176,7 +1176,7 @@ def validate_backend(backend_cls: type) -> None:
 
 很多 AI-Infra 框架采用声明式写法：
 
-```python
+```python title="ModelSpec 的声明式能力与元数据"
 class ModelSpec:
     inputs = ["input_ids", "attention_mask"]
     outputs = ["logits"]
@@ -1185,7 +1185,7 @@ class ModelSpec:
 
 框架在启动时通过反射读取这些声明：
 
-```python
+```python title="框架启动时用 getattr 读取 ModelSpec 声明"
 def inspect_model_spec(spec_cls: type) -> dict[str, object]:
     return {
         "inputs": getattr(spec_cls, "inputs", []),
@@ -1230,7 +1230,7 @@ def inspect_model_spec(spec_cls: type) -> dict[str, object]:
 
 接口可以使用 `Protocol` 表达：
 
-```python
+```python title="SchedulerPlugin 协议定义插件接口"
 from typing import Protocol
 
 
@@ -1257,7 +1257,7 @@ class SchedulerPlugin(Protocol):
 
 例如：
 
-```python
+```python title="插件配置：name 与 options"
 config = {
     "name": "priority",
     "options": {
@@ -1271,7 +1271,7 @@ config = {
 
 插件不仅有创建，还有启动、停止和销毁：
 
-```python
+```python title="LifecyclePlugin 协议：start、stop、close"
 from typing import Protocol
 
 
@@ -1287,7 +1287,7 @@ class LifecyclePlugin(Protocol):
 
 不同后端支持的能力可能不同：
 
-```python
+```python title="BackendCapabilities 能力声明"
 class BackendCapabilities:
     supports_streaming: bool
     supports_batching: bool
@@ -1302,7 +1302,7 @@ class BackendCapabilities:
 
 假设核心系统最初定义：
 
-```python
+```python title="最初的 Backend 协议只有 infer"
 class Backend(Protocol):
     async def infer(self, request: dict) -> dict:
         ...
@@ -1310,7 +1310,7 @@ class Backend(Protocol):
 
 后来增加了：
 
-```python
+```python title="后来新增的 health_check"
 async def health_check(self) -> bool:
     ...
 ```
@@ -1319,7 +1319,7 @@ async def health_check(self) -> bool:
 
 一种方式是定义接口版本：
 
-```python
+```python title="PluginMetadata 携带 api_version"
 from dataclasses import dataclass
 
 
@@ -1331,7 +1331,7 @@ class PluginMetadata:
 
 加载时检查：
 
-```python
+```python title="check_compatibility 校验接口主版本"
 def check_compatibility(metadata: PluginMetadata) -> None:
     if metadata.api_version.split(".")[0] != "2":
         raise RuntimeError(
@@ -1341,7 +1341,7 @@ def check_compatibility(metadata: PluginMetadata) -> None:
 
 另一种方式是使用能力协商：
 
-```python
+```python title="能力协商：按 supports_streaming 选路径"
 if plugin.capabilities.supports_streaming:
     await plugin.stream(request)
 else:
@@ -1404,7 +1404,7 @@ else:
 
 下面给出一个简化的完结构：
 
-```text
+```text title="插件架构示例的目录结构"
 ai_infra/
 ├── core/
 │   ├── protocol.py
@@ -1421,7 +1421,7 @@ ai_infra/
 
 接口定义：
 
-```python
+```python title="core/protocol.py：InferenceBackend 协议"
 # core/protocol.py
 from typing import Protocol
 
@@ -1441,7 +1441,7 @@ class InferenceBackend(Protocol):
 
 注册表：
 
-```python
+```python title="core/registry.py：带生命周期的 Registry"
 # core/registry.py
 from collections.abc import Callable
 from typing import Any
@@ -1475,7 +1475,7 @@ class Registry:
 
 具体插件：
 
-```python
+```python title="backends/torch_backend.py：一个具体插件"
 # backends/torch_backend.py
 class TorchBackend:
     name = "torch"
@@ -1500,7 +1500,7 @@ class TorchBackend:
 
 服务启动流程：
 
-```python
+```python title="start_backend：从注册表取工厂、创建、启动"
 async def start_backend(
     registry: Registry,
     name: str,
@@ -1537,7 +1537,7 @@ async def start_backend(
 
 如果分发逻辑全写成条件分支：
 
-```python
+```python title="条件分支写成的 dispatch"
 def dispatch(path: str, request: dict) -> dict:
     if path == "/v1/chat/completions":
         return chat_completion(request)
@@ -1554,7 +1554,7 @@ def dispatch(path: str, request: dict) -> dict:
 
 换成注册表，写法和第七章 §2 的插件注册表几乎一样，只是 key 变成了二元组：
 
-```python
+```python title="ROUTES 注册表与 route 装饰器：重名时报出两处位置"
 from collections.abc import Callable
 from typing import Any
 
@@ -1585,7 +1585,7 @@ def route(path: str, method: str = "GET") -> Callable[[Handler], Handler]:
 
 处理函数用普通的 Python 参数声明，而不是接收 `dict`：
 
-```python
+```python title="用普通参数声明的 handler：list_models 与 chat_completion"
 @route("/v1/models", method="GET")
 def list_models() -> dict:
     return {"data": ["model-a", "model-b"]}
@@ -1610,7 +1610,7 @@ def chat_completion(
 
 一个正确的绑定器必须处理**参数种类**，这是最容易写错的地方：
 
-```python
+```python title="build_binder：按签名把请求体绑定到参数"
 import inspect
 from collections.abc import Callable
 from typing import Any
@@ -1665,7 +1665,7 @@ def build_binder(handler: Callable[..., Any]):
 
 把绑定器和 handler 打包成一条"编译好"的路由：
 
-```python
+```python title="CompiledRoute：签名分析只在构造时发生一次"
 class CompiledRoute:
     __slots__ = ("handler", "bind")
 
@@ -1698,7 +1698,7 @@ def dispatch(method: str, path: str, request: dict) -> Any:
 
 如果还需要类型转换和校验，不要自己写——把绑定结果交给 Pydantic：
 
-```python
+```python title="把绑定结果交给 Pydantic 的 TypeAdapter 校验"
 from pydantic import TypeAdapter
 
 adapter = TypeAdapter(ChatRequest)   # 启动阶段构造，内部会编译校验器
@@ -1711,7 +1711,7 @@ payload = adapter.validate_python(request)
 
 另一种常见的路由写法是靠命名约定，用 `getattr` 拼出方法名：
 
-```python
+```python title="靠命名约定用 getattr 拼方法名的 APIHandler"
 class APIHandler:
     def handle_models(self, request: dict) -> dict:
         ...
@@ -1728,7 +1728,7 @@ def dispatch(action: str, request: dict):
 
 这种写法在处理器结构稳定、命名规则严格时能用，但有一个致命问题：**`action` 来自请求，等于把方法名的一部分交给了外部输入。**
 
-```python
+```python title="action 来自请求：chat.__globals__ 会走到哪里"
 dispatch("chat", req)             # 正常
 dispatch("models", req)           # 正常
 dispatch("chat.__globals__", req) # 这次 getattr 会走到哪里？
@@ -1736,7 +1736,7 @@ dispatch("chat.__globals__", req) # 这次 getattr 会走到哪里？
 
 即使 `handle_` 前缀挡住了大部分情况，这仍然是一个由用户输入拼接出来的属性名。正确做法是显式映射表：
 
-```python
+```python title="显式映射表 HANDLERS 替代 getattr 拼名"
 HANDLERS: dict[str, Handler] = {
     "models": handle_models,
     "chat": handle_chat,
@@ -1781,7 +1781,7 @@ def dispatch(action: str, request: dict):
 
 如果 handler 需要模型、tokenizer 或缓存客户端，用闭包在启动时装配好，而不是每次请求去容器里查：
 
-```python
+```python title="用闭包在启动时装配好模型与 tokenizer"
 def build_generate_handler(model, tokenizer):
     def handler(prompt: str, max_tokens: int = 128) -> dict:
         inputs = tokenizer(prompt)
@@ -1797,7 +1797,7 @@ ROUTES[("POST", "/v1/generate")] = build_generate_handler(model, tokenizer)
 
 不要在请求里解析版本规则，把版本变成 key 的一部分：
 
-```python
+```python title="版本作为 key 提前展开的 VERSIONED_ROUTES"
 VERSIONED_ROUTES = {
     ("v1", "chat"): chat_v1,
     ("v2", "chat"): chat_v2,
@@ -1865,7 +1865,7 @@ Table: 反射操作的耗时量级
 
 三处典型的热路径反射：
 
-```python
+```python title="三处典型的热路径反射"
 # 1. 每次请求都重新解析路径并导入
 async def handle(request):
     backend = load_object(config["backend_path"])   # importlib + getattr
@@ -1884,7 +1884,7 @@ def dispatch(fn, payload):
 
 核心原则是：**把动态查找上移到初始化阶段，让热路径只做直接调用。**
 
-```python
+```python title="Handler 在 __init__ 里一次性固化反射结果"
 class Handler:
     def __init__(self, plugin: object) -> None:
         # 启动时一次性解析，反射结果被固化成普通引用
@@ -1919,7 +1919,7 @@ class Handler:
 
 看一个三层装饰器包裹的推理函数：
 
-```python
+```python title="三层装饰器包裹的 infer 抛异常"
 @traced
 @retry(times=3)
 @measure_async
@@ -1935,7 +1935,7 @@ async def infer(request: dict) -> dict:
 
 它会把 `__name__`、`__qualname__`、`__module__`、`__doc__` 和 `__wrapped__` 复制到 wrapper 上。其中 `__wrapped__` 尤其重要——`inspect.signature()` 会自动跟随它拿到原始签名：
 
-```python
+```python title="functools.wraps 保留 __name__、签名与 __wrapped__"
 import inspect
 from functools import wraps
 
@@ -1964,7 +1964,7 @@ print(infer.__wrapped__)         # <function infer at 0x...>
 
 动态加载失败时，原始异常往往才是有用的那个：
 
-```python
+```python title="raise ... from 保留插件加载失败的因果链"
 try:
     module = importlib.import_module(module_name)
 except ImportError as exc:
@@ -1987,7 +1987,7 @@ except ImportError as exc:
 
 三种典型的失效场景：
 
-```python
+```python title="三种静态分析失效场景：Any、setattr、动态方法"
 # 1. 注册表返回 Any，下游全部丢失类型信息
 backend = registry.create("torch")   # -> Any
 backend.inferr(request)              # 拼错方法名，pyright 不报错
@@ -2010,7 +2010,7 @@ User.objects.filter(...)             # 检查器不知道 objects 存在
 
 把协议作为类型参数，类型信息就能从注册表的另一端带出来：
 
-```python
+```python title="泛型化的注册表把协议类型带出来"
 from typing import Protocol
 
 
@@ -2043,7 +2043,7 @@ backends: Registry[InferenceBackend] = Registry()
 
 如果某个类的属性确实由元类或 `setattr` 注入，唯一能让检查器和 IDE 理解它的办法是手写存根：
 
-```python
+```python title="config.pyi：给动态注入的属性写存根"
 # config.pyi
 class ServiceConfig:
     batch_size: int
@@ -2055,7 +2055,7 @@ class ServiceConfig:
 
 `cast()` 是对检查器的单方面承诺：编译期无成本、运行时无校验。它应当紧跟在一次真实的运行时校验之后，而不是散落各处：
 
-```python
+```python title="cast 紧跟在运行时校验之后"
 validate_backend(obj)                    # 先在运行时确认结构
 backend = cast(InferenceBackend, obj)    # 之后才向检查器做出承诺
 ```
@@ -2072,7 +2072,7 @@ backend = cast(InferenceBackend, obj)    # 之后才向检查器做出承诺
 
 不要允许外部用户直接提交：
 
-```text
+```text title="不要让用户提交 module:Class 字符串"
 some_package.some_module:SomeClass
 ```
 
@@ -2082,7 +2082,7 @@ some_package.some_module:SomeClass
 
 不要把用户提供的字符串直接交给：
 
-```python
+```python title="不要把用户输入直接交给 getattr"
 getattr(obj, user_input)
 ```
 
@@ -2092,7 +2092,7 @@ getattr(obj, user_input)
 
 避免使用：
 
-```python
+```python title="避免 eval 与 exec"
 eval(expression)
 exec(source_code)
 ```
@@ -2126,7 +2126,7 @@ exec(source_code)
 
 答案取决于插件的等级，所以插件系统必须把这件事显式声明出来：
 
-```python
+```python title="按插件等级决定起不来还是降级：PluginLevel 与加载器"
 import enum
 import importlib
 import logging
@@ -2201,7 +2201,7 @@ class PluginLoader:
 
 这些信息应该能被主动查询，而不是只存在于启动日志里：
 
-```python
+```python title="dump_registry：把注册表导出成可查询的清单"
 import inspect
 
 

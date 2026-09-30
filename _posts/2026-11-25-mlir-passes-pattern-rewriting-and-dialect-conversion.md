@@ -36,7 +36,7 @@ Table: 本文的章节安排
 
 ### 1. 一个 pass 是什么
 
-```cpp
+```cpp title="MulToShiftPass：一个 pass 的骨架"
 struct MulToShiftPass : public PassWrapper<MulToShiftPass, OperationPass<>> {
   StringRef getArgument() const final { return "toy-mul-to-shift"; }      // 命令行名字
   StringRef getDescription() const final { return "..."; }
@@ -58,7 +58,7 @@ struct MulToShiftPass : public PassWrapper<MulToShiftPass, OperationPass<>> {
 
 PassManager 按 Op 的嵌套层次组织。文本语法直接反映这个结构：
 
-```bash
+```bash title="嵌套的文本 pipeline"
 mlir-opt --pass-pipeline='builtin.module(func.func(sccp,canonicalize,cse))' sccp.mlir
 ```
 
@@ -89,14 +89,14 @@ Triton 的 `ModuleAxisInfoAnalysis` **不是**通过这个机制缓存的——�
 
 Table: mlir-opt 的 instrumentation 开关与 Triton 对应
 
-```text
+```text title="--mlir-print-ir-after-all 的输出"
 $ mlir-opt --pass-pipeline='builtin.module(func.func(sccp,canonicalize,cse))' --mlir-print-ir-after-all sccp.mlir 2>&1 | rg 'IR Dump'
 // -----// IR Dump After SCCPPass: sccp //----- //
 // -----// IR Dump After CanonicalizerPass: canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true} //----- //
 // -----// IR Dump After CSEPass: cse //----- //
 ```
 
-```text
+```text title="--mlir-timing 的输出"
 $ mlir-opt ... --mlir-timing sccp.mlir
   ----Wall Time----  ----Name----
     0.0004 ( 37.0%)  Parser
@@ -111,7 +111,7 @@ $ mlir-opt ... --mlir-timing sccp.mlir
 
 pattern 是"匹配一个 op 附近的形状，改写成另一个形状"的最小单元。上一篇的 `mul x, 2^k → shl x, k`，完整写出来：
 
-```cpp
+```cpp title="MulPow2ToShift：一条 pattern"
 struct MulPow2ToShift : public OpRewritePattern<arith::MulIOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(arith::MulIOp op, PatternRewriter &rewriter) const override {
@@ -172,7 +172,7 @@ flowchart TB
 
 它比 LLVM 的 `instcombine` **弱**。上一篇的例子：
 
-```mlir
+```mlir title="canonicalize 的输入"
 %a = arith.addi %c3, %c4 : i32          // 3 + 4
 %b = arith.muli %x, %c8 : i32
 %b2 = arith.muli %x, %c8 : i32
@@ -182,7 +182,7 @@ flowchart TB
 
 `mlir-opt --canonicalize --cse` 之后：
 
-```mlir
+```mlir title="canonicalize + cse 之后"
 %c8_i32 = arith.constant 8 : i32
 %c7_i32 = arith.constant 7 : i32
 %0 = arith.muli %arg0, %c8_i32 : i32
@@ -198,7 +198,7 @@ C++ 写 pattern 冗长。MLIR 有两种声明式写法：
 
 **DRR**（Declarative Rewrite Rules，TableGen）——Triton 的 `Combine.td`：
 
-```text
+```text title="Combine.td 里的 DRR pattern"
 def CombineAddPtrPattern : Pat<
         (TT_AddPtrOp:$src (TT_AddPtrOp $ptr, $idx0), $idx1),                    // 源模式：树
         (TT_AddPtrOp:$dest $ptr, (Arith_AddIOp $idx0, $idx1, DefOverflow)),      // 目标模式
@@ -210,7 +210,7 @@ def CombineAddPtrPattern : Pat<
 
 **PDLL**（PDL Language）——较新的专用语言，同一条 pattern：
 
-```text
+```text title="同一条 pattern 的 PDLL 写法"
 #include "mlir/Dialect/Arith/IR/ArithOps.td"
 
 Constraint IsPow2(attr: Attr) [{ return cast<IntegerAttr>(attr).getValue().isPowerOf2(); }];
@@ -230,7 +230,7 @@ Pattern MulPow2ToShift {
 
 `mlir-opt` 支持动态加载 pass 插件，不用重新编译 `mlir-opt`。上面的 pattern 加一个 pass 壳（§二.1）和一个导出函数：
 
-```cpp
+```cpp title="pass 插件的导出函数"
 extern "C" LLVM_ATTRIBUTE_WEAK ::mlir::PassPluginLibraryInfo mlirGetPassPluginInfo() {
   return {MLIR_PLUGIN_API_VERSION, "MulToShift", LLVM_VERSION_STRING,
           []() { PassRegistration<MulToShiftPass>(); }};
@@ -239,7 +239,7 @@ extern "C" LLVM_ATTRIBUTE_WEAK ::mlir::PassPluginLibraryInfo mlirGetPassPluginIn
 
 用 Homebrew 的 LLVM 编译成动态库（三秒）：
 
-```bash
+```bash title="编译 pass 插件"
 LLVM=/opt/homebrew/opt/llvm
 $LLVM/bin/clang++ -std=c++17 -shared -fPIC -o libMulToShift.dylib MulToShift.cpp \
     -I$LLVM/include -L$LLVM/lib -lMLIR -Wl,-undefined,dynamic_lookup
@@ -247,11 +247,11 @@ $LLVM/bin/clang++ -std=c++17 -shared -fPIC -o libMulToShift.dylib MulToShift.cpp
 
 跑：
 
-```bash
+```bash title="加载插件运行 pass"
 mlir-opt --load-pass-plugin=./libMulToShift.dylib --pass-pipeline='builtin.module(toy-mul-to-shift)' t.mlir
 ```
 
-```mlir
+```mlir title="toy-mul-to-shift 的输入与输出"
 // 输入                                       // 输出
 %c8 = arith.constant 8 : i32                  %c6_i32 = arith.constant 6 : i32
 %c6 = arith.constant 6 : i32                  %c3_i32 = arith.constant 3 : i32
@@ -305,7 +305,7 @@ Table: 三种 materialization 与 Triton 里插的东西
 
 **ConversionPattern**：与 `RewritePattern` 的差别是签名多一个 `adaptor`：
 
-```cpp
+```cpp title="GenericOpPattern：带 adaptor 的 ConversionPattern"
 template <class Op> struct GenericOpPattern : public OpConversionPattern<Op> {
   LogicalResult matchAndRewrite(Op op, typename Op::Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
@@ -326,11 +326,11 @@ template <class Op> struct GenericOpPattern : public OpConversionPattern<Op> {
 
 只跑 `arith → llvm` 一步，不转其他方言：
 
-```bash
+```bash title="只跑 arith → llvm"
 mlir-opt --convert-linalg-to-loops --convert-arith-to-llvm mm.mlir
 ```
 
-```mlir
+```mlir title="带 unrealized_conversion_cast 的中间状态"
 func.func @mm(%arg0: memref<4x8xf32>, %arg1: memref<8x4xf32>, %arg2: memref<4x4xf32>) {
   %0 = llvm.mlir.constant(0 : index) : i64
   %1 = builtin.unrealized_conversion_cast %0 : i64 to index          // ①
@@ -354,7 +354,7 @@ Triton 的 `TritonGPUToLLVM` 也依赖它：第六篇 AxisInfo 的 visitor 表�
 
 **TypeConverter**（`TritonGPUConversion.cpp`）：
 
-```cpp
+```cpp title="TritonGPUTypeConverter"
 TritonGPUTypeConverter::TritonGPUTypeConverter(MLIRContext *context, int numWarps, int threadsPerWarp, int numCTAs, bool enableSourceRemat) {
   addConversion([](Type type) { return type; });                        // ① 兜底：其他类型不变
   addConversion([this](RankedTensorType tensorType) -> RankedTensorType {
@@ -381,7 +381,7 @@ TritonGPUTypeConverter::TritonGPUTypeConverter(MLIRContext *context, int numWarp
 
 **ConversionTarget**：
 
-```cpp
+```cpp title="ConversionTarget 的合法性声明"
 addLegalDialect<triton::gpu::TritonGPUDialect>();                        // ttg 的 op 天然合法
 addIllegalOp<scf::ExecuteRegionOp, scf::ParallelOp, scf::ReduceOp, scf::ReduceReturnOp>();   // 不支持的 scf op
 addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect, triton::TritonDialect,
@@ -399,7 +399,7 @@ addDynamicallyLegalOp<triton::FuncOp>(...所有参数 / 结果的 tensor 类型�
 
 **Driver**：
 
-```cpp
+```cpp title="Driver：applyPartialConversion"
 if (failed(applyPartialConversion(mod, target, std::move(patterns))))
   return signalPassFailure();
 ```
@@ -414,7 +414,7 @@ partial 而不是 full：允许 `builtin.module`、`tt.func` 这些不在动态�
 
 把三种机制串起来：`linalg.matmul`（张量层）→ `scf` 循环 → `llvm` 方言 → LLVM IR → 在笔记本 CPU 上运行。
 
-```mlir
+```mlir title="mm.mlir：linalg.matmul"
 func.func @mm(%A: memref<4x8xf32>, %B: memref<8x4xf32>, %C: memref<4x4xf32>) {
   linalg.matmul ins(%A, %B : memref<4x8xf32>, memref<8x4xf32>) outs(%C : memref<4x4xf32>)
   return
@@ -423,7 +423,7 @@ func.func @mm(%A: memref<4x8xf32>, %B: memref<8x4xf32>, %C: memref<4x4xf32>) {
 
 **第一步**：`--convert-linalg-to-loops`（一个 pattern：`linalg.matmul` 的 indexing map 展开成循环嵌套）：
 
-```mlir
+```mlir title="第一步：展开成 scf 循环"
 scf.for %arg3 = %c0 to %c4 step %c1 {
   scf.for %arg4 = %c0 to %c4 step %c1 {
     scf.for %arg5 = %c0 to %c8 step %c1 {
@@ -444,7 +444,7 @@ scf.for %arg3 = %c0 to %c4 step %c1 {
 
 **第三步**：`--convert-to-llvm --reconcile-unrealized-casts`（Dialect Conversion：`arith` / `cf` / `func` / `memref` 全部 → `llvm`，然后消掉桥接 cast）：
 
-```mlir
+```mlir title="第三步：转成 llvm 方言"
 llvm.func @mm(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64,
               %arg7: !llvm.ptr, %arg8: !llvm.ptr, %arg9: i64, ..., %arg20: i64) {
   %0 = llvm.mlir.poison : !llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>     // ①
@@ -463,14 +463,14 @@ llvm.func @mm(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4:
 
 **运行**：加一个 `main` 用 `linalg.fill` 填 A 全 1、B 全 2、C 全 0，调 `mm`，用 runner 工具库打印：
 
-```bash
+```bash title="运行 mm"
 mlir-opt mm_run.mlir --convert-linalg-to-loops --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts -o mm_llvm.mlir
 mlir-runner mm_llvm.mlir -e main -entry-point-result=void \
     -shared-libs=/opt/homebrew/opt/llvm/lib/libmlir_runner_utils.dylib \
     -shared-libs=/opt/homebrew/opt/llvm/lib/libmlir_c_runner_utils.dylib
 ```
 
-```text
+```text title="mm 的运行输出"
 Unranked Memref base@ = 0x9f7001000 rank = 2 offset = 0 sizes = [4, 4] strides = [4, 1] data =
 [[16,   16,   16,   16],
  [16,   16,   16,   16],
@@ -501,7 +501,7 @@ Table: MLIR 数据流框架的概念与类
 
 ### 2. `--sccp` 实例
 
-```mlir
+```mlir title="sccp 的输入：@g"
 func.func @g(%c: i1) -> i32 {
   %c5 = arith.constant 5 : i32
   %c7 = arith.constant 7 : i32
@@ -519,7 +519,7 @@ func.func @g(%c: i1) -> i32 {
 
 `mlir-opt --sccp --canonicalize`：
 
-```mlir
+```mlir title="sccp + canonicalize 之后的 @g"
 func.func @g(%arg0: i1) -> i32 {
   %c84_i32 = arith.constant 84 : i32
   return %c84_i32 : i32

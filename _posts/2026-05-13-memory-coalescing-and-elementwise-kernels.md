@@ -78,7 +78,7 @@ Table: A100 访存路径各级的粒度、延迟与带宽
 
 举最简单的例子：32 个线程每人读一个 `float`（4 字节），地址连续且起点按 128 字节对齐。总共需要 128 字节，恰好落在 4 个 sector 里，效率 100%。这是所有 elementwise kernel 应该追求的形态：
 
-```text
+```text title="连续对齐访问：4 sector、效率 100%"
 线程   0   1   2   3  ...  31
 地址   0   4   8  12  ... 124        (相对 128 B 对齐的起点)
 sector |---- 0 ----|---- 1 ----|---- 2 ----|---- 3 ----|
@@ -97,7 +97,7 @@ sector |---- 0 ----|---- 1 ----|---- 2 ----|---- 3 ----|
 
 前三种画出来（■ 是线程真正需要的 4 B，□ 是被一并搬来但没人用的字节，每格 32 B 一个 sector）：
 
-```text
+```text title="三种访问模式触碰的 sector"
 连续、对齐        |■■■■■■■■|■■■■■■■■|■■■■■■■■|■■■■■■■■|                        4 sector   100%
                   s0       s1       s2       s3
 
@@ -129,20 +129,20 @@ BF16 是 2 字节，32 个线程连续读只有 64 B，占 2 个 sector——效
 
 跨步访问最常见的来源不是显式的 `stride`，而是数据结构。考虑存 $$n$$ 个三维点：
 
-```cpp
+```cpp title="AoS：struct Point 数组"
 struct Point { float x, y, z; };   // Array of Structures (AoS)
 Point* pts;                         // 线程 i 读 pts[i].x
 ```
 
 线程 i 读 `pts[i].x` 时地址间隔 12 B，32 个线程跨 384 B、12 个 sector，有效 128 B，效率 33%。如果一个 kernel 只需要 x 分量，另两个分量是纯浪费。改成 **SoA**（Structure of Arrays）：
 
-```cpp
+```cpp title="SoA：三个独立数组"
 struct Points { float* x; float* y; float* z; };   // 三个独立数组
 ```
 
 两种布局下，"warp 读 32 个点的 x 分量"触碰的内存：
 
-```text
+```text title="AoS 与 SoA 下 warp 读 x 分量触碰的内存"
 AoS  pts[i] = {x, y, z}       内存： x0 y0 z0 | x1 y1 z1 | x2 y2 z2 | x3 …          线程 i 读 x_i，间隔 12 B
                               warp 触碰：■□□■□□■□□■□□ … 共 384 B、12 sector，有效 128 B → 33%
 
@@ -166,7 +166,7 @@ SoA  x[], y[], z[]            内存： x0 x1 x2 x3 … x31 | … （y、z 在�
 
 上一节的结论是连续访问效率 100%，看起来问题已经解决。但 A100 的 2.0 TB/s 是一个很高的速率：每个 SM 每秒要吞掉 $$2.0 \times 10^{12} / 108 \approx 18.5$$ GB/s，按 1.41 GHz 折算约 13 字节/周期。一条 32 线程 × 4 B 的加载指令带回 128 B，也就是每个 SM 每 10 个周期就得发出一条加载指令并让它命中——这还没算地址计算、边界判断、类型转换和存储指令。
 
-```text
+```text title="每线程 4 B 与 16 B 一条 warp 加载的字节数"
 每线程 4 B（float）     线程  0    1    2    3   …  31          一条 warp 加载 = 128 B
                        地址 |----|----|----|----| … |----|
 
@@ -183,7 +183,7 @@ SoA  x[], y[], z[]            内存： x0 x1 x2 x3 … x31 | … （y、z 在�
 
 CUDA 内建向量类型中，`float4`、`int4`、`uint4`、`double2` 都是 16 字节且按 16 字节对齐；`float2`、`__nv_bfloat162`、`half2` 是 4 或 8 字节。对 BF16 数据，一个 16 字节的加载对应 8 个元素，常用的做法是**用 `int4` 搬运，用 `__nv_bfloat162` 计算**：
 
-```cpp
+```cpp title="add_bf16x8：int4 搬运、__nv_bfloat162 计算"
 #include <cuda_bf16.h>
 
 // 对 16 字节（8 个 BF16）做 x + b，累加用 float
@@ -212,7 +212,7 @@ __device__ __forceinline__ int4 add_bf16x8(int4 xa, int4 ba) {
 
 第一，**起始地址检查**。`cudaMalloc` 返回的指针至少 256 字节对齐，PyTorch 的 caching allocator 也保证 512 字节对齐，所以完整 tensor 的 `data_ptr()` 天然满足条件；但 `x[:, 1:]` 这样的切片、`storage_offset` 非零的 view 就不一定。host 侧要检查：
 
-```cpp
+```cpp title="16 字节对齐检查"
 bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 ```
 
@@ -224,7 +224,7 @@ bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 
 三个细节合在一起，就是第八章向量化 kernel 的元素 ↔ 线程映射（BF16，每格 2 B）：
 
-```text
+```text title="向量化 kernel 的元素 ↔ 线程映射与尾部"
 n = 8·n_vec + tail    例：n = 21 → n_vec = 2，tail = 5
 
 元素   e0 e1 e2 e3 e4 e5 e6 e7 | e8 … e15 | e16 e17 e18 e19 e20
@@ -246,14 +246,14 @@ n = 8·n_vec + tail    例：n = 21 → n_vec = 2，tail = 5
 
 上一篇的 kernel 用 `grid = ceil(n / blockDim)` 让每个线程恰好处理一个元素。这没有错，硬件的 block 调度器会依次把 block 派发到 SM 上，几十万个 block 也能跑完。但还有另一种写法：
 
-```cpp
+```cpp title="grid-stride 循环"
 for (int64_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
      i += (int64_t)gridDim.x * blockDim.x) {
   // 处理第 i 个元素（或第 i 个向量）
 }
 ```
 
-```text
+```text title="一线程一元素与 grid-stride 的元素分配"
 n = 12 个元素，grid × block = 4 个线程（T0…T3）
 
 一线程一元素（grid = 3 个 block）      T0 T1 T2 T3 | T4 T5 T6 T7 | T8 T9 T10 T11
@@ -344,7 +344,7 @@ $$
 
 kernel 里每个线程拿到的是一个线性 index $$i \in [0, n)$$，需要先按输出形状拆成多维坐标（从最内维开始连续做除法与取模），再用每个输入各自的 stride 算出各自的 offset：
 
-```cpp
+```cpp title="二维情形：线性 index 到各输入的 offset"
 // 二维情形：输出形状 [size0, size1]，行主序
 int64_t i0 = i / size1;
 int64_t i1 = i - i0 * size1;
@@ -352,7 +352,7 @@ int64_t off_x = i0 * xs0 + i1 * xs1;
 int64_t off_b = i0 * bs0 + i1 * bs1;
 ```
 
-```text
+```text title="线性 i = 6 在 x 与 b 中的 offset 示例"
 输出 y[m=3, d=4]，线程拿到线性 i = 6   →   i0 = 6 / 4 = 1，i1 = 6 % 4 = 2
 
 x 连续 [3,4]，stride (4, 1)          off_x = 1·4 + 2·1 = 6        ┌ x00 x01 x02 x03 ┐
@@ -379,7 +379,7 @@ PyTorch 的 elementwise 算子并不直接把 sizes/strides 传给 kernel，而�
 
 算子实现（如 `ActivationSiluKernel.cu`）用 `gpu_kernel(iter, lambda)` 描述"对每个元素做什么"，其余全部交给框架。`gpu_kernel` 经过 32 位索引检查后到 `gpu_kernel_impl_nocast`（`CUDALoops.cuh`）：
 
-```cpp
+```cpp title="CUDALoops.cuh：gpu_kernel_impl_nocast 的路径选择"
 // aten/src/ATen/native/cuda/CUDALoops.cuh（节选）
 template <typename func_t>
 void gpu_kernel_impl_nocast(TensorIteratorBase& iter, const func_t& f) {
@@ -439,7 +439,7 @@ flowchart TB
 
 连续路径先决定向量宽度（CUDA 分支，去掉 ROCm 部分）：
 
-```cpp
+```cpp title="CUDALoops.cuh：launch_vectorized_kernel"
 // aten/src/ATen/native/cuda/CUDALoops.cuh（节选，CUDA 分支）
 template <typename func_t, typename array_t>
 static inline void launch_vectorized_kernel(int64_t N, const func_t& f, array_t data) {
@@ -478,7 +478,7 @@ static inline void launch_vectorized_kernel(int64_t N, const func_t& f, array_t 
 - `vec_size = 16 / sizeof(cpp_type)`：目标是 16 字节一次加载。BF16 得 8，FP32 得 4。
 - `can_vectorize_up_to<func_t>(data)`：对输出和每个输入指针检查对齐，取最小值（`MemoryAccess.cuh`）：
 
-```cpp
+```cpp title="MemoryAccess.cuh：can_vectorize_up_to 的对齐检查"
 // aten/src/ATen/native/cuda/MemoryAccess.cuh（节选，CUDA 分支）
 template<typename scalar_t>
 inline C10_HOST_DEVICE int can_vectorize_up_to(const char *pointer) {
@@ -503,7 +503,7 @@ inline C10_HOST_DEVICE int can_vectorize_up_to(const char *pointer) {
 
 ### 3. `vectorized_elementwise_kernel` 的结构
 
-```cpp
+```cpp title="CUDALoops.cuh：vectorized_elementwise_kernel"
 // aten/src/ATen/native/cuda/CUDALoops.cuh（节选，vec_size != 8 分支）
 template <int vec_size, typename func_t, typename array_t>
 C10_LAUNCH_BOUNDS_1(num_threads())
@@ -536,7 +536,7 @@ __global__ void vectorized_elementwise_kernel(int N, func_t f, array_t data) {
 
 `vectorized` policy 的 `load_single_arg` 是向量化加载的核心（`MemoryAccess.cuh`）：
 
-```cpp
+```cpp title="MemoryAccess.cuh：vectorized policy 的 load_single_arg"
 // aten/src/ATen/native/cuda/MemoryAccess.cuh（节选）
 template<typename accessor_t, typename scalar_t>
 __device__ inline void load_single_arg(accessor_t to, scalar_t *from) {
@@ -555,7 +555,7 @@ __device__ inline void load_single_arg(accessor_t to, scalar_t *from) {
 
 注意 `index = thread_idx + i * num_threads()`：第 i 次迭代时，线程 t 读第 $$t + 128 i$$ 个向量——相邻线程读相邻向量，每次迭代 warp 覆盖连续的 $$32 \times \text{vec\_size} \times \text{sizeof}$$ 字节。BF16、vec 4 时一个 warp 一条指令 256 B、2 条 cache line；每线程 2 次迭代（8 元素 / 4）。这是第二章"连续对齐"与第三章"向量化"在源码里的直接体现。
 
-```text
+```text title="一个 block 处理 1024 个 BF16 的向量索引与元素"
 一个 block（128 线程 t）处理 1024 个 BF16；vec_size = 4（A100）→ 每线程 2 次迭代
 
 迭代 i=0  向量 idx = t         t=0     t=1     t=2    …  t=127
@@ -573,7 +573,7 @@ __device__ inline void load_single_arg(accessor_t to, scalar_t *from) {
 
 `vec_size == 1`（指针对齐不够）时走：
 
-```cpp
+```cpp title="CUDALoops.cuh：unrolled_elementwise_kernel"
 // aten/src/ATen/native/cuda/CUDALoops.cuh（节选）
 template <typename func_t, typename array_t, int elems_per_thread,
           typename inp_calc_t, typename out_calc_t,
@@ -592,7 +592,7 @@ __global__ void unrolled_elementwise_kernel(int N, func_t f, array_t data,
 
 而非连续 tensor 的通用路径（第 1 节 `launch_legacy_kernel<128, unroll_factor>`）用的是更朴素的 `elementwise_kernel`：
 
-```cpp
+```cpp title="CUDALoops.cuh：非连续路径的 elementwise_kernel"
 // aten/src/ATen/native/cuda/CUDALoops.cuh（节选）
 template <int nt, int vt, typename func_t>
 C10_LAUNCH_BOUNDS_2(nt, 4)
@@ -626,7 +626,7 @@ Table: PyTorch 三个 elementwise kernel 的对比
 
 `gpu_kernel` 的 lambda 是模板化的——`scalar_t` 必须在编译期确定。而 `iter.dtype()` 是运行期的枚举。桥梁是 `AT_DISPATCH_*` 宏族（`aten/src/ATen/Dispatch.h`）。以 SiLU 的反向为例（`ActivationSiluKernel.cu`）：
 
-```cpp
+```cpp title="ActivationSiluKernel.cu：AT_DISPATCH 包住 gpu_kernel"
 AT_DISPATCH_FLOATING_TYPES_AND2(
     at::ScalarType::Half, at::ScalarType::BFloat16,
     iter.dtype(), "silu_backward_cuda", [&]() {
@@ -643,7 +643,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(
 
 宏展开的骨架（`Dispatch.h` 与 `torch/headeronly/core/Dispatch.h`）：
 
-```cpp
+```cpp title="AT_DISPATCH_FLOATING_TYPES_AND2 的宏展开骨架"
 #define AT_DISPATCH_FLOATING_TYPES_AND2(SCALARTYPE1, SCALARTYPE2, TYPE, NAME, ...) \
   AT_DISPATCH_SWITCH(TYPE, NAME,                                                   \
       AT_DISPATCH_CASE_FLOATING_TYPES_AND2(SCALARTYPE1, SCALARTYPE2, __VA_ARGS__))
@@ -748,7 +748,7 @@ $$
 
 ### 2. 版本一：naive，每线程一个元素
 
-```cpp
+```cpp title="add_bf16_naive：每线程一个元素"
 #include <cuda_bf16.h>
 #include <cstdint>
 
@@ -770,7 +770,7 @@ __global__ void add_bf16_naive(const __nv_bfloat16* __restrict__ x,
 
 ### 3. 版本二：向量化，每线程 8 个元素
 
-```cpp
+```cpp title="add_bf16_vec8：每线程 8 个 BF16"
 __device__ __forceinline__ int4 add_bf16x8(int4 xa, int4 ba) {
   const __nv_bfloat162* x2 = reinterpret_cast<const __nv_bfloat162*>(&xa);
   const __nv_bfloat162* b2 = reinterpret_cast<const __nv_bfloat162*>(&ba);
@@ -813,7 +813,7 @@ __global__ void add_bf16_vec8(const __nv_bfloat16* __restrict__ x,
 
 ### 4. 版本三：向量化 + grid-stride
 
-```cpp
+```cpp title="add_bf16_vec8_gs：向量化 + grid-stride"
 __global__ void __launch_bounds__(256)
 add_bf16_vec8_gs(const __nv_bfloat16* __restrict__ x,
                  const __nv_bfloat16* __restrict__ b,
@@ -844,7 +844,7 @@ add_bf16_vec8_gs(const __nv_bfloat16* __restrict__ x,
 
 输出 `y` 为连续的 `[size0, size1]`，输入 `x`、`b` 可以是任意 stride（含 0，即 broadcast）：
 
-```cpp
+```cpp title="add_bf16_strided2d：任意 stride 与 broadcast"
 __global__ void __launch_bounds__(256)
 add_bf16_strided2d(const __nv_bfloat16* __restrict__ x,
                    const __nv_bfloat16* __restrict__ b,
@@ -871,7 +871,7 @@ add_bf16_strided2d(const __nv_bfloat16* __restrict__ x,
 
 把四个 kernel 放进一个 CUDA 源码字符串，用 `torch.utils.cpp_extension.load_inline` 编译成 Python 可调用的函数：
 
-```python
+```python title="四个 kernel 的 load_inline 编译与 host wrapper"
 import torch
 from torch.utils.cpp_extension import load_inline
 
@@ -991,7 +991,7 @@ ext = load_inline(
 
 计时脚手架与第二篇一致：`bench(fn, warmup=10, iters=100, flush_l2=True)`，`cudaEvent` 计时，两次计时之间用一个 128 MB（≥ 2 × A100 L2）的缓冲区 `memset` 冲掉 L2，取中位数毫秒：
 
-```python
+```python title="bench：cudaEvent 计时与 L2 flush（Python 版）"
 _flush_buf = None
 
 def bench(fn, warmup=10, iters=100, flush_l2=True):
@@ -1092,7 +1092,7 @@ Table: A100 上 n = 2^28 各版本 elementwise kernel 的有效带宽（经验�
 
 数字汇总：
 
-```text
+```text title="本篇数字汇总：访存模式的 sector 与效率"
 访存模式（32 线程 × 4 B）          sector    效率
 连续、128 B 对齐                   4         100%
 连续、起点偏移 4 B                 5          80%

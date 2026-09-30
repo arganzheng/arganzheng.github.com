@@ -101,7 +101,7 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 三条交织的线索：
 
-```text
+```text title="三条交织的线索"
 方法线：有目标的阅读 → 有依据的选题 → 可验证的改动 → 完整流程的复盘
 工具线：ripgrep/clangd/git log → gh CLI/标签/项目看板 → lintrunner/pre-commit/CI 配置 → PR 页面与 CI 日志
 项目线：PyTorch 与 vLLM 各自的目录、文档、标签、CI、review 规则，逐篇对照

@@ -53,7 +53,7 @@ flowchart TB
 
 走读一个 PR 的通用方法，是把它拆成七个阶段，每个阶段只问一个问题，并且每个问题都有一条能重复执行的命令作为答案的来源：
 
-```text
+```text title="走读 PR 的七个阶段与数据来源"
 阶段        问题                                    数据来源（gh / git）
 ──────────────────────────────────────────────────────────────────────────────────────────────────
 起点        它回应的是哪个 issue / RFC？之前谁讨论过？   gh issue view N --comments；PR body 里的 Fixes #
@@ -71,7 +71,7 @@ review      reviewer 问了什么、改了什么、什么维持原样？   gh ap
 
 两个 PR 的基本事实（截至 2026-09-07 查询）：
 
-```text
+```text title="两个 PR 的基本事实"
                   PyTorch #185344                                          vLLM #47272
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 标题              torch.linalg.lu: improve heuristics for the             [Bugfix][Core] Reserve the KV null block when
@@ -121,7 +121,7 @@ Table: 本文的章节安排
 
 总纲给了四条：规模适中、流程完整、有代表性、类型互补。落成可查询的条件：
 
-```text
+```text title="选取 PR 的可查询条件"
 条件                          PyTorch                                       vLLM
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 合入时间                      2026-03-01 至 2026-09-07                       同
@@ -137,7 +137,7 @@ diff 规模                     约 50–500 行                                
 
 PyTorch 有一个容易踩的坑：`@pytorchbot merge` 把 PR 的 commit 直接推到 main，然后**关闭** PR 而不是 GitHub 意义上的 merge。所以 `gh pr list --state merged` 在 PyTorch 上只能查到 release 分支上少数几个用 GitHub 按钮合入的 PR。要按 `Merged` 标签查：
 
-```bash
+```bash title="按 Merged 标签查 PyTorch 已合入 PR"
 # 任意目录执行
 gh pr list --repo pytorch/pytorch --state closed \
   --search 'label:Merged label:"module: cuda" closed:2026-03-01..2026-09-07 -author:app/pytorch-bot' \
@@ -146,7 +146,7 @@ gh pr list --repo pytorch/pytorch --state closed \
 
 在结果里按 `additions + deletions` 过滤到 40–500 行，得到十几个候选；再对候选逐个看 body 里有没有 `Fixes`、看 `/reviews` 与 `/commits`：
 
-```bash
+```bash title="逐个查看候选 PR 的 body、reviews、commits"
 gh pr view 185344 --repo pytorch/pytorch --json body,createdAt,closedAt,files,commits,reviews,comments
 gh api repos/pytorch/pytorch/pulls/185344/comments --jq '.[] | "\(.created_at) @\(.user.login) \(.body)"'
 gh api repos/pytorch/pytorch/pulls/185344/commits --jq '.[] | "\(.commit.author.date) \(.commit.message)"'
@@ -154,7 +154,7 @@ gh api repos/pytorch/pytorch/pulls/185344/commits --jq '.[] | "\(.commit.author.
 
 vLLM 的 PR 是 GitHub 意义上的 merge，`--state merged` 有效，加上 `label:ready` 与标题前缀过滤：
 
-```bash
+```bash title="查 vLLM 已合入 PR"
 gh pr list --repo vllm-project/vllm --state merged \
   --search 'is:merged merged:2026-03-01..2026-09-07 label:ready "[Core]" in:title fixes in:body' \
   --limit 100 --json number,title,additions,deletions,labels,mergedAt,author
@@ -185,7 +185,7 @@ issue 下的讨论只有两条。2026-05-27 @christopher-hesse 问："Shouldn't 
 
 要做这个改动，作者需要确认三件事：切换点在哪个函数里；两个后端各自是哪个函数、在哪个文件；有没有用户可控的开关会绕过这个选择。用第一篇的方法，从 Python API 追到 CUDA 实现（在 PyTorch v2.14.0 检出根目录执行）：
 
-```bash
+```bash title="从 linalg_lu_factor_ex 追到 CUDA 实现"
 # 1. API 名 → native_functions.yaml 里的算子声明
 rg -n "^- func: linalg_lu_factor_ex" aten/src/ATen/native/native_functions.yaml
 # 2. 算子实现 → 设备分发 stub
@@ -207,7 +207,7 @@ rg -n "preferred_linalg_library" torch/backends/cuda/__init__.py
 
 `gh pr diff 185344 --repo pytorch/pytorch` 一共 127 行，一个文件，两个 hunk。第一个 hunk 在 `lu_factor_batched_magma` 之后新增一段（`#ifdef USE_LINALG_SOLVER` 内、`#ifndef USE_ROCM` 内），先是一个枚举：
 
-```cpp
+```cpp title="新增的 SolverBackend 枚举"
 enum class SolverBackend : char {
   CUSOLVER,
   CUBLAS
@@ -216,7 +216,7 @@ enum class SolverBackend : char {
 
 然后是大约三十行注释，把启发式的来源和规则写清楚——这段注释是 review 的主战场，第 6 节会回来看它：
 
-```cpp
+```cpp title="启发式来源的注释"
   // Based on benchmarks across H100, A100, L40, RTX5090 with about 3800 points:
   // - with batch dims in the range 2^i, with i in 0-8;
   // - square matrices of dim 2^i and (2^{i+1} + 2^i)/2, with 2^k <= 8192;
@@ -229,7 +229,7 @@ enum class SolverBackend : char {
 
 第二个 hunk 在 `lu_factor` 里把原来的硬编码分支包进 `#ifdef USE_ROCM`，非 ROCm 路径改为调用新函数：
 
-```cpp
+```cpp title="lu_factor 里的 ROCm 分支与新函数调用"
 +#ifdef USE_ROCM
 +    // FIXME: this heuristic is likely incorrect for ROCM.
      if (m != n || (batch_size == 1 || m >= 512)) {
@@ -249,7 +249,7 @@ diff 里没有任何与 LU 无关的改动，没有格式化，没有顺手重�
 
 没有新增测试文件。PR 的"数据"部分是 body 里的一张验证表，标题 "LU Backend Heuristic Validation"，摘要是：
 
-```text
+```text title="LU Backend Heuristic Validation 的摘要"
 Overall accuracy: 3696/3792 (97.5%)
 --- Accuracy by GPU ---      a100 98.8% · h100 96.9% · l40 96.5% · rtx5090 97.6%
 --- Accuracy by dtype ---    float32 98.3% · float64 96.4% · complex64 98.6% · complex128 96.5%
@@ -269,12 +269,12 @@ Severity breakdown of wrong predictions:
 
 作者在开 PR 后 8 分钟内自己打了 `module: cuda`、`module: cublas`、`module: linear algebra`、`release notes: linalg_frontend` 和 `ciflow/trunk` 五个标签（事件时间 08:40–08:41）；`open source` 标签由 pytorchbot 在 08:46 打上。`ciflow/trunk` 是 `.github/pytorch-probot.yml` 的 `ciflow_push_tags` 之一，效果是除了每个 PR 都跑的 `pull.yml`，再以 push 事件拉起 `trunk.yml`。用最后一个 commit 的 sha 查 workflow 运行：
 
-```bash
+```bash title="用 head_sha 查 workflow 运行"
 gh api "repos/pytorch/pytorch/actions/runs?head_sha=f642e3f2fbe25291ebbd71f8e6ed5b0000374652&per_page=100" \
   --jq '.workflow_runs[] | "\(.name)\t\(.event)\t\(.conclusion)\t\(.path)"'
 ```
 
-```text
+```text title="最后一个 commit 的 workflow 运行结果"
 pull                              pull_request  failure   .github/workflows/pull.yml
 trunk                             push          success   .github/workflows/trunk.yml
 Lint                              pull_request  success   .github/workflows/lint.yml
@@ -318,7 +318,7 @@ review 全部发生在 PR 开出后四小时内的一个窗口里，然后是四
 
 进了哪个版本：
 
-```bash
+```bash title="查 PR #185344 进了哪个版本"
 # 在 pytorch 完整克隆里执行（本地 v2.13.0 标签若是浅克隆，merge-base 会失败，改用 GitHub compare API 核对）
 git tag --contains 230db5d50ab7181876abd9a5ac5c4aca70c7d79b | grep -E '^v2\.'
 gh api repos/pytorch/pytorch/compare/v2.13.0...230db5d50ab7181876abd9a5ac5c4aca70c7d79b --jq '{status, behind_by}'
@@ -342,7 +342,7 @@ body 的 "Not a duplicate" 一段列出了 #41069（override-only、按总块数
 
 从现象到代码，作者需要找到：那条 "Maximum concurrency" 日志在哪打的；启动检查是哪个函数、它拿的块数从哪来；null block 是在哪保留的；`num_gpu_blocks_override` 在哪定义。在 vLLM v0.28.0 检出根目录执行：
 
-```bash
+```bash title="从 Maximum concurrency 日志追到 kv_cache_utils.py"
 rg -n "Maximum concurrency for" vllm/                       # → vllm/v1/core/kv_cache_utils.py
 rg -n "def get_kv_cache_configs|def _check_enough_kv_cache_memory|def check_enough_kv_cache_memory|def _auto_fit_max_model_len|def estimate_max_model_len" vllm/v1/core/kv_cache_utils.py
 rg -n "null_block" vllm/v1/core/block_pool.py               # → BlockPool.__init__ 里 popleft 一块并标 is_null
@@ -359,7 +359,7 @@ rg -ln "num_gpu_blocks_override=3[23]" tests/               # → 哪些测试�
 
 第一处在 `get_kv_cache_configs`：在把 override 折算成 `available_memory` 之后、auto-fit 与检查之前，插入一段：
 
-```python
+```python title="get_kv_cache_configs 里预留 null block"
 +    # Reserve the null block BlockPool permanently holds back, so auto-fit and
 +    # the capacity check both plan against usable blocks. Allocation below
 +    # still uses the full memory.
@@ -373,7 +373,7 @@ rg -ln "num_gpu_blocks_override=3[23]" tests/               # → 哪些测试�
 
 第二处在公开函数 `check_enough_kv_cache_memory`（被 `tests/v1/engine/test_init_error_messaging.py` 使用），做同样的减法：
 
-```python
+```python title="check_enough_kv_cache_memory 里的同样减法"
 +        groups = get_kv_cache_groups(vllm_config, dict(kv_cache_spec))
 +        check_memory = (
 +            available_memory - _pool_bytes_per_block(vllm_config, groups)
@@ -415,7 +415,7 @@ PR 开出时 github-actions bot 的第一条评论就说明了 vLLM 的 CI 策�
 
 修复 commit `e4fa9878` 之后合并 main，08-20 01:38 作者与 njhill 几乎同时 `/ci run`（bot 对第二个回复 "CI is already running for this commit"），Buildkite #84725 用 1 小时 9 分跑完，`gh pr checks 47272` 列出 88 项全部通过。任务名可以直接对回 `.buildkite/test_areas/`：
 
-```text
+```text title="Buildkite 任务名对回 test_areas"
 Buildkite 任务名（gh pr checks）                         test_areas 文件与 label                          source_file_dependencies 命中
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 nvidia-h200-v1-core-plus-kv-plus-metrics                misc.yaml "V1 Core + KV + Metrics"               vllm/v1/ · tests/v1/core
@@ -450,7 +450,7 @@ review 的记录要分两部分看：maintainer 的一条，社区成员的两�
 
 进了哪个版本：
 
-```bash
+```bash title="查 PR #47272 进了哪个版本"
 # 在 vllm 完整克隆里执行
 git fetch --tags origin
 git tag --contains 76fb6d210a57c7efbb61fa6cb029d1fa1911bfb5
@@ -462,7 +462,7 @@ gh api repos/vllm-project/vllm/releases --jq '.[] | "\(.tag_name) \(.published_a
 
 follow-up 与 revert：
 
-```bash
+```bash title="查 follow-up 与 revert"
 gh pr list --repo vllm-project/vllm --state all --search "47272 in:body,title" \
   --json number,title,state,createdAt
 ```
@@ -471,7 +471,7 @@ gh pr list --repo vllm-project/vllm --state all --search "47272 in:body,title" \
 
 ## 五、两个走读的对照表
 
-```text
+```text title="两个走读的对照表"
 环节            PyTorch #185344                                           vLLM #47272
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 issue 来源      maintainer 自己开的性能 issue（附复现与实测表）；            用户 bug 报告；被部分修复过一次；PR 开出后 issue 被 stale bot 关闭
@@ -503,7 +503,7 @@ AI 政策         AI_POLICY.md；描述保留 "Authored with Claude."，        
 
 全部时间戳来自 `gh issue view`、`gh api .../issues/N/events`、`/pulls/N/comments`、`/pulls/N/commits` 与 `/issues/N/comments`（UTC）：
 
-```text
+```text title="PyTorch #185344 的时间线"
 时间              事件                                                    间隔          归类
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 04-30 08:21       @IvanYashchuk 开 issue #181999，附复现与 5090/6000 Ada 数据   —             起点
@@ -528,7 +528,7 @@ PR 阶段总计 5 天 5 小时 50 分。分解：**等 review** 约 1 天 6 小�
 
 ### 2. vLLM #47272 的时间线
 
-```text
+```text title="vLLM #47272 的时间线"
 时间              事件                                                    间隔          归类
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 02-27 19:45       @kvcache670 开 issue #35541；同日开 PR #35542（未合入）        —             起点（他人）
@@ -558,7 +558,7 @@ PR 阶段总计 49 天 18 小时。分解：**等 review** 约 47 天 13 小时�
 
 ### 3. 两张时间线并排
 
-```text
+```text title="两张时间线并排"
                       PyTorch #185344            vLLM #47272
 ─────────────────────────────────────────────────────────────────────────────
 issue → PR 开出        27 天（作者采 benchmark）    124 天（他人部分修复 60 天 + 空白 63 天）
@@ -578,7 +578,7 @@ review 往返轮数        1 轮（3 条意见 + 1 条 TODO）   1 轮（1 条�
 
 两个走读里出现的每一个环节，都能在前三篇找到对应的方法与文件：
 
-```text
+```text title="走读环节与前三篇小节的映射"
 走读中的环节                                     前三篇的对应小节                                        本文出处
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 从 torch.linalg.lu_factor_ex 追到 lu_factor        第一篇 · 入口点与符号追踪（native_functions.yaml → stub → REGISTER_CUDA_DISPATCH）  三.2
@@ -609,7 +609,7 @@ ready 标签 → /ci run → 合入；mergify needs-rebase    第三篇 · merge
 
 本篇给贡献日志加最后一页：按走读的格式复盘自己在第三篇提交的那个 PR。无论它合入了、还在等、还是关掉了，都按同样的表填。模板里的命令以自己的仓库与编号代入；时间戳统一从 `gh` 取，不要凭记忆。
 
-```markdown
+```markdown title="PR 复盘模板"
 # 复盘：<OWNER/REPO> #<N> — <标题>
 
 ## 0. 事实
@@ -664,7 +664,7 @@ ready 标签 → /ci run → 合入；mergify needs-rebase    第三篇 · merge
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：两个真实 PR"
 选 PR         PyTorch 的合入是 pytorchbot 关闭 PR + 推 commit，要查 label:Merged 而不是 is:merged；
               候选按 Fixes # · /reviews 后有新 commit · 流程要素 · 类型互补逐条核对；放宽的标准要写明
 七阶段        起点 · 阅读 · diff · 测试与数据 · CI · review · 合入之后，每阶段一条 gh / git 命令作为出处
@@ -678,7 +678,7 @@ vLLM          issue 部分修复过一次并被 stale 关闭；PR 47 天无 revi
 
 ### 2. PyTorch vs vLLM：同一环节两种做法
 
-```text
+```text title="同一环节在 PyTorch 与 vLLM 的两种做法"
 环节            PyTorch                                         vLLM
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 查已合入 PR     gh pr list --state closed --search "label:Merged"   gh pr list --state merged
@@ -693,7 +693,7 @@ CI 失败归属     Dr. CI 分 New Failures / flaky / broken trunk       Buildki
 
 ### 3. 本篇涉及的文件位置
 
-```text
+```text title="本篇涉及的文件位置"
 项目 / 版本         路径                                                    与走读的关系
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 PyTorch v2.14.0     aten/src/ATen/native/cuda/linalg/BatchLinearAlgebra.cpp  get_lu_factor_solver_backend · lu_factor · REGISTER_CUDA_DISPATCH(lu_factor_stub)

@@ -134,7 +134,7 @@ Table: 本文的章节安排
 
 PyTorch 把 PR 体积写进了 CI。`.github/workflows/lint.yml` 的 `pr-sanity-checks` 任务只在 `pull_request` 事件上跑，调用 `.github/scripts/pr-sanity-check.sh`；脚本用 `git diff --stat` 统计非生成文件（`.gitattributes` 里 `linguist-generated=true` 的文件被排除）的增删行数之和：
 
-```bash
+```bash title="pr-sanity-check.sh：2000 行上限的判断"
 # pytorch .github/scripts/pr-sanity-check.sh（节选）
 if ((pr_size > 2000)); then
     echo 'Your PR is '"$pr_size"' LOC which is more than the 2000 maximum'
@@ -185,7 +185,7 @@ vLLM 没有 ghstack。拆分大改动的做法是**顺序开 PR**：先开第 1 
 
 PyTorch 用 `unittest`，但不是裸的 `unittest`。检出根目录 `AGENTS.md` 的 "Testing" 一节给出了最小骨架：
 
-```python
+```python title="PyTorch 测试文件的最小骨架"
 from torch.testing._internal.common_utils import run_tests, TestCase
 
 class TestFeature(TestCase):
@@ -207,7 +207,7 @@ if __name__ == "__main__":
 
 跑法（`CONTRIBUTING.md` "Python Unit Testing" 与 "Better local unit tests with `pytest`"，在仓库根目录执行）：
 
-```bash
+```bash title="PyTorch 测试的三种跑法"
 python test/run_test.py                         # 全部（很慢，本地一般不跑）
 python test/test_nn.py TestNN.test_BCELoss      # 单个测试类.方法
 pytest test/test_nn.py -k Loss -v               # pytest 非官方支持但可用
@@ -219,7 +219,7 @@ C++ 测试在 `test/cpp/`，用 Google Test，构建后二进制在 `build/bin/`
 
 vLLM 用 pytest，`tests/` 按子系统组织（`kernels/`、`distributed/`、`models/`、`entrypoints/`、`evals/`、`v1/` 等，检出的 `tests/` 顶层有七十个左右的目录和文件）。`docs/contributing/README.md` "Testing" 一节的命令：
 
-```bash
+```bash title="vLLM 测试的安装与运行"
 # vllm 仓库根目录
 uv pip install -r requirements/common.txt -r requirements/dev.txt --torch-backend=auto
 pytest tests/                       # 全部
@@ -258,7 +258,7 @@ vLLM 的 `docs/contributing/README.md` "Testing" 一节直接承认没有 GPU �
 
 PyTorch 的要求写在 PR 模板里。`.github/PULL_REQUEST_TEMPLATE/fix_issue.md` 与 `preapproved.md` 的 Checklist 第四项：
 
-```text
+```text title="PyTorch PR 模板的 benchmark 一项"
 - [ ] Included benchmark results (for PRs impacting perf)
 ```
 
@@ -270,7 +270,7 @@ vLLM 把 benchmark 分成两层。kernel 层在 `benchmarks/kernels/`，检出�
 
 端到端层是 `vllm bench` 子命令。这里有一个版本变化要说清楚：`benchmarks/benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 三个文件在 v0.28.0 检出里**仍然存在，但只是弃用桩**——运行它会打印 "DEPRECATED: This script has been moved to the vLLM CLI. Please use the following command instead: vllm bench serve" 然后 `sys.exit(1)`。实现已经搬到 `vllm/benchmarks/`（`serve.py`、`throughput.py`、`latency.py`、`startup.py`、`sweep/`、`mm_processor.py`），CLI 入口在 `vllm/entrypoints/cli/benchmark/`（同名文件）。所以 v0.28.0 的正确命令是：
 
-```bash
+```bash title="vllm bench 的四个子命令"
 # vllm 已安装的环境
 vllm bench latency    --model <model> --input-len 512 --output-len 128 --batch-size 8
 vllm bench throughput --model <model> --dataset-name random --num-prompts 500
@@ -287,7 +287,7 @@ vllm bench sweep      # 参数扫描，见 vllm/benchmarks/sweep/
 
 放在 PR 描述的 Test Result（vLLM）或 Summary（PyTorch）里，用表格：
 
-```text
+```text title="PR 描述里的 benchmark 表格"
 | Case                          | Before (us) | After (us) | Speedup |
 |-------------------------------|------------:|-----------:|--------:|
 | H100, bf16, [4096, 4096]      |       123.4 |       98.7 |   1.25x |
@@ -309,7 +309,7 @@ Command: python benchmarks/kernels/benchmark_rmsnorm.py --dtype bfloat16
 
 PyTorch 的 lint 由 `lintrunner` 驱动，配置在根目录 `.lintrunner.toml`。检出里有 61 个 `[[linter]]` 段，`code` 字段就是 CI 报错时显示的名字：
 
-```text
+```text title=".lintrunner.toml 里的 61 个 linter 分组"
 格式与风格   FLAKE8 RUFF PYFMT CLANGFORMAT CODESPELL NEWLINE SPACES TABS COPYRIGHT
 类型         PYREFLY TYPEIGNORE TYPENOSKIP NOQA
 C++          CLANGTIDY CLANGTIDY_EXECUTORCH_COMPATIBILITY INCLUDE PYBIND11_INCLUDE PYBIND11_SPECIALIZATION
@@ -327,7 +327,7 @@ Python 语义  ERROR_PRONE_ISINSTANCE ISINSTANCE_FAKE_TENSOR EXEC ROOT_LOGGING D
 
 v2.14.0 推荐的入口是 `spin`（`CONTRIBUTING.md` 的 "Spin" 一节与 "Linting before committing" 一节）。`pyproject.toml` 的 `[tool.spin.commands]` 注册了这些子命令：`develop`、`editable`、`install`、`clean`、`lint`、`fixlint`、`quicklint`、`quickfix`、`regenerate-version`、`regenerate-type-stubs`、`regenerate-clangtidy-files`、`regenerate-github-workflows`、`docs`、`pyrefly`，实现都在 `.spin/cmds.py`。CONTRIBUTING 的 "Linting" 表格列出的是 `lint`、`quicklint`、`quickfix` 三个；`fixlint` 在表格里没有，但 `pyproject.toml` 里注册了，三个 PR 模板的 checklist 也都写着 `Passes lint (spin fixlint)`，根目录 `AGENTS.md` 的 "Linting" 一节说 "use `spin lint` as to run the lint and `spin fixlint` to apply automatic fixes"。以 `pyproject.toml` 为准，四个都能用：
 
-```bash
+```bash title="spin lint / fixlint / quicklint"
 # pytorch 仓库根目录
 pip install spin            # 或 uv tool install spin --with=packaging,pyyaml,typing_extensions
 spin lint                   # 默认 lint：快的 linter 跑全部文件，慢的只跑改动文件
@@ -345,7 +345,7 @@ lintrunner -a               # 并应用修复
 
 vLLM 用 `pre-commit`，配置在根目录 `.pre-commit-config.yaml`。`default_install_hook_types` 是 `pre-commit` 和 `commit-msg` 两种，`default_stages` 是 `pre-commit`（本地）和 `manual`（CI）。检出里的 hook id：
 
-```text
+```text title=".pre-commit-config.yaml 的 hook id 分组"
 外部仓库   ruff-check（带 --fix）ruff-format typos clang-format markdownlint-cli2 actionlint
            pip-compile（cuda / rocm / xpu / cpu / docs 五个变体）check-json
 本地脚本   format-torch-nightly-test
@@ -361,7 +361,7 @@ vLLM 用 `pre-commit`，配置在根目录 `.pre-commit-config.yaml`。`default_
 
 命令（`docs/contributing/README.md` "Linting" 与 `AGENTS.md` "Running linters"，在仓库根目录执行）：
 
-```bash
+```bash title="pre-commit 的安装与运行"
 uv pip install -r requirements/lint.txt      # 或 uv pip install pre-commit>=4.5.1
 pre-commit install                           # 装钩子，之后每次 commit 自动跑
 pre-commit run                               # 只跑 staged 文件
@@ -401,7 +401,7 @@ reviewer 打开 PR 先看描述，再看 diff。描述的任务是让他在读 d
 
 `fix_issue.md`（修 issue 的 PR）的字段：
 
-```text
+```text title="fix_issue.md 模板的字段"
 ## Issue
 Fixes #        ← 注释：Issue number. PRs without a linked issue may be automatically closed.
 ## Summary
@@ -430,7 +430,7 @@ PyTorch 对标题没有前缀要求，但合入时要求 PR 有一个 `release n
 
 `.github/PULL_REQUEST_TEMPLATE.md` 只有三个栏目：
 
-```text
+```text title="vLLM PR 模板的三个栏目"
 ## Purpose
 ## Test Plan
 ## Test Result
@@ -497,7 +497,7 @@ Table: 与贡献者直接相关的六个 PyTorch workflow
 
 `ciflow/*` 是 PyTorch 让 PR 跑"非默认"任务的机制。给 PR 打上 `ciflow/trunk` 标签，机器人会给 PR 的 head commit 打一个 `ciflow/trunk/<PR号>` 的 git tag，`trunk.yml` 的 `on.push.tags: ciflow/trunk/*` 就被触发。哪些标签有效，写在 `.github/pytorch-probot.yml` 的 `ciflow_push_tags` 列表里，v2.14.0 有 49 个，可以分成几组：
 
-```text
+```text title="ciflow_push_tags 的 49 个标签分组"
 基础          ciflow/pull ciflow/trunk ciflow/periodic ciflow/slow ciflow/nightly ciflow/unstable
 硬件          ciflow/h100 ciflow/h100-distributed ciflow/h100-symm-mem ciflow/h100-cutlass-backend
               ciflow/b200 ciflow/b200-distributed ciflow/b200-symm-mem ciflow/mps ciflow/xpu ciflow/s390 ciflow/riscv64 ciflow/win-arm64
@@ -527,7 +527,7 @@ vLLM 的 CI 跑在 Buildkite 上（日志公开，不需登录）。v0.28.0 检�
 
 每个文件是一个 `group` 加一组 `steps`。以 `kernels.yaml` 的一个 step 为例（原文节选）：
 
-```yaml
+```yaml title="test_areas/kernels.yaml 的一个 step"
 # vllm .buildkite/test_areas/kernels.yaml（节选）
 group: Kernels
 depends_on:
@@ -571,7 +571,7 @@ steps:
 
 实现是 `.github/workflows/run-ci-command.yml`：监听 `issue_comment`，评论内容严格等于 `/ci run`、`/ci run all`、`/ci run nightly`、`/ci retry`、`/ci cancel` 之一才触发（`.github/workflows/scripts/test_run_ci_command.py` 里有测试断言 `/ci run please` 和带前导空格的 ` /ci run` 都不算）。授权逻辑在 `.github/workflows/scripts/run_ci_command.py` 的 `authorize` 函数，按顺序判断：
 
-```text
+```text title="run_ci_command.py 的授权顺序"
 1  评论者有 admin / maintain / write 权限（TRUSTED_PERMISSIONS）        → 允许
 2  评论者在 CI_TRUSTED_USERS 变量列出的受信贡献者名单里                 → 允许
 3  评论者不是 PR 作者                                                  → 拒绝："Only reviewers with write access can use CI commands before CI is delegated to the PR author."
@@ -630,7 +630,7 @@ PyTorch 的失败日志有固定的结构：每个 test job 末尾会打印失�
 
 拉日志用 "Logs Wrangling" 一节的脚本 `.buildkite/scripts/ci-fetch-log.sh`（日志公开，无需 Buildkite 登录）：
 
-```bash
+```bash title="ci-fetch-log.sh 的用法"
 # vllm 仓库根目录
 .buildkite/scripts/ci-fetch-log.sh --pr <PR>                                   # 当前 PR 最新 build 的所有失败 job
 .buildkite/scripts/ci-fetch-log.sh "https://buildkite.com/vllm/ci/builds/<N>"  # 某个 build（--soft 含 soft-fail，--all 全部）
@@ -741,7 +741,7 @@ Table: @pytorchbot 评论写法与 trymerge.py 参数的对应
 
 **权限检查**——`.github/merge_rules.yaml`。v2.14.0 有 33 条规则，每条四个字段：
 
-```yaml
+```yaml title="merge_rules.yaml 节选"
 # pytorch .github/merge_rules.yaml（节选）
 - name: OSS CI
   patterns:
@@ -777,7 +777,7 @@ vLLM 的合入是人做的：有写权限的 maintainer approve 之后打 `ready
 - **没有冲突**：`.github/mergify.yml` 的规则 "ping author on conflicts and add 'needs-rebase' label" 在 PR 与 main 冲突时自动打 `needs-rebase` 并留言：
 
 {% raw %}
-```yaml
+```yaml title="mergify.yml：冲突时打 needs-rebase"
 # vllm .github/mergify.yml（节选）
 - name: ping author on conflicts and add 'needs-rebase' label
   conditions:
@@ -935,7 +935,7 @@ Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目
 
 ### 1. 模板
 
-```markdown
+```markdown title="PR 草稿模板"
 ## PR 草稿：<一句话目的>
 
 ### 元信息
@@ -989,7 +989,7 @@ Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目
 
 假设改动是修一个 CUDA 算子在空 tensor 输入下的越界读（issue 已标 `actionable`）。描述初稿：
 
-```markdown
+```markdown title="样例：按 fix_issue.md 填写的 PR 描述"
 ## Issue
 
 Fixes #NNNNNN
@@ -1031,7 +1031,7 @@ Table: PyTorch PR 的日志条目示例
 
 假设改动是修一个 OpenAI 兼容接口在某个参数组合下返回 500 的 bug。描述初稿：
 
-```markdown
+```markdown title="样例：按 vLLM 模板填写的 PR 描述"
 ## Purpose
 
 Fix #NNNNN: `/v1/chat/completions` returns HTTP 500 instead of 400 when
@@ -1090,7 +1090,7 @@ Table: review 往返记录表（填写示例）
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：可合入的改动"
 最小 diff     一个 PR 一件事；PyTorch pr-sanity-check.sh 2000 行硬上限 + ghstack 叠 PR；vLLM >500 行架构改动需 RFC、顺序开 PR、6 个 open PR 上限
 测试          PyTorch：TestCase / run_tests / @parametrize / instantiate_device_type_tests（common_utils.py、common_device_type.py），TEST_HAS_MAIN linter 强制入口
               vLLM：pytest；AGENTS.md 四个问题（模块为何 / I/O 契约 / 防什么失败 / 最便宜的层级）+ 五条规则；kernel 用 torch.library.opcheck；模型改动跑 tests/evals 或 vllm bench

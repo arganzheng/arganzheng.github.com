@@ -145,7 +145,7 @@ Table: PyTorch 的 issue 状态与欢迎程度标签
 
 PR 上的很多标签不是人打的。`.github/labeler.yml` 按**改动的文件路径**打标，每个键是一个标签，值是 glob 列表。v2.14.0 里共 213 行，节选：
 
-```yaml
+```yaml title="labeler.yml 节选：按路径打标"
 "module: dynamo":
 - torch/_dynamo/**
 - torch/csrc/dynamo/**
@@ -180,7 +180,7 @@ PR 上的很多标签不是人打的。`.github/labeler.yml` 按**改动的文�
 
 `.github/label_to_label.yml` 做的是**标签推导标签**，对 issue 和 PR 都生效，60 行，全文结构如下：
 
-```yaml
+```yaml title="label_to_label.yml：标签推导标签"
 # Use this to auto apply labels based on other labels.  Applies to both PRs and
 # issues. Currently only supports any and all
 - any:
@@ -289,7 +289,7 @@ Table: vLLM 与选题相关的标签
 
 vLLM 的 PR 标签由 `.github/mergify.yml` 打，规则名一律 `label-<领域>`，条件是文件路径正则或标题正则。v0.28.0 里的规则列表（`grep "^- name:" .github/mergify.yml`）：
 
-```text
+```text title="mergify.yml 的规则列表"
 label-documentation  label-ci-build  label-cohere  label-deepseek  label-frontend  label-rust
 label-llama  label-multi-modality  label-mistral  label-new-model  label-performance
 label-quantization  label-qwen  label-gpt-oss  label-kimi  label-k3  label-nvidia  label-rocm
@@ -299,7 +299,7 @@ label-tpu  label-tpu-remove  label-tool-calling  label-bug  label-kv-connector
 
 以及几条非打标规则：`auto-rebase to keep merge candidate within 1 day behind main`、`ping author on conflicts and add 'needs-rebase' label`、`remove 'needs-rebase' label when conflict is resolved`、`assign reviewer for tensorizer changes`、`assign reviewer for modelopt changes`、`comment-pre-commit-failure`、`comment-dco-failure`。两条与选题直接相关的规则原文：
 
-```yaml
+```yaml title="mergify.yml 的两条规则原文"
 - name: label-new-model
   description: Automatically apply new-model label
   conditions:
@@ -360,7 +360,7 @@ PyTorch 的 RFC 不在主仓库，在 `github.com/pytorch/rfcs`。`gh api repos/
 
 然后是三步：
 
-```text
+```text title="PyTorch RFC 的三步"
 Step 1  Create an RFC        fork pytorch/rfcs；复制 RFC-0000-template.md 为 RFC-00xx-your-feature.md；可以只放一个公开 Google Doc 的链接
 Step 2  Get Feedback         PR 标题 RFC-00xx-your-feature.md；先打 draft 标签，准备好后换 commenting 标签；
                              在 pytorch/pytorch 开一个 issue 链到 RFC PR，由 triage 路由给相关 core contributors；
@@ -382,7 +382,7 @@ Step 3  Implement            RFC PR 被接受后合入 pytorch/rfcs；实现 PR 
 
 vLLM 的 RFC 就是一个 issue。`.github/ISSUE_TEMPLATE/750-RFC.yml` 的头部与字段：
 
-```yaml
+```yaml title="750-RFC.yml 的头部与字段"
 name: 💬 Request for comments (RFC).
 description: Ask for feedback on major architectural changes or design choices.
 title: "[RFC]: "
@@ -448,7 +448,7 @@ vLLM 把 CI 失败的处理流程完整写在 `docs/contributing/ci/failures.md`
 
 "Help fixing it is always welcome" 是这份文档里对贡献者最直接的邀请。Dashboard 是 GitHub Project 20，列出 main 上当前已知的失败；"Daily Triage" 一节说 maintainer 每天用 Buildkite analytics 的 2-day view 对比它。文档后面几节是可以直接照做的操作手册：
 
-```text
+```text title="failures.md 的操作手册"
 Filing a CI Test Failure Issue   用 450-ci-failure.yml；标题格式 [CI Failure]: failing-test-job - regex/matching/failing:test；
                                  环境字段写 "Still failing on main as of commit abcdef123"；描述里逐条 FAILED failing/test.py:failing_test1
 Logs Wrangling                   .buildkite/scripts/ci-fetch-log.sh --pr <PR>   拉一个 PR 最新 build 的全部失败 job 日志
@@ -583,7 +583,7 @@ Table: 成体系做文档与类型缺口的几种形态
 
 关键是 PR 描述里能说出"**这是一个什么范围、为什么这个范围、我怎么找全的**"。找全的方法就是第一篇讲的 `rg`：
 
-```bash
+```bash title="用 rg 找全一批同类缺口"
 # 在 pytorch 检出根目录：找所有 optimizer 文档里用了 SGD 做示例的地方
 rg -n "torch.optim.SGD\(" torch/optim/*.py
 
@@ -614,7 +614,7 @@ vLLM 侧，`AGENTS.md` 的测试原则本身就是选题指南——"what failur
 
 vLLM 的 `docs/contributing/deprecation_policy.md` 把废弃一个功能写成了三阶段流水线，每个阶段跨一个 minor 版本（`Y`）：
 
-```text
+```text title="vLLM deprecation 的三阶段"
 1  Deprecated (Still On By Default)   标记废弃；警告里写明移除版本（如 "This will be removed in v0.10.0"）；
                                       在 help string、日志、API 响应、/metrics、文档、release notes、RFC issue 里同步；
                                       Python API 用 @typing_extensions.deprecated 装饰器
@@ -688,7 +688,7 @@ vLLM 把查重写成了可以直接复制的命令。`AGENTS.md` 的 "Duplicate-
 
 两个项目都没有正式的认领机制，但一条评论仍然有用——前提是它**携带信息**。对比 2026-09-01 出现在多个 vLLM 和 PyTorch issue 下的同一段模板（同一账号，同一天，至少五个 issue，每个 issue 下重复两到三次）：
 
-```text
+```text title="多个 issue 下重复出现的认领模板"
 I'd like to take this one (`<issue title 截断>`). I'll dig into the root cause and follow up with a PR shortly. (claiming via @xxx)
 ```
 
@@ -733,7 +733,7 @@ Table: 一周后会不会被关的打分表
 
 本篇给贡献日志新增的一页是"切入点清单"，格式沿用总纲的四栏并加上依据列：
 
-```markdown
+```markdown title="切入点清单模板"
 ## 切入点清单（查询日期：YYYY-MM-DD）
 
 | # | 项目 | issue | 来源 | 是否已有人在做 | 预计规模 | 需先讨论? | 结论 |
@@ -788,7 +788,7 @@ Table: vLLM 的三个候选 issue
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：找切入点"
 核心问题      maintainer 最想要的：他们已决定要做、写清了要什么、自己没时间做的事
               —— PyTorch 的 actionable + "I'd review a PR that ..."；vLLM 的 help wanted + 分步骤正文
               一周内不被关的预测器：标签状态 · maintainer 最后一条评论 · open PR 数 · 规模与 RFC 门槛 · 硬件 · 项目政策

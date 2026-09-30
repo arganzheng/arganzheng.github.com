@@ -75,13 +75,13 @@ nccl-tests 是 NCCL 官方的性能与正确性测试集，每个集合通信原
 
 编译分两种。不带 MPI 只能单进程：
 
-```bash
+```bash title="不带 MPI 编译 nccl-tests"
 make -j CUDA_HOME=/usr/local/cuda NCCL_HOME=/path/to/nccl
 ```
 
 带 MPI 才能多进程、多机（README 明确说明多进程数由 MPI 管理，不作为参数传入）：
 
-```bash
+```bash title="带 MPI 编译 nccl-tests"
 make -j MPI=1 MPI_HOME=/path/to/openmpi CUDA_HOME=/usr/local/cuda NCCL_HOME=/path/to/nccl
 ```
 
@@ -124,13 +124,13 @@ make -j MPI=1 MPI_HOME=/path/to/openmpi CUDA_HOME=/usr/local/cuda NCCL_HOME=/pat
 
 单机不用 MPI：
 
-```bash
+```bash title="单机运行 all_reduce_perf"
 ./build/all_reduce_perf -b 8 -e 8G -f 2 -g 8 -n 50 -w 10 -c 0
 ```
 
 多机用 mpirun（`-N 8` 每节点 8 进程，`-np` 总进程数；`-x` 把环境变量传过去）：
 
-```bash
+```bash title="多机 mpirun 运行 all_reduce_perf"
 mpirun -np 16 -N 8 --hostfile hosts \
   -x NCCL_DEBUG=INFO -x NCCL_IB_HCA=mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7 \
   -x NCCL_SOCKET_IFNAME=eth0 -x LD_LIBRARY_PATH \
@@ -145,7 +145,7 @@ nccl-tests 本身**没有 torchrun 模式**。但很多集群没有 MPI，只有
 
 一次扫描的输出长这样（`src/util.cu` 的 `writeResultHeader` 决定列名，`writeResultFooter` 打结尾三行）：
 
-```text
+```text title="all_reduce_perf 一次扫描的输出"
 # nccl-tests version 2.18.3 nccl-headers=22809 nccl-library=22809
 # Using devices
 #  Rank  0 Group  0 Pid  12345 on   hostname device  0 [0000:1a:00.0] NVIDIA H100 80GB HBM3
@@ -189,7 +189,7 @@ busbw 是唯一能与硬件带宽直接比较的数字，理由第一篇讲过�
 
 把 `size` 取对数作横轴、`busbw` 作纵轴，一条健康的 all_reduce 曲线是一个 S 形：
 
-```text
+```text title="健康的 all_reduce busbw 曲线：S 形与拐点"
 busbw
   ▲
   │                                            ┌──────────────  带宽平台：≈ β_eff
@@ -240,7 +240,7 @@ Table: α-β 模型预测的几种场景的拐点
 
 下面是三种典型环境的 all_reduce busbw 曲线应有的样子。数字全部是"通常能达到"的区间，非实测；读者的机器落在区间内即为正常。
 
-```text
+```text title="三种典型环境的 all_reduce 参考线"
 环境                          8 B time      1 MB busbw      64 MB busbw       ≥1 GB busbw (平台)     平台对应的硬件上限
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 8×H100 SXM + NVSwitch         10–20 µs      40–80 GB/s      250–400 GB/s      350–480 GB/s           NVLink 900 GB/s 双向合计
@@ -266,7 +266,7 @@ nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上�
 
 ### 5. 常见异常形状与原因
 
-```text
+```text title="常见异常形状、原因与先查什么"
 形状                                  最可能的原因                                    先查什么
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 大消息平台远低于参考线                 链路没走对（P2P 没走 NVLink、走了 SHM 或 CPU）    NCCL_DEBUG=INFO 里 "via P2P/…" 还是 "via SHM/…"
@@ -302,7 +302,7 @@ nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上�
 
 NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.h`）：
 
-```cpp
+```cpp title="param.h：NCCL_PARAM 宏"
 // src/include/param.h（2.28.9）
 #define NCCL_PARAM(name, env, deftVal) \
   int64_t ncclParam##name() { \
@@ -374,7 +374,7 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 
 ### 9. 该动、少动、几乎不动
 
-```text
+```text title="参数分类：该动、少动、几乎不动"
 类别            参数                                              理由
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 生产环境应显式   NCCL_IB_HCA                                       不设会枚举所有 RDMA 设备，混入慢网卡
@@ -449,7 +449,7 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 
 `NCCL_DEBUG_FILE` 指定输出文件，`ncclDebugInit` 里展开两个占位符：`%h` 主机名、`%p` 进程号（`%%` 转义为 `%`）。多机多进程时必须用它，否则 stdout 里 64 个进程的行交织在一起无法阅读：
 
-```bash
+```bash title="NCCL_DEBUG_FILE 按主机与进程分文件"
 NCCL_DEBUG=INFO NCCL_DEBUG_FILE=/shared/logs/nccl.%h.%p.log
 ```
 
@@ -459,7 +459,7 @@ NCCL_DEBUG=INFO NCCL_DEBUG_FILE=/shared/logs/nccl.%h.%p.log
 
 拿到一份 `NCCL_DEBUG=INFO` 日志，不要从头读，直接 grep 这八样东西（第四篇的 `nccl_log_reader.py` 做的就是这个）：
 
-```text
+```text title="INFO 日志里要找的八行"
 1  NCCL version 2.28.9+cuda12.x                             版本对不对；多机各节点是否一致
 2  NCCL_XXX set by environment to …                          生效的参数就这些，别的都是默认
 3  Bootstrap: Using eth0:10.0.0.1<0>                         bootstrap 网口
@@ -480,7 +480,7 @@ NCCL_DEBUG=INFO NCCL_DEBUG_FILE=/shared/logs/nccl.%h.%p.log
 
 NCCL 2.24 起内置了 RAS（Reliability, Availability, Serviceability）子系统，源码在 `src/ras/`，默认启用（`src/bootstrap.cc` 的 `NCCL_PARAM(RasEnable, "RAS_ENABLE", 1)`）。每个进程里一个 RAS 线程，进程之间用 TCP 组成一张监控网，与 NCCL 的数据路径完全独立。随 NCCL 一起编译的命令行工具 `ncclras`（`src/ras/client.cc`，`make install` 装到 `bin/`）连接到任一进程的 RAS 端口（默认 28028，`NCCL_RAS_ADDR` 可改），输出全作业的状态：
 
-```text
+```text title="ncclras 输出的作业摘要"
 ncclras -v          # 或 ncclras -f json
 Job summary
 ===========
@@ -505,7 +505,7 @@ Communicators
 
 ### 2. 六类 hang
 
-```text
+```text title="六类 hang：机制与现象特征"
 类别                          机制                                                   现象特征
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 A 集合通信参数不一致           rank 3 传 1 MB+4 KB，其他传 1 MB；NCCL 不校验 count      要么 hang（多数），要么静默完成给出错误结果（少数，
@@ -536,7 +536,7 @@ A～D 是代码问题，出现在特定步数、可复现，且各 rank 的"最�
 
 hang 发生后进程都还在（watchdog 默认 10 分钟后才动手），先看栈。三个工具看三层：
 
-```bash
+```bash title="py-spy / gdb / cuda-gdb 看三层栈"
 # Python 栈：每个 rank 停在哪一行 Python 代码。--native 会带上 C 栈
 py-spy dump --pid <pid>                    # 不需要 root，不 attach，秒级
 py-spy dump --pid <pid> --native | head -80
@@ -583,7 +583,7 @@ Flight Recorder 是 ProcessGroupNCCL 里的一个环形缓冲（`torch/csrc/dist
 
 开关与默认值（PyTorch 2.12 的 `ProcessGroupNCCL.cpp`、`FlightRecorder.hpp` 与 `FlightRecorder.cpp`；其他版本不同，注意核对）：
 
-```text
+```text title="Flight Recorder 的开关与默认值"
 TORCH_NCCL_TRACE_BUFFER_SIZE     环形缓冲条数；2.12 默认 2000（即默认开启），设 0 关闭
                                  （别名 TORCH_FR_BUFFER_SIZE，优先于旧名）
 TORCH_NCCL_DUMP_ON_TIMEOUT       watchdog 判定 timeout 或异常时 dump；2.12 默认 true
@@ -598,7 +598,7 @@ TORCH_NCCL_DEBUG_INFO_PIPE_FILE  设置后 monitor 在 <前缀><全局rank>.pipe
 
 生产训练建议显式写上这四个，不依赖默认值随版本变动：
 
-```bash
+```bash title="生产训练建议显式设置的四个 FR 变量"
 export TORCH_NCCL_TRACE_BUFFER_SIZE=2000
 export TORCH_NCCL_DUMP_ON_TIMEOUT=1
 export TORCH_NCCL_ENABLE_MONITORING=1
@@ -607,7 +607,7 @@ export TORCH_NCCL_DEBUG_INFO_TEMP_FILE=/shared/fr_dumps/${JOB_ID}/trace_   # 共
 
 dump 的触发流程（`ProcessGroupNCCL.cpp` 的 `Watchdog::runLoop` 与 `HeartbeatMonitor::runLoop`）：
 
-```text
+```text title="FR dump 的触发流程"
 watchdog 发现某个 work 超时
   → 打 "Watchdog caught collective operation timeout … " 与 "failure detected by watchdog at work sequence id: N
      PG status: last enqueued work: N, last completed work: K"
@@ -652,7 +652,7 @@ sequenceDiagram
 
 分析工具在 `torch/distributed/flight_recorder/fr_trace.py`，逻辑在 `components/`（`loader.py` 读文件、`builder.py` 建库、`utils.py` 匹配）：
 
-```bash
+```bash title="fr_trace.py 的用法与常用选项"
 python -m torch.distributed.flight_recorder.fr_trace /shared/fr_dumps/${JOB_ID}/ -p trace_
 # 或 python torch/distributed/flight_recorder/fr_trace.py <dir> --prefix trace_
 #   -j / --just_print_entries        只打印所有 rank 的条目，不做匹配（先用它看一眼）
@@ -666,7 +666,7 @@ python -m torch.distributed.flight_recorder.fr_trace /shared/fr_dumps/${JOB_ID}/
 
 它的算法：把每个 rank 的条目按 PG 分组、按 `collective_seq_id` 排序，然后对每个 PG 从最小的序号开始，取所有 rank 在该序号上的条目互相比对（`utils.py` 的 `match_one_event`），得到 `types.py` 里的 `MatchState`：
 
-```text
+```text title="MatchState 的五种结果与对应 hang 类别"
 FULLY_MATCHED               原语、形状、dtype、状态都一致
 COLLECTIVE_TYPE_MISMATCH    rank 3 在这个序号上是 all_gather，其他是 all_reduce    → 类 B（顺序不一致）
 SIZE_OR_SYNTAX_MISMATCH     形状不一致，或 send/recv 不配对                       → 类 A 或 C
@@ -677,7 +677,7 @@ UNDECIDED                   alltoall 这类需要看全部 rank 才能判断
 
 输出里第一处非 `FULLY_MATCHED` 的序号和 `culprit` rank 就是答案。把 64 份账本按序号排成一张表，三大类 hang 各有一眼可辨的签名——这正是第九章决策树 hang 分支第一层"一致还是不一致"的判据：
 
-```text
+```text title="三大类 hang 在 fr_trace.py 视角下的签名"
 fr_trace.py 的视角：一行一个 rank，一格一条 entry；格内是 input_sizes（元素数）
 与状态：C = completed，S = started（kernel 已启动、在等对端）
 
@@ -721,7 +721,7 @@ Flight Recorder 之前的机制，仍然可用。开启后（`ProcessGroupNCCL.c
 
 它约束的是：**从 `WorkNCCL` 对象创建（即 CPU 线程调用 `dist.all_reduce` 的那一刻，`workStartTime_ = steady_clock::now()`）到 watchdog 观察到它的结束 event 完成之间的墙钟时间**。把 CPU 线程、NCCL stream 与 watchdog 三条时间线并排，这个区间覆盖了什么、不覆盖什么就清楚了：
 
-```text
+```text title="timeout 覆盖的区间：三条时间线并排"
 t0 = CPU 调用 dist.all_reduce：WorkNCCL 创建，workStartTime_ 起算
 │
 │ CPU 线程    ─┬─ 立即返回 ── Python 继续 ── .item()/wait() 阻塞 ─────────────▶
@@ -754,7 +754,7 @@ watchdog 自己也可能卡——它调用 `cudaEventQuery`，在某些驱动错
 
 时间线合起来（示意；dump 由 watchdog 广播信号、monitor 线程执行，heartbeat 只监视 watchdog 自身的活性）：
 
-```text
+```text title="watchdog 与 heartbeat monitor 合起来的时间线"
 t = 0            rank 5 卡在 torch.save；其他 rank 调用 step 3001 的 all_reduce，WorkNCCL 计时开始
 t = 10 min       63 个 rank 的 watchdog：checkTimeout 为真 → 打日志 → 广播 exception_dump → 等 60 s
 t = 10 min + 1 s 各 rank 的 monitor 线程看到信号 → dumpDebuggingInfo → 写 trace_<rank>（rank 5 也写，它的 monitor 线程活着）
@@ -814,7 +814,7 @@ LL 和 LL128 协议在传输时把数据与 flag 打包（LL 8 字节数据 + 8 
 
 新机器、新驱动、新 NCCL 版本上线前跑一遍带校验的全量扫描：
 
-```bash
+```bash title="带校验的全量扫描验收"
 for t in all_reduce reduce_scatter all_gather broadcast reduce alltoall sendrecv; do
   ./build/${t}_perf -b 8 -e 1G -f 2 -g 8 -n 5 -w 2 -c 1 -o all -d all -T 600 2>&1 | tee check.${t}.log
 done
@@ -829,7 +829,7 @@ grep -H "Out of bounds" check.*.log     # 全部应为 "0 OK"
 
 ### 1. 慢
 
-```text
+```text title="决策树：慢"
 慢
 ├─ 先做：nccl-tests 单机基线 + 多机基线 + 与第三章参考线比 + 与 cost_model 预测比
 │
@@ -861,7 +861,7 @@ grep -H "Out of bounds" check.*.log     # 全部应为 "0 OK"
 
 ### 2. hang
 
-```text
+```text title="决策树：hang"
 hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
 ├─ 先做：数进程数；收集全体 py-spy dump；收集 Flight Recorder dump；grep 全体 NCCL WARN；看 dmesg
 │
@@ -889,7 +889,7 @@ hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
 
 ### 3. 错
 
-```text
+```text title="决策树：错"
 错
 ├─ 各 rank 结果互相一致，但与预期 / 上一版本有微小差异
 │    → 浮点归约顺序：固定 NCCL_ALGO 看差异是否消失；正常现象，需要复现性时固定算法与 channel
@@ -917,7 +917,7 @@ hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾"
 nccl-tests      总 rank 数 = 进程 × -t × -g；-b/-e/-f 扫描，-n/-w 迭代预热（-w 默认仅 1），-c 0 关校验测性能；algo/proto/channel 看 NCCL 的 TUNING 日志
                 busbw = algbw × 系数（all_reduce 2(n-1)/n，all_gather/reduce_scatter/all_to_all (n-1)/n，broadcast 1），
                 以各 src/*.cu 的 *GetBw 为准；只有 busbw 能和硬件比
@@ -961,7 +961,7 @@ Table: 通信层排障检查项
 
 ### 3. 本篇涉及的源码与工具位置
 
-```text
+```text title="本篇涉及的源码与工具位置"
 项目          路径                                                        关键函数 / 内容
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 nccl-tests    src/common.cu                                               getopt_long 参数表与 usage；参数默认值；run()；MPI 的使用；NCCL_TESTS_MIN_BW；
@@ -1006,7 +1006,7 @@ PyTorch       torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp            TORCH_
 
 `sweep.sh` 对一组原语跑 nccl-tests 扫描、解析成 CSV、画出 busbw 曲线并叠上第一篇 `cost_model.py` 的 ring 预测：
 
-```bash
+```bash title="comm-probe/sweep.sh"
 #!/usr/bin/env bash
 # comm-probe/sweep.sh — nccl-tests 扫描 → CSV → 图
 # 用法: sweep.sh [-c all_reduce,all_gather] [-g 8] [-b 8] [-e 8G] [-m "mpirun -np 16 -N 8 --hostfile hosts"]
@@ -1039,7 +1039,7 @@ echo "done: $OUT"
 
 `plot_sweep.py` 读 CSV，按原语画 busbw 对 size 的对数曲线，并叠上 ring 预测（与 `cost_model.py` 的 `ring_allreduce_time` 公式相同，这里内联以便脚本独立运行）：
 
-```python
+```python title="comm-probe/plot_sweep.py"
 #!/usr/bin/env python3
 # comm-probe/plot_sweep.py
 import argparse, csv, collections
@@ -1076,7 +1076,7 @@ ax.grid(True, which="both", alpha=.3); ax.legend(); fig.tight_layout(); fig.save
 
 `hang_lab/` 是三个 torchrun 脚本加一份诊断剧本。三个脚本共用一个骨架，每步的 tensor 大小随步数变化（让 Flight Recorder 的匹配无歧义），并把 timeout 设短：
 
-```python
+```python title="hang_lab/common.py：共用骨架"
 # comm-probe/hang_lab/common.py
 import os, datetime, torch, torch.distributed as dist
 
@@ -1089,7 +1089,7 @@ def numel(step):            # 每步大小不同：(step+1) × 64K 元素
     return (step + 1) << 16
 ```
 
-```python
+```python title="hang_lab/size_mismatch.py：类 A 的复现"
 # comm-probe/hang_lab/size_mismatch.py — 类 A：rank 3 在第 5 步多传 1024 个元素
 from common import setup, numel
 import torch, torch.distributed as dist
@@ -1107,7 +1107,7 @@ dist.destroy_process_group()
 
 统一的启动与诊断剧本：
 
-```bash
+```bash title="hang_lab 的启动与诊断剧本"
 # 启动：开 Flight Recorder，dump 到当前目录，开命名管道以便不等 timeout 就 dump
 export TORCH_NCCL_TRACE_BUFFER_SIZE=2000 TORCH_NCCL_DUMP_ON_TIMEOUT=1 TORCH_NCCL_ENABLE_MONITORING=1
 export TORCH_NCCL_DEBUG_INFO_TEMP_FILE=$PWD/fr/trace_  TORCH_NCCL_DEBUG_INFO_PIPE_FILE=$PWD/fr/pipe
@@ -1129,7 +1129,7 @@ python -m torch.distributed.flight_recorder.fr_trace fr/ -p trace_
 
 三种情形下 `fr_trace.py` 的预期输出与判读：
 
-```text
+```text title="三种情形下 fr_trace.py 的预期输出与判读"
 size_mismatch.py       collective_seq_id=6（第 5 步，从 1 起算）：SIZE_OR_SYNTAX_MISMATCH，culprit rank 3；
                        该条 input_sizes 为 [394240] 而其他为 [393216]；--print_stack_trace 指到 dist.all_reduce 那一行
                        → 类 A。修法：在 all_reduce 前 assert 形状（或在开发期开 TORCH_DISTRIBUTED_DEBUG=DETAIL 做跨 rank 形状校验）

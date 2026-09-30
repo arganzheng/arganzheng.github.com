@@ -36,7 +36,7 @@ Table: 本文的章节安排
 
 第五篇 §三讲过 `JITFunction.run` 怎样算出 `key` 并在未命中时调 `compile(ASTSource(...))`。`compile()` 本身（`compiler.py`）是一个与后端无关的循环：
 
-```python
+```python title="compile() 的骨架"
 def compile(src, target=None, options=None, _env_vars=None):
     backend = make_backend(target)                                   # ① CUDABackend / HIPBackend
     if ir_source: src = IRSource(src, context, backend)              # ② 源可以是一个 .ttir / .ttgir / .llir / .ptx 文件
@@ -71,7 +71,7 @@ def compile(src, target=None, options=None, _env_vars=None):
 
 ### 1. 五个成分
 
-```python
+```python title="get_cache_key 的五个成分"
 def get_cache_key(src, backend, backend_options, env_vars):
     key = f"{triton_key()}-{src.hash()}-{backend.hash()}-{backend_options.hash()}-{str(sorted(env_vars.items()))}"
 ```
@@ -98,7 +98,7 @@ Table: 缓存键的五个成分
 
 `hash` 是 key 的 SHA-256 十六进制；目录名是它的 base32（`~/.triton/cache/7G26FXWXQI5YNQJ3B34UJOLGK57PHFWFBB23QHJBVOCHWJC6TMGA/`），`TRITON_CACHE_DIR` 可以换根目录。本机编译 `add_kernel` 之后：
 
-```text
+```text title="缓存目录里的文件"
 __grp__add_kernel.json   ← 组文件：child_paths 列出下面每个文件的绝对路径
 add_kernel.source        ← 前端产出的 TTIR（带 loc）
 add_kernel.ttir          ← make_ttir 之后
@@ -159,7 +159,7 @@ Table: dump 与 override 的环境变量
 
 `CompiledKernel` 构造时**不加载**——`_init_handles` 在第一次 `run` 时调用（惰性，让 `compile()` 可以在没有 GPU 的机器上跑，本系列所有 dump 都靠这一点）：
 
-```c
+```c title="load_binary：加载 cubin"
 // third_party/nvidia/backend/driver.c: load_binary(name, data, shared, device)
 cuModuleLoadData(&mod, data);                                                // cubin 字节 → CUmodule（驱动此时若发现是 PTX 会 JIT）
 cuModuleGetFunction(&fun, mod, name);
@@ -176,7 +176,7 @@ if (shared > 49152 && shared_optin > 49152)                                   //
 
 Python 调 kernel 时参数是 `torch.Tensor`、`int`、`float`；`cuLaunchKernelEx` 要的是 `void **params`——一个指向各参数值的指针数组，类型必须与 kernel 签名逐个对应。Triton 的做法是**为每个签名生成一段 C 代码、用系统编译器编成 `.so`、缓存**（`driver.py` 的 `make_launcher`，`runtime/build.py` 负责编译，产物在缓存目录的 `__triton_launcher.so`）：
 
-```c
+```c title="运行时生成的 launcher C 代码"
 static PyObject* launch(PyObject* self, PyObject* args) {
   ... PyArg_ParseTuple(args, "iiiKKOOOO" + 每个参数一个格式字符, &gridX, &gridY, &gridZ, &_stream, &_function, ..., &_arg0, &_arg1, ...);
   CUdeviceptr ptr_arg0 = getPointer(_arg0, 0);            // Tensor → data_ptr()（通过 __cuda_array_interface__ 或 .data_ptr()）
@@ -227,7 +227,7 @@ flowchart TB
 
 `GPUTarget("hip", "gfx942", 64)`（MI300X，**warp size 64**），`num_warps = 4`、`num_stages = 2`，在同一台没有 GPU 的 Mac 上编到 `hsaco`（AMD 的 ELF 可执行对象，`file` 报 `ELF 64-bit LSB shared object`）——**全程不需要 ROCm**：ISA 生成与链接都在进程内的 LLVM / lld 里完成。
 
-```text
+```text title="matmul 编到 gfx942 的 layout 声明"
 #blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [16, 4], warpsPerCTA = [4, 1], order = [1, 0]}>     // A：64 lane → 16 × 4
 #blocked1 = #ttg.blocked<{sizePerThread = [2, 8], threadsPerWarp = [4, 16], warpsPerCTA = [4, 1], order = [1, 0]}>    // B
 #mma = #ttg.amd_mfma<{version = 3, warpsPerCTA = [2, 2], instrShape = [32, 32, 8], isTransposed = true}>              // MFMA v3（CDNA3）
@@ -252,7 +252,7 @@ Table: 同一个 matmul 在 NVIDIA 与 AMD 上的对照
 
 ### 2. 阶段表与 pass 列表
 
-```python
+```python title="AMD 后端的阶段表"
 stages["ttir"]   = make_ttir      # 与 NVIDIA 完全相同的 8 个 pass
 stages["ttgir"]  = make_ttgir     # 见下
 stages["llir"]   = make_llir      # TritonAMDGPUToLLVM；datalayout；libdevice（ocml / ockl）；-O3
@@ -275,7 +275,7 @@ Blackwell / Hopper 特有的 TMA、TMEM、warp specialization pass 没有；对�
 
 ### 3. `make_llir` 到 `hsaco`：没有第二个编译器
 
-```python
+```python title="make_llir 给 kernel 加的属性"
 llvm.attach_datalayout(llvm_mod, "amdgcn-amd-amdhsa", arch, target_features)
 kernel_fn.add_fn_attr("amdgpu-flat-work-group-size", f"1,{total_warps_num * warp_size}")   # 1,256
 if waves_per_eu: kernel_fn.add_fn_attr("amdgpu-waves-per-eu", f"{waves_per_eu},{waves_per_eu}")   # 占用率提示 → 寄存器上限
@@ -283,14 +283,14 @@ kernel_fn.add_fn_attr("denormal-fp-math-f32", "preserve-sign" if allow_flush_den
 llvm.optimize_module(llvm_mod, llvm.OPTIMIZE_O3, arch, '', [], enable_fp_fusion, ...)     # 注意：这里传了 arch → 有 TargetMachine（NVIDIA 路径没有，第二篇 §三.3）
 ```
 
-```llvm
+```llvm title="AMDGPU 的 LLVM 函数签名"
 define amdgpu_kernel void @matmul_kernel(ptr addrspace(1) inreg readonly captures(none) %0, ...)
 attributes #0 = { "amdgpu-flat-work-group-size"="1,256" "amdgpu-agpr-alloc"="0" ... }
 ```
 
 `amdgpu_kernel` 调用约定、`inreg`（标量参数进 SGPR）、`amdgpu-flat-work-group-size = 1,256`（4 wave × 64）、`amdgpu-waves-per-eu`（第二篇 §七.5 的 `maxnreg` 在 AMD 上的对应：告诉编译器每个执行单元要驻留几个 wave，它据此限制 VGPR 数）。然后 `make_amdgcn` 调 LLVM 后端直出 ISA 汇编文本：
 
-```text
+```text title="make_amdgcn 直出的 ISA 汇编"
 	v_mfma_f32_32x32x8_bf16 v[18:33], v[128:129], v[98:99], v[18:33]      ; 48 条
 	s_waitcnt lgkmcnt(0)                                                   ; 24 条
 	global_load_dwordx4 ...                                                ; 12 条

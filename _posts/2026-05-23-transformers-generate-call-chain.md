@@ -64,7 +64,7 @@ Table: 本文的章节安排
 
 `generate` 的第一件实事是 `self._prepare_generation_config(generation_config, **kwargs)`。它的注释写得很清楚：**调用时的 kwargs > 模型的 `self.generation_config` > 全局默认值**。`self.generation_config` 是 `from_pretrained` 收尾时（上一篇第三章的 `adjust_generation_fn`）从仓库的 `generation_config.json` 读出来的——Qwen2.5-0.5B 的是：
 
-```text
+```text title="Qwen2.5-0.5B 的 generation_config.json"
 {'max_new_tokens': 2048, 'do_sample': False, 'bos_token_id': 151643, 'eos_token_id': 151643}
 ```
 
@@ -84,7 +84,7 @@ Table: 本文的章节安排
 
 ### 1. 接口
 
-```python
+```python title="LogitsProcessor 与 LogitsProcessorList 的接口"
 class LogitsProcessor:
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor: ...
 
@@ -101,7 +101,7 @@ class LogitsProcessorList(list):
 
 `_get_logits_processor` 是 200 行的 `if generation_config.xxx is not None: processors.append(XxxLogitsProcessor(...))`。配套脚本用 `do_sample=True, temperature=0.7, top_k=50, top_p=0.9, repetition_penalty=1.1` 装配出：
 
-```text
+```text title="配套脚本装配出的 processor 列表"
 ['RepetitionPenaltyLogitsProcessor', 'TemperatureLogitsWarper', 'TopKLogitsWarper', 'TopPLogitsWarper']
 ```
 
@@ -109,7 +109,7 @@ class LogitsProcessorList(list):
 
 ### 3. 每个十行
 
-```python
+```python title="TemperatureLogitsWarper"
 class TemperatureLogitsWarper(LogitsProcessor):
     def __call__(self, input_ids, scores):
         return scores / self.temperature
@@ -117,7 +117,7 @@ class TemperatureLogitsWarper(LogitsProcessor):
 
 $$p_i \propto \exp(z_i / T)$$——L0 第五篇的温度。$$T < 1$$ 拉大差距，分布更尖。
 
-```python
+```python title="TopKLogitsWarper"
 class TopKLogitsWarper(LogitsProcessor):
     def __call__(self, input_ids, scores):
         top_k = min(self.top_k, scores.size(-1))
@@ -127,7 +127,7 @@ class TopKLogitsWarper(LogitsProcessor):
 
 `torch.topk` 取前 $$k$$ 个的值，`[..., -1, None]` 是第 $$k$$ 大那个，比它小的全部置 `-inf`——softmax 之后概率为 0，`multinomial` 永远抽不到。
 
-```python
+```python title="TopPLogitsWarper"
 class TopPLogitsWarper(LogitsProcessor):
     def __call__(self, input_ids, scores):
         sorted_logits, sorted_indices = torch.sort(scores, descending=False)        # 升序！
@@ -140,7 +140,7 @@ class TopPLogitsWarper(LogitsProcessor):
 
 论文里"从大到小累计到 $$p$$ 为止保留"，代码里写成等价的"从小到大累计到 $$1 - p$$ 为止删除"——省掉一次翻转。`scatter` 把排序空间里的布尔掩码映射回原词表位置。注意它作用在 top-k **之后**的分数上：被 top-k 置成 `-inf` 的 token 概率为 0，累计和不受影响。
 
-```python
+```python title="RepetitionPenaltyLogitsProcessor"
 class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
     def __call__(self, input_ids, scores):
         score = torch.gather(scores, 1, input_ids)                                  # 已出现过的 token 的分数
@@ -156,14 +156,14 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
 
 ### 1. 三个条件
 
-```python
+```python title="StoppingCriteria 的接口"
 class StoppingCriteria(ABC):
     def __call__(self, input_ids, scores, **kwargs) -> torch.BoolTensor: ...   # [B] 的布尔向量：哪些序列该停
 ```
 
 `_get_stopping_criteria` 装配的默认三件（配套脚本传了 `stop_strings=["\n"]`）：
 
-```text
+```text title="默认装配的三个 StoppingCriteria"
 ['MaxLengthCriteria', 'StopStringCriteria', 'EosTokenCriteria']
 ```
 
@@ -173,7 +173,7 @@ class StoppingCriteria(ABC):
 
 ### 2. `unfinished_sequences`
 
-```python
+```python title="unfinished_sequences 的更新"
 unfinished_sequences = torch.ones(batch_size, dtype=torch.long)
 ...
 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
@@ -187,7 +187,7 @@ batch 里的序列各停各的：停了的那条以后每步都被填 `pad_token
 
 ### 1. prefill 与 decode 是同一个 `forward`
 
-```python
+```python title="_sample 的 prefill 与 while 循环"
 outputs = self._prefill(input_ids, generation_config, model_kwargs, ...)
 while self._has_unfinished_sequences(...):
     if prefill_consumed:
@@ -235,7 +235,7 @@ Table: generate 的几种模式与入口
 
 ## 七、流式输出
 
-```python
+```python title="TextIteratorStreamer：另起线程 generate"
 streamer = TextIteratorStreamer(tok, skip_prompt=True)
 thread = Thread(target=model.generate, kwargs={**inputs, "streamer": streamer, "max_new_tokens": 200})
 thread.start()

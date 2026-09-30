@@ -142,7 +142,7 @@ DeepSeek-V3 报告第 2 个 token 的接受率 85–90%，解码吞吐（TPS）�
 
 在第四篇的设置上做（4 层 4 头 128 维、shakespeare_char、2000 步、CPU），加一个 $$D = 1$$ 的 MTP 模块，$$\lambda = 0.3$$。模块的实现 40 行，直接复用 nanoGPT 的 `Block` 与 `LayerNorm`：
 
-```python
+```python title="MTPModule：复用 nanoGPT 的 Block 与 LayerNorm"
 class MTPModule(nn.Module):
     """DeepSeek-V3 的一个 MTP 模块：Norm(h) ‖ Norm(Emb(t_{i+1})) → 线性 2d→d → 一个 block。
     embedding 与 lm_head 与主干共享，这里只有自己的 norm、投影和 block。"""
@@ -186,7 +186,7 @@ loss = loss_main + lam * loss_mtp        # lam = 0.3
 
 两个模型同一随机种子、同一数据顺序、同样 2000 步：
 
-```text
+```text title="带与不带 MTP 的训练日志对照"
 == 不带 MTP（基线）：4 层 4 头 d=128，2000 步，cpu
   step 2000: 主头 val loss 1.9375
 == 带 MTP（D=1，λ=0.3）

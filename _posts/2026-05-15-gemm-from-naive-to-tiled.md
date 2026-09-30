@@ -109,7 +109,7 @@ $$
 
 `torch.matmul` 对两个 FP32 CUDA 张量最终就是调它。`aten/src/ATen/native/cuda/Blas.cpp`（PyTorch v2.10.0）里的 `addmm_out_cuda_impl` 先尝试 cuBLASLt 路径（能把 bias 和激活融合进 epilogue），失败则退回普通 cuBLAS：
 
-```cpp
+```cpp title="Blas.cpp：addmm_out_cuda_impl 先试 cuBLASLt"
 // aten/src/ATen/native/cuda/Blas.cpp (v2.10.0), addmm_out_cuda_impl 节选
   cublasCommonArgs args(mat1, mat2, result);
   // The Lt path
@@ -134,7 +134,7 @@ $$
 
 `at::cuda::blas::gemm<float>` 在 `aten/src/ATen/cuda/CUDABlas.cpp` 里落到：
 
-```cpp
+```cpp title="CUDABlas.cpp：gemm_internal_cublas<float>"
 // aten/src/ATen/cuda/CUDABlas.cpp (v2.10.0)
 template <>
 void gemm_internal_cublas<float>(CUDABLAS_GEMM_ARGTYPES(float)) {
@@ -158,7 +158,7 @@ void gemm_internal_cublas<float>(CUDABLAS_GEMM_ARGTYPES(float)) {
 
 最直接的写法：把 $$M \times N$$ 个输出元素铺成二维 grid，每个线程负责一个 $$C_{ij}$$，沿 $$K$$ 循环累加。
 
-```cpp
+```cpp title="sgemm_v1_naive：一线程一输出"
 #include <cuda_runtime.h>
 
 // v1: one thread per output element, all operands read from global memory.
@@ -185,7 +185,7 @@ __global__ void sgemm_v1_naive(int M, int N, int K,
 
 一个 warp 在某个 $$k$$ 上读到的是什么，画出来一看就明白：
 
-```text
+```text title="v1 中一个 warp 在某个 k 上读到的 A、B 元素"
               A (M×K, 行主序)                 B (K×N, 行主序)                C (M×N)
           k →                             col →
      row  ┌──────────────────┐          ┌────────────────────────┐        ┌────────────────────────┐
@@ -238,7 +238,7 @@ L1 的命中率并不高（$$B$$ 是 64 MiB 的流式访问，一个 SM 上的 b
 
 把 $$C$$ 切成 $$BM \times BN$$ 的 tile，每个 block 负责一个 tile。计算这个 tile 需要 $$A$$ 的 $$BM \times K$$ 条带和 $$B$$ 的 $$K \times BN$$ 条带；沿 $$K$$ 再切成长度 $$BK$$ 的段，每一段把 $$A$$ 的 $$BM \times BK$$ 子块与 $$B$$ 的 $$BK \times BN$$ 子块载入 shared memory，block 内所有线程从 shared 取数做 $$BM \cdot BN \cdot BK$$ 次 FMA。
 
-```text
+```text title="分块：A 条带、B 条带与 C tile"
                  K                                 N                              N
         ┌───┬───┬───┬───┐                ┌────┬────┬────┬────┐          ┌────┬────┬────┬────┐
         │   │   │   │   │                │    │▓▓▓▓│    │    │ BK       │    │    │    │    │
@@ -287,7 +287,7 @@ Table: 分块把算术强度变成一个可设计的参数
 
 v2 保持"每线程一个输出"的结构，只是操作数换成从 shared memory 取：
 
-```cpp
+```cpp title="sgemm_v2_smem：shared memory 分块"
 // v2: BM x BN tile of C per block, one thread per output; A/B tiles staged in shared memory.
 // Assumes M % BM == 0, N % BN == 0, K % BK == 0 (boundary handling is discussed in section VI).
 template <int BM, int BN, int BK>
@@ -338,7 +338,7 @@ $$
 
 A100 每个 SM 每周期能从 shared memory 取 128 字节 = 32 个 float，也就是每周期服务一个 warp 宽度的一次访问（一个"wavefront"）。一个 SM 有 64 个 FP32 单元，峰值每周期 64 次 FMA，即每周期 2 条 warp 级 FFMA 指令。按 v2 的取数模式，一条 FFMA 前面有 2 条 LDS，各占一个 wavefront（$$A$$ 的广播也是一个 wavefront，只是数据少），所以每周期 2 条 FFMA 需要 4 个 wavefront，而 shared 只能给 1 个：
 
-```text
+```text title="FFMA 需要的 wavefront 与 shared 能给的"
   FMA 单元想要的节奏（每周期 2 条 warp 级 FFMA）:
     周期:    1        2        3        4
     FFMA:  ██ ██    ██ ██    ██ ██    ██ ██        ← 需要 4 个 wavefront/周期 喂数据
@@ -367,7 +367,7 @@ $$
 
 让每个线程负责 $$C$$ tile 里一个 $$TM \times TN$$ 的小块。每前进一个 $$k$$，线程从 shared 读 $$A$$ 的 $$TM$$ 个数（同一列 $$k$$ 上的 $$TM$$ 行）和 $$B$$ 的 $$TN$$ 个数（同一行 $$k$$ 上的 $$TN$$ 列），做外积，$$TM \times TN$$ 次 FMA 累加到寄存器里。
 
-```text
+```text title="一个线程在一个 k 上的 TM×TN 外积"
   一个线程、一个 k 上做的事（TM = TN = 4 示意；本文实际 8×8）:
 
         b_frag[0..TN)  ◄── Bs[k][tn*TN .. +TN)  （shared 里一行连续 TN 个，一条 LDS.128）
@@ -440,7 +440,7 @@ $$
 
 **转置**。计算阶段线程要读"同一列 $$k$$ 上连续 $$TM$$ 行"的 $$A$$。如果 shared 里 $$A$$ 按原样存 `As[BM][BK]`，这 8 个数的地址间隔是 $$BK$$ 个 float，不连续，只能用 8 条 32 位 `LDS`；而且按第六节的线程铺法一个 warp 里有 **2 个**不同的 `tm`（`tid / 16`），它们读同一个 `kk` 时地址相差 $$8 \times BK \times 4$$ 字节，$$BK = 8$$ 时正好是 256 字节——同一个 bank、两个不同地址，同 `tm` 的 16 个线程是广播，两组之间是 **2 路** bank conflict（早期版本按"8 个不同 tm"写成 8 路，是把每线程的 8 行与 warp 内的 tm 数混了）。两个经典解法：一是 `As[BM][BK + 1]` 的 padding，行跨度变成 9 个 float，同一列的元素错开一个 bank，conflict 消失，但 8 个数仍然不连续、不能用 `float4` 读；二是**转置存入** `As[BK][BM]`，同一 $$k$$ 的 $$BM$$ 个 $$A$$ 元素在 shared 里连续，读取阶段一条 `LDS.128` 取 4 个，两条取完 $$TM = 8$$，且 16 个共享同一个 `tm` 的线程读同一地址、是广播。转置的代价发生在写入端：`float4` 从全局读进来的 4 个 $$k$$ 连续元素要拆成 4 次标量写到 shared 的 4 个不同行。每个 tile 只写一次、读 $$BK$$ 次，把开销放在写这边是对的。
 
-```text
+```text title="As 原样存放与转置存放的读取模式"
   As[BM][BK]（原样存放，BK = 8）                As[BK][BM]（转置存放）
   线程要读: 同一 k 上连续 TM = 8 行 ──►          同一 k 的 BM 个元素在一行里连续
 
@@ -463,7 +463,7 @@ $$B$$ 不需要转置：计算阶段读"同一行 $$k$$ 上连续 $$TN$$ 列"，
 
 ### 4. 代码
 
-```cpp
+```cpp title="sgemm_v3 / v4：寄存器分块 + float4 + A 转置"
 #include <cuda_runtime.h>
 
 // v3 (+v4): BM x BN tile per block, TM x TN outputs per thread, float4 global loads,
@@ -571,7 +571,7 @@ sgemm_v3_regtile(int M, int N, int K,
 
 先把线程在 tile 上的铺法画出来——后面所有关于"广播"、"bank conflict"的判断都取决于一个 warp 的 32 个线程落在 $$C$$ tile 的哪些位置：
 
-```text
+```text title="256 个线程在 128×128 C tile 上的铺法"
   128×128 的 C tile 上 256 个线程怎么铺: 16(tm) × 16(tn) 个线程，每线程 8×8
   tid = tm*16 + tn  →  tm = tid / 16, tn = tid % 16；一个 warp = 连续 32 个 tid
 
@@ -599,7 +599,7 @@ sgemm_v3_regtile(int M, int N, int K,
 
 读取阶段：`As[kk][tm * TM + i]` 一个 warp 里只有两个不同的 `tm`（`tid / 16`），是两个地址的广播，一个 wavefront。`Bs[kk][tn * TN + j]` 16 个不同的 `tn` 各读一个 `float4`，地址间隔 32 字节；32 字节的间隔意味着 `tn` 与 `tn + 4` 落在相同的 4 个 bank，16 个地址分成 4 组，需要 4 个 wavefront，而理想是 2 个（256 字节 / 128 字节）。这是本文实现里**有意保留的一处残余 bank conflict**：修法是把每个线程的 8 列拆成两段不相邻的 4 列（`tn * 4` 和 `BN/2 + tn * 4`），让相邻 `tn` 读相邻的 16 字节，代价是 epilogue 的写地址也要相应拆开。第八节讨论"离 cuBLAS 还差什么"时会回到它。把 16 个 `tn` 各自落在哪些 bank 列出来，conflict 在哪、修法为什么有效就很直观：
 
-```text
+```text title="Bs 读取的 bank 分布：现状与修法"
   Bs[kk][·] 一行 128 个 float = 512 B；bank = float 下标 mod 32
 
   现状: 线程 tn 的第 1 条 LDS.128 读 Bs[kk][tn*8 .. +4)（第 2 条读 +4..+8 同理）
@@ -627,7 +627,7 @@ sgemm_v3_regtile(int M, int N, int K,
 
 思路是让 tile $$k+1$$ 的加载与 tile $$k$$ 的计算重叠。先看 v3 的时间轴到底浪费在哪：
 
-```text
+```text title="v3 串行与寄存器预取的时间轴"
   v3（串行）:  每个 tile 先加载、同步、再计算、再同步；两种单元轮流空转
     加载单元  ██████            ██████            ██████
     FMA 单元        ████████████      ████████████      ████████████
@@ -650,7 +650,7 @@ Ampere（sm_80）引入了 `cp.async` 指令：直接把全局内存的 4/8/16 �
 
 有了它，流水线可以做成任意深度的多 stage：shared 里放 $$S$$ 套 buffer，永远保持 $$S - 1$$ 个 tile 在途。第 $$t$$ 轮的循环体是：
 
-```text
+```text title="多 stage cp.async 流水线的循环体"
 wait_group(S - 2)          # 最多允许 S-2 个 group 未完成 → tile t 一定已落地（对本线程而言）
 __syncthreads()            # 对所有线程而言 tile t 已落地；且所有线程都算完了 tile t-1，它的 buffer 可以复用
 issue cp.async for tile t + S - 1 → buffer (t + S - 1) mod S   ( == (t - 1) mod S，刚释放的那套 )
@@ -660,7 +660,7 @@ compute tile t from buffer t mod S
 
 把 $$S = 3$$ 的环形 buffer 逐轮画出来，`wait_group(S-2) = wait_group(1)` 为什么恰好保证 tile $$t$$ 落地就一目了然：
 
-```text
+```text title="S = 3 环形 buffer 的逐轮状态"
   S = 3，buffer 0/1/2 轮转。 ▓ = 正在被计算   ░ = 在途（cp.async 已发出）   · = 空闲/刚释放
 
               buf0     buf1     buf2     本轮动作
@@ -691,7 +691,7 @@ $$BM = BN = 128$$、$$BK = 8$$、$$S = 3$$ 时是 24 KB，在 48 KB 的静态上
 
 ### 4. 代码
 
-```cpp
+```cpp title="sgemm_v5：cp.async 多 stage 流水线"
 #include <cuda_runtime.h>
 #include <cstdint>
 
@@ -837,7 +837,7 @@ v5 相对 v3 没有改变任何算术强度——对 HBM 仍是 32 FLOP/byte，�
 
 前面五版都假设 $$M$$、$$N$$、$$K$$ 是 tile 的整数倍。真实形状不是这样：Llama-3-8B 的 $$d_{ff} = 14336 = 112 \times 128$$ 还好，但 batch·seq 那一维几乎从来不是 128 的倍数，$$K$$ 也未必是 $$BK$$ 的倍数。三个维度分别处理，本质上都是把矩阵"虚拟地"补齐到 tile 的整数倍：
 
-```text
+```text title="M = 300, N = 200, K = 20 的边界补齐"
   例: M = 300, N = 200, K = 20；BM = BN = 128, BK = 8
   grid = ⌈300/128⌉ × ⌈200/128⌉ = 3 × 2 个 block，K 走 ⌈20/8⌉ = 3 段
   → 等价于算一个补齐到 384 × 256 × 24 的 GEMM，多出的部分全是 0
@@ -875,7 +875,7 @@ $$(BM, BN, BK, TM, TN)$$ 五个参数受四个约束互相牵制：
 - **shared memory**：$$S \cdot (BM + BN) \cdot BK \cdot 4$$ 字节，每 SM 最多 164 KB（A100）。
 - **占用率**：$$\min(\text{寄存器限制}, \text{shared 限制}, \text{线程限制}, 32\ \text{block/SM})$$。
 
-```text
+```text title="tile 参数与寄存器、shared、占用率的三角关系"
 (BM, BN, BK, TM, TN)   线程数  累加器  ≈寄存器  smem/stage  I_HBM   3-stage smem  blocks/SM（寄存器限）
 (64,  64,  8,  4, 4)    256     16     ~64      4 KB        16      12 KB         4（ridge 10 之上余量小，不推荐）
 (128, 64,  8,  8, 4)    256     32     ~80      6 KB        21.3    18 KB         3
@@ -901,7 +901,7 @@ $$
 \frac{1024}{216} \approx 4.74\ \text{waves}
 $$
 
-```text
+```text title="1024 个 block 在 216 个槽位上的 wave"
   216 个 block 槽位（108 SM × 2）                      时间 ────►
   ┌──────────────────────────────────────────────────┐
   │ wave 1  ████████████████████████████████████ 216 │
@@ -962,7 +962,7 @@ $$
 
 108 个 SM 只有 32 个有活干，其余 76 个空转——不论 kernel 写得多好，上限是 30%。而且每个 block 要独自沿 $$K = 4096$$ 走完 512 个 tile，串行时间很长。
 
-```text
+```text title="小 M 大 K：普通 GEMM 与 split-K 的 SM 占用"
   M = 8, N = K = 4096, tile 128×128 → C 只有 32 个 tile
 
   普通:      32 个 block，各自沿 K 走完 512 段            108 个 SM 中 76 个空转
@@ -1002,7 +1002,7 @@ $$
 
 把上面的 kernel 放进一个字符串，加上四个 host 端 wrapper，用 `torch.utils.cpp_extension.load_inline` 编译。wrapper 只做形状检查、分配输出、算 grid、拿当前 stream 发射：
 
-```cpp
+```cpp title="四个 kernel 的 host wrapper"
 // ---- host wrappers appended after the four kernels above ----
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -1066,7 +1066,7 @@ torch::Tensor sgemm_v5(torch::Tensor A, torch::Tensor B) {
 
 Python 侧：
 
-```python
+```python title="load_inline 编译 sgemm_kernels.cu"
 import torch
 from torch.utils.cpp_extension import load_inline
 
@@ -1091,7 +1091,7 @@ ext = load_inline(
 
 ### 2. 正确性：与 torch.matmul 对照
 
-```python
+```python title="正确性：与 torch.matmul 对照"
 torch.backends.cuda.matmul.allow_tf32 = False   # make cuBLAS use true FP32, not TF32
 torch.manual_seed(0)
 M = N = K = 4096
@@ -1111,7 +1111,7 @@ for name in ["sgemm_v1", "sgemm_v2", "sgemm_v3", "sgemm_v5"]:
 
 第二篇定义的 `bench` 脚手架（`cudaEvent` 计时、warmup、每次迭代前用 `cudaMemsetAsync` 刷一个 128 MB 的缓冲区把 L2 清掉、取中位数）在 Python 侧的等价写法：
 
-```python
+```python title="bench：TFLOPS 与占峰值百分比"
 def bench(fn, warmup=10, iters=100, flush_l2=True):
     cache = torch.empty(128 * 1024 * 1024, dtype=torch.uint8, device="cuda")  # 128 MB > 2 x 40 MB L2
     for _ in range(warmup):
@@ -1164,7 +1164,7 @@ report("v5", lambda: ext.sgemm_v5(A, B))
 9. **CUDA Core 极限**：v5 到 FP32 峰值的 70–80%、cuBLAS 的 80–90%；剩余差距在 LDS/FFMA 配比、残余 bank conflict、epilogue、tile 启发式。Tensor Core 的峰值高 16 倍，ridge 从 10 跳到 156，128×128 的 tile 在 BF16 下只有 64 FLOP/byte、又回到斜线下面——下一篇的起点。
 10. **split-K / stream-K / GEMV**：decode 阶段 $$M$$ 很小、block 数填不满 108 个 SM，split-K 沿 $$K$$ 并行再归约，stream-K 按 MAC 总量给持久 block 分工；$$M = 1$$ 的 GEMV 算术强度 0.5（FP32）/ 1（BF16）FLOP/byte，只能靠减少权重字节数（量化）加速。
 
-```text
+```text title="本篇汇总：GEMM 六版对比"
 版本   核心改动                 对 HBM 的 I    对 shared 的 I   每 tile 同步   占 FP32 峰值（经验区间）
 v1     一线程一输出，全局读       0.25          —               —             ~1–3%
 v2     shared 分块 32×32×32      8             0.25            2             ~10–20%

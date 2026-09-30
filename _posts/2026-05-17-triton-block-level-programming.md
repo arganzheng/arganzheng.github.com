@@ -55,7 +55,7 @@ CUDA 的执行模型有三层：grid、block、thread。程序员写的是**一�
 
 用最小的 elementwise 例子对照两者：
 
-```cpp
+```cpp title="CUDA add_kernel：一个线程一个元素"
 // CUDA：一个线程处理一个元素
 __global__ void add_kernel(const float* x, const float* y, float* out, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -63,7 +63,7 @@ __global__ void add_kernel(const float* x, const float* y, float* out, int n) {
 }
 ```
 
-```python
+```python title="Triton add_kernel：一个 program 一个 BLOCK"
 # Triton：一个 program 处理 BLOCK_SIZE 个元素
 @triton.jit
 def add_kernel(x_ptr, y_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
@@ -75,7 +75,7 @@ def add_kernel(x_ptr, y_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
     tl.store(out_ptr + offs, x + y, mask=mask)
 ```
 
-```text
+```text title="SIMT 与块级张量：block 0 与 program 0"
   CUDA（SIMT）：写的是"一个线程"                       Triton（块级张量）：写的是"一个 block"
 
   block 0                                              program 0
@@ -109,7 +109,7 @@ Triton 的核心原语只有几个，全部围绕"块级张量"：
 
 把 `tl.arange(0, 1024)` 交给一个 `num_warps=4` 的 program，128 个线程各拿 8 个元素。但**哪 8 个**？连续的 8 个（线程 0 拿 0–7，线程 1 拿 8–15）还是跨步的（线程 0 拿 0, 128, 256, …）？
 
-```text
+```text title="tl.arange(0, 1024) 到 128 个线程的两种分法"
   tl.arange(0, 1024)，num_warps = 4 → 128 线程，每人 8 个元素。两种分法：
 
   ① 连续（编译器为 load/store 选的）: 线程 i 拿 [8i, 8i+8)
@@ -137,7 +137,7 @@ Triton 的核心原语只有几个，全部围绕"块级张量"：
 
 `BLOCK_SIZE: tl.constexpr` 这个类型标注，把参数变成**编译期常量**。它精确对应 CUDA 的模板参数：
 
-```cpp
+```cpp title="CUDA 模板参数 BLOCK_SIZE"
 template <int BLOCK_SIZE>
 __global__ void add_kernel(...);      // BLOCK_SIZE 是编译期常量，每个取值一份代码
 ```
@@ -162,7 +162,7 @@ Triton 藏起了线程，但留下两个与硬件直接相关的旋钮，都在 
 
 **`num_stages`**：软件流水的深度，即编译器把 `for` 循环体（典型是 GEMM 的 K 循环）转换成多级流水时，同时在飞的迭代数。Ampere 上默认 3。它精确对应第五、六篇手写的**多 stage `cp.async` 流水**：`num_stages=3` 意味着 shared memory 里同时保有 3 个 K-tile 的缓冲区，一个在被 `mma` 消费，另两个正在从全局内存异步加载。把 K 循环的前几个迭代按缓冲区画出来，就能看到"3 个缓冲区、2 个在飞"是怎么轮转的，以及第四章读 PTX 时 `cp.async.wait_group` 后面那个数字从哪来：
 
-```text
+```text title="num_stages = 3 的三个 K-tile 缓冲区轮转"
   num_stages = 3：shared memory 里 3 个 K-tile 缓冲区轮转（Tk = 第 k 个 tile）
 
   K 迭代     buf0       buf1       buf2       本迭代：先等、再算、再发
@@ -189,7 +189,7 @@ Triton 藏起了线程，但留下两个与硬件直接相关的旋钮，都在 
 
 既然 tile 形状、`num_warps`、`num_stages` 都是可选的，就需要一个机制选它们。`@triton.autotune` 是 Triton 内建的配置搜索器：
 
-```python
+```python title="@triton.autotune 的 configs 与 key"
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 32, "GROUP_SIZE_M": 8},
@@ -236,7 +236,7 @@ flowchart TB
 
 `@triton.heuristics` 是 autotune 的确定性版本：不搜索，而是用一个函数从运行时参数直接算出 constexpr：
 
-```python
+```python title="@triton.heuristics 按 N 算 BLOCK_N"
 @triton.heuristics({"BLOCK_N": lambda args: triton.next_power_of_2(args["N"])})
 @triton.jit
 def softmax_kernel(x_ptr, out_ptr, stride, N, BLOCK_N: tl.constexpr): ...
@@ -260,7 +260,7 @@ $$
 
 **Triton 版**：
 
-```python
+```python title="Triton BF16 elementwise add"
 import torch
 import triton
 import triton.language as tl
@@ -291,7 +291,7 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 - **`n_elements` 不是 constexpr**，它是普通的运行时整数（但会被 16 的倍数特化，见第二章 §4）；
 - **mask 的形状**是 `[BLOCK_SIZE]`，与 `offs`、`x`、`y` 一致。最后一个 program 处理尾部时 `mask` 有 False 项，对应位置不读不写。用一个小 `n` 把 grid、`offs`、`mask` 三者的对应关系摆出来：
 
-  ```text
+  ```text title="n = 2500 时 grid、offs、mask 的对应"
   n = 2500, BLOCK_SIZE = 1024 -> grid = cdiv(2500, 1024) = 3 个 program
 
   pid  offs = pid*1024 + arange(0, 1024)  mask = offs < 2500     实际访存
@@ -319,7 +319,7 @@ $$
 
 **Triton 版**：一行一个 program，`BLOCK_N = next_power_of_2(N)`，整行作为一个 `[BLOCK_N]` 张量加载进寄存器。
 
-```python
+```python title="Triton 按行 softmax：一行一个 program"
 @triton.jit
 def softmax_kernel(x_ptr, out_ptr, stride_xm, stride_om, N, BLOCK_N: tl.constexpr):
     row = tl.program_id(axis=0)
@@ -369,7 +369,7 @@ cuBLAS 在这个形状上通常能达到标称峰值的 70–80%，即 0.55–0.
 
 **Triton 版**：
 
-```python
+```python title="Triton matmul：tl.dot 与 GROUP_SIZE_M swizzle"
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 64, "GROUP_SIZE_M": 8},
@@ -475,7 +475,7 @@ Table: matmul autotune 五个 config 的资源账
 
 缩小到 8×8 个 tile、一波 16 个 program 来画（数字标的是 pid，▓ 是这一波正在算的 tile）：
 
-```text
+```text title="行主序与分组 swizzle 下一波 program 覆盖的 tile"
   行主序 pid_m = pid // 8                          分组 G = 4，组内列主序
   一波 16 个 program 覆盖 2 整行                    一波 16 个 program 覆盖 4 行 × 4 列
 
@@ -570,7 +570,7 @@ Table: Triton 编译流水线的六层
 
 TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`BLOCK_SIZE=1024`、`num_warps=4`、BF16）为例，会看到形如：
 
-```text
+```text title="TTGIR 里 add_kernel 的 #blocked layout"
 #blocked = #ttg.blocked<{sizePerThread = [8], threadsPerWarp = [32], warpsPerCTA = [4], order = [0]}>
 ...
 %x = tt.load %ptrs, %mask : tensor<1024x!tt.ptr<bf16>, #blocked>
@@ -580,11 +580,11 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 
 二维的例子，matmul 里 A 的 `[128, 32]` BF16 tile 在 `num_warps=4` 下可能是：
 
-```text
+```text title="matmul 里 A tile 的二维 #blocked layout"
 #blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8], warpsPerCTA = [4, 1], order = [1, 0]}>
 ```
 
-```text
+```text title="sizePerThread=[1,8] 在 [128,32] tile 上的铺法与回绕"
   sizePerThread=[1,8], threadsPerWarp=[4,8], warpsPerCTA=[4,1], order=[1,0]  作用在 [128, 32] 的 A tile 上
 
   一个 warp 铺出 4 行 × (8 线程 × 8 元素 = 64 列)，但 tile 只有 32 列 → 列方向按 32 取模"回绕"，
@@ -603,13 +603,13 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 
 `order = [1, 0]` 表示第 1 维（列，K 方向）是最快变化的维；`sizePerThread = [1, 8]` 每线程持有一行中的 8 个连续列（16 字节，一条 128 bit load）；`threadsPerWarp = [4, 8]` 一个 warp 覆盖 4 行 × (8 线程 × 8 元素 = 64 列)——但 tile 只有 32 列，所以 warp 内 8 个线程中实际是 4 个覆盖 32 列，layout 会"回绕"（wrap）复制；`warpsPerCTA = [4, 1]` 4 个 warp 沿行方向排开。这个 layout 只是全局内存 → 寄存器的加载布局，随后会被写入 `#shared` 布局的 shared memory：
 
-```text
+```text title="#shared：swizzled_shared layout"
 #shared = #ttg.swizzled_shared<{vec = 8, perPhase = 2, maxPhase = 4, order = [1, 0]}>
 ```
 
 `vec = 8, perPhase = 2, maxPhase = 4` 就是编译器选的 XOR swizzle 参数，作用是让 `ldmatrix` 读 8 × 8 的子块时不发生 bank conflict——第六篇手工用 padding 或 XOR 解决的问题。再从 shared memory 读成 `#dot_op` 布局喂给 `mma`，结果落在：
 
-```text
+```text title="#mma：nvidia_mma layout"
 #mma = #ttg.nvidia_mma<{versionMajor = 2, versionMinor = 0, warpsPerCTA = [2, 2], instrShape = [16, 8]}>
 ```
 
@@ -680,14 +680,14 @@ Hopper 上的对应物：`wgmma.mma_async.sync.aligned.m64n128k16.f32.bf16.bf16`
 
 PyTorch 的 Inductor 后端是目前最大的 Triton 代码生成器。任何 `torch.compile` 的模型，其 pointwise、reduction 融合 kernel 都是 Inductor 生成的 Triton 源码。把它 dump 出来：
 
-```bash
+```bash title="用 TORCH_LOGS / TORCH_COMPILE_DEBUG dump Inductor 代码"
 TORCH_LOGS="output_code" python model.py          # 生成的代码打印到 stderr
 TORCH_COMPILE_DEBUG=1 python model.py             # 写到 ./torch_compile_debug/run_<时间戳>/torchinductor/model__*/output_code.py
 ```
 
 一个 `y = (x + b) * 2.0`（BF16，融合成一个 kernel）生成的代码大致长这样（略去部分元数据）：
 
-```python
+```python title="Inductor 为 (x + b) * 2.0 生成的 Triton kernel"
 @triton_heuristics.pointwise(
     size_hints={'x': 1048576},
     filename=__file__,
@@ -724,7 +724,7 @@ MoE 层的计算是：每个 token 被路由到 top-k 个 expert，每个 expert
 - `sorted_token_ids`：把 $$M \times \text{top\_k}$$ 个 (token, expert) 对按 expert 排序后的 token 索引，并在每个 expert 的段尾填充到 `BLOCK_SIZE_M` 的整数倍（填充位置的值 $$\geq$$ `num_valid_tokens`，用来做 mask）；
 - `expert_ids`：长度为 `EM / BLOCK_SIZE_M`，第 $$i$$ 项告诉第 $$i$$ 个 M 方向的 tile 属于哪个 expert。
 
-```text
+```text title="sorted_token_ids 与 expert_ids 的构造示例"
   例: 5 个 token，top_k = 2，3 个 expert，BLOCK_SIZE_M = 4
 
   路由结果 (token → experts):  t0→{E0,E2}  t1→{E1,E0}  t2→{E0,E1}  t3→{E2,E1}  t4→{E1,E0}
@@ -746,7 +746,7 @@ MoE 层的计算是：每个 token 被路由到 top-k 个 expert，每个 expert
 
 排序和填充由 `moe_align_block_size`（`vllm/model_executor/layers/fused_moe/moe_align_block_size.py`）在 kernel 之前完成。有了这两个数组，grouped GEMM 就变成了一个普通 GEMM：M 方向的 tile 编号 `pid_m` 通过 `expert_ids[pid_m]` 找到 expert，通过 `sorted_token_ids[pid_m * BLOCK_SIZE_M + arange]` 找到该 tile 的 token 行。核心片段（`vllm/model_executor/layers/fused_moe/fused_moe.py`，v0.20.0，`fused_moe_kernel`，略去量化分支）：
 
-```python
+```python title="fused_moe_kernel：pid 到 expert 与 token 行的映射"
     # Map program ids `pid` to the block of C it should compute.
     # This is done in a grouped ordering to promote L2 data reuse.
     pid = tl.program_id(axis=0)
@@ -795,7 +795,7 @@ MoE 层的计算是：每个 token 被路由到 top-k 个 expert，每个 expert
 
 K 循环与写回（同文件）：
 
-```python
+```python title="fused_moe_kernel：K 循环与 masked 写回"
     accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
     for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
         a = tl.load(
@@ -828,7 +828,7 @@ K 循环与写回（同文件）：
 
 `vllm/v1/attention/ops/prefix_prefill.py` 里的 `_fwd_kernel` 是 vLLM 早期（V0 时代）用 Triton 实现的 chunked-prefill attention，V1 里仍作为某些配置的后端保留。它是下一篇 FlashAttention 的一个 Triton 预览。整体结构（v0.20.0，略去 FP8、sliding window、sink 等分支）：
 
-```python
+```python title="prefix_prefill.py：_fwd_kernel 的整体结构"
 @triton.jit
 def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
                 BLOCK_M: tl.constexpr, BLOCK_DMODEL: tl.constexpr,
@@ -947,7 +947,7 @@ flowchart TB
 
 三个 kernel 都与 PyTorch 参考用 `torch.testing.assert_close` 比对。BF16 默认容差 `rtol=1.6e-2, atol=1e-5`。
 
-```python
+```python title="三个 Triton kernel 与 PyTorch 参考的正确性对照"
 import torch
 import triton
 import triton.language as tl
@@ -984,7 +984,7 @@ matmul 一项把 `atol` 从 1e-5 放宽到 1e-2：两边都是 FP32 累加、最
 
 用 `triton.testing.do_bench` 计时，它默认在每次迭代前刷 L2（写一个 256 MB 的缓冲区）、返回若干次运行的中位数毫秒，与第二篇定义的 `bench(fn, flush_l2=True)` 语义一致，Python 侧直接用它。CUDA 版通过第二篇的 `load_inline` 扩展接进来（此处记为 `cuda_add`、`cuda_softmax`、`cuda_matmul`）。
 
-```python
+```python title="用 do_bench 做 CUDA / Triton / PyTorch 性能对照"
 from triton.testing import do_bench
 
 def gbps(bytes_moved, ms):
@@ -1037,7 +1037,7 @@ Table: 三个 kernel 在 A100 上的理论下界与 CUDA、Triton、PyTorch 的�
 
 ### 3. 打印 TTGIR 与 PTX
 
-```python
+```python title="从 CompiledKernel.asm 取 TTGIR 与 PTX"
 import os
 os.environ["TRITON_PRINT_AUTOTUNING"] = "1"     # 打印 autotune 选中的 config（需在 import triton 前设置）
 
@@ -1069,7 +1069,7 @@ print("bar.sync      :", count("bar.sync"))
 
 或者不改代码，用环境变量把所有产物落盘：
 
-```bash
+```bash title="用 TRITON_KERNEL_DUMP 落盘全部产物"
 TRITON_KERNEL_DUMP=1 TRITON_DUMP_DIR=./triton_dump python bench.py
 ls triton_dump/*/            # matmul_kernel.ttir  .ttgir  .llir  .ptx  .cubin  .json
 grep -c "mma.sync" triton_dump/*/matmul_kernel.ptx
@@ -1090,7 +1090,7 @@ grep "cp.async.wait_group" triton_dump/*/matmul_kernel.ptx | sort | uniq -c
 
 **那 10%**：流水与 warp specialization 的精细控制、epilogue 的布局转换、小 shape 的 tile 选择、指令级调度。值得手写的场景：生产热点 GEMM/attention、需要特殊指令、需要压榨 Hopper、跨 block 协作。
 
-```text
+```text title="CUDA 与 Triton 概念对照"
 CUDA 与 Triton 概念对照
   CUDA                              Triton
   blockIdx.x / y / z                tl.program_id(0 / 1 / 2)

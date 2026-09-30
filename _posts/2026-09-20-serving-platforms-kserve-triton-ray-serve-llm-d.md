@@ -45,7 +45,7 @@ updated: 2026-09-14
 
 ### 3. 平台的机制
 
-```text
+```text title="平台机制：交付层"
                           ┌──────────── 交付层（本篇范围）────────────┐
    请求 ──► 网关（第七篇）──►│  InferencePool / Service                 │
                           │      │                                    │
@@ -214,7 +214,7 @@ Pod 上注入的标签与环境变量（同文件常量）：
 
 用 vLLM v0.28.0 的多进程多节点模式（`docs/serving/parallelism_scaling.md` 的 "Running vLLM with MultiProcessing"：head 节点 `--nnodes 2 --node-rank 0 --master-addr`，worker 节点加 `--headless`；参数定义在 `vllm/engine/arg_utils.py` 与 `vllm/entrypoints/openai/cli_args.py`）。权重放在一个 ReadOnlyMany 的 PVC 上，避免每个 group 各自从 HF 下载。
 
-```yaml
+```yaml title="serve/lws-vllm.yaml：TP=8 × PP=2 的 405B"
 # mini-platform/serve/lws-vllm.yaml —— 一个副本 = 2 台 8 卡机器；replicas 是副本数
 apiVersion: leaderworkerset.x-k8s.io/v1
 kind: LeaderWorkerSet
@@ -358,7 +358,7 @@ KServe v0.20.0 有两条并行的 API：`serving.kserve.io/v1beta1` 的 `Inferen
 
 部署模式由注解 `serving.kserve.io/deploymentMode` 控制。`pkg/constants/constants.go` 的 `DeploymentModeType` 在 v0.20.0 是 `Knative`、`Standard`、`ModelMesh`，`ParseDeploymentMode` 把旧值 `Serverless` 归一到 `Knative`、`RawDeployment` 归一到 `Standard`，默认 `Standard`。三种模式：
 
-```text
+```text title="KServe 的三种部署模式"
 Knative（旧名 Serverless）   Knative Service + KPA；按并发/rps 扩缩，能缩到零；请求经 activator 排队；
                             依赖 Knative Serving（默认命名空间 knative-serving）与一个 Ingress 实现
 Standard（旧名 RawDeployment）Deployment + Service + HPA（或 KEDA，注解 serving.kserve.io/autoscalerClass: keda）；
@@ -372,7 +372,7 @@ ModelMesh                   多模型共享一组服务进程（模型按需装�
 
 v0.20.0 内置了 `kserve-vllmserver` runtime（`config/runtimes/kserve-vllmserver.yaml`，`modelFormat` 名为 `vLLM`），它用 `python -m vllm.entrypoints.openai.api_server --port=8080 --model=/mnt/models --served-model-name=<isvc 名>` 启动，`/mnt/models` 是 `constants.DefaultModelLocalMountPath`。于是：
 
-```yaml
+```yaml title="一个 vLLM 的 InferenceService"
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
@@ -412,7 +412,7 @@ spec:
 
 `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` 的 `LLMInferenceServiceSpec`：
 
-```text
+```text title="LLMInferenceServiceSpec 的字段"
 model            LLMModelSpec：uri（hf:// s3:// pvc:// oci://，storage-initializer 据此下载）、name（请求里的 model 字段，
                  默认 metadata.name）、criticality（Critical/Standard/Sheddable，给推理网关调度器用）、lora（adapters[]、
                  maxRank → --max-lora-rank、maxAdapters → --max-loras、maxCpuAdapters → --max-cpu-loras）
@@ -439,7 +439,7 @@ baseRefs         []LocalObjectReference → LLMInferenceServiceConfig，按顺�
 
 一个 PD 分离、带调度器的 70B 服务；顶层 `template` 是 decode，`prefill.template` 是 prefill；权重从 PVC 直挂（不下载）：
 
-```yaml
+```yaml title="serve/llmisvc.yaml：PD 分离的 70B 服务"
 # mini-platform/serve/llmisvc.yaml
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
@@ -500,7 +500,7 @@ spec:
 
 `pkg/controller/v1alpha2/llmisvc/config_merge.go` 的 `combineBaseRefsConfig` 按 spec 的形状决定合并哪些 `LLMInferenceServiceConfig`（名字前缀由环境变量 `LLM_INFERENCE_SERVICE_CONFIG_PREFIX` 决定，默认 `kserve-`）：
 
-```text
+```text title="combineBaseRefsConfig 的合并规则"
 router.scheduler 非空且 pool 无 ref     → kserve-config-llm-scheduler           EPP Deployment + InferencePool 的模板
 router.route 非空且无 http.refs         → kserve-config-llm-router-route        HTTPRoute 模板
 prefill 为空 且 worker 为空             → kserve-config-llm-template            单节点：一个 Deployment
@@ -514,7 +514,7 @@ tracing 非空                            → kserve-config-llm-tracing
 这些 config 的实体在 `config/llmisvcconfig/`。`config-llm-template.yaml` 里的 `main` 容器用 `ghcr.io/llm-d/llm-d-cuda:v0.8.0` 镜像，入口脚本先按 `KSERVE_INFER_ROCE` 探测 RoCE 网卡并设置 `NCCL_IB_HCA` / `UCX_NET_DEVICES`，最后执行：
 
 {% raw %}
-```text
+```text title="config-llm-template.yaml 的 vllm serve 入口"
 vllm serve /mnt/models
   --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}"
   --port 8000
@@ -581,7 +581,7 @@ flowchart TB
 
 Triton Inference Server 把"服务什么"表达成一个目录树（`triton-server docs/user_guide/model_repository.md`，`tritonserver --model-repository=<path>`，可指定多个，支持本地路径、S3、GCS、Azure）：
 
-```text
+```text title="Triton model repository 的目录树"
 <model-repository-path>/
   <model-name>/
     config.pbtxt
@@ -593,7 +593,7 @@ Triton Inference Server 把"服务什么"表达成一个目录树（`triton-serv
 
 `config.pbtxt`（`model_configuration.md`）最少要有 `platform` 和/或 `backend`、`max_batch_size`、`input` 与 `output`。一个 TensorRT 模型的例子（文档原文的最小配置，加上实例组与动态批处理）：
 
-```text
+```text title="一个 TensorRT 模型的 config.pbtxt"
 name: "resnet50"
 platform: "tensorrt_plan"
 max_batch_size: 8
@@ -618,7 +618,7 @@ dynamic_batching {
 
 `ensemble_models.md` 的 `platform: "ensemble"` 把多个模型串成一张 DAG，`ensemble_scheduling.step[]` 每一步指定 `model_name`、`model_version`，用 `input_map` / `output_map` 把上一步的输出张量名接到下一步的输入名：
 
-```text
+```text title="ensemble_scheduling 的 step 定义"
 ensemble_scheduling {
   step [
     { model_name: "image_preprocess_model"  model_version: -1
@@ -699,7 +699,7 @@ sequenceDiagram
 
 `docs/api-reference/artifacts.md` 列出 v0.9.0 的全部产物：
 
-```text
+```text title="llm-d v0.9.0 的交付物"
 CRD              InferencePool（GIE）；InferenceObjective、InferenceModelRewrite（llm-d-router）
 Router Helm      oci://ghcr.io/llm-d/charts/llm-d-router-standalone   EPP + Envoy sidecar，不需要 K8s Gateway
                  oci://ghcr.io/llm-d/charts/llm-d-router-gateway      EPP + InferencePool，接已有 Gateway（Istio、kgateway、GKE…）
@@ -716,7 +716,7 @@ Model Server     推荐上游镜像 vllm/vllm-openai；llm-d 自建 llm-d-cuda /
 
 `guides/README.md` 把经过测试与基准的部署配方分成几组：
 
-```text
+```text title="llm-d 的 well-lit paths"
 Intelligent Routing        Optimized Baseline（前缀缓存 + 负载感知路由，即"推理调度"路径）；Predicted Latency-Based Routing
 Advanced KV-Cache          Precise Prefix Cache Routing；Tiered Prefix Cache；P2P KV Cache Sharing（实验）
 Serving Large Models       Prefill/Decode Disaggregation（gpt-oss-120b：8 × TP=1 prefill + 2 × TP=4 decode）；
@@ -759,7 +759,7 @@ HPA 要用引擎指标，需要一个实现了 `custom.metrics.k8s.io` 或 `exte
 
 KEDA 把这一层收敛成一个 CRD。`keda apis/keda/v1alpha1/scaledobject_types.go` 的 `ScaledObjectSpec`：
 
-```text
+```text title="ScaledObjectSpec 的字段"
 scaleTargetRef        name、apiVersion、kind——任何带 /scale 子资源的对象（Deployment、LWS、DisaggregatedSetRoleScaler…）
 pollingInterval       KEDA 查询触发器的间隔（秒）
 cooldownPeriod        最后一个触发器变为不活跃后、缩到 0（或 idleReplicaCount）前等待的秒数；只管缩零，
@@ -822,7 +822,7 @@ KServe 与 llm-d 都选择了 KEDA 作为 LLM 扩缩容的执行器：KServe `In
 
 目标是第三章那样一个 LWS（这里换成核心问题的 70B TP=4 单节点服务，`size: 1`，名字 `vllm-70b`）。三个触发器：领先指标 `num_requests_running`、滞后兜底 `num_requests_waiting`、以及一个按预测高峰的 cron。阈值的推导在第八章。
 
-```yaml
+```yaml title="serve/keda-scaledobject.yaml：三个触发器"
 # mini-platform/serve/keda-scaledobject.yaml
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -921,7 +921,7 @@ Table: 一个 70B TP=4 副本扩容时间的分解
 
 把总纲的问题变成可以算的形式，需要补几条假设（全部是假设，替换成自己的压测数字即可）：
 
-```text
+```text title="扩缩容算例的假设"
 副本                 70B BF16，TP=4，4 × 80 GB。权重 140 GB → 每卡 35 GB；--gpu-memory-utilization 0.9 → 每卡 72 GB 可用，
                      KV 约 37 GB/卡、148 GB/副本。Llama-3-70B 每 token KV 320 KB（80 层 × 2 × 8 KV head × 128 × 2 B）
                      → 约 46 万 token 的 KV；平均上下文 4k → 显存上能放约 110 个并发
@@ -969,7 +969,7 @@ Table: 三种扩缩容策略的卡时账（每天一个 3.5 小时的高峰）
 
 把三种方案放到同一条时间轴上，差别一眼可见——图中 `D` 是并发（第 1 节的假设曲线），`N` 是就绪副本数，`▓` 是 waiting > 0 的时段：
 
-```text
+```text title="三种扩缩方案在同一时间轴上的对照"
 时刻        19:48  19:57  20:00  20:04  20:20  20:40 ... 23:30  23:50  24:00
 D 并发       100    100    100    125    225    350       350    150    100
             ------+------+------+------+------+------ ... ------+------+-----
@@ -994,7 +994,7 @@ cron 19:48  19:48 cron 抬到 6, 19:57 就绪 (比 D > 128 的 20:04 早 7 分)
 
 ### 5. 结论
 
-```text
+```text title="扩缩容结论：指标、阈值、提前多久"
 指标        主：cron（可预测的日高峰）；辅：vllm:num_requests_running AverageValue（领先，意外流量）；
             兜底：vllm:num_requests_waiting AverageValue（滞后，任何排队都扩）；长上下文流量再挂 vllm:kv_cache_usage_perc
 阈值        无 cron 的纯反应式：running ≤ C × (1 − r·(T_signal + T_ready) / (N·C))，本例 36/副本，代价是峰值过配到 10 副本
@@ -1035,7 +1035,7 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：四种形态与 LWS"
 四种形态              单 Pod 单卡 / 单 Pod 多卡 → Deployment；多 Pod 一副本 → LeaderWorkerSet；PD → 两组对象或 DisaggregatedSet
 LeaderWorkerSet       group = leader + workers，size、RecreateGroupOnPodRestart、RollingUpdate 按 group、subGroupPolicy、
                       Shared / UniquePerReplica 子域；注入 LWS_LEADER_ADDRESS / LWS_GROUP_SIZE / LWS_WORKER_INDEX；
@@ -1084,7 +1084,7 @@ Table: 本篇涉及的 CRD 与源码位置
 
 四个文件。`lws-vllm.yaml` 是第三章第 3 节的 LWS（练手时把模型换成集群能放下的，比如 2 节点 × 2 卡的 70B `--tensor-parallel-size 2 --pipeline-parallel-size 2`，机制不变）；`llmisvc.yaml` 是第四章第 4 节的 `LLMInferenceService`，二选一部署；`keda-scaledobject.yaml` 是第七章第 3 节的 ScaledObject，`scaleTargetRef` 指向你部署的那个对象（LWS，或 KServe 生成的 Deployment / LWS——名字用 `kubectl get lws,deploy -n serve` 查）。第四个是压测与观测脚本：
 
-```python
+```python title="serve/scale-bench.py：爬升并发并记录副本就绪"
 # mini-platform/serve/scale-bench.py —— 线性爬升并发，记录 vLLM 队列、副本数与每个副本的就绪耗时
 # 用法：python3 scale-bench.py --url http://<gateway-or-svc>:8000 --model llama-70b \
 #          --target vllm-70b --kind lws --namespace serve --ramp-min 40 --peak 200 --base 40

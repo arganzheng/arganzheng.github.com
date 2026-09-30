@@ -10,7 +10,7 @@ updated: 2026-09-20
 
 打开 `aten/src/ATen/native/cpu/Activation.cpp`，`log_sigmoid` 的 CPU kernel 里有这么一段（`log_sigmoid_cpu_kernel` 的 `else` 分支，删节）：
 
-```cpp
+```cpp title="log_sigmoid CPU kernel 里的 AT_DISPATCH_FLOATING_TYPES"
 AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
   using Vec = Vectorized<scalar_t>;
   scalar_t* output_data = output.data_ptr<scalar_t>();
@@ -83,7 +83,7 @@ Table: 本文的章节安排
 
 先看最小的例子。一个对任意数值类型做逐元素相加的函数，在 C++ 里写成函数模板：
 
-```cpp
+```cpp title="最小的函数模板：add_kernel"
 template <typename scalar_t>
 void add_kernel(const scalar_t* a, const scalar_t* b, scalar_t* out, int64_t n) {
   for (int64_t i = 0; i < n; ++i) out[i] = a[i] + b[i];
@@ -112,7 +112,7 @@ Java 里 `List<Integer>` 和 `List<String>` 在 JVM 里是同一个 `java.util.L
 
 有一个例外值得专门看，因为 PyTorch 用它实现了 `Tensor::data_ptr<T>()`。`aten/src/ATen/core/TensorBase.h` 里只有声明：
 
-```cpp
+```cpp title="TensorBase.h 里 data_ptr<T> 只有声明"
   // Implemented in aten/src/ATen/templates/TensorMethods.cpp
   template <typename T>
   const T* const_data_ptr() const;
@@ -126,7 +126,7 @@ Java 里 `List<Integer>` 和 `List<String>` 在 JVM 里是同一个 `java.util.L
 
 定义在 `aten/src/ATen/templates/TensorMethods.cpp`（这是一个 codegen 模板文件，生成后进入 build 目录，内容如下）：
 
-```cpp
+```cpp title="TensorMethods.cpp 里的定义与显式实例化"
 template <typename T>
 T* TensorBase::mutable_data_ptr() const {
   check_type(*this, c10::CppTypeToScalarType<T>());
@@ -175,7 +175,7 @@ Table: Java 泛型的类型擦除与 C++ 模板的单态化
 
 最后两行解释了 C++ 模板错误信息为什么巨长。Java 在泛型定义处就检查 `T` 满足 `extends Comparable<T>`，错在哪一行就报哪一行。C++ 模板默认对 `T` 没有任何约束，`add_kernel` 里的 `a[i] + b[i]` 是否合法要等到 `scalar_t` 确定之后才知道；如果你传了一个没有 `operator+` 的类型，错误发生在**实例化的深处**，编译器会把整条实例化链打印出来。本机做一个最小实验，用 `std::sort` 排序一个 `std::list`（`list` 的迭代器不支持随机访问）：
 
-```cpp
+```cpp title="用 std::sort 排序 std::list：故意触发模板错误"
 #include <algorithm>
 #include <list>
 int main() {
@@ -186,7 +186,7 @@ int main() {
 
 `clang++ -std=c++17 -c` 的输出共 138 行、约 15KB，其中真正的 `error:` 只有 4 条，第一条是：
 
-```text
+```text title="138 行报错里的第一条 error 与实例化链"
 .../__algorithm/make_heap.h:35:34: error: invalid operands to binary expression
     ('std::__list_iterator<int, void *>' and 'std::__list_iterator<int, void *>')
    35 |   difference_type __n   = __last - __first;
@@ -205,7 +205,7 @@ note: in instantiation of function template specialization
 
 先看一个最小的例子：
 
-```cpp
+```cpp title="T::x * p 是乘法还是指针声明？"
 template <typename T>
 void f() {
   T::x * p;   // 这一行是什么意思？
@@ -216,7 +216,7 @@ void f() {
 
 带着这个例子读源码里的写法。`c10/util/SmallVector.h` 的构造函数：
 
-```cpp
+```cpp title="SmallVector 构造函数里的 typename 消歧义"
   template <
       typename ItTy,
       typename = std::enable_if_t<std::is_convertible_v<
@@ -227,7 +227,7 @@ void f() {
 
 `std::iterator_traits<ItTy>::iterator_category` 依赖 `ItTy`，编译器在解析这段代码时还不知道 `ItTy` 是什么，无法确定 `::iterator_category` 是类型还是静态成员，所以要靠 `typename` 告诉它"这是类型"。vLLM `csrc/type_convert.cuh` 里的 `_f16Vec`：
 
-```cpp
+```cpp title="vLLM _f16Vec 里的 typename Converter::hip_type"
 template <typename scalar_t, int width>
 struct alignas(16) _f16Vec {
   // ...
@@ -239,7 +239,7 @@ struct alignas(16) _f16Vec {
 
 同样，`Converter::hip_type` 依赖 `scalar_t`，前面必须有 `typename`。注意 `torch/headeronly/core/ScalarType.h` 里的这一行也是：
 
-```cpp
+```cpp title="ScalarTypeToCPPTypeT：typename 加 ::type 的别名模板"
 template <c10::ScalarType N>
 using ScalarTypeToCPPTypeT = typename ScalarTypeToCPPType<N>::type;
 ```
@@ -248,7 +248,7 @@ using ScalarTypeToCPPTypeT = typename ScalarTypeToCPPType<N>::type;
 
 **`template`** 是同一个问题的另一个形态：`<` 这个符号既是小于号又是模板参数列表的开头，解析器要在读到它时就决定是哪个。最小例子：
 
-```cpp
+```cpp title="t.get<int>(0) 被读成小于号：需要 template 关键字"
 template <typename T>
 void g(T t) {
   t.get<int>(0);   // clang: use 'template' keyword to treat 'get' as a dependent template name
@@ -257,7 +257,7 @@ void g(T t) {
 
 `t.get` 依赖 `T`，解析器不知道 `get` 是不是成员模板，按默认规则把 `<` 当成小于号，于是这一行被读成 `(t.get < int) > (0)`——`int` 出现在比较表达式里非法，报错。写成 `t.template get<int>(0)` 就是告诉它"`get` 是模板，接下来的 `<` 是参数列表"。规则：当一个依赖名是成员模板、并且后面紧跟 `<`，要写 `template`。`c10/util/intrusive_ptr.h` 的移动赋值：
 
-```cpp
+```cpp title="intrusive_ptr 移动赋值里的 this->template operator="
   intrusive_ptr& operator=(intrusive_ptr&& rhs) & noexcept {
     return this->template operator= <TTarget, NullType>(std::move(rhs));
   }
@@ -273,7 +273,7 @@ Java 泛型没有这两个关键字，原因也在"编译器读到 `T` 时知道
 
 函数模板的类型参数通常不用写，编译器从实参推导。`aten/src/ATen/Parallel.h` 里 `parallel_for` 的声明：
 
-```cpp
+```cpp title="parallel_for 的声明：模板参数 F 从 lambda 推导"
 template <class F>
 inline void parallel_for(
     const int64_t begin,
@@ -286,7 +286,7 @@ inline void parallel_for(
 
 `aten/src/ATen/native/cpu/Loops.h` 的 `cpu_kernel` 更进一步：
 
-```cpp
+```cpp title="cpu_kernel：用 function_traits 从 lambda 类型里取参数个数"
 template <typename func_t>
 void cpu_kernel(TensorIteratorBase& iter, func_t&& op, int64_t grain_size = at::internal::GRAIN_SIZE, bool check_dynamic_casting = true) {
   using traits = function_traits<func_t>;
@@ -316,7 +316,7 @@ Java 10 的 `var` 是它最接近的对应物：都要求有初始化表达式�
 
 `decltype(expr)` 给出表达式的类型而不求值。它在泛型代码里用来"问"一个类型能做什么。`c10/util/StringUtil.h` 里检测一个类型能否被 `<<` 到 `ostream` 的写法：
 
-```cpp
+```cpp title="Streamable：用 decltype 加 declval 检测能否 << 到 ostream"
 template <class T, class = std::ostream&>
 struct Streamable : std::false_type {};
 
@@ -329,7 +329,7 @@ struct Streamable<T, decltype(std::declval<std::ostream&>() << T{})>
 
 `c10/util/ArrayRef.h` 末尾的推导指引也用了 `decltype` + `declval`：
 
-```cpp
+```cpp title="ArrayRef 的推导指引：从 Container::data() 推元素类型"
 // Generic container constructor (anything with .data() and .size())
 template <typename Container>
 ArrayRef(const Container&) -> ArrayRef<
@@ -342,7 +342,7 @@ ArrayRef(const Container&) -> ArrayRef<
 
 C++14 起函数可以写 `auto` 返回类型，由 `return` 语句推导。`c10/util/StringUtil.h` 的 `c10::str`：
 
-```cpp
+```cpp title="c10::str 的 auto 返回类型"
 template <typename... Args>
 inline auto str(const Args&... args) {
   return detail::_str_wrapper<
@@ -354,7 +354,7 @@ inline auto str(const Args&... args) {
 
 另一种写法是尾置返回类型 `-> Type`，可以引用参数名。`aten/src/ATen/core/TensorBase.h` 里 `register_hook`：
 
-```cpp
+```cpp title="register_hook 的尾置返回类型"
 template <typename T>
 auto TensorBase::register_hook(T&& hook) const -> TensorBase::hook_return_void_t<T> {
   // Return the grad argument in case of a hook with void return type to have an
@@ -374,7 +374,7 @@ auto TensorBase::register_hook(T&& hook) const -> TensorBase::hook_return_void_t
 
 C++17 起类模板的参数可以从构造函数实参推导（Class Template Argument Deduction），`std::pair p(1, 2.0)` 得到 `pair<int, double>`。当构造函数是继承来的时，编译器无法自动推导，需要手写**推导指引**（deduction guide）。`c10/util/ArrayRef.h` 因为把大部分构造函数移到了基类 `HeaderOnlyArrayRef` 里（PyTorch 2.x 中的变化：v2.10.0 已把 `ArrayRef` 拆成 `torch/headeronly/util/HeaderOnlyArrayRef.h` 的 header-only 基类和 `c10/util/ArrayRef.h` 的派生类，注释说明是为了让不链接 `libtorch.so` 的扩展也能用），所以在类定义后面补了一组指引：
 
-```cpp
+```cpp title="ArrayRef 的一组 CTAD 推导指引"
 /// Deduction guides for ArrayRef to support CTAD with inherited constructors
 /// These mirror the constructors inherited from HeaderOnlyArrayRef
 // Single element constructor
@@ -400,7 +400,7 @@ Java 泛型的参数只能是类型。C++ 模板的参数还可以是**值**—�
 
 `c10/util/SmallVector.h`（从 LLVM 移植）把这个思路用在"小容量内联、大容量转堆"的容器上：
 
-```cpp
+```cpp title="SmallVectorStorage：N 个元素的内联缓冲区"
 /// Storage for the SmallVector elements.  This is specialized for the N=0 case
 /// to avoid allocating unnecessary storage.
 template <typename T, unsigned N>
@@ -417,7 +417,7 @@ class /* LLVM_GSL_OWNER */ SmallVector : public SmallVectorImpl<T>,
 
 `N` 个元素的内联缓冲区直接作为对象的一部分（`char InlineElts[N * sizeof(T)]`），元素数不超过 `N` 时完全不碰堆。`c10/util/DimVector.h` 把它实例化成 tensor 维度专用的容器：
 
-```cpp
+```cpp title="DimVector = SmallVector<int64_t, 5>"
 constexpr size_t kDimVectorStaticSize = C10_SIZES_AND_STRIDES_MAX_INLINE_SIZE;
 
 /// A container for sizes or strides
@@ -428,7 +428,7 @@ using DimVector = SmallVector<int64_t, kDimVectorStaticSize>;
 
 第三章提到的 C 数组引用 `const T (&arr)[N]` 也是非类型参数在起作用：`torch/headeronly/util/HeaderOnlyArrayRef.h` 里
 
-```cpp
+```cpp title="从 C 数组构造 HeaderOnlyArrayRef：N 由数组长度推导"
   /// Construct a HeaderOnlyArrayRef from a C array.
   template <size_t N>
   /* implicit */ constexpr HeaderOnlyArrayRef(const T (&Arr)[N])
@@ -441,7 +441,7 @@ using DimVector = SmallVector<int64_t, kDimVectorStaticSize>;
 
 非类型参数可以是枚举值，这是 `AT_DISPATCH` 的基石。`torch/headeronly/core/ScalarType.h`（PyTorch 2.x 中的变化：v2.10.0 已把 `ScalarType` 枚举及其映射从 `c10/core/ScalarType.h` 挪进了 `torch/headeronly/`，`c10/core/ScalarType.h` 现在 `#include` 它并补充 `kFloat` 等常量和类型提升表）：
 
-```cpp
+```cpp title="ScalarTypeToCPPType：用宏为每个枚举值生成一个特化"
 namespace impl {
 
 // These are used to map ScalarTypes to C++ types.
@@ -469,7 +469,7 @@ using ScalarTypeToCPPTypeT = typename ScalarTypeToCPPType<N>::type;
 
 `ScalarTypeToCPPType` 的模板参数 `N` 是一个 `ScalarType` 枚举值。主模板只有声明没有定义；`AT_FORALL_SCALAR_TYPES_WITH_COMPLEX_AND_QINTS` 这个宏对表里每一对 `(uint8_t, Byte)`、`(float, Float)`、`(double, Double)`…… 生成一个全特化（第五章），每个特化里 `using type = cpp_type;`。于是 `ScalarTypeToCPPTypeT<ScalarType::Float>` 就是 `float`，`ScalarTypeToCPPTypeT<ScalarType::Double>` 就是 `double`——**一个编译期常量枚举值到 C++ 类型的映射表**。反向映射在同一个文件里：
 
-```cpp
+```cpp title="反向映射 CppTypeToScalarType"
 // Map from C++ type to ScalarType enum
 template <typename T>
 struct CppTypeToScalarType;
@@ -492,7 +492,7 @@ AT_FORALL_SCALAR_TYPES_WITH_COMPLEX_AND_QINTS(SPECIALIZE_CppTypeToScalarType)
 
 CUDA kernel 是 C++ 函数（多一个 `__global__`），host 侧的启动代码是普通 C++。vLLM 的 kernel 几乎都把 tile 大小、向量宽度、激活函数顺序等参数做成非类型模板参数。`csrc/cache_kernels.cu`：
 
-```cpp
+```cpp title="vLLM cp_gather_indexer_k_quant_cache_kernel：BLOCK_Y_SIZE 是模板参数"
 template <int BLOCK_Y_SIZE>
 __global__ void cp_gather_indexer_k_quant_cache_kernel(
     const char* __restrict__ kv_cache,  // [num_blocks, block_size,
@@ -503,7 +503,7 @@ __global__ void cp_gather_indexer_k_quant_cache_kernel(
 
 host 侧根据运行期的 `num_tokens` 选择实例化哪一个：
 
-```cpp
+```cpp title="host 侧按 num_tokens 选择实例化哪一个 BLOCK_Y_SIZE"
 // Macro to dispatch the kernel based on the data amount.
 #define CALL_CP_GATHER_INDEXER_K_QUANT_CACHE(BLOCK_Y_SIZE)                    \
   vllm::cp_gather_indexer_k_quant_cache_kernel<BLOCK_Y_SIZE>                  \
@@ -531,7 +531,7 @@ host 侧根据运行期的 `num_tokens` 选择实例化哪一个：
 
 `csrc/layernorm_kernels.cu` 的 `fused_add_rms_norm_kernel` 把类型参数和非类型参数放在一起：
 
-```cpp
+```cpp title="fused_add_rms_norm_kernel：类型参数 scalar_t 加非类型参数 width"
 template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
 fused_add_rms_norm_kernel(
@@ -548,7 +548,7 @@ fused_add_rms_norm_kernel(
 
 `scalar_t` 是类型参数（由 dtype 分发决定），`width` 是向量宽度（8 或 0，由指针对齐决定）。host 侧的选择逻辑：
 
-```cpp
+```cpp title="LAUNCH_FUSED_ADD_RMS_NORM：dtype 分发套 width 选择"
 #define LAUNCH_FUSED_ADD_RMS_NORM(width)                                    \
   VLLM_DISPATCH_FLOATING_TYPES(                                             \
       input.scalar_type(), "fused_add_rms_norm_kernel", [&] {               \
@@ -571,7 +571,7 @@ fused_add_rms_norm_kernel(
 
 `bool` 也常做非类型参数。`csrc/activation_kernels.cu` 的 `act_and_mul_kernel`：
 
-```cpp
+```cpp title="act_and_mul 的 compute：bool act_first 做模板参数"
 template <typename scalar_t, scalar_t (*ACT_FN)(const scalar_t&),
           bool act_first>
 __device__ __forceinline__ scalar_t compute(const scalar_t& x,
@@ -595,7 +595,7 @@ __global__ void act_and_mul_kernel(
 
 模板是通用配方，但常常需要"对这一组参数用另一套代码"。**全特化**（explicit/full specialization）就是给出一组完整的参数并单独定义：
 
-```cpp
+```cpp title="ScalarTypeToCPPType<Float> 的全特化"
 template <>                                    // 空的模板参数列表：这是特化
 struct ScalarTypeToCPPType<c10::ScalarType::Float> {
   using type = float;
@@ -606,7 +606,7 @@ struct ScalarTypeToCPPType<c10::ScalarType::Float> {
 
 vLLM `csrc/type_convert.cuh` 用全特化实现"某类型是否有向量化转换支持"：
 
-```cpp
+```cpp title="vLLM _typeConvert：主模板 exists = false，特化为 true"
 template <typename torch_type>
 struct _typeConvert {
   static constexpr bool exists = false;
@@ -628,7 +628,7 @@ struct _typeConvert<float> {
 
 函数模板也能全特化。`aten/src/ATen/templates/TensorMethods.cpp`：
 
-```cpp
+```cpp title="DEFINE_ITEM：Tensor::item<T>() 的函数模板全特化"
  #define DEFINE_ITEM(T, name)      \
    template <>                     \
    TORCH_API T Tensor::item() const { \
@@ -642,7 +642,7 @@ struct _typeConvert<float> {
 
 `c10/util/StringUtil.h` 的 `_str_wrapper` 展示全特化用于性能：
 
-```cpp
+```cpp title="_str_wrapper：单个 const char* 参数时直接返回、不经过 ostringstream"
 template <typename... Args>
 struct _str_wrapper final {
   static std::string call(const Args&... args) {
@@ -674,7 +674,7 @@ struct _str_wrapper<const char*> final {
 
 **偏特化**（partial specialization）固定部分参数或给参数加上某种模式，其余仍是模板。`c10/util/SmallVector.h` 用它区分"平凡可拷贝的 `T`"和"非平凡的 `T`"：
 
-```cpp
+```cpp title="SmallVectorTemplateBase 按 T 是否平凡可拷贝偏特化"
 template <
     typename T,
     bool = (std::is_trivially_copy_constructible_v<T>) &&
@@ -701,7 +701,7 @@ class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
 
 同文件还有一个偏特化处理 `N = 0` 的边界：
 
-```cpp
+```cpp title="SmallVectorStorage<T, 0> 的偏特化：空结构体"
 /// We need the storage to be properly aligned even for small-size of 0 so that
 /// the pointer math in \a SmallVectorTemplateCommon::getFirstEl() is
 /// well-defined.
@@ -713,7 +713,7 @@ struct alignas(T) SmallVectorStorage<T, 0> {};
 
 偏特化的"模式"可以比固定值更复杂。`c10/util/StringUtil.h`：
 
-```cpp
+```cpp title="CanonicalizeStrTypes：对 char[N] 的偏特化"
 template <typename T>
 struct CanonicalizeStrTypes {
   using type = const T&;
@@ -732,7 +732,7 @@ struct CanonicalizeStrTypes<char[N]> {
 
 一个常见的坑：**函数模板只能全特化，不能偏特化**。想对"所有指针类型"或"所有 `optional<T>`"给函数模板另一套实现，要用重载。`c10/util/StringUtil.h` 的 `_str`：
 
-```cpp
+```cpp title="_str 的单参数版本：if constexpr 处理不可流式输出的枚举"
 template <typename T>
 inline std::ostream& _str(std::ostream& ss, const T& t) {
   if constexpr (std::is_enum_v<T> && !Streamable<T>::value) {
@@ -759,7 +759,7 @@ inline std::ostream& _str(std::ostream& ss, const std::optional<T>& t) {
 
 Java 的可变参数 `Object... args` 是一个数组，所有参数被装箱成 `Object`，类型在运行期才知道。C++ 的变参模板（variadic template）在编译期知道每个参数的**精确类型**和**个数**。语法是三个点：
 
-```cpp
+```cpp title="make：变参模板加完美转发"
 template <class... Args>          // Args 是一个"类型参数包"：零个或多个类型
 static intrusive_ptr make(Args&&... args) {   // args 是"函数参数包"
   return intrusive_ptr(new TTarget(std::forward<Args>(args)...));  // 展开
@@ -770,7 +770,7 @@ static intrusive_ptr make(Args&&... args) {   // args 是"函数参数包"
 
 `c10::str` 用递归展开处理"把任意个参数拼成字符串"：
 
-```cpp
+```cpp title="_str 的递归展开：零参数终止版加 T, Args... 版"
 inline std::ostream& _str(std::ostream& ss) {
   return ss;
 }
@@ -785,7 +785,7 @@ inline std::ostream& _str(std::ostream& ss, const T& t, const Args&... args) {
 
 `TORCH_CHECK` 的消息就是这样拼出来的，`c10/util/Exception.h`：
 
-```cpp
+```cpp title="torchCheckMsgImpl：TORCH_CHECK 消息由 c10::str 拼出"
 namespace c10::detail {
 template <typename... Args>
 auto torchCheckMsgImpl(const char* /*msg*/, const Args&... args) {
@@ -813,7 +813,7 @@ inline C10_API const char* torchCheckMsgImpl(
 
 `constexpr` 声明一个变量或函数**可以**在编译期求值。变量：`torch/headeronly/core/ScalarType.h` 的
 
-```cpp
+```cpp title="constexpr 变量 NumScalarTypes"
 constexpr uint16_t NumScalarTypes =
     static_cast<uint16_t>(ScalarType::NumOptions);
 ```
@@ -822,7 +822,7 @@ constexpr uint16_t NumScalarTypes =
 
 函数：`aten/src/ATen/Dispatch.h` 开头
 
-```cpp
+```cpp title="constexpr 函数 should_include_kernel_dtype"
 inline constexpr bool should_include_kernel_dtype(
     const char* /*kernel_tag_str*/,
     at::ScalarType /*scalar_type*/
@@ -841,7 +841,7 @@ C++17 的 `if constexpr` 要求条件是编译期常量，**没被选中的分�
 
 `c10/core/TensorImpl.h`：
 
-```cpp
+```cpp title="generic_sizes：if constexpr 按 T 选 sizes() 还是 sym_sizes()"
   template <typename T>
   ArrayRef<T> generic_sizes() {
     static_assert(
@@ -860,7 +860,7 @@ C++17 的 `if constexpr` 要求条件是编译期常量，**没被选中的分�
 
 vLLM `csrc/type_convert.cuh` 的 `_f16Vec::operator+=`：
 
-```cpp
+```cpp title="_f16Vec::operator+=：if constexpr 按 width 与 T2 选路径"
   __device__ _f16Vec& operator+=(const _f16Vec<scalar_t, width>& other) {
     if constexpr (width % 2 == 0) {
 #pragma unroll
@@ -879,7 +879,7 @@ vLLM `csrc/type_convert.cuh` 的 `_f16Vec::operator+=`：
 
 `aten/src/ATen/Dispatch.h` 的选择性构建钩子也用了它：
 
-```cpp
+```cpp title="AT_PRIVATE_CHECK_SELECTIVE_BUILD 里的 if constexpr"
 #define AT_PRIVATE_CHECK_SELECTIVE_BUILD(enum_type)   \
   do {                                                \
     if constexpr (!at::should_include_kernel_dtype(   \
@@ -900,7 +900,7 @@ vLLM `csrc/type_convert.cuh` 的 `_f16Vec::operator+=`：
 
 `static_assert(cond, "msg")` 在编译期检查常量条件，失败即编译错误。它是给模板加约束最直接的手段，错误信息也是你自己写的、可读的。上面 `generic_sizes` 的 `static_assert` 让 `generic_sizes<float>()` 报 "Only supports int64_t and c10::SymInt." 而不是一堆实例化栈。`HeaderOnlyArrayRef` 用它挡住 `vector<bool>`：
 
-```cpp
+```cpp title="HeaderOnlyArrayRef 用 static_assert 挡住 vector<bool>"
   template <typename A>
   /* implicit */ HeaderOnlyArrayRef(const std::vector<T, A>& Vec)
       : Data(Vec.data()), Length(Vec.size()) {
@@ -920,7 +920,7 @@ SFINAE 是 "Substitution Failure Is Not An Error" 的缩写：在推导模板参
 
 **放在模板参数列表里**（`HeaderOnlyArrayRef.h` 的通用容器构造函数）：
 
-```cpp
+```cpp title="enable_if 放在模板参数列表里：通用容器构造函数"
   template <
       typename Container,
       typename U = decltype(std::declval<Container>().data()),
@@ -934,7 +934,7 @@ SFINAE 是 "Substitution Failure Is Not An Error" 的缩写：在推导模板参
 
 **放在返回类型上**（4.3 节 vLLM 的两个 kernel 重载）：
 
-```cpp
+```cpp title="enable_if 放在返回类型上：两个互斥的 kernel 重载"
 template <typename scalar_t, int width>
 __global__ std::enable_if_t<(width > 0) && _typeConvert<scalar_t>::exists>
 fused_add_rms_norm_kernel(/* ... */)
@@ -948,7 +948,7 @@ fused_add_rms_norm_kernel(/* ... */)
 
 **放在一个哑参数上**（`aten/src/ATen/native/cpu/Loops.h`）：
 
-```cpp
+```cpp title="enable_if 放在哑参数上：execute_op"
 template <typename func_t,
     std::enable_if_t<!std::is_void_v<typename function_traits<func_t>::result_type>>* = nullptr>
 inline void
@@ -970,7 +970,7 @@ Java 对照：Java 的 `<T extends Comparable<T>>` 是**显式的、在定义处
 
 C++20 把约束变成一等语法。用 concepts 重写 `HeaderOnlyArrayRef` 的容器构造函数，大致是：
 
-```cpp
+```cpp title="用 requires 子句重写容器构造函数"
 template <typename Container>
   requires std::is_same_v<decltype(std::declval<Container>().data()), const T*>
 HeaderOnlyArrayRef(const Container& container);
@@ -978,7 +978,7 @@ HeaderOnlyArrayRef(const Container& container);
 
 或者先定义一个具名 concept：
 
-```cpp
+```cpp title="具名 concept ContiguousContainerOf"
 template <typename C, typename T>
 concept ContiguousContainerOf = requires(const C& c) {
   { c.data() } -> std::convertible_to<const T*>;
@@ -1002,7 +1002,7 @@ PyTorch v2.10.0 用 C++17 编译，源码树里自然没有 `requires`/`concept`
 
 于是问题变成：手里有一个运行期的 `ScalarType`，怎么调到编译期实例化好的 `kernel<float>` 或 `kernel<double>`？4.2 节说过 `ScalarTypeToCPPTypeT<x.scalar_type()>` 是非法的——模板参数必须是常量。**唯一的办法是枚举所有可能的值，每个值写一个分支，每个分支里 dtype 就是常量了**：
 
-```cpp
+```cpp title="手写 switch：每个 case 里 dtype 是常量"
 switch (x.scalar_type()) {
   case ScalarType::Float:  kernel<float>(...);  break;
   case ScalarType::Double: kernel<double>(...); break;
@@ -1018,7 +1018,7 @@ switch (x.scalar_type()) {
 
 `aten/src/ATen/Dispatch.h`：
 
-```cpp
+```cpp title="AT_DISPATCH_FLOATING_TYPES 与 AT_DISPATCH_CASE_FLOATING_TYPES 的定义"
 #define AT_DISPATCH_CASE_FLOATING_TYPES(...)            \
   AT_DISPATCH_CASE(at::ScalarType::Double, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)
@@ -1033,7 +1033,7 @@ switch (x.scalar_type()) {
 
 ### 3. 第二层：`AT_DISPATCH_SWITCH` 是一个立即调用的 lambda
 
-```cpp
+```cpp title="AT_DISPATCH_SWITCH 转给 THO_DISPATCH_SWITCH_TMPL"
 #define AT_DISPATCH_SWITCH(TYPE, NAME, ...) \
   THO_DISPATCH_SWITCH_TMPL(                 \
       RECORD_KERNEL_FUNCTION_DTYPE,         \
@@ -1045,7 +1045,7 @@ switch (x.scalar_type()) {
 
 PyTorch 2.x 中的变化：v2.10.0 已把 `switch` 的骨架挪到了 `torch/headeronly/core/Dispatch.h`，命名为 `THO_DISPATCH_SWITCH_TMPL`（THO = torch header-only），多出两个"钩子"参数 `PRELUDE` 和 `CHECK_NOT_IMPLEMENTED`，ATen 版传入自己的 profiling 记录宏和 `TORCH_CHECK_NOT_IMPLEMENTED`，header-only 版（供不链接 libtorch 的稳定 ABI 扩展使用）传入空宏和 `STD_TORCH_CHECK`。骨架本身：
 
-```cpp
+```cpp title="THO_DISPATCH_SWITCH_TMPL：立即调用的 lambda 里一个 switch"
 #define THO_DISPATCH_SWITCH_TMPL(                                           \
     PRELUDE, CHECK_NOT_IMPLEMENTED, TYPE, NAME, ...)                        \
   [&] {                                                                     \
@@ -1081,7 +1081,7 @@ PyTorch 2.x 中的变化：v2.10.0 已把 `switch` 的骨架挪到了 `torch/hea
 
 ### 4. 第三层：`AT_DISPATCH_CASE` 定义了 `scalar_t`
 
-```cpp
+```cpp title="AT_DISPATCH_CASE 把 HINT 固定为 scalar_t"
 #define AT_PRIVATE_CASE_TYPE_USING_HINT(enum_type, HINT, ...) \
   THO_PRIVATE_CASE_TYPE_USING_HINT_TMPL(                      \
       AT_PRIVATE_CHECK_SELECTIVE_BUILD, enum_type, HINT, __VA_ARGS__)
@@ -1092,7 +1092,7 @@ PyTorch 2.x 中的变化：v2.10.0 已把 `switch` 的骨架挪到了 `torch/hea
 
 `AT_DISPATCH_CASE(enum_type, lambda)` 调用 `AT_PRIVATE_CASE_TYPE_USING_HINT`，把 `HINT` 固定为标识符 `scalar_t`——**这一行就是 `scalar_t` 这个名字的出处**。它再转给 `torch/headeronly/core/Dispatch.h` 里的骨架：
 
-```cpp
+```cpp title="THO_PRIVATE_CASE_TYPE_USING_HINT_TMPL：case 里 using scalar_t = …"
 #define THO_PRIVATE_CASE_TYPE_USING_HINT_TMPL(PRELUDE, enum_type, HINT, ...) \
   case enum_type: {                                                          \
     PRELUDE(enum_type);                                                      \
@@ -1115,7 +1115,7 @@ PyTorch 2.x 中的变化：v2.10.0 已把 `switch` 的骨架挪到了 `torch/hea
 
 把三层合起来，开头那段 `log_sigmoid_cpu` 代码（省略 PRELUDE 与诊断宏）预处理后大致是：
 
-```cpp
+```cpp title="log_sigmoid_cpu 那段代码预处理后的样子"
 [&] {
   const auto& the_type = input.scalar_type();
   constexpr const char* at_dispatch_name = "log_sigmoid_cpu";
@@ -1155,7 +1155,7 @@ PyTorch 2.x 中的变化：v2.10.0 已把 `switch` 的骨架挪到了 `torch/hea
 
 `scalar_t` 是编译期确定的，但 tensor 的 dtype 是运行期的，两者一致靠什么保证？靠 2.3 节 `TensorMethods.cpp` 里的 `check_type`：
 
-```cpp
+```cpp title="mutable_data_ptr<T> 里的 check_type 运行期检查"
 template <typename T>
 T* TensorBase::mutable_data_ptr() const {
   check_type(*this, c10::CppTypeToScalarType<T>());
@@ -1169,7 +1169,7 @@ T* TensorBase::mutable_data_ptr() const {
 
 vLLM 没有重新发明这套机制，而是直接复用 ATen 的 `AT_DISPATCH_SWITCH` / `AT_DISPATCH_CASE`，只换 `case` 列表。`csrc/dispatch_utils.h`：
 
-```cpp
+```cpp title="vLLM csrc/dispatch_utils.h：复用 AT_DISPATCH_SWITCH，换 case 列表"
 /*
  * Adapted from
  * https://github.com/pytorch/pytorch/blob/v2.0.1/aten/src/ATen/Dispatch.h
@@ -1200,7 +1200,7 @@ vLLM 没有重新发明这套机制，而是直接复用 ATen 的 `AT_DISPATCH_S
 
 旧宏族有一个问题：想在默认集合上追加 N 个 dtype，就要用 `AT_DISPATCH_FLOATING_TYPES_AND2`、`_AND3`、`_AND4`……名字里带着个数，组合爆炸。`aten/src/ATen/Dispatch_v2.h`（PyTorch 2.x 中的变化：V2 在 2.3 引入，与 V1 并存；v2.10.0 中它的骨架同样已挪到 `torch/headeronly/core/Dispatch_v2.h`）用一种新写法解决。下面这段是该头文件开头说明注释里给出的用法示例（"You now write:"），原文就写在注释块里，这里照抄，所以每行都带 `//`——它不是被注释掉的代码，而是文档：
 
-```cpp
+```cpp title="Dispatch_v2.h 注释里给出的 AT_DISPATCH_V2 用法"
 //  AT_DISPATCH_V2(
 //    self.scalar_type(),
 //    "_local_scalar_dense_cpu",
@@ -1217,7 +1217,7 @@ vLLM 没有重新发明这套机制，而是直接复用 ATen 的 `AT_DISPATCH_S
 
 lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后一个参数，7.5 节说的逗号问题必须处理——`#define AT_WRAP(...) __VA_ARGS__` 把带逗号的内容先当成一个参数吃进去再原样吐出），后面跟任意个 dtype，`AT_EXPAND(AT_ALL_TYPES)` 展开成一组预定义集合。实现：
 
-```cpp
+```cpp title="AT_DISPATCH_V2 转给 THO_DISPATCH_V2_TMPL"
 #define AT_DISPATCH_V2(TYPE, NAME, BODY, ...) \
   THO_DISPATCH_V2_TMPL(                       \
       AT_DISPATCH_SWITCH,                     \
@@ -1230,7 +1230,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 `torch/headeronly/core/Dispatch_v2.h` 里 `THO_DISPATCH_V2_TMPL` 用 `AT_NUM_ARGS(__VA_ARGS__)` 数出 dtype 个数 N（经典的"参数计数"宏技巧：把 `__VA_ARGS__` 后面接一串递减数字，取第 61 个），用 `AT_CONCAT` 拼出 `THO_AP##N`，再由同文件里机器生成的 `THO_AP1`…`THO_AP60` 对每个 dtype 调用一次传入的 `CASE` 宏：
 
-```cpp
+```cpp title="THO_AP_VAR_TMPL：按 dtype 个数拼出 THO_APn"
 #define THO_AP_VAR_TMPL(C, N, T, ...) \
   AT_EXPAND(                          \
       AT_CONCAT(THO_AP, AT_NUM_ARGS(__VA_ARGS__))(C, AT_WRAP(N), __VA_ARGS__))
@@ -1252,7 +1252,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 `c10/util/ArrayRef.h` 类定义前的注释把设计说得很清楚：
 
-```cpp
+```cpp title="ArrayRef.h 类定义前的设计说明注释"
 /// ArrayRef - Represent a constant reference to an array (0 or more elements
 /// consecutively in memory), i.e. a start pointer and a length.  It allows
 /// various APIs to take consecutive elements easily and conveniently.
@@ -1268,7 +1268,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 数据成员只有两个（在基类 `HeaderOnlyArrayRef` 里）：
 
-```cpp
+```cpp title="HeaderOnlyArrayRef 的两个数据成员：Data 与 Length"
  protected:
   /// The start of the array, in an external buffer.
   const T* Data;
@@ -1279,7 +1279,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 16 字节，平凡可拷贝，按值传递就是两个寄存器。它像 Java 的 `List<Long>` 接口那样让调用方"不关心底层容器是什么"，但实现方式相反：Java 靠接口和虚调用，`ArrayRef` 靠一组隐式构造函数在编译期把各种容器统一成"指针 + 长度"：
 
-```cpp
+```cpp title="HeaderOnlyArrayRef 的一组隐式构造函数"
   /// Construct a HeaderOnlyArrayRef from a single element.
   constexpr HeaderOnlyArrayRef(const T& OneElt) : Data(&OneElt), Length(1) {}
 
@@ -1301,7 +1301,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 `using IntArrayRef = ArrayRef<int64_t>;` 在文件末尾。`c10/core/TensorImpl.h` 里 `sizes()` 返回的就是它：
 
-```cpp
+```cpp title="TensorImpl::sizes() 返回 IntArrayRef"
   /**
    * Return a reference to the sizes of this tensor.  This reference remains
    * valid as long as the tensor is live and not resized.
@@ -1318,7 +1318,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 派生类 `ArrayRef` 相对基类只多两样东西：一个从 `SmallVector` 构造的模板构造函数（5.2 节），以及把 `front()`/`back()`/`at()`/`slice()` 的检查从 `STD_TORCH_CHECK` 换成 `TORCH_CHECK`（更好的错误信息，但依赖 libtorch）。还有一对刻意删除的赋值运算符：
 
-```cpp
+```cpp title="ArrayRef 刻意删除的从临时对象赋值"
   /// Disallow accidental assignment from a temporary.
   ///
   /// The declaration here is extra complicated so that "arrayRef = {}"
@@ -1340,7 +1340,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 `std::optional<T>` 表示"可能没有值的 `T`"，在 ATen 签名里到处都是。`aten/src/ATen/native/TensorFactories.cpp`：
 
-```cpp
+```cpp title="empty_cpu 签名里的一串 std::optional"
 Tensor empty_cpu(
     IntArrayRef size,
     std::optional<ScalarType> dtype_opt,
@@ -1354,7 +1354,7 @@ Tensor empty_cpu(
 
 版本演进（PyTorch 2.x 中的变化）：PyTorch 早期用自己实现的 `c10::optional`（`c10/util/Optional.h` 曾是一个完整的自有实现，因为要支持没有 `<optional>` 的旧编译器；2.1 的 `c10/util/Optional.h` 还是这个自有实现），从 2.2 起 `c10::optional` 变成 `std::optional` 的别名，之后几个版本里 PyTorch 自己的代码逐步改写为直接使用 `std::optional`。v2.10.0 源码树里 `c10/util/Optional.h` 只剩下这些：
 
-```cpp
+```cpp title="v2.10.0 里 c10/util/Optional.h 只剩 using 别名"
 namespace c10 {
 
 #if !defined(FBCODE_CAFFE2) && !defined(C10_NODEPRECATED)
@@ -1378,7 +1378,7 @@ using std::optional;
 
 4.1 节和 5.2 节已经看过 `SmallVector` 的两个关键模板技巧（非类型参数 `N` 决定内联缓冲区大小、偏特化按 `T` 是否平凡可拷贝选择 `memcpy` 路径）。这里补齐它的形状和用法。`c10/util/SmallVector.h` 的继承链：
 
-```text
+```text title="SmallVector 的继承链"
 SmallVectorBase<Size_T>              BeginX 指针、Size、Capacity；grow 的非模板部分放在 .cpp 里减少代码膨胀
   └─ SmallVectorTemplateCommon<T>    迭代器、operator[]、isSmall()（BeginX 是否指向内联缓冲区）
        └─ SmallVectorTemplateBase<T, bool>   按 T 是否平凡可拷贝偏特化：拷贝/析构策略
@@ -1392,7 +1392,7 @@ SmallVectorBase<Size_T>              BeginX 指针、Size、Capacity；grow 的�
 
 三个类型放在一起看 ATen 的一条典型签名：
 
-```cpp
+```cpp title="ATen 一条典型签名：IntArrayRef 加 std::optional"
 Tensor empty_cpu(IntArrayRef size, std::optional<ScalarType> dtype_opt, ...)
 ```
 
@@ -1404,7 +1404,7 @@ Tensor empty_cpu(IntArrayRef size, std::optional<ScalarType> dtype_opt, ...)
 
 `[&](int64_t begin, int64_t end) { ... }` 在编译器眼里等价于：
 
-```cpp
+```cpp title="lambda 等价的匿名类：捕获成为成员"
 struct __lambda_at_line_74 {
   // 捕获的变量成为成员：[&] 时是引用，[=] 时是拷贝
   Tensor& x_c; Tensor& out; double& alpha; double& beta;
@@ -1424,7 +1424,7 @@ Java 的 lambda 会被编译成 `invokedynamic` + 一个实现函数式接口的
 
 上一节说 lambda "等价于"一个手写的类。这不只是解释模型——在 C++11 之前，那个类就是你必须亲手写的东西。想把 `out`、`in`、`alpha` 三个局部变量带进 `parallel_for` 的循环体，C++98 的写法是：
 
-```cpp
+```cpp title="C++98 手写函数对象 ScaleBody"
 // C++98：把要用的外层变量一个个存进成员，构造函数一个个传，循环体写在 operator() 里
 struct ScaleBody {
   float* out; const float* in; float alpha;
@@ -1439,7 +1439,7 @@ void scale_98(float* out, const float* in, float alpha, long n) {
 }
 ```
 
-```cpp
+```cpp title="C++11 用 lambda 做同一件事"
 // C++11：同一件事
 void scale_11(float* out, const float* in, float alpha, long n) {
   parallel_for(0, n, [&](long b, long e) {
@@ -1465,7 +1465,7 @@ Table: lambda 捕获列表的写法与生成的成员
 
 `[&]` 和 `[=]` 的区别只在两点：**能否修改外层变量**（`[=]` 拷了一份，改的是自己的副本，且默认 `operator()` 是 `const`，需要 `mutable` 才能改），以及**生命周期**（`[&]` 里的引用不延长被引用对象的寿命，9.5 节）。ATen 里 `[&]` 占绝大多数，因为 kernel 代码几乎总是"在当前函数里同步地把活干完"。`[=]` 用于要把 lambda 存起来或传到别处的场合，例如 `aten/src/ATen/native/Linear.cpp` 里 einsum 的辅助函数：
 
-```cpp
+```cpp title="einsum 辅助函数里的 [=] 捕获"
   // Convert label in [A-Za-z] to subscript in [0, TOTAL_LABELS)
   auto label_to_subscript = [=](unsigned char label) -> uint8_t {
     return std::isupper(label) ? label - 'A' : label - 'a' + NUM_OF_LETTERS;
@@ -1476,7 +1476,7 @@ Table: lambda 捕获列表的写法与生成的成员
 
 表格最后一行的**初始化捕获**（init-capture，C++14）值得单独讲，因为它解决的问题在 `[&]` / `[=]` 之外。C++11 的捕获只有两种：拷贝一份，或者引用外面那份。有一类对象两种都不行——**只能移动、不能拷贝**的对象，`std::unique_ptr` 是代表，第二篇的 `Buffer`、线程句柄、文件描述符包装都是。假设要把一个 `unique_ptr<Buffer>` 交给一个稍后执行的任务：
 
-```cpp
+```cpp title="unique_ptr 既不能 [=] 也不能 [&]：需要 init-capture"
 auto make_task(std::unique_ptr<Buffer> buf) {
   // 错：call to implicitly-deleted copy constructor of 'unique_ptr<Buffer>'
   return [=] { use(buf->n); };
@@ -1495,13 +1495,13 @@ Java 对照：Java lambda 只能捕获 effectively final 的局部变量，而�
 
 C++14 起 lambda 的参数可以写 `auto`，此时 `operator()` 是一个成员函数模板，每种实参类型实例化一次：
 
-```cpp
+```cpp title="泛型 lambda：参数写 auto"
 auto exp_vec = [](const auto& v) { /* ... */ };   // aten/src/ATen/native/cpu/FlashAttentionKernel.cpp
 ```
 
 `c10/util/Unroll.h` 用泛型 lambda 配合非类型模板参数做编译期循环展开：
 
-```cpp
+```cpp title="c10::ForcedUnroll：泛型 lambda 配合非类型参数做编译期展开"
 template <int n>
 struct ForcedUnroll {
   template <typename Func, typename... Args>
@@ -1522,7 +1522,7 @@ struct ForcedUnroll<1> {
 
 `ForcedUnroll<4>{}(f)` 递归实例化 `ForcedUnroll<3>`、`<2>`、`<1>`（全特化终止递归），依次调用 `f(integral_constant<int, 0>{})` … `f(integral_constant<int, 3>{})`。传入的 `f` 是泛型 lambda（`aten/src/ATen/native/cpu/ReducedPrecisionFloatGemvFastPathKernel.cpp`）：
 
-```cpp
+```cpp title="ForcedUnroll 的调用方：传入的泛型 lambda"
   c10::ForcedUnroll<IntegerLog2(kF16RegistersPerIteration)>{}([&offset, &x](auto idx) {
     offset /= 2;
     for (const auto i : c10::irange(offset)) {
@@ -1537,7 +1537,7 @@ struct ForcedUnroll<1> {
 
 把 lambda 传给函数有两种方式，性能模型完全不同：
 
-```cpp
+```cpp title="parallel_for 的模板参数 vs invoke_parallel 的 std::function"
 template <class F>
 inline void parallel_for(int64_t begin, int64_t end, int64_t grain_size, const F& f);   // 模板参数
 
@@ -1553,7 +1553,7 @@ TORCH_API void invoke_parallel(int64_t begin, int64_t end, int64_t grain_size,
 
 `[&]` 生成的是引用成员。如果闭包对象活得比被引用的变量久，调用时就是悬垂引用——第二篇 4.5 节的问题在 lambda 上的形态。典型错误：
 
-```cpp
+```cpp title="返回 [&] lambda 的悬垂引用"
 std::function<void()> make_task(const Tensor& x) {
   double scale = compute_scale(x);
   return [&] { use(x, scale); };   // 返回后 scale 已销毁，x 也可能已销毁
@@ -1572,7 +1572,7 @@ std::function<void()> make_task(const Tensor& x) {
 
 内层 `parallel_for(0, n, grain, [&](int64_t begin, int64_t end) { ... })`：这个 lambda 会在**其他线程**上执行，为什么还能 `[&]`？看 `aten/src/ATen/ParallelOpenMP.h`：
 
-```cpp
+```cpp title="ParallelOpenMP.h 的 invoke_parallel：调用返回前所有线程已完成"
 template <class F>
 inline void invoke_parallel(
     int64_t begin,
@@ -1610,7 +1610,7 @@ inline void invoke_parallel(
 
 带着前八节的机制，重读总纲开篇那段扩展代码：
 
-```cpp
+```cpp title="重读 scale_shift_cpu：每一行都能解释"
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
   TORCH_CHECK(x.is_floating_point(), "expected floating point tensor");
   auto x_c = x.contiguous();
@@ -1644,7 +1644,7 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 ### 1. `core/ScalarType.h`：一张表生成两张映射
 
-```cpp
+```cpp title="minic10/core/ScalarType.h：一张 X-macro 表生成两张映射"
 // minic10/core/ScalarType.h
 #pragma once
 #include <cstddef>
@@ -1733,7 +1733,7 @@ static_assert(itemsize(ScalarType::Long) == 8);
 
 ### 2. `core/Dispatch.h`：`MINI_DISPATCH_FLOATING_TYPES`
 
-```cpp
+```cpp title="minic10/core/Dispatch.h：MINI_DISPATCH_FLOATING_TYPES"
 // minic10/core/Dispatch.h
 #pragma once
 #include <stdexcept>
@@ -1787,7 +1787,7 @@ static_assert(itemsize(ScalarType::Long) == 8);
 
 ### 3. `util/ArrayRef.h`
 
-```cpp
+```cpp title="minic10/util/ArrayRef.h"
 // minic10/util/ArrayRef.h
 #pragma once
 #include <array>
@@ -1891,7 +1891,7 @@ using IntArrayRef = ArrayRef<int64_t>;
 
 只列改动的部分。`minic10/core/TensorImpl.h`：
 
-```cpp
+```cpp title="TensorImpl.h 的改动：sizes 改为 IntArrayRef"
 #include "minic10/util/ArrayRef.h"
 // ...
 struct TensorImpl : intrusive_ptr_target {
@@ -1915,7 +1915,7 @@ struct TensorImpl : intrusive_ptr_target {
 
 `minic10/core/Tensor.h`：
 
-```cpp
+```cpp title="Tensor.h 的改动：sizes() 返回 IntArrayRef"
 class Tensor {
   intrusive_ptr<TensorImpl> impl_;
  public:
@@ -1954,7 +1954,7 @@ inline Tensor empty(IntArrayRef sizes, ScalarType dtype) {
 
 先给一个声明头（系列布局里 `ops/` 只列了两个 `.cpp`，声明放在 `ops/ops.h`）：
 
-```cpp
+```cpp title="minic10/ops/ops.h：add 与 mul 的声明"
 // minic10/ops/ops.h
 #pragma once
 #include "minic10/core/Tensor.h"
@@ -1967,7 +1967,7 @@ Tensor mul(const Tensor& a, const Tensor& b);
 
 `add` 用具名函数模板做 kernel，便于在符号表里看到实例：
 
-```cpp
+```cpp title="minic10/ops/add.cpp：具名函数模板做 kernel"
 // minic10/ops/add.cpp
 #include <stdexcept>
 #include <string>
@@ -2017,7 +2017,7 @@ Tensor add(const Tensor& a, const Tensor& b) {
 
 `mul` 把 kernel 直接写在 lambda 里，并多分发一个 `Long`：
 
-```cpp
+```cpp title="minic10/ops/mul.cpp：kernel 写在 lambda 里，多分发 Long"
 // minic10/ops/mul.cpp
 #include <stdexcept>
 #include <string>
@@ -2049,7 +2049,7 @@ Tensor mul(const Tensor& a, const Tensor& b) {
 
 ### 6. 跑起来
 
-```cpp
+```cpp title="main.cpp：Float、Double、Long 各调一次，再触发两种报错"
 // main.cpp
 #include <cstdio>
 #include <exception>
@@ -2097,13 +2097,13 @@ int main() {
 }
 ```
 
-```bash
+```bash title="编译 main.cpp 与两个 ops 并运行"
 clang++ -std=c++17 -Wall -Wextra -I. main.cpp minic10/ops/add.cpp minic10/ops/mul.cpp -o demo && ./demo
 ```
 
 输出：
 
-```text
+```text title="demo 的输出：三种 dtype 各走一份 kernel，两处按预期抛错"
 add(f, f) [Float, dim=2]: 0 2 4 6 8 10
 add(d, d) [Double, dim=2]: 0 2 4 6 8 10
 mul(l, l) [Long, dim=1]: 0 1 4 9 16 25
@@ -2117,12 +2117,12 @@ f.data_ptr<double>() threw: expected scalar type Double but found Float
 
 把 `add.cpp` 单独编成目标文件（`-O0`，避免内联把符号吃掉），看符号表：
 
-```bash
+```bash title="-O0 编 add.cpp 并用 nm 看符号表"
 clang++ -std=c++17 -O0 -I. -c minic10/ops/add.cpp -o add.o
 nm -C add.o | grep -E "minic10::(\(anonymous namespace\)::add_kernel|add\()"
 ```
 
-```text
+```text title="nm 的输出：add_kernel<double> 与 add_kernel<float> 各一份"
 0000000000004444 t void minic10::(anonymous namespace)::add_kernel<double>(double const*, double const*, double*, long long)
 00000000000049f8 t void minic10::(anonymous namespace)::add_kernel<float>(float const*, float const*, float*, long long)
 0000000000000000 T minic10::add(minic10::Tensor const&, minic10::Tensor const&)
@@ -2140,12 +2140,12 @@ nm -C add.o | grep -E "minic10::(\(anonymous namespace\)::add_kernel|add\()"
 
 再看 `mul.cpp`——kernel 直接写在 lambda 里，用 `-S` 输出汇编（arm64，`-O0` 便于对照）：
 
-```bash
+```bash title="-S 输出 mul.cpp 的汇编并 grep 乘法指令"
 clang++ -std=c++17 -O0 -I. -S minic10/ops/mul.cpp -o mul.s
 grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 ```
 
-```text
+```text title="汇编里三条乘法：double、float、int64 各一份"
 6897:	fmul	d0, d0, d1      # double 乘法：'lambda'  的循环体
 6956:	fmul	s0, s0, s1      # float  乘法：'lambda0' 的循环体
 7015:	mul	x8, x8, x9      # int64  乘法：'lambda1' 的循环体

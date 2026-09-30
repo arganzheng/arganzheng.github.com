@@ -289,7 +289,7 @@ flowchart TB
 
 vLLM 的模型抽象更接近：
 
-```text
+```text title="vLLM 的模型抽象：nn.Module + 能力协议"
 PyTorch nn.Module
         +
 能力协议（Protocol / capability contract）
@@ -393,7 +393,7 @@ vLLM 将模型初始化和权重装配集中到 loader 相关抽象中。概念�
 
 前两类转换在 vLLM 里是同一条规则完成的，可以用 Llama 的 attention 和 MLP 权重看清楚。`vllm/model_executor/models/llama.py` 中 `LlamaModel.hf_to_vllm_mapper` 的 `orig_to_new_stacked` 把 HF 的三个独立投影映射到一个融合层 `QKVParallelLinear`，并给每个来源打上 `shard_id`；`gate_proj/up_proj` 同理映射到 `MergedColumnParallelLinear`，`shard_id` 是整数下标。`shard_id` 再由融合层的 `weight_loader` 翻译成融合参数里的行偏移和本 rank 应取的 HF 行区间：
 
-```text
+```text title="Llama-3-8B TP=2：HF 权重到 vLLM 融合层的映射"
 Llama-3-8B, TP=2：hidden=4096, 32 Q 头 / 8 KV 头, head_dim=128
 每个 rank：num_heads=16, num_kv_heads=4, num_kv_head_replicas=1
 
@@ -1345,13 +1345,13 @@ Table: decoder-only 顶层模型类需提供的成员
 
 这一阶段尤其需要关注 Prefill 和 Decode 之间的状态衔接。对于同一个序列，可以比较：
 
-```text
+```text title="一次性 Prefill 的 logits"
 一次性 Prefill 得到的 logits
 ```
 
 与：
 
-```text
+```text title="分段 Prefill / Decode 的 logits"
 分段 Prefill / Decode 得到的对应 logits
 ```
 
@@ -1391,7 +1391,7 @@ Table: decoder-only 顶层模型类需提供的成员
 
 因此，Attention Metadata 并不是调度器直接产生的原始结果，而是由 ModelRunner 根据以下信息构造：
 
-```text
+```text title="Attention Metadata 的构造来源"
 SchedulerOutput
   + 当前输入 token 布局
   + KV Cache / state 状态
@@ -1856,14 +1856,14 @@ Multi-head Latent Attention，简称 MLA，最直接的目标是降低 KV Cache 
 
 在概念上，传统 KV Cache 可以抽象为：
 
-```text
+```text title="传统 KV Cache 的形状"
 K_cache: [batch, sequence_length, num_heads, head_dim]
 V_cache: [batch, sequence_length, num_heads, head_dim]
 ```
 
 而 MLA 更接近于保存某种低秩潜变量：
 
-```text
+```text title="MLA 的 latent cache 形状"
 latent_cache: [batch, sequence_length, latent_dim]
 ```
 
@@ -2254,7 +2254,7 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 
 可以将模型适配归纳为三层：
 
-```text
+```text title="模型层、运行时层与算子层"
 ┌────────────────────────────┐
 │ 模型层：结构、权重、配置     │
 ├────────────────────────────┤

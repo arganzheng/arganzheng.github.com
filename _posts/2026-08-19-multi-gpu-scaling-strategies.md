@@ -101,7 +101,7 @@ Table: DP=2 与 TP=2 的对比
 
 与 DP“**一张 GPU 处理一批请求**”不同，TP 是：
 
-```text
+```text title="DP 与 TP 的请求路径对照"
 DP：
 Request A ──→ GPU 0（完整模型）
 Request B ──→ GPU 1（完整模型）
@@ -133,7 +133,7 @@ $$Y=XW$$
 
 为例，TP 最常见的两种切法是 **Column Parallel** 和 **Row Parallel**。
 
-```text
+```text title="Column Parallel 与 Row Parallel 的切法"
 ┌────────────── Tensor Parallelism ────────────────────────────────────┐
 │                                                                       │
 │  TP: 单层内的矩阵按行/列切分到多个 GPU                                │
@@ -193,7 +193,7 @@ $$
 
 假设 TP=4：
 
-```text
+```text title="Linear 1 列切、Linear 2 行切（TP=4）"
         Linear 1                         Linear 2
      Column Parallel                   Row Parallel
 
@@ -233,7 +233,7 @@ $$
 
 采用 **Column Parallel**，把 (W_1) 按列切成 4 份：
 
-```text
+```text title="W₁ 按列切成 4 份"
                  W₁ (8 × 8)
         ┌────────┬────────┬────────┬────────┐
         │   W₁₀  │   W₁₁  │   W₁₂  │   W₁₃  │
@@ -277,7 +277,7 @@ $$
 
 注意：**这里的 Row Parallel 并不是随便把 (W_2) 切几块，而是沿着上一层输出 (Y) 的这个维度切。**
 
-```text
+```text title="W₂ 沿 Y 的维度按行切"
                  W₂ (8 × 4)
               按行切成 4 份
 
@@ -338,7 +338,7 @@ $$
 
 最后通过 **All-Reduce** 把各 GPU 的部分结果相加。
 
-```text
+```text title="各 GPU 部分和的 All-Reduce"
  GPU0             GPU1             GPU2             GPU3
   │                │                │                │
 Y₀ × W₂₀         Y₁ × W₂₁         Y₂ × W₂₂         Y₃ × W₂₃
@@ -383,7 +383,7 @@ $$
 
 以 TP=4 为例：
 
-```text
+```text title="TP=4 下的 Transformer Layer"
 ┌────────────────────────────── Transformer Layer ──────────────────────────────┐
 │                                                                              │
 │   Attention                                                                  │
@@ -468,7 +468,7 @@ Table: Transformer 各部分的 TP 方式
 
 因此可以把一个 Transformer Layer 简化成：
 
-```text
+```text title="Transformer Layer 的 TP 简化图：Attention 与 MLP"
         Attention                         MLP
 
     QKV Projection                   Gate / Up Projection
@@ -572,7 +572,7 @@ TP=8 时约为 (1.75V)。
 
 TP 的问题不只是“通信量大”，更重要的是：**All-Reduce 位于每层计算的关键路径，需要同步等待。**
 
-```text
+```text title="All-Reduce 位于每层的关键路径"
 GPU Compute
      │
      ▼
@@ -759,7 +759,7 @@ Decode 阶段每次只生成一个或少量新 token。
 
 假设有三个 stage，开始处理第一个 microbatch 时：但在启动阶段，后面的 stage 还没有输入；在结束阶段，前面的 stage 已经完成，而后面的 stage 仍在处理剩余数据。GPU 暂时没有工作可执行的时间段，就是流水线气泡。
 
-```
+``` title="启动气泡：第一个 microbatch 进入 Stage 0"
 时间 →
 Stage 0：F(M1)
 Stage 1：空闲 → 等待 M1
@@ -768,7 +768,7 @@ Stage 2：空闲 → 等待 M1
 
 当 Stage 0 计算完 M1 并发送给 Stage 1 后：
 
-```
+``` title="启动气泡：M1 传到 Stage 1"
 时间 →
 Stage 0：F(M2)
 Stage 1：F(M1)
@@ -782,7 +782,7 @@ Stage 2：空闲 → 等待 M1
 ② 结束时的气泡
 当 Stage 0 已经处理完最后一个 microbatch 后，后面的 stage 可能仍然有数据没有处理完：
 
-```
+``` title="结束气泡：Stage 0 已完成"
 Stage 0：已完成
 Stage 1：仍在处理最后几个 microbatch
 Stage 2：仍在处理最后几个 microbatch
@@ -941,7 +941,7 @@ PP 更适合：
 
 当模型太大，需要跨多台机器部署时，PP 可以减少跨机 TP 所需的高频集合通信，因此常被用于：
 
-```text
+```text title="机内 TP + 机间 PP"
 机内 TP + 机间 PP
 ```
 
@@ -985,7 +985,7 @@ Table: 64 个 Expert 在 4 张 GPU 上的分配（EP = 4）
 
 从参数存储角度看，每张 GPU 只需要加载总 Expert 参数的约四分之一。假设所有 Expert 参数大小相同，则：
 
-```text
+```text title="单卡 Expert 参数量"
 单卡 Expert 参数量 ≈ 总 Expert 参数量 / EP Size
 ```
 
@@ -1003,7 +1003,7 @@ Table: 64 个 Expert 在 4 张 GPU 上的分配（EP = 4）
 
 理论上，每个 Token 只需要经过 2 个 Expert，而不是全部 64 个 Expert。因此，MoE 可以实现：
 
-```text
+```text title="MoE 的参数容量与激活量"
 参数容量较大，但单 Token 激活参数量较小
 ```
 
@@ -1022,7 +1022,7 @@ EP 的代价是：Token 不一定会被发送到当前 GPU 上的 Expert，因�
 
 从工程实现角度看，MoE 的瓶颈并不是“一个大 GEMM 算不动”，而是 **Router + 动态 Dispatch + 变长 Grouped GEMM + Combine** 这一整条动态流水线：
 
-```text
+```text title="MoE 层执行流程：五个阶段"
                     MoE 层执行流程
 
 ┌──────────────┐
@@ -1119,7 +1119,7 @@ Table: 前面例子中四个 Expert 所在的 GPU
 
 如果当前 Token 位于 GPU 0，但它选择了 Expert 17，那么该 Token 必须从 GPU 0 发送到 GPU 1。
 
-```text
+```text title="Token 从 GPU 0 Dispatch 到 GPU 1 的 Expert 17"
 ┌──────────────┐                         ┌──────────────┐
 │    GPU 0     │                         │    GPU 1     │
 │              │                         │              │
@@ -1130,7 +1130,7 @@ Table: 前面例子中四个 Expert 所在的 GPU
 
 当多个 GPU 上都有 Token 需要访问不同 GPU 的 Expert 时，就形成全对全通信，即 All-to-All。
 
-```text
+```text title="All-to-All Dispatch"
                          All-to-All Dispatch
 
              ┌─────────────┐
@@ -1187,7 +1187,7 @@ Table: 前面例子中四个 Expert 所在的 GPU
 
 GPU 0 收到 Token 后，会按照目标 Expert 进行分组：
 
-```text
+```text title="GPU 0 收到的 Token 按本地 Expert 分组"
 GPU 0 本地 Expert：
 
 Expert 3  ← t₀、t₃
@@ -1197,7 +1197,7 @@ Expert 12 ← t₇、t₈
 
 对应的数据流如下：
 
-```text
+```text title="GPU 0 本地分组的数据流"
 ┌────────────────────┐
 │ GPU 0 收到的 Tokens │
 │ t₀、t₃、t₆、t₇、t₈  │
@@ -1259,7 +1259,7 @@ $$
 
 对于同一张 GPU 上的多个 Expert，系统通常会采用 Grouped GEMM，将多个 Expert 的矩阵乘法组织为一个批量计算任务：
 
-```text
+```text title="Grouped GEMM：一张 GPU 上多个 Expert 的批量计算"
 GPU 0：
 
 Expert 3  → 处理 128 个 Tokens
@@ -1287,7 +1287,7 @@ Grouped GEMM：
 
 Expert 计算完成后，结果需要发回原始 Token 所在的 GPU。这个过程称为 Combine，通常也需要一次 All-to-All 通信。
 
-```text
+```text title="All-to-All Combine"
                     All-to-All Combine
 
 GPU 0 原始 Token t₁
@@ -1333,7 +1333,7 @@ $$
 
 将整个流程放在一起，可以表示为：
 
-```text
+```text title="MoE + EP 执行过程全图"
 ┌───────────────────────────────────────────────────────────────────┐
 │                         MoE + EP 执行过程                         │
 └───────────────────────────────────────────────────────────────────┘
@@ -1397,7 +1397,7 @@ $$
 
 但实际分布可能如下：
 
-```text
+```text title="各 Expert 收到的 Token 数：一个热门 Expert"
 Expert 0：  18 Tokens
 Expert 1：  25 Tokens
 Expert 2：  31 Tokens
@@ -1429,7 +1429,7 @@ $$
 
 例如：
 
-```text
+```text title="Capacity 计算的一个例子"
 Token 数量 T = 1024
 Top-K       K = 2
 Expert 数量 E = 64
@@ -1498,7 +1498,7 @@ Capacity Factor 减小：
 
 这种方式容易产生 GPU 空转：
 
-```text
+```text title="Dispatch、计算、Combine 串行时的空转"
 时间轴：
 
 通信：  ███████
@@ -1528,13 +1528,13 @@ graph LR
 
 一种常见方法是将 Token 分成多个 Chunk：
 
-```text
+```text title="Token 分成四个 Chunk"
 Chunk 0、Chunk 1、Chunk 2、Chunk 3
 ```
 
 然后让不同 Chunk 处于不同阶段：
 
-```text
+```text title="不同 Chunk 处于不同阶段"
 时间 ─────────────────────────────────────────────▶
 
 Chunk 0： Dispatch ── Expert Compute ── Combine
@@ -1545,7 +1545,7 @@ Chunk 3：                                          Dispatch ── ...
 
 更细致地表示：
 
-```text
+```text title="Chunk 流水线：按时刻展开"
 时间       t0        t1        t2        t3        t4
 
 Dispatch   [C0]      [C1]      [C2]      [C3]
@@ -1631,7 +1631,7 @@ $$
 
 EP 的计算负载由实际路由到每个 Expert 的 Token 数量决定，而不是简单由 GPU 数量决定。
 
-```text
+```text title="均衡与不均衡的 GPU 负载"
 均衡情况：
 
 GPU 0：██████████  25%
@@ -1661,7 +1661,7 @@ $$
 
 MoE 的每个 Expert 只处理一部分 Token。当 Token 数量较少或分布不均时，每个 Expert 的 GEMM 规模可能很小，导致 GPU Tensor Core 利用率下降。
 
-```text
+```text title="大批次与小批次的 Expert GEMM 效率"
 大批次：
 
 Expert 0：████████████████  高效 GEMM
@@ -1691,7 +1691,7 @@ Table: EP 与其他并行策略的区别
 
 EP 与 TP 的核心区别如下：
 
-```text
+```text title="TP 切权重与 EP 切 Expert 的区别"
 TP：切分同一个 Expert 或同一个线性层的权重
 
 ┌─────────────┐
@@ -1720,7 +1720,7 @@ TP 关注的是“一个计算模块如何被多张 GPU 共同完成”；EP 关
 
 一种常见架构是：
 
-```text
+```text title="Attention 用 TP、MoE 用 EP 的 Transformer Block"
 Transformer Block
 
 ┌─────────────────────────────┐
@@ -1776,7 +1776,7 @@ Table: TP × EP 二维并行网格的 GPU 分配
 
 可以抽象为：
 
-```python
+```python title="EP MoE 层的 Dispatch / Combine 伪代码"
 # 伪代码，仅用于说明执行流程
 
 router_logits = router(hidden_states)
@@ -1857,7 +1857,7 @@ Dispatch 前需要将 Token 按目标 GPU 和目标 Expert 重新排列。高效
 
 理想的数据流如下：
 
-```text
+```text title="Dispatch 的理想数据流"
 原始激活
    │
    ├── Router 产生 Expert ID
@@ -1875,7 +1875,7 @@ Dispatch 前需要将 Token 按目标 GPU 和目标 Expert 重新排列。高效
 
 如果每个 Expert 都单独启动一次 GEMM Kernel，会产生大量 Kernel Launch 开销。Grouped GEMM 可以将多个 Expert 的矩阵乘法组织在一起执行。
 
-```text
+```text title="逐 Expert Launch GEMM 与 Grouped GEMM"
 传统方式：
 
 Launch GEMM(E0)
@@ -1912,7 +1912,7 @@ Grouped GEMM：
 
 EP 性能高度依赖 GPU 之间的连接方式：
 
-```text
+```text title="同机 NVLink 与跨机网络的拓扑"
 同机 NVLink：
 
 GPU 0 ═══ GPU 1
@@ -2008,7 +2008,7 @@ Router 可以在多个副本之间进一步选择，从而减轻单个 GPU 的�
 
 其基本执行流程可以概括为：
 
-```text
+```text title="EP 的基本执行流程"
 Router
   │
   ▼
@@ -2055,7 +2055,7 @@ Context Parallelism（CP）是一种面向长序列的并行技术，其核心�
 
 例如，对于长度为 64K 的输入序列，在 4 个 GPU 上进行上下文并行时，可以将序列划分为 4 个连续的 chunk：
 
-```
+``` title="64K 序列切成 4 个 chunk"
 完整序列：[t₁, t₂, ..., t₆₄₀₀₀]
 
 GPU 0：[t₁     ~ t₁₆₀₀₀]       chunk 0
@@ -2085,7 +2085,7 @@ graph LR
 
 以 GPU 0 为例，它持有本地 Q，分四步凑出全局注意力：
 
-```
+``` title="Ring Attention：GPU 0 的四步"
 Step 1：GPU 0 使用本地 K₀、V₀ 计算局部注意力
 Step 2：K₁、V₁ 通过环形通信传递，GPU 0 继续累加注意力结果
 Step 3：K₂、V₂ 传递至 GPU 0，GPU 0 继续累加
@@ -2156,7 +2156,7 @@ Table: 不同模型规模与场景的推荐并行策略
 
 把三种策略叠在一起时，每张卡到底是哪个 TP rank、哪个 PP stage、哪个 DP 副本，以及哪条通信走哪条链路，用一个具体的例子最清楚。vLLM 在 `vllm/distributed/parallel_state.py` 的 `initialize_model_parallel()` 里按 **DP × PP × PCP × TP** 的顺序排布 rank（TP 在最内层，相邻 rank 优先落在同一台机器上），下面以 TP=2 × PP=2 × DP=2、两台 4 卡机器为例：
 
-```text
+```text title="TP=2 × PP=2 × DP=2 在两台 4 卡机器上的 rank 布局"
 TP=2 × PP=2 × DP=2，8 张 GPU，2 台机器、每机 4 卡
 rank 布局 DP × PP × TP（TP 最内层）：rank = dp×4 + pp×2 + tp
 
@@ -2464,13 +2464,13 @@ Table: 常见 NCCL 调试环境变量
 
 首先可以检查 GPU 拓扑：
 
-```bash
+```bash title="查看 GPU 拓扑"
 nvidia-smi topo -m
 ```
 
 然后使用 NCCL Tests 对集合通信进行基准测试，例如：
 
-```bash
+```bash title="用 nccl-tests 测 all-reduce"
 ./build/all_reduce_perf -b 8 -e 2G -f 2 -g 2
 ```
 
@@ -2497,7 +2497,7 @@ nvidia-smi topo -m
 
 **没有重叠时**
 
-```text
+```text title="没有重叠时：计算与通信串行"
 时间 →
 
 Compute  [GEMM₁][── idle ──][GEMM₂][── idle ──][GEMM₃]
@@ -2510,7 +2510,7 @@ Comm     [ idle ][AllReduce₁][ idle ][AllReduce₂][ idle ]
 
 **发生重叠时**
 
-```text
+```text title="发生重叠时：通信藏在计算后面"
 时间 →
 
 Compute  [GEMM₁      ][GEMM₂      ][GEMM₃      ]
@@ -2532,7 +2532,7 @@ Comm          [AllReduce₁][AllReduce₂]
 
 概念上可以表示为：
 
-```text
+```text title="用 Event 连接计算流与通信流"
 Compute Stream:  [产生激活]────────────[继续计算]
                          \             ↑
 Communication Stream:     [All-Reduce]─┘
@@ -2552,7 +2552,7 @@ Communication Stream:     [All-Reduce]─┘
 
 在数学上：
 
-```text
+```text title="All-Reduce = Reduce-Scatter + All-Gather"
 All-Reduce = Reduce-Scatter + All-Gather
 ```
 
@@ -2560,7 +2560,7 @@ All-Reduce = Reduce-Scatter + All-Gather
 
 如果后续计算能够按分片执行，那么某张 GPU 获得自己的局部结果后，就可以先开始处理这一部分数据，同时让 `All-Gather` 在后台继续收集其他分片。
 
-```text
+```text title="Reduce-Scatter 后先算局部、All-Gather 在后台"
 Reduce-Scatter  →  本地分片就绪 → 局部计算
                          │
                          └──────→ All-Gather 在后台继续
@@ -2596,7 +2596,7 @@ MoE 模型的通信流程通常包括：
 
 概念上可以形成如下流水线：
 
-```text
+```text title="MoE Dispatch / Expert / Combine 的流水线"
 时间 →
 
 Dispatch   [Batch₁][Batch₂][Batch₃]
@@ -2621,7 +2621,7 @@ Combine                  [Combine₁][Combine₂]
 
 **4.1 第一步：确认物理拓扑**
 
-```bash
+```bash title="确认物理拓扑"
 nvidia-smi topo -m
 ```
 
@@ -2637,7 +2637,7 @@ nvidia-smi topo -m
 
 临时开启 NCCL 日志：
 
-```bash
+```bash title="临时开启 NCCL 日志"
 NCCL_DEBUG=INFO
 NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 ```
@@ -2693,7 +2693,7 @@ Table: 按消息规模区分通信优化方向
 
 最终目标并不是让某一次 All-Reduce 的基准测试数字最大，而是降低通信在完整推理路径中的可见时间：
 
-```text
+```text title="端到端时间的四项构成"
 端到端时间
 = 计算时间
 + 无法隐藏的通信时间

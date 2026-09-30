@@ -22,7 +22,7 @@ Hugging Face 的五个库加起来几十万行，本系列不通读，只沿**�
 
 系列覆盖的范围是那六行代码的四段：
 
-```text
+```text title="系列四段与各篇覆盖的源码"
 第一段   模型          from_pretrained 的六步；一个 DecoderLayer 的代码；attention 注册表；KV cache；ForCausalLMLoss   → 第一篇
 第二段   生成          GenerationConfig 三层优先级；LogitsProcessor 一串；StoppingCriteria；_sample 的 while 循环       → 第二篇
 第三段   数据          tokenizer.json 五段；chat template 与 assistant mask；Arrow、map、fingerprint；collate_fn      → 第三篇

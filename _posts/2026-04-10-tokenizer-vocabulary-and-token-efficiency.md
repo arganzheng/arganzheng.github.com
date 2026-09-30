@@ -198,7 +198,7 @@ Byte Pair Encoding 最初是一种压缩算法（Gage 1994），Sennrich 等 201
 
 用经典的玩具语料 `low ×5, lower ×2, newest ×6, widest ×3` 跑八次合并（配套脚本 `bpe_from_scratch.py` 的输出）：
 
-```text
+```text title="玩具语料上的八次 BPE 合并"
 merge 1:  'e'  + 's'    -> 'es'    (9 次)     newest ×6 + widest ×3
 merge 2:  'es' + 't'    -> 'est'   (9 次)
 merge 3:  'l'  + 'o'    -> 'lo'    (7 次)     low ×5 + lower ×2
@@ -216,7 +216,7 @@ encode('wide')   -> ['w','i','d','e']      'wid' 从没成为高频对
 三个观察在真实词表上同样成立：
 
 1. **合并顺序就是词表**。训练的产物不是一个词的集合，而是一个有序的 merge 列表；编码时对每个词按同样顺序反复合并。所以 BPE 的编码是确定的、贪心的、不需要搜索。tiktoken 把这个列表存成"token 字节串 → rank"的字典，编码时每次找 rank 最小的相邻对合并，是同一件事的另一种写法。
-2. **子词是统计的产物，不是语言学的**。`est` 被学出来是因为 `newest` 和 `widest` 都有它，不是因为它是后缀；同理 GPT-2 的词表里有 ` the` 也有 `the`（不带空格，出现在行首或引号后）——两个 id，模型要各学一遍。大小写也是如此：`The`、` The`、`the`、` the`、`THE` 是五个 token，词表里有相当一部分位置花在同一个词的变体上。
+2. **子词是统计的产物，不是语言学的**。`est` 被学出来是因为 `newest` 和 `widest` 都有它，不是因为它是后缀；同理 GPT-2 的词表里有 `␣the` 也有 `the`（␣ 表示前导空格；后者不带空格，出现在行首或引号后）——两个 id，模型要各学一遍。大小写也是如此：`The`、`␣The`、`the`、`␣the`、`THE` 是五个 token，词表里有相当一部分位置花在同一个词的变体上。
 3. **没见过的组合退回到碎片**。`newer` 退成五个字符，因为语料里 `new` 只出现在带空格的位置。真实词表上这就是"罕见词被切碎"——一个专有名词或一段 base64 可能占几十个 token。
 
 编码的复杂度值得一提。朴素实现对一个长度 $$n$$ 的词每次合并要扫一遍，最多合并 $$n - 1$$ 次，$$O(n^2)$$；由于预分词把词切得很短（英文词平均 5 个字符），这不成问题。真正的成本在**训练**：每合并一次要重新统计全部相邻对的频次，语料 $$T$$ 个字节、合并 $$V$$ 次是 $$O(TV)$$——1 MB 语料训 16K 词表在配套脚本的朴素实现里要两分钟；工业实现（Hugging Face `tokenizers`、SentencePiece）用增量更新（只更新受本次合并影响的对）加多线程，几十 GB 语料训 100K 词表以小时计。
@@ -229,7 +229,7 @@ byte-level 还带来一个不那么显眼的性质：**任何 token 序列都能
 
 第二个设计是**预分词**（pre-tokenization）：BPE 不在整个语料上合并，而是先用正则把文本切成"词"，合并只在词内进行。GPT-2 的正则：
 
-```text
+```text title="GPT-2 的预分词正则"
 's|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
 ```
 
@@ -500,7 +500,7 @@ Table: 128K 上下文窗口装得下多少文字
 
 ### 1. 词表是训练语料的化石
 
-BPE 的词表完全由训练 tokenizer 用的语料决定，与模型训练语料无关——两者常常不同。GPT-2 的词表在 WebText 上训练，其中包含大量 Reddit 用户名与日志垃圾，于是 ` SolidGoldMagikarp`、` petertodd` 一类字符串成了单个 token；模型预训练语料里几乎没有它们，这些 token 的 embedding 基本没被更新，输入时模型行为异常（Rumbelow & Watkins 2023 的"glitch token"）。同类问题在每个词表里都存在：**任何在 tokenizer 语料里频繁、在模型语料里罕见的 token，都是欠训练的**。
+BPE 的词表完全由训练 tokenizer 用的语料决定，与模型训练语料无关——两者常常不同。GPT-2 的词表在 WebText 上训练，其中包含大量 Reddit 用户名与日志垃圾，于是 `␣SolidGoldMagikarp`、`␣petertodd` 一类字符串成了单个 token；模型预训练语料里几乎没有它们，这些 token 的 embedding 基本没被更新，输入时模型行为异常（Rumbelow & Watkins 2023 的"glitch token"）。同类问题在每个词表里都存在：**任何在 tokenizer 语料里频繁、在模型语料里罕见的 token，都是欠训练的**。
 
 Land & Bartolo 2024 给出了系统的检测方法，思路是看**输出侧**：一个从未作为预测目标出现过的 token，它在 lm_head 里那一行只受到过 softmax 的"推低"梯度（$$\partial \ell / \partial z_j = p_j$$，永远为正），没有过"拉高"的梯度（目标 token 的 $$p_y - 1 < 0$$），于是它的 lm_head 向量会朝着一个共同的方向收缩，与其他欠训练 token 聚在一起，范数偏小。计算每个 token 的 lm_head 行与这个"欠训练方向"的余弦或范数，排序，尾部就是候选；再用 prompt 让模型复述这些 token 验证。他们在几乎每个开源模型里都找到了几十到几千个这样的 token——tied embedding 的模型更多，因为输入侧的 embedding 同样没被训练，两个问题叠在一行上。
 
@@ -564,7 +564,7 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 
 纯标准库，150 行。核心是训练循环（下面是去掉打印后的骨架）：
 
-```python
+```python title="train_bpe：训练循环骨架"
 def train_bpe(text, vocab_size):
     words = Counter(tuple(w.encode("utf-8")) for w in pretokenize(text))  # 每个词是字节序列
     merges = []
@@ -581,7 +581,7 @@ def train_bpe(text, vocab_size):
 
 编码是同一件事的镜像——对每个预分词后的词，反复找 merge 顺序最早的相邻对合并，直到没有可合并的：
 
-```python
+```python title="encode_word：按 merge 顺序编码"
 def encode_word(word_bytes, rank):                    # rank: (a, b) -> merge 序号
     ids = list(word_bytes)
     while len(ids) > 1:
@@ -602,7 +602,7 @@ def encode_word(word_bytes, rank):                    # rank: (a, b) -> merge �
 
 沿用第七版的 `ModelConfig` 与 `param_count`，新增四个模型（Llama-2-7B、Qwen2.5-7B、Qwen2.5-0.5B、Gemma-2-2B）和三个函数：
 
-```python
+```python title="llm_cost_09_vocab.py 新增的三个函数"
 def vocab_account(cfg):             # 词表参数与占比、lm_head 的 FLOPs 与占比、lm_head 字节
 def logits_bytes(cfg, tokens):      # 训练时 logits 张量：tokens × V × 4 B
 def per_char_cost(cfg, chars_per_token):   # FLOPs/字符、KV/字符

@@ -24,7 +24,7 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 
 8 卡共置、FSDP、vLLM TP = 2（4 个实例）、`sync` 模式。第 $$t$$ 步的 `update_actor` 结束后，某一层 `q_proj.weight` 的一个 bf16 分片：
 
-```text
+```text title="一个 bf16 分片的旅程：从 update_actor 到推理引擎"
  #   在哪个进程                    函数                                                          做什么
  1   hybrid worker（8 个 Ray actor 之一）  TrainingWorker.train_batch → engine.optimizer_step        fp32 主参数更新 → 写回 bf16 分片（FSDP2 的 DTensor，Shard(0)，1/8）
  2   driver（单控制器）             PPOTrainerSync.on_step_end → CheckpointEngineManager.update_weights   backend == "naive" → 直接调 actor_wg.update_weights(mode="naive")
@@ -104,7 +104,7 @@ Table: 本文的章节安排
 
 `examples/grpo_trainer/run_qwen3_4b_fsdp.sh` 是最短的完整例子，去掉环境变量后的骨架：
 
-```bash
+```bash title="run_qwen3_4b_fsdp.sh 的骨架"
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=512  data.max_response_length=1024 \
@@ -123,7 +123,7 @@ python3 -m verl.trainer.main_ppo \
 
 ### 2. `main_ppo`
 
-```text
+```text title="main_ppo 的调用链"
 main_ppo.main(config)
   └─ run_ppo(config, TaskRunnerV1)        # Ray init；把 TaskRunner 作为一个 Ray actor 起在 driver 侧（占 1 CPU）
        └─ TaskRunnerV1.run(config)
@@ -159,7 +159,7 @@ Table: verl/single_controller/ 的四个文件
 
 worker 类的方法加装饰器：
 
-```python
+```python title="@register 装饰 worker 方法"
 class ActorRolloutRefWorker(Worker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self): ...
@@ -191,7 +191,7 @@ class ActorRolloutRefWorker(Worker):
 
 `_init_resource_pool_mgr()`（`trainer_base.py`）：
 
-```python
+```python title="_init_resource_pool_mgr()：角色到资源池"
 role = Role.ActorRolloutRef if need_reference_policy(config) and not ref_in_actor else Role.ActorRollout
 self.role_worker_mapping[role] = ray.remote(ActorRolloutRefWorker)
 self.mapping[role] = "global_pool"
@@ -213,7 +213,7 @@ self.resource_pool_manager = ResourcePoolManager(resource_pool_spec, mapping)
 
 同一个池里有多个角色（actor_rollout_ref + critic）时，不起两组进程——`_setup()` 里：
 
-```python
+```python title="create_colocated_worker_cls：多角色合成一个 Worker"
 for resource_pool, class_dict in self.resource_pool_to_cls.items():
     worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)   # 把几个 worker 类合成一个 WorkerDict
     wg_dict = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=worker_dict_cls)
@@ -226,7 +226,7 @@ for resource_pool, class_dict in self.resource_pool_to_cls.items():
 
 ### 1. 三层
 
-```text
+```text title="角色层、训练 worker 层、引擎层"
 ActorRolloutRefWorker（verl/workers/engine_workers.py）        —— 角色层：知道 actor / ref / rollout 三者的关系与顺序
   ├── self.actor: TrainingWorker                                 —— 训练 worker 层：train_batch / infer_batch / to(device) / checkpoint；不知道 RL
   │     └── self.engine: BaseEngine（FSDPEngine | MegatronEngine | VeOmniEngine | TorchTitanEngine | AutoModelEngine）
@@ -265,7 +265,7 @@ Table: 三个 @register 方法的分发方式与前六篇的对应
 
 `_setup` 的后半段：
 
-```python
+```python title="_setup 后半段：LLMServerManager 与 CheckpointEngineManager"
 self.llm_server_manager = LLMServerManager.create(config, worker_group=self.actor_rollout_wg, rollout_resource_pool=...)
 checkpoint_engine_config.backend = "naive"                         # 共置：强制进程内
 self.checkpoint_manager = CheckpointEngineManager(config=..., actor_wg=self.actor_rollout_wg, replicas=self.llm_server_manager.get_replicas())
@@ -289,7 +289,7 @@ Table: RolloutReplica 的三种初始化方式
 
 ### 3. sleep / wake 的调用链
 
-```text
+```text title="sleep / wake 的调用链"
 PPOTrainerSync.on_sample_end → CheckpointEngineManager.sleep_replicas()
   → 每个 replica.sleep() → server_handle.sleep.remote() → vLLMHttpServer.sleep()
       → rollout_mode == HYBRID → _sleep_hybrid() → engine.sleep(level=2)（LoRA / MTP / NPU 时 level=1）→ engine.reset_encoder_cache()
@@ -309,7 +309,7 @@ PPOTrainerSync.on_step_end → CheckpointEngineManager.update_weights(global_ste
 
 `PPOTrainer.fit()` 的循环体调 `self.step()`，后者按 `parameter_sync_step`（sync 模式为 1）调 `_step_once()`：
 
-```python
+```python title="PPOTrainer._step_once()"
 def _step_once(self, metrics, timing_raw, sample_batch_size):
     with marked_timer("gen", ...):                                   # 1. 从缓冲取样（sync：等到 B 个组终态；缓冲空时先 _add_batch_to_generate）
         self.on_sample_begin()
@@ -337,7 +337,7 @@ def _step_once(self, metrics, timing_raw, sample_batch_size):
 
 两者都是"组方法 + 后处理"：
 
-```text
+```text title="_compute_old_log_prob 与 _update_actor"
 _compute_old_log_prob(batch)
   → self.actor_rollout_wg.compute_log_prob(batch)        # nd_compute("train") 分发；worker 从 TQ 取张量、infer_batch、写回 log_probs 列
   → 若 rollout_log_probs 在：算 rollout_probs_diff 指标   # 第五篇的训推不一致基线
@@ -399,7 +399,7 @@ v1 的样本存储（外部包 `transfer_queue`，Ascend 开源）：一个**元
 
 `replay_buffer.py`（第五篇讲过语义，这里看形状）：
 
-```text
+```text title="ReplayBuffer.sample() 的循环"
 ReplayBuffer.sample(global_steps, partition_id, batch_size)
   循环：
     _sync_metadata_from_transfer_queue()      拉最新的键与标签
@@ -428,7 +428,7 @@ ReplayBufferAsync 覆盖：_stale_terminal_keys（drop）· _has_enough_samples�
 
 slime v0.3.0（智谱，GLM 系列的 RL 框架）的 `train.py` 不到 200 行，主循环直白到可以整段读：
 
-```python
+```python title="slime train.py 的主循环"
 pgs = create_placement_groups(args)                                   # rollout 与 actor 的 placement group（可共置可分离）
 rollout_manager, num_rollout_per_epoch = create_rollout_manager(args, pgs["rollout"])   # SGLang 引擎 + router
 actor_model, critic_model = create_training_models(args, pgs, rollout_manager)          # Megatron

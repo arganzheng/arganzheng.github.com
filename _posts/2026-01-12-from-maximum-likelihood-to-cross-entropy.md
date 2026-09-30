@@ -90,7 +90,7 @@ $$p = 0.7$$ 让这份数据"最可能出现"。把 $$p$$ 从 0 到 1 扫一遍�
 
 **第二，数值。** 训练集不是 10 次抛硬币，而是几万亿个 token，每个的概率都小于 1，乘起来是一个小到计算机存不下的数。用 Python 试一下 1000 个 0.01 相乘（配套脚本 `underflow` 段）：
 
-```text
+```text title="1000 个 0.01 相乘：直接乘下溢为 0，log 求和正常"
 直接相乘（float64）：0.0            ← 已经是 0，信息全丢
 log 求和：1000 × log(0.01) = −4605.2  ← 正常的数
 ```
@@ -328,12 +328,12 @@ Table: 同一组 logits，直接算 softmax 溢出成 NaN，先减最大值则�
 
 | 前文 | 第一名 token | 它的概率 | 前十名合计 | 累计到 90% 需要多少个 token |
 |---|---|---:|---:|---:|
-| `The United States of` | ` America` | **0.966** | ≈ 1 | **1** |
-| `The capital of France is` | ` the` | 0.085 | 0.359 | **1503** |
+| `The United States of` | `␣America` | **0.966** | ≈ 1 | **1** |
+| `The capital of France is` | `␣the` | 0.085 | 0.359 | **1503** |
 
-Table: GPT-2 在一个"确定"位置与一个"开放"位置的输出分布
+Table: GPT-2 在一个"确定"位置与一个"开放"位置的输出分布（␣ 表示 token 自带的前导空格）
 
-第一个位置下一个词几乎只有一个可能，GPT-2 把 96.6% 押在 ` America` 上；第二个位置可以接很多种说法（` the capital of the French Republic`、` a gritty bastion of French`、` Paris`……），概率摊到了上千个 token 上，第一名只有 8.5%。**困惑度**（下一篇）度量的就是这种平均的分散程度：确定的位置贡献接近 0 的 loss，开放的位置贡献几个 nat。
+第一个位置下一个词几乎只有一个可能，GPT-2 把 96.6% 押在 `␣America` 上；第二个位置可以接很多种说法（`␣the capital of the French Republic`、`␣a gritty bastion of French`、`␣Paris`……），概率摊到了上千个 token 上，第一名只有 8.5%。**困惑度**（下一篇）度量的就是这种平均的分散程度：确定的位置贡献接近 0 的 loss，开放的位置贡献几个 nat。
 
 ## 八、温度与采样
 
@@ -361,13 +361,13 @@ Table: 同一组 logits 在不同温度下的概率
 
 ![左：GPT-2 对 'The capital of France is' 之后前十个 token 在 τ = 0.5 / 1 / 2 下的概率；右：两个前文的累计概率曲线（对数横轴）——开放位置要 1503 个 token 才累计到 0.9，确定位置只要 1 个](/img/in-post/math-05-gpt2-sampling.svg)
 
-$$\tau = 0.5$$ 时前十名合计 91%、第一名 ` the` 独占 40%；$$\tau = 2$$ 时前十名合计只剩 3%，剩下 97% 的概率散在其余五万个 token 上——采样几乎等于乱抽。三次实际续写：
+$$\tau = 0.5$$ 时前十名合计 91%、第一名 `␣the` 独占 40%；$$\tau = 2$$ 时前十名合计只剩 3%，剩下 97% 的概率散在其余五万个 token 上——采样几乎等于乱抽。三次实际续写：
 
 | $$\tau$$ | 三次续写 |
 |---|---|
-| 0（greedy） | ` the capital of the French Republic` × 3（每次一样） |
-| 0.7 | ` a gritty bastion of French` / ` Rome, which is about 10` / ` the birthplace of the French philosopher` |
-| 1.5 | ` Carrequisite pre-publicad` / ` still \`promised land82` / ` renowned ideologically for sailware wine` |
+| 0（greedy） | `␣the capital of the French Republic` × 3（每次一样） |
+| 0.7 | `␣a gritty bastion of French` / `␣Rome, which is about 10` / `␣the birthplace of the French philosopher` |
+| 1.5 | `␣Carrequisite pre-publicad` / `` ␣still `promised land82 `` / `␣renowned ideologically for sailware wine` |
 
 Table: GPT-2 在三个温度下对同一前文的续写
 
@@ -392,7 +392,7 @@ $$\tau < 1$$ 保守、重复；$$\tau > 1$$ 多样、易出错（1.5 时已经�
 
 把本文的工具用在一条真实日志上。下面是《Transformer 与 LLM》第四篇那次训练的原始输出（nanoGPT，字符级莎士比亚，$$V = 65$$，0.8M 参数）：
 
-```text
+```text title="nanoGPT 字符级莎士比亚的原始训练日志"
 step 0: train loss 4.1676, val loss 4.1649
 step 250: train loss 2.8491, val loss 2.8662
 step 500: train loss 2.3961, val loss 2.4026

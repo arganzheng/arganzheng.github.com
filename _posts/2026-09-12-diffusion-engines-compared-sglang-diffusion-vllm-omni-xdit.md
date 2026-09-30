@@ -132,7 +132,7 @@ Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、
 
 ### 1. 进程
 
-```text
+```text title="sglang serve 的进程结构"
 sglang serve --model-path black-forest-labs/FLUX.1-dev --port 30010
   │
   ├─ HTTP 进程：runtime/entrypoints/http_server.py（FastAPI）
@@ -179,7 +179,7 @@ DecodingStage 调 VAE（tiling 配置来自 `--vae-config`），`postprocess/` �
 
 ### 1. 进程：stage
 
-```text
+```text title="vllm serve --omni 的 stage 进程"
 vllm serve black-forest-labs/FLUX.1-dev --omni --port 8091
   │
   ├─ stage 0 进程：entrypoints/openai/（FastAPI，/v1/images/generations、/v1/chat/completions 扩展）
@@ -218,7 +218,7 @@ stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni�
 
 ### 1. 进程：torchrun
 
-```text
+```text title="xDiT torchrun 的 8 个 rank"
 torchrun --nproc_per_node=8 examples/flux_example.py --model FLUX.1-dev --ulysses_degree 4 --pipefusion_parallel_degree 2 --height 1024 --width 1024 --num_inference_steps 28
   │  8 个 rank 各跑一遍脚本：
   ├─ xFuserArgs.from_cli_args → EngineConfig（config/args.py、config/config.py）

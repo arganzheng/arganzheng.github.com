@@ -74,7 +74,7 @@ Broder 1997 年的问题和今天 FineWeb 的问题是同一个：**$$n$$ 个文
 
 先把一段文本切成 **n-gram 集合**：连续 $$n$$ 个词（或字符）为一项，去重。"the quick brown fox" 的词级 2-gram 集合是 {the quick, quick brown, brown fox}。代码是一行：
 
-```python
+```python title="shingles：字符级 n-gram 集合"
 def shingles(text, n=5):
     text = " ".join(text.split())
     return {text[i:i + n] for i in range(max(1, len(text) - n + 1))}    # 字符级 n-gram 集合
@@ -128,7 +128,7 @@ $$
 
 用 $$k$$ 个不同的 hash 函数得到 $$k$$ 个签名。不需要真的写 $$k$$ 个 hash：一个基础 hash $$h_0$$ 加 $$k$$ 组随机的 $$(a_i, b_i)$$，$$h_i(x) = (a_i h_0(x) + b_i) \bmod p$$（$$p$$ 是一个大素数）：
 
-```python
+```python title="MinHash：二十行实现"
 PRIME = (1 << 61) - 1
 
 def h64(s):                                                                     # ① 确定性的 64 位 hash
@@ -194,7 +194,7 @@ $$k = 16$$ 抖动大（0.337 估成 0.438），$$k = 128$$ 到 ±0.04，$$k = 10
 
 代码：
 
-```python
+```python title="LSH 分组分桶"
 buckets = defaultdict(list)
 for idx, sig in enumerate(sigs):                                          # sigs: [n, k] 的签名矩阵
     for band in range(b):
@@ -239,7 +239,7 @@ Table: 四组 (b, r) 的 S 曲线取值
 
 造 1700 段随机文本、再从中复制 300 段各改掉 1–6 个词做近重复，用 $$b = 14, r = 8$$ 去重：
 
-```text
+```text title="2000 段文本上的去重结果"
 两两比较要算 1,999,000 对 Jaccard；LSH 只产生 267 个候选对（0.01%），再对候选精确算
 300 组真实近重复的 Jaccard 分布: 最小 0.64 / 中位 0.81 / 最大 0.96
 Jaccard ≥ 0.7 的真实对 254 个，其中 LSH 找到 226；候选里 Jaccard ≥ 0.7 的共 236（多出来的是碰巧相似的随机对）
@@ -311,7 +311,7 @@ flowchart TB
 
 ### 3. 代码
 
-```python
+```python title="wikitext2 上的去重流程"
 docs = wikitext2("train")                                  # 14,313 段
 sets = [shingles(d) for d in docs]                         # 词级 5-gram 集合，0.4 s
 mh = MinHash(k=128)                                        # 第三章的 20 行

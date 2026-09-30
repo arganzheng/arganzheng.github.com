@@ -100,13 +100,13 @@ $$
 
 一条指令、一个 warp（32 个线程协作）、$$M \cdot N \cdot K$$ 次乘加。Ampere 上 BF16 的主力形状是 `m16n8k16`，指令写全是：
 
-```text
+```text title="mma.sync m16n8k16 指令"
 mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32  D, A, B, C
 ```
 
 逐段读：`mma.sync` 是 warp 级同步矩阵乘加；`aligned` 要求 warp 内所有线程执行同一条指令；`m16n8k16` 是形状 $$M=16, N=8, K=16$$；`row.col` 表示 $$A$$ 按行主序、$$B$$ 按列主序给出（这两个修饰符对 BF16 是固定的，只有这一种组合）；`.f32.bf16.bf16.f32` 依次是 $$D$$、$$A$$、$$B$$、$$C$$ 的类型——输入 BF16，累加 FP32。
 
-```text
+```text title="FFMA 与 mma.sync 的一条指令"
   一个 warp 的一条指令:
 
   FFMA                                  mma.sync.m16n8k16
@@ -147,7 +147,7 @@ $$
 108 \text{ SM} \times 1024 \text{ FMA/clk} \times 2 \text{ FLOP/FMA} \times 1.41 \text{ GHz} \approx 312 \text{ TFLOPS}
 $$
 
-```text
+```text title="一个 warp 调度器的 mma 发射预算"
   一个 warp 调度器的指令预算（每周期最多发 1 条指令；它的 Tensor Core 每 8 周期吃 1 条 mma）:
 
   周期:        0    1    2    3    4    5    6    7  │  8    9   10   11   12   13   14   15
@@ -167,7 +167,7 @@ $$
 
 **`nvcuda::wmma`（CUDA C++ API）**。以 $$16 \times 16 \times 16$$ 的 `fragment` 为单位：
 
-```cpp
+```cpp title="nvcuda::wmma 的 fragment 接口"
 #include <mma.h>
 #include <cuda_bf16.h>
 using namespace nvcuda;
@@ -232,7 +232,7 @@ Table: m16n8k16 的三个 fragment（a0…）
 
 画成图（每格标出持有该元素的 lane 和寄存器；一格是两个相邻 BF16）：
 
-```text
+```text title="A fragment（16×16）各元素所在的 lane 与寄存器"
 A (16 x 16 BF16)     列: 0-1    2-3    4-5    6-7   │  8-9   10-11  12-13  14-15
 行 0  (g=0)             T0.a0  T1.a0  T2.a0  T3.a0 │ T0.a2  T1.a2  T2.a2  T3.a2
 行 1  (g=1)             T4.a0  T5.a0  T6.a0  T7.a0 │ T4.a2  T5.a2  T6.a2  T7.a2
@@ -261,7 +261,7 @@ A (16 x 16 BF16)     列: 0-1    2-3    4-5    6-7   │  8-9   10-11  12-13  14
 
 Table: m16n8k16 的三个 fragment（b0…）
 
-```text
+```text title="B fragment（16×8）各元素所在的 lane 与寄存器"
 B (16 x 8 BF16, K x N)     列 n=0    n=1    ...  n=7
 行 k=0-1                    T0.b0    T4.b0  ...  T28.b0
 行 k=2-3                    T1.b0    T5.b0  ...  T29.b0
@@ -285,7 +285,7 @@ B (16 x 8 BF16, K x N)     列 n=0    n=1    ...  n=7
 
 Table: m16n8k16 的三个 fragment（c0…）
 
-```text
+```text title="C/D fragment（16×8）各元素所在的 lane 与寄存器"
 C/D (16 x 8 FP32)    列:  0      1      2      3      4      5      6      7
 行 0  (g=0)             T0.c0  T0.c1  T1.c0  T1.c1  T2.c0  T2.c1  T3.c0  T3.c1   ◄ quad 0
 行 1  (g=1)             T4.c0  T4.c1  T5.c0  T5.c1  T6.c0  T6.c1  T7.c0  T7.c1   ◄ quad 1
@@ -315,7 +315,7 @@ C/D (16 x 8 FP32)    列:  0      1      2      3      4      5      6      7
 
 **D 的布局能直接作为下一次 mma 的 A**。比较 C/D 与 A 的布局：C 中线程持有 `(groupID, t*2..t*2+1)` 与 `(groupID+8, t*2..t*2+1)`，A 中线程持有 `(groupID, t*2..t*2+1)`、`(groupID+8, ...)`、以及列 +8 的两组。所以**两个相邻 n8 tile 的 C fragment 拼起来（$$16 \times 16$$），逐对把 FP32 转成 BF16x2，就得到一个合法的 A fragment**：
 
-```text
+```text title="两个 n8 输出 tile 拼成下一条 mma 的 A fragment"
   上一条 mma 的两个 n8 输出 tile（FP32）            下一条 mma 的 A fragment（BF16）
        tile 0 (16×8)      tile 1 (16×8)                    16×16
      ┌───────────────┬───────────────┐              ┌───────┬───────┐
@@ -339,13 +339,13 @@ FlashAttention 里 $$O = P \cdot V$$ 的 $$P = \text{softmax}(S)$$ 就是上一�
 
 `ldmatrix` 是专门为此设计的指令：
 
-```text
+```text title="ldmatrix.x4 指令"
 ldmatrix.sync.aligned.m8n8.x4.shared.b16 {r0, r1, r2, r3}, [addr];
 ```
 
 语义：一个 warp 协作从 shared memory 载入 **4 个 $$8 \times 8$$ 的 16 位矩阵**（`.x4`；也有 `.x1`、`.x2`）。每个 $$8 \times 8$$ 矩阵占 8 行 × 16 字节。**每个线程提供一行的起始地址**：lane 0–7 提供第 0 个矩阵的 8 行，lane 8–15 提供第 1 个矩阵的 8 行，lane 16–23 第 2 个，lane 24–31 第 3 个。载入后，对第 $$i$$ 个矩阵，线程 `lane` 的 `r_i` 里放的是该矩阵第 `lane/4` 行、第 `(lane%4)*2` 和 `+1` 列的两个元素——**这正好是 mma fragment 里一个寄存器的布局**。
 
-```text
+```text title="ldmatrix.x4 装一个 16×16 A 子块"
   ldmatrix.x4 装一个 16×16 的 A 子块（shared memory 里行主序，一行 = 16 个 BF16 = 32 B）
 
                 列 0-7 (16 B)      列 8-15 (16 B)
@@ -394,7 +394,7 @@ $$
 
 把一个 phase 里 8 个 lane 读的 8 行、同一逻辑 chunk（以 $$c = 0$$ 为例）的落点列出来：
 
-```text
+```text title="不 swizzle 与 swizzle 下 8 行 chunk 的 bank 组"
   一行 64 B = 4 个 16 B chunk；shared 的 32 个 bank 分成 8 个 bank 组（每组 16 B）
   第 r 行第 p 个物理 chunk 落在 bank 组 (4r + p) mod 8
 
@@ -446,7 +446,7 @@ block tile $$128 \times 128 \times 32$$。每个 k-tile 从全局搬入 $$(128 +
 
 ### 2. 设计
 
-```text
+```text title="BF16 mma GEMM 的设计参数"
 grid    = (N/128, M/128)，每 block 256 线程 = 8 warps
 warp 排布 2 (M) x 4 (N)，warp tile 64 x 32
 每 warp 每 k16 步：4 条 ldmatrix.x4 (A) + 2 条 ldmatrix.x4 (B) + 16 条 mma
@@ -458,7 +458,7 @@ swizzle：chunk ^= (row >> 1) & 3
 
 三层 tile 嵌套画出来：
 
-```text
+```text title="三层 tile 嵌套：block、warp、mma"
   block tile 128×128（256 线程 = 8 warp，排成 2×4）
   ┌──────────┬──────────┬──────────┬──────────┐
   │  warp 0  │  warp 2  │  warp 4  │  warp 6  │  64 行
@@ -486,7 +486,7 @@ swizzle：chunk ^= (row >> 1) & 3
 
 ### 3. 代码
 
-```cpp
+```cpp title="bf16_gemm_mma.cu：完整 kernel"
 // bf16_gemm_mma.cu   nvcc -arch=sm_80 -O3
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
@@ -684,7 +684,7 @@ void bf16_gemm_tn(const __nv_bfloat16* A, const __nv_bfloat16* B, __nv_bfloat16*
 
 把"流水的正确性"那一条按轮次展开，看每一轮三个 stage 各自在干什么：
 
-```text
+```text title="3 stage 流水线逐轮的三个 stage 状态"
   STAGES = 3 环形 buffer：任一时刻 1 个 stage 在算、2 个 stage 的 cp.async 在飞
 
   轮 kt│ wait_group 1 后到齐│ 计算 ldmatrix+mma │ 预取 cp.async           │ 在飞
@@ -706,7 +706,7 @@ void bf16_gemm_tn(const __nv_bfloat16* A, const __nv_bfloat16* B, __nv_bfloat16*
 
 用 `load_inline` 接到 PyTorch，与 `torch.matmul` 对照（B 传入 `W` 本身即 $$N \times K$$，参考值是 `x @ W.T`）：
 
-```python
+```python title="用 load_inline 与 torch.matmul 对照测试"
 import torch
 from torch.utils.cpp_extension import load_inline
 
@@ -768,7 +768,7 @@ print(f"ours {flops / (ms * 1e-3) / 1e12:.1f} TFLOPS, cuBLAS {flops / (ms_ref * 
 
 Ampere 的 `cp.async` 是每线程 16 字节；搬一个 $$128 \times 64$$ 的 BF16 tile（16 KiB）要 1024 条指令、每线程算 4 次地址。Hopper 的 **Tensor Memory Accelerator（TMA）** 把这件事变成一条指令：
 
-```text
+```text title="TMA 的 cp.async.bulk.tensor 指令"
 cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes
     [smem_dst], [tensor_map, {x, y}], [mbarrier];
 ```
@@ -780,7 +780,7 @@ cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes
 
 mbarrier 的"到达计数 + 事务字节数"双条件是理解 TMA 完成通知的关键，把一个 `full[s]` barrier 在一轮里的状态列出来（以 A、B 各一个 $$128 \times 64$$ BF16 tile = 16 KiB 为例）：
 
-```text
+```text title="full[s] mbarrier 在一轮里的状态变化"
   full[s]：arrival count 初值 1（仅 producer 的 1 个线程 arrive），tx-count 初值 0
 
   事件                                 pending arrivals  tx-count  phase
@@ -838,7 +838,7 @@ sequenceDiagram
 
 伪代码：
 
-```text
+```text title="warp specialization 伪代码：producer 与 consumer"
 // 共享：STAGES 个 stage，每个有 full[s]、empty[s] 两个 mbarrier
 if (warpgroup == producer) {
   setmaxnreg.dec 40;                       // 让出寄存器给 consumer
@@ -876,7 +876,7 @@ if (warpgroup == producer) {
 
 两种调度下 Tensor Core 的忙闲对比（WG1 / WG2 是两个 consumer warpgroup，时间从左到右）：
 
-```text
+```text title="Cooperative 与 Ping-pong 调度下 Tensor Core 的忙闲"
   Cooperative：两个 consumer 合算一个 256x128 tile（各 128 行），同进同出
   WG1 │ mainloop t0 行 0-127  │ epi t0 │ mainloop t1 行 0-127  │ epi t1
   WG2 │ mainloop t0 行 128-255│ epi t0 │ mainloop t1 行 128-255│ epi t1
@@ -907,7 +907,7 @@ CUTLASS 3.x（2023 年起）以 **CuTe** 和 **Hopper** 为中心重写：所有
 
 从上到下：
 
-```text
+```text title="CUTLASS 3.x 的分层：从 Adapter 到 Collective"
 device::GemmUniversalAdapter<Kernel>      host 侧入口：参数检查、workspace、launch
   └─ kernel::GemmUniversal<ProblemShape, CollectiveMainloop, CollectiveEpilogue, TileScheduler>
        __global__ 函数体：取 tile 坐标、调用 mainloop 与 epilogue；warp specialization 在这一层
@@ -990,7 +990,7 @@ $$
 
 fragment 布局在 CuTe 里就是一个 Layout。`m16n8k16` BF16 的 MMA_Atom 是 `SM80_16x8x16_F32BF16BF16F32_TN`，它的 A 操作数布局（`mma_traits_sm80.hpp` 中）写成从 `(thread, value)` 到 $$16 \times 16$$ 矩阵（列主序，偏移 $$m + 16k$$）的映射：
 
-```text
+```text title="SM80_16x8x16 MMA_Atom 的 ALayout"
 ALayout = Layout<Shape <Shape <_4, _8>, Shape <_2, _2, _2>>,
                  Stride<Stride<_32, _1>, Stride<_16, _8, _128>>>
 ```
@@ -1001,7 +1001,7 @@ ALayout = Layout<Shape <Shape <_4, _8>, Shape <_2, _2, _2>>,
 
 下面用 CuTe 复现第四章的划分：128×128 的 tile → 8 个 warp（2×4，每个 64×32）→ 每个 warp 内 32 个线程。只用到 CuTe 头文件，可以在 host 上编译运行（`nvcc -std=c++17 -I<cutlass>/include cute_demo.cu`）：
 
-```cpp
+```cpp title="cute_demo.cu：用 CuTe 复现三层划分"
 // cute_demo.cu
 #include <cstdio>
 #include <vector>
@@ -1043,7 +1043,7 @@ int main() {
 
 三步划分对应三张越来越小的图，`local_tile` 是"切块"、`local_partition` 是"交错"：
 
-```text
+```text title="local_tile 与 local_partition 三步划分图示"
   ① tile 128×128，layout (_128,_128):(_1,_128)          zipped_divide(tile, (64,32)) →
   ┌────┬────┬────┬────┐                                 ((_64,_32),(_2,_4)) : ((_1,_128),(_64,_4096))
   │w0  │w2  │w4  │w6  │                                  └ warp tile 内坐标 ┘ └ 第几个 warp ┘
@@ -1070,7 +1070,7 @@ int main() {
 
 vLLM 的 FP8/INT8 scaled GEMM 用 CUTLASS 3.x 写在 `csrc/libtorch_stable/quantization/w8a8/cutlass/c3x/`（v0.20.0；早期版本在 `csrc/quantization/cutlass_w8a8/`）。`scaled_mm.cuh` 中的 `cutlass_3x_gemm` 模板是一个标准的 3.x 组装过程（节选，去掉注释）：
 
-```cpp
+```cpp title="vLLM scaled_mm.cuh：cutlass_3x_gemm 模板的组装"
 // vllm v0.20.0: csrc/libtorch_stable/quantization/w8a8/cutlass/c3x/scaled_mm.cuh
 template <typename ElementAB_, typename ElementD_,
           template <typename, typename, typename> typename Epilogue_,
@@ -1109,7 +1109,7 @@ struct cutlass_3x_gemm {
 
 四个模板参数在 `scaled_mm_sm90_fp8_dispatch.cuh` 里按问题形状选择，例如默认配置（$$M > 128$$）与大形状配置：
 
-```cpp
+```cpp title="sm90_fp8_config_default：按 M 选 schedule 与 TileShape"
 // vllm v0.20.0: csrc/libtorch_stable/quantization/w8a8/cutlass/c3x/scaled_mm_sm90_fp8_dispatch.cuh
 struct sm90_fp8_config_default {          // M in (128, inf)
   using KernelSchedule   = cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
@@ -1139,7 +1139,7 @@ struct sm90_fp8_config_M8192_K6144 {      // M >= 8192, K >= 6144
 
 同一目录的 `scaled_mm_c2x.cuh` 与 `scaled_mm_c2x_sm80_dispatch.cuh` 是给 sm_80 的 CUTLASS 2.x 版本：
 
-```cpp
+```cpp title="sm80_config_default：CUTLASS 2.x 的三层 GemmShape"
 // vllm v0.20.0: csrc/libtorch_stable/quantization/w8a8/cutlass/scaled_mm_c2x_sm80_dispatch.cuh
 struct sm80_config_default {              // M in (128, inf)
   using TileShape        = typename cutlass::gemm::GemmShape<128, 128, 64>;
@@ -1155,7 +1155,7 @@ struct sm80_config_default {              // M in (128, inf)
 
 vLLM 在 `scaled_mm_entry.cu` 中按 `get_sm_version_num()` 分派：sm_90 走 `cutlass_scaled_mm_sm90`（c3x），sm_89 走 `cutlass_scaled_mm_sm89`（c2x，Ada 有 FP8 mma），sm_80 走 `cutlass_scaled_mm_sm80`（c2x，仅 INT8），sm_75 走 Turing 版本；sm_100/sm_120 各有自己的 c3x 版本。它还做了本篇一直强调的布局检查：
 
-```cpp
+```cpp title="scaled_mm_entry.cu 的布局与对齐检查"
 // vllm v0.20.0: csrc/libtorch_stable/quantization/w8a8/cutlass/scaled_mm_entry.cu
 STD_TORCH_CHECK(a.stride(1) == 1 && c.stride(1) == 1);  // Row-major
 STD_TORCH_CHECK(b.stride(0) == 1);                      // Column-major
@@ -1170,7 +1170,7 @@ A 行主序、B 列主序（即 $$N \times K$$ 行主序）、16 字节对齐—
 
 PyTorch 自己不写 GEMM kernel。`torch.matmul`、`torch.mm`、`nn.Linear` 在 CUDA 上最终进入 `aten/src/ATen/native/cuda/Blas.cpp` 的 `addmm_out_cuda_impl`，它有两条路径（v2.10.0）：
 
-```cpp
+```cpp title="Blas.cpp：addmm_out_cuda_impl 的 Lt 与普通 cuBLAS 两条路径"
 // pytorch v2.10.0: aten/src/ATen/native/cuda/Blas.cpp（节选）
 Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& mat1,
                             const Tensor& mat2, const Scalar& beta, const Scalar& alpha,
@@ -1266,7 +1266,7 @@ Table: wmma、mma.sync 与 wgmma 三代 Tensor Core 接口对照
 
 m16n8k16 BF16 fragment 速查（$$g = \text{lane}/4$$，$$t = \text{lane} \bmod 4$$）：
 
-```text
+```text title="m16n8k16 BF16 fragment 速查"
 操作数   形状        每线程寄存器   寄存器 -> (行, 列)
 A        16x16 BF16  4 x b32       a0:(g, 2t..2t+1)  a1:(g+8, 2t..2t+1)  a2:(g, 2t+8..2t+9)  a3:(g+8, 2t+8..2t+9)
 B        16x8  BF16  2 x b32       b0:(k=2t..2t+1, n=g)  b1:(k=2t+8..2t+9, n=g)

@@ -44,7 +44,7 @@ updated: 2026-09-14
 
 填这些空缺的组件自下而上分四层，每一层对应一个"谁把什么放进容器"的问题：
 
-```text
+```text title="平台机制全局图：四层"
                     ┌──────────────────────────────────────────────────────────────┐
   Pod spec          │ resources.limits: nvidia.com/gpu: 2           ← device plugin 路径    │
                     │ resourceClaims: [{resourceClaimTemplateName}] ← DRA 路径（1.34 GA）    │
@@ -87,7 +87,7 @@ Table: 本文的章节安排
 
 ### 1. 四层栈：哪层在宿主机、哪层在容器
 
-```text
+```text title="四层栈：哪层在宿主机、哪层在容器"
                  ┌───────────────────────────────────────────────────────────────────┐
    容器内         │ 第 4 层  库          libcudnn.so.9  libnccl.so.2  libcublas.so.12  libnvrtc.so.12          │
    （镜像 /       │                      来源：pip wheel（nvidia-cudnn-cu12 …）或 nvidia/cuda:*-runtime 层         │
@@ -266,7 +266,7 @@ Container Device Interface 是 CNCF 下的容器设备规范：一份 JSON/YAML 
 
 `nvidia-ctk cdi generate`（`cmd/nvidia-ctk/cdi/generate/generate.go`）扫描宿主机驱动生成这份文件：
 
-```bash
+```bash title="nvidia-ctk cdi generate 及关键参数"
 sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 # 关键参数（v1.20.0 默认值）：
 #   --vendor nvidia.com  --class gpu          → 设备名 nvidia.com/gpu=0、nvidia.com/gpu=GPU-<uuid>、nvidia.com/gpu=all
@@ -350,7 +350,7 @@ sequenceDiagram
 
 NVIDIA k8s-device-plugin v0.20.0 的入口在 `cmd/nvidia-device-plugin/main.go`，配置结构 `api/config/v1/config.go` 的 `Config`（`version` / `flags` / `resources` / `sharing` / `imex`），可以由命令行、环境变量或 `--config-file` 指定的 ConfigMap 提供。与本篇相关的字段（`api/config/v1/flags.go`）：
 
-```text
+```text title="device plugin 的相关 flags"
 flags.migStrategy                 none | single | mixed         MIG 设备怎么上报（第四篇展开）；默认 none
 flags.failOnInitError             默认 true                      节点没驱动时插件直接退出而不是空转
 flags.nvidiaDriverRoot            "/" 或 "/run/nvidia/driver"    驱动在宿主机的根，GPU Operator 驱动容器用后者
@@ -383,7 +383,7 @@ resources.gpus[] / resources.mig[]                               按型号模式
 
 于是上一篇 Pending 事件的三种读法：
 
-```text
+```text title="Pending 事件的三种读法"
 0/3 nodes are available: 3 Insufficient nvidia.com/gpu          没有节点上报过这个资源（插件没装、没注册、failOnInitError 退出）
                                                                   或 allocatable 都被占满 / 被健康检查扣光。看 kubectl describe node 的 Capacity vs Allocatable
 0/3 nodes are available: 1 Insufficient nvidia.com/gpu, 2 ...    资源存在但数量不够；配合 kubectl get pods -A -o wide 看谁占着
@@ -406,7 +406,7 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 
 前两章的组件——驱动、Toolkit、device plugin——再加上节点标签、监控和 MIG 管理，每个都是一个 DaemonSet，每个都要和节点的内核、发行版、容器运行时对上。GPU Operator 把它们收进一个 CRD：`nvidia.com/v1` 的 `ClusterPolicy`（集群单例，名字固定 `cluster-policy`），类型在 `api/nvidia/v1/clusterpolicy_types.go` 的 `ClusterPolicySpec`。与本篇相关的字段：
 
-```text
+```text title="ClusterPolicySpec 的相关字段"
 operator        OperatorSpec              runtimeClass（默认 "nvidia"）、initContainer；defaultRuntime（docker | crio | containerd）已废弃，运行时由 Operator 自动探测
 daemonsets      DaemonsetsSpec            所有 operand DaemonSet 的公共 tolerations / priorityClassName / updateStrategy
 driver          DriverSpec                enabled；repository/image/version（默认 nvcr.io/nvidia/driver:595.91.07）；kernelModuleType（auto | open | proprietary）；
@@ -436,7 +436,7 @@ Operator 的 reconcile（`controllers/`）按固定顺序推进各组件的 Daem
 
 **第三组：GFD 的属性标签。** GPU Feature Discovery（k8s-device-plugin 仓库 `cmd/gpu-feature-discovery`，标签生成在 `internal/lm/`）用 NVML 读每张卡的属性写成节点标签。`internal/lm/resource.go` 的 `baseLabeler` 与 `NewGPUResourceLabeler` 生成，键名是 `<资源名>.<后缀>`：
 
-```text
+```text title="GFD 生成的节点标签"
 nvidia.com/gpu.product              NVIDIA-H100-80GB-HBM3（型号，空格替换为 -；共享时后缀 -SHARED）
 nvidia.com/gpu.count                8
 nvidia.com/gpu.memory               81559（MiB）
@@ -495,7 +495,7 @@ GPU Operator 用 Helm 安装，chart 的 `values.yaml`（`deployments/gpu-operat
 
 Dynamic Resource Allocation 在 Kubernetes 1.34 把 `resource.k8s.io/v1` 升为 GA（`staging/src/k8s.io/api/resource/v1/types.go`，各类型标注 `introduced=1.34`）。它用四个对象替换"扩展资源整数"：
 
-```text
+```text title="DRA 的四个对象"
 ResourceSlice          驱动发布   "我这个节点/池里有哪些设备，每个设备有什么属性和容量"
                        spec.driver（如 gpu.nvidia.com）、spec.pool、spec.nodeName / nodeSelector / allNodes、
                        spec.devices[]：name、attributes{}（DeviceAttribute：int / bool / string / version 之一）、capacity{}（DeviceCapacity：Quantity）
@@ -555,7 +555,7 @@ sequenceDiagram
 
 以下三个对象假设集群已部署 NVIDIA DRA driver（驱动名 `gpu.nvidia.com`，GPU Operator v26.7.0 的 `manifests/state-dra-driver/0400_deviceclass-gpu.yaml` 会同时创建名为 `gpu.nvidia.com` 的 DeviceClass，选择器为 `device.driver == 'gpu.nvidia.com' && device.attributes['gpu.nvidia.com'].type == 'gpu'`）。设备的属性名与容量名由驱动定义，`memory` 容量名以 NVIDIA DRA driver 文档为准，本地检出未含该仓库。
 
-```yaml
+```yaml title="gpu/dra/deviceclass.yaml"
 # mini-platform/gpu/dra/deviceclass.yaml —— 一个只匹配完整 GPU（不含 MIG 实例）的类
 apiVersion: resource.k8s.io/v1
 kind: DeviceClass
@@ -567,7 +567,7 @@ spec:
       expression: "device.driver == 'gpu.nvidia.com' && device.attributes['gpu.nvidia.com'].type == 'gpu'"
 ```
 
-```yaml
+```yaml title="gpu/dra/claim.yaml"
 # mini-platform/gpu/dra/claim.yaml —— 模板：一张显存不小于 40Gi 的卡；以及使用它的 Pod
 apiVersion: resource.k8s.io/v1
 kind: ResourceClaimTemplate
@@ -606,7 +606,7 @@ spec:
       - name: gpu
 ```
 
-```bash
+```bash title="提交 DRA 探针并查看分配结果"
 kubectl apply -f gpu/dra/deviceclass.yaml -f gpu/dra/claim.yaml
 kubectl -n mini-platform get resourceclaim                      # 自动生成的 claim，名字以 dra-probe-gpu- 开头
 kubectl -n mini-platform get resourceclaim -o jsonpath='{.items[0].status.allocation.devices.results}'
@@ -635,7 +635,7 @@ NVIDIA 的 DRA driver（`k8s-dra-driver-gpu`）在 GPU Operator v26.7.0 里的�
 
 Docker Hub 上的 `nvidia/cuda:<cuda 版本>-<变体>-<发行版>` 是绝大多数 GPU 镜像的基底，三种变体是三个包含关系递增的层（体积为量级，以具体 tag 为准）：
 
-```text
+```text title="nvidia/cuda 的三种变体"
 base      ~100–300 MB    最小 CUDA 环境：libcudart 等 runtime 核心库、cuda-compat 包、NVIDIA_REQUIRE_CUDA / NVIDIA_DRIVER_CAPABILITIES 环境变量
                          够跑一个静态链接了 cudart 的二进制；不够跑 PyTorch
 runtime   ~1.5–3 GB      + 全部 CUDA 数学库（cuBLAS、cuFFT、cuSPARSE、cuRAND、cuSOLVER、NPP、nvJPEG）+ NCCL；-cudnn 后缀再加 cuDNN
@@ -668,7 +668,7 @@ Table: 两条常见路线镜像的层结构与体积（量级）
 
 需要 `nvcc` 编译自定义 kernel 但运行时不需要它，是多阶段构建的典型场景：
 
-```dockerfile
+```dockerfile title="多阶段构建：devel 编译、runtime 运行"
 # 构建阶段：devel 基底，编译 CUDA 扩展
 FROM nvidia/cuda:12.8.1-devel-ubuntu24.04 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends python3-pip python3-venv git \
@@ -736,7 +736,7 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：四层栈与三条规则"
 四层栈            内核驱动 / 用户态驱动库（宿主机，同版本）｜CUDA Runtime / 库（容器，随镜像或 wheel）；注入边界由 Container Toolkit 执行
                   nvidia-smi 的 CUDA Version 是驱动上限（第 2 层）；torch.version.cuda 是 Toolkit 版本（第 3 层）；两者不同是常态
 三条规则          向后兼容：新驱动跑旧 Toolkit，无条件
@@ -791,7 +791,7 @@ Table: 本篇涉及的源码与 CRD 位置
 
 上一篇留下的是一个三到四节点、每节点至少一张 GPU、没装任何 GPU 组件的集群和一个 Pending 的 Pod。本篇加三样东西：
 
-```text
+```text title="mini-platform/gpu/ 目录"
 mini-platform/
 └── gpu/
     ├── values.yaml            GPU Operator v26.7.0 的 Helm values（最小覆盖）
@@ -807,7 +807,7 @@ mini-platform/
 
 **（1）装 GPU Operator。** 前提：节点是 containerd，内核版本有对应的驱动容器镜像（云上 Ubuntu 22.04 / 24.04 LTS 通用内核一般都有；不确定就先在节点上装好驱动并把 `driver.enabled` 设为 `false`）。
 
-```yaml
+```yaml title="gpu/values.yaml：GPU Operator 的最小覆盖"
 # mini-platform/gpu/values.yaml —— 只覆盖与默认不同的键；其余取 chart v26.7.0 默认
 driver:
   enabled: true                 # 节点已自装驱动时改为 false
@@ -830,7 +830,7 @@ operator:
   runtimeClass: nvidia
 ```
 
-```bash
+```bash title="安装 GPU Operator"
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 helm install gpu-operator nvidia/gpu-operator \
   --namespace gpu-operator --create-namespace \
@@ -844,7 +844,7 @@ kubectl apply -f probes/pending-gpu-pod.yaml && kubectl get pod -w    # 上一�
 
 `gpu/clusterpolicy.yaml` 是 `kubectl get clusterpolicy cluster-policy -o yaml` 的关键字段（省略 `status`、镜像拉取策略与 `validator` / `nodeStatusExporter` / `dcgm` 等以默认值渲染的段），用来对照第五章第 1 节的字段表：
 
-```yaml
+```yaml title="gpu/clusterpolicy.yaml：Helm 渲染出的关键字段"
 # mini-platform/gpu/clusterpolicy.yaml —— 由 Helm 渲染；此处保留与本篇相关的字段，其余段落省略
 apiVersion: nvidia.com/v1
 kind: ClusterPolicy
@@ -903,7 +903,7 @@ spec:
 
 **（2）复现版本不匹配。** `mismatch/` 用 CUDA 13.0 的镜像去配驱动 570（或 535）的节点（13.x 基线 580，跨大版本——就是核心问题第三个组合）。如果你的节点驱动已经 ≥ 580，把 `FROM` 换成更新的 CUDA 大版本，或反过来找一台旧驱动节点——目的是让"镜像 Toolkit 大版本 > 驱动原生支持的大版本"。
 
-```c
+```c title="gpu/mismatch/probe.cu：打印第 2 层与第 3 层版本"
 // mini-platform/gpu/mismatch/probe.cu —— 打印第 2 层与第 3 层的版本，再做一次会触发 context 初始化的调用
 #include <cstdio>
 #include <cuda_runtime.h>
@@ -925,7 +925,7 @@ int main() {
 }
 ```
 
-```dockerfile
+```dockerfile title="gpu/mismatch/Dockerfile"
 # mini-platform/gpu/mismatch/Dockerfile —— devel 阶段编译，runtime 阶段运行；nvcc 默认静态链接 cudart
 FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS build
 COPY probe.cu /src/probe.cu
@@ -936,7 +936,7 @@ COPY --from=build /src/cuda-probe /usr/local/bin/cuda-probe
 CMD ["cuda-probe"]
 ```
 
-```yaml
+```yaml title="gpu/mismatch/pod.yaml：同一镜像跑两次"
 # mini-platform/gpu/mismatch/pod.yaml —— 同一镜像跑两次：默认，以及绕过 Toolkit 的要求检查
 apiVersion: v1
 kind: Pod
@@ -972,7 +972,7 @@ spec:
 
 预期看到的三种结果（文本为示意，以你的驱动与 GPU 为准）：
 
-```text
+```text title="版本不匹配的三种预期结果（示意）"
 A. 驱动 570/535 + 非数据中心 GPU（或 compat 不支持该分支），mismatch-default：
    kubectl describe pod mismatch-default → Warning Failed ... nvidia-container-cli: requirement error:
      unsatisfied condition: cuda>=13.0, please update your driver to a newer version, or use an earlier cuda container

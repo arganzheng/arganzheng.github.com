@@ -326,7 +326,7 @@ Llama 3 那条"mask 掉特殊 token"值得单独记：模板的 `<|eot_id|>` 等
 
 ## 十、动手：`DPOTrainer` 的骨架与该看的曲线
 
-```python
+```python title="trl 的 DPOTrainer 骨架"
 from trl import DPOTrainer, DPOConfig
 
 cfg = DPOConfig(

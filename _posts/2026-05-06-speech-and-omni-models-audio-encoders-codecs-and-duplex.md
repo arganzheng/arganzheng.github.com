@@ -75,7 +75,7 @@ Table: 本文的章节安排
 
 得到的就是 **log-mel 谱**：每秒约 100 帧 × 80 维。它是 Whisper 一类模型的输入；wav2vec 2.0、HuBERT 与 codec 编码器直接吃波形，用一维卷积自己学"滤波器"。三步各几行 NumPy：
 
-```python
+```python title="log_mel：波形到 log-mel 谱的三步"
 def log_mel(wave, sr=16000, win=400, hop=160, n_mels=80):
     frames = np.stack([wave[i:i + win] * np.hanning(win) for i in range(0, len(wave) - win, hop)])   # ① 分帧：[T, 400]，加窗让两端平滑
     power = np.abs(np.fft.rfft(frames, n=win)) ** 2                                                   # ② 每帧 FFT 取幅度平方：[T, 201]
@@ -162,7 +162,7 @@ Table: RVQ 两级量化的手算过程
 
 重建 $$\hat z = (3, 1) + (0.2, 0.1) = (3.2, 1.1)$$，这个向量的"token"是两个整数 $$(0, 0)$$。两级各 3 个码字，能表示 $$3 \times 3 = 9$$ 种组合；$$N_q = 8$$ 级、每级 1024 时是 $$1024^8 = 2^{80}$$ 种——用 8 个小码本得到一个巨大的等效码本，且每级的搜索只是 1024 次比较。代码就是一个循环：
 
-```python
+```python title="rvq_encode：逐级量化残差"
 def rvq_encode(z, codebooks):
     r, codes, z_hat = z.copy(), [], np.zeros_like(z)
     for cb in codebooks:                                                # 每级一个码本 [K, d]
@@ -175,7 +175,7 @@ def rvq_encode(z, codebooks):
 
 训练也简单：第 1 级码本对全部 $$z$$ 做 K-Means，第 2 级对第 1 级的残差做 K-Means，依此类推。2000 个 16 维向量、8 级、每级 64 个码字：
 
-```text
+```text title="单码本 VQ 与 8 级 RVQ 的重建误差"
 单码本 VQ，K = 64（6 bit）：相对重建误差 0.313
 RVQ 8 级、每级 K = 64：只用前 n 级解码的相对误差 n=1:0.314  n=2:0.161  n=3:0.089  n=4:0.051  n=5:0.030  n=6:0.018  n=7:0.010  n=8:0.006
 每级之后残差的均方根：1.25  0.90  0.66  0.50  0.38  0.30  0.23  0.18（逐级变小：后面的码本在越来越小的尺度上精修）

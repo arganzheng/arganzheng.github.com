@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 `with torch.no_grad():` 大概是 PyTorch 用户最早学会的几个写法之一。它在 Python 侧是一个上下文管理器，`__enter__` 调 `torch.set_grad_enabled(False)`，`__exit__` 把旧值设回去。顺着 `torch._C._set_grad_enabled` 往下追，会落到 `torch/csrc/autograd/init.cpp` 里的这段 C++：
 
-```cpp
+```cpp title="torch/csrc/autograd/init.cpp 里的 set_grad_enabled"
 static PyObject* set_grad_enabled(
     PyObject* _unused,
     PyObject* args,
@@ -29,7 +29,7 @@ static PyObject* set_grad_enabled(
 
 `GradMode::set_enabled` 定义在 `c10/core/GradMode.cpp`，只有一行：`AutogradState::get_tls_state().set_grad_mode(enabled);`。而 `AutogradState::get_tls_state()` 返回的是 `c10/core/AutogradState.cpp` 里这样一个变量的引用：
 
-```cpp
+```cpp title="AutogradState 的存储：一个 thread_local 变量"
 thread_local AutogradState autograd_state_tls = AutogradState(
     /* grad_mode */ true,
     /* inference_mode */ false,
@@ -39,7 +39,7 @@ thread_local AutogradState autograd_state_tls = AutogradState(
 
 同一个头文件 `c10/core/GradMode.h` 里还有另一种写法：
 
-```cpp
+```cpp title="AutoGradMode：RAII 的线程局部守卫"
 // A RAII, thread local (!) guard that enables or disables grad mode upon
 // construction, and sets it back to the original value upon destruction.
 struct C10_API AutoGradMode {
@@ -107,7 +107,7 @@ C++11 之后，标准库提供了一套和 Java `java.util.concurrent` 大致对
 
 `c10::ThreadPool` 的构造函数（`c10/core/thread_pool.cpp`）：
 
-```cpp
+```cpp title="c10::ThreadPool 的构造函数：创建并 detach/保存线程"
 ThreadPool::ThreadPool(
     int pool_size,
     int numa_node_id,
@@ -155,7 +155,7 @@ lambda 的捕获列表 `[this, i, init_thread]` 决定了线程体能访问什�
 
 `ThreadPool` 有三个同步原语作为成员（`c10/core/thread_pool.h`）：
 
-```cpp
+```cpp title="ThreadPool 的三个同步原语成员"
   std::queue<task_element_t> tasks_;
   std::vector<std::thread> threads_;
   mutable std::mutex mutex_;
@@ -179,7 +179,7 @@ Table: 两种 RAII 锁守卫与 Java 对照
 
 `ThreadPool::run` 用 `unique_lock`（这里其实 `lock_guard` 也够）：
 
-```cpp
+```cpp title="ThreadPool::run：unique_lock 保护任务队列并 notify"
 void ThreadPool::run(std::function<void()> func) {
   TORCH_CHECK(!threads_.empty(), "No threads to run a task");
   std::unique_lock<std::mutex> lock(mutex_);
@@ -198,7 +198,7 @@ void ThreadPool::run(std::function<void()> func) {
 
 工作线程的主循环（`c10/core/thread_pool.cpp`）：
 
-```cpp
+```cpp title="ThreadPool::main_loop：工作线程的 wait 循环"
 void ThreadPool::main_loop(std::size_t index) {
   std::unique_lock<std::mutex> lock(mutex_);
   while (running_) {
@@ -264,7 +264,7 @@ void ThreadPool::main_loop(std::size_t index) {
 
 把上面的模式抽成 40 行，用 `clang++ -std=c++17 -pthread` 可以直接编译：
 
-```cpp
+```cpp title="40 行可编译的最小线程池"
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -335,7 +335,7 @@ Table: 六种 memory order
 
 内存模型的核心规则只有一条：**一个 release 写与一个读到该写入值的 acquire 读之间建立 synchronizes-with 关系，进而 release 之前的所有写对 acquire 之后的所有读可见**。用一段最小代码：
 
-```cpp
+```cpp title="release/acquire 配对的最小例子：producer 与 consumer"
 int payload = 0;                     // 普通变量
 std::atomic<bool> ready{false};
 
@@ -370,7 +370,7 @@ Java 对照：`volatile` 写 ≈ release 写 + seq_cst 全序，`volatile` 读 �
 
 vLLM 的 CPU 后端用共享内存在多个进程之间做 all-reduce，`csrc/cpu/shm.cpp` 的 `ThreadSHMContext` 用两个"戳"（stamp）做生产者/消费者握手，它的写法恰好把"平台差异"和"内存序"都摆在了一起：
 
-```cpp
+```cpp title="vLLM ThreadSHMContext：按平台选原子或普通变量的戳"
 struct ThreadSHMContext {
 #if defined(__aarch64__) || defined(__powerpc64__)
   // memory model is weaker on AArch64, so we use atomic variables for
@@ -420,7 +420,7 @@ struct ThreadSHMContext {
 
 先说一个版本敏感的细节。早期的 `intrusive_ptr_target` 有两个独立的原子字段 `refcount_` 和 `weakcount_`，对应两组函数 `atomic_refcount_increment`/`atomic_refcount_decrement` 和 `atomic_weakcount_increment`/`atomic_weakcount_decrement`。在 v2.10.0 的源码里，两个计数已经合并成一个 64 位字段，函数名也随之变成 `atomic_combined_refcount_increment`/`atomic_combined_refcount_decrement`（PyTorch 2.x 中的变化：合并成一个字段是为了能用一条原子指令同时操作强、弱两个计数；最高位 `kHasPyObject` 还被拿来标记"是否有 Python 包装对象"）：
 
-```cpp
+```cpp title="合并的引用计数常量：低 32 位强、高 31 位弱"
 namespace detail {
 constexpr uint64_t kImpracticallyHugeReferenceCount = 0x0FFFFFFF;
 constexpr uint64_t kImpracticallyHugeWeakReferenceCount =
@@ -442,7 +442,7 @@ inline uint32_t weakcount(uint64_t combined_refcount) {
 
 低 32 位是强引用计数，高 31 位是弱引用计数，第 63 位是 PyObject 标记。`intrusive_ptr_target` 类里对应的成员是：
 
-```cpp
+```cpp title="intrusive_ptr_target 的 combined_refcount_ 成员"
   mutable std::atomic<uint64_t> combined_refcount_;
   static_assert(sizeof(std::atomic<uint64_t>) == 8);
   static_assert(alignof(std::atomic<uint64_t>) == 8);
@@ -454,7 +454,7 @@ inline uint32_t weakcount(uint64_t combined_refcount) {
 
 `c10/util/intrusive_ptr.h` 中 `detail` 命名空间里的增函数，连注释一起引用：
 
-```cpp
+```cpp title="atomic_combined_refcount_increment：relaxed 就够"
 // The only requirement for refcount increment is that it happens-before
 // decrement, so no additional memory ordering is needed.
 inline uint64_t atomic_combined_refcount_increment(
@@ -470,7 +470,7 @@ inline uint64_t atomic_combined_refcount_increment(
 
 减函数的注释更长，把推理过程完整写了出来：
 
-```cpp
+```cpp title="atomic_combined_refcount_decrement 的注释：减必须 acq_rel"
 // The requirement is that all modifications to the managed object happen-before
 // invocation of the managed object destructor, and that allocation of the
 // managed object storage happens-before deallocation of the storage.
@@ -497,7 +497,7 @@ inline uint64_t atomic_combined_refcount_decrement(
 
 顺着看 `intrusive_ptr<TTarget, NullType>` 的 `retain_()` 与 `reset_not_null_()`（`c10/util/intrusive_ptr.h`，类定义中部）：
 
-```cpp
+```cpp title="intrusive_ptr 的 retain_ 与 reset_not_null_"
   void retain_() noexcept {
     if (target_ != NullType::singleton()) {
       uint64_t combined = detail::atomic_combined_refcount_increment(
@@ -548,7 +548,7 @@ inline uint64_t atomic_combined_refcount_decrement(
 
 `use_count()` 用 relaxed 读：
 
-```cpp
+```cpp title="use_count()：relaxed 读"
   uint32_t use_count() const noexcept {
     if (target_ == NullType::singleton()) {
       return 0;
@@ -567,7 +567,7 @@ Java 没有引用计数（GC 负责），但 `AtomicInteger.incrementAndGet()` �
 
 还有一个细节在 `intrusive_ptr` 的原始指针构造函数里（类定义中部）：
 
-```cpp
+```cpp title="从原始指针构造 intrusive_ptr：刚创建的对象用 relaxed 写"
   explicit intrusive_ptr(TTarget* target)
       : intrusive_ptr(target, raw::DontIncreaseRefcount{}) {
     if (target_ != NullType::singleton()) {
@@ -591,7 +591,7 @@ Java 没有引用计数（GC 负责），但 `AtomicInteger.incrementAndGet()` �
 
 C++11 把 `thread_local` 加为一个**存储类别说明符**（storage class specifier），与 `static`、`extern` 同级。一个 `thread_local` 变量在每个线程里有一份独立的实例，线程启动时（或首次使用时）初始化，线程退出时析构：
 
-```cpp
+```cpp title="thread_local 的三种写法"
 thread_local int counter = 0;      // 命名空间作用域
 void f() {
   thread_local std::string buf;    // 函数内的 static thread_local
@@ -617,7 +617,7 @@ Table: Java ThreadLocal 与 C++ thread_local 的差别
 
 "跨动态库访问时走 `__tls_get_addr`"这一条在 PyTorch 源码里留下了直接痕迹。`c10/core/impl/LocalDispatchKeySet.h` 的守卫类里有：
 
-```cpp
+```cpp title="LocalDispatchKeySet 守卫缓存 TLS 地址省一次 __tls_get_addr"
  private:
   // A little micro-optimization to save us from tls_get_addr call
   // on destruction
@@ -629,7 +629,7 @@ Table: Java ThreadLocal 与 C++ thread_local 的差别
 
 另一个痕迹是 Windows 的限制。同一头文件里：
 
-```cpp
+```cpp title="Windows 下 thread_local 不能 C10_API 的条件编译"
 // thread_local variables cannot be C10_API on Windows.
 // Inlining this seems to break AutoDispatchBelowAutograd on Android.
 #if defined(_MSC_VER) || defined(C10_ANDROID) || defined(C10_IPHONE)
@@ -667,7 +667,7 @@ Table: PyTorch C++ 层的主要 thread_local 状态
 
 看几个定义。`AutogradState` 的存储（`c10/core/AutogradState.cpp`）：
 
-```cpp
+```cpp title="autograd_state_tls 的定义"
 namespace {
 // By default, grad mode and multithreading are enabled, inference mode is
 // disabled,
@@ -689,7 +689,7 @@ void AutogradState::set_tls_state(AutogradState state) {
 
 `AutogradState` 本身（`c10/core/AutogradState.h`）用位域把几个 bool 压进一个字节：
 
-```cpp
+```cpp title="AutogradState 用位域压几个 bool"
  private:
   std::optional<SafePyObject> graph_exec_group_;
   bool grad_mode_ : 1;
@@ -702,7 +702,7 @@ void AutogradState::set_tls_state(AutogradState state) {
 
 CUDA 当前 stream 的存储（`c10/cuda/CUDAStream.cpp`）：
 
-```cpp
+```cpp title="CUDA 当前 stream 的 thread_local 存储与 getCurrentCUDAStream"
 // Thread-local current streams
 // NOLINTNEXTLINE(*-arrays)
 thread_local std::unique_ptr<StreamId[]> current_streams = nullptr;
@@ -725,7 +725,7 @@ void setCurrentCUDAStream(CUDAStream stream) {
 
 `current_streams` 是一个 `thread_local` 的智能指针，指向一个"每设备一个 StreamId"的数组，每个线程第一次调用时由 `initCUDAStreamsOnce()` 分配并全部填成默认 stream。头文件 `c10/cuda/CUDAStream.h` 顶部的注释把这个设计说得很清楚：
 
-```cpp
+```cpp title="CUDAStream.h 顶部注释：stream 池全局、当前 stream 线程局部"
  * Note: although the notion of "current stream for device" is thread local
  * (every OS thread has a separate current stream, as one might expect),
  * the stream pool is global across all threads; stream 0 is always stream 0
@@ -739,7 +739,7 @@ void setCurrentCUDAStream(CUDAStream stream) {
 
 还有一个静态初始化的细节。`c10/core/impl/LocalDispatchKeySet.cpp` 开头：
 
-```cpp
+```cpp title="Note [TLS Initialization]：POD 必须零初始化"
 // NB: POD, must be zero initialized!
 // Note [TLS Initialization]
 // We wanted raw_local_dispatch_key_set to be initialized with non-zero state
@@ -762,7 +762,7 @@ TLS 变量如果需要动态初始化（调构造函数），编译器要在每�
 
 回到开头的 `c10/core/GradMode.h`：
 
-```cpp
+```cpp title="AutoGradMode 完整定义：四个 = delete"
 struct C10_API AutoGradMode {
   AutoGradMode(bool enabled) : prev_mode(GradMode::is_enabled()) {
     GradMode::set_enabled(enabled);
@@ -782,7 +782,7 @@ struct C10_API AutoGradMode {
 
 四个 `= delete` 是守卫类的标配。原因：如果允许拷贝，两个守卫对象会在析构时各恢复一次，第二次恢复的值可能是错的；如果允许移动，被移走的那个"空壳"析构时还会恢复一次。第二篇讲过"六大特殊成员函数"，守卫类就是"全部删掉、只留构造和析构"的典型。`c10/core/DeviceGuard.h` 的注释解释了移动为什么也不行：
 
-```cpp
+```cpp title="DeviceGuard.h 的注释：为什么不允许移动"
   /// Move is disallowed, as DeviceGuard does not have an uninitialized state,
   /// which is required for moves on types with nontrivial destructors.
 ```
@@ -791,7 +791,7 @@ struct C10_API AutoGradMode {
 
 C++ 用法与 Python 的对照：
 
-```cpp
+```cpp title="NoGradGuard 的 C++ 用法与 Python 对照"
 {
   torch::NoGradGuard no_grad;     // 等价于 Python 的 with torch.no_grad():
   auto y = x * 2;                 //   y = x * 2
@@ -802,7 +802,7 @@ C++ 用法与 Python 的对照：
 
 Java 对照：`ThreadLocal` 没有配套的作用域机制，写法只能是：
 
-```java
+```java title="Java 用 ThreadLocal 只能 try/finally 手工恢复"
 Boolean prev = GRAD_MODE.get();
 GRAD_MODE.set(false);
 try {
@@ -818,7 +818,7 @@ C++ 守卫把 `prev`、`set`、`try/finally` 三件事压进一个局部变量�
 
 `c10/core/InferenceMode.h` 的守卫同时修改两份 TLS：
 
-```cpp
+```cpp title="InferenceMode：同时改 AutogradState 与 dispatch key set"
 struct C10_API InferenceMode {
   // ...
   InferenceMode(bool enabled = true)
@@ -866,7 +866,7 @@ struct C10_API InferenceMode {
 
 `aten/src/ATen/core/LegacyTypeDispatch.h` 里的几个守卫，本身不写任何 TLS，而是**把另一个守卫作为成员**：
 
-```cpp
+```cpp title="AutoDispatchBelowAutograd：把另一个守卫作为成员"
 struct TORCH_API AutoDispatchBelowAutograd {
   AutoDispatchBelowAutograd() :
     autograd_guard_(c10::autograd_dispatch_keyset) {
@@ -889,7 +889,7 @@ struct TORCH_API AutoDispatchBelowADInplaceOrView {
 
 这两个守卫用在什么地方？在 autograd 自动生成的 kernel 里。`tools/autograd/gen_variable_type.py` 生成 `VariableType_*.cpp` 时会插入：
 
-```python
+```python title="gen_variable_type.py 生成 kernel 时插入守卫"
         if get_view_info(f) is not None or modifies_arguments(f):
             guard = "at::AutoDispatchBelowAutograd guard;"
         else:
@@ -932,7 +932,7 @@ Table: 守卫按管理状态的分类
 
 ### 1. 文件头注释：两个集合
 
-```cpp
+```cpp title="LocalDispatchKeySet.h 文件头注释：included 与 excluded 两个集合"
 // TLS management for DispatchKeySet (the "local" DispatchKeySet(s))
 //
 // This manages two thread-local DispatchKeySets:
@@ -955,7 +955,7 @@ included 集合"额外加入"某些 key，excluded 集合"强制去掉"某些 ke
 
 ### 2. `PODLocalDispatchKeySet`：零初始化 + XOR
 
-```cpp
+```cpp title="PODLocalDispatchKeySet：零初始化加 XOR 编码"
 struct C10_API PODLocalDispatchKeySet {
   uint64_t included_;
   uint64_t excluded_;
@@ -986,7 +986,7 @@ static_assert(
 
 `LocalDispatchKeySet` 是它的"解码后"版本，两个真正的 `DispatchKeySet` 成员，从 POD 隐式构造：
 
-```cpp
+```cpp title="LocalDispatchKeySet：从 POD 隐式构造的解码版本"
 struct C10_API LocalDispatchKeySet {
   /* implicit */ LocalDispatchKeySet(PODLocalDispatchKeySet x)
       : included_(x.included()), excluded_(x.excluded()) {}
@@ -1001,7 +1001,7 @@ struct C10_API LocalDispatchKeySet {
 
 ### 4. 两个 RAII 守卫
 
-```cpp
+```cpp title="IncludeDispatchKeyGuard 的类定义"
 class C10_API IncludeDispatchKeyGuard {
  public:
   IncludeDispatchKeyGuard(DispatchKeySet /*include*/);
@@ -1023,7 +1023,7 @@ class C10_API IncludeDispatchKeyGuard {
 
 `ExcludeDispatchKeyGuard` 结构完全一样（成员名换成 `exclude_`）。实现在 `c10/core/impl/LocalDispatchKeySet.cpp`：
 
-```cpp
+```cpp title="IncludeDispatchKeyGuard 的实现：只加自己新加的那部分"
 IncludeDispatchKeyGuard::IncludeDispatchKeyGuard(DispatchKeySet include)
     : tls_(&raw_local_dispatch_key_set), include_(include - tls_->included()) {
   if (!include_.empty()) {
@@ -1057,7 +1057,7 @@ ExcludeDispatchKeyGuard::~ExcludeDispatchKeyGuard() {
 
 ### 5. 非 RAII API：为什么也需要
 
-```cpp
+```cpp title="非 RAII API 的注释：跨 Python/C++ 多次调用时才用"
 // Non-RAII API for manipulating the thread-local dispatch state.
 // Please prefer the RAII API.  The non-RAII API may be useful when
 // the included/excluded state of a given DispatchKey must span
@@ -1088,7 +1088,7 @@ C10_API void tls_set_dispatch_key_included(DispatchKey x, bool desired_state);
 
 `c10/core/impl/DeviceGuardImplInterface.h`：
 
-```cpp
+```cpp title="DeviceGuardImplInterface 的类注释"
 /**
  * DeviceGuardImplInterface represents the virtual interface which provides
  * functionality to provide an RAII class for device and stream switching,
@@ -1122,7 +1122,7 @@ struct C10_API DeviceGuardImplInterface {
 
 各后端的实现注册进一个全局表（同一文件末尾）：
 
-```cpp
+```cpp title="device_guard_impl_registry：按 DeviceType 索引的全局表"
 extern C10_API std::array<
     std::atomic<const DeviceGuardImplInterface*>,
     static_cast<size_t>(DeviceType::COMPILE_TIME_MAX_DEVICE_TYPES)>
@@ -1148,7 +1148,7 @@ inline const DeviceGuardImplInterface* getDeviceGuardImpl(DeviceType type) {
 
 CUDA 的实现在 `c10/cuda/impl/CUDAGuardImpl.h`，编进 `libc10_cuda.so`：
 
-```cpp
+```cpp title="CUDAGuardImpl：CUDA 后端的实现"
 struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
   static constexpr DeviceType static_type = DeviceType::CUDA;
   // ...
@@ -1191,7 +1191,7 @@ struct CUDAGuardImpl final : public c10::impl::DeviceGuardImplInterface {
 
 `c10/core/impl/InlineDeviceGuard.h`：
 
-```cpp
+```cpp title="InlineDeviceGuard 的类注释：两种实例化方式"
 /**
  * InlineDeviceGuard is a helper class for implementing DeviceGuards.
  * It is templated over a DeviceGuardImpl (anything that implements
@@ -1243,7 +1243,7 @@ class InlineDeviceGuard {
 
 `VirtualGuardImpl` 的构造函数从注册表取实现：
 
-```cpp
+```cpp title="VirtualGuardImpl：从注册表取实现并转发虚调用"
 class VirtualGuardImpl final : public DeviceGuardImplInterface {
  public:
   VirtualGuardImpl(DeviceType device_type)
@@ -1276,7 +1276,7 @@ flowchart TD
 
 `c10/core/DeviceGuard.h` 里的 `DeviceGuard` 只是把 `InlineDeviceGuard<VirtualGuardImpl>` 的每个方法转发一遍：
 
-```cpp
+```cpp title="c10::DeviceGuard：逐个方法转发 InlineDeviceGuard"
 class DeviceGuard {
  public:
   /// No default constructor; see Note [Omitted default constructor from RAII]
@@ -1301,7 +1301,7 @@ class DeviceGuard {
 
 文件末尾解释了为什么不直接 `using DeviceGuard = impl::InlineDeviceGuard<impl::VirtualGuardImpl>;`：
 
-```cpp
+```cpp title="Note [Whither the DeviceGuard boilerplate]"
 // Note [Whither the DeviceGuard boilerplate]
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Design note: in principle, we could avoid these wrappers using:
@@ -1321,7 +1321,7 @@ class DeviceGuard {
 
 另一个设计点是 "Note [Omitted default constructor from RAII]"：`DeviceGuard` 没有默认构造函数。想要"可能不切换设备"的语义，用 `OptionalDeviceGuard`：
 
-```cpp
+```cpp title="OptionalDeviceGuard 的注释：循环里按需切设备的惯用法"
  * Besides its obvious use (optionally applying a DeviceGuard),
  * OptionalDeviceGuard is often also used for the following idiom:
  *
@@ -1337,7 +1337,7 @@ class DeviceGuard {
 
 vLLM 的 `csrc/custom_quickreduce.cu` 里就是这种用法：
 
-```cpp
+```cpp title="vLLM qr_all_reduce 里的 OptionalCUDAGuard"
 void qr_all_reduce(quickreduce::fptr_t _fa, torch::Tensor& inp,
                    torch::Tensor& out, int64_t quant_level, bool cast_bf2half) {
   auto fa = reinterpret_cast<quickreduce::DeviceComms*>(_fa);
@@ -1353,7 +1353,7 @@ void qr_all_reduce(quickreduce::fptr_t _fa, torch::Tensor& inp,
 
 `c10/cuda/CUDAGuard.h` 的 `CUDAStreamGuard` 持有 `c10::impl::InlineStreamGuard<impl::CUDAGuardImpl> guard_;`。`c10/core/impl/InlineStreamGuard.h` 里 `InlineStreamGuard` **私有继承** `InlineDeviceGuard`：
 
-```cpp
+```cpp title="InlineStreamGuard 私有继承 InlineDeviceGuard"
 template <typename T>
 class InlineStreamGuard : private InlineDeviceGuard<T> {
  public:
@@ -1395,7 +1395,7 @@ flowchart TD
 
 Python 侧（`torch/autograd/grad_mode.py`）：
 
-```python
+```python title="torch.no_grad 的 Python 侧实现"
 class no_grad(_NoParamDecoratorContextManager):
     # ...
     def __enter__(self) -> None:
@@ -1410,7 +1410,7 @@ class no_grad(_NoParamDecoratorContextManager):
 
 读的一侧：autograd 生成的 kernel 通过 `torch/csrc/autograd/functions/utils.h` 的 `compute_requires_grad` 检查：
 
-```cpp
+```cpp title="compute_requires_grad：读 GradMode 的一侧"
 template <typename... Args>
 inline bool compute_requires_grad(Args&&... args) {
   if (!GradMode::is_enabled()) {
@@ -1434,7 +1434,7 @@ Java 对照：Java 的 `ThreadLocal` 有一个子类 `InheritableThreadLocal`，
 
 `aten/src/ATen/ThreadLocalState.h`：
 
-```cpp
+```cpp title="ThreadLocalState 的类定义：一份 TLS 快照"
 // Thread local state contains values that are preserved across
 // thread boundaries (e.g. at::launch/JIT fork, autograd).
 // Note at::parallel_for doesn't preserve TLS across thread boundaries.
@@ -1487,7 +1487,7 @@ class TORCH_API ThreadLocalStateGuard {
 
 使用它的典型模式在 `aten/src/ATen/ParallelThreadPoolNative.cpp` 的 `at::launch`：
 
-```cpp
+```cpp title="at::launch：调用方拍快照，工作线程用守卫装上"
 void launch(std::function<void()> func) {
   // NOLINTNEXTLINE(modernize-avoid-bind)
   internal::launch_no_thread_state(std::bind([](
@@ -1503,7 +1503,7 @@ void launch(std::function<void()> func) {
 
 在**调用方线程**上构造 `ThreadLocalState()` 快照（按值绑定进闭包），任务在**工作线程**上运行时，先用 `ThreadLocalStateGuard` 把快照装上，再执行 `f()`，结束后守卫析构恢复工作线程原来的状态。同一个头文件还提供了一个更通用的包装器：
 
-```cpp
+```cpp title="wrapPropagateTLSState：通用的 TLS 传播包装器"
 template <typename T>
 auto wrapPropagateTLSState(T callback) {
   return [tls_state = ThreadLocalState(),
@@ -1517,7 +1517,7 @@ auto wrapPropagateTLSState(T callback) {
 
 autograd 引擎也是这样。`torch/csrc/autograd/engine.cpp` 里工作线程执行每个反向节点前：
 
-```cpp
+```cpp title="autograd 引擎执行节点前装上 ThreadLocalStateGuard"
       if (task.fn_ && !local_graph_task->has_error_.load()) {
         // Set the ThreadLocalState before calling the function.
         // NB: The ThreadLocalStateGuard doesn't set the grad_mode because
@@ -1536,7 +1536,7 @@ autograd 引擎也是这样。`torch/csrc/autograd/engine.cpp` 里工作线程�
 
 ### 1. 接口层：`aten/src/ATen/Parallel.h`
 
-```cpp
+```cpp title="Parallel.h 里 parallel_for 的文档注释"
 /*
 parallel_for
 
@@ -1568,7 +1568,7 @@ inline void parallel_for(
 
 文件末尾按编译选项选择后端：
 
-```cpp
+```cpp title="Parallel.h 末尾按编译选项选后端"
 #if AT_PARALLEL_OPENMP
 #include <ATen/ParallelOpenMP.h> // IWYU pragma: keep
 #elif AT_PARALLEL_NATIVE
@@ -1582,7 +1582,7 @@ inline void parallel_for(
 
 ### 2. 决策层：`aten/src/ATen/Parallel-inl.h`
 
-```cpp
+```cpp title="Parallel-inl.h 的 parallel_for：决定是否并行"
 template <class F>
 inline void parallel_for(
     const int64_t begin,
@@ -1626,7 +1626,7 @@ inline void parallel_for(
 
 ### 3. 执行层 A：OpenMP（`aten/src/ATen/ParallelOpenMP.h`）
 
-```cpp
+```cpp title="ParallelOpenMP.h 的 invoke_parallel"
 #ifdef _OPENMP
 namespace at::internal {
 template <typename F>
@@ -1680,7 +1680,7 @@ Java 对照：`#pragma omp parallel` 最接近的是 `IntStream.range(0, n).para
 
 不用 OpenMP 时（`AT_PARALLEL_NATIVE`），`invoke_parallel` 不是模板而是普通函数，接受 `std::function`（第四篇讨论过的类型擦除）：
 
-```cpp
+```cpp title="ParallelNative.h 的 invoke_parallel 声明：接 std::function"
 TORCH_API void invoke_parallel(
     const int64_t begin,
     const int64_t end,
@@ -1690,7 +1690,7 @@ TORCH_API void invoke_parallel(
 
 实现在 `aten/src/ATen/ParallelNative.cpp`，把第二章的三件套和第三章的原子操作全用上了：
 
-```cpp
+```cpp title="ParallelNative.cpp 的 invoke_parallel：线程池加原子计数"
 void invoke_parallel(
   const int64_t begin,
   const int64_t end,
@@ -1765,7 +1765,7 @@ Table: OpenMP 后端与原生线程池后端的差别
 
 `at::get_num_threads()` 在 OpenMP 后端（`aten/src/ATen/ParallelOpenMP.cpp`）：
 
-```cpp
+```cpp title="ParallelOpenMP.cpp 里的 num_threads 与 this_thread_id"
 namespace {
 // Number of threads set by the user
 std::atomic<int> num_threads{-1};
@@ -1799,7 +1799,7 @@ int get_num_threads() {
 
 用户通过 `torch.set_num_threads(n)` 设的值存在进程级的 `std::atomic<int> num_threads`（跨线程共享，所以是原子）。但 OpenMP 的"最大线程数"是**每个线程各自的设置**（`omp_set_num_threads` 只影响调用线程），所以每个新线程第一次调 `parallel_for` 时要 `lazy_init_num_threads()`——`Parallel.h` 里用一个 `thread_local bool init` 保证每线程只做一次：
 
-```cpp
+```cpp title="lazy_init_num_threads：thread_local bool 保证每线程一次"
 // Initialise num_threads lazily at first parallel call
 inline void lazy_init_num_threads() {
   thread_local bool init = false;
@@ -1812,7 +1812,7 @@ inline void lazy_init_num_threads() {
 
 没有用户设置时，默认值来自 `aten/src/ATen/ParallelCommon.cpp` 的 `intraop_default_num_threads()`：
 
-```cpp
+```cpp title="intraop_default_num_threads：从环境变量与核数算默认值"
 int intraop_default_num_threads() {
 #ifdef C10_MOBILE
   // ...
@@ -1846,7 +1846,7 @@ int intraop_default_num_threads() {
 
 一个典型的 CUDA kernel launch 站点（`aten/src/ATen/native/cuda/Embedding.cu`，`embedding_dense_backward_cuda` 的一部分）：
 
-```cpp
+```cpp title="Embedding.cu 里一个典型的 kernel launch 站点"
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   // ...
     AT_DISPATCH_FLOATING_TYPES_AND2(
@@ -1908,7 +1908,7 @@ flowchart LR
 
 不是 CUDA 路径上完全没有锁。`c10/cuda/CUDACachingAllocator.cpp` 的设备内存分配器是进程级共享的：
 
-```cpp
+```cpp title="CUDACachingAllocator 的 recursive_mutex"
   mutable std::recursive_mutex mutex;
   // ...
   Block* malloc(size_t orig_size, cudaStream_t stream) {
@@ -1928,7 +1928,7 @@ Java 对照：这个模型和 Java 里"每个线程自己的 `ExecutorService` �
 
 ### 1. 通用回退：`aten/src/ATen/cpu/vec/vec_base.h`
 
-```cpp
+```cpp title="vec_base.h：VECTOR_WIDTH 与通用 Vectorized<T> 回退"
 #ifdef CPU_CAPABILITY_AVX512
 // ...
 #define VECTOR_WIDTH 64
@@ -1992,7 +1992,7 @@ Vectorized<T> inline operator+(const Vectorized<T>& a, const Vectorized<T>& b) {
 
 AVX2 下 `Vectorized<float>` 被**全特化**（第三篇的概念）成一个包着 `__m256` 的类：
 
-```cpp
+```cpp title="vec256_float.h：AVX2 下 Vectorized<float> 的全特化"
 namespace at::vec {
 // See Note [CPU_CAPABILITY namespace]
 inline namespace CPU_CAPABILITY {
@@ -2064,7 +2064,7 @@ Vectorized<float> inline fmadd(
 
 `aten/src/ATen/cpu/vec/vec256/vec256.h` 里的注释：
 
-```cpp
+```cpp title="Note [CPU_CAPABILITY namespace]"
 // Note [CPU_CAPABILITY namespace]
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // This header, and all of its subheaders, will be compiled with
@@ -2082,7 +2082,7 @@ inline namespace CPU_CAPABILITY {
 
 `aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 的 `add_clamp_kernel`：
 
-```cpp
+```cpp title="add_clamp_kernel：标量与向量两个 lambda"
 void add_clamp_kernel(
     TensorIterator& iter,
     const Scalar& alpha_scalar,
@@ -2121,7 +2121,7 @@ void add_clamp_kernel(
 
 ### 1. `minic10/util/intrusive_ptr.h`：`refcount_` 改为 `std::atomic<size_t>`
 
-```cpp
+```cpp title="minic10/util/intrusive_ptr.h：refcount_ 改为 atomic"
 #pragma once
 #include <atomic>
 #include <cstddef>
@@ -2243,7 +2243,7 @@ inline bool operator==(const intrusive_ptr<T>& a, const intrusive_ptr<T>& b) noe
 
 ### 2. `minic10/core/GradMode.h`
 
-```cpp
+```cpp title="minic10/core/GradMode.h：thread_local 状态加 RAII 守卫"
 #pragma once
 
 namespace minic10 {
@@ -2284,7 +2284,7 @@ struct NoGradGuard : AutoGradMode {
 
 ### 3. `minic10/Parallel.h`：用 `std::thread` 实现
 
-```cpp
+```cpp title="minic10/Parallel.h：用 std::thread 实现 parallel_for"
 #pragma once
 #include <algorithm>
 #include <cstdint>
@@ -2372,7 +2372,7 @@ void parallel_for(int64_t begin, int64_t end, int64_t grain_size, const F& f) {
 
 ### 4. 演示：两个线程的 TLS 隔离
 
-```cpp
+```cpp title="demo.cpp：两个线程各自的 GradMode 与共享 intrusive_ptr"
 #include <cstdio>
 #include <numeric>
 #include <thread>
@@ -2432,13 +2432,13 @@ int main() {
 }
 ```
 
-```bash
+```bash title="编译运行 demo"
 clang++ -std=c++17 -Wall -Wextra -pthread demo.cpp -o demo && ./demo
 ```
 
 macOS（Apple clang）上的输出：
 
-```text
+```text title="demo 的输出：TLS 互不影响，use_count 回到 1"
 main: grad enabled = 0
 worker: grad enabled = 1
 main after guard: grad enabled = 1

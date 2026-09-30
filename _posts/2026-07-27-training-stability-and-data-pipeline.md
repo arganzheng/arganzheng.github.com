@@ -36,7 +36,7 @@ updated: 2026-09-20
 
 ### 2. 两条线为什么是一条
 
-```text
+```text title='稳定性线与数据线在"那个 batch"处交汇'
           稳定性线                                     数据线
    ┌────────────────────┐                     ┌────────────────────────┐
    │ 现象：loss / grad   │                     │ 离线 tokenize → .bin/.idx│
@@ -65,7 +65,7 @@ updated: 2026-09-20
 
 ### 4. 三框架在"稳定性与数据"面上的对照
 
-```text
+```text title="三框架在稳定性与数据面上的对照"
 项目                Megatron Core 0.18.0                              DeepSpeed 0.19.2                          torchtitan v0.3.0
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 全局梯度范数        optimizer/clip_grads.py get_grad_norm_fp32：       zero/stage_1_and_2.py scaled_global_norm →   distributed/utils.py clip_grad_norm_：
@@ -259,7 +259,7 @@ weight decay 对 1-D 参数（LayerNorm 的 gain、bias）与 embedding 的作�
 
 把第二章第 3 节的四处 bf16 风险反过来写，就是一份检查表：
 
-```text
+```text title="精度纪律检查表"
 □ 主参数 fp32（不用 precision-aware optimizer 把它压低，除非有对比实验）
 □ Adam 一阶矩、二阶矩 fp32
 □ 梯度累积与 DP reduce 在 fp32（Megatron --accumulate-allreduce-grads-in-fp32；FSDP2 reduce_dtype=fp32）
@@ -283,7 +283,7 @@ PaLM 论文 Training Instability 一节的原话大意是：遇到 spike 时，�
 
 这个动作看起来简单，拆开是三个操作：
 
-```text
+```text title="PaLM 的做法拆成三个操作"
 1. 回退   加载第 (T − k) 步的 checkpoint，k ≈ 100                         → 依赖第五篇：checkpoint 密度与精确恢复
 2. 跳过   让数据加载器从第 (T − k + n) 步的位置开始，n ≈ 200–500          → 依赖本篇第七章：数据位置可精确设置
 3. 继续   其余一切（LR 调度、RNG、优化器状态）从 T − k 的状态自然演进       → 依赖 checkpoint 完整
@@ -408,7 +408,7 @@ flowchart TB
 
 ### 1. 离线 tokenize 还是在线
 
-```text
+```text title="离线 tokenize 与在线 tokenize 的对照"
                 离线（预处理成 token id 的二进制文件）              在线（训练时从文本 tokenize）
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
 CPU              一次性成本；训练时 DataLoader 几乎不占 CPU           每步都要 tokenize，几千 token/s/核，大词表 BPE 更慢；worker 数与 NCCL proxy 线程争 CPU
@@ -425,7 +425,7 @@ CPU              一次性成本；训练时 DataLoader 几乎不占 CPU        
 
 `megatron/core/datasets/indexed_dataset.py` 定义了格式。`.bin` 是所有文档的 token id 首尾相接的裸字节；`.idx` 由 `_IndexWriter.write(sequence_lengths, sequence_modes, document_indices)` 写出：
 
-```text
+```text title=".idx 文件的布局"
 .idx 布局（小端）
   9 字节 magic  "MMIDIDX\x00\x00"        _INDEX_HEADER
   u64           版本 = 1
@@ -458,7 +458,7 @@ Table: GPTDataset 的三个索引数组
 
 三次查表把一个样本号一路映射到 `.bin` 里的字节区间，中间不复制任何 token（下图取 $$s = 8$$，一个样本是 9 个 token，跨了两个文档）：
 
-```text
+```text title="GPTDataset.__getitem__：三次查表，零拷贝"
 GPTDataset.__getitem__(idx)：三次查表，零拷贝
 
  idx = 5
@@ -505,7 +505,7 @@ torchtitan 的对应物是 `torchtitan/hf_datasets/interleaved.py` 的 `Interlea
 
 用上一节那个跨文档的样本（取其前 $$s = 8$$ 个 token 作输入）画出两种设置下的 attention mask 与 position ids，以及同一布局在显式打包与 torchtitan 里的编码：
 
-```text
+```text title="两种设置下的 attention mask 与 position ids"
 行 = query，列 = key；x 可见，. 屏蔽
 
            默认：跨文档因果                    --reset-attention-mask
@@ -575,7 +575,7 @@ Table: 数据流可恢复的三条要求
 
 Megatron 的方案是最简单也最健壮的：**数据位置 = 训练已消费的样本数**，一个整数。把它画在样本号的数轴上，三条要求、跳过、换 DP 都是对这一个数的操作：
 
-```text
+```text title="Megatron 的数据位置：样本号数轴上的一个整数"
 样本号全序（shuffle 后固定；d = 4 个 DP rank，mbs = 2，B = d × mbs = 8）
 
           ...已消费 T 步...│←─── step T+1 的 global batch ────→│←─ T+2 ─...
@@ -613,7 +613,7 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 
 三种方案放在一起，得到一份"可恢复数据加载器"的检查表，自己写加载器或评估第三方加载器时逐条对：
 
-```text
+```text title="可恢复数据加载器的检查表"
 □ 位置的定义是"训练已消费的样本数"，而不是"dataset 已产出的样本数"（预取中的 batch 不算已消费）
 □ 位置随 checkpoint 一起保存，且在同一个 step 边界上（步末计数、步末存盘）
 □ 给定位置，每个 DP rank 拿到的样本可以离线推算出来（用于反查坏 batch）；这要求 shuffle 由 seed 决定、索引可缓存
@@ -646,7 +646,7 @@ torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_i
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾"
 三种形态     瞬时（坏 batch / bf16 偶发）· 可恢复（LR / 优化器状态）· 发散（logit 增长 / 精度链断裂）
 五种成因     LR：param norm 增速变快 · bf16：无前兆单步跳 · logit：max logit 单调升过 ~100 · 坏数据：可复现 · 优化器状态：grad norm 低平台后放大
 预防         全局范数裁剪（Megatron clip_grads.py 三函数；去重 shared/TP-duplicate；分布式优化器在 world 上归约；torchtitan _NormPartial + PP all-reduce）
@@ -665,7 +665,7 @@ torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_i
 
 ### 2. 本篇涉及的源码位置
 
-```text
+```text title="本篇涉及的源码位置"
 项目                  路径                                                          关键符号 / 内容
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Megatron Core         megatron/core/optimizer/clip_grads.py                         get_grad_norm_fp32 / clip_grad_by_total_norm_fp32 / count_zeros_fp32
@@ -739,7 +739,7 @@ PyTorch v2.13.0       torch/nn/utils/clip_grad.py                               
 
 ### 3. train-ledger 本篇增量：`signals/` 与 `data/replay_check.py`
 
-```text
+```text title="train-ledger/signals/ 与 data/ 目录"
 train-ledger/
   ledger/               第一、二篇
   sweep/  mfu_breakdown.py   第四篇
@@ -753,7 +753,7 @@ train-ledger/
 
 **`signals/logger.py`。** 只依赖标准库与 torch，一个进程一个文件，每步一行 JSON。它做三件框架通常不做的事：算 clip 前的 grad norm（用 `torch.nn.utils.get_total_norm`，与 torchtitan 同一函数）、算 param norm、从注意力模块的 hook 里取 logit 最大值。
 
-```python
+```python title="signals/logger.py：每步数值信号写 JSONL"
 # train-ledger/signals/logger.py
 """Per-step numerical signal logger -> JSONL.  One file per rank.
 
@@ -827,7 +827,7 @@ class SignalLogger:
 
 **`signals/plot.py`。** 读一个或多个 rank 的 JSONL，画四联图，并用第五章的规则标出候选 spike：
 
-```python
+```python title="signals/plot.py：四联图与候选 spike"
 # train-ledger/signals/plot.py — python plot.py signals/rank0.jsonl [--spike-factor 3] [--window 50]
 import argparse, json, statistics
 import matplotlib.pyplot as plt
@@ -863,7 +863,7 @@ plt.tight_layout(); plt.savefig("signals.png", dpi=120)
 
 **`data/replay_check.py`。** 三个子命令，都在 8 卡上用 `torchrun` 跑，只依赖 torch 与一个"能报告样本 id"的 dataset。样本 id 是什么由框架决定：Megatron 用 `GPTDataset` 的样本号（`shuffle_index` 之前的 idx，也就是 sampler 产出的整数）；torchtitan 用 `HuggingFaceTextDataset` 的 `_sample_idx` 加 buffer 长度（需要 dataset 在返回的 dict 里多带一个 `sample_id` 字段——练手项目里改一行）。核心校验只有一个：
 
-```python
+```python title="data/replay_check.py：replay / resume / check"
 # train-ledger/data/replay_check.py（核心部分）
 """
 replay   跑 N 步，每步把本 rank 拿到的 sample_id 追加到 ids_uninterrupted_rank{r}.txt

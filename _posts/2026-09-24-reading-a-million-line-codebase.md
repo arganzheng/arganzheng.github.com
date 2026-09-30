@@ -41,7 +41,7 @@ flowchart TB
 
 面对一个大型代码库，贡献者典型的失败方式有四种，它们都源于"读法不对"而非"读不懂"：
 
-```text
+```text title="四种失败方式"
 失败方式                 表现                                                    根因
 ───────────────────────  ──────────────────────────────────────────────────────  ──────────────────────────────
 从头读                   打开仓库根目录，按字母序点开子目录，一天后只看完 c10/ 的一半    没有目标；百万行不可能通读
@@ -56,7 +56,7 @@ flowchart TB
 
 六个步骤，与项目无关：
 
-```text
+```text title="六个步骤"
 步骤          做什么                                          为什么
 ────────────  ──────────────────────────────────────────────  ────────────────────────────────────────────
 1 画地图      列出顶层目录与一句话职责；找到项目自带的"地图"文件   知道每一层做什么，才知道一个符号该在哪一层找
@@ -73,7 +73,7 @@ flowchart TB
 
 同一个步骤，两个项目提供的辅助不同：
 
-```text
+```text title="同一步骤在 PyTorch 与 vLLM 里的辅助"
 环节              PyTorch v2.14.0                                        vLLM v0.28.0
 ────────────────  ─────────────────────────────────────────────────────  ──────────────────────────────────────────────
 自带地图          CONTRIBUTING.md 的 "Codebase structure" 一节；各子目录 README   docs/contributing/ 目录（README.md 等 16 个文件）；无目录职责表
@@ -166,14 +166,14 @@ vLLM 的分层比 PyTorch 简单：**`csrc/`（kernel）→ `vllm/`（一切其�
 
 **第二步：查登记表。** 所有 ATen 算子都登记在 `aten/src/ATen/native/native_functions.yaml`：
 
-```bash
+```bash title="第二步：查 native_functions.yaml"
 # 在 pytorch/ 根目录执行
 rg -n -A6 '^- func: logaddexp' aten/src/ATen/native/native_functions.yaml
 ```
 
 输出（v2.14.0）：
 
-```yaml
+```yaml title="native_functions.yaml 里的 logaddexp 条目"
 - func: logaddexp.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)
   structured: True
   structured_inherits: TensorIteratorBase
@@ -191,13 +191,13 @@ rg -n -A6 '^- func: logaddexp' aten/src/ATen/native/native_functions.yaml
 
 **第三步：找 `dispatch:` 指向的 C++ 函数。**
 
-```bash
+```bash title="第三步：找 dispatch 指向的 C++ 函数"
 rg -n 'logaddexp' aten/src/ATen/native/BinaryOps.cpp aten/src/ATen/native/BinaryOps.h
 ```
 
 输出：
 
-```text
+```text title="BinaryOps.cpp 里的 logaddexp"
 aten/src/ATen/native/BinaryOps.cpp:75:#include <ATen/ops/logaddexp2_native.h>
 aten/src/ATen/native/BinaryOps.cpp:76:#include <ATen/ops/logaddexp_native.h>
 aten/src/ATen/native/BinaryOps.cpp:324:CREATE_BINARY_META_FUNC(logaddexp)
@@ -210,13 +210,13 @@ aten/src/ATen/native/BinaryOps.h:95:DECLARE_DISPATCH(structured_binary_fn, logad
 
 **第四步：找 kernel。**
 
-```bash
+```bash title="第四步：找 kernel"
 rg -l 'logaddexp' aten/src/ATen/native/cpu aten/src/ATen/native/cuda
 ```
 
 输出：
 
-```text
+```text title="注册 logaddexp_stub 的两个 kernel 文件"
 aten/src/ATen/native/cpu/BinaryOpsKernel.cpp
 aten/src/ATen/native/cuda/LogAddExpKernel.cu
 ```
@@ -225,7 +225,7 @@ CPU kernel 是 `aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 里的 `logaddexp_
 
 把这条链写成一行，它对任何 `torch.<op>` 都适用：
 
-```text
+```text title="torch.<op> 到 kernel 的一行链"
 torch.<op>  →  torch/__init__.py 从 torch._C._VariableFunctions 导入
             →  native_functions.yaml 的 "- func: <op>" 条目（看 dispatch: 与 structured_delegate:）
             →  aten/src/ATen/native/<Something>.cpp 的 TORCH_IMPL_FUNC / 普通函数（常经过宏与 DEFINE_DISPATCH）
@@ -240,21 +240,21 @@ vLLM 的入口是一条 CLI 命令。目标：找到 `vllm serve <model>` 执行
 
 **第一步：命令从哪里进来。** Python 包的命令行入口在 `pyproject.toml`：
 
-```bash
+```bash title="第一步：查 pyproject.toml 的入口"
 # 在 vllm/ 根目录执行
 rg -n -A1 'project.scripts' pyproject.toml
 ```
 
 输出：
 
-```toml
+```toml title="[project.scripts] 的 vllm 入口"
 [project.scripts]
 vllm = "vllm.entrypoints.cli.main:main"
 ```
 
 **第二步：CLI 分发。** `vllm/entrypoints/cli/main.py` 的 `main()` 导入 `vllm.entrypoints.cli.serve`、`vllm.entrypoints.cli.openai`、`vllm.entrypoints.cli.benchmark.main`、`vllm.entrypoints.cli.run_batch`、`vllm.entrypoints.cli.collect_env`、`vllm.entrypoints.cli.launch` 六个子命令模块，用 `FlexibleArgumentParser` 建子解析器。`vllm/entrypoints/cli/` 目录本身就是子命令清单：
 
-```text
+```text title="vllm/entrypoints/cli/ 子命令清单"
 vllm/entrypoints/cli/
 ├── main.py          # main()：注册子命令、解析参数、分发
 ├── serve.py         # ServeSubcommand：vllm serve
@@ -270,7 +270,7 @@ vllm/entrypoints/cli/
 
 **第四步：HTTP 服务与引擎的创建。** `vllm/entrypoints/openai/api_server.py` 是 OpenAI 兼容服务的主文件：`run_server()` → `run_server_worker()` 启动 uvicorn；`build_async_engine_client()` → `build_async_engine_client_from_engine_args()` 创建引擎客户端，后者的关键一行是：
 
-```python
+```python title="api_server.py 创建 AsyncLLM 的关键一行"
 from vllm.v1.engine.async_llm import AsyncLLM
 ...
 async_llm = AsyncLLM.from_vllm_config(...)
@@ -282,7 +282,7 @@ async_llm = AsyncLLM.from_vllm_config(...)
 
 写成一行：
 
-```text
+```text title="vllm serve 到引擎的一行链"
 vllm serve  →  pyproject.toml [project.scripts]
             →  vllm/entrypoints/cli/main.py  main()
             →  vllm/entrypoints/cli/serve.py  ServeSubcommand.cmd()
@@ -305,7 +305,7 @@ PyTorch 有大量代码不在仓库里，而是构建时由 `torchgen/` 与 `too
 
 生成物的位置（v2.14.0 的 `.gitignore` 与 `cmake/Codegen.cmake` 为准）：
 
-```text
+```text title="torchgen 生成物的位置"
 生成物                                        位置                                          来源
 ────────────────────────────────────────────  ──────────────────────────────────────────  ────────────────────────────────────────────
 ATen/ops/<op>.h、<op>_native.h、<op>_ops.h 等   build/aten/src/ATen/ops/（安装后 torch/include/ATen/ops/）   torchgen/gen.py 读 native_functions.yaml
@@ -334,7 +334,7 @@ torch/_VF.pyi、torch/return_types.pyi、torch/nn/functional.pyi   同上       
 
 vLLM 没有源码级的代码生成，但有另一种"找不到定义"：**编译进 `.so` 的算子**。`vllm/_custom_ops.py` 里几乎每个函数都是 `torch.ops._C.<name>(...)` 一行；`torch.ops._C` 这个命名空间是在扩展模块加载时填充的。追法：
 
-```bash
+```bash title="追 torch.ops._C.rms_norm"
 # 在 vllm/ 根目录执行
 rg -n 'rms_norm\(' csrc/libtorch_stable/torch_bindings.cpp
 rg -ln 'void rms_norm\(' csrc
@@ -346,7 +346,7 @@ rg -ln 'void rms_norm\(' csrc
 
 vLLM 版的一行链：
 
-```text
+```text title="vLLM 版的一行链：_custom_ops 到 .cu"
 vllm/model_executor/layers/<layer>.py  →  vllm/_custom_ops.py  def <name>()：torch.ops._C.<name>(...)
                                        →  csrc/libtorch_stable/torch_bindings.cpp  ops.def("<name>(...)") / ops.impl(...)
                                        →  csrc/libtorch_stable/<kernel>.cu  或  csrc/cpu/<kernel>.cpp
@@ -368,7 +368,7 @@ vllm/model_executor/layers/<layer>.py  →  vllm/_custom_ops.py  def <name>()：
 
 `pytorch CONTRIBUTING.md` 与 `AGENTS.md` 给出的命令是同一条：
 
-```bash
+```bash title="PyTorch 全量构建"
 # 在 pytorch/ 根目录执行；C++/CUDA 全量构建，首次数十分钟到数小时
 python -m pip install -e . -v --no-build-isolation
 ```
@@ -377,7 +377,7 @@ python -m pip install -e . -v --no-build-isolation
 
 首次构建可以关掉不需要的部分。"Build only what you need" 一节列出了 `USE_CUDA=0`、`USE_DISTRIBUTED=0`、`BUILD_TEST=0`、`USE_MKLDNN=0`、`USE_FLASH_ATTENTION=0` 等环境变量，并给了一个最小配置的 alias：
 
-```bash
+```bash title="BUILD_CONFIG alias：最小构建"
 alias BUILD_CONFIG='CMAKE_GENERATOR=Ninja USE_DISTRIBUTED=0 USE_FLASH_ATTENTION=0 USE_MEM_EFF_ATTENTION=0 USE_MKLDNN=0 USE_CUDA=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_XNNPACK=0 BUILD_LAZY_TS_BACKEND=0 USE_PYTORCH_QNNPACK=0 USE_CPU_VECTORIZATION=0 USE_COLORIZE_OUTPUT=1'
 BUILD_CONFIG pip install --no-build-isolation -v -e .              # 最小 CPU 构建
 BUILD_CONFIG USE_CUDA=1 pip install --no-build-isolation -v -e .   # 加上 CUDA
@@ -385,7 +385,7 @@ BUILD_CONFIG USE_CUDA=1 pip install --no-build-isolation -v -e .   # 加上 CUDA
 
 对第三章那个 CUDA kernel 的修复，需要 `USE_CUDA=1`；对一个纯 Python 的改动（比如 `torch/nn/` 或 `torch/_dynamo/`），根本不需要编译 C++——这是 `tools/nightly.py` 的用途。`CONTRIBUTING.md` 的 "Nightly Checkout & Pull" 一节：
 
-```bash
+```bash title="tools/nightly.py：纯 Python 改动不编 C++"
 ./tools/nightly.py checkout -b my-nightly-branch          # 新建分支并安装 nightly 预编译二进制到仓库目录
 ./tools/nightly.py checkout -b my-nightly-branch --cuda   # CUDA 版
 ./tools/nightly.py pull                                   # 把 nightly 提交拉进当前分支并重装
@@ -400,7 +400,7 @@ v2.14.0 的 `CONTRIBUTING.md` 有一节 "Spin"，把 `spin` 作为开发命令�
 
 `vllm docs/contributing/README.md` 的 "Developing" 一节把两种情况分开：
 
-```bash
+```bash title="vLLM 的两种安装方式"
 # 在 vllm/ 根目录执行
 # 只改 Python：用预编译的 kernel wheel，几分钟
 VLLM_USE_PRECOMPILED=1 uv pip install -e .
@@ -415,7 +415,7 @@ uv pip install -e . --no-build-isolation
 
 改 kernel 时，每次 `uv pip install -e .` 全量重编太慢。`vllm docs/contributing/incremental_build.md`（标题 "Incremental Compilation Workflow"）给出的做法是绕过 pip、直接用 CMake 增量编译：
 
-```bash
+```bash title="vLLM 的 CMake 增量编译"
 # 在 vllm/ 根目录执行
 python tools/generate_cmake_presets.py       # 生成 CMakeUserPresets.json（自动探测 nvcc、Python、核数）
 cmake --preset release                       # 配置，构建目录 cmake-build-release/
@@ -426,7 +426,7 @@ cmake --build --preset release --target install   # 编译并把 _C_stable_libto
 
 ### 4. 两个项目的对照
 
-```text
+```text title="两个项目构建方式的对照"
                    PyTorch v2.14.0                                  vLLM v0.28.0
 ─────────────────  ───────────────────────────────────────────────  ────────────────────────────────────────────
 只改 Python        tools/nightly.py checkout（nightly 预编译二进制）    VLLM_USE_PRECOMPILED=1 uv pip install -e .
@@ -448,14 +448,14 @@ compile_commands   pip install -e 生成（需 ninja）                    cmake
 
 找一个算子的测试：
 
-```bash
+```bash title="找 logaddexp 的测试"
 # 在 pytorch/ 根目录执行
 rg -l 'logaddexp' test/*.py
 ```
 
 输出：
 
-```text
+```text title="含 logaddexp 的测试文件"
 test/test_binary_ufuncs.py
 test/test_decomp.py
 test/test_ops_gradients.py
@@ -472,7 +472,7 @@ PyTorch 的测试建立在 `torch/testing/_internal/` 上，有三个必须认�
 
 **`common_utils.py` 的 `TestCase` 与 `run_tests`。** `class TestCase(expecttest.TestCase)` 是所有测试类的基类，提供 `assertEqual`（对 Tensor 做带容差的比较）等断言；`run_tests()` 是每个测试文件末尾 `if __name__ == "__main__": run_tests()` 调用的入口，处理命令行参数、并行、重试等。`AGENTS.md` 的 "Testing" 一节给的骨架就是这四行：
 
-```python
+```python title="PyTorch 测试文件的骨架"
 from torch.testing._internal.common_utils import run_tests, TestCase
 
 class TestFeature(TestCase):
@@ -484,7 +484,7 @@ if __name__ == "__main__":
 
 **`common_device_type.py` 的 `instantiate_device_type_tests`。** 一个测试类写一次，按设备实例化成多个类。`test/test_binary_ufuncs.py` 末尾：
 
-```python
+```python title="instantiate_device_type_tests 的用法"
 instantiate_device_type_tests(TestBinaryUfuncsDevice, globals(), allow_xpu=True)
 instantiate_device_type_tests(TestBinaryUfuncsCUDA, globals(), only_for="cuda")
 ```
@@ -493,7 +493,7 @@ instantiate_device_type_tests(TestBinaryUfuncsCUDA, globals(), only_for="cuda")
 
 **`common_methods_invocations.py` 的 OpInfo。** 这是 PyTorch 对每个算子的元数据登记：支持的 dtype、是否支持 forward AD、样例输入生成器、已知的跳过项。`logaddexp` 的条目：
 
-```python
+```python title="logaddexp 的 OpInfo 条目"
 BinaryUfuncInfo('logaddexp',
                 dtypes=floating_and_complex_types_and(torch.bfloat16, torch.float16),
                 dtypesIfCUDA=floating_and_complex_types_and(torch.bfloat16, torch.float16, torch.complex32),
@@ -512,7 +512,7 @@ BinaryUfuncInfo('logaddexp',
 
 在 v0.28.0 检出上，`tests/` 有 40 个子目录、顶层 26 个 `test_*.py`。子目录与 `vllm/` 的子系统大致一一对应：
 
-```text
+```text title="vLLM tests/ 子目录与子系统的对应"
 tests/kernels/        对应 csrc/ 与 vllm/model_executor/layers/：attention/、moe/、quantization/、mamba/、core/；test_cache_kernels.py 等
 tests/v1/             对应 vllm/v1/：engine/、core/、worker/、executor/、attention/、sample/、spec_decode/、kv_connector/、structured_output/、e2e/
 tests/entrypoints/    对应 vllm/entrypoints/：openai/、llm/、serve/、anthropic/、tool_parsers/
@@ -535,7 +535,7 @@ vLLM 没有 PyTorch 那样厚的测试框架层，`tests/conftest.py` 与各子�
 
 代码只回答"它是什么"，历史回答"它为什么是这样"。三条 git 命令覆盖大部分需要：
 
-```bash
+```bash title="三条 git 历史命令"
 # 这一行/这一段是谁在哪次改动里写的（-w 忽略空白改动，-C 跟踪跨文件移动）
 git blame -w -C -L <start>,<end> --date=short <file>
 
@@ -553,14 +553,14 @@ git show --stat --format= <sha>
 
 以第三章那个 CUDA kernel 为例：
 
-```bash
+```bash title="看 LogAddExpKernel.cu 的最近三次提交"
 # 在 pytorch/ 根目录执行
 git log -3 --format='%h %cs %s' -- aten/src/ATen/native/cuda/LogAddExpKernel.cu
 ```
 
 输出（v2.14.0）：
 
-```text
+```text title="LogAddExpKernel.cu 的提交记录（v2.14.0）"
 1ccb743b7b5 2025-11-29 [BE][4/5] fix typos in aten/ (aten/src/ATen/native/) (#157553)
 2ddcf53e1a9 2025-11-17 Logaddexp complex inconsistent bw cpu and cuda (#163509)
 57a49018b10 2024-11-03 [5/N] Fix Wextra-semi warning  (#139465)
@@ -568,11 +568,11 @@ git log -3 --format='%h %cs %s' -- aten/src/ATen/native/cuda/LogAddExpKernel.cu
 
 第二条就是修引言那个 issue 的提交。看它的完整信息：
 
-```bash
+```bash title="查看 2ddcf53e1a9 的完整信息"
 git show -s --format='%H%n%an%n%cs%n%B' 2ddcf53e1a9
 ```
 
-```text
+```text title="commit 2ddcf53e1a9 的正文"
 2ddcf53e1a98d4453a2d2ff2422af19bc04bd26e
 Chris Leonard
 2025-11-17
@@ -593,11 +593,11 @@ PyTorch 的 commit message 是由合入机器人生成的，格式固定：标�
 
 `git blame` 的一个例子——看 CPU kernel `logaddexp_kernel` 的前三行是谁写的：
 
-```bash
+```bash title="git blame logaddexp_kernel 的前三行"
 git blame -w -C -L 1062,1064 --date=short aten/src/ATen/native/cpu/BinaryOpsKernel.cpp
 ```
 
-```text
+```text title="blame 输出：三行的作者与日期"
 0503105bc287 (Freey0 2021-05-07 1062) void logaddexp_kernel(TensorIteratorBase& iter) {
 455241bbd362 (CaoE   2023-11-06 1063)   if (at::isReducedFloatingType(iter.dtype())) {
 455241bbd362 (CaoE   2023-11-06 1064)     AT_DISPATCH_REDUCED_FLOATING_TYPES(iter.dtype(), "logaddexp_cpu", [&
@@ -609,12 +609,12 @@ git blame -w -C -L 1062,1064 --date=short aten/src/ATen/native/cpu/BinaryOpsKern
 
 vLLM 的 commit 是 GitHub squash merge 产生的，形态不同：
 
-```bash
+```bash title="看 serve.py 的最近五次提交"
 # 在 vllm/ 根目录执行
 git log -5 --format='%h %cs %s' -- vllm/entrypoints/cli/serve.py
 ```
 
-```text
+```text title="serve.py 的提交记录"
 fa722b9f01 2026-08-10 [Rust Frontend][gRPC] Add explicit data-parallel rank routing (#51178)
 7b9f2dad89 2026-08-06 [Frontend] Watch frontend processes during engine startup (#43417)
 726ef437a1 2026-07-31 [chore] delete useless code (#49424)
@@ -624,7 +624,7 @@ ab3b6d97aa 2026-07-04 [Frontend] Limit `SO_REUSEPORT` to multi-worker serving (#
 
 标题带 `[Frontend]`、`[chore]` 这类前缀（第三篇讲 PR 标题规范），末尾 `(#43417)` 是 PR 号。看正文：
 
-```bash
+```bash title="查看 7b9f2dad89 的完整信息"
 git show -s --format='%H%n%an%n%cs%n%B' 7b9f2dad89
 ```
 
@@ -641,7 +641,7 @@ git show -s --format='%H%n%an%n%cs%n%B' 7b9f2dad89
 
 两个项目的对比：
 
-```text
+```text title="两个项目 commit 形态的对比"
                       PyTorch                                              vLLM
 ────────────────────  ───────────────────────────────────────────────────  ───────────────────────────────────────────────
 commit 正文            PR 描述全文 + Fixes # + Pull Request resolved: + Approved by:   通常只有 Signed-off-by / Co-authored-by trailer
@@ -673,7 +673,7 @@ PR 号                  标题末尾 (#N)，正文 Pull Request resolved: 链接
 
 两个节奏放在一起：
 
-```text
+```text title="两个项目的发布节奏"
                     PyTorch                                     vLLM
 ──────────────────  ──────────────────────────────────────────  ──────────────────────────────────────────
 常规版本间隔         约 2 个月（RELEASE.md 日程表）                  约 2 周（"every 2 weeks"）
@@ -689,7 +689,7 @@ patch 版本           optional，日程表列出                          new m
 
 ### 1. 流程清单
 
-```text
+```text title="两小时定位一个报错的流程清单"
 时间     步骤                          做法                                                                产出
 ───────  ────────────────────────────  ──────────────────────────────────────────────────────────────────  ────────────────────
 0:00     读报错，提取符号               从 traceback / 错误信息里挑出 2–3 个最具体的标识符：函数名、类名、错误字符串     一个 grep 词表
@@ -732,7 +732,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 
 ### 1. 模板
 
-```markdown
+```markdown title="项目地图模板"
 项目地图：<项目> <版本 tag>（<填写日期>）
 
 [目录职责]
@@ -763,7 +763,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 
 ### 2. 样例：PyTorch v2.14.0
 
-```markdown
+```markdown title="项目地图样例：PyTorch v2.14.0"
 项目地图：PyTorch v2.14.0（2026-09-12）
 
 [目录职责]
@@ -817,7 +817,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 
 ### 3. 样例：vLLM v0.28.0
 
-```markdown
+```markdown title="项目地图样例：vLLM v0.28.0"
 项目地图：vLLM v0.28.0（2026-09-12）
 
 [目录职责]

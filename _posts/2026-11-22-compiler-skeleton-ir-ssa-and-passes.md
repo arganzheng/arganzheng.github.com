@@ -21,7 +21,7 @@ catalog: true
 
 贯穿全文的例子是一个六行的 C 函数：
 
-```c
+```c title="贯穿全文的 sum 函数"
 int sum(int *a, int n) {
   int s = 0;
   for (int i = 0; i < n; i++)
@@ -148,7 +148,7 @@ AST 忠实保留源码的结构：有 `+=` 这种复合赋值、有下标运算�
 
 优化用的 IR 是**线性**的：一串指令，每条做一件事，操作数是命名的临时值。最经典的形式叫**三地址码**（three-address code）：每条指令最多一个运算、两个源操作数、一个目标操作数。`s += a[i] * 2` 展开成三地址码是：
 
-```text
+```text title="s += a[i] * 2 的三地址码"
 t1 = a + i * 4      ; 地址
 t2 = load t1        ; 取值
 t3 = t2 * 2
@@ -184,13 +184,13 @@ flowchart TB
 
 把 `sum.c` 用 clang 编成 LLVM IR，不开优化：
 
-```bash
+```bash title="用 clang 生成 -O0 的 LLVM IR"
 clang -S -emit-llvm -O0 -Xclang -disable-O0-optnone -fno-discard-value-names -o sum.O0.ll sum.c
 ```
 
 `-fno-discard-value-names` 让 IR 保留源码里的变量名，便于对照；`-disable-O0-optnone` 去掉 `-O0` 默认给函数打的 `optnone` 属性，否则下一章的 `opt` 会跳过这个函数什么都不做。输出的函数体：
 
-```llvm
+```llvm title="sum.O0.ll 的函数体"
 define i32 @sum(ptr noundef %a, i32 noundef %n) #0 {
 entry:
   %a.addr = alloca ptr, align 8                     ; ①
@@ -266,7 +266,7 @@ LLVM IR 在这三个维度上各选了一端：低层、非结构化、线性。
 
 把 `s` 变成 SSA 的做法是**重命名**：第一次赋值叫 `s0`，第二次叫 `s1`……
 
-```text
+```text title="循环里重命名 s 的困境"
 s0 = 0
 loop:
   s? = ...        ; 这里的 s 是 s0（第一次进循环）还是 s1（从回边回来）？
@@ -279,11 +279,11 @@ loop:
 
 LLVM 里把 `-O0` 那种"变量在内存里"的 IR 变成 SSA 的 pass 叫 `mem2reg`（memory to register）。单独跑它：
 
-```bash
+```bash title="单独跑 mem2reg"
 opt -S -passes=mem2reg sum.O0.ll -o sum.mem2reg.ll
 ```
 
-```llvm
+```llvm title="mem2reg 之后的 sum"
 define i32 @sum(ptr noundef %a, i32 noundef %n) #0 {
 entry:
   br label %for.cond
@@ -384,7 +384,7 @@ HotSpot C2 和 Graal 用的 IR 叫 **Sea of Nodes**（Cliff Click，1995）。�
 
 预告第三篇的一个细节：MLIR 没有 φ 指令。它用**基本块参数**（block arguments）表达同一件事——一个块可以像函数一样声明参数，跳转到它的每个前驱在跳转指令里传实参：
 
-```text
+```text title="MLIR 的块参数"
   cf.br ^loop(%c0, %c0 : i32, i32)       // 跳到 ^loop，传 s=0, i=0
 ^loop(%s: i32, %i: i32):                  // 块参数
   ...
@@ -449,7 +449,7 @@ Table: sum 函数活跃变量分析的不动点
 
 常量传播是前向、must 分析，格是三层的：
 
-```text
+```text title="常量传播的三层格"
         ⊤（不是常量 / 可能是多个值）
    /   |   |   \
  …  -1   0   1  …      （具体常量）
@@ -482,7 +482,7 @@ Table: 分析精度的几个维度
 
 ### 1. 常量折叠与指令组合
 
-```bash
+```bash title="fold.ll 与 instcombine"
 cat > fold.ll <<'EOF'
 define i32 @f(i32 %x) {
   %a = add i32 3, 4
@@ -495,7 +495,7 @@ EOF
 opt -S -passes=instcombine fold.ll
 ```
 
-```llvm
+```llvm title="instcombine 之后的 @f"
 define i32 @f(i32 %x) {
   %b = shl i32 %x, 3
   ret i32 %b
@@ -506,7 +506,7 @@ define i32 @f(i32 %x) {
 
 ### 2. 公共子表达式消除与 GVN
 
-```bash
+```bash title="cse.ll 与 gvn"
 cat > cse.ll <<'EOF'
 define i32 @g(i32 %x, i32 %y) {
   %a = mul i32 %x, %y
@@ -520,7 +520,7 @@ EOF
 opt -S -passes=early-cse cse.ll
 ```
 
-```llvm
+```llvm title="gvn 之后的 @g"
 define i32 @g(i32 %x, i32 %y) {
   %a = mul i32 %x, %y
   %b = add i32 %a, 1
@@ -533,7 +533,7 @@ define i32 @g(i32 %x, i32 %y) {
 
 ### 3. 死代码消除
 
-```bash
+```bash title="dce.ll 与 dce"
 cat > dce.ll <<'EOF'
 define i32 @h(i32 %x) {
   %unused = mul i32 %x, %x
@@ -544,7 +544,7 @@ EOF
 opt -S -passes=dce dce.ll
 ```
 
-```llvm
+```llvm title="dce 之后的 @h"
 define i32 @h(i32 %x) {
   %r = add i32 %x, 1
   ret i32 %r
@@ -555,7 +555,7 @@ define i32 @h(i32 %x) {
 
 ### 4. 循环不变量外提
 
-```bash
+```bash title="licm.ll 与 licm"
 cat > licm.ll <<'EOF'
 define void @k(ptr %p, i32 %n, i32 %x, i32 %y) {
 entry:
@@ -575,7 +575,7 @@ EOF
 opt -S -passes='loop-mssa(licm)' licm.ll
 ```
 
-```llvm
+```llvm title="licm 之后的 @k"
 define void @k(ptr %p, i32 %n, i32 %x, i32 %y) {
 entry:
   %inv = mul i32 %x, %y
@@ -598,7 +598,7 @@ exit:                                             ; preds = %loop
 
 ### 5. 内联
 
-```bash
+```bash title="inline.ll 与 inline"
 cat > inline.ll <<'EOF'
 define internal i32 @sq(i32 %x) {
   %r = mul i32 %x, %x
@@ -613,7 +613,7 @@ EOF
 opt -S -passes='inline,instcombine' inline.ll
 ```
 
-```llvm
+```llvm title="inline 之后的 @m"
 define i32 @m(i32 %a) {
   %r.i = mul i32 %a, %a
   %t = add i32 %r.i, 1
@@ -666,7 +666,7 @@ pass 又分两类：**analysis** 只计算信息不改 IR（支配树、活跃�
 
 Triton 的编译器也是一个列表。`third_party/nvidia/backend/compiler.py` 的 `make_ttir` 全文只有这几行：
 
-```python
+```python title="Triton 的 make_ttir：pass 列表"
 def make_ttir(mod, metadata, opt, capability):
     pm = ir.pass_manager(mod.context)
     pm.enable_debug()

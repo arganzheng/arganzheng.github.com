@@ -133,7 +133,7 @@ $$
 
 推导可能出错，所以用**有限差分**验证——导数的定义就是"参数动一点点，函数值变多少"：把 $$w_j$$ 加上一个很小的 $$h$$（如 $$10^{-6}$$）算一次 loss、减去 $$h$$ 再算一次，两者之差除以 $$2h$$ 就是导数的数值近似。它慢（每个参数算两次 loss）但不会推错，是检查梯度公式的标准办法：
 
-```text
+```text title="公式梯度与有限差分的对照"
 公式算的梯度   [ 0.037713 -0.181696 -0.060722  0.146158]
 有限差分算的   [ 0.037713 -0.181696 -0.060722  0.146158]   最大差 4.3e-11
 ```
@@ -142,7 +142,7 @@ $$
 
 ### 1. 十二行
 
-```python
+```python title="十二行逻辑回归"
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 
@@ -171,7 +171,7 @@ def fit_logistic(X, y, lr=0.1, steps=2000):             # X 已含一列 1（偏
 
 ![左：手写梯度下降的训练交叉熵从 0.69（= log 2，随机猜的 loss）在 50 步内降到 0.2 并稳定；右：二维平面上 P(y = 1 | x) 的等高线从蓝（0）渐变到红（1），黑色直线是 p = 0.5 的决策边界，把两团点大致分开，重叠区里有少数分错的点](/img/in-post/classical-ml-03-decision-boundary.svg)
 
-```text
+```text title="手写 GD 与 sklearn 的结果对照"
 手写 GD 500 步：w = [0.012 1.892 1.282]，训练准确率 0.930，最终交叉熵 0.201
 sklearn：       w = [0.012 1.892 1.283]，训练准确率 0.930
 ```
@@ -184,7 +184,7 @@ sklearn：       w = [0.012 1.892 1.283]，训练准确率 0.930
 
 569 个肿瘤、30 个数值特征（半径、纹理、凹点数……）、良性 / 恶性：
 
-```text
+```text title="乳腺癌数据上的结果"
 398 训练 / 171 测试；准确率 0.959；测试集每样本交叉熵 0.085
 手写 GD（同样的 L2 强度）：准确率 0.959
 |w| 最大的三个特征: ['radius error (-1.08)', 'worst texture (-1.07)', 'mean concave points (-1.01)']
@@ -215,7 +215,7 @@ $$
 
 算一个：三类的分数 $$z = (2, 1, 0)$$，先各取 $$e^z$$ 得 $$(7.39, 2.72, 1.00)$$，和是 11.11，各除以和得 $$p = (0.665, 0.245, 0.090)$$——三个正数、和为 1、分数最高的类概率最大，而且分差 1 对应概率比 $$e \approx 2.72$$ 倍。$$K = 2$$ 时 softmax 退化成 sigmoid（两个分数只有差值有用）。loss 只看真实类别 $$y$$ 的那个概率，希望它大：真实类是第 0 类就罚 $$-\log 0.665 = 0.41$$，是第 2 类就罚 $$-\log 0.090 = 2.4$$。梯度仍是 $$(p - y_{\text{one-hot}})\, x$$——把标签写成 **one-hot** 向量（长度 $$K$$，真实类的位置是 1、其余 0，如第 1 类写成 $$(0, 1, 0)$$），预测减真实、乘特征。代码与二元版只差一个 softmax：
 
-```python
+```python title="softmax 与多类逻辑回归"
 def softmax(Z):
     Z = Z - Z.max(1, keepdims=True)                     # 数值稳定：先减每行最大值（不改变结果，见下）
     E = np.exp(Z)
@@ -238,7 +238,7 @@ def fit_softmax(X, y, n_classes, lr=0.5, steps=500):
 
 ![左：一张 8×8 的手写数字图，真实标签 1；右：softmax 输出的 10 个类的概率柱状图，类 1 最高 0.74（红），类 8 有 0.22，其余接近 0](/img/in-post/classical-ml-03-softmax-digit.svg)
 
-```text
+```text title="手写数字上的结果：准确率与一个样本的概率"
 W 的形状 (65, 10)（64 个像素 + 1 偏置 → 10 类）；手写 softmax GD 500 步测试准确率 0.961；sklearn 0.970
 一个测试样本：10 个类的概率 [0.   0.74 0.   0.01 0.02 0.   0.   0.01 0.22 0.  ] → argmax 1，真实 1
 ```
@@ -271,13 +271,13 @@ $$
 
 造 300 个"回答"（各一个 16 维特征）、一个真实的"品味"向量 $$w^*$$，标注员按 Bradley-Terry 概率 $$\sigma(w^{*T}(x_A - x_B))$$ 随机给出偏好（所以标注**本身有噪声**——两个回答分数接近时标注员像抛硬币），共 3000 对：
 
-```python
+```python title="Bradley-Terry：特征取差后做逻辑回归"
 Xdiff = feats[i] - feats[j]                                                 # ① 特征取差
 clf = LogisticRegression(fit_intercept=False).fit(Xdiff[:ntr], y[:ntr])     # ② 无偏置的逻辑回归
 w_hand = fit_logistic(Xdiff[:ntr], y[:ntr])                                 # ③ 或者用第四章那 12 行（不加偏置列）
 ```
 
-```text
+```text title="奖励模型的结果：与真实 w 相关 0.999"
 2993 个偏好对，80% 训练；留出集准确率 0.915（用真实分数判断的上限 0.913——标注本身有噪声）
 学到的 w 与真实 w 的相关系数 0.999
 手写 GD（无偏置列）：留出集准确率 0.915，与真实 w 相关 0.999
@@ -360,7 +360,7 @@ flowchart LR
 
 完整脚本 [`case_03_sms_spam.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_03_sms_spam.py)，模型本身四行：
 
-```python
+```python title="case_03：TF-IDF 加逻辑回归四行"
 Xtr, Xte, ytr, yte = train_test_split(df.text, y, test_size=0.2, random_state=0, stratify=y)  # 分层：两边 spam 比例一样
 model = make_pipeline(
     TfidfVectorizer(ngram_range=(1, 2), min_df=2, sublinear_tf=True),  # 词与词对；只出现过 1 次的词不要

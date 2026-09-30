@@ -26,7 +26,7 @@ updated: 2026-09-14
 
 32B（Qwen3-32B 规格，32.8B 参数）、8 卡共置、FSDP 训练、vLLM TP = 8 推理，一步里显存的两次换手：
 
-```text
+```text title="32B 共置一步里显存的两次换手"
                                  每卡搬运字节        链路                 时间        隐性代价
 训练 → 生成
   ① 优化器状态 + fp32 主参数 → CPU   49 GB            PCIe D2H            2.0 s      需要 49 GB pinned 主机内存 / 卡
@@ -143,7 +143,7 @@ verl 的 hybrid 模式默认 **level 2**（`_sleep_hybrid()`）：新权重反�
 
 普通的 `cudaMalloc` 把虚拟地址与物理页一次分好，`cudaFree` 一起收回。vLLM 的 sleep mode 换成 CUDA 的**虚拟内存管理 API**（`cuMemAddressReserve` / `cuMemCreate` / `cuMemMap` / `cuMemUnmap` / `cuMemRelease`），把两步拆开。`vllm/device_allocator/cumem.py` 用 PyTorch 的 `CUDAPluggableAllocator` 接进 `torch.cuda.MemPool`，在 `with allocator.use_memory_pool(tag="weights")` / `tag="kv_cache"` 的上下文里分配的所有张量都经它之手，并带一个标签：
 
-```python
+```python title="cumem.py：sleep() 按标签备份或丢弃"
 # cumem.py（节选）—— sleep：按标签决定备份还是丢弃；两者都 unmap
 def sleep(self, offload_tags):
     for ptr, data in self.pointer_to_data.items():
@@ -239,7 +239,7 @@ Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_dist
 
 共置形态在 verl 里的具体形状是一个 worker 类同时持有三样东西：
 
-```text
+```text title="ActorRolloutRefWorker 持有的三样东西"
 ActorRolloutRefWorker
 ├── self.actor      TrainingWorker（FSDP / Megatron 引擎 + 优化器）
 ├── self.ref        TrainingWorker（同一引擎，只前向；LoRA 时与 actor 共用 base）
@@ -249,7 +249,7 @@ ActorRolloutRefWorker
 
 `sync` 模式下（`trainer_sync.py`）控制器在两个钩子调它：样本取够后 `sleep_replicas()`，训练完 `update_weights()`。后者展开就是第四章第 4 节的序列（`engine_workers.py`，节选）：
 
-```python
+```python title="engine_workers.py：update_weights() 的序列"
 async def update_weights(self, global_steps=None, mode="auto"):
     ...
     set_expandable_segments(False)                     # 推理引擎的 cuMem 池与 expandable segments 不共存
@@ -375,7 +375,7 @@ Table: 隐性代价的合计
 - **训练器侧 all-gather**：FSDP 的参数是分片的 DTensor，`get_per_tensor_param()` 返回一个生成器，逐参数 `.full_tensor()`——每个参数在 8 卡间 all-gather 成完整张量。全模型 66 GB 逐个流过每张卡（每卡接收其中 7/8），NVLink 450 GB/s 下约 0.15 秒的通信；生成器是懒的，同一时刻卡上只有一个参数的完整张量。
 - **CUDA IPC 分桶**：完整张量拷进一个固定大小的 bucket（`update_weights_bucket_megabytes`，默认 512 MB），bucket 的 CUDA IPC handle 经 ZMQ 发给同一张卡上的 vLLM worker 进程；worker 用 `rebuild_ipc` 打开 handle、按 `bucket_meta` 里的 offset / shape / dtype 切出每个张量、调 `model.load_weights()` 写入自己的 TP 分片；回 ACK，训练器填下一个 bucket。
 
-```text
+```text title="进程内权重同步：训练器与 vLLM worker"
 训练器进程                                   vLLM worker 进程（同一张卡）
 for name, param in get_per_tensor_param():
     full = param.full_tensor()   ← NVLink all-gather

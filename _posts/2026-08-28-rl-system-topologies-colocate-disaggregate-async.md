@@ -147,7 +147,7 @@ Table: verl 的角色与默认所在的组
 
 64 张卡轮流做三件事，每一步：
 
-```text
+```text title="共置同步的一步时间线（64 卡）"
       ├──────────── 生成 602 s ────────────┤ 切 ├── 前向 72 s ──┤├── 训练 136 s ──┤ 同步 ├
 GPU   ████████████████████████░░░░░░░░░░░░  0.2  ██████████████  ████████████████  0.3
       ↑ 吞吐部分 406 s          ↑ 长尾 196 s：越来越少的序列在跑，其余卡空转
@@ -197,7 +197,7 @@ $$T_{gen}(n_r) = 406 \times \frac{64}{n_r} + 196, \qquad T_{train}(n_t) = (72 + 
 
 $$T_{step} = \max\big(T_{gen}(n_r),\ T_{train}(n_t)\big) + T_{sync}$$
 
-```text
+```text title="一步流水：rollout 池与训练池"
 rollout 池 (46)  ├── 生成 batch t （用 θ_{t-1}）761 s ──┤├── 生成 batch t+1（用 θ_t）──┤
 训练池 (18)      ├── 训练 batch t-1 → θ_t  740 s ──┤ 等 ├── 训练 batch t → θ_{t+1} ──┤
                                                     ↑ 同步 θ_t 到 rollout 池（跨机，几秒）
@@ -227,7 +227,7 @@ rollout 池 (46)  ├── 生成 batch t （用 θ_{t-1}）761 s ──┤├�
 
 一步流水还有一道墙：训练池每步要等 rollout 池**整批**生成完。异步形态把批的概念在 rollout 侧拆掉：推理引擎持续运行，完成一条序列就进样本缓冲；训练器从缓冲里取满一个 mini-batch 就更新一次，每更新 $$k$$ 次向推理引擎同步一次权重；正在生成的序列不中断（或中断后用新权重继续——**部分 rollout**），完成后带着"它由哪几个版本的权重生成"的标签进缓冲。
 
-```text
+```text title="异步：流式生成与训练"
 rollout 池 (42)  ├─────────── 持续生成：完成一条进一条缓冲，换权重时在飞序列继续 ─────────────┤
                        θ_t ↓ 同步            θ_{t+1} ↓ 同步            θ_{t+2} ↓
 训练池 (22)      ├ 取 batch → 更新 ┤├ 取 batch → 更新 ┤├ 取 batch → 更新 ┤├ ……
@@ -363,7 +363,7 @@ Table: verl v1 trainer 的三种 trainer_mode
 
 三个子类共享 `fit()` 与 `_step_once()`（第二章第 2 节那十来行），差别只在几个**钩子**：
 
-```python
+```python title="verl 三种 trainer_mode 的钩子"
 # trainer_sync.py —— 共置同步：生成完 sleep，训练完 update_weights
 @register_trainer("sync")
 class PPOTrainerSync(PPOTrainer):
@@ -410,7 +410,7 @@ class PPOTrainerSeparateAsync(PPOTrainer):
 
 ### 3. 配置项速查
 
-```text
+```text title="verl v1 配置项速查"
 形态选择        trainer.v1.trainer_mode = sync | colocate_async | separate_async
 资源            trainer.nnodes × trainer.n_gpus_per_node            训练池（共置下即全部）
                 actor_rollout_ref.rollout.nnodes × n_gpus_per_node  standalone rollout 池（separate_async）
@@ -430,7 +430,7 @@ staleness       trainer.v1.sampler.max_off_policy_threshold           轨迹最�
 
 用 verl 的计时器名字（`timing_s/*`）把三种模式的一步对上：
 
-```text
+```text title="三种模式的一步时间线（timing_s/*）"
 sync            gen ──────────────┤ reward ┤ old_log_prob ┤ ref ┤ adv ┤ update_actor ┤ update_weights ┤
                 （gen 含 sleep；update_weights 含 wake_up、显存切换）
 

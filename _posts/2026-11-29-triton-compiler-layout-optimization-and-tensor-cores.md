@@ -57,7 +57,7 @@ Table: 本文的章节安排
 
 Coalesce 之后的循环体（上一篇 §六.2）：
 
-```text
+```text title="Coalesce 之后循环体里的多余转换"
 load(#blocked1) 的指针 ← convert ← #blocked1 的指针         ← 为 load 服务
 load 结果 #blocked6 → convert → #blocked1 → convert → #dot_op<parent=#blocked8>   ← 中间的 #blocked1 毫无用处
 累加器 #blocked → convert → #blocked8 → dot → #blocked8 → convert → #blocked      ← 每轮两次
@@ -101,7 +101,7 @@ Table: 哪些 op 是 layout 锚点
 
 一个值收到多个 layout 时（`resolveConflicts`），当前的规则很朴素（源码注释自称 "Hacky resolve"）：
 
-```cpp
+```cpp title="resolveConflicts 的规则"
 Attribute encoding = *info.encodings.begin();
 bool isLoadOrStore = op && isa<LoadOp, StoreOp, AtomicRMWOp, AtomicCASOp>(op);
 for (Attribute e : info.encodings) {
@@ -170,7 +170,7 @@ Table: 三种 hoist
 
 `AccelerateMatmul` 之后 `RemoveLayoutConversions` 再跑一次（`make_ttgir` 里两次 `add_remove_layout_conversions` 紧挨着 `add_accelerate_matmul` 前后）。`AccelerateMatmul` 把 3 个变成了 7 个：
 
-```mlir
+```mlir title="AccelerateMatmul 之后的 7 个 convert_layout"
 %53 = ttg.convert_layout %51 : #blocked1 -> #ttg.dot_op<{opIdx = 0, parent = #blocked}>          // 原有
 %54 = ttg.convert_layout %52 : #blocked2 -> #ttg.dot_op<{opIdx = 1, parent = #blocked}>          // 原有
 %55 = ttg.convert_layout %arg10 : tensor<128x128xf32, #blocked> -> tensor<128x128xf32, #mma>     // 新：累加器进 #mma
@@ -206,7 +206,7 @@ Table: 各 compute capability 的 MMA 版本偏好
 
 v2 的 `getMmaV2WarpsPerCTA(shape, numWarps)`：
 
-```cpp
+```cpp title="getMmaV2WarpsPerCTA"
 SmallVector<int64_t> reps = {ceil(shape[0], 16), ceil(shape[1], 8)};   // M、N 方向各要几条 m16n8 指令
 SmallVector<unsigned> warps = {1, 1};
 while (product(warps) < numWarps) {
@@ -225,7 +225,7 @@ Hopper 的 `warpsPerTileV3` 另有规则：`wgmma` 以 warp group（4 个 warp�
 
 `createMMAEncodingForDot` 建好 `#mma` 后，`convertDotOperandForMMA` 给 A、B 各建 `#dot_op<{opIdx, parent = #mma, kWidth}>`：
 
-```cpp
+```cpp title="convertDotOperandForMMA 的调用"
 int minBitwidth = std::min(computeOrigBitWidth(a), computeOrigBitWidth(b));
 a = convertDotOperandForMMA(a, 0, minBitwidth, newRetType, rewriter);   // kWidth 由 bitwidth 推出
 ```
@@ -234,7 +234,7 @@ a = convertDotOperandForMMA(a, 0, minBitwidth, newRetType, rewriter);   // kWidt
 
 ### 4. 两条改写路径
 
-```cpp
+```cpp title="Hopper 与 Ampere 的两条改写路径"
 if (mmaResult.versionMajor == 3) {                                          // Hopper
   a = aFromLoad ? getSharedMemoryMMAOperand(a, ...)                          // 从 load 来的 A：放进 shared memory（#nvmma_shared）
                 : convertDotOperandForMMA(a, 0, bitwidth, ...);              // 算出来的 A：留在寄存器的 #dot_op
@@ -283,7 +283,7 @@ Table: OptimizeDotOperands 的四条 pattern
 
 最终 TTGIR 的 epilogue：
 
-```mlir
+```mlir title="最终 TTGIR 的 epilogue"
 %c = arith.truncf %acc_55#0 : tensor<128x128xf32, #mma> to tensor<128x128xbf16, #mma>
 ...
 %0 = ttg.convert_layout %c : tensor<128x128xbf16, #mma> -> tensor<128x128xbf16, #blocked1>
@@ -304,7 +304,7 @@ Gluon（第九篇）里可以：用户直接用 `#mma` layout 做 store——每
 
 核心问题第二问。attention 里 `P = softmax(Q Kᵀ)` 出自第一个 `dot`（`#mma`），要作为 A 操作数进第二个 `dot`（`#dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>`）。这个 `#mma → #dot_op` 的转换走哪条路？用第七篇 §四.6 的判定直接问编译器——写一个只含这个转换的 TTGIR，lower 到 LLVM 方言，数 shared memory 指令与 barrier：
 
-```mlir
+```mlir title="mma2dot.mlir：只含 #mma → #dot_op 的转换"
 #mma = #ttg.nvidia_mma<{versionMajor = 2, versionMinor = 0, warpsPerCTA = [4, 1], instrShape = [16, 8]}>
 #dot0 = #ttg.dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>
 #blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8], warpsPerCTA = [4, 1], order = [1, 0]}>
@@ -320,7 +320,7 @@ tt.func @mma_to_blocked(%p: tensor<128x64xf16, #mma>, %ptrs: tensor<128x64x!tt.p
 }
 ```
 
-```bash
+```bash title="lower 到 LLVM 方言并数指令"
 triton-opt mma2dot.mlir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute-capability=80 | rg -o 'st\.shared[^ ]*|nvvm\.barrier|shfl\.sync\.[a-z]+|st\.global\.b16' | sort | uniq -c
 ```
 

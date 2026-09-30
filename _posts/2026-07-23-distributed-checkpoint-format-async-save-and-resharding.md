@@ -47,7 +47,7 @@ Table: 本篇用到的记账符号
 
 保存与加载各是一条流水线，两条线在磁盘上的目录里汇合：
 
-```text
+```text title="保存与加载的两条流水线"
 保存                                                                    加载
 ─────────────────────────────────────────────────                     ─────────────────────────────────────────────────
 训练状态（每 rank 持有自己的分片）                                       新的训练状态（可能是另一套 TP/PP/DP）
@@ -69,7 +69,7 @@ write：每 rank 写自己的文件；coordinator 写 .metadata                 
 
 ### 3. 三框架在 checkpoint 上的对照
 
-```text
+```text title="三框架在 checkpoint 上的对照"
                      Megatron Core 0.18.0                          DeepSpeed 0.19.2                        torchtitan v0.3.0
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 分片抽象             ShardedTensor / ShardedObject                 无；每 rank 的 state_dict 直接 torch.save    DTensor（FSDP2 / TP 原生）
@@ -114,7 +114,7 @@ Table: 本文的章节安排
 
 "精确恢复"的定义是：从 checkpoint 重启后，第 $$k+1$$ 步及之后每一步的 loss 与不中断的那次训练逐位相同（同一硬件、确定性 kernel 下），或至少在数值噪声范围内相同。要做到这一点，下面六样东西一样都不能少：
 
-```text
+```text title="精确恢复必需的六类内容"
 内容                 每参数字节        为什么必需                                      缺了会怎样
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 模型参数             2（bf16）或 4      前向的输入                                      没有模型
@@ -184,7 +184,7 @@ Table: rank-0 汇总的三个瓶颈
 
 分片 checkpoint 在磁盘上不是一个文件而是一个目录。三个框架的目录长得不一样，但结构一致——数据文件按写入者分、元数据集中：
 
-```text
+```text title="三种 checkpoint 目录的结构"
 DCP / torchtitan（step-1000/）                Megatron torch_dist（iter_0001000/）             DeepSpeed ZeRO（global_step1000/）
 ────────────────────────────────────          ─────────────────────────────────────           ──────────────────────────────────────────
 __0_0.distcp        rank 0 写的数据            __0_0.distcp … __N_0.distcp   同 DCP           mp_rank_00_model_states.pt     每个 TP/PP 位置一份
@@ -204,7 +204,7 @@ DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程
 
 `torch/distributed/checkpoint/state_dict_saver.py` 的 `save()` 最终调 `_save_state_dict()`，结构是两次集合通信包着四个局部函数：
 
-```text
+```text title="_save_state_dict 的四步：每个 rank 与 coordinator"
 每个 rank                                         coordinator（默认 rank 0）
 ──────────────────────────────────────────────    ───────────────────────────────────────────────────────
 local_step()
@@ -250,7 +250,7 @@ write_data()
 
 `torch/distributed/checkpoint/metadata.py` 里的几个 dataclass 是整个格式的核心：
 
-```text
+```text title="Metadata 的 dataclass 结构"
 Metadata
  ├─ state_dict_metadata: dict[fqn → TensorStorageMetadata | BytesStorageMetadata]
  │     TensorStorageMetadata
@@ -265,7 +265,7 @@ Metadata
 
 一个例子。TP=2 下保存 `layers.0.attention.wq.weight`（全局 `[4096, 4096]`，按第 0 维切）：
 
-```text
+```text title="TP=2 下 wq.weight 的 TensorStorageMetadata"
 state_dict_metadata["model.layers.0.attention.wq.weight"] =
   TensorStorageMetadata(
     properties = TensorProperties(dtype=torch.bfloat16),
@@ -289,7 +289,7 @@ storage_data[MetadataIndex(fqn, offset=[2048, 0])] = _StorageInfo("__1_0.distcp"
 
 PyTorch 文档里推荐的写法是把模型与优化器包成一个 `Stateful`：
 
-```python
+```python title="把模型与优化器包成 Stateful"
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 from torch.distributed.checkpoint.stateful import Stateful
 
@@ -310,7 +310,7 @@ class AppState(Stateful):
 
 ### 6. 对象模型图
 
-```text
+```text title="DCP 的对象模型图"
                        ┌──────────────── 用户侧 ────────────────┐
                        │ dict[str, Stateful | Tensor | DTensor | Any]│
                        │  ← get_model_state_dict / get_optimizer_state_dict（state_dict.py）
@@ -357,7 +357,7 @@ class AppState(Stateful):
 
 一个数字例子。上一节那个 `[4096, 4096]` 的权重在 TP=2 下存成两块 `[0:2048]`、`[2048:4096]`。现在换成 FSDP 在 6 个 rank 上按第 0 维切——4096 除不尽 6，DTensor 的分片是 683、683、683、683、683、681。把两侧的块沿第 0 维并排画出来，重分片就是左右两列的区间求交：
 
-```text
+```text title="重分片：磁盘块与加载侧本地块的区间求交"
 行号   磁盘上的块（TP=2 保存）             加载侧的本地块（FSDP 6 rank）
    0 ┌───────────────────────────┐    ┌──────────────────────┐
      │ chunk 0                   │    │ rank 0  [0, 683)     │
@@ -377,7 +377,7 @@ class AppState(Stateful):
 
 rank 0、1、3、4、5 的本地块各自完全落在一个磁盘块里，一个 `ReadItem` 就够；rank 2 的本地块是 `offsets=[1366, 0], sizes=[683, 4096]`，它跨过了 2048 这条线：
 
-```text
+```text title="rank 2 的本地块与两个磁盘块的交集"
 与已存块 0 [0:2048]    ：min(2048, 2049) - max(0, 1366) = 682   → ReadItem(storage_offsets=[1366, 0], dest_offsets=[0, 0],   lengths=[682, 4096])
 与已存块 1 [2048:4096] ：min(4096, 2049) - max(2048, 1366) = 1  → ReadItem(storage_offsets=[0, 0],    dest_offsets=[682, 0], lengths=[1, 4096])
 ```
@@ -428,7 +428,7 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 
 同步保存的时间线是：训练停 → GPU→主机拷贝 → plan 通信 → 写文件 → fsync → 写 `.metadata` → 训练继续，δ 是全部。异步保存把它切成三段：
 
-```text
+```text title="异步保存的三段时间线"
                  训练 step k     │ staging │  训练 step k+1   step k+2  …                    │ 训练 step k+n
 GPU / 主 stream  ────────────────┤ 阻塞 δ  ├──────────────────────────────────────────────────┤
                                  │ GPU→pinned host 拷贝（几百 MB ~ 十几 GB，PCIe 速度）
@@ -538,7 +538,7 @@ Megatron 早于 DTensor 建立了自己的分片描述。`megatron/core/dist_che
 
 `megatron/core/optimizer/distrib_optimizer.py` 的 `DistributedOptimizer.sharded_state_dict()` 按 `metadata['distrib_optim_sharding_type']` 分派到四种实现，这是 Megatron checkpoint 里最能体现"格式决定可重分片性"的地方：
 
-```text
+```text title="DistributedOptimizer 的四种分片"
 sharding_type               实现                                   磁盘表达                                  可重分片性         代价
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 dp_reshardable（默认）      sharded_param_state_dp_reshardable     每个 bucket 的连续缓冲切片，ShardedTensor    只能变 DP 度        零通信、零拷贝
@@ -552,7 +552,7 @@ dp_zero_gather_scatter      sharded_param_state_dp_zero            DP rank 0 gat
 
 两种格式在磁盘上"一块"指什么，画出来最清楚——同一个 bucket，`dp_reshardable` 按字节等分给 DP rank，`fully_reshardable` 按参数边界切：
 
-```text
+```text title="dp_reshardable 与 fully_reshardable 在 bucket 上的切法"
 DistributedOptimizer 的一个 bucket（DP=4）：参数按顺序拍平进一段连续 fp32 缓冲
 
  参数       p0 (wq)         p1 (wk)        p2 (wv)          p3 (wo)
@@ -577,7 +577,7 @@ fully_reshardable 磁盘上一块 = "p1 的 exp_avg 的第 j 块"（与模型参
 
 Megatron 0.18.0 的 CLI 参数由 dataclass 生成（第四篇讲过 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory`：字段名下划线换连字符）。checkpoint 相关字段在 `megatron/training/config/training_config.py` 的 `CheckpointConfig`，对应的 CLI：
 
-```text
+```text title="CheckpointConfig 的字段与 CLI"
 字段（CLI）                                         含义
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 save / load / save_interval（--save-interval）       目录与持久 checkpoint 间隔
@@ -648,7 +648,7 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 
 一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。以 8 个节点、J=2、F=3 为例，副本的放置与恢复路径是：
 
-```text
+```text title="本地 checkpoint 的副本放置（8 节点，J=2，F=3）"
 本地 checkpoint 的副本放置（8 节点，replication_jump J=2，replication_factor F=3）
 
 节点        0     1     2     3     4     5     6     7
@@ -684,7 +684,7 @@ $$
 
 Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 419 \approx 3.09$$ 小时。用第十章的 `ledger/checkpoint_interval.py` 算几个 δ：
 
-```text
+```text title="代入 Llama 3：几个 δ 下的 τ_opt 与浪费"
 δ                          τ_opt       最小浪费    每次故障期望损失    每天保存次数   对应的实现
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 600 s（同步、单写入者量级）   61 min      32.8%       40 min             24            第三章第 2 节的 rank-0 汇总
@@ -708,7 +708,7 @@ Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾"
 内容           参数 + 优化器（m, v, fp32 主参数 = 参数的 6 倍）+ 调度器 + 数据位置 + RNG + 步数（+ 配置）；缺一样就不是精确恢复
                优化器状态必须按参数 FQN 重编址（get_optimizer_state_dict / get_flat_optim_state_dict / make_sharded_optimizer_tensor）
 字节           训练态 16 B/参数，落盘 14（Megatron）或 12（FSDP2）；405B → 5.7 TB；与并行配置无关
@@ -729,7 +729,7 @@ Young          τ_opt = sqrt(2δM)，最小浪费 sqrt(2δ/M)；M ≈ 3.1 h 时 
 
 ### 2. 本篇涉及的源码位置
 
-```text
+```text title="本篇涉及的源码位置"
 项目                  路径                                                        关键符号 / 内容
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 PyTorch v2.13.0       torch/distributed/checkpoint/state_dict_saver.py            save / async_save / _save_state_dict；AsyncCheckpointerType；AsyncSaveResponse；
@@ -804,7 +804,7 @@ torchtitan v0.3.0     torchtitan/components/checkpointer/base.py                
 
 ### 3. train-ledger 本篇增量：`ckpt/` 与 `ledger/checkpoint_interval.py`
 
-```text
+```text title="train-ledger/ckpt/ 目录"
 train-ledger/
   ledger/
     checkpoint_interval.py   Young 公式、每次故障的期望损失、集群 MTBF（无 torch 依赖）
@@ -815,7 +815,7 @@ train-ledger/
 
 **`ledger/checkpoint_interval.py`** 是第九章那张表的来源，无 torch 依赖，`python3 ledger/checkpoint_interval.py` 直接跑：
 
-```python
+```python title="ledger/checkpoint_interval.py"
 # train-ledger/ledger/checkpoint_interval.py — Young 公式与每次故障的期望损失（无 torch 依赖）
 from __future__ import annotations
 
@@ -884,7 +884,7 @@ if __name__ == "__main__":
 
 输出：
 
-```text
+```text title="checkpoint_interval.py 的输出"
 Llama 3 集群 MTBF ≈ 3.09 h
 δ(s)     τ_opt      开销    每次故障期望损失   每天 checkpoint 次数
     600     60.9 min   32.8%      40.5 min              24
@@ -901,7 +901,7 @@ Llama 3 集群 MTBF ≈ 3.09 h
 
 **`ckpt/async_dcp.py`** 在单节点 8 卡上测第六章的两个数：`async_save` 返回前的阻塞时间（≈ staging）与 `future.result()` 的总时间，以及保存期间与平时的 step 时间差。模型故意用小的（几亿参数），让现象而不是 I/O 绝对量成为主角：
 
-```python
+```python title="ckpt/async_dcp.py"
 # train-ledger/ckpt/async_dcp.py — torchrun --nproc_per_node 8 ckpt/async_dcp.py --mode {sync,async,async_pinned}
 import argparse, os, time
 import torch, torch.nn as nn, torch.distributed as dist
@@ -1014,7 +1014,7 @@ if __name__ == "__main__":
 
 **`ckpt/reshard_check.py`** 验证第五章：用不同的 DP×TP 布局加载 `async_dcp.py` 存的 checkpoint，比对参数与 loss。用 `--nproc_per_node 8` 跑，`--tp` 取 1、2、4；也可以用 `--nproc_per_node 6` 跑 `--tp 1`，重现"15 个节点而不是 16 个"的那种不整除分片：
 
-```python
+```python title="ckpt/reshard_check.py"
 # train-ledger/ckpt/reshard_check.py — torchrun --nproc_per_node N ckpt/reshard_check.py --tp T --ckpt /tmp/ledger_ckpt/step-100
 import argparse, os
 import torch, torch.distributed as dist

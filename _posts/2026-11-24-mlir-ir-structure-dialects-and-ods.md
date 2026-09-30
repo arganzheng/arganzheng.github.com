@@ -21,7 +21,7 @@ Triton 编译器的 C++ 部分——`lib/` 目录下五万多行——没有一�
 
 贯穿的例子仍是第一篇的 `sum` 函数，这次写成 MLIR：
 
-```mlir
+```mlir title="sum 函数的 MLIR 版本"
 func.func @sum(%a: memref<?xi32>, %n: index) -> i32 {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -103,11 +103,11 @@ flowchart TB
 
 同一段 IR 有两种文本。上面那段是**自定义汇编格式**（每个 op 自己声明的可读写法）。加 `--mlir-print-op-generic` 得到**通用形式**——它就是数据结构的逐字段打印：
 
-```bash
+```bash title="打印通用形式"
 mlir-opt --mlir-print-op-generic sum.mlir
 ```
 
-```mlir
+```mlir title="sum 的通用形式"
 "builtin.module"() ({
   "func.func"() <{function_type = (memref<?xi32>, index) -> i32, sym_name = "sum"}> ({
   ^bb0(%arg0: memref<?xi32>, %arg1: index):
@@ -201,7 +201,7 @@ ODS（Operation Definition Specification）是 MLIR 用 LLVM 的 **TableGen** �
 
 一个最小的方言与 op（`toy/ToyOps.td`，模仿 `tt.addptr`）：
 
-```text
+```text title="toy/ToyOps.td：最小方言与 op"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
@@ -224,7 +224,7 @@ def Toy_AddPtrOp : Toy_Op<"addptr", [Pure, SameOperandsAndResultShape,
 
 生成：
 
-```bash
+```bash title="用 mlir-tblgen 生成声明与定义"
 mlir-tblgen -gen-op-decls -I /opt/homebrew/opt/llvm/include toy/ToyOps.td > toy/ToyOps.h.inc    # 202 行
 mlir-tblgen -gen-op-defs  -I /opt/homebrew/opt/llvm/include toy/ToyOps.td > toy/ToyOps.cpp.inc  # 311 行
 ```
@@ -249,7 +249,7 @@ Table: ODS 字段与生成物
 
 生成的类头（节选）：
 
-```cpp
+```cpp title="生成的 AddPtrOp 类头（节选）"
 class AddPtrOp : public ::mlir::Op<AddPtrOp,
     ::mlir::OpTrait::ZeroRegions, ::mlir::OpTrait::OneResult,
     ::mlir::OpTrait::OneTypedResult<::mlir::Type>::Impl, ::mlir::OpTrait::ZeroSuccessors,
@@ -285,7 +285,7 @@ public:
 
 `-gen-op-defs` 生成的 `verifyInvariantsImpl` 把 `arguments` 里的类型约束（`AnyInteger`）和 trait 里的约束（`TypesMatchWith`、`SameOperandsAndResultShape`）逐条检查：
 
-```cpp
+```cpp title="生成的 verifyInvariantsImpl"
 ::llvm::LogicalResult AddPtrOp::verifyInvariantsImpl() {
   {
     unsigned index = 0; (void)index;
@@ -308,7 +308,7 @@ public:
 
 ### 3. 自定义汇编格式
 
-`assemblyFormat = "$ptr `,` $offset attr-dict `:` type($result) `,` type($offset)"` 是一个小型 DSL：`$名字` 打印该操作数 / 属性，反引号里是字面量，`type(...)` 打印类型，`attr-dict` 打印剩余的可丢弃属性，`(`…`^)?` 是可选段，`oilist(...)` 是无序可选段列表。它同时生成 `parse` 和 `print`，保证往返一致。`hasCustomAssemblyFormat = 1` 则是"我自己手写 parse / print"——`scf.for` 那种 `%i = %lb to %ub step %s iter_args(...)` 的复杂语法就是手写的。
+`` assemblyFormat = "$ptr `,` $offset attr-dict `:` type($result) `,` type($offset)" `` 是一个小型 DSL：`$名字` 打印该操作数 / 属性，反引号里是字面量，`type(...)` 打印类型，`attr-dict` 打印剩余的可丢弃属性，`(`…`^)?` 是可选段，`oilist(...)` 是无序可选段列表。它同时生成 `parse` 和 `print`，保证往返一致。`hasCustomAssemblyFormat = 1` 则是"我自己手写 parse / print"——`scf.for` 那种 `%i = %lb to %ub step %s iter_args(...)` 的复杂语法就是手写的。
 
 ## 六、Trait 与 Interface
 
@@ -342,7 +342,7 @@ Table: Triton 用到的 trait 与 interface
 
 回答核心问题的第一问。`mlir-opt --loop-invariant-code-motion` 对：
 
-```mlir
+```mlir title="LICM 的输入"
 scf.for %i = %c0 to %n step %c1 {
   %inv = arith.muli %x, %y : i32
   %v = memref.load %q[%c0] : memref<?xi32>
@@ -353,7 +353,7 @@ scf.for %i = %c0 to %n step %c1 {
 
 结果：
 
-```mlir
+```mlir title="LICM 的结果"
 %0 = arith.muli %arg3, %arg4 : i32          // 外提了
 scf.for %arg5 = %c0 to %arg2 step %c1 {
   %1 = memref.load %arg1[%c0] : memref<?xi32>   // 没外提
@@ -385,7 +385,7 @@ Triton 的 `TritonLICM`（`lib/Dialect/Triton/Transforms/LoopInvariantCodeMotion
 
 `--convert-scf-to-cf` 把 `sum` 的循环变成非结构化形式：
 
-```mlir
+```mlir title="convert-scf-to-cf 之后的 sum"
 func.func @sum(%arg0: memref<?xi32>, %arg1: index) -> i32 {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -430,7 +430,7 @@ func.func @sum(%arg0: memref<?xi32>, %arg1: index) -> i32 {
 
 MLIR 内建的 `tensor` 类型有三个参数：shape、元素类型、和一个**可选的 `Attribute encoding`**——MLIR 没有规定 encoding 是什么，留给方言填。稀疏张量方言填稀疏格式，Triton 填 layout：
 
-```text
+```text title="tensor 类型的 encoding 槽位"
 tensor<128x32xbf16>                                         // TTIR：encoding 为空
 tensor<128x32xbf16, #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8], warpsPerCTA = [4, 1], order = [1, 0]}>>   // TTGIR
 ```
@@ -441,7 +441,7 @@ tensor<128x32xbf16, #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8
 
 `TritonGPUAttrDefs.td` 里 `#ttg.blocked` 的声明（节选）：
 
-```text
+```text title="BlockedEncodingAttr 的 ODS 声明（节选）"
 def BlockedEncodingAttr : DistributedEncoding<"BlockedEncoding", "blocked_encoding"> {
   let mnemonic = "blocked";
   let parameters = (
@@ -467,7 +467,7 @@ def BlockedEncodingAttr : DistributedEncoding<"BlockedEncoding", "blocked_encodi
 
 `include/triton/Dialect/Triton/IR/TritonOps.td`：
 
-```text
+```text title="TT_LoadOp 的定义"
 def TT_LoadOp : TT_Op<"load", [
   SameLoadStoreOperandsAndResultShape,                              // ①
   SameLoadStoreOperandsAndResultEncoding,
@@ -519,7 +519,7 @@ def TT_LoadOp : TT_Op<"load", [
 
 ### 2. `TT_DotOp` 与 `TT_ReduceOp`
 
-```text
+```text title="TT_DotOp 的定义"
 def TT_DotOp : TT_Op<"dot", [Pure,
                              DeclareOpInterfaceMethods<InferTypeOpInterface>,
                              DeclareOpInterfaceMethods<DotOpInterface>,
@@ -534,7 +534,7 @@ def TT_DotOp : TT_Op<"dot", [Pure,
 
 `Pure`：矩阵乘没有副作用，两个相同操作数的 `dot` 会被 CSE 合并、无人使用的会被删。`inputPrecision` 属性（`tf32` / `tf32x3` / `ieee`…）是 `F32DotTC` pass 的输入。`TypesMatchWith d == c`：结果类型等于累加器类型——**包括 layout**，这是为什么 `AccelerateMatmul` 改累加器 layout 时结果 layout 跟着变（第八篇）。
 
-```text
+```text title="TT_ReduceOp 的定义"
 def TT_ReduceOp: TT_Op<"reduce", [Pure, SameOperandsShape, SameOperandsEncoding, SingleBlock,
                                   DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
     let arguments = (ins Variadic<TT_Tensor>:$srcs, I32Attr:$axis);
@@ -549,7 +549,7 @@ def TT_ReduceOp: TT_Op<"reduce", [Pure, SameOperandsShape, SameOperandsEncoding,
 
 ### 3. `TritonGPU_Dialect`
 
-```text
+```text title="TritonGPU_Dialect 的定义"
 def TritonGPU_Dialect : Dialect {
   let name = "ttg";
   let cppNamespace = "::mlir::triton::gpu";

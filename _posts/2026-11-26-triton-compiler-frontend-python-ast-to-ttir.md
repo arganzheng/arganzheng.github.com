@@ -21,7 +21,7 @@ catalog: true
 
 贯穿本文和后面六篇的例子是同一个 BF16 matmul kernel：
 
-```python
+```python title="贯穿七篇的 BF16 matmul kernel"
 import triton
 import triton.language as tl
 
@@ -51,7 +51,7 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
 
 它假设 `K` 是 `BLOCK_K` 的倍数（K 循环里没有 mask），只在写回时处理 M、N 的边界。调用方式：
 
-```python
+```python title="matmul_kernel 的调用方式"
 a = torch.randn(1024, 512, device="cuda", dtype=torch.bfloat16)
 b = torch.randn(512, 2048, device="cuda", dtype=torch.bfloat16)
 c = torch.empty(1024, 2048, device="cuda", dtype=torch.bfloat16)
@@ -210,7 +210,7 @@ Table: ASTSource 的字段
 
 ### 1. 入口：`ast_to_ttir`
 
-```python
+```python title="ast_to_ttir 入口"
 def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None):
     arg_types = [None] * len(fn.arg_names)
     for k, v in src.signature.items():
@@ -280,7 +280,7 @@ flowchart TB
 
 `semantic.add` 的分派：
 
-```python
+```python title="semantic.add 的分派"
 def add(self, input, other, sanitize_overflow):
     input, other = self.binary_op_type_checking_impl(input, other, True, True)
     input_scalar_ty = input.type.scalar
@@ -309,7 +309,7 @@ def add(self, input, other, sanitize_overflow):
 
 `tl.load`、`tl.dot`、`tl.arange`、`tl.program_id` 在 `language/core.py` 里用 `@builtin` 装饰。`visit_Call` 求出被调对象后，`call_Function` 发现它是 builtin，就**在编译期直接调用它**，额外注入 `_semantic=self.semantic`：
 
-```python
+```python title="call_Function 里编译期调用 builtin"
 if (hasattr(fn, '__self__') and _is_triton_value(fn.__self__)) or language.core.is_builtin(fn) or ...:
     ...
     if '_semantic' in sig.parameters:
@@ -413,7 +413,7 @@ Table: tt 方言的 op 一览
 
 用 `ASTSource` 直接调 `triton.compile` 并停在 TTIR，不需要 GPU（`third_party/nvidia/backend/compiler.py` 的 `make_ttir` 只依赖 MLIR）：
 
-```python
+```python title="用 ASTSource 编到 TTIR"
 from triton.compiler import ASTSource, compile
 from triton.backends.compiler import GPUTarget
 
@@ -430,7 +430,7 @@ print(k.asm["ttir"])
 
 这一步不需要 `ptxas` 之外的任何 NVIDIA 组件——`make_cubin` 那一格才会调 `ptxas`；在没有它的机器上把 `TRITON_PTXAS_PATH` 指向一个只回答 `--version` 的脚本，前四格照常产出。下面是 Triton v3.8.0 产出的完整 TTIR（去掉了每行末尾的 `loc(#locN)`，`#loc` 定义表也略去）：
 
-```mlir
+```mlir title="matmul_kernel 的完整 TTIR（v3.8.0）"
 module {
   tt.func public @matmul_kernel(%a_ptr: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %b_ptr: !tt.ptr<bf16> {tt.divisibility = 16 : i32},
                                 %c_ptr: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %M: i32 {tt.divisibility = 16 : i32},
@@ -539,7 +539,7 @@ Table: make_ttir 的 pass 列表
 
 `Combine` 值得多看两眼，它是第四篇两种 pattern 写法的实例。DRR 那一条（`Combine.td`）：
 
-```text
+```text title="Combine.td 的 CombineAddPtrPattern"
 def CombineAddPtrPattern : Pat<
         (TT_AddPtrOp:$src (TT_AddPtrOp $ptr, $idx0), $idx1),
         (TT_AddPtrOp:$dest $ptr, (Arith_AddIOp $idx0, $idx1, DefOverflow)),
@@ -587,7 +587,7 @@ Table: Combine.cpp 的 pattern
 
 2. 下面的 kernel 片段能不能编译？如果不能，报什么样的错、为什么？
 
-   ```python
+   ```python title="自测：循环里改 acc 的 dtype"
    acc = tl.zeros((BLOCK,), dtype=tl.float32)
    for i in range(n):
        acc = acc.to(tl.float16)

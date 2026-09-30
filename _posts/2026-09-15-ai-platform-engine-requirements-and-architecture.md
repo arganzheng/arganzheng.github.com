@@ -47,7 +47,7 @@ updated: 2026-09-14
 
 Kubernetes 的核心对象——Pod、Deployment、Service、Job——建立在四个假设上：工作负载是**单 Pod 独立**的、资源是**可细分可压缩**的 CPU 与内存、网络是**一张 overlay 网卡**、服务的负载信号是**CPU 利用率**。AI 负载逐条违背这四个假设，于是有了四类空缺：
 
-```text
+```text title="K8s 的四个假设与 AI 负载的四类空缺"
 假设                          AI 负载的现实                          空缺
 ────────────────────────────  ────────────────────────────────────  ──────────────────────────────
 Pod 之间独立，逐个调度          训练是 W 个 Pod 强耦合，缺一不可         gang scheduling、队列与配额、拓扑
@@ -62,7 +62,7 @@ Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差�
 
 填这些空缺的组件，按"引擎之下"与"引擎之侧"分成两层。资源层的输入是裸节点与引擎的资源请求，输出是一组配好 GPU、网络、存储、能互相找到的 Pod；交付层的输入是这些 Pod，输出是一个有地址、有 SLA、有配额、有账单的服务。
 
-```text
+```text title="平台机制全局图：资源层与交付层"
                            请求（OpenAI 兼容协议）
                                   │
 交付层   ┌────────────────────────▼────────────────────────────────────────────────────────┐
@@ -108,7 +108,7 @@ Table: 本文的章节安排
 
 一个多机训练任务在平台眼里是**一组进程**。以 PyTorch 为例，每台机器上运行一个 `torchrun`（PyTorch 2.13.0 的 `torch/distributed/run.py`），它是一个 agent：本机起 `--nproc-per-node` 个 worker 进程，各绑一张卡，然后盯着它们。`--nnodes` 台机器上的 agent 通过 rendezvous 相互发现，共同构成一个大小为 $$W = \text{nnodes} \times \text{nproc\_per\_node}$$ 的进程组。
 
-```text
+```text title="torchrun 在 4 个节点上起的进程组"
 节点 0                        节点 1                        节点 2                        节点 3
 torchrun (agent)              torchrun (agent)              torchrun (agent)              torchrun (agent)
  ├─ worker RANK 0  GPU 0       ├─ worker RANK 8  GPU 0       ├─ worker RANK 16 GPU 0       ├─ worker RANK 24 GPU 0
@@ -190,7 +190,7 @@ flowchart TB
 
 最后是时间维度。训练任务是**有限时长的批处理**：提交、排队、被调度、运行数小时到数周、结束或失败、释放全部资源。它的运行时间由数据量和算力决定，与外部请求无关；它在排队时不占资源，在运行时独占资源，中间没有"部分运行"的状态（弹性训练是例外，但改变 $$W$$ 要重新 rendezvous，是重启而非平滑扩缩）。
 
-```text
+```text title="训练任务的生命周期"
 提交 ──▶ 排队（等配额 / 等资源凑齐）──▶ 全员调度 ──▶ rendezvous ──▶ 运行 ──▶ 完成 / 失败 ──▶ 释放全部 GPU
                                                       │                  │
                                                       │                  └─ 每 T 分钟写一次 checkpoint
@@ -205,7 +205,7 @@ flowchart TB
 
 推理服务的基本单位是**副本**（replica）：一个能独立服务完整请求的引擎实例。副本的物理形态取决于模型放不放得进一张卡：
 
-```text
+```text title="一个副本的三种形态"
 形态                     模型规模（bf16 权重）     K8s 对象          备注
 ──────────────────────  ──────────────────────  ───────────────  ─────────────────────────────────────
 一个进程，一张卡          ≲ 60 GB（7B–30B）         Pod × 1           最简单；一张 80 GB 卡放权重 + KV cache
@@ -231,7 +231,7 @@ flowchart TB
 
 同一张 80 GB 卡上，权重占多少直接决定 KV cache 剩多少：
 
-```text
+```text title="80 GB 卡上权重与 KV cache 的分配"
 80 GB 卡，--gpu-memory-utilization=0.92 → 引擎预留 73.6 GB，其余留给 CUDA context 等
 
 7B bf16   ┌───────────┬────────────────────────────────────────────────┬─────┐
@@ -253,7 +253,7 @@ KV cache 决定同时能服务多少 token；两张图的 KV 段差 4 倍多，�
 
 一个 Web 服务的副本扩容以秒计：调度、拉一个几百 MB 的镜像、进程起来、就绪探针通过。推理副本的扩容多了一个主项：**把几十到几百 GB 的权重从存储读进显存**。
 
-```text
+```text title="扩容一个推理副本的耗时分解"
 阶段                       典型耗时              取决于
 ────────────────────────  ──────────────────  ────────────────────────────────────
 调度 + 等 GPU 空出           秒到分钟             有没有空卡；要不要等节点扩容（云上加节点是分钟级）
@@ -290,7 +290,7 @@ Table: vLLM 与扩缩容和路由直接相关的 Prometheus 指标
 
 与训练相反，推理服务是**长驻**的：它的运行时间由业务决定，负载随时间波动，副本数随负载变化，版本要在不停服的情况下更新。
 
-```text
+```text title="推理服务的生命周期"
 部署 ──▶ 副本就绪（加载权重）──▶ 接流量 ──▶ 随负载扩缩 ──▶ 滚动升级（新旧版本并存）──▶ ... ──▶ 下线
                                         │
                                         └─ 低谷时缩到最少副本或零；高峰前提前扩容
@@ -304,7 +304,7 @@ Table: vLLM 与扩缩容和路由直接相关的 Prometheus 指标
 
 把第二、三章的需求并排放：
 
-```text
+```text title="训练任务与推理服务的对照表"
 维度              训练任务                                  推理服务
 ───────────────  ────────────────────────────────────────  ────────────────────────────────────────
 资源粒度          整卡，整节点，越多越好                        整卡或一部分卡；小模型只要一张卡的几分之一
@@ -348,7 +348,7 @@ Filter 阶段对 GPU 的判断在 `pkg/scheduler/framework/plugins/noderesources
 
 这个模型对训练任务的后果是：32 个 Pod 逐个调度，前 30 个成功、后 2 个 Pending，前 30 个占着 240 张卡等待；另一个任务的 Pod 恰好拿走了剩下的卡，两个任务都凑不齐、都不释放——死锁。用一个更小的池把这个状态画出来：
 
-```text
+```text title="逐 Pod 调度导致的死锁：48 卡池"
 池：6 台 8 卡节点 = 48 张卡；任务 A、B 同时提交，各要 4 个 Pod × 8 卡
 
           节点1   节点2   节点3   节点4   节点5   节点6
@@ -397,7 +397,7 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 
 汇总起来，原生 Kubernetes 在 AI 负载面前有三种性质的空缺：
 
-```text
+```text title="原生 Kubernetes 的三种空缺"
 性质            表现                                                    填法
 ─────────────  ──────────────────────────────────────────────────────  ─────────────────────────────
 缺一个插件      GPU 不被识别（Insufficient nvidia.com/gpu）；RDMA 设备不在容器里    device plugin / Operator，机制不变
@@ -477,7 +477,7 @@ sequenceDiagram
 
 把总览里的图展开成表，每个组件标注它填的是第五章哪类空缺、解决第二、三章哪条需求：
 
-```text
+```text title="组件全景图按层落位"
 层        组件（版本）                                   填的空缺                    解决的需求                          篇
 ────────  ──────────────────────────────────────────  ─────────────────────────  ────────────────────────────────  ──
 设备      NVIDIA GPU Operator v26.7.0                  缺插件：驱动、Toolkit、插件      容器看到 GPU；节点标签有型号           2
@@ -523,7 +523,7 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 设定：一个 70B 级模型的预训练，4 台 8 卡节点，节点内 TP=8、节点间 DP=4；每 30 分钟写一次 checkpoint；所属团队配额 32 卡，另一团队配额也是 32 卡，共用一个 64 卡池。
 
-```text
+```text title="训练任务的需求与原生 K8s 能否满足"
 #   需求                                                   原生 Kubernetes 能否满足                                          补缺篇
 ──  ───────────────────────────────────────────────────  ──────────────────────────────────────────────────────────────  ─────
 1   4 个 Pod，每个恰好 8 张卡，全在一个节点上                 部分：resources.limits 能表达 8，但 nvidia.com/gpu 要先由插件上报    2
@@ -549,7 +549,7 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 设定：一个 30B 级模型，bf16 权重约 60 GB，TP=2 放在两张 80 GB 卡上；白天 6 个副本、夜间 1 个；同一模型名下要灰度一个 FP8 版本；两个租户各有 TPM 配额。
 
-```text
+```text title="推理服务的需求与原生 K8s 能否满足"
 #   需求                                                   原生 Kubernetes 能否满足                                          补缺篇
 ──  ───────────────────────────────────────────────────  ──────────────────────────────────────────────────────────────  ─────
 1   每副本一个 Pod、2 张卡、同节点、最好 NVLink 相连            部分：2 张卡能请求；是否 NVLink 相连取决于插件的分配策略               2、4
@@ -575,7 +575,7 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 两张表合起来，原生 Kubernetes **模型层面**满足不了的需求可以归为五组，每组对应一篇：
 
-```text
+```text title="原生满足不了的五组需求"
 组                                  训练表          推理表          机制                                  篇
 ──────────────────────────────────  ─────────────  ─────────────  ───────────────────────────────────  ──
 GPU 是不透明整数：无属性、无拓扑、不可分   1、2、3         1、3           device plugin 上报 + GFD 标签；DRA；切分   2、4
@@ -593,7 +593,7 @@ GPU 是不透明整数：无属性、无拓扑、不可分   1、2、3         1
 
 后续七篇会反复使用下面这些词，各篇的总览会复述用到的部分：
 
-```text
+```text title="全系列术语表"
 术语                    含义                                                                        首次展开
 ──────────────────────  ────────────────────────────────────────────────────────────────────────  ────────
 gang（gang scheduling）  一组 Pod 要么全部调度要么全部不调度；Volcano PodGroup 的 minMember、Kueue 的 Workload 准入   第三篇
@@ -625,7 +625,7 @@ DCGM_FI_DEV_GPU_UTIL     "有 kernel 在跑"的时间比例，不是算力利用
 
 全系列每篇都会有这样一张四栏表，本篇给的是全局版，后面各篇展开各自的行：
 
-```text
+```text title="引擎需求 → K8s 空缺 → 平台机制 → 代价"
 引擎需求                    K8s 空缺                    平台机制                              代价
 ─────────────────────────  ─────────────────────────  ───────────────────────────────────  ─────────────────────────────────────
 容器看到 GPU，版本匹配        GPU 不被识别                 GPU Operator + device plugin / DRA     驱动、Toolkit、插件、CUDA 四层版本契约；每层一个升级窗口
@@ -731,7 +731,7 @@ Table: 本篇涉及的源码与 CRD 位置
 
 `cluster/nodes.md`——节点清单与约束：
 
-```text
+```text title="cluster/nodes.md：节点清单与约束"
 mini-platform / cluster/nodes.md -- node inventory for the whole series
 
 角色            数量   建议规格                            说明
@@ -761,7 +761,7 @@ kubeadm 的最小命令序列（控制面节点）：
 
 `probes/pending-gpu-pod.yaml`——一个请求 GPU 的最小 Pod：
 
-```yaml
+```yaml title="probes/pending-gpu-pod.yaml"
 # mini-platform / probes/pending-gpu-pod.yaml
 # 在裸集群（未装 device plugin）上提交，预期 Pending；第二篇装完 GPU Operator 后同一份 manifest 预期 Running。
 apiVersion: v1
@@ -786,7 +786,7 @@ spec:
 
 提交并观察：
 
-```bash
+```bash title="提交并观察 gpu-probe"
 kubectl apply -f probes/pending-gpu-pod.yaml
 kubectl get pod gpu-probe            # STATUS 一直是 Pending
 kubectl describe pod gpu-probe
@@ -794,7 +794,7 @@ kubectl describe pod gpu-probe
 
 `describe` 输出末尾的 Events 形态如下（**示意**，节点数与措辞随集群与版本略有差异）：
 
-```text
+```text title="describe 输出末尾的 Events（示意）"
 Events:
   Type     Reason            Age   From               Message
   ----     ------            ----  ----               -------
@@ -813,7 +813,7 @@ Events:
 
 验证根因：
 
-```bash
+```bash title="验证根因：allocatable 里没有 nvidia.com/gpu"
 kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu'
 # GPU 列全部为 <none>
 ```
@@ -822,7 +822,7 @@ kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable
 
 清理：
 
-```bash
+```bash title="删掉探针 Pod"
 kubectl delete -f probes/pending-gpu-pod.yaml
 ```
 

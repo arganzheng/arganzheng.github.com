@@ -218,7 +218,7 @@ $$
 
 写成代码，$$\sum$$ 就是最内层循环，三个维度就是三层循环，$$2mnk$$ 就是最内层那行执行的次数乘 2：
 
-```python
+```python title="三层循环的矩阵乘：最内层每次 2 FLOPs"
 for i in range(m):            # C 的每一行
     for j in range(n):        # C 的每一列
         for l in range(k):    # 内维：A 的第 i 行 · B 的第 j 列
@@ -231,7 +231,7 @@ for i in range(m):            # C 的每一行
 
 Llama-3-8B 的隐藏维度 $$d = 4096$$（`config.json` 里的 `hidden_size`）。attention 里把输入投影成 query 的权重 $$W_Q$$ 是一个 $$4096 \times 4096$$ 的矩阵。一个 token 是一个长 4096 的行向量，经过 $$W_Q$$ 就是一次 $$[1, 4096] \times [4096, 4096]$$ 的矩阵乘；prefill 4096 个 token 时，输入摞成 $$[4096, 4096]$$，同一个 $$W_Q$$ 不变。把 $$m, k, n$$ 对上去，两条规则各走一遍：
 
-```text
+```text title="W_Q 上一个 token 与 4096 个 token 的 FLOPs 对比"
 一个 token：   x [1 × 4096]   ×  W_Q [4096 × 4096]  →  q [1 × 4096]
                m = 1             k = 4096, n = 4096
                FLOPs = 2 m n k = 2 × 1 × 4096 × 4096 ≈ 33.5 M

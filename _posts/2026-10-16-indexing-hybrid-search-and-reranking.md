@@ -33,7 +33,7 @@ flowchart TB
 ```
 
 
-```text
+```text title="一次混合检索的路径"
 查询
  ├─ embedding ─→ 向量索引（ANN）─→ top-50   ← 元数据过滤（权限、时间）
  └─ 分词 ──────→ 倒排索引（BM25）─→ top-50   ← 元数据过滤

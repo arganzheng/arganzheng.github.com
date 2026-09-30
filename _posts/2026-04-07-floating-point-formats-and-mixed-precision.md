@@ -138,7 +138,7 @@ $$
 
 因为 $$10^4$$ 落在 $$[2^{13}, 2^{14})$$，这个区间内 FP16 相邻可表示数的间距是 $$2^{13-10} = 8$$，加 1 不足半个间距，舍回 10000。把对齐过程逐位写出来，"移出尾数窗口"是字面意义的：
 
-```text
+```text title="FP16 下 10^4 + 1 的逐位对齐"
 10^4 = 1.0011100010 × 2^13        (恰好 10 位尾数, FP16 可精确表示)
    1 = 1.0000000000 × 2^0
 
@@ -319,7 +319,7 @@ BF16 的最小正规数与 FP32 相同，都是 $$2^{-126} \approx 1.2 \times 10
 
 混合精度 + Adam 下每个参数需要保存的东西，逐项列出：
 
-```text
+```text title="混合精度 + Adam 下每参数的字节数"
 BF16 权重副本（前向反向用）    2 B
 BF16 梯度                     2 B
 FP32 master weights           4 B
@@ -394,7 +394,7 @@ per-tensor scaling 的根本问题是**离群值（outlier）**。LLM 的激活�
 
 DeepSeek-V3 的做法是缩小 scale 的作用范围：**激活按 $$1 \times 128$$ 分块**（每个 token 每 128 个通道一个 scale），**权重按 $$128 \times 128$$ 分块**。一个离群值现在只能拖累同一个块里的 127 个邻居，其余所有块的 scale 由各自的正常值决定，不受影响。用数字说：DeepSeek-V3 的 $$d = 7168$$ 激活向量有 56 个块，一个离群通道影响 $$1/56 \approx 1.8\%$$ 的元素；per-tensor 时影响 100%。块大小 128 与第四节的累加提升周期 $$N_C = 128$$ 对齐，每 128 个 $$k$$ 元素的部分和搬到 CUDA core 时正好乘上这一块的 $$s_a \cdot s_w$$，反量化没有额外的遍历。沿 $$k$$ 方向把三件事对齐画出来：
 
-```text
+```text title="DeepSeek-V3 分块量化沿 k 方向的对齐"
 k 方向 (DeepSeek-V3: k = 7168 = 56 块 × 128)
           块 0       块 1       块 2               块 55
 激活 x  ┌──────────┬──────────┬──────────┬─ ... ─┬──────────┐  1×128 分块
@@ -488,7 +488,7 @@ Table: 两个 kernel 的数值差异应该有多大
 
 下面的代码直接用位模式构造每种格式的边界值，把第一节的表跑出来。FP32/FP16 用 NumPy，BF16/FP8 用 PyTorch 的位级 `view`。
 
-```python
+```python title="逐位构造各浮点格式并验证 max / min / ε"
 import struct
 import numpy as np
 import torch
@@ -546,7 +546,7 @@ print("float32 element_size:", x.element_size())  # 4, 打开 allow_tf32 后也�
 
 ### 2. 模拟 BF16 权重更新被吃掉
 
-```python
+```python title="模拟 BF16 权重更新被吃掉"
 import torch
 
 w32 = torch.tensor(1.0, dtype=torch.float32)
@@ -583,7 +583,7 @@ print("master:", master.item(), " bf16 copy:", w_bf16_copy.item())  # 2.0, 2.0
 
 下面的代码在 CPU 上可跑：对同一对随机矩阵，用 FP64 做参考，比较 (a) FP32 GEMM、(b) BF16 输入 + FP32 累加（PyTorch 的 CPU BF16 matmul 内部以 FP32 累加）、(c) 手工模拟的 BF16 输入 + BF16 累加，度量 Frobenius 相对误差随 $$k$$ 的变化。FP8 版本需要 Hopper 及以上的 GPU 与 `torch._scaled_mm`，附在最后，按需启用。
 
-```python
+```python title="GEMM 误差随 k 的增长"
 import torch
 
 torch.manual_seed(0)
@@ -643,7 +643,7 @@ if torch.cuda.is_available() and hasattr(torch, "_scaled_mm"):
 
 本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第五篇 `param_count()` 的 dense 版本；第八篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
 
-```python
+```python title="llm_cost.py：DTYPE_BYTES 与 training_state_bytes"
 from dataclasses import dataclass
 
 @dataclass
@@ -718,7 +718,7 @@ if __name__ == "__main__":
 
 输出示例：
 
-```text
+```text title="训练状态字节数的输出"
 Llama-3-8B   params=   8.03B  16 B/param  state=    128.5 GB  H100(80GB) >=    1.6 张
 Llama-3-70B  params=  70.55B  16 B/param  state=   1128.9 GB  H100(80GB) >=   14.1 张
 DeepSeek-V3  params= 671.00B  16 B/param  state=  10736.0 GB  H100(80GB) >=  134.2 张
@@ -741,7 +741,7 @@ V3-fp8-recipe 13 B/param  state=8.72 TB  {'weight_copy': 1, 'grad': 4, 'master':
 
 本篇的数字汇总：
 
-```text
+```text title="本篇数字汇总：各浮点格式的位布局与精度"
 格式         位布局      最大值      最小正规     ε=2^-M     单位舍入 u     备注
 FP32         1/8/23     3.40e38     1.18e-38     1.19e-7    6.0e-8
 TF32         1/8/10     3.40e38     1.18e-38     9.77e-4    4.9e-4         仅 Tensor Core 输入, 内存仍 4 B

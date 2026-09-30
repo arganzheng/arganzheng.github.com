@@ -365,7 +365,7 @@ Table: 冻结与解冻 encoder 时各组件的训练状态
 
 延续全系列的 `llm_cost.py`，本篇新增 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数。`ModelConfig`、`param_count`、`kv_bytes_per_token` 沿用第十二篇的定义。
 
-```python
+```python title="llm_cost.py：vision encoder 与 image token 的函数"
 from dataclasses import dataclass
 from math import ceil
 
@@ -446,7 +446,7 @@ if __name__ == "__main__":
 
 运行输出（节选）：
 
-```text
+```text title="vision encoder 成本的运行输出（节选）"
 CLIP ViT-L/14-336      patches   577 tokens   576 encoder  0.38 TFLOP (attn 8%)
     Llama-3-8B   prefill    8.6 TFLOP  KV    72.0 MiB  enc-out   4.5 MiB
     Llama-3-70B  prefill   80.1 TFLOP  KV   180.0 MiB  enc-out   9.0 MiB

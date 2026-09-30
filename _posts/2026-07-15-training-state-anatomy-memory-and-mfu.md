@@ -180,7 +180,7 @@ fp16 训练与 bf16 一样是 16 字节，只是多一个 loss scale 标量和�
 
 Megatron 把这笔账写在 `megatron/training/theoretical_memory_usage.py` 的 `compute_weight_and_optimizer_memory()` 里。函数先按结构公式算参数量（注意力 $$2h^2(1 + g/a)$$、MLP $$2hf \times 3/2$$（SwiGLU）、norm、embedding），再按 TP/PP/EP 算出"最重的那个模型分片"上的参数数，最后乘每参数字节数：
 
-```python
+```python title="theoretical_memory_usage.py：num_bytes_per_parameter"
 def num_bytes_per_parameter(data_parallel_size):
     # This estimator assumes bf16 training: bf16 model params, fp32 main gradients,
     # fp32 main params, and fp32 Adam states.
@@ -304,7 +304,7 @@ Table: 三档模型在 s = 8192 下的激活
 
 `compute_activation_memory()` 用于**序列并行 + 选择性重计算**（`report_theoretical_memory()` 在 `args.sequence_parallel and args.recompute_granularity == 'selective'` 时选它）。它的每层公式是：
 
-```python
+```python title="compute_activation_memory：每层 18 + 4f/h"
 activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
     18 + (4 * (args.ffn_hidden_size / args.hidden_size))
 )
@@ -314,7 +314,7 @@ $$f = 4h$$ 时 $$18 + 4 \times 4 = 34$$，正是论文的系数；Megatron 把�
 
 `compute_activation_memory_without_sp()` 用于**没有 SP**（或非选择性重计算）的情形，每层公式是：
 
-```python
+```python title="compute_activation_memory_without_sp：每层 10 + 24/t"
 per_layer_memory = args.seq_length * args.micro_batch_size * args.hidden_size * (10 + (24 / args.tensor_model_parallel_size))
 ```
 
@@ -449,7 +449,7 @@ $$
 
 `megatron/training/training.py` 的 `num_floating_point_operations(args, batch_size, ...)` 计算**一个 global batch** 的 FLOP，训练日志里的 `throughput per GPU (TFLOP/s/GPU)` 就是它除以 step 时间、$$10^{12}$$ 与 `world_size`。对标准 Transformer，它的内层函数 `transformer_flops()` 用三个显式的因子：
 
-```python
+```python title="transformer_flops：三个显式因子"
 # - 3x: Each GEMM in the model needs to be performed 3 times (forward pass,
 #       backward wgrad [weight gradient], backward dgrad [data gradient]).
 forward_backward_expansion_factor = 3
@@ -461,7 +461,7 @@ ffn_expansion_factor = 3 if args.swiglu else 2
 
 $$3 \times 2 = 6$$ 就是上一节的 6。随后的总式分成两段：**与 token 数线性**的一段——MLP（$$6 \cdot h \cdot f \cdot 3$$ per layer，SwiGLU 三个矩阵）、注意力投影（$$6 \cdot h(h_q + h_k + h_v) + 6 \cdot h_q h$$，GQA 下 $$h_k = h_v = g \cdot d$$）、logits（$$6 \cdot h \cdot V$$）——乘 `total_real_tokens_in_batch`；以及**与 $$\sum_i L_i^2$$ 成正比**的注意力分数一段，系数是：
 
-```python
+```python title="standard_self_attn_core_term"
 standard_self_attn_core_term = (
     forward_backward_expansion_factor
     * fma_expansion_factor
@@ -591,7 +591,7 @@ Table: 公开报告的 MFU 参考水平
 
 打开 `--log-throughput` 后，Megatron 每个日志间隔打印 `throughput per GPU (TFLOP/s/GPU)`，计算方式在 `training_log()` 里：
 
-```python
+```python title="training_log：TFLOP/s/GPU 的计算"
 throughput = num_floating_point_operations(args, batch_size, ...) / (
     elapsed_time_per_iteration * 10**12 * args.world_size
 )
@@ -685,7 +685,7 @@ Table: 本篇涉及的源码位置
 
 `ledger/model.py`——模型规格与参数量：
 
-```python
+```python title="ledger/model.py：模型规格与参数量"
 """train-ledger / ledger/model.py -- model specification and parameter count.
 
 ModelSpec describes a dense decoder-only Transformer (Llama style: RMSNorm,
@@ -756,7 +756,7 @@ def llama3_405b() -> ModelSpec:
 
 `ledger/memory.py`——四种状态的字节数：
 
-```python
+```python title="ledger/memory.py：四种状态的字节数"
 """train-ledger / ledger/memory.py -- bytes of the four training states.
 
 state_bytes(model, precision, optimizer) -> StateBytes    resident: params, grads, optim
@@ -828,7 +828,7 @@ def fmt(b: float) -> str:
 
 `ledger/flops.py`——FLOP/token、MFU/HFU 与 step 时间下限：
 
-```python
+```python title="ledger/flops.py：FLOP/token、MFU/HFU 与 step 时间下限"
 """train-ledger / ledger/flops.py -- FLOPs per token, MFU / HFU, step-time bound.
 No torch dependency.
 """
@@ -887,7 +887,7 @@ def step_time_lower_bound(model: ModelSpec, tokens_per_step: int, n_gpus: int,
 
 `cli.py`——把三者串起来：
 
-```python
+```python title="cli.py：把三者串起来"
 #!/usr/bin/env python3
 """train-ledger / cli.py -- states, FLOPs and the step-time bound for one model.
 
@@ -947,7 +947,7 @@ if __name__ == "__main__":
 
 运行 `python cli.py` 输出三档模型的账（`ledger/` 目录下要有一个空的 `__init__.py`）：
 
-```text
+```text title="python cli.py 的输出：三档模型的账"
 == llama3-8b: L=32 h=4096 a=32 kv=8 f=14336 V=128256 s=8192
   Psi = 8.03 B   (bf16 + adam: 16 B/param)
   params   16.06 GB  grads   16.06 GB  optim   96.36 GB  resident  128.48 GB
@@ -969,7 +969,7 @@ if __name__ == "__main__":
 
 第七章的例子：
 
-```text
+```text title="cli.py 算第七章的例子：70B、1024 卡、4.5 s/step"
 $ python cli.py --model 70b --tokens 4194304 --gpus 1024 --step-time 4.5
 == llama3-70b: ...
   4 Mi tokens/step on 1024 GPUs: >= 1.86 s at 100%, 4.65 s at 40% MFU

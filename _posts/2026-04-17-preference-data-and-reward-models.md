@@ -363,7 +363,7 @@ Table: 公开配方的奖励模型对照
 
 `trl` 的 `RewardTrainer` 把第三、四章的内容压成几行：
 
-```python
+```python title="trl 的 RewardTrainer：几行训一个 RM"
 from trl import RewardTrainer, RewardConfig
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 

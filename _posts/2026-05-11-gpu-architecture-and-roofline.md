@@ -319,7 +319,7 @@ flowchart TB
 
 SIMT 和 CPU 的 SIMD 的区别就在这里。SIMD 里程序员要手动用 mask 处理向量内的分歧；SIMT 里编译器和硬件替你做，代码写起来像普通标量程序，但代价是隐藏的：两条路径的时间相加。它不影响正确性，只影响性能，所以写 kernel 时要尽量让同一个 warp 里的线程走同一条路：
 
-```cpp
+```cpp title="warp 内奇偶分歧与按 warp 对齐的写法"
 // 32 个线程的 warp 里，奇偶线程走不同分支：两条路径串行，各 16 个线程有效
 if (threadIdx.x % 2 == 0) { a = f(x); } else { a = g(x); }
 
@@ -570,7 +570,7 @@ $$
 
 四个例子放到一张 Roofline 图上（A100，双对数坐标，示意）：
 
-```text
+```text title="四个例子在 A100 Roofline 图上的位置"
 可达算力（log）
 
 1000 T ┤
@@ -630,7 +630,7 @@ $$
 
 把上面的推导写成代码，不需要 GPU：
 
-```python
+```python title="roofline_time.py：纯 Python 的 Roofline 计算器"
 # roofline_time.py —— 纯 Python，不需要 GPU
 GPUS = {
     # 标称值：峰值算力 (FLOP/s) 与 HBM 带宽 (byte/s)
@@ -747,7 +747,7 @@ flowchart TB
 
 各自看的东西不同：
 
-```text
+```text title="CUDA 工具链：各工具看什么"
 工具 / 产物             它是什么                                看什么
 ────────────────────────────────────────────────────────────────────────────────────────────
 nvcc                   CUDA 编译器驱动                          -arch=sm_80 选目标；-Xptxas -v 打印每个
@@ -778,7 +778,7 @@ compute-sanitizer      内存与竞争检查                            越界�
 
 一个训练或推理程序慢，瓶颈可能在很多地方：Python 解释器、框架的 dispatch、kernel launch 的固定开销（每次几微秒）、`cudaStreamSynchronize` 或 `.item()` 造成的等待、多卡通信、数据加载。这些属于**系统层**，在 `nsys` 的时间线上表现为 GPU 空闲的间隙：
 
-```text
+```text title="nsys 时间线上的 GPU 空闲间隙（示意）"
 nsys 时间线（示意）
 
 CPU   ████ Python/dispatch ████        launch  ████ .item() 等待 ████████  launch  ██…

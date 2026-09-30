@@ -138,7 +138,7 @@ $$
 
 $$Xw$$ 的三行正好是三个点的预测值 $$w x_i + b$$，只是排成了一列。代码里是一行：
 
-```python
+```python title="add_bias：左边加一列 1"
 def add_bias(X):
     return np.c_[np.ones(len(X)), X]        # 左边加一列 1，b 变成 w[0]
 ```
@@ -198,7 +198,7 @@ $$
 
 上一篇 `fit_poly` 里的 `np.linalg.lstsq` 解的就是这个（用更稳的数值方法，不真的求逆）。手写版是一行：
 
-```python
+```python title="fit_closed_form：解正规方程"
 def fit_closed_form(X, y):
     return np.linalg.solve(X.T @ X, X.T @ y)     # 解 (XᵀX) w = Xᵀy
 ```
@@ -277,7 +277,7 @@ $$
 
 200 个样本、3 个特征的数据上，三种方法一起算：
 
-```python
+```python title="fit_gd：全量、mini-batch 与 SGD 共用一个函数"
 def fit_gd(X, y, lr=0.1, steps=200, batch=None, seed=0):
     r = np.random.default_rng(seed)
     w = np.zeros(X.shape[1])
@@ -413,7 +413,7 @@ $$
 
 每步先把 $$w$$ **乘一个略小于 1 的数**（衰减），再走一步普通梯度。这就是 **weight decay**（权重衰减）——名字来自这个"先缩小"的动作。代码里是一行的差别：
 
-```python
+```python title="weight decay 一行的差别"
 w = (1 - 2 * lr * lam) * w - lr * grad          # weight decay：先衰减，再走普通梯度
 ```
 
@@ -516,7 +516,7 @@ flowchart TB
 
 完整脚本 [`case_02_housing_regression.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_02_housing_regression.py)。预处理是一个 `ColumnTransformer`：数值列补缺失 → （可选）多项式 → 标准化，类别列 one-hot；之后接不同的回归器：
 
-```python
+```python title="case_02：ColumnTransformer 预处理"
 def preprocess(num_cols, cat=True, poly=1):
     num = make_pipeline(SimpleImputer(strategy="median"),                       # 207 个缺失的卧室数用中位数补
                         *([PolynomialFeatures(poly, include_bias=False)] if poly > 1 else []),

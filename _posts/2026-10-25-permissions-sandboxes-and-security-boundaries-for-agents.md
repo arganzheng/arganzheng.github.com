@@ -99,7 +99,7 @@ Table: Codex AskForApproval 的取值
 
 一个用 Starlark 写的**前缀规则语言**——agent 权限设计里最值得学的一个组件：
 
-```text
+```text title="execpolicy 的 prefix_rule"
 prefix_rule(
     pattern = ["git", ["push", "reset"]],   # 有序 token；列表表示备选
     decision = "prompt",                    # allow | prompt | forbidden；默认 allow

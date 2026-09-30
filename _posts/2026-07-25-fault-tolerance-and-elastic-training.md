@@ -46,7 +46,7 @@ Table: 本篇用到的符号
 
 ### 2. 故障是常态：把 Llama 3 的数字放进一张表
 
-```text
+```text title="Llama 3 405B 预训练的中断统计"
 Llama 3 405B 预训练（Dubey et al. 2024，§3.3.4）
 ────────────────────────────────────────────────────────────────────────
 规模            16,384 × H100                 54 天统计窗口
@@ -61,7 +61,7 @@ SDC             6 次，1.4%                                → 不报错的错�
 
 ### 3. 容错的四个环节与本篇的全局图
 
-```text
+```text title="容错的四个环节：故障、检测、重启、加载"
                  训练在跑 ──────────────────────────────────────────────▶ 时间
                     │
         ①故障发生   ▼  某张卡坏 / 某进程崩 / 某 rank hang / 某卡变慢 / 某卡算错
@@ -85,7 +85,7 @@ SDC             6 次，1.4%                                → 不报错的错�
 
 ### 4. 三框架在容错面上的对照
 
-```text
+```text title="三框架在容错面上的对照"
 环节            Megatron Core 0.18.0 / Megatron-LM                DeepSpeed 0.19.2                          torchtitan v0.3.0
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 启动 / 重启      torchrun 或 NVRx ft_launcher                        deepspeed launcher；elasticity/          torchrun（run_train.sh）
@@ -151,7 +151,7 @@ $$
 
 分子是故障损失，分母是保存代价。五个可动的量各在一处：
 
-```text
+```text title="有效训练时间公式里的五个量"
 项            出现在        由谁决定                                  量级（本篇假设，非实测）
 ─────────────────────────────────────────────────────────────────────────────────────────────────
 1/M  故障频率   分子的分母    硬件质量 × 卡数；坏卡隔离能降一点          1024 卡 ~2 天一次；16K 卡 ~3 小时一次
@@ -179,7 +179,7 @@ Table: 同步保存与异步 staging 下的最优 checkpoint 间隔与开销
 
 用第十章的 `ledger/availability.py`（无 torch 依赖）算三个场景，1024 卡与 16K 卡各一行，单卡 MTBF 统一取 5 万小时（Llama 3 反推值），τ 取 Young 最优：
 
-```text
+```text title="Llama 3 数字代入的三个场景"
 场景                                  1024 卡（M = 48.8 h）                          16K 卡（M = 3.05 h）
                                        τ_opt      G       主导项                     τ_opt      G       主导项
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -216,7 +216,7 @@ Llama 3 的 419 次里，前两类占了绝大部分，第三类 6 次；但第�
 
 ### 2. 检测矩阵
 
-```text
+```text title="检测矩阵：显式 / 隐式 / 静默 × 三层"
                   显式（崩溃 / Xid / NCCL 报错）        隐式（hang / 变慢）                      静默（算错不报错）
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 进程层            进程退出码；torchrun agent 的         agent 只知道进程活着，不知道它在做什么     无
@@ -275,7 +275,7 @@ step 时间告警是同一件事的应用层版本：每个 rank 记录 step 的
 
 `torch/distributed/elastic/agent/server/api.py` 的 `SimpleElasticAgent._invoke_run()` 是核心循环：
 
-```text
+```text title="SimpleElasticAgent._invoke_run 的主循环"
 _initialize_workers(worker_group)           ← _rendezvous() 拿到 group_rank / world_size / store，_start_workers() 拉起进程
 while True:
     sleep(monitor_interval)                 ← 默认 0.1 s
@@ -332,7 +332,7 @@ flowchart TB
 
 把 T_r 拆开（数字是量级，非实测）：
 
-```text
+```text title="一次进程重启的时间账"
 阶段                                             量级            省它的办法
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
 agent 发现 worker 退出                            < 1 s           monitor_interval 默认 0.1 s
@@ -360,7 +360,7 @@ init_process_group + 各并行组的 NCCL communicator   20 s–数分钟      �
 
 `src/nvidia_resiliency_ext/inprocess/wrap.py` 的 `Wrapper` 是一个装饰器：把训练函数包起来，任一 rank 出错时**所有健康 rank 同时**重新调用这个函数，直到全部成功或触发终止条件。构造参数就是整套机制的组件清单：
 
-```text
+```text title="inprocess.Wrapper 的组件清单"
 组件（构造参数）                        类型 / 默认                                    做什么
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 store_factory / store_kwargs            inprocess.store.TCPStore（继承 torch TCPStore）  各 rank 之间协调重启的内部 store；有 barrier 实现
@@ -604,7 +604,7 @@ NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML：ECC、X
 
 同步训练里每一次集合通信都要等最慢的参与者。一张卡慢 20%，全部卡慢 20%。第四篇把它列为 MFU 七项损失之一并给了测法（多 rank trace 的计算时长 max − median），本篇看成因与检测机制：
 
-```text
+```text title="straggler 的成因与特征"
 类别        成因                                        特征
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 硬件        GPU 降频（温度、功耗封顶、时钟策略）             持续；该 rank 计算 kernel 一致变慢；nvidia-smi 频率低
@@ -621,7 +621,7 @@ NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML：ECC、X
 
 判据只有一条：**慢的 rank 计算时间长、通信等待时间短；被拖的 rank 反之**。所以检测需要每个 rank 各自记录"本 step 花在计算 kernel 上的时间"与"花在集合通信里的时间"，然后跨 rank 比较——单个 rank 的时间线分不清"我慢"和"我在等别人"。
 
-```text
+```text title="一个 step 内各 rank 的时间线（rank 5 是 straggler）"
 一个 step 内各 rank 的时间线（rank 5 是 straggler）
 时间 ────────────────────────────────────────────────────────────▶
 rank 0  │████ 计算 ████│░░░░░░░ 等待 all-reduce ░░░░░░░│▒ 通信 ▒│
@@ -669,7 +669,7 @@ SDC（silent data corruption）是硬件在没有报错的情况下算出错误�
 
 ### 2. 检测手段
 
-```text
+```text title="静默错误的检测手段"
 手段                  原理                                                  代价                       覆盖
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 数值校验              loss / 梯度里有 NaN、Inf、异常大的值 → 拒绝这一步           几乎为 0                   只抓"错得离谱"的
@@ -686,7 +686,7 @@ Megatron 实现的是"数值校验触发 + 重跑比对归因"这一条路。
 
 `megatron/core/rerun_state_machine.py` 的 `RerunStateMachine`（单例，`initialize_rerun_state_machine()` 创建、`get_rerun_state_machine()` 获取、`destroy_rerun_state_machine()` 销毁）把 train step 包成一个可重入的循环。训练代码的改动只有三处（`megatron/training/training.py` 的 `train_step()` 已经这么写了）：
 
-```python
+```python title="RerunStateMachine 包住 train step 的三处改动"
 rerun_state_machine = get_rerun_state_machine()
 while rerun_state_machine.should_run_forward_backward(data_iterator):   # 首次 True；需要重跑时再 True
     optimizer.zero_grad()
@@ -750,7 +750,7 @@ flowchart TB
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾"
 故障率      M = M_gpu / N；Llama 3：16K 卡 54 天 419 次意外 → M ≈ 3.1 h，反推单卡 ≈ 5 万小时；78% 硬件、58.7% GPU、1.4% SDC；>90% 有效、3 次人工
 有效时间    G = (1 − (T_d + T_r + T_l + τ/2)/M) / (1 + δ/τ)；τ_opt = √(2δM) 是忽略前三项的一阶最优
             16K 卡：同步保存怎么选 τ 都亏 20%+（71%）；异步 → 87%，主导项变成 T_d；再压检测与重启 → 94%；1024 卡三者差别很小
@@ -776,7 +776,7 @@ SDC         校验点在梯度 reduce 之前；RerunStateMachine：可疑 → �
 
 ### 2. 本篇涉及的源码位置
 
-```text
+```text title="本篇涉及的源码位置"
 项目                   路径                                                              关键符号 / 内容
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 PyTorch v2.13.0        torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp                  kProcessGroupNCCLDefaultTimeout（10 min）；ErrorHandlingMode；TORCH_NCCL_ASYNC_ERROR_HANDLING /
@@ -842,7 +842,7 @@ DeepSpeed 0.19.2       deepspeed/elasticity/elastic_agent.py · elasticity.py   
 
 ### 3. train-ledger 本篇增量：`ledger/availability.py` 与 `chaos/`
 
-```text
+```text title="train-ledger/chaos/ 目录"
 train-ledger/
   ledger/
     availability.py     无 torch 依赖：N、单卡 MTBF、T_d / T_r / T_l、δ、τ → 集群 MTBF、τ_opt、有效训练时间、各项占比、主导项
@@ -856,7 +856,7 @@ train-ledger/
 
 `ledger/availability.py` 完整如下（第二章第 4 节的表就是它的输出整理而来）：
 
-```python
+```python title="ledger/availability.py"
 """train-ledger/ledger/availability.py -- goodput model for long-running training (no torch dependency).
 
 Model
@@ -967,7 +967,7 @@ if __name__ == "__main__":
 
 三次运行对应第二章的三个场景（输出节选，保留 τ_opt 行与两个固定 τ）：
 
-```text
+```text title="availability.py 三个场景的输出（节选）"
 $ python ledger/availability.py --delta 300                       # 场景 A：同步保存，watchdog 检测，进程重启
 == 1024 GPUs, per-GPU MTBF 50,000 h, cluster MTBF 48.83 h; detect 600s restart 300s load 120s delta 300s
   opt    48.83 h  tau  171.2 min  goodput  93.76%  | ckpt  2.74  detect  0.34  restart  0.17  load  0.07  rollback  2.92  | dominant: rollback
@@ -996,7 +996,7 @@ $ python ledger/availability.py --delta 10 --detect 60 --restart 30 --load 60   
 
 **演练 1：kill 一个 rank，torchrun 弹性重启。**
 
-```python
+```python title="chaos/kill_rank.py"
 # train-ledger/chaos/kill_rank.py（节选）
 import os, torch, torch.distributed as dist
 from common import build, train_steps, save_ckpt, load_ckpt
@@ -1012,7 +1012,7 @@ def main():
     train_steps(model, opt, start=step, n=60, ckpt_every=10, hook=maybe_fail)
 ```
 
-```bash
+```bash title="演练 1：torchrun --max-restarts=2 启动"
 # 8 卡，允许重启 2 次；显式设置 timeout 短一些，让其他 rank 快点从 hang 变成报错（默认 10 分钟）
 torchrun --standalone --nnodes=1 --nproc-per-node=8 --max-restarts=2 chaos/kill_rank.py --ckpt-dir /tmp/ckpt --timeout-s 60
 ```
@@ -1021,7 +1021,7 @@ torchrun --standalone --nnodes=1 --nproc-per-node=8 --max-restarts=2 chaos/kill_
 
 **演练 2：拖慢一个 rank，用计算 vs 等待时间找到它。**
 
-```python
+```python title="chaos/slow_rank.py：拖慢一个 rank"
 # train-ledger/chaos/slow_rank.py（节选）
 def register_slowdown(model, rank, slow_rank=5, ms=30):
     if rank == slow_rank:
@@ -1048,7 +1048,7 @@ def report(compute_ms, wait_ms):
 
 **演练 3：篡改一个梯度，用范数校验拦下并归因。**
 
-```python
+```python title="chaos/corrupt_grad.py：篡改一个梯度"
 # train-ledger/chaos/corrupt_grad.py（节选）
 def register_corruption(model, rank, bad_rank=6, at_step=30, scale=1e4):
     p = next(model.parameters()); state = {"step": 0}
@@ -1072,7 +1072,7 @@ def check_before_reduce(model, threshold=10.0):
 
 **演练 4：torchft 两个副本组。**
 
-```bash
+```bash title="chaos/torchft_demo.sh：两个副本组"
 # train-ledger/chaos/torchft_demo.sh — 8 卡：两个副本组，各 4 卡（HSDP，副本内 FSDP=4），任一组可被杀掉再拉起
 # shell 0：Lighthouse（min_replicas=1：剩一个组也继续；join_timeout 10 s：掉线后最多等 10 s 成立新 quorum）
 RUST_BACKTRACE=1 torchft_lighthouse --min_replicas 1 --quorum_tick_ms 100 --join_timeout_ms 10000

@@ -275,7 +275,7 @@ Table: 公开推理模型配方
 
 第三篇的骨架，把 RM 换成两个规则函数：
 
-```python
+```python title="GRPOTrainer + 两个规则奖励函数"
 import re
 from trl import GRPOTrainer, GRPOConfig
 

@@ -194,7 +194,7 @@ Table: DCGM_FI_PROF_* 字段的含义
 
 三个"活跃"指标在同一张卡上是逐级包含的：有 Tensor core 在算就一定有 SM 有 warp，有 SM 有 warp 就一定有 kernel 在跑，反过来都不成立。把开头那个集群的 78%（`GPU_UTIL`）与 35%（`SM_ACTIVE`）放到一个采样窗口里看，每一级的差距各有一类来源：
 
-```text
+```text title="GPU_UTIL、SM_ACTIVE、TENSOR_ACTIVE 的逐级差距"
 一张卡、一个采样窗口（以 100 个周期计；TENSOR_ACTIVE 的 22 为示意值）
                  0                                                100
 GPU_UTIL   78    ███████████████████████████████████████░░░░░░░░░░░
@@ -263,7 +263,7 @@ Table: 分配率、利用率与效率的定义
 
 `E ≈ A × U` 不只是代数：把横轴画成卡的份额、纵轴画成已分配卡上"在算"的时间份额，E 就是一块矩形的面积，两段差距是围着它的两块空白（数字用总纲核心问题的 85% / 35%）：
 
-```text
+```text title="E ≈ A × U：矩形面积与两块空白"
            ←──────── 已分配 A = 85% ────────→←1-A→
           ┌──────────────────────────────────┬──────┐ 100%
           │                                  │      │
@@ -284,7 +284,7 @@ Table: 分配率、利用率与效率的定义
 
 分配率有两种算法。基于 kube-state-metrics（要求 Pod 处于 Running）：
 
-```text
+```text title="分配率：基于 kube-state-metrics 的 PromQL"
 platform:gpu_allocated:count =
   sum(
     kube_pod_container_resource_requests{resource="nvidia_com_gpu"}
@@ -297,14 +297,14 @@ platform:gpu_allocated_ratio   = platform:gpu_allocated:count / platform:gpu_all
 
 基于 DCGM 的 Pod 映射（不依赖 kube-state-metrics，MIG 下按实例计）：
 
-```text
+```text title="分配率：基于 DCGM Pod 映射的 PromQL"
 platform:gpu_allocated_ratio:dcgm =
   count(DCGM_FI_DEV_GPU_UTIL{pod!=""}) / count(DCGM_FI_DEV_GPU_UTIL)
 ```
 
 后者的逻辑是"一张卡的指标带了 `pod` 标签就是分配了"，它与前者的差在于：一个 Pending 或 Terminating 的 Pod 不会出现在 pod-resources 里，但 `requests` 已经记在 kube-state-metrics 上；两者相减就是**调度中的卡**。使用率与有效利用率：
 
-```text
+```text title="使用率与有效利用率的 PromQL"
 platform:gpu_sm_active:avg_allocated = avg(DCGM_FI_PROF_SM_ACTIVE{pod!=""})         # U
 platform:gpu_sm_active:avg_all       = avg(DCGM_FI_PROF_SM_ACTIVE)                   # E
 ```
@@ -415,7 +415,7 @@ Table: 任务级 GPU 时间线的几种形态
 
 ### 1. 基础公式
 
-```text
+```text title="GPU 成本的基础公式"
 GPU 成本 = Σ_(卡, 时间) 单价(卡型, 计费方式) × 分配时长
 ```
 
@@ -678,7 +678,7 @@ Table: 本篇涉及的源码位置
 
 **`obs/dcgm-values.yaml`**——dcgm-exporter Helm chart（与 4.6.0-4.8.3 镜像同版本）的 values 片段，开 Pod label 映射并把 `SM_ACTIVE` / `SM_OCCUPANCY` 从注释里放出来。`customMetrics` 必须是完整表，这里只列本篇用到的字段（省略号处按 `etc/default-counters.csv` 补齐其余需要的行）：
 
-```yaml
+```yaml title="obs/dcgm-values.yaml"
 # mini-platform/obs/dcgm-values.yaml —— helm upgrade -i dcgm-exporter gpu-helm-charts/dcgm-exporter -n gpu-operator -f obs/dcgm-values.yaml
 image:
   tag: 4.6.0-4.8.3-distroless
@@ -734,7 +734,7 @@ customMetrics: |
 **`obs/prometheus-rules.yaml`**——三个数字的 recording rules 与三条告警（`monitoring.coreos.com/v1` 的 `PrometheusRule`，Prometheus Operator 通行 CRD）：
 
 {% raw %}
-```yaml
+```yaml title="obs/prometheus-rules.yaml：recording rules 与告警"
 # mini-platform/obs/prometheus-rules.yaml
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -823,7 +823,7 @@ spec:
 **`obs/grafana-dashboard.json`**——一张看板，面板按第三章的思路排：三个数字同屏、按团队分解、训练热力图、推理 SLO、队列。这里只给面板列表与各自的 PromQL（完整 JSON 由读者在 Grafana 里按此建好后导出；`legendFormat` 里的模板已按 Jekyll 要求包在 raw 里）：
 
 {% raw %}
-```json
+```json title="obs/grafana-dashboard.json：面板列表与 PromQL"
 {
   "title": "mini-platform / GPU 四层看板",
   "panels": [
@@ -882,7 +882,7 @@ spec:
 **`cost/allocate.py`**——从 Prometheus 拉一个时间窗内按 label 的分配时序与 token 计数，配一张单价表，输出每团队的 GPU 小时、成本、闲置比例，以及每模型 / 每租户的每百万 token 成本。它做的是 OpenCost 分配模型的一个子集（按分配计费、按 label 聚合），加上 OpenCost 没有的三样：`SM_ACTIVE` 作为使用率、队列维度、token 维度。
 
 {% raw %}
-```python
+```python title="cost/allocate.py：按 label 分摊 GPU 成本"
 #!/usr/bin/env python3
 """mini-platform/cost/allocate.py —— 按 label 分摊 GPU 成本，并算每百万 token 成本。
 

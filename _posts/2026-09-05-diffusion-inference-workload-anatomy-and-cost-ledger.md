@@ -490,7 +490,7 @@ CFG 把每步的前向翻倍。FLUX.1-dev 与 HunyuanVideo 把 guidance 蒸馏�
 
 配套脚本在 `ai-learning-labs` 的 `diffusion-inference-infra/diffusion_ledger.py`，纯标准库。它把本文的全部公式实现为一个 `Ledger`，内置五个模型与六种 GPU 的规格：
 
-```bash
+```bash title="diffusion_ledger.py 的几种用法"
 python diffusion_ledger.py                                   # 五个模型的默认账 + 放大器扫描
 python diffusion_ledger.py --model flux --gpu 4090           # 24 GB 卡：权重放不下的提示
 python diffusion_ledger.py --model wan --frames 129 --sweep  # 帧数怎样放大 attention 占比
@@ -500,7 +500,7 @@ python diffusion_ledger.py --model qwen --mfu 0.6            # 换 MFU 假设
 
 FLUX 默认账的输出（节选）：
 
-```text
+```text title="FLUX 默认账的输出（节选）"
 [2] 一次 DiT 前向的 FLOPs
   线性项 2·P_tok·N : 59.4 TFLOPs   （P_tok = 6.45B，总参数 11.9B）
   attention 4·L·N²·d: 14.9 TFLOPs   占 20%

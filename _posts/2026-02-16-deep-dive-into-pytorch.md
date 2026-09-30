@@ -19,7 +19,7 @@ catalog: true
 
 一个训练或推理调用，看起来可能只是：
 
-```python
+```python title="一次训练调用的四行"
 output = model(inputs)
 loss = criterion(output, targets)
 loss.backward()
@@ -40,7 +40,7 @@ optimizer.step()
 
 PyTorch 在 AI 系统中的位置可以概括为：
 
-```text
+```text title="PyTorch 在 AI 系统中的位置"
 模型与训练代码
         ↓
 PyTorch 编程模型
@@ -63,7 +63,7 @@ CPU / GPU / 加速器
 
 很多教程可以让读者很快完成下面的代码：
 
-```python
+```python title="五行就能跑起来的训练代码"
 model = MyModel().cuda()
 output = model(x.cuda())
 loss = loss_fn(output, target.cuda())
@@ -91,7 +91,7 @@ optimizer.step()
 
 PyTorch 的用户入口主要是 Python，但它的执行能力来自多个层次的协作：
 
-```text
+```text title="PyTorch 从 Python API 到硬件的层次"
 Python API
     ↓
 Python Binding
@@ -109,7 +109,7 @@ CPU / CUDA / Meta Kernel
 
 因此，理解 PyTorch 不能只看 `torch.nn` 的 Python 代码，也不能直接跳到 CUDA Kernel。需要沿着一条连续的学习路径逐层深入：
 
-```text
+```text title="从编程模型到工程治理的学习路径"
 编程模型 → 数据抽象 → 自动求导 → 算子系统 → 扩展机制
     → 编译执行 → 性能工程 → 分布式运行时 → 工程治理
 ```
@@ -174,7 +174,7 @@ CPU / CUDA / Meta Kernel
 
 十篇文章按照 PyTorch 的内部抽象逐步展开：
 
-```text
+```text title="十篇文章的主线"
 第一篇：建立全局地图
         ↓
 第二篇：理解 Tensor 如何表示数据
@@ -198,7 +198,7 @@ CPU / CUDA / Meta Kernel
 
 可以把这条主线进一步归纳为三条相互交织的线索：
 
-```text
+```text title="三条相互交织的线索：抽象线、执行线、工程线"
 抽象线：Tensor → Autograd → Module → Operator → Compiler
 
 执行线：Python → C++ → CUDA → Kernel → Hardware
@@ -257,7 +257,7 @@ Table: 十篇的标题、线索、源码目录与实践落点
 
 本篇会给出一条用于建立心智模型的典型调用路径：
 
-```text
+```text title="torch.add 的典型调用路径"
 Python API
     ↓
 Python Binding
@@ -297,7 +297,7 @@ Eager Mode 在全系列中承担一条贯穿主线：第一篇介绍它是什么
 
 可以把一个简化版 Tensor 表示为：
 
-```text
+```text title="简化版 Tensor 的组成"
 Tensor
 ├── storage
 ├── sizes
@@ -340,7 +340,7 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 本篇会实现一个 Mini-Autograd：
 
-```text
+```text title="Mini-Autograd 的实现步骤"
 加法和乘法
     ↓
 保存父节点
@@ -385,7 +385,7 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 内部会分成几个部分：
 
-```text
+```text title="第四篇的内部结构"
 4.1 模型对象与模块树
 4.2 参数、Buffer 与 state_dict
 4.3 Optimizer 与训练循环
@@ -409,7 +409,7 @@ Java 对照会帮助理解 Module 的层级管理、state_dict 的状态快照�
 
 这一篇会以简单的 `add` 算子为入口，分析：
 
-```text
+```text title="add 的三个变体"
 add
 add_
 add.out
@@ -462,7 +462,7 @@ add.out
 
 实践项目分成四个阶段：
 
-```text
+```text title="实践项目的四个阶段"
 阶段 1：用 Python 实现一个算子
 阶段 2：用 C++ 实现 CPU 算子
 阶段 3：用 CUDA 实现 GPU 算子
@@ -471,7 +471,7 @@ add.out
 
 这一篇的重点不是记住一套编译命令，而是理解：
 
-```text
+```text title="自定义算子从 Python API 到 Kernel 的路径"
 Python API
     ↓
 pybind11 / Python Binding
@@ -510,7 +510,7 @@ Autograd / Dispatcher
 
 贯穿全文的典型流程是：
 
-```text
+```text title="torch.compile 的典型流程"
 Python Model
     ↓
 TorchDynamo
@@ -528,7 +528,7 @@ CPU / GPU
 
 本篇会用一个刻意简单的函数贯穿全文：
 
-```python
+```python title="贯穿第七篇的函数 f"
 def f(x, weight, bias):
     y = x @ weight + bias
     if x.shape[0] > 64:
@@ -555,7 +555,7 @@ def f(x, weight, bias):
 
 这一篇的重心是**性能模型**和**测量方法**，优化手段是模型推导出来的结论。它从一个事实出发——CPU 和 GPU 是两条通过队列连接的异步时间线——把性能问题分成两个维度：
 
-```text
+```text title="性能问题的两个维度"
 时间维度：五类瓶颈
   CPU 侧      Python-bound、Launch-bound
   GPU 侧      Memory-bound、Compute-bound
@@ -567,7 +567,7 @@ def f(x, weight, bias):
 
 内部结构为：
 
-```text
+```text title="第八篇的内部结构"
 8.1 度量与工具地图：异步执行模型、Benchmark 方法、Profiler 与 Nsight
 8.2 时间维度：五类瓶颈及各自的判断依据与处方
 8.3 空间维度：显存的构成、Caching Allocator、碎片、峰值、泄漏与时空互换
@@ -588,7 +588,7 @@ def f(x, weight, bias):
 
 所有性能结论都遵循同一套流程：
 
-```text
+```text title="性能结论遵循的流程"
 建立基线
     ↓
 设计正确性测试
@@ -620,7 +620,7 @@ def f(x, weight, bias):
 
 全文分三层：
 
-```text
+```text title="第九篇的三层结构"
 运行时与工程        torchrun 启动 · 数据切分 · 分布式 Checkpoint · 多机拓扑 · 通信性能分析 · hang 的排查
         ↑
 并行策略            DDP · ZeRO / FSDP · TP · PP · CP · EP · 多维组合
@@ -662,7 +662,7 @@ def f(x, weight, bias):
 
 全文沿着一次改动的生命周期走一遍：
 
-```text
+```text title="一次改动的生命周期与关卡"
 写下改动
    ↓
 ① 本地构建能跑        仓库地图 · 构建流程与 Codegen · Debug 构建 · 调试到 C++
@@ -712,7 +712,7 @@ Table: 前半段的两个最小实现
 
 一个是刻意简单的自定义算子：
 
-```text
+```text title="scale_shift 算子的定义"
 scale_shift(x, alpha, beta) = alpha * x + beta
 ```
 
@@ -835,7 +835,7 @@ PyTorch 的以下部分变化较快：
 
 读完这套系列之后，读者应该能够从以下代码出发：
 
-```python
+```python title="读者应能从这三行出发"
 output = model(inputs)
 loss = criterion(output, targets)
 loss.backward()
@@ -843,7 +843,7 @@ loss.backward()
 
 一路追问并回答：
 
-```text
+```text title="沿着一次调用一路追问的问题链"
 Tensor 如何表示输入？（第二篇）
     ↓
 Module 如何组织模型？（第四篇）

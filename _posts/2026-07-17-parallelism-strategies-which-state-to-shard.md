@@ -140,7 +140,7 @@ Megatron 的分布式优化器（`megatron/core/optimizer/distrib_optimizer.py`�
 
 **亲手验证 all-reduce = reduce-scatter + all-gather**（`02_parallelism_toys.py zero`）。4 个进程，进程 $$r$$ 的"梯度"是 8 个数 $$10r + [0, 1, \ldots, 7]$$。DP 做一次 all-reduce；ZeRO-1 换成 reduce-scatter（进程 $$r$$ 只拿到第 $$r$$ 段两个元素的和）→ 各自"更新"自己那段（这里用 ×0.5 代替优化器）→ all-gather 拼回：
 
-```text
+```text title="ZeRO-1 toy 的输出：RS + AG == AR × 0.5"
 all-reduce 结果        : [60.0, 64.0, 68.0, 72.0, 76.0, 80.0, 84.0, 88.0]
 reduce-scatter 段(进程0): [60.0, 64.0] ← 正是 all-reduce 结果的前两个元素
 all-gather 后 0.5×和   : [30.0, 32.0, 34.0, 36.0, 38.0, 40.0, 42.0, 44.0]
@@ -323,7 +323,7 @@ Table: 2×2 例子里 TP 反向的每卡计算
 
 Megatron `mappings.py` 里的 $$f$$、$$g$$ 就是两个 `autograd.Function`，一个前向什么都不做、反向 all-reduce，另一个反过来。把它们写出来接在上面的小矩阵上（`02_parallelism_toys.py tp`，完整代码见脚本）：
 
-```python
+```python title="Megatron 的 f 与 g：两个 autograd.Function"
 class F(torch.autograd.Function):          # _CopyToModelParallelRegion
     @staticmethod
     def forward(ctx, x): return x            # ① 前向恒等：X 每卡一份完整的
@@ -346,7 +346,7 @@ Z.sum().backward()                           # ⑦ 反向自动走 g（恒等）
 
 两个进程各持一半权重（另外两个进程只旁观），输出：
 
-```text
+```text title="TP toy 的输出：前向与反向对照单卡"
 前向  进程0: Y_0 = [[7.0]]  Z_0 = Y_0 B_0 = [[7.0, 0.0]]
       进程1: Y_1 = [[10.0]]  Z_1 = Y_1 B_1 = [[0.0, 20.0]]
       g all-reduce → Z = [[7.0, 20.0]]  单卡 Z = [[7.0, 20.0]]
@@ -412,7 +412,7 @@ Table: 两块 softmax 统计量的合并
 
 **亲手验证**（`02_parallelism_toys.py cp`）：8 个 token 切到 4 个进程，每个进程持自己那 2 个 token 的 Q/K/V，用 `dist.isend` / `dist.recv` 把 K/V 块沿环传 3 步，每收到一块就按上表合并一次：
 
-```text
+```text title="Ring Attention toy：每步每卡用的 K/V 块"
 序列 8 个 token，4 张卡各 2 个；每步每卡用的 K/V 块（第一个数是本卡的）：
   卡 0: K/V 块 [0, 3, 2, 1]
   卡 1: K/V 块 [1, 0, 3, 2]
@@ -598,7 +598,7 @@ $$
 
 有多不均？第 7 节的 toy（8 个专家、$$k = 2$$、随机初始化的路由器、64 个 token）跑出来是：
 
-```text
+```text title="MoE toy 的负载不均：各进程与各专家收到的 token 数"
 各进程收到的 token 数: [42, 32, 13, 41]   平均 32，最忙 / 平均 = ρ = 1.31
 每个专家收到的 token 数: [21, 21, 19, 13, 12, 1, 19, 22]   平均 16
 ```
@@ -649,7 +649,7 @@ ZeRO 对两组参数分别按各自的 DP 组分片：专家参数在 2 卡的�
 
 `02_parallelism_toys.py ep`：8 个专家、$$k = 2$$，4 个进程各持 2 个专家、各有 16 个 token（$$h = 4$$）。路由器随机初始化、四个进程同一份。核心是 ② 到 ⑥ 这几步，all-to-all 用 `dist.all_to_all_single(out, in, out_splits, in_splits)`，它的反向就是 split 互换：
 
-```python
+```python title="EP toy：A2A 的 autograd.Function 与 dispatch/combine"
 class A2A(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, out_splits, in_splits):
@@ -679,7 +679,7 @@ out = (flat_w[:, None] * y).reshape(T, k, h).sum(1)        # ⑥ 按路由权重
 
 参考答案是"每个 token 自己去查全部 8 个专家"（等价于 EP 组只有一张卡），梯度则把四个进程的参考梯度 all-reduce 后取本进程那两个专家的部分：
 
-```text
+```text title="EP toy 的输出：dispatch 矩阵与正确性校验"
 dispatch 矩阵：第 i 行 = 进程 i 发给进程 0..3 的 token 数
   进程 0: [10, 8, 2, 12]   合计 32
   进程 1: [10, 6, 3, 13]   合计 32
@@ -899,7 +899,7 @@ Table: 本篇涉及的源码位置
 
 第一篇的账本给出一个模型的四类状态字节数；本篇给它加上并行维度：输入 `ParallelConfig(tp, pp, dp, cp, ep, zero_stage, …)`，输出每卡常驻状态与每 step 各并行维度、各原语的通信字节数，以及 PP 气泡率。它只依赖第一篇的 `ledger.model.ModelSpec` 与 `ledger.memory.state_bytes()`，不依赖 torch。
 
-```python
+```python title="ledger/parallel.py：并行即状态放置"
 """train-ledger / ledger/parallel.py -- parallelism as state placement.
 
 Input : ModelSpec + StateBytes (from article 1) + ParallelConfig
@@ -1159,7 +1159,7 @@ if __name__ == "__main__":
 
 运行输出（`python -m ledger.parallel`，`ledger/model.py` 里的 `llama3_405b()` / `llama3_70b()` 是第一篇定义的模型规格，`kv_heads=8`；字节数为二进制单位）：
 
-```text
+```text title="python -m ledger.parallel 的输出：405B 与 70B 两种配置"
 llama3-405b: tp=8 cp=1 pp=16 dp=128 ep=1 zero=1 sp=True mb=1 m=16 -> 16384 GPUs
   per-GPU state : params     5.91 GB  grads     5.91 GB  optim   283.49 MB  total    12.09 GB
   activation/layer/GPU (flash, 1 mb):   544.00 MB   layers/stage 7.9   tokens/GPU/mb 8192

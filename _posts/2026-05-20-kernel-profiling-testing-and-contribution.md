@@ -121,7 +121,7 @@ flowchart TB
 
 对第九篇的 decoder layer，先在 Python 侧给每个阶段打 NVTX 标记，再只在 warmup 之后打开采集：
 
-```python
+```python title="run_layer.py：给各阶段打 NVTX 标记"
 # run_layer.py
 import torch
 
@@ -152,7 +152,7 @@ torch.cuda.profiler.stop()
 
 采集命令：
 
-```bash
+```bash title="nsys profile 采集命令"
 nsys profile -t cuda,nvtx,osrt \
      --capture-range=cudaProfilerApi --capture-range-end=stop \
      -o layer --force-overwrite true \
@@ -172,7 +172,7 @@ nsys stats --report nvtx_kern_sum layer.nsys-rep
 
 同一个 decoder layer 在 prefill 与 decode 两种形状下，nsys 时间线的 CPU 行与 GPU 行长成完全不同的样子——空隙是不是问题，一眼就能看出来：
 
-```text
+```text title="prefill 与 decode 形状下 nsys 时间线的 CPU / GPU 行"
 prefill（M = 8192）: kernel 几百 µs，CPU 把 launch 排进队列后就跑到 GPU 前面去了
 时间 →
 CPU  ▌L▌L▌L▌L▌  ……（launch 只占几 µs，CPU 大部分时间在等 GPU）
@@ -202,7 +202,7 @@ GPU  ▌norm▌GEMV▌RoPE▌attn▌o_proj▌norm▌gate/up▌SiLU▌down▌
 
 假设 nsys 指出 fused add+RMSNorm 离理论下界最远（比如实测 300 µs 对比理论 134 µs）。ncu 的基本用法：
 
-```bash
+```bash title="ncu 的基本用法：-k、-s、-c、--set"
 # 只采集名字匹配 rms_norm 的第一个 kernel，采全部 section
 ncu --set full -k regex:rms_norm -c 1 -o rms_full python bench_rmsnorm.py
 
@@ -254,7 +254,7 @@ ncu-ui rms_full.ncu-rep
 
 ### 4. Warp State Statistics：warp 在等什么
 
-```text
+```text title="一个调度器手里 4 个 warp 的逐周期 stall"
   一个 warp 调度器手里的 4 个 warp，逐周期看它们在干什么（▶ = 被选中发射，S = stall 等待，· = 就绪未选中）:
 
   周期:     1   2   3   4   5   6   7   8   9  10  11  12
@@ -319,7 +319,7 @@ Table: 三种 kernel 配置的 occupancy 计算
 
 **Launch Statistics** 列出 grid/block 尺寸、每线程寄存器、静态/动态 shared、以及 **Waves Per SM**：grid 中的 block 数除以（SM 数 × 每 SM 最大驻留 block 数）。0.4 wave 说明 GPU 一大半 SM 是空的（grid 太小，decode 阶段的 GEMM、小 batch 的 attention 常见）；1.2 wave 说明第一波满、第二波只有 20%，尾巴占了将近一半时间——这时把 tile 减小或 split-K 让 wave 数变成整数附近或远大于 1，往往比任何 kernel 内部的优化更有效。
 
-```text
+```text title="waves = 0.4 与 1.2 时忙碌 SM 比例随时间的变化"
   108 个 SM × 每 SM 8 block = 一波 864 个 block
   纵轴 = 忙碌 SM 比例，横轴 = 时间（假设 block 耗时相同，一波 = 一个 block 时长）
 
@@ -350,7 +350,7 @@ Table: 三种 kernel 配置的 occupancy 计算
 
 以 fused add+RMSNorm（8192 行 × 4096，BF16，一个 block 处理一行、256 线程、每线程 16 字节向量化加载）为例，一个已经做对了的版本在 A100 上报告的**典型形态**——不是实测，而是根据字节数、硬件参数与经验得出的、读者跑出来应该大致落在的区间：
 
-```text
+```text title="fused add+RMSNorm 的典型 ncu 报告形态"
 GPU Speed Of Light Throughput
   Duration                         ~150–175 µs（理论下界 134 µs；ncu 锁基频时会更长）
   Memory Throughput [%]            75–90         ← 已接近带宽屋顶
@@ -381,7 +381,7 @@ Launch Statistics
 
 把"做对了"和"有问题"两个版本的关键指标并排画出来，会发现 stall 分布几乎一样，差别全在 SOL 与 occupancy：
 
-```text
+```text title="做对了与有问题两个版本的 SOL 与 occupancy 对照"
                         做对了的版本                    有问题的版本
                         16 B 向量化，256 线程            2 B 标量，128 线程，smem 限 3 block/SM
   SOL Memory %          ████████████████░░░░ 80         ████████░░░░░░░░░░░░ 40    ← 差别在这
@@ -466,7 +466,7 @@ flowchart TB
 - 向量化：每线程一次 16 字节，同样多的数据用 1/4 甚至 1/8 的指令数，每条指令带回更多字节；
 - `cp.async` 多级流水（Ampere）或 TMA（Hopper）：让下一个 tile 的加载与当前 tile 的计算重叠，把"等内存"的时间换成"算上一块"的时间。
 
-```text
+```text title="SM 跑满带宽需要的在飞字节"
   一个 SM 要跑满带宽，必须时刻有 ≈ 延迟 × 每 SM 带宽份额 = 600 周期 × 13 B/周期 ≈ 8 KB 在飞
 
   （每格 = 1 KB）
@@ -523,7 +523,7 @@ tolerance 调大之前要问一句：是我的 kernel 累加顺序不同带来�
 
 vLLM 的 kernel 测试在 `tests/kernels/` 下按功能分目录（`core/`、`attention/`、`quantization/`、`moe/`、`mamba/` 等），每个 `.cu` 文件对应一到几个 `test_*.py`。看 `test_layernorm.py`（v0.20.0）的参数化风格：
 
-```python
+```python title="vLLM test_layernorm.py 的参数化风格"
 # vllm v0.20.0: tests/kernels/core/test_layernorm.py（节选）
 DTYPES = [torch.half, torch.bfloat16, torch.float]
 NUM_TOKENS = [7, 83, 4096]  # Arbitrary values for testing
@@ -575,7 +575,7 @@ def test_rms_norm(default_vllm_config, num_tokens, hidden_size, add_residual,
 
 下面是给本文 RMSNorm 算子（第九章注册为 `torch.ops.my_ops.rms_norm`）的完整测试文件。它假设 `my_ops.py` 已经完成编译加载与 fake 注册（第九章给出）：
 
-```python
+```python title="test_rms_norm.py：完整的 pytest 测试文件"
 # test_rms_norm.py
 import pytest
 import torch
@@ -678,7 +678,7 @@ def test_rms_norm_opcheck(rows, d, layout):
 
 `make_input` 的四种布局在 storage 里长这样（以 `rows=2, d=4` 为例），它决定了第九章 host 包装里走哪条路：
 
-```text
+```text title="make_input 四种布局在 storage 里的样子"
   x[i][j] 落在 storage 的哪个格子（■ = 属于 x，· = storage 里不属于 x 的元素）
 
   contiguous    ■■■■■■■■             stride=(4,1)  连续
@@ -722,7 +722,7 @@ benchmark 的目标是给出一个**可复现、可比较**的数字。四个来
 
 ### 3. 完整的 benchmark 脚本
 
-```python
+```python title="bench_rmsnorm.py：完整的 benchmark 脚本"
 # bench_rmsnorm.py
 import argparse
 import json
@@ -835,7 +835,7 @@ if __name__ == "__main__":
 
 顺带一句 `torch.utils.benchmark.Timer` 的用法，作为 `do_bench` 之外的选择：
 
-```python
+```python title="torch.utils.benchmark.Timer 的用法"
 from torch.utils.benchmark import Timer
 m = Timer(stmt="torch.ops.my_ops.rms_norm(x, w, 1e-6)",
           globals={"x": x, "w": w}).blocked_autorange(min_run_time=1.0)
@@ -850,7 +850,7 @@ print(m.median * 1e6, "us; iqr", m.iqr * 1e6)
 
 同一份 `.cu` 要在 sm_80（A100）、sm_86/89（消费卡与 L4）、sm_90（H100）上工作。编译期的工具是 `__CUDA_ARCH__` 宏与多目标编译：
 
-```cpp
+```cpp title="用 __CUDA_ARCH__ 按架构选代码路径"
 __device__ __forceinline__ void load_tile_async(/* ... */) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
   // Hopper：TMA / wgmma 路径
@@ -871,7 +871,7 @@ __device__ __forceinline__ void load_tile_async(/* ... */) {
 
 host 侧按设备能力分派：
 
-```cpp
+```cpp title="host 侧按 compute capability 分派"
 #include <ATen/cuda/CUDAContext.h>
 
 at::Tensor my_gemm(const at::Tensor& a, const at::Tensor& b) {
@@ -962,7 +962,7 @@ flowchart TB
 
 下面是一个完整、可编译的最小示例。kernel 本身是第四篇的 RMSNorm：一个 block 处理一行，256 线程，warp shuffle 归约，BF16 输入、float 累加。为了让例子聚焦在注册机制上，加载是标量的（每线程 2 字节），第四章说过它的向量化版本长什么样。
 
-```cpp
+```cpp title="my_ops.cu：TORCH_LIBRARY + TORCH_LIBRARY_IMPL 注册 RMSNorm"
 // my_ops.cu
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -1064,7 +1064,7 @@ schema 字符串的写法与 ATen 的 `native_functions.yaml` 一致：`Tensor` 
 
 ### 3. Python 侧：编译加载、fake kernel、opcheck
 
-```python
+```python title="my_ops.py：编译加载、fake kernel 与 opcheck"
 # my_ops.py
 import os
 import torch
@@ -1137,7 +1137,7 @@ docstring 建议"用一组有代表性的输入多次调用 opcheck"——不同
 
 vLLM 的 CUDA 代码在 `csrc/` 下按功能组织：顶层是 `layernorm_kernels.cu`、`activation_kernels.cu`、`pos_encoding_kernels.cu`、`cache_kernels.cu` 这些通用 kernel；`attention/` 放 PagedAttention 与 merge_attn_states；`quantization/` 按量化方法分子目录（`gptq_marlin/`、`awq/`、`fp8/`、`cutlass_w8a8/`、`machete/`）；`moe/` 放 MoE 的 align/permute 与 grouped GEMM；`cutlass_extensions/` 放对 CUTLASS 的扩展。所有对外的 host 函数在 `csrc/ops.h` 里声明：
 
-```cpp
+```cpp title="vLLM csrc/ops.h 的 host 函数声明"
 // vllm v0.20.0: csrc/ops.h（节选）
 void rms_norm(torch::Tensor& out, torch::Tensor& input, torch::Tensor& weight,
               double epsilon);
@@ -1148,7 +1148,7 @@ void fused_add_rms_norm(torch::Tensor& input, torch::Tensor& residual,
 
 注册集中在 `csrc/torch_bindings.cpp`。它用 `TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops)`——`core/registration.h` 里定义的一层宏，作用是让库名可以是一个宏（`TORCH_EXTENSION_NAME` 由构建系统定义为 `_C`）而不必是字面 token：
 
-```cpp
+```cpp title="torch_bindings.cpp：TORCH_LIBRARY_EXPAND 注册 schema"
 // vllm v0.20.0: csrc/torch_bindings.cpp（节选）
 TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
   // ...
@@ -1174,7 +1174,7 @@ REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 
 `vllm/_custom_ops.py` 是 Python 侧包装层。每个算子一个薄函数，加上必要的 fake 注册：
 
-```python
+```python title="vllm/_custom_ops.py 的 Python 侧包装"
 # vllm v0.20.0: vllm/_custom_ops.py（节选）
 # layer norm ops
 def rms_norm(
@@ -1330,7 +1330,7 @@ Table: ncu 各 section 的关键指标与判断
 
 正确性测试清单：
 
-```text
+```text title="正确性测试清单"
 [ ] FP32 参考实现（组合算子，慢但显然正确）
 [ ] tolerance 按 dtype：FP32 ~1e-5；BF16 rtol 1.6e-2（归约类 atol 放到 1e-2）；量化与量化参考比
 [ ] 0 行、1 行、非 8/16 对齐宽度（769、5125）、非 2 的幂、> INT32 元素数
@@ -1343,7 +1343,7 @@ Table: ncu 各 section 的关键指标与判断
 
 kernel PR 清单：
 
-```text
+```text title="kernel PR 清单"
 [ ] issue / RFC 先讨论动机、方案与 benchmark 计划
 [ ] 实现 + 测试（tests/kernels/）+ benchmark（benchmarks/kernels/）
 [ ] before/after 表：多 shape、多 GPU、中位数、带宽/算力利用率列

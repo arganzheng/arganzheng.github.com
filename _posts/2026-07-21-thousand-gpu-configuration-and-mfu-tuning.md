@@ -75,7 +75,7 @@ Table: 千卡配置的自由度与约束
 
 ### 3. 决策流程
 
-```text
+```text title="并行配置的决策流程"
                     模型规格 (N, L, h, a, s)   集群规格 (卡数, 节点内卡数, 每卡显存, NVLink/网卡带宽)
                                         │
                                         ▼
@@ -170,7 +170,7 @@ Table: 本文的章节安排
 
 $$t=8$$ 后，PP 决定每卡的参数份额 $$N/(8p)$$ 和在途激活。三个候选：
 
-```text
+```text title="PP 的三个候选：每卡参数与激活"
 候选            每卡参数     bf16 参数  fp32 梯度   优化器分片(ZeRO-1)   静态合计   每 stage 层数   在途 micro-batch   激活(×1.2)    logits+开销   总计
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 C  TP8/PP1/DP128  8.8 B     17.6 GB   35.3 GB    8.8B×12/128 = 0.8 GB   53.7 GB    80             1（梯度累积）      27 GB         8 GB          ~89 GB  ✗
@@ -188,7 +188,7 @@ $$d = 1024 / (8p)$$：候选 A 是 32，B 是 64。每条流水线每 step 处�
 
 三个维度落到 128 个节点上是什么样子，用候选 A 画出来（Megatron `initialize_model_parallel()` 默认 `order="tp-cp-ep-dp-pp"`，TP 变化最快、PP 最慢；torchtitan 的 DeviceMesh 维度顺序 `pp, dp, cp, tp` 结果相同）：
 
-```text
+```text title="候选 A 在 128 个节点上的 rank 排布"
 候选 A：TP8 / PP4 / DP32   rank = tp + 8·dp + 256·pp   节点 n = dp + 32·pp
                                          （节点 n 放 rank 8n...8n+7）
 
@@ -225,7 +225,7 @@ $$s = 8192$$、TP8 + SP 之后一层的激活 285 MB，注意力用 FlashAttenti
 
 ### 6. 推导表
 
-```text
+```text title="候选 A 与候选 B 的推导表"
 项目                        候选 A                          候选 B                          备注
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 TP / PP / DP / CP           8 / 4 / 32 / 1                  8 / 2 / 64 / 1                  t·p·d = 1024
@@ -253,7 +253,7 @@ A 与 B 的差别在于把显存换成了 DP 通信：B 每卡多 13 GB 静态�
 
 "预期 step 时间"一行不是拍的，是按第六章的七项各给一个正常范围加出来的：
 
-```text
+```text title="预期 step 时间的七项加法"
 项                          正常范围（占理论计算时间 2.0 s 的倍数或绝对值）        候选 A 的预期
 ──────────────────────────────────────────────────────────────────────────────────────────────────
 kernel 效率                 GEMM 达峰 70–75%，非 GEMM kernel 再占 15–20%   → 计算实际耗时 ≈ 2.0 / 0.62 ≈ 3.2 s
@@ -304,7 +304,7 @@ Table: micro-batch 大小对气泡与显存的影响
 
 ### 1. 三种策略与代价
 
-```text
+```text title="三种重计算策略与代价"
 策略           存什么                                  省多少激活                       多算多少
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
 全量 (full)    每层（或每 N 层）的输入 sbh·2/t          每层 285 MB → 16.8 MB（约 94%）   反向前重做整层前向：+1 次前向 ≈ +33% FLOP，MFU 不计、HFU 计
@@ -321,7 +321,7 @@ Table: micro-batch 大小对气泡与显存的影响
 
 0.18.0 把重计算配置放在 `megatron/core/transformer/transformer_config.py` 的 `TransformerConfig` 里，CLI 参数由 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory` 从 dataclass 字段自动生成（字段名下划线换连字符），所以 `arguments.py` 里只看得到几个手写的兼容项：
 
-```text
+```text title="Megatron 重计算的参数族"
 字段 / CLI                                       含义
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 recompute_granularity  --recompute-granularity    None / 'selective' / 'full'
@@ -363,7 +363,7 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 
 有一个陷阱：梯度累积期间不能 reduce。$$m$$ 个 micro-batch 只有最后一个的反向该触发通信，前 $$m-1$$ 个要关掉——Megatron 在 `schedules.py` 里通过 `no_sync_func` / `disable_grad_sync()` / `enable_grad_sync()` 做这件事；FSDP2 是 `set_requires_gradient_sync(False)`（`torch/distributed/fsdp/_fully_shard/_fully_shard.py` 的 `FSDPModule`），并可用 `set_reshard_after_backward(False)` 让累积期间不重新分片参数、省掉下一次 all-gather。**重叠只在最后一个 micro-batch 的反向里发生**，所以 DP 通信能藏起来的上限是"一次反向的时间"，$$m$$ 越大这个上限相对越宽松。把一个 step 的两条 stream 摆在同一根时间轴上（以 4 个 bucket 为例）：
 
-```text
+```text title="一个 step 内计算与通信两条 stream 的时间轴"
 时间 ──────────────────────────────────────────────────────────────────────────►
       micro-batch 1..m-1 micro-batch m（最后一个）   等    opt 下一 step
      ┌──────────────────┬──┬──────┬─────┬─────┬─────┬─────┬───┬─────────┬──────┐
@@ -487,7 +487,7 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 
 候选 A 设计目标 42%（4.75 s/step），假设跑出来 32%（6.2 s/step），多出 1.45 s。下面是一张**构造的**拆解表——数字是按第 1 节的测法从一份假想的 trace 里读出来的，用来演示七项如何加起来正好是 10 个点；它不是任何一次真实测量：
 
-```text
+```text title="缺的 10 个 MFU 点的拆解表（构造）"
 项              预算（第二章第 7 节）    "实测"     超出      折成 MFU 点   现象与归因                                          处置
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 1 PP 气泡        0.15 s                  0.23 s     +0.08     ~0.5          首尾 stage 各多算 embedding / lm_head+loss，其余 stage 等   首尾 stage 少放 1 层
@@ -545,7 +545,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾"
 推导顺序     TP（NVLink 域 8，开 SP）→ PP（放下 N/(t·p) + 在途激活，交错调度压气泡）→ DP（用满卡；每卡 token 少选 ZeRO-1 不选 FSDP）→ CP（s ≥ 32K）
 70B/1024 卡  候选 A：TP8/PP4(v=4)/DP32，b=1，m=16，气泡 4.7%，每卡 ~49 GB 不重计算；候选 B：TP8/PP2(v=4)/DP64，m=8，~62 GB
              FSDP128 版每 step 每卡 ~175 GB 节点间通信、3.5 s，压不住 —— 每卡 4096 token 太少
@@ -562,7 +562,7 @@ FP8/融合/编译 FP8 只快 GEMM，step 时间降 20–25%；融合是无风险
 
 ### 2. 本篇涉及的源码位置
 
-```text
+```text title="本篇涉及的源码位置"
 项目                  路径                                                          关键符号 / 内容
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Megatron Core         megatron/core/transformer/transformer_config.py               TransformerConfig：recompute_granularity / recompute_method / recompute_num_layers /
@@ -620,7 +620,7 @@ PyTorch v2.13.0       torch/utils/checkpoint.py                                 
 
 练手项目在 8 卡上跑 Llama 3 8B，对比配置矩阵的 MFU，用 profiler 拆损失，再外推到 1024 卡。目录：
 
-```text
+```text title="train-ledger/sweep/ 目录"
 train-ledger/
   ledger/            第一、二篇：model.py memory.py flops.py parallel.py
   sweep/
@@ -632,7 +632,7 @@ train-ledger/
 
 torchtitan v0.3.0 没有 TOML 配置文件（旧版的 `train_configs/*.toml` 已移除），配置是返回 `Trainer.Config` 的 Python 函数，用 `--module` 指定模块、`--config` 指定函数名。`sweep/recipes.py` 从 `llama3_8b()` 派生出矩阵 TP ∈ {1, 2} × AC ∈ {none, selective, full} × compile ∈ {off, on}，FSDP 填满剩余的卡：
 
-```python
+```python title="sweep/recipes.py：torchtitan 配置矩阵"
 # train-ledger/sweep/recipes.py — torchtitan v0.3.0 配置矩阵；MODULE=sweep.recipes CONFIG=<函数名> ./run_train.sh
 from torchtitan.config import CompileConfig
 from torchtitan.distributed.activation_checkpoint import FullAC, SelectiveAC
@@ -681,7 +681,7 @@ def tp2_ac_none_asynctp():
 
 `run_sweep.sh` 在 torchtitan 仓库根目录下执行（`sweep/` 需在 `PYTHONPATH` 里），每个配置跑 60 步，从日志抓 `mfu(%)` 与 `memory` 字段，trace 落在各自的 `dump_folder`：
 
-```bash
+```bash title="sweep/run_sweep.sh"
 #!/usr/bin/env bash
 # train-ledger/sweep/run_sweep.sh — 在 torchtitan 仓库根目录运行；PYTHONPATH 含 train-ledger/
 set -euo pipefail
@@ -705,7 +705,7 @@ done
 
 `mfu_breakdown.py` 读一个或多个 rank 的 Chrome trace，按第六章第 1 节的表分桶。它只依赖标准库，输入是 `torch.profiler` 导出的 JSON（事件有 `ph / cat / name / ts / dur / args`），定位 `ProfilerStep#N` 区间后在其中做区间并集运算：
 
-```python
+```python title="mfu_breakdown.py：把 trace 按七项分桶"
 #!/usr/bin/env python3
 """train-ledger/mfu_breakdown.py — 把一个 step 的 torch.profiler trace 按七项 MFU 损失分桶。
 
@@ -824,7 +824,7 @@ if __name__ == "__main__":
 
 8 卡的结论有两类。**比率类**（compile 减少多少 CPU 开销、全量重计算多算多少、TP 独占能藏多少）随规模基本不变，可以直接搬到千卡的预算表里。**绝对量类**（通信时间、气泡、显存）随并行度变化，要用账本重算。`sweep/extrapolate.py` 做的就是后一件事——它不跑任何 GPU 代码，只调用第二篇的 `ledger.parallel`：
 
-```python
+```python title="sweep/extrapolate.py：8 卡校准量 + 账本 → 1024 卡预算"
 # train-ledger/sweep/extrapolate.py（节选）— 8 卡校准量 + 账本 → 1024 卡预算
 from ledger.model import llama3_70b                       # 第一篇：结构常量（seq_len=8192）
 from ledger.memory import state_bytes                     # 第一篇：四类状态字节数

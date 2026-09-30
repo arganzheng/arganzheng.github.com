@@ -184,7 +184,7 @@ chunk 的选择体现一个真实矛盾：
 
 把三种做法放到同一条时间轴上，可以看清它们各自把干扰放在了哪里（`[d]` 为一步 Decode，`c1..c4` 为长 Prompt 的四个 chunk，示意步长并不等长）：
 
-```text
+```text title="三种做法在同一时间轴上的干扰位置"
 时间 →        步1   步2   步3   步4   步5   步6   步7   步8   步9   步10
 
 共置（整段 Prefill 进入混合 batch）
@@ -292,7 +292,7 @@ P 的 block 17 和 D 的 block 17 只是各自池里的编号，不代表同一�
 
 把一次交接放到 P 实例、KV 传输、D 实例三条并行时间线上，这四条约束对应的就是各时间线上“状态已变、资源未变”的错位（以后文走读的 NIXL pull 为例，时刻只表示先后，不表示等长）：
 
-```text
+```text title="一次交接的三条时间线：P、KV 传输、D"
 时刻  P 实例（源块）          KV 传输               D 实例（请求 / 目标块）
 ----  ----------------------  --------------------  ------------------------
 t0    Prefill 计算，写入源块                        （请求尚未到达）
@@ -372,7 +372,7 @@ $$
 
 仍用 8 个 KV heads 的例子：
 
-```text
+```text title="TP=8 到 TP=2 的 KV head 重组"
 P，TP=8：rank 0: h0   rank 1: h1   ...   rank 7: h7
 
 D，TP=2：rank 0 需要 h0,h1,h2,h3 ← 从 P 的 rank 0~3 各读一段
@@ -438,7 +438,7 @@ Table: 三种计算通信重叠改善的指标
 
 用一个简化时间线区分第一种与后两种：
 
-```text
+```text title="跨请求重叠与同请求重叠的时间线"
 跨请求：A 的 KV [-----------传输-----------]
         D 的 GPU [B decode][C decode][B decode] → A 就绪后才可运行
         GPU 没有空等，但 A 仍承担自己的交接延迟。
@@ -606,7 +606,7 @@ NIXL pull 在 D 侧识别 `request.kv_transfer_params` 中的 `do_remote_prefill
 
 `Scheduler.schedule()` 在异步加载分支设置：
 
-```python
+```python title="schedule()：异步加载分支的状态设置"
 request.status = RequestStatus.WAITING_FOR_REMOTE_KVS
 step_skipped_waiting.prepend_request(request)
 ```
@@ -655,7 +655,7 @@ Scheduler 的 `_try_promote_blocked_waiting_request()` 检查接收完成集合�
 
 对于完整 prompt 命中，源码有这个处理：
 
-```python
+```python title="完整 prompt 命中的处理"
 if request.num_computed_tokens == request.num_tokens:
     request.num_computed_tokens = request.num_tokens - 1
 ```
@@ -838,7 +838,7 @@ $$
 
 因此，看到“输入长度变长”就只扩 P，可能完全找错瓶颈。D 的内存约束至少包括：
 
-```text
+```text title="D 的内存约束"
 权重与运行时空间
 + 活跃请求的 KV
 + 接收中 / 就绪未执行请求预留的 KV

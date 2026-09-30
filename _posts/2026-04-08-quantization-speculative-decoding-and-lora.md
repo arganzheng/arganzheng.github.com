@@ -98,7 +98,7 @@ $$s$$ 与 $$z$$ 按什么范围共享，决定了量化的**粒度**：
 
 三种粒度在同一个 $$W \in \mathbb{R}^{d_{out} \times d_{in}}$$ 上的 $$(s, z)$$ 共享范围（行 = 输出通道，横向 = GEMM 的归约维 $$k = d_{in}$$）：
 
-```text
+```text title="三种量化粒度的 (s, z) 共享范围"
                  d_in（归约维 k）─────────────────────▶
            ┌────────────────────────────────────────┐
 per-tensor │ 整个矩阵共用一个 (s, z)                │ 元数据 1 个
@@ -549,7 +549,7 @@ $$r$$ 与作用范围是两个独立的旋钮，参数量对两者都是线性�
 
 LoRA 训练的显存：
 
-```text
+```text title="全量微调与 LoRA 的训练显存对照"
                         全量微调                 LoRA r=16（全部七个矩阵）
 冻结 / 可训练权重        8.03B × 16 B = 128 GB    BF16 冻结权重 8.03B × 2 B = 16.06 GB
                                                  + LoRA 状态 41.9M × 16 B ≈ 0.67 GB
@@ -624,7 +624,7 @@ LoRA 的 16.7 GB 里 16.06 GB 是冻结的 BF16 底座。QLoRA（Dettmers 等 20
 
 延续贯穿全系列的 `llm_cost.py`，本篇新增量化字节数、投机解码加速比、LoRA 参数三组函数。为了独立运行，下面同时给出前几篇中本篇用到的 `param_count`、`forward_flops_per_token`、`kv_bytes_per_token` 的 dense 版本（MoE 与 MLA 的版本在第六、八篇）。
 
-```python
+```python title="llm_cost.py：量化、投机解码与 LoRA 三组函数"
 from dataclasses import dataclass
 
 @dataclass
@@ -736,7 +736,7 @@ if __name__ == "__main__":
 
 输出：
 
-```text
+```text title="量化、投机解码与 LoRA 的输出"
 Llama-3-8B: 8.03B  BF16 16.1 GB  INT4(g128) 4.25 bit -> 4.27 GB
   decode 下界 BF16 4.79 ms  W4A16 1.27 ms
   LoRA r=16 attn 13.63M  all 41.94M (0.52%)
@@ -799,7 +799,7 @@ DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述；LoRA 一�
 
 三种方法各改一个变量：
 
-```text
+```text title="三种方法各改一个变量"
                 改的量            机制                                  收益区间
 量化 W4A16      W_bytes ↓ 4×      权重 4 bit，片上反量化到 BF16 计算       decode，B ≲ ridge/4 ≈ 75；prefill 无益或更慢
 量化 W8A8       W_bytes ↓ 2×，     FP8/INT8 Tensor Core 算力 2×            decode 2× 与 prefill 2× 上限都有

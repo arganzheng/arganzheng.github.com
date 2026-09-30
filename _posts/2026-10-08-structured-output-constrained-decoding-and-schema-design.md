@@ -104,7 +104,7 @@ Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约
 
 约束解码按 schema 里属性的顺序生成（OpenAI 的 strict 模式明确保证按 schema 顺序输出）。这让字段顺序成为一个设计工具：**把需要推理的字段放在结论之前**。
 
-```json
+```json title="把推理字段放在结论之前的 schema"
 {
   "type": "object",
   "properties": {

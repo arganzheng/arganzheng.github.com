@@ -108,7 +108,7 @@ LoRA 路径的 FLOPs 是 `2·r·(in + out)` 对比基座的 `2·in·out`，`r=16
 
 Table: LoRA kernel 的点名单张量
 
-```python
+```python title="LoRAKernelMeta dataclass"
 @dataclass
 class LoRAKernelMeta:
     token_lora_mapping: torch.Tensor              # [tokens]，每个 token 的 adapter 槽位，-1 表示无 LoRA
@@ -143,7 +143,7 @@ Table: LoRA 的两个 Triton kernel
 
 把上面的话对应到 kernel 源码里的关键几行（`_lora_shrink_kernel`；不想看代码的读者可以跳过这段，前面的图已经是全部原理）：
 
-```python
+```python title="_lora_shrink_kernel 的关键几行"
 slice_id = tl.program_id(axis=1)
 lora_idx = tl.program_id(axis=2)                       # grid 的第三维遍历活跃 adapter
 lora_id = tl.load(lora_ids + lora_idx)
@@ -170,7 +170,7 @@ ram = tl.load(token_indices_sorted_by_lora_ids + lora_m_indices_start + cta_m_of
 
 先看槽位。`BaseLinearLayerWithLoRA.create_lora_weights()` 在模型加载时为每个 LoRA 层一次性分配：
 
-```python
+```python title="create_lora_weights()：按 max_loras 预分配槽位"
 self.lora_a_stacked = tuple(torch.zeros(max_loras, 1, lora_a_out_size, self.input_size, dtype=lora_dtype, device=device)
                             for _ in range(self.n_slices))
 self.lora_b_stacked = tuple(torch.zeros(max_loras, 1, lora_b_out_size, max_lora_rank, dtype=lora_dtype, device=device)
@@ -326,7 +326,7 @@ vLLM 把第一段（输入处理）放在 `vllm/multimodal/processing/`，由 `M
 
 第 1 步**复用 Hugging Face 的 processor**（`_call_hf_processor()`）——图片 resize、归一化、切 patch 的逻辑不重写。第 2 步用 `PromptReplacement` / `PromptInsertion` 描述"把 prompt 里的 `<image>` 换成 N 个 `<image_token>`"，N 由模型的 `get_mm_max_tokens_per_item()` 或实际输出决定。第 3 步产出 `PlaceholderRange`（`vllm/multimodal/inputs.py`）：
 
-```python
+```python title="PlaceholderRange dataclass"
 @dataclass(frozen=True)
 class PlaceholderRange:
     offset: int                          # 占位符在 prompt 中的起点
@@ -349,7 +349,7 @@ class PlaceholderRange:
 
 到 model runner 时，多模态请求的 `prompt_token_ids` 已经是一串普通 token id，其中 `mm_position` 指向的区间填的是模型的 image token id（重复 `length` 次）。它们和文本 token 一起走 `embed_input_ids()`，得到一个"错误但形状正确"的 embedding；然后在正确的位置**覆盖**成 encoder 输出：
 
-```python
+```python title="_merge_multimodal_embeddings：布尔掩码就地覆盖"
 # vllm/model_executor/models/utils.py（简化）
 def _merge_multimodal_embeddings(inputs_embeds, multimodal_embeddings, is_multimodal):
     mm_embeds_flat = _flatten_embeddings(multimodal_embeddings)
@@ -377,7 +377,7 @@ encoder（ViT / 音频编码器）不是 decoder forward 的一部分——它�
 
 既然 encoder 是单独的计算，调度器就得给它单独的预算。`MultiModalBudget`（`vllm/multimodal/encoder_budget.py`）在启动时算出两个数（`compute_mm_encoder_budget()`，`vllm/v1/core/encoder_cache_manager.py`）：
 
-```python
+```python title="encoder 的两个预算数"
 encoder_compute_budget = max(scheduler_config.max_num_encoder_input_tokens, max_tokens_per_mm_item)
 encoder_cache_size     = max(scheduler_config.encoder_cache_size,            max_tokens_per_mm_item)
 ```

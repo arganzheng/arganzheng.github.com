@@ -509,7 +509,7 @@ PAT            Parallel Aggregated Trees（约 2.23 引入）：只用于 all_ga
 **LL**（Low Latency，`src/device/prims_ll.h`）。把 flag 和数据打包在一起：
 
 {% raw %}
-```cpp
+```cpp title="ncclLLFifoLine：8 字节数据 + 8 字节 flag"
 union ncclLLFifoLine {
   struct { uint32_t data1; uint32_t flag1; uint32_t data2; uint32_t flag2; };  // 8 字节数据 + 8 字节 flag
   uint64_t v[2];

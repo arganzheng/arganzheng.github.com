@@ -26,7 +26,7 @@ updated: 2026-09-14
 
 训练框架与推理引擎在网络和存储这一层的需求，可以从 NCCL 的初始化和 PyTorch 的 checkpoint 路径倒推出来：
 
-```text
+```text title="网络与存储层的引擎需求"
 需求                                 来源                                    不满足时的表现
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 进程能打开 RDMA 设备文件               NCCL ncclIbInit 调 ibv_get_device_list   "NET/IB : No device found." → 回落 Socket
@@ -54,7 +54,7 @@ checkpoint：大块顺序写、突发           每 N 步一次，写完才继�
 
 ### 3. 平台的机制（全局图）
 
-```text
+```text title="平台机制全局图：网络与存储"
                          ┌─────────────────────────────────────────────────────────────┐
                          │ Pod（训练 rank）                                            │
                          │  eth0 (veth, overlay IP)        net1 (RDMA 侧 IP)           │
@@ -101,7 +101,7 @@ Table: 本文的章节安排
 
 默认 CNI（Calico、Cilium、Flannel 等）给每个 Pod 创建一对 veth，一端在 Pod 的网络命名空间里叫 `eth0`，另一端接在宿主机的网桥或路由表上；跨节点流量再经 VXLAN/IPIP 封装或 BGP 路由。这条路径的每个环节都是内核 TCP/IP 协议栈：
 
-```text
+```text title="默认路径：veth + overlay 的数据流"
 GPU 显存 ──cudaMemcpy──▶ host 内存 ──send()──▶ 内核协议栈 ──veth──▶ 宿主机 ──封装──▶ 物理网卡 ──▶ 对端（反向再来一遍）
 ```
 
@@ -111,7 +111,7 @@ GPU 显存 ──cudaMemcpy──▶ host 内存 ──send()──▶ 内核协
 
 NCCL 的 IB transport 需要的是另一条路：
 
-```text
+```text title="NCCL 想走的路：GPUDirect RDMA"
 GPU 显存 ◀──DMA──▶ RDMA 网卡（HCA）──▶ 对端 HCA ◀──DMA──▶ 对端 GPU 显存
    │                   ▲
    │  ibv_reg_mr 注册显存（需要 nvidia_peermem 或 DMA-BUF）
@@ -126,7 +126,7 @@ GPU 显存 ◀──DMA──▶ RDMA 网卡（HCA）──▶ 对端 HCA ◀─
 
 ### 3. 两条路径的对照图
 
-```text
+```text title="overlay 与 RDMA 直通的对照"
                  overlay（默认 CNI）                          RDMA 直通（Multus + device plugin）
                 ────────────────────────────────────         ──────────────────────────────────────────
 Pod 网络         eth0 (veth) · Pod CIDR 地址                  eth0 保留 + net1（host-device/macvlan/ipoib）· RDMA 侧地址
@@ -208,7 +208,7 @@ flowchart TB
 
 红色是走内核协议栈的数据路径（NCCL 回落到 socket 时用的就是它），黄色是只做控制面的接口，绿色是 RDMA 数据面。三种接法的差别只在 `Delegate → Net1` 这一格：
 
-```text
+```text title="三种接入方式的对照"
 接入方式       CNI 类型       进 Pod 的是什么                       独占性              适用
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 host-device    host-device    整个 PF（或一个 VF）netdev 被 move 进   一个 netdev 一个 Pod  SR-IOV VF；或每节点 Pod 数 ≤ 网卡数的训练
@@ -229,7 +229,7 @@ Network Operator 用三个 CRD 把前三种包装成"填几个字段就生成 NA
 
 直接写 NAD 也完全可以，这是 mini-platform 的做法（第十一章 `net/nad-ipoib.yaml`，IB 集群 + shared device plugin 的组合）：
 
-```yaml
+```yaml title="net/nad-ipoib.yaml"
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
@@ -250,7 +250,7 @@ spec:
 
 `master` 是宿主机上的 IPoIB 接口名，各节点要一致（或按节点分别建 NAD）。RoCE 集群把 `type` 换成 `macvlan`、`master` 换成以太网接口、加 `"mode": "bridge"`。host-device 变体（`net/nad-hostdevice.yaml`）不写 `master`，而是加注解 `k8s.v1.cni.cncf.io/resourceName: nvidia.com/hostdev`，由 CNI 从 device plugin 的分配结果里得知要搬哪张网卡——它要求 `NicClusterPolicy` 里配了 `sriovDevicePlugin`（资源名 `nvidia.com/hostdev`，第四章第 2 节），Pod 也要请求这个资源。Pod 侧（片段）：
 
-```yaml
+```yaml title="Pod 侧的 networks 注解（片段）"
 metadata:
   annotations:
     k8s.v1.cni.cncf.io/networks: rdma-net
@@ -264,7 +264,7 @@ metadata:
 
 k8s-rdma-shared-dev-plugin v1.5.4 的模型很简单：把宿主机上的每个 RDMA 网卡（按 selector 过滤后）当作一个"共享设备"，对外上报 `rdmaHcaMax` 个同名资源副本；任何 Pod 请求一个副本，就把这组网卡的**全部** RDMA 字符设备挂进容器。配置文件（默认 `/k8s-rdma-shared-dev-plugin/config.json`，由 ConfigMap 挂入）的结构在 `pkg/types/types.go`：
 
-```text
+```text title="rdma-shared-dev-plugin 的 config.json 结构"
 UserConfigList
   periodicUpdateInterval   秒；0 关闭；不设默认 60（README）
   configList[]             每项一个资源
@@ -288,7 +288,7 @@ Network Operator 的例子（`example/crs/mellanox.com_v1alpha1_nicclusterpolicy
 
 另一条路是把物理网卡切成 SR-IOV 虚拟功能（VF），每个 VF 有独立的 PCI 地址、独立的 RDMA 设备，由 SR-IOV network device plugin 作为独立资源上报，一个 Pod 拿一个。Network Operator 通过 `NicClusterPolicy.spec.sriovDevicePlugin` 部署它，配置格式是那个插件自己的 `resourceList`（`example/crs/mellanox.com_v1alpha1_nicclusterpolicy_cr-full.yaml`）：
 
-```json
+```json title="SR-IOV device plugin 的 resourceList"
 {
   "resourceList": [
     {
@@ -304,7 +304,7 @@ Network Operator 的例子（`example/crs/mellanox.com_v1alpha1_nicclusterpolicy
 
 ### 3. 两种插件的对照
 
-```text
+```text title="两种 device plugin 的对照"
                     rdma-shared-dev-plugin                          SR-IOV device plugin（+ VF）
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 资源粒度            一个 PF（或一组 PF）× rdmaHcaMax 个副本           一个 VF 一个资源单位
@@ -325,7 +325,7 @@ GPU 亲和            靠 NCCL 自选或拆多个资源                         
 
 Linux RDMA 子系统有一个全局开关，决定 RDMA 设备与网络命名空间的关系（iproute2 的 `rdma` 工具，属通用知识）：
 
-```bash
+```bash title="rdma system 的 netns 模式"
 rdma system show                 # netns shared | exclusive
 rdma system set netns shared     # 所有 netns 都能看到所有 RDMA 设备
 rdma system set netns exclusive  # RDMA 设备只属于一个 netns，需显式 rdma dev set <dev> netns <ns>
@@ -344,7 +344,7 @@ RDMA 注册内存需要把页锁定，容器默认的 `RLIMIT_MEMLOCK` 通常很
 
 NVIDIA Network Operator v26.7.0 的核心 CRD 是 `NicClusterPolicy`（API 组 `mellanox.com/v1alpha1`，`api/v1alpha1/nicclusterpolicy_types.go`）。它是集群级（`scope=Cluster`）单例，控制器只处理名为 `nic-cluster-policy` 的那一个实例（`pkg/consts/consts.go` 的 `NicClusterPolicyResourceName`，`controllers/nicclusterpolicy_controller.go` 据此忽略其他名字）。`NicClusterPolicySpec` 的字段与本篇相关的部分：
 
-```text
+```text title="NicClusterPolicySpec 的相关字段"
 spec.ofedDriver                  OFEDDriverSpec：DOCA-OFED 驱动容器（image/repository/version，upgradePolicy、探针、env、
                                  certConfig/repoConfig、forcePrecompiled、terminationGracePeriodSeconds）
 spec.rdmaSharedDevicePlugin      DevicePluginSpec：镜像 + config（第四章的 JSON 原样放进去）+ useCdi
@@ -362,7 +362,7 @@ spec.nodeAffinity / tolerations  DaemonSet 的调度约束
 
 一份最小的 `NicClusterPolicy`（mini-platform 的 `net/nicclusterpolicy.yaml`）：
 
-```yaml
+```yaml title="net/nicclusterpolicy.yaml：最小 NicClusterPolicy"
 apiVersion: mellanox.com/v1alpha1
 kind: NicClusterPolicy
 metadata:
@@ -424,7 +424,7 @@ spec:
 
 GPUDirect RDMA 需要 GPU 驱动侧的 `nvidia_peermem` 模块（把显存作为 RDMA 可注册的 peer memory 暴露给 `ib_core`），它属于 GPU 驱动包而不是网卡驱动。GPU Operator v26.7.0 的 `ClusterPolicy`（`api/nvidia/v1/clusterpolicy_types.go`）在 `DriverSpec` 里有：
 
-```text
+```text title="ClusterPolicy 的 driver.rdma 字段"
 spec.driver.rdma.enabled          GPUDirectRDMASpec.Enabled：在驱动 DaemonSet 里保留 nvidia-peermem-ctr sidecar，
                                   并给驱动容器设 GPU_DIRECT_RDMA_ENABLED=true（controllers/object_controls.go）
 spec.driver.rdma.useHostMofed     GPUDirectRDMASpec.UseHostMOFED：OFED 装在宿主机而不是 Network Operator 容器里时，
@@ -477,7 +477,7 @@ flowchart TB
 
 GPUDirect RDMA 有两条内核路径，NCCL 2.28.9 两条都探测：
 
-```text
+```text title="nvidia_peermem 与 DMA-BUF 的对照"
                      nvidia_peermem                                   DMA-BUF
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 机制                 NVIDIA 驱动附带的模块，向 ib_core 注册 peer       内核通用的 dma-buf 框架：CUDA 导出显存为 dma-buf fd，
@@ -498,7 +498,7 @@ NCCL 如何探测        ibGdrSupportInitOnce 查 /sys/module/nvidia_peermem/  n
 
 在一个请求了 RDMA 资源的 Pod 里，按这个顺序验证，每一步不通就不用看下一步：
 
-```text
+```text title="RDMA Pod 的验证清单"
 步骤  命令                                          期望                                        不满足说明
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 1     ls /dev/infiniband                             uverbsN umadN issmN rdma_cm                 device plugin 没分配到；查 resources.limits 与节点 Allocatable
@@ -516,7 +516,7 @@ NCCL 如何探测        ibGdrSupportInitOnce 查 /sys/module/nvidia_peermem/  n
 
 nccl-tests 2.18.3 的多机模式靠 MPI（`src/common.cu` 用 `MPI_Comm_rank/size` 定 rank、`MPI_Bcast` 分发 `ncclUniqueId`），mini-platform 的 `net/nccl-tests-job.yaml` 用一个 Indexed Job 起两个 Pod：index 1 跑 sshd，index 0 等对端就绪后 `mpirun`。生产上这一步由 MPI Operator 或 Kubeflow Trainer 的 MPI runtime 自动化，这里手写是为了看清每一层。关键片段：
 
-```yaml
+```yaml title="net/nccl-tests-job.yaml 的关键片段"
 apiVersion: v1
 kind: Service
 metadata:
@@ -566,7 +566,7 @@ spec:
 
 index 0 最终执行的命令与裸机一致：
 
-```bash
+```bash title="index 0 最终执行的 mpirun"
 mpirun -np 16 -N 8 -H nccl-tests-0.nccl-tests:8,nccl-tests-1.nccl-tests:8 \
   -x NCCL_DEBUG -x NCCL_DEBUG_SUBSYS -x NCCL_SOCKET_IFNAME -x NCCL_IB_HCA -x LD_LIBRARY_PATH \
   ./build/all_reduce_perf -b 8 -e 8G -f 2 -g 1 -n 20 -w 5 -c 0 -T 600
@@ -580,7 +580,7 @@ mpirun -np 16 -N 8 -H nccl-tests-0.nccl-tests:8,nccl-tests-1.nccl-tests:8 \
 
 本篇只需要 INFO 日志里的这几行（`NCCL_DEBUG_SUBSYS=INIT,NET` 足够）：
 
-```text
+```text title="NCCL_DEBUG=INFO 里要看的几行"
 行                                                                    出处（NCCL 2.28.9）             含义
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB … ; OOB net1:192.168.100.11<0>  src/transport/net_ib.cc   IB transport 初始化成功；列出全部 HCA、每个的链路层
@@ -627,7 +627,7 @@ flowchart TB
 
 ### 4. 常见的坑
 
-```text
+```text title="常见的坑：现象、原因、定位"
 现象                                       原因                                                    怎么定位 / 修
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Using network Socket；带宽是裸机的几分之一   Pod 没请求 RDMA 资源，或节点 Allocatable 为 0            ls /dev/infiniband；kubectl describe node 看 rdma/* 资源；
@@ -653,7 +653,7 @@ rdma-shared-dev-plugin 启动即退出             节点处于 exclusive netns 
 
 回到开头：8 节点 64 卡，容器里 all_reduce 带宽只有裸机的三分之一。按总纲的三个层面：
 
-```text
+```text title="三层排查表"
 层面                  可能的问题                                       证据在哪                                    修在哪
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Pod 的网络配置        没有第二张网卡：忘了 networks 注解，或 NAD 不在      kubectl get pod -o yaml 看 network-status；   加注解；NAD 放对 namespace 或关 namespaceIsolation；
@@ -679,7 +679,7 @@ NCCL 的环境变量       NCCL_IB_HCA 名字错或排除反了                 
 
 训练与推理对存储提出三类完全不同的要求，混在一个"共享存储"上是大多数存储问题的根源：
 
-```text
+```text title="三类负载的 I/O 画像"
 负载            访问模式                          规模                         对存储的要求
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 数据集读取      海量小文件（或大文件内随机块）、    TB～PB；每 epoch 全量读一遍     元数据性能（open/stat）· 随机读 IOPS · 可缓存
@@ -692,7 +692,7 @@ checkpoint 写   每 rank 一个大文件顺序写、突发、     每次几百 
 
 ### 2. 方案定位
 
-```text
+```text title="存储方案定位"
 方案类别               代表（公开文档）                     接口      擅长                              不擅长 / 代价
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 并行文件系统           Lustre · IBM Storage Scale (GPFS) ·   POSIX     高聚合吞吐、大文件顺序读写、        小文件元数据（Lustre 尤甚）；运维重；
@@ -715,7 +715,7 @@ NFS                    通用 NFS 服务                         POSIX     简�
 
 所有这些在 Pod 里的样子都一样：一个 PVC。差别在 StorageClass 的 provisioner 和参数。JuiceFS CSI Driver 的 provisioner 是 `csi.juicefs.com`，StorageClass 参数通过 Secret 指向元数据引擎与对象存储（字段名以 JuiceFS CSI Driver 文档为准）；mini-platform 的 `storage/juicefs-pvc.yaml`：
 
-```yaml
+```yaml title="storage/juicefs-pvc.yaml"
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -788,7 +788,7 @@ flowchart TB
 
 混合精度 + Adam 的训练状态，每个参数：
 
-```text
+```text title="70B 模型每个参数的训练状态"
 BF16 参数                 2 字节
 FP32 主参数（master）      4 字节
 Adam 一阶动量 m（FP32）    4 字节
@@ -831,7 +831,7 @@ $$
 
 两种模式在一个 checkpoint 间隔内的时间线（横轴不按比例）——关键差别是训练在哪个时刻可以继续、存储写占据的是哪一段：
 
-```text
+```text title="同步与异步 checkpoint 的时间线"
                  ckpt N 开始                                ckpt N+1 开始
                  │                                          │
 同步 dcp.save    │ ◀─── 停顿 ~60 s ───▶ │                   │
@@ -849,7 +849,7 @@ $$
 
 同步模式下存储在 1 分钟里被压满、其余 29 分钟空闲，带宽需求由"停顿能忍多久"决定；异步模式下训练只在 stage 期间停，存储写被摊到整个间隔上，带宽需求由"下一次 checkpoint 之前写得完"决定，但 host 内存里的副本要一直驻留到 upload 结束。于是算术变成：
 
-```text
+```text title="同步与异步 checkpoint 的算术"
                        同步 dcp.save                 异步 dcp.async_save
 ────────────────────────────────────────────────────────────────────────────────────────────────
 训练停顿                写完为止：1 TB / B_agg          D2H 拷贝：每 rank ~15.6 GB（1 TB / 64）经 PCIe 到 host 内存，
@@ -880,7 +880,7 @@ Table: 不同任务规模下 checkpoint 的写带宽需求
 
 mini-platform 的 `storage/dcp-bench.py` 是一个 torchrun 脚本，在指定路径（挂进 Pod 的 PVC）上对同一份人造状态字典分别跑 `dcp.save` 与 `dcp.async_save`，报告每次的墙钟时间与聚合吞吐。它是工具，不附带任何结果：
 
-```python
+```python title="storage/dcp-bench.py：对比 dcp.save 与 async_save"
 #!/usr/bin/env python3
 """mini-platform/storage/dcp-bench.py — 对比 dcp.save 与 dcp.async_save 的写入耗时。
 
@@ -986,7 +986,7 @@ if __name__ == "__main__":
 
 ### 2. 三种方案与 GPUDirect Storage
 
-```text
+```text title="权重加载的三种方案与 GPUDirect Storage"
 方案                 做法                                            适合                           代价 / 边界
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 节点本地 NVMe 缓存    权重第一次读时落到节点 NVMe（缓存层 CSI 自动做，    同一模型在同一批节点上反复扩缩       首个副本仍要冷读；缓存占盘；节点池变动
@@ -1005,7 +1005,7 @@ GPUDirect Storage    存储 → 显存的 DMA 路径（nvidia-fs 驱动，GPU Op
 
 每个机制都在填一个洞，也都挖了新的：
 
-```text
+```text title="代价与边界：每个机制挖的新洞"
 机制                          引入的新问题                                            不该用 / 要小心的场景
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Multus 第二张网卡              Pod 有两个网络平面，Service/NetworkPolicy/DNS 只管一个； 只有一两台 RDMA 节点的集群——手工 hostNetwork 更简单；
@@ -1041,7 +1041,7 @@ GPUDirect Storage             文件系统与驱动支持面窄；实验性     
 
 ### 1. 要点回顾
 
-```text
+```text title="要点回顾：RDMA 网络与存储"
 为什么不够      默认 CNI 给 Pod 一张 veth 走 overlay，数据经 host 内存与内核协议栈；NCCL 需要 /dev/infiniband 设备文件、
                 peermem/DMA-BUF 注册显存、一个 RDMA 侧 IP 做握手。缺任何一项都不报错，只是回落：
                 "NET/IB : No device found." → "Using network Socket"
@@ -1072,7 +1072,7 @@ GPUDirect Storage             文件系统与驱动支持面窄；实验性     
 
 ### 2. 引擎需求 → K8s 空缺 → 平台机制 → 代价
 
-```text
+```text title="引擎需求 → K8s 空缺 → 平台机制 → 代价：网络与存储"
 引擎需求                          K8s 的空缺                       平台机制                                     代价
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 NCCL 要一个 RDMA 侧 IP 做握手      一 Pod 一网卡，只有 overlay        Multus + NetworkAttachmentDefinition          第二个网络平面；IPAM 组件；Pod 创建慢
@@ -1090,7 +1090,7 @@ checkpoint 大块突发写              PVC 不表达带宽                     
 
 ### 3. 本篇涉及的源码与 CRD 位置
 
-```text
+```text title="本篇涉及的源码与 CRD 位置"
 项目                         路径                                                    关键符号 / 内容
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Multus CNI v4.3.0            pkg/k8sclient/k8sclient.go                              networkAttachmentAnnot（k8s.v1.cni.cncf.io/networks）·
@@ -1144,7 +1144,7 @@ PyTorch v2.13.0              torch/distributed/checkpoint/state_dict_saver.py   
 
 ### 4. mini-platform 本篇增量：`net/` 与 `storage/`
 
-```text
+```text title="mini-platform/net/ 与 storage/ 目录"
 mini-platform/
 ├── net/
 │   ├── nad-ipoib.yaml               NetworkAttachmentDefinition（k8s.cni.cncf.io/v1）：type ipoib + master + whereabouts IPAM
@@ -1160,7 +1160,7 @@ mini-platform/
 
 `rdma-plugin-configmap.yaml` 只在不用 Network Operator、直接部署 device plugin 的 DaemonSet 时需要（`deployment/k8s/base/`）；用了 `NicClusterPolicy` 就由 Operator 生成。三步验证的剧本：
 
-```text
+```text title="三步验证的剧本"
 1  kubectl apply -f net/nicclusterpolicy.yaml；等 rdma-shared-dp-ds 与 mofed 的 Pod Ready；
    kubectl describe node <n> | grep rdma/ 看到 Allocatable
 2  kubectl apply -f net/nad-ipoib.yaml（RoCE 换 macvlan 变体；SR-IOV 换 nad-hostdevice.yaml）

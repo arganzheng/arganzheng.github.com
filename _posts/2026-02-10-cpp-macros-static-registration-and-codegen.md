@@ -1579,7 +1579,7 @@ ${schema_registrations}
 这个模板就是第六章讲的 `TORCH_LIBRARY(aten, m) { ... }`——**`aten` 命名空间的两千多个 schema 也是用同一个宏注册的**，和用户扩展没有区别。填洞的是 `gen.py` 里的 `RegisterSchema` 类：
 
 {% raw %}
-```python
+```python title="gen.py 里填 RegisterSchema.cpp 模板的 RegisterSchema 类"
 @dataclass(frozen=True)
 class RegisterSchema:
     selector: SelectiveBuilder
@@ -1627,7 +1627,7 @@ flowchart LR
 **`Functions.h`**（以及 `--per-operator-headers` 下的 `ops/bincount.h`）：用户调用的 `at::bincount`。由 `ComputeFunction` 生成：
 
 {% raw %}
-```python
+```python title="ComputeFunction：生成 Functions.h 里的 at::bincount"
             if Variant.function in f.variants:
                 result += f"""
 // aten::{f.func}
@@ -1687,7 +1687,7 @@ at::Tensor bincount::call(const at::Tensor & self, const ::std::optional<at::Ten
 **`RegisterCPU.cpp`**（CPU 版分 4 个分片）：kernel 的注册。由 `torchgen/dest/register_dispatch_key.py` 的 `RegisterDispatchKey.gen_unstructured` 生成。它先在匿名命名空间里生成一个包装函数：
 
 {% raw %}
-```python
+```python title="RegisterDispatchKey.gen_unstructured：生成匿名命名空间里的包装函数"
                 return f"""\
 namespace {{
 
@@ -1732,7 +1732,7 @@ at::Tensor wrapper_CPU__bincount(const at::Tensor & self, const ::std::optional<
 所有 CPU kernel 的 `m.impl(...)` 被 `gen.py` 的 `get_native_function_definitions` 收进一个 `TORCH_LIBRARY_IMPL` 块：
 
 {% raw %}
-```python
+```python title="get_native_function_definitions：把 m.impl 收进 TORCH_LIBRARY_IMPL 块"
             registration_body += f"""
 TORCH_LIBRARY_IMPL({namespace}, {dispatch_key}, m) {{
     {newline.join(registrations[kernel_namespace][namespace])}

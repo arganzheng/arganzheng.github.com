@@ -136,7 +136,7 @@ $$
 
 ### 2. 每个 tile 做什么
 
-```text
+```text title="一个 block 沿 K/V 块扫过去做了什么"
   一个 thread block 负责 Q 的第 i 块（B_r 行），沿 K/V 的块 j = 1, 2, 3, ... 扫过去：
 
         K^T (d × N)                                     V (N × d)
@@ -201,7 +201,7 @@ $$B_r$$ 由 shared memory 大小 $$M$$ 决定：一个 tile 要同时放下 $$Q_
 
 顺便说明一下循环顺序对这笔账的影响。上面按 "外层遍历 $$Q$$ 块、内层遍历 $$K, V$$ 块" 来数，这是 FlashAttention-2 的顺序；FlashAttention-1 论文里是反过来的——外层遍历 $$K_j, V_j$$（每块只从 HBM 载入一次），内层遍历 $$Q_i$$，于是 $$Q$$ 以及运行量 $$O_i, m_i, l_i$$ 要被反复从 HBM 读进来、更新、写回去，共 $$N / B_c$$ 遍。两种顺序的渐近流量都是 $$\Theta(N^2 d^2 / M)$$，但 v2 的顺序让 $$O_i$$ 全程留在寄存器，少了一份 $$N / B_c$$ 倍的 $$O$$ 读写，也少了它带来的同步——这是下一节 FA2 第一项改动的动机。两种循环顺序下，哪些量常驻片上、哪些量在 HBM 上往返，对照如下：
 
-```text
+```text title="FA1 与 FA2 循环顺序下的 HBM 读写"
   FA1：外层 K/V 块、内层 Q 块              每个 (batch, head) 一个 thread block
     for j in K/V 块:
       load K_j, V_j → smem                 HBM 读 1 次
@@ -239,7 +239,7 @@ FA2 做了三处改动：
 
 **warp 分工从 "split K" 改为 "split Q"。** 一个 block 里通常有 4 个 warp。FA1 让 4 个 warp 各持有 $$K_j$$ 的一段（沿 $$B_c$$ 切），每个 warp 算出 $$S_{ij}$$ 的一个列切片；但 softmax 是按**行**归约的，行最大值和行和需要跨 4 个 warp 通过 shared memory 同步——每个 tile 都要 `__syncthreads()` 加 shared 读写。FA2 让 4 个 warp 各持有 $$Q_i$$ 的若干行（$$B_r = 128$$ 时每 warp 32 行，或用 16 行的 mma 形状），每个 warp 独立算出自己那些行对完整 $$K_j$$ 的 $$S$$、独立做行 softmax、独立累加 $$O$$——**warp 之间零通信**。代价是 $$K_j, V_j$$ 要被 4 个 warp 各读一遍（从 shared memory，不是 HBM），但这比每 tile 一次跨 warp 归约便宜得多。
 
-```text
+```text title="FA1 split-K 与 FA2 split-Q 的 warp 分工"
   FA1: "split K" —— 4 个 warp 各拿 K_j 的 1/4 列              FA2: "split Q" —— 4 个 warp 各拿 Q_i 的 1/4 行
 
             K_j 的列: w0 │ w1 │ w2 │ w3                          K_j 全部列（每个 warp 都读一遍 smem）
@@ -267,7 +267,7 @@ FA3 只针对 sm_90。它把 Hopper 的三项硬件特性（wgmma、TMA、更大
 - **块内 GEMM–softmax 流水**：单个 warpgroup 内也把第 $$j$$ 块的 softmax 与第 $$j+1$$ 块的 $$QK^T$$ 重叠（软件流水，需要多一套 $$S$$ 的寄存器）；
 - **FP8**：$$Q, K, V$$ 用 FP8 e4m3 喂给 FP8 wgmma（H100 上约 1979 TFLOPS 标称）；为控制精度做块级量化（per-block scale）以及"非相干处理"（用随机正交矩阵把离群值摊平）；FP8 wgmma 要求 $$V$$ 是 k-major 布局，需要在 shared memory 里做一次转置/布局重排。
 
-```text
+```text title="有无 ping-pong 时 Tensor Core 与 SFU 的忙闲"
   没有 ping-pong：一个 warpgroup 串行，Tensor Core 在 softmax 期间空转
     WG:        [GEMM S_j][softmax_j][GEMM PV_j][GEMM S_j+1][softmax_j+1][GEMM PV_j+1] ...
     Tensor Core ████████          ████████  ████████            ████████
@@ -316,7 +316,7 @@ prefill 处理 prompt 的全部 token，$$Q$$ 有 $$N_q$$ 行、$$K, V$$ 有 $$N
 
 现代推理引擎还有一种混合形态：chunked prefill 把一个长 prompt 切成若干 chunk，每步只 prefill 一个 chunk，并与其他请求的 decode token 拼进同一个 batch。此时一个 batch 里既有 $$N_q$$ 为几百上千的请求，也有 $$N_q = 1$$ 的请求，它们的 $$K, V$$ 都是 "已缓存的前缀 + 本步新 token"。这正是 `cu_seqlens`（第六节）与 "统一 prefill/decode 的 kernel"（第七节）存在的原因：kernel 不能假设 $$Q$$ 是长是短，只能按每个序列各自的 `query_len` 与 `context_len` 工作。
 
-```text
+```text title="一个 chunked-prefill batch 的 Q 行与可见 key"
   一个 chunked-prefill batch：请求 A 正在 prefill 第二个 chunk，B、C 在 decode
 
   请求  q_len  ctx_len   Q 行(packed)   能看到的 key（位置 0 … ctx_len+q）
@@ -356,7 +356,7 @@ $$
 t_{\text{decode}} \ge \frac{\text{权重字节}}{\text{BW}} + \frac{\text{batch} \times s \times 128\ \text{KiB}}{\text{BW}}
 $$
 
-```text
+```text title="一步 decode 读的权重字节与 KV 字节"
   一步 decode 必须从 HBM 读的字节（Llama-3-8B，BF16，A100 2.0 TB/s；每格 = 1 GB）
 
   batch×s =   4k   权重 ████████████████ 16 GB (8 ms)   KV ▏0.5 GB                          → KV 占 3%
@@ -372,7 +372,7 @@ Llama-3-8B 的 BF16 权重约 16 GB，在 A100 上读一遍约 8 ms。KV 那一�
 
 GQA 让 $$g$$ 个 query head 共享一个 KV head，在参数与 KV cache 层面的节省是显然的。kernel 层的问题是：**怎么保证 KV 真的只从 HBM 读一次，而不是 $$g$$ 个 query head 各读一次？**
 
-```text
+```text title="GQA：朴素 block 分配与按 KV head 打包"
   Llama-3-8B: 32 个 query head，8 个 KV head，g = 4
 
   朴素: 每个 query head 一个 block                      打包: 同一 KV head 的 g 个 query head 进同一 tile
@@ -400,7 +400,7 @@ $$
 \text{physical} = \text{block\_table}[s][\lfloor t / B \rfloor], \qquad \text{addr} = \text{physical} \times \text{block\_stride} + \text{head} \times \text{head\_stride} + (t \bmod B) \times \ldots
 $$
 
-```text
+```text title="block table：逻辑块到物理块"
   序列 s 的逻辑 KV（按 token 顺序）        block_table[s]        物理 KV cache（所有序列共用的 block 池，每块 16 token）
 
   token  0-15  = 逻辑块 0  ───────────►  [0] = 7
@@ -422,7 +422,7 @@ block size 的取舍可以用字节数说清楚。一个 block、一个 KV head 
 
 vLLM 的 `csrc/attention/attention_kernels.cuh` 里的 `paged_attention_kernel`（改写自 FasterTransformer 的 decoder masked MHA）是最早的 PagedAttention 实现。它是一个 decode 专用 kernel（$$Q$$ 一行），不用 Tensor Core。以 v0.20.0 为准，模板参数与 grid：
 
-```cpp
+```cpp title="paged_attention_kernel 的模板参数与 grid"
 // csrc/attention/attention_kernels.cuh (vLLM v0.20.0)
 // Grid: (num_heads, num_seqs, max_num_partitions).
 template <typename scalar_t, typename cache_t, int HEAD_SIZE, int BLOCK_SIZE,
@@ -446,7 +446,7 @@ __device__ void paged_attention_kernel(
 
 **第一段：QK。** 线程被组织成 thread group，`THREAD_GROUP_SIZE = max(32 / BLOCK_SIZE, 1)`：BLOCK_SIZE = 16 时每组 2 个线程，一个 warp 的 16 个 group 正好对应一个 block 的 16 个 token——**每个 warp 一次处理一个 KV block**，4 个 warp 轮转（`block_idx += NUM_WARPS`）。每个 group 负责一个 token 的完整 $$d = 128$$ 维点积，组内线程各拿一半维度，每次读 16 字节（`VEC_SIZE = 16 / (THREAD_GROUP_SIZE × sizeof(scalar_t))` = 4 个 BF16）：
 
-```cpp
+```cpp title="paged_attention_kernel：QK 段的 block 轮转"
 // csrc/attention/attention_kernels.cuh (vLLM v0.20.0), QK 段节选
 const int* block_table = block_tables + seq_idx * max_num_blocks_per_seq;
 for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
@@ -476,7 +476,7 @@ for (int block_idx = start_block_idx + warp_idx; block_idx < end_block_idx;
 }
 ```
 
-```text
+```text title="K cache 一个 (block, kv_head) 内的布局"
   K cache 一个 (block, kv_head) 内的布局 [head_size/x][block_size][x]
   BF16: x = 8（16 B），block_size = 16，head_size = 128 → 16 个 dim 组
 
@@ -529,7 +529,7 @@ flowchart LR
 
 v1 的并行度是 seqs × heads 个 block；v2 乘上 partition 数，用一个额外的小 kernel 把各段的 $$(m, l, O)$$ 按 online softmax 的合并公式拼回来。`paged_attention_v2.cu` 的解法是 `PARTITION_SIZE = 512`：把序列按 512 个 token 切成 `max_num_partitions` 段，grid 变成 `(num_heads, num_seqs, max_num_partitions)`，每个 block 只处理自己那 512 个 token（32 个 KV block），各自算出局部的 $$(m, l, O)$$ 写进 `max_logits`、`exp_sums`、`tmp_out`。然后 `paged_attention_v2_reduce_kernel` 合并：
 
-```cpp
+```cpp title="paged_attention_v2_reduce_kernel 合并各 partition"
 // csrc/attention/attention_kernels.cuh (vLLM v0.20.0), reduce kernel 节选
 // 全局最大值 max_logit 已由两级归约得到
 float global_exp_sum = 0.0f;
@@ -564,7 +564,7 @@ for (int i = threadIdx.x; i < HEAD_SIZE; i += NUM_THREADS) {
 
 推理时一个 batch 里各请求长度不同。如果按最长的 pad 成 `[B, N_max, d]`，短序列的 padding 位置白白浪费计算和显存。FlashAttention 的 `varlen` 接口改用 **packed 布局**：所有序列的 token 首尾相接排成 `[total_tokens, H, d]`，另给一个前缀和数组：
 
-```text
+```text title="padded 布局与 packed + cu_seqlens 布局"
   padded [B, N_max, d]（N_max = 5）          packed [total_tokens, d] + cu_seqlens
   seq 0  [ a0 a1 a2 ·  ·  ]  ← 2 个 pad     [ a0 a1 a2 │ b0 b1 b2 b3 b4 │ c0 c1 ]
   seq 1  [ b0 b1 b2 b3 b4 ]                   ▲          ▲                ▲       ▲
@@ -579,7 +579,7 @@ kernel 里一个 block 拿到序列编号 $$b$$ 后，用 `cu_seqlens[b]` 和 `c
 
 ### 2. 因果掩码在分块中的处理
 
-```text
+```text title="分块因果掩码与 sliding window 下的 tile 分类"
   N = 8 块（B_r = B_c），S 按块划分：             同一张图加 sliding window（W = 3 块）:
 
   Q块↓ K块→ 0   1   2   3   4   5   6   7        Q块↓ K块→ 0   1   2   3   4   5   6   7
@@ -624,7 +624,7 @@ Triton 官方 tutorial 06（fused attention）是最容易读懂的 FlashAttenti
 
 下面是本篇的第一个实践：一个支持因果掩码与 GQA 的 FlashAttention-2 风格前向 kernel。输入布局 `[B, H, N, d]`，$$K, V$$ 的 head 数 $$H_{kv}$$ 可以小于 $$H_q$$，query head `h` 映射到 KV head `h // g`（$$g = H_q / H_{kv}$$）。要求 `BLOCK_M % BLOCK_N == 0`、head dim 为 2 的幂。
 
-```python
+```python title="flash_attn_triton.py：因果 + GQA 的 FA2 前向"
 # flash_attn_triton.py
 import math
 import torch
@@ -776,7 +776,7 @@ def flash_attn_fwd(q, k, v, causal=True, sm_scale=None,
 
 对照 PyTorch 的 `F.scaled_dot_product_attention`（PyTorch 2.5 起支持 `enable_gqa=True`，v2.10.0 当然支持）：
 
-```python
+```python title="与 F.scaled_dot_product_attention 对照并计时"
 def check(B=2, Hq=32, Hkv=8, N=4096, D=128, causal=True, dtype=torch.bfloat16):
     torch.manual_seed(0)
     q = torch.randn(B, Hq, N, D, device="cuda", dtype=dtype)
@@ -826,7 +826,7 @@ if __name__ == "__main__":
 
 vLLM 的 `vllm/v1/attention/ops/triton_unified_attention.py` 把上面这个 kernel 推广到了推理引擎需要的全部形态——分页 KV、变长、GQA 打包、sliding window、split-KV——而且**用同一个 kernel 同时处理 prefill 和 decode**。它的 grid 是 `(total_num_q_blocks, num_kv_heads[, num_segments])`，`program_id(1)` 是 **KV head** 而不是 query head，一个 tile 的 `BLOCK_M` 行由 `BLOCK_Q` 个 token × `num_queries_per_kv` 个 query head 拼成：
 
-```python
+```python title="triton_unified_attention：grid 与 tile 的拼法"
 # vllm/v1/attention/ops/triton_unified_attention.py (vLLM v0.20.0), 节选
 q_block_global_idx = tl.program_id(0)
 kv_head_idx = tl.program_id(1)
@@ -849,7 +849,7 @@ query_offset_1 = kv_head_idx * num_queries_per_kv + offs_m % num_queries_per_kv
 
 KV 侧的分页寻址在主循环里：
 
-```python
+```python title="triton_unified_attention：主循环里的分页寻址"
 # 同文件，主循环节选
 for j in range(loop_lo, loop_hi):
     seq_offset = j * TILE_SIZE + offs_t
@@ -880,7 +880,7 @@ decode 时它还有 "3D" 模式（`IS_3D`）：当 batch 里没有 prefill 且�
 
 CUDA 版本这里只给核心循环的骨架（**不是完整可编译代码**，省略了 include、shared memory 的搬运与双缓冲、fragment 的具体寄存器映射与边界处理）。目的是标出 FA2 的关键决策在 CUDA 层面对应到哪些指令与布局：
 
-```cpp
+```cpp title="CUDA 版 FA2 核心循环骨架（mma.sync）"
 // 骨架：一个 block 4 个 warp，处理 BLOCK_M = 64 行 Q（每 warp 16 行），
 // 每次迭代处理 BLOCK_N = 64 列 K/V，d = 128。mma.sync m16n8k16 BF16。
 // 每个 warp 持有：
@@ -943,7 +943,7 @@ __device__ void attn_1rowblock_warp(/* ... */) {
 
 步骤 (4) 的 C→A fragment 复用值得单独画出来——这是 $$S \to P \to PV$$ 能全程留在寄存器的原因：
 
-```text
+```text title="C 累加器到 A fragment 的寄存器复用"
   mma.m16n8k16（BF16 → FP32）每个 lane 持有的元素：g = lane/4 (0..7), t = lane%4
 
   C/D 累加器（16×8 FP32）一个 n8 片     A 操作数（16×16 BF16）一个 k16 片
@@ -1030,7 +1030,7 @@ vLLM v0.20.0 的选择逻辑在 `vllm/platforms/cuda.py`：用户可用 `--atten
 
 **decode 每 token 读多少 KV、这决定了什么**：Llama-3-8B 每 token 128 KiB，上下文 $$s$$ 时读 $$128\ \text{KiB} \times s$$；算术强度约 $$g$$ FLOP/byte（GQA 组大小），彻底 memory-bound。一步 decode 的时间下界是 (权重字节 + batch × s × 128 KiB) / 带宽：batch × s 超过约 131k token 时 KV 项超过权重项。这决定了 KV 量化、GQA、split-KV 这些手段的价值。
 
-```text
+```text title="标准 attention 与 FlashAttention 的字节对照"
 标准 attention vs FlashAttention（N=4096, d=128, 单 head, BF16, A100）
                         标准实现                 FlashAttention (B_r=128)
 Q/K/V/O                  4 MiB                    Q 读 1 MiB + O 写 1 MiB

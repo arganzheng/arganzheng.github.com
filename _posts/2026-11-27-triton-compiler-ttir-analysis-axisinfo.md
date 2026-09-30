@@ -40,7 +40,7 @@ Table: 本文的章节安排
 
 `AxisInfo` 是附在**每个整数或指针类型的值**上的一组信息（浮点值只有平凡信息）。对一个 rank 为 r 的张量，它沿每一维 d 记三个整数，外加一个可选的常量值：
 
-```text
+```text title="AxisInfo 类的字段"
 class AxisInfo {
   SmallVector<int64_t> contiguity;     // 每一维一个
   SmallVector<int64_t> divisibility;   // 每一维一个
@@ -53,14 +53,14 @@ class AxisInfo {
 
 **contiguity[d]**：沿维度 d，把元素切成等长的段，使每段内的值是连续递增的整数（`v, v+1, v+2, …`），能保证成立的**最短段长**。头文件里的例子：
 
-```text
+```text title="contiguity 的例子"
 [[10, 11, 12, 13, 18, 19, 20, 21],
  [20, 21, 22, 23, 28, 29, 30, 31]]      contiguity = [1, 4]
 ```
 
 沿第 1 维每 4 个一段连续（`10 11 12 13`、`18 19 20 21`），沿第 0 维没有连续（`10` 下面是 `20`），所以是 `[1, 4]`。
 
-```text
+```text title="沿第 0 维连续的例子"
 [[12, 16, 20, 24],
  [13, 17, 21, 25],
  [14, 18, 22, 26],
@@ -77,7 +77,7 @@ class AxisInfo {
 
 **divisibility[d]**：沿维度 d，把元素按 contiguity[d] 切成段之后，**所有段的第一个元素**的最大公共 2 幂因子。
 
-```text
+```text title="divisibility 的例子"
 [[10, 11, 12, 13, 18, 19, 20, 21],
  [20, 21, 22, 23, 28, 29, 30, 31]]      contiguity = [1, 4], divisibility = [1, 2]
 ```
@@ -92,7 +92,7 @@ class AxisInfo {
 
 **constancy[d]**：沿维度 d，把元素切成等长的段，使每段内的值全部相等，能保证成立的最短段长。
 
-```text
+```text title="constancy 的例子"
 [[8, 8, 8, 8, 12, 12, 12, 12],
  [16, 16, 16, 16, 20, 20, 20, 20]]      constancy = [1, 4]
 ```
@@ -123,7 +123,7 @@ Table: 各类值的悲观初值与信息来源
 
 然后 `visitOperation` 对每个 op 算出结果的 AxisInfo 后，**再用 op 上的属性覆盖一次**（`initDimVectorFromHint`）：
 
-```cpp
+```cpp title="visitOperation 后用属性覆盖"
 AxisInfo curr = visitors.apply(op, operands);
 ...
 AxisInfo::initDimVectorFromHint(op->getDiscardableAttr("tt.contiguity"), &newContiguity);
@@ -163,7 +163,7 @@ Table: 叶子 op 的 AxisInfo 初值
 
 Table: 形状类 op 的传递规则
 
-```text
+```text title="make_range → expand_dims → broadcast 的传递"
 %10 = tt.make_range {end = 128, start = 0}          → contiguity=[128], divisibility=[2^30], constancy=[1]
 %11 = tt.expand_dims %10 {axis = 0} : → tensor<1x128xi32>
                                                    → contiguity=[1,128], divisibility=[1,2^30], constancy=[1,1]
@@ -185,7 +185,7 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 
 用循环写出来：
 
-```python
+```python title="加法 contiguity 规则的循环解释"
 # 一段里 t 从 0 到 L-1：a 常量、b 连续 → a + (b0 + t) 连续，段长 = min(常量段, 连续段) = gcd
 # 两者都连续 → (a0 + t) + (b0 + t) = a0 + b0 + 2t，步长 2，不连续 → 1
 ```
@@ -197,7 +197,7 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 
 减法的 contiguity 只有 `gcd(contig(a), const(b))` 一项（`a - (b0 + t)` 是递减的，不算连续）。
 
-```text
+```text title="arith.addi 的几个例子"
 %0 = tt.make_range {end = 128, start = 0}                → [128], [2^30], [1]
 %1 = arith.constant dense<1> : tensor<128xi32>           → [1], [1], [128], value 1
 %2 = arith.addi %0, %1     ; 连续 + 常量                  → [128], [1], [1]
@@ -209,7 +209,7 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 
 `addptr` 的例子（指针参数 divisibility 16 字节）：
 
-```text
+```text title="tt.addptr 的例子"
 %cst4 = arith.constant 4 : i32
 %8  = tt.addptr %arg3, %cst4 : !tt.ptr<i32>, i32        → div 16   (16 与 4×4=16 的 gcd)
 %7  = tt.addptr %arg2, %cst4 : !tt.ptr<i16>, i32        → div 8    (16 与 4×2=8 的 gcd)
@@ -231,7 +231,7 @@ $$\text{contig}(a+b) = \max\bigl(\gcd(\text{const}(a), \text{contig}(b)),\ \gcd(
 
 Table: arith.muli 的传递规则
 
-```text
+```text title="arith.muli 的例子"
 %pid = tt.get_program_id x                              → [1], [1], [1]
 %c128 = arith.constant 128 : i32                        → [1], [128], [1], value 128
 %1 = arith.muli %pid, %c128                             → [1], [128], [1]
@@ -248,7 +248,7 @@ Table: arith.muli 的传递规则
 
 Table: 除法与取模的传递规则
 
-```text
+```text title="arith.remsi 的例子"
 %0 = tt.make_range {end = 128, start = 0}
 %4 = arith.constant dense<64>
 %5 = arith.remsi %0, %4        ; 0..127 % 64 = 0..63, 0..63      → [64], [64], [1]
@@ -271,7 +271,7 @@ Table: 除法与取模的传递规则
 
 最后一条是 mask 向量化的关键。`offs < n`，`offs = pid*128 + arange(0,128)`（contiguity 128、divisibility 128），`n` divisibility 16：结果 constancy = gcd(128, 128, 16) = **16**。含义：`offs` 每 16 个一段，段首是 16 的倍数，`n` 也是 16 的倍数，所以 `n` 不可能落在段的中间——一段 16 个元素的比较结果要么全真要么全假。这让 16 个相邻元素共用一个谓词。如果 `n` 没有 `tt.divisibility`（用户传了 1000 这样的值），constancy 是 gcd(128, 128, 1) = 1——每个元素单独判断。
 
-```text
+```text title="arith.cmpi 的 constancy"
 ;; @store_constant_align：%n 有 tt.divisibility = 16
 %4 = arith.addi %3, %2          ; pid*128 + arange       → [128], [128], [1]
 %9 = tt.splat %n                                         → [1], [16], [128]
@@ -302,7 +302,7 @@ Table: 逻辑、选择、移位、极值与类型转换的传递规则
 
 两条路径在同一个值上汇合（`scf.if` 的两个分支各给结果一个值，`scf.for` 的 iter_arg 一个来自初值、一个来自 `yield`），用 `AxisInfo::join`：
 
-```cpp
+```cpp title="AxisInfo::join"
 contiguity[d]   = gcd(lhs.contiguity[d], rhs.contiguity[d]);
 divisibility[d] = getDivisibilityFromContiguity(lhs, rhs, d);
 constancy[d]    = gcd(lhs.constancy[d], rhs.constancy[d]);
@@ -329,7 +329,7 @@ Table: AxisInfoAnalysis 要实现的三个方法
 
 `visitOperation` 开头有一个细节：
 
-```cpp
+```cpp title="visitOperation 跳过未初始化的操作数"
 for (auto op : operands)
   if (op->getValue().getRank() == 0)   // 操作数还没有信息（rank 0 = 未初始化）
     return success();                  // 跳过，等操作数就绪后框架会再来
@@ -341,7 +341,7 @@ for (auto op : operands)
 
 对 matmul 的 K 循环：
 
-```text
+```text title="matmul K 循环的 iter_args"
 scf.for %k = %c0 to %K step %c32 iter_args(%acc = %acc0, %a_ptrs = %a_ptrs0, %b_ptrs = %b_ptrs0) {
   ...
   %a_ptrs_next = tt.addptr %a_ptrs, %cst32_splat
@@ -367,7 +367,7 @@ scf.for %k = %c0 to %K step %c32 iter_args(%acc = %acc0, %a_ptrs = %a_ptrs0, %b_
 
 ### 1. `getAlignment(ptr)`：每个线程能连续持有几个元素
 
-```cpp
+```cpp title="getAlignment 的计算"
 divisibility = axisInfo->getDivisibility(order[0]);          // 沿最快变化的维
 maxMultiple  = isPointer ? max(divisibility / elemBytes, 1) : divisibility;   // 字节 → 元素
 maxContig    = axisInfo->getContiguity(order[0]);
@@ -380,7 +380,7 @@ alignment    = min(maxMultiple, maxContig);
 
 Coalesce（`getNumElementsPerThread`，`Transforms/Utility.cpp`）在 alignment 之上再与该 op 允许的每线程最大元素数取 min，得到 layout 的 `sizePerThread`。load / store lowering（`LoadStoreOpToLLVM.cpp` 的 `getVectorSize`）：
 
-```cpp
+```cpp title="getVectorSize"
 return std::min<unsigned>(128 / pointeeBitWidth, contiguity);   // NVIDIA 最宽 128 bit
 ```
 
@@ -388,7 +388,7 @@ return std::min<unsigned>(128 / pointeeBitWidth, contiguity);   // NVIDIA 最宽
 
 ### 3. `getMaskAlignment(mask)`：一个谓词管几个元素
 
-```cpp
+```cpp title="getMaskAlignment"
 alignment = max(axisInfo->getConstancy(maskOrder[0]), 1);
 ```
 
@@ -449,13 +449,13 @@ Table: 常见的信息杀手写法
 
 `triton-opt -test-print-alignment` 对输入的每个 op 以 remark 形式打印结果值的 AxisInfo，lit 测试用 `expected-remark @below` 核对。对上一篇拿到的 matmul TTIR 直接跑：
 
-```bash
+```bash title="用 triton-opt 打印 AxisInfo"
 triton-opt matmul_kernel.ttir -test-print-alignment -o /dev/null 2>&1 | head -60
 ```
 
 `triton-opt` 从 Triton 的构建目录里拿（`build/cmake.*/bin/triton-opt`，在 macOS 上也能构建）。每条 remark 带源码位置——`test-print-alignment` 用 op 的 `loc` 报告，所以能看到每个值来自 Python 的哪一行。把位置去掉、只留 op 与结果，matmul kernel 的地址链是（对照第五篇 §五.3 的 TTIR，SSA 名字这里是编号形式）：
 
-```text
+```text title="matmul kernel 地址链的 AxisInfo"
 %0 = tt.get_program_id x : i32                               => contiguity = [1], divisibility = [1], constancy = [1]
 %2 = arith.muli %0, %c128_i32 : i32                          => contiguity = [1], divisibility = [128], constancy = [1]
 %3 = tt.make_range {end = 128, start = 0} : tensor<128xi32>  => contiguity = [128], divisibility = [1073741824], constancy = [1]
@@ -488,7 +488,7 @@ triton-opt matmul_kernel.ttir -test-print-alignment -o /dev/null 2>&1 | head -60
 
 循环体与写回部分：
 
-```text
+```text title="循环体与写回部分的 AxisInfo"
 %47 = tt.addptr %arg10, %cst_0                              => contiguity = [1, 32], divisibility = [2, 16], constancy = [1, 1]     ; a_ptrs += 32
 %48 = arith.muli %arg7, %c32_i32 : i32                       => contiguity = [1], divisibility = [512], constancy = [1]             ; stride_bk * 32
 %50 = tt.addptr %arg11, %49                                  => contiguity = [1, 128], divisibility = [2, 16], constancy = [1, 1]    ; b_ptrs += ...
@@ -544,7 +544,7 @@ AxisInfo 的独特之处在于它是**按张量维度**的：LLVM 的分析作�
 
 3. 下面两种写法，哪一种能让 `b_ptrs` 沿 K 维向量化？为什么？
 
-   ```python
+   ```python title="自测：两种 b_ptrs 写法"
    # A
    b_ptrs = b_ptr + offs_k[:, None] * stride_bk + offs_n[None, :]
    # B

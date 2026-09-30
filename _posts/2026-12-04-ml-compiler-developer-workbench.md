@@ -34,7 +34,7 @@ Table: 本文的章节安排
 
 Triton 的编译器部分（C++、MLIR、LLVM）可以在**任何**有 C++ 编译器的机器上构建，包括 macOS-arm64：官方为每个 LLVM pin 提供预编译包（`cmake/llvm-info.json` 里每个平台一个 sha256），`pip install -e .` 时自动下载到 `~/.triton/llvm/`。
 
-```bash
+```bash title="构建 Triton v3.8.0"
 git clone https://github.com/triton-lang/triton && cd triton && git checkout v3.8.0
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r python/requirements.txt          # cmake<4、ninja、pybind11、lit
@@ -66,13 +66,13 @@ Table: Triton 的三层测试
 
 ### 1. 从 Python：`MLIR_ENABLE_DUMP`
 
-```bash
+```bash title="MLIR_ENABLE_DUMP 抓 IR"
 MLIR_ENABLE_DUMP=1 TRITON_ALWAYS_COMPILE=1 python my_kernel.py 2> dump.log
 ```
 
 对 `sm_80` 的一个 kernel，`dump.log` 里有 **74 次** `IR Dump Before …`（每个 pass 之前一次；`MLIR_ENABLE_DUMP=<kernel 名>` 只 dump 那个 kernel）。按顺序去掉重复就是 `make_ttir` + `make_ttgir` + `make_llir` 的完整 pass 表：
 
-```text
+```text title="dump.log 里的 74 个 pass"
 InlinerPass CanonicalizerPass TritonRewriteTensorDescriptorToPointer CanonicalizerPass TritonCombineOps TritonReorderBroadcast CSEPass SymbolDCEPass TritonLoopUnroll                                                                      ← make_ttir（第五篇）
 ConvertTritonToTritonGPU TritonGPUCoalesce TritonGPUF32DotTC TritonGPUPlanCTAPass TritonGPURemoveLayoutConversions TritonGPUOptimizeThreadLocality TritonGPUAccelerateMatmul TritonGPURemoveLayoutConversions TritonGPUOptimizeDotOperands CanonicalizerPass                          ← 第七、八篇
 TritonNvidiaGPUOptimizeDescriptorEncodingPass TritonLoopAwareCSE TritonGPUFuseNestedLoops CanonicalizerPass TritonLoopInvariantCodeMotion CanonicalizerPass TritonGPUCombineTensorSelectAndIf NVGPUWarpSpecialization TritonGPUAssignLatencies TritonGPUScheduleLoops TritonGPUPipeline CanonicalizerPass TritonLoopAwareCSE TritonGPUPrefetch TritonGPUOptimizeDotOperands CanonicalizerPass TritonGPUCoalesceAsyncCopy TritonNvidiaGPUOptimizeTMemLayoutsPass TritonNvidiaGPUFuseTMEMLoadReducePass TritonGPURemoveLayoutConversions TritonNvidiaGPUInterleaveTMemPass TritonGPUReduceDataDuplication TritonGPUReorderInstructions TritonLoopAwareCSE SymbolDCEPass TritonGPUFenceInsertion TritonNvidiaGPUMMALoweringPass SCCPPass CSEPass CanonicalizerPass   ← 第九篇
@@ -85,7 +85,7 @@ TritonGPUCombineTensorSelectAndIf TritonGPUAllocateWarpGroups SCFToControlFlowPa
 
 拿到某一级的 IR 文件（`TRITON_KERNEL_DUMP=1` 的 `~/.triton/dump/<hash>/*.ttgir`，或 `k.asm["ttgir"]`），用 `triton-opt` 跑任意 pass 子集：
 
-```bash
+```bash title="用 triton-opt 跑 pass 子集"
 triton-opt kernel.ttir --convert-triton-to-tritongpu="target=cuda:80 num-warps=4 threads-per-warp=32 num-ctas=1" -o a.ttgir
 triton-opt a.ttgir --tritongpu-coalesce --tritongpu-remove-layout-conversions --mlir-print-ir-after-all 2> steps.log
 triton-opt a.ttgir --tritongpu-accelerate-matmul --mlir-print-ir-after-failure   # 只在失败时打印
@@ -148,7 +148,7 @@ flowchart TB
 
 **`FileCheck`**：跑 pass、把输出喂给 `FileCheck`，按 `CHECK` 行匹配：
 
-```mlir
+```mlir title="FileCheck 测试"
 // RUN: triton-opt %s -tritongpu-remove-layout-conversions | FileCheck %s
 #layout0 = #ttg.blocked<{sizePerThread = [1], threadsPerWarp = [32], warpsPerCTA = [4], order = [0]}>
 #layout1 = #ttg.blocked<{sizePerThread = [4], threadsPerWarp = [32], warpsPerCTA = [4], order = [0]}>
@@ -169,7 +169,7 @@ tt.func @range() -> tensor<1024xi32, #layout1> {
 **`-verify-diagnostics` + `expected-remark`**：pass 通过 `emitRemark` 报告分析结果，测试声明期望的 remark，MLIR 逐条核对——多一条、少一条、内容不同都失败。AxisInfo 的 `test-alignment.mlir` 全用它：
 
 {% raw %}
-```mlir
+```mlir title="expected-remark 测试"
 // RUN: triton-opt %s -split-input-file -test-print-alignment -verify-diagnostics -o /dev/null
 module {
   tt.func @splat_plus_range(%pid: i32 {tt.divisibility = 16 : i32}) {

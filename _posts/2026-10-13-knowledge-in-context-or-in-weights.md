@@ -140,7 +140,7 @@ flowchart TB
 
 ### 1. 顺序
 
-```text
+```text title="五种注入知识的方式排序"
 prompt  →  few-shot  →  检索 / 工具  →  微调（SFT / LoRA）  →  继续预训练
 便宜 · 分钟级改动 · 可追溯 · 灵活                      贵 · 天级 · 不可追溯 · 僵硬
 ```

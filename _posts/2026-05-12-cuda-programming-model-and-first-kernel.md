@@ -91,7 +91,7 @@ Table: 三个函数限定符
 
 一个 kernel 长这样：
 
-```cpp
+```cpp title="vector_add_f32：第一个 kernel"
 __global__ void vector_add_f32(const float* __restrict__ a,
                                const float* __restrict__ b,
                                float* __restrict__ c, size_t n) {
@@ -108,7 +108,7 @@ __global__ void vector_add_f32(const float* __restrict__ a,
 
 host 用三尖括号语法发射：
 
-```cpp
+```cpp title="三尖括号发射 kernel"
 const int block = 256;
 const unsigned grid = (unsigned)((n + block - 1) / block);
 vector_add_f32<<<grid, block>>>(d_a, d_b, d_c, n);
@@ -165,7 +165,7 @@ $$
 
 对二维问题（比如一个 $$M \times N$$ 的矩阵、每线程一个元素）：
 
-```cpp
+```cpp title="二维问题的 row / col 索引"
 int col = blockIdx.x * blockDim.x + threadIdx.x;   // 沿 N
 int row = blockIdx.y * blockDim.y + threadIdx.y;   // 沿 M
 if (row < M && col < N) out[row * N + col] = ...;
@@ -230,7 +230,7 @@ $$
 
 `x` 是变化最快的维度。几个例子：
 
-```text
+```text title="block 形状到 warp 的切分示例"
 block (256)        warp k = 线程 32k … 32k+31，共 8 个 warp
 
 block (32, 8)      linear = x + 32y → 每一行 y 恰好是一个 warp，共 8 个 warp
@@ -253,7 +253,7 @@ block (8, 8)       linear = x + 8y → 64 线程 = 2 个 warp，每个 warp 覆�
 
 最基本的三个调用：
 
-```cpp
+```cpp title="cudaMalloc / cudaMemcpy / cudaFree"
 float* d_a = nullptr;
 CUDA_CHECK(cudaMalloc(&d_a, bytes));                                   // 分配显存
 CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));       // host → device
@@ -279,7 +279,7 @@ PyTorch 的每个 CUDA Tensor 的 Storage 背后并不是一次 `cudaMalloc`。�
 
 这意味着下面的计时是错的：
 
-```cpp
+```cpp title="错误的计时：只测到 launch 开销"
 auto t0 = std::chrono::steady_clock::now();
 vector_add_f32<<<grid, block>>>(d_a, d_b, d_c, n);
 auto t1 = std::chrono::steady_clock::now();   // 只测到了 launch 的开销，kernel 可能还没开始
@@ -321,7 +321,7 @@ sequenceDiagram
 
 创建自己的 stream：
 
-```cpp
+```cpp title="创建自己的 stream 并只等它"
 cudaStream_t stream;
 CUDA_CHECK(cudaStreamCreate(&stream));
 vector_add_f32<<<grid, block, 0, stream>>>(d_a, d_b, d_c, n);
@@ -331,7 +331,7 @@ CUDA_CHECK(cudaStreamDestroy(stream));
 
 三种情形放在一条时间线上：
 
-```text
+```text title="同一 stream 与多 stream 的时间线"
                  时间 ──────────────────────────────────────────────────────→
 同一 stream      ▓▓ k1 ▓▓▓▓ k2 ▓▓▓ memcpy ▓▓ k3 ▓▓          严格按提交顺序，一个接一个
 
@@ -348,7 +348,7 @@ stream B                  ▓▓▓ k2 ▓▓▓                       把并发
 
 **event** 是插进 stream 里的一个标记。GPU 执行到它时记录当前时间，CPU 可以等待它，也可以查两个 event 之间的时间差：
 
-```cpp
+```cpp title="用 event 计时 kernel"
 cudaEvent_t start, stop;
 CUDA_CHECK(cudaEventCreate(&start));
 CUDA_CHECK(cudaEventCreate(&stop));
@@ -362,7 +362,7 @@ float ms = 0.f;
 CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));   // 毫秒，分辨率约 0.5 µs
 ```
 
-```text
+```text title="event 计时的 GPU 时间戳与 CPU 等待"
 stream 上的顺序     [ record start ]──[ kernel 1.6 ms ]──[ record stop ]
 GPU 时间戳                ↑ t_start                          ↑ t_stop
                           └──────── cudaEventElapsedTime ────┘   = t_stop − t_start，与 CPU 何时来问无关
@@ -419,7 +419,7 @@ launch 后紧跟一个 `cudaGetLastError()` 可以捕获同步的配置错误；
 
 每个 CUDA 调用都要检查返回值，写一个宏：
 
-```cpp
+```cpp title="CUDA_CHECK 宏"
 #include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h>
@@ -447,7 +447,7 @@ launch 之后的习惯写法是 `CUDA_CHECK(cudaGetLastError());`。PyTorch 里�
 
 nvcc 不是一个编译器，而是一个驱动程序。它把一个 `.cu` 文件拆成两部分：
 
-```text
+```text title="nvcc 把 .cu 拆成 host 与 device 两路"
 .cu ──┬── host 代码   ──→ 交给宿主 C++ 编译器（gcc/clang/MSVC）→ 目标文件
       │                    三尖括号被改写成 cudaLaunchKernel 调用
       │
@@ -462,7 +462,7 @@ nvcc 不是一个编译器，而是一个驱动程序。它把一个 `.cu` 文�
 
 `-arch=sm_80` 是最常用的写法，它是下面这条的缩写：
 
-```bash
+```bash title="-arch=sm_80 的完整写法"
 nvcc -gencode arch=compute_80,code=sm_80 -gencode arch=compute_80,code=compute_80 ...
 ```
 
@@ -470,13 +470,13 @@ nvcc -gencode arch=compute_80,code=sm_80 -gencode arch=compute_80,code=compute_8
 
 如果只想要 SASS、不带 PTX（二进制更小、无 JIT 可能）：
 
-```bash
+```bash title="只生成 SASS、不嵌 PTX"
 nvcc -gencode arch=compute_80,code=sm_80 ...
 ```
 
 要同时支持多代硬件，就写多个 `-gencode`，得到一个包含多份 SASS 的 fatbin：
 
-```bash
+```bash title="多个 -gencode 得到 fatbin"
 nvcc -gencode arch=compute_80,code=sm_80 \
      -gencode arch=compute_86,code=sm_86 \
      -gencode arch=compute_90,code=sm_90 \
@@ -528,7 +528,7 @@ flowchart TD
 
 `--ptxas-options=-v`（或 `-Xptxas -v`）让 ptxas 打印每个 kernel 的资源用量：
 
-```text
+```text title="-Xptxas -v 打印的资源用量"
 ptxas info    : Compiling entry function '_Z14vector_add_f32PKfS0_Pfm' for 'sm_80'
 ptxas info    : Function properties for _Z14vector_add_f32PKfS0_Pfm
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
@@ -544,7 +544,7 @@ ptxas info    : Used 16 registers, 380 bytes cmem[0]
 
 本系列所有 CUDA 示例的默认编译命令：
 
-```bash
+```bash title="本系列 CUDA 示例的默认编译命令"
 nvcc -O3 -arch=sm_80 -lineinfo --ptxas-options=-v -o vector_add vector_add.cu
 ```
 
@@ -558,7 +558,7 @@ warp 是硬件调度和执行的单位。一个 warp 调度器每个周期选出
 
 ### 2. 分支发散的代价
 
-```cpp
+```cpp title="奇偶 lane 分支发散"
 if (threadIdx.x % 2 == 0) {
   x = f(x);       // 偶数 lane 执行，奇数 lane 被 mask 掉，但仍占用发射槽位
 } else {
@@ -566,7 +566,7 @@ if (threadIdx.x % 2 == 0) {
 }
 ```
 
-```text
+```text title="分支发散下各阶段的 active mask"
                  active mask（lane 31 … lane 0）              有效 lane
 if 之前          11111111 11111111 11111111 11111111          32/32
 执行 f 的所有指令  01010101 01010101 01010101 01010101          16/32   ← 奇数 lane 旁观，但占用发射槽位
@@ -579,7 +579,7 @@ warp 不能一半执行 `f`、一半执行 `g`；它会**两路都走**：先以
 
 关键是**发散只发生在 warp 内部**。按 warp 边界对齐的分支没有代价：
 
-```cpp
+```cpp title="按 warp 边界对齐的分支：无发散"
 if (threadIdx.x < 32) { ... }        // warp 0 全走 if，其他 warp 全跳过：无发散
 if ((threadIdx.x / 32) % 2 == 0) { ... }   // 偶数 warp 走、奇数 warp 不走：无发散
 if (i < n) c[i] = a[i] + b[i];       // 只有最后一个 warp 可能发散，可忽略
@@ -595,7 +595,7 @@ Volta（sm_70）之前，一个 warp 只有一个程序计数器（PC），32 �
 
 因此 CUDA 9 起所有 warp 级原语都换成了带 `_sync` 后缀、显式接收 mask 的版本：
 
-```cpp
+```cpp title="带 _sync 后缀的 warp 级原语"
 // mask 指明哪些 lane 参与；这些 lane 必须全部执行到这条指令，硬件会在此处把它们会合
 v = __shfl_down_sync(0xffffffffu, v, 16);
 unsigned ballot = __ballot_sync(0xffffffffu, pred);
@@ -610,7 +610,7 @@ __syncwarp();                     // 等价于 __syncwarp(0xffffffff)：warp 内
 
 mask 参数通常填 `0xffffffff`（全 warp），但要保证 32 个 lane 确实都会执行到那条指令。在边界处这不成立——最后一个 warp 可能只有一部分 lane 满足 `i < n`：
 
-```cpp
+```cpp title="边界处 warp 级原语的 mask 处理"
 // 错误：i >= n 的 lane 不会执行到 __shfl_down_sync，但 mask 说它们参与 → 未定义行为
 if (i < n) { v = __shfl_down_sync(0xffffffffu, v, 1); }
 
@@ -652,7 +652,7 @@ A100 有 40 MB L2。如果 benchmark 的工作集小于 40 MB（比如 $$n = 2^{
 
 一次计时迭代在 stream 上的布置：
 
-```text
+```text title="一次计时迭代在 stream 上的布置"
 stream   [ memsetAsync 128 MB：逐出 L2 ]──[ record start ]──[ kernel ]──[ record stop ]──（下一次迭代…）
                     不计时                       └──────── 计入 ms ────────┘
 重复 N 次，取中位数；之前先跑几次 warmup（触发 JIT / 模块加载、让频率爬上来）
@@ -664,7 +664,7 @@ stream   [ memsetAsync 128 MB：逐出 L2 ]──[ record start ]──[ kernel 
 
 下面是完整可编译的程序，包含 FP32 与 BF16 两个 kernel、`CUDA_CHECK`、事件计时、warmup、多次迭代取中位数、L2 flush。函数名 `bench(fn, warmup, iters, flush_l2)` 会被后面所有篇复用。
 
-```cpp
+```cpp title="vector_add.cu：完整程序与 bench 脚手架"
 // vector_add.cu
 // nvcc -O3 -arch=sm_80 -lineinfo --ptxas-options=-v -o vector_add vector_add.cu
 #include <cuda_runtime.h>
@@ -819,7 +819,7 @@ int main() {
 
 同一个 kernel 用 `torch.utils.cpp_extension.load_inline` 接进 PyTorch，用 `torch.cuda.Event` 计时。这是本系列后面测试正确性（`torch.testing.assert_close`）与对照 PyTorch 自带算子的标准方式。
 
-```python
+```python title="bench_vector_add.py：load_inline 与 torch.cuda.Event"
 # bench_vector_add.py
 import torch
 from torch.utils.cpp_extension import load_inline
@@ -944,7 +944,7 @@ if __name__ == "__main__":
 
 ### 2. 速查表
 
-```text
+```text title="launch 配置与 API 速查表"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 launch 配置速查
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

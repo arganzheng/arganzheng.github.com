@@ -71,7 +71,7 @@ Table: 本文的章节安排
 
 一条 $$T$$ 轮的轨迹：
 
-```text
+```text title="T 轮轨迹与第 t 轮开始时的上下文布局"
 τ = (s_0, a_0, o_0, a_1, o_1, …, a_{T-1})              o_t 是环境对 a_t 的返回
 
 上下文（第 t 轮开始时）：
@@ -104,7 +104,7 @@ $$
 
 工具以函数 schema（JSON：名字、描述、参数类型）的形式写进 system prompt；模型的调用是一段结构化文本，模板把它渲染成特殊标记包裹的 JSON；环境的返回渲染成一个 `tool` 角色的轮次。Qwen 的形态：
 
-```text
+```text title="Qwen 的工具 schema 与 tool_call 模板"
 <|im_start|>system
 You are a helpful assistant.
 # Tools
@@ -385,7 +385,7 @@ Table: Agent 类 benchmark 各测什么
 
 不依赖任何 Agent 框架，一个计算器工具的多轮 rollout 与 mask 的构造是几十行：
 
-```python
+```python title="计算器工具的多轮 rollout 与 mask 构造"
 TOOL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 def rollout(policy, tok, task, max_turns=6):

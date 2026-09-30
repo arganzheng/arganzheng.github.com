@@ -335,7 +335,7 @@ Table: 自建评测集的步骤
 
 同一模型、同一 benchmark、三种协议：
 
-```bash
+```bash title="lm_eval 跑 GSM8K 的三种协议"
 # GSM8K，三种协议：0-shot 直接答、8-shot、8-shot CoT
 lm_eval --model vllm --model_args pretrained=Qwen/Qwen2.5-1.5B-Instruct \
         --tasks gsm8k --num_fewshot 0 --batch_size auto --output_path out/gsm8k_0shot
@@ -351,7 +351,7 @@ lm_eval --model vllm --model_args pretrained=Qwen/Qwen2.5-1.5B-Instruct \
 
 对一批成对输出（比如第四篇 DPO 与第三篇 GRPO 的输出），用一个 judge 模型判优劣，三个测量：
 
-```python
+```python title="测 judge 的位置偏差、长度偏差与自我偏好"
 def judge(prompt, a, b) -> str: ...            # 返回 "A" / "B" / "tie"
 
 # 位置偏差：交换顺序，看改判率
