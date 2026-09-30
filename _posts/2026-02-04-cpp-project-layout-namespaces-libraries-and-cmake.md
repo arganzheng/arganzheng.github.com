@@ -856,11 +856,7 @@ clang++ -std=c++17 -Wall -Wextra -I. examples/hello.cpp -L. -lminic10 -Wl,-rpath
 ./hello
 ```
 
-以上命令用 Apple clang 21 在 macOS 上实际运行（把 `.so` 换成 `.dylib`、`-Wl,-rpath,'$ORIGIN'` 换成 `DYLD_LIBRARY_PATH=.`），`-Wall -Wextra` 无警告，输出：
-
-```text title='hello 的输出：mini-c10 0.1 (debug), number=1'
-mini-c10 0.1 (debug), number=1
-```
+以上命令用 Apple clang 21 在 macOS 上实际运行（把 `.so` 换成 `.dylib`、`-Wl,-rpath,'$ORIGIN'` 换成 `DYLD_LIBRARY_PATH=.`），`-Wall -Wextra` 无警告，输出 `mini-c10 0.1 (debug), number=1`。
 
 再看符号（[上篇 5.1 节](/cpp-compilation-model-from-cpp-to-shared-object.html)给的是 Linux 的输出，这里是 macOS 的，去掉了 libc++ 的内部符号）：
 

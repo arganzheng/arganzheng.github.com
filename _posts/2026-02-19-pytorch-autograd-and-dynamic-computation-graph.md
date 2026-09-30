@@ -71,35 +71,7 @@ Table: 本文的章节安排
 
 ### 1. 梯度解决什么问题？
 
-假设有一个非常简单的函数：
-
-```text title='最简单的函数：y = x²'
-y = x²
-```
-
-当 `x = 3` 时，`y = 9`。如果希望调整 `x` 让 `y` 变小，就需要知道：
-
-```text title='想知道的问题：y 对 x 有多敏感'
-y 对 x 的变化有多敏感？
-```
-
-这个敏感程度就是导数：
-
-```text title='导数 dy/dx = 2x'
-dy/dx = 2x
-```
-
-当 `x = 3` 时：
-
-```text title='x = 3 时的导数值'
-dy/dx = 6
-```
-
-如果目标是最小化 `y`，就可以沿着负梯度方向调整 `x`：
-
-```text title='沿负梯度方向更新 x'
-x_new = x - learning_rate × gradient
-```
+假设有一个非常简单的函数 `y = x²`。当 `x = 3` 时，`y = 9`。如果希望调整 `x` 让 `y` 变小，就需要知道 **`y` 对 `x` 的变化有多敏感**。这个敏感程度就是导数 `dy/dx = 2x`；当 `x = 3` 时，`dy/dx = 6`。如果目标是最小化 `y`，就可以沿着负梯度方向调整 `x`：`x_new = x - learning_rate × gradient`。
 
 神经网络中的参数通常有数百万甚至数十亿个，手工为每个参数推导和实现梯度是不现实的。Autograd 的任务就是自动完成这个过程。
 
@@ -107,27 +79,7 @@ x_new = x - learning_rate × gradient
 
 上一节的 `y = x²` 一步就算完了导数。但神经网络不是一步：输入先过第一层、结果再过第二层、再过 loss——几十层函数**套在一起**，loss 对第一层参数的导数没有现成公式可查。链式法则回答的就是"套起来的函数怎么求导"：把每一层自己的导数（局部导数，每层都容易算）**相乘**，就是整条链的导数。有了它，不管套多少层，只要每种基本运算会算自己那一小步，整体就能算出来——这正是 Autograd 能自动化的前提。
 
-对于复合函数：
-
-```text title='复合函数 z = f(g(x))'
-z = f(y)
-y = g(x)
-```
-
-有：
-
-```text title='链式法则：dz/dx = dz/dy × dy/dx'
-dz/dx = dz/dy × dy/dx
-```
-
-例如：
-
-```text title='一个例子：y = x²，z = 3y + 1'
-y = x²
-z = 3y + 1
-```
-
-可以拆成：
+对于复合函数 `z = f(y)`、`y = g(x)`，有 `dz/dx = dz/dy × dy/dx`。例如 `y = x²`、`z = 3y + 1`，可以拆成：
 
 ```text title='按链式法则拆开算出 dz/dx = 6x'
 dz/dy = 3
@@ -140,27 +92,13 @@ dz/dx = 3 × 2x = 6x
 
 ### 3. 从标量到向量
 
-实际模型很少只有一个标量输入和一个标量输出。更常见的情况是：
+实际模型很少只有一个标量输入和一个标量输出。更常见的情况是 `y = f(x)`，其中 `x` 和 `y` 都是向量或 Tensor。
 
-```text title='向量到向量的函数 y = f(x)'
-y = f(x)
-```
-
-其中 `x` 和 `y` 都是向量或 Tensor。
-
-严格来说，这时的导数由 **Jacobian**（雅可比矩阵）描述——`y` 的每个分量对 `x` 的每个分量各有一个偏导数，排成一张表：
-
-```text title='Jacobian 的定义：m × n 张表'
-J[i, j] = ∂y[i] / ∂x[j]        y 有 m 个分量、x 有 n 个分量 → J 是 m × n 的矩阵
-```
+严格来说，这时的导数由 **Jacobian**（雅可比矩阵）描述——`y` 的每个分量对 `x` 的每个分量各有一个偏导数，排成一张表：`J[i, j] = ∂y[i] / ∂x[j]`，`y` 有 `m` 个分量、`x` 有 `n` 个分量，`J` 就是 `m × n` 的矩阵。
 
 先用小数字看这张表有多大：一个 `[4096] → [4096]` 的线性层，Jacobian 是 `4096 × 4096 = 1677 万`个数，**一个样本、一层**就 64 MB（float32）；几十层、每层的 J 都存下来，训练根本跑不动。
 
-但训练其实**从来不需要这张表本身**。回头看链式法则：`dz/dx = dz/dy × dy/dx`。当 `z` 是标量 loss 时，`dz/dy` 是一个和 `y` 同形的向量 `v`（长 `m`），`dy/dx` 是 Jacobian `J`（`m × n`），两者一乘：
-
-```text title='vᵀJ：训练只需要向量–Jacobian 积，结果与 x 同形'
-vᵀ J   →   [1 × m] × [m × n] = [1 × n]        结果和 x 同形，只有 n 个数
-```
+但训练其实**从来不需要这张表本身**。回头看链式法则：`dz/dx = dz/dy × dy/dx`。当 `z` 是标量 loss 时，`dz/dy` 是一个和 `y` 同形的向量 `v`（长 `m`），`dy/dx` 是 Jacobian `J`（`m × n`），两者一乘：`vᵀJ` 是 `[1 × m] × [m × n] = [1 × n]`，结果和 `x` 同形，只有 `n` 个数。
 
 这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**。关键在于：算 `vᵀJ` 不必先把 `J` 造出来。以线性层 `y = W x` 为例，`J = W`，`vᵀJ = vᵀW`——就是一次普通的矩阵乘法，代价与前向同阶；对逐元素运算 `y = relu(x)`，`J` 是对角阵，`vᵀJ` 就是 `v` 逐元素乘一个 0/1 掩码，连矩阵都不用碰。每种基本运算都有自己"给我上游梯度 `v`，我直接吐出 `vᵀJ`"的公式，PyTorch 把它们写在 `derivatives.yaml` 里（第五章）。
 
@@ -173,11 +111,7 @@ vᵀ J   →   [1 × m] × [m × n] = [1 × n]        结果和 x 同形，只�
 loss.backward()
 ```
 
-这里的 `loss` 通常是一个标量。标量的反向传播可以理解为：
-
-```text title='标量反向传播算的是 loss 对每个参数的偏导'
-∂loss / ∂每个参数
-```
+这里的 `loss` 通常是一个标量。标量的反向传播可以理解为：算出 `loss` 对**每个参数**的偏导。
 
 如果对一个非标量 Tensor 直接调用 `backward()`：
 
@@ -195,11 +129,7 @@ y.backward()
 y.backward(torch.ones_like(y))
 ```
 
-这相当于计算：
-
-```text title='等价于对 sum(y) 求梯度'
-sum(y) 对 x 的梯度
-```
+这相当于计算 `sum(y)` 对 `x` 的梯度。
 
 所以 `backward()` 不只是“计算这个 Tensor 的梯度”，更准确地说是：
 
@@ -374,13 +304,7 @@ z.backward()
 print(x.grad)  # tensor(4.)
 ```
 
-这里：
-
-```text title='手算验证 ∂z/∂x = 2x = 4'
-y = x²
-z = y + 1
-∂z/∂x = 2x = 4
-```
+这里 `y = x²`、`z = y + 1`，手算 `∂z/∂x = 2x = 4`，与 `x.grad` 一致。
 
 `requires_grad=True` 并不意味着 Tensor 现在已经有梯度，也不意味着每个后续操作都一定会被记录。是否记录还会受到：
 
@@ -468,11 +392,7 @@ print(y.grad_fn.next_functions)
 
 ### 5. requires_grad 与 Parameter
 
-`nn.Parameter` 是 Tensor 的一个特殊封装，目的是告诉 `nn.Module`：
-
-```text title='nn.Parameter 的含义：这个 Tensor 是模型参数'
-这个 Tensor 是模型参数
-```
+`nn.Parameter` 是 Tensor 的一个特殊封装，目的是告诉 `nn.Module`：**这个 Tensor 是模型参数**。
 
 ```python title='nn.Parameter 默认 requires_grad=True'
 from torch import nn
@@ -513,17 +433,7 @@ loss.backward()
 1. 接收从后继节点传来的上游梯度；
 2. 使用自己的局部导数，计算传给前驱节点的梯度。
 
-对于：
-
-```text title='乘法节点 y = x * x'
- y = x * x
-```
-
-局部导数是：
-
-```text title='它的局部导数 2x'
-∂y/∂x = 2x
-```
+对于乘法节点 `y = x * x`，局部导数是 `∂y/∂x = 2x`。
 
 ### 2. 梯度默认会累积
 
@@ -539,11 +449,7 @@ y.backward()
 print(x.grad)  # tensor(7.)
 ```
 
-第二次 backward 没有覆盖第一次梯度，而是累加了新的梯度：
-
-```text title='第二次没有覆盖而是累加：3 + 4 = 7'
-3 + 4 = 7
-```
+第二次 backward 没有覆盖第一次梯度，而是累加了新的梯度：`3 + 4 = 7`。
 
 这也是为什么训练循环通常需要清空梯度：
 
@@ -591,13 +497,7 @@ optimizer.step()
 optimizer.zero_grad(set_to_none=True)
 ```
 
-设为 `None` 可以避免不必要的填零，并让后续 backward 在需要时重新分配梯度。但业务代码不能无条件假设：
-
-```python title='业务代码不能假设 parameter.grad 一定是 Tensor'
-parameter.grad is always a Tensor
-```
-
-正确性和性能都需要根据训练循环验证。
+设为 `None` 可以避免不必要的填零，并让后续 backward 在需要时重新分配梯度。但业务代码不能无条件假设 `parameter.grad` 一定是 Tensor。正确性和性能都需要根据训练循环验证。
 
 ### 5. 多次 backward 与计算图释放
 
@@ -626,27 +526,7 @@ y.backward()
 
 有些算子的局部导数依赖 forward 阶段的输入或输出。
 
-例如：
-
-```text title='需要保存输入的例子：y = x²'
-y = x²
-```
-
-反向时需要：
-
-```text title='反向需要 x 本身：∂y/∂x = 2x'
-∂y/∂x = 2x
-```
-
-因此 Autograd 需要保留 `x`，或者保留足以计算梯度的信息。
-
-对于 ReLU：
-
-```text title='ReLU：y = max(0, x)'
- y = max(0, x)
-```
-
-反向时需要知道 forward 阶段哪些位置大于 0。不同算子会保存不同的中间信息。
+例如 `y = x²`，反向时需要 `∂y/∂x = 2x`，因此 Autograd 需要保留 `x`，或者保留足以计算梯度的信息。对于 ReLU `y = max(0, x)`，反向时需要知道 forward 阶段哪些位置大于 0。不同算子会保存不同的中间信息。
 
 这些被保存的中间值统称**激活值**（activation）。它们从 forward 保存到 backward 用完为止，是训练时显存占用中随 batch 和序列长度线性增长的那部分，通常比参数本身大得多。第八篇分析显存构成时，激活值是主要对象；那里的 Activation Checkpointing 做的事就是不保存、反向时重算。
 
@@ -980,19 +860,7 @@ class Scale(torch.autograd.Function):
 - 异常输入；
 - 内存是否正确释放。
 
-可以使用：
-
-```python title='torch.autograd.gradcheck'
-torch.autograd.gradcheck
-```
-
-和：
-
-```python title='torch.autograd.gradgradcheck'
-torch.autograd.gradgradcheck
-```
-
-进行数值验证。
+可以使用 `torch.autograd.gradcheck` 和 `torch.autograd.gradgradcheck` 进行数值验证。
 
 ## 九、实现一个 Mini-Autograd
 
@@ -1044,14 +912,7 @@ def add(left, right):
     return result
 ```
 
-因为：
-
-```text title='加法的局部导数都是 1'
-d(left + right)/dleft  = 1
-d(left + right)/dright = 1
-```
-
-所以两个父节点都接收相同的上游梯度。
+因为加法对两个输入的局部导数都是 1（`d(left + right)/dleft = d(left + right)/dright = 1`），所以两个父节点都接收相同的上游梯度。
 
 ### 4. 实现乘法
 
@@ -1067,12 +928,7 @@ def multiply(left, right):
     return result
 ```
 
-因为：
-
-```text title='乘法的局部导数是对方'
-d(left × right)/dleft  = right
-d(left × right)/dright = left
-```
+因为乘法对一个输入的局部导数是另一个输入的值：`d(left × right)/dleft = right`，`d(left × right)/dright = left`。
 
 ### 5. 拓扑排序
 
@@ -1095,23 +951,7 @@ def build_topological_order(root):
     return order
 ```
 
-如果计算是：
-
-```text title='一条计算链：a → multiply → b → add → c'
-a → multiply → b → add → c
-```
-
-拓扑序是：
-
-```text title='它的拓扑序'
-a, b, c
-```
-
-反向遍历时则使用：
-
-```text title='反向遍历用逆序'
-c, b, a
-```
+如果计算是 `a → multiply → b → add → c`，拓扑序是 `a, b, c`，反向遍历时则使用逆序 `c, b, a`。
 
 ### 6. 实现 backward
 
@@ -1328,13 +1168,7 @@ torch.autograd.set_detect_anomaly(True)
 
 ### 1. Autograd 不是普通事件回调
 
-事件回调通常回答：
-
-```text title='事件回调回答的问题'
-某个事件发生后，调用哪些函数？
-```
-
-Autograd 回答的是：
+事件回调通常只回答一个问题：某个事件发生后，调用哪些函数？Autograd 回答的是：
 
 - 当前输出由哪些 Tensor 运算得到？
 - 给定上游梯度，如何按照局部导数把梯度传回去？
@@ -1372,17 +1206,7 @@ Java 工程师通常习惯把局部变量和对象状态区分开。在 PyTorch 
 
 ### 4. Tensor 布局和 Autograd 是两个正交维度
 
-上一篇讨论了 Tensor 的：
-
-```text title='上一篇的维度：Tensor 布局'
-Storage / Shape / Stride / Offset / Dtype / Device
-```
-
-本文讨论了：
-
-```text title='本文的维度：Autograd'
-requires_grad / grad_fn / Graph / Gradient
-```
+上一篇讨论的是 Tensor 的布局维度：Storage、Shape、Stride、Offset、Dtype、Device；本文讨论的是 Autograd 维度：`requires_grad`、`grad_fn`、计算图、梯度。
 
 一个 Tensor 可以：
 

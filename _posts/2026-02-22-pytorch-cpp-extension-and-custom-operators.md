@@ -14,13 +14,7 @@ updated: 2026-09-14
 
 这是从“阅读框架”走向“扩展框架”的关键一步。AI-Infra 工作中大量的实际需求都落在这里：一个融合 Kernel、一个新硬件的后端适配、一个推理引擎的定制算子，最终都要经过同样的路径。
 
-本文用一个刻意简单的算子贯穿全文：
-
-```text title='贯穿全文的算子：scale_shift(x, alpha, beta) = alpha * x + beta'
-scale_shift(x, alpha, beta) = alpha * x + beta
-```
-
-它简单到不会分散注意力，又足够涉及 Tensor 元数据、dtype、device、Autograd 和构建系统的全部问题。通过这个实际例子，我们可以了解到一个算子是怎么正确完成定义、注册与实现，并能通过 Autograd、Meta、测试和构建检验的完整过程。
+本文用一个刻意简单的算子贯穿全文：`scale_shift(x, alpha, beta) = alpha * x + beta`。它简单到不会分散注意力，又足够涉及 Tensor 元数据、dtype、device、Autograd 和构建系统的全部问题。通过这个实际例子，我们可以了解到一个算子是怎么正确完成定义、注册与实现，并能通过 Autograd、Meta、测试和构建检验的完整过程。
 
 ## 一、总览：三个概念与本文主线
 

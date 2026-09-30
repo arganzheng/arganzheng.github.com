@@ -817,11 +817,7 @@ aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 - `alpha` 是仅限关键字传入的标量参数，默认值为 1；
 - 返回一个 Tensor。
 
-对应的计算语义是：
-
-```text title='add.Tensor 的计算语义'
-结果 = self + alpha × other
-```
+对应的计算语义是 $$\text{self} + \alpha \times \text{other}$$。
 
 **ATen 算子接口提供统一入口，Schema 描述入口的调用契约。** 广播、类型提升等计算规则由算子的语义和实现落实，并不是全部编码在 Schema 签名中。
 
@@ -1169,17 +1165,9 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 6. 计算内核与底层库： 原生 CPU 与 CUDA 内核、编译生成内核 / cuBLAS、cuDNN 等计算库
 7. 外部运行基础：操作系统、驱动、CPU、GPU 与互连
 
-动态地图回答"一次调用怎么走"：
+动态地图回答"一次调用怎么走"：Python API → Python Binding → Operator Schema → Dispatcher → ATen Operator → Kernel → Hardware。
 
-```text title='动态地图：一次调用经过的七层'
-Python API → Python Binding → Operator Schema → Dispatcher → ATen Operator → Kernel → Hardware
-```
-
-代码地图回答"东西在哪个目录、哪个库"：
-
-```text title='代码地图：各层对应的源码目录'
-torch/（Python）→ torch/csrc/（绑定、Autograd 引擎、c10d）→ aten/src/ATen/（Dispatcher、算子）→ c10/（TensorImpl、Device、Allocator）
-```
+代码地图回答"东西在哪个目录、哪个库"：`torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator）。
 
 本系列按前两张地图的顺序推进；第七章 §6 的对照表标出了每一篇在代码地图上的位置。后续每一篇都是这些地图上某一格的放大：第二篇放大 Tensor，第三篇放大 Autograd，第四篇放大 Module 与训练系统，第五、六篇放大算子运行时，第七篇放大图与编译，第八篇沿动态地图测量时间去了哪里，第九篇放大设备与通信层，第十篇讨论整张图如何被持续维护。
 

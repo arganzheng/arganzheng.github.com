@@ -248,15 +248,7 @@ Request A
 └─────────────────────────────────────────────┘
 ```
 
-如果一次性完成 Prefill：
-
-```text title='一轮里只有 A 的 Prefill'
-Iteration 1：
-
-[A: Prefill 32K]
-```
-
-那么 A 可能长时间占用 GPU。
+如果一次性完成 Prefill，那么第一轮里就只有 `[A: Prefill 32K]` 这一项工作，A 可能长时间占用 GPU。
 
 此时其他已经处于 Decode 状态的请求：
 
@@ -367,13 +359,7 @@ Chunked Prefill 并不是免费优化。
 
 ### 3. `long_prefill_token_threshold`
 
-在 vLLM 中，可以通过：
-
-```python title='参数名：long_prefill_token_threshold'
-long_prefill_token_threshold
-```
-
-限制一次 Prefill 可以推进的 token 数量。
+在 vLLM 中，可以通过 `long_prefill_token_threshold` 限制一次 Prefill 可以推进的 token 数量。
 
 概念上可以理解为：
 
@@ -384,20 +370,7 @@ num_new_tokens = min(
 )
 ```
 
-例如：
-
-```text title='例：2050 token 的 Prompt 与 512 阈值'
-Prompt = 2050 tokens
-long_prefill_token_threshold = 512
-```
-
-那么这个 Prefill 最多可以被拆成：
-
-```text title='拆成 4 个 512 加 1 个 2'
-512 + 512 + 512 + 512 + 2
-```
-
-即：
+例如 Prompt 有 2050 个 token，`long_prefill_token_threshold = 512`，那么这个 Prefill 最多可以被拆成 512 + 512 + 512 + 512 + 2：
 
 - Chunk 1 → 512
 - Chunk 2 → 512
@@ -475,39 +448,11 @@ Scheduler 首先需要确定：
 
 > **本轮最多允许处理多少 token？**
 
-在 vLLM V1 中，Scheduler 有一个配置项：
-
-```text title='参数名：max_num_scheduled_tokens'
-max_num_scheduled_tokens
-```
-
-它定义的是：
+在 vLLM V1 中，Scheduler 有一个配置项 `max_num_scheduled_tokens`，它定义的是：
 
 > **一次 `schedule()` iteration 中，最多允许调度多少个 token。**
 
-例如：
-
-```text title='例：max_num_scheduled_tokens = 512'
-max_num_scheduled_tokens = 512
-```
-
-那么：
-
-```text title='本轮 Token Budget = 512'
-本轮 Token Budget = 512
-```
-
-意味着：
-
-```text title='预算的含义：本轮最多 512 token 的计算'
-这一轮最多安排 512 token 的计算工作
-```
-
-所有 Request 在这一轮消耗的 token 额度之和不能超过这个预算：
-
-```text title='预算约束：各请求 num_new_tokens 之和不超过 512'
-Σ num_new_tokens_i ≤ 512
-```
+例如 `max_num_scheduled_tokens = 512`，那么本轮的 Token Budget 就是 512，意味着这一轮最多安排 512 个 token 的计算工作；所有 Request 在这一轮消耗的 token 额度之和不能超过这个预算：`Σ num_new_tokens_i ≤ 512`。
 
 于是 Scheduler 的问题就可以抽象成：
 
@@ -549,38 +494,16 @@ vLLM 中有两个非常关键的量：
 
 它表示当前 Request 这一轮希望推进到的目标 token 位置。
 
-普通 Decode 情况下，通常只需要推进一个 token：
+普通 Decode 情况下，通常只需要推进一个 token，`num_tokens_with_spec ≈ num_computed_tokens + 1`；而如果涉及 speculative decoding，则可能一次需要推进多个 token，`num_tokens_with_spec > num_computed_tokens + 1`。
 
-```text title='普通 Decode：目标位置只比已计算多 1'
-num_tokens_with_spec ≈ num_computed_tokens + 1
-```
-
-而如果涉及 speculative decoding，则可能一次需要推进多个 token：
-
-```text title='Speculative Decoding：目标位置多于 1'
-num_tokens_with_spec > num_computed_tokens + 1
-```
-
-因此，Scheduler 可以计算：
-
-```text title='remaining_tokens 的定义'
-remaining_tokens = num_tokens_with_spec - num_computed_tokens
-```
-
-也就是：
+因此，Scheduler 可以计算 `remaining_tokens = num_tokens_with_spec - num_computed_tokens`，也就是：
 
 > **这个 Request 当前还需要多少 token 的计算额度。**
 
 
 ### 4. `num_new_tokens`：本轮真正分配多少？
 
-Scheduler 最终真正关心的是：
-
-```text title='本轮真正分配的量：num_new_tokens'
-num_new_tokens
-```
-
-即：
+Scheduler 最终真正关心的是 `num_new_tokens`，即：
 
 > **这个 Request 在本轮到底推进多少 token。**
 
@@ -630,19 +553,7 @@ token_budget -= num_new_tokens
 
 ### 5. 用一个完整例子看懂 `schedule()`
 
-假设当前：
-
-```text title='例子前提：max_num_scheduled_tokens = 512'
-max_num_scheduled_tokens = 512
-```
-
-也就是：
-
-```text title='例子前提：Token Budget = 512'
-Token Budget = 512
-```
-
-当前有三个正在运行的 Request：
+假设当前 `max_num_scheduled_tokens = 512`，也就是 Token Budget = 512。当前有三个正在运行的 Request：
 
 - **Request A**
   - 长 Prompt Prefill
@@ -660,21 +571,7 @@ Scheduler 可以分配：
 - B → 1
 - C → 1
 
-消耗：
-
-```text title='A、B、C 消耗 400 + 1 + 1 = 402'
-400 + 1 + 1 = 402
-```
-
-于是：
-
-```text title='剩余预算 512 − 402 = 110'
-剩余 Token Budget
-    =
-512 - 402
-    =
-110
-```
+三者共消耗 400 + 1 + 1 = 402，于是剩余 Token Budget = 512 − 402 = 110。
 
 此时 waiting 队列中还有：
 
@@ -683,13 +580,7 @@ Scheduler 可以分配：
 
 Scheduler 不需要等待 A、B、C 全部完成。
 
-只要还有预算，就可以继续接纳 D：
-
-```text title='D 拿到剩下的 110'
-D → 110
-```
-
-最终：
+只要还有预算，就可以继续接纳 D，D 拿到剩下的 110。最终：
 
 ```text title='一轮 512 预算在 A、B、C、D 间的分配'
 ┌─────────────────────────────────────────────┐
@@ -721,43 +612,9 @@ D → 110
 
 现在看普通 Decode。
 
-假设：
+假设 Request B 的 `num_computed_tokens = 100`、`num_tokens_with_spec = 101`，那么 `remaining_tokens = 101 - 100 = 1`，B 本轮推进 1 个 token——这就是普通 Decode。
 
-```text title='Decode 例：B 已算 100、目标 101'
-Request B：
-
-num_computed_tokens = 100
-num_tokens_with_spec = 101
-```
-
-那么：
-
-```text title='B 的 remaining_tokens = 1'
-remaining_tokens = 101 - 100 = 1
-```
-
-因此：
-
-```text title='B 本轮推进 1 token'
-B → 1 token
-```
-
-这就是普通 Decode。
-
-而一个长 Prompt：
-
-```text title='长 Prompt 例：已算 1000、目标 1500'
-num_computed_tokens = 1000
-num_tokens_with_spec = 1500
-```
-
-那么：
-
-```text title='长 Prompt 的 remaining_tokens = 500'
-remaining_tokens = 1500 - 1000 = 500
-```
-
-这就是 Prefill workload。
+而一个长 Prompt，`num_computed_tokens = 1000`、`num_tokens_with_spec = 1500`，那么 `remaining_tokens = 1500 - 1000 = 500`——这就是 Prefill workload。
 
 因此，从 Scheduler 的角度看：
 
@@ -780,13 +637,7 @@ Prefill 和 Decode 依然是非常重要的性能分析概念，但它们并不�
 
 ### 7. Scheduler 的核心源码逻辑
 
-在 vLLM V1 中，关键逻辑位于：
-
-```text title='源码位置：vllm/v1/core/sched/scheduler.py'
-vllm/v1/core/sched/scheduler.py
-```
-
-其中 `Scheduler.schedule()` 可以概念化为：
+在 vLLM V1 中，关键逻辑位于 `vllm/v1/core/sched/scheduler.py`，其中 `Scheduler.schedule()` 可以概念化为：
 
 ```python title='Scheduler.schedule() 的概念化版本'
 def schedule(self, throttle_prefills=False):
@@ -992,13 +843,7 @@ KV Cache 回答：
 
 > **这些 token 对应的 KV Cache 是否有地方存？**
 
-因此，即使：
-
-```text title='预算充足的例子：Token Budget = 512'
-Token Budget = 512
-```
-
-也不代表一定可以执行 512 tokens。
+因此，即使 Token Budget = 512，也不代表一定可以执行 512 tokens。
 
 例如：
 
@@ -1070,26 +915,14 @@ Table: Token Budget 与 max_num_seqs 哪个先生效
 
 前面的 Token Budget 机制实际上已经自然产生了 Mixed Batch。
 
-所谓 Mixed Batch，并不是 Scheduler 专门定义了一种新的：
-
-```text title='Mixed Batch'
-MixedBatch
-```
-
-而是：
+所谓 Mixed Batch，并不是 Scheduler 专门定义了一种新的 `MixedBatch` 类型，而是：
 
 > **多个不同类型的 Request 在同一个 Token Budget 下同时获得 token 推进额度。**
 
 
 ### 1. 一轮 GPU 中可以同时有什么？
 
-假设当前：
-
-```text title='Mixed Batch 例：Token Budget = 512'
-Token Budget = 512
-```
-
-系统中有：
+假设当前 Token Budget = 512，系统中有：
 
 - **Request A**
   - 长 Prompt，还没有完成 Prefill
@@ -1173,11 +1006,7 @@ Table: 一轮 batch 里的请求构成示例
 - 下一轮：
 - 推进 1 token
 
-因此：
-
-```text title='普通 Decode：remaining ≈ 1'
-remaining ≈ 1
-```
+因此 `remaining ≈ 1`。
 
 而 Speculative Decoding 可能希望一次推进多个 token：
 
@@ -1189,11 +1018,7 @@ remaining ≈ 1
   - N+3
   - N+4
 
-因此：
-
-```text title='Speculative：remaining > 1'
-remaining > 1
-```
+因此 `remaining > 1`。
 
 对于 Scheduler 来说，两者最终都只是：
 
@@ -1203,13 +1028,7 @@ remaining > 1
 4. remaining tokens
 5. num_new_tokens
 
-所以 Scheduler 不需要重新设计一套：
-
-```text title='不需要单独的 Speculative Scheduler'
-Speculative Scheduler
-```
-
-而是使用同一个 Token Budget 模型处理。
+所以 Scheduler 不需要重新设计一套“Speculative Scheduler”，而是使用同一个 Token Budget 模型处理。
 
 这也是一个非常重要的架构思想：
 
@@ -1221,13 +1040,7 @@ Speculative Scheduler
 
 Scheduler 完成本轮决策后，并不会直接执行模型计算。
 
-它会将本轮调度结果通过：
-
-```text title='SchedulerOutput'
-SchedulerOutput
-```
-
-传递给执行层。
+它会将本轮调度结果通过 `SchedulerOutput` 传递给执行层。
 
 可以把整个过程理解为：
 
@@ -1353,13 +1166,7 @@ Free Blocks = 很少
 - Request D
 - Prompt = 4K tokens
 
-即使：
-
-```text title='D 的 Token Budget 足够'
-Token Budget 足够
-```
-
-也不代表 D 能立即运行。
+即使 Token Budget 足够，也不代表 D 能立即运行。
 
 因为：
 

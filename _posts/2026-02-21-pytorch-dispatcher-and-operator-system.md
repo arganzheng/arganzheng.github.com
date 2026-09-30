@@ -120,13 +120,7 @@ Schema 不是某个 Kernel 的实现，而是所有实现共同遵守的接口�
 
 ### 2. 原生算子：`native_functions.yaml`
 
-PyTorch 的原生算子集中声明在：
-
-```text title='原生算子声明所在的文件'
-aten/src/ATen/native/native_functions.yaml
-```
-
-一条声明概念上类似：
+PyTorch 的原生算子集中声明在 `aten/src/ATen/native/native_functions.yaml`。一条声明概念上类似：
 
 ```yaml title='native_functions.yaml 里 add.Tensor 的声明'
 - func: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor

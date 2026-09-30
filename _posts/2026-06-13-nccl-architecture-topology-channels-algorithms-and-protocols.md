@@ -926,13 +926,7 @@ GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` �
 
 `src/debug.cc` 决定每行的前缀。`NCCL_DEBUG` 取 `VERSION`/`WARN`/`INFO`/`ABORT`/`TRACE`；`NCCL_DEBUG_SUBSYS` 是逗号分隔的子系统列表，可用值 `INIT COLL P2P SHM NET GRAPH TUNING ENV ALLOC CALL PROXY NVLS BOOTSTRAP REG PROFILE RAS ALL`，前缀 `^` 表示排除；默认掩码是 `INIT|BOOTSTRAP|ENV`。每个环境变量被 `NCCL_PARAM` 宏（`src/include/param.h` → `src/misc/param.cc: ncclLoadParam`）第一次读取时都会打一行 `%s set by environment to %lld`（子系统 ENV），所以 `NCCL_DEBUG_SUBSYS=ENV` 是"我设的变量到底生效了没"的直接答案。`NCCL_DEBUG_FILE` 可以按 `%h`（hostname）、`%p`（pid）分文件。`~/.nccl.conf` 与 `/etc/nccl.conf`（`NCCL_CONF_FILE`）里的键值会被当成环境变量读入。
 
-INFO 行的格式：
-
-```text title='NCCL 日志的一行格式'
-hostname:pid:tid [cudaDev] NCCL INFO <消息>
-```
-
-`tid` 值得留意：主线程、proxy service 线程、progress 线程、异步连接线程的 tid 不同，`Connected all rings` 常由另一个 tid 打出（异步预连接线程）。
+INFO 行的格式是 `hostname:pid:tid [cudaDev] NCCL INFO <消息>`。`tid` 值得留意：主线程、proxy service 线程、progress 线程、异步连接线程的 tid 不同，`Connected all rings` 常由另一个 tid 打出（异步预连接线程）。
 
 ### 2. 逐行解读
 

@@ -179,19 +179,7 @@ print(x.shape)  # torch.Size([2, 3, 4])
 print(x.numel())  # 24
 ```
 
-如果忽略对齐、Allocator 和额外元数据，数据区大小可以粗略估算为：
-
-```text title='数据区大小的粗略估算公式'
-数据区大小 ≈ numel × dtype.itemsize
-```
-
-例如：
-
-```text title='一百万个元素在 float32 / float16 / bfloat16 下的大小'
-1000000 个 float32 ≈ 4 MB
-1000000 个 float16 ≈ 2 MB
-1000000 个 bfloat16 ≈ 2 MB
-```
+如果忽略对齐、Allocator 和额外元数据，数据区大小可以粗略估算为 `numel × dtype.itemsize`：一百万个元素在 float32 下约 4 MB，在 float16 或 bfloat16 下约 2 MB。
 
 但真实显存占用还可能包括：
 
@@ -218,15 +206,7 @@ print(x.dim())  # 3
 print(x.numel())  # 24
 ```
 
-这里：
-
-```text title='三个值的关系'
-dim()  = 3
-shape  = (2, 3, 4)
-numel  = 2 × 3 × 4 = 24
-```
-
-`shape` 描述的是逻辑结构，不直接说明数据在内存中如何排列。
+这里 `dim()` 是维度数 3，`shape` 是每一维的长度 `(2, 3, 4)`，`numel` 是三者的乘积 2 × 3 × 4 = 24。`shape` 描述的是逻辑结构，不直接说明数据在内存中如何排列。
 
 ### 2. Shape 变换不一定复制数据
 
@@ -337,21 +317,7 @@ print(x.shape)   # torch.Size([2, 3])
 print(x.stride()) # (3, 1)
 ```
 
-对于 `x[i, j]`，底层位置可以粗略计算为：
-
-```text title='二维索引到底层位置的公式'
-offset(i, j) = storage_offset + i × stride[0] + j × stride[1]
-```
-
-这里：
-
-```text title='这个例子里的 storage_offset 与 stride'
-storage_offset = 0
-stride[0]      = 3
-stride[1]      = 1
-```
-
-所以：
+对于 `x[i, j]`，底层位置可以粗略计算为 `offset(i, j) = storage_offset + i × stride[0] + j × stride[1]`。这个例子里 `storage_offset = 0`、`stride = (3, 1)`，所以：
 
 ```text title='六个元素各自落在的底层位置'
 x[0, 0] → 0
@@ -371,20 +337,7 @@ x[1, 2] → 5
  [d, e, f]]
 ```
 
-底层存储是：
-
-```text title='它的底层存储顺序'
-[a, b, c, d, e, f]
-```
-
-对应：
-
-```text title='对应的 shape 与 stride'
-shape  = (2, 3)
-stride = (3, 1)
-```
-
-含义是：
+底层存储是 `[a, b, c, d, e, f]`，对应 `shape = (2, 3)`、`stride = (3, 1)`。含义是：
 
 - 行索引增加 1，需要跨过 3 个元素；
 - 列索引增加 1，只需要跨过 1 个元素。
@@ -400,21 +353,7 @@ x = torch.empty(2, 3, 4)
 print(x.stride())
 ```
 
-典型结果是：
-
-```text title='三维连续 Tensor 的典型 stride'
-(12, 4, 1)
-```
-
-计算方式为：
-
-```text title='stride 从最后一维往前累乘'
-stride[2] = 1
-stride[1] = 4
-stride[0] = 3 × 4 = 12
-```
-
-对于索引 `x[i, j, k]`：
+典型结果是 `(12, 4, 1)`：从最后一维往前累乘，`stride[2] = 1`，`stride[1] = 4`，`stride[0] = 3 × 4 = 12`。对于索引 `x[i, j, k]`：
 
 ```text title='三维索引到底层位置的公式'
 offset(i, j, k)
@@ -470,14 +409,7 @@ print(x.stride()) # (3, 1)
 print(y.stride()) # (1, 3)
 ```
 
-`y` 通过新的 shape 和 stride 解释同一份数据：
-
-```text title='x 与 y 各自的地址计算公式'
-x[i, j] → offset = i × 3 + j × 1
-y[i, j] → offset = i × 1 + j × 3
-```
-
-用同一份 storage 把两个视图画出来，可以看到 `y` 只是把 stride 的两个分量交换了，逐行读 `y` 时在 storage 里是跳着走的：
+`y` 通过新的 shape 和 stride 解释同一份数据：`x[i, j]` 落在 `i × 3 + j × 1`，`y[i, j]` 落在 `i × 1 + j × 3`。用同一份 storage 把两个视图画出来，可以看到 `y` 只是把 stride 的两个分量交换了，逐行读 `y` 时在 storage 里是跳着走的：
 
 ![x 与 y = x.t() 共享同一份 storage：x 的 stride (3, 1) 按逻辑顺序访问 0 1 2 3 4 5 连续；y 的 stride (1, 3) 访问 0 3 1 4 2 5 跳跃](/img/in-post/pytorch-tensor-transpose-shared-storage.svg)
 
@@ -685,11 +617,7 @@ print(y.storage_offset())
 
 ![y = x[2:8]：同一份 storage，只是 storage_offset = 2、shape=(6,)，六个逻辑元素直接落在 idx 2..7 上](/img/in-post/pytorch-tensor-slice-storage-offset.svg)
 
-对于一维 Tensor，可以粗略写成：
-
-```text title='一维 view 的地址公式：Storage[2 + i]'
-y[i] = Storage[storage_offset + i × stride] = Storage[2 + i]
-```
+对于一维 Tensor，可以粗略写成 `y[i] = Storage[storage_offset + i × stride]`，这里就是 `Storage[2 + i]`。
 
 ### 3. 切片也可能只是 view
 
@@ -935,13 +863,7 @@ batch = batch.to("cuda", non_blocking=True)
 
 ### 4. Device mismatch
 
-常见错误是：
-
-```text title='Device mismatch 的典型报错'
-Expected all tensors to be on the same device
-```
-
-排查时同时打印：
+常见报错是 `Expected all tensors to be on the same device`。排查时同时打印：
 
 ```python title='排查时同时打印模型、输入、标签的 device'
 print(next(model.parameters()).device)
@@ -1024,9 +946,7 @@ Table: View 与 Clone 的语义
 
 `detach()` 解决的是 Autograd 关系：
 
-```text title='detach 回答的问题：是否继续连接计算图'
-是否继续连接当前计算图？
-```
+- 是否继续连接当前计算图？
 
 ```python title='detach() 的用法'
 x = torch.randn(3, requires_grad=True)
@@ -1036,19 +956,7 @@ z = y.detach()
 
 `z` 可能与 `y` 共享数据，但不再沿原来的 Autograd 关系传播梯度。
 
-因此不能把：
-
-```text title='错误理解一：view = 不需要梯度'
-view = 不需要梯度
-```
-
-或：
-
-```text title='错误理解二：detach = 创建数据副本'
-detach = 创建数据副本
-```
-
-作为一般规律。两者处理的是不同层次。
+因此不能把“view = 不需要梯度”或“detach = 创建数据副本”作为一般规律。两者处理的是不同层次。
 
 ### 3. In-place 操作
 
@@ -1153,13 +1061,7 @@ Table: expand() 与 repeat() 的存储语义
 
 ### 4. 广播错误的排查方式
 
-遇到：
-
-```text title='广播失败的典型报错'
-The size of tensor a must match the size of tensor b
-```
-
-不要只看 Tensor 的元素数量，要打印完整信息：
+遇到 `The size of tensor a must match the size of tensor b` 时，不要只看 Tensor 的元素数量，要打印完整信息：
 
 ```python title='排查时打印每个 Tensor 的 shape、stride、dtype、device'
 for name, value in {
@@ -1337,19 +1239,7 @@ def storage_index(self, index):
     return offset
 ```
 
-对于：
-
-```text title='一个 2×3 的例子：sizes、strides、offset'
-sizes  = (2, 3)
-strides = (3, 1)
-offset = 0
-```
-
-访问 `[1, 2]` 时：
-
-```text title='访问 [1, 2] 时的偏移计算'
-offset = 0 + 1 × 3 + 2 × 1 = 5
-```
+对于 `sizes = (2, 3)`、`strides = (3, 1)`、`offset = 0`，访问 `[1, 2]` 时 `offset = 0 + 1 × 3 + 2 × 1 = 5`。
 
 ### 3. 实现 transpose
 

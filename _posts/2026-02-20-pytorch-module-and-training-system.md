@@ -127,11 +127,7 @@ __init__ 定义的 Module 树：
     - weight
     - bias
 
-forward 定义的数据流：
-
-```text title='forward 定义的数据流：fc1 → activation → fc2'
-x → fc1 → activation → fc2 → output
-```
+forward 定义的数据流是 `x → fc1 → activation → fc2 → output`。
 
 因此，这个对象从训练系统的角度同时包含：
 
@@ -527,11 +523,7 @@ model = nn.Sequential(
 
 ### 1. Parameter 是什么？
 
-`Parameter` 是 Tensor 的特殊封装，用来表示：
-
-```text title='Parameter 表达的含义：Module 的可训练参数'
-这是 Module 的可训练参数
-```
+`Parameter` 是 Tensor 的特殊封装，用来表示：**这是 Module 的可训练参数**。
 
 ```python title='nn.Parameter 默认 requires_grad=True'
 from torch import nn
@@ -715,11 +707,7 @@ state = model.state_dict()
 - 数据加载位置；
 - 训练进度。
 
-因此：
-
-```text title='模型状态快照 ≠ 完整模型'
-模型状态快照 ≠ 可独立运行的完整模型
-```
+因此，**模型状态快照 ≠ 可独立运行的完整模型**。
 
 ### 3. 保存和加载模型状态
 
@@ -914,17 +902,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
 ### 2. Optimizer 不负责计算梯度
 
-```python title='backward 算梯度'
-loss.backward()
-```
-
-负责根据计算图计算梯度；
-
-```python title='step 更新参数'
-optimizer.step()
-```
-
-负责根据已有梯度和自身状态更新参数。
+`loss.backward()` 负责根据计算图计算梯度；`optimizer.step()` 负责根据已有梯度和自身状态更新参数。
 
 二者职责不同：
 
@@ -988,29 +966,13 @@ for parameter in model.backbone.parameters():
 
 ### 6. Optimizer state
 
-AdamW 等 Optimizer 会为参数保存额外状态：
-
-```python title='optimizer.state_dict()'
-optimizer.state_dict()
-```
-
-这些状态可能包括：
+AdamW 等 Optimizer 会为参数保存额外状态，可以通过 `optimizer.state_dict()` 查看。这些状态可能包括：
 
 - step；
 - exp_avg；
 - exp_avg_sq。
 
-因此训练显存通常不仅包含：
-
-```text title='训练显存不只是参数加梯度'
-参数 + 梯度
-```
-
-还包含：
-
-```text title='还要加上 Optimizer State'
-参数 + 梯度 + Optimizer State
-```
+因此训练显存通常不仅是“参数 + 梯度”，而是“参数 + 梯度 + Optimizer State”。
 
 以 FP32 + Adam(W) 为例，每一个标量参数在显存里对应四块同样大小的内存，其中一半属于 Optimizer state：
 
@@ -1276,11 +1238,7 @@ for inputs, targets in loader:
 
 ### 2. 模型迁移的递归性
 
-```python title='model.cuda()'
-model.cuda()
-```
-
-会递归迁移已注册的 Parameter 和 Buffer，以及子 Module 中的对应状态。
+`model.cuda()` 会递归迁移已注册的 Parameter 和 Buffer，以及子 Module 中的对应状态。
 
 但不会自动迁移普通属性中的 Tensor：
 
@@ -1634,29 +1592,7 @@ Hook 会改变或包裹执行路径，可能带来：
 
 ### 3. Hook 与 `forward()` 的关系
 
-```python title='通过调用协议：model(inputs)'
-output = model(inputs)
-```
-
-通常会经过 Module 的调用协议，而不是简单执行：
-
-```python title='绕过协议：model.forward(inputs)'
-model.forward(inputs)
-```
-
-Hook 正是 Module 调用协议中的一部分。直接调用 `forward()` 可能绕过部分 Module 行为，因此业务代码通常应调用：
-
-```python title='业务代码应写 model(inputs)'
-model(inputs)
-```
-
-而不是：
-
-```python title='而不是 model.forward(inputs)'
-model.forward(inputs)
-```
-
-这与第一篇对 PyTorch 调用路径的介绍相互呼应。
+`output = model(inputs)` 通常会经过 Module 的调用协议，而不是简单执行 `model.forward(inputs)`。Hook 正是 Module 调用协议中的一部分。直接调用 `forward()` 可能绕过部分 Module 行为，因此业务代码通常应调用 `model(inputs)`，而不是 `model.forward(inputs)`。这与第一篇对 PyTorch 调用路径的介绍相互呼应。
 
 ## 十三、Checkpoint 与可恢复训练
 
