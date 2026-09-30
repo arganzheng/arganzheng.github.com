@@ -33,23 +33,16 @@ Table: H100 的两个数字：算力与带宽
 
 ### 3. 本文的章节安排
 
-- **二、两个上限**：算力、带宽、算术强度、ridge point
-- **三、decode 与 prefill**
-  - 为什么 decode 是 memory-bound、batch 大才快
-  - prefill 与训练是 compute-bound
-  - MFU
-- **四、显存的四块**
-  - 训练与推理各是哪块大
-  - KV cache
-  - OOM 归因
-- **五、kernel、stream 与 profiler**
-  - 三个概念
-  - 读一张 profiler 表
-- **六、实验管理**
-  - 最小记录的七项
-  - 工具各管哪项
-  - 随机性
-- **七、自测**：五道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 两个上限 | 算力、带宽、算术强度、ridge point |
+| 三 | decode 与 prefill | 为什么 decode 是 memory-bound、batch 大才快<br/>prefill 与训练是 compute-bound<br/>MFU |
+| 四 | 显存的四块 | 训练与推理各是哪块大<br/>KV cache<br/>OOM 归因 |
+| 五 | kernel、stream 与 profiler | 三个概念；读一张 profiler 表 |
+| 六 | 实验管理 | 最小记录的七项<br/>工具各管哪项<br/>随机性 |
+| 七 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 
 ## 二、两个上限

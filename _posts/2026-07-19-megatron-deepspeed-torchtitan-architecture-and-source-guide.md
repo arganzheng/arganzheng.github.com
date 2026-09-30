@@ -108,38 +108,16 @@ Table: 本篇涉及的目录地图
 
 ### 5. 本文的章节安排
 
-- **二、进程组**
-  - Megatron `parallel_state` 的 RankGenerator
-  - DeepSpeed `groups.py` 的 mpu 委托
-  - torchtitan ParallelDims 的 mesh 拆分
-  - 对照表
-- **三、Megatron-LM**
-  - TP 层与 mappings
-  - DDP 的 buffer 与 bucket
-  - 分布式优化器
-  - bf16 参数的一生
-  - 训练循环
-  - Megatron-FSDP
-- **四、DeepSpeed**
-  - DeepSpeedEngine
-  - Stage 1/2 的扁平分区
-  - Stage 3 的 `ds_tensor` 与 hook
-  - bf16 参数的一生
-  - 训练循环
-  - pipe/ 与 JSON
-- **五、torchtitan**
-  - `Trainer.__init__` 的装配顺序
-  - ShardingConfig 描述的 TP
-  - `fully_shard` 的应用
-  - PP 与 CP
-  - bf16 参数的一生
-  - `train_step`
-- **六、对照阅读**
-  - 三条时序并排
-  - 前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）
-  - 1F1B 的两种写法
-  - 取舍表
-- **七、小结**：要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py`
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 进程组 | Megatron `parallel_state` 的 RankGenerator<br/>DeepSpeed `groups.py` 的 mpu 委托<br/>torchtitan ParallelDims 的 mesh 拆分<br/>对照表 |
+| 三 | Megatron-LM | TP 层与 mappings<br/>DDP 的 buffer 与 bucket<br/>分布式优化器<br/>bf16 参数的一生<br/>训练循环<br/>Megatron-FSDP |
+| 四 | DeepSpeed | DeepSpeedEngine<br/>Stage 1/2 的扁平分区<br/>Stage 3 的 `ds_tensor` 与 hook<br/>bf16 参数的一生<br/>训练循环<br/>pipe/ 与 JSON |
+| 五 | torchtitan | `Trainer.__init__` 的装配顺序<br/>ShardingConfig 描述的 TP<br/>`fully_shard` 的应用<br/>PP 与 CP<br/>bf16 参数的一生<br/>`train_step` |
+| 六 | 对照阅读 | 三条时序并排<br/>前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）<br/>1F1B 的两种写法<br/>取舍表 |
+| 七 | 小结 | 要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py` |
+
+Table: 本文的章节安排
 
 ## 二、进程组：谁和谁通信
 

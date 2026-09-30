@@ -36,100 +36,20 @@ flowchart TB
 
 系列的一句话主张是：**每个 kernel 先算它理论上应该多快，再测它实际多快，再用 profiler 解释差距，再动手缩小差距**。理论下界来自 kernel 的两个数——字节数与 FLOPs——和硬件的两个数——峰值带宽与峰值算力；相除得到算术强度与 ridge point，比一下就知道是 memory-bound 还是 compute-bound，方向是减字节还是喂满 Tensor Core。硬件基线全系列一致：A100（2.0 TB/s、BF16 312 TFLOPS、FP32 19.5 TFLOPS、108 个 SM），随文标注 H100（3.35 TB/s、989 TFLOPS、132 个 SM）。
 
-- **[第一篇：硬件结构与 Roofline](/gpu-architecture-and-roofline.html)**
-  - 回答的问题：在一块给定的 GPU 上，一段计算理论上最快能多快？
-  - 一句话结论：$$T = \max(F / P_{peak},\ B / BW)$$，算术强度与 ridge 比定瓶颈类型；GPU 用零开销 warp 切换而非乱序执行隐藏延迟
-  - 必记的数字 / 公式：
-    - ridge：A100 BF16 156、FP32 约 10，H100 295
-    - elementwise $$I = 1/6$$、RMSNorm ≈ 1、decode attention ≈ 4、GEMM 4096³ ≈ 1365
-    - 延迟 0 / 20–30 / 200 / 400–800 周期
-- **[第二篇：CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html)**
-  - 回答的问题：五行的 vector add 跑出了理论带宽的多少？没跑满的去了哪里？
-  - 一句话结论：80–92%；DRAM 可达带宽只有标称的 85–92%，其余在每线程工作量太小、launch 与尾部、SM 填充
-  - 必记的数字 / 公式：
-    - 3 GiB → 1.6 ms 下界、实测 1.7–2.0 ms
-    - block 32 的倍数、常用 128–256
-    - event 计时
-    - L2 flush 128 MB ≥ 2 × 40 MB
-- **[第三篇：访存合并与 elementwise](/memory-coalescing-and-elementwise-kernels.html)**
-  - 回答的问题：跑出 90% 带宽的 elementwise 还有什么可优化？
-  - 一句话结论：没有了，要么融合，要么少做：90% 贴着物理上限，之后唯一的优化是减少总字节数
-  - 必记的数字 / 公式：
-    - 32 B sector
-    - 连续 100%、跨步 2 50%、跨步 ≥ 32 B 12.5%
-    - 16 B/线程
-    - Little's law 1.2 MB 在飞、每 SM ≥ 22 warp
-    - 三个 kernel 16 B → 融合 8 B
-- **[第四篇：共享内存与 reduction](/shared-memory-reduction-and-softmax.html)**
-  - 回答的问题：4096 维 RMSNorm 是 memory-bound 的，naive 为什么慢 10 倍？shared 与 shuffle 各解决什么？
-  - 一句话结论：慢在归约的形态不在字节数；shared 汇总跨 warp 的部分和，shuffle 在寄存器里 5 步完成 warp 内归约，sync 10 次 → 1 次
-  - 必记的数字 / 公式：
-    - 128 MiB → 67 µs
-    - bank = (addr / 4) mod 32，stride $$s$$ → gcd($$s$$, 32)-way
-    - $$d \le 1024$$ 一行一个 warp
-    - FP16 $$e^x$$ 溢出于 11.09、BF16/FP32 于 88.7
-    - online softmax 合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$
-- **[第五篇：GEMM 从 naive 到分块](/gemm-from-naive-to-tiled.html)**
-  - 回答的问题：4096³ FP32 GEMM 每一版读多少字节、算术强度多少、在 Roofline 哪个位置？
-  - 一句话结论：分块让算术强度成为可设计的参数；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令与流水，寄存器分块靠 ILP
-  - 必记的数字 / 公式：
-    - 137.4 GFLOP、192 MiB、$$I = 683$$、7.0 ms
-    - naive 512 GiB、0.25、1–3%
-    - 分块 $$MNK(1/BM + 1/BN)$$：128×128 → 4 GiB、32
-    - 对 shared 0.25 → 2
-    - v5 到 FP32 峰值 70–80%
-- **[第六篇：Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html)**
-  - 回答的问题：同样 128×128 分块，CUDA Core 与 Tensor Core 版本结构差在哪？为什么必须关心 fragment 与 `ldmatrix`？
-  - 一句话结论：
-    - 累加器从属于线程变成属于 warp、布局由指令规定
-    - `mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 swizzle
-    - Hopper 交给 TMA + `wgmma`
-  - 必记的数字 / 公式：
-    - 312 TFLOPS 是 FP32 的 16 倍
-    - `mma.sync.m16n8k16` = 4096 FLOP、占 8 周期
-    - BF16 4096³ 100.7 MB、$$I = 1365$$、0.44 ms
-    - 未 swizzle 64 B 行 4 路 conflict
-    - 手写到 cuBLAS 80–90%
-- **[第七篇：Triton](/triton-block-level-programming.html)**
-  - 回答的问题：Triton 的 matmul 少 80% 代码、只差 10%：那 10% 在哪里？何时值得手写？
-  - 一句话结论：
-    - 编译器做了合并、流水、`ldmatrix`、swizzle、mma 选择
-    - 差在 warp specialization、epilogue 布局转换、小 shape tile、指令调度
-    - 热点 GEMM/attention、特殊指令、Hopper、跨 block 才手写
-  - 必记的数字 / 公式：
-    - 12 / 25 / 60 行对 50–80 / 100–150 / 200–300 行
-    - matmul 到 cuBLAS 80–95%
-    - `num_warps`、`num_stages` 两个旋钮
-    - `tl.arange` 要 2 的幂
-- **[第八篇：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)**
-  - 回答的问题：$$N = 4096$$、$$d = 128$$ 的 attention 标准与 Flash 各读写多少 HBM？decode 每 token 读多少 KV，决定了什么？
-  - 一句话结论：不物化 $$S$$、$$P$$，靠 online softmax 逐块累加，从 memory-bound 变 compute-bound，省的是 IO 不是 FLOPs；decode 每步读全部 KV，分页只改地址不改字节
-  - 必记的数字 / 公式：
-    - 标准约 132 MiB、$$I \approx 62$$
-    - FA 约 66 MiB、实际近 4 MiB
-    - $$4N^2 d = 8.6$$ GFLOP
-    - $$\Theta(N^2 d^2 / M)$$
-    - 每 token 128 KiB，$$B \times s >$$ 约 131k 时 KV 超过权重
-- **[第九篇：量化与融合 kernel](/quantization-and-fused-kernels.html)**
-  - 回答的问题：INT4 weight-only GEMM decode 快 3 倍、prefill 反而慢，用 Roofline 解释
-  - 一句话结论：
-    - 用指令换字节：字节除以 4、FLOPs 不变、多一条反量化指令
-    - decode 在斜线上受益，prefill 在屋顶上不动甚至下沉
-    - FP8 字节与 FLOPs 同时减半
-  - 必记的数字 / 公式：
-    - BF16 $$I \approx M$$、W4A16 $$I \approx 4M$$，交叉点 $$M \approx 40$$
-    - decode 8 ms → 约 2 ms
-    - E4M3 max 448 无 inf
-    - residual + RMSNorm 10 → 8 B、RMSNorm + FP8 量化 7 → 3 B
-- **[第十篇：剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html)**
-  - 回答的问题：ncu 报告 occupancy 25%、long scoreboard 60%，该改什么？
-  - 一句话结论：先看 SOL：任一接近 90% 就什么都不用改；两者都低才是 latency-bound，再看占用率的限制因素，加 ILP，改完重测
-  - 必记的数字 / 公式：
-    - SOL > 80% 到顶、两者 < 40–50% latency-bound
-    - 寄存器 > 32 压占用率、128+ 是 GEMM 常态
-    - BF16 rtol 1.6e-2
-    - 边界 shape 0、1、769、5125
-    - `TORCH_LIBRARY` + `register_fake` + `opcheck`
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：硬件结构与 Roofline](/gpu-architecture-and-roofline.html) | 在一块给定的 GPU 上，一段计算理论上最快能多快？ | $$T = \max(F / P_{peak},\ B / BW)$$，算术强度与 ridge 比定瓶颈类型；GPU 用零开销 warp 切换而非乱序执行隐藏延迟 | ridge：A100 BF16 156、FP32 约 10，H100 295<br/>elementwise $$I = 1/6$$、RMSNorm ≈ 1、decode attention ≈ 4、GEMM 4096³ ≈ 1365<br/>延迟 0 / 20–30 / 200 / 400–800 周期 |
+| [第二篇：CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html) | 五行的 vector add 跑出了理论带宽的多少？没跑满的去了哪里？ | 80–92%；DRAM 可达带宽只有标称的 85–92%，其余在每线程工作量太小、launch 与尾部、SM 填充 | 3 GiB → 1.6 ms 下界、实测 1.7–2.0 ms<br/>block 32 的倍数、常用 128–256<br/>event 计时<br/>L2 flush 128 MB ≥ 2 × 40 MB |
+| [第三篇：访存合并与 elementwise](/memory-coalescing-and-elementwise-kernels.html) | 跑出 90% 带宽的 elementwise 还有什么可优化？ | 没有了，要么融合，要么少做：90% 贴着物理上限，之后唯一的优化是减少总字节数 | 32 B sector<br/>连续 100%、跨步 2 50%、跨步 ≥ 32 B 12.5%<br/>16 B/线程<br/>Little's law 1.2 MB 在飞、每 SM ≥ 22 warp<br/>三个 kernel 16 B → 融合 8 B |
+| [第四篇：共享内存与 reduction](/shared-memory-reduction-and-softmax.html) | 4096 维 RMSNorm 是 memory-bound 的，naive 为什么慢 10 倍？shared 与 shuffle 各解决什么？ | 慢在归约的形态不在字节数；shared 汇总跨 warp 的部分和，shuffle 在寄存器里 5 步完成 warp 内归约，sync 10 次 → 1 次 | 128 MiB → 67 µs<br/>bank = (addr / 4) mod 32，stride $$s$$ → gcd($$s$$, 32)-way<br/>$$d \le 1024$$ 一行一个 warp<br/>FP16 $$e^x$$ 溢出于 11.09、BF16/FP32 于 88.7<br/>online softmax 合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$ |
+| [第五篇：GEMM 从 naive 到分块](/gemm-from-naive-to-tiled.html) | 4096³ FP32 GEMM 每一版读多少字节、算术强度多少、在 Roofline 哪个位置？ | 分块让算术强度成为可设计的参数；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令与流水，寄存器分块靠 ILP | 137.4 GFLOP、192 MiB、$$I = 683$$、7.0 ms<br/>naive 512 GiB、0.25、1–3%<br/>分块 $$MNK(1/BM + 1/BN)$$：128×128 → 4 GiB、32<br/>对 shared 0.25 → 2<br/>v5 到 FP32 峰值 70–80% |
+| [第六篇：Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html) | 同样 128×128 分块，CUDA Core 与 Tensor Core 版本结构差在哪？为什么必须关心 fragment 与 `ldmatrix`？ | 累加器从属于线程变成属于 warp、布局由指令规定<br/>`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 swizzle<br/>Hopper 交给 TMA + `wgmma` | 312 TFLOPS 是 FP32 的 16 倍<br/>`mma.sync.m16n8k16` = 4096 FLOP、占 8 周期<br/>BF16 4096³ 100.7 MB、$$I = 1365$$、0.44 ms<br/>未 swizzle 64 B 行 4 路 conflict<br/>手写到 cuBLAS 80–90% |
+| [第七篇：Triton](/triton-block-level-programming.html) | Triton 的 matmul 少 80% 代码、只差 10%：那 10% 在哪里？何时值得手写？ | 编译器做了合并、流水、`ldmatrix`、swizzle、mma 选择<br/>差在 warp specialization、epilogue 布局转换、小 shape tile、指令调度<br/>热点 GEMM/attention、特殊指令、Hopper、跨 block 才手写 | 12 / 25 / 60 行对 50–80 / 100–150 / 200–300 行<br/>matmul 到 cuBLAS 80–95%<br/>`num_warps`、`num_stages` 两个旋钮<br/>`tl.arange` 要 2 的幂 |
+| [第八篇：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html) | $$N = 4096$$、$$d = 128$$ 的 attention 标准与 Flash 各读写多少 HBM？decode 每 token 读多少 KV，决定了什么？ | 不物化 $$S$$、$$P$$，靠 online softmax 逐块累加，从 memory-bound 变 compute-bound，省的是 IO 不是 FLOPs；decode 每步读全部 KV，分页只改地址不改字节 | 标准约 132 MiB、$$I \approx 62$$<br/>FA 约 66 MiB、实际近 4 MiB<br/>$$4N^2 d = 8.6$$ GFLOP<br/>$$\Theta(N^2 d^2 / M)$$<br/>每 token 128 KiB，$$B \times s >$$ 约 131k 时 KV 超过权重 |
+| [第九篇：量化与融合 kernel](/quantization-and-fused-kernels.html) | INT4 weight-only GEMM decode 快 3 倍、prefill 反而慢，用 Roofline 解释 | 用指令换字节：字节除以 4、FLOPs 不变、多一条反量化指令<br/>decode 在斜线上受益，prefill 在屋顶上不动甚至下沉<br/>FP8 字节与 FLOPs 同时减半 | BF16 $$I \approx M$$、W4A16 $$I \approx 4M$$，交叉点 $$M \approx 40$$<br/>decode 8 ms → 约 2 ms<br/>E4M3 max 448 无 inf<br/>residual + RMSNorm 10 → 8 B、RMSNorm + FP8 量化 7 → 3 B |
+| [第十篇：剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html) | ncu 报告 occupancy 25%、long scoreboard 60%，该改什么？ | 先看 SOL：任一接近 90% 就什么都不用改；两者都低才是 latency-bound，再看占用率的限制因素，加 ILP，改完重测 | SOL > 80% 到顶、两者 < 40–50% latency-bound<br/>寄存器 > 32 压占用率、128+ 是 GEMM 常态<br/>BF16 rtol 1.6e-2<br/>边界 shape 0、1、769、5125<br/>`TORCH_LIBRARY` + `register_fake` + `opcheck` |
+
+Table: 十篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

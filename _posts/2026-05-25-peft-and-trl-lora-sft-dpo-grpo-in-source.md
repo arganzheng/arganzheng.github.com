@@ -55,39 +55,18 @@ flowchart TB
 
 ### 2. 本文的章节安排
 
-- **二、peft：找到要换的层**
-  - `get_peft_model` 的返回类型
-  - `target_modules` 的三种写法
-  - `all-linear` 为什么不含 `lm_head`
-  - `inject_adapter` 的匹配循环
-- **三、peft：换成什么**
-  - `lora.Linear` 的结构
-  - `update_layer` 的初始化（A kaiming、B 零、`scaling = α/r` 或 rsLoRA 的 $$\alpha/\sqrt r$$）
-  - `forward` 的一行
-  - `merge` / `unmerge`
-  - `PeftModel` 与 `state_dict` 里只有 adapter
-- **四、trl：SFT 的数据契约**
-  - 三种数据格式
-  - `_prepare_dataset` 的 `map` 链
-  - `build_labels` 与 `-100` 的规则
-  - `assistant_only_loss` vs `completion_only_loss`
-  - packing 的三种策略与 `padding_free`
-- **五、trl：SFT 的一步**
-  - collator 做什么、不做什么
-  - `compute_loss` 与 `loss_type`
-  - `num_items_in_batch` 与 token 准确率、熵
-- **六、trl：DPO**
-  - `concatenated_forward`
-  - 参考模型的三种来源
-  - `dpo_loss` 的十几行与 `loss_type` 表
-  - `label_smoothing`
-- **七、trl：GRPO**
-  - 采样、打分、组内优势
-  - `_compute_loss` 的 PPO 裁剪与 KL
-  - `loss_type` 决定怎么对 token 归一（grpo / dr_grpo / bnpo / dapo）
-  - vLLM 在哪
-- **八、本文小结**
-- **九、自测**：五道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | peft：找到要换的层 | `get_peft_model` 的返回类型<br/>`target_modules` 的三种写法<br/>`all-linear` 为什么不含 `lm_head`<br/>`inject_adapter` 的匹配循环 |
+| 三 | peft：换成什么 | `lora.Linear` 的结构<br/>`update_layer` 的初始化（A kaiming、B 零、`scaling = α/r` 或 rsLoRA 的 $$\alpha/\sqrt r$$）<br/>`forward` 的一行<br/>`merge` / `unmerge`<br/>`PeftModel` 与 `state_dict` 里只有 adapter |
+| 四 | trl：SFT 的数据契约 | 三种数据格式<br/>`_prepare_dataset` 的 `map` 链<br/>`build_labels` 与 `-100` 的规则<br/>`assistant_only_loss` vs `completion_only_loss`<br/>packing 的三种策略与 `padding_free` |
+| 五 | trl：SFT 的一步 | collator 做什么、不做什么<br/>`compute_loss` 与 `loss_type`<br/>`num_items_in_batch` 与 token 准确率、熵 |
+| 六 | trl：DPO | `concatenated_forward`<br/>参考模型的三种来源<br/>`dpo_loss` 的十几行与 `loss_type` 表<br/>`label_smoothing` |
+| 七 | trl：GRPO | 采样、打分、组内优势<br/>`_compute_loss` 的 PPO 裁剪与 KL<br/>`loss_type` 决定怎么对 token 归一（grpo / dr_grpo / bnpo / dapo）<br/>vLLM 在哪 |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 ## 二、peft：找到要换的层
 

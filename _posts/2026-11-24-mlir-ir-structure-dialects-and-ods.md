@@ -37,33 +37,20 @@ func.func @sum(%a: memref<?xi32>, %n: index) -> i32 {
 }
 ```
 
-- **二、MLIR 为什么存在**
-  - LLVM 单层 IR 的代价
-  - "基础设施"与"内容"分离
-- **三、核心数据结构**
-  - Operation / Value / Block / Region / Type / Attribute
-  - 通用形式
-  - "一切都是 Op"
-- **四、Dialect**
-  - 命名空间 + op / type / attribute
-  - 标准方言各自的分工
-  - Triton 加了哪几个
-- **五、ODS**
-  - 一个 `.td` 定义生成什么：类、访问器、builder、verifier、parser / printer
-  - `hasFolder` 等开关
-- **六、Trait 与 Interface**：`Pure`、`MemoryEffects`、`LoopLikeOpInterface`……LICM 从哪些接口拿信息
-- **七、Region 与结构化控制流**
-  - SSACFG region
-  - block 参数代替 φ
-  - `IsolatedFromAbove`
-  - `scf → cf`
-- **八、Type 与 Attribute**
-  - 唯一化与不可变
-  - `tensor<…, #layout>`：encoding 槽位
-  - 改 layout = 换类型
-- **九、对照读 Triton**：`TT_LoadOp`、`TT_DotOp`、`TT_ReduceOp`、`BlockedEncodingAttr`、`TritonGPU_Dialect`
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | MLIR 为什么存在 | LLVM 单层 IR 的代价；"基础设施"与"内容"分离 |
+| 三 | 核心数据结构 | Operation / Value / Block / Region / Type / Attribute<br/>通用形式<br/>"一切都是 Op" |
+| 四 | Dialect | 命名空间 + op / type / attribute<br/>标准方言各自的分工<br/>Triton 加了哪几个 |
+| 五 | ODS | 一个 `.td` 定义生成什么：类、访问器、builder、verifier、parser / printer；`hasFolder` 等开关 |
+| 六 | Trait 与 Interface | `Pure`、`MemoryEffects`、`LoopLikeOpInterface`……LICM 从哪些接口拿信息 |
+| 七 | Region 与结构化控制流 | SSACFG region<br/>block 参数代替 φ<br/>`IsolatedFromAbove`<br/>`scf → cf` |
+| 八 | Type 与 Attribute | 唯一化与不可变<br/>`tensor<…, #layout>`：encoding 槽位<br/>改 layout = 换类型 |
+| 九 | 对照读 Triton | `TT_LoadOp`、`TT_DotOp`、`TT_ReduceOp`、`BlockedEncodingAttr`、`TritonGPU_Dialect` |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、MLIR 为什么存在
 

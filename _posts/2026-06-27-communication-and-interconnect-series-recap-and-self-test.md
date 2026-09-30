@@ -35,87 +35,18 @@ flowchart TB
 
 系列的一句话主张是：**每一次通信都在算两本账——带宽的账与延迟的账——分清在算哪本账，才知道该换算法、该换硬件、还是什么都不用换**。带宽的账看链路速率、算法的带宽效率、协议的有效载荷比例；延迟的账看步数、握手次数、kernel 启动、proxy 线程的响应，到 MoE 的 decode 还要加上一项发起速率。八篇用同一个四段法（算一算 → 看一看 → 测一测 → 比一比）在各自的层上把两本账各算一遍，并留下一套能在任何新机器上跑一遍的诊断工具集 comm-probe。
 
-- **[第一篇：集合通信原语与代价模型](/collective-communication-primitives-and-cost-model.html)**
-  - 回答的问题：8 卡 1 GB 的 all_reduce 在 25 GB/s 链路上要多久？64 KB 呢？为什么一个对带宽敏感、一个对延迟敏感？
-  - 一句话结论：$$T = \text{步数} \times \alpha + \text{每 rank 字节数} / \beta$$；ring 的带宽项与 $$n$$ 无关、延迟项随 $$n$$ 线性增长，拐点 $$S^* = n\alpha\beta$$ 把消息分到两本账
-  - 必记的数字 / 公式：
-    - $$T_{\text{ring}} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$
-    - 1 GB 约 70 ms（延迟 0.2%）、64 KB 约 145 µs（带宽 3%）
-    - busbw = algbw × $$\frac{2(n-1)}{n}$$
-    - 8 卡 IB 拐点约 2 MB
-    - tree $$2\lceil\log_2 n\rceil$$ 步
-- **[第二篇：硬件互联](/hardware-interconnect-pcie-nvlink-and-topology.html)**
-  - 回答的问题：`NV12` / `PIX` / `SYS` 各意味着什么带宽和路径？NCCL 为什么给 GPU0 选 NIC0 不选 NIC4？
-  - 一句话结论：
-    - 节点内三个量级（NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十）
-    - `nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入
-    - 选网卡的规则是带宽最大、其次路径最近
-  - 必记的数字 / 公式：
-    - NVLink 单向 A100 300 / H100 450 / Blackwell 900 GB/s（厂商 600 / 900 / 1800 是双向合计）
-    - PCIe x16 单向 3.0 / 4.0 / 5.0 ≈ 16 / 32 / 64 GB/s
-    - HDR 25、NDR 50 GB/s
-    - 网卡速率约为 PCIe 链路的 78%
-    - 整机 NVLink 容量是网卡总带宽的 9 倍
-- **[第三篇：RDMA 与 GPUDirect](/rdma-and-gpudirect.html)**
-  - 回答的问题：显存到对端显存，走 TCP、RDMA 无 GDR、RDMA + GDR，各几次拷贝、走哪些 PCIe 链路、上限多少？
-  - 一句话结论：
-    - TCP 每端 2 次拷贝、主机内存每字节访问 4 次、原理上跑不满 400 Gb/s
-    - RDMA 无 GDR 1 次拷贝
-    - RDMA + GDR 0 次拷贝、PCIe switch 内一跳，上限 min(NIC, PCIe)
-  - 必记的数字 / 公式：
-    - H100 / PCIe 5.0 / NDR = 50 GB/s，A100 / PCIe 4.0 / HDR = 25 GB/s，A100 配 NDR 被卡在 32 GB/s
-    - 延迟 IB 1–2 µs、RoCE 2–4 µs、TCP 15–50 µs
-    - `NCCL_NET_GDR_LEVEL` 默认 `PXB`
-    - `NCCL_IB_TIMEOUT=20` → 4.3 s × 7 次 ≈ 30 s 后 status=12
-- **[第四篇：NCCL 架构](/nccl-architecture-topology-channels-algorithms-and-protocols.html)**
-  - 回答的问题：同一次 8 卡 all_reduce，NCCL 为什么在 NVSwitch 机上选 NVLS + Simple、NVLink 机上选 Ring + LL128、PCIe 机上只剩 Simple / LL、32 节点选 Tree？强行 Ring 付出什么？
-  - 一句话结论：决策全部在 `ncclCommInitRank` 里做完（拓扑 → 路径 → 图搜索 → channel → 调优表），`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑分别算出的 lat 与 bw
-  - 必记的数字 / 公式：
-    - $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$
-    - LL 50%、LL128 约 94%、Simple 接近 100%
-    - LL128 只在 NVLink 路径启用
-    - 32 节点 ring 510 步 vs tree $$2 \times (7 + 5)$$ 步
-    - 强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍
-- **[第五篇：PyTorch 的通信栈](/pytorch-communication-stack-processgroupnccl-and-streams.html)**
-  - 回答的问题：`async_op=True` 返回时通信开始了吗？`wait()` 返回时完成了吗？期间改 `t` 会怎样？
-  - 一句话结论：三个"不一定"换成 stream 与 event 的精确陈述：NCCL stream 等当前 stream 的 event，`wait()` 是当前 stream 等 end event，CPU 全程不停；重叠的来源与失效的来源是同一套编排
-  - 必记的数字 / 公式：
-    - watchdog 每 100 ms 轮询、`opTimeout_` 默认 10 分钟、heartbeat monitor 480 s 强杀
-    - 25 MB bucket 节点内约 97 µs、跨机约 875 µs 带宽项
-    - 1000 个 25 KB 各做一次 vs 合并一次：延迟项 1000 倍差
-    - DDP bucket 25 MiB
-- **[第六篇：nccl-tests、调优与排障](/nccl-tests-tuning-and-debugging-hangs.html)**
-  - 回答的问题：64 卡任务第 3000 步 hang 在 all_reduce：是谁、是哪一次、为什么等到 timeout 才暴露？
-  - 一句话结论：
-    - 曲线左端看 α、右端看 β、拐点 $$S_{\text{knee}} = n\alpha\beta$$
-    - hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致
-    - Flight Recorder 按 `collective_seq_id` 对齐给出 culprit
-  - 必记的数字 / 公式：
-    - 到 90% 平台约 $$9\,S_{\text{knee}}$$
-    - 8×H100 节点内拐点约 10 MB、64 卡跨机约 30 MB
-    - 参考线 8×H100 350–480 GB/s、2 节点 NDR 每 GPU 40–48
-    - 参数优先级 env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf`
-    - kernel 自旋无超时，唯一计时器是 c10d 的 watchdog
-- **[第七篇：推理侧的通信](/inference-communication-custom-all-reduce-and-kv-transfer.html)**
-  - 回答的问题：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs，20 µs 省在哪？为什么不能用在梯度同步上？
-  - 一句话结论：decode TP 是纯 α 的账：省的是 launch 路径、14 步 → 2 步、无 channel buffer 中转、可捕获进 CUDA Graph；KV 传输是纯 β 的点对点账，单边 RDMA 比 NCCL 更自然
-  - 必记的数字 / 公式：
-    - 128 KB = 8 × 8192 × 2 B
-    - NCCL Ring + LL 模型 6.6 + 14 × 0.6 ≈ 15 µs
-    - custom AR 36 个 block、8 卡 < 256 KB one-shot、上限 8 MB、只能节点内
-    - Llama-3-70B 每 token KV 320 KB，4096 token 1.25 GiB，TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms
-- **[第八篇：MoE 的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)**
-  - 回答的问题：EP=64 跨 8 节点，一层 dispatch + combine 每 token 跨多少链路、搬多少字节、走几步？NCCL 的 all_to_all 为什么在 decode 不够用，DeepEP 怎么做到几百微秒？
-  - 一句话结论：
-    - 通信矩阵由路由决定、每步不同、最慢的 rank 决定时间
-    - prefill 是网卡带宽的账（按节点去重把网卡上的份数从 7 压到 3.2）
-    - decode 是发起速率的账（1024 条 7.4 KB 消息，CPU proxy 给不了，IBGDA 让 warp 自己写 WQE 与 doorbell）
-  - 必记的数字 / 公式：
-    - FP8 dispatch 59 KB / token、BF16 combine 115 KB
-    - 跨节点比例 $$1 - 1/N$$
-    - 去重份数 $$N(1 - (1 - 1/N)^k)(1 - 1/N)$$：7 → 4.6 → 3.2
-    - prefill 一层 5.6–12.5 ms
-    - decode 理论 429 µs、README 487 µs，其中 3/4 是字节、40–60 µs 是 α
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：集合通信原语与代价模型](/collective-communication-primitives-and-cost-model.html) | 8 卡 1 GB 的 all_reduce 在 25 GB/s 链路上要多久？64 KB 呢？为什么一个对带宽敏感、一个对延迟敏感？ | $$T = \text{步数} \times \alpha + \text{每 rank 字节数} / \beta$$；ring 的带宽项与 $$n$$ 无关、延迟项随 $$n$$ 线性增长，拐点 $$S^* = n\alpha\beta$$ 把消息分到两本账 | $$T_{\text{ring}} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$<br/>1 GB 约 70 ms（延迟 0.2%）、64 KB 约 145 µs（带宽 3%）<br/>busbw = algbw × $$\frac{2(n-1)}{n}$$<br/>8 卡 IB 拐点约 2 MB<br/>tree $$2\lceil\log_2 n\rceil$$ 步 |
+| [第二篇：硬件互联](/hardware-interconnect-pcie-nvlink-and-topology.html) | `NV12` / `PIX` / `SYS` 各意味着什么带宽和路径？NCCL 为什么给 GPU0 选 NIC0 不选 NIC4？ | 节点内三个量级（NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十）<br/>`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入<br/>选网卡的规则是带宽最大、其次路径最近 | NVLink 单向 A100 300 / H100 450 / Blackwell 900 GB/s（厂商 600 / 900 / 1800 是双向合计）<br/>PCIe x16 单向 3.0 / 4.0 / 5.0 ≈ 16 / 32 / 64 GB/s<br/>HDR 25、NDR 50 GB/s<br/>网卡速率约为 PCIe 链路的 78%<br/>整机 NVLink 容量是网卡总带宽的 9 倍 |
+| [第三篇：RDMA 与 GPUDirect](/rdma-and-gpudirect.html) | 显存到对端显存，走 TCP、RDMA 无 GDR、RDMA + GDR，各几次拷贝、走哪些 PCIe 链路、上限多少？ | TCP 每端 2 次拷贝、主机内存每字节访问 4 次、原理上跑不满 400 Gb/s<br/>RDMA 无 GDR 1 次拷贝<br/>RDMA + GDR 0 次拷贝、PCIe switch 内一跳，上限 min(NIC, PCIe) | H100 / PCIe 5.0 / NDR = 50 GB/s，A100 / PCIe 4.0 / HDR = 25 GB/s，A100 配 NDR 被卡在 32 GB/s<br/>延迟 IB 1–2 µs、RoCE 2–4 µs、TCP 15–50 µs<br/>`NCCL_NET_GDR_LEVEL` 默认 `PXB`<br/>`NCCL_IB_TIMEOUT=20` → 4.3 s × 7 次 ≈ 30 s 后 status=12 |
+| [第四篇：NCCL 架构](/nccl-architecture-topology-channels-algorithms-and-protocols.html) | 同一次 8 卡 all_reduce，NCCL 为什么在 NVSwitch 机上选 NVLS + Simple、NVLink 机上选 Ring + LL128、PCIe 机上只剩 Simple / LL、32 节点选 Tree？强行 Ring 付出什么？ | 决策全部在 `ncclCommInitRank` 里做完（拓扑 → 路径 → 图搜索 → channel → 调优表），`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑分别算出的 lat 与 bw | $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$<br/>LL 50%、LL128 约 94%、Simple 接近 100%<br/>LL128 只在 NVLink 路径启用<br/>32 节点 ring 510 步 vs tree $$2 \times (7 + 5)$$ 步<br/>强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍 |
+| [第五篇：PyTorch 的通信栈](/pytorch-communication-stack-processgroupnccl-and-streams.html) | `async_op=True` 返回时通信开始了吗？`wait()` 返回时完成了吗？期间改 `t` 会怎样？ | 三个"不一定"换成 stream 与 event 的精确陈述：NCCL stream 等当前 stream 的 event，`wait()` 是当前 stream 等 end event，CPU 全程不停；重叠的来源与失效的来源是同一套编排 | watchdog 每 100 ms 轮询、`opTimeout_` 默认 10 分钟、heartbeat monitor 480 s 强杀<br/>25 MB bucket 节点内约 97 µs、跨机约 875 µs 带宽项<br/>1000 个 25 KB 各做一次 vs 合并一次：延迟项 1000 倍差<br/>DDP bucket 25 MiB |
+| [第六篇：nccl-tests、调优与排障](/nccl-tests-tuning-and-debugging-hangs.html) | 64 卡任务第 3000 步 hang 在 all_reduce：是谁、是哪一次、为什么等到 timeout 才暴露？ | 曲线左端看 α、右端看 β、拐点 $$S_{\text{knee}} = n\alpha\beta$$<br/>hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致<br/>Flight Recorder 按 `collective_seq_id` 对齐给出 culprit | 到 90% 平台约 $$9\,S_{\text{knee}}$$<br/>8×H100 节点内拐点约 10 MB、64 卡跨机约 30 MB<br/>参考线 8×H100 350–480 GB/s、2 节点 NDR 每 GPU 40–48<br/>参数优先级 env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf`<br/>kernel 自旋无超时，唯一计时器是 c10d 的 watchdog |
+| [第七篇：推理侧的通信](/inference-communication-custom-all-reduce-and-kv-transfer.html) | 8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs，20 µs 省在哪？为什么不能用在梯度同步上？ | decode TP 是纯 α 的账：省的是 launch 路径、14 步 → 2 步、无 channel buffer 中转、可捕获进 CUDA Graph；KV 传输是纯 β 的点对点账，单边 RDMA 比 NCCL 更自然 | 128 KB = 8 × 8192 × 2 B<br/>NCCL Ring + LL 模型 6.6 + 14 × 0.6 ≈ 15 µs<br/>custom AR 36 个 block、8 卡 < 256 KB one-shot、上限 8 MB、只能节点内<br/>Llama-3-70B 每 token KV 320 KB，4096 token 1.25 GiB，TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms |
+| [第八篇：MoE 的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html) | EP=64 跨 8 节点，一层 dispatch + combine 每 token 跨多少链路、搬多少字节、走几步？NCCL 的 all_to_all 为什么在 decode 不够用，DeepEP 怎么做到几百微秒？ | 通信矩阵由路由决定、每步不同、最慢的 rank 决定时间<br/>prefill 是网卡带宽的账（按节点去重把网卡上的份数从 7 压到 3.2）<br/>decode 是发起速率的账（1024 条 7.4 KB 消息，CPU proxy 给不了，IBGDA 让 warp 自己写 WQE 与 doorbell） | FP8 dispatch 59 KB / token、BF16 combine 115 KB<br/>跨节点比例 $$1 - 1/N$$<br/>去重份数 $$N(1 - (1 - 1/N)^k)(1 - 1/N)$$：7 → 4.6 → 3.2<br/>prefill 一层 5.6–12.5 ms<br/>decode 理论 429 µs、README 487 µs，其中 3/4 是字节、40–60 µs 是 α |
+
+Table: 八篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

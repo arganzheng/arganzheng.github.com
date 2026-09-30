@@ -68,47 +68,25 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 
 ### 2. 本文的章节安排
 
-- **二、CMake 的目标模型**
-  - 目标与属性
-  - PUBLIC/PRIVATE/INTERFACE
-  - `find_package(Torch)` 找到了什么
-  - vLLM 怎么用
-- **三、构建速度**
-  - PyTorch 全量构建为什么慢
-  - Ninja
-  - ccache/sccache
-  - 增量构建控制在分钟级
-- **四、编译选项**
-  - 优化级别与调试信息
-  - PyTorch 实际的编译选项
-  - -march
-- **五、`compile_commands.json` 与 clangd**：让 IDE 和静态分析工具理解百万行项目
-- **六、gdb / lldb**
-  - 从 Python 进程进入 C++
-  - 在 kernel 前打断点
-  - `pytorch-gdb.py`
-  - -O2 下变量为什么消失
-- **七、段错误、栈溢出、use-after-free**：三种崩溃的排查路径
-- **八、Sanitizers**
-  - 插桩原理
-  - 一次真实的 ASan 报告
-  - PyTorch 怎么接进 CMake 与 CI
-  - 什么时候跑哪个
-- **九、gtest**
-  - gtest 的形状
-  - 三个测试目录
-  - C++ 测试与 Python 测试的分工
-  - 从写完到被 CI 跑
-- **十、clang-format、clang-tidy 与 lint**：.clang-format、.clang-tidy、.lintrunner.toml
-- **十一、工具链版本矩阵**
-  - 三个版本轴
-  - PyTorch CI 的矩阵
-  - 版本不匹配的典型症状
-- **十二、回到源码**：`intrusive_ptr_test.cpp`、`tools/gdb/pytorch-gdb.py`、.clang-tidy
-- **十三、mini-c10：补齐工程**：`CMakeLists.txt`、两个 gtest 文件、lldb 会话、.clang-format
-- **十四、工程实践建议与常见错误**
-- **十五、本文小结**
-- **十六、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | CMake 的目标模型 | 目标与属性<br/>PUBLIC/PRIVATE/INTERFACE<br/>`find_package(Torch)` 找到了什么<br/>vLLM 怎么用 |
+| 三 | 构建速度 | PyTorch 全量构建为什么慢<br/>Ninja<br/>ccache/sccache<br/>增量构建控制在分钟级 |
+| 四 | 编译选项 | 优化级别与调试信息<br/>PyTorch 实际的编译选项<br/>-march |
+| 五 | `compile_commands.json` 与 clangd | 让 IDE 和静态分析工具理解百万行项目 |
+| 六 | gdb / lldb | 从 Python 进程进入 C++<br/>在 kernel 前打断点<br/>`pytorch-gdb.py`<br/>-O2 下变量为什么消失 |
+| 七 | 段错误、栈溢出、use-after-free | 三种崩溃的排查路径 |
+| 八 | Sanitizers | 插桩原理<br/>一次真实的 ASan 报告<br/>PyTorch 怎么接进 CMake 与 CI<br/>什么时候跑哪个 |
+| 九 | gtest | gtest 的形状<br/>三个测试目录<br/>C++ 测试与 Python 测试的分工<br/>从写完到被 CI 跑 |
+| 十 | clang-format、clang-tidy 与 lint | .clang-format、.clang-tidy、.lintrunner.toml |
+| 十一 | 工具链版本矩阵 | 三个版本轴<br/>PyTorch CI 的矩阵<br/>版本不匹配的典型症状 |
+| 十二 | 回到源码 | `intrusive_ptr_test.cpp`、`tools/gdb/pytorch-gdb.py`、.clang-tidy |
+| 十三 | mini-c10：补齐工程 | `CMakeLists.txt`、两个 gtest 文件、lldb 会话、.clang-format |
+| 十四 | 工程实践建议与常见错误 |  |
+| 十五 | 本文小结 |  |
+| 十六 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、CMake 的目标模型
 

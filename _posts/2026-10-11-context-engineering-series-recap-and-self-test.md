@@ -32,78 +32,16 @@ flowchart TB
 
 系列的一句话主张是：**上下文是有限、有序、有版本的资源，每一段都要为它占的预算辩护，每一次排列都有成本含义，每一次改动都是一次发布**。
 
-- **[第一篇：上下文的解剖](/anatomy-of-the-context-window.html)**
-  - 回答的问题：模型这一步看到什么？
-  - 一句话结论：
-    - 七层（系统指令、工具与技能、长期记忆、历史、检索、工具返回、当前输入），按变化频率、维护者、可压缩性分
-    - agent 会话按 $$S + (k-1)(r+o)$$ 增长，工具返回主导，目标漂到中间是算术必然
-    - 注意力预算 $$n^2$$ 有限
-  - 必记的数字 / 结论：
-    - Claude Code 自动记忆 ≤ 25 KB、auto-compact 约 83.5%（预留 33K）
-    - Manus 约 50 次工具调用、输入输出 100 : 1
-    - 50 步填满 200K
-- **[第二篇：prompt 设计](/prompt-design-patterns-vs-wording.html)**
-  - 回答的问题：哪些是稳定的模式、哪些是随模型变的措辞？
-  - 一句话结论：模式（身份与边界、可检验规则、分区、工具政策、格式与出口、知识与时间）不变，措辞随模型调；推理模型上 CoT 指令冗余、大量 few-shot 有害、夸奖无增量、矛盾指令浪费思考
-  - 必记的数字 / 结论：
-    - claude.ai 公开 system prompt 的五部分
-    - Claude Code 把动态环境放末尾、CLAUDE.md 独立一层
-    - GPT-5 guide 的 eagerness 与 tool preamble
-    - Manus "don't get few-shotted"
-- **[第三篇：结构化输出](/structured-output-constrained-decoding-and-schema-design.html)**
-  - 回答的问题：约束解码怎么实现、schema 怎么设计？
-  - 一句话结论：
-    - 自动机屏蔽不合法 token 是数学保证
-    - strict 限制来自状态空间
-    - 字段顺序即生成顺序，推理字段前置
-    - 显式拒答出口
-    - 解析层二次校验 + 带错误重试一次
-  - 必记的数字 / 结论：
-    - Outlines（正则 → FSM）/ XGrammar（CFG → 下推自动机）
-    - Anthropic schema 注入约 50–200 token
-    - 推理前置提 2–5 个百分点
-    - strict 下截断仍会发生
-- **[第四篇：预算与压缩](/context-budgeting-offloading-and-compaction.html)**
-  - 回答的问题：超了先做什么？
-  - 一句话结论：
-    - 隔离 → 卸载 → 清理 → 压缩，代价递增
-    - 压缩有损、只在思考链结束处做、缓存全失效
-    - 复述对抗漂移
-    - 评测用探针问题前后对比
-  - 必记的数字 / 结论：
-    - Deep Agents 20K 卸载 / 85% 截断
-    - Claude Code 83.5%、CLAUDE.md 重注入、路径规则丢失
-    - Codex 会话记忆优先、`/responses/compact` 加密 blob、轮前与循环边界触发
-    - Anthropic compaction 默认 150K
-    - 研究 agent 96% 是文件读取
-    - 用户约束最易丢
-- **[第五篇：缓存与排列](/prompt-caching-and-context-layout.html)**
-  - 回答的问题：怎样让缓存命中？
-  - 一句话结论：
-    - 前缀逐字节相同、tools → system → messages、改动处起失效
-    - 四层四个断点
-    - 十种破坏前缀的操作
-    - 屏蔽工具不删除、不删失败、不整理历史
-    - 命中率 + 未缓存绝对量 + 节省美元
-  - 必记的数字 / 结论：
-    - Anthropic 4 断点 / 20 块回看 / 1,024 起静默不缓存 / 5 分钟或 1 小时
-    - OpenAI 1,024、128 倍数、`prompt_cache_key`
-    - Gemini 存储费按小时
-    - DeepSeek 64 粒度
-    - 稳态 70–90%、单轮 30–60%
-    - Manus 三条规则
-- **[第六篇：prompt 当代码管](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)**
-  - 回答的问题：怎么管、怎么选上下文 vs 检索？
-  - 一句话结论：
-    - 不可变版本 + 绑定模型 + 评测门禁 + 标签发布 + trace 绑定
-    - AGENTS.md 常驻、SKILL.md 按需
-    - 全放 / 流水线检索 / agentic 按四维选
-  - 必记的数字 / 结论：
-    - Langfuse 版本 + 标签
-    - OpenAI Prompts 对象（Assistants 关闭后）
-    - AGENTS.md 2025-08、六万多项目、Agentic AI Foundation
-    - SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`
-    - 30K 手册全放与检索成本相近
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
+|---|---|---|---|
+| [第一篇：上下文的解剖](/anatomy-of-the-context-window.html) | 模型这一步看到什么？ | 七层（系统指令、工具与技能、长期记忆、历史、检索、工具返回、当前输入），按变化频率、维护者、可压缩性分<br/>agent 会话按 $$S + (k-1)(r+o)$$ 增长，工具返回主导，目标漂到中间是算术必然<br/>注意力预算 $$n^2$$ 有限 | Claude Code 自动记忆 ≤ 25 KB、auto-compact 约 83.5%（预留 33K）<br/>Manus 约 50 次工具调用、输入输出 100 : 1<br/>50 步填满 200K |
+| [第二篇：prompt 设计](/prompt-design-patterns-vs-wording.html) | 哪些是稳定的模式、哪些是随模型变的措辞？ | 模式（身份与边界、可检验规则、分区、工具政策、格式与出口、知识与时间）不变，措辞随模型调；推理模型上 CoT 指令冗余、大量 few-shot 有害、夸奖无增量、矛盾指令浪费思考 | claude.ai 公开 system prompt 的五部分<br/>Claude Code 把动态环境放末尾、CLAUDE.md 独立一层<br/>GPT-5 guide 的 eagerness 与 tool preamble<br/>Manus "don't get few-shotted" |
+| [第三篇：结构化输出](/structured-output-constrained-decoding-and-schema-design.html) | 约束解码怎么实现、schema 怎么设计？ | 自动机屏蔽不合法 token 是数学保证<br/>strict 限制来自状态空间<br/>字段顺序即生成顺序，推理字段前置<br/>显式拒答出口<br/>解析层二次校验 + 带错误重试一次 | Outlines（正则 → FSM）/ XGrammar（CFG → 下推自动机）<br/>Anthropic schema 注入约 50–200 token<br/>推理前置提 2–5 个百分点<br/>strict 下截断仍会发生 |
+| [第四篇：预算与压缩](/context-budgeting-offloading-and-compaction.html) | 超了先做什么？ | 隔离 → 卸载 → 清理 → 压缩，代价递增<br/>压缩有损、只在思考链结束处做、缓存全失效<br/>复述对抗漂移<br/>评测用探针问题前后对比 | Deep Agents 20K 卸载 / 85% 截断<br/>Claude Code 83.5%、CLAUDE.md 重注入、路径规则丢失<br/>Codex 会话记忆优先、`/responses/compact` 加密 blob、轮前与循环边界触发<br/>Anthropic compaction 默认 150K<br/>研究 agent 96% 是文件读取<br/>用户约束最易丢 |
+| [第五篇：缓存与排列](/prompt-caching-and-context-layout.html) | 怎样让缓存命中？ | 前缀逐字节相同、tools → system → messages、改动处起失效<br/>四层四个断点<br/>十种破坏前缀的操作<br/>屏蔽工具不删除、不删失败、不整理历史<br/>命中率 + 未缓存绝对量 + 节省美元 | Anthropic 4 断点 / 20 块回看 / 1,024 起静默不缓存 / 5 分钟或 1 小时<br/>OpenAI 1,024、128 倍数、`prompt_cache_key`<br/>Gemini 存储费按小时<br/>DeepSeek 64 粒度<br/>稳态 70–90%、单轮 30–60%<br/>Manus 三条规则 |
+| [第六篇：prompt 当代码管](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) | 怎么管、怎么选上下文 vs 检索？ | 不可变版本 + 绑定模型 + 评测门禁 + 标签发布 + trace 绑定<br/>AGENTS.md 常驻、SKILL.md 按需<br/>全放 / 流水线检索 / agentic 按四维选 | Langfuse 版本 + 标签<br/>OpenAI Prompts 对象（Assistants 关闭后）<br/>AGENTS.md 2025-08、六万多项目、Agentic AI Foundation<br/>SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`<br/>30K 手册全放与检索成本相近 |
+
+Table: 六篇的核心问题、结论与必记
 
 ### 1. 本文的章节安排
 

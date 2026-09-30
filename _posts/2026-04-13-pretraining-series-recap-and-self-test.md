@@ -36,55 +36,15 @@ flowchart TB
 
 系列的一句话主张是：**预训练的每个决定都能算账，算不出来的部分靠小模型消融外推**。词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——第一篇先把整条流水线实跑一遍，后四篇各算一笔账，用的是同一套方法（推导 → 代入真实模型 → 解释数字）、同两个对象（Llama 3 与 DeepSeek-V3）。
 
-- **[第一篇：端到端实跑](/pretraining-end-to-end-from-web-pages-to-a-model.html)**
-  - 回答的问题：从一堆网页到一个语言模型中间有几步？每步扔掉什么、留下什么？笔记本训的模型离 GPT-2 差多远？
-  - 一句话结论：八步流水线：数据侧四步决定模型学什么，模型侧四步决定学得多好；每一步的漏斗都能数出来
-  - 必记的数字 / 公式：
-    - 68,834 网页 → 过滤剩 16% → 去重再删 480 篇 → 38 MB
-    - BPE 4096 词表 3.46 字符/token
-    - 10.9M token
-    - 迷你 iso-FLOP 下最优 N 随预算右移
-    - val loss 从 ln V = 8.32 到 4.6
-    - bits/byte 1.88 vs GPT-2 small 的 1.06
-- **[第二篇：分词与词表](/tokenizer-vocabulary-and-token-efficiency.html)**
-  - 回答的问题：词表从 32K 扩到 128K，每 token 贵了 5.6%，为什么反而省钱？
-  - 一句话结论：成本要按字符而不是按 token 算：更大的词表让每 token 贵一点、让每段文字的 token 少很多，后者赢；前提是词表针对目标语言训练
-  - 必记的数字 / 公式：
-    - 词表参数 $$2Vd$$（Llama-3-8B 1.05B，13.1%）
-    - lm_head 每 token $$2Vd$$ FLOPs（7.0%，0.5B 模型 28%）
-    - 英文 3.17 → 3.94 字符/token，每字符 FLOPs 低 15%、KV 低 20%
-    - 中文在两个 128K 量级词表下差 2.1 倍
-- **[第三篇：Scaling law](/scaling-laws-and-compute-optimal-training.html)**
-  - 回答的问题：Llama-3 8B 训 15T 是 Chinchilla 最优的 10 倍数据、loss 高 0.05，为什么是正确的？
-  - 一句话结论：Chinchilla 只最小化训练算力下的 loss；把推理算进去，最优点移向小模型、多数据
-  - 必记的数字 / 公式：
-    - $$L = E + A/N^\alpha + B/D^\beta$$
-    - $$C = 6ND$$
-    - $$D/N \approx 20$$
-    - 固定 $$C$$ 缩小 10 倍：loss +0.053、推理 1/10
-    - 服务 100T token 时最优 24B / 13.8T 而非 81B / 1.5T
-    - 4 epoch 值 93%
-- **[第四篇：数据工程](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)**
-  - 回答的问题：Common Crawl 有 240T token，为什么只用 15T？丢掉的 94% 是什么？
-  - 一句话结论：一条漏斗（启发式过滤 → 四粒度去重 → 模型打分），每一级的刻度都被消融验证过；配比的百分比本质是 epoch 数
-  - 必记的数字 / 公式：
-    - 240T → 15T（6%）→ 1.3–5.4T
-    - MinHash 14 × 8 阈值 0.72
-    - 跨快照全局去重反而更差
-    - 25% 数学推理 ≈ 7.5 epoch
-    - 一次消融 2700 H100 小时
-    - 抽取 ≫ 去重 ≈ tokenize
-- **[第五篇：配方与稳定性](/pretraining-recipe-and-training-stability.html)**
-  - 回答的问题：405B 的 lr 8e-5、V3 的 2.2e-4，batch 16M 与 63M——怎么定的？V3 靠什么没有一次不可恢复的 spike？
-  - 一句话结论：超参表的每个数字都有来历（$$\mu$$P、梯度噪声尺度、$$1/(\eta\lambda)$$）；不稳定拆成三个可单独度量、单独修的机制
-  - 必记的数字 / 公式：
-    - lr 3e-4 → 1.5e-4 → 8e-5 随宽度降
-    - batch 4M → 16M / 12.6M → 63M ramp
-    - warmup 0.4–0.9%
-    - wd 时间尺度 $$1/(\eta\lambda)$$ ≈ 7–13% 训练
-    - QK-norm：logit 12592 → 22
-    - spike 一次约 1 万 GPU 小时
-    - $$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：端到端实跑](/pretraining-end-to-end-from-web-pages-to-a-model.html) | 从一堆网页到一个语言模型中间有几步？每步扔掉什么、留下什么？笔记本训的模型离 GPT-2 差多远？ | 八步流水线：数据侧四步决定模型学什么，模型侧四步决定学得多好；每一步的漏斗都能数出来 | 68,834 网页 → 过滤剩 16% → 去重再删 480 篇 → 38 MB<br/>BPE 4096 词表 3.46 字符/token<br/>10.9M token<br/>迷你 iso-FLOP 下最优 N 随预算右移<br/>val loss 从 ln V = 8.32 到 4.6<br/>bits/byte 1.88 vs GPT-2 small 的 1.06 |
+| [第二篇：分词与词表](/tokenizer-vocabulary-and-token-efficiency.html) | 词表从 32K 扩到 128K，每 token 贵了 5.6%，为什么反而省钱？ | 成本要按字符而不是按 token 算：更大的词表让每 token 贵一点、让每段文字的 token 少很多，后者赢；前提是词表针对目标语言训练 | 词表参数 $$2Vd$$（Llama-3-8B 1.05B，13.1%）<br/>lm_head 每 token $$2Vd$$ FLOPs（7.0%，0.5B 模型 28%）<br/>英文 3.17 → 3.94 字符/token，每字符 FLOPs 低 15%、KV 低 20%<br/>中文在两个 128K 量级词表下差 2.1 倍 |
+| [第三篇：Scaling law](/scaling-laws-and-compute-optimal-training.html) | Llama-3 8B 训 15T 是 Chinchilla 最优的 10 倍数据、loss 高 0.05，为什么是正确的？ | Chinchilla 只最小化训练算力下的 loss；把推理算进去，最优点移向小模型、多数据 | $$L = E + A/N^\alpha + B/D^\beta$$<br/>$$C = 6ND$$<br/>$$D/N \approx 20$$<br/>固定 $$C$$ 缩小 10 倍：loss +0.053、推理 1/10<br/>服务 100T token 时最优 24B / 13.8T 而非 81B / 1.5T<br/>4 epoch 值 93% |
+| [第四篇：数据工程](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) | Common Crawl 有 240T token，为什么只用 15T？丢掉的 94% 是什么？ | 一条漏斗（启发式过滤 → 四粒度去重 → 模型打分），每一级的刻度都被消融验证过；配比的百分比本质是 epoch 数 | 240T → 15T（6%）→ 1.3–5.4T<br/>MinHash 14 × 8 阈值 0.72<br/>跨快照全局去重反而更差<br/>25% 数学推理 ≈ 7.5 epoch<br/>一次消融 2700 H100 小时<br/>抽取 ≫ 去重 ≈ tokenize |
+| [第五篇：配方与稳定性](/pretraining-recipe-and-training-stability.html) | 405B 的 lr 8e-5、V3 的 2.2e-4，batch 16M 与 63M——怎么定的？V3 靠什么没有一次不可恢复的 spike？ | 超参表的每个数字都有来历（$$\mu$$P、梯度噪声尺度、$$1/(\eta\lambda)$$）；不稳定拆成三个可单独度量、单独修的机制 | lr 3e-4 → 1.5e-4 → 8e-5 随宽度降<br/>batch 4M → 16M / 12.6M → 63M ramp<br/>warmup 0.4–0.9%<br/>wd 时间尺度 $$1/(\eta\lambda)$$ ≈ 7–13% 训练<br/>QK-norm：logit 12592 → 22<br/>spike 一次约 1 万 GPU 小时<br/>$$T_{opt} = \sqrt{2\delta \cdot \text{MTBF}}$$ |
+
+Table: 五篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

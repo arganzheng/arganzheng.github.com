@@ -36,88 +36,18 @@ flowchart TB
 
 系列的一句话主张是：**算法工程师需要的数学是一个最小集，每个概念只学到"读公式不卡壳、推导 loss 不出错、代进真实模型算出一个数字"三个标准**。主线按"先会算形状与成本，再会把模型看成分布，再会度量分布之间的差，再会对目标求导，最后会判断实验结果"推进；每篇用同一种方法——从定义讲起，推到公式，代入 Llama-3-8B（$$d = 4096$$、32 层、词表 128256）或真实 benchmark 的题数算出数字，指出它在后面哪一层、哪个公式里出现。
 
-- **[第一篇：向量、矩阵与形状](/vectors-matrices-shapes-and-flops.html)**
-  - 回答的问题：看到任何一个矩阵乘法，能不能立刻写出输出形状和 FLOPs？
-  - 一句话结论：两条规则够用：形状规则 $$[m, k] \times [k, n] \to [m, n]$$、成本规则 $$2mnk$$；一个 token 过整个模型约 $$2N$$ FLOPs
-  - 必记的数字 / 公式：
-    - Llama-3-8B：$$W_Q$$ 一个 token 33.5 MFLOPs、4096 个 token 137 GFLOPs
-    - 一层七个矩阵 218M 参数、81% 在 MLP
-    - 全模型 8.03B、一个 token 前向约 15 GFLOPs
-    - 训练 $$6ND$$
-- **[第二篇：内积、范数与余弦相似度](/inner-product-norms-and-cosine-similarity.html)**
-  - 回答的问题：两个向量"像不像"有几种算法？各在哪里用？
-  - 一句话结论：三个词一套语言：内积含方向与大小、范数只量大小、余弦只比方向；范数有长度 / 正则化项 / 误差度量三个身份
-  - 必记的数字 / 公式：
-    - $$\langle a, b \rangle = \lVert a \rVert \lVert b \rVert \cos\theta$$
-    - $$QK^T$$ 是一张内积表
-    - 高维随机余弦标准差 $$1/\sqrt{d}$$，1024 维约 0.03
-    - weight decay $$\frac{\lambda}{2}\lVert W \rVert_F^2$$
-    - GPTQ 最小化 $$\lVert WX - \hat W X \rVert_F$$
-- **[第三篇：正交与旋转、特征值与 SVD](/orthogonal-rotation-svd-and-low-rank.html)**
-  - 回答的问题：RoPE 为什么能编码相对位置？LoRA 为什么能用半个百分点的参数微调？
-  - 一句话结论：正交保内积，所以旋转 $$m\theta$$ 与 $$n\theta$$ 后的内积只剩 $$n - m$$；截断 SVD 是最好的低秩近似，LoRA 的每个参数都省在 $$r(m + n) \ll mn$$
-  - 必记的数字 / 公式：
-    - $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$
-    - $$\theta_i = \text{base}^{-2i/d_h}$$，128 维拆 64 对
-    - $$W = U \Sigma V^T$$
-    - Llama-3-8B 上 $$r = 16$$ 是 41.9M 参数、0.52%
-- **[第四篇：概率入门](/probability-basics-language-model-as-conditional-distribution.html)**
-  - 回答的问题："语言模型是一个条件分布"每个词是什么意思？它决定了哪些事？
-  - 一句话结论：语言模型是链式法则 $$p(x_{1:T}) = \prod_t p(x_t \mid x_{<t})$$ 里每一项的参数化；它决定 next-token 目标、逐 token 生成、KV cache、评测依赖采样设置
-  - 必记的数字 / 公式：
-    - $$p(a, b) = p(a \mid b)\,p(b)$$
-    - 独立和的方差相加，标准差 $$\sqrt{n}\sigma$$
-    - 样本均值标准差 $$\sigma/\sqrt{n}$$
-    - 高斯 95% 在 $$\mu \pm 1.96\sigma$$
-    - $$d_k = 128$$ 时 score 标准差约 11.3，所以除 $$\sqrt{d_k}$$
-- **[第五篇：从最大似然到交叉熵](/from-maximum-likelihood-to-cross-entropy.html)**
-  - 回答的问题：能不能三行推出交叉熵 loss？训练开始时 loss 应该是多少？
-  - 一句话结论：
-    - 取对数 → 取负 → 除以 token 数，得到每 token 负对数似然
-    - 真实分布 one-hot 时它就是交叉熵
-    - 所有 loss 都是这个模板换一个概率
-  - 必记的数字 / 公式：
-    - $$\mathcal{L} = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$
-    - 初始 loss $$\approx \ln V$$，Llama-3 是 11.8
-    - 1 nat = 1.44 bit
-    - softmax 差值决定比值，差 1 是 2.7 倍、差 5 是 148 倍
-    - 温度改变分布
-- **[第六篇：熵、交叉熵与 KL](/entropy-cross-entropy-and-kl-to-dpo.html)**
-  - 回答的问题：熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO？
-  - 一句话结论：
-    - $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$
-    - KL 不对称，RLHF 用 reverse（mode-seeking 倾向）——"对齐降低多样性"还要奖励形状配合，不是定义行为
-    - 闭式解反解奖励、代入 Bradley-Terry、$$Z(x)$$ 抵消得 DPO
-  - 必记的数字 / 公式：
-    - PPL $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit
-    - loss 降不到数据的熵 $$E = 1.69$$ 以下
-    - $$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$
-    - $$\sigma(2) = 0.88$$
-    - 接受率 $$\alpha = \sum_x \min(p, q) = 1 - \mathrm{TV}$$
-- **[第七篇：导数、梯度与链式法则](/derivatives-gradients-chain-rule-and-policy-gradient.html)**
-  - 回答的问题：能不能用链式法则推一层的梯度？能不能对一个期望求导得到策略梯度？
-  - 一句话结论：
-    - 梯度与参数同形
-    - softmax + 交叉熵的梯度是 $$p - y$$
-    - 期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望，策略梯度是"按奖励加权的最大似然"，减 baseline 期望不变
-  - 必记的数字 / 公式：
-    - $$\partial \mathcal{L}/\partial z = p - y$$，分量在 $$[-1, 1]$$
-    - $$\nabla J = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$
-    - $$\mathbb{E}[\nabla\log\pi] = 0$$
-    - GRPO 优势 $$(R_i - \text{mean})/\text{std}$$
-    - 随机梯度噪声方差 $$\propto 1/B$$
-- **[第八篇：统计推断与拟合](/statistical-inference-and-fitting-scaling-laws.html)**
-  - 回答的问题：HumanEval 差 3 个点算不算提升？$$D/N \approx 20$$ 从哪来？
-  - 一句话结论：
-    - 95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，164 题分辨不出 3 个点
-    - 幂律在双对数上是直线
-    - 固定 $$C = 6ND$$ 用拉格朗日乘子，$$N$$、$$D$$ 应同步增长
-  - 必记的数字 / 公式：
-    - HumanEval ±6.1%、GSM8K ±1.6%、MMLU ±0.8%
-    - 独立比较显著差异 8.7 / 2.3 / 1.1 个点
-    - $$E = 1.69, A = 406.4, B = 410.7, \alpha = 0.34, \beta = 0.28$$
-    - $$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$
-    - 70B ↔ 1.4T
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：向量、矩阵与形状](/vectors-matrices-shapes-and-flops.html) | 看到任何一个矩阵乘法，能不能立刻写出输出形状和 FLOPs？ | 两条规则够用：形状规则 $$[m, k] \times [k, n] \to [m, n]$$、成本规则 $$2mnk$$；一个 token 过整个模型约 $$2N$$ FLOPs | Llama-3-8B：$$W_Q$$ 一个 token 33.5 MFLOPs、4096 个 token 137 GFLOPs<br/>一层七个矩阵 218M 参数、81% 在 MLP<br/>全模型 8.03B、一个 token 前向约 15 GFLOPs<br/>训练 $$6ND$$ |
+| [第二篇：内积、范数与余弦相似度](/inner-product-norms-and-cosine-similarity.html) | 两个向量"像不像"有几种算法？各在哪里用？ | 三个词一套语言：内积含方向与大小、范数只量大小、余弦只比方向；范数有长度 / 正则化项 / 误差度量三个身份 | $$\langle a, b \rangle = \lVert a \rVert \lVert b \rVert \cos\theta$$<br/>$$QK^T$$ 是一张内积表<br/>高维随机余弦标准差 $$1/\sqrt{d}$$，1024 维约 0.03<br/>weight decay $$\frac{\lambda}{2}\lVert W \rVert_F^2$$<br/>GPTQ 最小化 $$\lVert WX - \hat W X \rVert_F$$ |
+| [第三篇：正交与旋转、特征值与 SVD](/orthogonal-rotation-svd-and-low-rank.html) | RoPE 为什么能编码相对位置？LoRA 为什么能用半个百分点的参数微调？ | 正交保内积，所以旋转 $$m\theta$$ 与 $$n\theta$$ 后的内积只剩 $$n - m$$；截断 SVD 是最好的低秩近似，LoRA 的每个参数都省在 $$r(m + n) \ll mn$$ | $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$<br/>$$\theta_i = \text{base}^{-2i/d_h}$$，128 维拆 64 对<br/>$$W = U \Sigma V^T$$<br/>Llama-3-8B 上 $$r = 16$$ 是 41.9M 参数、0.52% |
+| [第四篇：概率入门](/probability-basics-language-model-as-conditional-distribution.html) | "语言模型是一个条件分布"每个词是什么意思？它决定了哪些事？ | 语言模型是链式法则 $$p(x_{1:T}) = \prod_t p(x_t \mid x_{<t})$$ 里每一项的参数化；它决定 next-token 目标、逐 token 生成、KV cache、评测依赖采样设置 | $$p(a, b) = p(a \mid b)\,p(b)$$<br/>独立和的方差相加，标准差 $$\sqrt{n}\sigma$$<br/>样本均值标准差 $$\sigma/\sqrt{n}$$<br/>高斯 95% 在 $$\mu \pm 1.96\sigma$$<br/>$$d_k = 128$$ 时 score 标准差约 11.3，所以除 $$\sqrt{d_k}$$ |
+| [第五篇：从最大似然到交叉熵](/from-maximum-likelihood-to-cross-entropy.html) | 能不能三行推出交叉熵 loss？训练开始时 loss 应该是多少？ | 取对数 → 取负 → 除以 token 数，得到每 token 负对数似然<br/>真实分布 one-hot 时它就是交叉熵<br/>所有 loss 都是这个模板换一个概率 | $$\mathcal{L} = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$<br/>初始 loss $$\approx \ln V$$，Llama-3 是 11.8<br/>1 nat = 1.44 bit<br/>softmax 差值决定比值，差 1 是 2.7 倍、差 5 是 148 倍<br/>温度改变分布 |
+| [第六篇：熵、交叉熵与 KL](/entropy-cross-entropy-and-kl-to-dpo.html) | 熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO？ | $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$<br/>KL 不对称，RLHF 用 reverse（mode-seeking 倾向）——"对齐降低多样性"还要奖励形状配合，不是定义行为<br/>闭式解反解奖励、代入 Bradley-Terry、$$Z(x)$$ 抵消得 DPO | PPL $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit<br/>loss 降不到数据的熵 $$E = 1.69$$ 以下<br/>$$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$<br/>$$\sigma(2) = 0.88$$<br/>接受率 $$\alpha = \sum_x \min(p, q) = 1 - \mathrm{TV}$$ |
+| [第七篇：导数、梯度与链式法则](/derivatives-gradients-chain-rule-and-policy-gradient.html) | 能不能用链式法则推一层的梯度？能不能对一个期望求导得到策略梯度？ | 梯度与参数同形<br/>softmax + 交叉熵的梯度是 $$p - y$$<br/>期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望，策略梯度是"按奖励加权的最大似然"，减 baseline 期望不变 | $$\partial \mathcal{L}/\partial z = p - y$$，分量在 $$[-1, 1]$$<br/>$$\nabla J = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$<br/>$$\mathbb{E}[\nabla\log\pi] = 0$$<br/>GRPO 优势 $$(R_i - \text{mean})/\text{std}$$<br/>随机梯度噪声方差 $$\propto 1/B$$ |
+| [第八篇：统计推断与拟合](/statistical-inference-and-fitting-scaling-laws.html) | HumanEval 差 3 个点算不算提升？$$D/N \approx 20$$ 从哪来？ | 95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，164 题分辨不出 3 个点<br/>幂律在双对数上是直线<br/>固定 $$C = 6ND$$ 用拉格朗日乘子，$$N$$、$$D$$ 应同步增长 | HumanEval ±6.1%、GSM8K ±1.6%、MMLU ±0.8%<br/>独立比较显著差异 8.7 / 2.3 / 1.1 个点<br/>$$E = 1.69, A = 406.4, B = 410.7, \alpha = 0.34, \beta = 0.28$$<br/>$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$<br/>70B ↔ 1.4T |
+
+Table: 八篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

@@ -380,6 +380,8 @@ Table: Llama-3-8B 一层的七个权重矩阵：形状、参数量与 FLOPs
 - **一个 token 过整个模型约 $$2N$$ FLOPs**——每个参数用一次乘一次加，与第四章的观察一致；
 - 上图 attention 框里的 $$QK^T$$ 与 $$\text{softmax}(\cdot) V$$ 那两个矩阵乘**不在七个矩阵里**——它们乘的是数据和数据（Q 乘 K、分数乘 V），没有参数，所以表的主体没有它们，单列在表外一行：一个 token 在每层要与全部 $$T$$ 个 token 各算一次内积再各加权一次，FLOPs 是每层 $$4Td$$、与参数量无关，随 $$T$$ 线性增长（整句话一起算就是 $$T^2$$）。$$T = 512$$ 时只占一层权重 FLOPs 的 2%，可以忽略；$$T = 128$$K 时是权重的 5 倍，成了大头——这就是长上下文贵在哪里。
 
+这七个矩阵只是**一层 block 里带参数的部分**。整台 decoder-only Transformer 还有几样不在这七个里的部件——两张 embedding 表、LayerNorm 的缩放与偏置、lm_head——它们和这七个矩阵怎么对应，以及同一套矩阵在 GPT-2 small 里叫什么、形状多大，见《Transformer 与 LLM》第一篇《[从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》第一章「六种部件」后面的对应表。
+
 ### 2. 为 L4 铺路
 
 到这里，形状规则与成本规则已经足够读懂 L4《Transformer 与 LLM》第十篇对整个模型的算账——那一篇的每一行都是本篇两条规则的重复应用：数出每个矩阵的形状、乘 2、乘 token 数、加上 attention 的平方项、乘 3 变成训练。这里只要求会两条规则；到了 L4，它们会被用来回答"训一个 8B 模型要多少 GPU 小时"。

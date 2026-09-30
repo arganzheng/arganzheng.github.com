@@ -32,81 +32,17 @@ flowchart TB
 
 系列的一句话主张是：**没有评测集的改动是猜测；judge 是仪器要先被测量；不可复现就录下来**。
 
-- **[第一篇：评测集](/eval-sets-the-unit-tests-of-ai-applications.html)**
-  - 回答的问题：用例从哪来、多大、怎么维护？
-  - 一句话结论：
-    - 从真实流量按类型采（高频 / 边界 / 失败过的）+ 红队
-    - 四字段、期望可检验、含状态
-    - 几十条起 k 次
-    - hold-out、六元组绑定、随 bad case 长
-  - 必记的数字 / 结论：
-    - 89% 可观测 vs 52% 评测
-    - k = 3–5
-    - hold-out 20–30%
-    - 合成只做冷启动
-- **[第二篇：评分](/scoring-rules-llm-as-a-judge-and-humans.html)**
-  - 回答的问题：规则 / judge / 人各评什么？judge 能信多少？
-  - 一句话结论：
-    - 能规则不 judge、能 judge 不人
-    - judge 四类偏差（风格最大）
-    - 报 kappa 不报一致率
-    - 一致 ≠ 正确
-    - 八步校准
-  - 必记的数字 / 结论：
-    - kappa 虚高 33–41 pp
-    - 排名移 14 位
-    - 重测 >0.95 与位置 >0.10 并存
-    - 风格 0.10–0.76
-    - 中档 + 去偏胜前沿便宜 15×
-    - κ ≥ 0.61
-- **[第三篇：评什么](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)**
-  - 回答的问题：各形态评哪些指标？
-  - 一句话结论：
-    - 矩阵：单步 / RAG / agent / 多轮 / 代码 × 结果 / 过程 / 成本 / 安全
-    - 过程与结果并列
-    - 多轮以会话为单位、模拟器要校准
-  - 必记的数字 / 结论：
-    - pass@k vs pass^k
-    - 分层报告
-    - 质量 vs 成本图
-- **[第四篇：门禁与在线](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)**
-  - 回答的问题：改动怎么过门禁、静默升级怎么发现、在线怎么评？
-  - 一句话结论：
-    - 改动 = 发布
-    - 分层 ≥ 基线 − 噪声、逐条 diff
-    - 钉快照 + 探针集每日
-    - 影子 → 灰度 → 回滚
-    - A/B 一因素
-    - 隐式反馈带 trace id
-    - 季度校验离线—在线相关性
-  - 必记的数字 / 结论：
-    - 探针集是模型指纹
-    - 灰度忽略缓存冷启动
-    - 短期信在线长期修离线
-- **[第五篇：trace](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)**
-  - 回答的问题：记什么、按什么约定、用什么工具？
-  - 一句话结论：
-    - 三级树 + 事件 + 子会话链接
-    - `gen_ai.*` 全部 Development、迁独立仓库、属性改名、钉 opt-in、业务属性 `app.*`
-    - 工具按评测闭环 / 自托管选
-    - 元数据全量内容采样 bad case 全量
-  - 必记的数字 / 结论：
-    - v1.42.0（2026-06）移走
-    - `system` → `provider.name`
-    - trace 是会话日志的投影
-- **[第六篇：可追溯](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)**
-  - 回答的问题：怎么从坏结果追到那一步并变成用例？
-  - 一句话结论：录制回放（输入哈希守卫）、决策点日志、失败分类十一类、版本 diff 同轴、反馈带 trace id 进队列、事后分析五段
-  - 必记的数字 / 结论：非模型改动零成本回归；"技术对产品错"单列
-- **[第七篇：运行时与物理](/runtime-reliability-and-simulation-for-the-physical-world.html)**
-  - 回答的问题：运行时拦什么？物理世界怎么验证？
-  - 一句话结论：
-    - guardrails 同步只放高风险
-    - 高风险断言必须有依据
-    - fallback 四级
-    - 仿真六层、闭环才测决策、sim-to-real、放大长尾、影子、SIL / HIL
-    - 同构表
-  - 必记的数字 / 结论：决策系统必须闭环；覆盖率用新场景比例度量
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
+|---|---|---|---|
+| [第一篇：评测集](/eval-sets-the-unit-tests-of-ai-applications.html) | 用例从哪来、多大、怎么维护？ | 从真实流量按类型采（高频 / 边界 / 失败过的）+ 红队<br/>四字段、期望可检验、含状态<br/>几十条起 k 次<br/>hold-out、六元组绑定、随 bad case 长 | 89% 可观测 vs 52% 评测<br/>k = 3–5<br/>hold-out 20–30%<br/>合成只做冷启动 |
+| [第二篇：评分](/scoring-rules-llm-as-a-judge-and-humans.html) | 规则 / judge / 人各评什么？judge 能信多少？ | 能规则不 judge、能 judge 不人<br/>judge 四类偏差（风格最大）<br/>报 kappa 不报一致率<br/>一致 ≠ 正确<br/>八步校准 | kappa 虚高 33–41 pp<br/>排名移 14 位<br/>重测 >0.95 与位置 >0.10 并存<br/>风格 0.10–0.76<br/>中档 + 去偏胜前沿便宜 15×<br/>κ ≥ 0.61 |
+| [第三篇：评什么](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html) | 各形态评哪些指标？ | 矩阵：单步 / RAG / agent / 多轮 / 代码 × 结果 / 过程 / 成本 / 安全<br/>过程与结果并列<br/>多轮以会话为单位、模拟器要校准 | pass@k vs pass^k<br/>分层报告<br/>质量 vs 成本图 |
+| [第四篇：门禁与在线](/regression-gates-silent-model-updates-ab-and-online-evaluation.html) | 改动怎么过门禁、静默升级怎么发现、在线怎么评？ | 改动 = 发布<br/>分层 ≥ 基线 − 噪声、逐条 diff<br/>钉快照 + 探针集每日<br/>影子 → 灰度 → 回滚<br/>A/B 一因素<br/>隐式反馈带 trace id<br/>季度校验离线—在线相关性 | 探针集是模型指纹<br/>灰度忽略缓存冷启动<br/>短期信在线长期修离线 |
+| [第五篇：trace](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html) | 记什么、按什么约定、用什么工具？ | 三级树 + 事件 + 子会话链接<br/>`gen_ai.*` 全部 Development、迁独立仓库、属性改名、钉 opt-in、业务属性 `app.*`<br/>工具按评测闭环 / 自托管选<br/>元数据全量内容采样 bad case 全量 | v1.42.0（2026-06）移走<br/>`system` → `provider.name`<br/>trace 是会话日志的投影 |
+| [第六篇：可追溯](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html) | 怎么从坏结果追到那一步并变成用例？ | 录制回放（输入哈希守卫）、决策点日志、失败分类十一类、版本 diff 同轴、反馈带 trace id 进队列、事后分析五段 | 非模型改动零成本回归；"技术对产品错"单列 |
+| [第七篇：运行时与物理](/runtime-reliability-and-simulation-for-the-physical-world.html) | 运行时拦什么？物理世界怎么验证？ | guardrails 同步只放高风险<br/>高风险断言必须有依据<br/>fallback 四级<br/>仿真六层、闭环才测决策、sim-to-real、放大长尾、影子、SIL / HIL<br/>同构表 | 决策系统必须闭环；覆盖率用新场景比例度量 |
+
+Table: 七篇的核心问题、结论与必记
 
 ### 1. 本文的章节安排
 

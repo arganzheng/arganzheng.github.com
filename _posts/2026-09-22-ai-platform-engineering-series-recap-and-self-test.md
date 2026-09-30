@@ -40,85 +40,18 @@ flowchart TB
 
 系列的一句话主张是：**平台的每一个设计决定都是被引擎的某个需求推出来的，而每个决定都有代价**。每篇同一个骨架——引擎的需求 → K8s 的空缺 → 平台的机制 → 代价与边界；同一条主线：Kubernetes 的四个假设（Pod 独立、资源可细分、一张 overlay 网卡、HPA 看 CPU）被 AI 负载逐条违背，于是有了 device plugin、Kueue / Volcano、MIG / HAMi、Multus、LeaderWorkerSet、InferencePool、DCGM 映射这一层又一层的扩展；每一层都填一个洞，也都挖一个新的。
 
-- **[第一篇：需求清单与整体架构](/ai-platform-engine-requirements-and-architecture.html)**
-  - 回答的问题：32 卡训练任务与 TP=2 推理服务各列一张需求表，哪几条原生 Kubernetes 满足不了？
-  - 一句话结论：
-    - 空缺分缺插件、缺概念、缺信号三种
-    - 训练卡在调度与网络，推理卡在扩缩容与路由，唯一共同的空缺是"GPU 是不透明整数"
-    - 平台分资源层与交付层，分界线是"Pod 能跑了"
-  - 必记的数字 / 公式：
-    - 训练 15 条原生满足 1 条、推理 15 条满足 2 条
-    - 80 GB 卡 × 0.92：7B 权重 14 GB → KV 约 60 GB，30B 权重 60 GB → KV 约 14 GB
-    - 扩容一个副本 5–10 分钟
-- **[第二篇：容器里的 GPU](/gpu-in-containers-driver-cuda-device-plugin.html)**
-  - 回答的问题：驱动 580 + CUDA 13.1 镜像 + 调用 13.1 新 API 能跑吗？驱动 570 呢？
-  - 一句话结论：
-    - 四层栈、三条规则：向后兼容无条件
-    - minor version 同大版本内旧驱动跑新 Toolkit（新驱动 API 与 PTX JIT 除外）
-    - forward 跨大版本只有数据中心 GPU + cuda-compat 包
-  - 必记的数字 / 公式：
-    - 基线 12.x ≥ 525.60.13、13.x ≥ 580.65.06
-    - 错误码 35 / 36 / 222
-    - device plugin 只计数、无属性、不跨 Pod 共享
-    - DRA `resource.k8s.io/v1` 自 1.34 GA
-    - 10 GB 镜像冷拉 2–3 分钟
-- **[第三篇：AI 任务调度](/ai-job-scheduling-gang-queue-topology.html)**
-  - 回答的问题：A、B 各 16 卡配额，A 提交 32 卡任务，B 空闲——Volcano、Kueue、Slurm 里各会怎样？
-  - 一句话结论：Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang；默认值下 Volcano 与 Kueue 借了不还、Slurm 不借
-  - 必记的数字 / 公式：
-    - `guarantee ≤ deserved ≤ capability`
-    - `nominalQuota` / `borrowingLimit` / `lendingLimit` + 三个抢占开关
-    - 抢占代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$
-    - 30/32 死锁
-- **[第四篇：GPU 共享与切分](/gpu-sharing-and-partitioning-mig-mps-hami.html)**
-  - 回答的问题：同一张 A100 跑三个小模型：MIG `3g.20gb × 2`、HAMi 切三份、时间片三副本——隔离、吞吐、故障域各怎样？
-  - 一句话结论：
-    - 四档取舍都是"device plugin 把一张卡复制成 N 个逻辑设备"的不同底座
-    - 时间片无隔离、HAMi 软件隔离但故障域整卡、MIG 连 Xid 都隔离但几何刚性
-    - 训练不切
-  - 必记的数字 / 公式：
-    - A100 7 个计算 slice、8 个显存 slice，`3g.20gb × 2` 只能放两个服务
-    - `3g.20gb` = 3/7 算力 + 4/8 带宽
-    - HAMi `deviceSplitCount` 默认 10
-    - 时间片下 OOM 会蔓延
-- **[第五篇：网络与存储](/rdma-networking-storage-and-checkpoint-io.html)**
-  - 回答的问题：容器里 `nccl-tests` 只有裸机三分之一——Pod 网络、device plugin、NCCL 环境变量三层各可能错在哪？
-  - 一句话结论：NCCL 找不到 RDMA 就静默回落 Socket，缺任何一项都不报错；Multus 给第二张网卡、RDMA device plugin 给 `/dev/infiniband`、`IPC_LOCK` 与 peermem / DMA-BUF 给 GDR
-  - 必记的数字 / 公式：
-    - 14 字节/参数 → 70B ≈ 1 TB
-    - 30 分钟一次、1 分钟写完 → 16.7 GB/s 聚合、2.1 GB/s 每节点、260 MB/s 每 rank
-    - 异步 → 0.56 GB/s，代价每节点约 125 GB pinned 内存
-    - `NCCL_NET_GDR_LEVEL` 默认 `PXB`
-- **[第六篇：Serving 平台](/serving-platforms-kserve-triton-ray-serve-llm-d.html)**
-  - 回答的问题：TP=4 的 70B 服务晚高峰 2 → 6 副本、就绪 8 分钟——指标、阈值、提前多久？
-  - 一句话结论：
-    - CPU 无意义
-    - 领先指标 `num_requests_running` / `kv_cache_usage_perc`，`waiting` 只兜底
-    - 纯反应式阈值 = 峰值过配
-    - 可预测的高峰用 cron 提前
-  - 必记的数字 / 公式：
-    - 阈值 36/副本（饱和点 64 的 56%）→ 峰值 10 副本而非 6
-    - cron 提前 12 分钟 + running 56 + waiting 4 + 缩容 15 分钟窗口 ≈ 5 卡时/天，对比常驻 328 卡时/天
-    - 信号延迟约 1 分钟
-- **[第七篇：模型网关与多租户](/model-gateway-multi-tenancy-and-quota.html)**
-  - 回答的问题：两租户共用 4 个副本、A 配额是 B 三倍、同时打满——按什么规则排队、排在哪个副本？"配额"是什么？
-  - 一句话结论：
-    - 外层按 RPM / TPM / 并发 429，内层 EPP 按 priority 严格优先、同级 round-robin，无按权重公平
-    - 选副本与租户无关
-    - 配额是 token + 并发 + RPM，GPU 时间只做内部成本
-  - 必记的数字 / 公式：
-    - 64 会话 × 8k 对 4 副本 × 160k：前缀亲和让 TTFT 从 0.5 s 级到几十 ms
-    - 预扣 = 输入估算 + min(max_completion_tokens, 上限)
-    - 打分权重前缀 3、队列 2、KV 2、LoRA 1
-    - EPP 每 50 ms 抓一次 `/metrics`
-- **[第八篇：可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html)**
-  - 回答的问题：分配率 85%、`SM_ACTIVE` 35%，50 个点去了哪里？各对应哪篇？
-  - 一句话结论：
-    - 四层指标靠 `pod` / `namespace` join
-    - `GPU_UTIL` 只表示"有 kernel 在跑"
-    - $$E \approx A \times U$$
-    - 按分配计费让闲置有主
-  - 必记的数字 / 公式：50 个点：推理低峰 ~15、dev ~10、通信等待 ~10、排队占位 ~5、checkpoint ~3、冷启动 ~2、测量上限 ~5；每百万 token 成本 U 从 100% 到 40% 贵 2.5 倍（1.39 → 3.47 美元）
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：需求清单与整体架构](/ai-platform-engine-requirements-and-architecture.html) | 32 卡训练任务与 TP=2 推理服务各列一张需求表，哪几条原生 Kubernetes 满足不了？ | 空缺分缺插件、缺概念、缺信号三种<br/>训练卡在调度与网络，推理卡在扩缩容与路由，唯一共同的空缺是"GPU 是不透明整数"<br/>平台分资源层与交付层，分界线是"Pod 能跑了" | 训练 15 条原生满足 1 条、推理 15 条满足 2 条<br/>80 GB 卡 × 0.92：7B 权重 14 GB → KV 约 60 GB，30B 权重 60 GB → KV 约 14 GB<br/>扩容一个副本 5–10 分钟 |
+| [第二篇：容器里的 GPU](/gpu-in-containers-driver-cuda-device-plugin.html) | 驱动 580 + CUDA 13.1 镜像 + 调用 13.1 新 API 能跑吗？驱动 570 呢？ | 四层栈、三条规则：向后兼容无条件<br/>minor version 同大版本内旧驱动跑新 Toolkit（新驱动 API 与 PTX JIT 除外）<br/>forward 跨大版本只有数据中心 GPU + cuda-compat 包 | 基线 12.x ≥ 525.60.13、13.x ≥ 580.65.06<br/>错误码 35 / 36 / 222<br/>device plugin 只计数、无属性、不跨 Pod 共享<br/>DRA `resource.k8s.io/v1` 自 1.34 GA<br/>10 GB 镜像冷拉 2–3 分钟 |
+| [第三篇：AI 任务调度](/ai-job-scheduling-gang-queue-topology.html) | A、B 各 16 卡配额，A 提交 32 卡任务，B 空闲——Volcano、Kueue、Slurm 里各会怎样？ | Volcano 在 Pod 之后做节点级 gang，Kueue 在 Pod 之前做配额级 gang；默认值下 Volcano 与 Kueue 借了不还、Slurm 不借 | `guarantee ≤ deserved ≤ capability`<br/>`nominalQuota` / `borrowingLimit` / `lendingLimit` + 三个抢占开关<br/>抢占代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$<br/>30/32 死锁 |
+| [第四篇：GPU 共享与切分](/gpu-sharing-and-partitioning-mig-mps-hami.html) | 同一张 A100 跑三个小模型：MIG `3g.20gb × 2`、HAMi 切三份、时间片三副本——隔离、吞吐、故障域各怎样？ | 四档取舍都是"device plugin 把一张卡复制成 N 个逻辑设备"的不同底座<br/>时间片无隔离、HAMi 软件隔离但故障域整卡、MIG 连 Xid 都隔离但几何刚性<br/>训练不切 | A100 7 个计算 slice、8 个显存 slice，`3g.20gb × 2` 只能放两个服务<br/>`3g.20gb` = 3/7 算力 + 4/8 带宽<br/>HAMi `deviceSplitCount` 默认 10<br/>时间片下 OOM 会蔓延 |
+| [第五篇：网络与存储](/rdma-networking-storage-and-checkpoint-io.html) | 容器里 `nccl-tests` 只有裸机三分之一——Pod 网络、device plugin、NCCL 环境变量三层各可能错在哪？ | NCCL 找不到 RDMA 就静默回落 Socket，缺任何一项都不报错；Multus 给第二张网卡、RDMA device plugin 给 `/dev/infiniband`、`IPC_LOCK` 与 peermem / DMA-BUF 给 GDR | 14 字节/参数 → 70B ≈ 1 TB<br/>30 分钟一次、1 分钟写完 → 16.7 GB/s 聚合、2.1 GB/s 每节点、260 MB/s 每 rank<br/>异步 → 0.56 GB/s，代价每节点约 125 GB pinned 内存<br/>`NCCL_NET_GDR_LEVEL` 默认 `PXB` |
+| [第六篇：Serving 平台](/serving-platforms-kserve-triton-ray-serve-llm-d.html) | TP=4 的 70B 服务晚高峰 2 → 6 副本、就绪 8 分钟——指标、阈值、提前多久？ | CPU 无意义<br/>领先指标 `num_requests_running` / `kv_cache_usage_perc`，`waiting` 只兜底<br/>纯反应式阈值 = 峰值过配<br/>可预测的高峰用 cron 提前 | 阈值 36/副本（饱和点 64 的 56%）→ 峰值 10 副本而非 6<br/>cron 提前 12 分钟 + running 56 + waiting 4 + 缩容 15 分钟窗口 ≈ 5 卡时/天，对比常驻 328 卡时/天<br/>信号延迟约 1 分钟 |
+| [第七篇：模型网关与多租户](/model-gateway-multi-tenancy-and-quota.html) | 两租户共用 4 个副本、A 配额是 B 三倍、同时打满——按什么规则排队、排在哪个副本？"配额"是什么？ | 外层按 RPM / TPM / 并发 429，内层 EPP 按 priority 严格优先、同级 round-robin，无按权重公平<br/>选副本与租户无关<br/>配额是 token + 并发 + RPM，GPU 时间只做内部成本 | 64 会话 × 8k 对 4 副本 × 160k：前缀亲和让 TTFT 从 0.5 s 级到几十 ms<br/>预扣 = 输入估算 + min(max_completion_tokens, 上限)<br/>打分权重前缀 3、队列 2、KV 2、LoRA 1<br/>EPP 每 50 ms 抓一次 `/metrics` |
+| [第八篇：可观测、成本与 FinOps](/ai-platform-observability-cost-and-finops.html) | 分配率 85%、`SM_ACTIVE` 35%，50 个点去了哪里？各对应哪篇？ | 四层指标靠 `pod` / `namespace` join<br/>`GPU_UTIL` 只表示"有 kernel 在跑"<br/>$$E \approx A \times U$$<br/>按分配计费让闲置有主 | 50 个点：推理低峰 ~15、dev ~10、通信等待 ~10、排队占位 ~5、checkpoint ~3、冷启动 ~2、测量上限 ~5；每百万 token 成本 U 从 100% 到 40% 贵 2.5 倍（1.39 → 3.47 美元） |
+
+Table: 八篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

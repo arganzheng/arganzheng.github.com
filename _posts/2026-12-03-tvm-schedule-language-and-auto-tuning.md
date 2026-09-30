@@ -17,33 +17,20 @@ catalog: true
 
 ## 一、总览
 
-- **二、算法与调度分离**
-  - Halide 血统
-  - TVM 的分层：Relax → TensorIR → 目标代码
-  - v0.26 的 `tirx` / `s_tir` 拆分
-- **三、TensorIR**
-  - PrimFunc、Buffer、SBlock、迭代变量的 S / R 标注、`T.init`
-  - 与 Triton IR 的对照
-- **四、调度原语**
-  - 一个 CPU matmul 的五步：`split / reorder / reverse_compute_at / vectorize / parallel / decompose_reduction`，每步的 IR 与耗时
-  - 一次被拒绝的变换
-- **五、GPU 调度**
-  - `bind`、`cache_read("shared")`、`cache_write("local")`
-  - 生成的 Metal 与 CUDA 源码
-  - 编译器插的 barrier
-- **六、下降**
-  - `s_tir` pipeline 的 pass 表
-  - `tensorize` 与 Tensor Core intrinsic
-  - 生成的 LLVM IR
-- **七、DLight 与 MetaSchedule**
-  - 规则库的 `wmma` 调度全文
-  - 搜索空间的表示（`sample_perfect_tile`）、trace、代价模型、32 次试验
-- **八、Relax 与 MLC-LLM**
-  - 图层：`nn.Module → Relax → legalize → TIR`
-  - `get_pipeline("zero")`
-- **九、设计空间对照**：Triton / Gluon / TVM / XLA / IREE / Inductor / CUTLASS：谁决定什么、空间多大、风险在哪
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 算法与调度分离 | Halide 血统<br/>TVM 的分层：Relax → TensorIR → 目标代码<br/>v0.26 的 `tirx` / `s_tir` 拆分 |
+| 三 | TensorIR | PrimFunc、Buffer、SBlock、迭代变量的 S / R 标注、`T.init`；与 Triton IR 的对照 |
+| 四 | 调度原语 | 一个 CPU matmul 的五步：`split / reorder / reverse_compute_at / vectorize / parallel / decompose_reduction`，每步的 IR 与耗时；一次被拒绝的变换 |
+| 五 | GPU 调度 | `bind`、`cache_read("shared")`、`cache_write("local")`<br/>生成的 Metal 与 CUDA 源码<br/>编译器插的 barrier |
+| 六 | 下降 | `s_tir` pipeline 的 pass 表<br/>`tensorize` 与 Tensor Core intrinsic<br/>生成的 LLVM IR |
+| 七 | DLight 与 MetaSchedule | 规则库的 `wmma` 调度全文；搜索空间的表示（`sample_perfect_tile`）、trace、代价模型、32 次试验 |
+| 八 | Relax 与 MLC-LLM | 图层：`nn.Module → Relax → legalize → TIR`；`get_pipeline("zero")` |
+| 九 | 设计空间对照 | Triton / Gluon / TVM / XLA / IREE / Inductor / CUTLASS：谁决定什么、空间多大、风险在哪 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码：`python/tvm/tirx/`（IR、lowering）、`python/tvm/s_tir/schedule/schedule.py`（调度原语的 Python 接口）、`src/s_tir/schedule/primitive/`（原语实现）、`src/s_tir/schedule/analysis/`（合法性检查）、`python/tvm/s_tir/dlight/gpu/matmul.py`、`python/tvm/s_tir/meta_schedule/`、`python/tvm/s_tir/tensor_intrin/cuda.py`、`python/tvm/relax/`、`docs/deep_dive/tensor_ir/`。运行：`PYTHONPATH=python`（TVM 的 `AGENTS.md` 明说不要 `pip install -e`），`build/` 用 Apple clang + Homebrew `llvm@22` 构建（v0.26 与 LLVM 23 不兼容）、`USE_METAL=ON`。
 

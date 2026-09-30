@@ -19,21 +19,18 @@ catalog: true
 
 本文按**三种变换机制由简到繁**组织：pass 基础设施（第二章）→ pattern rewrite 与 greedy driver（第三章）→ dialect conversion（第四章）；然后用一个完整的例子把三者串起来——`linalg.matmul` 逐步下降到 LLVM 方言并在笔记本上运行（第五章）；再讲数据流分析框架（第六章）；最后看 Triton 一个 pass 从 TableGen 声明到 `compiler.py` 里那一行 `passes.ttgpuir.add_coalesce(pm)` 的完整注册链（第七章）。
 
-- **二、Pass**：`OperationPass<T>`、嵌套 PassManager、文本 pipeline、analysis 的缓存与失效、instrumentation
-- **三、Pattern Rewrite**
-  - `RewritePattern`、`PatternRewriter` 的纪律、greedy driver 的算法、`fold` 与 canonicalize、DRR / PDLL
-  - 写一个 pass 插件挂进 `mlir-opt`
-- **四、Dialect Conversion**
-  - 合法性、`TypeConverter`、materialization、`ConversionPattern` 与 adaptor、partial / full、回滚
-  - `unrealized_conversion_cast`
-  - Triton 的 `ConvertTritonToTritonGPU` 逐段读
-- **五、一条完整的下降**：`linalg.matmul` → `scf` 循环 → `llvm` 方言 → LLVM IR → 运行
-- **六、数据流分析框架**：`DataFlowSolver`、`Lattice`、sparse / dense、`--sccp` 实例
-- **七、Triton 的一个 pass 从哪来**
-  - `Passes.td` → `impl::…Base` → `create…` → Python 绑定 → `compiler.py`
-  - `triton-opt`
-- **八、本文小结**
-- **九、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Pass | `OperationPass<T>`、嵌套 PassManager、文本 pipeline、analysis 的缓存与失效、instrumentation |
+| 三 | Pattern Rewrite | `RewritePattern`、`PatternRewriter` 的纪律、greedy driver 的算法、`fold` 与 canonicalize、DRR / PDLL；写一个 pass 插件挂进 `mlir-opt` |
+| 四 | Dialect Conversion | 合法性、`TypeConverter`、materialization、`ConversionPattern` 与 adaptor、partial / full、回滚<br/>`unrealized_conversion_cast`<br/>Triton 的 `ConvertTritonToTritonGPU` 逐段读 |
+| 五 | 一条完整的下降 | `linalg.matmul` → `scf` 循环 → `llvm` 方言 → LLVM IR → 运行 |
+| 六 | 数据流分析框架 | `DataFlowSolver`、`Lattice`、sparse / dense、`--sccp` 实例 |
+| 七 | Triton 的一个 pass 从哪来 | `Passes.td` → `impl::…Base` → `create…` → Python 绑定 → `compiler.py`；`triton-opt` |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、Pass 基础设施
 

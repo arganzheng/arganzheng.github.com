@@ -48,40 +48,20 @@ Table: KV cache 压缩方法对照
 
 ### 3. 本文的章节安排
 
-- **二、KV 的数值结构**
-  - key 的通道离群与 value 的均匀
-  - massive activations 与 sink 的关系
-  - 误差怎么进入 attention
-- **三、KV 量化**
-  - FP8 / INT8 的免费午餐
-  - KIVI 的非对称粒度推导
-  - 2 bit 的极限
-  - 与 PagedAttention 的配合
-- **四、驱逐**
-  - attention sink 的成因
-  - StreamingLLM
-  - H2O 的累计注意力
-  - SnapKV 的观察窗
-  - PyramidKV 的层分配
-  - 驱逐在 needle 上失败的原因
-- **五、合并与共享**
-  - token 合并
-  - CLA / YOCO 的跨层共享（训练时）
-- **六、训练时稀疏**
-  - 稀疏 attention 的三种模式
-  - NSA 的三分支与可微选择
-  - MoBA 的块路由
-  - 为什么它们是精确的
-- **七、prompt 压缩与决策**
-  - LLMLingua 一类
-  - 一张按任务形态的决策表
-- **八、成本**
-  - 字节账
-  - 量化 / 驱逐的运行时开销
-  - 与投机解码、量化权重的叠加
-- **九、动手（建议）**：needle 准确率随 KV 预算的曲线
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | KV 的数值结构 | key 的通道离群与 value 的均匀<br/>massive activations 与 sink 的关系<br/>误差怎么进入 attention |
+| 三 | KV 量化 | FP8 / INT8 的免费午餐<br/>KIVI 的非对称粒度推导<br/>2 bit 的极限<br/>与 PagedAttention 的配合 |
+| 四 | 驱逐 | attention sink 的成因<br/>StreamingLLM<br/>H2O 的累计注意力<br/>SnapKV 的观察窗<br/>PyramidKV 的层分配<br/>驱逐在 needle 上失败的原因 |
+| 五 | 合并与共享 | token 合并；CLA / YOCO 的跨层共享（训练时） |
+| 六 | 训练时稀疏 | 稀疏 attention 的三种模式<br/>NSA 的三分支与可微选择<br/>MoBA 的块路由<br/>为什么它们是精确的 |
+| 七 | prompt 压缩与决策 | LLMLingua 一类；一张按任务形态的决策表 |
+| 八 | 成本 | 字节账<br/>量化 / 驱逐的运行时开销<br/>与投机解码、量化权重的叠加 |
+| 九 | 动手（建议） | needle 准确率随 KV 预算的曲线 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、KV 的数值结构
 

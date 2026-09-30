@@ -62,29 +62,15 @@ Table: multi-LoRA 与多模态惊动的模块
 
 ### 4. 本文的章节安排
 
-- **二、multi-LoRA**
-  - 一段回顾
-  - 同 batch 异构 adapter 的 Triton kernel
-  - 槽位与 LRU
-  - 显存账
-  - 映射如何进入调度与执行
-  - 动态加载
-  - CUDA graph
-  - 量化 + LoRA
-- **三、多模态**
-  - 输入处理流水线与 processor 缓存
-  - 占位符与 embedding 合并
-  - encoder 的独立执行与预算
-  - EncoderCacheManager
-  - 多模态 prefix cache
-  - 显存账
-  - 视频与音频
-- **四、叠加与向后**
-  - LoRA + 多模态
-  - 留给硬件抽象（11）与 PD 分离（12）的问题
-  - 两个扩展的开销对照
-- **五、本文小结**
-- **六、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | multi-LoRA | 一段回顾<br/>同 batch 异构 adapter 的 Triton kernel<br/>槽位与 LRU<br/>显存账<br/>映射如何进入调度与执行<br/>动态加载<br/>CUDA graph<br/>量化 + LoRA |
+| 三 | 多模态 | 输入处理流水线与 processor 缓存<br/>占位符与 embedding 合并<br/>encoder 的独立执行与预算<br/>EncoderCacheManager<br/>多模态 prefix cache<br/>显存账<br/>视频与音频 |
+| 四 | 叠加与向后 | LoRA + 多模态<br/>留给硬件抽象（11）与 PD 分离（12）的问题<br/>两个扩展的开销对照 |
+| 五 | 本文小结 |  |
+| 六 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、multi-LoRA：同一个 batch，每一行乘不同的权重
 

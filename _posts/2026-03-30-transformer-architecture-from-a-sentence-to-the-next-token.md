@@ -48,35 +48,35 @@ Table: decoder-only Transformer 的六种部件与它们的参数
 
 六种部件里，attention 是**唯一让 token 之间交流**的地方，其他五种都是"每个 token 各自算"——两次查表、FFN、残差 + LayerNorm、lm_head 都只看自己这一行。这是理解 Transformer 的第一把钥匙：把它想成 $$T$$ 条平行的流水线，只在 attention 那一站互相传递信息。
 
+这张表和《算法工程师的数学》第一篇《向量、矩阵与形状》第六章的「[七个权重矩阵](/vectors-matrices-shapes-and-flops.html#1-七个权重矩阵)」数的是同一台机器，只是切法不同。那一章只数**一层 block 里带参数的矩阵**：attention 四个（$$W_Q, W_K, W_V, W_O$$）加 MLP 三个（Llama 的 $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$），按形状规则算出 Llama-3-8B 一层 218M 参数、81% 在 MLP。本文数的是**整台机器有几种不同的东西**，所以多出了三样不在那七个里的部件——两张 embedding 表、LayerNorm 的 $$2d$$ 个数、以及 lm_head。两张表对起来是这样：
+
+| 本文的部件 | 对应「七个权重矩阵」里的哪几个 | GPT-2 small 里的实际矩阵（nanoGPT 命名） | 两个模型的差别 |
+|---|---|---|---|
+| token embedding | 不在七个里 | `wte`：50257 × 768 | 查表不是矩阵乘，那一章的 FLOPs 账里不算它 |
+| 位置 embedding | 不在七个里 | `wpe`：1024 × 768 | Llama 用 RoPE，没有这张表 |
+| attention 子层 | $$W_Q, W_K, W_V, W_O$$ 四个 | `c_attn`：768 × 2304（$$W_Q, W_K, W_V$$ 三个拼成一个）<br/>`c_proj`：768 × 768 | GPT-2 的 K、V 与 Q 同宽；Llama-3 用 GQA，$$W_K, W_V$$ 只有 4096 × 1024 |
+| FFN 子层 | $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$ 三个 | `c_fc`：768 × 3072<br/>`c_proj`：3072 × 768 | GPT-2 是两个矩阵夹一个 GELU；Llama 多一个门 $$W_{\text{gate}}$$、用 SiLU，所以是三个 |
+| 残差连接 + LayerNorm | 不在七个里 | `ln_1`、`ln_2` 各 768 + 768 个数 | 残差没有参数；LayerNorm 只有缩放与偏置两个向量，不是矩阵 |
+| lm_head | 不在七个里 | 与 `wte` 共享 | Llama 不共享，单独一个 4096 × 128256 |
+
+Table: 本文的六种部件与「七个权重矩阵」的对应——七个矩阵全落在 attention 与 FFN 两个子层里，其余四种部件在那张表之外
+
+所以那一章的 $$QK^\top$$、$$\mathrm{softmax}(\cdot)V$$ 是数据之间的运算、没有参数，这里的残差与 LayerNorm 同理；两边的数字也能互相印证——第六章第 3 节数出 GPT-2 small 一层 7.09M 参数，几乎全在 `c_attn`、`c_proj`、`c_fc`、`c_proj` 这几个矩阵里，两个 LayerNorm 只占 3072 个；把形状换成 Llama-3-8B 的，就是那一章的 218M。
+
 ### 3. 本文的章节安排
 
-- **二、从字到有序的向量**
-  - embedding 查表
-  - attention 不知道顺序（换序实验）
-  - 两种给位置的方法
-- **三、Attention**
-  - 为什么需要它：GPT-2 真实的 attention 图
-  - Q / K / V 三个投影
-  - d = 4 的六步手算
-  - 为什么除 √d、为什么 mask
-  - 多头：怎么切、为什么各头看的不一样
-- **四、FFN**
-  - 为什么 attention 之后还要它
-  - GELU 与 4d
-  - 知识存在哪
-- **五、残差与 LayerNorm**
-  - 深了为什么训不动
-  - LayerNorm 手算
-  - pre-norm 与 post-norm
-- **六、叠起来**
-  - 一个 block 的数据流
-  - lm_head 与权重共享
-  - GPT-2 small 的 1.24 亿参数逐项数出来
-- **七、与 d2l 10.7 的 encoder-decoder 对照**
-  - cross-attention 去哪了
-  - 为什么 GPT 只留 decoder
-- **八、本文小结**
-- **九、自测**：六道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 从字到有序的向量 | embedding 查表<br/>attention 不知道顺序（换序实验）<br/>两种给位置的方法 |
+| 三 | Attention | 为什么需要它：GPT-2 真实的 attention 图<br/>Q / K / V 三个投影<br/>d = 4 的六步手算<br/>为什么除 √d、为什么 mask<br/>多头：怎么切、为什么各头看的不一样 |
+| 四 | FFN | 为什么 attention 之后还要它<br/>GELU 与 4d<br/>知识存在哪 |
+| 五 | 残差与 LayerNorm | 深了为什么训不动<br/>LayerNorm 手算<br/>pre-norm 与 post-norm |
+| 六 | 叠起来 | 一个 block 的数据流<br/>lm_head 与权重共享<br/>GPT-2 small 的 1.24 亿参数逐项数出来 |
+| 七 | 与 d2l 10.7 的 encoder-decoder 对照 | cross-attention 去哪了<br/>为什么 GPT 只留 decoder |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 六道题 |
+
+Table: 本文的章节安排
 
 ## 二、从字到有序的向量：embedding 与位置
 

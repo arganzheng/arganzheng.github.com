@@ -40,35 +40,18 @@ CFG 的 $$w = 7.5$$ 意味着**每一步**用的分数被换成了 $$(1-w)\,s_\e
 
 本文按"换一种语言 → 再换一种语言 → 两个工程技术"组织：先把上篇的噪声预测器翻译成"分数"（第二章），再翻译成"速度场"（第三章），每次翻译都在 toy 上验证是同一个东西；然后讲调度（第四章）与 CFG（第五章）。
 
-- **二、score matching**
-  - 分数是什么（把上篇的模型画成箭头图）
-  - Tweedie 公式（toy 验算）
-  - 去噪分数匹配 = 噪声预测
-  - SDE 与概率流 ODE
-- **三、flow matching**
-  - 直线路径与速度场
-  - toy 上从零训一个（代码）
-  - 与 DDPM 的换算
-  - 轨迹为什么弯、reflow 怎么拉直（图）
-  - 1 / 2 / 5 / 20 步对比（图）
-- **四、噪声调度与时间步采样**
-  - linear / cosine / 零终端 SNR
-  - logit-normal
-  - 分辨率与调度的耦合
-- **五、classifier-free guidance**
-  - 条件 dropout
-  - 从贝叶斯到 $$\tilde\epsilon$$
-  - toy 上 w = 0 / 1 / 2 / 4 / 8（图）
-  - 它在采样什么分布
-  - 副作用与修正
-- **六、成本**
-  - 训练与采样的 FLOPs
-  - 与 LLM 的对比
-- **七、动手（建议）**
-  - CIFAR-10 上 DDPM vs flow matching
-  - 配套代码
-- **八、本文小结**
-- **九、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | score matching | 分数是什么（把上篇的模型画成箭头图）<br/>Tweedie 公式（toy 验算）<br/>去噪分数匹配 = 噪声预测<br/>SDE 与概率流 ODE |
+| 三 | flow matching | 直线路径与速度场<br/>toy 上从零训一个（代码）<br/>与 DDPM 的换算<br/>轨迹为什么弯、reflow 怎么拉直（图）<br/>1 / 2 / 5 / 20 步对比（图） |
+| 四 | 噪声调度与时间步采样 | linear / cosine / 零终端 SNR<br/>logit-normal<br/>分辨率与调度的耦合 |
+| 五 | classifier-free guidance | 条件 dropout<br/>从贝叶斯到 $$\tilde\epsilon$$<br/>toy 上 w = 0 / 1 / 2 / 4 / 8（图）<br/>它在采样什么分布<br/>副作用与修正 |
+| 六 | 成本 | 训练与采样的 FLOPs；与 LLM 的对比 |
+| 七 | 动手（建议） | CIFAR-10 上 DDPM vs flow matching；配套代码 |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、score matching：分数的视角
 

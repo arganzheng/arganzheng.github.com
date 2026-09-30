@@ -17,34 +17,18 @@ catalog: true
 
 ## 一、总览
 
-- **二、`compile()` 的骨架**
-  - 阶段表
-  - `ASTSource` 与 `IRSource`
-  - `metadata` 字典的累积
-  - 缓存组
-- **三、缓存 key**
-  - 五个成分
-  - `triton_key`
-  - `JITFunction.cache_key`
-  - 目录名
-  - 命中与失效
-- **四、元数据**：34 个字段的来源与消费者
-- **五、dump 与 override**
-  - `TRITON_KERNEL_DUMP`、`TRITON_KERNEL_OVERRIDE`、`ir_override`
-  - 从 `.ttgir` 文件编译
-- **六、加载与启动**
-  - `load_binary`
-  - 运行时生成的 C launcher
-  - `cuLaunchKernelEx` 的属性
-  - scratch
-- **七、AMD 后端**
-  - 阶段表
-  - pass 列表的异同
-  - `#amd_mfma`
-  - LLVM 直出 ISA
-  - 实测 gfx942
-- **八、本文小结**
-- **九、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | `compile()` 的骨架 | 阶段表<br/>`ASTSource` 与 `IRSource`<br/>`metadata` 字典的累积<br/>缓存组 |
+| 三 | 缓存 key | 五个成分<br/>`triton_key`<br/>`JITFunction.cache_key`<br/>目录名<br/>命中与失效 |
+| 四 | 元数据 | 34 个字段的来源与消费者 |
+| 五 | dump 与 override | `TRITON_KERNEL_DUMP`、`TRITON_KERNEL_OVERRIDE`、`ir_override`；从 `.ttgir` 文件编译 |
+| 六 | 加载与启动 | `load_binary`<br/>运行时生成的 C launcher<br/>`cuLaunchKernelEx` 的属性<br/>scratch |
+| 七 | AMD 后端 | 阶段表<br/>pass 列表的异同<br/>`#amd_mfma`<br/>LLVM 直出 ISA<br/>实测 gfx942 |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码：`python/triton/compiler/compiler.py`、`python/triton/runtime/{cache,jit,driver}.py`、`python/triton/knobs.py`、`include/triton/Tools/Sys/GetEnv.h`、`third_party/nvidia/backend/{compiler.py,driver.py,driver.c}`、`third_party/amd/backend/{compiler.py,driver.py}`。
 

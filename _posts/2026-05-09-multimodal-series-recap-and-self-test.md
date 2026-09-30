@@ -38,94 +38,19 @@ flowchart TB
 
 系列的一句话主张是：**多模态模型的每个部件都在做一次"信息 vs token"的交换，而交换的两端都能算账**。编码器的目标函数决定保留什么信息；connector 与分辨率策略决定一张图值多少 token；codec 决定一秒语音值多少 token；VAE 与 VQ tokenizer 决定生成侧在哪个空间、多长的序列上工作；生成范式（自回归 vs 扩散）决定这些 token 是串行 decode 还是多步并行前向——进而决定成本是 memory-bound 还是 compute-bound。九篇用同一套方法（推导 → 算账 → 公开配方对照），对照的是同一批模型（LLaVA → Qwen2.5-VL → InternVL、Whisper → Moshi、SD 1.5 → FLUX、VQGAN → BAGEL）。
 
-- **[第一篇：视觉编码器](/vision-encoders-clip-siglip-and-self-supervised-vit.html)**
-  - 回答的问题：为什么几乎所有 VLM 用 CLIP / SigLIP 而不用 ImageNet ViT？编码器看不到什么？
-  - 一句话结论：对比学习把图像投到已与文本对齐的语义空间，connector 只需小映射；但它只保留"文本能描述且需要区分图文对"的信息，计数、空间、绑定、小字是结构性盲点
-  - 必记的数字 / 公式：
-    - $$I \ge \log B - \mathcal{L}$$，CLIP 32K batch
-    - 温度学到 0.01（×100）
-    - CLIP 训练 $$6.4 \times 10^{21}$$ FLOPs ≈ 7B LLM 150B token
-    - ViT-L/14-336 → 576 token、SigLIP-SO400M-384 → 729
-    - 分辨率 > 参数量 > 数据
-- **[第二篇：VLM 的结构](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)**
-  - 回答的问题：LLaVA 的 MLP 与 BLIP-2 的 Q-Former 差什么？Qwen2-VL 为什么要原生分辨率？
-  - 一句话结论：差在信息瓶颈：MLP 无损保空间、Q-Former 32 个内容无关的 query 装不下细节；原生分辨率让 token ∝ 像素、全图一个 attention，解决 tile 的边界、失真、效率三问题
-  - 必记的数字 / 公式：
-    - 2×2 merge 4× 无损，$$28 \times 28$$ 像素/token 是文字甜点
-    - Qwen2-VL token $$= HW / 28^2$$
-    - LLaVA-NeXT 2880、InternVL ≤ 40 tile ≈ 10K
-    - Llama 3.2 cross-attn +20B 参数
-    - 576 token 在 7B 里 prefill 8 TFLOPs、KV 72 MB
-- **[第三篇：VLM 的训练](/vlm-training-recipe-data-stages-and-evaluation.html)**
-  - 回答的问题：为什么先冻结 LLM 只训 connector？幻觉从哪来、怎么减少？
-  - 一句话结论：随机 connector 的噪声梯度会让 LLM 学会忽略视觉 token；幻觉来自数据共现、编码器缺失、解码惯性三处，各有对应手段
-  - 必记的数字 / 公式：
-    - LLaVA-1.5 558K + 665K
-    - MM1 配比 45 / 45 / 10
-    - 文本混入 10–50%，退化 1–3 点
-    - POPE 共现 85 → 90
-    - 阶段 2 主导，Qwen2-VL 1.4T token ≈ 一次 8B 预训练
-- **[第四篇：语音（上）](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)**
-  - 回答的问题：一秒声音在模型眼里是什么？语音为什么比图片更需要离散 token？
-  - 一句话结论：波形 → log-mel（100 帧/秒 × 80）→ 编码器特征；语音要生成，主流让 LLM 生成短的离散序列再由 codec 还原波形（flow matching 生成连续 mel 是另一条可行路），RVQ 用几个小码本得到巨大的等效码本
-  - 必记的数字 / 公式：
-    - log-mel 25 ms / 10 ms
-    - RVQ $$1024^8 = 2^{80}$$
-    - EnCodec 6 kbps
-    - 三层 token 一分钟 3.6 万 / 3000 / 200
-- **[第五篇：语音（下）](/speech-understanding-generation-and-full-duplex.html)**
-  - 回答的问题：直接生成语音 token 为什么伤文本能力？全双工的时延由什么决定？
-  - 一句话结论：模态竞争 → 把说与想分开（内心独白 / Thinker-Talker）；时延 = 分帧 + 首 token + 解码 + 语义决策，全双工把串联四段压成一个模型的一步
-  - 必记的数字 / 公式：
-    - 一分钟：声学 3.6 万 / 语义 3000 / 文本 200
-    - RVQ $$8 \times 1024 = 2^{80}$$，6 kbps
-    - Whisper 30 s → 1500 位置
-    - Moshi 80 ms 帧、160 / 200 ms
-    - 半双工 1–3 s
-    - 每路半张 H100
-- **[第六篇：扩散模型（上）](/diffusion-models-ddpm-score-matching-and-flow-matching.html)**
-  - 回答的问题：去噪为什么等于学会生成？ELBO 怎么变成一行 MSE？DDIM 为什么能跳步？
-  - 一句话结论：
-    - 猜噪声的网络知道每个带噪点"数据在哪个方向"
-    - ELBO 的高斯 KL 只剩均值差，用噪声表示后就是 MSE
-    - DDIM 取确定性的反向路径（ODE）可大步走
-  - 必记的数字 / 公式：
-    - 闭式 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$
-    - $$\beta$$ 1e-4 → 0.02
-    - DDIM 20 步 ≈ 1000 步
-- **[第七篇：扩散模型（下）](/score-matching-flow-matching-and-classifier-free-guidance.html)**
-  - 回答的问题：DDPM、score matching、flow matching 为什么是同一件事？CFG 的 $$w = 7.5$$ 是什么？
-  - 一句话结论：
-    - 在高斯路径 $$x_t = a_t x_0 + b_t\epsilon$$ 下三者是同一个分数 $$\nabla_x \log p_t$$ 的线性参数化，损失差一个 $$t$$ 权重，采样解同一个概率流 ODE
-    - reflow 拉直轨迹一步采样
-    - CFG 逐噪声层把 $$p_t(c \mid x)$$ 升到 $$w$$ 次幂（终点不是干净分布的幂）
-  - 必记的数字 / 公式：
-    - $$\epsilon = -\sigma s$$
-    - $$v = \epsilon - x_0$$
-    - $$2^{7.5} \approx 180$$
-    - toy reflow 直线度 0.49 → 1.00
-- **[第八篇：Latent diffusion 与 DiT](/latent-diffusion-dit-and-text-to-image-recipes.html)**
-  - 回答的问题：为什么在 latent 空间做？DiT 赢在哪？一张图与一次 LLM 推理怎么比？
-  - 一句话结论：
-    - VAE 接管感知压缩，扩散只做语义（1/10 算力）
-    - DiT 的 FID 随 GFLOPs 平滑下降、与分配无关
-    - 扩散 compute-bound 多步并行，LLM memory-bound 串行，加速手段是步数蒸馏
-  - 必记的数字 / 公式：
-    - f8 4ch 48×、16ch 12×
-    - DiT-XL/2 FID 2.27
-    - FLUX 12B、28 步、2.8 PFLOPs vs 7B LLM 1000 token 14 TFLOPs，200× 而时间相近
-    - LCM 4 步、Turbo 1–4 步
-    - 5 s 720p 视频 ≈ 115K token、600 PFLOPs
-- **[第九篇：自回归生成与统一模型](/autoregressive-image-generation-and-unified-models.html)**
-  - 回答的问题：AR 与扩散各赢在哪？理解与生成的表示能不能共享？
-  - 一句话结论：AR 赢在与 LLM 共享一切与"一切皆 token"的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛
-  - 必记的数字 / 公式：
-    - VQ commitment $$\beta = 0.25$$
-    - LlamaGen 16384 码本利用率 97%
-    - 栅格 $$1024^2$$ 4096 步 100 s
-    - VAR 10 尺度 680 token、FID 1.73 vs DiT 2.27
-    - Janus-Pro GenEval 0.80
-    - BAGEL 14B MoT
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：视觉编码器](/vision-encoders-clip-siglip-and-self-supervised-vit.html) | 为什么几乎所有 VLM 用 CLIP / SigLIP 而不用 ImageNet ViT？编码器看不到什么？ | 对比学习把图像投到已与文本对齐的语义空间，connector 只需小映射；但它只保留"文本能描述且需要区分图文对"的信息，计数、空间、绑定、小字是结构性盲点 | $$I \ge \log B - \mathcal{L}$$，CLIP 32K batch<br/>温度学到 0.01（×100）<br/>CLIP 训练 $$6.4 \times 10^{21}$$ FLOPs ≈ 7B LLM 150B token<br/>ViT-L/14-336 → 576 token、SigLIP-SO400M-384 → 729<br/>分辨率 > 参数量 > 数据 |
+| [第二篇：VLM 的结构](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) | LLaVA 的 MLP 与 BLIP-2 的 Q-Former 差什么？Qwen2-VL 为什么要原生分辨率？ | 差在信息瓶颈：MLP 无损保空间、Q-Former 32 个内容无关的 query 装不下细节；原生分辨率让 token ∝ 像素、全图一个 attention，解决 tile 的边界、失真、效率三问题 | 2×2 merge 4× 无损，$$28 \times 28$$ 像素/token 是文字甜点<br/>Qwen2-VL token $$= HW / 28^2$$<br/>LLaVA-NeXT 2880、InternVL ≤ 40 tile ≈ 10K<br/>Llama 3.2 cross-attn +20B 参数<br/>576 token 在 7B 里 prefill 8 TFLOPs、KV 72 MB |
+| [第三篇：VLM 的训练](/vlm-training-recipe-data-stages-and-evaluation.html) | 为什么先冻结 LLM 只训 connector？幻觉从哪来、怎么减少？ | 随机 connector 的噪声梯度会让 LLM 学会忽略视觉 token；幻觉来自数据共现、编码器缺失、解码惯性三处，各有对应手段 | LLaVA-1.5 558K + 665K<br/>MM1 配比 45 / 45 / 10<br/>文本混入 10–50%，退化 1–3 点<br/>POPE 共现 85 → 90<br/>阶段 2 主导，Qwen2-VL 1.4T token ≈ 一次 8B 预训练 |
+| [第四篇：语音（上）](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html) | 一秒声音在模型眼里是什么？语音为什么比图片更需要离散 token？ | 波形 → log-mel（100 帧/秒 × 80）→ 编码器特征；语音要生成，主流让 LLM 生成短的离散序列再由 codec 还原波形（flow matching 生成连续 mel 是另一条可行路），RVQ 用几个小码本得到巨大的等效码本 | log-mel 25 ms / 10 ms<br/>RVQ $$1024^8 = 2^{80}$$<br/>EnCodec 6 kbps<br/>三层 token 一分钟 3.6 万 / 3000 / 200 |
+| [第五篇：语音（下）](/speech-understanding-generation-and-full-duplex.html) | 直接生成语音 token 为什么伤文本能力？全双工的时延由什么决定？ | 模态竞争 → 把说与想分开（内心独白 / Thinker-Talker）；时延 = 分帧 + 首 token + 解码 + 语义决策，全双工把串联四段压成一个模型的一步 | 一分钟：声学 3.6 万 / 语义 3000 / 文本 200<br/>RVQ $$8 \times 1024 = 2^{80}$$，6 kbps<br/>Whisper 30 s → 1500 位置<br/>Moshi 80 ms 帧、160 / 200 ms<br/>半双工 1–3 s<br/>每路半张 H100 |
+| [第六篇：扩散模型（上）](/diffusion-models-ddpm-score-matching-and-flow-matching.html) | 去噪为什么等于学会生成？ELBO 怎么变成一行 MSE？DDIM 为什么能跳步？ | 猜噪声的网络知道每个带噪点"数据在哪个方向"<br/>ELBO 的高斯 KL 只剩均值差，用噪声表示后就是 MSE<br/>DDIM 取确定性的反向路径（ODE）可大步走 | 闭式 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sqrt{1 - \bar\alpha_t}\, \epsilon$$<br/>$$\beta$$ 1e-4 → 0.02<br/>DDIM 20 步 ≈ 1000 步 |
+| [第七篇：扩散模型（下）](/score-matching-flow-matching-and-classifier-free-guidance.html) | DDPM、score matching、flow matching 为什么是同一件事？CFG 的 $$w = 7.5$$ 是什么？ | 在高斯路径 $$x_t = a_t x_0 + b_t\epsilon$$ 下三者是同一个分数 $$\nabla_x \log p_t$$ 的线性参数化，损失差一个 $$t$$ 权重，采样解同一个概率流 ODE<br/>reflow 拉直轨迹一步采样<br/>CFG 逐噪声层把 $$p_t(c \mid x)$$ 升到 $$w$$ 次幂（终点不是干净分布的幂） | $$\epsilon = -\sigma s$$<br/>$$v = \epsilon - x_0$$<br/>$$2^{7.5} \approx 180$$<br/>toy reflow 直线度 0.49 → 1.00 |
+| [第八篇：Latent diffusion 与 DiT](/latent-diffusion-dit-and-text-to-image-recipes.html) | 为什么在 latent 空间做？DiT 赢在哪？一张图与一次 LLM 推理怎么比？ | VAE 接管感知压缩，扩散只做语义（1/10 算力）<br/>DiT 的 FID 随 GFLOPs 平滑下降、与分配无关<br/>扩散 compute-bound 多步并行，LLM memory-bound 串行，加速手段是步数蒸馏 | f8 4ch 48×、16ch 12×<br/>DiT-XL/2 FID 2.27<br/>FLUX 12B、28 步、2.8 PFLOPs vs 7B LLM 1000 token 14 TFLOPs，200× 而时间相近<br/>LCM 4 步、Turbo 1–4 步<br/>5 s 720p 视频 ≈ 115K token、600 PFLOPs |
+| [第九篇：自回归生成与统一模型](/autoregressive-image-generation-and-unified-models.html) | AR 与扩散各赢在哪？理解与生成的表示能不能共享？ | AR 赢在与 LLM 共享一切与"一切皆 token"的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛 | VQ commitment $$\beta = 0.25$$<br/>LlamaGen 16384 码本利用率 97%<br/>栅格 $$1024^2$$ 4096 步 100 s<br/>VAR 10 尺度 680 token、FID 1.73 vs DiT 2.27<br/>Janus-Pro GenEval 0.80<br/>BAGEL 14B MoT |
+
+Table: 九篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

@@ -30,31 +30,14 @@ flowchart TB
 
 系列的一句话主张是：**maintainer 的 review 时间是项目最稀缺的资源，所有规则都是为了保护它；细节会变，这条逻辑不变，理解了它就能在规则变化后自己推导出新的做法**。四篇按一次贡献的自然顺序推进——先读懂、再找到、再做出、最后看两个完整的实例——每篇同时用 PyTorch 与 vLLM 做例子：一个是十年历史、治理成熟、流程厚重、CI 全跑、bot 合入的框架；一个是两周一版、按需跑 CI、maintainer 手动合入、规则还在快速演化的引擎。
 
-- **[第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html)**
-  - 回答的问题：给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？
-  - 一句话结论：能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后
-  - 必记的数字 / 判据：
-    - PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`
-    - vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`
-    - 发布约 2 个月 vs 约 2 周
-    - 引言案例四十分钟得出"已在 v2.11.0 修复"
-- **[第二篇：找到切入点](/finding-your-entry-point-in-open-source.html)**
-  - 回答的问题：每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？
-  - 一句话结论：他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策
-  - 必记的数字 / 判据：
-    - PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态
-    - vLLM 63 个标签、`closed-as-slop` 97
-    - RFC 门槛 >500 LOC（不含 kernel / data / config / test）
-    - stale 90 + 30 天
-    - #191394 下 5 个 open PR
-- **[第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html)**
-  - 回答的问题：reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？
-  - 一句话结论：四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个
-  - 必记的数字 / 判据：PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit
-- **[第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html)**
-  - 回答的问题：两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？
-  - 一句话结论：小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省）
-  - 必记的数字 / 判据：#185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出）
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
+|---|---|---|---|
+| [第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html) | 给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？ | 能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后 | PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`<br/>vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`<br/>发布约 2 个月 vs 约 2 周<br/>引言案例四十分钟得出"已在 v2.11.0 修复" |
+| [第二篇：找到切入点](/finding-your-entry-point-in-open-source.html) | 每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？ | 他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策 | PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态<br/>vLLM 63 个标签、`closed-as-slop` 97<br/>RFC 门槛 >500 LOC（不含 kernel / data / config / test）<br/>stale 90 + 30 天<br/>#191394 下 5 个 open PR |
+| [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
+| [第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html) | 两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？ | 小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省） | #185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出） |
+
+Table: 四篇的核心问题、结论与必记判据
 
 ### 1. 本文的章节安排
 

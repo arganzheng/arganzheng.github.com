@@ -61,28 +61,17 @@ matmul_kernel[grid](a, b, c, 1024, 2048, 512,
                     BLOCK_M=128, BLOCK_N=128, BLOCK_K=32, num_warps=4, num_stages=3)
 ```
 
-- **二、定义时**
-  - `JITFunction` 保存源码而不执行
-  - `KernelParam` 与 `constexpr` 标注
-  - 源码哈希与依赖追踪
-- **三、调用时**
-  - binder 从实参算特化（dtype、`D`、等于 1 → `constexpr`）
-  - 两级缓存
-  - `ASTSource` 的内容
-- **四、翻译**
-  - `CodeGenerator` 作为 `ast.NodeVisitor`
-  - `tl.tensor` 是编译期句柄
-  - 表达式、内建函数、`constexpr` 的折叠与物化
-  - `for` / `if` / `while` 到 `scf`
-  - 函数调用
-- **五、TTIR**
-  - `tt` 方言的类型与 op，借用的 `arith` / `math` / `scf` / `cf`
-  - matmul kernel 的完整 TTIR 逐段读
-- **六、TTIR 级 pass**
-  - `make_ttir` 的八个 pass 各做什么
-  - `Combine` 的 DRR 模式与 C++ 模式
-- **七、本文小结**
-- **八、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 定义时 | `JITFunction` 保存源码而不执行<br/>`KernelParam` 与 `constexpr` 标注<br/>源码哈希与依赖追踪 |
+| 三 | 调用时 | binder 从实参算特化（dtype、`D`、等于 1 → `constexpr`）<br/>两级缓存<br/>`ASTSource` 的内容 |
+| 四 | 翻译 | `CodeGenerator` 作为 `ast.NodeVisitor`<br/>`tl.tensor` 是编译期句柄<br/>表达式、内建函数、`constexpr` 的折叠与物化<br/>`for` / `if` / `while` 到 `scf`<br/>函数调用 |
+| 五 | TTIR | `tt` 方言的类型与 op，借用的 `arith` / `math` / `scf` / `cf`；matmul kernel 的完整 TTIR 逐段读 |
+| 六 | TTIR 级 pass | `make_ttir` 的八个 pass 各做什么；`Combine` 的 DRR 模式与 C++ 模式 |
+| 七 | 本文小结 |  |
+| 八 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码以 Triton v3.8.0 为准：`python/triton/runtime/jit.py`、`python/src/specialize.cc`、`python/triton/compiler/{compiler,code_generator}.py`、`python/triton/language/{core,semantic}.py`、`include/triton/Dialect/Triton/IR/TritonOps.td`、`lib/Dialect/Triton/Transforms/`、`third_party/nvidia/backend/compiler.py`。
 

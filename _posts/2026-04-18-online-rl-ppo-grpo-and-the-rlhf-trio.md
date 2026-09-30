@@ -80,41 +80,20 @@ PPO 的四个模型里，价值模型是为了**降低策略梯度的方差**—
 
 ### 3. 本文的章节安排
 
-- **二、目标函数**
-  - 期望奖励与 KL 惩罚
-  - $$\beta$$ 的量级
-  - 三种 KL 估计量
-  - token 级与序列级 KL
-- **三、策略梯度**
-  - log-derivative 技巧
-  - REINFORCE
-  - 方差
-  - baseline 不改变期望的证明
-  - LLM 是只有终末奖励的 bandit
-- **四、PPO**
-  - 价值模型与优势
-  - GAE 的 $$\gamma$$、$$\lambda$$
-  - clip 的重要性比与信任域
-  - 多 epoch
-  - LLM 上的实现细节
-  - 四模型显存账
-- **五、GRPO 一族**
-  - GRPO 的组内归一化与 k3 KL
-  - RLOO
-  - REINFORCE++
-  - DAPO、Dr. GRPO、GSPO 各改哪一项
-  - 方差与偏差
-- **六、成本与系统**
-  - 一步生成多少 token
-  - FLOPs 与时间的拆分
-  - KV cache
-  - 权重同步
-  - on-policy 与异步
-- **七、三件套对照表（第一版）**
-- **八、公开配方**：InstructGPT、Llama 2、DeepSeekMath / R1、Tülu 3、DAPO、Qwen3、Kimi K2
-- **九、动手**：`GRPOTrainer` 的骨架与该看的曲线
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 目标函数 | 期望奖励与 KL 惩罚<br/>$$\beta$$ 的量级<br/>三种 KL 估计量<br/>token 级与序列级 KL |
+| 三 | 策略梯度 | log-derivative 技巧<br/>REINFORCE<br/>方差<br/>baseline 不改变期望的证明<br/>LLM 是只有终末奖励的 bandit |
+| 四 | PPO | 价值模型与优势<br/>GAE 的 $$\gamma$$、$$\lambda$$<br/>clip 的重要性比与信任域<br/>多 epoch<br/>LLM 上的实现细节<br/>四模型显存账 |
+| 五 | GRPO 一族 | GRPO 的组内归一化与 k3 KL<br/>RLOO<br/>REINFORCE++<br/>DAPO、Dr. GRPO、GSPO 各改哪一项<br/>方差与偏差 |
+| 六 | 成本与系统 | 一步生成多少 token<br/>FLOPs 与时间的拆分<br/>KV cache<br/>权重同步<br/>on-policy 与异步 |
+| 七 | 三件套对照表（第一版） |  |
+| 八 | 公开配方 | InstructGPT、Llama 2、DeepSeekMath / R1、Tülu 3、DAPO、Qwen3、Kimi K2 |
+| 九 | 动手 | `GRPOTrainer` 的骨架与该看的曲线 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、目标函数
 

@@ -75,49 +75,20 @@ $$
 
 ### 4. 本文的章节安排
 
-- **二、初始化**
-  - uniqueId 里有什么
-  - bootstrap 怎么建环
-  - `NCCL_SOCKET_IFNAME` 控制哪一段
-- **三、拓扑探测**
-  - XML 树的节点类型
-  - 从 /sys 与 NVML 读什么
-  - 链路带宽常数
-  - `NCCL_TOPO_DUMP_FILE` 样例
-- **四、路径计算**
-  - BFS 与 path type 合成规则
-  - LOC…SYS 词表
-  - `NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` 如何用它
-- **五、图搜索**
-  - ncclTopoGraph 的输入输出
-  - 两个 pass 的搜索
-  - double binary tree
-  - `NCCL_GRAPH_DUMP_FILE` 样例
-- **六、transport 与 channel**
-  - P2P/SHM/NET/CollNet 的选择顺序
-  - lazy connect
-  - channel 是什么
-  - nChannels 怎么定
-  - 两本账
-- **七、算法与协议**
-  - ncclAlgoStr 的七种算法
-  - Simple / LL / LL128 的机制与效率
-  - 哪些组合会被禁用
-- **八、调优模型**
-  - ncclTopoTuneModel 的常数表
-  - ncclTopoGetAlgoTime
-  - 回答核心问题
-  - `NCCL_ALGO/PROTO` 与 tuner 插件
-- **九、执行期**
-  - ncclEnqueueCheck → group → plan → 一个 kernel
-  - primitives
-  - proxy 线程
-  - send/recv 配对
-- **十、读日志**
-  - INFO 日志的格式与逐行解读
-  - 改拓扑文件观察决策变化
-  - 排障检查清单
-- **十一、小结**：要点、检查项、源码位置、comm-probe 增量 `nccl_log_reader.py`
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 初始化 | uniqueId 里有什么<br/>bootstrap 怎么建环<br/>`NCCL_SOCKET_IFNAME` 控制哪一段 |
+| 三 | 拓扑探测 | XML 树的节点类型<br/>从 /sys 与 NVML 读什么<br/>链路带宽常数<br/>`NCCL_TOPO_DUMP_FILE` 样例 |
+| 四 | 路径计算 | BFS 与 path type 合成规则<br/>LOC…SYS 词表<br/>`NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` 如何用它 |
+| 五 | 图搜索 | ncclTopoGraph 的输入输出<br/>两个 pass 的搜索<br/>double binary tree<br/>`NCCL_GRAPH_DUMP_FILE` 样例 |
+| 六 | transport 与 channel | P2P/SHM/NET/CollNet 的选择顺序<br/>lazy connect<br/>channel 是什么<br/>nChannels 怎么定<br/>两本账 |
+| 七 | 算法与协议 | ncclAlgoStr 的七种算法<br/>Simple / LL / LL128 的机制与效率<br/>哪些组合会被禁用 |
+| 八 | 调优模型 | ncclTopoTuneModel 的常数表<br/>ncclTopoGetAlgoTime<br/>回答核心问题<br/>`NCCL_ALGO/PROTO` 与 tuner 插件 |
+| 九 | 执行期 | ncclEnqueueCheck → group → plan → 一个 kernel<br/>primitives<br/>proxy 线程<br/>send/recv 配对 |
+| 十 | 读日志 | INFO 日志的格式与逐行解读<br/>改拓扑文件观察决策变化<br/>排障检查清单 |
+| 十一 | 小结 | 要点、检查项、源码位置、comm-probe 增量 `nccl_log_reader.py` |
+
+Table: 本文的章节安排
 
 ## 二、初始化：uniqueId 与 bootstrap
 

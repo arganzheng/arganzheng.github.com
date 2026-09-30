@@ -167,28 +167,16 @@ Table: Qwen2-0.5B 各部件的形状与参数量
 
 ## 三、六个库各管什么
 
-- **`transformers`**：模型定义与加载（`modeling_llama.py` 一类）、tokenizer 封装、`generate`、`Trainer`。要会的：
-  - `AutoModelForCausalLM.from_pretrained(..., dtype=torch.bfloat16)`
-  - `tokenizer.apply_chat_template`
-  - `generate` 的采样参数
-  - 读 `modeling_*.py`
-- **`datasets`**：数据加载与处理，底层是 Apache Arrow（内存映射、零拷贝）。要会的：
-  - `load_dataset`
-  - `map(batched=True, num_proc=...)`、`filter`
-  - `streaming=True` 处理放不进内存的语料
-- **`tokenizers`**：分词器的训练与快速编码（Rust 实现）。要会的：
-  - 训练一个 BPE 词表
-  - 理解 `tokenizer.json` 里的 normalizer / pre-tokenizer / model / post-processor 四段
-- **`peft`**：参数高效微调。要会的：
-  - `LoraConfig(r, lora_alpha, target_modules, dropout)`
-  - `get_peft_model`
-  - 训练后 `merge_and_unload` 合回基座
-- **`trl`**：后训练的各个 Trainer。要会的：
-  - `SFTTrainer`（自动处理 chat template、packing、loss mask）
-  - `DPOTrainer`、`GRPOTrainer`、`RewardTrainer`
-- **`accelerate`**：把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动。要会的：
-  - `accelerate config` 生成配置
-  - `accelerate launch train.py`
+| 库 | 负责 | 要会的 |
+|---|---|---|
+| `transformers` | 模型定义与加载（`modeling_llama.py` 一类）、tokenizer 封装、`generate`、`Trainer` | `AutoModelForCausalLM.from_pretrained(..., dtype=torch.bfloat16)`<br/>`tokenizer.apply_chat_template`<br/>`generate` 的采样参数<br/>读 `modeling_*.py` |
+| `datasets` | 数据加载与处理，底层是 Apache Arrow（内存映射、零拷贝） | `load_dataset`<br/>`map(batched=True, num_proc=...)`、`filter`<br/>`streaming=True` 处理放不进内存的语料 |
+| `tokenizers` | 分词器的训练与快速编码（Rust 实现） | 训练一个 BPE 词表<br/>理解 `tokenizer.json` 里的 normalizer / pre-tokenizer / model / post-processor 四段 |
+| `peft` | 参数高效微调 | `LoraConfig(r, lora_alpha, target_modules, dropout)`<br/>`get_peft_model`<br/>训练后 `merge_and_unload` 合回基座 |
+| `trl` | 后训练的各个 Trainer | `SFTTrainer`（自动处理 chat template、packing、loss mask）<br/>`DPOTrainer`、`GRPOTrainer`、`RewardTrainer` |
+| `accelerate` | 把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动 | `accelerate config` 生成配置<br/>`accelerate launch train.py` |
+
+Table: Hugging Face 六个库各自负责的事
 
 它们的分工对应第三篇的五个对象——每个库产出（或改造）训练循环里的一个东西：
 

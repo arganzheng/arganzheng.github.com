@@ -84,35 +84,20 @@ Table: 选题各环节的 PyTorch 与 vLLM 对照（标签规模（2026-09-07）
 
 ### 4. 本文的章节安排
 
-- **二、标签**：两个项目的标签体系（真实标签名与含义）、自动打标规则、actionable 的状态机、Job Board
-- **三、RFC 与 roadmap**
-  - pytorch/rfcs 的三步流程与模板章节
-  - vLLM 的 [RFC] 模板字段与 rfc-required
-  - tracker issue
-- **四、CI 失败**
-  - vLLM 的 `failures.md` 与 [CI Failure] 模板
-  - PyTorch 的 HUD 与 DISABLED issue
-  - 从 flaky test 到 PR
-- **五、性能回归**
-  - 700-performance-discussion.yml 与 benchmarks/ 布局
-  - PyTorch 的 regression 标签与 cherry-pick 分类
-  - 回归报告的最小要素
-- **六、文档与类型缺口**
-  - 三处"不欢迎单个 typo"的原文
-  - 怎么把小修改做成体系
-  - 一个真实例子
-- **七、不起眼但有价值**：补测试、deprecation、把 issue 复现变成测试、测量本身就是贡献
-- **八、先讨论与查重**
-  - 两个项目的明文规则
-  - 三条命令
-  - 认领留言的写法与反例
-  - "一周后会不会被关"的预测器
-- **九、贡献日志**
-  - 切入点清单模板
-  - PyTorch 三个候选、vLLM 三个候选（2026-09-07 实查）
-  - 选定一个
-- **十、本文小结**：要点 · 对照表 · 文件位置
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 标签 | 两个项目的标签体系（真实标签名与含义）、自动打标规则、actionable 的状态机、Job Board |
+| 三 | RFC 与 roadmap | pytorch/rfcs 的三步流程与模板章节<br/>vLLM 的 [RFC] 模板字段与 rfc-required<br/>tracker issue |
+| 四 | CI 失败 | vLLM 的 `failures.md` 与 [CI Failure] 模板<br/>PyTorch 的 HUD 与 DISABLED issue<br/>从 flaky test 到 PR |
+| 五 | 性能回归 | 700-performance-discussion.yml 与 benchmarks/ 布局<br/>PyTorch 的 regression 标签与 cherry-pick 分类<br/>回归报告的最小要素 |
+| 六 | 文档与类型缺口 | 三处"不欢迎单个 typo"的原文<br/>怎么把小修改做成体系<br/>一个真实例子 |
+| 七 | 不起眼但有价值 | 补测试、deprecation、把 issue 复现变成测试、测量本身就是贡献 |
+| 八 | 先讨论与查重 | 两个项目的明文规则<br/>三条命令<br/>认领留言的写法与反例<br/>"一周后会不会被关"的预测器 |
+| 九 | 贡献日志 | 切入点清单模板<br/>PyTorch 三个候选、vLLM 三个候选（2026-09-07 实查）<br/>选定一个 |
+| 十 | 本文小结 | 要点 · 对照表 · 文件位置 |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、标签：maintainer 表达"我们想要什么"的主渠道
 

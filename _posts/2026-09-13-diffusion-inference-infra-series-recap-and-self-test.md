@@ -40,108 +40,19 @@ $$
 
 $$\eta$$ 是第二篇，$$T_\text{eff}$$ 是第三篇与第六篇，$$s^{-1}$$ 是第四篇，$$p \cdot e(p)$$ 是第五篇，$$g$$ 是第六篇，卡数公式是第七篇。
 
-- **[第一篇：负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html)**
-  - 回答的问题：FLUX.1-dev 1024² 28 步在 H100 上每步多少 FLOPs、几秒、三段各占多少？换成 Wan 5 秒 720p 哪一项变了几个量级？
-  - 一句话结论：
-    - 三段里算力全在 DiT
-    - 一次前向就是 compute-bound
-    - 图像模型是 GEMM 负载，视频模型是 attention 负载
-  - 必记的数字 / 公式：
-    - $$N = \frac{H}{fp}\frac{W}{fp}\frac{F_\text{lat}}{p_t} + N_\text{txt}$$
-    - 每步 $$2 P_\text{tok} N + 4 L N^2 d$$
-    - FLUX 74.3 T / 步、attention 20%、2.1 P、$$\eta$$ 0.45 时 4.8 s
-    - 强度 3,100 vs 拐点 295
-    - 150× FLOPs、0.8× 时间
-    - Wan 75,600 token、attention 72%、650 P、24 min
-- **[第二篇：单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)**
-  - 回答的问题：24 GB 的 4090 放不放得下 FLUX？FA3、compile、FP8、SVDQuant 依次加上每步降到多少、哪一步图片可见地变了？
-  - 一句话结论：
-    - 无损先有损后
-    - 编译是最大的无损收益
-    - 量化的收益来自 Tensor Core 峰值而不来自字节
-    - 逐层 offload 的判据是每层计算 / 搬运
-  - 必记的数字 / 公式：
-    - eager 6.71 s → compile 4.30 s（1.56×，$$\eta$$ 0.31 → 0.49）
-    - FP8 GEMM 2× → 端到端 1.3–1.5×
-    - SVDQuant 22 → 6.5 GiB、4090 上 3×、Hopper 无 INT4
-    - PSNR > 35 dB 不可见、30–35 细看可见
-    - Wan 逐层 offload 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms）
-- **[第三篇：跨步冗余](/timestep-redundancy-caching-and-step-skipping.html)**
-  - 回答的问题：FLUX 28 步 TeaCache 阈值 0.4 命中多少步、加速多少、PSNR 掉到多少？为什么在 schnell 的 4 步上一步都省不下来？
-  - 一句话结论：便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥
-  - 必记的数字 / 公式：
-    - $$T \to T_\text{full} + T_\text{hit}\,\epsilon$$、speedup $$\approx T / T_\text{full}$$
-    - 0.25 / 0.4 / 0.6 → 1.5 / 1.8 / 2.0×
-    - 0.4 时约 16 全算 12 复用、约 30 dB
-    - 视频到 4.4×
-    - CFG 两份状态
-    - SP 下决策全局一致
-- **[第四篇：视频与稀疏化](/video-diffusion-long-sequence-attention-and-sparsity.html)**
-  - 回答的问题：Wan 一步的 attention 多少 PFLOPs、占几成？稀疏 80% 端到端加速多少？帧数 4 倍哪一项 16 倍？
-  - 一句话结论：
-    - $$N$$ 到十万后 $$4LN^2d$$ 压过 $$2P_\text{tok}N$$
-    - 稀疏必须落到 FlashAttention 的 block 粒度
-    - 收益受 Amdahl 约束
-  - 必记的数字 / 公式：
-    - 交叉点 $$N \approx 6d$$
-    - Wan 4.7 P attention / 6.5 P 每步、72%
-    - 分数矩阵 425 GiB 不可物化
-    - Amdahl $$1/((1-a) + a/s)$$：$$a$$ 0.72、$$s$$ 3.5 → 2.06×、上限 3.57×
-    - 17 → 129 帧每步 21×
-    - 叠加 24 min → 40 s
-- **[第五篇：多卡并行](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)**
-  - 回答的问题：8 张 H100 生成 FLUX，CFG 2 × Ulysses 4 与 TP 8 各通信多少？以太网互联的两台 8×L40 为什么 PipeFusion 赢？视频为什么 SP 必需？
-  - 一句话结论：
-    - 扩散多卡为延迟（切一个请求），吞吐永远是 DP 最优
-    - SP 通信是 TP 的 $$1/p$$，PipeFusion 是 TP 的 $$1/L$$
-    - NVLink 用 USP、弱互联加 PipeFusion
-  - 必记的数字 / 公式：
-    - TP $$4\frac{p-1}{p}Nd$$、Ulysses $$4\frac{p-1}{p^2}Nd$$
-    - FLUX $$p$$ = 4：4.8 GB vs 1.2 GB / 步
-    - CFG 并行每步 0.6 MB
-    - PipeFusion 28 MB / 步
-    - 4×H100 1.63 s（2.63×）
-    - Wan 8 卡一步 29 → 4 s
-    - 乘积 = 卡数
-- **[第六篇：少步与自回归](/few-step-and-autoregressive-video-generation-systems.html)**
-  - 回答的问题：schnell 4 步 vs dev 28 步每张 FLOPs、QPS、哪些优化还有用？自回归视频每 chunk 的 KV 多大？为什么"没有 KV cache"的负载又需要它了？
-  - 一句话结论：蒸馏拿走了"几十步里大半是保守余量"，依赖相邻步相似的优化全部失效；因果化让视频生成向 LLM serving 收敛
-  - 必记的数字 / 公式：
-    - DiT 2.08 P → 0.30 P（1/7）、0.80 s、1.25 张/s
-    - 另两段 2.6% → 15.6%
-    - KV 每 token $$2dL \times 2$$ 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB
-    - SD-Turbo 4090 约 90 fps
-- **[第七篇：serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)**
-  - 回答的问题：100 QPS 的 FLUX 1024² 服务需要多少张 H100？batch 有没有用？p99 怎样保证？视频为什么必须异步 job？
-  - 一句话结论：卡数 = QPS × 单张 GPU·秒，batch 不参与、SP 只减延迟；时长收到请求时即确定 → 分池、SJF、SLO 准入、事前定价
-  - 必记的数字 / 公式：
-    - 100 QPS：eager 670 → compile + FA3 390 → FP8 290 → TeaCache 170 → schnell 80 张
-    - 每张 \$0.0047 → \$0.0006
-    - 抢占状态 = latent 0.6 MB
-    - Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22
-    - LoRA 前 $$k \le 4$$ 步不挂
-- **[第八篇：三个引擎](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)**
-  - 回答的问题：一个 `/v1/images/generations` 请求在三个引擎里各经过哪些进程与类？它们在进程模型、pipeline 抽象、并行组、调度上各怎么选、为什么？
-  - 一句话结论：
-    - SGLang 把扩散塞进 LLM serving 的结构
-    - vLLM-Omni 把扩散做成全模态流水线的一个 stage
-    - xDiT 只做并行、包装 diffusers
-    - 三者共用 diffusers 底座与 vLLM 式并行组
-  - 必记的数字 / 公式：
-    - SGLang：HTTP / Scheduler / GPUWorker 三类进程、`ComposedPipelineBase`
-    - vLLM-Omni：stage 0 + stage N、`DiffusionEngine`
-    - xDiT：torchrun SPMD、`xFuserPipelineBaseWrapper`
-    - 有调度器的两个都是同构静态批
-- **[第九篇：配置、评测与排障](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)**
-  - 回答的问题：p99 抬升 / 伪影 / 半夜 OOM 各先查什么？该采集哪些信号？配置按什么顺序推？
-  - 一句话结论：八步推导：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；无损先于有损、切卡先于换模型、卡数由 GPU·秒决定
-  - 必记的数字 / 公式：
-    - 门限 PSNR > 35 / 30 dB
-    - FID 不能评"开不开某项优化"
-    - 同一部署内确定、跨部署不保证
-    - OOM 先看 `vae.decode`
-    - p99 抬升先看重编译
-    - 告警：每步 +20%、命中率 ±30%、抽检 −3 dB
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | FLUX.1-dev 1024² 28 步在 H100 上每步多少 FLOPs、几秒、三段各占多少？换成 Wan 5 秒 720p 哪一项变了几个量级？ | 三段里算力全在 DiT<br/>一次前向就是 compute-bound<br/>图像模型是 GEMM 负载，视频模型是 attention 负载 | $$N = \frac{H}{fp}\frac{W}{fp}\frac{F_\text{lat}}{p_t} + N_\text{txt}$$<br/>每步 $$2 P_\text{tok} N + 4 L N^2 d$$<br/>FLUX 74.3 T / 步、attention 20%、2.1 P、$$\eta$$ 0.45 时 4.8 s<br/>强度 3,100 vs 拐点 295<br/>150× FLOPs、0.8× 时间<br/>Wan 75,600 token、attention 72%、650 P、24 min |
+| [第二篇：单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 24 GB 的 4090 放不放得下 FLUX？FA3、compile、FP8、SVDQuant 依次加上每步降到多少、哪一步图片可见地变了？ | 无损先有损后<br/>编译是最大的无损收益<br/>量化的收益来自 Tensor Core 峰值而不来自字节<br/>逐层 offload 的判据是每层计算 / 搬运 | eager 6.71 s → compile 4.30 s（1.56×，$$\eta$$ 0.31 → 0.49）<br/>FP8 GEMM 2× → 端到端 1.3–1.5×<br/>SVDQuant 22 → 6.5 GiB、4090 上 3×、Hopper 无 INT4<br/>PSNR > 35 dB 不可见、30–35 细看可见<br/>Wan 逐层 offload 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms） |
+| [第三篇：跨步冗余](/timestep-redundancy-caching-and-step-skipping.html) | FLUX 28 步 TeaCache 阈值 0.4 命中多少步、加速多少、PSNR 掉到多少？为什么在 schnell 的 4 步上一步都省不下来？ | 便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥 | $$T \to T_\text{full} + T_\text{hit}\,\epsilon$$、speedup $$\approx T / T_\text{full}$$<br/>0.25 / 0.4 / 0.6 → 1.5 / 1.8 / 2.0×<br/>0.4 时约 16 全算 12 复用、约 30 dB<br/>视频到 4.4×<br/>CFG 两份状态<br/>SP 下决策全局一致 |
+| [第四篇：视频与稀疏化](/video-diffusion-long-sequence-attention-and-sparsity.html) | Wan 一步的 attention 多少 PFLOPs、占几成？稀疏 80% 端到端加速多少？帧数 4 倍哪一项 16 倍？ | $$N$$ 到十万后 $$4LN^2d$$ 压过 $$2P_\text{tok}N$$<br/>稀疏必须落到 FlashAttention 的 block 粒度<br/>收益受 Amdahl 约束 | 交叉点 $$N \approx 6d$$<br/>Wan 4.7 P attention / 6.5 P 每步、72%<br/>分数矩阵 425 GiB 不可物化<br/>Amdahl $$1/((1-a) + a/s)$$：$$a$$ 0.72、$$s$$ 3.5 → 2.06×、上限 3.57×<br/>17 → 129 帧每步 21×<br/>叠加 24 min → 40 s |
+| [第五篇：多卡并行](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) | 8 张 H100 生成 FLUX，CFG 2 × Ulysses 4 与 TP 8 各通信多少？以太网互联的两台 8×L40 为什么 PipeFusion 赢？视频为什么 SP 必需？ | 扩散多卡为延迟（切一个请求），吞吐永远是 DP 最优<br/>SP 通信是 TP 的 $$1/p$$，PipeFusion 是 TP 的 $$1/L$$<br/>NVLink 用 USP、弱互联加 PipeFusion | TP $$4\frac{p-1}{p}Nd$$、Ulysses $$4\frac{p-1}{p^2}Nd$$<br/>FLUX $$p$$ = 4：4.8 GB vs 1.2 GB / 步<br/>CFG 并行每步 0.6 MB<br/>PipeFusion 28 MB / 步<br/>4×H100 1.63 s（2.63×）<br/>Wan 8 卡一步 29 → 4 s<br/>乘积 = 卡数 |
+| [第六篇：少步与自回归](/few-step-and-autoregressive-video-generation-systems.html) | schnell 4 步 vs dev 28 步每张 FLOPs、QPS、哪些优化还有用？自回归视频每 chunk 的 KV 多大？为什么"没有 KV cache"的负载又需要它了？ | 蒸馏拿走了"几十步里大半是保守余量"，依赖相邻步相似的优化全部失效；因果化让视频生成向 LLM serving 收敛 | DiT 2.08 P → 0.30 P（1/7）、0.80 s、1.25 张/s<br/>另两段 2.6% → 15.6%<br/>KV 每 token $$2dL \times 2$$ 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB<br/>SD-Turbo 4090 约 90 fps |
+| [第七篇：serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 100 QPS 的 FLUX 1024² 服务需要多少张 H100？batch 有没有用？p99 怎样保证？视频为什么必须异步 job？ | 卡数 = QPS × 单张 GPU·秒，batch 不参与、SP 只减延迟；时长收到请求时即确定 → 分池、SJF、SLO 准入、事前定价 | 100 QPS：eager 670 → compile + FA3 390 → FP8 290 → TeaCache 170 → schnell 80 张<br/>每张 \$0.0047 → \$0.0006<br/>抢占状态 = latent 0.6 MB<br/>Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22<br/>LoRA 前 $$k \le 4$$ 步不挂 |
+| [第八篇：三个引擎](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html) | 一个 `/v1/images/generations` 请求在三个引擎里各经过哪些进程与类？它们在进程模型、pipeline 抽象、并行组、调度上各怎么选、为什么？ | SGLang 把扩散塞进 LLM serving 的结构<br/>vLLM-Omni 把扩散做成全模态流水线的一个 stage<br/>xDiT 只做并行、包装 diffusers<br/>三者共用 diffusers 底座与 vLLM 式并行组 | SGLang：HTTP / Scheduler / GPUWorker 三类进程、`ComposedPipelineBase`<br/>vLLM-Omni：stage 0 + stage N、`DiffusionEngine`<br/>xDiT：torchrun SPMD、`xFuserPipelineBaseWrapper`<br/>有调度器的两个都是同构静态批 |
+| [第九篇：配置、评测与排障](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) | p99 抬升 / 伪影 / 半夜 OOM 各先查什么？该采集哪些信号？配置按什么顺序推？ | 八步推导：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；无损先于有损、切卡先于换模型、卡数由 GPU·秒决定 | 门限 PSNR > 35 / 30 dB<br/>FID 不能评"开不开某项优化"<br/>同一部署内确定、跨部署不保证<br/>OOM 先看 `vae.decode`<br/>p99 抬升先看重编译<br/>告警：每步 +20%、命中率 ±30%、抽检 −3 dB |
+
+Table: 九篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

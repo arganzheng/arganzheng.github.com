@@ -58,50 +58,22 @@ flowchart TB
 
 ### 3. 本文的章节安排
 
-- **二、benchmark**
-  - 知识、数学、代码、指令、对话、Agent、长上下文、安全各类的代表
-  - 规模、协议、饱和
-- **三、协议**：few-shot、CoT、温度、答案抽取、prompt 格式、max_tokens、pass@k 的无偏估计、harness
-- **四、统计**
-  - 二项置信区间
-  - 配对比较
-  - 多 seed
-  - 小集合的方差
-  - Agent 的 pass^k
-- **五、LLM-as-judge**
-  - 形态
-  - 位置、长度、自我偏好三种偏差
-  - 对策
-  - 长度控制的 win rate
-  - judge 与人的一致率
-- **六、Arena**
-  - 匿名成对投票 → Bradley-Terry 排名
-  - 置信区间
-  - 风格控制
-  - 私测与排行榜幻觉
-  - Arena-Hard
-- **七、污染**
-  - 训练侧与评测侧
-  - 检测方法
-  - GSM1K 与 MMLU-Redux 的教训
-  - 动态 benchmark
-- **八、能力分解与错误分析**
-  - 切分
-  - 错误分类
-  - 读输出
-  - Agent 的轨迹检查
-- **九、自建评测集**
-  - 什么时候必须
-  - 怎么建
-  - 大小
-  - judge 校准
-  - 维护
-- **十、报告的诚实性**：一张清单
-- **十一、动手**
-  - `lm-evaluation-harness` 的协议对照
-  - judge 偏差的测量
-- **十二、本文小结**
-- **十三、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | benchmark | 知识、数学、代码、指令、对话、Agent、长上下文、安全各类的代表；规模、协议、饱和 |
+| 三 | 协议 | few-shot、CoT、温度、答案抽取、prompt 格式、max_tokens、pass@k 的无偏估计、harness |
+| 四 | 统计 | 二项置信区间<br/>配对比较<br/>多 seed<br/>小集合的方差<br/>Agent 的 pass^k |
+| 五 | LLM-as-judge | 形态<br/>位置、长度、自我偏好三种偏差<br/>对策<br/>长度控制的 win rate<br/>judge 与人的一致率 |
+| 六 | Arena | 匿名成对投票 → Bradley-Terry 排名<br/>置信区间<br/>风格控制<br/>私测与排行榜幻觉<br/>Arena-Hard |
+| 七 | 污染 | 训练侧与评测侧<br/>检测方法<br/>GSM1K 与 MMLU-Redux 的教训<br/>动态 benchmark |
+| 八 | 能力分解与错误分析 | 切分<br/>错误分类<br/>读输出<br/>Agent 的轨迹检查 |
+| 九 | 自建评测集 | 什么时候必须<br/>怎么建<br/>大小<br/>judge 校准<br/>维护 |
+| 十 | 报告的诚实性 | 一张清单 |
+| 十一 | 动手 | `lm-evaluation-harness` 的协议对照；judge 偏差的测量 |
+| 十二 | 本文小结 |  |
+| 十三 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、benchmark：各测什么
 

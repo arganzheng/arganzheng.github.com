@@ -48,24 +48,16 @@ Table: 音频 token 的三个层次
 
 本文按"信号 → 特征 → 离散 token"的压缩顺序组织：先看声音本身是什么、怎么变成 mel 谱（每秒 16000 个数 → 100 个 80 维向量），再看编码器怎么把 mel 谱变成特征（Whisper、HuBERT），最后看 codec 怎么把它变成几个整数（RVQ）。
 
-- **二、音频的表示**
-  - 波形是什么
-  - 分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱（图）
-- **三、编码器**
-  - Whisper 的 encoder-decoder
-  - CTC 与 attention 解码
-  - 自监督（HuBERT、w2v-BERT）与语义 token
-- **四、神经 codec 与 RVQ**
-  - 为什么需要 codec
-  - SoundStream / EnCodec 的结构
-  - VQ 到 RVQ——一个 2 维手算例子 + 2000 个向量的实验（图）
-  - 训练 RVQ 的四个技巧
-  - 层次结构对生成的意义
-- **五、动手（建议）**
-  - EnCodec 的码本层数
-  - 配套代码
-- **六、本文小结**
-- **七、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 音频的表示 | 波形是什么；分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱（图） |
+| 三 | 编码器 | Whisper 的 encoder-decoder<br/>CTC 与 attention 解码<br/>自监督（HuBERT、w2v-BERT）与语义 token |
+| 四 | 神经 codec 与 RVQ | 为什么需要 codec<br/>SoundStream / EnCodec 的结构<br/>VQ 到 RVQ——一个 2 维手算例子 + 2000 个向量的实验（图）<br/>训练 RVQ 的四个技巧<br/>层次结构对生成的意义 |
+| 五 | 动手（建议） | EnCodec 的码本层数；配套代码 |
+| 六 | 本文小结 |  |
+| 七 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、音频的表示
 

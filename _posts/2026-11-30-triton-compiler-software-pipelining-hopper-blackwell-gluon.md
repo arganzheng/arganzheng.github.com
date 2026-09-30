@@ -21,31 +21,18 @@ catalog: true
 
 本文按**异步程度递增**组织：先讲通用的软件流水算法（第二章），然后看它在 Ampere 上产出的 IR（第三章）；再看 Hopper 的三样新硬件怎样改变 IR（第四章），Blackwell 的两样（第五章）；然后是 warp specialization（第六章）；最后 Gluon（第七章）。
 
-- **二、软件流水的分解**
-  - `AssignLatencies` → `ScheduleLoops` → `LowerLoops` → `PipelineExpander`
-  - 每步的输入输出
-  - `Prefetch`
-- **三、Ampere 上的产物**：`num_stages = 3` 的真实 TTGIR：2 个缓冲、prologue 2 次 load、`async_wait {num = 2}`、K 拆两半
-- **四、Hopper**
-  - TMA 与 tensor descriptor
-  - `#nvmma_shared`
-  - `wgmma` 的异步语义与 `warp_group_dot_wait`
-  - mbarrier 的 phase
-  - 3 个缓冲
-- **五、Blackwell**
-  - `tcgen05.mma` 单线程发起
-  - Tensor Memory 与 `#tmem`
-  - `tmem_load` 的 `#linear` layout
-- **六、warp specialization**
-  - `ttg.warp_specialize` 的结构
-  - 自动划分：谁发 load、谁发 MMA、谁做 epilogue
-  - 寄存器重分配
-- **七、Gluon**
-  - 为什么需要
-  - 语言长什么样
-  - 它跳过了哪些 pass、保留了哪些
-- **八、本文小结**
-- **九、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 软件流水的分解 | `AssignLatencies` → `ScheduleLoops` → `LowerLoops` → `PipelineExpander`<br/>每步的输入输出<br/>`Prefetch` |
+| 三 | Ampere 上的产物 | `num_stages = 3` 的真实 TTGIR：2 个缓冲、prologue 2 次 load、`async_wait {num = 2}`、K 拆两半 |
+| 四 | Hopper | TMA 与 tensor descriptor<br/>`#nvmma_shared`<br/>`wgmma` 的异步语义与 `warp_group_dot_wait`<br/>mbarrier 的 phase<br/>3 个缓冲 |
+| 五 | Blackwell | `tcgen05.mma` 单线程发起<br/>Tensor Memory 与 `#tmem`<br/>`tmem_load` 的 `#linear` layout |
+| 六 | warp specialization | `ttg.warp_specialize` 的结构<br/>自动划分：谁发 load、谁发 MMA、谁做 epilogue<br/>寄存器重分配 |
+| 七 | Gluon | 为什么需要<br/>语言长什么样<br/>它跳过了哪些 pass、保留了哪些 |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码：`lib/Dialect/TritonGPU/Transforms/Pipeliner/`（`AssignLatencies`、`ScheduleLoops`、`LowerLoops`、`PipelineExpander`、`SoftwarePipeliner`、`PipeliningUtility`）、`include/triton/Dialect/TritonGPU/Transforms/Schedule.h`、`Prefetch.cpp`、`WarpSpecialization/`、`include/triton/Dialect/TritonNvidiaGPU/IR/TritonNvidiaGPUOps.td`、`python/triton/experimental/gluon/`、`python/tutorials/gluon/`。本篇的 IR 来自同一个 matmul kernel 编到 `sm_80`、`sm_90`、`sm_100`，以及一个用 tensor descriptor 改写的版本。
 

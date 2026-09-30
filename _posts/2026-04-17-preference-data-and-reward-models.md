@@ -64,41 +64,19 @@ loss 只依赖分差，所以奖励对每个 prompt 都可以整体加一个常�
 
 ### 3. 本文的章节安排
 
-- **二、偏好数据**
-  - 三种形态
-  - 人标、AI 标、混合
-  - 标注协议与 on-policy
-  - 一致率说明什么、不说明什么
-  - 成本账
-- **三、Bradley-Terry**
-  - 从成对比较到逻辑回归
-  - loss 与梯度
-  - 平移不变性与归一化
-  - margin
-  - 排序的 Plackett-Luce
-  - 多属性回归 RM
-- **四、奖励模型的训练**
-  - 结构与初始化
-  - 超参与 1 个 epoch 的过拟合
-  - 多大的 RM
-  - 显存与算力账
-  - 集成与权重平均
-- **五、Reward hacking**
-  - Goodhart
-  - 长度与格式偏差的机制
-  - 过优化的 scaling 规律
-  - best-of-N 的 KL 账
-  - 训 RL 之前的探测清单
-  - 对策
-- **六、生成式 RM 与 judge**
-  - 让模型先写评语再打分
-  - GenRM、自评 rubric
-  - 成本对比
-  - PRM 与 ORM 预告
-- **七、公开配方对照**：InstructGPT、Llama 2 / 3、Tülu 3、DeepSeek-V3、Qwen3、Kimi K2、Nemotron 的 RM 各怎么做
-- **八、动手**：用 `trl` 的 `RewardTrainer` 训一个小 RM 要看的几件事
-- **九、本文小结**
-- **十、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 偏好数据 | 三种形态<br/>人标、AI 标、混合<br/>标注协议与 on-policy<br/>一致率说明什么、不说明什么<br/>成本账 |
+| 三 | Bradley-Terry | 从成对比较到逻辑回归<br/>loss 与梯度<br/>平移不变性与归一化<br/>margin<br/>排序的 Plackett-Luce<br/>多属性回归 RM |
+| 四 | 奖励模型的训练 | 结构与初始化<br/>超参与 1 个 epoch 的过拟合<br/>多大的 RM<br/>显存与算力账<br/>集成与权重平均 |
+| 五 | Reward hacking | Goodhart<br/>长度与格式偏差的机制<br/>过优化的 scaling 规律<br/>best-of-N 的 KL 账<br/>训 RL 之前的探测清单<br/>对策 |
+| 六 | 生成式 RM 与 judge | 让模型先写评语再打分<br/>GenRM、自评 rubric<br/>成本对比<br/>PRM 与 ORM 预告 |
+| 七 | 公开配方对照 | InstructGPT、Llama 2 / 3、Tülu 3、DeepSeek-V3、Qwen3、Kimi K2、Nemotron 的 RM 各怎么做 |
+| 八 | 动手 | 用 `trl` 的 `RewardTrainer` 训一个小 RM 要看的几件事 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、偏好数据
 

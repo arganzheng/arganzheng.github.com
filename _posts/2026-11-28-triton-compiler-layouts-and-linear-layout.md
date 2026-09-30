@@ -19,39 +19,18 @@ Triton 编译器区别于 nvcc、也区别于大多数 MLIR 编译器的地方�
 
 本文按**从语义到数学再到决定**组织：先说清 layout 是什么、为什么放在类型里（第二章）；然后逐个讲分布式 layout 的语义——`#blocked`、`#slice`、`#nvidia_mma`、`#dot_op`，每个都用 `triton-tensor-layout` 打出真实的线程 ↔ 元素表（第三章）；然后是 Linear Layout：把它们统一成 GF(2) 上的线性映射，看这个统一带来什么运算（第四章）；再讲两个决定 layout 的 pass——`ConvertTritonToTritonGPU` 给每个张量初始 layout（第五章），`Coalesce` 为 load / store 重选 layout（第六章）；最后是 shared memory 的 layout（第七章）。
 
-- **二、layout 是什么**
-  - 从"元素"到"线程持有的元素"
-  - 为什么在类型里
-  - `ttg` 方言的模块属性
-- **三、分布式 layout**
-  - `#blocked` 的四个参数与"智能构造"
-  - 回绕与复制
-  - `#slice`
-  - `#nvidia_mma` 的 fragment
-  - `#dot_op`
-- **四、Linear Layout**
-  - GF(2) 上的线性映射
-  - 基向量
-  - `[64, 64]` 默认 layout 与 `#mma` 的基向量表
-  - 乘积、复合、求逆、商
-  - 转换代价的判定
-  - 与 CuTe 对照
-- **五、初始 layout**
-  - `getDefaultBlockedEncoding`
-  - `expand_dims` 与 `#slice` 的逆推
-  - 转换后的 IR
-- **六、Coalesce**
-  - 从 AxisInfo 到 `order` 与 `sizePerThread`
-  - 同 order 访存的合并
-  - 智能构造推出 `threadsPerWarp` / `warpsPerCTA`
-  - 插 `convert_layout`
-  - 转换后的 IR
-- **七、shared memory layout**
-  - `#swizzled_shared` 的 XOR
-  - `#nvmma_shared`
-  - `memdesc`
-- **八、本文小结**
-- **九、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | layout 是什么 | 从"元素"到"线程持有的元素"<br/>为什么在类型里<br/>`ttg` 方言的模块属性 |
+| 三 | 分布式 layout | `#blocked` 的四个参数与"智能构造"<br/>回绕与复制<br/>`#slice`<br/>`#nvidia_mma` 的 fragment<br/>`#dot_op` |
+| 四 | Linear Layout | GF(2) 上的线性映射<br/>基向量<br/>`[64, 64]` 默认 layout 与 `#mma` 的基向量表<br/>乘积、复合、求逆、商<br/>转换代价的判定<br/>与 CuTe 对照 |
+| 五 | 初始 layout | `getDefaultBlockedEncoding`<br/>`expand_dims` 与 `#slice` 的逆推<br/>转换后的 IR |
+| 六 | Coalesce | 从 AxisInfo 到 `order` 与 `sizePerThread`<br/>同 order 访存的合并<br/>智能构造推出 `threadsPerWarp` / `warpsPerCTA`<br/>插 `convert_layout`<br/>转换后的 IR |
+| 七 | shared memory layout | `#swizzled_shared` 的 XOR<br/>`#nvmma_shared`<br/>`memdesc` |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码：`include/triton/Dialect/TritonGPU/IR/TritonGPUAttrDefs.td`、`lib/Dialect/TritonGPU/IR/Dialect.cpp`、`include/triton/Tools/LinearLayout.h`（头部四百行文档，Linear Layout 最好的说明）、`lib/Tools/LinearLayout.cpp`、`lib/Dialect/TritonGPU/IR/LinearLayoutConversions.cpp`、`lib/Conversion/TritonToTritonGPU/`、`lib/Dialect/TritonGPU/Transforms/Coalesce.cpp` 与 `CoalesceUtils.cpp`、`lib/Analysis/Utility.cpp`（转换代价判定）、`bin/triton-tensor-layout.cpp`。
 

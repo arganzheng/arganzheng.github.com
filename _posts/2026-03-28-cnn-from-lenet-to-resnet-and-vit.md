@@ -30,29 +30,18 @@ Table: 卷积网络的三个阶段
 
 ### 2. 本文的章节安排
 
-- **二、卷积作为带约束的线性层**：定义、参数量与 FLOPs 公式、等价的稀疏矩阵（实测 16×36 矩阵 144 个非零 9 个自由参数）、两个归纳偏置
-- **三、感受野、stride 与深度**：感受野公式 1+2L、下采样、为什么必须深
-- **四、五个里程碑**
-  - LeNet → AlexNet → VGG → GoogLeNet → ResNet
-  - 参数量与设计思想
-  - ResNet-50 实测 25.6M / 8.2 GFLOPs
-  - bottleneck 的算术
-- **五、ResNet 的实验与遗产**
-  - plain vs residual 在 20 / 56 层的实测
-  - BN + 深 plain 网络的梯度爆炸
-  - 四样遗产
-- **六、从 CNN 到 ViT**
-  - 归纳偏置 vs 数据量
-  - ViT 的结构
-  - patch embedding == 卷积（实测差 1e-6）
-  - 一张图多少 token
-  - 卷积在多模态里的残余
-- **七、案例：复现 LeNet-5**
-  - 6 万参数的 1998 年网络在 MNIST 上 0.82%——与 KNN / SVM / MLP 同一份数据对照
-  - 第一层学到的 6 个核
-  - plain vs residual 在 20 / 56 层的实测
-- **八、本文小结**
-- **九、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 卷积作为带约束的线性层 | 定义、参数量与 FLOPs 公式、等价的稀疏矩阵（实测 16×36 矩阵 144 个非零 9 个自由参数）、两个归纳偏置 |
+| 三 | 感受野、stride 与深度 | 感受野公式 1+2L、下采样、为什么必须深 |
+| 四 | 五个里程碑 | LeNet → AlexNet → VGG → GoogLeNet → ResNet<br/>参数量与设计思想<br/>ResNet-50 实测 25.6M / 8.2 GFLOPs<br/>bottleneck 的算术 |
+| 五 | ResNet 的实验与遗产 | plain vs residual 在 20 / 56 层的实测<br/>BN + 深 plain 网络的梯度爆炸<br/>四样遗产 |
+| 六 | 从 CNN 到 ViT | 归纳偏置 vs 数据量<br/>ViT 的结构<br/>patch embedding == 卷积（实测差 1e-6）<br/>一张图多少 token<br/>卷积在多模态里的残余 |
+| 七 | 案例：复现 LeNet-5 | 6 万参数的 1998 年网络在 MNIST 上 0.82%——与 KNN / SVM / MLP 同一份数据对照<br/>第一层学到的 6 个核<br/>plain vs residual 在 20 / 56 层的实测 |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ### 3. 来龙去脉：从猫的视觉皮层到 ImageNet
 

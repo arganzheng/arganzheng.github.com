@@ -44,41 +44,21 @@ Table: 单轮 RLVR 与多轮 Agent RL 的对比
 
 ### 3. 本文的章节安排
 
-- **二、问题设定**
-  - MDP 的四要素
-  - 一条轨迹长什么样
-  - 与单轮的三处差别
-- **三、工具调用的格式**
-  - schema、模板里的 tool 角色、并行调用、ReAct 与交错思考
-  - 格式错误的处理
-  - 为什么先 SFT
-- **四、环境与轨迹数据**
-  - 环境的五类
-  - 轨迹的三种来源
-  - Kimi K2 的合成流水线
-  - 为什么难
-- **五、奖励**
-  - 结果奖励的三种验证方式
-  - 部分分
-  - 惩罚项
-  - rubric
-  - 多轮上的 hacking
-- **六、训练目标**
-  - 轨迹级 GRPO
-  - mask
-  - 信用分配（轨迹级 / turn 级）
-  - 重要性比与 KL
-  - 上下文增长的账
-- **七、系统与成本**
-  - agent loop
-  - 环境延迟与方差
-  - 异步 rollout 与 off-policy 修正
-  - 一步的环境账与 GPU 账
-- **八、公开配方**：SWE-RL、Search-R1、ReTool、Kimi K2、Qwen3、gpt-oss / o3
-- **九、评测预告**：τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测什么
-- **十、动手**：最小的多轮 rollout 与 mask
-- **十一、本文小结**
-- **十二、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 问题设定 | MDP 的四要素<br/>一条轨迹长什么样<br/>与单轮的三处差别 |
+| 三 | 工具调用的格式 | schema、模板里的 tool 角色、并行调用、ReAct 与交错思考<br/>格式错误的处理<br/>为什么先 SFT |
+| 四 | 环境与轨迹数据 | 环境的五类<br/>轨迹的三种来源<br/>Kimi K2 的合成流水线<br/>为什么难 |
+| 五 | 奖励 | 结果奖励的三种验证方式<br/>部分分<br/>惩罚项<br/>rubric<br/>多轮上的 hacking |
+| 六 | 训练目标 | 轨迹级 GRPO<br/>mask<br/>信用分配（轨迹级 / turn 级）<br/>重要性比与 KL<br/>上下文增长的账 |
+| 七 | 系统与成本 | agent loop<br/>环境延迟与方差<br/>异步 rollout 与 off-policy 修正<br/>一步的环境账与 GPU 账 |
+| 八 | 公开配方 | SWE-RL、Search-R1、ReTool、Kimi K2、Qwen3、gpt-oss / o3 |
+| 九 | 评测预告 | τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测什么 |
+| 十 | 动手 | 最小的多轮 rollout 与 mask |
+| 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、问题设定
 

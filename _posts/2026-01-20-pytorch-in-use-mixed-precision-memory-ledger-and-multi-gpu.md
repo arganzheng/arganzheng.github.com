@@ -30,21 +30,18 @@ Table: 混合精度训练的显存账：每参数字节、全量、LoRA、QLoRA 
 
 ### 2. 本文的章节安排
 
-- **二、混合精度**
-  - `autocast` 做了什么
-  - bf16 vs fp16
-  - 为什么主权重仍是 fp32
-- **三、显存的账**
-  - 16 字节 / 参数从哪来
-  - 全量 / LoRA / QLoRA 三种方案
-- **四、激活：账外的一块**：不按参数算的那一块：与什么成正比、多大、gradient checkpointing 怎么换
-- **五、OOM 归因**：先问落在哪一块
-- **六、多卡启用即可**
-  - DDP、FSDP、`torchrun`
-  - 更大的并行属于预训练规模
-- **七、算的与量的**：`max_memory_allocated` 对账
-- **八、本文小结**
-- **九、自测**：五道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 混合精度 | `autocast` 做了什么<br/>bf16 vs fp16<br/>为什么主权重仍是 fp32 |
+| 三 | 显存的账 | 16 字节 / 参数从哪来；全量 / LoRA / QLoRA 三种方案 |
+| 四 | 激活：账外的一块 | 不按参数算的那一块：与什么成正比、多大、gradient checkpointing 怎么换 |
+| 五 | OOM 归因 | 先问落在哪一块 |
+| 六 | 多卡启用即可 | DDP、FSDP、`torchrun`；更大的并行属于预训练规模 |
+| 七 | 算的与量的 | `max_memory_allocated` 对账 |
+| 八 | 本文小结 |  |
+| 九 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 配套脚本：[`03_memory_ledger.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/03_memory_ledger.py)。
 

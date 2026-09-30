@@ -155,39 +155,20 @@ DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某
 
 ### 3. 本文的章节安排
 
-- **一、先讲明白**
-  - 配方就是那十几个数（MacBook 与 405B 的同一张表）
-  - 学习率调坏了长什么样（四条曲线）
-  - 一次真实训练里的小 spike 放大看
-  - spike 的解剖——三条曲线同步看、QK-norm
-  - z-loss
-  - 405B 训练的一天
-- **三、目标函数**
-  - 交叉熵与它的单位和梯度
-  - MTP
-  - FIM
-  - 文档打包与跨文档 attention
-- **四、优化器与超参**
-  - AdamW 的四个数与 Muon
-  - batch 与梯度噪声尺度、硬件给的下界
-  - 峰值 lr 随规模
-  - DeepSeek 的经验律
-  - $$\mu$$P 的规则表
-  - weight decay 的时间尺度
-  - warmup
-- **五、调度**
-  - cosine、WSD、DeepSeek-V3 的四段
-  - 衰减段的形状与长度
-  - 为什么中途的 loss 不可比
-  - 退火
-- **六、稳定性**：三个机制、六个开关、norm 的位置、spike 的处理与代价、硬件故障与 checkpoint 间隔、低精度
-- **七、长上下文继续预训练**
-  - Llama 3 的六步与 DeepSeek-V3 的两步
-  - attention 占比与并行
-- **八、监控**：该看的七条曲线与它们的含义
-- **九、实践**：`training_recipe_lab.py`、`llm_cost_12_recipe.py`
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 一 | 先讲明白 | 配方就是那十几个数（MacBook 与 405B 的同一张表）<br/>学习率调坏了长什么样（四条曲线）<br/>一次真实训练里的小 spike 放大看<br/>spike 的解剖——三条曲线同步看、QK-norm<br/>z-loss<br/>405B 训练的一天 |
+| 三 | 目标函数 | 交叉熵与它的单位和梯度<br/>MTP<br/>FIM<br/>文档打包与跨文档 attention |
+| 四 | 优化器与超参 | AdamW 的四个数与 Muon<br/>batch 与梯度噪声尺度、硬件给的下界<br/>峰值 lr 随规模<br/>DeepSeek 的经验律<br/>$$\mu$$P 的规则表<br/>weight decay 的时间尺度<br/>warmup |
+| 五 | 调度 | cosine、WSD、DeepSeek-V3 的四段<br/>衰减段的形状与长度<br/>为什么中途的 loss 不可比<br/>退火 |
+| 六 | 稳定性 | 三个机制、六个开关、norm 的位置、spike 的处理与代价、硬件故障与 checkpoint 间隔、低精度 |
+| 七 | 长上下文继续预训练 | Llama 3 的六步与 DeepSeek-V3 的两步；attention 占比与并行 |
+| 八 | 监控 | 该看的七条曲线与它们的含义 |
+| 九 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 三、目标函数
 

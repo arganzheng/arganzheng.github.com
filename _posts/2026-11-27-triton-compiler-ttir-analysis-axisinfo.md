@@ -19,30 +19,20 @@ Triton 用户接触过它的两个末端：一头是 `tl.multiple_of(x, 16)` 这
 
 本文按**一个数据流分析的四个组成部分**组织：格（第二章：三个属性的精确定义）→ 起点（第三章：信息从哪里进入）→ 传递函数（第四章：每种 op 的规则，每条用一个小例子验证）→ 汇合与不动点（第五章：`join`、循环、分支，以及它建在 MLIR 数据流框架上的方式）。然后是分析的另一端：谁在消费它、消费的公式是什么（第六章），信息在哪些常见写法里丢掉（第七章），怎样用 `triton-opt` 把每个值的 AxisInfo 打出来（第八章）。最后与 LLVM 的同类分析对照（第九章）。
 
-- **二、格**
-  - contiguity / divisibility / constancy / constantValue 的定义
-  - 为什么都是 2 的幂
-  - global divisibility
-- **三、起点**：函数参数属性、`tl.multiple_of` 一族、常量、`make_range`、`get_program_id`、poison
-- **四、传递函数**：`splat` / `expand_dims` / `broadcast`、`add` / `sub` / `addptr`、`mul`、`div` / `rem`、`cmp`、`select` / 逻辑、`load`，各带例子与 lit 测试证据
-- **五、汇合与循环**
-  - `join` 取 gcd
-  - `scf.for` 的归纳变量与 iter_args
-  - `scf.if`
-  - `SparseForwardDataFlowAnalysis`
-  - 跨函数
-- **六、消费者**
-  - `getAlignment` / `getContiguity` / `getMaskAlignment` 的公式
-  - Coalesce、load / store lowering、elementwise 去重
-- **七、信息怎么丢**
-  - 核心问题的三个变体
-  - `%`、运行时 stride、两个连续量相加、`where`
-- **八、工具**
-  - `triton-opt -test-print-alignment`
-  - matmul kernel 每个值的 AxisInfo
-- **九、对照**：LLVM 的 `KnownBits`、`ScalarEvolution`、`Alignment`
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 格 | contiguity / divisibility / constancy / constantValue 的定义<br/>为什么都是 2 的幂<br/>global divisibility |
+| 三 | 起点 | 函数参数属性、`tl.multiple_of` 一族、常量、`make_range`、`get_program_id`、poison |
+| 四 | 传递函数 | `splat` / `expand_dims` / `broadcast`、`add` / `sub` / `addptr`、`mul`、`div` / `rem`、`cmp`、`select` / 逻辑、`load`，各带例子与 lit 测试证据 |
+| 五 | 汇合与循环 | `join` 取 gcd<br/>`scf.for` 的归纳变量与 iter_args<br/>`scf.if`<br/>`SparseForwardDataFlowAnalysis`<br/>跨函数 |
+| 六 | 消费者 | `getAlignment` / `getContiguity` / `getMaskAlignment` 的公式；Coalesce、load / store lowering、elementwise 去重 |
+| 七 | 信息怎么丢 | 核心问题的三个变体；`%`、运行时 stride、两个连续量相加、`where` |
+| 八 | 工具 | `triton-opt -test-print-alignment`；matmul kernel 每个值的 AxisInfo |
+| 九 | 对照 | LLVM 的 `KnownBits`、`ScalarEvolution`、`Alignment` |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码：`include/triton/Analysis/AxisInfo.h`、`lib/Analysis/AxisInfo.cpp`（约 1500 行，本文覆盖其中所有传递规则）、`test/Analysis/test-alignment.mlir`（1290 行 lit 测试，本文引用的每个"预期结果"都来自它）、消费者在 `lib/Dialect/TritonGPU/Transforms/CoalesceUtils.cpp`、`Utility.cpp` 与 `third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/LoadStoreOpToLLVM.cpp`。
 

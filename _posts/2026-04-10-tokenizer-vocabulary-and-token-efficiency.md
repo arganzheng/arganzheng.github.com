@@ -140,27 +140,19 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 
 ### 3. 本文的章节安排
 
-- **一、先讲明白**
-  - 模型为什么只认整数
-  - 同一句话三种切法
-  - BPE 逐步演示
-  - 四个 tokenizer 切同一段话
-  - 词表多大合适——一个自己训出来的曲线
-- **三、从词到子词**
-  - 词级与字符级两端各失败在哪
-  - BPE 算法与玩具例子
-  - byte-level 与预分词
-  - WordPiece 与 Unigram 的准则
-  - tokenizer 的四段流水线
-- **四、词表大小的账**
-  - $$2Vd$$ 参数、tied 与 untied、填充到 128 的倍数、lm_head 的 FLOPs 与字节、logits 显存与 vocab-parallel 交叉熵、训练状态、采样成本
-  - 六个模型的数字
-- **五、token 效率的账**：字符/token、每字符成本、跨 tokenizer 怎么比 loss、词表大小的边际收益与词表的 scaling law、中文 / 代码 / 数字三个特例、上下文窗口"有多长"
-- **六、tokenizer 与模型行为**：词表是语料的化石、欠训练 token 的检测、数字与算术、多语言的价格差、token 边界偏差与 token healing、特殊 token
-- **七、换词表**：扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型
-- **八、实践**：从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版
-- **九、本文小结**
-- **十、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 一 | 先讲明白 | 模型为什么只认整数<br/>同一句话三种切法<br/>BPE 逐步演示<br/>四个 tokenizer 切同一段话<br/>词表多大合适——一个自己训出来的曲线 |
+| 三 | 从词到子词 | 词级与字符级两端各失败在哪<br/>BPE 算法与玩具例子<br/>byte-level 与预分词<br/>WordPiece 与 Unigram 的准则<br/>tokenizer 的四段流水线 |
+| 四 | 词表大小的账 | $$2Vd$$ 参数、tied 与 untied、填充到 128 的倍数、lm_head 的 FLOPs 与字节、logits 显存与 vocab-parallel 交叉熵、训练状态、采样成本；六个模型的数字 |
+| 五 | token 效率的账 | 字符/token、每字符成本、跨 tokenizer 怎么比 loss、词表大小的边际收益与词表的 scaling law、中文 / 代码 / 数字三个特例、上下文窗口"有多长" |
+| 六 | tokenizer 与模型行为 | 词表是语料的化石、欠训练 token 的检测、数字与算术、多语言的价格差、token 边界偏差与 token healing、特殊 token |
+| 七 | 换词表 | 扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型 |
+| 八 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 三、从词到子词：为什么是 BPE
 

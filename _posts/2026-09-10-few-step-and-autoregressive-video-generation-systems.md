@@ -82,25 +82,20 @@ Table: 双向 Wan 与自回归视频的账
 
 ### 2. 本文的章节安排
 
-- **二、少步的账**
-  - 步数蒸馏与 guidance 蒸馏的系统含义
-  - FLUX、Wan（FastWan）的账
-  - 固定开销
-- **三、失效与不变**：逐项复核前五篇的优化
-- **四、少步下的新形态**：固定开销、CUDA graph、批处理何时有意义、多卡的意义从延迟变为吞吐
-- **五、实时交互**
-  - StreamDiffusion 的 stream batch
-  - 交互式图像生成的延迟结构
-- **六、自回归视频**
-  - 双向 → 因果：CausVid、Self-Forcing、Causal Forcing
-  - chunk 与 KV cache
-- **七、KV cache 的回归**：每 chunk 的字节数、滑动窗口、长视频的误差累积、KV 量化
-- **八、服务形态：从批任务到会话**
-  - 流式输出、会话状态、交互式世界模型
-  - 08 系列的哪些回来了
-- **九、实现对照与实践**：三个引擎的 causal pipeline 与 KV 组件
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 少步的账 | 步数蒸馏与 guidance 蒸馏的系统含义<br/>FLUX、Wan（FastWan）的账<br/>固定开销 |
+| 三 | 失效与不变 | 逐项复核前五篇的优化 |
+| 四 | 少步下的新形态 | 固定开销、CUDA graph、批处理何时有意义、多卡的意义从延迟变为吞吐 |
+| 五 | 实时交互 | StreamDiffusion 的 stream batch；交互式图像生成的延迟结构 |
+| 六 | 自回归视频 | 双向 → 因果：CausVid、Self-Forcing、Causal Forcing；chunk 与 KV cache |
+| 七 | KV cache 的回归 | 每 chunk 的字节数、滑动窗口、长视频的误差累积、KV 量化 |
+| 八 | 服务形态：从批任务到会话 | 流式输出、会话状态、交互式世界模型；08 系列的哪些回来了 |
+| 九 | 实现对照与实践 | 三个引擎的 causal pipeline 与 KV 组件 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、少步的账
 

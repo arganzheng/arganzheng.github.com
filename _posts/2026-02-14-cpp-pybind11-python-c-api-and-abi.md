@@ -77,46 +77,24 @@ static PyObject * THPVariable_contiguous(PyObject* self, PyObject* args, PyObjec
 
 ### 2. 本文的章节安排
 
-- **二、Python C API 基础**
-  - PyObject 与 `PyObject_HEAD`
-  - owned/borrowed reference
-  - GIL
-  - `PyObject_Call`
-  - PyTypeObject
-- **三、pybind11 的工作方式**
-  - `PYBIND11_MODULE`
-  - `py::handle/py::object`
-  - `type_caster<T>`
-  - 函数与类绑定
-  - 异常翻译
-- **四、GIL 的释放与获取**
-  - `gil_scoped_release/acquire` 的实现
-  - 什么时候必须释放
-  - 释放后不能碰什么
-  - 死锁模式
-- **五、PyTorch 如何绑定 Tensor**
-  - 两条绑定路线并存
-  - 为什么 Tensor 不用 pybind11
-  - `THPVariable_Wrap/Unpack`
-  - c10 不知道 Python
-- **六、双向持有**
-  - `pyobj_slot`、kHasPyObject
-  - 计数在 1 和 2 之间变化时联动
-  - 循环引用与 `tp_traverse`
-- **七、回到源码：`pybind.h` 里的 caster**：`at::Tensor`、`at::Device/ScalarType`、IntArrayRef、DispatchKey 四个 caster
-- **八、回答核心问题**：一次 `torch.ops.myops.op(t)` 的完整路径：几次类型转换、几次引用计数变化、GIL 状态
-- **九、`TORCH_LIBRARY` 还是 pybind11**
-  - vLLM 的选择
-  - libtorch stable ABI 的现状
-- **十、ABI**：name mangling、`_GLIBCXX_USE_CXX11_ABI`、`GLIBCXX_3.4.x`、manylinux、CPython ABI、MSVC
-- **十一、扩展与 PyTorch 之间的 ABI 契约**：`torch.utils.cpp_extension` 自动加的选项、编译器检查、CUDA 检查、契约清单
-- **十二、mini-c10**
-  - `python/minic10_python.cpp`
-  - 编译与运行
-  - 复现一次 ABI 不匹配
-- **十三、工程实践建议与常见错误**
-- **十四、本文小结**
-- **十五、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Python C API 基础 | PyObject 与 `PyObject_HEAD`<br/>owned/borrowed reference<br/>GIL<br/>`PyObject_Call`<br/>PyTypeObject |
+| 三 | pybind11 的工作方式 | `PYBIND11_MODULE`<br/>`py::handle/py::object`<br/>`type_caster<T>`<br/>函数与类绑定<br/>异常翻译 |
+| 四 | GIL 的释放与获取 | `gil_scoped_release/acquire` 的实现<br/>什么时候必须释放<br/>释放后不能碰什么<br/>死锁模式 |
+| 五 | PyTorch 如何绑定 Tensor | 两条绑定路线并存<br/>为什么 Tensor 不用 pybind11<br/>`THPVariable_Wrap/Unpack`<br/>c10 不知道 Python |
+| 六 | 双向持有 | `pyobj_slot`、kHasPyObject<br/>计数在 1 和 2 之间变化时联动<br/>循环引用与 `tp_traverse` |
+| 七 | 回到源码：`pybind.h` 里的 caster | `at::Tensor`、`at::Device/ScalarType`、IntArrayRef、DispatchKey 四个 caster |
+| 八 | 回答核心问题 | 一次 `torch.ops.myops.op(t)` 的完整路径：几次类型转换、几次引用计数变化、GIL 状态 |
+| 九 | `TORCH_LIBRARY` 还是 pybind11 | vLLM 的选择；libtorch stable ABI 的现状 |
+| 十 | ABI | name mangling、`_GLIBCXX_USE_CXX11_ABI`、`GLIBCXX_3.4.x`、manylinux、CPython ABI、MSVC |
+| 十一 | 扩展与 PyTorch 之间的 ABI 契约 | `torch.utils.cpp_extension` 自动加的选项、编译器检查、CUDA 检查、契约清单 |
+| 十二 | mini-c10 | `python/minic10_python.cpp`<br/>编译与运行<br/>复现一次 ABI 不匹配 |
+| 十三 | 工程实践建议与常见错误 |  |
+| 十四 | 本文小结 |  |
+| 十五 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、Python C API 基础：`PyObject`、引用计数、GIL、`PyObject_Call`
 

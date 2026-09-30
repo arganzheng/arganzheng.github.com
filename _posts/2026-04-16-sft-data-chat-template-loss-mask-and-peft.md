@@ -39,40 +39,19 @@ Table: SFT 与预训练的四处不同
 
 ### 3. 本文的章节安排
 
-- **二、数据**
-  - 三种来源
-  - prompt 与回答各怎么造
-  - LIMA 的 1K 与 Tülu 3 的 94 万各在什么条件下成立
-  - 表面对齐假说的证据
-  - 质量过滤与去污染
-  - 多轮与配比
-- **三、格式**
-  - chat template 做了什么
-  - 三家模板对照
-  - 特殊 token 的 embedding 是欠训练的
-  - BOS 与边界的坑
-  - 训练与推理必须同一模板
-- **四、目标**
-  - loss mask 与它的梯度
-  - 多轮的 mask
-  - packing 与跨样本 attention
-  - padding 浪费的账
-  - mean 与 sum
-  - NEFTune
-- **五、全量与 LoRA**
-  - 全量的状态账与 lr
-  - LoRA 的 $$W + BA$$、梯度、秩、alpha、目标矩阵、超参表
-  - QLoRA、DoRA、rsLoRA、PiSSA
-  - 合并与多 LoRA
-  - LoRA 学得少、忘得少
-- **六、遗忘**：度量、机制、四种对策
-- **七、成本与配方**
-  - 一次 SFT 的 GPU 小时与数据成本
-  - 七个公开配方的 SFT 对照
-  - 推理 SFT 的"少即是多"
-- **八、实践**：`01_sft.py` 的五个实验
-- **九、本文小结**
-- **十、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 数据 | 三种来源<br/>prompt 与回答各怎么造<br/>LIMA 的 1K 与 Tülu 3 的 94 万各在什么条件下成立<br/>表面对齐假说的证据<br/>质量过滤与去污染<br/>多轮与配比 |
+| 三 | 格式 | chat template 做了什么<br/>三家模板对照<br/>特殊 token 的 embedding 是欠训练的<br/>BOS 与边界的坑<br/>训练与推理必须同一模板 |
+| 四 | 目标 | loss mask 与它的梯度<br/>多轮的 mask<br/>packing 与跨样本 attention<br/>padding 浪费的账<br/>mean 与 sum<br/>NEFTune |
+| 五 | 全量与 LoRA | 全量的状态账与 lr<br/>LoRA 的 $$W + BA$$、梯度、秩、alpha、目标矩阵、超参表<br/>QLoRA、DoRA、rsLoRA、PiSSA<br/>合并与多 LoRA<br/>LoRA 学得少、忘得少 |
+| 六 | 遗忘 | 度量、机制、四种对策 |
+| 七 | 成本与配方 | 一次 SFT 的 GPU 小时与数据成本<br/>七个公开配方的 SFT 对照<br/>推理 SFT 的"少即是多" |
+| 八 | 实践 | `01_sft.py` 的五个实验 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、数据：从哪来、要多少
 

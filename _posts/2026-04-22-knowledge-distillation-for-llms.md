@@ -74,42 +74,21 @@ p_S(· | 前缀)"]
 
 ### 3. 本文的章节安排
 
-- **二、三种粒度**
-  - Hinton 的软标签与温度
-  - 序列级 = 在教师输出上 SFT
-  - 特征级为什么在 LLM 上少用
-- **三、前向 KL 与反向 KL**
-  - 定义、梯度、mode-covering 与 mode-seeking
-  - JSD 与 skew KL
-  - 生成任务上选哪个
-- **四、on-policy 蒸馏**
-  - 暴露偏差
-  - GKD 的目标
-  - 它就是 token 级稠密奖励的 RL
-  - Qwen3 与 Thinking Machines 的实践
-- **五、词表不同怎么办**
-  - 为什么 logits 级需要同一 tokenizer
-  - 对齐与最优传输的办法
-  - 序列级的普适性
-- **六、成本**
-  - 序列级的教师推理
-  - logits 级的 $$V$$ 个数与 top-k
-  - on-policy 的每步教师前向
-  - 与 RL 的对比
-- **七、与剪枝、量化、预训练的组合**
-  - Minitron
-  - Llama 3.2
-  - QAT + 蒸馏
-  - Gemma 2 的预训练蒸馏
-- **八、极限**
-  - 容量
-  - 泛化窄
-  - 蒸馏之后再 RL
-  - 分布坍缩
-- **九、公开配方**：R1-Distill、Qwen3、Gemma、Llama 3.2、Minitron、OpenThoughts
-- **十、动手**：`GKDTrainer` 的三个旋钮
-- **十一、本文小结**
-- **十二、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 三种粒度 | Hinton 的软标签与温度<br/>序列级 = 在教师输出上 SFT<br/>特征级为什么在 LLM 上少用 |
+| 三 | 前向 KL 与反向 KL | 定义、梯度、mode-covering 与 mode-seeking<br/>JSD 与 skew KL<br/>生成任务上选哪个 |
+| 四 | on-policy 蒸馏 | 暴露偏差<br/>GKD 的目标<br/>它就是 token 级稠密奖励的 RL<br/>Qwen3 与 Thinking Machines 的实践 |
+| 五 | 词表不同怎么办 | 为什么 logits 级需要同一 tokenizer<br/>对齐与最优传输的办法<br/>序列级的普适性 |
+| 六 | 成本 | 序列级的教师推理<br/>logits 级的 $$V$$ 个数与 top-k<br/>on-policy 的每步教师前向<br/>与 RL 的对比 |
+| 七 | 与剪枝、量化、预训练的组合 | Minitron<br/>Llama 3.2<br/>QAT + 蒸馏<br/>Gemma 2 的预训练蒸馏 |
+| 八 | 极限 | 容量<br/>泛化窄<br/>蒸馏之后再 RL<br/>分布坍缩 |
+| 九 | 公开配方 | R1-Distill、Qwen3、Gemma、Llama 3.2、Minitron、OpenThoughts |
+| 十 | 动手 | `GKDTrainer` 的三个旋钮 |
+| 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、三种粒度
 

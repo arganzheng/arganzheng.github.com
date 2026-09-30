@@ -32,89 +32,17 @@ flowchart TB
 
 系列的一句话主张是：**事实进上下文、行为进权重；检索有三类按前提选、失败大多在检索之前；检索与生成分开评**。
 
-- **[第一篇：进上下文还是进权重](/knowledge-in-context-or-in-weights.html)**
-  - 回答的问题：知识该进哪里？
-  - 一句话结论：
-    - 微调不是灌知识的工具（不可靠、遗忘、不可引用、不可更新与过滤）
-    - 知识类型表六行
-    - 默认顺序 prompt → few-shot → 检索 / 工具 → 微调 → 继续预训练，每步在评测集上证明前一步不够
-  - 必记的数字 / 结论：
-    - *Fine-Tuning or Retrieval?*：检索显著优于微调
-    - 四问（会变？有 schema？要引用？按用户不同？）任一为是不进权重
-    - RAFT 微调"怎么用检索"
-- **[第二篇：三类检索](/three-kinds-of-retrieval-lexical-vector-structured.html)**
-  - 回答的问题：用 grep、向量还是 SQL？
-  - 一句话结论：
-    - 按前提选：词法三前提（精确标识符、可枚举、能迭代）
-    - 向量解决词汇不匹配
-    - 结构化独占关系
-    - coding agent 的分歧是过期税由写路径还是读路径付
-  - 必记的数字 / 结论：
-    - Claude Code 放弃向量库、Anthropic"从 agentic 搜索开始"
-    - Cursor Merkle 树 + 块哈希缓存 + turbopuffer
-    - Cody 5.3 移除 embedding
-    - embedding 是点不是边
-- **[第三篇：解析与分块](/document-parsing-and-chunking-for-retrieval.html)**
-  - 回答的问题：检索失败的上游在哪？
-  - 一句话结论：
-    - 三个梯级（规则 → 布局模型 → VLM）先低后高
-    - 三个静默失败（阅读顺序、表格、页眉页脚）
-    - 按结构切、父子块
-    - contextual retrieval
-    - 权限进元数据
-  - 必记的数字 / 结论：
-    - PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59
-    - Mistral OCR 4 每千页 \$4
-    - Anthropic 失败率 −49% / −67%
-    - 块 200–800 token
-- **[第四篇：索引、混合与 rerank](/indexing-hybrid-search-and-reranking.html)**
-  - 回答的问题：怎么存、怎么找？
-  - 一句话结论：
-    - MTEB 缩范围自己的查询集决定，换模型 = 全量重建
-    - 百万级 HNSW + 现有数据库
-    - BM25 + 向量用 RRF
-    - rerank 性价比最高
-    - 权限在召回时过滤
-  - 必记的数字 / 结论：
-    - Qwen3-Embedding-8B 70.58
-    - Gemini Embedding 2K vs Cohere v4 128K
-    - RRF $$k = 60$$
-    - top-50 → RRF → top-20 → rerank → top-5
-- **[第五篇：流水线到 agentic](/from-rag-pipelines-to-agentic-retrieval.html)**
-  - 回答的问题：一次检索还是让模型自己查？
-  - 一句话结论：
-    - 流水线可预测、召回压力高、无多跳
-    - agentic 召回压力低、多跳、成本不定
-    - 中间有改写 / HyDE / 多查询 / 路由 / 自检
-    - 最常见是级联
-  - 必记的数字 / 结论：
-    - 工具返回摘要 + 引用不返全文
-    - 步数上限必配
-    - 内置 file search 是服务端工具，失去权限与分块控制
-- **[第六篇：结构化知识](/structured-knowledge-sql-ontology-and-graphrag.html)**
-  - 回答的问题：关系在哪里？
-  - 一句话结论：
-    - text-to-SQL 企业级只有两成，用语义层
-    - 本体 = 对象 + 关系 + 动作 + 权限，是 harness 不是检索
-    - GraphRAG 答全局与多跳，索引贵几十到几百倍，LazyGraphRAG 推到查询时
-  - 必记的数字 / 结论：
-    - Spider 2.0 两成左右
-    - 四道门（语法、只读、成本、超时）
-    - 全局 / 多跳比例低于一成不建图
-- **[第七篇：评测与运营](/retrieval-evaluation-and-operations.html)**
-  - 回答的问题：好不好、怎么维持？
-  - 一句话结论：
-    - 没找到 vs 找到了没说对分开评
-    - 固定检索评生成
-    - 评测集从真实查询采
-    - 在线信号带 trace
-    - 新鲜度与重建预算
-    - 权限泄漏是评测项
-  - 必记的数字 / 结论：
-    - recall@50 / @5 分层
-    - judge 一致率 ≥ 85%
-    - 50–100 条起
-    - Slack AI 跨权限注入、Copilot 暴露 SharePoint 权限债
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
+|---|---|---|---|
+| [第一篇：进上下文还是进权重](/knowledge-in-context-or-in-weights.html) | 知识该进哪里？ | 微调不是灌知识的工具（不可靠、遗忘、不可引用、不可更新与过滤）<br/>知识类型表六行<br/>默认顺序 prompt → few-shot → 检索 / 工具 → 微调 → 继续预训练，每步在评测集上证明前一步不够 | *Fine-Tuning or Retrieval?*：检索显著优于微调<br/>四问（会变？有 schema？要引用？按用户不同？）任一为是不进权重<br/>RAFT 微调"怎么用检索" |
+| [第二篇：三类检索](/three-kinds-of-retrieval-lexical-vector-structured.html) | 用 grep、向量还是 SQL？ | 按前提选：词法三前提（精确标识符、可枚举、能迭代）<br/>向量解决词汇不匹配<br/>结构化独占关系<br/>coding agent 的分歧是过期税由写路径还是读路径付 | Claude Code 放弃向量库、Anthropic"从 agentic 搜索开始"<br/>Cursor Merkle 树 + 块哈希缓存 + turbopuffer<br/>Cody 5.3 移除 embedding<br/>embedding 是点不是边 |
+| [第三篇：解析与分块](/document-parsing-and-chunking-for-retrieval.html) | 检索失败的上游在哪？ | 三个梯级（规则 → 布局模型 → VLM）先低后高<br/>三个静默失败（阅读顺序、表格、页眉页脚）<br/>按结构切、父子块<br/>contextual retrieval<br/>权限进元数据 | PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59<br/>Mistral OCR 4 每千页 \$4<br/>Anthropic 失败率 −49% / −67%<br/>块 200–800 token |
+| [第四篇：索引、混合与 rerank](/indexing-hybrid-search-and-reranking.html) | 怎么存、怎么找？ | MTEB 缩范围自己的查询集决定，换模型 = 全量重建<br/>百万级 HNSW + 现有数据库<br/>BM25 + 向量用 RRF<br/>rerank 性价比最高<br/>权限在召回时过滤 | Qwen3-Embedding-8B 70.58<br/>Gemini Embedding 2K vs Cohere v4 128K<br/>RRF $$k = 60$$<br/>top-50 → RRF → top-20 → rerank → top-5 |
+| [第五篇：流水线到 agentic](/from-rag-pipelines-to-agentic-retrieval.html) | 一次检索还是让模型自己查？ | 流水线可预测、召回压力高、无多跳<br/>agentic 召回压力低、多跳、成本不定<br/>中间有改写 / HyDE / 多查询 / 路由 / 自检<br/>最常见是级联 | 工具返回摘要 + 引用不返全文<br/>步数上限必配<br/>内置 file search 是服务端工具，失去权限与分块控制 |
+| [第六篇：结构化知识](/structured-knowledge-sql-ontology-and-graphrag.html) | 关系在哪里？ | text-to-SQL 企业级只有两成，用语义层<br/>本体 = 对象 + 关系 + 动作 + 权限，是 harness 不是检索<br/>GraphRAG 答全局与多跳，索引贵几十到几百倍，LazyGraphRAG 推到查询时 | Spider 2.0 两成左右<br/>四道门（语法、只读、成本、超时）<br/>全局 / 多跳比例低于一成不建图 |
+| [第七篇：评测与运营](/retrieval-evaluation-and-operations.html) | 好不好、怎么维持？ | 没找到 vs 找到了没说对分开评<br/>固定检索评生成<br/>评测集从真实查询采<br/>在线信号带 trace<br/>新鲜度与重建预算<br/>权限泄漏是评测项 | recall@50 / @5 分层<br/>judge 一致率 ≥ 85%<br/>50–100 条起<br/>Slack AI 跨权限注入、Copilot 暴露 SharePoint 权限债 |
+
+Table: 七篇的核心问题、结论与必记
 
 ### 1. 本文的章节安排
 

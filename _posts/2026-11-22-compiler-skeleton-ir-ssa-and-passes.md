@@ -32,37 +32,20 @@ int sum(int *a, int n) {
 
 选它是因为它足够小，每一层 IR 都能整段贴出来；又足够完整，有循环、有内存访问、有归约变量——GEMM 的 K 循环在结构上就是它。
 
-- **二、编译器的三段**
-  - 前端 / 中端 / 后端
-  - M + N 与 M × N
-  - javac、HotSpot、nvcc 各在哪一段
-- **三、IR 的形态**
-  - AST、三地址码、基本块与 CFG
-  - `clang -emit-llvm` 看一段 `-O0` 的 IR
-  - IR 的三个设计维度
-- **四、SSA**
-  - 定义、φ 函数、支配树与支配边界、`mem2reg`、SSA 的退出
-  - Sea of Nodes
-- **五、数据流分析**
-  - 格、传递函数、汇合、不动点
-  - 活跃变量与常量传播两个实例
-  - 稀疏分析
-- **六、经典优化**
-  - 常量折叠、CSE、DCE、LICM、内联、强度削减，各在 `opt` 上跑一遍
-  - canonicalization
-- **七、pass 与 pass manager**
-  - 粒度、analysis 与 transform、失效
-  - pipeline 是一个列表
-- **八、lowering**
-  - 每层丢掉什么信息
-  - 一步到位与渐进式下降
-  - nvcc 的两级后端
-- **九、ML 为什么要自己的编译器**
-  - 张量层特有的优化
-  - 三类 ML 编译器
-  - 家谱
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 编译器的三段 | 前端 / 中端 / 后端<br/>M + N 与 M × N<br/>javac、HotSpot、nvcc 各在哪一段 |
+| 三 | IR 的形态 | AST、三地址码、基本块与 CFG<br/>`clang -emit-llvm` 看一段 `-O0` 的 IR<br/>IR 的三个设计维度 |
+| 四 | SSA | 定义、φ 函数、支配树与支配边界、`mem2reg`、SSA 的退出；Sea of Nodes |
+| 五 | 数据流分析 | 格、传递函数、汇合、不动点<br/>活跃变量与常量传播两个实例<br/>稀疏分析 |
+| 六 | 经典优化 | 常量折叠、CSE、DCE、LICM、内联、强度削减，各在 `opt` 上跑一遍；canonicalization |
+| 七 | pass 与 pass manager | 粒度、analysis 与 transform、失效；pipeline 是一个列表 |
+| 八 | lowering | 每层丢掉什么信息<br/>一步到位与渐进式下降<br/>nvcc 的两级后端 |
+| 九 | ML 为什么要自己的编译器 | 张量层特有的优化<br/>三类 ML 编译器<br/>家谱 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 工具用 LLVM 23.1.1 的 `clang`、`opt`、`llc`，全部命令与输出都能在没有 GPU 的机器上重现。
 

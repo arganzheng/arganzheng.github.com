@@ -34,99 +34,18 @@ flowchart TB
 
 系列的一句话主张是：**RL 训练的一步是三个形态不同的作业加两次同步，把它们的算力、显存、时间与两次同步的字节数追踪清楚，系统形态、权重同步、异步、环境调度都是在这张账上做交换**。生成是 memory-bound 的 decode、训练是 compute-bound 的 GEMM，两者对 GPU 的用法相反、对显存的要求互斥，中间还隔着两道同步的墙——公开报告里 rollout 占墙钟的 60–80%、GPU 利用率常在 30% 以下，全部来自这个结构。八篇的顺序是"先算账、再定形态、再解决形态带来的问题、最后读源码与配置"，账本线（FLOP · 字节 · 秒）、形态线（共置 / 分离 / 异步）、框架线（verl，末尾对照 slime 与 AReaL）三条线索交织。
 
-- **[第一篇：负载画像](/rl-step-anatomy-rollout-reward-train.html)**
-  - 回答的问题：8B、$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、64 张 H100 做 GRPO：生成多少 token、多少 KV、分几波？三段各多少 GPU·秒？利用率上限？
-  - 一句话结论：一步 = 三个作业 + 两次同步；FLOP 上训练占一半、生成六分之一，时间上生成占四分之三——decode 每步把整块 HBM 读一遍
-  - 必记的数字 / 公式：
-    - 每 token 约 $$12N_a$$
-    - 一步 6.8 EFLOP
-    - KV 9.3 TB、分 1.4 波
-    - decode 步 ≈ 36 ms
-    - 生成 602 s（长尾 196）+ 前向 72 + 训练 136 = 810 s
-    - 全步 MFU 13%（对话场景 29%）
-- **[第二篇：系统形态](/rl-system-topologies-colocate-disaggregate-async.html)**
-  - 回答的问题：同样 64 卡，共置、分离、异步各是多少墙钟与利用率？长尾变大时哪种先撑不住？
-  - 一句话结论：
-    - 三种形态是同一张账上的三种交换
-    - 同步分离比共置更差
-    - 异步 ≈ 共置 − 长尾
-    - 共置对长尾线性敏感、异步不敏感
-  - 必记的数字 / 公式：
-    - 共置 810 s / 13%，同步分离 1501 s / 7%，一步流水 764 s / 14%，异步 619 s / 17%
-    - $$f$$ 从 10% 到 70%，异步 / 共置 1.07× → 2.55×
-    - verl 实验 2.35–2.67×
-    - 配比 $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$，异步 2 : 1（42 : 22）
-- **[第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html)**
-  - 回答的问题：32B 在 8 卡共置，每步两次显存换手搬多少字节、走哪条链路、几秒？是 2% 还是 20%？
-  - 一句话结论：
-    - 让渡有搬 / 丢 / 不动三种
-    - `CuMemAllocator` 摘物理页保虚拟地址
-    - 切换 < 2%，真实代价是常驻部分挤掉的 KV 池
-  - 必记的数字 / 公式：
-    - 每步约 130 GB、6.5 s（4 s 是优化器状态往返）
-    - `gpu_memory_utilization` 0.5 → 0.85 让 8B 生成 745 → 610 s
-    - pinned 内存 32B/8 卡 520 GB
-    - 边界 $$16N / n \le 70$$ GB
-- **[第四篇：权重同步](/weight-sync-from-training-shards-to-inference-shards.html)**
-  - 回答的问题：Megatron TP4 / PP2 / EP8 的 671B → vLLM TP8 / EP4 的 FP8 副本，跨机一次同步做哪几步、传多少、几秒？增量省多少？
-  - 一句话结论：
-    - 同步 = 布局 + 传输两半，中间是 HF 名字的 `(name, tensor)` 流
-    - "谁持有完整模型"比链路快慢重要
-    - 增量让没有人持有完整模型
-  - 必记的数字 / 公式：
-    - FP8 传 $$N$$ = 671 GB
-    - 朴素经 rank 0 60–80 s（理论下界 13 s）、多源 12–20 s
-    - 235B 全量 246–266 s vs delta 11–15 s（21×）
-    - dense 每步 1–3% 变化、MoE 0.02–0.05%
-    - bucket 512 MB、峰值 2 bucket
-    - bubble $$= T_{sync} / (k T_{mb} + T_{sync})$$
-- **[第五篇：异步与 off-policy](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)**
-  - 回答的问题：同步换成 $$k \le 2$$ 的异步后 reward 斜率变缓，是 staleness、训推不一致还是缓冲淘汰？事前记什么信号？
-  - 一句话结论："样本过期"是三个东西，reward 曲线上不可分、事前记录的信号上可分；修正的系统要求是 logprob 的份数
-  - 必记的数字 / 公式：
-    - $$s \approx \lfloor (\text{生成用时} + \text{等待}) / T_{sync} \rfloor$$，长回答 $$s$$ 更大
-    - 阈值默认 8
-    - $$s \le 2$$–4 配修正无损
-    - 不一致 dense $$10^{-3}$$、FP8 $$10^{-2}$$、MoE 路由翻转单 token > 1
-    - TIS $$\min(w, 2)$$
-    - 部分 rollout 重 prefill ≈ 一步 FLOP 的 6%
-    - decoupled PPO 3 份 logprob
-- **[第六篇：Agentic rollout](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)**
-  - 回答的问题：500 任务 × $$G = 8$$ × 20 轮、每轮几十秒测试：多少次容器执行、多少 CPU·小时、多少并发沙箱？GPU 在做什么？
-  - 一句话结论：
-    - rollout 变成分布式系统
-    - KV 驻留决定 prefill 是二次还是线性
-    - 沙箱是第三个池
-    - 环境方差让异步成必需
-  - 必记的数字 / 公式：
-    - 8 万次执行
-    - 667–1300 CPU·h
-    - 1300–1800 并发沙箱
-    - 32 卡 30 分钟里 decode ≈ 500 s、prefill 160–1600 s
-    - 每卡 650 token/s
-    - 训练侧 15 EFLOP
-    - 八成 token 来自环境
-- **[第七篇：verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)**
-  - 回答的问题：一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token，经过哪些函数、进程、链路？
-  - 一句话结论：
-    - 十二步、四类进程、三条链路
-    - 共置 = 一个进程持有多个角色对象
-    - TransferQueue 是同步与异步统一的解耦点
-    - slime 薄、AReaL 异步优先
-  - 必记的数字 / 公式：
-    - `@register` 只挂属性、`_bind_worker_method` 生成组方法
-    - `_step_once` 九个阶段
-    - non-naive 同步七步
-    - `create_colocated_worker_cls` + `spawn`
-    - 三家趋同的四段是必然
-- **[第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html)**
-  - 回答的问题：凌晨两点 reward 平台、步时间不变、无报错：十分钟内区分四个嫌疑，信号开训前采了没有？
-  - 一句话结论：六步推导、全步 MFU 瀑布、RL 状态的 checkpoint、确定性、必采指标、故障表；排查顺序是数据 → 版本 → 异步 → 实现
-  - 必记的数字 / 公式：
-    - 32B / 128 卡算例：80 : 48、一步 ≈ 1170 s、MFU ≈ 20%
-    - 瀑布 100% − 64% − 13% − 4% − 0.1% ≈ 13%
-    - 671B checkpoint 10.7 TB 写 18 分钟
-    - `full_determinism` 要求 `use_v1=false`
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：负载画像](/rl-step-anatomy-rollout-reward-train.html) | 8B、$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、64 张 H100 做 GRPO：生成多少 token、多少 KV、分几波？三段各多少 GPU·秒？利用率上限？ | 一步 = 三个作业 + 两次同步；FLOP 上训练占一半、生成六分之一，时间上生成占四分之三——decode 每步把整块 HBM 读一遍 | 每 token 约 $$12N_a$$<br/>一步 6.8 EFLOP<br/>KV 9.3 TB、分 1.4 波<br/>decode 步 ≈ 36 ms<br/>生成 602 s（长尾 196）+ 前向 72 + 训练 136 = 810 s<br/>全步 MFU 13%（对话场景 29%） |
+| [第二篇：系统形态](/rl-system-topologies-colocate-disaggregate-async.html) | 同样 64 卡，共置、分离、异步各是多少墙钟与利用率？长尾变大时哪种先撑不住？ | 三种形态是同一张账上的三种交换<br/>同步分离比共置更差<br/>异步 ≈ 共置 − 长尾<br/>共置对长尾线性敏感、异步不敏感 | 共置 810 s / 13%，同步分离 1501 s / 7%，一步流水 764 s / 14%，异步 619 s / 17%<br/>$$f$$ 从 10% 到 70%，异步 / 共置 1.07× → 2.55×<br/>verl 实验 2.35–2.67×<br/>配比 $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$，异步 2 : 1（42 : 22） |
+| [第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html) | 32B 在 8 卡共置，每步两次显存换手搬多少字节、走哪条链路、几秒？是 2% 还是 20%？ | 让渡有搬 / 丢 / 不动三种<br/>`CuMemAllocator` 摘物理页保虚拟地址<br/>切换 < 2%，真实代价是常驻部分挤掉的 KV 池 | 每步约 130 GB、6.5 s（4 s 是优化器状态往返）<br/>`gpu_memory_utilization` 0.5 → 0.85 让 8B 生成 745 → 610 s<br/>pinned 内存 32B/8 卡 520 GB<br/>边界 $$16N / n \le 70$$ GB |
+| [第四篇：权重同步](/weight-sync-from-training-shards-to-inference-shards.html) | Megatron TP4 / PP2 / EP8 的 671B → vLLM TP8 / EP4 的 FP8 副本，跨机一次同步做哪几步、传多少、几秒？增量省多少？ | 同步 = 布局 + 传输两半，中间是 HF 名字的 `(name, tensor)` 流<br/>"谁持有完整模型"比链路快慢重要<br/>增量让没有人持有完整模型 | FP8 传 $$N$$ = 671 GB<br/>朴素经 rank 0 60–80 s（理论下界 13 s）、多源 12–20 s<br/>235B 全量 246–266 s vs delta 11–15 s（21×）<br/>dense 每步 1–3% 变化、MoE 0.02–0.05%<br/>bucket 512 MB、峰值 2 bucket<br/>bubble $$= T_{sync} / (k T_{mb} + T_{sync})$$ |
+| [第五篇：异步与 off-policy](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) | 同步换成 $$k \le 2$$ 的异步后 reward 斜率变缓，是 staleness、训推不一致还是缓冲淘汰？事前记什么信号？ | "样本过期"是三个东西，reward 曲线上不可分、事前记录的信号上可分；修正的系统要求是 logprob 的份数 | $$s \approx \lfloor (\text{生成用时} + \text{等待}) / T_{sync} \rfloor$$，长回答 $$s$$ 更大<br/>阈值默认 8<br/>$$s \le 2$$–4 配修正无损<br/>不一致 dense $$10^{-3}$$、FP8 $$10^{-2}$$、MoE 路由翻转单 token > 1<br/>TIS $$\min(w, 2)$$<br/>部分 rollout 重 prefill ≈ 一步 FLOP 的 6%<br/>decoupled PPO 3 份 logprob |
+| [第六篇：Agentic rollout](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) | 500 任务 × $$G = 8$$ × 20 轮、每轮几十秒测试：多少次容器执行、多少 CPU·小时、多少并发沙箱？GPU 在做什么？ | rollout 变成分布式系统<br/>KV 驻留决定 prefill 是二次还是线性<br/>沙箱是第三个池<br/>环境方差让异步成必需 | 8 万次执行<br/>667–1300 CPU·h<br/>1300–1800 并发沙箱<br/>32 卡 30 分钟里 decode ≈ 500 s、prefill 160–1600 s<br/>每卡 650 token/s<br/>训练侧 15 EFLOP<br/>八成 token 来自环境 |
+| [第七篇：verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) | 一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token，经过哪些函数、进程、链路？ | 十二步、四类进程、三条链路<br/>共置 = 一个进程持有多个角色对象<br/>TransferQueue 是同步与异步统一的解耦点<br/>slime 薄、AReaL 异步优先 | `@register` 只挂属性、`_bind_worker_method` 生成组方法<br/>`_step_once` 九个阶段<br/>non-naive 同步七步<br/>`create_colocated_worker_cls` + `spawn`<br/>三家趋同的四段是必然 |
+| [第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html) | 凌晨两点 reward 平台、步时间不变、无报错：十分钟内区分四个嫌疑，信号开训前采了没有？ | 六步推导、全步 MFU 瀑布、RL 状态的 checkpoint、确定性、必采指标、故障表；排查顺序是数据 → 版本 → 异步 → 实现 | 32B / 128 卡算例：80 : 48、一步 ≈ 1170 s、MFU ≈ 20%<br/>瀑布 100% − 64% − 13% − 4% − 0.1% ≈ 13%<br/>671B checkpoint 10.7 TB 写 18 分钟<br/>`full_determinism` 要求 `use_v1=false` |
+
+Table: 八篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

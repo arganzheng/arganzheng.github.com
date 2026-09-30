@@ -40,38 +40,20 @@ flowchart TB
     class c,m0,m1 hot
 ```
 
-- **二、类型转换**
-  - 张量 → `!llvm.struct<(T, T, …)>`
-  - 指针 → `!llvm.ptr<1>`
-  - `memdesc` → `(ptr<3>, offsets…)`
-  - 函数签名多出来的两个参数
-- **三、公共机制**
-  - `emitIndices` / `applyLinearLayout`：基向量 → XOR 算术
-  - `PTXBuilder`：拼内联汇编
-  - `TargetInfo`
-- **四、`load` / `store`**
-  - 向量宽度、谓词、`other`
-  - `cp.async`
-  - 真实的 LLVM IR 与 PTX
-- **五、`reduce`**
-  - 线程内 → warp 内 `shfl` → 跨 warp shared memory
-  - rowsum 的实测
-- **六、`dot` 与 `local_load`**
-  - `mma.sync` 内联汇编与 fragment 的寄存器打包
-  - `ldmatrix` 按 swizzle 算地址
-  - `wgmma` 的描述符
-- **七、`convert_layout`**
-  - 三条路径的代码生成
-  - shared memory 版本的 swizzle
-- **八、AllocateSharedMemory**
-  - 活跃区间、干涉图、first-fit 着色
-  - matmul 的 32 KB 怎么来
-- **九、Membar**
-  - RAW / WAR 区间相交
-  - 虚拟块上的不动点
-  - 为什么 `async_wait` 后面跟 barrier
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 类型转换 | 张量 → `!llvm.struct<(T, T, …)>`<br/>指针 → `!llvm.ptr<1>`<br/>`memdesc` → `(ptr<3>, offsets…)`<br/>函数签名多出来的两个参数 |
+| 三 | 公共机制 | `emitIndices` / `applyLinearLayout`：基向量 → XOR 算术<br/>`PTXBuilder`：拼内联汇编<br/>`TargetInfo` |
+| 四 | `load` / `store` | 向量宽度、谓词、`other`<br/>`cp.async`<br/>真实的 LLVM IR 与 PTX |
+| 五 | `reduce` | 线程内 → warp 内 `shfl` → 跨 warp shared memory；rowsum 的实测 |
+| 六 | `dot` 与 `local_load` | `mma.sync` 内联汇编与 fragment 的寄存器打包<br/>`ldmatrix` 按 swizzle 算地址<br/>`wgmma` 的描述符 |
+| 七 | `convert_layout` | 三条路径的代码生成；shared memory 版本的 swizzle |
+| 八 | AllocateSharedMemory | 活跃区间、干涉图、first-fit 着色；matmul 的 32 KB 怎么来 |
+| 九 | Membar | RAW / WAR 区间相交<br/>虚拟块上的不动点<br/>为什么 `async_wait` 后面跟 barrier |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 源码：`lib/Conversion/TritonGPUToLLVM/`（`TypeConverter.cpp`、`Utility.cpp`、`ReduceOpToLLVM.cpp`、`ConvertLayoutOpToLLVM.cpp`、`MemoryOpToLLVM.cpp`、`AllocateSharedMemory.cpp`）、`third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/`（`TritonGPUToLLVM.cpp`、`LoadStoreOpToLLVM.cpp`、`DotOpToLLVM/`、`PTXAsmFormat.cpp`、`TargetInfo.cpp`）、`lib/Analysis/{Allocation,Membar}.cpp`、`include/triton/Conversion/TritonGPUToLLVM/Utility.h`。实测 IR 来自三个 kernel：前几篇的 matmul（`sm_80`），以及一个向量加法 `add_kernel`（`BLOCK = 1024`）和一个行求和 `rowsum_kernel`（`N = 1024`），都是 `num_warps = 4`。
 

@@ -75,50 +75,21 @@ U-Net + cross-attn 或 DiT / MMDiT
 
 ### 3. 本文的章节安排
 
-- **二、Latent diffusion**
-  - 为什么像素空间贵（一张账）
-  - 用 PCA 当"VAE"在 16 维 latent 里跑一遍 DDPM、生成手写数字（代码 + 图）
-  - VAE 的结构与训练（重建 + KL + 感知 + 对抗）
-  - 压缩率与通道数
-  - VAE 的瓶颈
-- **三、U-Net 到 DiT**
-  - U-Net 的结构与条件注入
-  - DiT 的 patchify、adaLN-Zero、scaling 结果
-  - PixArt 的 cross-attn
-  - MMDiT 的双流
-- **四、文本编码器**
-  - CLIP 文本塔 vs T5 vs LLM
-  - 77 token 的限制
-  - 多编码器拼接
-  - recaption 为什么是数据侧最重要的改进
-- **五、配方细节**
-  - 多尺寸 / 多宽高比训练
-  - 微条件（SDXL）
-  - 分辨率平移
-  - 数据过滤与美学分
-- **六、采样加速**
-  - 求解器（DPM-Solver）
-  - 步数蒸馏（progressive、consistency、LCM）
-  - 对抗蒸馏（ADD / Turbo）
-  - rectified flow 的优势
-  - 1–4 步的现状
-- **七、成本结构**
-  - 训练与采样的账
-  - 与 LLM 的对比
-  - 对服务系统的含义
-- **八、视频生成**
-  - 3D VAE
-  - 时空 patch
-  - DiT 的时空 attention
-  - Sora / Wan / HunyuanVideo / CogVideoX 的配方
-  - 成本
-- **九、扩散的后训练**
-  - 偏好对齐（Diffusion-DPO）
-  - 奖励微调
-  - 与 LLM 后训练的对照
-- **十、动手（建议）**：SD / SDXL / SD3 的 guidance 与步数扫描
-- **十一、本文小结**
-- **十二、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Latent diffusion | 为什么像素空间贵（一张账）<br/>用 PCA 当"VAE"在 16 维 latent 里跑一遍 DDPM、生成手写数字（代码 + 图）<br/>VAE 的结构与训练（重建 + KL + 感知 + 对抗）<br/>压缩率与通道数<br/>VAE 的瓶颈 |
+| 三 | U-Net 到 DiT | U-Net 的结构与条件注入<br/>DiT 的 patchify、adaLN-Zero、scaling 结果<br/>PixArt 的 cross-attn<br/>MMDiT 的双流 |
+| 四 | 文本编码器 | CLIP 文本塔 vs T5 vs LLM<br/>77 token 的限制<br/>多编码器拼接<br/>recaption 为什么是数据侧最重要的改进 |
+| 五 | 配方细节 | 多尺寸 / 多宽高比训练<br/>微条件（SDXL）<br/>分辨率平移<br/>数据过滤与美学分 |
+| 六 | 采样加速 | 求解器（DPM-Solver）<br/>步数蒸馏（progressive、consistency、LCM）<br/>对抗蒸馏（ADD / Turbo）<br/>rectified flow 的优势<br/>1–4 步的现状 |
+| 七 | 成本结构 | 训练与采样的账<br/>与 LLM 的对比<br/>对服务系统的含义 |
+| 八 | 视频生成 | 3D VAE<br/>时空 patch<br/>DiT 的时空 attention<br/>Sora / Wan / HunyuanVideo / CogVideoX 的配方<br/>成本 |
+| 九 | 扩散的后训练 | 偏好对齐（Diffusion-DPO）<br/>奖励微调<br/>与 LLM 后训练的对照 |
+| 十 | 动手（建议） | SD / SDXL / SD3 的 guidance 与步数扫描 |
+| 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、Latent diffusion
 

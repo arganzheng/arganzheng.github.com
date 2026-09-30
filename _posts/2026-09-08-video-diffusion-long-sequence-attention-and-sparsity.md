@@ -81,38 +81,20 @@ Table: Amdahl 定律下稀疏 attention 的端到端加速
 
 ### 2. 本文的章节安排
 
-- **二、视频的 token 账**
-  - 3D VAE、时空 patch、$$N$$ 的三个乘数
-  - 五个模型
-- **三、attention 占比的翻转**
-  - $$4LN^2d$$ vs $$2P_\text{tok}N$$ 的交叉点
-  - 分辨率与帧数的扫描
-  - $$d$$ 的影响
-- **四、显存：FlashAttention 是前提**
-  - 分数矩阵 425 GiB
-  - 激活随 $$N$$ 线性到 14 GiB
-  - CFG batch
-  - 3D VAE 解码的 107 GiB
-- **五、全 3D attention 与它的替代**
-  - 时空分解为什么被放弃
-  - 全 attention 的代价就是本文
-- **六、稀疏 attention 的四条路**
-  - SVG（head 分类）、SVG2（语义置换）、Radial（静态能量衰减掩码）、STA / VSA（tile 滑窗、可训练）
-  - 训练无关 vs 需微调
-- **七、稀疏怎样落到 kernel**
-  - block-sparse FlashAttention
-  - layout 变换
-  - tile 对齐
-  - 掩码的存储
-- **八、8-bit attention 与叠加表**
-  - SageAttention 在视频上的收益
-  - Wan 81 帧的叠加账
-  - Amdahl
-- **九、实现对照与实践**
-  - 四个实现里的后端
-  - 实践建议
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 视频的 token 账 | 3D VAE、时空 patch、$$N$$ 的三个乘数；五个模型 |
+| 三 | attention 占比的翻转 | $$4LN^2d$$ vs $$2P_\text{tok}N$$ 的交叉点<br/>分辨率与帧数的扫描<br/>$$d$$ 的影响 |
+| 四 | 显存：FlashAttention 是前提 | 分数矩阵 425 GiB<br/>激活随 $$N$$ 线性到 14 GiB<br/>CFG batch<br/>3D VAE 解码的 107 GiB |
+| 五 | 全 3D attention 与它的替代 | 时空分解为什么被放弃；全 attention 的代价就是本文 |
+| 六 | 稀疏 attention 的四条路 | SVG（head 分类）、SVG2（语义置换）、Radial（静态能量衰减掩码）、STA / VSA（tile 滑窗、可训练）；训练无关 vs 需微调 |
+| 七 | 稀疏怎样落到 kernel | block-sparse FlashAttention<br/>layout 变换<br/>tile 对齐<br/>掩码的存储 |
+| 八 | 8-bit attention 与叠加表 | SageAttention 在视频上的收益<br/>Wan 81 帧的叠加账<br/>Amdahl |
+| 九 | 实现对照与实践 | 四个实现里的后端；实践建议 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、视频的 token 账
 

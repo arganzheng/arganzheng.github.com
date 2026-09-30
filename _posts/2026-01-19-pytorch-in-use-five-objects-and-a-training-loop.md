@@ -70,26 +70,17 @@ zero_grad()：清零`"]
 
 ### 3. 本文的章节安排
 
-- **二、Tensor**
-  - 从 ndarray 到 Tensor：多了什么
-  - `device`、`dtype`
-  - 原地操作
-  - `.item()` 为什么会等 GPU
-- **三、Autograd**
-  - 三件事：记图、累加、`no_grad`
-  - 一个手算例子与它的计算图
-- **四、nn.Module**
-  - `__init__` 与 `forward`
-  - 注册机制与 `ModuleList`
-  - `state_dict` 里有什么
-  - 本文要训的小 Transformer
-- **五、Dataset、DataLoader 与 Optimizer**
-  - 取数、组 batch 的流程图
-  - `step` / `zero_grad`
-  - 调度器不是优化器
-- **六、二十行训练循环，训一个小 Transformer**：代码、逐行解释、多出来的四样、跑起来的输出、与 `Trainer` 的关系
-- **七、本文小结**
-- **八、自测**：五道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | Tensor | 从 ndarray 到 Tensor：多了什么<br/>`device`、`dtype`<br/>原地操作<br/>`.item()` 为什么会等 GPU |
+| 三 | Autograd | 三件事：记图、累加、`no_grad`；一个手算例子与它的计算图 |
+| 四 | nn.Module | `__init__` 与 `forward`<br/>注册机制与 `ModuleList`<br/>`state_dict` 里有什么<br/>本文要训的小 Transformer |
+| 五 | Dataset、DataLoader 与 Optimizer | 取数、组 batch 的流程图<br/>`step` / `zero_grad`<br/>调度器不是优化器 |
+| 六 | 二十行训练循环，训一个小 Transformer | 代码、逐行解释、多出来的四样、跑起来的输出、与 `Trainer` 的关系 |
+| 七 | 本文小结 |  |
+| 八 | 自测 | 五道题 |
+
+Table: 本文的章节安排
 
 ## 二、Tensor
 

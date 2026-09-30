@@ -84,51 +84,22 @@ Kueue 不碰 Pod 的节点选择，它只决定"这个任务现在能不能开�
 
 ### 4. 本文的章节安排
 
-- **二、为什么会死锁**
-  - 逐 Pod 调度的时序
-  - gang 的定义与 minMember
-  - 为什么必须在调度器层面做
-  - `v1.37` WAS 的位置
-- **三、Volcano**
-  - 对象模型 Job → PodGroup → Queue
-  - Session 与 action/plugin 流水线
-  - gang 插件
-  - capability/deserved/guarantee
-- **四、Kueue**
-  - Workload → LocalQueue → ClusterQueue
-  - ResourceFlavor
-  - cohort 借用与 lendingLimit
-  - suspend
-  - 抢占策略
-  - AdmissionCheck
-- **五、两种哲学**
-  - 对比表
-  - 选型
-  - 能否叠加
-- **六、拓扑感知**
-  - 为什么
-  - Kueue TAS 的 Topology 与三个注解
-  - Volcano 的 HyperNode 与 tier
-  - 标签从哪里来
-- **七、抢占与 checkpoint**
-  - 抢占的代价模型
-  - PriorityClass / WorkloadPriorityClass / Queue priority 的交互
-  - 配置建议
-- **八、Kubeflow Trainer**
-  - TrainJob / TrainingRuntime / JobSet
-  - torch 插件注入的 `PET_*`
-  - rendezvous 如何落地
-  - 与 Volcano / Kueue 的对接
-- **九、Slurm 与 Ray**
-  - sbatch / partition / GRES / backfill
-  - Slinky 的 slurm-operator 与 slurm-bridge
-  - Ray placement group 与 KubeRay 的两层自动扩缩
-- **十、回答核心问题**：借用 / 抢占 / 等待 × Volcano / Kueue / Slurm 的行为与配置项
-- **十一、代价与边界**
-  - 四栏表
-  - 每个机制引入的新问题
-- **十二、实践**：mini-platform/sched/：Kueue 两队列 cohort、TrainJob、Volcano Job、从 suspended 到 admitted
-- **十三、小结**：要点、源码位置、练手项目增量
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么会死锁 | 逐 Pod 调度的时序<br/>gang 的定义与 minMember<br/>为什么必须在调度器层面做<br/>`v1.37` WAS 的位置 |
+| 三 | Volcano | 对象模型 Job → PodGroup → Queue<br/>Session 与 action/plugin 流水线<br/>gang 插件<br/>capability/deserved/guarantee |
+| 四 | Kueue | Workload → LocalQueue → ClusterQueue<br/>ResourceFlavor<br/>cohort 借用与 lendingLimit<br/>suspend<br/>抢占策略<br/>AdmissionCheck |
+| 五 | 两种哲学 | 对比表<br/>选型<br/>能否叠加 |
+| 六 | 拓扑感知 | 为什么<br/>Kueue TAS 的 Topology 与三个注解<br/>Volcano 的 HyperNode 与 tier<br/>标签从哪里来 |
+| 七 | 抢占与 checkpoint | 抢占的代价模型<br/>PriorityClass / WorkloadPriorityClass / Queue priority 的交互<br/>配置建议 |
+| 八 | Kubeflow Trainer | TrainJob / TrainingRuntime / JobSet<br/>torch 插件注入的 `PET_*`<br/>rendezvous 如何落地<br/>与 Volcano / Kueue 的对接 |
+| 九 | Slurm 与 Ray | sbatch / partition / GRES / backfill<br/>Slinky 的 slurm-operator 与 slurm-bridge<br/>Ray placement group 与 KubeRay 的两层自动扩缩 |
+| 十 | 回答核心问题 | 借用 / 抢占 / 等待 × Volcano / Kueue / Slurm 的行为与配置项 |
+| 十一 | 代价与边界 | 四栏表；每个机制引入的新问题 |
+| 十二 | 实践 | mini-platform/sched/：Kueue 两队列 cohort、TrainJob、Volcano Job、从 suspended 到 admitted |
+| 十三 | 小结 | 要点、源码位置、练手项目增量 |
+
+Table: 本文的章节安排
 
 ## 二、为什么逐 Pod 调度会死锁
 

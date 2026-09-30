@@ -33,52 +33,14 @@ flowchart TB
 
 系列的一句话主张是：**这几个库的骨架是「注册表 + 字符串键」，读源码就是找到注册表、找到 `compute_loss`、找到 `forward` 里那一行调用，往下追**。`model_type` 选模型类、`_attn_implementation` 选 attention 函数、`loss_type` 选 loss、`target_modules` 选要换的层——每一处都是一张表和一个键，模型代码不改，实现随便换。
 
-- **[01 模型侧](/transformers-from-pretrained-to-forward-and-loss.html)**
-  - 回答的问题：三个文件怎么变成 `nn.Module`，`forward` 怎么走到 loss
-  - 一句话结论：加载六步：读 `model_type` → 查表选类 → meta device 建骨架 → mmap 按名字填 → 收尾；前向逐行对应 L4 结构图，attention 与 loss 都是注册表调用
-  - 必记的文件 / 函数 / 数字：
-    - `modeling_auto.py` 的 `_LazyAutoMapping`
-    - `torch.device("meta")`
-    - `safe_open`
-    - `ALL_ATTENTION_FUNCTIONS`
-    - `ForCausalLMLoss`
-    - sdpa/eager 差 $$10^{-4}$$（fp32）与 1.0（bf16）
-    - `Loading weights 290/290`
-- **[02 generate](/transformers-generate-call-chain.html)**
-  - 回答的问题：一次采样的完整调用链
-  - 一句话结论：四段：`GenerationConfig` 三层优先级 → 按非空字段装配 processor 串 → 停止条件 → `_sample` 循环，每步六件事
-  - 必记的文件 / 函数 / 数字：
-    - `_prepare_generation_config`
-    - `_get_logits_processor`（processor 在前、warper 在后）
-    - `TemperatureLogitsWarper` / `TopK` / `TopP`
-    - `unfinished_sequences`
-    - 不传长度时 Qwen2.5 生成到 2048
-- **[03 tokenizers · datasets](/tokenizers-and-datasets-from-messages-to-input-ids.html)**
-  - 回答的问题：从 messages 到 `input_ids`，从 Arrow 文件到 `collate_fn`
-  - 一句话结论：`tokenizer.json` 一个 JSON 描述五段 Rust 流水线，Python 只是壳；`Dataset` 是 Arrow 表的 mmap 视图，`map` 写新文件、文件名是 fingerprint，`shuffle` 只改索引
-  - 必记的文件 / 函数 / 数字：
-    - normalizer → pre_tokenizer → model → post_processor → decoder
-    - `encode_batch`
-    - `{% raw %}{% generation %}{% endraw %}`
-    - 151665 / 151643 / 151936
-    - `cache-<fingerprint>.arrow`
-    - `_indices`
-- **[04 peft · trl](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)**
-  - 回答的问题：LoRA 怎么挂上去，SFT / DPO / GRPO 的 loss 各在哪一行
-  - 一句话结论：
-    - `inject_adapter` 用 `setattr` 把 `nn.Linear` 换成 `lora.Linear`，`forward` 多一行
-    - SFT 的 `-100` 在 `build_labels` 那一次 `map` 里填
-    - `dpo_loss` 十几行
-    - GRPO 的优势、裁剪、KL、归一各一段
-  - 必记的文件 / 函数 / 数字：
-    - `result + lora_B(lora_A(dropout(x))) * scaling`
-    - `scaling = α/r`
-    - `lora_B` 全零
-    - 8.8M（1.8%）
-    - `build_labels`
-    - `-logsigmoid(β·Δ)`
-    - `(r − mean)/(std + 1e-4)`
-    - `loss_type` 的 grpo / bnpo / dr_grpo
+| 篇 | 回答的问题 | 一句话结论 | 必记的文件 / 函数 / 数字 |
+|---|---|---|---|
+| [01 模型侧](/transformers-from-pretrained-to-forward-and-loss.html) | 三个文件怎么变成 `nn.Module`，`forward` 怎么走到 loss | 加载六步：读 `model_type` → 查表选类 → meta device 建骨架 → mmap 按名字填 → 收尾；前向逐行对应 L4 结构图，attention 与 loss 都是注册表调用 | `modeling_auto.py` 的 `_LazyAutoMapping`<br/>`torch.device("meta")`<br/>`safe_open`<br/>`ALL_ATTENTION_FUNCTIONS`<br/>`ForCausalLMLoss`<br/>sdpa/eager 差 $$10^{-4}$$（fp32）与 1.0（bf16）<br/>`Loading weights 290/290` |
+| [02 generate](/transformers-generate-call-chain.html) | 一次采样的完整调用链 | 四段：`GenerationConfig` 三层优先级 → 按非空字段装配 processor 串 → 停止条件 → `_sample` 循环，每步六件事 | `_prepare_generation_config`<br/>`_get_logits_processor`（processor 在前、warper 在后）<br/>`TemperatureLogitsWarper` / `TopK` / `TopP`<br/>`unfinished_sequences`<br/>不传长度时 Qwen2.5 生成到 2048 |
+| [03 tokenizers · datasets](/tokenizers-and-datasets-from-messages-to-input-ids.html) | 从 messages 到 `input_ids`，从 Arrow 文件到 `collate_fn` | `tokenizer.json` 一个 JSON 描述五段 Rust 流水线，Python 只是壳；`Dataset` 是 Arrow 表的 mmap 视图，`map` 写新文件、文件名是 fingerprint，`shuffle` 只改索引 | normalizer → pre_tokenizer → model → post_processor → decoder<br/>`encode_batch`<br/>`{% raw %}{% generation %}{% endraw %}`<br/>151665 / 151643 / 151936<br/>`cache-<fingerprint>.arrow`<br/>`_indices` |
+| [04 peft · trl](/peft-and-trl-lora-sft-dpo-grpo-in-source.html) | LoRA 怎么挂上去，SFT / DPO / GRPO 的 loss 各在哪一行 | `inject_adapter` 用 `setattr` 把 `nn.Linear` 换成 `lora.Linear`，`forward` 多一行<br/>SFT 的 `-100` 在 `build_labels` 那一次 `map` 里填<br/>`dpo_loss` 十几行<br/>GRPO 的优势、裁剪、KL、归一各一段 | `result + lora_B(lora_A(dropout(x))) * scaling`<br/>`scaling = α/r`<br/>`lora_B` 全零<br/>8.8M（1.8%）<br/>`build_labels`<br/>`-logsigmoid(β·Δ)`<br/>`(r − mean)/(std + 1e-4)`<br/>`loss_type` 的 grpo / bnpo / dr_grpo |
+
+Table: 四篇的核心问题、结论与必记项
 
 ### 1. 本文的章节安排
 

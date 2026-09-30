@@ -71,37 +71,19 @@ Table: FLUX 各跨步缓存方法的加速与质量
 
 ### 2. 本文的章节安排
 
-- **二、为什么相邻步相似**
-  - 轨迹的平滑性
-  - 变化率随 $$t$$ 的分布
-  - 哪些步不能跳
-- **三、谱系**
-  - DeepCache → FORA / Δ-DiT → TeaCache → FBCache → Cache-DiT（DBCache + TaylorSeer）→ MagCache → AdaCache
-  - 信号、缓存、复用方式的对照
-- **四、三种信号**
-  - 输入差（TeaCache）、首块残差差（FBCache）、离线校准的幅度比（MagCache）
-  - 多项式重标与累积
-- **五、命中率 → 加速比**
-  - 账：$$T_\text{full} + T_\text{hit}\,\epsilon$$
-  - 阈值扫描曲线的形状
-  - 上限
-- **六、质量代价**
-  - 度量
-  - 伪影的形态
-  - 首末步保护
-  - 阈值怎么定
-- **七、交互**
-  - CFG 的两份状态
-  - 序列并行下的一致决策
-  - 与 layerwise offload
-  - 与少步蒸馏互斥
-  - 与 CFG gating 的关系
-- **八、实现**
-  - hook 的结构
-  - 状态管理
-  - 四个实现的对照
-- **九、本文小结**
-- **十、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 为什么相邻步相似 | 轨迹的平滑性<br/>变化率随 $$t$$ 的分布<br/>哪些步不能跳 |
+| 三 | 谱系 | DeepCache → FORA / Δ-DiT → TeaCache → FBCache → Cache-DiT（DBCache + TaylorSeer）→ MagCache → AdaCache；信号、缓存、复用方式的对照 |
+| 四 | 三种信号 | 输入差（TeaCache）、首块残差差（FBCache）、离线校准的幅度比（MagCache）；多项式重标与累积 |
+| 五 | 命中率 → 加速比 | 账：$$T_\text{full} + T_\text{hit}\,\epsilon$$<br/>阈值扫描曲线的形状<br/>上限 |
+| 六 | 质量代价 | 度量<br/>伪影的形态<br/>首末步保护<br/>阈值怎么定 |
+| 七 | 交互 | CFG 的两份状态<br/>序列并行下的一致决策<br/>与 layerwise offload<br/>与少步蒸馏互斥<br/>与 CFG gating 的关系 |
+| 八 | 实现 | hook 的结构<br/>状态管理<br/>四个实现的对照 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、为什么相邻步相似
 

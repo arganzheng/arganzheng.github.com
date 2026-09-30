@@ -88,35 +88,20 @@ Table: xDiT 实测 FLUX.1-dev 各并行配置的时间
 
 ### 2. 本文的章节安排
 
-- **二、多卡的目的**
-  - 延迟 vs 显存 vs 吞吐
-  - 扩散与 LLM 的差别
-  - scaling 为什么不到线性
-- **三、张量并行**：它在 DiT 上怎么切、通信量、何时仍是首选
-- **四、序列并行**
-  - Ulysses（换 head）、Ring（传 K/V）、USP（组合）
-  - 通信量与拓扑
-  - SP 下的线性层与 adaLN
-- **五、CFG 并行与 data parallel**
-  - 恒为 2 的免费并行
-  - 与 SP 的组合
-- **六、PipeFusion 与 DistriFusion**
-  - 时间冗余换通信
-  - patch 流水线
-  - stale K/V 的显存
-  - DistriFusion 的异步 all-gather
-- **七、Parallel VAE 与 FSDP**
-  - 107 GiB 的解码峰值怎么切
-  - 权重分片作为显存策略
-- **八、混合并行与选型**
-  - 乘积 = 卡数
-  - NVLink / PCIe / 以太网三张表
-  - 视频的必需
-- **九、实现对照与实践**
-  - 三个引擎的并行组
-  - 实践建议
-- **十、本文小结**
-- **十一、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 多卡的目的 | 延迟 vs 显存 vs 吞吐<br/>扩散与 LLM 的差别<br/>scaling 为什么不到线性 |
+| 三 | 张量并行 | 它在 DiT 上怎么切、通信量、何时仍是首选 |
+| 四 | 序列并行 | Ulysses（换 head）、Ring（传 K/V）、USP（组合）<br/>通信量与拓扑<br/>SP 下的线性层与 adaLN |
+| 五 | CFG 并行与 data parallel | 恒为 2 的免费并行；与 SP 的组合 |
+| 六 | PipeFusion 与 DistriFusion | 时间冗余换通信<br/>patch 流水线<br/>stale K/V 的显存<br/>DistriFusion 的异步 all-gather |
+| 七 | Parallel VAE 与 FSDP | 107 GiB 的解码峰值怎么切；权重分片作为显存策略 |
+| 八 | 混合并行与选型 | 乘积 = 卡数<br/>NVLink / PCIe / 以太网三张表<br/>视频的必需 |
+| 九 | 实现对照与实践 | 三个引擎的并行组；实践建议 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、多卡的目的
 

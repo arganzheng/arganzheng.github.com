@@ -80,36 +80,19 @@ Table: 六种手段逐项叠加的账
 
 ### 2. 本文的章节安排
 
-- **二、三段的 offload**
-  - 三段不必同时在卡
-  - 模型级 / 顺序 / 分组 offload
-  - DiT 逐层预取与它的两面
-  - 文本编码器放哪
-- **三、attention 后端**
-  - FA2 / FA3 / SDPA / xformers 在 $$N = 4608$$ 上的差别
-  - SageAttention 的 8-bit Q·K 为什么扩散能容忍
-- **四、编译与 CUDA graph**
-  - eager 的时间去哪了
-  - `torch.compile` 的收益与代价
-  - 动态分辨率
-  - breakable CUDA graph
-- **五、量化**
-  - FP8 W8A8
-  - SVDQuant / Nunchaku 的 W4A4
-  - NVFP4
-  - 为什么图像对 W4 更敏感、怎么评
-- **六、融合 kernel**：adaLN、QK-norm + RoPE、GELU epilogue、packed QKV——引擎的"fast path"
-- **七、VAE**
-  - 解码峰值的来源
-  - tiling / slicing
-  - 视频 3D VAE 的时间分块
-  - fp32 还是 bf16
-- **八、叠加顺序与收益表**
-  - 无损先、有损后
-  - FLUX 与 Wan 的两张表
-  - 三个引擎的对照
-- **九、本文小结**
-- **十、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 三段的 offload | 三段不必同时在卡<br/>模型级 / 顺序 / 分组 offload<br/>DiT 逐层预取与它的两面<br/>文本编码器放哪 |
+| 三 | attention 后端 | FA2 / FA3 / SDPA / xformers 在 $$N = 4608$$ 上的差别；SageAttention 的 8-bit Q·K 为什么扩散能容忍 |
+| 四 | 编译与 CUDA graph | eager 的时间去哪了<br/>`torch.compile` 的收益与代价<br/>动态分辨率<br/>breakable CUDA graph |
+| 五 | 量化 | FP8 W8A8<br/>SVDQuant / Nunchaku 的 W4A4<br/>NVFP4<br/>为什么图像对 W4 更敏感、怎么评 |
+| 六 | 融合 kernel | adaLN、QK-norm + RoPE、GELU epilogue、packed QKV——引擎的"fast path" |
+| 七 | VAE | 解码峰值的来源<br/>tiling / slicing<br/>视频 3D VAE 的时间分块<br/>fp32 还是 bf16 |
+| 八 | 叠加顺序与收益表 | 无损先、有损后<br/>FLUX 与 Wan 的两张表<br/>三个引擎的对照 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、三段的 offload：装下
 

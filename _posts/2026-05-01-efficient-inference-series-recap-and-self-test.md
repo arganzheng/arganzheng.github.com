@@ -34,80 +34,16 @@ flowchart TB
 
 系列的一句话主张是：**每种推理优化都改了成本公式的一项，除投机解码之外每一种都改变了输出分布，而退化是不均匀的——集中在困惑度看不到的地方**。一次 decode 步的成本由权重字节、KV 字节、算力三项决定，再除以每次前向产出的 token 数；四条线各改其中一项：改解码过程（一、二）、改权重表示（三、四）、改 KV（五）、改结构（六）。六篇用同一把尺子量每种方法：分布是否改变、收益的区间在哪、代价是什么、退化集中在哪类任务上。
 
-- **[第一篇：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html)**
-  - 回答的问题：同一个模型，temperature 从 0.6 调到 1.0，pass@1 与 pass@64 各怎么变？为什么方向相反？
-  - 一句话结论：
-    - 采样参数本身就在改分布：pass@1 奖励稳定走最可能的路、最优低温，pass@k 奖励至少一次走到、最优中高温
-    - 两者不能用同一组参数报告
-    - 推理模型不用 greedy
-  - 必记的数字 / 公式：
-    - $$dH/dT = \text{Var}(z)/T^3$$
-    - 128K 词表尾部总质量可达 10%
-    - pass@1 最优 $$T \approx 0.2$$、pass@100 最优 $$\approx 0.8$$
-    - R1 / Qwen3：$$T = 0.6$$、top-p 0.95、无重复惩罚
-    - pass@k $$= 1 - \binom{n-c}{k}/\binom{n}{k}$$
-- **[第二篇：投机解码：草稿、接受率与树](/speculative-decoding-drafters-acceptance-and-trees.html)**
-  - 回答的问题：为什么 EAGLE 的接受率高于 Medusa 而草稿成本差不多？一个 70B 模型该用什么草稿？
-  - 一句话结论：
-    - 接受率 $$= 1 - \text{TV}(p, q)$$，训草稿就是蒸馏
-    - EAGLE 赢在条件依赖与特征输入
-    - 树用宽度换深度但受 ridge 约束
-    - 投机是延迟工具不是吞吐工具
-  - 必记的数字 / 公式：
-    - $$\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、speedup $$= \mathbb{E}/(\gamma c + 1)$$
-    - $$c \approx 0.02$$–$$0.05$$
-    - 接受长度 Medusa 2.5–3 → EAGLE 3.8–4.5 → EAGLE-3 5–6.5
-    - MTP 接受率 85–90%、约 1.8×
-    - $$B \cdot N_{tree} \lesssim \text{ridge}$$
-- **[第三篇：训练后量化：误差模型、GPTQ、AWQ 与旋转](/post-training-quantization-gptq-awq-and-rotation.html)**
-  - 回答的问题：一个 4-bit 模型比 16-bit 慢在哪、快在哪？为什么同样是 4 bit 有的模型无损、有的崩掉？
-  - 一句话结论：
-    - 快在 memory-bound 的 decode、慢在 prefill 与大 batch
-    - 崩掉几乎总是分布形状——权重重尾与激活的固定通道离群
-    - GPTQ 补偿、AWQ 保护、SmoothQuant 迁移、旋转摊平
-  - 必记的数字 / 公式：
-    - 舍入误差方差 $$\Delta^2/12$$，每少 1 bit ×4
-    - group 内一个 $$15\sigma$$ 权重让 INT4 的 $$\Delta = 2\sigma$$
-    - g128 有效 4.156 bit、元数据 4%
-    - Hadamard 把 1000 摊成约 17
-    - QuaRot 70B W4A4KV4 困惑度 3.32 → 3.73
-    - 70B 权重 141 → 39.8 GB
-- **[第四篇：量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)**
-  - 回答的问题：困惑度只升 0.1 的 4-bit 模型，在什么任务上会掉 5 个点？怎么在部署前发现？
-  - 一句话结论：
-    - 困惑度是所有 token 的平均，任务由关键 token 的 argmax 决定
-    - 先掉的是多步推理、长上下文、多语言与指令细节
-    - 逐 token KL 是直接度量
-    - QAT 在末段以全精度的自己为教师把退化压回一半
-  - 必记的数字 / 公式：
-    - STE：$$\hat{w} = w + \text{sg}(Q(w) - w)$$
-    - Llama-3-8B W4：PPL +0.36、MMLU −1–2、GSM8K −3–6、needle −10 以上
-    - 4-bit 均值 KL 0.01–0.05 nat、超 0.1 明显
-    - NF4 双重量化 4.127 bit
-    - 末段 QAT 用最后 5–10% token
-    - Gemma 3 QAT 5000 步
-- **[第五篇：KV cache 压缩：量化、驱逐与稀疏 attention](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)**
-  - 回答的问题：128K 上下文的 KV 从 40 GB 压到 10 GB，哪种办法在哪类任务上安全？
-  - 一句话结论：
-    - key 有固定通道离群、value 没有，所以 key per-channel、value per-token
-    - FP8 KV 永远是第一步
-    - 驱逐假设"过去不重要 = 将来不重要"，在问题未知、信息密度高的任务上不成立
-  - 必记的数字 / 公式：
-    - 70B 每 token KV 320 KB、128K 为 40 GB → FP8 20 → INT4 12.5（元数据 25%，实际 3.2×）→ +SnapKV 25% 3.1 GB
-    - KIVI 2 bit：key per-token 崩掉、per-channel +0.1
-    - sink 吃 30–50% 注意力
-    - NSA 64K 下 KV 读取 ÷ 11
-- **[第六篇：剪枝、深度缩放与小模型配方](/pruning-depth-scaling-and-small-model-recipes.html)**
-  - 回答的问题：剪掉 25% 的层困惑度只升 0.3，为什么下游任务掉一半？蒸馏能恢复多少？
-  - 一句话结论：中后层是残差流上的小修正，删掉对平均预测影响小、对关键位置的多步组合与后训练能力破坏大；剪枝必须蒸馏恢复，赢的是 token 效率不是精度上限
-  - 必记的数字 / 公式：
-    - OBS 重要性 $$w_q^2 / [H^{-1}]_{qq}$$
-    - Wanda $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert$$
-    - 中后层余弦相似度 0.85–0.95
-    - 悬崖 70B 约 40%、13B 约 30%
-    - Minitron 15B → 8B 用 94B token 对从头 8T，省 40×
-    - 蒸馏比继续预训练高 3–4 MMLU 点
-    - 2:4 稀疏 GEMM 1.3–1.8×
+| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
+|---|---|---|---|
+| [第一篇：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html) | 同一个模型，temperature 从 0.6 调到 1.0，pass@1 与 pass@64 各怎么变？为什么方向相反？ | 采样参数本身就在改分布：pass@1 奖励稳定走最可能的路、最优低温，pass@k 奖励至少一次走到、最优中高温<br/>两者不能用同一组参数报告<br/>推理模型不用 greedy | $$dH/dT = \text{Var}(z)/T^3$$<br/>128K 词表尾部总质量可达 10%<br/>pass@1 最优 $$T \approx 0.2$$、pass@100 最优 $$\approx 0.8$$<br/>R1 / Qwen3：$$T = 0.6$$、top-p 0.95、无重复惩罚<br/>pass@k $$= 1 - \binom{n-c}{k}/\binom{n}{k}$$ |
+| [第二篇：投机解码：草稿、接受率与树](/speculative-decoding-drafters-acceptance-and-trees.html) | 为什么 EAGLE 的接受率高于 Medusa 而草稿成本差不多？一个 70B 模型该用什么草稿？ | 接受率 $$= 1 - \text{TV}(p, q)$$，训草稿就是蒸馏<br/>EAGLE 赢在条件依赖与特征输入<br/>树用宽度换深度但受 ridge 约束<br/>投机是延迟工具不是吞吐工具 | $$\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、speedup $$= \mathbb{E}/(\gamma c + 1)$$<br/>$$c \approx 0.02$$–$$0.05$$<br/>接受长度 Medusa 2.5–3 → EAGLE 3.8–4.5 → EAGLE-3 5–6.5<br/>MTP 接受率 85–90%、约 1.8×<br/>$$B \cdot N_{tree} \lesssim \text{ridge}$$ |
+| [第三篇：训练后量化：误差模型、GPTQ、AWQ 与旋转](/post-training-quantization-gptq-awq-and-rotation.html) | 一个 4-bit 模型比 16-bit 慢在哪、快在哪？为什么同样是 4 bit 有的模型无损、有的崩掉？ | 快在 memory-bound 的 decode、慢在 prefill 与大 batch<br/>崩掉几乎总是分布形状——权重重尾与激活的固定通道离群<br/>GPTQ 补偿、AWQ 保护、SmoothQuant 迁移、旋转摊平 | 舍入误差方差 $$\Delta^2/12$$，每少 1 bit ×4<br/>group 内一个 $$15\sigma$$ 权重让 INT4 的 $$\Delta = 2\sigma$$<br/>g128 有效 4.156 bit、元数据 4%<br/>Hadamard 把 1000 摊成约 17<br/>QuaRot 70B W4A4KV4 困惑度 3.32 → 3.73<br/>70B 权重 141 → 39.8 GB |
+| [第四篇：量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html) | 困惑度只升 0.1 的 4-bit 模型，在什么任务上会掉 5 个点？怎么在部署前发现？ | 困惑度是所有 token 的平均，任务由关键 token 的 argmax 决定<br/>先掉的是多步推理、长上下文、多语言与指令细节<br/>逐 token KL 是直接度量<br/>QAT 在末段以全精度的自己为教师把退化压回一半 | STE：$$\hat{w} = w + \text{sg}(Q(w) - w)$$<br/>Llama-3-8B W4：PPL +0.36、MMLU −1–2、GSM8K −3–6、needle −10 以上<br/>4-bit 均值 KL 0.01–0.05 nat、超 0.1 明显<br/>NF4 双重量化 4.127 bit<br/>末段 QAT 用最后 5–10% token<br/>Gemma 3 QAT 5000 步 |
+| [第五篇：KV cache 压缩：量化、驱逐与稀疏 attention](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) | 128K 上下文的 KV 从 40 GB 压到 10 GB，哪种办法在哪类任务上安全？ | key 有固定通道离群、value 没有，所以 key per-channel、value per-token<br/>FP8 KV 永远是第一步<br/>驱逐假设"过去不重要 = 将来不重要"，在问题未知、信息密度高的任务上不成立 | 70B 每 token KV 320 KB、128K 为 40 GB → FP8 20 → INT4 12.5（元数据 25%，实际 3.2×）→ +SnapKV 25% 3.1 GB<br/>KIVI 2 bit：key per-token 崩掉、per-channel +0.1<br/>sink 吃 30–50% 注意力<br/>NSA 64K 下 KV 读取 ÷ 11 |
+| [第六篇：剪枝、深度缩放与小模型配方](/pruning-depth-scaling-and-small-model-recipes.html) | 剪掉 25% 的层困惑度只升 0.3，为什么下游任务掉一半？蒸馏能恢复多少？ | 中后层是残差流上的小修正，删掉对平均预测影响小、对关键位置的多步组合与后训练能力破坏大；剪枝必须蒸馏恢复，赢的是 token 效率不是精度上限 | OBS 重要性 $$w_q^2 / [H^{-1}]_{qq}$$<br/>Wanda $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert$$<br/>中后层余弦相似度 0.85–0.95<br/>悬崖 70B 约 40%、13B 约 30%<br/>Minitron 15B → 8B 用 94B token 对从头 8T，省 40×<br/>蒸馏比继续预训练高 3–4 MMLU 点<br/>2:4 稀疏 GEMM 1.3–1.8× |
+
+Table: 六篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 

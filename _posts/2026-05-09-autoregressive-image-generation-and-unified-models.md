@@ -78,40 +78,19 @@ Table: 统一模型的三条路线
 
 ### 4. 本文的章节安排
 
-- **二、图像 tokenizer**
-  - 用 k-means 码本把手写数字变成 16 个 token（代码 + 图）
-  - VQ-VAE 的推导（最近邻、STE、commitment）
-  - 码本坍缩与对策
-  - VQGAN
-  - 无码本量化（FSQ 手算、LFQ）
-  - 重建 vs 生成的权衡
-- **三、栅格 AR**
-  - 一个计数版的 next-token 模型在 toy token 上生成数字（图）
-  - DALL-E / Parti / LlamaGen
-  - 栅格顺序的问题
-  - CFG 在 AR 上的形式
-  - scaling
-- **四、打破栅格**
-  - MaskGIT 的并行解码
-  - VAR 的 next-scale 推导与多尺度残差 VQ
-  - 速度与质量
-- **五、AR vs 扩散**
-  - 质量、效率、可控性、统一性的对照
-  - 混合方法（MAR 的连续 token AR + 扩散头）
-- **六、统一模型**
-  - 三条路线的结构、训练与结果
-  - Chameleon 的稳定性问题
-  - Janus 的解耦
-  - Transfusion / BAGEL 的混合
-  - GPT-4o 原生图像生成的启示
-- **七、成本**
-  - AR 的 token 数与 decode 步数
-  - 与扩散的账
-- **八、动手（建议）**
-  - VQGAN 码本大小与重建
-  - LlamaGen vs SD 的时间
-- **九、本文小结**
-- **十、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 图像 tokenizer | 用 k-means 码本把手写数字变成 16 个 token（代码 + 图）<br/>VQ-VAE 的推导（最近邻、STE、commitment）<br/>码本坍缩与对策<br/>VQGAN<br/>无码本量化（FSQ 手算、LFQ）<br/>重建 vs 生成的权衡 |
+| 三 | 栅格 AR | 一个计数版的 next-token 模型在 toy token 上生成数字（图）<br/>DALL-E / Parti / LlamaGen<br/>栅格顺序的问题<br/>CFG 在 AR 上的形式<br/>scaling |
+| 四 | 打破栅格 | MaskGIT 的并行解码<br/>VAR 的 next-scale 推导与多尺度残差 VQ<br/>速度与质量 |
+| 五 | AR vs 扩散 | 质量、效率、可控性、统一性的对照；混合方法（MAR 的连续 token AR + 扩散头） |
+| 六 | 统一模型 | 三条路线的结构、训练与结果<br/>Chameleon 的稳定性问题<br/>Janus 的解耦<br/>Transfusion / BAGEL 的混合<br/>GPT-4o 原生图像生成的启示 |
+| 七 | 成本 | AR 的 token 数与 decode 步数；与扩散的账 |
+| 八 | 动手（建议） | VQGAN 码本大小与重建；LlamaGen vs SD 的时间 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、图像 tokenizer
 

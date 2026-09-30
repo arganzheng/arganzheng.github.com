@@ -1729,13 +1729,13 @@ How it is built (`_plugins/moments.rb`):
       line inside the cell with `<br/>` (kramdown cannot nest a `<ul>` in a
       cell; `<br/>` is the in-cell list). Keep the table when the row/column
       relation carries meaning (name ↔ 负责 ↔ 要会的, 篇 ↔ 问题 ↔ 结论).
-    - When most cells of a table are such enumerations (章节安排 tables,
-      per-post recap tables 「N 篇的核心问题、结论与必记」), drop the table
-      and write a nested list: `- **二、从字到向量**` with one sub-item per
-      `；`; for recap tables `- **第 N 篇**` → `- 回答的问题：…` /
-      `- 一句话结论：` + sub-items. `tools/` has no script for this; the
-      2026-09-30 sweep used `~/sweep_semicolon.py` (splits on `；` outside
-      backticks / parens / `$$`).
+    - Do **not** turn such a table into a nested list, even when most cells
+      are enumerations (章节安排 tables, per-post recap tables). The
+      2026-09-30 sweep did that for 140 tables and the reader asked for the
+      tables back (Discussion #132: 「不如原来的表格清晰，全部改回来。表格的
+      无序列表要不用 `<br>` 要不直接用 `<ul>`」) — the row/column grid is
+      the point; `<br/>` inside the cell is the list. The revert kept the
+      `<br/>` cells (`~/revert_sweep.py`, 520 tables / 1881 cells).
   - **Parenthetical glosses of a term become inline tips**, not inline
     parentheses: write `[总变差距离](# "tip: total variation distance，…")`
     instead of `总变差距离（total variation distance：…）`. Same for a term

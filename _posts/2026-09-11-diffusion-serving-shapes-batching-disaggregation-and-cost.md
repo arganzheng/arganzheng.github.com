@@ -75,37 +75,21 @@ Table: 100 QPS FLUX.1-dev 服务各配置的卡数与成本
 
 ### 2. 本文的章节安排
 
-- **二、请求形态**
-  - T2I / I2I / T2V / I2V / 编辑 / 附件
-  - 参数决定时长
-  - 与 LLM 请求的对照
-- **三、批处理**
-  - 为什么几乎不提吞吐
-  - 何时有用
-  - SGLang 与 vLLM-Omni 的兼容键与准入
-- **四、调度**
-  - 时长可预测 → SJF / 分池 / SLO 准入
-  - 抢占的价值与代价
-  - 公平性
-- **五、三段分离**
-  - 文本编码器 / DiT / VAE 各自的资源形态
-  - vLLM-Omni 的 stage、SGLang 的 disaggregation
-  - 何时分
-- **六、附件**：LoRA（merge / unmerged / 多 LoRA / 异步加载）、ControlNet-as-a-Service、IP-Adapter
-- **七、模型级联与路由**
-  - DiffServe 的 query-aware 级联
-  - 多模型池
-- **八、同步与异步 API**
-  - `/v1/images` vs `/v1/videos`
-  - job 表、轮询、对象存储、进度与预览
-- **九、成本、扩缩与平台**
-  - GPU·秒定价
-  - 冷启动
-  - 扩缩容信号
-  - 对平台层的要求
-- **十、实现对照与实践**
-- **十一、本文小结**
-- **十二、自测**：5 道题
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 请求形态 | T2I / I2I / T2V / I2V / 编辑 / 附件<br/>参数决定时长<br/>与 LLM 请求的对照 |
+| 三 | 批处理 | 为什么几乎不提吞吐<br/>何时有用<br/>SGLang 与 vLLM-Omni 的兼容键与准入 |
+| 四 | 调度 | 时长可预测 → SJF / 分池 / SLO 准入<br/>抢占的价值与代价<br/>公平性 |
+| 五 | 三段分离 | 文本编码器 / DiT / VAE 各自的资源形态<br/>vLLM-Omni 的 stage、SGLang 的 disaggregation<br/>何时分 |
+| 六 | 附件 | LoRA（merge / unmerged / 多 LoRA / 异步加载）、ControlNet-as-a-Service、IP-Adapter |
+| 七 | 模型级联与路由 | DiffServe 的 query-aware 级联；多模型池 |
+| 八 | 同步与异步 API | `/v1/images` vs `/v1/videos`；job 表、轮询、对象存储、进度与预览 |
+| 九 | 成本、扩缩与平台 | GPU·秒定价<br/>冷启动<br/>扩缩容信号<br/>对平台层的要求 |
+| 十 | 实现对照与实践 |  |
+| 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
 
 ## 二、请求形态
 
