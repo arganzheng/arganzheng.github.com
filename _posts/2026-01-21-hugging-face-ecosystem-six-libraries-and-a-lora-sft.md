@@ -157,22 +157,38 @@ Table: Qwen2-0.5B 各部件的形状与参数量
 
 ![safetensors 文件的字节布局——8 字节 header 长度、JSON header（每个张量的名字、dtype、shape 与在数据区的字节区间）、数据区（纯字节）；读某一层只需按 data_offsets 定位并 mmap 那一段；大模型按名字分成多个分片，由 index.json 记录每个张量在哪个文件](/img/in-post/hf-safetensors-layout.svg)
 
-这个格式有三个后果，图 3 下方各一句：**能只读某一层**（读 header 知道字节区间，内存映射那一段即可，不必把 1 GB 全读进来——`from_pretrained(..., device_map=...)` 按层加载靠的就是它）；**不能执行代码**（header 是 JSON、数据区是数，加载过程没有任何 Python 对象被反序列化——`torch.save` 的 pickle 格式则可以在加载时执行任意代码，所以 Hub 默认用 safetensors）；**分片**（大模型按名字切成 `model-0000k-of-0000n.safetensors`，`model.safetensors.index.json` 是"张量名 → 在哪个文件"的索引）。
+这个格式有三个后果（图 3 下方各一句）：
+
+1. **能只读某一层**：读 header 就知道每个张量的字节区间，内存映射那一段即可，不必把 1 GB 全读进来——`from_pretrained(..., device_map=...)` 按层加载靠的就是它。
+2. **不能执行代码**：header 是纯 JSON，数据区只是张量的原始字节（没有任何 Python 对象），加载过程不做任何反序列化——`torch.save` 的 pickle 格式则可以在加载时执行任意代码，所以 Hub 默认用 safetensors。
+3. **分片**：大模型按张量名切成 `model-0000k-of-0000n.safetensors`，`model.safetensors.index.json` 是"张量名 → 在哪个文件"的索引。
 
 模型卡（README）里的评测数字要带着 L0 第八篇的置信区间读。以 Qwen2.5-0.5B 技术报告里的两个数为例：GSM8K 41.6%，这个集有 1,319 题，95% 区间 $$\pm 1.96\sqrt{0.416 \times 0.584 / 1319} \approx \pm 2.7$$ 个点；HumanEval 30.5%，只有 164 题，区间 $$\pm 7.0$$ 个点。所以两个 0.5B 模型在 HumanEval 上差 5 个点，分不出谁好；差 2 个点的 GSM8K 也在噪声里。
 
 ## 三、六个库各管什么
 
-| 库 | 负责 | 要会的 |
-|---|---|---|
-| `transformers` | 模型定义与加载（`modeling_llama.py` 一类）、tokenizer 封装、`generate`、`Trainer` | `AutoModelForCausalLM.from_pretrained(..., dtype=torch.bfloat16)`；`tokenizer.apply_chat_template`；`generate` 的采样参数；读 `modeling_*.py` |
-| `datasets` | 数据加载与处理，底层 Apache Arrow（内存映射、零拷贝） | `load_dataset`、`map(batched=True, num_proc=...)`、`filter`、`streaming=True` 处理放不进内存的语料 |
-| `tokenizers` | 分词器的训练与快速编码（Rust 实现） | 训练一个 BPE 词表；理解 `tokenizer.json` 里的 normalizer / pre-tokenizer / model / post-processor 四段 |
-| `peft` | 参数高效微调 | `LoraConfig(r, lora_alpha, target_modules, dropout)`、`get_peft_model`、训练后 `merge_and_unload` 合回基座 |
-| `trl` | 后训练的各个 Trainer | `SFTTrainer`（自动处理 chat template、packing、loss mask）、`DPOTrainer`、`GRPOTrainer`、`RewardTrainer` |
-| `accelerate` | 把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动 | `accelerate config` 生成配置；`accelerate launch train.py` |
-
-Table: Hugging Face 六个库各自负责的事
+- **`transformers`**：模型定义与加载（`modeling_llama.py` 一类）、tokenizer 封装、`generate`、`Trainer`。要会的：
+  - `AutoModelForCausalLM.from_pretrained(..., dtype=torch.bfloat16)`
+  - `tokenizer.apply_chat_template`
+  - `generate` 的采样参数
+  - 读 `modeling_*.py`
+- **`datasets`**：数据加载与处理，底层是 Apache Arrow（内存映射、零拷贝）。要会的：
+  - `load_dataset`
+  - `map(batched=True, num_proc=...)`、`filter`
+  - `streaming=True` 处理放不进内存的语料
+- **`tokenizers`**：分词器的训练与快速编码（Rust 实现）。要会的：
+  - 训练一个 BPE 词表
+  - 理解 `tokenizer.json` 里的 normalizer / pre-tokenizer / model / post-processor 四段
+- **`peft`**：参数高效微调。要会的：
+  - `LoraConfig(r, lora_alpha, target_modules, dropout)`
+  - `get_peft_model`
+  - 训练后 `merge_and_unload` 合回基座
+- **`trl`**：后训练的各个 Trainer。要会的：
+  - `SFTTrainer`（自动处理 chat template、packing、loss mask）
+  - `DPOTrainer`、`GRPOTrainer`、`RewardTrainer`
+- **`accelerate`**：把单卡脚本变多卡，统一 DDP / FSDP / DeepSpeed 的启动。要会的：
+  - `accelerate config` 生成配置
+  - `accelerate launch train.py`
 
 它们的分工对应第三篇的五个对象——每个库产出（或改造）训练循环里的一个东西：
 
@@ -189,7 +205,14 @@ Table: 六个库产出的对象与第三篇五个对象的对应
 
 ### `generate` 的采样参数
 
-`model.generate(..., do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=256)` 里的每个参数都是 L0 第五篇第七章的东西：温度、top-p、greedy（`do_sample=False`）。实现上每个都是一个 `LogitsProcessor`——对 logits 做一次变换再采样——第六章给源码入口。
+`model.generate(..., do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=256)` 里的每个参数都在改"从 logits 里怎么挑下一个 token"这一步，数学都在《算法工程师的数学》的《算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss》第七章"softmax"里：
+
+- `do_sample=False` 是 **greedy**：每步取分数最高的那个 token，同一个 prompt 每次输出一样。
+- `temperature=0.7`：logits 先除以 0.7 再过 softmax，分布变尖，高分 token 更容易被选中；大于 1 则变平、更随机。
+- `top_p=0.9`：按概率从大到小累加到 0.9 为止，只在这些 token 里采样，把长尾里的低概率 token 直接砍掉（`top_k` 是同样的思路，按个数截断）。
+- `max_new_tokens=256`：最多生成多少个新 token，到了就停；另一个停止条件是生成了 `eos_token_id`。
+
+实现上每个采样参数都是一个 `LogitsProcessor`：`generate` 每一步拿到 logits 后，把它们串起来依次做一次变换（温度是除法、top-p 是把落选 token 的 logit 置成 $$-\infty$$），再从变换后的分布里采样。本文第六章给源码入口。
 
 ## 四、六行组装一次 LoRA SFT
 
@@ -217,31 +240,48 @@ trainer.train()
 
 把第三篇的二十行训练循环拿过来（SFT 版本：用 `DataLoader` 取数、loss 带 `ignore_index`），六行背后每一件事都在里面有对应位置：
 
-```python title='六行背后的训练循环：①–⑧ 逐一对应'
-model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).to("cuda")        # ①
-model = get_peft_model(model, LoraConfig(...))                                              # ①′ 基座冻结，挂上 A、B
-opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=2e-4)         # ②
-sched = get_cosine_schedule_with_warmup(opt, warmup, total_steps)                           # ③
-
-for step, batch in enumerate(loader):                                                       # ④ Dataset.__getitem__ + collate_fn
-    batch = {k: v.to("cuda", non_blocking=True) for k, v in batch.items()}                  # ⑤
-    with torch.autocast("cuda", dtype=torch.bfloat16):                                      # ⑥
-        logits = model(batch["input_ids"])                                                  # ⑦
-        loss = F.cross_entropy(logits.view(-1, V).float(), batch["labels"].view(-1), ignore_index=-100)   # ⑧
-    loss.backward()                                                                         # ⑨
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)                                 # ⑩
-    opt.step(); sched.step(); opt.zero_grad(set_to_none=True)                               # ⑪ ⑫ ⑬
-    if step % 10 == 0: log(loss.item(), sched.get_last_lr()[0])                             # ⑭
+```python title="六行背后的训练循环：每一行都在表里有位置"
+# !ref load
+model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).to("cuda")
+# !ref peft
+model = get_peft_model(model, LoraConfig(...))  # 基座冻结，挂上 A、B
+# !ref opt
+opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=2e-4)
+# !ref sched
+sched = get_cosine_schedule_with_warmup(opt, warmup, total_steps)
+# !ref loader
+for step, batch in enumerate(loader):  # Dataset.__getitem__ + collate_fn
+    # !ref todevice
+    batch = {k: v.to("cuda", non_blocking=True) for k, v in batch.items()}
+    # !ref autocast
+    with torch.autocast("cuda", dtype=torch.bfloat16):
+        # !ref forward
+        logits = model(batch["input_ids"])
+        # !ref loss
+        loss = F.cross_entropy(logits.view(-1, V).float(), batch["labels"].view(-1), ignore_index=-100)
+    # !ref backward
+    loss.backward()
+    # !ref clip
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    # !ref step
+    opt.step()
+    # !ref schedstep
+    sched.step()
+    # !ref zero
+    opt.zero_grad(set_to_none=True)
+    # !ref log
+    if step % 10 == 0:
+        log(loss.item(), sched.get_last_lr()[0])
 ```
 
-| 发生的事 | 谁做的 | 对应上面第几行 |
+| 发生的事 | 谁做的 | 对应训练循环里的哪一行 |
 |---|---|---|
-| 数据被套上 chat template：每一轮用 `im_start` / `im_end` 一类特殊 token 包起来（第五章有实例） | `SFTTrainer` 调 `tok.apply_chat_template` | ④ `Dataset.__getitem__` 返回的 `input_ids` 就是模板渲染后再 tokenize 的结果 |
-| 回复之外的 token 的 label 被置成 −100 | `SFTTrainer`——`prompt` / `completion` 格式的数据用 `completion_only_loss`；`messages` 格式要用 `assistant_only_loss=True`（且模板需支持 generation 标记），两个开关对应两种数据契约 | ⑧ `ignore_index=-100`——**SFT 的 loss mask**；`labels` 是在 ④ 的 `collate_fn` 里造出来的 |
-| 多条短样本被 pack 进一个序列（可选） | `SFTConfig(packing=True)` | ④ `collate_fn` |
-| LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | ①′ 改造 `nn.Module`；基座参数 `requires_grad=False` |
-| AdamW 只更新 $$A$$、$$B$$ | `Trainer` 只把 `requires_grad=True` 的参数交给优化器 | ② |
-| bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段：`bf16=True`、`max_grad_norm`、`lr_scheduler_type` / `warmup_steps`、`logging_steps` / `save_steps` | ⑥、⑩、③ ⑫、⑭ |
+| 数据被套上 chat template：每一轮用 `im_start` / `im_end` 一类特殊 token 包起来（第五章有实例） | `SFTTrainer` 调 `tok.apply_chat_template` | [取 batch](#loader)：`Dataset.__getitem__` 返回的 `input_ids` 就是模板渲染后再 tokenize 的结果 |
+| 回复之外的 token 的 label 被置成 −100 | `SFTTrainer`——`prompt` / `completion` 格式的数据用 `completion_only_loss`；`messages` 格式要用 `assistant_only_loss=True`（且模板需支持 generation 标记），两个开关对应两种数据契约 | [算 loss](#loss)：`ignore_index=-100` 就是 **SFT 的 loss mask**；`labels` 是在[取 batch](#loader) 的 `collate_fn` 里造出来的 |
+| 多条短样本被 pack 进一个序列（可选） | `SFTConfig(packing=True)` | [取 batch](#loader) 的 `collate_fn` |
+| LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | [挂 LoRA](#peft)：改造 `nn.Module`，基座参数 `requires_grad=False` |
+| AdamW 只更新 $$A$$、$$B$$ | `Trainer` 只把 `requires_grad=True` 的参数交给优化器 | [建优化器](#opt) |
+| bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段：`bf16=True`、`max_grad_norm`、`lr_scheduler_type` / `warmup_steps`、`logging_steps` / `save_steps` | [autocast](#autocast)、[梯度裁剪](#clip)、[调度器](#sched) 与 [`sched.step()`](#schedstep)、[日志](#log) |
 
 Table: SFTTrainer 一次训练背后发生的事
 

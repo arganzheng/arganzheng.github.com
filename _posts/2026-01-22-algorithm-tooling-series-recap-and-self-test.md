@@ -33,16 +33,80 @@ flowchart TB
 
 系列的一句话主张是：**"跑得动跑不动"最终是显存与算力的算术，不是对工具的熟悉程度**。每一篇都从要做的事出发把工具带出来，讲到能做为止，并给出一个能算出来、能跑出来的数字——19 MB 文件读成 `list` 要 103 MB、手写 attention 与 PyTorch 对到 $$2.65 \times 10^{-7}$$、84 万参数一分钟 PPL 128 → 9.6、每参数 16 字节、0.5B 上 85% 的 token 被 mask、decode 每 token 4.8 ms。六篇各算一笔账，用的是同一个模型（Llama-3-8B，8.03B 参数、$$d = 4096$$、32 层）、同一张卡（H100 SXM，80 GB、3.35 TB/s、bf16 稠密约 989 TFLOPS）、同一套脚本（CPU 可跑）。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
-|---|---|---|---|
-| [第一篇：Python 使用层](/python-in-use-for-algorithm-engineers.html) | 别人训练代码里的 `__getitem__`、`yield`、`@torch.no_grad()`、`**kwargs` 在干什么？10 GB 语料怎么在 16 GB 内存里过一遍？多线程为什么没用？ | 它们各是一个 Python 协议，PyTorch 建在上面；生成器让峰值内存与文件大小无关；GIL 让 CPU 密集的线程不并行，进程池才有用 | 19.4 MB → `list` 102.9 MB（5.3 倍）vs 生成器 11.5 MB；串行 / 8 线程 / 8 进程 = 0.46 s / 0.46 s / 0.15 s（1.0× / 3.1×）；六个语法 ↔ 六个 PyTorch API |
-| [第二篇：数据科学三剑客](/numpy-pandas-matplotlib-for-algorithm-engineers.html) | 看到 attention 公式能不能写出 `einsum`？拿到评测结果能不能找出退化的题？看 loss 曲线该看哪里？ | 所有"沿哪个维度"是一个概念；广播太宽容所以形状错误常不报错；与参考实现对数值到浮点精度是验证手写算子的标准 | 广播三条规则；`(3,) + (3, 1)` → `(3, 3)`；`"btd,bsd->bts"` / `"bts,bsd->btd"`；误差 $$2.65 \times 10^{-7}$$；`ci95` $$= 1.96\sqrt{\hat p(1 - \hat p)/n}$$；对数 x 轴、多 seed 阴影带 |
-| [第三篇：PyTorch 使用层（上）](/pytorch-in-use-five-objects-and-a-training-loop.html) | 不用 `Trainer`，能不能从零写训练循环、训一个小 Transformer、解释每一行？ | 使用层只有五个对象；Autograd 三件事（记图、累加、`no_grad`）；二十行里每一行对应一个概念，`Trainer` 是它加外壳 | 五个对象；`backward()` 累加所以要 `zero_grad`；`.float()` / `ignore_index=-100` / `clip_grad_norm_(1.0)`；84 万参数、第一步 loss 5.07 ≈ $$\ln 128$$、PPL 128 → 9.6；CPU 上 bf16 慢 30 倍 |
-| [第四篇：PyTorch 使用层（下）](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) | 8B 全量微调要多少显存？LoRA 为什么放得进一张卡？OOM 看哪一块？ | 每个可训练参数 16 字节；激活是账外的一块、与参数量无关；"全量还是 LoRA"的第一道约束是有几张卡 | 2 + 2 + 4 + 4 + 4 = 16 字节；128.5 / 16.7 / 5.1 GB；激活 $$B = 1$$、$$T = 4096$$ 约 16.5 GiB；checkpointing 多约 30% 计算换 16.5 → 1 GiB；FSDP 8 卡每卡 16 GB |
-| [第五篇：Hugging Face 生态](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) | 能不能用 `peft` + `trl` 一小时跑起 LoRA SFT？卡住能不能读源码找原因？ | 六个库各管一段，六行组装；背后的每件事都在二十行里有位置；从 `compute_loss` 往下追是学后训练最快的路 | 三个文件；Qwen2.5-0.5B 494M、可训练 8.80M（1.78%）、状态 141 MB；85% 的 token 被 mask；20 步 5.3 → 1.7；$$\frac{\alpha}{r} BAx$$、$$\alpha = 2r$$ |
-| [第六篇：GPU 直觉与实验管理](/gpu-intuition-and-experiment-management.html) | 不写 kernel，能不能解释训练为什么慢、decode 为什么快不起来、OOM 从哪来？三个月后能复现吗？ | 两个上限之比是 ridge；decode 强度 1 是 memory-bound 所以 batch 大才快；显存四块；七项记录齐了才谈复现 | ridge ≈ 295 FLOP/字节；16.06 GB / 3.35 TB/s ≈ 4.8 ms → 209 token/s；prefill 4096 token 约 67 ms；MFU 40–50%；KV cache 131 KB/token；反向 ≈ 2 × 前向；seed 差 0.14 |
-
-Table: 六篇的核心问题、结论与必记数字
+- **[第一篇：Python 使用层](/python-in-use-for-algorithm-engineers.html)**
+  - 回答的问题：别人训练代码里的 `__getitem__`、`yield`、`@torch.no_grad()`、`**kwargs` 在干什么？10 GB 语料怎么在 16 GB 内存里过一遍？多线程为什么没用？
+  - 一句话结论：
+    - 它们各是一个 Python 协议，PyTorch 建在上面
+    - 生成器让峰值内存与文件大小无关
+    - GIL 让 CPU 密集的线程不并行，进程池才有用
+  - 必记的数字 / 公式：
+    - 19.4 MB → `list` 102.9 MB（5.3 倍）vs 生成器 11.5 MB
+    - 串行 / 8 线程 / 8 进程 = 0.46 s / 0.46 s / 0.15 s（1.0× / 3.1×）
+    - 六个语法 ↔ 六个 PyTorch API
+- **[第二篇：数据科学三剑客](/numpy-pandas-matplotlib-for-algorithm-engineers.html)**
+  - 回答的问题：看到 attention 公式能不能写出 `einsum`？拿到评测结果能不能找出退化的题？看 loss 曲线该看哪里？
+  - 一句话结论：
+    - 所有"沿哪个维度"是一个概念
+    - 广播太宽容所以形状错误常不报错
+    - 与参考实现对数值到浮点精度是验证手写算子的标准
+  - 必记的数字 / 公式：
+    - 广播三条规则
+    - `(3,) + (3, 1)` → `(3, 3)`
+    - `"btd,bsd->bts"` / `"bts,bsd->btd"`
+    - 误差 $$2.65 \times 10^{-7}$$
+    - `ci95` $$= 1.96\sqrt{\hat p(1 - \hat p)/n}$$
+    - 对数 x 轴、多 seed 阴影带
+- **[第三篇：PyTorch 使用层（上）](/pytorch-in-use-five-objects-and-a-training-loop.html)**
+  - 回答的问题：不用 `Trainer`，能不能从零写训练循环、训一个小 Transformer、解释每一行？
+  - 一句话结论：
+    - 使用层只有五个对象
+    - Autograd 三件事（记图、累加、`no_grad`）
+    - 二十行里每一行对应一个概念，`Trainer` 是它加外壳
+  - 必记的数字 / 公式：
+    - 五个对象
+    - `backward()` 累加所以要 `zero_grad`
+    - `.float()` / `ignore_index=-100` / `clip_grad_norm_(1.0)`
+    - 84 万参数、第一步 loss 5.07 ≈ $$\ln 128$$、PPL 128 → 9.6
+    - CPU 上 bf16 慢 30 倍
+- **[第四篇：PyTorch 使用层（下）](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)**
+  - 回答的问题：8B 全量微调要多少显存？LoRA 为什么放得进一张卡？OOM 看哪一块？
+  - 一句话结论：
+    - 每个可训练参数 16 字节
+    - 激活是账外的一块、与参数量无关
+    - "全量还是 LoRA"的第一道约束是有几张卡
+  - 必记的数字 / 公式：
+    - 2 + 2 + 4 + 4 + 4 = 16 字节
+    - 128.5 / 16.7 / 5.1 GB
+    - 激活 $$B = 1$$、$$T = 4096$$ 约 16.5 GiB
+    - checkpointing 多约 30% 计算换 16.5 → 1 GiB
+    - FSDP 8 卡每卡 16 GB
+- **[第五篇：Hugging Face 生态](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)**
+  - 回答的问题：能不能用 `peft` + `trl` 一小时跑起 LoRA SFT？卡住能不能读源码找原因？
+  - 一句话结论：
+    - 六个库各管一段，六行组装
+    - 背后的每件事都在二十行里有位置
+    - 从 `compute_loss` 往下追是学后训练最快的路
+  - 必记的数字 / 公式：
+    - 三个文件
+    - Qwen2.5-0.5B 494M、可训练 8.80M（1.78%）、状态 141 MB
+    - 85% 的 token 被 mask
+    - 20 步 5.3 → 1.7
+    - $$\frac{\alpha}{r} BAx$$、$$\alpha = 2r$$
+- **[第六篇：GPU 直觉与实验管理](/gpu-intuition-and-experiment-management.html)**
+  - 回答的问题：不写 kernel，能不能解释训练为什么慢、decode 为什么快不起来、OOM 从哪来？三个月后能复现吗？
+  - 一句话结论：
+    - 两个上限之比是 ridge
+    - decode 强度 1 是 memory-bound 所以 batch 大才快
+    - 显存四块
+    - 七项记录齐了才谈复现
+  - 必记的数字 / 公式：
+    - ridge ≈ 295 FLOP/字节
+    - 16.06 GB / 3.35 TB/s ≈ 4.8 ms → 209 token/s
+    - prefill 4096 token 约 67 ms
+    - MFU 40–50%
+    - KV cache 131 KB/token
+    - 反向 ≈ 2 × 前向
+    - seed 差 0.14
 
 ### 1. 本文的章节安排
 

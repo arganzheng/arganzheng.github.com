@@ -1463,6 +1463,21 @@ How it is built (`_plugins/moments.rb`):
   「L0 导读第 N 章」 (the 导读 chapters no longer exist). Roadmaps link forward to series published later —
   that is the established convention. Series 收尾篇 must NOT carry a
   hand-written 「系列目录」: the layout generates it from `series:`.
+- **Cross-post pointers name the thing, never a coordinate** (reader
+  feedback 2026-09-30, Discussion #50: 「L0 第五篇第七章的东西……太难记了」).
+  「L0 第五篇第七章」 / 「第三篇第四章」 means nothing to a reader; write the
+  series + post + chapter by *name* — 《算法工程师的数学》的《从最大似然到交叉熵》
+  第七章 "softmax" — or link the post directly, or drop the pointer and say
+  the thing in place (one sentence per term is usually cheaper than the
+  pointer). Within a post, 「本文第六章」 is fine.
+- **Code a paragraph explains line by line: one statement per line, `!ref`
+  marks** (reader feedback 2026-09-30, Discussions #50 / #114). No
+  `opt.step(); sched.step(); opt.zero_grad()` on one line and no
+  `if …: f()` one-liners when the prose refers to the parts separately —
+  split them so each step has its own gutter number. No blank first / last
+  line inside the fence. Mark the lines with `# !ref name` and link from the
+  prose with `[说明](#name)` (the code-refs mechanism above) instead of
+  trailing `# ①` markers plus a table that maps ① to a sentence.
 - **Application-roadmap series** (started 2026-09-16; the map
   `2026-01-04-ai-application-engineer-learning-roadmap.md` lists them in
   「已有的文章与系列」, one series per layer L1 → L7, dates continue after the
@@ -1700,6 +1715,23 @@ How it is built (`_plugins/moments.rb`):
     inside a cell ends the cell. Boxes drawn with `┌─┐│` that are really a
     *figure* (e.g. the matmul row-i × column-j picture) belong in an SVG
     under `img/in-post/`, not ASCII.
+  - **A `；`-separated enumeration is a list, not a sentence — in cells and
+    in prose** (reader feedback 2026-09-30, Discussions #50 / #132 / #136 /
+    #137: 「表格中一大堆文字特别是分号分隔的文字可读性很差……分号分隔就是一个
+    信号，可以改成无序或者有序列表」). Three cases:
+    - Prose 「X 有三个后果：A；B；C」 → a lead-in line plus an ordered /
+      unordered list, one item per `；`.
+    - A table cell that enumerates ≥ 3 items (`a；b；c`) → one item per
+      line inside the cell with `<br/>` (kramdown cannot nest a `<ul>` in a
+      cell; `<br/>` is the in-cell list). Keep the table when the row/column
+      relation carries meaning (name ↔ 负责 ↔ 要会的, 篇 ↔ 问题 ↔ 结论).
+    - When most cells of a table are such enumerations (章节安排 tables,
+      per-post recap tables 「N 篇的核心问题、结论与必记」), drop the table
+      and write a nested list: `- **二、从字到向量**` with one sub-item per
+      `；`; for recap tables `- **第 N 篇**` → `- 回答的问题：…` /
+      `- 一句话结论：` + sub-items. `tools/` has no script for this; the
+      2026-09-30 sweep used `~/sweep_semicolon.py` (splits on `；` outside
+      backticks / parens / `$$`).
   - **Parenthetical glosses of a term become inline tips**, not inline
     parentheses: write `[总变差距离](# "tip: total variation distance，…")`
     instead of `总变差距离（total variation distance：…）`. Same for a term

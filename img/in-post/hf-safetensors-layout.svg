@@ -13,7 +13,7 @@
   <!-- data -->
   <rect x="352" y="40" width="392" height="46" fill="#e8f5e9" stroke="#4d9a5c"/>
   <text x="540" y="58" text-anchor="middle" class="m">其余全部：张量的原始字节，一个接一个</text>
-  <text x="540" y="74" text-anchor="middle" class="m">没有任何结构、没有 Python 对象，只是数</text>
+  <text x="540" y="74" text-anchor="middle" class="m">没有任何结构、没有 Python 对象，只是张量的原始字节</text>
   <!-- json content -->
   <text x="16" y="112" class="mono">{"embed_tokens.weight":        {"dtype": "BF16", "shape": [151936, 896], "data_offsets": [0, 272269312]},</text>
   <text x="16" y="128" class="mono"> "layers.0.self_attn.q_proj.weight": {"dtype": "BF16", "shape": [896, 896], "data_offsets": [272269312, 273874944]},</text>

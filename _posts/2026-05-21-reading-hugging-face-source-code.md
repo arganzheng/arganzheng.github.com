@@ -20,14 +20,16 @@ Hugging Face 的五个库加起来几十万行，本系列不通读，只沿**�
 
 举一个例子说明这个系列的取法。「LoRA 是给权重加一个低秩增量 $$BA$$」是 [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)的数学；到了源码里它是三件可查验的事：（一）`inject_adapter` 用 `named_modules` 逐个匹配 `target_modules`，命中的 `nn.Linear` 被 `setattr` 换成 `lora.Linear`，`all-linear` 会排除 `lm_head`；（二）`update_layer` 建 `lora_A`（kaiming）与 `lora_B`（全零），`scaling = α/r`——所以训练开始时增量恰好为零；（三）`forward` 只多一行 `result + lora_B(lora_A(dropout(x))) * scaling`，先算瘦的那一半，永远不物化 $$BA$$。Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`state_dict` 里只有 adapter。
 
-系列覆盖的范围是那六行代码的四段：
+系列覆盖的范围是那六行代码的四段，每段一篇：
 
-```text title="系列四段与各篇覆盖的源码"
-第一段   模型          from_pretrained 的六步；一个 DecoderLayer 的代码；attention 注册表；KV cache；ForCausalLMLoss   → 第一篇
-第二段   生成          GenerationConfig 三层优先级；LogitsProcessor 一串；StoppingCriteria；_sample 的 while 循环       → 第二篇
-第三段   数据          tokenizer.json 五段；chat template 与 assistant mask；Arrow、map、fingerprint；collate_fn      → 第三篇
-第四段   微调与后训练  get_peft_model 与 lora.Linear；SFT 的 labels 与 packing；dpo_loss；GRPO 的优势、裁剪与归一       → 第四篇
-```
+| 段 | 主题 | 读的源码 | 篇 |
+|---|---|---|---|
+| 第一段 | 模型 | `from_pretrained` 的六步<br/>一个 `DecoderLayer` 的代码<br/>attention 注册表<br/>KV cache<br/>`ForCausalLMLoss` | 第一篇 |
+| 第二段 | 生成 | `GenerationConfig` 的三层优先级<br/>`LogitsProcessor` 一串<br/>`StoppingCriteria`<br/>`_sample` 的 `while` 循环 | 第二篇 |
+| 第三段 | 数据 | `tokenizer.json` 的五段<br/>chat template 与 assistant mask<br/>Arrow、`map`、fingerprint<br/>`collate_fn` | 第三篇 |
+| 第四段 | 微调与后训练 | `get_peft_model` 与 `lora.Linear`<br/>SFT 的 `labels` 与 packing<br/>`dpo_loss`<br/>GRPO 的优势、裁剪与归一 | 第四篇 |
+
+Table: 系列四段与各篇覆盖的源码
 
 ## 为什么写这个系列？
 

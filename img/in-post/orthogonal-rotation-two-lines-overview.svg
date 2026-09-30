@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="340" viewBox="0 0 820 340" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="12">
+<defs>
+<marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f6fb2"/></marker>
+<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c2571a"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2e7d4f"/></marker>
+</defs>
+<text x="410" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">本文的两条线，以及它们在 SVD 处汇合</text>
+
+<!-- 正交线 -->
+<text x="20" y="52" fill="#1f6fb2" font-size="13" font-weight="600">正交线（二、三、四章）</text>
+<g stroke="#1f6fb2" stroke-width="1.5" fill="#eef4fb">
+<rect x="20" y="62" width="140" height="48" rx="4"/>
+<rect x="180" y="62" width="140" height="48" rx="4"/>
+<rect x="340" y="62" width="140" height="48" rx="4"/>
+<rect x="500" y="62" width="140" height="48" rx="4"/>
+<rect x="660" y="62" width="140" height="48" rx="4" fill="#dbe9f7"/>
+</g>
+<g fill="#1f3a5f" text-anchor="middle">
+<text x="90" y="82" font-weight="600">Rᵀ R = I</text><text x="90" y="99" font-size="11">逆就是转置</text>
+<text x="250" y="82" font-weight="600">保持内积与长度</text><text x="250" y="99" font-size="11">(Ra)·(Rb) = a·b</text>
+<text x="410" y="82" font-weight="600">二维旋转矩阵 R(θ)</text><text x="410" y="99" font-size="11">cos / sin 的 2×2</text>
+<text x="570" y="82" font-weight="600">角度相加</text><text x="570" y="99" font-size="11">R(α) R(β) = R(α+β)</text>
+<text x="730" y="82" font-weight="600">RoPE</text><text x="730" y="99" font-size="11">q·k 只依赖 n − m</text>
+</g>
+<g stroke="#1f6fb2" stroke-width="1.5" marker-end="url(#ab)">
+<line x1="160" y1="86" x2="178" y2="86"/><line x1="320" y1="86" x2="338" y2="86"/><line x1="480" y1="86" x2="498" y2="86"/><line x1="640" y1="86" x2="658" y2="86"/>
+</g>
+
+<!-- 低秩线 -->
+<text x="20" y="252" fill="#c2571a" font-size="13" font-weight="600">低秩线（五、六章）</text>
+<g stroke="#c2571a" stroke-width="1.5" fill="#fdf1e8">
+<rect x="20" y="262" width="140" height="48" rx="4"/>
+<rect x="180" y="262" width="140" height="48" rx="4"/>
+<rect x="340" y="262" width="140" height="48" rx="4"/>
+<rect x="500" y="262" width="140" height="48" rx="4"/>
+<rect x="660" y="262" width="140" height="48" rx="4" fill="#f9e0cf"/>
+</g>
+<g fill="#6b2f0c" text-anchor="middle">
+<text x="90" y="282" font-weight="600">秩 = 自由度</text><text x="90" y="299" font-size="11">独立的行（列）有几个</text>
+<text x="250" y="282" font-weight="600">SVD：W = U Σ Vᵀ</text><text x="250" y="299" font-size="11">σ₁ ≥ σ₂ ≥ … 降序</text>
+<text x="410" y="282" font-weight="600">截断前 r 个奇异值</text><text x="410" y="299" font-size="11">最好的秩 r 近似</text>
+<text x="570" y="282" font-weight="600">ΔW = B A</text><text x="570" y="299" font-size="11">参数 r(m+n) ≪ mn</text>
+<text x="730" y="282" font-weight="600">LoRA</text><text x="730" y="299" font-size="11">r = 16 只加约 1% 参数</text>
+</g>
+<g stroke="#c2571a" stroke-width="1.5" marker-end="url(#ao)">
+<line x1="160" y1="286" x2="178" y2="286"/><line x1="320" y1="286" x2="338" y2="286"/><line x1="480" y1="286" x2="498" y2="286"/><line x1="640" y1="286" x2="658" y2="286"/>
+</g>
+
+<!-- 汇合 -->
+<rect x="130" y="150" width="300" height="60" rx="6" fill="#eaf5ee" stroke="#2e7d4f" stroke-width="1.5"/>
+<text x="280" y="173" fill="#1e5a36" font-size="13" text-anchor="middle" font-weight="600">汇合：SVD 里的 U、V 就是正交矩阵</text>
+<text x="280" y="193" fill="#1e5a36" font-size="12" text-anchor="middle">任何矩阵 W = 旋转（Vᵀ）· 拉伸（Σ）· 旋转（U）</text>
+<g stroke="#2e7d4f" stroke-width="1.5" fill="none" marker-end="url(#ag)">
+<path d="M250,110 L250,148"/>
+<path d="M250,262 L250,212"/>
+</g>
+<text x="262" y="132" fill="#2e7d4f" font-size="11">正交矩阵 = 旋转（可能带反射）</text>
+<text x="262" y="236" fill="#2e7d4f" font-size="11">U、V 各是一组正交单位向量</text>
+
+<!-- 右侧：两个出口 -->
+<text x="560" y="178" fill="#555" font-size="11.5" text-anchor="middle">两条线各自的出口：</text>
+<text x="560" y="196" fill="#1f6fb2" font-size="11.5" text-anchor="middle">RoPE 为什么能编码相对位置（正交线的终点）</text>
+<text x="560" y="214" fill="#c2571a" font-size="11.5" text-anchor="middle">LoRA 的 r = 16 为什么够用（低秩线的终点）</text>
+</svg>

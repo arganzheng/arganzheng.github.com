@@ -282,16 +282,19 @@ def fit_gd(X, y, lr=0.1, steps=200, batch=None, seed=0):
     r = np.random.default_rng(seed)
     w = np.zeros(X.shape[1])
     for _ in range(steps):
-        idx = slice(None) if batch is None else r.choice(len(y), batch, replace=False)   # ① 全量，或随机抽一个小批
+        # !ref pick
+        idx = slice(None) if batch is None else r.choice(len(y), batch, replace=False)
         Xb, yb = X[idx], y[idx]
-        grad = 2 * Xb.T @ (Xb @ w - yb) / len(yb)                                        # ② 这一批上的梯度
-        w -= lr * grad                                                                   # ③ 走一步
+        # !ref grad
+        grad = 2 * Xb.T @ (Xb @ w - yb) / len(yb)
+        # !ref update
+        w -= lr * grad
     return w
 ```
 
-1. ① `batch=None` 时每步用全部 200 个样本，是**全量梯度下降**（GD）；给了 `batch=16` 就每步随机抽 16 个，是**小批量随机梯度下降**（SGD）——深度学习用的全是后者，因为全量数据算一次梯度太贵；
-2. ② 小批上的梯度是全量梯度的一个有噪声的估计；
-3. ③ 同一条更新公式。
+- [选样本](#pick)：`batch=None` 时每步用全部 200 个样本，是**全量梯度下降**（GD）；给了 `batch=16` 就每步随机抽 16 个，是**小批量随机梯度下降**（SGD）——深度学习用的全是后者，因为全量数据算一次梯度太贵。
+- [算梯度](#grad)：只在这一批上算，小批上的梯度是全量梯度的一个有噪声的估计。
+- [走一步](#update)：两种方法用的是同一条更新公式，差别只在梯度是谁算出来的。
 
 | 方法 | 系数 | 与闭式解的最大差 |
 |---|---|---:|
