@@ -5,10 +5,10 @@ title: "读 Hugging Face 源码（04）：peft 与 trl——LoRA 怎么挂上去
 subtitle: "Inside peft and trl: get_peft_model, the LoRA Linear, SFT Labels and Packing, dpo_loss and GRPO Advantages"
 tags: [Hugging Face, peft, trl, LoRA, SFT, DPO, GRPO, AI]
 catalog: true
-date: 2026-12-09 12:00:00
+date: 2026-05-25 12:00:00
 ---
 
-> **版本说明：**本文对着 **peft 0.21.0**（`tuners/lora/layer.py` 2739 行、`tuners/tuners_utils.py` 2781 行）与 **trl 1.13.0**（`trainer/sft_trainer.py` 1927 行、`dpo_trainer.py` 1823 行、`grpo_trainer.py` 3497 行）读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。trl 是 Hugging Face 几个库里改得最快的一个（一年三十多个版本，`SFTTrainer` 的数据契约改过数次），路径与名字以 1.13.0 为准，不引用行号；读别的版本请以本地源码对照。
+> **更新 @2026-09-30**：本文对着 **peft 0.21.0**（`tuners/lora/layer.py` 2739 行、`tuners/tuners_utils.py` 2781 行）与 **trl 1.13.0**（`trainer/sft_trainer.py` 1927 行、`dpo_trainer.py` 1823 行、`grpo_trainer.py` 3497 行）读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。trl 是 Hugging Face 几个库里改得最快的一个（一年三十多个版本，`SFTTrainer` 的数据契约改过数次），路径与名字以 1.13.0 为准，不引用行号；读别的版本请以本地源码对照。
 
 工具箱第五篇那六行里，第三行 `get_peft_model(model, LoraConfig(...))` 和第五、六行 `SFTTrainer(...).train()` 是两个最"黑"的盒子：前者进去一个 `nn.Module`、出来一个只有 1.8% 参数可训的 `nn.Module`，后者进去一个 `Dataset`、出来一个训好的模型。前三篇把 transformers 的模型、生成、数据读完了，这一篇读剩下的两个库：peft 怎么把[ L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)的 $$W + BA$$ 变成一次 `forward` 里的一行加法，trl 怎么把[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)的三个 loss——SFT 的带 mask 交叉熵、DPO 的 $$-\log\sigma(\beta \Delta)$$、GRPO 的组内归一化优势——各写成十几行。
 

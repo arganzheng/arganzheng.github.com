@@ -1339,6 +1339,18 @@ How it is built (`_plugins/moments.rb`):
   are kept as teaching points (flow-matching trajectories are *curvier* than
   DDIM before reflow, 0.49 vs 0.74; a count-based next-token model produces
   half-recognizable digits).
+- Series `hf-source-reading` (《读 Hugging Face 源码：从 from_pretrained 到 GRPO 的
+  loss》, overview `2026-05-21-reading-hugging-face-source-code.md`, 4 posts dated
+  2026-05-22 … 05-25 + recap NN=05 at 05-25 20:00, algorithm roadmap L4–L5
+  深入篇, `number: 7` — efficient-inference / multimodal moved to 8 / 9): reads
+  transformers 5.17.0 / tokenizers 0.23.2 / datasets 5.0.1 / peft 0.21.0 / trl
+  1.13.0 along the six lines of 工具箱 05 (written 2026-09-30 for Discussion #50
+  / #122; originally future-dated 12-06 … 12-09, re-dated into the map the same
+  day). Those versions post-date the post dates, so the overview and every
+  body post open with a `> **更新 @2026-09-30**：本文对着 …` note instead of a
+  版本说明 — keep that form when refreshing. Cite file paths + class / function
+  names, never line numbers. Companion scripts are referenced as
+  `ai-learning-labs/hf-source-reading/`.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
@@ -1353,7 +1365,8 @@ How it is built (`_plugins/moments.rb`):
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
   05-03 … 05-09, two same-day 下篇 at 20:00, recap 05-09 20:00) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
-  05-10 … 05-20 on 2026-09-14 to make room; 通信 starts 06-01 unchanged) → 07
+  05-10 … 05-20 on 2026-09-14 to make room) → 读 Hugging Face 源码 (05-21 overview,
+  05-22 … 05-25, algorithm L4–L5 深入篇, `hf-source-reading`; 通信 starts 06-01 unchanged) → 07
   大规模训练 (07-13 … 07-29) → 08 vLLM (08-11 … 08-25, daily) → 09 RL 后训练基础设施
   (08-26 overview, posts 08-27 … 09-03) → 10 扩散模型推理基础设施 (09-04 overview,
   posts 09-05 … 09-13) → 11 平台 (09-14 … 09-22) → 12 开源贡献 (09-23 … 09-27).

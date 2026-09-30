@@ -334,6 +334,8 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 
 Table: 值得直接读的 Hugging Face 源码入口
 
+这六个入口后来各读成了一篇：[《读 Hugging Face 源码》](/reading-hugging-face-source-code.html)（四篇）——01 `from_pretrained` 与一次前向到 loss、02 `generate` 的循环、03 tokenizers 与 datasets、04 peft 与 trl 的三种 loss——每篇从上表的一行进入，读到与 L0 / L4 / L5 的公式对应的那几行为止。
+
 方法很简单：**遇到一个后训练概念，先读它在 `trl` 里的实现，再读论文。** 库的版本变化快，函数名会变（本文写作时的接口未必与你读到时一致），但找到入口的方法不变——从 Trainer 的 `compute_loss` 往下追，或者在编辑器里对着一个 API 名按"跳转到定义"。读到一个看不懂的公式，回 L0 对应的篇；读到一个看不懂的形状操作，回本系列第一篇。
 
 ## 七、本文小结

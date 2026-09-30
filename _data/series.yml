@@ -117,18 +117,23 @@ post-training:
   slides: /slides/post-training.html
   roadmap: ai-algorithm
   number: 6
+hf-source-reading:
+  name: 读 Hugging Face 源码：从 from_pretrained 到 GRPO 的 loss
+  overview: /reading-hugging-face-source-code.html
+  roadmap: ai-algorithm
+  number: 7
 efficient-inference:
   name: 高效推理与压缩（算法侧）：解码、投机、量化与 KV
   overview: /efficient-inference-and-compression-for-llms.html
   slides: /slides/efficient-inference.html
   roadmap: ai-algorithm
-  number: 7
+  number: 8
 multimodal:
   name: 多模态：从视觉编码器到扩散模型
   overview: /multimodal-from-vision-encoders-to-diffusion.html
   slides: /slides/multimodal.html
   roadmap: ai-algorithm
-  number: 8
+  number: 9
 diffusion-inference-infra:
   name: 扩散模型推理基础设施：从一次去噪到一个生成服务
   overview: /diffusion-model-inference-infrastructure.html

@@ -5,10 +5,10 @@ title: "读 Hugging Face 源码（02）：generate——一次采样的完整调
 subtitle: "Inside transformers, Part 2: generate, GenerationConfig, LogitsProcessors, StoppingCriteria and the Decode Loop"
 tags: [Hugging Face, transformers, LLM, Sampling, AI]
 catalog: true
-date: 2026-12-07 12:00:00
+date: 2026-05-23 12:00:00
 ---
 
-> **版本说明：**本文对着 **transformers 5.17.0** 的 `generation/` 目录读（`utils.py` 4250 行、`logits_process.py` 3222 行、`stopping_criteria.py` 643 行、`configuration_utils.py` 1892 行），配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。路径与名字以该版本为准，不引用行号。
+> **更新 @2026-09-30**：本文对着 **transformers 5.17.0** 的 `generation/` 目录读（`utils.py` 4250 行、`logits_process.py` 3222 行、`stopping_criteria.py` 643 行、`configuration_utils.py` 1892 行），配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。路径与名字以该版本为准，不引用行号。
 
 上一篇的前向在 `logits` 处结束：`[B, T, 151936]` 个分数。推理时接下来的每一件事——把最后一个位置的分数变成一个 token、把它拼回去、再前向一次——都在 `model.generate(...)` 里。这个函数是 transformers 最常被调用、也最常被抱怨"看不懂"的函数：`generate` 本身 400 行，它调的 `_sample` 300 行，分散在四个文件里的 `LogitsProcessor` 有五十多个类。
 

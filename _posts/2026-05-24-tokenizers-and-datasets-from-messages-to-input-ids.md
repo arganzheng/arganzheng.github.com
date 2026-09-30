@@ -5,10 +5,10 @@ title: "读 Hugging Face 源码（03）：tokenizers 与 datasets——从 messa
 subtitle: "Inside tokenizers and datasets: the Rust Pipeline, Chat Templates, Arrow Tables, map and Fingerprints"
 tags: [Hugging Face, tokenizers, datasets, LLM, AI]
 catalog: true
-date: 2026-12-08 12:00:00
+date: 2026-05-24 12:00:00
 ---
 
-> **版本说明：**本文对着 **tokenizers 0.23.2**（Rust 库 + Python 绑定）、**transformers 5.17.0** 的 `tokenization_utils_base.py` / `tokenization_utils_tokenizers.py` / `utils/chat_template_utils.py`、**datasets 5.0.1** 的 `arrow_dataset.py`（7417 行）/ `load.py` / `builder.py` / `iterable_dataset.py` 读，配套脚本在 `ai-learning-labs/hf-source-reading/`，用本地缓存的 Qwen2.5-0.5B tokenizer 与 `HuggingFaceH4/no_robots` 数据集。路径与名字以这些版本为准，不引用行号。
+> **更新 @2026-09-30**：本文对着 **tokenizers 0.23.2**（Rust 库 + Python 绑定）、**transformers 5.17.0** 的 `tokenization_utils_base.py` / `tokenization_utils_tokenizers.py` / `utils/chat_template_utils.py`、**datasets 5.0.1** 的 `arrow_dataset.py`（7417 行）/ `load.py` / `builder.py` / `iterable_dataset.py` 读，配套脚本在 `ai-learning-labs/hf-source-reading/`，用本地缓存的 Qwen2.5-0.5B tokenizer 与 `HuggingFaceH4/no_robots` 数据集。路径与名字以这些版本为准，不引用行号。
 
 前两篇的模型两端都是整数：`input_ids` 进、`input_ids` 出。把 `"猫坐在垫子上"` 变成 `[10236, 234, 104, 104427, ...]`、把 `[{"role": "user", "content": "Hi"}]` 变成带 `<|im_start|>` 的一串 token，是 `tokenizers` 的事；把 9500 条对话从磁盘上的 Arrow 文件按需取出来、对每条跑一遍 tokenizer 并把结果存回磁盘、在多进程里并行、下次跑时直接命中缓存，是 `datasets` 的事。两个库都是"Rust / C++ 内核 + 薄 Python 壳"，读它们的 Python 源码时要知道**哪一行之下是另一种语言**——本文把这条线画出来。
 

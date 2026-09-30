@@ -106,6 +106,8 @@ flowchart TB
 预训练 5 篇 ≈ 5h`"]
     L5["`**L5 后训练**
 8 篇 ≈ 6h`"]
+    H["`**深入篇：读 Hugging Face 源码**
+4 篇 ≈ 3.2h`"]
     L6["`**L6 高效推理与压缩**
 6 篇 ≈ 4h`"]
     L7["`**L7 多模态**
@@ -114,13 +116,14 @@ flowchart TB
 1 篇 ≈ 1h，任何阶段`"]
     L0 --> L1 --> L2 --> L3 --> L4 --> L5
     L1 -. 深入 .-> D
+    L5 -. 深入 .-> H
     L5 --> L6
     L5 --> L7
 
     classDef algo fill:#fff7e0,stroke:#c98a00,stroke-width:1px,color:#222
     classDef shared fill:#f3eefc,stroke:#8a6bd1,stroke-width:1px,color:#222
     classDef cross fill:#f7f7f7,stroke:#999,stroke-width:1px,color:#222
-    class L0,L1,L2,L3,L5,L6,L7 algo
+    class L0,L1,L2,L3,L5,L6,L7,H algo
     class D,L4 shared
     class X cross
 ```
@@ -134,7 +137,7 @@ flowchart TB
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
 | L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（13 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 5h |
-| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) | 6h |
+| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
 | L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 7h |
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
@@ -270,7 +273,7 @@ Table: L4 LLM 核心的主题与概念
 
 Table: L5 后训练各阶段的概念
 
-工具层：`trl`、OpenRLHF、verl 的使用；知道它们把 rollout（推理）与训练（反向）怎么拼起来，但实现内部属于 Infra。
+工具层：`trl`、OpenRLHF、verl 的使用；知道它们把 rollout（推理）与训练（反向）怎么拼起来，但实现内部属于 Infra。`transformers` / `peft` / `trl` 自己的源码是本层与 L4 的**深入篇**：[《读 Hugging Face 源码》](/reading-hugging-face-source-code.html)（四篇）沿工具箱第五篇的六行代码读 `from_pretrained` 与一次前向、`generate` 的循环、tokenizers 与 datasets 的两条流水线、`lora.Linear` 的一行与 SFT / DPO / GRPO 的 loss 各在哪几行——读完 L5 再读，每一段代码都对应本地图前面某一篇的公式或结构图。
 
 ### L6 高效推理与压缩（算法侧）
 
@@ -377,6 +380,7 @@ Table: 算法地图与 Infra 地图的重叠主题分工
 {% include series-row.html key="transformer-and-llm" layer="L4" cols="layer,link,count" note="（与 Infra 地图共享）" %}
 {% include series-row.html key="pretraining" layer="L4" cols="layer,link,count" %}
 {% include series-row.html key="post-training" layer="L5" cols="layer,link,count" %}
+{% include series-row.html key="hf-source-reading" layer="L4–L5 深入" cols="layer,link,count" %}
 {% include series-row.html key="efficient-inference" layer="L6" cols="layer,link,count" %}
 {% include series-row.html key="multimodal" layer="L7" cols="layer,link,count" %}
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
@@ -397,6 +401,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L3 | `deep-learning-foundations/` | NumPy；CNN / RNN 两篇需 PyTorch（CPU） |
 | L4 | `transformer-and-llm/` | 04 系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训、MTP 实验、成本表脚本；预训练系列的实验；纯 Python + PyTorch |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
+| L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl；本地缓存的 Qwen2.5-0.5B 与 `no_robots`；CPU 可跑 |
 
 Table: 配套代码按层的目录与依赖
 
