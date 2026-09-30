@@ -863,7 +863,13 @@ batch = batch.to("cuda", non_blocking=True)
 
 ### 4. Device mismatch
 
-常见报错是 `Expected all tensors to be on the same device`。排查时同时打印：
+常见错误是：
+
+```text title='Device mismatch 的典型报错'
+Expected all tensors to be on the same device
+```
+
+排查时同时打印：
 
 ```python title='排查时同时打印模型、输入、标签的 device'
 print(next(model.parameters()).device)
@@ -1061,7 +1067,13 @@ Table: expand() 与 repeat() 的存储语义
 
 ### 4. 广播错误的排查方式
 
-遇到 `The size of tensor a must match the size of tensor b` 时，不要只看 Tensor 的元素数量，要打印完整信息：
+遇到：
+
+```text title='广播失败的典型报错'
+The size of tensor a must match the size of tensor b
+```
+
+不要只看 Tensor 的元素数量，要打印完整信息：
 
 ```python title='排查时打印每个 Tensor 的 shape、stride、dtype、device'
 for name, value in {

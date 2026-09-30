@@ -122,13 +122,15 @@ NCCL 自己的调优表给出了它对小消息延迟的估计。`src/graph/tuni
 
 同一文件里对单节点 ring 的延迟公式是 `baseLatencies + nsteps × intraLat`，all_reduce 的 `nsteps = 2(n-1)`。8 卡：
 
-```text
-Ring  + LL      6.6 + 14 × 0.6  ≈ 15.0 µs
-Ring  + LL128  14.0 + 14 × 1.9  ≈ 40.6 µs
-Ring  + Simple  8.4 + 14 × 3.4  ≈ 56.0 µs
-Tree  + LL      6.8 + 2 × 7 × 0.6 ≈ 15.2 µs
-NVLS  + Simple                    25   µs
-```
+| 算法 + 协议 | baseLatency + nsteps × intraLat | 延迟 |
+|---|---|---|
+| Ring + LL | 6.6 + 14 × 0.6 | ≈ 15.0 µs |
+| Ring + LL128 | 14.0 + 14 × 1.9 | ≈ 40.6 µs |
+| Ring + Simple | 8.4 + 14 × 3.4 | ≈ 56.0 µs |
+| Tree + LL | 6.8 + 2 × 7 × 0.6 | ≈ 15.2 µs |
+| NVLS + Simple | — | 25 µs |
+
+Table: 8 卡单节点各算法与协议组合的 all_reduce 延迟估算
 
 这些数字是 NCCL 的模型，不是测量，但它告诉我们 NCCL 自己认为 8 卡 128 KB 的 all_reduce 在 NVLink 上最好也要 15 µs 左右，而且这 15 µs 由两部分组成：约 6～8 µs 的基础开销，加上 14 步每步 0.6 µs 的串行同步。把这个 15 µs 拆开，NCCL 在这个区间要付的固定成本有：
 
@@ -608,13 +610,15 @@ vLLM 的 `AttentionSpec.real_page_size_bytes`（`vllm/v1/kv_cache_interface.py`�
 
 Llama-3-70B：80 层，8 个 KV head（GQA），head_dim 128，BF16：
 
-```text
-每 token 每层     2 × 8 × 128 × 2 B  = 4 KB
-每 token 全部层   4 KB × 80          = 320 KB
-4096 token 的请求  320 KB × 4096     = 1.25 GiB ≈ 1.34 GB
-8192 token 的请求                    = 2.5 GiB
-TP8 时每个 rank    1 个 KV head      → 每 token 每层 512 B，4096 token 全部层 160 MiB
-```
+| 项 | 计算 | 结果 |
+|---|---|---|
+| 每 token 每层 | 2 × 8 × 128 × 2 B | 4 KB |
+| 每 token 全部层 | 4 KB × 80 | 320 KB |
+| 4096 token 的请求 | 320 KB × 4096 | 1.25 GiB ≈ 1.34 GB |
+| 8192 token 的请求 |  | 2.5 GiB |
+| TP8 时每个 rank | 1 个 KV head | 每 token 每层 512 B，4096 token 全部层 160 MiB |
+
+Table: Llama-3-70B 的 KV cache 账：每 token、每请求与 TP8 时每 rank
 
 对照：MLA 架构（DeepSeek-V3 类）每 token 每层只存一个压缩的 latent（512 维）加 rope 部分（64 维），BF16 下 1152 字节，61 层共约 70 KB/token，比 GQA 少 4～5 倍，但 TP 各 rank 存的是同一份（tp_mapping.py 里 `is_mla` 分支对此有专门处理）。
 

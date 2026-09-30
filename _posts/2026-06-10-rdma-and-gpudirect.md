@@ -188,12 +188,13 @@ rkey 是 RDMA 安全模型的全部：拿到 rkey + 地址的人就能读写那�
 
 QP 是 RDMA 里"连接"的载体，由一个 Send Queue 和一个 Receive Queue 组成，各自绑定一个 CQ（可以是同一个）。类型决定传输语义：
 
-```text title='QP 的三种类型：RC、UC、UD'
-类型  全称                     可靠性       连接        支持的操作                        典型用途
-RC    Reliable Connected       可靠、有序   点对点       SEND/RECV、RDMA WRITE/READ、原子    NCCL、MPI、存储；本篇全部内容
-UC    Unreliable Connected     不可靠、有序 点对点       SEND/RECV、RDMA WRITE               很少用
-UD    Unreliable Datagram      不可靠       无连接       SEND/RECV（≤ MTU）                  管理流量、IPoIB、某些 RPC
-```
+| 类型 | 全称 | 可靠性 | 连接 | 支持的操作 | 典型用途 |
+|---|---|---|---|---|---|
+| RC | Reliable Connected | 可靠、有序 | 点对点 | SEND/RECV、RDMA WRITE/READ、原子 | NCCL、MPI、存储；本篇全部内容 |
+| UC | Unreliable Connected | 不可靠、有序 | 点对点 | SEND/RECV、RDMA WRITE | 很少用 |
+| UD | Unreliable Datagram | 不可靠 | 无连接 | SEND/RECV（≤ MTU） | 管理流量、IPoIB、某些 RPC |
+
+Table: QP 的三种类型：RC、UC、UD
 
 RC 是唯一同时提供可靠性和单边操作的类型，NCCL 只用 RC：`ncclIbCreateQp` 里 `qpInitAttr.qp_type = IBV_QPT_RC`。RC 的代价是每对通信方要一个 QP，n 个节点全互联需要 O(n²) 个 QP，每个 QP 在网卡上占用上下文（几百字节到几 KB 的片上或主机内存缓存）。对 NCCL 这不是问题——ring / tree 里每个 rank 只和少数邻居通信；对全互联的 all_to_all 则是，这是 MoE 训练在超大规模上会碰到的一个 RDMA 层问题。
 
@@ -393,17 +394,18 @@ NCCL 选择前者：`ncclIbConnect` 里 `ncclSocketInit` + `ncclSocketConnect` �
 
 RDMA 的 verbs 接口与传输语义（RC / UC / UD、WRITE / READ / SEND）是 InfiniBand 规范定义的；RoCE（RDMA over Converged Ethernet）把 IB 的传输层原样搬到以太网上：
 
-```text title='InfiniBand 与 RoCE v2 的逐层对照'
-                  InfiniBand                        RoCE v2
-链路层            IB 链路层，专用交换机               以太网，普通以太网交换机
-网络层            IB 网络层（GRH 可选）               IPv4 / IPv6（IB 传输报文封装在 UDP 4791 里）
-寻址              LID（16 位，子网管理器 SM 分配）     GID = IPv6 地址或 IPv4 映射地址（RoCE 没有 LID）
-路由              SM 计算的转发表，子网内 LID 转发     普通 IP 路由，可跨三层
-无损保证          链路层信用（credit-based）流控        PFC（Priority Flow Control）逐跳暂停
-拥塞控制          IB CC（较少启用）+ adaptive routing  ECN 标记 + DCQCN（网卡侧速率控制）
-MTU               256 B … 4096 B（active_mtu，通常 4096） 同以太网，通常 1024 … 4096 B 的 IB MTU
-管理              需要 SM（opensm 或交换机内置）        不需要 SM；靠 DHCP / 静态 IP 与 ARP
-```
+|  | InfiniBand | RoCE v2 |
+|---|---|---|
+| 链路层 | IB 链路层，专用交换机 | 以太网，普通以太网交换机 |
+| 网络层 | IB 网络层（GRH 可选） | IPv4 / IPv6（IB 传输报文封装在 UDP 4791 里） |
+| 寻址 | LID（16 位，子网管理器 SM 分配） | GID = IPv6 地址或 IPv4 映射地址（RoCE 没有 LID） |
+| 路由 | SM 计算的转发表，子网内 LID 转发 | 普通 IP 路由，可跨三层 |
+| 无损保证 | 链路层信用（credit-based）流控 | PFC（Priority Flow Control）逐跳暂停 |
+| 拥塞控制 | IB CC（较少启用）+ adaptive routing | ECN 标记 + DCQCN（网卡侧速率控制） |
+| MTU | 256 B … 4096 B（active_mtu，通常 4096） | 同以太网，通常 1024 … 4096 B 的 IB MTU |
+| 管理 | 需要 SM（opensm 或交换机内置） | 不需要 SM；靠 DHCP / 静态 IP 与 ARP |
+
+Table: InfiniBand 与 RoCE v2 的逐层对照
 
 对上层软件——包括 NCCL——两者几乎透明：同一个 `libibverbs`，同一个 `mlx5` 驱动，同一份 `net_ib.cc`。差别集中在两处：**地址向量的填法**与**网络配置的正确性**。
 
@@ -661,13 +663,14 @@ GPUDirect RDMA 解决的是"网卡访问显存"；还有一个更小的问题：
 
 GPUDirect 是一个品牌，下面是一族"让 X 直接访问显存、绕开主机内存"的技术：
 
-```text title='GPUDirect 家族：P2P、RDMA、Storage、Async'
-成员                    谁访问显存         经过什么                  本系列的位置
-GPUDirect P2P           另一张 GPU         NVLink 或 PCIe P2P        第二篇：NVLink / PCIe 拓扑；第四篇：NCCL 的 P2P transport；第七篇：CUDA IPC 与 custom all-reduce
-GPUDirect RDMA          网卡               PCIe P2P（BAR1）          本篇
-GPUDirect Storage       NVMe / 存储网卡    PCIe P2P（cuFile API）    第七篇提及：NIXL 的 GDS 后端；数据加载与 checkpoint 不在系列范围内
-GPUDirect Async         GPU 自己触发网卡   GPU 写网卡门铃            NCCL 的设备侧网络（device-side networking，`ncclNetDeviceHandle_t`）方向，本系列不展开
-```
+| 成员 | 谁访问显存 | 经过什么 | 本系列的位置 |
+|---|---|---|---|
+| GPUDirect P2P | 另一张 GPU | NVLink 或 PCIe P2P | 第二篇：NVLink / PCIe 拓扑；第四篇：NCCL 的 P2P transport；第七篇：CUDA IPC 与 custom all-reduce |
+| GPUDirect RDMA | 网卡 | PCIe P2P（BAR1） | 本篇 |
+| GPUDirect Storage | NVMe / 存储网卡 | PCIe P2P（cuFile API） | 第七篇提及：NIXL 的 GDS 后端；数据加载与 checkpoint 不在系列范围内 |
+| GPUDirect Async | GPU 自己触发网卡 | GPU 写网卡门铃 | NCCL 的设备侧网络（device-side networking，`ncclNetDeviceHandle_t`）方向，本系列不展开 |
+
+Table: GPUDirect 家族：P2P、RDMA、Storage、Async
 
 GPUDirect P2P 与 RDMA 的底层机制是同一个：PCIe 事务直达 GPU 的 BAR1（NVLink 是 NVIDIA 私有链路，另有一套地址翻译）。GDRCopy 也是 BAR1 映射的应用。理解了"显存可以映射到 PCIe 地址空间、任何设备都能对它发事务"这一件事，整个家族就清楚了。
 
@@ -728,17 +731,15 @@ lspci -vv -s <NIC bdf> | grep -E "LnkSta|LnkCap"   # 网卡实际协商的 PCIe 
 
 理论与实测有差距时，按顺序：
 
-```text title='RDMA 层的八步检查清单'
-1  网卡状态           ibstat：Active？Rate 对？link_layer 是预期的？
-2  GDR 可用           lsmod | grep peermem 或 NCCL 日志 "DMA-BUF is available"；日志 "GPU Direct RDMA Enabled"
-3  GPU–NIC 亲和       nvidia-smi topo -mp：每张 GPU 到它的网卡是 PIX/PXB；NCCL 日志里每个 rank 选的 HCA 是近的那张
-4  PCIe 链路          lspci LnkSta：GPU 与 NIC 都是预期代际 × x16；ACS 关闭
-5  RDMA 层带宽        ib_write_bw 主机内存版 ≈ 线速 90%+；--use_cuda 版 ≈ 主机内存版；否则问题在 RDMA 层以下
-6  RoCE 配置          show_gids 索引对；NCCL_IB_TC 对应无损队列的 DSCP；交换机 PFC/ECN 已开；ib_write_bw 无重传（perftest 不直接报，看网卡计数器 rdma statistics / ethtool -S 的 np_cnp_sent、rp_cnp_handled、out_of_sequence）
-7  多网卡选择         NCCL_IB_HCA 限定到正确的网卡集合（"^" 排除，"=" 精确匹配；见 net_ib.cc 对 NCCL_IB_HCA 的解析）；确认没混入管理网口
-8  内存注册           ulimit -l unlimited；NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=NET 里没有 ibv_reg_mr failed；大 buffer 首次通信慢是注册在数据面上
-9  超时与重传         日志 status=12（RETRY_EXC）→ 对端不可达或严重丢包；status=13（RNR_RETRY_EXC）→ 对端没 post recv（通常是对端 hang 了）
-```
+1. **网卡状态**：ibstat：Active？Rate 对？link_layer 是预期的？
+2. **GDR 可用**：lsmod | grep peermem 或 NCCL 日志 "DMA-BUF is available"；日志 "GPU Direct RDMA Enabled"
+3. **GPU–NIC 亲和**：nvidia-smi topo -mp：每张 GPU 到它的网卡是 PIX/PXB；NCCL 日志里每个 rank 选的 HCA 是近的那张
+4. **PCIe 链路**：lspci LnkSta：GPU 与 NIC 都是预期代际 × x16；ACS 关闭
+5. **RDMA 层带宽**：ib_write_bw 主机内存版 ≈ 线速 90%+；--use_cuda 版 ≈ 主机内存版；否则问题在 RDMA 层以下
+6. **RoCE 配置**：show_gids 索引对；NCCL_IB_TC 对应无损队列的 DSCP；交换机 PFC/ECN 已开；ib_write_bw 无重传（perftest 不直接报，看网卡计数器 rdma statistics / ethtool -S 的 np_cnp_sent、rp_cnp_handled、out_of_sequence）
+7. **多网卡选择**：NCCL_IB_HCA 限定到正确的网卡集合（"^" 排除，"=" 精确匹配；见 net_ib.cc 对 NCCL_IB_HCA 的解析）；确认没混入管理网口
+8. **内存注册**：ulimit -l unlimited；NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=NET 里没有 ibv_reg_mr failed；大 buffer 首次通信慢是注册在数据面上
+9. **超时与重传**：日志 status=12（RETRY_EXC）→ 对端不可达或严重丢包；status=13（RNR_RETRY_EXC）→ 对端没 post recv（通常是对端 hang 了）
 
 这 9 条中前 5 条不需要 NCCL，用系统工具和 perftest 就能做；这也是它们应该先做的原因——NCCL 之上的一切问题，都以"RDMA 层本身能跑到线速"为前提。
 

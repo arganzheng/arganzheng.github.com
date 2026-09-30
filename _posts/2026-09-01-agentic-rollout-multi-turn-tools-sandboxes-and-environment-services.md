@@ -66,15 +66,16 @@ GPU 侧（32 卡）
 
 ### 2. 从批量生成到分布式系统
 
-```text
-单轮 RL 的 rollout                            Agent RL 的 rollout
-推理引擎 generate(prompts) → 回答                agent loop：generate → 解析工具调用 → 环境执行 → 追加 → generate …
-一条样本 = 一次生成                            一条样本 = 一条几十轮的轨迹（几万 token，八成来自环境）
-时间由回答长度决定                             时间由环境耗时 × 轮数决定，方差大一个量级
-KV 用完即弃                                   KV 要跨轮复用（前缀缓存），否则 prefill 二次增长
-reward = 规则 / RM                             reward = 测试结果 / 环境状态 / 生成式评判，本身是服务
-参与者：推理引擎                               参与者：推理引擎 · agent loop worker · 工具网关 · 沙箱集群 · reward 服务 · 样本缓冲
-```
+| 单轮 RL 的 rollout | Agent RL 的 rollout |
+|---|---|
+| 推理引擎 generate(prompts) → 回答 | agent loop：generate → 解析工具调用 → 环境执行 → 追加 → generate … |
+| 一条样本 = 一次生成 | 一条样本 = 一条几十轮的轨迹（几万 token，八成来自环境） |
+| 时间由回答长度决定 | 时间由环境耗时 × 轮数决定，方差大一个量级 |
+| KV 用完即弃 | KV 要跨轮复用（前缀缓存），否则 prefill 二次增长 |
+| reward = 规则 / RM | reward = 测试结果 / 环境状态 / 生成式评判，本身是服务 |
+| 参与者：推理引擎 | 参与者：推理引擎 · agent loop worker · 工具网关 · 沙箱集群 · reward 服务 · 样本缓冲 |
+
+Table: 单轮 RL 与 Agent RL 的 rollout 对照
 
 ### 3. 本文的章节安排
 
@@ -138,14 +139,14 @@ verl 的实现形状（`docs/advance/agent_loop.rst`）：`AgentLoopManager` 把
 
 四个改善的方向，各有代价：
 
-```text
-做法                                  效果                              代价
-减少每张卡的在飞轨迹（多给 rollout 卡）  驻留比例 ∝ 卡数 / 轨迹数            GPU 更多，decode 并发更低
-KV 卸载到 CPU / 外部存储               等待期间 KV 搬到主机内存，下一轮搬回    每轮 2.5 GB 的 PCIe 往返（0.1 s，相对 30 s 的等待可忽略）；
-（vLLM 的 CPU offload、LMCache、Mooncake store connector）                     主机内存 20 TB / 32 卡 = 每台机 5 TB —— 通常放不下全部，但能放下大半
-更短的上下文（截断工具输出、摘要历史）    上下文 40K → 15K，KV 与 prefill 都降    改变任务；训练目标里要包含"学会精简"
-接受重 prefill，多给 prefill 算力        —                                 prefill 是 compute-bound、MFU 高；1400 s 的 prefill 在 64 卡上 700 s
-```
+| 做法 | 效果 | 代价 |
+|---|---|---|
+| 减少每张卡的在飞轨迹（多给 rollout 卡） | 驻留比例 ∝ 卡数 / 轨迹数 | GPU 更多，decode 并发更低 |
+| KV 卸载到 CPU / 外部存储（vLLM 的 CPU offload、LMCache、Mooncake store connector） | 等待期间 KV 搬到主机内存，下一轮搬回 | 每轮 2.5 GB 的 PCIe 往返（0.1 s，相对 30 s 的等待可忽略）；主机内存 20 TB / 32 卡 = 每台机 5 TB —— 通常放不下全部，但能放下大半 |
+| 更短的上下文（截断工具输出、摘要历史） | 上下文 40K → 15K，KV 与 prefill 都降 | 改变任务；训练目标里要包含「学会精简」 |
+| 接受重 prefill，多给 prefill 算力 | — | prefill 是 compute-bound、MFU 高；1400 s 的 prefill 在 64 卡上 700 s |
+
+Table: 改善 KV 驻留的四个方向与代价
 
 第二条是这两年推理服务侧的主流方向（[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)讨论过 KV 的分层存储），verl 的 `reset_prefix_cache(reset_connector=True)` 里的 `connector` 就是为外挂 KV 存储留的口——权重换了，外挂存储里的 KV 也要清。
 
@@ -174,15 +175,16 @@ KV 卸载到 CPU / 外部存储               等待期间 KV 搬到主机内存
 
 代码任务的一次工具调用是"在某个容器里跑一条命令"：
 
-```text
-环节                    时间                          说明
-容器启动（冷）           1–5 s                          拉镜像、创建 namespace、挂载
-容器启动（热池）         50–300 ms                      预先起好、任务到了分配；Firecracker / gVisor 的 microVM 更慢一些
-命令执行                 0.1 s（cat 一个文件）– 几分钟（跑全部测试）   方差的来源
-输出收集与截断           ms                            测试输出几 MB 要截到几 K token
-状态保持                 整条轨迹（20 轮 × 40 s = 800 s） 有状态：文件系统改动要跨轮保留
-回收                     100 ms – 1 s                   销毁 namespace、释放存储
-```
+| 环节 | 时间 | 说明 |
+|---|---|---|
+| 容器启动（冷） | 1–5 s | 拉镜像、创建 namespace、挂载 |
+| 容器启动（热池） | 50–300 ms | 预先起好、任务到了分配；Firecracker / gVisor 的 microVM 更慢一些 |
+| 命令执行 | 0.1 s（cat 一个文件）– 几分钟（跑全部测试） | 方差的来源 |
+| 输出收集与截断 | ms | 测试输出几 MB 要截到几 K token |
+| 状态保持 | 整条轨迹（20 轮 × 40 s = 800 s） | 有状态：文件系统改动要跨轮保留 |
+| 回收 | 100 ms – 1 s | 销毁 namespace、释放存储 |
+
+Table: 一次工具调用（在容器里跑一条命令）各环节的时间
 
 **状态**是沙箱与"无状态函数"的根本差别：轮 2 改了文件、轮 3 跑测试要看到改动，所以一条轨迹的沙箱从第一轮到最后一轮都要活着——等环境的 30 秒里沙箱在跑，等模型生成的 10 秒里沙箱在闲。要释放它得做快照（文件系统层的 overlay 提交 + 进程状态，几百毫秒到几秒），下一轮恢复。第一章那 1800 对 1300 的差就是"整条占着"与"两轮之间释放"的差。
 
@@ -201,14 +203,15 @@ reward hacking 在算法侧是奖励设计问题，在系统侧是**沙箱的边
 
 1800 个并发沙箱、每个 2 vCPU + 4 GB，是 3600 核、7 TB 内存——约 45 台 80 核机器。与 4 台 8 卡 GPU 机器（32 卡 rollout）并列，**CPU 机器数是 GPU 机器数的十倍**。按价格（H100 机器约为 80 核 CPU 机器的 10–15 倍），两边同量级。这个比例随任务变：
 
-```text
-任务类型                 每轮环境耗时      每轨迹轮数    环境 : 模型（墙钟）    沙箱 : GPU（并发比）
-数学（规则验证）          ms              1            ≈ 0               不需要沙箱
-简单工具（搜索、计算器）   0.1–1 s          3–5          1 : 5             每卡几十个轻量进程
-代码（单元测试）          10–60 s          15–30        3 : 1             每卡 50–60 个容器
-SWE-bench 类（完整测试套件） 1–10 min      20–50        10 : 1            每卡 100+ 个容器，单条轨迹小时级
-浏览器 / GUI              1–5 s（渲染）    20–100       2 : 1             每个环境 1–2 GB 内存（浏览器）
-```
+| 任务类型 | 每轮环境耗时 | 每轨迹轮数 | 环境 : 模型（墙钟） | 沙箱 : GPU（并发比） |
+|---|---|---|---|---|
+| 数学（规则验证） | ms | 1 | ≈ 0 | 不需要沙箱 |
+| 简单工具（搜索、计算器） | 0.1–1 s | 3–5 | 1 : 5 | 每卡几十个轻量进程 |
+| 代码（单元测试） | 10–60 s | 15–30 | 3 : 1 | 每卡 50–60 个容器 |
+| SWE-bench 类（完整测试套件） | 1–10 min | 20–50 | 10 : 1 | 每卡 100+ 个容器，单条轨迹小时级 |
+| 浏览器 / GUI | 1–5 s（渲染） | 20–100 | 2 : 1 | 每个环境 1–2 GB 内存（浏览器） |
+
+Table: 各类任务的环境耗时、轮数与环境 : 模型配比
 
 沙箱并发数成了**第三个配比变量**：rollout 卡数、训练卡数、沙箱数三者要让"生成、环境、训练"三段的吞吐匹配。沙箱不够，GPU 上的轨迹卡在"等沙箱分配"；沙箱太多，CPU 集群空转。它比 GPU 配比好调——CPU 机器可以按分钟弹性伸缩，Kubernetes 的 HPA 按排队深度扩容是现成的。
 
@@ -336,18 +339,19 @@ $$\frac{\text{rollout 卡数}}{\text{训练卡数}} = \frac{T_{gen+prefill}}{T_{
 
 ### 1. 落点
 
-```text
-组件                        路径                                                 说明
-AgentLoopBase / run()       verl/experimental/agent_loop/agent_loop.py            用户实现；返回 AgentLoopOutput(prompt_ids, response_ids, response_mask, …)
-内置 loop                   single_turn_agent_loop.py · tool_agent_loop.py        单轮；多轮工具调用（tool_parser 解析 <tool_call>）
-AgentLoopManager / Worker    agent_loop.py；v1：trainer/ppo/v1/agent_loop_tq.py    manager 切 batch、worker 起协程；v1 版把输出直接写 TransferQueue
-LLMServerClient             workers/rollout/llm_server.py                          首轮最空实例、之后粘性；FullyAsyncLLMServerClient 带重试（abort 后重提）
-AsyncLLMServer              vllm_rollout/vllm_async_server.py · sglang_rollout/     chat_completion（OpenAI）与 generate（token in/out）两个接口
-Continuous Token            utils/tokenizer/continuous_token_wiring.py            轮边界的 token 连续性 builder，按模型家族；默认关
-RewardLoopManager / Worker   workers/reward_manager/ · docs/advance/reward_loop.rst  规则 / 沙箱 / 生成式 RM 同一接口；num_workers 并行；RM 独立池或共置
-uni-agent                   独立仓库 verl-project/uni-agent                        网关 + 会话记录 + 轨迹重建；1000+ 并发会话
-工具定义                    rollout.multi_turn.tool_config_path                    OpenAI function schema；工具实现继承 BaseTool（create / execute / calc_reward / release）
-```
+| 组件 | 路径 | 说明 |
+|---|---|---|
+| AgentLoopBase / run() | verl/experimental/agent_loop/agent_loop.py | 用户实现；返回 AgentLoopOutput(prompt_ids, response_ids, response_mask, …) |
+| 内置 loop | single_turn_agent_loop.py · tool_agent_loop.py | 单轮；多轮工具调用（tool_parser 解析 `<tool_call>`） |
+| AgentLoopManager / Worker | agent_loop.py；v1：trainer/ppo/v1/agent_loop_tq.py | manager 切 batch、worker 起协程；v1 版把输出直接写 TransferQueue |
+| LLMServerClient | workers/rollout/llm_server.py | 首轮最空实例、之后粘性；FullyAsyncLLMServerClient 带重试（abort 后重提） |
+| AsyncLLMServer | vllm_rollout/vllm_async_server.py · sglang_rollout/ | chat_completion（OpenAI）与 generate（token in/out）两个接口 |
+| Continuous Token | utils/tokenizer/continuous_token_wiring.py | 轮边界的 token 连续性 builder，按模型家族；默认关 |
+| RewardLoopManager / Worker | workers/reward_manager/ · docs/advance/reward_loop.rst | 规则 / 沙箱 / 生成式 RM 同一接口；num_workers 并行；RM 独立池或共置 |
+| uni-agent | 独立仓库 verl-project/uni-agent | 网关 + 会话记录 + 轨迹重建；1000+ 并发会话 |
+| 工具定义 | rollout.multi_turn.tool_config_path | OpenAI function schema；工具实现继承 BaseTool（create / execute / calc_reward / release） |
+
+Table: Agent rollout 各组件在 verl 源码中的落点
 
 `BaseTool` 的四个方法值得看：`create`（为一条轨迹建实例——这里起沙箱）、`execute`（一次调用）、`calc_reward`（工具侧的 reward，如测试通过数）、`release`（轨迹结束回收）。沙箱的生命周期正好对应这四个点。
 
@@ -380,16 +384,14 @@ VLM 的 Agent（GUI 操作、网页浏览）在这条路上多两样：环境返
 
 ### 2. 速查表
 
-```text
-环境账          执行次数 B·G·轮数 · CPU·h = Σ 执行时间 × 核数 · 沙箱并发 = 沙箱·秒 / 目标墙钟（有状态：B·G·轨迹墙钟）
-prefill         全命中：B·G·最终上下文 · 全重算：B·G·轮数·平均上下文（≈ 10×）· 实际由 KV 驻留决定
-KV 驻留         需要 = 在飞轨迹 × 平均上下文 × k_kv；池子 = 卡数 × KV 池；比值 > 1 时按比例重 prefill
-decode          并发 = 在飞轨迹 × (生成时间 / 一轮时间)；每步读 权重 + 并发 × 上下文 × k_kv → 长上下文下 KV 主导
-配比            rollout : train ≈ T_gen+prefill : T_train（接近 1 : 1）· 沙箱数独立配 · 生成式 RM 单独一列
-长尾            f = 环境长尾 / 总 → 0.8+；部分 rollout 边界 = 生成中 / 轮间；轨迹跨版本 ≈ 轨迹墙钟 / T_sync
-接口            token in/out（精确）· OpenAI/Anthropic 兼容（接现成 harness，网关重建轨迹）
-verl            AgentLoopBase.run · AgentLoopManagerTQ · LLMServerClient（粘性）· BaseTool(create/execute/calc_reward/release) · RewardLoop · uni-agent
-```
+- **环境账**：执行次数 B·G·轮数 · CPU·h = Σ 执行时间 × 核数 · 沙箱并发 = 沙箱·秒 / 目标墙钟（有状态：B·G·轨迹墙钟）
+- **prefill**：全命中：B·G·最终上下文 · 全重算：B·G·轮数·平均上下文（≈ 10×）· 实际由 KV 驻留决定
+- **KV 驻留**：需要 = 在飞轨迹 × 平均上下文 × k_kv；池子 = 卡数 × KV 池；比值 > 1 时按比例重 prefill
+- **decode**：并发 = 在飞轨迹 × (生成时间 / 一轮时间)；每步读 权重 + 并发 × 上下文 × k_kv → 长上下文下 KV 主导
+- **配比**：rollout : train ≈ T_gen+prefill : T_train（接近 1 : 1）· 沙箱数独立配 · 生成式 RM 单独一列
+- **长尾**：f = 环境长尾 / 总 → 0.8+；部分 rollout 边界 = 生成中 / 轮间；轨迹跨版本 ≈ 轨迹墙钟 / T_sync
+- **接口**：token in/out（精确）· OpenAI/Anthropic 兼容（接现成 harness，网关重建轨迹）
+- **verl**：AgentLoopBase.run · AgentLoopManagerTQ · LLMServerClient（粘性）· BaseTool(create/execute/calc_reward/release) · RewardLoop · uni-agent
 
 ### 3. 下一篇
 

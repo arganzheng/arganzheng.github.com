@@ -906,12 +906,10 @@ hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
 
 ### 4. 一小时排障流程
 
-```text
-第 0–10 分钟   收集：进程数、全体 py-spy dump、FR dump、NCCL WARN、dmesg、ibstat、nvidia-smi -q
-第 10–20 分钟  分类：按上面三棵树的第一层判断是 慢/卡/错，是 代码/环境
-第 20–40 分钟  定位：fr_trace.py 对齐（卡）/ nccl-tests 基线与 INFO 日志八行（慢）/ 固定算法对照（错）
-第 40–60 分钟  验证：改一处、跑 nccl-tests 或 hang_lab 复现脚本确认；把结论与环境记录归档
-```
+- **第 0–10 分钟**：收集：进程数、全体 py-spy dump、FR dump、NCCL WARN、dmesg、ibstat、nvidia-smi -q
+- **第 10–20 分钟**：分类：按上面三棵树的第一层判断是 慢/卡/错，是 代码/环境
+- **第 20–40 分钟**：定位：fr_trace.py 对齐（卡）/ nccl-tests 基线与 INFO 日志八行（慢）/ 固定算法对照（错）
+- **第 40–60 分钟**：验证：改一处、跑 nccl-tests 或 hang_lab 复现脚本确认；把结论与环境记录归档
 
 超过一小时还没有定位到层，通常是因为跳过了第 0–10 分钟的收集直接开始猜。
 

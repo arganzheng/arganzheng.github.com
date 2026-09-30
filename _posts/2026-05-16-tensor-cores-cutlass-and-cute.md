@@ -127,14 +127,15 @@ mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32  D, A, B, C
 
 Ampere 支持的输入类型和对应形状（Tensor Core 路径）：
 
-```text
-输入类型      累加类型   mma.sync 形状（Ampere 主力）   备注
-FP16          FP32/FP16 m16n8k16                     
-BF16          FP32      m16n8k16                     sm_80 起
-TF32          FP32      m16n8k8                      FP32 输入自动截断到 19 位，K 减半
-INT8          INT32     m16n8k32                     K 翻倍，每字节吞吐翻倍
-FP8 (e4m3)    FP32      m16n8k32                     sm_89（Ada）起；Hopper 走 wgmma
-```
+| 输入类型 | 累加类型 | mma.sync 形状（Ampere 主力） | 备注 |
+|---|---|---|---|
+| FP16 | FP32/FP16 | m16n8k16 |  |
+| BF16 | FP32 | m16n8k16 | sm_80 起 |
+| TF32 | FP32 | m16n8k8 | FP32 输入自动截断到 19 位，K 减半 |
+| INT8 | INT32 | m16n8k32 | K 翻倍，每字节吞吐翻倍 |
+| FP8 (e4m3) | FP32 | m16n8k32 | sm_89（Ada）起；Hopper 走 wgmma |
+
+Table: Ampere Tensor Core 支持的输入类型与 mma.sync 形状
 
 K 维长度与元素位宽的乘积基本不变（BF16 是 $$16 \times 16 = 256$$ bit，INT8 是 $$32 \times 8 = 256$$ bit）：Tensor Core 每条指令"吃"的字节数恒定，位宽越窄，一条指令做的乘加越多。这就是 INT8 624 TOPS 是 BF16 312 TFLOPS 两倍的硬件来源。
 
@@ -1250,17 +1251,18 @@ cuBLAS 覆盖了标准 dtype 的标准 GEMM，但推理系统需要的很多 GEM
 
 三代接口对照：
 
-```text
-                 wmma (nvcuda::wmma)      mma.sync (PTX)              wgmma.mma_async (PTX)
-架构             Volta+                   Volta+，Ampere 主力          Hopper (sm_90)
-粒度             warp                     warp                        warpgroup (4 warps, 128 线程)
-BF16 形状        16x16x16                 m16n8k16                    m64nNk16, N = 8..256
-每指令乘加       4096                     2048                        最大 262144
-操作数来源       寄存器 (load_matrix_sync) 寄存器 (自行装载, ldmatrix)   A: 寄存器或 shared；B: 必须 shared，经 descriptor
-fragment 布局    不透明                    文档规定，可逐元素操作         累加器布局文档规定；输入不经寄存器
-同步             同步                     同步                        异步：fence / commit_group / wait_group
-典型性能         cuBLAS 50–70%            80–95%（CUTLASS 2.x 水平）   接近峰值（CUTLASS 3.x / FA3）
-```
+|  | wmma (nvcuda::wmma) | mma.sync (PTX) | wgmma.mma_async (PTX) |
+|---|---|---|---|
+| 架构 | Volta+ | Volta+，Ampere 主力 | Hopper (sm_90) |
+| 粒度 | warp | warp | warpgroup (4 warps, 128 线程) |
+| BF16 形状 | 16x16x16 | m16n8k16 | m64nNk16, N = 8..256 |
+| 每指令乘加 | 4096 | 2048 | 最大 262144 |
+| 操作数来源 | 寄存器 (load_matrix_sync) | 寄存器 (自行装载, ldmatrix) | A: 寄存器或 shared；B: 必须 shared，经 descriptor |
+| fragment 布局 | 不透明 | 文档规定，可逐元素操作 | 累加器布局文档规定；输入不经寄存器 |
+| 同步 | 同步 | 同步 | 异步：fence / commit_group / wait_group |
+| 典型性能 | cuBLAS 50–70% | 80–95%（CUTLASS 2.x 水平） | 接近峰值（CUTLASS 3.x / FA3） |
+
+Table: wmma、mma.sync 与 wgmma 三代 Tensor Core 接口对照
 
 m16n8k16 BF16 fragment 速查（$$g = \text{lane}/4$$，$$t = \text{lane} \bmod 4$$）：
 
@@ -1277,17 +1279,18 @@ swizzle (64 B 行)    chunk_phys = chunk ^ ((row >> 1) & 3)
 
 CUTLASS 3.x 层次与本篇概念的对应：
 
-```text
-CUTLASS 层                              本篇手写 kernel 中的对应              关键模板参数
-device::GemmUniversalAdapter            bf16_gemm_tn() host 函数              —
-kernel::GemmUniversal                   __global__ 函数体、blockIdx 解析       TileScheduler (Persistent)
-collective::CollectiveMma               k 循环 + cp.async 流水                TileShape, ClusterShape, Stages, KernelSchedule
-collective::CollectiveEpilogue          acc -> bf16x2 store                  EpilogueSchedule, EVT
-TiledMma / MMA_Atom                     16 条 mma_bf16_16816 / 一条 mma.sync  SM80_16x8x16_F32BF16BF16F32_TN
-TiledCopy / Copy_Atom                   load_tile + ldmatrix_x4               SM80_CP_ASYNC_CACHEGLOBAL, SM75_U32x4_LDSM_N
-CuTe Layout / Tensor                    swz(), a_row/b_row, warp_m/warp_n     Shape / Stride / local_tile / local_partition
-2.x 对应                                ThreadblockShape / WarpShape / InstructionShape / Stages
-```
+| CUTLASS 层 | 本篇手写 kernel 中的对应 | 关键模板参数 |
+|---|---|---|
+| device::GemmUniversalAdapter | bf16_gemm_tn() host 函数 | — |
+| kernel::GemmUniversal | `__global__` 函数体、blockIdx 解析 | TileScheduler (Persistent) |
+| collective::CollectiveMma | k 循环 + cp.async 流水 | TileShape, ClusterShape, Stages, KernelSchedule |
+| collective::CollectiveEpilogue | acc -> bf16x2 store | EpilogueSchedule, EVT |
+| TiledMma / MMA_Atom | 16 条 mma_bf16_16816 / 一条 mma.sync | SM80_16x8x16_F32BF16BF16F32_TN |
+| TiledCopy / Copy_Atom | load_tile + ldmatrix_x4 | SM80_CP_ASYNC_CACHEGLOBAL, SM75_U32x4_LDSM_N |
+| CuTe Layout / Tensor | swz(), a_row/b_row, warp_m/warp_n | Shape / Stride / local_tile / local_partition |
+| 2.x 对应 | — | ThreadblockShape / WarpShape / InstructionShape / Stages |
+
+Table: CUTLASS 3.x 层次与本篇手写 kernel 的对应
 
 本篇数字汇总：
 

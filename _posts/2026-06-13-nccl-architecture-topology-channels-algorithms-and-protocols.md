@@ -553,12 +553,13 @@ LL128：一个 128 B line 由一个 warp 里的 8 个线程各持 16 B 拼成
 
 ### 3. 效率与延迟排序
 
-```text title='三种协议的有效载荷、同步方式、延迟与带宽'
-协议      有效载荷      同步方式                         延迟   带宽    典型消息区间（非实测，以 tuning 表为准）
-LL        8/16 = 50%    16 B 原子 store 自带 flag，无 fence   最低   最低    几十 KB 以下
-LL128     120/128 ≈ 94% 128 B line 自带 flag，NVLink 顺序保证  中     接近    几十 KB ～ 几十 MB（NVLink 节点内常是默认）
-Simple    ≈ 100%        512 KiB slot + fence + head/tail     最高   最高    大消息；PCIe / 网络路径上的默认
-```
+| 协议 | 有效载荷 | 同步方式 | 延迟 | 带宽 | 典型消息区间（非实测，以 tuning 表为准） |
+|---|---|---|---|---|---|
+| LL | 8/16 = 50% | 16 B 原子 store 自带 flag，无 fence | 最低 | 最低 | 几十 KB 以下 |
+| LL128 | 120/128 ≈ 94% | 128 B line 自带 flag，NVLink 顺序保证 | 中 | 接近 | 几十 KB ～ 几十 MB（NVLink 节点内常是默认） |
+| Simple | ≈ 100% | 512 KiB slot + fence + head/tail | 最高 | 最高 | 大消息；PCIe / 网络路径上的默认 |
+
+Table: 三种协议的有效载荷、同步方式、延迟与带宽
 
 调优表里的硬件延迟常数（`hwLatencies`，微秒，NVLink 上 Ring 的 LL/LL128/Simple）是 0.6 / 1.9 / 3.4；PCIe 上 1.0 / 2.5 / 5.7；网络上 2.7 / 4.0 / 14.0——这是"每一步"的延迟，ring 要乘 $$2(n-1)$$。
 
@@ -721,13 +722,15 @@ Ring+LL       lat = 14 + 448×0.6 + 62×2.7 = 450 µs
 
 把上面三台机器的 Ring 与自动选择相减：
 
-```text title='强行 NCCL_ALGO=Ring 相对自动选择慢多少'
-机器一（H100 NVSwitch）  1 GB   NVLS+Simple 25 + 2451 = 2476 µs   vs  Ring+Simple 56 + 4566 = 4622 µs     慢 1.9×（带宽的账：NVLink 流量 1.75S vs ~2S/n）
-                         64 KB  Ring+LL 22.4 + 0.8 = 23 µs          vs  Ring+LL 同上                            无代价（本来就是 Ring）
-机器三（32 节点）        25 MB  Tree+Simple 204 + 667 = 871 µs     vs  Ring+Simple 3360 + 519 = 3879 µs      慢 4.5×（延迟的账：510 步）
-                         64 KB  Tree+LL 65 + ~2 = 67 µs             vs  Ring+LL 450 + ~1 = 451 µs             慢 6.7×
-                         1 GB   Ring 3360 + 20747 = 24107 µs        vs  Tree 204 + 26667 = 26871 µs           Ring 反而快 10%
-```
+| 机器 | 消息 | 自动选择 | 强行 Ring | 结果 |
+|---|---|---|---|---|
+| 机器一（H100 NVSwitch） | 1 GB | NVLS+Simple 25 + 2451 = 2476 µs | Ring+Simple 56 + 4566 = 4622 µs | 慢 1.9×（带宽的账：NVLink 流量 1.75S vs ~2S/n） |
+|  | 64 KB | Ring+LL 22.4 + 0.8 = 23 µs | Ring+LL 同上 | 无代价（本来就是 Ring） |
+| 机器三（32 节点） | 25 MB | Tree+Simple 204 + 667 = 871 µs | Ring+Simple 3360 + 519 = 3879 µs | 慢 4.5×（延迟的账：510 步） |
+|  | 64 KB | Tree+LL 65 + ~2 = 67 µs | Ring+LL 450 + ~1 = 451 µs | 慢 6.7× |
+|  | 1 GB | Ring 3360 + 20747 = 24107 µs | Tree 204 + 26667 = 26871 µs | Ring 反而快 10% |
+
+Table: 强行 NCCL_ALGO=Ring 相对自动选择慢多少
 
 结论：`NCCL_ALGO=Ring` 在单机 NVSwitch 上损失的是带宽（放弃了交换机内归约），在大规模多机上损失的是延迟（$$O(n)$$ 步），只有"大规模 + 整 GB 消息"这一种情形它是对的。它常被当作"稳定性开关"使用（排除 NVLS/CollNet 的兼容性问题、或让不同 rank 数下的浮点归约顺序一致），这时要知道付的是哪本账。同理，`NCCL_PROTO=Simple` 是在放弃小消息的延迟，`NCCL_PROTO=LL` 是在放弃一半带宽。
 

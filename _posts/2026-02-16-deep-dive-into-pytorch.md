@@ -699,10 +699,12 @@ def f(x, weight, bias):
 
 前半段用两个自己动手写的最小实现，把"看懂"变成"能复现"：
 
-```text
-第二篇    简化版 Tensor      用 shape、stride、offset 实现索引、transpose 和 contiguous copy
-第三篇    Mini-Autograd      用加法和乘法节点实现保存父节点、拓扑排序和反向传播
-```
+| 篇 | 最小实现 | 做什么 |
+|---|---|---|
+| 第二篇 | 简化版 Tensor | 用 shape、stride、offset 实现索引、transpose 和 contiguous copy |
+| 第三篇 | Mini-Autograd | 用加法和乘法节点实现保存父节点、拓扑排序和反向传播 |
+
+Table: 前半段的两个最小实现
 
 ### 第二条：贯穿后半段的两个例子
 
@@ -714,18 +716,22 @@ def f(x, weight, bias):
 scale_shift(x, alpha, beta) = alpha * x + beta
 ```
 
-```text
-第六篇    实现它          Python 契约 → C++ CPU → CUDA → Autograd 与 Meta，接入 Dispatcher
-第十篇    发布它          把它所在的 myops 项目走完构建、正确性、性能、CI、发布、兼容七关
-```
+| 篇 | 任务 | 内容 |
+|---|---|---|
+| 第六篇 | 实现它 | Python 契约 → C++ CPU → CUDA → Autograd 与 Meta，接入 Dispatcher |
+| 第十篇 | 发布它 | 把它所在的 myops 项目走完构建、正确性、性能、CI、发布、兼容七关 |
+
+Table: 围绕 scale_shift 算子的两篇：实现它与发布它
 
 另一个是一段真实的训练负载：
 
-```text
-第七篇    一个带 shape 分支的小函数  跟踪它的四次调用，看编译器前端、中端、后端和运行时各做了什么
-第八篇    一个 Transformer block     以它的训练 step 为对象，走完基线 → 采集 → 归类 → 处方 → 优化报告
-第九篇    同一个 Transformer block   从 8 卡扩到 4 机 32 卡，逐步换并行策略，算清每一步的显存与通信账
-```
+| 篇 | 对象 | 做什么 |
+|---|---|---|
+| 第七篇 | 一个带 shape 分支的小函数 | 跟踪它的四次调用，看编译器前端、中端、后端和运行时各做了什么 |
+| 第八篇 | 一个 Transformer block | 以它的训练 step 为对象，走完基线 → 采集 → 归类 → 处方 → 优化报告 |
+| 第九篇 | 同一个 Transformer block | 从 8 卡扩到 4 机 32 卡，逐步换并行策略，算清每一步的显存与通信账 |
+
+Table: 后半段以真实训练负载为对象的三篇
 
 第四篇和第五篇没有独立的实践项目：第四篇以一个完整训练程序作为落点，第五篇则以原生算子 `add` 的完整路径作为源码阅读的样例。
 

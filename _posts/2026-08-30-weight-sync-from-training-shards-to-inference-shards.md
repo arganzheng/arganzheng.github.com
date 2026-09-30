@@ -49,14 +49,15 @@ Table: 先说答案
 
 ### 2. 两半问题
 
-```text
-                布局（layout）                                    传输（transport）
-问题            两边的切法、名字、dtype 不同，怎样对上               字节从训练卡到推理卡走哪条链路
-输入            训练器的分片元数据（DTensor spec / Megatron 并行度）  拓扑（共置 / 分离）、集群固定还是弹性
-输出            HF 名字 + 完整形状 + 目标 dtype 的张量流              每张推理卡收到自己那份
-决定            要不要物化完整张量、由谁物化                         带宽、峰值显存、对进程组的要求
-verl 里         Megatron-Bridge / mbridge、FSDP 的 get_per_tensor_param   checkpoint_engine/*（naive / nccl / nixl / mooncake / kimi / delta_sharded）
-```
+|  | 布局（layout） | 传输（transport） |
+|---|---|---|
+| 问题 | 两边的切法、名字、dtype 不同，怎样对上 | 字节从训练卡到推理卡走哪条链路 |
+| 输入 | 训练器的分片元数据（DTensor spec / Megatron 并行度） | 拓扑（共置 / 分离）、集群固定还是弹性 |
+| 输出 | HF 名字 + 完整形状 + 目标 dtype 的张量流 | 每张推理卡收到自己那份 |
+| 决定 | 要不要物化完整张量、由谁物化 | 带宽、峰值显存、对进程组的要求 |
+| verl 里 | Megatron-Bridge / mbridge、FSDP 的 get_per_tensor_param | checkpoint_engine/\*（naive / nccl / nixl / mooncake / kimi / delta_sharded） |
+
+Table: 权重同步的两半问题：布局与传输
 
 两半之间的接口是一个**流**：`(name, tensor)` 的生成器，名字是 HF 命名、张量是完整形状（或 delta 的稀疏表示），dtype 是推理侧要的。checkpoint engine 只管把这个流分桶送到对面，不知道 FSDP 还是 Megatron；引擎后端只管产出这个流，不知道对面是 vLLM 还是 SGLang。这层分工让 verl 能用同一套传输代码服务 FSDP / Megatron / VeOmni 三种训练后端与 vLLM / SGLang / TRT-LLM 三种推理后端。
 
@@ -101,15 +102,16 @@ model.layers.3.mlp.experts.17.down_proj.weight decoder.layers.3.mlp.experts.line
 
 这半程在 verl 里由 **Megatron-Bridge**（NVIDIA 维护，v0.9 起为默认；早期是 verl 自己的 mbridge）完成：每个模型家族一张映射表，每条是"一个（或一组）mcore 参数 → 一个（或一组）HF 参数"加一个转换函数：
 
-```text
-映射类型              例子                                  转换
-一对一                layernorm.weight → input_layernorm.weight   改名
-一对多（拆）          linear_qkv → q_proj, k_proj, v_proj         按 query group 交错 → 顺序，切成三块
-                     linear_fc1 → gate_proj, up_proj              沿第 0 维切两半
-多对一（合）          （反向加载时用）
-专家                 experts.linear_fc1.weightE → experts.E.gate_proj / up_proj   先按本地专家编号 → 全局编号，再拆
-TP 感知              列并行 / 行并行的参数按 TP 维 all-gather 后再拆      拆分要在 gather 之后：交错的 QKV 只有完整时才能正确拆
-```
+| 映射类型 | 例子 | 转换 |
+|---|---|---|
+| 一对一 | layernorm.weight → input_layernorm.weight | 改名 |
+| 一对多（拆） | linear_qkv → q_proj, k_proj, v_proj | 按 query group 交错 → 顺序，切成三块 |
+|  | linear_fc1 → gate_proj, up_proj | 沿第 0 维切两半 |
+| 多对一（合） | （反向加载时用） |  |
+| 专家 | experts.linear_fc1.weightE → experts.E.gate_proj / up_proj | 先按本地专家编号 → 全局编号，再拆 |
+| TP 感知 | 列并行 / 行并行的参数按 TP 维 all-gather 后再拆 | 拆分要在 gather 之后：交错的 QKV 只有完整时才能正确拆 |
+
+Table: Megatron-Bridge 映射表的映射类型
 
 最后一行是布局问题里最容易错的地方：Megatron 的 TP 切法与 HF 的拆法**维度不同**——QKV 融合矩阵按 TP 切的是"每个 rank 拿几个注意力组"，HF 拆的是"Q / K / V 三块"，两种切法交叉，必须先 gather 成完整再拆。所以 Megatron 一侧导出完整 HF 张量的最小单位是"一个参数在 TP 组内 all-gather 一次"。
 
@@ -295,15 +297,16 @@ flowchart LR
 
 verl 文档（H100、GSM8K GRPO、v1 `separate_async`、SGLang、稳态每步同步）：
 
-```text
-模型（布局）                                    delta_sharded    全量 NCCL      提速
-Qwen2.5-7B（1 + 1 节点）                        3.9–4.9 s        5.5–6.0 s     1.3×
-Qwen2.5-32B（2 + 2 节点）                       11.2–11.9 s      17.7–18.1 s   1.55×
-Qwen2.5-32B（offload 关）                       6.2 s            14.2 s        2.3×
-Qwen2.5-72B（4 + 4 节点，gen TP8，offload 关）    12.0–13.0 s      28.5–29.1 s   2.3×
-Qwen3-30B-A3B（VeOmni EP8，1 + 1 节点）          7.1 s            32.2 s        4.5×
-Qwen3-235B-A22B（EP8 × FSDP8，8 + 2 节点，TP16）  11.4–14.9 s      246–266 s     ~21×
-```
+| 模型（布局） | delta_sharded | 全量 NCCL | 提速 |
+|---|---|---|---|
+| Qwen2.5-7B（1 + 1 节点） | 3.9–4.9 s | 5.5–6.0 s | 1.3× |
+| Qwen2.5-32B（2 + 2 节点） | 11.2–11.9 s | 17.7–18.1 s | 1.55× |
+| Qwen2.5-32B（offload 关） | 6.2 s | 14.2 s | 2.3× |
+| Qwen2.5-72B（4 + 4 节点，gen TP8，offload 关） | 12.0–13.0 s | 28.5–29.1 s | 2.3× |
+| Qwen3-30B-A3B（VeOmni EP8，1 + 1 节点） | 7.1 s | 32.2 s | 4.5× |
+| Qwen3-235B-A22B（EP8 × FSDP8，8 + 2 节点，TP16） | 11.4–14.9 s | 246–266 s | ~21× |
+
+Table: verl 文档中 delta_sharded 与全量 NCCL 的同步耗时
 
 两个规律：**delta 的时间从 32B 到 235B 几乎持平**（稀疏 gather 摊在更大的训练 world 上），全量随参数字节线性涨；**MoE 的收益最大**（稀疏比更低、且全量路径里的专家 all-gather 最贵）。正确性：200 步 GRPO 的 reward 曲线与全量对齐、零校验失败；perturb → delta → revert → delta 的往返在每个 prompt 上贪心生成逐字节一致。
 
@@ -319,14 +322,15 @@ Qwen3-235B-A22B（EP8 × FSDP8，8 + 2 节点，TP16）  11.4–14.9 s      246�
 
 按本篇的模型算（分离形态、跨机、全量 NCCL 广播，有效带宽按 verl 基准的 8.5 GB/s；增量按 verl 测量外推）：
 
-```text
-场景                     推理侧字节      全量广播（实测量级）    增量          共置（IPC，第三篇）
-8B bf16                  16 GB          2–3 s                 ~2 s          0.3 s
-32B bf16                 66 GB          8–18 s                6–12 s        1 s
-70B bf16                 141 GB         17–30 s               12–13 s       2–3 s
-235B-A22B bf16           470 GB         4 分钟以上             11–15 s       几十秒
-671B FP8（本篇核心问题）   671 GB         60–80 s（理论下界 13 s） 12–15 s（外推）  几十秒（EP 重切）
-```
+| 场景 | 推理侧字节 | 全量广播（实测量级） | 增量 | 共置（IPC，第三篇） |
+|---|---|---|---|---|
+| 8B bf16 | 16 GB | 2–3 s | ~2 s | 0.3 s |
+| 32B bf16 | 66 GB | 8–18 s | 6–12 s | 1 s |
+| 70B bf16 | 141 GB | 17–30 s | 12–13 s | 2–3 s |
+| 235B-A22B bf16 | 470 GB | 4 分钟以上 | 11–15 s | 几十秒 |
+| 671B FP8（本篇核心问题） | 671 GB | 60–80 s（理论下界 13 s） | 12–15 s（外推） | 几十秒（EP 重切） |
+
+Table: 按本篇模型估算的各场景权重同步时间
 
 671B 的三步映射（PP 定位 → TP gather → mcore → HF 转换 + FP8 量化 + EP 重分组）本身不到几秒；决定秒数的是"671 GB 经 rank 0 的一张网卡"还是"每个 EP rank 直接发自己的专家"。前者 60–80 秒，后者与 MoonshotAI 报告的量级一致（十几到二十秒），增量再压到十几秒且不随模型变大。
 
@@ -393,16 +397,18 @@ Table: 权重之外的权重
 
 ### 2. 速查表
 
-```text
-字节            bf16 2N · FP8 N · LoRA adapter ~几十–几百 MB · 增量 (1–3%)·2N dense / (0.02–0.05%)·2N MoE
-链路带宽        NVLink 450 GB/s · IB 400 Gb/s = 50 GB/s 理论 / 8–10 GB/s 实测有效（单源 NCCL）· PCIe pinned 25 GB/s
-朴素全量        T ≈ 2N / (单网卡有效带宽) + 全模型 all-gather + rank 0 物化    235B: 250 s
-多源 / P2P      T ≈ 2N / (Σ 发送方网卡)                                        1T 千卡 ~20 s
-增量            T ≈ diff + 稀疏 gather + 固定开销，几乎不随 N 变                  32B–235B: 12–15 s
-bucket          512 MB；峰值 2 bucket；次数 = 2N / bucket
-异步空转        bubble = T_sync / (k·T_mb + T_sync)
-同步顺序        abort → (释放 KV) → 建组 → send ∥ receive → finalize → 恢复 KV → resume → reset_prefix_cache → set_global_steps
-```
+| 项 | 公式 / 做法 | 本篇的数字 |
+|---|---|---|
+| 字节 | bf16 2N · FP8 N · LoRA adapter ~几十–几百 MB · 增量 (1–3%)·2N dense / (0.02–0.05%)·2N MoE |  |
+| 链路带宽 | NVLink 450 GB/s · IB 400 Gb/s = 50 GB/s 理论 / 8–10 GB/s 实测有效（单源 NCCL）· PCIe pinned 25 GB/s |  |
+| 朴素全量 | T ≈ 2N / (单网卡有效带宽) + 全模型 all-gather + rank 0 物化 | 235B: 250 s |
+| 多源 / P2P | T ≈ 2N / (Σ 发送方网卡) | 1T 千卡 ~20 s |
+| 增量 | T ≈ diff + 稀疏 gather + 固定开销，几乎不随 N 变 | 32B–235B: 12–15 s |
+| bucket | 512 MB；峰值 2 bucket；次数 = 2N / bucket |  |
+| 异步空转 | bubble = T_sync / (k·T_mb + T_sync) |  |
+| 同步顺序 | abort → (释放 KV) → 建组 → send ∥ receive → finalize → 恢复 KV → resume → reset_prefix_cache → set_global_steps |  |
+
+Table: 权重同步的速查表
 
 ### 3. 下一篇
 

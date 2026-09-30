@@ -50,14 +50,15 @@ flowchart TB
 
 ### 2. 配置与运维的分工
 
-```text
-开训前（本篇二–五章）                                    开训后（六–八章）
-按账推形态与配比 → 两套并行配置 → 同步方式 → 异步参数      指标面板：三段时间、rollout 分布、同步、off-policy、MoE、环境
-全步 MFU 的预期值与损失拆解                                故障表：信号 → 原因 → 排查
-RL 状态的 checkpoint 方案                                  恢复语义：重发在飞、staleness 断点
-确定性：要不要、代价多少                                    复现：两次运行对齐
-必采指标清单 → 面板 → 告警阈值                             十分钟决策树
-```
+| 开训前（本篇二–五章） | 开训后（六–八章） |
+|---|---|
+| 按账推形态与配比 → 两套并行配置 → 同步方式 → 异步参数 | 指标面板：三段时间、rollout 分布、同步、off-policy、MoE、环境 |
+| 全步 MFU 的预期值与损失拆解 | 故障表：信号 → 原因 → 排查 |
+| RL 状态的 checkpoint 方案 | 恢复语义：重发在飞、staleness 断点 |
+| 确定性：要不要、代价多少 | 复现：两次运行对齐 |
+| 必采指标清单 → 面板 → 告警阈值 | 十分钟决策树 |
+
+Table: 配置（开训前）与运维（开训后）的分工
 
 ### 3. 本文的章节安排
 
@@ -79,15 +80,16 @@ Table: 本文的章节安排
 
 ### 1. 六步
 
-```text
-步  输入                              输出                                   依据
-1   模型规格 · B / G / P / L̄ / L_max · 卡数 · 任务形态    三段时间 T_thr / T_tail / T_fwd / T_train · KV 与并发 · 长尾占比 f    第一篇的账
-2   f · 卡数 · 模型大小 · 是否 Agent      形态（sync / colocate_async / separate_async）· 配比 n_r : n_t · 沙箱数    第二、六篇
-3   模型大小 · n_t · 序列长度            训练侧：FSDP 或 Megatron；TP / PP / EP / CP；offload；动态 token batch    大规模训练系列 + 第三篇
-4   模型大小 · n_r · L_max · 并发目标     推理侧：TP / EP / DP 实例数；gpu_memory_utilization；max_num_seqs；CUDA graph 尺寸；dtype    推理系列 + 第三篇
-5   形态 · 模型大小 · 训练后端           同步后端：naive / nccl / nixl / delta_sharded；bucket；量化传输；LoRA 只传 adapter    第四篇
-6   形态 · T_sync · T_mb                 异步参数：parameter_sync_step · max_off_policy_threshold · drop / wait · warmup · gen_batch_size · rollout_correction    第五篇
-```
+| 步 | 输入 | 输出 | 依据 |
+|---|---|---|---|
+| 1 | 模型规格 · B / G / P / L̄ / L_max · 卡数 · 任务形态 | 三段时间 T_thr / T_tail / T_fwd / T_train · KV 与并发 · 长尾占比 f | 第一篇的账 |
+| 2 | f · 卡数 · 模型大小 · 是否 Agent | 形态（sync / colocate_async / separate_async）· 配比 n_r : n_t · 沙箱数 | 第二、六篇 |
+| 3 | 模型大小 · n_t · 序列长度 | 训练侧：FSDP 或 Megatron；TP / PP / EP / CP；offload；动态 token batch | 大规模训练系列 + 第三篇 |
+| 4 | 模型大小 · n_r · L_max · 并发目标 | 推理侧：TP / EP / DP 实例数；gpu_memory_utilization；max_num_seqs；CUDA graph 尺寸；dtype | 推理系列 + 第三篇 |
+| 5 | 形态 · 模型大小 · 训练后端 | 同步后端：naive / nccl / nixl / delta_sharded；bucket；量化传输；LoRA 只传 adapter | 第四篇 |
+| 6 | 形态 · T_sync · T_mb | 异步参数：parameter_sync_step · max_off_policy_threshold · drop / wait · warmup · gen_batch_size · rollout_correction | 第五篇 |
+
+Table: 从账推配置的六步：输入、输出与依据
 
 每一步的输出是下一步的输入，且都能在开训前算出来；第七章的故障有一半是某一步的输出与实际不符。
 
@@ -146,17 +148,18 @@ DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$，代码�
 
 训练侧与推理侧各有一套并行配置，同一模型两边选法不同：
 
-```text
-                训练侧                                                 推理侧
-目标            放下 16N + 激活；通信 / 计算比最低                        每卡 token/s 最高 = 并发 c 最大 → 权重副本占得越少越好
-TP              尽量小（NVLink 内），dense 32B 以下不用                    dense：让 (M − 权重/tp) 最大化 KV，同时 TP 通信不进 decode 关键路径 → 8B tp=1、32B tp=2、70B tp=4
-PP              大模型放不下时用；RL 的 batch 变长让 PP 气泡更大           不用（延迟）
-EP              MoE 必需；EP 度按专家数 / 每卡显存                        MoE 必需；EP 度按"每卡专家权重 + KV 池"平衡，与训练侧不同
-DP              剩余卡数                                                实例数 = n_r / (tp × ep)
-CP              L_max ≥ 32 K 时训练侧要；RL 的变长序列让 dynamic CP 有价值   不用（KV 按序列分配即可）
-dtype           bf16 或 FP8（MoE）                                        FP8 优先（权重副本减半 → KV 池变大 → c 变大）
-batch           按 token 打包（dynamic bsz）；mini-batch 数 = B / mini_bs   max_num_seqs 按 c 设；chunked prefill 开
-```
+|  | 训练侧 | 推理侧 |
+|---|---|---|
+| 目标 | 放下 16N + 激活；通信 / 计算比最低 | 每卡 token/s 最高 = 并发 c 最大 → 权重副本占得越少越好 |
+| TP | 尽量小（NVLink 内），dense 32B 以下不用 | dense：让 (M − 权重/tp) 最大化 KV，同时 TP 通信不进 decode 关键路径 → 8B tp=1、32B tp=2、70B tp=4 |
+| PP | 大模型放不下时用；RL 的 batch 变长让 PP 气泡更大 | 不用（延迟） |
+| EP | MoE 必需；EP 度按专家数 / 每卡显存 | MoE 必需；EP 度按"每卡专家权重 + KV 池"平衡，与训练侧不同 |
+| DP | 剩余卡数 | 实例数 = n_r / (tp × ep) |
+| CP | L_max ≥ 32 K 时训练侧要；RL 的变长序列让 dynamic CP 有价值 | 不用（KV 按序列分配即可） |
+| dtype | bf16 或 FP8（MoE） | FP8 优先（权重副本减半 → KV 池变大 → c 变大） |
+| batch | 按 token 打包（dynamic bsz）；mini-batch 数 = B / mini_bs | max_num_seqs 按 c 设；chunked prefill 开 |
+
+Table: 训练侧与推理侧并行配置的选法
 
 两边的 TP / EP 不同是权重同步布局映射的来源（第四篇）；两边都要 EP 的 MoE 是最复杂的组合。
 
@@ -228,12 +231,14 @@ Table: 频率与代价
 
 ### 3. 恢复语义
 
-```text
-sync 模式        恢复 = 训练状态 + dataloader 位置 → 下一步重新 rollout 整批；无遗留
-colocate_async   恢复 → _reissue_inflight_prompts 重发 pending / running；缓冲里 finished 的保留（若 TransferQueue 存活）
-separate_async   同上 + standalone 实例重新拉起、首次全量同步（on_init_end 的两个 update_weights）
-Agent            同上 + 沙箱：在飞轨迹的容器已回收，重发从头开始；tool.release 要在 abort 路径上也被调（否则泄漏，第七章）
-```
+| 模式 | 恢复语义 |
+|---|---|
+| sync 模式 | 恢复 = 训练状态 + dataloader 位置 → 下一步重新 rollout 整批；无遗留 |
+| colocate_async | 恢复 → _reissue_inflight_prompts 重发 pending / running；缓冲里 finished 的保留（若 TransferQueue 存活） |
+| separate_async | 同上 + standalone 实例重新拉起、首次全量同步（on_init_end 的两个 update_weights） |
+| Agent | 同上 + 沙箱：在飞轨迹的容器已回收，重发从头开始；tool.release 要在 abort 路径上也被调（否则泄漏，第七章） |
+
+Table: 四种模式的恢复语义
 
 ## 五、确定性
 
@@ -330,23 +335,24 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 
 只列 RL 系统特有的；预训练与推理服务各自的故障在各自的系列。
 
-```text
-故障                          信号                                          原因                                                排查 / 处理
-① 跨引擎 NCCL hang             一步卡在 update_weights 或 update_actor；GPU 利用率 100% 但无进展；nccl_timeout（默认 600 s）后报错   训练器的进程组、推理引擎的 TP 组、同步用的临时组在同一批卡上；某个 rank 没进入 collective（异常退出、abort 时机不对）；异步下推理引擎正在 decode 时收到广播   py-spy dump 每个 worker 看卡在哪个 collective；NCCL_DEBUG=INFO；确认 abort_replicas 在 build_process_group 之前；分离形态用 nixl 避免建组
-② 同步中途 OOM                 update_weights 期间 OOM，训练与生成单独都不 OOM     峰值 = 训练器 bf16 分片 + 推理权重区域 + 2 bucket + 一个完整参数（MoE 专家堆叠几 GB）+ caching allocator 保留段；expandable_segments 没关   缩 bucket；确认 aggressive_empty_cache 与 set_expandable_segments(False) 在 resume 之前；layered_summon=True（逐层 gather）；MoE 大张量走 split_weight_chunks
-③ 第 N 步才 OOM               前几十步正常，回答变长后 OOM                        dynamic bsz 的 token 上限没随长度调；KV 池碎片；激活峰值随最长序列涨   ppo_max_token_len_per_gpu 留余量；L_max 设硬上限；response_length/max 告警
-④ sleep / wake 后静默错误       reward 骤降到随机水平但无报错；greedy 输出乱码       fp8 KV 的 scale 没重置、named_buffers 没恢复、MTP 草稿权重 level 2 后丢失、量化 scale 漏传、tied embedding 只更新一处   同步后用固定 prompt greedy 生成与训练器前向 argmax 对比（开训前就做一次）；slime 的 check_weight_update_equal 思路
-⑤ 训推差异 → NaN / reward 崩塌   rollout_probs_diff_max 尖峰 → 几步后 pg_loss NaN 或 reward 掉到 0   FP8 推理 + bf16 训练；MoE 路由翻转；采样 logprob 取错（温度前 / 后）；chat template 不一致（Agent）   开 TIS / MIS；MoE 开 router replay；核对 logprob 定义；token 连续性检查（第六篇）
-⑥ 沙箱泄漏                     活跃容器数单调上升；CPU 集群逐渐耗尽；新轨迹排队       abort / 超时 / 异常路径没调 tool.release；容器的子进程未回收；镜像层堆积   release 放 finally；沙箱服务侧按轨迹 id 做租约（TTL）；定期 GC 孤儿容器
-⑦ Ray 对象存储溢出 / spill      driver 内存涨；日志 "object store is full"；步时间逐渐变长   v0 路径 DataProto 经 driver；validation 的大 batch；日志里存了整批 generations   用 v1（TransferQueue）；rollout_data_dir 分步落盘；val batch 分块
-⑧ 缓冲永远填不满               gen 段一直等；缓冲深度不涨；无报错                  某些 prompt 卡在 running（一条 session 死在环境里）→ 组不终态；DAPO 过滤淘汰过多、补发跟不上；agent loop worker 协程数不够   轨迹级超时；看 TransferQueue 里 running 状态的年龄；filtered 计数；加 agent.num_workers
-⑨ 实例版本漂移                 某实例 global_steps 落后；该实例的样本 probs_diff 偏大   同步对该实例超时 / 失败但版本号推进了；弹性扩容的新实例没走首次全量同步   每实例版本告警；同步失败必须回滚版本号或强制重同步
-⑩ 重启后 reward 断点            恢复后几步 reward 跳变、staleness 归零              _reissue_inflight_prompts 重发 → 全 fresh 样本；缓冲丢弃   预期行为，标注即可；要连续就存缓冲 + 用 wait
-⑪ reward 全零（某源）           按源分组的 reward 某一源掉到 0，其他正常             该源的沙箱池 / 验证服务挂了；镜像拉取失败；某工具的 API 配额用尽   源级告警；reward 服务返回错误码而不是 0（0 是合法 reward，不能当错误用）
-⑫ DAPO 过滤饥饿                filtered 计数 / 步单调上升；有效 batch 变小；生成负担涨   模型变强、全对率升                                   调过滤阈值；课程（换更难的数据）；把过滤比例做成指标
-⑬ 长尾突增                     timing_s/gen 单步翻倍；response_length/max 打满     模型学到"越长越好"；某实例慢（网卡 / 降频）；L_max 太大   clip_ratio 告警；每实例 token/s；部分 rollout
-⑭ 显存碎片累积                 reserved 涨、allocated 不涨；几十步后 OOM            两个 allocator 交替；expandable_segments 开关时机错       步末 empty_cache；核对开关顺序（第三篇）
-```
+| 故障 | 信号 | 原因 | 排查 / 处理 |
+|---|---|---|---|
+| ① 跨引擎 NCCL hang | 一步卡在 update_weights 或 update_actor；GPU 利用率 100% 但无进展；nccl_timeout（默认 600 s）后报错 | 训练器的进程组、推理引擎的 TP 组、同步用的临时组在同一批卡上；某个 rank 没进入 collective（异常退出、abort 时机不对）；异步下推理引擎正在 decode 时收到广播 | py-spy dump 每个 worker 看卡在哪个 collective；NCCL_DEBUG=INFO；确认 abort_replicas 在 build_process_group 之前；分离形态用 nixl 避免建组 |
+| ② 同步中途 OOM | update_weights 期间 OOM，训练与生成单独都不 OOM | 峰值 = 训练器 bf16 分片 + 推理权重区域 + 2 bucket + 一个完整参数（MoE 专家堆叠几 GB）+ caching allocator 保留段；expandable_segments 没关 | 缩 bucket；确认 aggressive_empty_cache 与 set_expandable_segments(False) 在 resume 之前；layered_summon=True（逐层 gather）；MoE 大张量走 split_weight_chunks |
+| ③ 第 N 步才 OOM | 前几十步正常，回答变长后 OOM | dynamic bsz 的 token 上限没随长度调；KV 池碎片；激活峰值随最长序列涨 | ppo_max_token_len_per_gpu 留余量；L_max 设硬上限；response_length/max 告警 |
+| ④ sleep / wake 后静默错误 | reward 骤降到随机水平但无报错；greedy 输出乱码 | fp8 KV 的 scale 没重置、named_buffers 没恢复、MTP 草稿权重 level 2 后丢失、量化 scale 漏传、tied embedding 只更新一处 | 同步后用固定 prompt greedy 生成与训练器前向 argmax 对比（开训前就做一次）；slime 的 check_weight_update_equal 思路 |
+| ⑤ 训推差异 → NaN / reward 崩塌 | rollout_probs_diff_max 尖峰 → 几步后 pg_loss NaN 或 reward 掉到 0 | FP8 推理 + bf16 训练；MoE 路由翻转；采样 logprob 取错（温度前 / 后）；chat template 不一致（Agent） | 开 TIS / MIS；MoE 开 router replay；核对 logprob 定义；token 连续性检查（第六篇） |
+| ⑥ 沙箱泄漏 | 活跃容器数单调上升；CPU 集群逐渐耗尽；新轨迹排队 | abort / 超时 / 异常路径没调 tool.release；容器的子进程未回收；镜像层堆积 | release 放 finally；沙箱服务侧按轨迹 id 做租约（TTL）；定期 GC 孤儿容器 |
+| ⑦ Ray 对象存储溢出 / spill | driver 内存涨；日志 "object store is full"；步时间逐渐变长 | v0 路径 DataProto 经 driver；validation 的大 batch；日志里存了整批 generations | 用 v1（TransferQueue）；rollout_data_dir 分步落盘；val batch 分块 |
+| ⑧ 缓冲永远填不满 | gen 段一直等；缓冲深度不涨；无报错 | 某些 prompt 卡在 running（一条 session 死在环境里）→ 组不终态；DAPO 过滤淘汰过多、补发跟不上；agent loop worker 协程数不够 | 轨迹级超时；看 TransferQueue 里 running 状态的年龄；filtered 计数；加 agent.num_workers |
+| ⑨ 实例版本漂移 | 某实例 global_steps 落后；该实例的样本 probs_diff 偏大 | 同步对该实例超时 / 失败但版本号推进了；弹性扩容的新实例没走首次全量同步 | 每实例版本告警；同步失败必须回滚版本号或强制重同步 |
+| ⑩ 重启后 reward 断点 | 恢复后几步 reward 跳变、staleness 归零 | _reissue_inflight_prompts 重发 → 全 fresh 样本；缓冲丢弃 | 预期行为，标注即可；要连续就存缓冲 + 用 wait |
+| ⑪ reward 全零（某源） | 按源分组的 reward 某一源掉到 0，其他正常 | 该源的沙箱池 / 验证服务挂了；镜像拉取失败；某工具的 API 配额用尽 | 源级告警；reward 服务返回错误码而不是 0（0 是合法 reward，不能当错误用） |
+| ⑫ DAPO 过滤饥饿 | filtered 计数 / 步单调上升；有效 batch 变小；生成负担涨 | 模型变强、全对率升 | 调过滤阈值；课程（换更难的数据）；把过滤比例做成指标 |
+| ⑬ 长尾突增 | timing_s/gen 单步翻倍；response_length/max 打满 | 模型学到"越长越好"；某实例慢（网卡 / 降频）；L_max 太大 | clip_ratio 告警；每实例 token/s；部分 rollout |
+| ⑭ 显存碎片累积 | reserved 涨、allocated 不涨；几十步后 OOM | 两个 allocator 交替；expandable_segments 开关时机错 | 步末 empty_cache；核对开关顺序（第三篇） |
+
+Table: RL 系统特有的故障：信号、原因与排查
 
 ### 2. 排查的一般顺序
 

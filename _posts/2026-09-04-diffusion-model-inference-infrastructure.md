@@ -300,12 +300,14 @@ Table: 贯穿全系列的实践线
 
 源码阅读线（第八篇的主体，其余各篇末尾的对照表指向这里）：
 
-```text
-diffusers v0.40.0     src/diffusers/pipelines/ · models/transformers/ · hooks/（CacheMixin、group offload）
-SGLang v0.5.19        python/sglang/multimodal_gen/：runtime/{pipelines,pipelines_core,distributed,layers/attention,cache,managers,entrypoints,realtime}
-vLLM-Omni v0.28.0     vllm_omni/diffusion/：{diffusion_engine.py,sched,worker,distributed,attention,cache,offloader,diffusion_kv,lora}
-xDiT（2026-09-02 主线）  xfuser/：core/{distributed,long_ctx_attention,cache_manager} · model_executor/{pipelines,layers,cache} · parallel.py
-```
+| 项目 | 阅读路径 |
+|---|---|
+| diffusers v0.40.0 | src/diffusers/pipelines/ · models/transformers/ · hooks/（CacheMixin、group offload） |
+| SGLang v0.5.19 | python/sglang/multimodal_gen/：runtime/{pipelines,pipelines_core,distributed,layers/attention,cache,managers,entrypoints,realtime} |
+| vLLM-Omni v0.28.0 | vllm_omni/diffusion/：{diffusion_engine.py,sched,worker,distributed,attention,cache,offloader,diffusion_kv,lora} |
+| xDiT（2026-09-02 主线） | xfuser/：core/{distributed,long_ctx_attention,cache_manager} · model_executor/{pipelines,layers,cache} · parallel.py |
+
+Table: 四个项目的源码阅读线
 
 
 ## 前置要求与说明

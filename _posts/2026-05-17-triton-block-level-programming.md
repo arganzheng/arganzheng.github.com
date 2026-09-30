@@ -1025,12 +1025,13 @@ for name, th, c, t, p in rows:
 
 读者在 A100 上跑出的数字大致应落在这个区间（理论列是可推导的下界，其余三列是经验区间，不是实测）：
 
-```text
-kernel                    理论下界     CUDA（第3–6篇）   Triton           PyTorch/cuBLAS
-bf16 add, n=2^28          0.81 ms     0.88–0.95 ms     0.88–0.95 ms     0.88–0.95 ms
-bf16 softmax, 8192×4096   0.067 ms    0.075–0.085 ms   0.075–0.085 ms   0.075–0.085 ms
-bf16 matmul, 4096³        0.44 ms     0.65–0.80 ms     0.58–0.70 ms     0.55–0.63 ms
-```
+| kernel | 理论下界 | CUDA（第3–6篇） | Triton | PyTorch/cuBLAS |
+|---|---|---|---|---|
+| bf16 add, n=2^28 | 0.81 ms | 0.88–0.95 ms | 0.88–0.95 ms | 0.88–0.95 ms |
+| bf16 softmax, 8192×4096 | 0.067 ms | 0.075–0.085 ms | 0.075–0.085 ms | 0.075–0.085 ms |
+| bf16 matmul, 4096³ | 0.44 ms | 0.65–0.80 ms | 0.58–0.70 ms | 0.55–0.63 ms |
+
+Table: 三个 kernel 在 A100 上的理论下界与 CUDA、Triton、PyTorch 的经验区间
 
 前两行三者相当——memory-bound kernel 到了带宽上限就没有区别。第三行 Triton 落在 cuBLAS 的 85–95%，手写的 `mma.sync` 版本（第六篇）反而可能不如 Triton——除非投入 CUTLASS 级别的工程量，否则编译器自动做的流水与 swizzle 比多数人手写的更好。
 

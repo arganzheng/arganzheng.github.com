@@ -86,16 +86,17 @@ Table: 本文的章节安排
 
 共置形态下一张卡在一步里先后要放下（32B、8 卡、FSDP、vLLM TP = 8）：
 
-```text
-训练时                                       字节 / 卡          生成时                              字节 / 卡
-① bf16 参数分片                              8.2 GB            ⑤ 推理权重副本（bf16，TP = 8）        8.2 GB
-② 梯度分片                                   8.2 GB            ⑥ KV 池                            尽量大：0.5 × 80 − 8.2 − 激活 ≈ 30 GB
-③ fp32 主参数 + Adam 两个矩                  49.2 GB           ⑦ 推理激活峰值（profiling 定）        ~2 GB
-④ 参考模型 bf16 分片（只前向）                 8.2 GB            ⑧ CUDA graph 池                    1–3 GB（常驻）
-   激活（8K micro-batch，重计算后）            几 GB
-   训练器 NCCL 缓冲、allocator 保留段           1–3 GB（常驻）      推理引擎 NCCL 缓冲                 ~1 GB（常驻）
-小计                                         ~78 GB + 激活      小计                                ~42 GB（受 0.5 上限）
-```
+| 训练时 | 字节 / 卡 | 生成时 | 字节 / 卡 |
+|---|---|---|---|
+| ① bf16 参数分片 | 8.2 GB | ⑤ 推理权重副本（bf16，TP = 8） | 8.2 GB |
+| ② 梯度分片 | 8.2 GB | ⑥ KV 池 | 尽量大：0.5 × 80 − 8.2 − 激活 ≈ 30 GB |
+| ③ fp32 主参数 + Adam 两个矩 | 49.2 GB | ⑦ 推理激活峰值（profiling 定） | ~2 GB |
+| ④ 参考模型 bf16 分片（只前向） | 8.2 GB | ⑧ CUDA graph 池 | 1–3 GB（常驻） |
+| 激活（8K micro-batch，重计算后） | 几 GB |  |  |
+| 训练器 NCCL 缓冲、allocator 保留段 | 1–3 GB（常驻） | 推理引擎 NCCL 缓冲 | ~1 GB（常驻） |
+| 小计 | ~78 GB + 激活 | 小计 | ~42 GB（受 0.5 上限） |
+
+Table: 共置形态下一张卡在训练时与生成时各要放下的东西（32B、8 卡、FSDP、vLLM TP = 8）
 
 训练侧的 ①–④ 就已经把 80 GB 用光——**32B 在 8 卡上即便不共置，FSDP 也要 offload 优化器状态**（或者用 Megatron 的分布式优化器加 TP，每卡的状态字节相同但激活更省）。加上推理侧，两侧合计 120 GB 以上，每一步必须换手两次。
 
@@ -115,13 +116,14 @@ vLLM 启动时做一次 profiling：以 `gpu_memory_utilization × 总显存` �
 
 用上一篇的并发公式算它对生成的影响（8B、TP = 1、$$P + \bar L / 2 = 4.6\text{K}$$、$$k_{kv} = 128$$ KiB）：
 
-```text
-gpu_memory_utilization    KV 池        并发 c      decode 步      每卡 token/s     8B 推理场景生成时间
-1.0（独占一张卡，理想）      56 GB        92         35.6 ms        2590            602 s
-0.85                       50 GB        83         32.8 ms        2530            610 s
-0.7                        38 GB        63         26.9 ms        2340            645 s
-0.5（verl 默认）            22 GB        36         18.9 ms        1900            745 s
-```
+| gpu_memory_utilization | KV 池 | 并发 c | decode 步 | 每卡 token/s | 8B 推理场景生成时间 |
+|---|---|---|---|---|---|
+| 1.0（独占一张卡，理想） | 56 GB | 92 | 35.6 ms | 2590 | 602 s |
+| 0.85 | 50 GB | 83 | 32.8 ms | 2530 | 610 s |
+| 0.7 | 38 GB | 63 | 26.9 ms | 2340 | 645 s |
+| 0.5（verl 默认） | 22 GB | 36 | 18.9 ms | 1900 | 745 s |
+
+Table: gpu_memory_utilization 对 KV 池、并发与生成时间的影响（8B、TP = 1）
 
 从 0.5 到 0.85，生成时间差 22%——**比切换的秒数大一个量级**。这是共置形态最该调的一个参数，调的前提是训练侧确实 offload 干净、并且给常驻部分留够余量（一般 8–10 GB）。
 
@@ -202,11 +204,13 @@ FSDP2 的 `CPUOffloadPolicy` 是另一条路：由 FSDP 自己在每次 all-gath
 
 D2H / H2D 要达到 25 GB/s 必须走 pinned 内存，pageable 内存只有几 GB/s。8 卡 32B 共置的一台机器上，pinned 的账：
 
-```text
-FSDP offload：8 卡 × (8 + 49 + 8) GB          520 GB
-vLLM sleep level 1（若用）：8 × 8 GB            64 GB     level 2 为 0
-checkpoint engine 的 CPU 缓冲（第四篇）          几到几十 GB
-```
+| 用途 | 大小 | 备注 |
+|---|---|---|
+| FSDP offload：8 卡 × (8 + 49 + 8) GB | 520 GB |  |
+| vLLM sleep level 1（若用）：8 × 8 GB | 64 GB | level 2 为 0 |
+| checkpoint engine 的 CPU 缓冲（第四篇） | 几到几十 GB |  |
+
+Table: 8 卡 32B 共置一台机器的 pinned 内存账
 
 一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA 不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 UPI）。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
 
@@ -303,14 +307,15 @@ sequenceDiagram
 
 ### 3. 与步时间的比例
 
-```text
-场景                          切换搬运 / 卡     时间        步时间（同步共置）    占比
-8B 推理，64 卡                 2.3 GB × 2       0.2 s       810 s               0.02%
-32B 推理，8 卡，opt offload     130 GB           6.5 s       约 300 s（小 B）      2%
-32B 推理，64 卡，无 opt offload  16 GB × 2        1.3 s       2400 s              0.05%
-DeepSeek-V3 规格，256 卡        47 GB × 2        3.8 s       650 s               0.6%
-8B 对话，16 卡                  9 GB × 2         0.7 s       111 s               0.6%
-```
+| 场景 | 切换搬运 / 卡 | 时间 | 步时间（同步共置） | 占比 |
+|---|---|---|---|---|
+| 8B 推理，64 卡 | 2.3 GB × 2 | 0.2 s | 810 s | 0.02% |
+| 32B 推理，8 卡，opt offload | 130 GB | 6.5 s | 约 300 s（小 B） | 2% |
+| 32B 推理，64 卡，无 opt offload | 16 GB × 2 | 1.3 s | 2400 s | 0.05% |
+| DeepSeek-V3 规格，256 卡 | 47 GB × 2 | 3.8 s | 650 s | 0.6% |
+| 8B 对话，16 卡 | 9 GB × 2 | 0.7 s | 111 s | 0.6% |
+
+Table: 各场景的切换搬运量、时间与占步时间的比例
 
 **没有一行超过 2%**。切换的搬运时间在任何合理配置下都不是瓶颈；把它压到 0 也换不回多少墙钟。共置的代价在下一章。
 
@@ -437,16 +442,18 @@ Table: 一张决策表
 
 ### 2. 速查表
 
-```text
-切换字节 / 卡      训练 → 生成：16N/n（若 optimizer offload；否则 2N/n）+ 2N/n（ref）   生成 → 训练：同量反向
-切换时间           字节 / 25 GB/s（PCIe pinned）  8B/64 卡 0.2 s · 32B/8 卡 6.5 s · V3/256 卡 3.8 s
-KV 池             gpu_memory_utilization × M − 推理权重 − 激活峰值 − CUDA graph 池；块数启动时定死
-并发 c            KV 池 / ((P + L̄/2) k_kv)      0.5 → 0.85 让 8B 生成时间 745 → 610 s
-sleep level       2（权重丢弃，RL 默认）· 1（权重备份到 CPU：LoRA、MTP）· 0（只停调度）
-wake 顺序         weights → 同步权重 → offload 训练器参数 → kv_cache → reset_prefix_cache
-同步（共置）       all-gather（NVLink）+ 512 MB bucket × CUDA IPC；峰值 2 bucket；2N / 卡内带宽 ≈ 8B 0.3 s
-pinned 内存        n_卡 × 每卡 offload 字节；32B/8 卡 520 GB
-```
+| 项 | 公式 / 做法 | 本篇的数字 |
+|---|---|---|
+| 切换字节 / 卡 | 训练 → 生成：16N/n（若 optimizer offload；否则 2N/n）+ 2N/n（ref） | 生成 → 训练：同量反向 |
+| 切换时间 | 字节 / 25 GB/s（PCIe pinned） | 8B/64 卡 0.2 s · 32B/8 卡 6.5 s · V3/256 卡 3.8 s |
+| KV 池 | gpu_memory_utilization × M − 推理权重 − 激活峰值 − CUDA graph 池；块数启动时定死 |  |
+| 并发 c | KV 池 / ((P + L̄/2) k_kv) | 0.5 → 0.85 让 8B 生成时间 745 → 610 s |
+| sleep level | 2（权重丢弃，RL 默认）· 1（权重备份到 CPU：LoRA、MTP）· 0（只停调度） |  |
+| wake 顺序 | weights → 同步权重 → offload 训练器参数 → kv_cache → reset_prefix_cache |  |
+| 同步（共置） | all-gather（NVLink）+ 512 MB bucket × CUDA IPC；峰值 2 bucket | 2N / 卡内带宽 ≈ 8B 0.3 s |
+| pinned 内存 | n_卡 × 每卡 offload 字节 | 32B/8 卡 520 GB |
+
+Table: 共置形态的速查表
 
 ### 3. 下一篇
 

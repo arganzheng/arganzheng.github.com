@@ -285,17 +285,21 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 
 ### 2. LoRA 挂到哪、多少参数
 
-`get_peft_model` 之后打印出来的三个数：
-
-- 可训练参数 8.80 M / 494 M = 1.78%；
-- 训练状态 ≈ 可训练 × 16 B = 141 MB，冻结权重 fp32 1.98 GB（bf16 时减半）；
-- 挂了 LoRA 的线性层：`down_proj`、`gate_proj`、`k_proj`、`o_proj`、`q_proj`、`up_proj`、`v_proj`。
+```text title='LoRA 挂在七个线性层上：可训练 1.78%'
+可训练 8.80 M / 494 M = 1.78%
+训练状态 ≈ 可训练 × 16 B = 141 MB；冻结权重 fp32 1.98 GB（bf16 时减半）
+挂了 LoRA 的线性层: ['down_proj', 'gate_proj', 'k_proj', 'o_proj', 'q_proj', 'up_proj', 'v_proj']
+```
 
 七个线性层——与 L0 第三篇表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。第四篇的账：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
 
 ### 3. loss mask 的比例
 
-从 `trainer.get_train_dataloader()` 取出一个 batch：`input_ids` 形状 `(4, 36)`，4 条样本 padding 到 36 长；`labels` 的 144 个位置里 122 个（85%）是 −100：system prompt、user 的问题、padding 都不算 loss，**只有 assistant 的那几个 token（`Paris.<|im_end|>`）进入交叉熵**。这就是 L0 第五篇第四章"SFT 只对回答部分求和"的实物。85% 被 mask 掉意味着有效 token 很少——真实 SFT 数据的回复要长得多，比例会反过来。
+```text title='一个 batch 里 85% 的 token 被 mask 成 -100'
+一个 batch: input_ids (4, 36), labels 里被 mask 成 -100 的 token 122/144 (85%，prompt 与 padding 不算 loss)
+```
+
+4 条样本 padding 到 36 长，144 个位置里 122 个是 −100：system prompt、user 的问题、padding 都不算 loss，**只有 assistant 的那几个 token（`Paris.<|im_end|>`）进入交叉熵**。这就是 L0 第五篇第四章"SFT 只对回答部分求和"的实物。85% 被 mask 掉意味着有效 token 很少——真实 SFT 数据的回复要长得多，比例会反过来。
 
 ### 4. 20 步
 
@@ -309,7 +313,11 @@ loss 从 5.3 降到 1.7；生成时**答案学会了**（Paris、Rome——后�
 
 ### 5. 合并
 
-`merge_and_unload()` 之后参数量仍是 494 M——LoRA 已合回基座，推理零开销。$$W' = W + \frac{\alpha}{r} BA$$，L0 第三篇的"合并"用法。
+```text title='merge_and_unload 后参数量不变'
+merge_and_unload 后参数量 494 M（LoRA 已合回基座，推理零开销）
+```
+
+$$W' = W + \frac{\alpha}{r} BA$$，L0 第三篇的"合并"用法。
 
 ## 六、为什么读源码是最快的路
 

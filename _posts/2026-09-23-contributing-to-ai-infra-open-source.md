@@ -24,17 +24,18 @@ catalog: true
 
 系列以 PyTorch 和 vLLM 为主要样本，因为它们是当前 AI-Infra 最活跃的两个开源项目，也是两种典型风格的代表：PyTorch 是一个有十年历史、治理成熟、流程厚重的框架；vLLM 是一个两周发一版、两三天回复一次 review、规则还在快速演化的引擎。同一个环节，两个项目的做法往往不同：
 
-```text
-环节            PyTorch                                     vLLM
-贡献文档        CONTRIBUTING.md（技术）+ GitHub wiki（流程）   docs/contributing/README.md + AGENTS.md
-大改动的入口    pytorch/rfcs 仓库                            [RFC] issue 模板；文档要求 >500 行的架构改动先有 RFC
-本地检查        lintrunner（.lintrunner.toml），spin lint      pre-commit（.pre-commit-config.yaml）
-PR 描述         三种模板；修 issue 必须写 Fixes #              Purpose / Test Plan / Test Result；标题带 [Kernel] 等前缀
-签名            CLA                                          DCO，每个 commit 带 Signed-off-by
-CI              GitHub Actions，一百多个 workflow，ciflow/ 标签  Buildkite，.buildkite/test_areas/ 按领域触发，/ci run
-合入            @pytorchbot merge，merge_rules.yaml 定权限     maintainer 打 ready 标签，mergify 辅助 rebase
-堆叠 PR         ghstack                                      无专门工具
-```
+| 环节 | PyTorch | vLLM |
+|---|---|---|
+| 贡献文档 | CONTRIBUTING.md（技术）+ GitHub wiki（流程） | docs/contributing/README.md + AGENTS.md |
+| 大改动的入口 | pytorch/rfcs 仓库 | [RFC] issue 模板；文档要求 >500 行的架构改动先有 RFC |
+| 本地检查 | lintrunner（.lintrunner.toml），spin lint | pre-commit（.pre-commit-config.yaml） |
+| PR 描述 | 三种模板；修 issue 必须写 Fixes # | Purpose / Test Plan / Test Result；标题带 [Kernel] 等前缀 |
+| 签名 | CLA | DCO，每个 commit 带 Signed-off-by |
+| CI | GitHub Actions，一百多个 workflow，ciflow/ 标签 | Buildkite，.buildkite/test_areas/ 按领域触发，/ci run |
+| 合入 | @pytorchbot merge，merge_rules.yaml 定权限 | maintainer 打 ready 标签，mergify 辅助 rebase |
+| 堆叠 PR | ghstack | 无专门工具 |
+
+Table: 同一环节 PyTorch 与 vLLM 的做法
 
 学会在这两个项目里做贡献，迁移到 NCCL、Megatron-LM、FlashAttention、Triton、SGLang 的成本很低——它们的流程都是这两种风格的变体。
 
@@ -227,15 +228,17 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 与它平行的是文档阅读线。每篇会带读者读两个项目里对应环节的真实文件，路径以 PyTorch v2.14.0 与 vLLM v0.28.0 的源码树为准：
 
-```text
-第一篇    PyTorch  CONTRIBUTING.md（Codebase structure 一节）· docs/source/community/（contribution_guide.md 已标注 deprecated、指向 wiki；governance.md · persons_of_interest.md）· test/ 与 torch/testing/_internal/ 的组织 · RELEASE.md
-          vLLM     docs/contributing/README.md · docs/contributing/incremental_build.md · tests/ 的组织 · RELEASE.md
-第二篇    PyTorch  .github/labeler.yml · .github/label_to_label.yml · .github/ISSUE_TEMPLATE/ · pytorch/rfcs 仓库 · benchmarks/
-          vLLM     .github/ISSUE_TEMPLATE/（750-RFC.yml · 450-ci-failure.yml · 700-performance-discussion.yml）· docs/contributing/ci/failures.md · docs/contributing/deprecation_policy.md
-第三篇    PyTorch  CONTRIBUTING.md（AI-Assisted Development · Unit testing · Merging your Change · CI failure tips）· AI_POLICY.md· .lintrunner.toml · .github/PULL_REQUEST_TEMPLATE/ · .github/workflows/{pull,trunk,lint,periodic}.yml · .github/pytorch-probot.yml · .github/merge_rules.yaml
-          vLLM     docs/contributing/README.md（DCO · AI Assisted Contributions · PR Title · Reviews）· AGENTS.md · .pre-commit-config.yaml · .github/PULL_REQUEST_TEMPLATE.md · .buildkite/test_areas/ · .buildkite/ci_config.yaml · .github/mergify.yml
-第四篇    两个 PR 各自触及的源码、测试、benchmark 文件，以及 PR 页面上的 CI 与 review 记录
-```
+| 篇 | 项目 | 文件 |
+|---|---|---|
+| 第一篇 | PyTorch | CONTRIBUTING.md（Codebase structure 一节）· docs/source/community/（contribution_guide.md 已标注 deprecated、指向 wiki；governance.md · persons_of_interest.md）· test/ 与 torch/testing/_internal/ 的组织 · RELEASE.md |
+|  | vLLM | docs/contributing/README.md · docs/contributing/incremental_build.md · tests/ 的组织 · RELEASE.md |
+| 第二篇 | PyTorch | .github/labeler.yml · .github/label_to_label.yml · .github/ISSUE_TEMPLATE/ · pytorch/rfcs 仓库 · benchmarks/ |
+|  | vLLM | .github/ISSUE_TEMPLATE/（750-RFC.yml · 450-ci-failure.yml · 700-performance-discussion.yml）· docs/contributing/ci/failures.md · docs/contributing/deprecation_policy.md |
+| 第三篇 | PyTorch | CONTRIBUTING.md（AI-Assisted Development · Unit testing · Merging your Change · CI failure tips）· AI_POLICY.md· .lintrunner.toml · .github/PULL_REQUEST_TEMPLATE/ · .github/workflows/{pull,trunk,lint,periodic}.yml · .github/pytorch-probot.yml · .github/merge_rules.yaml |
+|  | vLLM | docs/contributing/README.md（DCO · AI Assisted Contributions · PR Title · Reviews）· AGENTS.md · .pre-commit-config.yaml · .github/PULL_REQUEST_TEMPLATE.md · .buildkite/test_areas/ · .buildkite/ci_config.yaml · .github/mergify.yml |
+| 第四篇 | 两个 PR 各自触及的源码、测试、benchmark 文件，以及 PR 页面上的 CI 与 review 记录 |  |
+
+Table: 文档阅读线：各篇要读的 PyTorch 与 vLLM 文件
 
 
 ## 前置要求与说明

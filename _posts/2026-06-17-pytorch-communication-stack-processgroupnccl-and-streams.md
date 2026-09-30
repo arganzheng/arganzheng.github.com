@@ -431,13 +431,15 @@ bool ProcessGroupNCCL::WorkNCCL::wait(std::chrono::milliseconds timeout) {
 
 在 `ProcessGroupNCCL` 的路径上，CPU 线程真正停下来等 GPU 只有这几种情形：
 
-```text
-TORCH_NCCL_BLOCKING_WAIT=1          所有 wait() 变成轮询 isCompleted() 直到完成或超时；同时不再创建 watchdog 线程
-work.wait(timeout=timedelta(...))   显式传超时，同样进入轮询
-dist.barrier()                      isBarrierOp_ 且未完成 → currentStream.synchronize()
-非阻塞 communicator 的 waitReady     初始化 / abort 阶段轮询 ncclCommGetAsyncError
-用户自己的同步                       .item() / .cpu() / torch.cuda.synchronize() / cudaMemcpy 到 pageable 内存 / cudaFree
-```
+| 情形 | 行为 |
+|---|---|
+| `TORCH_NCCL_BLOCKING_WAIT=1` | 所有 wait() 变成轮询 isCompleted() 直到完成或超时；同时不再创建 watchdog 线程 |
+| `work.wait(timeout=timedelta(...))` | 显式传超时，同样进入轮询 |
+| `dist.barrier()` | isBarrierOp_ 且未完成 → currentStream.synchronize() |
+| 非阻塞 communicator 的 waitReady | 初始化 / abort 阶段轮询 ncclCommGetAsyncError |
+| 用户自己的同步 | .item() / .cpu() / torch.cuda.synchronize() / cudaMemcpy 到 pageable 内存 / cudaFree |
+
+Table: ProcessGroupNCCL 路径上 CPU 线程真正阻塞等 GPU 的情形
 
 最后一类不是 c10d 的，但它们决定了程序的实际节奏，第六章的"重叠杀手"全在这一类。
 
@@ -848,22 +850,20 @@ vLLM v0.23.0 的 `vllm/distributed/device_communicators/pynccl_wrapper.py` 用 `
 
 ### 1. 要点回顾
 
-```text
-分层        dist.all_reduce → ProcessGroup（dispatcher 算子 c10d::allreduce_）→ Backend → ProcessGroupNCCL::collective → ncclAllReduce
-Store       TCPStore 只做控制面：rendezvous、ncclUniqueId 分发（rank 0 set / 其他 get）、dump 与错误信号
-懒创建      构造函数不建 communicator；第一次集合通信时 initNCCLComm，超过 TORCH_NCCL_RANKS_PER_ROOT 走多 root
-对象        每 deviceKey 一个 NCCLComm、一条内部 stream、一个 ncclEvents_；每次操作一个 WorkNCCL，带 end event（start event 需开计时）
-同步模式    async_op=False：kernel 排在当前 stream，不返回 Work，CPU 不阻塞，靠 stream 顺序保证正确
-异步模式    async_op=True：NCCL stream 等当前 stream 的 event → kernel → record end event；wait() = 当前 stream 等 end event
-CPU 阻塞    只有 TORCH_NCCL_BLOCKING_WAIT、显式 timeout、barrier、用户自己的同步才阻塞 CPU
-核心问题    返回 ≠ 开始，wait 返回 ≠ 完成；wait 前碰 t（读或写）= 数据竞争；del t 安全（stash）
-生命周期    默认 stash 到 TensorShelf、wait() 后 unstash；recordStream 只剩少数路径；不 wait 则 watchdog 转移 shelf
-重叠        条件：不同 stream + 无隐式同步 + SM 有余量；杀手：.item()、synchronize、cudaFree、wait 放早、同 stream
-合并        _coalescing_manager / all_reduce_coalesced → ncclGroupStart/End，一个 Work 一个 event；把 α 主导变 β 主导
-函数式      _functional_collectives 让通信成为算子；AsyncCollectiveTensor 首次使用时 wait；compile 可重排
-超时        watchdog 每 100 ms 查异步错误与 host 时钟超时；默认 SkipCleanUp 直接退出；heartbeat monitor 480 s 强杀
-对照        Gloo 是 CPU 线程池；PyNccl 直接调 libnccl 拿 stream 控制权；对称内存打 α 的账，与 NCCL 互补
-```
+- **分层**：dist.all_reduce → ProcessGroup（dispatcher 算子 c10d::allreduce_）→ Backend → ProcessGroupNCCL::collective → ncclAllReduce
+- **Store**：TCPStore 只做控制面：rendezvous、ncclUniqueId 分发（rank 0 set / 其他 get）、dump 与错误信号
+- **懒创建**：构造函数不建 communicator；第一次集合通信时 initNCCLComm，超过 TORCH_NCCL_RANKS_PER_ROOT 走多 root
+- **对象**：每 deviceKey 一个 NCCLComm、一条内部 stream、一个 ncclEvents_；每次操作一个 WorkNCCL，带 end event（start event 需开计时）
+- **同步模式**：async_op=False：kernel 排在当前 stream，不返回 Work，CPU 不阻塞，靠 stream 顺序保证正确
+- **异步模式**：async_op=True：NCCL stream 等当前 stream 的 event → kernel → record end event；wait() = 当前 stream 等 end event
+- **CPU 阻塞**：只有 TORCH_NCCL_BLOCKING_WAIT、显式 timeout、barrier、用户自己的同步才阻塞 CPU
+- **核心问题**：返回 ≠ 开始，wait 返回 ≠ 完成；wait 前碰 t（读或写）= 数据竞争；del t 安全（stash）
+- **生命周期**：默认 stash 到 TensorShelf、wait() 后 unstash；recordStream 只剩少数路径；不 wait 则 watchdog 转移 shelf
+- **重叠**：条件：不同 stream + 无隐式同步 + SM 有余量；杀手：.item()、synchronize、cudaFree、wait 放早、同 stream
+- **合并**：_coalescing_manager / all_reduce_coalesced → ncclGroupStart/End，一个 Work 一个 event；把 α 主导变 β 主导
+- **函数式**：_functional_collectives 让通信成为算子；AsyncCollectiveTensor 首次使用时 wait；compile 可重排
+- **超时**：watchdog 每 100 ms 查异步错误与 host 时钟超时；默认 SkipCleanUp 直接退出；heartbeat monitor 480 s 强杀
+- **对照**：Gloo 是 CPU 线程池；PyNccl 直接调 libnccl 拿 stream 控制权；对称内存打 α 的账，与 NCCL 互补
 
 ### 2. 排障检查项
 

@@ -116,11 +116,13 @@ Table: 本文的章节安排
 
 **规则二：minor version compatibility——同一 CUDA 大版本内，旧驱动跑新 Toolkit。** 从 CUDA 11.0 起，同一大版本内的所有 Toolkit 只要求驱动不低于该大版本的**最低基线**，而不是不低于该 Toolkit 对应的驱动。基线（以 NVIDIA 文档为准）：
 
-```text
-CUDA 11.x   驱动 >= 450.80.02
-CUDA 12.x   驱动 >= 525.60.13
-CUDA 13.x   驱动 >= 580.65.06
-```
+| CUDA 大版本 | 驱动基线 |
+|---|---|
+| CUDA 11.x | 驱动 >= 450.80.02 |
+| CUDA 12.x | 驱动 >= 525.60.13 |
+| CUDA 13.x | 驱动 >= 580.65.06 |
+
+Table: 各 CUDA 大版本的最低驱动基线
 
 所以驱动 580（原生对应 CUDA 13.0，正是 13.x 的基线）可以运行 CUDA 13.1 及之后 13.x 编译的程序；同理驱动 535（原生对应 CUDA 12.2）可以运行 CUDA 12.4、12.8 编译的程序。但有两个限制：
 
@@ -648,12 +650,14 @@ devel     ~5–8 GB        + nvcc、头文件、静态库、Nsight 工具链
 
 两条常见路线的层结构（量级）：
 
-```text
-pytorch/pytorch:2.x-cuda12.x-cudnn9-runtime      nvidia/cuda runtime 层 + conda/pip 的 torch 与 nvidia-*-cu12 wheels   ≈ 3–4 GB 压缩
-pytorch/pytorch:2.x-cuda12.x-cudnn9-devel        同上但 devel 基底                                                       ≈ 7–9 GB 压缩
-nvcr.io/nvidia/pytorch:YY.MM-py3（NGC）           devel 基底 + 预编译 apex / TransformerEngine / DALI / 多种工具            ≈ 10 GB 以上
-vllm/vllm-openai:v0.x                            nvidia/cuda 基底 + torch + vllm + flash-attn + xformers …                ≈ 8–12 GB 压缩
-```
+| 镜像 | 层结构 | 体积 |
+|---|---|---|
+| `pytorch/pytorch:2.x-cuda12.x-cudnn9-runtime` | nvidia/cuda runtime 层 + conda/pip 的 torch 与 nvidia-\*-cu12 wheels | ≈ 3–4 GB 压缩 |
+| `pytorch/pytorch:2.x-cuda12.x-cudnn9-devel` | 同上但 devel 基底 | ≈ 7–9 GB 压缩 |
+| `nvcr.io/nvidia/pytorch:YY.MM-py3（NGC）` | devel 基底 + 预编译 apex / TransformerEngine / DALI / 多种工具 | ≈ 10 GB 以上 |
+| `vllm/vllm-openai:v0.x` | nvidia/cuda 基底 + torch + vllm + flash-attn + xformers … | ≈ 8–12 GB 压缩 |
+
+Table: 两条常见路线镜像的层结构与体积（量级）
 
 其中真正的"应用代码"（vLLM 的 Python 包、PyTorch 的 Python 层）只有几百 MB，其余全是第 3、4 层的 CUDA 库与预编译 kernel。这带来两个平台侧的判断：
 

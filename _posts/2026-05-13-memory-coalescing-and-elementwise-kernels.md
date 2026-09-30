@@ -614,12 +614,13 @@ __global__ void elementwise_kernel(int N, func_t f) {
 
 三个 kernel 对比一下：
 
-```text
-kernel                          block  每线程元素   加载方式       边界检查        适用
-vectorized_elementwise_kernel   128    8 (io=1:16)  aligned_vector  只在最后 block  连续且对齐
-unrolled_elementwise_kernel     128    4            标量            每元素          连续但未对齐
-elementwise_kernel (legacy)     128    2 或 4       标量+OffsetCalc 每元素          非连续/广播
-```
+| kernel | block | 每线程元素 | 加载方式 | 边界检查 | 适用 |
+|---|---|---|---|---|---|
+| `vectorized_elementwise_kernel` | 128 | 8 (io=1:16) | aligned_vector | 只在最后 block | 连续且对齐 |
+| `unrolled_elementwise_kernel` | 128 | 4 | 标量 | 每元素 | 连续但未对齐 |
+| `elementwise_kernel (legacy)` | 128 | 2 或 4 | 标量+OffsetCalc | 每元素 | 非连续/广播 |
+
+Table: PyTorch 三个 elementwise kernel 的对比
 
 ### 5. `AT_DISPATCH`：运行期 dtype 到编译期类型
 
@@ -678,11 +679,13 @@ $$
 
 分成三个 elementwise 算子执行：
 
-```text
-kernel 1:  t1 = x + b        读 x, b        写 t1
-kernel 2:  t2 = silu(t1)     读 t1          写 t2
-kernel 3:  out = t2 * y      读 t2, y       写 out
-```
+| kernel | 计算 | 读 | 写 |
+|---|---|---|---|
+| kernel 1: | t1 = x + b | 读 x, b | 写 t1 |
+| kernel 2: | t2 = silu(t1) | 读 t1 | 写 t2 |
+| kernel 3: | out = t2 \* y | 读 t2, y | 写 out |
+
+Table: x + b、silu、× y 拆成三个 elementwise 算子的读写
 
 每个元素共 5 次读、3 次写，BF16 下 $$8 \times 2 = 16$$ 字节。三个 kernel 各自都可以做到 90% 带宽，但**总字节数是 16 B/元素**。
 
@@ -706,11 +709,12 @@ flowchart TB
     A ~~~ B
 ```
 
-```text
-                         读     写     字节/元素(BF16)   相对时间
-三个独立 kernel          5      3      16               1.0
-融合 kernel              3      1       8               0.5
-```
+|  | 读 | 写 | 字节/元素(BF16) | 相对时间 |
+|---|---|---|---|---|
+| 三个独立 kernel | 5 | 3 | 16 | 1.0 |
+| 融合 kernel | 3 | 1 | 8 | 0.5 |
+
+Table: 三个独立 kernel 与融合 kernel 的读写次数、字节数与相对时间
 
 如果中间 tensor 小于 L2（A100 40 MB），`t1` 的写和随后的读可能命中 L2，不走 HBM；但 LLM 激活值随便就是几十到几百 MB，不能指望。此外每个 kernel 还有 launch 开销（几微秒）和启动/收尾阶段带宽利用不足的时间，小 tensor 时这部分比例更高。
 
@@ -1052,15 +1056,16 @@ report("strided (x.t)", bench(lambda: ext.add_strided2d(xt, bias)), 3 * x2.numel
 
 没有实测数字可以照抄——不同型号、频率、功耗墙下带宽都不同——但按文献与经验，A100 上 $$n = 2^{28}$$ 的结果大致落在这些区间：
 
-```text
-版本                 有效带宽占标称峰值       特征
-naive（2 B/线程）     约 60–80%               合并但每指令 64 B，LSU 与指令发射成瓶颈
-vec8（16 B/线程）     约 85–92%               每 warp 一条指令 512 B
-vec8 + grid-stride    约 85–92%               与 vec8 相当或略好 1–3 个百分点
-torch.add (ATen)      约 85–92%               A100 上实际为 vec4（8 B/线程）+ 每线程 8 元素
-strided, xs1 = 1      接近 naive
-strided, x.t()        远低于 10%              最内维 stride 4096，每元素独占一个 sector
-```
+| 版本 | 有效带宽占标称峰值 | 特征 |
+|---|---|---|
+| naive（2 B/线程） | 约 60–80% | 合并但每指令 64 B，LSU 与指令发射成瓶颈 |
+| vec8（16 B/线程） | 约 85–92% | 每 warp 一条指令 512 B |
+| vec8 + grid-stride | 约 85–92% | 与 vec8 相当或略好 1–3 个百分点 |
+| torch.add (ATen) | 约 85–92% | A100 上实际为 vec4（8 B/线程）+ 每线程 8 元素 |
+| strided, xs1 = 1 | 接近 naive |  |
+| strided, x.t() | 远低于 10% | 最内维 stride 4096，每元素独占一个 sector |
+
+Table: A100 上 n = 2^28 各版本 elementwise kernel 的有效带宽（经验区间）
 
 如果 naive 版本就跑到了 85% 以上，大概率是 L2 没冲干净或 tensor 太小；如果 vec8 版本低于 80%，先检查 `nvcc` 有没有真的生成 128-bit 加载（`cuobjdump -sass` 里找 `LDG.E.128`），再看是否触发了对齐回退。
 

@@ -337,16 +337,18 @@ ncclAllReduce
 
 系列的练手项目是一套**通信诊断工具集**，取名 comm-probe。选它是因为通信层的学习几乎全部依赖测量：不亲手测出每段链路的带宽、不亲手复现一次 hang，前面讲的一切都只是名词。它逐篇生长：
 
-```text
-第一篇    cost_model.py              α-β 模型 · ring/tree 预测 · algbw 与 busbw 换算
-第二篇    topo_map.py                解析 nvidia-smi topo / lspci / NUMA · 画拓扑图 · 记录 nvbandwidth 与 ib_write_bw 实测
-第三篇    rdma_write.c               libibverbs 最小 RDMA WRITE · 显存版（GPUDirect RDMA）· 与 ib_write_bw 对照
-第四篇    nccl_log_reader.py         解析 NCCL_DEBUG=INFO 日志 · 提取 ring/tree/channel/算法协议决策 · 与预测比对
-第五篇    overlap_bench.py           计算与通信重叠的 micro-benchmark · profiler trace 检查 · 重叠失效的复现集
-第六篇    sweep.sh · hang_lab/       nccl-tests 扫描与画图 · 三种 hang 的复现与定位剧本 · 排障决策树
-第七篇    tp_ar_bench.py · kv_xfer/  vLLM 各 all_reduce 后端延迟对照 · PD 分离 KV 传输带宽测量
-第八篇    moe_a2a_model.py · a2a_bench.py   all_to_all 的 α-β 模型（网卡 vs NVLink、节点去重、与 DeepEP README 对照）· all_to_all_single 等长 / 变长 / 两步的延迟
-```
+| 篇 | 文件 | 内容 |
+|---|---|---|
+| 第一篇 | cost_model.py | α-β 模型 · ring/tree 预测 · algbw 与 busbw 换算 |
+| 第二篇 | topo_map.py | 解析 nvidia-smi topo / lspci / NUMA · 画拓扑图 · 记录 nvbandwidth 与 ib_write_bw 实测 |
+| 第三篇 | rdma_write.c | libibverbs 最小 RDMA WRITE · 显存版（GPUDirect RDMA）· 与 ib_write_bw 对照 |
+| 第四篇 | nccl_log_reader.py | 解析 NCCL_DEBUG=INFO 日志 · 提取 ring/tree/channel/算法协议决策 · 与预测比对 |
+| 第五篇 | overlap_bench.py | 计算与通信重叠的 micro-benchmark · profiler trace 检查 · 重叠失效的复现集 |
+| 第六篇 | sweep.sh · hang_lab/ | nccl-tests 扫描与画图 · 三种 hang 的复现与定位剧本 · 排障决策树 |
+| 第七篇 | tp_ar_bench.py · kv_xfer/ | vLLM 各 all_reduce 后端延迟对照 · PD 分离 KV 传输带宽测量 |
+| 第八篇 | moe_a2a_model.py · a2a_bench.py | all_to_all 的 α-β 模型（网卡 vs NVLink、节点去重、与 DeepEP README 对照）· all_to_all_single 等长 / 变长 / 两步的延迟 |
+
+Table: comm-probe 逐篇生长的工具
 
 到第八篇结束，读者手上有一套能在任何一台新机器上跑一遍的工具：先画出拓扑，再测每段链路，再跑 nccl-tests 与理论对照，再检查框架侧的重叠与后端选择，MoE 模型再算一遍 all_to_all 的账。它不是一个通信库，但每一次"通信慢了"或"通信卡了"，都能用它在一小时内把问题定位到某一层。
 

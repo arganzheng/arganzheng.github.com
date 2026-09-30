@@ -47,16 +47,17 @@ Table: 本文的章节安排
 
 对写 kernel 的人来说，一个格式只有三件事要紧：多少位、多少位给指数（决定动态范围）、多少位给尾数（决定相对精度）。把常见格式排在一起：
 
-```text
-格式        位  符号/指数/尾数   最大正值          最小正规范值      相对精度 eps (2^-mantissa)
-FP32        32  1 / 8 / 23      3.4e38            1.2e-38           1.2e-7
-FP16        16  1 / 5 / 10      65504             6.1e-5            9.8e-4
-BF16        16  1 / 8 / 7       3.4e38            1.2e-38           7.8e-3
-FP8 E4M3    8   1 / 4 / 3       448（无 inf）      1.6e-2（2^-6）     0.125
-FP8 E5M2    8   1 / 5 / 2       57344             6.1e-5（2^-14）    0.25
-INT8        8   有符号整数        127               —（均匀间隔 1）    绝对误差 0.5 LSB
-INT4        4   有符号整数        7（或 0..15 + zp） —                16 个电平
-```
+| 格式 | 位 | 符号/指数/尾数 | 最大正值 | 最小正规范值 | 相对精度 eps (2^-mantissa) |
+|---|---|---|---|---|---|
+| FP32 | 32 | 1 / 8 / 23 | 3.4e38 | 1.2e-38 | 1.2e-7 |
+| FP16 | 16 | 1 / 5 / 10 | 65504 | 6.1e-5 | 9.8e-4 |
+| BF16 | 16 | 1 / 8 / 7 | 3.4e38 | 1.2e-38 | 7.8e-3 |
+| FP8 E4M3 | 8 | 1 / 4 / 3 | 448（无 inf） | 1.6e-2（2^-6） | 0.125 |
+| FP8 E5M2 | 8 | 1 / 5 / 2 | 57344 | 6.1e-5（2^-14） | 0.25 |
+| INT8 | 8 | 有符号整数 | 127 | —（均匀间隔 1） | 绝对误差 0.5 LSB |
+| INT4 | 4 | 有符号整数 | 7（或 0..15 + zp） | — | 16 个电平 |
+
+Table: 常见数值格式的位分配、范围与相对精度
 
 把位布局画出来（S = 符号，E = 指数位，M = 尾数位）：
 
@@ -976,15 +977,16 @@ kernel 层的改进方向是**不排序**：用 radix select（按位分桶、�
 
 tolerance 的经验表：
 
-```text
-kernel                    参考                              rtol        atol       备注
-BF16 elementwise / norm   FP32 计算再转 BF16                 1.6e-2      1e-5       主要是最后一次舍入
-BF16 GEMM (K=4096)        FP32 matmul                       1.6e-2      1e-3       atol 随输出量级调
-FP8 GEMM                  dequant 后的 FP32 matmul           2e-2        1e-2       E4M3 尾数 3 位
-INT4 W4A16 GEMM           dequant 后的 FP32 matmul           1.6e-2      1e-3       与 BF16 GEMM 同
-动态量化 (absmax)          Python 逐行 absmax / 448 再 cast   scale 精确；量化值允许 1 LSB 差异
-top-k 采样                 排序后的集合相等                    —           —          比较集合而不是顺序
-```
+| kernel | 参考 | rtol | atol | 备注 |
+|---|---|---|---|---|
+| BF16 elementwise / norm | FP32 计算再转 BF16 | 1.6e-2 | 1e-5 | 主要是最后一次舍入 |
+| BF16 GEMM (K=4096) | FP32 matmul | 1.6e-2 | 1e-3 | atol 随输出量级调 |
+| FP8 GEMM | dequant 后的 FP32 matmul | 2e-2 | 1e-2 | E4M3 尾数 3 位 |
+| INT4 W4A16 GEMM | dequant 后的 FP32 matmul | 1.6e-2 | 1e-3 | 与 BF16 GEMM 同 |
+| 动态量化 (absmax) | Python 逐行 absmax / 448 再 cast | — | — | scale 精确；量化值允许 1 LSB 差异 |
+| top-k 采样 | 排序后的集合相等 | — | — | 比较集合而不是顺序 |
+
+Table: 各类 kernel 数值校验的 tolerance 经验表
 
 ## 九、实践：四个 kernel，组装成 decoder layer
 

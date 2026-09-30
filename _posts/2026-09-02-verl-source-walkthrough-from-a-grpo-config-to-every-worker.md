@@ -146,12 +146,14 @@ main_ppo.main(config)
 
 `verl/single_controller/` 只有几个文件，是 HybridFlow 编程模型的全部实现：
 
-```text
-base/worker.py          Worker：每个 GPU 进程里的基类；知道自己的 rank / world_size / master addr；提供 get_availale_master_addr_port 等
-base/worker_group.py    WorkerGroup：一组 worker 的句柄；_bind_worker_method 把 worker 类上带 @register 的方法绑成组方法
-base/decorator.py       @register(dispatch_mode, execute_mode, blocking)；Dispatch / Execute 枚举与各 dispatch_fn / collect_fn
-ray/base.py             RayResourcePool（placement group）· RayClassWithInitArgs · RayWorkerGroup（用 Ray actor 实现 WorkerGroup）· create_colocated_worker_cls
-```
+| 文件 | 内容 |
+|---|---|
+| `base/worker.py` | Worker：每个 GPU 进程里的基类；知道自己的 rank / world_size / master addr；提供 get_availale_master_addr_port 等 |
+| `base/worker_group.py` | WorkerGroup：一组 worker 的句柄；_bind_worker_method 把 worker 类上带 @register 的方法绑成组方法 |
+| `base/decorator.py` | @register(dispatch_mode, execute_mode, blocking)；Dispatch / Execute 枚举与各 dispatch_fn / collect_fn |
+| `ray/base.py` | RayResourcePool（placement group）· RayClassWithInitArgs · RayWorkerGroup（用 Ray actor 实现 WorkerGroup）· create_colocated_worker_cls |
+
+Table: verl/single_controller/ 的四个文件
 
 ### 2. `@register` 做什么
 
@@ -242,15 +244,16 @@ ActorRolloutRefWorker（verl/workers/engine_workers.py）        —— 角色�
 
 ### 3. 三个 `@register` 方法与前六篇的对应
 
-```text
-方法                              分发                         做什么                                    对应
-compute_log_prob(data)            nd_compute("train")          actor.infer_batch → 旧策略 log π          第一篇：重算 2N；第五篇：bypass 时跳过
-compute_ref_log_prob(data)        nd_compute("ref")            ref.to(cuda) → infer → ref.to(cpu)（若 offload）   第三篇：ref 的 8 GB 往返
-update_actor(data)                nd_compute("train"), non-blocking   actor.to(cuda, optimizer=True) → train_batch → to(cpu)   第一篇：6N；第三篇：优化器状态往返
-update_weights(global_steps, mode) ONE_TO_ALL（async）           第一章表的 #4–#9                          第三、四篇
-save_model_to_cpu / restore_model_from_cpu（DetachActorWorker）  ONE_TO_ALL   decoupled PPO 的 π_prox 快照             第五篇
-execute_checkpoint_engine(method)  DP_COMPUTE                   转发给 checkpoint engine（prepare / init_process_group / finalize）   第四篇
-```
+| 方法 | 分发 | 做什么 | 对应 |
+|---|---|---|---|
+| compute_log_prob(data) | nd_compute("train") | actor.infer_batch → 旧策略 log π | 第一篇：重算 2N；第五篇：bypass 时跳过 |
+| compute_ref_log_prob(data) | nd_compute("ref") | ref.to(cuda) → infer → ref.to(cpu)（若 offload） | 第三篇：ref 的 8 GB 往返 |
+| update_actor(data) | nd_compute("train"), non-blocking | actor.to(cuda, optimizer=True) → train_batch → to(cpu) | 第一篇：6N；第三篇：优化器状态往返 |
+| update_weights(global_steps, mode) | ONE_TO_ALL（async） | 第一章表的 #4–#9 | 第三、四篇 |
+| save_model_to_cpu / restore_model_from_cpu（DetachActorWorker） | ONE_TO_ALL | decoupled PPO 的 π_prox 快照 | 第五篇 |
+| execute_checkpoint_engine(method) | DP_COMPUTE | 转发给 checkpoint engine（prepare / init_process_group / finalize） | 第四篇 |
+
+Table: 三个 @register 方法的分发方式与前六篇的对应
 
 ### 4. 引擎的边界
 
@@ -270,11 +273,13 @@ self.checkpoint_manager = CheckpointEngineManager(config=..., actor_wg=self.acto
 
 `LLMServerManager`（`workers/rollout/llm_server.py`）负责三件事：起 replica、起全局负载均衡器、弹性增删 replica。一个 **replica** = 一个推理实例（`workers/rollout/replica.py` 的 `RolloutReplica`），等价于一条 `vllm serve --data-parallel-size ... --tensor-parallel-size 2` 命令；8 卡 TP = 2 就是 4 个 replica。三种初始化：
 
-```text
-init_hybrid(worker_group)          共置：replica 的 workers 就是 hybrid worker 组里对应的那 tp 个 actor（同一进程）；launch_servers 在它们旁边起 vLLM server 进程
-init_colocated(resource_pool)      同池但独立进程（rollout 与训练进程分开、共享 GPU）—— 过渡形态
-init_standalone()                  分离：独立资源池，自己的 placement group；separate_async 用 LLMServerManager.create(start_rank=hybrid_num_replicas) 再起一组
-```
+| 方法 | 含义 |
+|---|---|
+| `init_hybrid(worker_group)` | 共置：replica 的 workers 就是 hybrid worker 组里对应的那 tp 个 actor（同一进程）；launch_servers 在它们旁边起 vLLM server 进程 |
+| `init_colocated(resource_pool)` | 同池但独立进程（rollout 与训练进程分开、共享 GPU）—— 过渡形态 |
+| `init_standalone()` | 分离：独立资源池，自己的 placement group；separate_async 用 LLMServerManager.create(start_rank=hybrid_num_replicas) 再起一组 |
+
+Table: RolloutReplica 的三种初始化方式
 
 `vLLMReplica.launch_servers()` 起的是 `vLLMHttpServer`（`vllm_rollout/vllm_async_server.py`）——一个 Ray actor，内部用 vLLM 的 `AsyncLLM` 引擎（EngineCore 是它的子进程，TP worker 各一个进程）。共置下 vLLM worker 进程与 hybrid worker 进程在同一张卡上：前者的 `vLLMColocateWorkerExtension`（`vllm_rollout/utils.py`，通过 vLLM 的 `worker_extension_cls` 注入）暴露 `update_weights_from_ipc`，后者通过 ZMQ 找到它——第一章表的 #7–#8。
 
@@ -439,16 +444,17 @@ for rollout_id in range(args.start_rollout_id, args.num_rollout):
 
 与 verl 的分歧：
 
-```text
-                     verl                                              slime
-训练后端             FSDP / Megatron / VeOmni / TorchTitan，BaseEngine 抽象     只有 Megatron；Megatron 参数原样透传（--tensor-model-parallel-size 就是 Megatron 的）
-推理后端             vLLM / SGLang / TRT-LLM，RolloutReplica + AsyncServerBase 抽象   只有 SGLang；所有 SGLang 参数加 --sglang- 前缀透传（--sglang-mem-fraction-static）
-控制器               单控制器 + @register 分发；v1 用 TransferQueue              driver 顺序调几个 Ray actor 的方法；Data Buffer 是一个 Ray actor
-权重同步             checkpoint engine 六个后端                                  共置：SGLang update_weights_from_tensor（CUDA IPC）；分离：update_weights_from_distributed（NCCL 广播）；磁盘
-异步                 v1 三种 trainer 模式；replay buffer 的淘汰矩阵               train_async.py：一步流水；fully_async_rollout：流式；staleness 控制在 rollout 函数里
-agent                AgentLoopBase + tool schema + uni-agent 网关               自定义 generate 函数（--rollout-function-path），agent 逻辑就是一个 Python 函数
-模型接入             每个模型家族一张 Megatron-Bridge 映射表 + 引擎适配             同样用 Megatron-Bridge（加一层自己的 patch），只需这一层
-```
+|  | verl | slime |
+|---|---|---|
+| 训练后端 | FSDP / Megatron / VeOmni / TorchTitan，BaseEngine 抽象 | 只有 Megatron；Megatron 参数原样透传（--tensor-model-parallel-size 就是 Megatron 的） |
+| 推理后端 | vLLM / SGLang / TRT-LLM，RolloutReplica + AsyncServerBase 抽象 | 只有 SGLang；所有 SGLang 参数加 --sglang- 前缀透传（--sglang-mem-fraction-static） |
+| 控制器 | 单控制器 + @register 分发；v1 用 TransferQueue | driver 顺序调几个 Ray actor 的方法；Data Buffer 是一个 Ray actor |
+| 权重同步 | checkpoint engine 六个后端 | 共置：SGLang update_weights_from_tensor（CUDA IPC）；分离：update_weights_from_distributed（NCCL 广播）；磁盘 |
+| 异步 | v1 三种 trainer 模式；replay buffer 的淘汰矩阵 | train_async.py：一步流水；fully_async_rollout：流式；staleness 控制在 rollout 函数里 |
+| agent | AgentLoopBase + tool schema + uni-agent 网关 | 自定义 generate 函数（--rollout-function-path），agent 逻辑就是一个 Python 函数 |
+| 模型接入 | 每个模型家族一张 Megatron-Bridge 映射表 + 引擎适配 | 同样用 Megatron-Bridge（加一层自己的 patch），只需这一层 |
+
+Table: verl 与 slime 的分歧
 
 slime 的赌注是：**"少一层抽象"在这类系统里是优点**——Megatron 与 SGLang 各自的新特性（新的并行、新的 kernel、新的量化）不需要 slime 改一行就能用（参数透传），排障时调用栈短、每一步都能对到两个上游的文档。代价是绑定：换 FSDP 或 vLLM 要重写；异步的形态由用户的 rollout 函数决定，框架不提供 staleness 的统一控制；多后端组合（FSDP 训练 + SGLang 推理）不存在。对一个只用 Megatron + SGLang、模型是自家的团队，这个赌注是合理的；verl 的抽象层服务的是"任意组合"的需求，代价是每层抽象都要跟着上游演进（0.9 的 breaking changes 里一半是这类）。
 
@@ -456,15 +462,16 @@ slime 的赌注是：**"少一层抽象"在这类系统里是优点**——Megat
 
 AReaL（蚂蚁，论文 Fu 等 2025）的分歧不在抽象多少，在**哪个形态是默认**：
 
-```text
-                     verl                                              AReaL
-默认形态             sync（共置同步）；异步是 trainer_mode 的两个选项          异步分离；max_head_offpolicyness=0 时退化为同步（文档说"用于调试，通常慢 2 倍"）
-staleness 控制点     消费端：replay buffer 取样时 drop / wait                  准入端：rollout controller 在请求开始时按版本落后量放行 / 阻塞
-生成                 agent loop 协程 → LLM server；abort / resume 是 checkpoint manager 的动作   RolloutWorkflow.arun_episode 协程 → InferenceEngine.agenerate；interruptible generation 是引擎的一等能力
-权重同步             checkpoint engine，update_weights 是 trainer 钩子           WeightUpdateMeta（nccl 或 disk），训练引擎每步 update_weights_to(...)，推理引擎按版本接收；版本对齐是 API 的一部分
-算法                 PPO/GRPO 变体 + rollout_correction（IS / RS）opt-in       decoupled PPO 默认（use_decoupled_loss + recompute_logprobs），三份 logprob
-训练后端             多后端                                                    FSDP2 / Megatron / Archon（自研 MoE 引擎）
-```
+|  | verl | AReaL |
+|---|---|---|
+| 默认形态 | sync（共置同步）；异步是 trainer_mode 的两个选项 | 异步分离；max_head_offpolicyness=0 时退化为同步（文档说"用于调试，通常慢 2 倍"） |
+| staleness 控制点 | 消费端：replay buffer 取样时 drop / wait | 准入端：rollout controller 在请求开始时按版本落后量放行 / 阻塞 |
+| 生成 | agent loop 协程 → LLM server；abort / resume 是 checkpoint manager 的动作 | RolloutWorkflow.arun_episode 协程 → InferenceEngine.agenerate；interruptible generation 是引擎的一等能力 |
+| 权重同步 | checkpoint engine，update_weights 是 trainer 钩子 | WeightUpdateMeta（nccl 或 disk），训练引擎每步 update_weights_to(...)，推理引擎按版本接收；版本对齐是 API 的一部分 |
+| 算法 | PPO/GRPO 变体 + rollout_correction（IS / RS）opt-in | decoupled PPO 默认（use_decoupled_loss + recompute_logprobs），三份 logprob |
+| 训练后端 | 多后端 | FSDP2 / Megatron / Archon（自研 MoE 引擎） |
+
+Table: verl 与 AReaL 的分歧
 
 AReaL 的论点是：一旦接受异步，**系统与算法必须一起设计**——interruptible generation 决定了一条序列由几个版本生成、于是 π_behave 是分段的、于是 loss 必须把 behave 与 prox 分开、于是训练引擎必须每步能算 π_prox；准入控制让缓冲里的 staleness 有上界而不是事后淘汰、于是没有长度偏置、于是不需要 wait 策略。这条推理链在 verl 里也走得通（`separate_async` + `bypass_mode=false` + `wait` 近似它），但要用户自己把选项配对；AReaL 把它做成默认，同步反而是特例。代价是 AReaL 在共置、同步、严格 on-policy 的场景上没有 verl 顺手，用户群也小得多。
 
@@ -498,18 +505,20 @@ OpenRLHF（2023–2024）是最早把 Ray + vLLM 用于 RLHF 的开源实现：a
 
 ### 2. 源码索引
 
-```text
-入口            verl/trainer/main_ppo.py（TaskRunnerV1）· verl/trainer/config/ppo_trainer.yaml
-trainer         verl/trainer/ppo/v1/trainer_base.py（PPOTrainer）· trainer_sync.py · trainer_colocate_async.py · trainer_separate_async.py · replay_buffer.py · agent_loop_tq.py
-单控制器        verl/single_controller/base/decorator.py（@register, Dispatch）· worker_group.py（_bind_worker_method）· ray/base.py（RayResourcePool, RayWorkerGroup, create_colocated_worker_cls）
-worker          verl/workers/engine_workers.py（TrainingWorker, ActorRolloutRefWorker）· verl/workers/engine/{base,fsdp,megatron,veomni}/
-rollout         verl/workers/rollout/replica.py · llm_server.py · vllm_rollout/{vllm_async_server,vllm_rollout,utils,bucketed_weight_transfer}.py · sglang_rollout/
-权重同步        verl/checkpoint_engine/{base,nccl_,nixl_,mooncake_,kimi_,delta_}checkpoint_engine.py · docs/advance/delta_weight_sync.md
-算法            verl/trainer/ppo/core_algos.py · verl/trainer/config/algorithm/rollout_correction.yaml · docs/algo/rollout_corr.md
-agent           verl/experimental/agent_loop/ · verl/tools/base_tool.py · verl/utils/tokenizer/continuous_token_wiring.py
-reward          verl/workers/reward_manager/ · docs/advance/reward_loop.rst
-前身 / 参考      verl/experimental/fully_async_policy/（meituan）· docs/advance/{fully_async,one_step_off,dynamic_schedule,determinism}.md
-```
+| 模块 | 路径 |
+|---|---|
+| 入口 | verl/trainer/main_ppo.py（TaskRunnerV1）· verl/trainer/config/ppo_trainer.yaml |
+| trainer | verl/trainer/ppo/v1/trainer_base.py（PPOTrainer）· trainer_sync.py · trainer_colocate_async.py · trainer_separate_async.py · replay_buffer.py · agent_loop_tq.py |
+| 单控制器 | verl/single_controller/base/decorator.py（@register, Dispatch）· worker_group.py（_bind_worker_method）· ray/base.py（RayResourcePool, RayWorkerGroup, create_colocated_worker_cls） |
+| worker | verl/workers/engine_workers.py（TrainingWorker, ActorRolloutRefWorker）· verl/workers/engine/{base,fsdp,megatron,veomni}/ |
+| rollout | verl/workers/rollout/replica.py · llm_server.py · vllm_rollout/{vllm_async_server,vllm_rollout,utils,bucketed_weight_transfer}.py · sglang_rollout/ |
+| 权重同步 | verl/checkpoint_engine/{base,nccl_,nixl_,mooncake_,kimi_,delta_}checkpoint_engine.py · docs/advance/delta_weight_sync.md |
+| 算法 | verl/trainer/ppo/core_algos.py · verl/trainer/config/algorithm/rollout_correction.yaml · docs/algo/rollout_corr.md |
+| agent | verl/experimental/agent_loop/ · verl/tools/base_tool.py · verl/utils/tokenizer/continuous_token_wiring.py |
+| reward | verl/workers/reward_manager/ · docs/advance/reward_loop.rst |
+| 前身 / 参考 | verl/experimental/fully_async_policy/（meituan）· docs/advance/{fully_async,one_step_off,dynamic_schedule,determinism}.md |
+
+Table: verl 源码索引
 
 ### 3. 下一篇
 

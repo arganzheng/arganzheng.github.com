@@ -351,11 +351,12 @@ $$
 
 ### 4. 代入两个模型
 
-```text
-              d       d_ff     3·d·d_ff              占每层参数
-Llama-3-8B    4096    14336    176,160,768 = 176.16M    80.8%
-Llama-3-70B   8192    28672    704,643,072 = 704.64M    82.3%
-```
+| 模型 | d | d_ff | 3·d·d_ff | 占每层参数 |
+|---|---|---|---|---|
+| Llama-3-8B | 4096 | 14336 | 176,160,768 = 176.16M | 80.8% |
+| Llama-3-70B | 8192 | 28672 | 704,643,072 = 704.64M | 82.3% |
+
+Table: 两个模型的 FFN 参数量与占每层参数的比例
 
 $$d_{ff} / d = 3.5$$，对两个模型都成立。因此 SwiGLU FFN 的参数量可以记成 $$3 \times 3.5 \, d^2 = 10.5 \, d^2$$，比 attention 的 $$2d^2 + 2 d \cdot d_{kv} \approx 2.5 d^2$$ 大 4 倍多。**dense 模型每一层约 80% 的参数在 FFN 里**，这是 MoE 选择把 FFN 而不是 attention 换成专家的直接原因：参数大头在这里，把它"稀疏化"收益最大（第八篇）。
 
@@ -659,12 +660,14 @@ class LlamaAttention(nn.Module):
 
 四个 `nn.Linear` 与 $$W_Q, W_K, W_V, W_O$$ 对应：
 
-```text
-q_proj  in=hidden_size (d)              out=num_attention_heads × head_dim (n_h·d_head)
-k_proj  in=hidden_size (d)              out=num_key_value_heads × head_dim (n_kv·d_head)
-v_proj  in=hidden_size (d)              out=num_key_value_heads × head_dim (n_kv·d_head)
-o_proj  in=num_attention_heads × head_dim  out=hidden_size (d)
-```
+| nn.Linear | in | out |
+|---|---|---|
+| `q_proj` | in=hidden_size (d) | out=num_attention_heads × head_dim (n_h·d_head) |
+| `k_proj` | in=hidden_size (d) | out=num_key_value_heads × head_dim (n_kv·d_head) |
+| `v_proj` | in=hidden_size (d) | out=num_key_value_heads × head_dim (n_kv·d_head) |
+| `o_proj` | in=num_attention_heads × head_dim | out=hidden_size (d) |
+
+Table: 四个 nn.Linear 的输入与输出维度
 
 `num_key_value_groups` 就是 GQA 的 $$g = n_h / n_{kv}$$。forward 里用 `repeat_kv` 把 K、V 沿 head 维复制 $$g$$ 次以匹配 Q 的 head 数（或者交给支持 GQA 的 attention kernel 直接处理，不做物理复制）。
 
@@ -797,12 +800,13 @@ PV     每个 (batch, head)：[S, S] × [S, 128] → [S, 128]     2·S²·128 FL
 
 同一个权重矩阵，在推理的两个阶段面对的 $$m$$ 差别巨大：
 
-```text
-阶段        输入                  m = B·S                 例（B=1, S=8192）
-prefill     [B, S, d]             B × S（成千上万）        m = 8192
-decode      [B, 1, d]             B（batch 大小）          m = 1
-训练        [B, S, d]             B × S                    m = 8 × 8192 = 65536
-```
+| 阶段 | 输入 | m = B·S | 例（B=1, S=8192） |
+|---|---|---|---|
+| prefill | [B, S, d] | B × S（成千上万） | m = 8192 |
+| decode | [B, 1, d] | B（batch 大小） | m = 1 |
+| 训练 | [B, S, d] | B × S | m = 8 × 8192 = 65536 |
+
+Table: prefill、decode 与训练时同一权重矩阵面对的 m
 
 训练的 $$m$$ 最大，而且每个前向 GEMM 在反向传播中对应两个同样大小的 GEMM：一个算对输入的梯度 $$\partial X = \partial Y \, W^\top$$（形状 $$[m, n] \times [n, k]$$），一个算对权重的梯度 $$\partial W = X^\top \partial Y$$（形状 $$[k, m] \times [m, n]$$）。三个 GEMM 的 FLOPs 相同，所以训练每 token 的算量是前向的 3 倍，即每参数 6 FLOPs，这就是训练总算量 $$6ND$$（$$D$$ 为训练 token 数）里的 6 的来源，第十篇会完整推导。注意 $$\partial W$$ 那个 GEMM 的规约维度是 $$m$$ 而不是 $$k$$——它把所有 token 的贡献加起来，这是数据并行中梯度可以按 token 切分再 all-reduce 的数学基础，也是 $$m$$ 很大时累加误差问题（第十一篇）最先出现的地方。
 
@@ -1056,26 +1060,25 @@ Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$
 
 本篇算出的数字：
 
-```text
-                          Llama-3-8B        Llama-3-70B       DeepSeek-V3
-hidden d                  4096              8192              7168
-layers L                  32                80                61（3 dense + 58 MoE）
-n_h / n_kv / d_head       32 / 8 / 128      64 / 8 / 128      128 / MLA / 192（v 128）
-d_ff                      14336             28672             18432 dense / 2048 专家
-vocab                     128256            128256            129280
+|  | Llama-3-8B | Llama-3-70B | DeepSeek-V3 |
+|---|---|---|---|
+| hidden d | 4096 | 8192 | 7168 |
+| layers L | 32 | 80 | 61（3 dense + 58 MoE） |
+| n_h / n_kv / d_head | 32 / 8 / 128 | 64 / 8 / 128 | 128 / MLA / 192（v 128） |
+| d_ff | 14336 | 28672 | 18432 dense / 2048 专家 |
+| vocab | 128256 | 128256 | 129280 |
+| attention 每层 | 41.94M | 151.0M | 约 187M（MLA，第六篇） |
+| FFN 每层 | 176.16M | 704.6M | 396M dense / 11.32B MoE（第八篇） |
+| 每层合计 | 218.1M | 855.7M | — |
+| 所有层 | 6.98B | 68.45B | 约 668B |
+| embedding + lm_head | 1.05B（13.1%） | 2.10B（3.0%） | 1.85B（0.3%） |
+| 总参数 | 8.03B | 70.55B | 约 671B |
+| 每 token 激活参数 | 8.03B | 70.55B | 约 37B（第八篇推导） |
+| 层内 FFN 占比 | 80.8% | 82.3% | — |
+| BF16 权重字节数 | 16.06 GB | 141.1 GB | 1342 GB（FP8 671 GB） |
+| 每 token 权重 GEMM FLOPs | 约 15.0 G | 约 141 G | 约 74 G（第十篇推导） |
 
-attention 每层            41.94M            151.0M            约 187M（MLA，第六篇）
-FFN 每层                  176.16M           704.6M            396M dense / 11.32B MoE（第八篇）
-每层合计                  218.1M            855.7M            —
-所有层                    6.98B             68.45B            约 668B
-embedding + lm_head       1.05B（13.1%）    2.10B（3.0%）     1.85B（0.3%）
-总参数                    8.03B             70.55B            约 671B
-每 token 激活参数         8.03B             70.55B            约 37B（第八篇推导）
-层内 FFN 占比             80.8%             82.3%             —
-
-BF16 权重字节数           16.06 GB          141.1 GB          1342 GB（FP8 671 GB）
-每 token 权重 GEMM FLOPs  约 15.0 G         约 141 G          约 74 G（第十篇推导）
-```
+Table: 本篇算出的数字：三个模型的维度、参数量与形状
 
 最后一行用到的关系是"每参数每 token 2 FLOPs，embedding 查表不计"，即 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs。这是第十篇的起点：有了每个矩阵的形状，就能算每个 GEMM 的 FLOPs 和要搬多少字节，把 prefill 与 decode 放到 Roofline 上，回答"一张 H100 跑 Llama-3-8B，decode 一个 token 最快多少毫秒"。
 

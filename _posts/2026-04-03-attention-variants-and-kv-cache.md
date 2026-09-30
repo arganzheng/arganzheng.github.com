@@ -770,22 +770,23 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 本篇算出的数字：
 
-```text
-                              Llama-3-8B     Llama-3-70B    DeepSeek-V3
-attention 结构                GQA (g=4)      GQA (g=8)      MLA
-n_h / n_kv                    32 / 8         64 / 8         128 / latent
-每层每 token 缓存元素数        2×8×128=2048   2048           512+64=576
-KV bytes/token (BF16)         128 KiB        320 KiB        68.6 KiB
-  若为 MHA                    512 KiB        2.5 MiB        3.81 MiB
-  压缩比（vs MHA）             4×             8×             57×
-KV @ 128K 上下文 (BF16)       16 GiB         40 GiB         8.6 GiB
-KV @ 128K 上下文 (FP8)        8 GiB          20 GiB         4.3 GiB
-decode attention 强度          4 FLOP/byte    8 FLOP/byte    242 FLOP/byte
-8K×batch 64 每步 KV 读取      64 GiB         160 GiB        34 GiB
-H100 放下权重后 KV 容量        ~52 万 token   —（需多卡）     —（需多卡）
-最大并发 @8K（BF16 KV）        59 (1×H100)    185 (8×H100)   1057 (16×H100)
-最大并发 @128K（BF16 KV）      3 (1×H100)     11 (8×H100)    66 (16×H100)
-```
+|  | Llama-3-8B | Llama-3-70B | DeepSeek-V3 |
+|---|---|---|---|
+| attention 结构 | GQA (g=4) | GQA (g=8) | MLA |
+| n_h / n_kv | 32 / 8 | 64 / 8 | 128 / latent |
+| 每层每 token 缓存元素数 | 2×8×128=2048 | 2048 | 512+64=576 |
+| KV bytes/token (BF16) | 128 KiB | 320 KiB | 68.6 KiB |
+| 若为 MHA | 512 KiB | 2.5 MiB | 3.81 MiB |
+| 压缩比（vs MHA） | 4× | 8× | 57× |
+| KV @ 128K 上下文 (BF16) | 16 GiB | 40 GiB | 8.6 GiB |
+| KV @ 128K 上下文 (FP8) | 8 GiB | 20 GiB | 4.3 GiB |
+| decode attention 强度 | 4 FLOP/byte | 8 FLOP/byte | 242 FLOP/byte |
+| 8K×batch 64 每步 KV 读取 | 64 GiB | 160 GiB | 34 GiB |
+| H100 放下权重后 KV 容量 | ~52 万 token | —（需多卡） | —（需多卡） |
+| 最大并发 @8K（BF16 KV） | 59 (1×H100) | 185 (8×H100) | 1057 (16×H100) |
+| 最大并发 @128K（BF16 KV） | 3 (1×H100) | 11 (8×H100) | 66 (16×H100) |
+
+Table: 本篇算出的数字：三个模型的 KV cache 与并发容量
 
 MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出来；而 RoPE 本身——它的频率、波长、为什么 base 从 10000 涨到 500000、外推到 128K 要付什么代价——是下一篇的内容。
 

@@ -26,13 +26,14 @@ updated: 2026-09-14
 
 三种形态在 8B 推理场景下的账：
 
-```text
-                    GPU 划分          生成         前向 + 训练     一步墙钟     全步 MFU    谁在等谁
-共置（同步）        64 轮流           602 s        208 s          810 s        13%        训练器等 rollout 的长尾；推理引擎等训练
-分离（同步）        46 : 18           761 s        740 s         1501 s         7%        两边都在等对方——比共置更差
-分离 + 一步流水     46 : 18           761 s        740 s          761 s        14%        长尾仍在生成侧；训练用上一步的样本
-异步（流式）        42 : 22           619 s        605 s          619 s        17%        没有人等；样本平均过期 < 1 步
-```
+| 形态 | GPU 划分 | 生成 | 前向 + 训练 | 一步墙钟 | 全步 MFU | 谁在等谁 |
+|---|---|---|---|---|---|---|
+| 共置（同步） | 64 轮流 | 602 s | 208 s | 810 s | 13% | 训练器等 rollout 的长尾；推理引擎等训练 |
+| 分离（同步） | 46 : 18 | 761 s | 740 s | 1501 s | 7% | 两边都在等对方——比共置更差 |
+| 分离 + 一步流水 | 46 : 18 | 761 s | 740 s | 761 s | 14% | 长尾仍在生成侧；训练用上一步的样本 |
+| 异步（流式） | 42 : 22 | 619 s | 605 s | 619 s | 17% | 没有人等；样本平均过期 < 1 步 |
+
+Table: 三种形态在 8B 推理场景下的账
 
 三个结论：
 
@@ -42,17 +43,18 @@ updated: 2026-09-14
 
 ### 2. 三种形态是同一张账上的三种交换
 
-```text
-              共置 colocate              分离 disaggregate            异步 async
-复用方式      时分：同一组卡轮流           空分：两个池各做一件事          空分 + 拆掉同步墙
-每阶段卡数    全部                        各自的池                      各自的池
-两段能否重叠  否                          可以（一步流水）               完全重叠
-显存          训练状态与 KV 池轮流占       各占各的                      各占各的
-权重同步      卡内（CUDA IPC）             跨机（NCCL / RDMA）            跨机，且推理引擎在生成中换权重
-长尾          拖住全部卡                  拖住 rollout 池               被吞掉（部分 rollout / 流式）
-样本新鲜度    严格 on-policy              过期 1 步                     过期 0.x–k 步，可控
-新增机制      显存切换（第三篇）            配比 · 跨机同步（第四篇）        staleness · 部分 rollout · 缓冲（第五篇）
-```
+|  | 共置 colocate | 分离 disaggregate | 异步 async |
+|---|---|---|---|
+| 复用方式 | 时分：同一组卡轮流 | 空分：两个池各做一件事 | 空分 + 拆掉同步墙 |
+| 每阶段卡数 | 全部 | 各自的池 | 各自的池 |
+| 两段能否重叠 | 否 | 可以（一步流水） | 完全重叠 |
+| 显存 | 训练状态与 KV 池轮流占 | 各占各的 | 各占各的 |
+| 权重同步 | 卡内（CUDA IPC） | 跨机（NCCL / RDMA） | 跨机，且推理引擎在生成中换权重 |
+| 长尾 | 拖住全部卡 | 拖住 rollout 池 | 被吞掉（部分 rollout / 流式） |
+| 样本新鲜度 | 严格 on-policy | 过期 1 步 | 过期 0.x–k 步，可控 |
+| 新增机制 | 显存切换（第三篇） | 配比 · 跨机同步（第四篇） | staleness · 部分 rollout · 缓冲（第五篇） |
+
+Table: 共置、分离、异步三种形态的逐项对照
 
 后面三篇各解决一种形态带来的新问题；本篇只把三种形态的时间与利用率算清楚。
 
@@ -128,13 +130,14 @@ flowchart TB
 
 verl 里的角色（`Role`）与它们默认落在哪个组：
 
-```text
-角色                 做什么                          默认组                     共置 / 分离
-ActorRolloutRef      actor 训练 + rollout 引擎 + ref  同一个 hybrid worker         共置：三者一组进程
-Critic               价值模型（PPO）                  独立 worker 组               与 actor 同池
-RewardModel          奖励模型（若有）                  独立池或共置                 separate_async 下必须独立池
-Rollout（standalone） 分离形态的推理实例               独立池，rollout.nnodes 指定    分离 / 异步
-```
+| 角色 | 做什么 | 默认组 | 共置 / 分离 |
+|---|---|---|---|
+| ActorRolloutRef | actor 训练 + rollout 引擎 + ref | 同一个 hybrid worker | 共置：三者一组进程 |
+| Critic | 价值模型（PPO） | 独立 worker 组 | 与 actor 同池 |
+| RewardModel | 奖励模型（若有） | 独立池或共置 | separate_async 下必须独立池 |
+| Rollout（standalone） | 分离形态的推理实例 | 独立池，rollout.nnodes 指定 | 分离 / 异步 |
+
+Table: verl 的角色与默认所在的组
 
 `ActorRolloutRef` 是共置形态的具体形状：**一个进程里既有 FSDP 的 actor、又有 vLLM 引擎、还有 ref 模型**，三者轮流占显存——第三篇的主题。分离形态多出的是独立池上的 standalone rollout 实例，通过 checkpoint engine 跨机接收权重——第四篇的主题。
 
@@ -350,13 +353,13 @@ $$\frac{n_r}{n_t} = \frac{T_{gen}^{(64)}}{T_{train}^{(64)}} = \frac{\text{生成
 
 verl v0.9 的 v1 trainer（`verl/trainer/ppo/v1/`，本版本起默认启用）把三种形态做成同一个 `PPOTrainer` 基类的三个子类，`trainer.v1.trainer_mode` 选择：
 
-```text
-模式                形态                          rollout 实例在哪        权重同步          样本
-sync                共置同步                       与 actor 同一组进程     naive（进程内）    整批，严格 on-policy
-colocate_async      共置 + 流式 + 部分 rollout      同上                   naive             流式缓冲，staleness ≤ 阈值
-separate_async      分离 + 流式 + 部分 rollout      独立池（standalone），  nccl / nixl /     同上
-                    + 训练池兼职 rollout（hybrid）   训练池上另有 hybrid    mooncake / delta
-```
+| 模式 | 形态 | rollout 实例在哪 | 权重同步 | 样本 |
+|---|---|---|---|---|
+| `sync` | 共置同步 | 与 actor 同一组进程 | naive（进程内） | 整批，严格 on-policy |
+| `colocate_async` | 共置 + 流式 + 部分 rollout | 同上 | naive | 流式缓冲，staleness ≤ 阈值 |
+| `separate_async` | 分离 + 流式 + 部分 rollout + 训练池兼职 rollout（hybrid） | 独立池（standalone），训练池上另有 hybrid | nccl / nixl / mooncake / delta | 同上 |
+
+Table: verl v1 trainer 的三种 trainer_mode
 
 三个子类共享 `fit()` 与 `_step_once()`（第二章第 2 节那十来行），差别只在几个**钩子**：
 
@@ -476,15 +479,17 @@ Table: RL 系统形态的决策表
 
 ### 2. 公式速查
 
-```text
-共置墙钟          T_gen + T_fwd + T_train + T_switch + T_sync            T_gen = T_thr + T_tail
-共置全步 MFU      Σ(T_i · η_i) / Σ T_i
-分离（同步）       T_gen(n_r) + T_train(n_t)                              比共置差
-分离 + 一步流水    max(T_thr·n/n_r + T_tail,  T_train·n/n_t) + T_sync
-异步（流式）       T_thr + T_train（最优配比下）  ≈ 共置 − 长尾
-最优配比           n_r / n_t = T_gen^(n) / T_train^(n)     异步用 T_thr，一步流水用 T_thr + T_tail
-长尾占比           f = T_tail / (T_thr + T_tail)          异步收益 ≈ 1 / (1 − f · T_gen/(T_gen + T_train))
-```
+| 项 | 公式 | 说明 |
+|---|---|---|
+| 共置墙钟 | T_gen + T_fwd + T_train + T_switch + T_sync | T_gen = T_thr + T_tail |
+| 共置全步 MFU | Σ(T_i · η_i) / Σ T_i |  |
+| 分离（同步） | T_gen(n_r) + T_train(n_t) | 比共置差 |
+| 分离 + 一步流水 | max(T_thr·n/n_r + T_tail, T_train·n/n_t) + T_sync |  |
+| 异步（流式） | T_thr + T_train（最优配比下） | ≈ 共置 − 长尾 |
+| 最优配比 | n_r / n_t = T_gen^(n) / T_train^(n) | 异步用 T_thr，一步流水用 T_thr + T_tail |
+| 长尾占比 | f = T_tail / (T_thr + T_tail) | 异步收益 ≈ 1 / (1 − f · T_gen/(T_gen + T_train)) |
+
+Table: 三种形态的墙钟、MFU 与配比公式速查
 
 ### 3. 下一篇
 

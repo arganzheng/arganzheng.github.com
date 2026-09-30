@@ -582,18 +582,15 @@ Scheduler 不需要等待 A、B、C 全部完成。
 
 只要还有预算，就可以继续接纳 D，D 拿到剩下的 110。最终：
 
-```text title='一轮 512 预算在 A、B、C、D 间的分配'
-┌─────────────────────────────────────────────┐
-│          Token Budget = 512                 │
-├─────────────────────────────────────────────┤
-│ Request A：Prefill       400 tokens         │
-│ Request B：Decode          1 token          │
-│ Request C：Decode          1 token          │
-│ Request D：Prefill       110 tokens         │
-├─────────────────────────────────────────────┤
-│ Total                    512 tokens         │
-└─────────────────────────────────────────────┘
-```
+| 请求 | 阶段 | token |
+|---|---|---|
+| Request A | Prefill | 400 tokens |
+| Request B | Decode | 1 token |
+| Request C | Decode | 1 token |
+| Request D | Prefill | 110 tokens |
+| Total |  | 512 tokens |
+
+Table: 一轮 512 预算在 A、B、C、D 间的分配
 
 这就是一个典型的 Mixed Batch。
 
@@ -947,18 +944,15 @@ Table: 一轮 batch 里的请求构成示例
 
 于是这一轮：
 
-```text title='一轮 512 预算里 Prefill、Decode、Speculative 共存'
-┌─────────────────────────────────────────────┐
-│             Token Budget = 512              │
-├─────────────────────────────────────────────┤
-│ A：Prefill Chunk       256 tokens           │
-│ B：Decode                1 token            │
-│ C：Speculative           5 tokens           │
-│ D：Prefill              250 tokens           │
-├─────────────────────────────────────────────┤
-│ Total                   512 tokens           │
-└─────────────────────────────────────────────┘
-```
+| 请求 | 阶段 | token |
+|---|---|---|
+| A | Prefill Chunk | 256 tokens |
+| B | Decode | 1 token |
+| C | Speculative | 5 tokens |
+| D | Prefill | 250 tokens |
+| Total |  | 512 tokens |
+
+Table: 一轮 512 预算里 Prefill、Decode、Speculative 共存
 
 这就是 Mixed Batch。
 

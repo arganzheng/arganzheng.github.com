@@ -1201,11 +1201,13 @@ Table: 几个容易混淆的名字
 
 本文沿着 `torch.compile` 走完了训练场景下的 JIT 路径。第七章 §7 的表已经说明，同样的 Dynamo → FX → AOTAutograd → Inductor 组件还能组成另一条 AOT 路径：
 
-```text
-训练 / 研究     torch.compile     JIT · 允许 graph break · 产物留在 Python 进程内 · 每次进程启动重新编译（有缓存）
-部署 / 推理     torch.export      AOT · 必须整图捕获 · 产物 ExportedProgram 可序列化
-                AOTInductor       在 export 之上由 Inductor 生成 C++ 与 Kernel，编成共享库，C++ 运行时直接加载
-```
+| 场景 | 入口 | 特点 |
+|---|---|---|
+| 训练 / 研究 | torch.compile | JIT · 允许 graph break · 产物留在 Python 进程内 · 每次进程启动重新编译（有缓存） |
+| 部署 / 推理 | torch.export | AOT · 必须整图捕获 · 产物 ExportedProgram 可序列化 |
+|  | AOTInductor | 在 export 之上由 Inductor 生成 C++ 与 Kernel，编成共享库，C++ 运行时直接加载 |
+
+Table: 训练/研究与部署/推理两条路径的入口与特点
 
 两条路径的分歧只在对 graph break 的态度，共享的部分远多于不同的部分。推理引擎通常会在这套组件上做更多事：vLLM 用 `torch.compile` 配合 CUDA Graphs 消除 decode 阶段的 launch 开销，并用自定义 Inductor pass 融合注意力周边的算子——这些属于 Serving 系统的话题，本系列不展开。
 

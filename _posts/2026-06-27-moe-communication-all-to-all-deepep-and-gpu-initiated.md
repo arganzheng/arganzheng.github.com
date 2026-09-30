@@ -100,13 +100,14 @@ Table: 本文的章节安排
 
 一个 token 被 dispatch 时产生 $$k$$ 份拷贝，每份的字节数取决于 dtype：
 
-```text
-每份拷贝                                   H = 7168
-BF16                    H × 2                                 14,336 B
-FP8 + per-128 scale     H × 1 + (H / 128) × 4                 7,168 + 224 = 7,392 B
-DeepEP LL 的消息        再加 16 B 的 int4 头（源 token 下标）    7,408 B（FP8）/ 14,352 B（BF16）
-combine（BF16）         H × 2                                 14,336 B
-```
+| 每份拷贝 | 字节数计算 | 字节数 |
+|---|---|---|
+| BF16 | H × 2 | 14,336 B |
+| FP8 + per-128 scale | H × 1 + (H / 128) × 4 | 7,168 + 224 = 7,392 B |
+| DeepEP LL 的消息 | 再加 16 B 的 int4 头（源 token 下标） | 7,408 B（FP8）/ 14,352 B（BF16） |
+| combine（BF16） | H × 2 | 14,336 B |
+
+Table: 一份 dispatch 拷贝的字节数随 dtype 的变化（H = 7168）
 
 FP8 dispatch 的 scale 布局来自 DeepEP：`Buffer.dispatch` 的文档要求 FP8 输入是一个二元组，第二项形状 `[num_tokens, hidden // 128]`、dtype `torch.float`；low-latency kernel 在 kernel 内部做转换，`internode_ll.cu` 的 `dispatch` 模板参数 `kUseFP8` 为真时每个 warp 对 128 个通道求 amax、算 scale、转 FP8，消息大小 `num_bytes_per_msg = sizeof(int4) + kHidden + num_scales * sizeof(float)`。combine 一律 BF16（low-latency 有一个可选的 10 bit LogFMT 压缩，`use_logfmt`），因为加权求和要在接收端做，精度不能再降。
 

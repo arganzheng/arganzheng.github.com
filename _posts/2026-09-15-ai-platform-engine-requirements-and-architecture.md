@@ -271,16 +271,18 @@ Kubernetes 原生的 HPA 以 CPU 与内存利用率为默认信号。对推理�
 
 真正能说明负载的数字在引擎内部。vLLM v0.28.0 的 `vllm/v1/metrics/loggers.py` 里 `PrometheusStatLogger` 定义的指标中，与扩缩容和路由直接相关的是：
 
-```text
-vllm:num_requests_running          正在 decode 的请求数
-vllm:num_requests_waiting          在等待队列里的请求数           ← 扩容的主信号
-vllm:kv_cache_usage_perc           KV cache 使用比例 0–1           ← 饱和度；路由的副本选择依据
-vllm:prefix_cache_hits / _queries  prefix cache 命中与查询次数     ← 同前缀请求去同副本的收益
-vllm:num_preemptions               因显存不足被抢占（重算）的请求数
-vllm:time_to_first_token_seconds   TTFT 直方图
-vllm:inter_token_latency_seconds   TPOT 直方图
-vllm:request_queue_time_seconds    请求在队列里等了多久
-```
+| 指标 | 含义 | 与扩缩容 / 路由的关系 |
+|---|---|---|
+| `vllm:num_requests_running` | 正在 decode 的请求数 |  |
+| `vllm:num_requests_waiting` | 在等待队列里的请求数 | 扩容的主信号 |
+| `vllm:kv_cache_usage_perc` | KV cache 使用比例 0–1 | 饱和度；路由的副本选择依据 |
+| `vllm:prefix_cache_hits / _queries` | prefix cache 命中与查询次数 | 同前缀请求去同副本的收益 |
+| `vllm:num_preemptions` | 因显存不足被抢占（重算）的请求数 |  |
+| `vllm:time_to_first_token_seconds` | TTFT 直方图 |  |
+| `vllm:inter_token_latency_seconds` | TPOT 直方图 |  |
+| `vllm:request_queue_time_seconds` | 请求在队列里等了多久 |  |
+
+Table: vLLM 与扩缩容和路由直接相关的 Prometheus 指标
 
 平台要做的是把这些指标从每个副本采出来、聚合、接到扩缩容控制器（KEDA 的 Prometheus scaler 或 HPA 的 external metrics）和路由器（Endpoint Picker 直接抓每个副本的 `/metrics`）。这条链路上每个环节——采集周期、聚合方式、阈值——都会影响扩容延迟和路由质量。指标由引擎定义、由平台消费，是引擎与交付层之间的接口，第六、七、八篇反复用到。
 

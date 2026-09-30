@@ -51,12 +51,13 @@ $$N_{FFN} = 3 \cdot d \cdot d_{ff}$$
 
 每个参数在前向中参与一次乘加，即每 token 每参数 2 FLOPs，所以一层 FFN 对一个 token 的算量是 $$2 \cdot 3 d d_{ff} = 6 d d_{ff}$$。代入三个 dense 基线：
 
-```text
-                      d        d_ff      3·d·d_ff        每 token FLOPs
-Llama-3-8B            4096     14336     176.16M         352.3 MFLOPs
-Llama-3-70B           8192     28672     704.6M          1.409 GFLOPs
-DeepSeek-V3 dense 层  7168     18432     396.4M          792.7 MFLOPs
-```
+| 模型 | d | d_ff | 3·d·d_ff | 每 token FLOPs |
+|---|---|---|---|---|
+| Llama-3-8B | 4096 | 14336 | 176.16M | 352.3 MFLOPs |
+| Llama-3-70B | 8192 | 28672 | 704.6M | 1.409 GFLOPs |
+| DeepSeek-V3 dense 层 | 7168 | 18432 | 396.4M | 792.7 MFLOPs |
+
+Table: 三个 dense 基线一层 FFN 的参数量与每 token FLOPs
 
 Llama-3-70B 每层 attention 151.0M、FFN 704.6M，FFN 占每层参数的 82%；80 层合计 68.45B，加 embedding 与 lm_head 2.10B，总计 70.55B。dense 模型中 FFN 是参数的大头，也是 MoE 要改造的部分。
 
@@ -171,11 +172,12 @@ class MoELayer(nn.Module):
 
 两个基线模型代表了 MoE 设计的两种粒度：
 
-```text
-                     E（路由专家）  d_ff（专家）  k     共享专家   每专家参数      每 token 激活的 FFN 参数
-Mixtral 8x7B         8             14336         2     0          176.16M         352.3M
-DeepSeek-V3          256           2048          8     1          44.04M          9 × 44.04M = 396.4M
-```
+| 模型 | E（路由专家） | d_ff（专家） | k | 共享专家 | 每专家参数 | 每 token 激活的 FFN 参数 |
+|---|---|---|---|---|---|---|
+| Mixtral 8x7B | 8 | 14336 | 2 | 0 | 176.16M | 352.3M |
+| DeepSeek-V3 | 256 | 2048 | 8 | 1 | 44.04M | 9 × 44.04M = 396.4M |
+
+Table: Mixtral 8x7B 与 DeepSeek-V3 的 MoE 粒度
 
 两者每 token 激活的 FFN 参数量相近（352M 与 396M），但 DeepSeek-V3 把它切成了 9 份而不是 2 份。DeepSeek-V2 的论文（DeepSeek-AI 2024）称之为 fine-grained expert segmentation，理由是组合数：
 
@@ -219,15 +221,17 @@ $$58 \times 11.32\text{B} = 656.5\text{B}$$
 
 **MLA attention。** DeepSeek-V3 用 MLA（第六篇有完整推导），每层的权重是六个矩阵：
 
-```text
-W_DQ    7168 × 1536     11.01M    q 的下投影
-W_UQ    1536 × 24576    37.75M    q 的上投影，24576 = 128 头 × 192
-W_DKV   7168 × 576       4.13M    kv 的联合下投影，576 = d_c 512 + d_h^R 64
-W_UK     512 × 16384     8.39M    k 的上投影，16384 = 128 头 × 128
-W_UV     512 × 16384     8.39M    v 的上投影
-W_O    16384 × 7168    117.44M    输出投影
-合计                   187.1M
-```
+| 矩阵 | 形状 | 参数量 | 含义 |
+|---|---|---|---|
+| W_DQ | 7168 × 1536 | 11.01M | q 的下投影 |
+| W_UQ | 1536 × 24576 | 37.75M | q 的上投影，24576 = 128 头 × 192 |
+| W_DKV | 7168 × 576 | 4.13M | kv 的联合下投影，576 = d_c 512 + d_h^R 64 |
+| W_UK | 512 × 16384 | 8.39M | k 的上投影，16384 = 128 头 × 128 |
+| W_UV | 512 × 16384 | 8.39M | v 的上投影 |
+| W_O | 16384 × 7168 | 117.44M | 输出投影 |
+| 合计 |  | 187.1M |  |
+
+Table: DeepSeek-V3 MLA 每层的六个权重矩阵
 
 61 层 $$\times$$ 187.1M = 11.41B。
 
@@ -304,14 +308,15 @@ $$N_{read}(B) = N_{always} + 58 \times \mathbb{E}[\text{激活专家数}](B) \ti
 
 其中 $$N_{always} = 671 - 653.9 \approx 17\text{B}$$（其中 embedding 0.93B 严格说只查表读一行，这里不细扣）。代入：
 
-```text
-B        期望激活专家    路由专家读取量     每步读取参数量    FP8 字节数
-1            8.0           20.4B             37.6B            37.6 GB
-8           57.4          146.6B            163.8B           164 GB
-32         163.3          417.1B            434.3B           434 GB
-128        251.6          642.7B            659.8B           660 GB
-512        256.0          653.9B            671.0B           671 GB
-```
+| B | 期望激活专家 | 路由专家读取量 | 每步读取参数量 | FP8 字节数 |
+|---|---|---|---|---|
+| 1 | 8.0 | 20.4B | 37.6B | 37.6 GB |
+| 8 | 57.4 | 146.6B | 163.8B | 164 GB |
+| 32 | 163.3 | 417.1B | 434.3B | 434 GB |
+| 128 | 251.6 | 642.7B | 659.8B | 660 GB |
+| 512 | 256.0 | 653.9B | 671.0B | 671 GB |
+
+Table: 不同 batch 下 DeepSeek-V3 每步读取的参数量
 
 对照 Llama-3-70B：无论 batch 多大，每步读 70.55B 参数，BF16 141 GB。
 
@@ -341,15 +346,16 @@ B        期望激活专家    路由专家读取量     每步读取参数量  
 
 把不同 EP 规模下每卡的权重占用列出来。**这是一个简化模型**：FP8，路由专家均匀分布，非专家部分（attention、dense 层、共享专家）约 17 GB 按在每卡复制算。DeepSeek-V3 报告 3.4 节的真实部署与它有几处不同：attention 用 TP4 + 序列并行再做数据并行（prefill DP8、decode DP80），不是整份复制；共享专家在 decode 时**也当作一个路由目标**放在专门的卡上，每 token 实际选 9 个专家（8 路由 + 1 共享）；320 卡里 64 卡专门托管冗余专家与共享专家。所以下表 EP320 行的 19.6 GB 是简化模型的数，不是实况——实况里每卡权重更少、通信多一份。
 
-```text
-EP 规模    每卡每层路由专家数    每卡路由专家权重    每卡权重合计    剩余显存（80 GB 卡）
-1          256                  654 GB             671 GB         放不下
-8          32                   81.7 GB            98.7 GB        放不下
-16         16                   40.9 GB            57.9 GB        22 GB
-32         8                    20.4 GB            37.4 GB        43 GB
-64         4                    10.2 GB            27.2 GB        53 GB
-320        1（256 + 64 冗余副本） 2.6 GB           19.6 GB        60 GB
-```
+| EP 规模 | 每卡每层路由专家数 | 每卡路由专家权重 | 每卡权重合计 | 剩余显存（80 GB 卡） |
+|---|---|---|---|---|
+| 1 | 256 | 654 GB | 671 GB | 放不下 |
+| 8 | 32 | 81.7 GB | 98.7 GB | 放不下 |
+| 16 | 16 | 40.9 GB | 57.9 GB | 22 GB |
+| 32 | 8 | 20.4 GB | 37.4 GB | 43 GB |
+| 64 | 4 | 10.2 GB | 27.2 GB | 53 GB |
+| 320 | 1（256 + 64 冗余副本） | 2.6 GB | 19.6 GB | 60 GB |
+
+Table: 不同 EP 规模下每卡的权重占用（简化模型）
 
 （EP320 一行的"256 + 64"是按报告的卡数做的简化：真实配置是 256 个路由专家各一卡、另外 64 卡放冗余副本与共享专家，attention 部分另做 TP4 × DP80。）
 
@@ -399,29 +405,34 @@ dispatch 的 all-to-all 矩阵：行 = 发送方（token 所在卡），列 = �
 
 每个 token 发给每个专家的是一个长度 $$d = 7168$$ 的向量。DeepSeek-V3 的做法是 dispatch 用 FP8、combine 用 BF16（combine 要做加权求和，精度要求更高）：
 
-```text
-dispatch  每 token 每专家   7168 × 1 B = 7168 B  = 7 KiB
-combine   每 token 每专家   7168 × 2 B = 14336 B = 14 KiB
-```
+| 阶段 | 单位 | 字节数 |
+|---|---|---|
+| dispatch | 每 token 每专家 | 7168 × 1 B = 7168 B = 7 KiB |
+| combine | 每 token 每专家 | 7168 × 2 B = 14336 B = 14 KiB |
+
+Table: dispatch 与 combine 每 token 每专家的字节数
 
 top-8：
 
-```text
-dispatch  每 token 每层   8 × 7 KiB  = 56 KiB
-combine   每 token 每层   8 × 14 KiB = 112 KiB
-合计      每 token 每层   168 KiB
-58 层     每 token       9744 KiB ≈ 9.5 MiB
-```
+| 阶段 | 单位 | 字节数 |
+|---|---|---|
+| dispatch | 每 token 每层 | 8 × 7 KiB = 56 KiB |
+| combine | 每 token 每层 | 8 × 14 KiB = 112 KiB |
+| 合计 | 每 token 每层 | 168 KiB |
+| 58 层 | 每 token | 9744 KiB ≈ 9.5 MiB |
+
+Table: top-8 下每 token 每层与全部 58 层的 all-to-all 字节数
 
 严格说要扣掉恰好落在本卡的那部分：$$N$$ 卡均匀分布时约 $$1/N$$ 的专家在本地，EP32 时扣 3%，EP320 时扣 0.3%，可以忽略。
 
 乘上 batch。一张卡持有 $$B_{local}$$ 个 token 时，每层要发出并收回 $$B_{local} \times 168$$ KiB：
 
-```text
-B_local     每层 all-to-all 字节     58 层合计      按 50 GB/s（IB）的传输时间下界
-32          5.25 MiB                 305 MiB        6.4 ms
-128         21 MiB                   1.19 GiB       25 ms
-```
+| B_local | 每层 all-to-all 字节 | 58 层合计 | 按 50 GB/s（IB）的传输时间下界 |
+|---|---|---|---|
+| 32 | 5.25 MiB | 305 MiB | 6.4 ms |
+| 128 | 21 MiB | 1.19 GiB | 25 ms |
+
+Table: 每卡 B_local 个 token 时的 all-to-all 字节数与传输时间下界
 
 prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch + combine 共 $$4096 \times 168\text{ KiB} = 672$$ MiB，58 层 38 GiB。在 EP32 下这 4096 个 token 分摊在 32 张卡上，每卡每层收发 21 MiB、58 层 1.2 GiB；若全部走 50 GB/s 的 IB，每卡传输时间下界约 26 ms。而这 4096 个 token 的算量是 $$4096 \times 74\text{ GFLOPs} \approx 303$$ TFLOP，在 32 张 H100 上按 FP8 60% MFU 大约 8 ms。通信是计算的 3 倍以上——这说明 EP 下的 prefill 如果不把 all-to-all 与计算充分重叠、不把大部分流量留在 NVLink 域内，通信会主导时间。DeepSeek-V3 的节点受限路由（下一节）和 EP32 只跨 4 个节点的配置，都是在压这个比例。
 
@@ -533,14 +544,15 @@ $$\frac{T \cdot k}{E}$$
 
 个 token。代入：
 
-```text
-                        T        k     E      每专家平均行数 Tk/E    dense FFN 的 M
-DeepSeek-V3 prefill     4096     8     256    128                   4096
-DeepSeek-V3 decode      32       8     256    1                     32
-DeepSeek-V3 decode      128      8     256    4                     128
-Mixtral prefill         4096     2     8      1024                  4096
-Mixtral decode          32       2     8      8                     32
-```
+| 场景 | T | k | E | 每专家平均行数 Tk/E | dense FFN 的 M |
+|---|---|---|---|---|---|
+| DeepSeek-V3 prefill | 4096 | 8 | 256 | 128 | 4096 |
+| DeepSeek-V3 decode | 32 | 8 | 256 | 1 | 32 |
+| DeepSeek-V3 decode | 128 | 8 | 256 | 4 | 128 |
+| Mixtral prefill | 4096 | 2 | 8 | 1024 | 4096 |
+| Mixtral decode | 32 | 2 | 8 | 8 | 32 |
+
+Table: MoE 专家 GEMM 的每专家平均行数与 dense FFN 的 M
 
 DeepSeek-V3 prefill 4096 token，每个专家只有 128 行；decode batch 32，每个专家平均 1 行。同样的 token 数，dense FFN 是一个 M = 4096 的大 GEMM，MoE 是 256 个 M = 128 的小 GEMM。
 

@@ -1148,31 +1148,29 @@ groups:
 
 **`dash/panels.md`**：Grafana 面板清单，一行一块，按三层排。不给 JSON dashboard（太长且与 Grafana 版本耦合），给查询：
 
-```text
-行 1  任务层（按 job）
-  step 进度            max by (job)(train_step)                                       单位 none；右轴 time() - train_last_step_completed_timestamp_seconds
-  loss                 avg by (job)(train_loss)；min/max 作阴影                        对数轴可选
-  grad norm            avg by (job)(train_grad_norm)；阈值线 = 裁剪阈值 1.0
-  MFU / TFLOPS         avg by (job)(train_mfu)；阈值线 = 基准 × 0.85 与 × 0.95           单位 percent
-  step 时间            quantile by (job)(0.5, train_step_time_s) 与 0.95；p95/p50 比值   单位 s；比值 > 1.2 标红
-  token/s              sum by (job)(train_tps)
-  checkpoint           train_ckpt_duration_s（柱）；increase(train_ckpt_failed_total)   单位 s
-  有效训练时间          avg_over_time(train_effective_fraction[24h])                    单位 percent；阈值线 0.85 / 0.90
-行 2  进程层（按 rank，热力图或 topk）
-  step 时间热力图        train_step_time_s                                              rank 为 y 轴；颜色 = 相对 p50
-  阶段时间 topk          topk(5, train_span_seconds{name="fwd_bwd"})；同 optim / fetching_batch
-  显存                  train_mem_reserved_peak · train_mem_allocated_peak · train_mem_inactive_split   单位 bytes；每 rank 一线或 max/min
-  分配器重试            increase(train_num_alloc_retries[1h]) by rank                   > 0 标红
-  数据等待              train_data_wait_s / train_step_time_s by rank                   单位 percent
-行 3  硬件层（按 Hostname, gpu）
-  SM 时钟               DCGM_FI_DEV_SM_CLOCK；阈值线 1500 MHz                            单位 MHz
-  温度 / 功耗           DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_POWER_USAGE
-  Tensor core 活跃      DCGM_FI_PROF_PIPE_TENSOR_ACTIVE                                  与 MFU 同趋势；某卡显著低标红
-  错误计数              increase(DCGM_FI_DEV_XID_ERRORS[1h]) · ECC_DBE · ROW_REMAP_PENDING · NVLINK_*_ERROR · PCIE_REPLAY_COUNTER   表格，非 0 标红
-  NVLink 流量           DCGM_FI_PROF_NVLINK_TX_BYTES by gpu                               同一节点 8 卡应对称
-行 4  事件
-  重启 / checkpoint / 告警 注解（annotations）叠在行 1 的所有图上                          用 Loki 或 Alertmanager 作注解源
-```
+| 层 | 面板 | 查询 | 显示 |
+|---|---|---|---|
+| 任务层（按 job） | step 进度 | max by (job)(train_step) | 单位 none；右轴 time() - train_last_step_completed_timestamp_seconds |
+| 任务层（按 job） | loss | avg by (job)(train_loss)；min/max 作阴影 | 对数轴可选 |
+| 任务层（按 job） | grad norm | avg by (job)(train_grad_norm)；阈值线 = 裁剪阈值 1.0 |  |
+| 任务层（按 job） | MFU / TFLOPS | avg by (job)(train_mfu)；阈值线 = 基准 × 0.85 与 × 0.95 | 单位 percent |
+| 任务层（按 job） | step 时间 | quantile by (job)(0.5, train_step_time_s) 与 0.95；p95/p50 比值 | 单位 s；比值 > 1.2 标红 |
+| 任务层（按 job） | token/s | sum by (job)(train_tps) |  |
+| 任务层（按 job） | checkpoint | train_ckpt_duration_s（柱）；increase(train_ckpt_failed_total) | 单位 s |
+| 任务层（按 job） | 有效训练时间 | avg_over_time(train_effective_fraction[24h]) | 单位 percent；阈值线 0.85 / 0.90 |
+| 进程层（按 rank，热力图或 topk） | step 时间热力图 | train_step_time_s | rank 为 y 轴；颜色 = 相对 p50 |
+| 进程层（按 rank，热力图或 topk） | 阶段时间 topk | topk(5, train_span_seconds{name="fwd_bwd"})；同 optim / fetching_batch |  |
+| 进程层（按 rank，热力图或 topk） | 显存 | train_mem_reserved_peak · train_mem_allocated_peak · train_mem_inactive_split | 单位 bytes；每 rank 一线或 max/min |
+| 进程层（按 rank，热力图或 topk） | 分配器重试 | increase(train_num_alloc_retries[1h]) by rank | > 0 标红 |
+| 进程层（按 rank，热力图或 topk） | 数据等待 | train_data_wait_s / train_step_time_s by rank | 单位 percent |
+| 硬件层（按 Hostname, gpu） | SM 时钟 | DCGM_FI_DEV_SM_CLOCK；阈值线 1500 MHz | 单位 MHz |
+| 硬件层（按 Hostname, gpu） | 温度 / 功耗 | DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_POWER_USAGE |  |
+| 硬件层（按 Hostname, gpu） | Tensor core 活跃 | DCGM_FI_PROF_PIPE_TENSOR_ACTIVE | 与 MFU 同趋势；某卡显著低标红 |
+| 硬件层（按 Hostname, gpu） | 错误计数 | increase(DCGM_FI_DEV_XID_ERRORS[1h]) · ECC_DBE · ROW_REMAP_PENDING · NVLINK_\*_ERROR · PCIE_REPLAY_COUNTER | 表格，非 0 标红 |
+| 硬件层（按 Hostname, gpu） | NVLink 流量 | DCGM_FI_PROF_NVLINK_TX_BYTES by gpu | 同一节点 8 卡应对称 |
+| 事件 | 重启 / checkpoint / 告警 | 注解（annotations）叠在任务层（行 1）的所有图上 | 用 Loki 或 Alertmanager 作注解源 |
+
+Table: dash/panels.md：Grafana 面板清单（按任务层、进程层、硬件层、事件排）
 
 **`chaos/fr_hang_drill.py`**：8 卡 hang 演练。目的不是测 FR 能不能工作，而是**测你的部署能不能拿到 dump 并读懂它**。脚本让 rank 5 在第 3 步发起一个与其他 rank 不同的集合通信（`--mode size`：同样 all_reduce 但尺寸不同；`--mode skip`：干脆不发，直接进下一次），超时设成 30 秒，dump 路径指到当前目录的 `fr_dumps/`：
 

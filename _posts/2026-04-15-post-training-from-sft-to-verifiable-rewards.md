@@ -297,16 +297,14 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 与它平行的源码与资料阅读线：
 
-```text
-第一篇    Ouyang 等 2022（InstructGPT）· Zhou 等 2023（LIMA）· Hu 等 2021（LoRA）· Dettmers 等 2023（QLoRA）· Llama 3 与 Tülu 3 报告的 SFT 章节 · trl 的 SFTTrainer 源码
-第二篇    Bradley & Terry 1952 · Stiennon 等 2020 · Bai 等 2022（HH-RLHF、Constitutional AI / RLAIF）· Cui 等 2023（UltraFeedback）· Gao 等 2022（reward hacking 的 scaling）
-第三篇    Schulman 等 2017（PPO）· Schulman 等 2015（GAE）· Shao 等 2024（DeepSeekMath，GRPO）· Ahmadian 等 2024（RLOO）· Yu 等 2025（DAPO）· Liu 等 2025（Dr. GRPO）· Zheng 等 2025（GSPO）· trl 的 GRPOTrainer 与 verl 的 rollout / 训练循环
-第四篇    Rafailov 等 2023（DPO）· Azar 等 2023（IPO）· Ethayarajh 等 2024（KTO）· Hong 等 2024（ORPO）· Meng 等 2024（SimPO）· Llama 3 报告的 DPO 章节
-第五篇    DeepSeek-AI 2025（R1）· Lambert 等 2024（Tülu 3，RLVR）· Lightman 等 2023（PRM）· Snell 等 2024（test-time compute）· Qwen3 与 Kimi K2 报告的后训练章节
-第六篇    Yao 等 2022（ReAct）· Schick 等 2023（Toolformer）· Wei 等 2025（SWE-RL）· Jin 等 2025（Search-R1）· Feng 等 2025（ReTool）· Kimi K2 报告的 Agent 数据合成章节 · verl 的多轮 rollout 与 agent loop
-第七篇    Hinton 等 2015 · Kim & Rush 2016（序列级）· Gu 等 2023（MiniLLM）· Agarwal 等 2023（GKD）· R1 报告的蒸馏章节 · Gemma 2 报告
-第八篇    Hendrycks 等 2020（MMLU）· Cobbe 等 2021（GSM8K）· Zheng 等 2023（MT-Bench 与 judge 的偏差）· Chiang 等 2024（Chatbot Arena）· Zhou 等 2023（IFEval）· Yao 等 2024（τ-bench）· lm-evaluation-harness 源码
-```
+- **第一篇**：Ouyang 等 2022（InstructGPT）· Zhou 等 2023（LIMA）· Hu 等 2021（LoRA）· Dettmers 等 2023（QLoRA）· Llama 3 与 Tülu 3 报告的 SFT 章节 · trl 的 SFTTrainer 源码
+- **第二篇**：Bradley & Terry 1952 · Stiennon 等 2020 · Bai 等 2022（HH-RLHF、Constitutional AI / RLAIF）· Cui 等 2023（UltraFeedback）· Gao 等 2022（reward hacking 的 scaling）
+- **第三篇**：Schulman 等 2017（PPO）· Schulman 等 2015（GAE）· Shao 等 2024（DeepSeekMath，GRPO）· Ahmadian 等 2024（RLOO）· Yu 等 2025（DAPO）· Liu 等 2025（Dr. GRPO）· Zheng 等 2025（GSPO）· trl 的 GRPOTrainer 与 verl 的 rollout / 训练循环
+- **第四篇**：Rafailov 等 2023（DPO）· Azar 等 2023（IPO）· Ethayarajh 等 2024（KTO）· Hong 等 2024（ORPO）· Meng 等 2024（SimPO）· Llama 3 报告的 DPO 章节
+- **第五篇**：DeepSeek-AI 2025（R1）· Lambert 等 2024（Tülu 3，RLVR）· Lightman 等 2023（PRM）· Snell 等 2024（test-time compute）· Qwen3 与 Kimi K2 报告的后训练章节
+- **第六篇**：Yao 等 2022（ReAct）· Schick 等 2023（Toolformer）· Wei 等 2025（SWE-RL）· Jin 等 2025（Search-R1）· Feng 等 2025（ReTool）· Kimi K2 报告的 Agent 数据合成章节 · verl 的多轮 rollout 与 agent loop
+- **第七篇**：Hinton 等 2015 · Kim & Rush 2016（序列级）· Gu 等 2023（MiniLLM）· Agarwal 等 2023（GKD）· R1 报告的蒸馏章节 · Gemma 2 报告
+- **第八篇**：Hendrycks 等 2020（MMLU）· Cobbe 等 2021（GSM8K）· Zheng 等 2023（MT-Bench 与 judge 的偏差）· Chiang 等 2024（Chatbot Arena）· Zhou 等 2023（IFEval）· Yao 等 2024（τ-bench）· lm-evaluation-harness 源码
 
 
 ## 前置要求与说明

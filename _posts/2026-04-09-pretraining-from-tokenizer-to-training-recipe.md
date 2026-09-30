@@ -214,13 +214,11 @@ flowchart TB
 
 源码与资料阅读线：
 
-```text
-第一篇    Common Crawl 的 WET 格式说明 · Rae 等 2021（Gopher 过滤规则）· Raffel 等 2020（C4 的行级规则）· Hoffmann 等 2022（iso-FLOP）· nanoGPT 源码
-第二篇    Sennrich 等 2016（BPE）· Radford 等 2019（GPT-2 的 byte-level BPE）· Kudo 2018（Unigram）· Tao 等 2024（词表的 scaling law）· Llama 3 论文的 tokenizer 一节
-第三篇    Kaplan 等 2020 · Hoffmann 等 2022（Chinchilla）· Besiroglu 等 2024（重拟合）· Sardana & Frankle 2023（推理感知）· Muennighoff 等 2023（数据受限）· Llama 3 论文的 scaling law 一节
-第四篇    Penedo 等 2024（FineWeb）· Li 等 2024（DCLM）· Rae 等 2021（Gopher 的过滤规则）· Lee 等 2021（去重）· Broder 1997（MinHash）· Llama 3 与 DeepSeek-V3 的数据章节
-第五篇    McCandlish 等 2018（梯度噪声尺度）· Yang 等 2022（μP）· Wortsman 等 2023（小规模复现不稳定）· Chowdhery 等 2022（PaLM 的 z-loss 与 spike 处理）· OLMo 2 · Llama 3 / DeepSeek-V3 / Kimi K2 报告的训练配方
-```
+- **第一篇**：Common Crawl 的 WET 格式说明 · Rae 等 2021（Gopher 过滤规则）· Raffel 等 2020（C4 的行级规则）· Hoffmann 等 2022（iso-FLOP）· nanoGPT 源码
+- **第二篇**：Sennrich 等 2016（BPE）· Radford 等 2019（GPT-2 的 byte-level BPE）· Kudo 2018（Unigram）· Tao 等 2024（词表的 scaling law）· Llama 3 论文的 tokenizer 一节
+- **第三篇**：Kaplan 等 2020 · Hoffmann 等 2022（Chinchilla）· Besiroglu 等 2024（重拟合）· Sardana & Frankle 2023（推理感知）· Muennighoff 等 2023（数据受限）· Llama 3 论文的 scaling law 一节
+- **第四篇**：Penedo 等 2024（FineWeb）· Li 等 2024（DCLM）· Rae 等 2021（Gopher 的过滤规则）· Lee 等 2021（去重）· Broder 1997（MinHash）· Llama 3 与 DeepSeek-V3 的数据章节
+- **第五篇**：McCandlish 等 2018（梯度噪声尺度）· Yang 等 2022（μP）· Wortsman 等 2023（小规模复现不稳定）· Chowdhery 等 2022（PaLM 的 z-loss 与 spike 处理）· OLMo 2 · Llama 3 / DeepSeek-V3 / Kimi K2 报告的训练配方
 
 第一篇的端到端流水线（`pretrain_e2e/`）、后四篇的脚本（`llm_cost_09` 到 `llm_cost_12`，各自独立可运行）与独立实验保存在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)，与成本表八篇的脚本同一目录，附每个脚本的完整输出。
 

@@ -655,13 +655,15 @@ for i, x in enumerate(loader):
 
 FSDP 每 step 通信 3P，其中 2P 是 all_gather 参数（bf16，`param_dtype`），P 是 reduce_scatter 梯度（`reduce_dtype`，fp32 时字节数翻倍）。以 7B 模型、8 卡为例：
 
-```text
-all_gather × 2     2 × 7e9 × 2 B = 28 GB
-reduce_scatter     7e9 × 4 B     = 28 GB（fp32 归约）
-每 rank 每 step    56 GB 逻辑量；ring 实际每 rank 发送 (N-1)/N × 56 ≈ 49 GB（N=8），接收同量
-NVLink 300 GB/s    ≈ 190 ms（按 56 GB 粗算；这里的 300 GB/s 是 all_reduce 的总线带宽口径，已含 ring 的倍数）
-IB 50 GB/s/GPU     ≈ 1.1 s
-```
+| 项 | 量 |
+|---|---|
+| all_gather × 2 | 2 × 7e9 × 2 B = 28 GB |
+| reduce_scatter | 7e9 × 4 B = 28 GB（fp32 归约） |
+| 每 rank 每 step | 56 GB 逻辑量；ring 实际每 rank 发送 (N-1)/N × 56 ≈ 49 GB（N=8），接收同量 |
+| NVLink 300 GB/s | ≈ 190 ms（按 56 GB 粗算；这里的 300 GB/s 是 all_reduce 的总线带宽口径，已含 ring 的倍数） |
+| IB 50 GB/s/GPU | ≈ 1.1 s |
+
+Table: 7B 模型 8 卡 FSDP 每 step 的通信量与传输时间
 
 （同一个 7B 模型用 DDP：fp32 梯度 all_reduce = 7e9 × 4 B × 2 = 56 GB——与上面 FSDP 的字节数一样多。§3 说的"3P 对 2P"是元素数，字节账取决于 dtype 配置。）
 
@@ -1558,13 +1560,15 @@ Table: 微服务与 SPMD 训练的对照
 
 本文的主线在数据库领域有精确对应：
 
-```text
-复制（DDP）           读副本：每个节点一份完整数据，写入时同步（all_reduce ≈ 同步复制）；扩展读吞吐，不扩展容量
-分片（FSDP / TP）     分库分表：每个节点 1/N 数据，跨分片查询要聚合（all_gather ≈ scatter-gather 查询）；扩展容量，代价是跨分片通信
-HSDP                  分片 + 每个分片多副本：Kafka 的 partition × replica、Elasticsearch 的 shard × replica
-TP 的列/行并行        按列分区的表做 join：分区键对齐时 join 不需要 shuffle（列并行 → 行并行无通信），否则要 shuffle（all_reduce）
-EP                    按 key 路由到不同分片处理（all_to_all ≈ shuffle by key），热 key 导致的分片倾斜 ≈ expert 负载不均
-```
+| 并行策略 | 数据库领域的对应 |
+|---|---|
+| 复制（DDP） | 读副本：每个节点一份完整数据，写入时同步（all_reduce ≈ 同步复制）；扩展读吞吐，不扩展容量 |
+| 分片（FSDP / TP） | 分库分表：每个节点 1/N 数据，跨分片查询要聚合（all_gather ≈ scatter-gather 查询）；扩展容量，代价是跨分片通信 |
+| HSDP | 分片 + 每个分片多副本：Kafka 的 partition × replica、Elasticsearch 的 shard × replica |
+| TP 的列/行并行 | 按列分区的表做 join：分区键对齐时 join 不需要 shuffle（列并行 → 行并行无通信），否则要 shuffle（all_reduce） |
+| EP | 按 key 路由到不同分片处理（all_to_all ≈ shuffle by key），热 key 导致的分片倾斜 ≈ expert 负载不均 |
+
+Table: 并行策略与数据库概念的对应
 
 Kafka consumer group 是 DistributedSampler 的对应物：一个 topic 的 partition 被 group 内的 consumer 互不重叠地分走。`set_epoch` 忘调，就像每次 rebalance 都用同一种分配。
 

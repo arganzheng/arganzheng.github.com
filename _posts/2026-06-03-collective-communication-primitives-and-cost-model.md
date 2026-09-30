@@ -129,13 +129,11 @@ send / recv                            点对点：一个 rank 发、一个 rank
 
 八个原语之间有两组关系。第一组是**组合**：
 
-```text title='原语之间的组合关系'
-all_reduce      = reduce_scatter + all_gather        ← ring all_reduce 的基础，第五章
-all_reduce      = reduce + broadcast                 ← tree all_reduce 的基础，第六章
-all_gather      = n 次 broadcast（每次换一个 root）
-reduce_scatter  = reduce + scatter
-all_to_all      = n 次 scatter（每次换一个 root）
-```
+- `all_reduce = reduce_scatter + all_gather`——ring all_reduce 的基础，第五章
+- `all_reduce = reduce + broadcast`——tree all_reduce 的基础，第六章
+- `all_gather = n 次 broadcast`（每次换一个 root）
+- `reduce_scatter = reduce + scatter`
+- `all_to_all = n 次 scatter`（每次换一个 root）
 
 第一条是本篇最重要的等式。reduce_scatter 之后每个 rank 持有结果的 $$1/n$$（且已经归约完），再 all_gather 把这 $$n$$ 段拼起来，每个 rank 就有了完整结果。它的重要性在于两个子操作都是**带宽最优**的：每个 rank 只需收发 $$\frac{n-1}{n}S$$ 字节，而不需要任何 rank 接收全部 $$n$$ 份数据。
 

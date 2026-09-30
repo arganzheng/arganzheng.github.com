@@ -478,32 +478,31 @@ $$
 
 三个模型贯穿第二、三段：**Llama-3-8B** 与 **Llama-3-70B** 代表 dense + GQA 的主流结构，**DeepSeek-V3** 代表 MLA + 细粒度 MoE + FP8 的另一条路线；Mixtral 8x7B 在 MoE 一篇作为粗粒度专家的对照；第十三篇加入 LLaVA-1.5、Qwen2-VL、Llama-3.2-Vision 三个多模态模型，把"一张图"作为一行放进同一张表。每篇算出的数字都会填进同一张表，读者在第十三篇结束时手上有一张这些模型在 H100 上的完整成本对照。表的骨架大致如下（BF16，H100 SXM，数字为理论值）：
 
-```text
-                        Llama-3-8B        Llama-3-70B       DeepSeek-V3
-参数量                   8.03B             70.6B             671B（激活 37B）
-权重字节数（BF16）        16.1 GB           141 GB            1342 GB（FP8 为 671 GB）
-每 token 权重 FLOPs      ~15 GFLOPs        ~141 GFLOPs       ~74 GFLOPs
-KV cache / token         128 KiB           320 KiB           68.6 KiB
-128K 上下文的 KV cache    16 GiB            40 GiB            8.6 GiB
-batch 1 decode 时间下界   4.8 ms（单卡）     不能单卡           不能单卡
-```
+|  | Llama-3-8B | Llama-3-70B | DeepSeek-V3 |
+|---|---|---|---|
+| 参数量 | 8.03B | 70.6B | 671B（激活 37B） |
+| 权重字节数（BF16） | 16.1 GB | 141 GB | 1342 GB（FP8 为 671 GB） |
+| 每 token 权重 FLOPs | ~15 GFLOPs | ~141 GFLOPs | ~74 GFLOPs |
+| KV cache / token | 128 KiB | 320 KiB | 68.6 KiB |
+| 128K 上下文的 KV cache | 16 GiB | 40 GiB | 8.6 GiB |
+| batch 1 decode 时间下界 | 4.8 ms（单卡） | 不能单卡 | 不能单卡 |
+
+Table: 贯穿全系列的三个模型：参数量、权重字节、FLOPs 与 KV cache
 
 脚本的价值不在这几个数字本身，而在换一个模型、换一张卡、换一种精度之后能立刻重算。
 
 与它平行的源码与资料阅读线：
 
-```text
-第一至四篇  d2l 10.7 · Karpathy nanoGPT（model.py、train.py）· transformers modeling_gpt2.py · Radford 等 2019（GPT-2）
-第五篇    transformers  modeling_llama.py · Llama-3 的 config.json
-第十篇    Kaplan 等 2020 与 Hoffmann 等 2022（scaling laws）的 FLOPs 估算；Korthikanti 等 2022（激活重算）
-第六篇    Shazeer 2019（MQA）· Ainslie 等 2023（GQA）· DeepSeek-V2 论文的 MLA 章节 · FlashAttention 论文的 IO 复杂度分析
-第七篇    Su 等 2021（RoPE）· Chen 等 2023（Position Interpolation）· Peng 等 2023（YaRN）· Press 等 2021（ALiBi）
-第八篇    Fedus 等 2021（Switch Transformer）· Mixtral 与 DeepSeek-V3 的技术报告 · transformers 的 modeling_deepseek_v3.py
-第九篇    Gloeckle 等 2024（多 token 预测）· DeepSeek-V3 技术报告的 MTP 章节
-第十一篇    Micikevicius 等 2017（混合精度）· Micikevicius 等 2022（FP8 格式）· DeepSeek-V3 技术报告的 FP8 训练章节
-第十二篇    Frantar 等 2022（GPTQ）· Lin 等 2023（AWQ）· Xiao 等 2022（SmoothQuant）· Leviathan 等 2023（投机解码）· Hu 等 2021（LoRA）
-第十三篇    Dosovitskiy 等 2020（ViT）· Liu 等 2023（LLaVA-1.5）· Qwen2-VL 与 Qwen2.5-VL 技术报告 · Alayrac 等 2022（Flamingo）· Llama 3.2 Vision 与 InternVL2 的 config.json
-```
+- **第一至四篇**：d2l 10.7 · Karpathy nanoGPT（model.py、train.py）· transformers modeling_gpt2.py · Radford 等 2019（GPT-2）
+- **第五篇**：transformers modeling_llama.py · Llama-3 的 config.json
+- **第十篇**：Kaplan 等 2020 与 Hoffmann 等 2022（scaling laws）的 FLOPs 估算；Korthikanti 等 2022（激活重算）
+- **第六篇**：Shazeer 2019（MQA）· Ainslie 等 2023（GQA）· DeepSeek-V2 论文的 MLA 章节 · FlashAttention 论文的 IO 复杂度分析
+- **第七篇**：Su 等 2021（RoPE）· Chen 等 2023（Position Interpolation）· Peng 等 2023（YaRN）· Press 等 2021（ALiBi）
+- **第八篇**：Fedus 等 2021（Switch Transformer）· Mixtral 与 DeepSeek-V3 的技术报告 · transformers 的 modeling_deepseek_v3.py
+- **第九篇**：Gloeckle 等 2024（多 token 预测）· DeepSeek-V3 技术报告的 MTP 章节
+- **第十一篇**：Micikevicius 等 2017（混合精度）· Micikevicius 等 2022（FP8 格式）· DeepSeek-V3 技术报告的 FP8 训练章节
+- **第十二篇**：Frantar 等 2022（GPTQ）· Lin 等 2023（AWQ）· Xiao 等 2022（SmoothQuant）· Leviathan 等 2023（投机解码）· Hu 等 2021（LoRA）
+- **第十三篇**：Dosovitskiy 等 2020（ViT）· Liu 等 2023（LLaVA-1.5）· Qwen2-VL 与 Qwen2.5-VL 技术报告 · Alayrac 等 2022（Flamingo）· Llama 3.2 Vision 与 InternVL2 的 config.json
 
 第一段的五个脚本、`llm_cost.py` 的八版（每篇一版，各自独立可运行）与各篇的独立实验（RoPE、最小 MoE 层、浮点格式、MTP）保存在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)，附每个脚本的完整输出。
 

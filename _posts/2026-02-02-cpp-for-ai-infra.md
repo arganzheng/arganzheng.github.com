@@ -398,16 +398,14 @@ Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这�
 
 与它平行的是源码阅读线。每篇的"回到源码"部分带读者读真实项目的一到三处代码：
 
-```text
-第一篇    c10/CMakeLists.txt · torch/csrc/stub.c · setup.py 的库依赖
-第二篇    c10/util/intrusive_ptr.h · c10/core/TensorImpl.h · c10/core/StorageImpl.h · c10/core/Allocator.h
-第三篇    ATen/Dispatch.h · c10/util/ArrayRef.h · c10/util/SmallVector.h
-第四篇    ATen/core/boxing/KernelFunction.h · ATen/core/dispatch/OperatorEntry.h · ATen/core/ivalue.h
-第五篇    torch/library.h · c10/macros/Macros.h · c10/macros/Export.h · 一个 torchgen 生成文件
-第六篇    c10/core/impl/LocalDispatchKeySet.h · c10/core/DeviceGuard.h · ATen/Parallel.h · ATen/cpu/vec/
-第七篇    torch/csrc/autograd/python_variable.cpp · torch/csrc/utils/pybind.h · vLLM csrc/torch_bindings.cpp
-第八篇    c10/test/util/intrusive_ptr_test.cpp · tools/gdb/pytorch-gdb.py · .clang-tidy
-```
+- **第一篇**：c10/CMakeLists.txt · torch/csrc/stub.c · setup.py 的库依赖
+- **第二篇**：c10/util/intrusive_ptr.h · c10/core/TensorImpl.h · c10/core/StorageImpl.h · c10/core/Allocator.h
+- **第三篇**：ATen/Dispatch.h · c10/util/ArrayRef.h · c10/util/SmallVector.h
+- **第四篇**：ATen/core/boxing/KernelFunction.h · ATen/core/dispatch/OperatorEntry.h · ATen/core/ivalue.h
+- **第五篇**：torch/library.h · c10/macros/Macros.h · c10/macros/Export.h · 一个 torchgen 生成文件
+- **第六篇**：c10/core/impl/LocalDispatchKeySet.h · c10/core/DeviceGuard.h · ATen/Parallel.h · ATen/cpu/vec/
+- **第七篇**：torch/csrc/autograd/python_variable.cpp · torch/csrc/utils/pybind.h · vLLM csrc/torch_bindings.cpp
+- **第八篇**：c10/test/util/intrusive_ptr_test.cpp · tools/gdb/pytorch-gdb.py · .clang-tidy
 
 mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra)（目前是第二篇的部分：`intrusive_ptr` / `Allocator` / `StorageImpl` / `TensorImpl` / `Tensor` 与 14 个值语义例子，`make run` 一键编译运行），后续各篇的文件会加到同一目录。
 

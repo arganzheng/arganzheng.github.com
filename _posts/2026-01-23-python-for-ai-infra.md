@@ -119,13 +119,15 @@ Table: Python 系列七篇的主题与解决的问题
 
 这一篇的必要性在于：Python 里很多"看起来简单"的写法，背后都是可替换的机制。
 
-```text
-import mypackage.backends     可能触发算子注册、插件发现、CUDA 扩展加载
-model(x)                      实际调用的是 __call__
-with torch.inference_mode()   上下文管理协议
-for batch in loader           迭代器与生成器协议
-super().__init__()            并不简单等于"调用父类方法"，取决于 MRO
-```
+| 写法 | 背后的机制 |
+|---|---|
+| `import mypackage.backends` | 可能触发算子注册、插件发现、CUDA 扩展加载 |
+| `model(x)` | 实际调用的是 `__call__` |
+| `with torch.inference_mode()` | 上下文管理协议 |
+| `for batch in loader` | 迭代器与生成器协议 |
+| `super().__init__()` | 并不简单等于"调用父类方法"，取决于 MRO |
+
+Table: 五种常见写法背后的可替换机制
 
 不理解这些机制，就只能把 AI-Infra 源码当成黑盒；理解之后，才能看出一个框架为什么这样设计。
 

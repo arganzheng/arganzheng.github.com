@@ -39,15 +39,13 @@ flowchart TB
 
 三个原因、三组信号、三种处理：
 
-```text
-原因           机制                                   事前要记的信号                                   处理
-staleness     样本由 k 步前的权重生成，ρ 偏离 1；        每条样本 (生成版本, 训练版本)；staleness 分布      staleness 上限（drop / wait）；
-              drop 策略偏向短回答                       被 drop 样本的长度 vs 全体；clip 触发比例          decoupled loss；k 调小、同步调频
-训推不一致     推理引擎与训练器算的 log π 不同           逐 token |log π_rollout − log π_train| 的均值 / 最大  重算 old_log_prob；TIS / MIS；
-              （kernel、精度、reduce 顺序、MoE 路由）    序列级比值分布；MoE 的专家命中一致率                统一精度（FP16）；确定性
-缓冲淘汰       DAPO 过滤、失败组、过期 drop、补发          每类淘汰的计数；被淘汰组的 reward / 长度分布；        调阈值；wait 代替 drop；
-              改变了进入训练的分布                        缓冲深度；被训练样本的长度分布 vs 生成的            按 reward 分层监控
-```
+| 原因 | 机制 | 事前要记的信号 | 处理 |
+|---|---|---|---|
+| staleness | 样本由 k 步前的权重生成，ρ 偏离 1；drop 策略偏向短回答 | 每条样本 (生成版本, 训练版本)；staleness 分布；被 drop 样本的长度 vs 全体；clip 触发比例 | staleness 上限（drop / wait）；decoupled loss；k 调小、同步调频 |
+| 训推不一致 | 推理引擎与训练器算的 log π 不同（kernel、精度、reduce 顺序、MoE 路由） | 逐 token \|log π_rollout − log π_train\| 的均值 / 最大；序列级比值分布；MoE 的专家命中一致率 | 重算 old_log_prob；TIS / MIS；统一精度（FP16）；确定性 |
+| 缓冲淘汰 | DAPO 过滤、失败组、过期 drop、补发改变了进入训练的分布 | 每类淘汰的计数；被淘汰组的 reward / 长度分布；缓冲深度；被训练样本的长度分布 vs 生成的 | 调阈值；wait 代替 drop；按 reward 分层监控 |
+
+Table: off-policy 的三个原因、要记的信号与处理
 
 三个原因在 reward 曲线上不可分，在这些信号上可分：staleness 涨、不一致不变、淘汰不变——是 $$k$$ 太大或同步太慢；不一致涨（尤其换了 FP8 或 MoE 后）——与异步无关，同步形态下也会有，只是异步让它更难被发现；淘汰计数涨、被训练样本变短——是规则在筛数据。**没有事前记录，这三者事后无法区分**，因为它们都表现为"重要性比偏离 1 + reward 斜率变缓"。
 
@@ -55,12 +53,13 @@ staleness     样本由 k 步前的权重生成，ρ 偏离 1；        每条�
 
 在线 RL 假设训练的样本来自当前策略。异步系统里有三处偏离：
 
-```text
-来源            偏离的方向                        大小                              是否可控
-时间（staleness） π_old = π_{θ_{t−k}}，与 π_θ 差 k 步更新   随 k、学习率、步内更新次数增长        可控：k 上限、同步频率
-实现（训推不一致） π_rollout ≠ π_train，同一权重不同实现    dense 每 token 1e-3 量级；MoE 1e-2 起   部分可控：精度、kernel、确定性
-筛选（淘汰规则）  训练分布 ≠ 生成分布                     取决于过滤比例                      可控：规则与阈值
-```
+| 来源 | 偏离的方向 | 大小 | 是否可控 |
+|---|---|---|---|
+| 时间（staleness） | π_old = π_{θ_{t−k}}，与 π_θ 差 k 步更新 | 随 k、学习率、步内更新次数增长 | 可控：k 上限、同步频率 |
+| 实现（训推不一致） | π_rollout ≠ π_train，同一权重不同实现 | dense 每 token 1e-3 量级；MoE 1e-2 起 | 部分可控：精度、kernel、确定性 |
+| 筛选（淘汰规则） | 训练分布 ≠ 生成分布 | 取决于过滤比例 | 可控：规则与阈值 |
+
+Table: 异步系统里训练样本偏离当前策略的三处来源
 
 第二个来源在同步形态下**也存在**——这是第一篇说"多数框架默认重算旧策略 logprob"的原因；异步把它放大是因为异步系统更倾向于**不重算**（省下 2N 的前向、且 π_old 在部分 rollout 下本来就是分段的），直接用推理侧的 $$\log \pi$$ 当 $$\pi_{old}$$，于是不一致直接进了重要性比。
 
@@ -88,12 +87,13 @@ Table: 本文的章节安排
 
 三个框架对"上限"的定义不同：
 
-```text
-框架 / 配置                                   定义                                              默认 / 建议
-verl v1  trainer.v1.sampler.max_off_policy_threshold   一条轨迹跨越的版本数上限（int）                 8
-AReaL    rollout.max_head_offpolicyness                 新请求开始时，允许落后当前版本的最大步数        0 = 同步；建议 2–8
-meituan fully_async  async_training.staleness_threshold  过期样本占一次同步周期样本数的比例（float）      < 1；0 = 同步
-```
+| 框架 | 配置 | 定义 | 默认 / 建议 |
+|---|---|---|---|
+| verl v1 | trainer.v1.sampler.max_off_policy_threshold | 一条轨迹跨越的版本数上限（int） | 8 |
+| AReaL | rollout.max_head_offpolicyness | 新请求开始时，允许落后当前版本的最大步数 | 0 = 同步；建议 2–8 |
+| meituan fully_async | async_training.staleness_threshold | 过期样本占一次同步周期样本数的比例（float） | < 1；0 = 同步 |
+
+Table: 三个框架对 staleness 上限的定义
 
 verl 的是**按轨迹**的版本跨度、在消费时检查；AReaL 的是**准入**时检查（版本落后太多的请求不让开始）；meituan 的是**按比例**（一个周期里最多生成 $$(1 + \text{threshold}) \times$$ 需要量的样本，多出来的是"预生成的过期样本"）。三者控制的是同一个量的不同侧面，第九章对照。
 
@@ -176,12 +176,13 @@ verl 的 `separate_async` trainer 实现了它，用的手段很直接（`traine
 
 第一篇算过重算旧策略 logprob 是一步 FLOP 的六分之一、时间的 8%。异步下的三个选项：
 
-```text
-选项                                      π_old 来自          多付的前向    修正了什么              没修正什么
-重算（verl 默认 recompute_log_prob）        训练器当前版本前向   2N           训推不一致（π_old 与 π_θ 同一实现）  staleness（π_old 不是采样分布）
-不重算（bypass_mode / use_rollout_log_probs） 推理引擎记录        0            staleness（π_old 就是采样分布）      训推不一致（直接进比值）
-decoupled（3 份 logprob）                  推理侧 + 快照前向    2N + 快照往返  两者都修正                     快照往返的时间
-```
+| 选项 | π_old 来自 | 多付的前向 | 修正了什么 | 没修正什么 |
+|---|---|---|---|---|
+| 重算（verl 默认 recompute_log_prob） | 训练器当前版本前向 | 2N | 训推不一致（π_old 与 π_θ 同一实现） | staleness（π_old 不是采样分布） |
+| 不重算（bypass_mode / use_rollout_log_probs） | 推理引擎记录 | 0 | staleness（π_old 就是采样分布） | 训推不一致（直接进比值） |
+| decoupled（3 份 logprob） | 推理侧 + 快照前向 | 2N + 快照往返 | 两者都修正 | 快照往返的时间 |
+
+Table: 异步下 π_old 的三个选项
 
 注意"重算"在部分 rollout 下是**错**的（第三章第 3 节），所以异步系统默认不重算，然后用第五章的方法处理不一致。verl 的 `rollout_correction.bypass_mode=true` 是"两份 logprob"模式、`false` 是"三份"模式；文档里写明 `bypass_mode=False` + 部分 rollout 时的实现"近似 AReaL 的 decoupled PPO"。
 
@@ -336,20 +337,21 @@ Table: 三个典型模式
 
 ### 1. verl 的落点
 
-```text
-机制                    落点                                                   配置
-staleness 上限          ReplayBufferAsync._stale_terminal_keys（drop）           trainer.v1.sampler.max_off_policy_threshold（8）
-                        ReplayBufferAsync._has_enough_samples（wait 阻塞）        trainer.v1.sampler.max_off_policy_strategy（drop | wait）
-部分 rollout            CheckpointEngineManager.update_weights：abort → … → resume；agent loop 续接   colocate_async / separate_async 内置
-decoupled PPO           PPOTrainerSeparateAsync._compute_old_log_prob：save/restore_model_from_cpu   algorithm.rollout_correction.bypass_mode=false
-不重算 / 用推理侧 logprob  同上 bypass 分支；actor.use_rollout_log_probs              bypass_mode=true
-TIS / MIS               core_algos 的 rollout_correction 权重与 mask               rollout_correction.rollout_is / rollout_is_threshold / rollout_rs
-不一致监控              verl/utils/debug/metrics.py                              training/rollout_probs_diff_*
-缓冲淘汰矩阵            ReplayBuffer._evict_terminal_groups / _dapo_filtered_keys  algorithm.filter_groups.*；sync_refill_failed_groups
-流式补发                ReplayBuffer.refill_fn ← trainer._add_prompts_to_generate   data.gen_batch_size；num_warmup_batches
-同步频率                PPOTrainerSeparateAsync.on_step_end 每 k 次                trainer.v1.separate_async.parameter_sync_step
-异步 checkpoint 恢复     PPOTrainer._reissue_inflight_prompts：恢复时重发 pending / running 的 prompt，保留 finished    —
-```
+| 机制 | 落点 | 配置 |
+|---|---|---|
+| staleness 上限 | ReplayBufferAsync._stale_terminal_keys（drop） | trainer.v1.sampler.max_off_policy_threshold（8） |
+|  | ReplayBufferAsync._has_enough_samples（wait 阻塞） | trainer.v1.sampler.max_off_policy_strategy（drop \| wait） |
+| 部分 rollout | CheckpointEngineManager.update_weights：abort → … → resume；agent loop 续接 | colocate_async / separate_async 内置 |
+| decoupled PPO | PPOTrainerSeparateAsync._compute_old_log_prob：save/restore_model_from_cpu | algorithm.rollout_correction.bypass_mode=false |
+| 不重算 / 用推理侧 logprob | 同上 bypass 分支；actor.use_rollout_log_probs | bypass_mode=true |
+| TIS / MIS | core_algos 的 rollout_correction 权重与 mask | rollout_correction.rollout_is / rollout_is_threshold / rollout_rs |
+| 不一致监控 | verl/utils/debug/metrics.py | training/rollout_probs_diff_\* |
+| 缓冲淘汰矩阵 | ReplayBuffer._evict_terminal_groups / _dapo_filtered_keys | algorithm.filter_groups.\*；sync_refill_failed_groups |
+| 流式补发 | ReplayBuffer.refill_fn ← trainer._add_prompts_to_generate | data.gen_batch_size；num_warmup_batches |
+| 同步频率 | PPOTrainerSeparateAsync.on_step_end 每 k 次 | trainer.v1.separate_async.parameter_sync_step |
+| 异步 checkpoint 恢复 | PPOTrainer._reissue_inflight_prompts：恢复时重发 pending / running 的 prompt，保留 finished | — |
+
+Table: 异步机制在 verl 源码中的落点与配置
 
 最后一行是异步系统特有的：checkpoint 里不只有训练状态，还有缓冲区（已完成的样本）与在飞的 prompt；恢复时已完成的保留、在飞的重发（用恢复后的权重重新生成）。第八篇的 RL 状态 checkpoint 回到这里。
 

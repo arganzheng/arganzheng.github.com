@@ -65,18 +65,19 @@ $$
 
 把第九篇组装的 decoder layer 拆开，每个 kernel 先算一遍。取 Llama-3-8B 的形状（$$d = 4096$$、$$d_{ff} = 14336$$、32 个 query 头、8 个 KV 头、$$d_{head} = 128$$），一次 prefill 处理 $$M = 8192$$ 个 token，BF16：
 
-```text
-kernel                 主要字节数（读+写）              FLOPs             算术强度      类型             A100 理论时间
-RMSNorm ×2             2 × (8192×4096×2 B ×2) = 256 MiB  ~0.27 G          ~1            memory-bound     ~134 µs
-QKV GEMM               A 64 MiB + W 48 MiB + C 96 MiB    2·8192·4096·6144 ≈ 412 G   ~1900   compute-bound   ~1.32 ms
-RoPE（Q、K）            读写 Q 64 MiB + K 16 MiB = 160 MiB  ~0.3 G           ~2            memory-bound     ~84 µs
-attention（causal）     Q/K/V/O 各 ≤ 64 MiB               ≈ 2·2·8192²·128·32/2 ≈ 550 G  高      compute-bound   ~1.76 ms
-O-proj GEMM            64 + 32 + 64 MiB                  2·8192·4096² ≈ 275 G   ~1700    compute-bound   ~0.88 ms
-fused add+RMSNorm      读 x、residual 写两者 = 256 MiB     ~0.3 G           ~1            memory-bound     ~134 µs
-gate/up GEMM           64 + 224 + 448 MiB                2·8192·4096·28672 ≈ 1.92 T  ~2500  compute-bound   ~6.2 ms
-SiLU-mul               读 448 MiB 写 224 MiB = 672 MiB     ~0.7 G           ~1            memory-bound     ~352 µs
-down GEMM              224 + 112 + 64 MiB                2·8192·14336·4096 ≈ 962 G   ~2300  compute-bound   ~3.1 ms
-```
+| kernel | 主要字节数（读+写） | FLOPs | 算术强度 | 类型 | A100 理论时间 |
+|---|---|---|---|---|---|
+| RMSNorm ×2 | 2 × (8192×4096×2 B ×2) = 256 MiB | ~0.27 G | ~1 | memory-bound | ~134 µs |
+| QKV GEMM | A 64 MiB + W 48 MiB + C 96 MiB | 2·8192·4096·6144 ≈ 412 G | ~1900 | compute-bound | ~1.32 ms |
+| RoPE（Q、K） | 读写 Q 64 MiB + K 16 MiB = 160 MiB | ~0.3 G | ~2 | memory-bound | ~84 µs |
+| attention（causal） | Q/K/V/O 各 ≤ 64 MiB | ≈ 2·2·8192²·128·32/2 ≈ 550 G | 高 | compute-bound | ~1.76 ms |
+| O-proj GEMM | 64 + 32 + 64 MiB | 2·8192·4096² ≈ 275 G | ~1700 | compute-bound | ~0.88 ms |
+| fused add+RMSNorm | 读 x、residual 写两者 = 256 MiB | ~0.3 G | ~1 | memory-bound | ~134 µs |
+| gate/up GEMM | 64 + 224 + 448 MiB | 2·8192·4096·28672 ≈ 1.92 T | ~2500 | compute-bound | ~6.2 ms |
+| SiLU-mul | 读 448 MiB 写 224 MiB = 672 MiB | ~0.7 G | ~1 | memory-bound | ~352 µs |
+| down GEMM | 224 + 112 + 64 MiB | 2·8192·14336·4096 ≈ 962 G | ~2300 | compute-bound | ~3.1 ms |
+
+Table: Llama-3-8B 一层 decoder 在 M = 8192 prefill 下每个 kernel 的字节数、FLOPs 与 A100 理论时间
 
 GEMM 的理论时间按 312 TFLOPS 算，memory-bound kernel 按 2.0 TB/s 算，attention 的 FLOPs 已经乘了因果掩码的 1/2。这张表有两个用途：一是给后面每一个 profiler 数字一个参照——RMSNorm 实测 180 µs 就是 74% 的带宽利用率，可以接受；实测 400 µs 就一定有问题；二是告诉我们 profiler 应该先看谁：如果 GEMM 与 attention 各自达到峰值的 70% 以上，整层的时间就由它们主导，memory-bound kernel 加起来不到 1 ms，融合它们的收益上限就是这 1 ms 的一部分。
 
@@ -490,13 +491,14 @@ kernel 的正确性只能相对某个参考实现来定义。参考实现的原�
 
 tolerance 按 dtype 定：
 
-```text
-dtype        rtol        atol           依据
-FP32         1e-5 量级   1e-6 至 1e-5   FP32 尾数 24 位，累加顺序不同带来 1e-6 级差异
-BF16         1.6e-2      1e-5（默认）    BF16 尾数 8 位，1 ulp = 2^-8 ≈ 3.9e-3，容 4 ulp
-FP16         1e-3        1e-5           尾数 11 位
-FP8 / INT4   与量化后的参考比            比"反量化后的 FP32 参考"，而不是原始 FP32
-```
+| dtype | rtol | atol | 依据 |
+|---|---|---|---|
+| FP32 | 1e-5 量级 | 1e-6 至 1e-5 | FP32 尾数 24 位，累加顺序不同带来 1e-6 级差异 |
+| BF16 | 1.6e-2 | 1e-5（默认） | BF16 尾数 8 位，1 ulp = 2^-8 ≈ 3.9e-3，容 4 ulp |
+| FP16 | 1e-3 | 1e-5 | 尾数 11 位 |
+| FP8 / INT4 | 与量化后的参考比 | 与量化后的参考比 | 比"反量化后的 FP32 参考"，而不是原始 FP32 |
+
+Table: 按 dtype 定的 tolerance
 
 `torch.testing.assert_close` 的 BF16 默认值就是 rtol=1.6e-2、atol=1e-5。归约类 kernel（norm、softmax、attention）通常要把 atol 调大到 1e-2 左右——归一化后的输出量级在 1 附近，1e-5 的 atol 在 rtol 面前几乎不起作用，但对接近 0 的输出元素（相对误差无意义）需要绝对容差兜底。vLLM 的 `test_layernorm.py` 对 RMSNorm 用 `atol=1e-2, rtol=1e-2` 并注释了原因："LayerNorm operators typically have larger numerical errors than other operators because they involve reductions"。量化 kernel 的对照对象是"量化过程本身的参考实现"：把权重按同样的 scale 反量化成 FP32 再做 GEMM，与 kernel 输出比；不要与原始 FP32 权重的结果比，那个差异是量化误差而不是 kernel 错误。
 
@@ -1302,28 +1304,29 @@ vLLM 的 CI 跑在 Buildkite 上，`.buildkite/test_areas/kernels.yaml` 把 `tes
 
 ncu 各 section 与指标的速查表：
 
-```text
-section                      关键指标                                   含义 / 判断
-GPU Speed of Light           SOL Memory%、SOL Compute%                 Roofline 位置：>80% 到顶；两者 <40–50% 为 latency-bound
-                             Roofline chart                            实测强度 vs 理论强度：差距 = 重复读取
-Memory Workload Analysis     DRAM Throughput、DRAM 总字节               与标称带宽、与理论最小字节数比
-                             L1/L2 Hit Rate                            流式 kernel 低正常；GEMM 应高
-                             Sectors/Req                               理想 = 每线程字节数 × 32 / 32；8、32 为未合并
-                             Shared bank conflicts、wavefronts/ideal   理想 0 / 1.0
-                             Local load/store                          非零 = 寄存器 spill
-Warp State Statistics        Warp Cycles Per Issued Instruction        越大越"闲"
-                             long scoreboard                           等全局内存；SOL Memory 低时才是问题
-                             short scoreboard / MIO throttle           shared 太多或 bank conflict
-                             barrier                                   同步太多
-                             LG throttle                               访存指令太碎，向量化
-                             math pipe throttle                        算力饱和
-                             not selected                              并行充足（好事）
-Occupancy                    Theoretical / Achieved                    限制因素：Block Limit Registers / Shared / Warps
-                             Registers Per Thread                      >32 开始压 occupancy；128+ 为 GEMM 常态
-Launch Statistics            Grid、Block、Waves Per SM                 <1 grid 太小；非整数 tail 大
-Compute Workload Analysis    Tensor / FMA / ALU / LSU / XU pipe        Tensor pipe 是 GEMM 的核心指标；XU 高 = exp 瓶颈
-Source Counters              按 SASS 行的 stall 采样、excessive sectors  定位到源码行（需 -lineinfo + --import-source yes）
-```
+| section | 关键指标 | 含义 / 判断 |
+|---|---|---|
+| GPU Speed of Light | SOL Memory%、SOL Compute% | Roofline 位置：>80% 到顶；两者 <40–50% 为 latency-bound |
+|  | Roofline chart | 实测强度 vs 理论强度：差距 = 重复读取 |
+| Memory Workload Analysis | DRAM Throughput、DRAM 总字节 | 与标称带宽、与理论最小字节数比 |
+|  | L1/L2 Hit Rate | 流式 kernel 低正常；GEMM 应高 |
+|  | Sectors/Req | 理想 = 每线程字节数 × 32 / 32；8、32 为未合并 |
+|  | Shared bank conflicts、wavefronts/ideal | 理想 0 / 1.0 |
+|  | Local load/store | 非零 = 寄存器 spill |
+| Warp State Statistics | Warp Cycles Per Issued Instruction | 越大越"闲" |
+|  | long scoreboard | 等全局内存；SOL Memory 低时才是问题 |
+|  | short scoreboard / MIO throttle | shared 太多或 bank conflict |
+|  | barrier | 同步太多 |
+|  | LG throttle | 访存指令太碎，向量化 |
+|  | math pipe throttle | 算力饱和 |
+|  | not selected | 并行充足（好事） |
+| Occupancy | Theoretical / Achieved | 限制因素：Block Limit Registers / Shared / Warps |
+|  | Registers Per Thread | >32 开始压 occupancy；128+ 为 GEMM 常态 |
+| Launch Statistics | Grid、Block、Waves Per SM | <1 grid 太小；非整数 tail 大 |
+| Compute Workload Analysis | Tensor / FMA / ALU / LSU / XU pipe | Tensor pipe 是 GEMM 的核心指标；XU 高 = exp 瓶颈 |
+| Source Counters | 按 SASS 行的 stall 采样、excessive sectors | 定位到源码行（需 -lineinfo + --import-source yes） |
+
+Table: ncu 各 section 的关键指标与判断
 
 正确性测试清单：
 

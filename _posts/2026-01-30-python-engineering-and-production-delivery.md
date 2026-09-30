@@ -1256,13 +1256,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 一个装了 torch 的镜像轻松到 8–12GB。构成大致是：
 
-```text
-python:3.11-slim 基础镜像            ~150 MB
-torch + nvidia-* CUDA 库            ~5-7 GB      ← 主要来源
-其他 Python 依赖                     ~200 MB
-业务代码                             ~1 MB
-模型权重（如果打进镜像）              ~几 GB       ← 应该避免
-```
+| 组成 | 大小 | 备注 |
+|---|---|---|
+| python:3.11-slim 基础镜像 | ~150 MB |  |
+| torch + nvidia-\* CUDA 库 | ~5-7 GB | 主要来源 |
+| 其他 Python 依赖 | ~200 MB |  |
+| 业务代码 | ~1 MB |  |
+| 模型权重（如果打进镜像） | ~几 GB | 应该避免 |
+
+Table: 一个装了 torch 的镜像的体积构成
 
 三条针对性建议：
 

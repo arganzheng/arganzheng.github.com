@@ -169,13 +169,15 @@ $$
 
 后面每种方法的差别，几乎全在 $$b$$ 怎么取：
 
-```text
-REINFORCE        b = 0 或全局常数
-PPO              b = V_ψ(x, y_<t)        一个学出来的、逐 token 的价值网络
-RLOO             b = 同 prompt 其余 G−1 个回答的平均奖励
-GRPO             b = 同 prompt G 个回答的平均奖励，再除以标准差
-REINFORCE++      b = 整个 batch 的平均奖励
-```
+| 方法 | 基线 b | 说明 |
+|---|---|---|
+| REINFORCE | b = 0 或全局常数 |  |
+| PPO | b = V_ψ(x, y_<t) | 一个学出来的、逐 token 的价值网络 |
+| RLOO | b = 同 prompt 其余 G−1 个回答的平均奖励 |  |
+| GRPO | b = 同 prompt G 个回答的平均奖励，再除以标准差 |  |
+| REINFORCE++ | b = 整个 batch 的平均奖励 |  |
+
+Table: 各方法基线 b 的取法
 
 ### 4. LLM 是只有终末奖励的 bandit
 

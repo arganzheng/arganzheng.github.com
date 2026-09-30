@@ -77,24 +77,25 @@ Table: 问题：这个环节典型的失败方式
 
 ### 3. 两个项目：同一环节两种做法
 
-```text
-环节            PyTorch v2.14.0                                        vLLM v0.28.0
-规则文件        CONTRIBUTING.md（技术）+ AI_POLICY.md + GitHub wiki      docs/contributing/README.md + AGENTS.md
-PR 体积上限     .github/scripts/pr-sanity-check.sh：>2000 行 CI 失败     docs/contributing/README.md：>500 行架构改动无 RFC 打 rfc-required
-拆分工具        ghstack（CONTRIBUTING.md "Run Specific CI Jobs" 提到）    无专门工具；顺序开 PR；每人最多 6 个 open PR
-测试框架        unittest：TestCase / run_tests / instantiate_device_type_tests   pytest；AGENTS.md 的四个问题
-benchmark       PR 模板 checklist："Included benchmark results"          benchmarks/kernels/；vllm bench serve|throughput|latency
-本地 lint       lintrunner（.lintrunner.toml，61 个 linter）；spin lint / spin fixlint   pre-commit（.pre-commit-config.yaml）；pre-commit run
-PR 模板         三个：fix_issue / docs_typo / preapproved                 一个：Purpose / Test Plan / Test Result
-标题            无前缀要求；合入前需要 release notes: 或 topic: not user facing 标签   必须带 [Bugfix] / [Kernel] / [Core] … 前缀
-签名            CLA（merge_rules.yaml 的 mandatory_checks_name 含 EasyCLA） DCO：git commit -s；signoff-commit 钩子；mergify 检查
-CI 系统         GitHub Actions；.github/workflows/ 148 个文件            Buildkite；.buildkite/test_areas/ 35 个文件 + ci_config.yaml
-PR 上自动跑     pull.yml + lint.yml；其余靠 ciflow/* 标签                 只有 pre-commit（且需 verified/ready 或 4 个已合入 PR）；测试要 /ci run
-读日志          CONTRIBUTING.md "CI failure tips"；HUD                   docs/contributing/ci/failures.md；ci-fetch-log.sh；CI Failures Dashboard
-review 承诺     triage 几个工作日内打标签分派；4 个工作日无回应可催       2–3 天一次状态；7 天可 ping；改动要求打 action-required
-合入            @pytorchbot merge（-f / -i）；merge_rules.yaml 定权限     maintainer 打 ready 并合入；mergify 管 needs-rebase
-AI 政策         AI_POLICY.md：不接受全自主 agent 的贡献；标注 AI 内容     AGENTS.md："Pure code-agent PRs are not allowed"；Co-authored-by
-```
+| 环节 | PyTorch v2.14.0 | vLLM v0.28.0 |
+|---|---|---|
+| 规则文件 | CONTRIBUTING.md（技术）+ AI_POLICY.md + GitHub wiki | docs/contributing/README.md + AGENTS.md |
+| PR 体积上限 | .github/scripts/pr-sanity-check.sh：>2000 行 CI 失败 | docs/contributing/README.md：>500 行架构改动无 RFC 打 rfc-required |
+| 拆分工具 | ghstack（CONTRIBUTING.md "Run Specific CI Jobs" 提到） | 无专门工具；顺序开 PR；每人最多 6 个 open PR |
+| 测试框架 | unittest：TestCase / run_tests / instantiate_device_type_tests | pytest；AGENTS.md 的四个问题 |
+| benchmark | PR 模板 checklist："Included benchmark results" | benchmarks/kernels/；vllm bench serve\|throughput\|latency |
+| 本地 lint | lintrunner（.lintrunner.toml，61 个 linter）；spin lint / spin fixlint | pre-commit（.pre-commit-config.yaml）；pre-commit run |
+| PR 模板 | 三个：fix_issue / docs_typo / preapproved | 一个：Purpose / Test Plan / Test Result |
+| 标题 | 无前缀要求；合入前需要 release notes: 或 topic: not user facing 标签 | 必须带 [Bugfix] / [Kernel] / [Core] … 前缀 |
+| 签名 | CLA（merge_rules.yaml 的 mandatory_checks_name 含 EasyCLA） | DCO：git commit -s；signoff-commit 钩子；mergify 检查 |
+| CI 系统 | GitHub Actions；.github/workflows/ 148 个文件 | Buildkite；.buildkite/test_areas/ 35 个文件 + ci_config.yaml |
+| PR 上自动跑 | pull.yml + lint.yml；其余靠 ciflow/\* 标签 | 只有 pre-commit（且需 verified/ready 或 4 个已合入 PR）；测试要 /ci run |
+| 读日志 | CONTRIBUTING.md "CI failure tips"；HUD | docs/contributing/ci/failures.md；ci-fetch-log.sh；CI Failures Dashboard |
+| review 承诺 | triage 几个工作日内打标签分派；4 个工作日无回应可催 | 2–3 天一次状态；7 天可 ping；改动要求打 action-required |
+| 合入 | @pytorchbot merge（-f / -i）；merge_rules.yaml 定权限 | maintainer 打 ready 并合入；mergify 管 needs-rebase |
+| AI 政策 | AI_POLICY.md：不接受全自主 agent 的贡献；标注 AI 内容 | AGENTS.md："Pure code-agent PRs are not allowed"；Co-authored-by |
+
+Table: PyTorch v2.14.0 与 vLLM v0.28.0：同一环节两种做法
 
 ### 4. 本文的章节安排
 
@@ -373,17 +374,18 @@ CI 侧 `.github/workflows/pre-commit.yml` 用 `pre-commit/action` 跑 `--all-fil
 
 ### 4. 两套工具链对照
 
-```text
-                PyTorch                                     vLLM
-驱动            lintrunner（.lintrunner.toml）               pre-commit（.pre-commit-config.yaml）
-入口            spin lint / spin fixlint / lintrunner -a      pre-commit run [-a] [<hook>]
-自动触发        无（手动跑；AGENTS.md 要求 commit 前 lintrunner -a）  pre-commit install 后每次 commit
-检查数量        61 个 linter，多数项目自研                    ~35 个 hook，多数是外部工具 + tools/pre_commit/ 脚本
-类型检查        PYREFLY（pyrefly check，配置 pyrefly.toml）    mypy-3.10 本地；3.11–3.13 只在 CI
-签名检查        无（CLA 在 GitHub check）                      signoff-commit 钩子自动补 Signed-off-by
-CI 任务         .github/workflows/lint.yml：lintrunner-clang / lintrunner-pyrefly / lintrunner-noclang / quick-checks / pr-sanity-checks / workflow-checks …   .github/workflows/pre-commit.yml：pre-run-check + pre-commit
-CI 何时跑       每个 PR 自动                                   需要 verified / ready / ready-run-all-tests 标签，或作者已有 ≥4 个合入 PR
-```
+|  | PyTorch | vLLM |
+|---|---|---|
+| 驱动 | lintrunner（.lintrunner.toml） | pre-commit（.pre-commit-config.yaml） |
+| 入口 | spin lint / spin fixlint / lintrunner -a | pre-commit run [-a] [`<hook>`] |
+| 自动触发 | 无（手动跑；AGENTS.md 要求 commit 前 lintrunner -a） | pre-commit install 后每次 commit |
+| 检查数量 | 61 个 linter，多数项目自研 | ~35 个 hook，多数是外部工具 + tools/pre_commit/ 脚本 |
+| 类型检查 | PYREFLY（pyrefly check，配置 pyrefly.toml） | mypy-3.10 本地；3.11–3.13 只在 CI |
+| 签名检查 | 无（CLA 在 GitHub check） | signoff-commit 钩子自动补 Signed-off-by |
+| CI 任务 | .github/workflows/lint.yml：lintrunner-clang / lintrunner-pyrefly / lintrunner-noclang / quick-checks / pr-sanity-checks / workflow-checks … | .github/workflows/pre-commit.yml：pre-run-check + pre-commit |
+| CI 何时跑 | 每个 PR 自动 | 需要 verified / ready / ready-run-all-tests 标签，或作者已有 ≥4 个合入 PR |
+
+Table: lintrunner 与 pre-commit 两套工具链对照
 
 最后一行是 vLLM 新贡献者最容易被绊倒的地方，下面第七章展开。
 
@@ -438,17 +440,19 @@ PyTorch 对标题没有前缀要求，但合入时要求 PR 有一个 `release n
 
 标题前缀是 vLLM 的分派机制。`docs/contributing/README.md` "PR Title and Classification" 一节开头就说 "Only specific types of PRs will be reviewed."，然后列出：
 
-```text
-[Bugfix]            bug 修复
-[CI/Build]          构建或 CI
-[Doc]               文档
-[Model]             新模型或改进已有模型；模型名要出现在标题里
-[Frontend]          OpenAI API server、LLM 类等前端
-[Kernel]            CUDA kernel 或其他计算 kernel
-[Core]              核心逻辑（LLMEngine、AsyncLLMEngine、Scheduler 等）
-[Hardware][Vendor]  硬件相关，厂商名进前缀，如 [Hardware][AMD]
-[Misc]              其他；"Please use this sparingly"
-```
+| 前缀 | 含义 |
+|---|---|
+| `[Bugfix]` | bug 修复 |
+| `[CI/Build]` | 构建或 CI |
+| `[Doc]` | 文档 |
+| `[Model]` | 新模型或改进已有模型；模型名要出现在标题里 |
+| `[Frontend]` | OpenAI API server、LLM 类等前端 |
+| `[Kernel]` | CUDA kernel 或其他计算 kernel |
+| `[Core]` | 核心逻辑（LLMEngine、AsyncLLMEngine、Scheduler 等） |
+| `[Hardware][Vendor]` | 硬件相关，厂商名进前缀，如 [Hardware][AMD] |
+| `[Misc]` | 其他；"Please use this sparingly" |
+
+Table: vLLM 的 PR 标题前缀
 
 跨多类就并列多个前缀。前缀不只是分类：`.github/mergify.yml` 里有 35 条规则，多数是按文件路径或标题正则自动打标签（`label-frontend` 匹配 `vllm/entrypoints/`，`label-bug` 匹配标题里的 `bug`/`bugfix`，`label-documentation` 匹配 `docs/`、`examples/` 与根目录 `.md` 并留言文档预览地址，`label-ci-build` 匹配 `.github/`、`.buildkite/`、`cmake/`、`setup.py` 等），部分规则直接指派 reviewer（如 tensorizer 相关文件指派给一位固定 maintainer）。标题和路径决定了谁会看到你的 PR。
 
@@ -456,14 +460,15 @@ PyTorch 对标题没有前缀要求，但合入时要求 PR 有一个 `release n
 
 两个项目的法律签名机制不同，操作上的差别很大：
 
-```text
-            PyTorch：CLA                                   vLLM：DCO
-做什么      第一次开 PR 时 EasyCLA 机器人引导签一次协议       每个 commit 的 message 末尾带 Signed-off-by: Name <email>
-怎么做      按机器人链接在线签署；公司员工需公司先签         git commit -s；或 pre-commit 的 signoff-commit 钩子自动补
-在哪检查    GitHub check "EasyCLA"；merge_rules.yaml 每条规则的 mandatory_checks_name 都含 EasyCLA   GitHub check "dco"；mergify 的 comment-dco-failure 规则在失败时留言
-忘了怎么办  签一次即可，历史 commit 不用改                   要 rebase 重写每个没签的 commit：git rebase --exec 'git commit --amend --no-edit -s' main
-文件        （wiki）                                         根目录 DCO 文件；docs/contributing/README.md "DCO and Signed-off-by"
-```
+|  | PyTorch：CLA | vLLM：DCO |
+|---|---|---|
+| 做什么 | 第一次开 PR 时 EasyCLA 机器人引导签一次协议 | 每个 commit 的 message 末尾带 Signed-off-by: Name `<email>` |
+| 怎么做 | 按机器人链接在线签署；公司员工需公司先签 | git commit -s；或 pre-commit 的 signoff-commit 钩子自动补 |
+| 在哪检查 | GitHub check "EasyCLA"；merge_rules.yaml 每条规则的 mandatory_checks_name 都含 EasyCLA | GitHub check "dco"；mergify 的 comment-dco-failure 规则在失败时留言 |
+| 忘了怎么办 | 签一次即可，历史 commit 不用改 | 要 rebase 重写每个没签的 commit：git rebase --exec 'git commit --amend --no-edit -s' main |
+| 文件 | （wiki） | 根目录 DCO 文件；docs/contributing/README.md "DCO and Signed-off-by" |
+
+Table: CLA 与 DCO 两种签名机制的操作差别
 
 vLLM 的 "DCO and Signed-off-by" 一节原文："Commits must include a `Signed-off-by:` header which certifies agreement with the terms of the DCO. Using `-s` with `git commit` will automatically add this header."，并给了 PyCharm 与 VSCode（`git.alwaysSignOff`）的自动签名设置。`Signed-off-by` 的名字和邮箱必须与 commit 的作者一致，否则 DCO check 仍会失败——这是用公司邮箱配置 git 但用个人账号推送的人常踩的坑。
 
@@ -477,15 +482,16 @@ PyTorch 的 CI 是**推送即跑、分层触发**：每个 PR 自动跑一组（
 
 `.github/workflows/` 在 v2.14.0 检出里有 148 个文件。以下划线开头的是可复用的子 workflow（`_linux-build.yml`、`_linux-test.yml` 等），其余是顶层 workflow。与贡献者直接相关的六个：
 
-```text
-文件            触发（on: 节，节选）                                                  含义
-pull.yml        pull_request；push main / release/* / landchecks/*；tags ciflow/pull/*   每个 PR 必跑；merge_rules 里叫 "pull"
-lint.yml        pull_request；push main / release/*；tags ciflow/pull/* ciflow/trunk/*     每个 PR 必跑；merge_rules 里叫 "Lint"
-trunk.yml       push main / release/* / landchecks/*；tags ciflow/trunk/*；schedule       main 上跑；PR 上要打 ciflow/trunk 标签
-periodic.yml    schedule（工作日每 8 小时等）；tags ciflow/periodic/*；push release/*     周期跑；PR 上要打 ciflow/periodic
-slow.yml        push main / release/*；tags ciflow/slow/*；schedule                       慢测试；PR 上要打 ciflow/slow
-inductor.yml    push main / release/*；tags ciflow/inductor/*                             Inductor 全量；PR 上要打 ciflow/inductor
-```
+| 文件 | 触发（on: 节，节选） | 含义 |
+|---|---|---|
+| `pull.yml` | pull_request；push main / release/\* / landchecks/\*；tags ciflow/pull/\* | 每个 PR 必跑；merge_rules 里叫 "pull" |
+| `lint.yml` | pull_request；push main / release/\*；tags ciflow/pull/\* ciflow/trunk/\* | 每个 PR 必跑；merge_rules 里叫 "Lint" |
+| `trunk.yml` | push main / release/\* / landchecks/\*；tags ciflow/trunk/\*；schedule | main 上跑；PR 上要打 ciflow/trunk 标签 |
+| `periodic.yml` | schedule（工作日每 8 小时等）；tags ciflow/periodic/\*；push release/\* | 周期跑；PR 上要打 ciflow/periodic |
+| `slow.yml` | push main / release/\*；tags ciflow/slow/\*；schedule | 慢测试；PR 上要打 ciflow/slow |
+| `inductor.yml` | push main / release/\*；tags ciflow/inductor/\* | Inductor 全量；PR 上要打 ciflow/inductor |
+
+Table: 与贡献者直接相关的六个 PyTorch workflow
 
 `pull.yml` 自身有十个左右顶层 job 定义，但通过 `uses: ./.github/workflows/_linux-build.yml` / `_linux-test.yml` 等复用二十多次，实际展开为几十个 build/test 组合（不同 Python、CUDA、编译器、平台）。一个 PR 的 checks 页面因此有几百个条目。检出根目录 `AGENTS.md` 专门提醒："A PR has hundreds of check-runs, so a single `check-runs?per_page=100` call silently truncates and makes red look green. Use `gh pr checks <PR> --json name,state,workflow,link,bucket,completedAt`"。
 
@@ -581,19 +587,20 @@ pre-commit 也有门槛。`.github/workflows/pre-commit.yml` 的 `pre-run-check`
 
 ### 5. 对照表
 
-```text
-                    PyTorch                                                 vLLM
-系统                GitHub Actions                                          Buildkite（+ GitHub Actions 跑 pre-commit 与机器人）
-配置位置            .github/workflows/*.yml（148 个）                        .buildkite/test_areas/*.yaml（35 个）+ ci_config.yaml
-按领域组织          按 workflow（pull / trunk / periodic / slow / inductor …）  按 test_area 文件（kernels / entrypoints / distributed …）
-按改动文件选任务    无（pull 全跑；filter_test_configs.py 有少量按标签过滤）   source_file_dependencies 精确到路径；run_all_patterns 例外
-PR 上默认跑什么     pull + Lint（几十个 job）                                  只有 pre-commit（且需 verified/ready 或 ≥4 合入 PR）
-额外任务怎么要      reviewer 打 ciflow/<xxx> 标签                              reviewer 敲 /ci run 或打 ready；之后作者可自己敲
-push 后自动重跑     是                                                       否，需再敲 /ci run
-硬件声明            在 workflow 的 runner 标签里（间接）                        step 的 device / num_devices 字段（直接）
-重试                GitHub Actions 的 re-run；pytorch-probot.yml 的 retryable_workflows 列出可自动重试的 workflow   /ci retry（只重跑失败 job）
-日志                GitHub Actions 日志 + HUD                                  Buildkite 公开日志；.buildkite/scripts/ci-fetch-log.sh
-```
+|  | PyTorch | vLLM |
+|---|---|---|
+| 系统 | GitHub Actions | Buildkite（+ GitHub Actions 跑 pre-commit 与机器人） |
+| 配置位置 | .github/workflows/\*.yml（148 个） | .buildkite/test_areas/\*.yaml（35 个）+ ci_config.yaml |
+| 按领域组织 | 按 workflow（pull / trunk / periodic / slow / inductor …） | 按 test_area 文件（kernels / entrypoints / distributed …） |
+| 按改动文件选任务 | 无（pull 全跑；filter_test_configs.py 有少量按标签过滤） | source_file_dependencies 精确到路径；run_all_patterns 例外 |
+| PR 上默认跑什么 | pull + Lint（几十个 job） | 只有 pre-commit（且需 verified/ready 或 ≥4 合入 PR） |
+| 额外任务怎么要 | reviewer 打 ciflow/`<xxx>` 标签 | reviewer 敲 /ci run 或打 ready；之后作者可自己敲 |
+| push 后自动重跑 | 是 | 否，需再敲 /ci run |
+| 硬件声明 | 在 workflow 的 runner 标签里（间接） | step 的 device / num_devices 字段（直接） |
+| 重试 | GitHub Actions 的 re-run；pytorch-probot.yml 的 retryable_workflows 列出可自动重试的 workflow | /ci retry（只重跑失败 job） |
+| 日志 | GitHub Actions 日志 + HUD | Buildkite 公开日志；.buildkite/scripts/ci-fetch-log.sh |
+
+Table: PyTorch 与 vLLM 的 CI 系统对照
 
 ## 八、读 CI 日志：这是我的问题吗
 
@@ -636,16 +643,17 @@ PyTorch 的失败日志有固定的结构：每个 test job 末尾会打印失�
 
 ### 4. 分辨"我的"与"main 的"：一张判断表
 
-```text
-现象                                          判断                              动作
-main 上同一 job 最近几次也红                    main 的问题                       PyTorch：留言 "unrelated, failing on main (HUD link)"；vLLM：Dashboard 找到 issue 留言 +1
-main 绿，我红，重跑一次就绿                     flaky，可能是我触发的也可能不是      重跑（PyTorch 请 reviewer re-run 该 job / vLLM /ci retry）；连续两次红就当自己的问题
-main 绿，我红，失败测试在我改的文件附近          我的问题                          本地按日志里的复现命令跑；修；push；vLLM 再敲 /ci run
-main 绿，我红，失败在完全无关的模块              可能是我的改动有非局部影响          先读 traceback 找到调用链是否经过我的 diff；确实无关再当 flaky 处理
-job 根本没跑（灰色 / skipped）                  不是失败                          PyTorch：该 workflow 需要 ciflow 标签；vLLM：source_file_dependencies 不相交，或没人敲 /ci run
-lint / pre-commit 红                           一定是我的问题                     本地 spin fixlint / pre-commit run -a，修完再推
-DCO / EasyCLA 红                               一定是我的问题                     vLLM：补签名并 force-push；PyTorch：按机器人链接签 CLA
-```
+| 现象 | 判断 | 动作 |
+|---|---|---|
+| main 上同一 job 最近几次也红 | main 的问题 | PyTorch：留言 "unrelated, failing on main (HUD link)"；vLLM：Dashboard 找到 issue 留言 +1 |
+| main 绿，我红，重跑一次就绿 | flaky，可能是我触发的也可能不是 | 重跑（PyTorch 请 reviewer re-run 该 job / vLLM /ci retry）；连续两次红就当自己的问题 |
+| main 绿，我红，失败测试在我改的文件附近 | 我的问题 | 本地按日志里的复现命令跑；修；push；vLLM 再敲 /ci run |
+| main 绿，我红，失败在完全无关的模块 | 可能是我的改动有非局部影响 | 先读 traceback 找到调用链是否经过我的 diff；确实无关再当 flaky 处理 |
+| job 根本没跑（灰色 / skipped） | 不是失败 | PyTorch：该 workflow 需要 ciflow 标签；vLLM：source_file_dependencies 不相交，或没人敲 /ci run |
+| lint / pre-commit 红 | 一定是我的问题 | 本地 spin fixlint / pre-commit run -a，修完再推 |
+| DCO / EasyCLA 红 | 一定是我的问题 | vLLM：补签名并 force-push；PyTorch：按机器人链接签 CLA |
+
+Table: 分辨「我的」与「main 的」CI 失败：判断表
 
 ## 九、review 往返
 
@@ -672,15 +680,16 @@ vLLM `docs/contributing/README.md` "What to Expect for the Reviews" 一节，自
 
 也是三层：分派 → 每 2–3 天一次状态 → 7 天无 review 可以 ping。"Pull Request Limits and Escalation" 一节还给了一条加急通道：用可验证的公司或大学邮箱写信到 `pr-review-request@vllm.ai`，说明生产或研究用例、遇到的问题、改动怎么解决它。
 
-```text
-                  PyTorch                                   vLLM
-分派              triage squad 打 module 标签、分派，"a couple business days"   自动分派 reviewer（mergify 规则 + 人工）
-中途状态          无承诺                                    每 2–3 天一次
-可以催的时点      4 个工作日无回应                           7 天无 review
-怎么催            PR 里留言并 @ reviewer                     ping reviewer 或 vLLM team；Slack #pr-reviews（new_pr_bot 欢迎语里给了地址）
-再升级            Dev Infra Office Hours（每周五）           pr-review-request@vllm.ai（需机构邮箱）
-"需要你改"的信号   review 状态 Changes requested              action-required 标签（文档所写；截至 2026-09 查询仓库标签列表中未找到该标签，以当前仓库为准）
-```
+|  | PyTorch | vLLM |
+|---|---|---|
+| 分派 | triage squad 打 module 标签、分派，"a couple business days" | 自动分派 reviewer（mergify 规则 + 人工） |
+| 中途状态 | 无承诺 | 每 2–3 天一次 |
+| 可以催的时点 | 4 个工作日无回应 | 7 天无 review |
+| 怎么催 | PR 里留言并 @ reviewer | ping reviewer 或 vLLM team；Slack #pr-reviews（new_pr_bot 欢迎语里给了地址） |
+| 再升级 | Dev Infra Office Hours（每周五） | pr-review-request@vllm.ai（需机构邮箱） |
+| "需要你改"的信号 | review 状态 Changes requested | action-required 标签（文档所写；截至 2026-09 查询仓库标签列表中未找到该标签，以当前仓库为准） |
+
+Table: 两个项目的 review 分派、状态与升级通道
 
 ### 2. 怎么回应 review 意见
 
@@ -715,14 +724,16 @@ PyTorch 的 PR 不由人点 "Merge" 按钮，而是由机器人合入。`CONTRIB
 
 `trymerge.py` 的 `parse_args` 定义了参数：`--force`、`--ignore-current`、`--revert`、`--dry-run`、`--check-mergeability`、`--comment-id`、`--reason`。对应到评论里的写法：
 
-```text
-@pytorchbot merge                      默认：等所有 mandatory checks 通过后合入。explainer 的提示语："Your change will be merged once all checks pass (ETA 0-4 Hours)."
-@pytorchbot merge -i                   --ignore-current：忽略当前已失败的 check，等 pending 的跑完再合。提示语："Your change will be merged while ignoring the following N checks: …"
-@pytorchbot merge -f "<reason>"        --force：立即合入，绕过 CI。提示语："Your change will be merged immediately since you used the force (-f) flag, bypassing any CI checks (ETA: 1-5 minutes). Please use -f as last resort and instead consider -i/--ignore-current …"
-@pytorchbot revert …                   --revert + --reason：回滚已合入的 PR（.github/workflows/revert.yml；需要权限与理由）
-@pytorchbot rebase                     .github/workflows/tryrebase.yml → tryrebase.py，rebase 到 main（--branch 可指定分支）
-@pytorchbot label "topic: not user facing"    打标签（label_utils.py 的错误提示里给出的例子）
-```
+| 评论 | 含义 |
+|---|---|
+| `@pytorchbot merge` | 默认：等所有 mandatory checks 通过后合入。explainer 的提示语："Your change will be merged once all checks pass (ETA 0-4 Hours)." |
+| `@pytorchbot merge -i` | --ignore-current：忽略当前已失败的 check，等 pending 的跑完再合。提示语："Your change will be merged while ignoring the following N checks: …" |
+| `@pytorchbot merge -f "<reason>"` | --force：立即合入，绕过 CI。提示语："Your change will be merged immediately since you used the force (-f) flag, bypassing any CI checks (ETA: 1-5 minutes). Please use -f as last resort and instead consider -i/--ignore-current …" |
+| `@pytorchbot revert …` | --revert + --reason：回滚已合入的 PR（.github/workflows/revert.yml；需要权限与理由） |
+| `@pytorchbot rebase` | .github/workflows/tryrebase.yml → tryrebase.py，rebase 到 main（--branch 可指定分支） |
+| `@pytorchbot label "topic: not user facing"` | 打标签（label_utils.py 的错误提示里给出的例子） |
+
+Table: @pytorchbot 评论写法与 trymerge.py 参数的对应
 
 `-f` 不是外部贡献者能用的——它需要权限且必须给理由。`trymerge.py` 里 `check_docker_builds_ready` 的注释说明了为什么 `-f` 被越来越多地限制："This gate is enforced even for force merges, since -f is exactly what bypassed it before."
 
@@ -794,17 +805,18 @@ vLLM 的合入是人做的：有写权限的 maintainer approve 之后打 `ready
 
 ### 3. 对照
 
-```text
-              PyTorch                                                   vLLM
-谁触发        作者或任何有权限的人评论 @pytorchbot merge                  有写权限的 maintainer 点 merge
-权限来源      merge_rules.yaml 按文件路径 → approved_by                   GitHub 仓库写权限
-必过 check    mandatory_checks_name（EasyCLA / Lint / pull …）            pre-commit / DCO / Buildkite（由 maintainer 判断）
-必要标签      release notes: 或 topic: not user facing                     ready（maintainer 打）
-绕过 CI       -f（需理由与权限）；-i 忽略已失败项                          maintainer 自行判断
-冲突处理      @pytorchbot rebase；ghstack 自动                            mergify 打 needs-rebase 催作者
-合入方式      机器人 push 到 main（保留 Pull Request resolved: 链接）       squash merge
-全局暂停      ci: sev + merge blocking issue                              无自动机制
-```
+|  | PyTorch | vLLM |
+|---|---|---|
+| 谁触发 | 作者或任何有权限的人评论 @pytorchbot merge | 有写权限的 maintainer 点 merge |
+| 权限来源 | merge_rules.yaml 按文件路径 → approved_by | GitHub 仓库写权限 |
+| 必过 check | mandatory_checks_name（EasyCLA / Lint / pull …） | pre-commit / DCO / Buildkite（由 maintainer 判断） |
+| 必要标签 | release notes: 或 topic: not user facing | ready（maintainer 打） |
+| 绕过 CI | -f（需理由与权限）；-i 忽略已失败项 | maintainer 自行判断 |
+| 冲突处理 | @pytorchbot rebase；ghstack 自动 | mergify 打 needs-rebase 催作者 |
+| 合入方式 | 机器人 push 到 main（保留 Pull Request resolved: 链接） | squash merge |
+| 全局暂停 | ci: sev + merge blocking issue | 无自动机制 |
+
+Table: 合入机制对照
 
 ## 十一、被拒之后
 
@@ -812,12 +824,13 @@ vLLM 的合入是人做的：有写权限的 maintainer approve 之后打 `ready
 
 不是所有拒绝都一样。按拒绝的对象分三类，各自的正确反应完全不同：
 
-```text
-类型        reviewer 在拒绝什么                典型措辞                                            正确反应
-方向不对    这个问题本身不该这样解，或不该解     "we don't want to support this" / "this belongs in a plugin" / "closing as won't fix"   放弃这个 PR；如果确信有价值，回到 issue 或 RFC 层面重新讨论，不要改 PR 再提
-时机不对    问题对、方向对，但现在不是时候       "let's wait for the refactor in #NNNN to land" / "this area is being rewritten" / "we're in release freeze"   保留分支；订阅被引用的 issue/PR；等条件满足后 rebase 重提，并在描述里引用当时的讨论
-做法不对    问题对、方向对，实现有问题           "could you split this" / "needs a test" / "this breaks BC" / "use X instead of Y"   改；这是唯一应该"改了再提"的一类
-```
+| 类型 | reviewer 在拒绝什么 | 典型措辞 | 正确反应 |
+|---|---|---|---|
+| 方向不对 | 这个问题本身不该这样解，或不该解 | "we don't want to support this" / "this belongs in a plugin" / "closing as won't fix" | 放弃这个 PR；如果确信有价值，回到 issue 或 RFC 层面重新讨论，不要改 PR 再提 |
+| 时机不对 | 问题对、方向对，但现在不是时候 | "let's wait for the refactor in #NNNN to land" / "this area is being rewritten" / "we're in release freeze" | 保留分支；订阅被引用的 issue/PR；等条件满足后 rebase 重提，并在描述里引用当时的讨论 |
+| 做法不对 | 问题对、方向对，实现有问题 | "could you split this" / "needs a test" / "this breaks BC" / "use X instead of Y" | 改；这是唯一应该"改了再提"的一类 |
+
+Table: 三类拒绝与正确反应
 
 前两类的信号是拒绝里**没有任何关于代码的具体意见**。如果 reviewer 谈的是"我们要不要做这件事"，无论你把代码写得多好都没用；继续 push 只会消耗双方的耐心。第三类的信号是意见都指向 diff 的具体位置，这时每一条都是可以完成的任务。
 
@@ -877,20 +890,21 @@ AI 辅助生成的 PR 让"低质量 PR"的边际成本降到零，而 review 的
 
 ### 4. 逐条对照
 
-```text
-条目                PyTorch（AI_POLICY.md + CONTRIBUTING.md + AGENTS.md）        vLLM（AGENTS.md + docs/contributing/README.md）
-允许用 AI 吗        是："We support the use of AI tools"                            是：整份 AGENTS.md 就是给 AI 用的
-全自主 agent        "We do not accept contributions created by fully autonomous agents"   "Pure code-agent PRs are not allowed"
-人的责任            "You are personally responsible for what you send"               "A human submitter must understand and defend the change end-to-end"；"review every changed line"
-新贡献者门槛        PR 必须对应带 actionable 标签的 issue                             必须先做 duplicate-work checks（三条 gh 命令）
-琐碎 PR             "consistently overly verbose … will not be accepted anymore"     "No low-value busywork PRs"（单个 typo 等）
-在 PR 里声明        AI 内容用代码块/引用块包起来 + 人的评注                            描述里明确写出使用了 AI；四项必填
-commit 标记         AGENTS.md："Disclose that the PR was authored with an AI assistant"   Co-authored-by: trailer
-review 回复         禁止贴未审阅的 AI 文本                                             （未单列；AGENTS.md 的 accountability 覆盖）
-未完成的 PR         用 draft                                                          （run_ci_command.py：draft 状态作者不能触发 CI）
-issue 里的方案      新功能 issue 里 NEVER 放 AI 生成的解法                              （未单列）
-违规后果            "your contributions will not be accepted anymore"；关闭 PR         "automatic banning"；"immediate ban"
-```
+| 条目 | PyTorch（AI_POLICY.md + CONTRIBUTING.md + AGENTS.md） | vLLM（AGENTS.md + docs/contributing/README.md） |
+|---|---|---|
+| 允许用 AI 吗 | 是："We support the use of AI tools" | 是：整份 AGENTS.md 就是给 AI 用的 |
+| 全自主 agent | "We do not accept contributions created by fully autonomous agents" | "Pure code-agent PRs are not allowed" |
+| 人的责任 | "You are personally responsible for what you send" | "A human submitter must understand and defend the change end-to-end"；"review every changed line" |
+| 新贡献者门槛 | PR 必须对应带 actionable 标签的 issue | 必须先做 duplicate-work checks（三条 gh 命令） |
+| 琐碎 PR | "consistently overly verbose … will not be accepted anymore" | "No low-value busywork PRs"（单个 typo 等） |
+| 在 PR 里声明 | AI 内容用代码块/引用块包起来 + 人的评注 | 描述里明确写出使用了 AI；四项必填 |
+| commit 标记 | AGENTS.md："Disclose that the PR was authored with an AI assistant" | Co-authored-by: trailer |
+| review 回复 | 禁止贴未审阅的 AI 文本 | （未单列；AGENTS.md 的 accountability 覆盖） |
+| 未完成的 PR | 用 draft | （run_ci_command.py：draft 状态作者不能触发 CI） |
+| issue 里的方案 | 新功能 issue 里 NEVER 放 AI 生成的解法 | （未单列） |
+| 违规后果 | "your contributions will not be accepted anymore"；关闭 PR | "automatic banning"；"immediate ban" |
+
+Table: 两个项目 AI 政策的逐条对照
 
 两边的共同点比差别多：AI 可以写代码，但**提交的人要读懂每一行、要能为每一行辩护、要在描述里说明**。差别在于 PyTorch 更强调"不要用 AI 生成的文字污染讨论"（针对 issue 和 review 回复），vLLM 更强调"不要用 AI 生成琐碎 PR 淹没队列"（针对 PR 数量）——分别对应两个项目最痛的地方。
 
@@ -898,17 +912,18 @@ issue 里的方案      新功能 issue 里 NEVER 放 AI 生成的解法        
 
 reviewer 打开 PR 的十分钟里，脑子里依次出现的问题大致是固定的。下表把每个问题对应到 PR 的哪一部分应该替他回答、两个项目分别用什么机制保证这一部分存在：
 
-```text
-分钟   reviewer 的问题                        谁来回答            PyTorch 的机制                                 vLLM 的机制
-0–1    这是什么？该我看吗？                   标题 + 标签          release notes: / module: 标签（labeler.yml 自动） 标题前缀 [Kernel] 等 + mergify 自动标签
-1–2    为什么要改？有人讨论过吗？              描述的 Issue/Purpose  Fixes #（无 issue 可能被自动关）；Summary 指向 issue  Purpose 栏链接 issue；>500 行要 RFC
-2–3    这改动会不会弄坏别的东西？              CI 状态              pull + Lint 绿；需要时 ciflow/trunk               pre-commit 绿；相关 test_area 经 /ci run 绿
-3–6    改动本身对不对？                       diff                 ≤2000 行；一叠 ghstack 每层可单独读             一个 PR 一件事；无关 import 重排为零
-6–8    怎么证明它对？                         测试                 test/ 下的 TestCase；instantiate_device_type_tests   tests/ 下的 pytest；AGENTS.md 四个问题；opcheck
-8–9    值不值？（性能 PR）                    benchmark            checklist "Included benchmark results"           Test Result 栏的前后对比表；vllm bench / benchmarks/kernels
-9–10   有没有我该担心的？                     BC-breaking / 风险   模板的 BC-breaking? 栏                           deprecation_policy.md；Test Plan 写清没测的部分
-—      这个人可信吗？                         签名 + AI 声明       EasyCLA；AI_POLICY.md 的声明方式                  DCO；Co-authored-by + 描述里的 AI 声明
-```
+| 分钟 | reviewer 的问题 | 谁来回答 | PyTorch 的机制 | vLLM 的机制 |
+|---|---|---|---|---|
+| 0–1 | 这是什么？该我看吗？ | 标题 + 标签 | release notes: / module: 标签（labeler.yml 自动） | 标题前缀 [Kernel] 等 + mergify 自动标签 |
+| 1–2 | 为什么要改？有人讨论过吗？ | 描述的 Issue/Purpose | Fixes #（无 issue 可能被自动关）；Summary 指向 issue | Purpose 栏链接 issue；>500 行要 RFC |
+| 2–3 | 这改动会不会弄坏别的东西？ | CI 状态 | pull + Lint 绿；需要时 ciflow/trunk | pre-commit 绿；相关 test_area 经 /ci run 绿 |
+| 3–6 | 改动本身对不对？ | diff | ≤2000 行；一叠 ghstack 每层可单独读 | 一个 PR 一件事；无关 import 重排为零 |
+| 6–8 | 怎么证明它对？ | 测试 | test/ 下的 TestCase；instantiate_device_type_tests | tests/ 下的 pytest；AGENTS.md 四个问题；opcheck |
+| 8–9 | 值不值？（性能 PR） | benchmark | checklist "Included benchmark results" | Test Result 栏的前后对比表；vllm bench / benchmarks/kernels |
+| 9–10 | 有没有我该担心的？ | BC-breaking / 风险 | 模板的 BC-breaking? 栏 | deprecation_policy.md；Test Plan 写清没测的部分 |
+| — | 这个人可信吗？ | 签名 + AI 声明 | EasyCLA；AI_POLICY.md 的声明方式 | DCO；Co-authored-by + 描述里的 AI 声明 |
+
+Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目的机制
 
 反过来读这张表，就是一份提交前的自检：每一行都有对应的东西吗？如果"怎么证明它对"这一行是空的，reviewer 会在第 6 分钟停下来写 "how did you test this?"，然后你的 PR 回到队列末尾——下一次被打开可能是几天后。十分钟的预算里，任何一个空格都会让整个 PR 等一轮。
 
@@ -1000,15 +1015,17 @@ No.
 
 配套的日志条目：
 
-```text
-标题        Fix out-of-bounds read in foo_cuda for empty inputs
-标签        需要 release notes: cuda（labeler 按路径自动打；没打就 @pytorchbot label）
-diff        aten/src/ATen/native/cuda/Foo.cu（+3）；test/test_foo.py（+14）；共 2 文件 17 行
-测试        test/test_foo.py::TestFoo::test_foo_empty_input，用 instantiate_device_type_tests 生成 _cpu / _cuda 两份；改动前 CUDA 版 illegal memory access，改动后通过
-lint        spin fixlint → 0 errors（2026-09-xx）
-CI          push 1：pull + Lint 自动；请 reviewer 打 ciflow/trunk 补 ROCm
-合入        approve 后评论 @pytorchbot merge；若某无关 job 红且 HUD 显示 main 也红 → @pytorchbot merge -i 由 reviewer 决定
-```
+| 项 | 内容 |
+|---|---|
+| 标题 | Fix out-of-bounds read in foo_cuda for empty inputs |
+| 标签 | 需要 release notes: cuda（labeler 按路径自动打；没打就 @pytorchbot label） |
+| diff | aten/src/ATen/native/cuda/Foo.cu（+3）；test/test_foo.py（+14）；共 2 文件 17 行 |
+| 测试 | test/test_foo.py::TestFoo::test_foo_empty_input，用 instantiate_device_type_tests 生成 _cpu / _cuda 两份；改动前 CUDA 版 illegal memory access，改动后通过 |
+| lint | spin fixlint → 0 errors（2026-09-xx） |
+| CI | push 1：pull + Lint 自动；请 reviewer 打 ciflow/trunk 补 ROCm |
+| 合入 | approve 后评论 @pytorchbot merge；若某无关 job 红且 HUD 显示 main 也红 → @pytorchbot merge -i 由 reviewer 决定 |
+
+Table: PyTorch PR 的日志条目示例
 
 ### 3. 样例二：vLLM，按 PULL_REQUEST_TEMPLATE.md 填写
 
@@ -1043,26 +1060,29 @@ Drafted with an AI assistant; every line reviewed and the test run by me.
 
 配套的日志条目：
 
-```text
-标题        [Bugfix] Return 400 instead of 500 for logprobs=true with top_logprobs=0
-签名        每个 commit git commit -s；pre-commit 的 signoff-commit 钩子已装
-lint        pre-commit run --all-files → Passed（2026-09-xx）；mypy-3.12 --hook-stage manual → Passed
-diff        vllm/entrypoints/openai/chat_completion/protocol.py（+4 −2）；tests/entrypoints/openai/chat_completion/test_chat.py（+18）
-CI 预期     source_file_dependencies：entrypoints.yaml 里匹配 vllm/entrypoints/ 的 step；pre-commit 需 verified/ready 标签
-触发        开 PR 后等 reviewer /ci run 或 ready；每次 push 后自己 /ci run（ready 之后）
-commit      末尾 Co-authored-by: <agent> 与 Signed-off-by: 两行 trailer
-```
+| 项 | 内容 |
+|---|---|
+| 标题 | [Bugfix] Return 400 instead of 500 for logprobs=true with top_logprobs=0 |
+| 签名 | 每个 commit git commit -s；pre-commit 的 signoff-commit 钩子已装 |
+| lint | pre-commit run --all-files → Passed（2026-09-xx）；mypy-3.12 --hook-stage manual → Passed |
+| diff | vllm/entrypoints/openai/chat_completion/protocol.py（+4 −2）；tests/entrypoints/openai/chat_completion/test_chat.py（+18） |
+| CI 预期 | source_file_dependencies：entrypoints.yaml 里匹配 vllm/entrypoints/ 的 step；pre-commit 需 verified/ready 标签 |
+| 触发 | 开 PR 后等 reviewer /ci run 或 ready；每次 push 后自己 /ci run（ready 之后） |
+| commit | 末尾 Co-authored-by: `<agent>` 与 Signed-off-by: 两行 trailer |
+
+Table: vLLM PR 的日志条目示例
 
 ### 4. review 往返记录表（填写示例）
 
-```text
-轮次  日期        reviewer   意见（原文短引）                                    类型   回应                                              状态
-1     09-16       @a         "can you add a test for the CUDA path too?"           改     加 instantiate_device_type_tests；push；回复 "Done, see test_foo_empty_input_cuda"   resolved
-1     09-16       @a         "nit: prefer `numel() == 0` over `!numel()`"          改     照改                                               resolved
-2     09-18       @b         "why early return instead of TORCH_CHECK?"            争     引用 issue 里 maintainer 的结论 + 与 CPU 实现一致的理由；对方接受   resolved
-2     09-18       @b         "this might be worth a note in the docs"              问     问是指 docstring 还是 docs/source；对方说不必了       resolved
-—     09-19       @b         approved                                              —      评论 @pytorchbot merge                             merged
-```
+| 轮次 | 日期 | reviewer | 意见（原文短引） | 类型 | 回应 | 状态 |
+|---|---|---|---|---|---|---|
+| 1 | 09-16 | @a | "can you add a test for the CUDA path too?" | 改 | 加 instantiate_device_type_tests；push；回复 "Done, see test_foo_empty_input_cuda" | resolved |
+| 1 | 09-16 | @a | "nit: prefer `numel() == 0` over `!numel()`" | 改 | 照改 | resolved |
+| 2 | 09-18 | @b | "why early return instead of TORCH_CHECK?" | 争 | 引用 issue 里 maintainer 的结论 + 与 CPU 实现一致的理由；对方接受 | resolved |
+| 2 | 09-18 | @b | "this might be worth a note in the docs" | 问 | 问是指 docstring 还是 docs/source；对方说不必了 | resolved |
+| — | 09-19 | @b | approved | — | 评论 @pytorchbot merge | merged |
+
+Table: review 往返记录表（填写示例）
 
 "类型"一栏只有三种：改（照做）、争（有依据地维持）、问（澄清）。如果一个 PR 的记录里"争"占了多数，通常说明选题或方向阶段就有问题，而不是实现问题。
 

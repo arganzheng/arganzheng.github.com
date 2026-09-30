@@ -28,13 +28,15 @@ updated: 2026-09-20
 
 第一、二篇建立的符号，本篇只用下面这些，在此复述以求自治：
 
-```text
-N            参数量（个）；N_bytes 为某精度下的参数字节数
-N_t N_p N_d N_c   张量并行 / 流水线并行 / 数据并行 / 上下文并行的并行度；正文中常写作 t, p, d, c
-s  b  h  a  L     序列长 · micro-batch 内序列数 · 隐藏维 · 注意力头数 · 层数
-m            每个 step 每条流水线上的 micro-batch 数（= 梯度累积步数）
-B            global batch（序列数）；B_tok = B·s 为 token 数
-```
+| 符号 | 含义 |
+|---|---|
+| N | 参数量（个）；N_bytes 为某精度下的参数字节数 |
+| N_t · N_p · N_d · N_c | 张量并行 / 流水线并行 / 数据并行 / 上下文并行的并行度；正文中常写作 t, p, d, c |
+| s · b · h · a · L | 序列长 · micro-batch 内序列数 · 隐藏维 · 注意力头数 · 层数 |
+| m | 每个 step 每条流水线上的 micro-batch 数（= 梯度累积步数） |
+| B | global batch（序列数）；B_tok = B·s 为 token 数 |
+
+Table: 本篇用到的符号
 
 三条结论：
 
@@ -44,13 +46,15 @@ B            global batch（序列数）；B_tok = B·s 为 token 数
 
 四种并行的每 step 每卡通信量（第二篇的五元组只取"量"这一列）：
 
-```text
-DP（all-reduce 梯度）              ≈ 2 N_local_bytes          走节点间；可与反向重叠
-DP + ZeRO-1（reduce-scatter+all-gather）≈ 2 N_local_bytes     同上；all-gather 可与下一个前向重叠
-ZeRO-3 / FSDP（每个 micro-batch）  ≈ 3 N_local_bytes × m       前向 all-gather、反向 all-gather + reduce-scatter
-TP + SP（每层每 micro-batch）      8 × (t-1)/t × sbh × 2 字节  走 NVLink；前向 2 AG + 2 RS，反向同
-PP（每个 stage 边界每 micro-batch）2 × sbh × 2 / t 字节        走节点间；量最小，延迟敏感
-```
+| 并行方式 | 通信量 | 说明 |
+|---|---|---|
+| DP（all-reduce 梯度） | ≈ 2 N_local_bytes | 走节点间；可与反向重叠 |
+| DP + ZeRO-1（reduce-scatter+all-gather） | ≈ 2 N_local_bytes | 同上；all-gather 可与下一个前向重叠 |
+| ZeRO-3 / FSDP（每个 micro-batch） | ≈ 3 N_local_bytes × m | 前向 all-gather、反向 all-gather + reduce-scatter |
+| TP + SP（每层每 micro-batch） | 8 × (t-1)/t × sbh × 2 字节 | 走 NVLink；前向 2 AG + 2 RS，反向同 |
+| PP（每个 stage 边界每 micro-batch） | 2 × sbh × 2 / t 字节 | 走节点间；量最小，延迟敏感 |
+
+Table: 四种并行的每 step 每卡通信量
 
 其中 N_local 是这张卡上持有的参数（被 TP、PP 切过之后的份额）。
 

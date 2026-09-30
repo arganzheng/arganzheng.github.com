@@ -476,12 +476,13 @@ H100 BF16 989 TFLOPS，按 60% MFU 算 593 TFLOPS，$$6.5 \times 10^{15} / 593 \
 
 第六篇的公式：每 token 的 KV cache 字节数为 $$2 \cdot L \cdot n_{kv} \cdot d_{head} \cdot \text{bytes}$$。
 
-```text
-                    bytes/token      8K          32K         128K
-Llama-3-8B          128 KiB          1.0 GiB     4.0 GiB     16 GiB
-Llama-3-70B         320 KiB          2.5 GiB    10.0 GiB     40 GiB
-DeepSeek-V3 (MLA)  68.6 KiB          0.54 GiB    2.1 GiB     8.6 GiB
-```
+| 模型 | bytes/token | 8K | 32K | 128K |
+|---|---|---|---|---|
+| Llama-3-8B | 128 KiB | 1.0 GiB | 4.0 GiB | 16 GiB |
+| Llama-3-70B | 320 KiB | 2.5 GiB | 10.0 GiB | 40 GiB |
+| DeepSeek-V3 (MLA) | 68.6 KiB | 0.54 GiB | 2.1 GiB | 8.6 GiB |
+
+Table: 三个模型在 8K、32K、128K 上下文下的 KV cache
 
 Llama-3-8B 一个 128K 请求的 KV cache 是它权重（16.06 GB）的大小；70B 一个 128K 请求 40 GiB，是单张 H100 一半的显存。对 Infra 来说，长上下文的 KV cache 意味着**并发数**的上限：H100 放下 8B 权重后剩约 64 GB，8K 上下文可以放 64 个请求的 KV，128K 只能放 4 个。
 

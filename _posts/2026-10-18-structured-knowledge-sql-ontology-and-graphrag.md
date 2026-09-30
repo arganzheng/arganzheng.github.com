@@ -65,13 +65,15 @@ Table: 三种结构化接入的对照
 
 解法是在裸表之上放一层**业务概念的定义**：
 
-```text
-指标   营收 = SUM(orders.amount) WHERE status = 'paid' AND type != 'internal'
-维度   区域 = customers.region（华东 / 华北 / …）
-维度   时间 = orders.paid_at 按日 / 周 / 月 / 季
-实体   活跃客户 = customers WHERE cust_stat_cd = 'A' AND last_order_at > now() - 90d
-关系   客户 →(1:n) 订单 →(1:n) 订单行 →(n:1) 产品
-```
+| 类型 | 定义 |
+|---|---|
+| 指标 | 营收 = SUM(orders.amount) WHERE status = 'paid' AND type != 'internal' |
+| 维度 | 区域 = customers.region（华东 / 华北 / …） |
+| 维度 | 时间 = orders.paid_at 按日 / 周 / 月 / 季 |
+| 实体 | 活跃客户 = customers WHERE cust_stat_cd = 'A' AND last_order_at > now() - 90d |
+| 关系 | 客户 →(1:n) 订单 →(1:n) 订单行 →(n:1) 产品 |
+
+Table: 语义层里的业务概念定义
 
 模型对**语义层**生成查询（"华东区 Q3 营收" → 指标 × 维度 × 过滤），语义层编译成 SQL——业务规则写一次、对所有查询生效、可审查、可版本化。dbt 的 semantic layer、Cube、各 BI 工具的指标层都是这一类；没有现成工具时，一份几十个概念的 YAML 加一个编译器也能起步。语义层还是**权限**的落点：哪些指标哪些角色能看，在这里定义，模型无法绕过。
 

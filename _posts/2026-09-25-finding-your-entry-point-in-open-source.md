@@ -56,13 +56,11 @@ Table: 选题的四类失败方式
 
 与项目无关的通用做法只有一条主线：**maintainer 已经用标签、模板、看板、政策文件把"我们想要什么"写出来了，选题就是去读它们，然后在动手前核对一次没有人在做**。展开为五步：
 
-```text
-1  读"想要什么"     标签体系（哪些标签表示"欢迎外部 PR"）、Job Board / 看板、roadmap 与 tracker issue
-2  读"不要什么"     CONTRIBUTING / AI_POLICY / AGENTS.md 里的否定句：不要 typo PR、不要没 RFC 的大改、不要没 actionable 的 PR
-3  找信号源        除 issue 以外的四个来源：RFC、CI 失败看板、性能回归报告、文档/类型/测试缺口
-4  查重            gh issue view --comments；gh pr list --search；看 assignee；看最近一条评论的日期
-5  估规模并决定是否先讨论   几行 / 几十行 / 几百行；要不要硬件；maintainer 有没有说过"我会 review 什么样的 PR"
-```
+1. **读"想要什么"**：标签体系（哪些标签表示"欢迎外部 PR"）、Job Board / 看板、roadmap 与 tracker issue
+2. **读"不要什么"**：CONTRIBUTING / AI_POLICY / AGENTS.md 里的否定句：不要 typo PR、不要没 RFC 的大改、不要没 actionable 的 PR
+3. **找信号源**：除 issue 以外的四个来源：RFC、CI 失败看板、性能回归报告、文档/类型/测试缺口
+4. **查重**：gh issue view --comments；gh pr list --search；看 assignee；看最近一条评论的日期
+5. **估规模并决定是否先讨论**：几行 / 几十行 / 几百行；要不要硬件；maintainer 有没有说过"我会 review 什么样的 PR"
 
 背后的理由和整个系列一样：reviewer 的时间是项目最稀缺的资源。一个已经有 5 个 PR 的 issue，第 6 个 PR 消耗 reviewer 的时间却几乎不增加价值；一个没有 RFC 的千行 PR，reviewer 要先在 PR 里补上本该在 issue 里发生的设计讨论；一个 typo PR 要走完 CI、review、merge 的全部开销，收益是一个字母。反过来，maintainer 最希望有人来做的，是**他们已经决定要做、写清楚了要什么、但自己没时间做**的事——在 PyTorch 是 `actionable` 加上 maintainer 一句"I'd review a PR that ..."，在 vLLM 是 `help wanted` 加上 issue 正文里的分步骤说明。
 

@@ -616,13 +616,15 @@ AI = 运算量 (FLOPs) / 数据量 (Bytes)
 
 硬件也有一个对应的比值：峰值算力 / 显存带宽，称为 **ridge point**。以 A100 为例（取整）：
 
-```text
-FP32 算力       19.5 TFLOPs
-FP16/BF16 算力  312 TFLOPs（Tensor Core）
-显存带宽        2 TB/s
-ridge point     FP32:  19.5e12 / 2e12 ≈ 10 FLOP/Byte
-                FP16:  312e12 / 2e12 ≈ 156 FLOP/Byte
-```
+| 指标 | A100（取整） |
+|---|---|
+| FP32 算力 | 19.5 TFLOPs |
+| FP16/BF16 算力 | 312 TFLOPs（Tensor Core） |
+| 显存带宽 | 2 TB/s |
+| ridge point（FP32） | 19.5e12 / 2e12 ≈ 10 FLOP/Byte |
+| ridge point（FP16） | 312e12 / 2e12 ≈ 156 FLOP/Byte |
+
+Table: A100 的算力、显存带宽与 ridge point
 
 Kernel 的 AI 低于 ridge point → memory-bound，能达到的算力 = AI × 带宽；高于 → compute-bound，能达到的算力 = 峰值。画成图就是 Roofline：横轴 AI，纵轴可达算力，一条斜线接一条水平线。下图用上面的 A100 数字画出两条 roof（FP32 与 BF16 Tensor Core 共用同一条带宽斜线，ridge point 不同），并把 §3 将要分析的几个算子标在图上：
 
@@ -644,11 +646,13 @@ Table: mm、add、relu 三个算子的算术强度归类
 
 换成大模型尺度，`mm` 为 `[4096, 4096] × [4096, 4096]` fp16：
 
-```text
-运算量  2 × 4096³ ≈ 137 GFLOPs
-数据量  3 × 4096² × 2 B ≈ 100 MB
-AI      ≈ 1370  ≫ 156   → compute-bound
-```
+| 项 | 值 |
+|---|---|
+| 运算量 | 2 × 4096³ ≈ 137 GFLOPs |
+| 数据量 | 3 × 4096² × 2 B ≈ 100 MB |
+| AI | ≈ 1370 ≫ 156 → compute-bound |
+
+Table: 4096³ fp16 矩阵乘的运算量、数据量与算术强度
 
 结论：
 
