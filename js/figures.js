@@ -262,8 +262,9 @@
   // ```lang title="…" (_plugins/code_titles.rb → data-title on the rouge
   // wrapper or the bare <pre>) and is the passage the feedback button picks —
   // stable across edits to the code, readable in the comment. Untitled blocks
-  // fall back to the first line (span.line from _plugins/code_lines.rb), not
-  // the whole block: any edit used to orphan the note.
+  // fall back to the block number in the header (「代码块 N」 / 「文本块 N」),
+  // not the first line: this keeps the selection on the block's own metadata,
+  // matching figures/tables. Authors should add a title for stable anchors.
   var TEXT_LANGS = { text: 1, txt: 1, plain: 1, plaintext: 1 };
   var CODE_EXCLUDE = '.mermaid, .comment, .annotation-panel, .series-toc, .related-posts';
   function codeLang(anchor, code) {
@@ -286,7 +287,7 @@
     }
     return n + 1;
   }
-  var CODE_TITLE = '对这段代码评论 / 存疑（会选中它的标题或第一行，再从工具条里选）';
+  var CODE_TITLE = '对这段代码评论 / 存疑（会选中它的标题或「代码块 N」，再从工具条里选）';
   function decorateCode() {
     Array.prototype.forEach.call(container.querySelectorAll('pre'), function (pre) {
       if (pre.closest(CODE_EXCLUDE) || pre.closest('.code-block') || pre.querySelector('code.language-mermaid')) return;
@@ -312,7 +313,7 @@
       var strip = tools(anchor, head);
       // code-copy.js put its button on the wrapper, or inside the bare <pre>
       Array.prototype.forEach.call(pre.querySelectorAll(':scope > .code-copy'), function (c) { strip.insertBefore(c, strip.firstChild); });
-      var target = head.querySelector('.fig-title') || code.querySelector('.line') || code;
+      var target = head.querySelector('.fig-title') || head.querySelector('.fig-no') || code;
       strip.appendChild(button(CODE_TITLE, function () { pick(target, head); }));
     });
   }
