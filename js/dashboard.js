@@ -332,10 +332,68 @@
     url.searchParams.delete('giscus'); history.replaceState(null, '', url.toString());
   })();
 
+  // Every top-level comment of the 30 most recently active threads, with its
+  // isMinimized flag: a thread is 已处理 once the author minimizes it as
+  // RESOLVED on GitHub (js/annotations.js hides minimized comments from the
+  // article page too), so 「未处理」 is simply the non-minimized ones.
   var QUERY = 'query($owner: String!, $name: String!, $cat: ID!) { repository(owner: $owner, name: $name) {' +
-    ' discussions(first: 20, categoryId: $cat, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {' +
+    ' discussions(first: 30, categoryId: $cat, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {' +
     ' title url updatedAt comments { totalCount } reactionGroups { content reactors { totalCount } }' +
-    ' recent: comments(last: 3) { nodes { url createdAt bodyText author { login } replies(last: 2) { nodes { url createdAt bodyText author { login } } } } } } } } }';
+    ' recent: comments(last: 60) { nodes { id url createdAt bodyText isMinimized author { login } replies(last: 3) { nodes { url createdAt bodyText author { login } } } } } } } } }';
+  var MINIMIZE = 'mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: RESOLVED}) { minimizedComment { isMinimized } } }';
+
+  var modeLinks = document.querySelectorAll('#dash-comments [data-mode]');
+  var mode = 'open', threads = null;
+  Array.prototype.forEach.call(modeLinks, function (a) {
+    a.addEventListener('click', function (e) { e.preventDefault(); activate(modeLinks, a); mode = a.getAttribute('data-mode'); renderComments(); });
+  });
+
+  function gql(query, variables) {
+    return getToken().then(function (token) {
+      return fetch('https://api.github.com/graphql', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query, variables: variables }) }).then(function (r) { return r.json(); });
+    }).then(function (res) { if (res.errors) throw new Error(res.errors[0].message); return res.data; });
+  }
+
+  function renderComments() {
+    if (!threads) return;
+    var shown = threads.map(function (d) {
+      var open = d.recent.nodes.filter(function (c) { return !c.isMinimized; });
+      return { d: d, comments: mode === 'open' ? open : d.recent.nodes.slice(), open: open.length };
+    }).filter(function (t) { return t.comments.length; });
+    var total = shown.reduce(function (n, t) { return n + t.comments.length; }, 0);
+    authEl.innerHTML = '<span class="dash-count">' + total + '</span> <a href="https://github.com/' + repo + '/discussions" target="_blank" rel="noopener">全部讨论 ↗</a>';
+    if (!shown.length) { listEl.innerHTML = '<p class="dash-muted">' + (mode === 'open' ? '没有未处理的评论。' : '还没有评论。') + '</p>'; return; }
+    listEl.innerHTML = shown.map(function (t) {
+      var d = t.d;
+      var likes = (d.reactionGroups || []).filter(function (g) { return g.content === 'THUMBS_UP'; }).map(function (g) { return g.reactors.totalCount; })[0] || 0;
+      var path = d.title.indexOf('/') === 0 ? d.title : null;
+      var items = t.comments.slice().sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; });
+      return '<div class="dash-thread">' +
+        '<div class="dash-thread-head"><a href="' + h(path || d.url) + '">' + h(path ? titleOf(path) : d.title) + '</a>' +
+        ' <span class="dash-muted">' + t.open + ' 条未处理 / ' + d.comments.totalCount + ' 条评论 · 👍 ' + likes + ' · ' + ago(d.updatedAt) + '</span>' +
+        ' <a class="dash-more" target="_blank" rel="noopener" href="' + h(d.url) + '">GitHub ↗</a></div>' +
+        items.map(function (c) {
+          var last = (c.replies.nodes || []).slice(-1)[0];
+          return '<div class="dash-comment' + (c.isMinimized ? ' is-done' : '') + '" data-id="' + h(c.id) + '"><b>' + h(c.author ? c.author.login : 'ghost') + '</b> <span class="dash-muted">' + ago(c.createdAt) + '</span>' +
+            (c.isMinimized ? ' <span class="dash-muted"><i class="fa fa-check-circle"></i> 已处理</span>' : ' <span class="dash-resolve"><button type="button" data-action="done" title="改好了：在 GitHub 上折叠为 resolved，文章页不再显示"><i class="fa fa-check"></i> 已处理</button></span>') +
+            '<a target="_blank" rel="noopener" href="' + h(c.url) + '"> ' + h(c.bodyText.replace(/\s+/g, ' ').slice(0, 140)) + (c.bodyText.length > 140 ? '…' : '') + '</a>' +
+            (last ? '<div class="dash-muted">↳ ' + h(last.author ? last.author.login : 'ghost') + '：' + h(last.bodyText.replace(/\s+/g, ' ').slice(0, 100)) + (last.bodyText.length > 100 ? '…' : '') + '</div>' : '') +
+            '</div>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+
+  listEl.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-action="done"]');
+    if (!btn) return;
+    var row = btn.closest('.dash-comment'), id = row.getAttribute('data-id');
+    btn.disabled = true; btn.textContent = '…';
+    gql(MINIMIZE, { id: id }).then(function () {
+      threads.forEach(function (d) { d.recent.nodes.forEach(function (c) { if (c.id === id) c.isMinimized = true; }); });
+      renderComments();
+    }).catch(function (err) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-check"></i> 已处理'; alert('折叠失败：' + err.message); });
+  });
 
   function loadComments() {
     if (!session()) {
@@ -344,38 +402,9 @@
       return;
     }
     authEl.textContent = '加载中…';
-    fetch(api + '/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session: session() }) })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d.token) throw new Error('登录已过期');
-        var parts = repo.split('/');
-        return fetch('https://api.github.com/graphql', { method: 'POST', headers: { Authorization: 'Bearer ' + d.token, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: QUERY, variables: { owner: parts[0], name: parts[1], cat: categoryId } }) }).then(function (r) { return r.json(); });
-      })
-      .then(function (res) {
-        if (res.errors) throw new Error(res.errors[0].message);
-        var nodes = res.data.repository.discussions.nodes;
-        authEl.innerHTML = '<a href="https://github.com/' + repo + '/discussions" target="_blank" rel="noopener">全部讨论 ↗</a>';
-        if (!nodes.length) { listEl.innerHTML = '<p class="dash-muted">还没有评论。</p>'; return; }
-        listEl.innerHTML = nodes.map(function (d) {
-          var likes = (d.reactionGroups || []).filter(function (g) { return g.content === 'THUMBS_UP'; }).map(function (g) { return g.reactors.totalCount; })[0] || 0;
-          var items = [];
-          (d.recent.nodes || []).forEach(function (c) {
-            items.push(c);
-            (c.replies.nodes || []).forEach(function (r) { items.push(r); });
-          });
-          items.sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; });
-          var path = d.title.indexOf('/') === 0 ? d.title : null;
-          return '<div class="dash-thread">' +
-            '<div class="dash-thread-head"><a href="' + h(path || d.url) + '">' + h(path ? titleOf(path) : d.title) + '</a>' +
-            ' <span class="dash-muted">' + d.comments.totalCount + ' 条评论 · 👍 ' + likes + ' · ' + ago(d.updatedAt) + '</span>' +
-            ' <a class="dash-more" target="_blank" rel="noopener" href="' + h(d.url) + '">GitHub ↗</a></div>' +
-            items.slice(0, 3).map(function (c) {
-              return '<div class="dash-comment"><b>' + h(c.author ? c.author.login : 'ghost') + '</b> <span class="dash-muted">' + ago(c.createdAt) + '</span>' +
-                '<a target="_blank" rel="noopener" href="' + h(c.url) + '"> ' + h(c.bodyText.replace(/\s+/g, ' ').slice(0, 140)) + (c.bodyText.length > 140 ? '…' : '') + '</a></div>';
-            }).join('') + '</div>';
-        }).join('');
-      })
+    var parts = repo.split('/');
+    gql(QUERY, { owner: parts[0], name: parts[1], cat: categoryId })
+      .then(function (data) { threads = data.repository.discussions.nodes; renderComments(); })
       .catch(function (err) {
         authEl.innerHTML = '<a href="#" class="dash-login">重新登录</a>';
         authEl.querySelector('.dash-login').addEventListener('click', function (e) { e.preventDefault(); try { localStorage.removeItem(SESSION_KEY); } catch (x) { /* ignore */ } login(); });

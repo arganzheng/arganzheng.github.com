@@ -2201,6 +2201,14 @@ li[id^="fn:"] {
 .dash .dash-comment a:hover {
   color: #00788f;
 }
+.dash .dash-comment.is-done {
+  opacity: 0.55;
+  border-left-color: #2da44e;
+}
+.dash .dash-comment .dash-resolve {
+  display: inline-block;
+  margin: 0 4px;
+}
 .sidebar-container {
   color: #555;
 }
