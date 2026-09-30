@@ -172,6 +172,16 @@
   border-top: 1px solid #d1d9e0;
 }
 
+/* `<br/>`-separated cells become <ul class="cell-list"> at build time
+   (_plugins/table_lists.rb): a compact list, no outer margin, bullets kept. */
+.post-container table td ul.cell-list {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.post-container table td ul.cell-list li + li {
+  margin-top: .15em;
+}
+
 /* ---- Blockquotes ---- */
 .post-container blockquote {
   margin: 0 0 16px 0;

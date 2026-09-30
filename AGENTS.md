@@ -1726,9 +1726,13 @@ How it is built (`_plugins/moments.rb`):
     - Prose 「X 有三个后果：A；B；C」 → a lead-in line plus an ordered /
       unordered list, one item per `；`.
     - A table cell that enumerates ≥ 3 items (`a；b；c`) → one item per
-      line inside the cell with `<br/>` (kramdown cannot nest a `<ul>` in a
-      cell; `<br/>` is the in-cell list). Keep the table when the row/column
-      relation carries meaning (name ↔ 负责 ↔ 要会的, 篇 ↔ 问题 ↔ 结论).
+      line inside the cell with `<br/>`. kramdown cannot parse a `<ul>` in a
+      cell (it is escaped to text), so `_plugins/table_lists.rb` turns every
+      `<br/>`-separated `<td>` into a real `<ul class="cell-list">` at build
+      time — `<br/>` *is* the in-cell list syntax; never write `<ul>` in a
+      cell. `<th>` is left alone (a two-line header is a wrapped label).
+      Keep the table when the row/column relation carries meaning
+      (name ↔ 负责 ↔ 要会的, 篇 ↔ 问题 ↔ 结论).
     - Do **not** turn such a table into a nested list, even when most cells
       are enumerations (章节安排 tables, per-post recap tables). The
       2026-09-30 sweep did that for 140 tables and the reader asked for the
