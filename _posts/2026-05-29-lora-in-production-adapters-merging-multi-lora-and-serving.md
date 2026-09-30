@@ -17,7 +17,7 @@ catalog: true
 
 `model.save_pretrained("r16_all")` 存下的是：
 
-```text
+```text title="02 存下来的 adapter 目录"
 r16_all/
   README.md                       5 KB     # peft 自动写的模型卡
   adapter_config.json             1 KB     # LoraConfig 的 JSON：r、alpha、target_modules、底座名……
@@ -67,7 +67,7 @@ PiSSA、OLoRA 这类初始化会**改底座**：$$W = W_{res} + B_0 A_0$$，训�
 
 ### 2.1 加载
 
-```python
+```python title="把 adapter 装回底座"
 from peft import PeftModel
 base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-0.5B", dtype=torch.float32)
 model = PeftModel.from_pretrained(base, "out/ckpt/r16_all")
@@ -79,14 +79,14 @@ model = PeftModel.from_pretrained(base, "out/ckpt/r16_all")
 
 合并就是把 $$\frac{\alpha}{r} B A$$ 加进 $$W$$：
 
-```python
+```python title="merge_and_unload：把 ΔW 加进 W"
 # 每个 lora.Linear：base.weight += scaling * B @ A，再换回 nn.Linear
 merged = model.merge_and_unload()
 ```
 
 `peft` 里 `get_delta_weight` 算 `weight_B @ weight_A * scaling`，`merge` 做 `base_layer.weight.data += delta_weight`，`unmerge` 减回去（[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)第四节有这几个函数）。合并后模型里没有任何 `lora` 模块，参数量回到 494M，结构与原始 `Qwen2ForCausalLM` 完全相同——这就是它可以直接交给 vLLM、llama.cpp、TensorRT-LLM 的原因。
 
-```text
+```text title="03_deploy.py merge 的输出"
 加载后验证回复 loss 2.3943；与 base 的 logits 最大差 18.816（adapter 确实生效了）
 merge_and_unload 后：模型里 lora 模块 0 个，参数量 494.0M（与底座相同）
 合并前后 logits 最大差 3.28e-04；一次前向 65 ms → 53 ms
@@ -105,13 +105,14 @@ merge_and_unload 后：模型里 lora 模块 0 个，参数量 494.0M（与底�
 
 adapter 是对着某个精度的 $$W$$ 学的。工程上常见的组合有四种：
 
-```text
-训练时                       服务时                          差别来自
-FP32/BF16 底座 + adapter  →  同精度底座 + adapter             无（数值一致）
-FP32/BF16 底座 + adapter  →  先合并，再 INT4/NF4 量化          一次量化误差落在 W+ΔW 上
-FP32/BF16 底座 + adapter  →  NF4 底座 + 同一个 adapter         底座的量化误差；adapter 没变
-NF4 底座 + adapter (QLoRA) →  BF16 底座 + 同一个 adapter        adapter 学的是补 NF4 底座的 ΔW，装到 BF16 上"补过头"
-```
+| 训练时 | 服务时 | 差别来自 |
+|---|---|---|
+| FP32 / BF16 底座 + adapter | 同精度底座 + adapter | 无（数值一致） |
+| FP32 / BF16 底座 + adapter | 先合并，再 INT4 / NF4 量化 | 一次量化误差落在 $$W + \Delta W$$ 上 |
+| FP32 / BF16 底座 + adapter | NF4 底座 + 同一个 adapter | 底座的量化误差；adapter 没变 |
+| NF4 底座 + adapter（QLoRA） | BF16 底座 + 同一个 adapter | adapter 学的是补 NF4 底座的 $$\Delta W$$，装到 BF16 上"补过头" |
+
+Table: 训练与服务时底座精度的四种组合
 
 实测（第二篇的 r=16 全部线性层 adapter，FP32 上训的）：
 
@@ -132,7 +133,7 @@ Table: 同一个 adapter 换底座精度、以及先合并再量化的效果（`
 
 ### 4.1 一个底座挂两个 adapter
 
-```python
+```python title="一个底座挂两个 adapter 并切换"
 model = PeftModel.from_pretrained(base, "r16_all", adapter_name="all")
 model.load_adapter("r16_attn", adapter_name="attn")
 model.set_adapter("attn")                 # 前向只走 attn 的 B、A
@@ -140,7 +141,7 @@ model.set_adapter("attn")                 # 前向只走 attn 的 B、A
 
 `lora.Linear.forward` 里的循环是 `for active_adapter in self.active_adapters`：每个 `lora.Linear` 是一个 `ModuleDict`，键是 adapter 名，`set_adapter` 只改 `active_adapters` 这个列表。两个 adapter 的参数同时在内存里（0.5B 上 8.8M + 2.2M），切换是零拷贝的。
 
-```text
+```text title="set_adapter 切换后的验证 loss"
 已加载 adapter：['all', 'attn']，当前激活：all
 set_adapter('all' )  验证回复 loss 2.3943     # 第二篇的 r=16 全部线性层
 set_adapter('attn')  验证回复 loss 2.4113     # 第二篇的 r=16 attention-only
@@ -181,12 +182,12 @@ Table: 两个同任务 adapter 的三种合成（`03_deploy.py multi`）
 
 DPO 的 loss 里有 $$\log \pi_\theta / \pi_{ref}$$，GRPO 的 KL 项也要 $$\pi_{ref}$$，$$\pi_{ref}$$ 是训练开始时的策略。全量训练要在显存里再放一份模型；LoRA 下训练开始时的策略就是**底座本身**（$$B = 0$$，$$W' = W$$），所以：
 
-```python
+```python title="关闭 adapter 取参考模型的 logits"
 with model.disable_adapter():
     ref_logits = model(**batch).logits      # 走的是 W，不是 W + BA
 ```
 
-```text
+```text title="disable_adapter 的输出"
 with disable_adapter(): 验证回复 loss 2.4936（base 是 2.4936）
 ```
 

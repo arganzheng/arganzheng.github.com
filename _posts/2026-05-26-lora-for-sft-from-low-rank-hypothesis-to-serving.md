@@ -20,14 +20,13 @@ catalog: true
 
 系列覆盖的范围是三段：
 
-```text
-第一段   为什么          低秩假设从哪来；W + (α/r)BA 的前向、梯度与初始化；参数 / 训练状态 / FLOPs / 激活四本账；
-                        全量微调的 ΔW 到底低不低秩                                                      → 第一篇
-第二段   怎么配          r、target_modules、α 与 rsLoRA、lr 与 LoRA+、dropout；PiSSA / DoRA / OLoRA / EVA / LoftQ；
-                        QLoRA 的 NF4、双重量化与分页优化器；十三种配置（全量 + 十二种 LoRA）的对照矩阵与一张选择表              → 第二篇
-第三段   怎么上线        adapter 文件与底座匹配；加载、合并与数值等价；量化底座的失配；多 adapter 的切换与合成；
-                        multi-LoRA 服务的账；disable_adapter 当参考模型；新 token 学不会的坑             → 第三篇
-```
+| 段 | 问题 | 内容 | 篇 |
+|---|---|---|---|
+| 第一段 | 为什么 | 低秩假设从哪来；$$W + \frac{\alpha}{r} BA$$ 的前向、梯度与初始化；参数 / 训练状态 / FLOPs / 激活四本账；全量微调的 $$\Delta W$$ 到底低不低秩 | 第一篇 |
+| 第二段 | 怎么配 | $$r$$、`target_modules`、$$\alpha$$ 与 rsLoRA、lr 与 LoRA+、dropout；PiSSA / DoRA / OLoRA / EVA / LoftQ；QLoRA 的 NF4、双重量化与分页优化器；十三种配置（全量 + 十二种 LoRA）的对照矩阵与一张选择表 | 第二篇 |
+| 第三段 | 怎么上线 | adapter 文件与底座匹配；加载、合并与数值等价；量化底座的失配；多 adapter 的切换与合成；multi-LoRA 服务的账；`disable_adapter` 当参考模型；新 token 学不会的坑 | 第三篇 |
+
+Table: 系列三段的范围
 
 ## 为什么写这个系列？
 
