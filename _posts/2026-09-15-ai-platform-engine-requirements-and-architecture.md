@@ -88,19 +88,38 @@ Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差�
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 训练任务的形态与需求 | torchrun 的进程组与 rendezvous；`MASTER_ADDR` / `WORLD_SIZE` / RANK；一个进程挂掉为什么全停；四条资源需求 |
-| 三 | 推理服务的形态与需求 | 副本的三种形态；prefill 与 decode；显存硬约束；扩容时间；负载信号在引擎内部 |
-| 四 | 两组矛盾的需求 | 独占 vs 共享、拓扑 vs 弹性、批处理 vs 长驻；混部为什么难；两者的共同点 |
-| 五 | 原生 Kubernetes 的空缺 | kube-scheduler 的逐 Pod 模型；device plugin 的计数模型；一张网卡；Service 与 HPA 的假设 |
-| 六 | 平台的两层拆分 | 资源层与交付层的输入输出；组件全景图按层落位；Slurm 与 Ray 的位置 |
-| 七 | 核心问题：两张需求表 | 32 卡训练任务与 TP=2 推理服务各一张表，"原生 K8s 能否满足"列与补缺的篇目 |
-| 八 | 全系列术语表 | gang、cohort、ResourceFlavor、MIG profile、InferencePool、EPP、TTFT/TPOT、goodput、分配率与使用率 |
-| 九 | 代价与边界 | 四栏表；每叠一层的代价；本系列的边界；托管服务替你做了什么 |
-| 十 | 小结 | 要点、源码与 CRD 位置、mini-platform 的第一批文件 |
-
-Table: 本文的章节安排
+- **二、训练任务的形态与需求**
+  - torchrun 的进程组与 rendezvous
+  - `MASTER_ADDR` / `WORLD_SIZE` / RANK
+  - 一个进程挂掉为什么全停
+  - 四条资源需求
+- **三、推理服务的形态与需求**
+  - 副本的三种形态
+  - prefill 与 decode
+  - 显存硬约束
+  - 扩容时间
+  - 负载信号在引擎内部
+- **四、两组矛盾的需求**
+  - 独占 vs 共享、拓扑 vs 弹性、批处理 vs 长驻
+  - 混部为什么难
+  - 两者的共同点
+- **五、原生 Kubernetes 的空缺**
+  - kube-scheduler 的逐 Pod 模型
+  - device plugin 的计数模型
+  - 一张网卡
+  - Service 与 HPA 的假设
+- **六、平台的两层拆分**
+  - 资源层与交付层的输入输出
+  - 组件全景图按层落位
+  - Slurm 与 Ray 的位置
+- **七、核心问题：两张需求表**：32 卡训练任务与 TP=2 推理服务各一张表，"原生 K8s 能否满足"列与补缺的篇目
+- **八、全系列术语表**：gang、cohort、ResourceFlavor、MIG profile、InferencePool、EPP、TTFT/TPOT、goodput、分配率与使用率
+- **九、代价与边界**
+  - 四栏表
+  - 每叠一层的代价
+  - 本系列的边界
+  - 托管服务替你做了什么
+- **十、小结**：要点、源码与 CRD 位置、mini-platform 的第一批文件
 
 ## 二、训练任务的形态与需求
 
@@ -702,23 +721,23 @@ Table: 自建与托管方案各层的分工
 
 | 路径 | 内容 |
 |---|---|
-| PyTorch 2.13.0 `torch/distributed/run.py` | 模块文档：`--nnodes` / `--nproc-per-node` / `--rdzv-backend` / `--rdzv-endpoint` / `--rdzv-id` / `--max-restarts`；环境变量 `MASTER_ADDR`、`MASTER_PORT`、`WORLD_SIZE`、`RANK`、`LOCAL_RANK`、`LOCAL_WORLD_SIZE`、`TORCHELASTIC_RUN_ID`；"Failure Modes" 与 "Membership Changes" 两节 |
+| PyTorch 2.13.0 `torch/distributed/run.py` | 模块文档：`--nnodes` / `--nproc-per-node` / `--rdzv-backend` / `--rdzv-endpoint` / `--rdzv-id` / `--max-restarts`<br/>环境变量 `MASTER_ADDR`、`MASTER_PORT`、`WORLD_SIZE`、`RANK`、`LOCAL_RANK`、`LOCAL_WORLD_SIZE`、`TORCHELASTIC_RUN_ID`<br/>"Failure Modes" 与 "Membership Changes" 两节 |
 | PyTorch 2.13.0 `torch/distributed/elastic/agent/server/api.py` | `SimpleElasticAgent._invoke_run()`（监控循环：`SUCCEEDED` → `_exit_barrier()`；`FAILED` / `UNHEALTHY` → `_restart_workers()` 或停止）、`_rendezvous()`、`_monitor_workers()`；`local_elastic_agent.py` 的 `LocalElasticAgent` 是本机实现 |
-| PyTorch 2.13.0 `torch/distributed/elastic/rendezvous/dynamic_rendezvous.py` | `RendezvousSettings.min_nodes` / `max_nodes`、`_DistributedRendezvousOpExecutor`；`rendezvous/api.py` 的 `RendezvousHandler.next_rendezvous()`；`c10d_rendezvous_backend.py` 为默认后端 |
+| PyTorch 2.13.0 `torch/distributed/elastic/rendezvous/dynamic_rendezvous.py` | `RendezvousSettings.min_nodes` / `max_nodes`、`_DistributedRendezvousOpExecutor`<br/>`rendezvous/api.py` 的 `RendezvousHandler.next_rendezvous()`<br/>`c10d_rendezvous_backend.py` 为默认后端 |
 | vLLM v0.28.0 `vllm/v1/metrics/loggers.py` | `PrometheusStatLogger`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`、`vllm:num_preemptions`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_queue_time_seconds` |
 | vLLM v0.28.0 `vllm/config/cache.py`、`vllm/config/parallel.py` | `CacheConfig.gpu_memory_utilization`（默认 0.92）；`ParallelConfig.tensor_parallel_size` |
 | Kubernetes v1.37.0 `pkg/scheduler/framework/plugins/noderesources/fit.go` | `Fits()`、`fitsRequest()`、`InsufficientResource`（`Reason` 为 `Insufficient <资源名>`） |
 | Kubernetes v1.37.0 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto` | `ListAndWatch`、`GetPreferredAllocation`、`Allocate` 三个 rpc；`pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl.Allocate()` / `GetCapacity()` |
 | Kubernetes v1.37.0 `staging/src/k8s.io/api/resource/v1/types.go` | DRA 的 `ResourceSlice`、`ResourceClaim`、`ResourceClaimTemplate`、`DeviceClass`（第二篇展开） |
 | GPU Operator v26.7.0 `api/nvidia/v1/clusterpolicy_types.go` | `ClusterPolicySpec` |
-| Kueue v0.19.2 `apis/kueue/v1beta2/clusterqueue_types.go`、`resourceflavor_types.go`、`apis/kueue/v1beta1/topology_types.go` | `ClusterQueueSpec.CohortName`、`ReclaimWithinCohort` / `BorrowWithinCohort`；`ResourceFlavorSpec.NodeLabels`；`Topology` CRD |
-| Volcano v1.15.2 `staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go`、`pkg/scheduler/plugins/gang/gang.go` | `PodGroupSpec.MinMember`；`QueueSpec.Capability` / `Deserved` / `Guarantee`；gang 插件 |
-| Kubeflow Trainer v2.3.0 `pkg/apis/trainer/v1alpha1/trainjob_types.go`、`trainingruntime_types.go`、`pkg/constants/constants.go` | `TrainJobSpec.RuntimeRef`；`TorchMLPolicySource.NumProcPerNode`、`NumNodes`；`TorchEnvNumNodes = "PET_NNODES"` 等 torchrun 环境变量常量 |
+| Kueue v0.19.2 `apis/kueue/v1beta2/clusterqueue_types.go`、`resourceflavor_types.go`、`apis/kueue/v1beta1/topology_types.go` | `ClusterQueueSpec.CohortName`、`ReclaimWithinCohort` / `BorrowWithinCohort`<br/>`ResourceFlavorSpec.NodeLabels`<br/>`Topology` CRD |
+| Volcano v1.15.2 `staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go`、`pkg/scheduler/plugins/gang/gang.go` | `PodGroupSpec.MinMember`<br/>`QueueSpec.Capability` / `Deserved` / `Guarantee`<br/>gang 插件 |
+| Kubeflow Trainer v2.3.0 `pkg/apis/trainer/v1alpha1/trainjob_types.go`、`trainingruntime_types.go`、`pkg/constants/constants.go` | `TrainJobSpec.RuntimeRef`<br/>`TorchMLPolicySource.NumProcPerNode`、`NumNodes`<br/>`TorchEnvNumNodes = "PET_NNODES"` 等 torchrun 环境变量常量 |
 | KubeRay v1.7.0 `ray-operator/apis/ray/v1/` | `RayClusterSpec`、`RayJobSpec`、`RayServiceSpec` |
 | Slinky slurm-operator v1.2.2 `api/v1beta1/` | `ControllerSpec`、`NodeSetSpec`、`LoginSetSpec` |
 | LeaderWorkerSet v0.10.0 `api/leaderworkerset/v1/leaderworkerset_types.go` | `LeaderWorkerSetSpec.LeaderWorkerTemplate`；`api/disaggregatedset/v1/` 为 PD 分离的独立 API group |
 | KServe v0.20.0 `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` | `LLMInferenceService`（`serving.kserve.io/v1alpha1`） |
-| Gateway API Inference Extension v1.6.0 `api/v1/inferencepool_types.go` | `InferencePool`（`inference.networking.k8s.io/v1`）、`EndpointPickerRef`；EPP 实现在 llm-d-router v0.10.0 `cmd/epp`、`pkg/epp`；`InferenceObjective` 在 llm-d-router `apix/v1alpha2` |
+| Gateway API Inference Extension v1.6.0 `api/v1/inferencepool_types.go` | `InferencePool`（`inference.networking.k8s.io/v1`）、`EndpointPickerRef`<br/>EPP 实现在 llm-d-router v0.10.0 `cmd/epp`、`pkg/epp`<br/>`InferenceObjective` 在 llm-d-router `apix/v1alpha2` |
 | KEDA v2.20.2 `apis/keda/v1alpha1/scaledobject_types.go`、`pkg/scalers/prometheus_scaler.go` | `ScaledObjectSpec.Triggers`；Prometheus scaler |
 | DCGM Exporter 4.6.0-4.8.3 `etc/default-counters.csv` | `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED` 默认开启；`DCGM_FI_PROF_SM_ACTIVE` 默认注释 |
 | OpenCost v1.121.1 `pkg/costmodel/allocation.go` | allocation 合并逻辑中的 GPU 字段（第八篇展开） |

@@ -17,20 +17,33 @@ catalog: true
 
 ## 一、总览
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 算法与调度分离 | Halide 血统；TVM 的分层：Relax → TensorIR → 目标代码；v0.26 的 `tirx` / `s_tir` 拆分 |
-| 三 | TensorIR | PrimFunc、Buffer、SBlock、迭代变量的 S / R 标注、`T.init`；与 Triton IR 的对照 |
-| 四 | 调度原语 | 一个 CPU matmul 的五步：`split / reorder / reverse_compute_at / vectorize / parallel / decompose_reduction`，每步的 IR 与耗时；一次被拒绝的变换 |
-| 五 | GPU 调度 | `bind`、`cache_read("shared")`、`cache_write("local")`；生成的 Metal 与 CUDA 源码；编译器插的 barrier |
-| 六 | 下降 | `s_tir` pipeline 的 pass 表；`tensorize` 与 Tensor Core intrinsic；生成的 LLVM IR |
-| 七 | DLight 与 MetaSchedule | 规则库的 `wmma` 调度全文；搜索空间的表示（`sample_perfect_tile`）、trace、代价模型、32 次试验 |
-| 八 | Relax 与 MLC-LLM | 图层：`nn.Module → Relax → legalize → TIR`；`get_pipeline("zero")` |
-| 九 | 设计空间对照 | Triton / Gluon / TVM / XLA / IREE / Inductor / CUTLASS：谁决定什么、空间多大、风险在哪 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、算法与调度分离**
+  - Halide 血统
+  - TVM 的分层：Relax → TensorIR → 目标代码
+  - v0.26 的 `tirx` / `s_tir` 拆分
+- **三、TensorIR**
+  - PrimFunc、Buffer、SBlock、迭代变量的 S / R 标注、`T.init`
+  - 与 Triton IR 的对照
+- **四、调度原语**
+  - 一个 CPU matmul 的五步：`split / reorder / reverse_compute_at / vectorize / parallel / decompose_reduction`，每步的 IR 与耗时
+  - 一次被拒绝的变换
+- **五、GPU 调度**
+  - `bind`、`cache_read("shared")`、`cache_write("local")`
+  - 生成的 Metal 与 CUDA 源码
+  - 编译器插的 barrier
+- **六、下降**
+  - `s_tir` pipeline 的 pass 表
+  - `tensorize` 与 Tensor Core intrinsic
+  - 生成的 LLVM IR
+- **七、DLight 与 MetaSchedule**
+  - 规则库的 `wmma` 调度全文
+  - 搜索空间的表示（`sample_perfect_tile`）、trace、代价模型、32 次试验
+- **八、Relax 与 MLC-LLM**
+  - 图层：`nn.Module → Relax → legalize → TIR`
+  - `get_pipeline("zero")`
+- **九、设计空间对照**：Triton / Gluon / TVM / XLA / IREE / Inductor / CUTLASS：谁决定什么、空间多大、风险在哪
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 源码：`python/tvm/tirx/`（IR、lowering）、`python/tvm/s_tir/schedule/schedule.py`（调度原语的 Python 接口）、`src/s_tir/schedule/primitive/`（原语实现）、`src/s_tir/schedule/analysis/`（合法性检查）、`python/tvm/s_tir/dlight/gpu/matmul.py`、`python/tvm/s_tir/meta_schedule/`、`python/tvm/s_tir/tensor_intrin/cuda.py`、`python/tvm/relax/`、`docs/deep_dive/tensor_ir/`。运行：`PYTHONPATH=python`（TVM 的 `AGENTS.md` 明说不要 `pip install -e`），`build/` 用 Apple clang + Homebrew `llvm@22` 构建（v0.26 与 LLVM 23 不兼容）、`USE_METAL=ON`。
 
@@ -439,7 +452,7 @@ MLC-LLM 就是这条路的产品：LLM 的每一层用 `relax.frontend.nn` 描�
 | **Gluon** | 上面全部 + layout、shared memory、barrier、TMA / wgmma / tcgen05 的显式调用、warp 划分 | 只剩 lowering（LL 展开、地址算术、PTX 拼装） | 无自动搜索；用户按硬件规格写 | **用户**：写错 layout 只报类型错误，忘了 wait 是数据竞争；换硬件要重写 |
 | **TVM 手写调度** | 完整循环嵌套、每层的存储 scope、线程绑定、向量化、流水注解、`tensorize` 的 intrinsic | lowering（缓冲收缩复用、流水展开、barrier、向量类型）、然后 `nvcc` / LLVM | 无自动搜索 | **调度作者写慢**——但不会写错：每条原语有形式化前置条件，不满足即拒绝（§四.2）；lowering 无启发式 |
 | **TVM DLight** | 无（选规则集） | 规则代码：确定性的调度原语序列，参数按 shape / dtype 查表 | 无搜索，秒级 | **规则覆盖**：匹配不上的形状落到 `Fallback`（慢）；规则里的表对新硬件不一定最优 |
-| **TVM MetaSchedule** | 无（给搜索预算） | schedule rule 生成带采样点的 trace；进化搜索 + 代价模型在真机上测 | 每个 `sample_perfect_tile` 是一个循环长度的有序因子分解——256 切四层有几十种；三个循环、两个 `categorical`、compute location 相乘 **10⁴–10⁶** 条 trace；GPU 上再乘 Tensor Core 分块与 stage | **搜索时间**（每算子分钟到小时）与**代价模型的泛化**；正确性同手写调度由原语保证 |
+| **TVM MetaSchedule** | 无（给搜索预算） | schedule rule 生成带采样点的 trace；进化搜索 + 代价模型在真机上测 | 每个 `sample_perfect_tile` 是一个循环长度的有序因子分解——256 切四层有几十种<br/>三个循环、两个 `categorical`、compute location 相乘 **10⁴–10⁶** 条 trace<br/>GPU 上再乘 Tensor Core 分块与 stage | **搜索时间**（每算子分钟到小时）与**代价模型的泛化**；正确性同手写调度由原语保证 |
 | **XLA / StableHLO** | 无（写图） | 全部：融合、layout 赋值（`LayoutAssignment`）、tiling（Triton 或自研 emitter）、autotuning（`gemm_algorithm_picker` 在 cuBLAS / Triton 候选间测时） | 编译器内部 autotune：每个 GEMM 几十个候选 | **编译器**：用户几乎没有旋钮（`XLA_FLAGS`）；正确性靠 HLO 级 verifier 与大量数值测试 |
 | **IREE** | 无（写图，MLIR 输入） | 全部：`linalg` 层 tiling / distribution / vectorization，`TransformDialect` 可选地让专家写变换脚本 | 编译器内部策略表；Transform dialect 脚本 = TVM 调度的 MLIR 版 | **编译器**，但留了专家通道（Transform dialect）——介于 XLA 与 TVM 之间 |
 | **Inductor** | 无（`torch.compile`） | 融合（scheduler）、生成 Triton kernel（tile 由模板 + `max_autotune` 搜索）、layout 由 PyTorch 的 strides 决定 | `max_autotune` 对 GEMM 试 cuBLAS / Triton 模板 / CUTLASS 的几十个 config | **两层**：Inductor 的融合与模板选择 + Triton 编译器的全部启发式；两层都不可干预 |

@@ -30,20 +30,20 @@ date: 2026-05-29 20:00:00
 | 问题 | 答案 | 在哪篇 |
 |---|---|---|
 | LoRA 的公式 | $$y = Wx + \frac{\alpha}{r}BAx$$，$$A \in \mathbb{R}^{r \times d_{in}}$$ 随机、$$B \in \mathbb{R}^{d_{out} \times r}$$ 为零，$$W$$ 冻结 | 01 §2 |
-| 两个梯度 | $$\partial \mathcal{L}/\partial B = sG(Ax)^\top$$，$$\partial \mathcal{L}/\partial A = sB^\top Gx^\top$$；没人算 $$\partial \mathcal{L}/\partial W$$；$$\partial \mathcal{L}/\partial x = W^\top G + \cdots$$ 必须穿过 $$W$$ | 01 §2.2 |
+| 两个梯度 | $$\partial \mathcal{L}/\partial B = sG(Ax)^\top$$，$$\partial \mathcal{L}/\partial A = sB^\top Gx^\top$$<br/>没人算 $$\partial \mathcal{L}/\partial W$$<br/>$$\partial \mathcal{L}/\partial x = W^\top G + \cdots$$ 必须穿过 $$W$$ | 01 §2.2 |
 | 可训练参数 | $$r(d_{in} + d_{out})$$ 每矩阵；0.5B 全部线性层 $$r=16$$ 是 8.8M（1.78%），8B 是 41.9M（0.52%） | 01 §3.1 |
 | 训练状态 | $$2N_{total} + 14N_{trainable}$$ 字节；8B：120 GiB → 15.5 GiB，96% 是冻结权重 | 01 §3.2 |
-| 计算量 | 每 token 约 $$4N$$ 对全量 $$6N$$，只省 1/3；kernel 数翻三倍；激活值一分不省 | 01 §3.3–3.5 |
+| 计算量 | 每 token 约 $$4N$$ 对全量 $$6N$$，只省 1/3<br/>kernel 数翻三倍<br/>激活值一分不省 | 01 §3.3–3.5 |
 | ΔW 低秩吗 | 全量微调的 $$\Delta W$$ 本身高秩，但截到秩 16 装回去效果几乎不掉 | 01 §4 |
 | $$r$$ | 4 → 16 收益大，16 → 64 收益小，遗忘随之增大 | 02 §2 |
 | `target_modules` | `all-linear`（不含 lm_head、embedding）比只挂 attention 重要，比加 $$r$$ 重要 | 02 §3 |
-| $$\alpha$$ | scaling $$= \alpha/r$$，与 lr 是一个旋钮的两面：越大学得越猛、忘得越多；固定 $$\alpha$$ 加大 $$r$$ 会压掉更新；$$\alpha = 2r$$ 或 rsLoRA（$$\alpha/\sqrt r$$） | 02 §4 |
+| $$\alpha$$ | scaling $$= \alpha/r$$，与 lr 是一个旋钮的两面：越大学得越猛、忘得越多<br/>固定 $$\alpha$$ 加大 $$r$$ 会压掉更新<br/>$$\alpha = 2r$$ 或 rsLoRA（$$\alpha/\sqrt r$$） | 02 §4 |
 | lr | $$10^{-4} \sim 5 \times 10^{-4}$$，比全量大 10–20 倍；太大会遗忘 | 02 §5 |
-| 初始化 | PiSSA / OLoRA / CorDA 改底座、发布要转换；EVA 不改底座；LoftQ 只对 QLoRA | 02 §6 |
+| 初始化 | PiSSA / OLoRA / CorDA 改底座、发布要转换<br/>EVA 不改底座<br/>LoftQ 只对 QLoRA | 02 §6 |
 | DoRA | 幅度方向分开训，小 $$r$$ 收益大（$$r = 16$$ 上与 LoRA 相同），每步要构造 $$W + BA$$、慢 27% | 02 §7 |
 | QLoRA | NF4（正态分位数 16 格点）+ 双重量化（0.127 bit/参数）+ 分页优化器；只动冻结权重那本账 | 02 §8 |
 | adapter 文件 | 只有 $$A$$、$$B$$（BF16 下 0.5B 17 MB、8B 84 MB）；必须与训练时的底座配对，`base_model_name_or_path` 不校验 | 03 §1 |
-| 合并 | $$W \mathrel{+}= sBA$$，logits 差在舍入量级；BF16 下要在 FP32 里加；合并后与底座一样大 | 03 §2 |
+| 合并 | $$W \mathrel{+}= sBA$$，logits 差在舍入量级<br/>BF16 下要在 FP32 里加<br/>合并后与底座一样大 | 03 §2 |
 | 换精度 | FP32 ↔ NF4、先合并再量化：差别与量化误差同量级，要重测 | 03 §3 |
 | 多 adapter | `set_adapter` 零拷贝；合成不同任务用 `cat`/`svd`，`linear` 有交叉项 | 03 §4 |
 | 参考模型 | `disable_adapter()` 就是训练开始时的策略；trl 里 `ref_model=None` | 03 §4.3 |

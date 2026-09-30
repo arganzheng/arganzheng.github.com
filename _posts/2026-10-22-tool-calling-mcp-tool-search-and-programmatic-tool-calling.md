@@ -82,10 +82,10 @@ flowchart LR
 
 | 变更 | 内容 | 为什么 |
 |---|---|---|
-| **无状态核心** | `initialize` 握手取消；版本与能力协商放进每个请求的 `_meta` 与 `MCP-Protocol-Version` 头；Streamable HTTP 去掉协议级会话与 `Mcp-Session-Id` | 有状态的会话让 server 难以在普通 HTTP 基础设施（负载均衡、无状态函数）上横向扩展；第三篇讲 agent 运行时为什么也在往"状态放日志、服务无状态"走 |
+| **无状态核心** | `initialize` 握手取消<br/>版本与能力协商放进每个请求的 `_meta` 与 `MCP-Protocol-Version` 头<br/>Streamable HTTP 去掉协议级会话与 `Mcp-Session-Id` | 有状态的会话让 server 难以在普通 HTTP 基础设施（负载均衡、无状态函数）上横向扩展；第三篇讲 agent 运行时为什么也在往"状态放日志、服务无状态"走 |
 | **多轮往返请求**（MRTR） | 替代 server 发起的请求 | server → client 的反向请求在无状态 HTTP 上难实现 |
-| **扩展框架** | 反向 DNS 标识、在 `extensions` 能力映射里协商、独立仓库与版本、默认关闭；官方扩展：**Tasks**（长任务的异步执行——轮询、中途输入、持久句柄，从核心移出）、**MCP Apps**（对话内渲染的 UI：图表、表单）、OAuth 客户端凭据、企业托管授权；社区工作组：Skills over MCP | 核心保持小，专门能力独立演进 |
-| **授权加固** | RFC 9207 `iss` 校验（防授权服务器混淆攻击）；RFC 8707 `resource` 参数绑定受众（token 只对目标 server 有效，自 2025-06-18 起为 MUST）；客户端凭据绑定发行者；**动态客户端注册（DCR）弃用**改为客户端元数据文档（CIMD）；`application_type` 让 CLI 的 localhost 重定向不被拒 | 实施者反馈授权是集成里花时间最多的部分 |
+| **扩展框架** | 反向 DNS 标识、在 `extensions` 能力映射里协商、独立仓库与版本、默认关闭<br/>官方扩展：**Tasks**（长任务的异步执行——轮询、中途输入、持久句柄，从核心移出）、**MCP Apps**（对话内渲染的 UI：图表、表单）、OAuth 客户端凭据、企业托管授权<br/>社区工作组：Skills over MCP | 核心保持小，专门能力独立演进 |
+| **授权加固** | RFC 9207 `iss` 校验（防授权服务器混淆攻击）<br/>RFC 8707 `resource` 参数绑定受众（token 只对目标 server 有效，自 2025-06-18 起为 MUST）<br/>客户端凭据绑定发行者<br/>**动态客户端注册（DCR）弃用**改为客户端元数据文档（CIMD）<br/>`application_type` 让 CLI 的 localhost 重定向不被拒 | 实施者反馈授权是集成里花时间最多的部分 |
 | **弃用政策** | Sampling、Roots、Logging 十二个月弃用窗口 | 协议能演进而不突然断 |
 | SDK | 四个一级 SDK 当天支持 | — |
 
@@ -209,7 +209,7 @@ PTC：
 | Anthropic | programmatic tool calling | 模型在沙箱里写并运行代码，代码调用你定义的工具，中间结果不进上下文 |
 | OpenAI | Programmatic Tool Calling（GPT-5.6 起，Responses API） | 模型"写并在内存里运行协调工具、处理中间结果的程序"；因为中间结果不落服务端存储，同时让它**兼容零数据保留**（ZDR） |
 | Cloudflare | Code Mode（2025-09） | 把 MCP server 的工具变成一个 TypeScript API，模型写代码调它，在 Workers 隔离体里运行 |
-| DeepSeek Harness | Code 模式 + `ptc-runtime` 包组 | "Standard 模式的全部能力，工具经 Code Mode SDK 暴露，模型在一个 TypeScript 程序里组合多步"；`ptc-runtime` 让模型写一个程序调用宿主提供的函数（普通异步调用），**只返回程序的打印输出与返回值**；TypeScript 后端 |
+| DeepSeek Harness | Code 模式 + `ptc-runtime` 包组 | "Standard 模式的全部能力，工具经 Code Mode SDK 暴露，模型在一个 TypeScript 程序里组合多步"<br/>`ptc-runtime` 让模型写一个程序调用宿主提供的函数（普通异步调用），**只返回程序的打印输出与返回值**<br/>TypeScript 后端 |
 | Codex | `code-mode` / `code-mode-host` / `code-mode-protocol` / `code-mode-runtime` crate | 同一思想的 Rust 实现 |
 
 Table: 四家的程序化工具调用

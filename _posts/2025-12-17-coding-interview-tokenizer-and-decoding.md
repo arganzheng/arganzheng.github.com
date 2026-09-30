@@ -249,8 +249,8 @@ $$
 
 | 追问 | 要点 |
 |---|---|
-| BPE、WordPiece、Unigram 的区别？ | BPE 合并最频繁对；WordPiece 合并让语言模型似然增益最大的对；Unigram 从大词表往下删 |
-| 词表大小怎么选？ | 大：序列短、嵌入参数多、稀有 token 训不好；小：序列长；32K–128K 是当前范围，见[预训练（01）](/tokenizer-vocabulary-and-token-efficiency.html) |
+| BPE、WordPiece、Unigram 的区别？ | BPE 合并最频繁对<br/>WordPiece 合并让语言模型似然增益最大的对<br/>Unigram 从大词表往下删 |
+| 词表大小怎么选？ | 大：序列短、嵌入参数多、稀有 token 训不好<br/>小：序列长<br/>32K–128K 是当前范围，见[预训练（01）](/tokenizer-vocabulary-and-token-efficiency.html) |
 | 字节级 BPE 的好处？ | 256 个基础符号覆盖一切、无 OOV；代价是非英语文本 token 数多 |
 | temperature 0 与 argmax？ | 等价；实现上要单独分支避免除零 |
 | top-p 与 top-k 能同时用吗？ | 能，先 k 后 p（HF 顺序）；也常只用其一 |

@@ -177,8 +177,8 @@ flowchart TB
 
 | 平台 | 机制 | 细节 |
 |---|---|---|
-| macOS | **Seatbelt**（`/usr/bin/sandbox-exec` + SBPL 策略） | `sandboxing/src/seatbelt.rs` 与几个 `.sbpl` 文件（基础策略、网络策略、偏好读取、只读平台默认）；`workspace-write` 下允许写可写根目录、保持 `.git` 与 `.codex` 只读；网络按动态生成的策略（代理端口、本地绑定、Unix socket）受限 |
-| Linux | **bubblewrap + Landlock + seccomp** | `linux-sandbox` crate；分离的文件系统策略（可写根下的只读或拒绝子路径）走 bubblewrap，与旧模型语义等价时走 Landlock；优先用 PATH 上的 `bwrap`；`arg0` 技巧让同一二进制作为沙箱助手运行 |
+| macOS | **Seatbelt**（`/usr/bin/sandbox-exec` + SBPL 策略） | `sandboxing/src/seatbelt.rs` 与几个 `.sbpl` 文件（基础策略、网络策略、偏好读取、只读平台默认）<br/>`workspace-write` 下允许写可写根目录、保持 `.git` 与 `.codex` 只读<br/>网络按动态生成的策略（代理端口、本地绑定、Unix socket）受限 |
+| Linux | **bubblewrap + Landlock + seccomp** | `linux-sandbox` crate<br/>分离的文件系统策略（可写根下的只读或拒绝子路径）走 bubblewrap，与旧模型语义等价时走 Landlock<br/>优先用 PATH 上的 `bwrap`<br/>`arg0` 技巧让同一二进制作为沙箱助手运行 |
 | Windows | **受限令牌 + ACL + Job Objects** | `windows-sandbox-rs` / `windows-sandbox-service`；分级的沙箱等级 |
 | 网络 | `network-proxy` crate | 沙箱内的网络经代理策略：允许列表、本地绑定、托管网络审批（`tools/network_approval.rs`） |
 

@@ -145,19 +145,19 @@ flowchart TB
 
 | # | 篇 | 模式的骨架 | 主讲题 |
 |---|---|---|---|
-| 01 | [数组、哈希与前缀和](/coding-interview-arrays-hashing-prefix-sum.html) | 边查边存；`count[pre - k]`；把值当下标 | 560 · 128 · 41 · 238 · 1109 |
-| 02 | [双指针与滑动窗口](/coding-interview-two-pointers-and-sliding-window.html) | 右扩左收；对撞；快慢 | 3 · 76 · 424 · 15 · 42 · 11 |
-| 03 | [栈、单调栈与单调队列](/coding-interview-stack-monotonic-stack-and-queue.html) | 弹出即结算；哨兵；队首是最值 | 20 · 394 · 739 · 84 · 239 · 227 |
-| 04 | [链表](/coding-interview-linked-list.html) | 哑节点；三指针反转；快慢指针 | 206 · 92 · 25 · 142 · 23 · 148 |
+| 01 | [数组、哈希与前缀和](/coding-interview-arrays-hashing-prefix-sum.html) | 边查边存<br/>`count[pre - k]`<br/>把值当下标 | 560 · 128 · 41 · 238 · 1109 |
+| 02 | [双指针与滑动窗口](/coding-interview-two-pointers-and-sliding-window.html) | 右扩左收<br/>对撞<br/>快慢 | 3 · 76 · 424 · 15 · 42 · 11 |
+| 03 | [栈、单调栈与单调队列](/coding-interview-stack-monotonic-stack-and-queue.html) | 弹出即结算<br/>哨兵<br/>队首是最值 | 20 · 394 · 739 · 84 · 239 · 227 |
+| 04 | [链表](/coding-interview-linked-list.html) | 哑节点<br/>三指针反转<br/>快慢指针 | 206 · 92 · 25 · 142 · 23 · 148 |
 | 05 | [二叉树](/coding-interview-binary-tree.html) | 递归三要素；后序返回向下的信息、在合并处更新 | 102 · 236 · 105 · 124 · 98 · 297 · 437 |
-| 06 | [图：BFS / DFS / 拓扑 / 并查集 / 最短路](/coding-interview-graph-bfs-dfs-topological-union-find.html) | 按层 BFS；入度为 0；`find` + `union`；堆 + 懒删除 | 200 · 994 · 207/210 · 127 · 721 · 743 |
+| 06 | [图：BFS / DFS / 拓扑 / 并查集 / 最短路](/coding-interview-graph-bfs-dfs-topological-union-find.html) | 按层 BFS<br/>入度为 0<br/>`find` + `union`<br/>堆 + 懒删除 | 200 · 994 · 207/210 · 127 · 721 · 743 |
 | 07 | [二分](/coding-interview-binary-search.html) | 只有一个模板：第一个使谓词为真的位置 | 34 · 33 · 153 · 875 · 410 · 4 · 378 |
-| 08 | [堆、Top-K、区间与贪心](/coding-interview-heap-topk-intervals-greedy.html) | 大小为 k 的堆；按端点排序；能证明的局部最优 | 215 · 347 · 295 · 56 · 253 · 435 · 45 |
+| 08 | [堆、Top-K、区间与贪心](/coding-interview-heap-topk-intervals-greedy.html) | 大小为 k 的堆<br/>按端点排序<br/>能证明的局部最优 | 215 · 347 · 295 · 56 · 253 · 435 · 45 |
 | 09 | [回溯](/coding-interview-backtracking.html) | 做选择 → 递归 → 撤销；`start` 与同层去重 | 46/47 · 78/90 · 39/40 · 22 · 131 · 79 · 51 |
-| 10 | [字符串](/coding-interview-strings.html) | 中心扩展；KMP 失配表；竖式；自定义比较 | 5 · 28 · 8 · 43 · 179 · 187 |
+| 10 | [字符串](/coding-interview-strings.html) | 中心扩展<br/>KMP 失配表<br/>竖式<br/>自定义比较 | 5 · 28 · 8 · 43 · 179 · 187 |
 | 11 | [动态规划（一）：线性与二维](/coding-interview-dynamic-programming-linear-and-grid.html) | 状态定义五步法；滚动数组 | 322 · 300 · 53/152 · 1143 · 72 · 221 · 139 |
-| 12 | [动态规划（二）：背包、区间、状态机、树形](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html) | 容量倒序 / 正序；最后一个被处理的元素；状态转移图 | 416 · 518 · 312 · 188 · 309 · 337 · 10/44 |
-| 13 | [设计题与数据结构实现](/coding-interview-design-problems-lru-lfu-trie.html) | 哈希 + 链表；频次桶；26 叉树；数组 + 下标哈希 | 146 · 460 · 208/212 · 380 · 307 |
+| 12 | [动态规划（二）：背包、区间、状态机、树形](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html) | 容量倒序 / 正序<br/>最后一个被处理的元素<br/>状态转移图 | 416 · 518 · 312 · 188 · 309 · 337 · 10/44 |
+| 13 | [设计题与数据结构实现](/coding-interview-design-problems-lru-lfu-trie.html) | 哈希 + 链表<br/>频次桶<br/>26 叉树<br/>数组 + 下标哈希 | 146 · 460 · 208/212 · 380 · 307 |
 
 11 与 12 两篇动态规划标为**可选**：不少公司明确不考 DP，或只考 11 里的线性 DP。时间紧的读者可以先跳过 12。
 
@@ -168,12 +168,12 @@ flowchart TB
 | # | 篇 | 内容 |
 |---|---|---|
 | 14 | [手撕 attention 家族](/coding-interview-attention-from-scratch.html) | 数值稳定的 softmax、scaled dot-product attention 与 causal mask、multi-head 的四次 reshape、GQA / MQA、RoPE、KV cache 增量解码、online softmax（FlashAttention 一趟分块的核心） |
-| 15 | [手撕 Transformer block 与反向传播](/coding-interview-transformer-block-and-backprop.html) | LayerNorm / RMSNorm、GELU / SwiGLU、Embedding 与 tied head、完整 GPT block 前向；参数量与 FLOPs 口算；手写 Linear / Softmax-CE / LayerNorm 的反向并对拍；micrograd 式标量自动求导 |
+| 15 | [手撕 Transformer block 与反向传播](/coding-interview-transformer-block-and-backprop.html) | LayerNorm / RMSNorm、GELU / SwiGLU、Embedding 与 tied head、完整 GPT block 前向<br/>参数量与 FLOPs 口算<br/>手写 Linear / Softmax-CE / LayerNorm 的反向并对拍<br/>micrograd 式标量自动求导 |
 | 16 | [手撕 tokenizer 与解码](/coding-interview-tokenizer-and-decoding.html) | BPE 训练与编码、temperature / top-k / top-p / min-p 采样、beam search、repetition penalty、蓄水池抽样、投机解码的接受规则 |
 | 17 | [手撕损失函数与训练算法](/coding-interview-losses-and-training-algorithms.html) | 交叉熵 / KL / label smoothing、InfoNCE、DPO、PPO clipped objective 与 GAE、GRPO 组内优势、AdamW 一步、cosine + warmup、梯度裁剪、LoRA 层 |
 | 18 | [手撕经典 ML 与评测指标](/coding-interview-classical-ml-and-metrics.html) | k-means、逻辑回归、KNN、PCA、AUC 的 $$O(n \log n)$$ 算法、P / R / F1、NDCG；conv2d via im2col、max pooling、IoU / NMS |
 | 19 | [Infra 岗手撕：并发与系统](/coding-interview-infra-concurrency-and-systems.html) | 线程安全 LRU、生产者–消费者与线程池、内存池、分块矩阵乘（C++）、ring allreduce 模拟、paged KV block 分配器、token bucket 限流 |
-| 20 | [系列总结与通关自测](/coding-interview-series-recap-and-self-test.html) | 十九篇的模式总表与逐篇回顾、贯穿全系列的几条线、常见误区；三段式通关自测——十道模式判断与计算、五道组合两种模式的题、八道真手撕面试题（思路要点 + 关键代码 + 追问方向），答案折叠；读完正文再做 |
+| 20 | [系列总结与通关自测](/coding-interview-series-recap-and-self-test.html) | 十九篇的模式总表与逐篇回顾、贯穿全系列的几条线、常见误区<br/>三段式通关自测——十道模式判断与计算、五道组合两种模式的题、八道真手撕面试题（思路要点 + 关键代码 + 追问方向），答案折叠<br/>读完正文再做 |
 
 
 ## 阅读路径

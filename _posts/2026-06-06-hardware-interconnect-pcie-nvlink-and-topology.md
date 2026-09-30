@@ -82,19 +82,42 @@ Table: 各种链路的单向带宽
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | PCIe | lane 与代际怎么换算成 GB/s；root complex、switch、P2P 事务；为什么跨 root complex 的 P2P 慢甚至不可用；ACS；NCCL 如何估算 PCIe 带宽 |
-| 三 | NVLink/NVSwitch | 每代的链路数与带宽；NVSwitch 如何做到 any-to-any 全带宽；为什么 NVLink 上的 `all_reduce` 几乎不受消息大小影响；NVLink SHARP |
-| 四 | 网卡与网络 | IB 的代际与速率；RoCE v2 与 PFC/ECN；8 卡为什么配 8 张 400 Gb/s 网卡 |
-| 五 | 读拓扑 | nvidia-smi topo -m 的六个等级与一张样例矩阵；lspci -tv；topo -mp；回答核心问题；NCCL 的路径类型与选网卡逻辑 |
-| 六 | NUMA 与亲和 | socket、内存节点、PCIe 设备的归属；为什么绑核影响通信；NCCL 怎么用亲和 |
-| 七 | 主机内存 | pinned memory、staging buffer；什么时候必须经过主机内存 |
-| 八 | 集群拓扑 | fat-tree 与超额订阅；rail-optimized；对调度的意义 |
-| 九 | 测一测 | nvbandwidth、p2pBandwidthLatencyTest、`ib_write_bw` 各测哪一段；数字该长什么样 |
-| 十 | 小结 | 要点、检查项、源码位置、comm-probe 的 `topo_map.py` |
-
-Table: 本文的章节安排
+- **二、PCIe**
+  - lane 与代际怎么换算成 GB/s
+  - root complex、switch、P2P 事务
+  - 为什么跨 root complex 的 P2P 慢甚至不可用
+  - ACS
+  - NCCL 如何估算 PCIe 带宽
+- **三、NVLink/NVSwitch**
+  - 每代的链路数与带宽
+  - NVSwitch 如何做到 any-to-any 全带宽
+  - 为什么 NVLink 上的 `all_reduce` 几乎不受消息大小影响
+  - NVLink SHARP
+- **四、网卡与网络**
+  - IB 的代际与速率
+  - RoCE v2 与 PFC/ECN
+  - 8 卡为什么配 8 张 400 Gb/s 网卡
+- **五、读拓扑**
+  - nvidia-smi topo -m 的六个等级与一张样例矩阵
+  - lspci -tv
+  - topo -mp
+  - 回答核心问题
+  - NCCL 的路径类型与选网卡逻辑
+- **六、NUMA 与亲和**
+  - socket、内存节点、PCIe 设备的归属
+  - 为什么绑核影响通信
+  - NCCL 怎么用亲和
+- **七、主机内存**
+  - pinned memory、staging buffer
+  - 什么时候必须经过主机内存
+- **八、集群拓扑**
+  - fat-tree 与超额订阅
+  - rail-optimized
+  - 对调度的意义
+- **九、测一测**
+  - nvbandwidth、p2pBandwidthLatencyTest、`ib_write_bw` 各测哪一段
+  - 数字该长什么样
+- **十、小结**：要点、检查项、源码位置、comm-probe 的 `topo_map.py`
 
 ## 二、PCIe：lane、代际、root complex 与 P2P
 
@@ -787,14 +810,14 @@ ib_write_lat -d mlx5_0 -F -s 8 node-b
 
 | 链路段 | 标称（单向） | 通常可达 | 低于可达区间时先查 |
 |---|---|---|---|
-| PCIe 4.0 x16 | 32 GB/s | 24–27 GB/s | LnkSta 是否 x16/16GT/s；主机 buffer 的 NUMA 节点；ACS |
+| PCIe 4.0 x16 | 32 GB/s | 24–27 GB/s | LnkSta 是否 x16/16GT/s<br/>主机 buffer 的 NUMA 节点<br/>ACS |
 | PCIe 5.0 x16 | 64 GB/s | 50–55 GB/s | 同上 |
 | NVLink A100 | 300 GB/s（NV12） | 240–280 GB/s | nvidia-smi nvlink -s 有无 inactive 链路；是否真的走了 P2P |
 | NVLink H100 | 450 GB/s（NV18） | 360–420 GB/s | 同上 |
-| IB HDR | 25 GB/s | 23–24.5 GB/s | 网卡 PCIe 链路；进程/buffer 的 NUMA；线缆与端口错误计数（ibstat / perfquery） |
+| IB HDR | 25 GB/s | 23–24.5 GB/s | 网卡 PCIe 链路<br/>进程/buffer 的 NUMA<br/>线缆与端口错误计数（ibstat / perfquery） |
 | IB NDR | 50 GB/s | 46–49 GB/s | 同上 |
-| RoCE v2 400G | 50 GB/s | 45–49 GB/s | PFC/ECN 配置；pause/discard 计数；MTU |
-| GDR 路径 | = 网卡速率 | 接近网卡速率 | topo -m 中 GPU–NIC 是否 PIX/PXB；nvidia-peermem；NCCL_NET_GDR_LEVEL |
+| RoCE v2 400G | 50 GB/s | 45–49 GB/s | PFC/ECN 配置<br/>pause/discard 计数<br/>MTU |
+| GDR 路径 | = 网卡速率 | 接近网卡速率 | topo -m 中 GPU–NIC 是否 PIX/PXB<br/>nvidia-peermem<br/>NCCL_NET_GDR_LEVEL |
 | 跨 socket（SYS） | UPI 带宽 | NCCL 估 6–40 GB/s | 本来就应避免；若不可避免看 numactl -H 的距离矩阵 |
 
 Table: 比一比：差距的解释与检查清单
@@ -835,10 +858,10 @@ Table: 比一比：差距的解释与检查清单
 
 | 位置 | 内容 |
 |---|---|
-| `src/graph/topo.h` | `PATH_LOC`/`PATH_NVL`/`PATH_NVB`/`PATH_C2C`/`PATH_PIX`/`PATH_PXB`/`PATH_P2C`/`PATH_PXN`/`PATH_PHB`/`PATH_SYS`/`PATH_NET`/`PATH_DIS` 路径类型；`SM80_NVLINK_BW`/`SM90_NVLINK_BW`/`SM100_NVLINK_BW`、`PCI_BW`、`*_QPI_BW`、`AMD_BW`、`NET_BW` 带宽常量；`ncclTopoNVLinkBw` |
-| `src/graph/topo.cc` | `topoPathTypeStr[]`；`kvDictPciGen[]` 与 `ncclTopoAddPci`（PCIe 带宽 = width×speed/80）；`ncclTopoAddNvLinks`（NVLink 带宽 = count×每链路）；`ncclTopoGetInterCpuBw`；`ncclTopoGetLocal`、`ncclTopoGetLocalNet`（为 GPU 选网卡）；`ncclTopoGetCpuAffinity` 与 `NCCL_PARAM(IgnoreCpuAffinity, "IGNORE_CPU_AFFINITY", 0)`；`ncclTopoGetSystem` 读 `NCCL_TOPO_FILE` / 写 `NCCL_TOPO_DUMP_FILE` |
-| `src/graph/xml.cc` | `ncclTopoGetXmlFromSys`（读 `/sys/bus/pci/devices/*/{max_link_speed,max_link_width,numa_node}`）；`ncclTopoGetXmlFromCpu`（读 `/sys/devices/system/node/node*/cpumap`）；`ncclTopoFillGpu`、`ncclTopoFillNet` |
-| `src/graph/paths.cc` | `ncclTopoComputePaths`；`ncclTopoCheckP2p`（默认 `p2pLevel = PATH_PXB`）与 `NCCL_P2P_LEVEL`/`NCCL_P2P_DISABLE`（经 `ncclGetLevel`）；`ncclTopoCheckGdr`（默认 `netGdrLevel = PATH_PXB`）与 `NCCL_NET_GDR_LEVEL`；`NCCL_PARAM(PxnDisable, "PXN_DISABLE", 0)`；`ncclGetLocalCpu` |
+| `src/graph/topo.h` | `PATH_LOC`/`PATH_NVL`/`PATH_NVB`/`PATH_C2C`/`PATH_PIX`/`PATH_PXB`/`PATH_P2C`/`PATH_PXN`/`PATH_PHB`/`PATH_SYS`/`PATH_NET`/`PATH_DIS` 路径类型<br/>`SM80_NVLINK_BW`/`SM90_NVLINK_BW`/`SM100_NVLINK_BW`、`PCI_BW`、`*_QPI_BW`、`AMD_BW`、`NET_BW` 带宽常量<br/>`ncclTopoNVLinkBw` |
+| `src/graph/topo.cc` | `topoPathTypeStr[]`<br/>`kvDictPciGen[]` 与 `ncclTopoAddPci`（PCIe 带宽 = width×speed/80）<br/>`ncclTopoAddNvLinks`（NVLink 带宽 = count×每链路）<br/>`ncclTopoGetInterCpuBw`<br/>`ncclTopoGetLocal`、`ncclTopoGetLocalNet`（为 GPU 选网卡）<br/>`ncclTopoGetCpuAffinity` 与 `NCCL_PARAM(IgnoreCpuAffinity, "IGNORE_CPU_AFFINITY", 0)`<br/>`ncclTopoGetSystem` 读 `NCCL_TOPO_FILE` / 写 `NCCL_TOPO_DUMP_FILE` |
+| `src/graph/xml.cc` | `ncclTopoGetXmlFromSys`（读 `/sys/bus/pci/devices/*/{max_link_speed,max_link_width,numa_node}`）<br/>`ncclTopoGetXmlFromCpu`（读 `/sys/devices/system/node/node*/cpumap`）<br/>`ncclTopoFillGpu`、`ncclTopoFillNet` |
+| `src/graph/paths.cc` | `ncclTopoComputePaths`<br/>`ncclTopoCheckP2p`（默认 `p2pLevel = PATH_PXB`）与 `NCCL_P2P_LEVEL`/`NCCL_P2P_DISABLE`（经 `ncclGetLevel`）<br/>`ncclTopoCheckGdr`（默认 `netGdrLevel = PATH_PXB`）与 `NCCL_NET_GDR_LEVEL`<br/>`NCCL_PARAM(PxnDisable, "PXN_DISABLE", 0)`<br/>`ncclGetLocalCpu` |
 | `src/graph/search.cc` | `NCCL_PARAM(CrossNic, "CROSS_NIC", 2)` |
 | `src/transport/nvls.cc` | `NCCL_PARAM(NvlsEnable, "NVLS_ENABLE", 2)` |
 | `src/proxy.cc` | `ncclProxyService`（proxy 线程入口，启动时设亲和并打印 CPU core）；`NCCL_PROXY_CPUSET`（`ncclGetEnv`） |

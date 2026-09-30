@@ -35,19 +35,94 @@ flowchart TB
 
 系列的一句话主张是：**循环之外的一切都是 harness；权限范围是错误的上限；能自动验证到什么程度就能自主到什么程度**。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
-|---|---|---|---|
-| [第一篇：最小循环](/anatomy-of-the-agent-loop.html) | 循环的最小形态与失控点？ | 40 行 + 四个卫士 + 两个出口才能上生产；Codex 三层（`submission_loop` → turn → 编排器），DeepSeek Harness 日志驱动；能用工作流就不用 agent | 编排器：审批 → 沙箱首试 → `never` / `on-request` 不升级；"模型可见 ⟺ 已记录" |
-| [第二篇：工具与 MCP](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html) | 工具的生态协议？ | MCP 2026-07-28 无状态核心、扩展框架、授权加固；描述从模型视角写；tool search 换预算付缓存；PTC 让中间结果不进上下文 | AAIF 治理、SDK 十亿下载；DCR → CIMD；`resource` 绑定受众；四家的 PTC；二十个以上工具用 tool search |
-| [第三篇：运行时](/agent-runtime-sessions-persistence-and-durable-execution.html) | 第三种服务形态？ | 事件溯源会话日志是核心；durable execution；挂起释放 worker；托管 / 库 / 自托管三种交付 | Agents API 2026-09-10、九家沙箱、无额外费、86% 失败响应减少；resume / fork / replay 同一流 |
-| [第四篇：上下文与子 agent](/long-horizon-context-management-and-subagents.html) | L2 策略的实现？子 agent？ | `spill` / 截断规则 → 修剪 → `compact*` / `compaction` 五包；plan / todo / goal；子 agent 三形态；DeepSeek Harness 能拉起 Claude Code 与 Codex | 多 agent 约 15 倍 token；"无 >10K token 的项"；subagent vs agent teams 表 |
-| [第五篇：权限与沙箱](/permissions-sandboxes-and-security-boundaries-for-agents.html) | 怎么压低错误上限？ | 四层缺一不可：权限档、审批策略、执行策略（`execpolicy` Starlark + Guardian）、沙箱（三平台）；Claude Code 六步 deny 高于一切；PocketOS 五环三环在基础设施 | `:read_only` / `:workspace` / `:danger_full_access`；allow / prompt / forbidden 带 `match` / `not_match`；审批疲劳用策略化授权 |
-| [第六篇：源码对照](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html) | 四个 harness 各怎么选？ | 十二维表；取舍主轴是状态在对象 / 日志、压缩加密 / 可读、权限策略语言 / 规则 / 插件、沙箱原生 / 接缝、模型耦合深 / 浅；三种交付形态 | Rust 单核 vs TS 一切皆插件 vs 闭源 + SDK vs Python 轻量；Minimal 模式 |
-| [第七篇：多 agent](/multi-agent-orchestration-handoff-and-a2a.html) | 何时需要、哪种模式？ | 三个理由（隔离、并行、专业化）；orchestrator-workers / handoff / 层级；agent teams 实验；MCP 管工具 A2A 管 agent | 15 倍；缓存不共享；trace 是树；三层评测 |
-| [第八篇：记忆与人](/agent-memory-and-human-in-the-loop.html) | 会话之外靠什么？ | 记忆是检索（写 / 取 / 忘、带来源）；六级人机分工每级换验证；本体把验证前移到结构 | 25 KB；六级表；风险五级；提案先于落库 |
-| [第九篇：可靠性与评测](/agent-reliability-evaluation-and-operations.html) | 可靠吗？怎么运营？ | 十类失败只一类是异常；幂等 / 预算 / 部分结果 / 校验；轨迹评测六维；基准只缩范围；三级 trace + 面板十项 + 门禁 | Terminal-Bench 90.6 / 30.0 / 31.2；demo 到生产十二行清单 |
-
-Table: 九篇的核心问题、结论与必记
+- **[第一篇：最小循环](/anatomy-of-the-agent-loop.html)**
+  - 回答的问题：循环的最小形态与失控点？
+  - 一句话结论：
+    - 40 行 + 四个卫士 + 两个出口才能上生产
+    - Codex 三层（`submission_loop` → turn → 编排器），DeepSeek Harness 日志驱动
+    - 能用工作流就不用 agent
+  - 必记的数字 / 结论：编排器：审批 → 沙箱首试 → `never` / `on-request` 不升级；"模型可见 ⟺ 已记录"
+- **[第二篇：工具与 MCP](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)**
+  - 回答的问题：工具的生态协议？
+  - 一句话结论：
+    - MCP 2026-07-28 无状态核心、扩展框架、授权加固
+    - 描述从模型视角写
+    - tool search 换预算付缓存
+    - PTC 让中间结果不进上下文
+  - 必记的数字 / 结论：
+    - AAIF 治理、SDK 十亿下载
+    - DCR → CIMD
+    - `resource` 绑定受众
+    - 四家的 PTC
+    - 二十个以上工具用 tool search
+- **[第三篇：运行时](/agent-runtime-sessions-persistence-and-durable-execution.html)**
+  - 回答的问题：第三种服务形态？
+  - 一句话结论：
+    - 事件溯源会话日志是核心
+    - durable execution
+    - 挂起释放 worker
+    - 托管 / 库 / 自托管三种交付
+  - 必记的数字 / 结论：Agents API 2026-09-10、九家沙箱、无额外费、86% 失败响应减少；resume / fork / replay 同一流
+- **[第四篇：上下文与子 agent](/long-horizon-context-management-and-subagents.html)**
+  - 回答的问题：L2 策略的实现？子 agent？
+  - 一句话结论：
+    - `spill` / 截断规则 → 修剪 → `compact*` / `compaction` 五包
+    - plan / todo / goal
+    - 子 agent 三形态
+    - DeepSeek Harness 能拉起 Claude Code 与 Codex
+  - 必记的数字 / 结论：
+    - 多 agent 约 15 倍 token
+    - "无 >10K token 的项"
+    - subagent vs agent teams 表
+- **[第五篇：权限与沙箱](/permissions-sandboxes-and-security-boundaries-for-agents.html)**
+  - 回答的问题：怎么压低错误上限？
+  - 一句话结论：
+    - 四层缺一不可：权限档、审批策略、执行策略（`execpolicy` Starlark + Guardian）、沙箱（三平台）
+    - Claude Code 六步 deny 高于一切
+    - PocketOS 五环三环在基础设施
+  - 必记的数字 / 结论：
+    - `:read_only` / `:workspace` / `:danger_full_access`
+    - allow / prompt / forbidden 带 `match` / `not_match`
+    - 审批疲劳用策略化授权
+- **[第六篇：源码对照](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)**
+  - 回答的问题：四个 harness 各怎么选？
+  - 一句话结论：
+    - 十二维表
+    - 取舍主轴是状态在对象 / 日志、压缩加密 / 可读、权限策略语言 / 规则 / 插件、沙箱原生 / 接缝、模型耦合深 / 浅
+    - 三种交付形态
+  - 必记的数字 / 结论：Rust 单核 vs TS 一切皆插件 vs 闭源 + SDK vs Python 轻量；Minimal 模式
+- **[第七篇：多 agent](/multi-agent-orchestration-handoff-and-a2a.html)**
+  - 回答的问题：何时需要、哪种模式？
+  - 一句话结论：
+    - 三个理由（隔离、并行、专业化）
+    - orchestrator-workers / handoff / 层级
+    - agent teams 实验
+    - MCP 管工具 A2A 管 agent
+  - 必记的数字 / 结论：
+    - 15 倍
+    - 缓存不共享
+    - trace 是树
+    - 三层评测
+- **[第八篇：记忆与人](/agent-memory-and-human-in-the-loop.html)**
+  - 回答的问题：会话之外靠什么？
+  - 一句话结论：
+    - 记忆是检索（写 / 取 / 忘、带来源）
+    - 六级人机分工每级换验证
+    - 本体把验证前移到结构
+  - 必记的数字 / 结论：
+    - 25 KB
+    - 六级表
+    - 风险五级
+    - 提案先于落库
+- **[第九篇：可靠性与评测](/agent-reliability-evaluation-and-operations.html)**
+  - 回答的问题：可靠吗？怎么运营？
+  - 一句话结论：
+    - 十类失败只一类是异常
+    - 幂等 / 预算 / 部分结果 / 校验
+    - 轨迹评测六维
+    - 基准只缩范围
+    - 三级 trace + 面板十项 + 门禁
+  - 必记的数字 / 结论：Terminal-Bench 90.6 / 30.0 / 31.2；demo 到生产十二行清单
 
 ### 1. 本文的章节安排
 
@@ -431,9 +506,9 @@ Table: 常见误区与正确说法
 
 | 层次 | 判据 |
 |---|---|
-| 读过 | 能说出四个卫士、四层权限、三种交付形态、六级、十类失败；知道 MCP 2026-07-28 改了什么；知道四个 harness 是什么 |
-| 掌握 | 能手写带卫士的循环；能为一个场景写权限档与执行策略并放进沙箱；能把会话改成事件日志并做崩溃恢复；能给运行时接卸载 / 清理 / 压缩 / 复述；能判断要不要子 agent、多 agent 与用哪种模式；能定一个 agent 的自主级别与审批粒度；能建轨迹评测集与面板；能用十二维表给自己的 harness 打分 |
-| 能教人 | 能解释 Codex 编排器与 DeepSeek Harness 循环的差别及其后果；能解释"模型可见 ⟺ 已记录"换来的九件事；能推导 15 倍的来源；能用 PocketOS 五环讲四层与基础设施的分工；能解释 PTC 与 ZDR 的因果；能说清本体为什么是 harness 而不是检索；能对四个 harness 在任一维度上说出取舍 |
+| 读过 | 能说出四个卫士、四层权限、三种交付形态、六级、十类失败<br/>知道 MCP 2026-07-28 改了什么<br/>知道四个 harness 是什么 |
+| 掌握 | 能手写带卫士的循环<br/>能为一个场景写权限档与执行策略并放进沙箱<br/>能把会话改成事件日志并做崩溃恢复<br/>能给运行时接卸载 / 清理 / 压缩 / 复述<br/>能判断要不要子 agent、多 agent 与用哪种模式<br/>能定一个 agent 的自主级别与审批粒度<br/>能建轨迹评测集与面板<br/>能用十二维表给自己的 harness 打分 |
+| 能教人 | 能解释 Codex 编排器与 DeepSeek Harness 循环的差别及其后果<br/>能解释"模型可见 ⟺ 已记录"换来的九件事<br/>能推导 15 倍的来源<br/>能用 PocketOS 五环讲四层与基础设施的分工<br/>能解释 PTC 与 ZDR 的因果<br/>能说清本体为什么是 harness 而不是检索<br/>能对四个 harness 在任一维度上说出取舍 |
 
 Table: 掌握程度的判据
 

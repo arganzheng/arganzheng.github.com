@@ -71,11 +71,11 @@ RAG 是你的主战场。第三、四、七篇是核心：解析、分块、混�
 |---|---|---|---|---|
 | 1 | 进上下文还是进权重 | 知识类型 → 接入方式的表；默认顺序 | 幻觉、知识截止 | 决定检索结果这一层存在与否 |
 | 2 | 三类检索 | 词法 / 向量 / 结构化的适用条件；coding agent 的分歧 | 幻觉（找到依据） | 检索类型决定结果的形态与预算 |
-| 3 | 解析与分块 | 三个梯级；三个静默失败；分块策略；contextual retrieval；元数据 | 幻觉（依据的质量） | 块是上下文的单位 |
-| 4 | 索引、混合与 rerank | embedding 选法；索引结构；混合 + RRF；rerank；权限过滤 | 幻觉 | top-k 与排序决定放多少、放哪 |
-| 5 | 流水线到 agentic | 两种形态的适用；query 改写；多跳；内置 file search | 知识截止（会变的事实随时查） | agentic 检索受 L2 预算与卸载约束 |
-| 6 | 结构化知识 | text-to-SQL 与语义层；本体；GraphRAG | 幻觉（关系推理） | 结构化结果的呈现 |
-| 7 | 评测与运营 | 检索 / 生成分开评；评测集；在线信号；权限泄漏 | 供应商变更（embedding 换代） | 与 L2 第六篇的门禁同构 |
+| 3 | 解析与分块 | 三个梯级<br/>三个静默失败<br/>分块策略<br/>contextual retrieval<br/>元数据 | 幻觉（依据的质量） | 块是上下文的单位 |
+| 4 | 索引、混合与 rerank | embedding 选法<br/>索引结构<br/>混合 + RRF<br/>rerank<br/>权限过滤 | 幻觉 | top-k 与排序决定放多少、放哪 |
+| 5 | 流水线到 agentic | 两种形态的适用<br/>query 改写<br/>多跳<br/>内置 file search | 知识截止（会变的事实随时查） | agentic 检索受 L2 预算与卸载约束 |
+| 6 | 结构化知识 | text-to-SQL 与语义层<br/>本体<br/>GraphRAG | 幻觉（关系推理） | 结构化结果的呈现 |
+| 7 | 评测与运营 | 检索 / 生成分开评<br/>评测集<br/>在线信号<br/>权限泄漏 | 供应商变更（embedding 换代） | 与 L2 第六篇的门禁同构 |
 
 Table: 七篇的主题与建立的东西
 
@@ -165,12 +165,12 @@ Table: 各篇实践建议的内容
 
 | 来源 | 内容 |
 |---|---|
-| Anthropic | Contextual Retrieval（2024-09）；Agent SDK 文章中关于 agentic 搜索 vs 语义搜索的建议（2025-09）；Claude Code 工具列表 |
+| Anthropic | Contextual Retrieval（2024-09）<br/>Agent SDK 文章中关于 agentic 搜索 vs 语义搜索的建议（2025-09）<br/>Claude Code 工具列表 |
 | Cursor | 公开文档中的索引机制（Merkle 树、按块哈希缓存、远端向量库） |
 | Sourcegraph / Cline | Cody 5.3 移除 embedding；Cline 的"不索引"声明（2025-05） |
-| 解析 | Docling（LF AI & Data，MIT）、Marker、MinerU、PyMuPDF4LLM；Mistral OCR 4；PaddleOCR-VL-1.6、DeepSeek-OCR 2；OmniDocBench v1.6 |
+| 解析 | Docling（LF AI & Data，MIT）、Marker、MinerU、PyMuPDF4LLM<br/>Mistral OCR 4<br/>PaddleOCR-VL-1.6、DeepSeek-OCR 2<br/>OmniDocBench v1.6 |
 | embedding / rerank | Qwen3-Embedding / Reranker（2025-06）、Gemini Embedding 001、Voyage-3-large、Cohere Embed v4、OpenAI text-embedding-3；MTEB / MMTEB 与 ZeroEntropy 的分级相关性重评 |
-| 结构化 | Microsoft GraphRAG（2024-07）与 LazyGraphRAG（2024-11）、LightRAG；Spider 2.0；Palantir Ontology / AIP 公开文档 |
+| 结构化 | Microsoft GraphRAG（2024-07）与 LazyGraphRAG（2024-11）、LightRAG<br/>Spider 2.0<br/>Palantir Ontology / AIP 公开文档 |
 | 评测 | RAGAS 的指标定义；BEIR |
 | 事件 | Slack AI 数据抽取演示（PromptArmor，2024-08）；Microsoft 365 Copilot 的 SharePoint 过度共享讨论（2024–2025） |
 

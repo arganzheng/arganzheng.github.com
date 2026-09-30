@@ -30,20 +30,19 @@ $$
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | host、device 与 kernel | 两个处理器、两个地址空间；三个函数限定符；发射一个 kernel |
-| 三 | 线程层级：grid、block、thread | 三层结构与内建变量、边界检查为什么不可省、block 与 grid 大小怎么选、block 如何切成 warp |
-| 四 | 设备内存与数据搬运 | cudaMalloc / cudaMemcpy / cudaFree，以及 PyTorch 为什么不直接用它们 |
-| 五 | stream、event 与异步语义 | kernel launch 是异步的、stream、event 的计时与依赖、cudaDeviceSynchronize 的代价 |
-| 六 | 错误处理 | 同步错误与异步错误、一个 `CUDA_CHECK` 宏、compute-sanitizer |
-| 七 | 编译：nvcc 做了什么 | host/device 分离编译、-arch / -gencode 与 fatbin、`compute_XX` 与 `sm_XX`、两个必备的编译选项 |
-| 八 | warp 的执行方式 | 一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp |
-| 九 | 第一个 kernel 的测量 | 先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里 |
-| 十 | 本文小结 | 要点回顾与速查表 |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、host、device 与 kernel**
+  - 两个处理器、两个地址空间
+  - 三个函数限定符
+  - 发射一个 kernel
+- **三、线程层级：grid、block、thread**：三层结构与内建变量、边界检查为什么不可省、block 与 grid 大小怎么选、block 如何切成 warp
+- **四、设备内存与数据搬运**：cudaMalloc / cudaMemcpy / cudaFree，以及 PyTorch 为什么不直接用它们
+- **五、stream、event 与异步语义**：kernel launch 是异步的、stream、event 的计时与依赖、cudaDeviceSynchronize 的代价
+- **六、错误处理**：同步错误与异步错误、一个 `CUDA_CHECK` 宏、compute-sanitizer
+- **七、编译：nvcc 做了什么**：host/device 分离编译、-arch / -gencode 与 fatbin、`compute_XX` 与 `sm_XX`、两个必备的编译选项
+- **八、warp 的执行方式**：一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp
+- **九、第一个 kernel 的测量**：先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里
+- **十、本文小结**：要点回顾与速查表
+- **十一、自测**：5 道题
 
 ## 二、host、device 与 kernel
 
@@ -145,7 +144,7 @@ flowchart TB
 |---|---|---|---|
 | **Grid** | 程序员，launch 时给 `gridDim` | 几千到几百万个 block | block 间无序、无同步、无共享内存 |
 | **Block** | 程序员，launch 时给 `blockDim` | 128 / 256 / 512 线程 | 共享 shared memory，`__syncthreads()` 对齐 |
-| **Warp** | 硬件，固定 32 | 32 线程 | 同一条指令；分歧时串行；访存以 warp 为粒度合并 |
+| **Warp** | 硬件，固定 32 | 32 线程 | 同一条指令<br/>分歧时串行<br/>访存以 warp 为粒度合并 |
 | **Thread** | 程序员写的代码 | 1 | 有自己的寄存器、编号、分支路径 |
 
 Table: Grid、Block、Warp、Thread 的三层结构与内建变量

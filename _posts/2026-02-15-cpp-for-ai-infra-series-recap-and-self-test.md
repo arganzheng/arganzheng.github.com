@@ -45,18 +45,82 @@ flowchart TB
 
 系列的一句话主张是：**C++ 把 Java 交给运行时的决定——对象放在哪里、活多久、类型是什么、调哪个实现、线程状态怎么传、怎么与另一个运行时对话、编成什么——全部前移到了编译期和链接期，由程序员显式做出。** 这带来了性能和确定性，也带来了八篇讨论的全部复杂性。八篇按"读懂一个大型 C++ 项目需要的知识"的依赖顺序展开：前四篇是语言核心（编译模型、对象模型、模板、多态），后四篇是工程实践（宏与注册、并发、Python 边界、工具链），每篇都从 PyTorch v2.10.0 或 vLLM v0.15.0 的一段真实源码出发，以 Java 为参照系，在 mini-c10 里把机制再实现一遍。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
-|---|---|---|---|
-| 第一篇：编译模型与项目布局（[上](/cpp-compilation-model-from-cpp-to-shared-object.html) · [下](/cpp-project-layout-namespaces-libraries-and-cmake.html)） | `import torch` 加载了哪些 `.so`？依赖关系是什么？扩展链接到哪一个？ | 编译器只看得见一个翻译单元，符号由链接器与动态加载器在两个时刻解析；每类"找不到"只出现在一个阶段 | 四阶段 + 加载第五步；20 行源文件预处理后 40222 行；四种链接属性；`ld.so` 搜索顺序 RPATH → `LD_LIBRARY_PATH` → RUNPATH；`libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
-| [第二篇：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html) | `at::Tensor y = x;` 之后 `y` 与 `x` 是什么关系？数据什么时候释放？ | `Tensor` 是 8 字节值句柄，`=` 拷贝句柄、计数 +1；数据在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零那一刻同步释放 | `Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块；400M 个活 tensor 每加一个字多 3.2 GB；`y = x` / view / clone 三种关系；`del` 后显存未降的四步排查；`const` 五个位置且 `Tensor` 的 `const` 是浅的 |
-| [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html) | `AT_DISPATCH` 里的 `scalar_t` 从哪里来？lambda 被编译了几次？ | 模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda，N 个 dtype 就编 N 份 | 浮点两份、`ALL_TYPES_AND_HALF` 十几份；不从返回值推导 → `data_ptr<T>()` 必须显式；`DimVector` 内联 5 维；vLLM 3 dtype × 2 width = 6 份 kernel；`[&]` 同步不逃逸才安全 |
-| [第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html) | Dispatcher 用什么机制调到 CPU kernel？为什么既有 boxed 又有 unboxed？ | 不是虚函数，是函数指针 + 模板生成的适配器；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次 | `KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed；`std::function` 32 / `function_ref` 16 / 函数指针 8 字节；`IValue` 16 字节（4 tag + 8 payload）；`lookup` 一次数组下标、全程无虚调用 |
-| [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html) | 一个 `.so` 被 `import` 后，算子怎么出现在 `torch.ops.myops` 下？ | `TORCH_LIBRARY` 展开成静态对象，`dlopen` 执行 `.init_array` 时其构造函数向 `Dispatcher` 登记；调用者是加载器，不是用户代码 | 宏三种用途；`TORCH_CHECK` 必须是宏的两个理由；四种链接方式里只有"静态库直接链"注册表为空；`native_functions.yaml` 2666 条目、一条生成十几处；跨库类型要 `C10_API` 导出 typeinfo |
-| [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html) | `with torch.no_grad():` 在 C++ 层做了什么？为什么对其他线程不生效？ | 改的是一个 `thread_local` 变量；`thread_local` 每线程一份、新线程不继承，要跨线程必须用 `ThreadLocalState` 显式传播 | 六种 memory order；计数 relaxed 增、acq_rel 减；64 位合并计数（低 32 强、高 31 弱、第 63 位 PyObject）；守卫三步骨架；线程数优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数；`GRAIN_SIZE` 32768 |
-| [第七篇：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html) | 一个 Tensor 从 Python 到 C++ 再回来，几次转换、几次计数变化、GIL 状态如何？ | 输入 3 次、输出 2 次类型转换，无一步拷贝数据；C++ 计数 1 → 2 → 1 联动一次 `Py_INCREF`/`Py_DECREF`；GIL 转参数时持有、跑 kernel 时释放 | new / borrowed / stolen 三种引用；1 → 2 `Py_INCREF`、2 → 1 `Py_DECREF`；ABI 三层（CPython、libstdc++、PyTorch）；2.7 起 Linux wheel 全部 CXX11 ABI，v2.10.0 开关已删；`cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本 |
-| [第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html) | 一个 C++ 改动，从写完到确认正确、无内存错误、不在别的编译器上炸，要跑哪些东西？ | 八步清单：clangd → clang-format → Debug 构建 → gtest/pytest → clang-tidy → ASan+UBSan → TSan → CI 矩阵；"不靠推理，靠矩阵" | `-O0` 比 `-O2` 慢 3–10 倍、`-g` 不影响速度；ASan 约 2× 时间、TSan 5–15×、二者互斥；`detect_leaks=0`；三张栈；GCC ≥ 9.3、CUDA ≥ 12.0、C++17；`intrusive_ptr_test.cpp` 325 个测试 |
-
-Table: 八篇的核心问题、结论与必记判据
+- **第一篇：编译模型与项目布局（[上](/cpp-compilation-model-from-cpp-to-shared-object.html) · [下](/cpp-project-layout-namespaces-libraries-and-cmake.html)）**
+  - 回答的问题：`import torch` 加载了哪些 `.so`？依赖关系是什么？扩展链接到哪一个？
+  - 一句话结论：编译器只看得见一个翻译单元，符号由链接器与动态加载器在两个时刻解析；每类"找不到"只出现在一个阶段
+  - 必记的数字 / 判据：
+    - 四阶段 + 加载第五步
+    - 20 行源文件预处理后 40222 行
+    - 四种链接属性
+    - `ld.so` 搜索顺序 RPATH → `LD_LIBRARY_PATH` → RUNPATH
+    - `libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10`
+- **[第二篇：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html)**
+  - 回答的问题：`at::Tensor y = x;` 之后 `y` 与 `x` 是什么关系？数据什么时候释放？
+  - 一句话结论：`Tensor` 是 8 字节值句柄，`=` 拷贝句柄、计数 +1；数据在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零那一刻同步释放
+  - 必记的数字 / 判据：
+    - `Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块
+    - 400M 个活 tensor 每加一个字多 3.2 GB
+    - `y = x` / view / clone 三种关系
+    - `del` 后显存未降的四步排查
+    - `const` 五个位置且 `Tensor` 的 `const` 是浅的
+- **[第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html)**
+  - 回答的问题：`AT_DISPATCH` 里的 `scalar_t` 从哪里来？lambda 被编译了几次？
+  - 一句话结论：模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda，N 个 dtype 就编 N 份
+  - 必记的数字 / 判据：
+    - 浮点两份、`ALL_TYPES_AND_HALF` 十几份
+    - 不从返回值推导 → `data_ptr<T>()` 必须显式
+    - `DimVector` 内联 5 维
+    - vLLM 3 dtype × 2 width = 6 份 kernel
+    - `[&]` 同步不逃逸才安全
+- **[第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html)**
+  - 回答的问题：Dispatcher 用什么机制调到 CPU kernel？为什么既有 boxed 又有 unboxed？
+  - 一句话结论：不是虚函数，是函数指针 + 模板生成的适配器；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次
+  - 必记的数字 / 判据：
+    - `KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed
+    - `std::function` 32 / `function_ref` 16 / 函数指针 8 字节
+    - `IValue` 16 字节（4 tag + 8 payload）
+    - `lookup` 一次数组下标、全程无虚调用
+- **[第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)**
+  - 回答的问题：一个 `.so` 被 `import` 后，算子怎么出现在 `torch.ops.myops` 下？
+  - 一句话结论：`TORCH_LIBRARY` 展开成静态对象，`dlopen` 执行 `.init_array` 时其构造函数向 `Dispatcher` 登记；调用者是加载器，不是用户代码
+  - 必记的数字 / 判据：
+    - 宏三种用途
+    - `TORCH_CHECK` 必须是宏的两个理由
+    - 四种链接方式里只有"静态库直接链"注册表为空
+    - `native_functions.yaml` 2666 条目、一条生成十几处
+    - 跨库类型要 `C10_API` 导出 typeinfo
+- **[第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)**
+  - 回答的问题：`with torch.no_grad():` 在 C++ 层做了什么？为什么对其他线程不生效？
+  - 一句话结论：改的是一个 `thread_local` 变量；`thread_local` 每线程一份、新线程不继承，要跨线程必须用 `ThreadLocalState` 显式传播
+  - 必记的数字 / 判据：
+    - 六种 memory order
+    - 计数 relaxed 增、acq_rel 减
+    - 64 位合并计数（低 32 强、高 31 弱、第 63 位 PyObject）
+    - 守卫三步骨架
+    - 线程数优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数
+    - `GRAIN_SIZE` 32768
+- **[第七篇：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html)**
+  - 回答的问题：一个 Tensor 从 Python 到 C++ 再回来，几次转换、几次计数变化、GIL 状态如何？
+  - 一句话结论：
+    - 输入 3 次、输出 2 次类型转换，无一步拷贝数据
+    - C++ 计数 1 → 2 → 1 联动一次 `Py_INCREF`/`Py_DECREF`
+    - GIL 转参数时持有、跑 kernel 时释放
+  - 必记的数字 / 判据：
+    - new / borrowed / stolen 三种引用
+    - 1 → 2 `Py_INCREF`、2 → 1 `Py_DECREF`
+    - ABI 三层（CPython、libstdc++、PyTorch）
+    - 2.7 起 Linux wheel 全部 CXX11 ABI，v2.10.0 开关已删
+    - `cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本
+- **[第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)**
+  - 回答的问题：一个 C++ 改动，从写完到确认正确、无内存错误、不在别的编译器上炸，要跑哪些东西？
+  - 一句话结论：八步清单：clangd → clang-format → Debug 构建 → gtest/pytest → clang-tidy → ASan+UBSan → TSan → CI 矩阵；"不靠推理，靠矩阵"
+  - 必记的数字 / 判据：
+    - `-O0` 比 `-O2` 慢 3–10 倍、`-g` 不影响速度
+    - ASan 约 2× 时间、TSan 5–15×、二者互斥
+    - `detect_leaks=0`
+    - 三张栈
+    - GCC ≥ 9.3、CUDA ≥ 12.0、C++17
+    - `intrusive_ptr_test.cpp` 325 个测试
 
 ### 1. 本文的章节安排
 
@@ -248,13 +312,13 @@ Table: 本文的章节安排
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| `intrusive_ptr` 引用计数 | 二、四、六、七、八 | 二定义所有权；四用它持有 `OperatorKernel`；六给内存序与 64 位合并字段；七让它与 `Py_INCREF` 联动；八用 325 个测试与 ASan 三张栈观察它 |
-| RAII / 守卫 | 二、三、四、六、七 | 二管资源；三的 `[&]` 以"同步调用完"为安全条件；四替代 `finally`；六推广到上下文并删掉拷贝移动；七变成 `py::object` 与 `gil_scoped_release` |
-| 编译期 vs 运行期分派 | 三、四、五、七 | 三按 dtype（`switch` 到编译期）；四按 device（类型擦除）；五填表（静态注册、torchgen）；七从 Python 经 boxed 路径进表 |
-| 符号可见性与链接 | 一、五、七、八 | 一给概念；五给静态注册的失效条件与 typeinfo 导出；七推进到三层 ABI；八用 `RTLD_GLOBAL`、ODR 检测与版本矩阵兜底 |
-| `TORCH_CHECK` 与 `c10::Error` | 三、四、五、七、八 | 五说为什么是宏；四说抛的是什么；七说怎么翻译到 Python；三的 `default`/`data_ptr` 走同一条路；八给 `TORCH_SHOW_CPP_STACKTRACES` 与 lint 规则 |
-| `thread_local` 与 TLS 传播 | 三、六、七 | 三说 `parallel_for` 的 lambda 只碰裸指针；六说新线程不继承、`ThreadLocalState` 显式传播；七的 GIL 是"全局一把"与 TLS 的对照 |
-| C++17 与 v2.10.0 基线 | 一、二、三、七、八 | 一与二在 `CMakeLists.txt` 确认 `CMAKE_CXX_STANDARD 17`；三说 concepts 源码树未用；七说 `cpp_extension` 传 `-std=c++17`；八说扩展的标准要跟 PyTorch 走 |
+| `intrusive_ptr` 引用计数 | 二、四、六、七、八 | 二定义所有权<br/>四用它持有 `OperatorKernel`<br/>六给内存序与 64 位合并字段<br/>七让它与 `Py_INCREF` 联动<br/>八用 325 个测试与 ASan 三张栈观察它 |
+| RAII / 守卫 | 二、三、四、六、七 | 二管资源<br/>三的 `[&]` 以"同步调用完"为安全条件<br/>四替代 `finally`<br/>六推广到上下文并删掉拷贝移动<br/>七变成 `py::object` 与 `gil_scoped_release` |
+| 编译期 vs 运行期分派 | 三、四、五、七 | 三按 dtype（`switch` 到编译期）<br/>四按 device（类型擦除）<br/>五填表（静态注册、torchgen）<br/>七从 Python 经 boxed 路径进表 |
+| 符号可见性与链接 | 一、五、七、八 | 一给概念<br/>五给静态注册的失效条件与 typeinfo 导出<br/>七推进到三层 ABI<br/>八用 `RTLD_GLOBAL`、ODR 检测与版本矩阵兜底 |
+| `TORCH_CHECK` 与 `c10::Error` | 三、四、五、七、八 | 五说为什么是宏<br/>四说抛的是什么<br/>七说怎么翻译到 Python<br/>三的 `default`/`data_ptr` 走同一条路<br/>八给 `TORCH_SHOW_CPP_STACKTRACES` 与 lint 规则 |
+| `thread_local` 与 TLS 传播 | 三、六、七 | 三说 `parallel_for` 的 lambda 只碰裸指针<br/>六说新线程不继承、`ThreadLocalState` 显式传播<br/>七的 GIL 是"全局一把"与 TLS 的对照 |
+| C++17 与 v2.10.0 基线 | 一、二、三、七、八 | 一与二在 `CMakeLists.txt` 确认 `CMAKE_CXX_STANDARD 17`<br/>三说 concepts 源码树未用<br/>七说 `cpp_extension` 传 `-std=c++17`<br/>八说扩展的标准要跟 PyTorch 走 |
 
 Table: 贯穿八篇的概念及其关系
 
@@ -481,7 +545,7 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出八篇各讲什么；知道 `intrusive_ptr`、`AT_DISPATCH`、`KernelFunction`、`TORCH_LIBRARY`、`thread_local`、GIL、ASan 这些名词，能把总纲那段 `scale_shift_cpu` 的每一行指到对应的篇 |
-| 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；打开 `c10/core/TensorImpl.h` 或 `Dispatcher.h` 能认出每一行的机制；遇到 `undefined symbol`、算子"消失"、`del` 后显存不降能按篇里的步骤排查 |
+| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>打开 `c10/core/TensorImpl.h` 或 `Dispatcher.h` 能认出每一行的机制<br/>遇到 `undefined symbol`、算子"消失"、`del` 后显存不降能按篇里的步骤排查 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（Dispatcher 无虚调用、静态库会取消注册、越界不崩、放掉 GIL 还能用 Tensor、`const Tensor&` 能写数据）为什么成立，并用 Java 的对照说清类比在哪里失效 |
 
 Table: 掌握程度的判据

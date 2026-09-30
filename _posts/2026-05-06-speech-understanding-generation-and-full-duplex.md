@@ -28,18 +28,27 @@ date: 2026-05-06 20:00:00 +0800
 
 本文按"听 → 说 → 边听边说"的顺序组织，每一步都在上篇两种表示（连续特征 / 离散 token）之间做选择：
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 语音理解 | 编码器 + connector + LLM（Qwen2-Audio）；离散 token 路线；音频的 token 预算 |
-| 三 | 语音生成 | TTS 的三条路：AR 声学 token（VALL-E）、语义→声学两级、流匹配（F5-TTS）；LLM 直接说与模态竞争；Thinker-Talker |
-| 四 | 全模态与全双工 | Qwen2.5-Omni 的 TMRoPE；Moshi 的多流（时间线图）与内心独白；时延的四段账 |
-| 五 | 评测 | ASR 的 WER、TTS 的 MOS / WER / 说话人相似度、全双工的评测 |
-| 六 | 成本 | 音频 token 的账；全双工的持续成本 |
-| 七 | 动手（建议） | 理解退化；时延对比 |
-| 八 | 本文小结 | |
-| 九 | 自测 | 4 道题 |
-
-Table: 本文的章节安排
+- **二、语音理解**
+  - 编码器 + connector + LLM（Qwen2-Audio）
+  - 离散 token 路线
+  - 音频的 token 预算
+- **三、语音生成**
+  - TTS 的三条路：AR 声学 token（VALL-E）、语义→声学两级、流匹配（F5-TTS）
+  - LLM 直接说与模态竞争
+  - Thinker-Talker
+- **四、全模态与全双工**
+  - Qwen2.5-Omni 的 TMRoPE
+  - Moshi 的多流（时间线图）与内心独白
+  - 时延的四段账
+- **五、评测**：ASR 的 WER、TTS 的 MOS / WER / 说话人相似度、全双工的评测
+- **六、成本**
+  - 音频 token 的账
+  - 全双工的持续成本
+- **七、动手（建议）**
+  - 理解退化
+  - 时延对比
+- **八、本文小结**
+- **九、自测**：4 道题
 
 ## 二、语音理解
 
@@ -189,7 +198,7 @@ Moshi 的 160–200 ms 里：80 ms 分帧 + 一步 7B decode（约 40 ms，帧�
 |---|---|---|
 | 理解 | Whisper encoder → pool 25 Hz → 投影 → LLM（Qwen2-Audio） | 一分钟 1500 token；语音输入比文本掉 5–15 点 |
 | 离散 token 路线 | 语义 token 扩词表，听说统一（SpeechGPT） | 理解有损；音色由 vocoder 决定 |
-| TTS | AR 声学（VALL-E：AR 第一码本 + NAR 其余）；语义→声学两级；流匹配（F5-TTS，32 步 DiT） | 主流转向流匹配与两级 |
+| TTS | AR 声学（VALL-E：AR 第一码本 + NAR 其余）<br/>语义→声学两级<br/>流匹配（F5-TTS，32 步 DiT） | 主流转向流匹配与两级 |
 | 直接说 | LLM 生成语音 token；模态竞争伤文本能力 → 内心独白 / Thinker-Talker | Qwen2.5-Omni：Thinker 隐状态 + 文本流式给 Talker |
 | 全模态 | 视觉路径 + 音频路径 + Thinker-Talker；TMRoPE 以 40 ms 对齐音视频时间轴 | GPT-4o 320 ms |
 | 全双工 | Moshi：三流每帧 80 ms 同步、RQ-Transformer（时间 7B + 深度小模型）、内心独白 | 160 ms 理论 / 200 ms 实测；人类 200 ms |

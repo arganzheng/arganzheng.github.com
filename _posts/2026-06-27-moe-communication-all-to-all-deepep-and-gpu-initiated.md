@@ -80,19 +80,21 @@ combine 的通信矩阵 = Cᵀ：rank3 要发回 1068 份，rank2 只发回 170 
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 |
-|---|---|
-| 二 | 算一算：dispatch 与 combine 的字节数、跨节点比例、步数；核心问题在 EP=64 上的数字；prefill 与 decode 两种形态；EP 与 TP / DP 叠加时通信怎样相加 |
-| 三 | NCCL 路径：ncclAlltoAll 在 2.28.9 里是什么、p2p 的调度与 proxy、PyTorch 的 `all_to_all_single` 与；`input_split_sizes`、为什么变长 split 要先交换 counts、为什么 decode 时不够用 |
-| 四 | Megatron 的三种 token dispatcher：AllGather、AllToAll、Flex（DeepEP）各自的通信量与适用条件 |
-| 五 | DeepEP 的 Buffer 与 normal kernel：对称显存布局、三步流程、intranode 的 channel 队列、internode 的 RDMA 到同号 GPU 再 NVLink 转发、SM 数与 FP8 dispatch |
-| 六 | DeepEP 的 low-latency kernel 与 GPU 发起的通信：worst-case buffer、send / recv 两阶段与 hook、NVSHMEM 的对称堆、IBGDA 让 warp 写 WQE 与 doorbell、与第三 / 四篇的对照表、NCCL 自己的 GIN |
-| 七 | 对称内存的一般化：PyTorch 2.12 的 `all_to_all_vdev` 与 `all_to_all_vdev_2d` |
-| 八 | vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、与第七篇 custom all-reduce 的分工、EPLB |
-| 九 | 测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单 |
-| 十 | 本文小结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py` |
-
-Table: 本文的章节安排
+- **二**
+  - 算一算：dispatch 与 combine 的字节数、跨节点比例、步数
+  - 核心问题在 EP=64 上的数字
+  - prefill 与 decode 两种形态
+  - EP 与 TP / DP 叠加时通信怎样相加
+- **三**
+  - NCCL 路径：ncclAlltoAll 在 2.28.9 里是什么、p2p 的调度与 proxy、PyTorch 的 `all_to_all_single` 与
+  - `input_split_sizes`、为什么变长 split 要先交换 counts、为什么 decode 时不够用
+- **四**：Megatron 的三种 token dispatcher：AllGather、AllToAll、Flex（DeepEP）各自的通信量与适用条件
+- **五**：DeepEP 的 Buffer 与 normal kernel：对称显存布局、三步流程、intranode 的 channel 队列、internode 的 RDMA 到同号 GPU 再 NVLink 转发、SM 数与 FP8 dispatch
+- **六**：DeepEP 的 low-latency kernel 与 GPU 发起的通信：worst-case buffer、send / recv 两阶段与 hook、NVSHMEM 的对称堆、IBGDA 让 warp 写 WQE 与 doorbell、与第三 / 四篇的对照表、NCCL 自己的 GIN
+- **七**：对称内存的一般化：PyTorch 2.12 的 `all_to_all_vdev` 与 `all_to_all_vdev_2d`
+- **八**：vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、与第七篇 custom all-reduce 的分工、EPLB
+- **九**：测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单
+- **十**：本文小结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py`
 
 ## 二、算一算：dispatch 与 combine 的账
 
@@ -809,22 +811,22 @@ vLLM                  --all2all-backend：allgather_reducescatter（默认）/ d
 
 | 内容 | 位置 |
 |---|---|
-| NCCL all_to_all | NCCL 2.28.9 `src/nccl.h.in`：`ncclAlltoAll`；`src/collectives.cc`：`ncclAlltoAll`；`src/enqueue.cc`：`taskAppend`（展开为 `p2pTaskAppend`）、`scheduleP2pTasksToPlan`、`NCCL_P2P_LL_THRESHOLD`；`src/init.cc`：`ncclP2pSchedule`、`NCCL_P2P_NET_CHUNKSIZE`；`src/ce_coll.cc`：`ncclCeImplemented`、`ncclLaunchCeColl`；`src/device/sendrecv.h` |
-| NCCL GIN | `src/include/nccl_device/`：`gin.h`、`ll_a2a.h`、`net_device.h`（`NCCL_NET_DEVICE_GIN_PROXY` / `GIN_GDAKI`）、`README.md`；`src/dev_runtime.cc`：`ncclDevCommCreate`；`src/gin/gin_host.cc`：`NCCL_GIN_ENABLE` / `NCCL_GIN_TYPE`；`src/gin/gin_host_proxy.cc`；`src/transport/gdaki/gin_host_gdaki.cc`；`src/transport/net_ib.cc`：`ncclGinIbGdaki` |
+| NCCL all_to_all | NCCL 2.28.9 `src/nccl.h.in`：`ncclAlltoAll`<br/>`src/collectives.cc`：`ncclAlltoAll`<br/>`src/enqueue.cc`：`taskAppend`（展开为 `p2pTaskAppend`）、`scheduleP2pTasksToPlan`、`NCCL_P2P_LL_THRESHOLD`<br/>`src/init.cc`：`ncclP2pSchedule`、`NCCL_P2P_NET_CHUNKSIZE`<br/>`src/ce_coll.cc`：`ncclCeImplemented`、`ncclLaunchCeColl`<br/>`src/device/sendrecv.h` |
+| NCCL GIN | `src/include/nccl_device/`：`gin.h`、`ll_a2a.h`、`net_device.h`（`NCCL_NET_DEVICE_GIN_PROXY` / `GIN_GDAKI`）、`README.md`<br/>`src/dev_runtime.cc`：`ncclDevCommCreate`<br/>`src/gin/gin_host.cc`：`NCCL_GIN_ENABLE` / `NCCL_GIN_TYPE`<br/>`src/gin/gin_host_proxy.cc`<br/>`src/transport/gdaki/gin_host_gdaki.cc`<br/>`src/transport/net_ib.cc`：`ncclGinIbGdaki` |
 | nccl-tests | `src/alltoall.cu`：`AlltoAllGetBw`（busbw 系数 $$(n-1)/n$$），有 `ncclAlltoAll` 时用它，否则 send/recv group |
-| PyTorch all_to_all | `torch/distributed/distributed_c10d.py`：`all_to_all_single`、`all_to_all`；`torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp`：`alltoall_base`、`alltoall`；`torch/csrc/cuda/nccl.cpp`：`all2all_single_equal_split`、`all2all_single_unequal_split`、`all2all`、`_nccl_should_send_recv`；`torch/csrc/distributed/c10d/Utils.hpp`：`computeLengthsAndOffsets` |
-| PyTorch 对称内存 a2a | `torch/csrc/distributed/c10d/symm_mem/nvshmem_extension.cu`：`all_to_all_vdev`、`all_to_all_vdev_2d`、`all_to_all_vdev_2d_offset`、`exchangeSplitAndOffset`、`allToAllV`、`get_a2a_nblocks`；`SymmetricMemory.cpp`（schema）；`NVSHMEMSymmetricMemory.cpp`；`torch/distributed/_symmetric_memory/__init__.py`：`set_backend`、Meta 实现；`test/distributed/test_nvshmem.py`：`test_all_to_all_vdev` |
-| Megatron dispatcher | `megatron/core/transformer/moe/token_dispatcher.py`：`MoETokenDispatcher`、`MoEAllGatherTokenDispatcher`、`MoEAlltoAllTokenDispatcher`（`preprocess`、`cuda_sync_point`、`_maybe_dtoh_and_synchronize`）、`MoEFlexTokenDispatcher`（`_initialize_metadata`）、`_DeepepManager`、`_HybridEPManager`；`moe_layer.py`（按 `moe_token_dispatcher_type` 选择）；`transformer_config.py`：`moe_token_dispatcher_type`、`moe_flex_dispatcher_backend`、`moe_deepep_num_sms`、`moe_enable_deepep` |
-| Megatron DeepEP 封装 | `megatron/core/transformer/moe/fused_a2a.py`：`get_buffer`、`get_hidden_bytes`、`FusedDispatch`、`FusedCombine`、`set_deepep_num_sms`、`HybridEPDispatch`；`moe_utils.py`：`permute`、`unpermute`、`sort_chunks_by_idxs`、`get_capacity`、`pad_routing_map`、`track_moe_metrics`；`megatron/core/tensor_parallel/mappings.py`：`_AllToAll`、`all_to_all` |
+| PyTorch all_to_all | `torch/distributed/distributed_c10d.py`：`all_to_all_single`、`all_to_all`<br/>`torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp`：`alltoall_base`、`alltoall`<br/>`torch/csrc/cuda/nccl.cpp`：`all2all_single_equal_split`、`all2all_single_unequal_split`、`all2all`、`_nccl_should_send_recv`<br/>`torch/csrc/distributed/c10d/Utils.hpp`：`computeLengthsAndOffsets` |
+| PyTorch 对称内存 a2a | `torch/csrc/distributed/c10d/symm_mem/nvshmem_extension.cu`：`all_to_all_vdev`、`all_to_all_vdev_2d`、`all_to_all_vdev_2d_offset`、`exchangeSplitAndOffset`、`allToAllV`、`get_a2a_nblocks`<br/>`SymmetricMemory.cpp`（schema）<br/>`NVSHMEMSymmetricMemory.cpp`<br/>`torch/distributed/_symmetric_memory/__init__.py`：`set_backend`、Meta 实现<br/>`test/distributed/test_nvshmem.py`：`test_all_to_all_vdev` |
+| Megatron dispatcher | `megatron/core/transformer/moe/token_dispatcher.py`：`MoETokenDispatcher`、`MoEAllGatherTokenDispatcher`、`MoEAlltoAllTokenDispatcher`（`preprocess`、`cuda_sync_point`、`_maybe_dtoh_and_synchronize`）、`MoEFlexTokenDispatcher`（`_initialize_metadata`）、`_DeepepManager`、`_HybridEPManager`<br/>`moe_layer.py`（按 `moe_token_dispatcher_type` 选择）<br/>`transformer_config.py`：`moe_token_dispatcher_type`、`moe_flex_dispatcher_backend`、`moe_deepep_num_sms`、`moe_enable_deepep` |
+| Megatron DeepEP 封装 | `megatron/core/transformer/moe/fused_a2a.py`：`get_buffer`、`get_hidden_bytes`、`FusedDispatch`、`FusedCombine`、`set_deepep_num_sms`、`HybridEPDispatch`<br/>`moe_utils.py`：`permute`、`unpermute`、`sort_chunks_by_idxs`、`get_capacity`、`pad_routing_map`、`track_moe_metrics`<br/>`megatron/core/tensor_parallel/mappings.py`：`_AllToAll`、`all_to_all` |
 | DeepEP Python | `deep_ep/buffer.py`：`Buffer.__init__`（NVSHMEM 环境变量）、`set_num_sms`、`get_dispatch_config` / `get_combine_config`、`get_low_latency_rdma_size_hint`、`get_dispatch_layout`、`dispatch`、`combine`、`internode_dispatch` / `internode_combine`、`low_latency_dispatch`、`low_latency_combine`、`clean_low_latency_buffer`、`get_next_low_latency_combine_buffer`、`get_comm_stream`；`deep_ep/utils.py`：`check_nvlink_connections`、`EventOverlap` |
 | DeepEP host | `csrc/deep_ep.cpp`：`Buffer::Buffer`（`cudaMalloc` + `cudaIpcGetMemHandle`、pinned 计数器）、`Buffer::sync`（`cudaIpcOpenMemHandle`、`internode::init` / `alloc`）、`intranode_dispatch` / `internode_dispatch`（CPU 等 `moe_recv_counter`，`NUM_CPU_TIMEOUT_SECS`）、`low_latency_dispatch` / `low_latency_combine`（`phases`、`recv_hook`）；`csrc/config.hpp`：`Config`、`get_nvl_buffer_size_hint` / `get_rdma_buffer_size_hint`、`LowLatencyBuffer`、`LowLatencyLayout`、`get_low_latency_rdma_size_hint` |
-| DeepEP kernel | `csrc/kernels/configs.cuh`：`NUM_MAX_NVL_PEERS`、`NUM_MAX_RDMA_PEERS`、`LOW_LATENCY_SEND_PHASE` / `RECV_PHASE`；`layout.cu`：`get_dispatch_layout`；`intranode.cu`：`notify_dispatch`、`dispatch`、`combine`、`barrier_block`；`internode.cu`：`dispatch`（`WarpRole::kRDMASender` / `kRDMASenderCoordinator` / `kRDMAAndNVLForwarder` / `kForwarderCoordinator` / `kNVLReceivers`）、`combine`（`kNVLSender` / `kNVLAndRDMAForwarder` / `kRDMAReceiver` / `kCoordinator`）、`SymBuffer` / `AsymBuffer`；`internode_ll.cu`：`dispatch<kUseFP8, kUseUE8M0, kHidden>`、`combine<kUseLogFMT, ...>`、`clean_low_latency_buffer`、`logfmt_encode`；`runtime.cu`：`internode::init`（`nvshmemx_init_attr`）、`alloc`（`nvshmem_align`）、`barrier` |
+| DeepEP kernel | `csrc/kernels/configs.cuh`：`NUM_MAX_NVL_PEERS`、`NUM_MAX_RDMA_PEERS`、`LOW_LATENCY_SEND_PHASE` / `RECV_PHASE`<br/>`layout.cu`：`get_dispatch_layout`<br/>`intranode.cu`：`notify_dispatch`、`dispatch`、`combine`、`barrier_block`<br/>`internode.cu`：`dispatch`（`WarpRole::kRDMASender` / `kRDMASenderCoordinator` / `kRDMAAndNVLForwarder` / `kForwarderCoordinator` / `kNVLReceivers`）、`combine`（`kNVLSender` / `kNVLAndRDMAForwarder` / `kRDMAReceiver` / `kCoordinator`）、`SymBuffer` / `AsymBuffer`<br/>`internode_ll.cu`：`dispatch<kUseFP8, kUseUE8M0, kHidden>`、`combine<kUseLogFMT, ...>`、`clean_low_latency_buffer`、`logfmt_encode`<br/>`runtime.cu`：`internode::init`（`nvshmemx_init_attr`）、`alloc`（`nvshmem_align`）、`barrier` |
 | IBGDA | `csrc/kernels/ibgda_device.cuh`：`ibgda_get_rc`、`ibgda_reserve_wqe_slots`、`ibgda_write_rdma_write_wqe`、`ibgda_write_rdma_write_inl_wqe`、`ibgda_write_amo_add_wqe`、`ibgda_update_dbr`、`ibgda_ring_db`、`ibgda_post_send`、`ibgda_submit_requests`、`nvshmemi_ibgda_put_nbi_warp`、`nvshmemi_ibgda_amo_nonfetch_add`、`nvshmemi_ibgda_rma_p`、`ibgda_poll_cq`、`nvshmemi_ibgda_quiet` |
 | DeepEP 文档 | `README.md`：性能表（H800 + CX7，官方数字）、Network configurations（`NVSHMEM_IB_SL`、adaptive routing）、示例代码、Undefined-behavior PTX usage；`third-party/README.md`：NVSHMEM 3.3.9+、IBGDA 的两种启用方式 |
-| vLLM all2all | `vllm/config/parallel.py`：`All2AllBackend`、`ParallelConfig.all2all_backend`、`use_sequence_parallel_moe`、`use_batched_dp_moe`、`enable_eplb` / `EPLBConfig`；`vllm/distributed/device_communicators/cuda_communicator.py`：`CudaCommunicator.__init__`（按后端建 manager）、`dispatch_router_logits` / `dispatch` / `combine`；`all2all.py`：`AgRsAll2AllManager`、`DeepEPAll2AllManagerBase`、`DeepEPHTAll2AllManager`、`DeepEPLLAll2AllManager`、`NixlEPAll2AllManager`、`FlashInferNVLinkTwoSidedManager` / `OneSidedManager`、`MoriAll2AllManager`；`base_device_communicator.py`：`All2AllManagerBase`；`vllm/envs.py`：`VLLM_DEEPEP_BUFFER_SIZE_MB`、`VLLM_DEEPEP_HIGH_THROUGHPUT_FORCE_INTRA_NODE`、`VLLM_DEEPEP_LOW_LATENCY_USE_MNNVL` |
-| vLLM prepare / finalize | `vllm/model_executor/layers/fused_moe/all2all_utils.py`：`maybe_make_prepare_finalize`（`use_fp8_dispatch` 的判定）；`prepare_finalize/deepep_ht.py`：`DeepEPHTPrepareAndFinalize._do_dispatch` / `prepare` / `finalize`；`prepare_finalize/deepep_ll.py`：`DeepEPLLPrepareAndFinalize`（`SUPPORTED_HIDDEN_SIZES`、`prepare_async`、`_receiver`、`finalize_async`）；`prepare_finalize/naive_dp_ep.py`、`nixl_ep.py`、`flashinfer_nvlink_*.py` |
-| vLLM EPLB | `vllm/distributed/eplb/eplb_state.py`：`EplbState`、`EplbStats`；`policy/default.py`：`rebalance_experts`、`rebalance_experts_hierarchical`；`rebalance_execute.py`：`rearrange_expert_weights_inplace` |
-| 工具 | nccl-tests `alltoall_perf`；`ib_write_bw --use_cuda`（第三篇）；`nvidia-smi topo -mp`（第二篇）；torch profiler；comm-probe `moe_a2a_model.py`、`a2a_bench.py`（下） |
+| vLLM all2all | `vllm/config/parallel.py`：`All2AllBackend`、`ParallelConfig.all2all_backend`、`use_sequence_parallel_moe`、`use_batched_dp_moe`、`enable_eplb` / `EPLBConfig`<br/>`vllm/distributed/device_communicators/cuda_communicator.py`：`CudaCommunicator.__init__`（按后端建 manager）、`dispatch_router_logits` / `dispatch` / `combine`<br/>`all2all.py`：`AgRsAll2AllManager`、`DeepEPAll2AllManagerBase`、`DeepEPHTAll2AllManager`、`DeepEPLLAll2AllManager`、`NixlEPAll2AllManager`、`FlashInferNVLinkTwoSidedManager` / `OneSidedManager`、`MoriAll2AllManager`<br/>`base_device_communicator.py`：`All2AllManagerBase`<br/>`vllm/envs.py`：`VLLM_DEEPEP_BUFFER_SIZE_MB`、`VLLM_DEEPEP_HIGH_THROUGHPUT_FORCE_INTRA_NODE`、`VLLM_DEEPEP_LOW_LATENCY_USE_MNNVL` |
+| vLLM prepare / finalize | `vllm/model_executor/layers/fused_moe/all2all_utils.py`：`maybe_make_prepare_finalize`（`use_fp8_dispatch` 的判定）<br/>`prepare_finalize/deepep_ht.py`：`DeepEPHTPrepareAndFinalize._do_dispatch` / `prepare` / `finalize`<br/>`prepare_finalize/deepep_ll.py`：`DeepEPLLPrepareAndFinalize`（`SUPPORTED_HIDDEN_SIZES`、`prepare_async`、`_receiver`、`finalize_async`）<br/>`prepare_finalize/naive_dp_ep.py`、`nixl_ep.py`、`flashinfer_nvlink_*.py` |
+| vLLM EPLB | `vllm/distributed/eplb/eplb_state.py`：`EplbState`、`EplbStats`<br/>`policy/default.py`：`rebalance_experts`、`rebalance_experts_hierarchical`<br/>`rebalance_execute.py`：`rearrange_expert_weights_inplace` |
+| 工具 | nccl-tests `alltoall_perf`<br/>`ib_write_bw --use_cuda`（第三篇）<br/>`nvidia-smi topo -mp`（第二篇）<br/>torch profiler<br/>comm-probe `moe_a2a_model.py`、`a2a_bench.py`（下） |
 
 Table: 本篇涉及的源码与工具位置
 

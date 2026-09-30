@@ -175,10 +175,10 @@ Table: 模型生命周期各阶段主要用到的层
 
 | 分支 | 概念 | 在哪里用到 | 在哪一篇 |
 |---|---|---|---|
-| 线性代数 | 矩阵乘法与形状规则、向量空间与内积、范数（L1 / L2 / Frobenius）与余弦相似度、特征值与 SVD、张量 | 一切；SVD 是 LoRA 的初始化与低秩直觉；范数是权重衰减与量化误差；余弦相似度是 embedding 检索 | [第一](/vectors-matrices-shapes-and-flops.html)、[二](/inner-product-norms-and-cosine-similarity.html)、[三篇](/orthogonal-rotation-svd-and-low-rank.html) |
-| 概率与统计 | 随机变量、条件概率、贝叶斯公式、联合与边缘分布、伯努利 / 二项 / 高斯 / 均匀分布、最大似然 MLE 与最大后验 MAP、置信区间、概率图模型的基本记号 | 语言模型就是 $$p(x_t \mid x_{<t})$$；交叉熵是 MLE；DPO 的推导从 Bradley-Terry 模型开始；评测要给置信区间 | [第四](/probability-basics-language-model-as-conditional-distribution.html)、[五](/from-maximum-likelihood-to-cross-entropy.html)、[八篇](/statistical-inference-and-fitting-scaling-laws.html) |
-| 信息论 | 熵、交叉熵、KL 散度、互信息 | 训练 loss 是交叉熵；RLHF 与 DPO 的约束项是 KL；蒸馏的目标是 KL；投机解码的接受率是分布之差 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
-| 微积分与优化 | 导数、偏导、梯度、链式法则、Jacobian；凸性、梯度下降、随机梯度下降、学习率、鞍点 | 反向传播是链式法则；优化器（L3）建立在 SGD 之上；策略梯度定理需要对期望求导 | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
+| 线性代数 | 矩阵乘法与形状规则、向量空间与内积、范数（L1 / L2 / Frobenius）与余弦相似度、特征值与 SVD、张量 | 一切<br/>SVD 是 LoRA 的初始化与低秩直觉<br/>范数是权重衰减与量化误差<br/>余弦相似度是 embedding 检索 | [第一](/vectors-matrices-shapes-and-flops.html)、[二](/inner-product-norms-and-cosine-similarity.html)、[三篇](/orthogonal-rotation-svd-and-low-rank.html) |
+| 概率与统计 | 随机变量、条件概率、贝叶斯公式、联合与边缘分布、伯努利 / 二项 / 高斯 / 均匀分布、最大似然 MLE 与最大后验 MAP、置信区间、概率图模型的基本记号 | 语言模型就是 $$p(x_t \mid x_{<t})$$<br/>交叉熵是 MLE<br/>DPO 的推导从 Bradley-Terry 模型开始<br/>评测要给置信区间 | [第四](/probability-basics-language-model-as-conditional-distribution.html)、[五](/from-maximum-likelihood-to-cross-entropy.html)、[八篇](/statistical-inference-and-fitting-scaling-laws.html) |
+| 信息论 | 熵、交叉熵、KL 散度、互信息 | 训练 loss 是交叉熵<br/>RLHF 与 DPO 的约束项是 KL<br/>蒸馏的目标是 KL<br/>投机解码的接受率是分布之差 | [第六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
+| 微积分与优化 | 导数、偏导、梯度、链式法则、Jacobian；凸性、梯度下降、随机梯度下降、学习率、鞍点 | 反向传播是链式法则<br/>优化器（L3）建立在 SGD 之上<br/>策略梯度定理需要对期望求导 | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
 
 Table: L0 数学四个分支的概念、用处与对应文章
 
@@ -199,7 +199,7 @@ Table: L0 数学四个分支的概念、用处与对应文章
 | PyTorch（使用层） | Tensor、Autograd、`nn.Module`、Dataset / DataLoader、Optimizer、AMP 混合精度、DDP / FSDP 的启用方式 | 会用、知道每个 API 在做什么；深入篇是 Infra 地图 [03 系列](/deep-dive-into-pytorch.html)（两张地图共享） | [第三](/pytorch-in-use-five-objects-and-a-training-loop.html)、[四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
 | Hugging Face 生态 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` | 当前算法工作的事实标准工具链；读它们的源码是学后训练最快的路 | [第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
 | GPU 直觉 | GPU 有算力与带宽两个上限、显存分几块（权重 / 激活 / 优化器状态 / KV）、为什么 batch 大才快、CUDA kernel 与 stream 是什么 | 能看懂 profiler 输出、能解释 OOM 的来源即可；写 kernel 属于 Infra 地图 05 | [第六篇](/gpu-intuition-and-experiment-management.html) |
-| 实验工具 | W&B / MLflow / TensorBoard 记录实验；Hydra / 配置文件管理超参数；git 管代码与配置 | 实验方法论（横切）的物质基础 | 第六篇 |
+| 实验工具 | W&B / MLflow / TensorBoard 记录实验<br/>Hydra / 配置文件管理超参数<br/>git 管代码与配置 | 实验方法论（横切）的物质基础 | 第六篇 |
 
 Table: L1 各工具要掌握到的程度
 
@@ -217,7 +217,7 @@ Table: L1 各工具要掌握到的程度
 | 监督学习 | 线性回归、Ridge / Lasso、逻辑回归、朴素贝叶斯、SVM、KNN、决策树、随机森林、梯度提升、XGBoost / LightGBM | 逻辑回归是奖励模型与 DPO 的数学骨架；梯度提升树仍是表格数据与数据质量打分的首选 | [第二](/linear-regression-least-squares-ridge-and-lasso.html)、[三](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)、[四](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)、[五](/svm-and-kernel-methods.html)、[六篇](/ensembles-random-forest-and-gradient-boosting.html) |
 | 无监督学习 | K-Means、DBSCAN、PCA、embedding 聚类；MinHash / LSH 去重 | 数据去重与多样性分析、embedding 空间的可视化 | [第七](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)、[八](/dimensionality-reduction-pca-svd-tsne-and-umap.html)、[九篇](/deduplication-minhash-and-lsh-probabilities.html) |
 | 特征工程 | 特征选择与抽取、缩放、编码 | 在深度学习里被"表示学习"取代，但数据工程里的质量特征仍靠它 | 第二、六篇的案例顺带（one-hot、人均量特征、取 log） |
-| 评估 | 分类：Accuracy、Precision / Recall、F1、AUC；回归：MSE、RMSE、MAE；交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| 评估 | 分类：Accuracy、Precision / Recall、F1、AUC<br/>回归：MSE、RMSE、MAE<br/>交叉验证、统计显著性 | 评测集怎么划、怎么给置信区间、A/B 差异是否显著 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 | 工具 | scikit-learn | 快速训练一个数据过滤器、一个质量分类器 | 每篇 |
 
 Table: L2 机器学习基础的主题与 LLM 时代的必要性
@@ -237,8 +237,8 @@ Table: L2 机器学习基础的主题与 LLM 时代的必要性
 | 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；warmup 是训练稳定性的第一道防线 | [第三篇](/optimizers-from-sgd-to-adamw.html) |
 | 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第二篇 |
 | CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
-| RNN | 序列建模、长距离依赖、梯度在时间上的消失；RNN → LSTM → GRU；seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
-| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲；本层只关心它们对训练稳定性的影响；原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
+| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
+| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲<br/>本层只关心它们对训练稳定性的影响<br/>原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 
 Table: L3 深度学习基础的主题与概念
 
@@ -250,11 +250,11 @@ Table: L3 深度学习基础的主题与概念
 
 | 主题 | 概念 | 在哪一篇 |
 |---|---|---|
-| NLP 基础 | 分词：BPE / WordPiece / SentencePiece / byte-level BPE，词表大小的取舍，多语言与代码的分词；传统表示：one-hot、词袋、TF-IDF；n-gram 语言模型与困惑度；词向量：Word2Vec（CBOW / Skip-gram）、GloVe → 上下文相关表示（ELMo、BERT） | 预训练系列第二篇：BPE / byte-level / 预分词、词表大小的账（2Vd、lm_head 占比、logits 显存）、压缩率与每字符成本、中文 / 代码 / 数字；n-gram、困惑度、词向量的一页史也在那里 |
-| Transformer 结构 | encoder / decoder / decoder-only 三种形态；self-attention 与 cross-attention；MHA → MQA → GQA → MLA；位置编码：绝对、相对、RoPE、ALiBi、长上下文外推（PI、YaRN、NTK）；FFN 与 SwiGLU；Add & Norm 与 Pre-Norm；MoE 的路由、专家粒度、负载均衡、共享专家；MTP；FlashAttention 作为 attention 的**精确等价实现**（不是新算法） | 04 系列第一至四篇（结构、动态线、nanoGPT 实现与实训）、第五至九篇（演进） |
-| Scaling law | Kaplan 等 2020 与 Chinchilla（Hoffmann 等 2022）：loss 随参数量、数据量、算力的幂律；计算最优的 $$D / N \approx 20$$；数据受限时的多 epoch；推理成本纳入后的"过训练"（Llama 3 的 15T token）；用小模型外推大模型 | 04 系列第十篇给出 $$6ND$$；预训练系列第三篇：Kaplan 与 Chinchilla 的幂律与分歧、最优 N/D 的推导、推理成本纳入后的过训练、数据受限的有效 token、用小模型外推的实验设计与常见错误 |
-| 预训练 | 目标函数（next-token prediction、MTP）；数据工程：采集、清洗、去重（MinHash / 精确）、质量过滤（分类器、困惑度）、配比与多阶段课程、合成数据、退火阶段；训练配方：batch 与学习率的 scaling、warmup、WSD；训练稳定性的算法侧：loss spike 的归因、z-loss、QK-norm、初始化；长上下文的继续预训练 | 预训练系列第四篇：漏斗（240T → 15T）、Gopher / C4 规则与模型打分、MinHash 的数学、配比 → epoch、退火与合成数据、污染检测；预训练系列第五篇：目标函数与 MTP、AdamW / batch / lr / warmup 的依据、cosine 与 WSD、稳定性的三个机制与六个开关、长上下文阶段；数值与混合精度在 04 系列第十一篇；工程侧（checkpoint、容错、MFU）属于 Infra 地图 07 |
-| 经典模型 | GPT-2 / GPT-3 / GPT-4 系列的公开信息；Llama 1–4；Qwen 2 / 2.5 / 3；Mistral 与 Mixtral；DeepSeek-V2 / V3 / R1；Kimi K2；Gemma。读技术报告时关注：结构选择、数据规模与配比、训练配方、评测方法 | 04 系列第一至四篇以 GPT-2 为实例，第五、六、八、九篇以 Llama-3 与 DeepSeek-V3 为基线；预训练系列以两者的技术报告为训练侧的对象，其第三篇有十几个模型的 D/N 对照表 |
+| NLP 基础 | 分词：BPE / WordPiece / SentencePiece / byte-level BPE，词表大小的取舍，多语言与代码的分词<br/>传统表示：one-hot、词袋、TF-IDF<br/>n-gram 语言模型与困惑度<br/>词向量：Word2Vec（CBOW / Skip-gram）、GloVe → 上下文相关表示（ELMo、BERT） | 预训练系列第二篇：BPE / byte-level / 预分词、词表大小的账（2Vd、lm_head 占比、logits 显存）、压缩率与每字符成本、中文 / 代码 / 数字；n-gram、困惑度、词向量的一页史也在那里 |
+| Transformer 结构 | encoder / decoder / decoder-only 三种形态<br/>self-attention 与 cross-attention<br/>MHA → MQA → GQA → MLA<br/>位置编码：绝对、相对、RoPE、ALiBi、长上下文外推（PI、YaRN、NTK）<br/>FFN 与 SwiGLU<br/>Add & Norm 与 Pre-Norm<br/>MoE 的路由、专家粒度、负载均衡、共享专家<br/>MTP<br/>FlashAttention 作为 attention 的**精确等价实现**（不是新算法） | 04 系列第一至四篇（结构、动态线、nanoGPT 实现与实训）、第五至九篇（演进） |
+| Scaling law | Kaplan 等 2020 与 Chinchilla（Hoffmann 等 2022）：loss 随参数量、数据量、算力的幂律<br/>计算最优的 $$D / N \approx 20$$<br/>数据受限时的多 epoch<br/>推理成本纳入后的"过训练"（Llama 3 的 15T token）<br/>用小模型外推大模型 | 04 系列第十篇给出 $$6ND$$；预训练系列第三篇：Kaplan 与 Chinchilla 的幂律与分歧、最优 N/D 的推导、推理成本纳入后的过训练、数据受限的有效 token、用小模型外推的实验设计与常见错误 |
+| 预训练 | 目标函数（next-token prediction、MTP）<br/>数据工程：采集、清洗、去重（MinHash / 精确）、质量过滤（分类器、困惑度）、配比与多阶段课程、合成数据、退火阶段<br/>训练配方：batch 与学习率的 scaling、warmup、WSD<br/>训练稳定性的算法侧：loss spike 的归因、z-loss、QK-norm、初始化<br/>长上下文的继续预训练 | 预训练系列第四篇：漏斗（240T → 15T）、Gopher / C4 规则与模型打分、MinHash 的数学、配比 → epoch、退火与合成数据、污染检测<br/>预训练系列第五篇：目标函数与 MTP、AdamW / batch / lr / warmup 的依据、cosine 与 WSD、稳定性的三个机制与六个开关、长上下文阶段<br/>数值与混合精度在 04 系列第十一篇<br/>工程侧（checkpoint、容错、MFU）属于 Infra 地图 07 |
+| 经典模型 | GPT-2 / GPT-3 / GPT-4 系列的公开信息<br/>Llama 1–4<br/>Qwen 2 / 2.5 / 3<br/>Mistral 与 Mixtral<br/>DeepSeek-V2 / V3 / R1<br/>Kimi K2<br/>Gemma。读技术报告时关注：结构选择、数据规模与配比、训练配方、评测方法 | 04 系列第一至四篇以 GPT-2 为实例，第五、六、八、九篇以 Llama-3 与 DeepSeek-V3 为基线；预训练系列以两者的技术报告为训练侧的对象，其第三篇有十几个模型的 D/N 对照表 |
 
 Table: L4 LLM 核心的主题与概念
 
@@ -268,11 +268,11 @@ Table: L4 LLM 核心的主题与概念
 
 | 段 | 概念 | 说明 |
 |---|---|---|
-| SFT | 指令数据的构造（人工、self-instruct、蒸馏自强模型）、多轮对话格式与 chat template、loss mask（只算回复部分）、packing；全量微调 vs 参数高效微调：LoRA、QLoRA、DoRA、Prefix-Tuning / P-Tuning、Adapter、OFT；灾难性遗忘与数据回放 | LoRA 是 SFT 的默认方式，单独成[专题（3 篇）](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)：低秩假设与四本账、每个旋钮的对照实验、从 adapter 到 multi-LoRA 服务；多 LoRA 服务的 kernel 与调度属于 Infra 地图 08 |
-| 偏好对齐 | 偏好数据（成对比较、打分、AI 反馈 RLAIF）；奖励模型：Bradley-Terry、pairwise loss、过拟合与 reward hacking；在线 RL：PPO（策略、价值、参考模型、KL 惩罚、GAE）、GRPO（组内相对优势，去掉价值模型）、RLOO、REINFORCE++；离线 / 直接偏好优化：DPO、IPO、KTO、ORPO、SimPO；拒绝采样 + SFT（Llama 2 / 3 的做法，与投机解码里的拒绝采样同名不同物） | 每种方法各改了 RLHF 三件套（策略、奖励、参考）中的哪一件，是理解这一族的钥匙 |
-| 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制；多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html) |
+| SFT | 指令数据的构造（人工、self-instruct、蒸馏自强模型）、多轮对话格式与 chat template、loss mask（只算回复部分）、packing<br/>全量微调 vs 参数高效微调：LoRA、QLoRA、DoRA、Prefix-Tuning / P-Tuning、Adapter、OFT<br/>灾难性遗忘与数据回放 | LoRA 是 SFT 的默认方式，单独成[专题（3 篇）](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)：低秩假设与四本账、每个旋钮的对照实验、从 adapter 到 multi-LoRA 服务；多 LoRA 服务的 kernel 与调度属于 Infra 地图 08 |
+| 偏好对齐 | 偏好数据（成对比较、打分、AI 反馈 RLAIF）<br/>奖励模型：Bradley-Terry、pairwise loss、过拟合与 reward hacking<br/>在线 RL：PPO（策略、价值、参考模型、KL 惩罚、GAE）、GRPO（组内相对优势，去掉价值模型）、RLOO、REINFORCE++<br/>离线 / 直接偏好优化：DPO、IPO、KTO、ORPO、SimPO<br/>拒绝采样 + SFT（Llama 2 / 3 的做法，与投机解码里的拒绝采样同名不同物） | 每种方法各改了 RLHF 三件套（策略、奖励、参考）中的哪一件，是理解这一族的钥匙 |
+| 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）<br/>DeepSeek-R1 的 GRPO 配方与"aha moment"<br/>长思维链、test-time compute scaling<br/>过程奖励模型 PRM 与结果奖励 ORM<br/>推理长度的控制<br/>多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html) |
 | 蒸馏 | logits 级蒸馏（KL 到教师分布）、序列级 / 数据蒸馏（用教师生成 SFT 数据，R1 蒸馏小模型的做法）、on-policy 蒸馏；蒸馏与量化的组合 | 蒸馏是把大模型能力搬进小模型的主要手段，也是"线上回流"回边上的一站 |
-| 评测 | 通用 benchmark（MMLU、GSM8K、MATH、HumanEval、IFEval、MT-Bench 等）与它们各自测什么；LLM-as-judge 的偏差（位置、长度、自我偏好）；人类偏好 Arena；污染检测；能力分解与错误分析；评测集自建 | 评测是"回到数据或配方"那条回边的起点；不会评测就不知道改什么 |
+| 评测 | 通用 benchmark（MMLU、GSM8K、MATH、HumanEval、IFEval、MT-Bench 等）与它们各自测什么<br/>LLM-as-judge 的偏差（位置、长度、自我偏好）<br/>人类偏好 Arena<br/>污染检测<br/>能力分解与错误分析<br/>评测集自建 | 评测是"回到数据或配方"那条回边的起点；不会评测就不知道改什么 |
 
 Table: L5 后训练各阶段的概念
 
@@ -289,8 +289,8 @@ Table: L5 后训练各阶段的概念
 | 主题 | 概念 | 在哪一篇 |
 |---|---|---|
 | 解码策略 | greedy、beam search、temperature、top-k / top-p / min-p、重复惩罚、结构化输出（约束解码）；采样对评测结果的影响 | L6 第一篇 |
-| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致；期望接受长度；草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 04 第七篇给出数学与收益区间；L6 第二篇讲草稿的训练与树 |
-| 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8；QAT；KV cache 量化；格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 04 第七篇给出原理与字节数；L6 第三、四篇讲误差模型、QAT 与评测；kernel 实现属于 Infra 地图 05 |
+| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致<br/>期望接受长度<br/>草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 04 第七篇给出数学与收益区间；L6 第二篇讲草稿的训练与树 |
+| 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8<br/>QAT<br/>KV cache 量化<br/>格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 04 第七篇给出原理与字节数<br/>L6 第三、四篇讲误差模型、QAT 与评测<br/>kernel 实现属于 Infra 地图 05 |
 | 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 04 第三篇给出 KV 的账；L6 第五、六篇 |
 | 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 04 第四篇；L6 第五篇 |
 
@@ -306,10 +306,10 @@ Table: L6 算法侧推理优化的主题与概念
 
 | 线 | 主题 | 概念 |
 |---|---|---|
-| CV 基础 | 任务与骨干 | 图像分类、目标检测、分割；CNN → ViT（patch embedding、位置编码）；对比学习：CLIP、SigLIP——视觉编码器的来源 |
-| 理解 | 视觉语言模型 VLM | vision encoder（ViT）、connector（MLP projector、2×2 merge / pixel-shuffle、Perceiver resampler / Q-Former）、LLM decoder；decoder-only 注入 vs cross-attention 注入；固定分辨率、tile、原生动态分辨率；多模态位置编码（M-RoPE）；视频（帧采样、时间合并）；对齐训练的阶段（先训 connector、再全量）；代表模型：LLaVA、Qwen-VL 系列、InternVL、Llama 3.2 Vision |
+| CV 基础 | 任务与骨干 | 图像分类、目标检测、分割<br/>CNN → ViT（patch embedding、位置编码）<br/>对比学习：CLIP、SigLIP——视觉编码器的来源 |
+| 理解 | 视觉语言模型 VLM | vision encoder（ViT）、connector（MLP projector、2×2 merge / pixel-shuffle、Perceiver resampler / Q-Former）、LLM decoder<br/>decoder-only 注入 vs cross-attention 注入<br/>固定分辨率、tile、原生动态分辨率<br/>多模态位置编码（M-RoPE）<br/>视频（帧采样、时间合并）<br/>对齐训练的阶段（先训 connector、再全量）<br/>代表模型：LLaVA、Qwen-VL 系列、InternVL、Llama 3.2 Vision |
 | 理解 | 语音与全模态 | ASR（Whisper 的 encoder-decoder）、TTS、语音 LLM（音频 encoder + LLM）、全模态模型（Qwen2.5-Omni、GPT-4o 一类）的统一输入输出 |
-| 生成 | 扩散模型 | 前向加噪与反向去噪、DDPM、DDIM 与采样加速、score matching 与 flow matching 的统一视角、classifier-free guidance；U-Net → DiT（扩散 Transformer）；VAE 与 latent diffusion；文本条件（CLIP / T5 文本编码器）；代表模型：Stable Diffusion 1.x / SDXL / SD3、FLUX；视频生成（Sora 一类，时空 patch） |
+| 生成 | 扩散模型 | 前向加噪与反向去噪、DDPM、DDIM 与采样加速、score matching 与 flow matching 的统一视角、classifier-free guidance<br/>U-Net → DiT（扩散 Transformer）<br/>VAE 与 latent diffusion<br/>文本条件（CLIP / T5 文本编码器）<br/>代表模型：Stable Diffusion 1.x / SDXL / SD3、FLUX<br/>视频生成（Sora 一类，时空 patch） |
 | 生成 | 自回归生成与统一模型 | 图像 token 化（VQ-VAE）、自回归图像生成、理解与生成统一的模型 |
 
 Table: L7 多模态的理解线与生成线
@@ -328,9 +328,9 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 |---|---|
 | 提假设 | 把"我觉得这样会好"变成一个可以被证伪的陈述：改什么、预期哪个指标变、变多少 |
 | 小规模先行 | 用小模型、小数据做消融（ablation），一次只改一个变量；知道哪些结论能随规模外推、哪些不能（scaling law 的实验设计） |
-| 控制随机性 | 随机种子、数据顺序、非确定性 kernel；多 seed 报告均值与方差；知道差异多大才算显著 |
-| 记录与复现 | 每次实验的代码版本、配置、数据版本、环境全部可追溯；实验跟踪工具；能复现三个月前的结果 |
-| 读论文与复现 | 从论文里提取"改了什么、和谁比、用什么评"；先复现 baseline 再复现方法；对报告数字保持怀疑（评测设置、污染、挑选） |
+| 控制随机性 | 随机种子、数据顺序、非确定性 kernel<br/>多 seed 报告均值与方差<br/>知道差异多大才算显著 |
+| 记录与复现 | 每次实验的代码版本、配置、数据版本、环境全部可追溯<br/>实验跟踪工具<br/>能复现三个月前的结果 |
+| 读论文与复现 | 从论文里提取"改了什么、和谁比、用什么评"<br/>先复现 baseline 再复现方法<br/>对报告数字保持怀疑（评测设置、污染、挑选） |
 | 看曲线 | loss、梯度范数、学习率、评测指标随步数的曲线；能从曲线形状判断学习率过大、数据有问题、过拟合开始 |
 
 Table: 横切：实验方法论的六项能力
@@ -403,10 +403,10 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L1 深入 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
 | L2 | `classical-ml/` | numpy、scikit-learn、matplotlib（第七、八篇的句向量用本地缓存的 Qwen2.5-0.5B） |
 | L3 | `deep-learning-foundations/` | NumPy；CNN / RNN 两篇需 PyTorch（CPU） |
-| L4 | `transformer-and-llm/` | 04 系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训、MTP 实验、成本表脚本；预训练系列的实验；纯 Python + PyTorch |
+| L4 | `transformer-and-llm/` | 04 系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训、MTP 实验、成本表脚本<br/>预训练系列的实验<br/>纯 Python + PyTorch |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
-| L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl；本地缓存的 Qwen2.5-0.5B 与 `no_robots`；CPU 可跑 |
-| L5 专题 | `lora/` | peft / trl / bitsandbytes；Qwen2.5-0.5B 上全量与十二种 LoRA 配置的对照矩阵、ΔW 的谱、adapter 合并与多 adapter；CPU 可跑（全矩阵约 2h，`--quick` 十分钟） |
+| L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl<br/>本地缓存的 Qwen2.5-0.5B 与 `no_robots`<br/>CPU 可跑 |
+| L5 专题 | `lora/` | peft / trl / bitsandbytes<br/>Qwen2.5-0.5B 上全量与十二种 LoRA 配置的对照矩阵、ΔW 的谱、adapter 合并与多 adapter<br/>CPU 可跑（全矩阵约 2h，`--quick` 十分钟） |
 
 Table: 配套代码按层的目录与依赖
 

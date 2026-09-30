@@ -25,7 +25,7 @@ catalog: true
 | 维持的旧入口 | Chat Completions（支持；GPT-5.4 起不支持带 `reasoning_effort` 的工具调用）；Assistants API 已于 2026-08-26 关闭 | — | `generateContent`（支持，标为 legacy） | Anthropic 格式（`/anthropic`）、Responses 格式 |
 | 输入形状 | `input`：item 列表（message / function_call_output 等）+ 顶层 `instructions` | `system` + `messages`（user / assistant 交替，content 为块列表） | `input`（Interactions）；`contents[].parts`（generateContent，角色 user / model） | 同 OpenAI |
 | 输出形状 | `output`：item 列表（`message` / `function_call` / `reasoning` …） | `content`：块列表（`text` / `tool_use` / `thinking`） | `steps` 时间线（Interactions，2026-05 起替代 `outputs`）；`candidates[].content.parts` | 同 OpenAI |
-| 工具调用 | `tools` + `tool_choice`；输出 `function_call`（`call_id`、`arguments` 为字符串）；结果以 `function_call_output` 送回 | `tools`（`input_schema`）+ `tool_choice`（auto / any / tool / none）；输出 `tool_use` 块（`id`、`input` 为对象）；结果以 user 消息里的 `tool_result` 块送回 | `functionCall` / `functionResponse` part；内置 Google Search 等 | 同 OpenAI |
+| 工具调用 | `tools` + `tool_choice`<br/>输出 `function_call`（`call_id`、`arguments` 为字符串）<br/>结果以 `function_call_output` 送回 | `tools`（`input_schema`）+ `tool_choice`（auto / any / tool / none）<br/>输出 `tool_use` 块（`id`、`input` 为对象）<br/>结果以 user 消息里的 `tool_result` 块送回 | `functionCall` / `functionResponse` part；内置 Google Search 等 | 同 OpenAI |
 | 结构化输出 | `text.format` = `json_schema`（`strict`） | `output_config.format` = `json_schema` | `response_format`（Interactions，多态）；`responseSchema`（generateContent） | `response_format: json_object`（JSON 模式） |
 | 流式 | SSE：`response.output_text.delta` 等类型化事件 | SSE：`message_start` / `content_block_delta` / `message_delta` / `message_stop` | SSE：`interaction.created` / `step.delta` / `interaction.completed` | 同 OpenAI（`choices[].delta` 分块） |
 | 状态 | 服务端：`previous_response_id` 或 Conversations；**默认存储**（`store: true`，30 天） | 客户端：每次送完整历史 | 服务端：`previous_interaction_id`；**默认存储** | 客户端 |
@@ -263,7 +263,7 @@ Responses API **默认 `store: true`**，响应保留 30 天；Conversation 对�
 
 | 时间 | 供应商 | 变更 | 类型 |
 |---|---|---|---|
-| 2026-05-26 / 06-08 | Google | Interactions API：`outputs` → `steps`，`response_mime_type` 删除并入多态 `response_format`，SSE 事件改名；新 schema 5 月 26 日成为默认，旧 schema 6 月 8 日移除；Python / JS SDK 1.x 同日失效 | 破坏性 |
+| 2026-05-26 / 06-08 | Google | Interactions API：`outputs` → `steps`，`response_mime_type` 删除并入多态 `response_format`，SSE 事件改名<br/>新 schema 5 月 26 日成为默认，旧 schema 6 月 8 日移除<br/>Python / JS SDK 1.x 同日失效 | 破坏性 |
 | 2026-06 | Google | Interactions API GA，`generateContent` 标为 legacy（仍支持；Batch、显式缓存、安全设置暂未迁入） | 推荐入口变更 |
 | 2026-06-30 | Anthropic | Sonnet 5：非默认 `temperature` / `top_p` / `top_k` 返回 400；手动 extended thinking（`budget_tokens`）移除 | 破坏性 |
 | 2026-08-26 | OpenAI | Assistants API 关闭；Assistants → Prompts（仅能在控制台创建）、Threads → Conversations、Runs → Responses | 移除 |

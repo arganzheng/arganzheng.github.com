@@ -195,7 +195,7 @@ compute-sanitizer python test.py                     # CUDA 的越界 / 竞态�
 
 | oracle | 检查什么 | 抓什么 bug | 例子 |
 |---|---|---|---|
-| **参考实现** | 与一个更慢但更可信的实现比对 | 算法错误 | NumPy / SciPy；`torch._refs` 中用基本算子写的 Python 参考实现；fp64 下的同一算子 |
+| **参考实现** | 与一个更慢但更可信的实现比对 | 算法错误 | NumPy / SciPy<br/>`torch._refs` 中用基本算子写的 Python 参考实现<br/>fp64 下的同一算子 |
 | **数学恒等式** | 结果满足某个必然成立的关系 | 反向公式错误 | `gradcheck`：解析梯度 vs 有限差分；`x.conj().conj() == x` |
 | **跨后端一致** | CPU 与 CUDA 结果一致 | 某个 Kernel 的实现错误 | 同一 OpInfo 在两个设备上跑同一模板 |
 | **跨模式一致** | eager 与 compile / out= 变体 / inplace 变体 / 视图 结果一致 | 编译器变换错误、变体实现不同步 | `test_variant_consistency_eager`、Inductor 的 OpInfo 测试 |
@@ -590,8 +590,8 @@ gitGraph TB:
 | 维度 | 取值（以 2.x 系列的发布为例） | 落在这一维上的 ABI 约束 |
 |---|---|---|
 | Python 版本 | 3.9 / 3.10 / 3.11 / 3.12 / 3.13 | CPython 扩展 ABI：wheel 文件名里的 `cp312-cp312` 标签，`torch/_C.cpython-*.so` 只能被同一小版本的解释器加载 |
-| 加速后端 | CPU / CUDA 11.8 / CUDA 12.x（如 12.4、12.6，通常同时支持两三个）/ ROCm / XPU | `+cu124` 本地版本标识；CUDA minor version compatibility——12.x 编出的 wheel 可以在任何 12.y 的驱动上运行，但 C++ 扩展仍要用与 wheel 相同的 CUDA 版本编译；`nvidia-*` PyPI 包（cuBLAS、cuDNN、NCCL）的版本随之固定 |
-| 平台 | Linux x86_64 / Linux aarch64 / Windows / macOS arm64 | manylinux 标签规定 glibc 最低版本；libstdc++ 的 CXX11 ABI（Linux 官方 wheel 2.6 起部分、2.7 起全部切到 cxx11 ABI，`_GLIBCXX_USE_CXX11_ABI=1`；扩展要读 `torch._C._GLIBCXX_USE_CXX11_ABI` 跟随，而不是记版本号）；Windows 绑定 MSVC 运行时；macOS 绑定最低系统版本 |
+| 加速后端 | CPU / CUDA 11.8 / CUDA 12.x（如 12.4、12.6，通常同时支持两三个）/ ROCm / XPU | `+cu124` 本地版本标识<br/>CUDA minor version compatibility——12.x 编出的 wheel 可以在任何 12.y 的驱动上运行，但 C++ 扩展仍要用与 wheel 相同的 CUDA 版本编译<br/>`nvidia-*` PyPI 包（cuBLAS、cuDNN、NCCL）的版本随之固定 |
+| 平台 | Linux x86_64 / Linux aarch64 / Windows / macOS arm64 | manylinux 标签规定 glibc 最低版本<br/>libstdc++ 的 CXX11 ABI（Linux 官方 wheel 2.6 起部分、2.7 起全部切到 cxx11 ABI，`_GLIBCXX_USE_CXX11_ABI=1`；扩展要读 `torch._C._GLIBCXX_USE_CXX11_ABI` 跟随，而不是记版本号）<br/>Windows 绑定 MSVC 运行时<br/>macOS 绑定最低系统版本 |
 
 Table: wheel 矩阵的三个维度与 ABI 约束
 

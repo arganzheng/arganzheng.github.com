@@ -24,24 +24,27 @@ updated: 2026-09-14
 | Llama-3-8B 全量 | 8.03 B × 16 = 128.5 GB | 一张 80 GB 的卡放不下 |
 | LoRA r=16 | 冻结 bf16 16.1 GB + 41.9 M × 16 = 0.67 GB = 16.7 GB | 一张卡绰绰有余 |
 | QLoRA | 4-bit 基座 4.4 GB + 0.67 GB ≈ 5.1 GB | 消费级显卡 |
-| 激活（账外的一块） | 与参数量无关；B=1, T=4096 时 32 层约 16.5 GiB；B=8 时 132 GiB —— checkpointing 换掉 |  |
+| 激活（账外的一块） | 与参数量无关<br/>B=1, T=4096 时 32 层约 16.5 GiB<br/>B=8 时 132 GiB —— checkpointing 换掉 |  |
 
 Table: 混合精度训练的显存账：每参数字节、全量、LoRA、QLoRA 与激活
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 混合精度 | `autocast` 做了什么；bf16 vs fp16；为什么主权重仍是 fp32 |
-| 三 | 显存的账 | 16 字节 / 参数从哪来；全量 / LoRA / QLoRA 三种方案 |
-| 四 | 激活：账外的一块 | 不按参数算的那一块：与什么成正比、多大、gradient checkpointing 怎么换 |
-| 五 | OOM 归因 | 先问落在哪一块 |
-| 六 | 多卡启用即可 | DDP、FSDP、`torchrun`；更大的并行属于预训练规模 |
-| 七 | 算的与量的 | `max_memory_allocated` 对账 |
-| 八 | 本文小结 | |
-| 九 | 自测 | 五道题 |
-
-Table: 本文的章节安排
+- **二、混合精度**
+  - `autocast` 做了什么
+  - bf16 vs fp16
+  - 为什么主权重仍是 fp32
+- **三、显存的账**
+  - 16 字节 / 参数从哪来
+  - 全量 / LoRA / QLoRA 三种方案
+- **四、激活：账外的一块**：不按参数算的那一块：与什么成正比、多大、gradient checkpointing 怎么换
+- **五、OOM 归因**：先问落在哪一块
+- **六、多卡启用即可**
+  - DDP、FSDP、`torchrun`
+  - 更大的并行属于预训练规模
+- **七、算的与量的**：`max_memory_allocated` 对账
+- **八、本文小结**
+- **九、自测**：五道题
 
 配套脚本：[`03_memory_ledger.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/algorithm-tooling/03_memory_ledger.py)。
 
@@ -194,8 +197,8 @@ model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 | 现象 | 落在哪 | 怎么办 |
 |---|---|---|
 | 模型刚加载就 OOM | 权重本身 | 换 bf16 / 量化 / 更多卡 |
-| 加了优化器、第一步 `backward` 后 OOM | 梯度 + 优化器状态（14 字节 / 可训练参数） | LoRA 减可训练参数；FSDP 切状态；8-bit 优化器 |
-| 参数没变、batch 没变、序列变长了就 OOM | 激活 | gradient checkpointing；减 batch；缩短序列 |
+| 加了优化器、第一步 `backward` 后 OOM | 梯度 + 优化器状态（14 字节 / 可训练参数） | LoRA 减可训练参数<br/>FSDP 切状态<br/>8-bit 优化器 |
+| 参数没变、batch 没变、序列变长了就 OOM | 激活 | gradient checkpointing<br/>减 batch<br/>缩短序列 |
 | 加了 LoRA 还是 OOM | 不是参数的问题——看激活 | 同上 |
 | 评测 / 生成时 OOM | 忘了 `no_grad`；或 KV cache（第六篇） | 加 `no_grad`；减并发 |
 | 显存"够"却 OOM，报错里 reserved 远大于 allocated | 碎片 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；`empty_cache` |

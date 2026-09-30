@@ -40,18 +40,35 @@ CFG 的 $$w = 7.5$$ 意味着**每一步**用的分数被换成了 $$(1-w)\,s_\e
 
 本文按"换一种语言 → 再换一种语言 → 两个工程技术"组织：先把上篇的噪声预测器翻译成"分数"（第二章），再翻译成"速度场"（第三章），每次翻译都在 toy 上验证是同一个东西；然后讲调度（第四章）与 CFG（第五章）。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | score matching | 分数是什么（把上篇的模型画成箭头图）；Tweedie 公式（toy 验算）；去噪分数匹配 = 噪声预测；SDE 与概率流 ODE |
-| 三 | flow matching | 直线路径与速度场；toy 上从零训一个（代码）；与 DDPM 的换算；轨迹为什么弯、reflow 怎么拉直（图）；1 / 2 / 5 / 20 步对比（图） |
-| 四 | 噪声调度与时间步采样 | linear / cosine / 零终端 SNR；logit-normal；分辨率与调度的耦合 |
-| 五 | classifier-free guidance | 条件 dropout；从贝叶斯到 $$\tilde\epsilon$$；toy 上 w = 0 / 1 / 2 / 4 / 8（图）；它在采样什么分布；副作用与修正 |
-| 六 | 成本 | 训练与采样的 FLOPs；与 LLM 的对比 |
-| 七 | 动手（建议） | CIFAR-10 上 DDPM vs flow matching；配套代码 |
-| 八 | 本文小结 | |
-| 九 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、score matching**
+  - 分数是什么（把上篇的模型画成箭头图）
+  - Tweedie 公式（toy 验算）
+  - 去噪分数匹配 = 噪声预测
+  - SDE 与概率流 ODE
+- **三、flow matching**
+  - 直线路径与速度场
+  - toy 上从零训一个（代码）
+  - 与 DDPM 的换算
+  - 轨迹为什么弯、reflow 怎么拉直（图）
+  - 1 / 2 / 5 / 20 步对比（图）
+- **四、噪声调度与时间步采样**
+  - linear / cosine / 零终端 SNR
+  - logit-normal
+  - 分辨率与调度的耦合
+- **五、classifier-free guidance**
+  - 条件 dropout
+  - 从贝叶斯到 $$\tilde\epsilon$$
+  - toy 上 w = 0 / 1 / 2 / 4 / 8（图）
+  - 它在采样什么分布
+  - 副作用与修正
+- **六、成本**
+  - 训练与采样的 FLOPs
+  - 与 LLM 的对比
+- **七、动手（建议）**
+  - CIFAR-10 上 DDPM vs flow matching
+  - 配套代码
+- **八、本文小结**
+- **九、自测**：5 道题
 
 ## 二、score matching：分数的视角
 
@@ -312,10 +329,10 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 | flow matching | $$x_t = (1-t) x_0 + t \epsilon$$，$$\mathcal{L} = \lVert v_\theta - (\epsilon - x_0) \rVert^2$$ | 条件速度的期望 = 边缘速度；与 $$\epsilon$$ 线性换算 |
 | 统一 | 所有损失 = 加权 ELBO，差别只在噪声水平的权重与路径形状 | Kingma & Gao 2023 |
 | 直线 | 随机配对 → 边缘轨迹弯（toy 直线度 0.49）；reflow 在 ODE 配对上重训 → 1.00，一步采样 0.030 | SD3 / FLUX 20–30 步；5 步时 FM 0.041 vs DDIM 0.099 |
-| 调度 | cosine；零终端 SNR；logit-normal 采 $$t$$；分辨率平移 $$\alpha = \sqrt{m/n}$$ | 高分辨率需更多噪声 |
+| 调度 | cosine<br/>零终端 SNR<br/>logit-normal 采 $$t$$<br/>分辨率平移 $$\alpha = \sqrt{m/n}$$ | 高分辨率需更多噪声 |
 | CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；每个噪声层 $$\propto p_t(x) p_t(c \mid x)^w$$，终点不是 $$p_0$$ 的幂分布 | toy：$$w$$ 1 → 4 命中 95% → 100%、标准差 0.60 → 0.35；$$w = 8$$ 甩出分布外 |
-| 修正 | 过饱和 → 动态阈值 / rescale；多样性 → 区间 guidance；两倍成本 → CFG 蒸馏 | FLUX-dev 是蒸馏过的 |
-| 成本 | 训练每样本一个 $$t$$；采样步数 × 2（CFG）× 前向；compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
+| 修正 | 过饱和 → 动态阈值 / rescale<br/>多样性 → 区间 guidance<br/>两倍成本 → CFG 蒸馏 | FLUX-dev 是蒸馏过的 |
+| 成本 | 训练每样本一个 $$t$$<br/>采样步数 × 2（CFG）× 前向<br/>compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
 
 Table: score matching、flow matching 与 CFG 的公式小结
 

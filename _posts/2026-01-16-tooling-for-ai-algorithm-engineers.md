@@ -231,10 +231,10 @@ Table: 贯穿六篇的三条线索
 
 | 篇 | 脚本做的事 |
 |---|---|
-| 第一篇 | 只用标准库：生成器流式过 10 万行 JSONL 并量峰值内存；dataclass 配置；40 行玩具 PyTorch；串行 / 线程 / 进程对比；读 traceback |
-| 第二篇 | NumPy 单头 causal attention 与 PyTorch 对数值；Pandas 对一份评测结果做错误分析；Matplotlib 画多 seed 的 loss 曲线 |
+| 第一篇 | 只用标准库：生成器流式过 10 万行 JSONL 并量峰值内存<br/>dataclass 配置<br/>40 行玩具 PyTorch<br/>串行 / 线程 / 进程对比<br/>读 traceback |
+| 第二篇 | NumPy 单头 causal attention 与 PyTorch 对数值<br/>Pandas 对一份评测结果做错误分析<br/>Matplotlib 画多 seed 的 loss 曲线 |
 | 第三篇 | 二十行训练循环训一个字符级小 Transformer，loss 曲线正常下降 |
-| 第四篇 | 显存账本：全量 / LoRA / QLoRA 三种方案的参数与状态字节数；bf16 与 fp32 的实际字节；激活的估算 |
+| 第四篇 | 显存账本：全量 / LoRA / QLoRA 三种方案的参数与状态字节数<br/>bf16 与 fp32 的实际字节<br/>激活的估算 |
 | 第五篇 | peft + trl 在 Qwen2.5-0.5B 上跑一次 LoRA SFT（需要下载模型） |
 | 第六篇 | torch.profiler 看一步训练的前几个算子；写出一次实验的最小记录并用 seed 复现 |
 

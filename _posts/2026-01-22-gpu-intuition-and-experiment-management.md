@@ -33,16 +33,23 @@ Table: H100 的两个数字：算力与带宽
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 两个上限 | 算力、带宽、算术强度、ridge point |
-| 三 | decode 与 prefill | 为什么 decode 是 memory-bound、batch 大才快；prefill 与训练是 compute-bound；MFU |
-| 四 | 显存的四块 | 训练与推理各是哪块大；KV cache；OOM 归因 |
-| 五 | kernel、stream 与 profiler | 三个概念；读一张 profiler 表 |
-| 六 | 实验管理 | 最小记录的七项；工具各管哪项；随机性 |
-| 七 | 自测 | 五道题 |
-
-Table: 本文的章节安排
+- **二、两个上限**：算力、带宽、算术强度、ridge point
+- **三、decode 与 prefill**
+  - 为什么 decode 是 memory-bound、batch 大才快
+  - prefill 与训练是 compute-bound
+  - MFU
+- **四、显存的四块**
+  - 训练与推理各是哪块大
+  - KV cache
+  - OOM 归因
+- **五、kernel、stream 与 profiler**
+  - 三个概念
+  - 读一张 profiler 表
+- **六、实验管理**
+  - 最小记录的七项
+  - 工具各管哪项
+  - 随机性
+- **七、自测**：五道题
 
 
 ## 二、两个上限
@@ -196,7 +203,7 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 
 | 需求 | 工具 | 最小做法 |
 |---|---|---|
-| 记录指标与曲线 | W&B、MLflow、TensorBoard | 每次实验一个 run；记 loss、学习率、梯度范数、评测指标、吞吐；同一张图上叠多个 run 对比 |
+| 记录指标与曲线 | W&B、MLflow、TensorBoard | 每次实验一个 run<br/>记 loss、学习率、梯度范数、评测指标、吞吐<br/>同一张图上叠多个 run 对比 |
 | 管理配置 | Hydra / OmegaConf，或 `dataclass` + YAML | 所有超参数进配置文件，命令行只覆盖个别项；配置随 run 一起记录 |
 | 代码版本 | git | 每次实验记录 commit hash；有未提交改动时记录 diff 或拒绝启动 |
 | 数据版本 | 数据文件的 hash 或 `datasets` 的 revision | 数据变了就是另一个实验 |

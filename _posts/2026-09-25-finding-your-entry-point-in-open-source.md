@@ -45,7 +45,7 @@ flowchart TB
 |---|---|---|
 | 撞车 | 同一个 issue 下 5 个 open PR；同一个 refactor 有 6 个人各写一版 | 没查重；把"issue 还 open"当成"没人在做" |
 | 越级 | 千行 PR 没有 RFC；新功能 issue 里塞了一整套 AI 生成的方案 | 不知道项目对"多大的改动要先讨论"有明文规定 |
-| 选了项目不要的 | 单个 typo PR；孤立的 style cleanup；给一个 `needs research` 的 issue 直接发实现 | 没读 `AGENTS.md` / `CONTRIBUTING.md` 里"不欢迎什么"的段落 |
+| 选了项目不要的 | 单个 typo PR<br/>孤立的 style cleanup<br/>给一个 `needs research` 的 issue 直接发实现 | 没读 `AGENTS.md` / `CONTRIBUTING.md` 里"不欢迎什么"的段落 |
 | 选了做不完的 | 认领一个需要 B200 才能验证的性能优化；认领一个 tracker issue 里的整条线 | 没估规模，没看硬件要求 |
 
 Table: 选题的四类失败方式
@@ -74,30 +74,45 @@ Table: 选题的四类失败方式
 | 自动打标 | `.github/labeler.yml`（按文件路径）、`.github/label_to_label.yml`（标签推导标签）、`bot-triaged` | `.github/mergify.yml`（PR 按路径/标题）、`.github/workflows/issue_autolabel.yml`（issue 按关键词） |
 | issue 模板 | `bug-report.yml`、`pt2-bug-report.yml`、`feature-request.yml`、`documentation.yml`、`release-feature-request.yml`、`ci-sev.md`、`disable-ci-jobs.md`、`disable-autorevert.md`、`blank.md` | `100-documentation` → `750-RFC` 共 9 个，标题前缀 `[Bug]:` / `[RFC]:` / `[CI Failure]:` / `[Performance]:` 等 |
 | RFC | 独立仓库 `pytorch/rfcs`：fork → 复制 `RFC-0000-template.md` → PR 打 `commenting` 标签 → 在主仓开 issue | `.github/ISSUE_TEMPLATE/750-RFC.yml`：Motivation / Proposed Change / Feedback Period / CC List；>500 LOC 无 RFC 标 `rfc-required` |
-| CI 失败入口 | HUD（`hud.pytorch.org`）；bot 自动开 `DISABLED test_xxx` issue，标 `skipped` + `module: flaky-tests` | CI Failures Dashboard（GitHub Project 20）；`450-ci-failure.yml` 模板，标 `ci-failure`；`docs/contributing/ci/failures.md` |
-| 性能回归入口 | `module: regression`（156 open）、`module: performance`；`benchmarks/` 下 20 余个子目录；`RELEASE.md` 的 cherry-pick 分类含 `regression` | `700-performance-discussion.yml`（三个可选段落之一是 "Report of performance regression"）；`benchmarks/`、`benchmarks/kernels/` |
+| CI 失败入口 | HUD（`hud.pytorch.org`）；bot 自动开 `DISABLED test_xxx` issue，标 `skipped` + `module: flaky-tests` | CI Failures Dashboard（GitHub Project 20）<br/>`450-ci-failure.yml` 模板，标 `ci-failure`<br/>`docs/contributing/ci/failures.md` |
+| 性能回归入口 | `module: regression`（156 open）、`module: performance`<br/>`benchmarks/` 下 20 余个子目录<br/>`RELEASE.md` 的 cherry-pick 分类含 `regression` | `700-performance-discussion.yml`（三个可选段落之一是 "Report of performance regression"）；`benchmarks/`、`benchmarks/kernels/` |
 | "不要 typo PR"的原文 | `CONTRIBUTING.md` "AI-Assisted Development"：low quality / overly verbose → 不再接受；PR 模板 "Overly verbose descriptions will be considered spam" | `AGENTS.md` "No low-value busywork PRs"；`docs/contributing/README.md` "Ensure significance" |
-| 先讨论再动手 | 新贡献者的 PR 必须对应 `actionable` issue；新功能 issue 里 "NEVER include AI-generated explanation of how to solve" | 大改动先 `[RFC]`；`AGENTS.md` 三条查重命令；"Fail-closed behavior" |
+| 先讨论再动手 | 新贡献者的 PR 必须对应 `actionable` issue；新功能 issue 里 "NEVER include AI-generated explanation of how to solve" | 大改动先 `[RFC]`<br/>`AGENTS.md` 三条查重命令<br/>"Fail-closed behavior" |
 | 查重工具 | 无明文；实际用 `gh pr list --search "<n> in:body"` | `AGENTS.md` 明文：`gh issue view --comments`、`gh pr list --search "<issue_number> in:body"`、`--search "<short area keywords>"` |
 
 Table: 选题各环节的 PyTorch 与 vLLM 对照（标签规模（2026-09-07）…）
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 标签 | 两个项目的标签体系（真实标签名与含义）、自动打标规则、actionable 的状态机、Job Board |
-| 三 | RFC 与 roadmap | pytorch/rfcs 的三步流程与模板章节；vLLM 的 [RFC] 模板字段与 rfc-required；tracker issue |
-| 四 | CI 失败 | vLLM 的 `failures.md` 与 [CI Failure] 模板；PyTorch 的 HUD 与 DISABLED issue；从 flaky test 到 PR |
-| 五 | 性能回归 | 700-performance-discussion.yml 与 benchmarks/ 布局；PyTorch 的 regression 标签与 cherry-pick 分类；回归报告的最小要素 |
-| 六 | 文档与类型缺口 | 三处"不欢迎单个 typo"的原文；怎么把小修改做成体系；一个真实例子 |
-| 七 | 不起眼但有价值 | 补测试、deprecation、把 issue 复现变成测试、测量本身就是贡献 |
-| 八 | 先讨论与查重 | 两个项目的明文规则；三条命令；认领留言的写法与反例；"一周后会不会被关"的预测器 |
-| 九 | 贡献日志 | 切入点清单模板；PyTorch 三个候选、vLLM 三个候选（2026-09-07 实查）；选定一个 |
-| 十 | 本文小结 | 要点 · 对照表 · 文件位置 |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、标签**：两个项目的标签体系（真实标签名与含义）、自动打标规则、actionable 的状态机、Job Board
+- **三、RFC 与 roadmap**
+  - pytorch/rfcs 的三步流程与模板章节
+  - vLLM 的 [RFC] 模板字段与 rfc-required
+  - tracker issue
+- **四、CI 失败**
+  - vLLM 的 `failures.md` 与 [CI Failure] 模板
+  - PyTorch 的 HUD 与 DISABLED issue
+  - 从 flaky test 到 PR
+- **五、性能回归**
+  - 700-performance-discussion.yml 与 benchmarks/ 布局
+  - PyTorch 的 regression 标签与 cherry-pick 分类
+  - 回归报告的最小要素
+- **六、文档与类型缺口**
+  - 三处"不欢迎单个 typo"的原文
+  - 怎么把小修改做成体系
+  - 一个真实例子
+- **七、不起眼但有价值**：补测试、deprecation、把 issue 复现变成测试、测量本身就是贡献
+- **八、先讨论与查重**
+  - 两个项目的明文规则
+  - 三条命令
+  - 认领留言的写法与反例
+  - "一周后会不会被关"的预测器
+- **九、贡献日志**
+  - 切入点清单模板
+  - PyTorch 三个候选、vLLM 三个候选（2026-09-07 实查）
+  - 选定一个
+- **十、本文小结**：要点 · 对照表 · 文件位置
+- **十一、自测**：5 道题
 
 ## 二、标签：maintainer 表达"我们想要什么"的主渠道
 
@@ -488,7 +503,7 @@ PyTorch 的 CI 状态看板是 HUD（`hud.pytorch.org`）。`CONTRIBUTING.md` �
 
 | 步骤 | PyTorch | vLLM |
 |---|---|---|
-| 找 | `gh issue list --repo pytorch/pytorch --label skipped --state open`；HUD 的 flakytest 页面 | Dashboard（Project 20）；`gh issue list --repo vllm-project/vllm --label ci-failure --state open`；Buildkite "Test Reliability on main" 按 reliability 升序 |
+| 找 | `gh issue list --repo pytorch/pytorch --label skipped --state open`；HUD 的 flakytest 页面 | Dashboard（Project 20）<br/>`gh issue list --repo vllm-project/vllm --label ci-failure --state open`<br/>Buildkite "Test Reliability on main" 按 reliability 升序 |
 | 复现 | issue 里的 workflow logs 链接 → 找到 job → 看 Test step；本地 `python test/xxx.py -k test_name` 多跑几次 | `.buildkite/scripts/ci-fetch-log.sh`；`.buildkite/scripts/rerun-test.sh <test id>` 循环跑 |
 | 定位 | `git bisect`；HUD 上按时间看首次失败的 commit | Buildkite Test Suites 的历史；`git bisect` |
 | 提 PR | 描述写 `Fixes #<DISABLED issue>`，合入后 bot 重新启用测试 | 描述写 `Closes #12345`；加 `ci-failure` 标签 |
@@ -721,7 +736,7 @@ I'd like to take this one (`<issue title 截断>`). I'll dig into the root cause
 | 规模 | 几行到一两百行；改动落在一两个文件 | >500 行无 RFC；跨多个 `module:` |
 | 硬件 | 你手上的卡能复现 | 需要 B200 / 多机 / 特定厂商 |
 | 与主线的关系 | tracker / roadmap 里未勾选的一项；release 分支上的 regression | 与 `release-feature-request` 正在推进的主线正面冲突 |
-| 项目政策 | 成体系的文档/类型批次；补测试；deprecation 流水线的一步 | 单个 typo；孤立 style cleanup；纯 AI 生成 |
+| 项目政策 | 成体系的文档/类型批次<br/>补测试<br/>deprecation 流水线的一步 | 单个 typo<br/>孤立 style cleanup<br/>纯 AI 生成 |
 
 Table: 一周后会不会被关的打分表
 
@@ -756,8 +771,8 @@ Table: 一周后会不会被关的打分表
 
 | # | issue | 来源 | 是否已有人在做 | 预计规模 | 需先讨论? | 结论 |
 |---|---|---|---|---|---|---|
-| P1 | #183036 Adadelta uses SGD in its examples | `actionable` + `module: docs` + `module: optimizer` | **无 open PR**（#185401 已关闭未合入）；最后评论 2026-09-02 称"已修"但实查未合入；maintainer @janeyx99 2026-08-10："I'd review a proper fix for this that doesn't cause the same issue for all other optimizers" | 几十行，`torch/optim/` 下示例的生成方式；无硬件要求 | 否——maintainer 已写明要什么；留言确认理解即可 | **选定**：范围清楚、有 maintainer 承诺 review、无竞争者、符合"成体系而非单点"的要求 |
-| P2 | #194344 Testing: Add/Extend dtype-converting copy to CPU test | `actionable` + `module: correctness (silent)` + `module: accelerator` | PR #194631 open（2026-08-24，设备通用测试，最后更新 2026-08-26，无 review decision）；#194396 已关闭；@malfet 2026-08-24 写明"non-MPS specific test" | 一个测试函数；需要 MPS 或任一加速器验证 | 否 | **放弃**：#194631 已按 maintainer 要求做了；可做的事是去 review 它 |
+| P1 | #183036 Adadelta uses SGD in its examples | `actionable` + `module: docs` + `module: optimizer` | **无 open PR**（#185401 已关闭未合入）<br/>最后评论 2026-09-02 称"已修"但实查未合入<br/>maintainer @janeyx99 2026-08-10："I'd review a proper fix for this that doesn't cause the same issue for all other optimizers" | 几十行，`torch/optim/` 下示例的生成方式；无硬件要求 | 否——maintainer 已写明要什么；留言确认理解即可 | **选定**：范围清楚、有 maintainer 承诺 review、无竞争者、符合"成体系而非单点"的要求 |
+| P2 | #194344 Testing: Add/Extend dtype-converting copy to CPU test | `actionable` + `module: correctness (silent)` + `module: accelerator` | PR #194631 open（2026-08-24，设备通用测试，最后更新 2026-08-26，无 review decision）<br/>#194396 已关闭<br/>@malfet 2026-08-24 写明"non-MPS specific test" | 一个测试函数；需要 MPS 或任一加速器验证 | 否 | **放弃**：#194631 已按 maintainer 要求做了；可做的事是去 review 它 |
 | P3 | #191394 [Elastic] FileStore rendezvous leaks the mkstemp file descriptor | `good first issue` + `module: elastic` | **5 个 open PR**：#194259（08-20）、#194623（08-24）、#195137（08-28）、#195711（09-02）、#196096（09-05）；评论区有模板化认领 | 几行；无硬件要求 | 否 | **放弃**：第六个 PR 没有价值；这个 issue 的问题不是缺人修，是缺一个 maintainer 从 5 个里挑一个 |
 
 Table: PyTorch 的三个候选 issue
@@ -770,8 +785,8 @@ Table: PyTorch 的三个候选 issue
 
 | # | issue | 来源 | 是否已有人在做 | 预计规模 | 需先讨论? | 结论 |
 |---|---|---|---|---|---|---|
-| V1 | #50128 [Performance] Measure Transformers backend startup time vs native | `help wanted`（@hmellor，2026-07-28） | 测量部分已由两位贡献者完成（2026-08-18）；maintainer 自己开了 #52766 处理 `RMSNormFuser`；AOT 缓存部分 assignee Taimys，PR #53295 open（2026-08-21） | issue 本身几乎完成；剩余是 review #53295 或做 maintainer 评论里提到的"warm start"后续 | 否 | **备选**：直接可做的部分已被认领；关注 #53295 合入后 maintainer 是否开新的 follow-up |
-| V2 | #40544 [Feature]: Integrate fused `kMoEFinalizeARResidualRMSNorm` from FlashInfer | `help wanted` + `feature request`（@benchislett） | **无 open PR**；2026-06-26 有人留了详细分析但未跟进；2026-09-01 有模板化认领；issue 作者 2026-05 评论提到 TRTLLM 可能用 MNNVL AR 后端而非此路径 | 几百行：新的 torch.compile custom pass，可能要把 `moe_finalize` 从 fused_moe op 里拆出来；需要支持 FlashInfer 的 NVIDIA 多卡 | **是**——方向本身被作者质疑过；先在 issue 里问"这条路径现在还是想要的吗" | **备选**：有价值、无竞争，但硬件门槛高且需先确认方向 |
+| V1 | #50128 [Performance] Measure Transformers backend startup time vs native | `help wanted`（@hmellor，2026-07-28） | 测量部分已由两位贡献者完成（2026-08-18）<br/>maintainer 自己开了 #52766 处理 `RMSNormFuser`<br/>AOT 缓存部分 assignee Taimys，PR #53295 open（2026-08-21） | issue 本身几乎完成；剩余是 review #53295 或做 maintainer 评论里提到的"warm start"后续 | 否 | **备选**：直接可做的部分已被认领；关注 #53295 合入后 maintainer 是否开新的 follow-up |
+| V2 | #40544 [Feature]: Integrate fused `kMoEFinalizeARResidualRMSNorm` from FlashInfer | `help wanted` + `feature request`（@benchislett） | **无 open PR**<br/>2026-06-26 有人留了详细分析但未跟进<br/>2026-09-01 有模板化认领<br/>issue 作者 2026-05 评论提到 TRTLLM 可能用 MNNVL AR 后端而非此路径 | 几百行：新的 torch.compile custom pass，可能要把 `moe_finalize` 从 fused_moe op 里拆出来；需要支持 FlashInfer 的 NVIDIA 多卡 | **是**——方向本身被作者质疑过；先在 issue 里问"这条路径现在还是想要的吗" | **备选**：有价值、无竞争，但硬件门槛高且需先确认方向 |
 | V3 | #31414 [Feature][Cleanup]: Unify `vllm.utils.flashinfer` and `vllm.model_executor.layers.quantization.utils.flashinfer_utils` | `good first issue` + `help wanted` | **6 个 open PR**：#35440（02-26）、#42378（05-12）、#45618（06-14）、#49867（07-26）、#51523（08-08）、#54538（08-31）；评论区 2026-08-27 有人做了"五个实现的对比" | 几十到一百行的重命名与 import 整理 | 否 | **放弃**：与 P3 同病；六个 PR 里没有一个被合入说明 maintainer 尚未决定要哪种切分，再加一个无济于事 |
 
 Table: vLLM 的三个候选 issue
@@ -833,12 +848,12 @@ Table: 选题各环节的 PyTorch 与 vLLM 对照（"欢迎 PR"的信号…）
 
 | 主题 | PyTorch v2.14.0 | vLLM v0.28.0 |
 |---|---|---|
-| 标签自动化 | `.github/labeler.yml`；`.github/label_to_label.yml` | `.github/mergify.yml`（`label-*` 规则、`needs-rebase`）；`.github/workflows/issue_autolabel.yml`；`.github/workflows/stale.yml` |
+| 标签自动化 | `.github/labeler.yml`；`.github/label_to_label.yml` | `.github/mergify.yml`（`label-*` 规则、`needs-rebase`）<br/>`.github/workflows/issue_autolabel.yml`<br/>`.github/workflows/stale.yml` |
 | issue 模板 | `.github/ISSUE_TEMPLATE/{bug-report,pt2-bug-report,feature-request,documentation,release-feature-request}.yml`、`{ci-sev,disable-ci-jobs,disable-autorevert,blank}.md`、`config.yml` | `.github/ISSUE_TEMPLATE/{100-documentation,200-installation,300-usage,400-bug-report,450-ci-failure,500-feature-request,600-new-model,700-performance-discussion,750-RFC}.yml`、`config.yml` |
 | PR 模板 | `.github/PULL_REQUEST_TEMPLATE/{fix_issue,docs_typo,preapproved}.md` | `.github/PULL_REQUEST_TEMPLATE.md`；`.github/workflows/new_pr_bot.yml` |
 | 贡献规则 | `CONTRIBUTING.md`（"AI-Assisted Development"、"Merging your Change"、"CI failure tips"）；`AI_POLICY.md` | `docs/contributing/README.md`（"Job Board"、"Issues"、"AI Assisted Contributions"、"Notes for Large Changes"、"What to Expect for the Reviews"）；`AGENTS.md`（"Duplicate-work checks"、"No low-value busywork PRs"、"Fail-closed behavior"） |
 | RFC | `pytorch/rfcs` 仓库：`README.md`、`RFC-0000-template.md`、`RFC-0024-rfc-process.md` | `.github/ISSUE_TEMPLATE/750-RFC.yml` |
-| CI 失败 | `CONTRIBUTING.md` "CI failure tips"；`torch/testing/_internal/common_utils.py`（`DEFAULT_DISABLED_TESTS_FILE`、`--rerun-disabled-tests`）；`.github/scripts/filter_test_configs.py`（`DISABLED_JOBS_URL`、`UNSTABLE_JOBS_URL`） | `docs/contributing/ci/failures.md`；`.buildkite/scripts/{ci-fetch-log,ci-clean-log,rerun-test}.sh` |
+| CI 失败 | `CONTRIBUTING.md` "CI failure tips"<br/>`torch/testing/_internal/common_utils.py`（`DEFAULT_DISABLED_TESTS_FILE`、`--rerun-disabled-tests`）<br/>`.github/scripts/filter_test_configs.py`（`DISABLED_JOBS_URL`、`UNSTABLE_JOBS_URL`） | `docs/contributing/ci/failures.md`；`.buildkite/scripts/{ci-fetch-log,ci-clean-log,rerun-test}.sh` |
 | 性能 | `benchmarks/README.md` 与子目录；`RELEASE.md`（"Cherry Picking Fixes"、"Patch Release Criteria"） | `benchmarks/README.md`、`benchmarks/kernels/`、`.buildkite/performance-benchmarks/` |
 | deprecation | PR 模板 "BC-breaking?" 一栏；`topic: deprecation` 标签 | `docs/contributing/deprecation_policy.md` |
 

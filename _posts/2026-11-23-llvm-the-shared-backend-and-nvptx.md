@@ -19,20 +19,50 @@ catalog: true
 
 本文顺着**一段代码穿过 LLVM 的顺序**组织：IR 的结构（第二章）→ 中端的 pass 流水线（第三章）→ 后端的三件事（第四章）→ 然后拐进 GPU：NVPTX 后端（第五章）→ PTX 这个虚拟 ISA（第六章）→ `ptxas` 这个第二编译器（第七章）→ AMDGPU 后端作对照（第八章）→ 最后回到 Triton，看它在 `make_llir` / `make_ptx` / `make_cubin` 三步里分别调用了 LLVM 的哪些部分（第九章）。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | LLVM IR 的结构 | Module / Function / BasicBlock / Instruction；类型；`getelementptr`；attribute 与 metadata；地址空间；intrinsic；内联汇编 |
-| 三 | 中端 | 新 pass manager 的嵌套结构；`-O2` 流水线长什么样；`-print-after-all`；Triton 怎样调用它 |
-| 四 | 后端 | 指令选择、指令调度、寄存器分配、机器码发射；用 arm64 的输出看每一步做了什么 |
-| 五 | NVPTX 后端 | triple 与 datalayout；地址空间 0–5；`ptx_kernel`；`llvm.nvvm.*`；一个向量加法从 IR 到 PTX；对齐决定向量宽度；shared memory |
-| 六 | PTX | 虚拟 ISA：无限寄存器、`.version` / `.target`、前向兼容；Triton 为什么用正则改 PTX 头 |
-| 七 | ptxas | 真正的寄存器分配与调度；spill 到 local memory；`-v` 的输出；`.maxnreg`；`n_regs` / `n_spills` 从哪来；Triton 侧的杠杆 |
-| 八 | AMDGPU 对照 | LLVM 自己做完一切：`NumVgprs` / `Occupancy` 直接打印；`s_waitcnt` 由编译器插入 |
-| 九 | LLVM 在 Triton 里 | `make_llir`：MLIR → LLVM IR、datalayout、libdevice、O3；`make_ptx`：`translate_to_asm`；`make_cubin`：`ptxas` 命令行；Triton 的 LLVM fork |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、LLVM IR 的结构**
+  - Module / Function / BasicBlock / Instruction
+  - 类型
+  - `getelementptr`
+  - attribute 与 metadata
+  - 地址空间
+  - intrinsic
+  - 内联汇编
+- **三、中端**
+  - 新 pass manager 的嵌套结构
+  - `-O2` 流水线长什么样
+  - `-print-after-all`
+  - Triton 怎样调用它
+- **四、后端**
+  - 指令选择、指令调度、寄存器分配、机器码发射
+  - 用 arm64 的输出看每一步做了什么
+- **五、NVPTX 后端**
+  - triple 与 datalayout
+  - 地址空间 0–5
+  - `ptx_kernel`
+  - `llvm.nvvm.*`
+  - 一个向量加法从 IR 到 PTX
+  - 对齐决定向量宽度
+  - shared memory
+- **六、PTX**
+  - 虚拟 ISA：无限寄存器、`.version` / `.target`、前向兼容
+  - Triton 为什么用正则改 PTX 头
+- **七、ptxas**
+  - 真正的寄存器分配与调度
+  - spill 到 local memory
+  - `-v` 的输出
+  - `.maxnreg`
+  - `n_regs` / `n_spills` 从哪来
+  - Triton 侧的杠杆
+- **八、AMDGPU 对照**
+  - LLVM 自己做完一切：`NumVgprs` / `Occupancy` 直接打印
+  - `s_waitcnt` 由编译器插入
+- **九、LLVM 在 Triton 里**
+  - `make_llir`：MLIR → LLVM IR、datalayout、libdevice、O3
+  - `make_ptx`：`translate_to_asm`
+  - `make_cubin`：`ptxas` 命令行
+  - Triton 的 LLVM fork
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、LLVM IR 的结构
 

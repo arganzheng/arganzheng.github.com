@@ -48,8 +48,8 @@ Table: 执行链路上的三个隐含假设与谁打破它
 
 | | 调度器（第四篇） | KV Cache（第五篇） | Model Runner / 执行（第六篇） | 模型适配（第九篇） |
 |---|---|---|---|---|
-| multi-LoRA | 一步内活跃 adapter 数 ≤ `max_loras`，超了的 waiting 请求跳过 | 块哈希加 `lora_name` | 每步算 token → adapter 的映射，交给 Punica kernel；每个 LoRA 层多两次 kernel；CUDA graph 按"有无 LoRA / 几个 LoRA"分别录 | 模型声明 `SupportsLoRA`；线性层被 `*WithLoRA` 包一层 |
-| 多模态 | 多一种预算（encoder compute budget）和一种缓存（encoder cache）；chunk 边界不能切开一张图；prefix cache 跳过了图但 encoder 没算过时 `num_new_tokens=0` | 块哈希加 `(mm_hash, 块内偏移)` | prefill 前先跑 encoder，输出按 hash 缓存；embedding 后把 encoder 输出按 `is_mm_embed` 掩码散射进去 | 模型声明 `SupportsMultiModal`，提供 `embed_multimodal()`；`MultiModalRegistry` 注册 processor |
+| multi-LoRA | 一步内活跃 adapter 数 ≤ `max_loras`，超了的 waiting 请求跳过 | 块哈希加 `lora_name` | 每步算 token → adapter 的映射，交给 Punica kernel<br/>每个 LoRA 层多两次 kernel<br/>CUDA graph 按"有无 LoRA / 几个 LoRA"分别录 | 模型声明 `SupportsLoRA`；线性层被 `*WithLoRA` 包一层 |
+| 多模态 | 多一种预算（encoder compute budget）和一种缓存（encoder cache）<br/>chunk 边界不能切开一张图<br/>prefix cache 跳过了图但 encoder 没算过时 `num_new_tokens=0` | 块哈希加 `(mm_hash, 块内偏移)` | prefill 前先跑 encoder，输出按 hash 缓存；embedding 后把 encoder 输出按 `is_mm_embed` 掩码散射进去 | 模型声明 `SupportsMultiModal`，提供 `embed_multimodal()`；`MultiModalRegistry` 注册 processor |
 
 Table: multi-LoRA 与多模态惊动的模块
 
@@ -62,15 +62,29 @@ Table: multi-LoRA 与多模态惊动的模块
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | multi-LoRA | 一段回顾；同 batch 异构 adapter 的 Triton kernel；槽位与 LRU；显存账；映射如何进入调度与执行；动态加载；CUDA graph；量化 + LoRA |
-| 三 | 多模态 | 输入处理流水线与 processor 缓存；占位符与 embedding 合并；encoder 的独立执行与预算；EncoderCacheManager；多模态 prefix cache；显存账；视频与音频 |
-| 四 | 叠加与向后 | LoRA + 多模态；留给硬件抽象（11）与 PD 分离（12）的问题；两个扩展的开销对照 |
-| 五 | 本文小结 |  |
-| 六 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、multi-LoRA**
+  - 一段回顾
+  - 同 batch 异构 adapter 的 Triton kernel
+  - 槽位与 LRU
+  - 显存账
+  - 映射如何进入调度与执行
+  - 动态加载
+  - CUDA graph
+  - 量化 + LoRA
+- **三、多模态**
+  - 输入处理流水线与 processor 缓存
+  - 占位符与 embedding 合并
+  - encoder 的独立执行与预算
+  - EncoderCacheManager
+  - 多模态 prefix cache
+  - 显存账
+  - 视频与音频
+- **四、叠加与向后**
+  - LoRA + 多模态
+  - 留给硬件抽象（11）与 PD 分离（12）的问题
+  - 两个扩展的开销对照
+- **五、本文小结**
+- **六、自测**：5 道题
 
 ## 二、multi-LoRA：同一个 batch，每一行乘不同的权重
 
@@ -511,9 +525,9 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 | | multi-LoRA | 多模态 |
 |---|---|---|
 | **显存：静态** | `max_loras × max_lora_rank` 买断：8 个 rank-16 槽位 ≈ **1.44 GB / 卡**，= 36K token 的 KV 或 15 个例子请求；CUDA graph 多录一套 | encoder 激活峰值：`profile_run()` 实测后从可用显存里扣掉（ViT 对 1024² 图有 5329 个 patch 的注意力）；encoder cache 上限 `max_num_batched_tokens` 个 embedding ≈ 268 MB |
-| **显存：动态** | fp32 中间缓冲 `[num_slices, tokens, r]`，每层 KB 级；CPU 侧 `max_cpu_loras × 414 MB` × worker 数 | 一张图的 encoder 输出 9–22 MB、只活几步；**它占的 KV 184–438 MB、活全程**（≈ 20×）；CPU 侧 processor cache `4 GiB × (api_server_count + dp_size)` |
-| **计算与 launch** | FLOPs +0.2%；**+1120 次 kernel launch / 步**（7 模块 × 2 × 80 层），必须进 CUDA graph；每步一次 `sort` + `unique` | encoder 是 decoder 之前的一次独立 forward，可有自己的 CUDA graph；占位 token 的 decoder 计算与普通 token 相同 |
-| **调度新约束** | 一步内活跃 adapter 数 ≤ `max_loras`，超出的 waiting 请求被跳过（FCFS 被打破，无 aging）；新 adapter 首次加载时整个 batch 同步等磁盘 | encoder compute budget（每步 ≤ `max_num_batched_tokens` 个 embedding），一张图整体编码不可拆；预算不够则 `num_new_tokens` 截到图之前，甚至为 0；encoder-decoder 模型关闭 chunked prefill 与 prefix cache |
+| **显存：动态** | fp32 中间缓冲 `[num_slices, tokens, r]`，每层 KB 级；CPU 侧 `max_cpu_loras × 414 MB` × worker 数 | 一张图的 encoder 输出 9–22 MB、只活几步<br/>**它占的 KV 184–438 MB、活全程**（≈ 20×）<br/>CPU 侧 processor cache `4 GiB × (api_server_count + dp_size)` |
+| **计算与 launch** | FLOPs +0.2%<br/>**+1120 次 kernel launch / 步**（7 模块 × 2 × 80 层），必须进 CUDA graph<br/>每步一次 `sort` + `unique` | encoder 是 decoder 之前的一次独立 forward，可有自己的 CUDA graph；占位 token 的 decoder 计算与普通 token 相同 |
+| **调度新约束** | 一步内活跃 adapter 数 ≤ `max_loras`，超出的 waiting 请求被跳过（FCFS 被打破，无 aging）；新 adapter 首次加载时整个 batch 同步等磁盘 | encoder compute budget（每步 ≤ `max_num_batched_tokens` 个 embedding），一张图整体编码不可拆<br/>预算不够则 `num_new_tokens` 截到图之前，甚至为 0<br/>encoder-decoder 模型关闭 chunked prefill 与 prefix cache |
 | **正确性 / 隔离** | 块哈希 `extra_keys` 加 `lora_name`：同一前缀在不同 adapter 下是两条哈希链、两份块 | 块哈希 `extra_keys` 加 `(mm_hash, 图起点相对块起点的偏移)`：相同 token 序列、不同图 → 从图开始全部不命中 |
 
 Table: multi-LoRA 与多模态的开销对照
@@ -528,15 +542,15 @@ Table: multi-LoRA 与多模态的开销对照
 | 配置 | `vllm/config/lora.py` → `LoRAConfig`（`max_loras`、`max_lora_rank`、`max_cpu_loras`、`fully_sharded_loras`、`lora_dtype`、`specialize_active_lora`、`enable_tower_connector_lora`） |
 | 请求对象 | `vllm/lora/request.py` → `LoRARequest` |
 | **Triton kernel** | `vllm/lora/ops/triton_ops/lora_shrink_op.py`（`_lora_shrink_kernel`）、`lora_expand_op.py`、`lora_kernel_metadata.py`（`LoRAKernelMeta.prepare_tensors()`）；MoE 版 `fused_moe_lora_op.py` |
-| Punica wrapper | `vllm/lora/punica_wrapper/punica_gpu.py` → `PunicaWrapperGPU.add_lora_linear()` / `add_shrink()` / `add_expand()` / `update_metadata()`；基类 `punica_base.py`；平台选择 `punica_selector.py` |
-| LoRA 层 | `vllm/lora/layers/base_linear.py` → `BaseLinearLayerWithLoRA.create_lora_weights()` / `set_lora()` / `apply()`；`column_parallel_linear.py`、`row_parallel_linear.py`（含 `*WithShardedLoRA`）、`vocal_parallel_embedding.py`、`logits_processor.py`（`LogitsProcessorWithLoRA`）、`fused_moe.py`；`layers/utils.py` → `LoRAMapping`、`LoRAMappingType` |
+| Punica wrapper | `vllm/lora/punica_wrapper/punica_gpu.py` → `PunicaWrapperGPU.add_lora_linear()` / `add_shrink()` / `add_expand()` / `update_metadata()`<br/>基类 `punica_base.py`<br/>平台选择 `punica_selector.py` |
+| LoRA 层 | `vllm/lora/layers/base_linear.py` → `BaseLinearLayerWithLoRA.create_lora_weights()` / `set_lora()` / `apply()`<br/>`column_parallel_linear.py`、`row_parallel_linear.py`（含 `*WithShardedLoRA`）、`vocal_parallel_embedding.py`、`logits_processor.py`（`LogitsProcessorWithLoRA`）、`fused_moe.py`<br/>`layers/utils.py` → `LoRAMapping`、`LoRAMappingType` |
 | **槽位与 LRU** | `vllm/lora/model_manager.py` → `LoRAModelManager.activate_adapter()`、`LRUCacheLoRAModelManager`、`AdapterLRUCache` |
-| worker 侧加载 | `vllm/lora/worker_manager.py` → `LRUCacheWorkerLoRAManager.add_adapter()` / `_apply_adapters()`；`vllm/lora/peft_helper.py` → `PEFTHelper`；`vllm/lora/lora_model.py` → `LoRAModel.from_local_checkpoint()` |
+| worker 侧加载 | `vllm/lora/worker_manager.py` → `LRUCacheWorkerLoRAManager.add_adapter()` / `_apply_adapters()`<br/>`vllm/lora/peft_helper.py` → `PEFTHelper`<br/>`vllm/lora/lora_model.py` → `LoRAModel.from_local_checkpoint()` |
 | runner 侧映射 | `vllm/v1/worker/lora_model_runner_mixin.py` → `LoRAModelRunnerMixin.set_active_loras()`；`vllm/v1/worker/gpu_input_batch.py` → `InputBatch.make_lora_inputs()`、`request_lora_mapping` |
 | 调度器约束 | `vllm/v1/core/sched/scheduler.py` → `Scheduler.schedule()` 中的 `scheduled_loras` |
 | prefix cache 隔离 | `vllm/v1/core/kv_cache_utils.py` → `_gen_lora_extra_hash_keys()`、`generate_block_hash_extra_keys()`、`need_extra_keys()` |
-| CUDA graph | `vllm/forward_context.py` → `BatchDescriptor.has_lora / num_active_loras`；`vllm/v1/cudagraph_dispatcher.py` → `CudagraphDispatcher._get_lora_cases()`；`vllm/lora/utils.py` → `get_captured_lora_counts()`；`vllm/config/compilation.py` → `cudagraph_specialize_lora` |
-| 动态加载 | `vllm/entrypoints/openai/models/serving.py` → `load_lora_adapter()` / `unload_lora_adapter()`；`vllm/lora/resolver.py` → `LoRAResolver`；`vllm/envs.py` → `VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR` |
+| CUDA graph | `vllm/forward_context.py` → `BatchDescriptor.has_lora / num_active_loras`<br/>`vllm/v1/cudagraph_dispatcher.py` → `CudagraphDispatcher._get_lora_cases()`<br/>`vllm/lora/utils.py` → `get_captured_lora_counts()`<br/>`vllm/config/compilation.py` → `cudagraph_specialize_lora` |
+| 动态加载 | `vllm/entrypoints/openai/models/serving.py` → `load_lora_adapter()` / `unload_lora_adapter()`<br/>`vllm/lora/resolver.py` → `LoRAResolver`<br/>`vllm/envs.py` → `VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR` |
 
 Table: multi-LoRA 源码导航
 
@@ -552,7 +566,7 @@ Table: multi-LoRA 源码导航
 | **encoder 预算** | `vllm/multimodal/encoder_budget.py` → `MultiModalBudget`、`get_dummy_encoder_profile_inputs()`；`vllm/v1/core/encoder_cache_manager.py` → `compute_mm_encoder_budget()` |
 | **encoder cache 的账** | `vllm/v1/core/encoder_cache_manager.py` → `EncoderCacheManager`（`check_and_update_cache()` / `can_allocate()` / `allocate()` / `free_encoder_input()`）、`EncoderDecoderCacheManager` |
 | 调度器侧 | `vllm/v1/core/sched/scheduler.py` → `_try_schedule_encoder_inputs()`、`_free_encoder_inputs()`；`vllm/v1/core/sched/output.py` → `SchedulerOutput.scheduled_encoder_inputs` / `free_encoder_mm_hashes` |
-| **runner 侧** | `vllm/v1/worker/gpu_model_runner.py` → `_execute_mm_encoder()`、`_gather_mm_embeddings()`、`encoder_cache`；`vllm/v1/worker/utils.py` → `group_and_batch_mm_kwargs()`；`vllm/v1/worker/encoder_cudagraph.py` → `EncoderCudaGraphManager` |
+| **runner 侧** | `vllm/v1/worker/gpu_model_runner.py` → `_execute_mm_encoder()`、`_gather_mm_embeddings()`、`encoder_cache`<br/>`vllm/v1/worker/utils.py` → `group_and_batch_mm_kwargs()`<br/>`vllm/v1/worker/encoder_cudagraph.py` → `EncoderCudaGraphManager` |
 | embedding 合并 | `vllm/model_executor/models/utils.py` → `_merge_multimodal_embeddings()`；`vllm/model_executor/models/interfaces.py` → `SupportsMultiModal.embed_multimodal()` / `embed_input_ids()` |
 | ViT 侧 TP / 注意力 | `vllm/model_executor/models/vision.py` → `run_dp_sharded_vision_model()`、`get_vit_attn_backend()` |
 | prefix cache 隔离 | `vllm/v1/core/kv_cache_utils.py` → `_gen_mm_extra_hash_keys()` |

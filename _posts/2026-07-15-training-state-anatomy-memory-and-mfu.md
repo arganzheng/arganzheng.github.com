@@ -91,17 +91,37 @@ $$N$$ 由第八章的 `ledger/model.py` 按每层 $$2h^2 + 2h\cdot h_{kv} + 3hf 
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 四种状态的生命周期 | 一个 step 的时间线；常驻与瞬态；峰值在哪一刻；三框架里每种状态的存放 |
-| 三 | 混合精度的字节账 | 为什么要 fp32 主参数；16 字节的推导；18 字节的来源；Megatron 的 18 与 6 + 12/d；三档模型表 |
-| 四 | 激活的字节账 | `sbh(34` + 5as/h) 逐项来源；FlashAttention 去掉 5as/h 的条件；三档模型表；Megatron 的 18 + 4f/h 与 10 + 24/t |
-| 五 | 显存之外的开销 | CUDA context、库 workspace、NCCL buffer、caching allocator 的 reserved 与碎片；80 GB 的预算表 |
-| 六 | 算力账 | 6N 的来源；注意力的 s² 项与因果 mask；`num_floating_point_operations()` 对照；三档模型 FLOP/token 与 step 下限 |
-| 七 | MFU 与 HFU | PaLM 的定义；重计算为什么抬高 HFU 不抬高 MFU；同一例子算两遍；参考水平；Megatron 的 TFLOP/s/GPU 日志 |
-| 八 | 小结 | 要点、符号与公式速查、源码位置、train-ledger 的第一批文件 |
-
-Table: 本文的章节安排
+- **二、四种状态的生命周期**
+  - 一个 step 的时间线
+  - 常驻与瞬态
+  - 峰值在哪一刻
+  - 三框架里每种状态的存放
+- **三、混合精度的字节账**
+  - 为什么要 fp32 主参数
+  - 16 字节的推导
+  - 18 字节的来源
+  - Megatron 的 18 与 6 + 12/d
+  - 三档模型表
+- **四、激活的字节账**
+  - `sbh(34` + 5as/h) 逐项来源
+  - FlashAttention 去掉 5as/h 的条件
+  - 三档模型表
+  - Megatron 的 18 + 4f/h 与 10 + 24/t
+- **五、显存之外的开销**
+  - CUDA context、库 workspace、NCCL buffer、caching allocator 的 reserved 与碎片
+  - 80 GB 的预算表
+- **六、算力账**
+  - 6N 的来源
+  - 注意力的 s² 项与因果 mask
+  - `num_floating_point_operations()` 对照
+  - 三档模型 FLOP/token 与 step 下限
+- **七、MFU 与 HFU**
+  - PaLM 的定义
+  - 重计算为什么抬高 HFU 不抬高 MFU
+  - 同一例子算两遍
+  - 参考水平
+  - Megatron 的 TFLOP/s/GPU 日志
+- **八、小结**：要点、符号与公式速查、源码位置、train-ledger 的第一批文件
 
 ## 二、四种状态与它们在一个 step 内的生命周期
 
@@ -632,7 +652,7 @@ Table: 符号速查
 |---|---|
 | 常驻状态（bf16 + Adam） | 16N = 2N 参数 + 2N 梯度 + 12N（fp32 主参数 + m + v） |
 | 常驻状态（fp32 梯度，Megatron） | 18N = 2N + 4N + 12N；分布式优化器 (6 + 12/N_d)N |
-| 激活 / 层 / micro-batch | sbh(34 + 5as/h)；FlashAttention → 34sbh；TP+SP → 34sbh/N_t；34 = 10 + 24 |
+| 激活 / 层 / micro-batch | sbh(34 + 5as/h)<br/>FlashAttention → 34sbh<br/>TP+SP → 34sbh/N_t<br/>34 = 10 + 24 |
 | logits | s·b·V·(2 + 4) |
 | 每卡可用 | ≈ 总容量 − context − NCCL − workspace − 碎片 − 边际 ≈ 70 GiB（80 GB 卡） |
 
@@ -645,8 +665,8 @@ Table: 字节公式速查
 | FLOP / token | 6N + 6Lsh（因果；全 mask 为 12Lsh），N = 参与 GEMM 的参数 ≈ N |
 | step 下限 | T ≥ B × FLOP/token ÷ (N_GPU × 峰值) |
 | MFU | tokens/s × FLOP/token ÷ (N_GPU × 峰值)，不含重计算 |
-| HFU | MFU × 硬件 FLOP / 模型 FLOP；全量重计算 × 4/3；选择性 × (1 + 2Lsh / FLOP/token) |
-| 参考 | H100 989 TFLOPS（bf16 dense，标称）；A100 312；千卡 dense 好成绩 ≥ 40% MFU |
+| HFU | MFU × 硬件 FLOP / 模型 FLOP<br/>全量重计算 × 4/3<br/>选择性 × (1 + 2Lsh / FLOP/token) |
+| 参考 | H100 989 TFLOPS（bf16 dense，标称）<br/>A100 312<br/>千卡 dense 好成绩 ≥ 40% MFU |
 
 Table: FLOP 与时间公式速查
 
@@ -664,9 +684,9 @@ Table: 三档模型在 s = 8192 下的速查数字
 
 | 路径 | 内容 |
 |---|---|
-| Megatron Core 0.18.0 `megatron/training/theoretical_memory_usage.py` | `compute_weight_and_optimizer_memory()`：按结构公式算参数量、最重分片，内部 `num_bytes_per_parameter()` 返回 18 或 $$6 + 12/d$$；`compute_activation_memory()`（SP + 选择性重计算，每层 $$18 + 4f/h$$，除以 TP）；`compute_activation_memory_without_sp()`（每层 $$10 + 24/t$$，×1.05）；`report_theoretical_memory()` 按 `sequence_parallel` / `recompute_granularity` 选分支 |
+| Megatron Core 0.18.0 `megatron/training/theoretical_memory_usage.py` | `compute_weight_and_optimizer_memory()`：按结构公式算参数量、最重分片，内部 `num_bytes_per_parameter()` 返回 18 或 $$6 + 12/d$$<br/>`compute_activation_memory()`（SP + 选择性重计算，每层 $$18 + 4f/h$$，除以 TP）<br/>`compute_activation_memory_without_sp()`（每层 $$10 + 24/t$$，×1.05）<br/>`report_theoretical_memory()` 按 `sequence_parallel` / `recompute_granularity` 选分支 |
 | Megatron Core 0.18.0 `docs/user-guide/features/dist_optimizer.md` | 每参数字节表：fp16 20 / $$4 + 16/d$$，bf16 18 / $$6 + 12/d$$，fp32 16 / $$8 + 8/d$$ |
-| Megatron Core 0.18.0 `megatron/training/training.py` | `num_floating_point_operations()` 及内层 `transformer_flops()`（因子 3 × 2、SwiGLU 3、因果 /2、按 $$\sum L_i^2$$ 算注意力、不含重计算）；`training_log()` 计算 `throughput`（TFLOP/s/GPU）、在 `--log-memory-to-tensorboard` 时记录 `torch.cuda.memory_stats()` 的 `reserved_bytes` / `allocated_bytes`、首次报告时调用 `report_theoretical_memory()` 与 `report_memory()`；`compute_throughputs_and_append_to_progress_log()` |
+| Megatron Core 0.18.0 `megatron/training/training.py` | `num_floating_point_operations()` 及内层 `transformer_flops()`（因子 3 × 2、SwiGLU 3、因果 /2、按 $$\sum L_i^2$$ 算注意力、不含重计算）<br/>`training_log()` 计算 `throughput`（TFLOP/s/GPU）、在 `--log-memory-to-tensorboard` 时记录 `torch.cuda.memory_stats()` 的 `reserved_bytes` / `allocated_bytes`、首次报告时调用 `report_theoretical_memory()` 与 `report_memory()`<br/>`compute_throughputs_and_append_to_progress_log()` |
 | Megatron Core 0.18.0 `megatron/training/utils/common_utils.py` | `report_memory()`：allocated / max allocated / reserved / max reserved（/ device memory used） |
 | Megatron Core 0.18.0 `megatron/training/arguments.py` | `validate_args()`：bf16 下默认 `accumulate_allreduce_grads_in_fp32 = True`（18 字节的来源），`--grad-reduce-in-bf16` 关闭 |
 | Megatron Core 0.18.0 `megatron/core/distributed/distributed_data_parallel.py`、`param_and_grad_buffer.py` | 反向 hook `param.main_grad.add_(param.grad.data)`；`_ParamAndGradBuffer` 的连续梯度 buffer，dtype 由 `grad_reduce_in_fp32` 决定 |

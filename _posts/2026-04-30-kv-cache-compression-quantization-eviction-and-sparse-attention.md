@@ -48,20 +48,40 @@ Table: KV cache 压缩方法对照
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | KV 的数值结构 | key 的通道离群与 value 的均匀；massive activations 与 sink 的关系；误差怎么进入 attention |
-| 三 | KV 量化 | FP8 / INT8 的免费午餐；KIVI 的非对称粒度推导；2 bit 的极限；与 PagedAttention 的配合 |
-| 四 | 驱逐 | attention sink 的成因；StreamingLLM；H2O 的累计注意力；SnapKV 的观察窗；PyramidKV 的层分配；驱逐在 needle 上失败的原因 |
-| 五 | 合并与共享 | token 合并；CLA / YOCO 的跨层共享（训练时） |
-| 六 | 训练时稀疏 | 稀疏 attention 的三种模式；NSA 的三分支与可微选择；MoBA 的块路由；为什么它们是精确的 |
-| 七 | prompt 压缩与决策 | LLMLingua 一类；一张按任务形态的决策表 |
-| 八 | 成本 | 字节账；量化 / 驱逐的运行时开销；与投机解码、量化权重的叠加 |
-| 九 | 动手（建议） | needle 准确率随 KV 预算的曲线 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、KV 的数值结构**
+  - key 的通道离群与 value 的均匀
+  - massive activations 与 sink 的关系
+  - 误差怎么进入 attention
+- **三、KV 量化**
+  - FP8 / INT8 的免费午餐
+  - KIVI 的非对称粒度推导
+  - 2 bit 的极限
+  - 与 PagedAttention 的配合
+- **四、驱逐**
+  - attention sink 的成因
+  - StreamingLLM
+  - H2O 的累计注意力
+  - SnapKV 的观察窗
+  - PyramidKV 的层分配
+  - 驱逐在 needle 上失败的原因
+- **五、合并与共享**
+  - token 合并
+  - CLA / YOCO 的跨层共享（训练时）
+- **六、训练时稀疏**
+  - 稀疏 attention 的三种模式
+  - NSA 的三分支与可微选择
+  - MoBA 的块路由
+  - 为什么它们是精确的
+- **七、prompt 压缩与决策**
+  - LLMLingua 一类
+  - 一张按任务形态的决策表
+- **八、成本**
+  - 字节账
+  - 量化 / 驱逐的运行时开销
+  - 与投机解码、量化权重的叠加
+- **九、动手（建议）**：needle 准确率随 KV 预算的曲线
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、KV 的数值结构
 
@@ -206,7 +226,7 @@ NSA / MoBA 训练时就按这个模式计算 attention，模型学到的一切�
 | 长文档 QA / 摘要（问题在后） | INT4 KV（或 FP8）；或 FP8 + SnapKV 25% | 3–8× | H2O（不知道问题） |
 | 多轮 Agent、长历史、问题未知 | INT4 KV（保守则 FP8） | 2–3× | 任何驱逐 |
 | 流式生成、只依赖近期 | StreamingLLM（sink + 窗口） | 常数 | — |
-| 推理模型、长输出 | FP8 KV；INT4 谨慎（生成误差累积）；不驱逐 | 2–4× | 驱逐（推理链的每一步都可能被回看） |
+| 推理模型、长输出 | FP8 KV<br/>INT4 谨慎（生成误差累积）<br/>不驱逐 | 2–4× | 驱逐（推理链的每一步都可能被回看） |
 | 超长（> 128K）、精确检索 | FP8 KV；INT4 要测 needle | 2× 稳妥 | 2 bit、驱逐 |
 | 有训练能力、长上下文是核心 | 训练时稀疏（NSA / MoBA）或结构（MLA、滑窗交错、CLA） | 5–10× 读取 | — |
 
@@ -258,12 +278,12 @@ KV 量化与权重量化叠加：decode 的两项流量（权重、KV）都减�
 | 8 bit | FP8 / INT8 KV 几乎无损，字节减半 | 所有部署都应开 |
 | KIVI | key per-channel（沿 token 分组 G = 32）+ value per-token；残差窗口 R 保持全精度 | 2 bit 靠粒度选择从崩掉到 +0.1；4 bit 是舒适区 |
 | KVQuant | pre-RoPE 量化 + 非均匀格点 | 3 bit 接近无损 |
-| sink | softmax 的多余质量需要垃圾桶；第一个 token 全序列可见；massive activation 让它的 key 与所有 query 点积大 | 驱逐 sink 即崩；可学习 sink 标量是训练侧解法 |
+| sink | softmax 的多余质量需要垃圾桶<br/>第一个 token 全序列可见<br/>massive activation 让它的 key 与所有 query 点积大 | 驱逐 sink 即崩；可学习 sink 标量是训练侧解法 |
 | StreamingLLM | sink + 最近窗口，常数 KV | 只依赖近期的流式场景 |
-| H2O | 累计注意力 top-k + 窗口 | 偏向早 token；需 attention 权重；needle 失败 |
+| H2O | 累计注意力 top-k + 窗口 | 偏向早 token<br/>需 attention 权重<br/>needle 失败 |
 | SnapKV | prefill 后用观察窗（问题）选 top-k | 问题已知的 QA 25% 近无损；多轮 / 长生成不适用 |
 | 失败原则 | "过去不重要 = 将来不重要"在问题未知、信息密度高时不成立 | 多跳、needle、Agent 历史不要驱逐 |
-| 训练时稀疏 | NSA 三分支（压缩 / 选择 / 滑窗，门控）；MoBA 块路由（key 均值点积 top-k） | 精确（模型就这样训的）；需重训与 kernel；64K 下 KV 读取 ÷ 11 |
+| 训练时稀疏 | NSA 三分支（压缩 / 选择 / 滑窗，门控）；MoBA 块路由（key 均值点积 top-k） | 精确（模型就这样训的）<br/>需重训与 kernel<br/>64K 下 KV 读取 ÷ 11 |
 | 账 | 70B 128K：40 GB → FP8 20 → INT4 12.5（元数据 25%）→ +SnapKV 3.1 | INT4 KV 实际 3.2×；MLA 结构级 8.8 GB |
 
 Table: KV 压缩的规则与公式小结

@@ -89,20 +89,30 @@ commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:      
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 先画地图 | 两张目录表（含在检出上统计的文件数与行数）；两个项目自带的地图文件 |
-| 三 | 找到入口点 | `torch.logaddexp` 从 Python 到 CUDA kernel 的追踪；vllm serve 从命令到引擎的追踪 |
-| 四 | 生成代码 | torchgen 生成什么、放在哪、为什么"找不到定义"；.pyi.in；vLLM 的 _C 扩展 |
-| 五 | 构建一次 | `compile_commands.json` 与 clangd；两个项目文档里的构建命令 |
-| 六 | 用测试当文档 | PyTorch test/ 的组织与 TestCase/OpInfo；vLLM tests/ 的组织 |
-| 七 | 读历史 | git log -S、blame -w -C；两个项目的 commit message 形态；`RELEASE.md` |
-| 八 | 核心问题 | 两小时定位流程清单 |
-| 九 | 贡献日志 | "项目地图"页的模板与两份填好的样例 |
-| 十 | 本文小结 | 要点、对照表、文件位置表 |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、先画地图**
+  - 两张目录表（含在检出上统计的文件数与行数）
+  - 两个项目自带的地图文件
+- **三、找到入口点**
+  - `torch.logaddexp` 从 Python 到 CUDA kernel 的追踪
+  - vllm serve 从命令到引擎的追踪
+- **四、生成代码**
+  - torchgen 生成什么、放在哪、为什么"找不到定义"
+  - .pyi.in
+  - vLLM 的 _C 扩展
+- **五、构建一次**
+  - `compile_commands.json` 与 clangd
+  - 两个项目文档里的构建命令
+- **六、用测试当文档**
+  - PyTorch test/ 的组织与 TestCase/OpInfo
+  - vLLM tests/ 的组织
+- **七、读历史**
+  - git log -S、blame -w -C
+  - 两个项目的 commit message 形态
+  - `RELEASE.md`
+- **八、核心问题**：两小时定位流程清单
+- **九、贡献日志**："项目地图"页的模板与两份填好的样例
+- **十、本文小结**：要点、对照表、文件位置表
+- **十一、自测**：5 道题
 
 ## 二、先画地图
 
@@ -113,7 +123,7 @@ Table: 本文的章节安排
 | 目录 | 文件数 | 行数（约） | 一句话职责 |
 |---|---|---|---|
 | `c10/` | 433 | 8.9 万 | 最底层的核心库：`Device`、`ScalarType`、`TensorImpl`、`DispatchKey`、分配器；server 与 mobile 都用 |
-| `aten/` | 2718 | 80.7 万 | C++ 张量库（无 autograd）。`aten/src/ATen/native/` 是算子实现；`aten/src/ATen/native/native_functions.yaml` 是全部算子的登记表；`cpu/`、`cuda/`、`mps/` 等子目录是各后端 kernel |
+| `aten/` | 2718 | 80.7 万 | C++ 张量库（无 autograd）。`aten/src/ATen/native/` 是算子实现<br/>`aten/src/ATen/native/native_functions.yaml` 是全部算子的登记表<br/>`cpu/`、`cuda/`、`mps/` 等子目录是各后端 kernel |
 | `torch/csrc/` | 1924 | 49.6 万 | PyTorch 库的 C++ 部分：Python 绑定（文件名惯例以 `python_` 开头）、`autograd/`、`jit/`、`distributed/`、`inductor/` 的 C++ 侧 |
 | `torch/` | 4607 | — | Python 包本体（除 `csrc/` 外）：`nn/`、`optim/`、`distributed/`、`_dynamo/`、`_inductor/`、`testing/` 等；`.py` 文件约 126.6 万行 |
 | `torchgen/` | 94 | 2.7 万 | 代码生成器：读 `native_functions.yaml`，生成 C++ 与 Python 绑定；`gen.py` 是入口，`model.py` 的 `NativeFunction` 是 yaml 一条记录的内存表示 |
@@ -770,7 +780,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | 目录 | 职责 | 出处 |
 |---|---|---|
 | c10/ | 核心类型与分发键，最底层 | CONTRIBUTING.md "Codebase structure" |
-| aten/src/ATen/native/ | 算子实现；native_functions.yaml 是登记表；cpu/ cuda/ mps/ 是后端 kernel | 同上；aten/src/ATen/native/README.md |
+| aten/src/ATen/native/ | 算子实现<br/>native_functions.yaml 是登记表<br/>cpu/ cuda/ mps/ 是后端 kernel | 同上；aten/src/ATen/native/README.md |
 | torch/csrc/ | C++ 绑定与 autograd/jit/distributed/inductor 的 C++ 侧 | 同上；torch/csrc/README.md |
 | torch/ | Python 包；_dynamo/ _inductor/ nn/ distributed/ testing/ | 同上 |
 | torchgen/ + tools/autograd/ | 代码生成器与模板 | torchgen/gen.py；tools/autograd/templates/ |
@@ -892,7 +902,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 |---|---|---|
 | 规模（检出统计） | `git ls-files` 21663 个文件、约 475 万行（不含 `third_party/`）；`test/` 146 万行 | `git ls-files` 6596 个文件、约 202 万行；`.py` 约 131 万行 |
 | 分层 | `c10/` → `aten/` → `torch/csrc/` → `torch/` | `csrc/` → `vllm/` |
-| 自带地图 | `CONTRIBUTING.md` "Codebase structure"；子目录 README；`persons_of_interest.md` | `docs/contributing/`（流程）；`docs/contributing/model/`；无目录表 |
+| 自带地图 | `CONTRIBUTING.md` "Codebase structure"<br/>子目录 README<br/>`persons_of_interest.md` | `docs/contributing/`（流程）<br/>`docs/contributing/model/`<br/>无目录表 |
 | 算子/命令登记表 | `native_functions.yaml`；`tools/autograd/` 模板 | `pyproject.toml` `[project.scripts]`；`csrc/libtorch_stable/torch_bindings.cpp` |
 | 生成代码 | `torchgen` → `ATen/ops/*.h`、`autograd/generated/`、`.pyi`（从 `.pyi.in`） | 无源码生成；编译产物 `_C_stable_libtorch.abi3.so` |
 | 只改 Python 的构建 | `tools/nightly.py checkout` | `VLLM_USE_PRECOMPILED=1 uv pip install -e .` |
@@ -900,7 +910,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | 测试框架 | unittest；`TestCase`/`run_tests`/`instantiate_device_type_tests`/OpInfo | pytest；`conftest.py` fixture |
 | 测试目录 | `test/test_*.py` 按主题 + 46 个子目录 | `tests/` 40 个子目录对应 `vllm/` 子系统 |
 | commit 形态 | 正文 = PR 描述 + `Fixes #` + `Pull Request resolved:` + `Approved by:` | 标题 `[Tag] ... (#N)`；正文 `Signed-off-by`、`Co-authored-by` |
-| 发布节奏 | 约 2 个月一个 minor；cut → 发布 3–4 周；`@pytorchbot cherry-pick` | 约 2 周一版；cut → 发布 1–2 天；minor 递增 |
+| 发布节奏 | 约 2 个月一个 minor<br/>cut → 发布 3–4 周<br/>`@pytorchbot cherry-pick` | 约 2 周一版<br/>cut → 发布 1–2 天<br/>minor 递增 |
 
 Table: 读代码各环节的 PyTorch 与 vLLM 对照
 
@@ -921,7 +931,7 @@ Table: 读代码各环节的 PyTorch 与 vLLM 对照
 | pytorch `torchgen/gen.py`、`torchgen/model.py`、`cmake/Codegen.cmake` | 代码生成入口 `main()`、`NativeFunction`、生成物清单的 CMake 接入 |
 | pytorch `tools/pyi/gen_pyi.py`、`torch/_C/*.pyi.in` | `.pyi` 生成 |
 | pytorch `tools/nightly.py` | 纯 Python 开发的预编译安装 |
-| pytorch `torch/testing/_internal/common_utils.py`、`common_device_type.py`、`common_methods_invocations.py` | `TestCase`、`run_tests`；`instantiate_device_type_tests`；`BinaryUfuncInfo('logaddexp', ...)` |
+| pytorch `torch/testing/_internal/common_utils.py`、`common_device_type.py`、`common_methods_invocations.py` | `TestCase`、`run_tests`<br/>`instantiate_device_type_tests`<br/>`BinaryUfuncInfo('logaddexp', ...)` |
 | pytorch `test/test_binary_ufuncs.py`、`test/test_ops.py` | `_test_logaddexp`、末尾的 `instantiate_device_type_tests`；`TestCommon` 与 `@ops(op_db)` |
 | pytorch `docs/source/community/` | `contribution_guide.md`（已标 deprecated）、`governance.md`、`persons_of_interest.md` |
 | pytorch `.gitignore` | `torch/_C/_VariableFunctions.pyi`、`torch/csrc/autograd/generated/*`、`torch/include/`、`compile_commands.json` |

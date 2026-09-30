@@ -404,7 +404,7 @@ Table: 权重之外的权重
 | 朴素全量 | T ≈ 2N / (单网卡有效带宽) + 全模型 all-gather + rank 0 物化 | 235B: 250 s |
 | 多源 / P2P | T ≈ 2N / (Σ 发送方网卡) | 1T 千卡 ~20 s |
 | 增量 | T ≈ diff + 稀疏 gather + 固定开销，几乎不随 N 变 | 32B–235B: 12–15 s |
-| bucket | 512 MB；峰值 2 bucket；次数 = 2N / bucket |  |
+| bucket | 512 MB<br/>峰值 2 bucket<br/>次数 = 2N / bucket |  |
 | 异步空转 | bubble = T_sync / (k·T_mb + T_sync) |  |
 | 同步顺序 | abort → (释放 KV) → 建组 → send ∥ receive → finalize → 恢复 KV → resume → reset_prefix_cache → set_global_steps |  |
 

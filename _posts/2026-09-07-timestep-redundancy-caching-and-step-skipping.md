@@ -71,19 +71,37 @@ Table: FLUX 各跨步缓存方法的加速与质量
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 为什么相邻步相似 | 轨迹的平滑性；变化率随 $$t$$ 的分布；哪些步不能跳 |
-| 三 | 谱系 | DeepCache → FORA / Δ-DiT → TeaCache → FBCache → Cache-DiT（DBCache + TaylorSeer）→ MagCache → AdaCache；信号、缓存、复用方式的对照 |
-| 四 | 三种信号 | 输入差（TeaCache）、首块残差差（FBCache）、离线校准的幅度比（MagCache）；多项式重标与累积 |
-| 五 | 命中率 → 加速比 | 账：$$T_\text{full} + T_\text{hit}\,\epsilon$$；阈值扫描曲线的形状；上限 |
-| 六 | 质量代价 | 度量；伪影的形态；首末步保护；阈值怎么定 |
-| 七 | 交互 | CFG 的两份状态；序列并行下的一致决策；与 layerwise offload；与少步蒸馏互斥；与 CFG gating 的关系 |
-| 八 | 实现 | hook 的结构；状态管理；四个实现的对照 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、为什么相邻步相似**
+  - 轨迹的平滑性
+  - 变化率随 $$t$$ 的分布
+  - 哪些步不能跳
+- **三、谱系**
+  - DeepCache → FORA / Δ-DiT → TeaCache → FBCache → Cache-DiT（DBCache + TaylorSeer）→ MagCache → AdaCache
+  - 信号、缓存、复用方式的对照
+- **四、三种信号**
+  - 输入差（TeaCache）、首块残差差（FBCache）、离线校准的幅度比（MagCache）
+  - 多项式重标与累积
+- **五、命中率 → 加速比**
+  - 账：$$T_\text{full} + T_\text{hit}\,\epsilon$$
+  - 阈值扫描曲线的形状
+  - 上限
+- **六、质量代价**
+  - 度量
+  - 伪影的形态
+  - 首末步保护
+  - 阈值怎么定
+- **七、交互**
+  - CFG 的两份状态
+  - 序列并行下的一致决策
+  - 与 layerwise offload
+  - 与少步蒸馏互斥
+  - 与 CFG gating 的关系
+- **八、实现**
+  - hook 的结构
+  - 状态管理
+  - 四个实现的对照
+- **九、本文小结**
+- **十、自测**：5 道题
 
 ## 二、为什么相邻步相似
 
@@ -305,7 +323,7 @@ FBCache 的 hook 挂在**第一个 block**（算完它才决策）与**尾块**�
 
 | | diffusers v0.40 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT |
 |---|---|---|---|---|
-| 接口 | `model.enable_cache(FirstBlockCacheConfig(threshold=0.05))`；`TaylorSeerCacheConfig`、`MagCacheConfig`、`FasterCacheConfig`、`PyramidAttentionBroadcastConfig` | 原生：按请求 `--enable-cache-dit` + `--cache-dit-params`（`SGLANG_CACHE_DIT_*` 为服务默认）；`--enable-teacache`；diffusers 后端：`--cache-dit-config` | `--cache-backend teacache / magcache / cache_dit`；`DiffusionCacheConfig(rel_l1_thresh=0.2)` | `--use_teacache` / `--use_fbcache`；`xfuser/model_executor/cache/` |
+| 接口 | `model.enable_cache(FirstBlockCacheConfig(threshold=0.05))`；`TaylorSeerCacheConfig`、`MagCacheConfig`、`FasterCacheConfig`、`PyramidAttentionBroadcastConfig` | 原生：按请求 `--enable-cache-dit` + `--cache-dit-params`（`SGLANG_CACHE_DIT_*` 为服务默认）<br/>`--enable-teacache`<br/>diffusers 后端：`--cache-dit-config` | `--cache-backend teacache / magcache / cache_dit`；`DiffusionCacheConfig(rel_l1_thresh=0.2)` | `--use_teacache` / `--use_fbcache`；`xfuser/model_executor/cache/` |
 | 位置 | `hooks/first_block_cache.py`（`FBCHeadBlockHook` / `FBCBlockHook`）、`taylorseer_cache.py`、`mag_cache.py`、`_common.py`（`TransformerBlockRegistry`） | `runtime/cache/teacache.py`（`TeaCacheMixin`）、`cache_dit_integration.py`、`spectrum.py` | `diffusion/cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`（`hook.py`、`extractors.py`、`coefficient_estimator.py`）、`magcache/`、`cachedit/` | `xfuser/core/cache_manager/cache_manager.py`、`model_executor/cache/adapters/` |
 | 状态管理 | `StateManager`，按 CFG 上下文切换 | 按请求的 `TeaCacheContext` | `state.py`，CFG-aware | — |
 | 与 SP 的一致性 | 单卡库，不涉及 | 内部处理 | 内部处理 | 内部处理 |
@@ -326,10 +344,10 @@ Table: 跨步缓存在四个引擎里的实现对照
 |---|---|---|
 | 冗余的来源 | 采样沿平滑轨迹，相邻步输出相似；中段最相似，首末变化大 | 中段相对差 5–10%，首末 20–40% |
 | 结构 | 便宜信号 → 阈值 → 复用缓存残差；首末步强制全算 | 全是 hook |
-| 信号 | TeaCache：调制后输入的 L1 差 + 多项式；FBCache：首块残差差；MagCache：离线幅度曲线 | 成本 ≈ 0 / 1 个 block / 0 |
-| 账 | $$T \to T_\text{full} + T_\text{hit}\,\epsilon$$；speedup $$\approx T / T_\text{full}$$ | 命中 12 步 1.75×；上限约 2×；视频可到 4× |
+| 信号 | TeaCache：调制后输入的 L1 差 + 多项式<br/>FBCache：首块残差差<br/>MagCache：离线幅度曲线 | 成本 ≈ 0 / 1 个 block / 0 |
+| 账 | $$T \to T_\text{full} + T_\text{hit}\,\epsilon$$；speedup $$\approx T / T_\text{full}$$ | 命中 12 步 1.75×<br/>上限约 2×<br/>视频可到 4× |
 | 阈值 | 按模型 × 分辩率 × 步数扫曲线，取质量预算内最大 | FLUX TeaCache 0.25 / 0.4 / 0.6 → 1.5 / 1.8 / 2.0× |
-| 质量 | 对基线图 PSNR / LPIPS；FID 无用；细节与文字先坏 | 0.4 → 约 30 dB |
+| 质量 | 对基线图 PSNR / LPIPS<br/>FID 无用<br/>细节与文字先坏 | 0.4 → 约 30 dB |
 | CFG | 两份状态 | 混用 → 饱和 / 发灰 |
 | 序列并行 | 决策全局一致（all-reduce 信号或 rank 0 广播） | 否则结果错或 hang |
 | 少步 | 互斥：4 步无冗余 | schnell 上零收益 |

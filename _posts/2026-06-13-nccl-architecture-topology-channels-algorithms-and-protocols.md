@@ -75,20 +75,49 @@ $$
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 初始化 | uniqueId 里有什么；bootstrap 怎么建环；`NCCL_SOCKET_IFNAME` 控制哪一段 |
-| 三 | 拓扑探测 | XML 树的节点类型；从 /sys 与 NVML 读什么；链路带宽常数；`NCCL_TOPO_DUMP_FILE` 样例 |
-| 四 | 路径计算 | BFS 与 path type 合成规则；LOC…SYS 词表；`NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` 如何用它 |
-| 五 | 图搜索 | ncclTopoGraph 的输入输出；两个 pass 的搜索；double binary tree；`NCCL_GRAPH_DUMP_FILE` 样例 |
-| 六 | transport 与 channel | P2P/SHM/NET/CollNet 的选择顺序；lazy connect；channel 是什么；nChannels 怎么定；两本账 |
-| 七 | 算法与协议 | ncclAlgoStr 的七种算法；Simple / LL / LL128 的机制与效率；哪些组合会被禁用 |
-| 八 | 调优模型 | ncclTopoTuneModel 的常数表；ncclTopoGetAlgoTime；回答核心问题；`NCCL_ALGO/PROTO` 与 tuner 插件 |
-| 九 | 执行期 | ncclEnqueueCheck → group → plan → 一个 kernel；primitives；proxy 线程；send/recv 配对 |
-| 十 | 读日志 | INFO 日志的格式与逐行解读；改拓扑文件观察决策变化；排障检查清单 |
-| 十一 | 小结 | 要点、检查项、源码位置、comm-probe 增量 `nccl_log_reader.py` |
-
-Table: 本文的章节安排
+- **二、初始化**
+  - uniqueId 里有什么
+  - bootstrap 怎么建环
+  - `NCCL_SOCKET_IFNAME` 控制哪一段
+- **三、拓扑探测**
+  - XML 树的节点类型
+  - 从 /sys 与 NVML 读什么
+  - 链路带宽常数
+  - `NCCL_TOPO_DUMP_FILE` 样例
+- **四、路径计算**
+  - BFS 与 path type 合成规则
+  - LOC…SYS 词表
+  - `NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` 如何用它
+- **五、图搜索**
+  - ncclTopoGraph 的输入输出
+  - 两个 pass 的搜索
+  - double binary tree
+  - `NCCL_GRAPH_DUMP_FILE` 样例
+- **六、transport 与 channel**
+  - P2P/SHM/NET/CollNet 的选择顺序
+  - lazy connect
+  - channel 是什么
+  - nChannels 怎么定
+  - 两本账
+- **七、算法与协议**
+  - ncclAlgoStr 的七种算法
+  - Simple / LL / LL128 的机制与效率
+  - 哪些组合会被禁用
+- **八、调优模型**
+  - ncclTopoTuneModel 的常数表
+  - ncclTopoGetAlgoTime
+  - 回答核心问题
+  - `NCCL_ALGO/PROTO` 与 tuner 插件
+- **九、执行期**
+  - ncclEnqueueCheck → group → plan → 一个 kernel
+  - primitives
+  - proxy 线程
+  - send/recv 配对
+- **十、读日志**
+  - INFO 日志的格式与逐行解读
+  - 改拓扑文件观察决策变化
+  - 排障检查清单
+- **十一、小结**：要点、检查项、源码位置、comm-probe 增量 `nccl_log_reader.py`
 
 ## 二、初始化：uniqueId 与 bootstrap
 
@@ -996,7 +1025,7 @@ hostA:12345:12345 [0] NCCL INFO AllReduce: 65536 Bytes -> Algo Tree proto LL cha
 
 | 实验 | 改动 | 预期看到 |
 |---|---|---|
-| 去掉 NVLink | 删掉所有 <nvlink …/> | type PIX/… 或 PHB；nChannels 降到 2～4；LL128 消失（Enabled 矩阵里为 0）；小消息选 LL |
+| 去掉 NVLink | 删掉所有 <nvlink …/> | type PIX/… 或 PHB<br/>nChannels 降到 2～4<br/>LL128 消失（Enabled 矩阵里为 0）<br/>小消息选 LL |
 | 把 NIC 挪到另一个 NUMA | 把 <nic> 所在 <pci> 剪到另一个 <cpu> 下 | GPU Direct RDMA Disabled … distance 9 > 5；连接行没有 /GDRDMA |
 | 把 NVLink count 减半 | count="2" → "1" | NVL[120.0]；ring nChannels 从 12 降到 6（×2 后 12） |
 
@@ -1050,14 +1079,14 @@ send/recv     必须同 group：否则 send kernel 等 recv、recv 在 send 返�
 
 | 现象 | 先看 | 再看 |
 |---|---|---|
-| 多机远差于单机 | Using network 是否 IB；连接行是否 /GDRDMA；GDR distance | NCCL_IB_HCA、PXN、NIC 亲和、crossNic |
-| 单机大消息上不去 | 拓扑打印 NVL 带宽；Pattern 4 nChannels×bw；coll channels 数 | NCCL_MAX_NCHANNELS / maxCTAs、是否落到 SHM |
+| 多机远差于单机 | Using network 是否 IB<br/>连接行是否 /GDRDMA<br/>GDR distance | NCCL_IB_HCA、PXN、NIC 亲和、crossNic |
+| 单机大消息上不去 | 拓扑打印 NVL 带宽<br/>Pattern 4 nChannels×bw<br/>coll channels 数 | NCCL_MAX_NCHANNELS / maxCTAs、是否落到 SHM |
 | 小消息延迟高 | 选了什么 proto（LL128 是否被禁）；channel{Lo..Hi} 是否过大 | NCCL_MIN_NCHANNELS、proxy 线程所在核、跨 NUMA |
 | NCCL_ALGO/PROTO 不生效 | ENV 子系统有没有 "set by environment"；Enabled 矩阵 | tuner 插件 NCCL_TUNER_PLUGIN 是否加载 |
 | "no algorithm/protocol available" | NCCL_ALGO/PROTO 指定了机器不支持的组合 | 去掉 env 或按 ncclAlgoStr 拼写 |
 | 初始化 hang | Bootstrap: Using 的接口；NCCL_COMM_ID 子网 | 防火墙、NCCL_SOCKET_IFNAME、NCCL_OOB_NET_ENABLE |
 | 第一次集合操作特别慢 | 正常：lazy connect（Connected all rings 在 Init COMPLETE 之后） | PyTorch 侧 timeout 是否够 |
-| kernel 长时间自旋 | proxy 是否还活着；NCCL_PROXY_DUMP_SIGNAL 看游标 | 对端 rank 是否存活；网络；send/recv 是否配对 |
+| kernel 长时间自旋 | proxy 是否还活着；NCCL_PROXY_DUMP_SIGNAL 看游标 | 对端 rank 是否存活<br/>网络<br/>send/recv 是否配对 |
 | 决策：要不要设 NCCL_ALGO | 先用 TUNING 日志看自动选择与调优表；用 nccl-tests 扫描确认交叉点 | 再写进 tuner 配置而不是全局 env |
 
 Table: NCCL 排障检查项与决策要点
@@ -1082,7 +1111,7 @@ Table: NCCL 排障检查项与决策要点
 | proxy | `src/proxy.cc` | `ncclProxyCreate`、`ncclProxyService`、`ncclProxyProgress`、`progressOps`、`ncclProxyGetPostedOps`、`ncclProxySaveOp`、`ncclDumpProxyState`；`NCCL_PROXY_CPUSET`、`NCCL_PROXY_DUMP_SIGNAL`、`NCCL_PROGRESS_APPENDOP_FREQ`、`NCCL_PROXY_APPEND_BATCH_SIZE` |
 | 设备侧 | `src/device/common.h`、`all_reduce.h`、`primitives.h`、`prims_simple.h`、`prims_ll.h`、`prims_ll128.h`、`generate.py` | `ncclKernelMain`、`loadWorkBatchToShmem`、`runRing`、`runTreeUpDown`、`runTreeSplit`、`Primitives<…>`、`waitPeer`、`postPeer`、`readLL`、`storeLL`、`flagThread` |
 | 日志与参数 | `src/debug.cc`、`src/misc/param.cc`、`src/include/param.h` | `ncclDebugInit`、`ncclDebugLog`、`NCCL_PARAM`、`ncclLoadParam`、`ncclGetEnv`；`NCCL_DEBUG`、`NCCL_DEBUG_SUBSYS`、`NCCL_DEBUG_FILE`、`NCCL_CONF_FILE` |
-| 较新目录 | `src/register/`、`src/scheduler/`、`src/ras/`、`src/plugin/` | 用户 buffer 注册；对称内存调度；RAS；net / tuner / profiler / env 插件加载 |
+| 较新目录 | `src/register/`、`src/scheduler/`、`src/ras/`、`src/plugin/` | 用户 buffer 注册<br/>对称内存调度<br/>RAS<br/>net / tuner / profiler / env 插件加载 |
 
 Table: 本篇涉及的源码与工具位置
 

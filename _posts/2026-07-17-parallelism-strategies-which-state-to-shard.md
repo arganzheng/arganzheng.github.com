@@ -77,10 +77,10 @@ Table: 六种并行各切哪种状态
 |---|---|---|---|
 | DP | 复制模型，切数据；每 step 梯度 all-reduce $$2N$$，可与反向重叠 | 复制模型，各副本独立服务不同请求，**副本之间不通信**（只有调度器分发请求） | 推理没有梯度要归约，DP 退化成"多开几个实例" |
 | ZeRO / FSDP | 切优化器状态 / 梯度 / 参数，前向前 all-gather 参数 | **不存在**——没有优化器状态和梯度可切；权重放不下时用 TP / PP | ZeRO 切的三种状态推理侧有两种根本没有 |
-| TP | 切权重 + 层内激活；每层前向 2 次、反向 2 次 all-reduce，载荷 $$sbh$$；不可重叠 → NVLink | 切权重 + **KV cache**（按头切）；每层前向 2 次 all-reduce，decode 时 $$s = 1$$、载荷只有 $$bh$$（Llama 70B、b = 32 每次 512 KiB），但每生成一个 token 都要走 80 层 × 2 次 | 训练在意**带宽**（载荷大），推理在意**延迟**（载荷小、次数多、每次都在出 token 的关键路径上） |
-| PP | 切层；气泡 $$(p-1)/m$$ 用 micro-batch 填；边界传激活 + 梯度 | 切层 + 对应层的 KV cache；气泡用**并发请求**填，请求长短不一所以更难填满；边界只传前向激活 | 训练的 $$m$$ 由 batch 决定、可控；推理的"m"是在线流量，不可控 |
+| TP | 切权重 + 层内激活<br/>每层前向 2 次、反向 2 次 all-reduce，载荷 $$sbh$$<br/>不可重叠 → NVLink | 切权重 + **KV cache**（按头切）；每层前向 2 次 all-reduce，decode 时 $$s = 1$$、载荷只有 $$bh$$（Llama 70B、b = 32 每次 512 KiB），但每生成一个 token 都要走 80 层 × 2 次 | 训练在意**带宽**（载荷大），推理在意**延迟**（载荷小、次数多、每次都在出 token 的关键路径上） |
+| PP | 切层<br/>气泡 $$(p-1)/m$$ 用 micro-batch 填<br/>边界传激活 + 梯度 | 切层 + 对应层的 KV cache<br/>气泡用**并发请求**填，请求长短不一所以更难填满<br/>边界只传前向激活 | 训练的 $$m$$ 由 batch 决定、可控；推理的"m"是在线流量，不可控 |
 | CP | 切序列 + 注意力本身，K/V 沿环流动，前向 + 反向 | 切长 prompt 的 prefill（PCP）或 decode 时的 KV cache（DCP） | 推理侧 decode 阶段每步只有 1 个 query，切的是 KV cache 而不是激活 |
-| EP | 切专家参数 / 梯度 / 优化器状态；每层 dispatch + combine 各一次 all-to-all，反向再两次 | 切专家权重；每层 dispatch + combine，无反向；更在意小批次下 all-to-all 的延迟 | 反向的两次 all-to-all 与负载不均的梯度效应是训练独有的 |
+| EP | 切专家参数 / 梯度 / 优化器状态；每层 dispatch + combine 各一次 all-to-all，反向再两次 | 切专家权重<br/>每层 dispatch + combine，无反向<br/>更在意小批次下 all-to-all 的延迟 | 反向的两次 all-to-all 与负载不均的梯度效应是训练独有的 |
 
 Table: 训练侧与推理侧并行策略的对照
 
@@ -106,17 +106,41 @@ Table: 各并行策略的通信量、形态与是否在关键路径上
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 数据并行与 ZeRO | DP 的 2N；ZeRO-1/2/3 各切什么；3N 的推导；FSDP1 vs FSDP2；HSDP |
-| 三 | 张量并行与序列并行 | 列切 + 行切的配对（2×2 矩阵手算一遍）；Transformer 里哪层列切、哪层行切；每层 2 + 2 次 all-reduce 与 f / g 共轭（两个进程亲手验证）；为什么不出节点；SP 把 all-reduce 拆成 AG + RS |
-| 四 | 上下文并行 | 为什么 TP/SP 不够；Ring Attention 与 Ulysses 的通信形态；GQA 的影响 |
-| 五 | 流水线并行 | GPipe → 1F1B → interleaved → zero-bubble；气泡率 (p-1)/m 的推导；通信量最小 |
-| 六 | 专家并行 | 专家的状态形态；一个 token 的旅程：路由 → dispatch → 专家 → combine；all-to-all 通信量；负载不均、容量因子与辅助损失；分块流水把 all-to-all 藏起来；EP 与 DP/TP 的组合；4 个进程亲手跑一遍 |
-| 七 | 组合与实例 | 五元组大表；组合顺序 TP → CP → PP → DP 及原因；Llama 3 405B 代入；原语对应表；三框架对照 |
-| 八 | 小结 | 要点、源码位置、train-ledger 的 `ledger/parallel.py` |
-
-Table: 本文的章节安排
+- **二、数据并行与 ZeRO**
+  - DP 的 2N
+  - ZeRO-1/2/3 各切什么
+  - 3N 的推导
+  - FSDP1 vs FSDP2
+  - HSDP
+- **三、张量并行与序列并行**
+  - 列切 + 行切的配对（2×2 矩阵手算一遍）
+  - Transformer 里哪层列切、哪层行切
+  - 每层 2 + 2 次 all-reduce 与 f / g 共轭（两个进程亲手验证）
+  - 为什么不出节点
+  - SP 把 all-reduce 拆成 AG + RS
+- **四、上下文并行**
+  - 为什么 TP/SP 不够
+  - Ring Attention 与 Ulysses 的通信形态
+  - GQA 的影响
+- **五、流水线并行**
+  - GPipe → 1F1B → interleaved → zero-bubble
+  - 气泡率 (p-1)/m 的推导
+  - 通信量最小
+- **六、专家并行**
+  - 专家的状态形态
+  - 一个 token 的旅程：路由 → dispatch → 专家 → combine
+  - all-to-all 通信量
+  - 负载不均、容量因子与辅助损失
+  - 分块流水把 all-to-all 藏起来
+  - EP 与 DP/TP 的组合
+  - 4 个进程亲手跑一遍
+- **七、组合与实例**
+  - 五元组大表
+  - 组合顺序 TP → CP → PP → DP 及原因
+  - Llama 3 405B 代入
+  - 原语对应表
+  - 三框架对照
+- **八、小结**：要点、源码位置、train-ledger 的 `ledger/parallel.py`
 
 ## 二、数据并行与 ZeRO：切优化器状态、梯度、参数
 
@@ -713,7 +737,7 @@ EP 本地专家梯度与完整梯度的最大误差（各进程）  : ['9.5e-07'
 | CP (Ring) | 激活（含注意力）1/N_c | 3(N_c−1) × K/V 块 ≈ 12·sb·h_kv·L_s·m | IB | 是 | 长序列；GQA 下极便宜 |
 | CP (Ulysses) | 同上 | 8 次 all-to-all ≈ 16·sbh·L_s·m/N_c | IB | 否 | N_c ≤ K/V 头数 / N_t |
 | PP | 参数/梯度/优化器/激活 按层 1/N_p | 2 × 激活/N_t × m × v（send/recv） | IB | 是 | m ≫ p；气泡 (p−1)/(vm) |
-| EP | 专家参数/梯度/优化器 1/N_e | 4 × ρ × all-to-all(token·k·h) × L_s × m | IB/NVLink | 部分 | MoE；负载均衡；N_e 从 N_d 划出 |
+| EP | 专家参数/梯度/优化器 1/N_e | 4 × ρ × all-to-all(token·k·h) × L_s × m | IB/NVLink | 部分 | MoE<br/>负载均衡<br/>N_e 从 N_d 划出 |
 
 Table: 并行策略五元组大表
 
@@ -829,7 +853,7 @@ CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再�
 
 | | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan（PyTorch 原生 API） |
 |---|---|---|---|
-| DP/ZeRO | DDP + 分布式优化器（ZeRO-1）；Megatron-FSDP（ZeRO-3）作为新选项 | ZeRO-1/2/3 全部；offload；ZeRO++ 的分层与量化通信 | FSDP2 `fully_shard`（ZeRO-3）；`reshard_after_forward` 调 2N/3N；HSDP 由 2D mesh |
+| DP/ZeRO | DDP + 分布式优化器（ZeRO-1）；Megatron-FSDP（ZeRO-3）作为新选项 | ZeRO-1/2/3 全部<br/>offload<br/>ZeRO++ 的分层与量化通信 | FSDP2 `fully_shard`（ZeRO-3）<br/>`reshard_after_forward` 调 2N/3N<br/>HSDP 由 2D mesh |
 | TP + SP | `ColumnParallelLinear` / `RowParallelLinear`，手写 `mappings.py` 的通信 | 依赖 Megatron 的层或自带 autotp | `ColwiseParallel` / `RowwiseParallel` / `SequenceParallel`，通信由 DTensor redistribute 推导 |
 | CP | Transformer Engine 的 ring attention；dp-cp 组归约梯度 | DeepSpeed-Ulysses（按头 all-to-all） | `torch.distributed.tensor.experimental` 的 `context_parallel`（ring） |
 | PP | `schedules.py` 的 1F1B / interleaved，过程式写法 | `pipe/` 引擎，1F1B | `torch.distributed.pipelining` 的 `Schedule*` 类，声明式动作表 |
@@ -846,8 +870,8 @@ Table: 三框架对并行策略的覆盖
 
 | 原语 | 语义 | 每卡通信量 | 服务于 |
 |---|---|---|---|
-| all-reduce | 所有卡的 buffer 求和，结果每卡一份 | ≈ 2S | DP 梯度；TP（无 SP）每层 2 + 2 次；HSDP 组间梯度 |
-| all-gather | 每卡一段，拼成完整的一份给每卡 | ≈ S | ZeRO-1/2 更新后的参数；ZeRO-3/FSDP 前向与反向前的参数；SP 进列切层前的激活 |
+| all-reduce | 所有卡的 buffer 求和，结果每卡一份 | ≈ 2S | DP 梯度<br/>TP（无 SP）每层 2 + 2 次<br/>HSDP 组间梯度 |
+| all-gather | 每卡一段，拼成完整的一份给每卡 | ≈ S | ZeRO-1/2 更新后的参数<br/>ZeRO-3/FSDP 前向与反向前的参数<br/>SP 进列切层前的激活 |
 | reduce-scatter | 每卡一份完整输入，求和后每卡拿一段 | ≈ S | ZeRO-1/2/3 的梯度；SP 行切层后的激活 |
 | all-to-all | 第 i 卡的第 j 块发给第 j 卡（转置） | ≈ S；n(n−1) 条流 | EP 的 token dispatch / combine；Ulysses 的 Q/K/V/O 转置 |
 | send / recv | 一对一 | S | PP 的 stage 边界激活与梯度；Ring Attention 的 K/V 块 |
@@ -876,12 +900,12 @@ Table: 通信原语与并行策略的对应
 
 | 路径 | 内容 |
 |---|---|
-| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/_fully_shard.py` | `fully_shard()`：per-parameter `Shard(0)` DTensor 分片；`mesh` 为 2D 时是 HSDP；`reshard_after_forward` 在 $$2N$$ 与 $$3N$$ 之间切换（可为整数：重分片到更小的组）；`FSDPModule` |
-| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/_fsdp_param.py`、`_fsdp_param_group.py` | `FSDPParam`（单个参数的 sharded / unsharded 状态）；`FSDPParamGroup` 的 `unshard()` / `reshard()` / `post_backward()`；`FSDPCommContext` 的 all-gather / reduce-scatter / all-reduce 三条 stream |
-| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/_fsdp_collectives.py`、`_fsdp_api.py`、`_fsdp_common.py` | `foreach_all_gather()`、`foreach_reduce()`（一组参数拼成一次集合通信）；`MixedPrecisionPolicy`、`DataParallelMeshDims`；`HSDPMeshInfo` |
+| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/_fully_shard.py` | `fully_shard()`：per-parameter `Shard(0)` DTensor 分片<br/>`mesh` 为 2D 时是 HSDP<br/>`reshard_after_forward` 在 $$2N$$ 与 $$3N$$ 之间切换（可为整数：重分片到更小的组）<br/>`FSDPModule` |
+| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/_fsdp_param.py`、`_fsdp_param_group.py` | `FSDPParam`（单个参数的 sharded / unsharded 状态）<br/>`FSDPParamGroup` 的 `unshard()` / `reshard()` / `post_backward()`<br/>`FSDPCommContext` 的 all-gather / reduce-scatter / all-reduce 三条 stream |
+| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/_fsdp_collectives.py`、`_fsdp_api.py`、`_fsdp_common.py` | `foreach_all_gather()`、`foreach_reduce()`（一组参数拼成一次集合通信）<br/>`MixedPrecisionPolicy`、`DataParallelMeshDims`<br/>`HSDPMeshInfo` |
 | PyTorch 2.13.0 `torch/distributed/fsdp/fully_sharded_data_parallel.py`、`_flat_param.py`、`api.py` | FSDP1：`FullyShardedDataParallel`、`FlatParameter` / `FlatParamHandle`、`ShardingStrategy`（`FULL_SHARD` / `SHARD_GRAD_OP` / `NO_SHARD` / `HYBRID_SHARD`） |
 | PyTorch 2.13.0 `torch/distributed/tensor/parallel/style.py`、`api.py` | `ColwiseParallel`（权重 `Shard(0)`、输出 `Shard(-1)`）、`RowwiseParallel`（权重 `Shard(1)`、输入 `Shard(-1)`、输出 `Replicate()`）、`SequenceParallel`；`parallelize_module()` |
-| PyTorch 2.13.0 `torch/distributed/pipelining/schedules.py` | `ScheduleGPipe`、`Schedule1F1B`（`PipelineScheduleSingle`）；`ScheduleInterleaved1F1B`、`ScheduleLoopedBFS`、`ScheduleInterleavedZeroBubble`、`ScheduleZBVZeroBubble`、`ScheduleDualPipeV`（`PipelineScheduleMulti` / `_PipelineScheduleRuntime`）；`get_schedule_class()` |
+| PyTorch 2.13.0 `torch/distributed/pipelining/schedules.py` | `ScheduleGPipe`、`Schedule1F1B`（`PipelineScheduleSingle`）<br/>`ScheduleInterleaved1F1B`、`ScheduleLoopedBFS`、`ScheduleInterleavedZeroBubble`、`ScheduleZBVZeroBubble`、`ScheduleDualPipeV`（`PipelineScheduleMulti` / `_PipelineScheduleRuntime`）<br/>`get_schedule_class()` |
 | PyTorch 2.13.0 `torch/distributed/tensor/experimental/_context_parallel/_attention.py`、`_load_balancer.py` | `context_parallel()`、`_templated_ring_attention()`、`_AllToAllRotater` / `_AllGatherRotater`、`set_rotate_method()`；`_HeadTailLoadBalancer` |
 | PyTorch 2.13.0 `torch/distributed/device_mesh.py` | `DeviceMesh`、`init_device_mesh()`；`DeviceMesh.__getitem__` 按名取子 mesh、`_flatten()` 合并维度——HSDP 与多维组合的底座 |
 | PyTorch 2.13.0 `torch/csrc/distributed/c10d/reducer.hpp` | `kDefaultBucketBytesCap`（DDP 25 MiB bucket） |

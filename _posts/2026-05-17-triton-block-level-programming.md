@@ -549,12 +549,12 @@ flowchart TB
 
 | 层 | 输入 | 主要工作 | 对应 CUDA 里的手工操作 |
 |---|---|---|---|
-| Python AST → TTIR | `@triton.jit` 函数源码 | `JITFunction` 用 `ast` 模块解析源码，`CodeGenerator` 把每个节点翻译成 TTIR op；constexpr 取值代入并折叠常量、删除编译期分支；类型推断（BF16、指针、int32/int64） | 模板实例化、`if constexpr` |
+| Python AST → TTIR | `@triton.jit` 函数源码 | `JITFunction` 用 `ast` 模块解析源码，`CodeGenerator` 把每个节点翻译成 TTIR op<br/>constexpr 取值代入并折叠常量、删除编译期分支<br/>类型推断（BF16、指针、int32/int64） | 模板实例化、`if constexpr` |
 | TTIR | `tt.load`、`tt.dot`、`tt.reduce`、`scf.for` | 与硬件无关的优化：公共子表达式消除、循环不变量外提、广播/reshape 的规范化、死代码消除 | 编译器通用优化 |
 | TTIR → TTGIR | 加上 layout | 为每个张量选定初始 `#blocked` layout（按 `num_warps` 与元素数）；`tt.dot` 的操作数与结果标为 `#dot_op` / `#mma` | 决定每线程持有哪些元素、fragment 布局 |
-| TTGIR passes | 带 layout 的 IR | **Coalesce**：根据指针的连续性分析（`tl.multiple_of`/`tl.max_contiguous` 提示或推断），重选 load/store 的 layout 使每线程持有连续元素 → 128 bit 向量化；**Pipeline**：把 `scf.for` 内的 load 提前 `num_stages - 1` 个迭代，插入 `cp.async` 与 shared memory 环形缓冲；**Prefetch**：把 `mma` 操作数的 shared → 寄存器搬运提前一个子迭代；**RemoveLayoutConversions**：消除冗余的 layout 转换（每次转换意味着一次 shared memory 往返）；**ReorderInstructions**、**OptimizeDotOperands**（把转置折进 `ldmatrix.trans`）；为 `#shared` 选 swizzle 参数避免 bank conflict；插入 barrier | 向量化访存、多 stage `cp.async` 流水、`ldmatrix`、shared memory padding/swizzle、`__syncthreads()` 位置 |
-| TTGIR → LLVM IR | | 把 layout "展开"：每个块级 op 变成每线程对自己持有的元素的标量/向量运算，`tt.reduce` 变成线程内循环 + `shfl.sync` + shared memory；`tt.dot` 变成 `mma.sync` 内联 PTX（Hopper 上 `wgmma`）；地址计算、mask 变成谓词 | 手写线程索引、warp shuffle、inline PTX |
-| LLVM → PTX → cubin | | LLVM 的标量优化与 NVPTX codegen；`ptxas` 做寄存器分配、SASS 指令调度 | nvcc 的后端，与 CUDA 相同 |
+| TTGIR passes | 带 layout 的 IR | **Coalesce**：根据指针的连续性分析（`tl.multiple_of`/`tl.max_contiguous` 提示或推断），重选 load/store 的 layout 使每线程持有连续元素 → 128 bit 向量化<br/>**Pipeline**：把 `scf.for` 内的 load 提前 `num_stages - 1` 个迭代，插入 `cp.async` 与 shared memory 环形缓冲<br/>**Prefetch**：把 `mma` 操作数的 shared → 寄存器搬运提前一个子迭代<br/>**RemoveLayoutConversions**：消除冗余的 layout 转换（每次转换意味着一次 shared memory 往返）<br/>**ReorderInstructions**、**OptimizeDotOperands**（把转置折进 `ldmatrix.trans`）<br/>为 `#shared` 选 swizzle 参数避免 bank conflict<br/>插入 barrier | 向量化访存、多 stage `cp.async` 流水、`ldmatrix`、shared memory padding/swizzle、`__syncthreads()` 位置 |
+| TTGIR → LLVM IR |  | 把 layout "展开"：每个块级 op 变成每线程对自己持有的元素的标量/向量运算，`tt.reduce` 变成线程内循环 + `shfl.sync` + shared memory<br/>`tt.dot` 变成 `mma.sync` 内联 PTX（Hopper 上 `wgmma`）<br/>地址计算、mask 变成谓词 | 手写线程索引、warp shuffle、inline PTX |
+| LLVM → PTX → cubin |  | LLVM 的标量优化与 NVPTX codegen；`ptxas` 做寄存器分配、SASS 指令调度 | nvcc 的后端，与 CUDA 相同 |
 
 Table: Triton 编译流水线的六层
 

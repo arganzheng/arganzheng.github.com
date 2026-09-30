@@ -44,20 +44,34 @@ Table: 剪枝方法对照
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 非结构化剪枝 | OBS 的剪枝形式（与 GPTQ 同一套推导）；SparseGPT；Wanda 的权重 × 激活；50% 的免费与 2:4 的条件 |
-| 三 | 层裁剪 | 为什么中后层"多余"：残差流的余弦相似度；Block Influence；剪哪些层；困惑度与任务的脱节 |
-| 四 | 宽度剪枝 | head、FFN 维、hidden 维的重要性估计；Sheared LLaMA 的可学习 mask；Minitron 的激活重要性 |
-| 五 | MoE 与其他结构 | 专家剪枝与合并；attention head 剪枝的特殊性 |
-| 六 | 恢复：为什么必须蒸馏 | 剪枝后的分布偏移；SFT 恢复 vs 蒸馏恢复；Minitron 的流水线与算力账 |
-| 七 | 小模型配方对照 | Llama 3.2、Minitron、Gemma 3、Qwen2.5 小尺寸、SmolLM、MobileLLM：从头 vs 剪枝，深而窄 vs 浅而宽 |
-| 八 | 剪枝与量化的叠加 | 两种误差如何叠；顺序 |
-| 九 | 动手（建议） | 层裁剪 + 蒸馏恢复的曲线 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、非结构化剪枝**
+  - OBS 的剪枝形式（与 GPTQ 同一套推导）
+  - SparseGPT
+  - Wanda 的权重 × 激活
+  - 50% 的免费与 2:4 的条件
+- **三、层裁剪**
+  - 为什么中后层"多余"：残差流的余弦相似度
+  - Block Influence
+  - 剪哪些层
+  - 困惑度与任务的脱节
+- **四、宽度剪枝**
+  - head、FFN 维、hidden 维的重要性估计
+  - Sheared LLaMA 的可学习 mask
+  - Minitron 的激活重要性
+- **五、MoE 与其他结构**
+  - 专家剪枝与合并
+  - attention head 剪枝的特殊性
+- **六、恢复：为什么必须蒸馏**
+  - 剪枝后的分布偏移
+  - SFT 恢复 vs 蒸馏恢复
+  - Minitron 的流水线与算力账
+- **七、小模型配方对照**：Llama 3.2、Minitron、Gemma 3、Qwen2.5 小尺寸、SmolLM、MobileLLM：从头 vs 剪枝，深而窄 vs 浅而宽
+- **八、剪枝与量化的叠加**
+  - 两种误差如何叠
+  - 顺序
+- **九、动手（建议）**：层裁剪 + 蒸馏恢复的曲线
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、非结构化剪枝
 
@@ -250,13 +264,13 @@ MobileLLM（Liu 等 2024）在 125M–350M 上系统地测了：同参数量下�
 | OBS 剪枝 | 重要性 $$\mathcal{E}_q = w_q^2 / [H^{-1}]_{qq}$$；补偿 $$\delta^* = -\frac{w_q}{[H^{-1}]_{qq}} H^{-1}_{:,q}$$ | 与 GPTQ 同一套推导；SparseGPT 用它逐列剪 |
 | Wanda | $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert$$，逐行比较 | 一阶、分钟级；50% 与 SparseGPT 接近 |
 | 稀疏兑现 | 非结构化 GPU 上不变快；2:4 Tensor Core 1.3–1.8×，需训恢复 | decode 字节 INT8 5/8、BF16 9/16、INT4 3/4；主要用于 prefill / 训练 |
-| 层裁剪 | 中后层 $$\cos(h_l, h_{l+1}) > 0.85$$；BI 低的先删；连续删 | 悬崖：70B 约 40%，13B 约 30% |
+| 层裁剪 | 中后层 $$\cos(h_l, h_{l+1}) > 0.85$$<br/>BI 低的先删<br/>连续删 | 悬崖：70B 约 40%，13B 约 30% |
 | 脱节 | 困惑度 = 平均局部预测；任务 = 关键位置的多步组合 + 后训练能力 | 删 25% 层：PPL +0.3，GSM8K 可掉一半，格式遵循破坏 |
 | 宽度 | head（GQA 按组）、FFN 维（最易）、hidden 维（最难）；激活统计估重要性 | Minitron：剪宽度精度好，剪深度延迟好 |
 | 不能删的 head | retrieval / induction / sink head——校准集激活看不出 | 剪 head 前跑 needle |
-| 恢复 | 必须训；蒸馏 > 继续预训练（+3–4 MMLU）；教师前向 +60% 算力 | 恢复后需重做后训练 |
+| 恢复 | 必须训<br/>蒸馏 > 继续预训练（+3–4 MMLU）<br/>教师前向 +60% 算力 | 恢复后需重做后训练 |
 | 算力账 | Minitron 15B → 8B：94B token vs 15B 的 8T（85×）；论文口径"至多 40×"是对其小模型基线 | 前提：大模型是沉没成本 |
-| 小模型 | 剪枝 + 蒸馏（Llama 3.2、Minitron）vs 从头 + 蒸馏（Gemma、Qwen、SmolLM）；深而窄；tied embedding；数据质量决定上限 | |
+| 小模型 | 剪枝 + 蒸馏（Llama 3.2、Minitron）vs 从头 + 蒸馏（Gemma、Qwen、SmolLM）<br/>深而窄<br/>tied embedding<br/>数据质量决定上限 |  |
 | 叠加 | 先剪（+ 恢复）再量化；剪后对量化更敏感（1.5–2×） | QAT 可并入恢复末段 |
 
 Table: 剪枝与小模型配方的规则与公式小结

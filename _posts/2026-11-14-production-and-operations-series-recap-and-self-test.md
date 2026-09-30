@@ -36,12 +36,12 @@ flowchart TB
 | 篇 | 预防的事故 | 一句话结论 | 必记的数字 / 结论 |
 |---|---|---|---|
 | [第一篇：网关](/model-gateway-the-layer-every-call-goes-through.html) | key 散落、锁死、无归因 | 七项职责（密钥、路由 / fallback、限流 / 配额、缓存、归因、日志 / 脱敏、抽象）；不做业务逻辑、不改请求体、不默认语义缓存、要高可用 | LiteLLM 自托管 / OpenRouter 托管市场 / Cloudflare 边缘；抽象的边界是推理状态与缓存 |
-| [第二篇：成本](/cost-engineering-from-the-bill-to-cost-per-task.html) | 账单吓一跳 | 归因三视图；预算 80 / 95 / 100% + 六级降级梯子；九种手段量级；按任务 p50 / p95；单位经济学三决策；FinOps 节奏 | 长尾 5% 花 60%；级联 50–80%、缓存输入 50–90%、Batch 50%；价值 / 成本 < 3 重做；定价覆盖 p95 |
-| [第三篇：延迟](/latency-engineering-from-ttft-to-multi-step-agents.html) | 用户等 | 七段分解各有药；感知 ≠ 绝对、流式三层；p95 预算分段 + 四层超时；agent 减步数 > 并行 > 级联 > 每步更快 > 后台 | 缓存命中是 prefill 最大杠杆；TTFT ≈ 1 s 预算例；三个数字一起报 |
-| [第四篇：安全](/security-prompt-injection-supply-chain-and-data-exfiltration.html) | EchoLeak、MCP 投毒、沙箱逃逸 | OWASP 十条七条已有机制；四事件链路逐环有层拦；五层防御；MCP server 是权限主体；密钥七条；红队进门禁 | EchoLeak 七环；Cursor 三 CVE 同模式"读 → 写不该写的文件"；描述投毒是架构性 |
-| [第五篇：治理](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) | 审计拿不出、数据被训、罚款、未标识 | 审计链 = 会话日志 + trace + 决策点 + 保留 / 不可篡改 / 导出；数据流图核合同；AI Act 推迟的只是高风险；标识一套两格式；责任矩阵 | GPAI 2026-08-02 可罚 1,500 万 € / 3%；Article 50 2026-08；Annex III 2027-12-02、Annex I 2028-08-02；中国标识 2025-09-01 |
-| [第六篇：发布](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 改坏回不去、依赖变了没发现 | 十类算发布；开关三态 + kill switch；钉一切；依赖变更进同一流程；回滚前确认；五本 runbook；四类 SLO + 错误预算；值班 | 控制台改动禁止；kill switch 上线前存在并演练；弃用是有截止日的发布 |
-| [第七篇：飞轮与物理](/data-flywheel-and-deploying-to-the-physical-world.html) | 系统不变好；车队更新出事 | 飞轮六环三判据；微调在末端做行为优化；四道门；物理世界分阶段准入 + 安全案例 + 分批 OTA；同构表 | 周新用例 / 月发布 / 分布变化；高风险 agent 的发布应更像 OTA |
+| [第二篇：成本](/cost-engineering-from-the-bill-to-cost-per-task.html) | 账单吓一跳 | 归因三视图<br/>预算 80 / 95 / 100% + 六级降级梯子<br/>九种手段量级<br/>按任务 p50 / p95<br/>单位经济学三决策<br/>FinOps 节奏 | 长尾 5% 花 60%<br/>级联 50–80%、缓存输入 50–90%、Batch 50%<br/>价值 / 成本 < 3 重做<br/>定价覆盖 p95 |
+| [第三篇：延迟](/latency-engineering-from-ttft-to-multi-step-agents.html) | 用户等 | 七段分解各有药<br/>感知 ≠ 绝对、流式三层<br/>p95 预算分段 + 四层超时<br/>agent 减步数 > 并行 > 级联 > 每步更快 > 后台 | 缓存命中是 prefill 最大杠杆<br/>TTFT ≈ 1 s 预算例<br/>三个数字一起报 |
+| [第四篇：安全](/security-prompt-injection-supply-chain-and-data-exfiltration.html) | EchoLeak、MCP 投毒、沙箱逃逸 | OWASP 十条七条已有机制<br/>四事件链路逐环有层拦<br/>五层防御<br/>MCP server 是权限主体<br/>密钥七条<br/>红队进门禁 | EchoLeak 七环<br/>Cursor 三 CVE 同模式"读 → 写不该写的文件"<br/>描述投毒是架构性 |
+| [第五篇：治理](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) | 审计拿不出、数据被训、罚款、未标识 | 审计链 = 会话日志 + trace + 决策点 + 保留 / 不可篡改 / 导出<br/>数据流图核合同<br/>AI Act 推迟的只是高风险<br/>标识一套两格式<br/>责任矩阵 | GPAI 2026-08-02 可罚 1,500 万 € / 3%<br/>Article 50 2026-08<br/>Annex III 2027-12-02、Annex I 2028-08-02<br/>中国标识 2025-09-01 |
+| [第六篇：发布](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 改坏回不去、依赖变了没发现 | 十类算发布<br/>开关三态 + kill switch<br/>钉一切<br/>依赖变更进同一流程<br/>回滚前确认<br/>五本 runbook<br/>四类 SLO + 错误预算<br/>值班 | 控制台改动禁止<br/>kill switch 上线前存在并演练<br/>弃用是有截止日的发布 |
+| [第七篇：飞轮与物理](/data-flywheel-and-deploying-to-the-physical-world.html) | 系统不变好；车队更新出事 | 飞轮六环三判据<br/>微调在末端做行为优化<br/>四道门<br/>物理世界分阶段准入 + 安全案例 + 分批 OTA<br/>同构表 | 周新用例 / 月发布 / 分布变化；高风险 agent 的发布应更像 OTA |
 
 Table: 八篇预防的事故、结论与必记
 
@@ -190,7 +190,7 @@ flowchart TB
 | 抽象的边界 | 1 | 推理状态、工具方言、缓存断点不能抹平 |
 | 归因三视图 | 2 | 按功能 / 租户 / 版本 |
 | 降级梯子 | 2 | 六级，从降模型到非模型路径 |
-| 单位经济学 | 2 | 每任务成本 vs 价值；< 3 重做；定价覆盖 p95 |
+| 单位经济学 | 2 | 每任务成本 vs 价值<br/>< 3 重做<br/>定价覆盖 p95 |
 | 七段分解 | 3 | 网关、准备、网络、排队、prefill、输出、后处理 |
 | 感知 ≠ 绝对 | 3 | TTFT 与总时长分开；流式三层 |
 | 五层防御 | 4 | 来源分区 → 四层 → 输出处理 → 数据流 → 监控红队 |
@@ -410,8 +410,8 @@ Table: 常见误区与正确说法
 | 层次 | 判据 |
 |---|---|
 | 读过 | 能说出网关七项、九种成本手段、七段延迟、五层防御、AI Act 的几个日期、十类算发布、五本 runbook、飞轮六环 |
-| 掌握 | 能把所有调用收进网关并出归因报表；能设预算与降级梯子并算单位经济学；能画延迟分解并分 p95 预算；能用 OWASP 表与四事件红队用例自检并补层；能验证审计链、画数据流图、做用途分类与标识；能建开关 / 钉版本 / runbook / SLO；能诊断飞轮卡点并按租户开关；能为物理系统画分阶段路径 |
-| 能教人 | 能解释网关抽象的边界为什么在推理状态与缓存；能解释长尾为什么占大头与定价为什么覆盖 p95；能解释感知延迟与绝对延迟的分离；能拆 EchoLeak 七环并说出输出处理与数据流的决定性、MCP 投毒为什么架构性；能解释 AI Act 推迟的边界与 deployer 义务；能解释为什么改 judge 算发布、依赖变更是别人替你做的发布；能用同构表说明高风险 agent 为什么该更像 OTA |
+| 掌握 | 能把所有调用收进网关并出归因报表<br/>能设预算与降级梯子并算单位经济学<br/>能画延迟分解并分 p95 预算<br/>能用 OWASP 表与四事件红队用例自检并补层<br/>能验证审计链、画数据流图、做用途分类与标识<br/>能建开关 / 钉版本 / runbook / SLO<br/>能诊断飞轮卡点并按租户开关<br/>能为物理系统画分阶段路径 |
+| 能教人 | 能解释网关抽象的边界为什么在推理状态与缓存<br/>能解释长尾为什么占大头与定价为什么覆盖 p95<br/>能解释感知延迟与绝对延迟的分离<br/>能拆 EchoLeak 七环并说出输出处理与数据流的决定性、MCP 投毒为什么架构性<br/>能解释 AI Act 推迟的边界与 deployer 义务<br/>能解释为什么改 judge 算发布、依赖变更是别人替你做的发布<br/>能用同构表说明高风险 agent 为什么该更像 OTA |
 
 Table: 掌握程度的判据
 

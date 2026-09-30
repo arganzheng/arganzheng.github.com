@@ -141,13 +141,13 @@ L2 第六篇与 L5 第四篇的流程在这里合成体系：**什么是发布**
 
 | 篇 | 实践建议的内容 |
 |---|---|
-| 1 | 把所有模型调用收进一个网关；供应商 key 只在网关；每次调用带归因标签 |
-| 2 | 按租户 / 功能出成本报表；设预算与降级；试级联与缓存算省了多少 |
-| 3 | 给主要路径画延迟分解图；设 p95 预算；接流式与预热 |
-| 4 | 用 OWASP 对应表自检；跑 EchoLeak 与 MCP 投毒的红队用例；审 MCP server 清单与密钥位置 |
-| 5 | 写审计链能回答的问题清单并验证；定保留策略；对照 AI Act 与标识办法列义务；写责任矩阵 |
-| 6 | 给每个 AI 功能加 kill switch；钉所有版本；写五本 runbook；定质量与成本 SLO |
-| 7 | 画飞轮图标出卡点；按租户实现"不用于改进"开关；物理系统画 OTA 分阶段 |
+| 1 | 把所有模型调用收进一个网关<br/>供应商 key 只在网关<br/>每次调用带归因标签 |
+| 2 | 按租户 / 功能出成本报表<br/>设预算与降级<br/>试级联与缓存算省了多少 |
+| 3 | 给主要路径画延迟分解图<br/>设 p95 预算<br/>接流式与预热 |
+| 4 | 用 OWASP 对应表自检<br/>跑 EchoLeak 与 MCP 投毒的红队用例<br/>审 MCP server 清单与密钥位置 |
+| 5 | 写审计链能回答的问题清单并验证<br/>定保留策略<br/>对照 AI Act 与标识办法列义务<br/>写责任矩阵 |
+| 6 | 给每个 AI 功能加 kill switch<br/>钉所有版本<br/>写五本 runbook<br/>定质量与成本 SLO |
+| 7 | 画飞轮图标出卡点<br/>按租户实现"不用于改进"开关<br/>物理系统画 OTA 分阶段 |
 
 Table: 各篇实践建议的内容
 
@@ -165,9 +165,9 @@ Table: 各篇实践建议的内容
 
 | 来源 | 内容 |
 |---|---|
-| 安全事件 | EchoLeak（CVE-2025-32711，Aim Security，2025-06；arXiv 2509.10540 的链路分析）；GitHub MCP 跨仓库泄漏（Invariant Labs，2025-05）；Cursor MCPoison（CVE-2025-54136）与 CurXecute（CVE-2025-54135，2025-08）、DuneSlide（CVE-2026-50548 / 50549，Cato AI Labs，Cursor 3.0 于 2026-04-02 修复）；Backslash 的 MCP 注入演示（2025-06）；Microsoft 的 MCP 工具描述投毒披露（2026-06-30）；Slack AI（2024-08）；PocketOS（2026-04） |
+| 安全事件 | EchoLeak（CVE-2025-32711，Aim Security，2025-06；arXiv 2509.10540 的链路分析）<br/>GitHub MCP 跨仓库泄漏（Invariant Labs，2025-05）<br/>Cursor MCPoison（CVE-2025-54136）与 CurXecute（CVE-2025-54135，2025-08）、DuneSlide（CVE-2026-50548 / 50549，Cato AI Labs，Cursor 3.0 于 2026-04-02 修复）<br/>Backslash 的 MCP 注入演示（2025-06）<br/>Microsoft 的 MCP 工具描述投毒披露（2026-06-30）<br/>Slack AI（2024-08）<br/>PocketOS（2026-04） |
 | OWASP | Top 10 for LLM Applications 2025 |
-| EU AI Act | Regulation (EU) 2024/1689；Digital Omnibus on AI，Regulation (EU) 2026/1744（2026-07-24 公布、07-27 生效）；GPAI 2026-08-02 起可罚；Annex III 2027-12-02、Annex I 2028-08-02 |
+| EU AI Act | Regulation (EU) 2024/1689<br/>Digital Omnibus on AI，Regulation (EU) 2026/1744（2026-07-24 公布、07-27 生效）<br/>GPAI 2026-08-02 起可罚<br/>Annex III 2027-12-02、Annex I 2028-08-02 |
 | 中国 | 《人工智能生成合成内容标识办法》（2025-09-01 起） |
 | 网关 | LiteLLM、OpenRouter、Cloudflare AI Gateway、Portkey、Helicone 的公开文档 |
 | 供应商数据政策 | OpenAI Responses 存储 30 天与 ZDR；各家企业条款（引用时标日期） |

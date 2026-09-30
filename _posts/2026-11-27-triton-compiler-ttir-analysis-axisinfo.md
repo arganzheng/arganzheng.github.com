@@ -19,20 +19,30 @@ Triton 用户接触过它的两个末端：一头是 `tl.multiple_of(x, 16)` 这
 
 本文按**一个数据流分析的四个组成部分**组织：格（第二章：三个属性的精确定义）→ 起点（第三章：信息从哪里进入）→ 传递函数（第四章：每种 op 的规则，每条用一个小例子验证）→ 汇合与不动点（第五章：`join`、循环、分支，以及它建在 MLIR 数据流框架上的方式）。然后是分析的另一端：谁在消费它、消费的公式是什么（第六章），信息在哪些常见写法里丢掉（第七章），怎样用 `triton-opt` 把每个值的 AxisInfo 打出来（第八章）。最后与 LLVM 的同类分析对照（第九章）。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 格 | contiguity / divisibility / constancy / constantValue 的定义；为什么都是 2 的幂；global divisibility |
-| 三 | 起点 | 函数参数属性、`tl.multiple_of` 一族、常量、`make_range`、`get_program_id`、poison |
-| 四 | 传递函数 | `splat` / `expand_dims` / `broadcast`、`add` / `sub` / `addptr`、`mul`、`div` / `rem`、`cmp`、`select` / 逻辑、`load`，各带例子与 lit 测试证据 |
-| 五 | 汇合与循环 | `join` 取 gcd；`scf.for` 的归纳变量与 iter_args；`scf.if`；`SparseForwardDataFlowAnalysis`；跨函数 |
-| 六 | 消费者 | `getAlignment` / `getContiguity` / `getMaskAlignment` 的公式；Coalesce、load / store lowering、elementwise 去重 |
-| 七 | 信息怎么丢 | 核心问题的三个变体；`%`、运行时 stride、两个连续量相加、`where` |
-| 八 | 工具 | `triton-opt -test-print-alignment`；matmul kernel 每个值的 AxisInfo |
-| 九 | 对照 | LLVM 的 `KnownBits`、`ScalarEvolution`、`Alignment` |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、格**
+  - contiguity / divisibility / constancy / constantValue 的定义
+  - 为什么都是 2 的幂
+  - global divisibility
+- **三、起点**：函数参数属性、`tl.multiple_of` 一族、常量、`make_range`、`get_program_id`、poison
+- **四、传递函数**：`splat` / `expand_dims` / `broadcast`、`add` / `sub` / `addptr`、`mul`、`div` / `rem`、`cmp`、`select` / 逻辑、`load`，各带例子与 lit 测试证据
+- **五、汇合与循环**
+  - `join` 取 gcd
+  - `scf.for` 的归纳变量与 iter_args
+  - `scf.if`
+  - `SparseForwardDataFlowAnalysis`
+  - 跨函数
+- **六、消费者**
+  - `getAlignment` / `getContiguity` / `getMaskAlignment` 的公式
+  - Coalesce、load / store lowering、elementwise 去重
+- **七、信息怎么丢**
+  - 核心问题的三个变体
+  - `%`、运行时 stride、两个连续量相加、`where`
+- **八、工具**
+  - `triton-opt -test-print-alignment`
+  - matmul kernel 每个值的 AxisInfo
+- **九、对照**：LLVM 的 `KnownBits`、`ScalarEvolution`、`Alignment`
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 源码：`include/triton/Analysis/AxisInfo.h`、`lib/Analysis/AxisInfo.cpp`（约 1500 行，本文覆盖其中所有传递规则）、`test/Analysis/test-alignment.mlir`（1290 行 lit 测试，本文引用的每个"预期结果"都来自它）、消费者在 `lib/Dialect/TritonGPU/Transforms/CoalesceUtils.cpp`、`Utility.cpp` 与 `third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/LoadStoreOpToLLVM.cpp`。
 
@@ -159,7 +169,7 @@ Table: 叶子 op 的 AxisInfo 初值
 |---|---|
 | `tt.splat x → tensor<s…>` | 每维 contiguity 1、divisibility = x 的 divisibility、constancy = 该维长度；constantValue 继承 |
 | `tt.expand_dims x, axis` | 在 axis 位置插入一维：contiguity 1、constancy 1、divisibility = 各维中"contiguity 为 1 的维的 divisibility"的 gcd（contiguity > 1 的维按 1 计）；x 是常量时用常量的 2 幂因子 |
-| `tt.broadcast x` | 被广播的维（原长 1）：contiguity 1、constancy = 新长度；其他维不变；divisibility 全部不变 |
+| `tt.broadcast x` | 被广播的维（原长 1）：contiguity 1、constancy = 新长度<br/>其他维不变<br/>divisibility 全部不变 |
 
 Table: 形状类 op 的传递规则
 
@@ -243,7 +253,7 @@ Table: arith.muli 的传递规则
 
 | op | contiguity | divisibility | constancy |
 |---|---|---|---|
-| `a / b` | `b == 1 ? contig(a) : 1` | `a == 0` → 不变；`b == 1` → 不变；a 不连续且 b 是 2 的幂常量 → `div(a) / b`；否则 1 | a 连续、b 常量：`max(默认, gcd(contig(a), div(a), div(b)))`——`[0..127] / 64` 是 `0,…,0,1,…,1`，每 64 个相同 |
+| `a / b` | `b == 1 ? contig(a) : 1` | `a == 0` → 不变<br/>`b == 1` → 不变<br/>a 不连续且 b 是 2 的幂常量 → `div(a) / b`<br/>否则 1 | a 连续、b 常量：`max(默认, gcd(contig(a), div(a), div(b)))`——`[0..127] / 64` 是 `0,…,0,1,…,1`，每 64 个相同 |
 | `a % b` | a 连续、b 常量：`gcd(contig(a), div(a), div(b))`；否则 1 | b 的 constancy > 1：`gcd(div(a), div(b))`；否则 1 | `b == 1` → 全长（结果全 0）；否则默认 |
 
 Table: 除法与取模的传递规则
@@ -282,7 +292,7 @@ Table: 除法与取模的传递规则
 
 | op | 规则 |
 |---|---|
-| `arith.andi` / `ori` / `xori` | constancy 取 gcd；两边都是常量则算出常量值；contiguity、divisibility 1 |
+| `arith.andi` / `ori` / `xori` | constancy 取 gcd<br/>两边都是常量则算出常量值<br/>contiguity、divisibility 1 |
 | `arith.select cond, a, b` | `a`、`b` 的 AxisInfo 取 `join`（gcd），再与 `cond` 的 constancy 取 gcd——`cond` 每 8 个相同，结果至多每 8 个来自同一边 |
 | `arith.shli a, c` | divisibility = `div(a) × 2^c`；contiguity 1（除 c = 0） |
 | `arith.shrui/shrsi a, c` | divisibility = `div(a) / 2^c`（不小于 1） |
@@ -320,7 +330,7 @@ gcd 是格上的 meet：结果比两边都保守，且是最不保守的那个�
 | 方法 | 做什么 |
 |---|---|
 | `setToEntryState(lattice)` | 给一个值悲观初值（§三） |
-| `visitOperation(op, operands, results)` | 查 visitor 表算结果；用 op 上的提示属性覆盖；`propagateIfChanged(result, result->join(curr))` |
+| `visitOperation(op, operands, results)` | 查 visitor 表算结果<br/>用 op 上的提示属性覆盖<br/>`propagateIfChanged(result, result->join(curr))` |
 | `visitNonControlFlowArguments(...)` | `scf.for` 的归纳变量：divisibility = `gcd(div(lb), div(step))`——`for k in range(0, K, 32)` 的 `k` 是 32 的倍数；其他 block 参数：悲观初值 |
 
 Table: AxisInfoAnalysis 要实现的三个方法

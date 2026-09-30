@@ -15,18 +15,36 @@ catalog: true
 
 ## 一、总览
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 搭工作台 | 构建 Triton 编译器（含 macOS）；三层测试各怎么跑；`triton-opt` 在哪 |
-| 三 | 看 IR | `MLIR_ENABLE_DUMP` 的 148 次 dump；`triton-opt --mlir-print-ir-after-all`；`TRITON_KERNEL_DUMP`；LLVM / PTX 层的对应开关 |
-| 四 | 定位一个错误 | 二分法：从 Python 到 pass；`triton.compile("x.ttgir")`；override；`--run-reproducer`；解释器 |
-| 五 | 写一个 lit 测试 | `RUN` 行、`FileCheck` 与 `expected-remark`；最小化原则；两个真实例子 |
-| 六 | 改编译器 | 加一个 pass 的完整清单；加一条 pattern；改 layout 相关代码时用什么验证；C++ 单元测试 |
-| 七 | 读别人的改动 | Triton PR 的解剖；CODEOWNERS 与设计原则；跟上游 LLVM |
-| 八 | 本文小结 | |
-| 九 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、搭工作台**
+  - 构建 Triton 编译器（含 macOS）
+  - 三层测试各怎么跑
+  - `triton-opt` 在哪
+- **三、看 IR**
+  - `MLIR_ENABLE_DUMP` 的 148 次 dump
+  - `triton-opt --mlir-print-ir-after-all`
+  - `TRITON_KERNEL_DUMP`
+  - LLVM / PTX 层的对应开关
+- **四、定位一个错误**
+  - 二分法：从 Python 到 pass
+  - `triton.compile("x.ttgir")`
+  - override
+  - `--run-reproducer`
+  - 解释器
+- **五、写一个 lit 测试**
+  - `RUN` 行、`FileCheck` 与 `expected-remark`
+  - 最小化原则
+  - 两个真实例子
+- **六、改编译器**
+  - 加一个 pass 的完整清单
+  - 加一条 pattern
+  - 改 layout 相关代码时用什么验证
+  - C++ 单元测试
+- **七、读别人的改动**
+  - Triton PR 的解剖
+  - CODEOWNERS 与设计原则
+  - 跟上游 LLVM
+- **八、本文小结**
+- **九、自测**：5 道题
 
 ## 二、搭工作台
 

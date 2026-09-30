@@ -41,9 +41,9 @@ flowchart TB
 
 | 原因 | 机制 | 事前要记的信号 | 处理 |
 |---|---|---|---|
-| staleness | 样本由 k 步前的权重生成，ρ 偏离 1；drop 策略偏向短回答 | 每条样本 (生成版本, 训练版本)；staleness 分布；被 drop 样本的长度 vs 全体；clip 触发比例 | staleness 上限（drop / wait）；decoupled loss；k 调小、同步调频 |
-| 训推不一致 | 推理引擎与训练器算的 log π 不同（kernel、精度、reduce 顺序、MoE 路由） | 逐 token \|log π_rollout − log π_train\| 的均值 / 最大；序列级比值分布；MoE 的专家命中一致率 | 重算 old_log_prob；TIS / MIS；统一精度（FP16）；确定性 |
-| 缓冲淘汰 | DAPO 过滤、失败组、过期 drop、补发改变了进入训练的分布 | 每类淘汰的计数；被淘汰组的 reward / 长度分布；缓冲深度；被训练样本的长度分布 vs 生成的 | 调阈值；wait 代替 drop；按 reward 分层监控 |
+| staleness | 样本由 k 步前的权重生成，ρ 偏离 1；drop 策略偏向短回答 | 每条样本 (生成版本, 训练版本)<br/>staleness 分布<br/>被 drop 样本的长度 vs 全体<br/>clip 触发比例 | staleness 上限（drop / wait）<br/>decoupled loss<br/>k 调小、同步调频 |
+| 训推不一致 | 推理引擎与训练器算的 log π 不同（kernel、精度、reduce 顺序、MoE 路由） | 逐 token \ | log π_rollout − log π_train\ | 的均值 / 最大<br/>序列级比值分布<br/>MoE 的专家命中一致率 | 重算 old_log_prob<br/>TIS / MIS<br/>统一精度（FP16）<br/>确定性 |
+| 缓冲淘汰 | DAPO 过滤、失败组、过期 drop、补发改变了进入训练的分布 | 每类淘汰的计数<br/>被淘汰组的 reward / 长度分布<br/>缓冲深度<br/>被训练样本的长度分布 vs 生成的 | 调阈值<br/>wait 代替 drop<br/>按 reward 分层监控 |
 
 Table: off-policy 的三个原因、要记的信号与处理
 

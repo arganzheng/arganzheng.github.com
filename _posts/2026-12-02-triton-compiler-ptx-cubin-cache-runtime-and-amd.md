@@ -17,18 +17,34 @@ catalog: true
 
 ## 一、总览
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | `compile()` 的骨架 | 阶段表；`ASTSource` 与 `IRSource`；`metadata` 字典的累积；缓存组 |
-| 三 | 缓存 key | 五个成分；`triton_key`；`JITFunction.cache_key`；目录名；命中与失效 |
-| 四 | 元数据 | 34 个字段的来源与消费者 |
-| 五 | dump 与 override | `TRITON_KERNEL_DUMP`、`TRITON_KERNEL_OVERRIDE`、`ir_override`；从 `.ttgir` 文件编译 |
-| 六 | 加载与启动 | `load_binary`；运行时生成的 C launcher；`cuLaunchKernelEx` 的属性；scratch |
-| 七 | AMD 后端 | 阶段表；pass 列表的异同；`#amd_mfma`；LLVM 直出 ISA；实测 gfx942 |
-| 八 | 本文小结 | |
-| 九 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、`compile()` 的骨架**
+  - 阶段表
+  - `ASTSource` 与 `IRSource`
+  - `metadata` 字典的累积
+  - 缓存组
+- **三、缓存 key**
+  - 五个成分
+  - `triton_key`
+  - `JITFunction.cache_key`
+  - 目录名
+  - 命中与失效
+- **四、元数据**：34 个字段的来源与消费者
+- **五、dump 与 override**
+  - `TRITON_KERNEL_DUMP`、`TRITON_KERNEL_OVERRIDE`、`ir_override`
+  - 从 `.ttgir` 文件编译
+- **六、加载与启动**
+  - `load_binary`
+  - 运行时生成的 C launcher
+  - `cuLaunchKernelEx` 的属性
+  - scratch
+- **七、AMD 后端**
+  - 阶段表
+  - pass 列表的异同
+  - `#amd_mfma`
+  - LLVM 直出 ISA
+  - 实测 gfx942
+- **八、本文小结**
+- **九、自测**：5 道题
 
 源码：`python/triton/compiler/compiler.py`、`python/triton/runtime/{cache,jit,driver}.py`、`python/triton/knobs.py`、`include/triton/Tools/Sys/GetEnv.h`、`third_party/nvidia/backend/{compiler.py,driver.py,driver.c}`、`third_party/amd/backend/{compiler.py,driver.py}`。
 
@@ -264,7 +280,7 @@ stages["hsaco"]  = make_hsaco     # llvm-mc 汇编成 .o → lld 链接成 ELF�
 
 | 阶段 | 共用（`passes.ttgpuir.*`） | AMD 特有（`amd.passes.ttgpuir.*`） |
 |---|---|---|
-| layout | `convert_to_ttgpuir("hip:gfx942", num_warps, 64, …)`、`coalesce`、`f32_dot_tc`、`remove_layout_conversions`（多次）、`optimize_thread_locality`、`reduce_data_duplication` | `accelerate_matmul(arch, matrix_instr_nonkdim, kpack)`——选 MFMA 形状（`instrShape` 可由用户 `matrix_instr_nonkdim` 指定 16 或 32）；`optimize_epilogue`（累加器直接以 `#mfma` 存回，省转换）；`optimize_dot_operands`；`hoist_layout_conversions` / `sink_layout_conversions`；`in_thread_transpose`（gfx942：用 `v_perm` 在线程内转置代替 shared memory） |
+| layout | `convert_to_ttgpuir("hip:gfx942", num_warps, 64, …)`、`coalesce`、`f32_dot_tc`、`remove_layout_conversions`（多次）、`optimize_thread_locality`、`reduce_data_duplication` | `accelerate_matmul(arch, matrix_instr_nonkdim, kpack)`——选 MFMA 形状（`instrShape` 可由用户 `matrix_instr_nonkdim` 指定 16 或 32）<br/>`optimize_epilogue`（累加器直接以 `#mfma` 存回，省转换）<br/>`optimize_dot_operands`<br/>`hoist_layout_conversions` / `sink_layout_conversions`<br/>`in_thread_transpose`（gfx942：用 `v_perm` 在线程内转置代替 shared memory） |
 | 循环 | `fuse_nested_loops`、`triton_licm`、`canonicalize`、`cse` | `schedule_loops(num_stages)`、`pipeline(use_async_copy, use_block_pingpong)`——**自己的流水器**（`third_party/amd/lib/TritonAMDGPUTransforms/`），`block_pingpong`（两组 wave 交替做 MMA 与访存，gfx942 / gfx950 的核心优化）、`coalesce_async_copy`、`move_up_prologue_loads` |
 | 访存 | — | `canonicalize_pointers`、`convert_to_buffer_ops`（`tt.load` → `amdgpu.buffer_load`：用 128 位 buffer resource 描述符、32 位偏移，硬件做越界检查——mask 变成免费）、`optimize_buffer_op_ptr` |
 | 收尾 | `combine_tensor_select_and_if`、`allocate_warp_groups`、`fold_true_cmpi` | `warp_pipeline`、`prepare_if_combining`、`fp_sanitizer` |

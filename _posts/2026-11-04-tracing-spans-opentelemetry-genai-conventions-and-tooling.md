@@ -125,7 +125,7 @@ Table: OpenTelemetry GenAI 语义约定的元素
 |---|---|
 | 约定迁入独立仓库 `open-telemetry/semantic-conventions-genai`；核心仓库 v1.42.0（2026-06）弃用并移走全部 GenAI 内容，v1.43.0 不再含 | 权威来源变了；旧文档页是指向新家的指针 |
 | **所有 GenAI 专属的 span / 事件 / 指标 / 属性仍是 Development，没有一个 Stable**（共享的核心属性如 `error.type`、`server.address` 是 Stable） | 名字会变；不要把它当成已定型的接口 |
-| 属性改名：`gen_ai.system` → `gen_ai.provider.name`；`invoke_agent` 拆成 client / internal 两种 span（v1.41.0）；`execute_tool` 命名收紧 | 框架混发几代属性；后端要归一 |
+| 属性改名：`gen_ai.system` → `gen_ai.provider.name`<br/>`invoke_agent` 拆成 client / internal 两种 span（v1.41.0）<br/>`execute_tool` 命名收紧 | 框架混发几代属性；后端要归一 |
 | `OTEL_SEMCONV_STABILITY_OPT_IN` 环境变量 | 让你选 span 说哪个版本的约定 |
 | span 从单次模型调用扩展到整个 agent 循环：`invoke_agent`、`execute_tool`、`plan`、检索、记忆家族 | OTel 在标准化 agent trace，不只是模型调用 |
 | Arize 的 OpenInference（OTel 对齐的另一套约定）把 span kind 分类与之对齐；Langfuse v3 围绕 OTel 重建 | "方言之争"基本结束，线格式共享 |
@@ -165,9 +165,9 @@ flowchart TB
 
 | 工具 | 特点 | 适合 |
 |---|---|---|
-| Langfuse | 开源可自托管；v3 围绕 OTel 重建；trace + prompt 管理（L2 第六篇）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
+| Langfuse | 开源可自托管<br/>v3 围绕 OTel 重建<br/>trace + prompt 管理（L2 第六篇）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
 | LangSmith | LangChain 栈原生；trace、评测、数据集、playground | LangChain / LangGraph 用户 |
-| Arize Phoenix | 开源；OpenInference 约定；评测与 embedding 可视化 | 严谨的评测与可视化；自托管 |
+| Arize Phoenix | 开源<br/>OpenInference 约定<br/>评测与 embedding 可视化 | 严谨的评测与可视化；自托管 |
 | Braintrust | trace 到评测的闭环（从 trace 一键建用例、跑评测、比版本） | 评测驱动的团队 |
 | Helicone | 网关式接入（改 base URL 即可） | 最低接入成本、以成本监控为主 |
 | Datadog / Honeycomb / New Relic 的 LLM 模块 | 与既有 APM 一体 | 已有这些 APM、想统一面板 |

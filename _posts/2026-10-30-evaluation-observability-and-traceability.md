@@ -148,9 +148,9 @@ Table: 七篇的主题与传统对应
 | 1 | 从日志采 50 条建第一版评测集，每条写可检验期望；设 hold-out |
 | 2 | 标 100 条校准集，量你的 judge 的 kappa 与四类偏差；决定它能否做门禁 |
 | 3 | 为你的应用形态填指标矩阵，每题跑 k 次报分布 |
-| 4 | 把评测接进 CI 做门禁；建探针集每天跑；给在线反馈接 trace id |
-| 5 | 按 OTel GenAI 约定打点并钉版本；决定工具或自建；定脱敏与保留期 |
-| 6 | 接录制回放；打决策点日志；给最近 50 次失败分类；bad case 队列 |
+| 4 | 把评测接进 CI 做门禁<br/>建探针集每天跑<br/>给在线反馈接 trace id |
+| 5 | 按 OTel GenAI 约定打点并钉版本<br/>决定工具或自建<br/>定脱敏与保留期 |
+| 6 | 接录制回放<br/>打决策点日志<br/>给最近 50 次失败分类<br/>bad case 队列 |
 | 7 | 列运行时 guardrails；若做物理世界，画出仿真层次与闭环覆盖 |
 
 Table: 各篇实践建议的内容
@@ -171,7 +171,7 @@ Table: 各篇实践建议的内容
 |---|---|
 | LangChain《State of AI Agents》2026 | 57% 生产、质量 32% 为最大障碍、89% 可观测 vs 52% 评测 |
 | LLM-as-judge 研究（2026） | 21 个 judge × 3 基准 × 54 万判定的系统评估（kappa 虚高 33–41 pp、排名移动 14 位、一致但有偏）；九种去偏策略 × 五 judge 的对比（风格偏差最大、冗长偏差异质、中档 + 去偏胜前沿且便宜 15 倍） |
-| OpenTelemetry | `semantic-conventions-genai` 独立仓库；核心 v1.42.0（2026-06）移走 GenAI 内容；全部 Development；`gen_ai.provider.name`；`OTEL_SEMCONV_STABILITY_OPT_IN` |
+| OpenTelemetry | `semantic-conventions-genai` 独立仓库<br/>核心 v1.42.0（2026-06）移走 GenAI 内容<br/>全部 Development<br/>`gen_ai.provider.name`<br/>`OTEL_SEMCONV_STABILITY_OPT_IN` |
 | 工具 | Langfuse v3、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone 的公开文档 |
 | 评测框架 | RAGAS、promptfoo、OpenAI Evals 的指标定义 |
 | 物理世界 | CARLA、NVIDIA Cosmos 一类的公开文档；影子模式的公开描述 |

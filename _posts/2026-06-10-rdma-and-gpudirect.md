@@ -79,21 +79,49 @@ flowchart TB
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 为什么需要 RDMA | TCP 路径的拷贝与 CPU 代价；kernel bypass / zero copy / CPU offload；三条路径对照表（核心问题） |
-| 三 | verbs 编程模型 | device → PD → MR / CQ / QP；lkey 与 rkey；RC / UC / UD；WR 与 WC；post 与 poll |
-| 四 | 单边与双边操作 | RDMA WRITE / READ 与 SEND / RECV；NCCL 为什么用 RDMA WRITE + IMM；`net_ib.cc` 的 FIFO 机制 |
-| 五 | 连接建立 | QP 状态机；交换什么信息；TCP 还是 `rdma_cm`；NCCL 的多 QP 与 adaptive routing |
-| 六 | InfiniBand 与 RoCE v2 | 链路层、LID 与 GID、信用流控与 PFC + ECN；`NCCL_IB_GID_INDEX`；`NCCL_IB_TC` / TIMEOUT / `RETRY_CNT` |
-| 七 | 内存注册的代价与 MR cache | pin 页与地址翻译；注册为什么慢；NCCL 的 ncclIbMrCache；ncclCommRegister |
-| 八 | GPUDirect RDMA | 网卡 DMA 到显存的机制；nvidia-peermem 与 DMA-BUF；`NCCL_NET_GDR_LEVEL` / `GDR_READ`；flush；PCIe 拓扑限制 |
-| 九 | GDRCopy 与 GPUDirect 家族 | CPU 直接读写显存映射；NCCL 用它做什么；GPUDirect P2P / Storage |
-| 十 | 测一测与比一比 | ibstat / `ibv_devinfo` / `show_gids` / rdma link / `ib_write_bw` --use_cuda；检查清单 |
-| 十一 | 本文小结 | 要点、排障检查项、源码位置、comm-probe 的 `rdma_write.c` |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、为什么需要 RDMA**
+  - TCP 路径的拷贝与 CPU 代价
+  - kernel bypass / zero copy / CPU offload
+  - 三条路径对照表（核心问题）
+- **三、verbs 编程模型**
+  - device → PD → MR / CQ / QP
+  - lkey 与 rkey
+  - RC / UC / UD
+  - WR 与 WC
+  - post 与 poll
+- **四、单边与双边操作**
+  - RDMA WRITE / READ 与 SEND / RECV
+  - NCCL 为什么用 RDMA WRITE + IMM
+  - `net_ib.cc` 的 FIFO 机制
+- **五、连接建立**
+  - QP 状态机
+  - 交换什么信息
+  - TCP 还是 `rdma_cm`
+  - NCCL 的多 QP 与 adaptive routing
+- **六、InfiniBand 与 RoCE v2**
+  - 链路层、LID 与 GID、信用流控与 PFC + ECN
+  - `NCCL_IB_GID_INDEX`
+  - `NCCL_IB_TC` / TIMEOUT / `RETRY_CNT`
+- **七、内存注册的代价与 MR cache**
+  - pin 页与地址翻译
+  - 注册为什么慢
+  - NCCL 的 ncclIbMrCache
+  - ncclCommRegister
+- **八、GPUDirect RDMA**
+  - 网卡 DMA 到显存的机制
+  - nvidia-peermem 与 DMA-BUF
+  - `NCCL_NET_GDR_LEVEL` / `GDR_READ`
+  - flush
+  - PCIe 拓扑限制
+- **九、GDRCopy 与 GPUDirect 家族**
+  - CPU 直接读写显存映射
+  - NCCL 用它做什么
+  - GPUDirect P2P / Storage
+- **十、测一测与比一比**
+  - ibstat / `ibv_devinfo` / `show_gids` / rdma link / `ib_write_bw` --use_cuda
+  - 检查清单
+- **十一、本文小结**：要点、排障检查项、源码位置、comm-probe 的 `rdma_write.c`
+- **十二、自测**：5 道题
 
 ## 二、为什么需要 RDMA
 
@@ -665,7 +693,7 @@ GPUDirect 是一个品牌，下面是一族"让 X 直接访问显存、绕开主
 
 | 成员 | 谁访问显存 | 经过什么 | 本系列的位置 |
 |---|---|---|---|
-| GPUDirect P2P | 另一张 GPU | NVLink 或 PCIe P2P | 第二篇：NVLink / PCIe 拓扑；第四篇：NCCL 的 P2P transport；第七篇：CUDA IPC 与 custom all-reduce |
+| GPUDirect P2P | 另一张 GPU | NVLink 或 PCIe P2P | 第二篇：NVLink / PCIe 拓扑<br/>第四篇：NCCL 的 P2P transport<br/>第七篇：CUDA IPC 与 custom all-reduce |
 | GPUDirect RDMA | 网卡 | PCIe P2P（BAR1） | 本篇 |
 | GPUDirect Storage | NVMe / 存储网卡 | PCIe P2P（cuFile API） | 第七篇提及：NIXL 的 GDS 后端；数据加载与 checkpoint 不在系列范围内 |
 | GPUDirect Async | GPU 自己触发网卡 | GPU 写网卡门铃 | NCCL 的设备侧网络（device-side networking，`ncclNetDeviceHandle_t`）方向，本系列不展开 |
@@ -787,9 +815,9 @@ GDRCopy           CPU 经 BAR1 映射直接读写显存，亚微秒；NCCL_GDRCO
 |---|---|
 | `src/transport/net_ib.cc` `ncclIbIsend` / `ncclIbMultiSend` | 发送路径：等 FIFO、构造 `IBV_WR_RDMA_WRITE` 链 + 末尾 `IBV_WR_RDMA_WRITE_WITH_IMM`、按 QP 轮转 post |
 | `src/transport/net_ib.cc` `ncclIbIrecv` / `ncclIbPostFifo` | 接收路径：每 QP post 0 SGE recv WR；把 `ncclIbSendFifo`（addr / size / rkeys / tag / idx）RDMA WRITE 到发送方 |
-| `src/transport/net_ib.cc` `ncclIbTest` | 轮询 CQ；`IBV_WC_RECV_RDMA_WITH_IMM` 的 `imm_data` 作为接收大小；错误时打印 status、opcode、两端 GID |
+| `src/transport/net_ib.cc` `ncclIbTest` | 轮询 CQ<br/>`IBV_WC_RECV_RDMA_WITH_IMM` 的 `imm_data` 作为接收大小<br/>错误时打印 status、opcode、两端 GID |
 | `src/transport/net_ib.cc` `ncclIbIflush` | GDR 接收后的 flush：对自身 loopback QP 发 `IBV_WR_RDMA_READ` |
-| `src/transport/net_ib.cc` `ncclIbCreateQp` / `ncclIbRtrQp` / `ncclIbRtsQp` | QP 状态机三步；RC 类型；IB 用 dlid、RoCE 用 GRH；timeout / retry_cnt 来源 |
+| `src/transport/net_ib.cc` `ncclIbCreateQp` / `ncclIbRtrQp` / `ncclIbRtsQp` | QP 状态机三步<br/>RC 类型<br/>IB 用 dlid、RoCE 用 GRH<br/>timeout / retry_cnt 来源 |
 | `src/transport/net_ib.cc` `ncclIbConnect` / `ncclIbAccept` / `ncclIbListen` | 用 `ncclSocket*` 交换 `ncclIbConnectionMetadata`；非阻塞状态机 `ncclIbCommState` |
 | `src/transport/net_ib.cc` `ncclIbGetGidIndex` | RoCE 下 GID 索引的自动选择；`NCCL_IB_GID_INDEX` / `NCCL_IB_ROCE_VERSION_NUM` / `NCCL_IB_ADDR_FAMILY` |
 | `src/transport/net_ib.cc` `ncclIbRegMrDmaBufInternal2` / `ncclIbMrCache` / `ncclIbDeregMr` | 注册缓存：按页对齐、区间包含命中、引用计数；`ibv_reg_mr` / `ibv_reg_mr_iova2` / `ibv_reg_dmabuf_mr` 三条路 |

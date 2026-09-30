@@ -67,20 +67,33 @@ flowchart LR
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 阶段 1：对齐 | 为什么冻结 LLM——一个 10 秒跑完的缩小实验（冻结 / 一起训 / 两阶段，图）；数据与步数；解冻编码器的时机 |
-| 三 | 阶段 2：多模态预训练 | 数据类型与各自教会什么；配比；文本数据的混入；LLM 与编码器的 lr |
-| 四 | 阶段 3–4：指令微调与偏好 | 指令数据的来源与合成；文本能力的保持；多模态 DPO / RL |
-| 五 | 公开配方对照 | LLaVA-1.5 / NeXT / OneVision、Qwen2-VL / 2.5-VL、InternVL 2.5、Molmo、Llama 3.2、Idefics3、Gemma 3 |
-| 六 | 幻觉 | 三个来源的机制与证据；共现偏差怎么变成幻觉的两特征小模型；度量；缓解 |
-| 七 | 评测 | benchmark 各测什么；协议陷阱；文本能力回归 |
-| 八 | 成本 | 各阶段的算力账 |
-| 九 | 动手（建议） | 复现 LLaVA-1.5 两阶段 + POPE |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、阶段 1：对齐**
+  - 为什么冻结 LLM——一个 10 秒跑完的缩小实验（冻结 / 一起训 / 两阶段，图）
+  - 数据与步数
+  - 解冻编码器的时机
+- **三、阶段 2：多模态预训练**
+  - 数据类型与各自教会什么
+  - 配比
+  - 文本数据的混入
+  - LLM 与编码器的 lr
+- **四、阶段 3–4：指令微调与偏好**
+  - 指令数据的来源与合成
+  - 文本能力的保持
+  - 多模态 DPO / RL
+- **五、公开配方对照**：LLaVA-1.5 / NeXT / OneVision、Qwen2-VL / 2.5-VL、InternVL 2.5、Molmo、Llama 3.2、Idefics3、Gemma 3
+- **六、幻觉**
+  - 三个来源的机制与证据
+  - 共现偏差怎么变成幻觉的两特征小模型
+  - 度量
+  - 缓解
+- **七、评测**
+  - benchmark 各测什么
+  - 协议陷阱
+  - 文本能力回归
+- **八、成本**：各阶段的算力账
+- **九、动手（建议）**：复现 LLaVA-1.5 两阶段 + POPE
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、阶段 1：对齐
 
@@ -133,7 +146,7 @@ Prismatic VLMs（Karamcheti 等 2024）的系统消融：在 LLaVA 规模的数�
 |---|---|---|---|
 | caption（短） | LAION、CC12M、COYO；经 recaption 的版本 | 物体、场景、属性的对齐 | 基本的看图说话不行 |
 | caption（长、密集） | ShareGPT4V、合成的详细描述（GPT-4V / 自家大模型重写） | 细节、关系、布局 | 描述粗糙、忽略小物体 |
-| 交错图文 | MMC4、OBELICS、网页 | 图与上下文文本的关系；多图；in-context 能力 | 多图任务与 few-shot 弱 |
+| 交错图文 | MMC4、OBELICS、网页 | 图与上下文文本的关系<br/>多图<br/>in-context 能力 | 多图任务与 few-shot 弱 |
 | OCR / 文档 | PDF 渲染、网页截图 + HTML、合成文档、DocVQA 类数据 | 读字、版面、表格 | 文档任务不可用 |
 | 图表 / 表格 | ChartQA、合成图表（matplotlib 生成 + 代码为标签） | 数值读取、趋势 | 图表任务弱 |
 | grounding | RefCOCO、Visual Genome、检测数据转文本坐标 | 定位、指代、框与点 | 不会指出"哪里" |
@@ -241,10 +254,10 @@ LLaVA-1.5 在 POPE 的共现子集上准确率约 85%；经过 RLHF-V 或高质�
 
 | 来源 | 缓解 | 代表 |
 |---|---|---|
-| 数据 | 清洗合成数据里的幻觉；加**负样本**（"图里有 X 吗？——没有"，X 是常共现但不在图中的物体）；平衡共现；人工描述替代 VLM 合成 | LRV-Instruction（负指令）、Molmo（人写）、InternVL 2.5 的过滤 |
-| 编码器 | 高分辨率；解冻；多编码器 | 上一篇 |
+| 数据 | 清洗合成数据里的幻觉<br/>加**负样本**（"图里有 X 吗？——没有"，X 是常共现但不在图中的物体）<br/>平衡共现<br/>人工描述替代 VLM 合成 | LRV-Instruction（负指令）、Molmo（人写）、InternVL 2.5 的过滤 |
+| 编码器 | 高分辨率<br/>解冻<br/>多编码器 | 上一篇 |
 | 偏好 | 片段级修正的 DPO；事实增强的 RM | RLHF-V、LLaVA-RLHF、RLAIF-V |
-| 解码 | 对比解码（VCD）；注意力惩罚（OPERA）；让模型生成时"回看"图片 | 推理时零训练，但增加成本 |
+| 解码 | 对比解码（VCD）<br/>注意力惩罚（OPERA）<br/>让模型生成时"回看"图片 | 推理时零训练，但增加成本 |
 | 训练目标 | 把 grounding 数据（框、点）混入——迫使模型把描述与位置绑定 | Shikra、Molmo 的 Points、Qwen2-VL 的 grounding |
 
 Table: 幻觉的来源与缓解
@@ -298,7 +311,7 @@ VLM 的评测里应包含**纯文本 benchmark 的回归**（MMLU、GSM8K、Huma
 
 | 阶段 | 样本数 | token 数 | 训练参数 | FLOPs（可训部分 $$6PT$$；冻结但在可训模块**之后**的部分要前向 + 对输入的反向 $$\approx 4PT$$；冻结且在可训模块**之前**的部分只前向 $$2PT$$） | 8 × H100 时间（40% MFU） |
 |---|---|---|---|---|---|
-| 1 对齐（只训 MLP） | 558K | 4.5 亿 | 20M（MLP）；ViT 在 connector 之前可 `no_grad`（$$2P$$）；LLM 在 connector **之后**，梯度要穿过它回到 connector——不算 $$dW$$ 但要算 $$dX$$（$$\approx 4P$$），把 LLM 包进 `no_grad` 会让 connector 拿不到梯度（CPU 验证：`connector.weight.grad` 存在、`backbone.grad is None`；加 `no_grad` 后输出 `requires_grad=False`） | $$4 \times 7B \times 4.5 \times 10^8 + 2 \times 0.3B \times 4.5 \times 10^8 \approx 1.3 \times 10^{19}$$ | 约 1.1 小时 |
+| 1 对齐（只训 MLP） | 558K | 4.5 亿 | 20M（MLP）<br/>ViT 在 connector 之前可 `no_grad`（$$2P$$）<br/>LLM 在 connector **之后**，梯度要穿过它回到 connector——不算 $$dW$$ 但要算 $$dX$$（$$\approx 4P$$），把 LLM 包进 `no_grad` 会让 connector 拿不到梯度（CPU 验证：`connector.weight.grad` 存在、`backbone.grad is None`；加 `no_grad` 后输出 `requires_grad=False`） | $$4 \times 7B \times 4.5 \times 10^8 + 2 \times 0.3B \times 4.5 \times 10^8 \approx 1.3 \times 10^{19}$$ | 约 1.1 小时 |
 | 2 预训练 | 10M | 80 亿 | 全部 7.4B | $$6 \times 7.4B \times 8 \times 10^9 \approx 3.6 \times 10^{20}$$ | 约 32 小时 |
 | 3 SFT | 1M | 8 亿 | 7B + MLP | $$6 \times 7B \times 8 \times 10^8 \approx 3.4 \times 10^{19}$$ | 约 3 小时 |
 | 4 DPO | 20K 对 | — | LLM | 小 | < 1 小时 |
@@ -334,11 +347,11 @@ recaption 1000 万张图：每张图一次 VLM 推理（约 1K token 输入 + 30
 | 数据 | caption 对齐、交错 few-shot、OCR 文档、grounding 定位、文本保持 | recaption 是关键技术；MM1 45 / 45 / 10 |
 | 文本能力 | 混入 10–50% 文本数据；训后回归 MMLU / GSM8K | cross-attn 注入零退化 |
 | 指令数据 | GPT-4 从 caption 合成（有幻觉）→ GPT-4V 看图 → 学术 VQA 转格式 → 人工 | Molmo 全人工 |
-| 偏好 | 片段级修正 DPO（RLHF-V）；事实增强 RM；RLVR 用于可验证多模态任务 | 1–2K 对即显著降幻觉 |
-| 幻觉来源 | 数据共现 + 合成数据幻觉；编码器信息缺失；解码的文本惯性 | POPE 共现子集 85 → 90 |
-| 缓解 | 负样本、人写数据；分辨率 / 解冻 / 多编码器；DPO；对比解码；grounding 混入 | 三源三类 |
-| 评测 | MMStar / MMMU-Pro 过滤盲答题；分辨率与帧数写明；统一 harness；文本回归 | 盲测 MMMU 可到 40+ |
-| 成本 | 阶段 2 主导；Qwen2-VL 1.4T token ≈ 一次 8B 预训练；recaption 与训练同量级 | 多数团队只做阶段 3 |
+| 偏好 | 片段级修正 DPO（RLHF-V）<br/>事实增强 RM<br/>RLVR 用于可验证多模态任务 | 1–2K 对即显著降幻觉 |
+| 幻觉来源 | 数据共现 + 合成数据幻觉<br/>编码器信息缺失<br/>解码的文本惯性 | POPE 共现子集 85 → 90 |
+| 缓解 | 负样本、人写数据<br/>分辨率 / 解冻 / 多编码器<br/>DPO<br/>对比解码<br/>grounding 混入 | 三源三类 |
+| 评测 | MMStar / MMMU-Pro 过滤盲答题<br/>分辨率与帧数写明<br/>统一 harness<br/>文本回归 | 盲测 MMMU 可到 40+ |
+| 成本 | 阶段 2 主导<br/>Qwen2-VL 1.4T token ≈ 一次 8B 预训练<br/>recaption 与训练同量级 | 多数团队只做阶段 3 |
 
 Table: VLM 训练配方的规则小结
 

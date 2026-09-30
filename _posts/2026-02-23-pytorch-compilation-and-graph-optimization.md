@@ -1234,7 +1234,7 @@ Table: 训练/研究与部署/推理两条路径的入口与特点
 | `torch/_subclasses/fake_tensor.py`、`torch/fx/experimental/symbolic_shapes.py` | FakeTensor；`SymInt` 与 `ShapeEnv`（动态 shape） |
 | `torch/_decomp/`、`torch/_prims/`、`torch/_refs/` | 算子分解与参考实现：torch 级词汇下降到 ATen 级 |
 | `torch/_inductor/compile_fx.py`、`graph.py`、`scheduler.py`、`codegen/triton.py`、`codegen/cpp.py` | Inductor：入口、lowering、融合决策、Triton 与 C++ 代码生成 |
-| `torch/_inductor/codecache.py`、`torch/export/`、`torch/csrc/inductor/aoti_runtime/` | 编译缓存；`torch.export`；AOTInductor 运行时 |
+| `torch/_inductor/codecache.py`、`torch/export/`、`torch/csrc/inductor/aoti_runtime/` | 编译缓存<br/>`torch.export`<br/>AOTInductor 运行时 |
 
 Table: 本篇涉及的源码位置
 

@@ -260,7 +260,7 @@ Table: 十三种配置并排（Qwen2.5-0.5B，no_robots 800 条，80 步 × batc
 | 显存放不下 BF16 底座 | QLoRA（NF4 + 双重量化）+ 上面的 LoRA 配置；可加 LoftQ 初始化 | 第八节：只动冻结权重那本账 |
 | 必须很小的 $$r$$（几百个 adapter 同服） | $$r = 4 \sim 8$$ + `use_dora=True` | 第七节：小 $$r$$ 上 DoRA 收益最大 |
 | 只有几百条数据、怕过拟合 | $$r = 8$$、dropout 0.1、步数少、lr $$10^{-4}$$ | 第五节：LoRA 也会遗忘 |
-| 收敛慢、步数预算紧、数据多 | 先调 lr；再试 EVA 初始化或 LoRA+ $$\lambda = 4 \sim 16$$；PiSSA 要盯遗忘 | 第五、六节：小任务上它们不比调 lr 更有效 |
+| 收敛慢、步数预算紧、数据多 | 先调 lr<br/>再试 EVA 初始化或 LoRA+ $$\lambda = 4 \sim 16$$<br/>PiSSA 要盯遗忘 | 第五、六节：小任务上它们不比调 lr 更有效 |
 | 加了新 token | 任何配置 + `trainable_token_indices` | 第三篇第六节 |
 | 只服务一个模型、显存充足 | 全量微调 | LoRA 的收益都用不上 |
 

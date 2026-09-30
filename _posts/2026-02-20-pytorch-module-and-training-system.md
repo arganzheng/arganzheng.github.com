@@ -1823,7 +1823,7 @@ DataLoader 可以类比生产者—消费者，但它还额外包含：
 | `torch/nn/modules/module.py` | `Module`：`__setattr__` 注册、`register_buffer`、`state_dict` / `load_state_dict`、`_apply`（`.to()` 的递归）、hook 链 |
 | `torch/nn/parameter.py`、`torch/nn/modules/container.py` | `Parameter`；`Sequential`、`ModuleList`、`ModuleDict` |
 | `torch/optim/optimizer.py`、`torch/optim/adamw.py` | Optimizer 基类：param groups、`state`、`zero_grad`；AdamW 的 fused / foreach 实现 |
-| `torch/utils/data/dataloader.py`、`sampler.py`、`_utils/` | DataLoader 的 worker 进程、预取；Sampler；`collate`、`pin_memory` 线程 |
+| `torch/utils/data/dataloader.py`、`sampler.py`、`_utils/` | DataLoader 的 worker 进程、预取<br/>Sampler<br/>`collate`、`pin_memory` 线程 |
 | `torch/amp/autocast_mode.py`、`torch/amp/grad_scaler.py` | autocast 的 Python 入口与 GradScaler |
 | `aten/src/ATen/autocast_mode.cpp` | autocast 的 C++ 实现：作为一个 DispatchKey 拦截算子并转换 dtype（第五篇的机制） |
 | `torch/serialization.py` | `torch.save` / `torch.load`、`weights_only` 的受限 unpickler |

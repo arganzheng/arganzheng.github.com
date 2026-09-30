@@ -34,17 +34,22 @@ Table: 三个词的公式、读法与各自保留的信息
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 内积 | 定义、几何含义、attention score 就是内积、矩阵形式 $$QK^T$$ |
-| 三 | 范数 | $$L_2$$、$$L_1$$、Frobenius；长度、单位向量、归一化 |
-| 四 | 余弦相似度 | 只比方向；embedding 检索与 CLIP 为什么用它；点积检索与余弦的关系 |
-| 五 | 范数作为正则化项 | weight decay 的 $$\frac{\lambda}{2}\lVert W \rVert_F^2$$；$$L_1$$ 为什么稀疏 |
-| 六 | 范数作为误差度量 | 量化误差；GPTQ 为什么最小化 $$\lVert WX - \hat W X \rVert_F$$ 而不是 $$\lVert W - \hat W \rVert_F$$ |
-| 七 | 本文小结 | |
-| 八 | 自测 | 五道题 |
-
-Table: 本文的章节安排
+- **二、内积**：定义、几何含义、attention score 就是内积、矩阵形式 $$QK^T$$
+- **三、范数**
+  - $$L_2$$、$$L_1$$、Frobenius
+  - 长度、单位向量、归一化
+- **四、余弦相似度**
+  - 只比方向
+  - embedding 检索与 CLIP 为什么用它
+  - 点积检索与余弦的关系
+- **五、范数作为正则化项**
+  - weight decay 的 $$\frac{\lambda}{2}\lVert W \rVert_F^2$$
+  - $$L_1$$ 为什么稀疏
+- **六、范数作为误差度量**
+  - 量化误差
+  - GPTQ 为什么最小化 $$\lVert WX - \hat W X \rVert_F$$ 而不是 $$\lVert W - \hat W \rVert_F$$
+- **七、本文小结**
+- **八、自测**：五道题
 
 ## 二、内积
 

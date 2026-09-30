@@ -84,22 +84,51 @@ Kueue 不碰 Pod 的节点选择，它只决定"这个任务现在能不能开�
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 为什么会死锁 | 逐 Pod 调度的时序；gang 的定义与 minMember；为什么必须在调度器层面做；`v1.37` WAS 的位置 |
-| 三 | Volcano | 对象模型 Job → PodGroup → Queue；Session 与 action/plugin 流水线；gang 插件；capability/deserved/guarantee |
-| 四 | Kueue | Workload → LocalQueue → ClusterQueue；ResourceFlavor；cohort 借用与 lendingLimit；suspend；抢占策略；AdmissionCheck |
-| 五 | 两种哲学 | 对比表；选型；能否叠加 |
-| 六 | 拓扑感知 | 为什么；Kueue TAS 的 Topology 与三个注解；Volcano 的 HyperNode 与 tier；标签从哪里来 |
-| 七 | 抢占与 checkpoint | 抢占的代价模型；PriorityClass / WorkloadPriorityClass / Queue priority 的交互；配置建议 |
-| 八 | Kubeflow Trainer | TrainJob / TrainingRuntime / JobSet；torch 插件注入的 `PET_*`；rendezvous 如何落地；与 Volcano / Kueue 的对接 |
-| 九 | Slurm 与 Ray | sbatch / partition / GRES / backfill；Slinky 的 slurm-operator 与 slurm-bridge；Ray placement group 与 KubeRay 的两层自动扩缩 |
-| 十 | 回答核心问题 | 借用 / 抢占 / 等待 × Volcano / Kueue / Slurm 的行为与配置项 |
-| 十一 | 代价与边界 | 四栏表；每个机制引入的新问题 |
-| 十二 | 实践 | mini-platform/sched/：Kueue 两队列 cohort、TrainJob、Volcano Job、从 suspended 到 admitted |
-| 十三 | 小结 | 要点、源码位置、练手项目增量 |
-
-Table: 本文的章节安排
+- **二、为什么会死锁**
+  - 逐 Pod 调度的时序
+  - gang 的定义与 minMember
+  - 为什么必须在调度器层面做
+  - `v1.37` WAS 的位置
+- **三、Volcano**
+  - 对象模型 Job → PodGroup → Queue
+  - Session 与 action/plugin 流水线
+  - gang 插件
+  - capability/deserved/guarantee
+- **四、Kueue**
+  - Workload → LocalQueue → ClusterQueue
+  - ResourceFlavor
+  - cohort 借用与 lendingLimit
+  - suspend
+  - 抢占策略
+  - AdmissionCheck
+- **五、两种哲学**
+  - 对比表
+  - 选型
+  - 能否叠加
+- **六、拓扑感知**
+  - 为什么
+  - Kueue TAS 的 Topology 与三个注解
+  - Volcano 的 HyperNode 与 tier
+  - 标签从哪里来
+- **七、抢占与 checkpoint**
+  - 抢占的代价模型
+  - PriorityClass / WorkloadPriorityClass / Queue priority 的交互
+  - 配置建议
+- **八、Kubeflow Trainer**
+  - TrainJob / TrainingRuntime / JobSet
+  - torch 插件注入的 `PET_*`
+  - rendezvous 如何落地
+  - 与 Volcano / Kueue 的对接
+- **九、Slurm 与 Ray**
+  - sbatch / partition / GRES / backfill
+  - Slinky 的 slurm-operator 与 slurm-bridge
+  - Ray placement group 与 KubeRay 的两层自动扩缩
+- **十、回答核心问题**：借用 / 抢占 / 等待 × Volcano / Kueue / Slurm 的行为与配置项
+- **十一、代价与边界**
+  - 四栏表
+  - 每个机制引入的新问题
+- **十二、实践**：mini-platform/sched/：Kueue 两队列 cohort、TrainJob、Volcano Job、从 suspended 到 admitted
+- **十三、小结**：要点、源码位置、练手项目增量
 
 ## 二、为什么逐 Pod 调度会死锁
 
@@ -452,7 +481,7 @@ Kueue 准入是按配额做的加法，不保证 kube-scheduler 真能把每个 
 | 借用与回收 | capacity 插件 + reclaim action；受 gang 插件限制 | cohort 借用；preemption.reclaimWithinCohort / borrowWithinCohort |
 | 公平性 | drf 插件（DRF）、queue weight / priority | fairSharing（加权份额）、WorkloadPriorityClass |
 | 抢占受害者粒度 | task 级（默认不能把 Job 打到 minMember 以下）；gangpreempt / gangreclaim 整 Job | Workload 级（整个 Job 重新 suspend） |
-| 拓扑感知 | HyperNode CRD（topology.volcano.sh/v1alpha1）+ network-topology-aware 插件；PodGroup.networkTopology | Topology CRD + ResourceFlavor.topologyName；podset-\*-topology 注解；TAS 直接生成 nodeSelector |
+| 拓扑感知 | HyperNode CRD（topology.volcano.sh/v1alpha1）+ network-topology-aware 插件；PodGroup.networkTopology | Topology CRD + ResourceFlavor.topologyName<br/>podset-\*-topology 注解<br/>TAS 直接生成 nodeSelector |
 | 节点打分 | 自己做（nodeorder / binpack / numaaware） | 不做，交给 kube-scheduler |
 | 与集群自动扩缩容 | 无专门机制（Pod Pending 后 Cluster Autoscaler 自己反应） | AdmissionCheck + ProvisioningRequest：先扩容再准入 |
 | 支持的 Job 类型 | vcjob；任何带 group-name 注解的 Pod | batch/v1 Job、JobSet、TrainJob、RayJob/RayCluster、LWS、Pod、Deployment、StatefulSet…（Integrations.Frameworks） |
@@ -675,7 +704,7 @@ Kueue 侧只需要 TrainJob 带 `kueue.x-k8s.io/queue-name` 标签，并在 Kueu
 | ResourceFlavor / GPU 型号 | GRES（gres.conf 定义 gpu:h100:8），--gres=gpu:h100:4 或 --gpus-per-node |  |
 | 拓扑感知 | topology plugin（topology/tree, topology/block）+ topology.conf；--switches=1 要求同一交换机下 |  |
 | binpack / 整机 | --exclusive（独占节点）；SelectType=select/cons_tres 的 CR_\* 参数 |  |
-| 抢占 | PreemptType=preempt/qos 或 preempt/partition_prio；PreemptMode=REQUEUE/SUSPEND/CANCEL；GraceTime |  |
+| 抢占 | PreemptType=preempt/qos 或 preempt/partition_prio<br/>PreemptMode=REQUEUE/SUSPEND/CANCEL<br/>GraceTime |  |
 | 排队策略 | sched/backfill：在不推迟队头大作业开始时间的前提下用小作业填空隙——要求作业给 --time |  |
 
 Table: K8s 生态的调度概念对到 Slurm 的词汇
@@ -1141,7 +1170,7 @@ Ray           placement group 在 Ray 内做 gang；KubeRay RayCluster/RayJob �
 
 | 机制 | 换来 | 付出 |
 |---|---|---|
-| gang | 不再死锁 | 凑齐前集群空转；无时限估计 → 无真 backfill；大小任务饥饿二选一 |
+| gang | 不再死锁 | 凑齐前集群空转<br/>无时限估计 → 无真 backfill<br/>大小任务饥饿二选一 |
 | Kueue 准入 | 不换调度器、任意 Job 类型、配额弹性 | 配额加法 ≠ 节点实况；需 TAS 或 waitForPodsReady 补 |
 | Volcano 调度器 | 节点级 gang、binpack、NUMA、tier | 换调度器；混合集群里两调度器缓存冲突 |
 | cohort / deserved 借用 | 闲置配额被用起来 | 收回 = 抢占 = 丢进度；默认值多为"借了不还" |
@@ -1156,39 +1185,39 @@ Table: 代价与边界
 
 | 项目（版本） | 路径 | 类型 / 字段 / 函数 |
 |---|---|---|
-| Volcano v1.15.2 | `staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go` | `PodGroupSpec.MinMember` / `MinTaskMember` / `Queue` / `PriorityClassName` / `MinResources` / `NetworkTopology` / `SubGroupPolicy`；`NetworkTopologySpec.Mode` / `HighestTierAllowed` / `HighestTierName`；`PodGroupPhase`（`Pending` / `Inqueue` / `Running` / `Unknown` / `Completed`）；`QueueSpec.Weight` / `Capability` / `Reclaimable` / `Guarantee` / `Deserved` / `Priority` / `Parent` / `DequeueStrategy` |
-| | `scheduling/v1beta1/labels.go` | `KubeGroupNameAnnotationKey`（`scheduling.k8s.io/group-name`）、`QueueNameAnnotationKey`（`scheduling.volcano.sh/queue-name`）、`PodPreemptable`（`volcano.sh/preemptable`） |
-| | `batch/v1alpha1/job.go`、`register.go` | `JobSpec.SchedulerName` / `MinAvailable` / `Tasks` / `Plugins` / `Policies` / `Queue` / `PriorityClassName` / `NetworkTopology`；`TaskSpec.Replicas` / `MinAvailable` / `Template`；`GroupName = batch.volcano.sh` |
-| | `topology/v1alpha1/hypernode_types.go`、`labels.go` | `HyperNodeSpec.Tier` / `TierName` / `Members`；`MemberSpec.Type` / `Selector`（`ExactMatch` / `RegexMatch` / `LabelMatch`）；`volcano.sh/network-topology-mode` |
-| | `pkg/scheduler/actions/{enqueue,allocate,preempt,reclaim,backfill,gangpreempt,gangreclaim,shuffle}` | `enqueue.Action.Execute`（`JobEnqueueable` → `PodGroupInqueue`）；`allocate.Action.Execute` / `allocateForJob` / `selectBestHyperNodeForJob`；`preempt.Action.Execute`（`JobStarving`、`ContainsNetworkTopology` 跳过）；`reclaim.Action.Execute`（`Queue.Reclaimable`、`Statement.Evict` / `Pipeline`）；`gangreclaim.AllowWholeBundleKey` |
-| | `pkg/scheduler/framework/statement.go` | `Statement.Allocate` / `Pipeline` / `Evict` / `Commit` / `Discard` |
-| | `pkg/scheduler/plugins/gang/gang.go` | `gangPlugin.OnSessionOpen`：`AddJobValidFn` / `AddJobReadyFn` / `AddJobPipelinedFn` / `AddJobOrderFn` / `AddJobStarvingFns` / `AddPreemptableFn` / `AddReclaimableFn`；`OnSessionClose` 写 `Unschedulable` |
-| | `pkg/scheduler/plugins/capacity/capacity.go` | `capacityPlugin.buildQueueAttrs`（`deserved` / `capability` / `guarantee` / `realCapability`）、`checkDeservedExceedance` |
-| | `pkg/scheduler/plugins/{priority,drf,binpack,proportion}` | `PluginName`；`binpack.weight` / `binpack.resources` |
-| | `pkg/scheduler/plugins/network-topology-aware/network_topology_aware.go` | `PluginName = network-topology-aware`；`AddHyperNodeGradientForJobFn`；参数 `weight`、`hypernode.binpack.*`、`hypernode.binpack.normal-pod.fading` |
-| | `pkg/scheduler/api/queue_info.go` | `QueueInfo.Reclaimable`（默认 true） |
-| | `pkg/controllers/job/job_controller_actions.go`；`pkg/controllers/podgroup/pg_controller_handler.go` | `createOrUpdatePodGroup`；Pod 无 group-name 注解时自动建 PodGroup |
-| | `pkg/controllers/job/plugins/` | `factory.go`（`ssh` / `env` / `svc` / `pytorch`）；`distributed-framework/pytorch/pytorch.go`（`MASTER_ADDR` / `MASTER_PORT` / `WORLD_SIZE` / `RANK`，`DefaultPort = 23456`）；`svc/svc.go`（headless Service、`Hostname` / `Subdomain`） |
-| | `installer/helm/chart/volcano/config/volcano-scheduler.conf`；`docs/design/capacity-scheduling.md`、`Network Topology Aware Scheduling.md`、`hyperNode-auto-discovery.md` | 默认 actions / tiers；三个配额语义的定义；HyperNode / tier 定义；拓扑发现 |
-| Kueue v0.19.2 | `apis/kueue/v1beta2/clusterqueue_types.go` | `ClusterQueueSpec.ResourceGroups` / `CohortName` / `QueueingStrategy` / `NamespaceSelector` / `FlavorFungibility` / `Preemption` / `AdmissionChecksStrategy` / `StopPolicy` / `FairSharing`；`ResourceQuota.NominalQuota` / `BorrowingLimit` / `LendingLimit`；`ClusterQueuePreemption.ReclaimWithinCohort` / `BorrowWithinCohort` / `WithinClusterQueue`；`StrictFIFO` / `BestEffortFIFO` |
-| | `apis/kueue/v1beta2/{resourceflavor,localqueue,cohort,workload,workloadpriorityclass,admissioncheck,provisioningrequestconfig,fairsharing}_types.go` | `ResourceFlavorSpec.NodeLabels` / `NodeTaints` / `Tolerations` / `TopologyName`；`LocalQueueSpec.ClusterQueue`；`CohortSpec.ParentName` / `ResourceGroups`；`WorkloadSpec.PodSets` / `QueueName` / `PriorityClassRef`；`PodSet.Count` / `MinCount` / `TopologyRequest`；`Admission.PodSetAssignments[].Flavors` / `TopologyAssignment`；condition `QuotaReserved` / `Admitted` / `Evicted` 与 reason `WaitingForQuota` / `NoMatchingFlavor` / `ExceedsMaxQuota` / `TopologyPlacementFailed` / `InCohortReclamation` / `InCohortReclaimWhileBorrowing`；`WorkloadPriorityClass.Value`；`AdmissionCheckSpec.ControllerName`；`ProvisioningRequestControllerName`；`ProvisioningRequestConfigSpec.ProvisioningClassName` / `ManagedResources` / `RetryStrategy`；`FairSharing.Weight` |
-| | `apis/kueue/v1beta2/topology_types.go`（存储版本）、`v1beta1/topology_types.go` | `TopologySpec.Levels[].NodeLabel`；`PodSetRequiredTopologyAnnotation` / `PodSetPreferredTopologyAnnotation` / `PodSetUnconstrainedTopologyAnnotation` / `PodSetSliceRequiredTopologyAnnotation` / `PodSetSliceSizeAnnotation` / `PodSetGroupName`；`TopologySchedulingGate`（`kueue.x-k8s.io/topology`） |
-| | `apis/config/v1beta2/configuration_types.go` | `Configuration.WaitForPodsReady`（`Timeout` / `BlockAdmission` / `RequeuingStrategy`）、`FairSharing.PreemptionStrategies`（`LessThanOrEqualToFinalShare` / `LessThanInitialShare`）、`Integrations.Frameworks`、`ManageJobsWithoutQueueName` |
-| | `pkg/controller/constants/constants.go` | `QueueLabel`（`kueue.x-k8s.io/queue-name`）、`WorkloadPriorityClassLabel`（`kueue.x-k8s.io/priority-class`） |
-| | `pkg/controller/jobframework/{interface,reconciler,workload_names}.go` | `GenericJob.IsSuspended` / `Suspend` / `Unsuspend` / `PodSets` / `RunWithPodSetsInfo`；`JobReconciler.ReconcileGenericJob` / `startJob` / `stopJob`；`GenerateWorkloadNamePrefix`、`hashLength` |
-| | `pkg/controller/jobs/trainjob/trainjob_controller.go`；`pkg/controller/jobs/{rayjob,raycluster}/` | `FrameworkName = trainer.kubeflow.org/trainjob`；`TrainJob.PodSets`（渲染 JobSet）、`RunWithPodSetsInfo`（`runtimePatches`，`kueue.x-k8s.io/manager`）；`ray.io/rayjob` / `ray.io/raycluster` |
-| | `pkg/scheduler/scheduler.go`、`flavorassigner/{flavorassigner,tas_flavorassigner}.go`、`preemption/preemption.go`、`pkg/cache/scheduler/tas_flavor_snapshot.go` | `Scheduler.schedule` / `nominate` / `processEntry`；`FlavorAssigner.Assign`；`Preemptor.GetTargets` / `IssuePreemptions`；TAS 域容量快照 |
-| | `site/content/en/docs/concepts/topology_aware_scheduling.md`、`site/static/examples/tas/sample-gpu-queues.yaml`、`docs/tasks/run/trainjobs.md` | TAS 定义、示例标签名、TrainJob 用法 |
-| Kubeflow Trainer v2.3.0 | `pkg/apis/trainer/v1alpha1/trainjob_types.go` | `TrainJobSpec.RuntimeRef` / `Trainer` / `Initializer` / `RuntimePatches` / `Suspend` / `ManagedBy`；`Trainer.Image` / `Command` / `Args` / `NumNodes` / `NumProcPerNode` / `ResourcesPerNode`；`RuntimePatch.Manager`；`PodSpecPatch.NodeSelector` / `Tolerations` / `SchedulingGates` |
-| | `pkg/apis/trainer/v1alpha1/trainingruntime_types.go` | `TrainingRuntimeSpec.MLPolicy` / `PodGroupPolicy` / `Template`（`JobSetTemplateSpec.Spec` = `jobsetv1alpha2.JobSetSpec`）；`PodGroupPolicySource.Coscheduling` / `Volcano`；`VolcanoPodGroupPolicySource.NetworkTopology`；`TorchMLPolicySource.EnvInjection` |
-| | `pkg/constants/constants.go` | `PET_NNODES` / `PET_NPROC_PER_NODE` / `PET_NODE_RANK` / `PET_MASTER_ADDR` / `PET_MASTER_PORT`；`ContainerTrainerPort = 29500`；`Node`；`LabelTrainJobAncestor` |
-| | `pkg/runtime/framework/plugins/torch/torch.go`、`jobset/jobset.go`、`volcano/volcano.go`、`coscheduling/coscheduling.go`；`pkg/runtime/core/trainingruntime.go` | `Torch.EnforceMLPolicy`；`JobSet.IdentifyPodNetwork`；`Volcano.Build` / `EnforcePodGroupPolicy`；`TrainingRuntime.newRuntimeInfo`（注解传播） |
-| | `manifests/base/runtimes/torch_distributed.yaml` | `torch-distributed` ClusterTrainingRuntime |
-| KubeRay v1.7.0 | `ray-operator/apis/ray/v1/{raycluster,rayjob}_types.go` | `RayClusterSpec.HeadGroupSpec` / `WorkerGroupSpecs` / `EnableInTreeAutoscaling` / `AutoscalerOptions` / `Suspend` / `ManagedBy`；`WorkerGroupSpec.Replicas` / `MinReplicas` / `MaxReplicas`；`RayJobSpec.RayClusterSpec` / `Entrypoint` / `SubmissionMode` / `Suspend` / `ShutdownAfterJobFinishes` |
-| | `ray-operator/main.go`；`controllers/ray/batchscheduler/volcano/volcano_scheduler.go`；`controllers/ray/utils/validation.go` | `--batch-scheduler`（`volcano` / `yunikorn` / `kai-scheduler`）；`QueueNameLabelKey`（`volcano.sh/queue-name`）、PodGroup `MinMember` 计算；`ValidateRayJobSpec` 的 Kueue 限制 |
+| Volcano v1.15.2 | `staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go` | `PodGroupSpec.MinMember` / `MinTaskMember` / `Queue` / `PriorityClassName` / `MinResources` / `NetworkTopology` / `SubGroupPolicy`<br/>`NetworkTopologySpec.Mode` / `HighestTierAllowed` / `HighestTierName`<br/>`PodGroupPhase`（`Pending` / `Inqueue` / `Running` / `Unknown` / `Completed`）<br/>`QueueSpec.Weight` / `Capability` / `Reclaimable` / `Guarantee` / `Deserved` / `Priority` / `Parent` / `DequeueStrategy` |
+|  | `scheduling/v1beta1/labels.go` | `KubeGroupNameAnnotationKey`（`scheduling.k8s.io/group-name`）、`QueueNameAnnotationKey`（`scheduling.volcano.sh/queue-name`）、`PodPreemptable`（`volcano.sh/preemptable`） |
+|  | `batch/v1alpha1/job.go`、`register.go` | `JobSpec.SchedulerName` / `MinAvailable` / `Tasks` / `Plugins` / `Policies` / `Queue` / `PriorityClassName` / `NetworkTopology`<br/>`TaskSpec.Replicas` / `MinAvailable` / `Template`<br/>`GroupName = batch.volcano.sh` |
+|  | `topology/v1alpha1/hypernode_types.go`、`labels.go` | `HyperNodeSpec.Tier` / `TierName` / `Members`<br/>`MemberSpec.Type` / `Selector`（`ExactMatch` / `RegexMatch` / `LabelMatch`）<br/>`volcano.sh/network-topology-mode` |
+|  | `pkg/scheduler/actions/{enqueue,allocate,preempt,reclaim,backfill,gangpreempt,gangreclaim,shuffle}` | `enqueue.Action.Execute`（`JobEnqueueable` → `PodGroupInqueue`）<br/>`allocate.Action.Execute` / `allocateForJob` / `selectBestHyperNodeForJob`<br/>`preempt.Action.Execute`（`JobStarving`、`ContainsNetworkTopology` 跳过）<br/>`reclaim.Action.Execute`（`Queue.Reclaimable`、`Statement.Evict` / `Pipeline`）<br/>`gangreclaim.AllowWholeBundleKey` |
+|  | `pkg/scheduler/framework/statement.go` | `Statement.Allocate` / `Pipeline` / `Evict` / `Commit` / `Discard` |
+|  | `pkg/scheduler/plugins/gang/gang.go` | `gangPlugin.OnSessionOpen`：`AddJobValidFn` / `AddJobReadyFn` / `AddJobPipelinedFn` / `AddJobOrderFn` / `AddJobStarvingFns` / `AddPreemptableFn` / `AddReclaimableFn`；`OnSessionClose` 写 `Unschedulable` |
+|  | `pkg/scheduler/plugins/capacity/capacity.go` | `capacityPlugin.buildQueueAttrs`（`deserved` / `capability` / `guarantee` / `realCapability`）、`checkDeservedExceedance` |
+|  | `pkg/scheduler/plugins/{priority,drf,binpack,proportion}` | `PluginName`；`binpack.weight` / `binpack.resources` |
+|  | `pkg/scheduler/plugins/network-topology-aware/network_topology_aware.go` | `PluginName = network-topology-aware`<br/>`AddHyperNodeGradientForJobFn`<br/>参数 `weight`、`hypernode.binpack.*`、`hypernode.binpack.normal-pod.fading` |
+|  | `pkg/scheduler/api/queue_info.go` | `QueueInfo.Reclaimable`（默认 true） |
+|  | `pkg/controllers/job/job_controller_actions.go`；`pkg/controllers/podgroup/pg_controller_handler.go` | `createOrUpdatePodGroup`；Pod 无 group-name 注解时自动建 PodGroup |
+|  | `pkg/controllers/job/plugins/` | `factory.go`（`ssh` / `env` / `svc` / `pytorch`）<br/>`distributed-framework/pytorch/pytorch.go`（`MASTER_ADDR` / `MASTER_PORT` / `WORLD_SIZE` / `RANK`，`DefaultPort = 23456`）<br/>`svc/svc.go`（headless Service、`Hostname` / `Subdomain`） |
+|  | `installer/helm/chart/volcano/config/volcano-scheduler.conf`；`docs/design/capacity-scheduling.md`、`Network Topology Aware Scheduling.md`、`hyperNode-auto-discovery.md` | 默认 actions / tiers<br/>三个配额语义的定义<br/>HyperNode / tier 定义<br/>拓扑发现 |
+| Kueue v0.19.2 | `apis/kueue/v1beta2/clusterqueue_types.go` | `ClusterQueueSpec.ResourceGroups` / `CohortName` / `QueueingStrategy` / `NamespaceSelector` / `FlavorFungibility` / `Preemption` / `AdmissionChecksStrategy` / `StopPolicy` / `FairSharing`<br/>`ResourceQuota.NominalQuota` / `BorrowingLimit` / `LendingLimit`<br/>`ClusterQueuePreemption.ReclaimWithinCohort` / `BorrowWithinCohort` / `WithinClusterQueue`<br/>`StrictFIFO` / `BestEffortFIFO` |
+|  | `apis/kueue/v1beta2/{resourceflavor,localqueue,cohort,workload,workloadpriorityclass,admissioncheck,provisioningrequestconfig,fairsharing}_types.go` | `ResourceFlavorSpec.NodeLabels` / `NodeTaints` / `Tolerations` / `TopologyName`<br/>`LocalQueueSpec.ClusterQueue`<br/>`CohortSpec.ParentName` / `ResourceGroups`<br/>`WorkloadSpec.PodSets` / `QueueName` / `PriorityClassRef`<br/>`PodSet.Count` / `MinCount` / `TopologyRequest`<br/>`Admission.PodSetAssignments[].Flavors` / `TopologyAssignment`<br/>condition `QuotaReserved` / `Admitted` / `Evicted` 与 reason `WaitingForQuota` / `NoMatchingFlavor` / `ExceedsMaxQuota` / `TopologyPlacementFailed` / `InCohortReclamation` / `InCohortReclaimWhileBorrowing`<br/>`WorkloadPriorityClass.Value`<br/>`AdmissionCheckSpec.ControllerName`<br/>`ProvisioningRequestControllerName`<br/>`ProvisioningRequestConfigSpec.ProvisioningClassName` / `ManagedResources` / `RetryStrategy`<br/>`FairSharing.Weight` |
+|  | `apis/kueue/v1beta2/topology_types.go`（存储版本）、`v1beta1/topology_types.go` | `TopologySpec.Levels[].NodeLabel`<br/>`PodSetRequiredTopologyAnnotation` / `PodSetPreferredTopologyAnnotation` / `PodSetUnconstrainedTopologyAnnotation` / `PodSetSliceRequiredTopologyAnnotation` / `PodSetSliceSizeAnnotation` / `PodSetGroupName`<br/>`TopologySchedulingGate`（`kueue.x-k8s.io/topology`） |
+|  | `apis/config/v1beta2/configuration_types.go` | `Configuration.WaitForPodsReady`（`Timeout` / `BlockAdmission` / `RequeuingStrategy`）、`FairSharing.PreemptionStrategies`（`LessThanOrEqualToFinalShare` / `LessThanInitialShare`）、`Integrations.Frameworks`、`ManageJobsWithoutQueueName` |
+|  | `pkg/controller/constants/constants.go` | `QueueLabel`（`kueue.x-k8s.io/queue-name`）、`WorkloadPriorityClassLabel`（`kueue.x-k8s.io/priority-class`） |
+|  | `pkg/controller/jobframework/{interface,reconciler,workload_names}.go` | `GenericJob.IsSuspended` / `Suspend` / `Unsuspend` / `PodSets` / `RunWithPodSetsInfo`<br/>`JobReconciler.ReconcileGenericJob` / `startJob` / `stopJob`<br/>`GenerateWorkloadNamePrefix`、`hashLength` |
+|  | `pkg/controller/jobs/trainjob/trainjob_controller.go`；`pkg/controller/jobs/{rayjob,raycluster}/` | `FrameworkName = trainer.kubeflow.org/trainjob`<br/>`TrainJob.PodSets`（渲染 JobSet）、`RunWithPodSetsInfo`（`runtimePatches`，`kueue.x-k8s.io/manager`）<br/>`ray.io/rayjob` / `ray.io/raycluster` |
+|  | `pkg/scheduler/scheduler.go`、`flavorassigner/{flavorassigner,tas_flavorassigner}.go`、`preemption/preemption.go`、`pkg/cache/scheduler/tas_flavor_snapshot.go` | `Scheduler.schedule` / `nominate` / `processEntry`<br/>`FlavorAssigner.Assign`<br/>`Preemptor.GetTargets` / `IssuePreemptions`<br/>TAS 域容量快照 |
+|  | `site/content/en/docs/concepts/topology_aware_scheduling.md`、`site/static/examples/tas/sample-gpu-queues.yaml`、`docs/tasks/run/trainjobs.md` | TAS 定义、示例标签名、TrainJob 用法 |
+| Kubeflow Trainer v2.3.0 | `pkg/apis/trainer/v1alpha1/trainjob_types.go` | `TrainJobSpec.RuntimeRef` / `Trainer` / `Initializer` / `RuntimePatches` / `Suspend` / `ManagedBy`<br/>`Trainer.Image` / `Command` / `Args` / `NumNodes` / `NumProcPerNode` / `ResourcesPerNode`<br/>`RuntimePatch.Manager`<br/>`PodSpecPatch.NodeSelector` / `Tolerations` / `SchedulingGates` |
+|  | `pkg/apis/trainer/v1alpha1/trainingruntime_types.go` | `TrainingRuntimeSpec.MLPolicy` / `PodGroupPolicy` / `Template`（`JobSetTemplateSpec.Spec` = `jobsetv1alpha2.JobSetSpec`）<br/>`PodGroupPolicySource.Coscheduling` / `Volcano`<br/>`VolcanoPodGroupPolicySource.NetworkTopology`<br/>`TorchMLPolicySource.EnvInjection` |
+|  | `pkg/constants/constants.go` | `PET_NNODES` / `PET_NPROC_PER_NODE` / `PET_NODE_RANK` / `PET_MASTER_ADDR` / `PET_MASTER_PORT`<br/>`ContainerTrainerPort = 29500`<br/>`Node`<br/>`LabelTrainJobAncestor` |
+|  | `pkg/runtime/framework/plugins/torch/torch.go`、`jobset/jobset.go`、`volcano/volcano.go`、`coscheduling/coscheduling.go`；`pkg/runtime/core/trainingruntime.go` | `Torch.EnforceMLPolicy`<br/>`JobSet.IdentifyPodNetwork`<br/>`Volcano.Build` / `EnforcePodGroupPolicy`<br/>`TrainingRuntime.newRuntimeInfo`（注解传播） |
+|  | `manifests/base/runtimes/torch_distributed.yaml` | `torch-distributed` ClusterTrainingRuntime |
+| KubeRay v1.7.0 | `ray-operator/apis/ray/v1/{raycluster,rayjob}_types.go` | `RayClusterSpec.HeadGroupSpec` / `WorkerGroupSpecs` / `EnableInTreeAutoscaling` / `AutoscalerOptions` / `Suspend` / `ManagedBy`<br/>`WorkerGroupSpec.Replicas` / `MinReplicas` / `MaxReplicas`<br/>`RayJobSpec.RayClusterSpec` / `Entrypoint` / `SubmissionMode` / `Suspend` / `ShutdownAfterJobFinishes` |
+|  | `ray-operator/main.go`<br/>`controllers/ray/batchscheduler/volcano/volcano_scheduler.go`<br/>`controllers/ray/utils/validation.go` | `--batch-scheduler`（`volcano` / `yunikorn` / `kai-scheduler`）<br/>`QueueNameLabelKey`（`volcano.sh/queue-name`）、PodGroup `MinMember` 计算<br/>`ValidateRayJobSpec` 的 Kueue 限制 |
 | Slinky slurm-operator v1.2.2 | `api/v1beta1/groupversion_info.go`、`{controller,nodeset,loginset,accounting,restapi,token}_types.go` | `slinky.slurm.net/v1beta1`；`NodeSetSpec.Replicas` / `ScalingMode` / `Partition.Enabled` / `Partition.Config` |
-| | `docs/concepts/architecture.md`、`docs/usage/{tutorial-pytorch,topology,autoscaling}.md`、`docs/versioning.md` | 架构；`sbatch` 用法；`topology.slinky.slurm.net/spec` 注解；KEDA 扩缩；`slurm-bridge` 的存在 |
-| Kubernetes v1.37.0 | `pkg/scheduler/framework/plugins/noderesources/fit.go`；`dynamicresources/dynamicresources.go`；`CHANGELOG/CHANGELOG-1.37.md` | `Fit.Filter` / `Score` / `ScorePlacement`；`DynamicResources.Filter` / `Reserve` / `PreBind`；WAS：`scheduling.k8s.io/v1beta1` `Workload` / `PodGroup`、`GenericWorkload` gate、`PodGroupPostFilter` / `PlacementFeasible` |
+|  | `docs/concepts/architecture.md`、`docs/usage/{tutorial-pytorch,topology,autoscaling}.md`、`docs/versioning.md` | 架构<br/>`sbatch` 用法<br/>`topology.slinky.slurm.net/spec` 注解<br/>KEDA 扩缩<br/>`slurm-bridge` 的存在 |
+| Kubernetes v1.37.0 | `pkg/scheduler/framework/plugins/noderesources/fit.go`<br/>`dynamicresources/dynamicresources.go`<br/>`CHANGELOG/CHANGELOG-1.37.md` | `Fit.Filter` / `Score` / `ScorePlacement`<br/>`DynamicResources.Filter` / `Reserve` / `PreBind`<br/>WAS：`scheduling.k8s.io/v1beta1` `Workload` / `PodGroup`、`GenericWorkload` gate、`PodGroupPostFilter` / `PlacementFeasible` |
 | PyTorch v2.13.0 | `torch/distributed/argparse_util.py`、`run.py` | `PET_<dest>` 环境变量作为 torchrun 参数默认值 |
 | k8s-device-plugin v0.20.0 | `internal/lm/imex.go` | `nvidia.com/gpu.clique` 标签 |
 

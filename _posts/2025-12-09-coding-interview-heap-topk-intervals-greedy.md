@@ -387,7 +387,7 @@ static int jump(int[] nums) {
 | 最大堆 | 存负数；或元组第一项取负 | `new PriorityQueue<>(Collections.reverseOrder())` 或 `(a, b) -> b - a`（小心溢出） |
 | 堆里放复合元素 | 元组 `(key, tiebreak, payload)`，`payload` 可能不可比较时必须有 `tiebreak` | `PriorityQueue<int[]>` 传比较器；对象实现 `Comparable` |
 | 替换堆顶 | `heapreplace`（先弹后推）、`heappushpop`（先推后弹） | 只能 `poll()` + `offer()` |
-| 排序自定义键 | `sort(key=lambda x: x[1])`；`sort()` 稳定 | `Arrays.sort(a, (x, y) -> Integer.compare(x[1], y[1]))`；**别写 `x[1] - y[1]`**（溢出）；对象数组排序稳定，基本类型不稳定 |
+| 排序自定义键 | `sort(key=lambda x: x[1])`；`sort()` 稳定 | `Arrays.sort(a, (x, y) -> Integer.compare(x[1], y[1]))`<br/>**别写 `x[1] - y[1]`**（溢出）<br/>对象数组排序稳定，基本类型不稳定 |
 | 区间列表转数组 | 直接返回 `list` | `out.toArray(new int[0][])` |
 | 随机数 | `random.randint(lo, hi)` 闭区间 | `rnd.nextInt(hi - lo + 1) + lo` |
 | `Counter.most_common(k)` | 有，$$O(n \log k)$$ | 没有等价物，自己用堆 |

@@ -80,19 +80,36 @@ Table: 六种手段逐项叠加的账
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 三段的 offload | 三段不必同时在卡；模型级 / 顺序 / 分组 offload；DiT 逐层预取与它的两面；文本编码器放哪 |
-| 三 | attention 后端 | FA2 / FA3 / SDPA / xformers 在 $$N = 4608$$ 上的差别；SageAttention 的 8-bit Q·K 为什么扩散能容忍 |
-| 四 | 编译与 CUDA graph | eager 的时间去哪了；`torch.compile` 的收益与代价；动态分辨率；breakable CUDA graph |
-| 五 | 量化 | FP8 W8A8；SVDQuant / Nunchaku 的 W4A4；NVFP4；为什么图像对 W4 更敏感、怎么评 |
-| 六 | 融合 kernel | adaLN、QK-norm + RoPE、GELU epilogue、packed QKV——引擎的"fast path" |
-| 七 | VAE | 解码峰值的来源；tiling / slicing；视频 3D VAE 的时间分块；fp32 还是 bf16 |
-| 八 | 叠加顺序与收益表 | 无损先、有损后；FLUX 与 Wan 的两张表；三个引擎的对照 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、三段的 offload**
+  - 三段不必同时在卡
+  - 模型级 / 顺序 / 分组 offload
+  - DiT 逐层预取与它的两面
+  - 文本编码器放哪
+- **三、attention 后端**
+  - FA2 / FA3 / SDPA / xformers 在 $$N = 4608$$ 上的差别
+  - SageAttention 的 8-bit Q·K 为什么扩散能容忍
+- **四、编译与 CUDA graph**
+  - eager 的时间去哪了
+  - `torch.compile` 的收益与代价
+  - 动态分辨率
+  - breakable CUDA graph
+- **五、量化**
+  - FP8 W8A8
+  - SVDQuant / Nunchaku 的 W4A4
+  - NVFP4
+  - 为什么图像对 W4 更敏感、怎么评
+- **六、融合 kernel**：adaLN、QK-norm + RoPE、GELU epilogue、packed QKV——引擎的"fast path"
+- **七、VAE**
+  - 解码峰值的来源
+  - tiling / slicing
+  - 视频 3D VAE 的时间分块
+  - fp32 还是 bf16
+- **八、叠加顺序与收益表**
+  - 无损先、有损后
+  - FLUX 与 Wan 的两张表
+  - 三个引擎的对照
+- **九、本文小结**
+- **十、自测**：5 道题
 
 ## 二、三段的 offload：装下
 
@@ -398,9 +415,9 @@ Table: 单卡优化机制在四个引擎里的实现对照
 | 无损先、有损后 | 装下 → 算快 → FP8 / Sage → INT4 / 缓存 / 稀疏 | 每步对固定 seed 基线测 PSNR |
 | offload | 三段不必同时在卡；逐层预取的收益 = 每层计算 / 搬运 | 模型级 +1.3 s / 次；逐层：Wan 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms） |
 | 文本编码器 | 只跑一次、4 MiB 输出：offload / 独立 stage / embedding 缓存 | T5-XXL 9 GiB |
-| attention 后端 | FA3 比 FA2 快 1.5–2×；图像占 20% → 端到端 5–10%；视频是主项 | SageAttention INT8 Q·K 有损、扩散可容忍 |
+| attention 后端 | FA3 比 FA2 快 1.5–2×<br/>图像占 20% → 端到端 5–10%<br/>视频是主项 | SageAttention INT8 Q·K 有损、扩散可容忍 |
 | 编译 | 形状固定 + 每步相同 = 理想负载；eager 一半时间在小算子 | 6.71 → 4.30 s（1.56×）；漂移 SSIM 0.98 |
-| CUDA graph | 消 launch 开销；扩散一步计算长、收益小于编译；小模型 / 多卡 / 少步时重要 | Qwen-Image BCG 125 → 83 ms |
+| CUDA graph | 消 launch 开销<br/>扩散一步计算长、收益小于编译<br/>小模型 / 多卡 / 少步时重要 | Qwen-Image BCG 125 → 83 ms |
 | 量化 | 收益来自 Tensor Core 峰值，不来自字节 | FP8 GEMM 2× → 端到端 1.3–1.5×；Hopper 无 INT4 |
 | SVDQuant | 低秩分支吸收离群值 + Nunchaku 融合 kernel | FLUX 22 → 6.5 GiB；4090 上 3× vs W4A16 |
 | 评测 | 对基线图的 PSNR / SSIM / LPIPS，不是困惑度 | > 35 不可见，30–35 细看可见 |

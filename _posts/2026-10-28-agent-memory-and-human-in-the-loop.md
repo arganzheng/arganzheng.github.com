@@ -106,7 +106,7 @@ flowchart LR
 
 | 实现 | 形态 | 谁驱动 | 上限与遗忘 | 特点 |
 |---|---|---|---|---|
-| Anthropic memory tool | 模型可读写的文件式记忆目录（`/memories`） | 模型（判断值得记就写文件） | 由应用实现的后端决定 | 与 context editing、compaction 并列为 API 的三个上下文管理原语；cookbook 的研究 agent 例子：Session 2 从 Session 1 的记忆接着做；应用要引导"写什么到 `/memories`" |
+| Anthropic memory tool | 模型可读写的文件式记忆目录（`/memories`） | 模型（判断值得记就写文件） | 由应用实现的后端决定 | 与 context editing、compaction 并列为 API 的三个上下文管理原语<br/>cookbook 的研究 agent 例子：Session 2 从 Session 1 的记忆接着做<br/>应用要引导"写什么到 `/memories`" |
 | Claude Code 自动记忆 | 会话中自动记录的项目相关事实 | 运行时 | **前 200 行或 25 KB**；压缩后从磁盘重注入 | 与 CLAUDE.md（人维护）分层：自动记忆是机器写的、CLAUDE.md 是人写的 |
 | Codex `memories` crate | 记忆的存储与注入 | 运行时 / 模型 | 受"无 >10K token 的项"审查规则约束 | 与 `agents_md` 并列作为常驻上下文的来源 |
 | DeepSeek Harness `goal` / `schedule` | 会话目标 + 定时跟进 | 模型 / 运行时 | 作为会话事件进日志（"模型可见 ⟺ 已记录"） | 偏向"任务状态的持久化"而不是"用户画像"；`storage` 包组提供非会话存储 |

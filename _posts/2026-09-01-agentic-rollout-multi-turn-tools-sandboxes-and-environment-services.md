@@ -347,7 +347,7 @@ $$\frac{\text{rollout 卡数}}{\text{训练卡数}} = \frac{T_{gen+prefill}}{T_{
 | LLMServerClient | workers/rollout/llm_server.py | 首轮最空实例、之后粘性；FullyAsyncLLMServerClient 带重试（abort 后重提） |
 | AsyncLLMServer | vllm_rollout/vllm_async_server.py · sglang_rollout/ | chat_completion（OpenAI）与 generate（token in/out）两个接口 |
 | Continuous Token | utils/tokenizer/continuous_token_wiring.py | 轮边界的 token 连续性 builder，按模型家族；默认关 |
-| RewardLoopManager / Worker | workers/reward_manager/ · docs/advance/reward_loop.rst | 规则 / 沙箱 / 生成式 RM 同一接口；num_workers 并行；RM 独立池或共置 |
+| RewardLoopManager / Worker | workers/reward_manager/ · docs/advance/reward_loop.rst | 规则 / 沙箱 / 生成式 RM 同一接口<br/>num_workers 并行<br/>RM 独立池或共置 |
 | uni-agent | 独立仓库 verl-project/uni-agent | 网关 + 会话记录 + 轨迹重建；1000+ 并发会话 |
 | 工具定义 | rollout.multi_turn.tool_config_path | OpenAI function schema；工具实现继承 BaseTool（create / execute / calc_reward / release） |
 

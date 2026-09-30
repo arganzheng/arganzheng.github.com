@@ -28,18 +28,19 @@ updated: 2026-09-14
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 控制面与数据面的分离 | Python 控制面 vs C++/CUDA 数据面；为什么要解耦；PyBind11 与 Triton |
-| 三 | 四个域 | 请求域、调度域、显存域、模型域：给源码里的每个对象定位 |
-| 四 | 请求状态机 | RequestStatus 状态机；Scheduler 的统一 token 预算决策 |
-| 五 | 翻译层 | SchedulerOutput 如何变成 GPU 张量：`slot_mapping` 与 `block_table` |
-| 六 | 从请求到 GPU Kernel 的完整调用链 | 十个环节与三道边界 |
-| 七 | 附录：各环节耗时量级 | Llama-2-7B / A100 单卡口径下的耗时表与 batch 摊薄效应 |
-| 八 | 本文小结 | 同一个请求的五笔账 |
-| 九 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、控制面与数据面的分离**
+  - Python 控制面 vs C++/CUDA 数据面
+  - 为什么要解耦
+  - PyBind11 与 Triton
+- **三、四个域**：请求域、调度域、显存域、模型域：给源码里的每个对象定位
+- **四、请求状态机**
+  - RequestStatus 状态机
+  - Scheduler 的统一 token 预算决策
+- **五、翻译层**：SchedulerOutput 如何变成 GPU 张量：`slot_mapping` 与 `block_table`
+- **六、从请求到 GPU Kernel 的完整调用链**：十个环节与三道边界
+- **七、附录：各环节耗时量级**：Llama-2-7B / A100 单卡口径下的耗时表与 batch 摊薄效应
+- **八、本文小结**：同一个请求的五笔账
+- **九、自测**：5 道题
 
 ## 二、控制面与数据面的分离
 
@@ -329,7 +330,7 @@ Table: SchedulerOutput 的字段
 | 步骤 | 做什么 | 细节 |
 |---|---|---|
 | ① `InputBatch` 构造 | 按 scheduled tokens 扁平化成一条 token_id 序列 | Req A（已缓存 256、新推 256）→ 追加 256 个<br/>Req B（decode）→ 追加 1 个<br/>Req C（spec decode）→ 追加 1+N 个 |
-| ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写；已有块追加到尾部；**Prefix Cache 命中的 token 不写，直接复用** |
+| ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写<br/>已有块追加到尾部<br/>**Prefix Cache 命中的 token 不写，直接复用** |
 | ③ attention metadata | 告诉 kernel 每个请求能读哪些块 | `block_table`（per req）、`query_lens` / `kv_lens` / `is_prompt` / spec flags |
 | ④ 执行模式选择 | 决定走 Graph 还是 Eager | 纯 decode 且 size 匹配 → CUDA Graph replay；含 prefill / mixed / size 不匹配 → Eager |
 

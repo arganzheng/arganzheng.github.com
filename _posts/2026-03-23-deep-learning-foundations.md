@@ -247,10 +247,10 @@ Table: 贯穿六篇的三条线索
 
 | 篇 | 框架里加的东西 |
 |---|---|
-| 第一篇 | Linear · ReLU · softmax-CE 的前向与反向；梯度检查；FLOPs 计数 |
-| 第二篇 | 深层堆叠；Kaiming 初始化；LayerNorm / RMSNorm；残差块；逐层方差与梯度范数统计 |
-| 第三篇 | SGD · Momentum · Adam · AdamW；学习率调度；梯度裁剪 |
-| 第四篇 | dropout；weight decay；训练 - 验证曲线；宽度扫描 |
+| 第一篇 | Linear · ReLU · softmax-CE 的前向与反向<br/>梯度检查<br/>FLOPs 计数 |
+| 第二篇 | 深层堆叠<br/>Kaiming 初始化<br/>LayerNorm / RMSNorm<br/>残差块<br/>逐层方差与梯度范数统计 |
+| 第三篇 | SGD · Momentum · Adam · AdamW<br/>学习率调度<br/>梯度裁剪 |
+| 第四篇 | dropout<br/>weight decay<br/>训练 - 验证曲线<br/>宽度扫描 |
 | 第五篇 | Conv2d 与它的全连接等价形式；patch embedding（PyTorch 对照 CIFAR-10） |
 | 第六篇 | RNN 单元 · LSTM 单元 · BPTT；Bahdanau attention |
 | 案例脚本 | `case_01` … `case_06`：训练曲线、逐层统计、学习率扫描、double descent、LeNet-5、字符级 LSTM 与对齐矩阵的图；`tools/paper_figures.py` 从原论文 PDF 裁结构图 |

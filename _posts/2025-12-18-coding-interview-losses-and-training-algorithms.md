@@ -261,7 +261,7 @@ class LoRALinear:
 | Adam 的 $$\epsilon$$ 有什么用？ | 防除零、也决定小梯度参数的有效学习率；bf16 训练里常调大到 $$10^{-6}$$ |
 | 为什么 LLM 训练 weight decay 只加在矩阵上？ | bias、LayerNorm 的 $$\gamma$$、embedding 通常不衰减；衰减它们没有正则意义且会伤性能 |
 | warmup 多长？ | 预训练常 1–2% 总步数；微调几十到几百步 |
-| LoRA 加在哪些矩阵上？ | 最初只 $$W_q, W_v$$；后来发现全部线性层（含 FFN）效果更好；$$r$$ 8–64 |
+| LoRA 加在哪些矩阵上？ | 最初只 $$W_q, W_v$$<br/>后来发现全部线性层（含 FFN）效果更好<br/>$$r$$ 8–64 |
 | QLoRA 是什么？ | 冻结权重量化到 4 bit（NF4）、LoRA 在 bf16 上训练，前向时反量化 |
 | 梯度累积与 batch size 的关系？ | 累积 $$k$$ 步等价于 batch × $$k$$（loss 要除 $$k$$）；BatchNorm 除外 |
 

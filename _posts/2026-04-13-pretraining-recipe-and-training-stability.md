@@ -131,8 +131,8 @@ Table: 405B 训练的典型一天
 
 | 组 | 决定 | 公开配方的取值范围 | 依据 |
 |---|---|---|---|
-| 目标 | next-token 交叉熵；是否加 MTP；代码是否加 FIM；文档打包时是否跨文档 attention | MTP 权重 0.3 → 0.1（DeepSeek-V3）；代码 FIM 率 50%；Llama 3 掩码跨文档，DeepSeek 不掩 | 第三章 |
-| 优化 | AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、clip 1.0；峰值 lr；batch 与其增长；warmup；调度形状 | lr 6e-5 到 3e-4，随模型变大而变小；batch 3M 到 63M token，训练中增大；warmup 0.4–0.9% 的步数；cosine → 10% 或 WSD | 第三、四章 |
+| 目标 | next-token 交叉熵<br/>是否加 MTP<br/>代码是否加 FIM<br/>文档打包时是否跨文档 attention | MTP 权重 0.3 → 0.1（DeepSeek-V3）<br/>代码 FIM 率 50%<br/>Llama 3 掩码跨文档，DeepSeek 不掩 | 第三章 |
+| 优化 | AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、clip 1.0<br/>峰值 lr<br/>batch 与其增长<br/>warmup<br/>调度形状 | lr 6e-5 到 3e-4，随模型变大而变小<br/>batch 3M 到 63M token，训练中增大<br/>warmup 0.4–0.9% 的步数<br/>cosine → 10% 或 WSD | 第三、四章 |
 | 稳定 | QK-norm、z-loss、初始化、weight decay 的排除项、Adam 的 $$\epsilon$$、spike 的处理流程 | 2024 年后 QK-norm 成为默认；z-loss $$10^{-4}$$ | 第六章 |
 
 Table: 预训练配方的三组决定
@@ -141,9 +141,9 @@ Table: 预训练配方的三组决定
 
 | 机制 | 监控什么 | 现象 | 开关 |
 |---|---|---|---|
-| attention logit 增长 | $$\max \lvert q \cdot k \rvert / \sqrt{d_{head}}$$ | logit 到几十上百，softmax 饱和成 one-hot，这一头的梯度归零，loss 先变差再尖峰 | QK-norm（Q、K 各过一个 norm）；Gemma 2 的 soft-cap；Kimi K2 的 QK-Clip |
+| attention logit 增长 | $$\max \lvert q \cdot k \rvert / \sqrt{d_{head}}$$ | logit 到几十上百，softmax 饱和成 one-hot，这一头的梯度归零，loss 先变差再尖峰 | QK-norm（Q、K 各过一个 norm）<br/>Gemma 2 的 soft-cap<br/>Kimi K2 的 QK-Clip |
 | 输出 logit 漂移 | $$\lvert \log Z \rvert$$（lm_head 的 logsumexp） | 归一化常数自由漂移，logits 整体变大，低精度下溢出 | z-loss $$10^{-4} \log^2 Z$$ |
-| 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪；warmup；较小的 $$\beta_2$$；回滚并跳过 batch |
+| 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪<br/>warmup<br/>较小的 $$\beta_2$$<br/>回滚并跳过 batch |
 
 Table: 训练稳定性的三个机制、监控量与开关
 
@@ -155,20 +155,39 @@ DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 一 | 先讲明白 | 配方就是那十几个数（MacBook 与 405B 的同一张表）；学习率调坏了长什么样（四条曲线）；一次真实训练里的小 spike 放大看；spike 的解剖——三条曲线同步看、QK-norm；z-loss；405B 训练的一天 |
-| 三 | 目标函数 | 交叉熵与它的单位和梯度；MTP；FIM；文档打包与跨文档 attention |
-| 四 | 优化器与超参 | AdamW 的四个数与 Muon；batch 与梯度噪声尺度、硬件给的下界；峰值 lr 随规模；DeepSeek 的经验律；$$\mu$$P 的规则表；weight decay 的时间尺度；warmup |
-| 五 | 调度 | cosine、WSD、DeepSeek-V3 的四段；衰减段的形状与长度；为什么中途的 loss 不可比；退火 |
-| 六 | 稳定性 | 三个机制、六个开关、norm 的位置、spike 的处理与代价、硬件故障与 checkpoint 间隔、低精度 |
-| 七 | 长上下文继续预训练 | Llama 3 的六步与 DeepSeek-V3 的两步；attention 占比与并行 |
-| 八 | 监控 | 该看的七条曲线与它们的含义 |
-| 九 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **一、先讲明白**
+  - 配方就是那十几个数（MacBook 与 405B 的同一张表）
+  - 学习率调坏了长什么样（四条曲线）
+  - 一次真实训练里的小 spike 放大看
+  - spike 的解剖——三条曲线同步看、QK-norm
+  - z-loss
+  - 405B 训练的一天
+- **三、目标函数**
+  - 交叉熵与它的单位和梯度
+  - MTP
+  - FIM
+  - 文档打包与跨文档 attention
+- **四、优化器与超参**
+  - AdamW 的四个数与 Muon
+  - batch 与梯度噪声尺度、硬件给的下界
+  - 峰值 lr 随规模
+  - DeepSeek 的经验律
+  - $$\mu$$P 的规则表
+  - weight decay 的时间尺度
+  - warmup
+- **五、调度**
+  - cosine、WSD、DeepSeek-V3 的四段
+  - 衰减段的形状与长度
+  - 为什么中途的 loss 不可比
+  - 退火
+- **六、稳定性**：三个机制、六个开关、norm 的位置、spike 的处理与代价、硬件故障与 checkpoint 间隔、低精度
+- **七、长上下文继续预训练**
+  - Llama 3 的六步与 DeepSeek-V3 的两步
+  - attention 占比与并行
+- **八、监控**：该看的七条曲线与它们的含义
+- **九、实践**：`training_recipe_lab.py`、`llm_cost_12_recipe.py`
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 三、目标函数
 
@@ -442,7 +461,7 @@ Table: Llama 3 405B 与 DeepSeek-V3 的长上下文继续预训练
 
 | 曲线 | 正常形态 | 异常与含义 |
 |---|---|---|
-| 训练 loss | 平滑下降，对数坐标下近似直线 | 尖峰：spike；平台：lr 太小或数据重复；周期性波动：数据顺序有结构 |
+| 训练 loss | 平滑下降，对数坐标下近似直线 | 尖峰：spike<br/>平台：lr 太小或数据重复<br/>周期性波动：数据顺序有结构 |
 | loss 与 scaling 预测的差 | 在预测曲线 ±0.01 内 | 持续偏高：数据管线或数值问题（第三篇第六章） |
 | 梯度范数 | warmup 后下降，然后缓慢平稳 | 持续上升：预警，通常先于 loss spike；突然的尖峰：坏 batch 或 SDC |
 | 参数范数 | 缓慢增长后被 weight decay 平衡 | 持续增长：wd 太小或没作用在该组参数上 |

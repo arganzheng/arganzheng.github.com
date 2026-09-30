@@ -82,20 +82,25 @@ Table: 双向 Wan 与自回归视频的账
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 少步的账 | 步数蒸馏与 guidance 蒸馏的系统含义；FLUX、Wan（FastWan）的账；固定开销 |
-| 三 | 失效与不变 | 逐项复核前五篇的优化 |
-| 四 | 少步下的新形态 | 固定开销、CUDA graph、批处理何时有意义、多卡的意义从延迟变为吞吐 |
-| 五 | 实时交互 | StreamDiffusion 的 stream batch；交互式图像生成的延迟结构 |
-| 六 | 自回归视频 | 双向 → 因果：CausVid、Self-Forcing、Causal Forcing；chunk 与 KV cache |
-| 七 | KV cache 的回归 | 每 chunk 的字节数、滑动窗口、长视频的误差累积、KV 量化 |
-| 八 | 服务形态：从批任务到会话 | 流式输出、会话状态、交互式世界模型；08 系列的哪些回来了 |
-| 九 | 实现对照与实践 | 三个引擎的 causal pipeline 与 KV 组件 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、少步的账**
+  - 步数蒸馏与 guidance 蒸馏的系统含义
+  - FLUX、Wan（FastWan）的账
+  - 固定开销
+- **三、失效与不变**：逐项复核前五篇的优化
+- **四、少步下的新形态**：固定开销、CUDA graph、批处理何时有意义、多卡的意义从延迟变为吞吐
+- **五、实时交互**
+  - StreamDiffusion 的 stream batch
+  - 交互式图像生成的延迟结构
+- **六、自回归视频**
+  - 双向 → 因果：CausVid、Self-Forcing、Causal Forcing
+  - chunk 与 KV cache
+- **七、KV cache 的回归**：每 chunk 的字节数、滑动窗口、长视频的误差累积、KV 量化
+- **八、服务形态：从批任务到会话**
+  - 流式输出、会话状态、交互式世界模型
+  - 08 系列的哪些回来了
+- **九、实现对照与实践**：三个引擎的 causal pipeline 与 KV 组件
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、少步的账
 
@@ -221,8 +226,8 @@ Wan / HunyuanVideo 的 DiT 是**双向**的：每个 token 看全部帧，包括
 
 | 工作 | 年 | 底座 | 方法 | 结果 |
 |---|---|---|---|---|
-| **CausVid** | 2024.12 | 双向 DiT（Wan 一类） | 把双向教师改成因果学生：先用教师的 ODE 轨迹初始化学生，再用 DMD（分布匹配蒸馏）以双向教师监督因果学生（"非对称蒸馏"）；4 步；chunk 级 KV cache | VBench-Long 84.27；单卡 9.4 fps 流式；支持 I2V、流式 V2V、动态改 prompt |
-| **Self-Forcing** | 2025.06 | Wan2.1-1.3B | 训练时按**推理的方式**自回归 rollout（用自己生成的前 chunk 作条件、带 KV cache），消掉 teacher-forcing 与推理的分布差（exposure bias）；整段视频级的损失；**rolling KV cache** 支持无限延长；数据无关（不需要视频数据） | 单卡实时流式，首 chunk 亚秒；质量匹配慢得多的双向模型 |
+| **CausVid** | 2024.12 | 双向 DiT（Wan 一类） | 把双向教师改成因果学生：先用教师的 ODE 轨迹初始化学生，再用 DMD（分布匹配蒸馏）以双向教师监督因果学生（"非对称蒸馏"）<br/>4 步<br/>chunk 级 KV cache | VBench-Long 84.27<br/>单卡 9.4 fps 流式<br/>支持 I2V、流式 V2V、动态改 prompt |
+| **Self-Forcing** | 2025.06 | Wan2.1-1.3B | 训练时按**推理的方式**自回归 rollout（用自己生成的前 chunk 作条件、带 KV cache），消掉 teacher-forcing 与推理的分布差（exposure bias）<br/>整段视频级的损失<br/>**rolling KV cache** 支持无限延长<br/>数据无关（不需要视频数据） | 单卡实时流式，首 chunk 亚秒；质量匹配慢得多的双向模型 |
 | **Causal Forcing** | 2025 | 同 | 指出 Self-Forcing 用双向教师做 ODE 初始化的理论问题，先把双向底座微调成因果扩散模型再作教师 | 质量与运动优于 Self-Forcing，同样实时 |
 | **LingBot World / 世界模型一类** | 2026 | 因果 DMD | 交互式：每 chunk 接收动作 / 相机控制信号 | SGLang 有专门的 causal DMD pipeline 与 realtime 会话 |
 
@@ -331,7 +336,7 @@ Table: 少步与自回归视频在四个引擎里的实现对照
 
 | 项 | 规则 | 数字 |
 |---|---|---|
-| 步数是最大的乘数 | 采样器 2×；步数蒸馏 7–25×；guidance 蒸馏 2× | FLUX dev → schnell：DiT 2.08 P → 0.30 P，4.7 s → 0.67 s |
+| 步数是最大的乘数 | 采样器 2×<br/>步数蒸馏 7–25×<br/>guidance 蒸馏 2× | FLUX dev → schnell：DiT 2.08 P → 0.30 P，4.7 s → 0.67 s |
 | 失效 | 依赖"相邻步相似"的：跨步缓存、PipeFusion、DistriFusion；依赖 CFG 的：CFG 并行、CFG gating | schnell 上缓存零命中 |
 | 不变 | attention 后端、编译、量化、稀疏 attention、SP、Parallel VAE | 编译与 CUDA graph 更重要 |
 | 浮出来的 | 文本编码器 + VAE、launch 与 Python 开销 | 2.6% → 15.6%；SD3-Turbo 47% |
@@ -339,7 +344,7 @@ Table: 少步与自回归视频在四个引擎里的实现对照
 | 多卡 | 少步模型默认 DP（吞吐）；SP 留给高分辨率与视频 | xDiT schnell 8×A100 1024² 0.82 s |
 | StreamDiffusion | stream batch（不同步的帧拼 batch）、residual CFG、相似性过滤、tiny VAE | 4090 SD-Turbo 约 90 fps |
 | 自回归视频 | 因果 chunk + 4 步 DMD；CausVid → Self-Forcing → Causal Forcing | 单卡实时；首 chunk 亚秒 |
-| KV cache 回归 | 每 token $$2 d L \times 2$$ 字节（无 GQA）；chunk 级；滑动窗口 | Wan 1.3B 480p：184 KB / token，chunk 0.86 GB，窗口 6 GB |
+| KV cache 回归 | 每 token $$2 d L \times 2$$ 字节（无 GQA）<br/>chunk 级<br/>滑动窗口 | Wan 1.3B 480p：184 KB / token，chunk 0.86 GB，窗口 6 GB |
 | 限制 | 误差累积（漂移）、窗口外遗忘 | 分钟级 |
 | 形态 | 批任务 → 会话：KV 驻留、流式、抢占、不可预测时长 | 08 系列大半回归 |
 

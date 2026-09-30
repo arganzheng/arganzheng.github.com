@@ -949,12 +949,12 @@ timeout         约束 enqueue → 结束 event 的墙钟时间；不约束 CPU�
 
 | 1 | 版本与库 | ldd 确认 libnccl.so；日志 "NCCL version"；各节点一致 |
 |---|---|---|
-| 2 | 进程与硬件 | 进程数对不对；nvidia-smi（Xid、降频、掉卡）；dmesg；ibstat State/Rate |
+| 2 | 进程与硬件 | 进程数对不对<br/>nvidia-smi（Xid、降频、掉卡）<br/>dmesg<br/>ibstat State/Rate |
 | 3 | 路径 | INFO 日志：Using network IB？via P2P 还是 SHM？GDRDMA 有没有？网卡与 GPU 亲和对不对？ |
 | 4 | 参数 | "set by environment" 列表：有没有三年前留下的 NCCL_ALGO=Ring |
-| 5 | 曲线 | nccl-tests 单机 + 多机，与参考线、与 cost_model 比：平台低 → β 问题；左端低 → α 问题；中段 → 切换点 |
+| 5 | 曲线 | nccl-tests 单机 + 多机，与参考线、与 cost_model 比：平台低 → β 问题<br/>左端低 → α 问题<br/>中段 → 切换点 |
 | 6 | 卡 | FR dump → fr_trace.py → 一致（环境）还是不一致（代码）；py-spy 补 Python 侧 |
-| 7 | 错 | 固定算法 → 差异消失是归约顺序；各 rank 不一致 → 竞争；NAN_CHECK 找源头 |
+| 7 | 错 | 固定算法 → 差异消失是归约顺序<br/>各 rank 不一致 → 竞争<br/>NAN_CHECK 找源头 |
 | 8 | 记录 | 每次结论连同 topo -m、环境变量、版本一起归档 |
 
 Table: 通信层排障检查项

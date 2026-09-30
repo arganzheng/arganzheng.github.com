@@ -261,10 +261,10 @@ flowchart TB
 
 | 段 | 决定因素 | 你能做的 |
 |---|---|---|
-| 排队 | 供应商当时的负载；你自己客户端的并发限制与限流重试 | 选 Priority / Fast 档；控制自己的并发；避开峰时 |
-| prefill | 未缓存输入的长度（compute-bound：算力决定，长上下文线性变慢）；缓存命中的前缀直接跳过 | 缓存前缀；缩短上下文；检索代替堆料 |
+| 排队 | 供应商当时的负载；你自己客户端的并发限制与限流重试 | 选 Priority / Fast 档<br/>控制自己的并发<br/>避开峰时 |
+| prefill | 未缓存输入的长度（compute-bound：算力决定，长上下文线性变慢）；缓存命中的前缀直接跳过 | 缓存前缀<br/>缩短上下文<br/>检索代替堆料 |
 | 思考 | 思考 token 数 × TPOT | effort 选档 |
-| decode | 每 token 一次前向，读一遍权重与 KV——memory-bound，速度由 GPU 内存带宽与模型大小决定，与你的输入几乎无关 | 小模型更快；要求简洁；Fast mode |
+| decode | 每 token 一次前向，读一遍权重与 KV——memory-bound，速度由 GPU 内存带宽与模型大小决定，与你的输入几乎无关 | 小模型更快<br/>要求简洁<br/>Fast mode |
 
 Table: 延迟各段的决定因素
 

@@ -58,18 +58,29 @@ Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class
 
 本篇只讲"一个翻译单元怎么变成一个 `.so`"：前五章是编译模型的五个阶段与它们各自的规则，第七章把这些规则落到一次真实的手工编译上。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 四个阶段 | 一个 .cpp 怎么经预处理、编译、汇编、链接变成机器码；加载是运行时的第五步 |
-| 三 | 翻译单元、声明与定义、头文件 | 为什么分 .h 和 .cpp；`c10/core/Device.h` 与 `Device.cpp` 的实例；改一个头文件为什么重编半个项目 |
-| 四 | One Definition Rule | 同一个名字只能有一个定义；inline、static、匿名命名空间；四种链接属性 |
-| 五 | 目标文件、库与符号 | nm 看符号表；name mangling；静态库与动态库；符号可见性与工具箱 |
-| 六 | 动态链接与加载 | 链接期与加载期的两次解析；`LD_LIBRARY_PATH`、RPATH/RUNPATH、$ORIGIN；dlopen |
-| 七 | 实践一 | 手写编译命令把一个 libtorch 程序链接到 PyTorch 的库，用 ldd / otool 和 nm 观察 |
-| 八 | 本文小结 |  |
-| 九 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、四个阶段**
+  - 一个 .cpp 怎么经预处理、编译、汇编、链接变成机器码
+  - 加载是运行时的第五步
+- **三、翻译单元、声明与定义、头文件**
+  - 为什么分 .h 和 .cpp
+  - `c10/core/Device.h` 与 `Device.cpp` 的实例
+  - 改一个头文件为什么重编半个项目
+- **四、One Definition Rule**
+  - 同一个名字只能有一个定义
+  - inline、static、匿名命名空间
+  - 四种链接属性
+- **五、目标文件、库与符号**
+  - nm 看符号表
+  - name mangling
+  - 静态库与动态库
+  - 符号可见性与工具箱
+- **六、动态链接与加载**
+  - 链接期与加载期的两次解析
+  - `LD_LIBRARY_PATH`、RPATH/RUNPATH、$ORIGIN
+  - dlopen
+- **七、实践一**：手写编译命令把一个 libtorch 程序链接到 PyTorch 的库，用 ldd / otool 和 nm 观察
+- **八、本文小结**
+- **九、自测**：5 道题
 
 ## 二、四个阶段：一个 `.cpp` 是怎么变成机器码的
 
@@ -885,12 +896,12 @@ GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `_
 
 | 工具 | 用途 | 常用命令 |
 |---|---|---|
-| `nm` | 列符号表 | `nm -C foo.o`；`nm -DC libfoo.so`（只看动态导出符号）；`nm -DC lib.so \| grep ' U '`（看依赖了哪些外部符号） |
-| `c++filt` | 反修饰 | `echo _ZN... \| c++filt` |
-| `objdump` | 反汇编、看段 | `objdump -d foo.o`（反汇编）；`objdump -t foo.o`（符号表）；`objdump -p libfoo.so \| grep NEEDED`（依赖库） |
+| `nm` | 列符号表 | `nm -C foo.o`<br/>`nm -DC libfoo.so`（只看动态导出符号）<br/>`nm -DC lib.so \ | grep ' U '`（看依赖了哪些外部符号） |
+| `c++filt` | 反修饰 | `echo _ZN... \ | c++filt` |
+| `objdump` | 反汇编、看段 | `objdump -d foo.o`（反汇编）<br/>`objdump -t foo.o`（符号表）<br/>`objdump -p libfoo.so \ | grep NEEDED`（依赖库） |
 | `readelf` | 读 ELF 结构 | `readelf -d libfoo.so`（动态段：NEEDED、RPATH、RUNPATH、SONAME）；`readelf -Ws libfoo.so`（符号） |
 | `ldd` | 列运行时会加载的库及解析到的路径 | `ldd hello`；`ldd torch/lib/libtorch_python.so` |
-| `strings` | 找字符串 | `strings libtorch_cpu.so \| grep GLIBCXX` 看依赖的 libstdc++ 版本 |
+| `strings` | 找字符串 | `strings libtorch_cpu.so \ | grep GLIBCXX` 看依赖的 libstdc++ 版本 |
 
 Table: 二进制分析工具箱
 

@@ -34,16 +34,90 @@ flowchart TB
 
 系列的一句话主张是：**深网络训练里的每个现象都能推到公式、代到数字、用几十行代码复现，然后在 LLM 里认出它的形态**。主线是一条连乘链：前向的方差每层乘一个因子、反向的梯度是一串 Jacobian 的乘积，因子偏离 1 就指数放大或消失——第一篇写出这串乘积，第二篇讲它怎么坏、初始化 / 归一化 / 残差各修哪一环，第三篇讲拿到稳定的梯度后步长怎么定，第四篇讲优化器挑出的解为什么泛化、什么时候不再泛化，第五、六篇在卷积与循环两条线上再看一遍同一条链——ResNet 的退化问题与 RNN 的 BPTT 衰减是它的两个历史形态，残差与 LSTM 的遗忘门是同一个修法。六篇用同一份几百行的 NumPy 小框架，全部实验在笔记本 CPU 上几分钟跑完。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
-|---|---|---|---|
-| [第一篇：反向传播](/backpropagation-by-hand.html) | 不用框架能不能手推并手写两层网络的反向传播？为什么训练 FLOPs 是 $$6ND$$、激活为什么要存？ | 反向传播 = 沿计算图反向拓扑序对每个算子算一次 VJP，从不构造 Jacobian；梯度与被求导的量同形；每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向；$$\partial L / \partial W = X^T G$$ 需要本层输入，所以激活要存 | $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$(P - Y)/m$$；$$6ND$$，激活重算 $$8ND$$；实测比值 2.00；激活 552 KiB 对权重 795 KiB，batch × 32 → 17.3 MiB；梯度检查 float64、相对误差 $$< 10^{-6}$$ |
-| [第二篇：初始化、归一化与残差](/initialization-normalization-and-residual.html) | 64 层 MLP 不加技巧为什么训不动？三样东西各修哪一段？ | 深网络的稳定性是连乘问题；初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路；三样必须同用，Pre-Norm 是当前摆法 | $$\text{Var}(y) = n_{in}\sigma_w^2 \text{Var}(x)$$，Kaiming $$2/n_{in}$$；$$2^{-32}$$、$$0.9^{128} \approx 1.4 \times 10^{-6}$$；残差流无归一化每层翻倍（$$2^{64}$$）、Pre-Norm 线性；GPT-2 缩放 $$1/\sqrt{2L}$$；Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96；0.02 |
-| [第三篇：优化器](/optimizers-from-sgd-to-adamw.html) | Adam 的两个矩各做什么？AdamW 与 $$L_2$$ 为什么不一样？warmup 为什么不能省？batch 变大学习率怎么变？ | Adam 让每个参数步长 $$\approx \eta$$、与梯度大小无关，因此第一步是满步长 $$\eta \cdot \text{sign}(g)$$、必须 warmup；$$L_2$$ 被 $$1/\sqrt{v}$$ 缩放而 AdamW 不被；线性 scaling 在临界 batch 内成立；裁剪限制步长上界 | Momentum 有效学习率 $$\times 1/(1-\beta)$$；$$\beta_2 = 0.95$$ 记 20 步；8 字节 / 参数，Llama-3-8B 64 GB，16 字节里的 12；$$\lVert W_1 \rVert$$ 22.6 → 2.3、95.6% → 86.2%；warmup：4.59 对 1.26；scaling 到 512 成立、2048 发散；裁剪 1.0 |
-| [第四篇：正则化与泛化](/regularization-and-generalization.html) | 参数是样本几百倍的网络为什么不过拟合？什么数据规模、多少 epoch 后会？怎么提前看到？ | 先算参数 / 数据比定体制；过参数化时优化器挑最小范数、平坦、先学简单的解——隐式正则化；double descent 越过插值阈值再变好；预训练在数据体制里不用 dropout、一个 epoch；SFT 与奖励模型把模型放回过参数化体制 | $$N/D$$：预训练 0.0005、SFT 1600、RM 160、实验 407；宽度 8 测试 loss 5.48、2048 最好 14.5%；wd 把 0.55 压到 0.42，dropout 0.62；重复 4 epoch 以内几乎无损；2 万字符第 16 epoch 拐点、记忆率 10%，20 万第 8 epoch，200 万未到 |
-| [第五篇：CNN](/cnn-from-lenet-to-resnet-and-vit.html) | 3×3 卷积核相当于多大的全连接矩阵？ResNet 的残差与 Transformer 的残差是一回事吗？ViT 为什么可以不用卷积？ | 卷积 = 全连接 + 局部性 + 参数共享两条约束；深度是为了感受野，深了就训不动，BN 修前向、残差修反向；数据够多时约束成负担，ViT 把图切成 token，只留下 patch embedding 这一个 stride 卷积 | $$16 \times 36$$ 矩阵、144 非零、9 自由参数；等价矩阵 $$4 \times 10^{10}$$ 元素；RF $$= 1 + 2L$$；ResNet-50 25.6M、8.2 GFLOPs、每参数用 320 次；bottleneck 69K 对 1.18M；plain 56 层 loss 0.72、梯度比 2849；196 / 576 / 5476 token；590,592 |
-| [第六篇：RNN](/rnn-lstm-and-the-birth-of-attention.html) | RNN 为什么记不住 20 步外的东西？遗忘门与残差什么关系？attention 为解决什么被发明、为什么取代了 RNN？ | BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处；LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是时间上的残差，遗忘门偏置要初始化为 1；attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要 | $$J_k = \text{diag}(1 - h_k^2) W$$；20 步外千分之四、60 步外 $$10^{-10}$$；RNN 10 步失败；$$0.5^{20} \approx 10^{-6}$$、$$\sigma(1) = 0.73$$；倒序 16 token 整句 0% → 76%；attention 算力 4.5 倍；$$O(T^2 d)$$ 对 $$O(T d^2)$$ |
-
-Table: 六篇的核心问题、结论与必记公式
+- **[第一篇：反向传播](/backpropagation-by-hand.html)**
+  - 回答的问题：不用框架能不能手推并手写两层网络的反向传播？为什么训练 FLOPs 是 $$6ND$$、激活为什么要存？
+  - 一句话结论：
+    - 反向传播 = 沿计算图反向拓扑序对每个算子算一次 VJP，从不构造 Jacobian
+    - 梯度与被求导的量同形
+    - 每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向
+    - $$\partial L / \partial W = X^T G$$ 需要本层输入，所以激活要存
+  - 必记的数字 / 公式：
+    - $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$(P - Y)/m$$
+    - $$6ND$$，激活重算 $$8ND$$
+    - 实测比值 2.00
+    - 激活 552 KiB 对权重 795 KiB，batch × 32 → 17.3 MiB
+    - 梯度检查 float64、相对误差 $$< 10^{-6}$$
+- **[第二篇：初始化、归一化与残差](/initialization-normalization-and-residual.html)**
+  - 回答的问题：64 层 MLP 不加技巧为什么训不动？三样东西各修哪一段？
+  - 一句话结论：
+    - 深网络的稳定性是连乘问题
+    - 初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路
+    - 三样必须同用，Pre-Norm 是当前摆法
+  - 必记的数字 / 公式：
+    - $$\text{Var}(y) = n_{in}\sigma_w^2 \text{Var}(x)$$，Kaiming $$2/n_{in}$$
+    - $$2^{-32}$$、$$0.9^{128} \approx 1.4 \times 10^{-6}$$
+    - 残差流无归一化每层翻倍（$$2^{64}$$）、Pre-Norm 线性
+    - GPT-2 缩放 $$1/\sqrt{2L}$$
+    - Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96
+    - 0.02
+- **[第三篇：优化器](/optimizers-from-sgd-to-adamw.html)**
+  - 回答的问题：Adam 的两个矩各做什么？AdamW 与 $$L_2$$ 为什么不一样？warmup 为什么不能省？batch 变大学习率怎么变？
+  - 一句话结论：
+    - Adam 让每个参数步长 $$\approx \eta$$、与梯度大小无关，因此第一步是满步长 $$\eta \cdot \text{sign}(g)$$、必须 warmup
+    - $$L_2$$ 被 $$1/\sqrt{v}$$ 缩放而 AdamW 不被
+    - 线性 scaling 在临界 batch 内成立
+    - 裁剪限制步长上界
+  - 必记的数字 / 公式：
+    - Momentum 有效学习率 $$\times 1/(1-\beta)$$
+    - $$\beta_2 = 0.95$$ 记 20 步
+    - 8 字节 / 参数，Llama-3-8B 64 GB，16 字节里的 12
+    - $$\lVert W_1 \rVert$$ 22.6 → 2.3、95.6% → 86.2%
+    - warmup：4.59 对 1.26
+    - scaling 到 512 成立、2048 发散
+    - 裁剪 1.0
+- **[第四篇：正则化与泛化](/regularization-and-generalization.html)**
+  - 回答的问题：参数是样本几百倍的网络为什么不过拟合？什么数据规模、多少 epoch 后会？怎么提前看到？
+  - 一句话结论：
+    - 先算参数 / 数据比定体制
+    - 过参数化时优化器挑最小范数、平坦、先学简单的解——隐式正则化
+    - double descent 越过插值阈值再变好
+    - 预训练在数据体制里不用 dropout、一个 epoch
+    - SFT 与奖励模型把模型放回过参数化体制
+  - 必记的数字 / 公式：
+    - $$N/D$$：预训练 0.0005、SFT 1600、RM 160、实验 407
+    - 宽度 8 测试 loss 5.48、2048 最好 14.5%
+    - wd 把 0.55 压到 0.42，dropout 0.62
+    - 重复 4 epoch 以内几乎无损
+    - 2 万字符第 16 epoch 拐点、记忆率 10%，20 万第 8 epoch，200 万未到
+- **[第五篇：CNN](/cnn-from-lenet-to-resnet-and-vit.html)**
+  - 回答的问题：3×3 卷积核相当于多大的全连接矩阵？ResNet 的残差与 Transformer 的残差是一回事吗？ViT 为什么可以不用卷积？
+  - 一句话结论：
+    - 卷积 = 全连接 + 局部性 + 参数共享两条约束
+    - 深度是为了感受野，深了就训不动，BN 修前向、残差修反向
+    - 数据够多时约束成负担，ViT 把图切成 token，只留下 patch embedding 这一个 stride 卷积
+  - 必记的数字 / 公式：
+    - $$16 \times 36$$ 矩阵、144 非零、9 自由参数
+    - 等价矩阵 $$4 \times 10^{10}$$ 元素
+    - RF $$= 1 + 2L$$
+    - ResNet-50 25.6M、8.2 GFLOPs、每参数用 320 次
+    - bottleneck 69K 对 1.18M
+    - plain 56 层 loss 0.72、梯度比 2849
+    - 196 / 576 / 5476 token
+    - 590,592
+- **[第六篇：RNN](/rnn-lstm-and-the-birth-of-attention.html)**
+  - 回答的问题：RNN 为什么记不住 20 步外的东西？遗忘门与残差什么关系？attention 为解决什么被发明、为什么取代了 RNN？
+  - 一句话结论：
+    - BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处
+    - LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是时间上的残差，遗忘门偏置要初始化为 1
+    - attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要
+  - 必记的数字 / 公式：
+    - $$J_k = \text{diag}(1 - h_k^2) W$$
+    - 20 步外千分之四、60 步外 $$10^{-10}$$
+    - RNN 10 步失败
+    - $$0.5^{20} \approx 10^{-6}$$、$$\sigma(1) = 0.73$$
+    - 倒序 16 token 整句 0% → 76%
+    - attention 算力 4.5 倍
+    - $$O(T^2 d)$$ 对 $$O(T d^2)$$
 
 六篇各有一个案例和几张原论文的结构图，合起来是一条能亲手复现的历史线：
 
@@ -54,7 +128,7 @@ Table: 六篇的核心问题、结论与必记公式
 | 三 | 四种优化器 × 五个学习率；64 层网络 warmup | 最优 lr 差 300 倍、成绩差不到半个点；1e-2 无 warmup 冲到 4.59 | Kingma & Ba 2014 Algorithm 1 |
 | 四 | 1,000 张图的过拟合；宽度扫描 | 测试 loss 0.40 → 0.55 而准确率不动；double descent 尖峰在宽度 8–16 | Srivastava 2014 dropout；Nakkiran 2019 |
 | 五 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82% | LeNet-5、AlexNet、VGG 表、ResNet 残差块 / bottleneck、ViT |
-| 六 | 字符级 LSTM 写莎士比亚 | 与 nanoGPT 同预算 val 1.71 vs 1.66 | Graves 2013 展开 RNN / LSTM 细胞；Sutskever 2014；Bahdanau 2015 结构与对齐 |
+| 六 | 字符级 LSTM 写莎士比亚 | 与 nanoGPT 同预算 val 1.71 vs 1.66 | Graves 2013 展开 RNN / LSTM 细胞<br/>Sutskever 2014<br/>Bahdanau 2015 结构与对齐 |
 
 Table: 六个案例与原论文图一览
 
@@ -216,14 +290,14 @@ Table: 本文的章节安排
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| Jacobian 连乘 | 一、二、五、六 | 一写出形式；二算范数、给三种修法；五是退化问题与 BN 下的反向爆炸；六是同一个 $$W$$ 连乘的 BPTT |
-| 残差 / 恒等通路 $$I + J$$ | 二、五、六 | 二推导；五是 ResNet 与 pre-activation；六是 LSTM 遗忘门；三篇共同的条件：初始时刻要打开 |
+| Jacobian 连乘 | 一、二、五、六 | 一写出形式<br/>二算范数、给三种修法<br/>五是退化问题与 BN 下的反向爆炸<br/>六是同一个 $$W$$ 连乘的 BPTT |
+| 残差 / 恒等通路 $$I + J$$ | 二、五、六 | 二推导<br/>五是 ResNet 与 pre-activation<br/>六是 LSTM 遗忘门<br/>三篇共同的条件：初始时刻要打开 |
 | 归一化 | 二、五 | 二给公式、尺度不变性、BN 为什么不适合序列；五是 BN 修前向、把反向问题换了方向 |
-| 尺度与有效学习率 | 二、三、四 | 二：0.02 与尺度不变性；三：步长 $$\approx \eta$$、$$\mu$$P、wd 平衡点；四：wd 作为先验的另一种语义 |
+| 尺度与有效学习率 | 二、三、四 | 二：0.02 与尺度不变性<br/>三：步长 $$\approx \eta$$、$$\mu$$P、wd 平衡点<br/>四：wd 作为先验的另一种语义 |
 | 噪声 $$\eta/\sqrt{B}$$ | 三、四 | 三：限制学习率、临界 batch、衰减阶段下折；四：平坦极小值、大 batch 泛化略差 |
-| 参数 / 数据比、epoch | 一、三、四 | 一：$$6ND$$；三：状态 8 字节 × $$N$$；四：体制、一个 epoch、4 epoch、SFT 2–3 epoch |
-| 先验与数据量 | 四、五、六 | 四：正则化 = 先验；五：卷积约束 = 最强先验，ViT 反超；六：attention = 可学习路由 |
-| 梯度裁剪 | 二、三、六 | 二列为补丁；三给公式与实测；六说它为 RNN 爆炸而生 |
+| 参数 / 数据比、epoch | 一、三、四 | 一：$$6ND$$<br/>三：状态 8 字节 × $$N$$<br/>四：体制、一个 epoch、4 epoch、SFT 2–3 epoch |
+| 先验与数据量 | 四、五、六 | 四：正则化 = 先验<br/>五：卷积约束 = 最强先验，ViT 反超<br/>六：attention = 可学习路由 |
+| 梯度裁剪 | 二、三、六 | 二列为补丁<br/>三给公式与实测<br/>六说它为 RNN 爆炸而生 |
 | 激活与显存 | 一、三 | 一：激活与参数无关、重算 33%；三：16 字节 / 参数里 12 是优化器的 |
 
 Table: 贯穿六篇的概念及其关系
@@ -469,7 +543,7 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出六篇各讲什么；知道 $$6ND$$、Kaiming、Pre-Norm、AdamW、double descent、感受野、BPTT 这些名词 |
-| 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份技术报告的训练配置能逐项说出每个数字来自哪个推导、改了会怎样 |
+| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一份技术报告的训练配置能逐项说出每个数字来自哪个推导、改了会怎样 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释六篇里每个反直觉结论（加 LN 仍训不动、$$L_2$$ 训坏网络、参数越多泛化越好、BN 下梯度向输入爆炸、RNN 不是装不下）为什么成立，并能在 NumPy 基座上复现它 |
 
 Table: 掌握程度的判据

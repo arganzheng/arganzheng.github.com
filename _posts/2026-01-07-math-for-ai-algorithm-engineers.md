@@ -79,11 +79,11 @@ Table: 数学系列覆盖的四个分支与对应篇目
 | 一 | 向量、矩阵与形状 | 形状规则、$$2mnk$$、张量与广播；一个 token 过一层要算多少 |
 | 二 | 内积、范数与余弦相似度 | attention score、embedding 检索、正则化项、量化误差 |
 | 三 | 正交与旋转、特征值与 SVD | RoPE 为什么编码相对位置；低秩近似与 LoRA 的参数量 |
-| 四 | 概率入门 | 语言模型是一个条件分布；贝叶斯；常见分布；为什么除以 $$\sqrt{d_k}$$ |
+| 四 | 概率入门 | 语言模型是一个条件分布<br/>贝叶斯<br/>常见分布<br/>为什么除以 $$\sqrt{d_k}$$ |
 | 五 | 从最大似然到交叉熵 | 第一个要会推的 loss；softmax、温度与采样 |
-| 六 | 熵、交叉熵与 KL | 困惑度；KL 的方向；从 KL 约束的最优策略推出 DPO |
-| 七 | 导数、梯度与链式法则 | softmax 的梯度 $$p - y$$；期望的梯度与策略梯度；SGD |
-| 八 | 统计推断与拟合 | 评测的置信区间与显著性；最小二乘；scaling law 的算例 |
+| 六 | 熵、交叉熵与 KL | 困惑度<br/>KL 的方向<br/>从 KL 约束的最优策略推出 DPO |
+| 七 | 导数、梯度与链式法则 | softmax 的梯度 $$p - y$$<br/>期望的梯度与策略梯度<br/>SGD |
+| 八 | 统计推断与拟合 | 评测的置信区间与显著性<br/>最小二乘<br/>scaling law 的算例 |
 
 Table: 八篇的主题与内容
 
@@ -143,7 +143,7 @@ flowchart TB
 | 四 | 链式法则分解联合概率 → 语言模型是条件分布；独立和的方差相加 → 除以 $$\sqrt{d_k}$$ | 分量方差 $$\sigma^2$$ 时 $$D$$ 个分量的内积方差是 $$D\sigma^4$$（单位方差时 $$D$$） | next-token 预测、attention 的缩放 |
 | 五 | MLE → 取负对数、除以 $$T$$ → 交叉熵 loss | 初始 loss $$= \ln V = 11.8$$ | SFT / 预训练的 loss、温度与采样 |
 | 六 | 交叉熵 = 熵 + KL（恒等式）；KL 约束最优策略闭式解 → 反解奖励 → DPO | PPL $$= e^{1.8} = 6.05$$ | RLHF 的 KL 项、DPO、蒸馏 |
-| 七 | 链式法则 → softmax 梯度 $$p - y$$；log-derivative trick → 策略梯度；减 baseline 不改期望 | — | 反向传播、REINFORCE / PPO / GRPO 的优势 |
+| 七 | 链式法则 → softmax 梯度 $$p - y$$<br/>log-derivative trick → 策略梯度<br/>减 baseline 不改期望 | — | 反向传播、REINFORCE / PPO / GRPO 的优势 |
 | 八 | 中心极限定理 → 标准误 → 置信区间；幂律取对数是直线 → 最小二乘 | HumanEval ±6.1%；Chinchilla $$D/N \approx 20$$ | 评测的显著性、scaling law |
 
 Table: 八篇的推导线、数字线与 LLM 线

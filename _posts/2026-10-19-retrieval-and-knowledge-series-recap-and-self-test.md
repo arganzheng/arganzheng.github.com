@@ -32,17 +32,89 @@ flowchart TB
 
 系列的一句话主张是：**事实进上下文、行为进权重；检索有三类按前提选、失败大多在检索之前；检索与生成分开评**。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
-|---|---|---|---|
-| [第一篇：进上下文还是进权重](/knowledge-in-context-or-in-weights.html) | 知识该进哪里？ | 微调不是灌知识的工具（不可靠、遗忘、不可引用、不可更新与过滤）；知识类型表六行；默认顺序 prompt → few-shot → 检索 / 工具 → 微调 → 继续预训练，每步在评测集上证明前一步不够 | *Fine-Tuning or Retrieval?*：检索显著优于微调；四问（会变？有 schema？要引用？按用户不同？）任一为是不进权重；RAFT 微调"怎么用检索" |
-| [第二篇：三类检索](/three-kinds-of-retrieval-lexical-vector-structured.html) | 用 grep、向量还是 SQL？ | 按前提选：词法三前提（精确标识符、可枚举、能迭代）；向量解决词汇不匹配；结构化独占关系；coding agent 的分歧是过期税由写路径还是读路径付 | Claude Code 放弃向量库、Anthropic"从 agentic 搜索开始"；Cursor Merkle 树 + 块哈希缓存 + turbopuffer；Cody 5.3 移除 embedding；embedding 是点不是边 |
-| [第三篇：解析与分块](/document-parsing-and-chunking-for-retrieval.html) | 检索失败的上游在哪？ | 三个梯级（规则 → 布局模型 → VLM）先低后高；三个静默失败（阅读顺序、表格、页眉页脚）；按结构切、父子块；contextual retrieval；权限进元数据 | PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59；Mistral OCR 4 每千页 \$4；Anthropic 失败率 −49% / −67%；块 200–800 token |
-| [第四篇：索引、混合与 rerank](/indexing-hybrid-search-and-reranking.html) | 怎么存、怎么找？ | MTEB 缩范围自己的查询集决定，换模型 = 全量重建；百万级 HNSW + 现有数据库；BM25 + 向量用 RRF；rerank 性价比最高；权限在召回时过滤 | Qwen3-Embedding-8B 70.58；Gemini Embedding 2K vs Cohere v4 128K；RRF $$k = 60$$；top-50 → RRF → top-20 → rerank → top-5 |
-| [第五篇：流水线到 agentic](/from-rag-pipelines-to-agentic-retrieval.html) | 一次检索还是让模型自己查？ | 流水线可预测、召回压力高、无多跳；agentic 召回压力低、多跳、成本不定；中间有改写 / HyDE / 多查询 / 路由 / 自检；最常见是级联 | 工具返回摘要 + 引用不返全文；步数上限必配；内置 file search 是服务端工具，失去权限与分块控制 |
-| [第六篇：结构化知识](/structured-knowledge-sql-ontology-and-graphrag.html) | 关系在哪里？ | text-to-SQL 企业级只有两成，用语义层；本体 = 对象 + 关系 + 动作 + 权限，是 harness 不是检索；GraphRAG 答全局与多跳，索引贵几十到几百倍，LazyGraphRAG 推到查询时 | Spider 2.0 两成左右；四道门（语法、只读、成本、超时）；全局 / 多跳比例低于一成不建图 |
-| [第七篇：评测与运营](/retrieval-evaluation-and-operations.html) | 好不好、怎么维持？ | 没找到 vs 找到了没说对分开评；固定检索评生成；评测集从真实查询采；在线信号带 trace；新鲜度与重建预算；权限泄漏是评测项 | recall@50 / @5 分层；judge 一致率 ≥ 85%；50–100 条起；Slack AI 跨权限注入、Copilot 暴露 SharePoint 权限债 |
-
-Table: 七篇的核心问题、结论与必记
+- **[第一篇：进上下文还是进权重](/knowledge-in-context-or-in-weights.html)**
+  - 回答的问题：知识该进哪里？
+  - 一句话结论：
+    - 微调不是灌知识的工具（不可靠、遗忘、不可引用、不可更新与过滤）
+    - 知识类型表六行
+    - 默认顺序 prompt → few-shot → 检索 / 工具 → 微调 → 继续预训练，每步在评测集上证明前一步不够
+  - 必记的数字 / 结论：
+    - *Fine-Tuning or Retrieval?*：检索显著优于微调
+    - 四问（会变？有 schema？要引用？按用户不同？）任一为是不进权重
+    - RAFT 微调"怎么用检索"
+- **[第二篇：三类检索](/three-kinds-of-retrieval-lexical-vector-structured.html)**
+  - 回答的问题：用 grep、向量还是 SQL？
+  - 一句话结论：
+    - 按前提选：词法三前提（精确标识符、可枚举、能迭代）
+    - 向量解决词汇不匹配
+    - 结构化独占关系
+    - coding agent 的分歧是过期税由写路径还是读路径付
+  - 必记的数字 / 结论：
+    - Claude Code 放弃向量库、Anthropic"从 agentic 搜索开始"
+    - Cursor Merkle 树 + 块哈希缓存 + turbopuffer
+    - Cody 5.3 移除 embedding
+    - embedding 是点不是边
+- **[第三篇：解析与分块](/document-parsing-and-chunking-for-retrieval.html)**
+  - 回答的问题：检索失败的上游在哪？
+  - 一句话结论：
+    - 三个梯级（规则 → 布局模型 → VLM）先低后高
+    - 三个静默失败（阅读顺序、表格、页眉页脚）
+    - 按结构切、父子块
+    - contextual retrieval
+    - 权限进元数据
+  - 必记的数字 / 结论：
+    - PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59
+    - Mistral OCR 4 每千页 \$4
+    - Anthropic 失败率 −49% / −67%
+    - 块 200–800 token
+- **[第四篇：索引、混合与 rerank](/indexing-hybrid-search-and-reranking.html)**
+  - 回答的问题：怎么存、怎么找？
+  - 一句话结论：
+    - MTEB 缩范围自己的查询集决定，换模型 = 全量重建
+    - 百万级 HNSW + 现有数据库
+    - BM25 + 向量用 RRF
+    - rerank 性价比最高
+    - 权限在召回时过滤
+  - 必记的数字 / 结论：
+    - Qwen3-Embedding-8B 70.58
+    - Gemini Embedding 2K vs Cohere v4 128K
+    - RRF $$k = 60$$
+    - top-50 → RRF → top-20 → rerank → top-5
+- **[第五篇：流水线到 agentic](/from-rag-pipelines-to-agentic-retrieval.html)**
+  - 回答的问题：一次检索还是让模型自己查？
+  - 一句话结论：
+    - 流水线可预测、召回压力高、无多跳
+    - agentic 召回压力低、多跳、成本不定
+    - 中间有改写 / HyDE / 多查询 / 路由 / 自检
+    - 最常见是级联
+  - 必记的数字 / 结论：
+    - 工具返回摘要 + 引用不返全文
+    - 步数上限必配
+    - 内置 file search 是服务端工具，失去权限与分块控制
+- **[第六篇：结构化知识](/structured-knowledge-sql-ontology-and-graphrag.html)**
+  - 回答的问题：关系在哪里？
+  - 一句话结论：
+    - text-to-SQL 企业级只有两成，用语义层
+    - 本体 = 对象 + 关系 + 动作 + 权限，是 harness 不是检索
+    - GraphRAG 答全局与多跳，索引贵几十到几百倍，LazyGraphRAG 推到查询时
+  - 必记的数字 / 结论：
+    - Spider 2.0 两成左右
+    - 四道门（语法、只读、成本、超时）
+    - 全局 / 多跳比例低于一成不建图
+- **[第七篇：评测与运营](/retrieval-evaluation-and-operations.html)**
+  - 回答的问题：好不好、怎么维持？
+  - 一句话结论：
+    - 没找到 vs 找到了没说对分开评
+    - 固定检索评生成
+    - 评测集从真实查询采
+    - 在线信号带 trace
+    - 新鲜度与重建预算
+    - 权限泄漏是评测项
+  - 必记的数字 / 结论：
+    - recall@50 / @5 分层
+    - judge 一致率 ≥ 85%
+    - 50–100 条起
+    - Slack AI 跨权限注入、Copilot 暴露 SharePoint 权限债
 
 ### 1. 本文的章节安排
 
@@ -239,7 +311,7 @@ Table: 贯穿七篇的概念表
 | "直接调 OCR API" | 开放文档 VLM 更准更便宜，先规则抽取按需升级 | 第三篇 |
 | "固定长度切一切" | 切断函数、条款、表格；按结构切 | 第三篇 |
 | "生成后过滤权限" | 模型已看到；权限进元数据、召回时过滤 | 第三、四篇 |
-| "MTEB 榜首直接用" | 版本不可比、二元相关性、领域；查询集决定；换模型全量重建 | 第四篇 |
+| "MTEB 榜首直接用" | 版本不可比、二元相关性、领域<br/>查询集决定<br/>换模型全量重建 | 第四篇 |
 | "只上向量就够" | 精确匹配抓不住；BM25 + RRF 是默认 | 第四篇 |
 | "rerank 太慢不要" | 只精排 top-20，几十到几百毫秒，且降 k 省钱 | 第四篇 |
 | "全部改成 agentic" | 成本延迟不定；级联——流水线默认、agentic 兜底 | 第五篇 |
@@ -425,9 +497,9 @@ Table: 常见误区与正确说法
 
 | 层次 | 判据 |
 |---|---|
-| 读过 | 能说出事实进上下文、行为进权重；知道三类检索；知道解析有三个梯级；知道混合 + rerank；知道要分开评 |
-| 掌握 | 能对一组知识源按四问分类并选接入方式；能对一份语料判断三前提并选检索类型；能设计入库流水线（梯级路由、按结构切、前缀、元数据含权限）；能建检索评测集做消融并读三个数字；能设计检索工具的七要素与级联架构；能为一个业务库写语义层的前十个概念并判断是否需要本体或图 |
-| 能教人 | 能解释 coding agent 分歧的过期税与读写比；能解释 embedding 是点不是边、为什么关系归结构化；能解释 RRF 为什么不需调权重、rerank 为什么不能预计算；能解释 contextual retrieval 与 late chunking 的机制差异；能解释 GraphRAG 的索引成本来源与 LazyGraphRAG 的改动；能用 Slack AI 与 Copilot 的事件说明检索放大权限错误 |
+| 读过 | 能说出事实进上下文、行为进权重<br/>知道三类检索<br/>知道解析有三个梯级<br/>知道混合 + rerank<br/>知道要分开评 |
+| 掌握 | 能对一组知识源按四问分类并选接入方式<br/>能对一份语料判断三前提并选检索类型<br/>能设计入库流水线（梯级路由、按结构切、前缀、元数据含权限）<br/>能建检索评测集做消融并读三个数字<br/>能设计检索工具的七要素与级联架构<br/>能为一个业务库写语义层的前十个概念并判断是否需要本体或图 |
+| 能教人 | 能解释 coding agent 分歧的过期税与读写比<br/>能解释 embedding 是点不是边、为什么关系归结构化<br/>能解释 RRF 为什么不需调权重、rerank 为什么不能预计算<br/>能解释 contextual retrieval 与 late chunking 的机制差异<br/>能解释 GraphRAG 的索引成本来源与 LazyGraphRAG 的改动<br/>能用 Slack AI 与 Copilot 的事件说明检索放大权限错误 |
 
 Table: 掌握程度的判据
 

@@ -70,14 +70,14 @@ L1 第一篇讲过的三个事件——Replit 的 agent 在代码冻结期删库
 | 篇 | 主题 | 建立的东西 | 防 L1 的哪条失效 | 代价 |
 |---|---|---|---|---|
 | 1 | 最小循环 | 循环的形态、终止条件、卫士；Codex 与 DeepSeek Harness 的循环实现 | 非确定性（死循环） | 步数与预算上限 |
-| 2 | 工具与 MCP | MCP 2026-07-28；描述；tool search；程序化工具调用 | 指令遵循（用错工具）；上下文（定义占预算） | 协议复杂度 |
-| 3 | 运行时 | 第三种服务形态；事件溯源会话日志；durable execution；托管运行时 | "任务丢了"；供应商变更（锁定） | 持久化与恢复的工程 |
-| 4 | 上下文与子 agent | 运行时里的卸载 / 清理 / 压缩；复述；三种子 agent | 上下文标称 ≠ 有效；预算耗尽 | 子 agent 的 token 与调试 |
+| 2 | 工具与 MCP | MCP 2026-07-28<br/>描述<br/>tool search<br/>程序化工具调用 | 指令遵循（用错工具）；上下文（定义占预算） | 协议复杂度 |
+| 3 | 运行时 | 第三种服务形态<br/>事件溯源会话日志<br/>durable execution<br/>托管运行时 | "任务丢了"；供应商变更（锁定） | 持久化与恢复的工程 |
+| 4 | 上下文与子 agent | 运行时里的卸载 / 清理 / 压缩<br/>复述<br/>三种子 agent | 上下文标称 ≠ 有效；预算耗尽 | 子 agent 的 token 与调试 |
 | 5 | 权限与沙箱 | 权限档、审批策略、执行策略语言、三平台沙箱、注入 | **越界** | 摩擦与审批疲劳 |
 | 6 | 源码对照 | 四个 harness 的十二维对照；三种交付形态 | —（综合） | — |
-| 7 | 多 agent | 三种模式；A2A；成本 | 预算耗尽（多 agent 的 15 倍） | token 与调试 |
-| 8 | memory 与人 | 记忆的写入 / 遗忘；环内 → 环上 → 环外；本体 harness | 越界（不可逆）；知识截止（记忆） | 人的时间 |
-| 9 | 可靠性与评测 | 失败分类学；幂等；轨迹评测；trace；每任务成本 | 全部（验证） | 评测的工程 |
+| 7 | 多 agent | 三种模式<br/>A2A<br/>成本 | 预算耗尽（多 agent 的 15 倍） | token 与调试 |
+| 8 | memory 与人 | 记忆的写入 / 遗忘<br/>环内 → 环上 → 环外<br/>本体 harness | 越界（不可逆）；知识截止（记忆） | 人的时间 |
+| 9 | 可靠性与评测 | 失败分类学<br/>幂等<br/>轨迹评测<br/>trace<br/>每任务成本 | 全部（验证） | 评测的工程 |
 
 Table: 八篇的主题与建立的东西
 
@@ -156,14 +156,14 @@ L2 第四篇讲了策略，这一篇看实现：Codex 的 `core/src/compact*.rs`
 | 篇 | 实践建议的内容 |
 |---|---|
 | 1 | 手写一个带四个卫士的 40 行循环；读一遍 Codex `tools/orchestrator.rs` 或 DeepSeek Harness `agent-loop` 的 README |
-| 2 | 给你的工具集做一次描述审计；工具超过 20 个时评估 tool search；有多步数据处理时试 PTC |
-| 3 | 把会话改成 append-only 事件日志；验证崩溃后能从日志恢复；决定托管还是自托管 |
+| 2 | 给你的工具集做一次描述审计<br/>工具超过 20 个时评估 tool search<br/>有多步数据处理时试 PTC |
+| 3 | 把会话改成 append-only 事件日志<br/>验证崩溃后能从日志恢复<br/>决定托管还是自托管 |
 | 4 | 给运行时接上 L2 的三条线；把探索性任务交给子 agent 并比较 token |
-| 5 | 写权限档与审批策略（删除类 forbidden / prompt）；把执行放进沙箱；用 PocketOS 五环自检 |
+| 5 | 写权限档与审批策略（删除类 forbidden / prompt）<br/>把执行放进沙箱<br/>用 PocketOS 五环自检 |
 | 6 | 用对照表给自己的 harness 打分，找出空格 |
 | 7 | 数一数你的任务里真正需要并行或隔离的比例，再决定多 agent |
 | 8 | 定每类动作的风险级与审批粒度；给后台 agent 配监控面板 |
-| 9 | 建轨迹评测集；写失败分类；把每任务成本分布上仪表盘 |
+| 9 | 建轨迹评测集<br/>写失败分类<br/>把每任务成本分布上仪表盘 |
 
 Table: 各篇实践建议的内容
 
@@ -182,7 +182,7 @@ Table: 各篇实践建议的内容
 | 对象 | 版本 / 来源 |
 |---|---|
 | OpenAI Codex | `openai/codex` 主线（2026-09-16 的快照，`codex-rs` 工作区）；引用 crate 与模块路径，不引用行号 |
-| DeepSeek Harness | `deepseek-ai/deepseek-harness` 主线（2026-09-15 的快照，v0.1 developer preview，2026-08-13 发布，MIT）；引用包组与包名；文档站与《DeepSeek Harness Architecture》 |
+| DeepSeek Harness | `deepseek-ai/deepseek-harness` 主线（2026-09-15 的快照，v0.1 developer preview，2026-08-13 发布，MIT）<br/>引用包组与包名<br/>文档站与《DeepSeek Harness Architecture》 |
 | Claude Code / Agent SDK | 文档站 2026-09（权限、子 agent、agent teams v2.1.178+、hooks、settingSources） |
 | OpenHarness | `HKUDS/OpenHarness`（2026-04 起，MIT） |
 | MCP | 规范 2026-07-28（前一版 2025-11-25）；Agentic AI Foundation |

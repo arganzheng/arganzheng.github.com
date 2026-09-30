@@ -974,7 +974,7 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 | 开头的写法 | 背后的机制 | 在哪一节 |
 |---|---|---|
 | `import torch` 触发 `.so` 加载、算子注册 | `import` 是运行时动作：`PathFinder` 找到 `torch/_C.*.so`，`ExtensionFileLoader` `dlopen` 它并调 `PyInit__C`；顶层代码顺带执行注册 | 四 §3、§6 |
-| `except Exception: log; raise` | 异常沿帧链传播，途经每个 `__exit__` 和 `finally`；只记录不重抛，Worker 会带着错误状态继续跑；裸 `raise` 保留原始 traceback | 五 §1、§5 |
+| `except Exception: log; raise` | 异常沿帧链传播，途经每个 `__exit__` 和 `finally`<br/>只记录不重抛，Worker 会带着错误状态继续跑<br/>裸 `raise` 保留原始 traceback | 五 §1、§5 |
 
 Table: 开头两行代码背后的机制
 

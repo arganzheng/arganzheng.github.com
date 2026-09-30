@@ -250,27 +250,27 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 
 | 环节 | SGLang Diffusion | vLLM-Omni | xDiT | 备注 |
 |---|---|---|---|---|
-| **入口** | `openai/image_api.py`、`video_api.py`、`realtime/` | `entrypoints/openai/`；`AsyncOmni` | 用户脚本 / `xfuser/ray/` | |
-| **请求对象** | `pipelines_core/schedule_batch.py` 的 `Req` / `OutputBatch` | `diffusion/request.py`；`sched/interface.py` 的 `NewRequestData` / `CachedRequestData` | `InputConfig` | |
+| **入口** | `openai/image_api.py`、`video_api.py`、`realtime/` | `entrypoints/openai/`；`AsyncOmni` | 用户脚本 / `xfuser/ray/` |  |
+| **请求对象** | `pipelines_core/schedule_batch.py` 的 `Req` / `OutputBatch` | `diffusion/request.py`；`sched/interface.py` 的 `NewRequestData` / `CachedRequestData` | `InputConfig` |  |
 | **调度与合批** | `managers/scheduler.py` + `dynamic_batch_admission.py` | `sched/request_scheduler.py` / `step_scheduler.py`；`StepBatchSamplingParamsKey` | — | 都是同构批 |
-| **进程 / 执行器** | `GPUWorker` 进程组，ZMQ | `MultiprocExecutor` → `WorkerProc` → `DiffusionWorker` | torchrun rank | |
+| **进程 / 执行器** | `GPUWorker` 进程组，ZMQ | `MultiprocExecutor` → `WorkerProc` → `DiffusionWorker` | torchrun rank |  |
 | **并行组** | `distributed/parallel_state.py`、`group_coordinator.py`、`parallel_groups.py` | `distributed/parallel_state.py`、`group_coordinator.py`、`sp_plan.py` | `core/distributed/parallel_state.py`、`group_coordinator.py`、`runtime_state.py` | 三者的 `GroupCoordinator` 都从 vLLM 的 `GroupCoordinator` 演化 |
-| **序列并行** | `layers/attention/layer.py`：`UlyssesAttention`、`USPAttention`；`layers/usp.py`、`distributed/sp_shard_utils.py` | `distributed/a2a_permute.py`、`sp_sharding.py`；`hooks/sequence_parallel.py`；`attention/parallel/` | `core/long_ctx_attention/{ring,hybrid}/`；`model_executor/layers/usp.py` | |
-| **CFG 并行** | `distributed/cfg_parallel_utils.py`、`cfg_policy.py` | `distributed/cfg_parallel.py` | pipeline wrapper 内 | |
+| **序列并行** | `layers/attention/layer.py`：`UlyssesAttention`、`USPAttention`；`layers/usp.py`、`distributed/sp_shard_utils.py` | `distributed/a2a_permute.py`、`sp_sharding.py`<br/>`hooks/sequence_parallel.py`<br/>`attention/parallel/` | `core/long_ctx_attention/{ring,hybrid}/`；`model_executor/layers/usp.py` |  |
+| **CFG 并行** | `distributed/cfg_parallel_utils.py`、`cfg_policy.py` | `distributed/cfg_parallel.py` | pipeline wrapper 内 |  |
 | **PipeFusion** | — | `distributed/pipeline_parallel.py`（PP） | `core/cache_manager/` + pipeline wrapper | xDiT 独有 |
-| **TP / FSDP** | `--tp-size`；`loader/fsdp_load.py` | `--tensor-parallel-size`；`distributed/hsdp.py` | — | |
-| **attention 后端** | `layers/attention/selector.py`、`backends/` | `attention/selector.py`、`backends/`、`ops/` | `core/distributed/attention_backend.py`；`core/fast_attention/`、`sparge_attention/`、`vsa_attention.py` | |
-| **跨步缓存** | `runtime/cache/teacache.py`、`cache_dit_integration.py`、`spectrum.py` | `cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`、`magcache/`、`cachedit/`、`selector.py` | `core/cache_manager/`、`model_executor/cache/adapters/` | |
-| **offload** | `managers/memory_managers/`：`component_residency*.py`、`layerwise_offload*.py`、`host_memory_budget.py` | `offloader/`：`sequential_backend.py`、`layerwise_backend.py`、`distributed_layerwise_backend.py`、`module_residency.py` | 沿用 diffusers | |
-| **编译 / CUDA graph** | `--enable-torch-compile`；`breakable_cuda_graph/runner.py` | `compile.py`；worker 内 CUDA graph | `xfuser/compile/` | |
-| **量化** | `layers/quantization/`；`--enable-svdquant`；ModelOpt checkpoint；GGUF（`loader/gguf_weights.py`） | `quantization/`（含 `hsdp_fp8.py`）；`--quantization` | `layers/fp8_linear.py`、`mxfp4_linear.py`；`core/distributed/fp4_quantize.py` | |
-| **LoRA** | `pipelines_core/lora/`、`layers/lora/` | `lora/manager.py`、`loader.py`、`layers/` | diffusers 的 `load_lora_weights` | |
-| **VAE** | `stages/decoding.py`；`--vae-config`；parallel decode | `distributed/vae_patch_parallel.py`、`distributed/autoencoders/`；`--vae-use-tiling` | `xFuserVAEWrapper`（Parallel VAE） | |
-| **warmup** | `server_warmup.py`、`warmup_request_builder.py`；`--warmup-mode`、`--warmup-resolutions` | — | `prepare_run` | |
-| **分离** | `disaggregation/`：`roles.py`、`orchestrator.py`、`dispatch_policy.py`、`transport/` | stage 本身 | — | |
-| **因果 / KV** | `layers/kvcache/`、`stages/causal_denoising.py`、`realtime/` | `diffusion_kv/`（`manager.py`、`paged_attention_adapter.py`）；调度器的 `KVPrefetchJob` | `pipeline_causal_wan.py` | |
-| **权重加载** | `loader/`：`weight_load_plan.py`、`component_loaders/`、`weight_readers/`、`rank_local_checkpoint.py` | `model_loader/`：`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`、`hub_prefetch.py` | diffusers `from_pretrained` | |
-| **profiling** | `profiler.py`、`benchmarks/`（`--perf-dump-path`） | `profiler/`；`--log-stats`、pipeline profiler | benchmark 脚本 | |
+| **TP / FSDP** | `--tp-size`；`loader/fsdp_load.py` | `--tensor-parallel-size`；`distributed/hsdp.py` | — |  |
+| **attention 后端** | `layers/attention/selector.py`、`backends/` | `attention/selector.py`、`backends/`、`ops/` | `core/distributed/attention_backend.py`；`core/fast_attention/`、`sparge_attention/`、`vsa_attention.py` |  |
+| **跨步缓存** | `runtime/cache/teacache.py`、`cache_dit_integration.py`、`spectrum.py` | `cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`、`magcache/`、`cachedit/`、`selector.py` | `core/cache_manager/`、`model_executor/cache/adapters/` |  |
+| **offload** | `managers/memory_managers/`：`component_residency*.py`、`layerwise_offload*.py`、`host_memory_budget.py` | `offloader/`：`sequential_backend.py`、`layerwise_backend.py`、`distributed_layerwise_backend.py`、`module_residency.py` | 沿用 diffusers |  |
+| **编译 / CUDA graph** | `--enable-torch-compile`；`breakable_cuda_graph/runner.py` | `compile.py`；worker 内 CUDA graph | `xfuser/compile/` |  |
+| **量化** | `layers/quantization/`<br/>`--enable-svdquant`<br/>ModelOpt checkpoint<br/>GGUF（`loader/gguf_weights.py`） | `quantization/`（含 `hsdp_fp8.py`）；`--quantization` | `layers/fp8_linear.py`、`mxfp4_linear.py`；`core/distributed/fp4_quantize.py` |  |
+| **LoRA** | `pipelines_core/lora/`、`layers/lora/` | `lora/manager.py`、`loader.py`、`layers/` | diffusers 的 `load_lora_weights` |  |
+| **VAE** | `stages/decoding.py`<br/>`--vae-config`<br/>parallel decode | `distributed/vae_patch_parallel.py`、`distributed/autoencoders/`；`--vae-use-tiling` | `xFuserVAEWrapper`（Parallel VAE） |  |
+| **warmup** | `server_warmup.py`、`warmup_request_builder.py`；`--warmup-mode`、`--warmup-resolutions` | — | `prepare_run` |  |
+| **分离** | `disaggregation/`：`roles.py`、`orchestrator.py`、`dispatch_policy.py`、`transport/` | stage 本身 | — |  |
+| **因果 / KV** | `layers/kvcache/`、`stages/causal_denoising.py`、`realtime/` | `diffusion_kv/`（`manager.py`、`paged_attention_adapter.py`）；调度器的 `KVPrefetchJob` | `pipeline_causal_wan.py` |  |
+| **权重加载** | `loader/`：`weight_load_plan.py`、`component_loaders/`、`weight_readers/`、`rank_local_checkpoint.py` | `model_loader/`：`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`、`hub_prefetch.py` | diffusers `from_pretrained` |  |
+| **profiling** | `profiler.py`、`benchmarks/`（`--perf-dump-path`） | `profiler/`；`--log-stats`、pipeline profiler | benchmark 脚本 |  |
 
 Table: 三个引擎的逐机制对照
 
@@ -287,7 +287,7 @@ Table: 三个引擎的逐机制对照
 | **多卡** | USP / CFG / TP / FSDP，跨节点 | USP / Ring / CFG / TP / HSDP / PP / VAE patch | 最全：+ PipeFusion、Parallel VAE，弱互联 |
 | **serving** | 完整：API、批处理、warmup、分离、job、realtime | 完整：API、stage 分离、批处理 | 无 |
 | **分离** | 角色制 disaggregation | stage 制，天然 | — |
-| **付出的代价** | 与 SGLang 主线耦合（版本、依赖）；模型覆盖靠社区重写 | stage 结构对纯扩散模型偏重；模型覆盖同样靠重写 | 无服务层；绝对性能受 diffusers 限制；接口易碎 |
+| **付出的代价** | 与 SGLang 主线耦合（版本、依赖）；模型覆盖靠社区重写 | stage 结构对纯扩散模型偏重；模型覆盖同样靠重写 | 无服务层<br/>绝对性能受 diffusers 限制<br/>接口易碎 |
 
 Table: 三个引擎的取向与出发点
 

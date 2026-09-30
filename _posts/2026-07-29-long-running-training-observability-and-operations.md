@@ -103,9 +103,9 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 | 计时器 | megatron/core/timers.py：Timers / Timer； --timing-log-level 0/1/2、--timing-log-option max/minmax/all | deepspeed/utils/timer.py： SynchronizedWallClockTimer； wall_clock_breakdown 配置 | torchtitan/observability/structured_logger： log_trace_span 写每 rank JSONL； gantt_generator 合成 Chrome trace |
 | step 日志 | megatron/training/training.py：training_log() "elapsed time per iteration" · "throughput per GPU" · grad norm · num zeros · skipped / nan iterations | engine.py 按 steps_per_print 打印； ThroughputTimer · memory/max_active · data_loading(%) | torchtitan/components/metrics.py： MetricsProcessor.log()：tps · tflops · mfu(%) |
 | MFU / TFLOPS | num_floating_point_operations() / (Δt × world_size) | flops_profiler（按 op 统计，非每 step） | num_flops_per_token × tps / get_peak_flops() |
-| 显存 | --log-memory-to-tensorboard 写 memory_stats 四项； report_memory()；--record-memory-history 存快照 | monitor 配置写 tensorboard/wandb/csv active/reserved 峰值 · num_alloc_retries · num_ooms | DeviceMemoryMonitor.get_peak_stats()： |
+| 显存 | --log-memory-to-tensorboard 写 memory_stats 四项<br/>report_memory()<br/>--record-memory-history 存快照 | monitor 配置写 tensorboard/wandb/csv active/reserved 峰值 · num_alloc_retries · num_ooms | DeviceMemoryMonitor.get_peak_stats()： |
 | 后端 | TensorBoard · W&B · one_logger | deepspeed/monitor/：tensorboard/wandb/ comet/csv | TensorBoardLogger · WandBLogger（LoggerContainer） |
-| straggler | megatron/core/utils.py：StragglerDetector； --log-straggler；运行时可通过端口开关 | 无 | 无（靠每 rank JSONL 事后比较） |
+| straggler | megatron/core/utils.py：StragglerDetector<br/>--log-straggler<br/>运行时可通过端口开关 | 无 | 无（靠每 rank JSONL 事后比较） |
 | Flight Recorder | 由 PyTorch 提供，Megatron 不额外封装 | 同左 | CommConfig.trace_buf_size（默认 20000）自动设 TORCH_FR_BUFFER_SIZE / TORCH_FR_DUMP_TEMP_FILE |
 
 Table: 三框架在可观测面上的对照
@@ -202,9 +202,9 @@ Table: memory_stats 里本篇用到的键
 
 | 组 | 字段（dcgm-exporter 默认表中的名字） | 用途 |
 |---|---|---|
-| 状态 | DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_MEMORY_TEMP DCGM_FI_DEV_POWER_USAGE DCGM_FI_DEV_SM_CLOCK · DCGM_FI_DEV_MEM_CLOCK DCGM_FI_DEV_CLOCK_THROTTLE_REASONS（新版名 CLOCKS_EVENT_REASONS） 降频原因位图：功耗墙 / 温度墙 / 同步 boost | 温度；HBM 温度过高先于 SM 降频 功耗；训练稳态应贴近 TDP；某卡显著低 = 它没在干活 时钟；H100 SXM 满载 SM 时钟约 1.98 GHz（标称最大） |
-| 利用率 | DCGM_FI_PROF_GR_ENGINE_ACTIVE · DCGM_FI_PROF_SM_ACTIVE DCGM_FI_PROF_PIPE_TENSOR_ACTIVE DCGM_FI_PROF_DRAM_ACTIVE DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES · PCIE_TX/RX_BYTES | 粗粒度活跃度；hang 时也可能是 100% Tensor core 活跃比例；与 MFU 同趋势，是"这张卡在算矩阵"的直接证据 HBM 带宽活跃度 链路流量；TP 组内各卡应对称 |
-| 错误 | DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_SBE_VOL_TOTAL · ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ROW_REMAP_PENDING · UNCORRECTABLE_REMAPPED_ROWS DCGM_FI_DEV_NVLINK_CRC_FLIT_ERROR_COUNT_TOTAL · NVLINK_REPLAY_ERROR_COUNT_TOTAL DCGM_FI_DEV_PCIE_REPLAY_COUNTER | 最近的 XID 码；任何非 0 值 = 该卡不可信 单/双比特错误累计；DBE = 立即隔离 HBM 行重映射；pending = 需要重置 GPU NVLink 链路错误 PCIe 重放 |
+| 状态 | DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_MEMORY_TEMP DCGM_FI_DEV_POWER_USAGE DCGM_FI_DEV_SM_CLOCK · DCGM_FI_DEV_MEM_CLOCK DCGM_FI_DEV_CLOCK_THROTTLE_REASONS（新版名 CLOCKS_EVENT_REASONS） 降频原因位图：功耗墙 / 温度墙 / 同步 boost | 温度<br/>HBM 温度过高先于 SM 降频 功耗<br/>训练稳态应贴近 TDP<br/>某卡显著低 = 它没在干活 时钟<br/>H100 SXM 满载 SM 时钟约 1.98 GHz（标称最大） |
+| 利用率 | DCGM_FI_PROF_GR_ENGINE_ACTIVE · DCGM_FI_PROF_SM_ACTIVE DCGM_FI_PROF_PIPE_TENSOR_ACTIVE DCGM_FI_PROF_DRAM_ACTIVE DCGM_FI_PROF_NVLINK_TX_BYTES / RX_BYTES · PCIE_TX/RX_BYTES | 粗粒度活跃度<br/>hang 时也可能是 100% Tensor core 活跃比例<br/>与 MFU 同趋势，是"这张卡在算矩阵"的直接证据 HBM 带宽活跃度 链路流量<br/>TP 组内各卡应对称 |
+| 错误 | DCGM_FI_DEV_XID_ERRORS DCGM_FI_DEV_ECC_SBE_VOL_TOTAL · ECC_DBE_VOL_TOTAL DCGM_FI_DEV_ROW_REMAP_PENDING · UNCORRECTABLE_REMAPPED_ROWS DCGM_FI_DEV_NVLINK_CRC_FLIT_ERROR_COUNT_TOTAL · NVLINK_REPLAY_ERROR_COUNT_TOTAL DCGM_FI_DEV_PCIE_REPLAY_COUNTER | 最近的 XID 码<br/>任何非 0 值 = 该卡不可信 单/双比特错误累计<br/>DBE = 立即隔离 HBM 行重映射<br/>pending = 需要重置 GPU NVLink 链路错误 PCIe 重放 |
 | 显存 | DCGM_FI_DEV_FB_USED · DCGM_FI_DEV_FB_FREE | 驱动视角的显存占用（含 CUDA context、NCCL buffer） |
 
 Table: DCGM 的字段分组与用途

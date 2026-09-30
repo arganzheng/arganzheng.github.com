@@ -20,25 +20,25 @@ date: 2025-12-20 20:00:00
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
-| [01 数组、哈希与前缀和](/coding-interview-arrays-hashing-prefix-sum.html) | 怎样用一张哈希表换掉一层循环？ | 边查边存、前缀和 + 计数、只从起点数、原地哈希、差分——五种用法都是"把见过的记下来" | $$\text{sum}(i, j] = \text{pre}[j] - \text{pre}[i]$$；`count[0] = 1`；值 $$v$$ 放下标 $$v - 1$$，交换 $$\le n$$ 次 |
-| [02 双指针与滑动窗口](/coding-interview-two-pointers-and-sliding-window.html) | 两个指针只往一个方向走，凭什么不漏解？ | 单调性：右扩不会让违规变合法、左收不会让合法变违规；含负数的"和 = k"不满足 | 窗口 / 对撞 / 快慢三形态；LC 76 用 `missing` 计数使每步 $$O(1)$$；接雨水水位 $$= \min(\text{leftMax}, \text{rightMax})$$ |
-| [03 栈、单调栈与单调队列](/coding-interview-stack-monotonic-stack-and-queue.html) | 单调栈弹出时结算什么？ | 被弹出者的右侧第一个更大 = 当前元素、左侧第一个更大 = 新栈顶，两侧边界同时确定 | 每个元素进出各一次 $$O(n)$$；两端哨兵 0；单调队列取窗口最值 $$O(n)$$ 而堆是 $$O(n \log k)$$ |
-| [04 链表](/coding-interview-linked-list.html) | 链表题怎样手稳不丢链？ | 哑节点统一头节点特判，三指针反转先存 `nxt`，快慢指针找中点 / 判环 | Floyd：$$a = (k - 1)c + (c - b)$$；归并切分 `fast = head.next`；K 组反转 `prev` 初值 = `group_next` |
-| [05 二叉树](/coding-interview-binary-tree.html) | 递归函数"返回什么"与"更新什么"为什么不是同一个量？ | 返回给父节点的是能继续向上延伸的链，答案在拐点处用全局变量更新 | 递归三要素；层序先记 `len(q)`；BST 验证带上下界 `(lo, hi)`；建树 `pos[val]` 哈希 + 前序指针 |
-| [06 图](/coding-interview-graph-bfs-dfs-topological-union-find.html) | 先看出是图，然后 visited 放在哪？ | 五个算法：BFS、DFS、Kahn 拓扑、并查集、Dijkstra；BFS 入队时标记 | Kahn 出队数 $$< n$$ 即有环；并查集路径压缩 + 按大小合并 $$O(\alpha(n))$$；Dijkstra 堆 + 懒删除 $$O(E \log E)$$；双向 BFS $$O(b^{d/2})$$ |
-| [07 二分](/coding-interview-binary-search.html) | 为什么二分只有一个模板？ | 在"假假假真真真"的单调谓词上找第一个真：`[lo, hi)`、真收 `hi = mid`、假收 `lo = mid + 1` | 答案二分 $$O(n \log V)$$；值域第 k 小 `count_le(x) >= k`；两数组中位数在短数组上二分 $$O(\log \min(m, n))$$ |
-| [08 堆、Top-K、区间与贪心](/coding-interview-heap-topk-intervals-greedy.html) | 按什么键排序或维护什么顺序？ | 第 K 大用大小为 K 的最小堆；区间按起点排一趟扫、选最多不重叠按终点；贪心靠交换论证 | 堆 $$O(n \log k)$$、快速选择期望 $$O(n)$$；双堆先进 `small` 再倒；会议室 = 起点排序 + 结束时间最小堆 |
-| [09 回溯](/coding-interview-backtracking.html) | 排列、组合、子集的递归参数差在哪？ | 做选择 → 递归 → 撤销；排列用 `used[]`，组合用 `start`；剪枝不改量级但决定能否跑完 | 排列 $$O(n \cdot n!)$$、子集 $$O(n \cdot 2^n)$$、括号 $$O(4^n / \sqrt{n})$$、单词搜索 $$O(mn \cdot 3^L)$$；`out.append(path[:])` 必须拷贝 |
-| [10 字符串](/coding-interview-strings.html) | 字符串特有的技巧有哪些？ | 中心扩展、KMP 失配表、状态机解析、竖式、`a + b` 与 `b + a` 比较、滚动哈希 | $$2n - 1$$ 个中心；`lps[i]` = 最长真前缀 == 真后缀；竖式 `res[i + j + 1]`；溢出在乘 10 之前判 |
-| [11 DP（一）](/coding-interview-dynamic-programming-linear-and-grid.html) | 怎样从题面推出状态定义？ | 五步法：定义状态（"前 $$i$$ 个"还是"以 $$i$$ 结尾"）→ 枚举最后一步 → 初始 → 顺序 → 答案 | LIS `tails` 二分 $$O(n \log n)$$；编辑距离三格 = 删 / 插 / 换；最大正方形 `1 + min(上, 左, 左上)`；`INF = amount + 1` |
-| [12 DP（二）](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html) | 背包、区间、状态机、树形各记一句什么？ | 倒序 = 一次、正序 = 无限；区间枚举最后被处理的元素；状态机画图再写 | 组合数外层物品、排列数外层容量；戳气球 $$O(n^3)$$ 开区间 + 哨兵 1；`hold` 初值 $$-\infty$$（Java `MIN_VALUE / 2`） |
-| [13 设计题](/coding-interview-design-problems-lru-lfu-trie.html) | 单一结构做不到的复杂度怎样用两个结构互相索引做到？ | 哈希 → 双向链表节点；频次桶 + `min_freq`；26 叉树；数组 + 值到下标；`lowbit` 分块 | LRU 全 $$O(1)$$；LFU `min_freq` 最多 +1 或重置为 1；O(1) 随机集删除末尾换位；树状数组 $$O(\log n)$$ |
-| [14 attention](/coding-interview-attention-from-scratch.html) | multi-head 的四次形状变换是什么，KV cache 缓存什么？ | 先 `reshape(B, T, H, d)` 再 `transpose`；softmax 减最大值；mask 用 $$-\infty$$；online softmax 最大值变时重缩放 | 参数 $$4D^2$$；FLOPs $$8TD^2 + 4T^2D$$；每 token KV $$2 L H_{kv} d \cdot \text{bytes}$$（Llama-3-8B 128 KB）；GQA 缩 $$H / H_{kv}$$ 倍 |
-| [15 Transformer block 与反向](/coding-interview-transformer-block-and-backprop.html) | 一层参数为什么约 $$12D^2$$，CE 的梯度为什么是 $$p - y$$？ | 每参数一次乘加 → 前向 $$2N$$、训练 $$6N$$；局部导数 × 上游梯度，形状自查 | GPT-2 small 124,439,808；LayerNorm 反向 $$\frac{1}{\sigma}(d\hat{x} - \overline{d\hat{x}} - \hat{x}\,\overline{d\hat{x} \odot \hat{x}})$$；micrograd 梯度累加 `+=` |
-| [16 tokenizer 与解码](/coding-interview-tokenizer-and-decoding.html) | BPE 编码为什么按 merge 顺序而不是贪心最长匹配？ | tie-break `(频次, 字典序)`；采样流水线 penalty → T → softmax → top-k → top-p → min-p；投机解码输出分布恰为 $$p$$ | top-p 保留首个越界项；蓄水池第 $$i$$ 个以 $$k / i$$ 替换；接受率 $$= 1 - \text{TV}(p, q)$$ |
-| [17 损失与训练算法](/coding-interview-losses-and-training-algorithms.html) | 论文公式怎样落成十行正确的代码？ | DPO 四个序列 log 概率、初值 $$\ln 2$$；GAE 从末尾递推；PPO 取 `min`；AdamW 衰减解耦；LoRA `B = 0` | $$A_t = \delta_t + \gamma\lambda A_{t+1}$$；Adam 第一步移动约 $$\eta \cdot \text{sign}(g)$$；每参数 16 字节训练状态；LoRA $$r(\text{in} + \text{out})$$ |
-| [18 经典 ML 与指标](/coding-interview-classical-ml-and-metrics.html) | k-means 为什么收敛，AUC 怎样 $$O(n \log n)$$？ | 模型 = 目标 + 优化；AUC = 正样本秩和 $$- n_+(n_+ + 1)/2$$ 除 $$n_+ n_-$$；conv = im2col + GEMM | 逻辑回归梯度 $$X^\top(p - y) / n$$；NDCG 折扣 $$1 / \log_2(i + 1)$$；$$H_\text{out} = \lfloor (H + 2p - k) / s \rfloor + 1$$；im2col 大 $$k_h k_w$$ 倍 |
-| [19 Infra 并发与系统](/coding-interview-infra-concurrency-and-systems.html) | 一把锁保护什么、条件变量为什么 `while`？ | `get` 也要锁；两个条件变量各叫各的；异常进 Future；空闲链表嵌在块内；分块要测了再说 | ring allreduce 每 rank $$2\frac{N - 1}{N}V$$ 与 $$N$$ 无关；ikj 比 ijk 快 11 倍；paged KV fork 只加引用、写时复制一块 |
+| [01 数组、哈希与前缀和](/coding-interview-arrays-hashing-prefix-sum.html) | 怎样用一张哈希表换掉一层循环？ | 边查边存、前缀和 + 计数、只从起点数、原地哈希、差分——五种用法都是"把见过的记下来" | $$\text{sum}(i, j] = \text{pre}[j] - \text{pre}[i]$$<br/>`count[0] = 1`<br/>值 $$v$$ 放下标 $$v - 1$$，交换 $$\le n$$ 次 |
+| [02 双指针与滑动窗口](/coding-interview-two-pointers-and-sliding-window.html) | 两个指针只往一个方向走，凭什么不漏解？ | 单调性：右扩不会让违规变合法、左收不会让合法变违规；含负数的"和 = k"不满足 | 窗口 / 对撞 / 快慢三形态<br/>LC 76 用 `missing` 计数使每步 $$O(1)$$<br/>接雨水水位 $$= \min(\text{leftMax}, \text{rightMax})$$ |
+| [03 栈、单调栈与单调队列](/coding-interview-stack-monotonic-stack-and-queue.html) | 单调栈弹出时结算什么？ | 被弹出者的右侧第一个更大 = 当前元素、左侧第一个更大 = 新栈顶，两侧边界同时确定 | 每个元素进出各一次 $$O(n)$$<br/>两端哨兵 0<br/>单调队列取窗口最值 $$O(n)$$ 而堆是 $$O(n \log k)$$ |
+| [04 链表](/coding-interview-linked-list.html) | 链表题怎样手稳不丢链？ | 哑节点统一头节点特判，三指针反转先存 `nxt`，快慢指针找中点 / 判环 | Floyd：$$a = (k - 1)c + (c - b)$$<br/>归并切分 `fast = head.next`<br/>K 组反转 `prev` 初值 = `group_next` |
+| [05 二叉树](/coding-interview-binary-tree.html) | 递归函数"返回什么"与"更新什么"为什么不是同一个量？ | 返回给父节点的是能继续向上延伸的链，答案在拐点处用全局变量更新 | 递归三要素<br/>层序先记 `len(q)`<br/>BST 验证带上下界 `(lo, hi)`<br/>建树 `pos[val]` 哈希 + 前序指针 |
+| [06 图](/coding-interview-graph-bfs-dfs-topological-union-find.html) | 先看出是图，然后 visited 放在哪？ | 五个算法：BFS、DFS、Kahn 拓扑、并查集、Dijkstra；BFS 入队时标记 | Kahn 出队数 $$< n$$ 即有环<br/>并查集路径压缩 + 按大小合并 $$O(\alpha(n))$$<br/>Dijkstra 堆 + 懒删除 $$O(E \log E)$$<br/>双向 BFS $$O(b^{d/2})$$ |
+| [07 二分](/coding-interview-binary-search.html) | 为什么二分只有一个模板？ | 在"假假假真真真"的单调谓词上找第一个真：`[lo, hi)`、真收 `hi = mid`、假收 `lo = mid + 1` | 答案二分 $$O(n \log V)$$<br/>值域第 k 小 `count_le(x) >= k`<br/>两数组中位数在短数组上二分 $$O(\log \min(m, n))$$ |
+| [08 堆、Top-K、区间与贪心](/coding-interview-heap-topk-intervals-greedy.html) | 按什么键排序或维护什么顺序？ | 第 K 大用大小为 K 的最小堆<br/>区间按起点排一趟扫、选最多不重叠按终点<br/>贪心靠交换论证 | 堆 $$O(n \log k)$$、快速选择期望 $$O(n)$$<br/>双堆先进 `small` 再倒<br/>会议室 = 起点排序 + 结束时间最小堆 |
+| [09 回溯](/coding-interview-backtracking.html) | 排列、组合、子集的递归参数差在哪？ | 做选择 → 递归 → 撤销<br/>排列用 `used[]`，组合用 `start`<br/>剪枝不改量级但决定能否跑完 | 排列 $$O(n \cdot n!)$$、子集 $$O(n \cdot 2^n)$$、括号 $$O(4^n / \sqrt{n})$$、单词搜索 $$O(mn \cdot 3^L)$$；`out.append(path[:])` 必须拷贝 |
+| [10 字符串](/coding-interview-strings.html) | 字符串特有的技巧有哪些？ | 中心扩展、KMP 失配表、状态机解析、竖式、`a + b` 与 `b + a` 比较、滚动哈希 | $$2n - 1$$ 个中心<br/>`lps[i]` = 最长真前缀 == 真后缀<br/>竖式 `res[i + j + 1]`<br/>溢出在乘 10 之前判 |
+| [11 DP（一）](/coding-interview-dynamic-programming-linear-and-grid.html) | 怎样从题面推出状态定义？ | 五步法：定义状态（"前 $$i$$ 个"还是"以 $$i$$ 结尾"）→ 枚举最后一步 → 初始 → 顺序 → 答案 | LIS `tails` 二分 $$O(n \log n)$$<br/>编辑距离三格 = 删 / 插 / 换<br/>最大正方形 `1 + min(上, 左, 左上)`<br/>`INF = amount + 1` |
+| [12 DP（二）](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html) | 背包、区间、状态机、树形各记一句什么？ | 倒序 = 一次、正序 = 无限<br/>区间枚举最后被处理的元素<br/>状态机画图再写 | 组合数外层物品、排列数外层容量<br/>戳气球 $$O(n^3)$$ 开区间 + 哨兵 1<br/>`hold` 初值 $$-\infty$$（Java `MIN_VALUE / 2`） |
+| [13 设计题](/coding-interview-design-problems-lru-lfu-trie.html) | 单一结构做不到的复杂度怎样用两个结构互相索引做到？ | 哈希 → 双向链表节点<br/>频次桶 + `min_freq`<br/>26 叉树<br/>数组 + 值到下标<br/>`lowbit` 分块 | LRU 全 $$O(1)$$<br/>LFU `min_freq` 最多 +1 或重置为 1<br/>O(1) 随机集删除末尾换位<br/>树状数组 $$O(\log n)$$ |
+| [14 attention](/coding-interview-attention-from-scratch.html) | multi-head 的四次形状变换是什么，KV cache 缓存什么？ | 先 `reshape(B, T, H, d)` 再 `transpose`<br/>softmax 减最大值<br/>mask 用 $$-\infty$$<br/>online softmax 最大值变时重缩放 | 参数 $$4D^2$$<br/>FLOPs $$8TD^2 + 4T^2D$$<br/>每 token KV $$2 L H_{kv} d \cdot \text{bytes}$$（Llama-3-8B 128 KB）<br/>GQA 缩 $$H / H_{kv}$$ 倍 |
+| [15 Transformer block 与反向](/coding-interview-transformer-block-and-backprop.html) | 一层参数为什么约 $$12D^2$$，CE 的梯度为什么是 $$p - y$$？ | 每参数一次乘加 → 前向 $$2N$$、训练 $$6N$$；局部导数 × 上游梯度，形状自查 | GPT-2 small 124,439,808<br/>LayerNorm 反向 $$\frac{1}{\sigma}(d\hat{x} - \overline{d\hat{x}} - \hat{x}\,\overline{d\hat{x} \odot \hat{x}})$$<br/>micrograd 梯度累加 `+=` |
+| [16 tokenizer 与解码](/coding-interview-tokenizer-and-decoding.html) | BPE 编码为什么按 merge 顺序而不是贪心最长匹配？ | tie-break `(频次, 字典序)`<br/>采样流水线 penalty → T → softmax → top-k → top-p → min-p<br/>投机解码输出分布恰为 $$p$$ | top-p 保留首个越界项<br/>蓄水池第 $$i$$ 个以 $$k / i$$ 替换<br/>接受率 $$= 1 - \text{TV}(p, q)$$ |
+| [17 损失与训练算法](/coding-interview-losses-and-training-algorithms.html) | 论文公式怎样落成十行正确的代码？ | DPO 四个序列 log 概率、初值 $$\ln 2$$<br/>GAE 从末尾递推<br/>PPO 取 `min`<br/>AdamW 衰减解耦<br/>LoRA `B = 0` | $$A_t = \delta_t + \gamma\lambda A_{t+1}$$<br/>Adam 第一步移动约 $$\eta \cdot \text{sign}(g)$$<br/>每参数 16 字节训练状态<br/>LoRA $$r(\text{in} + \text{out})$$ |
+| [18 经典 ML 与指标](/coding-interview-classical-ml-and-metrics.html) | k-means 为什么收敛，AUC 怎样 $$O(n \log n)$$？ | 模型 = 目标 + 优化<br/>AUC = 正样本秩和 $$- n_+(n_+ + 1)/2$$ 除 $$n_+ n_-$$<br/>conv = im2col + GEMM | 逻辑回归梯度 $$X^\top(p - y) / n$$<br/>NDCG 折扣 $$1 / \log_2(i + 1)$$<br/>$$H_\text{out} = \lfloor (H + 2p - k) / s \rfloor + 1$$<br/>im2col 大 $$k_h k_w$$ 倍 |
+| [19 Infra 并发与系统](/coding-interview-infra-concurrency-and-systems.html) | 一把锁保护什么、条件变量为什么 `while`？ | `get` 也要锁<br/>两个条件变量各叫各的<br/>异常进 Future<br/>空闲链表嵌在块内<br/>分块要测了再说 | ring allreduce 每 rank $$2\frac{N - 1}{N}V$$ 与 $$N$$ 无关<br/>ikj 比 ijk 快 11 倍<br/>paged KV fork 只加引用、写时复制一块 |
 
 ### 1. 本文的章节安排
 
@@ -384,16 +384,16 @@ date: 2025-12-20 20:00:00
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| "和为 k 的子数组" | 01、02、03 | 01 前缀和 + 哈希；02 说明含负数为何不能窗口；03 含负数求最短用前缀和 + 单调队列 |
-| 接雨水 | 02、03、06 | 02 双指针 $$O(1)$$ 空间；03 单调栈按层算水；二维版用 06 的堆（Dijkstra 思路） |
-| 第 K 大 / Top-K | 08、04、18 | 08 堆与快速选择；04 合并 K 链表是堆做 K 路归并；18 KNN 直接复用大小为 k 的堆 |
-| 快慢指针 / Floyd | 02、04、01、07 | 02 原地分区；04 判环与入口证明；01 LC 287 把 `nums[i]` 当指针；07 同题值域二分 |
-| 二分 | 07、11、13 | 07 唯一模板；11 LIS 的 `tails` 用 `bisect_left`；13 基于时间的键值存储用 `bisect_right - 1` |
+| "和为 k 的子数组" | 01、02、03 | 01 前缀和 + 哈希<br/>02 说明含负数为何不能窗口<br/>03 含负数求最短用前缀和 + 单调队列 |
+| 接雨水 | 02、03、06 | 02 双指针 $$O(1)$$ 空间<br/>03 单调栈按层算水<br/>二维版用 06 的堆（Dijkstra 思路） |
+| 第 K 大 / Top-K | 08、04、18 | 08 堆与快速选择<br/>04 合并 K 链表是堆做 K 路归并<br/>18 KNN 直接复用大小为 k 的堆 |
+| 快慢指针 / Floyd | 02、04、01、07 | 02 原地分区<br/>04 判环与入口证明<br/>01 LC 287 把 `nums[i]` 当指针<br/>07 同题值域二分 |
+| 二分 | 07、11、13 | 07 唯一模板<br/>11 LIS 的 `tails` 用 `bisect_left`<br/>13 基于时间的键值存储用 `bisect_right - 1` |
 | 回溯 vs DP | 09、11、12 | 09 枚举所有方案；11 / 12 只问方案数或能否时用 DP（39 → 377 / 518、131 → 132、139 → 140） |
-| 前缀和 | 01、05、13 | 01 数组版；05 树上版要撤销；13 树状数组让单点更新 + 前缀查询都 $$O(\log n)$$ |
+| 前缀和 | 01、05、13 | 01 数组版<br/>05 树上版要撤销<br/>13 树状数组让单点更新 + 前缀查询都 $$O(\log n)$$ |
 | Trie | 13、09 | 09 单词搜索每个单词一次 DFS；13 建 Trie 一次 DFS 匹配全部 |
 | LRU | 13、19 | 13 哈希 + 双向链表；19 加锁、缓存穿透、分段锁 |
-| softmax 的数值稳定 | 14、15、17 | 14 减最大值、log-softmax；15 CE 用 logits；17 BCE 恒等式、`log_softmax` |
+| softmax 的数值稳定 | 14、15、17 | 14 减最大值、log-softmax<br/>15 CE 用 logits<br/>17 BCE 恒等式、`log_softmax` |
 | KV cache | 14、19 | 14 每 token 字节数与 GQA；19 paged 块分配、引用计数、COW |
 | $$p - y$$ 型梯度 | 15、18 | 15 softmax-CE 对 logits；18 逻辑回归 $$X^\top(p - y) / n$$ 是二分类版 |
 | 拒绝采样 | 16 | 投机解码是 LC 470 / 528 一类"用一个分布生成另一个分布"的 AI 版 |
@@ -817,8 +817,8 @@ date: 2025-12-20 20:00:00
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出十九篇各讲哪种模式或哪个组件；知道前缀和、单调栈、`first_true`、大小为 K 的堆、KV cache、DPO 这些名词 |
-| 掌握 | A 组能不翻书做对 8 题以上；B 组能说出每题用了哪两篇的什么；拿到一道没见过的中等题能在五分钟内说出模式、模板与复杂度，写完能用最小边界输入走查；AI 手撕题能写出实现并说出对拍方法与自检基准值 |
-| 能教人 | C 组每题能给出全部要点并预判追问；能解释每个反直觉结论为什么成立（`max_freq` 不减也对、`tails` 不是 LIS、增量解码不需要 mask、分块反而慢、拒绝后要从残差重采）；能把一道题的两种解法与各自适用场景讲清 |
+| 掌握 | A 组能不翻书做对 8 题以上<br/>B 组能说出每题用了哪两篇的什么<br/>拿到一道没见过的中等题能在五分钟内说出模式、模板与复杂度，写完能用最小边界输入走查<br/>AI 手撕题能写出实现并说出对拍方法与自检基准值 |
+| 能教人 | C 组每题能给出全部要点并预判追问<br/>能解释每个反直觉结论为什么成立（`max_freq` 不减也对、`tails` 不是 LIS、增量解码不需要 mask、分块反而慢、拒绝后要从残差重采）<br/>能把一道题的两种解法与各自适用场景讲清 |
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点并在 15 分钟内写出关键代码。没过的部分回到第二章对应篇的"必记"，再回该篇正文；然后按总纲的练法——每篇题单的每道题做两遍，第一遍限时 30 分钟独立做，第二遍一周后不看资料重写，卡点集中的模式回来重读。
 

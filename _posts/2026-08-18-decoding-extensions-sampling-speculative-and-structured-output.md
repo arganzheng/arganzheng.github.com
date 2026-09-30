@@ -54,8 +54,8 @@ Table: 三种解码扩展各改的是什么
 | | 调度器（第四篇） | KV Cache（第五篇） | Model Runner / 执行（第六篇） | Sampler |
 |---|---|---|---|---|
 | logits processors | —— | —— | 维护每个请求的 `output_token_ids` 列表并每步上传；batch 增删移动时同步处理器状态 | 主战场 |
-| 投机解码 | `num_tokens_with_spec` 进预算；被拒绝的 token 回滚 `num_computed_tokens`；每步收集接受率 | `allocate_slots(num_lookahead_tokens)` 预留槽位；EAGLE 命中 prefix cache 时**少算一块** | 一次 forward 算 `1+K` 个位置；draft 模型有自己的 KV group 和 CUDA graph；"纯 decode batch"的定义从 1 token/req 变成 `1+K` token/req | 换成 `RejectionSampler` |
-| 结构化输出 | 请求进入 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 等编译；每步生成 bitmask；每步用 `accept_tokens` 推进 FSM；过滤 draft | —— | 在采样前对 logits 就地打掩码 | 掩码在 Sampler 之前，Sampler 本身不变 |
+| 投机解码 | `num_tokens_with_spec` 进预算<br/>被拒绝的 token 回滚 `num_computed_tokens`<br/>每步收集接受率 | `allocate_slots(num_lookahead_tokens)` 预留槽位；EAGLE 命中 prefix cache 时**少算一块** | 一次 forward 算 `1+K` 个位置<br/>draft 模型有自己的 KV group 和 CUDA graph<br/>"纯 decode batch"的定义从 1 token/req 变成 `1+K` token/req | 换成 `RejectionSampler` |
+| 结构化输出 | 请求进入 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 等编译<br/>每步生成 bitmask<br/>每步用 `accept_tokens` 推进 FSM<br/>过滤 draft | —— | 在采样前对 logits 就地打掩码 | 掩码在 Sampler 之前，Sampler 本身不变 |
 
 Table: 三种解码扩展惊动的模块
 

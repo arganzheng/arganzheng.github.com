@@ -22,9 +22,9 @@ catalog: true
 
 | 段 | 问题 | 内容 | 篇 |
 |---|---|---|---|
-| 第一段 | 为什么 | 低秩假设从哪来；$$W + \frac{\alpha}{r} BA$$ 的前向、梯度与初始化；参数 / 训练状态 / FLOPs / 激活四本账；全量微调的 $$\Delta W$$ 到底低不低秩 | 第一篇 |
-| 第二段 | 怎么配 | $$r$$、`target_modules`、$$\alpha$$ 与 rsLoRA、lr 与 LoRA+、dropout；PiSSA / DoRA / OLoRA / EVA / LoftQ；QLoRA 的 NF4、双重量化与分页优化器；十三种配置（全量 + 十二种 LoRA）的对照矩阵与一张选择表 | 第二篇 |
-| 第三段 | 怎么上线 | adapter 文件与底座匹配；加载、合并与数值等价；量化底座的失配；多 adapter 的切换与合成；multi-LoRA 服务的账；`disable_adapter` 当参考模型；新 token 学不会的坑 | 第三篇 |
+| 第一段 | 为什么 | 低秩假设从哪来<br/>$$W + \frac{\alpha}{r} BA$$ 的前向、梯度与初始化<br/>参数 / 训练状态 / FLOPs / 激活四本账<br/>全量微调的 $$\Delta W$$ 到底低不低秩 | 第一篇 |
+| 第二段 | 怎么配 | $$r$$、`target_modules`、$$\alpha$$ 与 rsLoRA、lr 与 LoRA+、dropout<br/>PiSSA / DoRA / OLoRA / EVA / LoftQ<br/>QLoRA 的 NF4、双重量化与分页优化器<br/>十三种配置（全量 + 十二种 LoRA）的对照矩阵与一张选择表 | 第二篇 |
+| 第三段 | 怎么上线 | adapter 文件与底座匹配<br/>加载、合并与数值等价<br/>量化底座的失配<br/>多 adapter 的切换与合成<br/>multi-LoRA 服务的账<br/>`disable_adapter` 当参考模型<br/>新 token 学不会的坑 | 第三篇 |
 
 Table: 系列三段的范围
 
@@ -102,9 +102,9 @@ flowchart TB
 
 | 篇 | 脚本 | 子实验 | 看什么 |
 |---|---|---|---|
-| 01 | `01_low_rank.py` | `hand` 手算梯度 · `account` 四本账 · `speed` 一步耗时与算子数 · `init` 五种初始化 · `spectrum` 全量 $$\Delta W$$ 的谱与截秩 | 公式与自动微分逐元素一致；LoRA 一步未必更快；$$\Delta W$$ 高秩但截到秩 16 效果几乎不掉 |
+| 01 | `01_low_rank.py` | `hand` 手算梯度 · `account` 四本账 · `speed` 一步耗时与算子数 · `init` 五种初始化 · `spectrum` 全量 $$\Delta W$$ 的谱与截秩 | 公式与自动微分逐元素一致<br/>LoRA 一步未必更快<br/>$$\Delta W$$ 高秩但截到秩 16 效果几乎不掉 |
 | 02 | `02_knobs.py` | 全量 + 十二种 LoRA 配置，各 80 步 | 验证回复 loss、普通文本 loss 变化、s/步 三列并排 |
-| 03 | `03_deploy.py` | `files` · `merge` · `quant` · `multi` · `tokens` | adapter 只有几十 MB；合并前后 logits 差 $$10^{-4}$$ 量级；NF4 失配；两个 adapter 的合成；新 token 不动 |
+| 03 | `03_deploy.py` | `files` · `merge` · `quant` · `multi` · `tokens` | adapter 只有几十 MB<br/>合并前后 logits 差 $$10^{-4}$$ 量级<br/>NF4 失配<br/>两个 adapter 的合成<br/>新 token 不动 |
 
 Table: 三篇正文的配套实验
 

@@ -38,16 +38,29 @@ flowchart LR
 
 数字来自对上一篇的 `after_coalesce.ttgir` 逐个 pass 跑 `triton-opt` 得到的 IR（`rg -c convert_layout`），每一步的 IR 都可以自己复现。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | RemoveLayoutConversions | 锚点；前向传播；冲突消解；后向重物化与代价模型；三种 hoist；清理；两次运行各做了什么 |
-| 三 | AccelerateMatmul | MMA 版本选择；`warpsPerCTA` 与 `instrShape`；`kWidth`；Ampere 与 Hopper 两条改写路径；`F32DotTC` |
-| 四 | OptimizeDotOperands 与 OptimizeThreadLocality | 转置折进 shared memory 布局；规约维挪进寄存器 |
-| 五 | 剩下的那一个 | epilogue 转换的两个锚；`truncf` 为什么被提到转换前；attention 的 P·V 为什么不需要它——两个实验 |
-| 六 | 本文小结 | |
-| 七 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、RemoveLayoutConversions**
+  - 锚点
+  - 前向传播
+  - 冲突消解
+  - 后向重物化与代价模型
+  - 三种 hoist
+  - 清理
+  - 两次运行各做了什么
+- **三、AccelerateMatmul**
+  - MMA 版本选择
+  - `warpsPerCTA` 与 `instrShape`
+  - `kWidth`
+  - Ampere 与 Hopper 两条改写路径
+  - `F32DotTC`
+- **四、OptimizeDotOperands 与 OptimizeThreadLocality**
+  - 转置折进 shared memory 布局
+  - 规约维挪进寄存器
+- **五、剩下的那一个**
+  - epilogue 转换的两个锚
+  - `truncf` 为什么被提到转换前
+  - attention 的 P·V 为什么不需要它——两个实验
+- **六、本文小结**
+- **七、自测**：5 道题
 
 源码：`lib/Dialect/TritonGPU/Transforms/{RemoveLayoutConversions,AccelerateMatmul,OptimizeDotOperands,OptimizeThreadLocality,F32DotTC}.cpp`、`lib/Dialect/TritonGPU/IR/Dialect.cpp`（`getMmaV2WarpsPerCTA`）、`lib/Analysis/Utility.cpp`；lit 测试 `test/TritonGPU/{combine,accelerate-matmul,dot-operands,optimize-locality}.mlir`。
 

@@ -29,16 +29,16 @@ catalog: true
 | 过拟合与欠拟合 | 奖励模型过拟合 → reward hacking；SFT 多 epoch 后的记忆 | 第一篇 |
 | 偏差 - 方差权衡、集成 | 多次采样投票（self-consistency）、多个 judge 取平均、模型融合（model soup） | 第一篇 |
 | 正则化 | weight decay、dropout、RLHF 里的 KL 惩罚（把参考模型当先验） | 第一篇 |
-| 线性回归、梯度下降、Ridge / Lasso | 学习率上限与条件数；weight decay 就是 Ridge；Lasso 的稀疏 | 第二篇 |
-| 逻辑回归、softmax 回归 | 每个分类头的原型；语言模型的输出层；奖励模型 = 特征提取器（LLM）+ 逻辑回归头 | 第三篇 |
-| 朴素贝叶斯、KNN、决策树 | 词袋文本分类；embedding 检索、few-shot 示例选择；可解释的规则 | 第四篇 |
+| 线性回归、梯度下降、Ridge / Lasso | 学习率上限与条件数<br/>weight decay 就是 Ridge<br/>Lasso 的稀疏 | 第二篇 |
+| 逻辑回归、softmax 回归 | 每个分类头的原型<br/>语言模型的输出层<br/>奖励模型 = 特征提取器（LLM）+ 逻辑回归头 | 第三篇 |
+| 朴素贝叶斯、KNN、决策树 | 词袋文本分类<br/>embedding 检索、few-shot 示例选择<br/>可解释的规则 | 第四篇 |
 | SVM 与核方法 | 间隔思想（margin loss）；核 = 相似度加权——attention 是一个核平滑器 | 第五篇 |
-| 随机森林、梯度提升 | 表格数据仍是首选；数据质量打分的特征模型；为什么用小模型 | 第六篇 |
+| 随机森林、梯度提升 | 表格数据仍是首选<br/>数据质量打分的特征模型<br/>为什么用小模型 | 第六篇 |
 | 聚类 | 数据多样性分析、按主题配比、找垃圾簇 | 第七篇 |
-| 降维（PCA） | embedding 可视化；各向异性；低秩直觉 | 第八篇 |
+| 降维（PCA） | embedding 可视化<br/>各向异性<br/>低秩直觉 | 第八篇 |
 | MinHash 与 LSH | 万亿 token 的近似去重；三层去重 | 第九篇 |
 | 精确率 / 召回率 / F1 / AUC | 过滤器的漏放与误杀、奖励模型与 judge 的评估 | 第十篇 |
-| 类别不平衡、校准、Cohen's κ | 过滤器对少数类文本的误杀；模型输出概率是否可信；judge 的一致性 | 第十篇 |
+| 类别不平衡、校准、Cohen's κ | 过滤器对少数类文本的误杀<br/>模型输出概率是否可信<br/>judge 的一致性 | 第十篇 |
 | 交叉验证、置信区间、配对检验、多重比较 | 评测集怎么划、MMLU 的 ±0.8、A/B 差异是否显著、20 个 benchmark 领先 12 个算不算 | 第十篇 |
 
 Table: 经典机器学习概念在 LLM 工作里的重现表
@@ -52,7 +52,7 @@ Table: 经典机器学习概念在 LLM 工作里的重现表
 | 第一篇 | 同一个 KNN，随机划分 vs 按地区划分 | 加州房价 20,640 个街区 | RMSE 5.2 万 vs 8.6 万——它在抄邻居 |
 | 第二篇 | 房价预测：从猜均值到 Ridge / Lasso 十步 | 同上 | 114k → 60k；三次项无正则爆到 102k，Ridge 拉回 |
 | 第三篇 | 垃圾短信识别：TF-IDF + 逻辑回归 | UCI SMS Spam 5,574 条 | 精确率 100%、召回 87%；阈值按两种错各多贵定 |
-| 第四篇 | 朴素贝叶斯做同一份垃圾短信；KNN 做手写数字；决策树做泰坦尼克 | SMS Spam；MNIST；Titanic 1,309 人 | F1 0.944 与逻辑回归打平；2.95%；深度 3 的树 83%、`boat` 列 97% 是泄漏 |
+| 第四篇 | 朴素贝叶斯做同一份垃圾短信<br/>KNN 做手写数字<br/>决策树做泰坦尼克 | SMS Spam<br/>MNIST<br/>Titanic 1,309 人 | F1 0.944 与逻辑回归打平<br/>2.95%<br/>深度 3 的树 83%、`boat` 列 97% 是泄漏 |
 | 第五篇 | 重跑 LeCun 1998 那张表：线性 / KNN / RBF-SVM | MNIST 60,000 张 | 7.4% → 2.95% → 1.43%，排序与原表一致 |
 | 第六篇 | 人口普查收入预测：树 → 森林 → 梯度提升 | Adult 48,842 人 | AUC 0.772 → 0.917 → 0.930；重要性审计 |
 | 第七篇 | RFM 客户分群；照片颜色量化 | Online Retail 54 万行交易 | 714 个冠军贡献 65% 营业额；96,615 色 → 16 色 |
@@ -113,7 +113,7 @@ SVM 与 LDA 退场了，但"测试集只能看一次"、"参数远多于样本�
 | 第六篇 | 集成 | bagging 降方差、随机森林、梯度提升 = 函数空间的梯度下降、特征重要性；数据质量分类器为什么用小模型 |
 | 第七篇 | 聚类 | K-Means 的迭代与局部最优、$$k$$ 的选择、DBSCAN、层次聚类；真实语料的主题与垃圾簇 |
 | 第八篇 | 降维 | PCA = SVD、解释方差与有效维度、重建、t-SNE / UMAP、embedding 的各向异性 |
-| 第九篇 | 去重 | Jaccard、MinHash 的无偏估计、LSH 的 S 曲线；FineWeb 的 b = 14, r = 8 是怎么定的；三层去重 |
+| 第九篇 | 去重 | Jaccard、MinHash 的无偏估计、LSH 的 S 曲线<br/>FineWeb 的 b = 14, r = 8 是怎么定的<br/>三层去重 |
 | 第十篇 | 评估 | 混淆矩阵、阈值、AUC、类别不平衡、校准、κ、置信区间、配对检验、多重比较；judge 的偏差 |
 
 Table: 十篇的主题与内容
@@ -321,16 +321,16 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 
 | 篇 | 脚本 | 做的事 |
 |---|---|---|
-| 第一篇 | `01_learning_and_generalization.py` | 多项式次数扫描与三种容量的拟合图；学习曲线；四种划分与按组切实验；n-gram 污染检测；测试集选择偏差的直方图；偏差-方差预测带 |
-| 第二篇 | `02_linear_regression.py` | 残差图；损失曲面与 GD 路径；闭式解 / GD / SGD 对数；特征缩放与共线；Ridge / Lasso 系数路径与几何；weight decay 对数；离群点 |
-| 第三篇 | `03_logistic_regression_and_reward_model.py` | sigmoid / 交叉熵图；梯度的有限差分验证；手写 GD 与决策边界；乳腺癌系数；softmax 回归；Bradley-Terry 奖励模型；标注噪声 vs 上限 |
-| 第四篇 | `04_naive_bayes_knn_and_trees.py` | 七分类器总表与边界九宫格；贝叶斯手算；高斯 NB；KNN 的 $$k$$ 与维度灾难；决策树第一刀、深度 vs 过拟合 |
-| 第五篇 | `05_svm_and_kernels.py` | 最大间隔与支持向量；hinge；手写线性 SVM；软间隔 $$C$$；圆环升维；RBF $$\gamma$$；核回归 = attention；训练时间随 $$n$$ |
-| 第六篇 | `06_ensembles_and_gradient_boosting.py` | bagging 方差实测；随机森林 `max_features`；梯度提升逐步残差图与手写 15 行；学习率 × 棵数；特征重要性；表格数据对比；算力账 |
-| 第七篇 | `07_clustering.py` | K-Means 迭代四帧与手写；肘部 / 轮廓；随机 vs k-means++；DBSCAN；层次聚类树状图；78 句真实语料聚类（`_sentences.py`） |
-| 第八篇 | `08_dimensionality_reduction.py` | PCA 几何；手写 SVD 版 PCA；解释方差与重建；三种算法对数；t-SNE；各向异性；权重矩阵奇异值谱 |
-| 第九篇 | `09_minhash_lsh.py` | 手算 MinHash；估计误差 vs $$k$$；S 曲线；2000 段文本 LSH 与实测召回；三层去重 |
-| 第十篇 | `10_evaluation.py` | 手写指标；阈值扫描与 ROC；不平衡；Platt / isotonic 校准；κ 与位置偏差；交叉验证；bootstrap；McNemar；多重比较 |
+| 第一篇 | `01_learning_and_generalization.py` | 多项式次数扫描与三种容量的拟合图<br/>学习曲线<br/>四种划分与按组切实验<br/>n-gram 污染检测<br/>测试集选择偏差的直方图<br/>偏差-方差预测带 |
+| 第二篇 | `02_linear_regression.py` | 残差图<br/>损失曲面与 GD 路径<br/>闭式解 / GD / SGD 对数<br/>特征缩放与共线<br/>Ridge / Lasso 系数路径与几何<br/>weight decay 对数<br/>离群点 |
+| 第三篇 | `03_logistic_regression_and_reward_model.py` | sigmoid / 交叉熵图<br/>梯度的有限差分验证<br/>手写 GD 与决策边界<br/>乳腺癌系数<br/>softmax 回归<br/>Bradley-Terry 奖励模型<br/>标注噪声 vs 上限 |
+| 第四篇 | `04_naive_bayes_knn_and_trees.py` | 七分类器总表与边界九宫格<br/>贝叶斯手算<br/>高斯 NB<br/>KNN 的 $$k$$ 与维度灾难<br/>决策树第一刀、深度 vs 过拟合 |
+| 第五篇 | `05_svm_and_kernels.py` | 最大间隔与支持向量<br/>hinge<br/>手写线性 SVM<br/>软间隔 $$C$$<br/>圆环升维<br/>RBF $$\gamma$$<br/>核回归 = attention<br/>训练时间随 $$n$$ |
+| 第六篇 | `06_ensembles_and_gradient_boosting.py` | bagging 方差实测<br/>随机森林 `max_features`<br/>梯度提升逐步残差图与手写 15 行<br/>学习率 × 棵数<br/>特征重要性<br/>表格数据对比<br/>算力账 |
+| 第七篇 | `07_clustering.py` | K-Means 迭代四帧与手写<br/>肘部 / 轮廓<br/>随机 vs k-means++<br/>DBSCAN<br/>层次聚类树状图<br/>78 句真实语料聚类（`_sentences.py`） |
+| 第八篇 | `08_dimensionality_reduction.py` | PCA 几何<br/>手写 SVD 版 PCA<br/>解释方差与重建<br/>三种算法对数<br/>t-SNE<br/>各向异性<br/>权重矩阵奇异值谱 |
+| 第九篇 | `09_minhash_lsh.py` | 手算 MinHash<br/>估计误差 vs $$k$$<br/>S 曲线<br/>2000 段文本 LSH 与实测召回<br/>三层去重 |
+| 第十篇 | `10_evaluation.py` | 手写指标<br/>阈值扫描与 ROC<br/>不平衡<br/>Platt / isotonic 校准<br/>κ 与位置偏差<br/>交叉验证<br/>bootstrap<br/>McNemar<br/>多重比较 |
 
 Table: 各篇配套脚本做的事
 

@@ -49,17 +49,18 @@ PyTorch 在本篇里是被拆开看的样本，与系列其他篇一样——目
 
 前三章是 PyTorch 的三个维度各是怎么划的，第五章动手搭一个同样结构的骨架，第六章是读任何大 C++ 项目时的定位技巧。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 命名空间 | c10::、at::、torch:: 的分工；一个命名空间可以横跨多个库 |
-| 三 | PyTorch 的源码布局与库布局 | c10/ -> aten/ -> torch/csrc/ 各编成什么；import torch 加载了什么；扩展链接到哪一个 |
-| 四 | 回到源码 | `c10/CMakeLists.txt`、`caffe2/CMakeLists.txt`、`torch/CMakeLists.txt`、`stub.c`、`setup.py` |
-| 五 | 实践二 | mini-c10 的目录结构与第一个可链接的库 |
-| 六 | 工程实践建议与常见错误 | 按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧 |
-| 七 | 本文小结 |  |
-| 八 | 自测 | 3 道题 |
-
-Table: 本文的章节安排
+- **二、命名空间**
+  - c10::、at::、torch:: 的分工
+  - 一个命名空间可以横跨多个库
+- **三、PyTorch 的源码布局与库布局**
+  - c10/ -> aten/ -> torch/csrc/ 各编成什么
+  - import torch 加载了什么
+  - 扩展链接到哪一个
+- **四、回到源码**：`c10/CMakeLists.txt`、`caffe2/CMakeLists.txt`、`torch/CMakeLists.txt`、`stub.c`、`setup.py`
+- **五、实践二**：mini-c10 的目录结构与第一个可链接的库
+- **六、工程实践建议与常见错误**：按阶段定位错误、头文件卫生、链接与部署、读源码的定位技巧
+- **七、本文小结**
+- **八、自测**：3 道题
 
 ## 二、命名空间：`c10::`、`at::`、`torch::` 的分工
 
@@ -977,10 +978,10 @@ mini-c10 现在只有一个函数，但它已经是一个"库"：有头文件和
 | `fatal error: torch/torch.h: No such file or directory` | 预处理 | 少 `-I`；`torch/torch.h` 需要 `include/torch/csrc/api/include` 这个额外路径 |
 | `error: 'Tensor' was not declared in this scope` / `'at' has not been declared` | 编译 | 少 `#include`，或者只有前向声明却用了完整定义 |
 | `error: invalid use of incomplete type 'class at::Tensor'` | 编译 | 前向声明了但没包含完整定义（[上篇 3.4 节](/cpp-compilation-model-from-cpp-to-shared-object.html)） |
-| `undefined reference to 'at::xxx'` | 链接 | 少 `-ltorch_cpu`/`-lc10`；或函数声明了没定义；或声明上没有 `TORCH_API`（符号没导出） |
+| `undefined reference to 'at::xxx'` | 链接 | 少 `-ltorch_cpu`/`-lc10`<br/>或函数声明了没定义<br/>或声明上没有 `TORCH_API`（符号没导出） |
 | `multiple definition of 'xxx'` | 链接 | 头文件里的函数定义忘了 `inline`；或同一个 `.cpp` 被加进两个目标 |
 | `error while loading shared libraries: libtorch.so: cannot open shared object file` | 加载 | 没有 RPATH 也没设 `LD_LIBRARY_PATH` |
-| `undefined symbol: _ZN2at...` （`import` 时） | 加载 | 编译扩展用的 PyTorch 头文件和运行时加载的 `.so` 版本不一致；或 ABI 不匹配（`[abi:cxx11]`）；或 `-std=` 不一致导致某些 inline 函数签名不同 |
+| `undefined symbol: _ZN2at...` （`import` 时） | 加载 | 编译扩展用的 PyTorch 头文件和运行时加载的 `.so` 版本不一致<br/>或 ABI 不匹配（`[abi:cxx11]`）<br/>或 `-std=` 不一致导致某些 inline 函数签名不同 |
 | `dynamic module does not define module export function (PyInit_xxx)` | 加载 | 扩展用了 `-fvisibility=hidden` 却没给 `PyInit_xxx` 加默认可见性；或模块名和 `PYBIND11_MODULE`/`TORCH_EXTENSION_NAME` 不一致 |
 | 运行时算子"不存在"，但 `nm` 里能看到注册代码 | 链接/加载 | 静态库没用 `--whole-archive`，注册所在的 `.o` 被丢弃（[上篇 5.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)，第五篇） |
 

@@ -34,18 +34,106 @@ flowchart TB
 
 系列的一句话主张是：**所有基于偏好或奖励的后训练方法都在操作同样三个组件——策略、奖励、参考——每个名字只是这三件套上的一处改动**：奖励从哪来（标注序列、RM、隐式对数比、验证器、教师分布），参考怎么约束（KL 惩罚、折进 loss、去掉），以及为了估计策略梯度要不要第四个组件（价值模型）。每一篇用同一套方法处理它的方法——写出目标函数并解释每一项，算出显存、token 与数据的账，给出在 Qwen2.5 0.5B / 1.5B 上跑一遍的骨架，再对到 InstructGPT、Llama 3、Tülu 3、DeepSeek-R1、Qwen3、Kimi K2 的公开配方里的那一行。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
-|---|---|---|---|
-| [第一篇：SFT](/sft-data-chat-template-loss-mask-and-peft.html) | 同一批指令数据，mask、packing、LoRA 的秩、epoch 各让模型变成什么样？怎么在训完前知道会不会忘？ | SFT 只教格式、不加知识（表面对齐）；格式是低秩的、知识是高秩的；遗忘看 lr 与更新的秩，用一份无关文本的 loss 度量 | lr $$10^{-5}$$（预训练的 1/10）；8B 全量 128 GB；LoRA $$r = 16$$ 全部线性层 1.78% 参数、验证 loss 差 0.001、状态 1/7；遗忘 +0.02 / +0.62 / +0.01；padding 有效 45–56%；8B × 2B token = 67 GPU 小时 |
-| [第二篇：偏好数据与奖励模型](/preference-data-and-reward-models.html) | 70% 准确率的 RM 为什么够用？它在哪被钻空子，怎么在训 RL 前发现？ | RM 是逻辑回归，给的是梯度方向不是判决；准确率通常停在 65–75%，与人际一致率同量级但后者不是上限；失效在分布外，金奖励随 $$\sqrt{\text{KL}}$$ 先升后降，用 best-of-N 免费预演 | $$P(y_w \succ y_l) = \sigma(r_w - r_l)$$；1 epoch；8B、10 万对 7 GPU 小时；$$\text{KL}_{BoN} = \log N - (N-1)/N$$，$$N = 16$$ → 1.83 nats；$$R_{gold}(d) = d(\alpha - \beta \log d)$$ |
-| [第三篇：在线 RL](/online-rl-ppo-grpo-and-the-rlhf-trio.html) | PPO 为什么四个模型？GRPO 用什么代替价值模型、代价是什么？推理与反向各占多少？ | baseline 不依赖当前样本就无偏，GRPO 的组内均值含自己、带 (1−1/G) 的小偏差，标准差再带一个；FLOPs 训练占一半，墙钟生成占一半以上 | $$\max \mathbb{E}[r] - \beta\,\text{KL}(\pi_\theta \Vert \pi_{ref})$$；$$\beta$$ 0.01–0.05，规则奖励 0；PPO 288 GB / GRPO 160 GB；GAE $$\gamma = 1$$、$$\lambda = 0.95$$；clip 0.2（DAPO 0.2 / 0.28）；一步 512 × 8 × 1000 = 410 万 token；$$\approx 12N$$/token |
-| [第四篇：离线 RL](/offline-rl-dpo-and-its-family.html) | DPO 真的不需要奖励模型？隐式奖励在哪失效？与 PPO 训出的差在哪？ | 闭式解反解奖励代入 Bradley-Terry，RM 被对数比替代；只在数据分布上受约束→似然同降、过优化、长度；PPO 上限略高（探索），DPO 性价比高；on-policy 数据比 loss 变体重要 | $$\pi^* \propto \pi_{ref}\, e^{r/\beta}$$；$$\hat r = \beta \log(\pi_\theta / \pi_{ref})$$；$$\beta$$ 0.1；$$8N$$/token，10 万对 9 GPU 小时；两模型 128 GB，LoRA 约 20 GB；Llama 3 六轮、RPO $$\alpha = 0.2$$ |
-| [第五篇：推理模型与可验证奖励](/reasoning-models-and-verifiable-rewards.html) | 规则奖励为什么能训出长思维链？R1 四阶段各修什么？rollout 多多少？ | 验证器正确时难 hack → R1 选择撤 KL、探索走极远（配方取舍非必然）；对长度中立；放大基座已有的推理模式；四阶段各修上一步暴露的一个问题 | AIME 15.6 → 71.0（cons@64 86.7）；80 万条 = 60 万推理 + 20 万非推理；一步 512 × 16 × 16K = 1.3 亿 token，多 8–64 倍，KV 16 TiB；总算力 $$10^{22}$$–$$10^{23}$$；PRM 78.2 vs ORM 72.4 @ $$N = 1860$$；32B 蒸馏 72.6 vs RL 47 |
-| [第六篇：Agent 与工具调用的 RL](/agentic-rl-tool-use-environments-and-trajectories.html) | 与单轮 RLVR 差在哪一行公式、哪一处 mask、哪一段系统？瓶颈为什么在环境？ | 对数概率变成 $$T$$ 段之和，环境转移不含 $$\theta$$；工具输出必须 mask，否则学会编造；异步 rollout 从优化变成必需 | 20 轮轨迹 48K token、八成是环境的、每个有效 token 成本 5 倍；前缀缓存 48 万 → 4.8 万 prefill；500 任务 × 8：环境 320 CPU·小时 vs 模型 7 GPU·小时；落后 $$k$$ = 1–4 步几乎无损；KL ≈ 0 |
-| [第七篇：蒸馏](/knowledge-distillation-for-llms.html) | 三种蒸馏各学到什么、漏掉什么？R1 为什么给小模型选蒸馏？ | logits 级学分布、序列级学模式、on-policy 修暴露偏差——采样像 RL、梯度是 token 级散度（不经采样反传），反向 KL 里学生的熵项不能丢；前向 KL 覆盖、反向 KL 集中；小模型靠探索碰不到正确解 | 每 token 几到几十 bit vs 硬标签 < 1 bit；128K 词表 BF16 每 token 256 KB、top-64 约 256 B；R1-Distill 一两千 GPU 小时 vs RL 几万；on-policy ≈ RL 的 1/10；1.5B 29% / 7B 55% / 32B 72.6%；Minitron 940 亿 token、少 40 倍 |
-| [第八篇：评测](/evaluating-llms-benchmarks-judges-and-contamination.html) | MMLU 涨 2 个点是能力、协议还是污染？judge 的 80% 胜率去掉长度剩多少？ | 分数 = 能力 + 协议 + 噪声 + 污染，三关（协议、区间、污染）都过才是能力；judge 有位置、长度、自我偏好三种偏差，要用长度控制的 win rate | 协议 5–15 点；$$\pm 1.96\sqrt{p(1-p)/n}$$：1000 题 ±3、AIME 30 题 ±18、MMLU ±0.8；污染子集 10–30 点；GSM1K 掉 13 点；MMLU-Redux 6.5% 错题；位置改判 20–30%；长度控制后与 Arena 相关 0.94 → 0.98 |
-
-Table: 八篇的核心问题、结论与必记公式
+- **[第一篇：SFT](/sft-data-chat-template-loss-mask-and-peft.html)**
+  - 回答的问题：同一批指令数据，mask、packing、LoRA 的秩、epoch 各让模型变成什么样？怎么在训完前知道会不会忘？
+  - 一句话结论：
+    - SFT 只教格式、不加知识（表面对齐）
+    - 格式是低秩的、知识是高秩的
+    - 遗忘看 lr 与更新的秩，用一份无关文本的 loss 度量
+  - 必记的数字 / 公式：
+    - lr $$10^{-5}$$（预训练的 1/10）
+    - 8B 全量 128 GB
+    - LoRA $$r = 16$$ 全部线性层 1.78% 参数、验证 loss 差 0.001、状态 1/7
+    - 遗忘 +0.02 / +0.62 / +0.01
+    - padding 有效 45–56%
+    - 8B × 2B token = 67 GPU 小时
+- **[第二篇：偏好数据与奖励模型](/preference-data-and-reward-models.html)**
+  - 回答的问题：70% 准确率的 RM 为什么够用？它在哪被钻空子，怎么在训 RL 前发现？
+  - 一句话结论：
+    - RM 是逻辑回归，给的是梯度方向不是判决
+    - 准确率通常停在 65–75%，与人际一致率同量级但后者不是上限
+    - 失效在分布外，金奖励随 $$\sqrt{\text{KL}}$$ 先升后降，用 best-of-N 免费预演
+  - 必记的数字 / 公式：
+    - $$P(y_w \succ y_l) = \sigma(r_w - r_l)$$
+    - 1 epoch
+    - 8B、10 万对 7 GPU 小时
+    - $$\text{KL}_{BoN} = \log N - (N-1)/N$$，$$N = 16$$ → 1.83 nats
+    - $$R_{gold}(d) = d(\alpha - \beta \log d)$$
+- **[第三篇：在线 RL](/online-rl-ppo-grpo-and-the-rlhf-trio.html)**
+  - 回答的问题：PPO 为什么四个模型？GRPO 用什么代替价值模型、代价是什么？推理与反向各占多少？
+  - 一句话结论：baseline 不依赖当前样本就无偏，GRPO 的组内均值含自己、带 (1−1/G) 的小偏差，标准差再带一个；FLOPs 训练占一半，墙钟生成占一半以上
+  - 必记的数字 / 公式：
+    - $$\max \mathbb{E}[r] - \beta\,\text{KL}(\pi_\theta \Vert \pi_{ref})$$
+    - $$\beta$$ 0.01–0.05，规则奖励 0
+    - PPO 288 GB / GRPO 160 GB
+    - GAE $$\gamma = 1$$、$$\lambda = 0.95$$
+    - clip 0.2（DAPO 0.2 / 0.28）
+    - 一步 512 × 8 × 1000 = 410 万 token
+    - $$\approx 12N$$/token
+- **[第四篇：离线 RL](/offline-rl-dpo-and-its-family.html)**
+  - 回答的问题：DPO 真的不需要奖励模型？隐式奖励在哪失效？与 PPO 训出的差在哪？
+  - 一句话结论：
+    - 闭式解反解奖励代入 Bradley-Terry，RM 被对数比替代
+    - 只在数据分布上受约束→似然同降、过优化、长度
+    - PPO 上限略高（探索），DPO 性价比高
+    - on-policy 数据比 loss 变体重要
+  - 必记的数字 / 公式：
+    - $$\pi^* \propto \pi_{ref}\, e^{r/\beta}$$
+    - $$\hat r = \beta \log(\pi_\theta / \pi_{ref})$$
+    - $$\beta$$ 0.1
+    - $$8N$$/token，10 万对 9 GPU 小时
+    - 两模型 128 GB，LoRA 约 20 GB
+    - Llama 3 六轮、RPO $$\alpha = 0.2$$
+- **[第五篇：推理模型与可验证奖励](/reasoning-models-and-verifiable-rewards.html)**
+  - 回答的问题：规则奖励为什么能训出长思维链？R1 四阶段各修什么？rollout 多多少？
+  - 一句话结论：
+    - 验证器正确时难 hack → R1 选择撤 KL、探索走极远（配方取舍非必然）
+    - 对长度中立
+    - 放大基座已有的推理模式
+    - 四阶段各修上一步暴露的一个问题
+  - 必记的数字 / 公式：
+    - AIME 15.6 → 71.0（cons@64 86.7）
+    - 80 万条 = 60 万推理 + 20 万非推理
+    - 一步 512 × 16 × 16K = 1.3 亿 token，多 8–64 倍，KV 16 TiB
+    - 总算力 $$10^{22}$$–$$10^{23}$$
+    - PRM 78.2 vs ORM 72.4 @ $$N = 1860$$
+    - 32B 蒸馏 72.6 vs RL 47
+- **[第六篇：Agent 与工具调用的 RL](/agentic-rl-tool-use-environments-and-trajectories.html)**
+  - 回答的问题：与单轮 RLVR 差在哪一行公式、哪一处 mask、哪一段系统？瓶颈为什么在环境？
+  - 一句话结论：
+    - 对数概率变成 $$T$$ 段之和，环境转移不含 $$\theta$$
+    - 工具输出必须 mask，否则学会编造
+    - 异步 rollout 从优化变成必需
+  - 必记的数字 / 公式：
+    - 20 轮轨迹 48K token、八成是环境的、每个有效 token 成本 5 倍
+    - 前缀缓存 48 万 → 4.8 万 prefill
+    - 500 任务 × 8：环境 320 CPU·小时 vs 模型 7 GPU·小时
+    - 落后 $$k$$ = 1–4 步几乎无损
+    - KL ≈ 0
+- **[第七篇：蒸馏](/knowledge-distillation-for-llms.html)**
+  - 回答的问题：三种蒸馏各学到什么、漏掉什么？R1 为什么给小模型选蒸馏？
+  - 一句话结论：
+    - logits 级学分布、序列级学模式、on-policy 修暴露偏差——采样像 RL、梯度是 token 级散度（不经采样反传），反向 KL 里学生的熵项不能丢
+    - 前向 KL 覆盖、反向 KL 集中
+    - 小模型靠探索碰不到正确解
+  - 必记的数字 / 公式：
+    - 每 token 几到几十 bit vs 硬标签 < 1 bit
+    - 128K 词表 BF16 每 token 256 KB、top-64 约 256 B
+    - R1-Distill 一两千 GPU 小时 vs RL 几万
+    - on-policy ≈ RL 的 1/10
+    - 1.5B 29% / 7B 55% / 32B 72.6%
+    - Minitron 940 亿 token、少 40 倍
+- **[第八篇：评测](/evaluating-llms-benchmarks-judges-and-contamination.html)**
+  - 回答的问题：MMLU 涨 2 个点是能力、协议还是污染？judge 的 80% 胜率去掉长度剩多少？
+  - 一句话结论：分数 = 能力 + 协议 + 噪声 + 污染，三关（协议、区间、污染）都过才是能力；judge 有位置、长度、自我偏好三种偏差，要用长度控制的 win rate
+  - 必记的数字 / 公式：
+    - 协议 5–15 点
+    - $$\pm 1.96\sqrt{p(1-p)/n}$$：1000 题 ±3、AIME 30 题 ±18、MMLU ±0.8
+    - 污染子集 10–30 点
+    - GSM1K 掉 13 点
+    - MMLU-Redux 6.5% 错题
+    - 位置改判 20–30%
+    - 长度控制后与 Arena 相关 0.94 → 0.98
 
 ### 1. 本文的章节安排
 
@@ -221,16 +309,16 @@ Table: 本文的章节安排
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| 三件套（策略、奖励、参考） | 全部 | 一定义起点；二造奖励；三、四两种解法；五、六换验证器；七换教师；八的 judge 是未训练的 RM |
-| Bradley-Terry、平移不变性 | 二、三、四、八 | 二定义；三的组内归一化；四的 $$Z(x)$$ 抵消；八的 Arena 排名 |
-| KL 预算、过优化曲线 | 二、三、四、五 | 二给规律；三给 $$\beta$$ 与估计量；四 DPO 同一曲线；五规则奖励下 $$\beta \to 0$$ |
-| best-of-N | 二、四、五 | 二的 KL 尺；四的拒绝采样 = 蒸馏 BoN；五的 test-time compute 与"RL ≈ BoN 蒸进策略" |
-| loss mask | 一、三、四、六、八 | 一定义；三只算回答；四 mask 特殊 token；六 mask 工具输出；八错误分类 |
-| on-policy | 二、三、四、六、七 | 二数据；三同步；四结论；六异步折中；七 on-policy 蒸馏 |
-| 长度 | 二、三、四、五、八 | 二 RM 偏差；三 Dr. GRPO 归一化偏差；四 DPO 长度、SimPO；五长度控制五种；八长度控制 win rate |
-| 拒绝采样 / 序列级蒸馏 | 一、四、五、七 | 一 SFT 数据来源；四最简单的离线 RL；五 R1 阶段 3；七就是序列级蒸馏 |
-| 冷启动 SFT | 一、五、六、七 | 一的"少即是多"（s1）；五 R1 阶段 1；六先学格式；七蒸馏是最好的冷启动 |
-| 异步 rollout | 三、五、六 | 三滞后一步；五部分 rollout；六必需 |
+| 三件套（策略、奖励、参考） | 全部 | 一定义起点<br/>二造奖励<br/>三、四两种解法<br/>五、六换验证器<br/>七换教师<br/>八的 judge 是未训练的 RM |
+| Bradley-Terry、平移不变性 | 二、三、四、八 | 二定义<br/>三的组内归一化<br/>四的 $$Z(x)$$ 抵消<br/>八的 Arena 排名 |
+| KL 预算、过优化曲线 | 二、三、四、五 | 二给规律<br/>三给 $$\beta$$ 与估计量<br/>四 DPO 同一曲线<br/>五规则奖励下 $$\beta \to 0$$ |
+| best-of-N | 二、四、五 | 二的 KL 尺<br/>四的拒绝采样 = 蒸馏 BoN<br/>五的 test-time compute 与"RL ≈ BoN 蒸进策略" |
+| loss mask | 一、三、四、六、八 | 一定义<br/>三只算回答<br/>四 mask 特殊 token<br/>六 mask 工具输出<br/>八错误分类 |
+| on-policy | 二、三、四、六、七 | 二数据<br/>三同步<br/>四结论<br/>六异步折中<br/>七 on-policy 蒸馏 |
+| 长度 | 二、三、四、五、八 | 二 RM 偏差<br/>三 Dr. GRPO 归一化偏差<br/>四 DPO 长度、SimPO<br/>五长度控制五种<br/>八长度控制 win rate |
+| 拒绝采样 / 序列级蒸馏 | 一、四、五、七 | 一 SFT 数据来源<br/>四最简单的离线 RL<br/>五 R1 阶段 3<br/>七就是序列级蒸馏 |
+| 冷启动 SFT | 一、五、六、七 | 一的"少即是多"（s1）<br/>五 R1 阶段 1<br/>六先学格式<br/>七蒸馏是最好的冷启动 |
+| 异步 rollout | 三、五、六 | 三滞后一步<br/>五部分 rollout<br/>六必需 |
 | 置信区间、一致率 | 二、八 | 二人的一致率 70–75%；八 judge 与人 80%、二项区间 |
 
 Table: 贯穿八篇的概念及其关系
@@ -457,7 +545,7 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出八篇各讲什么；知道三件套、Bradley-Terry、GRPO、DPO、RLVR、GKD 这些名词 |
-| 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份后训练报告能把每一步放回三件套、估出模型数与 GPU 小时、指出它的评测协议缺什么 |
+| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一份后训练报告能把每一步放回三件套、估出模型数与 GPU 小时、指出它的评测协议缺什么 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（70% 的 RM 够用、DPO 也有 Goodhart、RL 是放大不是创造、蒸馏好于直接 RL、瓶颈在环境、涨 2 个点不算涨）为什么成立 |
 
 Table: 掌握程度的判据

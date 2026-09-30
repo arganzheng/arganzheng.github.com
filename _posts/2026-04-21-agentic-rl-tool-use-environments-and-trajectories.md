@@ -44,21 +44,41 @@ Table: 单轮 RLVR 与多轮 Agent RL 的对比
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 问题设定 | MDP 的四要素；一条轨迹长什么样；与单轮的三处差别 |
-| 三 | 工具调用的格式 | schema、模板里的 tool 角色、并行调用、ReAct 与交错思考；格式错误的处理；为什么先 SFT |
-| 四 | 环境与轨迹数据 | 环境的五类；轨迹的三种来源；Kimi K2 的合成流水线；为什么难 |
-| 五 | 奖励 | 结果奖励的三种验证方式；部分分；惩罚项；rubric；多轮上的 hacking |
-| 六 | 训练目标 | 轨迹级 GRPO；mask；信用分配（轨迹级 / turn 级）；重要性比与 KL；上下文增长的账 |
-| 七 | 系统与成本 | agent loop；环境延迟与方差；异步 rollout 与 off-policy 修正；一步的环境账与 GPU 账 |
-| 八 | 公开配方 | SWE-RL、Search-R1、ReTool、Kimi K2、Qwen3、gpt-oss / o3 |
-| 九 | 评测预告 | τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测什么 |
-| 十 | 动手 | 最小的多轮 rollout 与 mask |
-| 十一 | 本文小结 | |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、问题设定**
+  - MDP 的四要素
+  - 一条轨迹长什么样
+  - 与单轮的三处差别
+- **三、工具调用的格式**
+  - schema、模板里的 tool 角色、并行调用、ReAct 与交错思考
+  - 格式错误的处理
+  - 为什么先 SFT
+- **四、环境与轨迹数据**
+  - 环境的五类
+  - 轨迹的三种来源
+  - Kimi K2 的合成流水线
+  - 为什么难
+- **五、奖励**
+  - 结果奖励的三种验证方式
+  - 部分分
+  - 惩罚项
+  - rubric
+  - 多轮上的 hacking
+- **六、训练目标**
+  - 轨迹级 GRPO
+  - mask
+  - 信用分配（轨迹级 / turn 级）
+  - 重要性比与 KL
+  - 上下文增长的账
+- **七、系统与成本**
+  - agent loop
+  - 环境延迟与方差
+  - 异步 rollout 与 off-policy 修正
+  - 一步的环境账与 GPU 账
+- **八、公开配方**：SWE-RL、Search-R1、ReTool、Kimi K2、Qwen3、gpt-oss / o3
+- **九、评测预告**：τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测什么
+- **十、动手**：最小的多轮 rollout 与 mask
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、问题设定
 
@@ -351,8 +371,8 @@ Table: 一步 Agent RL 的环境与模型账
 
 | 配方 | 环境 | 起点 | 算法 | 奖励 | 结果 / 特点 |
 |---|---|---|---|---|---|
-| SWE-RL（Wei 等 2025，Meta） | 从 GitHub PR 数据构造的"issue → 补丁"任务，**不跑测试** | Llama 3 70B | GRPO | 生成补丁与真实补丁的文本相似度（0–1），格式错 −1 | SWE-bench Verified 41.0%；廉价的连续奖励；训练后泛化到数学与通用推理 |
-| Search-R1（Jin 等 2025） | 本地 Wikipedia 检索器作工具 | Qwen2.5 3B / 7B（Base 与 Instruct） | PPO / GRPO | 答案精确匹配 | 多轮搜索；**检索 token mask 的消融**；比 RAG 基线显著提升 |
+| SWE-RL（Wei 等 2025，Meta） | 从 GitHub PR 数据构造的"issue → 补丁"任务，**不跑测试** | Llama 3 70B | GRPO | 生成补丁与真实补丁的文本相似度（0–1），格式错 −1 | SWE-bench Verified 41.0%<br/>廉价的连续奖励<br/>训练后泛化到数学与通用推理 |
+| Search-R1（Jin 等 2025） | 本地 Wikipedia 检索器作工具 | Qwen2.5 3B / 7B（Base 与 Instruct） | PPO / GRPO | 答案精确匹配 | 多轮搜索<br/>**检索 token mask 的消融**<br/>比 RAG 基线显著提升 |
 | ReTool（Feng 等 2025） | 代码解释器嵌入推理 | Qwen2.5-32B，冷启动 SFT | PPO | 答案匹配 | AIME 2024 从纯文本 RL 的 40% 到 67%（400 步）；模型学会何时调解释器、且回答更短 |
 | ToolRL（2025） | 通用函数调用（BFCL 类） | Qwen2.5 / Llama 3 | GRPO | 格式 + 调用正确性（工具名、参数匹配）的分级奖励 | 奖励设计的消融：细粒度的正确性分优于二值 |
 | Kimi K2（2025） | **两万多个合成工具** + 真实沙箱；模拟用户 | K2-Base 经大规模 Agent SFT | 策略优化变体 | 可验证 + 自评 rubric | Agent 数据合成流水线是主体；SWE-bench Verified 65.8%、τ²-bench 领先 |
@@ -427,16 +447,16 @@ def rollout(policy, tok, task, max_turns=6):
 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
-| MDP | 状态 = 全部历史；动作 = 一段生成；转移 = 工具执行；奖励在末尾 | 与单轮差在 $$T > 1$$ 与 $$o_t$$ |
+| MDP | 状态 = 全部历史<br/>动作 = 一段生成<br/>转移 = 工具执行<br/>奖励在末尾 | 与单轮差在 $$T > 1$$ 与 $$o_t$$ |
 | 一行公式 | $$\log \pi_\theta(\tau) = \sum_t \log \pi_\theta(a_t \mid s_t)$$ | 环境转移不含 $$\theta$$，策略梯度原样成立 |
 | 一处 mask | 工具返回、模拟用户、prompt 全部 mask = 0 | 不 mask → 模型学会编造工具输出 |
 | 格式 | schema、调用标签、tool 角色、eom / eot | 先 SFT 学格式，RL 提成功率 |
 | 环境 | 代码沙箱、检索、终端、GUI、API 模拟器 + 模拟用户 | 类型决定成本结构 |
 | 轨迹数据 | 人工 / 强模型 + 过滤 / 合成环境（K2 两万工具） | 每条要真跑；成本是环境时间 |
-| 奖励 | 测试 / 状态比较 / 答案匹配；部分分（SWE-RL 的相似度）；惩罚；rubric | 多轮 hacking：改测试、硬编码、讨好模拟用户 |
-| 训练目标 | 轨迹级 GRPO + mask；信用分配多为轨迹级；比值按轮；KL ≈ 0 | GiGPO 用同状态分组得 turn 级优势 |
+| 奖励 | 测试 / 状态比较 / 答案匹配<br/>部分分（SWE-RL 的相似度）<br/>惩罚<br/>rubric | 多轮 hacking：改测试、硬编码、讨好模拟用户 |
+| 训练目标 | 轨迹级 GRPO + mask<br/>信用分配多为轨迹级<br/>比值按轮<br/>KL ≈ 0 | GiGPO 用同状态分组得 turn 级优势 |
 | 上下文账 | 20 轮轨迹 48K token，八成是环境的；前缀缓存把 prefill 从二次降到线性 | 每个有效 token 的训练成本约 5 倍 |
-| 系统 | agent loop；环境延迟秒到分钟、方差极大 → **异步必需**；按轮的 off-policy 修正 | $$k$$ = 1–4 步落后几乎无损 |
+| 系统 | agent loop<br/>环境延迟秒到分钟、方差极大 → **异步必需**<br/>按轮的 off-policy 修正 | $$k$$ = 1–4 步落后几乎无损 |
 | 一步的账 | 500 任务 × 8：环境约 320 CPU·小时，模型约 7 GPU·小时 | 沙箱集群是工程主体 |
 
 Table: Agent RL 的规则与公式小结

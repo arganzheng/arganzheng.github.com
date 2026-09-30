@@ -81,21 +81,39 @@ Table: PPO / GRPO 与 DPO 的对比
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 推导 | 变分问题的闭式解；反解奖励；$$Z(x)$$ 抵消；DPO 的 loss 与梯度；$$\beta$$ 的含义 |
-| 三 | 隐式奖励的失效 | 似然同降；过优化随 KL 的规律；长度；参考的选择；分布外 |
-| 四 | 一族变体 | IPO、KTO、ORPO、SimPO、cDPO / rDPO、RPO、TDPO 各改哪一项；一张表 |
-| 五 | 半在线 | 拒绝采样 + SFT；迭代 DPO；在线 DPO；为什么 on-policy 数据重要 |
-| 六 | DPO 与 PPO | 实证比较；数据效率与上限；什么时候选哪个 |
-| 七 | 成本 | 一轮 DPO 的 FLOPs 与显存；预计算参考对数概率；LoRA 下的参考 |
-| 八 | 三件套对照表（第二版） | |
-| 九 | 公开配方 | Zephyr、Tülu 2 / 3、Llama 3、Qwen2.5、Nemotron |
-| 十 | 动手 | `DPOTrainer` 的骨架与该看的曲线 |
-| 十一 | 本文小结 | |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、推导**
+  - 变分问题的闭式解
+  - 反解奖励
+  - $$Z(x)$$ 抵消
+  - DPO 的 loss 与梯度
+  - $$\beta$$ 的含义
+- **三、隐式奖励的失效**
+  - 似然同降
+  - 过优化随 KL 的规律
+  - 长度
+  - 参考的选择
+  - 分布外
+- **四、一族变体**
+  - IPO、KTO、ORPO、SimPO、cDPO / rDPO、RPO、TDPO 各改哪一项
+  - 一张表
+- **五、半在线**
+  - 拒绝采样 + SFT
+  - 迭代 DPO
+  - 在线 DPO
+  - 为什么 on-policy 数据重要
+- **六、DPO 与 PPO**
+  - 实证比较
+  - 数据效率与上限
+  - 什么时候选哪个
+- **七、成本**
+  - 一轮 DPO 的 FLOPs 与显存
+  - 预计算参考对数概率
+  - LoRA 下的参考
+- **八、三件套对照表（第二版）**
+- **九、公开配方**：Zephyr、Tülu 2 / 3、Llama 3、Qwen2.5、Nemotron
+- **十、动手**：`DPOTrainer` 的骨架与该看的曲线
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、推导
 
@@ -195,9 +213,9 @@ $$\pi_{ref}$$ 通常是 SFT 模型。DPO 的推导本身不要求偏好数据从
 |---|---|---|---|
 | **DPO**（2023） | 基线 | $$-\log\sigma(\hat r_w - \hat r_l)$$ | — |
 | **IPO**（Azar 等 2023） | loss 形状：平方；不假设 Bradley-Terry | $$\big(\hat r_w - \hat r_l - \frac{1}{2\tau}\big)^2$$，$$\hat r$$ 为不带 $$\beta$$ 的对数比 | DPO 在确定性偏好（同一对总是 chosen 胜）下会把对数比推到无穷、过拟合；IPO 把它推到一个固定的 margin $$1 / 2\tau$$ 就停 |
-| **KTO**（Ethayarajh 等 2024） | 不要成对：每个样本一个"好 / 坏"标签；loss 用前景理论的效用函数 | 好样本 $$\lambda_D\big(1 - \sigma(\beta(\hat r - z_0))\big)$$，坏样本 $$\lambda_U\big(1 - \sigma(\beta(z_0 - \hat r))\big)$$，$$z_0$$ 是当前 KL 的估计 | 成对数据贵；单样本数据（点赞 / 点踩）多得多；$$\lambda_D / \lambda_U$$ 可处理好坏样本不平衡 |
-| **ORPO**（Hong 等 2024） | 去掉参考；把 SFT 与偏好合成一步 | $$\mathcal{L}_{SFT}(y_w) - \lambda \log\sigma\big(\log\frac{\text{odds}(y_w)}{\text{odds}(y_l)}\big)$$，$$\text{odds}(y) = \frac{\pi(y)}{1 - \pi(y)}$$（长度归一化的概率） | 少一个模型；不必先 SFT 再 DPO；SFT 项防止似然同降 |
-| **SimPO**（Meng 等 2024） | 去掉参考；隐式奖励换成长度归一化的平均对数概率；加 margin | $$-\log\sigma\big(\frac{\beta}{\lvert y_w \rvert}\log\pi(y_w) - \frac{\beta}{\lvert y_l \rvert}\log\pi(y_l) - \gamma\big)$$ | 隐式奖励与生成时的度量（平均对数概率）一致；消长度偏差；少一个模型 |
+| **KTO**（Ethayarajh 等 2024） | 不要成对：每个样本一个"好 / 坏"标签；loss 用前景理论的效用函数 | 好样本 $$\lambda_D\big(1 - \sigma(\beta(\hat r - z_0))\big)$$，坏样本 $$\lambda_U\big(1 - \sigma(\beta(z_0 - \hat r))\big)$$，$$z_0$$ 是当前 KL 的估计 | 成对数据贵<br/>单样本数据（点赞 / 点踩）多得多<br/>$$\lambda_D / \lambda_U$$ 可处理好坏样本不平衡 |
+| **ORPO**（Hong 等 2024） | 去掉参考；把 SFT 与偏好合成一步 | $$\mathcal{L}_{SFT}(y_w) - \lambda \log\sigma\big(\log\frac{\text{odds}(y_w)}{\text{odds}(y_l)}\big)$$，$$\text{odds}(y) = \frac{\pi(y)}{1 - \pi(y)}$$（长度归一化的概率） | 少一个模型<br/>不必先 SFT 再 DPO<br/>SFT 项防止似然同降 |
+| **SimPO**（Meng 等 2024） | 去掉参考<br/>隐式奖励换成长度归一化的平均对数概率<br/>加 margin | $$-\log\sigma\big(\frac{\beta}{\lvert y_w \rvert}\log\pi(y_w) - \frac{\beta}{\lvert y_l \rvert}\log\pi(y_l) - \gamma\big)$$ | 隐式奖励与生成时的度量（平均对数概率）一致<br/>消长度偏差<br/>少一个模型 |
 | **cDPO / rDPO**（2023–24） | loss 对标签噪声鲁棒 | cDPO：标签平滑 $$(1 - \epsilon)\mathcal{L}(w, l) + \epsilon \mathcal{L}(l, w)$$；rDPO：无偏的噪声修正 | 偏好数据有可观的标签噪声（第二篇：人际一致率 70–75% 是它的线索，但不等于 25–30% 的错标率） |
 | **RPO**（Llama 3、Pang 等 2024） | 加 chosen 的 NLL 项 | $$\mathcal{L}_{DPO} + \alpha \cdot \mathcal{L}_{SFT}(y_w)$$（Llama 3 取 $$\alpha = 0.2$$，且按长度归一化） | 似然同降；保持 chosen 的绝对概率 |
 | **TDPO**（Zeng 等 2024） | token 级：每个 token 的 KL 单独约束 | DPO 加逐 token 的前向 KL 差项 | 序列级 KL 让少数 token 承担全部偏移 |
@@ -314,7 +332,7 @@ Table: 三件套对照表（第二版）
 | Zephyr-7B（2023） | SFT（UltraChat）→ DPO（UltraFeedback） | $$\beta = 0.01$$，3 epoch | 开源 DPO 的起点；证明蒸馏数据 + DPO 能追上 RLHF 的对话模型 |
 | Tülu 2（2023） | DPO | $$\beta = 0.1$$ | 首个 70B 规模的开源 DPO |
 | Tülu 3（2024） | **长度归一化 DPO**，on-policy 偏好数据 | 8B：lr 5e-7；数据来自自家模型池 + GPT-4o judge | 消融：on-policy > off-policy；长度归一化 > 标准 |
-| Llama 3（2024） | 六轮 拒绝采样 → SFT → **DPO + NLL**（RPO） | $$\beta = 0.1$$，lr 1e-5，NLL 权重 0.2；DPO loss 中 **mask 掉特殊 token**（模板与 EOS） | 每轮参考换最新；checkpoint 平均；不用 PPO 的理由是稳定性与工程成本 |
+| Llama 3（2024） | 六轮 拒绝采样 → SFT → **DPO + NLL**（RPO） | $$\beta = 0.1$$，lr 1e-5，NLL 权重 0.2；DPO loss 中 **mask 掉特殊 token**（模板与 EOS） | 每轮参考换最新<br/>checkpoint 平均<br/>不用 PPO 的理由是稳定性与工程成本 |
 | Qwen2.5（2024） | 离线 DPO → 在线 GRPO | 15 万对偏好 → GRPO | 两阶段：先离线拉大方向，再在线精调 |
 | Nemotron-4 340B（2024） | DPO → RPO 多轮 | RPO 的 NLL 项 | 用自家 RM 迭代 |
 | Gemma 2 / 3 | RLHF（未公开细节）+ BOND 式蒸馏 | — | 把 BoN 分布蒸进策略 |
@@ -362,9 +380,9 @@ trainer.train()
 | 反解 | $$r = \beta\log\frac{\pi^*}{\pi_{ref}} + \beta\log Z$$ | 常数项在成对比较里抵消 |
 | DPO | $$-\log\sigma\big(\beta\log\frac{\pi(y_w)}{\pi_{ref}(y_w)} - \beta\log\frac{\pi(y_l)}{\pi_{ref}(y_l)}\big)$$ | RM 训练 + RL 合成一步；同一个逻辑回归 |
 | 梯度 | 权重 $$\sigma(\hat r_l - \hat r_w)$$ × (提高 chosen − 压低 rejected) | 与 RM 梯度同形 |
-| 失效 | 似然同降；过优化随 KL；长度；参考不匹配 | 根源：只约束数据覆盖的地方 |
-| 变体 | IPO 平方 loss；KTO 单样本；ORPO / SimPO 去参考 + 长度归一化；RPO 加 NLL；cDPO 噪声 | 换方法的收益 < 换数据 |
-| 半在线 | 拒绝采样 + SFT（= 蒸馏 BoN）；迭代 DPO（Llama 3 六轮）；在线 DPO（= 用 DPO loss 的在线 RL） | on-policy 数据是关键 |
+| 失效 | 似然同降<br/>过优化随 KL<br/>长度<br/>参考不匹配 | 根源：只约束数据覆盖的地方 |
+| 变体 | IPO 平方 loss<br/>KTO 单样本<br/>ORPO / SimPO 去参考 + 长度归一化<br/>RPO 加 NLL<br/>cDPO 噪声 | 换方法的收益 < 换数据 |
+| 半在线 | 拒绝采样 + SFT（= 蒸馏 BoN）<br/>迭代 DPO（Llama 3 六轮）<br/>在线 DPO（= 用 DPO loss 的在线 RL） | on-policy 数据是关键 |
 | DPO vs PPO | PPO 上限略高（探索），DPO 性价比高；推理 / 代码用在线 | RM 质量与数据 > 算法 |
 | 成本 | $$8N$$/token；10 万对 8B 约 9 GPU 小时 | 参考可预计算；LoRA 下参考免费 |
 

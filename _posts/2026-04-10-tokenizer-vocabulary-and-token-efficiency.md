@@ -105,7 +105,7 @@ tokenizer 对成本的影响走两条相反的路：
 
 | 路 | 变量 | 影响 | Llama 2 → Llama 3 的数字 |
 |---|---|---|---|
-| 词表大小 $$V$$ | embedding 与 lm_head 各 $$V \times d$$ 个参数；lm_head 每 token $$2Vd$$ FLOPs、decode 每步读 $$2Vd$$ 字节；训练时 logits 占 $$\text{tokens} \times V \times 4$$ 字节 | $$V$$ 越大，每个 token 越贵 | 32K → 128K：8B 骨架的参数 7.24B → 8.03B，每 token FLOPs 14.2 → 15.0 G（+5.6%） |
+| 词表大小 $$V$$ | embedding 与 lm_head 各 $$V \times d$$ 个参数<br/>lm_head 每 token $$2Vd$$ FLOPs、decode 每步读 $$2Vd$$ 字节<br/>训练时 logits 占 $$\text{tokens} \times V \times 4$$ 字节 | $$V$$ 越大，每个 token 越贵 | 32K → 128K：8B 骨架的参数 7.24B → 8.03B，每 token FLOPs 14.2 → 15.0 G（+5.6%） |
 | 压缩率 | 每个 token 平均对应多少字符（或字节） | 压缩率越高，同一段文字的 token 越少 | 英文 3.17 → 3.94 字符/token（+24%） |
 
 Table: tokenizer 影响成本的两条路
@@ -140,19 +140,27 @@ Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 一 | 先讲明白 | 模型为什么只认整数；同一句话三种切法；BPE 逐步演示；四个 tokenizer 切同一段话；词表多大合适——一个自己训出来的曲线 |
-| 三 | 从词到子词 | 词级与字符级两端各失败在哪；BPE 算法与玩具例子；byte-level 与预分词；WordPiece 与 Unigram 的准则；tokenizer 的四段流水线 |
-| 四 | 词表大小的账 | $$2Vd$$ 参数、tied 与 untied、填充到 128 的倍数、lm_head 的 FLOPs 与字节、logits 显存与 vocab-parallel 交叉熵、训练状态、采样成本；六个模型的数字 |
-| 五 | token 效率的账 | 字符/token、每字符成本、跨 tokenizer 怎么比 loss、词表大小的边际收益与词表的 scaling law、中文 / 代码 / 数字三个特例、上下文窗口"有多长" |
-| 六 | tokenizer 与模型行为 | 词表是语料的化石、欠训练 token 的检测、数字与算术、多语言的价格差、token 边界偏差与 token healing、特殊 token |
-| 七 | 换词表 | 扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型 |
-| 八 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **一、先讲明白**
+  - 模型为什么只认整数
+  - 同一句话三种切法
+  - BPE 逐步演示
+  - 四个 tokenizer 切同一段话
+  - 词表多大合适——一个自己训出来的曲线
+- **三、从词到子词**
+  - 词级与字符级两端各失败在哪
+  - BPE 算法与玩具例子
+  - byte-level 与预分词
+  - WordPiece 与 Unigram 的准则
+  - tokenizer 的四段流水线
+- **四、词表大小的账**
+  - $$2Vd$$ 参数、tied 与 untied、填充到 128 的倍数、lm_head 的 FLOPs 与字节、logits 显存与 vocab-parallel 交叉熵、训练状态、采样成本
+  - 六个模型的数字
+- **五、token 效率的账**：字符/token、每字符成本、跨 tokenizer 怎么比 loss、词表大小的边际收益与词表的 scaling law、中文 / 代码 / 数字三个特例、上下文窗口"有多长"
+- **六、tokenizer 与模型行为**：词表是语料的化石、欠训练 token 的检测、数字与算术、多语言的价格差、token 边界偏差与 token healing、特殊 token
+- **七、换词表**：扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型
+- **八、实践**：从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版
+- **九、本文小结**
+- **十、自测**：5 道题
 
 ## 三、从词到子词：为什么是 BPE
 

@@ -16,23 +16,178 @@ date: 2026-12-04 20:00:00
 
 系列的一句话主张是：**一个编译器 = IR + pass + lowering；Triton 把 layout 放进类型、把决定放进 pass、把正确性放进 verifier 与分析，每一个可观察的编译结果（一条 `ld.global.v4`、一个 `bar.sync`、一个 `convert_layout`、两个 shared memory 缓冲）都能追到某一个 pass 与它依赖的某一个分析。**
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
-|---|---|---|---|
-| [01 编译器的骨架](/compiler-skeleton-ir-ssa-and-passes.html) | 编译器由什么组成，"优化"是什么？ | 前端 / IR / pass / 后端；SSA 让 def-use 成为数据结构，φ 在汇合处；数据流分析 = 格 + 传递函数 + 不动点；pass 的"变换 → 清理"节奏；渐进式下降每层丢一类信息；ML 编译器为块级张量语义另起 IR | `mem2reg` 后 `sum` 的两个 φ；`-O2` 是 119 项 pass、126 次 dump；标量 IR 丢了"这是矩阵乘" |
-| [02 LLVM](/llvm-the-shared-backend-and-nvptx.html) | 所有 ML 编译器共用的后端做什么、不做什么？ | IR 四层容器、一切是 `Value`；`-O2` 的 cgscc / function / loop 嵌套；后端三件事；**NVPTX 不做寄存器分配**，`ptxas` 是第二个编译器；`align` 决定向量宽度；内联汇编让 LLVM 对 `mma` 无知 | `align 16` → 一条 `ld.global.v4`、`align 4` → 四条 `b32`；地址空间 1 / 3 / 5；`ptxas -v --regAllocOptLevel=2`；`n_regs` 来自 `cuFuncGetAttribute`；AMD 直接打印 `NumVgprs / Occupancy` |
-| [03 MLIR（上）](/mlir-ir-structure-dialects-and-ods.html) | MLIR 的 IR 长什么样、怎么声明？ | 基础设施 / 内容分离；Operation 唯一单位，Region / Block / Value；通用形式 = 数据结构打印；ODS 十几行生成五百行；Trait 静态、Interface 动态；Block 参数代替 φ；Type / Attribute 唯一化不可变 → 改 layout 只能建新 op | LICM 用 4 个接口；`scf → cf` 后 Block 参数与 `mem2reg` 的 φ 逐行对应；`RankedTensorType` 的 encoding 槽位 |
-| [04 MLIR（下）](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) | 怎样改 IR？ | pass（`builtin.module(func.func(...))` 嵌套、analysis 默认失效）；pattern rewrite（改动全经 rewriter、greedy 到不动点、`fold` 不建 op、canonicalize 弱于 instcombine）；dialect conversion（类型一起变、adaptor、materialization、延迟提交 / 回滚）；数据流框架；`Passes.td → passes.cc → compiler.py` 链 | `ConvertTritonToTritonGPU` 的 TypeConverter 加默认 `#blocked`、target materialization = `convert_layout`；`unrealized_conversion_cast` 是未完成的痕迹；`linalg.matmul` 在笔记本上跑出 16 |
-| [05 Triton 前端](/triton-compiler-frontend-python-ast-to-ttir.html) | Python AST 怎样变成 TTIR？ | `JITFunction` 保存源码不执行；特化 key（dtype、constexpr、16 的倍数、等于 1）；`CodeGenerator` 是 `ast.NodeVisitor`，每个节点一次 builder 调用；`constexpr` 折叠 vs 物化；`for` → `scf.for`（空跑找携带值）；`make_ttir` 八个 pass 全是 pattern | `tt.divisibility = 16` 从实参对齐来；`x_ptr + offs` 是 `tt.addptr`（类型化地址、AxisInfo 的对象）；`Combine` 模式认形状不认语义（隔着 broadcast 不合并） |
-| [06 AxisInfo](/triton-compiler-ttir-analysis-axisinfo.html) | 编译器凭什么知道一条 load 可以 128 bit？ | 三个量 contiguity / divisibility / constancy 的格与 gcd join；逐 op 传递规则；`splat + arange` 是 contiguity 的唯一来源；参数属性是 divisibility 的来源；`getVectorSize = min(128 / 位宽, contiguity, alignment)`、mask 用 constancy | `pid * 1024 + arange(1024)` → `[1024], [1024], [1]`；换成 `pid * n` → divisibility 1；`multiple_of(n, 16)` → 16；`a_ptrs` 的 `[1, 32], [2, 16]` → alignment 8 |
-| [07 layout 系统](/triton-compiler-layouts-and-linear-layout.html) | layout 是什么、怎样统一？ | layout = 硬件位置 → 张量下标的函数，在类型里；`#blocked` 智能构造；`#slice` / `#mma` / `#dot_op`；Linear Layout = GF(2) 线性映射，基向量表；转换代价由 `dst⁻¹∘src` 逐维 `quotient` 判定；默认 layout 每线程 1 元素；Coalesce 按 AxisInfo 定 `order` 与 `sizePerThread` | `[64, 64]` 默认 `#blocked`：lane 管列低 5 位、warp 位 2 管行 1、寄存器管行 2..32；到 `#mma` 需 shared memory（warp 位 → lane 位）；A tile → `[1, 8], [8, 4], [4, 1]` |
-| [08 layout 优化](/triton-compiler-layout-optimization-and-tensor-cores.html) | 二十多个 `convert_layout` 怎样变成一个？ | `RemoveLayoutConversions` 两阶段：锚点前向传播 + 冲突消解 + 后向重物化（代价模型）+ 三种 hoist；`AccelerateMatmul` 选 MMA 版本、`warpsPerCTA` 偏向 M、`kWidth = 32 / 位宽`；epilogue 转换被 `dot` 与 `store` 两个锚夹住 | 23 → 3 → 7 → 3 → 1；`[128, 128]` → `warpsPerCTA = [2, 2]`；`#mma → #dot_op` 在 `[4, 1]` 下零 shared memory、`[2, 2]` 下 8 条 `st.shared` + 15 barrier |
-| [09 流水与异步](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) | `num_stages` 变成了什么？ | `AssignLatencies`（提前 `(S−1)/(层级+1)` 个迭代）→ `ScheduleLoops`（最长 latency 路径分 stage）→ `LowerLoops`（缓冲数 = stage 差）→ `PipelineExpander`；Hopper `wgmma` 异步 +1 缓冲、TMA + mbarrier；Blackwell TMEM + `tcgen05`；`warp_specialize` 三区；Gluon 跳过全部自动 pass | `num_stages = 3`：2 缓冲、prologue 2 次 load、`async_wait {num = 2}`、15 个 iter_args；Hopper 3 缓冲、`pendings = 1`、iter_args 4；WS：默认区 4 warp epilogue、1 warp MMA、2 warp TMA |
-| [10 下降到 LLVM](/triton-compiler-lowering-tritongpu-to-llvm.html) | tile 级 op 怎样变成每线程指令？ | 张量 → 每线程 struct；`applyLinearLayout` 把基向量 XOR 成地址算术；`load` 按 `vec` 发谓词 `ld.global.vN`；`reduce` 三级由规约维落在 register / lane / warp 位决定；`mma.sync` 内联汇编与 `ldmatrix`；`convert_layout` 三条路；`AllocateSharedMemory` 着色复用；`Membar` 区间相交插 barrier | rowsum：7 加 + 5 shuffle + 16 字节；matmul 64 条 `mma.sync`、26 条 `ldmatrix`、24 条 `cp.async`、10 个 barrier；流水线缓冲与 epilogue scratch 同为 32 KB、`ttg.shared = 32768` |
-| [11 缓存与运行时](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html) | 编译流水线怎样组织、产物去哪、AMD 有什么不同？ | `compile()` 按阶段表逐级、`metadata` 累积、缓存组原子；key 五成分；dump / override；惰性加载、运行时生成的 C launcher、`cuLaunchKernelEx`；AMD：layout pass 共用、`#amd_mfma`、自己的流水器、LLVM 直出 ISA、无第二编译器 | `triton_key` 含 `libtriton.so` 哈希；34 个元数据字段；block = `32 × num_warps`；gfx942：wave 64、MFMA 32×32×8、144 VGPR、0 spill、`Occupancy 3` |
-| [12 TVM](/tvm-schedule-language-and-auto-tuning.html) | 另一条路怎么走？ | 算法 / 调度分离；block 是算法、循环是调度；原语带形式化前置条件；DLight 规则 = Triton 自动决定的显式版；MetaSchedule 搜带采样点的 trace；设计空间是一条轴 | CPU 1089 → 52 μs；Metal 700 GFLOP/s；DLight `storage_align(…, 16, 8)` 代替 swizzle；MetaSchedule 空间 10⁴–10⁶ vs Triton autotune 几十个 |
-| [13 工作台](/ml-compiler-developer-workbench.html) | 怎样改它、测它、定位它？ | macOS 可构建，假 `ptxas` 编到 PTX；lit 277 文件 9.5 s、gtest 毫秒、pytest 需 GPU；`MLIR_ENABLE_DUMP` 74 份；二分八步；lit 两种断言；加 pass 七步；读 PR 倒序 | `lit < 20`；`--run-reproducer`；`TRITON_INTERPRET=1` 是编译器 / kernel 的分界线 |
-
-Table: 十三篇的核心问题、结论与必记
+- **[01 编译器的骨架](/compiler-skeleton-ir-ssa-and-passes.html)**
+  - 回答的问题：编译器由什么组成，"优化"是什么？
+  - 一句话结论：
+    - 前端 / IR / pass / 后端
+    - SSA 让 def-use 成为数据结构，φ 在汇合处
+    - 数据流分析 = 格 + 传递函数 + 不动点
+    - pass 的"变换 → 清理"节奏
+    - 渐进式下降每层丢一类信息
+    - ML 编译器为块级张量语义另起 IR
+  - 必记的数字 / 结论：
+    - `mem2reg` 后 `sum` 的两个 φ
+    - `-O2` 是 119 项 pass、126 次 dump
+    - 标量 IR 丢了"这是矩阵乘"
+- **[02 LLVM](/llvm-the-shared-backend-and-nvptx.html)**
+  - 回答的问题：所有 ML 编译器共用的后端做什么、不做什么？
+  - 一句话结论：
+    - IR 四层容器、一切是 `Value`
+    - `-O2` 的 cgscc / function / loop 嵌套
+    - 后端三件事
+    - **NVPTX 不做寄存器分配**，`ptxas` 是第二个编译器
+    - `align` 决定向量宽度
+    - 内联汇编让 LLVM 对 `mma` 无知
+  - 必记的数字 / 结论：
+    - `align 16` → 一条 `ld.global.v4`、`align 4` → 四条 `b32`
+    - 地址空间 1 / 3 / 5
+    - `ptxas -v --regAllocOptLevel=2`
+    - `n_regs` 来自 `cuFuncGetAttribute`
+    - AMD 直接打印 `NumVgprs / Occupancy`
+- **[03 MLIR（上）](/mlir-ir-structure-dialects-and-ods.html)**
+  - 回答的问题：MLIR 的 IR 长什么样、怎么声明？
+  - 一句话结论：
+    - 基础设施 / 内容分离
+    - Operation 唯一单位，Region / Block / Value
+    - 通用形式 = 数据结构打印
+    - ODS 十几行生成五百行
+    - Trait 静态、Interface 动态
+    - Block 参数代替 φ
+    - Type / Attribute 唯一化不可变 → 改 layout 只能建新 op
+  - 必记的数字 / 结论：
+    - LICM 用 4 个接口
+    - `scf → cf` 后 Block 参数与 `mem2reg` 的 φ 逐行对应
+    - `RankedTensorType` 的 encoding 槽位
+- **[04 MLIR（下）](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)**
+  - 回答的问题：怎样改 IR？
+  - 一句话结论：
+    - pass（`builtin.module(func.func(...))` 嵌套、analysis 默认失效）
+    - pattern rewrite（改动全经 rewriter、greedy 到不动点、`fold` 不建 op、canonicalize 弱于 instcombine）
+    - dialect conversion（类型一起变、adaptor、materialization、延迟提交 / 回滚）
+    - 数据流框架
+    - `Passes.td → passes.cc → compiler.py` 链
+  - 必记的数字 / 结论：
+    - `ConvertTritonToTritonGPU` 的 TypeConverter 加默认 `#blocked`、target materialization = `convert_layout`
+    - `unrealized_conversion_cast` 是未完成的痕迹
+    - `linalg.matmul` 在笔记本上跑出 16
+- **[05 Triton 前端](/triton-compiler-frontend-python-ast-to-ttir.html)**
+  - 回答的问题：Python AST 怎样变成 TTIR？
+  - 一句话结论：
+    - `JITFunction` 保存源码不执行
+    - 特化 key（dtype、constexpr、16 的倍数、等于 1）
+    - `CodeGenerator` 是 `ast.NodeVisitor`，每个节点一次 builder 调用
+    - `constexpr` 折叠 vs 物化
+    - `for` → `scf.for`（空跑找携带值）
+    - `make_ttir` 八个 pass 全是 pattern
+  - 必记的数字 / 结论：
+    - `tt.divisibility = 16` 从实参对齐来
+    - `x_ptr + offs` 是 `tt.addptr`（类型化地址、AxisInfo 的对象）
+    - `Combine` 模式认形状不认语义（隔着 broadcast 不合并）
+- **[06 AxisInfo](/triton-compiler-ttir-analysis-axisinfo.html)**
+  - 回答的问题：编译器凭什么知道一条 load 可以 128 bit？
+  - 一句话结论：
+    - 三个量 contiguity / divisibility / constancy 的格与 gcd join
+    - 逐 op 传递规则
+    - `splat + arange` 是 contiguity 的唯一来源
+    - 参数属性是 divisibility 的来源
+    - `getVectorSize = min(128 / 位宽, contiguity, alignment)`、mask 用 constancy
+  - 必记的数字 / 结论：
+    - `pid * 1024 + arange(1024)` → `[1024], [1024], [1]`
+    - 换成 `pid * n` → divisibility 1
+    - `multiple_of(n, 16)` → 16
+    - `a_ptrs` 的 `[1, 32], [2, 16]` → alignment 8
+- **[07 layout 系统](/triton-compiler-layouts-and-linear-layout.html)**
+  - 回答的问题：layout 是什么、怎样统一？
+  - 一句话结论：
+    - layout = 硬件位置 → 张量下标的函数，在类型里
+    - `#blocked` 智能构造
+    - `#slice` / `#mma` / `#dot_op`
+    - Linear Layout = GF(2) 线性映射，基向量表
+    - 转换代价由 `dst⁻¹∘src` 逐维 `quotient` 判定
+    - 默认 layout 每线程 1 元素
+    - Coalesce 按 AxisInfo 定 `order` 与 `sizePerThread`
+  - 必记的数字 / 结论：
+    - `[64, 64]` 默认 `#blocked`：lane 管列低 5 位、warp 位 2 管行 1、寄存器管行 2..32
+    - 到 `#mma` 需 shared memory（warp 位 → lane 位）
+    - A tile → `[1, 8], [8, 4], [4, 1]`
+- **[08 layout 优化](/triton-compiler-layout-optimization-and-tensor-cores.html)**
+  - 回答的问题：二十多个 `convert_layout` 怎样变成一个？
+  - 一句话结论：
+    - `RemoveLayoutConversions` 两阶段：锚点前向传播 + 冲突消解 + 后向重物化（代价模型）+ 三种 hoist
+    - `AccelerateMatmul` 选 MMA 版本、`warpsPerCTA` 偏向 M、`kWidth = 32 / 位宽`
+    - epilogue 转换被 `dot` 与 `store` 两个锚夹住
+  - 必记的数字 / 结论：
+    - 23 → 3 → 7 → 3 → 1
+    - `[128, 128]` → `warpsPerCTA = [2, 2]`
+    - `#mma → #dot_op` 在 `[4, 1]` 下零 shared memory、`[2, 2]` 下 8 条 `st.shared` + 15 barrier
+- **[09 流水与异步](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)**
+  - 回答的问题：`num_stages` 变成了什么？
+  - 一句话结论：
+    - `AssignLatencies`（提前 `(S−1)/(层级+1)` 个迭代）→ `ScheduleLoops`（最长 latency 路径分 stage）→ `LowerLoops`（缓冲数 = stage 差）→ `PipelineExpander`
+    - Hopper `wgmma` 异步 +1 缓冲、TMA + mbarrier
+    - Blackwell TMEM + `tcgen05`
+    - `warp_specialize` 三区
+    - Gluon 跳过全部自动 pass
+  - 必记的数字 / 结论：
+    - `num_stages = 3`：2 缓冲、prologue 2 次 load、`async_wait {num = 2}`、15 个 iter_args
+    - Hopper 3 缓冲、`pendings = 1`、iter_args 4
+    - WS：默认区 4 warp epilogue、1 warp MMA、2 warp TMA
+- **[10 下降到 LLVM](/triton-compiler-lowering-tritongpu-to-llvm.html)**
+  - 回答的问题：tile 级 op 怎样变成每线程指令？
+  - 一句话结论：
+    - 张量 → 每线程 struct
+    - `applyLinearLayout` 把基向量 XOR 成地址算术
+    - `load` 按 `vec` 发谓词 `ld.global.vN`
+    - `reduce` 三级由规约维落在 register / lane / warp 位决定
+    - `mma.sync` 内联汇编与 `ldmatrix`
+    - `convert_layout` 三条路
+    - `AllocateSharedMemory` 着色复用
+    - `Membar` 区间相交插 barrier
+  - 必记的数字 / 结论：
+    - rowsum：7 加 + 5 shuffle + 16 字节
+    - matmul 64 条 `mma.sync`、26 条 `ldmatrix`、24 条 `cp.async`、10 个 barrier
+    - 流水线缓冲与 epilogue scratch 同为 32 KB、`ttg.shared = 32768`
+- **[11 缓存与运行时](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html)**
+  - 回答的问题：编译流水线怎样组织、产物去哪、AMD 有什么不同？
+  - 一句话结论：
+    - `compile()` 按阶段表逐级、`metadata` 累积、缓存组原子
+    - key 五成分
+    - dump / override
+    - 惰性加载、运行时生成的 C launcher、`cuLaunchKernelEx`
+    - AMD：layout pass 共用、`#amd_mfma`、自己的流水器、LLVM 直出 ISA、无第二编译器
+  - 必记的数字 / 结论：
+    - `triton_key` 含 `libtriton.so` 哈希
+    - 34 个元数据字段
+    - block = `32 × num_warps`
+    - gfx942：wave 64、MFMA 32×32×8、144 VGPR、0 spill、`Occupancy 3`
+- **[12 TVM](/tvm-schedule-language-and-auto-tuning.html)**
+  - 回答的问题：另一条路怎么走？
+  - 一句话结论：
+    - 算法 / 调度分离
+    - block 是算法、循环是调度
+    - 原语带形式化前置条件
+    - DLight 规则 = Triton 自动决定的显式版
+    - MetaSchedule 搜带采样点的 trace
+    - 设计空间是一条轴
+  - 必记的数字 / 结论：
+    - CPU 1089 → 52 μs
+    - Metal 700 GFLOP/s
+    - DLight `storage_align(…, 16, 8)` 代替 swizzle
+    - MetaSchedule 空间 10⁴–10⁶ vs Triton autotune 几十个
+- **[13 工作台](/ml-compiler-developer-workbench.html)**
+  - 回答的问题：怎样改它、测它、定位它？
+  - 一句话结论：
+    - macOS 可构建，假 `ptxas` 编到 PTX
+    - lit 277 文件 9.5 s、gtest 毫秒、pytest 需 GPU
+    - `MLIR_ENABLE_DUMP` 74 份
+    - 二分八步
+    - lit 两种断言
+    - 加 pass 七步
+    - 读 PR 倒序
+  - 必记的数字 / 结论：
+    - `lit < 20`
+    - `--run-reproducer`
+    - `TRITON_INTERPRET=1` 是编译器 / kernel 的分界线
 
 ### 1. 本文的章节安排
 
@@ -135,13 +290,13 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 
 | 站 | 篇 | 输入 → 输出 | 关键数字 |
 |---|---|---|---|
-| 前端 | 05 | Python AST → TTIR | 15 个参数剩 9 个；两个 `addptr` 没合并；`inputPrecision = tf32` |
+| 前端 | 05 | Python AST → TTIR | 15 个参数剩 9 个<br/>两个 `addptr` 没合并<br/>`inputPrecision = tf32` |
 | AxisInfo | 06 | TTIR → 每个值的三元组 | `a_ptrs`：`[1, 32], [2, 16], [1, 1]` → alignment 8；mask `[16, 16]` |
 | 初始 layout | 07 | TTIR → TTGIR（默认 `#blocked`） | 16 个 `convert_layout` |
 | Coalesce | 07 | load / store 换 layout | A `[1, 8], [8, 4], [4, 1]`，B / C `[1, 8], [2, 16], [4, 1]`；23 个转换 |
 | RemoveLayoutConversions ① | 08 | 传播 + 重物化 | 3 个 |
 | AccelerateMatmul | 08 | `dot` 进 `#mma<{[2, 2], [16, 8]}>`、`#dot_op<{kWidth = 2}>` | 7 个 |
-| RemoveLayoutConversions ② | 08 | | 3 个（两个 `dot` 操作数、一个 epilogue） |
+| RemoveLayoutConversions ② | 08 |  | 3 个（两个 `dot` 操作数、一个 epilogue） |
 | Pipeline + Prefetch | 09 | `scf.for` 展开 | 2 缓冲、prologue 2 次 load、`async_wait {num = 2}`、K 拆两半、15 个 iter_args；1 个 `convert_layout` |
 | AllocateSharedMemory | 10 | 偏移 | `ttg.shared = 32768`（流水线缓冲与 epilogue scratch 复用） |
 | TritonGPUToLLVM | 10 | TTGIR → LLVM 方言 | 64 `mma.sync`、26 `ldmatrix`、24 `cp.async`、10 barrier、16 `st.global.v4`、0 `ld.global` |
@@ -163,9 +318,9 @@ Table: 一个 matmul kernel 的完整路径
 
 | 概念 | 一句话 | 篇 |
 |---|---|---|
-| SSA / φ / Block 参数 | 每个值定义一次；汇合处的选择；MLIR 用跳转实参代替 φ | 01 / 03 |
+| SSA / φ / Block 参数 | 每个值定义一次<br/>汇合处的选择<br/>MLIR 用跳转实参代替 φ | 01 / 03 |
 | 数据流分析 / 格 / join | 有限高度格上的不动点；join 保守 | 01 / 04 / 06 |
-| pass / pattern / conversion | 变换单元；局部形状改写；全局类型替换 | 04 |
+| pass / pattern / conversion | 变换单元<br/>局部形状改写<br/>全局类型替换 | 04 |
 | Trait / Interface | 静态性质 / 可查询方法集；pass 与 op 的契约 | 03 |
 | AxisInfo | contiguity / divisibility / constancy | 06 |
 | layout / encoding | 硬件位置 → 张量下标，在类型里 | 07 |

@@ -295,10 +295,10 @@ xychart-beta
 
 | 时间 | 事件 | 对应用的影响 |
 |---|---|---|
-| 2026-06-30 | Claude Sonnet 5 发布：adaptive thinking 默认开启；非默认 `temperature` / `top_p` / `top_k` 返回 400；新 tokenizer 对同样文本多产出约 30% 的 token | 从 4.6 迁过来的请求多出思考 token、`max_tokens` 含义变了、同样的请求账单涨、设了 temperature 的请求直接失败 |
+| 2026-06-30 | Claude Sonnet 5 发布：adaptive thinking 默认开启<br/>非默认 `temperature` / `top_p` / `top_k` 返回 400<br/>新 tokenizer 对同样文本多产出约 30% 的 token | 从 4.6 迁过来的请求多出思考 token、`max_tokens` 含义变了、同样的请求账单涨、设了 temperature 的请求直接失败 |
 | 2026-07-24 | Claude Opus 5：thinking 默认开启，effort 为 `xhigh` / `max` 时不允许关闭 thinking | 关闭 thinking 的代码路径在高 effort 下返回 400 |
 | 2026-08-26 | OpenAI 关闭 Assistants API | 未迁移的集成直接不可用 |
-| 2026-09-01 | Claude Fable 5.1：强制工具调用返回错误；旧模型无法读它的 thinking block；编辑历史会使 thinking block 失效 | 用 `tool_choice` 强制工具的代码失败；跨模型回退的对话历史不兼容 |
+| 2026-09-01 | Claude Fable 5.1：强制工具调用返回错误<br/>旧模型无法读它的 thinking block<br/>编辑历史会使 thinking block 失效 | 用 `tool_choice` 强制工具的代码失败；跨模型回退的对话历史不兼容 |
 | 2026-09-14 | DeepSeek 把所有 `deepseek-v4-pro` 请求路由到 V4.1 Flash，按 Flash 计费 | 模型名不变、权重换了、价格降了、行为变了——4 天预告 |
 | 2026-10-23 / 12-11 | OpenAI 关闭 `gpt-4o-2024-05-13`、`o1`、`o3-mini`、`o4-mini` 等（10 月）与 `gpt-5-2025-08-07`、`o3` 等快照（12 月） | 钉住旧快照的应用在这两天失效 |
 

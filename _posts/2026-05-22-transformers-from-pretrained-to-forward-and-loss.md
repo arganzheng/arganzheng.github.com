@@ -53,19 +53,37 @@ flowchart TB
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | Auto 类怎么选类 | `model_type` → 配置类 → 模型类的两张表；`_LazyAutoMapping` 为什么是惰性的；`trust_remote_code` 走的另一条路 |
-| 三 | 权重怎么装进去 | 三个文件的解析；meta 设备上的骨架；`safe_open` 与 `get_slice`；名字映射与 `missing / unexpected keys`；`tie_weights`；`dtype` 与 `device_map` |
-| 四 | 一个 block 的代码 | `LlamaRMSNorm`、`LlamaRotaryEmbedding` + `apply_rotary_pos_emb`、`LlamaMLP`、`LlamaDecoderLayer`——与 L4 第一篇的公式逐行对应 |
-| 五 | attention 那一行 | `LlamaAttention.forward`；`ALL_ATTENTION_FUNCTIONS` 注册表；`eager_attention_forward` 与 `sdpa_attention_forward` 的差别；GQA 的 `repeat_kv`；mask 怎么造 |
-| 六 | KV cache | `DynamicCache` 与 `DynamicLayer.update` 的 `torch.cat`；`get_seq_length` 怎么决定 `position_ids`；一次 prefill + 一次 decode 的形状 |
-| 七 | 从 logits 到 loss | `LlamaForCausalLM.forward` 的 `logits_to_keep`；`loss_function` 的分派；`ForCausalLMLoss` 的 shift、`-100` 与 `num_items_in_batch` |
-| 八 | modular：518 个模型怎么维护 | `modular_qwen2.py` 继承 Llama 的类，`modeling_qwen2.py` 是生成物；读一个新模型先读它的 modular 文件 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 五道题 |
-
-Table: 本文的章节安排
+- **二、Auto 类怎么选类**
+  - `model_type` → 配置类 → 模型类的两张表
+  - `_LazyAutoMapping` 为什么是惰性的
+  - `trust_remote_code` 走的另一条路
+- **三、权重怎么装进去**
+  - 三个文件的解析
+  - meta 设备上的骨架
+  - `safe_open` 与 `get_slice`
+  - 名字映射与 `missing / unexpected keys`
+  - `tie_weights`
+  - `dtype` 与 `device_map`
+- **四、一个 block 的代码**：`LlamaRMSNorm`、`LlamaRotaryEmbedding` + `apply_rotary_pos_emb`、`LlamaMLP`、`LlamaDecoderLayer`——与 L4 第一篇的公式逐行对应
+- **五、attention 那一行**
+  - `LlamaAttention.forward`
+  - `ALL_ATTENTION_FUNCTIONS` 注册表
+  - `eager_attention_forward` 与 `sdpa_attention_forward` 的差别
+  - GQA 的 `repeat_kv`
+  - mask 怎么造
+- **六、KV cache**
+  - `DynamicCache` 与 `DynamicLayer.update` 的 `torch.cat`
+  - `get_seq_length` 怎么决定 `position_ids`
+  - 一次 prefill + 一次 decode 的形状
+- **七、从 logits 到 loss**
+  - `LlamaForCausalLM.forward` 的 `logits_to_keep`
+  - `loss_function` 的分派
+  - `ForCausalLMLoss` 的 shift、`-100` 与 `num_items_in_batch`
+- **八、modular：518 个模型怎么维护**
+  - `modular_qwen2.py` 继承 Llama 的类，`modeling_qwen2.py` 是生成物
+  - 读一个新模型先读它的 modular 文件
+- **九、本文小结**
+- **十、自测**：五道题
 
 ## 二、Auto 类怎么选类
 

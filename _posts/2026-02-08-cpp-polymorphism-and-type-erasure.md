@@ -76,22 +76,41 @@ Java 里"按运行时类型选实现"只有一种做法：接口加虚方法。C
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 虚函数与 vtable | virtual/override/final；虚调用在机器层面做了什么；虚析构；TensorImpl 有虚函数而 Tensor 没有；手工 vtable |
-| 三 | 函数指针 | 最古老的运行期分派；运行期与编译期函数指针；用 void* 存函数指针 |
-| 四 | `std::function`、`function_ref`、函数对象与 lambda | 拥有型与非拥有型类型擦除；作为模板参数的零开销策略；四种可调用抽象对比 |
-| 五 | CRTP | 编译期多态的模式与源码用例 |
-| 六 | 类型擦除：`c10::KernelFunction` | 三个字段；unboxed 路径；boxed 路径与 IValue 栈；为什么既有 boxed 又有 unboxed |
-| 七 | `c10::IValue` | tag + payload；isTensor/toTensor；`std::variant` 与 `std::visit`；enum class |
-| 八 | 异常 | `c10::Error`；`TORCH_CHECK` 展开成什么；C++ 异常的规则；跨越 C++/Python 边界 |
-| 九 | 回到源码 | 从 `at::add` 到 CPU kernel 的完整链路：torchgen 入口、`Dispatcher::call`、`OperatorEntry::lookup` |
-| 十 | mini-c10 | DispatchKey、IValue、KernelFunction、OperatorEntry、Dispatcher 与验证 |
-| 十一 | 工程实践建议与常见错误 |  |
-| 十二 | 本文小结 |  |
-| 十三 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、虚函数与 vtable**
+  - virtual/override/final
+  - 虚调用在机器层面做了什么
+  - 虚析构
+  - TensorImpl 有虚函数而 Tensor 没有
+  - 手工 vtable
+- **三、函数指针**
+  - 最古老的运行期分派
+  - 运行期与编译期函数指针
+  - 用 void* 存函数指针
+- **四、`std::function`、`function_ref`、函数对象与 lambda**
+  - 拥有型与非拥有型类型擦除
+  - 作为模板参数的零开销策略
+  - 四种可调用抽象对比
+- **五、CRTP**：编译期多态的模式与源码用例
+- **六、类型擦除：`c10::KernelFunction`**
+  - 三个字段
+  - unboxed 路径
+  - boxed 路径与 IValue 栈
+  - 为什么既有 boxed 又有 unboxed
+- **七、`c10::IValue`**
+  - tag + payload
+  - isTensor/toTensor
+  - `std::variant` 与 `std::visit`
+  - enum class
+- **八、异常**
+  - `c10::Error`
+  - `TORCH_CHECK` 展开成什么
+  - C++ 异常的规则
+  - 跨越 C++/Python 边界
+- **九、回到源码**：从 `at::add` 到 CPU kernel 的完整链路：torchgen 入口、`Dispatcher::call`、`OperatorEntry::lookup`
+- **十、mini-c10**：DispatchKey、IValue、KernelFunction、OperatorEntry、Dispatcher 与验证
+- **十一、工程实践建议与常见错误**
+- **十二、本文小结**
+- **十三、自测**：5 道题
 
 ## 二、虚函数与 vtable：C++ 里"默认不虚"的多态
 

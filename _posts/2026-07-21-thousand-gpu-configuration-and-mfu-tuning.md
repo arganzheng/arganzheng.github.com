@@ -64,7 +64,7 @@ Table: 四种并行的每 step 每卡通信量
 
 | 项 | 内容 |
 |---|---|
-| 自由度 | TP · PP · DP · CP 的乘积 = 卡数；micro-batch b；重计算策略；（EP 仅 MoE） |
+| 自由度 | TP · PP · DP · CP 的乘积 = 卡数<br/>micro-batch b<br/>重计算策略<br/>（EP 仅 MoE） |
 | 约束 1 | 显存：静态状态 + 在途激活 + 开销 ≤ 80 GB（留 10% 给碎片） |
 | 约束 2 | 通信：每类通信量 / 对应链路带宽 ≪ 计算时间，且能被重叠 |
 | 约束 3 | 算法：global batch 由训练配方定，不是性能参数 |
@@ -134,19 +134,19 @@ DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Mega
 
 ### 5. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 从规格推配置 | 70B / 1024 H100 的四步推导：TP → PP → DP → CP；三个候选；推导表；预期 MFU 与 step 时间 |
-| 三 | global batch、micro-batch 与梯度累积 | 三个量的关系 · micro-batch 的两头约束 · 三框架里它们叫什么 |
-| 四 | 激活重计算与 offload | 三种策略的代价 · Megatron 参数族 · `torch.utils.checkpoint` 与 torchtitan 的三种 AC · offload |
-| 五 | 通信与计算的重叠 | DP reduce · TP 通信 · PP p2p 各自怎么重叠 · 重叠失败的五种原因 |
-| 六 | MFU 损失的七项拆解 | 每项的现象、在 profiler 时间线上的形状、测法与处置 · 回答"缺的 10 个点" |
-| 七 | 融合、低精度与编译 | TE FP8 · 融合 kernel · `torch.compile` per-block 与 FSDP2/TP 的兼容 · CUDA Graph |
-| 八 | 配置纪律 | 版本控制 · 前后基准 · 变更留痕 |
-| 九 | 本文小结 | 要点 · 源码位置 · train-ledger 的 sweep/ 与 `mfu_breakdown.py` · 外推到 1024 卡 |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、从规格推配置**
+  - 70B / 1024 H100 的四步推导：TP → PP → DP → CP
+  - 三个候选
+  - 推导表
+  - 预期 MFU 与 step 时间
+- **三、global batch、micro-batch 与梯度累积**：三个量的关系 · micro-batch 的两头约束 · 三框架里它们叫什么
+- **四、激活重计算与 offload**：三种策略的代价 · Megatron 参数族 · `torch.utils.checkpoint` 与 torchtitan 的三种 AC · offload
+- **五、通信与计算的重叠**：DP reduce · TP 通信 · PP p2p 各自怎么重叠 · 重叠失败的五种原因
+- **六、MFU 损失的七项拆解**：每项的现象、在 profiler 时间线上的形状、测法与处置 · 回答"缺的 10 个点"
+- **七、融合、低精度与编译**：TE FP8 · 融合 kernel · `torch.compile` per-block 与 FSDP2/TP 的兼容 · CUDA Graph
+- **八、配置纪律**：版本控制 · 前后基准 · 变更留痕
+- **九、本文小结**：要点 · 源码位置 · train-ledger 的 sweep/ 与 `mfu_breakdown.py` · 外推到 1024 卡
+- **十、自测**：5 道题
 
 ## 二、从规格推配置：70B / 1024 H100 的完整推导
 
@@ -395,9 +395,9 @@ Megatron 走 Transformer Engine 的 userbuffers：`ModelParallelConfig.tp_comm_o
 | DP 的 reduce-scatter 全部堆在反向结束后 | overlap 没开；或 bucket 太大（一个 bucket 覆盖半个模型） | 开 overlap_grad_reduce；bucket 调到 每卡消息 ≥ 拐点大小 即可，不要更大 |
 | 一个 bucket 一发就等它完成 | 通信 stream 与计算 stream 之间有多余的同步 | 查 .item()、torch.cuda.synchronize()、日志里的 tensor 打印 |
 | 通信 kernel 与计算 kernel 交替而不并行 | 通信 kernel 占了太多 SM，计算 kernel 没有 SM 可用； 或计算 kernel 把 SM 占满，通信 kernel 排不进去 | 减 NCCL channel 数；或让 GEMM 留出 SM（TE userbuffers 的做法） |
-| TP 的 all-gather 每次都暴露 | 没开 SP（通信是 all-reduce，不可分块）；或 M 太小 | 开 SP；b 或 s 加大；确认 tp_comm_overlap / async TP 实际生效（看日志） |
+| TP 的 all-gather 每次都暴露 | 没开 SP（通信是 all-reduce，不可分块）；或 M 太小 | 开 SP<br/>b 或 s 加大<br/>确认 tp_comm_overlap / async TP 实际生效（看日志） |
 | p2p 有等待但两边都空闲 | 相邻 stage 的 micro-batch 顺序不一致、或 stage 层数不均 | 查 pipeline 布局；用 --decoder-first/last-pipeline-num-layers 平衡 |
-| CPU 侧发射慢，通信虽异步但发得晚 | 每个 step 几千个小 kernel，Python 跟不上 GPU | 第六章第 7 节；CUDA Graph；融合 |
+| CPU 侧发射慢，通信虽异步但发得晚 | 每个 step 几千个小 kernel，Python 跟不上 GPU | 第六章第 7 节<br/>CUDA Graph<br/>融合 |
 
 Table: 重叠失败的常见原因与处置
 

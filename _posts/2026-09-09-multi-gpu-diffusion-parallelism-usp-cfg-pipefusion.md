@@ -88,20 +88,35 @@ Table: xDiT 实测 FLUX.1-dev 各并行配置的时间
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 多卡的目的 | 延迟 vs 显存 vs 吞吐；扩散与 LLM 的差别；scaling 为什么不到线性 |
-| 三 | 张量并行 | 它在 DiT 上怎么切、通信量、何时仍是首选 |
-| 四 | 序列并行 | Ulysses（换 head）、Ring（传 K/V）、USP（组合）；通信量与拓扑；SP 下的线性层与 adaLN |
-| 五 | CFG 并行与 data parallel | 恒为 2 的免费并行；与 SP 的组合 |
-| 六 | PipeFusion 与 DistriFusion | 时间冗余换通信；patch 流水线；stale K/V 的显存；DistriFusion 的异步 all-gather |
-| 七 | Parallel VAE 与 FSDP | 107 GiB 的解码峰值怎么切；权重分片作为显存策略 |
-| 八 | 混合并行与选型 | 乘积 = 卡数；NVLink / PCIe / 以太网三张表；视频的必需 |
-| 九 | 实现对照与实践 | 三个引擎的并行组；实践建议 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、多卡的目的**
+  - 延迟 vs 显存 vs 吞吐
+  - 扩散与 LLM 的差别
+  - scaling 为什么不到线性
+- **三、张量并行**：它在 DiT 上怎么切、通信量、何时仍是首选
+- **四、序列并行**
+  - Ulysses（换 head）、Ring（传 K/V）、USP（组合）
+  - 通信量与拓扑
+  - SP 下的线性层与 adaLN
+- **五、CFG 并行与 data parallel**
+  - 恒为 2 的免费并行
+  - 与 SP 的组合
+- **六、PipeFusion 与 DistriFusion**
+  - 时间冗余换通信
+  - patch 流水线
+  - stale K/V 的显存
+  - DistriFusion 的异步 all-gather
+- **七、Parallel VAE 与 FSDP**
+  - 107 GiB 的解码峰值怎么切
+  - 权重分片作为显存策略
+- **八、混合并行与选型**
+  - 乘积 = 卡数
+  - NVLink / PCIe / 以太网三张表
+  - 视频的必需
+- **九、实现对照与实践**
+  - 三个引擎的并行组
+  - 实践建议
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、多卡的目的
 
@@ -328,15 +343,15 @@ Table: 多卡并行机制在四个引擎里的实现对照
 |---|---|---|
 | 目的 | 扩散多卡为延迟（切一个请求），吞吐永远是 DP 最优 | 4 卡切一个请求 2.63× vs 4 个请求 4× 吞吐 |
 | TP | 每层 2 次 all-reduce $$[N, d]$$，通信 $$4\frac{p-1}{p} N d$$；切权重是唯一优势 | FLUX $$p$$=4：4.8 GB / 步 |
-| Ulysses | all-to-all 换 head；通信 TP 的 $$1/p$$；$$p$$ 整除 head 数；对拓扑敏感 | 1.2 GB / 步；4×H100 1.63 s（2.63×） |
-| Ring | P2P 传 K / V；可重叠；跨节点友好；块变小效率降 | 2.4 GB / 步；Ring-4 1.98 s |
+| Ulysses | all-to-all 换 head<br/>通信 TP 的 $$1/p$$<br/>$$p$$ 整除 head 数<br/>对拓扑敏感 | 1.2 GB / 步；4×H100 1.63 s（2.63×） |
+| Ring | P2P 传 K / V<br/>可重叠<br/>跨节点友好<br/>块变小效率降 | 2.4 GB / 步；Ring-4 1.98 s |
 | USP | 节点内 Ulysses × 跨节点 Ring | 解除整除限制 |
 | CFG 并行 | 两分支两组卡，每步交换一次预测 | 0.6 MB / 步，恒为 2 |
 | PipeFusion | 层切 stage、latent 切 patch、stale K/V 让流水线不等；通信 SP 的 $$1/L$$ | 28 MB / 步；以太网 16×L40 再快 1.16× |
 | DistriFusion | patch 并行 + 异步 all-gather stale K/V | 每卡存全部层的 K/V：视频不可行 |
 | Parallel VAE | latent 切条带 + halo | 峰值 $$1/p$$ |
 | FSDP 推理 | 权重分片 + 每层 all-gather；显存策略 | FLUX 每步 gather 22 GB ≈ 50 ms |
-| 选型 | NVLink：USP（+ CFG）；PCIe / 以太网：+ PipeFusion；装不下：TP / FSDP | 乘积 = 卡数 |
+| 选型 | NVLink：USP（+ CFG）<br/>PCIe / 以太网：+ PipeFusion<br/>装不下：TP / FSDP | 乘积 = 卡数 |
 | 视频 | SP 必需：激活 14–32 GiB、单卡分钟级 | 8 卡 Wan 一步 29 → 4 s |
 
 Table: 多卡扩散并行的规则与数字小结

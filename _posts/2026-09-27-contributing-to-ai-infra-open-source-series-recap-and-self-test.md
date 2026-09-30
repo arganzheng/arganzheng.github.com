@@ -30,14 +30,31 @@ flowchart TB
 
 系列的一句话主张是：**maintainer 的 review 时间是项目最稀缺的资源，所有规则都是为了保护它；细节会变，这条逻辑不变，理解了它就能在规则变化后自己推导出新的做法**。四篇按一次贡献的自然顺序推进——先读懂、再找到、再做出、最后看两个完整的实例——每篇同时用 PyTorch 与 vLLM 做例子：一个是十年历史、治理成熟、流程厚重、CI 全跑、bot 合入的框架；一个是两周一版、按需跑 CI、maintainer 手动合入、规则还在快速演化的引擎。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
-|---|---|---|---|
-| [第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html) | 给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？ | 能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后 | PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；引言案例四十分钟得出"已在 v2.11.0 修复" |
-| [第二篇：找到切入点](/finding-your-entry-point-in-open-source.html) | 每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？ | 他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策 | PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态；vLLM 63 个标签、`closed-as-slop` 97；RFC 门槛 >500 LOC（不含 kernel / data / config / test）；stale 90 + 30 天；#191394 下 5 个 open PR |
-| [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
-| [第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html) | 两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？ | 小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省） | #185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出） |
-
-Table: 四篇的核心问题、结论与必记判据
+- **[第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html)**
+  - 回答的问题：给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？
+  - 一句话结论：能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后
+  - 必记的数字 / 判据：
+    - PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`
+    - vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`
+    - 发布约 2 个月 vs 约 2 周
+    - 引言案例四十分钟得出"已在 v2.11.0 修复"
+- **[第二篇：找到切入点](/finding-your-entry-point-in-open-source.html)**
+  - 回答的问题：每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？
+  - 一句话结论：他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策
+  - 必记的数字 / 判据：
+    - PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态
+    - vLLM 63 个标签、`closed-as-slop` 97
+    - RFC 门槛 >500 LOC（不含 kernel / data / config / test）
+    - stale 90 + 30 天
+    - #191394 下 5 个 open PR
+- **[第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html)**
+  - 回答的问题：reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？
+  - 一句话结论：四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个
+  - 必记的数字 / 判据：PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit
+- **[第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html)**
+  - 回答的问题：两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？
+  - 一句话结论：小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省）
+  - 必记的数字 / 判据：#185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出）
 
 ### 1. 本文的章节安排
 
@@ -141,12 +158,12 @@ PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| reviewer 的时间最稀缺 | 二、三、四 | 二用它定选题判据；三推出六条做法与十分钟表；四量出价格（42 分钟 vs 47 天） |
-| `actionable` 与 RFC 门槛 | 二、三、四 | 二定义状态链与 >500 LOC；三讲被要求先开 issue / RFC 后怎么办；四解释 #181999 无 `actionable` 却合入（规则针对新贡献者） |
-| 查重 | 二、三、四 | 二给三条 `gh` 命令与 Fail-closed；三把 "Not a duplicate" 列入 AI 辅助 PR 的四项必填；四展示 #52530 主动划界、#48724 的声明过期——查重不是一次性的 |
-| 测试是规格 / 改动带测试 | 一、三、四 | 一教怎么找与读（OpInfo、`tests/<subsystem>/`）；三讲怎么写（`instantiate_device_type_tests`、`AGENTS.md` 四问、`opcheck`）；四看既有测试加数据表 vs 三个新用例与三个被修正的边界测试 |
-| CI：谁触发、红了是谁的 | 二、三、四 | 二把 CI 失败当切入点；三讲两种哲学与判断表；四对照退出码 127（无关，`merge -i`）与 6 个自己引入的失败（修测试） |
-| AI 辅助政策 | 二、三、四 | 二从"不要 typo PR"引出 `AI_POLICY.md` / `AGENTS.md`；三逐条对照；四看 "Authored with Claude" 该放哪、`Co-authored-by` trailer |
+| reviewer 的时间最稀缺 | 二、三、四 | 二用它定选题判据<br/>三推出六条做法与十分钟表<br/>四量出价格（42 分钟 vs 47 天） |
+| `actionable` 与 RFC 门槛 | 二、三、四 | 二定义状态链与 >500 LOC<br/>三讲被要求先开 issue / RFC 后怎么办<br/>四解释 #181999 无 `actionable` 却合入（规则针对新贡献者） |
+| 查重 | 二、三、四 | 二给三条 `gh` 命令与 Fail-closed<br/>三把 "Not a duplicate" 列入 AI 辅助 PR 的四项必填<br/>四展示 #52530 主动划界、#48724 的声明过期——查重不是一次性的 |
+| 测试是规格 / 改动带测试 | 一、三、四 | 一教怎么找与读（OpInfo、`tests/<subsystem>/`）<br/>三讲怎么写（`instantiate_device_type_tests`、`AGENTS.md` 四问、`opcheck`）<br/>四看既有测试加数据表 vs 三个新用例与三个被修正的边界测试 |
+| CI：谁触发、红了是谁的 | 二、三、四 | 二把 CI 失败当切入点<br/>三讲两种哲学与判断表<br/>四对照退出码 127（无关，`merge -i`）与 6 个自己引入的失败（修测试） |
+| AI 辅助政策 | 二、三、四 | 二从"不要 typo PR"引出 `AI_POLICY.md` / `AGENTS.md`<br/>三逐条对照<br/>四看 "Authored with Claude" 该放哪、`Co-authored-by` trailer |
 
 Table: 贯穿四篇的概念及其关系
 
@@ -157,8 +174,8 @@ Table: 贯穿四篇的概念及其关系
 | `rg` 找不到 `def`、头文件不存在，说明仓库不完整 | `torch.<op>` 是 C++ 绑定，`ATen/ops/*.h` 与 `.pyi` 由 `torchgen` 生成；vLLM 的 `torch.ops._C.<op>` 在 `.so` 里 | 回 `native_functions.yaml`、改 `.pyi.in`、回 `torch_bindings.cpp` | [第一篇](/reading-a-million-line-codebase.html) |
 | issue 还 open 就是没人在做 | #191394 挂着 5 个 open PR；`good first issue` 是最挤的池子 | 三条查重命令看 open PR 数与最后一条评论 | [第二篇](/finding-your-entry-point-in-open-source.html) |
 | 代码写得多就需要 RFC，写得少就不需要 | 标准是有没有需要 maintainer 拍板的设计决策；500 行不含 kernel / data / config / test | 800 行纯 kernel 优化可不走 RFC，200 行引入新公开接口的改动应该走 | [第二篇](/finding-your-entry-point-in-open-source.html) |
-| typo PR 是最安全的第一个 PR | vLLM 明文不接受 busywork；PyTorch 受 `AI_POLICY.md` 约束；`closed-as-slop` 已打在 97 个 PR 上 | 做成有范围、有依据、能说出"怎么找全"的 systematic 批次 | [第二篇](/finding-your-entry-point-in-open-source.html) |
-| vLLM 的 PR 开出来 CI 是灰的，等它自己跑 | 默认只跑 pre-commit 且有门槛；测试任务要 `/ci run`；新 commit 不自动重跑 | 本地 `pre-commit run --all-files`；等 reviewer 敲 `/ci run` 或打 `ready`；每次 push 后重新敲 | [第三篇](/landing-a-mergeable-change.html) |
+| typo PR 是最安全的第一个 PR | vLLM 明文不接受 busywork<br/>PyTorch 受 `AI_POLICY.md` 约束<br/>`closed-as-slop` 已打在 97 个 PR 上 | 做成有范围、有依据、能说出"怎么找全"的 systematic 批次 | [第二篇](/finding-your-entry-point-in-open-source.html) |
+| vLLM 的 PR 开出来 CI 是灰的，等它自己跑 | 默认只跑 pre-commit 且有门槛<br/>测试任务要 `/ci run`<br/>新 commit 不自动重跑 | 本地 `pre-commit run --all-files`<br/>等 reviewer 敲 `/ci run` 或打 `ready`<br/>每次 push 后重新敲 | [第三篇](/landing-a-mergeable-change.html) |
 | review 意见是在检查算法对不对 | #185344 的三条意见全是注释与来源 | 提交前用描述里的数字校对代码注释；署名放描述不放代码 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
 | 合入了就在最新版里 | #47272 合入六天后 v0.28.0 发布却不含它——分支已于 08-17 切出 | `git tag --contains <sha>`；`merge-base --is-ancestor` 核对 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
 
@@ -367,7 +384,7 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出四篇各讲什么；知道 `native_functions.yaml`、`actionable`、ghstack、`/ci run`、`ready`、DCO 这些名词 |
-| 掌握 | A 组能不翻书答出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个陌生项目的 `CONTRIBUTING.md` 能在半小时内说出它更像 PyTorch 还是 vLLM、差在哪几格；能用七阶段走读一个自己没参与的 PR |
+| 掌握 | A 组能不翻书答出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一个陌生项目的 `CONTRIBUTING.md` 能在半小时内说出它更像 PyTorch 还是 vLLM、差在哪几格<br/>能用七阶段走读一个自己没参与的 PR |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释四篇里每个反直觉结论为什么成立（构建放最后、`good first issue` 最挤、vLLM 的灰不是绿、合入了不一定在最新版、review 意见全是注释） |
 
 Table: 掌握程度的判据

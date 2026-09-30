@@ -37,21 +37,44 @@ VLM 用 CLIP / SigLIP 有三个原因。**对齐**：对比学习把图像特征
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | ViT 回顾 | 一张 8×8 的图手工切成 16 个 patch、乘一个矩阵变 16 个向量（代码 + 图）；位置编码、[CLS]；分辨率与 token 数；取哪一层 |
-| 三 | 对比学习 | 3 对图文的相似度矩阵手算 InfoNCE；用 30 行 PyTorch 在 toy 数据上训一个 CLIP（图）；互信息与 log B；为什么需要大 batch；温度（图）；CLIP 的训练配方与算力账 |
-| 四 | SigLIP 与后继 | sigmoid 损失（同一个 3×3 例子算一遍）；为什么解耦 batch；SigLIP 2 的多目标；DFN 的数据过滤；EVA-CLIP 的 MIM 初始化 |
-| 五 | 编码器看不到什么 | 五类盲点的实证与机制；ARO / Winoground / VSR 的测试 |
-| 六 | 自监督编码器 | DINOv2 的目标；它学到的与 CLIP 的不同；多编码器混合 |
-| 七 | 对比之外的目标与编码器的规模 | caption / 自回归目标保留什么（CapPa、AIMv2、SigLIP 2）；分辨率 > 参数量 > 数据的消融证据；300M–700M 为什么够 |
-| 八 | 分辨率与 token | patch 大小、分辨率、位置编码的插值；高分辨率的两种路径 |
-| 九 | 选型对照 | CLIP-L、SigLIP-SO400M、InternViT-6B、DINOv2-L、AIMv2 的参数、分辨率、训练数据与在 VLM 里的表现 |
-| 十 | 动手（建议） | 盲点小测试；配套代码 |
-| 十一 | 本文小结 | |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、ViT 回顾**
+  - 一张 8×8 的图手工切成 16 个 patch、乘一个矩阵变 16 个向量（代码 + 图）
+  - 位置编码、[CLS]
+  - 分辨率与 token 数
+  - 取哪一层
+- **三、对比学习**
+  - 3 对图文的相似度矩阵手算 InfoNCE
+  - 用 30 行 PyTorch 在 toy 数据上训一个 CLIP（图）
+  - 互信息与 log B
+  - 为什么需要大 batch
+  - 温度（图）
+  - CLIP 的训练配方与算力账
+- **四、SigLIP 与后继**
+  - sigmoid 损失（同一个 3×3 例子算一遍）
+  - 为什么解耦 batch
+  - SigLIP 2 的多目标
+  - DFN 的数据过滤
+  - EVA-CLIP 的 MIM 初始化
+- **五、编码器看不到什么**
+  - 五类盲点的实证与机制
+  - ARO / Winoground / VSR 的测试
+- **六、自监督编码器**
+  - DINOv2 的目标
+  - 它学到的与 CLIP 的不同
+  - 多编码器混合
+- **七、对比之外的目标与编码器的规模**
+  - caption / 自回归目标保留什么（CapPa、AIMv2、SigLIP 2）
+  - 分辨率 > 参数量 > 数据的消融证据
+  - 300M–700M 为什么够
+- **八、分辨率与 token**
+  - patch 大小、分辨率、位置编码的插值
+  - 高分辨率的两种路径
+- **九、选型对照**：CLIP-L、SigLIP-SO400M、InternViT-6B、DINOv2-L、AIMv2 的参数、分辨率、训练数据与在 VLM 里的表现
+- **十、动手（建议）**
+  - 盲点小测试
+  - 配套代码
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、ViT 回顾：编码器输出的是什么
 
@@ -318,7 +341,7 @@ CLIP ViT 的位置编码是**可学习的绝对位置**，训练时固定 $$16 \
 
 | 编码器 | 参数 | 训练 | 原生分辨率 / patch | 输出 token（默认） | 在 VLM 里 | 特点 |
 |---|---|---|---|---|---|---|
-| CLIP ViT-L/14-336 | 304M | 对比，WIT 400M | 336 / 14 | 576 | LLaVA-1.5 / NeXT、早期多数 | 基线；倒数第二层；OCR 弱 |
+| CLIP ViT-L/14-336 | 304M | 对比，WIT 400M | 336 / 14 | 576 | LLaVA-1.5 / NeXT、早期多数 | 基线<br/>倒数第二层<br/>OCR 弱 |
 | SigLIP-SO400M/14-384 | 400M | sigmoid 对比，WebLI 10B | 384 / 14 | 729 | PaliGemma、Gemma 3、Idefics3、Molmo | 形状优化；当前最常用 |
 | SigLIP 2 SO400M（NaFlex） | 400M | sigmoid + caption + 自监督 | 任意 | 可变 | 2025 新模型 | 密集特征与 OCR 更好 |
 | InternViT-6B | 6B | 对比 + 生成，与 LLM 联训 | 448 / 14 | 1024 → 256（pixel shuffle） | InternVL 1.5 / 2 大模型 | 规模化编码器；InternVL 2.5 小模型用 300M 版 |
@@ -354,7 +377,7 @@ Table: 视觉编码器选型对照
 | 大 batch | $$\log B$$ 封顶 + 难负样本 | CLIP 32K；SigLIP 32K 后饱和 |
 | 温度 | 可学习，学到 ~0.01（×100） | 余弦差 0.05 → logit 差 5 |
 | CLIP 账 | 4 亿对 × 32 epoch ≈ $$6.4 \times 10^{21}$$ FLOPs | ≈ 7B LLM 150B token |
-| SigLIP | $$-\sum_{ij} \log \sigma(z_{ij}(s_{ij} + b))$$，每对独立 | 无 all-gather；对 batch 不敏感；SO400M 是主流 |
+| SigLIP | $$-\sum_{ij} \log \sigma(z_{ij}(s_{ij} + b))$$，每对独立 | 无 all-gather<br/>对 batch 不敏感<br/>SO400M 是主流 |
 | SigLIP 2 | + caption + 自监督 + NaFlex | 补回局部信息与原生分辨率 |
 | 盲点 | 计数、空间、绑定、文字、细粒度 / 否定 | 目标只保留"文本能描述且需要区分"的信息；文本塔近似词袋 |
 | DINOv2 | 自蒸馏，局部 / 几何强，无语言 | 与 CLIP 拼接改善空间任务 |

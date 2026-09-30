@@ -44,20 +44,37 @@ Table: 解码策略的分类表
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 搜索 | greedy 的短视；beam search 的长度偏差与重复；为什么 LLM 上几乎不用 beam |
-| 三 | 变形与截断 | temperature 与熵的推导；top-k / top-p / min-p 各裁掉什么；组合顺序 |
-| 四 | 重复惩罚 | 三种惩罚的数学；副作用；为什么推理模型要关掉它 |
-| 五 | 约束解码 | 语法 → 状态机 → token mask；两种编译策略；预处理成本；对分布的影响 |
-| 六 | 多步：多次采样与选择 | self-consistency、best-of-n、pass@k 的无偏估计；test-time compute |
-| 七 | 采样参数与评测 | pass@1 与 pass@k 对温度的相反响应；推理模型为什么 greedy 变差；RL 与推理的温度一致性 |
-| 八 | 成本 | 采样本身的成本；约束解码的开销；多次采样的账 |
-| 九 | 动手（建议） | 一张温度 × 截断的扫描表 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、搜索**
+  - greedy 的短视
+  - beam search 的长度偏差与重复
+  - 为什么 LLM 上几乎不用 beam
+- **三、变形与截断**
+  - temperature 与熵的推导
+  - top-k / top-p / min-p 各裁掉什么
+  - 组合顺序
+- **四、重复惩罚**
+  - 三种惩罚的数学
+  - 副作用
+  - 为什么推理模型要关掉它
+- **五、约束解码**
+  - 语法 → 状态机 → token mask
+  - 两种编译策略
+  - 预处理成本
+  - 对分布的影响
+- **六、多步：多次采样与选择**
+  - self-consistency、best-of-n、pass@k 的无偏估计
+  - test-time compute
+- **七、采样参数与评测**
+  - pass@1 与 pass@k 对温度的相反响应
+  - 推理模型为什么 greedy 变差
+  - RL 与推理的温度一致性
+- **八、成本**
+  - 采样本身的成本
+  - 约束解码的开销
+  - 多次采样的账
+- **九、动手（建议）**：一张温度 × 截断的扫描表
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、搜索：greedy 与 beam search
 
@@ -162,7 +179,7 @@ min-p 的论文建议的顺序是 temperature → min-p，让阈值在变形后�
 
 | 名字 | 公式 | 特点 |
 |---|---|---|
-| repetition penalty（Keskar 等 2019，CTRL） | $$z_i \leftarrow z_i / r$$ 若 $$z_i > 0$$，$$z_i \leftarrow z_i \cdot r$$ 若 $$z_i < 0$$；$$r > 1$$ | 乘法；对正负 logits 处理不同；不看出现次数 |
+| repetition penalty（Keskar 等 2019，CTRL） | $$z_i \leftarrow z_i / r$$ 若 $$z_i > 0$$，$$z_i \leftarrow z_i \cdot r$$ 若 $$z_i < 0$$；$$r > 1$$ | 乘法<br/>对正负 logits 处理不同<br/>不看出现次数 |
 | presence penalty（OpenAI API） | $$z_i \leftarrow z_i - \alpha \cdot \mathbb{1}[i \text{ 已出现}]$$ | 加法；出现过就罚固定量 |
 | frequency penalty（OpenAI API） | $$z_i \leftarrow z_i - \beta \cdot \text{count}(i)$$ | 加法；按出现次数线性增加 |
 
@@ -301,14 +318,14 @@ $$n$$ 条链的成本是 $$n$$ 倍的解码 token，prefill 通过 prefix 共享
 |---|---|---|
 | 目标 | 最大化序列概率不是生成的正确目标 | beam 在开放生成上失效：长度偏差、平淡与重复 |
 | temperature | $$p_T \propto \exp(z/T)$$；$$dH/dT = \text{Var}(z)/T^3$$ | 效果依赖 logits 尺度，跨模型不可比；不把任何概率置零 |
-| 截断 | top-k 固定个数；top-p 固定质量；min-p 相对于 $$p_{\max}$$ | 尾部总质量可达 10%；top-p 在高温下失效；min-p 更稳 |
+| 截断 | top-k 固定个数<br/>top-p 固定质量<br/>min-p 相对于 $$p_{\max}$$ | 尾部总质量可达 10%<br/>top-p 在高温下失效<br/>min-p 更稳 |
 | 顺序 | 多数库：temperature → top-k → top-p → min-p | 不要同时开多个截断 |
 | 重复惩罚 | 乘法（CTRL）/ presence / frequency | 伤代码、数学与推理；推理模型关掉 |
 | 约束解码 | 语法 → FSM / PDA → token mask；预编译或运行时 | 逐 token 约束 ≠ 条件分布；schema 远离自然格式时降质量 |
-| 多次采样 | self-consistency 投票；best-of-n；pass@k $$= 1 - \binom{n-c}{k}/\binom{n}{k}$$ | RLVR 提高 pass@1 不提高 pass@k |
+| 多次采样 | self-consistency 投票<br/>best-of-n<br/>pass@k $$= 1 - \binom{n-c}{k}/\binom{n}{k}$$ | RLVR 提高 pass@1 不提高 pass@k |
 | 温度与评测 | pass@1 最优低温（~0.2）；pass@k 最优中高温（~0.8） | 两者不能用同一组参数报告 |
 | 推理模型 | 不用 greedy；$$T = 0.6$$、top-p 0.95、无惩罚（R1 / Qwen3 模型卡） | 训练时 $$T = 1$$ 采样，greedy 路径未被训练 |
-| 成本 | 采样几十到几百微秒；约束 < 5%；$$n$$ 次采样 $$n$$ 倍 token | test-time compute 用 $$n$$ 倍成本换 pass@n |
+| 成本 | 采样几十到几百微秒<br/>约束 < 5%<br/>$$n$$ 次采样 $$n$$ 倍 token | test-time compute 用 $$n$$ 倍成本换 pass@n |
 
 Table: 解码策略的规则与公式小结
 

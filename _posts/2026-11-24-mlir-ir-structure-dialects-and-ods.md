@@ -37,20 +37,33 @@ func.func @sum(%a: memref<?xi32>, %n: index) -> i32 {
 }
 ```
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | MLIR 为什么存在 | LLVM 单层 IR 的代价；"基础设施"与"内容"分离 |
-| 三 | 核心数据结构 | Operation / Value / Block / Region / Type / Attribute；通用形式；"一切都是 Op" |
-| 四 | Dialect | 命名空间 + op / type / attribute；标准方言各自的分工；Triton 加了哪几个 |
-| 五 | ODS | 一个 `.td` 定义生成什么：类、访问器、builder、verifier、parser / printer；`hasFolder` 等开关 |
-| 六 | Trait 与 Interface | `Pure`、`MemoryEffects`、`LoopLikeOpInterface`……LICM 从哪些接口拿信息 |
-| 七 | Region 与结构化控制流 | SSACFG region；block 参数代替 φ；`IsolatedFromAbove`；`scf → cf` |
-| 八 | Type 与 Attribute | 唯一化与不可变；`tensor<…, #layout>`：encoding 槽位；改 layout = 换类型 |
-| 九 | 对照读 Triton | `TT_LoadOp`、`TT_DotOp`、`TT_ReduceOp`、`BlockedEncodingAttr`、`TritonGPU_Dialect` |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、MLIR 为什么存在**
+  - LLVM 单层 IR 的代价
+  - "基础设施"与"内容"分离
+- **三、核心数据结构**
+  - Operation / Value / Block / Region / Type / Attribute
+  - 通用形式
+  - "一切都是 Op"
+- **四、Dialect**
+  - 命名空间 + op / type / attribute
+  - 标准方言各自的分工
+  - Triton 加了哪几个
+- **五、ODS**
+  - 一个 `.td` 定义生成什么：类、访问器、builder、verifier、parser / printer
+  - `hasFolder` 等开关
+- **六、Trait 与 Interface**：`Pure`、`MemoryEffects`、`LoopLikeOpInterface`……LICM 从哪些接口拿信息
+- **七、Region 与结构化控制流**
+  - SSACFG region
+  - block 参数代替 φ
+  - `IsolatedFromAbove`
+  - `scf → cf`
+- **八、Type 与 Attribute**
+  - 唯一化与不可变
+  - `tensor<…, #layout>`：encoding 槽位
+  - 改 layout = 换类型
+- **九、对照读 Triton**：`TT_LoadOp`、`TT_DotOp`、`TT_ReduceOp`、`BlockedEncodingAttr`、`TritonGPU_Dialect`
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、MLIR 为什么存在
 
@@ -234,9 +247,9 @@ mlir-tblgen -gen-op-defs  -I /opt/homebrew/opt/llvm/include toy/ToyOps.td > toy/
 | ODS 字段 | 生成什么 |
 |---|---|
 | `Op<Toy_Dialect, "addptr", [...]>` | `class AddPtrOp : public ::mlir::Op<AddPtrOp, Trait1, Trait2, …>`；`getOperationName()` 返回 `"toy.addptr"` |
-| ① `arguments = (ins AnyType:$ptr, AnyInteger:$offset)` | 访问器 `getPtr()`、`getOffset()`（返回 `TypedValue<Type>` / `TypedValue<IntegerType>`）；`odsIndex_ptr = 0`；类型约束进入 `verifyInvariants` |
+| ① `arguments = (ins AnyType:$ptr, AnyInteger:$offset)` | 访问器 `getPtr()`、`getOffset()`（返回 `TypedValue<Type>` / `TypedValue<IntegerType>`）<br/>`odsIndex_ptr = 0`<br/>类型约束进入 `verifyInvariants` |
 | ② `results = (outs AnyType:$result)` | `getResult()`；`OneResult` trait 自动加上 |
-| 属性（本例没有；如 `I32Attr:$axis`） | `getAxis()` / `setAxis()`；属性名列表 `getAttributeNames()`；进入 `Properties` 结构体 |
+| 属性（本例没有；如 `I32Attr:$axis`） | `getAxis()` / `setAxis()`<br/>属性名列表 `getAttributeNames()`<br/>进入 `Properties` 结构体 |
 | ③ `assemblyFormat` | `parse(OpAsmParser&, OperationState&)` 与 `print(OpAsmPrinter&)` 的完整实现 |
 | trait 列表 | 作为 `::mlir::Op<…>` 的模板参数——trait 就是 CRTP 混入的基类 |
 | `TypesMatchWith<…>` 等约束 | `verifyInvariantsImpl()` 里的检查代码 |
@@ -323,7 +336,7 @@ pass 面对的是任意方言的任意 op。它不能为每种 op 写特例，�
 |---|---|---|---|
 | `Pure` | trait 组合 | 无内存副作用 + 总是可推测执行（= `NoMemoryEffect` + `AlwaysSpeculatable`） | CSE、DCE、LICM、canonicalize：可以自由删、合并、移动 |
 | `NoMemoryEffect` | interface 的一种实现 | 不读不写内存 | 同上 |
-| `MemoryEffectsOpInterface` | interface | `getEffects()` 返回读 / 写 / 分配 / 释放哪些**资源**（资源可以是具体的 memref 值，也可以是方言定义的抽象资源，如 Triton 的 `GlobalMemory`） | LICM 判断 load 能不能外提；DCE 判断 store 不能删；调度判断两个 op 能不能交换 |
+| `MemoryEffectsOpInterface` | interface | `getEffects()` 返回读 / 写 / 分配 / 释放哪些**资源**（资源可以是具体的 memref 值，也可以是方言定义的抽象资源，如 Triton 的 `GlobalMemory`） | LICM 判断 load 能不能外提<br/>DCE 判断 store 不能删<br/>调度判断两个 op 能不能交换 |
 | `RecursiveMemoryEffects` | trait | 本 op 的副作用等于其 Region 内所有 op 的副作用之和 | `scf.for`、`scf.if`：循环有没有副作用取决于循环体 |
 | `ConditionallySpeculatable` | interface | 能不能在原本不会执行的路径上提前执行（除零、越界读不能） | LICM 外提到循环外意味着即使循环零次也会执行 |
 | `Commutative` | trait | 操作数可交换 | canonicalize 把常量挪到右边，CSE 认为 `a+b` 与 `b+a` 相同 |

@@ -17,13 +17,13 @@ catalog: true
 |---|---|---|---|
 | 一 | 视觉编码器：CLIP、SigLIP 与自监督 ViT | 理解 | 一张图变成的几百个向量里有什么？对比学习为什么能学出"语义" |
 | 二 | VLM 的结构：connector、注入方式与动态分辨率 | 理解 | 图片 token 怎么进入 LLM？三类 connector 与两种注入各自的取舍；分辨率怎么处理 |
-| 三 | VLM 的训练：数据、阶段与评测 | 理解 | 先训什么后训什么、每阶段冻结谁；数据从哪来；多模态幻觉从哪来 |
+| 三 | VLM 的训练：数据、阶段与评测 | 理解 | 先训什么后训什么、每阶段冻结谁<br/>数据从哪来<br/>多模态幻觉从哪来 |
 | 四 | 语音（上）：从波形到 token——mel 谱、Whisper 与神经 codec | 理解 → 生成 | 一秒声音在模型眼里是什么？声音怎么变成离散 token（RVQ） |
-| 五 | 语音（下）：语音理解、语音生成与全双工 | 理解 → 生成 | 怎么听、怎么说；LLM 直接说为什么伤文本能力；全双工的时延 |
+| 五 | 语音（下）：语音理解、语音生成与全双工 | 理解 → 生成 | 怎么听、怎么说<br/>LLM 直接说为什么伤文本能力<br/>全双工的时延 |
 | 六 | 扩散模型（上）：DDPM——加噪、去噪与「预测噪声」 | 生成 | 去噪为什么等于学会生成？变分下界怎么变成一行 MSE；DDIM 为什么能跳步 |
-| 七 | 扩散模型（下）：score matching、flow matching 与 CFG | 生成 | 三种视角为什么是同一件事；轨迹为什么弯、怎么拉直；guidance 在做什么 |
-| 八 | Latent diffusion、DiT 与文生图配方 | 生成 | 为什么在 latent 空间做；U-Net 到 DiT；SD / FLUX 的配方；采样加速；视频 |
-| 九 | 自回归图像生成与统一模型 | 交汇 | 图像怎么 token 化；AR 生成 vs 扩散；理解与生成能不能用一个模型 |
+| 七 | 扩散模型（下）：score matching、flow matching 与 CFG | 生成 | 三种视角为什么是同一件事<br/>轨迹为什么弯、怎么拉直<br/>guidance 在做什么 |
+| 八 | Latent diffusion、DiT 与文生图配方 | 生成 | 为什么在 latent 空间做<br/>U-Net 到 DiT<br/>SD / FLUX 的配方<br/>采样加速<br/>视频 |
+| 九 | 自回归图像生成与统一模型 | 交汇 | 图像怎么 token 化<br/>AR 生成 vs 扩散<br/>理解与生成能不能用一个模型 |
 
 Table: 系列九篇的主题、所属线与回答的问题
 
@@ -218,15 +218,15 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 
 | 篇 | 脚本 | 跑通什么 |
 |---|---|---|
-| 一 | `01_vision_encoders_and_contrastive.py` | 8×8 图切 16 个 patch；3×3 相似度矩阵手算 InfoNCE；30 行 PyTorch 训一个 toy CLIP；温度；sigmoid 损失 |
+| 一 | `01_vision_encoders_and_contrastive.py` | 8×8 图切 16 个 patch<br/>3×3 相似度矩阵手算 InfoNCE<br/>30 行 PyTorch 训一个 toy CLIP<br/>温度<br/>sigmoid 损失 |
 | 二 | `02_connectors_and_resolution.py` | MLP / 2×2 merge / 池化 / resampler 四种 connector 的形状与信息损失；三种分辨率策略的 token 数 |
 | 三 | `03_vlm_training_toys.py` | 冻结 LLM vs 一起训 vs 两阶段（文本能力保住了没）；共现偏差 → 幻觉的两特征模型 |
 | 四 | `04_audio_mel_and_rvq.py` | 波形 → log-mel 谱（手写 STFT 与 mel 滤波器）；VQ 与 8 级 RVQ |
 | 五 | `05_duplex_timeline.py` | 半双工 vs 全双工的时间线示意图 |
 | 六 | `06_ddpm_toy.py` | 二维两个月牙上从零训 DDPM：加噪、闭式验算、训练、1000 步采样、DDIM 跳步 |
-| 七 | `07_flow_score_cfg_toy.py` | 分数场箭头图；flow matching 与 reflow；1 / 2 / 5 / 20 步对比；CFG 扫 $$w$$ |
+| 七 | `07_flow_score_cfg_toy.py` | 分数场箭头图<br/>flow matching 与 reflow<br/>1 / 2 / 5 / 20 步对比<br/>CFG 扫 $$w$$ |
 | 八 | `08_latent_diffusion_toy.py` | PCA 当 VAE，在 16 维 latent 里跑 DDPM 生成手写数字 |
-| 九 | `09_vq_tokenizer_and_ar_toy.py` | K-Means 码本把数字变成 16 个 token；FSQ；计数版 next-token 模型生成数字 |
+| 九 | `09_vq_tokenizer_and_ar_toy.py` | K-Means 码本把数字变成 16 个 token<br/>FSQ<br/>计数版 next-token 模型生成数字 |
 
 Table: 各篇的 toy 实验脚本与跑通什么
 

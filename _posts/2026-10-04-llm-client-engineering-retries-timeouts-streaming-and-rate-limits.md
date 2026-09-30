@@ -56,15 +56,15 @@ flowchart TB
 
 | 类别 | 信号 | 含义 | 重试？ | 该做什么 |
 |---|---|---|---|---|
-| 限流 | HTTP 429；OpenAI `rate_limit_exceeded`；Anthropic `rate_limit_error`；`Retry-After` 头 | 超过 RPM / TPM | **是**，遵守 `Retry-After`，退避 | 检查限流器配置；长期看容量（第六章） |
+| 限流 | HTTP 429<br/>OpenAI `rate_limit_exceeded`<br/>Anthropic `rate_limit_error`<br/>`Retry-After` 头 | 超过 RPM / TPM | **是**，遵守 `Retry-After`，退避 | 检查限流器配置；长期看容量（第六章） |
 | 配额 / 余额 | 429 但 `insufficient_quota`（OpenAI）；402 / 余额不足 | 钱用完了 | **否** | 告警；这是账务不是流控 |
-| 过载 | Anthropic 529 `overloaded_error`；OpenAI 503 / 500 `server_error`；Gemini 503 | 供应商侧容量 | **是**，退避更长 | 看状态页；触发 fallback 到另一模型 / 供应商 |
+| 过载 | Anthropic 529 `overloaded_error`<br/>OpenAI 503 / 500 `server_error`<br/>Gemini 503 | 供应商侧容量 | **是**，退避更长 | 看状态页；触发 fallback 到另一模型 / 供应商 |
 | 网络 | 连接超时、连接重置、DNS | 到达前失败 | **是** | 幂等无忧（请求没到） |
 | 读超时 | 首事件 / 事件间 / 总超时 | 请求到了，可能已在生成 | **是**（但已生成的 token 可能计费） | 缩短输入、调低 effort、改流式 |
 | 请求非法 | 400 `invalid_request_error`：参数错、消息结构错（工具结果缺配对）、thinking block 校验失败 | 你的 bug 或契约变更 | **否** | 修代码；第二、三篇的清单 |
 | 上下文超限 | 400，OpenAI `context_length_exceeded`；Anthropic "prompt is too long" | 输入 + `max_tokens` 超过窗口 | **否**（重发同样超） | 发前数 token（第八章）；压缩历史 |
 | 输出截断 | 200 但 `stop_reason` / `finish_reason` = `max_tokens` / `length` | 回答不完整 | 视情况：提高 `max_tokens` 或调低 effort 后重试 | 监控比例 |
-| 内容过滤 / 拒答 | Anthropic `stop_reason: refusal`；OpenAI `finish_reason: content_filter`（Azure 更常见）；Gemini `finishReason: SAFETY` | 模型或供应商侧拒绝 | **否**（同样的输入同样拒） | 按产品逻辑处理；记录；不要静默重试绕过 |
+| 内容过滤 / 拒答 | Anthropic `stop_reason: refusal`<br/>OpenAI `finish_reason: content_filter`（Azure 更常见）<br/>Gemini `finishReason: SAFETY` | 模型或供应商侧拒绝 | **否**（同样的输入同样拒） | 按产品逻辑处理<br/>记录<br/>不要静默重试绕过 |
 | 工具调用格式错 | 200 但 `arguments` 不是合法 JSON、参数不符 schema、调用了不存在的工具 | 模型输出错误 | **可**，一次：把错误作为 tool result 送回让模型改 | 开 strict 工具 schema |
 | 结构化输出校验失败 | 200 但业务校验不过 | 语义错误 | **可**，一次，带错误信息 | 第二篇第四章 |
 | 认证 / 权限 | 401 / 403 | key 错、无权用该模型 | **否** | 配置问题 |
@@ -306,7 +306,7 @@ stateDiagram-v2
 |---|---|---|
 | 同模型换区域 / 云 | Claude 在 Anthropic API、Bedrock、Vertex、Foundry 都有 | 最小；价格略有差别（第四篇的区域加价） |
 | 同供应商换模型 | Fable 5.1 → Opus 5；Sol → Terra | 质量可能下降；推理状态的方向性（第三篇：新模型的 thinking block 旧模型读不了） |
-| 换供应商 | Sonnet 5 → GPT-5.6 Terra | 中间层的消息归一化要成熟（第二篇）；历史里的 thinking 块要剥掉；prompt 可能要调 |
+| 换供应商 | Sonnet 5 → GPT-5.6 Terra | 中间层的消息归一化要成熟（第二篇）<br/>历史里的 thinking 块要剥掉<br/>prompt 可能要调 |
 | 降级到非模型 | 规则、缓存的答案、"稍后再试" | 功能降级，但服务不挂 |
 
 Table: fallback 的层次

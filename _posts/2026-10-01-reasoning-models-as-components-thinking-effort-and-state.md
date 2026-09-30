@@ -179,7 +179,7 @@ xychart-beta
 
 | 供应商 | 状态载体 | 应用要做什么 | 校验 |
 |---|---|---|---|
-| Anthropic | 上一轮 assistant 消息里的 `thinking` / `redacted_thinking` 块 | 原样送回，位置与内容不能动 | 块带签名；Fable 5.1 起还校验**块之前的历史**未变：新账户（2026-08-31 后创建）下把它放到 system / tools / 更早 assistant 消息之后返回 400；带 `thinking … 2026-08-01` 相关 beta 头时可选"拒绝"或"丢弃"（`mismatch_behavior`），被丢弃的块在 `input_transformations` 里报告 |
+| Anthropic | 上一轮 assistant 消息里的 `thinking` / `redacted_thinking` 块 | 原样送回，位置与内容不能动 | 块带签名<br/>Fable 5.1 起还校验**块之前的历史**未变：新账户（2026-08-31 后创建）下把它放到 system / tools / 更早 assistant 消息之后返回 400<br/>带 `thinking … 2026-08-01` 相关 beta 头时可选"拒绝"或"丢弃"（`mismatch_behavior`），被丢弃的块在 `input_transformations` 里报告 |
 | OpenAI（Responses） | `reasoning` item | 服务端状态：用 `previous_response_id` 自动带上；无状态 / ZDR：用 `include` 要回加密的 reasoning 内容并随下一次请求送回 | 加密内容只有服务端能读 |
 | Google（Gemini 3） | thought signature | 在多轮 function calling 中随 `functionCall` 部分原样送回 | 缺失会降低后续轮的质量或报错 |
 | DeepSeek | 无 | **不要**送回 `reasoning_content`，送回返回 400 | — |

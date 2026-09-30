@@ -24,7 +24,7 @@ RM 的整条链是：**收集偏好 → 拟合 Bradley-Terry 模型 → 得到�
 
 | 步 | 做什么 | 关键数字 |
 |---|---|---|
-| 偏好数据 | 对同一 prompt 的两个回答，人（或模型）判断哪个更好 | 人与人的一致率 70–75%；一对人标几美元、模型标几分钱；公开配方从 3 万对（InstructGPT）到 140 万对（Llama 2） |
+| 偏好数据 | 对同一 prompt 的两个回答，人（或模型）判断哪个更好 | 人与人的一致率 70–75%<br/>一对人标几美元、模型标几分钱<br/>公开配方从 3 万对（InstructGPT）到 140 万对（Llama 2） |
 | Bradley-Terry | $$P(y_w \succ y_l) = \sigma(r(y_w) - r(y_l))$$，loss $$-\log \sigma(r_w - r_l)$$ | 就是对"分差"做逻辑回归；奖励只定义到每个 prompt 的一个常数 |
 | RM 训练 | 基座去掉 lm_head 换标量头，从 SFT 模型初始化，训 1 个 epoch | 8B 规格、10 万对：约 10 GPU 小时；验证准确率通常停在 65–75%，与标注一致率同量级但不是被它"封顶" |
 | 失效 | 策略找到 RM 的漏洞：长度、格式、语气 | 用 best-of-N 在训 RL 之前探测；$$N = 16$$ 对应约 1.8 nats 的 KL |
@@ -64,19 +64,41 @@ loss 只依赖分差，所以奖励对每个 prompt 都可以整体加一个常�
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 偏好数据 | 三种形态；人标、AI 标、混合；标注协议与 on-policy；一致率说明什么、不说明什么；成本账 |
-| 三 | Bradley-Terry | 从成对比较到逻辑回归；loss 与梯度；平移不变性与归一化；margin；排序的 Plackett-Luce；多属性回归 RM |
-| 四 | 奖励模型的训练 | 结构与初始化；超参与 1 个 epoch 的过拟合；多大的 RM；显存与算力账；集成与权重平均 |
-| 五 | Reward hacking | Goodhart；长度与格式偏差的机制；过优化的 scaling 规律；best-of-N 的 KL 账；训 RL 之前的探测清单；对策 |
-| 六 | 生成式 RM 与 judge | 让模型先写评语再打分；GenRM、自评 rubric；成本对比；PRM 与 ORM 预告 |
-| 七 | 公开配方对照 | InstructGPT、Llama 2 / 3、Tülu 3、DeepSeek-V3、Qwen3、Kimi K2、Nemotron 的 RM 各怎么做 |
-| 八 | 动手 | 用 `trl` 的 `RewardTrainer` 训一个小 RM 要看的几件事 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、偏好数据**
+  - 三种形态
+  - 人标、AI 标、混合
+  - 标注协议与 on-policy
+  - 一致率说明什么、不说明什么
+  - 成本账
+- **三、Bradley-Terry**
+  - 从成对比较到逻辑回归
+  - loss 与梯度
+  - 平移不变性与归一化
+  - margin
+  - 排序的 Plackett-Luce
+  - 多属性回归 RM
+- **四、奖励模型的训练**
+  - 结构与初始化
+  - 超参与 1 个 epoch 的过拟合
+  - 多大的 RM
+  - 显存与算力账
+  - 集成与权重平均
+- **五、Reward hacking**
+  - Goodhart
+  - 长度与格式偏差的机制
+  - 过优化的 scaling 规律
+  - best-of-N 的 KL 账
+  - 训 RL 之前的探测清单
+  - 对策
+- **六、生成式 RM 与 judge**
+  - 让模型先写评语再打分
+  - GenRM、自评 rubric
+  - 成本对比
+  - PRM 与 ORM 预告
+- **七、公开配方对照**：InstructGPT、Llama 2 / 3、Tülu 3、DeepSeek-V3、Qwen3、Kimi K2、Nemotron 的 RM 各怎么做
+- **八、动手**：用 `trl` 的 `RewardTrainer` 训一个小 RM 要看的几件事
+- **九、本文小结**
+- **十、自测**：5 道题
 
 ## 二、偏好数据
 
@@ -96,9 +118,9 @@ Table: 偏好数据的三种形态
 
 | 来源 | 代表 | 规模 | 标注者看什么 |
 |---|---|---|---|
-| 人标 | InstructGPT（3.3 万 prompt，每个 4–9 个回答）；Anthropic HH-RLHF（16 万对）；Llama 2（**141 万对**自标 + 150 万对公开）；Llama 3（人标，四档强度 + 可选的"编辑后的回答"） | 万到百万对 | 同一 prompt 的两个回答，按有帮助 / 无害 / 诚实等标准 |
+| 人标 | InstructGPT（3.3 万 prompt，每个 4–9 个回答）<br/>Anthropic HH-RLHF（16 万对）<br/>Llama 2（**141 万对**自标 + 150 万对公开）<br/>Llama 3（人标，四档强度 + 可选的"编辑后的回答"） | 万到百万对 | 同一 prompt 的两个回答，按有帮助 / 无害 / 诚实等标准 |
 | AI 标（RLAIF） | Constitutional AI（Bai 等 2022）：模型按一份"宪法"里的原则比较两个回答；Lee 等 2023 在摘要与对话上 RLAIF ≈ RLHF | 几乎无上限 | 一个强模型 + 一段判断标准的 prompt |
-| 混合 | UltraFeedback（Cui 等 2023）：6.4 万 prompt × 4 个来自不同模型的回答，GPT-4 按指令遵循、真实性、诚实、有帮助四个维度打 1–10 分再综合；HelpSteer 2：人标 5 个属性各 0–4 分，1 万条；Skywork-Reward、Nectar 等聚合集 | 十万级 | 强模型打分 + 人工抽检 |
+| 混合 | UltraFeedback（Cui 等 2023）：6.4 万 prompt × 4 个来自不同模型的回答，GPT-4 按指令遵循、真实性、诚实、有帮助四个维度打 1–10 分再综合<br/>HelpSteer 2：人标 5 个属性各 0–4 分，1 万条<br/>Skywork-Reward、Nectar 等聚合集 | 十万级 | 强模型打分 + 人工抽检 |
 
 Table: 偏好数据从哪来
 
@@ -310,8 +332,8 @@ Table: 训 RL 之前的 RM 探测清单
 
 | 对策 | 做什么 | 代价 |
 |---|---|---|
-| KL 约束 | RL 目标里的 $$-\beta \text{KL}(\pi \| \pi_{ref})$$，限制策略离开 RM 可靠区的距离 | $$\beta$$ 太大学不动、太小 hacking；第三篇 |
-| 长度控制 | 奖励里减 $$\lambda \cdot$$ 长度；或按长度分桶归一化奖励；或 RM 训练时对 chosen / rejected 做长度平衡 | 可能压掉真正需要长回答的任务 |
+| KL 约束 | RL 目标里的 $$-\beta \text{KL}(\pi \ | \pi_{ref})$$，限制策略离开 RM 可靠区的距离 | $$\beta$$ 太大学不动、太小 hacking；第三篇 |
+| 长度控制 | 奖励里减 $$\lambda \cdot$$ 长度<br/>或按长度分桶归一化奖励<br/>或 RM 训练时对 chosen / rejected 做长度平衡 | 可能压掉真正需要长回答的任务 |
 | 迭代重训 | 每轮 RL 后用新策略采样、重新标注、重训 RM（Llama 2 / 3 的做法） | 每轮一批标注 |
 | 集成 / 平均 | 第四章第 5 节 | $$k$$ 倍推理或零 |
 | 奖励整形 | 裁剪极端奖励、白化、对不确定样本降权 | 超参 |
@@ -346,7 +368,7 @@ Table: 对抗 reward hacking 的对策与代价
 
 | 配方 | RM 类型 | 数据 | 规模 | 特点 |
 |---|---|---|---|---|
-| InstructGPT（2022） | 标量 BT | 3.3 万 prompt 人标排序 | 6B（策略 175B） | 同 prompt 全部对同 batch；1 epoch；奖励归一到 SFT 均值 0 |
+| InstructGPT（2022） | 标量 BT | 3.3 万 prompt 人标排序 | 6B（策略 175B） | 同 prompt 全部对同 batch<br/>1 epoch<br/>奖励归一到 SFT 均值 0 |
 | Llama 2（2023） | 标量 BT × 2（helpful / safety） | 141 万对人标 + 150 万对公开 | 与策略同规格 | 四档 margin；每轮 RL 后重标重训，共 5 轮 |
 | Llama 3（2024） | 标量 BT | 人标，含"编辑后的回答"作第三档 | 与策略同规格 | 去掉 margin；RM 主要用于拒绝采样，对齐用 DPO |
 | Tülu 3（2024） | 无 RM（DPO 用 GPT-4o judge 标的离线数据）；RLVR 用规则 | UltraFeedback 风格的 on-policy 数据 | — | 消融：on-policy 数据 > off-policy |
@@ -393,10 +415,10 @@ loss 就是第三章第 2 节的 $$-\log \sigma(r_w - r_l)$$；数据是消息�
 |---|---|---|
 | 偏好形态 | 成对 > 打分 > 排序（可靠性）；打分可转成对 | 人与人一致率 70–75% |
 | 数据来源 | 人标（贵、偏差分散）/ AI 标（便宜、偏差一致）/ 混合 | 人标一对几美元，AI 标几分钱；InstructGPT 3.3 万 prompt，Llama 2 141 万对 |
-| 协议 | on-policy 采样；同策略配对；标强度；分维度 | Tülu 3：on-policy > off-policy |
-| Bradley-Terry | $$P(y_w \succ y_l) = \sigma(r_w - r_l)$$；loss $$-\log\sigma(\Delta)$$；梯度权重 $$\sigma(-\Delta)$$ | 逻辑回归；只定义到每 prompt 一个常数 |
-| 变体 | margin $$-\log\sigma(\Delta - m)$$；Plackett-Luce 排序；多属性回归 | Llama 2 用 margin，Llama 3 去掉 |
-| RM 训练 | SFT 初始化 + 标量头；1 epoch；lr $$10^{-5}$$ 量级；与策略同规格 | 8B、10 万对：7 GPU 小时；验证准确率通常停在 65–75% |
+| 协议 | on-policy 采样<br/>同策略配对<br/>标强度<br/>分维度 | Tülu 3：on-policy > off-policy |
+| Bradley-Terry | $$P(y_w \succ y_l) = \sigma(r_w - r_l)$$<br/>loss $$-\log\sigma(\Delta)$$<br/>梯度权重 $$\sigma(-\Delta)$$ | 逻辑回归；只定义到每 prompt 一个常数 |
+| 变体 | margin $$-\log\sigma(\Delta - m)$$<br/>Plackett-Luce 排序<br/>多属性回归 | Llama 2 用 margin，Llama 3 去掉 |
+| RM 训练 | SFT 初始化 + 标量头<br/>1 epoch<br/>lr $$10^{-5}$$ 量级<br/>与策略同规格 | 8B、10 万对：7 GPU 小时；验证准确率通常停在 65–75% |
 | RM 的成本 | 训便宜，用贵 | GRPO 一步 400 万 token 的 RM 前向 ≈ 3 分钟 |
 | 过优化 | $$R_{gold}(d) = d(\alpha - \beta \log d)$$，$$d = \sqrt{\text{KL}}$$ | $$\beta$$ 随 RM 变大、数据变多而减小 |
 | BoN 的 KL | $$\log N - (N-1)/N$$ | $$N$$ = 16：1.83 nats；64：3.17 |

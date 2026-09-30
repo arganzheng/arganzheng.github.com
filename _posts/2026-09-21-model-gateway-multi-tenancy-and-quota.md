@@ -82,20 +82,42 @@ Table: 模型网关需要什么、原生路径缺什么
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 为什么轮询是错的 | KV 满与 prefix cache 的数值小例子；负载均衡器看不到什么；引擎给了什么 |
-| 三 | GIE 的对象与数据路径 | `v1.6.0` 的仓库分工；InferencePool 字段；HTTPRoute → InferencePool 的完整 YAML；`ext_proc` 协议（x-gateway-destination-endpoint 等）；网关实现与 conformance |
-| 四 | EPP 的调度框架 | llm-d-router：请求控制流水线、filter / scorer / picker / profile handler 的实名清单、EndpointPickerConfig 与加权打分、近似 vs 精确前缀缓存、PD 分离的 profile 与 sidecar、EPP 的 HA |
-| 五 | 协议与租户 | OpenAI 协议作为路由键、body-based routing、协议归一；租户识别与信任边界；InferenceObjective 与 priority、fairness ID、flow control 的 priority band；配额规则表与策略 YAML |
-| 六 | token 记账 | 三种"配额"的量纲；预扣与结算；流式断开；usage 的可靠性；回答核心问题的规则表 |
-| 七 | 版本灰度与 LoRA | 池间 HTTPRoute 权重；池内 InferenceModelRewrite；按 header / 租户定向与回滚；LoRA 的动态加载与亲和 |
-| 八 | 多集群与网关容量 | InferencePoolImport 的状态；multicluster-* 插件；网关与 EPP 自身的容量 |
-| 九 | 代价与边界 | 四栏表；什么时候不该上这一层 |
-| 十 | 本文小结 | 要点、源码位置、mini-platform/gateway/ 增量与 `ttft-compare.py` |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、为什么轮询是错的**
+  - KV 满与 prefix cache 的数值小例子
+  - 负载均衡器看不到什么
+  - 引擎给了什么
+- **三、GIE 的对象与数据路径**
+  - `v1.6.0` 的仓库分工
+  - InferencePool 字段
+  - HTTPRoute → InferencePool 的完整 YAML
+  - `ext_proc` 协议（x-gateway-destination-endpoint 等）
+  - 网关实现与 conformance
+- **四、EPP 的调度框架**：llm-d-router：请求控制流水线、filter / scorer / picker / profile handler 的实名清单、EndpointPickerConfig 与加权打分、近似 vs 精确前缀缓存、PD 分离的 profile 与 sidecar、EPP 的 HA
+- **五、协议与租户**
+  - OpenAI 协议作为路由键、body-based routing、协议归一
+  - 租户识别与信任边界
+  - InferenceObjective 与 priority、fairness ID、flow control 的 priority band
+  - 配额规则表与策略 YAML
+- **六、token 记账**
+  - 三种"配额"的量纲
+  - 预扣与结算
+  - 流式断开
+  - usage 的可靠性
+  - 回答核心问题的规则表
+- **七、版本灰度与 LoRA**
+  - 池间 HTTPRoute 权重
+  - 池内 InferenceModelRewrite
+  - 按 header / 租户定向与回滚
+  - LoRA 的动态加载与亲和
+- **八、多集群与网关容量**
+  - InferencePoolImport 的状态
+  - multicluster-* 插件
+  - 网关与 EPP 自身的容量
+- **九、代价与边界**
+  - 四栏表
+  - 什么时候不该上这一层
+- **十、本文小结**：要点、源码位置、mini-platform/gateway/ 增量与 `ttft-compare.py`
+- **十一、自测**：5 道题
 
 ## 二、为什么轮询是错的
 
@@ -348,7 +370,7 @@ flowchart TB
 
 | 槽位 | 类型名 | 做什么 |
 |---|---|---|
-| filter | `prefix-cache-affinity-filter` | 概率性地把候选缩到"有前缀命中"的 sticky 子集；TTFT 惩罚超过 `maxTTFTPenaltyMs` 时打破亲和；`explorationProbability` 控制探索 |
+| filter | `prefix-cache-affinity-filter` | 概率性地把候选缩到"有前缀命中"的 sticky 子集<br/>TTFT 惩罚超过 `maxTTFTPenaltyMs` 时打破亲和<br/>`explorationProbability` 控制探索 |
 | filter | `utilization-filter` | 按 `active-requests` / `running-requests` / `waiting-queue` / `kv-cache-utilization` 的 `maxValue` 丢掉过载副本；`fallbackOnEmpty` |
 | filter | `decode-filter` / `prefill-filter` / `encode-filter` | 按 `llm-d.ai/role` 标签选角色 Pod（PD 分离） |
 | filter | `label-selector-filter` | 通用的标签选择器（替代已弃用的 `by-label`） |
@@ -366,7 +388,7 @@ flowchart TB
 | profile handler | `single-profile-handler`（默认）、`disagg-profile-handler`、`pd-profile-handler`（已弃用）、`header-profile-handler`、`data-parallel-profile-handler` | 编排 profile |
 | decider | `prefix-based-pd-decider`、`always-disagg-pd-decider`、`always-disagg-multimodal-decider` | 决定这个请求是否走 prefill 分离 |
 | data producer | `approx-prefix-cache-producer`、`precise-prefix-cache-producer`、`token-producer`、`inflight-load-producer`、`session-id-producer`、`predicted-latency-producer` | 为 scorer / filter 准备每请求数据 |
-| flow control | `fcfs-ordering-policy`、`edf-ordering-policy`、`slo-deadline-ordering-policy`；`global-strict-fairness-policy`、`round-robin-fairness-policy`、`program-aware-fairness`；`utilization-detector`、`concurrency-detector`；`static-usage-limit-policy`、`priority-holdback-policy`、`soft-reflective-ceiling-policy` | 排队顺序 / 流间公平 / 饱和检测 / 准入上限 |
+| flow control | `fcfs-ordering-policy`、`edf-ordering-policy`、`slo-deadline-ordering-policy`<br/>`global-strict-fairness-policy`、`round-robin-fairness-policy`、`program-aware-fairness`<br/>`utilization-detector`、`concurrency-detector`<br/>`static-usage-limit-policy`、`priority-holdback-policy`、`soft-reflective-ceiling-policy` | 排队顺序 / 流间公平 / 饱和检测 / 准入上限 |
 
 Table: EPP 插件类型与实名清单
 
@@ -710,7 +732,7 @@ spec:
 | 量纲 | 与 GPU 消耗的关系 | 请求到达时可知？ | 适合做什么 |
 |---|---|---|---|
 | 请求数 | 弱：500 token 与 30k token 差 60 倍 | 是 | 限 EPP / 网关 / tokenizer 这类与 token 无关的开销（RPM） |
-| token 数 | 强：prefill ∝ 输入 token，decode ∝ 输出 token；但输入 token 的单位成本远低于输出（prefill 批量并行） | 输入是、输出否 | 账单单位；速率配额（TPM）；预扣与结算 |
+| token 数 | 强：prefill ∝ 输入 token，decode ∝ 输出 token；但输入 token 的单位成本远低于输出（prefill 批量并行） | 输入是、输出否 | 账单单位<br/>速率配额（TPM）<br/>预扣与结算 |
 | GPU 时间 | 就是它 | 否：取决于批内其他请求、缓存命中、量化版本 | 内部成本核算与容量规划；不适合对租户暴露，因为同一请求在不同时刻的 GPU 时间不同 |
 
 Table: 三种配额的量纲
@@ -762,7 +784,7 @@ t=2 与 t=6 是两种不同的拒绝：前者余量足够但 KV 占用（并发�
 | 情形 | 引擎侧发生了什么 | 怎么记 |
 |---|---|---|
 | 排队中断开 | 请求还在 EPP 的 flow control 队列里，未到引擎 | EPP 返回 `rejected-context-cancelled`；不计费、退还全部预扣 |
-| 生成中客户端断开 | 网关关闭上游连接，vLLM 收到断开后中止该请求（释放 KV）；已生成的 token 已经花了 GPU | 按已生成计费：`continuous_usage_stats` 下用最后一个 usage；否则按已转发的 SSE chunk 数（vLLM 默认每 chunk 一个 token 的增量，近似）；输入按 prompt 全额 |
+| 生成中客户端断开 | 网关关闭上游连接，vLLM 收到断开后中止该请求（释放 KV）；已生成的 token 已经花了 GPU | 按已生成计费：`continuous_usage_stats` 下用最后一个 usage<br/>否则按已转发的 SSE chunk 数（vLLM 默认每 chunk 一个 token 的增量，近似）<br/>输入按 prompt 全额 |
 | 生成中上游断开（Pod 重启） | 引擎没了，客户端收到半截流 | 输入是否计费是策略问题；建议只记不扣，并对这类事件告警——它对应下一篇的 goodput |
 
 Table: 流式断开的三种情形与记账
@@ -777,12 +799,12 @@ EPP 在响应路径上记的是指标而不是账单：`HandleResponseBody` 从 
 
 | 决策点 | 谁决定 | 规则 | 依据 |
 |---|---|---|---|
-| 这个请求能不能进 | 认证层（外层配额） | 每租户每模型的 RPM / TPM 令牌桶 + 并发上限；TPM 按输入估算 + 输出预扣扣减；超则 429，不进 EPP | A 的桶是 B 的三倍：同样打满时 B 先撞到 429 |
+| 这个请求能不能进 | 认证层（外层配额） | 每租户每模型的 RPM / TPM 令牌桶 + 并发上限<br/>TPM 按输入估算 + 输出预扣扣减<br/>超则 429，不进 EPP | A 的桶是 B 的三倍：同样打满时 B 先撞到 429 |
 | 进了之后先服务谁 | EPP flow control | 按 `InferenceObjective.spec.priority` 分 band，高 band 严格优先；同 band 内 `round-robin-fairness-policy` 在 fairness ID 之间轮转 | 若 A=premium(100)、B=standard(0)：饱和时 A 的队列先清空 B 才动；若两者同优先级：各服务一个，A 的三倍体现在它的桶更大、被 429 更少 |
 | 等多久放弃 | EPP flow control | `defaultRequestTTL`（60 s）；band 的 `maxRequests` / `maxBytes` 满了立即 429 | 负优先级 band 给小 `maxRequests`，让 best-effort 快速失败而不是排长队 |
 | 排在哪个副本 | EPP scheduling profile | 与租户无关：`prefix-cache-affinity-filter` 缩到有前缀命中的副本 → `utilization-filter` 丢掉 KV > 0.9 或队列 > 4 的 → 加权分（前缀 3、队列 2、KV 2、LoRA 1）→ 最高分 | 4 个副本对两个租户是一个池；租户隔离在时间（排队顺序）上而不在空间（副本）上 |
 | "配额"是什么 | 平台设计 | 对租户：输入 / 输出 token（TPM）+ 并发数 + RPM；对平台：GPU 时间用于成本核算 | 请求数量纲错误；GPU 时间到达时不可知 |
-| 断开怎么算 | 认证层 + EPP | 排队中断开退全部预扣；生成中断开按已生成结算（`continuous_usage_stats` 或 chunk 数）；`usage` 靠网关强制 `include_usage` | 见 6.3 |
+| 断开怎么算 | 认证层 + EPP | 排队中断开退全部预扣<br/>生成中断开按已生成结算（`continuous_usage_stats` 或 chunk 数）<br/>`usage` 靠网关强制 `include_usage` | 见 6.3 |
 
 Table: 两个租户共用副本的决策规则表
 
@@ -945,11 +967,11 @@ Table: 网关与 EPP 的容量参考
 
 | 引擎需求 | K8s 空缺 | 平台机制 | 代价 |
 |---|---|---|---|
-| 请求到达时按每副本 KV / 队列状态选副本 | `Service` 与 `HTTPRoute` 后端只能轮询 / 随机 / 按权重 | `InferencePool` 作为 `HTTPRoute` 后端 + EPP 经 ext_proc 每请求选 endpoint | 每个请求多一次 gRPC 往返（EPP 延迟直接进 TTFT）；EPP 是新的单点与容量上限；`FailClose` 下 EPP 挂了流量全断 |
-| 同一前缀去同一副本 | 亲和只有 ClientIP | `approx-prefix-cache-producer`（EPP 记账）或 `precise-prefix-cache-producer`（引擎 KV 事件） | 近似方案会猜错；精确方案要每 Pod 一条 ZMQ 订阅、EPP 内全局索引、与引擎对齐的分词与 block size；EPP 多副本时近似索引分裂 |
+| 请求到达时按每副本 KV / 队列状态选副本 | `Service` 与 `HTTPRoute` 后端只能轮询 / 随机 / 按权重 | `InferencePool` 作为 `HTTPRoute` 后端 + EPP 经 ext_proc 每请求选 endpoint | 每个请求多一次 gRPC 往返（EPP 延迟直接进 TTFT）<br/>EPP 是新的单点与容量上限<br/>`FailClose` 下 EPP 挂了流量全断 |
+| 同一前缀去同一副本 | 亲和只有 ClientIP | `approx-prefix-cache-producer`（EPP 记账）或 `precise-prefix-cache-producer`（引擎 KV 事件） | 近似方案会猜错<br/>精确方案要每 Pod 一条 ZMQ 订阅、EPP 内全局索引、与引擎对齐的分词与 block size<br/>EPP 多副本时近似索引分裂 |
 | 不把请求送到过载副本 | 健康检查只知道活着 | `utilization-filter`、`queue-scorer`、`kv-cache-utilization-scorer`；flow control 的饱和检测 | 依赖 50 ms 一次的指标抓取，有滞后（`utilization-detector` 的问题）；阈值需要按模型与硬件调 |
-| 多租户下高优先级先服务、同级公平 | 没有请求排队的概念 | `InferenceObjective.spec.priority` + flow control 的 band / fairness / ordering | 排队在 EPP 内存里；无按权重的公平；状态每副本独立；打开后改变饱和时的行为，要重新调 TTL 与 band 上限 |
-| 按 token 而不是请求限流与计费 | 限流按请求 / 字节 | 外层认证层的 TPM 令牌桶 + 预扣 / 结算；网关强制 `stream_options.include_usage` | 预扣值不准导致配额抖动；断开时的计数是近似的；需要一个开源栈里没有的组件 |
+| 多租户下高优先级先服务、同级公平 | 没有请求排队的概念 | `InferenceObjective.spec.priority` + flow control 的 band / fairness / ordering | 排队在 EPP 内存里<br/>无按权重的公平<br/>状态每副本独立<br/>打开后改变饱和时的行为，要重新调 TTL 与 band 上限 |
+| 按 token 而不是请求限流与计费 | 限流按请求 / 字节 | 外层认证层的 TPM 令牌桶 + 预扣 / 结算；网关强制 `stream_options.include_usage` | 预扣值不准导致配额抖动<br/>断开时的计数是近似的<br/>需要一个开源栈里没有的组件 |
 | 同一模型名多版本灰度 | 权重分流不感知会话与缓存 | 池间 `HTTPRoute` 权重 / header 定向；池内 `InferenceModelRewrite` | 池间灰度打散前缀缓存；池内灰度要求同一引擎能服务两个版本（LoRA 成立，量化版本不成立） |
 | 按 adapter 选副本 | — | IPP 的 adapter → 基础模型映射 + `lora-affinity-scorer` | 算法偏向 vLLM 的实现；`--max-loras` 与换入代价要与前缀亲和权衡 |
 | 跨集群容量共享 | MCS alpha 且不知 GPU | `InferencePoolImport`（alpha、status-only、Draft 提案）；`multicluster-*` 插件 | 尚无稳定 API 与参考实现；生产仍靠上层 LB |
@@ -997,26 +1019,26 @@ PD            两个 profile，两个 header（x-gateway-destination-endpoint �
 
 | 主题 | 项目 / 路径 | 符号 |
 |---|---|---|
-| InferencePool | GIE `api/v1/inferencepool_types.go` | `InferencePoolSpec.Selector` / `TargetPorts` / `AppProtocol` / `EndpointPickerRef`；`EndpointPickerRef.Group` / `Kind` / `Name` / `Port` / `FailureMode`；`EndpointPickerFailOpen` / `EndpointPickerFailClose`；`InferencePoolStatus.Parents`；`InferencePoolConditionAccepted` / `ResolvedRefs` / `Exported`；`InferencePoolReasonEndpointPickerRefMissing` |
+| InferencePool | GIE `api/v1/inferencepool_types.go` | `InferencePoolSpec.Selector` / `TargetPorts` / `AppProtocol` / `EndpointPickerRef`<br/>`EndpointPickerRef.Group` / `Kind` / `Name` / `Port` / `FailureMode`<br/>`EndpointPickerFailOpen` / `EndpointPickerFailClose`<br/>`InferencePoolStatus.Parents`<br/>`InferencePoolConditionAccepted` / `ResolvedRefs` / `Exported`<br/>`InferencePoolReasonEndpointPickerRefMissing` |
 | 共享类型 | GIE `api/v1/shared_types.go`、`api/v1/doc.go` | `LabelSelector.MatchLabels`、`AppProtocolHTTP` / `AppProtocolH2C`；`+groupName=inference.networking.k8s.io` |
 | InferencePoolImport | GIE `apix/v1alpha1/inferencepoolimport_types.go`、`doc.go` | `InferencePoolImportStatus.Controllers`、`ImportController.Name` / `ExportingClusters` / `Parents` / `Conditions`；`+groupName=inference.networking.x-k8s.io` |
 | EPP 协议 | GIE `docs/proposals/004-endpoint-picker-protocol/README.md` | `x-gateway-destination-endpoint`、`x-gateway-destination-endpoint-subset`、`x-gateway-destination-endpoint-served`、`envoy.lb`、`envoy.lb.subset_hint`、503 / 429 ImmediateResponse |
 | 引擎协议 | GIE `docs/proposals/003-model-server-protocol/README.md` | `TotalQueuedRequests` / `TotalRunningRequests` / `KVCacheUtilization`、`vllm:lora_requests_info{max_lora,running_lora_adapters,waiting_lora_adapters}` |
-| 提案 | GIE `docs/proposals/1199-inferencemodel-api-evolution`、`1374-multi-cluster-inference`、`1816-inferenceomodelrewrite`、`1964-pluggable-bbr-framework` | `InferenceObjectives`（Phase 1）；`inference.networking.x-k8s.io/export` 注解、Endpoint / Parent Mode；`InferenceModelRewrite`；`X-Gateway-Model-Name` |
+| 提案 | GIE `docs/proposals/1199-inferencemodel-api-evolution`、`1374-multi-cluster-inference`、`1816-inferenceomodelrewrite`、`1964-pluggable-bbr-framework` | `InferenceObjectives`（Phase 1）<br/>`inference.networking.x-k8s.io/export` 注解、Endpoint / Parent Mode<br/>`InferenceModelRewrite`<br/>`X-Gateway-Model-Name` |
 | 参考 EPP 与 conformance | GIE `pkg/lwepp/README.md`、`conformance/conformance.go`、`conformance/tests/*.yaml`、`conformance/resources/base.yaml`、`site-src/implementations/gateways.md` | `GatewayLayerProfileName`；`gateway_weighted_two_pools`、`epp_unavailable_fail_open`、`gateway_following_epp_routing_dp`、`httproute_invalid_inferencepool_ref` |
-| EPP 配置 schema | llm-d-router `apix/config/v1alpha1/endpointpickerconfig_types.go` | `EndpointPickerConfig.FeatureGates` / `Plugins` / `SchedulingProfiles` / `DataLayer` / `FlowControl` / `RequestHandler`；`PluginSpec.Name` / `Type` / `Parameters`；`SchedulingPlugin.PluginRef` / `Weight`；`FlowControlConfig.MaxBytes` / `MaxRequests` / `DefaultRequestTTL` / `PriorityBands` / `SaturationDetector` / `EnableEviction`；`PriorityBandConfig.Priority` / `FairnessPolicyRef` / `OrderingPolicyRef` |
-| InferenceObjective / ModelRewrite | llm-d-router `apix/v1alpha2/inferenceobjective_types.go`、`inferencemodelrewrite_types.go`、`shared_types.go`、`doc.go` | `InferenceObjectiveSpec.Priority` / `PoolRef`；`InferenceModelRewriteSpec.PoolRef` / `Rules`；`InferenceModelRewriteRule.Matches` / `Targets`；`TargetModel.Weight` / `ModelRewrite`；`ModelMatch.Type` / `Value`；`MatchExact`；`+groupName=llm-d.ai` |
+| EPP 配置 schema | llm-d-router `apix/config/v1alpha1/endpointpickerconfig_types.go` | `EndpointPickerConfig.FeatureGates` / `Plugins` / `SchedulingProfiles` / `DataLayer` / `FlowControl` / `RequestHandler`<br/>`PluginSpec.Name` / `Type` / `Parameters`<br/>`SchedulingPlugin.PluginRef` / `Weight`<br/>`FlowControlConfig.MaxBytes` / `MaxRequests` / `DefaultRequestTTL` / `PriorityBands` / `SaturationDetector` / `EnableEviction`<br/>`PriorityBandConfig.Priority` / `FairnessPolicyRef` / `OrderingPolicyRef` |
+| InferenceObjective / ModelRewrite | llm-d-router `apix/v1alpha2/inferenceobjective_types.go`、`inferencemodelrewrite_types.go`、`shared_types.go`、`doc.go` | `InferenceObjectiveSpec.Priority` / `PoolRef`<br/>`InferenceModelRewriteSpec.PoolRef` / `Rules`<br/>`InferenceModelRewriteRule.Matches` / `Targets`<br/>`TargetModel.Weight` / `ModelRewrite`<br/>`ModelMatch.Type` / `Value`<br/>`MatchExact`<br/>`+groupName=llm-d.ai` |
 | 请求控制 | llm-d-router `pkg/epp/requestcontrol/director.go` | `Director.HandleRequest`、`getInferenceObjective`、`modelRewriteIfNeeded`、`repackage`；`admissionController.Admit` |
 | 调度 | llm-d-router `pkg/epp/scheduling/scheduler_profile.go`、`scheduler.go` | `SchedulerProfile.Run` / `runFilterPlugins` / `runScorerPlugins` / `runPickerPlugin`、`enforceScoreRange`、`WeightedScorer`；`Scheduler.Schedule` |
 | 控制头 | llm-d-router `pkg/epp/metadata/consts.go` | `ObjectiveKey`、`FlowFairnessIDKey`、`ModelNameRewriteKey`、`TTFTSLOHeaderKey`、`TPOTSLOHeaderKey`、`DefaultFairnessID`、`DestinationEndpointKey`、`DestinationEndpointServedKey`、`SubsetFilterNamespace` |
 | 插件类型名 | llm-d-router `pkg/epp/framework/plugins/scheduling/{filter,scorer,picker,profilehandler}/…`、`requestcontrol/dataproducer/…`、`flowcontrol/…`、`requesthandling/parsers/…` | 第四章 2 节表中的全部类型常量（`PrefixCacheScorerPluginType`、`QueueScorerType`、`KvCacheUtilizationScorerType`、`LoraAffinityScorerType`、`MaxScorePickerType`、`DisaggProfileHandlerType`、`PdProfileHandlerType`、`PrefixBasedPDDeciderPluginType`、`UtilizationFilterType`、`OpenAIParserType` 等） |
 | 前缀索引 | llm-d-router `pkg/kvcache/README.md`、`indexer.go`；`pkg/kvevents/README.md`、`pool.go`、`zmq_subscriber.go` | `Indexer.ScoreTokens` / `ComputeBlockKeysFromTokens`、`LongestPrefixScorer`；`Pool`、`SubscriberManager` |
-| 响应与指标 | llm-d-router `pkg/epp/handlers/response.go`、`pkg/epp/metrics/llm_d_router_metrics.go`、`parsers/openai/openai.go` | `HandleResponseBody`、`RecordInputTokens` / `RecordOutputTokens` / `RecordPromptCachedTokens`；`llm_d_epp_request_input_tokens` / `request_output_tokens` / `request_cached_tokens`、`modelLabelsWithFairnessPriority`；`extractUsage`、`streamingEndMsg` |
+| 响应与指标 | llm-d-router `pkg/epp/handlers/response.go`、`pkg/epp/metrics/llm_d_router_metrics.go`、`parsers/openai/openai.go` | `HandleResponseBody`、`RecordInputTokens` / `RecordOutputTokens` / `RecordPromptCachedTokens`<br/>`llm_d_epp_request_input_tokens` / `request_output_tokens` / `request_cached_tokens`、`modelLabelsWithFairnessPriority`<br/>`extractUsage`、`streamingEndMsg` |
 | PD sidecar | llm-d-router `pkg/sidecar/proxy/`、`pkg/sidecar/constants/constants.go`、`docs/disaggregation.md` | `KVConnectorNIXLV2` / `KVConnectorSharedStorage` / `KVConnectorSGLang` / `KVConnectorMooncake`；`x-prefiller-host-port`、`llm-d.ai/role` |
-| 运维 | llm-d-router `docs/operations.md`、`docs/architecture.md` | Active-Active / Active-Passive；Default plugins；`--config-file` / `--config-text` / `--refresh-metrics-interval` / `--allow-experimental-plugins` |
-| llm-d guides | llm-d `guides/optimized-baseline/router/*.values.yaml`、`guides/flow-control/{objectives.yaml,router/*.values.yaml,README.md}`、`guides/precise-prefix-cache-routing/`、`guides/multi-model-routing/manifests/`、`guides/rollouts/{blue-green-update,adapter-rollout}.md`、`docs/infrastructure/gateway/README.md`、`docs/architecture/core/router/proxy.md`、`docs/api-reference/epp-http-headers.md` | `peakPrefillThroughput`；`X-Gateway-Base-Model-Name`、`inference.llm-d.ai/ipp-managed`；`x-llm-d-request-dropped-reason` 取值；Standalone / Gateway 模式 |
-| vLLM v0.28.0 | `vllm/entrypoints/openai/chat_completion/protocol.py`、`openai/engine/protocol.py`、`openai/cli_args.py`、`openai/models/protocol.py`、`serve/lora/api_router.py`、`vllm/envs.py`、`vllm/engine/arg_utils.py`、`vllm/v1/metrics/loggers.py` | `ChatCompletionRequest.model` / `stream` / `stream_options` / `max_completion_tokens`；`StreamOptions.include_usage` / `continuous_usage_stats`；`UsageInfo.prompt_tokens` / `completion_tokens` / `total_tokens` / `prompt_tokens_details`；`PromptTokenUsageInfo.cached_tokens`；`--lora-modules`、`LoRAModulePath`；`/v1/load_lora_adapter` / `/v1/unload_lora_adapter`；`VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR`；`--enable-lora` / `--max-loras` / `--enable-prefix-caching` / `--kv-events-config`；`vllm:num_requests_waiting` / `num_requests_running` / `kv_cache_usage_perc` / `prefix_cache_hits` / `lora_requests_info` / `cache_config_info` |
-| KServe v0.20.0 对照 | `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` | `LLMInferenceServiceSpec.Router`；`RouterSpec.Route` / `Gateway` / `Scheduler`；`SchedulerSpec.Pool` / `Config` / `Template` / `Replicas`；`SchedulerConfigSpec.Inline` / `Ref` |
+| 运维 | llm-d-router `docs/operations.md`、`docs/architecture.md` | Active-Active / Active-Passive<br/>Default plugins<br/>`--config-file` / `--config-text` / `--refresh-metrics-interval` / `--allow-experimental-plugins` |
+| llm-d guides | llm-d `guides/optimized-baseline/router/*.values.yaml`、`guides/flow-control/{objectives.yaml,router/*.values.yaml,README.md}`、`guides/precise-prefix-cache-routing/`、`guides/multi-model-routing/manifests/`、`guides/rollouts/{blue-green-update,adapter-rollout}.md`、`docs/infrastructure/gateway/README.md`、`docs/architecture/core/router/proxy.md`、`docs/api-reference/epp-http-headers.md` | `peakPrefillThroughput`<br/>`X-Gateway-Base-Model-Name`、`inference.llm-d.ai/ipp-managed`<br/>`x-llm-d-request-dropped-reason` 取值<br/>Standalone / Gateway 模式 |
+| vLLM v0.28.0 | `vllm/entrypoints/openai/chat_completion/protocol.py`、`openai/engine/protocol.py`、`openai/cli_args.py`、`openai/models/protocol.py`、`serve/lora/api_router.py`、`vllm/envs.py`、`vllm/engine/arg_utils.py`、`vllm/v1/metrics/loggers.py` | `ChatCompletionRequest.model` / `stream` / `stream_options` / `max_completion_tokens`<br/>`StreamOptions.include_usage` / `continuous_usage_stats`<br/>`UsageInfo.prompt_tokens` / `completion_tokens` / `total_tokens` / `prompt_tokens_details`<br/>`PromptTokenUsageInfo.cached_tokens`<br/>`--lora-modules`、`LoRAModulePath`<br/>`/v1/load_lora_adapter` / `/v1/unload_lora_adapter`<br/>`VLLM_ALLOW_RUNTIME_LORA_UPDATING`、`VLLM_LORA_RESOLVER_CACHE_DIR`<br/>`--enable-lora` / `--max-loras` / `--enable-prefix-caching` / `--kv-events-config`<br/>`vllm:num_requests_waiting` / `num_requests_running` / `kv_cache_usage_perc` / `prefix_cache_hits` / `lora_requests_info` / `cache_config_info` |
+| KServe v0.20.0 对照 | `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` | `LLMInferenceServiceSpec.Router`<br/>`RouterSpec.Route` / `Gateway` / `Scheduler`<br/>`SchedulerSpec.Pool` / `Config` / `Template` / `Replicas`<br/>`SchedulerConfigSpec.Inline` / `Ref` |
 
 Table: 本篇涉及的源码与 CRD 位置
 

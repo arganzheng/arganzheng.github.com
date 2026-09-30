@@ -126,9 +126,9 @@ Table: 六篇的主题与建立的东西
 |---|---|
 | 1 | 把你的场景拆到任务粒度，按四维度打分，画出边界；找出正在被外推的数字 |
 | 2 | 对每个任务选形态，标出人看结果的位置；找出该变成后台 agent 的任务 |
-| 3 | 量采纳率与修改率与核对率；写 onboarding 里的"擅长 / 不擅长"；把问人做成产品事件 |
+| 3 | 量采纳率与修改率与核对率<br/>写 onboarding 里的"擅长 / 不擅长"<br/>把问人做成产品事件 |
 | 4 | 审一遍呈现：引用可点开吗、拒答说了缺什么吗、审批说了为什么与影响吗、变更是 diff 吗；找一个该非对话化的功能 |
-| 5 | 选北极星与护栏，砍虚荣指标；做一次自报 vs 实测；接指标回流 |
+| 5 | 选北极星与护栏，砍虚荣指标<br/>做一次自报 vs 实测<br/>接指标回流 |
 
 Table: 各篇实践建议的内容
 
@@ -146,7 +146,7 @@ Table: 各篇实践建议的内容
 
 | 来源 | 内容 |
 |---|---|
-| Klarna | 2024 年初的 AI 客服数字（2.3 百万对话、三分之二工单、11 → 2 分钟、\$40M）；2025 年 CEO 关于裁员过度与"客户要能找到人"的表态；2026 年的混合模式报道 |
+| Klarna | 2024 年初的 AI 客服数字（2.3 百万对话、三分之二工单、11 → 2 分钟、\$40M）<br/>2025 年 CEO 关于裁员过度与"客户要能找到人"的表态<br/>2026 年的混合模式报道 |
 | Duolingo | 2025-04 "AI-first" 备忘录与一周后 CEO 的改口 |
 | IBM | AskHR 替代 HR 后再招人的报道 |
 | Gartner | 2026 年关于三成 AI 裁员岗位将在 2029 年前补回的预测 |
@@ -154,7 +154,7 @@ Table: 各篇实践建议的内容
 | GitHub Copilot | 公开的接受率量级（约三成）与研究报告；从补全到 agent 的产品演进 |
 | 后台 agent | Codex cloud、Claude Code on the web、Cursor 后台 agent、Devin、Agents API 的公开描述 |
 | 事件 | Air Canada、律师虚构判例、PocketOS（L1 第一篇） |
-| 呈现 | DeepSeek Harness Trajectory 视图；MCP Apps；各家 Realtime API |
+| 呈现 | DeepSeek Harness Trajectory 视图<br/>MCP Apps<br/>各家 Realtime API |
 
 Table: 本系列的版本与事实基线
 

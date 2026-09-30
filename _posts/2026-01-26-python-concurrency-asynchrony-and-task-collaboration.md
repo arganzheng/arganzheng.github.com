@@ -185,17 +185,38 @@ python3.13t script.py
 
 ### 5. 本文的章节安排
 
-| 章 | 主题 | 小节 |
-|---|---|---|
-| 二 | 线程：Java 工程师最熟悉的模型 | 1 线程与线程池：ThreadPoolExecutor 与 Future；2 线程间的协作：`queue.Queue` 与背压；3 同步原语：Lock、RLock、Semaphore、Event、Condition；4 线程本地状态：`threading.local`；5 线程的边界：超时能做什么、为什么线程不能被取消；6 Java 对照：平台线程一一对应，虚拟线程是分水岭 |
-| 三 | 进程：绕开 GIL 的代价 | 1 进程池与启动方式：fork / spawn / forkserver；2 进程间的数据：序列化与共享内存，DataLoader；3 进程间的协作：`multiprocessing.Queue` 与同步原语；4 进程的边界：kill 而非取消、worker 崩溃、上下文不传播；5 Java 对照：JVM 几乎不需要这一层 |
-| 四 | asyncio：单线程内的 M:N 调度 | 1 为什么需要第三种模型；2 事件循环：调度核心与阻塞陷阱；3 协程、Task 与 Future；4 TaskGroup：结构化并发；5 超时、取消与异常传播；6 ContextVars：跨 await 传递上下文；7 `asyncio.Queue` 与背压策略；8 asyncio 的同步原语：与线程版的三个差别；9 Sync/Async Bridge：`to_thread`、`run_in_executor`、FastAPI 的分流；10 Java 对照：虚拟线程 vs 函数染色 |
-| 五 | AI-Infra 组合模式：三种模型一起用 | 1 异步批处理：连接并发与 GPU 利用率；2 异步流式处理；3 混合并发：Python 异步与底层 GPU 运行时；4 后台任务与资源监控 |
-| 六 | 常见错误与改进方式 |  |
-| 七 | 一个实用的并发决策树 + Java 与 Python 并发概念速查表 |  |
-| 八 | 本文小结 |  |
-
-Table: 本文的章节安排
+- **二、线程：Java 工程师最熟悉的模型**
+  - 1 线程与线程池：ThreadPoolExecutor 与 Future
+  - 2 线程间的协作：`queue.Queue` 与背压
+  - 3 同步原语：Lock、RLock、Semaphore、Event、Condition
+  - 4 线程本地状态：`threading.local`
+  - 5 线程的边界：超时能做什么、为什么线程不能被取消
+  - 6 Java 对照：平台线程一一对应，虚拟线程是分水岭
+- **三、进程：绕开 GIL 的代价**
+  - 1 进程池与启动方式：fork / spawn / forkserver
+  - 2 进程间的数据：序列化与共享内存，DataLoader
+  - 3 进程间的协作：`multiprocessing.Queue` 与同步原语
+  - 4 进程的边界：kill 而非取消、worker 崩溃、上下文不传播
+  - 5 Java 对照：JVM 几乎不需要这一层
+- **四、asyncio：单线程内的 M:N 调度**
+  - 1 为什么需要第三种模型
+  - 2 事件循环：调度核心与阻塞陷阱
+  - 3 协程、Task 与 Future
+  - 4 TaskGroup：结构化并发
+  - 5 超时、取消与异常传播
+  - 6 ContextVars：跨 await 传递上下文
+  - 7 `asyncio.Queue` 与背压策略
+  - 8 asyncio 的同步原语：与线程版的三个差别
+  - 9 Sync/Async Bridge：`to_thread`、`run_in_executor`、FastAPI 的分流
+  - 10 Java 对照：虚拟线程 vs 函数染色
+- **五、AI-Infra 组合模式：三种模型一起用**
+  - 1 异步批处理：连接并发与 GPU 利用率
+  - 2 异步流式处理
+  - 3 混合并发：Python 异步与底层 GPU 运行时
+  - 4 后台任务与资源监控
+- **六、常见错误与改进方式**
+- **七、一个实用的并发决策树 + Java 与 Python 并发概念速查表**
+- **八、本文小结**
 
 ## 二、线程：Java 工程师最熟悉的模型
 
@@ -618,7 +639,7 @@ DataLoader 也精确演示了多进程的两个经典代价：
 
 | 概念 | `threading` / `queue` | `multiprocessing` | 差别 |
 | :--- | :--- | :--- | :--- |
-| 队列 | `queue.Queue(maxsize)` | `multiprocessing.Queue(maxsize)` | 元素要 pickle；底层是管道 + 一个喂送线程；`put()` 返回时数据可能还没进管道 |
+| 队列 | `queue.Queue(maxsize)` | `multiprocessing.Queue(maxsize)` | 元素要 pickle<br/>底层是管道 + 一个喂送线程<br/>`put()` 返回时数据可能还没进管道 |
 | 单向队列 | — | `multiprocessing.SimpleQueue` | 无 `maxsize`、无 `join()`，更轻 |
 | 锁/信号量/事件/条件 | `Lock`、`RLock`、`Semaphore`、`Event`、`Condition` | 同名 | 基于 OS 信号量实现，跨进程可用；必须在创建子进程**之前**创建并传入 |
 | 共享变量 | 直接共享 | `Value`、`Array`（共享内存中的 C 类型） | 只能放 C 类型，复合更新仍要 `get_lock()` |

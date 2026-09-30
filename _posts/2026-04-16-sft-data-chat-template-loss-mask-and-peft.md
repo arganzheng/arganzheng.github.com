@@ -39,19 +39,40 @@ Table: SFT 与预训练的四处不同
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 数据 | 三种来源；prompt 与回答各怎么造；LIMA 的 1K 与 Tülu 3 的 94 万各在什么条件下成立；表面对齐假说的证据；质量过滤与去污染；多轮与配比 |
-| 三 | 格式 | chat template 做了什么；三家模板对照；特殊 token 的 embedding 是欠训练的；BOS 与边界的坑；训练与推理必须同一模板 |
-| 四 | 目标 | loss mask 与它的梯度；多轮的 mask；packing 与跨样本 attention；padding 浪费的账；mean 与 sum；NEFTune |
-| 五 | 全量与 LoRA | 全量的状态账与 lr；LoRA 的 $$W + BA$$、梯度、秩、alpha、目标矩阵、超参表；QLoRA、DoRA、rsLoRA、PiSSA；合并与多 LoRA；LoRA 学得少、忘得少 |
-| 六 | 遗忘 | 度量、机制、四种对策 |
-| 七 | 成本与配方 | 一次 SFT 的 GPU 小时与数据成本；七个公开配方的 SFT 对照；推理 SFT 的"少即是多" |
-| 八 | 实践 | `01_sft.py` 的五个实验 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、数据**
+  - 三种来源
+  - prompt 与回答各怎么造
+  - LIMA 的 1K 与 Tülu 3 的 94 万各在什么条件下成立
+  - 表面对齐假说的证据
+  - 质量过滤与去污染
+  - 多轮与配比
+- **三、格式**
+  - chat template 做了什么
+  - 三家模板对照
+  - 特殊 token 的 embedding 是欠训练的
+  - BOS 与边界的坑
+  - 训练与推理必须同一模板
+- **四、目标**
+  - loss mask 与它的梯度
+  - 多轮的 mask
+  - packing 与跨样本 attention
+  - padding 浪费的账
+  - mean 与 sum
+  - NEFTune
+- **五、全量与 LoRA**
+  - 全量的状态账与 lr
+  - LoRA 的 $$W + BA$$、梯度、秩、alpha、目标矩阵、超参表
+  - QLoRA、DoRA、rsLoRA、PiSSA
+  - 合并与多 LoRA
+  - LoRA 学得少、忘得少
+- **六、遗忘**：度量、机制、四种对策
+- **七、成本与配方**
+  - 一次 SFT 的 GPU 小时与数据成本
+  - 七个公开配方的 SFT 对照
+  - 推理 SFT 的"少即是多"
+- **八、实践**：`01_sft.py` 的五个实验
+- **九、本文小结**
+- **十、自测**：5 道题
 
 ## 二、数据：从哪来、要多少
 
@@ -59,8 +80,8 @@ Table: 本文的章节安排
 
 | 来源 | 做法 | 代表 | 量级与成本 |
 |---|---|---|---|
-| 人工编写 | 标注员按 prompt 写出理想回答 | InstructGPT 的 13K 条示范；LIMA 的 1000 条精选；no_robots 的 1 万条（本篇实验用）；OpenAssistant 的众包对话树 | 每条几分钟到几十分钟的人时；质量最高，量最少 |
-| 自举 | 用模型自己生成 prompt 与回答，再过滤 | Self-Instruct（Wang 等 2022）从 175 条种子生成 5.2 万条；Evol-Instruct（WizardLM）让模型把简单指令逐步"进化"成复杂指令；Magpie 只给模板的前缀让模型"自问自答" | 几乎零人工，多样性与正确性靠过滤 |
+| 人工编写 | 标注员按 prompt 写出理想回答 | InstructGPT 的 13K 条示范<br/>LIMA 的 1000 条精选<br/>no_robots 的 1 万条（本篇实验用）<br/>OpenAssistant 的众包对话树 | 每条几分钟到几十分钟的人时；质量最高，量最少 |
+| 自举 | 用模型自己生成 prompt 与回答，再过滤 | Self-Instruct（Wang 等 2022）从 175 条种子生成 5.2 万条<br/>Evol-Instruct（WizardLM）让模型把简单指令逐步"进化"成复杂指令<br/>Magpie 只给模板的前缀让模型"自问自答" | 几乎零人工，多样性与正确性靠过滤 |
 | 从更强模型蒸馏 | 用 GPT-4 一类的模型对 prompt 生成回答 | Alpaca（52K，text-davinci-003）、ShareGPT / Vicuna（真实用户对话）、UltraChat（150 万条）、OpenHermes 2.5（100 万条） | 按 API 价格计，每条几厘到几分钱；是开源社区 2023–24 年的主要来源 |
 
 Table: SFT 数据的三种来源
@@ -327,7 +348,7 @@ SFT 数据量小、分布窄（对话格式、几种任务）、epoch 多，梯�
 | 对策 | 做法 | 用在 |
 |---|---|---|
 | 小 lr、少 epoch | $$10^{-5}$$ 量级，2–3 个 epoch，看下游指标而非 loss 决定停 | 所有配方的默认 |
-| 数据回放 | SFT 数据里混入一定比例的预训练数据（或通用指令数据），让通用分布也有梯度 | InstructGPT 的 RLHF 阶段混入预训练梯度（"PPO-ptx"）；Tülu 的通用数据桶；本篇 mask 实验里"不 mask 略好"是同一效应 |
+| 数据回放 | SFT 数据里混入一定比例的预训练数据（或通用指令数据），让通用分布也有梯度 | InstructGPT 的 RLHF 阶段混入预训练梯度（"PPO-ptx"）<br/>Tülu 的通用数据桶<br/>本篇 mask 实验里"不 mask 略好"是同一效应 |
 | 模型平均 | 对同一阶段不同数据 / 超参训出的多个 checkpoint 取权重平均；或在微调前后的权重间插值（WiSE-FT） | Llama 3 在 RM、SFT、DPO 每一阶段都做；OLMo 2 的 model souping |
 | 低秩约束 | LoRA 一类，限制更新的子空间 | 资源受限的 SFT；定制模型 |
 
@@ -351,7 +372,7 @@ SFT 便宜到成本几乎全在数据上：100 万条样本如果由人写，按
 | LIMA（2023） | 精选人写 | 1K | — | 15 | 表面对齐假说；65B |
 | Alpaca（2023） | text-davinci-003 生成 | 52K | 2e-5 | 3 | 开源社区的起点；AlpaGasus 筛到 9K 更好 |
 | Llama 3（2024） | 拒绝采样 + 合成，按能力分桶 | 数百万 | 1e-5 | 8.5–9K 步 | 六轮 SFT + DPO 迭代；checkpoint 平均 |
-| Tülu 3（2024） | 混合，公开 | 939K prompt | 5e-6（8B）/ 2e-6（70B） | 2 | 数据消融公开；sum loss；去污染 |
+| Tülu 3（2024） | 混合，公开 | 939K prompt | 5e-6（8B）/ 2e-6（70B） | 2 | 数据消融公开<br/>sum loss<br/>去污染 |
 | Qwen2.5（2024） | 合成为主 | > 1M | 7e-6 → 7e-7 | 2 | 序列 32K；长回复与结构化输出 |
 | DeepSeek-R1（2025） | 冷启动：几千条长思维链；第三阶段：60 万推理 + 20 万非推理 | 见左 | — | 2（第三阶段） | SFT 只是 RL 的起点与整理器 |
 
@@ -402,14 +423,14 @@ model = get_peft_model(model, peft_cfg)
 |---|---|---|
 | 数据 | 人写 → 自举 → 强模型 / 自己的上一版生成 + 筛选；对评测集去污染 | 1K（LIMA、s1）到 94 万（Tülu 3）；质量与多样性 > 数量 |
 | 表面对齐 | SFT 改的是少数格式 token 的分布 | URIAL：3 条 in-context 示范接近 SFT |
-| 模板 | 特殊 token 标角色与边界；训练与推理必须同一模板；双 BOS、末尾换行、eos 注册三个坑 | ChatML 一段 4 轮对话 44 token，9 个特殊 token |
+| 模板 | 特殊 token 标角色与边界<br/>训练与推理必须同一模板<br/>双 BOS、末尾换行、eos 注册三个坑 | ChatML 一段 4 轮对话 44 token，9 个特殊 token |
 | 特殊 token | 基座里欠训练；LoRA 不更新 embedding | 需要 `modules_to_save` 或用基座预留的 token |
-| loss mask | 只算回复；多轮算每轮 assistant；mask 等价于给回复 token 提 lr | 80 步：mask 2.3924，不 mask 2.3869（prompt 短时差别可忽略） |
+| loss mask | 只算回复<br/>多轮算每轮 assistant<br/>mask 等价于给回复 token 提 lr | 80 步：mask 2.3924，不 mask 2.3869（prompt 短时差别可忽略） |
 | padding | 随机组 batch 一半算力在 padding 上 | 有效 45–56%；packing 100% 但要掩码 |
 | 归约 | 按 token 平均 vs 按样本平均 | Tülu 3：sum 更好；梯度累积要按总 token 归一 |
 | 全量 | 16 B/参数，lr $$10^{-5}$$ 量级，wd 0 | 8B：128 GB |
 | LoRA | $$W + \frac{\alpha}{r} BA$$，全部线性层，$$r$$ 16–64，lr $$10^{-4}$$ | r=16 全部线性层 1.78% 参数，验证 loss 与全量差 0.001，状态 1/7，每步快 20% |
-| 遗忘 | 普通文本 loss 的变化；四种对策 | 全量 1e-5 +0.02；全量 1e-4 +0.62（且回复 loss 变差）；LoRA 1e-4 +0.01 |
+| 遗忘 | 普通文本 loss 的变化；四种对策 | 全量 1e-5 +0.02<br/>全量 1e-4 +0.62（且回复 loss 变差）<br/>LoRA 1e-4 +0.01 |
 | 成本 | $$6ND$$ | 8B、2B token：67 GPU 小时；成本在数据，数据成本正变成推理 FLOPs |
 
 Table: SFT 的规则与数字小结

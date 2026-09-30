@@ -66,11 +66,11 @@ catalog: true
 | 篇 | 主题 | 建立的东西 | 对付 L1 的哪条失效 | 在 L1 的账上换什么 |
 |---|---|---|---|---|
 | 1 | 上下文的解剖 | 一次请求的分层与 token 构成；注意力预算 | 上下文标称 ≠ 有效 | 建立预算的基线 |
-| 2 | prompt 设计 | 稳定的模式 vs 不稳定的措辞；2026 年的失效技巧；公开 system prompt 的结构 | 指令遵循与 prompt 敏感 | token 换遵循率 |
-| 3 | 结构化输出 | 约束解码机制；schema 设计模式；修复与重试 | 指令遵循（格式）、幻觉（拒答出口） | schema 的 token 换解析确定性 |
-| 4 | 预算与压缩 | 配额表；卸载 → 清理 → 压缩的顺序；子 agent 隔离；复述 | 上下文标称 ≠ 有效；越界（目标漂移） | 一次推理的成本换有效上下文 |
-| 5 | 缓存与排列 | 前缀分层；三条规则；屏蔽而非删除；命中率指标 | —（纯账） | 前缀稳定性换 90% 输入折价与 TTFT |
-| 6 | prompt 当代码管 | 版本、标签、评测门禁、A/B；AGENTS.md / SKILL.md；上下文 vs 检索的决策 | 供应商变更、prompt 敏感 | 评测成本换回归保护 |
+| 2 | prompt 设计 | 稳定的模式 vs 不稳定的措辞<br/>2026 年的失效技巧<br/>公开 system prompt 的结构 | 指令遵循与 prompt 敏感 | token 换遵循率 |
+| 3 | 结构化输出 | 约束解码机制<br/>schema 设计模式<br/>修复与重试 | 指令遵循（格式）、幻觉（拒答出口） | schema 的 token 换解析确定性 |
+| 4 | 预算与压缩 | 配额表<br/>卸载 → 清理 → 压缩的顺序<br/>子 agent 隔离<br/>复述 | 上下文标称 ≠ 有效；越界（目标漂移） | 一次推理的成本换有效上下文 |
+| 5 | 缓存与排列 | 前缀分层<br/>三条规则<br/>屏蔽而非删除<br/>命中率指标 | —（纯账） | 前缀稳定性换 90% 输入折价与 TTFT |
+| 6 | prompt 当代码管 | 版本、标签、评测门禁、A/B<br/>AGENTS.md / SKILL.md<br/>上下文 vs 检索的决策 | 供应商变更、prompt 敏感 | 评测成本换回归保护 |
 
 Table: 六篇的主题与建立的东西
 
@@ -153,14 +153,14 @@ Table: 各篇实践建议的内容
 
 | 来源 | 内容 |
 |---|---|
-| Anthropic | 《Effective context engineering for AI agents》（2025-09）；API 的 compaction / context editing / memory tool 文档；claude.ai 各版本的公开 system prompt；Claude Code 文档的上下文窗口时间线与 auto-compact 参数；Agent Skills 规范（agentskills.io，2025-12 开放） |
-| OpenAI | GPT-5 prompting guide；Responses API 的 Prompts 对象与 Assistants 迁移指南（2026-08-26 关闭）；`/v1/responses/compact` 的公开分析 |
+| Anthropic | 《Effective context engineering for AI agents》（2025-09）<br/>API 的 compaction / context editing / memory tool 文档<br/>claude.ai 各版本的公开 system prompt<br/>Claude Code 文档的上下文窗口时间线与 auto-compact 参数<br/>Agent Skills 规范（agentskills.io，2025-12 开放） |
+| OpenAI | GPT-5 prompting guide<br/>Responses API 的 Prompts 对象与 Assistants 迁移指南（2026-08-26 关闭）<br/>`/v1/responses/compact` 的公开分析 |
 | Codex CLI | 开源仓库中压缩策略的公开分析（2026-03 / 04） |
 | Manus | 《Context Engineering for AI Agents: Lessons from Building Manus》（2025-07） |
 | LangChain Deep Agents | 公开的卸载与截断阈值 |
 | DeepSeek Harness | v0.1 developer preview（2026-08-13）的 SDK 文档中的压缩配置 |
 | AGENTS.md | 开放格式（2025-08）与 Agentic AI Foundation（2025-11） |
-| 研究 | Lost in the Middle、Context Rot、NoLiMa（L1 已引）；*Let Me Speak Freely?*（2024）；Outlines / XGrammar / llguidance 的论文与实现 |
+| 研究 | Lost in the Middle、Context Rot、NoLiMa（L1 已引）<br/>*Let Me Speak Freely?*（2024）<br/>Outlines / XGrammar / llguidance 的论文与实现 |
 
 Table: 本系列的版本与事实基线
 

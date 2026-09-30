@@ -108,16 +108,38 @@ Table: 本篇涉及的目录地图
 
 ### 5. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 进程组 | Megatron `parallel_state` 的 RankGenerator；DeepSpeed `groups.py` 的 mpu 委托；torchtitan ParallelDims 的 mesh 拆分；对照表 |
-| 三 | Megatron-LM | TP 层与 mappings；DDP 的 buffer 与 bucket；分布式优化器；bf16 参数的一生；训练循环；Megatron-FSDP |
-| 四 | DeepSpeed | DeepSpeedEngine；Stage 1/2 的扁平分区；Stage 3 的 `ds_tensor` 与 hook；bf16 参数的一生；训练循环；pipe/ 与 JSON |
-| 五 | torchtitan | `Trainer.__init__` 的装配顺序；ShardingConfig 描述的 TP；`fully_shard` 的应用；PP 与 CP；bf16 参数的一生；`train_step` |
-| 六 | 对照阅读 | 三条时序并排；前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）；1F1B 的两种写法；取舍表 |
-| 七 | 小结 | 要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py` |
-
-Table: 本文的章节安排
+- **二、进程组**
+  - Megatron `parallel_state` 的 RankGenerator
+  - DeepSpeed `groups.py` 的 mpu 委托
+  - torchtitan ParallelDims 的 mesh 拆分
+  - 对照表
+- **三、Megatron-LM**
+  - TP 层与 mappings
+  - DDP 的 buffer 与 bucket
+  - 分布式优化器
+  - bf16 参数的一生
+  - 训练循环
+  - Megatron-FSDP
+- **四、DeepSpeed**
+  - DeepSpeedEngine
+  - Stage 1/2 的扁平分区
+  - Stage 3 的 `ds_tensor` 与 hook
+  - bf16 参数的一生
+  - 训练循环
+  - pipe/ 与 JSON
+- **五、torchtitan**
+  - `Trainer.__init__` 的装配顺序
+  - ShardingConfig 描述的 TP
+  - `fully_shard` 的应用
+  - PP 与 CP
+  - bf16 参数的一生
+  - `train_step`
+- **六、对照阅读**
+  - 三条时序并排
+  - 前向前 all-gather 的三种实现（Stage 3 / FSDP1 / FSDP2）
+  - 1F1B 的两种写法
+  - 取舍表
+- **七、小结**：要点、源码位置、train-ledger 的 runs/ 与 `probe_memory.py`
 
 ## 二、进程组：谁和谁通信
 
@@ -915,25 +937,25 @@ checkpoint        dist_checkpointing（ShardedTensor）+ torch_dist / fsdp_dtens
 | Megatron Core 0.18.0 `megatron/core/distributed/param_and_grad_buffer.py`、`finalize_model_grads.py` | `_ParamAndGradBuffer`、`_ParamAndGradBucket`、`_ParamAndGradBucketGroup`（`start_param_sync()`、`finish_param_sync()`、`start_grad_sync()`、`register_grad_ready()`）、`shard_buffer()`、`group_params_for_buffers()`；`finalize_model_grads()` |
 | Megatron Core 0.18.0 `megatron/core/optimizer/distrib_optimizer.py`、`optimizer.py` | `DistributedOptimizer`：`_build_gbuf_range_map()`、`_build_model_gbuf_param_range_map()`、`_build_model_and_main_param_groups()`（`shard_fp32_from_float16_groups`）、`_copy_model_grads_to_main_grads()`、`_copy_main_params_to_model_params()`、`step_with_ready_grads()`；`MixedPrecisionOptimizer`、`Float16OptimizerWithFloat16Params`、`ChainedOptimizer` |
 | Megatron Core 0.18.0 `megatron/core/pipeline_parallel/schedules.py`、`p2p_communication.py` | `get_forward_backward_func()`、`forward_backward_no_pipelining()`、`forward_backward_pipelining_without_interleaving()`、`forward_backward_pipelining_with_interleaving()`、`forward_step()`、`backward_step()`、`deallocate_output_tensor()`、`custom_backward()`、`get_tensor_shapes()`；`P2PCommunicator`（`recv_forward()`、`send_forward()`、`send_forward_recv_backward()`、`send_backward_recv_forward()`、`_communicate()`）、`_batched_p2p_ops()`、`_p2p_ops()` |
-| Megatron Core 0.18.0 `megatron/core/distributed/fsdp/` | `mcore_fsdp_adapter.py` 的 `FullyShardedDataParallel`；`src/megatron_fsdp/fully_shard.py` 的 `ShardingStrategy`（`NO_SHARD` / `OPTIM` / `OPTIM_GRADS` / `OPTIM_GRADS_PARAMS`）、`fully_shard_model()`、`fully_shard_optimizer()`；`megatron_fsdp.py` 的 `MegatronFSDP` |
-| Megatron Core 0.18.0 `megatron/training/training.py`、`arguments.py`、`config/common_config.py` | `pretrain()`、`setup_model_and_optimizer()`、`get_model()`、`wrap_model_chunks_with_ddp()`、`train()`、`train_step()`、`training_log()`；`validate_args()`（`accumulate_allreduce_grads_in_fp32` 默认）；`use_pytorch_profiler`、`profile_step_start` / `profile_step_end`、`profile_ranks`、`record_memory_history`、`memory_snapshot_path` |
+| Megatron Core 0.18.0 `megatron/core/distributed/fsdp/` | `mcore_fsdp_adapter.py` 的 `FullyShardedDataParallel`<br/>`src/megatron_fsdp/fully_shard.py` 的 `ShardingStrategy`（`NO_SHARD` / `OPTIM` / `OPTIM_GRADS` / `OPTIM_GRADS_PARAMS`）、`fully_shard_model()`、`fully_shard_optimizer()`<br/>`megatron_fsdp.py` 的 `MegatronFSDP` |
+| Megatron Core 0.18.0 `megatron/training/training.py`、`arguments.py`、`config/common_config.py` | `pretrain()`、`setup_model_and_optimizer()`、`get_model()`、`wrap_model_chunks_with_ddp()`、`train()`、`train_step()`、`training_log()`<br/>`validate_args()`（`accumulate_allreduce_grads_in_fp32` 默认）<br/>`use_pytorch_profiler`、`profile_step_start` / `profile_step_end`、`profile_ranks`、`record_memory_history`、`memory_snapshot_path` |
 | DeepSpeed 0.19.2 `deepspeed/__init__.py`、`runtime/engine.py` | `initialize()`；`DeepSpeedEngine`：`_configure_distributed_model()`、`_configure_optimizer()`、`_configure_zero_optimizer()`、`forward()`、`backward()`、`_backward_epilogue()`、`allreduce_gradients()`、`step()`、`_take_model_step()`、`is_gradient_accumulation_boundary()`、`get_data_types()` |
 | DeepSpeed 0.19.2 `deepspeed/runtime/zero/stage_1_and_2.py` | `DeepSpeedZeroOptimizer`：`bit16_groups_flat`、`parallel_partitioned_bit16_groups`、`single_partition_of_fp32_groups`、`create_gradient_handling_hooks()`、`reduce_ready_partitions_and_remove_grads()`、`reduce_ipg_grads()`、`average_tensor()`、`step()`、`_optimizer_step()`、`update_lp_params()`；`IPGBucket` |
 | DeepSpeed 0.19.2 `deepspeed/runtime/zero/stage3.py` | `DeepSpeedZeroOptimizer_Stage3`：`_create_fp16_partitions_with_defragmentation()`、`_create_fp32_partitions()`、`create_reduce_and_remove_grad_hooks()`、`reduce_independent_p_g_buckets_and_remove_grads()`、`partition_grads()`、`step()`、`_optimizer_step()`、`_reassign_or_swap_out_partitioned_parameters()`、`_post_step()`、`_partition_all_parameters()`；`sub_group_size` |
-| DeepSpeed 0.19.2 `deepspeed/runtime/zero/partition_parameters.py`、`parameter_offload.py`、`partitioned_param_coordinator.py` | `Init`（`_post_init_method()`、`_convert_to_deepspeed_param()`、`_partition()`）、`ZeroParamStatus`、`free_param()`、`AllGatherCoalescedHandle`；`DeepSpeedZeRoOffload`（`setup_zero_stage3_hooks()`、`_register_deepspeed_module()`、`pre_sub_module_forward_function()` 等四个）；`PartitionedParameterCoordinator`（`fetch_sub_module()`、`release_sub_module()`、`record_module()`、`trace_prologue()`） |
+| DeepSpeed 0.19.2 `deepspeed/runtime/zero/partition_parameters.py`、`parameter_offload.py`、`partitioned_param_coordinator.py` | `Init`（`_post_init_method()`、`_convert_to_deepspeed_param()`、`_partition()`）、`ZeroParamStatus`、`free_param()`、`AllGatherCoalescedHandle`<br/>`DeepSpeedZeRoOffload`（`setup_zero_stage3_hooks()`、`_register_deepspeed_module()`、`pre_sub_module_forward_function()` 等四个）<br/>`PartitionedParameterCoordinator`（`fetch_sub_module()`、`release_sub_module()`、`record_module()`、`trace_prologue()`） |
 | DeepSpeed 0.19.2 `deepspeed/runtime/zero/config.py`、`runtime/constants.py`、`profiling/constants.py` | `DeepSpeedZeroConfig`（`stage`、`overlap_comm`、`contiguous_gradients`、`reduce_bucket_size`、`allgather_bucket_size`、`prefetch_bucket_size` 等 `stage3_*` 别名、`sub_group_size`、`zero_hpz_partition_size`）；JSON 键常量 |
-| DeepSpeed 0.19.2 `deepspeed/runtime/pipe/{module,engine,schedule,topology,p2p}.py` | `PipelineModule`、`LayerSpec`、`TiedLayerSpec`、`_partition_layers()`；`PipelineEngine`（`train_batch()`、`_exec_schedule()`、`_exec_forward_pass()` 等）；`TrainSchedule`（`steps()`、`num_pipe_buffers()`）、`PipeInstruction` 子类；`ProcessTopology`、`PipeModelDataParallelTopology`、`PipelineParallelGrid` |
+| DeepSpeed 0.19.2 `deepspeed/runtime/pipe/{module,engine,schedule,topology,p2p}.py` | `PipelineModule`、`LayerSpec`、`TiedLayerSpec`、`_partition_layers()`<br/>`PipelineEngine`（`train_batch()`、`_exec_schedule()`、`_exec_forward_pass()` 等）<br/>`TrainSchedule`（`steps()`、`num_pipe_buffers()`）、`PipeInstruction` 子类<br/>`ProcessTopology`、`PipeModelDataParallelTopology`、`PipelineParallelGrid` |
 | DeepSpeed 0.19.2 `deepspeed/utils/groups.py`、`comm/comm.py` | `mpu` 委托、`_get_data_parallel_group()`、`_clone_world_group()`、`_create_expert_and_data_parallel()`、`_create_zero_param_parallel_group()`、`_init_tp_mesh_device()`；`initialize_mesh_device()`、`init_distributed()` |
 | torchtitan v0.3.0 `torchtitan/train.py`、`trainer.py` | `main()`；`Trainer`（`Config`、`__init__`、`init_distributed()`、`forward_backward_step()`、`_forward_backward_body()`、`pp_forward_backward_step()`、`train_step()`、`train()`） |
 | torchtitan v0.3.0 `torchtitan/config/configs.py`、`README.md` | `TrainingConfig`（`dtype`、`mixed_precision_param`、`mixed_precision_reduce`、`local_batch_size`、`global_batch_size`、`seq_len`）、`ParallelismConfig`（`data_parallel_replicate_degree`、`data_parallel_shard_degree`、`tensor_parallel_degree`、`enable_sequence_parallel`、`pipeline_parallel_degree`、`pipeline_parallel_schedule`、`pipeline_parallel_microbatch_size`、`context_parallel_degree`、`fsdp_reshard_after_forward`、`spmd_backend`）、`CommConfig`、`DebugConfig`；配置即 Python 函数 |
 | torchtitan v0.3.0 `torchtitan/distributed/parallel_dims.py`、`full_dtensor.py` | `ParallelDims`（`from_config()`、`build_mesh()`、`get_mesh()`、`get_optional_mesh()`）、`MeshAxisName`、`SpmdLayout`；`resolve_fsdp_mesh()` |
-| torchtitan v0.3.0 `torchtitan/distributed/fsdp.py`、`pipeline_parallel.py`、`context_parallel/api.py`、`utils.py` | `apply_fsdp_to_decoder()`、`get_fsdp_reshard_after_forward_policy()`；`pipeline_llm()`、`_build_pipeline_schedule()`、`_pipeline_module_split()`；`apply_cp_to_forward()`、`prepare_context_parallel_input()`；`init_distributed()`、`clip_grad_norm_()`、`set_pg_timeouts()`、`dist_sum_tensor()` |
-| torchtitan v0.3.0 `torchtitan/protocols/module.py`、`sharding.py`；`models/common/decoder_sharding.py`；`models/llama3/{__init__,parallelize,sharding,config_registry}.py` | `Module.parallelize()`、`_distribute_states()`；`ShardingConfig`、`LocalMapConfig`、`resolve_placements()`；`colwise_config()`、`rowwise_config()`、`norm_config()`、`set_decoder_sharding_config()`；`model_registry()`、`parallelize_llama()`、`set_llama3_sharding_config()`、`llama3_debugmodel()` |
-| torchtitan v0.3.0 `torchtitan/components/{metrics,checkpoint,dataloader,loss}.py`、`components/optimizer/`、`tools/profiler.py` | `MetricsProcessor`、`DeviceMemoryMonitor.get_peak_stats()`；`CheckpointManager`；`BaseDataLoader`；`CrossEntropyLoss`、`ChunkedLossWrapper`；`OptimizersContainer`、`default_adamw()`、`LRSchedulersContainer`；`Profiler.Config`（`enable_profiling`、`profile_freq`、`profiler_active`、`profiler_warmup`） |
-| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/` | `_fully_shard.py` 的 `fully_shard()`、`FSDPModule`（`unshard()`、`reshard()`、`set_reshard_after_forward()`、`set_modules_to_forward_prefetch()`、`set_requires_gradient_sync()`）；`_fsdp_state.py` 的 `FSDPState`（`_pre_forward()`、`_post_forward()`、`_pre_backward()`）；`_fsdp_param_group.py` 的 `FSDPParamGroup`（`unshard()`、`wait_for_unshard()`、`reshard()`、`pre_forward()`、`post_forward()`、`pre_backward()`、`post_backward()`、`_backward_prefetch()`）、`FSDPCommContext`；`_fsdp_param.py` 的 `FSDPParam`（`_init_sharded_param()`、`to_unsharded()`、`to_sharded()`、`all_gather_inputs()`）、`ShardedState`；`_fsdp_collectives.py` 的 `foreach_all_gather()`、`foreach_all_gather_copy_out()`、`foreach_reduce()`；`_fsdp_api.py` 的 `MixedPrecisionPolicy`、`DataParallelMeshDims`、`CPUOffloadPolicy` |
+| torchtitan v0.3.0 `torchtitan/distributed/fsdp.py`、`pipeline_parallel.py`、`context_parallel/api.py`、`utils.py` | `apply_fsdp_to_decoder()`、`get_fsdp_reshard_after_forward_policy()`<br/>`pipeline_llm()`、`_build_pipeline_schedule()`、`_pipeline_module_split()`<br/>`apply_cp_to_forward()`、`prepare_context_parallel_input()`<br/>`init_distributed()`、`clip_grad_norm_()`、`set_pg_timeouts()`、`dist_sum_tensor()` |
+| torchtitan v0.3.0 `torchtitan/protocols/module.py`、`sharding.py`<br/>`models/common/decoder_sharding.py`<br/>`models/llama3/{__init__,parallelize,sharding,config_registry}.py` | `Module.parallelize()`、`_distribute_states()`<br/>`ShardingConfig`、`LocalMapConfig`、`resolve_placements()`<br/>`colwise_config()`、`rowwise_config()`、`norm_config()`、`set_decoder_sharding_config()`<br/>`model_registry()`、`parallelize_llama()`、`set_llama3_sharding_config()`、`llama3_debugmodel()` |
+| torchtitan v0.3.0 `torchtitan/components/{metrics,checkpoint,dataloader,loss}.py`、`components/optimizer/`、`tools/profiler.py` | `MetricsProcessor`、`DeviceMemoryMonitor.get_peak_stats()`<br/>`CheckpointManager`<br/>`BaseDataLoader`<br/>`CrossEntropyLoss`、`ChunkedLossWrapper`<br/>`OptimizersContainer`、`default_adamw()`、`LRSchedulersContainer`<br/>`Profiler.Config`（`enable_profiling`、`profile_freq`、`profiler_active`、`profiler_warmup`） |
+| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/` | `_fully_shard.py` 的 `fully_shard()`、`FSDPModule`（`unshard()`、`reshard()`、`set_reshard_after_forward()`、`set_modules_to_forward_prefetch()`、`set_requires_gradient_sync()`）<br/>`_fsdp_state.py` 的 `FSDPState`（`_pre_forward()`、`_post_forward()`、`_pre_backward()`）<br/>`_fsdp_param_group.py` 的 `FSDPParamGroup`（`unshard()`、`wait_for_unshard()`、`reshard()`、`pre_forward()`、`post_forward()`、`pre_backward()`、`post_backward()`、`_backward_prefetch()`）、`FSDPCommContext`<br/>`_fsdp_param.py` 的 `FSDPParam`（`_init_sharded_param()`、`to_unsharded()`、`to_sharded()`、`all_gather_inputs()`）、`ShardedState`<br/>`_fsdp_collectives.py` 的 `foreach_all_gather()`、`foreach_all_gather_copy_out()`、`foreach_reduce()`<br/>`_fsdp_api.py` 的 `MixedPrecisionPolicy`、`DataParallelMeshDims`、`CPUOffloadPolicy` |
 | PyTorch 2.13.0 `torch/distributed/fsdp/_flat_param.py`、`_runtime_utils.py` | FSDP1：`FlatParameter`、`FlatParamHandle`（`shard()`、`unshard()`、`_all_gather_flat_param()`、`_use_unsharded_flat_param()`、`_use_unsharded_views()`、`reshard()`）；`_pre_forward()`、`_pre_forward_unshard()`、`_post_forward_reshard()`、`_prefetch_handle()` |
-| PyTorch 2.13.0 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`（`_step_microbatches()`、`_get_pipeline_order()`）、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`（`_load_csv()`）、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`、`get_schedule_class()`；`PipelineStage`（`forward_one_chunk()`、`backward_one_chunk()`、`backward_weight_one_chunk()`、`get_fwd_recv_ops()` 等）；`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
-| PyTorch 2.13.0 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`；`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`；`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
+| PyTorch 2.13.0 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`（`_step_microbatches()`、`_get_pipeline_order()`）、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`（`_load_csv()`）、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`、`get_schedule_class()`<br/>`PipelineStage`（`forward_one_chunk()`、`backward_one_chunk()`、`backward_weight_one_chunk()`、`get_fwd_recv_ops()` 等）<br/>`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
+| PyTorch 2.13.0 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`<br/>`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`<br/>`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
 | train-ledger `runs/{megatron,deepspeed,titan}/`、`probe_memory.py` | 本篇增量，见下 |
 
 Table: 本篇涉及的源码位置

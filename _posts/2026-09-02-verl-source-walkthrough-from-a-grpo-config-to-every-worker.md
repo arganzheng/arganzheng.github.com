@@ -148,7 +148,7 @@ main_ppo.main(config)
 
 | 文件 | 内容 |
 |---|---|
-| `base/worker.py` | Worker：每个 GPU 进程里的基类；知道自己的 rank / world_size / master addr；提供 get_availale_master_addr_port 等 |
+| `base/worker.py` | Worker：每个 GPU 进程里的基类<br/>知道自己的 rank / world_size / master addr<br/>提供 get_availale_master_addr_port 等 |
 | `base/worker_group.py` | WorkerGroup：一组 worker 的句柄；_bind_worker_method 把 worker 类上带 @register 的方法绑成组方法 |
 | `base/decorator.py` | @register(dispatch_mode, execute_mode, blocking)；Dispatch / Execute 枚举与各 dispatch_fn / collect_fn |
 | `ray/base.py` | RayResourcePool（placement group）· RayClassWithInitArgs · RayWorkerGroup（用 Ray actor 实现 WorkerGroup）· create_colocated_worker_cls |
@@ -449,8 +449,8 @@ for rollout_id in range(args.start_rollout_id, args.num_rollout):
 | 训练后端 | FSDP / Megatron / VeOmni / TorchTitan，BaseEngine 抽象 | 只有 Megatron；Megatron 参数原样透传（--tensor-model-parallel-size 就是 Megatron 的） |
 | 推理后端 | vLLM / SGLang / TRT-LLM，RolloutReplica + AsyncServerBase 抽象 | 只有 SGLang；所有 SGLang 参数加 --sglang- 前缀透传（--sglang-mem-fraction-static） |
 | 控制器 | 单控制器 + @register 分发；v1 用 TransferQueue | driver 顺序调几个 Ray actor 的方法；Data Buffer 是一个 Ray actor |
-| 权重同步 | checkpoint engine 六个后端 | 共置：SGLang update_weights_from_tensor（CUDA IPC）；分离：update_weights_from_distributed（NCCL 广播）；磁盘 |
-| 异步 | v1 三种 trainer 模式；replay buffer 的淘汰矩阵 | train_async.py：一步流水；fully_async_rollout：流式；staleness 控制在 rollout 函数里 |
+| 权重同步 | checkpoint engine 六个后端 | 共置：SGLang update_weights_from_tensor（CUDA IPC）<br/>分离：update_weights_from_distributed（NCCL 广播）<br/>磁盘 |
+| 异步 | v1 三种 trainer 模式；replay buffer 的淘汰矩阵 | train_async.py：一步流水<br/>fully_async_rollout：流式<br/>staleness 控制在 rollout 函数里 |
 | agent | AgentLoopBase + tool schema + uni-agent 网关 | 自定义 generate 函数（--rollout-function-path），agent 逻辑就是一个 Python 函数 |
 | 模型接入 | 每个模型家族一张 Megatron-Bridge 映射表 + 引擎适配 | 同样用 Megatron-Bridge（加一层自己的 patch），只需这一层 |
 

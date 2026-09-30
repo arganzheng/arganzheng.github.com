@@ -417,7 +417,7 @@ static int[] maxSlidingWindow(int[] nums, int k) {
 | 除法向零取整 | `int(a / b)`；`a // b` 向下取整（`-7 // 2 == -4`） | `a / b` 本来就向零 |
 | 字符判数字 | `ch.isdigit()` | `Character.isDigit(c)`；`c - '0'` 转数字 |
 | 字符串拼接 | `cur += ch` 在 CPython 有优化，但正规写法用 `list` + `join` | 用 `StringBuilder`；`String +=` 在循环里是 $$O(n^2)$$ |
-| 空栈取顶 | `stack[-1]` 抛 `IndexError` | `peek()` 返回 `null`；`pop()` 抛 `NoSuchElementException`；空判 `isEmpty()` |
+| 空栈取顶 | `stack[-1]` 抛 `IndexError` | `peek()` 返回 `null`<br/>`pop()` 抛 `NoSuchElementException`<br/>空判 `isEmpty()` |
 
 ## 六、题单
 

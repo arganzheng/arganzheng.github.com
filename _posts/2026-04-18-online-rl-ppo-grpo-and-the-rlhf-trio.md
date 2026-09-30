@@ -80,20 +80,41 @@ PPO 的四个模型里，价值模型是为了**降低策略梯度的方差**—
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 目标函数 | 期望奖励与 KL 惩罚；$$\beta$$ 的量级；三种 KL 估计量；token 级与序列级 KL |
-| 三 | 策略梯度 | log-derivative 技巧；REINFORCE；方差；baseline 不改变期望的证明；LLM 是只有终末奖励的 bandit |
-| 四 | PPO | 价值模型与优势；GAE 的 $$\gamma$$、$$\lambda$$；clip 的重要性比与信任域；多 epoch；LLM 上的实现细节；四模型显存账 |
-| 五 | GRPO 一族 | GRPO 的组内归一化与 k3 KL；RLOO；REINFORCE++；DAPO、Dr. GRPO、GSPO 各改哪一项；方差与偏差 |
-| 六 | 成本与系统 | 一步生成多少 token；FLOPs 与时间的拆分；KV cache；权重同步；on-policy 与异步 |
-| 七 | 三件套对照表（第一版） | |
-| 八 | 公开配方 | InstructGPT、Llama 2、DeepSeekMath / R1、Tülu 3、DAPO、Qwen3、Kimi K2 |
-| 九 | 动手 | `GRPOTrainer` 的骨架与该看的曲线 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、目标函数**
+  - 期望奖励与 KL 惩罚
+  - $$\beta$$ 的量级
+  - 三种 KL 估计量
+  - token 级与序列级 KL
+- **三、策略梯度**
+  - log-derivative 技巧
+  - REINFORCE
+  - 方差
+  - baseline 不改变期望的证明
+  - LLM 是只有终末奖励的 bandit
+- **四、PPO**
+  - 价值模型与优势
+  - GAE 的 $$\gamma$$、$$\lambda$$
+  - clip 的重要性比与信任域
+  - 多 epoch
+  - LLM 上的实现细节
+  - 四模型显存账
+- **五、GRPO 一族**
+  - GRPO 的组内归一化与 k3 KL
+  - RLOO
+  - REINFORCE++
+  - DAPO、Dr. GRPO、GSPO 各改哪一项
+  - 方差与偏差
+- **六、成本与系统**
+  - 一步生成多少 token
+  - FLOPs 与时间的拆分
+  - KV cache
+  - 权重同步
+  - on-policy 与异步
+- **七、三件套对照表（第一版）**
+- **八、公开配方**：InstructGPT、Llama 2、DeepSeekMath / R1、Tülu 3、DAPO、Qwen3、Kimi K2
+- **九、动手**：`GRPOTrainer` 的骨架与该看的曲线
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、目标函数
 
@@ -463,12 +484,12 @@ trainer.train()
 
 | 项 | 公式 / 规则 | 数字 |
 |---|---|---|
-| 目标 | $$\max \mathbb{E}[r] - \beta\, \text{KL}(\pi \| \pi_{ref})$$ | $$\beta$$：RM 奖励 0.01–0.05，规则奖励 0 |
+| 目标 | $$\max \mathbb{E}[r] - \beta\, \text{KL}(\pi \ | \pi_{ref})$$ | $$\beta$$：RM 奖励 0.01–0.05，规则奖励 0 |
 | KL 估计 | $$k_1 = \log\frac{\pi}{\pi_{ref}}$$，$$k_3 = \rho - 1 - \log\rho$$ | PPO 用 $$k_1$$ 进奖励，GRPO 用 $$k_3$$ 进 loss |
 | 策略梯度 | $$\mathbb{E}[\nabla \log \pi(y)\,(R - b)]$$；$$b$$ 不依赖 $$y$$ 则无偏 | 一步 = 按奖励加权的 SFT |
-| PPO | $$V_\psi$$ 逐 token baseline；GAE $$\gamma = 1, \lambda = 0.95$$；clip $$\epsilon = 0.2$$ | 四模型，8B 规格 288 GB 状态 |
+| PPO | $$V_\psi$$ 逐 token baseline<br/>GAE $$\gamma = 1, \lambda = 0.95$$<br/>clip $$\epsilon = 0.2$$ | 四模型，8B 规格 288 GB 状态 |
 | GRPO | $$\hat A_i = (r_i - \text{mean}) / \text{std}$$；组内 $$G$$ 条 | 三模型，160 GB；$$G$$ = 8–64 |
-| 变体 | Dr. GRPO 去两个归一化；DAPO clip-higher / 动态采样 / token 级 / 无 KL；GSPO 序列级比值 | 一张六部件表 |
+| 变体 | Dr. GRPO 去两个归一化<br/>DAPO clip-higher / 动态采样 / token 级 / 无 KL<br/>GSPO 序列级比值 | 一张六部件表 |
 | 一步的 token | $$B \times G \times \bar L$$ | 512 × 8 × 1000 = 410 万 |
 | FLOPs | $$\approx 12N$$/token（PPO $$20N$$） | 训练一半，三个前向各六分之一 |
 | 时间 | 生成 MFU 10–25%，长尾，引擎切换 | 生成占 50–80% 墙钟 |

@@ -45,18 +45,33 @@ flowchart LR
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | tokenizer.json 里的五段 | Rust 库的流水线：normalizer、pre_tokenizer、model、post_processor、decoder；Qwen2.5 的每一段是什么；`Ġ` 与字节级 BPE |
-| 三 | Python 壳 | `PreTrainedTokenizerFast` 包了什么：`added_tokens`、`__call__` 到 `encode_batch` 的路、`BatchEncoding`、padding 与 `attention_mask`、`padding_side` |
-| 四 | chat template | `apply_chat_template` → `render_jinja_template`；`add_generation_prompt`；`{% raw %}{% generation %}{% endraw %}` 与 `return_assistant_tokens_mask`——SFT loss mask 的第一种来源 |
-| 五 | `load_dataset` 到 Arrow | builder 的三种来源；`download_and_prepare` 落成 `.arrow`；`Dataset` 是 mmap 视图；`Features` 是 schema |
-| 六 | `map` 与 fingerprint | `_map_single` 的取批-调函数-写文件；`batched`；`num_proc` 分片；fingerprint 怎么算、为什么 lambda 也能命中缓存；`select` / `shuffle` 是索引不是拷贝 |
-| 七 | 取一条、组一批 | `__getitem__` → `query_table` → formatter；`with_format("torch")`；`IterableDataset` 与 streaming；到 `DataLoader` 的 `collate_fn` |
-| 八 | 本文小结 | |
-| 九 | 自测 | 五道题 |
-
-Table: 本文的章节安排
+- **二、tokenizer.json 里的五段**
+  - Rust 库的流水线：normalizer、pre_tokenizer、model、post_processor、decoder
+  - Qwen2.5 的每一段是什么
+  - `Ġ` 与字节级 BPE
+- **三、Python 壳**：`PreTrainedTokenizerFast` 包了什么：`added_tokens`、`__call__` 到 `encode_batch` 的路、`BatchEncoding`、padding 与 `attention_mask`、`padding_side`
+- **四、chat template**
+  - `apply_chat_template` → `render_jinja_template`
+  - `add_generation_prompt`
+  - `{% raw %}{% generation %}{% endraw %}` 与 `return_assistant_tokens_mask`——SFT loss mask 的第一种来源
+- **五、`load_dataset` 到 Arrow**
+  - builder 的三种来源
+  - `download_and_prepare` 落成 `.arrow`
+  - `Dataset` 是 mmap 视图
+  - `Features` 是 schema
+- **六、`map` 与 fingerprint**
+  - `_map_single` 的取批-调函数-写文件
+  - `batched`
+  - `num_proc` 分片
+  - fingerprint 怎么算、为什么 lambda 也能命中缓存
+  - `select` / `shuffle` 是索引不是拷贝
+- **七、取一条、组一批**
+  - `__getitem__` → `query_table` → formatter
+  - `with_format("torch")`
+  - `IterableDataset` 与 streaming
+  - 到 `DataLoader` 的 `collate_fn`
+- **八、本文小结**
+- **九、自测**：五道题
 
 ## 二、tokenizer.json 里的五段
 

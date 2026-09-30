@@ -75,21 +75,37 @@ Table: 100 QPS FLUX.1-dev 服务各配置的卡数与成本
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 请求形态 | T2I / I2I / T2V / I2V / 编辑 / 附件；参数决定时长；与 LLM 请求的对照 |
-| 三 | 批处理 | 为什么几乎不提吞吐；何时有用；SGLang 与 vLLM-Omni 的兼容键与准入 |
-| 四 | 调度 | 时长可预测 → SJF / 分池 / SLO 准入；抢占的价值与代价；公平性 |
-| 五 | 三段分离 | 文本编码器 / DiT / VAE 各自的资源形态；vLLM-Omni 的 stage、SGLang 的 disaggregation；何时分 |
-| 六 | 附件 | LoRA（merge / unmerged / 多 LoRA / 异步加载）、ControlNet-as-a-Service、IP-Adapter |
-| 七 | 模型级联与路由 | DiffServe 的 query-aware 级联；多模型池 |
-| 八 | 同步与异步 API | `/v1/images` vs `/v1/videos`；job 表、轮询、对象存储、进度与预览 |
-| 九 | 成本、扩缩与平台 | GPU·秒定价；冷启动；扩缩容信号；对平台层的要求 |
-| 十 | 实现对照与实践 | |
-| 十一 | 本文小结 | |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、请求形态**
+  - T2I / I2I / T2V / I2V / 编辑 / 附件
+  - 参数决定时长
+  - 与 LLM 请求的对照
+- **三、批处理**
+  - 为什么几乎不提吞吐
+  - 何时有用
+  - SGLang 与 vLLM-Omni 的兼容键与准入
+- **四、调度**
+  - 时长可预测 → SJF / 分池 / SLO 准入
+  - 抢占的价值与代价
+  - 公平性
+- **五、三段分离**
+  - 文本编码器 / DiT / VAE 各自的资源形态
+  - vLLM-Omni 的 stage、SGLang 的 disaggregation
+  - 何时分
+- **六、附件**：LoRA（merge / unmerged / 多 LoRA / 异步加载）、ControlNet-as-a-Service、IP-Adapter
+- **七、模型级联与路由**
+  - DiffServe 的 query-aware 级联
+  - 多模型池
+- **八、同步与异步 API**
+  - `/v1/images` vs `/v1/videos`
+  - job 表、轮询、对象存储、进度与预览
+- **九、成本、扩缩与平台**
+  - GPU·秒定价
+  - 冷启动
+  - 扩缩容信号
+  - 对平台层的要求
+- **十、实现对照与实践**
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、请求形态
 
@@ -101,7 +117,7 @@ Table: 本文的章节安排
 | **I2I / 编辑** | + 参考图 / 原图 + 掩码 | 一次 **VAE 编码**（参考图 → latent）；参考 token 进 DiT 序列（$$N$$ 变大：Qwen-Image-Edit、FLUX Kontext 把参考图的 token 与目标图拼在一起，$$N$$ 翻倍、attention 四倍） | 秒级，比 T2I 长 1.5–3× | Qwen-Image-Edit、FLUX.2 |
 | **T2V** 文生视频 | + frames、fps | — | 分钟级 | Wan、HunyuanVideo |
 | **I2V** 图生视频 | + 首帧图 | VAE 编码首帧；首帧 latent 作为条件拼进序列 | 分钟级 | Wan-I2V、LTX-2 |
-| **+ 附件** | + LoRA id / ControlNet 条件图 / IP-Adapter 参考图 | LoRA：线性层多一个低秩分支（或 merge）；ControlNet：多一个网络的前向（U-Net 时代约 +50%，DiT 时代的 ControlNet 是几个 block 的副本 +15–30%）；IP-Adapter：多一个图像编码器一次前向 | +0–50% | 风格 / 姿态 / 参考 |
+| **+ 附件** | + LoRA id / ControlNet 条件图 / IP-Adapter 参考图 | LoRA：线性层多一个低秩分支（或 merge）<br/>ControlNet：多一个网络的前向（U-Net 时代约 +50%，DiT 时代的 ControlNet 是几个 block 的副本 +15–30%）<br/>IP-Adapter：多一个图像编码器一次前向 | +0–50% | 风格 / 姿态 / 参考 |
 | **流式 / 会话**（第六篇） | 控制信号流 | KV cache、会话状态 | 不定 | 世界模型 |
 
 Table: 六种生成请求形态
@@ -153,7 +169,7 @@ Table: LLM 请求与扩散请求的对照
 
 | 策略 | 做法 | 好处 | 代价 |
 |---|---|---|---|
-| **按形状分池** | 1024² / 768×1344 / 视频各一组实例 | 每池编译一次形状、无重编译；batch 兼容；容量可按形状规划 | 池间负载不均时要重分配实例（冷启动） |
+| **按形状分池** | 1024² / 768×1344 / 视频各一组实例 | 每池编译一次形状、无重编译<br/>batch 兼容<br/>容量可按形状规划 | 池间负载不均时要重分配实例（冷启动） |
 | **最短作业优先（SJF）** | 队列按估算的 GPU·秒排序 | 平均等待最小；小图不被大图堵 | 大图饥饿——加老化（等待时间加权） |
 | **SLO 准入** | 估算 $$t_\text{排队} + t_\text{执行}$$ 超过 SLO 就拒绝 / 降级（减步数、换 schnell、开缓存） | p99 可控 | 需要准确的时长模型 |
 | **预付费 / 配额** | 按估算 GPU·秒扣配额 | 事前计费 | — |
@@ -306,7 +322,7 @@ sequenceDiagram
 | 调度器 | `runtime/managers/scheduler.py`；`scheduler_client.py` | `diffusion/sched/`：`request_scheduler.py`、`step_scheduler.py`、`base_scheduler.py` | — | — |
 | 批处理 | `dynamic_batch_admission.py`（`--batching-max-size`、`--batching-config`） | `StepBatchSamplingParamsKey` / `RequestBatchSamplingParamsKey`（`sched/interface.py`） | `--data_parallel_degree` | `num_images_per_prompt` |
 | 三段分离 | `runtime/disaggregation/`：`roles.py`、`orchestrator.py`、`dispatch_policy.py`、`transport/` | stage-based：`vllm serve --omni`、`--stage-overrides`、`vllm_omni/deploy/`、OmniConnector；`stage_diffusion_proc.py` | — | — |
-| LoRA | `runtime/pipelines_core/lora/`、`runtime/layers/lora/`；`--lora-path`、按请求 lora | `diffusion/lora/`：`manager.py`、`loader.py`；`--lora-path`、`--lora-backend`；请求体 `lora` 字段 | — | `load_lora_weights` / `fuse_lora` |
+| LoRA | `runtime/pipelines_core/lora/`、`runtime/layers/lora/`；`--lora-path`、按请求 lora | `diffusion/lora/`：`manager.py`、`loader.py`<br/>`--lora-path`、`--lora-backend`<br/>请求体 `lora` 字段 | — | `load_lora_weights` / `fuse_lora` |
 | ControlNet | 按模型 pipeline | 按模型 | `pipeline_flux_control.py` | ControlNet pipelines |
 | embedding 缓存 | — | `cache/prompt_embed_cache.py` | — | — |
 | warmup | `--warmup-mode`、`--warmup-resolutions`；`server_warmup.py` | — | — | — |
@@ -322,15 +338,15 @@ Table: 服务机制在四个引擎里的实现对照
 
 | 项 | 规则 | 数字 |
 |---|---|---|
-| 卡数 | QPS × 单张 GPU·秒；batch 不参与；SP 只减延迟 | FLUX 100 QPS：eager 670 张 → 优化后 170 → schnell 80 |
+| 卡数 | QPS × 单张 GPU·秒<br/>batch 不参与<br/>SP 只减延迟 | FLUX 100 QPS：eager 670 张 → 优化后 170 → schnell 80 |
 | 时长 | 收到请求即确定（$$H, W, F, T, g$$，实例的 $$\eta$$）；缓存 ±20% | LLM 不可预测 |
-| 批处理 | compute-bound 下不提吞吐；小模型 × 低分辨率有效；同构静态整批 | 兼容键：形状、CFG、quality、LoRA id |
+| 批处理 | compute-bound 下不提吞吐<br/>小模型 × 低分辨率有效<br/>同构静态整批 | 兼容键：形状、CFG、quality、LoRA id |
 | 调度 | 分池、SJF + 老化、SLO 准入、事前配额；抢占在步边界（状态 = latent 0.6 MB） | 生产多用分池而非抢占 |
-| 三段分离 | 文本编码器小且一次、DiT 重、VAE 峰值大；视频几乎总分 VAE；全模态必分 | stage 间传 4 MiB / 0.6 MB |
-| LoRA | merge / unmerged / 多 LoRA；瓶颈是加载；bounded async loading 前 $$k \le 4$$ 步不挂 | rank 32 +2–5% |
+| 三段分离 | 文本编码器小且一次、DiT 重、VAE 峰值大<br/>视频几乎总分 VAE<br/>全模态必分 | stage 间传 4 MiB / 0.6 MB |
+| LoRA | merge / unmerged / 多 LoRA<br/>瓶颈是加载<br/>bounded async loading 前 $$k \le 4$$ 步不挂 | rank 32 +2–5% |
 | ControlNet | 独立服务、常驻、共享、与基座并行 | SwiftDiffusion 7.8× 延迟 |
 | 级联 | 小模型先试、判别器决定是否升级；按负载调阈值 | DiffServe SLO 违约 −19–70% |
-| API | 图像同步 `/v1/images/generations`；视频异步 `/v1/videos` job + 轮询 + 对象存储；会话流式 | 状态可 checkpoint |
+| API | 图像同步 `/v1/images/generations`<br/>视频异步 `/v1/videos` job + 轮询 + 对象存储<br/>会话流式 | 状态可 checkpoint |
 | 成本 | GPU·秒 × 单价，事前可算 | FLUX \$0.0006–0.005 / 张；Wan 720p 5 s \$0.22–1 |
 | 冷启动 | 权重 30–50 GB + 编译 1–3 min → 分钟级，提前扩 | 编译缓存持久化 |
 

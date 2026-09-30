@@ -110,7 +110,7 @@ Table: 本文的章节安排
 |---|---|---|---|
 | 瞬时 spike | 单步或几步跳高，几十步内回到原趋势 | grad norm 同步跳一下，被 clip 压住 | 单个坏 batch；bf16 舍入的偶发放大 |
 | 可恢复 spike | 跳高后花几百到几千步慢慢爬回，可能留下台阶 | grad norm 先跳后持续偏高；param norm 有折点 | LR 偏高；优化器状态被污染后需要时间"忘掉" |
-| 发散 | 跳高后不回头，loss 升到接近 ln(V) 或 NaN | grad norm 爆炸或变 NaN；attention logit 极大 | logit 增长；LR 过高；精度链某环断裂 |
+| 发散 | 跳高后不回头，loss 升到接近 ln(V) 或 NaN | grad norm 爆炸或变 NaN；attention logit 极大 | logit 增长<br/>LR 过高<br/>精度链某环断裂 |
 
 Table: loss spike 的三种形态
 
@@ -332,9 +332,9 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 
 | 信号 | 来源 | 正常形态 | 异常形态与含义 |
 |---|---|---|---|
-| loss（global avg） | 全 DP 组按 token 加权平均 | 平滑下降，步间抖动 < 1–2% | 单步跳 > 10%：spike；持续上升：发散；台阶：数据阶段切换或 LR 拐点 |
+| loss（global avg） | 全 DP 组按 token 加权平均 | 平滑下降，步间抖动 < 1–2% | 单步跳 > 10%：spike<br/>持续上升：发散<br/>台阶：数据阶段切换或 LR 拐点 |
 | loss（global max） | 各 DP rank 本地平均的最大值（torchtitan 有） | 与 avg 差 < 5% | 某 rank 远高于 avg：该 rank 的 batch 有坏样本——直接定位到 rank |
-| grad norm（clip 前） | 全局 L2，见第三章第 1 节 | warmup 后缓慢下降至 0.1–1，抖动 < 30% | 跳 > 3×：spike 起点；缓升：LR 偏高或 logit 增长；低平台后跳：优化器状态 |
+| grad norm（clip 前） | 全局 L2，见第三章第 1 节 | warmup 后缓慢下降至 0.1–1，抖动 < 30% | 跳 > 3×：spike 起点<br/>缓升：LR 偏高或 logit 增长<br/>低平台后跳：优化器状态 |
 | param norm | 全部参数的 L2（Megatron --log-params-norm） | 单调缓升，增速递减 | 增速突增：步长过大；折点：spike 已改变轨迹 |
 | learning rate | 调度器当前值 | 按调度曲线 | 恢复后与调度不符：scheduler 状态没进 checkpoint |
 | loss scale（fp16） | DynamicGradScaler 当前值 | 阶梯状，偶尔 backoff 后回涨 | 持续下降：inf 越来越多，发散前兆 |

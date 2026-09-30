@@ -74,21 +74,42 @@ p_S(· | 前缀)"]
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 三种粒度 | Hinton 的软标签与温度；序列级 = 在教师输出上 SFT；特征级为什么在 LLM 上少用 |
-| 三 | 前向 KL 与反向 KL | 定义、梯度、mode-covering 与 mode-seeking；JSD 与 skew KL；生成任务上选哪个 |
-| 四 | on-policy 蒸馏 | 暴露偏差；GKD 的目标；它就是 token 级稠密奖励的 RL；Qwen3 与 Thinking Machines 的实践 |
-| 五 | 词表不同怎么办 | 为什么 logits 级需要同一 tokenizer；对齐与最优传输的办法；序列级的普适性 |
-| 六 | 成本 | 序列级的教师推理；logits 级的 $$V$$ 个数与 top-k；on-policy 的每步教师前向；与 RL 的对比 |
-| 七 | 与剪枝、量化、预训练的组合 | Minitron；Llama 3.2；QAT + 蒸馏；Gemma 2 的预训练蒸馏 |
-| 八 | 极限 | 容量；泛化窄；蒸馏之后再 RL；分布坍缩 |
-| 九 | 公开配方 | R1-Distill、Qwen3、Gemma、Llama 3.2、Minitron、OpenThoughts |
-| 十 | 动手 | `GKDTrainer` 的三个旋钮 |
-| 十一 | 本文小结 | |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、三种粒度**
+  - Hinton 的软标签与温度
+  - 序列级 = 在教师输出上 SFT
+  - 特征级为什么在 LLM 上少用
+- **三、前向 KL 与反向 KL**
+  - 定义、梯度、mode-covering 与 mode-seeking
+  - JSD 与 skew KL
+  - 生成任务上选哪个
+- **四、on-policy 蒸馏**
+  - 暴露偏差
+  - GKD 的目标
+  - 它就是 token 级稠密奖励的 RL
+  - Qwen3 与 Thinking Machines 的实践
+- **五、词表不同怎么办**
+  - 为什么 logits 级需要同一 tokenizer
+  - 对齐与最优传输的办法
+  - 序列级的普适性
+- **六、成本**
+  - 序列级的教师推理
+  - logits 级的 $$V$$ 个数与 top-k
+  - on-policy 的每步教师前向
+  - 与 RL 的对比
+- **七、与剪枝、量化、预训练的组合**
+  - Minitron
+  - Llama 3.2
+  - QAT + 蒸馏
+  - Gemma 2 的预训练蒸馏
+- **八、极限**
+  - 容量
+  - 泛化窄
+  - 蒸馏之后再 RL
+  - 分布坍缩
+- **九、公开配方**：R1-Distill、Qwen3、Gemma、Llama 3.2、Minitron、OpenThoughts
+- **十、动手**：`GKDTrainer` 的三个旋钮
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、三种粒度
 
@@ -308,15 +329,15 @@ trainer.train()
 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
-| logits 级 | $$\tau^2 \text{KL}(p_T^{(\tau)} \| p_S^{(\tau)})$$，每位置 $$V$$ 维 | 暗知识；每 token 几到几十 bit；需同一 tokenizer |
-| 序列级 | 教师生成 → 学生 SFT | 学输出模式；丢不确定性；跨词表；R1-Distill |
+| logits 级 | $$\tau^2 \text{KL}(p_T^{(\tau)} \ | p_S^{(\tau)})$$，每位置 $$V$$ 维 | 暗知识<br/>每 token 几到几十 bit<br/>需同一 tokenizer |
+| 序列级 | 教师生成 → 学生 SFT | 学输出模式<br/>丢不确定性<br/>跨词表<br/>R1-Distill |
 | 前向 KL | $$\sum_j p_j \log(p_j / q_j)$$，mode-covering | 学生容量不足时在峰间放概率 → 生成教师不会生成的东西 |
 | 反向 KL | $$\sum_j q_j \log(q_j / p_j)$$，mode-seeking | 只在教师认可处放概率；序列级需采样（MiniLLM） |
-| on-policy（GKD） | $$\mathbb{E}_{y \sim p_S}[\sum_t D(p_T \| p_S)]$$ | 修暴露偏差；采样像 RL、梯度是 token 级散度（不经采样反传）；Qwen3、Thinking Machines |
+| on-policy（GKD） | $$\mathbb{E}_{y \sim p_S}[\sum_t D(p_T \ | p_S)]$$ | 修暴露偏差<br/>采样像 RL、梯度是 token 级散度（不经采样反传）<br/>Qwen3、Thinking Machines |
 | 词表 | logits 级要求 id 与位置对齐 | 序列级绕开；ULD 用排序后的最优传输 |
 | 成本 | 序列级：教师生成 + 学生 SFT；on-policy：每步教师前向 $$2N_T$$ | R1-Distill 32B 约 1–2K GPU 小时，RL 几万；on-policy ≈ RL 的 1/10 |
-| 组合 | 剪枝 + 蒸馏（Minitron 40 倍省 token）；QAT + 蒸馏（教师是自己）；预训练蒸馏（Gemma 2） | |
-| 极限 | 容量（1.5B 29% / 32B 72.6%）；泛化窄；先蒸馏后 RL 最好；分布坍缩 | |
+| 组合 | 剪枝 + 蒸馏（Minitron 40 倍省 token）<br/>QAT + 蒸馏（教师是自己）<br/>预训练蒸馏（Gemma 2） |  |
+| 极限 | 容量（1.5B 29% / 32B 72.6%）<br/>泛化窄<br/>先蒸馏后 RL 最好<br/>分布坍缩 |  |
 
 Table: 知识蒸馏的公式与规则小结
 

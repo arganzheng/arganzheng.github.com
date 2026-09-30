@@ -251,15 +251,15 @@ Table: 本文的章节安排
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| 形状与 `assert` | 一、二、三、四、六 | 一说形状错常不报错；二给规则与防御；三搬到 Tensor；四换成激活字节；六换成 KV cache 与算子调用次数 |
-| 字节 / 参数、dtype | 二、三、四、五、六 | 二给 `nbytes`；三给 `dtype` 与 CPU 陷阱；四算 16 字节与三种方案；五在 0.5B 上验账；六换成 decode 时间与四块 |
-| 生成器、进程、GIL | 一、三、四、五 | 一给机制与数字；三是 `DataLoader`；四是 `torchrun` 每 rank 一进程；五是 `datasets` 的 `streaming` / `num_proc` 与 `accelerate` |
-| 二十行训练循环 | 三、四、五 | 三写出并逐行解释；四算它的显存；五把六行 SFT 的每件事对回它的某一行 |
+| 形状与 `assert` | 一、二、三、四、六 | 一说形状错常不报错<br/>二给规则与防御<br/>三搬到 Tensor<br/>四换成激活字节<br/>六换成 KV cache 与算子调用次数 |
+| 字节 / 参数、dtype | 二、三、四、五、六 | 二给 `nbytes`<br/>三给 `dtype` 与 CPU 陷阱<br/>四算 16 字节与三种方案<br/>五在 0.5B 上验账<br/>六换成 decode 时间与四块 |
+| 生成器、进程、GIL | 一、三、四、五 | 一给机制与数字<br/>三是 `DataLoader`<br/>四是 `torchrun` 每 rank 一进程<br/>五是 `datasets` 的 `streaming` / `num_proc` 与 `accelerate` |
+| 二十行训练循环 | 三、四、五 | 三写出并逐行解释<br/>四算它的显存<br/>五把六行 SFT 的每件事对回它的某一行 |
 | `ignore_index=-100` / loss mask | 三、五 | 三给它在循环里的位置与含义；五给实物（85% 被 mask）与结束符要进 loss 的教训 |
-| 混合精度与硬件 | 三、四、六 | 三给 CPU 慢 30 倍；四给 `autocast` 的表与 bf16 / fp16；六给 Tensor Core 与 ridge 为什么决定收益 |
+| 混合精度与硬件 | 三、四、六 | 三给 CPU 慢 30 倍<br/>四给 `autocast` 的表与 bf16 / fp16<br/>六给 Tensor Core 与 ridge 为什么决定收益 |
 | OOM 归因 | 四、六 | 四给按时机归因的表；六加上 KV cache 成四块 |
 | seed、置信区间、记录 | 二、六 | 二给 `ci95` 与阴影带；六给 seed 差 0.14 与七项记录 |
-| 读源码 | 一、三、五 | 一给协议与 traceback；三给"回到二十行想"；五给六个入口与从 `compute_loss` 往下追 |
+| 读源码 | 一、三、五 | 一给协议与 traceback<br/>三给"回到二十行想"<br/>五给六个入口与从 `compute_loss` 往下追 |
 
 Table: 贯穿六篇的概念及其关系
 
@@ -485,8 +485,8 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出六篇各讲什么；知道 16 字节 / 参数、ridge、`ignore_index=-100`、`einsum`、GIL 这些名词 |
-| 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一个 OOM 或一条慢的训练能归到四块 / profiler 表的某一格；跑前能算出显存并与 `max_memory_allocated()` 对上 |
-| 能教人 | C 组每题能给出全部要点并预判追问；能解释六篇里每个反直觉结论（线程无用、形状错不报错、`autocast` 不改参数精度、decode 慢与算力无关、loss 降了模型不会停）为什么成立；六个脚本改过参数、看过数字怎么变 |
+| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一个 OOM 或一条慢的训练能归到四块 / profiler 表的某一格<br/>跑前能算出显存并与 `max_memory_allocated()` 对上 |
+| 能教人 | C 组每题能给出全部要点并预判追问<br/>能解释六篇里每个反直觉结论（线程无用、形状错不报错、`autocast` 不改参数精度、decode 慢与算力无关、loss 降了模型不会停）为什么成立<br/>六个脚本改过参数、看过数字怎么变 |
 
 Table: 掌握程度的判据
 

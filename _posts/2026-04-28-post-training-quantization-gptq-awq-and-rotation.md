@@ -40,22 +40,52 @@ Table: 训练后量化方法对照
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 误差模型 | 均匀量化的噪声方差；裁剪与舍入的权衡；误差怎么通过层传播；哪些层敏感 |
-| 三 | RTN 为什么到 4 bit 就不够 | 权重的重尾；group 内的动态范围；group size 与元数据的账 |
-| 四 | GPTQ | OBS 的拉格朗日推导（04-07 只给了结论）；GPTQ 的三处工程改造；act-order；校准集的作用与过拟合 |
-| 五 | AWQ | 显著通道；缩放搜索的目标；α 的含义；与 GPTQ 的关系与组合 |
-| 六 | 激活量化与离群值 | 离群值的来源与规模依赖；SmoothQuant 的 α；per-token 动态量化；W8A8 与 FP8 |
-| 七 | 旋转 | 正交变换不改变输出；Hadamard 摊平离群值的原理；QuaRot 的放置；SpinQuant 的学习旋转；W4A4 的可行性 |
-| 八 | 格式 | INT4 / FP4 / NF4；MXFP4 与 NVFP4 的微缩放块；整数与浮点的精度对比；GGUF 的 k-quants |
-| 九 | 校准与敏感层 | 校准集的选择与大小；逐层敏感度；混合精度 |
-| 十 | 成本 | 量化过程的时间；dequant 的运行时开销；元数据字节 |
-| 十一 | 动手（建议） | RTN / GPTQ / AWQ 的对照 |
-| 十二 | 本文小结 | |
-| 十三 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、误差模型**
+  - 均匀量化的噪声方差
+  - 裁剪与舍入的权衡
+  - 误差怎么通过层传播
+  - 哪些层敏感
+- **三、RTN 为什么到 4 bit 就不够**
+  - 权重的重尾
+  - group 内的动态范围
+  - group size 与元数据的账
+- **四、GPTQ**
+  - OBS 的拉格朗日推导（04-07 只给了结论）
+  - GPTQ 的三处工程改造
+  - act-order
+  - 校准集的作用与过拟合
+- **五、AWQ**
+  - 显著通道
+  - 缩放搜索的目标
+  - α 的含义
+  - 与 GPTQ 的关系与组合
+- **六、激活量化与离群值**
+  - 离群值的来源与规模依赖
+  - SmoothQuant 的 α
+  - per-token 动态量化
+  - W8A8 与 FP8
+- **七、旋转**
+  - 正交变换不改变输出
+  - Hadamard 摊平离群值的原理
+  - QuaRot 的放置
+  - SpinQuant 的学习旋转
+  - W4A4 的可行性
+- **八、格式**
+  - INT4 / FP4 / NF4
+  - MXFP4 与 NVFP4 的微缩放块
+  - 整数与浮点的精度对比
+  - GGUF 的 k-quants
+- **九、校准与敏感层**
+  - 校准集的选择与大小
+  - 逐层敏感度
+  - 混合精度
+- **十、成本**
+  - 量化过程的时间
+  - dequant 的运行时开销
+  - 元数据字节
+- **十一、动手（建议）**：RTN / GPTQ / AWQ 的对照
+- **十二、本文小结**
+- **十三、自测**：5 道题
 
 ## 二、误差模型
 
@@ -274,12 +304,12 @@ Hadamard 是一个固定的、"平均"的旋转；对特定模型可能有更好
 
 | 格式 | 结构 | 可表示的值 | 特点 |
 |---|---|---|---|
-| INT4（对称） | 4 bit 整数 | $$\{-7, \ldots, 7\} \times \Delta$$，均匀 | 最简单；kernel 支持最好；对重尾差 |
+| INT4（对称） | 4 bit 整数 | $$\{-7, \ldots, 7\} \times \Delta$$，均匀 | 最简单<br/>kernel 支持最好<br/>对重尾差 |
 | INT4（非对称） | 4 bit + 零点 | $$\{0, \ldots, 15\} \times \Delta + z$$ | 多一个格点，对非对称分布好 |
 | FP4（E2M1） | 1 符号 + 2 指数 + 1 尾数 | $$\{0, 0.5, 1, 1.5, 2, 3, 4, 6\} \times \pm$$，非均匀 | 大值稀、小值密——匹配高斯 |
-| NF4（QLoRA） | 4 bit 查表 | 标准正态的 16 个等概率分位点 | 信息论最优（对高斯）；只用于权重；下一篇 |
+| NF4（QLoRA） | 4 bit 查表 | 标准正态的 16 个等概率分位点 | 信息论最优（对高斯）<br/>只用于权重<br/>下一篇 |
 | FP8（E4M3） | 1 + 4 + 3 | 相对精度 6.25%，范围 $$\pm 448$$ | H100 原生；激活量化的默认 |
-| MXFP4 | E2M1 元素 + 每 32 个一个 E8M0（2 的幂）scale | 块内 FP4，块间 2 的幂缩放 | OCP 标准；Blackwell 原生；gpt-oss 的权重格式 |
+| MXFP4 | E2M1 元素 + 每 32 个一个 E8M0（2 的幂）scale | 块内 FP4，块间 2 的幂缩放 | OCP 标准<br/>Blackwell 原生<br/>gpt-oss 的权重格式 |
 | NVFP4 | E2M1 元素 + 每 16 个一个 E4M3 scale + 每张量一个 FP32 scale | 更细的块与更精确的 scale | NVIDIA Blackwell；比 MXFP4 精度好 |
 
 Table: 整数与浮点的低比特格式
@@ -373,11 +403,11 @@ Table: Llama-3.1-70B 各量化配置的权重字节
 | 噪声 | 舍入误差方差 $$\Delta^2 / 12$$；每少 1 bit 方差 ×4 | 裁剪与舍入的权衡：高斯 4-bit 最优 $$\alpha \approx 2.5$$–$$3\sigma$$ |
 | 传播 | 输出误差 $$\text{tr}(E H E^\top)$$，$$H = \mathbb{E}[XX^\top]$$ | 激活大的通道上权重误差被放大——显著通道的根源 |
 | RTN 失败 | group 内一个 $$15\sigma$$ 权重让 INT4 的 $$\Delta = 2\sigma$$ | INT8 无所谓；per-group 128 是默认，元数据 +4% |
-| GPTQ | OBS：$$\delta^* = -\frac{w_q - Q(w_q)}{[H^{-1}]_{qq}} H^{-1}_{:,q}$$（拉格朗日推出） | 补偿靠通道相关性；act-order；校准集 128–512，阻尼 |
-| AWQ | 缩放 $$s_j = \text{mean}\lvert X_j \rvert^\alpha$$，group 内不成为最大值时该列误差 ÷ $$s_j$$ | 一阶、鲁棒；与 GPTQ 精度相近；可组合 |
-| 离群值 | 通道级（LayerNorm γ）与 massive activations（sink） | SmoothQuant 迁移通道级；per-token 动态处理 massive；W8A8 / FP8 接近无损 |
-| 旋转 | $$XW = (XR)(R^\top W)$$；Hadamard 把 1000 摊成约 17 | QuaRot 四处放置、两处折进权重；SpinQuant 学习 $$R_1, R_2$$；W4A4 可行 |
-| 格式 | INT4 / FP4 / NF4；MXFP4（32 块 E8M0）/ NVFP4（16 块 E4M3）；GGUF k-quants | 非均匀格点匹配高斯；微缩放 = 小 group |
+| GPTQ | OBS：$$\delta^* = -\frac{w_q - Q(w_q)}{[H^{-1}]_{qq}} H^{-1}_{:,q}$$（拉格朗日推出） | 补偿靠通道相关性<br/>act-order<br/>校准集 128–512，阻尼 |
+| AWQ | 缩放 $$s_j = \text{mean}\lvert X_j \rvert^\alpha$$，group 内不成为最大值时该列误差 ÷ $$s_j$$ | 一阶、鲁棒<br/>与 GPTQ 精度相近<br/>可组合 |
+| 离群值 | 通道级（LayerNorm γ）与 massive activations（sink） | SmoothQuant 迁移通道级<br/>per-token 动态处理 massive<br/>W8A8 / FP8 接近无损 |
+| 旋转 | $$XW = (XR)(R^\top W)$$；Hadamard 把 1000 摊成约 17 | QuaRot 四处放置、两处折进权重<br/>SpinQuant 学习 $$R_1, R_2$$<br/>W4A4 可行 |
+| 格式 | INT4 / FP4 / NF4<br/>MXFP4（32 块 E8M0）/ NVFP4（16 块 E4M3）<br/>GGUF k-quants | 非均匀格点匹配高斯；微缩放 = 小 group |
 | 敏感层 | 首尾层、out_proj / down_proj、lm_head、MoE 路由 | 混合精度：敏感层 6–8 bit |
 | 成本 | 量化 1–4 小时；W4A16 的 dequant 在 compute-bound 区间变慢 | 70B：141 → 40 GB，两卡变一卡 |
 

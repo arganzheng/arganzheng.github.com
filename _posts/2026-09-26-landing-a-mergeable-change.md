@@ -46,7 +46,7 @@ flowchart TB
 
 | 关卡 | 典型失败 | 后果 |
 |---|---|---|
-| diff | 一个 PR 改了 40 个文件；顺手重构；顺手格式化无关文件 | reviewer 不知从哪看起；PyTorch 超 2000 行直接被 CI 拦下 |
+| diff | 一个 PR 改了 40 个文件<br/>顺手重构<br/>顺手格式化无关文件 | reviewer 不知从哪看起；PyTorch 超 2000 行直接被 CI 拦下 |
 | 测试 | "本地跑过了"但 diff 里没有测试；或者测试只是把 bug 复现一遍 | "how did you verify this?"；搁置 |
 | 数据 | 性能 PR 没有前后对比、没有硬件和 shape | "how much faster?"；搁置 |
 | lint | 没跑本地 lint；CI 的 Lint / pre-commit 红了 | 其他任务不会往下走；vLLM 的 mergify 机器人会留言催 |
@@ -54,7 +54,7 @@ flowchart TB
 | 签名 | vLLM 某个 commit 没带 Signed-off-by | DCO check 红；机器人留言 |
 | CI | 不知道 vLLM 的 CI 要人来触发；不知道 PyTorch 的 trunk 不在 PR 上跑 | 以为 CI 是绿的，合入后才发现问题 |
 | 日志 | CI 红了，看不出是自己的问题还是 main 本来就红 | 要么乱改，要么反复 rerun |
-| review | 三周没人看；或者被要求改而没有回应；或者对每条意见都争辩 | PR 变 stale |
+| review | 三周没人看<br/>或者被要求改而没有回应<br/>或者对每条意见都争辩 | PR 变 stale |
 | 合入 | 不知道 @pytorchbot merge 的规则；不知道 vLLM 要等 ready 标签 | approved 之后又卡两周 |
 | 被拒 | 分不清"方向不对"和"做法不对"，把该放弃的一直改 | 耗尽双方耐心 |
 | AI | 用了 AI 没声明；或者把 AI 输出直接贴进 review 回复 | 两个项目都写明了可能直接关闭或封禁 |
@@ -81,17 +81,17 @@ Table: 问题：这个环节典型的失败方式
 |---|---|---|
 | 规则文件 | CONTRIBUTING.md（技术）+ AI_POLICY.md + GitHub wiki | docs/contributing/README.md + AGENTS.md |
 | PR 体积上限 | .github/scripts/pr-sanity-check.sh：>2000 行 CI 失败 | docs/contributing/README.md：>500 行架构改动无 RFC 打 rfc-required |
-| 拆分工具 | ghstack（CONTRIBUTING.md "Run Specific CI Jobs" 提到） | 无专门工具；顺序开 PR；每人最多 6 个 open PR |
+| 拆分工具 | ghstack（CONTRIBUTING.md "Run Specific CI Jobs" 提到） | 无专门工具<br/>顺序开 PR<br/>每人最多 6 个 open PR |
 | 测试框架 | unittest：TestCase / run_tests / instantiate_device_type_tests | pytest；AGENTS.md 的四个问题 |
-| benchmark | PR 模板 checklist："Included benchmark results" | benchmarks/kernels/；vllm bench serve\|throughput\|latency |
+| benchmark | PR 模板 checklist："Included benchmark results" | benchmarks/kernels/；vllm bench serve\ | throughput\ | latency |
 | 本地 lint | lintrunner（.lintrunner.toml，61 个 linter）；spin lint / spin fixlint | pre-commit（.pre-commit-config.yaml）；pre-commit run |
 | PR 模板 | 三个：fix_issue / docs_typo / preapproved | 一个：Purpose / Test Plan / Test Result |
 | 标题 | 无前缀要求；合入前需要 release notes: 或 topic: not user facing 标签 | 必须带 [Bugfix] / [Kernel] / [Core] … 前缀 |
-| 签名 | CLA（merge_rules.yaml 的 mandatory_checks_name 含 EasyCLA） | DCO：git commit -s；signoff-commit 钩子；mergify 检查 |
+| 签名 | CLA（merge_rules.yaml 的 mandatory_checks_name 含 EasyCLA） | DCO：git commit -s<br/>signoff-commit 钩子<br/>mergify 检查 |
 | CI 系统 | GitHub Actions；.github/workflows/ 148 个文件 | Buildkite；.buildkite/test_areas/ 35 个文件 + ci_config.yaml |
 | PR 上自动跑 | pull.yml + lint.yml；其余靠 ciflow/\* 标签 | 只有 pre-commit（且需 verified/ready 或 4 个已合入 PR）；测试要 /ci run |
-| 读日志 | CONTRIBUTING.md "CI failure tips"；HUD | docs/contributing/ci/failures.md；ci-fetch-log.sh；CI Failures Dashboard |
-| review 承诺 | triage 几个工作日内打标签分派；4 个工作日无回应可催 | 2–3 天一次状态；7 天可 ping；改动要求打 action-required |
+| 读日志 | CONTRIBUTING.md "CI failure tips"；HUD | docs/contributing/ci/failures.md<br/>ci-fetch-log.sh<br/>CI Failures Dashboard |
+| review 承诺 | triage 几个工作日内打标签分派；4 个工作日无回应可催 | 2–3 天一次状态<br/>7 天可 ping<br/>改动要求打 action-required |
 | 合入 | @pytorchbot merge（-f / -i）；merge_rules.yaml 定权限 | maintainer 打 ready 并合入；mergify 管 needs-rebase |
 | AI 政策 | AI_POLICY.md：不接受全自主 agent 的贡献；标注 AI 内容 | AGENTS.md："Pure code-agent PRs are not allowed"；Co-authored-by |
 
@@ -99,24 +99,46 @@ Table: PyTorch v2.14.0 与 vLLM v0.28.0：同一环节两种做法
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 最小 diff | 一个 PR 只做一件事；PyTorch 的 2000 行硬上限与 ghstack；vLLM 的 500 行 RFC 线与顺序 PR |
-| 三 | 测试 | PyTorch 的 TestCase / `run_tests` / `instantiate_device_type_tests`；vLLM 的 pytest 与 `AGENTS.md` 四个问题 |
-| 四 | benchmark | 什么算"有数字"；PyTorch 的 benchmarks/ 与模板 checklist；vLLM 的 benchmarks/kernels/ 与 vllm bench |
-| 五 | 本地 lint | .lintrunner.toml 的 61 个 linter 与 spin；.pre-commit-config.yaml 的 hook 清单与 pre-commit run |
-| 六 | 描述与签名 | 三个 PyTorch 模板逐字段；vLLM 模板与标题前缀表；CLA vs DCO |
-| 七 | CI 矩阵 | PyTorch 的 workflow 家族与 ciflow/*；vLLM 的 `test_areas` / `source_file_dependencies` / `ci_config` / /ci run / ready |
-| 八 | 读 CI 日志 | 区分自己的失败与 main 的失败；HUD、gh pr checks；`failures.md` 与 `ci-fetch-log.sh` |
-| 九 | review 往返 | 两个项目的时间承诺原文；回应规则表 |
-| 十 | 合入 | @pytorchbot merge 的变体与 `merge_rules.yaml`；release notes 标签；vLLM 的 ready 与 mergify |
-| 十一 | 被拒 | 方向 / 时机 / 做法三类，各自怎么办 |
-| 十二 | AI 辅助政策 | `AI_POLICY.md` 与 `AGENTS.md` 逐条对照 |
-| 十三 | 回答核心问题 | reviewer 的十分钟：diff / 描述 / 测试 / CI 各回答什么 |
-| 十四 | 贡献日志 | PR 草稿模板；两份按项目模板填好的描述样例；review 往返记录表 |
-| 十五 | 小结 | 要点 · 对照表 · 文件位置表 |
-
-Table: 本文的章节安排
+- **二、最小 diff**
+  - 一个 PR 只做一件事
+  - PyTorch 的 2000 行硬上限与 ghstack
+  - vLLM 的 500 行 RFC 线与顺序 PR
+- **三、测试**
+  - PyTorch 的 TestCase / `run_tests` / `instantiate_device_type_tests`
+  - vLLM 的 pytest 与 `AGENTS.md` 四个问题
+- **四、benchmark**
+  - 什么算"有数字"
+  - PyTorch 的 benchmarks/ 与模板 checklist
+  - vLLM 的 benchmarks/kernels/ 与 vllm bench
+- **五、本地 lint**
+  - .lintrunner.toml 的 61 个 linter 与 spin
+  - .pre-commit-config.yaml 的 hook 清单与 pre-commit run
+- **六、描述与签名**
+  - 三个 PyTorch 模板逐字段
+  - vLLM 模板与标题前缀表
+  - CLA vs DCO
+- **七、CI 矩阵**
+  - PyTorch 的 workflow 家族与 ciflow/*
+  - vLLM 的 `test_areas` / `source_file_dependencies` / `ci_config` / /ci run / ready
+- **八、读 CI 日志**
+  - 区分自己的失败与 main 的失败
+  - HUD、gh pr checks
+  - `failures.md` 与 `ci-fetch-log.sh`
+- **九、review 往返**
+  - 两个项目的时间承诺原文
+  - 回应规则表
+- **十、合入**
+  - @pytorchbot merge 的变体与 `merge_rules.yaml`
+  - release notes 标签
+  - vLLM 的 ready 与 mergify
+- **十一、被拒**：方向 / 时机 / 做法三类，各自怎么办
+- **十二、AI 辅助政策**：`AI_POLICY.md` 与 `AGENTS.md` 逐条对照
+- **十三、回答核心问题**：reviewer 的十分钟：diff / 描述 / 测试 / CI 各回答什么
+- **十四、贡献日志**
+  - PR 草稿模板
+  - 两份按项目模板填好的描述样例
+  - review 往返记录表
+- **十五、小结**：要点 · 对照表 · 文件位置表
 
 ## 二、最小 diff：一个 PR 只做一件事
 
@@ -484,11 +506,11 @@ PyTorch 的 CI 是**推送即跑、分层触发**：每个 PR 自动跑一组（
 
 | 文件 | 触发（on: 节，节选） | 含义 |
 |---|---|---|
-| `pull.yml` | pull_request；push main / release/\* / landchecks/\*；tags ciflow/pull/\* | 每个 PR 必跑；merge_rules 里叫 "pull" |
-| `lint.yml` | pull_request；push main / release/\*；tags ciflow/pull/\* ciflow/trunk/\* | 每个 PR 必跑；merge_rules 里叫 "Lint" |
-| `trunk.yml` | push main / release/\* / landchecks/\*；tags ciflow/trunk/\*；schedule | main 上跑；PR 上要打 ciflow/trunk 标签 |
-| `periodic.yml` | schedule（工作日每 8 小时等）；tags ciflow/periodic/\*；push release/\* | 周期跑；PR 上要打 ciflow/periodic |
-| `slow.yml` | push main / release/\*；tags ciflow/slow/\*；schedule | 慢测试；PR 上要打 ciflow/slow |
+| `pull.yml` | pull_request<br/>push main / release/\* / landchecks/\*<br/>tags ciflow/pull/\* | 每个 PR 必跑；merge_rules 里叫 "pull" |
+| `lint.yml` | pull_request<br/>push main / release/\*<br/>tags ciflow/pull/\* ciflow/trunk/\* | 每个 PR 必跑；merge_rules 里叫 "Lint" |
+| `trunk.yml` | push main / release/\* / landchecks/\*<br/>tags ciflow/trunk/\*<br/>schedule | main 上跑；PR 上要打 ciflow/trunk 标签 |
+| `periodic.yml` | schedule（工作日每 8 小时等）<br/>tags ciflow/periodic/\*<br/>push release/\* | 周期跑；PR 上要打 ciflow/periodic |
+| `slow.yml` | push main / release/\*<br/>tags ciflow/slow/\*<br/>schedule | 慢测试；PR 上要打 ciflow/slow |
 | `inductor.yml` | push main / release/\*；tags ciflow/inductor/\* | Inductor 全量；PR 上要打 ciflow/inductor |
 
 Table: 与贡献者直接相关的六个 PyTorch workflow
@@ -647,7 +669,7 @@ PyTorch 的失败日志有固定的结构：每个 test job 末尾会打印失�
 |---|---|---|
 | main 上同一 job 最近几次也红 | main 的问题 | PyTorch：留言 "unrelated, failing on main (HUD link)"；vLLM：Dashboard 找到 issue 留言 +1 |
 | main 绿，我红，重跑一次就绿 | flaky，可能是我触发的也可能不是 | 重跑（PyTorch 请 reviewer re-run 该 job / vLLM /ci retry）；连续两次红就当自己的问题 |
-| main 绿，我红，失败测试在我改的文件附近 | 我的问题 | 本地按日志里的复现命令跑；修；push；vLLM 再敲 /ci run |
+| main 绿，我红，失败测试在我改的文件附近 | 我的问题 | 本地按日志里的复现命令跑<br/>修<br/>push<br/>vLLM 再敲 /ci run |
 | main 绿，我红，失败在完全无关的模块 | 可能是我的改动有非局部影响 | 先读 traceback 找到调用链是否经过我的 diff；确实无关再当 flaky 处理 |
 | job 根本没跑（灰色 / skipped） | 不是失败 | PyTorch：该 workflow 需要 ciflow 标签；vLLM：source_file_dependencies 不相交，或没人敲 /ci run |
 | lint / pre-commit 红 | 一定是我的问题 | 本地 spin fixlint / pre-commit run -a，修完再推 |
@@ -697,11 +719,11 @@ review 意见分几类，每类的正确回应不同。原则只有一条：**�
 
 | 意见类型 | 正确回应 | 错误回应 |
 |---|---|---|
-| 明确的修改要求（"rename X to Y"） | 照做；在该 comment 下回 "Done"；不要解释为什么原来那样 | 争辩命名偏好；默默改了不回 |
+| 明确的修改要求（"rename X to Y"） | 照做<br/>在该 comment 下回 "Done"<br/>不要解释为什么原来那样 | 争辩命名偏好；默默改了不回 |
 | 指出 bug | 确认 → 修 → 加一个测试覆盖它 → 回复指向新测试 | 只修不加测试；"good catch" 之后没有下文 |
 | 要求拆分 | 拆；在原 PR 留言指向新 PR 编号 | 解释"其实它们是相关的" |
-| 要求补 benchmark / 测试 | 补；数字放描述里；回复引用 | "本地测过了没问题" |
-| 设计层面的异议 | 先确认自己理解了对方担心的是什么，复述一遍；给出两种方案的取舍；如果坚持原方案，给出可验证的理由（数字、已有 issue、约束） | 逐条反驳；或者立刻放弃改成对方说的而不问为什么 |
+| 要求补 benchmark / 测试 | 补<br/>数字放描述里<br/>回复引用 | "本地测过了没问题" |
+| 设计层面的异议 | 先确认自己理解了对方担心的是什么，复述一遍<br/>给出两种方案的取舍<br/>如果坚持原方案，给出可验证的理由（数字、已有 issue、约束） | 逐条反驳；或者立刻放弃改成对方说的而不问为什么 |
 | "nit:" 开头的小意见 | 照做（成本极低，反而争辩成本高） | 一条一条解释为什么不改 |
 | 不清楚的意见 | 问："do you mean A or B?" | 猜一个改了 |
 | 过时的意见（代码已改） | 回复 "addressed in <commit>" 并标 resolved | 不理，让 reviewer 自己发现 |
@@ -827,7 +849,7 @@ Table: 合入机制对照
 | 类型 | reviewer 在拒绝什么 | 典型措辞 | 正确反应 |
 |---|---|---|---|
 | 方向不对 | 这个问题本身不该这样解，或不该解 | "we don't want to support this" / "this belongs in a plugin" / "closing as won't fix" | 放弃这个 PR；如果确信有价值，回到 issue 或 RFC 层面重新讨论，不要改 PR 再提 |
-| 时机不对 | 问题对、方向对，但现在不是时候 | "let's wait for the refactor in #NNNN to land" / "this area is being rewritten" / "we're in release freeze" | 保留分支；订阅被引用的 issue/PR；等条件满足后 rebase 重提，并在描述里引用当时的讨论 |
+| 时机不对 | 问题对、方向对，但现在不是时候 | "let's wait for the refactor in #NNNN to land" / "this area is being rewritten" / "we're in release freeze" | 保留分支<br/>订阅被引用的 issue/PR<br/>等条件满足后 rebase 重提，并在描述里引用当时的讨论 |
 | 做法不对 | 问题对、方向对，实现有问题 | "could you split this" / "needs a test" / "this breaks BC" / "use X instead of Y" | 改；这是唯一应该"改了再提"的一类 |
 
 Table: 三类拒绝与正确反应
@@ -918,7 +940,7 @@ reviewer 打开 PR 的十分钟里，脑子里依次出现的问题大致是固�
 | 1–2 | 为什么要改？有人讨论过吗？ | 描述的 Issue/Purpose | Fixes #（无 issue 可能被自动关）；Summary 指向 issue | Purpose 栏链接 issue；>500 行要 RFC |
 | 2–3 | 这改动会不会弄坏别的东西？ | CI 状态 | pull + Lint 绿；需要时 ciflow/trunk | pre-commit 绿；相关 test_area 经 /ci run 绿 |
 | 3–6 | 改动本身对不对？ | diff | ≤2000 行；一叠 ghstack 每层可单独读 | 一个 PR 一件事；无关 import 重排为零 |
-| 6–8 | 怎么证明它对？ | 测试 | test/ 下的 TestCase；instantiate_device_type_tests | tests/ 下的 pytest；AGENTS.md 四个问题；opcheck |
+| 6–8 | 怎么证明它对？ | 测试 | test/ 下的 TestCase；instantiate_device_type_tests | tests/ 下的 pytest<br/>AGENTS.md 四个问题<br/>opcheck |
 | 8–9 | 值不值？（性能 PR） | benchmark | checklist "Included benchmark results" | Test Result 栏的前后对比表；vllm bench / benchmarks/kernels |
 | 9–10 | 有没有我该担心的？ | BC-breaking / 风险 | 模板的 BC-breaking? 栏 | deprecation_policy.md；Test Plan 写清没测的部分 |
 | — | 这个人可信吗？ | 签名 + AI 声明 | EasyCLA；AI_POLICY.md 的声明方式 | DCO；Co-authored-by + 描述里的 AI 声明 |
@@ -1019,7 +1041,7 @@ No.
 |---|---|
 | 标题 | Fix out-of-bounds read in foo_cuda for empty inputs |
 | 标签 | 需要 release notes: cuda（labeler 按路径自动打；没打就 @pytorchbot label） |
-| diff | aten/src/ATen/native/cuda/Foo.cu（+3）；test/test_foo.py（+14）；共 2 文件 17 行 |
+| diff | aten/src/ATen/native/cuda/Foo.cu（+3）<br/>test/test_foo.py（+14）<br/>共 2 文件 17 行 |
 | 测试 | test/test_foo.py::TestFoo::test_foo_empty_input，用 instantiate_device_type_tests 生成 _cpu / _cuda 两份；改动前 CUDA 版 illegal memory access，改动后通过 |
 | lint | spin fixlint → 0 errors（2026-09-xx） |
 | CI | push 1：pull + Lint 自动；请 reviewer 打 ciflow/trunk 补 ROCm |
@@ -1076,7 +1098,7 @@ Table: vLLM PR 的日志条目示例
 
 | 轮次 | 日期 | reviewer | 意见（原文短引） | 类型 | 回应 | 状态 |
 |---|---|---|---|---|---|---|
-| 1 | 09-16 | @a | "can you add a test for the CUDA path too?" | 改 | 加 instantiate_device_type_tests；push；回复 "Done, see test_foo_empty_input_cuda" | resolved |
+| 1 | 09-16 | @a | "can you add a test for the CUDA path too?" | 改 | 加 instantiate_device_type_tests<br/>push<br/>回复 "Done, see test_foo_empty_input_cuda" | resolved |
 | 1 | 09-16 | @a | "nit: prefer `numel() == 0` over `!numel()`" | 改 | 照改 | resolved |
 | 2 | 09-18 | @b | "why early return instead of TORCH_CHECK?" | 争 | 引用 issue 里 maintainer 的结论 + 与 CPU 实现一致的理由；对方接受 | resolved |
 | 2 | 09-18 | @b | "this might be worth a note in the docs" | 问 | 问是指 docstring 还是 docs/source；对方说不必了 | resolved |
@@ -1134,39 +1156,39 @@ AI            PyTorch AI_POLICY.md：标注并包裹 AI 内容 + 人的评注；
 | 项目（版本） | 路径 | 章节 / 字段 / 名称 |
 |---|---|---|
 | PyTorch v2.14.0 | `CONTRIBUTING.md` | "AI-Assisted Development"、"Spin"（"Building" / "Linting" / "default lint" / "Regenerating"）、"Unit testing"（"Python Unit Testing" / "Better local unit tests with `pytest`" / "Local linting" / "C++ Unit Testing" / "Run Specific CI Jobs"）、"Merging your Change"、"Linting before committing"、"CI failure tips"（"Which commit is used in CI?"）、"Dev Infra Office Hours" |
-| | `AI_POLICY.md` | 五条规则全文 |
-| | `AGENTS.md` / `CLAUDE.md` | "AI Policy — MANDATORY"、"Testing"、"Linting"、"Commit messages"、"ghstack Workflow"、`gh pr checks … --json` 提示 |
-| | `.github/PULL_REQUEST_TEMPLATE/fix_issue.md` / `docs_typo.md` / `preapproved.md` | `Issue`（`Fixes #`）/ `Summary` / `Checklist` / `BC-breaking?`；`What changed?`；`Approved by` |
-| | `.lintrunner.toml` | 61 个 `[[linter]]` 的 `code`（FLAKE8、RUFF、PYFMT、CLANGFORMAT、CLANGTIDY、PYREFLY、CODESPELL、TEST_HAS_MAIN、NATIVEFUNCTIONS、WORKFLOWSYNC …）、`is_formatter` |
-| | `pyproject.toml`；`.spin/cmds.py` | `[tool.spin.commands]`：`lint` / `fixlint` / `quicklint` / `quickfix` / `develop` / `regenerate-*` / `docs` / `pyrefly` |
-| | `.github/workflows/pull.yml` / `trunk.yml` / `periodic.yml` / `slow.yml` / `inductor.yml` / `lint.yml` | `on:` 触发条件；`lint.yml` 的 `pr-sanity-checks` / `lintrunner-clang` / `lintrunner-pyrefly` / `lintrunner-noclang` / `quick-checks` / `workflow-checks` |
-| | `.github/scripts/pr-sanity-check.sh` | 2000 行上限；`skip-pr-sanity-checks` 标签 |
-| | `.github/pytorch-probot.yml` | `ciflow_push_tags`（49 个）、`retryable_workflows`、`mergebot: true` |
-| | `.github/merge_rules.yaml` | 33 条：`name` / `patterns` / `approved_by` / `mandatory_checks_name`（`EasyCLA` / `Lint` / `pull` …）；`Core Maintainers` 兜底 |
-| | `.github/scripts/trymerge.py`；`trymerge_explainer.py`；`label_utils.py` | `parse_args`（`--force` / `--ignore-current` / `--revert`）；`find_matching_merge_rule`；`ensure_mergeable_labels`；`check_for_sev`；`get_ghstack_prs`；`NOT_USER_FACING_LABEL`；`LABEL_ERR_MSG` |
-| | `.github/workflows/trymerge.yml` / `tryrebase.yml` / `revert.yml` / `check_mergeability_ghstack.yml` | 机器人 workflow |
-| | `.github/labeler.yml` | `release notes: *` 自动标签 |
-| | `torch/testing/_internal/common_utils.py`；`common_device_type.py`；`opinfo/core.py` | `TestCase` / `run_tests` / `parametrize`；`instantiate_device_type_tests` / `dtypes` / `onlyCUDA` / `ops`；`OpInfo` |
-| | `test/run_test.py`；`test/cpp/`；`benchmarks/` | 测试入口；C++ gtest；`operator_benchmark/` / `dynamo/` / `inductor_backends/` 等 |
-| | `tools/testing/explicit_ci_jobs.py` | `--filter-gha` / `--make-commit` |
+|  | `AI_POLICY.md` | 五条规则全文 |
+|  | `AGENTS.md` / `CLAUDE.md` | "AI Policy — MANDATORY"、"Testing"、"Linting"、"Commit messages"、"ghstack Workflow"、`gh pr checks … --json` 提示 |
+|  | `.github/PULL_REQUEST_TEMPLATE/fix_issue.md` / `docs_typo.md` / `preapproved.md` | `Issue`（`Fixes #`）/ `Summary` / `Checklist` / `BC-breaking?`<br/>`What changed?`<br/>`Approved by` |
+|  | `.lintrunner.toml` | 61 个 `[[linter]]` 的 `code`（FLAKE8、RUFF、PYFMT、CLANGFORMAT、CLANGTIDY、PYREFLY、CODESPELL、TEST_HAS_MAIN、NATIVEFUNCTIONS、WORKFLOWSYNC …）、`is_formatter` |
+|  | `pyproject.toml`；`.spin/cmds.py` | `[tool.spin.commands]`：`lint` / `fixlint` / `quicklint` / `quickfix` / `develop` / `regenerate-*` / `docs` / `pyrefly` |
+|  | `.github/workflows/pull.yml` / `trunk.yml` / `periodic.yml` / `slow.yml` / `inductor.yml` / `lint.yml` | `on:` 触发条件；`lint.yml` 的 `pr-sanity-checks` / `lintrunner-clang` / `lintrunner-pyrefly` / `lintrunner-noclang` / `quick-checks` / `workflow-checks` |
+|  | `.github/scripts/pr-sanity-check.sh` | 2000 行上限；`skip-pr-sanity-checks` 标签 |
+|  | `.github/pytorch-probot.yml` | `ciflow_push_tags`（49 个）、`retryable_workflows`、`mergebot: true` |
+|  | `.github/merge_rules.yaml` | 33 条：`name` / `patterns` / `approved_by` / `mandatory_checks_name`（`EasyCLA` / `Lint` / `pull` …）；`Core Maintainers` 兜底 |
+|  | `.github/scripts/trymerge.py`<br/>`trymerge_explainer.py`<br/>`label_utils.py` | `parse_args`（`--force` / `--ignore-current` / `--revert`）<br/>`find_matching_merge_rule`<br/>`ensure_mergeable_labels`<br/>`check_for_sev`<br/>`get_ghstack_prs`<br/>`NOT_USER_FACING_LABEL`<br/>`LABEL_ERR_MSG` |
+|  | `.github/workflows/trymerge.yml` / `tryrebase.yml` / `revert.yml` / `check_mergeability_ghstack.yml` | 机器人 workflow |
+|  | `.github/labeler.yml` | `release notes: *` 自动标签 |
+|  | `torch/testing/_internal/common_utils.py`<br/>`common_device_type.py`<br/>`opinfo/core.py` | `TestCase` / `run_tests` / `parametrize`<br/>`instantiate_device_type_tests` / `dtypes` / `onlyCUDA` / `ops`<br/>`OpInfo` |
+|  | `test/run_test.py`<br/>`test/cpp/`<br/>`benchmarks/` | 测试入口<br/>C++ gtest<br/>`operator_benchmark/` / `dynamo/` / `inductor_backends/` 等 |
+|  | `tools/testing/explicit_ci_jobs.py` | `--filter-gha` / `--make-commit` |
 | vLLM v0.28.0 | `docs/contributing/README.md` | "Linting"、"Testing"、"DCO and Signed-off-by"、"AI Assisted Contributions"、"PR Title and Classification"、"Code Quality"、"Adding or Changing Kernels"、"Notes for Large Changes"、"What to Expect for the Reviews"、"Pull Request Limits and Escalation" |
-| | `AGENTS.md` / `CLAUDE.md` | "Duplicate-work checks" / "No low-value busywork PRs" / "Accountability" / "Fail-closed behavior"；"Tests"（四个问题、五条规则）；"Running linters"；"Commit messages" |
-| | `.github/PULL_REQUEST_TEMPLATE.md` | `Purpose` / `Test Plan` / `Test Result`；折叠 checklist |
-| | `DCO` | 协议文本 |
-| | `.pre-commit-config.yaml` | `default_install_hook_types`、`default_stages`；hook：`ruff-check` / `ruff-format` / `typos` / `clang-format` / `markdownlint-cli2` / `actionlint` / `pip-compile` / `mypy-3.10`–`3.13` / `shellcheck` / `signoff-commit` / `check-spdx-header` / `validate-config` / … / `suggestion` |
-| | `.buildkite/test_areas/*.yaml`（35 个） | `group` / `steps[]`：`label` / `key` / `device` / `num_devices` / `source_file_dependencies` / `commands` / `parallelism` / `optional` / `soft_fail` / `mirror` / `timeout_in_minutes` |
-| | `.buildkite/ci_config.yaml` | `job_dirs` / `run_all_patterns` / `run_all_exclude_patterns` / `repositories`（`premerge` / `main`） |
-| | `.buildkite/test-pipeline.yaml` | 弃用说明（2026-02-18 迁移） |
-| | `.buildkite/scripts/ci-fetch-log.sh` / `ci-clean-log.sh` / `rerun-test.sh` | 日志抓取 / 清洗 / flaky 复现 |
-| | `.github/workflows/run-ci-command.yml`；`scripts/run_ci_command.py` | `/ci run` / `/ci run all` / `/ci run nightly` / `/ci retry` / `/ci cancel`；`authorize`、`READY_LABELS`、`TRUSTED_PERMISSIONS`、`CI_TRUSTED_USERS` |
-| | `.github/workflows/pre-commit.yml` | `pre-run-check`（`verified` / `ready` / `ready-run-all-tests` 或 ≥4 合入 PR）；`--all-files --hook-stage manual` |
-| | `.github/workflows/new_pr_bot.yml`；`add_label_automerge.yml`；`stale.yml` | 描述清理与欢迎评论；auto-merge 自动加 `ready`；stale |
-| | `.github/mergify.yml` | 35 条规则：`label-*`、`comment-pre-commit-failure`、`comment-dco-failure`、"ping author on conflicts and add 'needs-rebase' label"、"remove 'needs-rebase' label when conflict is resolved"、`assign` 规则 |
-| | `docs/contributing/ci/failures.md` | "Filing a CI Test Failure Issue" / "Logs Wrangling" / "Investigating a CI Test Failure" / "Reproducing a Failure" / "Submitting a PR" / "Daily Triage" |
-| | `docs/contributing/model/tests.md`；`deprecation_policy.md`；`profiling.md` | 模型测试要求；弃用政策；`vllm bench serve --profile` |
-| | `benchmarks/kernels/`（66 个）；`benchmarks/benchmark_serving.py` 等（弃用桩）；`benchmarks/README.md` | kernel benchmark；指向 `vllm bench` |
-| | `vllm/benchmarks/`；`vllm/entrypoints/cli/benchmark/` | `latency` / `throughput` / `serve` / `startup` / `sweep` / `mm_processor` |
-| | `tests/`（`kernels/` / `entrypoints/` / `evals/` / `v1/` …） | 测试组织；`tests/kernels/attention/test_attention.py` 的 `opcheck` 用法 |
+|  | `AGENTS.md` / `CLAUDE.md` | "Duplicate-work checks" / "No low-value busywork PRs" / "Accountability" / "Fail-closed behavior"<br/>"Tests"（四个问题、五条规则）<br/>"Running linters"<br/>"Commit messages" |
+|  | `.github/PULL_REQUEST_TEMPLATE.md` | `Purpose` / `Test Plan` / `Test Result`；折叠 checklist |
+|  | `DCO` | 协议文本 |
+|  | `.pre-commit-config.yaml` | `default_install_hook_types`、`default_stages`；hook：`ruff-check` / `ruff-format` / `typos` / `clang-format` / `markdownlint-cli2` / `actionlint` / `pip-compile` / `mypy-3.10`–`3.13` / `shellcheck` / `signoff-commit` / `check-spdx-header` / `validate-config` / … / `suggestion` |
+|  | `.buildkite/test_areas/*.yaml`（35 个） | `group` / `steps[]`：`label` / `key` / `device` / `num_devices` / `source_file_dependencies` / `commands` / `parallelism` / `optional` / `soft_fail` / `mirror` / `timeout_in_minutes` |
+|  | `.buildkite/ci_config.yaml` | `job_dirs` / `run_all_patterns` / `run_all_exclude_patterns` / `repositories`（`premerge` / `main`） |
+|  | `.buildkite/test-pipeline.yaml` | 弃用说明（2026-02-18 迁移） |
+|  | `.buildkite/scripts/ci-fetch-log.sh` / `ci-clean-log.sh` / `rerun-test.sh` | 日志抓取 / 清洗 / flaky 复现 |
+|  | `.github/workflows/run-ci-command.yml`；`scripts/run_ci_command.py` | `/ci run` / `/ci run all` / `/ci run nightly` / `/ci retry` / `/ci cancel`；`authorize`、`READY_LABELS`、`TRUSTED_PERMISSIONS`、`CI_TRUSTED_USERS` |
+|  | `.github/workflows/pre-commit.yml` | `pre-run-check`（`verified` / `ready` / `ready-run-all-tests` 或 ≥4 合入 PR）；`--all-files --hook-stage manual` |
+|  | `.github/workflows/new_pr_bot.yml`<br/>`add_label_automerge.yml`<br/>`stale.yml` | 描述清理与欢迎评论<br/>auto-merge 自动加 `ready`<br/>stale |
+|  | `.github/mergify.yml` | 35 条规则：`label-*`、`comment-pre-commit-failure`、`comment-dco-failure`、"ping author on conflicts and add 'needs-rebase' label"、"remove 'needs-rebase' label when conflict is resolved"、`assign` 规则 |
+|  | `docs/contributing/ci/failures.md` | "Filing a CI Test Failure Issue" / "Logs Wrangling" / "Investigating a CI Test Failure" / "Reproducing a Failure" / "Submitting a PR" / "Daily Triage" |
+|  | `docs/contributing/model/tests.md`<br/>`deprecation_policy.md`<br/>`profiling.md` | 模型测试要求<br/>弃用政策<br/>`vllm bench serve --profile` |
+|  | `benchmarks/kernels/`（66 个）<br/>`benchmarks/benchmark_serving.py` 等（弃用桩）<br/>`benchmarks/README.md` | kernel benchmark；指向 `vllm bench` |
+|  | `vllm/benchmarks/`；`vllm/entrypoints/cli/benchmark/` | `latency` / `throughput` / `serve` / `startup` / `sweep` / `mm_processor` |
+|  | `tests/`（`kernels/` / `entrypoints/` / `evals/` / `v1/` …） | 测试组织；`tests/kernels/attention/test_attention.py` 的 `opcheck` 用法 |
 
 Table: 本篇涉及的文件位置
 

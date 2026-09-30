@@ -52,7 +52,7 @@ flowchart TB
 |---|---|---|---|
 | I 结构与实现 | 01–04 | Transformer 长什么样、一个 token 怎么流过它、300 行怎么写出来并训出来 | 手搓 GPT；读懂 `modeling_gpt2.py` |
 | II 结构的演进 | 05–09 | 从 GPT-2 到 Llama / DeepSeek，每个部件为什么改成这样：参数量、attention 变体、位置编码、MoE、MTP | 读懂 `modeling_llama.py` / `modeling_deepseek_v3.py`；改结构 |
-| III 成本账 | 10–13 | 这样的结构每一步算多少、读多少、存多少；数值格式；量化 / 投机解码 / LoRA；多模态 | 算出任何模型在任何 GPU 上的成本表 |
+| III 成本账 | 10–13 | 这样的结构每一步算多少、读多少、存多少<br/>数值格式<br/>量化 / 投机解码 / LoRA<br/>多模态 | 算出任何模型在任何 GPU 上的成本表 |
 
 Table: 系列的三段与各段的目标
 

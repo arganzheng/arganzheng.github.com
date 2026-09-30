@@ -78,20 +78,40 @@ HAMi 不是第五层，而是**在时间片之上用软件补上显存与算力�
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 四个层次 | 每一层的机制、隔离强度、故障域、开销；为什么"不隔离"也是一个选项 |
-| 三 | MIG | GI/CI 与几何约束；A100/H100 的 profile；改配置为什么要清空 GPU；K8s 接线：MIG Manager → `mig.config` 标签 → mig-parted → device plugin single/mixed；NCCL 与 MIG |
-| 四 | 时间片与 MPS | device plugin 的 sharing 配置（完整 ConfigMap）；节点级生效与互斥；renameByDefault / failRequestsGreaterThanOne；MPS 控制守护进程做了什么 |
-| 五 | HAMi | 请求模型（gpumem / gpucores）与完整 Pod；`libvgpu.so` 拦截层；scheduler extender 与打分策略；与官方插件互斥；动态 MIG；HAMi-DRA 与 DRA 切分语义 |
-| 六 | 商业 vGPU | NVIDIA vGPU 在虚拟机场景的位置，为什么容器场景不是主流 |
-| 七 | 对引擎的影响 | 1/7 的 MIG 实例 ≠ 1/7 的吞吐；memory-bound 与 compute-bound 的差别；决策树 |
-| 八 | 核心问题 | 三方案对照表；哪种方案下一个 OOM 会拖垮另外两个 |
-| 九 | 代价与边界 | 每种机制引入的新问题；什么场景不该用 |
-| 十 | 实践 | mini-platform/share/：MIG 配置、HAMi 两服务共卡、时间片 ConfigMap、压测与 OOM 演练 |
-| 十一 | 小结 | 要点、四栏表、源码位置、练手项目增量 |
-
-Table: 本文的章节安排
+- **二、四个层次**
+  - 每一层的机制、隔离强度、故障域、开销
+  - 为什么"不隔离"也是一个选项
+- **三、MIG**
+  - GI/CI 与几何约束
+  - A100/H100 的 profile
+  - 改配置为什么要清空 GPU
+  - K8s 接线：MIG Manager → `mig.config` 标签 → mig-parted → device plugin single/mixed
+  - NCCL 与 MIG
+- **四、时间片与 MPS**
+  - device plugin 的 sharing 配置（完整 ConfigMap）
+  - 节点级生效与互斥
+  - renameByDefault / failRequestsGreaterThanOne
+  - MPS 控制守护进程做了什么
+- **五、HAMi**
+  - 请求模型（gpumem / gpucores）与完整 Pod
+  - `libvgpu.so` 拦截层
+  - scheduler extender 与打分策略
+  - 与官方插件互斥
+  - 动态 MIG
+  - HAMi-DRA 与 DRA 切分语义
+- **六、商业 vGPU**：NVIDIA vGPU 在虚拟机场景的位置，为什么容器场景不是主流
+- **七、对引擎的影响**
+  - 1/7 的 MIG 实例 ≠ 1/7 的吞吐
+  - memory-bound 与 compute-bound 的差别
+  - 决策树
+- **八、核心问题**
+  - 三方案对照表
+  - 哪种方案下一个 OOM 会拖垮另外两个
+- **九、代价与边界**
+  - 每种机制引入的新问题
+  - 什么场景不该用
+- **十、实践**：mini-platform/share/：MIG 配置、HAMi 两服务共卡、时间片 ConfigMap、压测与 OOM 演练
+- **十一、小结**：要点、四栏表、源码位置、练手项目增量
 
 ## 二、共享的四个层次
 
@@ -663,7 +683,7 @@ Table: 各共享方案的资源份额与两个阶段的延迟
 | 能放几个服务 | **两个**。`3g.20gb × 2` 用尽 8 个显存 slice，第三个服务没有位置；要放三个只能改成 `2g.10gb × 3`（显存不够 7B FP16），或在一个 `3g.20gb` 上再叠时间片跑两个服务 | 三个，`gpumem` 各约 13000 MB（40 GB 减去驱动与拦截开销后三分）；7B FP16 放不下，需量化或换 80 GB 卡 | 三个副本都能调度；vLLM 三个进程各自预留显存，必须手动把 `--gpu-memory-utilization` 压到约 0.3 |
 | 显存隔离 | 硬件。一个 GI 用满 20 GB 也碰不到另一个 | 软件。拦截库在越界的 `cudaMalloc` 上返回 OOM，只有越界者失败 | 无。谁先分谁得；后启动或后扩 KV cache 的服务 OOM |
 | 算力隔离 | 硬件。各 3/7 SM、1/2 带宽，互不影响 | 软件节流。`gpucores` 上限；带宽与 L2 共享，邻居忙时延迟上升 | 无。三个 context 轮转，每个服务的 P99 随邻居负载波动 |
-| 总吞吐（定性） | 两个服务各拿固定资源；第 7 个计算 slice 浪费；decode 各约整卡一半，prefill 各约 3/7 | 三个服务分享整卡带宽，空闲算力可被有请求的服务用（默认策略下不超过各自 `gpucores`）；总吞吐通常最高 | 与 HAMi 接近，但 context 切换开销与无节流导致抖动更大 |
+| 总吞吐（定性） | 两个服务各拿固定资源<br/>第 7 个计算 slice 浪费<br/>decode 各约整卡一半，prefill 各约 3/7 | 三个服务分享整卡带宽，空闲算力可被有请求的服务用（默认策略下不超过各自 `gpucores`）；总吞吐通常最高 | 与 HAMi 接近，但 context 切换开销与无节流导致抖动更大 |
 | 故障影响范围 | 单个 GI。一个服务的 Xid 只重置它自己的 GI | 整卡。Xid 级错误三个服务一起死；OOM 不蔓延 | 整卡。Xid 三个一起死；OOM 也蔓延 |
 | 谁的 OOM 会拖垮别人 | 不会 | 不会（越界者自己失败） | **会**：一个服务多分了显存，另两个在下一次分配时 OOM |
 | 几何 / 配额调整 | 排空节点后改 `nvidia.com/mig.config` | 改 Pod 的 `gpumem` 重新调度即可 | 改 ConfigMap 重启 plugin |
@@ -968,9 +988,9 @@ echo "== phase 4: A after drill";             bench "$A" a-after 16
 
 | 引擎需求 | K8s 空缺 | 平台机制 | 代价 |
 |---|---|---|---|
-| 小模型只用整卡的 1/3，希望与别人共卡 | 扩展资源只能整数，一个设备 ID 只给一个容器 | device plugin `sharing.timeSlicing` 把一张卡复制成 N 个 `nvidia.com/gpu(.shared)` | 无显存 / 算力 / 故障隔离；节点级均分；用户要自己调低显存预留 |
+| 小模型只用整卡的 1/3，希望与别人共卡 | 扩展资源只能整数，一个设备 ID 只给一个容器 | device plugin `sharing.timeSlicing` 把一张卡复制成 N 个 `nvidia.com/gpu(.shared)` | 无显存 / 算力 / 故障隔离<br/>节点级均分<br/>用户要自己调低显存预留 |
 | 共卡但显存上限要被强制、邻居 OOM 不能波及自己 | kubelet 不理解显存，无法表达"20 GB" | MPS（`sharing.mps`，1/N pinned memory limit）；HAMi（`nvidia.com/gpumem` + `libvgpu.so` 拦截） | MPS 实验性、均分、独占计算模式；HAMi 软件隔离、故障域整卡、替换调度器与 device plugin |
-| 有 SLA 的服务要硬隔离：算力、带宽、故障都不受邻居影响 | 无任何硬件分区概念 | MIG：MIG Manager + `nvidia.com/mig.config` + mig-parted；device plugin `migStrategy=single/mixed` 上报 `nvidia.com/mig-<profile>` | 几何枚举与碎片；改配置要排空节点；单进程、无 NCCL；仅数据中心卡 |
+| 有 SLA 的服务要硬隔离：算力、带宽、故障都不受邻居影响 | 无任何硬件分区概念 | MIG：MIG Manager + `nvidia.com/mig.config` + mig-parted；device plugin `migStrategy=single/mixed` 上报 `nvidia.com/mig-<profile>` | 几何枚举与碎片<br/>改配置要排空节点<br/>单进程、无 NCCL<br/>仅数据中心卡 |
 | 调度器按"剩余显存 ≥ X"选卡 | 默认调度器只计数 | HAMi scheduler extender（Filter / Bind，binpack / spread）；DRA 的 `SharedCounters` / `AllowMultipleAllocations`（v1.37 beta） | extender 是额外的调度跳与单点；DRA 切分语义与驱动支持仍在演进 |
 | 训练要整卡与 NCCL | — | 不切分；MIG 节点池与训练池分开 | 训练卡的利用率问题只能靠调度与排队解决（第三、八篇） |
 
@@ -980,33 +1000,33 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 | 项目 / 版本 | 位置 | 内容 |
 |---|---|---|
-| k8s-device-plugin v0.20.0 | `api/config/v1/config.go` | `Config`（`version` / `flags` / `resources` / `sharing` / `imex`）；`NewConfig` 对 `sharing.mps.failRequestsGreaterThanOne` 默认置 `true`；`DisableResourceNamingInConfig` 忽略 `rename` 与非 `all` 的 `devices` |
-| | `api/config/v1/sharing.go` | `Sharing{TimeSlicing, MPS}`；`SharingStrategy()` 返回 `mps` / `time-slicing` / `none` |
-| | `api/config/v1/replicas.go` | `ReplicatedResources{RenameByDefault, FailRequestsGreaterThanOne, Resources}`；`ReplicatedResource{Name, Rename, Devices, Replicas}`，`replicas >= 2` 校验 |
-| | `api/config/v1/flags.go`、`consts.go` | `CommandLineFlags.MigStrategy`、`MpsRoot`；`PluginCommandLineFlags.SharedDevicesAllocationPolicy`；常量 `MigStrategyNone/Single/Mixed`、`DefaultSharedResourceNameSuffix = ".shared"`、`AllocationPolicyDistributed/Packed` |
-| | `internal/rm/rm.go` | `AddDefaultResourcesToConfig`（`single` 把 MIG 设备映射到 `nvidia.com/gpu`；`mixed` 生成 `mig-<profile>` 资源名，只取 `C == G` 的 profile）；`ValidateRequest`（"maximum request size for shared resources is 1"） |
-| | `internal/rm/device_map.go` | `buildDeviceMapFromConfigResources`、`buildGPUDeviceMap`、`buildMigDeviceMap`、`assertAllMigDevicesAreValid`（`single` 要求节点上 MIG 设备属性一致）、`updateDeviceMapWithReplicas`（复制 N 份，`NewAnnotatedID`） |
-| | `internal/rm/allocate.go` | `comparatorForPolicy`、`greedyAlloc`（`distributed` / `packed` 副本分配策略） |
-| | `cmd/mps-control-daemon/mps/daemon.go` | `Daemon.Start`：`setComputeMode(EXCLUSIVE_PROCESS)`、启动 `nvidia-cuda-mps-control -d`、`set_default_device_pinned_mem_limit`（`perDevicePinnedDeviceMemoryLimits`，总显存 / 副本数）、`set_default_active_thread_percentage`（`activeThreadPercentage`，100 / 副本数） |
-| | `internal/plugin/mps.go` | `getMPSOptions`（MIG 设备报错 "sharing using MPS is not supported for MIG devices"）；`updateReponse` 注入 `CUDA_MPS_PIPE_DIRECTORY` 与 pipe / shm 挂载 |
-| | `README.md` | "Shared Access to GPUs"：时间片与 MPS 互斥、节点级、MPS 实验性、不支持 MIG；标签 `nvidia.com/device-plugin.config`、`nvidia.com/gpu.sharing-strategy`、`nvidia.com/mig.capable`、`nvidia.com/mps.capable`、`nvidia.com/vgpu.present` |
-| | `docs/gpu-feature-discovery/README.md` | `single` / `mixed` 下的 GFD 标签：`nvidia.com/mig.strategy`、`gpu.product` 改写、`gpu.slices.gi/ci`、`gpu.multiprocessors`、`nvidia.com/mig-<profile>.count/.memory` |
-| GPU Operator v26.7.0 | `api/nvidia/v1/clusterpolicy_types.go` | `MIGSpec.Strategy`（`none/single/mixed`）；`MIGManagerSpec`（`Enabled`、`Config *MIGPartedConfigSpec`、`GPUClientsConfig`）；`MIGPartedConfigSpec{Name, Default}`；`DevicePluginSpec.Config *DevicePluginConfig{Name, Default}`、`DevicePluginSpec.MPS *MPSConfig{Root}`；`SandboxWorkloadsSpec`、`VGPUManagerSpec` |
-| | `controllers/state_manager.go` | `migConfigLabelKey = "nvidia.com/mig.config"`、`migCapableLabelKey`、`migManagerLabelKey = "nvidia.com/gpu.deploy.mig-manager"`、`gpuWorkloadConfigLabelKey = "nvidia.com/gpu.workload.config"`（`container` / `vm-passthrough` / `vm-vgpu`）；`addGPUStateLabels` |
-| | `assets/state-mig-manager/0400_configmap.yaml` | `default-mig-parted-config`：`all-disabled`、`all-enabled`、`all-1g.5gb`、`all-3g.20gb`、`all-1g.10gb`、`all-balanced` 等，按 `device-filter` 区分卡型 |
-| | `assets/state-mig-manager/0410_configmap.yaml`、`0420_configmap.yaml`、`0600_daemonset.yaml` | `default-gpu-clients`（重配前停掉的宿主机服务）；entrypoint 设 `WITH_SHUTDOWN_HOST_GPU_CLIENTS`；DaemonSet 挂载 `/mig-parted-config` 与 `/gpu-clients` |
-| | `deployments/gpu-operator/values.yaml` | `mig.strategy: single`、`migManager.enabled/version`（k8s-mig-manager v0.15.0）、`migManager.config` 自定义 ConfigMap 示例；`devicePlugin.version: v0.20.0` |
-| HAMi v2.10.0 | `charts/hami/values.yaml` | `resourceName` / `resourceMem` / `resourceMemPercentage` / `resourceCores` / `resourcePriority`；`scheduler.defaultSchedulerPolicy.{nodeSchedulerPolicy,gpuSchedulerPolicy}`；`scheduler.forceOverwriteDefaultScheduler`；`devicePlugin.deviceSplitCount / deviceMemoryScaling / deviceCoreScaling / nvidiaNodeSelector / nodeConfiguration`；`devices.nvidia.gpuCorePolicy`；`global.gpuHookPath` |
-| | `charts/hami/templates/scheduler/device-configmap.yaml` | 渲染 `device-config.yaml`：`nvidia.resourceCountName` 等、`defaultMemory/defaultCores/defaultGPUNum`、`migProfileAllowlist`（A30 / A100 / H100 / H200 / B200 等） |
-| | `pkg/device/nvidia/device.go` | `NvidiaConfig`（`ResourceCountName`、`ResourceMemoryName`、`ResourceCoreName`、`ResourceMemoryPercentageName`、`GPUCorePolicy`、`MigProfileAllowlist`）；常量 `RegisterAnnos = "hami.io/node-nvidia-register"`、`GPUInUse = "nvidia.com/use-gputype"`、`GPUUseUUID`、`AllocateMode = "nvidia.com/vgpu-mode"`、`MigMode` / `HamiCoreMode` / `MpsMode`；注解 `hami.io/vgpu-devices-to-allocate` / `hami.io/vgpu-devices-allocated` |
-| | `pkg/util/types.go` | `SchedulerPolicyName`（`binpack` / `spread` / `topology-aware` / `mutex` / `numa`）；注解 `hami.io/node-scheduler-policy`、`hami.io/gpu-scheduler-policy`、`hami.io/vgpu-node`、`hami.io/bind-phase`；`CoreLimitSwitch = "GPU_CORE_UTILIZATION_POLICY"` |
-| | `pkg/scheduler/scheduler.go`、`routes/route.go`、`webhook.go` | `Scheduler.Filter` / `Scheduler.Bind`、`getNodesUsage`、`lockAllDevices`；`PredicateRoute` / `Bind` 路由；webhook `Handle` 改写 `schedulerName` |
-| | `pkg/scheduler/policy/node_policy.go`、`gpu_policy.go`、`pkg/scheduler/score.go` | `NodeScore.ComputeDefaultScore`、`OverrideScore`；`DeviceUsageList.Less` / `gpuSortKeyChain`；`fitInDevices`、`calcScore` |
-| | `pkg/device-plugin/nvidiadevice/nvinternal/plugin/server.go`、`register.go`、`util.go` | `Allocate` 注入 `CUDA_DEVICE_MEMORY_LIMIT_<i>`、`CUDA_DEVICE_SM_LIMIT`、`CUDA_DEVICE_MEMORY_SHARED_CACHE`、`CUDA_OVERSUBSCRIBE`，挂载 `libvgpu.so` 与 `/etc/ld.so.preload`（`CUDA_DISABLE_CONTROL` 可跳过）；注册数量 = `DeviceSplitCount`；`GetLibPath` |
-| | `lib/nvidia/ld.so.preload`、`.gitmodules` | 预加载文件内容 `/usr/local/vgpu/libvgpu.so`；子模块 `libvgpu` → `Project-HAMi/HAMi-core`（拦截实现，本文未检出） |
-| | `docs/develop/dynamic-mig-migration.md`、`CHANGELOG.md` | 动态 MIG 的 reservation-first 模型、与 MIG Manager 不能同管一张卡；v2.8.0 引入 HAMi-DRA、v2.9.0 "ready for use" |
+| k8s-device-plugin v0.20.0 | `api/config/v1/config.go` | `Config`（`version` / `flags` / `resources` / `sharing` / `imex`）<br/>`NewConfig` 对 `sharing.mps.failRequestsGreaterThanOne` 默认置 `true`<br/>`DisableResourceNamingInConfig` 忽略 `rename` 与非 `all` 的 `devices` |
+|  | `api/config/v1/sharing.go` | `Sharing{TimeSlicing, MPS}`；`SharingStrategy()` 返回 `mps` / `time-slicing` / `none` |
+|  | `api/config/v1/replicas.go` | `ReplicatedResources{RenameByDefault, FailRequestsGreaterThanOne, Resources}`；`ReplicatedResource{Name, Rename, Devices, Replicas}`，`replicas >= 2` 校验 |
+|  | `api/config/v1/flags.go`、`consts.go` | `CommandLineFlags.MigStrategy`、`MpsRoot`<br/>`PluginCommandLineFlags.SharedDevicesAllocationPolicy`<br/>常量 `MigStrategyNone/Single/Mixed`、`DefaultSharedResourceNameSuffix = ".shared"`、`AllocationPolicyDistributed/Packed` |
+|  | `internal/rm/rm.go` | `AddDefaultResourcesToConfig`（`single` 把 MIG 设备映射到 `nvidia.com/gpu`；`mixed` 生成 `mig-<profile>` 资源名，只取 `C == G` 的 profile）；`ValidateRequest`（"maximum request size for shared resources is 1"） |
+|  | `internal/rm/device_map.go` | `buildDeviceMapFromConfigResources`、`buildGPUDeviceMap`、`buildMigDeviceMap`、`assertAllMigDevicesAreValid`（`single` 要求节点上 MIG 设备属性一致）、`updateDeviceMapWithReplicas`（复制 N 份，`NewAnnotatedID`） |
+|  | `internal/rm/allocate.go` | `comparatorForPolicy`、`greedyAlloc`（`distributed` / `packed` 副本分配策略） |
+|  | `cmd/mps-control-daemon/mps/daemon.go` | `Daemon.Start`：`setComputeMode(EXCLUSIVE_PROCESS)`、启动 `nvidia-cuda-mps-control -d`、`set_default_device_pinned_mem_limit`（`perDevicePinnedDeviceMemoryLimits`，总显存 / 副本数）、`set_default_active_thread_percentage`（`activeThreadPercentage`，100 / 副本数） |
+|  | `internal/plugin/mps.go` | `getMPSOptions`（MIG 设备报错 "sharing using MPS is not supported for MIG devices"）；`updateReponse` 注入 `CUDA_MPS_PIPE_DIRECTORY` 与 pipe / shm 挂载 |
+|  | `README.md` | "Shared Access to GPUs"：时间片与 MPS 互斥、节点级、MPS 实验性、不支持 MIG；标签 `nvidia.com/device-plugin.config`、`nvidia.com/gpu.sharing-strategy`、`nvidia.com/mig.capable`、`nvidia.com/mps.capable`、`nvidia.com/vgpu.present` |
+|  | `docs/gpu-feature-discovery/README.md` | `single` / `mixed` 下的 GFD 标签：`nvidia.com/mig.strategy`、`gpu.product` 改写、`gpu.slices.gi/ci`、`gpu.multiprocessors`、`nvidia.com/mig-<profile>.count/.memory` |
+| GPU Operator v26.7.0 | `api/nvidia/v1/clusterpolicy_types.go` | `MIGSpec.Strategy`（`none/single/mixed`）<br/>`MIGManagerSpec`（`Enabled`、`Config *MIGPartedConfigSpec`、`GPUClientsConfig`）<br/>`MIGPartedConfigSpec{Name, Default}`<br/>`DevicePluginSpec.Config *DevicePluginConfig{Name, Default}`、`DevicePluginSpec.MPS *MPSConfig{Root}`<br/>`SandboxWorkloadsSpec`、`VGPUManagerSpec` |
+|  | `controllers/state_manager.go` | `migConfigLabelKey = "nvidia.com/mig.config"`、`migCapableLabelKey`、`migManagerLabelKey = "nvidia.com/gpu.deploy.mig-manager"`、`gpuWorkloadConfigLabelKey = "nvidia.com/gpu.workload.config"`（`container` / `vm-passthrough` / `vm-vgpu`）；`addGPUStateLabels` |
+|  | `assets/state-mig-manager/0400_configmap.yaml` | `default-mig-parted-config`：`all-disabled`、`all-enabled`、`all-1g.5gb`、`all-3g.20gb`、`all-1g.10gb`、`all-balanced` 等，按 `device-filter` 区分卡型 |
+|  | `assets/state-mig-manager/0410_configmap.yaml`、`0420_configmap.yaml`、`0600_daemonset.yaml` | `default-gpu-clients`（重配前停掉的宿主机服务）<br/>entrypoint 设 `WITH_SHUTDOWN_HOST_GPU_CLIENTS`<br/>DaemonSet 挂载 `/mig-parted-config` 与 `/gpu-clients` |
+|  | `deployments/gpu-operator/values.yaml` | `mig.strategy: single`、`migManager.enabled/version`（k8s-mig-manager v0.15.0）、`migManager.config` 自定义 ConfigMap 示例；`devicePlugin.version: v0.20.0` |
+| HAMi v2.10.0 | `charts/hami/values.yaml` | `resourceName` / `resourceMem` / `resourceMemPercentage` / `resourceCores` / `resourcePriority`<br/>`scheduler.defaultSchedulerPolicy.{nodeSchedulerPolicy,gpuSchedulerPolicy}`<br/>`scheduler.forceOverwriteDefaultScheduler`<br/>`devicePlugin.deviceSplitCount / deviceMemoryScaling / deviceCoreScaling / nvidiaNodeSelector / nodeConfiguration`<br/>`devices.nvidia.gpuCorePolicy`<br/>`global.gpuHookPath` |
+|  | `charts/hami/templates/scheduler/device-configmap.yaml` | 渲染 `device-config.yaml`：`nvidia.resourceCountName` 等、`defaultMemory/defaultCores/defaultGPUNum`、`migProfileAllowlist`（A30 / A100 / H100 / H200 / B200 等） |
+|  | `pkg/device/nvidia/device.go` | `NvidiaConfig`（`ResourceCountName`、`ResourceMemoryName`、`ResourceCoreName`、`ResourceMemoryPercentageName`、`GPUCorePolicy`、`MigProfileAllowlist`）<br/>常量 `RegisterAnnos = "hami.io/node-nvidia-register"`、`GPUInUse = "nvidia.com/use-gputype"`、`GPUUseUUID`、`AllocateMode = "nvidia.com/vgpu-mode"`、`MigMode` / `HamiCoreMode` / `MpsMode`<br/>注解 `hami.io/vgpu-devices-to-allocate` / `hami.io/vgpu-devices-allocated` |
+|  | `pkg/util/types.go` | `SchedulerPolicyName`（`binpack` / `spread` / `topology-aware` / `mutex` / `numa`）<br/>注解 `hami.io/node-scheduler-policy`、`hami.io/gpu-scheduler-policy`、`hami.io/vgpu-node`、`hami.io/bind-phase`<br/>`CoreLimitSwitch = "GPU_CORE_UTILIZATION_POLICY"` |
+|  | `pkg/scheduler/scheduler.go`、`routes/route.go`、`webhook.go` | `Scheduler.Filter` / `Scheduler.Bind`、`getNodesUsage`、`lockAllDevices`<br/>`PredicateRoute` / `Bind` 路由<br/>webhook `Handle` 改写 `schedulerName` |
+|  | `pkg/scheduler/policy/node_policy.go`、`gpu_policy.go`、`pkg/scheduler/score.go` | `NodeScore.ComputeDefaultScore`、`OverrideScore`<br/>`DeviceUsageList.Less` / `gpuSortKeyChain`<br/>`fitInDevices`、`calcScore` |
+|  | `pkg/device-plugin/nvidiadevice/nvinternal/plugin/server.go`、`register.go`、`util.go` | `Allocate` 注入 `CUDA_DEVICE_MEMORY_LIMIT_<i>`、`CUDA_DEVICE_SM_LIMIT`、`CUDA_DEVICE_MEMORY_SHARED_CACHE`、`CUDA_OVERSUBSCRIBE`，挂载 `libvgpu.so` 与 `/etc/ld.so.preload`（`CUDA_DISABLE_CONTROL` 可跳过）<br/>注册数量 = `DeviceSplitCount`<br/>`GetLibPath` |
+|  | `lib/nvidia/ld.so.preload`、`.gitmodules` | 预加载文件内容 `/usr/local/vgpu/libvgpu.so`；子模块 `libvgpu` → `Project-HAMi/HAMi-core`（拦截实现，本文未检出） |
+|  | `docs/develop/dynamic-mig-migration.md`、`CHANGELOG.md` | 动态 MIG 的 reservation-first 模型、与 MIG Manager 不能同管一张卡；v2.8.0 引入 HAMi-DRA、v2.9.0 "ready for use" |
 | Kubernetes v1.37.0 | `staging/src/k8s.io/api/resource/v1/types.go` | `ResourceSliceSpec.SharedCounters []CounterSet`、`Device.ConsumesCounters []DeviceCounterConsumption`（`DRAPartitionableDevices`，beta）；`Device.AllowMultipleAllocations`、`DeviceCapacity.RequestPolicy`、`DeviceRequestAllocationResult.ShareID`（`DRAConsumableCapacity`） |
-| NVIDIA 文档（非检出） | MIG 用户指南、MPS 文档 | profile 表与合法 placement；改配置的空闲要求；MIG 实例间无 P2P / CUDA IPC；MPS 的 pinned memory limit / active thread percentage 与 Volta 起的故障隔离范围 |
+| NVIDIA 文档（非检出） | MIG 用户指南、MPS 文档 | profile 表与合法 placement<br/>改配置的空闲要求<br/>MIG 实例间无 P2P / CUDA IPC<br/>MPS 的 pinned memory limit / active thread percentage 与 Volta 起的故障隔离范围 |
 
 Table: 本篇涉及的源码与配置位置
 

@@ -281,7 +281,7 @@ cross-encoder 重排器对（查询，候选）对打分，比 embedding 的双�
 
 | 供应商 | 事件 | 通知期 |
 |---|---|---|
-| OpenAI | 2026-07-23 关闭 `gpt-5-codex`、`gpt-5.1-codex` 系列、`gpt-4o-*-preview` 系列、`o3-deep-research` 等；2026-10-23 关闭 `gpt-3.5-turbo-0125`、`gpt-4-0613`、`gpt-4-turbo`、`gpt-4.1-nano`、`gpt-4o-2024-05-13`、`o1`、`o3-mini`、`o4-mini` 等；2026-12-11 关闭 `gpt-5-2025-08-07`、`gpt-5-mini`、`gpt-5-nano`、`gpt-5-pro`、`o3`、`o3-pro` 快照 | 3–6 个月（4 月 22 日与 6 月 11 日两轮通知） |
+| OpenAI | 2026-07-23 关闭 `gpt-5-codex`、`gpt-5.1-codex` 系列、`gpt-4o-*-preview` 系列、`o3-deep-research` 等<br/>2026-10-23 关闭 `gpt-3.5-turbo-0125`、`gpt-4-0613`、`gpt-4-turbo`、`gpt-4.1-nano`、`gpt-4o-2024-05-13`、`o1`、`o3-mini`、`o4-mini` 等<br/>2026-12-11 关闭 `gpt-5-2025-08-07`、`gpt-5-mini`、`gpt-5-nano`、`gpt-5-pro`、`o3`、`o3-pro` 快照 | 3–6 个月（4 月 22 日与 6 月 11 日两轮通知） |
 | OpenAI | 2026-08-26 关闭 Assistants API | 12 个月（2025-08-26 通知） |
 | Anthropic | 模型页写明"Retirement: not sooner than <发布日 + 1 年>"（Fable 5.1 不早于 2027-09-01，Opus 5 不早于 2027-07-24）；Opus 4 / 4.1、Sonnet 4 已退役（Bedrock / Google Cloud 上仍有） | 承诺至少 1 年在售；退役前另发通知 |
 | Google | Interactions API 旧 schema 2026-06-08 移除（5 月通知）；模型按 deprecations 页给出的日期退役 | schema 变更约 1 个月；模型通常 1 年 |
@@ -296,7 +296,7 @@ OpenAI 在 ChatGPT 侧退役 GPT-4o 时给出的理由是"只有 0.1% 的用户�
 | 维度 | 问什么 | 好的答案 |
 |---|---|---|
 | 通知期 | 从通知到关闭多久？ | ≥ 6 个月；DeepSeek 的 4 天意味着你要有自动化的回归与切换 |
-| 快照 | 能否钉住一个不变的快照？别名（`gpt-5.6-sol`、`deepseek-flash`）背后会换 | OpenAI 有日期快照；Anthropic 的模型 id 本身是版本；DeepSeek 只有别名 |
+| 快照 | 能否钉住一个不变的快照？别名（`gpt-5.6-sol`、`deepseek-flash`）背后会换 | OpenAI 有日期快照<br/>Anthropic 的模型 id 本身是版本<br/>DeepSeek 只有别名 |
 | 替代路径 | 供应商给出的替代模型是否行为兼容？ | OpenAI 的弃用表列出推荐替代；但第三篇讲过替代模型的默认值不同，要重跑评测 |
 | 多云 | 同一模型在几个云上有？ | Claude 在 AWS / GCP / Azure 都有；一家云的区域故障不等于模型不可用 |
 | 服务端状态 | 用了 Responses / Interactions 的服务端状态吗？ | 用了就多一层锁定；中间层保留自己的历史副本 |

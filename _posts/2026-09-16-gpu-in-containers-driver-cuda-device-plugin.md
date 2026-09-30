@@ -69,19 +69,44 @@ updated: 2026-09-14
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 四层栈与三条兼容规则 | 哪层在宿主机、哪层在容器；向后 / minor version / forward 三条规则各配例子与查法；PyTorch wheel 为什么带 cudart 不带 libcuda；核心问题的三个组合 |
-| 三 | Container Toolkit | nvidia-container-runtime 的 legacy hook 路径；`NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` / `NVIDIA_REQUIRE_CUDA`；CDI 与 nvidia-ctk cdi generate；jit-cdi |
-| 四 | device plugin | v1beta1 gRPC 五个方法；NVIDIA 插件如何上报 `nvidia.com/gpu`、Allocate 返回什么；健康检查；三个局限 |
-| 五 | GPU Operator | ClusterPolicy 的组件字段；节点标签的三个来源（NFD → `gpu.present` → `gpu.deploy.*` → GFD）；驱动容器与 hostPaths；Helm 安装与 values |
-| 六 | DRA | DeviceClass / ResourceSlice / ResourceClaim / ResourceClaimTemplate；CEL 选择器与 capacity；调度器与 kubelet 侧；完整示例；`v1.37` 的特性状态与 NVIDIA DRA driver |
-| 七 | 镜像 | nvidia/cuda 的 base / runtime / devel；PyTorch / vLLM 镜像的层；多阶段构建；拉取时间的算术；预热与 P2P 分发 |
-| 八 | 代价与边界 | 四栏表；每个机制引入的新问题；什么场景不该用 |
-| 九 | 本文小结 | 要点、源码与 CRD 位置、mini-platform/gpu/ 增量 |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、四层栈与三条兼容规则**
+  - 哪层在宿主机、哪层在容器
+  - 向后 / minor version / forward 三条规则各配例子与查法
+  - PyTorch wheel 为什么带 cudart 不带 libcuda
+  - 核心问题的三个组合
+- **三、Container Toolkit**
+  - nvidia-container-runtime 的 legacy hook 路径
+  - `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` / `NVIDIA_REQUIRE_CUDA`
+  - CDI 与 nvidia-ctk cdi generate
+  - jit-cdi
+- **四、device plugin**
+  - v1beta1 gRPC 五个方法
+  - NVIDIA 插件如何上报 `nvidia.com/gpu`、Allocate 返回什么
+  - 健康检查
+  - 三个局限
+- **五、GPU Operator**
+  - ClusterPolicy 的组件字段
+  - 节点标签的三个来源（NFD → `gpu.present` → `gpu.deploy.*` → GFD）
+  - 驱动容器与 hostPaths
+  - Helm 安装与 values
+- **六、DRA**
+  - DeviceClass / ResourceSlice / ResourceClaim / ResourceClaimTemplate
+  - CEL 选择器与 capacity
+  - 调度器与 kubelet 侧
+  - 完整示例
+  - `v1.37` 的特性状态与 NVIDIA DRA driver
+- **七、镜像**
+  - nvidia/cuda 的 base / runtime / devel
+  - PyTorch / vLLM 镜像的层
+  - 多阶段构建
+  - 拉取时间的算术
+  - 预热与 P2P 分发
+- **八、代价与边界**
+  - 四栏表
+  - 每个机制引入的新问题
+  - 什么场景不该用
+- **九、本文小结**：要点、源码与 CRD 位置、mini-platform/gpu/ 增量
+- **十、自测**：5 道题
 
 ## 二、四层栈与三条兼容规则
 
@@ -707,11 +732,11 @@ devel 到 base 通常能去掉 5 GB 以上；`--no-cache-dir` 与清理 apt 列�
 | 引擎需求 | K8s 空缺 | 平台机制 | 代价 |
 |---|---|---|---|
 | 进程能打开 `/dev/nvidia*`，找到与内核驱动同版本的 `libcuda.so` | 运行时不知道 GPU 设备与驱动库在哪 | Container Toolkit：legacy hook 或 CDI / jit-cdi 把设备节点与驱动库注入容器 | 每个 GPU 节点多一层运行时配置（RuntimeClass、containerd 配置）；hook 路径依赖环境变量，Pod 可自设 `NVIDIA_VISIBLE_DEVICES=all` 越权，需 Toolkit 配置收口 |
-| 镜像里的 CUDA Runtime 能配节点驱动 | K8s 完全不检查版本契约，失败发生在容器启动或首次 CUDA 调用 | 三条兼容规则（向后 / minor version / forward）；`NVIDIA_REQUIRE_CUDA` 把检查前移到容器创建；GFD 的 `cuda.driver.major` 标签可用于 nodeSelector | 驱动升级成为集群级事件（驱动容器滚动重启节点上的 GPU 负载）；forward compat 仅数据中心 GPU、仅受支持分支；跨大版本的 PTX JIT 与新 API 不可用 |
-| 整数张、互不重叠、最好互连 | 只有整数扩展资源，调度器不认拓扑 | device plugin：`ListAndWatch` 计数、`Allocate` 注入、`GetPreferredAllocation` 节点内按 NVLink 挑卡 | 调度器仍只做减法；节点内拓扑只是"建议"；健康检查扣减不驱逐已运行 Pod |
+| 镜像里的 CUDA Runtime 能配节点驱动 | K8s 完全不检查版本契约，失败发生在容器启动或首次 CUDA 调用 | 三条兼容规则（向后 / minor version / forward）<br/>`NVIDIA_REQUIRE_CUDA` 把检查前移到容器创建<br/>GFD 的 `cuda.driver.major` 标签可用于 nodeSelector | 驱动升级成为集群级事件（驱动容器滚动重启节点上的 GPU 负载）<br/>forward compat 仅数据中心 GPU、仅受支持分支<br/>跨大版本的 PTX JIT 与新 API 不可用 |
+| 整数张、互不重叠、最好互连 | 只有整数扩展资源，调度器不认拓扑 | device plugin：`ListAndWatch` 计数、`Allocate` 注入、`GetPreferredAllocation` 节点内按 NVLink 挑卡 | 调度器仍只做减法<br/>节点内拓扑只是"建议"<br/>健康检查扣减不驱逐已运行 Pod |
 | 知道卡是什么：显存、型号、计算能力 | 扩展资源无属性 | GFD 节点标签 + `nodeSelector` / `nodeAffinity`；DRA 的 `ResourceSlice` 属性 + CEL 选择器 | 标签是节点级、字符串、不能比大小，混卡节点失效；DRA 让调度器读写的对象增加一个数量级，NVIDIA driver 在 GPU Operator v26.7.0 中仍是实验性、与 ClusterPolicy 路径互斥 |
-| 驱动、Toolkit、插件、标签、监控在每个节点一致 | 每个组件一个 DaemonSet，各有版本与节点前提 | GPU Operator 的 `ClusterPolicy` 统一编排与校验 | 驱动容器与节点内核强耦合，内核升级即故障点；Operator 单例、集群级，异构节点组要靠 `NVIDIADriver` CRD 或标签排除；多一个需要升级的组件 |
-| 训练任务秒级启动、推理副本分钟级扩容 | 镜像拉取时间不在任何调度决策里 | 统一基底、多阶段构建、预热、P2P、按需加载 | 预热占节点磁盘（每个版本一份 10 GB）；P2P 分发是又一个要运维的系统；按需加载对 CUDA 镜像收益有限 |
+| 驱动、Toolkit、插件、标签、监控在每个节点一致 | 每个组件一个 DaemonSet，各有版本与节点前提 | GPU Operator 的 `ClusterPolicy` 统一编排与校验 | 驱动容器与节点内核强耦合，内核升级即故障点<br/>Operator 单例、集群级，异构节点组要靠 `NVIDIADriver` CRD 或标签排除<br/>多一个需要升级的组件 |
+| 训练任务秒级启动、推理副本分钟级扩容 | 镜像拉取时间不在任何调度决策里 | 统一基底、多阶段构建、预热、P2P、按需加载 | 预热占节点磁盘（每个版本一份 10 GB）<br/>P2P 分发是又一个要运维的系统<br/>按需加载对 CUDA 镜像收益有限 |
 
 Table: 引擎需求、K8s 空缺、平台机制与代价
 
@@ -769,7 +794,7 @@ DRA               resource.k8s.io/v1：ResourceSlice（驱动发布属性与容�
 | kubernetes `pkg/kubelet/cm/dra/manager.go` `Manager` | `PrepareResources`、`GetResources`（遍历 `container.Resources.Claims`）、`UnprepareResources` |
 | kubernetes `pkg/scheduler/framework/plugins/dynamicresources/dynamicresources.go` `DynamicResources` | `PreFilter` / `validateDeviceClass` / `Filter` / `Reserve` / `PreBind` / `bindClaim` |
 | kubernetes `CHANGELOG/CHANGELOG-1.37.md` | DRA 各特性门在 1.37 的状态：`DRAExtendedResource` GA、Device Taints GA、`DRAResourceClaimDeviceStatus` GA、`DRAWorkloadResourceClaims` Beta（默认关）、派生属性 / 兼容性组 / `DRAOptionalNodeOperations` Alpha |
-| k8s-device-plugin `api/config/v1/config.go` `Config`；`flags.go` `Flags` / `PluginCommandLineFlags`；`consts.go` | `migStrategy`、`failOnInitError`、`nvidiaDriverRoot`、`deviceListStrategy`（`envvar` / `volume-mounts` / `cdi-annotations` / `cdi-cri`）、`deviceIDStrategy`、`passDeviceSpecs`、`sharedDevicesAllocationPolicy`；`ResourceNamePrefix = "nvidia.com"` |
+| k8s-device-plugin `api/config/v1/config.go` `Config`<br/>`flags.go` `Flags` / `PluginCommandLineFlags`<br/>`consts.go` | `migStrategy`、`failOnInitError`、`nvidiaDriverRoot`、`deviceListStrategy`（`envvar` / `volume-mounts` / `cdi-annotations` / `cdi-cri`）、`deviceIDStrategy`、`passDeviceSpecs`、`sharedDevicesAllocationPolicy`；`ResourceNamePrefix = "nvidia.com"` |
 | k8s-device-plugin `api/config/v1/sharing.go` / `replicas.go` / `resources.go` | `sharing.timeSlicing` / `sharing.mps`（`ReplicatedResources`）、`resources.gpus[]` / `resources.mig[]` 的 pattern 重命名 |
 | k8s-device-plugin `cmd/nvidia-device-plugin/main.go` | 命令行与环境变量（`MIG_STRATEGY`、`DEVICE_LIST_STRATEGY`、`NVIDIA_DRIVER_ROOT`、`PASS_DEVICE_SPECS` …）与默认值 |
 | k8s-device-plugin `internal/plugin/server.go` `nvidiaDevicePlugin` | `Register`（声明 `GetPreferredAllocationAvailable`）、`ListAndWatch`、`GetPreferredAllocation`、`Allocate` → `getAllocateResponse` → `updateResponseForCDI` / `updateResponseForDeviceListEnvVar` / `updateResponseForDeviceMounts` |
@@ -778,7 +803,7 @@ DRA               resource.k8s.io/v1：ResourceSlice（驱动发布属性与容�
 | nvidia-container-toolkit `api/config/v1/config.go` `Config`；`runtime.go` `RuntimeConfig` / `modesConfig` / `legacyModeConfig` | `config.toml`：`accept-nvidia-visible-devices-envvar-when-unprivileged`、`nvidia-container-runtime.mode` / `modes.cdi.spec-dirs` / `modes.cdi.annotation-prefixes` / `modes.legacy.cuda-compat-mode`（`disabled` / `hook` / `ldconfig` / `mount`） |
 | nvidia-container-toolkit `internal/config/image/envvars.go` / `capabilities.go` / `cuda_image.go` | `NVIDIA_VISIBLE_DEVICES`、`NVIDIA_DRIVER_CAPABILITIES`（默认 `utility,compute`）、`NVIDIA_REQUIRE_*` / `NVIDIA_DISABLE_REQUIRE`；`CUDA.GetRequirements` |
 | nvidia-container-toolkit `internal/modifier/stable.go` `stableRuntimeModifier.Modify`；`cmd/nvidia-container-runtime-hook/main.go` `doPrestart` | legacy 路径：追加 prestart hook；hook 拼装 `nvidia-container-cli configure --device/--require/--ldconfig/--pid` |
-| nvidia-container-toolkit `internal/info/auto.go` `modeResolver.ResolveRuntimeMode`；`internal/modifier/cdi.go`；`internal/discover/hooks.go` | `auto` → `jit-cdi`（NVML 平台）/ `csv`（Tegra）；CDI 模式 spec 读取；hook 名 `update-ldcache` / `create-symlinks` / `enable-cuda-compat` / `chmod` … |
+| nvidia-container-toolkit `internal/info/auto.go` `modeResolver.ResolveRuntimeMode`<br/>`internal/modifier/cdi.go`<br/>`internal/discover/hooks.go` | `auto` → `jit-cdi`（NVML 平台）/ `csv`（Tegra）<br/>CDI 模式 spec 读取<br/>hook 名 `update-ldcache` / `create-symlinks` / `enable-cuda-compat` / `chmod` … |
 | nvidia-container-toolkit `cmd/nvidia-ctk/cdi/generate/generate.go`；`internal/requirements/constraints/binary.go` `binary.Assert` | `nvidia-ctk cdi generate` 参数（`--vendor nvidia.com`、`--class gpu`、`--device-name-strategy index,uuid`、`--mode auto`）；`unsatisfied condition: …` 错误文本 |
 | gpu-operator `api/nvidia/v1/clusterpolicy_types.go` `ClusterPolicySpec` | `operator` / `daemonsets` / `driver`（`DriverSpec`：`enabled`、`kernelModuleType`、`usePrecompiled`、`useNvidiaDriverCRD`）/ `toolkit` / `devicePlugin`（`config`、`mps`）/ `gfd` / `dcgmExporter` / `dcgm` / `mig`（`strategy`）/ `migManager` / `cdi`（`CDIConfigSpec.Enabled`）/ `validator` / `hostPaths`（`rootFS`、`driverInstallDir`、`kubeletRootDir`）；`OperatorSpec.RuntimeClass`（`DefaultRuntime` 已标注 Deprecated） |
 | gpu-operator `controllers/state_manager.go` | `nvidia.com/gpu.present`、`nvidia.com/gpu.deploy.*`（`driver` / `container-toolkit` / `device-plugin` / `gpu-feature-discovery` / `dcgm-exporter` / `mig-manager` / `operator-validator` / `dra-driver` …）、`nvidia.com/mig.config`、NFD 的 `feature.node.kubernetes.io/pci-10de.present` |

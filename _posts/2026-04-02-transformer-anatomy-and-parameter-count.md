@@ -22,21 +22,20 @@ updated: 2026-09-17
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | decoder-only Transformer 的整体结构 | 四段式、残差流为什么把所有子层锁在维度 d、pre-norm 与 post-norm |
-| 三 | attention 子层的四个矩阵 | `W_Q/W_K/W_V/W_O` 的形状、MHA/GQA/MQA 只是 `n_kv` 的取值、代入 Llama-3-8B |
-| 四 | FFN 子层 | 从两矩阵到 SwiGLU 三矩阵、14336 是怎么来的、代入两个模型 |
-| 五 | Norm、bias 与 embedding | RMSNorm 与 LayerNorm、bias 为什么消失、`embedding/lm_head` 与 tie |
-| 六 | 参数量公式与三个模型 | 公式、逐项代入 8B/70B/405B、参数分布、几种常见的算错方式 |
-| 七 | DeepSeek-V3 的 config | 与 dense 模型相比形状不同在哪里 |
-| 八 | 对照 `modeling_llama.py` | 每个类对应哪些矩阵、哪些形状 |
-| 九 | shape 追踪 | `[batch, seq, hidden]` 到 GEMM 的 m、k、n；prefill 与 decode 的差别；TP 如何切 |
-| 十 | 实践 | `llm_cost.py` 第一版：从 `config.json` 算参数量 |
-| 十一 | 本文小结 |  |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、decoder-only Transformer 的整体结构**：四段式、残差流为什么把所有子层锁在维度 d、pre-norm 与 post-norm
+- **三、attention 子层的四个矩阵**：`W_Q/W_K/W_V/W_O` 的形状、MHA/GQA/MQA 只是 `n_kv` 的取值、代入 Llama-3-8B
+- **四、FFN 子层**：从两矩阵到 SwiGLU 三矩阵、14336 是怎么来的、代入两个模型
+- **五、Norm、bias 与 embedding**：RMSNorm 与 LayerNorm、bias 为什么消失、`embedding/lm_head` 与 tie
+- **六、参数量公式与三个模型**：公式、逐项代入 8B/70B/405B、参数分布、几种常见的算错方式
+- **七、DeepSeek-V3 的 config**：与 dense 模型相比形状不同在哪里
+- **八、对照 `modeling_llama.py`**：每个类对应哪些矩阵、哪些形状
+- **九、shape 追踪**
+  - `[batch, seq, hidden]` 到 GEMM 的 m、k、n
+  - prefill 与 decode 的差别
+  - TP 如何切
+- **十、实践**：`llm_cost.py` 第一版：从 `config.json` 算参数量
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、decoder-only Transformer 的整体结构
 

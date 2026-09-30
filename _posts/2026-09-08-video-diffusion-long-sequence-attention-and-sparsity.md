@@ -81,20 +81,38 @@ Table: Amdahl 定律下稀疏 attention 的端到端加速
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 视频的 token 账 | 3D VAE、时空 patch、$$N$$ 的三个乘数；五个模型 |
-| 三 | attention 占比的翻转 | $$4LN^2d$$ vs $$2P_\text{tok}N$$ 的交叉点；分辨率与帧数的扫描；$$d$$ 的影响 |
-| 四 | 显存：FlashAttention 是前提 | 分数矩阵 425 GiB；激活随 $$N$$ 线性到 14 GiB；CFG batch；3D VAE 解码的 107 GiB |
-| 五 | 全 3D attention 与它的替代 | 时空分解为什么被放弃；全 attention 的代价就是本文 |
-| 六 | 稀疏 attention 的四条路 | SVG（head 分类）、SVG2（语义置换）、Radial（静态能量衰减掩码）、STA / VSA（tile 滑窗、可训练）；训练无关 vs 需微调 |
-| 七 | 稀疏怎样落到 kernel | block-sparse FlashAttention；layout 变换；tile 对齐；掩码的存储 |
-| 八 | 8-bit attention 与叠加表 | SageAttention 在视频上的收益；Wan 81 帧的叠加账；Amdahl |
-| 九 | 实现对照与实践 | 四个实现里的后端；实践建议 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、视频的 token 账**
+  - 3D VAE、时空 patch、$$N$$ 的三个乘数
+  - 五个模型
+- **三、attention 占比的翻转**
+  - $$4LN^2d$$ vs $$2P_\text{tok}N$$ 的交叉点
+  - 分辨率与帧数的扫描
+  - $$d$$ 的影响
+- **四、显存：FlashAttention 是前提**
+  - 分数矩阵 425 GiB
+  - 激活随 $$N$$ 线性到 14 GiB
+  - CFG batch
+  - 3D VAE 解码的 107 GiB
+- **五、全 3D attention 与它的替代**
+  - 时空分解为什么被放弃
+  - 全 attention 的代价就是本文
+- **六、稀疏 attention 的四条路**
+  - SVG（head 分类）、SVG2（语义置换）、Radial（静态能量衰减掩码）、STA / VSA（tile 滑窗、可训练）
+  - 训练无关 vs 需微调
+- **七、稀疏怎样落到 kernel**
+  - block-sparse FlashAttention
+  - layout 变换
+  - tile 对齐
+  - 掩码的存储
+- **八、8-bit attention 与叠加表**
+  - SageAttention 在视频上的收益
+  - Wan 81 帧的叠加账
+  - Amdahl
+- **九、实现对照与实践**
+  - 四个实现里的后端
+  - 实践建议
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、视频的 token 账
 
@@ -294,9 +312,9 @@ Table: 视频 attention 机制在四个引擎里的实现对照
 | 翻转点 | attention / 线性 $$\approx N / 6d$$，交叉在 $$N \approx 6d$$ | $$d$$ 3072 → 18K；5120 → 31K |
 | 占比 | 图像 20–30%，视频 50–90% | Wan 81 帧 72%、129 帧 80%；HunyuanVideo 87% |
 | 二次方 | 帧数 / 分辨率翻倍 → attention 4× / 16× | 17 → 129 帧每步 21× |
-| 显存 | 分数矩阵不可物化；激活随 $$N$$ 线性；3D VAE 解码必须分块 | 425 GiB vs 14.4 GiB vs 107 GiB |
+| 显存 | 分数矩阵不可物化<br/>激活随 $$N$$ 线性<br/>3D VAE 解码必须分块 | 425 GiB vs 14.4 GiB vs 107 GiB |
 | 全 3D attention | 2024 年后主流，为时间一致性付 $$N^2$$ | 分解 attention 少 21× 但质量差 |
-| 稀疏的依据 | spatial / temporal head；能量衰减；局部性 | 稀疏度 70–90% |
+| 稀疏的依据 | spatial / temporal head<br/>能量衰减<br/>局部性 | 稀疏度 70–90% |
 | 四条路 | SVG（在线 head 分类 + 置换）、SVG2（语义聚类）、Radial（静态 $$O(n\log n)$$，可扩长度）、STA / VSA（tile 滑窗，VSA 可训练） | attention 2–3.5×，端到端 1.6–2.3× |
 | kernel | 稀疏必须对齐 FlashAttention 的 128 块；layout 置换让模式对齐 | 掩码 350 KB，可忽略 |
 | Amdahl | 端到端 $$= 1/((1-a) + a/s)$$ | $$a$$ 0.72、$$s$$ 3.5 → 2.06×；上限 3.57× |

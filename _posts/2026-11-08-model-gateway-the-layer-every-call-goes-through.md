@@ -130,7 +130,7 @@ flowchart TB
 
 | 选项 | 形态 | 定位 | 适合 |
 |---|---|---|---|
-| **LiteLLM** | 开源；代理服务或 Python SDK；百余供应商 | 自托管的全功能网关：路由、fallback、预算、密钥、日志、OpenAI 兼容接口 | 想自托管、多供应商、要预算与归因 |
+| **LiteLLM** | 开源<br/>代理服务或 Python SDK<br/>百余供应商 | 自托管的全功能网关：路由、fallback、预算、密钥、日志、OpenAI 兼容接口 | 想自托管、多供应商、要预算与归因 |
 | **OpenRouter** | 托管；多模型市场 | 一个 key 用几百个模型、按用量计费、有 fallback 与路由 | 快速多模型实验、不想管供应商账户 |
 | **Cloudflare AI Gateway** | 边缘托管；接自己的供应商 key | 缓存、限流、日志、分析、fallback，在边缘 | 已用 Cloudflare、要边缘缓存与限流 |
 | **Portkey / Helicone 一类** | 托管（部分可自托管） | 网关 + 可观测（Helicone 改 base URL 即接入） | 以可观测与成本监控为主 |

@@ -48,16 +48,24 @@ Table: 音频 token 的三个层次
 
 本文按"信号 → 特征 → 离散 token"的压缩顺序组织：先看声音本身是什么、怎么变成 mel 谱（每秒 16000 个数 → 100 个 80 维向量），再看编码器怎么把 mel 谱变成特征（Whisper、HuBERT），最后看 codec 怎么把它变成几个整数（RVQ）。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 音频的表示 | 波形是什么；分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱（图） |
-| 三 | 编码器 | Whisper 的 encoder-decoder；CTC 与 attention 解码；自监督（HuBERT、w2v-BERT）与语义 token |
-| 四 | 神经 codec 与 RVQ | 为什么需要 codec；SoundStream / EnCodec 的结构；VQ 到 RVQ——一个 2 维手算例子 + 2000 个向量的实验（图）；训练 RVQ 的四个技巧；层次结构对生成的意义 |
-| 五 | 动手（建议） | EnCodec 的码本层数；配套代码 |
-| 六 | 本文小结 | |
-| 七 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、音频的表示**
+  - 波形是什么
+  - 分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱（图）
+- **三、编码器**
+  - Whisper 的 encoder-decoder
+  - CTC 与 attention 解码
+  - 自监督（HuBERT、w2v-BERT）与语义 token
+- **四、神经 codec 与 RVQ**
+  - 为什么需要 codec
+  - SoundStream / EnCodec 的结构
+  - VQ 到 RVQ——一个 2 维手算例子 + 2000 个向量的实验（图）
+  - 训练 RVQ 的四个技巧
+  - 层次结构对生成的意义
+- **五、动手（建议）**
+  - EnCodec 的码本层数
+  - 配套代码
+- **六、本文小结**
+- **七、自测**：5 道题
 
 ## 二、音频的表示
 
@@ -215,10 +223,10 @@ RVQ 的层次结构决定了语音生成的形态：第 1 个码本的 token 序
 | Whisper | encoder-decoder，68 万小时；encoder 输出 1500 × 1280 / 30 s | 语音的 CLIP；理解任务的特征来源 |
 | 解码 | CTC（并行、流式、弱 LM）vs attention（准、非流式）；RNN-T 折中 | 语音 LLM 里 LLM 就是 decoder |
 | 自监督 | HuBERT / w2v-BERT 的隐状态 k-means → 语义 token（25–50/秒） | 有内容无音色，不能重建 |
-| 两条路 | 连续特征（理解好、不能说）；离散 token（能说、理解有损）；混合 | 语音要双向 → 需要离散 token |
-| 三层 token | 声学（几百/秒，可重建）；语义（25–50/秒，内容）；文本（2–4/秒） | 一分钟：3.6 万 / 3000 / 200 |
+| 两条路 | 连续特征（理解好、不能说）<br/>离散 token（能说、理解有损）<br/>混合 | 语音要双向 → 需要离散 token |
+| 三层 token | 声学（几百/秒，可重建）<br/>语义（25–50/秒，内容）<br/>文本（2–4/秒） | 一分钟：3.6 万 / 3000 / 200 |
 | VQ | 码本 = 字典，量化 = 查最近码字 = K-Means 归类 | 单码本精度不够（toy：误差 31%） |
-| RVQ | $$r_i = r_{i-1} - e^{(i)}_{k_i}$$，$$N_q$$ 个 1024 码本 ≈ $$2^{10 N_q}$$ 等效码本 | 由粗到细，每级误差约减半；quantizer dropout 支持多比特率；STE + EMA + commitment + 重置 |
+| RVQ | $$r_i = r_{i-1} - e^{(i)}_{k_i}$$，$$N_q$$ 个 1024 码本 ≈ $$2^{10 N_q}$$ 等效码本 | 由粗到细，每级误差约减半<br/>quantizer dropout 支持多比特率<br/>STE + EMA + commitment + 重置 |
 | 语义蒸馏 | 第一码本蒸馏 HuBERT / WavLM（SpeechTokenizer、Mimi） | 一个 codec 同时给语义与声学 |
 
 Table: 音频编码器与 codec 的规则小结

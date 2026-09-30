@@ -28,7 +28,7 @@ updated: 2026-09-14
 | MaskGIT | 2022 | VQGAN | **并行 mask 预测**，8–12 步 | 双向 Transformer | $$256^2$$ / 256 | 比栅格 AR 快 30–60× |
 | Parti | 2022 | ViT-VQGAN | 栅格 AR | 20B encoder-decoder | $$256^2 \to$$ 超分 | scaling 到 20B，文字渲染好 |
 | LlamaGen | 2024 | VQGAN 16384 码本，f16 / f8 | 栅格 AR | Llama 结构 0.1–3B | $$256^2$$ / 256–1024 | 纯 LLM 结构；FID 2.18（ImageNet） |
-| **VAR** | 2024 | 多尺度残差 VQ | **next-scale**（由粗到细） | Transformer 0.3–2B | $$256^2$$ / 680（10 个尺度） | FID 1.73；比栅格 AR 快 20×；scaling law |
+| **VAR** | 2024 | 多尺度残差 VQ | **next-scale**（由粗到细） | Transformer 0.3–2B | $$256^2$$ / 680（10 个尺度） | FID 1.73<br/>比栅格 AR 快 20×<br/>scaling law |
 | Emu3 | 2024 | SBER-MoVQGAN | 栅格 AR | 8B，文本 + 图 + 视频统一 | $$512^2$$+ | 纯 next-token 的统一模型 |
 | Infinity | 2024 | 位级 LFQ（$$2^{32}$$ 等效码本） | next-scale | 2B | $$1024^2$$ | VAR 的文生图放大 |
 
@@ -64,9 +64,9 @@ VAR：next-scale，由粗到细 10 步`"]
 
 | 路线 | 理解侧表示 | 生成侧表示 | 生成方式 | 代表 | 取舍 |
 |---|---|---|---|---|---|
-| 纯 token | VQ token（与生成共享） | VQ token | 栅格 AR | Chameleon（Meta 2024）、Emu3 | 结构最统一；理解侧受 VQ 信息损失限制；训练不稳定 |
+| 纯 token | VQ token（与生成共享） | VQ token | 栅格 AR | Chameleon（Meta 2024）、Emu3 | 结构最统一<br/>理解侧受 VQ 信息损失限制<br/>训练不稳定 |
 | 双编码器 | 连续（SigLIP）特征 | VQ token | AR | Janus / Janus-Pro（DeepSeek 2024 / 2025） | 理解不妥协；生成与理解的视觉表示不共享 |
-| AR + 扩散混合 | 连续特征（或 VAE latent） | VAE latent | 同一个 Transformer，图像部分用扩散 loss | Transfusion（Meta 2024）、Show-o、BAGEL（ByteDance 2025）、MetaQuery | 生成质量最好；模型内两套 loss；推理时图像部分要多步 |
+| AR + 扩散混合 | 连续特征（或 VAE latent） | VAE latent | 同一个 Transformer，图像部分用扩散 loss | Transfusion（Meta 2024）、Show-o、BAGEL（ByteDance 2025）、MetaQuery | 生成质量最好<br/>模型内两套 loss<br/>推理时图像部分要多步 |
 
 Table: 统一模型的三条路线
 
@@ -78,19 +78,40 @@ Table: 统一模型的三条路线
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 图像 tokenizer | 用 k-means 码本把手写数字变成 16 个 token（代码 + 图）；VQ-VAE 的推导（最近邻、STE、commitment）；码本坍缩与对策；VQGAN；无码本量化（FSQ 手算、LFQ）；重建 vs 生成的权衡 |
-| 三 | 栅格 AR | 一个计数版的 next-token 模型在 toy token 上生成数字（图）；DALL-E / Parti / LlamaGen；栅格顺序的问题；CFG 在 AR 上的形式；scaling |
-| 四 | 打破栅格 | MaskGIT 的并行解码；VAR 的 next-scale 推导与多尺度残差 VQ；速度与质量 |
-| 五 | AR vs 扩散 | 质量、效率、可控性、统一性的对照；混合方法（MAR 的连续 token AR + 扩散头） |
-| 六 | 统一模型 | 三条路线的结构、训练与结果；Chameleon 的稳定性问题；Janus 的解耦；Transfusion / BAGEL 的混合；GPT-4o 原生图像生成的启示 |
-| 七 | 成本 | AR 的 token 数与 decode 步数；与扩散的账 |
-| 八 | 动手（建议） | VQGAN 码本大小与重建；LlamaGen vs SD 的时间 |
-| 九 | 本文小结 | |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、图像 tokenizer**
+  - 用 k-means 码本把手写数字变成 16 个 token（代码 + 图）
+  - VQ-VAE 的推导（最近邻、STE、commitment）
+  - 码本坍缩与对策
+  - VQGAN
+  - 无码本量化（FSQ 手算、LFQ）
+  - 重建 vs 生成的权衡
+- **三、栅格 AR**
+  - 一个计数版的 next-token 模型在 toy token 上生成数字（图）
+  - DALL-E / Parti / LlamaGen
+  - 栅格顺序的问题
+  - CFG 在 AR 上的形式
+  - scaling
+- **四、打破栅格**
+  - MaskGIT 的并行解码
+  - VAR 的 next-scale 推导与多尺度残差 VQ
+  - 速度与质量
+- **五、AR vs 扩散**
+  - 质量、效率、可控性、统一性的对照
+  - 混合方法（MAR 的连续 token AR + 扩散头）
+- **六、统一模型**
+  - 三条路线的结构、训练与结果
+  - Chameleon 的稳定性问题
+  - Janus 的解耦
+  - Transfusion / BAGEL 的混合
+  - GPT-4o 原生图像生成的启示
+- **七、成本**
+  - AR 的 token 数与 decode 步数
+  - 与扩散的账
+- **八、动手（建议）**
+  - VQGAN 码本大小与重建
+  - LlamaGen vs SD 的时间
+- **九、本文小结**
+- **十、自测**：5 道题
 
 ## 二、图像 tokenizer
 
@@ -333,19 +354,19 @@ Chameleon 34B：4.4T token；BAGEL：数万亿 token 的交错数据、14B MoT�
 
 | 项 | 规则 | 备注 |
 |---|---|---|
-| VQ-VAE | 最近邻码字；STE 传梯度；EMA 更新码本；commitment $$\beta = 0.25$$ | $$256^2$$ f16 → 256 token |
+| VQ-VAE | 最近邻码字<br/>STE 传梯度<br/>EMA 更新码本<br/>commitment $$\beta = 0.25$$ | $$256^2$$ f16 → 256 token |
 | 坍缩 | 死码字不被更新；k-means 初始化、死码重置、低维归一化（利用率 → 97%）、熵正则 | LlamaGen 16384 |
 | VQGAN | + LPIPS + 对抗 → 锐利重建 | SD VAE 是它的连续版本 |
 | FSQ / LFQ | 每维独立 round，隐式码本 $$L^{d'}$$ / $$2^{d'}$$，无学习型码本的坍缩机制（利用率仍看 encoder 分布） | LFQ $$2^{18}$$；Infinity 位级 $$2^{32}$$ |
 | 张力 | 重建要细节，生成要可预测；语义化 tokenizer 调和 | UniTok、TokenFlow |
-| 栅格 AR | LLM 结构 + next-token；CFG 在 logits 上 $$w \approx 2$$ | LlamaGen FID 2.18；4096 步太慢；单向上下文 |
+| 栅格 AR | LLM 结构 + next-token；CFG 在 logits 上 $$w \approx 2$$ | LlamaGen FID 2.18<br/>4096 步太慢<br/>单向上下文 |
 | MaskGIT | 双向、并行 mask 预测 8–12 步 | 快 30–60× |
-| VAR | next-scale：多尺度残差 VQ（RVQ 的空间版），10 尺度并行 | FID 1.73；快 20×；scaling $$R^2 = 0.998$$ |
+| VAR | next-scale：多尺度残差 VQ（RVQ 的空间版），10 尺度并行 | FID 1.73<br/>快 20×<br/>scaling $$R^2 = 0.998$$ |
 | MAR | 连续 token AR + 扩散头 | FID 1.55；无 VQ |
-| AR vs 扩散 | ImageNet 平手；文生图扩散领先；AR 赢统一与 scaling 基建 | 最优形式可能是混合 |
-| 统一三路线 | 纯 token（Chameleon，理解妥协、不稳定）；双编码器（Janus，两侧好、不共享）；AR + 扩散（Transfusion、BAGEL，生成最好、涌现） | GPT-4o 确认方向 |
+| AR vs 扩散 | ImageNet 平手<br/>文生图扩散领先<br/>AR 赢统一与 scaling 基建 | 最优形式可能是混合 |
+| 统一三路线 | 纯 token（Chameleon，理解妥协、不稳定）<br/>双编码器（Janus，两侧好、不共享）<br/>AR + 扩散（Transfusion、BAGEL，生成最好、涌现） | GPT-4o 确认方向 |
 | 共享 | 部分共享：共享 attention / 上下文，分开 FFN；tokenizer 走向一套语义化 | BAGEL MoT |
-| 成本 | 栅格 AR 7B 4096 步 100 s（带宽）；VAR < 1 s；统一模型 ≈ LLM 预训练量级 | |
+| 成本 | 栅格 AR 7B 4096 步 100 s（带宽）<br/>VAR < 1 s<br/>统一模型 ≈ LLM 预训练量级 |  |
 
 Table: 自回归图像生成与统一模型的规则小结
 

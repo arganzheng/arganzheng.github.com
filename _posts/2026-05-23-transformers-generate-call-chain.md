@@ -45,18 +45,32 @@ flowchart TB
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 配置从哪来 | `GenerationConfig` 三层优先级；`generation_config.json`；`max_length=20` 与 `max_new_tokens` 的老陷阱；哪些 kwargs 会被转给 `forward` |
-| 三 | 变换 logits 的一串函数 | `LogitsProcessor` 接口；`_get_logits_processor` 怎么按字段装配；顺序为什么是 penalty → temperature → top-k → top-p；每个的十行代码 |
-| 四 | 什么时候停 | `StoppingCriteria`；`MaxLengthCriteria`、`EosTokenCriteria`（`torch.isin`）、`StopStringCriteria`；`unfinished_sequences` 位向量与 batch 里的 padding |
-| 五 | 循环本身 | `_prefill` 与 `logits_to_keep=1`；`prepare_inputs_for_generation` 切最后一个 token；`_update_model_kwargs_for_generation` 给 attention_mask 加一列；`DeferredStopCheck` 为什么晚一步；`torch.compile` 与 chunked prefill |
-| 六 | 别的模式 | greedy / beam / assisted（投机解码）/ `custom_generate` 各在哪；为什么本系列只读 `_sample` |
-| 七 | 流式输出 | `TextStreamer` 与 `TextIteratorStreamer`：`put` / `end` 与一个线程 |
-| 八 | 本文小结 | |
-| 九 | 自测 | 五道题 |
-
-Table: 本文的章节安排
+- **二、配置从哪来**
+  - `GenerationConfig` 三层优先级
+  - `generation_config.json`
+  - `max_length=20` 与 `max_new_tokens` 的老陷阱
+  - 哪些 kwargs 会被转给 `forward`
+- **三、变换 logits 的一串函数**
+  - `LogitsProcessor` 接口
+  - `_get_logits_processor` 怎么按字段装配
+  - 顺序为什么是 penalty → temperature → top-k → top-p
+  - 每个的十行代码
+- **四、什么时候停**
+  - `StoppingCriteria`
+  - `MaxLengthCriteria`、`EosTokenCriteria`（`torch.isin`）、`StopStringCriteria`
+  - `unfinished_sequences` 位向量与 batch 里的 padding
+- **五、循环本身**
+  - `_prefill` 与 `logits_to_keep=1`
+  - `prepare_inputs_for_generation` 切最后一个 token
+  - `_update_model_kwargs_for_generation` 给 attention_mask 加一列
+  - `DeferredStopCheck` 为什么晚一步
+  - `torch.compile` 与 chunked prefill
+- **六、别的模式**
+  - greedy / beam / assisted（投机解码）/ `custom_generate` 各在哪
+  - 为什么本系列只读 `_sample`
+- **七、流式输出**：`TextStreamer` 与 `TextIteratorStreamer`：`put` / `end` 与一个线程
+- **八、本文小结**
+- **九、自测**：五道题
 
 ## 二、配置从哪来
 
@@ -225,7 +239,7 @@ while self._has_unfinished_sequences(...):
 |---|---|---|
 | greedy / sample | `_sample` | 本文；`do_sample` 只在选 token 那一行分叉 |
 | beam search | `_beam_search` | 每步保留 `num_beams` 条得分最高的前缀，cache 要跟着 `reorder_cache` 重排；长度惩罚 `length_penalty` |
-| assisted / speculative | `_assisted_decoding` | 小模型（`assistant_model`）先猜 $$k$$ 个 token，大模型一次前向验证；接受率的数学在 [L4 第十二篇](/quantization-speculative-decoding-and-lora.html)；`prompt_lookup_num_tokens` 是不用小模型、从 prompt 里找 n-gram 当草稿的变体 |
+| assisted / speculative | `_assisted_decoding` | 小模型（`assistant_model`）先猜 $$k$$ 个 token，大模型一次前向验证<br/>接受率的数学在 [L4 第十二篇](/quantization-speculative-decoding-and-lora.html)<br/>`prompt_lookup_num_tokens` 是不用小模型、从 prompt 里找 n-gram 当草稿的变体 |
 | contrastive / DoLa / group beam | 5.x 已移到 Hub 上的 `custom_generate` 仓库 | `_get_deprecated_gen_repo` 会指路 |
 | 自定义 | `custom_generate="user/repo"` 或一个可调用对象 | 从 Hub 仓库的 `custom_generate/generate.py` 加载解码函数（要 `trust_remote_code`） |
 

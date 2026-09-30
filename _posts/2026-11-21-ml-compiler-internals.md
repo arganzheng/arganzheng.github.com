@@ -388,7 +388,7 @@ Table: 贯穿系列的三条线索
 | 第六篇 | Triton | `include/triton/Analysis/AxisInfo.h`、`lib/Analysis/AxisInfo.cpp`、`test/Analysis/test-alignment.mlir` |
 | 第七篇 | Triton | `lib/Tools/LinearLayout.cpp`、`lib/Dialect/TritonGPU/IR/LinearLayoutConversions.cpp`、`lib/Conversion/TritonToTritonGPU/`、`lib/Dialect/TritonGPU/Transforms/Coalesce.cpp`、`bin/triton-tensor-layout.cpp` |
 | 第八篇 | Triton | `Transforms/RemoveLayoutConversions.cpp`、`AccelerateMatmul.cpp`、`OptimizeDotOperands.cpp`、`OptimizeThreadLocality.cpp`；`test/TritonGPU/{combine,accelerate-matmul,dot-operands}.mlir` |
-| 第九篇 | Triton | `Transforms/Pipeliner/`、`Prefetch.cpp`、`ReorderInstructions.cpp`、`WarpSpecialization/`；`lib/Dialect/TritonNvidiaGPU/Transforms/`；`python/triton/experimental/gluon/`；`test/TritonGPU/loop-pipeline*.mlir` |
+| 第九篇 | Triton | `Transforms/Pipeliner/`、`Prefetch.cpp`、`ReorderInstructions.cpp`、`WarpSpecialization/`<br/>`lib/Dialect/TritonNvidiaGPU/Transforms/`<br/>`python/triton/experimental/gluon/`<br/>`test/TritonGPU/loop-pipeline*.mlir` |
 | 第十篇 | Triton | `lib/Conversion/TritonGPUToLLVM/`、`third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/`、`lib/Analysis/{Allocation,Membar}.cpp`；`test/Conversion/` |
 | 第十一篇 | Triton | `python/triton/compiler/compiler.py`、`runtime/{cache,jit,driver}.py`、`knobs.py`、`third_party/nvidia/backend/{compiler.py,driver.py,driver.c}`；`third_party/amd/backend/compiler.py` |
 | 第十二篇 | TVM | `python/tvm/tirx/`、`python/tvm/s_tir/schedule/`、`src/s_tir/schedule/primitive/`、`src/tirx/transform/`、`python/tvm/s_tir/meta_schedule/`、`python/tvm/relax/`、`docs/deep_dive/tensor_ir/` |

@@ -57,9 +57,9 @@ flowchart TB
 
 | 模型 | 类型 | 特点 |
 |---|---|---|
-| Qwen3-Embedding-8B / 4B / 0.6B | 开放（Apache 2.0） | 8B 以 70.58 登顶 MTEB Multilingual（2025-06）；32K 上下文；配套 Qwen3-Reranker；三个尺寸 |
-| Gemini Embedding 001 | 闭源 API | MMTEB 68.32；跨语言检索强（XOR-Retrieve 90.42）；**输入上限 2K token** |
-| Voyage-3-large | 闭源 API（MongoDB 旗下） | 32K 上下文；Matryoshka 2048 / 1024 / 512 / 256；量化感知训练支持 int8 与二值；面向法律、金融、代码等领域 |
+| Qwen3-Embedding-8B / 4B / 0.6B | 开放（Apache 2.0） | 8B 以 70.58 登顶 MTEB Multilingual（2025-06）<br/>32K 上下文<br/>配套 Qwen3-Reranker<br/>三个尺寸 |
+| Gemini Embedding 001 | 闭源 API | MMTEB 68.32<br/>跨语言检索强（XOR-Retrieve 90.42）<br/>**输入上限 2K token** |
+| Voyage-3-large | 闭源 API（MongoDB 旗下） | 32K 上下文<br/>Matryoshka 2048 / 1024 / 512 / 256<br/>量化感知训练支持 int8 与二值<br/>面向法律、金融、代码等领域 |
 | Cohere Embed v4 | 闭源 API | **128K 上下文**；多模态（PDF 里的图、幻灯片、商品图与文本同一空间） |
 | OpenAI text-embedding-3-large | 闭源 API | 集成最广；Matryoshka——256 维仍胜旧的 ada-002 1,536 维 |
 | BGE-M3、multilingual-e5、embeddinggemma-300m | 开放 | 生产基线：便宜、快、多语言；BGE-M3 同时输出稠密、稀疏、多向量 |

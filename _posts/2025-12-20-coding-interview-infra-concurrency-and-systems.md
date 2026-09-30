@@ -316,14 +316,14 @@ class TokenBucket:
 
 | 追问 | 要点 |
 |---|---|
-| Python 的 GIL 对这些代码有什么影响？ | 锁仍然需要（GIL 在字节码之间可以切换）；CPU 密集用进程；IO 密集线程够用 |
+| Python 的 GIL 对这些代码有什么影响？ | 锁仍然需要（GIL 在字节码之间可以切换）<br/>CPU 密集用进程<br/>IO 密集线程够用 |
 | `Lock` 与 `RLock`？ | 同一线程重入用 `RLock`；无需重入用 `Lock` 更快 |
 | 死锁的四个条件与预防？ | 互斥、持有并等待、不可抢占、循环等待；按固定顺序加锁、超时、一次申请全部 |
-| 无锁数据结构？ | CAS 循环；ABA 问题；Python 里几乎不做，C++ 用 `std::atomic` |
+| 无锁数据结构？ | CAS 循环<br/>ABA 问题<br/>Python 里几乎不做，C++ 用 `std::atomic` |
 | 内存池怎么支持多种大小？ | size class（8、16、32…）各一个池，像 jemalloc / tcmalloc |
 | CUDA 的 caching allocator 与这里的池有什么关系？ | 同样是"申请大块、内部切分、释放不还给系统"；多了 stream 语义与碎片整理 |
 | GEMM 在 GPU 上怎么分块？ | 三级：全局内存 → shared memory tile → 寄存器 tile；Tensor Core 是 16×16 的 micro-kernel |
-| allreduce 的 tree 与 ring 的取舍？ | ring 带宽最优、延迟 $$O(N)$$；tree 延迟 $$O(\log N)$$、带宽差常数；NCCL 按消息大小选 |
+| allreduce 的 tree 与 ring 的取舍？ | ring 带宽最优、延迟 $$O(N)$$<br/>tree 延迟 $$O(\log N)$$、带宽差常数<br/>NCCL 按消息大小选 |
 | reduce-scatter + all-gather 在 FSDP / ZeRO 里怎么用？ | 反向后 reduce-scatter 梯度（每 rank 只留自己分片），前向前 all-gather 参数 |
 | vLLM 的 block table 存在哪里？ | GPU 上的 int 数组，kernel 按它把逻辑位置翻译成物理地址 |
 | 限流器怎么做到集群级？ | 中心化（Redis + Lua）或本地配额 + 周期同步；或按实例平分配额 |

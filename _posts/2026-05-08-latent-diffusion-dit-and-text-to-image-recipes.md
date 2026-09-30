@@ -75,21 +75,50 @@ U-Net + cross-attn 或 DiT / MMDiT
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | Latent diffusion | 为什么像素空间贵（一张账）；用 PCA 当"VAE"在 16 维 latent 里跑一遍 DDPM、生成手写数字（代码 + 图）；VAE 的结构与训练（重建 + KL + 感知 + 对抗）；压缩率与通道数；VAE 的瓶颈 |
-| 三 | U-Net 到 DiT | U-Net 的结构与条件注入；DiT 的 patchify、adaLN-Zero、scaling 结果；PixArt 的 cross-attn；MMDiT 的双流 |
-| 四 | 文本编码器 | CLIP 文本塔 vs T5 vs LLM；77 token 的限制；多编码器拼接；recaption 为什么是数据侧最重要的改进 |
-| 五 | 配方细节 | 多尺寸 / 多宽高比训练；微条件（SDXL）；分辨率平移；数据过滤与美学分 |
-| 六 | 采样加速 | 求解器（DPM-Solver）；步数蒸馏（progressive、consistency、LCM）；对抗蒸馏（ADD / Turbo）；rectified flow 的优势；1–4 步的现状 |
-| 七 | 成本结构 | 训练与采样的账；与 LLM 的对比；对服务系统的含义 |
-| 八 | 视频生成 | 3D VAE；时空 patch；DiT 的时空 attention；Sora / Wan / HunyuanVideo / CogVideoX 的配方；成本 |
-| 九 | 扩散的后训练 | 偏好对齐（Diffusion-DPO）；奖励微调；与 LLM 后训练的对照 |
-| 十 | 动手（建议） | SD / SDXL / SD3 的 guidance 与步数扫描 |
-| 十一 | 本文小结 | |
-| 十二 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、Latent diffusion**
+  - 为什么像素空间贵（一张账）
+  - 用 PCA 当"VAE"在 16 维 latent 里跑一遍 DDPM、生成手写数字（代码 + 图）
+  - VAE 的结构与训练（重建 + KL + 感知 + 对抗）
+  - 压缩率与通道数
+  - VAE 的瓶颈
+- **三、U-Net 到 DiT**
+  - U-Net 的结构与条件注入
+  - DiT 的 patchify、adaLN-Zero、scaling 结果
+  - PixArt 的 cross-attn
+  - MMDiT 的双流
+- **四、文本编码器**
+  - CLIP 文本塔 vs T5 vs LLM
+  - 77 token 的限制
+  - 多编码器拼接
+  - recaption 为什么是数据侧最重要的改进
+- **五、配方细节**
+  - 多尺寸 / 多宽高比训练
+  - 微条件（SDXL）
+  - 分辨率平移
+  - 数据过滤与美学分
+- **六、采样加速**
+  - 求解器（DPM-Solver）
+  - 步数蒸馏（progressive、consistency、LCM）
+  - 对抗蒸馏（ADD / Turbo）
+  - rectified flow 的优势
+  - 1–4 步的现状
+- **七、成本结构**
+  - 训练与采样的账
+  - 与 LLM 的对比
+  - 对服务系统的含义
+- **八、视频生成**
+  - 3D VAE
+  - 时空 patch
+  - DiT 的时空 attention
+  - Sora / Wan / HunyuanVideo / CogVideoX 的配方
+  - 成本
+- **九、扩散的后训练**
+  - 偏好对齐（Diffusion-DPO）
+  - 奖励微调
+  - 与 LLM 后训练的对照
+- **十、动手（建议）**：SD / SDXL / SD3 的 guidance 与步数扫描
+- **十一、本文小结**
+- **十二、自测**：5 道题
 
 ## 二、Latent diffusion
 
@@ -376,12 +405,12 @@ $$
 | MMDiT | 文本与图像 token 双流权重、联合 attention | 优于 cross-attn 与单流；FLUX 加单流块 + 2D RoPE |
 | 文本编码器 | CLIP（对齐、词袋）→ T5-XXL（语言）→ LLM | Imagen：换 T5 比放大扩散更有效 |
 | recaption | 密集 caption 让条件变强；推理时 prompt 扩写 | DALL-E 3 95% 合成 |
-| 配方 | bucket 多宽高比；微条件（尺寸、裁剪）；美学过滤；两阶段分辨率；分辨率平移 | 数据质量 > 结构 |
+| 配方 | bucket 多宽高比<br/>微条件（尺寸、裁剪）<br/>美学过滤<br/>两阶段分辨率<br/>分辨率平移 | 数据质量 > 结构 |
 | 求解器 | DPM-Solver / UniPC 10–20 步 | 不重训的极限 |
-| 步数蒸馏 | progressive → consistency（LCM 4 步）→ 对抗（Turbo 1–4 步）→ DMD2（1 步） | 上限是教师；多样性降；FID 不够评 |
-| 成本 | SD 1.5 80 T / 3 s；FLUX 2.8 P / 12 s；7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无自回归 KV、按步数 / 分辨率组 batch |
+| 步数蒸馏 | progressive → consistency（LCM 4 步）→ 对抗（Turbo 1–4 步）→ DMD2（1 步） | 上限是教师<br/>多样性降<br/>FID 不够评 |
+| 成本 | SD 1.5 80 T / 3 s<br/>FLUX 2.8 P / 12 s<br/>7B LLM 1000 token 14 T / 25 s | 扩散 compute-bound、无自回归 KV、按步数 / 分辨率组 batch |
 | 视频 | 3D VAE（4× 时间、8× 空间）+ 时空 patch + 全 3D attention；5 s 720p ≈ 100K token | HunyuanVideo 13B ≈ 600 P（attention 占八成以上），FLUX 的 300× |
-| 后训练 | 美学微调；Diffusion-DPO（ELBO 替代似然）；奖励微调；可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
+| 后训练 | 美学微调<br/>Diffusion-DPO（ELBO 替代似然）<br/>奖励微调<br/>可验证奖励 + GRPO | 与 L5 平行，含 reward hacking |
 
 Table: Latent diffusion 与 DiT 的规则小结
 

@@ -174,7 +174,7 @@ flowchart TB
 
 | 系统 | 触发 | 第一步 | 第二步 | 摘要形态 | 之后 |
 |---|---|---|---|---|---|
-| Claude Code | 约 83.5% 窗口（预留 33K；新版本按窗口大小调整预留） | 微压缩旧工具返回 | auto-compact：模型生成结构化摘要 | 可读文本，替换历史 | system prompt 不变；根目录 CLAUDE.md 与自动记忆从磁盘重注入；路径规则、子目录 CLAUDE.md 丢失直到再触发 |
+| Claude Code | 约 83.5% 窗口（预留 33K；新版本按窗口大小调整预留） | 微压缩旧工具返回 | auto-compact：模型生成结构化摘要 | 可读文本，替换历史 | system prompt 不变<br/>根目录 CLAUDE.md 与自动记忆从磁盘重注入<br/>路径规则、子目录 CLAUDE.md 丢失直到再触发 |
 | Codex CLI | 轮前检查 + 长工具链的循环边界 | **会话记忆压缩**：用已结构化的任务状态（改过的文件、决定）替代摘要，多数情况不调模型 | `POST /v1/responses/compact`：服务端返回 `type=compaction` 的加密 item | **不可读**（AES 加密，只有 OpenAI 服务端能解），保留模型的内部状态 | 待处理的用户请求重放进压缩后的窗口 |
 | Anthropic API | 可配阈值，默认 150K，最低 50K | context editing（可单独启用） | 服务端 compaction：返回 `compaction` 块 | 可读摘要块，客户端原样送回 | 可替换默认摘要 prompt |
 | Deep Agents | 工具返回 > 20K → 卸载；85% → 截断 | 卸载到文件（路径 + 10 行预览） | 截断旧写入为指针 | 只有以上都不够时才摘要 | 文件系统是持久层 |

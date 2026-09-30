@@ -92,19 +92,38 @@ Table: Serving 平台组件按层次的定位
 
 ### 4. 本文的章节安排
 
-| 章 | 主题 |
-|---|---|
-| 二 | 四种部署形态：单 Pod 单卡 / 单 Pod 多卡 / 多 Pod 一副本 / PD 分离，各用什么 K8s 对象；就绪的定义 |
-| 三 | LeaderWorkerSet：group / leader / worker 模型，size、restartPolicy、rolloutStrategy、subGroupPolicy、networkConfig 逐条；完整的多节点 vLLM YAML；DisaggregatedSet；scale 子资源 |
-| 四 | KServe：InferenceService 三段式与 Knative / Standard 两种模式；LLMInferenceService 字段与完整示例；控制器生成什么、llm-d 如何被嵌入；storage-initializer 与权重加载路径 |
-| 五 | Triton 与 Ray Serve：model repository 与 `config.pbtxt`、dynamic batching、ensemble、vLLM backend；Ray Serve 编程模型与 RayService |
-| 六 | llm-d `v0.9.0`：Router（proxy + EPP）、InferencePool、Model Server 三概念；交付物；well-lit paths；与 KServe 的关系 |
-| 七 | 扩缩容：为什么 CPU 无意义；HPA 自定义指标 vs KEDA ScaledObject（完整 YAML）；缩零与冷启动；PD 独立扩缩；扩容时间分解表 |
-| 八 | 核心问题的数值推演：假设、反应式阈值倒推、headroom 的代价、cron + 指标兜底的组合 |
-| 九 | 代价与边界：引擎需求 → K8s 空缺 → 平台机制 → 代价 四栏表；什么场景不该用 |
-| 十 | 本文小结与 mini-platform/serve/ 增量 |
-
-Table: 本文的章节安排
+- **二**
+  - 四种部署形态：单 Pod 单卡 / 单 Pod 多卡 / 多 Pod 一副本 / PD 分离，各用什么 K8s 对象
+  - 就绪的定义
+- **三**
+  - LeaderWorkerSet：group / leader / worker 模型，size、restartPolicy、rolloutStrategy、subGroupPolicy、networkConfig 逐条
+  - 完整的多节点 vLLM YAML
+  - DisaggregatedSet
+  - scale 子资源
+- **四**
+  - KServe：InferenceService 三段式与 Knative / Standard 两种模式
+  - LLMInferenceService 字段与完整示例
+  - 控制器生成什么、llm-d 如何被嵌入
+  - storage-initializer 与权重加载路径
+- **五**
+  - Triton 与 Ray Serve：model repository 与 `config.pbtxt`、dynamic batching、ensemble、vLLM backend
+  - Ray Serve 编程模型与 RayService
+- **六**
+  - llm-d `v0.9.0`：Router（proxy + EPP）、InferencePool、Model Server 三概念
+  - 交付物
+  - well-lit paths
+  - 与 KServe 的关系
+- **七**
+  - 扩缩容：为什么 CPU 无意义
+  - HPA 自定义指标 vs KEDA ScaledObject（完整 YAML）
+  - 缩零与冷启动
+  - PD 独立扩缩
+  - 扩容时间分解表
+- **八**：核心问题的数值推演：假设、反应式阈值倒推、headroom 的代价、cron + 指标兜底的组合
+- **九**
+  - 代价与边界：引擎需求 → K8s 空缺 → 平台机制 → 代价 四栏表
+  - 什么场景不该用
+- **十**：本文小结与 mini-platform/serve/ 增量
 
 ## 二、推理服务的四种部署形态
 
@@ -119,7 +138,7 @@ Table: 本文的章节安排
 | 单 Pod 单卡 | 默认 | 1 | Deployment | 不需要 | Deployment `/scale` | 7B–14B |
 | 单 Pod 多卡 | `--tensor-parallel-size N`（N ≤ 节点卡数） | 1 | Deployment | 不需要（进程组在 Pod 内） | Deployment `/scale` | 32B–70B（TP=2–8） |
 | 多 Pod 一副本 | `--tensor-parallel-size 8 --pipeline-parallel-size 2 --nnodes 2 --node-rank i --master-addr <leader>`；或 `--distributed-executor-backend ray` | `nnodes` | `LeaderWorkerSet`（`leaderworkerset.x-k8s.io/v1`） | headless Service，`LWS_LEADER_ADDRESS` 注入 | LWS `/scale`（按 group 计数） | 405B、DeepSeek-R1 |
-| PD 分离 | prefill 与 decode 各一组，`--kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":...}'` | 两个独立的副本集合 | 两个 Deployment / 两个 LWS；或 `DisaggregatedSet`（`disaggregatedset.x-k8s.io/v1`）；或 `LLMInferenceService.spec.prefill` | 每组各自的 Service / InferencePool | 两个 `/scale`，指标不同 | 中大模型、长输入 |
+| PD 分离 | prefill 与 decode 各一组，`--kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":...}'` | 两个独立的副本集合 | 两个 Deployment / 两个 LWS<br/>或 `DisaggregatedSet`（`disaggregatedset.x-k8s.io/v1`）<br/>或 `LLMInferenceService.spec.prefill` | 每组各自的 Service / InferencePool | 两个 `/scale`，指标不同 | 中大模型、长输入 |
 
 Table: 四种部署形态与 K8s 对象
 
@@ -905,9 +924,9 @@ prefill 与 decode 的饱和信号不同：prefill 是算力受限，合适的�
 
 | 阶段 | 做什么 | 决定因素 | 典型量级 | 怎么缩短 |
 |---|---|---|---|---|
-| 调度 | 找到一台有 4 张空闲卡的节点并绑定 | 是否有空闲节点；否则要等 cluster autoscaler 加节点 | 有空闲节点：秒级；云上加节点：3–10 分钟 | 预留缓冲节点；节点池 warm pool；第三篇的队列优先级 |
+| 调度 | 找到一台有 4 张空闲卡的节点并绑定 | 是否有空闲节点；否则要等 cluster autoscaler 加节点 | 有空闲节点：秒级；云上加节点：3–10 分钟 | 预留缓冲节点<br/>节点池 warm pool<br/>第三篇的队列优先级 |
 | 拉镜像 | vLLM 镜像 10 GB 量级 | 节点是否已缓存；镜像仓库带宽 | 已缓存：0；未缓存 100–200 MB/s：1–2 分钟 | 节点预拉（DaemonSet）、镜像瘦身（第二篇）、P2P 分发 |
-| 拉权重 | 140 GB 到本地盘或直接读 | 存储路径：对象存储 / 并行文件系统 / 节点 NVMe 缓存 / 镜像 | 对象存储 1 GB/s：2–3 分钟；并行文件系统 5 GB/s：30 秒；本地缓存：≈0 | `pvc://` 直挂、`LocalModelCache`、`oci://`、第五篇的分发方案 |
+| 拉权重 | 140 GB 到本地盘或直接读 | 存储路径：对象存储 / 并行文件系统 / 节点 NVMe 缓存 / 镜像 | 对象存储 1 GB/s：2–3 分钟<br/>并行文件系统 5 GB/s：30 秒<br/>本地缓存：≈0 | `pvc://` 直挂、`LocalModelCache`、`oci://`、第五篇的分发方案 |
 | 加载到显存 | safetensors 读取、反序列化、H2D 拷贝 | 磁盘/文件系统读带宽、PCIe、CPU 解码 | 1–3 分钟 | 直接从并行文件系统 mmap；更快的 load format |
 | 预热 | CUDA graph 捕获、`torch.compile`、profile run 决定 KV block 数 | 模型、`--max-num-seqs`、编译缓存 | 1–3 分钟 | 持久化 compile cache（llm-d 的 recipe 挂 `/.cache` 卷）；`--enforce-eager` 换吞吐 |
 
@@ -1011,14 +1030,14 @@ cron 19:48  19:48 cron 抬到 6, 19:57 就绪 (比 D > 128 的 20:04 早 7 分)
 
 | 引擎需求 | K8s 的空缺 | 平台机制 | 代价 |
 |---|---|---|---|
-| 多 Pod 作为一个副本，同起同停、稳定名字 | Deployment / StatefulSet 单位是 Pod | `LeaderWorkerSet`：group、`size`、`RecreateGroupOnPodRestart`、headless DNS、`LWS_LEADER_ADDRESS` | 一个 Pod 挂整组重建（几分钟）；group 级 gang 需要配合第三篇的调度器；leader 单点承载 API |
-| prefill / decode 两组副本、独立生命周期 | 无角色概念 | `DisaggregatedSet` roles + slices + `DisaggregatedSetRoleScaler`；`LLMInferenceService.prefill` | xPyD 比例受 KV 传输约束；两组各自的 8 分钟就绪；需要 RDMA（第五篇） |
-| 声明式的"一个模型服务"，含路由与调度器 | 只有 Deployment + Service | KServe `InferenceService` / `LLMInferenceService` + well-known config；生成 LWS、InferencePool、EPP、HTTPRoute | 控制器与模板隐藏细节，排障要读生成物；API 仍是 alpha（v1alpha1 → v1alpha2），升级有迁移成本；依赖 Gateway API 与 GIE |
-| 多模型、DAG、异构后端一个进程服务 | 无 | Triton model repository、`config.pbtxt`、dynamic batching、ensemble、vLLM backend | 张量协议对 LLM 不自然；vLLM 作为 backend 少一层原生能力（多节点、指标）；ensemble 内阶段不能独立扩缩 |
-| Python 逻辑重、多阶段、进程间传大对象 | 无 | Ray Serve deployment 图 + `RayService`（`serveConfigV2`、`rayClusterConfig`、`upgradeStrategy`） | 多一个 Ray 控制面（head、GCS、autoscaler）；升级是整集群切换；三层扩缩容延迟叠加 |
-| 按引擎内部状态扩缩 | HPA 只认 CPU/内存；缩零是 alpha | KEDA `ScaledObject`：prometheus / cron 触发、`AverageValue`、behavior、fallback；EPP 汇总指标 | 领先阈值 = 峰值过配；滞后阈值 = 排队；缩零 = 冷启动暴露给用户；多一个 KEDA 与 Prometheus 依赖 |
-| 140 GB 权重在 Pod 起来前到位 | 镜像不含权重；无原生预取 | storage-initializer（`s3://` `hf://`）、`pvc://` 直挂、`oci://` modelcar / image volume、`LocalModelCache` | 下载路径每副本重复拉；PVC 依赖并行文件系统；OCI 镜像巨大、版本管理复杂；预热占用节点盘 |
-| 按副本组滚动升级、不中断 | Deployment 滚动按 Pod | LWS `rolloutStrategy`（`partition`、`maxSurge`）；RayService `NewCluster*`；KServe `canary` / `router.route.group+weight` | `maxSurge` 期间双倍 GPU；`partition` 需要人工推进；canary 需要网关分流 |
+| 多 Pod 作为一个副本，同起同停、稳定名字 | Deployment / StatefulSet 单位是 Pod | `LeaderWorkerSet`：group、`size`、`RecreateGroupOnPodRestart`、headless DNS、`LWS_LEADER_ADDRESS` | 一个 Pod 挂整组重建（几分钟）<br/>group 级 gang 需要配合第三篇的调度器<br/>leader 单点承载 API |
+| prefill / decode 两组副本、独立生命周期 | 无角色概念 | `DisaggregatedSet` roles + slices + `DisaggregatedSetRoleScaler`；`LLMInferenceService.prefill` | xPyD 比例受 KV 传输约束<br/>两组各自的 8 分钟就绪<br/>需要 RDMA（第五篇） |
+| 声明式的"一个模型服务"，含路由与调度器 | 只有 Deployment + Service | KServe `InferenceService` / `LLMInferenceService` + well-known config；生成 LWS、InferencePool、EPP、HTTPRoute | 控制器与模板隐藏细节，排障要读生成物<br/>API 仍是 alpha（v1alpha1 → v1alpha2），升级有迁移成本<br/>依赖 Gateway API 与 GIE |
+| 多模型、DAG、异构后端一个进程服务 | 无 | Triton model repository、`config.pbtxt`、dynamic batching、ensemble、vLLM backend | 张量协议对 LLM 不自然<br/>vLLM 作为 backend 少一层原生能力（多节点、指标）<br/>ensemble 内阶段不能独立扩缩 |
+| Python 逻辑重、多阶段、进程间传大对象 | 无 | Ray Serve deployment 图 + `RayService`（`serveConfigV2`、`rayClusterConfig`、`upgradeStrategy`） | 多一个 Ray 控制面（head、GCS、autoscaler）<br/>升级是整集群切换<br/>三层扩缩容延迟叠加 |
+| 按引擎内部状态扩缩 | HPA 只认 CPU/内存；缩零是 alpha | KEDA `ScaledObject`：prometheus / cron 触发、`AverageValue`、behavior、fallback；EPP 汇总指标 | 领先阈值 = 峰值过配<br/>滞后阈值 = 排队<br/>缩零 = 冷启动暴露给用户<br/>多一个 KEDA 与 Prometheus 依赖 |
+| 140 GB 权重在 Pod 起来前到位 | 镜像不含权重；无原生预取 | storage-initializer（`s3://` `hf://`）、`pvc://` 直挂、`oci://` modelcar / image volume、`LocalModelCache` | 下载路径每副本重复拉<br/>PVC 依赖并行文件系统<br/>OCI 镜像巨大、版本管理复杂<br/>预热占用节点盘 |
+| 按副本组滚动升级、不中断 | Deployment 滚动按 Pod | LWS `rolloutStrategy`（`partition`、`maxSurge`）<br/>RayService `NewCluster*`<br/>KServe `canary` / `router.route.group+weight` | `maxSurge` 期间双倍 GPU<br/>`partition` 需要人工推进<br/>canary 需要网关分流 |
 
 Table: 引擎需求、K8s 空缺、平台机制与代价
 
@@ -1063,20 +1082,20 @@ llm-d v0.9.0          Router = Proxy + EPP（llm-d-router）；InferencePool（G
 
 | 内容 | 位置 |
 |---|---|
-| LWS 类型 | `lws api/leaderworkerset/v1/leaderworkerset_types.go`：`LeaderWorkerSetSpec`（`Replicas`、`LeaderWorkerTemplate`、`RolloutStrategy`、`StartupPolicy`、`NetworkConfig`）、`LeaderWorkerTemplate`（`Size`、`RestartPolicy`、`SubGroupPolicy`、`VolumeClaimTemplates`）、`RollingUpdateConfiguration`（`Partition`、`MaxUnavailable`、`MaxSurge`）、`RecreateGroupOnPodRestart` / `RecreateGroupAfterStart` / `NoneRestartPolicy`、`SubdomainShared` / `SubdomainUniquePerReplica`、`LeaderWorkerSetStatus.HPAPodSelector`、`LeaderWorkerSetTemplateSpec`；常量 `ExclusiveKeyAnnotationKey`、`LwsLeaderAddress`、`LwsGroupSize`、`LwsWorkerIndex`；`groupversion_info.go`：`leaderworkerset.x-k8s.io/v1` |
-| DisaggregatedSet | `lws api/disaggregatedset/v1/disaggregatedset_types.go`：`DisaggregatedSetSpec`（`Roles`、`Slices`、`PlacementPolicy`）、`DisaggregatedRoleSpec`（`Name`、`Scaling`、内联 `LeaderWorkerSetTemplateSpec`）、`RoleScalingStatic` / `RoleScalingExternal`、`PlacementNone` / `PlacementExclusiveSlice` / `PlacementExclusiveTopology`；`disaggregatedsetrolescaler_types.go`：`DisaggregatedSetRoleScaler`（scale 子资源）；`groupversion_info.go`：`disaggregatedset.x-k8s.io/v1` |
+| LWS 类型 | `lws api/leaderworkerset/v1/leaderworkerset_types.go`：`LeaderWorkerSetSpec`（`Replicas`、`LeaderWorkerTemplate`、`RolloutStrategy`、`StartupPolicy`、`NetworkConfig`）、`LeaderWorkerTemplate`（`Size`、`RestartPolicy`、`SubGroupPolicy`、`VolumeClaimTemplates`）、`RollingUpdateConfiguration`（`Partition`、`MaxUnavailable`、`MaxSurge`）、`RecreateGroupOnPodRestart` / `RecreateGroupAfterStart` / `NoneRestartPolicy`、`SubdomainShared` / `SubdomainUniquePerReplica`、`LeaderWorkerSetStatus.HPAPodSelector`、`LeaderWorkerSetTemplateSpec`<br/>常量 `ExclusiveKeyAnnotationKey`、`LwsLeaderAddress`、`LwsGroupSize`、`LwsWorkerIndex`<br/>`groupversion_info.go`：`leaderworkerset.x-k8s.io/v1` |
+| DisaggregatedSet | `lws api/disaggregatedset/v1/disaggregatedset_types.go`：`DisaggregatedSetSpec`（`Roles`、`Slices`、`PlacementPolicy`）、`DisaggregatedRoleSpec`（`Name`、`Scaling`、内联 `LeaderWorkerSetTemplateSpec`）、`RoleScalingStatic` / `RoleScalingExternal`、`PlacementNone` / `PlacementExclusiveSlice` / `PlacementExclusiveTopology`<br/>`disaggregatedsetrolescaler_types.go`：`DisaggregatedSetRoleScaler`（scale 子资源）<br/>`groupversion_info.go`：`disaggregatedset.x-k8s.io/v1` |
 | LWS 示例 | `lws docs/examples/vllm/GPU/lws.yaml`（Ray 后端多节点） |
-| KServe InferenceService | `kserve pkg/apis/serving/v1beta1/inference_service.go`：`InferenceServiceSpec`（`Predictor`、`Explainer`、`Transformer`、`Canary`）、`PrometheusBackend`；`predictor.go`：`PredictorSpec`（`Model`、`StorageUris`、`WorkerSpec`）、`WorkerSpec`（`PipelineParallelSize`、`TensorParallelSize`）、`PredictorExtensionSpec.StorageURI`；`component.go`：`ComponentExtensionSpec`（`MinReplicas`、`MaxReplicas`、`ScaleMetric`、`AutoScaling`）、`MetricsSpec`、`ExternalMetricSource`、`ExternalMetrics`（`Backend`、`ServerAddress`、`Query`）、`MetricCPU` / `MetricMemory` / `MetricConcurrency` / `MetricRPS` |
+| KServe InferenceService | `kserve pkg/apis/serving/v1beta1/inference_service.go`：`InferenceServiceSpec`（`Predictor`、`Explainer`、`Transformer`、`Canary`）、`PrometheusBackend`<br/>`predictor.go`：`PredictorSpec`（`Model`、`StorageUris`、`WorkerSpec`）、`WorkerSpec`（`PipelineParallelSize`、`TensorParallelSize`）、`PredictorExtensionSpec.StorageURI`<br/>`component.go`：`ComponentExtensionSpec`（`MinReplicas`、`MaxReplicas`、`ScaleMetric`、`AutoScaling`）、`MetricsSpec`、`ExternalMetricSource`、`ExternalMetrics`（`Backend`、`ServerAddress`、`Query`）、`MetricCPU` / `MetricMemory` / `MetricConcurrency` / `MetricRPS` |
 | KServe 模式与注解 | `kserve pkg/constants/constants.go`：`DeploymentMode`、`DeploymentModeType`（`Knative`、`Standard`、`ModelMeshDeployment`、`LegacyServerless`、`LegacyRawDeployment`）、`ParseDeploymentMode`、`AutoscalerClass`、`AutoscalerClassHPA` / `KPA` / `External` / `Keda` / `None`、`HfURIPrefix` / `OciURIPrefix` / `OciNativeURIPrefix` / `PvcURIPrefix` / `S3URIPrefix`、`PvcSourceMountName`、`StorageInitializerVolumeName`、`StorageInitializerContainerName`、`DefaultModelLocalMountPath` |
 | KServe LLMInferenceService | `kserve pkg/apis/serving/v1alpha1/llm_inference_service_types.go`：`LLMInferenceServiceSpec`（`Model`、`StorageInitializer`、`WorkloadSpec`、`Router`、`Prefill`、`Tracing`、`BaseRefs`）、`WorkloadSpec`（`Replicas`、`Scaling`、`Parallelism`、`Template`、`Worker`）、`LLMModelSpec`（`URI`、`Name`、`Criticality`、`LoRA`）、`RouterSpec`（`Route`、`Gateway`、`Ingress`、`Scheduler`）、`SchedulerSpec`（`Pool`、`Template`、`Config`、`Replicas`）、`ScalingSpec`（`MinReplicas`、`MaxReplicas`、`WVA`）、`ActuatorSpec`（`HPA`、`KEDA`）、`KEDAScalingSpec`、`ParallelismSpec`（`Tensor`、`Pipeline`、`Data`、`DataLocal`、`Expert`）、`LLMInferenceServiceConfig`；`v1alpha2/llm_inference_service_types.go` 为存储版本 |
-| KServe llmisvc 控制器 | `kserve pkg/controller/v1alpha2/llmisvc/config_merge.go`：`combineBaseRefsConfig`、`ReplaceVariables`、`MergeSpecs`、config 名常量（`configTemplateNameSuffix` 等）；`workload_multi_node.go`：`reconcileMultiNodeWorkload`、`expectedMainMultiNodeLWS`、`expectedPrefillMultiNodeLWS`、`PreserveLWSReplicas`；`config/llmisvcconfig/config-llm-template.yaml`、`config-llm-scheduler.yaml`、`config-llm-decode-template.yaml`、`config-llm-prefill-template.yaml`；样例 `docs/samples/llmisvc/single-node-gpu/`、`e2e-gpt-oss/` |
-| KServe 权重加载 | `kserve pkg/webhook/admission/pod/storage_initializer_injector.go`：`CommonStorageInitialization`、`InjectStorageInitializer`、`InjectModelcar`；`pkg/utils/storage.go`：`ConfigureModelcarToContainer`、`ConfigureOciNativeToContainer`（`ImageVolumeSource`）；`pkg/apis/serving/v1alpha1/storage_container_types.go`（`ClusterStorageContainer`）、`local_model_cache_types.go`（`LocalModelCacheSpec.SourceModelUri` / `ModelSize` / `NodeGroups`）；`config/runtimes/kserve-vllmserver.yaml`、`kserve-huggingfaceserver-multinode.yaml` |
-| llm-d | `llm-d docs/architecture/README.md`；`core/router/README.md`、`proxy.md`、`epp/`；`core/inferencepool.md`；`core/model-servers.md`（指标对应表）；`advanced/autoscaling/README.md`、`hpa-epp.md`（`llm_d_epp_flow_control_queue_size`、`llm_d_epp_request_running`）；`advanced/kv-management/kv-indexer.md`；`docs/api-reference/artifacts.md`；`proposals/modelservice.md`（Superseded）；`guides/README.md`、`guides/env.sh`、`guides/recipes/router/base.values.yaml`、`guides/recipes/modelserver/`、`guides/pd-disaggregation/`（`README.md`、`README.ds.md`、`router/pd-disaggregation.values.yaml`、`modelserver/gpu/vllm/base/`）、`guides/wide-ep-lws/modelserver/gpu/vllm/disaggregatedset/disaggregatedset.yaml`、`guides/workload-autoscaling/keda-epp-queue/optimized-baseline/base/scaledobject.yaml`、`guides/fast-model-actuation/README.md` |
+| KServe llmisvc 控制器 | `kserve pkg/controller/v1alpha2/llmisvc/config_merge.go`：`combineBaseRefsConfig`、`ReplaceVariables`、`MergeSpecs`、config 名常量（`configTemplateNameSuffix` 等）<br/>`workload_multi_node.go`：`reconcileMultiNodeWorkload`、`expectedMainMultiNodeLWS`、`expectedPrefillMultiNodeLWS`、`PreserveLWSReplicas`<br/>`config/llmisvcconfig/config-llm-template.yaml`、`config-llm-scheduler.yaml`、`config-llm-decode-template.yaml`、`config-llm-prefill-template.yaml`<br/>样例 `docs/samples/llmisvc/single-node-gpu/`、`e2e-gpt-oss/` |
+| KServe 权重加载 | `kserve pkg/webhook/admission/pod/storage_initializer_injector.go`：`CommonStorageInitialization`、`InjectStorageInitializer`、`InjectModelcar`<br/>`pkg/utils/storage.go`：`ConfigureModelcarToContainer`、`ConfigureOciNativeToContainer`（`ImageVolumeSource`）<br/>`pkg/apis/serving/v1alpha1/storage_container_types.go`（`ClusterStorageContainer`）、`local_model_cache_types.go`（`LocalModelCacheSpec.SourceModelUri` / `ModelSize` / `NodeGroups`）<br/>`config/runtimes/kserve-vllmserver.yaml`、`kserve-huggingfaceserver-multinode.yaml` |
+| llm-d | `llm-d docs/architecture/README.md`<br/>`core/router/README.md`、`proxy.md`、`epp/`<br/>`core/inferencepool.md`<br/>`core/model-servers.md`（指标对应表）<br/>`advanced/autoscaling/README.md`、`hpa-epp.md`（`llm_d_epp_flow_control_queue_size`、`llm_d_epp_request_running`）<br/>`advanced/kv-management/kv-indexer.md`<br/>`docs/api-reference/artifacts.md`<br/>`proposals/modelservice.md`（Superseded）<br/>`guides/README.md`、`guides/env.sh`、`guides/recipes/router/base.values.yaml`、`guides/recipes/modelserver/`、`guides/pd-disaggregation/`（`README.md`、`README.ds.md`、`router/pd-disaggregation.values.yaml`、`modelserver/gpu/vllm/base/`）、`guides/wide-ep-lws/modelserver/gpu/vllm/disaggregatedset/disaggregatedset.yaml`、`guides/workload-autoscaling/keda-epp-queue/optimized-baseline/base/scaledobject.yaml`、`guides/fast-model-actuation/README.md` |
 | GIE / llm-d-router | `gateway-api-inference-extension api/v1`（`inference.networking.k8s.io`，`InferencePool`）、`apix/v1alpha1`、`pkg/lwepp`；`llm-d-router epp/`（EPP）、`sidecar/`、`cmd/epp`、`cmd/pd-sidecar` |
 | Triton | `triton-server docs/user_guide/model_repository.md`（Repository Layout、`--model-repository`）、`model_configuration.md`（`platform` / `backend`、`max_batch_size`、`input` / `output`、`instance_group`、`model_transaction_policy.decoupled`、Model Warmup）、`batcher.md`（`dynamic_batching`：`preferred_batch_size`、`max_queue_delay_microseconds`、`preserve_ordering`、`priority_levels`；`sequence_batching`、`iterative_sequence`）、`ensemble_models.md`（`ensemble_scheduling.step`、`input_map` / `output_map`）、`metrics.md`（`nv_inference_request_success`、`nv_inference_queue_duration_us`、`nv_inference_pending_request_count`）；`docs/backend_guide/vllm.rst`、`docs/introduction/compatibility.md`（`vllm-python-py3` 容器） |
-| KubeRay | `kuberay ray-operator/apis/ray/v1/rayservice_types.go`：`RayServiceSpec`（`ServeConfigV2`、`RayClusterSpec`、`UpgradeStrategy`、`ServiceUnhealthySecondThreshold`、`DeploymentUnhealthySecondThreshold`、`ExcludeHeadPodFromServeSvc`、`Suspend`）、`RayServiceUpgradeStrategy`、`ClusterUpgradeOptions`、`RayServiceNewCluster` / `RayServiceNewClusterWithIncrementalUpgrade` / `RayServiceUpgradeNone`；`raycluster_types.go`：`EnableInTreeAutoscaling`、`AutoscalerOptions`（`UpscalingMode`、`IdleTimeoutSeconds`）、`WorkerGroupSpec`（`GroupName`、`MinReplicas`、`MaxReplicas`、`NumOfHosts`、`RayStartParams`）；`config/samples/ray-service.llm-serve.yaml` |
-| KEDA | `keda apis/keda/v1alpha1/scaledobject_types.go`：`ScaledObjectSpec`（`ScaleTargetRef`、`PollingInterval`、`CooldownPeriod`、`InitialCooldownPeriod`、`IdleReplicaCount`、`MinReplicaCount`、`MaxReplicaCount`、`Advanced`、`Triggers`、`Fallback`）、`Fallback`（`FailureThreshold`、`Replicas`、`Behavior`）、`AdvancedConfig`（`HorizontalPodAutoscalerConfig`、`RestoreToOriginalReplicaCount`、`ScalingModifiers`）、`ScaleTarget`；`scaletriggers_types.go`：`ScaleTriggers`（`Type`、`Name`、`Metadata`、`AuthenticationRef`、`MetricType`）；`pkg/scalers/prometheus_scaler.go`：`prometheusMetadata`（`serverAddress`、`query`、`threshold`、`activationThreshold`、`namespace`、`ignoreNullValues`）；`cron_scaler.go`（`start`、`end`、`timezone`、`desiredReplicas`）；`pkg/scalers/scaler.go`：`GetMetricTargetType`；`groupversion_info.go`：`keda.sh/v1alpha1` |
-| vLLM（被服务对象） | `vllm/v1/metrics/loggers.py`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_time_per_output_token_seconds`、`vllm:e2e_request_latency_seconds`、`vllm:request_queue_time_seconds`、`vllm:prefix_cache_hits`、`vllm:num_preemptions`、`vllm:cache_config_info`；`vllm/engine/arg_utils.py`：`--tensor-parallel-size`、`--pipeline-parallel-size`、`--distributed-executor-backend`、`--nnodes`、`--node-rank`、`--master-addr`、`--served-model-name`、`--gpu-memory-utilization`、`--max-model-len`；`vllm/entrypoints/openai/cli_args.py`：`--headless`；`vllm/config/parallel.py`：`DistributedExecutorBackend`；`docs/serving/parallelism_scaling.md`；`examples/ray_serving/multi-node-serving.sh` |
+| KubeRay | `kuberay ray-operator/apis/ray/v1/rayservice_types.go`：`RayServiceSpec`（`ServeConfigV2`、`RayClusterSpec`、`UpgradeStrategy`、`ServiceUnhealthySecondThreshold`、`DeploymentUnhealthySecondThreshold`、`ExcludeHeadPodFromServeSvc`、`Suspend`）、`RayServiceUpgradeStrategy`、`ClusterUpgradeOptions`、`RayServiceNewCluster` / `RayServiceNewClusterWithIncrementalUpgrade` / `RayServiceUpgradeNone`<br/>`raycluster_types.go`：`EnableInTreeAutoscaling`、`AutoscalerOptions`（`UpscalingMode`、`IdleTimeoutSeconds`）、`WorkerGroupSpec`（`GroupName`、`MinReplicas`、`MaxReplicas`、`NumOfHosts`、`RayStartParams`）<br/>`config/samples/ray-service.llm-serve.yaml` |
+| KEDA | `keda apis/keda/v1alpha1/scaledobject_types.go`：`ScaledObjectSpec`（`ScaleTargetRef`、`PollingInterval`、`CooldownPeriod`、`InitialCooldownPeriod`、`IdleReplicaCount`、`MinReplicaCount`、`MaxReplicaCount`、`Advanced`、`Triggers`、`Fallback`）、`Fallback`（`FailureThreshold`、`Replicas`、`Behavior`）、`AdvancedConfig`（`HorizontalPodAutoscalerConfig`、`RestoreToOriginalReplicaCount`、`ScalingModifiers`）、`ScaleTarget`<br/>`scaletriggers_types.go`：`ScaleTriggers`（`Type`、`Name`、`Metadata`、`AuthenticationRef`、`MetricType`）<br/>`pkg/scalers/prometheus_scaler.go`：`prometheusMetadata`（`serverAddress`、`query`、`threshold`、`activationThreshold`、`namespace`、`ignoreNullValues`）<br/>`cron_scaler.go`（`start`、`end`、`timezone`、`desiredReplicas`）<br/>`pkg/scalers/scaler.go`：`GetMetricTargetType`<br/>`groupversion_info.go`：`keda.sh/v1alpha1` |
+| vLLM（被服务对象） | `vllm/v1/metrics/loggers.py`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_time_per_output_token_seconds`、`vllm:e2e_request_latency_seconds`、`vllm:request_queue_time_seconds`、`vllm:prefix_cache_hits`、`vllm:num_preemptions`、`vllm:cache_config_info`<br/>`vllm/engine/arg_utils.py`：`--tensor-parallel-size`、`--pipeline-parallel-size`、`--distributed-executor-backend`、`--nnodes`、`--node-rank`、`--master-addr`、`--served-model-name`、`--gpu-memory-utilization`、`--max-model-len`<br/>`vllm/entrypoints/openai/cli_args.py`：`--headless`<br/>`vllm/config/parallel.py`：`DistributedExecutorBackend`<br/>`docs/serving/parallelism_scaling.md`<br/>`examples/ray_serving/multi-node-serving.sh` |
 
 Table: 本篇涉及的 CRD 与源码位置
 

@@ -75,20 +75,38 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 
 ### 3. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | connector | 用 16 个 patch 特征把 MLP、2×2 merge、池化、resampler 各跑一遍（形状、参数、丢不丢信息；代码 + 图）；为什么 resampler 退出；压缩率的极限 |
-| 三 | 注入方式 | decoder 序列 vs cross-attention 的结构、参数、文本能力保持、上下文占用；Llama 3.2 的选择与代价 |
-| 四 | 固定分辨率与 tile | AnyRes 的网格选择（一个 20 行的选网格函数）；缩略图的作用；tile 数与 token 预算；边界问题 |
-| 五 | 原生动态分辨率 | Qwen2-VL 的做法：2D RoPE、可变 patch 数、2×2 merge、上下限；窗口 attention；NaFlex |
-| 六 | 视频与多图 | 帧采样与时间合并；M-RoPE 的三个轴；token 预算在帧间的分配；交错图文 |
-| 七 | 信息 vs token 的交换 | 五张图在三种策略下的 token 数（表 + 图）；一张"任务 × 分辨率 × 压缩"的效果矩阵；每 token 多少像素 |
-| 八 | 成本 | 回指 04-08 的账；三个决定各改了什么；训练侧的影响 |
-| 九 | 动手（建议） | 分辨率—token—精度的三角 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、connector**
+  - 用 16 个 patch 特征把 MLP、2×2 merge、池化、resampler 各跑一遍（形状、参数、丢不丢信息；代码 + 图）
+  - 为什么 resampler 退出
+  - 压缩率的极限
+- **三、注入方式**
+  - decoder 序列 vs cross-attention 的结构、参数、文本能力保持、上下文占用
+  - Llama 3.2 的选择与代价
+- **四、固定分辨率与 tile**
+  - AnyRes 的网格选择（一个 20 行的选网格函数）
+  - 缩略图的作用
+  - tile 数与 token 预算
+  - 边界问题
+- **五、原生动态分辨率**
+  - Qwen2-VL 的做法：2D RoPE、可变 patch 数、2×2 merge、上下限
+  - 窗口 attention
+  - NaFlex
+- **六、视频与多图**
+  - 帧采样与时间合并
+  - M-RoPE 的三个轴
+  - token 预算在帧间的分配
+  - 交错图文
+- **七、信息 vs token 的交换**
+  - 五张图在三种策略下的 token 数（表 + 图）
+  - 一张"任务 × 分辨率 × 压缩"的效果矩阵
+  - 每 token 多少像素
+- **八、成本**
+  - 回指 04-08 的账
+  - 三个决定各改了什么
+  - 训练侧的影响
+- **九、动手（建议）**：分辨率—token—精度的三角
+- **十、本文小结**
+- **十一、自测**：5 道题
 
 ## 二、connector：从编码器空间到 LLM 空间
 
@@ -344,15 +362,15 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 | 项 | 规则 | 备注 |
 |---|---|---|
 | MLP projector | 逐 patch 映射，不压缩，保留空间结构 | LLaVA-1.5 凭它超过 BLIP-2；参数可忽略 |
-| 空间压缩 | 2×2 merge / pixel shuffle（拼接这一步不丢数，其后 $$4d_v \to d$$ 的 MLP 是否降维看模型）；池化（有损） | 4× 经验上几乎无损；16× 需补偿；$$28 \times 28$$ 像素/token 是文字甜点 |
+| 空间压缩 | 2×2 merge / pixel shuffle（拼接这一步不丢数，其后 $$4d_v \to d$$ 的 MLP 是否降维看模型）；池化（有损） | 4× 经验上几乎无损<br/>16× 需补偿<br/>$$28 \times 28$$ 像素/token 是文字甜点 |
 | resampler | 固定 $$K$$ 个 query 的 cross-attention | 固定预算、内容无关、丢空间结构；退出主流，仅视频与 cross-attn 注入 |
 | connector 大小 | 类型影响远小于分辨率与 token 数（MM1） | 不丢信息即可 |
 | 序列注入 | 图片 token 进序列，LLM 零改动，复用生态 | 占上下文；每层全算 |
-| cross-attn 注入 | 每 $$k$$ 层插 gated cross-attention，图片不进序列（视觉 K/V 另存可复用） | 冻结原层则文本能力严格不变；+20B 参数（含每层 FFN）；引擎需特殊支持；Llama 3.2 唯一主流 |
+| cross-attn 注入 | 每 $$k$$ 层插 gated cross-attention，图片不进序列（视觉 K/V 另存可复用） | 冻结原层则文本能力严格不变<br/>+20B 参数（含每层 FFN）<br/>引擎需特殊支持<br/>Llama 3.2 唯一主流 |
 | tile | 切 $$336^2$$ / $$448^2$$ 块 + 缩略图；编码器不变 | 边界切断、pad 失真、小图浪费；InternVL ≤ 40 tile |
-| 原生动态 | 2D RoPE、$$N = HW/14^2$$、2×2 merge、M-RoPE、上下限 | token ∝ 像素；文档任务最好；ViT attention $$O(N^2)$$ → 窗口化 |
-| 视频 | 帧率 × 每帧 token；时间合并 ×2；绝对时间 M-RoPE | 1 分钟 2 fps 256/帧 = 30K |
-| 任务敏感性 | 自然图不敏感；文档 / 图表 / 文字极敏感；空间受益原生 | 设计看目标负载 |
+| 原生动态 | 2D RoPE、$$N = HW/14^2$$、2×2 merge、M-RoPE、上下限 | token ∝ 像素<br/>文档任务最好<br/>ViT attention $$O(N^2)$$ → 窗口化 |
+| 视频 | 帧率 × 每帧 token<br/>时间合并 ×2<br/>绝对时间 M-RoPE | 1 分钟 2 fps 256/帧 = 30K |
+| 任务敏感性 | 自然图不敏感<br/>文档 / 图表 / 文字极敏感<br/>空间受益原生 | 设计看目标负载 |
 
 Table: VLM 结构的规则小结
 

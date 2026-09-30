@@ -35,18 +35,87 @@ flowchart TB
 
 系列的一句话主张是：**每一次通信都在算两本账——带宽的账与延迟的账——分清在算哪本账，才知道该换算法、该换硬件、还是什么都不用换**。带宽的账看链路速率、算法的带宽效率、协议的有效载荷比例；延迟的账看步数、握手次数、kernel 启动、proxy 线程的响应，到 MoE 的 decode 还要加上一项发起速率。八篇用同一个四段法（算一算 → 看一看 → 测一测 → 比一比）在各自的层上把两本账各算一遍，并留下一套能在任何新机器上跑一遍的诊断工具集 comm-probe。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
-|---|---|---|---|
-| [第一篇：集合通信原语与代价模型](/collective-communication-primitives-and-cost-model.html) | 8 卡 1 GB 的 all_reduce 在 25 GB/s 链路上要多久？64 KB 呢？为什么一个对带宽敏感、一个对延迟敏感？ | $$T = \text{步数} \times \alpha + \text{每 rank 字节数} / \beta$$；ring 的带宽项与 $$n$$ 无关、延迟项随 $$n$$ 线性增长，拐点 $$S^* = n\alpha\beta$$ 把消息分到两本账 | $$T_{\text{ring}} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$；1 GB 约 70 ms（延迟 0.2%）、64 KB 约 145 µs（带宽 3%）；busbw = algbw × $$\frac{2(n-1)}{n}$$；8 卡 IB 拐点约 2 MB；tree $$2\lceil\log_2 n\rceil$$ 步 |
-| [第二篇：硬件互联](/hardware-interconnect-pcie-nvlink-and-topology.html) | `NV12` / `PIX` / `SYS` 各意味着什么带宽和路径？NCCL 为什么给 GPU0 选 NIC0 不选 NIC4？ | 节点内三个量级（NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十）；`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入；选网卡的规则是带宽最大、其次路径最近 | NVLink 单向 A100 300 / H100 450 / Blackwell 900 GB/s（厂商 600 / 900 / 1800 是双向合计）；PCIe x16 单向 3.0 / 4.0 / 5.0 ≈ 16 / 32 / 64 GB/s；HDR 25、NDR 50 GB/s；网卡速率约为 PCIe 链路的 78%；整机 NVLink 容量是网卡总带宽的 9 倍 |
-| [第三篇：RDMA 与 GPUDirect](/rdma-and-gpudirect.html) | 显存到对端显存，走 TCP、RDMA 无 GDR、RDMA + GDR，各几次拷贝、走哪些 PCIe 链路、上限多少？ | TCP 每端 2 次拷贝、主机内存每字节访问 4 次、原理上跑不满 400 Gb/s；RDMA 无 GDR 1 次拷贝；RDMA + GDR 0 次拷贝、PCIe switch 内一跳，上限 min(NIC, PCIe) | H100 / PCIe 5.0 / NDR = 50 GB/s，A100 / PCIe 4.0 / HDR = 25 GB/s，A100 配 NDR 被卡在 32 GB/s；延迟 IB 1–2 µs、RoCE 2–4 µs、TCP 15–50 µs；`NCCL_NET_GDR_LEVEL` 默认 `PXB`；`NCCL_IB_TIMEOUT=20` → 4.3 s × 7 次 ≈ 30 s 后 status=12 |
-| [第四篇：NCCL 架构](/nccl-architecture-topology-channels-algorithms-and-protocols.html) | 同一次 8 卡 all_reduce，NCCL 为什么在 NVSwitch 机上选 NVLS + Simple、NVLink 机上选 Ring + LL128、PCIe 机上只剩 Simple / LL、32 节点选 Tree？强行 Ring 付出什么？ | 决策全部在 `ncclCommInitRank` 里做完（拓扑 → 路径 → 图搜索 → channel → 调优表），`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑分别算出的 lat 与 bw | $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$；LL 50%、LL128 约 94%、Simple 接近 100%；LL128 只在 NVLink 路径启用；32 节点 ring 510 步 vs tree $$2 \times (7 + 5)$$ 步；强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍 |
-| [第五篇：PyTorch 的通信栈](/pytorch-communication-stack-processgroupnccl-and-streams.html) | `async_op=True` 返回时通信开始了吗？`wait()` 返回时完成了吗？期间改 `t` 会怎样？ | 三个"不一定"换成 stream 与 event 的精确陈述：NCCL stream 等当前 stream 的 event，`wait()` 是当前 stream 等 end event，CPU 全程不停；重叠的来源与失效的来源是同一套编排 | watchdog 每 100 ms 轮询、`opTimeout_` 默认 10 分钟、heartbeat monitor 480 s 强杀；25 MB bucket 节点内约 97 µs、跨机约 875 µs 带宽项；1000 个 25 KB 各做一次 vs 合并一次：延迟项 1000 倍差；DDP bucket 25 MiB |
-| [第六篇：nccl-tests、调优与排障](/nccl-tests-tuning-and-debugging-hangs.html) | 64 卡任务第 3000 步 hang 在 all_reduce：是谁、是哪一次、为什么等到 timeout 才暴露？ | 曲线左端看 α、右端看 β、拐点 $$S_{\text{knee}} = n\alpha\beta$$；hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致；Flight Recorder 按 `collective_seq_id` 对齐给出 culprit | 到 90% 平台约 $$9\,S_{\text{knee}}$$；8×H100 节点内拐点约 10 MB、64 卡跨机约 30 MB；参考线 8×H100 350–480 GB/s、2 节点 NDR 每 GPU 40–48；参数优先级 env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf`；kernel 自旋无超时，唯一计时器是 c10d 的 watchdog |
-| [第七篇：推理侧的通信](/inference-communication-custom-all-reduce-and-kv-transfer.html) | 8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs，20 µs 省在哪？为什么不能用在梯度同步上？ | decode TP 是纯 α 的账：省的是 launch 路径、14 步 → 2 步、无 channel buffer 中转、可捕获进 CUDA Graph；KV 传输是纯 β 的点对点账，单边 RDMA 比 NCCL 更自然 | 128 KB = 8 × 8192 × 2 B；NCCL Ring + LL 模型 6.6 + 14 × 0.6 ≈ 15 µs；custom AR 36 个 block、8 卡 < 256 KB one-shot、上限 8 MB、只能节点内；Llama-3-70B 每 token KV 320 KB，4096 token 1.25 GiB，TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms |
-| [第八篇：MoE 的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html) | EP=64 跨 8 节点，一层 dispatch + combine 每 token 跨多少链路、搬多少字节、走几步？NCCL 的 all_to_all 为什么在 decode 不够用，DeepEP 怎么做到几百微秒？ | 通信矩阵由路由决定、每步不同、最慢的 rank 决定时间；prefill 是网卡带宽的账（按节点去重把网卡上的份数从 7 压到 3.2）；decode 是发起速率的账（1024 条 7.4 KB 消息，CPU proxy 给不了，IBGDA 让 warp 自己写 WQE 与 doorbell） | FP8 dispatch 59 KB / token、BF16 combine 115 KB；跨节点比例 $$1 - 1/N$$；去重份数 $$N(1 - (1 - 1/N)^k)(1 - 1/N)$$：7 → 4.6 → 3.2；prefill 一层 5.6–12.5 ms；decode 理论 429 µs、README 487 µs，其中 3/4 是字节、40–60 µs 是 α |
-
-Table: 八篇的核心问题、结论与必记公式
+- **[第一篇：集合通信原语与代价模型](/collective-communication-primitives-and-cost-model.html)**
+  - 回答的问题：8 卡 1 GB 的 all_reduce 在 25 GB/s 链路上要多久？64 KB 呢？为什么一个对带宽敏感、一个对延迟敏感？
+  - 一句话结论：$$T = \text{步数} \times \alpha + \text{每 rank 字节数} / \beta$$；ring 的带宽项与 $$n$$ 无关、延迟项随 $$n$$ 线性增长，拐点 $$S^* = n\alpha\beta$$ 把消息分到两本账
+  - 必记的数字 / 公式：
+    - $$T_{\text{ring}} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$
+    - 1 GB 约 70 ms（延迟 0.2%）、64 KB 约 145 µs（带宽 3%）
+    - busbw = algbw × $$\frac{2(n-1)}{n}$$
+    - 8 卡 IB 拐点约 2 MB
+    - tree $$2\lceil\log_2 n\rceil$$ 步
+- **[第二篇：硬件互联](/hardware-interconnect-pcie-nvlink-and-topology.html)**
+  - 回答的问题：`NV12` / `PIX` / `SYS` 各意味着什么带宽和路径？NCCL 为什么给 GPU0 选 NIC0 不选 NIC4？
+  - 一句话结论：
+    - 节点内三个量级（NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十）
+    - `nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入
+    - 选网卡的规则是带宽最大、其次路径最近
+  - 必记的数字 / 公式：
+    - NVLink 单向 A100 300 / H100 450 / Blackwell 900 GB/s（厂商 600 / 900 / 1800 是双向合计）
+    - PCIe x16 单向 3.0 / 4.0 / 5.0 ≈ 16 / 32 / 64 GB/s
+    - HDR 25、NDR 50 GB/s
+    - 网卡速率约为 PCIe 链路的 78%
+    - 整机 NVLink 容量是网卡总带宽的 9 倍
+- **[第三篇：RDMA 与 GPUDirect](/rdma-and-gpudirect.html)**
+  - 回答的问题：显存到对端显存，走 TCP、RDMA 无 GDR、RDMA + GDR，各几次拷贝、走哪些 PCIe 链路、上限多少？
+  - 一句话结论：
+    - TCP 每端 2 次拷贝、主机内存每字节访问 4 次、原理上跑不满 400 Gb/s
+    - RDMA 无 GDR 1 次拷贝
+    - RDMA + GDR 0 次拷贝、PCIe switch 内一跳，上限 min(NIC, PCIe)
+  - 必记的数字 / 公式：
+    - H100 / PCIe 5.0 / NDR = 50 GB/s，A100 / PCIe 4.0 / HDR = 25 GB/s，A100 配 NDR 被卡在 32 GB/s
+    - 延迟 IB 1–2 µs、RoCE 2–4 µs、TCP 15–50 µs
+    - `NCCL_NET_GDR_LEVEL` 默认 `PXB`
+    - `NCCL_IB_TIMEOUT=20` → 4.3 s × 7 次 ≈ 30 s 后 status=12
+- **[第四篇：NCCL 架构](/nccl-architecture-topology-channels-algorithms-and-protocols.html)**
+  - 回答的问题：同一次 8 卡 all_reduce，NCCL 为什么在 NVSwitch 机上选 NVLS + Simple、NVLink 机上选 Ring + LL128、PCIe 机上只剩 Simple / LL、32 节点选 Tree？强行 Ring 付出什么？
+  - 一句话结论：决策全部在 `ncclCommInitRank` 里做完（拓扑 → 路径 → 图搜索 → channel → 调优表），`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑分别算出的 lat 与 bw
+  - 必记的数字 / 公式：
+    - $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$
+    - LL 50%、LL128 约 94%、Simple 接近 100%
+    - LL128 只在 NVLink 路径启用
+    - 32 节点 ring 510 步 vs tree $$2 \times (7 + 5)$$ 步
+    - 强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍
+- **[第五篇：PyTorch 的通信栈](/pytorch-communication-stack-processgroupnccl-and-streams.html)**
+  - 回答的问题：`async_op=True` 返回时通信开始了吗？`wait()` 返回时完成了吗？期间改 `t` 会怎样？
+  - 一句话结论：三个"不一定"换成 stream 与 event 的精确陈述：NCCL stream 等当前 stream 的 event，`wait()` 是当前 stream 等 end event，CPU 全程不停；重叠的来源与失效的来源是同一套编排
+  - 必记的数字 / 公式：
+    - watchdog 每 100 ms 轮询、`opTimeout_` 默认 10 分钟、heartbeat monitor 480 s 强杀
+    - 25 MB bucket 节点内约 97 µs、跨机约 875 µs 带宽项
+    - 1000 个 25 KB 各做一次 vs 合并一次：延迟项 1000 倍差
+    - DDP bucket 25 MiB
+- **[第六篇：nccl-tests、调优与排障](/nccl-tests-tuning-and-debugging-hangs.html)**
+  - 回答的问题：64 卡任务第 3000 步 hang 在 all_reduce：是谁、是哪一次、为什么等到 timeout 才暴露？
+  - 一句话结论：
+    - 曲线左端看 α、右端看 β、拐点 $$S_{\text{knee}} = n\alpha\beta$$
+    - hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致
+    - Flight Recorder 按 `collective_seq_id` 对齐给出 culprit
+  - 必记的数字 / 公式：
+    - 到 90% 平台约 $$9\,S_{\text{knee}}$$
+    - 8×H100 节点内拐点约 10 MB、64 卡跨机约 30 MB
+    - 参考线 8×H100 350–480 GB/s、2 节点 NDR 每 GPU 40–48
+    - 参数优先级 env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf`
+    - kernel 自旋无超时，唯一计时器是 c10d 的 watchdog
+- **[第七篇：推理侧的通信](/inference-communication-custom-all-reduce-and-kv-transfer.html)**
+  - 回答的问题：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs，20 µs 省在哪？为什么不能用在梯度同步上？
+  - 一句话结论：decode TP 是纯 α 的账：省的是 launch 路径、14 步 → 2 步、无 channel buffer 中转、可捕获进 CUDA Graph；KV 传输是纯 β 的点对点账，单边 RDMA 比 NCCL 更自然
+  - 必记的数字 / 公式：
+    - 128 KB = 8 × 8192 × 2 B
+    - NCCL Ring + LL 模型 6.6 + 14 × 0.6 ≈ 15 µs
+    - custom AR 36 个 block、8 卡 < 256 KB one-shot、上限 8 MB、只能节点内
+    - Llama-3-70B 每 token KV 320 KB，4096 token 1.25 GiB，TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms
+- **[第八篇：MoE 的通信](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)**
+  - 回答的问题：EP=64 跨 8 节点，一层 dispatch + combine 每 token 跨多少链路、搬多少字节、走几步？NCCL 的 all_to_all 为什么在 decode 不够用，DeepEP 怎么做到几百微秒？
+  - 一句话结论：
+    - 通信矩阵由路由决定、每步不同、最慢的 rank 决定时间
+    - prefill 是网卡带宽的账（按节点去重把网卡上的份数从 7 压到 3.2）
+    - decode 是发起速率的账（1024 条 7.4 KB 消息，CPU proxy 给不了，IBGDA 让 warp 自己写 WQE 与 doorbell）
+  - 必记的数字 / 公式：
+    - FP8 dispatch 59 KB / token、BF16 combine 115 KB
+    - 跨节点比例 $$1 - 1/N$$
+    - 去重份数 $$N(1 - (1 - 1/N)^k)(1 - 1/N)$$：7 → 4.6 → 3.2
+    - prefill 一层 5.6–12.5 ms
+    - decode 理论 429 µs、README 487 µs，其中 3/4 是字节、40–60 µs 是 α
 
 ### 1. 本文的章节安排
 
@@ -220,14 +289,14 @@ Table: 本文的章节安排
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| α-β 模型、拐点 $$S^* = n\alpha\beta$$ | 一、四、五、六、七、八 | 一推导；四是 NCCL 调优表的形式；五用它算重叠与合并；六画成曲线；七、八分别推到纯 α 与纯 β 的极端 |
-| busbw 系数 $$\frac{2(n-1)}{n}$$ | 一、四、六 | 一定义；四解释 NVLS 下为何"超标"；六用它读参考线 |
-| 拓扑等级 `PIX` / `PXB` / `SYS` | 二、三、四、六、七 | 二定义；三给 GDR 条件；四是 `NCCL_*_LEVEL` 的词表；六、七是排障第一层 |
-| 每 GPU 一张网卡、rail、PXN、同号 GPU 转发 | 二、四、八 | 二给物理理由（78%、9 倍）；四 NCCL 用 PXN；八 DeepEP 按节点去重 |
-| RDMA WRITE / READ、注册、MR cache | 三、四、七、八 | 三定义；四 NCCL 用 WRITE + IMM；七 KV 预注册、decode 侧 READ；八 NVSHMEM 对称堆 |
-| proxy 线程 → IBGDA | 三、四、六、八 | 三"一个核驱动一张网卡"；四 proxy 的位置与风险；六排障项；八 GPU 自己发起 |
-| stream / event、可捕获 | 五、七、八 | 五定义语义与重叠条件；七 custom AR 与 PyNccl 为可捕获绕开 c10d；八 LL kernel 无 host 同步所以可捕获 |
-| 合并小消息 | 一、五、六 | 一"合并是延迟侧唯一有效的对策之一"；五 `_coalescing_manager` 与 DDP bucket；六"框架没合并"是左端偏高的原因之一 |
+| α-β 模型、拐点 $$S^* = n\alpha\beta$$ | 一、四、五、六、七、八 | 一推导<br/>四是 NCCL 调优表的形式<br/>五用它算重叠与合并<br/>六画成曲线<br/>七、八分别推到纯 α 与纯 β 的极端 |
+| busbw 系数 $$\frac{2(n-1)}{n}$$ | 一、四、六 | 一定义<br/>四解释 NVLS 下为何"超标"<br/>六用它读参考线 |
+| 拓扑等级 `PIX` / `PXB` / `SYS` | 二、三、四、六、七 | 二定义<br/>三给 GDR 条件<br/>四是 `NCCL_*_LEVEL` 的词表<br/>六、七是排障第一层 |
+| 每 GPU 一张网卡、rail、PXN、同号 GPU 转发 | 二、四、八 | 二给物理理由（78%、9 倍）<br/>四 NCCL 用 PXN<br/>八 DeepEP 按节点去重 |
+| RDMA WRITE / READ、注册、MR cache | 三、四、七、八 | 三定义<br/>四 NCCL 用 WRITE + IMM<br/>七 KV 预注册、decode 侧 READ<br/>八 NVSHMEM 对称堆 |
+| proxy 线程 → IBGDA | 三、四、六、八 | 三"一个核驱动一张网卡"<br/>四 proxy 的位置与风险<br/>六排障项<br/>八 GPU 自己发起 |
+| stream / event、可捕获 | 五、七、八 | 五定义语义与重叠条件<br/>七 custom AR 与 PyNccl 为可捕获绕开 c10d<br/>八 LL kernel 无 host 同步所以可捕获 |
+| 合并小消息 | 一、五、六 | 一"合并是延迟侧唯一有效的对策之一"<br/>五 `_coalescing_manager` 与 DDP bucket<br/>六"框架没合并"是左端偏高的原因之一 |
 | watchdog、timeout、Flight Recorder | 五、六 | 五给机制（100 ms、10 分钟、480 s）；六给排障（六类 hang、`fr_trace.py`） |
 | all_to_all 的 $$n(n-1)$$ 条流 | 一、八 | 一留下一句话；八展开为 MoE 的字节、去重与发起速率 |
 
@@ -456,7 +525,7 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出八篇各讲什么；知道 α-β、ring、busbw、`PIX` / `SYS`、GDR、LL / LL128 / Simple、proxy、watchdog、Flight Recorder、custom all-reduce、IBGDA 这些名词 |
-| 掌握 | A 组能不翻书算出 8 题以上；B 组能说出每题用了哪几篇的什么；拿到一份 nccl-tests 曲线或一份 `NCCL_DEBUG=INFO` 日志，能指出它在哪一层偏离理论值；拿到一次 hang 的 FR dump 能说出是代码还是环境 |
+| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一份 nccl-tests 曲线或一份 `NCCL_DEBUG=INFO` 日志，能指出它在哪一层偏离理论值<br/>拿到一次 hang 的 FR dump 能说出是代码还是环境 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（换快网卡对小消息无效、busbw 可以超过链路带宽、Tree 在大规模上比 Ring 快一个量级、`wait()` 不阻塞 CPU、所有 rank 停在同一处却只有一个 rank 有责任、custom AR 在最小消息上输给 NCCL、EP=64 的 decode 有 3/4 是字节）为什么成立 |
 
 Table: 掌握程度的判据

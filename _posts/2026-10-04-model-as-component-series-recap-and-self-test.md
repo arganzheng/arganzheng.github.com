@@ -32,16 +32,84 @@ flowchart TB
 
 系列的一句话主张是：**模型 API 没有供应商替你写的规格书，应用工程师要自己写——失效模式、契约、账、选型判据、客户端纪律，五部分缺一不可**。
 
-| 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 结论 |
-|---|---|---|---|
-| [第一篇：失效模式](/llm-failure-modes-nondeterminism-hallucination-and-context.html) | 模型这个组件以哪些方式失效？ | 七条固有性质：非确定性、幻觉、指令遵循与 prompt 敏感、上下文标称 ≠ 有效、知识截止、供应商侧变更、越界；每条对应后面某一层的应对 | batch 不变性缺失（1000 次贪心 18 种结果 → 1 种）；NoLiMa 32K 处 11/13 模型掉到基线一半以下，GPT-4o 99.3% → 69.7%；Air Canada 812.02 加元；PocketOS 9 秒删库；OpenAI 约 700 个 agent 入侵 Hugging Face |
-| [第二篇：API 契约（一）](/llm-api-contract-messages-tools-structured-output-and-streaming.html) | 四家 API 的共同骨架是什么？ | 块列表进、块列表出；工具调用是协议不是功能（校验、权限、执行、配对、截断在应用侧）；结构化输出保证语法不保证语义；服务端状态默认存储 | Responses 默认 `store: true` 30 天；Conversation 无 TTL；OpenAI `arguments` 是字符串、Anthropic `input` 是对象；缓存顺序 tools → system → messages；Assistants API 2026-08-26 关闭 |
-| [第三篇：API 契约（二）](/reasoning-models-as-components-thinking-effort-and-state.html) | 推理模型给契约加了什么维度？ | 思考按输出价计费、占 TTFT、`max_tokens` 含它；effort 是倾向不是预算，选档靠三条曲线；思考是跨轮状态，只搬运不读写；编辑历史与跨模型 fallback 受约束 | Sonnet 5 同任务 `low` → `high` 账单 \$0.0075 → \$0.0445（6 倍）；Fable 5.1 校验 thinking block 之前的历史；Chat Completions 自 GPT-5.4 起不支持带 effort 的工具调用；DeepSeek 的 `reasoning_content` 不能送回 |
-| [第四篇：成本与延迟](/token-cost-and-latency-ledger-for-llm-applications.html) | 一次调用花多少钱、慢在哪一段？ | 五项成本公式；缓存读一次回本；多轮不缓存二次增长、缓存后约 15%；TTFT = 排队 + prefill + 思考，总时长由输出 × TPOT 主导 | 价目跨三个量级（\$10 → \$0.15 → 读 \$0.003）；输出价 = 输入价 × 4–6；读价 0.1×（Fable 5.1 0.025×、DeepSeek 0.02×）；写 1.25×（1 小时 2×）；OpenAI >272K 输入 2× 输出 1.5×；DeepSeek 峰时 ×2；Batch 50% |
-| [第五篇：选型](/model-selection-beyond-leaderboards.html) | 怎么在二十几个候选里选？ | 榜单只缩范围；选型用自己的评测集（30–50 条起）；闭源 vs 自托管是运营问题；级联分流不漏难题；弃用周期是选型维度 | Llama 4 前 27 个私测变体；两家各约 20% Arena 数据 vs 83 个开源模型 29.7%；大小模型价差 5–20 倍；70% 简单请求级联省 63%；OpenAI 3–6 个月通知、Anthropic ≥ 1 年、DeepSeek 4 天 |
-| [第六篇：客户端工程](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) | 调用侧要处理哪些失败？ | 错误分四类只重试"再试可能不同"的；四层超时；幂等问题在工具上；限流按 RPM / TPM 与层级；发前数 token；熔断 + 分层 fallback | full jitter $$t_n = \min(t_{\max}, \text{random}(0, t_0 2^n))$$；重试预算 10%；超过一分钟的生成一律流式；Sonnet 5 同文本多 30% token；中文每字 1–2 token |
-
-Table: 五篇的核心问题、结论与必记
+- **[第一篇：失效模式](/llm-failure-modes-nondeterminism-hallucination-and-context.html)**
+  - 回答的问题：模型这个组件以哪些方式失效？
+  - 一句话结论：七条固有性质：非确定性、幻觉、指令遵循与 prompt 敏感、上下文标称 ≠ 有效、知识截止、供应商侧变更、越界；每条对应后面某一层的应对
+  - 必记的数字 / 结论：
+    - batch 不变性缺失（1000 次贪心 18 种结果 → 1 种）
+    - NoLiMa 32K 处 11/13 模型掉到基线一半以下，GPT-4o 99.3% → 69.7%
+    - Air Canada 812.02 加元
+    - PocketOS 9 秒删库
+    - OpenAI 约 700 个 agent 入侵 Hugging Face
+- **[第二篇：API 契约（一）](/llm-api-contract-messages-tools-structured-output-and-streaming.html)**
+  - 回答的问题：四家 API 的共同骨架是什么？
+  - 一句话结论：
+    - 块列表进、块列表出
+    - 工具调用是协议不是功能（校验、权限、执行、配对、截断在应用侧）
+    - 结构化输出保证语法不保证语义
+    - 服务端状态默认存储
+  - 必记的数字 / 结论：
+    - Responses 默认 `store: true` 30 天
+    - Conversation 无 TTL
+    - OpenAI `arguments` 是字符串、Anthropic `input` 是对象
+    - 缓存顺序 tools → system → messages
+    - Assistants API 2026-08-26 关闭
+- **[第三篇：API 契约（二）](/reasoning-models-as-components-thinking-effort-and-state.html)**
+  - 回答的问题：推理模型给契约加了什么维度？
+  - 一句话结论：
+    - 思考按输出价计费、占 TTFT、`max_tokens` 含它
+    - effort 是倾向不是预算，选档靠三条曲线
+    - 思考是跨轮状态，只搬运不读写
+    - 编辑历史与跨模型 fallback 受约束
+  - 必记的数字 / 结论：
+    - Sonnet 5 同任务 `low` → `high` 账单 \$0.0075 → \$0.0445（6 倍）
+    - Fable 5.1 校验 thinking block 之前的历史
+    - Chat Completions 自 GPT-5.4 起不支持带 effort 的工具调用
+    - DeepSeek 的 `reasoning_content` 不能送回
+- **[第四篇：成本与延迟](/token-cost-and-latency-ledger-for-llm-applications.html)**
+  - 回答的问题：一次调用花多少钱、慢在哪一段？
+  - 一句话结论：
+    - 五项成本公式
+    - 缓存读一次回本
+    - 多轮不缓存二次增长、缓存后约 15%
+    - TTFT = 排队 + prefill + 思考，总时长由输出 × TPOT 主导
+  - 必记的数字 / 结论：
+    - 价目跨三个量级（\$10 → \$0.15 → 读 \$0.003）
+    - 输出价 = 输入价 × 4–6
+    - 读价 0.1×（Fable 5.1 0.025×、DeepSeek 0.02×）
+    - 写 1.25×（1 小时 2×）
+    - OpenAI >272K 输入 2× 输出 1.5×
+    - DeepSeek 峰时 ×2
+    - Batch 50%
+- **[第五篇：选型](/model-selection-beyond-leaderboards.html)**
+  - 回答的问题：怎么在二十几个候选里选？
+  - 一句话结论：
+    - 榜单只缩范围
+    - 选型用自己的评测集（30–50 条起）
+    - 闭源 vs 自托管是运营问题
+    - 级联分流不漏难题
+    - 弃用周期是选型维度
+  - 必记的数字 / 结论：
+    - Llama 4 前 27 个私测变体
+    - 两家各约 20% Arena 数据 vs 83 个开源模型 29.7%
+    - 大小模型价差 5–20 倍
+    - 70% 简单请求级联省 63%
+    - OpenAI 3–6 个月通知、Anthropic ≥ 1 年、DeepSeek 4 天
+- **[第六篇：客户端工程](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)**
+  - 回答的问题：调用侧要处理哪些失败？
+  - 一句话结论：
+    - 错误分四类只重试"再试可能不同"的
+    - 四层超时
+    - 幂等问题在工具上
+    - 限流按 RPM / TPM 与层级
+    - 发前数 token
+    - 熔断 + 分层 fallback
+  - 必记的数字 / 结论：
+    - full jitter $$t_n = \min(t_{\max}, \text{random}(0, t_0 2^n))$$
+    - 重试预算 10%
+    - 超过一分钟的生成一律流式
+    - Sonnet 5 同文本多 30% token
+    - 中文每字 1–2 token
 
 ### 1. 本文的章节安排
 
@@ -203,10 +271,10 @@ flowchart LR
 | 有效上下文长度 | 第一篇 | 模型能可靠利用的长度，远小于标称；用自己的资料做针测 |
 | 工具调用往返 | 第二篇 | 决定 → 校验 / 权限 / 执行 → 配对送回 → 循环；模型只做决定与读结果 |
 | 约束解码 | 第二篇 | schema 编译为自动机，不合法 token 概率置零；保证形状不保证语义 |
-| 服务端状态 | 第二篇 | `previous_response_id` / `previous_interaction_id`；默认存储；不省 token 费；绑定供应商 |
+| 服务端状态 | 第二篇 | `previous_response_id` / `previous_interaction_id`<br/>默认存储<br/>不省 token 费<br/>绑定供应商 |
 | effort | 第三篇 | 思考深度的倾向参数；选档靠三条曲线 |
-| 推理状态 | 第三篇 | thinking block / reasoning item / thought signature；只搬运不读写；历史只追加 |
-| 缓存前缀 | 第四篇 | 逐字节相同前缀的 KV；tools → system → messages；写 1.25× 读 0.1× |
+| 推理状态 | 第三篇 | thinking block / reasoning item / thought signature<br/>只搬运不读写<br/>历史只追加 |
+| 缓存前缀 | 第四篇 | 逐字节相同前缀的 KV<br/>tools → system → messages<br/>写 1.25× 读 0.1× |
 | 二次增长 | 第四篇 | $$N$$ 轮不缓存的输入 $$NS + N(N-1)m/2$$；缓存乘 0.1 |
 | TTFT / TPOT | 第四篇 | 排队 + prefill + 思考 / 每 token 时间；输入长度 → TTFT，输出长度 → 总时长，模型大小 → TPOT |
 | 选择偏差（榜单） | 第五篇 | 多测选最好即使同一 checkpoint 也抬分 |
@@ -225,14 +293,14 @@ Table: 贯穿五篇的概念表
 | "源材料没错，机器人就不会说错" | 幻觉是高概率续写不是转述；哈姆法院案里源材料正确、输出编造、诊所仍负责 | 第一篇 |
 | "标称 1M 就能放 1M" | NoLiMa 32K 处 11/13 模型掉到基线一半以下；且 >272K / 200K 加价 | 第一、四篇 |
 | "system prompt 是权限更高的通道" | 它只是上下文里一段被标记的文本，与工具返回里的注入竞争 | 第一、二篇 |
-| "用了 strict 模式就不会有错误输出" | 只保证 schema 形状；值可以编造；拒答会被伪装成答案 | 第二篇 |
+| "用了 strict 模式就不会有错误输出" | 只保证 schema 形状<br/>值可以编造<br/>拒答会被伪装成答案 | 第二篇 |
 | "服务端状态省 token 钱" | 每轮模型仍读完整上下文，输入照样计费；只改变谁传历史 | 第二篇 |
 | "把模型名从 4.6 改成 5 就迁移完了" | thinking 默认开启、采样参数 400、tokenizer 多 30%、`max_tokens` 含思考 | 第一、三、六篇 |
-| "effort 越高越好" | 简单任务高档可能更差（过度思考）；账单差 6 倍；三条曲线取饱和最低档 | 第三篇 |
+| "effort 越高越好" | 简单任务高档可能更差（过度思考）<br/>账单差 6 倍<br/>三条曲线取饱和最低档 | 第三篇 |
 | "缓存写入加价所以缓存不划算" | 写 1.25× + 读 0.1× = 1.35× < 2×，读一次回本；只有前缀只用一次时不划算 | 第四篇 |
 | "长上下文加价只对超出部分" | OpenAI 对整个请求生效：300K 输入全部 2× | 第四篇 |
 | "Arena 第一就是最好" | 私测选择性披露、采样不对称、对 Arena 分布过拟合；只用来缩范围 | 第五篇 |
-| "自托管每百万 \$0.8 比 API 便宜" | 满载数字；利用率 30% 时翻三倍；还有 Infra 团队成本 | 第五篇 |
+| "自托管每百万 \$0.8 比 API 便宜" | 满载数字<br/>利用率 30% 时翻三倍<br/>还有 Infra 团队成本 | 第五篇 |
 | "路由比级联省钱所以用路由" | 只省 2–3 个百分点却会漏难题；级联不漏 | 第五篇 |
 | "429 了就重试" | `insufficient_quota` 也是 429，不可重试；重试要有预算 | 第六篇 |
 | "一个总超时就够" | 短了误杀长回答，长了对卡死连接等太久；要四层 | 第六篇 |
@@ -413,9 +481,9 @@ Table: 常见误区与正确说法
 
 | 层次 | 判据 |
 |---|---|
-| 读过 | 能说出七条失效模式的名字；知道四家 API 的入口；知道思考 token 按输出价计费；知道缓存读 0.1×；知道榜单不能直接用；知道 429 要退避 |
-| 掌握 | 能给一个具体场景写出失效模式表并标出应对层；能手写工具调用循环含配对与错误送回；能用三条曲线为一个任务选 effort 档；能用公式算出一次调用与 $$N$$ 轮对话的成本并解释缓存的效果；能设计并解读一张五列的选型评测表；能写出错误分类器与四层超时的参数 |
-| 能教人 | 能解释 batch 不变性为什么是非确定性的真正原因；能说清哈姆判决对"源材料正确"抗辩的否定在技术上为什么成立；能推导二次增长与缓存后的系数；能用选择偏差解释 Arena 的失真；能把 PocketOS 事件拆成模型侧一环与应用侧四环；能对一个团队的账单在半小时内定位主要浪费 |
+| 读过 | 能说出七条失效模式的名字<br/>知道四家 API 的入口<br/>知道思考 token 按输出价计费<br/>知道缓存读 0.1×<br/>知道榜单不能直接用<br/>知道 429 要退避 |
+| 掌握 | 能给一个具体场景写出失效模式表并标出应对层<br/>能手写工具调用循环含配对与错误送回<br/>能用三条曲线为一个任务选 effort 档<br/>能用公式算出一次调用与 $$N$$ 轮对话的成本并解释缓存的效果<br/>能设计并解读一张五列的选型评测表<br/>能写出错误分类器与四层超时的参数 |
+| 能教人 | 能解释 batch 不变性为什么是非确定性的真正原因<br/>能说清哈姆判决对"源材料正确"抗辩的否定在技术上为什么成立<br/>能推导二次增长与缓存后的系数<br/>能用选择偏差解释 Arena 的失真<br/>能把 PocketOS 事件拆成模型侧一环与应用侧四环<br/>能对一个团队的账单在半小时内定位主要浪费 |
 
 Table: 掌握程度的判据
 

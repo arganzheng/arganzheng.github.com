@@ -65,17 +65,27 @@ schnell / Turbo / DMD 蒸馏版
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | 配置推导 | 八步各要什么输入、给什么输出；三个算例（FLUX 服务、Wan 服务、24 GB 卡） |
-| 三 | 性能评测 | 排除 warmup；步级计时；三段分开；ABBA；吞吐与延迟分开报；GPU 利用率的陷阱 |
-| 四 | 质量评测 | 对基线图的度量；prompt 集上的度量；视频的度量；人工 A/B；阈值扫描曲线；FID 为什么不够 |
-| 五 | 确定性 | 从哪里丢：seed、算子、并行度、编译、缓存、批 |
-| 六 | 常见故障 | 十类：信号、原因、排查路径 |
-| 七 | 可观测 | 面板上放什么、哪些告警 |
-| 八 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、配置推导**
+  - 八步各要什么输入、给什么输出
+  - 三个算例（FLUX 服务、Wan 服务、24 GB 卡）
+- **三、性能评测**
+  - 排除 warmup
+  - 步级计时
+  - 三段分开
+  - ABBA
+  - 吞吐与延迟分开报
+  - GPU 利用率的陷阱
+- **四、质量评测**
+  - 对基线图的度量
+  - prompt 集上的度量
+  - 视频的度量
+  - 人工 A/B
+  - 阈值扫描曲线
+  - FID 为什么不够
+- **五、确定性**：从哪里丢：seed、算子、并行度、编译、缓存、批
+- **六、常见故障**：十类：信号、原因、排查路径
+- **七、可观测**：面板上放什么、哪些告警
+- **八、自测**：5 道题
 
 ## 二、配置推导
 
@@ -83,13 +93,13 @@ Table: 本文的章节安排
 
 | 步 | 输入 | 做什么 | 输出 |
 |---|---|---|---|
-| ① 算账 | 模型规格、形状、步数、CFG、GPU | `diffusion_ledger.py`；对照 xDiT / SGLang 的公开实测校准 $$\eta$$ | 三段权重与峰值是否放得下；单卡每步 ms、总秒；attention 占比（决定第④步的重点） |
-| ② 无损单卡 | ① 的结果 | 放不下 → 三段 offload / 视频逐层 offload；VAE tiling；FA3；`torch.compile` 或 breakable CUDA graph；`--warmup-resolutions` 列出全部服务形状 | **基线**：固定 20 个 prompt × seed 的图、每步 ms、峰值显存 |
-| ③ 有损 I | 基线 | FP8 线性层（Hopper）；SageAttention；对基线测 PSNR / SSIM / LPIPS | 门限 PSNR > 35 dB 通过则采用 |
-| ④ 有损 II | ③ 的结果、质量预算 | 图像：跨步缓存阈值扫描；视频：稀疏 attention 后端 + 缓存；每档测 PSNR 分布 p10 与人工 A/B 通过率 | 质量预算内最大加速的档位；**蒸馏模型跳过缓存** |
-| ⑤ 多卡 | 延迟 SLO、互联 | NVLink：USP $$p$$ 与 CFG 2 × USP $$p/2$$ 实测；PCIe / 以太网：Ulysses × PipeFusion；装不下：TP / FSDP；视频加 VAE patch 并行 | 并行度与每步 ms；SP 度整除 head 数与 $$N$$ |
+| ① 算账 | 模型规格、形状、步数、CFG、GPU | `diffusion_ledger.py`；对照 xDiT / SGLang 的公开实测校准 $$\eta$$ | 三段权重与峰值是否放得下<br/>单卡每步 ms、总秒<br/>attention 占比（决定第④步的重点） |
+| ② 无损单卡 | ① 的结果 | 放不下 → 三段 offload / 视频逐层 offload<br/>VAE tiling<br/>FA3<br/>`torch.compile` 或 breakable CUDA graph<br/>`--warmup-resolutions` 列出全部服务形状 | **基线**：固定 20 个 prompt × seed 的图、每步 ms、峰值显存 |
+| ③ 有损 I | 基线 | FP8 线性层（Hopper）<br/>SageAttention<br/>对基线测 PSNR / SSIM / LPIPS | 门限 PSNR > 35 dB 通过则采用 |
+| ④ 有损 II | ③ 的结果、质量预算 | 图像：跨步缓存阈值扫描<br/>视频：稀疏 attention 后端 + 缓存<br/>每档测 PSNR 分布 p10 与人工 A/B 通过率 | 质量预算内最大加速的档位；**蒸馏模型跳过缓存** |
+| ⑤ 多卡 | 延迟 SLO、互联 | NVLink：USP $$p$$ 与 CFG 2 × USP $$p/2$$ 实测<br/>PCIe / 以太网：Ulysses × PipeFusion<br/>装不下：TP / FSDP<br/>视频加 VAE patch 并行 | 并行度与每步 ms；SP 度整除 head 数与 $$N$$ |
 | ⑥ 少步 | 允许换模型 | schnell / Turbo / DMD 版；重做 ②③（缓存与 PipeFusion 失效、CUDA graph 变必需、VAE 占比升） | 新基线 |
-| ⑦ serving | QPS、SLO、形状分布 | 按形状分池；每池实例数 = QPS × GPU·秒 × 余量；三段是否分离（视频分 VAE）；同步 / job API；LoRA 策略 | 部署拓扑 |
+| ⑦ serving | QPS、SLO、形状分布 | 按形状分池<br/>每池实例数 = QPS × GPU·秒 × 余量<br/>三段是否分离（视频分 VAE）<br/>同步 / job API<br/>LoRA 策略 | 部署拓扑 |
 | ⑧ 面板 | — | 第七章的指标与告警；质量抽检 | 值班手册 |
 
 Table: 扩散推理配置推导的八步
@@ -142,7 +152,7 @@ Table: 评测规则、原因与做法
 | 层次 | 问什么 | 度量 | 用在 |
 |---|---|---|---|
 | **对基线图** | 同 seed、同 prompt 下这张图变了多少 | PSNR、SSIM、LPIPS（感知距离）；视频加逐帧 PSNR 与帧间一致性 | 每一项优化的门禁；> 35 dB 不可见、30–35 细看可见、< 28 明显 |
-| **prompt 集上** | 整体质量有没有掉 | ImageReward、HPSv2、PickScore（人类偏好模型）；GenEval / T2I-CompBench（物体、数量、属性、位置的组合正确性）；文字渲染准确率 | 少步模型、量化、大幅缓存——改变了"分布"而不只是单图 |
+| **prompt 集上** | 整体质量有没有掉 | ImageReward、HPSv2、PickScore（人类偏好模型）<br/>GenEval / T2I-CompBench（物体、数量、属性、位置的组合正确性）<br/>文字渲染准确率 | 少步模型、量化、大幅缓存——改变了"分布"而不只是单图 |
 | **人工 A/B** | 用户会不会察觉、介意 | 成对比较的胜率与"无差别"率 | 上线前的最终门禁；每次质量预算的重新校准 |
 
 Table: 质量评测的三个层次
@@ -182,18 +192,18 @@ Table: 确定性漂移的来源与对策
 
 | # | 信号 | 最可能的原因 | 先查 | 修 |
 |---|---|---|---|---|
-| 1 | **VAE 解码 OOM**：DiT 28 步跑完、最后一刻 OOM；高分辨率 / 长视频才出 | 解码器全分辩率 fp32 特征图（第一篇：2048² 8 GiB、视频百 GiB）；DiT 释放前解码 | 报错栈在 `vae.decode`；峰值显存曲线的最后一个尖峰 | VAE tiling / 时间分块；DiT 权重先 offload 再解码；Parallel VAE；限制最大分辨率 |
-| 2 | **FP8 后 NaN / 全黑图 / 色偏** | 激活离群值让 per-tensor scale 饱和；某些层（首末层、adaLN）不该量化；VAE 被一起量化了 | 逐层开关 FP8 二分；检查 VAE 精度 | 敏感层留 bf16；per-token / per-block scale；VAE 保持 fp32 |
-| 3 | **缓存伪影**：细节模糊、文字粘连、颜色偏移；关掉缓存正常 | 阈值过高；末尾步保护不足；蒸馏模型开了缓存 | 命中步的位置分布（末尾命中太多）；模型是否少步 | 降阈值；`B_n` 尾块全算；蒸馏模型禁用 |
+| 1 | **VAE 解码 OOM**：DiT 28 步跑完、最后一刻 OOM；高分辨率 / 长视频才出 | 解码器全分辩率 fp32 特征图（第一篇：2048² 8 GiB、视频百 GiB）；DiT 释放前解码 | 报错栈在 `vae.decode`；峰值显存曲线的最后一个尖峰 | VAE tiling / 时间分块<br/>DiT 权重先 offload 再解码<br/>Parallel VAE<br/>限制最大分辨率 |
+| 2 | **FP8 后 NaN / 全黑图 / 色偏** | 激活离群值让 per-tensor scale 饱和<br/>某些层（首末层、adaLN）不该量化<br/>VAE 被一起量化了 | 逐层开关 FP8 二分；检查 VAE 精度 | 敏感层留 bf16<br/>per-token / per-block scale<br/>VAE 保持 fp32 |
+| 3 | **缓存伪影**：细节模糊、文字粘连、颜色偏移；关掉缓存正常 | 阈值过高<br/>末尾步保护不足<br/>蒸馏模型开了缓存 | 命中步的位置分布（末尾命中太多）；模型是否少步 | 降阈值<br/>`B_n` 尾块全算<br/>蒸馏模型禁用 |
 | 4 | **CFG 模型开缓存后饱和 / 发灰** | 条件 / 无条件分支共用缓存状态 | 单独跑 CFG 关闭对比 | 按 CFG 上下文分状态（第三篇） |
-| 5 | **视频闪烁** | 稀疏 attention 的静态窗口截掉运动；缓存在帧间决策不一致；3D VAE 时间分块接缝 | 逐帧 PSNR 曲线的周期性凹陷（分块接缝周期 = chunk 长度）vs 随机凹陷（缓存 / 稀疏） | 换在线稀疏（SVG）或降稀疏度；VAE 分块加重叠；缓存整段一致决策 |
-| 6 | **p99 抬升、p50 不变**：开 compile 后出现 | 重编译风暴——用户请求了未 warmup 的分辨率 / 帧数 / prompt 长度组合 | 日志里 recompile 次数；请求形状的分布 | 限制服务形状 + `--warmup-resolutions` 全列；或 `dynamic=True`；按形状分池 |
-| 7 | **SP 启动报错或 hang** | SP 度不整除 head 数（Ulysses）或 $$N$$（padding 路径 bug）；跨步缓存各卡决策不一致；某 rank 走了不同分支 | `nccl` 超时的 rank；各 rank 的缓存决策日志 | 合法的度数；决策 all-reduce；`NCCL_DEBUG=INFO` 定位缺席的 collective |
-| 8 | **LoRA 未生效 / 效果过强** | 权重名映射失败静默跳过；scale 传错（0 或 2）；量化路径不支持 LoRA（GGUF） | 加载日志的 "unexpected / missing keys"；请求里的 scale | 修映射；SVDQuant 用 Nunchaku 的 LoRA 路径；GGUF 与 LoRA 互斥（SGLang 会在启动时拒绝） |
+| 5 | **视频闪烁** | 稀疏 attention 的静态窗口截掉运动<br/>缓存在帧间决策不一致<br/>3D VAE 时间分块接缝 | 逐帧 PSNR 曲线的周期性凹陷（分块接缝周期 = chunk 长度）vs 随机凹陷（缓存 / 稀疏） | 换在线稀疏（SVG）或降稀疏度<br/>VAE 分块加重叠<br/>缓存整段一致决策 |
+| 6 | **p99 抬升、p50 不变**：开 compile 后出现 | 重编译风暴——用户请求了未 warmup 的分辨率 / 帧数 / prompt 长度组合 | 日志里 recompile 次数；请求形状的分布 | 限制服务形状 + `--warmup-resolutions` 全列<br/>或 `dynamic=True`<br/>按形状分池 |
+| 7 | **SP 启动报错或 hang** | SP 度不整除 head 数（Ulysses）或 $$N$$（padding 路径 bug）<br/>跨步缓存各卡决策不一致<br/>某 rank 走了不同分支 | `nccl` 超时的 rank；各 rank 的缓存决策日志 | 合法的度数<br/>决策 all-reduce<br/>`NCCL_DEBUG=INFO` 定位缺席的 collective |
+| 8 | **LoRA 未生效 / 效果过强** | 权重名映射失败静默跳过<br/>scale 传错（0 或 2）<br/>量化路径不支持 LoRA（GGUF） | 加载日志的 "unexpected / missing keys"；请求里的 scale | 修映射<br/>SVDQuant 用 Nunchaku 的 LoRA 路径<br/>GGUF 与 LoRA 互斥（SGLang 会在启动时拒绝） |
 | 9 | **长 prompt 被截断**：后半段描述不生效 | T5 / CLIP 的 token 上限（77 / 256 / 512） | tokenizer 的截断警告 | 用 T5 / LLM 编码器的模型；prompt 改写压缩 |
-| 10 | **吞吐随并发不增、GPU-Util 100%** | 正常：compute-bound 下 batch 不提吞吐（第七篇）——不是故障 | 单请求 MFU 已 > 0.5 | 加实例（DP）；换少步模型；不要调 batch |
+| 10 | **吞吐随并发不增、GPU-Util 100%** | 正常：compute-bound 下 batch 不提吞吐（第七篇）——不是故障 | 单请求 MFU 已 > 0.5 | 加实例（DP）<br/>换少步模型<br/>不要调 batch |
 | 11 | **`--backend diffusers` 回退**：性能远低于文档 | 原生 pipeline 注册失败 / 模型路径不匹配 | 启动日志 "Falling back to diffusers backend" | 修注册 / 路径；或接受回退性能 |
-| 12 | **BCG 捕获后结果不同 / 偶发错图** | 未捕获形状走 eager（正常）；捕获签名 miss；与 compile / Cache-DiT 互斥被同时开了 | 日志 "captured" / "signature MISSED" | 列全形状；关掉互斥项 |
+| 12 | **BCG 捕获后结果不同 / 偶发错图** | 未捕获形状走 eager（正常）<br/>捕获签名 miss<br/>与 compile / Cache-DiT 互斥被同时开了 | 日志 "captured" / "signature MISSED" | 列全形状；关掉互斥项 |
 
 Table: 扩散推理的常见故障
 

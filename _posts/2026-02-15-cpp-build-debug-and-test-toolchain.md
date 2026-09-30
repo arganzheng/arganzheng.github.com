@@ -68,25 +68,47 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 
 ### 2. 本文的章节安排
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 二 | CMake 的目标模型 | 目标与属性；PUBLIC/PRIVATE/INTERFACE；`find_package(Torch)` 找到了什么；vLLM 怎么用 |
-| 三 | 构建速度 | PyTorch 全量构建为什么慢；Ninja；ccache/sccache；增量构建控制在分钟级 |
-| 四 | 编译选项 | 优化级别与调试信息；PyTorch 实际的编译选项；-march |
-| 五 | `compile_commands.json` 与 clangd | 让 IDE 和静态分析工具理解百万行项目 |
-| 六 | gdb / lldb | 从 Python 进程进入 C++；在 kernel 前打断点；`pytorch-gdb.py`；-O2 下变量为什么消失 |
-| 七 | 段错误、栈溢出、use-after-free | 三种崩溃的排查路径 |
-| 八 | Sanitizers | 插桩原理；一次真实的 ASan 报告；PyTorch 怎么接进 CMake 与 CI；什么时候跑哪个 |
-| 九 | gtest | gtest 的形状；三个测试目录；C++ 测试与 Python 测试的分工；从写完到被 CI 跑 |
-| 十 | clang-format、clang-tidy 与 lint | .clang-format、.clang-tidy、.lintrunner.toml |
-| 十一 | 工具链版本矩阵 | 三个版本轴；PyTorch CI 的矩阵；版本不匹配的典型症状 |
-| 十二 | 回到源码 | `intrusive_ptr_test.cpp`、`tools/gdb/pytorch-gdb.py`、.clang-tidy |
-| 十三 | mini-c10：补齐工程 | `CMakeLists.txt`、两个 gtest 文件、lldb 会话、.clang-format |
-| 十四 | 工程实践建议与常见错误 |  |
-| 十五 | 本文小结 | |
-| 十六 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+- **二、CMake 的目标模型**
+  - 目标与属性
+  - PUBLIC/PRIVATE/INTERFACE
+  - `find_package(Torch)` 找到了什么
+  - vLLM 怎么用
+- **三、构建速度**
+  - PyTorch 全量构建为什么慢
+  - Ninja
+  - ccache/sccache
+  - 增量构建控制在分钟级
+- **四、编译选项**
+  - 优化级别与调试信息
+  - PyTorch 实际的编译选项
+  - -march
+- **五、`compile_commands.json` 与 clangd**：让 IDE 和静态分析工具理解百万行项目
+- **六、gdb / lldb**
+  - 从 Python 进程进入 C++
+  - 在 kernel 前打断点
+  - `pytorch-gdb.py`
+  - -O2 下变量为什么消失
+- **七、段错误、栈溢出、use-after-free**：三种崩溃的排查路径
+- **八、Sanitizers**
+  - 插桩原理
+  - 一次真实的 ASan 报告
+  - PyTorch 怎么接进 CMake 与 CI
+  - 什么时候跑哪个
+- **九、gtest**
+  - gtest 的形状
+  - 三个测试目录
+  - C++ 测试与 Python 测试的分工
+  - 从写完到被 CI 跑
+- **十、clang-format、clang-tidy 与 lint**：.clang-format、.clang-tidy、.lintrunner.toml
+- **十一、工具链版本矩阵**
+  - 三个版本轴
+  - PyTorch CI 的矩阵
+  - 版本不匹配的典型症状
+- **十二、回到源码**：`intrusive_ptr_test.cpp`、`tools/gdb/pytorch-gdb.py`、.clang-tidy
+- **十三、mini-c10：补齐工程**：`CMakeLists.txt`、两个 gtest 文件、lldb 会话、.clang-format
+- **十四、工程实践建议与常见错误**
+- **十五、本文小结**
+- **十六、自测**：5 道题
 
 ## 二、CMake 的目标模型
 
@@ -1199,9 +1221,9 @@ Java 对照：JVM 在运行时**永远**做这些检查（数组边界、空指�
 
 | Sanitizer | 选项 | 能抓 | 抓不到 | 开销 |
 |---|---|---|---|---|
-| **ASan**（AddressSanitizer） | `-fsanitize=address` | 堆/栈/全局变量越界；use-after-free；use-after-return（需要 `detect_stack_use_after_return=1`）；double free；内存泄漏（LeakSanitizer，Linux 默认随 ASan 开启） | 未初始化读；越界但落在另一个合法对象上的访问（"跳过 redzone"）；通过 `mmap` 或自定义分配器分配的内存（除非分配器手工标注）；数据竞争 | 约 2× 时间，2–3× 内存 |
-| **UBSan**（UndefinedBehaviorSanitizer） | `-fsanitize=undefined` | 有符号整数溢出；除零；空指针解引用；未对齐访问；`shift` 超范围；数组下标为负或越界（仅静态已知大小的数组）；`vptr` 检查（通过错误类型的指针调虚函数）；`bool`/`enum` 装入非法值 | 内存错误（那是 ASan 的事）；无符号"溢出"（那是定义好的回绕，不是 UB） | 很小，可以和 ASan 同时开 |
-| **TSan**（ThreadSanitizer） | `-fsanitize=thread` | 数据竞争（两个线程无同步地访问同一内存且至少一个是写，第六篇的核心话题）；某些死锁模式 | 内存错误；与 ASan **互斥**（不能同时开）；对通过非 pthread 机制（比如 OpenMP 运行时内部、CUDA 回调）同步的代码可能误报或漏报 | 5–15× 时间，5–10× 内存 |
+| **ASan**（AddressSanitizer） | `-fsanitize=address` | 堆/栈/全局变量越界<br/>use-after-free<br/>use-after-return（需要 `detect_stack_use_after_return=1`）<br/>double free<br/>内存泄漏（LeakSanitizer，Linux 默认随 ASan 开启） | 未初始化读<br/>越界但落在另一个合法对象上的访问（"跳过 redzone"）<br/>通过 `mmap` 或自定义分配器分配的内存（除非分配器手工标注）<br/>数据竞争 | 约 2× 时间，2–3× 内存 |
+| **UBSan**（UndefinedBehaviorSanitizer） | `-fsanitize=undefined` | 有符号整数溢出<br/>除零<br/>空指针解引用<br/>未对齐访问<br/>`shift` 超范围<br/>数组下标为负或越界（仅静态已知大小的数组）<br/>`vptr` 检查（通过错误类型的指针调虚函数）<br/>`bool`/`enum` 装入非法值 | 内存错误（那是 ASan 的事）；无符号"溢出"（那是定义好的回绕，不是 UB） | 很小，可以和 ASan 同时开 |
+| **TSan**（ThreadSanitizer） | `-fsanitize=thread` | 数据竞争（两个线程无同步地访问同一内存且至少一个是写，第六篇的核心话题）；某些死锁模式 | 内存错误<br/>与 ASan **互斥**（不能同时开）<br/>对通过非 pthread 机制（比如 OpenMP 运行时内部、CUDA 回调）同步的代码可能误报或漏报 | 5–15× 时间，5–10× 内存 |
 
 Table: 三个常用 sanitizer 能抓什么
 
