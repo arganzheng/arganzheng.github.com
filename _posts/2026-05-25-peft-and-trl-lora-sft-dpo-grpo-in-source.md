@@ -113,6 +113,8 @@ self._mark_only_adapters_as_trainable(model)        # 除了名字带 "lora_" �
 
 ## 三、peft：换成什么
 
+> 本节读 `lora.Linear` 的实现。公式的推导与四本账、选参的对照实验、合并与多 adapter 的工程见[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
+
 ### 1. `lora.Linear`
 
 ```python title="lora.Linear.__init__"

@@ -74,6 +74,8 @@ Table: 本文的章节安排
 
 ## 二、multi-LoRA：同一个 batch，每一行乘不同的权重
 
+> LoRA 训练侧的原理与选参见算法地图的[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)；其[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)算了 multi-LoRA 与合并模型两种服务方案的账，本文讲 kernel 与调度。
+
 ### 1. 一段回顾
 
 LoRA 把权重更新约束为低秩：`W' = W + (α/r)·B·A`，`A ∈ ℝ^{r×in}`，`B ∈ ℝ^{out×r}`，`r ≪ min(in, out)`。训练完可以把 `B·A` 合并进 `W`，推理时零开销——**但 serving 不能合并**：合并后一份 `W'` 只服务一个 adapter，服务 8 个 adapter 就要 8 份 70B 权重。所以 serving 必须保持 unmerged（不合并）形式：

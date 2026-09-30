@@ -1,0 +1,816 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="628.530604pt" height="330.544703pt" viewBox="0 0 628.530604 330.544703" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-30T09:33:54.801381</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 330.544703 
+L 628.530604 330.544703 
+L 628.530604 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 88.99125 295.344 
+L 290.308897 295.344 
+L 290.308897 40.32 
+L 88.99125 40.32 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_3">
+    <path d="M -2622.998718 66.402 
+L 146.88012 66.402 
+L 146.88012 51.912 
+L -2622.998718 51.912 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #4a6fa5"/>
+   </g>
+   <g id="patch_4">
+    <path d="M -2622.998718 84.5145 
+L 172.0343 84.5145 
+L 172.0343 70.0245 
+L -2622.998718 70.0245 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_5">
+    <path d="M -2622.998718 102.627 
+L 149.11121 102.627 
+L 149.11121 88.137 
+L -2622.998718 88.137 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #c98a00"/>
+   </g>
+   <g id="patch_6">
+    <path d="M -2622.998718 120.7395 
+L 150.79028 120.7395 
+L 150.79028 106.2495 
+L -2622.998718 106.2495 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_7">
+    <path d="M -2622.998718 138.852 
+L 168.718474 138.852 
+L 168.718474 124.362 
+L -2622.998718 124.362 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_8">
+    <path d="M -2622.998718 156.9645 
+L 148.713401 156.9645 
+L 148.713401 142.4745 
+L -2622.998718 142.4745 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_9">
+    <path d="M -2622.998718 175.077 
+L 171.29979 175.077 
+L 171.29979 160.587 
+L -2622.998718 160.587 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_10">
+    <path d="M -2622.998718 193.1895 
+L 210.613441 193.1895 
+L 210.613441 178.6995 
+L -2622.998718 178.6995 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_11">
+    <path d="M -2622.998718 211.302 
+L 180.51854 211.302 
+L 180.51854 196.812 
+L -2622.998718 196.812 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_12">
+    <path d="M -2622.998718 229.4145 
+L 155.411617 229.4145 
+L 155.411617 214.9245 
+L -2622.998718 214.9245 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_13">
+    <path d="M -2622.998718 247.527 
+L 173.264576 247.527 
+L 173.264576 233.037 
+L -2622.998718 233.037 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_14">
+    <path d="M -2622.998718 265.6395 
+L 148.99673 265.6395 
+L 148.99673 251.1495 
+L -2622.998718 251.1495 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_15">
+    <path d="M -2622.998718 283.752 
+L 232.420027 283.752 
+L 232.420027 269.262 
+L -2622.998718 269.262 
+z
+" clip-path="url(#pdbf021c9d2)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <defs>
+       <path id="m2111680003" d="M 0 0 
+L 0 3.5 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m2111680003" x="97.778159" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="97.778159" y="308.422125" transform="rotate(-0 97.778159 308.422125)">2.350</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <g>
+       <use xlink:href="#m2111680003" x="126.722593" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="126.722593" y="308.422125" transform="rotate(-0 126.722593 308.422125)">2.375</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_3">
+      <g>
+       <use xlink:href="#m2111680003" x="155.667028" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="155.667028" y="308.422125" transform="rotate(-0 155.667028 308.422125)">2.400</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_4">
+      <g>
+       <use xlink:href="#m2111680003" x="184.611463" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="184.611463" y="308.422125" transform="rotate(-0 184.611463 308.422125)">2.425</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_5">
+      <g>
+       <use xlink:href="#m2111680003" x="213.555898" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="213.555898" y="308.422125" transform="rotate(-0 213.555898 308.422125)">2.450</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_6">
+      <g>
+       <use xlink:href="#m2111680003" x="242.500333" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_6">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="242.500333" y="308.422125" transform="rotate(-0 242.500333 308.422125)">2.475</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_7">
+      <g>
+       <use xlink:href="#m2111680003" x="271.444768" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="271.444768" y="308.422125" transform="rotate(-0 271.444768 308.422125)">2.500</text>
+     </g>
+    </g>
+    <g id="text_8">
+     <text style="font-size: 9px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="189.650074" y="321.182594" transform="rotate(-0 189.650074 321.182594)">验证回复 loss（越低越好）</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_8">
+      <defs>
+       <path id="mf2bc7b48c6" d="M 0 0 
+L -3.5 0 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="59.157" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="62.196062" transform="rotate(-0 81.99125 62.196062)">全量 1e-5</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_9">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="77.2695" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_10">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="80.308562" transform="rotate(-0 81.99125 80.308562)">r=4</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_10">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="95.382" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_11">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="98.421062" transform="rotate(-0 81.99125 98.421062)">r=16（默认）</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_11">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="113.4945" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_12">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="116.533562" transform="rotate(-0 81.99125 116.533562)">r=64 α=128</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_12">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="131.607" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_13">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="134.646375" transform="rotate(-0 81.99125 134.646375)">r=16 attn-only</text>
+     </g>
+    </g>
+    <g id="ytick_6">
+     <g id="line2d_13">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="149.7195" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_14">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="152.758562" transform="rotate(-0 81.99125 152.758562)">r=64 α=32</text>
+     </g>
+    </g>
+    <g id="ytick_7">
+     <g id="line2d_14">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="167.832" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_15">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="170.871062" transform="rotate(-0 81.99125 170.871062)">r=64 rsLoRA α=32</text>
+     </g>
+    </g>
+    <g id="ytick_8">
+     <g id="line2d_15">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="185.9445" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_16">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="188.983875" transform="rotate(-0 81.99125 188.983875)">r=16 lr 1e-5</text>
+     </g>
+    </g>
+    <g id="ytick_9">
+     <g id="line2d_16">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="204.057" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_17">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="207.096375" transform="rotate(-0 81.99125 207.096375)">r=16 lr 1e-3</text>
+     </g>
+    </g>
+    <g id="ytick_10">
+     <g id="line2d_17">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="222.1695" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_18">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="225.208562" transform="rotate(-0 81.99125 225.208562)">LoRA+ ×4</text>
+     </g>
+    </g>
+    <g id="ytick_11">
+     <g id="line2d_18">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="240.282" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_19">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="243.321375" transform="rotate(-0 81.99125 243.321375)">PiSSA</text>
+     </g>
+    </g>
+    <g id="ytick_12">
+     <g id="line2d_19">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="258.3945" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_20">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="261.433562" transform="rotate(-0 81.99125 261.433562)">DoRA</text>
+     </g>
+    </g>
+    <g id="ytick_13">
+     <g id="line2d_20">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="88.99125" y="276.507" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_21">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="81.99125" y="279.546062" transform="rotate(-0 81.99125 279.546062)">QLoRA NF4</text>
+     </g>
+    </g>
+   </g>
+   <g id="line2d_21">
+    <path d="M 263.98368 295.344 
+L 263.98368 40.32 
+" clip-path="url(#pdbf021c9d2)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #999999"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 88.99125 295.344 
+L 88.99125 40.32 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 88.99125 295.344 
+L 290.308897 295.344 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_22">
+    <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end; fill: #666666" x="263.98368" y="48.2895" transform="rotate(-0 263.98368 48.2895)">训练前 2.494</text>
+   </g>
+   <g id="text_23">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="146.88012" y="60.975359" transform="rotate(-0 146.88012 60.975359)"> 2.392</text>
+   </g>
+   <g id="text_24">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="172.0343" y="79.087859" transform="rotate(-0 172.0343 79.087859)"> 2.414</text>
+   </g>
+   <g id="text_25">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="149.11121" y="97.200359" transform="rotate(-0 149.11121 97.200359)"> 2.394</text>
+   </g>
+   <g id="text_26">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="150.79028" y="115.312859" transform="rotate(-0 150.79028 115.312859)"> 2.396</text>
+   </g>
+   <g id="text_27">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="168.718474" y="133.425359" transform="rotate(-0 168.718474 133.425359)"> 2.411</text>
+   </g>
+   <g id="text_28">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="148.713401" y="151.537859" transform="rotate(-0 148.713401 151.537859)"> 2.394</text>
+   </g>
+   <g id="text_29">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="171.29979" y="169.650359" transform="rotate(-0 171.29979 169.650359)"> 2.414</text>
+   </g>
+   <g id="text_30">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="210.613441" y="187.762859" transform="rotate(-0 210.613441 187.762859)"> 2.447</text>
+   </g>
+   <g id="text_31">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="180.51854" y="205.875359" transform="rotate(-0 180.51854 205.875359)"> 2.421</text>
+   </g>
+   <g id="text_32">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="155.411617" y="223.987859" transform="rotate(-0 155.411617 223.987859)"> 2.400</text>
+   </g>
+   <g id="text_33">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="173.264576" y="242.100359" transform="rotate(-0 173.264576 242.100359)"> 2.415</text>
+   </g>
+   <g id="text_34">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="148.99673" y="260.212859" transform="rotate(-0 148.99673 260.212859)"> 2.394</text>
+   </g>
+   <g id="text_35">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="232.420027" y="278.325359" transform="rotate(-0 232.420027 278.325359)"> 2.466</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_18">
+    <path d="M 401.033603 295.344 
+L 602.35125 295.344 
+L 602.35125 40.32 
+L 401.033603 40.32 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 413.115248 66.402 
+L 440.158741 66.402 
+L 440.158741 51.912 
+L 413.115248 51.912 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #4a6fa5"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 413.115248 84.5145 
+L 412.278894 84.5145 
+L 412.278894 70.0245 
+L 413.115248 70.0245 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 413.115248 102.627 
+L 426.765958 102.627 
+L 426.765958 88.137 
+L 413.115248 88.137 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #c98a00"/>
+   </g>
+   <g id="patch_22">
+    <path d="M 413.115248 120.7395 
+L 468.528937 120.7395 
+L 468.528937 106.2495 
+L 413.115248 106.2495 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_23">
+    <path d="M 413.115248 138.852 
+L 415.423862 138.852 
+L 415.423862 124.362 
+L 413.115248 124.362 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_24">
+    <path d="M 413.115248 156.9645 
+L 424.195926 156.9645 
+L 424.195926 142.4745 
+L 413.115248 142.4745 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_25">
+    <path d="M 413.115248 175.077 
+L 505.572762 175.077 
+L 505.572762 160.587 
+L 413.115248 160.587 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_26">
+    <path d="M 413.115248 193.1895 
+L 410.184405 193.1895 
+L 410.184405 178.6995 
+L 413.115248 178.6995 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_27">
+    <path d="M 413.115248 211.302 
+L 528.49951 211.302 
+L 528.49951 196.812 
+L 413.115248 196.812 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_28">
+    <path d="M 413.115248 229.4145 
+L 471.048797 229.4145 
+L 471.048797 214.9245 
+L 413.115248 214.9245 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_29">
+    <path d="M 413.115248 247.527 
+L 480.013118 247.527 
+L 480.013118 233.037 
+L 413.115248 233.037 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_30">
+    <path d="M 413.115248 265.6395 
+L 427.463509 265.6395 
+L 427.463509 251.1495 
+L 413.115248 251.1495 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="patch_31">
+    <path d="M 413.115248 283.752 
+L 593.200448 283.752 
+L 593.200448 269.262 
+L 413.115248 269.262 
+z
+" clip-path="url(#p04ed73390e)" style="fill: #8fa8c8"/>
+   </g>
+   <g id="matplotlib.axis_3">
+    <g id="xtick_8">
+     <g id="line2d_22">
+      <g>
+       <use xlink:href="#m2111680003" x="413.115248" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_36">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="413.115248" y="308.422125" transform="rotate(-0 413.115248 308.422125)">0.00</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_23">
+      <g>
+       <use xlink:href="#m2111680003" x="438.560433" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_37">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="438.560433" y="308.422125" transform="rotate(-0 438.560433 308.422125)">0.02</text>
+     </g>
+    </g>
+    <g id="xtick_10">
+     <g id="line2d_24">
+      <g>
+       <use xlink:href="#m2111680003" x="464.005617" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_38">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="464.005617" y="308.422125" transform="rotate(-0 464.005617 308.422125)">0.04</text>
+     </g>
+    </g>
+    <g id="xtick_11">
+     <g id="line2d_25">
+      <g>
+       <use xlink:href="#m2111680003" x="489.450802" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_39">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="489.450802" y="308.422125" transform="rotate(-0 489.450802 308.422125)">0.06</text>
+     </g>
+    </g>
+    <g id="xtick_12">
+     <g id="line2d_26">
+      <g>
+       <use xlink:href="#m2111680003" x="514.895986" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_40">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="514.895986" y="308.422125" transform="rotate(-0 514.895986 308.422125)">0.08</text>
+     </g>
+    </g>
+    <g id="xtick_13">
+     <g id="line2d_27">
+      <g>
+       <use xlink:href="#m2111680003" x="540.341171" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_41">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="540.341171" y="308.422125" transform="rotate(-0 540.341171 308.422125)">0.10</text>
+     </g>
+    </g>
+    <g id="xtick_14">
+     <g id="line2d_28">
+      <g>
+       <use xlink:href="#m2111680003" x="565.786356" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_42">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="565.786356" y="308.422125" transform="rotate(-0 565.786356 308.422125)">0.12</text>
+     </g>
+    </g>
+    <g id="xtick_15">
+     <g id="line2d_29">
+      <g>
+       <use xlink:href="#m2111680003" x="591.23154" y="295.344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_43">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="591.23154" y="308.422125" transform="rotate(-0 591.23154 308.422125)">0.14</text>
+     </g>
+    </g>
+    <g id="text_44">
+     <text style="font-size: 9px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="501.692426" y="321.182594" transform="rotate(-0 501.692426 321.182594)">普通文本 loss 变化（遗忘，越接近 0 越好）</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_4">
+    <g id="ytick_14">
+     <g id="line2d_30">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="59.157" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_45">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="62.196062" transform="rotate(-0 394.033603 62.196062)">全量 1e-5</text>
+     </g>
+    </g>
+    <g id="ytick_15">
+     <g id="line2d_31">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="77.2695" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_46">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="80.308562" transform="rotate(-0 394.033603 80.308562)">r=4</text>
+     </g>
+    </g>
+    <g id="ytick_16">
+     <g id="line2d_32">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="95.382" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_47">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="98.421062" transform="rotate(-0 394.033603 98.421062)">r=16（默认）</text>
+     </g>
+    </g>
+    <g id="ytick_17">
+     <g id="line2d_33">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="113.4945" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_48">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="116.533562" transform="rotate(-0 394.033603 116.533562)">r=64 α=128</text>
+     </g>
+    </g>
+    <g id="ytick_18">
+     <g id="line2d_34">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="131.607" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_49">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="134.646375" transform="rotate(-0 394.033603 134.646375)">r=16 attn-only</text>
+     </g>
+    </g>
+    <g id="ytick_19">
+     <g id="line2d_35">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="149.7195" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_50">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="152.758562" transform="rotate(-0 394.033603 152.758562)">r=64 α=32</text>
+     </g>
+    </g>
+    <g id="ytick_20">
+     <g id="line2d_36">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="167.832" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_51">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="170.871062" transform="rotate(-0 394.033603 170.871062)">r=64 rsLoRA α=32</text>
+     </g>
+    </g>
+    <g id="ytick_21">
+     <g id="line2d_37">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="185.9445" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_52">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="188.983875" transform="rotate(-0 394.033603 188.983875)">r=16 lr 1e-5</text>
+     </g>
+    </g>
+    <g id="ytick_22">
+     <g id="line2d_38">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="204.057" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_53">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="207.096375" transform="rotate(-0 394.033603 207.096375)">r=16 lr 1e-3</text>
+     </g>
+    </g>
+    <g id="ytick_23">
+     <g id="line2d_39">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="222.1695" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_54">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="225.208562" transform="rotate(-0 394.033603 225.208562)">LoRA+ ×4</text>
+     </g>
+    </g>
+    <g id="ytick_24">
+     <g id="line2d_40">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="240.282" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_55">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="243.321375" transform="rotate(-0 394.033603 243.321375)">PiSSA</text>
+     </g>
+    </g>
+    <g id="ytick_25">
+     <g id="line2d_41">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="258.3945" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_56">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="261.433562" transform="rotate(-0 394.033603 261.433562)">DoRA</text>
+     </g>
+    </g>
+    <g id="ytick_26">
+     <g id="line2d_42">
+      <g>
+       <use xlink:href="#mf2bc7b48c6" x="401.033603" y="276.507" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_57">
+      <text style="font-size: 8px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="394.033603" y="279.546062" transform="rotate(-0 394.033603 279.546062)">QLoRA NF4</text>
+     </g>
+    </g>
+   </g>
+   <g id="line2d_43">
+    <path d="M 413.115248 295.344 
+L 413.115248 40.32 
+" clip-path="url(#p04ed73390e)" style="fill: none; stroke: #999999; stroke-linecap: square"/>
+   </g>
+   <g id="patch_32">
+    <path d="M 401.033603 295.344 
+L 401.033603 40.32 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="patch_33">
+    <path d="M 401.033603 295.344 
+L 602.35125 295.344 
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_58">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="440.158741" y="60.975359" transform="rotate(-0 440.158741 60.975359)"> +0.021</text>
+   </g>
+   <g id="text_59">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="412.278894" y="79.087859" transform="rotate(-0 412.278894 79.087859)"> -0.001</text>
+   </g>
+   <g id="text_60">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="426.765958" y="97.200359" transform="rotate(-0 426.765958 97.200359)"> +0.011</text>
+   </g>
+   <g id="text_61">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="468.528937" y="115.312859" transform="rotate(-0 468.528937 115.312859)"> +0.044</text>
+   </g>
+   <g id="text_62">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="415.423862" y="133.425359" transform="rotate(-0 415.423862 133.425359)"> +0.002</text>
+   </g>
+   <g id="text_63">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="424.195926" y="151.537859" transform="rotate(-0 424.195926 151.537859)"> +0.009</text>
+   </g>
+   <g id="text_64">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="505.572762" y="169.650359" transform="rotate(-0 505.572762 169.650359)"> +0.073</text>
+   </g>
+   <g id="text_65">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="410.184405" y="187.762859" transform="rotate(-0 410.184405 187.762859)"> -0.002</text>
+   </g>
+   <g id="text_66">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="528.49951" y="205.875359" transform="rotate(-0 528.49951 205.875359)"> +0.091</text>
+   </g>
+   <g id="text_67">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="471.048797" y="223.987859" transform="rotate(-0 471.048797 223.987859)"> +0.046</text>
+   </g>
+   <g id="text_68">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="480.013118" y="242.100359" transform="rotate(-0 480.013118 242.100359)"> +0.053</text>
+   </g>
+   <g id="text_69">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="427.463509" y="260.212859" transform="rotate(-0 427.463509 260.212859)"> +0.011</text>
+   </g>
+   <g id="text_70">
+    <text style="font-size: 7px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="593.200448" y="278.325359" transform="rotate(-0 593.200448 278.325359)"> +0.142</text>
+   </g>
+  </g>
+  <g id="text_71">
+   <text style="font-size: 10px; font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="337.39125" y="14.798437" transform="rotate(-0 337.39125 14.798437)">Qwen2.5-0.5B · no_robots 800 条 · 80 步：全量与十二种 LoRA 配置</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pdbf021c9d2">
+   <rect x="88.99125" y="40.32" width="201.317647" height="255.024"/>
+  </clipPath>
+  <clipPath id="p04ed73390e">
+   <rect x="401.033603" y="40.32" width="201.317647" height="255.024"/>
+  </clipPath>
+ </defs>
+</svg>

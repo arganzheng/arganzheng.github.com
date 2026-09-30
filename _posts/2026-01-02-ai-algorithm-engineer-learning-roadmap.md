@@ -108,6 +108,8 @@ flowchart TB
 8 篇 ≈ 6h`"]
     H["`**深入篇：读 Hugging Face 源码**
 4 篇 ≈ 3.2h`"]
+    LR["`**专题：LoRA**
+3 篇 ≈ 3h`"]
     L6["`**L6 高效推理与压缩**
 6 篇 ≈ 4h`"]
     L7["`**L7 多模态**
@@ -117,13 +119,14 @@ flowchart TB
     L0 --> L1 --> L2 --> L3 --> L4 --> L5
     L1 -. 深入 .-> D
     L5 -. 深入 .-> H
+    L5 -. 专题 .-> LR
     L5 --> L6
     L5 --> L7
 
     classDef algo fill:#fff7e0,stroke:#c98a00,stroke-width:1px,color:#222
     classDef shared fill:#f3eefc,stroke:#8a6bd1,stroke-width:1px,color:#222
     classDef cross fill:#f7f7f7,stroke:#999,stroke-width:1px,color:#222
-    class L0,L1,L2,L3,L5,L6,L7,H algo
+    class L0,L1,L2,L3,L5,L6,L7,H,LR algo
     class D,L4 shared
     class X cross
 ```
@@ -265,7 +268,7 @@ Table: L4 LLM 核心的主题与概念
 
 | 段 | 概念 | 说明 |
 |---|---|---|
-| SFT | 指令数据的构造（人工、self-instruct、蒸馏自强模型）、多轮对话格式与 chat template、loss mask（只算回复部分）、packing；全量微调 vs 参数高效微调：LoRA、QLoRA、DoRA、Prefix-Tuning / P-Tuning、Adapter、OFT；灾难性遗忘与数据回放 | LoRA 的参数量与计算形态在 04 系列第十二篇；多 LoRA 服务属于 Infra 地图 08 |
+| SFT | 指令数据的构造（人工、self-instruct、蒸馏自强模型）、多轮对话格式与 chat template、loss mask（只算回复部分）、packing；全量微调 vs 参数高效微调：LoRA、QLoRA、DoRA、Prefix-Tuning / P-Tuning、Adapter、OFT；灾难性遗忘与数据回放 | LoRA 是 SFT 的默认方式，单独成[专题（3 篇）](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)：低秩假设与四本账、每个旋钮的对照实验、从 adapter 到 multi-LoRA 服务；多 LoRA 服务的 kernel 与调度属于 Infra 地图 08 |
 | 偏好对齐 | 偏好数据（成对比较、打分、AI 反馈 RLAIF）；奖励模型：Bradley-Terry、pairwise loss、过拟合与 reward hacking；在线 RL：PPO（策略、价值、参考模型、KL 惩罚、GAE）、GRPO（组内相对优势，去掉价值模型）、RLOO、REINFORCE++；离线 / 直接偏好优化：DPO、IPO、KTO、ORPO、SimPO；拒绝采样 + SFT（Llama 2 / 3 的做法，与投机解码里的拒绝采样同名不同物） | 每种方法各改了 RLHF 三件套（策略、奖励、参考）中的哪一件，是理解这一族的钥匙 |
 | 推理模型与 Agent | 可验证奖励的强化学习（RLVR：数学答案、代码测试）；DeepSeek-R1 的 GRPO 配方与"aha moment"；长思维链、test-time compute scaling；过程奖励模型 PRM 与结果奖励 ORM；推理长度的控制；多轮工具调用的 RL：环境、轨迹数据、工具输出的 mask、延后的奖励、异步 rollout | 2025 年后训练的主线；RL 训练的 rollout 与训练如何共享 GPU、异步 rollout 的实现属于 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html) |
 | 蒸馏 | logits 级蒸馏（KL 到教师分布）、序列级 / 数据蒸馏（用教师生成 SFT 数据，R1 蒸馏小模型的做法）、on-policy 蒸馏；蒸馏与量化的组合 | 蒸馏是把大模型能力搬进小模型的主要手段，也是"线上回流"回边上的一站 |
@@ -273,7 +276,7 @@ Table: L4 LLM 核心的主题与概念
 
 Table: L5 后训练各阶段的概念
 
-工具层：`trl`、OpenRLHF、verl 的使用；知道它们把 rollout（推理）与训练（反向）怎么拼起来，但实现内部属于 Infra。`transformers` / `peft` / `trl` 自己的源码是本层与 L4 的**深入篇**：[《读 Hugging Face 源码》](/reading-hugging-face-source-code.html)（四篇）沿工具箱第五篇的六行代码读 `from_pretrained` 与一次前向、`generate` 的循环、tokenizers 与 datasets 的两条流水线、`lora.Linear` 的一行与 SFT / DPO / GRPO 的 loss 各在哪几行——读完 L5 再读，每一段代码都对应本地图前面某一篇的公式或结构图。
+工具层：`trl`、OpenRLHF、verl 的使用；知道它们把 rollout（推理）与训练（反向）怎么拼起来，但实现内部属于 Infra。`transformers` / `peft` / `trl` 自己的源码是本层与 L4 的**深入篇**：[《读 Hugging Face 源码》](/reading-hugging-face-source-code.html)（四篇）沿工具箱第五篇的六行代码读 `from_pretrained` 与一次前向、`generate` 的循环、tokenizers 与 datasets 的两条流水线、`lora.Linear` 的一行与 SFT / DPO / GRPO 的 loss 各在哪几行——读完 L5 再读，每一段代码都对应本地图前面某一篇的公式或结构图。本层另有一个**专题**：[《LoRA 专题：SFT 的默认微调方式》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)（三篇）——低秩假设、$$W + \frac{\alpha}{r}BA$$ 的梯度与四本账、全量微调 $$\Delta W$$ 的谱；$$r$$ / `target_modules` / $$\alpha$$ / lr / QLoRA / DoRA / PiSSA 的十二种配置对照；adapter 文件、合并、量化失配、多 adapter 与 multi-LoRA 服务的账——读完后训练第一篇再读。
 
 ### L6 高效推理与压缩（算法侧）
 
@@ -381,6 +384,7 @@ Table: 算法地图与 Infra 地图的重叠主题分工
 {% include series-row.html key="pretraining" layer="L4" cols="layer,link,count" %}
 {% include series-row.html key="post-training" layer="L5" cols="layer,link,count" %}
 {% include series-row.html key="hf-source-reading" layer="L4–L5 深入" cols="layer,link,count" %}
+{% include series-row.html key="lora" layer="L5 专题" cols="layer,link,count" %}
 {% include series-row.html key="efficient-inference" layer="L6" cols="layer,link,count" %}
 {% include series-row.html key="multimodal" layer="L7" cols="layer,link,count" %}
 | 横切 | [算法工程师的实验方法论：用有限的算力得出可信的结论](/experimental-methodology-for-ai-algorithm-engineers.html) | 1 |
@@ -402,6 +406,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L4 | `transformer-and-llm/` | 04 系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训、MTP 实验、成本表脚本；预训练系列的实验；纯 Python + PyTorch |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
 | L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl；本地缓存的 Qwen2.5-0.5B 与 `no_robots`；CPU 可跑 |
+| L5 专题 | `lora/` | peft / trl / bitsandbytes；Qwen2.5-0.5B 上全量与十二种 LoRA 配置的对照矩阵、ΔW 的谱、adapter 合并与多 adapter；CPU 可跑（全矩阵约 2h，`--quick` 十分钟） |
 
 Table: 配套代码按层的目录与依赖
 

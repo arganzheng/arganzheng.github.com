@@ -122,18 +122,23 @@ hf-source-reading:
   overview: /reading-hugging-face-source-code.html
   roadmap: ai-algorithm
   number: 7
+lora:
+  name: LoRA 专题：SFT 的默认微调方式
+  overview: /lora-for-sft-from-low-rank-hypothesis-to-serving.html
+  roadmap: ai-algorithm
+  number: 8
 efficient-inference:
   name: 高效推理与压缩（算法侧）：解码、投机、量化与 KV
   overview: /efficient-inference-and-compression-for-llms.html
   slides: /slides/efficient-inference.html
   roadmap: ai-algorithm
-  number: 8
+  number: 9
 multimodal:
   name: 多模态：从视觉编码器到扩散模型
   overview: /multimodal-from-vision-encoders-to-diffusion.html
   slides: /slides/multimodal.html
   roadmap: ai-algorithm
-  number: 9
+  number: 10
 diffusion-inference-infra:
   name: 扩散模型推理基础设施：从一次去噪到一个生成服务
   overview: /diffusion-model-inference-infrastructure.html

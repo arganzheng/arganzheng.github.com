@@ -517,6 +517,8 @@ Table: 常见草稿方案的形态、代价 c 与接受率 α（文献通常报�
 
 ## 五、LoRA：改变训练时的 N
 
+> 本节只算 LoRA 的计算形态。它的原理、选参与上线工程见[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)（三篇）。
+
 ### 1. 形式与参数量
 
 全量微调的代价不在 FLOPs 而在**状态**。BF16 混合精度 + Adam 每参数 16 字节（BF16 权重 2 + BF16 梯度 2 + FP32 主权重 4 + Adam 一阶、二阶矩各 4），Llama-3-8B 的训练状态 $$8.03 \times 16 = 128$$ GB，一张 80 GB 的卡放不下，还没算激活值。

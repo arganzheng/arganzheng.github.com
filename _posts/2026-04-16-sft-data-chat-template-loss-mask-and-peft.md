@@ -235,6 +235,8 @@ packing 的问题也和预训练一样：标准的因果 attention 会让后一�
 
 ### 2. LoRA
 
+> LoRA 已单独成[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)（三篇）：本节 2–5 小节是它的摘要，专题里有梯度手算、四本账、十二种配置的对照实验与上线清单。
+
 LoRA（Hu 等 2021）把每个目标矩阵的更新约束为低秩：$$W' = W + \frac{\alpha}{r} BA$$，$$A \in \mathbb{R}^{r \times d_{in}}$$ 随机初始化、$$B \in \mathbb{R}^{d_{out} \times r}$$ 初始化为 0（所以训练开始时 $$W' = W$$），只训 $$A$$、$$B$$，$$W$$ 冻结。梯度是
 
 $$

@@ -1351,6 +1351,21 @@ How it is built (`_plugins/moments.rb`):
   版本说明 — keep that form when refreshing. Cite file paths + class / function
   names, never line numbers. Companion scripts are referenced as
   `ai-learning-labs/hf-source-reading/`.
+- Series `lora` (《LoRA 专题：SFT 的默认微调方式》, overview
+  `2026-05-26-lora-for-sft-from-low-rank-hypothesis-to-serving.md`, 3 posts dated
+  2026-05-27 … 05-29 + recap NN=04 at 05-29 20:00, algorithm roadmap L5 专题,
+  `number: 8` — efficient-inference / multimodal moved to 9 / 10): written
+  2026-09-30 for Discussion #100 / #125 (user chose "独立小系列，介绍全面"). Same
+  `> **更新 @2026-09-30**` opening note as hf-source-reading (peft 0.21.1 / trl
+  1.14.1 / transformers 5.17.0 / bitsandbytes 0.50.2). Every number comes from
+  `ai-learning-labs/lora/{01_low_rank,02_knobs,03_deploy}.py` run on an 8-thread
+  CPU with Qwen2.5-0.5B + no_robots, same 80-step recipe as
+  `post-training/01_sft.py` (base 2.4936 / 2.8748, full FT 2.3924 / +0.0213 —
+  identical to the author's MPS run). 02_knobs writes `out/knobs.json`; the SVG
+  charts under `img/in-post/lora-*.svg` are plotted from it. The six older
+  LoRA passages (L0 03 §六, 工具箱 05 §四.2, L4 12 §五, 后训练 01 §五.2, HF 源码 04
+  §三, vLLM 10 §二) each open with a one-line pointer to the series — keep them
+  as summaries, do not grow them.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
@@ -1366,7 +1381,8 @@ How it is built (`_plugins/moments.rb`):
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
   05-03 … 05-09, two same-day 下篇 at 20:00, recap 05-09 20:00) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
   05-10 … 05-20 on 2026-09-14 to make room) → 读 Hugging Face 源码 (05-21 overview,
-  05-22 … 05-25, algorithm L4–L5 深入篇, `hf-source-reading`; 通信 starts 06-01 unchanged) → 07
+  05-22 … 05-25, algorithm L4–L5 深入篇, `hf-source-reading`) → LoRA 专题 (05-26 overview,
+  05-27 … 05-29, recap 05-29 20:00, algorithm L5 专题, `lora`; 通信 starts 06-01 unchanged) → 07
   大规模训练 (07-13 … 07-29) → 08 vLLM (08-11 … 08-25, daily) → 09 RL 后训练基础设施
   (08-26 overview, posts 08-27 … 09-03) → 10 扩散模型推理基础设施 (09-04 overview,
   posts 09-05 … 09-13) → 11 平台 (09-14 … 09-22) → 12 开源贡献 (09-23 … 09-27).

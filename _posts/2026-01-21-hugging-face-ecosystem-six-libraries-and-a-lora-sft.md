@@ -285,6 +285,8 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 
 ### 2. LoRA 挂到哪、多少参数
 
+> 这里只给一份能跑的配置。`r`、`target_modules`、`lora_alpha`、学习率各取多少、依据是什么，见[《LoRA 专题》第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的对照实验。
+
 ```text title='LoRA 挂在七个线性层上：可训练 1.78%'
 可训练 8.80 M / 494 M = 1.78%
 训练状态 ≈ 可训练 × 16 B = 141 MB；冻结权重 fp32 1.98 GB（bf16 时减半）
