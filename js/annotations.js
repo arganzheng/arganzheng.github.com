@@ -90,7 +90,7 @@
   var comments = [];         // every top-level comment of the post's discussion (see parseComment)
   var annotations = [];      // the subset with a selector, anchored in the article
   var reactions = {};        // hash -> { hash, quote, up, doubt, range, marks }: anonymous passage 赞 / 存疑 (worker /reactions)
-  var chapters = {};         // heading text -> { hash, quote: '§ ' + text, up, doubt }: section-level 点赞 / 没看懂 (same table)
+  var chapters = {};         // section title -> { hash, quote: '§ ' + text, up, doubt }: section-level reactions (same table; 随笔 ♡)
   var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
   var pageViews = null;      // number once GET/POST /views answered; stays null when the worker has no counter
   var loaded = false;        // loadDiscussion() has answered (either way)
@@ -2182,21 +2182,19 @@
     }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
   }
 
-  // Section-level 点赞 / 没看懂: two small buttons after every heading (h2–h6) of the article,
-  // anonymous, one tap, no text selection needed (phones!). Stored in the same
-  // passage_reactions table with quote = '§ ' + heading, so the dashboard and
-  // the 修订简报 can tell a chapter row from a passage row. Answers the question a
-  // passage never can: is this *whole chapter* too hard / too thin?
+  // Section-level reactions: anonymous one-tap 点赞 / 没看懂 on a whole section,
+  // stored in passage_reactions with quote = '§ ' + title so the dashboard and
+  // the 修订简报 can tell a section row from a passage row. Only pages that lay
+  // down an empty `.sec-react` placeholder get them (`<span class="sec-react"
+  // data-title="…" data-kinds="up" data-icon="fa-regular fa-heart"
+  // data-icon-on="fa-heart">`, the ♡ under every 随笔 entry); article headings
+  // carry none.
   var CHAPTER_PREFIX = '§ ';
-  var CHAPTER_KINDS = [{ kind: 'up', label: '点赞', title: '给这一章点个赞' }, { kind: 'doubt', label: '没看懂', title: '这一章整体没看懂' }];
+  var CHAPTER_KINDS = [{ kind: 'up', label: '点赞', title: '点个赞' }, { kind: 'doubt', label: '没看懂', title: '没看懂' }];
   function chapterFor(title) {
     var quote = CHAPTER_PREFIX + title;
     return chapters[title] || (chapters[title] = { hash: annotHash(quote), quote: quote, up: 0, doubt: 0 });
   }
-  // Fill a `.sec-react` bar with buttons. A page may also lay down empty
-  // placeholders itself (`<span class="sec-react" data-title="…" data-kinds="up"
-  // data-icon="fa-regular fa-heart" data-icon-on="fa-heart">`, the ♡ under every
-  // 随笔 entry): same table, same quote, only the kinds / icon it asks for.
   function fillChapterBar(bar, title) {
     var kinds = (bar.getAttribute('data-kinds') || 'up doubt').split(/\s+/);
     CHAPTER_KINDS.forEach(function (k) {
@@ -2208,26 +2206,10 @@
       b.addEventListener('click', onChapterClick);
       bar.appendChild(b);
     });
-    bar.setAttribute('aria-label', '这一章：' + title);
+    bar.setAttribute('aria-label', title);
   }
   function renderChapterBars() {
-    var heads = container.querySelectorAll('h2, h3, h4, h5, h6');
-    for (var i = 0; i < heads.length; i++) {
-      var h = heads[i];
-      if (h.closest(EXCLUDE_SELECTOR) || h.closest('.series-toc, .series-nav, .series-context')) continue;
-      var title = headingText(h);
-      if (!title) continue;
-      var bar = h.querySelector('.sec-react');
-      if (!bar) {
-        bar = document.createElement('span');
-        bar.className = 'sec-react';
-        bar.setAttribute('data-title', title);
-        fillChapterBar(bar, title);
-        h.appendChild(bar);
-      }
-      paintChapterBar(bar, title);
-    }
-    var placed = container.querySelectorAll('.sec-react[data-title]:not(h1 *):not(h2 *):not(h3 *):not(h4 *):not(h5 *):not(h6 *)');
+    var placed = container.querySelectorAll('.sec-react[data-title]');
     for (var j = 0; j < placed.length; j++) {
       if (!placed[j].firstChild) fillChapterBar(placed[j], placed[j].getAttribute('data-title'));
       paintChapterBar(placed[j], placed[j].getAttribute('data-title'));
@@ -2251,10 +2233,9 @@
     c[kind] = Math.max(0, c[kind] + (on ? 1 : -1));
     rememberReaction(c.hash, kind, on);
     paintChapterBar(bar, title);
-    var what = bar.hasAttribute('data-kinds') ? '' : '这一章';   // a placed bar (随笔 entry) is not a chapter
-    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已点赞' + what : '已标记' + what + '没看懂') : '已取消'); return; }
+    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已点赞' : '已标记没看懂') : '已取消'); return; }
     api('/reactions', { method: 'POST', body: { path: cfg.path, hash: c.hash, quote: c.quote, kind: kind, on: on, section: title } })
-      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已点赞' + what : '已标记这一章没看懂，谢谢——作者会回头补这一章') : '已取消'); })
+      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已点赞' : '已标记没看懂，谢谢') : '已取消'); })
       .catch(function (err) { c[kind] = before; rememberReaction(c.hash, kind, !on); paintChapterBar(bar, title); showToast('操作失败：' + err.message); });
   }
 

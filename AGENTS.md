@@ -634,8 +634,8 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     (`getToken()` = `POST /token`), resolved rows are `li.is-fixed` and sorted
     after open ones. `readers` who doubted before the stamp keep their local
     `is-on` state; un-doubting then lowers `doubt` below `resolved_doubt`,
-    which is fine (`Math.max(0, …)`). Chapter 「没看懂」 rows share the table
-    and are handled from the dashboard list only (no author UI on headings).
+    which is fine (`Math.max(0, …)`). Legacy chapter 「没看懂」 rows share the
+    table and are handled from the dashboard list only.
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
   - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`
@@ -738,15 +738,17 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     under the whole block. `wechat-export.js` turns a titled header into a
     small 「代码块 N：标题」 line above the block and drops untitled ones.
     Styles `.code-block` / `.code-header` in `less/annotations.less`.
-  - **Section-level 点赞 / 没看懂** (`renderChapterBars`, `.sec-react` appended
-    inside every article heading `h2`–`h6`, two `.sec-react-btn`s; `chapters` map): anonymous
+  - **Section-level reactions** (`renderChapterBars`, `chapters` map): anonymous
     like passage reactions, no selection needed. Same worker route and table,
-    `quote = '§ ' + heading` (`CHAPTER_PREFIX`), `section = heading`, `up` = 点赞,
+    `quote = '§ ' + title` (`CHAPTER_PREFIX`), `section = title`, `up` = 点赞,
     `doubt` = 没看懂; `loadReactions` splits `§ ` rows into `chapters` so they are
-    never anchored as passages. `.sec-react` is in `EXCLUDE_SELECTOR`, in
-    wechat-export's `REMOVE`, and `headingText()` strips it (and `.heading-anchor`)
-    wherever a heading's text is read (`sectionForOffsets`). The dashboard tags
-    such rows 「章节」 and the brief has a 「章节热度」 table.
+    never anchored as passages. Only pages that lay down an empty
+    `.sec-react[data-title]` placeholder get buttons — today just the ♡ under
+    every 随笔 entry (see Moments). Article headings carry **no** buttons: the
+    per-heading 「点赞 / 没看懂」 (2026-09-13 → 2026-09-30) were dropped as little
+    used; their `§ 标题` rows stay in D1, so the dashboard still tags them
+    「章节」 and the brief keeps its 「章节热度」 table for old data. `.sec-react`
+    stays in `EXCLUDE_SELECTOR`, wechat-export's `REMOVE` and `headingText()`.
   - **修订简报** lives only in `/admin/stats.html` (`#brief=/slug.html`, a
     `<select>` of `window.DASH_POSTS` and a 「简报」 link per 文章榜 row — one
     URL to remember, no CLI twin). The aggregation is **`js/feedback-brief.js`**
@@ -999,7 +1001,7 @@ How it is built (`_plugins/moments.rb`):
   enclosing `.moment[data-title]` as the section; the per-entry ♡ is a
   section reaction (`renderChapterBars` fills any empty
   `.sec-react[data-title]` placeholder — `data-kinds="up"`,
-  `data-icon`/`data-icon-on` swap the glyph, toast says 已点赞 not 这一章; quote
+  `data-icon`/`data-icon-on` swap the glyph; quote
   `§ 2026-09-21 08:02` in `passage_reactions`). `figures.js` skips captions
   in `.moments` and opens `DiagramZoom` on a `.moment-pic` click.
   `EXCLUDE_SELECTOR` has `.moment-when, .moment-foot, .moment-music`.

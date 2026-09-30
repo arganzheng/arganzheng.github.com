@@ -119,9 +119,10 @@ per toggle; `prev` ≠ `reason` still switches in one call). Every POST may
 carry `section` (nearest heading above the passage, ≤ 120 chars) which is stored
 once per row (`COALESCE`). Both come back in every reactions response.
 
-**Chapter-level 有用 / 没看懂** reuse the same route and table: the browser
-posts `kind: 'up' | 'doubt'` with `quote = '§ ' + <heading text>` (h2–h6) and `section` =
-the heading. The `§ ` prefix is how readers of the table (dashboard, brief,
+**Section-level reactions** (the ♡ under a 随笔 entry; until 2026-09-30 also
+点赞 / 没看懂 on every h2–h6, whose rows remain) reuse the same route and table:
+the browser posts `kind: 'up' | 'doubt'` with `quote = '§ ' + <section title>`
+and `section` = the title. The `§ ` prefix is how readers of the table (dashboard, brief,
 `js/annotations.js`) tell a chapter row from a passage row.
 
 **The author answers a 存疑** — `POST /reactions/resolve {path, hash, action}`
