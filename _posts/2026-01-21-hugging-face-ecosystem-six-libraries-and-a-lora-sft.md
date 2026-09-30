@@ -244,7 +244,7 @@ trainer.train()
 # !ref load
 model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).to("cuda")
 # !ref peft
-model = get_peft_model(model, LoraConfig(...))  # 基座冻结，挂上 A、B
+model = get_peft_model(model, LoraConfig(...))
 # !ref opt
 opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=2e-4)
 # !ref sched
