@@ -88,6 +88,8 @@ class Runner:
         yield from self.model.generate(batch)
 ```
 
+最容易看晕的是开头那个两层嵌套的 `registered` / `decorator`。`@registered("runner")` 是两步：先调用 `registered("runner")`——它什么都不登记，只是把 `name` 记住，**返回**内层函数 `decorator`；然后 Python 把紧跟其后的 `class Runner` 交给这个 `decorator(cls)`，它把类写进 `REGISTRY["runner"]`，再把类原样返回，于是名字 `Runner` 仍然指向那个类。所以"带参数的装饰器"其实是"一个返回装饰器的函数"；没有参数的装饰器只有 `decorator` 那一层。这里 `decorator` 能用到 `name`，靠的是第三章的闭包。
+
 这段代码从写下到跑完，Python 运行时做了这些事：
 
 1. 另一个模块执行 `import runner`，导入系统找到文件、编译成字节码、执行模块顶层代码——`REGISTRY` 被创建，`@registered("runner")` 在这一刻把 `Runner` 写进注册表；

@@ -85,7 +85,21 @@ Table: 本文的章节安排
  "intermediate_size": 4864, "vocab_size": 151936, "tie_word_embeddings": true, ...}
 ```
 
-这是 Qwen2.5-0.5B 的。这几个数决定了模型的全部结构——一个 decoder-only Transformer 就是下面这张图，`config.json` 的每个字段对应图里一个尺寸：
+这是 Qwen2.5-0.5B 的。先把每个字段翻译成人话：
+
+| 字段 | 值 | 意思 |
+|---|---:|---|
+| `hidden_size` | 896 | 每个 token 在模型里是一个 896 维的向量（L0 第一篇的 $$d$$） |
+| `num_hidden_layers` | 24 | 这样的 Transformer 层叠了 24 层 |
+| `num_attention_heads` | 14 | attention 分 14 个头，每头 $$896 / 14 = 64$$ 维 |
+| `num_key_value_heads` | 2 | K、V 只有 2 个头，14 个 Q 头分成 2 组共用（GQA，省 KV cache） |
+| `intermediate_size` | 4864 | MLP 中间那一层的宽度（896 → 4864 → 896） |
+| `vocab_size` | 151936 | 词表大小，也就是输出层要打多少个分 |
+| `tie_word_embeddings` | true | 输出层 `lm_head` 与输入的词嵌入表共用同一份权重 |
+
+Table: `config.json` 主要字段的含义（Qwen2.5-0.5B）
+
+这几个数决定了模型的全部结构——一个 decoder-only Transformer 就是下面这张图，`config.json` 的每个字段对应图里一个尺寸：
 
 ```mermaid
 %% config.json 里的数字在 decoder-only 结构里的位置（Qwen2.5-0.5B）
@@ -189,6 +203,15 @@ ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
 trainer = SFTTrainer(model=model, train_dataset=ds, processing_class=tok, args=SFTConfig(...))
 trainer.train()
 ```
+
+六行，来自四个库，每行做一件事：
+
+1. `AutoModelForCausalLM.from_pretrained`（transformers）：按 Hub 上的 `config.json` 搭出结构，把 `*.safetensors` 里的权重装进去，得到一个普通的 `nn.Module`；`dtype=torch.bfloat16` 让 8B 权重占 16 GB 而不是 32 GB。
+2. `AutoTokenizer.from_pretrained`（transformers）：读 `tokenizer.json`，得到"字符串 ↔ token 编号"的转换器，里面带着 chat template。
+3. `get_peft_model(model, LoraConfig(...))`（peft）：把基座的全部参数冻结，在每个线性层旁边挂一对小矩阵 $$A$$、$$B$$（秩 `r=16`），之后只训这些小矩阵——这就是 LoRA。
+4. `load_dataset(...)`（datasets）：从 Hub 下载一个对话数据集，得到一个按行取样本的 `Dataset`，每条是一个 `messages` 列表。
+5. `SFTTrainer(...)`（trl）：把模型、数据、tokenizer 与训练超参数（`SFTConfig`：学习率、batch、步数、bf16……）装进一个训练器。
+6. `trainer.train()`：跑第三篇那二十行训练循环——下一节逐行对应。
 
 ### 2. 背后发生的事
 

@@ -188,7 +188,21 @@ S = Q @ K.transpose(0, 1, 3, 2)              # ④ [B, h, T, d_h] × [B, h, d_h,
 
 ### 2. einsum：把公式翻译成代码
 
-`einsum`（Einstein summation）用一个下标字符串描述矩阵乘法，是**把论文公式翻译成代码的最短路径**：
+`einsum`（Einstein summation）用一个下标字符串描述矩阵乘法，是**把论文公式翻译成代码的最短路径**。先看最简单的二维例子——普通矩阵乘法 $$C_{ij} = \sum_k A_{ik} B_{kj}$$：
+
+```python
+C = np.einsum("ik,kj->ij", A, B)     # 等价于 A @ B
+```
+
+字符串的读法只有一条规则：**给每个输入的每一维取一个字母名字，箭头右边写输出要保留哪些字母；左边有、右边没有的字母，就是被求和掉的那一维。** 这里 `A` 的两维叫 `i k`，`B` 的两维叫 `k j`，输出保留 `i j`，`k` 只在左边出现——所以沿 `k` 求和。写成循环就是：
+
+```python
+for i in range(I):
+    for j in range(J):
+        C[i, j] = sum(A[i, k] * B[k, j] for k in range(K))   # k 被求和，i、j 留下
+```
+
+规则不变，维度加多就是 attention 里的样子：
 
 ```python
 S = np.einsum("bhqd,bhkd->bhqk", Q, K)       # 带 batch 与 head 的 Q K^T
