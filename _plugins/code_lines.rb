@@ -8,12 +8,13 @@
 # (less/theme-overrides.less), so they are not part of the text: copy,
 # 划线 quotes, the search index and the WeChat export never see them.
 #
-# Which blocks show numbers (`pre.lineno`): blocks with a real language
-# (```python, ```cpp … — not ```text and not an untyped fence, which are mostly
-# shell output, logs and ASCII art) and at least two lines. Override per block
-# with a kramdown IAL on the line before the fence: `{:.lineno}` forces them
-# on, `{:.no-lineno}` off. Mermaid sources are left alone (the diagram
-# renderer reads the <code> as is).
+# Which blocks show numbers (`pre.lineno`): every fence with at least two
+# lines — ```text and untyped fences (shell output, logs, trees) included,
+# so a 文本块 reads like a 代码块 and 「第 N 行」 works in both. Override per
+# block with a kramdown IAL on the line before the fence: `{:.lineno}` forces
+# them on (a one-liner), `{:.no-lineno}` off (ASCII art whose left edge
+# matters). Mermaid sources are left alone (the diagram renderer reads the
+# <code> as is).
 #
 # Code refs (the Code Hike "code mentions" model): a comment line of its own
 #
@@ -37,7 +38,6 @@ module CodeLines
   # optional rouge wrapper (carries the language and the IAL classes), then the pre
   BLOCK = %r{(<div\b[^>]*?class="([^"]*)highlighter-rouge"[^>]*><div class="highlight">)?<pre\b([^>]*)><code\b([^>]*)>(.*?)</code></pre>}m
   TOKEN = %r{(<span\b[^>]*>|</span>|\n)}
-  SKIP_LANGS = %w[text plaintext txt mermaid].freeze
   # `# !ref name`, `// !ref name +2`, `/* !ref name */`, `<!-- !ref name -->` … on a line of its own
   DIRECTIVE = %r{\A\s*(?:#+|/{2,}|--|;+|%+|/\*|<!--|\(\*|")\s*!ref\s+([A-Za-z][\w-]*)(?:\s+\+(\d+))?\s*(?:\*/|-->|\*\))?\s*\z}
   ENTITIES = { '&lt;' => '<', '&gt;' => '>', '&amp;' => '&', '&quot;' => '"', '&#39;' => "'" }.freeze
@@ -127,7 +127,7 @@ module CodeLines
       refs.each { |name, n| (all_refs[name] ||= []) << n }
       show = if cls.include?('no-lineno') then false
              elsif cls.include?('lineno') || !refs.empty? then true
-             else lang && !SKIP_LANGS.include?(lang) && count >= 2
+             else count >= 2
              end
       attrs = pre_attrs.dup
       if show

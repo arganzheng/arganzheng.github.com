@@ -1254,9 +1254,10 @@ How it is built (`_plugins/moments.rb`):
   that cross lines are closed and reopened, textContent unchanged) and the
   `<pre>` gets `data-lines="N"`; blocks that show numbers get `pre.lineno`
   (+ `lineno-3` / `lineno-4` for 100+ / 1000+ lines, gutter width). Default:
-  a real language (`language-xxx`, not `text` / untyped) and >= 2 lines —
-  ```text and bare fences are output / logs / ASCII art. Per block: IAL on
-  the line before the fence, `{:.lineno}` forces, `{:.no-lineno}` hides.
+  every fence with >= 2 lines, ```text and untyped ones included (since
+  2026-09-30; a 文本块 reads like a 代码块, 「第 N 行」 works for output too). Per
+  block: IAL on the line before the fence, `{:.lineno}` forces (one-liners),
+  `{:.no-lineno}` hides (ASCII art whose left edge matters).
   The numbers are CSS counters (`less/theme-overrides.less`, `.line::before`,
   sticky so they stay while a long line scrolls), so they are never text:
   copy, 划线 quotes, the search index and the WeChat export do not see them.

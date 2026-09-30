@@ -896,31 +896,43 @@
 	// ---- fenced blocks: header bar on top (js/figures.js) — 「代码块 N：标题」 /
 	// 「文本块 N」, language tag, copy · feedback. Always on (no hover: phones),
 	// one rounded box with the <pre> under it.
+	// One light card: hairline border, the header in the same tone as the code
+	// (a slightly lighter strip, hairline under it) — no dark title bar.
 	.code-block {
 		margin-bottom: 16px;
-		border-radius: 6px;
+		border: 1px solid #e1e4e8;
+		border-radius: 8px;
 		background: #f6f8fa;
-		> .highlight, > .highlight pre, > pre { margin-bottom: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+		> .highlight, > .highlight pre, > pre { margin-bottom: 0; border-radius: 0 0 7px 7px; }
 	}
 	.code-header {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		min-height: 36px;
+		min-height: 34px;
 		padding: 2px 6px 2px 14px;
-		border-bottom: 1px solid #d0d7de;
-		border-radius: 6px 6px 0 0;
-		background: #eaeef2;
+		border-bottom: 1px solid #e6e9ed;
+		border-radius: 7px 7px 0 0;
+		background: #fafbfc;
 		font-size: 13px;
 		line-height: 1.4;
 		color: @annot-muted;
-		.fig-no { color: @annot-faint; white-space: nowrap; }
-		.fig-title { color: #24292f; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.fig-no { color: #8c959f; white-space: nowrap; }
+		.fig-title { color: #3f4650; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		&.is-untitled .fig-no { flex: 1; }
-		.code-lang { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: @annot-faint; }
+		.code-lang {
+			padding: 1px 8px;
+			border-radius: 10px;
+			background: #eef1f4;
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: 11.5px;
+			line-height: 1.5;
+			color: #6e7781;
+			white-space: nowrap;
+		}
 		.fig-tools { position: static; padding: 0; gap: 2px; border-radius: 0; background: none; box-shadow: none;
-			.code-copy { width: 28px; height: 28px; background: none; border-color: transparent; }
-			.code-copy:hover { background: #fff; border-color: #d0d7de; }
+			.code-copy { width: 28px; height: 28px; background: none; border-color: transparent; color: #8c959f; }
+			.code-copy:hover { background: #fff; border-color: #e1e4e8; color: @annot-muted; }
 		}
 		&.is-picked .fig-title, &.is-picked.is-untitled .fig-no { background: fade(#ffd54f, 45%); border-radius: 3px; }
 		&.has-note .fig-title { color: #24292f; }
@@ -928,6 +940,8 @@
 	.code-block:has(> .code-header.has-note) { outline: 2px solid fade(@annot-line, 55%); outline-offset: 3px; }
 	// panels of a code-tabs group already carry a tab bar with the language
 	.code-tabs .code-header .code-lang { display: none; }
+	.code-tabs.code-tabs-ready > .code-block { border-top-left-radius: 0; border-top-right-radius: 0; }
+	.code-tabs.code-tabs-ready .code-header { border-top-left-radius: 0; border-top-right-radius: 0; }
 }
 
 // ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)
