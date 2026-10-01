@@ -237,7 +237,7 @@ Continuous Batching 解决了：
 
 但还有一个问题：
 
-> **如果某一个 Request 自己就非常大怎么办？**
+> **如果某一个 Request 自己就非常大怎么办？[^q2]**
 
 例如一个 32K token 的 Prompt：
 
@@ -386,7 +386,7 @@ num_new_tokens = min(
 
 而接下来真正需要回答的问题是：
 
-> **Scheduler 每一轮到底有多少工作额度可以分配？又应该如何在不同 Request 之间分配？**
+> **Scheduler 每一轮到底有多少工作额度可以分配？又应该如何在不同 Request 之间分配？[^q3]**
 
 ## 四、Token Budget：Scheduler 每一轮到底怎么分配？
 
@@ -1126,7 +1126,7 @@ Scheduler 完成本轮决策后，并不会直接执行模型计算。
 
 但还存在另外一个问题：
 
-> **如果 KV Cache 已经没有足够空间了怎么办？**
+> **如果 KV Cache 已经没有足够空间了怎么办？[^q4]**
 
 这是 LLM Serving 中非常现实的问题。
 
@@ -1648,3 +1648,6 @@ Table: Scheduler 源码导航
 
 [^q0]: vLLM 的 Scheduler 没有「prefill 阶段」与「decode 阶段」，调度的单位是 token 不是 request。每一步先服务 running 队列（每个请求至少推进 1 个 token，KV 不够就按 LIFO 抢占最晚来的请求、释放它的块），再从 waiting 队列按 FCFS（或优先级）准入新请求，直到 token budget（`max_num_batched_tokens`）、`max_num_seqs` 或 KV 块用尽。与传统「固定 batch → 执行 → 完成」相比，这是「每步从 running + waiting 里重新装一个 token 级的 batch」。详见[第二章](#二continuous-batching为什么-batch-必须动态变化)、[第六章](#六admission-control-与-preemptionkv-cache-不够怎么办)。
 [^q1]: decode 请求 1 个；新请求的 prefill 在 chunked prefill 下可以只推进 budget 剩余的部分——一个 8K 的 prompt 被切成几轮，每轮与其他请求的 decode 混在同一个 batch，长 prefill 不独占 GPU、decode 的 TPOT 稳定。token budget 是把吞吐与延迟连起来的旋钮——大 budget 吞吐高、TTFT 低但 TPOT 抖，小 budget 反之。详见[第三](#三chunked-prefill为什么一个-request-也不能一次吃完)至[五章](#五mixed-batch为什么-prefilldecode-与-speculative-可以共存)。
+[^q2]: 靠 **chunked prefill**：一个 32K token 的 prompt 不在一轮里全部 prefill（那会独占整轮预算、让所有 decode 请求停一拍、TPOT 抖动），而是按本轮 token budget 的剩余量切成若干 chunk，每轮推进一段（`num_computed_tokens` 逐轮增加、直到追上 `num_tokens`），与其他请求的 decode 混在同一个 batch 里；代价是这个请求的 TTFT 变长，换来的是其他请求的 TPOT 平稳与 GPU 每轮都被喂满。
+[^q3]: 每轮的额度是 **token budget** = `max_num_scheduled_tokens`（如 512）：这一轮所有请求新计算的 token 数之和 $$\sum \text{num\_new\_tokens}_i$$ 不能超过它，同时还受 `max_num_seqs` 与 KV cache 块是否分得出的约束。分配方式：先遍历 running 队列，decode 请求各要 1 个 token（投机解码时 $$k+1$$）、未完成 prefill 的请求要 $$\min(\text{还差的 token 数}, \text{剩余预算})$$；再用剩余预算从 waiting 队列按顺序接新请求（chunked prefill 让它们只拿到剩余的部分）；任何一个请求分不到 KV 块就触发抢占——所以调度的是 token 这种资源，请求只是资源的归属对象。
+[^q4]: **抢占（preemption）**：当一个 running 请求下一步需要新的 KV 块而 BlockManager 分不出来时，Scheduler 从 running 队列**尾部**（最晚到的）开始把请求挤出去、释放它们的块，直到前面的请求能分到；被挤出的请求回到 waiting 队列头部，用两种方式之一恢复——**重算**（丢掉 KV，之后重新 prefill，V1 的默认）或 **swap**（把 KV 块拷到 CPU 内存、之后再拷回）。所以 Scheduler 同时受计算约束（token budget）与显存约束（KV 块）：前者决定这一轮最多推进多少，后者决定哪些请求有资格被推进，两者任一不满足都不能把请求放进这一轮。

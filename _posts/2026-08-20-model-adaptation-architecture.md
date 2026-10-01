@@ -187,7 +187,7 @@ flowchart LR
 
 新模型接入的第一步并不是直接编写模型代码，而是先明确：
 
-> 这个模型是什么，以及系统准备以什么方式运行它？
+> 这个模型是什么，以及系统准备以什么方式运行它？[^q1]
 
 vLLM 通过 `ModelConfig` 对外部参数和 Hugging Face 配置进行统一解释。它通常需要处理：
 
@@ -223,7 +223,7 @@ vLLM 通过 `ModelConfig` 对外部参数和 Hugging Face 配置进行统一解�
 
 当系统已经知道模型的架构语义和运行方式后，下一步是确定：
 
-> 应该使用哪个模型实现类？
+> 应该使用哪个模型实现类？[^q2]
 
 这就是 `ModelRegistry` 的职责。它将配置中识别出的架构名称映射到具体的模型实现，通常支持以下机制：
 
@@ -285,7 +285,7 @@ flowchart TB
 
 模型类被找到之后，还需要回答另一个问题：
 
-> 不同模型如何接入统一运行时，同时避免被一棵庞大的继承树束缚？
+> 不同模型如何接入统一运行时，同时避免被一棵庞大的继承树束缚？[^q3]
 
 vLLM 的模型抽象更接近：
 
@@ -803,7 +803,7 @@ Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦�
 
 这套抽象的工程价值，最终体现在一个具体问题上：
 
-> 当新模型接入失败时，应该首先修改哪一层？
+> 当新模型接入失败时，应该首先修改哪一层？[^q4]
 
 可以按照变化来源进行判断。
 
@@ -2386,3 +2386,7 @@ Table: 模型适配源码导航
    </details>
 
 [^q0]: 在**三层**里按变化的性质吸收，让变化停在尽可能高、尽可能窄的层。**结构层面的变化**（新的 attention 变体、激活函数、MoE 路由）用模型层的组合式实现吸收——每个模型文件用共享的 `LinearBase` 子类、`Attention` 层、`FusedMoE` 拼装，权重加载经 `WeightLoader` 映射 HF 的 checkpoint 命名；新模型 = 一个新文件 + 注册到 `ModelRegistry`，运行时与算子层不动。**状态表示的变化**（MLA 的压缩 KV、滑窗、SSM 状态、混合模型）触及运行时层——`KVCacheSpec` 让每层声明自己的 cache 形态，`KVCacheManager` 按 spec 分组管理；这是最贵的适配，因为调度与显存账都受影响。**执行方式的变化**（新量化格式、新 attention kernel、新硬件）落在算子层——`QuantizationConfig` + `LinearMethod` 替换线性层前向；attention 经 backend 抽象选 kernel；硬件经 Platform。判断方法：问它改了「算什么」（模型层）、「状态长什么样」（运行时层）还是「怎么算」（算子层）。详见[第三](#三vllm-的核心抽象从模型接入到运行时执行)至[六章](#六一个新模型接入-vllm-的完整路径)，DeepSeek 的案例在[第七章](#七实际案例分析deepseek架构的工程适配)。
+[^q1]: 由 **`ModelConfig`** 回答：它读取 Hugging Face 的 `config.json` 与命令行 / 引擎参数，统一解释出架构名（`architectures` / `model_type`）、runner 类型（generate / pooling / draft）、输出转换类型（embed / classify / none）、dtype 与量化方式、最大上下文、是否多模态、并行相关的派生量（每卡的 head 数、KV head 数、层数）等；之后所有层——注册表选类、Loader 加载权重、Attention 后端选择、KV 块大小计算——都只看这份统一的解释，而不再各自读原始配置。
+[^q2]: 由 **`ModelRegistry`** 决定：它维护「架构名 → 实现类」的映射——内置映射表（如 `LlamaForCausalLM` → `vllm/model_executor/models/llama.py`）、运行时 `register_model` 注册、以及通过插件入口点加载的外部模块；解析时按 `ModelConfig` 识别出的架构名查表（找不到就报不支持），并在**子进程**里惰性导入模块以避免在主进程提前初始化 CUDA，同时顺带检查实现类声明的能力协议（是否支持 LoRA、PP、多模态等），供后面各层判断。
+[^q3]: 用 **`nn.Module` + 能力协议（Protocol）** 而不是继承树：每个模型就是一个普通的 PyTorch 模块，运行时只要求它满足几个显式接口——`VllmModel`（`forward(input_ids, positions, …)` 返回 hidden states）、`VllmModelForTextGeneration`（`compute_logits`）、`VllmModelForPooling`、`SupportsLoRA` / `SupportsPP` / `SupportsMultiModal` 等，用 `isinstance` / 运行时协议检查判断是否具备某能力；模型内部复用的是一组**可组合的层**（`VocabParallelEmbedding`、`QKVParallelLinear`、`RowParallelLinear`、`Attention`、`RMSNorm`、量化后的 Linear），并行与量化通过这些层注入而不是通过基类。这样新模型只需实现接口与复用层，不被某个巨大基类的字段与方法束缚，也能被静态检查。
+[^q4]: 按变化的来源对层：**架构无法识别 / 找不到实现类** → `ModelConfig`（配置解释）与 `ModelRegistry`（映射表、插件注册）；**权重名字对不上、形状不匹配、量化 checkpoint 加载失败** → Loader 与模型类的 `load_weights`（`stacked_params_mapping`、量化 Linear 的权重布局）；**前向报错或输出不对** → 模型实现类本身与它复用的并行 / 量化层（`QKVParallelLinear` 的切分、RoPE 参数、Attention 元数据）；**特定后端 / 并行度才出错** → Attention 后端选择与并行层；**多模态输入处理失败** → 处理器与 `SupportsMultiModal` 相关接口。原则是让修改停在尽可能高、尽可能窄的层，不要为一个模型去改运行时。

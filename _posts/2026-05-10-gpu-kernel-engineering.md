@@ -13,7 +13,7 @@ catalog: true
 
 它回答的问题是：
 
-> **一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限？**
+> **一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限？[^q0]**
 
 站在框架和推理系统的层面看，kernel 始终是一个黑盒：Profiler 告诉你"这个算子是 memory-bound 的"，论文告诉你"FlashAttention 把 HBM 流量压下去了"，推理引擎的文档告诉你"用了 PagedAttention 所以显存碎片少了"。这些结论是对的，但它们都建立在一个没有展开的前提上——**kernel 内部发生了什么**。
 
@@ -146,7 +146,7 @@ Table: 贯穿十篇的三条线索
 
 核心问题是：
 
-> **把 A100 的 312 TFLOPS 和 2 TB/s 放在一起，得到拐点约 156 FLOP/byte。一个 BF16 的 elementwise 加法算术强度是多少？一个 4096×4096 的 GEMM 呢？这决定了后面每一篇的优化目标是什么。**
+> **把 A100 的 312 TFLOPS 和 2 TB/s 放在一起，得到拐点约 156 FLOP/byte。一个 BF16 的 elementwise 加法算术强度是多少？一个 4096×4096 的 GEMM 呢？这决定了后面每一篇的优化目标是什么。[^q1]**
 
 这一篇也会划清本系列的边界：在**系统**层面，一个训练或推理程序的瓶颈可能在 Python 开销、kernel launch、同步等待，也可能在 kernel 本身；本系列只关注 kernel 内部，那里只剩 memory 和 compute 两类瓶颈，但要把它们量化到字节和 FLOP。
 
@@ -473,3 +473,6 @@ Table: 读完 GPU kernel 系列后应能回答的问题
 3. **实现能力**：为一个新的算子、新的量化格式或新的硬件写出接近硬件极限的 kernel，并把它以可合入的质量交付。
 
 这是 AI-Infra 执行平面的最底层，也是贡献者最稀缺的一层。
+
+[^q0]: 快慢由两个上限之一决定：**memory-bound** 时时间 = 搬运字节数 / 带宽，**compute-bound** 时时间 = FLOPs / 峰值算力，分界是硬件的算术强度拐点（A100 约 156 FLOP/byte）；一个 kernel 的算术强度低于拐点就只能靠少搬字节（融合、复用 shared memory、向量化访存、避免非合并访问），高于拐点才靠 Tensor Core、流水线与占用率。写到接近极限的方法是**先算后写**：用 roofline 算出这个 kernel 的理论下限，用 profiler 量出实际带宽 / 算力利用率，差距在哪就修哪——系列按 elementwise（带宽 90%+）、reduction / softmax、GEMM（分块、shared memory、Tensor Core、流水线）、attention（FlashAttention 的 online softmax 与 tiling）、Triton 逐类演示。
+[^q1]: BF16 加法：每个元素读 2 个输入、写 1 个输出，共 6 字节，做 1 次 FLOP，算术强度 $$1/6\approx 0.17$$ FLOP/byte——比拐点 156 低三个数量级，彻底 memory-bound，优化目标只能是把带宽用满。$$4096\times4096$$ 的 BF16 GEMM：$$2\cdot4096^3\approx 1.37\times10^{11}$$ FLOPs，读写三个矩阵 $$3\cdot4096^2\cdot2 \approx 1.0\times10^8$$ 字节，算术强度约 **1365 FLOP/byte**——远高于拐点，compute-bound，优化目标是喂饱 Tensor Core（分块复用、流水线、占用率）。所以后面每一篇的目标不同：elementwise 与 reduction 看带宽利用率，GEMM 与 attention 看算力利用率（MFU），attention 的特殊之处是 naive 实现因为 $$T^2$$ 的中间矩阵从 compute-bound 退化成 memory-bound，FlashAttention 用 tiling 把它拉回来。

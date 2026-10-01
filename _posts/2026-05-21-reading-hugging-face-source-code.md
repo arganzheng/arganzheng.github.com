@@ -14,7 +14,7 @@ catalog: true
 
 它回答的问题是：
 
-> **`AutoModelForCausalLM.from_pretrained`、`model.generate`、`tok.apply_chat_template`、`load_dataset(...).map`、`get_peft_model`、`SFTTrainer` / `DPOTrainer` / `GRPOTrainer`——工具箱第五篇那六行代码的每一行，执行时经过了哪些文件的哪些函数？L0 的公式与 L4 / L5 的结构图，各对应源码里的哪几行？**
+> **`AutoModelForCausalLM.from_pretrained`、`model.generate`、`tok.apply_chat_template`、`load_dataset(...).map`、`get_peft_model`、`SFTTrainer` / `DPOTrainer` / `GRPOTrainer`——工具箱第五篇那六行代码的每一行，执行时经过了哪些文件的哪些函数？L0 的公式与 L4 / L5 的结构图，各对应源码里的哪几行？[^q0]**
 
 Hugging Face 的五个库加起来几十万行，本系列不通读，只沿**一次 LoRA SFT 会走到的调用链**读：模型怎么加载、一次前向怎么走到 loss、`generate` 的循环长什么样、文本怎么变成 `input_ids`、数据怎么从 Arrow 文件到一个 batch、LoRA 怎么挂到 `nn.Linear` 上、SFT 的 `-100` 在哪一步填、DPO 与 GRPO 的公式各是哪十几行。每一篇的写法相同：先用一张调用链图给出骨架，再逐段贴源码——只贴那一段真正在做事的几行，其余用文件名 + 函数名指路——最后把它与本地图前面各层的公式或结构图对上。
 
@@ -154,3 +154,5 @@ Table: 章节目录
 5. 从 `get_peft_model` 追到 `lora.Linear.forward` 的那一行，从 `SFTTrainer` 追到 `-100` 被填的那一次 `map`，从 `dpo_loss` 与 `_compute_loss` 里各指出论文公式对应的几行。
 
 之后遇到任何一个新的 Trainer、新的 `LogitsProcessor`、新的模型目录，方法相同：找到注册表、找到 `compute_loss`、找到 `forward` 里那一行调用，往下追。
+
+[^q0]: 每行一条调用链，各对应一篇：`from_pretrained` → `AutoConfig` 读 `config.json` 查架构映射 → 构造 `Qwen2ForCausalLM` → `safetensors` 按 `state_dict` 键名加载（L4 结构图的七样东西就是 `modeling_qwen2.py` 里的七个类）；`model.generate` → `GenerationMixin.generate` 的循环：`prepare_inputs_for_generation` → `forward` 取最后位置 logits → `LogitsProcessor` → 采样 → 更新 KV cache（`DynamicCache`）（对应 L4 第二篇的 decode）；`apply_chat_template` → Jinja 模板渲染成字符串 → tokenizer 的预分词 + BPE 合并 → `input_ids`；`load_dataset(...).map` → Arrow 文件 → `Dataset.map` 的批处理 / 多进程 / 缓存指纹；`get_peft_model` → `inject_adapter` 匹配 `target_modules` 把 `nn.Linear` 换成 `lora.Linear`（`scaling = α/r`、`lora_B` 全零，对应 L0 第三篇）；`SFTTrainer` 在 `DataCollator` 里填 `-100` 做 loss mask，`DPOTrainer` 的 `dpo_loss` 十几行是 $$-\log\sigma(\beta(\log\pi/\pi_{ref}|_w - \log\pi/\pi_{ref}|_l))$$，`GRPOTrainer` 的组内相对优势与裁剪比率各十几行（对应 L5 的公式）。

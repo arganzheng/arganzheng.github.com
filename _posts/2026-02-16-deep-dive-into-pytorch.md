@@ -15,7 +15,7 @@ catalog: true
 
 这个系列不是 PyTorch API 速查表，也不是机器学习算法教程，而是试图回答一个问题：
 
-> **PyTorch 如何把张量计算表达成可求导、可扩展、可优化、可分布式执行的深度学习系统？**
+> **PyTorch 如何把张量计算表达成可求导、可扩展、可优化、可分布式执行的深度学习系统？[^q0]**
 
 一个训练或推理调用，看起来可能只是：
 
@@ -253,7 +253,7 @@ Table: 十篇的标题、线索、源码目录与实践落点
 
 核心问题是：
 
-> **执行 `torch.add(x, y)` 时，PyTorch 内部发生了什么？**
+> **执行 `torch.add(x, y)` 时，PyTorch 内部发生了什么？[^q1]**
 
 本篇会给出一条用于建立心智模型的典型调用路径：
 
@@ -356,7 +356,7 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 核心问题不是“如何调用 `loss.backward()`”，而是：
 
-> **PyTorch 如何把链式法则变成一次沿计算图执行的反向传播？**
+> **PyTorch 如何把链式法则变成一次沿计算图执行的反向传播？[^q2]**
 
 同时，本篇会解释每次 forward 为什么可以创建一张新的图，以及 Python 控制流为什么能够直接参与 Eager Mode 下的模型计算。
 
@@ -870,3 +870,7 @@ Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
 3. **扩展能力**：能够设计、实现、测试和优化一个新的算子或运行时组件。
 
 这正是从后端工程师走向 AI-Infra 工程师时，PyTorch 最值得深入学习的部分。
+
+[^q0]: 靠分层：**Tensor**（数据 + 形状 / 步幅 / dtype / 设备 / 生命周期，Python 对象是 C++ `TensorImpl` 的句柄）表达数据；每个算子经 **Dispatcher** 按 Tensor 的 DispatchKeySet 选实现——Autograd key 上先记录 `grad_fn` 建图（**可求导**），再落到 CPU / CUDA / 第三方后端的 kernel（**可扩展**：新算子注册到同一张表，新硬件走 PrivateUse1）；**编译**（Dynamo 捕获整图 → AOTAutograd 拆前后向 → Inductor 生成融合 kernel）把逐算子分发整体换掉（**可优化**）；**分布式**对参数、梯度、优化器状态、激活、数据五类状态各做复制或分片，用集合通信在 stream 上与计算重叠（**可分布式**）。四种能力能叠加，因为都建立在同一个算子系统之上。
+[^q1]: Python 的 `torch.add` 是 codegen 生成的 C++ 绑定（`torch/csrc/autograd/generated/python_torch_functions*.cpp`）：解析参数 → 调 `at::add` → 进入 **Dispatcher**，用两个输入 Tensor 的 DispatchKeySet 取最高优先级的 key：先到 Autograd key 的包装（`VariableType::add`），若需要求导就创建 `AddBackward0` 节点、记录输入 → 重新分发到后端 key（CPU / CUDA）→ `TensorIterator` 处理广播、类型提升、内存布局 → 调用对应 kernel（CPU 向量化循环或 CUDA `elementwise_kernel`）→ 结果 Tensor 带着 `grad_fn` 返回 Python。第五篇沿这条路径逐层读源码。
+[^q2]: 前向时每个需要求导的算子在 Dispatcher 的 Autograd 层记录一个 `Node`（`grad_fn`），保存反向需要的输入 / 输出，节点之间通过 `next_functions` 连成一张以输出为根的有向无环图；`loss.backward()` 从根节点出发，按拓扑序（引擎维护每个节点的依赖计数，就绪的入队、多设备多线程执行）对每个节点调用它的 `apply`——把上游传来的梯度乘上本算子的局部 Jacobian（链式法则的一步）——再把结果分发给下游节点，叶子 Tensor 的梯度累加进 `.grad`。因为图是在前向执行时**动态**记录的，每次 forward 建一张新图，Python 的 `if` / `for` 直接决定图长什么样，用完即释放。

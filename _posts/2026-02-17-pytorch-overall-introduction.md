@@ -532,7 +532,7 @@ Table：PyTorch 的逻辑分层
 
 它回答的是：
 
-> 用户通过哪些接口表达数据、模型、求导、参数更新和数据加载？
+> 用户通过哪些接口表达数据、模型、求导、参数更新和数据加载？[^q8]
 
 #### 框架提供的编程抽象
 
@@ -576,7 +576,7 @@ optimizer.step()
 
 它回答的是：
 
-> 框架通过哪些组件理解和优化一段计算，而不只是逐个处理算子？
+> 框架通过哪些组件理解和优化一段计算，而不只是逐个处理算子？[^q9]
 
 PyTorch 2.x 中的典型组件包括：
 
@@ -606,7 +606,7 @@ PyTorch 2.x 中的典型组件包括：
 
 它回答的是：
 
-> 算子如何形成统一的接口契约，又如何关联到适合当前输入与上下文的处理者？
+> 算子如何形成统一的接口契约，又如何关联到适合当前输入与上下文的处理者？[^q10]
 
 主要组成包括：
 
@@ -635,7 +635,7 @@ PyTorch 2.x 中的典型组件包括：
 
 它回答的是：
 
-> Tensor 存储、设备任务和跨进程通信，依靠哪些基础设施得到管理？
+> Tensor 存储、设备任务和跨进程通信，依靠哪些基础设施得到管理？[^q11]
 
 主要职责包括：
 
@@ -659,7 +659,7 @@ PyTorch 2.x 中的典型组件包括：
 
 它回答的是：
 
-> 张量运算最终由哪些计算代码完成？
+> 张量运算最终由哪些计算代码完成？[^q12]
 
 主要组成包括：
 
@@ -1230,3 +1230,8 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 [^q5]: GPU 是异步执行的：CPU 只负责发 kernel，如果每个 kernel 很小、发得又慢（launch-bound）或 CPU 在等 `.item()` / `nonzero` 这类同步点（sync-bound），GPU 大部分时间在空等——但 Python profiler 看到的每个函数都不慢。要用 `torch.profiler` 看时间线上 CPU 与 GPU 两侧谁在空闲。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第八篇。
 [^q6]: 多卡多了通信：DDP 每步 all-reduce 梯度、FSDP 每层 all-gather 参数与 reduce-scatter 梯度，这些通信只有与计算重叠才不占额外时间；再加上数据加载、每卡 batch 变小导致 GEMM 效率下降、慢卡拖住 collective，加速比自然低于卡数。详见[第八章](#八pytorch-工程中最重要的几个边界)，展开在第九篇。
 [^q7]: 因为扩展跨过了[第八章](#八pytorch-工程中最重要的几个边界)说的几条边界：Python / C++ 之间的 ABI 与引用计数、Tensor 的逻辑形状与物理布局（stride）、dtype 的类型提升、以及谁持有内存多久（生命周期）。原生算子由 Codegen 与 Dispatcher 统一处理这些，自定义算子要自己补齐。展开在第六篇。
+[^q8]: 数据用 **Tensor** 及其运算接口（形状、步幅、dtype、设备）；模型用 **`nn.Module`**（参数、缓冲区、子模块、`forward`、hooks）；求导用 **Autograd 接口**（`requires_grad`、`backward()`、`torch.autograd.grad()`、`torch.autograd.Function`）；参数更新用 **`torch.optim`**（`Optimizer.step()`、参数组、`lr_scheduler`）；数据加载用 **`Dataset` / `DataLoader`**（采样、批处理、多进程预取）。这些接口共同构成用户层的编程抽象，正文此节逐个列出它们的职责。
+[^q9]: PyTorch 2.x 的编译栈：**TorchDynamo** 分析 Python 字节码、在可捕获区域提取 FX 计算图并建立守卫（guard）；**AOTAutograd** 把前向图与自动生成的反向图一起捕获、做函数化（去除原地操作）与分解到核心算子集；**Inductor** 对图做融合、布局与调度决策，生成 Triton（GPU）或 C++ / OpenMP（CPU）kernel；**FX** 是这些组件之间的图中间表示；**TorchScript / `torch.export`** 用于导出与部署。它们让框架看到一段计算的整体，而不是逐个处理算子。
+[^q10]: 契约由 **Operator Schema** 定义——算子名、重载、参数与返回值、别名与修改标注（写在 `native_functions.yaml`，由 codegen 生成 C++ / Python 绑定与 `OperatorHandle`）；关联到处理者靠 **Dispatcher**：每个算子一张以 DispatchKey 为索引的内核表，kernel 通过 `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 注册到某个 key（CPU、CUDA、Autograd、Functionalize、Python 等）；调用时从输入 Tensor 的 DispatchKeySet 与线程局部的包含 / 排除集合算出最高优先级 key、取对应 kernel，kernel 可以处理完再 `redispatch` 到下一个 key——这就是「适合当前输入与上下文」的选择机制。
+[^q11]: 三块基础设施：**设备与内存管理**（`c10` 的设备上下文与 `Allocator`——CUDA 的 CachingAllocator 以 block 池缓存显存、按 stream 记录以避免过早复用，Tensor 的 Storage 就从这里分配与释放）；**Stream 与 Event**（组织设备任务的执行顺序与依赖，kernel 启动是异步的，跨 stream 同步靠 Event 记录与等待）；**通信后端**（`torch.distributed` 的 ProcessGroup 抽象之下是 NCCL / Gloo / MPI，集合通信在专用 stream 上发起，与计算 stream 用 Event 建立依赖）。正文此节列出各自的职责。
+[^q12]: 四类：**PyTorch 原生 kernel**（ATen 的 CPU 实现——`TensorIterator` + 向量化循环——与 CUDA 实现）；**编译系统生成的 kernel**（Inductor 产出的 Triton / C++ 代码，融合多个算子）；**外部计算库**（cuBLAS / cuBLASLt 的 GEMM、cuDNN 的卷积与注意力、oneDNN、FlashAttention 一类的第三方 kernel）；**用户自定义算子 / 扩展**（C++ / CUDA 扩展、`torch.library` 注册的 Python 算子、Triton 自定义 kernel）。Dispatcher 决定一次调用最终落到哪一类。

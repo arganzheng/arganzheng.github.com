@@ -2524,7 +2524,7 @@ li[id^="fn:"] {
   margin-bottom: 8px;
 }
 .post-container .footnotes:has(li[id^="fn:q"])::before {
-  content: "文首问题的答案";
+  content: "本文引导问题答案";
 }
 .post-container .footnotes ol {
   padding-left: 1.6em;

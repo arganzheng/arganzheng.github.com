@@ -13,7 +13,7 @@ catalog: true
 
 它不是一本 C++ 教材。C++ 有几十个特性、几千页标准，而 AI-Infra 项目真正大量使用的只是一个子集。这个系列只讲这个子集，并且每一个特性都从一个具体问题引出：
 
-> **PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写？**
+> **PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写？[^q0]**
 
 一个典型例子。PyTorch 的 `at::Tensor` 在 Python 侧看起来是一个普通对象，但它的 C++ 定义大致是：
 
@@ -489,3 +489,5 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 3. **排障能力**：面对编译错误、链接错误、段错误和 ABI 不匹配，知道用什么工具、看哪里。
 
 这是从 Python 层走向 AI-Infra 执行平面时，无法绕开的一段路。
+
+[^q0]: 因为每一行都在表达 C++ 特有的一个决定——值语义还是引用语义、谁拥有对象、何时释放、模板在编译期做了什么。以 `TensorBase` 只有一个 `intrusive_ptr<TensorImpl> impl_` 为例：`Tensor` 是句柄而不是数据，所以拷贝只是引用计数加一、几乎不花时间；用 `intrusive_ptr` 而非 `shared_ptr` 是把计数放进对象本身，省一次分配、能从裸指针安全重建、与 Python 侧的引用计数对接；模板参数 `UndefinedTensorImpl` 提供一个单例「空值」避免空指针判断；计数归零时 `TensorImpl` 的析构沿 RAII 释放 Storage、由分配器归还 GPU 显存。系列各篇分别讲这些机制：编译模型与符号、项目布局与 CMake、所有权与生命周期、模板与 ATen 的 codegen、pybind11 与 ABI、构建 / 调试 / 测试工具链。

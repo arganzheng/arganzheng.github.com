@@ -13,7 +13,7 @@ catalog: true
 
 它回答的问题是：
 
-> **一段块级的张量程序，怎样一步步变成一条条 GPU 指令？中间每一个决定——这个张量每个线程持有哪几个元素、这条 load 为什么是 128 bit、这个 barrier 为什么插在这里、这个循环为什么被拆成了三段——是哪一个 pass 做的，凭什么分析结果做的？**
+> **一段块级的张量程序，怎样一步步变成一条条 GPU 指令？中间每一个决定——这个张量每个线程持有哪几个元素、这条 load 为什么是 128 bit、这个 barrier 为什么插在这里、这个循环为什么被拆成了三段——是哪一个 pass 做的，凭什么分析结果做的？[^q0]**
 
 地图上的两个系列已经把编译器当作黑盒讲过一遍：《PyTorch 深度实践》第七篇讲 `torch.compile` 的流水线（Dynamo 捕获 → AOTAutograd 变换 → Inductor 生成 Triton），《GPU Kernel 工程》第七篇讲 Triton 的编程模型和它的六层编译流水线（Python → TTIR → TTGIR → LLVM IR → PTX → cubin），并教读者去读 TTGIR 里的 `#blocked` 和 PTX 里的 `mma.sync`。那两篇回答了"编译器做了什么"。这个系列回答"**编译器怎么做到的**"：
 
@@ -471,3 +471,5 @@ Table: 读完系列后应能回答的问题
 3. **改动能力**：给一个 pass 加一条 pattern、修一个 layout 组合的 lowering、为一个新硬件特性接入一条路径，并用 lit 测试固定它。
 
 这是 AI-Infra 执行平面里最"编译器"的一层。它是选修，因为大多数 Infra 工作用不到；但一旦用到——kernel 性能到了编译器决定的那 10%、新硬件要接 Triton、`torch.compile` 生成的代码不对——它就是唯一的路。
+
+[^q0]: 沿 Triton 的六层流水线：Python AST → **TTIR**（块级张量语义，还没有线程）→ **TTGIR**（加上 layout：`#blocked` / `#mma` / `#shared` 等属性决定每个张量「每个线程持有哪几个元素」，这是由 **layout 分配与传播 pass** 根据 load / dot 的形状与硬件 warp 结构决定的）→ 一系列 TTGIR 优化 pass：**coalesce** 按访存连续性重排 layout 使每线程的连续元素能合并成一条 128-bit load（向量宽度来自对齐与连续性分析，`tl.multiple_of` / `max_contiguous` 的 hint 就是喂给它的）、**pipeline** 把循环拆成序幕 / 稳态 / 尾声三段以预取下一轮的 tile（这就是「循环被拆成三段」，依据是循环依赖与 stage 数分析）、**membar** 在 shared memory 的写后读之间插 `barrier`（依据是对 shared memory 访问的别名 / 依赖分析）、**layout conversion** 消除多余的 shared memory 往返 → **LLVM IR**（每线程视角的标量 / 向量代码，layout 被展开成索引算术）→ **PTX**（`mma.sync` / `ldmatrix` / `cp.async`）→ cubin。系列每篇打开一层：IR 数据结构、layout 系统、各 pass 的分析与决策、以及如何读 dump 对照验证。

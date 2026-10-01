@@ -13,7 +13,7 @@ catalog: true
 
 它回答的问题是：
 
-> **面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动？**
+> **面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动？[^q0]**
 
 这个问题在技术上并不深，却拦住了很多有能力的人。一个能写出高质量 kernel 的工程师，可能在 PyTorch 的 `aten/` 目录前不知从何读起；一个能修 bug 的人，可能不知道 vLLM 的 CI 为什么没有跑、PR 为什么三周没人看。这些障碍与 CUDA 或 Python 无关，与**项目的运作方式**有关：
 
@@ -301,3 +301,5 @@ NCCL、Megatron-LM、FlashAttention、Triton、SGLang 等项目在正文中只�
 3. **交付能力**：以目标项目的规范完成一个改动——diff、测试、数据、描述、CI、review——并把它合入上游。
 
 这套能力不属于任何一层，却决定了每一层的技术能力最终能否转化为对项目的实际贡献。
+
+[^q0]: 切入点来自**项目的运作方式**而不是代码本身：先建目录地图（入口点、核心抽象所在的几个目录，PyTorch 的 `c10 / aten / torch/csrc`，vLLM 的 `engine / core / model_executor / csrc`），用符号追踪与测试当文档、`git log` / blame 当注释读懂一条路径；工作从 issue 标签（`good first issue`、`help wanted`）、RFC、roadmap、CI 失败、性能回归、文档与类型缺口里来——先修一个小而确定的东西。能被合入的改动：最小 diff、带测试与（性能改动的）benchmark、PR 描述说清动机与验证、过完整 CI 矩阵、尊重 CODEOWNERS 与 review 往返的节奏（没人看就在正确的渠道 ping 维护者而不是重开）。系列按「读懂代码 → 找到工作 → 让改动被接受」三段分篇，以 PyTorch 与 vLLM 为例。

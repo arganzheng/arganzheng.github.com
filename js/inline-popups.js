@@ -364,9 +364,10 @@
 
           var targetTrigger = sup || a;
 
-          // Q&A footnotes ([^q1] … → id "fn:q1") answer the questions a post
-          // opens with; they are meant to be read after the article, so no
-          // popup — click only smooth-jumps to the bottom like a plain footnote.
+          // Q&A footnotes ([^q1] … → id "fn:q1") answer the guiding questions a
+          // post raises (intro, chapter leads, 核心问题); they are meant to be read
+          // after the article, so no popup — click only smooth-jumps to the
+          // bottom like a plain footnote.
           if (/^fn:q\d+$/.test(hash)) {
             targetTrigger.addEventListener('click', function (e) {
               var targetLi = document.getElementById(hash);

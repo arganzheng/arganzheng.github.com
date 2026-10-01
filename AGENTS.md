@@ -1586,22 +1586,39 @@ How it is built (`_plugins/moments.rb`):
   posts whose 下一篇 was a real transition paragraph — what the next part
   picks up and why — kept it). Write such a transition only when it says
   something a link cannot.
-  - **Opening questions are answered in footnotes** (`[^q0]`, `[^q1]`, …, in
-    reading order). Every question in the intro gets its own marker — the bold
-    core question is split at each 「？」 (marker right after the 「？」, inside
-    the `**…**`), and each 「为什么……？」 bullet gets one at line end. The
-    definitions go after 「下一篇」 (kramdown renders them at the very end
-    anyway): a checkable answer of one to several sentences, numbers included,
-    ending with 「详见[第 N 章](#anchor)」 links to the chapters that carry the
-    detail (anchor = the `<h2 id>` kramdown generates; check `_site`). A post
-    with a chapter titled 「回答核心问题」 must match that chapter's numbers.
+  - **Every guiding question the post raises is answered in a `q` footnote**
+    (`[^q0]`, `[^q1]`, …, numbered in reading order, page label
+    「本文引导问题答案」). "Guiding question" = a question the text poses to the
+    reader and then goes on to answer: the bold core question in the intro,
+    the `> **…？**` lead-in under a chapter heading, a `核心问题：` line in an
+    overview's 分章导读 or a roadmap's 逐层说明, a question the 小结 /
+    「回答核心问题」 chapter comes back to. Each independent question gets its
+    own marker right after its 「？」 (inside the `**…**` when bold); a
+    multi-clause question whose parts share one answer may carry one marker,
+    but the definition must then answer every clause in order. Not guiding
+    questions, no marker: question-shaped headings (the section is the
+    answer and a marker would change the heading's id), 自测 / 练习 / 面试题
+    (they carry `<details>` answers), a `核心问题` that is immediately followed
+    by a labelled `**结论**` / `**答案**` paragraph (series recaps), table
+    cells, code / output / Mermaid text, rhetorical asides. The definitions
+    go after the last body section (after 「下一篇」 if present; kramdown
+    renders them at the very end anyway): a checkable answer of one to
+    several sentences — numbers, conditions, a yes/no with the reason —
+    never 「见下文」, ending with 「详见[第 N 章](#anchor)」 links to the
+    chapters that carry the detail (anchor = the `<h2 id>` kramdown
+    generates; check `_site`). A post with a chapter titled 「回答核心问题」
+    must match that chapter's numbers. Adding a question earlier in the text
+    means renumbering the later `q`s (`tools/qfootnotes.py --fix` does it and
+    `--check` verifies: every `[^qN]` has exactly one non-empty definition,
+    no unused definition, numbers follow reading order).
     The `q` prefix matters: `js/inline-popups.js` skips `fn:q…` footnotes — no
     hover card, click only jumps to the bottom (Q&A is meant to be read after
     the article; hover cards are for explanatory footnotes) — and
-    `.footnotes:has(li[id^="fn:q"])::before` labels the list 「文首问题的答案」
+    `.footnotes:has(li[id^="fn:q"])::before` labels the list 「本文引导问题答案」
     instead of 「脚注」 (styles at the end of `less/extras.less`). The former folded 「核心问题的答案」 `<details>` block after
-    小结 is gone (2026-09); do not add it to new posts. All 142 body posts of the
-    algorithm and Infra series carry the footnotes.
+    小结 is gone (2026-09); do not add it to new posts. All body posts of the
+    algorithm and Infra series carry the footnotes; since 2026-10-01 the
+    overviews and roadmaps do too.
   - 自测: 3–5 questions per body post (overview posts have none), each with a
     checkable answer (a number, a shape, a yes/no with one reason) — no open
     questions. Every answer sits in its own

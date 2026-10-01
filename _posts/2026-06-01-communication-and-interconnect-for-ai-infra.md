@@ -13,7 +13,7 @@ catalog: true
 
 它回答的问题是：
 
-> **一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的？为什么有时候是带宽的问题，有时候是延迟的问题？**
+> **一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的？为什么有时候是带宽的问题，有时候是延迟的问题？[^q0]**
 
 站在框架的层面看，通信是一行代码：`dist.all_reduce(t)`。它返回得很快，然后在某个时刻"完成"。Profiler 里它是一段 `ncclDevKernel_AllReduce_*` 的时间条；nccl-tests 给它一个 `busbw` 数字；训练日志偶尔告诉你它 timeout 了。这些信息都是真的，但都停在一个没有展开的前提上——**这行代码触发了什么**。
 
@@ -441,3 +441,5 @@ Table: comm-probe 逐篇生长的工具
 3. **决策能力**：为一个训练或推理任务判断通信的理论上限、选择合适的算法与传输路径、给平台提出拓扑与亲和的要求，并知道什么时候该自己写一个通信原语。
 
 这是单卡之外一切系统的底座，也是训练与推理两条路径唯一共享的一层。
+
+[^q0]: 路径是：`dist.all_reduce` → ProcessGroupNCCL 在专用 stream 上入队 → `ncclAllReduce` 选算法（Ring / Tree）与协议（Simple / LL / LL128）、切 channel → 设备端 kernel 按 channel 把数据切块：节点内走 NVLink（经 NVSwitch 或直连，几百 GB/s）、跨节点由 proxy 线程通过 InfiniBand 发送（GPUDirect RDMA 直接从显存走 NIC，不经 CPU 内存；没有 GDR 时经 PCIe 拷到 host 再发）、对端 NIC 写入显存 → kernel 做归约再传下一跳 → 全部 chunk 完成后 Event 记录，计算 stream 等待它。带宽问题还是延迟问题看消息大小：大消息（几十 MB 的梯度桶）时间 ≈ 字节数 / 瓶颈链路带宽（$$2(n-1)/n$$ 倍数据量的 Ring），受 PCIe / NVLink / IB 带宽与 channel 数限制；小消息（KB 级、decode 的 TP all_reduce）时间由每跳延迟 × 跳数决定（Ring 的 $$2(n-1)$$ 跳、Tree 的 $$\log n$$ 跳），受 kernel launch、协议握手与网络延迟限制，带宽再大也没用——nccl-tests 的 `busbw` 曲线在小消息段平、大消息段才到带宽上限。

@@ -12,7 +12,7 @@ catalog: true
 
 本系列不局限于算子优化，也不止于源码解读，而是试图回答一个更完整的问题：
 
-> **一个文本生成请求，为什么会逐渐演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统？**
+> **一个文本生成请求，为什么会逐渐演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统？[^q0]**
 
 在这个视角下，LLM Serving 不再只是“把模型跑起来”，而是一个持续协调**请求、Token、计算资源、中间状态和网络通信**的动态系统。
 
@@ -145,7 +145,7 @@ catalog: true
 
 当多个请求同时进入系统，最直接的问题就是：
 
-> **GPU 下一轮计算，究竟应该服务哪些请求、多少 Token，以及以什么顺序服务？**
+> **GPU 下一轮计算，究竟应该服务哪些请求、多少 Token，以及以什么顺序服务？[^q1]**
 
 第四章围绕这个问题展开，讨论 Continuous Batching、Chunked Prefill、Token Budget、Admission Control 和 Preemption。
 
@@ -163,7 +163,7 @@ catalog: true
 
 调度决定“谁来计算”，但系统还必须回答另一个问题：
 
-> **这些请求已经计算过的历史状态，应该放在哪里、如何复用、何时释放？**
+> **这些请求已经计算过的历史状态，应该放在哪里、如何复用、何时释放？[^q2]**
 
 第五章以 KV Cache 为中心，解释 PagedAttention、Block 管理、分配与回收、Prefix Cache 以及相关的生命周期控制。
 
@@ -179,7 +179,7 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 有了调度和内存管理之后，还需要回答：
 
-> **在已经选定的请求和 Token 上，GPU 如何把每一步计算做得更快？**
+> **在已经选定的请求和 Token 上，GPU 如何把每一步计算做得更快？[^q3]**
 
 第六章进入执行层，讨论 Kernel Launch、CUDA Graph、算子融合、显存带宽、低精度、投机解码等技术。
 
@@ -194,7 +194,7 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 第六章结束于"一轮 batch 在 GPU 上跑完 forward 并采样出 token"。第七章紧接着回答：**采样这一步还能怎么变？**
 
-> **同样是"下一个 token"，为什么加上 top-p、加上 draft 模型、加上 JSON schema 之后，调度器、KV 管理和 model runner 都得改？**
+> **同样是"下一个 token"，为什么加上 top-p、加上 draft 模型、加上 JSON schema 之后，调度器、KV 管理和 model runner 都得改？[^q4]**
 
 这一章讨论三种对 decode 每一步输出方式的扩展：
 
@@ -289,7 +289,7 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 
 前面的章节主要围绕“如何把请求执行得更好”，第十三章则进一步抽象：
 
-> **未来的 Serving 系统，是否会从一个模型执行器，演化为管理计算、内存、通信和状态的分布式系统？**
+> **未来的 Serving 系统，是否会从一个模型执行器，演化为管理计算、内存、通信和状态的分布式系统？[^q5]**
 
 这一章讨论状态平面、自动并行、弹性伸缩、故障恢复、异构资源调度以及面向 Agent 的长生命周期任务等方向。
 
@@ -379,3 +379,10 @@ PD 分离并不是简单地把两个阶段部署到不同机器上。它重新�
 本系列讲的是 memory-bound 的 LLM serving；图像与视频生成模型的推理是另一半——单请求就 compute-bound、没有 KV cache、batch 几乎不提吞吐、请求时长可预测，几乎每一个系统答案都相反。那一半在 Infra 地图的 10[《扩散模型推理基础设施：从一次去噪到一个生成服务》](/diffusion-model-inference-infrastructure.html)。
 
 > **版本说明：**本系列基于 vLLM v0.27.1（tag `6e448d0`，2026-08-11）源码分析。文中路径、类名和函数名均以该版本为准；由于 vLLM 迭代较快，阅读时请结合实际版本进行对照。
+
+[^q0]: 因为生成是**逐 token、有状态、长度未知**的：每个 decode 步只算一个 token 却要读一遍全部权重（memory-bound，单请求 GPU 利用率个位数）→ 必须把很多请求批在一起（**计算**与**调度**：continuous batching、chunked prefill、token budget）；每个请求要保留全部历史的 KV cache、随生成增长且何时结束未知 → 必须管理一块动态的、不可预估的**显存**（PagedAttention、块分配、抢占、prefix cache）；模型放不进一张卡或吞吐不够 → **通信**（TP / PP / EP、PD 分离、KV 传输）；请求之间的公平、SLO、多轮会话的前缀复用 → **状态管理**。每一环都是上一环的后果，所以一个「跑模型」的程序长成了一个调度 + 内存 + 通信 + 状态的系统。
+[^q1]: 由 Scheduler 每轮用一个 **token budget**（`max_num_scheduled_tokens`）决定：先推进正在 decode 的请求（每个 1 个 token，保证已接受的请求不饿死），剩余预算分给等待队列里的新请求做 prefill——chunked prefill 让长 prompt 只推进预算剩余的那部分、下轮继续；顺序按队列（FCFS）或优先级，admission control 在显存（KV 块）不够时不接新请求，preemption 在 decode 请求的 KV 块分配失败时把最晚到的请求换出 / 重算。所以答案是：服务**所有能分到 KV 块的 decode 请求 + 预算内尽量多的 prefill token**，顺序是「decode 优先、新请求按到达 / 优先级」——第四章在 GPU 利用率、TTFT 与 TPOT、公平性之间逐项权衡。
+[^q2]: 放在 GPU 显存里的 **KV cache**，以固定大小的 block（如 16 个 token）为单位由 BlockManager 分配——PagedAttention 让逻辑上连续的序列映射到物理上不连续的块，碎片与预留浪费接近零；复用靠 **prefix caching**：按块内容哈希，相同前缀（system prompt、多轮历史、beam 的公共部分）的块引用计数 +1 直接命中、跳过这段 prefill；释放时机：请求结束或被抢占时归还块，prefix cache 的块引用归零后进入 LRU 空闲列表、满了才真正驱逐；显存不够时把整个请求换出到 CPU（swap）或丢弃 KV 重算（recompute）。第五章把 KV cache 当作「请求状态」而不是临时张量来讲它的生命周期。
+[^q3]: 分两类问题：**没把 GPU 喂饱**——每步几十上百个小 kernel 的 launch 开销与 CPU 侧准备时间在 decode 里占大头，用 CUDA Graph 把一步的 kernel 序列录下来一次提交、把采样与输入准备向量化；**kernel 本身慢**——decode 是 memory-bound，所以用低精度权重（FP8 / INT4）与 KV cache 量化减少每步读的字节、算子融合减少中间张量往返、FlashAttention / PagedAttention kernel 做 attention 的 tiling；再往上是**投机解码**用一次前向验证多个草稿 token（把 memory-bound 的步数折算成 compute）与 **MoE** 的专家并行 kernel。第六章按「launch → 带宽 → 精度 → 融合 → 投机」的顺序每项给出收益区间。
+[^q4]: 因为它们各自改变了一步 decode 的**形状或契约**：**top-p 等 logits processors** 要求采样器对同一个 batch 内不同请求按各自参数向量化处理（温度、惩罚要查每个请求的历史 token），model runner 的采样阶段与调度器传下来的请求元数据都得扩展；**投机解码**让一步不再是「每请求 1 个 token」而是 $$k+1$$ 个——调度器的 token 预算与 KV 块预分配要按 $$k+1$$ 算、model runner 的输入形状变成不规则、采样器要做拒绝采样并把被拒的 KV 回滚；**JSON schema 约束**要求每步在采样前用 FSM / 语法状态屏蔽非法 token——状态每请求一份、要随接受的 token 推进，与投机解码叠加时还要能回退，调度器要知道这个请求带着一个语法状态。所以「下一个 token」的扩展必须穿过调度器、KV 管理和 model runner 三层。
+[^q5]: 会，而且已经在发生：请求变长、交互变多、模型组合变复杂之后，系统管理的对象不再是一次推理，而是**持续存在的状态**（多轮会话的 KV、agent 的工具调用上下文、跨请求的缓存）、**多种资源**（prefill 与 decode 的异构算力、KV 的多级存储、跨节点的传输）与**多个模型**（draft / target、路由、多 LoRA），这就需要独立的状态平面（KV 的全局寻址与迁移）、自动并行与弹性伸缩、故障恢复、异构调度与长生命周期任务——即「AI Serving Operating System」。vLLM 在其中的位置是**单节点 / 单实例的执行引擎**：它把一张或一组卡上的调度、KV 管理与 kernel 做到最好，而集群级的路由、PD 分离编排、KV 传输与状态平面由它之上的一层（llm-d、Dynamo、Mooncake 一类）承担，vLLM 通过 KV connector、disaggregated serving 接口与指标暴露接进去。

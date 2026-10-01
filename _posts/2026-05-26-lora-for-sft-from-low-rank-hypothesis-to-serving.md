@@ -14,7 +14,7 @@ catalog: true
 
 它回答的问题是：
 
-> **为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好？`r`、`lora_alpha`、`target_modules`、学习率各取多少、依据是什么？训完的 adapter 怎么存、怎么合并、怎么让一个底座同时服务几十个 adapter？什么时候低秩假设不成立、该回到全量微调？**
+> **为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好？`r`、`lora_alpha`、`target_modules`、学习率各取多少、依据是什么？训完的 adapter 怎么存、怎么合并、怎么让一个底座同时服务几十个 adapter？什么时候低秩假设不成立、该回到全量微调？[^q0]**
 
 三篇正文都配同一组实验：Qwen2.5-0.5B 上，同一份 800 条指令数据、同样 80 步，把全量微调与十二种 LoRA 配置逐个训一遍，比验证集回复的 loss、比普通文本 loss 的变化（遗忘）、比每步耗时；再把全量微调学到的 $$\Delta W$$ 做 SVD，看它到底有多"低秩"。所有数字在一台 8 线程的 CPU 上跑出，与作者在 Apple Silicon 上跑[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)的基线一致（训练前验证回复 loss 2.4936、普通文本 loss 2.8748）。
 
@@ -78,19 +78,19 @@ flowchart TB
 
 从 Aghajanyan 等 2020 的「内在维度」到 Hu 等 2021 的 LoRA：微调的有效自由度远小于参数量。给出 $$W + \frac{\alpha}{r} BA$$ 的前向、用一个 $$2 \times 3$$ 的例子手算 $$\partial \mathcal{L} / \partial A$$、$$\partial \mathcal{L} / \partial B$$，说明为什么冻结的 $$W$$ 不需要梯度、为什么 $$B = 0$$ 时第一步只有 $$B$$ 动、为什么对输入的梯度一分不省。然后算四本账：Qwen2.5-0.5B 与 Llama-3.1-8B 上七个线性层各自的 LoRA 参数量、训练状态从 120 GiB 到 15.5 GiB、前向 FLOPs 只多 0.6% 但 kernel 数翻三倍、激活值不变。最后是检验：全量微调 80 步的 $$\Delta W$$ 奇异值谱，以及截到秩 1 / 4 / 16 / 64 装回去后验证 loss 各剩多少。
 
-> **给一个 $$4096 \times 4096$$ 的矩阵加 $$r = 16$$ 的 LoRA，可训练参数少了几倍？训练一步的时间为什么没有少这么多倍？全量微调学到的 $$\Delta W$$ 截到秩 16 之后，效果还剩多少？**
+> **给一个 $$4096 \times 4096$$ 的矩阵加 $$r = 16$$ 的 LoRA，可训练参数少了几倍？训练一步的时间为什么没有少这么多倍？全量微调学到的 $$\Delta W$$ 截到秩 16 之后，效果还剩多少？[^q1]**
 
 ### 2. 选参：r、target_modules、alpha、lr 与 QLoRA / DoRA / PiSSA 各让模型变成什么
 
 每个旋钮一节，每节一组对照数字。秩 $$r$$ 取 4 / 16 / 64；目标矩阵只挂 attention 与挂全部线性层；$$\alpha$$ 固定时 $$r$$ 增大让更新按 $$1/r$$ 塌缩、rsLoRA 的 $$\alpha / \sqrt r$$ 怎么修；lr 取 $$10^{-5}$$ / $$10^{-4}$$ / $$10^{-3}$$ 与 LoRA+ 的 $$A$$、$$B$$ 分别设 lr；初始化：默认 Kaiming / 零、PiSSA 用 $$W$$ 的主奇异方向、OLoRA 的 QR、EVA 用激活的 SVD、LoftQ 对着量化误差初始化；DoRA 把幅度与方向分开训；QLoRA 的 NF4、双重量化、分页优化器与它在 CPU 上的实测。全量与十二种 LoRA 配置在同一张表里比验证 loss、遗忘与每步耗时，最后给一张「任务类型 × 资源 → 配置」的选择表。
 
-> **同样 80 步，$$r$$ 从 4 到 64 验证 loss 差多少？只挂 attention 差多少？lr 大十倍会怎样？rsLoRA、DoRA、PiSSA 各比默认好多少？什么时候该放弃 LoRA 用全量？**
+> **同样 80 步，$$r$$ 从 4 到 64 验证 loss 差多少？只挂 attention 差多少？lr 大十倍会怎样？rsLoRA、DoRA、PiSSA 各比默认好多少？什么时候该放弃 LoRA 用全量？[^q2]**
 
 ### 3. 工程：adapter 文件、合并、多 LoRA 服务与参考模型
 
 `save_pretrained` 存下的 `adapter_config.json` 与 `adapter_model.safetensors` 各有什么、为什么只有几十 MB；`PeftModel.from_pretrained` 装回去与训练结束时的数值一致；`merge_and_unload` 前后 logits 的最大差是浮点舍入量级、前向时间怎么变；adapter 对着 FP32 底座学、装到 NF4 底座上差多少、先合并再量化又差多少；一个底座挂两个 adapter 的 `set_adapter` 切换、`add_weighted_adapter` 的 linear / cat / svd 三种合成；`disable_adapter()` 让 DPO / GRPO 不必再放一份参考模型；multi-LoRA 服务的显存账与 vLLM 的 `max_loras × max_lora_rank`；新加特殊 token 只挂 LoRA 学不会、`trainable_token_indices` 与 `modules_to_save` 各怎么修。
 
-> **一个 8B 模型的 adapter 多大？合并后与合并前的输出差多少？QLoRA 训出的 adapter 装到 BF16 底座上会怎样？一个底座服务 50 个客户，用 50 个 adapter 与存 50 份合并模型差多少显存？**
+> **一个 8B 模型的 adapter 多大？合并后与合并前的输出差多少？QLoRA 训出的 adapter 装到 BF16 底座上会怎样？一个底座服务 50 个客户，用 50 个 adapter 与存 50 份合并模型差多少显存？[^q3]**
 
 ### 4. 系列总结与通关自测
 
@@ -152,3 +152,8 @@ Table: 章节目录
 6. 把训好的 adapter 存下来、装回去、合并、量化、与另一个 adapter 合成，并说出每一步的数值等价程度；
 7. 给一个「一个底座服务 N 个客户」的需求算出 adapter 与合并模型两种方案的显存与切换代价；
 8. 说出 LoRA 在 DPO / GRPO 里怎么省掉参考模型、新加 token 为什么学不会、怎么修。
+
+[^q0]: 因为微调学到的权重增量 $$\Delta W$$ 近似低秩：对全量微调的 $$\Delta W$$ 做 SVD，前 16 个奇异方向已解释大部分能量，截到秩 16 后效果几乎不变——所以用 $$BA$$（$$B$$ 全零初始化，训练开始时增量恰为零）就够。选参依据是对照实验：$$r$$ 取 16 左右（4 → 64 验证 loss 差别在百分之几，64 遗忘更多）；`lora_alpha` 定 scaling $$\alpha/r$$，$$\alpha$$ 固定时增大 $$r$$ 会让更新塌缩，rsLoRA 改用 $$\alpha/\sqrt r$$；`target_modules` 挂全部线性层比只挂 attention 好得多；lr 比全量高一个量级（$$10^{-4}$$ 级）。adapter 以 `adapter_config.json` + `adapter_model.safetensors` 存（8B 模型几十 MB），`merge_and_unload` 合并后 logits 差在浮点舍入量级，多 adapter 服务靠 vLLM 的 `max_loras × max_lora_rank` 在一个底座上按请求切换。低秩假设不成立的情形：要学大量新知识 / 新语言、新加特殊 token 的 embedding、或 $$\Delta W$$ 的奇异值衰减很慢时，回到全量微调（或 `modules_to_save` 全量训那几层）。
+[^q1]: $$4096\times4096$$ 有 16.8M 参数，$$r=16$$ 的 LoRA 只有 $$2\times4096\times16 = 131{,}072$$ 个——少 **128 倍**。训练一步的时间没有少这么多倍，是因为前向与反向对**输入激活**的梯度仍要穿过完整的冻结权重（$$W^\top\delta$$ 的 GEMM 一个不少），省掉的只是对权重的梯度 $$\delta x^\top$$ 与优化器状态——所以时间通常只省 20–40%，显存省得多（无梯度与 Adam 状态：每参数从 16 字节降到权重的 2 字节）。全量微调学到的 $$\Delta W$$ 截到秩 16：第一篇的实验里奇异值前几十个之后迅速衰减，截断后的 $$\Delta W$$ 在验证集上保留了绝大部分收益（loss 差在百分之几以内），这就是低秩假设的直接证据。
+[^q2]: Qwen2.5-0.5B、800 条指令、80 步的对照：$$r$$ 从 4 到 64 验证回复 loss 只差百分之几（4 已能学会格式，64 对普通文本 loss 的遗忘更明显）；只挂 attention 比挂全部线性层明显差——FFN 占三分之二参数，不挂它学不到多少；lr 大十倍（$$10^{-3}$$）训练 loss 降得快但验证 loss 回升、遗忘陡增，$$10^{-5}$$ 则 80 步几乎没动；rsLoRA 在大 $$r$$ 下比默认好（修正了 $$\alpha/r$$ 的塌缩），DoRA 与 PiSSA 比默认好零点零几的 loss、代价是多一点显存与计算。该放弃 LoRA 用全量的时机：任务需要大量新知识或新语言、新加特殊 token、$$\Delta W$$ 奇异值衰减慢、或显存本来就放得下且追求最后一点效果。第二篇末尾给出「任务类型 × 资源 → 配置」的选择表。
+[^q3]: 8B 模型、$$r=16$$ 挂全部线性层约 40M 参数，bf16 下 **约 80 MB**（Qwen2.5-0.5B 上 8.8M 参数、十几 MB）。合并（`merge_and_unload`，$$W + BA\cdot\text{scaling}$$）前后 logits 的最大差在浮点舍入量级（$$10^{-3}$$ 以内，bf16），输出 token 一致；合并后前向少一次瘦矩阵乘，略快。QLoRA 的 adapter 是对着 **NF4 量化后的底座**学的，装到 BF16 底座上会有一个系统性偏差（它学进了量化误差的补偿），loss 略变差，通常可接受但要重新评测；先合并再量化又是另一个数。50 个客户：50 个 adapter 各 80 MB = 4 GB 显存共享一个 16 GB 的底座，而 50 份合并模型是 50 × 16 GB = 800 GB——差两个数量级，这就是 multi-LoRA 服务（vLLM 的 `max_loras × max_lora_rank`）存在的理由。

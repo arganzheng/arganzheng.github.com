@@ -16,7 +16,7 @@ updated: 2026-09-17
 
 地图回答三个问题：
 
-> **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？**
+> **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？[^q0]**
 
 这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 58 篇、约 35 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
 
@@ -167,7 +167,7 @@ Table: 模型生命周期各阶段主要用到的层
 
 ### L0 数学基础
 
-> **公式里的每个符号是什么意思？loss 为什么这样写？**
+> **公式里的每个符号是什么意思？loss 为什么这样写？[^q1]**
 
 系列：[《算法工程师的数学：读公式不卡壳的最小集》](/math-for-ai-algorithm-engineers.html)（八篇）——形状与 FLOPs · 内积与范数 · 正交与 SVD · 概率入门 · MLE 到交叉熵 · 熵与 KL 到 DPO · 梯度与策略梯度 · 统计推断与 scaling law。面向从零开始的读者，每篇从定义讲起、代真实模型算出数字。
 
@@ -186,7 +186,7 @@ Table: L0 数学四个分支的概念、用处与对应文章
 
 ### L1 编程与工具
 
-> **怎么把一个想法变成一次能跑的实验？**
+> **怎么把一个想法变成一次能跑的实验？[^q2]**
 
 系列：[《算法工程师的工具箱：从一个想法到一次能跑的实验》](/tooling-for-ai-algorithm-engineers.html)（六篇）——Python 使用层 · 数据科学三剑客 · PyTorch 使用层上下 · Hugging Face 生态 · GPU 直觉与实验管理，每篇配一个 CPU 可跑的脚本，讲的都是"用法"。Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html) 两个系列是本层的**深入篇**（机制与实现），两张地图共享，紧接本系列发布。
 
@@ -205,7 +205,7 @@ Table: L1 各工具要掌握到的程度
 
 ### L2 机器学习基础
 
-> **什么是学习？怎么知道模型学会了而不是背下来了？**
+> **什么是学习？怎么知道模型学会了而不是背下来了？[^q3]**
 
 系列：[《LLM 时代的经典机器学习：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)（十篇）——什么是学习 · 线性回归 · 逻辑回归与奖励模型 · 三个基础分类器 · SVM 与核方法 · 集成 · 聚类 · 降维 · MinHash 与 LSH · 评估，每个机制用十几行 NumPy 手写并画出来，对到 LLM 上的形态（benchmark 污染、reward hacking、weight decay = Ridge、attention = 核回归、奖励模型 = 逻辑回归、embedding 各向异性、去重阈值、judge 偏差）；每篇另有算法的来龙去脉和一个真实数据的经典案例（加州房价、垃圾短信、MNIST、泰坦尼克、人口普查收入、RFM 客户分群、Eigenfaces、语料去重、银行营销），代码与效果数字全部实跑。
 
@@ -226,7 +226,7 @@ Table: L2 机器学习基础的主题与 LLM 时代的必要性
 
 ### L3 深度学习基础
 
-> **梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？**
+> **梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？[^q4]**
 
 系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇）——反向传播 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · RNN 到 attention。每篇推导 + 算账 + 一个 CPU 上能跑的实验，外加来龙去脉、一个案例（MNIST 从零、64 层 MLP、优化器扫描、double descent、复现 LeNet-5、字符级 LSTM 写莎士比亚）和原论文的结构图。
 
@@ -244,7 +244,7 @@ Table: L3 深度学习基础的主题与概念
 
 ### L4 LLM 核心
 
-> **Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？**
+> **Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？[^q5]**
 
 这一层是地图的中心，也是与 Infra 地图的交点。Transformer 的结构与实现（静态线、动态线、nanoGPT 逐行、实训）、从 GPT-2 到 Llama / DeepSeek 的每一处演进（GQA / MLA、RoPE、SwiGLU、MoE、MTP）为什么发生，以及数值格式、量化与投机解码的**数学**，在[《Transformer 与 LLM：结构、实现与算量》](/transformer-and-llm-for-infra-engineers.html)十三篇里已经写完——那个系列先带你手搓一个 GPT，再从"每一步算多少、读多少、存多少"的角度讲每个结构决定，正是算法工程师判断"这个结构改动值不值"所需要的账；紧接着它的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（五篇）用同样的算账方法覆盖本层的另一半：tokenizer、scaling law、数据工程、训练配方。这里列出本层的全部内容，并标出各在哪个系列的哪一篇：
 
@@ -262,7 +262,7 @@ Table: L4 LLM 核心的主题与概念
 
 ### L5 后训练
 
-> **一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？**
+> **一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？[^q6]**
 
 这是当前算法工程师工作量最集中的一层，也是变化最快的一层。对应的系列是[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（8 篇：SFT、偏好数据与奖励模型、在线 RL、离线 RL、推理模型与 RLVR、Agent 与工具调用的 RL、蒸馏、评测），以 RLHF 三件套（策略、奖励、参考）为组织轴。按流程分五段：
 
@@ -280,7 +280,7 @@ Table: L5 后训练各阶段的概念
 
 ### L6 高效推理与压缩（算法侧）
 
-> **不改硬件，怎么让同一个模型更快、更小、更便宜？**
+> **不改硬件，怎么让同一个模型更快、更小、更便宜？[^q7]**
 
 系列：[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)（六篇）——解码策略与约束生成 · 投机解码 · 训练后量化 · QAT 与量化模型的评测 · KV cache 压缩 · 剪枝与小模型配方。每篇回答"输出分布变了多少、收益区间在哪、代价是什么"。
 
@@ -298,7 +298,7 @@ Table: L6 算法侧推理优化的主题与概念
 
 ### L7 多模态
 
-> **图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？**
+> **图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？[^q8]**
 
 系列：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)（九篇）——视觉编码器 · VLM 结构 · VLM 训练与评测 · 语音上下两篇（从波形到 token；理解、生成与全双工）· 扩散模型上下两篇（DDPM；score / flow matching 与 CFG）· Latent diffusion 与文生图配方 · 自回归图像生成与统一模型。
 
@@ -318,7 +318,7 @@ VLM 的成本结构——一张图等于多少 token、encoder 与 decoder 各�
 
 ### 横切：实验方法论
 
-> **怎么用有限的算力得出可信的结论？**
+> **怎么用有限的算力得出可信的结论？[^q9]**
 
 导读：[《算法工程师的实验方法论：用有限的算力得出可信的结论》](/experimental-methodology-for-ai-algorithm-engineers.html)——六步与六种错误、seed 方差与显著性、三个规模的外推规则、一份十七问的实验清单。
 
@@ -464,3 +464,14 @@ Table: 按目标选择的学习路径
 Table: 读完算法地图后能追问的问题与答案来源
 
 三张地图不是为了覆盖更多名词，而是为了让 AI 系统里的三类人——造模型的、跑模型的、用模型的——知道自己站在哪里、隔壁在做什么。
+
+[^q0]: 八层加一个横切。L0 数学 → L1 工具 → L2 经典机器学习 → L3 深度学习基础 → L4 Transformer / LLM（结构、tokenizer、scaling law、预训练数据）→ L5 后训练（SFT、偏好对齐、RLVR、蒸馏、评测）→ L6 高效推理与压缩（解码、投机、量化、KV）→ L7 多模态；横切是实验方法论。每层要掌握的内容见上表「需要什么」与各层概念表：数学到读公式、推 loss 不出错；工具到能把想法写成能跑的脚本；经典 ML 与深度学习要方法论与训练现象；L4 要会手搓 GPT 并算账；L5 是工作量最集中的一层。顺序就是层号——每层以上一层为前置，L4 是中心，L5 是重心；已有基础的读者可以从 L4 进入、按需回看前面各层（正文「怎么用这张地图」给了三条路线）。
+[^q1]: 读公式按四个分支拆：线性代数管形状、FLOPs、范数与 SVD（矩阵乘 $$[m,k]\times[k,n]\to[m,n]$$、$$2mnk$$ 次运算）；概率统计管「语言模型是条件分布 $$p(x_t\mid x_{<t})$$」、MLE、置信区间；信息论管熵、交叉熵、KL 与困惑度 $$e^{\text{loss}}$$；微积分与优化管梯度、链式法则、策略梯度。loss 之所以「这样写」，是因为它是建模假设下的最大似然：条件分布假设 + MLE 三行推出交叉熵；Bradley-Terry 偏好假设 + RLHF 目标的闭式解推出 DPO；期望回报对策略参数求导推出策略梯度。八篇正文每篇代真实模型算出数字，见[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)。
+[^q2]: 六层工具各到「够用」的深度：Python 使用层（协议方法、生成器、装饰器、上下文管理器、多进程与 GIL、读 traceback）→ NumPy / Pandas / Matplotlib（形状直觉、错误分析、曲线）→ PyTorch 使用层（五个对象与二十行训练循环、混合精度、梯度累积、checkpoint）→ Hugging Face 生态（六个库组装一次 LoRA SFT）→ GPU 直觉（显存账：全量微调每参数 16 字节，Llama-3-8B 128.5 GB，一张 80 GB 卡放不下；LoRA 16.06 + 0.67 GB）→ 实验管理（配置、种子、跟踪、复现）。「能跑」最终是显存与算力的算术，不是对工具的熟悉程度；机制层面的深入在 Infra 地图的 01 Python 与 03 PyTorch 系列。见[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)。
+[^q3]: 学习 = 从训练集学到能在**没见过的数据**上成立的规律，判据是训练集 / 验证集 / 测试集的划分与泛化误差，而不是训练误差。「学会了而不是背下来」看训练误差与验证误差的差距（过拟合时训练误差一路降、验证误差回升）、偏差 - 方差分解、以及测试集是否干净——LLM 上的对应物是 benchmark 污染（测试题在训练数据里 = 测试集泄漏）、奖励模型过拟合导致 reward hacking、judge 偏差 = 评估偏差。处理方法也是经典的：更多数据、正则化（RLHF 的 KL 项）、早停、集成、去重与去污染。见[《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)第一篇。
+[^q4]: 梯度沿计算图反向、按链式法则逐层乘 Jacobian 传回：从顶层到第 $$l$$ 层要连乘 $$l$$ 个系数，每个系统性地偏离 1 就指数级消失或爆炸（128 层、每层 0.9 → $$0.9^{128}\approx 1.4\times 10^{-6}$$）——这就是「深了难训」；三种修法是初始化（Xavier / Kaiming 让每层方差守恒）、归一化（BatchNorm / LayerNorm / RMSNorm 把激活钉回单位尺度）、残差（每层 Jacobian 变成 $$I + J_l$$，多一条恒等通路）。CNN 解决了图像的平移不变性与参数共享（LeNet → ResNet），留下残差与 patch 化输入（ViT）；RNN 解决了变长序列，但串行、长程依赖靠门控仍难传梯度，留下的是「用 attention 替代循环」的动机。见[《深度学习基础》](/deep-learning-foundations.html)。
+[^q5]: Transformer 是 embedding → $$L$$ 层（attention 四个矩阵 + FFN + norm，残差相连）→ lm_head 的七样东西；写出来就是 nanoGPT `model.py` 的 330 行；演进（GQA / MLA、RoPE、SwiGLU、MoE、MTP）每一处都是在「每一步算多少、读多少、存多少」的账上做交换，主要是压 KV cache 字节数与提升每 FLOP 的效果。tokenizer 决定压缩率与每字符成本（Llama 3 词表 32K → 128K，每 token 贵 5.6% 反而省钱）；scaling law 决定算力怎么分给参数与数据（Chinchilla $$D/N\approx 20$$，2024 年后为推理成本「过训练」）；预训练数据决定能力的上限与分布（Common Crawl 240T → 15T，去重 / 过滤 / 配比）。见[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)与[《预训练》](/pretraining-from-tokenizer-to-training-recipe.html)两个系列。
+[^q6]: 按 RLHF 三件套（策略、奖励、参考）组织的五段流程：SFT（指令数据、chat template、loss mask、packing，全量或 LoRA）教会对话格式；偏好数据与奖励模型（Bradley-Terry、pairwise loss）把「人觉得更好」变成可微标量；在线 RL（PPO / GRPO / RLOO）或离线直接偏好优化（DPO / IPO / KTO / ORPO / SimPO）对齐偏好；可验证奖励的 RL（RLVR，DeepSeek-R1 的路径）训出一步步推导的推理模型；蒸馏把大模型的能力压进小模型。「证明变好了」靠评测：能力 benchmark（含去污染）、偏好胜率、judge 与人工一致率、给置信区间——以及看是否只是学会了讨好评测（reward hacking、长度偏好）。见[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
+[^q7]: 算法侧四条路：**解码策略**（greedy / 采样 / top-p / 约束解码只改输出分布与质量，不省算）；**投机解码**（小模型起草、大模型一次验证、拒绝采样保证分布一致，收益由期望接受长度决定，decode 是 memory-bound 所以验证几个 token 与算一个几乎同价）；**量化**（PTQ：GPTQ / AWQ / SmoothQuant / 旋转 / FP8，W4A16 省显存与带宽、W8A8 还省算力；QAT 与量化模型的评测）；**KV cache 压缩与剪枝 / 小模型**（KV 量化、驱逐、MLA 一类结构改动，剪枝与蒸馏配方）。每一项都要回答「输出分布变了多少、收益区间在哪、代价是什么」；系统侧（PagedAttention、continuous batching、PD 分离）属于 Infra 地图 08。见[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)。
+[^q8]: 理解线：把其他模态编码成 LLM 能读的 token——图像经 ViT 视觉编码器（CLIP / SigLIP 来源）+ connector（MLP projector、pixel-shuffle、Perceiver / Q-Former）注入 decoder，视频是帧采样 + 时间合并，语音经音频编码器离散成 token（Whisper 式 encoder-decoder、语音 LLM、全双工）；对齐训练先训 connector 再全量。生成线是另一套数学：扩散模型不是预测下一个 token，而是学一个把噪声逐步去掉的过程——DDPM 的加噪 / 去噪、score / flow matching、CFG、latent diffusion——目标函数是对噪声（或速度场）的回归而不是交叉熵；自回归图像生成与统一模型是把两条线合起来的尝试。见[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。
+[^q9]: 六步：先写可证伪的假设（改什么、看哪个指标、预期变多少）→ 小规模先行（125M 级消融，一次只改一个变量，知道哪些结论能随规模外推：数据质量、训练稳定性相关的能，涌现能力与绝对分数不能）→ 控制随机性（多 seed 报均值与方差，差异小于 seed 方差就不是结论）→ 记录与复现（代码、配置、数据、环境四个版本号）→ 读论文看「改了什么、和谁比、用什么评」并先复现 baseline → 看曲线（loss、梯度范数、学习率、评测指标的形状）。见[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)。

@@ -9,6 +9,7 @@
 #
 # 1. Liquid-looking {{ / {% inside code blocks not wrapped in {% raw %}
 #    (one such draft aborts the whole build, and _site silently stays stale under jekyll serve)
+# 1b. Q&A footnotes: every [^qN] marker has exactly one definition, numbered in reading order
 # 2. css/argan-blog{,.min}.css are exactly what less/ compiles to (npm run css)
 # 3. js/blog.min.js is exactly what js/*.js bundle to (npm run js)
 # 4. jekyll build --future --unpublished --strict_front_matter -> _site-check (must print "done in";
@@ -27,6 +28,9 @@ bad()  { printf '\033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
 
 step "Liquid in code blocks"
 python3 tools/liquid-scan.py && ok "no unescaped {{ / {% in code blocks" || bad "wrap the block in {% raw %} … {% endraw %}"
+
+step "Q&A footnotes ([^qN] ↔ [^qN]:)"
+python3 tools/qfootnotes.py --check >/dev/null && ok "every [^qN] has one definition, numbered in reading order" || { python3 tools/qfootnotes.py --check | tail -20; bad "q footnotes inconsistent — see above (tools/qfootnotes.py --fix renumbers)"; }
 
 step "css/ is built from less/"
 tools/build-css.sh --check >/dev/null 2>&1 && ok "css/argan-blog{,.min}.css match less/" || bad "css/ is stale or hand-edited — run: npm run css"

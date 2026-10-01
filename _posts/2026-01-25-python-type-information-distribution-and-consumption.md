@@ -16,7 +16,7 @@ updated: 2026-09-21
 
 本篇围绕的核心问题是：
 
-> **一条 `x: Tensor | None` 从写下到起作用，经过了哪些环节？静态检查器和运行时框架读到的是同一份信息吗，各自能做什么、不能做什么？**
+> **一条 `x: Tensor | None` 从写下到起作用，经过了哪些环节？静态检查器和运行时框架读到的是同一份信息吗，各自能做什么、不能做什么？[^q0]**
 
 理解了"框架怎么读注解"，[下篇](/python-data-contract-design-dataclass-pydantic-and-settings.html)讨论"**用**这些框架怎么设计数据结构"时，dataclass 与 Pydantic 就不再是两个黑盒，而是同一份注解的两种消费方式。
 
@@ -828,3 +828,4 @@ def __init__(self, config: ModelConfig) -> None:  # 只调用一次
 
    </details>
 
+[^q0]: 三个环节：（1）**写下**——解释器把注解求值（或在 `from __future__ import annotations` / PEP 649 下延迟为字符串 / 惰性求值）存进 `__annotations__`；（2）**静态检查器**（mypy / pyright）在不运行代码的情况下读源码，把 `Tensor | None` 当作类型做流敏感的窄化检查，能发现调用处传了错的类型、忘了判 `None`，但对运行时才知道的形状、设备、动态构造的属性无能为力；（3）**运行时框架**（Pydantic、dataclass、FastAPI、`torch.jit` / `torch.compile`）通过 `typing.get_type_hints` / `inspect` 读到同一份注解对象，用它生成校验器、序列化器或签名，能在运行时拒绝坏数据、做转换，但不做全程序推断。两边读的是同一份信息，但一个在编译期做证明、一个在运行期做执行，谁都替代不了谁。

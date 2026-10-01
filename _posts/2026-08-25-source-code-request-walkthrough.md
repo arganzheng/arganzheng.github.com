@@ -66,7 +66,7 @@ graph LR
 
 Table: 控制面与数据面的对比
 
-**为什么控制流和数据流需要解耦？**
+**为什么控制流和数据流需要解耦？[^q1]**
 
 1. **语言特性匹配**：调度逻辑复杂多变（频繁的条件判断、动态数据结构操作），适合 Python；数值计算追求极致性能，适合 C++/CUDA
 2. **迭代速度**：调度算法是 vLLM 最频繁迭代的模块，Python 的开发效率远胜 C++
@@ -642,3 +642,4 @@ Table: 贯穿全文的请求在各篇遭遇了什么
    </details>
 
 [^q0]: **入口**：`api_server` 的 chat 路由 → `AsyncLLM.generate` → `InputProcessor.process_inputs` 产出 `EngineCoreRequest` → `AsyncMPClient` 经 ZMQ 送进 EngineCore 进程（控制面与数据面分离，[第二章](#二控制面与数据面的分离)）。**调度**：`EngineCore.step` → `Scheduler.schedule`：请求从 `waiting` 取出，`KVCacheManager.get_computed_blocks` 查 prefix cache、`allocate_slots` 分块（`BlockPool` 出块、`ref_cnt`、block table 追加），token budget 决定这一轮 prefill 多少，产出 `SchedulerOutput`（[第三章](#三四个域给源码里的每个对象定位)、[第四章](#四请求状态机系统如何决定下一步做什么)）。**执行**：`Executor.execute_model` 广播到 8 个 Worker → `GPUModelRunner.execute_model`：`_update_states` 按 `SchedulerOutput` 增删移动 `InputBatch` 的行、`_prepare_inputs` 算 positions / slot_mapping / attention metadata（block table 在这里进 kernel 参数）、按 batch 形态选 CUDA Graph 或 eager、模型前向（每层 `Attention.forward` 经 backend 调 FlashAttention / FlashInfer，`RowParallelLinear` 末尾 all-reduce）、`Sampler` 采样，产出 `ModelRunnerOutput`（[第五章](#五翻译层scheduleroutput-如何变成-gpu-张量)、[第六章](#六从请求到-gpu-kernel-的完整调用链)）。**更新**：`Scheduler.update_from_output` 追加 token、检查停止条件、完成的请求 `free` 块；`EngineCoreOutputs` 回前端 `OutputProcessor` 增量 detokenize、流式返回。五个视角五笔账（时间、显存、通信、CPU、请求）见[第七章](#七附录各环节耗时量级)。
+[^q1]: 四个理由：（1）**语言特性匹配**——调度逻辑条件多、数据结构动态，适合 Python；数值计算追求极致性能，适合 C++ / CUDA；（2）**迭代速度**——调度算法是 vLLM 最频繁改动的模块，Python 的开发效率远高于 C++；（3）**控制面开销可被摊薄**——只要调度、序列化与输入准备的时间显著小于 GPU 执行时间，Python 控制面就能被流水线化与批处理掩盖（是否成为瓶颈取决于 batch、模型与硬件）；（4）**流水线机制**——`batch_queue` 等机制让 GPU 执行当前 batch 时 CPU 已在准备下一个 batch，两者并行。解耦后控制流（EngineCore 的 Scheduler）与数据流（GPU 上的 model runner 与 kernel）各自演进、互不阻塞。

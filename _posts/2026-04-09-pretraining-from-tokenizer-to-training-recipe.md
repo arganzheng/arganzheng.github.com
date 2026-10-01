@@ -14,7 +14,7 @@ catalog: true
 
 它回答的问题是：
 
-> **打开一份预训练技术报告——词表 128K、15T token、峰值 lr 8e-5、batch 16M——这些数字是怎么定的？每一个花了多少钱？换一个会怎样？**
+> **打开一份预训练技术报告——词表 128K、15T token、峰值 lr 8e-5、batch 16M——这些数字是怎么定的？每一个花了多少钱？换一个会怎样？[^q0]**
 
 方法与成本表那八篇相同：**写出公式，代入真实模型的超参数，算出数字，解释数字对系统意味着什么**。词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——每个预训练决定都算一笔账。算不出来的那部分（哪个阈值、哪种配比、哪组超参更好）都靠同一种方法：用小模型的消融外推，这就是 scaling law 作为方法论的全部内容。
 
@@ -139,7 +139,7 @@ flowchart TB
 
 核心问题是：
 
-> **Llama 3 把词表从 32K 扩到 128K，每个 token 贵了 5.6%，为什么反而是省钱的？同一句中文在两个 128K 量级的词表下 token 数差 2.1 倍，差在哪？**
+> **Llama 3 把词表从 32K 扩到 128K，每个 token 贵了 5.6%，为什么反而是省钱的？同一句中文在两个 128K 量级的词表下 token 数差 2.1 倍，差在哪？[^q1]**
 
 实践：从零实现 byte-level BPE 并扫词表大小；用 `tiktoken` / `tokenizers` 对比五个真实 tokenizer；`llm_cost.py` 加上词表这一列与"每字符成本"。
 
@@ -156,7 +156,7 @@ flowchart TB
 
 核心问题是：
 
-> **Llama-3 8B 用 15T token，是 Chinchilla 最优数据量的 10 倍，loss 高 0.05 nats。为什么放弃这 0.05 反而是正确的？"最优"在 2022 和 2024 各指什么？**
+> **Llama-3 8B 用 15T token，是 Chinchilla 最优数据量的 10 倍，loss 高 0.05 nats。为什么放弃这 0.05 反而是正确的？"最优"在 2022 和 2024 各指什么？[^q2]**
 
 实践：在 CPU 上训 7 个字符级小模型，拟合 $$L(N)$$ 并外推最大的那个（外推 1.317，实测 1.342）；`llm_cost.py` 加上 Chinchilla 计算器、推理感知最优点与有效 token。
 
@@ -174,7 +174,7 @@ flowchart TB
 
 核心问题是：
 
-> **Common Crawl 有 240T token 的文本，为什么 Llama 3 只用了 15T？被丢掉的 94% 是什么、怎么判定的？15T 里 25% 的"数学与推理"从哪来？**
+> **Common Crawl 有 240T token 的文本，为什么 Llama 3 只用了 15T？被丢掉的 94% 是什么、怎么判定的？15T 里 25% 的"数学与推理"从哪来？[^q3]**
 
 实践：从零实现 MinHash + LSH 并验证 S 曲线；实现 Gopher / C4 规则并对典型网页判定；`llm_cost.py` 加上漏斗、CPU 小时、配比 → epoch。
 
@@ -192,7 +192,7 @@ flowchart TB
 
 核心问题是：
 
-> **Llama 3 405B 的峰值 lr 是 8e-5，DeepSeek-V3 是 2.2e-4；batch 分别是 16M 与 63M token。这些数字怎么定的？DeepSeek-V3 在 FP8 下训 14.8T token 没有一次不可恢复的 loss spike——它开了哪些开关，每个在防什么？**
+> **Llama 3 405B 的峰值 lr 是 8e-5，DeepSeek-V3 是 2.2e-4；batch 分别是 16M 与 63M token。这些数字怎么定的？DeepSeek-V3 在 FP8 下训 14.8T token 没有一次不可恢复的 loss spike——它开了哪些开关，每个在防什么？[^q4]**
 
 实践：CPU 上复现三种调度的对比、batch 与最优 lr 的关系、attention logit 随 lr 从 36 涨到 12592 与 QK-norm 把它压到 22、z-loss 对 $$\log Z$$ 的抑制；`llm_cost.py` 加上超参表、checkpoint 字节数与写带宽、spike 回滚的代价。
 
@@ -266,3 +266,9 @@ flowchart TB
 - 超参表里的每个数字从哪来？训练为什么会崩？：→ 第五篇：μP、梯度噪声尺度、三个机制与六个开关
 
 最终目标是一种能力：**读报告的能力**——打开一份预训练技术报告，能把它的 tokenizer、$$D/N$$、数据配比与超参表放到本系列的表里，看出它站在哪个时代、与同行差在哪、每个决定花了多少；反过来，在自己定这些数字时，知道每个数字背后的账。
+
+[^q0]: 每个数字都是一笔账的解：**词表 128K**换压缩率——词表越大每个 token 越贵（embedding + lm_head 占比、logits 显存）但每句话 token 更少，Llama 3 从 32K 到 128K 每 token 贵 5.6%、英文 token 数少 15%、净省；**15T token** 由 scaling law 与推理成本共同决定——Chinchilla 最优是 $$D/N\approx20$$（8B → 160B），但为了部署便宜而「过训练」到 10 倍、换 0.05 nats 的 loss；数据从 Common Crawl 240T 经去重 / 过滤 / 配比留下 6%；**lr 8e-5 与 batch 16M** 来自小模型扫参随规模外推（lr 随 $$N$$ 下降、batch 随 loss 下降可增大）加稳定性开关（warmup、QK-norm、z-loss、梯度裁剪）。换一个数字会怎样，第二到五篇各给一条实跑曲线与 `llm_cost.py` 的一列。
+[^q1]: 每个 token 贵 5.6% 是因为 embedding 与 lm_head 从 $$2\times32K\times d$$ 变成 $$2\times128K\times d$$、lm_head 的 GEMM 与 logits 显存按 $$V$$ 增长；但更大的词表把同一段文本切成更少的 token——英文少约 15%、多语言与代码少得更多——而训练与推理成本都按 token 数计，token 数少 15% 远大于每 token 贵 5.6%，所以每字符成本反而下降，上下文窗口也相当于变长了。同一句中文在两个 128K 量级词表下 token 数差 2.1 倍，差在**训练 tokenizer 的语料配比与预分词规则**：中文占比高的语料会把常见汉字组合合并成一个 token，中文占比低的词表里一个汉字甚至要拆成 2–3 个 UTF-8 字节 token；预分词是否按标点 / 数字切、是否允许跨空格合并也改变合并结果。第二篇用 `tiktoken` / `tokenizers` 对五个真实 tokenizer 实测。
+[^q2]: 因为 Chinchilla 的「最优」只最小化**训练**算力下的 loss（固定 $$C=6ND$$ 时 $$D/N\approx20$$），没有算推理：模型一旦部署，每个生成 token 的成本正比于 $$N$$，总推理 token 数远大于训练 token 数时，用 10 倍数据训一个小 10 倍的模型，loss 只高 0.05 nats、推理成本却降一个量级，总账（训练 + 推理）更便宜——这是 2024 年「过训练」的理由。2022 年的「最优」指 Chinchilla：给定训练算力的 loss 最低点；2024 年的「最优」指推理感知最优（Sardana & Frankle 一类分析）：给定预期推理总量，训练 + 推理总成本最低的 $$(N, D)$$，它把 $$D/N$$ 推到 100–1000。第三篇用 7 个字符级小模型拟合 $$L(N)$$（外推 1.317、实测 1.342）并给出 Chinchilla 计算器与推理感知最优点。
+[^q3]: 被丢掉的 94% 依次是：URL 黑名单与语言识别筛掉的非目标语言 / 成人 / 垃圾站点；**去重**去掉的重复（URL 级、文档级 MinHash、行级——占比最大，FineWeb 的消融发现全局去重反而更差，改为按 snapshot 内去重）；**质量过滤**去掉的模板页、导航残渣、过短 / 过长、符号比例异常（Gopher / C4 规则）与模型打分低的页面（fastText / 小分类器学 LLM 标注的「教育价值」）；最后是**去污染**（与评测集重叠的文本）。判定依据就是这些规则与分类器的阈值，每道筛子在 FineWeb / DCLM 论文里都有留存率与小模型消融。15T 里 25% 的「数学与推理」不是从网页里筛出来的——来自代码仓库（GitHub / Stack）、数学网页与论文的专门管线、以及合成 / 改写数据，配比由小模型上的域配比扫描（第四篇网页 + 代码两条方向相反的曲线）决定。
+[^q4]: lr 与 batch 都由小模型扫参随规模外推：最优 lr 随 $$N$$ 幂律下降（405B 比 8B 低几倍）、与 batch 大致按平方根 / 线性规则联动；最优 batch（critical batch size）随 loss 下降而增大，所以 Llama 3 从 4M 逐步升到 16M，DeepSeek-V3 的 63M 对应它更大的数据量与 MoE 的激活参数量；两家 lr 差 3 倍主要是 MoE 与 dense 的激活参数不同加上各自的 µP / 扫参结果。DeepSeek-V3 在 FP8 下没有不可恢复的 spike，开的开关各防一件事：warmup + 阶梯 / cosine 调度（防开头 Adam 方差估计不准）、梯度裁剪 1.0（防单步大梯度）、QK-norm 或 attention logit 软限幅（防 attention logit 涨到上万、softmax 饱和——第五篇实测从 36 涨到 12592、QK-norm 钉在 22）、z-loss（防 $$\log Z$$ 漂移导致输出 logits 发散）、FP8 的细粒度分块缩放与高精度累加（防低精度溢出 / 下溢）、以及 checkpoint 回滚 + 跳过坏 batch 的运维开关。

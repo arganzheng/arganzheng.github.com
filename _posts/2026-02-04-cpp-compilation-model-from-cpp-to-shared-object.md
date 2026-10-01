@@ -44,7 +44,7 @@ PyMODINIT_FUNC PyInit__C(void)
 
 本文要回答的核心问题是：
 
-> **一个 `.cpp` 文件是怎么变成机器码、再变成一个能被加载的 `.so` 的？每个阶段各做什么，"找不到"的错误分别发生在哪个阶段？**
+> **一个 `.cpp` 文件是怎么变成机器码、再变成一个能被加载的 `.so` 的？每个阶段各做什么，"找不到"的错误分别发生在哪个阶段？[^q4]**
 
 本篇讲编译模型本身——四个阶段、翻译单元、ODR、符号与库、动态链接——最后手写一遍编译命令把一个程序链接到 PyTorch 的库上。几千个翻译单元怎么组织成 `libc10.so`、`libtorch_cpu.so`、`libtorch_python.so` 这几个库、`import torch` 到底加载了什么、我写的扩展该链接到哪一个，是[下篇](/cpp-project-layout-namespaces-libraries-and-cmake.html)的内容。
 
@@ -1327,3 +1327,4 @@ Java 工程师需要放弃的两个直觉：**"编译器能看到整个项目"**
 [^q1]: 先声明是为了给它加属性（`extern "C"`、可见性），定义时就不用重复写。`visibility("default")` 表示这个符号要**导出**到动态符号表；PyTorch 全局用 `-fvisibility=hidden` 编译，不写的话 `PyInit__C` 会被藏起来，Python 的 `dlopen` 之后 `dlsym` 找不到入口，`import torch._C` 直接失败。详见[第五章](#五目标文件库与符号)、[第六章](#六动态链接与加载)。
 [^q2]: 都不是——是**预处理器指令**，在编译之前按文本处理：`#ifdef __cplusplus` 让同一个头文件被 C 与 C++ 编译器都能读，`#ifndef _WIN32` 按平台裁掉不适用的代码。它们决定「哪些行会被编译器看到」，属于构建配置在源码里的投影。详见[第二章](#二四个阶段一个-cpp-是怎么变成机器码的)。
 [^q3]: 这个文件编成一个目标文件，再链接成扩展模块 `torch/_C.cpython-*.so`——一个只含很薄的入口的动态库。它对 `initModule` 的引用在链接时解析到 `libtorch_python.so`（`Module.cpp` 编进了那里），加载时由动态链接器沿 `DT_NEEDED` 把两者接上。详见[第五章](#五目标文件库与符号)、[第六章](#六动态链接与加载)、[下篇第四章](/cpp-project-layout-namespaces-libraries-and-cmake.html#四回到源码)。
+[^q4]: 四个阶段：**预处理**（`#include` 展开、宏替换，产出一个翻译单元）→ **编译**（翻译单元 → 汇编 / 目标文件 `.o`，每个函数与变量变成符号，引用外部的留作未定义符号）→ **链接**（把多个 `.o` 与库合并，解析未定义符号；`-shared` 产出 `.so`，导出符号表与依赖的 `NEEDED` 列表）→ **加载**（`dlopen` / 程序启动时动态链接器按 `RPATH` / `LD_LIBRARY_PATH` 找到依赖库、重定位并解析符号）。「找不到」分别发生在：头文件找不到——预处理期（`fatal error: xxx.h: No such file`）；标识符未声明——编译期；`undefined reference` / `undefined symbol`——链接期（声明了没定义或没链接那个库）；`cannot open shared object file` 与运行时 `undefined symbol`——加载期（库路径或 ABI / 版本不匹配）。

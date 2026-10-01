@@ -13,7 +13,7 @@ catalog: true
 
 它回答的问题是：
 
-> **一个大模型内部到底是什么？为什么是这个样子？它的每一步花多少？**
+> **一个大模型内部到底是什么？为什么是这个样子？它的每一步花多少？[^q0]**
 
 读完之后，读者应该能做三件事：
 
@@ -222,7 +222,7 @@ Table: 四类成本各由哪个变量决定
 
 核心问题是：
 
-> **一个 token 的编号进入模型，到词表上的一个概率分布出来，中间经过了哪些运算？每一个运算为什么必须在那里？**
+> **一个 token 的编号进入模型，到词表上的一个概率分布出来，中间经过了哪些运算？每一个运算为什么必须在那里？[^q1]**
 
 ### 2. 一个 token 的旅程：训练侧与推理侧
 
@@ -230,7 +230,7 @@ Table: 四类成本各由哪个变量决定
 
 核心问题是：
 
-> **训练时一句话的 $$T$$ 个 token 进入模型，为什么一次前向就能得到 $$T$$ 个训练信号？推理时为什么前面的 token 不用重算？**
+> **训练时一句话的 $$T$$ 个 token 进入模型，为什么一次前向就能得到 $$T$$ 个训练信号？推理时为什么前面的 token 不用重算？[^q2]**
 
 ### 3. 手搓 GPT（上）：nanoGPT model.py 逐行解析
 
@@ -238,7 +238,7 @@ Table: 四类成本各由哪个变量决定
 
 核心问题是：
 
-> **一个能加载 GPT-2 权重、能训练、能生成的 Transformer，最少需要写哪些东西？**
+> **一个能加载 GPT-2 权重、能训练、能生成的 Transformer，最少需要写哪些东西？[^q3]**
 
 ### 4. 手搓 GPT（下）：nanoGPT train.py 与训一个会续写的模型
 
@@ -272,7 +272,7 @@ $$
 
 核心问题是：
 
-> **给你任意一个模型的 `config.json`，不运行代码，能不能在五分钟内算出它的参数量，并说出这些参数在 attention、FFN、embedding 之间怎么分配？误差要在 1% 以内。**
+> **给你任意一个模型的 `config.json`，不运行代码，能不能在五分钟内算出它的参数量，并说出这些参数在 attention、FFN、embedding 之间怎么分配？误差要在 1% 以内。[^q4]**
 
 实践：写一个读 `config.json` 输出逐层参数表的脚本，用 Llama-3-8B、Llama-3-70B 验证到与官方公布的参数量一致。这个脚本会在后面每一篇里长出新的列。
 
@@ -455,7 +455,7 @@ $$
 
 核心问题是：
 
-> **一张 1024×1024 的图片在 Qwen2-VL 里等于多少个 token？为什么"encoder 输出只有 21 MB"与"这张图占 400 MB 显存"两句话同时成立？**
+> **一张 1024×1024 的图片在 Qwen2-VL 里等于多少个 token？为什么"encoder 输出只有 21 MB"与"这张图占 400 MB 显存"两句话同时成立？[^q5]**
 
 实践：脚本增加 vision encoder 的参数与 FLOPs、image token 数、image token 在 decoder 中的三个字节数；成本表新增"一张 1024² 图片"一行，按三种注入方式对照。
 
@@ -585,3 +585,10 @@ Table: 贯穿全系列的三个模型：参数量、权重字节、FLOPs 与 KV 
 4. **对话能力**：与算法工程师讨论结构选择、与 kernel 工程师讨论输入 shape、与平台工程师讨论资源需求时，用同一张图和同一张成本表说话。
 
 紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)在这四种之上再加一种：**读报告的能力**——打开一份预训练技术报告，能看出它的 tokenizer、$$D/N$$、数据配比与超参表站在哪个时代、每个决定花了多少。
+
+[^q0]: 内部是七样东西：token embedding → $$L$$ 个相同的 block（RMSNorm → attention 的 $$W_Q,W_K,W_V,W_O$$ 四个矩阵 → 残差 → RMSNorm → FFN（SwiGLU 三个矩阵）→ 残差）→ 最后的 norm → lm_head，再加位置信息（RoPE）。之所以是这个样子：attention 让每个位置按内容查全序列（唯一成本随上下文增长的部分），FFN 存知识并占三分之二参数，残差与 Pre-Norm 让几十层能训，causal mask + teacher forcing 让一次前向得到 $$T$$ 个训练信号，KV cache 让推理不重算前缀；每处演进（GQA / MLA、SwiGLU、MoE、MTP）都是在质量与账之间交换。每一步花多少：前向约 $$2N$$ FLOPs / token（加 attention 的 $$4LdT$$ 项）、训练 $$6N$$、权重 $$2N$$ 字节、KV cache 每 token $$2\cdot L\cdot n_{kv}\cdot d_{head}\cdot 2$$ 字节——第五篇的脚本把任意 `config.json` 算成这些数字。
+[^q1]: 依次：查 embedding 表得到 $$d$$ 维向量（必须：离散编号变成可做线性代数的向量）→ 每层先 RMSNorm（必须：把残差流尺度钉住、让几十层可训）→ attention：$$q,k,v$$ 投影、RoPE 旋转 $$q,k$$（必须：否则没有位置信息）、$$\text{softmax}(qK^\top/\sqrt d)V$$ 对前面所有位置加权（必须：这是唯一让位置之间交换信息的运算；mask 保证只看过去）、$$W_O$$ 投影后加回残差流（必须：残差是梯度的恒等通路）→ RMSNorm → FFN（SwiGLU：升维、门控、降维；必须：逐位置的非线性与知识存储，attention 本身对 $$v$$ 是线性的）→ 残差 → 重复 $$L$$ 层 → 最后 RMSNorm → lm_head 投到词表维度得 logits（必须：从 $$d$$ 维回到 $$V$$ 个候选）→ softmax 成概率分布。第一篇的结构图逐个方框解释「为什么必须在那里」。
+[^q2]: 因为 **causal mask + teacher forcing**：输入是 $$T$$ 个 token、目标是右移一位的同一句话，causal mask 保证位置 $$t$$ 的输出只依赖 $$x_{\le t}$$，所以第 $$t$$ 个位置的 logits 就是「看过前 $$t$$ 个 token 后对第 $$t+1$$ 个的预测」，与逐个生成时完全一致——一次前向同时得到 $$T$$ 个独立的交叉熵项（目标用的是真实 token 而不是模型自己的预测，这就是 teacher forcing）。推理时前面的 token 不用重算，因为每个位置的 $$k,v$$ 只依赖它自己及之前的 token、与后来生成的 token 无关，算过一次就不会变——把它们存成 KV cache，decode 每步只算新 token 的 $$q,k,v$$、对缓存做一次 attention；第二篇的极小 GPT 实测有 / 无 cache 输出逐 token 一致、生成 256 个 token 快 7.9 倍。
+[^q3]: nanoGPT `model.py` 的 330 行、6 个类：`LayerNorm`（带可选 bias）、`CausalSelfAttention`（一个 $$d\to3d$$ 的 `c_attn` 合并 Q / K / V，`view` + `transpose` 拆头，causal mask 注册为 `bias` buffer，`c_proj` 输出投影）、`MLP`（`c_fc` → GELU → `c_proj`）、`Block`（Pre-Norm + 两个残差）、`GPTConfig`、`GPT`（`wte` / `wpe` embedding、$$L$$ 个 block、`ln_f`、与 `wte` 共享权重的 `lm_head`，`forward` 算 logits 与可选的交叉熵、推理时只算最后一个位置；`generate` 的温度 / top-k 采样；`from_pretrained` 把 HF 的 Conv1D 权重转置搬进来并对拍到 $$9\times10^{-5}$$；`configure_optimizers` 只对二维参数做 weight decay；`estimate_mfu` 用 $$6N+12LHQT$$）。除此之外只需 `train.py` 的数据与循环（第四篇）。
+[^q4]: 能，公式就几行：embedding $$V\cdot d$$（lm_head 不共享时再加一份）；每层 attention $$d\cdot d_{head}\cdot(n_h + 2 n_{kv}) + d\cdot d$$（GQA 时 $$n_{kv}<n_h$$；MLA 换成压缩 / 升维矩阵）；每层 FFN SwiGLU 三个矩阵 $$3\cdot d\cdot d_{ff}$$（MoE 时乘专家数并加路由器）；norm 的 $$d$$ 可忽略。Llama-3-8B：$$d=4096,d_{ff}=14336,L=32,n_h=32,n_{kv}=8,V=128256$$ → embedding 0.525B × 2、attention 每层 41.9M × 32 = 1.34B、FFN 每层 176M × 32 = 5.64B，合计 8.03B，与官方一致；分配约为 FFN 70%、attention 17%、embedding + lm_head 13%。第五篇的脚本对 Llama-3-8B / 70B 验证到 1% 以内，后面各篇在它上面加 FLOPs、字节与 KV 列。
+[^q5]: Qwen2-VL 用 14×14 的 patch、再 2×2 合并：$$1024/14\approx 73$$，$$73\times73=5329$$ 个 patch，合并后约 **1,330 个 image token**（动态分辨率下按像素上限会略有不同）。两句话同时成立是因为说的是不同的字节：vision encoder 输出 $$1330\times d_{\text{vis}}$$（或投影后 $$\times 3584$$）个 bf16 数，约 **21 MB**，这是 connector 交给 decoder 的东西；而「占 400 MB 显存」是这 1,330 个 token 在 **decoder** 里的三份字节——每层的 KV cache（$$2\cdot L\cdot n_{kv}\cdot d_{head}\cdot 2$$ 字节 / token，Qwen2-VL-7B 约 57 KB / token → 76 MB）、prefill 时每层的激活、以及 attention 分数 $$T^2$$ 的中间量——它们按 image token 数在 decoder 的 28 层上展开，比 encoder 输出大一个量级以上。第十三篇把这三个字节数算进成本表。
