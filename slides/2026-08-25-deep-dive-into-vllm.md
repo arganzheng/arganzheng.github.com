@@ -21,7 +21,7 @@ transition: slide
 2. **调度的单位是 token，不是 request**
 
 <aside class="notes" markdown="1">
-总纲：/deep-dive-into-vllm.html。主线：问题定义 → 指标体系 → 系统全景 → 单机三个战场（调度 / 内存 / 执行）→ 多卡与集群扩展 → 模型与硬件适配 → 未来演进 → 源码落地。
+总纲：/deep-dive-into-vllm.html。主线：问题定义 → 指标体系 → 系统全景 → 单机三个战场（调度 / 内存 / 执行）→ 多卡与集群扩展 → 模型、请求与硬件适配 → 未来演进 → 源码落地。
 </aside>
 
 ---
@@ -38,8 +38,18 @@ flowchart TB
     end
     V3 --> ONE
     V6 --> V7["07 解码的扩展<br/>采样、投机、结构化输出"]
-    ONE --> V8["08 Multi-GPU"] & V9["09 模型适配"] & V10["10 请求形态：LoRA、多模态"] & V11["11 硬件解耦"]
-    V5 & V8 --> V12["12 PD 分离"] --> V13["13 下一站：分布式智能操作系统"]
+    subgraph SCALE["多卡与集群"]
+        direction LR
+        V8["08 Multi-GPU"] --> V9["09 PD 分离"]
+    end
+    subgraph ADAPT["模型、请求与硬件适配"]
+        direction LR
+        V10["10 模型适配"] --- V11["11 请求形态：LoRA、多模态"] --- V12["12 硬件解耦"]
+    end
+    ONE --> SCALE
+    V5 --> V9
+    ONE --> ADAPT
+    SCALE --> V13["13 下一站：分布式智能操作系统"]
     V3 -. "带着前十三篇再走一遍" .-> V14["14 回到源码"]
 ```
 
@@ -141,11 +151,11 @@ flowchart TB
     KV["KV Cache：唯一随时间增长的状态"]
     KV --> ADM["准入 / 抢占 / Watermark（04）"]
     KV --> CAP["并发上限 = KV 池 ÷ 每请求 KV（01）"]
-    KV --> XFER["PD 交接的数据量与就绪时机（12）"]
+    KV --> XFER["PD 交接的数据量与就绪时机（09）"]
     CAP --> STEP["decode 每步时间 = 权重读取 + KV 读取（06）"]
-    SHRINK["GQA / MLA / FP8 缩小每 token KV（05、09）"] --> KV
+    SHRINK["GQA / MLA / FP8 缩小每 token KV（05、10）"] --> KV
     SPEC["投机解码 lookahead 预留与回滚（07）"] --> KV
-    PREFIX["Prefix Cache 与 extra_keys（05、10）"] --> ADM
+    PREFIX["Prefix Cache 与 extra_keys（05、11）"] --> ADM
 ```
 
 <aside class="notes" markdown="1">
@@ -226,7 +236,25 @@ flowchart TB
 
 ---
 
-## 09 · 模型适配：模型剧变时引擎在哪一层吸收
+## 09 · PD 分离：从资源混部走向计算解耦
+
+**结论**：三个设计问题——**计算如何拆、状态如何交接、系统如何协同**；「匹配不等于就绪」、「计算结束不等于块可回收」；共置 / 分离描述资源域不描述物理位置；PD 不会自动产生全局调度器或分布式缓存管理器。
+
+| 70B、TP8 | 数 |
+|---|---|
+| 每 token KV | 320 KiB |
+| 2048 token | 640 MiB，每 rank 80 MiB；400 Gb/s 共享一条链路 13.42 ms、八路并行 1.68 ms |
+| 4096 token | 1.25 GiB，每 rank 160 MiB，**3.4 ms ≈ 一步 decode 量级** |
+| D 侧状态 | `WAITING_FOR_REMOTE_KVS` |
+| P 待交接 KV | 20000 tok/s × 0.2 s ≈ 1.22 GiB——P 侧的块不能在计算结束时回收 |
+
+<aside class="notes" markdown="1">
+原文 /prefill-decode-disaggregation.html。
+</aside>
+
+---
+
+## 10 · 模型适配：模型剧变时引擎在哪一层吸收
 
 **结论**：三层适配——**模型层**吸收「算什么」、**运行时层**吸收「状态长什么样」（最贵）、**算子层**吸收「怎么算」；通用抽象扩大范围，特化 kernel 守住性能。
 
@@ -247,7 +275,7 @@ flowchart LR
 
 ---
 
-## 10 · 请求形态的扩展：multi-LoRA 与多模态
+## 11 · 请求形态的扩展：multi-LoRA 与多模态
 
 **结论**：三个假设被破——**同一份权重、embedding 是查表、相同前缀相同 KV**；LoRA 靠一个 kernel 处理全部 adapter + 槽位静态预分配 + 两层 LRU；多模态靠 encoder 独立预算 + 占位符 + 布尔掩码散射；两者都往块哈希加 `extra_keys`。
 
@@ -272,7 +300,7 @@ flowchart LR
 
 ---
 
-## 11 · 硬件解耦：不让芯片差异污染 Serving 核心
+## 12 · 硬件解耦：不让芯片差异污染 Serving 核心
 
 **结论**：Serving 核心**依赖抽象能力不依赖具体芯片**；Platform 是能力中心但**不是所有底层组件的唯一父类**；Out-of-Tree 独立演进的前提是主仓库提供稳定契约。
 
@@ -289,24 +317,6 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /hardware-abstraction-and-portability.html。
-</aside>
-
----
-
-## 12 · PD 分离：从资源混部走向计算解耦
-
-**结论**：三个设计问题——**计算如何拆、状态如何交接、系统如何协同**；「匹配不等于就绪」、「计算结束不等于块可回收」；共置 / 分离描述资源域不描述物理位置；PD 不会自动产生全局调度器或分布式缓存管理器。
-
-| 70B、TP8 | 数 |
-|---|---|
-| 每 token KV | 320 KiB |
-| 2048 token | 640 MiB，每 rank 80 MiB；400 Gb/s 共享一条链路 13.42 ms、八路并行 1.68 ms |
-| 4096 token | 1.25 GiB，每 rank 160 MiB，**3.4 ms ≈ 一步 decode 量级** |
-| D 侧状态 | `WAITING_FOR_REMOTE_KVS` |
-| P 待交接 KV | 20000 tok/s × 0.2 s ≈ 1.22 GiB——P 侧的块不能在计算结束时回收 |
-
-<aside class="notes" markdown="1">
-原文 /prefill-decode-disaggregation.html。
 </aside>
 
 ---
@@ -355,8 +365,8 @@ flowchart LR
 
 | 判断 | 落点 |
 |---|---|
-| **KV 是一切约束的源头** | 01 并发上限 = KV 池 ÷ 每请求 KV → 04 准入 / 抢占 → 05 分页与前缀 → 06 每步时间 = 权重 + KV 读取 → 07 lookahead 预留 → 09 MLA 是运行时层的变化 → 10 图片 KV 20 倍、extra_keys → 12 PD 交接的就是 KV |
-| **调度单位是 token** | 04 budget 与 chunk → 06 capture sizes 按 token 数 → 07 投机 1 + K、临界 300 token → 10 encoder 预算 → 12 P 侧按 token 交接 → 14 `SchedulerOutput` 里只有 token 数与块表 |
+| **KV 是一切约束的源头** | 01 并发上限 = KV 池 ÷ 每请求 KV → 04 准入 / 抢占 → 05 分页与前缀 → 06 每步时间 = 权重 + KV 读取 → 07 lookahead 预留 → 09 PD 交接的就是 KV → 10 MLA 是运行时层的变化 → 11 图片 KV 20 倍、extra_keys |
+| **调度单位是 token** | 04 budget 与 chunk → 06 capture sizes 按 token 数 → 07 投机 1 + K、临界 300 token → 09 P 侧按 token 交接 → 11 encoder 预算 → 14 `SchedulerOutput` 里只有 token 数与块表 |
 
 ---
 
@@ -393,8 +403,8 @@ flowchart LR
 | 03 · 04 | 三类进程两道 IPC；2050 → 5 段；`max_num_seqs` 先卡；LIFO 抢占重算 |
 | 05 · 06 | block 16、640 KB；2.56 MB → 320 → 160 KB；四种浪费；81 段图 |
 | 07 · 08 | 临界 300 token / 步；2.1× vs 慢 1.9 倍；TP 每步 160 次 all-reduce |
-| 09 · 10 · 11 | 三层适配；LoRA 1.44 GB 买断；图片 KV 20 倍；五层边界 |
-| 12 · 13 · 14 | 4096 token 3.4 ms；匹配 ≠ 就绪；三个平面；Python 1% |
+| 09 · 10 · 11 | 4096 token 3.4 ms；匹配 ≠ 就绪；三层适配；LoRA 1.44 GB 买断；图片 KV 20 倍 |
+| 12 · 13 · 14 | 五层边界；三个平面；Python 1% |
 
 ---
 

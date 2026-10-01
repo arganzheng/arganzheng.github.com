@@ -1426,8 +1426,16 @@ How it is built (`_plugins/moments.rb`):
   identical to the author's MPS run). 02_knobs writes `out/knobs.json`; the SVG
   charts under `img/in-post/lora-*.svg` are plotted from it. The six older
   LoRA passages (L0 03 §六, 工具箱 05 §四.2, L4 12 §五, 后训练 01 §五.2, HF 源码 04
-  §三, vLLM 10 §二) each open with a one-line pointer to the series — keep them
+  §三, vLLM 11 §二) each open with a one-line pointer to the series — keep them
   as summaries, do not grow them.
+- Series `deep-dive-into-vllm` (《大模型推理系统揭秘》, 08-11 overview, 01–15 at
+  08-12 … 08-25 — 15 = vLLM vs SGLang at 08-25 12:00 — recap NN=16 at 08-25 20:00) was re-ordered on 2026-10-01 so the
+  body follows the overview's stated 主线 (… → 多卡与集群扩展 → 模型、请求与硬件适配
+  → …): PD 分离 moved 12 → 09 (08-20), 模型适配 / 请求形态 / 硬件解耦 shifted to
+  10 / 11 / 12 (08-21 … 08-23). Slugs are unchanged; only filenames, dates,
+  title NN, in-text 第 X 篇 references, the recap, the deck and the two LoRA
+  pointers were touched. The overview now has a 主线 Mermaid + 八段表 and a
+  问题 → 篇 reading guide — keep them in sync if posts move again.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →

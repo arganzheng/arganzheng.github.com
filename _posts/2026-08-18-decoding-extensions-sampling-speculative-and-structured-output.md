@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（07）：解码的扩展：采样、投机解码与结构化输出
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-01
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -78,7 +78,7 @@ Table: 三种解码扩展惊动的模块
 | 二 | 采样与 logits processors | Sampler 的流水线、每请求参数的向量化、LogitsProcessor 接口与持久 batch、penalties 的真实代价 |
 | 三 | 投机解码的工程实现 | Proposer 家族、调度器的预算与 KV 预留、model runner 的 K+1 位置、RejectionSampler、收益的量化与何时不该开 |
 | 四 | 结构化输出 | 从 grammar 到 bitmask 的四个位置、后端抽象、异步编译与调度器的等待、与投机解码叠加、reasoning 跳过、代价 |
-| 五 | 三者叠加 | 一步之内的执行顺序；留给多卡（08）与 PD 分离（12）的问题 |
+| 五 | 三者叠加 | 一步之内的执行顺序；留给多卡（08）与 PD 分离（09）的问题 |
 | 六 | 本文小结 |  |
 | 七 | 自测 | 5 道题 |
 
@@ -730,7 +730,7 @@ Scheduler.update_from_output()
 - **logits 与 bitmask 在哪张卡上？** `LogitsProcessor._gather_logits()`（`vllm/model_executor/layers/logits_processor.py`）在 CUDA 上用 `tensor_model_parallel_gather` 把词表分片的 logits 收到 rank 0，其他 rank 拿到 `None`。于是掩码、采样、拒绝采样都只在一张卡上发生，但 `GrammarOutput` 仍然要通过 executor 的 RPC 广播到所有 worker。PP > 1 时 logits 在最后一个 stage，采样结果又要回传给第一个 stage 作为下一步输入（`_pp_broadcast_prev_sampled_token_ids()`）。
 - **DP 下的一致性。** 动态 K 与 DP 互斥（不同 rank 选不同 K 会让集合通信对不上）；结构化输出的异步编译与 `external_launcher` 互斥。多卡让"每个 rank 做同样的事"成为硬约束，而本篇的三种扩展都在引入 per-request 的差异。
 
-### 3. 留给第十二篇（PD 分离）的问题
+### 3. 留给第九篇（PD 分离）的问题
 
 - **EAGLE 的第一个 draft 需要什么？** 它需要 target 对 prompt 最后一个 token 的 hidden state——这个东西在 Prefill 实例上产生，KV Transfer 只传 KV 不传 hidden state。Decode 实例是重算最后一个 token，还是 P 侧多传一段？第 3 节的 `drop_eagle_block` 已经是同一问题在 prefix cache 上的影子。
 - **grammar 在哪一侧编译？** 编译发生在 `EngineCore.add_request()`，请求先到哪个实例就在哪里编译；但掩码只在 decode 时需要。P 侧编译是浪费，D 侧编译则 TTFT 已经算完、编译时间落到第一个 decode token 上。

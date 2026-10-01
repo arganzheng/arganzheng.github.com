@@ -215,7 +215,7 @@ $$
 \text{槽位显存} = \texttt{max\_loras} \times \sum_{\text{挂 LoRA 的矩阵}} \texttt{max\_lora\_rank} \times (d_{in} + d_{out}) \times 2\ \text{字节}
 $$
 
-8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第十篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
+8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
 
 什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大）；或推理框架不支持 LoRA（大多数边缘部署格式）。
 

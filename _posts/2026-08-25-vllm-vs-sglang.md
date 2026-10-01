@@ -305,7 +305,7 @@ vLLM 的 `GPUModelRunner`（`v1/worker/gpu_model_runner.py`）在 worker 进程�
 
 ### 2. attention backend 怎么选
 
-vLLM 的 backend 在 `v1/attention/backends/`（FlashAttention、FlashInfer、Triton、FlexAttention、ROCm 的 AITER、CPU，MLA 另有一组），由 `Platform` 按硬件、dtype、模型特性选一个（第十一篇）；prefill 与 decode 的区别在 backend **内部**处理（MLA backend 内部有 prefill / decode 两条路径）。
+vLLM 的 backend 在 `v1/attention/backends/`（FlashAttention、FlashInfer、Triton、FlexAttention、ROCm 的 AITER、CPU，MLA 另有一组），由 `Platform` 按硬件、dtype、模型特性选一个（第十二篇）；prefill 与 decode 的区别在 backend **内部**处理（MLA backend 内部有 prefill / decode 两条路径）。
 
 SGLang 的 backend 在 `layers/attention/`，选择逻辑在 `ServerArgs`（`server_args.py`）：MHA 模型在 Hopper 默认 `fa3`，SM100 默认 `trtllm_mha`（K / V 宽度不等时 `fa4`），ROCm `aiter`，其余 `flashinfer` 或 `triton`；MLA 模型 Hopper `fa3`、SM100 `flashinfer`。它把 **prefill 与 decode 的选择权暴露给用户**：`--prefill-attention-backend` 与 `--decode-attention-backend` 可以不同。
 
@@ -359,7 +359,7 @@ Table: 并行能力对照
 
 ### 1. vLLM：一个抽象、多个实现
 
-第十二篇讲过 vLLM 的做法：PD 分离不是一个独立模块，而是 Scheduler 与 ModelRunner 上的一组钩子加一个 `KVConnector` 抽象（`distributed/kv_transfer/kv_connector/v1/base.py`：`register_kv_caches`、`start_load_kv`、`save_kv_layer`、`get_finished`、`build_connector_meta`）。实现在同一目录：`nixl/`、`lmcache_connector.py`、`mooncake/`、`moriio/`、`multi_connector.py`（叠加多个）、`offloading_connector.py`（CPU 卸载）、`hf3fs/` 等。P 实例与 D 实例各是一个普通的 vLLM 进程，谁先收请求、D 满了 P 收不收，由**外部的 proxy / 编排层**决定，仓库只提供示例 proxy。
+第九篇讲过 vLLM 的做法：PD 分离不是一个独立模块，而是 Scheduler 与 ModelRunner 上的一组钩子加一个 `KVConnector` 抽象（`distributed/kv_transfer/kv_connector/v1/base.py`：`register_kv_caches`、`start_load_kv`、`save_kv_layer`、`get_finished`、`build_connector_meta`）。实现在同一目录：`nixl/`、`lmcache_connector.py`、`mooncake/`、`moriio/`、`multi_connector.py`（叠加多个）、`offloading_connector.py`（CPU 卸载）、`hf3fs/` 等。P 实例与 D 实例各是一个普通的 vLLM 进程，谁先收请求、D 满了 P 收不收，由**外部的 proxy / 编排层**决定，仓库只提供示例 proxy。
 
 ### 2. SGLang：两套队列、一个 bootstrap、一个原生网关
 
@@ -395,7 +395,7 @@ vLLM 的多级 KV 复用 `KVConnector` 这同一个抽象：`offloading_connecto
 |---|---|---|
 | PD 分离的形态 | `KVConnector` 钩子 + 普通实例 | `disaggregation/` 模块 + `--disaggregation-mode` |
 | P / D 配对与路由 | 外部 proxy | `sgl-model-gateway` 原生，`bootstrap_room` |
-| D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（第十二篇） | `PreallocQueue` → `TransferQueue` 两级队列 |
+| D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（第九篇） | `PreallocQueue` → `TransferQueue` 两级队列 |
 | 传输实现 | NIXL、Mooncake、LMCache、MoRI IO 等 connector | Mooncake（默认）、NIXL、Mori、Ascend |
 | CPU 卸载 | `offloading_connector.py` | `HiRadixCache`（L2） |
 | 外部存储 | LMCache、Mooncake、HF3FS connector | `mem_cache/storage/` 多个 backend（L3） |
@@ -406,7 +406,7 @@ Table: PD 分离与多级缓存对照
 
 ## 九、解码的扩展
 
-第七篇与第十篇讲的几类扩展两边都有，差别在清单与默认值。
+第七篇与第十一篇讲的几类扩展两边都有，差别在清单与默认值。
 
 | 能力 | vLLM | SGLang |
 |---|---|---|
@@ -415,8 +415,8 @@ Table: PD 分离与多级缓存对照
 | 结构化输出 backend | `auto`、`xgrammar`、`guidance`、`outlines`、`lm-format-enforcer`（`config/structured_outputs.py`） | `xgrammar`（默认）、`outlines`、`llguidance`、`none`（`constrained/`） |
 | 结构化输出的加速 | bitmask 由 `StructuredOutputManager` 异步编译，采样前应用 | 同样 bitmask；另有 jump-forward（`outlines_jump_forward.py`，一次写入多个确定 token） |
 | 推理模型的思维链 | reasoning parser 在 API 层 | `reasoner_grammar_backend.py`：思考段不施加语法，答案段才施加 |
-| multi-LoRA | `max_loras`、`max_cpu_loras`、Punica kernel（第十篇） | `lora/`：`lora_manager.py`、`lora_backend` 可选 triton / csgmv 等 |
-| 多模态 | 处理器注册表 + encoder cache（第十篇） | `multimodal/` 处理器 + `mm_receiver`，encoder 可与 LM 分离（EPD 分离，`docs/.../epd_disaggregation.mdx`） |
+| multi-LoRA | `max_loras`、`max_cpu_loras`、Punica kernel（第十一篇） | `lora/`：`lora_manager.py`、`lora_backend` 可选 triton / csgmv 等 |
+| 多模态 | 处理器注册表 + encoder cache（第十一篇） | `multimodal/` 处理器 + `mm_receiver`，encoder 可与 LM 分离（EPD 分离，`docs/.../epd_disaggregation.mdx`） |
 | 前端 DSL | 无（`LLM` 类是 Python API，不是程序语言） | `sglang.lang`：`gen` / `select` / `fork`，可运行在 SGLang 或 OpenAI backend 上 |
 
 Table: 解码扩展的清单对照
@@ -461,7 +461,7 @@ Table: 入口与生态对照
 |---|---|---|
 | 多轮对话、agent、长 system prompt、few-shot，前缀共享度高 | SGLang | 基数树 token 粒度命中 + `lpm` / `dfs-weight` 调度 + 网关 cache-aware 路由（五、十） |
 | DeepSeek 类大规模 MoE，几十张卡，需要 DP attention + EP + PD 一整套 | SGLang 起步快；vLLM 可达 | SGLang 把 DP attention、DeepEP、EPLB、TBO、PD、HiCache 集成在一个仓库并有成体系的文档（七、八）；vLLM 对应能力都有，但要自己拼编排层 |
-| 异构硬件（TPU、XPU、特定加速卡）或需要硬件插件 | vLLM | `Platform` 抽象与外部插件生态（十、第十一篇） |
+| 异构硬件（TPU、XPU、特定加速卡）或需要硬件插件 | vLLM | `Platform` 抽象与外部插件生态（第十、第十二篇） |
 | 模型 / 量化格式覆盖面、与 HF 生态的贴合 | 两者都快，vLLM 清单更长 | 模型文件数与量化方法清单（十） |
 | 需要 KV 多级缓存（CPU、外部存储）且不想引入第三方 | SGLang | `HiRadixCache` + `storage/` 内置（八） |
 | 已有 Ray / Kubernetes 编排与 vLLM 社区的部署栈 | vLLM | 外部生态围绕 vLLM 实例设计（十） |
@@ -532,7 +532,7 @@ Table: 全文对照与差异来源
 
    </details>
 
-5. 一个请求在 SGLang 的 PD 分离里从进入 P 到开始 decode 经过哪几个队列？其中哪一步对应 vLLM 第十二篇说的"匹配不等于就绪"？
+5. 一个请求在 SGLang 的 PD 分离里从进入 P 到开始 decode 经过哪几个队列？其中哪一步对应 vLLM 第九篇说的"匹配不等于就绪"？
 
    <details markdown="1"><summary>答案</summary>
 

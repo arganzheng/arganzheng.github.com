@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（14）：回到源码：一次请求在 vLLM 内部的真实旅程
 tags: [AI, AI-Infra, 大模型推理]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-01
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -593,7 +593,7 @@ Table: 派生指标在 batch=1 与 batch=32 下的量级
 | 四 | 它没有"prefill 阶段"，只是被持续发放 token 额度，直到追平 2050 | 若 chunk=512 则分 5 段 |
 | 六 | 97% 的时间花在 300 次逐 token 的 decode 上 | 92 ms + 3000 ms |
 | 八 | 每个 token 每步在 8 张卡间同步约 2.5 MB | NVLink 上 ~0.09 ms |
-| 十二 | 若拆成 PD 两池，它的 641 MB KV 要跨节点搬一次 | ≈ 13 ms |
+| 九 | 若拆成 PD 两池，它的 641 MB KV 要跨节点搬一次 | ≈ 13 ms |
 
 Table: 贯穿全文的请求在各篇遭遇了什么
 
