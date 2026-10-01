@@ -1,404 +1,457 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="740" height="398" viewBox="0 0 740 398" font-family="-apple-system,PingFang SC,Helvetica,Arial,sans-serif" font-size="12">
-<rect width="740" height="398" fill="#fff"/>
-<text x="370.0" y="20.0" font-size="12.5" text-anchor="middle" font-weight="bold" fill="#222">BPE 训练：每一步把语料里最常相邻的一对合并成一个新 token（语料：low ×5、lower ×2、newest ×6、widest ×3）</text>
-<text x="20.0" y="44.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">第几步 · 合并了谁（出现次数）</text>
-<text x="250.0" y="44.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">合并之后语料里的四个词各切成什么样（␣ 是词前的空格）</text>
-<text x="20.0" y="68.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">初始：每个字符一个 token</text>
-<rect x="250.0" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="258.2" y="67.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="267.9" y="55.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="275.9" y="67.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="285.4" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="293.6" y="67.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="303.3" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="311.4" y="67.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="331.1" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="339.3" y="67.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="349.0" y="55.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="357.0" y="67.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="366.5" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="374.7" y="67.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="384.4" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="392.6" y="67.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="402.3" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="410.5" y="67.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="420.2" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="428.3" y="67.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="448.0" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="456.2" y="67.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="465.9" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="474.1" y="67.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="483.8" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="492.0" y="67.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="501.7" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="509.9" y="67.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="519.6" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="527.8" y="67.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="537.4" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="545.6" y="67.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="555.3" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="563.5" y="67.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<rect x="583.2" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="591.4" y="67.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="601.1" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="609.3" y="67.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="619.0" y="55.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="627.0" y="67.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="636.5" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="644.6" y="67.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="654.3" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="662.5" y="67.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="672.2" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="680.4" y="67.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="690.1" y="55.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="698.3" y="67.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<text x="20.0" y="104.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 1 步：</text>
-<rect x="70.0" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="78.2" y="103.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="88.4" y="91.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="96.6" y="103.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="106.8" y="91.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="114.9" y="103.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="125.1" y="91.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="133.3" y="103.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="143.5" y="91.0" width="22.8" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="154.9" y="103.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<text x="238.0" y="104.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">9 次</text>
-<rect x="250.0" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="258.2" y="103.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="267.9" y="91.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="275.9" y="103.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="285.4" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="293.6" y="103.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="303.3" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="311.4" y="103.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="331.1" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="339.3" y="103.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="349.0" y="91.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="357.0" y="103.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="366.5" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="374.7" y="103.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="384.4" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="392.6" y="103.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="402.3" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="410.5" y="103.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="420.2" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="428.3" y="103.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="448.0" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="456.2" y="103.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="465.9" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="474.1" y="103.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="483.8" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="492.0" y="103.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="501.7" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="509.9" y="103.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="519.6" y="91.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="530.9" y="103.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<rect x="543.8" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="552.0" y="103.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<rect x="571.7" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="579.9" y="103.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="589.6" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="597.8" y="103.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="607.5" y="91.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="615.5" y="103.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="625.0" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="633.1" y="103.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="642.8" y="91.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="654.2" y="103.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<rect x="667.1" y="91.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="675.3" y="103.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<text x="20.0" y="140.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 2 步：</text>
-<rect x="70.0" y="127.0" width="22.8" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="81.4" y="139.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<rect x="94.8" y="127.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="102.9" y="139.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="113.1" y="127.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="121.3" y="139.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<rect x="131.5" y="127.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="139.7" y="139.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="149.9" y="127.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="164.5" y="139.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="238.0" y="140.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">9 次</text>
-<rect x="250.0" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="258.2" y="139.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="267.9" y="127.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="275.9" y="139.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="285.4" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="293.6" y="139.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="303.3" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="311.4" y="139.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="331.1" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="339.3" y="139.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="349.0" y="127.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="357.0" y="139.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="366.5" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="374.7" y="139.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="384.4" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="392.6" y="139.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="402.3" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="410.5" y="139.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="420.2" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="428.3" y="139.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="448.0" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="456.2" y="139.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="465.9" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="474.1" y="139.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="483.8" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="492.0" y="139.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="501.7" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="509.9" y="139.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="519.6" y="127.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="534.1" y="139.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="560.2" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="568.4" y="139.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="578.1" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="586.3" y="139.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="596.0" y="127.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="604.0" y="139.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="613.5" y="127.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="621.6" y="139.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="631.3" y="127.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="645.9" y="139.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="176.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 3 步：</text>
-<rect x="70.0" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="78.2" y="175.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="88.4" y="163.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="96.6" y="175.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="106.8" y="163.0" width="16.0" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="114.8" y="175.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="124.8" y="163.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="132.9" y="175.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="143.1" y="163.0" width="20.3" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="153.3" y="175.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<text x="238.0" y="176.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次</text>
-<rect x="250.0" y="163.0" width="20.3" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="260.2" y="175.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<rect x="271.8" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="280.0" y="175.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="289.7" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="297.9" y="175.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="317.6" y="163.0" width="20.3" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="327.8" y="175.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<rect x="339.4" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="347.6" y="175.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="357.3" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="365.5" y="175.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="375.2" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="383.4" y="175.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="393.1" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="401.3" y="175.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="421.0" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="429.1" y="175.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="438.8" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="447.0" y="175.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="456.7" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="464.9" y="175.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="474.6" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="482.8" y="175.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="492.5" y="163.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="507.0" y="175.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="533.1" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="541.3" y="175.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="551.0" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="559.2" y="175.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="568.9" y="163.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="576.9" y="175.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="586.4" y="163.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="594.6" y="175.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="604.3" y="163.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="618.8" y="175.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="212.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 4 步：</text>
-<rect x="70.0" y="199.0" width="20.3" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="80.2" y="211.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<rect x="92.3" y="199.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="100.5" y="211.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="110.7" y="199.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="118.9" y="211.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="129.1" y="199.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="137.3" y="211.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="147.5" y="199.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="160.8" y="211.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<text x="238.0" y="212.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次</text>
-<rect x="250.0" y="199.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="263.4" y="211.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<rect x="278.2" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="286.4" y="211.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="306.1" y="199.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="319.5" y="211.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<rect x="334.3" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="342.5" y="211.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="352.2" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="360.4" y="211.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="370.1" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="378.3" y="211.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="398.0" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="406.2" y="211.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="415.8" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="424.0" y="211.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="433.7" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="441.9" y="211.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="451.6" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="459.8" y="211.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="469.5" y="199.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="484.1" y="211.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="510.1" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="518.3" y="211.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="528.0" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="536.2" y="211.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="545.9" y="199.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="553.9" y="211.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="563.4" y="199.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="571.6" y="211.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="581.3" y="199.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="595.8" y="211.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="248.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 5 步：</text>
-<rect x="70.0" y="235.0" width="26.7" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="83.4" y="247.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<rect x="98.7" y="235.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="106.9" y="247.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="117.1" y="235.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="125.3" y="247.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="135.5" y="235.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="143.7" y="247.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="153.9" y="235.0" width="33.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="170.4" y="247.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<text x="238.0" y="248.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次</text>
-<rect x="250.0" y="235.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="266.6" y="247.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="294.6" y="235.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="311.2" y="247.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="329.2" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="337.4" y="247.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="347.1" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="355.3" y="247.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="375.0" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="383.2" y="247.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="392.8" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="401.0" y="247.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="410.7" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="418.9" y="247.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="428.6" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="436.8" y="247.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="446.5" y="235.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="461.1" y="247.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="487.1" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="495.3" y="247.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="505.0" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="513.2" y="247.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="522.9" y="235.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="530.9" y="247.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="540.4" y="235.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="548.6" y="247.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="558.3" y="235.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="572.8" y="247.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="284.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 6 步：</text>
-<rect x="70.0" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="78.2" y="283.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="88.4" y="271.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="96.6" y="283.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="106.8" y="271.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="114.9" y="283.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="125.1" y="271.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="133.3" y="283.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="143.5" y="271.0" width="22.8" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="154.9" y="283.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
-<text x="238.0" y="284.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次</text>
-<rect x="250.0" y="271.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="266.6" y="283.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="294.6" y="271.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="311.2" y="283.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="329.2" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="337.4" y="283.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="347.1" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="355.3" y="283.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="375.0" y="271.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="386.3" y="283.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
-<rect x="399.2" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="407.4" y="283.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="417.1" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="425.3" y="283.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="435.0" y="271.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="449.6" y="283.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="475.6" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="483.8" y="283.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="493.5" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="501.7" y="283.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="511.4" y="271.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="519.4" y="283.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="528.9" y="271.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="537.1" y="283.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="546.8" y="271.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="561.3" y="283.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="320.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 7 步：</text>
-<rect x="70.0" y="307.0" width="22.8" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="81.4" y="319.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
-<rect x="94.8" y="307.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="102.9" y="319.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="113.1" y="307.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="121.3" y="319.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="131.5" y="307.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="139.7" y="319.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="149.9" y="307.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="164.5" y="319.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
-<text x="238.0" y="320.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次</text>
-<rect x="250.0" y="307.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="266.6" y="319.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="294.6" y="307.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="311.2" y="319.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="329.2" y="307.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="337.4" y="319.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="347.1" y="307.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="355.3" y="319.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="375.0" y="307.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="389.5" y="319.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
-<rect x="405.6" y="307.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="413.8" y="319.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="423.5" y="307.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="438.1" y="319.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="464.1" y="307.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="472.3" y="319.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="482.0" y="307.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="490.2" y="319.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="499.9" y="307.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="507.9" y="319.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="517.4" y="307.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="525.6" y="319.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="535.3" y="307.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="549.8" y="319.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="356.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 8 步：</text>
-<rect x="70.0" y="343.0" width="29.1" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="84.6" y="355.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
-<rect x="101.1" y="343.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="109.3" y="355.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="119.5" y="343.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="127.7" y="355.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="137.9" y="343.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="146.1" y="355.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="156.3" y="343.0" width="35.5" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="174.0" y="355.9" font-size="11" text-anchor="middle" fill="#222">␣new</text>
-<text x="238.0" y="356.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次</text>
-<rect x="250.0" y="343.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="266.6" y="355.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="294.6" y="343.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="311.2" y="355.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="329.2" y="343.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="337.4" y="355.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="347.1" y="343.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="355.3" y="355.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="375.0" y="343.0" width="35.5" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="392.7" y="355.9" font-size="11" text-anchor="middle" fill="#222">␣new</text>
-<rect x="412.0" y="343.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="426.6" y="355.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="452.6" y="343.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="460.8" y="355.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="470.5" y="343.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="478.7" y="355.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="488.4" y="343.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="496.4" y="355.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="505.9" y="343.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="514.1" y="355.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="523.8" y="343.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="538.3" y="355.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="386.0" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">颜色 = token 的长度（1 个字符最浅）。8 步之后 low、est、␣new 各成了一个 token；训练的产物就是这 8 条合并规则，编码新词时按同样顺序再走一遍。</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="468" viewBox="0 0 800 468" font-family="-apple-system,PingFang SC,Helvetica,Arial,sans-serif" font-size="12">
+<rect width="800" height="468" fill="#fff"/>
+<text x="400.0" y="20.0" font-size="12.5" text-anchor="middle" font-weight="bold" fill="#222">BPE 训练：每一步把语料里最常相邻的一对合并成一个新 token（语料只有四个词型，各出现 5 / 2 / 6 / 3 次）</text>
+<text x="20.0" y="44.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">第几步 · 合并了谁 · 相邻次数 = 含这一对的词的出现次数之和</text>
+<text x="310.0" y="44.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">合并之后四个词各切成什么样（␣ 是词前的空格；列头是每个词在语料里出现的次数）</text>
+<rect x="310.0" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="318.2" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="327.9" y="60.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="335.9" y="72.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="345.4" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="353.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="363.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="371.4" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<text x="344.8" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">low ×5</text>
+<rect x="391.1" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="399.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="409.0" y="60.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="417.0" y="72.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="426.5" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="434.7" y="72.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="444.4" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="452.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="462.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="470.5" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="480.2" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="488.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<text x="443.8" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">lower ×2</text>
+<rect x="508.0" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="516.2" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="525.9" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="534.1" y="72.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="543.8" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="552.0" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="561.7" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="569.9" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="579.6" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="587.8" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="597.4" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="605.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="615.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="623.5" y="72.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="569.9" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">newest ×6</text>
+<rect x="643.2" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="651.4" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="661.1" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="669.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="679.0" y="60.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="687.0" y="72.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="696.5" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="704.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="714.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="722.5" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="732.2" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="740.4" y="72.9" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="750.1" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="758.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="704.8" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">widest ×3</text>
+<text x="20.0" y="122.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">初始：每个字符一个 token</text>
+<rect x="310.0" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="318.2" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="327.9" y="109.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="335.9" y="121.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="345.4" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="353.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="363.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="371.4" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="391.1" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="399.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="409.0" y="109.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="417.0" y="121.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="426.5" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="434.7" y="121.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="444.4" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="452.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="462.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="470.5" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="480.2" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="488.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="508.0" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="516.2" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="525.9" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="534.1" y="121.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="543.8" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="552.0" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="561.7" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="569.9" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="579.6" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="587.8" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="597.4" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="605.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="615.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="623.5" y="121.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<rect x="643.2" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="651.4" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="661.1" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="669.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="679.0" y="109.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="687.0" y="121.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="696.5" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="704.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="714.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="722.5" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="732.2" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="740.4" y="121.9" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="750.1" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="758.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="20.0" y="158.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 1 步：</text>
+<rect x="70.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="78.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="88.4" y="145.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="96.6" y="157.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="106.8" y="145.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="114.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="125.1" y="145.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="133.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="143.5" y="145.0" width="22.8" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="154.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">es</text>
+<text x="298.0" y="158.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">9 次 = 6 + 3</text>
+<rect x="310.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="318.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="327.9" y="145.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="335.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="345.4" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="353.6" y="157.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="363.3" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="371.4" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="391.1" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="399.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="409.0" y="145.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="417.0" y="157.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="426.5" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="434.7" y="157.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="444.4" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="452.6" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="462.3" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="470.5" y="157.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="480.2" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="488.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="508.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="516.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="525.9" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="534.1" y="157.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="543.8" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="552.0" y="157.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="561.7" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="569.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="579.6" y="145.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="590.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">es</text>
+<rect x="603.8" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="612.0" y="157.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<rect x="631.7" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="639.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="649.6" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="657.8" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="667.5" y="145.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="675.5" y="157.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="685.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="693.1" y="157.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="702.8" y="145.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="714.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">es</text>
+<rect x="727.1" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="735.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="20.0" y="194.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 2 步：</text>
+<rect x="70.0" y="181.0" width="22.8" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="81.4" y="193.9" font-size="11" text-anchor="middle" fill="#222">es</text>
+<rect x="94.8" y="181.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="102.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="113.1" y="181.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="121.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">t</text>
+<rect x="131.5" y="181.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="139.7" y="193.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="149.9" y="181.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="164.5" y="193.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="298.0" y="194.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">9 次 = 6 + 3</text>
+<rect x="310.0" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="318.2" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="327.9" y="181.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="335.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="345.4" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="353.6" y="193.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="363.3" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="371.4" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="391.1" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="399.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="409.0" y="181.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="417.0" y="193.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="426.5" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="434.7" y="193.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="444.4" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="452.6" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="462.3" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="470.5" y="193.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="480.2" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="488.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="508.0" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="516.2" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="525.9" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="534.1" y="193.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="543.8" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="552.0" y="193.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="561.7" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="569.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="579.6" y="181.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="594.1" y="193.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="620.2" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="628.4" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="638.1" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="646.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="656.0" y="181.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="664.0" y="193.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="673.5" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="681.6" y="193.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="691.3" y="181.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="705.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="230.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 3 步：</text>
+<rect x="70.0" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="78.2" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="88.4" y="217.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="96.6" y="229.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="106.8" y="217.0" width="16.0" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="114.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="124.8" y="217.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="132.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="143.1" y="217.0" width="20.3" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="153.3" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<text x="298.0" y="230.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次 = 5 + 2</text>
+<rect x="310.0" y="217.0" width="20.3" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="320.2" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<rect x="331.8" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="340.0" y="229.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="349.7" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="357.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="377.6" y="217.0" width="20.3" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="387.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<rect x="399.4" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="407.6" y="229.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="417.3" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="425.5" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="435.2" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="443.4" y="229.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="453.1" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="461.3" y="229.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="481.0" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="489.1" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="498.8" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="507.0" y="229.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="516.7" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="524.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="534.6" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="542.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="552.5" y="217.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="567.0" y="229.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="593.1" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="601.3" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="611.0" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="619.2" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="628.9" y="217.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="636.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="646.4" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="654.6" y="229.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="664.3" y="217.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="678.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="266.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 4 步：</text>
+<rect x="70.0" y="253.0" width="20.3" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="80.2" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<rect x="92.3" y="253.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="100.5" y="265.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="110.7" y="253.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="118.9" y="265.9" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="129.1" y="253.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="137.3" y="265.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="147.5" y="253.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="160.8" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<text x="298.0" y="266.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次 = 5 + 2</text>
+<rect x="310.0" y="253.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="323.4" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<rect x="338.2" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="346.4" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="366.1" y="253.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="379.5" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<rect x="394.3" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="402.5" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="412.2" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="420.4" y="265.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="430.1" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="438.3" y="265.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="458.0" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="466.2" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="475.8" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="484.0" y="265.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="493.7" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="501.9" y="265.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="511.6" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="519.8" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="529.5" y="253.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="544.1" y="265.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="570.1" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="578.3" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="588.0" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="596.2" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="605.9" y="253.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="613.9" y="265.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="623.4" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="631.6" y="265.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="641.3" y="253.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="655.8" y="265.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="302.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 5 步：</text>
+<rect x="70.0" y="289.0" width="26.7" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="83.4" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<rect x="98.7" y="289.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="106.9" y="301.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="117.1" y="289.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="125.3" y="301.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="135.5" y="289.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="143.7" y="301.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="153.9" y="289.0" width="33.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="170.4" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<text x="298.0" y="302.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次 = 5 + 2</text>
+<rect x="310.0" y="289.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="326.6" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.6" y="289.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="371.2" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="389.2" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="397.4" y="301.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="407.1" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="415.3" y="301.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.0" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="443.2" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="452.8" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="461.0" y="301.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="470.7" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="478.9" y="301.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="488.6" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="496.8" y="301.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="506.5" y="289.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="521.1" y="301.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="547.1" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="555.3" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="565.0" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="573.2" y="301.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="582.9" y="289.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="590.9" y="301.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="600.4" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="608.6" y="301.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="618.3" y="289.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="632.8" y="301.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="338.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 6 步：</text>
+<rect x="70.0" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="78.2" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="88.4" y="325.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="96.6" y="337.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="106.8" y="325.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="114.9" y="337.9" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="125.1" y="325.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="133.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="143.5" y="325.0" width="22.8" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="154.9" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
+<text x="298.0" y="338.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次 = 6</text>
+<rect x="310.0" y="325.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="326.6" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.6" y="325.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="371.2" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="389.2" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="397.4" y="337.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="407.1" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="415.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.0" y="325.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="446.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
+<rect x="459.2" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="467.4" y="337.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="477.1" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="485.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="495.0" y="325.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="509.6" y="337.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="535.6" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="543.8" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="553.5" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="561.7" y="337.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="571.4" y="325.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="579.4" y="337.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="588.9" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="597.1" y="337.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="606.8" y="325.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="621.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="374.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 7 步：</text>
+<rect x="70.0" y="361.0" width="22.8" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="81.4" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
+<rect x="94.8" y="361.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="102.9" y="373.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="113.1" y="361.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="121.3" y="373.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="131.5" y="361.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="139.7" y="373.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="149.9" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="164.5" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
+<text x="298.0" y="374.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次 = 6</text>
+<rect x="310.0" y="361.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="326.6" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.6" y="361.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="371.2" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="389.2" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="397.4" y="373.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="407.1" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="415.3" y="373.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.0" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="449.5" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
+<rect x="465.6" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="473.8" y="373.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="483.5" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="498.1" y="373.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="524.1" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="532.3" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="542.0" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="550.2" y="373.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="559.9" y="361.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="567.9" y="373.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="577.4" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="585.6" y="373.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="595.3" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="609.8" y="373.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="410.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 8 步：</text>
+<rect x="70.0" y="397.0" width="29.1" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="84.6" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
+<rect x="101.1" y="397.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="109.3" y="409.9" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="119.5" y="397.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
+<text x="127.7" y="409.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="137.9" y="397.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
+<text x="146.1" y="409.9" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="156.3" y="397.0" width="35.5" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="174.0" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣new</text>
+<text x="298.0" y="410.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次 = 6</text>
+<rect x="310.0" y="397.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="326.6" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.6" y="397.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="371.2" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="389.2" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="397.4" y="409.9" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="407.1" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="415.3" y="409.9" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.0" y="397.0" width="35.5" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
+<text x="452.7" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣new</text>
+<rect x="472.0" y="397.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="486.6" y="409.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="512.6" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="520.8" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="530.5" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="538.7" y="409.9" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="548.4" y="397.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="556.4" y="409.9" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="565.9" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
+<text x="574.1" y="409.9" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="583.8" y="397.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
+<text x="598.3" y="409.9" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="440.0" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">次数按词频加权：e+s 只在 newest、widest 两个词型里相邻，但两词共出现 6 + 3 = 9 次，比任何别的对都多，所以第 1 步合并它。</text>
+<text x="20.0" y="456.0" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">颜色 = token 的长度（1 个字符最浅）。8 步之后 low、est、␣new 各成了一个 token；训练的产物就是这 8 条合并规则，编码新词时按同样顺序再走一遍。</text>
 </svg>

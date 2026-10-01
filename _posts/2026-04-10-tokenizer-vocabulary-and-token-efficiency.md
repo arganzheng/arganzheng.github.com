@@ -16,9 +16,74 @@ updated: 2026-09-14
 
 > **Llama 3 把词表从 Llama 2 的 32K 扩到 128K，参数多了 0.79B、每个 token 贵了 5.6%，为什么反而是省钱的？[^q0] 同一句中文在 Llama 3 和 DeepSeek-V3 的 tokenizer 下相差 2.1 倍的 token 数——这个差距在成本表上是什么？[^q1]**
 
-## 一、先讲明白：tokenizer 是什么、为什么需要它
+## 一、总览：成本表里最后一个外生变量
 
-这一章不算账，只把三件事讲明白：模型为什么需要 tokenizer、BPE 到底在做什么、词表多大合适。已经清楚的读者可以直接跳到第二章。
+### 1. 先说答案
+
+tokenizer 对成本的影响走两条相反的路：
+
+| 路 | 变量 | 影响 | Llama 2 → Llama 3 的数字 |
+|---|---|---|---|
+| 词表大小 $$V$$ | embedding 与 lm_head 各 $$V \times d$$ 个参数<br/>lm_head 每 token $$2Vd$$ FLOPs、decode 每步读 $$2Vd$$ 字节<br/>训练时 logits 占 $$\text{tokens} \times V \times 4$$ 字节 | $$V$$ 越大，每个 token 越贵 | 32K → 128K：8B 骨架的参数 7.24B → 8.03B，每 token FLOPs 14.2 → 15.0 G（+5.6%） |
+| 压缩率 | 每个 token 平均对应多少字符（或字节） | 压缩率越高，同一段文字的 token 越少 | 英文 3.17 → 3.94 字符/token（+24%） |
+
+Table: tokenizer 影响成本的两条路
+
+两条路合在一起，成本应该按**每个字符**而不是每个 token 算：
+
+$$
+\text{FLOPs/字符} = \frac{\text{FLOPs/token}}{\text{字符/token}}
+$$
+
+Llama-3-8B 的骨架配 32K 词表是 $$14.2 / 3.17 = 4.49$$ GFLOPs/字符，配 128K 词表是 $$15.0 / 3.94 = 3.81$$ GFLOPs/字符——**每个字符便宜 15%，每个字符的 KV 少 20%**。更大的词表让每个 token 贵了一点，让每段文字的 token 少了很多，后者赢。这是 Llama 3、Qwen、Gemma、DeepSeek 都把词表做到 128K–256K 的原因。
+
+但这个结论有一个前提：词表要**针对目标语言训练**。同一段中文在 cl100k（Llama 3 词表的英文部分）下每个汉字要 1.46 个 token，在 DeepSeek-V3 下是 0.69 个；用 8B 规格的模型算，一个汉字的成本是 21.9 GFLOPs 对 10.4 GFLOPs。词表大小相近，效率差 2.1 倍——差距不在 $$V$$，在词表是用什么语料训出来的。
+
+### 2. 本文的路线
+
+全文沿一条线走：**tokenizer 是什么 → 它怎么进成本表 → 它怎么漏进模型行为 → 怎么换掉它 → 动手**。
+
+1. **它是什么**（第二、三章）。第二章不算账，用三张图把 tokenizer 是什么、BPE 在做什么、词表多大合适讲明白，已经清楚的读者可以跳过；第三章把同样的事讲严格：文本的几种表示方式各自解决什么、败在哪，BPE 的算法与它成为默认的原因，byte-level 与预分词，WordPiece / Unigram 两个替代准则，以及真实 tokenizer 的四段流水线。
+2. **它怎么进成本表**（第四、五章）。上面那张表的两条路各算一章：第四章算词表大小 $$V$$ 这一侧——参数、FLOPs、字节、训练状态、采样；第五章算压缩率这一侧，并把两侧合成"每字符成本"。
+3. **它怎么漏进模型行为**（第六章）。欠训练 token、数字切分与算术、多语言的价格差、token 边界偏差、特殊 token。
+4. **怎么换掉它**（第七章）。扩词表、裁剪、移植，以及干脆不用 tokenizer 的字节级模型。
+5. **动手**（第八章）。三个脚本：从零实现 BPE、五个真实 tokenizer 对比、成本表加上词表这一列。
+
+数字来自五个可以公开下载的 tokenizer：
+
+| tokenizer | 词表 | 用在 | 类型 |
+|---|---|---|---|
+| GPT-2 | 50 257 | GPT-2 / GPT-3 | byte-level BPE，第一个主流的字节级词表 |
+| cl100k_base | 100 277 | GPT-4；Llama 3 的 128K 词表以它为基础再加 28K 非英语 token | tiktoken |
+| o200k_base | 200 019 | GPT-4o | tiktoken |
+| Qwen2.5 | 151 665 | Qwen2 / 2.5 / 3 | byte-level BPE，中英双语料 |
+| DeepSeek-V3 | 128 815（`config.json` 里 `vocab_size` 为 129 280） | DeepSeek-V3 / R1 | byte-level BPE，中英双语料 |
+
+Table: 本文比较的五个 tokenizer
+
+Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它的英文行为；两者在英文上的切分几乎相同，中文上 Llama 3 多出的 28K token 会比 cl100k 好一些，但仍远不及双语料训练的 Qwen 与 DeepSeek。
+
+一个提醒：表里"词表"一列是 tokenizer 实际拥有的 token 数，模型 `config.json` 里的 `vocab_size` 往往比它大——Qwen2.5-7B 是 152 064 对 151 665，DeepSeek-V3 是 129 280 对 128 815。多出来的几百个是**填充位**，第四章会解释它为什么存在、为什么恰好都是 128 的倍数。
+
+### 3. 本文的章节安排
+
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 先讲明白 | 模型为什么只认整数<br/>同一句话三种切法<br/>BPE 逐步演示：次数怎么数、"够大"是多大、十几行核心代码<br/>四个 tokenizer 切同一段话<br/>词表多大合适——一个自己训出来的曲线 |
+| 三 | 从词到子词 | 词级与字符级两端各失败在哪<br/>文本表示的五种方式与 LLM 为什么选"子词 + 可训练 embedding"<br/>BPE 算法的三个观察与复杂度<br/>byte-level 与预分词<br/>WordPiece 与 Unigram 的准则<br/>四段流水线逐段拆开，五个 tokenizer.json 对照 |
+| 四 | 词表大小的账 | $$2Vd$$ 参数、tied 与 untied、填充到 128 的倍数、lm_head 的 FLOPs 与字节、logits 显存与 vocab-parallel 交叉熵、训练状态、采样成本；六个模型的数字 |
+| 五 | token 效率的账 | 字符/token、每字符成本、跨 tokenizer 怎么比 loss、词表大小的边际收益与词表的 scaling law、中文 / 代码 / 数字三个特例、上下文窗口"有多长" |
+| 六 | tokenizer 与模型行为 | 词表是语料的化石、欠训练 token 的检测、数字与算术、多语言的价格差、token 边界偏差与 token healing、特殊 token |
+| 七 | 换词表 | 扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型 |
+| 八 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
+| 九 | 本文小结 |  |
+| 十 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
+
+## 二、先讲明白：tokenizer 是什么、为什么需要它
+
+这一章不算账，只把三件事讲明白：模型为什么需要 tokenizer、BPE 到底在做什么、词表多大合适。已经清楚的读者可以直接跳到第三章。
 
 ### 1. 模型只认整数
 
@@ -46,17 +111,46 @@ Table: 三种切法的对照
 
 ### 3. BPE：让数据自己决定词表
 
-BPE（byte-pair encoding）的训练只有一个动作，重复很多次：**数一数语料里哪两个相邻的 token 最常挨在一起，把它们合并成一个新 token**。从"每个字符一个 token"开始，合并到词表够大为止。用 Sennrich 等 2016 论文里的玩具语料——`low` 出现 5 次、`lower` 2 次、`newest` 6 次、`widest` 3 次——合并 8 步：
+BPE（byte-pair encoding）的训练只有一个动作，重复很多次：**数一数语料里哪两个相邻的 token 最常挨在一起，把它们合并成一个新 token**。从"每个字符一个 token"开始，合并到词表达到**事先定好的大小**为止——"够大"不是算法自己判断的，是一个超参数，第 5 节讲它怎么定。用 Sennrich 等 2016 论文里的玩具语料演示：语料里只有四个词型，`low` 出现 5 次、`lower` 2 次、`newest` 6 次、`widest` 3 次（与 GPT-2 一样，每个词连同它前面的空格 `␣` 算一个词），合并 8 步：
 
-![BPE 训练 8 步：第 1 步 e+s（9 次）→ es，第 2 步 es+t → est，第 3–5 步把 ␣low 合成一个 token，第 6–8 步合出 ␣new；右侧是每一步之后四个词各切成什么样](/img/in-post/pretrain-02-bpe-steps.svg)
+![BPE 训练 8 步：列头是四个词各出现 5、2、6、3 次；第 1 步 e+s 共 9 次 = 6 + 3 → es，第 2 步 es+t → est，第 3–5 步三个 7 次的对把 ␣low 合成一个 token，第 6–8 步 6 次的对合出 ␣new；右侧是每一步之后四个词各切成什么样](/img/in-post/pretrain-02-bpe-steps.svg)
 
-看右边那一列怎么变：`newest` 和 `widest` 里都有 `e s t`，所以 `es`、`est` 最先合出来（9 次，比任何别的对都多）；`low` 出现 7 次（5 + 2），第 3–5 步把它合成一个 token；`new` 6 次，第 6–8 步。8 步之后，`low`、`est`、`␣new` 各是一格——**语料里最常见的碎片先成为 token**。
+**次数怎么数**：相邻对的次数按**词频加权**——一对在某个词型里相邻，这个词型在语料里出现几次就记几次。`e s` 只在 `newest` 和 `widest` 两个词型里相邻，看起来只有两处，但 `newest` 出现 6 次、`widest` 3 次，所以是 $$6 + 3 = 9$$ 次，比任何别的对都多（`␣ l`、`l o`、`o w` 各只有 $$5 + 2 = 7$$ 次）。于是第 1 步合出 `es`；合并之后 `es t` 仍是 9 次，第 2 步合出 `est`；第 3–5 步轮到三个 7 次的对，把 `␣low` 合成一格（三个并列，按先遇到的来——真实实现里并列的打破规则各家不同，影响的只是词表尾部的 token）；`␣ n`、`␣n e`、`␣ne w` 各 6 次，第 6–8 步。8 步之后，`␣low`、`est`、`␣new` 各是一格——**语料里最常见的碎片先成为 token**。
 
-训练的产物不是"一堆词"，而是这 8 条**合并规则**，按顺序排好。编码一个新词时，先拆成字符，再按同样的顺序把规则走一遍：
+写成代码就是一个循环（上面这张图就是它的输出；带字节级细节的完整版在第八章的 `bpe_from_scratch.py`）：
 
-- `lowest`（语料里没出现过）→ `␣low` + `est`——两个碎片都学过，虽然这个词本身没见过；
-- `newer` → `␣new` + `e` + `r`——`er` 从没成为高频对，退回字符；
-- `wide` → `␣w` + `i` + `d` + `e`——`wid` 也一样。
+```python title="BPE 训练：数相邻对、合并最高频的一对、重复"
+from collections import Counter
+
+def train_bpe(words, n_merges):
+    """words: {词（字符元组）: 出现次数}；返回按学习顺序排好的合并规则列表"""
+    merges = []
+    for _ in range(n_merges):
+        pairs = Counter()
+        for word, freq in words.items():
+            for a, b in zip(word, word[1:]):          # 词内每一对相邻 token
+                pairs[(a, b)] += freq                 # 按词频加权
+        (a, b), _ = pairs.most_common(1)[0]           # 最高频的一对
+        merges.append((a, b))
+        words = {merge_pair(word, a, b): freq for word, freq in words.items()}   # 语料里替换
+    return merges
+
+def merge_pair(word, a, b):
+    """把一个词里所有相邻的 (a, b) 换成 a + b"""
+    out, i = [], 0
+    while i < len(word):
+        if i + 1 < len(word) and word[i] == a and word[i + 1] == b:
+            out.append(a + b); i += 2
+        else:
+            out.append(word[i]); i += 1
+    return tuple(out)
+```
+
+`train_bpe({tuple(" low"): 5, tuple(" lower"): 2, tuple(" newest"): 6, tuple(" widest"): 3}, 8)` 返回的就是图里那 8 条规则。训练的产物不是"一堆词"，而是这 8 条**合并规则**，按顺序排好。编码一个新词时，先拆成字符，再按同样的顺序把规则走一遍：
+
+- `␣lowest`（语料里没出现过）→ `␣low` + `est`——两个碎片都学过，虽然这个词本身没见过；
+- `␣newer` → `␣new` + `e` + `r`——`er` 从没成为高频对，退回字符；
+- `␣wide` → `␣` + `w` + `i` + `d` + `e`——五个碎片，`wi`、`id` 也从没高频过。
 
 真实的 tokenizer 是这个过程放大十万倍：语料几十 GB，合并十几万步，初始符号不是字符而是 256 个**字节**（这样任何文字、emoji、乱码都能表示，第三章第 4 节）。GPT-2 词表里 `␣the` 的 id 是 262：前 256 个 id 是字节，它是**第 7 条**合并规则的产物（前六条是 `␣t`、`␣a`、`he`、`in`、`re`、`on`）——英文里最常见的词，最早成为一格。
 
@@ -76,7 +170,7 @@ BPE（byte-pair encoding）的训练只有一个动作，重复很多次：**数
 
 ### 5. 词表多大合适：一个自己训出来的曲线
 
-既然词表大小是自己定的，那定多大？直觉是"越大越好"——每个词都是一格，token 最少。但 embedding 与 lm_head 各有 $$V \times d$$ 个参数，词表翻倍它们就翻倍；小模型里这两块能占参数的四分之一以上（第四章）。所以要看**词表翻倍能省多少 token**。
+第 3 节说 BPE "合并到词表够大为止"——这个"够大"是一个事先定好的数字，BPE 自己不会停：GPT-2 定 50 257（256 个字节 + 50 000 条合并 + 1 个 `<|endoftext|>`）；Llama 3 定 128 000 + 256 个特殊位；Qwen2.5 定 151 643 + 22 个特殊 token。既然词表大小是自己定的，那定多大？直觉是"越大越好"——每个词都是一格，token 最少。但 embedding 与 lm_head 各有 $$V \times d$$ 个参数，词表翻倍它们就翻倍；小模型里这两块能占参数的四分之一以上（第四章）。所以要看**词表翻倍能省多少 token**。
 
 第一篇在 38 MB 清洗过的英文网页上从零训 BPE，词表从 264 扫到 16384（`pretrain_e2e/step4_tokenizer.py`）：
 
@@ -93,66 +187,11 @@ Table: 词表每翻一倍，每个 token 多代表多少字符（英文网页语
 
 为什么收益会递减？因为语料里词的频率是长尾的（Zipf 定律）：最常见的几千个词覆盖了大部分文本，词表从 4K 扩到 8K 新加进来的 4 千个 token 都是不常见的词，每个只出现几次，合起来也省不了多少。
 
+所以"够大"的定法是：用目标语言、目标领域的语料训出这条收益曲线，按模型规模画出成本直线，取交点附近的值，再凑成 128 的倍数（第四章第 2 节讲为什么）。它是针对一个模型、一批语料的**设计决定**，不是 BPE 算法的输出——同一份算法，给它 32K 它停在 32K，给它 256K 它停在 256K。
+
 ### 6. 这一章之后
 
 到这里，tokenizer 是什么、BPE 怎么工作、词表大小换什么，都有了图。剩下的章节是**算账**：把"词表翻倍成本线性涨"里的那条线算出来（第四章：$$2Vd$$ 参数、lm_head 的 FLOPs 与字节、logits 显存），把"省多少 token"换成每字符的成本（第五章），再看 tokenizer 对模型行为的副作用（第六章）和怎么换词表（第七章）。读的时候记住这一章的两张图就够了：合并规则表，和那条越来越平的曲线。
-
-## 二、总览：成本表里最后一个外生变量
-
-### 1. 先说答案
-
-tokenizer 对成本的影响走两条相反的路：
-
-| 路 | 变量 | 影响 | Llama 2 → Llama 3 的数字 |
-|---|---|---|---|
-| 词表大小 $$V$$ | embedding 与 lm_head 各 $$V \times d$$ 个参数<br/>lm_head 每 token $$2Vd$$ FLOPs、decode 每步读 $$2Vd$$ 字节<br/>训练时 logits 占 $$\text{tokens} \times V \times 4$$ 字节 | $$V$$ 越大，每个 token 越贵 | 32K → 128K：8B 骨架的参数 7.24B → 8.03B，每 token FLOPs 14.2 → 15.0 G（+5.6%） |
-| 压缩率 | 每个 token 平均对应多少字符（或字节） | 压缩率越高，同一段文字的 token 越少 | 英文 3.17 → 3.94 字符/token（+24%） |
-
-Table: tokenizer 影响成本的两条路
-
-两条路合在一起，成本应该按**每个字符**而不是每个 token 算：
-
-$$
-\text{FLOPs/字符} = \frac{\text{FLOPs/token}}{\text{字符/token}}
-$$
-
-Llama-3-8B 的骨架配 32K 词表是 $$14.2 / 3.17 = 4.49$$ GFLOPs/字符，配 128K 词表是 $$15.0 / 3.94 = 3.81$$ GFLOPs/字符——**每个字符便宜 15%，每个字符的 KV 少 20%**。更大的词表让每个 token 贵了一点，让每段文字的 token 少了很多，后者赢。这是 Llama 3、Qwen、Gemma、DeepSeek 都把词表做到 128K–256K 的原因。
-
-但这个结论有一个前提：词表要**针对目标语言训练**。同一段中文在 cl100k（Llama 3 词表的英文部分）下每个汉字要 1.46 个 token，在 DeepSeek-V3 下是 0.69 个；用 8B 规格的模型算，一个汉字的成本是 21.9 GFLOPs 对 10.4 GFLOPs。词表大小相近，效率差 2.1 倍——差距不在 $$V$$，在词表是用什么语料训出来的。
-
-### 2. 本文的路线
-
-第一章先用图把 tokenizer 是什么、BPE 怎么工作、词表大小换什么讲明白，不算账；第二章先说答案，第三章起是账本：先讲 tokenizer 是什么、BPE 为什么成为默认；再算词表大小这一侧的账；再算压缩率那一侧的账并把两侧合到"每字符成本"；然后讲 tokenizer 对模型行为的几个副作用，以及换词表、扩词表和绕开 tokenizer 的几种做法。数字来自五个可以公开下载的 tokenizer：
-
-| tokenizer | 词表 | 用在 | 类型 |
-|---|---|---|---|
-| GPT-2 | 50 257 | GPT-2 / GPT-3 | byte-level BPE，第一个主流的字节级词表 |
-| cl100k_base | 100 277 | GPT-4；Llama 3 的 128K 词表以它为基础再加 28K 非英语 token | tiktoken |
-| o200k_base | 200 019 | GPT-4o | tiktoken |
-| Qwen2.5 | 151 665 | Qwen2 / 2.5 / 3 | byte-level BPE，中英双语料 |
-| DeepSeek-V3 | 128 815（`config.json` 里 `vocab_size` 为 129 280） | DeepSeek-V3 / R1 | byte-level BPE，中英双语料 |
-
-Table: 本文比较的五个 tokenizer
-
-Llama 3 自己的 tokenizer 需要授权下载，本文用 cl100k_base 近似它的英文行为；两者在英文上的切分几乎相同，中文上 Llama 3 多出的 28K token 会比 cl100k 好一些，但仍远不及双语料训练的 Qwen 与 DeepSeek。
-
-一个提醒：表里"词表"一列是 tokenizer 实际拥有的 token 数，模型 `config.json` 里的 `vocab_size` 往往比它大——Qwen2.5-7B 是 152 064 对 151 665，DeepSeek-V3 是 129 280 对 128 815。多出来的几百个是**填充位**，第四章会解释它为什么存在、为什么恰好都是 128 的倍数。
-
-### 3. 本文的章节安排
-
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 一 | 先讲明白 | 模型为什么只认整数<br/>同一句话三种切法<br/>BPE 逐步演示<br/>四个 tokenizer 切同一段话<br/>词表多大合适——一个自己训出来的曲线 |
-| 三 | 从词到子词 | 词级与字符级两端各失败在哪<br/>BPE 算法与玩具例子<br/>byte-level 与预分词<br/>WordPiece 与 Unigram 的准则<br/>tokenizer 的四段流水线 |
-| 四 | 词表大小的账 | $$2Vd$$ 参数、tied 与 untied、填充到 128 的倍数、lm_head 的 FLOPs 与字节、logits 显存与 vocab-parallel 交叉熵、训练状态、采样成本；六个模型的数字 |
-| 五 | token 效率的账 | 字符/token、每字符成本、跨 tokenizer 怎么比 loss、词表大小的边际收益与词表的 scaling law、中文 / 代码 / 数字三个特例、上下文窗口"有多长" |
-| 六 | tokenizer 与模型行为 | 词表是语料的化石、欠训练 token 的检测、数字与算术、多语言的价格差、token 边界偏差与 token healing、特殊 token |
-| 七 | 换词表 | 扩词表继续预训练、词表裁剪、tokenizer 移植、无 tokenizer 的字节模型 |
-| 八 | 实践 | 从零实现 BPE、真实 tokenizer 对比、`llm_cost.py` 第九版 |
-| 九 | 本文小结 |  |
-| 十 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
 
 ## 三、从词到子词：为什么是 BPE
 
@@ -177,47 +216,36 @@ Table: 词级、字符级与子词切分的 prefill 算量
 
 字节级比子词贵 14 倍，其中 attention 项贵 15 倍——序列每长 $$k$$ 倍，attention 项长 $$k^2$$ 倍。（这是一整段当作一条序列的极端算法；实际按 8K 分块后 attention 项会小得多，但字节级的 decode 步数仍是 4 倍，KV 也是 4 倍。）字节级模型不是没人做，第七章会看到它们要另想办法把序列压回去。
 
-### 2. 一页史：从 n-gram 到上下文表示
+### 2. 文本怎么变成数字：五种表示方式，以及 LLM 为什么选"子词 + embedding"
 
-tokenizer 之前的 NLP 用另一套方法表示文本，其中三个概念在今天的 LLM 里仍然在用：
+tokenizer 回答的是"什么算一个符号"，但这只是文本进模型的第一步，第二步是**每个符号用什么向量表示**。NLP 几十年里两步各有几种做法，放在一张表上，就能看出 LLM 为什么选了现在这一种：
 
-- **n-gram 语言模型与困惑度**：用前 $$n-1$$ 个词预测下一个词的计数模型，是 next-token prediction 的祖先。它的评价指标**困惑度**（perplexity）$$\text{PPL} = \exp(\text{平均每 token 的交叉熵})$$，今天仍是预训练 loss 的另一种写法：loss 2.0 nats 对应 PPL 7.4。注意困惑度依赖 tokenizer——同一段文字切成更多 token，每个 token 更好预测，PPL 更低，但这不代表模型更好。跨 tokenizer 比较要换算到**每字节**，第五章第 3 节专门讲这件事。
-- **词向量**：Word2Vec（Mikolov 等 2013，CBOW 与 Skip-gram）与 GloVe（Pennington 等 2014）把每个词映射到一个几百维的向量，相近的词向量相近。LLM 的 embedding 表就是这个思想的直接后代，区别是它与模型一起训练、以子词而非词为单位，且不再是静态的——同一个 token 经过几层 attention 之后的表示随上下文变化，这是 ELMo（Peters 等 2018）与 BERT（Devlin 等 2018）确立的"上下文相关表示"。
-- **one-hot、词袋、TF-IDF**：稀疏的、词序无关的文本表示，今天在 LLM 里没有位置，但在检索（BM25）与数据过滤（第四篇的分类器）里还活着。
+| 表示 | 符号单位 | 向量怎么来 | 擅长 | 短板 | 今天还在哪用 |
+|---|---|---|---|---|---|
+| one-hot / 词袋 / TF-IDF | 词 | 稀疏向量，维数 = 词表大小，一个词占一维 | 简单、可解释；检索与分类上至今是强基线 | 不带语义（`cat` 与 `dog` 正交）<br/>丢词序<br/>生词没有位置（OOV） | BM25 检索<br/>第四篇数据过滤里的分类器特征 |
+| n-gram 语言模型 | 词 | 不学向量，直接数"前 $$n-1$$ 个词之后接什么"的频率 | next-token prediction 的祖先；困惑度这个指标从这里来 | 只能看 $$n-1$$ 个词<br/>组合爆炸，要靠平滑 | 评估指标 PPL<br/>数据过滤里的 KenLM 困惑度打分 |
+| 静态词向量（Word2Vec、GloVe） | 词 | 几百维稠密向量，单独预训练后冻结 | 相近的词向量相近，`king − man + woman ≈ queen` | 一词一向量，`bank` 的两个意思是同一个点<br/>OOV<br/>与下游模型分开训 | 推荐、轻量检索<br/>小模型的初始化 |
+| 字符级 / 字节级 | 字符或字节 | 几十到 256 行的 embedding 表，与模型一起训 | 没有 OOV，词表极小，拼写与形态全在序列里 | 序列长 4–5 倍，attention 项贵 $$k^2$$ 倍（上一节的 14 倍） | 字符级 RNN<br/>ByT5 一类字节模型（第七章第 4 节） |
+| 子词 id + 可训练 embedding + 上下文表示 | 子词（BPE / WordPiece / Unigram） | $$V \times d$$ 的 embedding 表与模型**联合训练**，经过 attention 后随上下文变化 | 词表大小可控<br/>没有 OOV<br/>常见词一格<br/>同一 token 在不同句子里向量不同 | 词表是语料的化石（第六章）<br/>数字与多语言的副作用 | 2018 年 ELMo / BERT 之后的几乎所有模型，包括全部 LLM |
+
+Table: 文本表示的五种方式
+
+为什么 LLM 落在最后一行？四个原因，每个都对应前几行的一个短板：
+
+1. **生成需要一个有限的离散集合**。模型每一步要输出"下一个符号是谁"的概率分布，lm_head 的输出维数就是词表大小。词级词表几十万到上百万，这一层算不起、也训不动尾部的词；字符级 256 个倒是算得起，但序列长 4–5 倍，attention 与 KV cache 贵得多（上一节）。子词把 $$V$$ 控制在 32K–256K，两头的账都算得过来。
+2. **embedding 要和模型一起训**。Word2Vec 的向量是单独训好再冻结的，模型只能用、不能改。LLM 的 embedding 表就是 Word2Vec 的思想搬进模型第一层：仍然是"一个 token 一行向量"，但随 loss 一起更新，学到的是对这个模型的下一个 token 预测最有用的表示。
+3. **表示要随上下文变**。静态词向量一词一点；ELMo（Peters 等 2018）与 BERT（Devlin 等 2018）之后，embedding 查出来的只是起点，经过几层 attention 之后同一个 token 在不同句子里的向量不同——多义词的问题在模型内部解决，不必在词表里解决。
+4. **不能有 OOV**。预训练语料里什么都有：其他语言、代码、乱码、emoji。词级表示的 `<unk>` 会把这些信息整个丢掉；byte-level 的初始词表让任何字节序列都能编码（下一节）。
+
+这张表上有两个概念被 LLM 原样继承，后文会反复用到。一是**困惑度**（perplexity）：$$\text{PPL} = \exp(\text{平均每 token 的交叉熵})$$，今天仍是预训练 loss 的另一种写法，loss 2.0 nats 对应 PPL 7.4；但它依赖 tokenizer——同一段文字切成更多 token，每个 token 更好预测，PPL 更低，这不代表模型更好，跨 tokenizer 比较要换算到每字节（第五章第 3 节）。二是 **embedding 表**本身：Transformer 第一层那张 $$V \times d$$ 的表，与第四章要算的 lm_head 是同一尺寸的两张表，词表每加一行，两张表各多 $$d$$ 个参数。
 
 ### 3. BPE 算法
 
-Byte Pair Encoding 最初是一种压缩算法（Gage 1994），Sennrich 等 2016 把它用到机器翻译的词表构建上。训练过程只有一个循环：
-
-- **初始词表 = 全部单字符（或 256 个字节）**
-- **把语料切成"词"，每个词表示为字符序列**
-- **重复 (V - 初始大小) 次**
-  - 统计所有相邻 token 对的出现次数
-  - 把最频繁的一对合并成一个新 token，加入词表
-  - 在语料里把这一对替换为新 token
-
-用经典的玩具语料 `low ×5, lower ×2, newest ×6, widest ×3` 跑八次合并（配套脚本 `bpe_from_scratch.py` 的输出）：
-
-```text title="玩具语料上的八次 BPE 合并"
-merge 1:  'e'  + 's'    -> 'es'    (9 次)     newest ×6 + widest ×3
-merge 2:  'es' + 't'    -> 'est'   (9 次)
-merge 3:  'l'  + 'o'    -> 'lo'    (7 次)     low ×5 + lower ×2
-merge 4:  'lo' + 'w'    -> 'low'   (7 次)
-merge 5:  ' '  + 'low'  -> ' low'  (6 次)
-merge 6:  ' '  + 'n'    -> ' n'    (6 次)
-merge 7:  ' n' + 'e'    -> ' ne'   (6 次)
-merge 8:  ' ne'+ 'w'    -> ' new'  (6 次)
-
-encode('lowest') -> ['low', 'est']         两个都学过，虽然 'lowest' 本身没出现过
-encode('newer')  -> ['n','e','w','e','r']  'new' 只学了带前导空格的版本
-encode('wide')   -> ['w','i','d','e']      'wid' 从没成为高频对
-```
-
-三个观察在真实词表上同样成立：
+Byte Pair Encoding 最初是一种压缩算法（Gage 1994），Sennrich 等 2016 把它用到机器翻译的词表构建上。算法本身第二章第 3 节已经写成代码、画成图：初始词表是全部单字符（或 256 个字节），把语料切成词、每个词表示为符号序列，然后重复"统计相邻对 → 合并最高频的一对 → 语料里替换"，直到词表到目标大小。这里不再重复，只补三个在真实词表上同样成立的观察。
 
 1. **合并顺序就是词表**。训练的产物不是一个词的集合，而是一个有序的 merge 列表；编码时对每个词按同样顺序反复合并。所以 BPE 的编码是确定的、贪心的、不需要搜索。tiktoken 把这个列表存成"token 字节串 → rank"的字典，编码时每次找 rank 最小的相邻对合并，是同一件事的另一种写法。
 2. **子词是统计的产物，不是语言学的**。`est` 被学出来是因为 `newest` 和 `widest` 都有它，不是因为它是后缀；同理 GPT-2 的词表里有 `␣the` 也有 `the`（␣ 表示前导空格；后者不带空格，出现在行首或引号后）——两个 id，模型要各学一遍。大小写也是如此：`The`、`␣The`、`the`、`␣the`、`THE` 是五个 token，词表里有相当一部分位置花在同一个词的变体上。
-3. **没见过的组合退回到碎片**。`newer` 退成五个字符，因为语料里 `new` 只出现在带空格的位置。真实词表上这就是"罕见词被切碎"——一个专有名词或一段 base64 可能占几十个 token。
+3. **没见过的组合退回到碎片**。`␣wide` 退成 `␣ w i d e` 五格，因为 `w i`、`i d` 从没成为高频对。真实词表上这就是"罕见词被切碎"——一个专有名词或一段 base64 可能占几十个 token。
 
 编码的复杂度值得一提。朴素实现对一个长度 $$n$$ 的词每次合并要扫一遍，最多合并 $$n - 1$$ 次，$$O(n^2)$$；由于预分词把词切得很短（英文词平均 5 个字符），这不成问题。真正的成本在**训练**：每合并一次要重新统计全部相邻对的频次，语料 $$T$$ 个字节、合并 $$V$$ 次是 $$O(TV)$$——1 MB 语料训 16K 词表在配套脚本的朴素实现里要两分钟；工业实现（Hugging Face `tokenizers`、SentencePiece）用增量更新（只更新受本次合并影响的对）加多线程，几十 GB 语料训 100K 词表以小时计。
 
@@ -275,7 +303,7 @@ Table: BPE、WordPiece 与 Unigram 的对照
 
 ### 6. tokenizer 的四段流水线
 
-把上面的部件按 Hugging Face `tokenizers` 库的组织方式排一下，一个 tokenizer 是四段可替换的流水线：
+把上面的部件按 Hugging Face `tokenizers` 库的组织方式排一下，一个 tokenizer 是四段可替换的流水线——`tokenizer.json` 文件的顶层就是这四个键（外加一个负责反向还原的 `decoder`）：
 
 ```mermaid
 %% 图：tokenizer 的四段流水线：Normalizer → Pre-tokenizer → Model → Post-processor
@@ -290,7 +318,37 @@ flowchart TB
     class P,M hot;
 ```
 
-黄色两段决定压缩率与词表内容；第一段决定"同一个字符串的不同 Unicode 写法算不算一个 token"（全角 `Ａ` 与半角 `A`、组合重音与预组合字符），第四段决定第六章的特殊 token 与后训练的 chat template 怎么进入序列。`tokenizer.json` 里就是这四个键。
+逐段看它的输入输出、常见选项，以及改它会改变什么：
+
+1. **Normalizer：统一写法**。输入原始字符串，输出规范化后的字符串。常见操作有 Unicode 规范化（NFC 把"e + 组合重音"合成一个 `é`；NFKC 还把全角 `Ａ` 折成半角 `A`、`①` 折成 `1`）、小写化、去重音。它决定"同一个字符串的不同 Unicode 写法算不算一个 token"。byte-level BPE 大多留空或只做 NFC：GPT-2 是 `null`，Qwen2.5 是 `NFC`，DeepSeek-V3 是空序列；BERT 的 `BertNormalizer` 做小写 + 清理控制字符 + 给每个汉字两侧加空格（所以 BERT 的中文永远是单字）；T5 用 SentencePiece 的预编译字符映射表（`Precompiled`）。它对压缩率影响很小，但**不可逆**：小写化之后 `Apple` 与 `apple` 再也分不开——这是 BERT-uncased 不区分大小写、GPT 系列区分的原因。
+2. **Pre-tokenizer：先切成不可跨越的段**。输入规范化后的字符串，输出一串"词"（各带在原文中的偏移）。Model 只在每段内部合并，**段的边界就是 token 永远不能跨越的边界**，所以上一节讲的数字切法、空格归属、标点能不能连着换行，全在这一段决定。GPT-2 是 `ByteLevel`（内置那条正则 + 字节到可见字符的映射）；Qwen2.5 是 `Split`（自己的正则，数字 `\p{N}` 逐位）接 `ByteLevel`；DeepSeek-V3 是四段串联——`\p{N}{1,3}` 三位一段、CJK 连续段、再一条主正则——最后 `ByteLevel`；BERT 的 `BertPreTokenizer` 按空白与标点切；T5 的 `Metaspace` 把空格换成 `▁` 并粘到后面的词上。
+3. **Model：段内切成 token**。输入一个个段，输出 token 与 id。三种模型：BPE（词表 + 有序 merges，第 3 节）、WordPiece（词表 + `##` 续词前缀，第 5 节）、Unigram（每个 token 带一个对数概率，第 5 节）。`tokenizer.json` 里体积最大的就是这一段的 `vocab` 与 `merges`：GPT-2 50 257 项 + 50 000 条 merges，Qwen2.5 151 643 + 151 387，DeepSeek-V3 128 000 + 127 741。**压缩率与词表内容由第 2、3 两段共同决定**——第 2 段定边界，第 3 段在边界内分配词表。
+4. **Post-processor：加上模型约定的特殊 token**。输入 token 序列，输出最终喂给模型的序列。BERT 的 `TemplateProcessing` 把单句包成 `[CLS] A [SEP]`、句对包成 `[CLS] A [SEP] B [SEP]` 并给出 segment id；T5 在句尾加 `</s>`；GPT-2 / Qwen2.5 / DeepSeek-V3 这一段是 `ByteLevel`，只修正偏移量，**不加任何 token**——它们的 BOS/EOS 与对话模板由模型侧的 `chat_template` 负责（第六章第 5 节）。这一段决定特殊 token 怎么进入序列，不影响词表内容。
+
+把五个 tokenizer 的四段并排，再喂同一句 `Hello world! 机器学习 2024`：
+
+| | GPT-2 | Qwen2.5 | DeepSeek-V3 | BERT-base-uncased | T5-small |
+|---|---|---|---|---|---|
+| Normalizer | 无 | NFC | 无 | 小写 + 清理 + 汉字两侧加空格 | SentencePiece 预编译映射 |
+| Pre-tokenizer | ByteLevel（GPT-2 正则） | Split（数字逐位）→ ByteLevel | Split ×3（数字 3 位、CJK 段、主正则）→ ByteLevel | 空白 + 标点 | 空白 → Metaspace `▁` |
+| Model | BPE，50 257 | BPE，151 643 | BPE，128 000 | WordPiece，30 522 | Unigram，32 100 |
+| Post-processor | ByteLevel（不加 token） | ByteLevel（不加 token） | ByteLevel（不加 token） | `[CLS] … [SEP]` | 尾加 `</s>` |
+| 切出来 | `Hello` `␣world` `!` + 中文 12 个字节切成 9 个碎片 + `␣2024`，13 个 | `Hello` `␣world` `!` `␣` `机器` `学习` `␣` `2` `0` `2` `4`，11 个 | `Hello` `␣world` `!` `␣` `机器学习` `␣` `202` `4`，8 个 | `[CLS]` `hello` `world` `!` `[UNK]` `[UNK]` `学` `[UNK]` `202` `##4` `[SEP]`，11 个 | `▁Hello` `▁world` `!` `▁` `机器学习` `▁20` `24` `</s>`，8 个 |
+
+Table: 五个 tokenizer 的四段流水线与同一句话的切法（`tokenizers` 0.23 读出的 `tokenizer.json`）
+
+同一句话把四段的作用各演了一遍：BERT 的 `hello` 小写了（Normalizer）；`2024` 四种切法——GPT-2 整个一格、Qwen 逐位、DeepSeek 三位一段、T5 两位两位（Pre-tokenizer 定边界，Model 在边界内分）；中文从 9 个字节碎片到 1 格（Model 的词表里有没有）；只有 BERT 与 T5 多出了 `[CLS]`、`[SEP]`、`</s>`（Post-processor）。读一个陌生 tokenizer 时按这个顺序看它的 `tokenizer.json`，几分钟就知道它的数字、空格、中文会怎么切：
+
+```python title="读出一个 tokenizer 的四段"
+import json
+from tokenizers import Tokenizer
+
+tok = Tokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
+cfg = json.loads(tok.to_str())                      # 就是 tokenizer.json 的内容
+for part in ["normalizer", "pre_tokenizer", "model", "post_processor"]:
+    print(part, "->", cfg[part]["type"] if cfg[part] else None)
+print(tok.encode("Hello world! 机器学习 2024").tokens)
+```
 
 ## 四、词表大小的账
 
@@ -315,7 +373,7 @@ Llama 2 到 Llama 3 的 7B/8B 规格，骨架几乎一样（都是 32 层、$$d 
 
 ### 2. 为什么 vocab_size 是 128 的倍数
 
-第二章留的问题：Qwen2.5-7B 的 tokenizer 有 151 665 个 token，`vocab_size` 却是 152 064；DeepSeek-V3 是 128 815 对 129 280；Llama 3 的 128 256 = 128 000 + 256 个特殊 token 位。三个数除以 128 分别是 1188、1010、1002，都是整数。
+第一章留的问题：Qwen2.5-7B 的 tokenizer 有 151 665 个 token，`vocab_size` 却是 152 064；DeepSeek-V3 是 128 815 对 129 280；Llama 3 的 128 256 = 128 000 + 256 个特殊 token 位。三个数除以 128 分别是 1188、1010、1002，都是整数。
 
 这是训练框架的要求。Megatron-LM 的 `--make-vocab-size-divisible-by` 默认 128，理由有两个：
 
@@ -562,21 +620,20 @@ BPE 是贪心的，一段文字的切法依赖它后面跟着什么。`http://` 
 
 ### 1. `bpe_from_scratch.py`：从零实现 byte-level BPE
 
-纯标准库，150 行。核心是训练循环（下面是去掉打印后的骨架）：
+纯标准库，150 行。训练循环就是第二章第 3 节贴的那十几行，脚本里只多两处字节级细节：词先 `encode("utf-8")` 成字节序列（初始 id 0–255），第 $$k$$ 步合出的新 token 的 id 是 $$256 + k$$。玩具例子的输出与第二章的图逐步一致，每一步同时打印次数的来源：
 
-```python title="train_bpe：训练循环骨架"
-def train_bpe(text, vocab_size):
-    words = Counter(tuple(w.encode("utf-8")) for w in pretokenize(text))  # 每个词是字节序列
-    merges = []
-    for step in range(vocab_size - 256):
-        pairs = Counter()
-        for word, freq in words.items():
-            for a, b in zip(word, word[1:]):
-                pairs[(a, b)] += freq
-        (a, b), _ = pairs.most_common(1)[0]           # 最频繁的相邻对
-        merges.append((a, b))                          # 新 token 的 id 是 256 + step
-        words = merge_pair(words, a, b, 256 + step)    # 语料里替换
-    return merges
+```text title="python bpe_from_scratch.py --quick 的前几行"
+merge   1:        'e' + 's'        -> id 256  (9 次 = 6 + 3)
+merge   2:       'es' + 't'        -> id 257  (9 次 = 6 + 3)
+merge   3:        ' ' + 'l'        -> id 258  (7 次 = 5 + 2)
+merge   4:       ' l' + 'o'        -> id 259  (7 次 = 5 + 2)
+merge   5:      ' lo' + 'w'        -> id 260  (7 次 = 5 + 2)
+merge   6:        ' ' + 'n'        -> id 261  (6 次 = 6)
+merge   7:       ' n' + 'e'        -> id 262  (6 次 = 6)
+merge   8:      ' ne' + 'w'        -> id 263  (6 次 = 6)
+encode(' lowest') -> [' low', 'est']
+encode(' newer') -> [' new', 'e', 'r']
+encode(' wide') -> [' ', 'w', 'i', 'd', 'e']
 ```
 
 编码是同一件事的镜像——对每个预分词后的词，反复找 merge 顺序最早的相邻对合并，直到没有可合并的：
@@ -592,7 +649,7 @@ def encode_word(word_bytes, rank):                    # rank: (a, b) -> merge �
     return ids
 ```
 
-脚本跑三件事：玩具例子逐步打印合并；在 Python 标准库源码上扫词表大小 256 → 16 384 并报告训练集与三段样本的 bytes/token（第五章第 4 节的表）；把中文句子喂给这个词表看它退回字节级。1 MB 语料到 16K 词表约两分钟——朴素实现每次合并都重新统计全部对；`--quick` 只跑玩具例子与两个词表大小。
+脚本跑三件事：玩具例子逐步打印合并（上面那段）；在 Python 标准库源码上扫词表大小 256 → 16 384 并报告训练集与三段样本的 bytes/token（第五章第 4 节的表）；把中文句子喂给这个词表看它退回字节级。1 MB 语料到 16K 词表约两分钟——朴素实现每次合并都重新统计全部对；`--quick` 只跑玩具例子与两个词表大小。
 
 ### 2. `tokenizer_compare.py`：五个真实 tokenizer
 

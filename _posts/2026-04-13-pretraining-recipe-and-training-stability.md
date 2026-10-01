@@ -16,7 +16,54 @@ updated: 2026-09-14
 
 > **Llama 3 405B 的峰值学习率是 8e-5，DeepSeek-V3 是 2.2e-4，GPT-3 是 6e-5；batch 分别是 16M、63M、3.2M token。这些数字怎么定的？[^q0] DeepSeek-V3 在 FP8 下训了 14.8T token"没有一次不可恢复的 loss spike"——它开了哪些开关，每个开关在防什么？[^q1]**
 
-## 一、先讲明白：配方是什么、训练为什么会崩
+## 一、总览：一张超参表与三个机制
+
+### 1. 先说答案
+
+配方可以分成三组决定：
+
+| 组 | 决定 | 公开配方的取值范围 | 依据 |
+|---|---|---|---|
+| 目标 | next-token 交叉熵<br/>是否加 MTP<br/>代码是否加 FIM<br/>文档打包时是否跨文档 attention | MTP 权重 0.3 → 0.1（DeepSeek-V3）<br/>代码 FIM 率 50%<br/>Llama 3 掩码跨文档，DeepSeek 不掩 | 第三章 |
+| 优化 | AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、clip 1.0<br/>峰值 lr<br/>batch 与其增长<br/>warmup<br/>调度形状 | lr 6e-5 到 3e-4，随模型变大而变小<br/>batch 3M 到 63M token，训练中增大<br/>warmup 0.4–0.9% 的步数<br/>cosine → 10% 或 WSD | 第三、四章 |
+| 稳定 | QK-norm、z-loss、初始化、weight decay 的排除项、Adam 的 $$\epsilon$$、spike 的处理流程 | 2024 年后 QK-norm 成为默认；z-loss $$10^{-4}$$ | 第六章 |
+
+Table: 预训练配方的三组决定
+
+稳定性归结为三个机制，各有一个可以监控的量和一个开关：
+
+| 机制 | 监控什么 | 现象 | 开关 |
+|---|---|---|---|
+| attention logit 增长 | $$\max \lvert q \cdot k \rvert / \sqrt{d_{head}}$$ | logit 到几十上百，softmax 饱和成 one-hot，这一头的梯度归零，loss 先变差再尖峰 | QK-norm（Q、K 各过一个 norm）<br/>Gemma 2 的 soft-cap<br/>Kimi K2 的 QK-Clip |
+| 输出 logit 漂移 | $$\lvert \log Z \rvert$$（lm_head 的 logsumexp） | 归一化常数自由漂移，logits 整体变大，低精度下溢出 | z-loss $$10^{-4} \log^2 Z$$ |
+| 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪<br/>warmup<br/>较小的 $$\beta_2$$<br/>回滚并跳过 batch |
+
+Table: 训练稳定性的三个机制、监控量与开关
+
+DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某几个开关——报告明确写的是 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第十一篇）、MLA 里对压缩 latent 做的 RMSNorm（不是逐 head 的 QK-norm）、以及一套常规的 warmup / 裁剪配置；上表是各家配方的汇总，不是 V3 的清单。Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
+
+### 2. 本文的路线
+
+第二章先不讲公式：把第一篇 MacBook 实训的配方和 Llama 3 405B 的放在同一张表上，用四条曲线看学习率调坏了长什么样，把那次训练里真实发生的小 spike 放大解剖，再用一段叙事讲 405B 训练的一天。第三章起是账本：先讲目标函数与它的几个变体；再讲优化器超参——batch、lr、warmup、weight decay 各自的依据，以及它们随规模的经验律与 $$\mu$$P；再讲调度曲线的三种形状与为什么 2024 年转向 WSD；再讲稳定性的三个机制与六个开关，spike 发生后的处理流程、硬件故障与 checkpoint 频率的账；再讲长上下文继续预训练这个附加阶段；最后是训练时该看哪几条曲线。配套实验在 CPU 上复现四件事：三种调度的对比、batch 与最优 lr 的关系、attention logit 随 lr 的增长与 QK-norm 的作用、z-loss 对 $$\log Z$$ 的抑制。
+
+### 3. 本文的章节安排
+
+| 章 | 主题 | 内容 |
+|---|---|---|
+| 二 | 先讲明白 | 配方就是那十几个数（MacBook 与 405B 的同一张表）<br/>学习率调坏了长什么样（四条曲线）<br/>一次真实训练里的小 spike 放大看<br/>spike 的解剖——三条曲线同步看、QK-norm<br/>z-loss<br/>405B 训练的一天 |
+| 三 | 目标函数 | 交叉熵与它的单位和梯度<br/>MTP<br/>FIM<br/>文档打包与跨文档 attention |
+| 四 | 优化器与超参 | AdamW 的四个数与 Muon<br/>batch 与梯度噪声尺度、硬件给的下界<br/>峰值 lr 随规模<br/>DeepSeek 的经验律<br/>$$\mu$$P 的规则表<br/>weight decay 的时间尺度<br/>warmup |
+| 五 | 调度 | cosine、WSD、DeepSeek-V3 的四段<br/>衰减段的形状与长度<br/>为什么中途的 loss 不可比<br/>退火 |
+| 六 | 稳定性 | 三个机制、六个开关、norm 的位置、spike 的处理与代价、硬件故障与 checkpoint 间隔、低精度 |
+| 七 | 长上下文继续预训练 | Llama 3 的六步与 DeepSeek-V3 的两步；attention 占比与并行 |
+| 八 | 监控 | 该看的七条曲线与它们的含义 |
+| 九 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
+
+Table: 本文的章节安排
+
+## 二、先讲明白：配方是什么、训练为什么会崩
 
 这一章不推公式。先把"配方"这个词落到一张表上，再用四条实跑的曲线看学习率调坏了长什么样，然后把第一篇那次 12 分钟训练里**真实发生的一次小 spike** 放大解剖，最后讲一天里一次 405B 的训练会经历什么。
 
@@ -122,53 +169,6 @@ Table: 405B 训练的典型一天
 ### 7. 这一章之后
 
 到这里，配方表长什么样、学习率调坏了长什么样、spike 从哪来怎么挡、一天的训练在经历什么，都有了图。后面的章节把每一行算出来：第三章目标函数（交叉熵的单位、MTP、跨文档掩码），第四章优化器与超参（batch 由梯度噪声决定、lr 随宽度降、$$\mu$$P、warmup 多长），第五章调度（cosine、WSD、为什么中途的 loss 不可比），第六章稳定性的三个机制与六个开关、spike 的处理、checkpoint 间隔，第七章长上下文，第八章监控的七条曲线。
-
-## 二、总览：一张超参表与三个机制
-
-### 1. 先说答案
-
-配方可以分成三组决定：
-
-| 组 | 决定 | 公开配方的取值范围 | 依据 |
-|---|---|---|---|
-| 目标 | next-token 交叉熵<br/>是否加 MTP<br/>代码是否加 FIM<br/>文档打包时是否跨文档 attention | MTP 权重 0.3 → 0.1（DeepSeek-V3）<br/>代码 FIM 率 50%<br/>Llama 3 掩码跨文档，DeepSeek 不掩 | 第三章 |
-| 优化 | AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、clip 1.0<br/>峰值 lr<br/>batch 与其增长<br/>warmup<br/>调度形状 | lr 6e-5 到 3e-4，随模型变大而变小<br/>batch 3M 到 63M token，训练中增大<br/>warmup 0.4–0.9% 的步数<br/>cosine → 10% 或 WSD | 第三、四章 |
-| 稳定 | QK-norm、z-loss、初始化、weight decay 的排除项、Adam 的 $$\epsilon$$、spike 的处理流程 | 2024 年后 QK-norm 成为默认；z-loss $$10^{-4}$$ | 第六章 |
-
-Table: 预训练配方的三组决定
-
-稳定性归结为三个机制，各有一个可以监控的量和一个开关：
-
-| 机制 | 监控什么 | 现象 | 开关 |
-|---|---|---|---|
-| attention logit 增长 | $$\max \lvert q \cdot k \rvert / \sqrt{d_{head}}$$ | logit 到几十上百，softmax 饱和成 one-hot，这一头的梯度归零，loss 先变差再尖峰 | QK-norm（Q、K 各过一个 norm）<br/>Gemma 2 的 soft-cap<br/>Kimi K2 的 QK-Clip |
-| 输出 logit 漂移 | $$\lvert \log Z \rvert$$（lm_head 的 logsumexp） | 归一化常数自由漂移，logits 整体变大，低精度下溢出 | z-loss $$10^{-4} \log^2 Z$$ |
-| 单步更新过大 | 梯度范数、参数范数 | 一个坏 batch 或 Adam 二阶矩的瞬时失配让一步走得太远 | 梯度裁剪<br/>warmup<br/>较小的 $$\beta_2$$<br/>回滚并跳过 batch |
-
-Table: 训练稳定性的三个机制、监控量与开关
-
-DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某几个开关——报告明确写的是 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第十一篇）、MLA 里对压缩 latent 做的 RMSNorm（不是逐 head 的 QK-norm）、以及一套常规的 warmup / 裁剪配置；上表是各家配方的汇总，不是 V3 的清单。Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
-
-### 2. 本文的路线
-
-第一章先不讲公式：把第一篇 MacBook 实训的配方和 Llama 3 405B 的放在同一张表上，用四条曲线看学习率调坏了长什么样，把那次训练里真实发生的小 spike 放大解剖，再用一段叙事讲 405B 训练的一天。第三章起是账本：先讲目标函数与它的几个变体；再讲优化器超参——batch、lr、warmup、weight decay 各自的依据，以及它们随规模的经验律与 $$\mu$$P；再讲调度曲线的三种形状与为什么 2024 年转向 WSD；再讲稳定性的三个机制与六个开关，spike 发生后的处理流程、硬件故障与 checkpoint 频率的账；再讲长上下文继续预训练这个附加阶段；最后是训练时该看哪几条曲线。配套实验在 CPU 上复现四件事：三种调度的对比、batch 与最优 lr 的关系、attention logit 随 lr 的增长与 QK-norm 的作用、z-loss 对 $$\log Z$$ 的抑制。
-
-### 3. 本文的章节安排
-
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 一 | 先讲明白 | 配方就是那十几个数（MacBook 与 405B 的同一张表）<br/>学习率调坏了长什么样（四条曲线）<br/>一次真实训练里的小 spike 放大看<br/>spike 的解剖——三条曲线同步看、QK-norm<br/>z-loss<br/>405B 训练的一天 |
-| 三 | 目标函数 | 交叉熵与它的单位和梯度<br/>MTP<br/>FIM<br/>文档打包与跨文档 attention |
-| 四 | 优化器与超参 | AdamW 的四个数与 Muon<br/>batch 与梯度噪声尺度、硬件给的下界<br/>峰值 lr 随规模<br/>DeepSeek 的经验律<br/>$$\mu$$P 的规则表<br/>weight decay 的时间尺度<br/>warmup |
-| 五 | 调度 | cosine、WSD、DeepSeek-V3 的四段<br/>衰减段的形状与长度<br/>为什么中途的 loss 不可比<br/>退火 |
-| 六 | 稳定性 | 三个机制、六个开关、norm 的位置、spike 的处理与代价、硬件故障与 checkpoint 间隔、低精度 |
-| 七 | 长上下文继续预训练 | Llama 3 的六步与 DeepSeek-V3 的两步；attention 占比与并行 |
-| 八 | 监控 | 该看的七条曲线与它们的含义 |
-| 九 | 实践 | `training_recipe_lab.py`、`llm_cost_12_recipe.py` |
-| 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
 
 ## 三、目标函数
 
@@ -438,7 +438,7 @@ Table: Llama 3 405B 与 DeepSeek-V3 的长上下文继续预训练
 
 第一篇实训记录的七条曲线长这样（`pretrain_e2e/step7_train.py`）——下表每一行都能在图里找到对应的那一格：
 
-![七条曲线：train/val loss、学习率、梯度范数、参数范数、attention logit 最大值、吞吐、train − val；step 833 处梯度范数的尖峰与 loss 的小跳是第一章第 3 节解剖的那次](/img/in-post/pretrain-e2e-7-curves.svg)
+![七条曲线：train/val loss、学习率、梯度范数、参数范数、attention logit 最大值、吞吐、train − val；step 833 处梯度范数的尖峰与 loss 的小跳是第二章第 3 节解剖的那次](/img/in-post/pretrain-e2e-7-curves.svg)
 
 | 曲线 | 正常形态 | 异常与含义 |
 |---|---|---|
