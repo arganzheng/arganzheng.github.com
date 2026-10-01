@@ -4,7 +4,7 @@ title: "生产化与运营：让 AI 应用可靠、可控、可持续地跑"
 subtitle: "系列精华 · 七篇正文每篇一页，每篇预防一类事故"
 permalink: /slides/production-and-operations.html
 series: production-and-operations
-date: 2026-11-14
+date: 2026-11-14 23:30:00 +0800
 author: arganzheng
 description: "《生产化与运营》系列的分享用幻灯片：模型网关的七项职责、从账单到每任务成本、TTFT 到 agent 多步的延迟分解、注入 / 供应链 / 数据泄漏的五层防御、审计链与 AI Act 时间表、改动 = 发布的开关与 runbook、数据飞轮与物理世界的分批 OTA。"
 theme: white

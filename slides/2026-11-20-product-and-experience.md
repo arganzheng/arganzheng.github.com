@@ -4,7 +4,7 @@ title: "产品与体验：把不确定的能力做成可信的产品"
 subtitle: "系列精华 · 五篇正文每篇一页：把 AI 放在边界内、把人放在边界上"
 permalink: /slides/product-and-experience.html
 series: product-and-experience
-date: 2026-11-20
+date: 2026-11-20 23:30:00 +0800
 author: arganzheng
 description: "《产品与体验》系列的分享用幻灯片：锯齿状边界与 demo–产品鸿沟、copilot / agent / 后台 agent / 自动化四种形态、人机分工与信任校准、不确定性的呈现与非对话形态、量「有用」而不是「用了」。"
 theme: white

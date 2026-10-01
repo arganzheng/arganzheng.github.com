@@ -4,7 +4,7 @@ title: "GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention"
 subtitle: "系列精华 · 十篇正文每篇一页，按 ↓ 看字节、FLOPs 与 Roofline 上的位置"
 permalink: /slides/gpu-kernel-engineering.html
 series: gpu-kernel-engineering
-date: 2026-05-20
+date: 2026-05-20 23:30:00 +0800
 author: arganzheng
 description: "《GPU Kernel 工程》系列的分享用幻灯片：Roofline 与 ridge point、第一个 kernel 跑出多少带宽、访存合并与 Little's law、shared memory 与 warp shuffle 归约、GEMM 从 naive 到分块、Tensor Core 与 CUTLASS、Triton 的边界、FlashAttention 与 PagedAttention、INT4 / FP8 融合 kernel、ncu 的 SOL 分类。"
 theme: white

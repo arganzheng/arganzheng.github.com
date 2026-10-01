@@ -4,7 +4,7 @@ title: "检索与知识接入：私域知识怎么进入模型"
 subtitle: "系列精华 · 七篇正文每篇一页：事实进上下文、行为进权重"
 permalink: /slides/retrieval-and-knowledge.html
 series: retrieval-and-knowledge
-date: 2026-10-19
+date: 2026-10-19 23:30:00 +0800
 author: arganzheng
 description: "《检索与知识接入》系列的分享用幻灯片：进上下文还是进权重、词法 / 向量 / 结构化三类检索按前提选、解析与分块是失败的上游、索引 / 混合检索 / rerank、从流水线到 agentic retrieval、SQL / 本体 / GraphRAG、检索与生成分开评。"
 theme: white

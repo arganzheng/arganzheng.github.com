@@ -4,7 +4,7 @@ title: "PyTorch 深度实践：从 Tensor 到深度学习运行时"
 subtitle: "系列精华 · 十篇正文每篇一页，按 ↓ 看机制图与数字"
 permalink: /slides/deep-dive-into-pytorch.html
 series: deep-dive-into-pytorch
-date: 2026-02-26
+date: 2026-02-26 23:30:00 +0800
 author: arganzheng
 description: "《PyTorch 深度实践》系列的分享用幻灯片：三层运行时链路、Tensor 的 Storage / stride、Autograd 的反向图、nn.Module 的注册机制、Dispatcher 的填表与查表、自定义算子的四个阶段、torch.compile 的三段、性能瓶颈的五类、DDP / FSDP 的通信量、PyTorch 的工程体系。"
 theme: white

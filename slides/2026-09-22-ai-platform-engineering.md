@@ -4,7 +4,7 @@ title: "AI 平台工程：资源层与交付层"
 subtitle: "系列精华 · 八篇正文每篇一页：引擎的需求 → K8s 的空缺 → 平台的机制 → 代价"
 permalink: /slides/ai-platform-engineering.html
 series: ai-platform-engineering
-date: 2026-09-22
+date: 2026-09-22 23:30:00 +0800
 author: arganzheng
 description: "《AI 平台工程：资源层与交付层》系列的分享用幻灯片：K8s 的四个假设怎样被 AI 负载违背、容器里的 GPU 与 CUDA 兼容规则、gang 调度与配额借用、MIG / 时间片 / HAMi 的取舍、RDMA 进容器与 checkpoint I/O、Serving 平台的扩缩容、模型网关的配额与路由、可观测与 FinOps。"
 theme: white

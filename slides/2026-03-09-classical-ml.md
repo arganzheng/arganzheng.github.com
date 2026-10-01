@@ -4,7 +4,7 @@ title: "LLM 时代的经典机器学习：只讲它在哪里重现"
 subtitle: "系列精华 · 十篇正文每篇一页，按 ↓ 看机制与真实案例"
 permalink: /slides/classical-ml.html
 series: classical-ml
-date: 2026-03-09
+date: 2026-03-09 23:30:00 +0800
 author: arganzheng
 description: "《LLM 时代的经典机器学习》系列的分享用幻灯片：泛化与泄漏、线性与逻辑回归、三个分类器、SVM 与核、集成、聚类、降维、去重、评估——每个算法在 LLM 工作里的形态与十个真实数据案例。"
 theme: white

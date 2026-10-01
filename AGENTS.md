@@ -327,11 +327,14 @@ Pages has `https_enforced` on.
   also removing that series' `slides:` link from `site.data.series` for the
   build so series-nav / series-deck / the /series/ tree never link to a page
   that is not built. **A series deck is dated the same day as the series'
-  系列总结与通关自测 post** (filename prefix + `date:`; the 2026-10-01 sweep
-  moved 29 decks that had been dated by writing day and so showed up before
-  their series). `archive.html` still parks a deck with neither
-  date under a 未注明日期 bucket at the bottom (it used to float to the top
-  with an empty year). Posts never need `date:` (only to order several posts
+  系列总结与通关自测 post and sorts after it**: filename prefix = the recap's
+  day, `date: YYYY-MM-DD 23:30:00 +0800` (the recap is `20:00:00`, the posts
+  of a series starting the same day go up to `23:00:00`; the explicit offset
+  matters — Psych reads a zone-less `date:` as UTC, which Jekyll corrects for
+  posts but not for pages). The 2026-10-01 sweep moved 29 decks that had
+  been dated by writing day and so showed up before their series.
+  `archive.html` still parks a deck with no date at all under a 未注明日期
+  bucket at the bottom (it used to float to the top with an empty year). Posts never need `date:` (only to order several posts
   on the same day).
 - `_includes/rich-content.html` — Mermaid (11.17.2) + KaTeX (0.18.7, only the
   public `.katex` / `.katex-display` classes are referenced from our code, so

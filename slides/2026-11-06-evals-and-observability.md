@@ -4,7 +4,7 @@ title: "评测、可观测与可追溯：怎么知道改了之后更好了"
 subtitle: "系列精华 · 七篇正文每篇一页：没有评测集的改动是猜测"
 permalink: /slides/evals-and-observability.html
 series: evals-and-observability
-date: 2026-11-06
+date: 2026-11-06 23:30:00 +0800
 author: arganzheng
 description: "《评测、可观测与可追溯》系列的分享用幻灯片：评测集从真实流量采、规则 / judge / 人各评什么与 judge 的四类偏差、单步 / RAG / agent / 多轮的指标矩阵、回归门禁与供应商静默升级、trace 与 OTel GenAI 约定、录制回放与失败分类、运行时 guardrails 与物理世界的仿真。"
 theme: white

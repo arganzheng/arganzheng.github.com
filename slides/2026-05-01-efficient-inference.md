@@ -4,7 +4,7 @@ title: "高效推理与压缩（算法侧）：解码、投机、量化与 KV"
 subtitle: "系列精华 · 六篇正文每篇一页，按 ↓ 看误差模型、区间与退化在哪"
 permalink: /slides/efficient-inference.html
 series: efficient-inference
-date: 2026-05-01
+date: 2026-05-01 23:30:00 +0800
 author: arganzheng
 description: "《高效推理与压缩（算法侧）》系列的分享用幻灯片：采样与 pass@k、投机解码的接受率与树、训练后量化的误差模型（GPTQ / AWQ / 旋转）、QAT 与量化模型评测、KV cache 的量化 / 驱逐 / 稀疏 attention、剪枝与小模型配方——每种方法改了成本公式的哪一项、收益止于哪个区间、退化集中在哪。"
 theme: white

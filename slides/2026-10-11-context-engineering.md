@@ -4,7 +4,7 @@ title: "Prompt 与上下文工程：模型这一步该看到什么"
 subtitle: "系列精华 · 六篇正文每篇一页：上下文是有限、有序、有版本的资源"
 permalink: /slides/context-engineering.html
 series: context-engineering
-date: 2026-10-11
+date: 2026-10-11 23:30:00 +0800
 author: arganzheng
 description: "《Prompt 与上下文工程》系列的分享用幻灯片：上下文的七层与增长规律、prompt 里稳定的模式与不稳定的措辞、约束解码与 schema 设计、隔离 → 卸载 → 清理 → 压缩、prompt caching 的前缀排列、prompt 当代码管与上下文 vs 检索。"
 theme: white

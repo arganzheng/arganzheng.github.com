@@ -4,7 +4,7 @@ title: "通信与互联：从 NCCL 到 RDMA"
 subtitle: "系列精华 · 八篇正文每篇一页，每页算两本账：带宽的账与延迟的账"
 permalink: /slides/communication-and-interconnect.html
 series: communication-and-interconnect
-date: 2026-06-27
+date: 2026-06-27 23:30:00 +0800
 author: arganzheng
 description: "《通信与互联：从 NCCL 到 RDMA》系列的分享用幻灯片：α-β 模型与 ring all-reduce、PCIe / NVLink / IB 的真实带宽、RDMA 与 GPUDirect 的三条路径、NCCL 的拓扑探测与调优表、ProcessGroupNCCL 的 stream 语义、nccl-tests 曲线与六类 hang、custom all-reduce 与 KV 传输、MoE 的 all-to-all 与 DeepEP。"
 theme: white

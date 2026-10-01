@@ -4,7 +4,7 @@ title: "深度学习基础：从反向传播到残差"
 subtitle: "系列精华 · 六篇正文每篇一页，按 ↓ 看实验与原论文图"
 permalink: /slides/deep-learning-foundations.html
 series: deep-learning-foundations
-date: 2026-03-29
+date: 2026-03-29 23:30:00 +0800
 author: arganzheng
 description: "《深度学习基础》系列的分享用幻灯片：一条连乘链——反向传播写出它、初始化 / 归一化 / 残差修好它、优化器定步长、正则化看泛化，再在 CNN 与 RNN 上各看一遍；每篇一个 CPU 上几分钟能复现的实验。"
 theme: white

@@ -4,7 +4,7 @@ title: "AI-Infra 开源贡献指南"
 subtitle: "系列精华 · 读懂 → 找到 → 做出 → 两个真实 PR，以 PyTorch 与 vLLM 为例"
 permalink: /slides/contributing-to-ai-infra-open-source.html
 series: contributing-to-ai-infra-open-source
-date: 2026-09-27
+date: 2026-09-27 23:30:00 +0800
 author: arganzheng
 description: "《AI-Infra 开源贡献指南》系列的分享用幻灯片：两小时内定位百万行仓库里的一个函数、maintainer 最希望有人做的是哪类 issue、reviewer 十分钟要确认的四件事、PyTorch #185344 与 vLLM #47272 两个真实 PR 的时间花在哪。"
 theme: white

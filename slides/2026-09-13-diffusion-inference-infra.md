@@ -4,7 +4,7 @@ title: "扩散模型推理基础设施：从一次去噪到一个生成服务"
 subtitle: "系列精华 · 九篇正文每篇一页，每一类优化都记回第一篇的那张账"
 permalink: /slides/diffusion-inference-infra.html
 series: diffusion-inference-infra
-date: 2026-09-13
+date: 2026-09-13 23:30:00 +0800
 author: arganzheng
 description: "《扩散模型推理基础设施》系列的分享用幻灯片：一次 DiT 前向算术强度 3,100 对 LLM decode 的 2、单卡的无损与有损优化、TeaCache 一族的跨步缓存、视频长序列 attention 的稀疏化、序列并行 / CFG 并行 / PipeFusion 为什么不是 TP、少步与自回归、serving 的卡数公式、SGLang Diffusion / vLLM-Omni / xDiT 对照、配置与排障。"
 theme: white

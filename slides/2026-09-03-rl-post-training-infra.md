@@ -4,7 +4,7 @@ title: "RL 后训练基础设施：rollout 与训练如何共享一组 GPU"
 subtitle: "系列精华 · 八篇正文每篇一页，一本账：FLOP · 字节 · 秒"
 permalink: /slides/rl-post-training-infra.html
 series: rl-post-training-infra
-date: 2026-09-03
+date: 2026-09-03 23:30:00 +0800
 author: arganzheng
 description: "《RL 后训练基础设施》系列的分享用幻灯片：一步 RL 的三个作业加两次同步、共置 / 分离 / 异步三种形态的墙钟与利用率、共置的显存换手、权重同步从训练分片到推理分片、异步的 staleness 与 off-policy 修正、Agentic rollout 的沙箱与环境、verl 源码、配置与排障。"
 theme: white

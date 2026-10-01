@@ -4,7 +4,7 @@ title: "算法工程师的工具箱：从一个想法到一次能跑的实验"
 subtitle: "系列精华 · 六篇正文每篇一页，按 ↓ 展开细节"
 permalink: /slides/algorithm-tooling.html
 series: algorithm-tooling
-date: 2026-01-22
+date: 2026-01-22 23:30:00 +0800
 author: arganzheng
 description: "《算法工程师的工具箱》系列的分享用幻灯片：Python 使用层、NumPy / Pandas / Matplotlib、PyTorch 二十行训练循环、显存的账、Hugging Face 六个库、GPU 两个上限与可复现。"
 theme: white
