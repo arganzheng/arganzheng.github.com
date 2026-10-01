@@ -34,13 +34,15 @@ nav: false
     background: #00788f;
     color: #fff;
   }
+  /* `.deck-tile`, not `.deck-card`: that class is the series-overview card in
+     less/slides.less (a 220px | 1fr grid), which would split these tiles too. */
   .deck-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 24px;
     margin-top: 8px;
   }
-  .deck-card {
+  .deck-tile {
     border: 1px solid #dde3ea;
     border-radius: 14px;
     overflow: hidden;
@@ -84,20 +86,29 @@ nav: false
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    padding: 16px;
+    padding: 44px 16px 16px;   /* top: keep clear of the year badge */
+    overflow: hidden;
     color: #fff;
   }
   .deck-cover-title {
     margin: 0;
-    font-size: 22px;
+    font-size: clamp(16px, 1.9vw, 22px);
     line-height: 1.2;
     text-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
   }
   .deck-cover-subtitle {
     margin: 8px 0 0;
     font-size: 13px;
     line-height: 1.35;
     opacity: .92;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
   .deck-cover {
     position: absolute;
@@ -236,7 +247,7 @@ nav: false
   {% assign play_url = p.url | replace: '.html', '/play.html' | prepend: site.baseurl %}
   {% assign deck_series = nil %}{% assign deck_map = "other" %}
   {% if p.series %}{% assign deck_series = site.data.series[p.series] %}{% if deck_series.roadmap %}{% assign deck_map = deck_series.roadmap %}{% endif %}{% endif %}
-  <article class="deck-card">
+  <article class="deck-tile">
     <div class="deck-stage" data-year="{{ p.date | date: '%Y' }}" data-map="{{ deck_map }}">
       <a class="deck-cover-shell {% cycle 'cover-a', 'cover-b', 'cover-c', 'cover-d', 'cover-e' %}" href="{{ deck_url }}">
         <div class="deck-cover-content">

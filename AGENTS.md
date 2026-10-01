@@ -931,7 +931,11 @@ has `slides:`, renders `deck-card.html` — cover miniature (the landing page's
 `.deck-thumb-*` styles; headings as `.th1/.th3` divs so they stay out of the
 outline), page count from `deck-meta.html` (counts `---` and `<!-- v -->` in
 the deck's Markdown, +1 for the cover), the deck's `subtitle` as the one-line
-description, 在线播放 / 新窗口 / PDF. So wiring a new deck is the `series.yml`
+description, 在线播放 / 新窗口 / PDF. `.deck-card` is site-wide CSS (a
+220px | 1fr grid in `less/slides.less`), so the tiles of the `/slides/` index
+are `.deck-tile` (styled inline in `slides.html`) — they once shared the
+class and every tile got split into miniature | text on tablets (2026-10-01).
+So wiring a new deck is the `series.yml`
 line alone — **do not** write 「本系列另有一份幻灯片…」 into the overview's
 prose (29 such sentences were removed on 2026-09-30; the card at the end,
 after the reader knows what the series is, reads better than a link in the
