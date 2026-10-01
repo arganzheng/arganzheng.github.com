@@ -4,7 +4,7 @@ title: "预训练：从 tokenizer 到训练配方"
 subtitle: "系列精华 · 先在笔记本上跑通一遍，再给四个决定各算一笔账"
 permalink: /slides/pretraining.html
 series: pretraining
-date: 2026-09-30
+date: 2026-04-13
 author: arganzheng
 description: "《预训练：从 tokenizer 到训练配方》系列的分享用幻灯片：从两个 Common Crawl 文件到一个会续写英文的模型的八步实跑；分词与词表、scaling law 与过训练、数据工程的漏斗、训练配方与 loss spike——每个决定怎么算账、算不出来的怎么用小模型消融。"
 theme: white

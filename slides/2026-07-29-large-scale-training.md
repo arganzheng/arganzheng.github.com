@@ -4,7 +4,7 @@ title: "大规模训练工程：从并行策略到容错恢复"
 subtitle: "系列精华 · 八篇正文每篇一页，围绕四种状态：算账、切分、落盘、重建、稳数值、看指标"
 permalink: /slides/large-scale-training.html
 series: large-scale-training
-date: 2026-10-03
+date: 2026-07-29
 author: arganzheng
 description: "《大规模训练工程》系列的分享用幻灯片：训练状态的显存账与 MFU、每种并行切哪种状态、Megatron / DeepSpeed / torchtitan 的差别、千卡配置怎么算出来、分布式 checkpoint 与 Young 公式、容错的五项公式、loss spike 的信号指纹、hang 的唯一可靠信号。"
 theme: white

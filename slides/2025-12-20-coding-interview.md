@@ -4,7 +4,7 @@ title: "面试手撕代码：从 LeetCode 中等题到 Transformer 组件"
 subtitle: "系列精华 · 十九篇的骨架、边界与追问，按 ↓ 看每个模式的一句话"
 permalink: /slides/coding-interview.html
 series: coding-interview
-date: 2026-10-05
+date: 2025-12-20
 author: arganzheng
 description: "《面试手撕代码》系列的分享用幻灯片：十三种算法模式各一个骨架、两三处必错边界；AI 岗手撕的六篇——attention、Transformer block 与反向、tokenizer 与解码、损失与训练算法、经典 ML 与指标、Infra 并发与系统——从零实现并与 torch 对拍。"
 theme: white

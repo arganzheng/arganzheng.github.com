@@ -4,7 +4,7 @@ title: "大模型推理系统揭秘：从 vLLM 看 LLM Serving 核心技术"
 subtitle: "系列精华 · 十四篇正文每篇一页，围绕「动态请求 + KV 状态 + GPU 资源」"
 permalink: /slides/deep-dive-into-vllm.html
 series: deep-dive-into-vllm
-date: 2026-10-03
+date: 2026-08-25
 author: arganzheng
 description: "《大模型推理系统揭秘》系列的分享用幻灯片：为什么 LLM Serving 难、TTFT / TPOT / Goodput、vLLM 的控制面与数据面、调度的单位是 token、KV Cache 是一切约束的源头、GPU 执行的四种浪费、解码扩展、Multi-GPU、模型与硬件适配、multi-LoRA 与多模态、PD 分离、Serving 的下一站、源码里的一次请求。"
 theme: white

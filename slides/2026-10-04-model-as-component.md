@@ -4,7 +4,7 @@ title: "模型作为组件：契约、失效模式与选型"
 subtitle: "系列精华 · 六篇正文每篇一页：给一个没有规格书的组件写规格书"
 permalink: /slides/model-as-component.html
 series: model-as-component
-date: 2026-10-05
+date: 2026-10-04
 author: arganzheng
 description: "《模型作为组件》系列的分享用幻灯片：七条失效性质、四家 API 的共同骨架、推理模型的 thinking / effort / 跨轮状态、一次调用的成本与延迟账、榜单之外的选型、客户端的重试 / 超时 / 幂等 / 限流。"
 theme: white

@@ -4,7 +4,7 @@ title: "多模态：从视觉编码器到扩散模型"
 subtitle: "系列精华 · 九篇正文每篇一页，按 ↓ 看玩具实验的图与数字"
 permalink: /slides/multimodal.html
 series: multimodal
-date: 2026-10-01
+date: 2026-05-09
 author: arganzheng
 description: "《多模态：从视觉编码器到扩散模型》系列的分享用幻灯片：CLIP / SigLIP 的对比学习、VLM 的 connector 与动态分辨率、VLM 训练的阶段与幻觉、语音的 mel 谱与 codec、全双工时延、DDPM 到 flow matching 的同一件事、CFG、latent diffusion 与 DiT、自回归图像生成与统一模型——每个部件都在做一次「信息 vs token」的交换。"
 theme: white

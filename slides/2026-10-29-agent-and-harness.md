@@ -4,7 +4,7 @@ title: "工具、Agent 与 harness：模型怎么从回答变成做事"
 subtitle: "系列精华 · 九篇正文每篇一页：循环之外的一切都是 harness"
 permalink: /slides/agent-and-harness.html
 series: agent-and-harness
-date: 2026-10-05
+date: 2026-10-29
 author: arganzheng
 description: "《工具、Agent 与 harness》系列的分享用幻灯片：最小循环的四个卫士、MCP 与 tool search、事件溯源的运行时与 durable execution、长任务的压缩与子 agent、权限四层与沙箱、Codex / DeepSeek Harness / Claude Code / OpenHarness 源码对照、多 agent、记忆与 human-in-the-loop、可靠性与评测。"
 theme: white

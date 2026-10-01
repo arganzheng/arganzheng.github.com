@@ -4,7 +4,7 @@ title: "算法工程师的数学：读公式不卡壳的最小集"
 subtitle: "系列精华 · 八篇正文每篇一页，按 ↓ 展开细节"
 permalink: /slides/math-for-ai.html
 series: math-for-ai
-date: 2026-09-28
+date: 2026-01-15
 author: arganzheng
 description: "《算法工程师的数学》系列的分享用幻灯片：四个分支、八个出口，每篇一页结论 + 一张图 + 一组数字，纵向子页放推导与实验。"
 theme: white

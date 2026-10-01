@@ -4,7 +4,7 @@ title: "Transformer 与 LLM：结构、实现与算量"
 subtitle: "系列精华 · 十三篇正文每篇一页，按 ↓ 看推导、代码与数字"
 permalink: /slides/transformer-and-llm.html
 series: transformer-and-llm
-date: 2026-09-30
+date: 2026-04-09
 author: arganzheng
 description: "《Transformer 与 LLM：结构、实现与算量》系列的分享用幻灯片：五种运算、训练与推理两种形态、nanoGPT 逐行、从 config.json 算参数量、KV cache 与 MLA、RoPE 与长上下文、MoE、MTP、Roofline、浮点格式、量化 / 投机 / LoRA、多模态的 KV 代价。"
 theme: white

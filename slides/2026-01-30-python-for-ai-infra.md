@@ -4,7 +4,7 @@ title: "Python 在 AI-Infra：从语言机制到生产交付"
 subtitle: "系列精华 · 七篇正文每篇一页，按 ↓ 看机制、数字与误区"
 permalink: /slides/python-for-ai-infra.html
 series: python-for-ai-infra
-date: 2026-10-02
+date: 2026-01-30
 author: arganzheng
 description: "《Python 在 AI-Infra》系列的分享用幻灯片：import 是运行时动作、属性查找算法、类型注解由谁消费、GIL 与线程 / 进程 / asyncio 的选择、插件系统的侵入性阶梯、三块内存的边界、按症状选调试工具、锁文件与 GPU 服务的 worker 数。"
 theme: white

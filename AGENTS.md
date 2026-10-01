@@ -317,13 +317,22 @@ Pages has `https_enforced` on.
 - `_posts/` — blog posts, `layout: post`, permalink `/:title.html`
 - `slides/` — reveal.js decks, `layout: slides` (or set in front matter),
   URL `/slides/:name.html`, indexed by `slides.html` (`/slides/`)
-  Decks are pages, so Jekyll itself takes no date from their filename;
-  `_plugins/slides_date.rb` (`:site, :post_read` hook) fills `page.date` from a
-  `YYYY-MM-DD-` filename prefix when front matter has no `date:`, so decks
-  follow the post convention. `archive.html` still parks a deck with neither
-  under a 未注明日期 bucket at the bottom (it used to float to the top with an
-  empty year). Posts never need `date:` (only to order several posts on the
-  same day).
+  Decks are pages, so Jekyll itself takes no date from their filename and
+  never holds a future-dated page back; `_plugins/slides_date.rb` (`:site,
+  :post_read` hook) gives them the post convention on both counts: it fills
+  `page.date` from a `YYYY-MM-DD-` filename prefix when front matter has no
+  `date:`, and drops a deck dated after `site.time` from a build without
+  `--future` (the deploy has none, so the deck goes live on its date with the
+  daily rebuild; `npm run check` builds `--future`, so it still gets checked),
+  also removing that series' `slides:` link from `site.data.series` for the
+  build so series-nav / series-deck / the /series/ tree never link to a page
+  that is not built. **A series deck is dated the same day as the series'
+  系列总结与通关自测 post** (filename prefix + `date:`; the 2026-10-01 sweep
+  moved 29 decks that had been dated by writing day and so showed up before
+  their series). `archive.html` still parks a deck with neither
+  date under a 未注明日期 bucket at the bottom (it used to float to the top
+  with an empty year). Posts never need `date:` (only to order several posts
+  on the same day).
 - `_includes/rich-content.html` — Mermaid (11.17.2) + KaTeX (0.18.7, only the
   public `.katex` / `.katex-display` classes are referenced from our code, so
   0.18's internal class prefixing did not matter) loaders, shared by

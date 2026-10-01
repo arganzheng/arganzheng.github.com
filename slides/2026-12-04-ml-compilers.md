@@ -4,7 +4,7 @@ title: "ML 编译器内部：从 SSA、MLIR 到 Triton 编译器"
 subtitle: "系列精华 · 十三篇正文每篇一页，每个可观察的编译结果都能追到一个 pass"
 permalink: /slides/ml-compilers.html
 series: ml-compilers
-date: 2026-10-03
+date: 2026-12-04
 author: arganzheng
 description: "《ML 编译器内部》系列的分享用幻灯片：IR / SSA / pass 的骨架、LLVM 与 NVPTX、MLIR 的 Operation / Dialect / Pattern Rewrite / Dialect Conversion、Triton 编译器七篇（前端、AxisInfo、layout 与 Linear Layout、layout 优化与 Tensor Core、软件流水、下降到 LLVM、缓存与运行时）、TVM 的另一条路、编译器开发者的工作台。"
 theme: white

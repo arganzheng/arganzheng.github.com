@@ -4,7 +4,7 @@ title: "后训练：从 SFT 到可验证奖励"
 subtitle: "系列精华 · 八篇正文每篇一页，按 ↓ 看公式、账与配方里的那一行"
 permalink: /slides/post-training.html
 series: post-training
-date: 2026-10-01
+date: 2026-04-23
 author: arganzheng
 description: "《后训练：从 SFT 到可验证奖励》系列的分享用幻灯片：SFT 与 loss mask、奖励模型与 reward hacking、PPO / GRPO、DPO 的四步推导、R1 的四阶段与可验证奖励、Agent RL、三种蒸馏、评测的三关——策略 / 奖励 / 参考三件套如何逐篇替换。"
 theme: white

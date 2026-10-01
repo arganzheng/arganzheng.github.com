@@ -4,7 +4,7 @@ title: "C++ 在 AI-Infra：从对象模型到算子扩展"
 subtitle: "系列精华 · 八篇正文每篇一页，以 PyTorch 源码为例、Java 为参照"
 permalink: /slides/cpp-for-ai-infra.html
 series: cpp-for-ai-infra
-date: 2026-10-02
+date: 2026-02-15
 author: arganzheng
 description: "《C++ 在 AI-Infra》系列的分享用幻灯片：编译四阶段与三类「找不到」、at::Tensor 是 8 字节句柄、AT_DISPATCH 编几份、Dispatcher 的手工类型擦除、TORCH_LIBRARY 的静态注册、no_grad 的 thread_local、pybind11 的引用计数与 GIL、ASan / TSan 与 CI 矩阵。"
 theme: white
