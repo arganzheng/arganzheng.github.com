@@ -20,13 +20,39 @@
 #   - a blockquote keeps its line breaks (a poem), and when its last line starts
 #     with —— / — / -- that line becomes `.moment-cite` (the attribution);
 #   - a line that is just a URL of 网易云 / QQ 音乐 / Spotify / Apple Music, or of
-#     an .mp3/.m4a/.ogg file, becomes a player card (`.moment-music`).
+#     an .mp3/.m4a/.ogg file, becomes a player card (`.moment-music`);
+#   - `#标签` / `#读书/技术` anywhere in the text (flomo style: a `#` after a
+#     space or at the start of a line, outside code and URLs) becomes an
+#     `a.moment-tag` link to the tag's page and lands in `entry['tags']`.
 # `/moments/` (the section's front door) is a copy of the newest month whose
 # comments / views / reactions stay keyed on the month's URL
 # (`comments_path`), so nothing forks between the two addresses.
+#
+# flomo-style extras, all built here so the layout only loops:
+#   /moments/tag/<标签>.html   every tag and every ancestor of a `父/子` tag: the
+#                              matching entries across all months (same layout,
+#                              `is_tag`, no comments / reactions — those stay on
+#                              the month pages the entries link back to);
+#   site.data.moments.stats    { 'count', 'tags', 'days' } for the sidebar;
+#   site.data.moments.tags     [{ 'tag', 'name', 'url', 'count', 'depth' }] sorted
+#                              as a tree (parents first, children indented);
+#   site.data.moments.heatmap  { 'weeks' => [[7 × { 'date', 'count', 'url', 'level' }]],
+#                              'months' => [{ 'col', 'label' }] } — the last
+#                              HEAT_WEEKS weeks up to today (site.time), Monday first;
+#   /moments/index.json        [{ id, url, date, time, place, tags, text, img }] for
+#                              js/moments.js (随机漫步 / 每日回顾).
+require 'json'
+require 'date'
+require 'cgi'
+
 module Moments
   HEAD = /\A##\s+(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s+@\s*(.+?))?\s*\z/
   IMG_P = %r{\A<p>\s*(?:<img\b[^>]*>\s*(?:<br\s*/?>)?\s*)+</p>\z}m
+  # `#读书` `#跑步/马拉松` `#AI-infra`: a `#` not glued to a word (`C#`), a path
+  # (`…/#/song`) or an entity (`&#39;`); letters, digits, `_` `-` `·`, `/` for
+  # levels; stops at punctuation, so `#读书，` tags 读书. `#1` is not a tag.
+  TAG = %r{(?<![\p{L}\p{N}_/&\\])#([\p{L}_][\p{L}\p{N}_\-·]*(?:/[\p{L}\p{N}_\-·]+)*)}
+  HEAT_WEEKS = 17
   MUSIC = [
     # 网易云: https://music.163.com/#/song?id=347230  (also /song?id=)
     [%r{\Ahttps?://music\.163\.com/(?:#/)?song\?(?:.*&)?id=(\d+)}i,
@@ -59,6 +85,31 @@ module Moments
       return %(<div class="moment-music">#{build.call(m)}<a class="moment-music-link" href="#{url}" target="_blank" rel="noopener">打不开？去原站听</a></div>) if m
     end
     nil
+  end
+
+  def self.tag_url(tag)
+    "/moments/tag/#{tag}.html"
+  end
+
+  # `#读书/技术` → the link, outside fenced code, inline code and URLs. Returns
+  # [markdown, tags found] — tags keep their written case, `父/子` stays one tag.
+  def self.link_tags(md)
+    tags = []
+    fenced = false
+    out = md.lines.map do |line|
+      fenced = !fenced if line =~ /\A\s*(```|~~~)/
+      next line if fenced || line =~ /\A\s{4}/ || music_card(line)
+      # keep inline code as is: split on backticks, touch the even segments only
+      line.split(/(`[^`]*`)/).each_with_index.map do |seg, i|
+        next seg if i.odd?
+        seg.gsub(TAG) do
+          t = Regexp.last_match(1)
+          tags << t unless tags.include?(t)
+          %(<a class="moment-tag" href="#{tag_url(t)}">##{t}</a>)
+        end
+      end.join
+    end.join
+    [out, tags]
   end
 
   # Markdown of one entry → HTML with the gallery / quote / music touch-ups.
@@ -116,11 +167,63 @@ module Moments
       ids[base] += 1
       e['id'] = ids[base] > 1 ? "#{base}-#{ids[base]}" : base
       e['title'] = e['time'].strftime(e['has_time'] ? '%Y-%m-%d %H:%M' : '%Y-%m-%d')
-      e['html'] = render(site, e['md'])
+      e['date'] = e['time'].strftime('%Y-%m-%d')
+      e['url'] = "#{page.url}##{e['id']}"
+      md, e['tags'] = link_tags(e['md'])
+      e['html'] = render(site, md)
       e['text'] = e['html'].gsub(%r{<(script|style|iframe|audio)\b.*?</\1>}m, ' ').gsub(/<[^>]+>/, ' ').gsub(/\s+/, ' ').strip
+      e['img'] = e['html'][/<img\b[^>]*\bsrc="([^"]*)"/, 1]
       e.delete('md')
     end
     entries.sort_by { |e| e['time'] }.reverse
+  end
+
+  # ---- the sidebar's numbers
+
+  # All tags with counts, parents before children (a `读书/技术` entry counts for
+  # 读书 too, once), each with its depth for the indent.
+  def self.tag_tree(entries)
+    counts = Hash.new(0)
+    entries.each do |e|
+      seen = []
+      e['tags'].each do |t|
+        parts = t.split('/')
+        parts.each_index { |i| seen << parts[0..i].join('/') }
+      end
+      seen.uniq.each { |t| counts[t] += 1 }
+    end
+    counts.keys.sort_by { |t| t.split('/').map(&:downcase) }.map do |t|
+      parts = t.split('/')
+      { 'tag' => t, 'name' => parts.last, 'url' => tag_url(t), 'count' => counts[t], 'depth' => parts.size - 1 }
+    end
+  end
+
+  # GitHub-style calendar: HEAT_WEEKS columns of 7 days (Mon → Sun) ending on
+  # the week of `today`; level 0–4 by that day's count; url = the day's newest entry.
+  def self.heatmap(entries, today)
+    per_day = {}
+    entries.each do |e|
+      d = per_day[e['date']] ||= { 'count' => 0, 'url' => e['url'] }
+      d['count'] += 1
+    end
+    last = today + (7 - today.cwday) % 7            # this week's Sunday
+    first = last - (HEAT_WEEKS * 7 - 1)
+    weeks = (0...HEAT_WEEKS).map do |w|
+      (0..6).map do |i|
+        day = first + w * 7 + i
+        key = day.strftime('%Y-%m-%d')
+        n = per_day[key] ? per_day[key]['count'] : 0
+        level = n == 0 ? 0 : [1 + Math.log2(n).floor, 4].min
+        { 'date' => key, 'count' => n, 'url' => per_day[key] && per_day[key]['url'], 'level' => level, 'future' => day > today }
+      end
+    end
+    months = []
+    weeks.each_with_index do |week, col|
+      day = Date.parse(week[0]['date'])
+      months << { 'col' => col, 'label' => "#{day.month} 月" } if day.day <= 7 || col == 0
+    end
+    months.shift if months.size > 1 && months[1]['col'] < 2   # a label right at the edge would overlap the next
+    { 'weeks' => weeks, 'months' => months, 'days' => per_day.size }
   end
 
   FILE = /\A(\d{4})-(\d{2})\.md\z/
@@ -154,8 +257,16 @@ module Moments
         p.data['newer'] = months[i - 1].url if i > 0
         p.data['older'] = months[i + 1].url if months[i + 1]
       end
-      all = months.flat_map { |p| p.data['moments'].map { |e| e.merge('url' => "#{p.url}##{e['id']}", 'month' => p.data['month']) } }
-      site.data['moments'] = { 'months' => months.map { |p| { 'url' => p.url, 'month' => p.data['month'], 'title' => p.data['title'], 'count' => p.data['moments'].size } }, 'entries' => all }
+      all = months.flat_map { |p| p.data['moments'].map { |e| e.merge('month' => p.data['month']) } }
+      tags = Moments.tag_tree(all)
+      heat = Moments.heatmap(all, site.time.to_date)
+      site.data['moments'] = {
+        'months' => months.map { |p| { 'url' => p.url, 'month' => p.data['month'], 'title' => p.data['title'], 'count' => p.data['moments'].size } },
+        'entries' => all,
+        'tags' => tags,
+        'heatmap' => heat,
+        'stats' => { 'count' => all.size, 'tags' => tags.count { |t| t['depth'] == 0 }, 'days' => heat['days'] }
+      }
       return if months.empty?
 
       # /moments/ = the newest month, same discussion / counters
@@ -164,6 +275,27 @@ module Moments
       index.content = latest.content
       index.data = latest.data.merge('permalink' => '/moments/', 'canonical' => latest.url, 'sitemap' => false, 'is_index' => true)
       site.pages << index
+
+      # /moments/tag/<标签>.html — the entries of a tag (and of its sub-tags) across months
+      tags.each do |t|
+        pg = Jekyll::PageWithoutAFile.new(site, site.source, 'moments/tag', "#{t['tag'].tr('/', '--')}.md")
+        pg.content = ''
+        pg.data = {
+          'layout' => 'moments', 'permalink' => t['url'], 'sitemap' => false, 'is_tag' => true,
+          'tag' => t['tag'], 'title' => "随笔 · ##{t['tag']}",
+          'moments' => all.select { |e| e['tags'].any? { |x| x == t['tag'] || x.start_with?("#{t['tag']}/") } }
+        }
+        site.pages << pg
+      end
+
+      # /moments/index.json — what js/moments.js draws 随机漫步 / 每日回顾 from
+      json = Jekyll::PageWithoutAFile.new(site, site.source, 'moments', 'index.json')
+      json.content = JSON.generate(all.map do |e|
+        { 'id' => e['id'], 'url' => e['url'], 'date' => e['date'], 'time' => (e['has_time'] ? e['time'].strftime('%H:%M') : nil),
+          'place' => e['place'], 'tags' => e['tags'], 'text' => CGI.unescapeHTML(e['text'])[0, 140], 'img' => e['img'] }
+      end)
+      json.data = { 'layout' => nil, 'permalink' => '/moments/index.json', 'sitemap' => false }
+      site.pages << json
     end
   end
 end

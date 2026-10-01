@@ -26,6 +26,7 @@ SRC=(
   js/annotations.js       # comments, 划线评论, reactions, views
   js/share.js             # action bar, share menu, .post-stats strip
   js/slides-player.js     # deck landing page: player bar driving the reveal.js iframe
+  js/moments.js           # /moments/ sidebar: 随机漫步 + 每日回顾 from /moments/index.json
 )
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT

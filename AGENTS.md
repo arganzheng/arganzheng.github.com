@@ -978,14 +978,17 @@ the decks (cards link to the landing page; 全屏播放 / PDF go to `play.html`)
 
 ## 随笔 / Moments (`/moments/`)
 
-Short notes in a 朋友圈-style timeline — the third content type next to posts
-and decks. **One file per month**, `moments/YYYY-MM.md` (layout `moments` from
+Short notes in a flomo-style card stream (left sidebar: stats · 17-week
+heatmap · 随机漫步 · 每日回顾 · tag tree · months) — the third content type next
+to posts and decks. **One file per month**, `moments/YYYY-MM.md` (layout `moments` from
 the `_config.yml` defaults; no other front matter needed), entries under dated
 headings, any order, rendered newest first:
 
 ```markdown
 ## 2026-09-21 08:02 @深圳湾      date · optional HH:MM · optional @place
-早起跑了五公里。                   plain Markdown
+早起跑了五公里。#跑步 #读书/开源    plain Markdown; `#标签` anywhere in the text
+                                   (flomo syntax, `父/子` = a sub-tag) → chip +
+                                   tag page; `C#`, `&#39;`, `#1`, URL `#/song` are not tags
 
 ![](/img/moments/2026/09/a.webp)   image-only lines in a row = one gallery
 ![](/img/moments/2026/09/b.webp)   (1 large · 2 / 4 two columns · 3+ a 3-col grid)
@@ -999,7 +1002,8 @@ https://music.163.com/#/song?id=347230   a line that is only a URL of 网易云 
 ```
 
 `tools/moment.py "文字" [--at 地点] [--img a.jpg …] [--quote "…" --by "…"]
-[--music URL] [--time "YYYY-MM-DD HH:MM"]` appends an entry (images →
+[--music URL] [--tag 读书 跑步/马拉松] [--time "YYYY-MM-DD HH:MM"]` appends an
+entry (tags go after the text as `#读书 #跑步/马拉松`) (images →
 `img/moments/YYYY/MM/*.webp` via cwebp, ≤ 1600 px); with no arguments it opens
 the month file in `$EDITOR` under a fresh heading.
 
@@ -1010,17 +1014,36 @@ How it is built (`_plugins/moments.rb`):
 - `Moments::Generator` (`:low`) splits `page.content` on the `## YYYY-MM-DD…`
   headings, renders each entry with the site's kramdown converter (no Liquid),
   applies the gallery / quote / music rewrites and stores
-  `page.moments = [{id, title, time, has_time, place, html, text}]` (id
-  `YYYYMMDD[-HHMM]`, `-2` … on collision; title = `2026-09-21 08:02`, the
-  section / reaction quote). `site.data.moments = {months, entries}` feeds
-  `moments.xml` (one `<item>` per entry, 30 newest, guid = month URL + `#id`),
-  `archive.html` (`[Moments]` rows) and the month picker. `/moments/` is a
-  `PageWithoutAFile` copy of the newest month (`canonical` → month URL, which
-  `head.html` now honours, `sitemap: false`).
+  `page.moments = [{id, url, date, title, time, has_time, place, tags, html,
+  text, img}]` (id `YYYYMMDD[-HHMM]`, `-2` … on collision; title =
+  `2026-09-21 08:02`, the section / reaction quote; url = month URL + `#id`;
+  img = first image). `#标签` (`Moments::TAG`) are linked to
+  `/moments/tag/<标签>.html` before kramdown (`link_tags`; a `读书/开源` tag
+  lands at `tag/读书/开源.html` and counts for `读书` too).
+  `site.data.moments = {months, entries, tags, heatmap, stats}` feeds
+  `moments.xml` (one `<item>` per entry, 30 newest, guid = month URL + `#id`,
+  tags as extra `<category>`), `archive.html` (`[Moments]` rows) and the
+  sidebar (`tags` = tree `[{tag, url, count, children}]`; `heatmap` = the last
+  `HEAT_WEEKS` weeks as columns of `{date, count, level 0-4, url, future}`
+  ending on the week of `site.time`, Monday first; `stats` = entries / tags /
+  days). Generated pages: `/moments/` = `PageWithoutAFile` copy of the newest
+  month (`is_index`, `canonical` → month URL, which `head.html` honours,
+  `sitemap: false`); one `/moments/tag/<标签>.html` per tag (`is_tag`,
+  `tag`, `moments` = its entries across months, `sitemap: false`, **no
+  comments section** — the 评论 link goes to the month page's `#comments`);
+  `/moments/index.json` = `[{id, url, date, time, place, tags, text, img}]`
+  for `js/moments.js` (随机漫步 picks one at random; 每日回顾 shows entries from
+  the same day in earlier years, else the same day-of-month in earlier
+  months, else hides itself).
 - `_layouts/moments.html` iterates `page.moments` — never `{{ content }}`.
-  Markup per entry: `li.moment#id[data-title] > a.moment-when > time` +
-  `.moment-body` (place, html, `.moment-foot`: `.sec-react` placeholder ·
-  评论 → `#comments` · 链接). `comments.html` / `.post-stats` use
+  `.moments-grid` = `aside.moments-side` (`.ms-*` blocks) + the card stream
+  `.post-container.moments` + `.post-container.moments-comments` (the comments
+  include; it needs `.post-container` for annotations.less, and js/annotations.js
+  takes the *first* `.post-container` — the stream — as its container).
+  Markup per card: `li.moment#id[data-title] > .moment-head (a.moment-when >
+  time, .moment-place) + .moment-body (html, tags as `a.moment-tag`) +
+  .moment-foot` (`.sec-react` placeholder · 评论 → `#comments` · 链接; on tag
+  pages no ♡ and 评论 → the month URL). `comments.html` / `.post-stats` use
   `page.comments_path` (= the month URL) so the `/moments/` copy shares the
   month's Discussion, views and reactions.
 - Reader interaction reuses the post machinery unchanged: the container is
@@ -1031,12 +1054,17 @@ How it is built (`_plugins/moments.rb`):
   `data-icon`/`data-icon-on` swap the glyph; quote
   `§ 2026-09-21 08:02` in `passage_reactions`). `figures.js` skips captions
   in `.moments` and opens `DiagramZoom` on a `.moment-pic` click.
-  `EXCLUDE_SELECTOR` has `.moment-when, .moment-foot, .moment-music`.
-- Search: one document per month page (`search_index.rb`, doc file
-  `<month>.txt` because js/search.js derives it from the URL's last segment).
-- Styles `less/moments.less`, all under `.post-container.moments` to outrank
+  `EXCLUDE_SELECTOR` has `.moment-head, .moment-foot, .moment-music`.
+- Search: one document per month page (`search_index.rb` skips `is_index` /
+  `is_tag` pages; doc file `<month>.txt` because js/search.js derives it from
+  the URL's last segment). The `#标签` text is part of the body, so it is
+  searchable as is.
+- Styles `less/moments.less`: `.moments-grid` (sidebar `@mo-side` 244px = 17
+  heatmap columns, stream `@mo-main`; one column under 768px, sidebar blocks
+  reordered with `order`), cards under `.post-container.moments` to outrank
   `css/github-markdown.css` (loaded after our bundle); do not use `<footer>`
-  inside an entry — `blog.less` styles the tag for the site footer.
+  inside an entry — `blog.less` styles the tag for the site footer. New
+  icons (`fa-shuffle` …) need `python3 tools/fa-subset.py`.
 
 ## Writing AI-Infra series posts
 

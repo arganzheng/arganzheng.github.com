@@ -7,13 +7,14 @@ Append one 随笔 (moment) to this month's file, moments/YYYY-MM.md.
     tools/moment.py "文字" --at 深圳湾 --img a.jpg b.jpg   place + pictures (copied to img/moments/YYYY/MM/, WebP)
     tools/moment.py "文字" --quote "诗句\\n第二行" --by "苏轼《…》"
     tools/moment.py "文字" --music https://music.163.com/#/song?id=347230
+    tools/moment.py "文字" --tag 读书 跑步/马拉松       flomo-style #标签 (appended to the text; 父/子 = levels)
     tools/moment.py --time "2026-09-21 08:02" ...   backdate (default: now)
     tools/moment.py                                 open this month's file in $EDITOR with a fresh heading
 
 The entry format (see _plugins/moments.rb):
 
     ## 2026-09-21 08:02 @深圳湾
-    text
+    text #标签 #父/子
 
     > quote line 1
     > quote line 2
@@ -36,6 +37,7 @@ ap.add_argument('--img', nargs='*', default=[], help='image files')
 ap.add_argument('--quote', default='', help='quote text; \\n for line breaks')
 ap.add_argument('--by', default='', help='who said it')
 ap.add_argument('--music', default='', help='网易云 / QQ 音乐 / Spotify / Apple Music URL, or an .mp3 link')
+ap.add_argument('--tag', nargs='*', default=[], help='tags, written as #标签 after the text (读书/技术 = a sub-tag)')
 ap.add_argument('--time', default='', help='YYYY-MM-DD [HH:MM], default now')
 ap.add_argument('--no-time', action='store_true', help='date only, no clock time')
 a = ap.parse_args()
@@ -49,7 +51,7 @@ if not os.path.exists(month_file):
 
 head = '## ' + when.strftime('%Y-%m-%d' if a.no_time else '%Y-%m-%d %H:%M') + (' @' + a.at.strip() if a.at else '')
 
-if not (a.text or a.img or a.quote or a.music):
+if not (a.text or a.img or a.quote or a.music or a.tag):
     # interactive: open the editor on a fresh heading
     with open(month_file, 'a', encoding='utf-8') as f: f.write('\n' + head + '\n')
     editor = os.environ.get('VISUAL') or os.environ.get('EDITOR') or 'vi'
@@ -75,7 +77,8 @@ if a.img:
         pics.append('/' + os.path.relpath(out, ROOT).replace(os.sep, '/'))
 
 parts = [head]
-if a.text: parts.append(a.text.strip())
+tags = ' '.join('#' + t.strip().lstrip('#') for t in a.tag if t.strip())
+if a.text or tags: parts.append((a.text.strip() + ' ' + tags).strip())
 if a.quote:
     q = ['> ' + l for l in a.quote.replace('\\n', '\n').strip().splitlines()]
     if a.by: q.append('> —— ' + a.by.strip())

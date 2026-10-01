@@ -2,62 +2,121 @@
 layout: default
 ---
 {%- comment -%}
-随笔 / Moments — one month of short notes as a timeline (朋友圈 / 微博 style).
+随笔 / Moments — flomo-style: a card stream on the right, a sidebar on the left.
 `page.moments` is built by _plugins/moments.rb from the `## YYYY-MM-DD` entries
-of moments/YYYY-MM.md, newest first; this layout never prints `{{ content }}`.
-Each entry: a date rail on the left, the note on the right (text, gallery,
-quote card, music card), and a footer with a per-entry anonymous ♡ (the
+of moments/YYYY-MM.md (newest first) — or, on a /moments/tag/<标签>.html page
+(`page.is_tag`), the entries of that tag across months; this layout never
+prints `{{ content }}`.
+Each card: a head line (timestamp · @place), the note (text with `#标签` chips,
+gallery, quote card, music card) and a foot with the per-entry anonymous ♡ (the
 section-reaction machinery of js/annotations.js, `.sec-react` placeholder,
 quote = `§ 2026-09-21 08:02`), a link to the comments and the entry's permalink.
 Views, the Discussion and passage reactions are keyed on the month URL
-(`page.comments_path`), also on the `/moments/` copy of the newest month.
+(`page.comments_path`), also on the `/moments/` copy of the newest month; tag
+pages carry none of them (every card links back to its month).
+The sidebar (site.data.moments: stats, heatmap, tags, months) is static; the
+随机漫步 / 每日回顾 cards are filled by js/moments.js from /moments/index.json.
+The comments sit in their own grid cell under the stream (`.moments-comments`),
+so on phones the rest of the sidebar can slot in between the cards and them.
 {%- endcomment -%}
 {%- assign path = page.comments_path | default: page.url -%}
-{%- assign months = site.data.moments.months -%}
+{%- assign data = site.data.moments -%}
+{%- assign months = data.months -%}
+{%- assign heat = data.heatmap -%}
 
 <div class="container moments-wrap">
     <header class="moments-head">
         <p class="h1 title">随笔</p>
         <p class="moments-tagline">写不成文章的碎碎念：一张图、一句话、一首歌。<a href="{{ '/moments.xml' | prepend: site.baseurl }}" title="随笔的 RSS"><i class="fa fa-rss"></i></a></p>
-        <nav class="moments-months" aria-label="按月浏览">
-            {%- if page.older %}<a class="mm-arrow" href="{{ page.older | prepend: site.baseurl }}" title="上一个月">‹</a>{% else %}<span class="mm-arrow is-off">‹</span>{% endif %}
-            <span class="mm-current">{{ page.date | date: "%Y 年 %-m 月" }}<span class="post-stats" data-path="{{ path }}" data-annotations-api="{{ site.annotations.api }}"></span></span>
-            {%- if page.newer %}<a class="mm-arrow" href="{{ page.newer | prepend: site.baseurl }}" title="下一个月">›</a>{% else %}<span class="mm-arrow is-off">›</span>{% endif %}
-            {%- if months.size > 1 %}
-            <details class="mm-all">
-                <summary>全部月份</summary>
-                <ul>
-                {%- for m in months %}
-                    <li><a href="{{ m.url | prepend: site.baseurl }}"{% if m.month == page.month %} class="is-current"{% endif %}>{{ m.month }}<small>{{ m.count }}</small></a></li>
-                {%- endfor %}
-                </ul>
-            </details>
-            {%- endif %}
-        </nav>
     </header>
 
+    <div class="moments-grid">
+    <aside class="moments-side">
+        <section class="ms-stats" aria-label="统计">
+            <a href="{{ '/moments/' | prepend: site.baseurl }}"><b>{{ data.stats.count }}</b><small>随笔</small></a>
+            <span><b>{{ data.stats.tags }}</b><small>标签</small></span>
+            <span><b>{{ data.stats.days }}</b><small>天</small></span>
+        </section>
+
+        <section class="ms-heat" aria-label="最近 {{ heat.weeks.size }} 周的记录">
+            <div class="ms-heat-months">{% for m in heat.months %}<span style="grid-column: {{ m.col | plus: 1 }}">{{ m.label }}</span>{% endfor %}</div>
+            <div class="ms-heat-grid">
+            {%- for w in heat.weeks %}{% for d in w %}
+                {%- if d.url %}<a class="ms-day l{{ d.level }}" href="{{ d.url | prepend: site.baseurl }}" title="{{ d.date }} · {{ d.count }} 条"></a>
+                {%- else %}<span class="ms-day l0{% if d.future %} is-future{% endif %}" title="{{ d.date }}"></span>{% endif %}
+            {%- endfor %}{% endfor %}
+            </div>
+        </section>
+
+        <section class="ms-random" data-src="{{ '/moments/index.json' | prepend: site.baseurl }}" data-base="{{ site.baseurl }}">
+            <h4>随机漫步<button type="button" class="ms-shuffle" title="换一条"><i class="fa fa-shuffle"></i></button></h4>
+            <div class="ms-slot"></div>
+        </section>
+
+        <section class="ms-review" hidden>
+            <h4>每日回顾</h4>
+            <div class="ms-slot"></div>
+        </section>
+
+        {%- if data.tags.size > 0 %}
+        <section class="ms-tags">
+            <h4>标签</h4>
+            <ul>
+            {%- for t in data.tags %}
+                <li class="d{{ t.depth }}"><a href="{{ t.url | prepend: site.baseurl }}"{% if page.is_tag and page.tag == t.tag %} class="is-current"{% endif %}>#{{ t.name }}<small>{{ t.count }}</small></a></li>
+            {%- endfor %}
+            </ul>
+        </section>
+        {%- endif %}
+
+        <section class="ms-months">
+            <h4>月份</h4>
+            <ul>
+            {%- for m in months %}
+                <li><a href="{{ m.url | prepend: site.baseurl }}"{% if page.is_tag != true and m.month == page.month %} class="is-current"{% endif %}>{{ m.month }}<small>{{ m.count }}</small></a></li>
+            {%- endfor %}
+            </ul>
+        </section>
+    </aside>
+
     <div class="post-container moments">
+        <nav class="moments-bar" aria-label="当前范围">
+            {%- if page.is_tag %}
+            <span class="mm-current"><span class="moment-tag">#{{ page.tag }}</span><small>{{ page.moments.size }} 条</small></span>
+            <a class="mm-back" href="{{ '/moments/' | prepend: site.baseurl }}">‹ 全部随笔</a>
+            {%- else %}
+            {%- if page.older %}<a class="mm-arrow" href="{{ page.older | prepend: site.baseurl }}" title="上一个月">‹</a>{% else %}<span class="mm-arrow is-off">‹</span>{% endif %}
+            <span class="mm-current">{{ page.date | date: "%Y 年 %-m 月" }}<small>{{ page.moments.size }} 条</small></span>
+            {%- if page.newer %}<a class="mm-arrow" href="{{ page.newer | prepend: site.baseurl }}" title="下一个月">›</a>{% else %}<span class="mm-arrow is-off">›</span>{% endif %}
+            <span class="post-stats" data-path="{{ path }}" data-annotations-api="{{ site.annotations.api }}"></span>
+            {%- endif %}
+        </nav>
 <!-- article -->
         <ol class="moments-list">
         {%- for e in page.moments %}
+            {%- assign month_url = e.url | split: '#' | first %}
             <li class="moment" id="{{ e.id }}" data-title="{{ e.title }}">
-                <a class="moment-when" href="{{ path | prepend: site.baseurl }}#{{ e.id }}" title="{{ e.title }}">
-                    <time datetime="{{ e.time | date: '%Y-%m-%dT%H:%M:%S%:z' }}"><b>{{ e.time | date: '%-d' }}</b><small>日</small>{% if e.has_time %}<span>{{ e.time | date: '%H:%M' }}</span>{% endif %}</time>
-                </a>
-                <div class="moment-body">
+                <div class="moment-head">
+                    <a class="moment-when" href="{{ e.url | prepend: site.baseurl }}" title="{{ e.title }}"><time datetime="{{ e.time | date: '%Y-%m-%dT%H:%M:%S%:z' }}">{{ e.title }}</time></a>
                     {%- if e.place %}<span class="moment-place"><i class="fa fa-location-dot"></i> {{ e.place }}</span>{% endif %}
+                </div>
+                <div class="moment-body">
                     {{ e.html }}
-                    <div class="moment-foot">
-                        <span class="sec-react" data-title="{{ e.title }}" data-kinds="up" data-icon="fa-regular fa-heart" data-icon-on="fa-heart"></span>
-                        <a href="#comments" class="moment-act" title="到本月的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
-                        <a href="{{ path | prepend: site.baseurl }}#{{ e.id }}" class="moment-act moment-link" title="这一条的链接"><i class="fa fa-link"></i> 链接</a>
-                    </div>
+                </div>
+                <div class="moment-foot">
+                    {%- if page.is_tag %}
+                    <a href="{{ month_url | prepend: site.baseurl }}#comments" class="moment-act" title="到所在月份的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
+                    {%- else %}
+                    <span class="sec-react" data-title="{{ e.title }}" data-kinds="up" data-icon="fa-regular fa-heart" data-icon-on="fa-heart"></span>
+                    <a href="#comments" class="moment-act" title="到本月的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
+                    {%- endif %}
+                    <a href="{{ e.url | prepend: site.baseurl }}" class="moment-act moment-link" title="这一条的链接"><i class="fa fa-link"></i> 链接</a>
                 </div>
             </li>
         {%- endfor %}
         </ol>
 <!-- /article -->
-        {%- if page.moments.size == 0 %}<p class="moments-empty">这个月还没写。</p>{% endif %}
+        {%- if page.moments.size == 0 %}<p class="moments-empty">{% if page.is_tag %}这个标签下还没有随笔。{% else %}这个月还没写。{% endif %}</p>{% endif %}
 
         {%- if page.older or page.newer %}
         <nav class="moments-pager">
@@ -66,6 +125,12 @@ Views, the Discussion and passage reactions are keyed on the month URL
         </nav>
         {%- endif %}
 
+    </div>
+
+    {%- unless page.is_tag %}
+    <div class="post-container moments-comments">{%- comment -%} .post-container: the comment list styles of annotations.less are scoped to it; js/annotations.js takes the first .post-container (the stream) as its container {%- endcomment %}
         {% include comments.html %}
+    </div>
+    {%- endunless %}
     </div>
 </div>

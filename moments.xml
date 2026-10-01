@@ -19,7 +19,8 @@ permalink: /moments.xml
         <pubDate>{{ e.time | date_to_rfc822 }}</pubDate>
         <link>{{ e.url | prepend: site.baseurl | prepend: site.url }}</link>
         <guid isPermaLink="true">{{ e.url | prepend: site.baseurl | prepend: site.url }}</guid>
-        <category>moments</category>
+        <category>moments</category>{% for t in e.tags %}
+        <category>{{ t | xml_escape }}</category>{% endfor %}
       </item>
     {% endfor %}
   </channel>

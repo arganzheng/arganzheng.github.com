@@ -85,8 +85,9 @@ Jekyll::Hooks.register :site, :post_render do |site|
     pages << SearchIndex.page(site, '/search/doc', "#{File.basename(post.url, '.html')}.txt", text)
   end
 
-  # 随笔: one document per month page (its entries' plain text joined)
-  moments = site.pages.select { |p| p.data['layout'] == 'moments' && !p.data['is_index'] && p.data['moments'] }
+  # 随笔: one document per month page (its entries' plain text joined); not the
+  # /moments/ copy nor the /moments/tag/ pages, which repeat the month pages
+  moments = site.pages.select { |p| p.data['layout'] == 'moments' && !p.data['is_index'] && !p.data['is_tag'] && p.data['moments'] }
   moments.sort_by { |p| p.data['month'] }.reverse.each do |page|
     id = meta.size
     url = File.join(site.baseurl.to_s, page.url)

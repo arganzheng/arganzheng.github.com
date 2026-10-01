@@ -1,35 +1,151 @@
-// 随笔 / Moments (_layouts/moments.html, _plugins/moments.rb): a single 640px
-// column, a thin timeline on the left with the day / time, the note on the
-// right — text, image grid, quote card, music card — and a footer with the
-// per-entry ♡ (a `.sec-react` placeholder that js/annotations.js fills, only
-// the 点赞 kind), 评论 and the permalink.
+// 随笔 / Moments (_layouts/moments.html, _plugins/moments.rb), flomo-style:
+// a 244px sidebar on the left (统计 · 热力图 · 随机漫步 · 每日回顾 · 标签 · 月份)
+// and a 680px card stream on the right. A card = head line (timestamp · place),
+// the note — text with `#标签` chips, image grid, quote card, music card — and
+// a foot with the per-entry ♡ (a `.sec-react` placeholder that js/annotations.js
+// fills, only the 点赞 kind), 评论 and the permalink. Phones: one column, the
+// stats strip and the tag chips above the cards, the rest of the sidebar below.
 
-@mo-width: 640px;
-@mo-rail: 64px;
-@mo-line: #e3e8ec;
+@mo-side: 244px;   // ≥ the 17-week calendar: 17 × 11px + 16 × 3px
+@mo-main: 680px;
+@mo-gap: 48px;
+@mo-line: #e4e9ee;
+@mo-soft: #f3f6f8;
 @mo-muted: #7a8794;
 @mo-text: #2b3238;
+@mo-tag-bg: #e6f3f5;
+@mo-tag-bg-hover: #d3eaee;
+@mo-heat-1: #b9dfe5;
+@mo-heat-2: #6fbfcb;
+@mo-heat-3: #2d9cb0;
+@mo-heat-4: @brand-primary;
 
-.moments-wrap { max-width: @mo-width + 30px; margin-top: 6rem; }
+.moments-wrap { max-width: @mo-side + @mo-gap + @mo-main + 80px; margin-top: 6rem; }
 
-// ---- header: 随笔 · month switcher · 全部月份
+// ---- header: 随笔 · tagline · RSS
 .moments-head {
-	margin: 0 0 22px;
+	margin: 0 0 26px;
 	.title { margin: 0 0 4px; }
 	.moments-tagline {
-		margin: 0 0 14px;
+		margin: 0;
 		color: @mo-muted;
 		font-size: 14px;
 		a { color: #c8d0d8; margin-left: 6px; &:hover { color: #f26522; } }
 	}
 }
-.moments-months {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 8px 10px;
-	font-size: 14px;
+
+.moments-grid {
+	display: grid;
+	grid-template-columns: @mo-side minmax(0, @mo-main);
+	gap: 0 @mo-gap;
+	align-items: start;
+}
+
+// ---- the sidebar
+.moments-side {
+	position: sticky;
+	top: 76px;
+	max-height: calc(100vh - 90px);
+	overflow-y: auto;
+	scrollbar-width: thin;
+	padding-right: 2px;
+	font-size: 13px;
 	color: @mo-text;
+	h4 {
+		display: flex; align-items: center; justify-content: space-between;
+		margin: 0 0 8px; padding: 0 2px;
+		font-size: 12px; font-weight: 600; letter-spacing: 0.4px; color: @mo-muted;
+	}
+	section + section { margin-top: 22px; }
+	ul { list-style: none; margin: 0; padding: 0; }
+	li a {
+		display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+		padding: 4px 8px; border-radius: 6px;
+		color: @mo-text; text-decoration: none; font-variant-numeric: tabular-nums;
+		small { color: @mo-muted; font-size: 11.5px; }
+		&:hover { background: @mo-soft; }
+		&.is-current { color: @brand-primary; font-weight: 600; background: @mo-tag-bg; small { color: @brand-primary; } }
+	}
+}
+
+// statistics: N 随笔 · M 标签 · K 天 (flomo's MEMO / 标签 / 天)
+.ms-stats {
+	display: flex;
+	padding: 12px 4px 10px;
+	border: 1px solid @mo-line; border-radius: 10px;
+	> * {
+		flex: 1; display: block; text-align: center; text-decoration: none; color: @mo-text;
+		b { display: block; font-size: 20px; font-weight: 600; line-height: 1.1; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+		small { display: block; margin-top: 3px; color: @mo-muted; font-size: 11.5px; }
+	}
+	a:hover { text-decoration: none; b { color: @brand-primary; } }
+}
+
+// the calendar: 17 weeks × 7 days, Monday on top, newest week on the right
+@mo-cell: 11px;
+@mo-cell-gap: 3px;
+.ms-heat-months {
+	display: grid;
+	grid-template-columns: repeat(17, @mo-cell);
+	gap: @mo-cell-gap;
+	height: 14px;
+	font-size: 10px; line-height: 14px; color: @mo-muted;
+	span { grid-row: 1; white-space: nowrap; }
+}
+.ms-heat-grid {
+	display: grid;
+	grid-auto-flow: column;
+	grid-template-rows: repeat(7, @mo-cell);
+	grid-auto-columns: @mo-cell;
+	gap: @mo-cell-gap;
+	margin-top: 4px;
+}
+.ms-day {
+	display: block; width: @mo-cell; height: @mo-cell; border-radius: 2px;
+	background: #ebeff2;
+	&.is-future { background: transparent; box-shadow: inset 0 0 0 1px #eef1f4; }
+	&.l1 { background: @mo-heat-1; }
+	&.l2 { background: @mo-heat-2; }
+	&.l3 { background: @mo-heat-3; }
+	&.l4 { background: @mo-heat-4; }
+}
+a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
+
+// 随机漫步 / 每日回顾: a small card per entry (js/moments.js)
+.ms-shuffle {
+	padding: 0 2px; border: 0; background: none;
+	color: @mo-muted; font-size: 12px; cursor: pointer;
+	&:hover { color: @brand-primary; }
+}
+.ms-slot .ms-card + .ms-card { margin-top: 8px; }
+.ms-card {
+	display: block;
+	padding: 9px 12px 10px;
+	border: 1px solid @mo-line; border-radius: 10px;
+	background: #fbfcfd; color: @mo-text; text-decoration: none;
+	.ms-card-label { display: inline-block; margin: 0 0 4px; padding: 0 6px; border-radius: 4px; background: @mo-tag-bg; color: @brand-primary; font-size: 11px; line-height: 18px; }
+	time { display: block; font-size: 11.5px; color: @mo-muted; font-variant-numeric: tabular-nums; }
+	img { display: block; width: 100%; max-height: 110px; object-fit: cover; margin-top: 6px; border-radius: 6px; }
+	p {
+		margin: 4px 0 0; font-size: 13px; line-height: 1.6; color: @mo-text;
+		display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+	}
+	&:hover { border-color: @brand-primary; text-decoration: none; }
+}
+
+// tag tree: `父/子` children indented
+.ms-tags {
+	li.d1 a { padding-left: 22px; }
+	li.d2 a { padding-left: 36px; }
+	li.d3 a { padding-left: 50px; }
+}
+
+// ---- the stream
+.moments-bar {
+	display: flex; align-items: center; flex-wrap: wrap;
+	gap: 8px 10px;
+	margin: 0 0 14px; padding: 0 2px;
+	font-size: 14px; color: @mo-text;
 	.mm-arrow {
 		display: inline-flex; align-items: center; justify-content: center;
 		width: 26px; height: 26px; border-radius: 50%;
@@ -38,98 +154,70 @@
 		&:hover { color: @brand-primary; border-color: @brand-primary; }
 		&.is-off { opacity: 0.35; }
 	}
-	.mm-current { font-weight: 600; .post-stats { margin-left: 10px; font-weight: normal; } }
-	.mm-all {
-		position: relative;
-		margin-left: auto;
-		summary { cursor: pointer; color: @mo-muted; font-size: 13px; list-style: none; &::-webkit-details-marker { display: none; } &::after { content: " ▾"; } }
-		ul {
-			position: absolute; right: 0; top: 24px; z-index: 5;
-			min-width: 150px; max-height: 320px; overflow: auto;
-			margin: 0; padding: 6px 0; list-style: none;
-			background: #fff; border: 1px solid @mo-line; border-radius: 8px;
-			box-shadow: 0 8px 24px rgba(20, 30, 40, 0.12);
-		}
-		li a {
-			display: flex; justify-content: space-between; gap: 12px;
-			padding: 5px 14px; color: @mo-text; text-decoration: none; font-size: 13px;
-			small { color: @mo-muted; }
-			&:hover { background: #f4f7f9; }
-			&.is-current { color: @brand-primary; font-weight: 600; }
-		}
-	}
+	.mm-current { font-weight: 600; small { margin-left: 8px; font-weight: normal; color: @mo-muted; font-size: 12.5px; } }
+	.post-stats { margin-left: auto; font-size: 12.5px; }
+	.mm-back { margin-left: auto; color: @mo-muted; font-size: 13px; text-decoration: none; &:hover { color: @brand-primary; } }
+	.moment-tag { font-size: 14px; }
+}
+.moments-comments { grid-column: 2; min-width: 0; }
+
+// a `#标签` chip, in the text and in the bar
+.moment-tag {
+	display: inline-block;
+	padding: 0 6px; margin: 0 1px;
+	border-radius: 5px;
+	background: @mo-tag-bg;
+	color: @brand-primary;
+	font-size: 0.88em; line-height: 1.5;
+	text-decoration: none;
+	&:hover { background: @mo-tag-bg-hover; color: @brand-primary; text-decoration: none; }
 }
 
-// ---- the list. Everything under .post-container.moments so it outranks
+// Everything under .post-container.moments so it outranks
 // css/github-markdown.css (`.post-container p/ol/li/a`, loaded after our bundle).
 .post-container.moments {
-	// ---- the list
-	.moments-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		position: relative;
-		// the timeline
-		&::before {
-			content: "";
-			position: absolute;
-			top: 8px; bottom: 8px; left: @mo-rail - 1px;
-			width: 2px;
-			background: @mo-line;
-		}
-	}
+	.moments-list { list-style: none; margin: 0; padding: 0; }
+	// ---- a card
 	.moment {
 		position: relative;
-		display: grid;
-		margin: 0;
+		margin: 0 0 14px;
+		padding: 13px 18px 10px;
+		background: #fff;
+		border: 1px solid @mo-line;
+		border-radius: 12px;
+		box-shadow: 0 1px 2px rgba(20, 30, 40, 0.03);
 		scroll-margin-top: 80px;   // the fixed navbar
-		grid-template-columns: @mo-rail minmax(0, 1fr);
-		padding: 0 0 34px;
-		&:last-child { padding-bottom: 12px; }
-		// the dot on the line
-		&::before {
-			content: "";
-			position: absolute;
-			left: @mo-rail - 5px; top: 9px;
-			width: 10px; height: 10px; border-radius: 50%;
-			background: #fff; border: 2px solid #b8c4cd;
-		}
-		&:target::before, &.is-here::before { border-color: @brand-primary; background: @brand-primary; }
-		&:target .moment-body { animation: moment-flash 1.6s ease-out; }
+		transition: border-color 0.15s;
+		&:hover { border-color: #c9d3db; }
+		&:target, &.is-here { border-color: @brand-primary; }
+		&:target { animation: moment-flash 1.6s ease-out; }
+	}
+	.moment-head {
+		display: flex; align-items: baseline; flex-wrap: wrap;
+		gap: 4px 12px;
+		margin: 0 0 6px;
+		font-size: 12.5px; color: @mo-muted;
 	}
 	.moment-when {
-		display: block;
-		padding-right: 16px;
-		text-align: right;
-		text-decoration: none;
+		color: @mo-muted; text-decoration: none; font-variant-numeric: tabular-nums;
+		time { color: inherit; }
+		&:hover { color: @brand-primary; text-decoration: none; }
+	}
+	.moment-place {
 		color: @mo-muted;
-		time { color: @mo-muted; }
-		line-height: 1.15;
-		time { display: block; }
-		b { font-size: 22px; font-weight: 600; color: @mo-text; letter-spacing: -0.5px; }
-		small { font-size: 12px; margin-left: 1px; }
-		span { display: block; margin-top: 3px; font-size: 12px; font-variant-numeric: tabular-nums; }
-		&:hover { text-decoration: none; b { color: @brand-primary; } }
+		.fa { margin-right: 2px; font-size: 11px; }
 	}
 	.moment-body {
-		padding-left: 18px;
 		margin: 0;
-		border-radius: 6px;
 		color: @mo-text;
-		font-size: 16.5px;
+		font-size: 16px;
 		line-height: 1.75;
 		p { margin: 0 0 0.6em; }
 		> p:last-of-type { margin-bottom: 0; }
 		ul, ol { margin: 0.3em 0 0.6em; padding-left: 1.6em; }
-		a:not(.moment-pic):not(.moment-act):not(.moment-music-link) { color: @brand-primary; }
+		a:not(.moment-pic):not(.moment-act):not(.moment-music-link):not(.moment-tag) { color: @brand-primary; }
+		a.moment-tag { color: @brand-primary; }
 		code { font-size: 0.88em; }
-	}
-	.moment-place {
-		display: inline-block;
-		margin: 0 0 4px;
-		font-size: 12.5px;
-		color: @mo-muted;
-		.fa { margin-right: 2px; font-size: 11px; }
 	}
 
 	// ---- gallery: 1 large · 2 / 4 two columns · 3+ three columns (朋友圈)
@@ -193,12 +281,14 @@
 
 	.moment:hover .moment-link, .moment:target .moment-link { opacity: 1; }
 
-	// ---- footer: ♡ n · 评论 · 链接
+	// ---- foot: ♡ n · 评论 · 链接
 	.moment-foot {
 		display: flex;
 		align-items: center;
-		gap: 14px;
+		gap: 16px;
 		margin-top: 10px;
+		padding-top: 8px;
+		border-top: 1px solid @mo-soft;
 		font-size: 12.5px;
 		color: @mo-muted;
 		.moment-act { color: @mo-muted; text-decoration: none; .fa { margin-right: 3px; } &:hover { color: @brand-primary; } }
@@ -215,12 +305,11 @@
 			&.is-on { color: #e0245e; }
 		}
 	}
-	
 }
 
 @keyframes moment-flash {
-	0% { background: #fff8c5; box-shadow: 0 0 0 8px #fff8c5; }
-	100% { background: transparent; box-shadow: 0 0 0 8px transparent; }
+	0% { background: #fff8c5; box-shadow: 0 0 0 4px #fff8c5; }
+	100% { background: #fff; box-shadow: 0 1px 2px rgba(20, 30, 40, 0.03); }
 }
 
 .moments-pager {
@@ -234,25 +323,42 @@
 // the highlight-comment panel and markers sit inside .moment-body like in a post
 .moments .annotation-panel { font-size: 14px; }
 
-// ---- phones: the rail becomes a line above the note
+// ---- tablets: a narrower gap, the stream takes what is left
+@media (max-width: 991px) and (min-width: 768px) {
+	.moments-grid { grid-template-columns: @mo-side minmax(0, 1fr); gap: 0 28px; }
+}
+
+// ---- phones: one column. The stats strip and the tag chips come first, then
+// the cards, then the calendar / 随机漫步 / 每日回顾 / months (`display: contents`
+// lets the sidebar's sections take part in the grid's `order`).
 @media (max-width: 767px) {
 	.moments-wrap { margin-top: 5rem; }
-	.moments-months .mm-all { margin-left: 0; }
+	.moments-head { margin-bottom: 18px; }
+	.moments-grid { grid-template-columns: minmax(0, 1fr); }
+	.moments-side {
+		display: contents;
+		position: static; max-height: none; overflow: visible;
+		section + section { margin-top: 0; }
+	}
+	.ms-stats { order: -3; margin-bottom: 12px; }
+	.ms-tags {
+		order: -2; margin-bottom: 16px;
+		h4 { display: none; }
+		ul { display: flex; flex-wrap: wrap; gap: 6px; }
+		li a, li.d1 a, li.d2 a, li.d3 a {
+			padding: 1px 8px; border-radius: 5px;
+			background: @mo-tag-bg; color: @brand-primary; font-size: 12.5px;
+			small { color: @brand-primary; opacity: 0.7; }
+			&.is-current { background: @brand-primary; color: #fff; small { color: #fff; } }
+		}
+	}
+	.post-container.moments { order: 0; }
+	.ms-heat, .ms-random, .ms-review, .ms-months { order: 1; margin-top: 22px; }
+	.ms-heat { margin-top: 8px; padding-top: 18px; border-top: 1px solid @mo-line; }
+	.moments-comments { order: 2; grid-column: 1; margin-top: 10px; }
 	.post-container.moments {
-		.moments-list::before { display: none; }
-		.moment {
-			grid-template-columns: 1fr;
-			padding-bottom: 26px;
-			&::before { display: none; }
-			& + .moment { border-top: 1px solid @mo-line; padding-top: 18px; }
-		}
-		.moment-when {
-			text-align: left; padding: 0 0 4px;
-			time { display: flex; align-items: baseline; gap: 4px; }
-			b { font-size: 15px; }
-			span { margin: 0 0 0 6px; }
-		}
-		.moment-body { padding-left: 0; font-size: 16px; }
+		.moment { padding: 12px 14px 9px; border-radius: 10px; }
+		.moment-body { font-size: 16px; }
 		.moment-gallery, .moment-music { max-width: none; }
 		.moment-foot .moment-link { opacity: 1; }
 	}
