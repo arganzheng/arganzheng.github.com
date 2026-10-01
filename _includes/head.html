@@ -12,6 +12,14 @@
 
     <!-- Favicon -->
     <link rel="shortcut icon" href="{{ site.baseurl }}/img/favicon.ico">
+    {%- if page.pwa %}
+    <!-- installable page (「添加到主屏幕」): page.pwa = { manifest, name, icon } -->
+    <link rel="manifest" href="{{ page.pwa.manifest | prepend: site.baseurl }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="{{ page.pwa.name }}">
+    <link rel="apple-touch-icon" href="{{ page.pwa.icon | prepend: site.baseurl }}">
+    {%- endif %}
     
     <!-- Canonical URL -->
     <link rel="canonical" href="{{ page.canonical | default: page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}">

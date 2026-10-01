@@ -1,0 +1,81 @@
+---
+layout: bare
+title: 发随笔
+permalink: /moments/post.html
+noindex: true
+sitemap: false
+pwa:
+  manifest: /moments/post.webmanifest
+  name: 随笔
+  icon: /img/moments/post-icon-180.png
+---
+{%- comment -%}
+The phone 发布页 for 随笔 (flomo / 朋友圈 style): write, pick photos, tap 发布.
+js/moment-post.js (loaded below, not part of blog.min.js) signs the author in
+through giscus (the same GitHub login as the comments), shrinks the pictures in
+the browser and POSTs everything to the worker's /moments, which commits the
+entry to moments/YYYY-MM.md on master (see tools/annotations-worker/worker.js);
+the deploy workflow publishes it a minute or two later. The tag chips are the
+existing tags (site.data.moments.tags, _plugins/moments.rb); the preview card
+reuses the .moment styles of less/moments.less. `pwa:` above makes 「添加到主屏幕」
+install it as a stand-alone app (head.html).
+{%- endcomment -%}
+<div id="mp" class="mp" data-api="{{ site.annotations.api }}" data-owner="{{ site.github_username | strip }}" data-repo="{{ site.github_username | strip }}/arganzheng.github.com" data-base="{{ site.baseurl }}">
+  <header class="mp-head">
+    <a class="mp-back" href="{{ '/moments/' | prepend: site.baseurl }}" title="回到随笔"><i class="fa fa-chevron-left"></i></a>
+    <h1>发随笔</h1>
+    <div class="mp-auth">
+      <button type="button" class="mp-login"><i class="fa fa-github"></i> 登录</button>
+      <span class="mp-who" hidden></span>
+    </div>
+  </header>
+
+  <section class="mp-editor">
+    <textarea class="mp-text" rows="4" placeholder="此刻在想什么…&#10;正文里可以直接写 #标签，支持 Markdown"></textarea>
+
+    <div class="mp-pics">
+      <label class="mp-add" title="拍照 / 选图（最多 9 张）"><input type="file" class="mp-file" accept="image/*" multiple><i class="fa fa-camera"></i></label>
+    </div>
+
+    <div class="mp-tags">
+      {%- for t in site.data.moments.tags %}
+      <button type="button" class="mp-tag" data-tag="{{ t.tag }}">#{{ t.tag }}</button>
+      {%- endfor %}
+      <input class="mp-tag-new" placeholder="+ 新标签" enterkeyhint="done" autocapitalize="off">
+    </div>
+
+    <details class="mp-more">
+      <summary><i class="fa fa-sliders"></i> 地点 · 引用 · 歌曲 · 时间</summary>
+      <label><i class="fa fa-location-dot"></i><input class="mp-place" placeholder="地点，如 深圳湾"></label>
+      <label><i class="fa fa-quote-left"></i><textarea class="mp-quote" rows="2" placeholder="引用一句话（可多行）"></textarea></label>
+      <label><i class="fa fa-user"></i><input class="mp-by" placeholder="出处 / 谁说的"></label>
+      <label><i class="fa fa-music"></i><input class="mp-music" type="url" placeholder="网易云 / QQ 音乐 / Spotify / Apple Music 链接，或 .mp3"></label>
+      <label><i class="fa fa-clock"></i><input class="mp-time" type="datetime-local"></label>
+    </details>
+
+    <div class="mp-actions">
+      <span class="mp-msg" role="status"></span>
+      <button type="button" class="mp-submit" disabled>发布</button>
+    </div>
+  </section>
+
+  <section class="mp-done" hidden>
+    <p class="mp-done-title"><i class="fa fa-check"></i> 已提交</p>
+    <p class="mp-done-text">正在部署，大约 1–2 分钟后上线。</p>
+    <p class="mp-done-links"><a class="mp-done-link" href="#" target="_blank" rel="noopener">查看这条随笔 ›</a><a class="mp-done-commit" href="#" target="_blank" rel="noopener">commit</a></p>
+    <button type="button" class="mp-again">再写一条</button>
+  </section>
+
+  <section class="mp-preview-wrap">
+    <h4>预览</h4>
+    <div class="post-container moments">
+      <ol class="moments-list">
+        <li class="moment mp-preview">
+          <div class="moment-head"><span class="moment-when"><time class="mp-pv-time"></time></span><span class="moment-place mp-pv-place" hidden><i class="fa fa-location-dot"></i> <span></span></span></div>
+          <div class="moment-body mp-pv-body"></div>
+        </li>
+      </ol>
+    </div>
+  </section>
+</div>
+<script src="{{ '/js/moment-post.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>

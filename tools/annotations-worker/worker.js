@@ -25,6 +25,11 @@
  *   POST /reactions/resolve { path, hash, action: resolve | reopen | clear }  author only (Authorization = giscus token, GET /user must be REPO's owner)
  *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=doubt|up, /feedback?path= (修订简报)
  *   GET /feedback (no path) -> { posts: { path: { reactions, views, up, shares } } }  every post, for the weekly 待修订 Action
+ *   POST /moments      { text, place, tags, quote, by, music, time, images: [{ name, type, data }] } -> { url, commit }
+ *                                                 author only (same check as /reactions/resolve); one commit on the
+ *                                                 default branch that appends the entry to moments/YYYY-MM.md and adds
+ *                                                 the pictures under img/moments/YYYY/MM/ (same format as tools/moment.py).
+ *                                                 Needs the GitHub App with *Contents: read & write* (501 without the key).
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
@@ -80,6 +85,7 @@ export default {
       if (url.pathname === '/reactions/top' && request.method === 'GET') return await reactionsTop(url, env, cors);
       if (url.pathname === '/reactions/resolve' && request.method === 'POST') return await resolveReaction(request, env, cors);
       if (url.pathname === '/feedback' && request.method === 'GET') return await feedback(url, env, cors);
+      if (url.pathname === '/moments' && request.method === 'POST') return await publishMoment(request, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -457,16 +463,25 @@ async function reactions(request, url, env, cors) {
 }
 // The author answers an anonymous 存疑 (see the route comment above). The
 // giscus token only proves *who* asks; the owner of REPO is the one allowed.
+// The blog's author = the owner of REPO, signed in through giscus like any
+// reader: `Authorization: Bearer <reader token>` must answer GET /user with
+// that login. Returns { user } or { error: Response }.
+async function requireAuthor(request, env, cors, what) {
+  const userToken = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!userToken) return { error: json({ error: '需要登录' }, 401, cors) };
+  const who = await fetch(`${GITHUB}/user`, { headers: githubHeaders(userToken) });
+  if (who.status === 401) return { error: json({ error: '登录已过期，请重新登录 GitHub' }, 401, cors) };
+  if (!who.ok) return { error: json({ error: `GitHub /user: HTTP ${who.status}` }, 502, cors) };
+  const user = await who.json();
+  const owner = String(env.REPO || '').split('/')[0].toLowerCase();
+  if (!owner || String(user.login || '').toLowerCase() !== owner) return { error: json({ error: `只有博客作者可以${what}` }, 403, cors) };
+  return { user };
+}
+
 async function resolveReaction(request, env, cors) {
   if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
-  const userToken = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!userToken) return json({ error: '需要登录' }, 401, cors);
-  const who = await fetch(`${GITHUB}/user`, { headers: githubHeaders(userToken) });
-  if (who.status === 401) return json({ error: '登录已过期，请重新登录 GitHub' }, 401, cors);
-  if (!who.ok) return json({ error: `GitHub /user: HTTP ${who.status}` }, 502, cors);
-  const owner = String(env.REPO || '').split('/')[0].toLowerCase();
-  const login = String((await who.json()).login || '').toLowerCase();
-  if (!owner || login !== owner) return json({ error: '只有博客作者可以处理存疑' }, 403, cors);
+  const author = await requireAuthor(request, env, cors, '处理存疑');
+  if (author.error) return author.error;
 
   const b = await request.json().catch(() => ({}));
   if (typeof b.path !== 'string' || !VIEW_PATH.test(b.path) || b.path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
@@ -598,12 +613,180 @@ async function stats(url, env, ctx, cors) {
   return json({ items }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
+// ---- 随笔 publishing: POST /moments (the phone "发布页", moments/post.html) ---
+//
+// The author writes a 随笔 on the phone; the worker turns it into exactly what
+// tools/moment.py would have written — `## YYYY-MM-DD HH:MM @place` + text with
+// `#标签` + quote + pictures + music URL appended to moments/YYYY-MM.md — and
+// commits it together with the pictures in ONE commit on the default branch
+// through the Git Data API (blobs → tree → commit → ref), acting as our GitHub
+// App (installation token with contents: write; the commit's *author* is the
+// blog author, the committer the App). The push triggers the deploy workflow.
+// Times are Beijing (the site's `timezone: Asia/Shanghai`), like the CLI.
+
+const MOMENT_TZ_MINUTES = 8 * 60;
+const MOMENT_TEXT_MAX = 5000;
+const MOMENT_IMAGES_MAX = 9;
+const MOMENT_IMAGE_BYTES_MAX = 3 * 1024 * 1024;   // the page resizes to ≤ 1600px before uploading
+const MOMENT_IMAGE_TYPES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
+const MOMENT_TAG = /^[\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*$/u;   // = Moments::TAG in _plugins/moments.rb
+const MOMENT_TIME = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$/;
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+// { y, m, d, hh, mm, hasTime } — `time` as "YYYY-MM-DD[ HH:MM]" (Beijing), default now.
+function momentWhen(time) {
+  if (time) {
+    const m = MOMENT_TIME.exec(time);
+    if (!m) return null;
+    return { y: m[1], m: m[2], d: m[3], hh: m[4] || '', mm: m[5] || '', hasTime: !!m[4] };
+  }
+  const t = new Date(Date.now() + MOMENT_TZ_MINUTES * 60_000);
+  return { y: String(t.getUTCFullYear()), m: pad2(t.getUTCMonth() + 1), d: pad2(t.getUTCDate()), hh: pad2(t.getUTCHours()), mm: pad2(t.getUTCMinutes()), hasTime: true };
+}
+
+function imageSlug(name) {
+  const base = String(name || '').replace(/\.[^.]*$/, '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff-]+/g, '-').replace(/^-+|-+$/g, '');
+  return base || 'img';
+}
+
+function b64ToBytes(s) {
+  const bin = atob(s.replace(/\s+/g, ''));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function publishMoment(request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '发布随笔');
+  if (author.error) return author.error;
+
+  const b = await request.json().catch(() => null);
+  if (!b || typeof b !== 'object') return json({ error: 'JSON body required' }, 400, cors);
+  const str = (k, max) => {
+    const v = b[k] == null ? '' : b[k];
+    if (typeof v !== 'string') throw new Error(`\`${k}\` must be a string`);
+    if (v.length > max) throw new Error(`\`${k}\` is too long (> ${max})`);
+    return v.trim();
+  };
+  let text, place, quote, by, music, time, tags, images;
+  try {
+    text = str('text', MOMENT_TEXT_MAX);
+    place = str('place', 80).replace(/\s+/g, ' ');
+    quote = str('quote', 2000);
+    by = str('by', 120).replace(/\s+/g, ' ');
+    music = str('music', 500);
+    time = str('time', 16);
+    tags = Array.isArray(b.tags) ? b.tags : [];
+    images = Array.isArray(b.images) ? b.images : [];
+  } catch (e) { return json({ error: e.message }, 400, cors); }
+  if (music && !/^https?:\/\/\S+$/.test(music)) return json({ error: '`music` must be a URL' }, 400, cors);
+  if (tags.length > 20) return json({ error: 'too many tags' }, 400, cors);
+  tags = tags.map((t) => String(t || '').trim().replace(/^#/, '')).filter(Boolean);
+  for (const t of tags) if (t.length > 40 || !MOMENT_TAG.test(t)) return json({ error: `标签不合法：${t}` }, 400, cors);
+  if (images.length > MOMENT_IMAGES_MAX) return json({ error: `最多 ${MOMENT_IMAGES_MAX} 张图` }, 400, cors);
+  const when = momentWhen(time);
+  if (!when) return json({ error: '`time` must be YYYY-MM-DD[ HH:MM]' }, 400, cors);
+  if (!text && !tags.length && !quote && !images.length && !music) return json({ error: '写点什么吧' }, 400, cors);
+
+  // Pictures: validate type and size here, the bytes become blobs below.
+  const pics = [];
+  for (let i = 0; i < images.length; i++) {
+    const im = images[i] || {};
+    const ext = MOMENT_IMAGE_TYPES[im.type];
+    if (!ext) return json({ error: `第 ${i + 1} 张图的类型不支持：${im.type || '?'}` }, 400, cors);
+    if (typeof im.data !== 'string' || !im.data) return json({ error: `第 ${i + 1} 张图没有数据` }, 400, cors);
+    if (im.data.length > MOMENT_IMAGE_BYTES_MAX * 4 / 3 + 16) return json({ error: `第 ${i + 1} 张图太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）` }, 413, cors);
+    pics.push({ base: imageSlug(im.name) === 'img' ? `${when.y}${when.m}${when.d}${when.hasTime ? '-' + when.hh + when.mm : ''}-${i + 1}` : imageSlug(im.name), ext, data: im.data.replace(/\s+/g, '') });
+  }
+
+  const branch = env.MOMENTS_BRANCH || 'master';
+  const repo = `${GITHUB}/repos/${env.REPO}`;
+  const headers = githubHeaders(await installationToken(env, { contents: 'write' }));
+  const gh = async (path, init) => {
+    const r = await fetch(`${repo}${path}`, { ...init, headers: { ...headers, ...(init && init.headers) } });
+    if (r.status === 404 && (!init || !init.method || init.method === 'GET')) return null;
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`GitHub ${init && init.method || 'GET'} ${path}: ${data.message || r.status}`);
+    return data;
+  };
+
+  const monthPath = `moments/${when.y}-${when.m}.md`;
+  const imgDir = `img/moments/${when.y}/${when.m}`;
+  const stamp = `${when.y}-${when.m}-${when.d}${when.hasTime ? ' ' + when.hh + ':' + when.mm : ''}`;
+  let result = null;
+  // Two attempts: somebody (the CLI, a CI bot) may push between our read and our ref update.
+  for (let attempt = 0; attempt < 2 && !result; attempt++) {
+    const ref = await gh(`/git/ref/heads/${branch}`);
+    if (!ref) throw new Error(`分支 ${branch} 不存在`);
+    const headSha = ref.object.sha;
+    const headCommit = await gh(`/git/commits/${headSha}`);
+
+    const monthFile = await gh(`/contents/${monthPath}?ref=${headSha}`);
+    let content = monthFile ? new TextDecoder().decode(b64ToBytes(monthFile.content)) : '---\nlayout: moments\n---\n';
+    const existing = new Set(((await gh(`/contents/${imgDir}?ref=${headSha}`)) || []).map((f) => f.name));
+
+    const tree = [];
+    const picUrls = [];
+    for (const p of pics) {
+      let name = `${p.base}.${p.ext}`;
+      for (let k = 2; existing.has(name); k++) name = `${p.base}-${k}.${p.ext}`;
+      existing.add(name);
+      const blob = await gh('/git/blobs', { method: 'POST', body: JSON.stringify({ content: p.data, encoding: 'base64' }) });
+      tree.push({ path: `${imgDir}/${name}`, mode: '100644', type: 'blob', sha: blob.sha });
+      picUrls.push(`/${imgDir}/${name}`);
+    }
+
+    // The entry, exactly as tools/moment.py writes it.
+    const parts = [`## ${stamp}${place ? ' @' + place : ''}`];
+    const tagLine = tags.map((t) => '#' + t).join(' ');
+    if (text || tagLine) parts.push((text + ' ' + tagLine).trim());
+    if (quote) {
+      const q = quote.split(/\r?\n/).map((l) => '> ' + l);
+      if (by) q.push('> —— ' + by);
+      parts.push(q.join('\n'));
+    }
+    if (picUrls.length) parts.push(picUrls.map((u) => `![](${u})`).join('\n'));
+    if (music) parts.push(music);
+    if (!content.endsWith('\n')) content += '\n';
+    content += '\n' + parts.join('\n\n') + '\n';
+    tree.push({ path: monthPath, mode: '100644', type: 'blob', content });
+
+    const newTree = await gh('/git/trees', { method: 'POST', body: JSON.stringify({ base_tree: headCommit.tree.sha, tree }) });
+    const user = author.user;
+    const commit = await gh('/git/commits', {
+      method: 'POST',
+      body: JSON.stringify({
+        message: `随笔: ${stamp}${place ? ' @' + place : ''}\n\n${(text || quote || music).slice(0, 200)}\n\n(posted from /moments/post.html)`,
+        tree: newTree.sha,
+        parents: [headSha],
+        author: { name: user.name || user.login, email: user.email || `${user.id}+${user.login}@users.noreply.github.com`, date: new Date().toISOString() },
+      }),
+    });
+    const upd = await fetch(`${repo}/git/refs/heads/${branch}`, { method: 'PATCH', headers, body: JSON.stringify({ sha: commit.sha, force: false }) });
+    if (upd.ok) {
+      const id = `${when.y}${when.m}${when.d}${when.hasTime ? '-' + when.hh + when.mm : ''}`;
+      result = { url: `/moments/${when.y}-${when.m}.html#${id}`, month: `/moments/${when.y}-${when.m}.html`, commit: commit.sha, file: monthPath, images: picUrls };
+    } else if (upd.status !== 422 || attempt === 1) {
+      const data = await upd.json().catch(() => ({}));
+      throw new Error(`update ref: ${data.message || upd.status}`);
+    }
+  }
+  return json(result, 201, { ...cors, 'Cache-Control': 'no-store' });
+}
+
 // ---- GitHub App authentication --------------------------------------------
 
-let cachedInstallation = null; // { token, expiresAt } — per isolate, so a warm worker reuses it
+const cachedInstallation = {}; // permissions key -> { token, expiresAt } — per isolate, so a warm worker reuses it
 
-async function installationToken(env) {
-  if (cachedInstallation && cachedInstallation.expiresAt - Date.now() > 60_000) return cachedInstallation.token;
+// `permissions` is the subset the token should carry (default: issues write);
+// a permission the App does not have makes GitHub answer 422, so /moments asks
+// for contents only when it runs.
+async function installationToken(env, permissions = { issues: 'write' }) {
+  const key = JSON.stringify(permissions);
+  const hit = cachedInstallation[key];
+  if (hit && hit.expiresAt - Date.now() > 60_000) return hit.token;
   const jwt = await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
   const appHeaders = githubHeaders(jwt);
 
@@ -616,11 +799,11 @@ async function installationToken(env) {
   const tr = await fetch(`${GITHUB}/app/installations/${installationId}/access_tokens`, {
     method: 'POST',
     headers: appHeaders,
-    body: JSON.stringify({ permissions: { issues: 'write' } }),
+    body: JSON.stringify({ permissions }),
   });
   const data = await tr.json();
-  if (!tr.ok) throw new Error(`installation token: ${data.message || tr.status}`);
-  cachedInstallation = { token: data.token, expiresAt: Date.parse(data.expires_at) };
+  if (!tr.ok) throw new Error(`installation token (${key}): ${data.message || tr.status}${tr.status === 422 ? ' — GitHub App 缺少该权限？' : ''}`);
+  cachedInstallation[key] = { token: data.token, expiresAt: Date.parse(data.expires_at) };
   return data.token;
 }
 

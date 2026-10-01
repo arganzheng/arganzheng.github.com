@@ -1007,6 +1007,20 @@ entry (tags go after the text as `#读书 #跑步/马拉松`) (images →
 `img/moments/YYYY/MM/*.webp` via cwebp, ≤ 1600 px); with no arguments it opens
 the month file in `$EDITOR` under a fresh heading.
 
+From the phone: `/moments/post.html` (`moments/post.html`, layout `bare` = the
+site `<head>` and nothing else; `js/moment-post.js`, **not** in `blog.min.js`;
+`less/moment-post.less`, `.mp-*`; `pwa:` front matter → `head.html` emits the
+manifest `moments/post.webmanifest` + apple-touch-icon
+`img/moments/post-icon-{180,512}.png`, so 「添加到主屏幕」 gives a stand-alone
+app). Sign in = the comments' giscus OAuth (`localStorage["giscus-session"]`
+→ worker `/token`); the page shows the existing tags as chips
+(`site.data.moments.tags`), shrinks pictures in a canvas (≤ 1600 px, WebP or
+JPEG), previews the card with the `.moment` styles and POSTs to the worker's
+`/moments`, which — only for the repo owner — commits the entry + pictures
+to `master` as the GitHub App (Contents: write), in the `moment.py` format;
+the deploy workflow publishes it. `noindex`, `sitemap: false`. Details and
+the one-off App permission setup: `tools/annotations-worker/README.md`.
+
 How it is built (`_plugins/moments.rb`):
 - `:site, :post_read` gives each month page `permalink: /moments/YYYY-MM.html`
   (pages do not get `.html` from the site's `/:title.html` style, and the

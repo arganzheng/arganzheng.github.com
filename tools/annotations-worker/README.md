@@ -60,6 +60,40 @@ feature is off. The worker only accepts the request when the
 `Authorization: Bearer <reader token>` header resolves via `GET /user`, i.e.
 from readers signed in through giscus.
 
+## 随笔 from the phone (POST /moments)
+
+`/moments/post.html` (layout `bare`, `js/moment-post.js`; 「添加到主屏幕」 installs
+it as an app via `moments/post.webmanifest`) is the author's 发布页: text with
+`#标签`, up to 9 pictures (shrunk to ≤ 1600 px / WebP in the browser), place,
+quote + attribution, music URL, time. It POSTs
+
+```json
+{ "text": "…", "place": "深圳湾", "tags": ["跑步", "读书/开源"], "quote": "…", "by": "…",
+  "music": "https://…", "time": "2026-10-01 20:15", "images": [{ "name": "", "type": "image/webp", "data": "<base64>" }] }
+```
+
+with the giscus reader token (`Authorization: Bearer …`, same login as the
+comments). The worker accepts it only when `GET /user` is the owner of `REPO`
+(like `/reactions/resolve`), then — acting as **our GitHub App**, installation
+token with `contents: write` — makes **one commit on `MOMENTS_BRANCH`
+(default `master`)** through the Git Data API: the pictures as
+`img/moments/YYYY/MM/<YYYYMMDD-HHMM-n>.webp` plus the entry appended to
+`moments/YYYY-MM.md` exactly as `tools/moment.py` writes it (`## YYYY-MM-DD
+HH:MM @place`, text + `#tags`, `> quote` / `> —— by`, `![](…)`, URL). The
+commit's author is the blog author, the committer the App; the push runs the
+deploy workflow, so the entry is live a minute or two later. Answers
+`201 { url: "/moments/YYYY-MM.html#YYYYMMDD-HHMM", commit, file, images }`;
+`401` not signed in, `403` not the owner, `400` validation (empty entry, bad
+tag / time / image type), `413` picture > 3 MB, `501` no App key; a ref
+update that loses a race with another push is retried once. Times are
+Beijing (`timezone: Asia/Shanghai`), as from the CLI.
+
+Setup on top of the `/issues` App: give the App repository permission
+**Contents: Read and write** (App settings → Permissions & events → save,
+then accept the new permission under Settings → Applications → Installed
+GitHub Apps), and `wrangler deploy`. Until then the route answers
+`installation token … 缺少该权限` (502).
+
 ## Optional: page views (GET/POST /views)
 
 One row per post in a Cloudflare D1 database (free tier is plenty: the browser

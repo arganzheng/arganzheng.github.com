@@ -1,0 +1,14 @@
+---
+---
+{%- comment -%}
+A page with the site's <head> (CSS, fonts, icons) and nothing else: no navbar,
+no footer, no search overlay, no js/blog.min.js. For stand-alone tools such as
+the phone 发布页 moments/post.html, which bring their own script.
+{%- endcomment -%}
+<!DOCTYPE html>
+<html lang="zh-CN">
+{% include head.html %}
+<body class="bare">
+{{ content }}
+</body>
+</html>

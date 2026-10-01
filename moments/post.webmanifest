@@ -1,0 +1,15 @@
+{
+  "name": "随笔 · 发布",
+  "short_name": "随笔",
+  "description": "给博客的随笔栏目发一条：文字、图片、引用、歌。",
+  "start_url": "/moments/post.html",
+  "scope": "/moments/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1f8a9c",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/img/moments/post-icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/img/moments/post-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
