@@ -5714,7 +5714,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .moments-wrap {
   max-width: 1052px;
-  margin-top: 6rem;
+  margin-top: 100px;
 }
 .moments-head {
   margin: 0 0 26px;
@@ -6302,7 +6302,7 @@ a.ms-day:hover {
 }
 @media (max-width: 767px) {
   .moments-wrap {
-    margin-top: 5rem;
+    margin-top: 80px;
   }
   .moments-head {
     margin-bottom: 18px;

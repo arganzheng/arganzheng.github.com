@@ -20,7 +20,8 @@
 @mo-heat-3: #2d9cb0;
 @mo-heat-4: @brand-primary;
 
-.moments-wrap { max-width: @mo-side + @mo-gap + @mo-main + 80px; margin-top: 6rem; }
+// margin-top clears the fixed light navbar (56px): there is no hero image on this page
+.moments-wrap { max-width: @mo-side + @mo-gap + @mo-main + 80px; margin-top: 100px; }
 
 // ---- header: 随笔 · tagline · RSS
 .moments-head {
@@ -332,7 +333,7 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 // the cards, then the calendar / 随机漫步 / 每日回顾 / months (`display: contents`
 // lets the sidebar's sections take part in the grid's `order`).
 @media (max-width: 767px) {
-	.moments-wrap { margin-top: 5rem; }
+	.moments-wrap { margin-top: 80px; }
 	.moments-head { margin-bottom: 18px; }
 	.moments-grid { grid-template-columns: minmax(0, 1fr); }
 	.moments-side {
