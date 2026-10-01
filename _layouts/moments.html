@@ -63,7 +63,8 @@ so on phones the rest of the sidebar can slot in between the cards and them.
             <h4>标签</h4>
             <ul>
             {%- for t in data.tags %}
-                <li class="d{{ t.depth }}"><a href="{{ t.url | prepend: site.baseurl }}"{% if page.is_tag and page.tag == t.tag %} class="is-current"{% endif %}>#{{ t.name }}<small>{{ t.count }}</small></a></li>
+                {%- assign plen = t.tag.size | minus: t.name.size %}
+                <li class="d{{ t.depth }}"><a href="{{ t.url | prepend: site.baseurl }}"{% if page.is_tag and page.tag == t.tag %} class="is-current"{% endif %}><span>#{% if plen > 0 %}<span class="ms-tag-path">{{ t.tag | slice: 0, plen }}</span>{% endif %}{{ t.name }}</span><small>{{ t.count }}</small></a></li>
             {%- endfor %}
             </ul>
         </section>

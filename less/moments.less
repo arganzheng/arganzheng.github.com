@@ -134,11 +134,22 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 	&:hover { border-color: @brand-primary; text-decoration: none; }
 }
 
-// tag tree: `父/子` children indented
+// tag tree: a `父/子` child sits under its parent, smaller and lighter, with a
+// └ guide line; `.ms-tag-path` (the `父/` prefix) only shows on the phone chips
 .ms-tags {
-	li.d1 a { padding-left: 22px; }
-	li.d2 a { padding-left: 36px; }
-	li.d3 a { padding-left: 50px; }
+	.ms-tag-path { display: none; }
+	.tree-child(@indent) {
+		position: relative; padding-left: @indent + 14px;
+		font-size: 13px; color: lighten(@mo-text, 18%);
+		&::before {
+			content: ""; position: absolute; left: @indent; top: -4px; bottom: 50%;
+			width: 7px; border: 0 solid #c9d2da; border-width: 0 0 1px 1px; border-radius: 0 0 0 3px;
+		}
+	}
+	li.d1 a { .tree-child(13px); }
+	li.d2 a { .tree-child(27px); }
+	li.d3 a { .tree-child(41px); }
+	li.d1 + li.d1 a::before, li.d2 + li.d2 a::before, li.d3 + li.d3 a::before { top: -14px; }
 }
 
 // ---- the stream
@@ -346,9 +357,11 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 		order: -2; margin-bottom: 16px;
 		h4 { display: none; }
 		ul { display: flex; flex-wrap: wrap; gap: 6px; }
+		.ms-tag-path { display: inline; }
 		li a, li.d1 a, li.d2 a, li.d3 a {
 			padding: 1px 8px; border-radius: 5px;
 			background: @mo-tag-bg; color: @brand-primary; font-size: 12.5px;
+			&::before { display: none; }
 			small { color: @brand-primary; opacity: 0.7; }
 			&.is-current { background: @brand-primary; color: #fff; small { color: #fff; } }
 		}

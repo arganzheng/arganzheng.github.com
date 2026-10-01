@@ -5936,14 +5936,64 @@ a.ms-day:hover {
   border-color: #00788f;
   text-decoration: none;
 }
+.ms-tags .ms-tag-path {
+  display: none;
+}
 .ms-tags li.d1 a {
-  padding-left: 22px;
+  position: relative;
+  padding-left: 27px;
+  font-size: 13px;
+  color: #53606c;
+}
+.ms-tags li.d1 a::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: -4px;
+  bottom: 50%;
+  width: 7px;
+  border: 0 solid #c9d2da;
+  border-width: 0 0 1px 1px;
+  border-radius: 0 0 0 3px;
 }
 .ms-tags li.d2 a {
-  padding-left: 36px;
+  position: relative;
+  padding-left: 41px;
+  font-size: 13px;
+  color: #53606c;
+}
+.ms-tags li.d2 a::before {
+  content: "";
+  position: absolute;
+  left: 27px;
+  top: -4px;
+  bottom: 50%;
+  width: 7px;
+  border: 0 solid #c9d2da;
+  border-width: 0 0 1px 1px;
+  border-radius: 0 0 0 3px;
 }
 .ms-tags li.d3 a {
-  padding-left: 50px;
+  position: relative;
+  padding-left: 55px;
+  font-size: 13px;
+  color: #53606c;
+}
+.ms-tags li.d3 a::before {
+  content: "";
+  position: absolute;
+  left: 41px;
+  top: -4px;
+  bottom: 50%;
+  width: 7px;
+  border: 0 solid #c9d2da;
+  border-width: 0 0 1px 1px;
+  border-radius: 0 0 0 3px;
+}
+.ms-tags li.d1 + li.d1 a::before,
+.ms-tags li.d2 + li.d2 a::before,
+.ms-tags li.d3 + li.d3 a::before {
+  top: -14px;
 }
 .moments-bar {
   display: flex;
@@ -6335,6 +6385,9 @@ a.ms-day:hover {
     flex-wrap: wrap;
     gap: 6px;
   }
+  .ms-tags .ms-tag-path {
+    display: inline;
+  }
   .ms-tags li a,
   .ms-tags li.d1 a,
   .ms-tags li.d2 a,
@@ -6344,6 +6397,12 @@ a.ms-day:hover {
     background: #e6f3f5;
     color: #00788f;
     font-size: 12.5px;
+  }
+  .ms-tags li a::before,
+  .ms-tags li.d1 a::before,
+  .ms-tags li.d2 a::before,
+  .ms-tags li.d3 a::before {
+    display: none;
   }
   .ms-tags li a small,
   .ms-tags li.d1 a small,
