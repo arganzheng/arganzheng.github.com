@@ -9,7 +9,7 @@
 # This generator turns each month page into structured data the layout and the
 # feed iterate over instead of `{{ content }}`:
 #
-#   page.moments = [{ 'id' => '20260921-0802', 'title' => '2026-09-21 08:02',
+#   page.moments = [{ 'id' => '20260921-0802', 'month' => '2026-09', 'title' => '2026-09-21 08:02',
 #                     'time' => Time, 'place' => '深圳湾', 'html' => …, 'text' => … }, …]
 #   site.data['moments'] = { 'months' => [pages, newest first], 'entries' => [all entries + 'url'] }
 #
@@ -169,6 +169,7 @@ module Moments
       e['title'] = e['time'].strftime(e['has_time'] ? '%Y-%m-%d %H:%M' : '%Y-%m-%d')
       e['date'] = e['time'].strftime('%Y-%m-%d')
       e['url'] = "#{page.url}##{e['id']}"
+      e['month'] = page.url[/(\d{4}-\d{2})\.html\z/, 1]
       md, e['tags'] = link_tags(e['md'])
       e['html'] = render(site, md)
       e['text'] = e['html'].gsub(%r{<(script|style|iframe|audio)\b.*?</\1>}m, ' ').gsub(/<[^>]+>/, ' ').gsub(/\s+/, ' ').strip

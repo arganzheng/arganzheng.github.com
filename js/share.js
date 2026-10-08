@@ -18,7 +18,7 @@
 
   var bars = Array.prototype.slice.call(document.querySelectorAll('.post-actions'));
   var strips = Array.prototype.slice.call(document.querySelectorAll('.post-stats'));
-  if (!bars.length && !strips.length) return;
+  if (!bars.length && !strips.length && !document.querySelector('.moment-share')) return; // 随笔 cards reuse the popover (BlogShare.open)
   var enc = encodeURIComponent;
   var version = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
 

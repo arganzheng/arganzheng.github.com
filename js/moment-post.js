@@ -15,6 +15,10 @@
   var BASE = root.getAttribute('data-base') || '';
   var SESSION_KEY = 'giscus-session', DRAFT_KEY = 'moment-post-draft';
   var MAX_PICS = 9, MAX_W = 1600;
+  // ?edit=YYYY-MM/<id> (the 编辑 link on a card): load that entry from the worker, PUT it back.
+  var EDIT = /[?&]edit=(\d{4}-\d{2})\/(\d{8}(?:-\d{4})?(?:-\d+)?)/.exec(location.search);
+  EDIT = EDIT ? { month: EDIT[1], id: EDIT[2] } : null;
+  var dateOnly = false, timeTouched = false;
   var TAG = /(^|[^\p{L}\p{N}_\/&\\])#([\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*)/gu;
 
   function $(s) { return root.querySelector(s); }
@@ -174,7 +178,7 @@
     var i = +b.getAttribute('data-i');
     if (b.classList.contains('mp-pic-l')) return movePic(i, i - 1);
     if (b.classList.contains('mp-pic-r')) return movePic(i, i + 1);
-    URL.revokeObjectURL(images[i].url); images.splice(i, 1);
+    if (images[i].blob) URL.revokeObjectURL(images[i].url); images.splice(i, 1);
     renderPics(); renderPreview(); updateSubmit();
   });
   var dragFrom = -1;
@@ -214,21 +218,28 @@
 
   function setMsg(s, bad) { msg.textContent = s || ''; msg.classList.toggle('is-bad', !!bad); }
   function updateSubmit() { submit.disabled = busy || !isAuthor() || !hasContent(); }
-  function onChange() { saveDraft(); renderPreview(); updateSubmit(); }
+  function onChange() { if (!EDIT) saveDraft(); renderPreview(); updateSubmit(); }
   [text, place, quote, by, music].forEach(function (el) { el.addEventListener('input', onChange); });
-  time.addEventListener('input', renderPreview);
+  time.addEventListener('input', function () { timeTouched = true; renderPreview(); });
   text.addEventListener('input', function () { text.style.height = 'auto'; text.style.height = Math.min(text.scrollHeight, 400) + 'px'; });
 
   // ---- publish
   submit.addEventListener('click', function () {
     if (submit.disabled) return;
     busy = true; updateSubmit(); setMsg('上传中…');
-    var payload = { text: text.value.trim(), place: place.value.trim(), tags: selectedTags(), quote: quote.value.trim(), by: by.value.trim(), music: music.value.trim(), time: fmtTime(time.value), images: [] };
-    Promise.all(images.map(function (im) { return toBase64(im.blob).then(function (d) { return { name: '', type: im.blob.type, data: d }; }); }))
+    var when = fmtTime(time.value);
+    if (dateOnly && !timeTouched) when = when.slice(0, 10); // the entry had no time of day; keep it so
+    var payload = { text: text.value.trim(), place: place.value.trim(), tags: selectedTags(), quote: quote.value.trim(), by: by.value.trim(), music: music.value.trim(), time: when, images: [] };
+    if (EDIT) { payload.month = EDIT.month; payload.id = EDIT.id; }
+    Promise.all(images.map(function (im) {
+      if (!im.blob) return { url: im.keep };
+      return toBase64(im.blob).then(function (d) { return { name: '', type: im.blob.type, data: d }; });
+    }))
       .then(function (imgs) { payload.images = imgs; return ensureToken(); })
-      .then(function (t) { return api('/moments', { method: 'POST', token: t, body: payload }); })
+      .then(function (t) { return api('/moments', { method: EDIT ? 'PUT' : 'POST', token: t, body: payload }); })
       .then(function (r) {
-        clearDraft();
+        if (!EDIT) clearDraft();
+        $('.mp-done-title').innerHTML = '<i class="fa fa-check"></i> ' + (EDIT ? '已更新' : '已提交');
         $('.mp-done-link').href = BASE + r.url;
         $('.mp-done-commit').href = 'https://github.com/' + (root.getAttribute('data-repo') || '') + '/commit/' + r.commit;
         $('.mp-done-commit').hidden = !root.getAttribute('data-repo');
@@ -241,9 +252,45 @@
         setMsg('发布失败：' + e.message, true);
       });
   });
+  // ---- edit mode: 删除 + loading the entry
+  $('.mp-del').addEventListener('click', function () {
+    if (!EDIT || busy || !isAuthor()) return;
+    if (!window.confirm('删除这条随笔？\n会提交一个删除的 commit，图片一起删掉，1–2 分钟后生效。')) return;
+    busy = true; updateSubmit(); setMsg('删除中…');
+    ensureToken().then(function (t) { return api('/moments', { method: 'DELETE', token: t, body: { month: EDIT.month, id: EDIT.id } }); })
+      .then(function (r) {
+        $('.mp-done-title').innerHTML = '<i class="fa fa-check"></i> 已删除';
+        $('.mp-done-link').href = BASE + r.month; $('.mp-done-link').textContent = '回到这个月的随笔 ›';
+        $('.mp-done-commit').href = 'https://github.com/' + (root.getAttribute('data-repo') || '') + '/commit/' + r.commit;
+        $('.mp-done-commit').hidden = !root.getAttribute('data-repo');
+        editor.hidden = true; done.hidden = false; $('.mp-preview-wrap').hidden = true;
+        busy = false; setMsg('');
+      })
+      .catch(function (e) { busy = false; updateSubmit(); setMsg('删除失败：' + e.message, true); });
+  });
+  function loadEntry() {
+    busy = true; updateSubmit(); setMsg('读取随笔…');
+    return ensureToken().then(function (t) { return api('/moments?month=' + encodeURIComponent(EDIT.month) + '&id=' + encodeURIComponent(EDIT.id), { token: t }); })
+      .then(function (d) {
+        var t = d.text || '', m = /(?:^|\s)((?:#[^\s#]+\s*)+)$/.exec(t);
+        if (m && !d.raw) { t = t.slice(0, t.length - m[1].length).trim(); m[1].trim().split(/\s+/).forEach(function (x) { toggleTag(x.replace(/^#/, ''), true); }); }
+        text.value = t; place.value = d.place || ''; quote.value = d.quote || ''; by.value = d.by || ''; music.value = d.music || '';
+        if (d.place || d.quote || d.music) $('.mp-more').open = true;
+        dateOnly = (d.time || '').length === 10;
+        time.value = dateOnly ? d.time + 'T00:00' : (d.time || '').replace(' ', 'T');
+        images = (d.images || []).map(function (u) { return { url: BASE + u, keep: u }; });
+        var note = $('.mp-note'); note.hidden = !d.raw;
+        text.dispatchEvent(new Event('input'));
+        renderPics(); renderPreview();
+        busy = false; setMsg(''); updateSubmit();
+      })
+      .catch(function (e) { busy = false; updateSubmit(); setMsg('读取失败：' + e.message, true); });
+  }
+
   $('.mp-again').addEventListener('click', function () {
+    if (EDIT) { location.href = location.pathname; return; }
     text.value = ''; quote.value = ''; by.value = ''; music.value = ''; place.value = '';
-    images.forEach(function (im) { URL.revokeObjectURL(im.url); }); images = [];
+    images.forEach(function (im) { if (im.blob) URL.revokeObjectURL(im.url); }); images = [];
     Array.prototype.forEach.call(tagsBox.querySelectorAll('.mp-tag.is-on'), function (b) { b.classList.remove('is-on'); });
     time.value = nowLocal(); renderPics(); renderPreview(); updateSubmit();
     editor.hidden = false; done.hidden = true; $('.mp-preview-wrap').hidden = false; text.focus();
@@ -253,7 +300,10 @@
   // ---- boot
   takeSessionFromUrl();
   time.value = nowLocal();
-  loadDraft(); renderPics(); renderPreview(); renderAuth();
+  if (EDIT) { root.classList.add('is-edit'); $('.mp-title').textContent = '编辑随笔'; submit.textContent = '保存'; $('.mp-del').hidden = false; }
+  else loadDraft();
+  renderPics(); renderPreview(); renderAuth();
   if (!API) setMsg('未配置 annotations.api，无法发布', true);
-  else if (session()) whoAmI().catch(function (e) { setMsg(e.message, true); });
+  else if (session()) whoAmI().then(function () { if (EDIT && isAuthor()) return loadEntry(); }).catch(function (e) { setMsg(e.message, true); });
+  else if (EDIT) setMsg('先登录 GitHub 才能读取并修改这条随笔', true);
 })();

@@ -91,10 +91,13 @@ body.bare { background: #fff; }
 		textarea { resize: none; line-height: 1.6; }
 	}
 }
+.mp-note { font-size: 13px; color: @mp-muted; margin: 4px 0 8px; .fa { margin-right: 4px; } }
+
 .mp-actions {
 	display: flex; align-items: center; gap: 12px;
 	padding-top: 10px; border-top: 1px solid @mp-line;
 	.mp-msg { flex: 1; font-size: 13px; color: @mp-muted; &.is-bad { color: #d1242f; } }
+	.mp-del { border: 0; background: none; color: @mp-muted; font-size: 16px; padding: 8px 10px; cursor: pointer; &:hover { color: #d1242f; } }
 	.mp-submit {
 		padding: 7px 22px; border: 0; border-radius: 18px;
 		background: @brand-primary; color: #fff; font-weight: 600;

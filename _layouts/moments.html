@@ -10,7 +10,10 @@ prints `{{ content }}`.
 Each card: a head line (timestamp · @place), the note (text with `#标签` chips,
 gallery, quote card, music card) and a foot with the per-entry anonymous ♡ (the
 section-reaction machinery of js/annotations.js, `.sec-react` placeholder,
-quote = `§ 2026-09-21 08:02`), a link to the comments and the entry's permalink.
+quote = `§ 2026-09-21 08:02`), a link to the comments, 分享 (the share popover of
+js/share.js: system sheet / 微博 / X / 微信二维码 / 复制链接) and, for the signed-in
+author only, 编辑 (→ /moments/post.html?edit=YYYY-MM/id) and 删除 (worker
+DELETE /moments) — js/moments.js wires those three.
 Views, the Discussion and passage reactions are keyed on the month URL
 (`page.comments_path`), also on the `/moments/` copy of the newest month; tag
 pages carry none of them (every card links back to its month).
@@ -93,10 +96,10 @@ so on phones the rest of the sidebar can slot in between the cards and them.
             {%- endif %}
         </nav>
 <!-- article -->
-        <ol class="moments-list">
+        <ol class="moments-list" data-path="{{ path }}" data-author="{{ site.github_username | strip }}" data-annotations-api="{{ site.annotations.api }}">
         {%- for e in page.moments %}
             {%- assign month_url = e.url | split: '#' | first %}
-            <li class="moment" id="{{ e.id }}" data-title="{{ e.title }}">
+            <li class="moment" id="{{ e.id }}" data-title="{{ e.title }}" data-month="{{ e.month }}">
                 <div class="moment-head">
                     <a class="moment-when" href="{{ e.url | prepend: site.baseurl }}" title="{{ e.title }}"><time datetime="{{ e.time | date: '%Y-%m-%dT%H:%M:%S%:z' }}">{{ e.title }}</time></a>
                     {%- if e.place %}<span class="moment-place"><i class="fa fa-location-dot"></i> {{ e.place }}</span>{% endif %}
@@ -111,7 +114,9 @@ so on phones the rest of the sidebar can slot in between the cards and them.
                     <span class="sec-react" data-title="{{ e.title }}" data-kinds="up" data-icon="fa-regular fa-heart" data-icon-on="fa-heart"></span>
                     <a href="#comments" class="moment-act" title="到本月的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
                     {%- endif %}
-                    <a href="{{ e.url | prepend: site.baseurl }}" class="moment-act moment-link" title="这一条的链接"><i class="fa fa-link"></i> 链接</a>
+                    <button type="button" class="moment-act moment-share" title="分享这一条" aria-haspopup="true" aria-expanded="false" data-url="{{ site.url }}{{ site.baseurl }}{{ e.url }}" data-title="随笔 · {{ e.title }}" data-text="{{ e.text | truncate: 80 | escape }}"><i class="fa fa-share-alt"></i> 分享</button>
+                    <span class="moment-own" hidden><a href="{{ '/moments/post.html' | prepend: site.baseurl }}?edit={{ e.month }}/{{ e.id }}" class="moment-act moment-edit" title="在发布页里修改这一条"><i class="fa fa-pen"></i> 编辑</a><button type="button" class="moment-act moment-del" title="删除这一条"><i class="fa fa-trash"></i> 删除</button></span>
+                    <span class="moment-toast" aria-live="polite" hidden></span>
                 </div>
             </li>
         {%- endfor %}

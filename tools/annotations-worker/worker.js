@@ -30,6 +30,9 @@
  *                                                 default branch that appends the entry to moments/YYYY-MM.md and adds
  *                                                 the pictures under img/moments/YYYY/MM/ (same format as tools/moment.py).
  *                                                 Needs the GitHub App with *Contents: read & write* (501 without the key).
+ *   GET    /moments?month=YYYY-MM&id=…   -> the entry's fields (text, place, tags in text, quote, by, music, images, raw)
+ *   PUT    /moments    { month, id, …POST fields, images: [{ url } | { type, data }] } -> { url, commit }  rewrites the entry
+ *   DELETE /moments    { month, id }           -> { commit }    removes the entry (+ its pictures nothing else shows)
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
@@ -86,6 +89,9 @@ export default {
       if (url.pathname === '/reactions/resolve' && request.method === 'POST') return await resolveReaction(request, env, cors);
       if (url.pathname === '/feedback' && request.method === 'GET') return await feedback(url, env, cors);
       if (url.pathname === '/moments' && request.method === 'POST') return await publishMoment(request, env, cors);
+      if (url.pathname === '/moments' && request.method === 'GET') return await readMoment(url, request, env, cors);
+      if (url.pathname === '/moments' && request.method === 'PUT') return await editMoment(request, env, cors);
+      if (url.pathname === '/moments' && request.method === 'DELETE') return await deleteMoment(request, env, cors);
     } catch (err) {
       return json({ error: err.message || String(err) }, 502, cors);
     }
@@ -98,7 +104,7 @@ function corsHeaders(origin, env) {
   if (!allowed.includes(origin)) return null;
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -613,8 +619,7 @@ async function stats(url, env, ctx, cors) {
   return json({ items }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
-// ---- 随笔 publishing: POST /moments (the phone "发布页", moments/post.html) ---
-//
+// ---- 随笔: POST / GET / PUT / DELETE /moments (the phone "发布页", moments/post.html)
 // The author writes a 随笔 on the phone; the worker turns it into exactly what
 // tools/moment.py would have written — `## YYYY-MM-DD HH:MM @place` + text with
 // `#标签` + quote + pictures + music URL appended to moments/YYYY-MM.md — and
@@ -622,6 +627,11 @@ async function stats(url, env, ctx, cors) {
 // through the Git Data API (blobs → tree → commit → ref), acting as our GitHub
 // App (installation token with contents: write; the commit's *author* is the
 // blog author, the committer the App). The push triggers the deploy workflow.
+// Editing (PUT) rewrites that entry's block in place (or moves it to another
+// month file when the date changed), deleting (DELETE) drops the block; both
+// also remove the entry's pictures under img/moments/ that nothing else in the
+// month file still shows. Entries are addressed by { month: "YYYY-MM", id }
+// with the ids of _plugins/moments.rb (YYYYMMDD[-HHMM][-n] for duplicates).
 // Times are Beijing (the site's `timezone: Asia/Shanghai`), like the CLI.
 
 const MOMENT_TZ_MINUTES = 8 * 60;
@@ -631,6 +641,11 @@ const MOMENT_IMAGE_BYTES_MAX = 3 * 1024 * 1024;   // the page resizes to ≤ 160
 const MOMENT_IMAGE_TYPES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
 const MOMENT_TAG = /^[\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*$/u;   // = Moments::TAG in _plugins/moments.rb
 const MOMENT_TIME = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$/;
+const MOMENT_HEAD = /^##\s+(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s+@\s*(.+?))?\s*$/;   // = Moments::HEAD
+const MOMENT_MONTH = /^\d{4}-\d{2}$/;
+const MOMENT_ID = /^\d{8}(?:-\d{4})?(?:-\d+)?$/;
+const MOMENT_IMG_URL = /^\/img\/moments\/\d{4}\/\d{2}\/[A-Za-z0-9\u4e00-\u9fff_.-]+\.(?:webp|jpg|jpeg|png|gif)$/;
+const MD_IMAGE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -644,6 +659,8 @@ function momentWhen(time) {
   const t = new Date(Date.now() + MOMENT_TZ_MINUTES * 60_000);
   return { y: String(t.getUTCFullYear()), m: pad2(t.getUTCMonth() + 1), d: pad2(t.getUTCDate()), hh: pad2(t.getUTCHours()), mm: pad2(t.getUTCMinutes()), hasTime: true };
 }
+function momentStamp(w) { return `${w.y}-${w.m}-${w.d}${w.hasTime ? ' ' + w.hh + ':' + w.mm : ''}`; }
+function momentId(w) { return `${w.y}${w.m}${w.d}${w.hasTime ? '-' + w.hh + w.mm : ''}`; }
 
 function imageSlug(name) {
   const base = String(name || '').replace(/\.[^.]*$/, '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -657,50 +674,137 @@ function b64ToBytes(s) {
   return out;
 }
 
-async function publishMoment(request, env, cors) {
-  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
-  const author = await requireAuthor(request, env, cors, '发布随笔');
-  if (author.error) return author.error;
+// A month file → { pre: [lines before the first entry], entries: [{ id, stamp, place, head, body }] }
+// with the same ids as the plugin (a second entry at the same minute gets -2).
+function parseMonth(content) {
+  const lines = content.split('\n');
+  const pre = [], entries = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = MOMENT_HEAD.exec(line);
+    if (m) {
+      const w = { y: m[1], m: m[2], d: m[3], hh: m[4] ? pad2(+m[4]) : '', mm: m[5] || '', hasTime: !!m[4] };
+      cur = { base: momentId(w), stamp: momentStamp(w), place: m[6] || '', head: line, lines: [] };
+      entries.push(cur);
+    } else if (cur) cur.lines.push(line);
+    else pre.push(line);
+  }
+  const seen = {};
+  for (const e of entries) {
+    seen[e.base] = (seen[e.base] || 0) + 1;
+    e.id = seen[e.base] > 1 ? `${e.base}-${seen[e.base]}` : e.base;
+    e.body = e.lines.join('\n').replace(/^\s*\n/, '').replace(/\s+$/, '');
+    delete e.lines;
+  }
+  return { pre, entries };
+}
+function monthText(parsed) {
+  const pre = parsed.pre.join('\n').replace(/\s+$/, '') || '---\nlayout: moments\n---';
+  const blocks = parsed.entries.map((e) => (e.head + '\n' + e.body).replace(/\s+$/, ''));
+  return pre + '\n' + (blocks.length ? '\n' + blocks.join('\n\n') + '\n' : '');
+}
+function entryImages(body) { return Array.from(body.matchAll(MD_IMAGE), (m) => m[1]); }
 
-  const b = await request.json().catch(() => null);
-  if (!b || typeof b !== 'object') return json({ error: 'JSON body required' }, 400, cors);
+// An entry's body back into the 发布页's fields. Canonical = text paragraphs, then
+// at most one quote, one run of pictures, one URL — what POST writes. Anything
+// else (text after a quote, two quotes…) is handed over as raw Markdown.
+function entryFields(e) {
+  const out = { text: '', quote: '', by: '', music: '', images: entryImages(e.body), raw: false };
+  const paras = e.body ? e.body.split(/\n{2,}/) : [];
+  const kind = (p) => (/^(?:!\[[^\]]*\]\([^)\s]+\)\s*)+$/.test(p) ? 'img' : /^>/.test(p) ? 'quote' : /^https?:\/\/\S+$/.test(p) ? 'music' : 'text');
+  const rank = { text: 0, quote: 1, img: 2, music: 3 };
+  let stage = 0;
+  const textParas = [];
+  for (const p of paras) {
+    const k = kind(p);
+    if (rank[k] < stage || (k !== 'text' && rank[k] === stage)) { out.raw = true; break; }
+    stage = rank[k];
+    if (k === 'text') textParas.push(p);
+    else if (k === 'quote') {
+      const ls = p.split('\n').map((l) => l.replace(/^>\s?/, ''));
+      if (ls.length > 1 && /^——\s*/.test(ls[ls.length - 1])) out.by = ls.pop().replace(/^——\s*/, '');
+      out.quote = ls.join('\n');
+    } else if (k === 'music') out.music = p.trim();
+  }
+  if (out.raw) { out.text = e.body; out.quote = out.by = out.music = ''; }
+  else out.text = textParas.join('\n\n');
+  return out;
+}
+
+// The request body → validated fields (throws { status, message }).
+function momentInput(b) {
+  const bad = (message, status = 400) => { const err = new Error(message); err.status = status; return err; };
+  if (!b || typeof b !== 'object') throw bad('JSON body required');
   const str = (k, max) => {
     const v = b[k] == null ? '' : b[k];
-    if (typeof v !== 'string') throw new Error(`\`${k}\` must be a string`);
-    if (v.length > max) throw new Error(`\`${k}\` is too long (> ${max})`);
+    if (typeof v !== 'string') throw bad(`\`${k}\` must be a string`);
+    if (v.length > max) throw bad(`\`${k}\` is too long (> ${max})`);
     return v.trim();
   };
-  let text, place, quote, by, music, time, tags, images;
-  try {
-    text = str('text', MOMENT_TEXT_MAX);
-    place = str('place', 80).replace(/\s+/g, ' ');
-    quote = str('quote', 2000);
-    by = str('by', 120).replace(/\s+/g, ' ');
-    music = str('music', 500);
-    time = str('time', 16);
-    tags = Array.isArray(b.tags) ? b.tags : [];
-    images = Array.isArray(b.images) ? b.images : [];
-  } catch (e) { return json({ error: e.message }, 400, cors); }
-  if (music && !/^https?:\/\/\S+$/.test(music)) return json({ error: '`music` must be a URL' }, 400, cors);
-  if (tags.length > 20) return json({ error: 'too many tags' }, 400, cors);
+  const f = {
+    text: str('text', MOMENT_TEXT_MAX),
+    place: str('place', 80).replace(/\s+/g, ' '),
+    quote: str('quote', 2000),
+    by: str('by', 120).replace(/\s+/g, ' '),
+    music: str('music', 500),
+    time: str('time', 16),
+  };
+  if (f.music && !/^https?:\/\/\S+$/.test(f.music)) throw bad('`music` must be a URL');
+  let tags = Array.isArray(b.tags) ? b.tags : [];
+  if (tags.length > 20) throw bad('too many tags');
   tags = tags.map((t) => String(t || '').trim().replace(/^#/, '')).filter(Boolean);
-  for (const t of tags) if (t.length > 40 || !MOMENT_TAG.test(t)) return json({ error: `标签不合法：${t}` }, 400, cors);
-  if (images.length > MOMENT_IMAGES_MAX) return json({ error: `最多 ${MOMENT_IMAGES_MAX} 张图` }, 400, cors);
-  const when = momentWhen(time);
-  if (!when) return json({ error: '`time` must be YYYY-MM-DD[ HH:MM]' }, 400, cors);
-  if (!text && !tags.length && !quote && !images.length && !music) return json({ error: '写点什么吧' }, 400, cors);
-
-  // Pictures: validate type and size here, the bytes become blobs below.
-  const pics = [];
-  for (let i = 0; i < images.length; i++) {
-    const im = images[i] || {};
+  for (const t of tags) if (t.length > 40 || !MOMENT_TAG.test(t)) throw bad(`标签不合法：${t}`);
+  f.tags = tags;
+  const images = Array.isArray(b.images) ? b.images : [];
+  if (images.length > MOMENT_IMAGES_MAX) throw bad(`最多 ${MOMENT_IMAGES_MAX} 张图`);
+  f.when = momentWhen(f.time);
+  if (!f.when) throw bad('`time` must be YYYY-MM-DD[ HH:MM]');
+  // Pictures: { url } keeps one already in the repo (editing), { type, data } uploads a new one.
+  f.pics = [];
+  images.forEach((im, i) => {
+    im = im || {};
+    if (typeof im.url === 'string') {
+      if (!MOMENT_IMG_URL.test(im.url)) throw bad(`第 ${i + 1} 张图的地址不合法`);
+      f.pics.push({ url: im.url });
+      return;
+    }
     const ext = MOMENT_IMAGE_TYPES[im.type];
-    if (!ext) return json({ error: `第 ${i + 1} 张图的类型不支持：${im.type || '?'}` }, 400, cors);
-    if (typeof im.data !== 'string' || !im.data) return json({ error: `第 ${i + 1} 张图没有数据` }, 400, cors);
-    if (im.data.length > MOMENT_IMAGE_BYTES_MAX * 4 / 3 + 16) return json({ error: `第 ${i + 1} 张图太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）` }, 413, cors);
-    pics.push({ base: imageSlug(im.name) === 'img' ? `${when.y}${when.m}${when.d}${when.hasTime ? '-' + when.hh + when.mm : ''}-${i + 1}` : imageSlug(im.name), ext, data: im.data.replace(/\s+/g, '') });
-  }
+    if (!ext) throw bad(`第 ${i + 1} 张图的类型不支持：${im.type || '?'}`);
+    if (typeof im.data !== 'string' || !im.data) throw bad(`第 ${i + 1} 张图没有数据`);
+    if (im.data.length > MOMENT_IMAGE_BYTES_MAX * 4 / 3 + 16) throw bad(`第 ${i + 1} 张图太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）`, 413);
+    f.pics.push({ base: imageSlug(im.name) === 'img' ? `${momentId(f.when)}-${i + 1}` : imageSlug(im.name), ext, data: im.data.replace(/\s+/g, '') });
+  });
+  if (!f.text && !tags.length && !f.quote && !f.pics.length && !f.music) throw bad('写点什么吧');
+  return f;
+}
 
+// The entry, exactly as tools/moment.py writes it: { head, body }.
+function renderEntry(f, picUrls) {
+  const head = `## ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}`;
+  const parts = [];
+  const tagLine = f.tags.map((t) => '#' + t).join(' ');
+  if (f.text || tagLine) parts.push((f.text + ' ' + tagLine).trim());
+  if (f.quote) {
+    const q = f.quote.split(/\r?\n/).map((l) => '> ' + l);
+    if (f.by) q.push('> —— ' + f.by);
+    parts.push(q.join('\n'));
+  }
+  if (picUrls.length) parts.push(picUrls.map((u) => `![](${u})`).join('\n'));
+  if (f.music) parts.push(f.music);
+  return { head, body: parts.join('\n\n') };
+}
+
+function momentTarget(b) {
+  const month = String(b && b.month || ''), id = String(b && b.id || '');
+  if (!MOMENT_MONTH.test(month)) return { error: '`month` must be YYYY-MM' };
+  if (!MOMENT_ID.test(id)) return { error: '`id` must be YYYYMMDD[-HHMM][-n]' };
+  return { month, id, path: `moments/${month}.md` };
+}
+
+// One commit on the branch built by `build(gh, headSha)` → { tree, message }
+// (tree entries in Git Data API form; `sha: null` deletes). Two attempts:
+// somebody (the CLI, a CI bot) may push between our read and our ref update.
+async function momentCommit(env, user, build) {
   const branch = env.MOMENTS_BRANCH || 'master';
   const repo = `${GITHUB}/repos/${env.REPO}`;
   const headers = githubHeaders(await installationToken(env, { contents: 'write' }));
@@ -711,69 +815,167 @@ async function publishMoment(request, env, cors) {
     if (!r.ok) throw new Error(`GitHub ${init && init.method || 'GET'} ${path}: ${data.message || r.status}`);
     return data;
   };
-
-  const monthPath = `moments/${when.y}-${when.m}.md`;
-  const imgDir = `img/moments/${when.y}/${when.m}`;
-  const stamp = `${when.y}-${when.m}-${when.d}${when.hasTime ? ' ' + when.hh + ':' + when.mm : ''}`;
-  let result = null;
-  // Two attempts: somebody (the CLI, a CI bot) may push between our read and our ref update.
-  for (let attempt = 0; attempt < 2 && !result; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const ref = await gh(`/git/ref/heads/${branch}`);
     if (!ref) throw new Error(`分支 ${branch} 不存在`);
     const headSha = ref.object.sha;
     const headCommit = await gh(`/git/commits/${headSha}`);
-
-    const monthFile = await gh(`/contents/${monthPath}?ref=${headSha}`);
-    let content = monthFile ? new TextDecoder().decode(b64ToBytes(monthFile.content)) : '---\nlayout: moments\n---\n';
-    const existing = new Set(((await gh(`/contents/${imgDir}?ref=${headSha}`)) || []).map((f) => f.name));
-
-    const tree = [];
-    const picUrls = [];
-    for (const p of pics) {
-      let name = `${p.base}.${p.ext}`;
-      for (let k = 2; existing.has(name); k++) name = `${p.base}-${k}.${p.ext}`;
-      existing.add(name);
-      const blob = await gh('/git/blobs', { method: 'POST', body: JSON.stringify({ content: p.data, encoding: 'base64' }) });
-      tree.push({ path: `${imgDir}/${name}`, mode: '100644', type: 'blob', sha: blob.sha });
-      picUrls.push(`/${imgDir}/${name}`);
-    }
-
-    // The entry, exactly as tools/moment.py writes it.
-    const parts = [`## ${stamp}${place ? ' @' + place : ''}`];
-    const tagLine = tags.map((t) => '#' + t).join(' ');
-    if (text || tagLine) parts.push((text + ' ' + tagLine).trim());
-    if (quote) {
-      const q = quote.split(/\r?\n/).map((l) => '> ' + l);
-      if (by) q.push('> —— ' + by);
-      parts.push(q.join('\n'));
-    }
-    if (picUrls.length) parts.push(picUrls.map((u) => `![](${u})`).join('\n'));
-    if (music) parts.push(music);
-    if (!content.endsWith('\n')) content += '\n';
-    content += '\n' + parts.join('\n\n') + '\n';
-    tree.push({ path: monthPath, mode: '100644', type: 'blob', content });
-
-    const newTree = await gh('/git/trees', { method: 'POST', body: JSON.stringify({ base_tree: headCommit.tree.sha, tree }) });
-    const user = author.user;
+    const built = await build(gh, headSha);
+    if (built.response) return built.response;
+    const newTree = await gh('/git/trees', { method: 'POST', body: JSON.stringify({ base_tree: headCommit.tree.sha, tree: built.tree }) });
     const commit = await gh('/git/commits', {
       method: 'POST',
       body: JSON.stringify({
-        message: `随笔: ${stamp}${place ? ' @' + place : ''}\n\n${(text || quote || music).slice(0, 200)}\n\n(posted from /moments/post.html)`,
+        message: built.message,
         tree: newTree.sha,
         parents: [headSha],
         author: { name: user.name || user.login, email: user.email || `${user.id}+${user.login}@users.noreply.github.com`, date: new Date().toISOString() },
       }),
     });
     const upd = await fetch(`${repo}/git/refs/heads/${branch}`, { method: 'PATCH', headers, body: JSON.stringify({ sha: commit.sha, force: false }) });
-    if (upd.ok) {
-      const id = `${when.y}${when.m}${when.d}${when.hasTime ? '-' + when.hh + when.mm : ''}`;
-      result = { url: `/moments/${when.y}-${when.m}.html#${id}`, month: `/moments/${when.y}-${when.m}.html`, commit: commit.sha, file: monthPath, images: picUrls };
-    } else if (upd.status !== 422 || attempt === 1) {
+    if (upd.ok) return { commit: commit.sha, ...built.result };
+    if (upd.status !== 422 || attempt === 1) {
       const data = await upd.json().catch(() => ({}));
       throw new Error(`update ref: ${data.message || upd.status}`);
     }
   }
+  throw new Error('update ref: raced twice');
+}
+
+// Reads moments/YYYY-MM.md at `sha` → parsed (a missing file = an empty month).
+async function readMonth(gh, path, sha) {
+  const file = await gh(`/contents/${path}?ref=${sha}`);
+  return parseMonth(file ? new TextDecoder().decode(b64ToBytes(file.content)) : '---\nlayout: moments\n---\n');
+}
+// Uploads the new pictures of `f.pics` into img/moments/YYYY/MM (names made unique
+// against the directory) → the gallery URLs in order; pushes blobs onto `tree`.
+async function uploadPics(gh, headSha, f, tree) {
+  const imgDir = `img/moments/${f.when.y}/${f.when.m}`;
+  let existing = null;
+  const urls = [];
+  for (const p of f.pics) {
+    if (p.url) { urls.push(p.url); continue; }
+    if (!existing) existing = new Set(((await gh(`/contents/${imgDir}?ref=${headSha}`)) || []).map((x) => x.name));
+    let name = `${p.base}.${p.ext}`;
+    for (let k = 2; existing.has(name); k++) name = `${p.base}-${k}.${p.ext}`;
+    existing.add(name);
+    const blob = await gh('/git/blobs', { method: 'POST', body: JSON.stringify({ content: p.data, encoding: 'base64' }) });
+    tree.push({ path: `${imgDir}/${name}`, mode: '100644', type: 'blob', sha: blob.sha });
+    urls.push(`/${imgDir}/${name}`);
+  }
+  return urls;
+}
+// Deletes the pictures of an old entry that no other entry (in the files we are
+// about to write) still shows — only those that really exist at `headSha`.
+async function dropPics(gh, headSha, oldUrls, keepTexts, tree) {
+  const still = keepTexts.join('\n');
+  const dirs = {};
+  for (const u of new Set(oldUrls)) {
+    if (!MOMENT_IMG_URL.test(u) || still.includes(u)) continue;
+    const path = u.slice(1), dir = path.replace(/\/[^/]+$/, '');
+    if (!dirs[dir]) dirs[dir] = new Set(((await gh(`/contents/${dir}?ref=${headSha}`)) || []).map((x) => x.name));
+    if (dirs[dir].has(path.slice(dir.length + 1))) tree.push({ path, mode: '100644', type: 'blob', sha: null });
+  }
+}
+function momentUrl(month, id) { return `/moments/${month}.html#${id}`; }
+
+async function publishMoment(request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '发布随笔');
+  if (author.error) return author.error;
+  let f;
+  try { f = momentInput(await request.json().catch(() => null)); } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
+  if (f.pics.some((p) => p.url)) return json({ error: '新随笔的图片要上传，不能引用已有图片' }, 400, cors);
+
+  const month = `${f.when.y}-${f.when.m}`, path = `moments/${month}.md`;
+  const result = await momentCommit(env, author.user, async (gh, headSha) => {
+    const parsed = await readMonth(gh, path, headSha);
+    const tree = [];
+    const urls = await uploadPics(gh, headSha, f, tree);
+    const entry = renderEntry(f, urls);
+    parsed.entries.push(entry);
+    tree.push({ path, mode: '100644', type: 'blob', content: monthText(parsed) });
+    return {
+      tree,
+      message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n(posted from /moments/post.html)`,
+      result: { url: momentUrl(month, momentId(f.when)), month: `/moments/${month}.html`, file: path, images: urls },
+    };
+  });
   return json(result, 201, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// GET /moments?month=YYYY-MM&id=… → the entry's fields for the 发布页's edit mode.
+async function readMoment(url, request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '编辑随笔');
+  if (author.error) return author.error;
+  const t = momentTarget({ month: url.searchParams.get('month'), id: url.searchParams.get('id') });
+  if (t.error) return json({ error: t.error }, 400, cors);
+  const headers = githubHeaders(await installationToken(env, { contents: 'write' }));
+  const r = await fetch(`${GITHUB}/repos/${env.REPO}/contents/${t.path}?ref=${env.MOMENTS_BRANCH || 'master'}`, { headers });
+  if (r.status === 404) return json({ error: '没有这个月的随笔' }, 404, cors);
+  if (!r.ok) return json({ error: `GitHub: HTTP ${r.status}` }, 502, cors);
+  const parsed = parseMonth(new TextDecoder().decode(b64ToBytes((await r.json()).content)));
+  const e = parsed.entries.find((x) => x.id === t.id);
+  if (!e) return json({ error: '没有这条随笔' }, 404, cors);
+  return json({ month: t.month, id: e.id, time: e.stamp, place: e.place, ...entryFields(e) }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// PUT /moments { month, id, …the POST fields, images: [{ url } | { type, data }] }
+async function editMoment(request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '编辑随笔');
+  if (author.error) return author.error;
+  const b = await request.json().catch(() => null);
+  const t = momentTarget(b);
+  if (t.error) return json({ error: t.error }, 400, cors);
+  let f;
+  try { f = momentInput(b); } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
+
+  const newMonth = `${f.when.y}-${f.when.m}`, newPath = `moments/${newMonth}.md`;
+  const result = await momentCommit(env, author.user, async (gh, headSha) => {
+    const from = await readMonth(gh, t.path, headSha);
+    const i = from.entries.findIndex((x) => x.id === t.id);
+    if (i < 0) return { response: json({ error: '没有这条随笔（可能刚被改过，刷新再试）' }, 404, cors) };
+    const old = from.entries[i];
+    const tree = [];
+    const urls = await uploadPics(gh, headSha, f, tree);
+    const entry = renderEntry(f, urls);
+    let to = from;
+    if (newMonth === t.month) from.entries[i] = entry;
+    else { from.entries.splice(i, 1); to = await readMonth(gh, newPath, headSha); to.entries.push(entry); }
+    const fromText = monthText(from), toText = monthText(to);
+    tree.push({ path: t.path, mode: '100644', type: 'blob', content: fromText });
+    if (to !== from) tree.push({ path: newPath, mode: '100644', type: 'blob', content: toText });
+    await dropPics(gh, headSha, entryImages(old.body), [fromText, toText], tree);
+    return {
+      tree,
+      message: `随笔: 修改 ${old.stamp}${newMonth === t.month ? '' : ' → ' + momentStamp(f.when)}\n\n(edited from /moments/post.html)`,
+      result: { url: momentUrl(newMonth, momentId(f.when)), month: `/moments/${newMonth}.html`, file: newPath, images: urls },
+    };
+  });
+  return result instanceof Response ? result : json(result, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+// DELETE /moments { month, id }
+async function deleteMoment(request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '删除随笔');
+  if (author.error) return author.error;
+  const t = momentTarget(await request.json().catch(() => null));
+  if (t.error) return json({ error: t.error }, 400, cors);
+
+  const result = await momentCommit(env, author.user, async (gh, headSha) => {
+    const parsed = await readMonth(gh, t.path, headSha);
+    const i = parsed.entries.findIndex((x) => x.id === t.id);
+    if (i < 0) return { response: json({ error: '没有这条随笔（可能已经删了）' }, 404, cors) };
+    const [old] = parsed.entries.splice(i, 1);
+    const text = monthText(parsed);
+    const tree = [{ path: t.path, mode: '100644', type: 'blob', content: text }];
+    await dropPics(gh, headSha, entryImages(old.body), [text], tree);
+    return { tree, message: `随笔: 删除 ${old.stamp}\n\n(deleted from /moments/)`, result: { month: `/moments/${t.month}.html`, file: t.path } };
+  });
+  return result instanceof Response ? result : json(result, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
 // ---- GitHub App authentication --------------------------------------------

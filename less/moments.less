@@ -291,9 +291,9 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 		.moment-music-link { display: inline-block; margin-top: 4px; font-size: 12px; color: @mo-muted; &:hover { color: @brand-primary; } }
 	}
 
-	.moment:hover .moment-link, .moment:target .moment-link { opacity: 1; }
 
-	// ---- foot: ♡ n · 评论 · 链接
+	// ---- foot: ♡ n · 评论 · 分享 · (author) 编辑 · 删除
+	.moment.is-deleted { opacity: 0.45; .moment-own { display: none; } }
 	.moment-foot {
 		display: flex;
 		align-items: center;
@@ -304,7 +304,10 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 		font-size: 12.5px;
 		color: @mo-muted;
 		.moment-act { color: @mo-muted; text-decoration: none; .fa { margin-right: 3px; } &:hover { color: @brand-primary; } }
-		.moment-link { opacity: 0; transition: opacity 0.15s; }
+		button.moment-act { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+		.moment-own { display: inline-flex; gap: 16px; margin-left: auto; }
+		.moment-del:hover { color: #c0392b; }
+		.moment-toast { font-size: 12px; color: @brand-primary; }
 		// the ♡: the section-reaction button without its chip look
 		.sec-react { display: inline-flex; }
 		.sec-react-btn {
@@ -374,6 +377,5 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 		.moment { padding: 12px 14px 9px; border-radius: 10px; }
 		.moment-body { font-size: 16px; }
 		.moment-gallery, .moment-music { max-width: none; }
-		.moment-foot .moment-link { opacity: 1; }
 	}
 }

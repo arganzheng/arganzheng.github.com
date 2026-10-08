@@ -6254,9 +6254,11 @@ a.ms-day:hover {
 .post-container.moments .moment-music .moment-music-link:hover {
   color: #00788f;
 }
-.post-container.moments .moment:hover .moment-link,
-.post-container.moments .moment:target .moment-link {
-  opacity: 1;
+.post-container.moments .moment.is-deleted {
+  opacity: 0.45;
+}
+.post-container.moments .moment.is-deleted .moment-own {
+  display: none;
 }
 .post-container.moments .moment-foot {
   display: flex;
@@ -6278,9 +6280,24 @@ a.ms-day:hover {
 .post-container.moments .moment-foot .moment-act:hover {
   color: #00788f;
 }
-.post-container.moments .moment-foot .moment-link {
-  opacity: 0;
-  transition: opacity 0.15s;
+.post-container.moments .moment-foot button.moment-act {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.post-container.moments .moment-foot .moment-own {
+  display: inline-flex;
+  gap: 16px;
+  margin-left: auto;
+}
+.post-container.moments .moment-foot .moment-del:hover {
+  color: #c0392b;
+}
+.post-container.moments .moment-foot .moment-toast {
+  font-size: 12px;
+  color: #00788f;
 }
 .post-container.moments .moment-foot .sec-react {
   display: inline-flex;
@@ -6454,9 +6471,6 @@ a.ms-day:hover {
   .post-container.moments .moment-gallery,
   .post-container.moments .moment-music {
     max-width: none;
-  }
-  .post-container.moments .moment-foot .moment-link {
-    opacity: 1;
   }
 }
 body.bare {
@@ -6716,6 +6730,14 @@ body.bare {
   resize: none;
   line-height: 1.6;
 }
+.mp-note {
+  font-size: 13px;
+  color: #7a8794;
+  margin: 4px 0 8px;
+}
+.mp-note .fa {
+  margin-right: 4px;
+}
 .mp-actions {
   display: flex;
   align-items: center;
@@ -6729,6 +6751,17 @@ body.bare {
   color: #7a8794;
 }
 .mp-actions .mp-msg.is-bad {
+  color: #d1242f;
+}
+.mp-actions .mp-del {
+  border: 0;
+  background: none;
+  color: #7a8794;
+  font-size: 16px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.mp-actions .mp-del:hover {
   color: #d1242f;
 }
 .mp-actions .mp-submit {

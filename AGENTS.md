@@ -1018,8 +1018,24 @@ app). Sign in = the comments' giscus OAuth (`localStorage["giscus-session"]`
 JPEG), previews the card with the `.moment` styles and POSTs to the worker's
 `/moments`, which — only for the repo owner — commits the entry + pictures
 to `master` as the GitHub App (Contents: write), in the `moment.py` format;
-the deploy workflow publishes it. `noindex`, `sitemap: false`. Details and
-the one-off App permission setup: `tools/annotations-worker/README.md`.
+the deploy workflow publishes it. `noindex`, `sitemap: false`. Opened as
+`post.html?edit=YYYY-MM/<id>` (the 编辑 link on a card) it loads that entry
+(worker `GET /moments`, parsed back into the fields; `raw` = non-canonical
+body, edited as Markdown), saves with `PUT /moments { month, id, … }` (kept
+pictures are sent as `{ url }`, the block is rewritten in place, orphaned
+pictures deleted) and has a 删除 button (`DELETE /moments`). Details and the
+one-off App permission setup: `tools/annotations-worker/README.md`.
+
+Each card's foot (`_layouts/moments.html`, wired by `js/moments.js`): the ♡,
+评论, 分享 (`.moment-share` → `window.BlogShare.open` of `js/share.js` — the
+same popover as articles: system sheet / 微博 / X / LinkedIn / 微信二维码 /
+复制链接; a completed share counts on the month path via `POST /shares`) and
+`.moment-own` (编辑 → the edit mode above, 删除 → `DELETE /moments` after a
+confirm, then the card fades), shown only when `js/annotations.js` reports
+the signed-in viewer (`blog:viewer`) = `site.github_username` — so on month
+pages, where the comments sign the author in; tag pages have no comments and
+show no 编辑 / 删除. `e.month` (`YYYY-MM` from the page URL) gives the
+`?edit=` target and `data-month`.
 
 How it is built (`_plugins/moments.rb`):
 - `:site, :post_read` gives each month page `permalink: /moments/YYYY-MM.html`

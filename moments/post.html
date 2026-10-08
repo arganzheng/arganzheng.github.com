@@ -15,7 +15,9 @@ js/moment-post.js (loaded below, not part of blog.min.js) signs the author in
 through giscus (the same GitHub login as the comments), shrinks the pictures in
 the browser and POSTs everything to the worker's /moments, which commits the
 entry to moments/YYYY-MM.md on master (see tools/annotations-worker/worker.js);
-the deploy workflow publishes it a minute or two later. The tag chips are the
+the deploy workflow publishes it a minute or two later. With `?edit=YYYY-MM/<id>`
+(the 编辑 link on a card) it loads that entry (GET /moments), saves with PUT and
+offers 删除 (DELETE). The tag chips are the
 existing tags (site.data.moments.tags, _plugins/moments.rb); the preview card
 reuses the .moment styles of less/moments.less. `pwa:` above makes 「添加到主屏幕」
 install it as a stand-alone app (head.html).
@@ -23,7 +25,7 @@ install it as a stand-alone app (head.html).
 <div id="mp" class="mp" data-api="{{ site.annotations.api }}" data-owner="{{ site.github_username | strip }}" data-repo="{{ site.github_username | strip }}/arganzheng.github.com" data-base="{{ site.baseurl }}">
   <header class="mp-head">
     <a class="mp-back" href="{{ '/moments/' | prepend: site.baseurl }}" title="回到随笔"><i class="fa fa-chevron-left"></i></a>
-    <h1>发随笔</h1>
+    <h1 class="mp-title">发随笔</h1>
     <div class="mp-auth">
       <button type="button" class="mp-login"><i class="fa fa-github"></i> 登录</button>
       <span class="mp-who" hidden></span>
@@ -53,8 +55,11 @@ install it as a stand-alone app (head.html).
       <label><i class="fa fa-clock"></i><input class="mp-time" type="datetime-local"></label>
     </details>
 
+    <p class="mp-note" hidden><i class="fa fa-circle-info"></i> 这条随笔不是发布页写出的标准格式（比如引用后面还有文字），正文按原始 Markdown 编辑；图片、引用、歌曲就留在正文里。</p>
+
     <div class="mp-actions">
       <span class="mp-msg" role="status"></span>
+      <button type="button" class="mp-del" title="删除这条随笔" hidden><i class="fa fa-trash"></i></button>
       <button type="button" class="mp-submit" disabled>发布</button>
     </div>
   </section>

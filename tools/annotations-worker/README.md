@@ -60,7 +60,7 @@ feature is off. The worker only accepts the request when the
 `Authorization: Bearer <reader token>` header resolves via `GET /user`, i.e.
 from readers signed in through giscus.
 
-## 随笔 from the phone (POST /moments)
+## 随笔 from the phone (POST / GET / PUT / DELETE /moments)
 
 `/moments/post.html` (layout `bare`, `js/moment-post.js`; 「添加到主屏幕」 installs
 it as an app via `moments/post.webmanifest`) is the author's 发布页: text with
@@ -87,6 +87,25 @@ deploy workflow, so the entry is live a minute or two later. Answers
 tag / time / image type), `413` picture > 3 MB, `501` no App key; a ref
 update that loses a race with another push is retried once. Times are
 Beijing (`timezone: Asia/Shanghai`), as from the CLI.
+
+Editing and deleting (the 编辑 / 删除 links a signed-in author sees on every card
+of a month page, `js/moments.js`; the 发布页 opens as `/moments/post.html?edit=YYYY-MM/<id>`):
+
+- `GET /moments?month=2026-09&id=20260921-0802` → `{ month, id, time, place, text, quote, by, music, images: ["/img/moments/…"], raw }`
+  — the entry parsed back into the page's fields (ids as `_plugins/moments.rb`
+  assigns them, `-2` for a second entry at the same minute). `raw: true` when the
+  body is not in the canonical text → quote → pictures → URL order (then `text`
+  is the whole Markdown body).
+- `PUT /moments { month, id, …the POST fields, images: [{ url } | { type, data }] }`
+  rewrites that entry's block in place (`{ url }` keeps a picture already in the
+  repo, in the new order; a new picture uploads as with POST). A changed date
+  that lands in another month moves the entry to that month's file in the same
+  commit. Pictures the entry no longer shows — and nothing else in the file
+  does — are deleted from `img/moments/`. Answers `200 { url, commit, … }`.
+- `DELETE /moments { month, id }` removes the block and its pictures the same
+  way → `200 { commit, month, file }`.
+
+All three are owner-only like POST; `404` when the id is not in the file.
 
 Setup on top of the `/issues` App: give the App repository permission
 **Contents: Read and write** (App settings → Permissions & events → save,
