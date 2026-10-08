@@ -230,7 +230,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限？**
 
-十篇：GPU 硬件与 Roofline → CUDA 编程模型 → 访存合并与 elementwise → 共享内存与 reduction → GEMM 分块 → Tensor Core 与 CUTLASS → Triton → Attention kernel → 量化与融合 kernel → 剖析、测试与贡献。CUDA 与 Triton 两条路线在同一组 kernel 上并行推进；练手项目是一个 decoder layer 的 kernel 全集。
+十一篇：GPU 硬件与 Roofline → CUDA 编程模型 → 访存合并与 elementwise → 共享内存与 reduction → GEMM 分块 → Tensor Core 与 CUTLASS → Triton → Attention kernel → 量化与融合 kernel → 剖析、测试与贡献 → 昇腾 / Ascend C 独立对照。CUDA 与 Triton 两条路线在同一组 kernel 上并行推进；练手项目是一个 decoder layer 的 kernel 全集。
 
 这是 AI-Infra 贡献者最稀缺的一层：vLLM、SGLang、FlashInfer、PyTorch 的高价值 PR 大多落在这里。
 

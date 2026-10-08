@@ -1,12 +1,12 @@
 ---
 layout: slides
 title: "GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention"
-subtitle: "系列精华 · 十篇正文每篇一页，按 ↓ 看字节、FLOPs 与 Roofline 上的位置"
+subtitle: "系列精华 · 十一篇正文每篇一页，按 ↓ 看字节、FLOPs 与 Roofline 上的位置"
 permalink: /slides/gpu-kernel-engineering.html
 series: gpu-kernel-engineering
 date: 2026-05-20 23:30:00 +0800
 author: arganzheng
-description: "《GPU Kernel 工程》系列的分享用幻灯片：Roofline 与 ridge point、第一个 kernel 跑出多少带宽、访存合并与 Little's law、shared memory 与 warp shuffle 归约、GEMM 从 naive 到分块、Tensor Core 与 CUTLASS、Triton 的边界、FlashAttention 与 PagedAttention、INT4 / FP8 融合 kernel、ncu 的 SOL 分类。"
+description: "《GPU Kernel 工程》系列的分享用幻灯片：Roofline 与 ridge point、第一个 kernel 跑出多少带宽、访存合并与 Little's law、shared memory 与 warp shuffle 归约、GEMM 从 naive 到分块、Tensor Core 与 CUTLASS、Triton 的边界、FlashAttention 与 PagedAttention、INT4 / FP8 融合 kernel、ncu 的 SOL 分类、Ascend C 的 Add 三段流水与验证边界。"
 theme: white
 transition: slide
 ---
@@ -31,9 +31,10 @@ $$
 
 ---
 
-## 十篇怎么连起来
+## 十一篇怎么连起来
 
 ```mermaid
+%% 图：CUDA 主线与 Ascend C 独立对照的十一篇路径
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
     G1["01 硬件结构与 Roofline<br/>字节数、FLOPs、ridge point"] --> G2["02 CUDA 编程模型与第一个 kernel<br/>怎么写、怎么测"]
@@ -45,6 +46,7 @@ flowchart TB
     G4 & G6 --> G8["08 Attention kernel<br/>FlashAttention、PagedAttention——汇合点"]
     G6 & G7 --> G9["09 量化与融合 kernel"]
     G8 & G9 --> G10["10 剖析、测试与贡献"]
+    G10 --> G11["11 从 CUDA 到昇腾：Ascend C Add"]
 ```
 
 ---
@@ -292,6 +294,36 @@ flowchart TB
 
 ---
 
+## 11 · 从 CUDA 到昇腾：同一个 Add 换执行模型
+
+**不变**：每元素两读一写、一次加法；先正确性、后性能。
+
+**改变**：线程索引 → 每核一段再分 tile；直接全局 load/store → 显式 `CopyIn → Compute → CopyOut`。
+
+| CUDA 概念 | Ascend C 的对应与边界 |
+|---|---|
+| grid / blockIdx | launch 的 blockDim / GetBlockIdx；不要混淆 block 内线程数 |
+| 显式暂存与生产者/消费者同步 | TPipe / TQue / LocalTensor；队列不是 warp |
+| cp.async 与流水 | 两块 buffer 提供重叠机会，不承诺加速 |
+| Tensor Core / CUTLASS | Cube / Matmul；只是功能角色与分层分块的类比 |
+
+Table: CUDA 与 Ascend C 的核心映射
+
+<aside class="notes" markdown="1">
+原文 /ascend-cann-from-cuda-to-ascend-c.html。版本钉 CANN 8.0.0 文档链接的 samples tag v0.2-8.0.0.beta1；本文环境没有 CANN / NPU。
+</aside>
+
+<!-- v -->
+
+### 账本不是性能报告
+
+- 固定 FP16 `[8,2048]`：8 个逻辑块，每块 16 轮 × 128 元素。
+- 三队列各两块 buffer：payload **1536 B**；逻辑全局流量 **98304 B**；I = **1/6**。
+- NumPy 账本只验证覆盖与参考值；CANN CPU 调试、仿真、真机不能互相冒充。
+- 本篇未编译或运行 Ascend C；**没有真实 NPU 性能数据**。
+
+---
+
 ## 贯穿线：同一张 Roofline
 
 | 篇 | 在 Roofline 上做了什么 |
@@ -304,6 +336,7 @@ flowchart TB
 | 08 | FlashAttention 把 attention 从斜线搬到屋顶（减 IO） |
 | 09 | INT4 沿斜线右移（减字节）；FP8 同时右移和抬顶 |
 | 10 | SOL 告诉你现在在图的哪里 |
+| 11 | 账本可迁移，执行模型与 profiler 要换；小 Add 不代表 HBM 带宽 |
 
 ---
 
@@ -322,7 +355,7 @@ flowchart TB
 
 ---
 
-## 十个出口
+## 十一个出口
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|
@@ -336,6 +369,7 @@ flowchart TB
 | 08 | 132 → 66 MiB（实际 4）；$$\Theta(N^2d^2/M)$$ |
 | 09 | W4A16 I ≈ 4M，交叉 M ≈ 40 |
 | 10 | SOL > 80% 到顶；rtol 1.6e-2 |
+| 11 | 8 × 2048；16 × 128；1536 B 队列 payload；性能留待 NPU 实测 |
 
 ---
 

@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》是一组共十篇的系列文章，面向已经理解 PyTorch 运行时、准备向下进入 GPU 执行层的工程师，系统讲解如何读懂、写出和优化运行在 GPU 上的 kernel。
+《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》是一组共十一篇的系列文章，面向已经理解 PyTorch 运行时、准备向下进入 GPU 执行层的工程师，系统讲解如何读懂、写出和优化运行在 GPU 上的 kernel。
 
 它回答的问题是：
 
@@ -96,7 +96,7 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 
 ## 系列的整体主线
 
-十篇文章按"从硬件到应用"的顺序推进，同时也是 kernel 复杂度递增的顺序：
+前十篇按"从硬件到应用"的顺序推进，同时也是 kernel 复杂度递增的顺序：
 
 | 篇 | 主题 | 一句话 |
 |---|---|---|
@@ -110,8 +110,9 @@ Triton 让写一个融合 kernel 的成本从几百行 CUDA 变成几十行 Pyth
 | 第八篇 | Attention Kernel | FlashAttention 与 PagedAttention |
 | 第九篇 | 量化与融合 kernel | 推理系统的其余部分 |
 | 第十篇 | 剖析、测试与贡献 | Nsight Compute、正确性、接入框架 |
+| 第十一篇 | 从 CUDA 到昇腾 | Ascend C 的搬入/计算/搬出三段与概念映射 |
 
-Table: 十篇的主题与一句话概括
+Table: 十一篇的主题与一句话概括
 
 三条交织的线索：
 
@@ -121,9 +122,9 @@ Table: 十篇的主题与一句话概括
 | 方法线 | Roofline → 带宽测量 → 占用率 → Nsight Compute 指标 → 决策树 |
 | 应用线 | elementwise → norm → GEMM → attention → 量化/MoE → 一个完整的 decoder layer |
 
-Table: 贯穿十篇的三条线索
+Table: 贯穿 CUDA 十篇的三条线索
 
-前六篇的所有 kernel 用 CUDA 写；第七篇用 Triton 把第三到五篇重写一遍；第八、九篇两种写法并行；第十篇的方法对两者通用。
+前六篇的所有 kernel 用 CUDA 写；第七篇用 Triton 把第三到五篇重写一遍；第八、九篇两种写法并行；第十篇的方法对两者通用；第十一篇换一套硬件与语言（Ascend C），用第三篇那个 elementwise 算子做概念映射，CUDA 仍是系列主线。
 
 
 ## 章节结构与分章导读
@@ -345,7 +346,7 @@ Table: 贯穿十篇的三条线索
 
 ### 10. 剖析、测试与贡献：把 kernel 做成产品
 
-最后一篇讲把一个"能跑"的 kernel 变成"能合入"的 kernel 需要的全部工程：读 profiler、写测试、做 benchmark、处理多架构、接入框架。
+CUDA 主线的第十篇讲把一个"能跑"的 kernel 变成"能合入"的 kernel 需要的全部工程：读 profiler、写测试、做 benchmark、处理多架构、接入框架。
 
 这一篇会覆盖：
 
@@ -366,9 +367,32 @@ Table: 贯穿十篇的三条线索
 
 实践：用 Nsight Compute 剖析第九篇组装的 decoder layer 里的每个 kernel，找出离 Roofline 最远的一个并优化；给它写完整的测试和 benchmark；用 `TORCH_LIBRARY` 注册并通过 `opcheck`。
 
-### 11. 系列总结与通关自测
+### 11. 从 CUDA 到昇腾：用 Ascend C 重写一个算子
 
-最后一篇不讲新内容：把十篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾——上面每篇导读末尾抛出的问题在那里逐条作答——拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十篇能不能连起来用；读完正文再做。
+第十一篇把前十篇建立的编程模型挪到另一套硬件上，看哪些部分是 CUDA 特有的、哪些是 GPU 类加速器共有的。国内集群里昇腾已有相当规模，框架层能屏蔽大部分差异，算子层屏蔽不掉。
+
+这一篇会覆盖：
+
+- CANN 的分层与 CUDA 工具链的对照：Ascend C ↔ CUDA C++、AscendCL ↔ CUDA 运行时、msprof ↔ Nsight、`torch_npu` ↔ PyTorch CUDA 后端；Kernel Launch 与框架接入两条开发路径；
+- AI Core 的结构：Scalar / Vector / Cube 三类计算单元，耦合架构与分离架构，核内存储层次（L1、L0A/L0B/L0C、Unified Buffer）与 MTE 搬运单元；
+- 一个 Add 算子的全文逐段读：`Init` 的多核切分与 buffer 预分配、`Process` 的循环、`CopyIn / Compute / CopyOut` 三段流水；
+- `TPipe`、`TQue`、`LocalTensor`：核内空间的分配（`AllocTensor` / `FreeTensor`）与段间的执行序约束（`EnQue` / `DeQue`），以及为什么 `TQue` 既不是 warp 也不是 stream；
+- 切分：`blockDim` 为什么是"用几个核"、核内分块的容量约束、双缓冲为什么**可能**让搬运与计算重叠而不保证更快、官方样例回避的尾块与对齐；
+- host 侧：AscendCL 与 CUDA 运行时的逐行对照，tiling 为什么放在 host，CPU 调试 / 仿真 / 真机三种运行模式各能回答什么；
+- 从 Add 到 Matmul：Cube 的数据流、`TCubeTiling` 与 `Matmul` 高阶 API 和 CUTLASS 模板参数的类比；
+- 一张 CUDA ↔ Ascend C 的概念映射表，分成一对一、要改写、没有对应物三类，加一份迁移清单。
+
+核心问题是：
+
+> **把第三篇的 elementwise kernel 迁到昇腾上，哪些概念一对一映射、哪些没有对应物？为什么 Ascend C 要你显式写出搬入、计算、搬出三段，而 CUDA 不用？**
+
+本篇是独立对照篇，不是双硬件教程：只写一个 elementwise 算子，GEMM 只点到 Cube 与高阶 API 的入口；昇腾的代际谱系、多卡通信、昇腾侧的 FlashAttention 都不在范围内。写作环境没有 CANN 与昇腾硬件，因此文中不含真机性能数字，只给机制与应该怎么测。
+
+实践：原样收录官方 Add 样例（CANN 8.0.0 文档链接的 `v0.2-8.0.0.beta1`），补一个确定性输入生成器、一个严格的逐元素验证器和一个可在普通 CPU 上运行的 NumPy 分块账本；有 CANN 时按 README 跑 CPU 调试 / 仿真 / 真机三种模式。
+
+### 12. 系列总结与通关自测
+
+最后一篇不讲新内容：把十一篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾——上面每篇导读末尾抛出的问题在那里逐条作答——拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十一篇能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -385,6 +409,7 @@ Table: 贯穿十篇的三条线索
 | 第八篇 | FlashAttention 前向 | 因果掩码 · GQA · Triton 完整版 + CUDA 核心循环 |
 | 第九篇 | RoPE · SiLU-mul · fused norm · INT4 GEMM | 组装成完整 layer |
 | 第十篇 | 剖析 · 测试 · 注册 | Nsight Compute · opcheck · TORCH_LIBRARY |
+| 第十一篇 | 同一个 elementwise 的 Ascend C 版 | 搬入/计算/搬出三段 · 队列深度 · 概念映射 |
 
 Table: 练手项目：decoder layer 各 kernel 的分篇安排
 
@@ -402,6 +427,7 @@ Table: 练手项目：decoder layer 各 kernel 的分篇安排
 | 第八篇 | flash-attention<br/>vLLM<br/>FlashInfer | `csrc/flash_attn/src`<br/>`csrc/attention/`<br/>`include/flashinfer/attention/` |
 | 第九篇 | vLLM | `csrc/quantization/{marlin,awq,gptq,w8a8/fp8}/`<br/>`csrc/activation_kernels.cu`<br/>`csrc/pos_encoding_kernels.cu`<br/>`csrc/moe/` |
 | 第十篇 | vLLM | `csrc/torch_bindings.cpp`<br/>`vllm/_custom_ops.py`<br/>`tests/kernels/` |
+| 第十一篇 | Ascend/samples | `operator/ascendc/0_introduction/3_add_kernellaunch/`<br/>`11_matmul_kernellaunch/` |
 
 Table: 各篇平行的源码阅读线
 
@@ -430,7 +456,11 @@ Table: 各篇平行的源码阅读线
 
 ### 关于 AMD 与其他硬件
 
-本系列以 NVIDIA CUDA 为主线。ROCm/HIP 的编程模型与 CUDA 高度对应（wavefront 64 vs warp 32、LDS vs shared memory、MFMA vs mma），Triton 对 AMD 的支持也在推进；正文会在相关位置提及差异，但不展开。国产加速器不在范围内。
+本系列以 NVIDIA CUDA 为主线：前十篇的所有代码、硬件数字与 profiler 指标都是 CUDA 侧的。
+
+ROCm/HIP 的编程模型与 CUDA 高度对应（wavefront 64 vs warp 32、LDS vs shared memory、MFMA vs mma），Triton 对 AMD 的支持也在推进；正文会在相关位置提及差异，但不单独成篇。
+
+国产加速器以**一篇独立对照篇**的形式进入系列：第十一篇用昇腾的 Ascend C 重写第三篇那个 elementwise 算子，目的是把 CUDA 特有的概念和加速器共有的概念分开，不是把系列改写成双硬件教程。它只讲编程模型，不含真机性能数字（写作环境没有昇腾硬件），也不涉及昇腾的代际谱系与多卡通信。其他国产加速器不在范围内。
 
 
 ## 章节目录
@@ -445,7 +475,8 @@ Table: 各篇平行的源码阅读线
 8. [Attention Kernel：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html)
 9. [量化与融合 kernel：推理系统的其余部分](/quantization-and-fused-kernels.html)
 10. [剖析、测试与贡献：把 kernel 做成产品](/kernel-profiling-testing-and-contribution.html)
-11. [系列总结与通关自测](/gpu-kernel-engineering-series-recap-and-self-test.html)
+11. [从 CUDA 到昇腾：用 Ascend C 重写一个算子](/ascend-cann-from-cuda-to-ascend-c.html)
+12. [系列总结与通关自测](/gpu-kernel-engineering-series-recap-and-self-test.html)
 
 
 ## 最终目标

@@ -1,18 +1,18 @@
 ---
 layout: post
 series: gpu-kernel-engineering
-title: "GPU Kernel 工程（11）：系列总结与通关自测"
+title: "GPU Kernel 工程（12）：系列总结与通关自测"
 subtitle: "GPU Kernel Engineering: Series Recap and Final Self-Test"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 date: 2026-05-20 20:00:00
 ---
 
-十篇正文回答了一个问题：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。第一篇把 GPU 拆开并建立 Roofline，第二篇写出第一个 kernel 并学会测量，第三、四篇把 memory-bound 的 elementwise 与 reduction 推到带宽墙，第五、六篇把 GEMM 从 naive 推到 Tensor Core，第七篇用 Triton 看编译器接管了哪一层，第八、九篇把这些工具用到 attention、量化与融合 kernel 上组装出一个 decoder layer，第十篇讲怎么剖析、测试、接入框架并合入一个 PR。
+十一篇正文回答了一个问题：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。第一篇把 GPU 拆开并建立 Roofline，第二篇写出第一个 kernel 并学会测量，第三、四篇把 memory-bound 的 elementwise 与 reduction 推到带宽墙，第五、六篇把 GEMM 从 naive 推到 Tensor Core，第七篇用 Triton 看编译器接管了哪一层，第八、九篇把这些工具用到 attention、量化与融合 kernel 上组装出一个 decoder layer，第十篇讲怎么剖析、测试、接入框架并合入一个 PR；第十一篇用 Ascend C Add 对照 CUDA，区分可迁移的方法和必须重写的执行模型。
 
-本文不讲新内容，做三件事：把十篇压成一张表与十段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十篇能不能连起来用"。
+本文不讲新内容，做三件事：把十一篇压成一张表与十一段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十一篇能不能连起来用"。
 
-> **读完这十篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
+> **读完这十一篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
 先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
 
@@ -49,14 +49,16 @@ flowchart TB
 | [第九篇：量化与融合 kernel](/quantization-and-fused-kernels.html) | INT4 weight-only GEMM decode 快 3 倍、prefill 反而慢，用 Roofline 解释 | 用指令换字节：字节除以 4、FLOPs 不变、多一条反量化指令<br/>decode 在斜线上受益，prefill 在屋顶上不动甚至下沉<br/>FP8 字节与 FLOPs 同时减半 | BF16 $$I \approx M$$、W4A16 $$I \approx 4M$$，交叉点 $$M \approx 40$$<br/>decode 8 ms → 约 2 ms<br/>E4M3 max 448 无 inf<br/>residual + RMSNorm 10 → 8 B、RMSNorm + FP8 量化 7 → 3 B |
 | [第十篇：剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html) | ncu 报告 occupancy 25%、long scoreboard 60%，该改什么？ | 先看 SOL：任一接近 90% 就什么都不用改；两者都低才是 latency-bound，再看占用率的限制因素，加 ILP，改完重测 | SOL > 80% 到顶、两者 < 40–50% latency-bound<br/>寄存器 > 32 压占用率、128+ 是 GEMM 常态<br/>BF16 rtol 1.6e-2<br/>边界 shape 0、1、769、5125<br/>`TORCH_LIBRARY` + `register_fake` + `opcheck` |
 
-Table: 十篇的核心问题、结论与必记公式
+| [第十一篇：从 CUDA 到昇腾](/ascend-cann-from-cuda-to-ascend-c.html) | 哪些概念可以迁移，哪些必须重写？ | 先搬到核内，再做 Vector Add；`TQue` 管 buffer 生命周期与段间依赖，不是 warp | 固定样例：8 × 2048；每轮 128 个 half，共 16 轮<br/>三队列 payload 1536 B；逻辑流量 98304 B；I = 1/6<br/>NumPy 账本不是 CANN CPU 调试，更不是真机性能 |
+
+Table: 十一篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿十篇的五条线：理论下界先行、算术强度与 ridge、字节数是唯一变量、数据复用的层次、在飞与占用率 |
+| 三 | 贯穿十一篇的五条线：理论下界先行、算术强度与 ridge、字节数是唯一变量、数据复用的层次、在飞与占用率 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
@@ -230,11 +232,21 @@ Table: 本文的章节安排
 
 **常见误解**："stall 原因是 profiler 最有用的信息"——只有 latency-bound 时才有诊断价值。另一个："kernel 快就能合入"——PR 还要 before/after 多 shape 多 GPU 的表、测试命令、精度评测、pre-commit。
 
+### 11. 第十一篇：从 CUDA 到昇腾——用 Ascend C 重写一个算子
+
+**核心问题**：同一个 Add 迁到昇腾，哪些是算法不变量、哪些是 CUDA 特有的执行方式？
+
+**结论**：不变的是每元素两读一写、一次加法，以及先核对正确性再测性能的方法。要重写的是每线程索引、访存和同步：`GetBlockIdx()` 先切出本核任务，再经 `DataCopy` 把输入从 GM 搬到 LocalTensor，Vector `Add` 计算，最后搬回 GM。`TPipe` 组织核内 buffer，`TQue` 的申请/释放管理生命周期、入队/出队表达生产者到消费者的依赖。它不是 warp，也不等价于 CUDA block 的全体线程栅栏。
+
+**必记**：固定 `float16[8,2048]` 样例启动 8 个逻辑块；每块 2048 元素、每轮 128 元素、16 轮。两个输入队列和一个输出队列各两块 buffer，payload 共 1536 B；全局逻辑流量 98304 B，算术强度 1/6 FLOP/B。这些是可复核的账本，不是实测带宽。
+
+**常见误解**：“双缓冲必然加速”——重叠机会同时伴随 buffer 容量、搬运粒度与同步开销的取舍。“没有 NPU 也测过性能”——普通 NumPy 参考、CANN CPU 调试、NPU 仿真和真机四者证明的事情不同；本篇只完成普通 CPU 上的账本，未编译或运行 Ascend C，没有真机性能数据。
+
 ## 三、贯穿全系列的几条线
 
 ### 1. 理论下界先行：先算、再测、再解释、再缩小
 
-这是十篇共用的方法论。第一篇给出算法：字节数与 FLOPs 各除以峰值带宽与算力取大者，elementwise 3 GiB 是 1.61 ms、RMSNorm 128 MiB 是 67 µs、GEMM 4096³ BF16 是 0.44 ms。第二篇第一次把它用在测量上：先算 1.6 ms、再测 1.7–2.0 ms、再把差距拆成四处，同时立下 event 计时、warmup、中位数、L2 flush 的规矩。
+这是十一篇共用的方法论。第一篇给出算法：字节数与 FLOPs 各除以峰值带宽与算力取大者，elementwise 3 GiB 是 1.61 ms、RMSNorm 128 MiB 是 67 µs、GEMM 4096³ BF16 是 0.44 ms。第二篇第一次把它用在测量上：先算 1.6 ms、再测 1.7–2.0 ms、再把差距拆成四处，同时立下 event 计时、warmup、中位数、L2 flush 的规矩。
 
 第三到九篇每篇的开头都是同一个动作：0.81 ms、67 µs、7.0 ms、0.44 ms、132 MiB 对 66 MiB、8 ms 对 2 ms。第十篇把它变成剖析的前提：没有下界，1.6 TB/s 的 DRAM 吞吐对 RMSNorm 是"做到头了"、对 GEMM 是"完全错了"，profiler 的每个百分比都无从判断。
 
@@ -290,7 +302,7 @@ flowchart TB
 | Tensor Core 与 fragment | 一、五、六、七、八、九 | 一 16 倍算力<br/>五 CUDA Core 极限<br/>六 mma / `ldmatrix` / `wgmma`<br/>七 `tl.dot` 与 `#mma`<br/>八 FA 的两个 GEMM<br/>九 反量化后喂 mma |
 | decode 与 prefill | 五、八、九、十 | 五 GEMV $$I = 1$$<br/>八 decode 每步读全部 KV<br/>九 W4A16 交叉点 40<br/>十 decode 时整层翻转为权重字节 / 带宽 |
 
-Table: 贯穿十篇的概念及其关系
+Table: 贯穿十一篇的概念及其关系
 
 ## 四、常见误区
 
@@ -513,17 +525,27 @@ Table: 常见误区与正确说法
 
 | 水平 | 表现 |
 |---|---|
-| 读过 | 能说出十篇各讲什么；知道 Roofline、ridge point、合并、bank conflict、fragment、online softmax、SOL 这些名词 |
+| 读过 | 能说出十一篇各讲什么；知道 Roofline、ridge point、合并、bank conflict、fragment、online softmax、SOL 这些名词 |
 | 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一个 kernel 与一份 ncu 报告能先算下界、再说出它在 Roofline 上的位置与差距来自哪一层 |
-| 能教人 | C 组每题能给出全部要点并预判追问；能解释十篇里每个反直觉结论（90% 之后没有优化、25% 占用率是 GEMM 常态、FlashAttention 的 FLOPs 更多、INT4 在 prefill 更慢、stall 原因常无意义）为什么成立 |
+| 能教人 | C 组每题能给出全部要点并预判追问；能解释十一篇里每个反直觉结论（90% 之后没有优化、25% 占用率是 GEMM 常态、FlashAttention 的 FLOPs 更多、INT4 在 prefill 更慢、stall 原因常无意义）为什么成立 |
 
 Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
 
+### E. 跨硬件迁移题
+
+把 `n=16385` 的 FP16 Add 交给第十一篇的固定样例，只把 `TOTAL_LENGTH` 改大，会有什么问题？
+
+<details markdown="1"><summary>答案</summary>
+
+整数除法的 `BLOCK_LENGTH = n / 8` 会漏掉余数；host 侧分配和文件长度也仍写死。即使改成向上取整，最后一个逻辑块和 tile 仍可能越界，非对齐搬运还需要型号/版本支持的实现。应先把有效长度、分配长度、每核划分与尾块写进 host tiling 合同，再实现合法搬运、计算和写回；用 0、1、127、129、16385 等边界验证。不能把 `if (i<n)` 直接套到一条批量 DataCopy 上，也不能把 padding 长度当成可越界访问的许可。
+
+</details>
+
 ## 六、下一步
 
-十篇只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内，nsys 的时间线是它们与本系列的接口——当瓶颈在 kernel 之间而不是之内时，要去的是这些系列：
+十一篇只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内，nsys 的时间线是它们与本系列的接口——当瓶颈在 kernel 之间而不是之内时，要去的是这些系列：
 
 - **框架层的运行时机制**（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何分显存、Inductor 如何决定融合哪些算子）在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)——本系列只说明"框架在 host 侧准备了什么"。
 - **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、PD 分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——第八篇只讨论分页之后 kernel 如何访问它。
@@ -543,6 +565,6 @@ Table: 掌握程度的判据
 - **C++ 语言本身**：模板、RAII、lambda 等在 kernel 的 host 侧代码中大量出现，本系列假设读者已经掌握。
 
 
-[^q0]: 总纲"最终目标"列出的九个：它读写多少字节、做多少 FLOP（Roofline 上的位置）；理论上最快多少、实际多少（带宽 / 算力利用率）；差距来自哪里（ncu 的指标）；访存模式对不对（合并、向量化、bank conflict）；线程协作方式对不对（shared、shuffle、同步）；用上 Tensor Core 了吗、用对了吗（mma、fragment、流水）；用 Triton 写会怎样（编译器能自动化到哪一层）；它在别的架构上会怎样（多架构与 fallback）；怎么证明它是对的、没变慢（测试、tolerance、benchmark）。详见[第二章](#二逐篇回顾)。
+[^q0]: 总纲"最终目标"列出的九个：它读写多少字节、做多少 FLOP（Roofline 上的位置）；理论上最快多少、实际多少（带宽 / 算力利用率）；差距来自哪里（ncu 的指标）；访存模式对不对（合并、向量化、bank conflict）；线程协作方式对不对（shared、shuffle、同步）；用上 Tensor Core 了吗、用对了吗（mma、fragment、流水）；用 Triton 写会怎样（编译器能自动化到哪一层）；它在别的架构上会怎样（多架构与 fallback）；怎么证明它是对的、没变慢（测试、tolerance、benchmark）。跨到昇腾时还要区分逻辑块与线程、buffer 队列与 warp，并明确硬件验证边界。详见[第二章](#二逐篇回顾)。
 [^q1]: A100 2.0 TB/s、BF16 312 TFLOPS、FP32 19.5、108 个 SM；ridge A100 BF16 156、FP32 约 10、H100 295；$$T = \max(F / P_{peak}, B / BW)$$；elementwise $$I = 1/6$$、RMSNorm ≈ 1、decode attention ≈ 4、GEMM 4096³ ≈ 1365；DRAM 可达 85–92%；32 B sector、16 B/线程、Little's law 1.2 MB 在飞；bank = (addr / 4) mod 32；online softmax 合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$；GEMM 4096³ 137.4 GFLOP、7.0 ms（FP32）/ 0.44 ms（BF16）、分块 $$MNK(1/BM + 1/BN)$$、128×128 → $$I = 32$$；`mma.sync.m16n8k16` = 4096 FLOP 占 8 周期；Triton matmul 到 cuBLAS 80–95%；attention 132 MiB → 66 MiB、decode 每 token 128 KiB、$$B \times s \approx$$ 131k 临界；W4A16 交叉点 $$M \approx 40$$；SOL > 80% 到顶、两者 < 40–50% latency-bound。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。
