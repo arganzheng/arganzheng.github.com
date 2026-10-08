@@ -896,8 +896,9 @@
 	// ---- fenced blocks: header bar on top (js/figures.js) — 「代码块 N：标题」 /
 	// 「文本块 N」, language tag, copy · feedback. Always on (no hover: phones),
 	// one rounded box with the <pre> under it.
-	// One light card: hairline border, the header in the same tone as the code
-	// (a slightly lighter strip, hairline under it) — no dark title bar.
+	// One light card: hairline border; the header takes the look of the current
+	// heading in the OUTLINE panel (theme-overrides.less `li.active > a`): grey
+	// strip, teal title; the language is plain text — no dark title bar.
 	.code-block {
 		margin-bottom: 16px;
 		border: 1px solid #e1e4e8;
@@ -911,19 +912,17 @@
 		gap: 8px;
 		min-height: 34px;
 		padding: 2px 6px 2px 14px;
-		border-bottom: 1px solid #e6e9ed;
+		border-bottom: 1px solid #e1e4e8;
 		border-radius: 7px 7px 0 0;
-		background: #fafbfc;
+		background: #eaeef2;
 		font-size: 13px;
 		line-height: 1.4;
 		color: @annot-muted;
-		.fig-no { color: #8c959f; white-space: nowrap; }
-		.fig-title { color: #3f4650; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-		&.is-untitled .fig-no { flex: 1; }
+		.fig-no { color: #6e7781; white-space: nowrap; }
+		.fig-title { color: @brand-primary; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		&.is-untitled .fig-no { flex: 1; color: @brand-primary; font-weight: 500; }
 		.code-lang {
-			padding: 1px 8px;
-			border-radius: 10px;
-			background: #eef1f4;
+			padding: 0 4px;
 			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 			font-size: 11.5px;
 			line-height: 1.5;
@@ -931,8 +930,8 @@
 			white-space: nowrap;
 		}
 		.fig-tools { position: static; padding: 0; gap: 2px; border-radius: 0; background: none; box-shadow: none;
-			.code-copy { width: 28px; height: 28px; background: none; border-color: transparent; color: #8c959f; }
-			.code-copy:hover { background: #fff; border-color: #e1e4e8; color: @annot-muted; }
+			.code-copy { width: 28px; height: 28px; background: none; border-color: transparent; color: #6e7781; }
+			.code-copy:hover { background: #fff; border-color: #d8dee4; color: @brand-primary; }
 		}
 		&.is-picked .fig-title, &.is-picked.is-untitled .fig-no { background: fade(#ffd54f, 45%); border-radius: 3px; }
 		&.has-note .fig-title { color: #24292f; }

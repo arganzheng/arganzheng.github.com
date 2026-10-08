@@ -4516,19 +4516,19 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   gap: 8px;
   min-height: 34px;
   padding: 2px 6px 2px 14px;
-  border-bottom: 1px solid #e6e9ed;
+  border-bottom: 1px solid #e1e4e8;
   border-radius: 7px 7px 0 0;
-  background: #fafbfc;
+  background: #eaeef2;
   font-size: 13px;
   line-height: 1.4;
   color: #57606a;
 }
 .post-container .code-header .fig-no {
-  color: #8c959f;
+  color: #6e7781;
   white-space: nowrap;
 }
 .post-container .code-header .fig-title {
-  color: #3f4650;
+  color: #00788f;
   font-weight: 500;
   flex: 1;
   min-width: 0;
@@ -4538,11 +4538,11 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .post-container .code-header.is-untitled .fig-no {
   flex: 1;
+  color: #00788f;
+  font-weight: 500;
 }
 .post-container .code-header .code-lang {
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: #eef1f4;
+  padding: 0 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11.5px;
   line-height: 1.5;
@@ -4562,12 +4562,12 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   height: 28px;
   background: none;
   border-color: transparent;
-  color: #8c959f;
+  color: #6e7781;
 }
 .post-container .code-header .fig-tools .code-copy:hover {
   background: #fff;
-  border-color: #e1e4e8;
-  color: #57606a;
+  border-color: #d8dee4;
+  color: #00788f;
 }
 .post-container .code-header.is-picked .fig-title,
 .post-container .code-header.is-picked.is-untitled .fig-no {
