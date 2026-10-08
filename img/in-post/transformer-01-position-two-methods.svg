@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="563.498986pt" height="253.19952pt" viewBox="0 0 563.498986 253.19952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.10.9, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 253.19952 
+L 563.498986 253.19952 
+L 563.498986 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 7.2 214.86532 
+L 289.19952 214.86532 
+L 289.19952 50.792872 
+L 7.2 50.792872 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="line2d_1">
+    <path d="M 22.581792 214.86532 
+L 22.581792 50.792872 
+" clip-path="url(#p3ce301d7a9)" style="fill: none; stroke: #dddddd; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2"/>
+   <g id="line2d_2">
+    <path d="M 22.581792 114.883672 
+L 176.399712 114.883672 
+" clip-path="url(#p3ce301d7a9)" style="fill: none; stroke: #1f6fb2; stroke-width: 2.2; stroke-linecap: round"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 22.581792 150.77452 
+L 73.854432 150.77452 
+" clip-path="url(#p3ce301d7a9)" style="fill: none; stroke: #c0392b; stroke-width: 2.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 24.5815 96.938248 
+Q 73.855519 96.938248 121.340684 96.938248 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 117.740684 95.138248 
+L 121.340684 96.938248 
+L 117.740684 98.738248 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #8a8a8a" x="129.228883" y="90.785531" transform="rotate(-0 129.228883 90.785531)">猫 (2, 0)</text>
+   </g>
+   <g id="patch_4">
+    <path d="M 127.12678 78.992824 
+Q 150.763292 78.992824 173.058163 78.992824 
+" style="fill: none; stroke-dasharray: 4.44,1.92; stroke-dashoffset: 0; stroke: #1f6fb2; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 169.458163 77.192824 
+L 173.058163 78.992824 
+L 169.458163 80.792824 
+" style="fill: none; stroke-dasharray: 4.44,1.92; stroke-dashoffset: 0; stroke: #1f6fb2; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #1f6fb2" x="180.501523" y="73.86556" transform="rotate(-0 180.501523 73.86556)">+ 位置 0 (+1, 0)</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #1f6fb2" x="181.526976" y="118.985483" transform="rotate(-0 181.526976 118.985483)">= 猫@0 = (3, 0)  「猫追狗」</text>
+   </g>
+   <g id="patch_5">
+    <path d="M 24.5815 168.719944 
+Q 73.855519 168.719944 121.340684 168.719944 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 117.740684 166.919944 
+L 121.340684 168.719944 
+L 117.740684 170.519944 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #8a8a8a" x="129.228883" y="189.229" transform="rotate(-0 129.228883 189.229)">猫 (2, 0)</text>
+   </g>
+   <g id="patch_6">
+    <path d="M 123.127364 186.665368 
+Q 99.490852 186.665368 77.195981 186.665368 
+" style="fill: none; stroke-dasharray: 4.44,1.92; stroke-dashoffset: 0; stroke: #c0392b; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 80.795981 188.465368 
+L 77.195981 186.665368 
+L 80.795981 184.865368 
+" style="fill: none; stroke-dasharray: 4.44,1.92; stroke-dashoffset: 0; stroke: #c0392b; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #c0392b" x="77.956243" y="207.174424" transform="rotate(-0 77.956243 207.174424)">+ 位置 2 (−1, 0)</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #c0392b" x="78.981696" y="154.876331" transform="rotate(-0 78.981696 154.876331)">= 猫@2 = (1, 0)  「狗追猫」</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="148.19976" y="44.792872" transform="rotate(-0 148.19976 44.792872)">方法一：加位置向量，同一个「猫」在第 0 位和第 2 位是两个向量</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="patch_7">
+    <path d="M 316.100534 245.99952 
+L 556.298986 245.99952 
+L 556.298986 19.658672 
+L 316.100534 19.658672 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="line2d_4">
+    <path d="M 316.100534 153.6155 
+L 556.298986 153.6155 
+" clip-path="url(#p51547eb8c5)" style="fill: none; stroke: #dddddd; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_5">
+    <path d="M 343.81574 245.99952 
+L 343.81574 19.658672 
+" clip-path="url(#p51547eb8c5)" style="fill: none; stroke: #dddddd; stroke-width: 0.8; stroke-linecap: square"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 376.868052 137.089345 
+C 373.967322 131.287884 369.58964 126.351121 364.176804 122.777274 
+C 358.763968 119.203427 352.504403 117.116905 346.029825 116.728281 
+" clip-path="url(#p51547eb8c5)" style="fill: none; stroke: #1f6fb2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 374.653967 173.976564 
+C 378.227814 168.563728 380.314336 162.304163 380.70296 155.829585 
+C 381.091584 149.355008 379.768782 142.890805 376.868052 137.089345 
+" clip-path="url(#p51547eb8c5)" style="fill: none; stroke: #c0392b; stroke-linejoin: miter"/>
+   </g>
+   <g id="matplotlib.axis_3"/>
+   <g id="matplotlib.axis_4"/>
+   <g id="patch_10">
+    <path d="M 345.81465 153.6155 
+Q 390.007309 153.6155 432.411113 153.6155 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 428.811113 151.8155 
+L 432.411113 153.6155 
+L 428.811113 155.4155 
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #8a8a8a" x="439.895121" y="169.782704" transform="rotate(-0 439.895121 169.782704)">q = 猫 (2, 0)</text>
+   </g>
+   <g id="patch_11">
+    <path d="M 345.606019 152.720361 
+Q 390.008509 130.519116 433.210998 108.917871 
+" style="fill: none; stroke-dasharray: 1.2,1.98; stroke-dashoffset: 0; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 429.186076 108.917871 
+L 433.210998 108.917871 
+L 430.796045 112.137809 
+" style="fill: none; stroke-dasharray: 1.2,1.98; stroke-dashoffset: 0; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: start; fill: #8a8a8a" x="439.895121" y="102.80429" transform="rotate(-0 439.895121 102.80429)">狗 (2, 1) 未转</text>
+   </g>
+   <g id="patch_12">
+    <path d="M 343.935666 151.617504 
+Q 346.910069 102.063198 349.777292 54.294532 
+" style="fill: none; stroke: #1f6fb2; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 347.764831 57.780217 
+L 349.777292 54.294532 
+L 351.358364 57.995912 
+" style="fill: none; stroke: #1f6fb2; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #1f6fb2" transform="translate(353.699657 38.684846)">k 转 +60°  「猫追狗」</text>
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #1f6fb2" transform="translate(353.699657 48.202987)">q·k = 0.27</text>
+   </g>
+   <g id="patch_13">
+    <path d="M 345.486093 154.718358 
+Q 386.91418 182.071419 426.849446 208.43884 
+" style="fill: none; stroke: #c0392b; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 424.836985 204.953155 
+L 426.849446 208.43884 
+L 422.853422 207.957398 
+" style="fill: none; stroke: #c0392b; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #c0392b" transform="translate(433.706565 226.413868)">k 转 −60°  「狗追猫」</text>
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; fill: #c0392b" transform="translate(433.706565 235.932009)">q·k = 3.73</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 8.5px; font-family: 'Heiti SC', 'PingFang SC', 'Noto Sans CJK SC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="436.19976" y="13.658672" transform="rotate(-0 436.19976 13.658672)">方法二：转角度，「狗」相对「猫」转 +60° 或 −60°，内积不同</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p3ce301d7a9">
+   <rect x="7.2" y="50.792872" width="281.99952" height="164.072448"/>
+  </clipPath>
+  <clipPath id="p51547eb8c5">
+   <rect x="316.100534" y="19.658672" width="240.198451" height="226.340848"/>
+  </clipPath>
+ </defs>
+</svg>
