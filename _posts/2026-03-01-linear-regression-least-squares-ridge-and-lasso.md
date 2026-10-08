@@ -539,7 +539,7 @@ def lasso_cd(X, y, alpha, sweeps=100, tol=1e-10):
             r_j = y - X @ w + X[:, j] * w[j]          # 把第 j 个特征自己的贡献加回来
             # !ref rho
             rho = X[:, j] @ r_j / n
-            # !ref update
+            # !ref cd_update
             w[j] = soft_threshold(rho, alpha) / q[j]
         if np.abs(w - w_old).max() < tol:
             break
@@ -549,7 +549,7 @@ def lasso_cd(X, y, alpha, sweeps=100, tol=1e-10):
 - [软阈值](#soft)：$$\lvert \rho \rvert \le t$$ 直接归零，否则向零收缩 $$t$$——稀疏就产生在这一行。
 - [q](#q)：每列的 $$\frac{1}{n} x_j^T x_j$$，标准化后的特征全是 1。
 - [部分残差](#partial)：$$y - \sum_{k \ne j} x_k w_k$$，写成"全残差加回第 $$j$$ 项"省一次求和。
-- [ρ](#rho)、[更新](#update)：对这一个坐标解一维问题；一轮（sweep）扫完所有坐标，直到一轮里没有坐标再动。
+- [ρ](#rho)、[更新](#cd_update)：对这一个坐标解一维问题；一轮（sweep）扫完所有坐标，直到一轮里没有坐标再动。
 
 ```text title="exp_soft：一维软阈值手算 vs sklearn，5 个特征的坐标下降逐轮（实际运行输出）"
 === 13. Lasso 的稀疏从哪来：一维软阈值手算，再用坐标下降对上 sklearn ===

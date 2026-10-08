@@ -20,7 +20,7 @@ catalog: true
 本文按"并行集成 → 顺序集成 → 它们在 LLM 工作里的位置"组织：
 
 ```mermaid
-%% 两种集成方式：并行（bagging / 随机森林）与顺序（梯度提升）
+%% 图：两种集成方式：并行（bagging / 随机森林）与顺序（梯度提升）
 flowchart LR
     subgraph P["并行：随机森林"]
         direction TB
