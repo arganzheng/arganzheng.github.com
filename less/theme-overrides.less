@@ -279,6 +279,16 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
   }
 }
 
+/* Mermaid HTML labels. Labels wider than flowchart.wrappingWidth are wrapped
+   by Mermaid with display:table + white-space:break-spaces + overflow-wrap:
+   break-word. break-word does not count towards min-content, so a browser
+   that treats a run of CJK text as one unbreakable word (Chrome on macOS)
+   lets the table grow past the 260px foreignObject and the text is clipped;
+   anywhere does count, so the line wraps inside the box. Page CSS on purpose:
+   it must apply while Mermaid measures labels in its temporary container,
+   before the SVG's own <style> (themeCSS) exists. */
+svg[id^="mermaid-"] foreignObject > div { overflow-wrap: anywhere; }
+
 /* Mermaid / image lightbox, driven by js/diagram-zoom.js (opened from the figure's 放大 button) */
 .diagram-zoom {
   display: none;
