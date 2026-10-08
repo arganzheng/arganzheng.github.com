@@ -161,12 +161,18 @@ $$
 
 ```python title="逻辑回归的一步：返回所有中间量"
 def one_step(x, y, w, b, lr):
-    z = w * x + b                                       # !ref step-logit
-    p = stable_sigmoid(z)                               # !ref step-prob
-    loss = logistic_loss(z, y).mean()                   # !ref step-loss
-    err = p - y                                         # !ref step-err
-    dw, db = (err * x).mean(), err.mean()               # !ref step-grad
-    return z, p, loss, err, dw, db, w - lr * dw, b - lr * db  # !ref step-update
+    # !ref step-logit
+    z = w * x + b
+    # !ref step-prob
+    p = stable_sigmoid(z)
+    # !ref step-loss
+    loss = logistic_loss(z, y).mean()
+    # !ref step-err
+    err = p - y
+    # !ref step-grad
+    dw, db = (err * x).mean(), err.mean()
+    # !ref step-update
+    return z, p, loss, err, dw, db, w - lr * dw, b - lr * db
 ```
 
 [算 logit](#step-logit) → [过 sigmoid](#step-prob) → [算 loss](#step-loss) → [预测减真实](#step-err) → [乘特征再平均](#step-grad) → [沿负梯度走一步](#step-update)。`stable_sigmoid` 与 `logistic_loss` 是下一节的数值稳定版本，在这组温和的数字上与朴素写法结果相同。继续走下去，状态是这样变的：
@@ -392,12 +398,18 @@ w_hand = fit_logistic(Xdiff[:ntr], y[:ntr])                                 # �
 
 ```python title="奖励模型的一步：两个回答 → 分差 → 概率 → loss → 梯度 → 更新"
 def pair_step(xa, xb, w, y, lr):
-    ra, rb = xa @ w, xb @ w                             # !ref pair-score
-    delta = ra - rb                                     # !ref pair-delta
-    p = stable_sigmoid(delta)                           # !ref pair-prob
-    loss = logistic_loss(delta, y)                      # !ref pair-loss
-    grad_w = (p - y) * (xa - xb)                        # !ref pair-grad
-    return ra, rb, delta, p, loss, grad_w, w - lr * grad_w  # !ref pair-update
+    # !ref pair-score
+    ra, rb = xa @ w, xb @ w
+    # !ref pair-delta
+    delta = ra - rb
+    # !ref pair-prob
+    p = stable_sigmoid(delta)
+    # !ref pair-loss
+    loss = logistic_loss(delta, y)
+    # !ref pair-grad
+    grad_w = (p - y) * (xa - xb)
+    # !ref pair-update
+    return ra, rb, delta, p, loss, grad_w, w - lr * grad_w
 ```
 
 [两个分数](#pair-score) → [分差](#pair-delta) → [过 sigmoid](#pair-prob) → [logaddexp 版 loss](#pair-loss) → [误差乘特征差](#pair-grad) → [更新](#pair-update)。与第三章 `one_step` 对照，只有两处不同：输入从 $$x$$ 变成 $$x_A - x_B$$，没有 $$b$$。三个检查把"它就是逻辑回归"钉死：

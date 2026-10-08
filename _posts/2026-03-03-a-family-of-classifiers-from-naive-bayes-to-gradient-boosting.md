@@ -213,14 +213,19 @@ class MultinomialNaiveBayes:
 
     def fit(self, X, y):
         self.classes = np.unique(y)
-        self.log_prior = np.log([(y == c).mean() for c in self.classes])   # !ref mnb-prior
-        counts = np.array([X[y == c].sum(0) for c in self.classes])       # !ref mnb-count
-        smoothed = counts + self.alpha                                      # !ref mnb-smooth
-        self.log_prob = np.log(smoothed / smoothed.sum(1, keepdims=True))  # !ref mnb-logprob
+        # !ref mnb-prior
+        self.log_prior = np.log([(y == c).mean() for c in self.classes])
+        # !ref mnb-count
+        counts = np.array([X[y == c].sum(0) for c in self.classes])
+        # !ref mnb-smooth
+        smoothed = counts + self.alpha
+        # !ref mnb-logprob
+        self.log_prob = np.log(smoothed / smoothed.sum(1, keepdims=True))
         return self
 
     def joint_log(self, X):
-        return self.log_prior + X @ self.log_prob.T                        # !ref mnb-joint
+        # !ref mnb-joint
+        return self.log_prior + X @ self.log_prob.T
 
     def predict(self, X):
         return self.classes[self.joint_log(X).argmax(1)]
@@ -364,14 +369,20 @@ KNN 的本质是"找最相似的几个"，这件事在 LLM 工作里到处都是
 ```python title="KNN 的一次投票：距离、取前 k、按权重计票"
 def knn_vote(Xtrain, ytrain, q, k, metric="euclidean", weighted=False):
     if metric == "euclidean":
-        d = np.sqrt(((Xtrain - q) ** 2).sum(1))                           # !ref vote-euclid
+        # !ref vote-euclid
+        d = np.sqrt(((Xtrain - q) ** 2).sum(1))
     elif metric == "manhattan":
-        d = np.abs(Xtrain - q).sum(1)                                     # !ref vote-manhattan
+        # !ref vote-manhattan
+        d = np.abs(Xtrain - q).sum(1)
     else:
-        d = 1 - (Xtrain @ q) / (np.linalg.norm(Xtrain, axis=1) * np.linalg.norm(q))  # !ref vote-cosine
-    idx = np.argsort(d, kind="stable")[:k]                                # !ref vote-topk
-    w = 1 / d[idx] if weighted else np.ones(k)                            # !ref vote-weight
-    votes = np.array([w[ytrain[idx] == c].sum() for c in (0, 1)])         # !ref vote-count
+        # !ref vote-cosine
+        d = 1 - (Xtrain @ q) / (np.linalg.norm(Xtrain, axis=1) * np.linalg.norm(q))
+    # !ref vote-topk
+    idx = np.argsort(d, kind="stable")[:k]
+    # !ref vote-weight
+    w = 1 / d[idx] if weighted else np.ones(k)
+    # !ref vote-count
+    votes = np.array([w[ytrain[idx] == c].sum() for c in (0, 1)])
     return idx, d[idx], votes, int(votes.argmax())
 ```
 
@@ -513,13 +524,17 @@ Table: 不同 max_depth 下手写决策树与 scikit-learn 的准确率
 def best_split_exact(X, y, min_samples_leaf=1):
     best = (gini(y), None, None)
     for j in range(X.shape[1]):
-        v = np.unique(X[:, j])                                           # !ref exact-unique
-        cands = (v[:-1] + v[1:]) / 2                                     # !ref exact-mid
+        # !ref exact-unique
+        v = np.unique(X[:, j])
+        # !ref exact-mid
+        cands = (v[:-1] + v[1:]) / 2
         for thr in cands:
             left = X[:, j] <= thr
-            if min(left.sum(), (~left).sum()) < min_samples_leaf:        # !ref exact-minleaf
+            # !ref exact-minleaf
+            if min(left.sum(), (~left).sum()) < min_samples_leaf:
                 continue
-            g = left.mean() * gini(y[left]) + (1 - left.mean()) * gini(y[~left])  # !ref exact-gini
+            # !ref exact-gini
+            g = left.mean() * gini(y[left]) + (1 - left.mean()) * gini(y[~left])
             if g < best[0]:
                 best = (g, j, thr)
     return best
