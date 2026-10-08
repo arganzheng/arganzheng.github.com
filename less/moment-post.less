@@ -53,6 +53,17 @@ body.bare { background: #fff; }
 		position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%;
 		background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 15px; line-height: 22px; padding: 0;
 	}
+	.mp-pic.is-dragging { opacity: 0.4; }
+	.mp-pic.is-over { outline: 2px solid @brand-primary; outline-offset: -2px; }
+	.mp-pic-mv {
+		position: absolute; left: 0; right: 0; bottom: 0; display: flex;
+		background: linear-gradient(transparent, rgba(0, 0, 0, 0.45));
+		button {
+			flex: 1; border: 0; background: none; color: #fff; font-size: 20px; line-height: 26px; padding: 0;
+			text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+			&:disabled { opacity: 0.25; }
+		}
+	}
 	.mp-add {
 		display: flex; align-items: center; justify-content: center; margin: 0; cursor: pointer;
 		border: 1px dashed darken(@mp-line, 8%); background: @mp-soft; color: @mp-muted; font-size: 22px;

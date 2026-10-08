@@ -6598,6 +6598,34 @@ body.bare {
   line-height: 22px;
   padding: 0;
 }
+.mp-pics .mp-pic.is-dragging {
+  opacity: 0.4;
+}
+.mp-pics .mp-pic.is-over {
+  outline: 2px solid #00788f;
+  outline-offset: -2px;
+}
+.mp-pics .mp-pic-mv {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.45));
+}
+.mp-pics .mp-pic-mv button {
+  flex: 1;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 20px;
+  line-height: 26px;
+  padding: 0;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+}
+.mp-pics .mp-pic-mv button:disabled {
+  opacity: 0.25;
+}
 .mp-pics .mp-add {
   display: flex;
   align-items: center;

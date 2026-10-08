@@ -149,21 +149,39 @@
     });
     chain.then(function () { busy = false; setMsg(''); updateSubmit(); });
   });
+  // Order = gallery order. ‹ › on each thumbnail (the phone), drag on a mouse.
   function renderPics() {
     Array.prototype.forEach.call(pics.querySelectorAll('.mp-pic'), function (n) { n.remove(); });
     var add = pics.querySelector('.mp-add');
     images.forEach(function (im, i) {
-      var d = document.createElement('div'); d.className = 'mp-pic';
-      d.innerHTML = '<img src="' + im.url + '" alt=""><button type="button" class="mp-pic-x" data-i="' + i + '" title="移除">×</button>';
+      var d = document.createElement('div'); d.className = 'mp-pic'; d.draggable = true; d.setAttribute('data-i', i);
+      d.innerHTML = '<img src="' + im.url + '" alt="">' +
+        '<button type="button" class="mp-pic-x" data-i="' + i + '" title="移除">×</button>' +
+        (images.length > 1 ? '<span class="mp-pic-mv">' +
+          '<button type="button" class="mp-pic-l" data-i="' + i + '" title="前移"' + (i === 0 ? ' disabled' : '') + '>‹</button>' +
+          '<button type="button" class="mp-pic-r" data-i="' + i + '" title="后移"' + (i === images.length - 1 ? ' disabled' : '') + '>›</button></span>' : '');
       pics.insertBefore(d, add);
     });
     add.hidden = images.length >= MAX_PICS;
   }
+  function movePic(from, to) {
+    if (to < 0 || to >= images.length || from === to) return;
+    images.splice(to, 0, images.splice(from, 1)[0]);
+    renderPics(); renderPreview();
+  }
   pics.addEventListener('click', function (e) {
-    var x = e.target.closest('.mp-pic-x'); if (!x) return;
-    var i = +x.getAttribute('data-i'); URL.revokeObjectURL(images[i].url); images.splice(i, 1);
+    var b = e.target.closest('.mp-pic-x, .mp-pic-l, .mp-pic-r'); if (!b || b.disabled) return;
+    var i = +b.getAttribute('data-i');
+    if (b.classList.contains('mp-pic-l')) return movePic(i, i - 1);
+    if (b.classList.contains('mp-pic-r')) return movePic(i, i + 1);
+    URL.revokeObjectURL(images[i].url); images.splice(i, 1);
     renderPics(); renderPreview(); updateSubmit();
   });
+  var dragFrom = -1;
+  pics.addEventListener('dragstart', function (e) { var p = e.target.closest('.mp-pic'); if (!p) return; dragFrom = +p.getAttribute('data-i'); e.dataTransfer.effectAllowed = 'move'; p.classList.add('is-dragging'); });
+  pics.addEventListener('dragover', function (e) { if (dragFrom < 0) return; e.preventDefault(); var p = e.target.closest('.mp-pic'); Array.prototype.forEach.call(pics.querySelectorAll('.mp-pic.is-over'), function (n) { n.classList.remove('is-over'); }); if (p) p.classList.add('is-over'); });
+  pics.addEventListener('drop', function (e) { var p = e.target.closest('.mp-pic'); if (dragFrom < 0 || !p) return; e.preventDefault(); movePic(dragFrom, +p.getAttribute('data-i')); dragFrom = -1; });
+  pics.addEventListener('dragend', function () { dragFrom = -1; Array.prototype.forEach.call(pics.querySelectorAll('.is-dragging, .is-over'), function (n) { n.classList.remove('is-dragging', 'is-over'); }); });
 
   // ---- preview card (same markup as _layouts/moments.html / _plugins/moments.rb)
   function hasContent() { return !!(text.value.trim() || selectedTags().length || quote.value.trim() || images.length || music.value.trim()); }
