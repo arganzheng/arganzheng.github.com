@@ -177,7 +177,7 @@ class CausalSelfAttention(nn.Module):
 
 ### 3. 两条路径：Flash 与手写
 
-[`self.flash`](#attn-flashflag) 检查 PyTorch 有没有 `scaled_dot_product_attention`（2.0 起有）。有就走[一行](#attn-flash)：`is_causal=True` 让它自己加下三角 mask，内部用 FlashAttention 一类的融合 kernel，**不会真的造出那张 $$[B, nh, T, T]$$ 的分数表**（Infra GPU Kernel 系列第八篇讲它怎么做到），显存从 $$O(T^2)$$ 降到 $$O(T)$$。
+[`self.flash`](#attn-flashflag) 检查 PyTorch 有没有 `scaled_dot_product_attention`（2.0 起有）。有就走[一行](#attn-flash)：`is_causal=True` 让它自己加下三角 mask，内部用 FlashAttention 一类的融合 kernel，**不会真的造出那张 $$[B, nh, T, T]$$ 的分数表**（Infra GPU Kernel 系列第九篇讲它怎么做到），显存从 $$O(T^2)$$ 降到 $$O(T)$$。
 
 没有就走[手写的五行](#attn-manual)——这五行正是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第四章第 3 节的第 ②–⑥ 步：
 
@@ -588,10 +588,10 @@ class GPT(nn.Module):
 
 MFU（model FLOPs utilization）= 实际达到的 FLOP/s ÷ 硬件峰值。[每 token 的 FLOPs](#mfu-flops) 是 $$6N + 12 L H Q T$$：
 
-- $$6N$$：每个参数在前向做一次乘加（$$2N$$，L0 第一篇的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——第十一篇会把它按 GEMM 逐个算出来；
+- $$6N$$：每个参数在前向做一次乘加（$$2N$$，L0 第一篇的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——第十二篇会把它按 GEMM 逐个算出来；
 - $$12 L H Q T$$：attention 里 $$QK^T$$ 与 $$PV$$ 两个矩阵乘**与参数无关**、与上下文长度 $$T$$ 成正比（L0 第一篇第六章表末那一行）：每层每头 $$2 \times 2 \times Q \times T$$ FLOPs 前向，乘 3（含反向）、乘 $$L H$$。
 
-乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。第十一篇讲为什么到不了 100%。
+乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。第十二篇讲为什么到不了 100%。
 
 ## 十一、名字对照：nanoGPT、HuggingFace GPT-2、Llama
 

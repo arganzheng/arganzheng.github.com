@@ -138,7 +138,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 链式法则要用到前向的中间结果——算 $$W_1$$ 的梯度要有 FFN 的输入、算 $$V$$ 投影的梯度要有 attention 权重。所以前向时这些中间量不能丢，要一直留到反向用完。它们统称**激活值**（activations），每层要留：LayerNorm 的输入、Q / K / V、attention 权重 $$[B, h, T, T]$$、FFN 的 $$4d$$ 维中间量、各处的残差流……
 
-关键性质：激活值的大小与 $$B \times T$$ **成正比**，而参数与它无关。玩具模型看不出来，换成 Llama-3-8B、$$B = 1$$、$$T = 8192$$：参数 16 GB，为反向保存的激活值按朴素实现要几十 GB——**比参数本身大**。这就是为什么训练长上下文比推理长上下文难得多、为什么有"激活值重算"（activation checkpointing，用时间换显存）这类技术；第十一篇算这笔账，Infra 大规模训练系列讲怎么切。
+关键性质：激活值的大小与 $$B \times T$$ **成正比**，而参数与它无关。玩具模型看不出来，换成 Llama-3-8B、$$B = 1$$、$$T = 8192$$：参数 16 GB，为反向保存的激活值按朴素实现要几十 GB——**比参数本身大**。这就是为什么训练长上下文比推理长上下文难得多、为什么有"激活值重算"（activation checkpointing，用时间换显存）这类技术；第十二篇算这笔账，Infra 大规模训练系列讲怎么切。
 
 ![前向与反向的配合：前向从 wte + wpe 经 block0、block1、ln_f、lm_head 走到 loss，每一站把反向要用的激活值存下来（LayerNorm 的输入、Q/K/V、attention 权重、FFN 的 4d 中间量、logits）；反向从 loss 出发按 lm_head → ln_f → block1 → block0 → wte / wpe 的顺序走回去，每一站用自己存下的激活值算出本站参数的 .grad，用完即可释放；激活值的大小与 B × T 成正比，参数量与 B × T 无关](/img/in-post/transformer-02-forward-backward-activations.svg)
 
@@ -181,7 +181,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 这个循环天然分成两个阶段：
 
 - **prefill**（预填充）：prompt 的 $$T$$ 个 token 一次前向——和训练的前向**一模一样**，$$T$$ 个位置同时算，但只有最后一个位置的分布有用（它预测第一个新 token）。这一步是矩阵乘法为主的"计算密集"阶段，决定了用户等第一个字的时间（TTFT，time to first token）。
-- **decode**（解码）：之后每一步只喂**1 个**新 token（形状 $$[1, 1]$$），得到 1 个分布，抽 1 个 token。这一步计算量很小、但要把全部参数从显存读一遍，是"访存密集"阶段，决定了后面每个字之间的间隔（TPOT / ITL）。第十一篇用 Roofline 把这两个阶段的时间算出来。
+- **decode**（解码）：之后每一步只喂**1 个**新 token（形状 $$[1, 1]$$），得到 1 个分布，抽 1 个 token。这一步计算量很小、但要把全部参数从显存读一遍，是"访存密集"阶段，决定了后面每个字之间的间隔（TPOT / ITL）。第十二篇用 Roofline 把这两个阶段的时间算出来。
 
 "第一个字慢、后面快"就是 prefill 与 decode 的区别在用户体验上的样子：
 
@@ -311,7 +311,7 @@ Table: 训练、prefill、decode 三种运转方式的差别
 
    <details markdown="1"><summary>答案</summary>
 
-   每步不管算几个 token，全部参数都要从显存读一遍；prefill 一次读参数算 $$T$$ 个 token，平均每个 token 摊到的读取量小、计算多；decode 一次读参数只算 1 个 token，读的时间远大于算的时间。第十一篇用 Roofline 把这两个数算出来。见[第五章第 1 节](#1-生成是一个循环)、[第七章](#七两侧的差别)。
+   每步不管算几个 token，全部参数都要从显存读一遍；prefill 一次读参数算 $$T$$ 个 token，平均每个 token 摊到的读取量小、计算多；decode 一次读参数只算 1 个 token，读的时间远大于算的时间。第十二篇用 Roofline 把这两个数算出来。见[第五章第 1 节](#1-生成是一个循环)、[第七章](#七两侧的差别)。
    </details>
 
 ## 下一篇

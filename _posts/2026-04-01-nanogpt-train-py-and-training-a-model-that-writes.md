@@ -11,7 +11,7 @@ catalog: true
 
 上一篇的 `model.py` 定义了一个 GPT，但它的权重是随机数，输出是乱码。让它变成一个"会写东西"的模型，还差三样：**数据**（一段文本怎么变成模型能吃的整数数组）、**训练循环**（第二篇那一步"取 batch → 前向 → loss → 反向 → 更新"怎么写成能跑几十万步、能断点续训、能多卡的代码）、**一次实际的训练**（看着 loss 从 4.17 掉到 1.66、输出从乱码变成像莎士比亚台词的东西）。nanoGPT 的 `train.py`（336 行）加 `prepare.py`（68 行）就是这三样。
 
-这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**，也是第二段（第五至九篇：现代 LLM 每个部件为什么改成那样）的入口。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
+这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**，也是第二段（第五至十一篇：现代 LLM 每个部件为什么改成那样）的入口。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
 
 本篇要回答的核心问题是：
 
@@ -182,7 +182,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 
 [DDP 判定](#init-ddp)：`torchrun` 启动时会给每个进程设 `RANK` / `LOCAL_RANK` / `WORLD_SIZE` 环境变量（Infra PyTorch 第九篇），有就是多卡。每个进程绑到自己的 GPU、用不同的随机种子（否则 8 张卡取到同样的 batch）、只有 rank 0 打日志存 checkpoint；**梯度累积步数按卡数分摊**——8 卡时每卡 5 次，合起来还是 40 个 micro-batch，保证不管几张卡，[每次迭代的 token 数](#init-tokens)不变。这就是"改卡数不改配方"的实现。
 
-[随机种子](#init-seed) 1337 固定，实验可复现（工具箱第六篇）；TF32 让 A100 上 fp32 矩阵乘走 Tensor Core（第十二篇）。[`ctx`](#init-ctx) 是之后每次前向都要包一层的 `autocast` 上下文：CUDA 上用低精度（工具箱第四篇的混合精度），CPU 上是 `nullcontext()`——什么都不做。注意 `device_type` 只认 `cuda`，MPS 也走 CPU 分支，所以本文的 MacBook 实跑其实是 fp32。
+[随机种子](#init-seed) 1337 固定，实验可复现（工具箱第六篇）；TF32 让 A100 上 fp32 矩阵乘走 Tensor Core（第十三篇）。[`ctx`](#init-ctx) 是之后每次前向都要包一层的 `autocast` 上下文：CUDA 上用低精度（工具箱第四篇的混合精度），CPU 上是 `nullcontext()`——什么都不做。注意 `device_type` 只认 `cuda`，MPS 也走 CPU 分支，所以本文的 MacBook 实跑其实是 fp32。
 
 ## 五、`get_batch`：穷人的 DataLoader
 
@@ -333,7 +333,7 @@ if ddp:
 
 四件事各一句，机制都在别处讲过：
 
-- [`GradScaler`](#wrap-scaler)：只在 fp16 下启用。fp16 的指数位只有 5 位，小梯度会下溢成 0；scaler 先把 loss 乘一个大数再反向、更新前再除回来（工具箱第四篇第二章、第十二篇讲 bf16 为什么不需要）。`enabled=False` 时它的每个方法都是空操作，所以后面的代码不用写两套。
+- [`GradScaler`](#wrap-scaler)：只在 fp16 下启用。fp16 的指数位只有 5 位，小梯度会下溢成 0；scaler 先把 loss 乘一个大数再反向、更新前再除回来（工具箱第四篇第二章、第十三篇讲 bf16 为什么不需要）。`enabled=False` 时它的每个方法都是空操作，所以后面的代码不用写两套。
 - [优化器](#wrap-opt)：上一篇第十章的 `configure_optimizers`（二维参数才 decay）；续训时把优化器状态（Adam 的两个动量）也读回来——不读回来，恢复后前几百步会因为动量从零重新估计而抖动。读完把 `checkpoint` 置 `None` 释放那份内存。
 - [`torch.compile`](#wrap-compile)：Infra PyTorch 第七篇；A100 上给 GPT-2 提速约 1.3–1.5 倍，代价是启动多花一分钟。MacBook 上关掉（`--compile=False`）。
 - [DDP](#wrap-ddp)：多卡时把模型包进 `DistributedDataParallel`，反向时自动 all-reduce 梯度（Infra PyTorch 第九篇第三章）；下面训练循环里有一处专门为它写的优化。
@@ -559,8 +559,8 @@ Table: 只改层数：参数量、loss 与每步耗时（耗时按 mps 上单独
 
 这个小实验的三个通用结论，后面每一篇都会用到：
 
-1. **参数量随层数线性增长**（每层 0.20M，embedding 不变），但 loss 不是——第五篇用参数量公式解释每层多少、第十一篇算每层多少 FLOPs；
-2. **每步耗时随层数线性增长**——层是串行的，深了就慢，这是第八篇 MoE 想绕开的约束（加参数不加每 token 的计算）；
+1. **参数量随层数线性增长**（每层 0.20M，embedding 不变），但 loss 不是——第五篇用参数量公式解释每层多少、第十二篇算每层多少 FLOPs；
+2. **每步耗时随层数线性增长**——层是串行的，深了就慢，这是第九篇 MoE 想绕开的约束（加参数不加每 token 的计算）；
 3. **同样的步数下更大的模型更好，但差距在缩小**——"训多久、多大的模型"这个权衡就是预训练系列第三篇 scaling law 的全部内容。
 
 ## 十二、从 nanoGPT 到真实模型差什么
@@ -571,9 +571,9 @@ nanoGPT 是完整的：数据、模型、训练、续训、多卡、混合精度
 |---|---|---|---|
 | 数据 | 1 MB 文本，`prepare.py` 一次编码 | 15T token，抓取 / 去重 / 过滤 / 配比是一门工程 | 预训练系列第四篇 |
 | 分词 | 65 个字符 | BPE，词表 128K | 预训练系列第二篇 |
-| 结构 | GPT-2：LayerNorm、位置表、GELU、MHA | RMSNorm、RoPE、SwiGLU、GQA、MoE、MTP | 本系列第五至九篇 |
+| 结构 | GPT-2：LayerNorm、位置表、GELU、MHA | RMSNorm、RoPE、SwiGLU、GQA、MoE、MTP | 本系列第五至十篇 |
 | 并行 | DDP：每卡一份完整模型 | 模型放不进一张卡：张量 / 流水 / 序列 / 专家并行，ZeRO | Infra 大规模训练系列 |
-| 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 本系列第十二篇 |
+| 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 本系列第十三篇 |
 | 稳定性 | 梯度裁剪 | loss spike 的诊断与恢复、z-loss、QK-norm | 预训练系列第五篇 |
 | 容错 | `resume` 从单个 ckpt.pt | 万卡训练每几小时坏一张卡：分片 checkpoint、自动重启 | Infra 大规模训练系列第五、六篇 |
 | 配方 | 默认值抄 GPT-3 | 用小模型消融 + scaling law 外推 | 预训练系列第三、五篇 |

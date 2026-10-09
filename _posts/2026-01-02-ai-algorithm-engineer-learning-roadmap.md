@@ -139,7 +139,7 @@ flowchart TB
 | L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2.5h（+ 14h + 15h） |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
 | L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
-| L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（13 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 5h |
+| L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [04 系列（15 篇，共享）](/transformer-and-llm-for-infra-engineers.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 11h + 5h |
 | L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
 | L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 7h |
@@ -246,7 +246,7 @@ Table: L3 深度学习基础的主题与概念
 
 > **Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？[^q5]**
 
-这一层是地图的中心，也是与 Infra 地图的交点。Transformer 的结构与实现（静态线、动态线、nanoGPT 逐行、实训）、从 GPT-2 到 Llama / DeepSeek 的每一处演进（GQA / MLA、RoPE、SwiGLU、MoE、MTP）为什么发生，以及数值格式、量化与投机解码的**数学**，在[《Transformer 与 LLM：结构、实现与算量》](/transformer-and-llm-for-infra-engineers.html)十三篇里已经写完——那个系列先带你手搓一个 GPT，再从"每一步算多少、读多少、存多少"的角度讲每个结构决定，正是算法工程师判断"这个结构改动值不值"所需要的账；紧接着它的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（五篇）用同样的算账方法覆盖本层的另一半：tokenizer、scaling law、数据工程、训练配方。这里列出本层的全部内容，并标出各在哪个系列的哪一篇：
+这一层是地图的中心，也是与 Infra 地图的交点。Transformer 的结构与实现（静态线、动态线、nanoGPT 逐行、实训）、从 GPT-2 到 Llama / DeepSeek 的每一处演进（GQA / MLA、RoPE、SwiGLU、MoE、MTP）为什么发生，以及数值格式、量化与投机解码的**数学**，在[《Transformer 与 LLM：结构、实现与算量》](/transformer-and-llm-for-infra-engineers.html)十五篇里已经写完——那个系列先带你手搓一个 GPT，再从"每一步算多少、读多少、存多少"的角度讲每个结构决定，正是算法工程师判断"这个结构改动值不值"所需要的账；紧接着它的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（五篇）用同样的算账方法覆盖本层的另一半：tokenizer、scaling law、数据工程、训练配方。这里列出本层的全部内容，并标出各在哪个系列的哪一篇：
 
 | 主题 | 概念 | 在哪一篇 |
 |---|---|---|

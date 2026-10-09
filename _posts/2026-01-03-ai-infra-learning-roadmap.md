@@ -222,7 +222,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **Infra 工程师不训练模型，但必须知道自己在优化什么：这个模型内部到底是什么、为什么是这个样子、每一步算多少、读多少、存多少？**
 
-十三篇分三段。第一段（01–04）结构与实现：Transformer 的每个部件为什么在那里、一个 token 在训练与推理时怎么流过它们（prefill / decode / KV cache 从这里来）、nanoGPT 的 `model.py` 与 `train.py` 逐行、在笔记本上训一个会续写的模型——Infra 读者读它是为了之后读引擎源码时认得每个张量。第二段（05–09）结构的演进：Llama 相对 GPT-2 改的五处、GQA / MLA、RoPE、MoE、MTP 各解决什么。第三段（10–13）成本账：Transformer 前向的逐层算量与访存量；Attention 变体（MHA / GQA / MQA / MLA）与 KV cache 大小的推导；位置编码与长上下文；MoE 的路由与通信形态；浮点格式（FP32 / TF32 / BF16 / FP16 / FP8 / INT8 / INT4）、数值稳定性与混合精度为什么能工作；量化算法（GPTQ / AWQ / SmoothQuant / FP8）的原理与代价；投机解码的数学；LoRA 等参数高效方法的计算形态；多模态：vision encoder 的算量、connector 决定的 image token 数、image token 在 decoder 里与文本同价的 KV。这张成本表的训练侧——tokenizer 与词表、scaling law、数据工程、训练配方与稳定性——是算法地图的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)（四篇）；Infra 工程师读它能理解 $$6ND$$ 的 $$N$$、$$D$$ 从哪来、数据管线的 CPU 与 I/O 形态、以及 loss spike 在系统侧的代价，但它不在本地图的主线上。
+十五篇分三段。第一段（01–04）走通 GPT-2 的静态结构、训练 / 推理动态线与 nanoGPT 实现；第二段（05–11）先读 Llama / DeepSeek / VLM 的实践配置地图，再分别展开 attention 与 KV、位置编码与外推、长上下文成本与结构手段、MoE、MTP、多模态；第三段（12–15）依次讲 FLOPs / 访存与 Roofline、浮点格式与混合精度、量化、投机解码与 LoRA。位置外推与长上下文的成本分开讲，量化紧接数值格式。训练侧的 tokenizer、scaling law、数据与配方在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 
 这一篇由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
 

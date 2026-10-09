@@ -1,16 +1,16 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（09）：MTP——改训练目标而不改主干的多 token 预测"
+title: "Transformer 与 LLM（10）：MTP——改训练目标而不改主干的多 token 预测"
 subtitle: "Multi-Token Prediction: Denser Supervision from the Same Data, and a Free Speculative Draft"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-05 12:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第五篇，也是 DeepSeek-V3 三处改动（MLA、MoE、MTP）的最后一处。它不改主干，只改训练目标；下一篇的多模态则改输入，是第二段最后一处结构改动。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第六篇，也是 DeepSeek-V3 三处改动（MLA、MoE、MTP）的最后一处。它不改主干，只改训练目标；下一篇的多模态则改输入，是第二段最后一处结构改动。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
 
-前八篇改的都是**结构**：换归一化、换位置编码、换 FFN、换 attention 的 K/V、把 FFN 换成专家。这一篇改的是另一样东西——**训练目标**。从第二篇起，模型学的一直是"看前文、预测下一个 token"，每个位置只有一个正确答案、一份监督信号。MTP（multi-token prediction，多 token 预测）让每个位置**额外**预测后面第 2、第 3 个 token：同一批数据，榨出两三倍的监督信号；训完之后那几个额外的预测头还能拿来做投机解码的草稿（第十三篇），白送一个 1.8 倍的生成加速。DeepSeek-V3 把它写进了正式的训练配方，是 2024 年以后"改目标"这一条路上最成功的例子。
+前八篇改的都是**结构**：换归一化、换位置编码、换 FFN、换 attention 的 K/V、把 FFN 换成专家。这一篇改的是另一样东西——**训练目标**。从第二篇起，模型学的一直是"看前文、预测下一个 token"，每个位置只有一个正确答案、一份监督信号。MTP（multi-token prediction，多 token 预测）让每个位置**额外**预测后面第 2、第 3 个 token：同一批数据，榨出两三倍的监督信号；训完之后那几个额外的预测头还能拿来做投机解码的草稿（第十五篇），白送一个 1.8 倍的生成加速。DeepSeek-V3 把它写进了正式的训练配方，是 2024 年以后"改目标"这一条路上最成功的例子。
 
 这一篇讲清三件事：MTP 为什么可能有用、DeepSeek-V3 的 MTP 模块长什么样（它不是简单地多加几个输出头）、以及在第四篇的 nanoGPT 上挂一个 MTP 模块训一遍会看到什么——包括一个诚实的结果：小模型上主任务没有变好，但 MTP 头对"下下个 token"的命中率到了 45%。
 
@@ -65,7 +65,7 @@ Table: 本文的章节安排
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 %% 图：DeepSeek-V3 的 MTP（D=1）：主干对位置 i 输出 h_i，主头预测 t_{i+1}；MTP 模块把 RMSNorm(h_i) 与 RMSNorm(Emb(t_{i+1})) 拼接、线性投影回 d 维、过一个 Transformer block 得到 h'_i，用共享的 lm_head 预测 t_{i+2}；embedding 表与 lm_head 两处共享，只有 norm、投影、block 是 MTP 自己的参数
 flowchart TB
-    subgraph MAIN["主干（第一至八篇讲的 Transformer）"]
+    subgraph MAIN["主干（第一至九篇讲的 Transformer）"]
         direction TB
         IN["token t1 … tT → 共享 embedding"] --> L["L 个 block"] --> H["h_i：位置 i 的表示"]
         H --> HEAD1["共享 lm_head → 预测 t(i+1)<br/>主 loss L_main"]
@@ -132,7 +132,7 @@ $$D > 1$$ 时第 $$k$$ 级吃第 $$k-1$$ 级的输出和真实的 $$t_{i+k}$$，
 
 ### 2. 当投机解码的 draft
 
-或者留下来赚一笔：投机解码（第十三篇）需要一个便宜的"草稿模型"先猜几个 token、再由主模型一次前向验证。MTP 模块正是一个现成的、**与主模型同源**的草稿生成器：
+或者留下来赚一笔：投机解码（第十五篇）需要一个便宜的"草稿模型"先猜几个 token、再由主模型一次前向验证。MTP 模块正是一个现成的、**与主模型同源**的草稿生成器：
 
 1. decode 一步：主头给出 $$t_{i+1}$$ 的分布，抽出 $$\hat t_{i+1}$$；
 2. 把 $$h_i$$ 与 $$\text{Emb}(\hat t_{i+1})$$ 喂给 MTP 模块，得到 $$t_{i+2}$$ 的分布，抽出 $$\hat t_{i+2}$$——只多算了一个 block，不是整个模型；
@@ -207,7 +207,7 @@ loss = loss_main + lam * loss_mtp        # lam = 0.3
 
 1. **主任务没有变好**：1.9375 对 1.9364，差在噪声里。这与 Gloeckle 等的观察一致——MTP 对主任务的收益要到 10B 以上才明显，0.8M 参数、1 MB 数据的模型没有"预谋"的余地。DeepSeek-V3 报告的提升是在 671B / 14.8T token 上的。**在小模型上做实验然后宣称 MTP 无用或有用，都是错的**——这是 L4 实验方法论系列反复讲的"规模依赖的结论"。
 2. **MTP 头很准**：对下下个字符 top-1 命中 45%，val loss 1.81 比主头的 1.94 还低——它知道真实的 $$t_{i+1}$$，又多了一层 block。这个 45% 就是把它当投机 draft 时的大致接受率（字符级；DeepSeek-V3 在 BPE token 上是 85–90%）。
-3. **代价**：多 29% 参数、每步慢 38%（多算一个 block 和一次 lm_head）。大模型上比例小得多（一层 / 61 层），但 lm_head 那一次是实打实的：词表 128K 时 MTP 头的 logits 与主头一样大（第十一篇算这笔账）。
+3. **代价**：多 29% 参数、每步慢 38%（多算一个 block 和一次 lm_head）。大模型上比例小得多（一层 / 61 层），但 lm_head 那一次是实打实的：词表 128K 时 MTP 头的 logits 与主头一样大（第十二篇算这笔账）。
 
 配套脚本 `mtp_nanogpt.py` 可以改 `--lam`、`--iters` 复现；把 `n_layer` 调大、`iters` 调长看主任务差距会不会出现，是一个值得自己做的练习。
 
@@ -281,6 +281,6 @@ Table: MTP 的账
 
 ## 下一篇
 
-到这里，第二段讲完了文本模型内部的结构改动：归一化、位置、FFN、attention、专家与训练目标。还剩一个前提没有动过——所有输入都来自 tokenizer。[下一篇《Transformer 与 LLM（10）：多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把输入换成图片：vision encoder 与 connector 加在哪里、一张图变成多少 token、这些 token 在 decoder 里占多少 KV，它是第二段的最后一处结构改动。
+到这里，第二段讲完了文本模型内部的结构改动：归一化、位置、FFN、attention、专家与训练目标。还剩一个前提没有动过——所有输入都来自 tokenizer。[下一篇《Transformer 与 LLM（11）：多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把输入换成图片：vision encoder 与 connector 加在哪里、一张图变成多少 token、这些 token 在 decoder 里占多少 KV，它是第二段的最后一处结构改动。
 
 [^q0]: **多花的**：每级一个 Transformer block + 一个 $$2d \to d$$ 投影的参数与前向 / 反向算力，加一次 lm_head（embedding 与 lm_head 共享，不额外加参数）。**可能多得的**：同一批数据的监督信号 ×$$(1 + D)$$，主干表示被逼着编码更远的未来（大模型上主任务小幅提升）；一个接受率 85–90% 的投机 draft。**顺序而非并行**：把真实的 $$t_{i+1}$$ 喂给预测 $$t_{i+2}$$ 的模块，保持完整因果链，loss 与主头同难度；并行头跳过中间 token，loss 偏高会干扰主干。**推理时**：可丢弃（模型与普通 decoder-only 无异），或保留当投机解码的 draft（多算一个 block，TPS ~1.8 倍）。详见[第二](#二deepseek-v3-的-mtp-模块)、[三](#三训练目标)、[四章](#四推理时它去哪了)。
