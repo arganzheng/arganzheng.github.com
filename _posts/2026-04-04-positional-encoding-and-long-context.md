@@ -8,7 +8,9 @@ catalog: true
 updated: 2026-09-14
 ---
 
-[《Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量，上下文的硬上限就是这么来的。Llama 换成了 RoPE。前几篇的账里有一个变量一直被当作常数处理：上下文长度 $$s$$。[《Transformer 与 LLM（06）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)算 KV cache 时取 $$s = 131072$$，[《Transformer 与 LLM（10）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算 prefill 时取 $$s = 8192$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
+> **本篇在系列中的位置。** 第二段的第三篇。第 05 篇只讲到 RoPE 为什么替代位置表，本篇讲 RoPE 的波长、外推方法，以及把上下文拉长时 KV cache 与二次项 attention 的成本。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+
+[《Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量，上下文的硬上限就是这么来的。Llama 换成了 RoPE。前几篇的账里有一个变量一直被当作常数处理：上下文长度 $$s$$。[《Transformer 与 LLM（06）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)算 KV cache 时取 $$s = 131072$$，[《Transformer 与 LLM（11）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算 prefill 时取 $$s = 8192$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
 
 这两个问题在结构上由同一个部件回答——位置编码。它在参数量表里几乎不占位置（RoPE 一个参数都没有），在算量表里也可以忽略（一次逐元素乘加），却决定了"上下文长度"这个对 Infra 成本最敏感的维度的上限。上下文长度同时进入 KV cache 的一次项和 attention 算量的二次项：Llama-3-70B 在 128K 上下文下，每个 token 花在 attention 上的算量（344 GFLOPs）已经超过了花在全部权重上的算量（141 GFLOPs）。
 
@@ -435,7 +437,7 @@ Table: 五种位置编码从 Infra 维度的对照
 
 ## 六、长上下文的成本
 
-位置编码决定了模型**能不能**处理长上下文；这一章算它**要花多少**。第十篇的两个基本公式重新写在这里：矩阵乘 $$[m, k] \times [k, n]$$ 是 $$2mkn$$ FLOPs，因此每参数每 token 2 FLOPs；attention 对上下文 $$s$$ 的部分，每层每 token $$QK^\top$$ 与 $$PV$$ 各 $$2 \cdot n_h \cdot d_{head} \cdot s = 2ds$$，合计 $$4ds$$。
+位置编码决定了模型**能不能**处理长上下文；这一章算它**要花多少**。第十一篇的两个基本公式重新写在这里：矩阵乘 $$[m, k] \times [k, n]$$ 是 $$2mkn$$ FLOPs，因此每参数每 token 2 FLOPs；attention 对上下文 $$s$$ 的部分，每层每 token $$QK^\top$$ 与 $$PV$$ 各 $$2 \cdot n_h \cdot d_{head} \cdot s = 2ds$$，合计 $$4ds$$。
 
 ### 1. 每 token 的 attention 算量与权重算量的交叉点
 
@@ -452,7 +454,7 @@ Llama-3-8B 的权重 GEMM 部分每 token $$2 \times (8.03 - 0.53)\text{B} \appr
 
 Llama-3-70B 在 128K 下：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是权重 141 GFLOPs 的 2.4 倍。交叉点（attention 等于权重）在 8B 约 28.6K、70B 约 53.8K——超过这个长度，模型每生成一个 token 的主要算量就不再是"跑一遍权重"，而是"看一遍上下文"。
 
-这个交叉点对 decode 的 Roofline 判断有直接影响。第十篇的结论是 decode 时权重 GEMM 的算术强度约等于 batch 大小 $$B$$（BF16），$$B = 1$$ 时距 H100 的 ridge point 295 差两个数量级，是 memory-bound。attention 对 KV cache 的读取也是 memory-bound 的，而且它**不随 batch 摊薄**——每个请求有自己的 KV cache，$$B$$ 个请求就读 $$B$$ 份。上下文 8K、batch 64 时 8B 模型每步要读 $$128\,\text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV cache，是权重（16 GB）的四倍。长上下文下 decode 的瓶颈从"读权重"变成"读 KV cache"。
+这个交叉点对 decode 的 Roofline 判断有直接影响。第十一篇的结论是 decode 时权重 GEMM 的算术强度约等于 batch 大小 $$B$$（BF16），$$B = 1$$ 时距 H100 的 ridge point 295 差两个数量级，是 memory-bound。attention 对 KV cache 的读取也是 memory-bound 的，而且它**不随 batch 摊薄**——每个请求有自己的 KV cache，$$B$$ 个请求就读 $$B$$ 份。上下文 8K、batch 64 时 8B 模型每步要读 $$128\,\text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV cache，是权重（16 GB）的四倍。长上下文下 decode 的瓶颈从"读权重"变成"读 KV cache"。
 
 ### 2. prefill 的二次项：一个 128K 请求的 11 秒
 
@@ -470,7 +472,7 @@ $$
 
 H100 BF16 989 TFLOPS，按 60% MFU 算 593 TFLOPS，$$6.5 \times 10^{15} / 593 \times 10^{12} \approx 11$$ s。同一个模型 8K 的 prefill 约 0.14 PFLOP、0.24 s；128K 是 8K 的 16 倍长度、46 倍算量、46 倍时间。二次项已经占了 70%。
 
-对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；第十篇第六章说明了两者的区别）。
+对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；第十一篇第六章说明了两者的区别）。
 
 ### 3. KV cache 的线性项
 
@@ -759,7 +761,7 @@ def attn_flops_per_token(cfg: ModelConfig, ctx: int) -> float:
     return 4.0 * cfg.n_heads * cfg.head_dim * ctx * cfg.layers
 
 def forward_flops_per_token(cfg: ModelConfig, ctx: int) -> float:
-    """decode 一个 token、上下文 ctx 时的前向 FLOPs（第十篇）。"""
+    """decode 一个 token、上下文 ctx 时的前向 FLOPs（第十一篇）。"""
     return weight_flops_per_token(cfg) + attn_flops_per_token(cfg, ctx)
 
 def prefill_flops(cfg: ModelConfig, ctx: int, causal: bool = True) -> tuple:

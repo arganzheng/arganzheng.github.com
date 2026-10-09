@@ -8,6 +8,8 @@ catalog: true
 date: 2026-03-30 12:00:00
 ---
 
+> **本篇在系列中的位置。** 第一段（01–04：GPT-2 怎么工作、怎么写）的第一篇。本篇画出静态结构：六种部件各是什么、为什么在那里；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+
 2017 年之后，几乎所有你听说过的大模型——GPT、Llama、Qwen、DeepSeek、Claude、Gemini——用的都是同一种结构：Transformer。它取代了在它之前统治序列建模十年的循环网络（[《深度学习基础（06）：RNN——从 LSTM 到 attention 的诞生》](/rnn-lstm-and-the-birth-of-attention.html)讲了为什么），之后八年结构上只做了修补，没有被替换。所以"看懂一个大模型的内部"这件事，其实只需要看懂一种结构。
 
 这一篇讲**静态线**：把一个 decoder-only Transformer 里的每一个方框打开，说清它是什么、为什么要有它、里面的数怎么算。全篇用一个 4 维、3 个 token 的玩具例子把每一步**手算出来**，再用 GPT-2 small（1.24 亿参数，2019 年）的真实数字对照——真实模型只是把 4 换成 768、把 3 换成 1024，公式一个字都不变。读完这一篇，你应该能对着任何一个模型的 `config.json` 画出它的结构图，并且说出每个部件在做什么；下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)再讲一个 token 怎么在训练和推理时**流过**这些方框（动态线），本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把这两篇画的图变成 300 行代码。
@@ -92,7 +94,7 @@ Table: 本文的章节安排
 
 ### 2. 查表等价于 one-hot 乘矩阵
 
-编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（本系列第十篇[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算账时单列）。
+编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（本系列第十一篇[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
 ## 三、位置 embedding：告诉模型这是第几个 token
 
@@ -293,11 +295,11 @@ $$
 \text{FFN}(x) = \text{GELU}(x W_1 + b_1)\, W_2 + b_2, \qquad W_1 \in \mathbb{R}^{d \times 4d},\; W_2 \in \mathbb{R}^{4d \times d}
 $$
 
-先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（01）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《Transformer 解剖与参数量》](/transformer-anatomy-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
+先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（01）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到 Llama——五处改动与参数量》](/transformer-anatomy-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
 
 ### 2. 它在一层里占了三分之二
 
-一层的参数数一数：attention 四个矩阵 $$4d^2$$，FFN 两个矩阵 $$8d^2$$——**FFN 占一层参数的三分之二**（GPT-2 small：4.72M 对 2.36M）。这个比例在 Llama 上更高（约 80%，本系列第五篇[《Transformer 解剖与参数量》](/transformer-anatomy-and-parameter-count.html)的表）。所以"大模型的参数主要在 attention 里"是个常见误解；attention 负责决定看谁，真正的"存储"在 FFN。
+一层的参数数一数：attention 四个矩阵 $$4d^2$$，FFN 两个矩阵 $$8d^2$$——**FFN 占一层参数的三分之二**（GPT-2 small：4.72M 对 2.36M）。这个比例在 Llama 上更高（约 80%，本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到 Llama——五处改动与参数量》](/transformer-anatomy-and-parameter-count.html)的表）。所以"大模型的参数主要在 attention 里"是个常见误解；attention 负责决定看谁，真正的"存储"在 FFN。
 
 ### 3. 知识存在哪
 
@@ -323,7 +325,7 @@ $$
 x = (2, 4, 4, 6) \;\to\; \mu = 4,\; \sigma^2 = 2 \;\to\; \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} = (-1.41,\, 0,\, 0,\, 1.41) \;\to\; \gamma \odot (\cdot) + \beta
 $$
 
-它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第四章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN 里 BatchNorm 的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，本系列第五篇[《Transformer 解剖与参数量》](/transformer-anatomy-and-parameter-count.html)），作用相同。
+它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第四章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN 里 BatchNorm 的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到 Llama——五处改动与参数量》](/transformer-anatomy-and-parameter-count.html)），作用相同。
 
 ### 3. pre-norm 与 post-norm
 
@@ -337,7 +339,7 @@ LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pr
 
 ### 2. 与 embedding 表共享权重
 
-GPT-2 的 lm_head 直接**复用 embedding 表的转置**（tie weights）：查表是"编号 → 向量"，lm_head 是"向量 → 每个编号的分数"，用同一张表做两件事既省了 3860 万参数，又让"输入端相近的词在输出端也相近"。大模型（Llama-3-70B）通常不共享，因为 embedding 那点参数相对总量已经不重要（本系列第五篇[《Transformer 解剖与参数量》](/transformer-anatomy-and-parameter-count.html)）。
+GPT-2 的 lm_head 直接**复用 embedding 表的转置**（tie weights）：查表是"编号 → 向量"，lm_head 是"向量 → 每个编号的分数"，用同一张表做两件事既省了 3860 万参数，又让"输入端相近的词在输出端也相近"。大模型（Llama-3-70B）通常不共享，因为 embedding 那点参数相对总量已经不重要（本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到 Llama——五处改动与参数量》](/transformer-anatomy-and-parameter-count.html)）。
 
 ## 八、把它们叠起来
 
@@ -387,7 +389,7 @@ x = x + self.mlp(self.ln_2(x))
 
 Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 66.6%
 
-两个观察：embedding 在这个小模型里占了将近三分之一，模型越大这一项占比越小（Llama-3-8B 是 13%，70B 是 1.5%）；12 层里三分之二的参数在 FFN。本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)会用 `model.get_num_params()` 把这个数打印出来（nanoGPT 默认不计 `wpe`，报 123.65M），本系列第五篇[《Transformer 解剖与参数量》](/transformer-anatomy-and-parameter-count.html)把同一套算法用到 Llama 上。
+两个观察：embedding 在这个小模型里占了将近三分之一，模型越大这一项占比越小（Llama-3-8B 是 13%，70B 是 1.5%）；12 层里三分之二的参数在 FFN。本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)会用 `model.get_num_params()` 把这个数打印出来（nanoGPT 默认不计 `wpe`，报 123.65M），本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到 Llama——五处改动与参数量》](/transformer-anatomy-and-parameter-count.html)把同一套算法用到 Llama 上。
 
 ## 九、与 d2l 10.7 的 encoder-decoder 对照
 
@@ -426,7 +428,7 @@ Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
 2. **训练效率**：causal mask 让一句话的 $$T$$ 个位置同时提供 $$T$$ 个训练信号（下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)第二章），而 encoder-decoder 只在 decoder 侧有信号。
 3. **KV cache**（下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)第三章）：单向结构让推理时前面 token 的中间结果可以缓存复用，双向结构做不到。
 
-所以本系列只讲 decoder-only；d2l 10.7 里 encoder 那一半，读者知道它就是"不加 mask 的第四章"即可。多模态模型里的 vision encoder（本系列第十三篇[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)）是 encoder 这一半在今天的主要去处。
+所以本系列只讲 decoder-only；d2l 10.7 里 encoder 那一半，读者知道它就是"不加 mask 的第四章"即可。多模态模型里的 vision encoder（本系列第十篇[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)）是 encoder 这一半在今天的主要去处。
 
 ## 十、本文小结
 

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="506" viewBox="0 0 940 506" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="12">
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="470.0" y="26" fill="#222" font-size="14" text-anchor="middle" font-weight="600">MHA / GQA / MQA：第 i 个 Q head 读第 ⌊i / g⌋ 组 K/V（n_h = 8，g = n_h / n_kv）</text>
+<text x="30" y="78" fill="#222" font-size="16" text-anchor="start" font-weight="600">MHA</text>
+<text x="30" y="100" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">n_kv = n_h = 8，g = 1</text>
+<text x="30" y="120" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">每个 Q head 独占一组 K/V</text>
+<text x="30" y="140" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="600">每 token 缓存 K、V 各 8 × d_head</text>
+<text x="278" y="78" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
+<text x="278" y="158" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
+<line x1="323.0" y1="86" x2="323.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="295.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="323.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 0</text>
+<line x1="389.0" y1="86" x2="389.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="361.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="389.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 1</text>
+<line x1="455.0" y1="86" x2="455.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="427.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="455.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 2</text>
+<line x1="521.0" y1="86" x2="521.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="493.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="521.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 3</text>
+<line x1="587.0" y1="86" x2="587.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="559.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="587.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 4</text>
+<line x1="653.0" y1="86" x2="653.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="625.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="653.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 5</text>
+<line x1="719.0" y1="86" x2="719.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="691.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="719.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 6</text>
+<line x1="785.0" y1="86" x2="785.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="757.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="785.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 7</text>
+<rect x="295" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="323.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 0</text>
+<rect x="361" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="389.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 1</text>
+<rect x="427" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="455.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 2</text>
+<rect x="493" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="521.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 3</text>
+<rect x="559" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="587.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 4</text>
+<rect x="625" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="653.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 5</text>
+<rect x="691" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="719.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 6</text>
+<rect x="757" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="785.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 7</text>
+<text x="30" y="228" fill="#222" font-size="16" text-anchor="start" font-weight="600">GQA</text>
+<text x="30" y="250" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">n_kv = 2，g = 4</text>
+<text x="30" y="270" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">每 4 个 Q head 共用一组 K/V</text>
+<text x="30" y="290" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="600">每 token 缓存 K、V 各 2 × d_head</text>
+<text x="278" y="228" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
+<text x="278" y="308" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
+<line x1="323.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="389.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="455.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="521.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="362.0" y="290" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="422.0" y="308" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 0</text>
+<line x1="587.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="653.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="719.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="785.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="626.0" y="290" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="686.0" y="308" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 1</text>
+<rect x="295" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="323.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 0</text>
+<rect x="361" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="389.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 1</text>
+<rect x="427" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="455.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 2</text>
+<rect x="493" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="521.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 3</text>
+<rect x="559" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="587.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 4</text>
+<rect x="625" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="653.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 5</text>
+<rect x="691" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="719.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 6</text>
+<rect x="757" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="785.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 7</text>
+<text x="30" y="378" fill="#222" font-size="16" text-anchor="start" font-weight="600">MQA</text>
+<text x="30" y="400" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">n_kv = 1，g = 8</text>
+<text x="30" y="420" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">所有 Q head 共用一组 K/V</text>
+<text x="30" y="440" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="600">每 token 缓存 K、V 各 1 × d_head</text>
+<text x="278" y="378" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
+<text x="278" y="458" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
+<line x1="323.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="389.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="455.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="521.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="587.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="653.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="719.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<line x1="785.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
+<rect x="494.0" y="440" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
+<text x="554.0" y="458" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 0</text>
+<rect x="295" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="323.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 0</text>
+<rect x="361" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="389.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 1</text>
+<rect x="427" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="455.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 2</text>
+<rect x="493" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="521.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 3</text>
+<rect x="559" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="587.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 4</text>
+<rect x="625" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="653.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 5</text>
+<rect x="691" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="719.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 6</text>
+<rect x="757" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
+<text x="785.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 7</text>
+</svg>

@@ -18,8 +18,8 @@ transition: slide
 | 段 | 篇 | 方法 |
 |---|---|---|
 | 一 · 走通 | 01–04 | 同一份代码：d = 4 手算 → 带 KV cache 的极小 GPT → nanoGPT 训到会续写 |
-| 二 · 解剖 | 05–09 | 公式 → 代入 Llama-3-8B / 70B、DeepSeek-V3 → 算出数字 |
-| 三 · 算账 | 10–13 | 同一张卡 H100：80 GB、3.35 TB/s、BF16 989 TFLOPS |
+| 二 · 结构演进 | 05–10 | 每处改动：是什么、为什么、带来什么成本；公式 → 代入 Llama-3-8B / 70B、DeepSeek-V3、VLM → 算出数字 |
+| 三 · 通用成本账 | 11–13 | 同一张卡 H100：80 GB、3.35 TB/s、BF16 989 TFLOPS |
 
 <aside class="notes" markdown="1">
 总纲：/transformer-and-llm-for-infra-engineers.html。三个模型：Llama-3-8B / 70B 代表 dense + GQA，DeepSeek-V3 代表 MLA + 细粒度 MoE + FP8；Mixtral 8x7B 与四个多模态模型作对照。
@@ -36,13 +36,13 @@ flowchart TB
         direction LR
         P1["01 五种运算"] --> P2["02 训练 / prefill / decode"] --> P3["03 model.py 逐行"] --> P4["04 train.py 实训"]
     end
-    subgraph S2["二 · 解剖：公式 → config.json → 数字"]
+    subgraph S2["二 · 结构演进：是什么 → 为什么 → 多少成本"]
         direction LR
-        P5["05 参数量"] --> P6["06 KV cache 与 MLA"] --> P7["07 RoPE 与长上下文"] --> P8["08 MoE"] --> P9["09 MTP"]
+        P5["05 GPT-2 → Llama<br/>参数量"] --> P6["06 KV cache 与 MLA"] --> P7["07 RoPE 与长上下文"] --> P8["08 MoE"] --> P9["09 MTP"] --> P10["10 多模态"]
     end
-    subgraph S3["三 · 算账：一条 Roofline"]
+    subgraph S3["三 · 通用成本账：一条 Roofline"]
         direction LR
-        P10["10 FLOPs、字节、ridge"] --> P11["11 浮点格式"] --> P12["12 量化 / 投机 / LoRA"] --> P13["13 多模态"]
+        P11["11 FLOPs、字节、ridge"] --> P12["12 浮点格式"] --> P13["13 量化 / 投机 / LoRA"]
     end
     S1 --> S2 --> S3
 ```
@@ -189,7 +189,7 @@ flowchart LR
 
 ---
 
-## 05 · Transformer 解剖：从 config.json 算出 8.03B
+## 05 · 从 GPT-2 到 Llama：五处改动，算出 8.03B
 
 **结论**：dense Transformer **没有隐藏参数**——每层四个 attention 矩阵 + 三个 SwiGLU 矩阵，乘层数加词表，Llama-3-8B 算出 **8,030,261,248**，精确到个位。
 
@@ -382,7 +382,33 @@ flowchart LR
 
 ---
 
-## 10 · 前向的算量与访存量：一条 Roofline
+## 10 · 多模态：一张图等于多少 token
+
+**结论**：图片贵的**不是 encoder**（一次性、compute-bound、12 ms），是它变成的 token 在 decoder 里占的 **KV**——与同长文本同价、活到请求结束；1024² 在 Qwen2-VL 里 = 1369 个 token，一段无法被 tokenizer 压短的 system prompt。
+
+![patchify（p = 14）→ 2×2 merge → 进入 decoder 序列：5476 个 patch 变成 1369 个 image token](/img/in-post/multimodal-vision-encoder-cost-patch-merge.svg){: style="max-height: 360px"}
+
+<aside class="notes" markdown="1">
+原文 /multimodal-vision-encoder-cost-and-image-token-kv.html。n_img = ⌈H/28⌉⌈W/28⌉：336² → 144、1024² → 1369、1920×1080 → 2691。
+</aside>
+
+<!-- v -->
+
+### 三段各一笔账（70B 规格，1024² 一张图）
+
+| 段 | 账 | 数 |
+|---|---|---|
+| vision encoder（0.63B ViT，5476 patch） | $$2N_{vit}n_p + 4L_{vit}n_p^2 d_{vit}$$ | 11.8 TFLOP，attention 二次项占 42%；一次性 |
+| connector | 决定 token 数 | MLP 不压缩 576 · 2×2 merge 1369 · resampler 定长；同一张图 576–6404 差 11 倍 |
+| decoder | prefill + KV | 193 TFLOP；**KV 428 MiB**，是 encoder 输出 21 MiB 的 **20 倍** |
+
+- 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8
+- cross-attention 注入（Llama 3.2 Vision）用 0.5B 参数换序列长度，图片 KV 800 → 200 MiB
+- 一分钟 720p 1 fps 视频 35,880 token；按像素预算，不按张数
+
+---
+
+## 11 · 前向的算量与访存量：一条 Roofline
 
 **结论**：每参数每 token 2 FLOPs；decode 每步把 16 GB 权重读一遍、**算术强度在数值上就等于 B**，ridge 是 989 / 3.35 ≈ **295**——这就是「decode 是 memory-bound」的全部含义。
 
@@ -410,7 +436,7 @@ flowchart LR
 
 ---
 
-## 11 · 浮点格式：指数位定范围，尾数位定精度
+## 12 · 浮点格式：指数位定范围，尾数位定精度
 
 **结论**：前向反向要**范围**、权重更新要**精度**——所以 BF16 计算 + **FP32 master weights**；$$\Delta w / w \sim 10^{-4}$$ 低于 BF16 的单位舍入 $$2^{-8} = 0.004$$，1.0 + 0.001 会被舍回 1.0。
 
@@ -445,7 +471,7 @@ flowchart LR
 
 ---
 
-## 12 · 量化、投机解码与 LoRA：三种方法，同一条 Roofline
+## 13 · 量化、投机解码与 LoRA：三种方法，同一条 Roofline
 
 **结论**：都不改结构，各改一个变量——量化改 $$W_{bytes}$$、投机改每步的 m、LoRA 改训练时的 N；前两者都在**兑现 memory-bound 区间里空转的算力**，过 ridge 收益同时消失。
 
@@ -470,32 +496,6 @@ flowchart LR
 
 ---
 
-## 13 · 多模态：一张图等于多少 token
-
-**结论**：图片贵的**不是 encoder**（一次性、compute-bound、12 ms），是它变成的 token 在 decoder 里占的 **KV**——与同长文本同价、活到请求结束；1024² 在 Qwen2-VL 里 = 1369 个 token，一段无法被 tokenizer 压短的 system prompt。
-
-![patchify（p = 14）→ 2×2 merge → 进入 decoder 序列：5476 个 patch 变成 1369 个 image token](/img/in-post/multimodal-vision-encoder-cost-patch-merge.svg){: style="max-height: 360px"}
-
-<aside class="notes" markdown="1">
-原文 /multimodal-vision-encoder-cost-and-image-token-kv.html。n_img = ⌈H/28⌉⌈W/28⌉：336² → 144、1024² → 1369、1920×1080 → 2691。
-</aside>
-
-<!-- v -->
-
-### 三段各一笔账（70B 规格，1024² 一张图）
-
-| 段 | 账 | 数 |
-|---|---|---|
-| vision encoder（0.63B ViT，5476 patch） | $$2N_{vit}n_p + 4L_{vit}n_p^2 d_{vit}$$ | 11.8 TFLOP，attention 二次项占 42%；一次性 |
-| connector | 决定 token 数 | MLP 不压缩 576 · 2×2 merge 1369 · resampler 定长；同一张图 576–6404 差 11 倍 |
-| decoder | prefill + KV | 193 TFLOP；**KV 428 MiB**，是 encoder 输出 21 MiB 的 **20 倍** |
-
-- 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8
-- cross-attention 注入（Llama 3.2 Vision）用 0.5B 参数换序列长度，图片 KV 800 → 200 MiB
-- 一分钟 720p 1 fps 视频 35,880 token；按像素预算，不按张数
-
----
-
 ## 第三段共用的成本模型
 
 ```mermaid
@@ -503,11 +503,11 @@ flowchart LR
 flowchart TB
     S["结构：L、d、d_ff、n_kv、E、k<br/>（01、03、05）"] --> N["参数量 N、激活参数量（05、08）"]
     S --> K["KV / token = 2 L n_kv d_head · bytes/elem（06）"]
-    D["数值：bytes/param、bytes/elem（11、12）"] --> W["权重字节 = N · bytes/param"]
+    D["数值：bytes/param、bytes/elem（12、13）"] --> W["权重字节 = N · bytes/param"]
     N --> W
     D --> K
-    N --> F["FLOPs / token ≈ 2N + 4dLs（10、07）"]
-    R["运行点：B、s、prefill / decode（02、07、08、10）"] --> F
+    N --> F["FLOPs / token ≈ 2N + 4dLs（11、07）"]
+    R["运行点：B、s、prefill / decode（02、07、08、11）"] --> F
     R --> H["每步字节 = 权重字节 + B · s · KV/token"]
     K --> H
     W --> H
@@ -567,10 +567,10 @@ flowchart TB
 | 07 | $$\lambda_i = 2\pi\cdot\text{base}^{2i/d_{head}}$$；交叉点 8B 28.6K；128K prefill 11 s |
 | 08 | $$E[1-(1-k/E)^B]$$：B = 32 → 163 个专家、434 GB |
 | 09 | $$\mathcal L_{main} + \lambda\bar{\mathcal L}_{MTP}$$；接受率 85–90%、1.8 倍 |
-| 10 | ridge = 989 / 3.35 ≈ 295；$$I_{weight} = B$$、$$I_{KV} = g$$；6ND |
-| 11 | BF16 单位舍入 2⁻⁸；16 B / 参数；ε√k |
-| 12 | $$T(m) = \max(W_{bytes}/BW,\ 2Nm/F)$$；$$(1-\alpha^{\gamma+1})/(1-\alpha)$$ |
-| 13 | $$n_{img} = \lceil H/28\rceil\lceil W/28\rceil$$；KV / encoder 输出 = 20 |
+| 10 | $$n_{img} = \lceil H/28\rceil\lceil W/28\rceil$$；KV / encoder 输出 = 20 |
+| 11 | ridge = 989 / 3.35 ≈ 295；$$I_{weight} = B$$、$$I_{KV} = g$$；6ND |
+| 12 | BF16 单位舍入 2⁻⁸；16 B / 参数；ε√k |
+| 13 | $$T(m) = \max(W_{bytes}/BW,\ 2Nm/F)$$；$$(1-\alpha^{\gamma+1})/(1-\alpha)$$ |
 
 ---
 
@@ -578,7 +578,7 @@ flowchart TB
 
 - **往前**：《深度学习基础》——反向传播、初始化 / 归一化 / 残差、优化器、RNN 到 attention 的来历
 - **往后（算法）**：《预训练》——tokenizer、scaling law、数据工程、训练配方
-- **往后（Infra）**：《高效推理》——把第 10 篇的 Roofline 变成 vLLM / SGLang 的调度；《分布式训练》——把 16 B / 参数切到多卡
+- **往后（Infra）**：《高效推理》——把第 11 篇的 Roofline 变成 vLLM / SGLang 的调度；《分布式训练》——把 16 B / 参数切到多卡
 - 原文总纲：`/transformer-and-llm-for-infra-engineers.html`；通关自测 27 题在系列总结
 
 <aside class="notes" markdown="1">

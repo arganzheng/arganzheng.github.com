@@ -1,12 +1,15 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（11）：浮点格式、数值稳定性与混合精度"
+title: "Transformer 与 LLM（12）：浮点格式、数值稳定性与混合精度"
 subtitle: "Floating-Point Formats, Numerical Stability and Mixed Precision"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
+date: 2026-04-08 10:00:00
 ---
+
+> **本篇在系列中的位置。** 第三段的第二篇。第 11 篇的字节数默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题；下一篇在此基础上讲量化。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
 
 第四篇的 `train.py` 里有两行一直没解释：`torch.amp.autocast(dtype=bfloat16)` 与 `GradScaler(enabled=(dtype == "float16"))`——为什么训练要用两种精度、为什么 fp16 需要一个放大器而 bf16 不需要。前面几篇又算了大量的字节数：Llama-3-8B 的权重 16.06 GB、KV cache 每 token 128 KiB、decode 一步至少搬 16 GB，全都默认"每个数占 2 字节"，也就是 BF16。这一篇把镜头再推近一层，从"每个数占几个字节"进入"这几个字节里到底存了什么"，回答一个在训练和推理系统里都绕不开的问题：
 
@@ -93,7 +96,7 @@ Table: 常见浮点与整数格式的位分配、范围与精度
 - **TF32** 不是一种内存格式。它是 Ampere 起 Tensor Core 接受 FP32 输入时在**乘法器入口**做的截断：把 23 位尾数截成 10 位（与 FP16 同精度），指数保留 8 位（与 FP32 同范围），乘积再用 FP32 累加。张量在显存里仍然是 32 位、4 字节，`torch.float32` 的 dtype 不变；开关是 `torch.backends.cuda.matmul.allow_tf32` 或 `torch.set_float32_matmul_precision("high")`。这意味着"FP32 GEMM"在默认开启 TF32 的框架里，输入精度其实只有 $$2^{-10}$$。
 - **E4M3** 是 FP8 的"精度型"变体，但它偏离了 IEEE 惯例：指数全 1 不再保留给 inf，$$S.1111.110$$ 是合法的最大数 $$1.75 \times 2^{8} = 448$$，只有 $$S.1111.111$$ 一个编码（两个符号）留给 NaN。没有 inf 意味着溢出会被饱和（saturate）成 448 或直接变 NaN，取决于转换指令的模式。PyTorch 中的 dtype 名 `float8_e4m3fn` 里的 "fn" 就是 finite + NaN-only 的意思。
 - **E5M2** 是 FP8 的"范围型"变体，与 FP16 共享指数结构（bias 15），可以看作 FP16 砍掉 8 位尾数，保留 IEEE 的 inf/NaN 约定：最大值 $$1.75 \times 2^{15} = 57344$$，最小正规数与 FP16 同为 $$6.1 \times 10^{-5}$$。它只有 3 位有效数字（含隐含位），$$\varepsilon = 0.25$$。
-- **INT8 / INT4** 不是浮点，没有指数，所有可表示数等距分布。它们必须搭配一个（通常是 FP16/FP32 的）缩放因子 scale 才能表示实数，这个 scale 的粒度问题正是第六节和第十二篇的主题。
+- **INT8 / INT4** 不是浮点，没有指数，所有可表示数等距分布。它们必须搭配一个（通常是 FP16/FP32 的）缩放因子 scale 才能表示实数，这个 scale 的粒度问题正是第六节和第十三篇的主题。
 
 ### 3. 一个直观的比较
 
@@ -390,7 +393,7 @@ flowchart TB
 
 ### 3. DeepSeek-V3 的分块量化：scale 的粒度决定离群值的影响范围
 
-per-tensor scaling 的根本问题是**离群值（outlier）**。LLM 的激活中存在少数通道的值比其余大两三个数量级（第十二篇会再讨论），如果整个张量共享一个 scale，这个 scale 被离群值决定：离群值被对齐到 448，占据 E4M3 窗口的顶端。E4M3 从最小次正规数 $$2^{-9}$$ 到 448 只有 18 个二进制数量级，其中正规区 15 个；任何比离群值小 $$2^{15} \approx 3 \times 10^4$$ 倍以上的元素就落进次正规区开始丢有效位，小 $$2^{18}$$ 倍以上直接变 0。一个 $$100 \times$$（约 $$2^7$$）的离群值加上激活本身三四个十进制数量级的自然分布，尾部恰好被推进这个区域；更糟的是 delayed scaling 用历史 amax，离群值让 amax 剧烈波动，scale 在"太大溢出"与"太小下溢"之间摇摆。
+per-tensor scaling 的根本问题是**离群值（outlier）**。LLM 的激活中存在少数通道的值比其余大两三个数量级（第十三篇会再讨论），如果整个张量共享一个 scale，这个 scale 被离群值决定：离群值被对齐到 448，占据 E4M3 窗口的顶端。E4M3 从最小次正规数 $$2^{-9}$$ 到 448 只有 18 个二进制数量级，其中正规区 15 个；任何比离群值小 $$2^{15} \approx 3 \times 10^4$$ 倍以上的元素就落进次正规区开始丢有效位，小 $$2^{18}$$ 倍以上直接变 0。一个 $$100 \times$$（约 $$2^7$$）的离群值加上激活本身三四个十进制数量级的自然分布，尾部恰好被推进这个区域；更糟的是 delayed scaling 用历史 amax，离群值让 amax 剧烈波动，scale 在"太大溢出"与"太小下溢"之间摇摆。
 
 DeepSeek-V3 的做法是缩小 scale 的作用范围：**激活按 $$1 \times 128$$ 分块**（每个 token 每 128 个通道一个 scale），**权重按 $$128 \times 128$$ 分块**。一个离群值现在只能拖累同一个块里的 127 个邻居，其余所有块的 scale 由各自的正常值决定，不受影响。用数字说：DeepSeek-V3 的 $$d = 7168$$ 激活向量有 56 个块，一个离群通道影响 $$1/56 \approx 1.8\%$$ 的元素；per-tensor 时影响 100%。块大小 128 与第四节的累加提升周期 $$N_C = 128$$ 对齐，每 128 个 $$k$$ 元素的部分和搬到 CUDA core 时正好乘上这一块的 $$s_a \cdot s_w$$，反量化没有额外的遍历。沿 $$k$$ 方向把三件事对齐画出来：
 
@@ -675,12 +678,12 @@ def param_count(cfg: ModelConfig) -> dict:
     total = cfg.param_override or (per_layer * cfg.layers + embed + lm_head + d)
     return {"per_layer": per_layer, "embedding": embed, "lm_head": lm_head, "total": total}
 
-# ---- 第十一篇新增 ----
+# ---- 第十二篇新增 ----
 DTYPE_BYTES = {
     "fp32": 4, "tf32": 4,          # TF32 在内存中仍是 32 位
     "fp16": 2, "bf16": 2,
     "fp8_e4m3": 1, "fp8_e5m2": 1,
-    "int8": 1, "int4": 0.5,        # int4 不含 scale/zero-point 开销 (第十二篇)
+    "int8": 1, "int4": 0.5,        # int4 不含 scale/zero-point 开销 (第十三篇)
 }
 
 def training_state_bytes(cfg: ModelConfig, optimizer: str = "adam", mixed: bool = True,

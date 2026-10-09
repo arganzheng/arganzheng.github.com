@@ -1,12 +1,15 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（12）：量化、投机解码与 LoRA"
+title: "Transformer 与 LLM（13）：量化、投机解码与 LoRA"
 subtitle: "Quantization, Speculative Decoding and LoRA: Three Ways to Reshape the Computation"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
+date: 2026-04-08 12:00:00
 ---
+
+> **本篇在系列中的位置。** 第三段的最后一篇。前两篇给出了算量、访存与数值格式，本篇讲三种不改结构、只改计算形态的方法——量化、投机解码与 LoRA——分别在这本账的哪一项上省钱。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
 
 第五至十一篇把一个 Transformer 拆成了四组变量：参数量 $$N$$、每 token 的 FLOPs、每步要搬的字节数、每 token 的 KV cache。这些变量由结构决定——层数、hidden、GQA 的组数、专家数——一旦 `config.json` 定下来，它们就定下来了。
 
@@ -679,7 +682,7 @@ def forward_flops_per_token(cfg, ctx=0):
 def kv_bytes_per_token(cfg, dtype_bytes=2):
     return 2 * cfg.layers * cfg.n_kv_heads * cfg.head_dim * dtype_bytes
 
-# ---- 第十二篇新增 ----
+# ---- 第十三篇新增 ----
 def quantized_weight_bytes(cfg, bits=4, group_size=128, scale_bits=16,
                            zero_bits=16, keep_embed_bf16=False):
     """weight-only 量化后的权重字节数；返回 (bytes, 等效 bit/权重)。"""
@@ -831,7 +834,7 @@ QLoRA           底座 bytes ↓ 4×    NF4 底座 + BF16 LoRA                  
 Table: 本篇的数字：量化、投机解码与 LoRA 在三个模型上的账
 
 
-到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。本篇只算了它们的账；每种方法在最小化什么、输出分布改变了多少、草稿怎么训、KV 怎么压、剪枝怎么恢复，在算法地图的 L6 系列[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)里展开。还剩一个前提没有动过——所有账都假设 token 来自 tokenizer。下一篇把输入换成图片：一张图先经过一个独立的 vision encoder，再变成几百到几千个 token 插进 prompt，它的算量花在哪里、这些 token 在 decoder 里的 KV 与文本 token 有没有区别，是本系列的最后一站。
+到这里，文本 LLM 的成本模型已经完整：结构决定参数量、KV 与通信量，精度决定字节数，量化、投机解码与 LoRA 在不改结构的前提下改变计算形态。本篇只算了它们的账；每种方法在最小化什么、输出分布改变了多少、草稿怎么训、KV 怎么压、剪枝怎么恢复，在算法地图的 L6 系列[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)里展开。第十篇已经把图片 token 的那一行加进了同一张表；至此三段十三篇全部讲完，[《Transformer 与 LLM：系列总结与通关自测》](/transformer-and-llm-series-recap-and-self-test.html)把它们压成一张「问题 → 结论 → 必记数字」的表，并给一套通关自测。
 
 配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
 

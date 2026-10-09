@@ -8,7 +8,9 @@ catalog: true
 updated: 2026-09-14
 ---
 
-第二篇讲了 KV cache 为什么**有**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来，decode 每步只算一个 token。这一篇讲它为什么要**省**：Llama-3-8B 每个 token 的 KV 是 128 KiB，一个 8K 请求 1 GiB，一张 80 GB 的卡除掉权重只能同时服务几十个这样的请求——而如果它还用 GPT-2 那种每个 Q 头各有一组 K/V 的 MHA，会是 512 KiB。attention 是 Transformer 里唯一成本随上下文增长的部分（第十篇把它拆成"权重项"与"上下文项"算成时间），也是过去几年结构改动最集中的地方。
+> **本篇在系列中的位置。** 第二段（05–10：今天的模型改了哪些结构）的第二篇。第 05 篇讲了 GQA 为什么让 K/V 投影变窄，本篇把 MHA → GQA → MQA → MLA 当作一条结构演进讲全，并同时算它们的成本：KV cache 的字节数、并发上限与 kernel 形态。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+
+第二篇讲了 KV cache 为什么**有**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来，decode 每步只算一个 token。这一篇讲它为什么要**省**：Llama-3-8B 每个 token 的 KV 是 128 KiB，一个 8K 请求 1 GiB，一张 80 GB 的卡除掉权重只能同时服务几十个这样的请求——而如果它还用 GPT-2 那种每个 Q 头各有一组 K/V 的 MHA，会是 512 KiB。attention 是 Transformer 里唯一成本随上下文增长的部分（第十一篇把它拆成"权重项"与"上下文项"算成时间），也是过去几年结构改动最集中的地方。
 
 MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 
@@ -567,7 +569,7 @@ t↓  j = 0 … 11 →                      t↓  j = 0 … 11 →
 sliding window：每行最多 w 个 ■ → O(s·w)，cache 只需保留最近 w 个 token
 ```
 
-第十篇的 prefill 数字会用到这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
+第十一篇的 prefill 数字会用到这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
 
 sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置 $$t$$ attend 到 $$[t - w, t]$$。attention 的 FLOPs 变成 $$O(s w)$$——对 $$s$$ 线性；KV cache 也不再随上下文增长，每层每序列最多 $$w$$ 个 token：Mistral 7B（结构与 Llama-3-8B 同为 32 层、8 个 KV 头、$$d_{head} = 128$$）的 KV cache 上限是 $$128 \text{ KiB} \times 4096 = 512$$ MiB，无论上下文多长。代价是超出窗口的信息只能通过多层堆叠间接传递（$$L$$ 层理论感受野 $$L \cdot w$$），长距离检索能力有损，所以后来的模型多是滑窗层与全局层交替（如 Gemma 2、Llama 4 的部分层）。
 
@@ -589,7 +591,7 @@ sliding window attention（Mistral 7B 用 4096 的窗口）进一步只让位置
 
 bytes/elem 从 BF16 的 2 降到 FP8（E4M3）或 INT8 的 1，每 token 字节数直接减半：Llama-3-8B 64 KiB，Llama-3-70B 160 KiB，DeepSeek-V3 约 34.3 KiB；128K 上下文分别是 8 GiB、20 GiB、4.3 GiB。缩放因子通常按 head 或按 token 一个，开销不到 1%。decode 时 KV 读取的字节数同样减半，第二章那个 8K × batch 64 的 64 GiB 变成 32 GiB。
 
-数值上 K 比 V 更敏感（K 直接进 softmax 指数，某些通道有明显的离群值），INT4 KV 一般要对 K 做按通道量化、对 V 做按 token 量化（KIVI 一类方法）。FP8 KV 在 H100 上还有一个额外好处：attention kernel 可以直接用 FP8 的输入，不必先反量化。这些是第六、第十二篇的内容，这里只需记住：**量化是公式里唯一一个不改变结构就能减半的因子**。
+数值上 K 比 V 更敏感（K 直接进 softmax 指数，某些通道有明显的离群值），INT4 KV 一般要对 K 做按通道量化、对 V 做按 token 量化（KIVI 一类方法）。FP8 KV 在 H100 上还有一个额外好处：attention kernel 可以直接用 FP8 的输入，不必先反量化。这些是第六、第十三篇的内容，这里只需记住：**量化是公式里唯一一个不改变结构就能减半的因子**。
 
 ### 4. 三个因子怎么叠加
 
