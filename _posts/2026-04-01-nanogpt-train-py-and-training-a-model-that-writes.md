@@ -51,7 +51,7 @@ Table: 本文的章节安排与 train.py 的对应
 
 ## 二、数据：`prepare.py` 把文本变成整数
 
-模型吃的是 token 编号（第一篇第二章）。莎士比亚这个例子用**字符级**分词：每个不同的字符就是一个 token，词表只有 65 个（26 个字母大小写、标点、空格、换行）：
+模型吃的是 token 编号（本系列第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第二章）。莎士比亚这个例子用**字符级**分词：每个不同的字符就是一个 token，词表只有 65 个（26 个字母大小写、标点、空格、换行）：
 
 ```python title='prepare.py 节选：字符级分词与 train.bin / val.bin'
 # data/shakespeare_char/prepare.py（节选）

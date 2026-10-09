@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-第一篇的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张 1024 行的位置表，代价是第 1025 个位置没有对应的向量，上下文的硬上限就是这么来的。Llama 换成了 RoPE。前几篇的账里有一个变量一直被当作常数处理：上下文长度 $$s$$。第六篇算 KV cache 时取 $$s = 131072$$，第十篇算 prefill 时取 $$s = 8192$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
+[《Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量，上下文的硬上限就是这么来的。Llama 换成了 RoPE。前几篇的账里有一个变量一直被当作常数处理：上下文长度 $$s$$。[《Transformer 与 LLM（06）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)算 KV cache 时取 $$s = 131072$$，[《Transformer 与 LLM（10）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算 prefill 时取 $$s = 8192$$，但都没有回答两个问题：模型凭什么知道一个 token 在第几个位置？以及，一个模型能处理的上下文长度到底由什么决定？
 
 这两个问题在结构上由同一个部件回答——位置编码。它在参数量表里几乎不占位置（RoPE 一个参数都没有），在算量表里也可以忽略（一次逐元素乘加），却决定了"上下文长度"这个对 Infra 成本最敏感的维度的上限。上下文长度同时进入 KV cache 的一次项和 attention 算量的二次项：Llama-3-70B 在 128K 上下文下，每个 token 花在 attention 上的算量（344 GFLOPs）已经超过了花在全部权重上的算量（141 GFLOPs）。
 
