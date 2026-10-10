@@ -104,6 +104,23 @@ html[data-theme="dark"] .post-container > h4 .heading-fold,
 html[data-theme="dark"] .post-container > h5 .heading-fold,
 html[data-theme="dark"] .post-container > h6 .heading-fold { color: @dk-link; }
 
+html[data-theme="dark"] .pa-share-pop {
+	background-color: @dk-surface;
+	border-color: @dk-border;
+	box-shadow: 0 8px 24px fade(@dk-bg, 70%);
+	.pa-sp-item {
+		color: @dk-text;
+		.fa { color: @dk-muted; }
+		&:hover, &:focus {
+			background-color: @dk-surface-2;
+			color: @dk-link;
+			.fa { color: @dk-link; }
+		}
+	}
+	.pa-sp-qr { border-top-color: @dk-border; }
+	.pa-sp-qr-hint { color: @dk-muted; }
+}
+
 // nav theme toggle (both themes): moon in light, sun in dark
 .nav-theme-toggle a svg { vertical-align: -2px; }
 .nav-theme-sun { display: none; }

@@ -9,6 +9,7 @@
  *     copy link. One popover element, re-anchored to whichever button opened it.
  *     Every completed share is one POST /shares; Moments can additionally
  *     provide a PNG card generator and a long-press / download overlay.
+ *   - author-only 「导出」 menu: save a PDF or copy the Markdown source.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -125,7 +126,21 @@
   }
 
   // ---------------------------------------------------------- share popover
-  var pop = null, popFor = null, cardOverlay = null, cardObjectUrl = null;
+  var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
+  var menuDismissalBound = false, printPdf = null, copyMarkdown = null;
+  var cardOverlay = null, cardObjectUrl = null;
+  function bindMenuDismissal() {
+    if (menuDismissalBound) return;
+    menuDismissalBound = true;
+    document.addEventListener('click', function (e) {
+      if (pop && !pop.hidden && !pop.contains(e.target) && !(popFor && popFor.btn.contains(e.target))) closePop();
+      if (exportPop && !exportPop.hidden && !exportPop.contains(e.target) && !(exportPopBtn && exportPopBtn.contains(e.target))) closeExportPop();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { closeMenus(); closeCard(); }
+    });
+    window.addEventListener('resize', closeMenus);
+  }
   function ensurePop() {
     if (pop) return pop;
     pop = document.createElement('div');
@@ -151,9 +166,7 @@
       else if (k === 'copy') { copyText(d.url).then(function () { d.toast('已复制链接'); done(); }, function () { d.toast('复制失败'); }); closePop(); }
       else { done(); closePop(); }
     });
-    document.addEventListener('click', function (e) { if (pop && !pop.hidden && !pop.contains(e.target) && !(popFor && popFor.btn.contains(e.target))) closePop(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closePop(); closeCard(); } });
-    window.addEventListener('resize', closePop);
+    bindMenuDismissal();
     return pop;
   }
   function dataOf(bar) {
@@ -163,10 +176,19 @@
       text: bar.getAttribute('data-text') || ''
     };
   }
+  function placePop(p, btn) {
+    var r = btn.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight;
+    var left = Math.min(Math.max(8, r.left + window.scrollX), window.scrollX + document.documentElement.clientWidth - pw - 8);
+    var below = r.bottom + 8 + ph < window.innerHeight || r.top < ph + 8;
+    p.style.left = left + 'px';
+    p.style.top = (below ? r.bottom + window.scrollY + 8 : r.top + window.scrollY - ph - 8) + 'px';
+    p.classList.toggle('is-above', !below);
+  }
   // Open the popover anchored to `btn`; `ctx.card` optionally returns a PNG Blob.
   // js/annotations.js reuses it for passage links (BlogShare.open).
   function openPop(ctx, btn) {
     var p = ensurePop(), d = ctx;
+    closeExportPop();
     if (popFor) closePop();
     popFor = ctx; ctx.btn = btn;
     ctx.onShared = ctx.onShared || function () {}; ctx.toast = ctx.toast || function () {};
@@ -176,12 +198,7 @@
     p.querySelector('[data-k="image"]').hidden = typeof d.card !== 'function';
     var qr = p.querySelector('.pa-sp-qr'); qr.hidden = true; qr.querySelector('.pa-sp-qr-img').innerHTML = '';
     p.hidden = false; p.style.visibility = 'hidden';
-    var r = btn.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight;
-    var left = Math.min(Math.max(8, r.left + window.scrollX), window.scrollX + document.documentElement.clientWidth - pw - 8);
-    var below = r.bottom + 8 + ph < window.innerHeight || r.top < ph + 8;
-    p.style.left = left + 'px';
-    p.style.top = (below ? r.bottom + window.scrollY + 8 : r.top + window.scrollY - ph - 8) + 'px';
-    p.classList.toggle('is-above', !below);
+    placePop(p, btn);
     p.style.visibility = '';
     btn.setAttribute('aria-expanded', 'true');
   }
@@ -191,6 +208,45 @@
     if (popFor && popFor.btn) popFor.btn.setAttribute('aria-expanded', 'false');
     popFor = null;
   }
+  function ensureExportPop() {
+    if (exportPop) return exportPop;
+    exportPop = document.createElement('div');
+    exportPop.className = 'pa-share-pop pa-export-pop';
+    exportPop.setAttribute('role', 'menu');
+    exportPop.hidden = true;
+    exportPop.innerHTML =
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="pdf"><i class="fa fa-file-pdf"></i>存为 PDF</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md"><i class="fa fa-file-lines"></i>复制 Markdown 源文</button>';
+    document.body.appendChild(exportPop);
+    exportPop.addEventListener('click', function (e) {
+      var item = e.target.closest('.pa-sp-item');
+      if (!item || !exportPop.contains(item)) return;
+      e.preventDefault();
+      var kind = item.getAttribute('data-k');
+      closeExportPop();
+      if (kind === 'pdf' && printPdf) printPdf(item);
+      else if (kind === 'md' && copyMarkdown) copyMarkdown(item);
+    });
+    bindMenuDismissal();
+    return exportPop;
+  }
+  function isExportOpenFor(btn) { return !!(exportPop && !exportPop.hidden && exportPopBtn === btn); }
+  function openExportPop(btn) {
+    var p = ensureExportPop();
+    closePop();
+    exportPopBtn = btn;
+    p.hidden = false; p.style.visibility = 'hidden';
+    placePop(p, btn);
+    p.style.visibility = '';
+    btn.setAttribute('aria-expanded', 'true');
+  }
+  function closeExportPop() {
+    if (!exportPop || exportPop.hidden) return;
+    exportPop.hidden = true;
+    if (exportPopBtn) exportPopBtn.setAttribute('aria-expanded', 'false');
+    exportPopBtn = null;
+  }
+  function closeMenus() { closePop(); closeExportPop(); }
   function showCard(ctx) {
     ctx.card().then(function (blob) {
       closeCard();
@@ -340,85 +396,88 @@
   }
 
   // ------------------------------------------------- author: export / edit
-  var exportBtn = document.querySelector('.post-actions .pa-export');
-  var printBtn = document.querySelector('.post-actions .pa-print');
-  var markdownBtn = document.querySelector('.post-actions .pa-markdown');
+  var wechatBtn = document.querySelector('.post-actions .pa-export');
+  var downloadBtn = document.querySelector('.post-actions .pa-download');
   var editBtn = document.querySelector('.post-actions .pa-edit');
-  if (exportBtn || printBtn || markdownBtn || editBtn || historySpans.length) {
+  if (wechatBtn || downloadBtn || editBtn || historySpans.length) {
     var bar = document.querySelector('.post-actions[data-author]');
     var author = (bar && bar.getAttribute('data-author')) ||
       (historySpans[0] && historySpans[0].getAttribute('data-author')) || '';
     var isAuthor = false;
     var onViewer = function (v) {
       isAuthor = !!(v && author && v.login === author);
-      if (exportBtn) exportBtn.hidden = !isAuthor;
-      if (printBtn) printBtn.hidden = !isAuthor;
-      if (markdownBtn) markdownBtn.hidden = !isAuthor;
+      if (wechatBtn) wechatBtn.hidden = !isAuthor;
+      if (downloadBtn) downloadBtn.hidden = !isAuthor;
       if (editBtn) editBtn.hidden = !isAuthor;
       historySpans.forEach(function (span) { span.hidden = !isAuthor; });
+      if (!isAuthor) closeExportPop();
     };
     document.addEventListener('blog:viewer', function (e) { onViewer(e.detail); });
     if (window.BlogAnnotations && window.BlogAnnotations.viewer) onViewer(window.BlogAnnotations.viewer());
-    if (exportBtn) {
-      exportBtn.addEventListener('click', function () {
+    if (wechatBtn) {
+      wechatBtn.addEventListener('click', function () {
         if (!isAuthor) return;
-        exportBtn.disabled = true;
+        wechatBtn.disabled = true;
         var d = dataOf(bar);
         var ready = window.WechatExport ? Promise.resolve() : loadScript('/js/wechat-export.js');
         ready.then(function () { return window.WechatExport.copy({ url: d.url, title: d.title }); }).then(function (info) {
           toast(bar, '已复制（' + info.images + ' 图 · ' + info.refs + ' 条参考链接），到公众号 / 知乎编辑器里粘贴', 4000);
         }, function (err) {
           toast(bar, '失败：' + (err && err.message || err), 4000);
-        }).then(function () { exportBtn.disabled = false; });
+        }).then(function () { wechatBtn.disabled = false; });
       });
     }
-    if (printBtn) {
-      printBtn.addEventListener('click', function () {
-        if (!isAuthor || printBtn.disabled) return;
-        var root = document.documentElement;
-        var hadTheme = root.hasAttribute('data-theme');
-        var oldTheme = root.getAttribute('data-theme');
-        var hadPrintClass = root.classList.contains('print-export');
-        var restored = false;
-        function restorePrintState() {
-          if (restored) return;
-          restored = true;
-          window.removeEventListener('afterprint', restorePrintState);
-          if (hadTheme) root.setAttribute('data-theme', oldTheme);
-          else root.removeAttribute('data-theme');
-          if (!hadPrintClass) root.classList.remove('print-export');
-          printBtn.disabled = false;
-        }
-        printBtn.disabled = true;
-        window.addEventListener('afterprint', restorePrintState);
-        root.setAttribute('data-theme', 'light');
-        root.classList.add('print-export');
-        try { window.print(); }
-        catch (err) {
-          restorePrintState();
-          toast(bar, '打印失败：' + (err && err.message || err), 4000);
-        }
-      });
-    }
-    if (markdownBtn) {
-      markdownBtn.addEventListener('click', function () {
-        if (!isAuthor || markdownBtn.disabled) return;
-        markdownBtn.disabled = true;
-        var d = dataOf(bar);
-        fetchMarkdownSource(bar).then(function (source) {
-          var body = stripFrontMatter(source);
-          var siteUrl = bar.getAttribute('data-site-url') || new URL(d.url).origin;
-          body = rewriteMarkdownPaths(body, siteUrl);
-          var subtitle = bar.getAttribute('data-subtitle') || '';
-          var markdown = '# ' + d.title + '\n\n' +
-            (subtitle ? '> ' + subtitle + '\n\n' : '') +
-            body + '\n\n原文：' + d.url + '\n';
-          return copyText(markdown).then(function () {
-            toast(bar, '已复制 Markdown（' + markdown.length + ' 字符）', 4000);
-          });
-        }).catch(function (err) {
-          toast(bar, '失败：' + (err && err.message || err), 4000);
-        }).then(function () { markdownBtn.disabled = false; });
+    printPdf = function (item) {
+      if (!isAuthor || item.disabled) return;
+      var root = document.documentElement;
+      var hadTheme = root.hasAttribute('data-theme');
+      var oldTheme = root.getAttribute('data-theme');
+      var hadPrintClass = root.classList.contains('print-export');
+      var restored = false;
+      function restorePrintState() {
+        if (restored) return;
+        restored = true;
+        window.removeEventListener('afterprint', restorePrintState);
+        if (hadTheme) root.setAttribute('data-theme', oldTheme);
+        else root.removeAttribute('data-theme');
+        if (!hadPrintClass) root.classList.remove('print-export');
+        item.disabled = false;
+      }
+      item.disabled = true;
+      window.addEventListener('afterprint', restorePrintState);
+      root.setAttribute('data-theme', 'light');
+      root.classList.add('print-export');
+      try { window.print(); }
+      catch (err) {
+        restorePrintState();
+        toast(bar, '打印失败：' + (err && err.message || err), 4000);
+      }
+    };
+    copyMarkdown = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      var d = dataOf(bar);
+      fetchMarkdownSource(bar).then(function (source) {
+        var body = stripFrontMatter(source);
+        var siteUrl = bar.getAttribute('data-site-url') || new URL(d.url).origin;
+        body = rewriteMarkdownPaths(body, siteUrl);
+        var subtitle = bar.getAttribute('data-subtitle') || '';
+        var markdown = '# ' + d.title + '\n\n' +
+          (subtitle ? '> ' + subtitle + '\n\n' : '') +
+          body + '\n\n原文：' + d.url + '\n';
+        return copyText(markdown).then(function () {
+          toast(bar, '已复制 Markdown（' + markdown.length + ' 字符）', 4000);
+        });
+      }).catch(function (err) {
+        toast(bar, '失败：' + (err && err.message || err), 4000);
+      }).then(function () { item.disabled = false; });
+    };
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (!isAuthor) return;
+        if (isExportOpenFor(downloadBtn)) closeExportPop();
+        else openExportPop(downloadBtn);
       });
     }
   }
