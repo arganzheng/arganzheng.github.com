@@ -96,6 +96,7 @@
     event.preventDefault();
     event.stopPropagation();
     if (panel.hidden) {
+      if (window.innerWidth <= 767 && window.__HuxNav__) window.__HuxNav__.close();
       panel.hidden = false;
       trigger.setAttribute('aria-expanded', 'true');
       positionPanel();

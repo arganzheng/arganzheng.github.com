@@ -7751,6 +7751,9 @@ html.mp-viewing {
 .nav-reading-settings .nav-reading-settings-label {
   display: none;
 }
+.nav-reading-settings svg text {
+  text-transform: none;
+}
 .reading-settings-panel {
   position: fixed;
   z-index: 1200;
