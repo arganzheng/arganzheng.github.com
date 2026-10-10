@@ -1,10 +1,10 @@
 /*!
  * diagram-zoom.js
  * Lightbox for Mermaid diagrams and content images: full screen, then zoom
- * (wheel / buttons / pinch) and pan (drag). Rendered diagrams and wide figures
- * are capped at the column width, which makes them unreadable without this.
- * Exposed as window.DiagramZoom.open(el); js/figures.js puts the 放大 button
- * in each figure's corner strip. Tiny images (icons, QR codes < 200 px) get none.
+ * (wheel / buttons / pinch) and pan (drag); Moments galleries also navigate
+ * between original images with buttons, arrow keys and fit-scale swipes.
+ * Exposed as window.DiagramZoom.open(el, opts); js/figures.js puts the 放大
+ * button in each figure's corner strip. Tiny images (icons, QR codes < 200 px) get none.
  */
 (function () {
     'use strict';
@@ -16,9 +16,13 @@
 
     var overlay, stage, content;
     var scale = 1, tx = 0, ty = 0;
+    var fitScale = 1;
     var natural = { width: 0, height: 0 };
     var dragging = false, lastX = 0, lastY = 0, pinchDistance = 0;
     var bodyOverflow = '';
+    var gallery = null, galleryIndex = 0;
+    var galleryControls, galleryPrevious, galleryNext, galleryCounter;
+    var swipeStartX = 0, swipeStartY = 0, swiping = false;
 
     function clamp(value) {
         return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -46,10 +50,11 @@
     function fit() {
         var rect = stage.getBoundingClientRect();
         var padding = 32;
-        scale = clamp(Math.min(
+        fitScale = clamp(Math.min(
             (rect.width - padding) / natural.width,
             (rect.height - padding) / natural.height
         ));
+        scale = fitScale;
         tx = (rect.width - natural.width * scale) / 2;
         ty = (rect.height - natural.height * scale) / 2;
         apply();
@@ -67,9 +72,18 @@
                 '<button type="button" data-action="in" title="放大">+</button>' +
                 '<button type="button" data-action="close" title="关闭 (Esc)">&times;</button>' +
             '</div>' +
+            '<div class="diagram-zoom-gallery" hidden>' +
+                '<button type="button" class="diagram-zoom-previous" aria-label="上一张">‹</button>' +
+                '<span class="diagram-zoom-counter" aria-live="polite"></span>' +
+                '<button type="button" class="diagram-zoom-next" aria-label="下一张">›</button>' +
+            '</div>' +
             '<div class="diagram-zoom-hint">滚轮缩放 · 拖动平移 · 双击重置 · Esc 关闭</div>';
         stage = overlay.querySelector('.diagram-zoom-stage');
         content = overlay.querySelector('.diagram-zoom-content');
+        galleryControls = overlay.querySelector('.diagram-zoom-gallery');
+        galleryPrevious = overlay.querySelector('.diagram-zoom-previous');
+        galleryNext = overlay.querySelector('.diagram-zoom-next');
+        galleryCounter = overlay.querySelector('.diagram-zoom-counter');
         document.body.appendChild(overlay);
         bindOverlay();
     }
@@ -83,6 +97,13 @@
             if (button.dataset.action === 'out') zoomAt(center.x, center.y, 1 / ZOOM_STEP);
             if (button.dataset.action === 'reset') fit();
             if (button.dataset.action === 'close') close();
+        });
+
+        galleryControls.addEventListener('click', function (e) {
+            var button = e.target.closest('button');
+            if (!button || !gallery) return;
+            if (button === galleryPrevious) showGalleryImage(galleryIndex - 1);
+            if (button === galleryNext) showGalleryImage(galleryIndex + 1);
         });
 
         stage.addEventListener('wheel', function (e) {
@@ -117,17 +138,34 @@
             if (e.touches.length === 1) {
                 lastX = e.touches[0].clientX;
                 lastY = e.touches[0].clientY;
+                swipeStartX = lastX;
+                swipeStartY = lastY;
+                swiping = false;
             } else if (e.touches.length === 2) {
                 pinchDistance = touchDistance(e.touches);
+                swiping = false;
             }
         }, { passive: true });
 
         stage.addEventListener('touchmove', function (e) {
             if (e.touches.length === 1) {
-                tx += e.touches[0].clientX - lastX;
-                ty += e.touches[0].clientY - lastY;
-                lastX = e.touches[0].clientX;
-                lastY = e.touches[0].clientY;
+                var x = e.touches[0].clientX;
+                var y = e.touches[0].clientY;
+                var dx = x - swipeStartX;
+                var dy = y - swipeStartY;
+                if (gallery && scale <= fitScale + 0.001 && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    swiping = true;
+                    e.preventDefault();
+                    return;
+                }
+                if (swiping) {
+                    e.preventDefault();
+                    return;
+                }
+                tx += x - lastX;
+                ty += y - lastY;
+                lastX = x;
+                lastY = y;
                 apply();
             } else if (e.touches.length === 2 && pinchDistance) {
                 var distance = touchDistance(e.touches);
@@ -141,6 +179,18 @@
             e.preventDefault();
         }, { passive: false });
 
+        stage.addEventListener('touchend', function (e) {
+            if (swiping && gallery && e.changedTouches.length) {
+                var dx = e.changedTouches[0].clientX - swipeStartX;
+                var dy = e.changedTouches[0].clientY - swipeStartY;
+                if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    showGalleryImage(galleryIndex + (dx < 0 ? 1 : -1));
+                }
+            }
+            swiping = false;
+            pinchDistance = 0;
+        });
+
         stage.addEventListener('dblclick', fit);
 
         overlay.addEventListener('click', function (e) {
@@ -148,7 +198,16 @@
         });
 
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && overlay.classList.contains('open')) close();
+            if (!overlay.classList.contains('open')) return;
+            if (e.key === 'Escape') close();
+            if (gallery && e.key === 'ArrowLeft') {
+                e.preventDefault();
+                showGalleryImage(galleryIndex - 1);
+            }
+            if (gallery && e.key === 'ArrowRight') {
+                e.preventDefault();
+                showGalleryImage(galleryIndex + 1);
+            }
         });
     }
 
@@ -158,8 +217,62 @@
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    function open(svg) {
+    function updateGalleryControls() {
+        galleryControls.hidden = !gallery;
+        if (!gallery) return;
+        galleryCounter.textContent = (galleryIndex + 1) + ' / ' + gallery.length;
+        galleryPrevious.disabled = galleryIndex === 0;
+        galleryNext.disabled = galleryIndex === gallery.length - 1;
+    }
+
+    function showGalleryImage(index, placeholder) {
+        if (!gallery || index < 0 || index >= gallery.length) return;
+        galleryIndex = index;
+        updateGalleryControls();
+
+        var item = gallery[galleryIndex];
+        var image = document.createElement('img');
+        image.alt = placeholder ? placeholder.alt : '';
+        image.style.margin = '0';
+        image.style.maxWidth = 'none';
+        image.style.width = (natural.width || 800) + 'px';
+        image.style.height = (natural.height || 600) + 'px';
+        image.onload = function () {
+            if (content.firstChild !== image) return;
+            natural.width = image.naturalWidth || natural.width;
+            natural.height = image.naturalHeight || natural.height;
+            image.style.width = natural.width + 'px';
+            image.style.height = natural.height + 'px';
+            fit();
+        };
+        content.innerHTML = '';
+        content.appendChild(image);
+        if (placeholder) {
+            natural.width = placeholder.naturalWidth || placeholder.getBoundingClientRect().width || 800;
+            natural.height = placeholder.naturalHeight || placeholder.getBoundingClientRect().height || 600;
+            image.src = placeholder.currentSrc || placeholder.src;
+            image.style.width = natural.width + 'px';
+            image.style.height = natural.height + 'px';
+        }
+        fit();
+        image.src = item.src;
+    }
+
+    function open(svg, opts) {
         if (!overlay) build();
+
+        gallery = opts && opts.list && opts.list.length > 1 ? opts.list : null;
+        galleryIndex = gallery ? Math.max(0, Math.min(gallery.length - 1, Number(opts.index) || 0)) : 0;
+        var singleImageSource = opts && opts.list && opts.list.length === 1 && svg.tagName === 'IMG' ?
+            opts.list[0].src : null;
+        updateGalleryControls();
+        bodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        overlay.classList.add('open');
+        if (gallery) {
+            showGalleryImage(galleryIndex, svg);
+            return;
+        }
 
         var clone = svg.cloneNode(true);
         var box = svg.viewBox && svg.viewBox.baseVal;
@@ -171,6 +284,19 @@
             natural.height = svg.naturalHeight || rect.height || 600;
             clone.removeAttribute('loading');
             clone.style.margin = '0';
+            if (singleImageSource) {
+                clone.removeAttribute('srcset');
+                clone.removeAttribute('sizes');
+                clone.onload = function () {
+                    if (content.firstChild !== clone) return;
+                    natural.width = clone.naturalWidth || natural.width;
+                    natural.height = clone.naturalHeight || natural.height;
+                    clone.style.width = natural.width + 'px';
+                    clone.style.height = natural.height + 'px';
+                    fit();
+                };
+                clone.src = singleImageSource;
+            }
         }
 
         // Mermaid injects a <style> inside the svg whose rules are all scoped by the
@@ -191,16 +317,14 @@
 
         content.innerHTML = '';
         content.appendChild(clone);
-
-        bodyOverflow = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
-        overlay.classList.add('open');
         fit();
     }
 
     function close() {
         overlay.classList.remove('open');
         content.innerHTML = '';
+        gallery = null;
+        updateGalleryControls();
         document.body.style.overflow = bodyOverflow;
     }
 

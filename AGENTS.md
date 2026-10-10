@@ -993,6 +993,13 @@ headings, any order, rendered newest first:
 ![](/img/moments/2026/09/a.webp)   image-only lines in a row = one gallery
 ![](/img/moments/2026/09/b.webp)   (1 large · 2 / 4 two columns · 3+ a 3-col grid)
 
+The build caches a 640px WebP thumbnail for each local Moments image under
+`.jekyll-cache/moment-thumbs/`. Multi-image galleries display thumbnails and
+link to the originals; a single image keeps the original as `src` with a
+thumbnail `srcset`. The thumbnail is also used by the `/moments/index.json`
+sidebar cards. Tapping a gallery opens its original images in the lightbox,
+with previous / next buttons, a counter, arrow keys and fit-scale swipes.
+
 > 人生到处知何似，应似飞鸿踏雪泥。   blockquote = quote card, line breaks kept;
 > —— 苏轼《和子由渑池怀旧》          a last line starting —— / — / -- is the attribution
 
@@ -1047,7 +1054,10 @@ How it is built (`_plugins/moments.rb`):
   `page.moments = [{id, url, date, title, time, has_time, place, tags, html,
   text, img}]` (id `YYYYMMDD[-HHMM]`, `-2` … on collision; title =
   `2026-09-21 08:02`, the section / reaction quote; url = month URL + `#id`;
-  img = first image). `#标签` (`Moments::TAG`) are linked to
+  img = first image thumbnail). `Moments::Thumbs` uses `cwebp -q 78 -resize
+  640 0` without upscaling, caches by source mtime and size under
+  `.jekyll-cache/moment-thumbs/`, and registers each thumbnail as a static
+  file; without `cwebp`, original image URLs are used. `#标签` (`Moments::TAG`) are linked to
   `/moments/tag/<标签>.html` before kramdown (`link_tags`; a `读书/开源` tag
   lands at `tag/读书/开源.html` and counts for `读书` too).
   `site.data.moments = {months, entries, tags, heatmap, stats}` feeds
@@ -2004,4 +2014,3 @@ Supported in all posts within `.post-container` via `js/inline-popups.js`:
      - Liquid Include: `{% include tip.html text="概念" tip="解释文案" url="可选更多链接" %}`
      - Inline HTML: `<span class="inline-tip" data-tip="解释文案">概念</span>`
    - Renders with a dashed underline and top-right `?` icon (`fa-question-circle`), popping up a floating card on hover/click.
-

@@ -1409,6 +1409,53 @@ svg[id^="mermaid-"] foreignObject > div {
   color: #00788f;
   border-color: #00788f;
 }
+.diagram-zoom-gallery {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.diagram-zoom-gallery[hidden] {
+  display: none;
+}
+.diagram-zoom-gallery button {
+  position: absolute;
+  top: 50%;
+  width: 56px;
+  height: 68px;
+  padding: 0;
+  transform: translateY(-50%);
+  color: #404040;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #d1d9e0;
+  border-radius: 12px;
+  font-size: 46px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.diagram-zoom-gallery button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.diagram-zoom-previous {
+  left: 16px;
+}
+.diagram-zoom-next {
+  right: 16px;
+}
+.diagram-zoom-counter {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  padding: 7px 12px;
+  color: #404040;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #d1d9e0;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
+}
 .diagram-zoom-hint {
   position: absolute;
   bottom: 18px;
@@ -1418,6 +1465,18 @@ svg[id^="mermaid-"] foreignObject > div {
   font-size: 13px;
   color: #808080;
   pointer-events: none;
+}
+@media (max-width: 600px) {
+  .diagram-zoom-gallery button {
+    width: 52px;
+    height: 64px;
+  }
+  .diagram-zoom-previous {
+    left: 8px;
+  }
+  .diagram-zoom-next {
+    right: 8px;
+  }
 }
 /* Line numbers (_plugins/code_lines.rb wraps every line in span.line and marks
    the blocks that show them with pre.lineno). CSS counters, so the numbers are
