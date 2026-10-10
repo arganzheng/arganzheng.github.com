@@ -116,8 +116,13 @@
     if (lines.length > limit) { lines = lines.slice(0, limit); lines[limit - 1] = lines[limit - 1].replace(/\s+$/, '') + '…'; }
     return lines;
   }
+  function cardPicture(card) {
+    var pic = card.querySelector('.moment-pic');
+    if (!pic) return '';
+    return pic.classList.contains('moment-video') ? (pic.getAttribute('data-poster') || '') : pic.href;
+  }
   function shareCard(card, url) {
-    return Promise.all([document.fonts ? document.fonts.ready : Promise.resolve(), loadImage(card.querySelector('.moment-pic') && card.querySelector('.moment-pic').href), qrImage(url)]).then(function (assets) {
+    return Promise.all([document.fonts ? document.fonts.ready : Promise.resolve(), loadImage(cardPicture(card)), qrImage(url)]).then(function (assets) {
       var body = card.querySelector('.moment-body'), quote = body.querySelector('.moment-quote');
       var paragraphs = Array.prototype.filter.call(body.children, function (el) { return el.tagName === 'P'; }).map(function (p) { return p.textContent.trim(); }).filter(Boolean).join('\n\n');
       var time = card.querySelector('.moment-when').textContent.trim(), place = card.querySelector('.moment-place');
@@ -254,7 +259,9 @@
       var date = item.title || item.id;
       var tags = (item.tags || []).map(function (tag) { return '<a class="moment-tag" href="' + esc(base + '/moments/tag/' + encodeURI(tag) + '.html') + '">#' + esc(tag) + '</a>'; }).join(' ');
       var thumbs = (item.thumbs || []).slice(0, 3);
-      var images = thumbs.length ? '<div class="moment-gallery n-' + thumbs.length + '">' + thumbs.map(function (src) { return '<span class="moment-pic"><img src="' + esc(src) + '" alt=""></span>'; }).join('') + '</div>' : '';
+      var images = thumbs.length ? '<div class="moment-gallery n-' + thumbs.length + (item.video ? ' has-video' : '') + '">' + thumbs.map(function (src) {
+        return '<span class="moment-pic' + (item.video ? ' moment-video' : '') + '"><img src="' + esc(src) + '" alt="">' + (item.video ? '<span class="moment-play" aria-hidden="true"></span>' : '') + '</span>';
+      }).join('') + '</div>' : '';
       var html = '<li class="moment moment-pending" id="' + esc(item.id) + '">' +
         '<div class="moment-head"><a class="moment-when" href="' + esc(href) + '"><time>' + esc(date) + '</time></a>' +
         (item.place ? '<span class="moment-place">📍 ' + esc(item.place) + '</span>' : '') + '</div>' +
