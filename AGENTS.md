@@ -578,7 +578,7 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
 - **Passage 赞** (`react`, `reactions` map, toolbar button
   `.annotation-tb-up`, panel row `.ap-react`): anonymous counters, no
   login, like the article 「点赞」. Worker `GET/POST /reactions` uses
-  `passage_reactions(path, hash, quote, up, share, section)` in D1; legacy
+  `passage_reactions(path, hash, quote, up, share, section, pinned)` in D1; legacy
   columns remain unused. 「存疑」 was removed 2026-10-10; legacy D1
   `doubt` / `reasons` / `resolved_*` columns are unused. `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
@@ -603,9 +603,18 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   — the passage wrapped in a Chinese prompt naming the article (og:title) and
   chapter (`sectionForOffsets`); a URL has no system prompt, the instructions
   ride in `q`.
+  Author-only `POST /reactions/pin` stores `pinned` with the same passage row;
+  the selection toolbar shows 「划重点」 / 「取消划重点」 only when
+  `isOwner()` is true. Pinned passages intentionally use the exact same mark
+  class, underline, and reader panel as a normal reader underline—no author
+  label or special color—and can be liked or commented on. They are not a
+  reader signal and are omitted from `/reactions/top` and `/feedback`. A pin
+  with no comments or likes shows only the underline, without a trailing
+  marker; readers click the text to open it. If every mark is inside a link
+  that keeps its normal navigation, a bare comment marker remains as fallback.
   `refreshReactionViews` repaints marker / panel row in place and only
-  re-anchors when an underline must appear or vanish. A passage without notes
-  is anchored only when `up > 0`; sharing alone does not create an underline.
+  re-anchors when an underline or marker must appear or vanish. A passage without notes
+  is anchored when `up > 0 || pinned > 0`; sharing alone does not create an underline.
   Local previews post only when `localStorage.annotationsApi` is set.
 - **Passage 分享** (`sharePassage`, toolbar `.annotation-tb-share`, panel
   `.ap-react-share`): opens the article's share popover — `js/share.js` exposes

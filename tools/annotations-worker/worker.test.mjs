@@ -34,6 +34,158 @@ test('POST /reactions/resolve is no longer a route', async () => {
   assert.equal(response.status, 404);
 });
 
+function pinRequest(authorization, body) {
+  const headers = new Headers({ Origin: 'https://arganzheng.life', 'Content-Type': 'application/json' });
+  if (authorization) headers.set('Authorization', authorization);
+  return new Request('https://worker.test/reactions/pin', { method: 'POST', headers, body: JSON.stringify(body) });
+}
+
+function reactionDb(seed = []) {
+  const rows = new Map(seed.map((row) => [`${row.path}:${row.hash}`, { pinned: 0, ...row }]));
+  return {
+    exec: async () => {},
+    prepare(sql) {
+      return {
+        bind(...values) {
+          if (sql.startsWith('SELECT hash, quote, section, up, share, pinned')) {
+            return {
+              all: async () => ({
+                results: Array.from(rows.values())
+                  .filter((row) => row.path === values[0] && (row.up > 0 || row.share > 0 || row.pinned > 0))
+                  .map(({ hash, quote, section, up, share, pinned }) => ({ hash, quote, section, up, share, pinned })),
+              }),
+            };
+          }
+          if (sql.startsWith('INSERT INTO passage_reactions')) {
+            return {
+              first: async () => {
+                const [path, hash, quote, section, pinned, updated_at] = values;
+                const key = `${path}:${hash}`;
+                const row = rows.get(key) || { path, hash, quote, section, up: 0, share: 0, pinned: 0 };
+                row.quote = row.quote || quote;
+                row.section = row.section || section;
+                row.pinned = pinned;
+                row.updated_at = updated_at;
+                rows.set(key, row);
+                return { up: row.up, share: row.share, pinned: row.pinned };
+              },
+            };
+          }
+          throw new Error(`unexpected D1 query: ${sql}`);
+        },
+      };
+    },
+  };
+}
+
+test('POST /reactions/pin requires authentication before validating the body', async () => {
+  const response = await worker.fetch(pinRequest(undefined, {}), env, ctx);
+  assert.equal(response.status, 401);
+});
+
+test('POST /reactions/pin rejects non-owners', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if ((typeof input === 'string' ? input : input.url) === 'https://api.github.com/user') return Response.json({ login: 'reader' });
+    throw new Error('unexpected fetch');
+  };
+  try {
+    const response = await worker.fetch(pinRequest('Bearer reader-token', {
+      path: '/post.html', hash: 'deadbeef', quote: 'a quoted passage', on: true,
+    }), { ...env, DB: reactionDb() }, ctx);
+    assert.equal(response.status, 403);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('owner pinning preserves counters and GET drops an unpinned zero-count row', async () => {
+  const DB = reactionDb([{ path: '/post.html', hash: '01234567', quote: 'liked passage', section: 'Section', up: 2, share: 3 }]);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if ((typeof input === 'string' ? input : input.url) === 'https://api.github.com/user') return Response.json({ login: 'arganzheng' });
+    throw new Error('unexpected fetch');
+  };
+  const getItems = async () => {
+    const response = await worker.fetch(new Request('https://worker.test/reactions?path=%2Fpost.html', {
+      headers: { Origin: 'https://arganzheng.life' },
+    }), { ...env, DB }, ctx);
+    assert.equal(response.status, 200);
+    return (await response.json()).items;
+  };
+  try {
+    const pinned = await worker.fetch(pinRequest('Bearer owner-token', {
+      path: '/post.html', hash: '01234567', quote: 'liked passage', section: 'Section', on: true,
+    }), { ...env, DB }, ctx);
+    assert.equal(pinned.status, 200);
+    assert.deepEqual(await pinned.json(), { up: 2, share: 3, pinned: 1 });
+    assert.deepEqual(await getItems(), [{
+      hash: '01234567', quote: 'liked passage', section: 'Section', up: 2, share: 3, pinned: 1,
+    }]);
+
+    const newlyPinned = await worker.fetch(pinRequest('Bearer owner-token', {
+      path: '/post.html', hash: 'deadbeef', quote: 'author marked passage', section: 'Section', on: true,
+    }), { ...env, DB }, ctx);
+    assert.deepEqual(await newlyPinned.json(), { up: 0, share: 0, pinned: 1 });
+    assert.ok((await getItems()).some((row) => row.hash === 'deadbeef' && row.pinned === 1));
+
+    const unpinned = await worker.fetch(pinRequest('Bearer owner-token', {
+      path: '/post.html', hash: 'deadbeef', quote: 'author marked passage', section: 'Section', on: false,
+    }), { ...env, DB }, ctx);
+    assert.deepEqual(await unpinned.json(), { up: 0, share: 0, pinned: 0 });
+    assert.ok(!(await getItems()).some((row) => row.hash === 'deadbeef'));
+    assert.deepEqual((await getItems()).find((row) => row.hash === '01234567'), {
+      hash: '01234567', quote: 'liked passage', section: 'Section', up: 2, share: 3, pinned: 1,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('pin data is excluded from reader ranking and feedback responses', async () => {
+  const queries = [];
+  const DB = {
+    exec: async () => {},
+    prepare(sql) {
+      queries.push(sql);
+      const statement = {
+        bind() { return statement; },
+        all: async () => ({ results: [] }),
+        first: async () => null,
+      };
+      return statement;
+    },
+  };
+  const top = await worker.fetch(new Request('https://worker.test/reactions/top?kind=up', {
+    headers: { Origin: 'https://arganzheng.life' },
+  }), { ...env, DB }, ctx);
+  assert.deepEqual(await top.json(), { rows: [] });
+  const topQuery = queries.find((sql) => sql.includes('FROM passage_reactions') && sql.includes('LIMIT'));
+  assert.match(topQuery, /SELECT path, hash, quote, section, up, share, updated_at/);
+  assert.match(topQuery, /WHERE \(up > 0 OR share > 0\)/);
+  assert.doesNotMatch(topQuery, /\bpinned\b/);
+
+  queries.length = 0;
+  const allFeedback = await worker.fetch(new Request('https://worker.test/feedback', {
+    headers: { Origin: 'https://arganzheng.life' },
+  }), { ...env, DB }, ctx);
+  assert.deepEqual(await allFeedback.json(), { posts: {} });
+  const allFeedbackQuery = queries.find((sql) => sql.includes('FROM passage_reactions'));
+  assert.match(allFeedbackQuery, /SELECT path, hash, quote, section, up, share, updated_at/);
+  assert.match(allFeedbackQuery, /WHERE up > 0 OR share > 0/);
+  assert.doesNotMatch(allFeedbackQuery, /\bpinned\b/);
+
+  queries.length = 0;
+  const postFeedback = await worker.fetch(new Request('https://worker.test/feedback?path=%2Fpost.html', {
+    headers: { Origin: 'https://arganzheng.life' },
+  }), { ...env, DB }, ctx);
+  assert.deepEqual((await postFeedback.json()).reactions, []);
+  const postFeedbackQuery = queries.find((sql) => sql.includes('FROM passage_reactions'));
+  assert.match(postFeedbackQuery, /SELECT hash, quote, section, up, share, updated_at/);
+  assert.match(postFeedbackQuery, /up > 0 OR share > 0/);
+  assert.doesNotMatch(postFeedbackQuery, /\bpinned\b/);
+});
+
 test('no-Origin POST /moments accepts the configured API key and reaches publish handler', async () => {
   const response = await worker.fetch(request('POST', '/moments', 'Bearer k'), env, ctx);
   assert.equal(response.status, 501);
