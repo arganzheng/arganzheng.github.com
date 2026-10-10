@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-投机解码是本系列里唯一**不改变输出分布**的方法。[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
+投机解码是本系列里唯一**不改变输出分布**的方法。[04 系列第十二篇](/speculative-decoding-and-lora.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
 
 这一篇从那张表往下挖。加速比只由两个量决定——接受率 $$\alpha$$ 与草稿成本 $$c$$——而这两个量都是**算法工程师能改的**：$$\alpha$$ 是草稿分布与目标分布的接近程度，由草稿怎么训练决定；$$c$$ 由草稿的结构决定；树状草稿则改变了"一轮能验证多少"这个游戏规则本身。2023 年的独立小模型 $$\alpha \approx 0.7$$、加速 2 倍；2025 年的 EAGLE-3 报告接受长度 5–6、加速 3–6 倍。差别不在验证算法，在草稿。
 
@@ -18,7 +18,7 @@ updated: 2026-09-14
 
 ## 一、总览：加速比的两个自由度
 
-### 1. 从 04-07 接过来的公式
+### 1. 从 04-12 接过来的公式
 
 一轮投机解码：草稿产出 $$\gamma$$ 个 token，目标模型一次前向验证，期望产出
 
@@ -94,7 +94,7 @@ Table: 本文的章节安排
 
 ### 1. 接受率等于 1 减总变差距离
 
-04-07 证明了单步接受概率 $$\beta = \sum_x \min(p(x), q(x))$$。总变差距离的定义是 $$\text{TV}(p, q) = \frac{1}{2} \sum_x \lvert p(x) - q(x) \rvert$$。用 $$\lvert a - b \rvert = a + b - 2\min(a, b)$$：
+04-12 证明了单步接受概率 $$\beta = \sum_x \min(p(x), q(x))$$。总变差距离的定义是 $$\text{TV}(p, q) = \frac{1}{2} \sum_x \lvert p(x) - q(x) \rvert$$。用 $$\lvert a - b \rvert = a + b - 2\min(a, b)$$：
 
 $$
 \text{TV}(p, q) = \frac{1}{2} \sum_x \big(p(x) + q(x) - 2 \min(p(x), q(x))\big) = \frac{1}{2}(1 + 1) - \sum_x \min(p, q) = 1 - \beta
@@ -268,7 +268,7 @@ MTP 的接受率高于 EAGLE 的第 1 个草稿（0.85–0.9 vs 约 0.8），因
 
 ### 1. 大 batch
 
-04-07 的结论：$$B(\gamma + 1) \gtrsim \text{ridge}$$ 时验证进入 compute-bound，加速比下降甚至低于 1。树把 $$\gamma + 1$$ 换成 $$N_{tree}$$，约束更紧。对高吞吐、大 batch 的服务负载，投机解码要么关掉，要么缩小到 $$\gamma = 1$$–$$2$$ 的链式草稿。这是投机解码在**延迟优化**（batch 小、单请求快）上有用、在**吞吐优化**（batch 大、总 token/s 高）上用处有限的原因——两个目标用不同的工具。
+04-12 的结论：$$B(\gamma + 1) \gtrsim \text{ridge}$$ 时验证进入 compute-bound，加速比下降甚至低于 1。树把 $$\gamma + 1$$ 换成 $$N_{tree}$$，约束更紧。对高吞吐、大 batch 的服务负载，投机解码要么关掉，要么缩小到 $$\gamma = 1$$–$$2$$ 的链式草稿。这是投机解码在**延迟优化**（batch 小、单请求快）上有用、在**吞吐优化**（batch 大、总 token/s 高）上用处有限的原因——两个目标用不同的工具。
 
 一个折中：**动态投机**——按当前 batch 大小调整 $$\gamma$$ 或关闭投机（vLLM 的 `speculative_disable_by_batch_size`）。
 
@@ -278,7 +278,7 @@ MTP 的接受率高于 EAGLE 的第 1 个草稿（0.85–0.9 vs 约 0.8），因
 
 ### 3. 长上下文的验证
 
-验证 $$N_{tree}$$ 个 token 的 attention 要读整个 KV cache $$N_{tree}$$ 次（每个节点一次）——在长上下文下 KV 读取是 decode 的主要流量（[04 系列第六篇](/attention-variants-and-kv-cache.html)），验证的 attention 成本不再"几乎免费"。128K 上下文、$$N_{tree} = 60$$ 时，验证的 KV 读取是普通 decode 的 60 倍——除非 attention kernel 对树内节点共享 KV 读取（可以，因为它们读的是同一份前缀 KV，MagicDec 等工作正是利用这点，但需要专门的 kernel）。
+验证 $$N_{tree}$$ 个 token 的 attention 要读整个 KV cache $$N_{tree}$$ 次（每个节点一次）——在长上下文下 KV 读取是 decode 的主要流量（[04 系列第八篇](/attention-variants-and-kv-cache.html)），验证的 attention 成本不再"几乎免费"。128K 上下文、$$N_{tree} = 60$$ 时，验证的 KV 读取是普通 decode 的 60 倍——除非 attention kernel 对树内节点共享 KV 读取（可以，因为它们读的是同一份前缀 KV，MagicDec 等工作正是利用这点，但需要专门的 kernel）。
 
 ### 4. 草稿与目标不匹配
 
@@ -316,7 +316,7 @@ vLLM 支持 n-gram 与 EAGLE 两种草稿，社区有 Llama-3.1-8B-Instruct 的 
 - batch ∈ {1, 4, 16, 64}。
 - 记录：每轮接受长度（vLLM 的 `spec_decode` 指标）、每 token 延迟、吞吐；greedy 下核对三种配置的输出逐 token 一致。
 
-该看的：（a）任务上 n-gram 的接受长度是否接近 EAGLE；（b）任务上 n-gram 是否接近 1（无收益）；EAGLE 的接受长度随 batch 是否不变而加速比随 batch 下降——把加速比降到 1 的 batch 与 04-07 的 $$\text{ridge}/(\gamma+1)$$ 估算对照；$$T = 0.6$$ 与 greedy 下 EAGLE 接受长度的差。
+该看的：（a）任务上 n-gram 的接受长度是否接近 EAGLE；（b）任务上 n-gram 是否接近 1（无收益）；EAGLE 的接受长度随 batch 是否不变而加速比随 batch 下降——把加速比降到 1 的 batch 与 04-12 的 $$\text{ridge}/(\gamma+1)$$ 估算对照；$$T = 0.6$$ 与 greedy 下 EAGLE 接受长度的差。
 
 不引用任何未跑过的数字。EAGLE-3 论文报告的 8B 接受长度约 5–6 是在 batch 1、特定数据集上的，你的负载上大概率更低。
 
