@@ -9,19 +9,22 @@
     if (!headings.length) return;
     var topLevel = Math.min.apply(null, headings.map(function (h) { return +h.tagName.slice(1); }));
     var sections = [];
-    function sectionFor(heading) {
+    function sectionNodes(heading) {
         var level = +heading.tagName.slice(1), nodes = [], node = heading.nextElementSibling;
         while (node) {
             if (node.matches(excluded)) break;
             if (/^H[1-6]$/.test(node.tagName) && +node.tagName.slice(1) <= level) break;
             nodes.push(node); node = node.nextElementSibling;
         }
-        return { heading: heading, level: level, nodes: nodes };
+        return nodes;
+    }
+    function sectionFor(heading) {
+        return { heading: heading, level: +heading.tagName.slice(1) };
     }
     function setFold(section, folded) {
         section.button.setAttribute('aria-expanded', String(!folded));
         section.button.setAttribute('aria-label', folded ? '展开本节' : '折叠本节');
-        section.nodes.forEach(function (node) {
+        sectionNodes(section.heading).forEach(function (node) {
             if (folded) {
                 if (node.hasAttribute('hidden')) return;
                 node.setAttribute('hidden', 'until-found');
