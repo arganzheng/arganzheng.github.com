@@ -518,7 +518,7 @@ Table: 掌握程度的判据
 
 - **扩散模型的数学、结构与训练**（DDPM / flow matching、DiT 与 MMDiT、VAE、文生图与视频配方、步数蒸馏的方法）在算法地图的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇——本系列只用了"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
 - **LLM 推理系统**（KV cache、连续批处理、PagedAttention、投机解码、PD 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列在每处对照说明"扩散为什么不同"，第六篇的自回归视频是两条线重新交汇的地方。
-- **Transformer 一层的 FLOPs 与字节从哪来**、多模态理解模型的推理，在[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)——第一篇的 $$2PN$$ 与 $$4N^2d$$ 直接用了它的结论。
+- **Transformer 一层的 FLOPs 与字节从哪来**、多模态理解模型的推理，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——第 02 篇的 $$2PN$$ 与 $$4N^2d$$ 直接用了它的结论。
 - **kernel 的实现**（FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部）在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)——本系列只用了它们的接口与加速比。
 
 回到总纲：[《扩散模型推理基础设施：图像与视频生成的 serving》](/diffusion-model-inference-infrastructure.html)。
@@ -529,7 +529,7 @@ Table: 掌握程度的判据
 
 - **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们是算法地图 L7 的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇；本系列只使用"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
 - **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧。
-- **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)第八篇与 08 系列第十一篇；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
+- **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)第 09 篇与 08 系列第十一篇；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
 - **kernel 的实现**：FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部。它们在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)；本系列只用它们的接口与加速比。
 - **集合通信的实现**：all-to-all、P2P、all-gather 的算法与调优。本系列只用它们的语义与带宽。
 - **扩散模型的后训练与 RL**：Diffusion-DPO、奖励微调、Flow-GRPO 的系统。它们的 rollout 就是本系列讲的推理，训练侧属于 09 系列的形态。

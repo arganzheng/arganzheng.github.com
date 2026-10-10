@@ -242,7 +242,7 @@ flowchart TB
 
 - **原文**：总纲 [/deep-learning-foundations.html](/deep-learning-foundations.html) · 总结与通关自测 [/deep-learning-foundations-series-recap-and-self-test.html](/deep-learning-foundations-series-recap-and-self-test.html)
 - **配套代码**：[ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)——几百行 NumPy 小框架、64 层七种接法、优化器扫描、double descent、LeNet-5 复现、字符级 LSTM
-- **往后读**：L4 [Transformer 与 LLM](/transformer-and-llm-structure-implementation-and-evolution.html)——这条链在 Transformer 里的形态：Pre-Norm、残差缩放、warmup、QK-norm
+- **往后读**：L4 [Transformer 原理与实现](/transformer-and-llm-structure-implementation-and-evolution.html)与[现代 LLM 结构](/llm-architecture-evolution-roadmap-from-gpt2.html)——前者接 GPT-2 的结构与实现，后者接今天的结构改动与成本
 
 <aside class="notes" markdown="1">
 收尾。

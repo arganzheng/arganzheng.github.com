@@ -154,7 +154,7 @@ Table: 阶段 2 的数据类型与它们教会什么
 - **MM1**：消融的结论——**交错图文数据对 few-shot 能力关键**（去掉它 few-shot 掉 10+ 点），caption 数据对零样本关键，纯文本数据对文本能力关键；三者的比例 45 / 45 / 10 是他们的甜点。
 - **Idefics2 / 3**：OBELICS 交错数据 + LAION caption + PDF 文档（Docmatix，250 万文档页的合成 QA）；报告文档数据让 DocVQA 从 ~50 涨到 ~75。
 
-配比的方法论与 [04 系列第十一篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)相同：小规模消融各桶的边际收益、按目标能力加权、防止某一桶主导。多模态多了一个维度——每类数据的**图片 token 数**差别大（文档 2K、caption 图 256），按样本数配比与按 token 数配比是两回事。
+配比的方法论与 [预训练（04）](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)相同：小规模消融各桶的边际收益、按目标能力加权、防止某一桶主导。多模态多了一个维度——每类数据的**图片 token 数**差别大（文档 2K、caption 图 256），按样本数配比与按 token 数配比是两回事。
 
 ### 3. 文本数据的混入
 
@@ -309,7 +309,7 @@ Table: VLM 各训练阶段的算力估算
 
 ### 2. 数据的成本
 
-recaption 1000 万张图：每张图一次 VLM 推理（约 1K token 输入 + 300 token 输出），用一个 7B VLM 约 $$2 \times 7B \times 1.3K = 18$$ TFLOPs，1000 万张 $$1.8 \times 10^{20}$$——与阶段 2 训练同量级。人工描述（Molmo）：712K 条 × 约 1 分钟语音 = 1.2 万小时的标注。数据成本不低于训练成本，这与 [04 系列第十一篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的结论一致。
+recaption 1000 万张图：每张图一次 VLM 推理（约 1K token 输入 + 300 token 输出），用一个 7B VLM 约 $$2 \times 7B \times 1.3K = 18$$ TFLOPs，1000 万张 $$1.8 \times 10^{20}$$——与阶段 2 训练同量级。人工描述（Molmo）：712K 条 × 约 1 分钟语音 = 1.2 万小时的标注。数据成本不低于训练成本，这与 [预训练（04）](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的结论一致。
 
 ## 九、动手（建议）
 

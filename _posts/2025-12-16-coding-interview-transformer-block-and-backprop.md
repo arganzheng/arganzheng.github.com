@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 上一篇写完 attention，这一篇把它装进一个完整的 Transformer block，再往下挖一层：**反向传播**。面试里这两块常常连着问——"写一个 GPT block"之后是"LayerNorm 的反向怎么算""交叉熵对 logits 的梯度是什么""不用框架写一个两层网络的训练"，最后可能到"实现一个最小的自动求导"。这些题考的是对链式法则的**操作性理解**：每个算子的局部导数是什么、怎么和上游梯度相乘、形状怎么对上。参数量与 FLOPs 的口算也在这里——它们是面试里最容易拿分的"算术题"。
 
-原理与推导在算法地图里：反向传播见[深度学习基础（01）](/backpropagation-by-hand.html)，归一化与残差见[（02）](/initialization-normalization-and-residual.html)，参数量与算量见 [Transformer 与 LLM（01）](/llm-architecture-evolution-roadmap-from-gpt2.html)、[（02）](/transformer-flops-bytes-and-roofline.html)。
+原理与推导在算法地图里：反向传播见[深度学习基础（01）](/backpropagation-by-hand.html)，归一化与残差见[（02）](/initialization-normalization-and-residual.html)，参数量与算量见 [Transformer 原理与实现（01）](/transformer-architecture-from-a-sentence-to-the-next-token.html)、[（02）](/transformer-flops-bytes-and-roofline.html)。
 
 本篇要回答的核心问题是：
 

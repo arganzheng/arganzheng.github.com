@@ -226,7 +226,7 @@ Pre-Norm 的残差流 $$x_l$$ 从头到尾没有被归一化打断，$$\partial 
 
 Post-Norm 在能训起来的时候效果略好——残差流每层被归一，表示能力用得更满。但 LLM 的深度（几十到上百层）、规模（一次训练几个月、不能失败）与对大学习率的需求，让稳定性压过了那一点效果。GPT-2 之后的 decoder-only 模型几乎全是 Pre-Norm；一些近期模型（Gemma 2 等）在残差分支的输入与输出各放一个 Norm（"sandwich"），DeepNorm 一类工作则给 Post-Norm 加缩放让它也能深。这些都是在同一条梯度路径上做的取舍。
 
-Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性增长（第五章），所以最后一层之后要再加一个 Norm（`final norm`）再送 lm_head——04 系列第五篇的结构图里那个 final RMSNorm 就是它。
+Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性增长（第五章），所以最后一层之后要再加一个 Norm（`final norm`）再送 lm_head——[现代 LLM 结构（01）](/gpt2-to-llama-five-changes-and-parameter-count.html)的结构图里那个 final RMSNorm 就是它。
 
 ## 七、大模型上的稳定性工具
 

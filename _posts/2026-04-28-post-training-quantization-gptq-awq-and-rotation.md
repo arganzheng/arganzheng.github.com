@@ -10,9 +10,9 @@ redirect_from:
 updated: 2026-10-10
 ---
 
-量化是把权重（有时也把激活、KV cache）从 16 bit 浮点变成 4 bit 或 8 bit。它与[04 系列第十四篇](/floating-point-formats-and-mixed-precision.html)的数值格式强相关，但不是一回事：数值格式问的是"训练和计算该用什么格式算，误差在哪里积累、怎么控制"，目标是误差可控、训练稳定；量化问的是"哪些张量可以压到比计算格式更少的位、按什么粒度放 scale、用什么校准补偿误差"，目标是字节数下降、输出分布尽量不变——它允许有损。两者共享词汇（INT8、FP8、E4M3、scale、累加精度），交汇点是细粒度 scale：DeepSeek-V3 的 FP8 训练给每个 $$1 \times 128$$ 激活块、$$128 \times 128$$ 权重块各配一个 scale，用的正是量化的手段。
+量化是把权重（有时也把激活、KV cache）从 16 bit 浮点变成 4 bit 或 8 bit。它与[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)的数值格式强相关，但不是一回事：数值格式问的是"训练和计算该用什么格式算，误差在哪里积累、怎么控制"，目标是误差可控、训练稳定；量化问的是"哪些张量可以压到比计算格式更少的位、按什么粒度放 scale、用什么校准补偿误差"，目标是字节数下降、输出分布尽量不变——它允许有损。两者共享词汇（INT8、FP8、E4M3、scale、累加精度），交汇点是细粒度 scale：DeepSeek-V3 的 FP8 训练给每个 $$1 \times 128$$ 激活块、$$128 \times 128$$ 权重块各配一个 scale，用的正是量化的手段。
 
-这一篇先回答"量化**省**多少、什么时候省得到"（第二章，用 04 系列第六篇的 Roofline），再回答"量化**丢**多少、丢在哪、怎么少丢"（第三章起）。量化误差是本系列里最可控的一种分布改变：它有一个清楚的统计模型，每种方法都在这个模型下最小化一个明确的目标，而且方法之间的差别可以精确地说出来——RTN 什么都不管，GPTQ 补偿输出误差，AWQ 保护显著通道，SmoothQuant 迁移离群值，旋转把离群值摊平。理解了误差模型，就能回答"为什么同样是 4 bit，有的模型几乎无损、有的崩掉"——答案在权重与激活的分布形状里。
+这一篇先回答"量化**省**多少、什么时候省得到"（第二章，用[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)的 Roofline），再回答"量化**丢**多少、丢在哪、怎么少丢"（第三章起）。量化误差是本系列里最可控的一种分布改变：它有一个清楚的统计模型，每种方法都在这个模型下最小化一个明确的目标，而且方法之间的差别可以精确地说出来——RTN 什么都不管，GPTQ 补偿输出误差，AWQ 保护显著通道，SmoothQuant 迁移离群值，旋转把离群值摊平。理解了误差模型，就能回答"为什么同样是 4 bit，有的模型几乎无损、有的崩掉"——答案在权重与激活的分布形状里。
 
 本篇要回答的核心问题是：
 
@@ -64,7 +64,7 @@ Table: 本文的章节安排
 
 ### 1. 一个时间模型
 
-decode 阶段每步每个请求只有一个 token，权重 GEMM $$[B, k] \times [k, n]$$ 的算术强度是 $$2Bkn / 2kn = B$$ FLOP/byte；H100 SXM 的 ridge point 是 $$989 / 3.35 \approx 295$$（[04 系列第六篇](/transformer-flops-bytes-and-roofline.html)）。batch 不到大约 300，decode 的权重 GEMM 就在 Roofline 的斜线上——时间由字节数决定，与 FLOPs 无关。本章所有估算都用同一个模型：一次前向处理 $$m$$ 个 token 行，时间下界是访存时间与计算时间的较大者
+decode 阶段每步每个请求只有一个 token，权重 GEMM $$[B, k] \times [k, n]$$ 的算术强度是 $$2Bkn / 2kn = B$$ FLOP/byte；H100 SXM 的 ridge point 是 $$989 / 3.35 \approx 295$$（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)）。batch 不到大约 300，decode 的权重 GEMM 就在 Roofline 的斜线上——时间由字节数决定，与 FLOPs 无关。本章所有估算都用同一个模型：一次前向处理 $$m$$ 个 token 行，时间下界是访存时间与计算时间的较大者
 
 $$
 T(m) = \max\left( \frac{W_{\text{bytes}}}{BW},\ \frac{2 N m}{F} \right)
@@ -158,7 +158,7 @@ $$
 
 这张表回答了"什么时候该用 W4A16"：**单请求或小 batch 的延迟敏感服务**（本地部署、交互式应用），以及**为了放进一张卡**。高吞吐、大 batch 的服务里，它对 decode 的帮助随 batch 变小，对 prefill 是负的。实际测到的 decode 加速通常在 3 倍左右而非 4 倍，差在几处：lm_head 常保留 FP16（1.05 GB，占 4.27 GB 的四分之一）、KV cache 读取不随权重量化减少、group 元数据、kernel 效率——都能用上面的模型逐项归因。
 
-把它与另一种 decode 加速——投机解码（[04 系列第十二篇](/speculative-decoding-draft-verify-and-payoff.html)，本系列上一篇再深入）——画在同一条 $$T(m)$$ 曲线上（对数坐标）：量化把 memory-bound 的平台**向下**移，投机解码把工作点**向右**推，两者的收益都止于平台与斜线的交点：
+把它与另一种 decode 加速——投机解码（[现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)，本系列上一篇再深入）——画在同一条 $$T(m)$$ 曲线上（对数坐标）：量化把 memory-bound 的平台**向下**移，投机解码把工作点**向右**推，两者的收益都止于平台与斜线的交点：
 
 ![Llama-3-8B 在 H100 上的 T(m) 曲线：BF16 与 W4A16 两条平台、共同的 compute 斜线，量化下移平台、投机右移工作点](/img/in-post/quantization-speculative-decoding-and-lora-time-model.svg)
 
@@ -388,7 +388,7 @@ INT8 W8A8 在 SmoothQuant + per-token 动态下对多数模型接近无损（困
 - INT8 的步长是**绝对**的：$$s = \max/127$$，所有值的量化误差都是 $$\pm s/2$$。一个 100 倍于典型值的离群值让 $$s$$ 变大 100 倍，典型值被压到 1 个级别附近。
 - E4M3 有 3 位尾数，任何正规数的**相对**误差都约 $$2^{-4} = 6\%$$，与该值本身的大小无关；正规数范围 $$2^{-6}$$ 到 448，加上次正规数到 $$2^{-9}$$，动态范围约 $$2.3 \times 10^5$$，INT8 只有 127。
 
-同一个 per-tensor scale 下，只要典型值仍落在 FP8 的正规数范围内，就能跌到更小的指数段而保留 3 位尾数——这是 FP8 比 INT8 对离群值宽容的全部原因，也是它不需要 SmoothQuant、per-tensor 静态 scale 通常就够、成为 H100 上默认推理格式的原因（位布局与累加精度见[04 系列第十四篇](/floating-point-formats-and-mixed-precision.html)）。代价是 3 位尾数的相对精度（6.25%）对小值的**绝对**误差比 INT8 大——但 LLM 对相对误差更敏感，所以 FP8 胜出。
+同一个 per-tensor scale 下，只要典型值仍落在 FP8 的正规数范围内，就能跌到更小的指数段而保留 3 位尾数——这是 FP8 比 INT8 对离群值宽容的全部原因，也是它不需要 SmoothQuant、per-tensor 静态 scale 通常就够、成为 H100 上默认推理格式的原因（位布局与累加精度见[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)）。代价是 3 位尾数的相对精度（6.25%）对小值的**绝对**误差比 INT8 大——但 LLM 对相对误差更敏感，所以 FP8 胜出。
 
 **scale 的粒度在 FP8 里同样重要。** per-tensor scaling 的根本问题还是离群值：整个张量共享一个 scale，离群值被对齐到 448、占据 E4M3 窗口的顶端，比它小 $$2^{15}$$ 倍以上的元素落进次正规区开始丢有效位，小 $$2^{18}$$ 倍以上直接变 0；激活本身三四个十进制数量级的自然分布加上一个 $$100\times$$ 的离群值，尾部恰好被推进这个区域。DeepSeek-V3 的做法是缩小 scale 的作用范围：**激活按 $$1 \times 128$$ 分块**（每个 token 每 128 个通道一个 scale），**权重按 $$128 \times 128$$ 分块**。一个离群值只能拖累同一块里的 127 个邻居：$$d = 7168$$ 的激活向量有 56 个块，一个离群通道影响 $$1/56 \approx 1.8\%$$ 的元素，per-tensor 时是 100%。块大小 128 与 FP8 Tensor Core 累加提升到 FP32 的周期对齐，每 128 个 $$k$$ 元素的部分和搬到 CUDA core 时正好乘上这一块的 $$s_a \cdot s_w$$，反量化没有额外的遍历：
 
@@ -478,7 +478,7 @@ llama.cpp 的 GGUF 格式有自己的一族：Q4_0（简单 per-32 block）、Q4
 
 - **第一层与最后几层**敏感——embedding 之后的第一层处理的是原始 token 表示，最后几层直接决定 logits。
 - **attention 的 out_proj 与 MLP 的 down_proj** 比 q/k/v/up/gate 敏感——它们写残差流，且 down_proj 的输入（SwiGLU 输出）离群最严重。
-- **lm_head** 通常不量化或只量化到 INT8——它直接产生 logits，且参数量占比（[04 系列第九篇](/tokenizer-vocabulary-and-token-efficiency.html)算过：128K 词表的 lm_head 是 8B 模型的 6.5%）在大模型上不显著。
+- **lm_head** 通常不量化或只量化到 INT8——它直接产生 logits，且参数量占比（[预训练（02）](/tokenizer-vocabulary-and-token-efficiency.html)算过：128K 词表的 lm_head 是 8B 模型的 6.5%）在大模型上不显著。
 - **MoE 的路由器**不量化——路由决定的离散性让小误差变成不同的专家选择。
 
 测量敏感度的方法：对每层单独量化、其余保持 FP16，测困惑度增量；或用 Hessian 迹的估计（Hutchinson 方法，HAWQ 的做法）。

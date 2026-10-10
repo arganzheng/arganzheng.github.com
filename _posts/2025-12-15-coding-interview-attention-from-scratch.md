@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 "手写一个 multi-head attention"是 AI 岗面试的第一道手撕题，几乎每家都考。它筛的不是"会不会调 `nn.MultiheadAttention`"，而是四件事：**形状**（`reshape` 和 `transpose` 的顺序为什么是那样）、**数值**（softmax 为什么减最大值、mask 为什么用 $$-\infty$$ 而不是 0）、**变体**（GQA 在哪一步复制、RoPE 旋转的是哪两个维度）、**推理**（KV cache 缓存的是什么、增量解码为什么不用 mask）。追问会一直深入到 online softmax——FlashAttention 一趟分块的核心。这一篇把这条链从零写完，每一步都和 PyTorch 的参考实现对拍。
 
-原理与设计动机不在这里展开：attention 变体和 KV cache 的账见 [Transformer 与 LLM（03）](/attention-variants-and-kv-cache.html)，位置编码见[（04）](/positional-encoding-and-long-context.html)。这一篇只回答"怎样在二十分钟内写对"。
+原理与设计动机不在这里展开：attention 变体和 KV cache 的账见 [现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)，位置编码见[（03）](/positional-encoding-and-long-context.html)。这一篇只回答"怎样在二十分钟内写对"。
 
 本篇要回答的核心问题是：
 
@@ -261,7 +261,7 @@ flowchart TB
 | 多头比单头好在哪？参数量一样吗？ | 参数量一样；每个头在不同子空间算相似度，能同时关注不同模式 |
 | $$T$$ 很长时瓶颈在哪？ | $$QK^\top$$ 的 $$O(T^2 d)$$ 计算与 $$O(T^2)$$ 显存；FlashAttention 解决显存，稀疏 / 线性 attention 解决计算 |
 | MQA 与 GQA 的取舍？ | MQA 省得最多但质量略降；GQA（如 8 组）是两者折中，Llama-2/3 用它 |
-| RoPE 怎么外推到更长的上下文？ | 缩放 $$\theta$$（位置插值、NTK-aware、YaRN），见 [Transformer 与 LLM（04）](/positional-encoding-and-long-context.html) |
+| RoPE 怎么外推到更长的上下文？ | 缩放 $$\theta$$（位置插值、NTK-aware、YaRN），见 [现代 LLM 结构（03）](/positional-encoding-and-long-context.html) |
 | KV cache 太大怎么办？ | GQA、量化到 int8 / fp8、驱逐（H2O、StreamingLLM）、paged 管理（vLLM），见[高效推理（05）](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
 | FlashAttention 为什么反向要重算？ | 存分数矩阵要 $$O(T^2)$$ 显存；重算的 FLOPs 比从 HBM 读回来便宜 |
 | causal attention 能不能只算下三角省一半？ | FlashAttention 的块级跳过就是这样做的；朴素实现算全矩阵再 mask |
