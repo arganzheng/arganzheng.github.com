@@ -355,3 +355,21 @@ html[data-theme="dark"] {
 		}
 	}
 }
+
+html[data-theme="dark"] .post-container img[src*=".svg"] {
+	background-color: @dk-paper;
+	padding: 8px;
+	border-radius: 6px;
+	filter: none;
+}
+
+html[data-theme="dark"] .post-container pre.lineno .line::before {
+	color: @dk-muted;
+	background: linear-gradient(
+		to right,
+		@dk-surface calc(~"100% - 0.9em - 1px"),
+		@dk-border calc(~"100% - 0.9em - 1px"),
+		@dk-border calc(~"100% - 0.9em"),
+		@dk-surface calc(~"100% - 0.9em")
+	);
+}

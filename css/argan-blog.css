@@ -8200,3 +8200,13 @@ html[data-theme="dark"] .post-container .related.backlinks .backlinks-more summa
 html[data-theme="dark"] .post-container .related.backlinks .backlinks-more summary:hover {
   color: #4cb7cb;
 }
+html[data-theme="dark"] .post-container img[src*=".svg"] {
+  background-color: #f4f5f7;
+  padding: 8px;
+  border-radius: 6px;
+  filter: none;
+}
+html[data-theme="dark"] .post-container pre.lineno .line::before {
+  color: #969ba4;
+  background: linear-gradient(to right, #1f2125 calc(100% - 0.9em - 1px), #33363c calc(100% - 0.9em - 1px), #33363c calc(100% - 0.9em), #1f2125 calc(100% - 0.9em));
+}
