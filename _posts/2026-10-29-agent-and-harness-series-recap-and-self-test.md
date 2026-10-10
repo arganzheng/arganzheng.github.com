@@ -447,13 +447,13 @@ Table: 掌握程度的判据
 - **L6 生产化与运营**：prompt injection 的完整分层防御（本系列第五篇的"工具返回不可信"是它的输入）、网关、成本预算、发布与回滚、治理与审计。
 - **L7 产品与体验**：agent 的步骤怎么呈现给用户、审批的交互设计、后台 agent 的产品形态、信任的建立与校准。
 
-前置：[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（检索作为工具、本体）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)；agent 能力的训练在算法地图 L5，RL 的 rollout 基础设施在 Infra 地图 09。
+前置：[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（检索作为工具、本体）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)；agent 能力的训练在算法地图 L5，RL 的 rollout 基础设施在 Infra 地图 10。
 
 ## 七、延伸阅读
 
 本系列有意不展开的内容，以及它们在哪个系列里：
 
-- **不讲 agent 能力的训练**：工具调用数据、多轮环境、RL——属于算法地图 L5；RL 的 rollout 基础设施属于 Infra 地图 09。
+- **不讲 agent 能力的训练**：工具调用数据、多轮环境、RL——属于算法地图 L5；RL 的 rollout 基础设施属于 Infra 地图 10。
 - **不讲检索**：agentic retrieval 属于 L3；本系列只把检索当作一类工具。
 - **不讲评测方法论本身**：judge、评测集运营属于 L5；本系列只讲 agent 专属的轨迹评测。
 - **不讲 prompt injection 的完整防御体系**：属于 L6；本系列讲它作为权限与沙箱设计的输入。

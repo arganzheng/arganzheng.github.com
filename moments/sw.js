@@ -28,7 +28,7 @@ async function saveShare(request) {
     title: String(form.get('title') || ''),
     text: String(form.get('text') || ''),
     url: String(form.get('url') || ''),
-    files: files.map((blob) => ({ blob, name: blob.name || 'shared-image', type: blob.type || 'image/jpeg' }))
+    files: files.map((blob) => ({ blob, name: blob.name || 'shared-image', type: blob.type || '' }))
   };
   const db = await openShareDb();
   await new Promise((resolve, reject) => {

@@ -84,7 +84,7 @@ $$
 
 ![H100 的 Roofline：斜线是带宽 × 强度，横线是 989 TFLOPS；decode 落在左边的 memory-bound 区，prefill 与训练落在右边](/img/in-post/gpu-intuition-roofline-h100.svg)
 
-一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。L4《Transformer 与 LLM》第六篇把整个模型逐层放到这张图上；Infra 05 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
+一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)把整个模型逐层放到这张图上；Infra 06 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
 
 ## 三、decode 与 prefill
 
@@ -109,7 +109,7 @@ $$
 
 Table: decode 吞吐随 batch 的变化：带宽时间与算力时间
 
-batch 从 1 到 128，时间几乎不变（都是 4.8 ms），吞吐涨 128 倍——**这就是"为什么 batch 大才快"**。到 batch ≈ 295（ridge）之后才开始受算力限制。推理系统（vLLM 一类）的核心工作就是把尽量多的请求凑成一个大 batch；Infra 08 系列讲它。
+batch 从 1 到 128，时间几乎不变（都是 4.8 ms），吞吐涨 128 倍——**这就是"为什么 batch 大才快"**。到 batch ≈ 295（ridge）之后才开始受算力限制。推理系统（vLLM 一类）的核心工作就是把尽量多的请求凑成一个大 batch；Infra 09 系列讲它。
 
 ### 2. prefill 与训练是 compute-bound
 
@@ -135,7 +135,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 
 Table: 显存的四块：大小由什么决定
 
-前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（L0 第四篇：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在 L4 第六篇。
+前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（L0 第四篇：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)。
 
 ### 2. OOM 归因
 
@@ -186,7 +186,7 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 - **反向约是前向的两倍**：`_scaled_dot_product_flash_attention_backward` 8.4 ms vs 前向 5.2 ms，`gelu_backward` 5.6 vs 3.8——L3 第一篇讲的"反向 = 2 × 前向"在表里直接可见。
 - `mm` 调用 43 次：4 层 × 每层几个线性层 × 前向 + 反向两个 GEMM。数一数就知道模型结构。
 
-会读它意味着能回答"这一步 300 ms 花在哪"——是 attention、是 FFN 的 GEMM、是数据加载等 GPU 空转（表里 GPU 时间加起来远小于墙钟时间）、还是几千个小算子的 launch 开销。到这里为止；怎么让那个算子快起来，是 Infra 05 系列的事。
+会读它意味着能回答"这一步 300 ms 花在哪"——是 attention、是 FFN 的 GEMM、是数据加载等 GPU 空转（表里 GPU 时间加起来远小于墙钟时间）、还是几千个小算子的 launch 开销。到这里为止；怎么让那个算子快起来，是 Infra 06 系列的事。
 
 ## 六、实验管理
 

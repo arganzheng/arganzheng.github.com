@@ -272,7 +272,7 @@ np.abs(out_np - out_pt).max()     # 2.65e-07
 
 $$2.65 \times 10^{-7}$$ 是 float32 的舍入误差量级——两个实现一致。权重矩阵读起来：第 0 行只能看自己（1.0），第 $$t$$ 行只有前 $$t + 1$$ 个非零，每行和为 1。**"与参考实现对数值"是验证任何手写算子的标准方法**，L3 系列的梯度检查、Infra 系列的 kernel 验证用的都是这一招；标准是误差在浮点精度量级（float32 约 $$10^{-6}$$，float64 约 $$10^{-12}$$），不是"看起来差不多"。
 
-这 30 行是 PyTorch 里 `F.scaled_dot_product_attention` 做的事的数学版；真实实现（FlashAttention）不会显式构造 $$[T, T]$$ 的 $$S$$——那是 Infra 05 系列的内容。
+这 30 行是 PyTorch 里 `F.scaled_dot_product_attention` 做的事的数学版；真实实现（FlashAttention）不会显式构造 $$[T, T]$$ 的 $$S$$——那是 Infra 06 系列的内容。
 
 ## 六、Pandas：评测的错误分析
 

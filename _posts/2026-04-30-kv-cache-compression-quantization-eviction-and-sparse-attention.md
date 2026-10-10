@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-10-10
 ---
 
-[04 系列第八篇](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GiB（GQA 之后）——权重 141 GB 的近三成，一张 80 GB 卡的一半；decode 每步要把它全部读一遍，单请求 128K 时 KV 读取已是权重的 30%，batch 到 4 就与权重相当（每 token 320 KiB，$$141\text{ GB}/320\text{ KiB} \approx 43$$ 万 token 与权重打平），长上下文 + 并发下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
+[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GiB（GQA 之后）——权重 141 GB 的近三成，一张 80 GB 卡的一半；decode 每步要把它全部读一遍，单请求 128K 时 KV 读取已是权重的 30%，batch 到 4 就与权重相当（每 token 320 KiB，$$141\text{ GB}/320\text{ KiB} \approx 43$$ 万 token 与权重打平），长上下文 + 并发下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
 
 这一篇讲**训好之后**还能对 KV 做什么。三条路：**量化**（每个元素的字节从 2 降到 1 或 0.5 甚至 0.25）、**驱逐**（丢掉一部分 token 的 KV，只留"重要"的）、**稀疏 attention**（每步只读一部分 KV——如果模型训练时就这样，推理时可以精确地这样做）。三条路对输出分布的影响从小到大：量化是可控的噪声；驱逐是有损的、任务依赖的近似；训练时就稀疏的 attention 在推理时是精确的（但需要重新训练）。
 
@@ -87,7 +87,7 @@ decode 时每个新 token 的输出依赖对所有历史 KV 的 attention。历�
 
 ### 1. FP8 / INT8：免费的 2 倍
 
-KV 到 8 bit——FP8 E4M3 per-tensor 或 per-head 静态 scale，或 INT8 per-token 动态——对几乎所有模型与任务无损（KL 增量在 0.001 nat 量级）。原因是 8 bit 的 255 个级别足够精细，即使 key 有 20 倍的离群，其他通道仍有十几个级别。vLLM 的 `kv_cache_dtype="fp8"` 就是这个，attention kernel 在读 KV 时 dequant。它的收益是 KV 字节减半、decode 的 KV 读取流量减半——长上下文下直接体现为 decode 速度。用 04 系列的数字：Llama-3-8B 每 token 的 KV 从 128 KiB 变 64 KiB，128K 上下文从 16 GiB 变 8 GiB；70B 从 320 KiB 变 160 KiB；DeepSeek-V3 的 MLA 从 68.6 KiB 变 34.3 KiB。它的分量要和权重一起看：上下文 8K、batch 64 时，Llama-3-8B 每步 decode 要读 $$128\ \text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV，是 BF16 权重 16 GB 的四倍——这个区间里 **KV 量化对 decode 时间的影响大于权重量化**：权重 INT4 省 12 GB，KV FP8 省 32 GiB。**这是所有部署都应该开的选项。**
+KV 到 8 bit——FP8 E4M3 per-tensor 或 per-head 静态 scale，或 INT8 per-token 动态——对几乎所有模型与任务无损（KL 增量在 0.001 nat 量级）。原因是 8 bit 的 255 个级别足够精细，即使 key 有 20 倍的离群，其他通道仍有十几个级别。vLLM 的 `kv_cache_dtype="fp8"` 就是这个，attention kernel 在读 KV 时 dequant。它的收益是 KV 字节减半、decode 的 KV 读取流量减半——长上下文下直接体现为 decode 速度。用现代 LLM 结构系列的数字：Llama-3-8B 每 token 的 KV 从 128 KiB 变 64 KiB，128K 上下文从 16 GiB 变 8 GiB；70B 从 320 KiB 变 160 KiB；DeepSeek-V3 的 MLA 从 68.6 KiB 变 34.3 KiB。它的分量要和权重一起看：上下文 8K、batch 64 时，Llama-3-8B 每步 decode 要读 $$128\ \text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV，是 BF16 权重 16 GB 的四倍——这个区间里 **KV 量化对 decode 时间的影响大于权重量化**：权重 INT4 省 12 GB，KV FP8 省 32 GiB。**这是所有部署都应该开的选项。**
 
 ### 2. KIVI：非对称的量化粒度
 
@@ -114,7 +114,7 @@ INT2 只有 4 个级别，即使 per-channel，key 的量化误差也很大。KI
 
 ### 1. attention sink 的成因
 
-[04 系列第九篇](/long-context-cost-and-structural-remedies.html)介绍了现象：LLM 对序列的**第一个 token** 分配了不成比例的注意力（常常 30–50%），无论它的内容是什么。StreamingLLM（Xiao 等 2023）发现只要保留这几个 sink token 的 KV 加一个最近窗口，模型就能在无限长的流上生成而不崩；丢掉 sink 则立即崩掉。
+[现代 LLM 结构（05）](/long-context-cost-and-structural-remedies.html)介绍了现象：LLM 对序列的**第一个 token** 分配了不成比例的注意力（常常 30–50%），无论它的内容是什么。StreamingLLM（Xiao 等 2023）发现只要保留这几个 sink token 的 KV 加一个最近窗口，模型就能在无限长的流上生成而不崩；丢掉 sink 则立即崩掉。
 
 成因（Xiao 等的解释，后续 Sun 等 2024 的 massive activations 分析补充）：softmax 强制 attention 权重之和为 1，但很多 head 在很多位置**不需要关注任何东西**（当前 token 的信息足够，或这个 head 负责的模式没出现）。模型需要一个"垃圾桶"位置吸收多余的注意力——第一个 token 是最方便的选择，因为它对所有位置都可见（因果掩码下唯一对全序列可见的位置）。模型学会在第一个 token 的隐状态上产生 massive activation（上一篇讲的数千量级的值），让它的 key 与所有 query 的点积都大——成为 sink。sink 的 value 通常接近零向量，所以关注它等于"不加东西"。
 
@@ -166,7 +166,7 @@ PyramidKV（Cai 等 2024）的观察：不同层的 attention 模式不同——
 
 ### 1. 三种稀疏模式
 
-推理时的 KV 驱逐是**事后**的近似。另一条路是让模型在训练时就只看一部分 KV——推理时精确地做同样的事，没有近似误差。稀疏 attention 的模式（[04 系列第九篇](/long-context-cost-and-structural-remedies.html)列过形态）：
+推理时的 KV 驱逐是**事后**的近似。另一条路是让模型在训练时就只看一部分 KV——推理时精确地做同样的事，没有近似误差。稀疏 attention 的模式（[现代 LLM 结构（05）](/long-context-cost-and-structural-remedies.html)列过形态）：
 
 - **固定模式**：滑窗（每个 query 看最近 $$w$$ 个）、全局 token（少数位置全部可见）、扩张（隔 $$k$$ 个看一个）、块对角。Longformer / BigBird 时代的做法；现代模型里滑窗与全局层交错（Gemma 2/3、gpt-oss）是它的活形态。
 - **内容路由**：每个 query 按内容选择看哪些 KV 块——需要一个便宜的"选块"机制。这是 NSA 与 MoBA 的路线。

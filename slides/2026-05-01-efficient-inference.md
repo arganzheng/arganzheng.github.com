@@ -269,7 +269,7 @@ flowchart LR
 
 ## 下一步
 
-- **往前**：《Transformer 与 LLM》第 10、12 篇——Roofline 与量化 / 投机的第一次出现
+- **往前**：《现代 LLM 结构》第 02、08 篇——Roofline 与投机解码的第一次出现；量化见独立专题
 - **往后（Infra）**：《vLLM 源码》——这些方法在引擎里的落点：采样器、投机 worker、量化 kernel、分页 KV
 - **往后（算法）**：《后训练》第 7 篇——蒸馏的方法本身
 - 原文总纲：`/efficient-inference-and-compression-for-llms.html`；通关自测 22 题在系列总结

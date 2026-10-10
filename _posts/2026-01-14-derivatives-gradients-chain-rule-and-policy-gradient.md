@@ -457,7 +457,7 @@ $$
 
 | | 取值 |
 |---|---|
-| 策略 $$\pi_\theta$$ | 《Transformer 与 LLM》第四篇在 MacBook 上训好的字符级莎士比亚 nanoGPT，0.8M 参数，val loss 1.72 |
+| 策略 $$\pi_\theta$$ | 《Transformer 原理与实现》第四篇在 MacBook 上训好的字符级莎士比亚 nanoGPT，0.8M 参数，val loss 1.72 |
 | 一条回答 | 从换行符开始自由生成 63 个字符 |
 | 奖励 $$R$$ | 生成文本里**元音（a e i o u）占字母的比例**——一个可验证、不需要人标注的分数。莎士比亚原文约 0.39 |
 | 算法 | 每步采 $$G = 16$$ 条，优势 = 组内标准化 $$(R_i - \text{mean}) / \text{std}$$（GRPO 的骨架，没有裁剪），loss $$= -\frac{1}{G}\sum_i A_i \sum_t \log\pi_\theta(y_{i,t})$$ |
@@ -570,7 +570,7 @@ Table: 两个 run 的奖励、val loss 与生成样本
 
 最后一篇讲统计推断与拟合：怎么判断评测上差 3 个点是不是噪声，以及 scaling law 的曲线是怎么从一组实验点拟出来的。
 
-配套代码：[`math-for-ai/07_gradients_and_policy_gradient.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/07_gradients_and_policy_gradient.py)（割线、梯度场、链式法则三方对拍、$$p - y$$、玩具策略的全部实验、学习率轨迹、拉格朗日）与 [`07_rl_on_nanogpt.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/07_rl_on_nanogpt.py)（第八章，需要先按《Transformer 与 LLM》第四篇训出莎士比亚 checkpoint）；输出在 `expected/`。
+配套代码：[`math-for-ai/07_gradients_and_policy_gradient.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/07_gradients_and_policy_gradient.py)（割线、梯度场、链式法则三方对拍、$$p - y$$、玩具策略的全部实验、学习率轨迹、拉格朗日）与 [`07_rl_on_nanogpt.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/07_rl_on_nanogpt.py)（第八章，需要先按《Transformer 原理与实现》第四篇训出莎士比亚 checkpoint）；输出在 `expected/`。
 
 [^q0]: 能。链式法则说复合函数的导数是局部导数的乘积，向量情形是 Jacobian 的矩阵乘（用形状规则检查）；反向传播就是从 loss 往输入逐层套用它。最重要的一个局部导数是 softmax + 交叉熵：$$\partial L / \partial z = p - y$$，两步推出，有界、预测越准越小。详见[第三章](#三链式法则与-jacobian)、[第四章](#四softmax--交叉熵的梯度)。
 [^q1]: 能。$$J = \mathbb{E}_{y \sim \pi_\theta}[R(y)]$$ 里分布本身依赖参数，用 $$\nabla \pi = \pi \nabla \log \pi$$ 把梯度写回期望，得到策略梯度 $$\mathbb{E}[R(y) \nabla \log \pi_\theta(y)]$$——按奖励加权的最大似然；减一个 baseline 期望不变、方差降低，PPO 用价值网络估它、GRPO 用组内均值。详见[第五章](#五期望的梯度策略梯度)，[第八章](#八案例在一个真模型上做最小的-rl)在 nanoGPT 上跑了一遍。
