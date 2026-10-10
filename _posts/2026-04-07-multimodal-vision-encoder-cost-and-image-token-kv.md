@@ -9,7 +9,7 @@ updated: 2026-10-10
 date: 2026-04-07 10:00:00
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第九篇。前面讲的都是文本模型的部件与成本，本篇改输入：vision encoder 与 connector 是新增的结构，image token 的算量与 KV 是它带来的成本。本篇只算账——编码器怎么选、connector 与注入方式各自的设计动机、VLM 怎么训练，在算法地图的[《多模态》系列](/multimodal-from-vision-encoders-to-diffusion.html)第 01–03 篇。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第九篇。前面讲的都是文本模型的部件与成本，本篇先算输入侧的 vision encoder、connector、image token 与 KV，再看输出侧的离散图像自回归、diffusion、解耦生成和语音 token 成本。本篇只算账；视觉编码、语音、扩散模型与自回归图像生成的完整机制，见算法地图的[《多模态》系列](/multimodal-from-vision-encoders-to-diffusion.html)。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
 前九篇讨论的模型只有一种输入：token id。它查一张 embedding 表得到向量，然后进入 decoder。这个前提决定了前面所有的账——参数量、FLOPs、KV cache——都只与 token 数有关，而 token 数由 tokenizer 决定。
 
@@ -86,10 +86,11 @@ Table: 贯穿全篇的四个多模态模型
 | 五 | 另一条路线：cross-attention | Llama 3.2 Vision 的结构，它的 KV 为什么不随文本增长 |
 | 六 | 位置编码：从一维到三维 | M-RoPE 把 `head_dim` 分给 (t, h, w)，ViT 内部的 2D RoPE |
 | 七 | 视频与音频 | 帧 × 每帧 token；Whisper encoder 的 30 秒 → 1500 个位置 |
-| 八 | 训练侧 | 冻结 encoder 省什么、不省什么；图片解码是 CPU 的活 |
-| 九 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
-| 十 | 本文小结 | |
-| 十一 | 自测 | 5 道题 |
+| 八 | 输出侧：生成图像与语音的结构与成本 | 离散 token、diffusion、解耦视觉路径、Thinker-Talker |
+| 九 | 训练侧 | 冻结 encoder 省什么、不省什么；图片解码是 CPU 的活 |
+| 十 | 实践 | `llm_cost.py` 的多模态支持与最终成本表 |
+| 十一 | 本文小结 | |
+| 十二 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -337,7 +338,33 @@ Table: 三种模态的每单位 token 数与调节手段
 
 所有模态最终都归结为同一个数——进入 decoder 的 token 数。**decoder 不知道也不关心 token 从哪里来**，它的 prefill FLOPs 和 KV 只看这个数。encoder 的差异只影响前置的一次性计算。
 
-## 八、训练侧的账
+## 八、输出侧：生成图像与语音的结构与成本
+
+输入图像主要产生 prefill token；输出图像与语音则要看生成过程本身。离散自回归把图像变成 token 序列，成本可按输出 token 数估算 decode 步与 KV；diffusion 在图像 patch 上反复去噪，成本由采样迭代决定；语音模型则可能先生成 codec token，再转成波形。它们不能都折算成同一种「每张图几个 token」。
+
+### 1. 离散图像 token：每 token 一步，并累积 KV
+
+[Chameleon](https://arxiv.org/html/2405.09818)把图像量化成离散 token，与文本 token 放进同一自回归 Transformer；[Emu3](https://arxiv.org/html/2409.18869v1)的论文明确给出一个 512×512 图像由 tokenizer 编成 4096 个离散 token。对这种逐 token 自回归生成，生成 $$N_{\text{img}}$$ 个图像 token 就需要 $$N_{\text{img}}$$ 个串行 decoder 步；若解码器采用 KV cache，图像输出期间新增长的 KV 为：
+
+$$
+\Delta \text{KV}=N_{\text{img}}\cdot 2L n_{kv}d_h b
+$$
+
+因此 Emu3 这个 512×512 例子对应 4096 个图像 token / 自回归输出步，具体 KV 字节仍取决于解码器层数、KV heads、head dim 与精度。Chameleon 的 token 数也取决于模型 tokenizer 与图像设置；本文不把某个分辨率下未能从论文摘录核实的数量写成通用值。
+
+### 2. Diffusion 与理解 / 生成路径解耦
+
+[Transfusion](https://arxiv.org/html/2408.11039)对图像 patch 使用 diffusion 目标、对文本使用 next-token 目标，并在同一 Transformer 中联合建模；论文报告可将图像压到 16 个 patch。这里的 16 是 patch 数，不是去噪步数：每次去噪迭代都要对图像 patch 序列运行模型，论文没有给出可当作所有部署固定值的每图采样迭代数，所以不把它换算成固定 forward passes。
+
+[Janus](https://arxiv.org/html/2410.13848)把多模态理解与视觉生成的编码路径分开，再由统一 Transformer 处理；这让理解侧与生成侧可以各自选择合适的视觉表示，但论文摘录没有给出可直接用于统一 KV / decode 计算的每图输出 token 数。对成本估算，应分别取实际使用的理解 encoder 与生成 tokenizer / decoder 配置，而不能把输入侧 token 数直接当成输出侧长度。
+
+### 3. 语音生成：Thinker、Talker 与声码器
+
+[Qwen2.5-Omni 技术报告](https://arxiv.org/html/2503.20215v1)的 Thinker-Talker 架构由 Thinker 生成文本与高层表示，Talker 以自回归方式生成语音 token，再由滑窗 DiT 解码为音频波形。生成侧至少包含文本 / 语音 token 的自回归步，以及把 token 转成波形的声学模型计算；报告未提供可用于所有音频长度的统一 tokens-per-second 或 forward-passes-per-second 数字，因此这里不报固定秒级成本。具体服务应以实际 Talker token 序列、声码器窗口与实时率测量。
+
+更完整的输入、输出与训练路线见[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)、[《语音理解、生成与全双工》](/speech-understanding-generation-and-full-duplex.html)和[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)。
+
+## 九、训练侧的账
 
 ### 1. 冻结 encoder 省的主要是激活，状态只是小头
 
@@ -361,7 +388,7 @@ Table: 冻结与解冻 encoder 时各组件的训练状态
 
 一张 1024² 的 JPEG 解码加 resize 加归一化，在一个 CPU 核上是毫秒级；encoder 在 H100 上处理它也是十毫秒级。文本预训练里数据加载几乎不占 CPU，多模态训练里每张卡每秒要喂几十到几百张图，8 卡机器的 CPU 很容易先于 GPU 饱和。数据管线的形态从"读 token id"变成"解码图片"，这是训练基础设施在多模态上遇到的第一个实际瓶颈，解法（预处理离线化、GPU 解码 nvJPEG、DALI）都是在把这一步搬离 CPU。
 
-## 九、实践：llm_cost.py 的多模态支持
+## 十、实践：llm_cost.py 的多模态支持
 
 ### 1. 新增的函数
 
@@ -486,7 +513,7 @@ Table: 一张 1024² 图片在三种注入方式下的成本
 1. **encoder 时间与 batch 无关**：用 `transformers` 加载 Qwen2-VL-7B，只跑 `visual` 子模块，输入 1 张与 8 张 1024² 图片，测时间。预期接近线性（compute-bound），与 decode 那种"8 个请求几乎不比 1 个慢"形成对照。
 2. **image token 就是 token**：用同一模型对比"1369 个文本 token 的 prompt"与"一张 1024² 图片 + 几个字"的首 token 延迟与 `torch.cuda.max_memory_allocated()` 的增量。预期后者比前者多出的只有 encoder 的 12 ms 与 encoder 输出的 10 MiB；KV 增量相同。
 
-## 十、本文小结
+## 十一、本文小结
 
 三笔账与它们的量级（Qwen2-VL 风格、1024² 图片、70B 规格 decoder）：
 
@@ -500,7 +527,9 @@ Table: 一张 1024² 图片在三种注入方式下的成本
 
 Table: 多模态三笔账的公式与量级
 
-## 十一、自测
+输出侧的计步单位取决于生成结构：[Emu3](https://arxiv.org/html/2409.18869v1)的 512×512 图像例子是 4096 个离散 token，也就是 4096 个自回归输出步；[Transfusion](https://arxiv.org/html/2408.11039)报告 16 个图像 patch，但 patch 数不是 diffusion 去噪步数；[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)报告 Thinker-Talker 与流式音频生成，没有给出可通用于不同音频长度的 tokens-per-second 数值。不同结构的成本要分别按 token 数、去噪迭代数或实测实时率计算。
+
+## 十二、自测
 
 1. Qwen2-VL 处理一张 $$1344 \times 896$$ 的文档图与一张 $$224 \times 224$$ 的缩略图，各多少 token？
 
@@ -534,17 +563,17 @@ Table: 多模态三笔账的公式与量级
 
    </details>
 
-5. cross-attention 注入（Llama 3.2 Vision）与序列注入（Qwen2-VL）在 KV 上的差别是什么？
+5. 对比 Emu3 的离散图像生成、Transfusion 与 Qwen2.5-Omni 语音生成：哪些数可以量化输出步数，哪些不能写成固定的每图 / 每秒成本？
 
    <details markdown="1"><summary>答案</summary>
 
-   序列注入的 image token 与文本同价，占序列长度与每层 KV；cross-attention 注入把图像特征放在旁路，只在插入的 cross-attn 层读它，不占主序列长度与自注意力的 KV，代价是那些层多一份 K、V 投影和参数。
+   Emu3 论文给出的 512×512 图像含 4096 个离散 token，因此自回归输出需要 4096 个 token 步，KV 字节还要乘该模型每 token 的配置。Transfusion 的 16 是图像 patch 数，不是去噪迭代数；Qwen2.5-Omni 报告 Talker 自回归语音 token 与滑窗 DiT，但没有给出统一 tokens-per-second，所以这两者不能据此写固定成本。
 
    </details>
 
 ## 下一篇
 
-到这里，现代 LLM 结构系列讲完了今天的模型在归一化、位置、FFN、attention、专家、训练目标、解码流程与输入模态上各改了什么、为什么、带来什么成本。还剩一个所有篇目都默认的前提没有打开：每个数占 2 字节。[下一篇《现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)讲这 2 字节里存了什么、为什么是 BF16、换成 FP16 / FP8 会在哪里出数值问题、训练时为什么还要一份 FP32 的主权重——它也是通向预训练系列与量化专题的交接处。
+到这里，现代 LLM 结构系列讲完了今天的模型在归一化、位置、FFN、attention、专家、训练目标、解码流程，以及多模态输入理解与输出生成上各改了什么、为什么、带来什么成本。还剩一个所有篇目都默认的前提没有打开：每个数占 2 字节。[下一篇《现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)讲这 2 字节里存了什么、为什么是 BF16、换成 FP16 / FP8 会在哪里出数值问题、训练时为什么还要一份 FP32 的主权重——它也是通向预训练系列与量化专题的交接处。
 
 [^q0]: 约 **1369** 个：Qwen2-VL 每 $$14 \times 14$$ 像素一个 patch、2×2 merge 后每 $$28 \times 28$$ 像素一个 token，$$(1024/28)^2 \approx 1369$$。token 数由 connector 的合并比例与图片分辨率决定，与文本长度无关。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第三章](#三connector谁决定-image-token-数)。
 [^q1]: encoder 一次性 11.8 TFLOP、compute-bound、与 batch 无关；connector 几乎不花；decoder 的 prefill 190 TFLOP 与同样长度的文本一样；真正长期占用的是 **image token 在 decoder 里的 KV**——1369 个 token × 每 token 320 KiB（70B 规格）≈ 428 MiB，活到请求结束。详见[第二章](#二从像素到-patchvision-encoder-的账)、[第四章](#四image-token-在-decoder-里真正的账)。

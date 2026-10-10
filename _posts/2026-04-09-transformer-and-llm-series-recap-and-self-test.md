@@ -54,11 +54,11 @@ flowchart TB
 | [第二篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
 | [第三篇：位置编码与外推](/positional-encoding-and-long-context.html) | 位置如何表达、为何外推有风险？ | 位置编码解决顺序；改频谱不等于学会长文 | $$\lambda_i = 2\pi\,\text{base}^{2i/d_{head}}$$；PI / NTK-aware / YaRN |
 | [第四篇：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) | V3 128 头 61 层，KV cache 为什么比 32 头 32 层的 8B 小？代价？ | KV 只与 $$n_{kv}$$ 有关；MLA 缓存 512 + 64 维 latent，decode 吸收后等价于 128 头共享一个 KV 头的 MQA，用 3.4 倍 attention FLOPs 换 57 倍字节 | $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$<br/>8B 128 KiB（MHA 512 KiB）、70B 320 KiB、V3 68.6 KiB（MHA 3.81 MiB）<br/>decode attention 强度 4 / 8 / 242 |
-| [第五篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？ | KV 线性、prefill attention 二次；滑窗改可见位置、MLA 改 KV 表示 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s |
+| [第五篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？能否换掉 attention？ | KV 线性、prefill attention 二次；滑窗改可见位置，线性 attention / SSM 把历史压进递归状态，混合架构折中质量与成本 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s；[Qwen3-Next 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)算例：混合结构约 3.04 GiB，对照全 attention 12 GiB |
 | [第六篇：MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) | V3 每 token 只算 37B，为什么比 dense 70B 难部署得多？ | 三个"参数量"分开：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定 decode 带宽——中等 batch 下几乎读全部专家 | $$E[1 - (1 - k/E)^B]$$：$$B = 32$$ 时 163 个、读 434B<br/>FP8 671 GB 放不进 640 GB<br/>每 token 每层 dispatch 56 KiB + combine 112 KiB<br/>每专家 GEMM $$Tk/E$$ 行 |
 | [第七篇：MTP](/multi-token-prediction-mtp.html) | 每个位置多预测一个 token，多花了什么、多得了什么？为什么顺序不并行？ | 信号密度 ×$$(1 + D)$$，主干被逼编码更远的未来<br/>顺序模块喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）<br/>推理时丢弃或做投机 draft | 自有参数：2 个 RMSNorm + $$2d \to d$$ 投影 + 1 个 block<br/>$$\lambda$$ 0.3 → 0.1<br/>接受率 85–90%、TPS 1.8 倍<br/>nanoGPT 上主任务不变、$$t+2$$ 命中 45%、+29% 参数 |
 | [第八篇：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html) | 同一套投机解码，为什么 batch 1 加速 2 倍、batch 64 没有收益？ | 接受 / 拒绝重采样让输出分布严格等于目标模型；验证 γ+1 个 token 只在 memory-bound 区间免费 | $$\mathbb{E}[\text{tokens}] = (1-\alpha^{\gamma+1})/(1-\alpha)$$；α=0.8、γ=4、c=0.1：3.36 token、约 2.4×；转折 batch ≈ ridge/(γ+1) ≈ 60 |
-| [第九篇：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html) | 一张 1024² 的图在 Qwen2-VL 里等于多少 token？代价在哪？ | 图片贵的不是 encoder（一次性、compute-bound），是它变成的 token 在 decoder 里占的 KV——与同长文本同价，活到请求结束 | $$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$，1024² → 1369<br/>encoder 11.8 TFLOP<br/>70B 规格 KV 428 MiB 是 encoder 输出 21 MiB 的 20 倍<br/>同一张图 576 到 6404 token |
+| [第九篇：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html) | 一张 1024² 的图在 Qwen2-VL 里等于多少 token？图像与语音怎么生成？ | 输入侧要算 encoder、image token 与 decoder KV；输出侧分离散图像 token 自回归、diffusion、解耦视觉路径与语音 token，成本单位随结构而变 | 输入：$$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$，1024² → 1369<br/>encoder 11.8 TFLOP<br/>70B 规格 KV 428 MiB 是 encoder 输出 21 MiB 的 20 倍<br/>输出：[Emu3 论文](https://arxiv.org/html/2409.18869v1)的 512×512 图像为 4096 个自回归 token 步 |
 | [第十篇：浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) | BF16 相对精度只有 FP16 的 1/8，为什么成了默认？用在权重更新上会怎样？ | 指数位定范围、尾数位定精度；前向反向要范围，更新要精度——所以 BF16 计算 + FP32 master weights | BF16 1/8/7、单位舍入 $$2^{-8} \approx 0.004$$<br/>FP16 最大 65504、$$e^x$$ 在 $$x > 11.09$$ 溢出<br/>E4M3 最大 448 无 inf<br/>$$k = 4096$$ BF16 累加噪声 25%<br/>16 B/参数、8B 训练状态 128 GB |
 
 Table: 十篇的核心问题、结论与必记公式
@@ -196,6 +196,8 @@ Table: 本文的章节安排
 - 训练侧：冻结 encoder 两样都省，主项是激活值（10 GB 量级），状态是小头（9 GB 对 LLM 的 122 GB）；图片解码把数据管线瓶颈搬到 CPU。
 
 **常见误解**："多模态贵在 vision encoder"——encoder 12 ms 对 prefill 195 ms，且输出用完即弃；一张 1024² 图就是一段 1369 token、无法被 tokenizer 压短的 system prompt。"按图片张数预算"——原生动态分辨率下 $$n_p$$ 相差三个数量级，必须按像素预算。
+
+输出侧要按生成机制分别计成本：[Emu3](https://arxiv.org/html/2409.18869v1)给出的 512×512 图像是 4096 个自回归 token 步；[Transfusion](https://arxiv.org/html/2408.11039)报告的 16 是图像 patch 数而非去噪迭代数；[Janus](https://arxiv.org/html/2410.13848)把理解与生成的视觉路径解耦；[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)描述 Thinker-Talker 与音频解码结构，但没有通用 tokens/s 可用于固定成本估算。
 
 ### 10. 第十篇：浮点格式、数值稳定性与混合精度
 
@@ -504,6 +506,14 @@ Table: 常见误区与正确说法
    **答案要点**：(1) token 数由分辨率与 connector 决定而不是 tokenizer：Qwen2-VL 一张图 $$\lceil H/28 \rceil \lceil W/28 \rceil$$，144 到 16384 相差两个数量级，同一张 1024² 图在不同模型里 576 到 6404；(2) image token 进 decoder 后与文本同价：prefill $$2N n_{img}$$、KV $$n_{img} \times$$ 每 token 字节，70B 规格一张图 428 MiB、活到请求结束，是 encoder 输出的 20 倍；(3) encoder 是一次性、compute-bound、串行前置的 12 ms，可单独预算与重叠，但缩短不了；(4) 请求 KV 需求的方差远大于文本，要按像素而不是张数预算，多图与视频线性叠加（一分钟 720p 约 36K token）；(5) decoder 的 attention 变体把图片代价放大 4–9 倍（MHA 512 KiB 对 GQA 56 KiB），cross-attention 注入把图片 KV 降到四分之一但需要单独的 KV 管理。
    **追问方向**：为什么 encoder 输出 21 MiB 与 KV 428 MiB 同时成立；tile 方案与原生动态分辨率对 batch 的影响；训练侧图片解码为什么先撑爆 CPU。
    **好答案与一般答案的区别**：一般答案强调 encoder 的算量；好答案说出"一张图等于一段 1369 token、无法被压短的 system prompt"，并按 KV 与方差做容量规划。
+
+   </details>
+
+8. Emu3、Transfusion 与 Qwen2.5-Omni 的生成成本分别用什么单位衡量？哪些具体数字有论文直接支持？
+
+   <details markdown="1"><summary>答案</summary>
+
+   [Emu3 论文](https://arxiv.org/html/2409.18869v1)给出 512×512 图像 4096 个离散 token，因此该设置下是 4096 个自回归 token 步；[Transfusion 论文](https://arxiv.org/html/2408.11039)报告 16 个图像 patch，但这不是 diffusion 去噪步数；[Qwen2.5-Omni 论文](https://arxiv.org/html/2503.20215v1)描述 Thinker-Talker 与滑窗 DiT，没有给出通用的音频 tokens/s。后两者不应据此改写成固定生成速率。
 
    </details>
 

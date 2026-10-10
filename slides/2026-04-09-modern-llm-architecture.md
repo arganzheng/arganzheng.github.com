@@ -145,6 +145,16 @@ flowchart LR
 
 ---
 
+## Attention 的替代路线：固定状态与混合架构
+
+- Full attention 为每个 token 保存 K/V，状态随序列长度 $$T$$ 线性增长；线性 attention 可把历史压进 $$d_k \times d_v$$ 的递归状态，SSM 则用 selective recurrence 更新状态
+- Jamba、MiniMax-01、Qwen3-Next、Kimi Linear 在 full attention 与线性 / SSM 层之间做不同折中；MiniMax-M2 官方说明选择 full attention
+- Qwen3-Next 配置：48 层中每 4 层 1 层 full attention，即 12 层 full + 36 层线性；BF16 矩阵状态估算 36 MiB
+- 128K：混合结构约 3.04 GiB（KV + 矩阵状态），全 48 层 attention 对照为 12 GiB；1M 外推分别约 24.04 GiB / 96 GiB，配置最大位置为 262,144
+- 来源：[Qwen3-Next 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)、[Jamba](https://arxiv.org/html/2403.19887)、[MiniMax-M1](https://arxiv.org/html/2506.13585)、[MiniMax-M2 说明](https://www.minimax.io/news/why-did-m2-end-up-as-a-full-attention-model)、[Kimi Linear](https://arxiv.org/html/2510.26692)
+
+---
+
 ## 06 · MoE：三个「参数量」分开算
 
 **结论**：**总参数定显存**（671B，FP8 也放不进 8 卡 640 GB）、**激活参数定 FLOPs**（37B，是 70B 的一半）、**每步实际读取的参数定 decode 带宽**——中等 batch 下几乎读全部专家，稀疏省了算量没省访存。
@@ -268,6 +278,17 @@ Table: 投机解码的正确性、收益与边界
 - 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8
 - cross-attention 注入（Llama 3.2 Vision）用 0.5B 参数换序列长度，图片 KV 800 → 200 MiB
 - 一分钟 720p 1 fps 视频 35,880 token；按像素预算，不按张数
+
+---
+
+## 09 · 输出侧：图像与语音生成的成本
+
+- 离散自回归图像：Chameleon / Emu3 把图像变成 token；[Emu3 论文](https://arxiv.org/html/2409.18869v1)的 512×512 图像为 **4096 个 token 步**
+- Diffusion 路线：[Transfusion](https://arxiv.org/html/2408.11039)报告 **16 个图像 patch**，但 patch 数不是去噪迭代数；不能从它推导固定采样步数
+- 解耦路径：[Janus](https://arxiv.org/html/2410.13848)为视觉理解与生成使用不同的视觉编码路径；语言建模骨干共享
+- 语音输出：[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)的 Thinker-Talker 生成语音 token，再经流式音频解码；论文没有给出通用 tokens/s 或 forward-passes/s
+- 成本分别按 AR token 步、diffusion 迭代或实测实时率核算；没有一手来源支持时不填固定数字
+- 结构来源：[Chameleon](https://arxiv.org/html/2405.09818)、[Emu3](https://arxiv.org/html/2409.18869v1)、[Transfusion](https://arxiv.org/html/2408.11039)、[Janus](https://arxiv.org/html/2410.13848)、[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)
 
 ---
 
