@@ -73,7 +73,6 @@ module SeriesPages
           { 'title' => p.data['title'], 'subtitle' => SeriesPages.subtitle(p.data['title']), 'url' => p.url,
             'date' => p.date, 'recap' => !!(p.url =~ RECAP) }
         end
-
       end
 
       groups = roadmaps.map do |rkey, r|
