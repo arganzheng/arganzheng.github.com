@@ -978,7 +978,7 @@ the decks (cards link to the landing page; 全屏播放 / PDF go to `play.html`)
 
 ## 随笔 / Moments (`/moments/`)
 
-Short notes in a flomo-style card stream (left sidebar: stats · 17-week
+Short notes in a flomo-style card stream (left sidebar: stats · recent / yearly
 heatmap · 随机漫步 · 每日回顾 · tag tree · months) — the third content type next
 to posts and decks. **One file per month**, `moments/YYYY-MM.md` (layout `moments` from
 the `_config.yml` defaults; no other front matter needed), entries under dated
@@ -1000,6 +1000,15 @@ month anchor. Entry pages show backlinks, shared-tag recommendations and
 another entry (not inside code); author-only 批注 opens the publisher with that
 reference prefilled. A Moments share menu can generate a PNG card with a QR
 code to the entry page.
+
+Month pages, `/moments/` and tag pages have a compact filter bar. Search terms
+match text, tags or place across all entries; 有图 / 有引用 / 有批注 and the
+inclusive month range combine with AND. Results link to entry pages, highlight
+matched terms and show up to 50 cards at a time. The query string preserves a
+shareable filtered view; clearing filters restores the current stream. The
+sidebar heatmap switches between 17 weeks and 53 weeks (saved as
+`localStorage["moments-heat"]`); the yearly grid scrolls to the newest week.
+Tag chips and the sidebar tree sort siblings by most recent use, then count.
 
 The build caches a 640px WebP thumbnail for each local Moments image under
 `.jekyll-cache/moment-thumbs/`. Multi-image galleries display thumbnails and
@@ -1074,19 +1083,21 @@ How it is built (`_plugins/moments.rb`):
   `moments.xml` (one `<item>` per entry, 30 newest, `<link>` = entry page,
   `<guid>` = month URL + `#id`, tags as extra `<category>`),
   `archive.html` (`[Moments]` rows) and the
-  sidebar (`tags` = tree `[{tag, url, count, children}]`; `heatmap` = the last
-  `HEAT_WEEKS` weeks as columns of `{date, count, level 0-4, url, future}`
-  ending on the week of `site.time`, Monday first; `stats` = entries / tags /
-  days). Generated pages: `/moments/` = `PageWithoutAFile` copy of the newest
+  sidebar (`tags` = hierarchy ordered by each sibling's most recent use, with
+  `{tag, url, count, last, depth}`; `heatmap` = 17- and 53-week grids ending on
+  the same week as `site.time`, Monday first; `stats` = entries / tags / days).
+  Generated pages: `/moments/` = `PageWithoutAFile` copy of the newest
   month (`is_index`, `canonical` → month URL, which `head.html` honours,
   `sitemap: false`); one `/moments/tag/<标签>.html` per tag (`is_tag`,
   `tag`, `moments` = its entries across months, `sitemap: false`, **no
   comments section** — the 评论 link goes to the month page's `#comments`);
   `/moments/<id>.html` = one entry page (month comments, no embedded comments);
-  `/moments/index.json` = `[{id, url, date, time, place, tags, text, img}]`
-  with entry-page URLs for `js/moments.js` (随机漫步 picks one at random; 每日回顾 shows entries from
-  the same day in earlier years, else the same day-of-month in earlier
-  months, else hides itself).
+  `/moments/index.json` = `[{id, url, date, month, time, place, tags, text, img,
+  quote, refs}]` with entry-page URLs for `js/moments.js` (随机漫步 picks one
+  at random; 每日回顾 shows entries from the same day in earlier years, else
+  the same day-of-month in earlier months, else hides itself) and
+  `js/moments-filter.js` (filters all entries, writes filter state to the URL,
+  and toggles the heatmap range).
 - `_layouts/moments.html` iterates `page.moments` — never `{{ content }}`.
   `.moments-grid` = `aside.moments-side` (`.ms-*` blocks) + the card stream
   `.post-container.moments` + `.post-container.moments-comments` (the comments
@@ -1112,7 +1123,8 @@ How it is built (`_plugins/moments.rb`):
   the URL's last segment). The `#标签` text is part of the body, so it is
   searchable as is.
 - Styles `less/moments.less`: `.moments-grid` (sidebar `@mo-side` 244px = 17
-  heatmap columns, stream `@mo-main`; one column under 768px, sidebar blocks
+  recent heatmap columns, 53-week grid scrolls inside its panel, stream `@mo-main`;
+  one column under 768px, sidebar blocks
   reordered with `order`), cards under `.post-container.moments` to outrank
   `css/github-markdown.css` (loaded after our bundle); do not use `<footer>`
   inside an entry — `blog.less` styles the tag for the site footer. New

@@ -37,13 +37,12 @@
 #                              `is_tag`, no comments / reactions — those stay on
 #                              the month pages the entries link back to);
 #   site.data.moments.stats    { 'count', 'tags', 'days' } for the sidebar;
-#   site.data.moments.tags     [{ 'tag', 'name', 'url', 'count', 'depth' }] sorted
-#                              as a tree (parents first, children indented);
-#   site.data.moments.heatmap  { 'weeks' => [[7 × { 'date', 'count', 'url', 'level' }]],
-#                              'months' => [{ 'col', 'label' }] } — the last
-#                              HEAT_WEEKS weeks up to today (site.time), Monday first;
-#   /moments/index.json        [{ id, url, date, time, place, tags, text, img }] for
-#                              js/moments.js (随机漫步 / 每日回顾).
+#   site.data.moments.tags     [{ 'tag', 'name', 'url', 'count', 'depth', 'last' }]
+#                              sorted by recent use and count within each parent;
+#   site.data.moments.heatmap  17- and 53-week grids ending at site.time, Monday first;
+#   /moments/index.json        [{ id, url, date, month, time, place, tags, text,
+#                                img, quote, refs }] for js/moments.js (sidebar /
+#                                stream filters).
 require 'json'
 require 'date'
 require 'cgi'
@@ -59,6 +58,7 @@ module Moments
   TAG = %r{(?<![\p{L}\p{N}_/&\\])#([\p{L}_][\p{L}\p{N}_\-·]*(?:/[\p{L}\p{N}_\-·]+)*)}
   REF = /\[\[(\d{8}(?:-\d{4})?(?:-\d+)?)\]\]/
   HEAT_WEEKS = 17
+  HEAT_YEAR_WEEKS = 53
   MUSIC = [
     # 网易云: https://music.163.com/#/song?id=347230  (also /song?id=)
     [%r{\Ahttps?://music\.163\.com/(?:#/)?song\?(?:.*&)?id=(\d+)}i,
@@ -301,35 +301,52 @@ module Moments
 
   # ---- the sidebar's numbers
 
-  # All tags with counts, parents before children (a `读书/技术` entry counts for
-  # 读书 too, once), each with its depth for the indent.
+  # All tags with counts and most recent use, parents before children.
   def self.tag_tree(entries)
     counts = Hash.new(0)
+    last_used = {}
     entries.each do |e|
       seen = []
       e['tags'].each do |t|
         parts = t.split('/')
         parts.each_index { |i| seen << parts[0..i].join('/') }
       end
-      seen.uniq.each { |t| counts[t] += 1 }
+      seen.uniq.each do |tag|
+        counts[tag] += 1
+        last_used[tag] = e['date'] if !last_used[tag] || e['date'] > last_used[tag]
+      end
     end
-    counts.keys.sort_by { |t| t.split('/').map(&:downcase) }.map do |t|
-      parts = t.split('/')
-      { 'tag' => t, 'name' => parts.last, 'url' => tag_url(t), 'count' => counts[t], 'depth' => parts.size - 1 }
+    nodes = counts.map do |tag, count|
+      parts = tag.split('/')
+      { 'tag' => tag, 'name' => parts.last, 'url' => tag_url(tag), 'count' => count,
+        'depth' => parts.size - 1, 'last' => last_used[tag] }
     end
+    children = nodes.group_by { |node| node['tag'].rpartition('/').first }
+    order = lambda do |parent|
+      (children[parent] || []).sort_by do |node|
+        [-node['last'].delete('-').to_i, -node['count'], node['tag'].downcase]
+      end.flat_map { |node| [node] + order.call(node['tag']) }
+    end
+    order.call('')
   end
 
-  # GitHub-style calendar: HEAT_WEEKS columns of 7 days (Mon → Sun) ending on
-  # the week of `today`; level 0–4 by that day's count; url = the day's newest entry.
+  # Recent and full-year calendars share the same ending week and day records.
   def self.heatmap(entries, today)
     per_day = {}
     entries.each do |e|
       d = per_day[e['date']] ||= { 'count' => 0, 'url' => e['url'] }
       d['count'] += 1
     end
+    recent = heatmap_weeks(per_day, today, HEAT_WEEKS)
+    year = heatmap_weeks(per_day, today, HEAT_YEAR_WEEKS)
+    { 'weeks' => recent['weeks'], 'months' => recent['months'],
+      'year' => year, 'days' => per_day.size }
+  end
+
+  def self.heatmap_weeks(per_day, today, week_count)
     last = today + (7 - today.cwday) % 7            # this week's Sunday
-    first = last - (HEAT_WEEKS * 7 - 1)
-    weeks = (0...HEAT_WEEKS).map do |w|
+    first = last - (week_count * 7 - 1)
+    weeks = (0...week_count).map do |w|
       (0..6).map do |i|
         day = first + w * 7 + i
         key = day.strftime('%Y-%m-%d')
@@ -344,7 +361,7 @@ module Moments
       months << { 'col' => col, 'label' => "#{day.month} 月" } if day.day <= 7 || col == 0
     end
     months.shift if months.size > 1 && months[1]['col'] < 2   # a label right at the edge would overlap the next
-    { 'weeks' => weeks, 'months' => months, 'days' => per_day.size }
+    { 'weeks' => weeks, 'months' => months }
   end
 
   FILE = /\A(\d{4})-(\d{2})\.md\z/
@@ -480,7 +497,10 @@ module Moments
       json = Jekyll::PageWithoutAFile.new(site, site.source, 'moments', 'index.json')
       json.content = JSON.generate(all.map do |e|
         { 'id' => e['id'], 'url' => e['page'], 'date' => e['date'], 'time' => (e['has_time'] ? e['time'].strftime('%H:%M') : nil),
-          'place' => e['place'], 'tags' => e['tags'], 'text' => CGI.unescapeHTML(e['text'])[0, 140], 'img' => e['img'] }
+          'month' => e['month'], 'place' => e['place'], 'tags' => e['tags'],
+          'text' => CGI.unescapeHTML(e['text'])[0, 140], 'img' => e['img'],
+          'quote' => e['html'].include?('class="moment-quote"'),
+          'refs' => e['refs_out'].any? || e['refs_in'].any? }
       end)
       json.data = { 'layout' => nil, 'permalink' => '/moments/index.json', 'sitemap' => false }
       site.pages << json

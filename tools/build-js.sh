@@ -26,7 +26,8 @@ SRC=(
   js/annotations.js       # comments, 划线评论, reactions, views
   js/share.js             # action bar, share menu, .post-stats strip
   js/slides-player.js     # deck landing page: player bar driving the reveal.js iframe
-  js/moments.js           # /moments/ sidebar: 随机漫步 + 每日回顾 from /moments/index.json
+  js/moments.js           # /moments/ sidebar cards and shared index.json loader
+  js/moments-filter.js    # Moments stream filters and heatmap range toggle
 )
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT

@@ -18,7 +18,8 @@ Views, the Discussion and passage reactions are keyed on the month URL
 (`page.comments_path`), also on the `/moments/` copy of the newest month; tag
 pages carry none of them (every card links back to its month).
 The sidebar (site.data.moments: stats, heatmap, tags, months) is static; the
-随机漫步 / 每日回顾 cards are filled by js/moments.js from /moments/index.json.
+heatmap toggle, 随机漫步 / 每日回顾 cards and stream filters read
+/moments/index.json in js/moments.js.
 The comments sit in their own grid cell under the stream (`.moments-comments`),
 so on phones the rest of the sidebar can slot in between the cards and them.
 {%- endcomment -%}
@@ -41,13 +42,21 @@ so on phones the rest of the sidebar can slot in between the cards and them.
             <span><b>{{ data.stats.days }}</b><small>天</small></span>
         </section>
 
-        <section class="ms-heat" aria-label="最近 {{ heat.weeks.size }} 周的记录">
-            <div class="ms-heat-months">{% for m in heat.months %}<span style="grid-column: {{ m.col | plus: 1 }}">{{ m.label }}</span>{% endfor %}</div>
-            <div class="ms-heat-grid">
-            {%- for w in heat.weeks %}{% for d in w %}
-                {%- if d.url %}<a class="ms-day l{{ d.level }}" href="{{ d.url | prepend: site.baseurl }}" title="{{ d.date }} · {{ d.count }} 条"></a>
-                {%- else %}<span class="ms-day l0{% if d.future %} is-future{% endif %}" title="{{ d.date }}"></span>{% endif %}
-            {%- endfor %}{% endfor %}
+        <section class="ms-heat" aria-label="随笔热力图">
+            <div class="ms-heat-head">
+                <h4>热力图</h4>
+                <div class="ms-heat-toggle" role="group" aria-label="热力图范围">
+                    <button type="button" data-heat-mode="recent" aria-pressed="true">近 4 月</button>
+                    <button type="button" data-heat-mode="year" aria-pressed="false">全年</button>
+                </div>
+            </div>
+            <div class="ms-heat-view ms-heat-recent" data-heat-view="recent">
+                {% include moments-heat-grid.html weeks=heat.weeks months=heat.months %}
+            </div>
+            <div class="ms-heat-view ms-heat-year" data-heat-view="year" hidden>
+                <div class="ms-heat-scroll" tabindex="0" aria-label="全年随笔日历">
+                    {% include moments-heat-grid.html weeks=heat.year.weeks months=heat.year.months %}
+                </div>
             </div>
         </section>
 
@@ -84,6 +93,32 @@ so on phones the rest of the sidebar can slot in between the cards and them.
     </aside>
 
     <div class="post-container moments">
+        {%- unless page.is_entry %}
+        <section class="moments-filter" data-src="{{ '/moments/index.json' | prepend: site.baseurl }}" data-base="{{ site.baseurl }}">
+            <div class="mf-controls">
+                <div class="mf-search">
+                    <input type="search" placeholder="筛选随笔…" aria-label="筛选随笔">
+                    <button type="button" class="mf-clear" aria-label="清除所有筛选" title="清除筛选" hidden>×</button>
+                </div>
+                <div class="mf-chips" role="group" aria-label="筛选条件">
+                    <button type="button" class="mf-chip" data-filter="img" aria-pressed="false">有图</button>
+                    <button type="button" class="mf-chip" data-filter="quote" aria-pressed="false">有引用</button>
+                    <button type="button" class="mf-chip" data-filter="refs" aria-pressed="false">有批注</button>
+                </div>
+                <button type="button" class="mf-date-toggle" aria-expanded="false">日期</button>
+                <div class="mf-date-range">
+                    <label>从 <input type="month" data-filter-date="from"></label>
+                    <label>到 <input type="month" data-filter-date="to"></label>
+                </div>
+            </div>
+            <div class="mf-results-wrap" hidden>
+                <p class="mf-count" aria-live="polite"></p>
+                <ol class="moments-list mf-results"></ol>
+                <p class="mf-none" hidden>没有符合条件的随笔。</p>
+                <button type="button" class="mf-more" hidden>再显示 50 条</button>
+            </div>
+        </section>
+        {%- endunless %}
         <nav class="moments-bar" aria-label="当前范围">
             {%- if page.is_entry %}
             {%- assign entry = page.moments.first %}

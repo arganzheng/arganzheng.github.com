@@ -8,14 +8,23 @@
  * 删除 (worker DELETE /moments { month, id }, with the giscus token). */
 (function () {
   var random = document.querySelector('.ms-random');
-  var list = document.querySelector('.moments-list');
+  var list = document.querySelector('.post-container.moments > .moments-list[data-path]') ||
+    document.querySelector('.moments-list');
   if (!random && !list) return;
   var stream = list && list.closest('.post-container.moments');
   var review = document.querySelector('.ms-review');
   var base = (random || list).getAttribute('data-base') || '';
-  var all = [], last = null;
+  var all = [], last = null, indexPromise = null;
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function loadIndex(src) {
+    if (!indexPromise) {
+      indexPromise = fetch(src).then(function (r) { return r.ok ? r.json() : []; }).then(function (d) { return d || []; });
+    }
+    return indexPromise;
+  }
+  window.MomentsIndex = { load: loadIndex };
+
   function card(e, label) {
     return '<a class="ms-card" href="' + esc(base + e.url) + '">' +
       (label ? '<span class="ms-card-label">' + esc(label) + '</span>' : '') +
@@ -52,8 +61,8 @@
 
   if (random) {
     random.querySelector('.ms-shuffle').addEventListener('click', shuffle);
-    fetch(random.getAttribute('data-src')).then(function (r) { return r.ok ? r.json() : []; }).then(function (d) {
-      all = d || [];
+    loadIndex(random.getAttribute('data-src')).then(function (d) {
+      all = d;
       if (!all.length) { random.hidden = true; return; }
       shuffle();
       daily();
