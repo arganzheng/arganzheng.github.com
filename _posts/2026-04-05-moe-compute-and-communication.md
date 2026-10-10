@@ -264,7 +264,7 @@ $$22.99 + 11.41 + 1.19 + 1.85 \approx 37.4\text{B}$$
 
 $$\text{FLOPs/token} \approx 2 \times 37\text{B} = 74\text{ GFLOPs}$$
 
-对照 Llama-3-70B 的 $$2 \times 70.55\text{B} \approx 141$$ GFLOPs，DeepSeek-V3 每 token 的算量只有它的一半。这是 MoE 的全部承诺：用 671B 的参数容量，付 37B 的算量。
+对照 Llama-3-70B 的 $$2 \times 70.55\text{B} \approx 141$$ GFLOPs，DeepSeek-V3 每 token 的算量只有它的一半。这是 MoE 的全部承诺：用 671B 参数的模型规模，付 37B 的算量。
 
 但显存按总参数算。FP8 权重（DeepSeek-V3 原生以 FP8 训练与发布）：
 

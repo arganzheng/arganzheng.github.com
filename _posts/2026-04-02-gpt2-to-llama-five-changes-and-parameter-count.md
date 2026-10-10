@@ -177,7 +177,7 @@ Table: GPT-2 small 与 Llama-3-8B 的逐项对照：骨架不变，五处改动�
 | 位置表示 | 1024 行位置表 → RoPE | V3 用解耦 RoPE 与 YaRN；VLM 可扩成 M-RoPE | 表达顺序与相对位置；外推需要处理训练长度之外的分布 | 1 | [07 位置编码与外推](/positional-encoding-and-long-context.html) |
 | KV 表示 | MHA → GQA，32 个 Q 头共享 8 组 KV | MLA 缓存 512 维潜向量与 64 维位置键 | 减少每 token 的 KV；投影参数与 attention kernel 随之变化 | 1 / 2 | [08 Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) |
 | 可见范围 | Llama-3 文本基线仍是全局 causal attention | 长度扩展不自动带来滑窗；局部 / 稀疏是另一组选择 | KV 线性、prefill attention 二次增长；改变可见 token 集才能改变这笔账 | 1 | [09 长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) |
-| FFN 的份数 | Llama 每 token 使用整个 dense FFN | V3：256 个路由专家选 8 个，另有 1 个共享专家 | 扩容量而不同比例增加每 token 算量；总权重与通信仍昂贵 | 2 | [10 MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) |
+| FFN 的份数 | Llama 每 token 使用整个 dense FFN | V3：256 个路由专家选 8 个，另有 1 个共享专家 | 扩大模型规模而不同比例增加每 token 算量；总权重与通信仍昂贵 | 2 | [10 MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) |
 | 训练目标 | 默认只预测下一个 token | V3 加 1 层 MTP，训练时继续预测后一个 token | 增加训练模块与监督信号；推理可丢弃或用作草稿 | 3 | [11 MTP](/multi-token-prediction-mtp.html) |
 | 解码流程 | 每步一次前向产出一个 token | 草稿 + 一次前向验证多个 token（MTP 模块可当草稿） | 不改结构与分布；只在小 batch 的 memory-bound 区间有收益 | 3 | [12 投机解码](/speculative-decoding-draft-verify-and-payoff.html) |
 | 输入模态 | 以上文本模型只有 token embedding | VLM 加 vision encoder、connector，或 cross-attention | 图像先算一次编码，再以 image token 或独立 KV 进入 decoder | 4 | [13 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
@@ -200,7 +200,7 @@ Llama-3（2024）与 DeepSeek-V3（2024 年末）是本系列贯穿的两个数�
 
 Table: 2025 年几个代表性开放权重模型在路线图上的位置（配置摘自各自的 `config.json` 与技术报告）
 
-读法：每一列都是四条线上的某一站。GQA 的 KV 头数从 Llama-3 的 8 收到 Qwen3 的 4、MLA 把头数从 128 减到 64——线 1 / 2 的 KV 账，第四篇；滑窗与全局交错、NoPE 层、分块 attention——线 1，第三、五篇；专家数从 256 到 384、top-k 从 8 到 1、有无共享专家——线 2，第六篇；MXFP4 与 FP8 分块——线 2，第十篇与量化专题；Llama 4 的 early fusion——线 4，第九篇。QK-norm 是本篇五处改动之外近两年几乎成为默认的第六处小改动（对 Q、K 各做一次 RMSNorm 再算点积，抑制 attention logit 增长，第十篇讨论它的数值动机）。后面各篇的数字仍以 Llama-3 与 DeepSeek-V3 为准，读者可以把这张表里的任何一行代进同一组公式——这就是贯穿脚本 `llm_cost.py` 存在的理由。
+读法：每一列都是五条主线与一条辅线上的某一站。GQA 的 KV 头数从 Llama-3 的 8 收到 Qwen3 的 4、MLA 把头数从 128 减到 64——线 1 / 2 的 KV 账，第四篇；滑窗与全局交错、NoPE 层、分块 attention——线 1，第三、五篇；专家数从 256 到 384、top-k 从 8 到 1、有无共享专家——线 2，第六篇；MXFP4 与 FP8 分块——线 2，第十篇与量化专题；Llama 4 的 early fusion——线 5，第九篇。QK-norm 是本篇五处改动之外近两年几乎成为默认的第六处小改动（对 Q、K 各做一次 RMSNorm 再算点积，抑制 attention logit 增长，第十篇讨论它的数值动机）。后面各篇的数字仍以 Llama-3 与 DeepSeek-V3 为准，读者可以把这张表里的任何一行代进同一组公式——这就是贯穿脚本 `llm_cost.py` 存在的理由。
 
 ## 四、参数量：从 config.json 到 8.03B
 
@@ -906,7 +906,7 @@ Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$
 
 - **骨架从未变过**：embedding → $$L$$ 个相同的 block → norm → lm_head。每一处演进都是往某个槽位里换一个新填法：归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式；
 - **两种节奏**：部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；PaLM 与 DeepSeek-V2 / V3 则是一次打包多项。2023 年以后结构改动重新活跃的驱动力是推理成本——这是第 02 篇排在所有专项之前的原因；
-- **四条线**：更长的上下文（03 位置编码 → 04 KV 压缩 → 05 可见范围）；更大的容量、更低的每 token 代价（本篇的部件精简 → 04 GQA / MLA → 06 MoE → 10 低精度）；更密的训练信号、更快的生成（07 MTP → 08 投机解码）；更多的输入模态（09）。一处改动可以服务两条线，GQA / MLA 就是交汇点；
+- **五条演进线与一条辅线**：更长的上下文（03 位置编码 → 04 KV 压缩 → 05 可见范围）；放大参数规模、压住每 token 成本（本篇的部件精简 → 04 GQA / MLA → 06 MoE → 10 低精度）；换掉 attention（05 线性 attention / SSM / 混合架构）；更密的训练信号、更快的生成（07 MTP → 08 投机解码）；输入理解与输出生成（09）；训练稳定性是辅线。GQA / MLA 是长上下文与成本线的交汇点；
 - **五处改动**：RMSNorm 去掉减均值和 $$\beta$$；RoPE 用旋转把相对位置放进 attention 分数，位置表从参数里消失；SwiGLU 用三个矩阵换两个，中间宽度按三矩阵调整（Llama-3-8B 取 $$3.5d$$）；GQA 让 K/V 投影变窄，主要为省 KV cache；去 bias 换来训练稳定和更简单的 GEMM；
 - **参数量公式** $$N = L[d(2d + 2d_{kv}) + 3 d \cdot d_{ff} + 2d] + 2Vd + d$$，代入得 Llama-3-8B 精确到 8,030,261,248，70B 到 70,553,706,496，405B 到 405.85B；层内约 80% 参数在 FFN，embedding 在 8B 占 13%、70B 占 3%；MoE 出现之后"参数量"分成总参数（决定显存）与激活参数（决定算量）两个数。
 
@@ -962,7 +962,7 @@ Table: 本篇算出的数字：三个模型的维度、参数量与形状
 
    </details>
 
-4. GQA 把 $$n_{kv}$$ 从 32 降到 8，Llama-3-8B 每层省了多少参数？占全模型多少？它在四条线里为什么被放在"更长的上下文"而不只是"更低的代价"？
+4. GQA 把 $$n_{kv}$$ 从 32 降到 8，Llama-3-8B 每层省了多少参数？占全模型多少？它在五条主线里为什么同时关联"更长的上下文"与"更低的代价"？
 
    <details markdown="1"><summary>答案</summary>
 

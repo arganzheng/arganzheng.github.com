@@ -50,7 +50,7 @@ flowchart TB
 
 
 
-| [第一篇：从 GPT-2 到 Llama——五处改动与参数量](/gpt2-to-llama-five-changes-and-parameter-count.html) | 从 GPT-2 到今天的模型中间发生了什么？给一个 `config.json`，能认出每处改动、并算出参数量？ | GPT-2 是十个可替换的槽位，骨架从未变过；改动沿四条线走：长上下文、容量与每 token 代价、训练信号与生成、输入模态；dense Transformer 没有隐藏参数，乘层数加词表精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
+| [第一篇：从 GPT-2 到 Llama——五处改动与参数量](/gpt2-to-llama-five-changes-and-parameter-count.html) | 从 GPT-2 到今天的模型中间发生了什么？给一个 `config.json`，能认出每处改动、并算出参数量？ | GPT-2 是十个可替换的槽位，骨架从未变过；改动沿五条演进线与一条辅线展开：长上下文、参数规模与每 token 成本、attention 替代、训练信号与生成、输入理解与输出生成、训练稳定性；dense Transformer 没有隐藏参数，乘层数加词表精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
 | [第二篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
 | [第三篇：位置编码与外推](/positional-encoding-and-long-context.html) | 位置如何表达、为何外推有风险？ | 位置编码解决顺序；改频谱不等于学会长文 | $$\lambda_i = 2\pi\,\text{base}^{2i/d_{head}}$$；PI / NTK-aware / YaRN |
 | [第四篇：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) | V3 128 头 61 层，KV cache 为什么比 32 头 32 层的 8B 小？代价？ | KV 只与 $$n_{kv}$$ 有关；MLA 缓存 512 + 64 维 latent，decode 吸收后等价于 128 头共享一个 KV 头的 MQA，用 3.4 倍 attention FLOPs 换 57 倍字节 | $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$<br/>8B 128 KiB（MHA 512 KiB）、70B 320 KiB、V3 68.6 KiB（MHA 3.81 MiB）<br/>decode attention 强度 4 / 8 / 242 |
@@ -81,11 +81,11 @@ Table: 本文的章节安排
 
 **核心问题**：从《Transformer 原理与实现》写出的 GPT-2 到今天的模型，中间发生了什么？给一个 2025 年模型的 `config.json`，能不能指出它在哪几个槽位换了什么、每处回答什么问题、去哪一篇看；给一个 Llama 式 dense 配置，能不能五分钟内算出参数量、误差 1% 以内？
 
-**结论**：GPT-2 是十个可替换的槽位（归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式），"embedding → L 个 block → norm → lm_head"的骨架从未变过。部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；2023 年之后结构改动重新活跃，驱动力是推理成本。改动归成四条线：更长的上下文（03 → 04 → 05）、更大的容量与更低的每 token 代价（01 → 04 → 06 → 10）、更密的训练信号与更快的生成（07 → 08）、更多的输入模态（09）；GQA / MLA 是前两条线的交汇点。RMSNorm、SwiGLU、去 bias 在这里讲清，其余只定位、后续专篇展开。参数账以 Llama 为完整案例：能，而且精确。每层是 attention 四个矩阵（$$W_K, W_V$$ 的列数是 $$n_{kv} d_{head}$$，GQA 只是 $$n_{kv} < n_h$$）加 SwiGLU 三个矩阵 $$3 d \cdot d_{ff}$$，Llama 的 14336 来自 $$\frac{2}{3} \cdot 4d \times 1.3$$ 向上对齐到 1024 的倍数；乘层数、加词表，Llama-3-8B 得 8,030,261,248，70B 与 405B 也与公布值一致——RoPE、softmax 都没有参数。DeepSeek-V3 骨架相同，只是 attention 换成 MLA 的六个矩阵、FFN 换成 257 个专家：总参数 671B、每 token 激活 37B，"参数量"第一次不再单独对应成本。
+**结论**：GPT-2 是十个可替换的槽位（归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式），"embedding → L 个 block → norm → lm_head"的骨架从未变过。部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；2023 年之后结构改动重新活跃，驱动力是推理成本。改动归成五条演进线与一条辅线：更长的上下文（03 → 04 → 05）、放大参数规模并压住每 token 成本（01 → 04 → 06 → 10）、attention 替代路线（05）、更密的训练信号与更快的生成（07 → 08）、输入理解与输出生成（09），以及训练稳定性辅线；GQA / MLA 是前两条主线的交汇点。RMSNorm、SwiGLU、去 bias 在这里讲清，其余只定位、后续专篇展开。参数账以 Llama 为完整案例：能，而且精确。每层是 attention 四个矩阵（$$W_K, W_V$$ 的列数是 $$n_{kv} d_{head}$$，GQA 只是 $$n_{kv} < n_h$$）加 SwiGLU 三个矩阵 $$3 d \cdot d_{ff}$$，Llama 的 14336 来自 $$\frac{2}{3} \cdot 4d \times 1.3$$ 向上对齐到 1024 的倍数；乘层数、加词表，Llama-3-8B 得 8,030,261,248，70B 与 405B 也与公布值一致——RoPE、softmax 都没有参数。DeepSeek-V3 骨架相同，只是 attention 换成 MLA 的六个矩阵、FFN 换成 257 个专家：总参数 671B、每 token 激活 37B，"参数量"第一次不再单独对应成本。
 
 **必记**：
 
-- 十个槽位、四条线；读 config 认站：`num_key_value_heads`（04）、`rope_theta` / `rope_scaling`（03）、`sliding_window` / `layer_types`（05）、`num_experts` / `num_experts_per_tok`（06）、`num_nextn_predict_layers`（07）、`vision_config`（09）、`torch_dtype` / `quantization_config`（10）。
+- 十个槽位、五条主线与一条辅线；读 config 认站：`num_key_value_heads`（04）、`rope_theta` / `rope_scaling`（03）、`sliding_window` / `layer_types`（05）、`num_experts` / `num_experts_per_tok`（06）、`num_nextn_predict_layers`（07）、`vision_config`（09）、`torch_dtype` / `quantization_config`（10）。
 - $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$，$$d_{kv} = n_{kv} d_{head}$$；tied 时词表只算一份。
 - 8B：attention 每层 41.94M、FFN 176.16M，32 层 6.98B，embedding 与 lm_head 各 525.3M。
 - 层内 FFN 约 80%；词表 8B 占 13%、70B 3%、405B 约 1%。
