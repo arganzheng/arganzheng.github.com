@@ -244,7 +244,7 @@ module Moments
                     thumb = thumbs.url(poster)
                     %(<img src="#{thumb || poster}" alt="视频" loading="lazy" decoding="async"><span class="moment-play" aria-hidden="true"></span>)
                   else
-                    %(<video src="#{src}#t=0.1" muted playsinline preload="metadata"></video>)
+                    %(<video src="#{src}#t=0.1" muted playsinline preload="metadata"></video><span class="moment-play" aria-hidden="true"></span>)
                   end
           data = poster ? %( data-poster="#{poster}") : ''
           next %(<a class="moment-pic moment-video" href="#{src}"#{data}>#{media}</a>)
