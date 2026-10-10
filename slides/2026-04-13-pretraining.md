@@ -295,7 +295,7 @@ flowchart TB
 
 ## 下一步
 
-- **往前**：《Transformer 与 LLM》——这里训的模型的结构、参数量与算量
+- **往前**：《Transformer 原理与实现》与《现代 LLM 结构》——这里训的模型的结构、参数量与算量
 - **往后**：《后训练》——预训练结束的模型是续写器不是助手；SFT / RLHF / DPO 把它变成助手
 - **Infra 侧**：《分布式训练》——16M token 的 batch 怎么切到 16K 张卡；《成本表》——6ND 变成 GPU 小时与美元
 - 原文总纲：`/pretraining-from-tokenizer-to-training-recipe.html`；通关自测 22 题在系列总结；代码在 labs `transformer-and-llm/pretrain_e2e/`

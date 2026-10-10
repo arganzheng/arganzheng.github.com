@@ -6691,6 +6691,36 @@ a.ms-day:hover {
 .post-container.moments .moment-gallery.n-4 .moment-pic:nth-child(3) {
   grid-column-start: 1;
 }
+.post-container.moments .moment-gallery .moment-video {
+  cursor: pointer;
+}
+.post-container.moments .moment-gallery .moment-video video {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  margin: 0;
+}
+.post-container.moments .moment-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.post-container.moments .moment-play::after {
+  content: "";
+  position: absolute;
+  left: 17px;
+  top: 12px;
+  border-style: solid;
+  border-width: 9px 0 9px 14px;
+  border-color: transparent transparent transparent #fff;
+}
 .post-container.moments .moment-quote {
   position: relative;
   margin: 0.6em 0 0.8em;
@@ -7067,6 +7097,36 @@ a.ms-day:hover {
     max-width: none;
   }
 }
+.moment-player {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.moment-player video {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+.moment-player .moment-player-close {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 10px;
+  border: 0;
+  background: none;
+  color: #fff;
+  font-size: 30px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+html.moment-playing {
+  overflow: hidden;
+}
 body.bare {
   background: #fff;
 }
@@ -7207,6 +7267,43 @@ body.bare {
 .mp-pics .mp-pic.is-holding {
   opacity: 0.2;
 }
+.mp-pics .mp-pic video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.mp-pics .mp-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.mp-pics .mp-play::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 9px;
+  border-style: solid;
+  border-width: 7px 0 7px 11px;
+  border-color: transparent transparent transparent #fff;
+}
+.mp-pics .mp-dur {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  color: #fff;
+  font-size: 12px;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
 .mp-pics .mp-pic:focus-visible {
   outline: 2px solid #00788f;
   outline-offset: 2px;
@@ -7309,10 +7406,14 @@ html.mp-dragging * {
 .mp-viewer[hidden] {
   display: none;
 }
-.mp-viewer img {
+.mp-viewer img,
+.mp-viewer video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+.mp-viewer [hidden] {
+  display: none;
 }
 .mp-viewer .mp-viewer-n {
   position: absolute;

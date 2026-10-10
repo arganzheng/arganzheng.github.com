@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 上一篇的编码器把一张图变成了几百个 $$d_v$$ 维向量（CLIP-L 是 1024 维）。LLM 的输入是 $$d$$ 维向量（7B 模型是 4096 维）——两边维度不同、"语言"也不同，中间要有一个转接头。这一步有三个设计决定：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个决定合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
 
-[04 系列第十三篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过这三个决定的**成本**：三类 connector 的 token 数表、两种注入的 FLOPs 与 KV 对照、M-RoPE 的三维位置、视频与音频的 token 数。这一篇讲成本背后的**动机与效果**：为什么 2024 年后主流从 Q-Former 回到 MLP、cross-attention 注入为什么被 Llama 3.2 选中又被多数人放弃、原生分辨率解决了 tile 的什么问题。每个选择都是一次"信息 vs token"的交换，这一篇把交换的两边都说清楚。
+[现代 LLM 结构第九篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过这三个决定的**成本**：三类 connector 的 token 数表、两种注入的 FLOPs 与 KV 对照、M-RoPE 的三维位置、视频与音频的 token 数。这一篇讲成本背后的**动机与效果**：为什么 2024 年后主流从 Q-Former 回到 MLP、cross-attention 注入为什么被 Llama 3.2 选中又被多数人放弃、原生分辨率解决了 tile 的什么问题。每个选择都是一次"信息 vs token"的交换，这一篇把交换的两边都说清楚。
 
 本篇要回答的核心问题是：
 

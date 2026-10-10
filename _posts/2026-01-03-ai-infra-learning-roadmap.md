@@ -10,9 +10,9 @@ updated: 2026-09-17
 
 ## 内容简介
 
-这是一张给后端工程师——尤其是 Java、Go 等托管语言背景的工程师——转向 AI-Infra 方向的学习地图。它把这个方向需要的知识组织成十二个系列，说明每个系列解决什么问题、为什么放在那个位置、彼此之间如何依赖，以及按不同目标应该走哪条路径。
+这是一张给后端工程师——尤其是 Java、Go 等托管语言背景的工程师——转向 AI-Infra 方向的学习地图。它把这个方向需要的知识组织成十三个系列，说明每个系列解决什么问题、为什么放在那个位置、彼此之间如何依赖，以及按不同目标应该走哪条路径。
 
-它是三张 AI 学习地图中的第二张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：第一张[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，这一张面向**跑模型的人**（AI-Infra 工程师），第三张[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。本地图的 01 Python、03 PyTorch、04 Transformer 与 LLM 三个系列与算法地图共享。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
+它是三张 AI 学习地图中的第二张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：第一张[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，这一张面向**跑模型的人**（AI-Infra 工程师），第三张[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。本地图的 01 Python、03 PyTorch、04 Transformer 原理与实现、05 现代 LLM 结构四个系列与算法地图共享。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
 
 地图回答三个问题：
 
@@ -138,23 +138,24 @@ Table: 架构视图上没有独立位置的四样东西
 
 ### 第二张图：学习路径
 
-学习路径分五层，加一个横切、一个选修。层的顺序就是推荐的学习顺序，也是各系列的发布顺序（10 是 2026 年 9 月补进 L4 的，编号按发布顺序排在 09 之后）。
+学习路径分五层，加一个横切、一个选修。层的顺序就是推荐的学习顺序，也是各系列的发布顺序。
 
 | 层 | 主题 | # | 系列 |
 |---|---|---|---|
 | L1 | 语言与工程 | 01 | Python 在 AI-Infra：从语言机制到生产交付 |
 | | | 02 | C++ 在 AI-Infra：从对象模型到算子扩展 |
 | L2 | 计算运行时 | 03 | PyTorch 深度实践：从 Tensor 到深度学习运行时 |
-| | | 04 | Transformer 与 LLM：结构、实现与演进 |
-| | | 05 | GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention |
-| L3 | 通信与互联 | 06 | 通信与互联：从 NCCL 到 RDMA |
-| L4 | 引擎 | 07 | 大规模训练工程：从并行策略到容错恢复 |
-| | | 08 | 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术 |
-| | | 09 | RL 后训练基础设施：rollout 与训练如何共享一组 GPU |
-| | | 10 | 扩散模型推理基础设施：从一次去噪到一个生成服务 |
-| L5 | 平台 | 11 | AI 平台工程：资源层与交付层 |
-| 横切 | 方法（贡献者路径） | 12 | AI-Infra 开源贡献指南 |
-| 选修 | 编译器 | 13 | ML 编译器内部：从 SSA、MLIR 到 Triton 编译器 |
+| | | 04 | Transformer 原理与实现：从论文到手搓 GPT-2 |
+| | | 05 | 现代 LLM 结构：从 GPT-2 到今天的演进 |
+| | | 06 | GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention |
+| L3 | 通信与互联 | 07 | 通信与互联：从 NCCL 到 RDMA |
+| L4 | 引擎 | 08 | 大规模训练工程：从并行策略到容错恢复 |
+| | | 09 | 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术 |
+| | | 10 | RL 后训练基础设施：rollout 与训练如何共享一组 GPU |
+| | | 11 | 扩散模型推理基础设施：从一次去噪到一个生成服务 |
+| L5 | 平台 | 12 | AI 平台工程：资源层与交付层 |
+| 横切 | 方法（贡献者路径） | 13 | AI-Infra 开源贡献指南 |
+| 选修 | 编译器 | 14 | ML 编译器内部：从 SSA、MLIR 到 Triton 编译器 |
 
 Table: Infra 地图的学习路径：五层、一个横切、一个选修
 
@@ -164,16 +165,16 @@ Table: Infra 地图的学习路径：五层、一个横切、一个选修
 
 | 架构视图中的位置 | 组件 | 覆盖它的系列 |
 |---|---|---|
-| 主干：训练框架 ｜ 推理引擎 | PyTorch · Megatron · DeepSpeed ｜ vLLM ｜ 两者的组合：verl · slime ｜ 生成模型推理：SGLang Diffusion · vLLM-Omni · xDiT | 03 · 07 ｜ 08 ｜ 09 ｜ 10 |
-| 主干：AI 任务调度与资源管理 | K8s · Volcano · Kueue · Slurm · Ray | 11（资源层） |
-| 主干：容器与运行时 | containerd · device plugin | 11（资源层） |
-| 主干：GPU 计算软件栈 | Driver → CUDA → cuDNN / TE ｜ NCCL | 05 ｜ 06 |
-| 主干：硬件基础设施 | 计算 GPU ｜ 网络 IB / RoCE ｜ 存储 | 05 ｜ 06 ｜ 11 |
-| 左翼：数据平台 | 训练数据管线 ｜ 数据与 checkpoint 存储 | 07 ｜ 11 |
-| 右翼：MLOps / LLMOps | Serving 平台 · 模型网关 · 可观测 | 11（交付层） |
-| 图上没有的 | 语言 ｜ 模型知识 ｜ 贡献方法 | 01 · 02 ｜ 04 ｜ 12 |
+| 主干：训练框架 ｜ 推理引擎 | PyTorch · Megatron · DeepSpeed ｜ vLLM ｜ 两者的组合：verl · slime ｜ 生成模型推理：SGLang Diffusion · vLLM-Omni · xDiT | 03 · 08 ｜ 09 ｜ 10 ｜ 11 |
+| 主干：AI 任务调度与资源管理 | K8s · Volcano · Kueue · Slurm · Ray | 12（资源层） |
+| 主干：容器与运行时 | containerd · device plugin | 12（资源层） |
+| 主干：GPU 计算软件栈 | Driver → CUDA → cuDNN / TE ｜ NCCL | 06 ｜ 07 |
+| 主干：硬件基础设施 | 计算 GPU ｜ 网络 IB / RoCE ｜ 存储 | 06 ｜ 07 ｜ 12 |
+| 左翼：数据平台 | 训练数据管线 ｜ 数据与 checkpoint 存储 | 08 ｜ 12 |
+| 右翼：MLOps / LLMOps | Serving 平台 · 模型网关 · 可观测 | 12（交付层） |
+| 图上没有的 | 语言 ｜ 模型知识 ｜ 贡献方法 | 01 · 02 ｜ 04 · 05 ｜ 13 |
 
-Table: 十二个系列在架构视图上的落点
+Table: 十三个系列在架构视图上的落点
 
 
 ## 逐层说明
@@ -210,7 +211,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 ### L2 计算运行时
 
-这一层回答"一次模型计算是怎么执行的"。它有三个视角：**框架**怎么组织计算（03），**模型**在硬件上怎么花钱（04），**kernel** 怎么写到硬件极限（05）。三者顺序上先框架、再模型、再 kernel：不理解框架就不知道 kernel 在哪里被调用；不理解模型的算量与访存量，就不知道该优化哪个 kernel。
+这一层回答"一次模型计算是怎么执行的"。它有三个视角：**框架**怎么组织计算（03），**模型**在硬件上怎么花钱（04–05），**kernel** 怎么写到硬件极限（06）。三者顺序上先框架、再模型、再 kernel：不理解框架就不知道 kernel 在哪里被调用；不理解模型的算量与访存量，就不知道该优化哪个 kernel。
 
 #### 03 PyTorch 深度实践：从 Tensor 到深度学习运行时
 
@@ -218,15 +219,15 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 十篇：整体架构 → Tensor 与内存布局 → Autograd → Module 与训练系统 → Dispatcher 与算子系统 → C++ 扩展与自定义算子 → 编译执行与图优化 → 性能优化与调试 → 分布式 PyTorch → 工程体系。它是整张地图的枢纽：向下接 C++ 和 kernel，向上接训练框架和推理引擎，向旁接通信。本系列同样与算法地图共享：算法地图 L1 讲 PyTorch 的"用"（五个对象、二十行训练循环、显存的账），本系列讲"改"（Dispatcher、Autograd 引擎、编译、分布式），是 L1 的第二个深入篇。
 
-#### 04 Transformer 与 LLM：结构、实现与演进
+#### 04 Transformer 原理与实现：从论文到手搓 GPT-2
 
 > **Infra 工程师不训练模型，但必须知道自己在优化什么：这个模型内部到底是什么、为什么是这个样子、每一步算多少、读多少、存多少？**
 
-十四篇分两段。第一段（01–04）走通 GPT-2 的静态结构、训练 / 推理动态线与 nanoGPT 实现；第二段（05–14）先读 Llama / DeepSeek / VLM 的实践配置地图并数出参数量，06 用 FLOPs / 访存与 Roofline 建立成本工具箱，再分别展开位置编码与外推、attention 与 KV、长上下文成本与结构手段、MoE、MTP、投机解码、多模态、浮点格式与混合精度。量化与 LoRA 在算法地图的《高效推理与压缩》与《LoRA 专题》。训练侧的 tokenizer、scaling law、数据与配方在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
+这一组内容分成两个系列。[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)四篇走通 GPT-2 的静态结构、训练 / 推理动态线与 nanoGPT 实现；[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)十篇先读 Llama / DeepSeek / VLM 的实践配置地图并数出参数量，再用 FLOPs / 访存与 Roofline 建立成本工具箱，继而展开位置编码与外推、attention 与 KV、长上下文、MoE、MTP、投机解码、多模态、浮点格式与混合精度。量化与 LoRA 在算法地图的《高效推理与压缩》与《LoRA 专题》。训练侧的 tokenizer、scaling law、数据与配方在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 
 这一篇由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
 
-#### 05 GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention
+#### 06 GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention
 
 > **一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限？**
 
@@ -238,7 +239,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 单卡之外的一切——训练也好、推理也好——都建立在通信之上。通信自成一层，而不是训练的附属：训练用它同步梯度和分片参数，推理用它做张量并行和 KV 传输，两者的通信模式不同，但底座相同。
 
-#### 06 通信与互联：从 NCCL 到 RDMA
+#### 07 通信与互联：从 NCCL 到 RDMA
 
 > **一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的？为什么有时候是带宽的问题，有时候是延迟的问题？**
 
@@ -246,41 +247,41 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 ### L4 引擎
 
-引擎是把模型、kernel、通信组织成一个持续运行的系统。训练引擎围绕**状态**（参数、梯度、优化器状态、激活值）组织，推理引擎围绕**请求**（调度、KV cache、token 生成）组织。两者共享底层，但问题形态完全不同。这一层有第三个系列：RL 后训练把两类引擎放进同一个循环、同一组 GPU，它的问题不是任何一类引擎内部的，而是**两者之间**的——显存归属、权重同步、异步与环境调度。还有第四个：扩散模型推理——同样是推理引擎，但负载从 memory-bound 换成 compute-bound，08 的方法在它身上大半用不上，需要另一套。
+引擎是把模型、kernel、通信组织成一个持续运行的系统。训练引擎围绕**状态**（参数、梯度、优化器状态、激活值）组织，推理引擎围绕**请求**（调度、KV cache、token 生成）组织。两者共享底层，但问题形态完全不同。这一层有第三个系列：RL 后训练把两类引擎放进同一个循环、同一组 GPU，它的问题不是任何一类引擎内部的，而是**两者之间**的——显存归属、权重同步、异步与环境调度。还有第四个：扩散模型推理——同样是推理引擎，但负载从 memory-bound 换成 compute-bound，09 的方法在它身上大半用不上，需要另一套。
 
-#### 07 大规模训练工程：从并行策略到容错恢复
+#### 08 大规模训练工程：从并行策略到容错恢复
 
 > **一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒？**
 
 八篇。Megatron-LM / DeepSpeed / torchtitan 的架构对比与源码导读；多维并行的实际配置与 MFU 计算；分布式 checkpoint 与恢复；容错、弹性、straggler 与 silent data corruption；训练稳定性（loss spike、梯度范数）；数据管线（tokenization、数据混合、shuffle、流式加载）；长时训练的可观测。
 
-#### 08 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
+#### 09 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
 
 > **一个文本生成请求，为什么会逐渐演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统？**
 
 十五篇：问题定义 → 指标体系 → 请求生命周期 → 调度 → KV Cache → GPU 执行 → 解码的扩展 → 多卡扩展 → 模型适配 → 请求形态 → 硬件抽象 → PD 分离 → Serving Infra 的演进 → 源码走读 → 对照 SGLang。以 vLLM 为分析对象，建立一套可迁移到其他推理框架的分析方法，最后一篇用这套方法对照 SGLang。
 
-#### 09 RL 后训练基础设施：rollout 与训练如何共享一组 GPU
+#### 10 RL 后训练基础设施：rollout 与训练如何共享一组 GPU
 
 > **一个 RL 后训练任务同时是一个推理服务和一个训练任务，这两样东西怎样共享一组 GPU，而不让任何一方在等另一方？**
 
 八篇。一步 RL 里生成、打分、训练三段的算力、显存与时间账（rollout 为什么占墙钟的 60–80%）；共置、分离与异步三种系统形态的利用率与正确性交换；共置下训练状态与 KV cache 的显存归属切换（vLLM 的 sleep / wake_up、SGLang 的 memory saver）；权重同步——从 FSDP / Megatron 的分片布局到 vLLM 的 TP / EP 布局，NCCL 广播、CUDA IPC、NIXL、量化传输与增量同步；异步与 off-policy 的 staleness 控制、部分 rollout、训推不一致；Agent 训练的多轮 rollout、沙箱集群与环境服务化；verl、slime、OpenRLHF、AReaL 四个框架的架构对比与源码导读；配置推导、全步 MFU、RL 状态的 checkpoint、确定性与排障。
 
-这是 07 与 08 两条线会合的地方，也是当前增长最快的一类 AI-Infra 负载。它曾在本图作为选修，理由是"组件都已覆盖、框架尚在收敛"；到 2026 年两个理由都不再成立：编排本身（显存切换、布局映射、异步修正、环境调度）是 07、08 里都没有的新机制，而框架的机制层已经稳定到可以写机制、少写实现。算法本身（奖励、目标函数、配方）属于算法地图 L5 的[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)系列。
+这是 08 与 09 两条线会合的地方，也是当前增长最快的一类 AI-Infra 负载。它曾在本图作为选修，理由是"组件都已覆盖、框架尚在收敛"；到 2026 年两个理由都不再成立：编排本身（显存切换、布局映射、异步修正、环境调度）是 08、09 里都没有的新机制，而框架的机制层已经稳定到可以写机制、少写实现。算法本身（奖励、目标函数、配方）属于算法地图 L5 的[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)系列。
 
-#### 10 扩散模型推理基础设施：从一次去噪到一个生成服务
+#### 11 扩散模型推理基础设施：从一次去噪到一个生成服务
 
 > **一个 12B 的图像模型生成一张图要 2 PFLOPs，是 7B LLM 回答一千 token 的 150 倍，时间却差不多；一个 14B 的视频模型生成 5 秒 720p 要 650 PFLOPs。这种负载的推理系统该长什么样？为什么 vLLM 的那一套——KV cache、连续批处理、PD 分离——在它身上大半用不上？**
 
 九篇。一次生成的三段（文本编码器、DiT × 步数 × CFG、VAE 解码）的 FLOPs、显存与时间账，以及为什么单请求就是 compute-bound；单卡的 attention 后端、编译、FP8 / INT4（SVDQuant）、offload 与 VAE 分块；相邻去噪步的时间冗余（TeaCache、First-Block Cache、Cache-DiT 一族）；视频的十万级 token 让 attention 占到七成之后的稀疏化（Sparse VideoGen、Radial Attention、STA）；多卡为什么用序列并行、CFG 并行与 PipeFusion 而不是张量并行；步数蒸馏与自回归视频（CausVid、Self-Forcing）之后哪些优化失效、KV cache 怎样回归；生成服务的请求形态、批处理为什么几乎不提吞吐、三段分离、LoRA / ControlNet 与异步任务 API；SGLang Diffusion、vLLM-Omni、xDiT 三个引擎的对照导读；配置推导、有损优化的质量评测与排障。
 
-它是推理主线的**另一半**：08 讲 memory-bound 的 serving，10 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第六至九篇。
+它是推理主线的**另一半**：09 讲 memory-bound 的 serving，11 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第六至九篇。
 
 ### L5 平台
 
-平台是"平台"一个词盖住的两部分：**资源层**是架构视图主干中引擎之下的三层（容器运行时、任务调度与资源管理、硬件中的存储与网络），承载引擎运行；**交付层**是架构视图的右翼 MLOps / LLMOps，把引擎变成服务（Serving 平台、模型网关、可观测）。两者在架构上一个在引擎之下、一个在引擎之侧，在学习顺序上都在引擎之后——因为它们的每个设计决定都是被引擎的需求推出来的。"之后"不是"读完 07–10 四个系列之后"：11 的总纲对前置的要求只是**跑过一个训练任务或部署过一个推理服务**、知道引擎向平台要什么（整卡、拓扑、通信、几百 GB 的权重文件）；做平台的人可以在 07 或 08 中读完一个就进入 11，其余引擎系列在碰到对应负载（RL 任务的两类 GPU 池、生成服务的按形状分池）时再回头读。
+平台是"平台"一个词盖住的两部分：**资源层**是架构视图主干中引擎之下的三层（容器运行时、任务调度与资源管理、硬件中的存储与网络），承载引擎运行；**交付层**是架构视图的右翼 MLOps / LLMOps，把引擎变成服务（Serving 平台、模型网关、可观测）。两者在架构上一个在引擎之下、一个在引擎之侧，在学习顺序上都在引擎之后——因为它们的每个设计决定都是被引擎的需求推出来的。"之后"不是"读完 08–11 四个系列之后"：12 的总纲对前置的要求只是**跑过一个训练任务或部署过一个推理服务**、知道引擎向平台要什么（整卡、拓扑、通信、几百 GB 的权重文件）；做平台的人可以在 08 或 09 中读完一个就进入 12，其余引擎系列在碰到对应负载（RL 任务的两类 GPU 池、生成服务的按形状分池）时再回头读。
 
-#### 11 AI 平台工程：资源层与交付层
+#### 12 AI 平台工程：资源层与交付层
 
 > **一个 GPU 集群如何被切分、调度和喂饱？一个训好的模型如何变成一个可运维的服务？**
 
@@ -288,7 +289,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 架构视图右翼的其余几层——实验跟踪与流水线、模型仓库与血缘、离线评测与灰度发布——是 MLOps 的通用问题，与 AI 负载的特殊性关系不大，本系列不展开，只在模型网关一篇把模型仓库当作版本来源提及。
 
-### 横切：12 AI-Infra 开源贡献指南
+### 横切：13 AI-Infra 开源贡献指南
 
 > **面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动？**
 
@@ -296,7 +297,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 ### 选修：ML 编译器内部
 
-十三篇加一篇总结。`torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 05 中从用户视角覆盖——这对绝大多数 AI-Infra 工作已经足够。选修补的是这两篇下面的东西：编译器本身的机制（IR、SSA、pass、pattern rewrite、dialect conversion、数据流分析）与 Triton 编译器源码里这些机制怎样落地——从 Python AST 到 TTIR、AxisInfo、layout 系统与 Linear Layout、layout 优化与 Tensor Core 路径、软件流水与 Hopper / Blackwell / warp specialization / Gluon、TritonGPU 到 LLVM 的下降、缓存与运行时、AMD 后端对照；再用 TVM 的调度语言做对照，最后是编译器开发者的工作台。全部真实 IR 在一台没有 GPU 的 Mac 上用 `triton-opt` 与从源码构建的 Triton v3.8.0 跑出来。它只对准备读 Triton / MLIR 源码、给编译器提 PR、或给新硬件接后端的读者必要，不进入主线；读它之前至少读过 05 的第七篇。
+十三篇加一篇总结。`torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 06 中从用户视角覆盖——这对绝大多数 AI-Infra 工作已经足够。选修补的是这两篇下面的东西：编译器本身的机制（IR、SSA、pass、pattern rewrite、dialect conversion、数据流分析）与 Triton 编译器源码里这些机制怎样落地——从 Python AST 到 TTIR、AxisInfo、layout 系统与 Linear Layout、layout 优化与 Tensor Core 路径、软件流水与 Hopper / Blackwell / warp specialization / Gluon、TritonGPU 到 LLVM 的下降、缓存与运行时、AMD 后端对照；再用 TVM 的调度语言做对照，最后是编译器开发者的工作台。全部真实 IR 在一台没有 GPU 的 Mac 上用 `triton-opt` 与从源码构建的 Triton v3.8.0 跑出来。它只对准备读 Triton / MLIR 源码、给编译器提 PR、或给新硬件接后端的读者必要，不进入主线；读它之前至少读过 06 的第七篇。
 
 
 ## 系列之间的依赖
@@ -308,55 +309,57 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 graph LR
     S01["01 Python"] --> S03["03 PyTorch"]
     S02["02 C++"] --> S03
-    S03 --> S04["04 Transformer 与 LLM"]
-    S04 --> S05["05 GPU Kernel"]
-    S03 --> S06["06 通信与互联"]
-    S05 --> S07["07 大规模训练"]
-    S06 --> S07
-    S04 --> S08["08 vLLM"]
-    S05 --> S08
-    S06 --> S08
-    S07 --> S09["09 RL 后训练基础设施"]
-    S08 --> S09
-    S04 --> S10["10 扩散模型推理基础设施"]
-    S08 --> S10
-    S07 --> S11["11 AI 平台"]
-    S08 --> S11
+    S03 --> S04["04 Transformer 原理与实现"]
+    S03 --> S05["05 现代 LLM 结构"]
+    S04 --> S06["06 GPU Kernel"]
+    S05 --> S06
+    S03 --> S07["07 通信与互联"]
+    S06 --> S08["08 大规模训练"]
+    S07 --> S08
+    S05 --> S09["09 vLLM"]
+    S06 --> S09
+    S07 --> S09
+    S08 --> S10["10 RL 后训练基础设施"]
+    S09 --> S10
+    S05 --> S11["11 扩散模型推理基础设施"]
     S09 --> S11
-    S10 --> S11
-    S12["12 开源贡献指南（任何阶段，贡献者路径）"]
-    S05 --> S13["13 ML 编译器内部（选修）"]
-    S03 -.-> S13
+    S08 --> S12["12 AI 平台"]
+    S09 --> S12
+    S10 --> S12
+    S11 --> S12
+    S13["13 开源贡献指南（任何阶段，贡献者路径）"]
+    S06 --> S14["14 ML 编译器内部（选修）"]
+    S03 -.-> S14
 ```
 
 几条主要的依赖关系：
 
 - **01、02 → 03**：读 PyTorch 源码需要两门语言。Python 部分主要用到 01 的动态机制和内存管理；C++ 部分主要用到 02 的所有权、模板和静态注册。
-- **03 → 04**：模型的算量和访存量要落到 Tensor 和算子上才有意义。
-- **04 → 05、08**：kernel 系列的 attention 和量化篇、vLLM 系列的 KV cache 和量化篇，都把模型结构当作已知。
-- **03 → 06**：通信系列假设读者知道并行策略需要哪些集合通信原语；03 的第九篇建立了这个需求。
-- **05、06 → 07、08**：两类引擎都建立在 kernel 和通信之上。
-- **07、08 → 09**：RL 后训练把训练器与推理引擎放进同一个循环；它把两者当作黑盒使用，但读者必须知道黑盒里的状态放在哪、KV cache 有多大，才能理解显存切换与权重同步在搬什么。
-- **04、08 → 10**：扩散推理系列的每个结论都是对照 LLM serving 说的（没有 KV、compute-bound、batch 无益、时长可预测），读者必须先知道 08 的那一套是什么；04 给出 $$2PN + 4LN^2d$$ 的算量规则，10 的账在它上面加了"每 token 经过的参数"与序列长度这两个维度。
-- **07、08、09、10 → 11**（读完其中一个即可进入，其余按负载补）：平台的设计决定来自引擎的需求；RL 任务对平台的要求（两类 GPU 池、沙箱集群、不同的弹性语义）与预训练、推理服务都不同，生成服务又多出按形状分池、GPU·秒计费与异步 job。
-- **05 → 13（选修）**：编译器系列顺着 Triton 的编译流水线自上而下，把 05 第七篇那张六层图的每一层打开；读者要先会写 Triton kernel、读过 TTGIR 与 PTX。03 的第七篇（Dynamo → AOTAutograd → Inductor）是它的另一个入口，但不是必需。
+- **03 → 04、05**：Transformer 原理与实现、现代 LLM 结构分别建立结构与成本的模型基础。
+- **04、05 → 06、09**：kernel 系列的 attention 和量化篇、vLLM 系列的 KV cache 和量化篇，都把模型结构当作已知。
+- **03 → 07**：通信系列假设读者知道并行策略需要哪些集合通信原语；03 的第九篇建立了这个需求。
+- **06、07 → 08、09**：两类引擎都建立在 kernel 和通信之上。
+- **08、09 → 10**：RL 后训练把训练器与推理引擎放进同一个循环；它把两者当作黑盒使用，但读者必须知道黑盒里的状态放在哪、KV cache 有多大，才能理解显存切换与权重同步在搬什么。
+- **05、09 → 11**：扩散推理系列的每个结论都是对照 LLM serving 说的（没有 KV、compute-bound、batch 无益、时长可预测），读者必须先知道 09 的那一套是什么；05 给出 $$2PN + 4LN^2d$$ 的算量规则，11 的账在它上面加了"每 token 经过的参数"与序列长度这两个维度。
+- **08、09、10、11 → 12**（读完其中一个即可进入，其余按负载补）：平台的设计决定来自引擎的需求；RL 任务对平台的要求（两类 GPU 池、沙箱集群、不同的弹性语义）与预训练、推理服务都不同，生成服务又多出按形状分池、GPU·秒计费与异步 job。
+- **06 → 14（选修）**：编译器系列顺着 Triton 的编译流水线自上而下，把 06 第七篇那张六层图的每一层打开；读者要先会写 Triton kernel、读过 TTGIR 与 PTX。03 的第七篇（Dynamo → AOTAutograd → Inductor）是它的另一个入口，但不是必需。
 
-"自治"和"依赖"并不矛盾：依赖描述的是**最佳阅读顺序**，自治保证的是**任何一个系列都能单独读懂**。每个系列都会在正文中保留理解它自己所需的最小知识集，深入的展开只在一个系列出现。例如集合通信原语的语义在 03 和 06 都会出现，但 NCCL 的实现细节只在 06；CUDA 执行模型的最小概念在 03 中出现，完整展开只在 05。
+"自治"和"依赖"并不矛盾：依赖描述的是**最佳阅读顺序**，自治保证的是**任何一个系列都能单独读懂**。每个系列都会在正文中保留理解它自己所需的最小知识集，深入的展开只在一个系列出现。例如集合通信原语的语义在 03 和 07 都会出现，但 NCCL 的实现细节只在 07；CUDA 执行模型的最小概念在 03 中出现，完整展开只在 06。
 
 
 ## 按目标选择路径
 
-十二个系列全部读完是一条完整的路径，但大多数读者有更具体的目标。含 12 的只有贡献方向的路径；其余路径不以给上游提 PR 为目标，不含它。
+十三个系列全部读完是一条完整的路径，但大多数读者有更具体的目标。含 13 的只有贡献方向的路径；其余路径不以给上游提 PR 为目标，不含它。
 
 | 目标 | 路径 | 说明 |
 |---|---|---|
-| 写 kernel，给 vLLM / SGLang / FlashInfer / PyTorch 贡献算子 | 02 → 03（2、5、6、8 篇）→ 04 → 05 → 12 | 当前最稀缺、也最容易做出可见贡献的方向 |
-| 分布式训练基础设施 | 03（4、8、9 篇）→ 04 → 06 → 07 → 11（资源层） | 重心在状态、通信与容错 |
-| 推理系统与 LLM Serving | 03（2、4、8、9 篇）→ 04 → 08 → 06 → 05（8、9 篇） | 先建立系统视角，再向下到通信和 kernel |
-| 图像 / 视频生成的推理服务 | 04 → 08（1–5 篇）→ 10 → 05（8、9 篇）→ 06 | 08 只需读到知道 KV、批处理与 TP 在解决什么；10 的每一篇都对照它 |
-| RL 后训练基础设施 | 03（4、9 篇）→ 04 → 07（1、2、5 篇）→ 08（1–5 篇）→ 09 | 训练与推理两条线会合的方向；07、08 只需读到能理解状态与 KV 的字节数 |
-| AI 平台与集群 | 01 → 03（1、4、8、9 篇）→ 08（1–5 篇）→ 07（checkpoint、容错篇）→ 10（1、7 篇）→ 11 | 平台工程师不写 kernel，但要知道引擎对资源层提出了什么要求 |
-| 读懂源码，暂时不定方向 | 01 → 02 → 03 → 04 | 到 04 为止具备阅读这个领域几乎任何项目源码的基础，再按兴趣向下（05、06）或向上（07、08、09、10、11） |
+| 写 kernel，给 vLLM / SGLang / FlashInfer / PyTorch 贡献算子 | 02 → 03（2、5、6、8 篇）→ 04、05 → 06 → 13 | 当前最稀缺、也最容易做出可见贡献的方向 |
+| 分布式训练基础设施 | 03（4、8、9 篇）→ 04、05 → 07 → 08 → 12（资源层） | 重心在状态、通信与容错 |
+| 推理系统与 LLM Serving | 03（2、4、8、9 篇）→ 04、05 → 09 → 07 → 06（8、9 篇） | 先建立系统视角，再向下到通信和 kernel |
+| 图像 / 视频生成的推理服务 | 05 → 09（1–5 篇）→ 11 → 06（8、9 篇）→ 07 | 09 只需读到知道 KV、批处理与 TP 在解决什么；11 的每一篇都对照它 |
+| RL 后训练基础设施 | 03（4、9 篇）→ 04、05 → 08（1、2、5 篇）→ 09（1–5 篇）→ 10 | 训练与推理两条线会合的方向；08、09 只需读到能理解状态与 KV 的字节数 |
+| AI 平台与集群 | 01 → 03（1、4、8、9 篇）→ 09（1–5 篇）→ 08（checkpoint、容错篇）→ 11（1、7 篇）→ 12 | 平台工程师不写 kernel，但要知道引擎对资源层提出了什么要求 |
+| 读懂源码，暂时不定方向 | 01 → 02 → 03 → 04 → 05 | 到 05 为止具备阅读这个领域几乎任何项目源码的基础，再按兴趣向下（06、07）或向上（08、09、10、11、12） |
 
 Table: 按目标选择的 Infra 学习路径
 
@@ -371,17 +374,17 @@ Table: 按目标选择的 Infra 学习路径
 |---|---|---|---|
 | Python | 语言机制、运行时、内存、C 扩展、交付 | 会写、会读训练代码 | 01 |
 | PyTorch | Dispatcher、Autograd 引擎、编译、分布式通信栈的实现 | Tensor / Autograd / Module / DataLoader / AMP / DDP 的用法 | 03 |
-| GPU / CUDA | CUDA 编程模型、访存、Tensor Core、Triton、FlashAttention 的实现 | 算力与带宽两个上限、显存去向、为什么 batch 大才快 | 05 |
-| Transformer 结构 | 各结构的参数量、FLOPs、KV、通信量 | 各结构的建模动机与效果 | 04（共享） |
-| 量化 | 字节数与收益区间、量化 kernel | 选哪种方法、精度损失多大 | 04 · 05 |
-| LoRA | 参数与状态的账、多 LoRA 服务的 kernel 与调度 | 微调配方、秩与目标矩阵的选择 | 04 · 08 |
-| 投机解码 | 加速比的数学、引擎中的实现 | 草稿模型的训练、接受率 | 04 · 08 |
-| 混合精度 / FP8 | 格式、累加精度、数值丢失的位置 | 用法、对训练稳定性的影响 | 04 |
-| 分布式训练 | 并行策略、checkpoint、容错、MFU | DDP / FSDP 的启用、并行度对配方的影响 | 03 · 07 |
-| 推理系统机制 | PagedAttention、continuous batching、chunked prefill、PD 分离 | 知道存在；自己的结构对它们意味着什么 | 08 |
-| RL 后训练 | rollout 引擎与训练器的共置 / 分离 / 异步、显存切换、权重同步、环境调度 | 算法：奖励、目标函数、配方 | 09 |
-| 数据管线 | tokenization 离线化、流式加载、打包的**实现** | 数据配比、质量、去重的**决策** | 07 |
-| 多模态 | 理解模型：encoder 的调度与缓存、image token 的 KV、请求形态；生成模型：compute-bound 的推理、序列并行、跨步缓存、生成服务 | VLM 架构选择、对齐训练、扩散模型的数学与配方 | 04 · 08 · 10 |
+| GPU / CUDA | CUDA 编程模型、访存、Tensor Core、Triton、FlashAttention 的实现 | 算力与带宽两个上限、显存去向、为什么 batch 大才快 | 06 |
+| Transformer 结构 | 各结构的参数量、FLOPs、KV、通信量 | 各结构的建模动机与效果 | 04 · 05（共享） |
+| 量化 | 字节数与收益区间、量化 kernel | 选哪种方法、精度损失多大 | 05 · 06 |
+| LoRA | 参数与状态的账、多 LoRA 服务的 kernel 与调度 | 微调配方、秩与目标矩阵的选择 | 05 · 09 |
+| 投机解码 | 加速比的数学、引擎中的实现 | 草稿模型的训练、接受率 | 05 · 09 |
+| 混合精度 / FP8 | 格式、累加精度、数值丢失的位置 | 用法、对训练稳定性的影响 | 05 |
+| 分布式训练 | 并行策略、checkpoint、容错、MFU | DDP / FSDP 的启用、并行度对配方的影响 | 03 · 08 |
+| 推理系统机制 | PagedAttention、continuous batching、chunked prefill、PD 分离 | 知道存在；自己的结构对它们意味着什么 | 09 |
+| RL 后训练 | rollout 引擎与训练器的共置 / 分离 / 异步、显存切换、权重同步、环境调度 | 算法：奖励、目标函数、配方 | 10 |
+| 数据管线 | tokenization 离线化、流式加载、打包的**实现** | 数据配比、质量、去重的**决策** | 08 |
+| 多模态 | 理解模型：encoder 的调度与缓存、image token 的 KV、请求形态；生成模型：compute-bound 的推理、序列并行、跨步缓存、生成服务 | VLM 架构选择、对齐训练、扩散模型的数学与配方 | 05 · 09 · 11 |
 
 Table: Infra 地图与算法地图的重叠主题分工
 
@@ -409,16 +412,16 @@ Table: 主线技术与同位替代品
 
 - **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学与配方。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04 是两条路径的交点，10 只讲扩散模型的推理系统。
 - **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 11 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列分别为十篇与六篇。
-- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（04 第一篇）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（08 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（07 第七篇）。算法侧的完整讲法在预训练系列[第二篇](/tokenizer-vocabulary-and-token-efficiency.html)。
+- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（现代 LLM 结构 01）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（09 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（08 第七篇）。算法侧的完整讲法在预训练系列[第二篇](/tokenizer-vocabulary-and-token-efficiency.html)。
 - **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；11 只讲它们在 AI 负载下的特殊之处。
 - **数学的系统课程**：不从零讲线性代数、概率与优化。但 AI-Infra 用到的数学是一个很小的子集，列出来比一句"另有课程"更有用；每一条在算法地图的 [L0 数学系列](/math-for-ai-algorithm-engineers.html)里都有一篇从定义讲起：
 
   | 数学 | 用在哪里 | L0 系列 |
   |---|---|---|
   | 矩阵乘法的形状规则、转置、分块 | 04 第一、二篇的参数量与 FLOPs；05 的 GEMM 分块 | [第一篇](/vectors-matrices-shapes-and-flops.html) |
-  | 范数、误差的相对与绝对量 | 04 第六篇的数值误差、第七篇的量化误差 | [第二篇](/inner-product-norms-and-cosine-similarity.html) |
-  | softmax、交叉熵、KL 散度 | 04 第七篇的投机解码分布等式；05 的 online softmax | [第五](/from-maximum-likelihood-to-cross-entropy.html)、[六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
-  | 期望、概率分布的基本操作 | 04 第五篇的期望激活专家数、第七篇的期望接受长度 | [第四篇](/probability-basics-language-model-as-conditional-distribution.html) |
+  | 范数、误差的相对与绝对量 | 现代 LLM 结构第十篇的数值误差与量化误差 | [第二篇](/inner-product-norms-and-cosine-similarity.html) |
+  | softmax、交叉熵、KL 散度 | 现代 LLM 结构第八篇的投机解码分布等式；06 的 online softmax | [第五](/from-maximum-likelihood-to-cross-entropy.html)、[六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
+  | 期望、概率分布的基本操作 | 现代 LLM 结构第六篇的期望激活专家数、第八篇的期望接受长度 | [第四篇](/probability-basics-language-model-as-conditional-distribution.html) |
   | 链式法则 | 03 第三篇的 Autograd | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
   | 指数加权平均 | 07 第一篇的 Adam 状态与它的 8 字节/参数 | 算法地图 L3 [优化器](/optimizers-from-sgd-to-adamw.html)一篇 |
   | 幂律与对数坐标 | 04 第二篇的 scaling law、05 与 06 的 Roofline 与带宽-延迟模型 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
@@ -445,6 +448,7 @@ Table: 主线技术与同位替代品
 {% include series-row.html key="cpp-for-ai-infra" layer="L1" %}
 {% include series-row.html key="deep-dive-into-pytorch" layer="L2" note="（与算法地图共享）" %}
 {% include series-row.html key="transformer-and-llm" layer="L2" note="（与算法地图共享）" %}
+{% include series-row.html key="modern-llm-architecture" layer="L2" note="（与算法地图共享）" %}
 {% include series-row.html key="gpu-kernel-engineering" layer="L2" %}
 {% include series-row.html key="communication-and-interconnect" layer="L3" %}
 {% include series-row.html key="large-scale-training" layer="L4" %}
@@ -455,9 +459,9 @@ Table: 主线技术与同位替代品
 {% include series-row.html key="contributing-to-ai-infra-open-source" layer="横切" %}
 {% include series-row.html key="ml-compilers" layer="选修" %}
 
-Table: 十二个系列总览：层、篇数与时长
+Table: 十四个系列总览：层、篇数与时长
 
-{% assign infra_map = site.data.series_index.roadmaps | where: "key", "ai-infra" | first %}{% assign infra_main_hours = infra_map.hours | minus: site.data.series['ml-compilers'].hours | round %}时长按每分钟 450 字估算通读一遍的量（含代码，由构建时统计各篇字数得出），主线十二个系列合计约 {{ infra_main_hours }} 小时，加选修约 {{ infra_map.hours | round }} 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
+{% assign infra_map = site.data.series_index.roadmaps | where: "key", "ai-infra" | first %}{% assign infra_main_hours = infra_map.hours | minus: site.data.series['ml-compilers'].hours | round %}时长按每分钟 450 字估算通读一遍的量（含代码，由构建时统计各篇字数得出），主线十三个系列合计约 {{ infra_main_hours }} 小时，加选修约 {{ infra_map.hours | round }} 小时。篇数与时长只计正文；每个系列末尾另有一篇「系列总结与通关自测」（逐篇回顾 + 判断计算 / 跨篇综合 / 面试题三段自测），读完正文再做。这是给贡献者的深度；只想建立系统视角的读者，每个总纲都有一节「第一遍怎么读」，挑出必读的篇与章。
 
 ### 配套代码
 
@@ -467,15 +471,16 @@ Table: 十二个系列总览：层、篇数与时长
 |---|---|---|
 | 01 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
 | 02 | `cpp-for-ai-infra/` | C++17 编译器 + make；mini-c10 逐篇长成 |
-| 04 | `transformer-and-llm/` | 成本表的计算脚本，纯 Python 为主 |
+| 04 | `transformer-and-llm/` | Transformer 原理与实现的手算、极小 GPT 与 nanoGPT 实训 |
+| 05 | `modern-llm-architecture/` | 参数量、FLOPs、访存、KV 与结构演进的计算脚本，纯 Python 为主 |
 | 09 | `rl-post-training-infra/` | 第一篇的账本，纯 Python；后续实验需 verl 与 8 卡 |
 | 10 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
 
 Table: 配套代码按系列的目录与依赖
 
-03、05–08、11、12、13 以源码走读为主，示例直接给出命令与输出，暂无单独目录（13 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
+03、06–08、11、12、13、14 以源码走读为主，示例直接给出命令与输出，暂无单独目录（14 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
 
-**哪些需要硬件，哪些不需要**：01、02、03、04 与两本账本（09、10 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。05 GPU Kernel 与 06 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 05 的全部实验；07 大规模训练与 09 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。08 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。选修 13 特意全程不用 GPU：Homebrew 的 LLVM（`mlir-opt` / `opt` / `llc`）与 macOS 上从源码构建的 Triton 编译器（`triton-opt`、lit 测试、从 Python 编到 PTX 与 AMD ISA）足够跑出文中每一份 IR，只有最后把 cubin 跑起来那一步需要卡。
+**哪些需要硬件，哪些不需要**：01、02、03、04、05 与两本账本（10、11 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。06 GPU Kernel 与 07 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 06 的全部实验；08 大规模训练与 10 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。09 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。选修 14 特意全程不用 GPU：Homebrew 的 LLVM（`mlir-opt` / `opt` / `llc`）与 macOS 上从源码构建的 Triton 编译器（`triton-opt`、lit 测试、从 Python 编到 PTX 与 AMD ISA）足够跑出文中每一份 IR，只有最后把 cubin 跑起来那一步需要卡。
 
 
 
@@ -497,4 +502,4 @@ Table: 配套代码按系列的目录与依赖
 
 Table: 读完 Infra 地图后能追问的问题与答案来源
 
-十二个系列不是为了覆盖更多名词，而是为了让这条追问链没有断点。
+十三个系列不是为了覆盖更多名词，而是为了让这条追问链没有断点。

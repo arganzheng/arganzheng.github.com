@@ -211,13 +211,13 @@ Table: 公开小模型：从头训还是剪出来
 
 ### 2. 深而窄还是浅而宽
 
-MobileLLM（Liu 等 2024）在 125M–350M 上系统地测了：同参数量下，**深而窄**（更多层、更小的 hidden）比浅而宽好——30 层 × 512 维优于 12 层 × 768 维，差几个点。解释是层数决定了模型能做的"顺序计算步数"，小模型的瓶颈在这里而不在每层的宽度。它还发现 embedding 共享（tied embedding，[04 系列第九篇](/tokenizer-vocabulary-and-token-efficiency.html)）与 GQA 在小模型上都有效——小模型的 embedding 占参数比例大（125M 模型 32K 词表的 embedding 是 25%），共享省下的参数可以加层。
+MobileLLM（Liu 等 2024）在 125M–350M 上系统地测了：同参数量下，**深而窄**（更多层、更小的 hidden）比浅而宽好——30 层 × 512 维优于 12 层 × 768 维，差几个点。解释是层数决定了模型能做的"顺序计算步数"，小模型的瓶颈在这里而不在每层的宽度。它还发现 embedding 共享（tied embedding，[预训练（02）](/tokenizer-vocabulary-and-token-efficiency.html)）与 GQA 在小模型上都有效——小模型的 embedding 占参数比例大（125M 模型 32K 词表的 embedding 是 25%），共享省下的参数可以加层。
 
 这与第四章 Minitron 的"剪深度恢复最差"不矛盾：剪深度差是因为**删掉已训好的层**破坏了组合能力；从头设计时深一点好是因为**给模型更多的顺序步数**。两者都说层是小模型最宝贵的资源。但 Llama 3.2 1B 只有 16 层（宽 2048），Qwen2.5-0.5B 有 24 层（宽 896）——各家的选择并不一致，延迟（层数决定串行深度）是反向的考虑。
 
 ### 3. 数据是另一半
 
-小模型对数据质量比大模型更敏感（容量小，装不下噪声）。SmolLM 与 Phi 系列的核心是数据：教育类网页的分类器过滤（FineWeb-Edu）、合成教科书（Cosmopedia、Phi 的合成数据）、代码与数学的高比例。同样是 1.7B、2T token，数据配比可以差出 5–10 个 MMLU 点。这是 [04 系列第十一篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的内容在小模型上的放大——剪枝与蒸馏解决的是"怎么得到一个小模型"，数据决定的是"这个小模型能有多好"。
+小模型对数据质量比大模型更敏感（容量小，装不下噪声）。SmolLM 与 Phi 系列的核心是数据：教育类网页的分类器过滤（FineWeb-Edu）、合成教科书（Cosmopedia、Phi 的合成数据）、代码与数学的高比例。同样是 1.7B、2T token，数据配比可以差出 5–10 个 MMLU 点。这是 [预训练（04）](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的内容在小模型上的放大——剪枝与蒸馏解决的是"怎么得到一个小模型"，数据决定的是"这个小模型能有多好"。
 
 ## 八、剪枝与量化的叠加
 

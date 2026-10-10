@@ -126,7 +126,7 @@ flowchart TB
     class E,N1,N2,NF,H,Q,K,V,O,G,U,D box
 ```
 
-`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，L4 第六篇）。
+`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，见[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
 
 参数量就是把图里每个矩形的面积加起来（L0 第一篇"从结构算参数量"），Qwen2 的 q/k/v 带 bias：
 
@@ -145,7 +145,7 @@ flowchart TB
 
 Table: Qwen2-0.5B 各部件的形状与参数量
 
-`tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重——小模型常这样做，否则 `lm_head` 还要再加 136M，词嵌入就占了近一半。加载后 `sum(p.numel() for p in model.parameters())` 数出 494M，与名字里的 "0.5B" 对上。L4《Transformer 与 LLM》第五篇专门教从 `config.json` 算参数量。
+`tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重——小模型常这样做，否则 `lm_head` 还要再加 136M，词嵌入就占了近一半。加载后 `sum(p.numel() for p in model.parameters())` 数出 494M，与名字里的 "0.5B" 对上。L4《现代 LLM 结构》第一篇专门教从 `config.json` 算参数量。
 
 ### 2. `tokenizer.json` 与 `tokenizer_config.json`
 

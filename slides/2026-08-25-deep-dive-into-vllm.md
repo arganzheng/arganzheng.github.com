@@ -412,5 +412,5 @@ flowchart LR
 
 - **往下**：《GPU Kernel 工程》第 8 篇——FlashAttention / PagedAttention 本身；《通信与互联》第 7 篇——custom all-reduce 与 KV 传输
 - **往旁**：《扩散模型推理 Infra》——没有 KV cache 的另一种 Serving；《RL 后训练 Infra》——推理引擎进训练循环
-- **算法侧**：《高效推理与压缩》——量化、投机、KV 压缩的算法侧；《Transformer 与 LLM》第 10 篇的 Roofline
+- **算法侧**：《高效推理与压缩》——量化、投机、KV 压缩的算法侧；《现代 LLM 结构》第 02 篇的 Roofline
 - 原文总纲：`/deep-dive-into-vllm.html`；通关自测在系列总结

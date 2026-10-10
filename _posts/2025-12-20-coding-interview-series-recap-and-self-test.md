@@ -828,7 +828,7 @@ date: 2025-12-20 20:00:00
 
 - **系统学习路线**见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)，以及它下面的[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)与[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)——本系列不属于任何一张地图。
 - **Python 与 Java / C++ 的语言机制**（GIL、内存模型、对象模型）不在本系列，见 Infra 地图的[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)与[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)。
-- **模型组件"为什么这样设计"的原理**——反向传播、归一化、优化器在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)；attention 变体、KV cache 的账、参数量与算量在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)；DPO、PPO、GRPO 的推导与评测在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。后六篇只讲"怎么正确地写出来"，推导与设计动机在这三个系列。
+- **模型组件"为什么这样设计"的原理**——反向传播、归一化、优化器在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)；attention 变体、KV cache 的账、参数量与算量在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)；DPO、PPO、GRPO 的推导与评测在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。后六篇只讲"怎么正确地写出来"，推导与设计动机在这三个系列。
 - **不讲的部分**：困难难度的竞赛型题目（后缀自动机、网络流、FFT、平衡树）、系统设计面试、语言特性问答。
 
 回到总纲：[《面试手撕代码：从 LeetCode 中等题到 Transformer 组件》](/coding-interview.html)——两张图（题面到模式、四十分钟流程）与四条阅读路径都在那里。

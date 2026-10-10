@@ -71,7 +71,7 @@ L1 工具箱系列教的是二十行训练循环。写出它不难，难的是�
 
 ### 准备进入 L4 Transformer / LLM 的算法学习者
 
-你已经能写训练循环，接下来要读 Llama、DeepSeek 的技术报告与 [《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)系列。本系列是那之前的最后一层基础：读完之后，报告里关于初始化、归一化、优化器、稳定性的每一段都有对应的公式可查。
+你已经能写训练循环，接下来要读 Llama、DeepSeek 的技术报告与 [《Transformer 原理与实现》](/transformer-and-llm-structure-implementation-and-evolution.html)系列。本系列是那之前的最后一层基础：读完之后，报告里关于初始化、归一化、优化器、稳定性的每一段都有对应的公式可查。
 
 ### 做后训练但基础是"跳过来"的工程师
 
@@ -101,7 +101,7 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 
 Table: 六篇的主题与内容
 
-前四篇是**训练动力学**：一个网络从初始化到收敛，梯度经历了什么、参数怎么动、什么时候停。后两篇是**结构史**：Transformer 之前的两条主线各解决了什么、留下了什么——残差与归一化来自 CNN 这条线，attention 来自 RNN 这条线。读完第六篇，Transformer 的每一个组件都有了来历，L4 的 04 系列可以直接接上。
+前四篇是**训练动力学**：一个网络从初始化到收敛，梯度经历了什么、参数怎么动、什么时候停。后两篇是**结构史**：Transformer 之前的两条主线各解决了什么、留下了什么——残差与归一化来自 CNN 这条线，attention 来自 RNN 这条线。读完第六篇，Transformer 的每一个组件都有了来历，可以接着读 L4 的《Transformer 原理与实现》与《现代 LLM 结构》。
 
 三条交织的线索：
 
@@ -127,7 +127,7 @@ Table: 贯穿六篇的三条线索
 - 计算图与链式法则：标量对向量、向量对向量（Jacobian）、标量对矩阵的导数；反向传播就是从 loss 出发沿计算图反向逐节点乘 Jacobian；
 - 矩阵求导的形状规则：$$Y = XW$$ 时 $$\partial L / \partial W = X^T (\partial L / \partial Y)$$、$$\partial L / \partial X = (\partial L / \partial Y) W^T$$——记住"梯度与被求导的量形状相同"，两条公式可以直接推出来；
 - 逐层手推一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）的前向与反向，每一步写出形状；softmax + 交叉熵的梯度 $$p - y$$（L0 数学系列第七篇推过，这里放进完整网络）；
-- 反向为什么是前向的两倍：每个 Linear 层反向要做两个矩阵乘法（对输入的梯度、对权重的梯度），前向只做一个；由此得到训练 FLOPs $$\approx 6ND$$——04 系列第六篇引用的这个数字在这里推出来；
+- 反向为什么是前向的两倍：每个 Linear 层反向要做两个矩阵乘法（对输入的梯度、对权重的梯度），前向只做一个；由此得到训练 FLOPs $$\approx 6ND$$——现代 LLM 结构（02）引用的这个数字在这里推出来；
 - 激活为什么要存：反向计算 $$\partial L / \partial W$$ 需要前向时的输入 $$X$$，所以前向的中间结果必须保留到反向；激活显存与 batch、序列长度、层数成正比，与参数量无关；激活重算（gradient checkpointing）用一次额外前向换掉这份存储；
 - 用有限差分验证手推的梯度：梯度检查的方法与精度标准；
 - Autograd 做了什么：动态图记录、每个算子的 backward 函数、叶子节点的 `.grad` 累加——只到理解框架行为的程度，实现在 Infra 地图 03 系列第三篇。
@@ -228,7 +228,7 @@ Table: 贯穿六篇的三条线索
 - LSTM 与 GRU：用门控让状态可以"加法式"地穿过时间，$$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 里的 $$f_t \odot c_{t-1}$$ 是残差在时间上的形态；门的参数量；
 - seq2seq 与它的瓶颈：encoder 把整个源序列压进一个固定长度的向量，decoder 从它出发生成；长句子上质量下降，因为一个向量装不下；
 - attention 的诞生（Bahdanau 等 2014）：decoder 每一步对 encoder 的所有隐状态算一个权重、加权求和，绕过固定向量瓶颈；这就是 $$\text{softmax}(q^T k) v$$ 的最初形式，只是 $$q, k, v$$ 还没有分开命名；
-- RNN 的两个致命缺点与 Transformer 的回答：无法并行（$$h_t$$ 依赖 $$h_{t-1}$$，序列长度决定串行步数）与长依赖衰减（路径长度 $$O(n)$$）；self-attention 把任意两个位置的路径长度变成 $$O(1)$$、把序列维完全并行，代价是 $$O(n^2)$$ 的算量与 KV——04 系列的一切从这里开始；
+- RNN 的两个致命缺点与 Transformer 的回答：无法并行（$$h_t$$ 依赖 $$h_{t-1}$$，序列长度决定串行步数）与长依赖衰减（路径长度 $$O(n)$$）；self-attention 把任意两个位置的路径长度变成 $$O(1)$$、把序列维完全并行，代价是 $$O(n^2)$$ 的算量与 KV——现代 LLM 结构系列的成本线从这里开始；
 - RNN 的回声：状态空间模型（Mamba 一类）与线性 attention 试图找回 RNN 的 $$O(n)$$ 推理成本，知道它们在权衡什么即可。
 
 核心问题是：
