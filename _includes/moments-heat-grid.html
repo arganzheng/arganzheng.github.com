@@ -1,0 +1,7 @@
+<div class="ms-heat-months">{% for m in include.months %}<span style="grid-column: {{ m.col | plus: 1 }}">{{ m.label }}</span>{% endfor %}</div>
+<div class="ms-heat-grid">
+{%- for w in include.weeks %}{% for d in w %}
+    {%- if d.url %}<a class="ms-day l{{ d.level }}" href="{{ d.url | prepend: site.baseurl }}" title="{{ d.date }} · {{ d.count }} 条"></a>
+    {%- else %}<span class="ms-day l0{% if d.future %} is-future{% endif %}" title="{{ d.date }}"></span>{% endif %}
+{%- endfor %}{% endfor %}
+</div>
