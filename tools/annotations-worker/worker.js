@@ -21,9 +21,10 @@ import { rewriteMomentTags } from './moment-tags.mjs';
  *   POST /votes        { path, dir, prev }     -> { up, down, shares }
  *   POST /shares       { path }                -> { shares }    one more share (any channel of the share menu)
  *   GET  /stats?paths=/a.html,/b.html          -> { items: { path: { views, comments, up, down, shares, id, url } } }
- *   GET  /reactions?path=/slug.html            -> { items: [{ hash, quote, section, up, share }] }   passage-level reactions
+ *   GET  /reactions?path=/slug.html            -> { items: [{ hash, quote, section, up, share, pinned }] }   passage-level reactions
  *   POST /reactions    { path, hash, quote, kind, on, section? } -> the same row
  *                                                 kind up (toggle) | share (+1)
+ *   POST /reactions/pin { path, hash, quote, section?, on } -> { up, share, pinned } (author only)
  *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=up|share, /feedback?path= (修订简报)
  *   GET /feedback (no path) -> { posts: { path: { reactions, views, up, shares } } }  every post, for the weekly 待修订 Action
  *   POST /moments      { text, place, tags, quote, by, music, time, images: […] | video: { src, poster? } } -> { url, commit }
@@ -97,6 +98,7 @@ export default {
       if (url.pathname === '/stats/top' && request.method === 'GET') return await statsTop(url, env, cors);
       if (url.pathname === '/votes' && (request.method === 'GET' || request.method === 'POST')) return await votes(request, url, env, cors);
       if (url.pathname === '/shares' && request.method === 'POST') return await shares(request, env, cors);
+      if (url.pathname === '/reactions/pin' && request.method === 'POST') return await pinReaction(request, env, cors);
       if (url.pathname === '/reactions' && (request.method === 'GET' || request.method === 'POST')) return await reactions(request, url, env, cors);
       if (url.pathname === '/reactions/top' && request.method === 'GET') return await reactionsTop(url, env, cors);
       if (url.pathname === '/feedback' && request.method === 'GET') return await feedback(url, env, cors);
@@ -394,11 +396,12 @@ async function statsTop(url, env, cors) {
 // (post, passage): `hash` is the FNV-1a id js/annotations.js already uses for
 // #annot-<hash> links, `quote` the exact text so the browser can draw the
 // underline on a passage nobody has commented on (it re-anchors the quote).
-// GET  /reactions?path=…                          -> { items: [{ hash, quote, section, up, share }] }
+// GET  /reactions?path=…                          -> { items: [{ hash, quote, section, up, share, pinned }] }
 // POST /reactions { path, hash, quote, kind, on, section? }
 //                                                  kind 'up' (on true/false = toggle)
 //                                                  or 'share' (always +1, also bumps the
 //                                                  article's `shares` row) -> { up, share, shares? }
+// POST /reactions/pin { path, hash, quote, section?, on } — author-only, reader underline
 // GET  /reactions/top?kind=up|share&limit=50 -> { rows: [{ path, hash, quote, section, up, share, updated_at }] }
 // GET  /feedback?path=…                           -> { reactions: [rows], views, up, shares } for the dashboard's 修订简报
 // `section` is the nearest heading above the passage (browser-supplied, ≤ 120
@@ -407,22 +410,23 @@ const HASH = /^[0-9a-f]{8}$/;
 const QUOTE_MAX = 600;
 const SECTION_MAX = 120;
 const REACTION_KINDS = ['up', 'share'];
-const ROW_COLS = 'up, share';
+const ROW_COLS = 'up, share, pinned';
 let reactionsTableReady = null;
 function ensureReactionsTable(env) {
   if (!reactionsTableReady) {
-    reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, share INTEGER NOT NULL DEFAULT 0, reasons TEXT, section TEXT, updated_at TEXT, resolved_at TEXT, resolved_doubt INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (path, hash))')
+    reactionsTableReady = env.DB.exec('CREATE TABLE IF NOT EXISTS passage_reactions (path TEXT NOT NULL, hash TEXT NOT NULL, quote TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, doubt INTEGER NOT NULL DEFAULT 0, share INTEGER NOT NULL DEFAULT 0, reasons TEXT, section TEXT, updated_at TEXT, resolved_at TEXT, resolved_doubt INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (path, hash))')
       // columns added later: migrate tables created without them (D1 has no ADD COLUMN IF NOT EXISTS)
       .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN share INTEGER NOT NULL DEFAULT 0').catch(() => {}))
       .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN reasons TEXT').catch(() => {}))
       .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN section TEXT').catch(() => {}))
       .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN resolved_at TEXT').catch(() => {}))
-      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN resolved_doubt INTEGER NOT NULL DEFAULT 0').catch(() => {}));
+      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN resolved_doubt INTEGER NOT NULL DEFAULT 0').catch(() => {}))
+      .then(() => env.DB.exec('ALTER TABLE passage_reactions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0').catch(() => {}));
   }
   return reactionsTableReady;
 }
 function rowOut(row) {
-  return { up: (row && row.up) || 0, share: (row && row.share) || 0 };
+  return { up: (row && row.up) || 0, share: (row && row.share) || 0, pinned: (row && row.pinned) || 0 };
 }
 async function reactions(request, url, env, cors) {
   if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
@@ -430,7 +434,7 @@ async function reactions(request, url, env, cors) {
   if (request.method === 'GET') {
     const path = url.searchParams.get('path');
     if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
-    const { results } = await env.DB.prepare(`SELECT hash, quote, section, ${ROW_COLS} FROM passage_reactions WHERE path = ?1 AND (up > 0 OR share > 0) ORDER BY up DESC`).bind(path).all();
+    const { results } = await env.DB.prepare(`SELECT hash, quote, section, ${ROW_COLS} FROM passage_reactions WHERE path = ?1 AND (up > 0 OR share > 0 OR pinned > 0) ORDER BY up DESC`).bind(path).all();
     return json({ items: results || [] }, 200, { ...cors, 'Cache-Control': 'no-store' });
   }
   const b = await request.json().catch(() => ({}));
@@ -449,6 +453,26 @@ async function reactions(request, url, env, cors) {
   const out = rowOut(row);
   if (b.kind === 'share') out.shares = await bumpShares(env, b.path, now); // a passage share is an article share too
   return json(out, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+async function pinReaction(request, env, cors) {
+  const auth = await requireAuthor(request, env, cors, '划线');
+  if (auth.error) return auth.error;
+  if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
+  await ensureReactionsTable(env);
+  const b = await request.json().catch(() => ({}));
+  if (typeof b.path !== 'string' || !VIEW_PATH.test(b.path) || b.path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
+  if (typeof b.hash !== 'string' || !HASH.test(b.hash)) return json({ error: '`hash` must be 8 hex chars' }, 400, cors);
+  const quote = String(b.quote || '').replace(/\s+/g, ' ').trim().slice(0, QUOTE_MAX);
+  if (!quote) return json({ error: '`quote` is required' }, 400, cors);
+  const section = String(b.section || '').replace(/\s+/g, ' ').trim().slice(0, SECTION_MAX) || null;
+  if (typeof b.on !== 'boolean') return json({ error: '`on` must be a boolean' }, 400, cors);
+  const pinned = b.on ? 1 : 0;
+  const now = new Date().toISOString();
+  const row = await env.DB.prepare(
+    `INSERT INTO passage_reactions (path, hash, quote, section, pinned, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ` +
+    `ON CONFLICT(path, hash) DO UPDATE SET pinned = ?5, section = COALESCE(section, ?4), updated_at = ?6 RETURNING ${ROW_COLS}`
+  ).bind(b.path, b.hash, quote, section, pinned, now).first();
+  return json(rowOut(row), 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 // The blog's author = the owner of REPO, signed in through giscus like any
 // reader: `Authorization: Bearer <reader token>` must answer GET /user with
@@ -497,7 +521,7 @@ async function reactionsTop(url, env, cors) {
   const want = url.searchParams.get('kind');
   const kind = ['up', 'share'].includes(want) ? want : 'up';
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
-  const { results } = await env.DB.prepare(`SELECT path, hash, quote, section, ${ROW_COLS}, updated_at FROM passage_reactions WHERE (up > 0 OR share > 0) AND ${kind} > 0 ORDER BY ${kind} DESC, up DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
+  const { results } = await env.DB.prepare(`SELECT path, hash, quote, section, up, share, updated_at FROM passage_reactions WHERE (up > 0 OR share > 0) AND ${kind} > 0 ORDER BY ${kind} DESC, up DESC, updated_at DESC LIMIT ?1`).bind(limit).all();
   return json({ rows: results || [] }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
@@ -512,7 +536,7 @@ async function feedback(url, env, cors) {
   const path = url.searchParams.get('path');
   if (path == null) {
     const [r, v, vo, sh] = await Promise.all([
-      env.DB.prepare(`SELECT path, hash, quote, section, ${ROW_COLS}, updated_at FROM passage_reactions WHERE up > 0 OR share > 0 ORDER BY up DESC`).all(),
+      env.DB.prepare('SELECT path, hash, quote, section, up, share, updated_at FROM passage_reactions WHERE up > 0 OR share > 0 ORDER BY up DESC').all(),
       env.DB.prepare('SELECT path, count FROM views').all(),
       env.DB.prepare('SELECT path, up FROM votes').all(),
       env.DB.prepare('SELECT path, count FROM shares').all(),
@@ -527,7 +551,7 @@ async function feedback(url, env, cors) {
   }
   if (typeof path !== 'string' || !VIEW_PATH.test(path) || path.includes('..')) return json({ error: '`path` must be a post URL' }, 400, cors);
   const [r, v, vo, sh] = await Promise.all([
-    env.DB.prepare(`SELECT hash, quote, section, ${ROW_COLS}, updated_at FROM passage_reactions WHERE path = ?1 AND (up > 0 OR share > 0) ORDER BY up DESC`).bind(path).all(),
+    env.DB.prepare('SELECT hash, quote, section, up, share, updated_at FROM passage_reactions WHERE path = ?1 AND (up > 0 OR share > 0) ORDER BY up DESC').bind(path).all(),
     env.DB.prepare('SELECT count FROM views WHERE path = ?1').bind(path).first(),
     env.DB.prepare('SELECT up FROM votes WHERE path = ?1').bind(path).first(),
     env.DB.prepare('SELECT count FROM shares WHERE path = ?1').bind(path).first()
