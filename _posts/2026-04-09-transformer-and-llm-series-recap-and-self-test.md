@@ -1,39 +1,39 @@
 ---
 layout: post
-series: transformer-and-llm
-title: "Transformer 与 LLM：系列总结与通关自测"
-subtitle: "Transformers and LLMs: Series Recap and Final Self-Test"
+series: modern-llm-architecture
+title: "现代 LLM 结构：系列总结与通关自测"
+subtitle: "Modern LLM Architecture: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-09 20:00:00
 updated: 2026-10-10
 ---
 
-十四篇正文分两段回答两个问题。**01–04：GPT-2 怎么工作、怎么写、怎么训**；**05–14：现代 LLM 改了什么、为什么、花了什么**——05 先读 Llama / DeepSeek / VLM 的真实配置并数出参数量，06 把参数量换成算量、字节与时间（后面所有专项共用的尺子），07–14 再逐项展开位置外推、attention 与 KV、长上下文结构、MoE、MTP、投机解码、多模态与浮点格式。量化与 LoRA 已并入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整路线见[系列总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+十篇正文从 GPT-2 到今天的模型，回答现代 LLM 改了什么、为什么、花了什么——01 先读 Llama / DeepSeek / VLM 的真实配置并数出参数量，02 把参数量换成算量、字节与时间（后面所有专项共用的尺子），03–10 再逐项展开位置外推、attention 与 KV、长上下文结构、MoE、MTP、投机解码、多模态与浮点格式。量化与 LoRA 已并入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整路线见[系列总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-本文不讲新内容，做三件事：把十四篇压成一张表与十四段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十四篇能不能连起来用"。
+本文不讲新内容，做三件事：把十篇正文压成一张表并逐篇回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十篇能不能连起来用"。
 
-> **读完这十四篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
+> **读完这十篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
 先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 150}}}%%
-%% 图：十四篇的依赖地图：先 GPT-2 的结构与实现，再以成本工具箱为入口逐项打开现代模型的改动
+%% 图：十篇的依赖地图：先 GPT-2 的结构与实现，再以成本工具箱为入口逐项打开现代模型的改动
 flowchart TB
-    subgraph S1["第一段：基本原理与实现（01–04）"]
+    subgraph S1["前置：Transformer 原理与实现（01–04）"]
         direction TB
         P1["01 静态结构"] --> P2["02 token 的旅程"] --> P3["03 model.py"] --> P4["04 train.py"]
     end
-    subgraph S2["第二段：现代 LLM 的演进与实践（05–14）"]
+    subgraph S2["现代 LLM 结构（01–10）"]
         direction TB
-        P5["05 读真实模型的配置<br/>Llama、DeepSeek、VLM"] --> P6["06 算量、访存与 Roofline<br/>（成本工具箱）"]
-        P6 --> P7["07 位置编码与外推"] --> P8["08 Attention 与 KV"] --> P9["09 长上下文"]
-        P6 --> P10["10 MoE"]
-        P6 --> P11["11 MTP"] --> P12["12 投机解码"]
-        P8 --> P13["13 多模态"]
+        P5["01 读真实模型的配置<br/>Llama、DeepSeek、VLM"] --> P6["02 算量、访存与 Roofline<br/>（成本工具箱）"]
+        P6 --> P7["03 位置编码与外推"] --> P8["04 Attention 与 KV"] --> P9["05 长上下文"]
+        P6 --> P10["06 MoE"]
+        P6 --> P11["07 MTP"] --> P12["08 投机解码"]
+        P8 --> P13["09 多模态"]
         P7 --> P13
-        P6 --> P14["14 浮点格式与混合精度"]
+        P6 --> P14["10 浮点格式与混合精度"]
     end
     P3 --> P5
     P2 --> P6
@@ -42,33 +42,33 @@ flowchart TB
 
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**主流 LLM 共用同一种 decoder-only 主干，这种结构能用 300 行写出来；它之后的每一处演进都在回答一个能用数字说清的问题；它的成本由四组变量决定——结构、运行点、数值、方法——多模态加第五组，每一格都有公式，代入 `config.json` 就能算出数字，不必等 benchmark**。第一段用同一份代码（$$d = 4$$ 的手算 → 带 KV cache 的极小 GPT → nanoGPT）从头到尾验证；第二段用同一种方法（写出公式 → 代入真实模型的超参 → 算出数字 → 解释对系统的意义）、同三个模型（Llama-3-8B / 70B 代表 dense + GQA，DeepSeek-V3 代表 MLA + 细粒度 MoE + FP8；Mixtral 8x7B 与四个多模态模型作对照）、同一张卡（H100 SXM：80 GB、3.35 TB/s、BF16 989 TFLOPS），把这张表逐格填满。
+系列的一句话主张是：**主流 LLM 共用同一种 decoder-only 主干，这种结构能用 300 行写出来；它之后的每一处演进都在回答一个能用数字说清的问题；它的成本由四组变量决定——结构、运行点、数值、方法——多模态加第五组，每一格都有公式，代入 `config.json` 就能算出数字，不必等 benchmark**。《Transformer 原理与实现》用同一份代码（$$d = 4$$ 的手算 → 带 KV cache 的极小 GPT → nanoGPT）从头到尾验证；本系列用同一种方法（写出公式 → 代入真实模型的超参 → 算出数字 → 解释对系统的意义）、同三个模型（Llama-3-8B / 70B 代表 dense + GQA，DeepSeek-V3 代表 MLA + 细粒度 MoE + FP8；Mixtral 8x7B 与四个多模态模型作对照）、同一张卡（H100 SXM：80 GB、3.35 TB/s、BF16 989 TFLOPS），把这张表逐格填满。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
-| [第一篇：Transformer 长什么样](/transformer-architecture-from-a-sentence-to-the-next-token.html) | 一个 token 编号进去、一个词表分布出来，中间经过了哪些运算？每个为什么必须在那里？ | 五种运算：embedding 查表、attention（唯一让 token 互相看的地方）、FFN（逐 token 的非线性，知识在这）、残差 + LayerNorm（深了能训）、lm_head；attention 不知道顺序，位置必须显式给 | $$\text{softmax}(QK^T/\sqrt d + M)V$$<br/>$$d = 4$$ 时 t2 的权重 (0.27, 0.27, 0.45)<br/>除 $$\sqrt d$$ 让点积标准差回到 1<br/>FFN 占一层 2/3<br/>GPT-2 small 124,439,808 |
-| [第二篇：一个 token 的旅程](/transformer-token-journey-training-and-inference.html) | 训练时一次前向为什么能得到 $$T$$ 个信号？推理时前面的 token 为什么不用重算？ | causal mask + teacher forcing 让 $$T$$ 个位置互不依赖<br/>激活值与 $$B \times T$$ 成正比<br/>causal 结构下旧 token 的 K、V 不变，算一次存下来 | 随机初始化 loss $$= \ln V$$<br/>有 / 无 KV cache 输出一致、生成 256 个 token 快 7.9 倍<br/>Llama-3-8B 128 KiB / token<br/>训练 / prefill / decode 三种形态 |
-| [第三篇：nanoGPT model.py 逐行](/nanogpt-model-py-line-by-line.html) | 一个能加载 GPT-2 权重、能训、能生成的 Transformer 最少要写什么？ | 结构本身不到 90 行（LayerNorm、CausalSelfAttention、MLP、Block）<br/>GPT 类拼结构、共享权重、两种初始化<br/>forward 训练分支算全部位置、推理分支只算最后一个 | `c_attn` 一次算 QKV<br/>`view` + `transpose` 拆头<br/>`c_proj` 初始化 $$0.02/\sqrt{2L}$$<br/>与 HF 对拍相对差 $$9 \times 10^{-5}$$<br/>Llama 相对 GPT-2 只改五处 |
-| [第四篇：nanoGPT train.py 与实训](/nanogpt-train-py-and-training-a-model-that-writes.html) | 从 1.1 MB 文本到会续写的模型，每一步代码在哪？改层数会怎样？ | `get_batch` 随机窗口 + 右移一位<br/>三种模型来源<br/>梯度累积 loss ÷ $$k$$、DDP 只在最后一步同步<br/>checkpoint 五样<br/>层是串行的，深了就慢 | shakespeare_char：$$\ln 65 = 4.17 \to 1.66$$，7 分钟；2 / 4 / 8 层 val 1.82 / 1.66 / 1.59，参数 0.40 / 0.80 / 1.58M |
-| [第五篇：从 GPT-2 到今天的 LLM——结构演进的路线图](/llm-architecture-evolution-roadmap-from-gpt2.html) | 从 GPT-2 到今天的模型中间发生了什么？给一个 `config.json`，能认出每处改动、并算出参数量？ | GPT-2 是十个可替换的槽位，骨架从未变过；改动沿四条线走：长上下文、容量与每 token 代价、训练信号与生成、输入模态；dense Transformer 没有隐藏参数，乘层数加词表精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
-| [第六篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
-| [第七篇：位置编码与外推](/positional-encoding-and-long-context.html) | 位置如何表达、为何外推有风险？ | 位置编码解决顺序；改频谱不等于学会长文 | $$\lambda_i = 2\pi\,\text{base}^{2i/d_{head}}$$；PI / NTK-aware / YaRN |
-| [第八篇：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) | V3 128 头 61 层，KV cache 为什么比 32 头 32 层的 8B 小？代价？ | KV 只与 $$n_{kv}$$ 有关；MLA 缓存 512 + 64 维 latent，decode 吸收后等价于 128 头共享一个 KV 头的 MQA，用 3.4 倍 attention FLOPs 换 57 倍字节 | $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$<br/>8B 128 KiB（MHA 512 KiB）、70B 320 KiB、V3 68.6 KiB（MHA 3.81 MiB）<br/>decode attention 强度 4 / 8 / 242 |
-| [第九篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？ | KV 线性、prefill attention 二次；滑窗改可见位置、MLA 改 KV 表示 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s |
-| [第十篇：MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) | V3 每 token 只算 37B，为什么比 dense 70B 难部署得多？ | 三个"参数量"分开：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定 decode 带宽——中等 batch 下几乎读全部专家 | $$E[1 - (1 - k/E)^B]$$：$$B = 32$$ 时 163 个、读 434B<br/>FP8 671 GB 放不进 640 GB<br/>每 token 每层 dispatch 56 KiB + combine 112 KiB<br/>每专家 GEMM $$Tk/E$$ 行 |
-| [第十一篇：MTP](/multi-token-prediction-mtp.html) | 每个位置多预测一个 token，多花了什么、多得了什么？为什么顺序不并行？ | 信号密度 ×$$(1 + D)$$，主干被逼编码更远的未来<br/>顺序模块喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）<br/>推理时丢弃或做投机 draft | 自有参数：2 个 RMSNorm + $$2d \to d$$ 投影 + 1 个 block<br/>$$\lambda$$ 0.3 → 0.1<br/>接受率 85–90%、TPS 1.8 倍<br/>nanoGPT 上主任务不变、$$t+2$$ 命中 45%、+29% 参数 |
-| [第十二篇：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html) | 同一套投机解码，为什么 batch 1 加速 2 倍、batch 64 没有收益？ | 接受 / 拒绝重采样让输出分布严格等于目标模型；验证 γ+1 个 token 只在 memory-bound 区间免费 | $$\mathbb{E}[\text{tokens}] = (1-\alpha^{\gamma+1})/(1-\alpha)$$；α=0.8、γ=4、c=0.1：3.36 token、约 2.4×；转折 batch ≈ ridge/(γ+1) ≈ 60 |
-| [第十三篇：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html) | 一张 1024² 的图在 Qwen2-VL 里等于多少 token？代价在哪？ | 图片贵的不是 encoder（一次性、compute-bound），是它变成的 token 在 decoder 里占的 KV——与同长文本同价，活到请求结束 | $$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$，1024² → 1369<br/>encoder 11.8 TFLOP<br/>70B 规格 KV 428 MiB 是 encoder 输出 21 MiB 的 20 倍<br/>同一张图 576 到 6404 token |
-| [第十四篇：浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) | BF16 相对精度只有 FP16 的 1/8，为什么成了默认？用在权重更新上会怎样？ | 指数位定范围、尾数位定精度；前向反向要范围，更新要精度——所以 BF16 计算 + FP32 master weights | BF16 1/8/7、单位舍入 $$2^{-8} \approx 0.004$$<br/>FP16 最大 65504、$$e^x$$ 在 $$x > 11.09$$ 溢出<br/>E4M3 最大 448 无 inf<br/>$$k = 4096$$ BF16 累加噪声 25%<br/>16 B/参数、8B 训练状态 128 GB |
 
-Table: 十四篇的核心问题、结论与必记公式
+
+
+
+| [第一篇：从 GPT-2 到 Llama——五处改动与参数量](/gpt2-to-llama-five-changes-and-parameter-count.html) | 从 GPT-2 到今天的模型中间发生了什么？给一个 `config.json`，能认出每处改动、并算出参数量？ | GPT-2 是十个可替换的槽位，骨架从未变过；改动沿五条演进线与一条辅线展开：长上下文、参数规模与每 token 成本、attention 替代、训练信号与生成、输入理解与输出生成、训练稳定性；dense Transformer 没有隐藏参数，乘层数加词表精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
+| [第二篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
+| [第三篇：位置编码与外推](/positional-encoding-and-long-context.html) | 位置如何表达、为何外推有风险？ | 位置编码解决顺序；改频谱不等于学会长文 | $$\lambda_i = 2\pi\,\text{base}^{2i/d_{head}}$$；PI / NTK-aware / YaRN |
+| [第四篇：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) | V3 128 头 61 层，KV cache 为什么比 32 头 32 层的 8B 小？代价？ | KV 只与 $$n_{kv}$$ 有关；MLA 缓存 512 + 64 维 latent，decode 吸收后等价于 128 头共享一个 KV 头的 MQA，用 3.4 倍 attention FLOPs 换 57 倍字节 | $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$<br/>8B 128 KiB（MHA 512 KiB）、70B 320 KiB、V3 68.6 KiB（MHA 3.81 MiB）<br/>decode attention 强度 4 / 8 / 242 |
+| [第五篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？能否换掉 attention？ | KV 线性、prefill attention 二次；滑窗改可见位置，线性 attention / SSM 把历史压进递归状态，混合架构折中质量与成本 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s；[Qwen3-Next 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)算例：混合结构约 3.04 GiB，对照全 attention 12 GiB |
+| [第六篇：MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) | V3 每 token 只算 37B，为什么比 dense 70B 难部署得多？ | 三个"参数量"分开：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定 decode 带宽——中等 batch 下几乎读全部专家 | $$E[1 - (1 - k/E)^B]$$：$$B = 32$$ 时 163 个、读 434B<br/>FP8 671 GB 放不进 640 GB<br/>每 token 每层 dispatch 56 KiB + combine 112 KiB<br/>每专家 GEMM $$Tk/E$$ 行 |
+| [第七篇：MTP](/multi-token-prediction-mtp.html) | 每个位置多预测一个 token，多花了什么、多得了什么？为什么顺序不并行？ | 信号密度 ×$$(1 + D)$$，主干被逼编码更远的未来<br/>顺序模块喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）<br/>推理时丢弃或做投机 draft | 自有参数：2 个 RMSNorm + $$2d \to d$$ 投影 + 1 个 block<br/>$$\lambda$$ 0.3 → 0.1<br/>接受率 85–90%、TPS 1.8 倍<br/>nanoGPT 上主任务不变、$$t+2$$ 命中 45%、+29% 参数 |
+| [第八篇：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html) | 同一套投机解码，为什么 batch 1 加速 2 倍、batch 64 没有收益？ | 接受 / 拒绝重采样让输出分布严格等于目标模型；验证 γ+1 个 token 只在 memory-bound 区间免费 | $$\mathbb{E}[\text{tokens}] = (1-\alpha^{\gamma+1})/(1-\alpha)$$；α=0.8、γ=4、c=0.1：3.36 token、约 2.4×；转折 batch ≈ ridge/(γ+1) ≈ 60 |
+| [第九篇：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html) | 一张 1024² 的图在 Qwen2-VL 里等于多少 token？图像与语音怎么生成？ | 输入侧要算 encoder、image token 与 decoder KV；输出侧分离散图像 token 自回归、diffusion、解耦视觉路径与语音 token，成本单位随结构而变 | 输入：$$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$，1024² → 1369<br/>encoder 11.8 TFLOP<br/>70B 规格 KV 428 MiB 是 encoder 输出 21 MiB 的 20 倍<br/>输出：[Emu3 论文](https://arxiv.org/html/2409.18869v1)的 512×512 图像为 4096 个自回归 token 步 |
+| [第十篇：浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) | BF16 相对精度只有 FP16 的 1/8，为什么成了默认？用在权重更新上会怎样？ | 指数位定范围、尾数位定精度；前向反向要范围，更新要精度——所以 BF16 计算 + FP32 master weights | BF16 1/8/7、单位舍入 $$2^{-8} \approx 0.004$$<br/>FP16 最大 65504、$$e^x$$ 在 $$x > 11.09$$ 溢出<br/>E4M3 最大 448 无 inf<br/>$$k = 4096$$ BF16 累加噪声 25%<br/>16 B/参数、8B 训练状态 128 GB |
+
+Table: 十篇的核心问题、结论与必记公式
 
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿十四篇的五条线：一份代码、一条 Roofline、KV cache 与上下文长度、"参数量"拆成几个数、字节里存了什么 |
+| 三 | 贯穿十篇的五条线：一份代码、一条 Roofline、KV cache 与上下文长度、"参数量"拆成几个数、字节里存了什么 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 15 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
@@ -77,75 +77,15 @@ Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
-### 1. 第一篇：Transformer 长什么样：从一句话到下一个 token
+### 01. 第一篇：从 GPT-2 到 Llama——五处改动与参数量
 
-**核心问题**：一个 token 的编号进入模型，到词表上的一个概率分布出来，中间经过了哪些运算？每一个运算为什么必须在那里——去掉它模型会失去什么？
+**核心问题**：从《Transformer 原理与实现》写出的 GPT-2 到今天的模型，中间发生了什么？给一个 2025 年模型的 `config.json`，能不能指出它在哪几个槽位换了什么、每处回答什么问题、去哪一篇看；给一个 Llama 式 dense 配置，能不能五分钟内算出参数量、误差 1% 以内？
 
-**结论**：只有五种运算，每个方框的输入输出都是 $$[T, d]$$，所以能一层层叠。embedding 查表把任意编号变成可比较的向量；attention 是**唯一让 token 之间交流的地方**——query 与所有 key 打分、除 $$\sqrt d$$ 防饱和、mask 禁止看未来、softmax 得权重、加权求和 value；它是集合运算不知道顺序（换序实验），位置必须显式给（GPT-2 查表 / Llama RoPE）；FFN 是逐 token 的两层小网络，提供非线性、存知识、占一层参数的 2/3；残差流让 24 次修正训得动，LayerNorm 让每个子层看到同一尺度；lm_head 与 embedding 共享。原始 Transformer 是 encoder-decoder，GPT 去掉 encoder 与 cross-attention，把要参考的内容拼进输入。
-
-**必记**：
-
-- $$\text{Attention}(Q, K, V) = \text{softmax}(QK^T/\sqrt d + M)V$$；$$d = 4$$、$$T = 3$$ 的手算：t2 的权重 $$(0.27, 0.27, 0.45)$$，输出 $$(0.73, 0.73, 0.27, 0.27)$$，与 PyTorch 对拍差 $$6 \times 10^{-8}$$。
-- 随机 $$q \cdot k$$ 的标准差 $$= \sqrt d$$；不除，$$d = 128$$ 时 softmax 一个 token 独占权重。
-- GPT-2 small：12 层 × 7.09M + embedding 38.6M + 位置表 0.79M = 124,439,808；FFN 占一层 66.6%、embedding 占总量 31.6%。
-- GPT-2 真实的头：第 4 层第 11 头看上一个词、第 3 头把 it 指回 cat（0.84）。
-
-**常见误解**："参数主要在 attention 里"（FFN 是 2/3）；"mask 给了位置信息所以不用位置编码"（mask 只给左右不给距离）；"多头增加算量"（$$h$$ 个小乘法 = 一个大乘法，只多 $$W_O$$）。
-
-### 2. 第二篇：一个 token 的旅程：训练侧与推理侧
-
-**核心问题**：训练时一句话的 $$T$$ 个 token 进入模型，为什么一次前向就能得到 $$T$$ 个训练信号？推理时为什么前面的 token 不用重算——KV cache 里存的是什么、省了什么、花了什么？
-
-**结论**：训练侧：$$T + 1$$ 个连续 token → 输入与右移一位的目标 → 一次前向 $$[B, T, V]$$ → $$T$$ 个交叉熵取平均 → 反向沿原路 → AdamW；**causal mask** 让位置 $$i$$ 只用前文（与推理一致），**teacher forcing** 用真实 token 当目标（位置间可并行），所以一句话 = $$T$$ 个样本。反向要用前向的中间量，激活值必须保存到反向结束、与 $$B \times T$$ 成正比。推理侧：prefill 同训练前向只取最后位置（TTFT），decode 每步一个 token（TPOT）；causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存进 KV cache，每步只算新 token 的 Q、K、V 并追加。
+**结论**：GPT-2 是十个可替换的槽位（归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式），"embedding → L 个 block → norm → lm_head"的骨架从未变过。部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；2023 年之后结构改动重新活跃，驱动力是推理成本。改动归成五条演进线与一条辅线：更长的上下文（03 → 04 → 05）、放大参数规模并压住每 token 成本（01 → 04 → 06 → 10）、attention 替代路线（05）、更密的训练信号与更快的生成（07 → 08）、输入理解与输出生成（09），以及训练稳定性辅线；GQA / MLA 是前两条主线的交汇点。RMSNorm、SwiGLU、去 bias 在这里讲清，其余只定位、后续专篇展开。参数账以 Llama 为完整案例：能，而且精确。每层是 attention 四个矩阵（$$W_K, W_V$$ 的列数是 $$n_{kv} d_{head}$$，GQA 只是 $$n_{kv} < n_h$$）加 SwiGLU 三个矩阵 $$3 d \cdot d_{ff}$$，Llama 的 14336 来自 $$\frac{2}{3} \cdot 4d \times 1.3$$ 向上对齐到 1024 的倍数；乘层数、加词表，Llama-3-8B 得 8,030,261,248，70B 与 405B 也与公布值一致——RoPE、softmax 都没有参数。DeepSeek-V3 骨架相同，只是 attention 换成 MLA 的六个矩阵、FFN 换成 257 个专家：总参数 671B、每 token 激活 37B，"参数量"第一次不再单独对应成本。
 
 **必记**：
 
-- 随机初始化 loss $$\approx \ln V$$：16 词 2.78、GPT-2 词表 10.8、65 字符 4.17。
-- 有 / 无 KV cache 输出逐 token 一致；prompt 256 生成 256，快 7.9 倍；代价 Llama-3-8B 128 KiB / token（32 层 × 2 × 8 头 × 128 × 2 B）。
-- 三种形态：训练 $$[B, T]$$ 全位置有用、有反向、存激活值；prefill $$[B, T]$$ 只用最后位置、存 K/V；decode $$[B, 1]$$ 无 mask 矩阵、追加 K/V、访存瓶颈。
-- `targets` 若是切片要 `.reshape(-1)`，`view` 会因不连续报错。
-
-**常见误解**："推理就是训练的前向"（decode 完全是另一种形态）；"KV cache 也存 Q"（旧 token 的 Q 用过即弃）；"训练长上下文和推理长上下文一样难"（训练多一份与 $$B \times T$$ 成正比的激活值）。
-
-### 3. 第三篇：手搓 GPT（上）：nanoGPT model.py 逐行解析
-
-**核心问题**：一个能加载 GPT-2 权重、能训练、能生成的 Transformer，最少需要写哪些东西？nanoGPT 的每一行分别在实现前两篇的哪个方框、哪一步？
-
-**结论**：330 行、6 个类，结构本身（`LayerNorm` + `CausalSelfAttention` + `MLP` + `Block`）不到 90 行。Q、K、V 合成一个 $$d \to 3d$$ 的 `c_attn` 一次算完再 `split`；`view` + `transpose` 把头换到第 1 维以便批量矩阵乘；有 SDPA 走融合 kernel，否则手写五行；拼回去要 `contiguous()`；mask 叫 `bias` 是为了和 checkpoint 键名一致。`GPT` 用 `ModuleDict` 让键名与 HF 一致，`wte.weight = lm_head.weight` 共享省 31% 参数，所有权重 $$\mathcal N(0, 0.02^2)$$、写回残差流的 `c_proj` 再除 $$\sqrt{2L}$$；`forward` 传 `targets` 算全部位置的交叉熵，不传只算最后一个位置的 lm_head；`generate` 无 KV cache（教学取舍）；`from_pretrained` 按键名拷 HF 权重、四个 `Conv1D` 矩阵转置；`configure_optimizers` 只对二维参数 decay；`estimate_mfu` 用 $$6N + 12LHQT$$。
-
-**必记**：
-
-- `x = x + self.attn(self.ln_1(x)); x = x + self.mlp(self.ln_2(x))`——pre-norm 两行。
-- 与 HF GPT-2 对拍：最后位置 logits 相对差 $$9 \times 10^{-5}$$，argmax 一致。
-- `get_num_params()` 默认扣 `wpe`：123.65M；加回 124.44M。
-- Llama 相对 GPT-2 只改五处：RMSNorm、RoPE、SwiGLU、GQA、去 bias（lm_head 不共享）。
-
-**常见误解**："三个独立的 Linear 与一个 `c_attn` 数学上不同"（等价，合并只为一次 GEMM）；"推理时 lm_head 也要算全部位置"（只算最后一个，省 99.9%）；"`c_proj` 的特殊初始化是玄学"（$$2L$$ 次相加后方差不涨）。
-
-### 4. 第四篇：手搓 GPT（下）：nanoGPT train.py 与训一个会续写的模型
-
-**核心问题**：从一个 1.1 MB 的文本文件到一个能续写它的模型，中间每一步的代码在哪、为什么那样写？把层数从 4 改到 2 或 8，loss 和速度各会怎样？
-
-**结论**：`prepare.py` 字符级分词成 `uint16` 的 `train.bin` / `val.bin`（9 : 1）+ `meta.pkl`，词表大小由数据决定；`train.py` 的 72 个全局变量默认是 GPT-2 small 复现配方，`configurator.py` 用 `exec` 覆盖；`get_batch` 用 `memmap` + 随机窗口 + `stack`（连续）造 `x` 与右移一位的 `y`，没有 epoch；三种模型来源（从零 / 续训强制结构一致 / GPT-2 权重）+ GradScaler（仅 fp16）/ 优化器 / `compile` / DDP；循环每步：设 lr → 到点评估存 checkpoint 五样 → $$k$$ 个 micro-batch 累积（loss ÷ $$k$$、预取、DDP 只在最后一步同步）→ unscale + 裁剪 → step → zero_grad。实跑 0.8M 参数 2000 步 7 分钟，loss $$\ln 65 = 4.17 \to 1.66$$，输出有莎士比亚格式；train / val 从 1000 步起拉开。
-
-**必记**：
-
-- 默认配置每次迭代 $$40 \times 12 \times 1024 = 491{,}520$$ token；8 卡时每卡累积 5 次，总量不变。
-- 2 / 4 / 8 层：参数 0.40 / 0.80 / 1.58M，val loss 1.82 / 1.66 / 1.59，每步耗时约 0.5× / 1× / 2×——参数与耗时线性、loss 收益递减。
-- checkpoint 五样：model、optimizer、model_args、iter_num、config。
-- MFU 0.2%：小 batch 在 MPS 上完全 launch-bound，与 A100 分母无关。
-
-**常见误解**："不除累积步数只是 loss 尺度不同"（等价于学习率放大 $$k$$ 倍）；"续训不需要优化器状态"（动量从零重估，前几百步抖）；"更深总是更好"（同样时间内更深跑的步数更少）。
-
-### 5. 第五篇：从 GPT-2 到今天的 LLM——结构演进的路线图
-
-**核心问题**：从第一段写出的 GPT-2 到今天的模型，中间发生了什么？给一个 2025 年模型的 `config.json`，能不能指出它在哪几个槽位换了什么、每处回答什么问题、去哪一篇看；给一个 Llama 式 dense 配置，能不能五分钟内算出参数量、误差 1% 以内？
-
-**结论**：GPT-2 是十个可替换的槽位（归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式），"embedding → L 个 block → norm → lm_head"的骨架从未变过。部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；2023 年之后结构改动重新活跃，驱动力是推理成本。改动归成四条线：更长的上下文（07 → 08 → 09）、更大的容量与更低的每 token 代价（05 → 08 → 10 → 14）、更密的训练信号与更快的生成（11 → 12）、更多的输入模态（13）；GQA / MLA 是前两条线的交汇点。RMSNorm、SwiGLU、去 bias 在这里讲清，其余只定位、后续专篇展开。参数账以 Llama 为完整案例：能，而且精确。每层是 attention 四个矩阵（$$W_K, W_V$$ 的列数是 $$n_{kv} d_{head}$$，GQA 只是 $$n_{kv} < n_h$$）加 SwiGLU 三个矩阵 $$3 d \cdot d_{ff}$$，Llama 的 14336 来自 $$\frac{2}{3} \cdot 4d \times 1.3$$ 向上对齐到 1024 的倍数；乘层数、加词表，Llama-3-8B 得 8,030,261,248，70B 与 405B 也与公布值一致——RoPE、softmax 都没有参数。DeepSeek-V3 骨架相同，只是 attention 换成 MLA 的六个矩阵、FFN 换成 257 个专家：总参数 671B、每 token 激活 37B，"参数量"第一次不再单独对应成本。
-
-**必记**：
-
-- 十个槽位、四条线；读 config 认站：`num_key_value_heads`（08）、`rope_theta` / `rope_scaling`（07）、`sliding_window` / `layer_types`（09）、`num_experts` / `num_experts_per_tok`（10）、`num_nextn_predict_layers`（11）、`vision_config`（13）、`torch_dtype` / `quantization_config`（14）。
+- 十个槽位、五条主线与一条辅线；读 config 认站：`num_key_value_heads`（04）、`rope_theta` / `rope_scaling`（03）、`sliding_window` / `layer_types`（05）、`num_experts` / `num_experts_per_tok`（06）、`num_nextn_predict_layers`（07）、`vision_config`（09）、`torch_dtype` / `quantization_config`（10）。
 - $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$，$$d_{kv} = n_{kv} d_{head}$$；tied 时词表只算一份。
 - 8B：attention 每层 41.94M、FFN 176.16M，32 层 6.98B，embedding 与 lm_head 各 525.3M。
 - 层内 FFN 约 80%；词表 8B 占 13%、70B 3%、405B 约 1%。
@@ -153,7 +93,7 @@ Table: 本文的章节安排
 
 **常见误解**：用 $$4d$$ 当 $$d_{ff}$$、按两矩阵算 SwiGLU、漏掉不共享的 lm_head、把 K/V 当 MHA 算，各造成 5% 到 30% 的偏差；把 embedding 也乘 2 算进 FLOPs，多算约 7%。
 
-### 6. 第六篇：前向的算量与访存量：prefill、decode 与 Roofline
+### 02. 第二篇：前向的算量与访存量：prefill、decode 与 Roofline
 
 **核心问题**：Llama-3-8B 在一张 H100 上，batch 多大时 decode 从 memory-bound 变成 compute-bound？考虑 KV cache 之后，这个 batch 还能达到吗？
 
@@ -168,7 +108,7 @@ Table: 本文的章节安排
 
 **常见误解**："模型多大"对 decode 的度量是字节，不是 FLOPs：FFN 砍一半下界不变，INT4 让下界降到约 1.3 ms。kernel 写得再好也不能让 $$B = 1$$ 的 decode compute-bound。
 
-### 7. 第七篇：位置编码与外推
+### 03. 第三篇：位置编码与外推
 
 **核心问题**：位置编码为什么与长度扩展有关，却不是专为长上下文设计？[^q3]
 
@@ -176,7 +116,7 @@ Table: 本文的章节安排
 
 **必记**：波长为 $$2\pi\,\text{base}^{2i/d_{head}}$$；改变 base 不等于补上长序列训练，更不会减少 KV 或 prefill 算量。
 
-### 8. 第八篇：Attention 变体与 KV cache：MHA、GQA、MQA 与 MLA 的推导
+### 04. 第四篇：Attention 变体与 KV cache：MHA、GQA、MQA 与 MLA 的推导
 
 **核心问题**：DeepSeek-V3 有 128 个 attention head、61 层，KV cache 却比 32 头 32 层的 Llama-3-8B 小。这是怎么做到的？代价是什么？
 
@@ -191,7 +131,7 @@ Table: 本文的章节安排
 
 **常见误解**："head 多 KV 就大"——KV 只看 $$n_{kv}$$。"MLA 是免费的压缩"——它多算 3.4 倍 attention FLOPs、要维护两条等价路径与专用 kernel，且不能从 MHA checkpoint 直接转换。
 
-### 9. 第九篇：长上下文的成本与结构手段
+### 05. 第五篇：长上下文的成本与结构手段
 
 **核心问题**：位置能够外推之后，128K 请求还贵在哪里？[^q4]
 
@@ -199,7 +139,7 @@ Table: 本文的章节安排
 
 **必记**：8B / 70B 的 attention 与权重算量交叉点约 28.6K / 53.8K；128K KV 为 16 / 40 GiB，prefill 单卡等效 60% MFU 约 11 / 69 s。chunked prefill 改调度与干扰，不消除总工作量；稀疏 attention 也不必然省 KV。
 
-### 10. 第十篇：MoE：路由、激活参数量与通信形态
+### 06. 第六篇：MoE：路由、激活参数量与通信形态
 
 **核心问题**：DeepSeek-V3 每 token 只算 37B 参数，为什么部署它比部署一个 dense 70B 难得多？把"参数量"、"激活参数量"、"每步实际读取的参数量"三个数分开算。
 
@@ -214,7 +154,7 @@ Table: 本文的章节安排
 
 **常见误解**："激活 37B 就像 37B 的 dense 一样部署"——显存 9.5 倍、中等 batch 下每步访存 6–9 倍。"MoE 的通信也是 all-reduce"——EP 是 all-to-all，量与 $$k \cdot d$$ 成正比、与专家参数量无关。
 
-### 11. 第十一篇：MTP：改训练目标而不改主干的多 token 预测
+### 07. 第七篇：MTP：改训练目标而不改主干的多 token 预测
 
 **核心问题**：每个位置多预测一个 token，训练时多花了什么、可能多得到什么？DeepSeek-V3 的 MTP 模块为什么要"顺序"而不是"并行"，推理时它去哪了？
 
@@ -228,7 +168,7 @@ Table: 本文的章节安排
 
 **常见误解**："MTP 头 loss 更低所以更强"（条件不同）；"小模型上没收益所以无效"（规模依赖）；"MTP 是多几个输出头"（顺序模块与并行头是两条路线）。
 
-### 12. 第十二篇：投机解码：草稿、验证与收益条件
+### 08. 第八篇：投机解码：草稿、验证与收益条件
 
 **核心问题**：同一套投机解码，为什么 batch 1 时加速 2 倍，batch 64 时没有收益？[^q5]
 
@@ -242,7 +182,7 @@ Table: 本文的章节安排
 
 **常见误解**："草稿模型差会让输出变差"（只会变慢，分布不变）；"投机解码总是加速"（大 batch、高吞吐负载下要关掉或缩到 $$\gamma = 1$$）；"MTP 是投机解码的必要条件"（它只是草稿来源之一）。
 
-### 13. 第十三篇：多模态：vision encoder 的算量与 image token 的 KV 代价
+### 09. 第九篇：多模态：vision encoder 的算量与 image token 的 KV 代价
 
 **核心问题**：一张 1024×1024 的图片在 Qwen2-VL 里等于多少个 token？它的代价花在 encoder、connector 还是 decoder 的 KV 上？为什么"encoder 输出只有二十来 MB"与"这张图占 400 MB 显存"同时成立？
 
@@ -257,7 +197,9 @@ Table: 本文的章节安排
 
 **常见误解**："多模态贵在 vision encoder"——encoder 12 ms 对 prefill 195 ms，且输出用完即弃；一张 1024² 图就是一段 1369 token、无法被 tokenizer 压短的 system prompt。"按图片张数预算"——原生动态分辨率下 $$n_p$$ 相差三个数量级，必须按像素预算。
 
-### 14. 第十四篇：浮点格式、数值稳定性与混合精度
+输出侧要按生成机制分别计成本：[Emu3](https://arxiv.org/html/2409.18869v1)给出的 512×512 图像是 4096 个自回归 token 步；[Transfusion](https://arxiv.org/html/2408.11039)报告的 16 是图像 patch 数而非去噪迭代数；[Janus](https://arxiv.org/html/2410.13848)把理解与生成的视觉路径解耦；[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)描述 Thinker-Talker 与音频解码结构，但没有通用 tokens/s 可用于固定成本估算。
+
+### 10. 第十篇：浮点格式、数值稳定性与混合精度
 
 **核心问题**：BF16 的相对精度只有 FP16 的 1/8，为什么它反而成了训练的默认格式？把它同时用在权重更新上会出什么问题？
 
@@ -274,42 +216,38 @@ Table: 本文的章节安排
 
 ## 三、贯穿全系列的几条线
 
-### 0. 一份代码，从第一篇长到第十一篇
+### 1. 一条 Roofline，本系列都在它上面
 
-第一篇的 `attention_by_hand.py` 只有六步矩阵运算；第二篇的 `token_journey.py` 把它包进一个带 KV cache 的极小 GPT；第三篇的 nanoGPT `model.py` 是同一个结构的正式版本（多了 dropout、权重共享、初始化、加载 HF 权重）；第四篇的 `train.py` 让它训起来；第七、八、十篇的实现片段在 nanoGPT 的 `CausalSelfAttention`、`MLP` 上改出 RoPE、GQA、MoE；第十一篇在 `GPT` 上挂一个 MTP 模块做对照实验。读第二段任何一篇时，问"这一处改动落在 nanoGPT 的哪几行"，答案都能在第三篇里找到。
-
-### 1. 一条 Roofline，第二段都在它上面
-
-第六篇建立的坐标系被之后每一篇复用：ridge $$= P_{peak} / BW \approx 295$$，BF16 decode 权重 GEMM 的强度恰好是 $$B$$，KV 读取的强度是 $$g$$。第八篇把 MLA 的价值说成"把这个常数从 4 抬到 242"；第九篇指出 prefill 的二次项无法靠 batch 摊薄，因为它本来就在 ridge 右侧；第十篇发现 $$I = B$$ 在 MoE 上不成立——每个专家只分到 $$Tk/E$$ 行，强度比 dense 低 32 倍，要过 ridge 需要一层里同时有约 9600 个 token，这是 EP320 在 decode 上汇聚全部请求的另一个理由；第十二篇把投机解码放回同一条线：转折点在 $$\text{ridge}/(\gamma + 1)$$，只在斜线段上兑现——高效推理专题里的 W4A16 同理把转折点放在 $$\text{ridge}/4$$，两者可以叠加；第十三篇指出 encoder 的 5476 行 GEMM 在 ridge 右侧很远，用 batch 摊不掉。
+第二篇建立的坐标系被之后每一篇复用：ridge $$= P_{peak} / BW \approx 295$$，BF16 decode 权重 GEMM 的强度恰好是 $$B$$，KV 读取的强度是 $$g$$。第四篇把 MLA 的价值说成"把这个常数从 4 抬到 242"；第五篇指出 prefill 的二次项无法靠 batch 摊薄，因为它本来就在 ridge 右侧；第六篇发现 $$I = B$$ 在 MoE 上不成立——每个专家只分到 $$Tk/E$$ 行，强度比 dense 低 32 倍，要过 ridge 需要一层里同时有约 9600 个 token，这是 EP320 在 decode 上汇聚全部请求的另一个理由；第八篇把投机解码放回同一条线：转折点在 $$\text{ridge}/(\gamma + 1)$$，只在斜线段上兑现——高效推理专题里的 W4A16 同理把转折点放在 $$\text{ridge}/4$$，两者可以叠加；第九篇指出 encoder 的 5476 行 GEMM 在 ridge 右侧很远，用 batch 摊不掉。
 
 一个附带结论贯穿始终：ridge 从 A100 的 156 涨到 H100 的 295、FP8 下 590，算力增长快于带宽，同一个模型同一个 batch 在新一代 GPU 上更容易 memory-bound。
 
 ### 2. KV cache 与上下文长度：从一个给定的数到最大的优化空间
 
-第六篇把 128 KiB/token 当给定值用，算出 8K、$$B = 64$$ 时 KV 读取是权重的四倍、有效 batch 只有 15。第八篇打开这个数：结构（GQA 的 $$n_{kv}$$、MLA 的 $$d_c + d_h^R$$）定元素个数，量化定 bytes/elem，分页定碎片率，prefix 共享定复用倍数，四个乘子独立叠加可差两三个数量级。第九篇加上 $$s$$ 这个维度：KV 是线性项定并发（70B 128K 一条请求 40 GiB），attention 是二次项定 TTFT（8B 128K 11 s），滑窗改阶、交错改系数、MLA 只改系数；位置编码决定 $$s$$ 能不能变大，成本决定它该不该。高效推理专题的 KV 量化把 bytes/elem 从 2 减到 1；第十三篇揭示多模态请求的 KV 由分辨率而非文本长度决定，一张图等于 1369 个 token 的 KV，比 encoder 输出大 20 倍，且方差远大于文本。
+第二篇把 128 KiB/token 当给定值用，算出 8K、$$B = 64$$ 时 KV 读取是权重的四倍、有效 batch 只有 15。第四篇打开这个数：结构（GQA 的 $$n_{kv}$$、MLA 的 $$d_c + d_h^R$$）定元素个数，量化定 bytes/elem，分页定碎片率，prefix 共享定复用倍数，四个乘子独立叠加可差两三个数量级。第五篇加上 $$s$$ 这个维度：KV 是线性项定并发（70B 128K 一条请求 40 GiB），attention 是二次项定 TTFT（8B 128K 11 s），滑窗改阶、交错改系数、MLA 只改系数；位置编码决定 $$s$$ 能不能变大，成本决定它该不该。高效推理专题的 KV 量化把 bytes/elem 从 2 减到 1；第九篇揭示多模态请求的 KV 由分辨率而非文本长度决定，一张图等于 1369 个 token 的 KV，比 encoder 输出大 20 倍，且方差远大于文本。
 
 这条线的落点是容量规划：$$B \times s \le$$ 显存预算 / 每 token KV，显存填满时吞吐与上下文长度成反比，长上下文贵的原因不在调度，在 HBM 字节数。
 
 ### 3. "参数量"被拆成几个数
 
-第五篇算出精确的 $$N$$，同时埋下第一个分裂：embedding 有参数但不进 GEMM，参与算量的是 $$N_{gemm} = 7.5$$B。第六篇由此得到 FLOPs/token $$= 2N_{gemm}$$、字节 $$= N \cdot \text{bytes/param}$$，并指出对 decode 而言"多大"的正确度量是字节。第十篇拆成三个数：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定带宽——V3 是 671B / 37B / 随 batch 从 37B 到 671B。第十四篇把 bytes/param 从推理的 2 扩展到训练的 16，8B 的 128 GB 训练状态是 ZeRO 与 FSDP 存在的理由。两个专题系列再拆两次：量化让 bytes/param 变成 4.25 bit（高效推理），LoRA 让可训练参数变成 $$N$$ 的 0.52%（LoRA 专题）。第十三篇加进 encoder 的 0.3–0.8B，并说明它在显存账里不是主角。
+第一篇算出精确的 $$N$$，同时埋下第一个分裂：embedding 有参数但不进 GEMM，参与算量的是 $$N_{gemm} = 7.5$$B。第二篇由此得到 FLOPs/token $$= 2N_{gemm}$$、字节 $$= N \cdot \text{bytes/param}$$，并指出对 decode 而言"多大"的正确度量是字节。第六篇拆成三个数：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定带宽——V3 是 671B / 37B / 随 batch 从 37B 到 671B。第十篇把 bytes/param 从推理的 2 扩展到训练的 16，8B 的 128 GB 训练状态是 ZeRO 与 FSDP 存在的理由。两个专题系列再拆两次：量化让 bytes/param 变成 4.25 bit（高效推理），LoRA 让可训练参数变成 $$N$$ 的 0.52%（LoRA 专题）。第九篇加进 encoder 的 0.3–0.8B，并说明它在显存账里不是主角。
 
 ### 4. 字节里存了什么：数值贯穿结构与方法
 
-第十四篇之前默认每个数 2 字节，但 FP8 早已出现：第六篇给出 FP8 decode 强度 $$2B$$、ridge 590，第八篇 V3 的 KV 可用 FP8 存成 34.3 KiB，第十篇 dispatch 用 FP8、combine 用 BF16。第十四篇解释这些选择：指数位定范围、尾数位定精度；E4M3 存权重与激活、E5M2 存梯度；scale 的粒度决定一个离群值拖累多少邻居，V3 的 128 分块与每 128 项提升 FP32 累加是同一个设计。高效推理专题的量化篇把同样的原理用到推理量化：FP8 比 INT8 对离群值宽容，因为步长是相对的；SmoothQuant 与 AWQ 是同一个 $$\text{diag}(s)$$ 分解的两个方向；KV 量化时 K 比 V 更敏感。第十四篇的 QK-norm、第七篇的 attention 温度、第八篇 MLA 的 nope / rope 两段范围不同，都是"数值决定结构细节"的例子。
+第十篇之前默认每个数 2 字节，但 FP8 早已出现：第二篇给出 FP8 decode 强度 $$2B$$、ridge 590，第四篇 V3 的 KV 可用 FP8 存成 34.3 KiB，第六篇 dispatch 用 FP8、combine 用 BF16。第十篇解释这些选择：指数位定范围、尾数位定精度；E4M3 存权重与激活、E5M2 存梯度；scale 的粒度决定一个离群值拖累多少邻居，V3 的 128 分块与每 128 项提升 FP32 累加是同一个设计。高效推理专题的量化篇把同样的原理用到推理量化：FP8 比 INT8 对离群值宽容，因为步长是相对的；SmoothQuant 与 AWQ 是同一个 $$\text{diag}(s)$$ 分解的两个方向；KV 量化时 K 比 V 更敏感。第十篇的 QK-norm、第三篇的 attention 温度、第四篇 MLA 的 nope / rope 两段范围不同，都是"数值决定结构细节"的例子。
 
-把后四条线合在一张依赖图上，就是第二段共用的成本模型——结构与数值决定三组量，运行点决定工作点，相除后与 ridge 比较：
+把后四条线合在一张依赖图上，就是本系列共用的成本模型——结构与数值决定三组量，运行点决定工作点，相除后与 ridge 比较：
 
 ```mermaid
-%% 图：第二段共用的成本模型：结构与数值决定参数量、权重字节与 KV cache，运行点决定工作点，算术强度与 ridge 比较
+%% 图：本系列共用的成本模型：结构与数值决定参数量、权重字节与 KV cache，运行点决定工作点，算术强度与 ridge 比较
 flowchart TB
-    S["结构：L、d、d_ff、n_kv、专家数与 top-k<br/>（第一、三、五篇）"]
-    N["参数量 N、激活参数量<br/>（第五、九篇）"]
-    K["KV cache / token = 2 L n_kv d_head · bytes/elem<br/>（第八篇）"]
-    D["数值：bytes/param、bytes/elem<br/>（第十四篇与量化专题）"]
+    S["结构：L、d、d_ff、n_kv、专家数与 top-k<br/>（第一、四、六篇）"]
+    N["参数量 N、激活参数量<br/>（第一、六篇）"]
+    K["KV cache / token = 2 L n_kv d_head · bytes/elem<br/>（第四篇）"]
+    D["数值：bytes/param、bytes/elem<br/>（第十篇与量化专题）"]
     W["权重字节 = N · bytes/param"]
-    F["FLOPs / token ≈ 2N + 4dLs<br/>（第六、九篇）"]
-    R["运行点：batch B、上下文 s、prefill / decode<br/>（第二、六、九、十篇）"]
+    F["FLOPs / token ≈ 2N + 4dLs<br/>（第二、五篇）"]
+    R["运行点：batch B、上下文 s、prefill / decode<br/>（第二、五、六、八、九篇）"]
     H["每步字节 = 权重字节 + B · s · KV/token"]
     I["算术强度 I = FLOPs / 字节"]
     G["ridge = 峰值算力 / 带宽（H100 BF16 约 295）"]
@@ -332,12 +270,12 @@ flowchart TB
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| 算术强度与 Roofline | 06、08、09、10、12、13 | 06 建通用模型；其余分别改变 KV、长度、专家、算法或图像变量 |
-| KV cache | 08、09、13、14 | 表示宽度、保留长度、image token、存储位宽是不同变量 |
-| 参数量 | 05、06、10 | 总参数、激活参数、GEMM 参数不是一个数（可训练参数见 LoRA 专题） |
-| 数值与量化 | 14 → 高效推理 03 | 先范围 / 精度 / 累加，再 scale 粒度 / 校准 / 压缩 |
-| 训练状态 | 14 → LoRA 专题 01 | 14 算全量 16 B/参数，LoRA 专题区分冻结底座与可训练低秩参数 |
-| 位置与长度 | 07、08、09、13 | 07 讲位置外推；08 的 MLA 解耦 RoPE；09 讲成本；13 扩展到 M-RoPE |
+| 算术强度与 Roofline | 02、04、05、06、08、09 | 02 建通用模型；其余分别改变 KV、长度、专家、算法或图像变量 |
+| KV cache | 04、05、09、10 | 表示宽度、保留长度、image token、存储位宽是不同变量 |
+| 参数量 | 01、02、06 | 总参数、激活参数、GEMM 参数不是一个数（可训练参数见 LoRA 专题） |
+| 数值与量化 | 10 → 高效推理 03 | 先范围 / 精度 / 累加，再 scale 粒度 / 校准 / 压缩 |
+| 训练状态 | 10 → LoRA 专题 01 | 10 算全量 16 B/参数，LoRA 专题区分冻结底座与可训练低秩参数 |
+| 位置与长度 | 03、04、05、09 | 03 讲位置外推；04 的 MLA 解耦 RoPE；05 讲成本；09 扩展到 M-RoPE |
 
 Table: 跨篇概念的正确阅读入口
 
@@ -345,30 +283,29 @@ Table: 跨篇概念的正确阅读入口
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 大模型的参数主要在 attention 里 | attention 四个 $$d^2$$，FFN 两个 $$4d^2$$ | FFN 占一层 2/3（Llama 约 80%），知识主要存在 FFN | [第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
-| causal mask 给了位置信息，位置编码可以省 | mask 只告诉"谁在左边"，不告诉"左边第几个"；attention 是集合运算 | 位置必须显式注入：GPT-2 查表或 RoPE | [第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
-| 推理就是训练的前向 | decode 的输入是 $$[B, 1]$$、没有 mask 矩阵、靠 KV cache、瓶颈在访存 | 训练 / prefill / decode 是三种形态 | [第二篇](/transformer-token-journey-training-and-inference.html) |
-| 三个独立的 Q/K/V Linear 与一个 `c_attn` 不一样 | 横着拼的矩阵切开就是三个矩阵 | 等价；合并只为一次 GEMM 更快 | [第三篇](/nanogpt-model-py-line-by-line.html) |
-| 小模型上 MTP 没收益说明 MTP 无效 | 收益是规模依赖的（13B 以上明显） | 小模型只验证机制与代价 | [第十一篇](/multi-token-prediction-mtp.html) |
-| FFN 中间维度就是 $$4d$$ | Llama 用 SwiGLU 三矩阵，14336 = $$\frac{2}{3} \cdot 4d \times 1.3$$ 对齐到 1024 | 以 `intermediate_size` 为准，且数三个矩阵 | [第五篇](/llm-architecture-evolution-roadmap-from-gpt2.html) |
-| 每 token FLOPs 就是 $$2 \times$$ 全部参数 | embedding 是查表，FLOPs 为零 | $$2 N_{gemm}$$，8B 是 $$2 \times 7.5$$B = 15 GFLOPs | [第五篇](/llm-architecture-evolution-roadmap-from-gpt2.html)、[第六篇](/transformer-flops-bytes-and-roofline.html) |
-| decode 慢是因为算力不够 | $$B = 1$$ 时算力时间 0.02 ms，访存 4.8 ms | 强度等于 $$B$$，距 ridge 295 两个数量级，是 memory-bound | [第六篇](/transformer-flops-bytes-and-roofline.html) |
-| batch 开到 300 就能把 H100 用满 | 8K 下 295 个请求的 KV 要 295 GiB，且 KV 读取的强度是常数 $$g$$ | 总强度趋于 18，单卡任何可行 batch 都 memory-bound；约束是 $$B \times s \le 52$$ 万 | [第六篇](/transformer-flops-bytes-and-roofline.html) |
-| head 越多 KV cache 越大 | KV 公式里只有 $$n_{kv}$$，没有 $$n_h$$ | V3 128 头 68.6 KiB 比 8B 的 128 KiB 还小；看 `kv_lora_rank` | [第八篇](/attention-variants-and-kv-cache.html) |
-| 把 base 改成 500000 就能免费用 128K | 改 base 只让长距离可区分，没见过的相位仍要训 | "见过"靠长序列训练<br/>高频维度不变<br/>二次项不减 | [第七篇](/positional-encoding-and-long-context.html) |
-| 滑窗与 MLA 都是"减 KV"，作用一样 | 滑窗改阶但丢信息；MLA 改系数（57 倍）不改阶 | 两者正交，可以叠加 | [第九篇](/long-context-cost-and-structural-remedies.html) |
-| MoE 激活 37B，部署像 dense 37B | 显存按 671B 算，中等 batch 下每步几乎读全部专家 | 三个数分开：671B / 37B / 随 batch 从 37B 到 671B | [第十篇](/moe-compute-and-communication.html) |
-| MoE 用 TP 切就行 | TP-8 把 2048 宽的专家切成 256 列，GEMM 太瘦，且不减少每卡读的专家数 | 大规模 EP 加 all-to-all；Mixtral 的 14336 宽专家单机 TP 才可行 | [第十篇](/moe-compute-and-communication.html) |
-| BF16 精度低，训练应该用 FP16 | FP16 范围窄，小梯度下溢，要 loss scaling | 深度学习选范围不选精度；BF16 + FP32 master weights | [第十四篇](/floating-point-formats-and-mixed-precision.html) |
-| 投机解码总是加速 | 验证 γ+1 个 token 只在 $$B(\gamma+1) \lesssim \text{ridge}$$ 时免费 | 转折 batch ≈ ridge/(γ+1) ≈ 60，之后加速比下降、大 batch 下低于 1 | [第十二篇](/speculative-decoding-draft-verify-and-payoff.html) |
+
+
+
+
+| 小模型上 MTP 没收益说明 MTP 无效 | 收益是规模依赖的（13B 以上明显） | 小模型只验证机制与代价 | [第七篇](/multi-token-prediction-mtp.html) |
+| FFN 中间维度就是 $$4d$$ | Llama 用 SwiGLU 三矩阵，14336 = $$\frac{2}{3} \cdot 4d \times 1.3$$ 对齐到 1024 | 以 `intermediate_size` 为准，且数三个矩阵 | [第一篇](/gpt2-to-llama-five-changes-and-parameter-count.html) |
+| 每 token FLOPs 就是 $$2 \times$$ 全部参数 | embedding 是查表，FLOPs 为零 | $$2 N_{gemm}$$，8B 是 $$2 \times 7.5$$B = 15 GFLOPs | [第一篇](/gpt2-to-llama-five-changes-and-parameter-count.html)、[第二篇](/transformer-flops-bytes-and-roofline.html) |
+| decode 慢是因为算力不够 | $$B = 1$$ 时算力时间 0.02 ms，访存 4.8 ms | 强度等于 $$B$$，距 ridge 295 两个数量级，是 memory-bound | [第二篇](/transformer-flops-bytes-and-roofline.html) |
+| batch 开到 300 就能把 H100 用满 | 8K 下 295 个请求的 KV 要 295 GiB，且 KV 读取的强度是常数 $$g$$ | 总强度趋于 18，单卡任何可行 batch 都 memory-bound；约束是 $$B \times s \le 52$$ 万 | [第二篇](/transformer-flops-bytes-and-roofline.html) |
+| head 越多 KV cache 越大 | KV 公式里只有 $$n_{kv}$$，没有 $$n_h$$ | V3 128 头 68.6 KiB 比 8B 的 128 KiB 还小；看 `kv_lora_rank` | [第四篇](/attention-variants-and-kv-cache.html) |
+| 把 base 改成 500000 就能免费用 128K | 改 base 只让长距离可区分，没见过的相位仍要训 | "见过"靠长序列训练<br/>高频维度不变<br/>二次项不减 | [第三篇](/positional-encoding-and-long-context.html) |
+| 滑窗与 MLA 都是"减 KV"，作用一样 | 滑窗改阶但丢信息；MLA 改系数（57 倍）不改阶 | 两者正交，可以叠加 | [第五篇](/long-context-cost-and-structural-remedies.html) |
+| MoE 激活 37B，部署像 dense 37B | 显存按 671B 算，中等 batch 下每步几乎读全部专家 | 三个数分开：671B / 37B / 随 batch 从 37B 到 671B | [第六篇](/moe-compute-and-communication.html) |
+| MoE 用 TP 切就行 | TP-8 把 2048 宽的专家切成 256 列，GEMM 太瘦，且不减少每卡读的专家数 | 大规模 EP 加 all-to-all；Mixtral 的 14336 宽专家单机 TP 才可行 | [第六篇](/moe-compute-and-communication.html) |
+| BF16 精度低，训练应该用 FP16 | FP16 范围窄，小梯度下溢，要 loss scaling | 深度学习选范围不选精度；BF16 + FP32 master weights | [第十篇](/floating-point-formats-and-mixed-precision.html) |
+| 投机解码总是加速 | 验证 γ+1 个 token 只在 $$B(\gamma+1) \lesssim \text{ridge}$$ 时免费 | 转折 batch ≈ ridge/(γ+1) ≈ 60，之后加速比下降、大 batch 下低于 1 | [第八篇](/speculative-decoding-draft-verify-and-payoff.html) |
 | 权重量化让模型全面加速 | prefill 是 compute-bound，反量化是纯开销 | W4A16 只在 decode 且 $$B \lesssim \text{ridge}/4$$ 时兑现；W8A8 才对 prefill 有效 | [高效推理 03](/post-training-quantization-gptq-awq-and-rotation.html) |
-| 多模态的成本在 vision encoder | encoder 一次性 12 ms、输出用完即弃 | 贵的是 image token 的 KV，是 encoder 输出的 20 倍且活到请求结束 | [第十三篇](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
+| 多模态的成本在 vision encoder | encoder 一次性 12 ms、输出用完即弃 | 贵的是 image token 的 KV，是 encoder 输出的 20 倍且活到请求结束 | [第九篇](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
 
 Table: 常见误区与正确说法
-
 ## 五、通关自测
 
-### A. 判断与计算（15 题）
+### A. 判断与计算（11 题）
 
 1. 一个 dense 模型：$$L = 48$$、$$d = 6144$$、$$d_{ff} = 16384$$、$$n_h = 48$$、$$n_{kv} = 8$$、$$d_{head} = 128$$、$$V = 128256$$、不共享。参数量约多少？词表占比？
 
@@ -450,39 +387,7 @@ Table: 常见误区与正确说法
 
     </details>
 
-11. 用第一篇的玩具模型：某个 token 的 query 与三个 key 的内积是 $$(2, 6, 4)$$，$$d = 4$$，它是第 2 个位置（能看全部三个）。softmax 权重是多少？如果不除 $$\sqrt d$$ 呢？
-
-   <details markdown="1"><summary>答案</summary>
-
-   除 2 后 $$(1, 3, 2)$$：$$e^1, e^3, e^2 = 2.72, 20.1, 7.39$$，和 30.2，权重 $$(0.09, 0.67, 0.24)$$。不除：$$e^2, e^6, e^4 = 7.39, 403, 54.6$$，权重 $$(0.016, 0.867, 0.117)$$——第二个 token 更独占，$$d$$ 越大越极端。
-
-   </details>
-
-12. 一个 8 层、$$d = 256$$、4 头、词表 1000、上下文 512、GPT-2 结构（带 bias、位置表、权重共享）的模型有多少参数？
-
-   <details markdown="1"><summary>答案</summary>
-
-   每层：attention $$256 \times 768 + 768 + 256 \times 256 + 256 = 263{,}424$$，FFN $$256 \times 1024 + 1024 + 1024 \times 256 + 256 = 525{,}568$$，两个 LN 1024，合计 790,016；8 层 6.32M；`wte` $$1000 \times 256 = 256{,}000$$，`wpe` $$512 \times 256 = 131{,}072$$，`ln_f` 512；总计约 6.71M。lm_head 共享不另算。
-
-   </details>
-
-13. 训练时 $$B = 4$$、$$T = 2048$$、$$V = 128256$$、bf16。logits 张量多大？为什么第三篇的推理分支只算 `x[:, [-1], :]`？
-
-   <details markdown="1"><summary>答案</summary>
-
-   $$4 \times 2048 \times 128256 \times 2$$ B $$\approx 2.1$$ GB——训练时必须全算（每个位置都有目标）。推理只需要最后一个位置的分布，全算是浪费 $$T - 1$$ 倍的 lm_head 计算与这 2 GB 显存。
-
-   </details>
-
-14. 第四篇的配置下 decode 一个 500 token 的回答（prompt 500）：nanoGPT 的 `generate`（无 KV cache）总共前向了多少个 token 位置？第二篇的带 cache 版本呢？
-
-   <details markdown="1"><summary>答案</summary>
-
-   无 cache：第 $$k$$ 步算 $$500 + k$$ 个位置，$$\sum_{k=1}^{500}(500 + k) = 250{,}000 + 125{,}250 = 375{,}250$$。有 cache：prefill 500 + decode 500 = 1000。差 375 倍；实测倍数小于此（每步还要读 cache、小矩阵效率低）。
-
-   </details>
-
-15. 在第十一篇的实验里把 $$D$$ 改成 2：MTP 模块多了什么？第 2 级的输入是什么？训练时每个位置有几个目标？
+11. 在第七篇的实验里把 $$D$$ 改成 2：MTP 模块多了什么？第 2 级的输入是什么？训练时每个位置有几个目标？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -496,7 +401,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   高效推理专题的量化篇：权重 4.27 GB（若 embedding / lm_head 保留 BF16，第五篇算过约 5.6 GB），剩约 75 GB；第八篇：BF16 KV 128 KiB/token，约 58 万 token，128K 可放 4 条；FP8 KV 64 KiB，约 115 万 token，8 条。对照第六篇 BF16 权重下的 52 万——量化权重只把 KV 容量提高约 10%，量化 KV 才是翻倍。
+   高效推理专题的量化篇：权重 4.27 GB（若 embedding / lm_head 保留 BF16，第一篇算过约 5.6 GB），剩约 75 GB；第四篇：BF16 KV 128 KiB/token，约 58 万 token，128K 可放 4 条；FP8 KV 64 KiB，约 115 万 token，8 条。对照第二篇 BF16 权重下的 52 万——量化权重只把 KV 容量提高约 10%，量化 KV 才是翻倍。
 
    </details>
 
@@ -504,7 +409,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第九篇：prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 69 s，8 卡 TP 完美线性也接近 9 s；第八篇：KV 320 KiB × 131072 = 40 GiB，单张 H100 一半显存；第六篇：每步读权重 141 GB + KV 43 GB ≈ 184 GB，按 3.35 TB/s 约 55 ms（单卡等效，实际必须多卡切分）。
+   第五篇：prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 69 s，8 卡 TP 完美线性也接近 9 s；第四篇：KV 320 KiB × 131072 = 40 GiB，单张 H100 一半显存；第二篇：每步读权重 141 GB + KV 43 GB ≈ 184 GB，按 3.35 TB/s 约 55 ms（单卡等效，实际必须多卡切分）。
 
    </details>
 
@@ -512,7 +417,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   量化篇（高效推理 03）与第十二篇：INT4 让每次前向下界 1.27 ms，投机让一轮产出 3.36 个 token、成本 1.4 次前向；每 token 约 $$1.27 \times 1.4 / 3.36 \approx 0.53$$ ms、约 1900 token/s。第六篇的 Roofline：验证的 $$\gamma + 1 = 5$$ 行乘 INT4 的 4 倍强度，权重 GEMM 过 ridge 的 batch 是 $$295 / (4 \times 5) \approx 15$$——两个方法兑现的是同一份空转算力，叠加后收益区间缩得更窄。
+   量化篇（高效推理 03）与第八篇：INT4 让每次前向下界 1.27 ms，投机让一轮产出 3.36 个 token、成本 1.4 次前向；每 token 约 $$1.27 \times 1.4 / 3.36 \approx 0.53$$ ms、约 1900 token/s。第二篇的 Roofline：验证的 $$\gamma + 1 = 5$$ 行乘 INT4 的 4 倍强度，权重 GEMM 过 ridge 的 batch 是 $$295 / (4 \times 5) \approx 15$$——两个方法兑现的是同一份空转算力，叠加后收益区间缩得更窄。
 
    </details>
 
@@ -520,7 +425,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第十篇：FP8 权重 671 GB 仍放不进 8 卡 640 GB，只是让 EP16 成为放得下的最小规模；第八篇：FP8 KV 让 68.6 KiB 变 34.3 KiB，128K 上下文 4.3 GiB；第十篇：dispatch 用 FP8 56 KiB、combine 用 BF16 112 KiB。第六篇：FP8 让 decode 权重强度变 $$2B$$、ridge 变 590，距离没变，仍需 $$B \approx 295$$；第十四篇：E4M3 无 inf、范围只有 5 个十进制数量级，所以要 $$1 \times 128$$ / $$128 \times 128$$ 的分块 scale 与每 128 项提升 FP32 累加——字节减半的前提是这些开关全开。
+   第六篇：FP8 权重 671 GB 仍放不进 8 卡 640 GB，只是让 EP16 成为放得下的最小规模；第四篇：FP8 KV 让 68.6 KiB 变 34.3 KiB，128K 上下文 4.3 GiB；第六篇：dispatch 用 FP8 56 KiB、combine 用 BF16 112 KiB。第二篇：FP8 让 decode 权重强度变 $$2B$$、ridge 变 590，距离没变，仍需 $$B \approx 295$$；第十篇：E4M3 无 inf、范围只有 5 个十进制数量级，所以要 $$1 \times 128$$ / $$128 \times 128$$ 的分块 scale 与每 128 项提升 FP32 累加——字节减半的前提是这些开关全开。
 
    </details>
 
@@ -528,7 +433,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   LoRA 专题第一篇：冻结 BF16 底座 15.2 GB + LoRA 状态（16 B/参数只作用在几十 M 上）不到 1 GB；第十三篇：冻结 ViT 只省 9 GB 状态，主要省的是 ViT 前向 5476 个 patch × 32 层约 10 GB 的激活值，反向到 connector 就停；第十四篇：全量 16 B/参数是 122 GB 的对照。这张图变成 1369 个 token，进入 decoder 后与文本同价——激活值随序列长度线性增长，且同一 batch 里 144 与 5476 并存，打包要按 token 数装箱。
+   LoRA 专题第一篇：冻结 BF16 底座 15.2 GB + LoRA 状态（16 B/参数只作用在几十 M 上）不到 1 GB；第九篇：冻结 ViT 只省 9 GB 状态，主要省的是 ViT 前向 5476 个 patch × 32 层约 10 GB 的激活值，反向到 connector 就停；第十篇：全量 16 B/参数是 122 GB 的对照。这张图变成 1369 个 token，进入 decoder 后与文本同价——激活值随序列长度线性增长，且同一 batch 里 144 与 5476 并存，打包要按 token 数装箱。
 
    </details>
 
@@ -568,7 +473,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 三个参数量分开：671B 定显存（FP8 也放不进 640 GB）、37B 定 FLOPs、每步读取随 batch 趋近 671B（$$B = 32$$ 读 434B）；(2) TP-8 不减少每卡读的专家数，且把 $$d_{ff} = 2048$$ 切成 256 列，GEMM 太瘦；(3) EP 让每卡只读自己的专家，EP32 每卡约 37 GB、EP320 每卡 19.6 GB（均为均匀分布的简化模型，报告的真实部署见第十篇第四章）；(4) 代价是每层两次 all-to-all（每 token 每层 168 KiB，TP-8 all-reduce 的 6.7 倍）、专家 GEMM 只有 $$Tk/E$$ 行、最慢的卡定全层时间；(5) 节点受限路由（最多 4 个节点）、aux-loss-free 均衡、冗余专家是围绕这些代价的设计，且节点受限路由是训练时定的。
+   **答案要点**：(1) 三个参数量分开：671B 定显存（FP8 也放不进 640 GB）、37B 定 FLOPs、每步读取随 batch 趋近 671B（$$B = 32$$ 读 434B）；(2) TP-8 不减少每卡读的专家数，且把 $$d_{ff} = 2048$$ 切成 256 列，GEMM 太瘦；(3) EP 让每卡只读自己的专家，EP32 每卡约 37 GB、EP320 每卡 19.6 GB（均为均匀分布的简化模型，报告的真实部署见第六篇第四章）；(4) 代价是每层两次 all-to-all（每 token 每层 168 KiB，TP-8 all-reduce 的 6.7 倍）、专家 GEMM 只有 $$Tk/E$$ 行、最慢的卡定全层时间；(5) 节点受限路由（最多 4 个节点）、aux-loss-free 均衡、冗余专家是围绕这些代价的设计，且节点受限路由是训练时定的。
    **追问方向**：EP 下 prefill 的通信为什么可能是计算的 3 倍；Mixtral 为什么单机 TP 可行；grouped GEMM 过 ridge 需要多少 token。
    **好答案与一般答案的区别**：一般答案说"参数太多放不下"；好答案算出访存那一行——中等 batch 下 MoE 每步读的字节是 dense 70B 的 3–5 倍，并说明 EP 与 TP 在 GEMM 形状上的差别。
 
@@ -604,13 +509,21 @@ Table: 常见误区与正确说法
 
    </details>
 
+8. Emu3、Transfusion 与 Qwen2.5-Omni 的生成成本分别用什么单位衡量？哪些具体数字有论文直接支持？
+
+   <details markdown="1"><summary>答案</summary>
+
+   [Emu3 论文](https://arxiv.org/html/2409.18869v1)给出 512×512 图像 4096 个离散 token，因此该设置下是 4096 个自回归 token 步；[Transfusion 论文](https://arxiv.org/html/2408.11039)报告 16 个图像 patch，但这不是 diffusion 去噪步数；[Qwen2.5-Omni 论文](https://arxiv.org/html/2503.20215v1)描述 Thinker-Talker 与滑窗 DiT，没有给出通用的音频 tokens/s。后两者不应据此改写成固定生成速率。
+
+   </details>
+
 ### D. 掌握判据
 
 | 水平 | 表现 |
 |---|---|
-| 读过 | 能说出十四篇各讲什么<br/>能画出 decoder-only Transformer 的结构图并说出五种部件各干什么<br/>知道 $$2N$$、ridge、KV cache、GQA / MLA、RoPE、MoE、MTP、BF16、投机解码、image token 这些名词与它们大致的数量级 |
+| 读过 | 能说出十篇各讲什么<br/>能画出 decoder-only Transformer 的结构图并说出五种部件各干什么<br/>知道 $$2N$$、ridge、KV cache、GQA / MLA、RoPE、MoE、MTP、BF16、投机解码、image token 这些名词与它们大致的数量级 |
 | 掌握 | 能不看原文写出 nanoGPT `model.py` 的骨架并在笔记本上训出续写莎士比亚的模型<br/>A 组能不翻书算出 12 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一个 `config.json` 和一张 GPU 规格表能在动手前给出参数量、权重字节、KV/token、decode 与 prefill 下界、Roofline 位置 |
-| 能教人 | C 组每题能给出全部要点并预判追问<br/>能在 nanoGPT 上改出 GQA / RoPE / MoE / MTP 的最小实现并说出代价<br/>能解释十四篇里每个反直觉结论（MoE 稀疏收益随 batch 减弱、128 头 KV 更小、改 base 不省训练、投机解码在大 batch 下反而变慢、图片贵在 KV 不在 encoder）为什么成立，并说出它在哪个区间失效 |
+| 能教人 | C 组每题能给出全部要点并预判追问<br/>能在 nanoGPT 上改出 GQA / RoPE / MoE / MTP 的最小实现并说出代价<br/>能解释十篇里每个反直觉结论（MoE 稀疏收益随 batch 减弱、128 头 KV 更小、改 base 不省训练、投机解码在大 batch 下反而变慢、图片贵在 KV 不在 encoder）为什么成立，并说出它在哪个区间失效 |
 
 Table: 掌握程度的判据
 
@@ -621,11 +534,11 @@ Table: 掌握程度的判据
 本系列算的是"模型作为计算对象"的账，几个方向紧邻但不在范围内：
 
 - **这个模型怎么训出来**——tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、超参表里的数字从哪来，是同一张成本表的训练侧，在紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)，用同样的方法算。
-- **多模态的训练与对齐方法、扩散模型**——第十三篇只把 vision encoder、connector 与 image token 当作计算对象算账；视觉-语言对齐怎么训、数据怎么配、扩散模型完全不同的成本结构，在[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。
+- **多模态的训练与对齐方法、扩散模型**——第九篇只把 vision encoder、connector 与 image token 当作计算对象算账；视觉-语言对齐怎么训、数据怎么配、扩散模型完全不同的成本结构，在[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。
 - **量化与参数高效微调**——权重、激活与 KV 怎么压到更少的位、误差怎么控制，在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)；LoRA 的四本账、选参与上线，在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。两者原本是本系列的两篇，已并入对应专题。
 - **kernel 实现、推理引擎的调度与内存管理、分布式并行的实现**——FlashAttention 的分块怎么写、PagedAttention 的 block 怎么管、TP / PP / EP 怎么切分与同步。本系列给出这些机制所依据的数字（IO 复杂度、KV 字节数、all-to-all 的量），不讲机制本身。
 
-回到总纲：[《Transformer 与 LLM：结构、实现与演进》](/transformer-and-llm-structure-implementation-and-evolution.html)。
+回到总纲：[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
 ## 七、延伸阅读
 
@@ -639,12 +552,12 @@ Table: 掌握程度的判据
 - **分布式并行的实现**：TP / PP / EP / 序列并行如何切分与同步、集合通信的算法。本系列在 MoE 一篇讨论 EP 的通信**量**，不讨论通信**怎么做**。
 - **框架 API**：`transformers`、PyTorch、vLLM 的使用方式。实践部分会调用它们做验证，但不解释它们。
 - **非 Transformer 结构**：状态空间模型（Mamba 一类）、线性 attention、扩散模型。它们改变了成本结构的基本形态，值得单独讨论，不进入本系列。
-- **多模态的训练与对齐方法**：第十三篇只把 vision encoder、connector 与 image token 当作计算对象来算账，不讨论视觉-语言对齐怎么训、数据怎么配；扩散模型（图像 / 视频生成）的成本结构与自回归 LLM 完全不同，不进入本系列。这两部分在算法地图的 L7 系列[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)里展开。
+- **多模态的训练与对齐方法**：第九篇只把 vision encoder、connector 与 image token 当作计算对象来算账，不讨论视觉-语言对齐怎么训、数据怎么配；扩散模型（图像 / 视频生成）的成本结构与自回归 LLM 完全不同，不进入本系列。这两部分在算法地图的 L7 系列[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)里展开。
 
 
-[^q0]: 分成十四篇的这些问题：Transformer 里五种部件各为什么在那里（去掉会怎样）；训练一次前向为什么得到 $$T$$ 个信号、KV cache 存了什么（causal mask + teacher forcing、旧 token 的 K/V 不变）；一个能加载 GPT-2 权重的 Transformer 最少写什么（四个类不到 90 行）；训练循环每行为什么在那里、改层数会怎样（累积 ÷ $$k$$、层串行）；MTP 多花多得、为什么顺序（一个 block、因果链）；给一个 `config.json` 算出参数量与分布（逐矩阵公式）；每 token 算多少、每步读多少、batch 多大才 compute-bound（$$2N$$、$$I = B$$、ridge 295、KV 读取封顶）；KV cache 由什么决定、GQA 与 MLA 各改了什么（$$2 L n_{kv} d_{head}$$、576 维 latent、吸收）；上下文能多长、代价在哪（波长、交叉点、二次项）；MoE 的三个"参数量"与 all-to-all（期望激活专家数、$$Tk/E$$）；每个数占几个字节、数值在哪丢失（范围对精度、master weights、累加）；量化、投机、LoRA 各改哪个变量、在哪个区间有效（$$W_{bytes}$$、$$m$$、训练状态）；一张图等于多少 token、贵在哪（$$\lceil H/28 \rceil \lceil W/28 \rceil$$、KV 是 encoder 输出的 20 倍）。详见[第二章](#二逐篇回顾)。
+[^q0]: 分成十篇的这些问题：Transformer 里五种部件各为什么在那里（去掉会怎样）；训练一次前向为什么得到 $$T$$ 个信号、KV cache 存了什么（causal mask + teacher forcing、旧 token 的 K/V 不变）；一个能加载 GPT-2 权重的 Transformer 最少写什么（四个类不到 90 行）；训练循环每行为什么在那里、改层数会怎样（累积 ÷ $$k$$、层串行）；MTP 多花多得、为什么顺序（一个 block、因果链）；给一个 `config.json` 算出参数量与分布（逐矩阵公式）；每 token 算多少、每步读多少、batch 多大才 compute-bound（$$2N$$、$$I = B$$、ridge 295、KV 读取封顶）；KV cache 由什么决定、GQA 与 MLA 各改了什么（$$2 L n_{kv} d_{head}$$、576 维 latent、吸收）；上下文能多长、代价在哪（波长、交叉点、二次项）；MoE 的三个"参数量"与 all-to-all（期望激活专家数、$$Tk/E$$）；每个数占几个字节、数值在哪丢失（范围对精度、master weights、累加）；量化、投机、LoRA 各改哪个变量、在哪个区间有效（$$W_{bytes}$$、$$m$$、训练状态）；一张图等于多少 token、贵在哪（$$\lceil H/28 \rceil \lceil W/28 \rceil$$、KV 是 encoder 输出的 20 倍）。详见[第二章](#二逐篇回顾)。
 [^q1]: 8B = 8.03B、16.06 GB、15 GFLOPs/token、128 KiB/token；ridge 295、$$I_{weight} = B$$、$$I_{KV} = g$$；decode 下界 4.8 ms / 208 token/s；64 GB 放 52 万 token 的 KV；$$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$，V3 68.6 KiB 对 MHA 3.81 MiB（57 倍）；$$\lambda_i = 2\pi \cdot \text{base}^{2i/d_{head}}$$，8K 训练 14 对没转完一圈；交叉点 28.6K，128K prefill 11 s；$$E[1 - (1 - k/E)^B]$$，$$B = 32$$ 时 163 个专家；BF16 单位舍入 $$2^{-8}$$、FP16 溢出 11.09、E4M3 最大 448、16 B/参数；INT4 4.25 bit、转折 $$\text{ridge}/4$$；$$\mathbb{E}[\text{tokens}] = (1 - \alpha^{\gamma+1})/(1 - \alpha) = 3.36$$、转折 $$\text{ridge}/(\gamma + 1)$$；LoRA 128 GB → 16.7 GB；1024² → 1369 token，KV 是 encoder 输出的 20 倍。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。
-[^q3]: 位置编码先表达顺序与相对距离；长度扩展遇到未训练的位置或相位，所以必须检查位置方案，但长上下文还受数据、检索质量与成本限制。第七篇不把位置编码等同于全部长上下文能力。
-[^q4]: KV 是线性显存项，prefill attention 是二次算量项，中间 logits 还有二次存储风险；局部结构改变可见位置，FlashAttention 只避免物化中间量。第九篇分别计算这些项。
+[^q3]: 位置编码先表达顺序与相对距离；长度扩展遇到未训练的位置或相位，所以必须检查位置方案，但长上下文还受数据、检索质量与成本限制。第三篇不把位置编码等同于全部长上下文能力。
+[^q4]: KV 是线性显存项，prefill attention 是二次算量项，中间 logits 还有二次存储风险；局部结构改变可见位置，FlashAttention 只避免物化中间量。第五篇分别计算这些项。
 [^q5]: 验证 $$\gamma + 1$$ 个 token 等于把 GEMM 的 $$m$$ 放大 $$\gamma + 1$$ 倍而权重与 KV 只读一遍；$$B(\gamma+1)$$ 在 ridge 之下时多出的 FLOPs 落在空转的算力上，几乎免费，$$\alpha = 0.8$$、$$\gamma = 4$$ 时约 2.4×；$$B$$ 到约 $$295/5 \approx 60$$ 后验证进入 compute-bound，被拒绝 token 的计算成了真实成本，加速比随 batch 下降、大 batch 下低于 1。

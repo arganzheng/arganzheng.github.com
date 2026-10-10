@@ -1,7 +1,7 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析"
+title: "Transformer 原理与实现（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析"
 subtitle: "Building GPT by Hand, Part 1: Every Line of nanoGPT's model.py"
 tags: [Transformer, LLM, AI, AI-Infra, PyTorch]
 catalog: true

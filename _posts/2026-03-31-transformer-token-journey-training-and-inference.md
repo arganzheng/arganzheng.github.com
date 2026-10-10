@@ -1,17 +1,17 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（02）：一个 token 的旅程——训练侧与推理侧"
+title: "Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧"
 subtitle: "The Dynamic View: What Happens to a Token During Training and During Inference"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
 
-> **本篇在系列中的位置。** 第一段的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 上一篇把 Transformer 的每个方框打开看了一遍，但那是一张**静止**的图。同一台机器在两种场合下的运转方式很不一样：**训练**时一句话的几千个 token 一起进去、几千个 loss 一起出来、梯度沿原路返回、几十亿参数各挪一小步；**推理**时先把用户的问题一次算完，然后一个字一个字往外吐，每吐一个字只算一个 token。不搞清这两条动态线，就解释不了几件天天碰到的事：为什么训练一次前向能同时算 $$T$$ 个位置的预测、为什么推理"第一个字慢、后面快"、KV cache 到底缓存了什么、为什么训练长上下文时"激活值"比参数本身还占显存。
 
-这一篇用一个 2 层、8 维、16 个词的玩具 GPT 把两条线走通，每一步打印形状和数字；再用 512 个 token 的模型实测 KV cache 带来的 8 倍加速。上一篇[《Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构，这一篇画的是动态线；下一篇[《Transformer 与 LLM（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把两篇的图变成 nanoGPT 的代码。
+这一篇用一个 2 层、8 维、16 个词的玩具 GPT 把两条线走通，每一步打印形状和数字；再用 512 个 token 的模型实测 KV cache 带来的 8 倍加速。上一篇[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构，这一篇画的是动态线；下一篇[《Transformer 原理与实现（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把两篇的图变成 nanoGPT 的代码。
 
 本篇要回答的核心问题是：
 
@@ -316,6 +316,6 @@ Table: 训练、prefill、decode 三种运转方式的差别
 
 ## 下一篇
 
-到这里，两篇的图都画完了：[《Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构（每个方框是什么、形状怎么变），这一篇画的是动态线（训练的「teacher forcing → T 个 loss → 反向 → 更新」，推理的「prefill → decode → KV cache」）。下一篇[《Transformer 与 LLM（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把它们变成代码：330 行、6 个类，每一行对应到前两篇的哪个方框、哪一步。
+到这里，两篇的图都画完了：[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构（每个方框是什么、形状怎么变），这一篇画的是动态线（训练的「teacher forcing → T 个 loss → 反向 → 更新」，推理的「prefill → decode → KV cache」）。下一篇[《Transformer 原理与实现（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把它们变成代码：330 行、6 个类，每一行对应到前两篇的哪个方框、哪一步。
 
 [^q0]: **训练**：目标是输入右移一位，causal mask 保证位置 $$i$$ 只用前文，teacher forcing 用真实 token 当目标，于是 $$T$$ 个位置互不依赖、一次前向同时得到 $$T$$ 个交叉熵；反向沿原路给每个参数梯度，为此要保存与 $$B \times T$$ 成正比的激活值。**推理**：causal 结构下旧 token 的 K、V 不随新 token 改变，prefill 算一次存进 KV cache，decode 每步只算新 token 的 Q、K、V 并追加——省的是每步重算整段的计算（实测 7.9 倍），花的是每层每 token 一份 K、V 的显存（Llama-3-8B 128 KiB / token）。详见[第二](#二训练侧的前向一个-batch-的旅程)、[三](#三loss-与反向)、[六章](#六kv-cache为什么旧-token-不用重算)。

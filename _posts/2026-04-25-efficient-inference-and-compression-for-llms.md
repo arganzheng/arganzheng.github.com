@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《高效推理与压缩（算法侧）》是一组共六篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L6 层。它面向已经理解 Transformer 的成本结构（L4，[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)）、并且做过或准备做后训练（L5，[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)）的读者，回答的是一个部署前必然遇到的问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。
+《高效推理与压缩（算法侧）》是一组共六篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L6 层。它面向已经理解 Transformer 的成本结构（L4，[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)）、并且做过或准备做后训练（L5，[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)）的读者，回答的是一个部署前必然遇到的问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。
 
 "推理优化"这个词下面混着两类完全不同的东西。一类改变**模型或解码过程**：量化把权重从 16 bit 变成 4 bit，投机解码让一次前向产出多个 token，KV 驱逐丢掉一部分缓存，剪枝删掉一部分参数。另一类改变**调度与内存管理**：PagedAttention、continuous batching、chunked prefill、PD 分离。前一类是算法工程师的工作——每一种都要回答"输出分布变了没有、变了多少、在哪类输入上变得最多"；后一类是推理引擎的工作，模型不知道它们的存在，输出分布也不因它们改变。这个系列只讲前一类；后一类在 Infra 地图的[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)系列里。
 
@@ -33,7 +33,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### 部署是算法工作的最后一步，而且越来越贵
 
-训练一个模型是一次性的成本，推理是持续的成本。[04 系列第十篇](/scaling-laws-and-compute-optimal-training.html)算过：当服务的 token 数达到训练 token 数的量级时，推理成本超过训练成本；一个被广泛使用的模型，一生中推理的 FLOPs 是训练的几倍到几十倍。这使得"让同一个模型的推理便宜一半"与"训一个便宜一半的模型"有同等的价值，而前者不需要重新训练。
+训练一个模型是一次性的成本，推理是持续的成本。[预训练（03）](/scaling-laws-and-compute-optimal-training.html)算过：当服务的 token 数达到训练 token 数的量级时，推理成本超过训练成本；一个被广泛使用的模型，一生中推理的 FLOPs 是训练的几倍到几十倍。这使得"让同一个模型的推理便宜一半"与"训一个便宜一半的模型"有同等的价值，而前者不需要重新训练。
 
 同时，模型部署的地方在变多：数据中心的 H100，笔记本上的 GPU，手机上的 NPU。同一个模型要以不同的精度、不同的大小出现在不同的地方——Llama 3.2 的 1B / 3B 有官方的 QLoRA 与 QAT 版本；Gemma 3 发布了 QAT 的 INT4 检查点；Qwen 的每一代都有 GPTQ / AWQ / GGUF 的官方量化。压缩不再是部署工程师的事后处理，而是模型发布的一部分，需要算法工程师在训练阶段就设计。
 
@@ -45,7 +45,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### 算法侧与系统侧的分界需要说清楚
 
-一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[本系列第三篇](/post-training-quantization-gptq-awq-and-rotation.html)第二章，依据是[《Transformer 与 LLM》第六篇](/transformer-flops-bytes-and-roofline.html)的 Roofline）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
+一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[本系列第三篇](/post-training-quantization-gptq-awq-and-rotation.html)第二章，依据是[《现代 LLM 结构》第二篇](/transformer-flops-bytes-and-roofline.html)的 Roofline）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
 
 ### 现有材料的断层
 
@@ -68,12 +68,12 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### Infra 工程师，想知道引擎里那些算法从哪来
 
-你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[04 系列第六、十二篇](/transformer-flops-bytes-and-roofline.html)与 [vLLM 系列第七篇](/decoding-extensions-sampling-speculative-and-structured-output.html)是本系列的系统侧对应。
+你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)与[（08）](/speculative-decoding-draft-verify-and-payoff.html)，以及 [vLLM 系列第七篇](/decoding-extensions-sampling-speculative-and-structured-output.html)，是本系列的系统侧对应。
 
 
 ## 系列的整体主线
 
-系列的主线是一个问题：**推理的成本由什么决定，每种方法改变了其中哪一项，代价是什么。** 一次 decode 步的时间由权重字节、KV 字节、算力三项决定（[04 系列第六、十篇](/transformer-flops-bytes-and-roofline.html)）；产出一个 token 的成本还要乘上"每次前向产出几个 token"的倒数。四条线各改其中一项：
+系列的主线是一个问题：**推理的成本由什么决定，每种方法改变了其中哪一项，代价是什么。** 一次 decode 步的时间由权重字节、KV 字节、算力三项决定（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)与[现代 LLM 结构（06）](/moe-compute-and-communication.html)）；产出一个 token 的成本还要乘上"每次前向产出几个 token"的倒数。四条线各改其中一项：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -135,7 +135,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 ### 2. 投机解码：草稿、接受率与树
 
-[04 系列第十二篇](/speculative-decoding-draft-verify-and-payoff.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
+[现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
 
 **核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（L5 第七篇），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（04-11）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
 
@@ -143,7 +143,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 ### 3. 训练后量化：误差模型、GPTQ、AWQ 与旋转
 
-[04 系列第六篇](/transformer-flops-bytes-and-roofline.html)给出了 decode 的 Roofline。这一篇先用它算量化省多少、什么时候省得到（W4A16 的收益区间、交叉点 B ≈ ridge/4、W8A8 与 W4A16 的位置），再往下挖：**量化误差从哪来、为什么 RTN 到 4 bit 就不够、每种方法在最小化什么、离群值怎么处理**。
+[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)给出了 decode 的 Roofline。这一篇先用它算量化省多少、什么时候省得到（W4A16 的收益区间、交叉点 B ≈ ridge/4、W8A8 与 W4A16 的位置），再往下挖：**量化误差从哪来、为什么 RTN 到 4 bit 就不够、每种方法在最小化什么、离群值怎么处理**。
 
 **核心内容**：量化误差的统计模型——均匀量化的噪声方差 $$\Delta^2/12$$、裁剪与舍入的权衡、最优裁剪阈值；误差怎么通过层传播、为什么某些层敏感；RTN 在 4 bit 失败的原因——权重的重尾分布与 group 内的动态范围；OBS 的拉格朗日推导（04-07 只给了结论）与 GPTQ 的列顺序、act-order、group size 的选择及元数据字节账；AWQ 的 α 搜索与它为什么等价于保护显著通道；SmoothQuant 的 α 与激活离群的模型规模依赖；旋转方法（QuaRot、SpinQuant）——用 Hadamard 旋转把离群值摊平、为什么旋转不改变输出、它让 W4A4 成为可能；浮点格式的低比特：FP8、MXFP4 / NVFP4 的微缩放块与它们和整数格式的精度对比；校准集的选择与过拟合；per-tensor / per-channel / per-group 的精度—开销权衡。
 
@@ -159,7 +159,7 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 
 ### 5. KV cache 压缩：量化、驱逐与稀疏 attention
 
-长上下文与长输出让 KV cache 成为推理内存的主体（[04 系列第八篇](/attention-variants-and-kv-cache.html)的账）。结构级的办法——GQA、MLA——在训练时就定了；这一篇讲**训好之后**还能对 KV 做什么。
+长上下文与长输出让 KV cache 成为推理内存的主体（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)的账）。结构级的办法——GQA、MLA——在训练时就定了；这一篇讲**训好之后**还能对 KV 做什么。
 
 **核心内容**：KV 的数值结构——key 的离群值集中在固定通道、value 没有——所以 KIVI 对 key 按通道、对 value 按 token 量化；KV 量化到 2 bit 的误差怎么影响 attention 分数（softmax 前的误差被放大）；驱逐——StreamingLLM 的 attention sink 现象与解释（04-09 已介绍现象，这里讲为什么第一个 token 会成为 sink）、H2O 的累计注意力打分、SnapKV 用 prompt 尾部的注意力选 KV、PyramidKV 按层分配预算；驱逐在"大海捞针"上的失败与原因；token 合并；跨层共享 KV（CLA、YOCO）；训练时就稀疏的 attention——NSA 与 MoBA 的块选择、它们怎么让选择可微、与推理时的一致性；prompt 压缩（LLMLingua 一类）作为另一条路。
 
@@ -199,14 +199,14 @@ Table: 系列建议的动手顺序
 
 ### 前置要求
 
-- [04 系列](/transformer-and-llm-structure-implementation-and-evolution.html)第六、八、十二篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
+- [现代 LLM 结构系列](/llm-architecture-evolution-roadmap-from-gpt2.html)第 02、04、08 篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
 - [L5 第七篇](/knowledge-distillation-for-llms.html)（蒸馏）与[第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)（评测）：本系列的恢复手段与评测方法论都来自那里。
 - [L0 数学系列](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
 
 ### 版本与基线
 
 - 模型基线：Llama-3.1-8B / 70B、Qwen2.5-7B、DeepSeek-V3 的公开数字；小模型对照用 Llama 3.2、Qwen2.5-0.5B、Gemma 3、SmolLM 的技术报告。
-- 硬件基线：H100 SXM（3.35 TB/s、989 TFLOPS BF16），与 04 系列一致。
+- 硬件基线：H100 SXM（3.35 TB/s、989 TFLOPS BF16），与现代 LLM 结构系列一致。
 - 方法的引用以论文与技术报告为准；工具（`llm-compressor`、`auto-gptq`、`autoawq`、`vllm`、`lm-eval`）的版本变化快，"动手"节只给接口形状，不锚定版本。
 
 
@@ -227,7 +227,7 @@ Table: 系列建议的动手顺序
 
 | 追问 | 答案来自 |
 |---|---|
-| 这个负载（batch、输出长度、上下文长度）的瓶颈是权重字节、KV 字节还是算力？哪条线的收益最大？ | 总纲 · 04 系列 |
+| 这个负载（batch、输出长度、上下文长度）的瓶颈是权重字节、KV 字节还是算力？哪条线的收益最大？ | 总纲 · 现代 LLM 结构系列 |
 | 采样参数怎么定？评测时用 greedy 还是采样？温度改了 pass@k 怎么变？ | 第一篇 |
 | 投机解码在这个负载上有收益吗？草稿用什么？接受率预期多少？ | 第二篇 |
 | 量化到几位、用哪种方法、group 多大？为什么这个模型量化后崩了？ | 第三篇 |

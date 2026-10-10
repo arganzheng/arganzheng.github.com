@@ -298,7 +298,7 @@ RNN 的 FLOPs 只有 attention 的 1/16，耗时却只少 3.6 倍：**同一颗 
 
 ### 3. 代价：平方级的算量与 KV cache
 
-Attention 的 FLOPs 是 $$O(T^2 d)$$，RNN 是 $$O(T d^2)$$；$$T > d$$ 之后 attention 更贵，且推理时要保留全部历史的 key 与 value——KV cache，大小 $$O(T)$$。上表 $$T = 4096$$ 时 attention 的 FLOPs 已是 RNN 的 16 倍。[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)系列的第二、三、四篇全是在算这个代价：长上下文的二次项、KV cache 的字节数、GQA / MLA 怎么压它。可以说那个系列是本篇最后一行的展开。
+Attention 的 FLOPs 是 $$O(T^2 d)$$，RNN 是 $$O(T d^2)$$；$$T > d$$ 之后 attention 更贵，且推理时要保留全部历史的 key 与 value——KV cache，大小 $$O(T)$$。上表 $$T = 4096$$ 时 attention 的 FLOPs 已是 RNN 的 16 倍。[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)系列的第三、四、五篇全是在算这个代价：长上下文的二次项、KV cache 的字节数、GQA / MLA 怎么压它。可以说那个系列是本篇最后一行的展开。
 
 ### 4. RNN 的回声
 
@@ -397,13 +397,13 @@ for t in range(T, 0, -1):
 - LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是**时间上的残差连接**，1997 年就有；恒等通路要在初始时刻打开——遗忘门偏置初始化为 1，20 步与 40 步的任务从"学不会"变成"500 步学会"。
 - seq2seq 把整句压进一个固定向量，16 个 token 的倒序任务整句准确率 0%。Bahdanau attention 让 decoder 每步对 encoder 全部状态加权求和，同一任务到 76%；对齐矩阵自己学出反对角线。
 - Bahdanau 的 $$s$$、$$h_j$$、加权和，就是 query、key / value、$$\text{softmax}(QK^T)V$$；Transformer 换了打分函数与用法（self-attention），然后去掉了循环。
-- RNN 的两个致命缺点：串行（实测同一 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度。Transformer 用 $$O(n^2)$$ 的算量与 $$O(n)$$ 的 KV cache 换掉了两者——04 系列全在算这笔账。SSM / 线性 attention 在找回 RNN 的 $$O(1)$$ 推理成本。
+- RNN 的两个致命缺点：串行（实测同一 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度。Transformer 用 $$O(n^2)$$ 的算量与 $$O(n)$$ 的 KV cache 换掉了两者——现代 LLM 结构系列全在算这笔账。SSM / 线性 attention 在找回 RNN 的 $$O(1)$$ 推理成本。
 
 - **案例**：与 nanoGPT 同一份莎士比亚、同一预算，2 层 LSTM val loss 1.71 vs 1.66——这个规模上看不出 Transformer 的优势，差别在顺序 vs 并行；倒序任务的对齐矩阵是一条反对角线（偏一格），从数据里学出来的。
 
 配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)（`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验）与 [`case_06_char_lstm_and_alignment.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_char_lstm_and_alignment.py)（第八章案例，MPS 上半分钟）。
 
-本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；[04 系列第一篇《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
+本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；[Transformer 原理与实现（01）](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
 
 ## 十、自测
 
@@ -443,7 +443,7 @@ for t in range(T, 0, -1):
 
    <details markdown="1"><summary>答案</summary>
 
-   训练时 RNN 是串行的（$$T$$ 步依赖），Transformer 全部位置并行，同样算力下能训的数据多几倍；任意两个位置之间的路径长度 RNN 是 $$O(n)$$、attention 是 1，长依赖直接可学。推理侧的 $$O(n)$$ 用 KV cache 与系统优化（04 系列）换回来；SSM / 线性 attention 在试图两头都要。
+   训练时 RNN 是串行的（$$T$$ 步依赖），Transformer 全部位置并行，同样算力下能训的数据多几倍；任意两个位置之间的路径长度 RNN 是 $$O(n)$$、attention 是 1，长依赖直接可学。推理侧的 $$O(n)$$ 用 KV cache 与系统优化（现代 LLM 结构系列）换回来；SSM / 线性 attention 在试图两头都要。
 
    </details>
 

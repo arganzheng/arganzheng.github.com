@@ -1,7 +1,7 @@
 ---
 layout: post
-series: transformer-and-llm
-title: "Transformer 与 LLM（12）：投机解码——草稿、验证与收益条件"
+series: modern-llm-architecture
+title: "现代 LLM 结构（08）：投机解码——草稿、验证与收益条件"
 subtitle: "Speculative Decoding: Drafts, Verification and When It Pays Off"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
@@ -12,9 +12,9 @@ redirect_from:
 comments_path: /speculative-decoding-and-lora.html
 ---
 
-> **本篇在系列中的位置。** 第二段的第八篇。第 06 篇算出 batch 小时 decode 受带宽限制、Tensor Core 大多空闲；第 11 篇的 MTP 模块给了一个现成的草稿来源。本篇不改结构、不改数值格式，改的是解码流程：先猜几个 token，再用一次前向验证，输出分布严格不变。LoRA 不在本系列：参数高效微调的账在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第八篇。第 02 篇算出 batch 小时 decode 受带宽限制、Tensor Core 大多空闲；第 07 篇的 MTP 模块给了一个现成的草稿来源。本篇不改结构、不改数值格式，改的是解码流程：先猜几个 token，再用一次前向验证，输出分布严格不变。LoRA 不在本系列：参数高效微调的账在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-第六篇算过 decode 的账：batch 为 $$B$$ 时权重 GEMM 的算术强度约等于 $$B$$，距 H100 的 ridge point 295 差两个数量级，每步时间被"把权重读一遍"钉在 4.8 ms 上，Tensor Core 几乎空转。第十一篇的 MTP 模块在训练时多预测一个 token，推理时可以丢掉——也可以留下来当"草稿"。本篇把这两件事接起来：**既然多算几行几乎不花时间，能不能先猜几个 token，再用一次前向把它们全部验证掉？**
+第二篇算过 decode 的账：batch 为 $$B$$ 时权重 GEMM 的算术强度约等于 $$B$$，距 H100 的 ridge point 295 差两个数量级，每步时间被"把权重读一遍"钉在 4.8 ms 上，Tensor Core 几乎空转。第三篇的 MTP 模块在训练时多预测一个 token，推理时可以丢掉——也可以留下来当"草稿"。本篇把这两件事接起来：**既然多算几行几乎不花时间，能不能先猜几个 token，再用一次前向把它们全部验证掉？**
 
 投机解码（speculative decoding）就是这个想法。它不改结构、不改数值格式，只改解码流程；收益却不是无条件的。本篇要回答的核心问题是：
 
@@ -24,7 +24,7 @@ comments_path: /speculative-decoding-and-lora.html
 
 ### 1. 本文的路线
 
-先把第六篇的 Roofline 压成一个时间模型（本章第 2 节），后面所有估算都用它；再讲投机解码本身：算法与"输出分布严格不变"的证明、期望接受数与加速比、验证多个 token 为什么几乎免费又何时不再免费、草稿从哪里来（第二章）；最后把它加进 `llm_cost.py`，合成文本模型的成本表（第三章）。
+先把第二篇的 Roofline 压成一个时间模型（本章第 2 节），后面所有估算都用它；再讲投机解码本身：算法与"输出分布严格不变"的证明、期望接受数与加速比、验证多个 token 为什么几乎免费又何时不再免费、草稿从哪里来（第二章）；最后把它加进 `llm_cost.py`，合成文本模型的成本表（第三章）。
 
 ### 2. 一个时间模型
 
@@ -267,7 +267,7 @@ def embedding_params(cfg):
     return cfg.vocab * cfg.hidden * (1 if cfg.tie_embeddings else 2)
 
 def param_count(cfg):
-    """第五篇的参数量（重给以便独立运行），返回 dict。"""
+    """第一篇的参数量（重给以便独立运行），返回 dict。"""
     d = cfg.hidden
     q, kv = cfg.n_heads * cfg.head_dim, cfg.n_kv_heads * cfg.head_dim
     attn = d * q + d * kv + d * kv + q * d
@@ -380,7 +380,7 @@ Llama-3-70B: 70.55B  BF16 141.1 GB  INT4(g128) 4.25 bit -> 37.48 GB
 
 Table: 前面各篇数字的汇总：三个模型的权重、KV cache、decode 下界与投机解码
 
-DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述。第十三篇给这张表加"一张 1024² 图片"一行，第十四篇加精度一列（权重与 KV 换成 FP8 各是多少字节、训练状态每参数几字节）。
+DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述。第一篇给这张表加"一张 1024² 图片"一行，第二篇加精度一列（权重与 KV 换成 FP8 各是多少字节、训练状态每参数几字节）。
 
 ## 四、本文小结
 
@@ -406,7 +406,7 @@ Table: 投机解码的正确性、收益与边界
 
 Table: 本篇的数字：投机解码在三个模型上的账
 
-本篇只算了投机解码的账。怎么把接受率提上去（草稿的训练目标是蒸馏）、Medusa / EAGLE 的草稿各看到了什么、树状草稿怎么一次验证多条路径、何时投机反而变慢，在算法地图的[《高效推理与压缩》第 02 篇](/speculative-decoding-drafters-acceptance-and-trees.html)展开。[下一篇《Transformer 与 LLM（13）：多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把输入从 token 换成图片：vision encoder 与 connector 加在哪里、一张图变成多少 token、这些 token 在 decoder 里占多少 KV。
+本篇只算了投机解码的账。怎么把接受率提上去（草稿的训练目标是蒸馏）、Medusa / EAGLE 的草稿各看到了什么、树状草稿怎么一次验证多条路径、何时投机反而变慢，在算法地图的[《高效推理与压缩》第 02 篇](/speculative-decoding-drafters-acceptance-and-trees.html)展开。[下一篇《现代 LLM 结构（09）：多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把输入从 token 换成图片：vision encoder 与 connector 加在哪里、一张图变成多少 token、这些 token 在 decoder 里占多少 KV。
 
 配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
 

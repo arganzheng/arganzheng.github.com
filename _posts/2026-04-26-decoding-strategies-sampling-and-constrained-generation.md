@@ -208,7 +208,7 @@ frequency penalty 的线性增长在长输出上尤其危险：一个出现了 5
 
 ### 4. 与 token healing 的关系
 
-约束解码的一个副产品是 token 边界问题。prompt 以 `{"name": "` 结尾时，模型想输出的下一个 token 可能是 `"Alice"` 这种带引号的整体，但引号已经在 prompt 里了。token healing（[04 系列第九篇](/tokenizer-vocabulary-and-token-efficiency.html)）回退最后一个 token 让模型重新选择边界；约束解码的 FSM 在处理 prompt 尾部时也要做同样的回退，否则合法 token 集合会被错误地缩小。
+约束解码的一个副产品是 token 边界问题。prompt 以 `{"name": "` 结尾时，模型想输出的下一个 token 可能是 `"Alice"` 这种带引号的整体，但引号已经在 prompt 里了。token healing（[预训练（02）](/tokenizer-vocabulary-and-token-efficiency.html)）回退最后一个 token 让模型重新选择边界；约束解码的 FSM 在处理 prompt 尾部时也要做同样的回退，否则合法 token 集合会被错误地缩小。
 
 ## 六、多步：多次采样与选择
 
@@ -270,7 +270,7 @@ L5 第八篇讲过协议的每个细节都改变分数；采样参数是其中�
 
 一次前向之后，采样要在 $$V = 128K$$ 的 logits 上做：温度（一次除法）、top-k（部分排序，$$O(V \log k)$$）、top-p（全排序 $$O(V \log V)$$ + 前缀和）、min-p（一次 max + 一次比较，$$O(V)$$）、归一化与采样。对 batch 256 是 $$256 \times 128K = 33M$$ 个元素，在 GPU 上几十微秒到几百微秒——与一次 decode 前向的几毫秒到几十毫秒相比通常可以忽略，但有两个例外：**top-p 的排序**在大 batch 下不可忽略（vLLM 曾经用近似的 top-p 换速度）；**惩罚项需要历史 token 的统计**，在 continuous batching 下每个请求的历史长度不同，实现上是一个 gather，也不算便宜。
 
-logits 本身的字节：$$V \times 4$$ 字节（FP32）= 512 KB 每个序列，batch 256 是 128 MB，这在 [04 系列第九篇](/tokenizer-vocabulary-and-token-efficiency.html)里算过——词表大小对采样成本的影响比对前向的影响更直接。
+logits 本身的字节：$$V \times 4$$ 字节（FP32）= 512 KB 每个序列，batch 256 是 128 MB，这在 [预训练（02）](/tokenizer-vocabulary-and-token-efficiency.html)里算过——词表大小对采样成本的影响比对前向的影响更直接。
 
 ### 2. 约束解码
 
@@ -313,7 +313,7 @@ $$n$$ 条链的成本是 $$n$$ 倍的解码 token，prefill 通过 prefix 共享
 Table: 解码策略的规则与公式小结
 
 
-下一篇讲唯一不改变输出分布的加速方法：投机解码——从 04 系列第十二篇的证明出发，讨论怎么把接受率提上去。
+下一篇讲唯一不改变输出分布的加速方法：投机解码——从[现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)的证明出发，讨论怎么把接受率提上去。
 
 ## 十一、自测
 

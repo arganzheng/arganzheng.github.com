@@ -347,7 +347,7 @@ $$
 
 ## 下一步
 
-- **往前**：《Transformer 与 LLM》第 13 篇——image token 的 KV 代价；《数学》04 / 05——KL、ELBO、高斯
+- **往前**：《现代 LLM 结构》第 09 篇——image token 的 KV 代价；《数学》04 / 05——KL、ELBO、高斯
 - **往后（Infra）**：《扩散模型推理 Infra》——步数、分辨率、batch 与服务；《vLLM 源码》——多模态输入怎么进引擎
 - **往后（应用）**：《模型作为组件》——多模态 API 的调用形态
 - 原文总纲：`/multimodal-from-vision-encoders-to-diffusion.html`；通关自测 22 题在系列总结

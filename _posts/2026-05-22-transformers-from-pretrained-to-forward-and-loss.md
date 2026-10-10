@@ -238,7 +238,7 @@ hidden_states = self.mlp(hidden_states)
 hidden_states = residual + hidden_states
 ```
 
-与《Transformer 与 LLM》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节 nanoGPT 的两行 `x = x + attn(ln_1(x)); x = x + mlp(ln_2(x))` 完全一样，只是写开了。`post_attention_layernorm` 这个名字容易误读——它是 MLP **之前**的 norm（"attention 之后"），仍是 pre-norm。类继承 `GradientCheckpointingLayer`：它重写了 `__call__`，`model.gradient_checkpointing_enable()` 之后每层的前向被 `torch.utils.checkpoint` 包住，反向时重算激活换显存（L1 工具箱第四篇的账）。
+与《Transformer 原理与实现》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节 nanoGPT 的两行 `x = x + attn(ln_1(x)); x = x + mlp(ln_2(x))` 完全一样，只是写开了。`post_attention_layernorm` 这个名字容易误读——它是 MLP **之前**的 norm（"attention 之后"），仍是 pre-norm。类继承 `GradientCheckpointingLayer`：它重写了 `__call__`，`model.gradient_checkpointing_enable()` 之后每层的前向被 `torch.utils.checkpoint` 包住，反向时重算激活换显存（L1 工具箱第四篇的账）。
 
 ## 五、attention 那一行
 
@@ -298,9 +298,9 @@ attn_output = torch.matmul(attn_weights, value_states)
 attn_output = attn_output.transpose(1, 2).contiguous()           # [B, T, h, d_h]
 ```
 
-这就是《Transformer 与 LLM》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第四章手算的六步，一步一行，加上 GQA 的 `repeat_kv`（把 2 个 kv 头 `expand` 成 14 份——`expand` 不拷贝内存，`reshape` 之后才拷贝）和 fp32 的 softmax。`sdpa_attention_forward`（`integrations/sdpa_attention.py`）把中间四行换成一次 `torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=..., is_causal=..., scale=scaling, enable_gqa=True)`：PyTorch 内部选 FlashAttention / memory-efficient / math 三种 kernel 之一，**不物化 $$T \times T$$ 的权重矩阵**（所以 `attn_weights` 返回 `None`，`output_attentions=True` 在 sdpa 下拿不到注意力图，要切回 eager）。`enable_gqa=True` 让 kernel 自己处理头数不等，连 `repeat_kv` 都省了。
+这就是《Transformer 原理与实现》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第四章手算的六步，一步一行，加上 GQA 的 `repeat_kv`（把 2 个 kv 头 `expand` 成 14 份——`expand` 不拷贝内存，`reshape` 之后才拷贝）和 fp32 的 softmax。`sdpa_attention_forward`（`integrations/sdpa_attention.py`）把中间四行换成一次 `torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=..., is_causal=..., scale=scaling, enable_gqa=True)`：PyTorch 内部选 FlashAttention / memory-efficient / math 三种 kernel 之一，**不物化 $$T \times T$$ 的权重矩阵**（所以 `attn_weights` 返回 `None`，`output_attentions=True` 在 sdpa 下拿不到注意力图，要切回 eager）。`enable_gqa=True` 让 kernel 自己处理头数不等，连 `repeat_kv` 都省了。
 
-两者数学上相同，数值上不同：配套脚本在 fp32 下比较同一输入的 logits，最大差 $$1.7 \times 10^{-4}$$，argmax 全部一致；在 bf16 下差到 1.0——不是错误，是 bf16 只有 8 位尾数、两种实现的求和顺序不同（[L4 第十四篇](/floating-point-formats-and-mixed-precision.html)）。评测时对比两个 attention 实现的输出，必须在 fp32 下做。
+两者数学上相同，数值上不同：配套脚本在 fp32 下比较同一输入的 logits，最大差 $$1.7 \times 10^{-4}$$，argmax 全部一致；在 bf16 下差到 1.0——不是错误，是 bf16 只有 8 位尾数、两种实现的求和顺序不同（[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)）。评测时对比两个 attention 实现的输出，必须在 fp32 下做。
 
 ### 4. mask 在哪里造
 

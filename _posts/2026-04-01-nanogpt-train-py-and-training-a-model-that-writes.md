@@ -1,17 +1,17 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（04）：手搓 GPT（下）——nanoGPT train.py 与训一个会续写的模型"
+title: "Transformer 原理与实现（04）：手搓 GPT（下）——nanoGPT train.py 与训一个会续写的模型"
 subtitle: "Building GPT by Hand, Part 2: train.py Line by Line, Then Train One on Shakespeare"
 tags: [Transformer, LLM, AI, AI-Infra, PyTorch]
 catalog: true
 ---
 
-> **本篇在系列中的位置。** 第一段的最后一篇。第 03 篇写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；第一段到此回答完「GPT-2 怎么工作、怎么写」，第 05 篇起进入第二段：今天的模型改了哪些结构。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的最后一篇。第 03 篇写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；本系列到此回答完「GPT-2 怎么工作、怎么写」。接下来读[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)，从今天的模型改了哪些结构开始。
 
 上一篇的 `model.py` 定义了一个 GPT，但它的权重是随机数，输出是乱码。让它变成一个"会写东西"的模型，还差三样：**数据**（一段文本怎么变成模型能吃的整数数组）、**训练循环**（第二篇那一步"取 batch → 前向 → loss → 反向 → 更新"怎么写成能跑几十万步、能断点续训、能多卡的代码）、**一次实际的训练**（看着 loss 从 4.17 掉到 1.66、输出从乱码变成像莎士比亚台词的东西）。nanoGPT 的 `train.py`（336 行）加 `prepare.py`（68 行）就是这三样。
 
-这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**，也是第二段（第五至十一篇：现代 LLM 每个部件为什么改成那样）的入口。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
+这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
 
 本篇要回答的核心问题是：
 
@@ -573,7 +573,7 @@ nanoGPT 是完整的：数据、模型、训练、续训、多卡、混合精度
 | 分词 | 65 个字符 | BPE，词表 128K | 预训练系列第二篇 |
 | 结构 | GPT-2：LayerNorm、位置表、GELU、MHA | RMSNorm、RoPE、SwiGLU、GQA、MoE、MTP | 本系列第五至十篇 |
 | 并行 | DDP：每卡一份完整模型 | 模型放不进一张卡：张量 / 流水 / 序列 / 专家并行，ZeRO | Infra 大规模训练系列 |
-| 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 本系列第十四篇 |
+| 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 现代 LLM 结构第十篇 |
 | 稳定性 | 梯度裁剪 | loss spike 的诊断与恢复、z-loss、QK-norm | 预训练系列第五篇 |
 | 容错 | `resume` 从单个 ckpt.pt | 万卡训练每几小时坏一张卡：分片 checkpoint、自动重启 | Infra 大规模训练系列第五、六篇 |
 | 配方 | 默认值抄 GPT-3 | 用小模型消融 + scaling law 外推 | 预训练系列第三、五篇 |
