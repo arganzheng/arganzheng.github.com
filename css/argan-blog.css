@@ -7745,6 +7745,164 @@ html.mp-viewing {
 .post-container .callout-caution .callout-title {
   color: #d1242f;
 }
+.nav-reading-settings[hidden] {
+  display: none !important;
+}
+.nav-reading-settings .nav-reading-settings-label {
+  display: none;
+}
+.reading-settings-panel {
+  position: fixed;
+  z-index: 1200;
+  width: 312px;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #fff;
+  color: #24292f;
+  box-shadow: 0 8px 28px rgba(27, 31, 35, 0.18);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.reading-settings-panel[hidden] {
+  display: none;
+}
+.rs-setting-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.rs-setting-label {
+  color: #57606a;
+  white-space: nowrap;
+}
+.rs-segments {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: 7px;
+  background: #f6f8fa;
+}
+.rs-segments button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 5px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rs-segments button + button {
+  border-left: 1px solid #d0d7de;
+}
+.rs-segments button[aria-pressed="true"] {
+  background: #0969da;
+  color: #fff;
+}
+.rs-segments button:focus-visible,
+.rs-reset:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #0969da;
+  outline-offset: -2px;
+}
+.rs-reset {
+  display: block;
+  margin: 2px 0 0 auto;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  cursor: pointer;
+}
+.rs-reset:hover {
+  color: #0969da;
+  text-decoration: underline;
+}
+@media only screen and (max-width: 767px) {
+  .nav-reading-settings .nav-reading-settings-label {
+    display: inline;
+  }
+  .reading-settings-panel {
+    top: auto !important;
+    right: 12px !important;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    left: 12px;
+    width: auto;
+    max-width: 480px;
+    max-height: calc(100vh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    margin: 0 auto;
+    overflow-y: auto;
+    border-radius: 14px;
+  }
+}
+@media print {
+  .nav-reading-settings,
+  .reading-settings-panel {
+    display: none !important;
+  }
+}
+@media screen {
+  html[data-rs-size="s"] .post-container:not(.moments):not(.moments-comments) {
+    --rs-article-font-size: 14.4px;
+  }
+  html[data-rs-size="l"] .post-container:not(.moments):not(.moments-comments) {
+    --rs-article-font-size: 17.92px;
+  }
+  html[data-rs-size="xl"] .post-container:not(.moments):not(.moments-comments) {
+    --rs-article-font-size: 20px;
+  }
+  html[data-rs-size] .post-container:not(.moments):not(.moments-comments) {
+    font-size: var(--rs-article-font-size);
+  }
+  html[data-rs-size] .post-container:not(.moments):not(.moments-comments) > .comment {
+    font-size: 16px;
+  }
+  html[data-rs-size] .post-container:not(.moments):not(.moments-comments) .footnotes {
+    font-size: 0.9375em;
+  }
+  html[data-rs-size] .post-container:not(.moments):not(.moments-comments) .post-figcaption,
+  html[data-rs-size] .post-container:not(.moments):not(.moments-comments) table > caption {
+    font-size: 0.8125em;
+  }
+  html[data-rs-width="narrow"] .post-container:not(.moments):not(.moments-comments) > :not(.post-stale):not(.series-context):not(.series-nav):not(.post-actions):not(.series-toc):not(.post-license):not(.pager):not(.related-posts):not(.comment):not([style*="visibility: hidden"]) {
+    width: 100%;
+    max-width: 760px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > p,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > h1,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > h2,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > h3,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > h4,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > h5,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > h6,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > ul,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > ol,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > blockquote,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > table,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > .table-responsive > table,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > .callout,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > .footnotes,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > details,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) > dl,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) .post-figcaption,
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) .table-caption {
+    font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Noto Serif SC", STSong, SimSun, Georgia, "Times New Roman", serif;
+  }
+  html[data-rs-font="serif"] .post-container:not(.moments):not(.moments-comments) button {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
+  }
+}
 html[data-theme="dark"] {
   color-scheme: dark;
 }
@@ -8544,4 +8702,31 @@ html[data-theme="dark"] .post-container .callout-caution {
 }
 html[data-theme="dark"] .post-container .callout-caution .callout-title {
   color: #f85149;
+}
+html[data-theme="dark"] .reading-settings-panel {
+  border-color: #33363c;
+  background-color: #1f2125;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] .rs-setting-label,
+html[data-theme="dark"] .rs-reset {
+  color: #969ba4;
+}
+html[data-theme="dark"] .rs-segments {
+  border-color: #33363c;
+  background-color: #17181b;
+}
+html[data-theme="dark"] .rs-segments button + button {
+  border-left-color: #33363c;
+}
+html[data-theme="dark"] .rs-segments button[aria-pressed="true"] {
+  background-color: #4cb7cb;
+  color: #17181b;
+}
+html[data-theme="dark"] .rs-segments button:focus-visible,
+html[data-theme="dark"] .rs-reset:focus-visible {
+  outline-color: #4cb7cb;
+}
+html[data-theme="dark"] .rs-reset:hover {
+  color: #4cb7cb;
 }
