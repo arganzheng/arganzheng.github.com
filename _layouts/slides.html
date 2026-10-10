@@ -62,7 +62,7 @@ both count as one page here, in the order reveal's counter uses.
             <p class="h1 title">{{ page.title }}</p>
             {% if page.subtitle %}<p class="h3 subtitle">{{ page.subtitle }}</p> {% endif %}
             <small class="text-muted">Posted by <a href="{{ '/about/' | prepend: site.baseurl }}">{{ page.author | default: 'arganzheng' }}</a>
-| <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>{% if page.updated %} <span class="post-updated" title="最后更新">· 更新于 <time datetime="{{ page.updated | date_to_xmlschema }}">{{ page.updated | date: "%Y-%m-%d" }}</time></span>{% endif %}
+| <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>{% if page.updated %} <span class="post-updated" title="最后更新">· 更新于 <time datetime="{{ page.updated | date_to_xmlschema }}">{{ page.updated | date: "%Y-%m-%d" }}</time></span>{% endif %}{% if site.giscus.repo and page.path %} <span class="post-history" data-author="{{ site.github_username | strip }}" hidden>· <a href="https://github.com/{{ site.giscus.repo }}/commits/master/{{ page.path }}" target="_blank" rel="noopener noreferrer" title="在 GitHub 查看本文的修改记录">修改记录</a></span>{% endif %}
 | <span class="deck-pages-n">{{ n }} 页</span><span class="post-stats" data-path="{{ page.url }}" data-annotations-api="{{ site.annotations.api }}"></span></small>
             {% if page.tags and page.tags != empty %}
             <div class="post-tags">

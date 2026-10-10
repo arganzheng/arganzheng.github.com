@@ -2757,6 +2757,13 @@ footer .copyright a,
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.post-history a,
+.post-heading .meta .post-history a {
+  color: inherit;
+}
+.post-history a:hover {
+  text-decoration: underline;
+}
 .post-container .series-box {
   margin: 0 0 1.6em;
   padding: 10px 16px;
@@ -7947,6 +7954,9 @@ html[data-theme="dark"] .text-muted,
 html[data-theme="dark"] small,
 html[data-theme="dark"] .small {
   color: #969ba4;
+}
+html[data-theme="dark"] .post-history a {
+  color: inherit;
 }
 html[data-theme="dark"] ::selection {
   background: rgba(76, 183, 203, 0.35);
