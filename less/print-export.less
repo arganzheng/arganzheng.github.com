@@ -1,0 +1,186 @@
+@media print {
+  @page author-export {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+
+  html.print-export {
+    page: author-export;
+    color: #000 !important;
+    background: #fff !important;
+
+    body {
+      margin: 0 !important;
+      color: #000 !important;
+      background: #fff !important;
+    }
+
+    body * {
+      color: #000 !important;
+      background-color: transparent !important;
+      box-shadow: none !important;
+      text-shadow: none !important;
+    }
+
+    .navbar,
+    .outline-reopen,
+    .sidebar-container,
+    .side-catalog,
+    .side-series,
+    .reading-progress,
+    .reading-position-prompt,
+    .post-actions,
+    .post-history,
+    .post-stats,
+    .series-nav,
+    .series-context,
+    .series-toc,
+    .post-pager,
+    .series-deck,
+    .deck-card,
+    .post-license,
+    .pager,
+    .related-posts,
+    .related,
+    .backlinks,
+    .comment,
+    .annotation-comments,
+    .annotation-panel,
+    .annotation-marker,
+    .annotation-toolbar,
+    .sec-react,
+    .code-copy,
+    .table-tools,
+    .fig-tools,
+    .fig-feedback,
+    .fig-zoom,
+    .heading-anchor,
+    .heading-fold,
+    .search-overlay,
+    #search-overlay,
+    .catalog-toggle,
+    .pa-share-pop {
+      display: none !important;
+    }
+
+    .container {
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+
+    .row {
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+
+    .page-header {
+      max-width: none !important;
+      margin: 0 0 18px !important;
+      padding: 0 0 10px !important;
+      border: 0 !important;
+    }
+
+    .intro-header {
+      color: #000 !important;
+      background: #fff !important;
+      background-image: none !important;
+    }
+
+    .intro-header .header-mask,
+    .intro-header .header-img-credit {
+      display: none !important;
+    }
+
+    .intro-header .post-heading,
+    .intro-header .post-heading * {
+      color: #000 !important;
+    }
+
+    .post-container {
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      float: none !important;
+    }
+
+    a,
+    a:visited {
+      color: #000 !important;
+      text-decoration: none !important;
+    }
+
+    a[href]::after,
+    abbr[title]::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    img,
+    svg {
+      max-width: 100% !important;
+    }
+
+    .post-container pre,
+    .post-container pre code,
+    .post-container pre .line,
+    .post-container .highlight,
+    .post-container div.highlighter-rouge {
+      max-width: 100% !important;
+      overflow: visible !important;
+      white-space: pre-wrap !important;
+      overflow-wrap: anywhere !important;
+      word-wrap: anywhere !important;
+      word-break: normal !important;
+    }
+
+    .post-container .code-block {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+
+    .post-container :not(pre) > code.highlighter-rouge {
+      white-space: normal !important;
+      overflow-wrap: break-word !important;
+      word-wrap: break-word !important;
+      word-break: normal !important;
+    }
+
+    .table-responsive {
+      overflow: visible !important;
+      border: 0 !important;
+    }
+
+    pre,
+    figure,
+    .callout,
+    .mermaid,
+    tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+    }
+
+    th,
+    td {
+      border: 1px solid #777 !important;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+  }
+}
