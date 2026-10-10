@@ -8003,7 +8003,7 @@ html[data-theme="dark"] .pager li > span {
   border-color: #33363c;
   color: #d3d5d9;
 }
-html[data-theme="dark"] .pa-item,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active),
 html[data-theme="dark"] .table-tools .code-copy,
 html[data-theme="dark"] .deck-card-btn,
 html[data-theme="dark"] .mf-chip,
@@ -8017,13 +8017,25 @@ html[data-theme="dark"] .archive-goto-input-wrap input {
   border-color: #33363c;
   color: #d3d5d9;
 }
-html[data-theme="dark"] .pa-item:hover,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover,
 html[data-theme="dark"] .table-tools .code-copy:hover,
 html[data-theme="dark"] .deck-card-btn:hover,
 html[data-theme="dark"] .mf-chip:hover,
 html[data-theme="dark"] .ms-heat-toggle button:hover,
 html[data-theme="dark"] .pager li > a:hover {
   background-color: #34373e;
+}
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):focus,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active)[aria-expanded="true"] {
+  color: #4cb7cb;
+  border-color: #4cb7cb;
+  background-color: #34373e;
+}
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover:not(.pa-like) .fa,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):focus:not(.pa-like) .fa,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active)[aria-expanded="true"]:not(.pa-like) .fa {
+  color: #4cb7cb;
 }
 html[data-theme="dark"] .table-tools {
   background-color: rgba(23, 24, 27, 0.9);
@@ -8067,7 +8079,7 @@ html[data-theme="dark"] .sb-overview a,
 html[data-theme="dark"] .sb-pos,
 html[data-theme="dark"] .archive-title,
 html[data-theme="dark"] .pa-lead,
-html[data-theme="dark"] .pa-item,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active),
 html[data-theme="dark"] .deck-card-title a,
 html[data-theme="dark"] .deck-card-desc,
 html[data-theme="dark"] .ms-card p,
