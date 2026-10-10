@@ -6,6 +6,37 @@
     <meta name="description" content="{% if page.description %}{{ page.description | escape }}{% elsif page.subtitle %}{{ page.subtitle | escape }}{% else %}{{ site.description }}{% endif %}">
     <meta name="keywords"  content="{% if page.tags and page.tags != empty %}{{ page.tags | join: ', ' | escape }}, {% endif %}{{ site.keyword }}">
     <meta name="theme-color" content="{{ site.chrome-tab-theme-color }}">
+    <script>
+        // Colour theme (less/dark.less): an explicit choice in localStorage `theme`,
+        // else the OS setting. Runs before the stylesheets so a dark page never
+        // flashes white. The nav toggle calls toggleTheme(); choosing what the OS
+        // already says drops the stored choice, so the page follows the OS again.
+        (function () {
+            var root = document.documentElement;
+            var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+            var light = '{{ site.chrome-tab-theme-color }}';
+            function system() { return mq && mq.matches ? 'dark' : 'light'; }
+            function stored() { try { return localStorage.getItem('theme'); } catch (e) { return null; } }
+            function apply() {
+                var t = stored();
+                if (t !== 'dark' && t !== 'light') t = system();
+                root.setAttribute('data-theme', t);
+                var meta = document.querySelector('meta[name="theme-color"]');
+                if (meta) meta.setAttribute('content', t === 'dark' ? '#17181b' : light);
+            }
+            apply();
+            if (mq && mq.addEventListener) mq.addEventListener('change', apply);
+            window.addEventListener('storage', function (e) { if (e.key === 'theme') apply(); });
+            window.toggleTheme = function () {
+                var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                try {
+                    if (next === system()) localStorage.removeItem('theme');
+                    else localStorage.setItem('theme', next);
+                } catch (e) {}
+                apply();
+            };
+        })();
+    </script>
     {% if page.noindex %}<meta name="robots" content="noindex, nofollow">{% endif %}
     
     <title>{% if page.title %}{{ page.title }} - {{ site.SEOTitle }}{% else %}{{ site.SEOTitle }}{% endif %}</title>
