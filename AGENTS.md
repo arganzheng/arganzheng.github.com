@@ -1010,6 +1010,11 @@ sidebar heatmap switches between 17 weeks and 53 weeks (saved as
 `localStorage["moments-heat"]`); the yearly grid scrolls to the newest week.
 Tag chips and the sidebar tree sort siblings by most recent use, then count.
 
+The daily review workflow (`.github/workflows/moments-review.yml`) sends the
+Shanghai-date review at 08:00 using `SERVERCHAN_SENDKEY` and/or `PUSHPLUS_TOKEN`;
+run `node tools/moments-review.cjs --dry-run` locally (or set `REVIEW_DATE=YYYY-MM-DD`
+to preview a fixed date). Manual workflow runs also support `dry_run`.
+
 The build caches a 640px WebP thumbnail for each local Moments image under
 `.jekyll-cache/moment-thumbs/`. Multi-image galleries display thumbnails and
 link to the originals; a single image keeps the original as `src` with a
