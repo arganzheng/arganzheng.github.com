@@ -221,6 +221,9 @@ pre code{
 		box-shadow: rgba(0, 0, 0, 0.117647) 0px 1px 6px, rgba(0, 0, 0, 0.239216) 0px 1px 4px;
 		border-radius: 2px;
 		width: 170px;
+		// bootstrap caps it at 340px (7 items); scroll only when the viewport is shorter than the menu
+		max-height: calc(100vh - 60px);
+		overflow-y: auto;
 	}
 	/**
 	 * Animation
