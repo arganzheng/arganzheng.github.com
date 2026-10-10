@@ -2,35 +2,30 @@
  * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
- *   - Select text in the article -> floating toolbar: 「点赞」 / 「存疑」 / 「评论」 /
+ *   - Select text in the article -> floating toolbar: 「点赞」 / 「评论」 /
  *     「复制」 / 「搜一搜」 / 「分享」.
- *   - 「点赞」 / 「存疑」 are anonymous per-passage counters (worker /reactions,
- *     D1; no login, one per browser in localStorage) — "raising a hand". A
- *     存疑 can carry *reasons* (有错误 / 没看懂 / 版本过时 / 缺例子 / 与前文矛盾, multi-select)
- *     and every reaction records the chapter (nearest h2/h3) it sits in.
+ *   - 「点赞」 is an anonymous per-passage counter (worker /reactions, D1;
+ *     no login, one per browser in localStorage), and records the chapter
+ *     (nearest h2/h3) it sits in.
  *   - Images and Mermaid diagrams get a caption and a corner button (js/figures.js)
  *     that selects the caption's title — that text is the passage, so pictures
- *     take 点赞 / 存疑 / 评论 like any sentence; the figure gets `.has-note` outline.
- *   - Every heading (h2–h6) gets two tiny anonymous buttons, 「点赞」 / 「没看懂」,
+ *     take 点赞 / 评论 like any sentence; the figure gets `.has-note` outline.
+ *   - Every heading (h2–h6) gets a tiny anonymous 「点赞」 button,
  *     for that section as a whole (same table, quote = '§ ' + heading) — no selection
  *     needed, which is what phones can actually do.
  *   - 「已修正」: a note's Issue got closed, or the author 🎉'd it / replied
- *     已修正 — the underline turns green, the note gets a check badge. An
- *     anonymous 存疑 has no comment to reply to, so the thread panel shows the
- *     signed-in author (data-author = repo owner) 「标记已修正」 (worker
- *     /reactions/resolve: the count stays, the passage turns green until new
- *     doubts arrive) and 「清除存疑」 (count and reasons zeroed).
+ *     已修正 — the underline turns green, the note gets a check badge.
  *   - 「分享」 opens the article's share popover (js/share.js, window.BlogShare)
  *     for the passage link; completed shares are counted per passage (`share`
  *     in /reactions) and on the article.
- *     A passage with reactions but no comment is underlined too (its quote is
- *     stored server-side and re-anchored here); 存疑 shows as a red dotted line.
+ *     A passage with 点赞 but no comment is underlined too (its quote is stored
+ *     server-side and re-anchored here).
  *   - 「评论」 opens a large editor panel *in the flow*, right below the
  *     paragraph, with 取消 / 提交评论 bottom-right. If the selection lies inside
  *     an already-underlined passage the note joins that passage instead.
- *   - Every passage ends with a small marker (💬 comments · 👍 · ❓, non-zero
- *     ones); clicking it (or the underline) expands a thread panel below the
- *     paragraph: a 赞 / 存疑 row, all notes on that passage, their replies, and
+ *   - Every passage ends with a small marker (💬 comments · 👍, non-zero ones);
+ *     clicking it (or the underline) expands a thread panel below the paragraph:
+ *     a 赞 / 分享 row, all notes on that passage, their replies, and
  *     a box to add yours.
  *
  * Storage: a note is a normal comment of the post's giscus / GitHub Discussions
@@ -95,8 +90,8 @@
   var allComments = [];      // every top-level comment of the post's discussion (see parseComment)
   var comments = [];         // the ones this reader may see: allComments minus the author's own (see visibleComments)
   var annotations = [];      // the subset of `comments` with a selector, anchored in the article
-  var reactions = {};        // hash -> { hash, quote, up, doubt, range, marks }: anonymous passage 赞 / 存疑 (worker /reactions)
-  var chapters = {};         // section title -> { hash, quote: '§ ' + text, up, doubt }: section-level reactions (same table; 随笔 ♡)
+  var reactions = {};        // hash -> { hash, quote, up, share, range, marks }: anonymous passage reactions (worker /reactions)
+  var chapters = {};         // section title -> { hash, quote: '§ ' + text, up }: section-level reactions (same table; 随笔 ♡)
   var discussion = null;     // { id, url, totalCommentCount, likes: { up, mine } }
   var pageViews = null;      // number once GET/POST /views answered; stays null when the worker has no counter
   var loaded = false;        // loadDiscussion() has answered (either way)
@@ -463,34 +458,31 @@
       if (a.range) { items.push({ start: a.range.start, end: a.range.end, id: a.id }); anchoredHash[annotHash(a.selector.exact)] = true; }
       else orphans.push(a);
     });
-    // Passages with 赞 / 存疑 but no comment: anchor their stored quote so they
+    // Passages with 赞 but no comment: anchor their stored quote so they
     // get the underline too (id 'r:<hash>'). A commented passage's reactions ride
     // on the comment marks.
     Object.keys(reactions).forEach(function (h) {
       var r = reactions[h];
       r.range = null; r.marks = [];
-      if (!(r.up > 0 || r.doubt > 0) || anchoredHash[h]) return;
+      if (!(r.up > 0) || anchoredHash[h]) return;
       r.range = anchor({ exact: r.quote });
       if (r.range) items.push({ start: r.range.start, end: r.range.end, id: 'r:' + h });
     });
     wrapPieces(items, 'annotation-hl').forEach(function (mark) {
       bindMark(mark);
-      var doubt = false, issue = false, fixable = false, resolved = true;
+      var issue = false, fixable = false, resolved = true;
       mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) {
         var an = findAnnotation(id), r = null;
         if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; fixable = true; if (!an.resolved) resolved = false; if (an.issue && !an.resolved) issue = true; }
         else if (id.indexOf('r:') === 0 && reactions[id.slice(2)]) { r = reactions[id.slice(2)]; r.marks.push(mark); }
-        if (r && openDoubt(r) > 0) doubt = true;
-        if (r && r.doubt > 0) { fixable = true; if (!doubtResolved(r)) resolved = false; }
       });
-      if (doubt) mark.classList.add('has-doubt');
       if (issue) mark.classList.add('has-issue'); // an open GitHub Issue hangs on this passage
-      if (fixable && resolved) mark.classList.add('is-resolved'); // the author fixed every note / 存疑 here
+      if (fixable && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
       // a note on a figure's caption / a code block's header title (js/figures.js) outlines the whole figure / block
       var cap = mark.closest('.post-figcaption, .code-header'); if (cap) cap.classList.add('has-note');
       // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
       var host = markHost(mark);
-      if (host !== mark) { host.classList.add('has-note'); ['has-doubt', 'has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
+      if (host !== mark) { host.classList.add('has-note'); ['has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
     });
     insertMarkers();
     buildIndex();
@@ -515,7 +507,7 @@
     });
     Object.keys(reactions).forEach(function (h) {
       var r = reactions[h];
-      if (!r.marks.length) return;
+      if (!r.marks.length || !(r.up > 0)) return;
       out.push({ key: r.range.start + '-' + r.range.end, ids: ['r:' + h], list: [], hash: h, exact: r.quote, reaction: r, marks: r.marks });
     });
     return out;
@@ -535,12 +527,10 @@
     return null;
   }
   function commentCount(p) { return p.list.reduce(function (n, a) { return n + (a.deleted ? 0 : 1) + (a.replies || []).length; }, 0); }
-  // A passage whose every note the author has marked fixed (see markResolved)
-  // and whose anonymous 存疑, if any, the author has resolved (see resolveDoubt).
+  // A passage whose every live note the author has marked fixed.
   function passageResolved(p) {
-    var live = p.list.filter(function (a) { return !a.deleted; }), r = p.reaction, doubted = !!(r && r.doubt > 0);
-    if (!live.length && !doubted) return false;
-    return live.every(function (a) { return a.resolved; }) && (!doubted || doubtResolved(r));
+    var live = p.list.filter(function (a) { return !a.deleted; });
+    return live.length > 0 && live.every(function (a) { return a.resolved; });
   }
 
   // Notes here that were also filed as a GitHub Issue and are still open.
@@ -552,25 +542,23 @@
     return null;
   }
   function markerClass(p) {
-    return 'annotation-marker' + (p.reaction && openDoubt(p.reaction) ? ' has-doubt' : '') + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
+    return 'annotation-marker' + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
   }
 
-  // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up · ❓ doubt (only the non-zero ones).
+  // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up (non-zero only).
   function markerHtml(p) {
     var r = p.reaction, n = commentCount(p);
     return (passageResolved(p) ? '<i class="fa fa-check-circle"></i>' : '') +
       (passageIssues(p) ? '<i class="fa fa-flag"></i>' : '') +
       (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
-      (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '') +
-      (r && openDoubt(r) ? '<i class="fa fa-question-circle"></i><span class="annotation-marker-count">' + openDoubt(r) + '</span>' : '');
+      (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '');
   }
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
-    if (passageResolved(p)) parts.push('作者已修正' + (r && r.resolved_at && r.resolved_doubt ? '（原 ' + r.resolved_doubt + ' 人存疑）' : ''));
+    if (passageResolved(p)) parts.push('作者已修正');
     if (passageIssues(p)) parts.push(passageIssues(p) + ' 个待处理的 Issue');
     if (n) parts.push(n + ' 条评论');
     if (r && r.up) parts.push(r.up + ' 人赞');
-    if (r && openDoubt(r)) parts.push(openDoubt(r) + ' 人' + (r.resolved_at ? '在修正后仍' : '') + '存疑' + (reasonsSummary(r) ? '（' + reasonsSummary(r) + '）' : ''));
     if (r && r.share) parts.push(r.share + ' 次分享');
     return parts.join(' · ') + '，点击查看';
   }
@@ -732,45 +720,15 @@
     if (!panel.parentNode) mountPanel(p.marks[p.marks.length - 1]);
   }
 
-  // 点赞 / 存疑 row of the thread panel (also re-rendered alone after a click).
+  // Reaction row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
-    var r = p.reaction || { up: 0, doubt: 0, share: 0, reasons: {} }, up = myReaction(p.hash, 'up'), doubt = myReaction(p.hash, 'doubt');
-    var summary = reasonsSummary(r), mine = myReasons(p.hash), open = openDoubt(r), fixed = doubtResolved(r);
+    var r = p.reaction || { up: 0, share: 0 }, up = myReaction(p.hash, 'up');
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
-      '<button type="button" class="ap-react-btn ap-react-doubt' + (doubt ? ' is-on' : '') + '" title="' + escapeAttr((doubt ? '取消存疑' : '觉得这段话有问题？（不用登录）') + (summary ? '\n' + summary : '')) + '"><i class="fa ' + (doubt ? 'fa-question-circle' : 'fa-regular fa-circle-question') + '"></i> 存疑' + (open ? ' <b>' + open + '</b>' : '') + '</button>' +
-      '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
-      (fixed ? '<span class="ap-react-fixed" title="' + escapeAttr(new Date(r.resolved_at).toLocaleString()) + '"><i class="fa fa-check-circle"></i> 作者已修正' + (r.resolved_doubt ? '（原 ' + r.resolved_doubt + ' 人存疑）' : '') + '</span>' : '') +
-      (doubt ? '<a href="#" class="ap-react-say">说说哪里不对 →</a>' : '') +
-      // The author answers an anonymous 存疑 (worker /reactions/resolve, owner only):
-      // 已修正 keeps the count but turns the passage green until *new* doubts come;
-      // 清除 drops the count for good (a stray tap, a passage that no longer exists).
-      (isOwner() && r.doubt > 0 ? '<span class="ap-react-author">' +
-        (fixed ? '<button type="button" class="ap-react-btn ap-react-reopen" title="撤销「已修正」，恢复原来的存疑">撤销已修正</button>'
-          : '<button type="button" class="ap-react-btn ap-react-resolve" title="' + escapeAttr(r.resolved_at ? '把修正后新增的 ' + open + ' 个存疑也标为已处理' : '这段已经改好了：存疑数保留，段落变绿；之后再有人存疑会重新变红') + '"><i class="fa fa-check"></i> 标记已修正</button>') +
-        '<button type="button" class="ap-react-btn ap-react-clear" title="把这段的存疑计数和原因清零（不可恢复）"><i class="fa fa-eraser"></i> 清除存疑</button></span>' : '') +
-      // 存疑 alone is a 1-bit signal; one tap on *why* makes it actionable. Shown to
-      // the reader who raised the doubt; the counts are everyone's.
-      (doubt ? '<div class="ap-doubt-why"><span class="ap-doubt-why-label">哪里不对？（可多选）</span>' + DOUBT_REASONS.map(function (d) {
-        var n = (r.reasons && r.reasons[d.key]) || 0, on = mine.indexOf(d.key) !== -1;
-        return '<button type="button" class="ap-reason' + (on ? ' is-on' : '') + '" data-reason="' + d.key + '" aria-pressed="' + on + '">' + d.label + (n ? ' <b>' + n + '</b>' : '') + '</button>';
-      }).join('') + '</div>' : '');
+      '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>';
   }
   function bindReactBar(host, p) {
     host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
-    host.querySelector('.ap-react-doubt').addEventListener('click', function () { react(p.exact, 'doubt'); });
     host.querySelector('.ap-react-share').addEventListener('click', function (e) { e.stopPropagation(); sharePassage(e.currentTarget, p.exact, p.list.length > 0); });
-    var say = host.querySelector('.ap-react-say');
-    if (say) say.addEventListener('click', function (e) {
-      e.preventDefault();
-      var ta = panel.querySelector('.ap-text');
-      if (ta) { ta.focus(); ta.scrollIntoView({ block: 'nearest' }); }
-    });
-    var chips = host.querySelectorAll('.ap-reason');
-    for (var i = 0; i < chips.length; i++) chips[i].addEventListener('click', function () { setReason(p.exact, this.getAttribute('data-reason')); });
-    [['.ap-react-resolve', 'resolve'], ['.ap-react-reopen', 'reopen'], ['.ap-react-clear', 'clear']].forEach(function (x) {
-      var b = host.querySelector(x[0]);
-      if (b) b.addEventListener('click', function () { resolveDoubt(p.hash, x[1], b); });
-    });
   }
 
   function renderThread(p) {
@@ -1010,21 +968,20 @@
   var HOT_MAX = 3;
   function renderHotPassages() {
     var host = commentsHost.querySelector('.ac-hot');
-    // score = passage 赞 + 2 × 存疑 + 2 × net comment votes + comments
+    // score = passage 赞 + 2 × net comment votes + comments
     var ranked = passages().filter(function (p) { return !passageResolved(p); }).map(function (p) {
-      var votes = 0, n = commentCount(p), r = p.reaction || { up: 0, doubt: 0 }, doubt = openDoubt(r);
+      var votes = 0, n = commentCount(p), r = p.reaction || { up: 0 };
       p.list.forEach(function (a) {
         votes += a.votes.up - a.votes.down;
         a.replies.forEach(function (x) { votes += x.votes.up - x.votes.down; });
       });
-      return { p: p, votes: votes, comments: n, up: r.up, doubt: doubt, score: r.up + 2 * doubt + votes * 2 + n };
+      return { p: p, votes: votes, comments: n, up: r.up, score: r.up + votes * 2 + n };
     }).filter(function (x) { return x.score > 0; }).sort(function (x, y) { return y.score - x.score; });
     if (ranked.length < 2) { host.innerHTML = ''; return; }
     host.innerHTML = '<div class="ac-hot-title"><i class="fa fa-fire"></i> 最受关注的段落</div>';
     ranked.slice(0, HOT_MAX).forEach(function (x) {
       var p = x.p, meta = [];
       if (x.up) meta.push('<i class="fa fa-thumbs-up"></i> ' + x.up);
-      if (x.doubt) meta.push('<i class="fa fa-question-circle"></i> ' + x.doubt);
       if (x.votes) meta.push('<i class="fa fa-caret-up"></i> ' + x.votes);
       if (x.comments) meta.push(x.comments + ' 条评论');
       var item = document.createElement('a');
@@ -1939,7 +1896,6 @@
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
       '<button type="button" class="annotation-tb-up" title="点赞这段话（不用登录）"><i class="fa fa-regular fa-thumbs-up"></i> 点赞</button>' +
-      '<button type="button" class="annotation-tb-doubt" title="觉得这段话有问题？存疑（不用登录）"><i class="fa fa-regular fa-circle-question"></i> 存疑</button>' +
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-regular fa-comment"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
@@ -1947,19 +1903,17 @@
       '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +
       '<span class="annotation-tb-arrow"></span>';
     toolbar.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the selection
-    ['up', 'doubt'].forEach(function (kind) {
-      toolbar.querySelector('.annotation-tb-' + kind).addEventListener('click', function (e) {
-        e.stopPropagation();
-        var range = currentRange();
-        var offsets = range && selectionOffsets(range);
-        hideToolbar();
-        if (!offsets) return;
-        // inside an underlined passage -> react on that passage, not on a new sub-range
-        var p = passageContaining(offsets);
-        var exact = p ? p.exact : selectorFromOffsets(offsets).exact;
-        if (window.getSelection) window.getSelection().removeAllRanges();
-        reactFromToolbar(exact, kind);
-      });
+    toolbar.querySelector('.annotation-tb-up').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var range = currentRange();
+      var offsets = range && selectionOffsets(range);
+      hideToolbar();
+      if (!offsets) return;
+      // inside an underlined passage -> react on that passage, not on a new sub-range
+      var p = passageContaining(offsets);
+      var exact = p ? p.exact : selectorFromOffsets(offsets).exact;
+      if (window.getSelection) window.getSelection().removeAllRanges();
+      reactFromToolbar(exact);
     });
     [['comment', '']].forEach(function (pair) {
       toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
@@ -2134,9 +2088,9 @@
     voteEl.querySelector('.ap-vote-down').addEventListener('click', function () { toggleVote(rec, 'down'); });
   }
 
-  // ------------------------------------------------ passage 赞 / 存疑 (anonymous)
+  // ------------------------------------------------ passage 赞 (anonymous)
   // Same trust model as page views: the worker keeps `passage_reactions(path,
-  // hash, quote, up, doubt)` in D1, one row per passage; the browser remembers
+  // hash, quote, up, share)` in D1, one row per passage; the browser remembers
   // its own choices in localStorage and sends toggles. No GitHub login — this
   // is "raising a hand", commenting is "speaking". A local preview only posts
   // when `localStorage.annotationsApi` points it at a dev worker.
@@ -2146,63 +2100,17 @@
   function myReaction(hash, kind) { try { return localStorage.getItem(reactKey(hash, kind)) === '1'; } catch (e) { return false; } }
   function rememberReaction(hash, kind, on) { try { if (on) localStorage.setItem(reactKey(hash, kind), '1'); else localStorage.removeItem(reactKey(hash, kind)); } catch (e) { /* ignore */ } }
 
-  // Why a reader doubts a passage — one tap each, anonymous, any number of picks
-  // per browser (`react:<path>:<hash>:reason` = comma-joined keys; older
-  // single-key values still parse). Keys match the worker's DOUBT_REASONS.
-  var DOUBT_REASONS = [
-    { key: 'wrong', label: '有错误' },
-    { key: 'unclear', label: '没看懂' },
-    { key: 'outdated', label: '版本过时' },
-    { key: 'example', label: '缺例子/图' },
-    { key: 'conflict', label: '与前文矛盾' }
-  ];
-  function reasonLabel(key) { for (var i = 0; i < DOUBT_REASONS.length; i++) if (DOUBT_REASONS[i].key === key) return DOUBT_REASONS[i].label; return key; }
-  function reasonsSummary(r) {
-    if (!r || !r.reasons) return '';
-    return DOUBT_REASONS.filter(function (d) { return r.reasons[d.key] > 0; })
-      .sort(function (a, b) { return r.reasons[b.key] - r.reasons[a.key]; })
-      .map(function (d) { return d.label + ' ' + r.reasons[d.key]; }).join(' · ');
-  }
-  function myReasons(hash) { try { return (localStorage.getItem(reactKey(hash, 'reason')) || '').split(',').filter(Boolean); } catch (e) { return []; } }
-  function rememberReasons(hash, keys) { try { if (keys.length) localStorage.setItem(reactKey(hash, 'reason'), keys.join(',')); else localStorage.removeItem(reactKey(hash, 'reason')); } catch (e) { /* ignore */ } }
-  // One worker call per pick: `{reason}` counts it, `{reason, prev: reason}` un-counts it.
-  function postReason(r, exact, key, on) {
-    return api('/reactions', { method: 'POST', body: { path: cfg.path, hash: r.hash, quote: exact, kind: 'reason', reason: key, prev: on ? undefined : key, section: r.section || sectionForExact(exact) } });
-  }
-
-  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, resolved_at: null, resolved_doubt: 0, range: null, marks: [] }; }
-  function takeCounts(r, d) { r.up = d.up || 0; r.doubt = d.doubt || 0; r.share = d.share || 0; r.reasons = d.reasons || {}; r.resolved_at = d.resolved_at || null; r.resolved_doubt = d.resolved_doubt || 0; }
-  // 存疑 the author has not answered yet: after 「已修正」 only the doubts raised
-  // since count (the row keeps the old ones for the dashboard's history).
-  function openDoubt(r) { return !r ? 0 : r.resolved_at ? Math.max(0, (r.doubt || 0) - (r.resolved_doubt || 0)) : (r.doubt || 0); }
-  function doubtResolved(r) { return !!(r && r.resolved_at && r.doubt > 0 && openDoubt(r) === 0); }
+  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, share: 0, range: null, marks: [] }; }
+  function takeCounts(r, d) { r.up = d.up || 0; r.share = d.share || 0; }
   function isOwner() { return !!(viewer && cfg.author && viewer.login.toLowerCase() === cfg.author.toLowerCase()); }
-
-  // Author only (the worker checks the GitHub login against the repo owner):
-  // 'resolve' | 'reopen' | 'clear' on the 存疑 of a passage, see reactBarHtml.
-  function resolveDoubt(hash, action, btn) {
-    var r = reactions[hash];
-    if (!r) return;
-    if (action === 'clear' && !window.confirm('清除这段的 ' + r.doubt + ' 个存疑和原因？不可恢复。')) return;
-    if (btn) btn.disabled = true;
-    ensureToken().then(function (t) {
-      return api('/reactions/resolve', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, body: { path: cfg.path, hash: hash, action: action } });
-    }).then(function (d) {
-      takeCounts(r, d);
-      if (action === 'clear') rememberReasons(hash, []);
-      applyHighlights();
-      if (commentsHost) renderHotPassages();
-      showToast(action === 'resolve' ? '已标记为已修正，段落变绿' : action === 'reopen' ? '已撤销，存疑恢复' : '存疑已清除');
-    }).catch(function (err) { if (btn) btn.disabled = false; showToast('操作失败：' + err.message); });
-  }
 
   function loadReactions() {
     return api('/reactions?path=' + encodeURIComponent(cfg.path)).then(function (data) {
       reactions = {};
       chapters = {};
       (data.items || []).forEach(function (it) {
-        if (!it || !/^[0-9a-f]{8}$/.test(it.hash)) return;
-        if (it.quote && it.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters[it.quote.slice(CHAPTER_PREFIX.length)] = { hash: it.hash, quote: it.quote, up: it.up || 0, doubt: it.doubt || 0 }; return; }
+        if (!it || !/^[0-9a-f]{8}$/.test(it.hash) || !(it.up > 0 || it.share > 0)) return;
+        if (it.quote && it.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters[it.quote.slice(CHAPTER_PREFIX.length)] = { hash: it.hash, quote: it.quote, up: it.up || 0 }; return; }
         var r = reactions[it.hash] = newReaction(it.hash, it.quote || '');
         r.section = it.section || '';
         takeCounts(r, it);
@@ -2212,7 +2120,7 @@
     }).catch(function (err) { console.warn('[annotations] reactions unavailable:', err.message); });
   }
 
-  // Section-level reactions: anonymous one-tap 点赞 / 没看懂 on a whole section,
+  // Section-level reactions: anonymous one-tap 点赞 on a whole section,
   // stored in passage_reactions with quote = '§ ' + title so the dashboard and
   // the 修订简报 can tell a section row from a passage row. Only pages that lay
   // down an empty `.sec-react` placeholder get them (`<span class="sec-react"
@@ -2220,18 +2128,18 @@
   // data-icon-on="fa-heart">`, the ♡ under every 随笔 entry); article headings
   // carry none.
   var CHAPTER_PREFIX = '§ ';
-  var CHAPTER_KINDS = [{ kind: 'up', label: '点赞', title: '点个赞' }, { kind: 'doubt', label: '没看懂', title: '没看懂' }];
+  var CHAPTER_KINDS = [{ kind: 'up', label: '点赞', title: '点个赞' }];
   function chapterFor(title) {
     var quote = CHAPTER_PREFIX + title;
-    return chapters[title] || (chapters[title] = { hash: annotHash(quote), quote: quote, up: 0, doubt: 0 });
+    return chapters[title] || (chapters[title] = { hash: annotHash(quote), quote: quote, up: 0 });
   }
   function fillChapterBar(bar, title) {
-    var kinds = (bar.getAttribute('data-kinds') || 'up doubt').split(/\s+/);
+    var kinds = (bar.getAttribute('data-kinds') || 'up').split(/\s+/);
     CHAPTER_KINDS.forEach(function (k) {
       if (kinds.indexOf(k.kind) === -1) return;
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'sec-react-btn sec-react-' + k.kind; b.setAttribute('data-kind', k.kind); b.title = k.title;
-      var icon = bar.getAttribute('data-icon') || (k.kind === 'up' ? 'fa-thumbs-up' : 'fa-question-circle');
+      var icon = bar.getAttribute('data-icon') || 'fa-thumbs-up';
       b.innerHTML = '<i class="fa ' + icon + '"></i>' + (bar.hasAttribute('data-icon') ? '' : k.label) + '<b></b>';
       b.addEventListener('click', onChapterClick);
       bar.appendChild(b);
@@ -2263,55 +2171,30 @@
     c[kind] = Math.max(0, c[kind] + (on ? 1 : -1));
     rememberReaction(c.hash, kind, on);
     paintChapterBar(bar, title);
-    if (reactLocalOnly) { showToast(on ? (kind === 'up' ? '已点赞' : '已标记没看懂') : '已取消'); return; }
+    if (reactLocalOnly) { showToast(on ? '已点赞' : '已取消'); return; }
     api('/reactions', { method: 'POST', body: { path: cfg.path, hash: c.hash, quote: c.quote, kind: kind, on: on, section: title } })
-      .then(function (d) { c.up = d.up || 0; c.doubt = d.doubt || 0; paintChapterBar(bar, title); showToast(on ? (kind === 'up' ? '已点赞' : '已标记没看懂，谢谢') : '已取消'); })
+      .then(function (d) { c.up = d.up || 0; paintChapterBar(bar, title); showToast(on ? '已点赞，谢谢' : '已取消'); })
       .catch(function (err) { c[kind] = before; rememberReaction(c.hash, kind, !on); paintChapterBar(bar, title); showToast('操作失败：' + err.message); });
   }
 
-  // Toggle my 点赞 / 存疑 on the passage with this exact text. Optimistic; the
-  // underline / marker / open panel / ranking follow the new counts. Taking a
-  // 存疑 back also takes back the reasons picked with it.
+  // Toggle my 点赞 on the passage with this exact text. Optimistic; the
+  // underline / marker / open panel / ranking follow the new count.
   function react(exact, kind) {
     var hash = annotHash(exact);
     var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
     var on = !myReaction(hash, kind), before = r[kind];
     r[kind] = Math.max(0, r[kind] + (on ? 1 : -1));
     rememberReaction(hash, kind, on);
-    var prevReasons = kind === 'doubt' && !on ? myReasons(hash) : [];
-    if (prevReasons.length) { rememberReasons(hash, []); prevReasons.forEach(function (k) { if (r.reasons[k] > 0) r.reasons[k] -= 1; }); }
     refreshReactionViews(hash);
     if (reactLocalOnly) return Promise.resolve({ on: on, r: r });
     var body = { path: cfg.path, hash: hash, quote: exact, kind: kind, on: on, section: r.section || sectionForExact(exact) };
     return api('/reactions', { method: 'POST', body: body })
       .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); return { on: on, r: r }; })
-      .then(function (res) {
-        // un-count every reason I had picked, one call each (sequential: the worker read-modify-writes the JSON)
-        return prevReasons.reduce(function (chain, k) {
-          return chain.then(function () { return postReason(r, exact, k, false).then(function (d) { takeCounts(r, d); refreshReactionViews(hash); }); });
-        }, Promise.resolve()).then(function () { return res; }, function () { return res; });
-      })
       .catch(function (err) {
         r[kind] = before; rememberReaction(hash, kind, !on); refreshReactionViews(hash);
         showToast('操作失败：' + err.message);
         return null;
       });
-  }
-
-  // Toggle one of my reasons for doubting this passage (several may be on at once).
-  function setReason(exact, key) {
-    var hash = annotHash(exact);
-    var r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
-    var prev = myReasons(hash), on = prev.indexOf(key) === -1;
-    var next = on ? prev.concat(key) : prev.filter(function (k) { return k !== key; });
-    if (on) r.reasons[key] = (r.reasons[key] || 0) + 1;
-    else if (r.reasons[key] > 0) r.reasons[key] -= 1;
-    rememberReasons(hash, next);
-    refreshReactionViews(hash);
-    if (reactLocalOnly) return;
-    postReason(r, exact, key, on)
-      .then(function (d) { takeCounts(r, d); refreshReactionViews(hash); })
-      .catch(function (err) { rememberReasons(hash, prev); refreshReactionViews(hash); showToast('操作失败：' + err.message); });
   }
 
   // 分享 a passage: the same popover as the article's 「分享」 (js/share.js,
@@ -2347,18 +2230,15 @@
       .catch(function () { /* keep the optimistic number */ });
   }
 
-  // Cheap path when the passage is already underlined (repaint its marker and the
-  // panel's reaction row); otherwise re-anchor so the underline appears / goes.
+  // Cheap path when the passage is already underlined; otherwise re-anchor so
+  // the underline appears or goes.
   function refreshReactionViews(hash) {
     var p = passageFor(['r:' + hash]), r = reactions[hash];
-    var alive = r && (r.up > 0 || r.doubt > 0);
+    var alive = r && r.up > 0;
     if (!p && !alive) return; // e.g. a share of a passage nobody underlined: nothing to paint
     if (!p || (!alive && !p.list.length)) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
-    // a resolved passage that gets a new doubt (or loses its last) changes colour: re-anchor for the class set
-    if (r && r.resolved_at) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
-    p.marks.forEach(function (m) { m.classList.toggle('has-doubt', openDoubt(r) > 0); });
     var marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');
-    if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); marker.classList.toggle('has-doubt', openDoubt(r) > 0); }
+    if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); }
     if (panelState && panelState.kind === 'thread' && passageFor(panelState.ids) && passageFor(panelState.ids).hash === hash) {
       var host = panel.querySelector('.ap-react');
       if (host) { host.innerHTML = reactBarHtml(p); bindReactBar(host, p); }
@@ -2368,17 +2248,15 @@
     if (commentsHost) renderHotPassages();
   }
 
-  // From the selection toolbar: 赞 just underlines and confirms; 存疑 also opens
-  // the passage panel, whose 「说说哪里不对 →」 leads into the editor.
-  function reactFromToolbar(exact, kind) {
+  // From the selection toolbar, 赞 underlines and confirms.
+  function reactFromToolbar(exact) {
     var hash = annotHash(exact);
-    var wasOn = myReaction(hash, kind);
-    react(exact, kind);
+    var wasOn = myReaction(hash, 'up');
+    react(exact, 'up');
     var p = passageFor(['r:' + hash]);
-    if (!p || !p.marks.length) { showToast(wasOn ? '已取消' : (kind === 'up' ? '已赞' : '已标记存疑')); return; }
+    if (!p || !p.marks.length) { showToast(wasOn ? '已取消' : '已赞'); return; }
     flashMarks(p.marks);
-    if (kind === 'doubt' && !wasOn) openThread(p.ids, p.marks[p.marks.length - 1]);
-    else showToast(wasOn ? (kind === 'up' ? '已取消点赞' : '已取消存疑') : '已点赞这段话');
+    showToast(wasOn ? '已取消点赞' : '已点赞这段话');
   }
 
   // ----------------------------------------------------------- page views

@@ -4351,24 +4351,8 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
     row-gap: 6px;
   }
 }
-.post-container mark.annotation-hl.has-doubt,
-.post-container .katex.has-note.has-doubt {
-  border-bottom-style: dotted;
-  border-bottom-color: rgba(209, 36, 47, 0.75);
-}
-.post-container mark.annotation-hl.has-doubt:hover,
-.post-container .katex.has-note.has-doubt:hover {
-  border-bottom-color: #d1242f;
-  background-color: rgba(209, 36, 47, 0.07);
-}
-.post-container mark.annotation-hl.has-doubt.is-multi,
-.post-container .katex.has-note.has-doubt.is-multi {
-  border-bottom-style: solid;
-}
 .post-container mark.annotation-hl.has-issue,
-.post-container .katex.has-note.has-issue,
-.post-container mark.annotation-hl.has-issue.has-doubt,
-.post-container .katex.has-note.has-issue.has-doubt {
+.post-container .katex.has-note.has-issue {
   border-bottom: 2px solid rgba(209, 36, 47, 0.8);
   background-color: rgba(209, 36, 47, 0.06);
 }
@@ -4381,16 +4365,11 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 .post-container .annotation-marker .fa-flag + .fa {
   margin-left: 5px;
 }
-.post-container .annotation-marker.has-doubt,
 .post-container .annotation-marker.has-issue {
   color: #d1242f;
   background: #fff1f1;
-  border-color: #f7c5c8;
-}
-.post-container .annotation-marker.has-issue {
   border-color: rgba(209, 36, 47, 0.55);
 }
-.post-container .annotation-marker.has-doubt:hover,
 .post-container .annotation-marker.has-issue:hover {
   color: #fff;
   background: #d1242f;
@@ -4411,9 +4390,6 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .annotation-toolbar .annotation-tb-up:hover .fa {
   color: #ffd166;
-}
-.annotation-toolbar .annotation-tb-doubt:hover .fa {
-  color: #ff8a8a;
 }
 .annotation-panel .ap-react {
   display: flex;
@@ -4459,50 +4435,6 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   background: #fff1a8;
   border-color: #d4a72c;
 }
-.annotation-panel .ap-react .ap-react-doubt.is-on {
-  color: #d1242f;
-  border-color: #f7c5c8;
-  background: #fff1f1;
-}
-.annotation-panel .ap-react .ap-react-doubt.is-on:hover {
-  background: #ffe0e2;
-  border-color: #d1242f;
-}
-.annotation-panel .ap-react .ap-react-say {
-  font-size: 13px;
-  color: #d1242f;
-  text-decoration: none;
-  margin-left: 2px;
-}
-.annotation-panel .ap-react .ap-react-say:hover {
-  text-decoration: underline;
-}
-.annotation-panel .ap-react .ap-react-fixed {
-  font-size: 13px;
-  color: #1a7f37;
-}
-.annotation-panel .ap-react .ap-react-fixed .fa {
-  margin-right: 4px;
-}
-.annotation-panel .ap-react .ap-react-author {
-  display: inline-flex;
-  gap: 6px;
-  margin-left: auto;
-}
-.annotation-panel .ap-react .ap-react-author .ap-react-resolve:hover {
-  color: #1a7f37;
-  border-color: #1a7f37;
-  background: #dafbe1;
-}
-.annotation-panel .ap-react .ap-react-author .ap-react-clear:hover {
-  color: #d1242f;
-  border-color: #d1242f;
-  background: #fff1f1;
-}
-.annotation-panel .ap-react .ap-react-author .ap-react-btn[disabled] {
-  opacity: 0.5;
-  cursor: default;
-}
 @media (max-width: 767px) {
   .annotation-toolbar button {
     padding: 6px 8px;
@@ -4520,9 +4452,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   }
 }
 .post-container mark.annotation-hl.is-resolved,
-.post-container .katex.has-note.is-resolved,
-.post-container mark.annotation-hl.is-resolved.has-doubt,
-.post-container .katex.has-note.is-resolved.has-doubt {
+.post-container .katex.has-note.is-resolved {
   border-bottom: 1.5px solid rgba(26, 127, 55, 0.7);
 }
 .post-container mark.annotation-hl.is-resolved:hover,
@@ -4530,8 +4460,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   border-bottom-color: #1a7f37;
   background-color: rgba(26, 127, 55, 0.07);
 }
-.post-container .annotation-marker.is-resolved,
-.post-container .annotation-marker.is-resolved.has-doubt {
+.post-container .annotation-marker.is-resolved {
   color: #1a7f37;
   background: #dafbe1;
   border-color: #aceebb;
@@ -4571,46 +4500,6 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 .post-container .annotation-panel .ap-comment.has-issue.is-resolved,
 .post-container .annotation-comments .ap-comment.has-issue.is-resolved {
   box-shadow: inset 3px 0 0 rgba(26, 127, 55, 0.6);
-}
-.annotation-panel .ap-react .ap-doubt-why {
-  flex-basis: 100%;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: -2px;
-}
-.annotation-panel .ap-react .ap-doubt-why .ap-doubt-why-label {
-  font-size: 12.5px;
-  color: #d1242f;
-  margin-right: 2px;
-}
-.annotation-panel .ap-react .ap-doubt-why .ap-reason {
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid #d0d7de;
-  border-radius: 12px;
-  background: #fff;
-  color: #57606a;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
-}
-.annotation-panel .ap-react .ap-doubt-why .ap-reason b {
-  margin-left: 3px;
-  font-weight: 600;
-}
-.annotation-panel .ap-react .ap-doubt-why .ap-reason:hover {
-  color: #d1242f;
-  border-color: #f7c5c8;
-  background: #fff8f8;
-}
-.annotation-panel .ap-react .ap-doubt-why .ap-reason.is-on {
-  color: #fff;
-  background: #d1242f;
-  border-color: #d1242f;
 }
 .post-container figure.post-figure {
   position: relative;
@@ -5318,9 +5207,6 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   text-decoration: none;
   line-height: 1.5;
 }
-.dash .dash-quotes li.is-doubt .dash-quote {
-  border-left-color: #d1242f;
-}
 .dash .dash-quote:hover {
   color: #00788f;
 }
@@ -5331,47 +5217,6 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .dash .dash-quote-meta a {
   text-decoration: none;
-}
-.dash .dash-quote-meta .is-doubt {
-  color: #d1242f;
-}
-/* an anonymous 存疑 the author has answered (worker /reactions/resolve) */
-.dash .dash-quotes li.is-fixed .dash-quote {
-  border-left-color: #1a7f37;
-  color: #57606a;
-}
-.dash .dash-quote-meta .is-fixed {
-  color: #1a7f37;
-}
-.dash .dash-resolve {
-  margin-left: 6px;
-  white-space: nowrap;
-}
-.dash .dash-resolve button {
-  padding: 0 7px;
-  height: 20px;
-  margin-left: 4px;
-  border: 1px solid #d0d7de;
-  border-radius: 10px;
-  background: #fff;
-  color: #57606a;
-  font-size: 11.5px;
-  line-height: 1;
-  cursor: pointer;
-}
-.dash .dash-resolve button:hover {
-  color: #1a7f37;
-  border-color: #1a7f37;
-  background: #dafbe1;
-}
-.dash .dash-resolve button[data-action="clear"]:hover {
-  color: #d1242f;
-  border-color: #d1242f;
-  background: #fff1f1;
-}
-.dash .dash-quotes li.is-busy {
-  opacity: 0.5;
-  pointer-events: none;
 }
 @media (max-width: 767px) {
   .dash .dash-top {
@@ -5411,9 +5256,6 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 }
 .dash .dash-queue {
   columns: 1;
-}
-.dash .dash-queue .is-doubt {
-  color: #d1242f;
 }
 .dash .dash-brief-pick {
   max-width: 420px;

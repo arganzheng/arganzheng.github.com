@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Dashboard
-description: "作者视角：阅读趋势、文章榜、读者存疑的句子、最近评论、待处理的 Issue"
+description: "作者视角：阅读趋势、文章榜、读者点赞和分享的句子、最近评论、待处理的 Issue"
 permalink: /admin/stats.html
 sitemap: false
 noindex: true
@@ -43,14 +43,14 @@ noindex: true
 
   <section class="dash-section" id="dash-brief">
     <h3>修订简报 <small><select class="dash-brief-pick"><option value="">选一篇文章…</option></select></small></h3>
-    <p class="dash-hint">把一篇文章收到的存疑（含原因）、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。每周一 <code>feedback-queue</code> Action 也用同一套逻辑跑全站，反馈够多的文章自动开一个「待修订」Issue（见下方「待处理」）。</p>
+    <p class="dash-hint">把一篇文章收到的点赞、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。每周一 <code>feedback-queue</code> Action 也用同一套逻辑跑全站，反馈够多的文章自动开一个「待修订」Issue（见下方「待处理」）。</p>
     <div class="dash-brief-queue"><p class="dash-muted">加载中…</p></div>
     <div class="dash-brief-body"><p class="dash-muted">还没有选文章。</p></div>
   </section>
 
   <section class="dash-section" id="dash-passages">
-    <h3>读者划出来的句子 <small><a href="#" data-kind="doubt" class="is-active">存疑最多</a> · <a href="#" data-kind="up">点赞最多</a> · <a href="#" data-kind="share">分享最多</a></small></h3>
-    <p class="dash-hint">读者选中一段话点「存疑」或「赞」（匿名，不用登录）。存疑多的句子最值得回头看一眼；点句子直达原文并展开讨论。</p>
+    <h3>读者划出来的句子 <small><a href="#" data-kind="up" class="is-active">点赞最多</a> · <a href="#" data-kind="share">分享最多</a></small></h3>
+    <p class="dash-hint">读者选中一段话点「点赞」或完成分享（匿名，不用登录）。点句子直达原文并展开讨论。</p>
     <div class="dash-list"><p class="dash-muted">加载中…</p></div>
   </section>
 

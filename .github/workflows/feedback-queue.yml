@@ -1,5 +1,5 @@
-# Weekly: aggregate reader feedback (存疑 + 原因, 划线评论, 建议修改, chapter
-# 有用/没看懂, Issue state) per post with js/feedback-brief.js — the same code
+# Weekly: aggregate reader feedback (段落点赞, 划线评论, Issue state) per post
+# with js/feedback-brief.js — the same code
 # the dashboard's 修订简报 uses — and open / update / close one issue labelled
 # `待修订` per post whose brief scores >= threshold. See tools/feedback-queue.cjs.
 name: feedback queue
