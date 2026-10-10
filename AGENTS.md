@@ -221,7 +221,7 @@ Pages has `https_enforced` on.
   (worker `GET /views/daily?days=`, per-day bars from `views_daily`, Beijing
   dates), 文章榜 (`GET /stats/top`: views · 点赞 · 点赞率 · 分享 + comment counts
   via `/stats?paths=` in chunks of 20; click a `th[data-sort]` to sort; TOP 10 by default, `.dash-toggle` expands), 读者划出
-  来的句子 (`GET /reactions/top?kind=doubt|up`), recent comments via GraphQL
+  来的句子 (`GET /reactions/top?kind=up|share`), recent comments via GraphQL
   with the giscus session (alias the `comments(last:3)` field — a response key
   named `comments` twice is a GraphQL validation error and looked like a login
   failure), open issues via REST, and 值得翻新的老文章 (`GET /stats/top?limit=500`
@@ -230,10 +230,9 @@ Pages has `https_enforced` on.
   years old, ranked by views × log(age), with 简报 + GitHub 编辑 links; a post
   leaves the list once `updated:` is set), and 待修订的文章 above the 修订简报
   picker (worker `GET /feedback` with no path = every post's D1 rows in one
-  call, joined with the open `划线评论` / `待修订` issues; a post is listed when
-  it has 存疑 / 章节没看懂 / an open issue, ranked by `FeedbackBrief.analyze`
-  score — Discussion comments are not fetched for the list, only for the
-  brief itself). `sitemap: false`, `noindex: true`
+  call, joined with the open `划线评论` / `待修订` issues; a post is listed only
+  when it has an open issue — Discussion comments are not fetched for the list,
+  only for the brief itself). `sitemap: false`, `noindex: true`
   (`head.html` emits the robots meta for `page.noindex`). Its styles are
   `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
@@ -518,7 +517,7 @@ issue start with `<sub>[⚑ Issue #N](url)</sub>` (recognised by
 replies, `deletedAt` set) render as 「此评论已删除」 with their replies.
 
 Code-review / WeChat-reading style, no hover popups. Readers select text in
-`.post-container` → floating toolbar (`点赞` / `存疑` / `评论` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
+`.post-container` → floating toolbar (`点赞` / `评论` / `复制` / `搜一搜` / `分享`) → an **in-flow editor
 panel** is inserted right after the paragraph (取消 / 提交评论 bottom-right).
 The note is posted as a **normal comment** of the post's giscus Discussion:
 
@@ -576,18 +575,19 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   and patches `votes.mine` / `likes.mine` in place (`updateVoteEls`). GitHub's
   native discussion-comment `upvote` is deliberately not used (top-level only,
   no downvote). Don't re-add the giscus iframe for reactions.
-- **Passage 赞 / 存疑** (`react`, `reactions` map, toolbar buttons
-  `.annotation-tb-up/-doubt`, panel row `.ap-react`): anonymous counters, no
-  login, like the article 「点赞」. Worker `GET/POST /reactions` keeps
-  `passage_reactions(path, hash, quote, up, doubt, share, reasons, section, resolved_at, resolved_doubt)` in D1; `hash` =
+- **Passage 赞** (`react`, `reactions` map, toolbar button
+  `.annotation-tb-up`, panel row `.ap-react`): anonymous counters, no
+  login, like the article 「点赞」. Worker `GET/POST /reactions` uses
+  `passage_reactions(path, hash, quote, up, share, section)` in D1; legacy
+  columns remain unused. 「存疑」 was removed 2026-10-10; legacy D1
+  `doubt` / `reasons` / `resolved_*` columns are unused. `hash` =
   `annotHash(exact)` (the `#annot-<hash>` id), `quote` lets `applyHighlights`
   anchor and underline a passage nobody commented on (mark ids `r:<hash>`,
-  same `mark.annotation-hl`; `.has-doubt` = red dotted line; `.has-issue` =
-  red solid line on a faint red wash + ⚑ in the marker, when a live note there
+  same `mark.annotation-hl`; `.has-issue` = red solid line on a faint red wash + ⚑ in the marker, when a live note there
   has an *open* GitHub Issue — `passageIssues(p)`). One reader's
   choices live in `localStorage["react:<path>:<hash>:<kind>"]`. The unit of
   everything passage-level is `passages()` / `passageFor(ids)` (`{ ids, list,
-  hash, exact, reaction, marks }`): markers (`markerHtml`: 💬 · 👍 · ❓),
+  hash, exact, reaction, marks }`): markers (`markerHtml`: 💬 · 👍),
   `openThread`, `passageContaining(offsets)` (a selection inside an
   underlined passage joins it — comment or reaction), `renderHotPassages`.
   The toolbar's 评论 button is relabelled per selection (`updateCommentButton`):
@@ -604,9 +604,9 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   chapter (`sectionForOffsets`); a URL has no system prompt, the instructions
   ride in `q`.
   `refreshReactionViews` repaints marker / panel row in place and only
-  re-anchors when an underline must appear or vanish. Toolbar 存疑 opens the
-  passage panel (its 「说说哪里不对 →」 focuses the editor); 赞 just flashes +
-  toasts. Local previews post only when `localStorage.annotationsApi` is set.
+  re-anchors when an underline must appear or vanish. A passage without notes
+  is anchored only when `up > 0`; sharing alone does not create an underline.
+  Local previews post only when `localStorage.annotationsApi` is set.
 - **Passage 分享** (`sharePassage`, toolbar `.annotation-tb-share`, panel
   `.ap-react-share`): opens the article's share popover — `js/share.js` exposes
   `window.BlogShare.open(btn, { url, title, text, onShared, toast })` — with
@@ -615,22 +615,13 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   /reactions kind:'share'` (+1, no toggle, `share` column; the worker also
   bumps the article's `shares` row and the response's `shares` is forwarded as
   a `blog:stats` event for the header badge). A share alone does not underline
-  a passage (only up / doubt do); the count shows in the panel row and the
+  a passage (only up does); the count shows in the panel row and the
   marker title. Dashboard 读者划出来的句子 has a 分享最多 tab.
 - **Quote escaping gotcha**: `escapeMarkdown` must produce `1\.5px`, not
   `\1.5px` — a backslash before a digit is literal in GFM, the parsed quote
   gets an extra `\` and its hash no longer matches the `§ 原文位置` link.
-- **Feedback loop (存疑原因 / 章节 / 已修正 / 修订简报)** — the
+- **Feedback loop (章节 / 已修正 / 修订简报)** — the
   point is to turn reader signals into work an AI can execute:
-  - `DOUBT_REASONS` (`wrong|unclear|outdated|example|conflict`, labels in
-    both `annotations.js` and `dashboard.js`, whitelist in the worker): after
-    存疑 the panel's `.ap-react` gets a `.ap-doubt-why` chip row (`setReason`,
-    multi-select: each chip toggles on its own — `POST /reactions kind:'reason'
-    {reason}` counts, `{reason, prev: reason}` un-counts; my picks are the
-    comma-joined keys in `localStorage["react:<path>:<hash>:reason"]`;
-    un-doubting un-counts every pick, one call each, sequentially because the
-    worker read-modify-writes the JSON). Counts live in `passage_reactions.reasons`
-    (JSON) and show in the 存疑 button title / marker title / dashboard.
   - `section` = nearest `h2/h3` above the passage (`sectionForOffsets`, set on
     every selector by `selectorFromOffsets`, sent with every reaction POST,
     stored once per row). Comment header gets ` · 位于「…」` (`sectionNote`,
@@ -645,37 +636,12 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     source of truth for issue-backed notes). Without an Issue: an owner reply
     matching `RESOLVED_RE` (已修正 / 已修复 / 已更正 / 已改正 / 已订正 / 已采纳) or a
     🎉 `HOORAY` on the note (`parseVotes` now carries `hooray`). Effects:
-    `mark.is-resolved` (green solid line, beats `.has-doubt`),
+    `mark.is-resolved` (green solid line),
     `.annotation-marker.is-resolved` + ✓, `.ap-comment.is-resolved` +
     `.ap-resolved-badge`, `renderHotPassages` skips `passageResolved(p)`.
     Reaction-only passages have no GitHub object: editing the text orphans
-    them and they simply stop rendering.
-  - **Anonymous 存疑 has nothing to reply to**, so the author answers it in
-    the row itself (2026-09-30, 「存疑没法取消……修复了那个地方还是红色问号」):
-    `passage_reactions.resolved_at` + `resolved_doubt` (the count at that
-    moment), written by `POST /reactions/resolve { path, hash, action }` —
-    the worker verifies the giscus token with `GET /user` and requires the
-    login to be `REPO`'s owner (no extra secret). `action: resolve` stamps
-    the row (the count stays for the dashboard's history), `reopen` clears
-    the stamp, `clear` zeroes `doubt` + `reasons`. Client-side the number
-    everything shows is `openDoubt(r)` = `doubt - resolved_doubt` once
-    stamped (`annotations.js`, `feedback-brief.js` — its `p.doubt` *is* the
-    open count, total in `p.doubtTotal` — and `dashboard.js` each have the
-    one-liner); `doubtResolved(r)` = stamped and no open doubt →
-    `passageResolved(p)` is true for a reaction-only passage too → the same
-    `.is-resolved` green line / ✓ marker as a fixed note, title 「作者已修正
-    （原 N 人存疑）」, panel row `.ap-react-fixed`. A doubt raised *after* the
-    stamp turns it red again showing only the delta (「1 人在修正后仍存疑」)
-    — the signal that the fix did not land. Buttons: thread panel
-    `.ap-react-author` (`isOwner()` = viewer login == `data-author` on
-    `section.comment`, which is `site.github_username`): 标记已修正 /
-    撤销已修正 / 清除存疑 (confirm); dashboard 读者划出来的句子 rows get
-    `.dash-resolve` 已修正 · 撤销 · 清除 when a giscus session exists
-    (`getToken()` = `POST /token`), resolved rows are `li.is-fixed` and sorted
-    after open ones. `readers` who doubted before the stamp keep their local
-    `is-on` state; un-doubting then lowers `doubt` below `resolved_doubt`,
-    which is fine (`Math.max(0, …)`). Legacy chapter 「没看懂」 rows share the
-    table and are handled from the dashboard list only.
+    them and they simply stop rendering. A passage with only a reaction is
+    never considered fixed; the note status is the sole resolution signal.
   - Orphans (`renderOrphans`) show the first 24 chars of the quote + author
     (title = full quote + section) under 「N 条划线评论对应的原文已修改」.
   - **Figures** (`js/figures.js`, loaded before annotations.js): every `p > img`
@@ -779,15 +745,13 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     small 「代码块 N：标题」 line above the block and drops untitled ones.
     Styles `.code-block` / `.code-header` in `less/annotations.less`.
   - **Section-level reactions** (`renderChapterBars`, `chapters` map): anonymous
-    like passage reactions, no selection needed. Same worker route and table,
-    `quote = '§ ' + title` (`CHAPTER_PREFIX`), `section = title`, `up` = 点赞,
-    `doubt` = 没看懂; `loadReactions` splits `§ ` rows into `chapters` so they are
+    likes, no selection needed. Same worker route and table,
+    `quote = '§ ' + title` (`CHAPTER_PREFIX`), `section = title`,
+    `loadReactions` splits `§ ` rows into `chapters` so they are
     never anchored as passages. Only pages that lay down an empty
     `.sec-react[data-title]` placeholder get buttons — today just the ♡ under
-    every 随笔 entry (see Moments). Article headings carry **no** buttons: the
-    per-heading 「点赞 / 没看懂」 (2026-09-13 → 2026-09-30) were dropped as little
-    used; their `§ 标题` rows stay in D1, so the dashboard still tags them
-    「章节」 and the brief keeps its 「章节热度」 table for old data. `.sec-react`
+    every 随笔 entry (see Moments). Article headings carry **no** buttons;
+    legacy heading rows in D1 are not surfaced. `.sec-react`
     stays in `EXCLUDE_SELECTOR`, wechat-export's `REMOVE` and `headingText()`.
   - **修订简报** lives only in `/admin/stats.html` (`#brief=/slug.html`, a
     `<select>` of `window.DASH_POSTS` and a 「简报」 link per 文章榜 row — one
@@ -797,19 +761,19 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     pass `dom.parse(html) -> Document`): `parseNote` (mirrors `parseBodyHeader`),
     `articleFromHtml` (`.post-container` text + h2/h3 offsets), `sectionAt`,
     `analyze` → `{ todo, done, lost, plain, chapters, score… }`, `render` → Markdown.
-    `openBrief` fetches worker `GET /feedback?path=` (D1: reactions + reasons +
-    section + chapter rows, views, 点赞, shares), the Discussion via the worker's
+    `openBrief` fetches worker `GET /feedback?path=` (D1: up/share reactions,
+    section and chapter rows, views, 点赞, shares), the Discussion via the worker's
     anonymous `/discussions?term=` relay, the repo's `划线评论` issues (REST,
     `state=all`, filtered by `body` containing the path — gives 已修正) and the
-    live article. Passages are ordered by `2×doubt + 0.5×up + Σ(1 + ▲ + 3×suggest)`;
-    sections: 章节热度 / 待处理 / 普通评论 / 其他 open Issue / 未定位（原文已改）/
-    已修正 / 给 AI 的修订指令. `analysis.score` (todo + unresolved plain comments +
-    chapter 没看懂) is what the weekly Action thresholds on. Output is a `<pre>` +
+    live article. Passage score is `up × 0.5 + Σ notes(1 + votes)`; sections:
+    章节热度 / 待处理 / 普通评论 / 其他 open Issue / 未定位（原文已改）/
+    已修正 / 给 AI 的修订指令. `analysis.score` sums actionable passage and
+    plain-comment feedback for the weekly Action threshold. Output is a `<pre>` +
     「复制 Markdown」. Links use `siteUrl` (local builds show localhost). The
     dashboard's 待处理 block lists open `待修订` issues first (with a 「简报」 link
     parsed from the marker), then `划线评论`, then `dead-links`.
 - **最受关注的段落** (`renderHotPassages`, `.ac-hot` above the comment list):
-  passages ranked by `赞 + 2 × 存疑 + 2 × net comment votes + comments`, shown
+  passages ranked by `赞 + 2 × net comment votes + comments`, shown
   only when there are 2+ scored passages, max 3; clicking scrolls to the
   passage and opens its thread. Re-ranked on every vote / reaction.
 - **Page views**: `loadViews()` → `POST /views {path}` once per browser per
@@ -879,7 +843,7 @@ re-anchoring.
   `\frac{a}{b}` as written; a selection boundary inside a formula takes the
   whole formula (`currentRange`). The `<mark>` then sits in the hidden MathML,
   so `markHost(mark)` (= the `.katex`) carries the visible classes
-  (`.katex.has-note` + `.has-doubt/.has-issue/.is-resolved/.is-new`), the
+  (`.katex.has-note` + `.has-issue/.is-resolved/.is-new`), the
   click handler and the marker (`insertMarkers` puts it after the formula).
   Any selected text >= 1 char shows the toolbar (single characters allowed).
   `<mark>` wraps text nodes only, so

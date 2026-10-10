@@ -13,16 +13,15 @@
  *   buildBrief(opts)                              -> { markdown, analysis }
  *
  * Inputs:
- *   fb       worker GET /feedback?path=  { reactions: [{hash, quote, section, up, doubt, share, reasons, resolved_at, resolved_doubt}], views, up, shares }
- *            rows whose quote starts with `§ ` are section-level 点赞 / 没看懂 (quote = `§ ` + heading text, h2–h6)
+ *   fb       worker GET /feedback?path=  { reactions: [{hash, quote, section, up, share}], views, up, shares }
+ *            rows whose quote starts with `§ ` are section-level 点赞 (quote = `§ ` + heading text, h2–h6)
  *   disc     the post's Discussion { url, comments: [{ bodyHTML, author, url, createdAt, deletedAt, authorAssociation,
  *            reactions | reactionGroups, replies: [...] | { nodes } }] } (worker relay / giscus shape or GraphQL shape)
  *   issues   the repo's 划线评论 issues mentioning the post (REST shape: number, state, title, html_url, body)
  *   article  articleFromHtml(dom, html) — the live page: normalised text + heading offsets, or null
  *
- * `analysis.score` is what the queue thresholds on: 2×存疑 + 评论 + ▲
- * over unresolved, still-anchored passages, + unresolved plain comments, +
- * chapter-level 没看懂.
+ * `analysis.score` is what the queue thresholds on: passage 点赞 × 0.5 +
+ * unresolved notes and their ▲ votes, plus unresolved plain comments.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -30,16 +29,11 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var REASON_LABELS = { wrong: '有错误', unclear: '没看懂', outdated: '版本过时', example: '缺例子/图', conflict: '与前文矛盾' };
   var RESOLVED_RE = /已修正|已修复|已更正|已改正|已订正|已采纳/;
   var CHAPTER_PREFIX = '§ ';
 
   function norm(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
   function short(s, n) { s = s || ''; return s.length > n ? s.slice(0, n) + '…' : s; }
-  function reasonsText(reasons) {
-    return Object.keys(reasons || {}).filter(function (k) { return reasons[k] > 0; }).sort(function (a, b) { return reasons[b] - reasons[a]; })
-      .map(function (k) { return (REASON_LABELS[k] || k) + ' ' + reasons[k]; }).join(' · ');
-  }
   function fragment(dom, html) {
     var doc = dom.parse('<div>' + (html || '') + '</div>');
     return doc.body.firstElementChild;
@@ -110,15 +104,10 @@
     function issueResolved(n) { return n.issueNo ? (issueByNo[n.issueNo] || {}).state === 'closed' : n.resolvedByAuthor; }
     var comments = ((disc && disc.comments) || []).filter(function (c) { return !c.deletedAt; }).map(function (c) { return parseNote(dom, c); });
     var passages = {}, order = [], chapters = [];
-    function openDoubt(r) { return r.resolved_at ? Math.max(0, (r.doubt || 0) - (r.resolved_doubt || 0)) : (r.doubt || 0); }
-    function passage(quote) { if (!passages[quote]) { passages[quote] = { quote: quote, section: '', up: 0, doubt: 0, share: 0, reasons: {}, notes: [] }; order.push(passages[quote]); } return passages[quote]; }
-    // `doubt` is what the author still has to answer: after 「已修正」 (worker
-    // /reactions/resolve) only the doubts raised since; the total stays in doubtTotal.
+    function passage(quote) { if (!passages[quote]) { passages[quote] = { quote: quote, section: '', up: 0, share: 0, notes: [] }; order.push(passages[quote]); } return passages[quote]; }
     (fb.reactions || []).forEach(function (r) {
-      var open = openDoubt(r);
-      if (r.quote && r.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters.push({ title: r.quote.slice(CHAPTER_PREFIX.length), up: r.up || 0, doubt: open, doubtTotal: r.doubt || 0, resolvedAt: r.resolved_at || null }); return; }
-      var p = passage(r.quote); p.up = r.up || 0; p.doubt = open; p.doubtTotal = r.doubt || 0; p.resolvedAt = r.resolved_at || null; p.resolvedDoubt = r.resolved_doubt || 0;
-      p.share = r.share || 0; p.reasons = r.reasons || {}; p.hash = r.hash; if (r.section) p.section = r.section;
+      if (r.quote && r.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters.push({ title: r.quote.slice(CHAPTER_PREFIX.length), up: r.up || 0 }); return; }
+      var p = passage(r.quote); p.up = r.up || 0; p.share = r.share || 0; p.hash = r.hash; if (r.section) p.section = r.section;
     });
     var plain = [];
     comments.forEach(function (n) {
@@ -129,15 +118,15 @@
     order.forEach(function (p) {
       var loc = sectionAt(article, p.quote);
       p.found = loc.found; if (loc.section) p.section = loc.section;
-      p.resolved = (p.notes.length > 0 || p.doubtTotal > 0) && p.notes.every(issueResolved) && !p.doubt;
-      p.score = 2 * p.doubt + p.up * 0.5 + p.notes.reduce(function (s, n) { return s + 1 + Math.max(0, n.votes); }, 0);
+      p.resolved = p.notes.length > 0 && p.notes.every(issueResolved);
+      p.score = p.up * 0.5 + p.notes.reduce(function (s, n) { return s + 1 + Math.max(0, n.votes); }, 0);
     });
-    // keep the article's order for chapters when we know it, else by 没看懂
+    // keep the article's order for chapters when we know it, else by 点赞
     if (article && chapters.length) {
       var idx = {}, lvl = {}; article.heads.forEach(function (hd, i) { idx[hd.title] = i; lvl[hd.title] = hd.level; });
       chapters.forEach(function (c) { c.level = lvl[c.title] || 2; });
       chapters.sort(function (a, b) { return (idx[a.title] == null ? 1e9 : idx[a.title]) - (idx[b.title] == null ? 1e9 : idx[b.title]); });
-    } else chapters.sort(function (a, b) { return b.doubt - a.doubt || b.up - a.up; });
+    } else chapters.sort(function (a, b) { return b.up - a.up; });
     var todo = order.filter(function (p) { return p.found !== false && !p.resolved; }).sort(function (a, b) { return b.score - a.score; });
     var openIssues = issues.filter(function (is) { return is.state === 'open'; });
     var a = {
@@ -153,8 +142,7 @@
       articleLoaded: !!article
     };
     a.score = todo.reduce(function (s, p) { return s + p.score; }, 0) +
-      plain.filter(function (n) { return !n.resolved; }).reduce(function (s, n) { return s + 1 + Math.max(0, n.votes); }, 0) +
-      chapters.reduce(function (s, c) { return s + c.doubt; }, 0);
+      plain.filter(function (n) { return !n.resolved; }).reduce(function (s, n) { return s + 1 + Math.max(0, n.votes); }, 0);
     return a;
   }
 
@@ -177,8 +165,6 @@
     }
     function passageBlock(p, i) {
       var sig = [];
-      if (p.doubt) sig.push('存疑 ' + p.doubt + (p.resolvedAt ? '（修正后新增）' : '') + (reasonsText(p.reasons) ? '（' + reasonsText(p.reasons) + '）' : ''));
-      if (p.resolvedAt && p.resolvedDoubt) sig.push('作者已修正 ' + p.resolvedAt.slice(0, 10) + '（原存疑 ' + p.resolvedDoubt + '）');
       if (p.up) sig.push('赞 ' + p.up);
       if (p.share) sig.push('分享 ' + p.share);
       if (p.notes.length) sig.push(p.notes.length + ' 条评论');
@@ -195,11 +181,11 @@
     if (a.chapters.length) {
       L.push('## 章节热度');
       L.push('');
-      L.push('_读者在各级标题旁点的「点赞」/「没看懂」（缩进的是小节）。没看懂多的章节整体需要补解释或例子，点赞多的保持现状。_');
+      L.push('_读者在各级标题旁点的「点赞」（缩进的是小节）。_');
       L.push('');
-      L.push('| 章节 | 点赞 | 没看懂 |');
-      L.push('| --- | ---: | ---: |');
-      a.chapters.forEach(function (c) { L.push('| ' + (c.level > 2 ? '　'.repeat(c.level - 2) + '└ ' : '') + c.title.replace(/\|/g, '\\|') + ' | ' + (c.up || '') + ' | ' + (c.doubt || '') + ' |'); });
+      L.push('| 章节 | 点赞 |');
+      L.push('| --- | ---: |');
+      a.chapters.forEach(function (c) { L.push('| ' + (c.level > 2 ? '　'.repeat(c.level - 2) + '└ ' : '') + c.title.replace(/\|/g, '\\|') + ' | ' + (c.up || '') + ' |'); });
       L.push('');
     }
     L.push('## 待处理段落（按关注度排序）');
@@ -226,7 +212,7 @@
     if (a.lost.length) {
       L.push('## 未定位的划线（原文已改，很可能已处理）');
       L.push('');
-      L.push('_这些引文在现在的正文里找不到了。确认已修好的，去 Discussion 回复「已修正」（有 Issue 的关掉 Issue）；只有匿名存疑的，在下面「读者划出来的句子」点「已修正」或「清除」。文章里会显示为绿色「已修正」。_');
+      L.push('_这些引文在现在的正文里找不到了。确认已修好的，去 Discussion 回复「已修正」（有 Issue 的关掉 Issue）。_');
       L.push('');
       a.lost.forEach(passageBlock);
       L.push('');
@@ -234,7 +220,7 @@
     if (a.done.length) {
       L.push('## 已修正');
       L.push('');
-      a.done.forEach(function (p) { L.push('- ' + (p.section ? '【' + p.section + '】' : '') + '「' + short(p.quote, 80) + '」 · ' + (p.notes.length ? p.notes.length + ' 条评论' : '') + (p.resolvedDoubt ? (p.notes.length ? ' · ' : '') + '原存疑 ' + p.resolvedDoubt : '')); });
+      a.done.forEach(function (p) { L.push('- ' + (p.section ? '【' + p.section + '】' : '') + '「' + short(p.quote, 80) + '」 · ' + p.notes.length + ' 条评论'); });
       L.push('');
     }
     L.push('## 给 AI 的修订指令');
@@ -242,7 +228,7 @@
     L.push('以上是读者对《' + title + '》（`_posts/` 中 permalink 为 `' + path + '` 的文章）的反馈。请：');
     L.push('');
     L.push('1. 按「待处理段落」的顺序逐条核对：先判断读者说得对不对，对的改正文，不对的在讨论里回复说明理由。');
-    L.push('2. 「没看懂」多的段落补解释或例子/图；「版本过时」的核对版本并按更新说明规则处理；「与前文矛盾」的检查两处是否需要一起改。「章节热度」里没看懂明显多的章，从整章的铺垫和例子入手，而不是只改一句。');
+    L.push('2. 根据反馈补充解释或例子/图，核对版本，并检查前后文是否一致；「章节热度」可参考读者点赞情况。');
     L.push('3. 改动只针对反馈涉及的段落，保持文章结构和口吻；不要删除或改写没有反馈的部分。');
     L.push('4. 修完后列出：每条反馈 → 做了什么 / 为什么不改；提交时在 commit message 里写 `Fixes #N` 关闭对应 Issue' + (opt.queueIssue ? '（包括本 Issue #' + opt.queueIssue + '）' : '') + '。');
     return L.join('\n');
@@ -254,8 +240,8 @@
   }
 
   return {
-    REASON_LABELS: REASON_LABELS, RESOLVED_RE: RESOLVED_RE, CHAPTER_PREFIX: CHAPTER_PREFIX,
-    reasonsText: reasonsText, short: short, parseNote: parseNote, articleFromHtml: articleFromHtml, sectionAt: sectionAt,
+    RESOLVED_RE: RESOLVED_RE, CHAPTER_PREFIX: CHAPTER_PREFIX,
+    short: short, parseNote: parseNote, articleFromHtml: articleFromHtml, sectionAt: sectionAt,
     analyze: analyze, render: render, buildBrief: buildBrief
   };
 });
