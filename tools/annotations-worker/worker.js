@@ -27,14 +27,15 @@ import { rewriteMomentTags } from './moment-tags.mjs';
  *   POST /reactions/resolve { path, hash, action: resolve | reopen | clear }  author only (Authorization = giscus token, GET /user must be REPO's owner)
  *   dashboard: GET /stats/top, /views/daily?days=30, /reactions/top?kind=doubt|up, /feedback?path= (修订简报)
  *   GET /feedback (no path) -> { posts: { path: { reactions, views, up, shares } } }  every post, for the weekly 待修订 Action
- *   POST /moments      { text, place, tags, quote, by, music, time, images: [{ name, type, data }] } -> { url, commit }
+ *   POST /moments      { text, place, tags, quote, by, music, time, images: […] | video: { src, poster? } } -> { url, commit }
  *                                                 author only (same check as /reactions/resolve); one commit on the
  *                                                 default branch that appends the entry to moments/YYYY-MM.md and adds
- *                                                 the pictures under img/moments/YYYY/MM/ (same format as tools/moment.py).
+ *                                                 pictures/posters under img/moments/YYYY/MM/ (same format as tools/moment.py).
  *                                                 Needs the GitHub App with *Contents: read & write* (501 without the key).
- *   GET    /moments?month=YYYY-MM&id=…   -> the entry's fields (text, place, tags in text, quote, by, music, images, raw)
- *   PUT    /moments    { month, id, …POST fields, images: [{ url } | { type, data }] } -> { url, commit }  rewrites the entry
- *   DELETE /moments    { month, id }           -> { commit }    removes the entry (+ its pictures nothing else shows)
+ *   POST /moments/media  raw video bytes       -> { src }       author/API-key only; Content-Length required; streams ≤ 50 MB to R2
+ *   GET    /moments?month=YYYY-MM&id=…   -> the entry's fields (text, place, tags in text, quote, by, music, images, video, raw)
+ *   PUT    /moments    { month, id, …POST fields, images: [{ url } | { type, data }], video? } -> { url, commit } rewrites the entry
+ *   DELETE /moments    { month, id }           -> { commit }    removes the entry, pictures/poster, and R2 video
  *
  * repo / category are fixed via wrangler.toml [vars]; the worker never accepts them from the request.
  *
@@ -73,7 +74,7 @@ export default {
     let cors = corsHeaders(origin, env);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (!cors) {
-      if (request.method === 'POST' && url.pathname === '/moments' && await hasMomentKey(request, env)) cors = {};
+      if (request.method === 'POST' && ['/moments', '/moments/media'].includes(url.pathname) && await hasMomentKey(request, env)) cors = {};
       else return json({ error: 'Origin not allowed' }, 403, {});
     }
 
@@ -94,6 +95,7 @@ export default {
       if (url.pathname === '/reactions/resolve' && request.method === 'POST') return await resolveReaction(request, env, cors);
       if (url.pathname === '/feedback' && request.method === 'GET') return await feedback(url, env, cors);
       if (url.pathname === '/moments' && request.method === 'POST') return await publishMoment(request, env, cors);
+      if (url.pathname === '/moments/media' && request.method === 'POST') return await uploadMomentMedia(request, env, cors);
       if (url.pathname === '/moments/pin' && request.method === 'POST') return await pinMoment(request, env, cors);
       if (url.pathname === '/moments/tags' && request.method === 'POST') return await renameMomentTag(request, env, cors);
       if (url.pathname === '/moments' && request.method === 'GET') return await readMoment(url, request, env, cors);
@@ -662,8 +664,8 @@ async function stats(url, env, ctx, cors) {
 // blog author, the committer the App). The push triggers the deploy workflow.
 // Editing (PUT) rewrites that entry's block in place (or moves it to another
 // month file when the date changed), deleting (DELETE) drops the block; both
-// also remove the entry's pictures under img/moments/ that nothing else in the
-// month file still shows. Entries are addressed by { month: "YYYY-MM", id }
+// also remove unused pictures/posters under img/moments/ and best-effort delete
+// the replaced/deleted R2 video. Entries are addressed by { month: "YYYY-MM", id }
 // with the ids of _plugins/moments.rb (YYYYMMDD[-HHMM][-n] for duplicates).
 // Times are Beijing (the site's `timezone: Asia/Shanghai`), like the CLI.
 
@@ -672,13 +674,17 @@ const MOMENT_TEXT_MAX = 5000;
 const MOMENT_IMAGES_MAX = 9;
 const MOMENT_IMAGE_BYTES_MAX = 3 * 1024 * 1024;   // the page resizes to ≤ 1600px before uploading
 const MOMENT_IMAGE_TYPES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
+const MOMENT_VIDEO_BYTES_MAX = 50 * 1024 * 1024;
+const MOMENT_VIDEO_TYPES = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v', 'video/webm': 'webm' };
+const MOMENT_VIDEO_EXT_TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm' };
 const MOMENT_TAG = /^[\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*$/u;   // = Moments::TAG in _plugins/moments.rb
 const MOMENT_TIME = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$/;
 const MOMENT_HEAD = /^##\s+(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s+@\s*(.+?))?\s*$/;   // = Moments::HEAD
 const MOMENT_MONTH = /^\d{4}-\d{2}$/;
 const MOMENT_ID = /^\d{8}(?:-\d{4})?(?:-\d+)?$/;
 const MOMENT_IMG_URL = /^\/img\/moments\/\d{4}\/\d{2}\/[A-Za-z0-9\u4e00-\u9fff_.-]+\.(?:webp|jpg|jpeg|png|gif)$/;
-const MD_IMAGE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+const MOMENT_VIDEO_URL = /\.(?:mp4|mov|m4v|webm)(?:[?#]|$)/i;
+const MD_IMAGE = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g;
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -695,6 +701,34 @@ function momentWhen(time) {
 function momentStamp(w) { return `${w.y}-${w.m}-${w.d}${w.hasTime ? ' ' + w.hh + ':' + w.mm : ''}`; }
 function momentId(w) { return `${w.y}${w.m}${w.d}${w.hasTime ? '-' + w.hh + w.mm : ''}`; }
 
+function momentMediaBase(env) {
+  return String(env && env.MEDIA_BASE || '').replace(/\/+$/, '');
+}
+
+function momentError(message, status = 400) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+export async function putMomentVideo(env, body, type, size) {
+  const base = momentMediaBase(env);
+  if (!env.MEDIA || !base) throw momentError('还没配置视频存储（R2）', 501);
+  const mediaType = String(type || '').split(';')[0].trim().toLowerCase();
+  const ext = MOMENT_VIDEO_TYPES[mediaType];
+  if (!ext) throw momentError(`视频格式不支持：${type || ''}`);
+  if (size > MOMENT_VIDEO_BYTES_MAX) throw momentError(`视频太大（> ${MOMENT_VIDEO_BYTES_MAX / 1024 / 1024} MB）`, 413);
+  const w = momentWhen();
+  const random = new Uint8Array(5);
+  crypto.getRandomValues(random);
+  const hex = Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const key = `moments/${w.y}/${w.m}/${hex}.${ext}`;
+  await env.MEDIA.put(key, body, {
+    httpMetadata: { contentType: mediaType, cacheControl: 'public, max-age=31536000, immutable' },
+  });
+  return `${base}/${key}`;
+}
+
 function imageSlug(name) {
   const base = String(name || '').replace(/\.[^.]*$/, '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff-]+/g, '-').replace(/^-+|-+$/g, '');
   return base || 'img';
@@ -705,6 +739,112 @@ function b64ToBytes(s) {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+function base64PrefixBytes(data) {
+  let prefix = data.replace(/\s+/g, '').slice(0, 16);
+  if (!prefix) return new Uint8Array();
+  prefix = prefix.padEnd(Math.ceil(prefix.length / 4) * 4, '=');
+  try {
+    const binary = atob(prefix);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    return new Uint8Array();
+  }
+}
+
+function sniffMomentImageType(bytes) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  if (bytes.length >= 4 && String.fromCharCode.apply(null, bytes.subarray(0, 4)) === 'GIF8') return 'image/gif';
+  if (bytes.length >= 12 &&
+    String.fromCharCode.apply(null, bytes.subarray(0, 4)) === 'RIFF' &&
+    String.fromCharCode.apply(null, bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  return '';
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function formImage(value, number, label = `第 ${number} 张图`) {
+  if (typeof value === 'string') {
+    if (!value) return null;
+    return { name: '', type: sniffMomentImageType(base64PrefixBytes(value)), data: value };
+  }
+  if (!value || typeof value.arrayBuffer !== 'function' || typeof value.size !== 'number') return null;
+  if (value.size > MOMENT_IMAGE_BYTES_MAX) throw momentError(`${label}太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）`, 413);
+  const bytes = new Uint8Array(await value.arrayBuffer());
+  const declaredType = typeof value.type === 'string' ? value.type : '';
+  const type = Object.prototype.hasOwnProperty.call(MOMENT_IMAGE_TYPES, declaredType)
+    ? declaredType
+    : sniffMomentImageType(bytes) || declaredType;
+  return {
+    name: typeof value.name === 'string' ? value.name : '',
+    type,
+    data: bytesToBase64(bytes),
+  };
+}
+
+function videoFileType(file) {
+  const declared = String(file && file.type || '').split(';')[0].trim().toLowerCase();
+  if (MOMENT_VIDEO_TYPES[declared]) return declared;
+  if (declared && declared !== 'application/octet-stream') return declared;
+  const match = String(file && file.name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match && MOMENT_VIDEO_EXT_TYPES[match[1]] || declared;
+}
+
+export async function momentBody(request, env) {
+  const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType === 'text/plain') return { body: { text: await request.text() }, uploadedVideo: null };
+  if (contentType !== 'multipart/form-data' && contentType !== 'application/x-www-form-urlencoded') {
+    return { body: await request.json().catch(() => null), uploadedVideo: null };
+  }
+
+  const fd = await request.formData();
+  const body = {};
+  for (const key of ['text', 'place', 'time', 'quote', 'by', 'music']) {
+    const value = fd.get(key);
+    if (typeof value === 'string') body[key] = value;
+  }
+  const tags = fd.getAll('tags')
+    .filter((value) => typeof value === 'string')
+    .flatMap((value) => value.split(/[,，\s]+/))
+    .filter(Boolean);
+  if (tags.length) body.tags = tags;
+
+  body.images = [];
+  for (const value of [...fd.getAll('image'), ...fd.getAll('images')]) {
+    const image = await formImage(value, body.images.length + 1);
+    if (image) body.images.push(image);
+  }
+
+  const posters = fd.getAll('poster').filter((value) => typeof value !== 'string' || value);
+  if (posters.length > 1) throw momentError('只能上传一张视频封面');
+  let poster = posters.length ? await formImage(posters[0], 1, '视频封面') : null;
+  if (poster) {
+    poster = { type: poster.type, data: poster.data };
+  }
+
+  const videos = fd.getAll('video').filter((value) => typeof value !== 'string' || value);
+  if (videos.length > 1) throw momentError('一条随笔只能上传一个视频');
+  let uploadedVideo = null;
+  if (videos.length) {
+    const video = videos[0];
+    if (typeof video === 'string') {
+      body.video = { src: video, ...(poster ? { poster } : {}) };
+    } else {
+      uploadedVideo = await putMomentVideo(env, video.stream(), videoFileType(video), video.size);
+      body.video = { src: uploadedVideo, ...(poster ? { poster } : {}) };
+    }
+  } else if (poster) {
+    throw momentError('视频封面必须和视频一起上传');
+  }
+  return { body, uploadedVideo };
 }
 
 // A month file → { pre: [lines before the first entry], entries: [{ id, stamp, place, head, body }] }
@@ -736,16 +876,33 @@ function monthText(parsed) {
   const blocks = parsed.entries.map((e) => (e.head + '\n' + e.body).replace(/\s+$/, ''));
   return pre + '\n' + (blocks.length ? '\n' + blocks.join('\n\n') + '\n' : '');
 }
-function entryImages(body) { return Array.from(body.matchAll(MD_IMAGE), (m) => m[1]); }
+function entryMedia(body) {
+  const images = [];
+  let video = null;
+  for (const match of body.matchAll(MD_IMAGE)) {
+    if (MOMENT_VIDEO_URL.test(match[1])) {
+      if (!video) video = { src: match[1], poster: match[2] || null };
+    } else {
+      images.push(match[1]);
+    }
+  }
+  return { images, video };
+}
+function entryImages(body) { return entryMedia(body).images; }
+function entryPictureFiles(body) {
+  const media = entryMedia(body);
+  return media.video && media.video.poster ? [...media.images, media.video.poster] : media.images;
+}
 
 // An entry's body back into the 发布页's fields. Canonical = text paragraphs, then
 // at most one quote, one run of pictures, one URL — what POST writes. Anything
 // else (text after a quote, two quotes…) is handed over as raw Markdown.
-function entryFields(e) {
-  const out = { text: '', quote: '', by: '', music: '', images: entryImages(e.body), raw: false };
+export function entryFields(e) {
+  const media = entryMedia(e.body);
+  const out = { text: '', quote: '', by: '', music: '', images: media.images, video: media.video, raw: false };
   const paras = e.body ? e.body.split(/\n{2,}/) : [];
-  const kind = (p) => (/^(?:!\[[^\]]*\]\([^)\s]+\)\s*)+$/.test(p) ? 'img' : /^>/.test(p) ? 'quote' : /^https?:\/\/\S+$/.test(p) ? 'music' : 'text');
-  const rank = { text: 0, quote: 1, img: 2, music: 3 };
+  const kind = (p) => (/^(?:!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)\s*)+$/.test(p) ? 'media' : /^>/.test(p) ? 'quote' : /^https?:\/\/\S+$/.test(p) ? 'music' : 'text');
+  const rank = { text: 0, quote: 1, media: 2, music: 3 };
   let stage = 0;
   const textParas = [];
   for (const p of paras) {
@@ -765,8 +922,8 @@ function entryFields(e) {
 }
 
 // The request body → validated fields (throws { status, message }).
-function momentInput(b) {
-  const bad = (message, status = 400) => { const err = new Error(message); err.status = status; return err; };
+export function momentInput(b, env = {}) {
+  const bad = momentError;
   if (!b || typeof b !== 'object') throw bad('JSON body required');
   const str = (k, max) => {
     const v = b[k] == null ? '' : b[k];
@@ -793,26 +950,40 @@ function momentInput(b) {
   f.when = momentWhen(f.time);
   if (!f.when) throw bad('`time` must be YYYY-MM-DD[ HH:MM]');
   // Pictures: { url } keeps one already in the repo (editing), { type, data } uploads a new one.
-  f.pics = [];
-  images.forEach((im, i) => {
+  const picture = (im, label, base) => {
     im = im || {};
     if (typeof im.url === 'string') {
-      if (!MOMENT_IMG_URL.test(im.url)) throw bad(`第 ${i + 1} 张图的地址不合法`);
-      f.pics.push({ url: im.url });
-      return;
+      if (!MOMENT_IMG_URL.test(im.url)) throw bad(`${label}的地址不合法`);
+      return { url: im.url };
     }
     const ext = MOMENT_IMAGE_TYPES[im.type];
-    if (!ext) throw bad(`第 ${i + 1} 张图的类型不支持：${im.type || '?'}`);
-    if (typeof im.data !== 'string' || !im.data) throw bad(`第 ${i + 1} 张图没有数据`);
-    if (im.data.length > MOMENT_IMAGE_BYTES_MAX * 4 / 3 + 16) throw bad(`第 ${i + 1} 张图太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）`, 413);
-    f.pics.push({ base: imageSlug(im.name) === 'img' ? `${momentId(f.when)}-${i + 1}` : imageSlug(im.name), ext, data: im.data.replace(/\s+/g, '') });
+    if (!ext) throw bad(`${label}的类型不支持：${im.type || '?'}`);
+    if (typeof im.data !== 'string' || !im.data) throw bad(`${label}没有数据`);
+    if (im.data.length > MOMENT_IMAGE_BYTES_MAX * 4 / 3 + 16) throw bad(`${label}太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）`, 413);
+    return { base, ext, data: im.data.replace(/\s+/g, '') };
+  };
+  f.pics = [];
+  images.forEach((im, i) => {
+    const slug = imageSlug(im && im.name);
+    f.pics.push(picture(im, `第 ${i + 1} 张图`, slug === 'img' ? `${momentId(f.when)}-${i + 1}` : slug));
   });
-  if (!f.text && !tags.length && !f.quote && !f.pics.length && !f.music) throw bad('写点什么吧');
+  f.video = null;
+  if (b.video != null) {
+    if (!env.MEDIA || !momentMediaBase(env)) throw bad('还没配置视频存储（R2）', 501);
+    if (!b.video || typeof b.video !== 'object' || Array.isArray(b.video)) throw bad('视频地址不合法');
+    const src = typeof b.video.src === 'string' ? b.video.src.trim() : '';
+    const prefix = `${momentMediaBase(env)}/moments/`;
+    if (!src.startsWith(prefix) || !MOMENT_VIDEO_URL.test(src)) throw bad('视频地址不合法');
+    const poster = b.video.poster == null ? null : picture(b.video.poster, '视频封面', `${momentId(f.when)}-poster`);
+    f.video = { src, poster };
+  }
+  if (f.video && f.pics.length) throw bad('视频和图片不能同时发');
+  if (!f.text && !tags.length && !f.quote && !f.pics.length && !f.video && !f.music) throw bad('写点什么吧');
   return f;
 }
 
 // The entry, exactly as tools/moment.py writes it: { head, body }.
-function renderEntry(f, picUrls) {
+export function renderEntry(f, picUrls, posterUrl = null) {
   const head = `## ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}`;
   const parts = [];
   const tagLine = f.tags.map((t) => '#' + t).join(' ');
@@ -823,6 +994,7 @@ function renderEntry(f, picUrls) {
     parts.push(q.join('\n'));
   }
   if (picUrls.length) parts.push(picUrls.map((u) => `![](${u})`).join('\n'));
+  if (f.video) parts.push(`![视频](${f.video.src}${posterUrl ? ` "${posterUrl}"` : ''})`);
   if (f.music) parts.push(f.music);
   return { head, body: parts.join('\n\n') };
 }
@@ -898,6 +1070,14 @@ async function uploadPics(gh, headSha, f, tree) {
   }
   return urls;
 }
+async function uploadEntryPictures(gh, headSha, f, tree) {
+  const pics = f.video && f.video.poster ? [...f.pics, f.video.poster] : f.pics;
+  const urls = await uploadPics(gh, headSha, { when: f.when, pics }, tree);
+  return {
+    images: urls.slice(0, f.pics.length),
+    poster: f.video && f.video.poster ? urls[f.pics.length] : null,
+  };
+}
 // Deletes the pictures of an old entry that no other entry (in the files we are
 // about to write) still shows — only those that really exist at `headSha`.
 async function dropPics(gh, headSha, oldUrls, keepTexts, tree) {
@@ -909,6 +1089,17 @@ async function dropPics(gh, headSha, oldUrls, keepTexts, tree) {
     if (!dirs[dir]) dirs[dir] = new Set(((await gh(`/contents/${dir}?ref=${headSha}`)) || []).map((x) => x.name));
     if (dirs[dir].has(path.slice(dir.length + 1))) tree.push({ path, mode: '100644', type: 'blob', sha: null });
   }
+}
+function momentVideoKey(env, src) {
+  const base = momentMediaBase(env);
+  if (!base || typeof src !== 'string' || !src.startsWith(`${base}/moments/`)) return null;
+  const key = src.slice(base.length + 1).split(/[?#]/, 1)[0];
+  return key.startsWith('moments/') ? key : null;
+}
+async function dropMomentVideo(env, src) {
+  const key = momentVideoKey(env, src);
+  if (!env.MEDIA || !key) return;
+  try { await env.MEDIA.delete(key); } catch {}
 }
 function momentUrl(month, id) { return `/moments/${month}.html#${id}`; }
 
@@ -985,110 +1176,65 @@ async function renameMomentTag(request, env, cors) {
   return result instanceof Response ? result : json({ changed: result.changed, files: result.files }, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
-export async function momentBody(request) {
-  const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
-  if (contentType === 'text/plain') return { text: await request.text() };
-  if (contentType === 'multipart/form-data' || contentType === 'application/x-www-form-urlencoded') {
-    const fd = await request.formData();
-    const body = {};
-    for (const key of ['text', 'place', 'time', 'quote', 'by', 'music']) {
-      const value = fd.get(key);
-      if (typeof value === 'string') body[key] = value;
-    }
-    const tags = fd.getAll('tags')
-      .filter((value) => typeof value === 'string')
-      .flatMap((value) => value.split(/[,，\s]+/))
-      .filter(Boolean);
-    if (tags.length) body.tags = tags;
-
-    body.images = [];
-    const uploads = [...fd.getAll('image'), ...fd.getAll('images')];
-    for (const upload of uploads) {
-      if (typeof upload === 'string') {
-        if (!upload) continue;
-        body.images.push({ name: '', type: sniffMomentImageType(base64PrefixBytes(upload)), data: upload });
-      } else if (upload && typeof upload.arrayBuffer === 'function' && typeof upload.size === 'number') {
-        const number = body.images.length + 1;
-        if (upload.size > MOMENT_IMAGE_BYTES_MAX) {
-          const err = new Error(`第 ${number} 张图太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）`);
-          err.status = 413;
-          throw err;
-        }
-        const bytes = new Uint8Array(await upload.arrayBuffer());
-        const declaredType = typeof upload.type === 'string' ? upload.type : '';
-        const type = Object.prototype.hasOwnProperty.call(MOMENT_IMAGE_TYPES, declaredType)
-          ? declaredType
-          : sniffMomentImageType(bytes) || declaredType;
-        body.images.push({
-          name: typeof upload.name === 'string' ? upload.name : '',
-          type,
-          data: momentBytesToBase64(bytes),
-        });
-      }
-    }
-    return body;
-  }
-  return request.json().catch(() => null);
-}
-
-function base64PrefixBytes(data) {
-  let prefix = data.replace(/\s+/g, '').slice(0, 16);
-  if (!prefix) return new Uint8Array();
-  prefix = prefix.padEnd(Math.ceil(prefix.length / 4) * 4, '=');
+async function uploadMomentMedia(request, env, cors) {
+  const author = await requireMomentPoster(request, env, cors, '上传随笔视频');
+  if (author.error) return author.error;
+  const length = request.headers.get('Content-Length');
+  if (length == null) return json({ error: '缺少 Content-Length' }, 411, cors);
+  if (!/^\d+$/.test(length)) return json({ error: 'Content-Length 不合法' }, 400, cors);
   try {
-    const binary = atob(prefix);
-    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  } catch {
-    return new Uint8Array();
+    const src = await putMomentVideo(env, request.body, request.headers.get('Content-Type') || '', Number(length));
+    return json({ src }, 201, { ...cors, 'Cache-Control': 'no-store' });
+  } catch (e) {
+    return json({ error: e.message }, e.status || 400, cors);
   }
-}
-
-function sniffMomentImageType(bytes) {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
-  if (bytes.length >= 4 && String.fromCharCode.apply(null, bytes.subarray(0, 4)) === 'GIF8') return 'image/gif';
-  if (bytes.length >= 12 &&
-    String.fromCharCode.apply(null, bytes.subarray(0, 4)) === 'RIFF' &&
-    String.fromCharCode.apply(null, bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
-  return '';
-}
-
-function momentBytesToBase64(bytes) {
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary);
 }
 
 async function publishMoment(request, env, cors) {
   const author = await requireMomentPoster(request, env, cors, '发布随笔');
   if (author.error) return author.error;
   if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
-  let f;
+  let f, uploadedVideo = null;
   try {
-    const body = await momentBody(request);
+    const parsed = await momentBody(request, env);
+    const body = parsed.body;
+    uploadedVideo = parsed.uploadedVideo;
     if (body && typeof body === 'object' && !Array.isArray(body) && !body.time) {
       body.time = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', ' ');
     }
-    f = momentInput(body);
-  } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
+    f = momentInput(body, env);
+  } catch (e) {
+    await dropMomentVideo(env, uploadedVideo);
+    return json({ error: e.message }, e.status || 400, cors);
+  }
   if (f.pics.some((p) => p.url)) return json({ error: '新随笔的图片要上传，不能引用已有图片' }, 400, cors);
 
   const month = `${f.when.y}-${f.when.m}`, path = `moments/${month}.md`;
-  const result = await momentCommit(env, author.user, async (gh, headSha) => {
-    const parsed = await readMonth(gh, path, headSha);
-    const tree = [];
-    const urls = await uploadPics(gh, headSha, f, tree);
-    const entry = renderEntry(f, urls);
-    parsed.entries.push(entry);
-    tree.push({ path, mode: '100644', type: 'blob', content: monthText(parsed) });
-    return {
-      tree,
-      message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n${author.user.via === 'api' ? '(posted via API)' : '(posted from /moments/post.html)'}`,
-      result: { url: momentUrl(month, momentId(f.when)), month: `/moments/${month}.html`, file: path, images: urls },
-    };
-  });
+  let result;
+  try {
+    result = await momentCommit(env, author.user, async (gh, headSha) => {
+      const parsed = await readMonth(gh, path, headSha);
+      const tree = [];
+      const media = await uploadEntryPictures(gh, headSha, f, tree);
+      const entry = renderEntry(f, media.images, media.poster);
+      parsed.entries.push(entry);
+      tree.push({ path, mode: '100644', type: 'blob', content: monthText(parsed) });
+      return {
+        tree,
+        message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n${author.user.via === 'api' ? '(posted via API)' : '(posted from /moments/post.html)'}`,
+        result: {
+          url: momentUrl(month, momentId(f.when)),
+          month: `/moments/${month}.html`,
+          file: path,
+          images: media.images,
+          video: f.video ? { src: f.video.src, poster: media.poster } : null,
+        },
+      };
+    });
+  } catch (e) {
+    await dropMomentVideo(env, uploadedVideo);
+    throw e;
+  }
   return json(result, 201, { ...cors, 'Cache-Control': 'no-store' });
 }
 
@@ -1118,30 +1264,41 @@ async function editMoment(request, env, cors) {
   const t = momentTarget(b);
   if (t.error) return json({ error: t.error }, 400, cors);
   let f;
-  try { f = momentInput(b); } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
+  try { f = momentInput(b, env); } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
 
   const newMonth = `${f.when.y}-${f.when.m}`, newPath = `moments/${newMonth}.md`;
+  let oldVideoSrc = null;
   const result = await momentCommit(env, author.user, async (gh, headSha) => {
     const from = await readMonth(gh, t.path, headSha);
     const i = from.entries.findIndex((x) => x.id === t.id);
     if (i < 0) return { response: json({ error: '没有这条随笔（可能刚被改过，刷新再试）' }, 404, cors) };
     const old = from.entries[i];
+    oldVideoSrc = entryMedia(old.body).video && entryMedia(old.body).video.src;
     const tree = [];
-    const urls = await uploadPics(gh, headSha, f, tree);
-    const entry = renderEntry(f, urls);
+    const media = await uploadEntryPictures(gh, headSha, f, tree);
+    const entry = renderEntry(f, media.images, media.poster);
     let to = from;
     if (newMonth === t.month) from.entries[i] = entry;
     else { from.entries.splice(i, 1); to = await readMonth(gh, newPath, headSha); to.entries.push(entry); }
     const fromText = monthText(from), toText = monthText(to);
     tree.push({ path: t.path, mode: '100644', type: 'blob', content: fromText });
     if (to !== from) tree.push({ path: newPath, mode: '100644', type: 'blob', content: toText });
-    await dropPics(gh, headSha, entryImages(old.body), [fromText, toText], tree);
+    await dropPics(gh, headSha, entryPictureFiles(old.body), [fromText, toText], tree);
     return {
       tree,
       message: `随笔: 修改 ${old.stamp}${newMonth === t.month ? '' : ' → ' + momentStamp(f.when)}\n\n(edited from /moments/post.html)`,
-      result: { url: momentUrl(newMonth, momentId(f.when)), month: `/moments/${newMonth}.html`, file: newPath, images: urls },
+      result: {
+        url: momentUrl(newMonth, momentId(f.when)),
+        month: `/moments/${newMonth}.html`,
+        file: newPath,
+        images: media.images,
+        video: f.video ? { src: f.video.src, poster: media.poster } : null,
+      },
     };
   });
+  if (!(result instanceof Response) && oldVideoSrc && oldVideoSrc !== (f.video && f.video.src)) {
+    await dropMomentVideo(env, oldVideoSrc);
+  }
   return result instanceof Response ? result : json(result, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
@@ -1153,16 +1310,19 @@ async function deleteMoment(request, env, cors) {
   const t = momentTarget(await request.json().catch(() => null));
   if (t.error) return json({ error: t.error }, 400, cors);
 
+  let oldVideoSrc = null;
   const result = await momentCommit(env, author.user, async (gh, headSha) => {
     const parsed = await readMonth(gh, t.path, headSha);
     const i = parsed.entries.findIndex((x) => x.id === t.id);
     if (i < 0) return { response: json({ error: '没有这条随笔（可能已经删了）' }, 404, cors) };
     const [old] = parsed.entries.splice(i, 1);
+    oldVideoSrc = entryMedia(old.body).video && entryMedia(old.body).video.src;
     const text = monthText(parsed);
     const tree = [{ path: t.path, mode: '100644', type: 'blob', content: text }];
-    await dropPics(gh, headSha, entryImages(old.body), [text], tree);
+    await dropPics(gh, headSha, entryPictureFiles(old.body), [text], tree);
     return { tree, message: `随笔: 删除 ${old.stamp}\n\n(deleted from /moments/)`, result: { month: `/moments/${t.month}.html`, file: t.path } };
   });
+  if (!(result instanceof Response) && oldVideoSrc) await dropMomentVideo(env, oldVideoSrc);
   return result instanceof Response ? result : json(result, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 

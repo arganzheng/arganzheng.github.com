@@ -117,7 +117,7 @@ $$\beta$$ 也可以自适应：InstructGPT 沿用 Ziegler 等 2019 的做法，�
 
 ### 3. 三种 KL 估计量
 
-$$\text{KL}(\pi_\theta \| \pi_{ref}) = \mathbb{E}_{y \sim \pi_\theta}[\log \pi_\theta(y) - \log \pi_{ref}(y)]$$ 对整个序列空间求期望，算不出来，只能用采到的样本估。记 $$\rho = \pi_{ref}(y) / \pi_\theta(y)$$（在每个 token 上算），Schulman 2020 给出三个估计量：
+$$\text{KL}(\pi_\theta \Vert \pi_{ref}) = \mathbb{E}_{y \sim \pi_\theta}[\log \pi_\theta(y) - \log \pi_{ref}(y)]$$ 对整个序列空间求期望，算不出来，只能用采到的样本估。记 $$\rho = \pi_{ref}(y) / \pi_\theta(y)$$（在每个 token 上算），Schulman 2020 给出三个估计量：
 
 | 估计量 | 公式 | 无偏？ | 方差 | 用在 |
 |---|---|---|---|---|
@@ -373,7 +373,7 @@ FLOPs 相同，时间不同。训练的前向反向是大矩阵乘，MFU 40%；�
 - **KV cache**：4096 条 × 1300 token × 128 KiB（Llama-3-8B 规格）= **650 GiB**（约 698 GB），一张卡放不下，8 张 80 GB 卡的 596 GiB 也放不下（还没算权重），要分几波生成、开 prefix 共享（同一 prompt 的 $$G$$ 条回答共用 prompt 部分的 KV），或用更大的推理集群；
 - **引擎切换**：训练框架与推理引擎（vLLM / SGLang）共置时，每步要把显存从训练状态切到 KV cache 再切回，加权重同步。
 
-把 MFU 差别代进去：生成 $$6.6 \times 10^{16}$$ FLOPs 在 15% MFU 下约 450 GPU·秒，训练 $$2 \times 10^{17}$$ 在 40% 下约 500 GPU·秒，两个前向约 330 GPU·秒——生成已占三分之一，再加长尾与切换，**一半以上的墙钟时间在生成**是常态。verl、OpenRLHF 的论文都报告 rollout 占 60–80%。这是 Infra 地图 09 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)的全部由来：优化 RL 后训练 = 优化训练循环里的推理引擎。
+把 MFU 差别代进去：生成 $$6.6 \times 10^{16}$$ FLOPs 在 15% MFU 下约 450 GPU·秒，训练 $$2 \times 10^{17}$$ 在 40% 下约 500 GPU·秒，两个前向约 330 GPU·秒——生成已占三分之一，再加长尾与切换，**一半以上的墙钟时间在生成**是常态。verl、OpenRLHF 的论文都报告 rollout 占 60–80%。这是 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)的全部由来：优化 RL 后训练 = 优化训练循环里的推理引擎。
 
 ### 4. on-policy 与权重同步
 
@@ -463,7 +463,7 @@ trainer.train()
 
 | 项 | 公式 / 规则 | 数字 |
 |---|---|---|
-| 目标 | $$\max \mathbb{E}[r] - \beta\, \text{KL}(\pi \ | \pi_{ref})$$ | $$\beta$$：RM 奖励 0.01–0.05，规则奖励 0 |
+| 目标 | $$\max \mathbb{E}[r] - \beta\, \text{KL}(\pi \Vert \pi_{ref})$$ | $$\beta$$：RM 奖励 0.01–0.05，规则奖励 0 |
 | KL 估计 | $$k_1 = \log\frac{\pi}{\pi_{ref}}$$，$$k_3 = \rho - 1 - \log\rho$$ | PPO 用 $$k_1$$ 进奖励，GRPO 用 $$k_3$$ 进 loss |
 | 策略梯度 | $$\mathbb{E}[\nabla \log \pi(y)\,(R - b)]$$；$$b$$ 不依赖 $$y$$ 则无偏 | 一步 = 按奖励加权的 SFT |
 | PPO | $$V_\psi$$ 逐 token baseline<br/>GAE $$\gamma = 1, \lambda = 0.95$$<br/>clip $$\epsilon = 0.2$$ | 四模型，8B 规格 288 GB 状态 |

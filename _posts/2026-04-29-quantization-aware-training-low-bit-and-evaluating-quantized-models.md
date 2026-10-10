@@ -176,7 +176,7 @@ BitNet b1.58（Ma 等 2024）走另一条路：**从头**在三值权重 $$\{-1,
 
 ### 3. 低比特训练的另一面：FP8 训练
 
-DeepSeek-V3 用 FP8 做**训练**（前向与反向的 GEMM 在 FP8 上，主权重与优化器状态保持高精度）——这不是 QAT（目标不是部署时的低比特），而是训练本身的加速，属于 [04 系列第十四篇](/floating-point-formats-and-mixed-precision.html)与 Infra 地图的范畴。但它与 QAT 有一个共同点：模型在低比特噪声下训练，天然对推理时的 FP8 量化鲁棒——DeepSeek-V3 的 FP8 推理几乎不需要额外处理。
+DeepSeek-V3 用 FP8 做**训练**（前向与反向的 GEMM 在 FP8 上，主权重与优化器状态保持高精度）——这不是 QAT（目标不是部署时的低比特），而是训练本身的加速，属于 [现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)与 Infra 地图的范畴。但它与 QAT 有一个共同点：模型在低比特噪声下训练，天然对推理时的 FP8 量化鲁棒——DeepSeek-V3 的 FP8 推理几乎不需要额外处理。
 
 ## 六、困惑度掩盖了什么
 
@@ -279,7 +279,7 @@ Table: 量化模型评测的任务组合
 | 2 bit | 向量量化 + 码本（QuIP# E8 lattice、AQLM 加性） | 70B 进 24 GB；查表 kernel 慢 |
 | BitNet | 三值 $$\{-1, 0, 1\}$$，从头训，STE | 乘法变加法<br/>需从头训<br/>GPU 上收益有限<br/>同算力比较证据少 |
 | 困惑度 | 平均掩盖关键 token；Llama-3-8B W4：PPL +0.36，MMLU −1–2，GSM8K −3–6，needle −10+ | 难题、长上下文、推理、多语言、指令细节先掉 |
-| KL | $$\overline{\text{KL}}(p \ | q)$$ 逐 token；4-bit 0.01–0.05 nat；P99 更有信息 | 不需 benchmark；可在目标负载上测 |
+| KL | $$\overline{\text{KL}}(p \Vert q)$$ 逐 token；4-bit 0.01–0.05 nat；P99 更有信息 | 不需 benchmark；可在目标负载上测 |
 | 协议 | 同引擎、同采样、多次采样、配对检验 | 1–2 点差异在单次噪声内 |
 | 成本 | QAT 几百到几千 GPU 小时 vs PTQ 几小时 | Llama 3.2 3B：QAT 比 PTQ 少掉一半 |
 
@@ -307,7 +307,7 @@ Table: 量化感知训练的规则与公式小结
 
    <details markdown="1"><summary>答案</summary>
 
-   在目标负载上算逐 token 的 $$\text{KL}(p_{fp16} \| p_{quant})$$：4 bit 正常在 0.01–0.05 nat，看 P99 比看均值更有信息——尾部 token 的 KL 大就是任务会掉的地方。不需要标注。
+   在目标负载上算逐 token 的 $$\text{KL}(p_{fp16} \Vert p_{quant})$$：4 bit 正常在 0.01–0.05 nat，看 P99 比看均值更有信息——尾部 token 的 KL 大就是任务会掉的地方。不需要标注。
 
    </details>
 

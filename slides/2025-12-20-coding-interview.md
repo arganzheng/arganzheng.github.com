@@ -250,5 +250,5 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 ## 下一步
 
 - 算法篇的每一篇末尾有「两种语言的坑」表；AI 手撕篇的每一份实现都在 labs 里有 torch 对拍脚本
-- **往深**：《Transformer 与 LLM》第 1–4 篇——attention 手算与 nanoGPT；《后训练》第 3–4 篇——PPO / DPO 的完整推导；《数学》07 篇——反向传播与策略梯度
+- **往深**：《Transformer 原理与实现》第 1–4 篇——attention 手算与 nanoGPT；《后训练》第 3–4 篇——PPO / DPO 的完整推导；《数学》07 篇——反向传播与策略梯度
 - 原文总纲：`/coding-interview.html`；通关自测 23 题在系列总结

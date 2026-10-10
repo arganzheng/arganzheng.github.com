@@ -26,7 +26,7 @@ updated: 2026-09-14
 | Momentum | $$m \leftarrow \beta m + g$$ | 平滑方向：一致的方向累积、震荡的方向抵消；有效学习率 $$\eta / (1 - \beta)$$ | 每参数 4 字节状态 | 三 |
 | Adam | $$\Delta\theta = -\eta\, \hat m / (\sqrt{\hat v} + \epsilon)$$ | 每个参数自己的步长尺度：更新量 $$\approx \eta$$ 而与梯度大小无关 | 每参数 8 字节状态；初期估计不准 | 四 |
 | Weight decay | $$\theta \leftarrow \theta - \eta\lambda\theta$$ | 参数范数的平衡点 | 与 $$L_2$$ 在 Adam 下不等价 | 五 |
-| 调度与裁剪 | $$\eta_t$$ 随 $$t$$ 变；$$g \leftarrow g \cdot \min(1, c / \|g\|)$$ | 步长随时间的形状；步长的上界 | 多几个超参数 | 六、七 |
+| 调度与裁剪 | $$\eta_t$$ 随 $$t$$ 变；$$g \leftarrow g \cdot \min(1, c / \Vert g\Vert )$$ | 步长随时间的形状；步长的上界 | 多几个超参数 | 六、七 |
 
 Table: 一步更新的五个部件
 
@@ -168,7 +168,7 @@ $$
 \frac{\hat m_1}{\sqrt{\hat v_1}} = \frac{g_1}{|g_1|} = \text{sign}(g_1)
 $$
 
-**有偏差修正时，第一步每个参数都移动 $$\eta$$**（梯度非零、$$\epsilon \ll |g|$$、不算 weight decay 那一项时），与梯度大小无关。第九章实测最大 $$\lvert \text{更新量} \rvert / \eta = 1.00$$。没有偏差修正时是 $$(1 - \beta_1) / \sqrt{1 - \beta_2}$$：$$\beta_2 = 0.999$$ 下是 3.16（实测 3.16），$$\beta_2 = 0.95$$ 下是 0.45。
+**有偏差修正时，第一步每个参数都移动 $$\eta$$**（梯度非零、$$\epsilon \ll \lvert g \rvert$$、不算 weight decay 那一项时），与梯度大小无关。第九章实测最大 $$\lvert \text{更新量} \rvert / \eta = 1.00$$。没有偏差修正时是 $$(1 - \beta_1) / \sqrt{1 - \beta_2}$$：$$\beta_2 = 0.999$$ 下是 3.16（实测 3.16），$$\beta_2 = 0.95$$ 下是 0.45。
 
 这一行解释了 warmup 为什么在 Adam 下几乎不能省（第六章）：训练开始时 $$v$$ 还没有学到梯度的真实尺度，更新量 $$\approx \eta \cdot \text{sign}(g)$$，每个参数都在以满步长乱走。（"满步长"是有偏差修正时稳态下的典型上界；下一节说到 $$v$$ 反应慢、$$m/\sqrt v$$ 暂时大于 1 的情形，更新量可以超过 $$\eta$$，两处不矛盾——一个是第一步的精确值，一个是之后的瞬态。）
 
@@ -180,13 +180,13 @@ $$\epsilon$$（默认 $$10^{-8}$$）防止除零，也在 $$\sqrt{v} \ll \epsilo
 
 ### 4. 代价
 
-两个与参数同形状的状态，fp32 下 8 字节 / 参数。加上混合精度训练里的 fp32 主权重（04 系列第十四篇）4 字节，就是 [L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)那张显存账里 16 字节的 12。Llama-3-8B：$$m$$ 与 $$v$$ 共 $$8.03 \times 10^9 \times 8 = 64$$ GB。第九章的小网络也一样：参数 795 KiB，Adam 状态 1590 KiB。
+两个与参数同形状的状态，fp32 下 8 字节 / 参数。加上混合精度训练里的 fp32 主权重（现代 LLM 结构第十篇）4 字节，就是 [L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)那张显存账里 16 字节的 12。Llama-3-8B：$$m$$ 与 $$v$$ 共 $$8.03 \times 10^9 \times 8 = 64$$ GB。第九章的小网络也一样：参数 795 KiB，Adam 状态 1590 KiB。
 
 ## 五、AdamW 与 L2 正则的区别
 
 ### 1. 两种"衰减"
 
-$$L_2$$ 正则在 loss 里加 $$\frac{\lambda}{2}\|\theta\|^2$$，梯度多出一项 $$\lambda\theta$$，随梯度一起进优化器。在 SGD 下，$$\theta \leftarrow \theta - \eta(g + \lambda\theta) = (1 - \eta\lambda)\theta - \eta g$$——参数每步按 $$(1 - \eta\lambda)$$ 衰减，这就是 weight decay。**在 SGD 下两者等价。**
+$$L_2$$ 正则在 loss 里加 $$\frac{\lambda}{2}\Vert \theta\Vert ^2$$，梯度多出一项 $$\lambda\theta$$，随梯度一起进优化器。在 SGD 下，$$\theta \leftarrow \theta - \eta(g + \lambda\theta) = (1 - \eta\lambda)\theta - \eta g$$——参数每步按 $$(1 - \eta\lambda)$$ 衰减，这就是 weight decay。**在 SGD 下两者等价。**
 
 在 Adam 下不等价。$$L_2$$ 的 $$\lambda\theta$$ 混进 $$g$$ 后被 $$\sqrt{v}$$ 归一化：衰减量变成 $$\eta\lambda\theta / \sqrt{v}$$。梯度大的参数（$$\sqrt{v}$$ 大）几乎不衰减，梯度小的参数衰减极强——与"让所有参数均匀地向零收缩"的初衷相反。Loshchilov & Hutter 2017 提出把衰减从梯度里拿出来、直接作用在参数上：
 
@@ -200,7 +200,7 @@ $$
 
 第九章在同一个两层网络上用 $$\lambda = 0.1$$、$$\eta = 10^{-3}$$ 训 2 个 epoch：
 
-| | $$\|W_1\|_F$$ | $$\|W_2\|_F$$ | 准确率 |
+| | $$\Vert W_1\Vert _F$$ | $$\Vert W_2\Vert _F$$ | 准确率 |
 |---|---|---|---|
 | 初始 | 22.65 | 4.51 | — |
 | AdamW | 23.59 | 4.86 | 95.6% |
@@ -275,7 +275,7 @@ Table: 不同场景的典型峰值学习率
 
 ### 1. 公式
 
-按全局范数裁剪：把所有参数的梯度看成一个长向量，范数 $$\|g\|$$ 超过阈值 $$c$$ 时等比缩小：
+按全局范数裁剪：把所有参数的梯度看成一个长向量，范数 $$\Vert g\Vert $$ 超过阈值 $$c$$ 时等比缩小：
 
 $$
 g \leftarrow g \cdot \min\!\left(1, \frac{c}{\|g\|}\right)
@@ -312,13 +312,13 @@ SGD 不裁剪时一个坏 batch 让 loss 从 0.19 跳到 1.18，400 步后仍没
 |---|---|---|---|
 | 权重（计算用） | bf16 | 2 | 前向、反向 |
 | 梯度 | bf16 | 2 | 反向 → 优化器 |
-| 主权重 | fp32 | 4 | 优化器：bf16 精度不够累积小更新（04 系列第十四篇） |
+| 主权重 | fp32 | 4 | 优化器：bf16 精度不够累积小更新（现代 LLM 结构第十篇） |
 | $$m$$ | fp32 | 4 | Adam |
 | $$v$$ | fp32 | 4 | Adam |
 
 Table: 混合精度 + AdamW 下每参数的训练状态字节
 
-后三项 12 字节全是优化器的。Llama-3-8B 是 96 GB，70B 是 847 GB——这就是 ZeRO / FSDP 要把优化器状态切到各卡上的原因（Infra 地图 07 系列第二篇）。
+后三项 12 字节全是优化器的。Llama-3-8B 是 96 GB，70B 是 847 GB——这就是 ZeRO / FSDP 要把优化器状态切到各卡上的原因（Infra 地图 08 系列第二篇）。
 
 ### 2. 省状态的方法
 
@@ -425,7 +425,7 @@ Table: 线性 scaling 规则的完整数字
 - **SGD** 的 batch 梯度无偏、方差 $$\propto 1/B$$；由此得线性 scaling 规则（$$B$$ 乘 $$k$$、$$\eta$$ 乘 $$k$$），在临界 batch 之内成立（实测到 512），之外发散（2048）。Adam 下近似为 $$\sqrt{B}$$。
 - **Momentum** 是梯度的指数移动平均，有效学习率放大 $$1/(1-\beta)$$（实测 SGD 最优 0.3 对应 Momentum 0.03）；4 字节 / 参数。
 - **Adam** 用 $$\hat m / \sqrt{\hat v}$$ 让每个参数的步长 $$\approx \eta$$、与梯度大小无关；偏差修正后第一步是 $$\eta \cdot \text{sign}(g)$$——满步长——这是大学习率下 warmup 几乎不能省的根本原因（第六章的表：小学习率时差别看不出）；$$\beta_2 = 0.95$$ 让 $$v$$ 20 步内跟上尺度变化；8 字节 / 参数，Llama-3-8B 64 GB。
-- **AdamW ≠ Adam + $$L_2$$**：$$L_2$$ 被 $$1/\sqrt{v}$$ 缩放，梯度小的参数被过度衰减（实测 $$\|W_1\|$$ 从 22.6 掉到 2.3，准确率 95.6% → 86.2%）；AdamW 的衰减均匀。LLM 里 weight decay 0.1 的作用是设定参数范数的平衡点、控制有效学习率。
+- **AdamW ≠ Adam + $$L_2$$**：$$L_2$$ 被 $$1/\sqrt{v}$$ 缩放，梯度小的参数被过度衰减（实测 $$\Vert W_1\Vert $$ 从 22.6 掉到 2.3，准确率 95.6% → 86.2%）；AdamW 的衰减均匀。LLM 里 weight decay 0.1 的作用是设定参数范数的平衡点、控制有效学习率。
 - **调度**：warmup 让 $$v$$ 先学到尺度（$$\eta = 10^{-2}$$ 无 warmup 时 loss 冲到 4.59，有则 1.26）；cosine 衰减到 10%；WSD 更灵活；衰减阶段是 loss 大幅下降的阶段；峰值 $$\eta$$ 随宽度减小，$$\mu$$P 把它做成规则。
 - **裁剪**到全局范数 1.0 限制步长上界，SGD 下一个坏 batch 不裁剪 loss 跳 6 倍，裁剪后无感；Adam 下损伤小但可见；梯度范数曲线是第二重要的诊断曲线。
 - 混合精度 + AdamW 的 16 字节 / 参数里 12 字节是优化器的；8-bit Adam、Adafactor 各省多少；Muon 一类用更多曲率信息换步数。

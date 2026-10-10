@@ -1,17 +1,17 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（04）：手搓 GPT（下）——nanoGPT train.py 与训一个会续写的模型"
+title: "Transformer 原理与实现（04）：手搓 GPT（下）——nanoGPT train.py 与训一个会续写的模型"
 subtitle: "Building GPT by Hand, Part 2: train.py Line by Line, Then Train One on Shakespeare"
 tags: [Transformer, LLM, AI, AI-Infra, PyTorch]
 catalog: true
 ---
 
-> **本篇在系列中的位置。** 第一段的最后一篇。第 03 篇写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；第一段到此回答完「GPT-2 怎么工作、怎么写」，第 05 篇起进入第二段：今天的模型改了哪些结构。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的最后一篇。第 03 篇写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；本系列到此回答完「GPT-2 怎么工作、怎么写」。接下来读[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)，从今天的模型改了哪些结构开始。
 
 上一篇的 `model.py` 定义了一个 GPT，但它的权重是随机数，输出是乱码。让它变成一个"会写东西"的模型，还差三样：**数据**（一段文本怎么变成模型能吃的整数数组）、**训练循环**（第二篇那一步"取 batch → 前向 → loss → 反向 → 更新"怎么写成能跑几十万步、能断点续训、能多卡的代码）、**一次实际的训练**（看着 loss 从 4.17 掉到 1.66、输出从乱码变成像莎士比亚台词的东西）。nanoGPT 的 `train.py`（336 行）加 `prepare.py`（68 行）就是这三样。
 
-这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**，也是第二段（第五至十一篇：现代 LLM 每个部件为什么改成那样）的入口。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
+这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
 
 本篇要回答的核心问题是：
 
@@ -573,7 +573,7 @@ nanoGPT 是完整的：数据、模型、训练、续训、多卡、混合精度
 | 分词 | 65 个字符 | BPE，词表 128K | 预训练系列第二篇 |
 | 结构 | GPT-2：LayerNorm、位置表、GELU、MHA | RMSNorm、RoPE、SwiGLU、GQA、MoE、MTP | 本系列第五至十篇 |
 | 并行 | DDP：每卡一份完整模型 | 模型放不进一张卡：张量 / 流水 / 序列 / 专家并行，ZeRO | Infra 大规模训练系列 |
-| 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 本系列第十四篇 |
+| 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | 现代 LLM 结构第十篇 |
 | 稳定性 | 梯度裁剪 | loss spike 的诊断与恢复、z-loss、QK-norm | 预训练系列第五篇 |
 | 容错 | `resume` 从单个 ckpt.pt | 万卡训练每几小时坏一张卡：分片 checkpoint、自动重启 | Infra 大规模训练系列第五、六篇 |
 | 配方 | 默认值抄 GPT-3 | 用小模型消融 + scaling law 外推 | 预训练系列第三、五篇 |
@@ -641,6 +641,6 @@ Table: nanoGPT 有的与真实预训练多出来的
 
 ## 下一篇
 
-到这里，一个 GPT-2 结构的模型从零到能续写走完了。但今天的 Llama、Qwen、DeepSeek 已经不是 GPT-2 的样子。[下一篇《从 GPT-2 到 Llama：现代 LLM 的解剖与参数量》](/transformer-anatomy-and-parameter-count.html)从上一篇末尾那五处改动出发——RMSNorm、RoPE、SwiGLU、GQA、去 bias——讲每一处为什么改、改了之后参数怎么数，把 `config.json` 里的六个数字算成 8.03B。
+到这里，一个 GPT-2 结构的模型从零到能续写走完了。但今天的 Llama、Qwen、DeepSeek 已经不是 GPT-2 的样子。[下一篇《从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)先把这个 GPT-2 看成一组可替换的槽位，按时间线和四条演进线排出 2019–2025 年的主要改动，再从上一篇末尾那五处改动出发——RMSNorm、RoPE、SwiGLU、GQA、去 bias——讲每一处为什么改、改了之后参数怎么数，把 `config.json` 里的六个数字算成 8.03B。
 
 [^q0]: **数据**：`prepare.py` 把字符映射成 0–64 的整数存成 `uint16` 的 `train.bin`；`get_batch` 随机切 `batch_size` 个长 `block_size` 的窗口，目标是窗口右移一位。**模型**：按 `meta.pkl` 的词表大小建 `GPT`（或从 checkpoint / GPT-2 权重恢复），包上 GradScaler、优化器、`compile`、DDP。**循环**：每步设学习率（warmup + cosine）→ 到点评估并存 checkpoint → $$k$$ 个 micro-batch 各前向 + 反向累积梯度（loss ÷ $$k$$，同时预取下一批）→ 裁剪 → step → zero_grad。**改层数**：参数量和每步耗时随层数线性增长（层是串行的），loss 的收益递减。详见[第五](#五get_batch穷人的-dataloader)、[九](#九训练循环逐行)、[十一章](#十一改结构2-层4-层8-层)。

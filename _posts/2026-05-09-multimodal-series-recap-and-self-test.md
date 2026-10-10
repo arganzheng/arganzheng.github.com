@@ -493,7 +493,7 @@ Table: 掌握程度的判据
 
 九篇讲的是多模态模型的部件、数学与账，六个方向紧邻但不在范围内：
 
-- **成本的账**（encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧显存）在 [04 系列《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)——本系列引用它的结论，不重算。
+- **成本的账**（encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧显存）在[《现代 LLM 结构（09）：多模态》](/multimodal-vision-encoder-cost-and-image-token-kv.html)——本系列引用它的结论，不重算。
 - **CNN 与 ViT 的基础**（patch embedding、残差）在[《深度学习基础》](/deep-learning-foundations.html)系列。
 - **后训练方法本身**（SFT、DPO、RL）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——第三篇的多模态对齐、第八篇的 Diffusion-DPO 直接用它们的形式。
 - **概率与变分下界的数学**在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第六、七篇的推导需要高斯的性质、KL 与 ELBO。
@@ -507,7 +507,7 @@ Table: 掌握程度的判据
 
 本系列有意不展开的内容，以及它们在哪个系列里：
 
-- **成本的账**在 [04 系列第十三篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)：encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧的显存。本系列引用它的结论，不重算。
+- **成本的账**在 [现代 LLM 结构第九篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)：encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧的显存。本系列引用它的结论，不重算。
 - **CNN 与 ViT 的基础**在 [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)。
 - **后训练方法本身**（SFT、DPO、RL）在 [L5](/post-training-from-sft-to-verifiable-rewards.html)；本系列第三篇只讲它们在多模态上的特殊之处。
 - **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。

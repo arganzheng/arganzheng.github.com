@@ -1,7 +1,11 @@
 <!-- Fullscreen search overlay, interaction modeled after huangxuan.me.
      Search logic lives in js/search.js (BLOG_SEARCH); the index it reads
      is generated under /search/ by _plugins/search_index.rb. -->
-<div class="search-overlay" id="search-overlay">
+<div class="search-overlay" id="search-overlay"
+     data-search-base-url="{{ '/search' | prepend: site.baseurl }}"
+     data-site-baseurl="{{ site.baseurl }}"
+     data-site-host="{{ site.url | remove_first: 'https://' | remove_first: 'http://' | split: '/' | first }}"
+     data-search-version="{{ site.time | date: '%Y%m%d%H%M' }}">
     <div class="search-overlay-close-container">
         <span class="search-overlay-close" title="关闭 (Esc)">&times;</span>
     </div>
@@ -163,7 +167,7 @@
                     inputId: 'search-overlay-input',
                     statsId: 'search-overlay-stats',
                     resultsId: 'search-overlay-results',
-                    baseUrl: '{{ '/search' | prepend: site.baseurl }}',
+                    baseUrl: overlay.getAttribute('data-search-base-url'),
                     version: '{{ site.time | date: '%Y%m%d%H%M' }}'
                 });
             }
@@ -182,6 +186,31 @@
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && overlay.classList.contains('search-active')) {
                 closeOverlay();
+            }
+
+            var target = event.target;
+            var editable = target && (target.isContentEditable ||
+                /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+            var searchInput = target && target.id === 'search-overlay-input';
+            var commandK = (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey &&
+                (event.key === 'k' || event.key === 'K');
+            if (commandK) {
+                if (event.defaultPrevented || (editable && !searchInput)) return;
+                event.preventDefault();
+                if (overlay.classList.contains('search-active')) {
+                    input.focus();
+                    input.select();
+                } else {
+                    openOverlay();
+                }
+                return;
+            }
+
+            if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.shiftKey &&
+                    !event.altKey && !event.defaultPrevented && !editable &&
+                    !overlay.classList.contains('search-active')) {
+                event.preventDefault();
+                openOverlay();
             }
         });
 

@@ -1,7 +1,7 @@
 ---
 layout: post
-series: transformer-and-llm
-title: "Transformer 与 LLM（14）：浮点格式、数值稳定性与混合精度"
+series: modern-llm-architecture
+title: "现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度"
 subtitle: "Floating-Point Formats, Numerical Stability and Mixed Precision"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
@@ -9,7 +9,7 @@ updated: 2026-09-14
 date: 2026-04-08 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的最后一篇。前面所有的字节数都默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题、混合精度训练为什么能工作。它是两条线的交接处：训练状态的字节数接到[《预训练》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；把权重、激活与 KV 压到更少的位（量化）在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的最后一篇。前面所有的字节数都默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题、混合精度训练为什么能工作。它是两条线的交接处：训练状态的字节数接到[《预训练》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；把权重、激活与 KV 压到更少的位（量化）在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
 第四篇的 `train.py` 里有两行一直没解释：`torch.amp.autocast(dtype=bfloat16)` 与 `GradScaler(enabled=(dtype == "float16"))`——为什么训练要用两种精度、为什么 fp16 需要一个放大器而 bf16 不需要。前面几篇又算了大量的字节数：Llama-3-8B 的权重 16.06 GB、KV cache 每 token 128 KiB、decode 一步至少搬 16 GB，全都默认"每个数占 2 字节"，也就是 BF16。这一篇把镜头再推近一层，从"每个数占几个字节"进入"这几个字节里到底存了什么"，回答一个在训练和推理系统里都绕不开的问题：
 
@@ -195,7 +195,7 @@ $$
 m_{t+1} = \max(m_t, m'), \qquad \ell_{t+1} = \ell_t \cdot e^{m_t - m_{t+1}} + \sum_{j \in \text{block}} e^{x_j - m_{t+1}}
 $$
 
-这个重缩放（rescale）常被当作"为了分块而付出的代价"来讲，但它首先是数值动机：如果不随时相对于当前最大值重缩放，分块内的 $$e^{x_j}$$ 就没有溢出保护。第八篇讨论过 FlashAttention 的访存收益，这里补上它的数值前提。
+这个重缩放（rescale）常被当作"为了分块而付出的代价"来讲，但它首先是数值动机：如果不随时相对于当前最大值重缩放，分块内的 $$e^{x_j}$$ 就没有溢出保护。第四篇讨论过 FlashAttention 的访存收益，这里补上它的数值前提。
 
 ### 4. 方差计算中的相消
 
@@ -409,7 +409,7 @@ $$
 \frac{|q \cdot k|}{\sqrt{d_{head}}} \le \frac{\|q\| \|k\|}{\sqrt{d_{head}}} = \sqrt{d_{head}} \cdot g_q g_k
 $$
 
-$$d_{head} = 128$$ 时上界是 $$11.3 \cdot g_q g_k$$。两点要说清：其一，这是 gain 为标量时的等式；gain 是逐维向量 $$\gamma$$ 时 $$\|q\| \le \sqrt{d_{head}} \cdot \max_i |\gamma_i|$$，上界要用最大分量算，而 $$\gamma$$ 在训练中会增长——QK-norm 把 logit 从"随 $$W$$ 范数无限增长"变成"随 gain 增长"，是把增长收进一个可控、可裁剪的参数里，不是把 logit 钉死。其二，11.3 与 FP16 的 11.09 几乎重合是巧合，何况 11.09 只对手写的 $$\exp(x)$$ 有意义——稳定 softmax 先减最大值，指数的自变量全部 $$\le 0$$，不会因 logit 大而溢出；真正受 logit 量级影响的是 softmax 的尖锐度与低精度下的小概率归零。Gemma 3、Qwen3 一类模型采用了 QK-norm；对推理引擎来说它意味着 attention kernel 前多两个逐头的 norm（访存量与 RoPE 同级），以及 KV cache 中存的是 norm 之后的 $$k$$。
+$$d_{head} = 128$$ 时上界是 $$11.3 \cdot g_q g_k$$。两点要说清：其一，这是 gain 为标量时的等式；gain 是逐维向量 $$\gamma$$ 时 $$\lVert q \rVert \le \sqrt{d_{head}} \cdot \max_i \lvert \gamma_i \rvert$$，上界要用最大分量算，而 $$\gamma$$ 在训练中会增长——QK-norm 把 logit 从"随 $$W$$ 范数无限增长"变成"随 gain 增长"，是把增长收进一个可控、可裁剪的参数里，不是把 logit 钉死。其二，11.3 与 FP16 的 11.09 几乎重合是巧合，何况 11.09 只对手写的 $$\exp(x)$$ 有意义——稳定 softmax 先减最大值，指数的自变量全部 $$\le 0$$，不会因 logit 大而溢出；真正受 logit 量级影响的是 softmax 的尖锐度与低精度下的小概率归零。Gemma 3、Qwen3 一类模型采用了 QK-norm；对推理引擎来说它意味着 attention kernel 前多两个逐头的 norm（访存量与 RoPE 同级），以及 KV cache 中存的是 norm 之后的 $$k$$。
 
 ### 2. RMSNorm 的 ε
 
@@ -434,7 +434,7 @@ RMSNorm 的输出是 $$x / \sqrt{\frac{1}{d}\sum x_i^2 + \epsilon} \cdot \gamma$
 
 判断规则因此可以写成三条：
 
-1. 两个实现相对参考值的误差都在 $$\varepsilon_{\text{fmt}} \cdot O(1)$$ 到 $$\varepsilon_{\text{fmt}} \cdot \sqrt{k}$$ 之间：正常噪声，逐位不同是预期行为。这个区间假设了随机符号、无严重抵消；若点积的各项大量正负抵消（真值比 $$\sum|a_i b_i|$$ 小很多），相对误差会被条件数放大到远超 $$\varepsilon\sqrt{k}$$，那也不是 bug——要连同输入的抵消程度一起看，而不是套一条阈值放行或判错；
+1. 两个实现相对参考值的误差都在 $$\varepsilon_{\text{fmt}} \cdot O(1)$$ 到 $$\varepsilon_{\text{fmt}} \cdot \sqrt{k}$$ 之间：正常噪声，逐位不同是预期行为。这个区间假设了随机符号、无严重抵消；若点积的各项大量正负抵消（真值比 $$\sum \lvert a_i b_i \rvert$$ 小很多），相对误差会被条件数放大到远超 $$\varepsilon\sqrt{k}$$，那也不是 bug——要连同输入的抵消程度一起看，而不是套一条阈值放行或判错；
 2. 误差比理论量级大几个数量级：某处在低精度累加、丢了 scale、或数据类型转换出错；
 3. 误差不大但**有系统性符号**（所有元素同方向偏、或与输入某个特征相关）：不是舍入，是算法差异——$$\epsilon$$ 不同、RoPE 频率计算精度不同、softmax 的 scale 位置不同一类。舍入噪声是零均值的，系统性偏差不是。
 
@@ -620,7 +620,7 @@ if torch.cuda.is_available() and hasattr(torch, "_scaled_mm"):
 
 ### 4. llm_cost.py：dtype 字节表与训练状态
 
-本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第五篇 `param_count()` 的 dense 版本；第十篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
+本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第一篇 `param_count()` 的 dense 版本；第二篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
 
 ```python title="llm_cost.py：DTYPE_BYTES 与 training_state_bytes"
 from dataclasses import dataclass
@@ -636,7 +636,7 @@ class ModelConfig:
     d_ff: int
     vocab: int
     tie_embeddings: bool = False
-    param_override: int = 0      # MoE/MLA 模型直接给总参数量 (第十篇的 param_count 可算出)
+    param_override: int = 0      # MoE/MLA 模型直接给总参数量 (第二篇的 param_count 可算出)
 
 LLAMA3_8B  = ModelConfig("Llama-3-8B",  4096, 32, 32, 8, 128, 14336, 128256)
 LLAMA3_70B = ModelConfig("Llama-3-70B", 8192, 80, 64, 8, 128, 28672, 128256)
@@ -644,7 +644,7 @@ DEEPSEEK_V3 = ModelConfig("DeepSeek-V3", 7168, 61, 128, 128, 192, 18432, 129280,
                           param_override=671_000_000_000)
 
 def param_count(cfg: ModelConfig) -> dict:
-    """第五篇的 dense 参数量（重给以便独立运行）；MoE 模型用 param_override 直接给总量。"""
+    """第一篇的 dense 参数量（重给以便独立运行）；MoE 模型用 param_override 直接给总量。"""
     d, dh = cfg.hidden, cfg.head_dim
     attn = d * cfg.n_heads * dh * 2 + d * cfg.n_kv_heads * dh * 2     # W_Q, W_O, W_K, W_V
     ffn = 3 * d * cfg.d_ff
@@ -654,7 +654,7 @@ def param_count(cfg: ModelConfig) -> dict:
     total = cfg.param_override or (per_layer * cfg.layers + embed + lm_head + d)
     return {"per_layer": per_layer, "embedding": embed, "lm_head": lm_head, "total": total}
 
-# ---- 第十四篇新增 ----
+# ---- 第二篇新增 ----
 DTYPE_BYTES = {
     "fp32": 4, "tf32": 4,          # TF32 在内存中仍是 32 位
     "fp16": 2, "bf16": 2,
@@ -745,7 +745,7 @@ BF16 累加 k=4096 相对噪声     ~2^-8 · sqrt(4096) = 0.25 (任何模型, �
 FP32 累加 k=4096 相对噪声     ~2^-24 · 64 = 4e-6 (可忽略)
 ```
 
-正文到此结束。往下有两条路：把权重、激活与 KV 压到比 BF16 更少的位——scale 的粒度、校准、GPTQ / AWQ 与 FP8 推理量化——在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起；本篇的训练状态字节数接到[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。[《系列总结与通关自测》](/transformer-and-llm-series-recap-and-self-test.html)把十四篇压成一张「问题 → 结论 → 必记数字」的表。
+正文到此结束。往下有两条路：把权重、激活与 KV 压到比 BF16 更少的位——scale 的粒度、校准、GPTQ / AWQ 与 FP8 推理量化——在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起；本篇的训练状态字节数接到[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。[《系列总结与通关自测》](/transformer-and-llm-series-recap-and-self-test.html)把十篇压成一张「问题 → 结论 → 必记数字」的表。
 
 配套代码：第九章的四段实验分别是 [`fp_formats.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/fp_formats.py)、[`bf16_update_swallowed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bf16_update_swallowed.py)、[`gemm_error_vs_k.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/gemm_error_vs_k.py) 与 [`llm_cost_06_dtype_state.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_06_dtype_state.py)。
 
@@ -787,7 +787,7 @@ FP32 累加 k=4096 相对噪声     ~2^-24 · 64 = 4e-6 (可忽略)
 
    <details markdown="1"><summary>答案</summary>
 
-   先查条件：BF16 的单位舍入 $$u = 2^{-8} \approx 0.004$$（$$\varepsilon = 2u$$），随机符号、无抵消的 $$k = 4096$$ 点积逐元素相对误差量级是 $$u$$ 到 $$u\sqrt{k} \approx 0.25$$。$$10^{-1}$$ 落在这个范围内，**可能**是求和顺序不同——但 10% 已经大到不能凭"在范围内"放行：要把输入固定、对同一参考算抵消程度（$$\sum|a_i b_i| / |\sum a_i b_i|$$）、看误差是否随 $$k$$ 按 $$\sqrt{k}$$ 增长、是否有系统性符号。随机舍入的期望为零；系统性同向偏差是算法差异（$$\epsilon$$、scale 位置）不是舍入，大几个数量级是低精度累加或丢 scale。
+   先查条件：BF16 的单位舍入 $$u = 2^{-8} \approx 0.004$$（$$\varepsilon = 2u$$），随机符号、无抵消的 $$k = 4096$$ 点积逐元素相对误差量级是 $$u$$ 到 $$u\sqrt{k} \approx 0.25$$。$$10^{-1}$$ 落在这个范围内，**可能**是求和顺序不同——但 10% 已经大到不能凭"在范围内"放行：要把输入固定、对同一参考算抵消程度（$$\sum\lvert a_i b_i \rvert / \lvert \sum a_i b_i \rvert$$）、看误差是否随 $$k$$ 按 $$\sqrt{k}$$ 增长、是否有系统性符号。随机舍入的期望为零；系统性同向偏差是算法差异（$$\epsilon$$、scale 位置）不是舍入，大几个数量级是低精度累加或丢 scale。
 
    </details>
 

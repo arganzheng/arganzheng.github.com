@@ -208,7 +208,7 @@ $$
 
 一次生成的 DiT 段：$$\text{FLOPs}_\text{DiT} = g \cdot T \cdot \text{FLOPs}_\text{fwd}$$。
 
-线性项是《Transformer 与 LLM》第六篇的 $$2N$$ 每 token 规则；attention 项是 $$QK^\top$$（$$N \times d$$ 乘 $$d \times N$$，$$2N^2 d$$）加 $$PV$$（同样 $$2N^2 d$$），每层一次，与 head 数无关（$$h$$ 个 head 各 $$d/h$$ 维，乘起来仍是 $$d$$）。MMDiT 的联合 attention 里 $$N$$ 是文本加图像的总长。
+线性项是《现代 LLM 结构》第二篇的 $$2N$$ 每 token 规则；attention 项是 $$QK^\top$$（$$N \times d$$ 乘 $$d \times N$$，$$2N^2 d$$）加 $$PV$$（同样 $$2N^2 d$$），每层一次，与 head 数无关（$$h$$ 个 head 各 $$d/h$$ 维，乘起来仍是 $$d$$）。MMDiT 的联合 attention 里 $$N$$ 是文本加图像的总长。
 
 ### 2. $$P_\text{tok} \ne P$$
 

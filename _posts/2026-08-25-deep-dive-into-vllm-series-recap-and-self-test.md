@@ -549,7 +549,7 @@ Table: 掌握程度的判据
 
 十五篇讲的是 memory-bound 的 LLM serving 以及 vLLM 如何组织它，三个方向紧邻但不在范围内：
 
-- **模型作为计算对象的本身**——参数量、Prefill / Decode 的 FLOPs 与访存量、KV Cache 的大小公式、GQA / MLA 对 KV 的影响——是本系列的前置，本系列直接使用这些结论而不再推导，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)。
+- **模型作为计算对象的本身**——参数量、Prefill / Decode 的 FLOPs 与访存量、KV Cache 的大小公式、GQA / MLA 对 KV 的影响——是本系列的前置，本系列直接使用这些结论而不再推导，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 - **图像与视频生成模型的推理**是另一半：单请求就 compute-bound、没有 KV cache、batch 几乎不提吞吐、请求时长可预测，几乎每一个系统答案都相反，在[《扩散模型推理基础设施：从一次去噪到一个生成服务》](/diffusion-model-inference-infrastructure.html)。
 - 本系列在 Infra 学习路径里的位置，以及它前后的系列，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 

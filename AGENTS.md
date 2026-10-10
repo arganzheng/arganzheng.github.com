@@ -253,6 +253,11 @@ Pages has `https_enforced` on.
   `related_posts_threshold` share a tag. Each entry carries `shared_tags`
   (rarest first) and the include prints up to three as the reason. This is
   why every post needs tags — an untagged post is never recommended.
+- Backlinks ("LINKED FROM") are computed by `_plugins/backlinks.rb`
+  (`:site, :post_read`) from raw Markdown links to published posts, excluding
+  fenced and inline code and resolving `redirect_from` aliases; the three post
+  layouts render the newest-first `post.data['backlinks']` via
+  `_includes/backlinks.html` (eight shown, the rest folded).
 - `_includes/post-stale.html` (all three post layouts, first thing in the
   post column): 「本文写于 / 最后更新于 N 年前，部分内容可能已经过时」 when
   `updated` (else `date`) is >= 3 full years before `site.time` — the daily
@@ -281,6 +286,10 @@ Pages has `https_enforced` on.
   `SearchIndex.bucket_of` in Ruby must stay in sync. **Pagefind was tried and
   rejected** (2026-09-16): word-based segmentation is wrong for CJK substring
   search (参数服务器 → 148 hits via 参数 + 服务器; 一致性哈希 missed 6 of 7).
+  The same generator emits `/search/preview.json` (post title/date/summary/
+  series only, no moments); `js/link-preview.js` lazily loads it for internal
+  article links and shares `InlinePopover`. Search opens with ⌘K / Ctrl+K or
+  `/` (except when typing in an editable field); the nav title lists the keys.
 - Heading anchors: `js/toc.js` appends an empty `a.heading-anchor` to every
   heading in `.post-container` (glyph via CSS in `less/extras.less`, so the
   heading's textContent — what highlight comments anchor to — is unchanged);
@@ -1252,23 +1261,30 @@ How it is built (`_plugins/moments.rb`):
   Use it sparingly, list only the projects actually refreshed, and keep one
   version set per project per post — refreshing means re-verifying every claim
   about that project, never mixing two versions in one article.
-- Series 4 (`transformer-and-llm`) is **14 posts + recap in two segments**
-  since 2026-10-10 (Discussion #117 + a ChatGPT review): 01–04 基本原理与实现
-  (GPT-2: 静态结构 → token 旅程 → nanoGPT model.py → train.py), 05–14 现代 LLM
-  的演进与实践 (05 读配置数参数 → **06 算量/访存/Roofline 是后面所有专项共用的
-  成本工具箱** → 07 位置编码 → 08 Attention/KV → 09 长上下文 → 10 MoE → 11 MTP →
-  12 投机解码 → 13 多模态 → 14 浮点格式). Series order = post `date:`
-  (2026-03-30 … 04-08; file names were re-dated to match), titles carry
-  「（NN）」, every post opens with 「本篇在系列中的位置」. The former 第三段
-  「通用成本账」 is gone: the old 量化 post was **deleted and merged** into
+- The former 14-post `transformer-and-llm` series is split into two:
+  `transformer-and-llm` (Infra 04, shared with algorithm L4) is
+  《Transformer 原理与实现：从论文到手搓 GPT-2》, posts 01–04 plus its
+  recap; `modern-llm-architecture` (Infra 05, shared with algorithm L4) is
+  《现代 LLM 结构：从 GPT-2 到今天的演进》, posts 01–10 plus its recap.
+  The first series covers GPT-2 structure, the token journey, nanoGPT
+  `model.py` and `train.py`. The second begins with the moved config-reading /
+  parameter-count material (new 01), then **02 算量/访存/Roofline is the cost
+  toolbox shared by the remaining specialized posts** → 03 位置编码 → 04
+  Attention/KV → 05 长上下文 → 06 MoE → 07 MTP → 08 投机解码 → 09 多模态 →
+  10 浮点格式. The series overviews are not members; retain their original
+  overview URLs. The old parameter-count slug redirects to modern 01, while
+  the modern overview keeps it as
+  `comments_path` to preserve engagement. Every numbered member opens with
+  「本篇在系列中的位置」. The former 第三段「通用成本账」 is gone: the old
+  量化 post was **deleted and merged** into
   `efficient-inference` 03 (new 第二章 "量化为什么快、什么时候快" + FP8/DeepSeek
   分块 + LLM.int8()) and 05 (KV 量化 numbers); its URL
   `/quantization-speculative-decoding-and-lora.html` is a `redirect_from` on
   the PTQ post. The old 投机解码与 LoRA post is 投机解码 only; its LoRA half
   was folded into `lora` 01/02/03. `llm_cost_07_quant_specdec_lora.py` in the
   labs repo is unchanged (版本号不随文章拆分而变). **Title / URL / content must
-  agree** (user rule, 2026-10-11, 「没有商量的余地」): the series was renamed
-  《…结构、实现与演进》 (算量 is a lens now, not a segment), the overview moved
+  agree** (user rule, 2026-10-11, 「没有商量的余地」): the original combined
+  series was renamed into the two titles above; the overview URL remains
   `/transformer-and-llm-for-infra-engineers.html` →
   `/transformer-and-llm-structure-implementation-and-evolution.html` and 12
   moved `/speculative-decoding-and-lora.html` →
@@ -1280,8 +1296,8 @@ How it is built (`_plugins/moments.rb`):
   `page.comments_path | default: page.url`; `dashboard.js` / `feedback-queue.cjs`
   fetch the live page through the redirect stub. Use `comments_path` whenever a
   post with engagement is renamed. When referring to this
-  series from elsewhere use the *new* numbers (06 = Roofline, 08 = KV, 12 =
-  投机, 13 = 多模态, 14 = 浮点); 「04-07」 for 量化 is stale — point at
+  modern series from elsewhere use its new numbers (02 = Roofline, 04 = KV,
+  08 = 投机, 09 = 多模态, 10 = 浮点); 「04-07」 for 量化 is stale — point at
   高效推理 03 instead. History: the series started as 8 cost-table posts
   (2026-04-02 … 04-09), grew to 13 then 15 in the 2026-09/10 reorganisations.
   The former
@@ -1291,7 +1307,7 @@ How it is built (`_plugins/moments.rb`):
   posts 01–04 dated 2026-04-10 … 04-13, algorithm roadmap L4 only, not
   shared with the Infra roadmap). Slugs/URLs did not change, only titles and
   `series:`. Cross-references inside the pretraining posts to the cost table
-  are written 「《Transformer 与 LLM》第 N 篇」; their companion scripts stay
+  should name 《现代 LLM 结构》 and use its 01–10 numbering; companion scripts stay
   in `ai-learning-labs/transformer-and-llm` (`llm_cost_09` … `_12`). Keep
   math out of `##`/`###` headings — the sidebar OUTLINE shows raw `\(…\)`.
 - **No bare `|` inside inline `$$…$$` in a paragraph** (`|A \cap B|`,
@@ -1556,16 +1572,17 @@ How it is built (`_plugins/moments.rb`):
   Infra 02 C++ (02-02 … 02-15) → Infra 03 PyTorch (02-16 … 02-26, shared: L1
   深入篇) → L2 经典机器学习 (02-27 overview, 02-28 … 03-09, `classical-ml`; expanded
   from 6 to 10 body posts on 2026-09-21 — see below) →
-  L3 (03-23 … 03-29) → 04 Transformer 与 LLM (04-01 … 04-13, shared L4)
+  L3 (03-23 … 03-29) → Infra 04 Transformer 原理与实现 + Infra 05 现代 LLM 结构
+  (both shared with algorithm L4)
   → 后训练 (04-15 … 04-23) → 横切 实验方法论 (04-24, one 导读) → L6
   高效推理与压缩 (04-25 overview, 04-26 … 05-01) → L7 多模态 (05-02 overview,
-  05-03 … 05-09, two same-day 下篇 at 20:00, recap 05-09 20:00) → Infra 05–10 (GPU Kernel was moved from 05-06…05-30 to
+  05-03 … 05-09, two same-day 下篇 at 20:00, recap 05-09 20:00) → Infra 06–11 (GPU Kernel was moved from 05-06…05-30 to
   05-10 … 05-20 on 2026-09-14 to make room) → 读 Hugging Face 源码 (05-21 overview,
   05-22 … 05-25, algorithm L4–L5 深入篇, `hf-source-reading`) → LoRA 专题 (05-26 overview,
-  05-27 … 05-29, recap 05-29 20:00, algorithm L5 专题, `lora`; 通信 starts 06-01 unchanged) → 07
-  大规模训练 (07-13 … 07-29) → 08 vLLM (08-11 … 08-25, daily) → 09 RL 后训练基础设施
-  (08-26 overview, posts 08-27 … 09-03) → 10 扩散模型推理基础设施 (09-04 overview,
-  posts 09-05 … 09-13) → 11 平台 (09-14 … 09-22) → 12 开源贡献 (09-23 … 09-27).
+  05-27 … 05-29, recap 05-29 20:00, algorithm L5 专题, `lora`; 通信 starts 06-01 unchanged) → 08
+  大规模训练 (07-13 … 07-29) → 09 vLLM (08-11 … 08-25, daily) → 10 RL 后训练基础设施
+  (08-26 overview, posts 08-27 … 09-03) → 11 扩散模型推理基础设施 (09-04 overview,
+  posts 09-05 … 09-13) → 12 平台 (09-14 … 09-22) → 13 开源贡献 (09-23 … 09-27).
   Keep a series contiguous (daily posts are fine); do not interleave two maps'
   series except at the shared 01 / 03 / 04 series. The three L0–L2 series were
   expanded from three 导读 on 2026-09-14 after reader feedback (overviews keep

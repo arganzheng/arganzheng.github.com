@@ -64,12 +64,34 @@ from readers signed in through giscus.
 
 `/moments/post.html` (layout `bare`, `js/moment-post.js`; 「添加到主屏幕」 installs
 it as an app via `moments/post.webmanifest`) is the author's 发布页: text with
-`#标签`, up to 9 pictures (shrunk to ≤ 1600 px / WebP in the browser), place,
-quote + attribution, music URL, time. It POSTs
+`#标签`, either up to 9 pictures (shrunk to ≤ 1600 px / WebP in the browser)
+or one short video with an optional poster, place, quote + attribution, music
+URL, time. It POSTs
 
 ```json
 { "text": "…", "place": "深圳湾", "tags": ["跑步", "读书/开源"], "quote": "…", "by": "…",
   "music": "https://…", "time": "2026-10-01 20:15", "images": [{ "name": "", "type": "image/webp", "data": "<base64>" }] }
+```
+
+For video, upload the raw bytes first:
+
+```http
+POST /moments/media
+Authorization: Bearer <MOMENT_KEY or owner GitHub session>
+Content-Type: video/mp4
+Content-Length: 1234567
+
+<raw video bytes>
+```
+
+The response is `201 { "src": "https://media.example/moments/YYYY/MM/<random>.mp4" }`.
+The publishing request then uses that URL, with either a repository poster URL
+or a new base64 poster; `poster` may be omitted:
+
+```json
+{ "text": "海边十秒", "time": "2026-10-01 20:15",
+  "video": { "src": "https://media.example/moments/2026/10/3f9a1c2b7d.mp4",
+             "poster": { "type": "image/jpeg", "data": "<base64>" } } }
 ```
 
 with the giscus reader token (`Authorization: Bearer …`, same login as the
@@ -92,8 +114,8 @@ Beijing (`timezone: Asia/Shanghai`), as from the CLI.
 
 For Shortcuts, Telegram bridges or scripts, set the optional `MOMENT_KEY`
 secret. The worker compares SHA-256 digests and never logs the key. This
-credential is accepted only by `POST /moments`; edits, deletes, pinning and tag
-renames still require the owner's GitHub login.
+credential is accepted only by `POST /moments` and `POST /moments/media`;
+edits, deletes, pinning and tag renames still require the owner's GitHub login.
 
 ```bash
 cd tools/annotations-worker
@@ -117,37 +139,56 @@ printf '%s' '散步时看到海了 #散步' | curl -X POST "$API/moments" \
   -H "Authorization: Bearer $MOMENT_KEY" -H 'Content-Type: text/plain' --data-binary @-
 ```
 
-Form uploads can send repeated `image` fields:
+Shortcuts can send text with either pictures or one video in a multipart
+request. For pictures, repeat the `image` file field (the `images` field is
+also accepted):
 
 ```bash
 curl -X POST "$API/moments" \
   -H "Authorization: Bearer $MOMENT_KEY" \
-  -F 'text=散步时看到海了 #散步' -F image=@sea.jpg -F image=@sky.jpg
+  -F 'text=散步时看到海了 #散步' \
+  -F image=@sea.jpg \
+  -F image=@sky.jpg
 ```
 
-iOS 快捷指令：在「获取 URL 内容」中设置 URL = `$API/moments`、方法 = POST，
-请求头添加 `Authorization: Bearer <MOMENT_KEY>`；请求体选择 **表单**，
-添加 `text`（文本 = 提供的输入）和 `image`（文件 =
-转换后的照片，可重复添加多张）。先依次「选择照片」→「调整图像大小」
-（宽 1600）→「转换图像」（JPEG）；iPhone HEIC 不受支持，原图也可能超过
-3 MB。不要把密钥放在日志、截图或共享的快捷指令中。
+For a video, the `video` field is the file and `poster` is optional; a single
+entry cannot contain both pictures and a video:
+
+```bash
+curl -X POST "$API/moments" \
+  -H "Authorization: Bearer $MOMENT_KEY" \
+  -F 'text=海边十秒 #散步' \
+  -F video=@clip.mov \
+  -F poster=@clip-poster.jpg
+```
+
+iOS 快捷指令：添加「获取 URL 内容」，URL = `$API/moments`，方法 = POST；
+请求头添加 `Authorization: Bearer <your MOMENT_KEY>`，请求体选择 **表单**。
+添加 `text`（文本 = 提供的输入），再按内容选择上传图片或视频：
+
+- 图片：添加一个或多个 `image`（文件）字段。先「选择照片」→「调整图像大小」
+  （宽 1600）→「转换图像」（JPEG）；iPhone HEIC 不受支持，原图也可能超过
+  3 MB。`images` 也可作为图片字段名。
+- 视频：添加 `video`（文件）字段，可选添加 `poster`（文件）作为封面。
+
+不要把密钥放在日志、截图或共享的快捷指令中。
 
 Editing and deleting (the 编辑 / 删除 links a signed-in author sees on every card
 of a month page, `js/moments.js`; the 发布页 opens as `/moments/post.html?edit=YYYY-MM/<id>`):
 
-- `GET /moments?month=2026-09&id=20260921-0802` → `{ month, id, time, place, text, quote, by, music, images: ["/img/moments/…"], raw }`
+- `GET /moments?month=2026-09&id=20260921-0802` → `{ month, id, time, place, text, quote, by, music, images: ["/img/moments/…"], video: { src, poster } | null, raw }`
   — the entry parsed back into the page's fields (ids as `_plugins/moments.rb`
   assigns them, `-2` for a second entry at the same minute). `raw: true` when the
   body is not in the canonical text → quote → pictures → URL order (then `text`
   is the whole Markdown body).
-- `PUT /moments { month, id, …the POST fields, images: [{ url } | { type, data }] }`
+- `PUT /moments { month, id, …the POST fields, images: [{ url } | { type, data }], video?: { src, poster? } }`
   rewrites that entry's block in place (`{ url }` keeps a picture already in the
   repo, in the new order; a new picture uploads as with POST). A changed date
   that lands in another month moves the entry to that month's file in the same
   commit. Pictures the entry no longer shows — and nothing else in the file
   does — are deleted from `img/moments/`. Answers `200 { url, commit, … }`.
-- `DELETE /moments { month, id }` removes the block and its pictures the same
-  way → `200 { commit, month, file }`.
+- `DELETE /moments { month, id }` removes the block and its pictures/poster,
+  then best-effort deletes its R2 video → `200 { commit, month, file }`.
 
 - `POST /moments/pin { id, pinned }` rewrites `_data/moments.yml` in one
   commit. The generated `/moments/` front door shows configured ids in a

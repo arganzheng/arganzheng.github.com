@@ -99,6 +99,29 @@ li[id^="fn:"] {
   border-radius: 4px;
 }
 
+.inline-popover-card.link-preview-popover {
+  width: 320px;
+  max-width: calc(100vw - 24px);
+
+  .lp-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .lp-meta {
+    color: #6a6a6a;
+    font-size: 12px;
+    margin-bottom: 7px;
+  }
+
+  .lp-summary {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+}
+
 .inline-popover-card {
   position: absolute;
   z-index: 1050;

@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-投机解码是本系列里唯一**不改变输出分布**的方法。[04 系列第十二篇](/speculative-decoding-draft-verify-and-payoff.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
+投机解码是本系列里唯一**不改变输出分布**的方法。[现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
 
 这一篇从那张表往下挖。加速比只由两个量决定——接受率 $$\alpha$$ 与草稿成本 $$c$$——而这两个量都是**算法工程师能改的**：$$\alpha$$ 是草稿分布与目标分布的接近程度，由草稿怎么训练决定；$$c$$ 由草稿的结构决定；树状草稿则改变了"一轮能验证多少"这个游戏规则本身。2023 年的独立小模型 $$\alpha \approx 0.7$$、加速 2 倍；2025 年的 EAGLE-3 报告接受长度 5–6、加速 3–6 倍。差别不在验证算法，在草稿。
 
@@ -120,7 +120,7 @@ greedy 下验证规则退化为逐 token 比较，不需要计算概率比。一
 
 ### 1. 正确的训练目标
 
-要最小化 $$\text{TV}(p, q)$$，直接优化 TV 不方便（不可微处多）。Pinsker 不等式给了一个可微的上界：$$\text{TV}(p, q) \le \sqrt{\frac{1}{2} \text{KL}(p \| q)}$$。最小化 KL$$(p \| q)$$ 就是**前向 KL 的 logits 级蒸馏**（[L5 第七篇](/knowledge-distillation-for-llms.html)第三章）——草稿是学生，目标模型是教师。这个联系不只是类比：Zhou 等 2024（DistillSpec）系统地验证了用蒸馏训练草稿模型，相对普通投机解码的**加速比**再提高 10–45%（论文摘要的口径是 speedup，不是接受率）。
+要最小化 $$\text{TV}(p, q)$$，直接优化 TV 不方便（不可微处多）。Pinsker 不等式给了一个可微的上界：$$\text{TV}(p, q) \le \sqrt{\frac{1}{2} \text{KL}(p \Vert q)}$$。最小化 KL$$(p \Vert q)$$ 就是**前向 KL 的 logits 级蒸馏**（[L5 第七篇](/knowledge-distillation-for-llms.html)第三章）——草稿是学生，目标模型是教师。这个联系不只是类比：Zhou 等 2024（DistillSpec）系统地验证了用蒸馏训练草稿模型，相对普通投机解码的**加速比**再提高 10–45%（论文摘要的口径是 speedup，不是接受率）。
 
 三个推论：
 
@@ -238,7 +238,7 @@ Table: Medusa 与 EAGLE 三代的对照
 
 ### 1. 一个模块的两种身份
 
-[04 系列第十二篇](/pretraining-recipe-and-training-stability.html)讲了 MTP（multi-token prediction）作为**训练目标**：在主模型之外加一个模块预测第 $$t + 2$$ 个 token，训练时的辅助损失让主模型的表示"看得更远"，提高数据效率。DeepSeek-V3 的 MTP 模块是一个完整的 Transformer 层（带自己的 embedding 输入拼接与 RMSNorm，共享主模型的 embedding 与 lm_head），串行地以主模型的最终隐状态和下一个 token 的 embedding 为输入——**这正是 EAGLE 的结构**。
+[预训练（05）](/pretraining-recipe-and-training-stability.html)讲了 MTP（multi-token prediction）作为**训练目标**：在主模型之外加一个模块预测第 $$t + 2$$ 个 token，训练时的辅助损失让主模型的表示"看得更远"，提高数据效率。DeepSeek-V3 的 MTP 模块是一个完整的 Transformer 层（带自己的 embedding 输入拼接与 RMSNorm，共享主模型的 embedding 与 lm_head），串行地以主模型的最终隐状态和下一个 token 的 embedding 为输入——**这正是 EAGLE 的结构**。
 
 所以推理时它天然是一个草稿：主模型出 $$x_{t+1}$$ 的分布与隐状态，MTP 模块接过隐状态与采样的 $$x_{t+1}$$，出 $$x_{t+2}$$ 的草稿。$$\gamma = 1$$（DeepSeek-V3 只训了一个 MTP 深度）。技术报告称第二个 token 的接受率在 85–90%，对应 $$\mathbb{E}[\text{tokens}] \approx 1.85$$–$$1.9$$，解码吞吐提升约 1.8 倍。
 
@@ -278,7 +278,7 @@ MTP 的接受率高于 EAGLE 的第 1 个草稿（0.85–0.9 vs 约 0.8），因
 
 ### 3. 长上下文的验证
 
-验证 $$N_{tree}$$ 个 token 的 attention 要读整个 KV cache $$N_{tree}$$ 次（每个节点一次）——在长上下文下 KV 读取是 decode 的主要流量（[04 系列第八篇](/attention-variants-and-kv-cache.html)），验证的 attention 成本不再"几乎免费"。128K 上下文、$$N_{tree} = 60$$ 时，验证的 KV 读取是普通 decode 的 60 倍——除非 attention kernel 对树内节点共享 KV 读取（可以，因为它们读的是同一份前缀 KV，MagicDec 等工作正是利用这点，但需要专门的 kernel）。
+验证 $$N_{tree}$$ 个 token 的 attention 要读整个 KV cache $$N_{tree}$$ 次（每个节点一次）——在长上下文下 KV 读取是 decode 的主要流量（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)），验证的 attention 成本不再"几乎免费"。128K 上下文、$$N_{tree} = 60$$ 时，验证的 KV 读取是普通 decode 的 60 倍——除非 attention kernel 对树内节点共享 KV 读取（可以，因为它们读的是同一份前缀 KV，MagicDec 等工作正是利用这点，但需要专门的 kernel）。
 
 ### 4. 草稿与目标不匹配
 
@@ -325,7 +325,7 @@ vLLM 支持 n-gram 与 EAGLE 两种草稿，社区有 Llama-3.1-8B-Instruct 的 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
 | 接受率 | $$\alpha = 1 - \text{TV}(p, q)$$ | 分布的重叠，不是 argmax 准确率<br/>随位置递减<br/>greedy 下最高 |
-| 训练目标 | 最小化 KL$$(p \ | q)$$ = 前向 KL 蒸馏；on-policy（草稿自己采样）数据 | DistillSpec：加速比再 +10–45%；草稿匹配目标不是匹配数据 |
+| 训练目标 | 最小化 KL$$(p \Vert q)$$ = 前向 KL 蒸馏；on-policy（草稿自己采样）数据 | DistillSpec：加速比再 +10–45%；草稿匹配目标不是匹配数据 |
 | Medusa | $$K$$ 个独立头，边缘分布，固定树 64 节点 | $$c \approx 0.02$$<br/>接受长度 2.5–3<br/>数小时训练 |
 | EAGLE | 特征级自回归（特征 + token embedding），一层 decoder | 条件依赖 + 特征信息 → 接受长度 3.8–4.5 |
 | EAGLE-2 / 3 | 动态树按草稿置信度；去掉特征回归 + 多层特征 + 训练时测试 | 接受长度 5–6.5；3.5–6.5× |
@@ -370,7 +370,7 @@ Table: 投机解码的规则与公式小结
 
    <details markdown="1"><summary>答案</summary>
 
-   最小化 $$\text{KL}(p_{target} \| q_{draft})$$，即用目标模型的输出蒸馏草稿（DistillSpec，on-policy 数据最好）——接受率是分布重叠，草稿要像目标而不是像数据；SFT 让草稿像数据，与目标的分歧不受控。
+   最小化 $$\text{KL}(p_{target} \Vert q_{draft})$$，即用目标模型的输出蒸馏草稿（DistillSpec，on-policy 数据最好）——接受率是分布重叠，草稿要像目标而不是像数据；SFT 让草稿像数据，与目标的分歧不受控。
 
    </details>
 
