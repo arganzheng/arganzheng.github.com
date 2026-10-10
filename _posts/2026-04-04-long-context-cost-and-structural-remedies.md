@@ -1,16 +1,16 @@
 ---
 layout: post
-series: transformer-and-llm
-title: "Transformer 与 LLM（09）：长上下文的成本与结构手段"
+series: modern-llm-architecture
+title: "现代 LLM 结构（05）：长上下文的成本与结构手段"
 subtitle: "The Cost of Long Context: KV Cache, Quadratic Prefill and Structural Remedies"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-04 14:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第五篇。第 07 篇讲了位置能不能外推，第 08 篇讲了 KV cache 的账，本篇讲另一组问题——"用得起吗"：上下文拉长后 KV cache、prefill 与中间量各涨成什么函数，sliding window、全局/局部交错、attention sink、稀疏 attention 又把成本改成了什么函数。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第五篇。第 03 篇讲了位置能不能外推，第 04 篇讲了 KV cache 的账，本篇讲另一组问题——"用得起吗"：上下文拉长后 KV cache、prefill 与中间量各涨成什么函数，sliding window、全局/局部交错、attention sink、稀疏 attention 又把成本改成了什么函数。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-[《Transformer 与 LLM（07）：位置编码与外推》](/positional-encoding-and-long-context.html)回答了模型凭什么知道一个 token 在第几个位置、为什么用 8K 训练的 RoPE 模型不能直接推理 32K。但即使位置编码完全没问题，上下文长度 $$s$$ 仍然受另一组限制：它同时进入 KV cache 的一次项和 attention 算量的二次项。Llama-3-70B 在 128K 上下文下，每个 token 花在 attention 上的算量（344 GFLOPs）已经超过了花在全部权重上的算量（141 GFLOPs）。这些限制与位置怎么编码无关，改变它们要改 attention "看哪些 token"。
+[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)回答了模型凭什么知道一个 token 在第几个位置、为什么用 8K 训练的 RoPE 模型不能直接推理 32K。但即使位置编码完全没问题，上下文长度 $$s$$ 仍然受另一组限制：它同时进入 KV cache 的一次项和 attention 算量的二次项。Llama-3-70B 在 128K 上下文下，每个 token 花在 attention 上的算量（344 GFLOPs）已经超过了花在全部权重上的算量（141 GFLOPs）。这些限制与位置怎么编码无关，改变它们要改 attention "看哪些 token"。
 
 本篇要回答的核心问题是：
 
@@ -22,7 +22,7 @@ date: 2026-04-04 14:00:00
 
 先把 full attention 下长上下文的三项成本算出来（第二章），再看四类结构手段各自把哪一项从什么函数改成什么函数（第三章），最后落到推理系统上：并发数、TTFT、chunked prefill 与序列并行（第四章）。
 
-**本篇只算成本，不等于长上下文只影响成本。** 效果是另一笔账，而且通常先于成本撞墙：标称 128K 甚至 1M 的模型，在 RULER 一类需要跨越全文聚合、推理的评测上，有效长度常常只有标称的一半甚至更短；"大海捞针"满分不代表装得下，它只测精确取回一条信息。效果下降的来源有三个，分别在别处讨论：其一，位置方案在训练长度之外的相位分布没被覆盖，或像 ALiBi 那样带局部性先验，远处的信息取不准——[第 07 篇](/positional-encoding-and-long-context.html)；其二，softmax 把一个固定的注意力预算摊到更多 token 上，无关 token 越多、每个相关 token 分到的权重越小，加上"中间丢失"的位置偏置——这是 attention 机制本身的性质，sink 与稀疏 attention（第三章）部分是对它的回应；其三，训练数据里真正长的样本很少，长上下文能力要靠继续预训练阶段的长度课程与数据配比专门训出来——[预训练系列第五篇](/pretraining-recipe-and-training-stability.html)第七章。所以"这个模型支持 128K"要分两句读：成本上装得下（本篇算的），效果上用得好（上面三处决定）；两句都成立才是真的 128K。
+**本篇只算成本，不等于长上下文只影响成本。** 效果是另一笔账，而且通常先于成本撞墙：标称 128K 甚至 1M 的模型，在 RULER 一类需要跨越全文聚合、推理的评测上，有效长度常常只有标称的一半甚至更短；"大海捞针"满分不代表装得下，它只测精确取回一条信息。效果下降的来源有三个，分别在别处讨论：其一，位置方案在训练长度之外的相位分布没被覆盖，或像 ALiBi 那样带局部性先验，远处的信息取不准——[第 03 篇](/positional-encoding-and-long-context.html)；其二，softmax 把一个固定的注意力预算摊到更多 token 上，无关 token 越多、每个相关 token 分到的权重越小，加上"中间丢失"的位置偏置——这是 attention 机制本身的性质，sink 与稀疏 attention（第三章）部分是对它的回应；其三，训练数据里真正长的样本很少，长上下文能力要靠继续预训练阶段的长度课程与数据配比专门训出来——[预训练系列第一篇](/pretraining-recipe-and-training-stability.html)第七章。所以"这个模型支持 128K"要分两句读：成本上装得下（本篇算的），效果上用得好（上面三处决定）；两句都成立才是真的 128K。
 
 ### 2. 数字基线
 
@@ -43,7 +43,7 @@ Table: 本文的章节安排
 
 ## 二、长上下文的成本
 
-位置编码决定了模型**能不能**处理长上下文；这一章算它**要花多少**。第六篇的两个基本公式重新写在这里：矩阵乘 $$[m, k] \times [k, n]$$ 是 $$2mkn$$ FLOPs，因此每参数每 token 2 FLOPs；attention 对上下文 $$s$$ 的部分，每层每 token $$QK^\top$$ 与 $$PV$$ 各 $$2 \cdot n_h \cdot d_{head} \cdot s = 2ds$$，合计 $$4ds$$。
+位置编码决定了模型**能不能**处理长上下文；这一章算它**要花多少**。第二篇的两个基本公式重新写在这里：矩阵乘 $$[m, k] \times [k, n]$$ 是 $$2mkn$$ FLOPs，因此每参数每 token 2 FLOPs；attention 对上下文 $$s$$ 的部分，每层每 token $$QK^\top$$ 与 $$PV$$ 各 $$2 \cdot n_h \cdot d_{head} \cdot s = 2ds$$，合计 $$4ds$$。
 
 ### 1. 每 token 的 attention 算量与权重算量的交叉点
 
@@ -60,7 +60,7 @@ Llama-3-8B 的权重 GEMM 部分每 token $$2 \times (8.03 - 0.53)\text{B} \appr
 
 Llama-3-70B 在 128K 下：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是权重 141 GFLOPs 的 2.4 倍。交叉点（attention 等于权重）在 8B 约 28.6K、70B 约 53.8K——超过这个长度，模型每生成一个 token 的主要算量就不再是"跑一遍权重"，而是"看一遍上下文"。
 
-这个交叉点对 decode 的 Roofline 判断有直接影响。第六篇的结论是 decode 时权重 GEMM 的算术强度约等于 batch 大小 $$B$$（BF16），$$B = 1$$ 时距 H100 的 ridge point 295 差两个数量级，是 memory-bound。attention 对 KV cache 的读取也是 memory-bound 的，而且它**不随 batch 摊薄**——每个请求有自己的 KV cache，$$B$$ 个请求就读 $$B$$ 份。上下文 8K、batch 64 时 8B 模型每步要读 $$128\,\text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV cache，是权重（16 GB）的四倍。长上下文下 decode 的瓶颈从"读权重"变成"读 KV cache"。
+这个交叉点对 decode 的 Roofline 判断有直接影响。第二篇的结论是 decode 时权重 GEMM 的算术强度约等于 batch 大小 $$B$$（BF16），$$B = 1$$ 时距 H100 的 ridge point 295 差两个数量级，是 memory-bound。attention 对 KV cache 的读取也是 memory-bound 的，而且它**不随 batch 摊薄**——每个请求有自己的 KV cache，$$B$$ 个请求就读 $$B$$ 份。上下文 8K、batch 64 时 8B 模型每步要读 $$128\,\text{KiB} \times 8192 \times 64 = 64$$ GiB 的 KV cache，是权重（16 GB）的四倍。长上下文下 decode 的瓶颈从"读权重"变成"读 KV cache"。
 
 ### 2. prefill 的二次项：一个 128K 请求的 11 秒
 
@@ -78,11 +78,11 @@ $$
 
 H100 BF16 989 TFLOPS，按 60% MFU 算 593 TFLOPS，$$6.5 \times 10^{15} / 593 \times 10^{12} \approx 11$$ s。同一个模型 8K 的 prefill 约 0.14 PFLOP、0.24 s；128K 是 8K 的 16 倍长度、46 倍算量、46 倍时间。二次项已经占了 70%。
 
-对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；第六篇第六章说明了两者的区别）。
+对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；第二篇第六章说明了两者的区别）。
 
 ### 3. KV cache 的线性项
 
-第八篇的公式：每 token 的 KV cache 字节数为 $$2 \cdot L \cdot n_{kv} \cdot d_{head} \cdot \text{bytes}$$。
+第四篇的公式：每 token 的 KV cache 字节数为 $$2 \cdot L \cdot n_{kv} \cdot d_{head} \cdot \text{bytes}$$。
 
 | 模型 | bytes/token | 8K | 32K | 128K |
 |---|---|---|---|---|
@@ -128,7 +128,7 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 这解释了为什么朴素的滑窗（丢掉最早的 token）会让 full attention 训练的模型崩溃：sink 被丢了，softmax 的概率没地方去。StreamingLLM 的做法是永远保留开头 4 个 token 的 K、V，再加一个滑动窗口。KV cache 是 $$b \cdot L \cdot (4 + \min(s, W))$$，与滑窗同阶。它使一个 full attention 训练的模型可以在不微调的情况下处理无限长的流式输入——但代价与滑窗一样，窗口之外的信息丢失了，它是"流式稳定"而非"长上下文理解"。
 
-对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第七篇第四章的外推问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
+对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第三篇第四章的外推问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
 
 ```text title="StreamingLLM：cache 槽与 RoPE 位置"
 原始位置   0   1   2   3 | 4 … 9996 | 9997 9998 9999 10000 10001 10002 | 10003
@@ -186,7 +186,7 @@ decode 请求  每步都出 token，步长略增（batch 里多了一个 compute
 128K 请求    TTFT 从 11 s 变成 11 s + 若干 decode 步的开销
 ```
 
-**序列并行 / context parallel 的动机。** 当单个请求的 KV cache（70B 的 40 GiB）或激活（128K 时每层的 hidden state 就是 $$131072 \times 8192 \times 2\,\text{B} = 2$$ GiB）放不进一张卡、或 TTFT 要求单请求必须由多卡并行时，就需要把**序列维度**切到多张卡上。TP 切的是 head 维度（第八篇），每张卡仍要处理全部 $$s$$ 个 token；序列并行切的是 token 维度，每张卡处理 $$s/P$$ 个 token，但 attention 需要所有 token 的 K、V——Ring Attention（Liu 等 2023）让 K、V 块在卡之间环形传递，每张卡对每个到达的 K、V 块做一次局部 attention 并用 online softmax 合并。它引入了新的通信项（每层传一遍全部 K、V），是长上下文训练与超长请求推理的标准手段。
+**序列并行 / context parallel 的动机。** 当单个请求的 KV cache（70B 的 40 GiB）或激活（128K 时每层的 hidden state 就是 $$131072 \times 8192 \times 2\,\text{B} = 2$$ GiB）放不进一张卡、或 TTFT 要求单请求必须由多卡并行时，就需要把**序列维度**切到多张卡上。TP 切的是 head 维度（第四篇），每张卡仍要处理全部 $$s$$ 个 token；序列并行切的是 token 维度，每张卡处理 $$s/P$$ 个 token，但 attention 需要所有 token 的 K、V——Ring Attention（Liu 等 2023）让 K、V 块在卡之间环形传递，每张卡对每个到达的 K、V 块做一次局部 attention 并用 online softmax 合并。它引入了新的通信项（每层传一遍全部 K、V），是长上下文训练与超长请求推理的标准手段。
 
 最后一个跨章节的提醒：位置编码的选择会限制以上所有手段。滑窗与 sink 依赖"cache 内相对位置"的重新编号；YaRN 的温度要乘进 cos/sin 表；Llama 3.1 的分段缩放要在 kernel 之前的 inv_freq 计算里实现。推理引擎里 `rope_scaling` 字段解析错误是长上下文精度问题的常见根源之一——数学上只差一个分段规则，效果上是 32K 之后 perplexity 是否发散。
 
@@ -228,7 +228,7 @@ A100 = GPU("A100 80GB", 80e9, 2.0e12, 312e12)
 GiB = 2 ** 30
 
 def param_count(cfg: ModelConfig) -> dict:
-    """dense 模型参数量（第五篇的公式，重给以便独立运行）。"""
+    """dense 模型参数量（第一篇的公式，重给以便独立运行）。"""
     d, dh = cfg.hidden, cfg.head_dim
     attn = d * cfg.n_heads * dh + 2 * d * cfg.n_kv_heads * dh + cfg.n_heads * dh * d
     ffn = 3 * d * cfg.d_ff
@@ -239,7 +239,7 @@ def param_count(cfg: ModelConfig) -> dict:
     return {"per_layer": per_layer, "embedding": emb, "lm_head": head, "total": total}
 
 def kv_bytes_per_token(cfg: ModelConfig, dtype_bytes: int = 2) -> int:
-    """每 token 的 KV cache 字节数（第八篇），支持 MLA。"""
+    """每 token 的 KV cache 字节数（第四篇），支持 MLA。"""
     if cfg.mla_rank is not None:
         return cfg.layers * (cfg.mla_rank + cfg.rope_dim) * dtype_bytes
     return 2 * cfg.layers * cfg.n_kv_heads * cfg.head_dim * dtype_bytes
@@ -254,7 +254,7 @@ def attn_flops_per_token(cfg: ModelConfig, ctx: int) -> float:
     return 4.0 * cfg.n_heads * cfg.head_dim * ctx * cfg.layers
 
 def forward_flops_per_token(cfg: ModelConfig, ctx: int) -> float:
-    """decode 一个 token、上下文 ctx 时的前向 FLOPs（第六篇）。"""
+    """decode 一个 token、上下文 ctx 时的前向 FLOPs（第二篇）。"""
     return weight_flops_per_token(cfg) + attn_flops_per_token(cfg, ctx)
 
 def prefill_flops(cfg: ModelConfig, ctx: int, causal: bool = True) -> tuple:
@@ -302,7 +302,7 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
   131072     40.0 G     40.74 PF      68.65 s     343.6 GF      71.2%
 ```
 
-8B 的三列与第二章一致：128K 时 16 GiB、6.5 PFLOP、11 s、attention 占 82%。70B 的权重项脚本给出 139 GFLOPs（$$2 \times (70.55 - 1.05)$$B），正文沿用总纲取整的 141，差异 1.5%，不影响任何结论；70B 的 prefill 时间是"单卡等效"，实际至少要 2 张 H100 才放得下权重。要加 DeepSeek-V3，传入 `mla_rank=512, rope_dim=64` 即可得到 68.6 KiB/token 与 128K 的 8.6 GiB；它的权重 FLOPs 项需要第十篇的 MoE 字段（激活 37B → 74 GFLOPs），attention 项按 128 头、q/k 192 维、v 128 维手算是每层 $$2 \times 128 \times (192 + 128) \cdot s = 81920\,s$$，61 层约 $$5.0 \times 10^6 \cdot s$$（未吸收的朴素形式）。
+8B 的三列与第二章一致：128K 时 16 GiB、6.5 PFLOP、11 s、attention 占 82%。70B 的权重项脚本给出 139 GFLOPs（$$2 \times (70.55 - 1.05)$$B），正文沿用总纲取整的 141，差异 1.5%，不影响任何结论；70B 的 prefill 时间是"单卡等效"，实际至少要 2 张 H100 才放得下权重。要加 DeepSeek-V3，传入 `mla_rank=512, rope_dim=64` 即可得到 68.6 KiB/token 与 128K 的 8.6 GiB；它的权重 FLOPs 项需要第二篇的 MoE 字段（激活 37B → 74 GFLOPs），attention 项按 128 头、q/k 192 维、v 128 维手算是每层 $$2 \times 128 \times (192 + 128) \cdot s = 81920\,s$$，61 层约 $$5.0 \times 10^6 \cdot s$$（未吸收的朴素形式）。
 
 ## 六、本文小结
 
@@ -327,7 +327,7 @@ prefill 时间（单卡等效）128K   约 11 s           约 69 s           —
 attention = 权重 的交叉点      约 28.6K          约 53.8K          —
 ```
 
-DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第八篇有讨论；它的 prefill 总量需要第十篇 MoE 的激活参数量才能完整给出。
+DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第四篇有讨论；它的 prefill 总量需要第二篇 MoE 的激活参数量才能完整给出。
 
 配套代码：[`transformer-and-llm/llm_cost_04_long_context.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_04_long_context.py)；RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
 

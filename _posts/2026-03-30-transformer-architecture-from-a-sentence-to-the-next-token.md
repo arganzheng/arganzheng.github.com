@@ -1,14 +1,14 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token"
+title: "Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token"
 subtitle: "The Static View: Every Box in a Decoder-only Transformer, Computed by Hand"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-03-30 12:00:00
 ---
 
-> **本篇在系列中的位置。** 第一段（01–04：GPT-2 怎么工作、怎么写）的第一篇。本篇画出静态结构：六种部件各是什么、为什么在那里；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第一篇。本篇画出静态结构：六种部件各是什么、为什么在那里；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/gpt2-to-llama-five-changes-and-parameter-count.html)。
 
 2017 年之后，几乎所有你听说过的大模型——GPT、Llama、Qwen、DeepSeek、Claude、Gemini——用的都是同一种结构：Transformer。它取代了在它之前统治序列建模十年的循环网络（[《深度学习基础（06）：RNN——从 LSTM 到 attention 的诞生》](/rnn-lstm-and-the-birth-of-attention.html)讲了为什么），之后八年结构上只做了修补，没有被替换。所以"看懂一个大模型的内部"这件事，其实只需要看懂一种结构。
 
@@ -94,7 +94,7 @@ Table: 本文的章节安排
 
 ### 2. 查表等价于 one-hot 乘矩阵
 
-编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（本系列第六篇[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算账时单列）。
+编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
 ## 三、位置 embedding：告诉模型这是第几个 token
 
@@ -113,9 +113,9 @@ Table: 打乱输入顺序，attention 的输出只是跟着换了位置——三
 
 ### 2. 两种给位置的方法
 
-**方法一：再查一张表。** GPT-2 的做法：另有一张 $$1024 \times 768$$ 的表（`wpe`，position embedding），第 $$i$$ 个位置取第 $$i$$ 行，**逐元素加**到 token 向量上。第 0 个位置的 cat 和第 7 个位置的 cat 于是变成两个不同的向量，attention 就能区分它们了。这张表也是训练学出来的。它有几行，由训练前定下的上下文长度决定：GPT-2（2019）的上下文长度是 1024 个 token（config 里的 `n_positions`），所以表就建 1024 行——行数和上下文长度是同一个数，不是两件事。这种做法的代价不在 1024 这个数本身，而在于上限被**写死在参数里**：训练时只有这 1024 行被训过，第 1025 个位置没有对应的行，推理时就不能超过它；想加长上下文，只能把表扩大、让新增的行从头训。方法二不建表，也就没有这道硬上限。今天看 1024 很小，当年并不小——attention 的算量和那张 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第四章第 6 节），GPT-2 之前的 BERT 是 512，GPT-3 也只到 2048；上下文从 4K（Llama 2）、8K（Llama 3）到 128K（Llama 3.1），靠的是方法二的 RoPE 加上专门的长上下文扩展技术，本系列第七篇[《位置编码与外推》](/positional-encoding-and-long-context.html)讲。
+**方法一：再查一张表。** GPT-2 的做法：另有一张 $$1024 \times 768$$ 的表（`wpe`，position embedding），第 $$i$$ 个位置取第 $$i$$ 行，**逐元素加**到 token 向量上。第 0 个位置的 cat 和第 7 个位置的 cat 于是变成两个不同的向量，attention 就能区分它们了。这张表也是训练学出来的。它有几行，由训练前定下的上下文长度决定：GPT-2（2019）的上下文长度是 1024 个 token（config 里的 `n_positions`），所以表就建 1024 行——行数和上下文长度是同一个数，不是两件事。这种做法的代价不在 1024 这个数本身，而在于上限被**写死在参数里**：训练时只有这 1024 行被训过，第 1025 个位置没有对应的行，推理时就不能超过它；想加长上下文，只能把表扩大、让新增的行从头训。方法二不建表，也就没有这道硬上限。今天看 1024 很小，当年并不小——attention 的算量和那张 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第四章第 6 节），GPT-2 之前的 BERT 是 512，GPT-3 也只到 2048；上下文从 4K（Llama 2）、8K（Llama 3）到 128K（Llama 3.1），靠的是方法二的 RoPE 加上专门的长上下文扩展技术，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)讲。
 
-**方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。本系列第七篇[《位置编码与外推》](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
+**方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
 
 用上一节那两句话把两种方法各走一遍。为了能口算，token 向量取二维：猫 = (2, 0)、追 = (0, 2)、狗 = (2, 1)；方法一的位置表取 4 行：位置 0 = (1, 0)、1 = (0, 1)、2 = (−1, 0)、3 = (0, −1)；方法二让每个位置转 30°（$$q$$、$$k$$ 直接取 token 向量本身，省掉 $$W_Q, W_K$$）：
 
@@ -129,7 +129,7 @@ Table: 打乱输入顺序，attention 的输出只是跟着换了位置——三
 Table: 两种方法在「猫追狗」「狗追猫」上的数字：方法一改的是向量本身，方法二改的是打分；不加位置时猫·狗 = 4，两句话分不出来
 
 - **方法一**：同一个「猫」在第 0 位是 (3, 0)、第 2 位是 (1, 0)，两句话送进 attention 的已经是两组不同的向量，上一节的换序实验不再成立。但它记的是**绝对**位置——整句后移一位，三个向量全变了，"猫@1 和猫@0 是同一个词"要靠训练自己学会；位置表有几行就只认几个位置。
-- **方法二**：向量不动，打分时 $$q$$ 按自己的位置 $$m$$ 转 $$m\theta$$、$$k$$ 按位置 $$n$$ 转 $$n\theta$$，两个旋转合起来等于只把 $$k$$ 相对 $$q$$ 转 $$(n - m)\theta$$（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)：$$R(a)^\top R(b) = R(b - a)$$），所以分数只和**相对**位置差有关：猫看"右边两格的狗"永远是 0.27、看"左边两格的狗"永远是 3.73，整句后移分数不变——词序进了分数，而且天然是相对的。真实模型里 $$d_h = 128$$ 维被分成 64 对，每一对像这里的二维平面一样各转一个角度，只是转速不同，本系列第七篇[《位置编码与外推》](/positional-encoding-and-long-context.html)展开。
+- **方法二**：向量不动，打分时 $$q$$ 按自己的位置 $$m$$ 转 $$m\theta$$、$$k$$ 按位置 $$n$$ 转 $$n\theta$$，两个旋转合起来等于只把 $$k$$ 相对 $$q$$ 转 $$(n - m)\theta$$（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)：$$R(a)^\top R(b) = R(b - a)$$），所以分数只和**相对**位置差有关：猫看"右边两格的狗"永远是 0.27、看"左边两格的狗"永远是 3.73，整句后移分数不变——词序进了分数，而且天然是相对的。真实模型里 $$d_h = 128$$ 维被分成 64 对，每一对像这里的二维平面一样各转一个角度，只是转速不同，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)展开。
 
 两种方法回答的是同一个问题：attention 是集合运算，顺序必须显式地喂给它。
 
@@ -281,7 +281,7 @@ mask 把"看未来的 token"的分数设成 $$-\infty$$，softmax 后权重为 0
 
 Table: GPT-2 small 一层 attention 子层的四个参数矩阵：来历、形状与数量
 
-为什么恰好是这四个：打分需要一对（$$W_Q$$、$$W_K$$），传内容需要一个（$$W_V$$），多头之后把各头的结果合起来需要一个（$$W_O$$）。$$W_O$$ 在第 6 节之前没有出现，是因为单头时它并不必要——加权求和之后再乘 $$W_O$$，等价于一开始就用 $$W_V W_O$$ 这一个矩阵；多头后 12 个头各有自己的 $$W_V^{(i)}$$（768 × 64），拼接后再乘一个 768 × 768 的 $$W_O$$，第 $$i$$ 头的输出才能影响到全部 768 维，所以它是随多头一起出现的。nanoGPT 里前三个拼成一个 `c_attn`（768 × 2304），$$W_O$$ 叫 `c_proj`（第八章第 2 节的参数表）。注意 attention **本身**——打分、softmax、加权求和——没有任何参数：它是一套固定的运算，"学"全发生在四个投影矩阵里。Llama 之后的模型把 $$W_K, W_V$$ 缩小（GQA，本系列第八篇[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)）、把 bias 去掉，但四个矩阵的角色没变。
+为什么恰好是这四个：打分需要一对（$$W_Q$$、$$W_K$$），传内容需要一个（$$W_V$$），多头之后把各头的结果合起来需要一个（$$W_O$$）。$$W_O$$ 在第 6 节之前没有出现，是因为单头时它并不必要——加权求和之后再乘 $$W_O$$，等价于一开始就用 $$W_V W_O$$ 这一个矩阵；多头后 12 个头各有自己的 $$W_V^{(i)}$$（768 × 64），拼接后再乘一个 768 × 768 的 $$W_O$$，第 $$i$$ 头的输出才能影响到全部 768 维，所以它是随多头一起出现的。nanoGPT 里前三个拼成一个 `c_attn`（768 × 2304），$$W_O$$ 叫 `c_proj`（第八章第 2 节的参数表）。注意 attention **本身**——打分、softmax、加权求和——没有任何参数：它是一套固定的运算，"学"全发生在四个投影矩阵里。Llama 之后的模型把 $$W_K, W_V$$ 缩小（GQA，[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）、把 bias 去掉，但四个矩阵的角色没变。
 
 ## 五、FFN 子层：让每个 token 自己想一想
 
@@ -295,15 +295,15 @@ $$
 \text{FFN}(x) = \text{GELU}(x W_1 + b_1)\, W_2 + b_2, \qquad W_1 \in \mathbb{R}^{d \times 4d},\; W_2 \in \mathbb{R}^{4d \times d}
 $$
 
-先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（01）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
+先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（01）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
 
 ### 2. 它在一层里占了三分之二
 
-一层的参数数一数：attention 四个矩阵 $$4d^2$$，FFN 两个矩阵 $$8d^2$$——**FFN 占一层参数的三分之二**（GPT-2 small：4.72M 对 2.36M）。这个比例在 Llama 上更高（约 80%，本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)的表）。所以"大模型的参数主要在 attention 里"是个常见误解；attention 负责决定看谁，真正的"存储"在 FFN。
+一层的参数数一数：attention 四个矩阵 $$4d^2$$，FFN 两个矩阵 $$8d^2$$——**FFN 占一层参数的三分之二**（GPT-2 small：4.72M 对 2.36M）。这个比例在 Llama 上更高（约 80%，本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)的表）。所以"大模型的参数主要在 attention 里"是个常见误解；attention 负责决定看谁，真正的"存储"在 FFN。
 
 ### 3. 知识存在哪
 
-有一个有用的直觉：把 $$W_1$$ 的 3072 列看成 3072 个"探测器"，每个探测器问输入向量一个问题（"这是不是在讲一种动物？""前面是不是出现了 Paris？"），GELU 决定答"是"的强度，$$W_2$$ 再把答"是"的探测器对应的"回答向量"加起来。可解释性研究（Geva 等，2021 起）确实在真实模型的 FFN 里找到了这种 key–value 结构：某些神经元专门在特定主题出现时激活，并把对应的词推向输出。这也是为什么"往模型里塞知识"（预训练）主要涨的是 FFN，而 MoE（本系列第十篇[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)）选择把 **FFN** 复制成多个专家而不是复制 attention。
+有一个有用的直觉：把 $$W_1$$ 的 3072 列看成 3072 个"探测器"，每个探测器问输入向量一个问题（"这是不是在讲一种动物？""前面是不是出现了 Paris？"），GELU 决定答"是"的强度，$$W_2$$ 再把答"是"的探测器对应的"回答向量"加起来。可解释性研究（Geva 等，2021 起）确实在真实模型的 FFN 里找到了这种 key–value 结构：某些神经元专门在特定主题出现时激活，并把对应的词推向输出。这也是为什么"往模型里塞知识"（预训练）主要涨的是 FFN，而 MoE（[现代 LLM 结构（06）](/moe-compute-and-communication.html)）选择把 **FFN** 复制成多个专家而不是复制 attention。
 
 ## 六、残差连接与 LayerNorm：让几十层能训
 
@@ -325,7 +325,7 @@ $$
 x = (2, 4, 4, 6) \;\to\; \mu = 4,\; \sigma^2 = 2 \;\to\; \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} = (-1.41,\, 0,\, 0,\, 1.41) \;\to\; \gamma \odot (\cdot) + \beta
 $$
 
-它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第四章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN 里 BatchNorm 的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)），作用相同。
+它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第四章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN 里 BatchNorm 的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)），作用相同。
 
 ### 3. pre-norm 与 post-norm
 
@@ -339,7 +339,7 @@ LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pr
 
 ### 2. 与 embedding 表共享权重
 
-GPT-2 的 lm_head 直接**复用 embedding 表的转置**（tie weights）：查表是"编号 → 向量"，lm_head 是"向量 → 每个编号的分数"，用同一张表做两件事既省了 3860 万参数，又让"输入端相近的词在输出端也相近"。大模型（Llama-3-70B）通常不共享，因为 embedding 那点参数相对总量已经不重要（本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)）。
+GPT-2 的 lm_head 直接**复用 embedding 表的转置**（tie weights）：查表是"编号 → 向量"，lm_head 是"向量 → 每个编号的分数"，用同一张表做两件事既省了 3860 万参数，又让"输入端相近的词在输出端也相近"。大模型（Llama-3-70B）通常不共享，因为 embedding 那点参数相对总量已经不重要（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)）。
 
 ## 八、把它们叠起来
 
@@ -389,7 +389,7 @@ x = x + self.mlp(self.ln_2(x))
 
 Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 66.6%
 
-两个观察：embedding 在这个小模型里占了将近三分之一，模型越大这一项占比越小（Llama-3-8B 是 13%，70B 是 1.5%）；12 层里三分之二的参数在 FFN。本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)会用 `model.get_num_params()` 把这个数打印出来（nanoGPT 默认不计 `wpe`，报 123.65M），本系列第五篇[《Transformer 与 LLM（05）：从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)把同一套算法用到 Llama 上。
+两个观察：embedding 在这个小模型里占了将近三分之一，模型越大这一项占比越小（Llama-3-8B 是 13%，70B 是 1.5%）；12 层里三分之二的参数在 FFN。本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)会用 `model.get_num_params()` 把这个数打印出来（nanoGPT 默认不计 `wpe`，报 123.65M），本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)把同一套算法用到 Llama 上。
 
 ## 九、与 d2l 10.7 的 encoder-decoder 对照
 
@@ -428,7 +428,7 @@ Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
 2. **训练效率**：causal mask 让一句话的 $$T$$ 个位置同时提供 $$T$$ 个训练信号（下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)第二章），而 encoder-decoder 只在 decoder 侧有信号。
 3. **KV cache**（下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)第三章）：单向结构让推理时前面 token 的中间结果可以缓存复用，双向结构做不到。
 
-所以本系列只讲 decoder-only；d2l 10.7 里 encoder 那一半，读者知道它就是"不加 mask 的第四章"即可。多模态模型里的 vision encoder（本系列第十一篇[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)）是 encoder 这一半在今天的主要去处。
+所以本系列只讲 decoder-only；d2l 10.7 里 encoder 那一半，读者知道它就是"不加 mask 的第四章"即可。多模态模型里的 vision encoder（[现代 LLM 结构（09）](/multimodal-vision-encoder-cost-and-image-token-kv.html)）是 encoder 这一半在今天的主要去处。
 
 ## 十、本文小结
 
@@ -476,7 +476,7 @@ Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
 
    <details markdown="1"><summary>答案</summary>
 
-   来自位置 embedding 表：它的行数就是训练前定下的上下文长度（`n_positions` = 1024），上限写死在参数里，第 1025 个位置没有训练过的向量，要加长只能扩表再训。Llama 用 RoPE，位置是一个角度而不是查表，任何位置都能算（能不能算得**好**是另一回事，[《Transformer 与 LLM（07）：位置编码与外推》](/positional-encoding-and-long-context.html)讲外推）。见[第三章第 2 节](#2-两种给位置的方法)。
+   来自位置 embedding 表：它的行数就是训练前定下的上下文长度（`n_positions` = 1024），上限写死在参数里，第 1025 个位置没有训练过的向量，要加长只能扩表再训。Llama 用 RoPE，位置是一个角度而不是查表，任何位置都能算（能不能算得**好**是另一回事，[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)讲外推）。见[第三章第 2 节](#2-两种给位置的方法)。
    </details>
 
 6. 原始 Transformer 的 decoder 有三个子层，GPT 只有两个，少了哪个？它的功能在 GPT 里由什么代替？
