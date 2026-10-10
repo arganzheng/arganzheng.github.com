@@ -30,6 +30,8 @@
     .reading-progress,
     .reading-position-prompt,
     .post-actions,
+    .post-history,
+    .post-stats,
     .series-nav,
     .series-context,
     .series-toc,
@@ -111,8 +113,8 @@
       text-decoration: none !important;
     }
 
-    a.external-link::after,
-    a[target="_blank"]::after {
+    a[href]::after,
+    abbr[title]::after {
       display: none !important;
       content: none !important;
     }
@@ -122,18 +124,29 @@
       max-width: 100% !important;
     }
 
-    pre,
-    .highlight,
-    .highlighter-rouge {
+    .post-container pre,
+    .post-container pre code,
+    .post-container pre .line,
+    .post-container .highlight,
+    .post-container div.highlighter-rouge {
       max-width: 100% !important;
       overflow: visible !important;
       white-space: pre-wrap !important;
       overflow-wrap: anywhere !important;
+      word-wrap: anywhere !important;
       word-break: normal !important;
     }
 
-    pre code {
-      white-space: inherit !important;
+    .post-container .code-block {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+
+    .post-container :not(pre) > code.highlighter-rouge {
+      white-space: normal !important;
+      overflow-wrap: break-word !important;
+      word-wrap: break-word !important;
+      word-break: normal !important;
     }
 
     .table-responsive {

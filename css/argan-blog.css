@@ -8584,6 +8584,8 @@ html[data-theme="dark"] .post-container .callout-caution .callout-title {
   html.print-export .reading-progress,
   html.print-export .reading-position-prompt,
   html.print-export .post-actions,
+  html.print-export .post-history,
+  html.print-export .post-stats,
   html.print-export .series-nav,
   html.print-export .series-context,
   html.print-export .series-toc,
@@ -8656,8 +8658,8 @@ html[data-theme="dark"] .post-container .callout-caution .callout-title {
     color: #000 !important;
     text-decoration: none !important;
   }
-  html.print-export a.external-link::after,
-  html.print-export a[target="_blank"]::after {
+  html.print-export a[href]::after,
+  html.print-export abbr[title]::after {
     display: none !important;
     content: none !important;
   }
@@ -8665,17 +8667,27 @@ html[data-theme="dark"] .post-container .callout-caution .callout-title {
   html.print-export svg {
     max-width: 100% !important;
   }
-  html.print-export pre,
-  html.print-export .highlight,
-  html.print-export .highlighter-rouge {
+  html.print-export .post-container pre,
+  html.print-export .post-container pre code,
+  html.print-export .post-container pre .line,
+  html.print-export .post-container .highlight,
+  html.print-export .post-container div.highlighter-rouge {
     max-width: 100% !important;
     overflow: visible !important;
     white-space: pre-wrap !important;
     overflow-wrap: anywhere !important;
+    word-wrap: anywhere !important;
     word-break: normal !important;
   }
-  html.print-export pre code {
-    white-space: inherit !important;
+  html.print-export .post-container .code-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  html.print-export .post-container :not(pre) > code.highlighter-rouge {
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    word-wrap: break-word !important;
+    word-break: normal !important;
   }
   html.print-export .table-responsive {
     overflow: visible !important;
