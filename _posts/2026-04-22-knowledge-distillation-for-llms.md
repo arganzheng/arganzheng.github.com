@@ -22,9 +22,9 @@ updated: 2026-09-14
 
 | 形态 | 学生看到什么 | 目标 | 学到 | 漏掉 | 需要 |
 |---|---|---|---|---|---|
-| **logits 级** | 教师在**给定序列**每个位置的完整分布 $$p_T(\cdot \mid y_{<t})$$ | $$\sum_t \text{KL}(p_T \| p_S)$$ | 每个位置上"次优选项有多好"——暗知识；每 token 几 bit 到几十 bit 的信号 | 学生自己生成时的分布（序列来自教师或数据，不来自学生） | 同一 tokenizer；教师在线前向或存 top-k |
+| **logits 级** | 教师在**给定序列**每个位置的完整分布 $$p_T(\cdot \mid y_{<t})$$ | $$\sum_t \text{KL}(p_T \Vert p_S)$$ | 每个位置上"次优选项有多好"——暗知识；每 token 几 bit 到几十 bit 的信号 | 学生自己生成时的分布（序列来自教师或数据，不来自学生） | 同一 tokenizer；教师在线前向或存 top-k |
 | **序列级** | 教师**生成**的文本 | 交叉熵（就是 SFT） | 教师的输出模式：推理链的写法、格式、风格 | 教师的不确定性；每 token 只有 1 个硬标签 | 教师推理一遍；tokenizer 可以不同 |
-| **on-policy** | 教师在**学生自己采样的序列**上每个位置的分布 | $$\mathbb{E}_{y \sim p_S}\big[\sum_t D(p_T \| p_S)\big]$$ | 在学生会去的地方纠正学生——修暴露偏差 | 教师从未生成、学生也采不到的模式 | 同一 tokenizer；每步教师前向 |
+| **on-policy** | 教师在**学生自己采样的序列**上每个位置的分布 | $$\mathbb{E}_{y \sim p_S}\big[\sum_t D(p_T \Vert p_S)\big]$$ | 在学生会去的地方纠正学生——修暴露偏差 | 教师从未生成、学生也采不到的模式 | 同一 tokenizer；每步教师前向 |
 
 Table: 蒸馏的三种形态：学生看到什么、学到什么
 
@@ -102,7 +102,7 @@ $$
 
 $$\tau > 1$$ 把分布拉平，让教师分给次优选项的小概率变得可见——"这张图 90% 是猫、5% 是狗、0.1% 是汽车"里的 5% 与 0.1% 是**暗知识**（dark knowledge）：硬标签只说"猫"，软标签还说"它长得有点像狗、完全不像汽车"。$$\tau^2$$ 因子补偿软化后梯度按 $$1 / \tau^2$$ 缩小。在 LLM 上，每个位置的词表分布本来就很平（下一个 token 常有几十个合理选项），$$\tau = 1$$ 是常见默认；每个位置提供的信息是整个 $$V$$ 维分布而不是一个 token——**每 token 几 bit 到几十 bit**，对比硬标签的不到 1 bit（在已经会写的模型上，正确 token 的概率本来就高，交叉熵的信息量很小）。
 
-LLM 上的 logits 级蒸馏对每个位置算 $$\text{KL}(p_T(\cdot \mid y_{<t}) \| p_S(\cdot \mid y_{<t}))$$，前缀 $$y_{<t}$$ 来自数据（预训练语料、SFT 数据或教师的生成），教师与学生在**同一个前缀**上各算一次前向。它常与硬标签的交叉熵加权混合：$$\alpha \mathcal{L}_{KD} + (1 - \alpha) \mathcal{L}_{CE}$$。
+LLM 上的 logits 级蒸馏对每个位置算 $$\text{KL}(p_T(\cdot \mid y_{<t}) \Vert p_S(\cdot \mid y_{<t}))$$，前缀 $$y_{<t}$$ 来自数据（预训练语料、SFT 数据或教师的生成），教师与学生在**同一个前缀**上各算一次前向。它常与硬标签的交叉熵加权混合：$$\alpha \mathcal{L}_{KD} + (1 - \alpha) \mathcal{L}_{CE}$$。
 
 ### 2. 序列级：在教师的输出上 SFT
 
@@ -154,7 +154,7 @@ $$
 
 ### 4. 中间选项
 
-- **JSD**（Jensen-Shannon）：$$\frac{1}{2}\text{KL}(p \| m) + \frac{1}{2}\text{KL}(q \| m)$$，$$m = (p + q) / 2$$，对称、有界、两种行为的折中；GKD 用带参数 $$\beta$$ 的广义 JSD 在两端之间插值。
+- **JSD**（Jensen-Shannon）：$$\frac{1}{2}\text{KL}(p \Vert m) + \frac{1}{2}\text{KL}(q \Vert m)$$，$$m = (p + q) / 2$$，对称、有界、两种行为的折中；GKD 用带参数 $$\beta$$ 的广义 JSD 在两端之间插值。
 - **skew KL**（DistiLLM，Ko 等 2024）：把 $$q$$ 换成 $$\alpha p + (1 - \alpha) q$$ 再算 KL，避免 $$q \to 0$$ 处的数值爆炸，收敛更稳。
 - **总变差**（TVD）：对离群位置更鲁棒。
 
@@ -308,11 +308,11 @@ trainer.train()
 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
-| logits 级 | $$\tau^2 \text{KL}(p_T^{(\tau)} \ | p_S^{(\tau)})$$，每位置 $$V$$ 维 | 暗知识<br/>每 token 几到几十 bit<br/>需同一 tokenizer |
+| logits 级 | $$\tau^2 \text{KL}(p_T^{(\tau)} \Vert p_S^{(\tau)})$$，每位置 $$V$$ 维 | 暗知识<br/>每 token 几到几十 bit<br/>需同一 tokenizer |
 | 序列级 | 教师生成 → 学生 SFT | 学输出模式<br/>丢不确定性<br/>跨词表<br/>R1-Distill |
 | 前向 KL | $$\sum_j p_j \log(p_j / q_j)$$，mode-covering | 学生容量不足时在峰间放概率 → 生成教师不会生成的东西 |
 | 反向 KL | $$\sum_j q_j \log(q_j / p_j)$$，mode-seeking | 只在教师认可处放概率；序列级需采样（MiniLLM） |
-| on-policy（GKD） | $$\mathbb{E}_{y \sim p_S}[\sum_t D(p_T \ | p_S)]$$ | 修暴露偏差<br/>采样像 RL、梯度是 token 级散度（不经采样反传）<br/>Qwen3、Thinking Machines |
+| on-policy（GKD） | $$\mathbb{E}_{y \sim p_S}[\sum_t D(p_T \Vert p_S)]$$ | 修暴露偏差<br/>采样像 RL、梯度是 token 级散度（不经采样反传）<br/>Qwen3、Thinking Machines |
 | 词表 | logits 级要求 id 与位置对齐 | 序列级绕开；ULD 用排序后的最优传输 |
 | 成本 | 序列级：教师生成 + 学生 SFT；on-policy：每步教师前向 $$2N_T$$ | R1-Distill 32B 约 1–2K GPU 小时，RL 几万；on-policy ≈ RL 的 1/10 |
 | 组合 | 剪枝 + 蒸馏（Minitron 40 倍省 token）<br/>QAT + 蒸馏（教师是自己）<br/>预训练蒸馏（Gemma 2） |  |
@@ -335,7 +335,7 @@ Table: 知识蒸馏的公式与规则小结
 
    </details>
 
-2. 前向 KL $$\text{KL}(p_T \| p_S)$$ 与反向 KL $$\text{KL}(p_S \| p_T)$$ 各让学生学成什么样？学生容量不足时哪个更危险？
+2. 前向 KL $$\text{KL}(p_T \Vert p_S)$$ 与反向 KL $$\text{KL}(p_S \Vert p_T)$$ 各让学生学成什么样？学生容量不足时哪个更危险？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -347,7 +347,7 @@ Table: 知识蒸馏的公式与规则小结
 
    <details markdown="1"><summary>答案</summary>
 
-   训练时学生只在教师 / 数据的前缀上学，推理时前缀是自己生成的、一旦偏离就没见过——暴露偏差。GKD 在学生自己采样的序列上算逐 token 的 $$D(p_T \| p_S)$$：采样来自学生（像 RL），但梯度只对散度项求、不对采样过程反传（不像 RL）；反向 KL 里学生的熵项不能丢，否则目标退化成"押教师 argmax"。
+   训练时学生只在教师 / 数据的前缀上学，推理时前缀是自己生成的、一旦偏离就没见过——暴露偏差。GKD 在学生自己采样的序列上算逐 token 的 $$D(p_T \Vert p_S)$$：采样来自学生（像 RL），但梯度只对散度项求、不对采样过程反传（不像 RL）；反向 KL 里学生的熵项不能丢，否则目标退化成"押教师 argmax"。
 
    </details>
 

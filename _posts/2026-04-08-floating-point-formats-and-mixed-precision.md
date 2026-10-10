@@ -409,7 +409,7 @@ $$
 \frac{|q \cdot k|}{\sqrt{d_{head}}} \le \frac{\|q\| \|k\|}{\sqrt{d_{head}}} = \sqrt{d_{head}} \cdot g_q g_k
 $$
 
-$$d_{head} = 128$$ 时上界是 $$11.3 \cdot g_q g_k$$。两点要说清：其一，这是 gain 为标量时的等式；gain 是逐维向量 $$\gamma$$ 时 $$\|q\| \le \sqrt{d_{head}} \cdot \max_i |\gamma_i|$$，上界要用最大分量算，而 $$\gamma$$ 在训练中会增长——QK-norm 把 logit 从"随 $$W$$ 范数无限增长"变成"随 gain 增长"，是把增长收进一个可控、可裁剪的参数里，不是把 logit 钉死。其二，11.3 与 FP16 的 11.09 几乎重合是巧合，何况 11.09 只对手写的 $$\exp(x)$$ 有意义——稳定 softmax 先减最大值，指数的自变量全部 $$\le 0$$，不会因 logit 大而溢出；真正受 logit 量级影响的是 softmax 的尖锐度与低精度下的小概率归零。Gemma 3、Qwen3 一类模型采用了 QK-norm；对推理引擎来说它意味着 attention kernel 前多两个逐头的 norm（访存量与 RoPE 同级），以及 KV cache 中存的是 norm 之后的 $$k$$。
+$$d_{head} = 128$$ 时上界是 $$11.3 \cdot g_q g_k$$。两点要说清：其一，这是 gain 为标量时的等式；gain 是逐维向量 $$\gamma$$ 时 $$\lVert q \rVert \le \sqrt{d_{head}} \cdot \max_i \lvert \gamma_i \rvert$$，上界要用最大分量算，而 $$\gamma$$ 在训练中会增长——QK-norm 把 logit 从"随 $$W$$ 范数无限增长"变成"随 gain 增长"，是把增长收进一个可控、可裁剪的参数里，不是把 logit 钉死。其二，11.3 与 FP16 的 11.09 几乎重合是巧合，何况 11.09 只对手写的 $$\exp(x)$$ 有意义——稳定 softmax 先减最大值，指数的自变量全部 $$\le 0$$，不会因 logit 大而溢出；真正受 logit 量级影响的是 softmax 的尖锐度与低精度下的小概率归零。Gemma 3、Qwen3 一类模型采用了 QK-norm；对推理引擎来说它意味着 attention kernel 前多两个逐头的 norm（访存量与 RoPE 同级），以及 KV cache 中存的是 norm 之后的 $$k$$。
 
 ### 2. RMSNorm 的 ε
 
@@ -434,7 +434,7 @@ RMSNorm 的输出是 $$x / \sqrt{\frac{1}{d}\sum x_i^2 + \epsilon} \cdot \gamma$
 
 判断规则因此可以写成三条：
 
-1. 两个实现相对参考值的误差都在 $$\varepsilon_{\text{fmt}} \cdot O(1)$$ 到 $$\varepsilon_{\text{fmt}} \cdot \sqrt{k}$$ 之间：正常噪声，逐位不同是预期行为。这个区间假设了随机符号、无严重抵消；若点积的各项大量正负抵消（真值比 $$\sum|a_i b_i|$$ 小很多），相对误差会被条件数放大到远超 $$\varepsilon\sqrt{k}$$，那也不是 bug——要连同输入的抵消程度一起看，而不是套一条阈值放行或判错；
+1. 两个实现相对参考值的误差都在 $$\varepsilon_{\text{fmt}} \cdot O(1)$$ 到 $$\varepsilon_{\text{fmt}} \cdot \sqrt{k}$$ 之间：正常噪声，逐位不同是预期行为。这个区间假设了随机符号、无严重抵消；若点积的各项大量正负抵消（真值比 $$\sum \lvert a_i b_i \rvert$$ 小很多），相对误差会被条件数放大到远超 $$\varepsilon\sqrt{k}$$，那也不是 bug——要连同输入的抵消程度一起看，而不是套一条阈值放行或判错；
 2. 误差比理论量级大几个数量级：某处在低精度累加、丢了 scale、或数据类型转换出错；
 3. 误差不大但**有系统性符号**（所有元素同方向偏、或与输入某个特征相关）：不是舍入，是算法差异——$$\epsilon$$ 不同、RoPE 频率计算精度不同、softmax 的 scale 位置不同一类。舍入噪声是零均值的，系统性偏差不是。
 
@@ -787,7 +787,7 @@ FP32 累加 k=4096 相对噪声     ~2^-24 · 64 = 4e-6 (可忽略)
 
    <details markdown="1"><summary>答案</summary>
 
-   先查条件：BF16 的单位舍入 $$u = 2^{-8} \approx 0.004$$（$$\varepsilon = 2u$$），随机符号、无抵消的 $$k = 4096$$ 点积逐元素相对误差量级是 $$u$$ 到 $$u\sqrt{k} \approx 0.25$$。$$10^{-1}$$ 落在这个范围内，**可能**是求和顺序不同——但 10% 已经大到不能凭"在范围内"放行：要把输入固定、对同一参考算抵消程度（$$\sum|a_i b_i| / |\sum a_i b_i|$$）、看误差是否随 $$k$$ 按 $$\sqrt{k}$$ 增长、是否有系统性符号。随机舍入的期望为零；系统性同向偏差是算法差异（$$\epsilon$$、scale 位置）不是舍入，大几个数量级是低精度累加或丢 scale。
+   先查条件：BF16 的单位舍入 $$u = 2^{-8} \approx 0.004$$（$$\varepsilon = 2u$$），随机符号、无抵消的 $$k = 4096$$ 点积逐元素相对误差量级是 $$u$$ 到 $$u\sqrt{k} \approx 0.25$$。$$10^{-1}$$ 落在这个范围内，**可能**是求和顺序不同——但 10% 已经大到不能凭"在范围内"放行：要把输入固定、对同一参考算抵消程度（$$\sum\lvert a_i b_i \rvert / \lvert \sum a_i b_i \rvert$$）、看误差是否随 $$k$$ 按 $$\sqrt{k}$$ 增长、是否有系统性符号。随机舍入的期望为零；系统性同向偏差是算法差异（$$\epsilon$$、scale 位置）不是舍入，大几个数量级是低精度累加或丢 scale。
 
    </details>
 

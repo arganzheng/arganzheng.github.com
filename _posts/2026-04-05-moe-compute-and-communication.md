@@ -72,7 +72,7 @@ MoE 把一层里的一个 FFN 换成 $$E$$ 个结构相同、参数独立的 FFN
 
 $$s = \text{softmax}(W_r\, x) \quad \text{或} \quad s = \sigma(W_r\, x), \qquad W_r \in \mathbb{R}^{E \times d}$$
 
-Mixtral 用 softmax，DeepSeek-V3 用 sigmoid。router 的参数量 $$d \cdot E$$ 相对专家可以忽略——DeepSeek-V3 每层 $$7168 \times 256 = 1.8$$M，58 层 106M，在 671B 里占 0.016%。
+Mixtral 用 softmax，DeepSeek-V3 用 sigmoid。sigmoid 在这里不是二分类：router 不是在 $$E$$ 个专家里"分类出一个"，而是给每个专家打一个**独立的亲和度分数**，选谁由下一步的 top-$$k$$ 决定，权重再在选中的 $$k$$ 个里归一化——所以分数只需要可比，不需要加起来等于 1。softmax 把 $$E$$ 个分数耦合在一起：一个专家的分数升高，其余全部被压低，256 个专家时每个的概率都很小、梯度也互相牵制；sigmoid 的分数逐专家独立，范围固定在 $$(0, 1)$$。DeepSeek-V3 选它还有一个直接原因：它的负载均衡不用辅助损失，而是给每个专家加一个只参与 top-$$k$$ 选择、不参与门控权重的偏置 $$b_i$$（过载的专家调低、欠载的调高），这个"选择分数 = $$s_i + b_i$$"的做法要求 $$s_i$$ 是各自独立的绝对值，在 softmax 的相对概率上做不干净（第七章第 3 节）。router 的参数量 $$d \cdot E$$ 相对专家可以忽略——DeepSeek-V3 每层 $$7168 \times 256 = 1.8$$M，58 层 106M，在 671B 里占 0.016%。
 
 第二步，取分数最高的 $$k$$ 个专家（top-$$k$$），把它们的分数归一化为门控权重 $$g_i$$，其余专家的权重为 0：
 

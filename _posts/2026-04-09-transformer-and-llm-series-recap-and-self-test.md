@@ -50,7 +50,7 @@ flowchart TB
 | [第二篇：一个 token 的旅程](/transformer-token-journey-training-and-inference.html) | 训练时一次前向为什么能得到 $$T$$ 个信号？推理时前面的 token 为什么不用重算？ | causal mask + teacher forcing 让 $$T$$ 个位置互不依赖<br/>激活值与 $$B \times T$$ 成正比<br/>causal 结构下旧 token 的 K、V 不变，算一次存下来 | 随机初始化 loss $$= \ln V$$<br/>有 / 无 KV cache 输出一致、生成 256 个 token 快 7.9 倍<br/>Llama-3-8B 128 KiB / token<br/>训练 / prefill / decode 三种形态 |
 | [第三篇：nanoGPT model.py 逐行](/nanogpt-model-py-line-by-line.html) | 一个能加载 GPT-2 权重、能训、能生成的 Transformer 最少要写什么？ | 结构本身不到 90 行（LayerNorm、CausalSelfAttention、MLP、Block）<br/>GPT 类拼结构、共享权重、两种初始化<br/>forward 训练分支算全部位置、推理分支只算最后一个 | `c_attn` 一次算 QKV<br/>`view` + `transpose` 拆头<br/>`c_proj` 初始化 $$0.02/\sqrt{2L}$$<br/>与 HF 对拍相对差 $$9 \times 10^{-5}$$<br/>Llama 相对 GPT-2 只改五处 |
 | [第四篇：nanoGPT train.py 与实训](/nanogpt-train-py-and-training-a-model-that-writes.html) | 从 1.1 MB 文本到会续写的模型，每一步代码在哪？改层数会怎样？ | `get_batch` 随机窗口 + 右移一位<br/>三种模型来源<br/>梯度累积 loss ÷ $$k$$、DDP 只在最后一步同步<br/>checkpoint 五样<br/>层是串行的，深了就慢 | shakespeare_char：$$\ln 65 = 4.17 \to 1.66$$，7 分钟；2 / 4 / 8 层 val 1.82 / 1.66 / 1.59，参数 0.40 / 0.80 / 1.58M |
-| [第五篇：从 GPT-2 到 Llama 与 DeepSeek——读真实模型的配置与参数量](/transformer-anatomy-and-parameter-count.html) | 给一个 `config.json`，五分钟内算出参数量与分布，误差 1% 以内？ | dense Transformer 没有隐藏参数：每层四个 attention 矩阵 + 三个 SwiGLU 矩阵，乘层数加词表，精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
+| [第五篇：从 GPT-2 到今天的 LLM——结构演进的路线图](/llm-architecture-evolution-roadmap-from-gpt2.html) | 从 GPT-2 到今天的模型中间发生了什么？给一个 `config.json`，能认出每处改动、并算出参数量？ | GPT-2 是十个可替换的槽位，骨架从未变过；改动沿四条线走：长上下文、容量与每 token 代价、训练信号与生成、输入模态；dense Transformer 没有隐藏参数，乘层数加词表精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
 | [第六篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
 | [第七篇：位置编码与外推](/positional-encoding-and-long-context.html) | 位置如何表达、为何外推有风险？ | 位置编码解决顺序；改频谱不等于学会长文 | $$\lambda_i = 2\pi\,\text{base}^{2i/d_{head}}$$；PI / NTK-aware / YaRN |
 | [第八篇：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) | V3 128 头 61 层，KV cache 为什么比 32 头 32 层的 8B 小？代价？ | KV 只与 $$n_{kv}$$ 有关；MLA 缓存 512 + 64 维 latent，decode 吸收后等价于 128 头共享一个 KV 头的 MQA，用 3.4 倍 attention FLOPs 换 57 倍字节 | $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$<br/>8B 128 KiB（MHA 512 KiB）、70B 320 KiB、V3 68.6 KiB（MHA 3.81 MiB）<br/>decode attention 强度 4 / 8 / 242 |
@@ -137,14 +137,15 @@ Table: 本文的章节安排
 
 **常见误解**："不除累积步数只是 loss 尺度不同"（等价于学习率放大 $$k$$ 倍）；"续训不需要优化器状态"（动量从零重估，前几百步抖）；"更深总是更好"（同样时间内更深跑的步数更少）。
 
-### 5. 第五篇：从 GPT-2 到 Llama 与 DeepSeek——读真实模型的配置与参数量
+### 5. 第五篇：从 GPT-2 到今天的 LLM——结构演进的路线图
 
-**核心问题**：给任意一个模型的 `config.json`，不运行代码，能不能在五分钟内算出参数量，并说出它在 attention、FFN、embedding 之间怎么分配？误差要在 1% 以内。
+**核心问题**：从第一段写出的 GPT-2 到今天的模型，中间发生了什么？给一个 2025 年模型的 `config.json`，能不能指出它在哪几个槽位换了什么、每处回答什么问题、去哪一篇看；给一个 Llama 式 dense 配置，能不能五分钟内算出参数量、误差 1% 以内？
 
-**结论**：本篇先读配置给出 Llama / DeepSeek / VLM 的实践地图；RMSNorm、SwiGLU、去 bias 在这里讲清，其余只定位、后续专篇展开。参数账以 Llama 为完整案例：能，而且精确。每层是 attention 四个矩阵（$$W_K, W_V$$ 的列数是 $$n_{kv} d_{head}$$，GQA 只是 $$n_{kv} < n_h$$）加 SwiGLU 三个矩阵 $$3 d \cdot d_{ff}$$，Llama 的 14336 来自 $$\frac{2}{3} \cdot 4d \times 1.3$$ 向上对齐到 1024 的倍数；乘层数、加词表，Llama-3-8B 得 8,030,261,248，70B 与 405B 也与公布值一致——RoPE、softmax 都没有参数。DeepSeek-V3 骨架相同，只是 attention 换成 MLA 的六个矩阵、FFN 换成 257 个专家：总参数 671B、每 token 激活 37B，"参数量"第一次不再单独对应成本。
+**结论**：GPT-2 是十个可替换的槽位（归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式），"embedding → L 个 block → norm → lm_head"的骨架从未变过。部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；2023 年之后结构改动重新活跃，驱动力是推理成本。改动归成四条线：更长的上下文（07 → 08 → 09）、更大的容量与更低的每 token 代价（05 → 08 → 10 → 14）、更密的训练信号与更快的生成（11 → 12）、更多的输入模态（13）；GQA / MLA 是前两条线的交汇点。RMSNorm、SwiGLU、去 bias 在这里讲清，其余只定位、后续专篇展开。参数账以 Llama 为完整案例：能，而且精确。每层是 attention 四个矩阵（$$W_K, W_V$$ 的列数是 $$n_{kv} d_{head}$$，GQA 只是 $$n_{kv} < n_h$$）加 SwiGLU 三个矩阵 $$3 d \cdot d_{ff}$$，Llama 的 14336 来自 $$\frac{2}{3} \cdot 4d \times 1.3$$ 向上对齐到 1024 的倍数；乘层数、加词表，Llama-3-8B 得 8,030,261,248，70B 与 405B 也与公布值一致——RoPE、softmax 都没有参数。DeepSeek-V3 骨架相同，只是 attention 换成 MLA 的六个矩阵、FFN 换成 257 个专家：总参数 671B、每 token 激活 37B，"参数量"第一次不再单独对应成本。
 
 **必记**：
 
+- 十个槽位、四条线；读 config 认站：`num_key_value_heads`（08）、`rope_theta` / `rope_scaling`（07）、`sliding_window` / `layer_types`（09）、`num_experts` / `num_experts_per_tok`（10）、`num_nextn_predict_layers`（11）、`vision_config`（13）、`torch_dtype` / `quantization_config`（14）。
 - $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$，$$d_{kv} = n_{kv} d_{head}$$；tied 时词表只算一份。
 - 8B：attention 每层 41.94M、FFN 176.16M，32 层 6.98B，embedding 与 lm_head 各 525.3M。
 - 层内 FFN 约 80%；词表 8B 占 13%、70B 3%、405B 约 1%。
@@ -349,8 +350,8 @@ Table: 跨篇概念的正确阅读入口
 | 推理就是训练的前向 | decode 的输入是 $$[B, 1]$$、没有 mask 矩阵、靠 KV cache、瓶颈在访存 | 训练 / prefill / decode 是三种形态 | [第二篇](/transformer-token-journey-training-and-inference.html) |
 | 三个独立的 Q/K/V Linear 与一个 `c_attn` 不一样 | 横着拼的矩阵切开就是三个矩阵 | 等价；合并只为一次 GEMM 更快 | [第三篇](/nanogpt-model-py-line-by-line.html) |
 | 小模型上 MTP 没收益说明 MTP 无效 | 收益是规模依赖的（13B 以上明显） | 小模型只验证机制与代价 | [第十一篇](/multi-token-prediction-mtp.html) |
-| FFN 中间维度就是 $$4d$$ | Llama 用 SwiGLU 三矩阵，14336 = $$\frac{2}{3} \cdot 4d \times 1.3$$ 对齐到 1024 | 以 `intermediate_size` 为准，且数三个矩阵 | [第五篇](/transformer-anatomy-and-parameter-count.html) |
-| 每 token FLOPs 就是 $$2 \times$$ 全部参数 | embedding 是查表，FLOPs 为零 | $$2 N_{gemm}$$，8B 是 $$2 \times 7.5$$B = 15 GFLOPs | [第五篇](/transformer-anatomy-and-parameter-count.html)、[第六篇](/transformer-flops-bytes-and-roofline.html) |
+| FFN 中间维度就是 $$4d$$ | Llama 用 SwiGLU 三矩阵，14336 = $$\frac{2}{3} \cdot 4d \times 1.3$$ 对齐到 1024 | 以 `intermediate_size` 为准，且数三个矩阵 | [第五篇](/llm-architecture-evolution-roadmap-from-gpt2.html) |
+| 每 token FLOPs 就是 $$2 \times$$ 全部参数 | embedding 是查表，FLOPs 为零 | $$2 N_{gemm}$$，8B 是 $$2 \times 7.5$$B = 15 GFLOPs | [第五篇](/llm-architecture-evolution-roadmap-from-gpt2.html)、[第六篇](/transformer-flops-bytes-and-roofline.html) |
 | decode 慢是因为算力不够 | $$B = 1$$ 时算力时间 0.02 ms，访存 4.8 ms | 强度等于 $$B$$，距 ridge 295 两个数量级，是 memory-bound | [第六篇](/transformer-flops-bytes-and-roofline.html) |
 | batch 开到 300 就能把 H100 用满 | 8K 下 295 个请求的 KV 要 295 GiB，且 KV 读取的强度是常数 $$g$$ | 总强度趋于 18，单卡任何可行 batch 都 memory-bound；约束是 $$B \times s \le 52$$ 万 | [第六篇](/transformer-flops-bytes-and-roofline.html) |
 | head 越多 KV cache 越大 | KV 公式里只有 $$n_{kv}$$，没有 $$n_h$$ | V3 128 头 68.6 KiB 比 8B 的 128 KiB 还小；看 `kv_lora_rank` | [第八篇](/attention-variants-and-kv-cache.html) |

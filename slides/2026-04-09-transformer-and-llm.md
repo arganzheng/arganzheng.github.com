@@ -19,7 +19,7 @@ transition: slide
 | 段 | 篇 | 方法 |
 |---|---|---|
 | 一 · 基本原理与实现 | 01–04 | 同一份代码：d = 4 手算 → 带 KV cache 的极小 GPT → nanoGPT 训到会续写 |
-| 二 · 现代 LLM 的演进与实践 | 05–14 | 05 读配置数参数、06 建成本工具箱；之后每处改动：问题 → 方法 → 实现 → 效果 → 代价 → 边界；同一张卡 H100：80 GB、3.35 TB/s、BF16 989 TFLOPS |
+| 二 · 现代 LLM 的演进与实践 | 05–14 | 05 画演进路线图、读配置、数参数，06 建成本工具箱；之后每处改动：问题 → 方法 → 实现 → 效果 → 代价 → 边界；同一张卡 H100：80 GB、3.35 TB/s、BF16 989 TFLOPS |
 
 <aside class="notes" markdown="1">
 总纲：/transformer-and-llm-structure-implementation-and-evolution.html。三个模型：Llama-3-8B / 70B 代表 dense + GQA，DeepSeek-V3 代表 MLA + 细粒度 MoE + FP8；Mixtral 8x7B 与四个多模态模型作对照。
@@ -38,7 +38,7 @@ flowchart TB
     end
     subgraph S2["第二段：现代 LLM 的演进与实践（05–14）"]
         direction TB
-        P5["05 读真实模型的配置<br/>Llama、DeepSeek、VLM"] --> P6["06 算量、访存与 Roofline<br/>（成本工具箱）"]
+        P5["05 结构演进的路线图<br/>槽位 · 时间线 · 四条线"] --> P6["06 算量、访存与 Roofline<br/>（成本工具箱）"]
         P6 --> P7["07 位置编码与外推"] --> P8["08 Attention 与 KV"] --> P9["09 长上下文"]
         P6 --> P10["10 MoE"]
         P6 --> P11["11 MTP"] --> P12["12 投机解码"]
@@ -193,9 +193,9 @@ flowchart LR
 
 ---
 
-## 05 · 从 GPT-2 到 Llama 与 DeepSeek：读配置、数参数
+## 05 · 从 GPT-2 到今天的 LLM：结构演进的路线图
 
-**结论**：dense Transformer **没有隐藏参数**——每层四个 attention 矩阵 + 三个 SwiGLU 矩阵，乘层数加词表，Llama-3-8B 算出 **8,030,261,248**，精确到个位。
+**结论**：GPT-2 是**十个可替换的槽位**，骨架从未变过；2019–2025 的改动沿四条线走——更长的上下文（07 → 08 → 09）、更大的容量与更低的每 token 代价（05 → 08 → 10 → 14）、更密的训练信号与更快的生成（11 → 12）、更多的输入模态（13）。读 config 认站，再算第二段的第一笔账：dense Transformer **没有隐藏参数**——每层四个 attention 矩阵 + 三个 SwiGLU 矩阵，乘层数加词表，Llama-3-8B 算出 **8,030,261,248**，精确到个位。
 
 $$
 N = L\big[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d\big] + 2Vd + d,\qquad d_{kv} = n_{kv}\,d_{head}
@@ -208,7 +208,7 @@ $$
 | embedding + lm_head（不共享）| — | 2 × 525.3M | 13% |
 
 <aside class="notes" markdown="1">
-原文 /transformer-anatomy-and-parameter-count.html。先用真实配置建立 Llama / DeepSeek / VLM 地图并对照 2025 年的 Qwen3 / Llama 4 / Kimi K2 / gpt-oss，06 把参数量换成算量与时间，07–14 再展开位置、GQA/MLA、长上下文、MoE、MTP、投机、多模态、浮点格式。14336 = 2/3 · 4d × 1.3 向上对齐到 1024 倍数。RoPE、softmax 没有参数。参与 GEMM 的是 7.5B（embedding 只查表）——下一篇 15.0 GFLOPs 的来源。
+原文 /llm-architecture-evolution-roadmap-from-gpt2.html。槽位表 → 2017–2025 时间线（部件级论文在 2023 年 LLaMA 后才成默认；2023 年后结构改动的驱动力是推理成本）→ 四条线各站与篇目 → 用真实配置建立 Llama / DeepSeek / VLM 地图并对照 2025 年的 Qwen3 / Llama 4 / Kimi K2 / gpt-oss，06 把参数量换成算量与时间，07–14 再展开位置、GQA/MLA、长上下文、MoE、MTP、投机、多模态、浮点格式。14336 = 2/3 · 4d × 1.3 向上对齐到 1024 倍数。RoPE、softmax 没有参数。参与 GEMM 的是 7.5B（embedding 只查表）——下一篇 15.0 GFLOPs 的来源。
 </aside>
 
 <!-- v -->

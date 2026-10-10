@@ -120,7 +120,7 @@ greedy 下验证规则退化为逐 token 比较，不需要计算概率比。一
 
 ### 1. 正确的训练目标
 
-要最小化 $$\text{TV}(p, q)$$，直接优化 TV 不方便（不可微处多）。Pinsker 不等式给了一个可微的上界：$$\text{TV}(p, q) \le \sqrt{\frac{1}{2} \text{KL}(p \| q)}$$。最小化 KL$$(p \| q)$$ 就是**前向 KL 的 logits 级蒸馏**（[L5 第七篇](/knowledge-distillation-for-llms.html)第三章）——草稿是学生，目标模型是教师。这个联系不只是类比：Zhou 等 2024（DistillSpec）系统地验证了用蒸馏训练草稿模型，相对普通投机解码的**加速比**再提高 10–45%（论文摘要的口径是 speedup，不是接受率）。
+要最小化 $$\text{TV}(p, q)$$，直接优化 TV 不方便（不可微处多）。Pinsker 不等式给了一个可微的上界：$$\text{TV}(p, q) \le \sqrt{\frac{1}{2} \text{KL}(p \Vert q)}$$。最小化 KL$$(p \Vert q)$$ 就是**前向 KL 的 logits 级蒸馏**（[L5 第七篇](/knowledge-distillation-for-llms.html)第三章）——草稿是学生，目标模型是教师。这个联系不只是类比：Zhou 等 2024（DistillSpec）系统地验证了用蒸馏训练草稿模型，相对普通投机解码的**加速比**再提高 10–45%（论文摘要的口径是 speedup，不是接受率）。
 
 三个推论：
 
@@ -325,7 +325,7 @@ vLLM 支持 n-gram 与 EAGLE 两种草稿，社区有 Llama-3.1-8B-Instruct 的 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
 | 接受率 | $$\alpha = 1 - \text{TV}(p, q)$$ | 分布的重叠，不是 argmax 准确率<br/>随位置递减<br/>greedy 下最高 |
-| 训练目标 | 最小化 KL$$(p \ | q)$$ = 前向 KL 蒸馏；on-policy（草稿自己采样）数据 | DistillSpec：加速比再 +10–45%；草稿匹配目标不是匹配数据 |
+| 训练目标 | 最小化 KL$$(p \Vert q)$$ = 前向 KL 蒸馏；on-policy（草稿自己采样）数据 | DistillSpec：加速比再 +10–45%；草稿匹配目标不是匹配数据 |
 | Medusa | $$K$$ 个独立头，边缘分布，固定树 64 节点 | $$c \approx 0.02$$<br/>接受长度 2.5–3<br/>数小时训练 |
 | EAGLE | 特征级自回归（特征 + token embedding），一层 decoder | 条件依赖 + 特征信息 → 接受长度 3.8–4.5 |
 | EAGLE-2 / 3 | 动态树按草稿置信度；去掉特征回归 + 多层特征 + 训练时测试 | 接受长度 5–6.5；3.5–6.5× |
@@ -370,7 +370,7 @@ Table: 投机解码的规则与公式小结
 
    <details markdown="1"><summary>答案</summary>
 
-   最小化 $$\text{KL}(p_{target} \| q_{draft})$$，即用目标模型的输出蒸馏草稿（DistillSpec，on-policy 数据最好）——接受率是分布重叠，草稿要像目标而不是像数据；SFT 让草稿像数据，与目标的分歧不受控。
+   最小化 $$\text{KL}(p_{target} \Vert q_{draft})$$，即用目标模型的输出蒸馏草稿（DistillSpec，on-policy 数据最好）——接受率是分布重叠，草稿要像目标而不是像数据；SFT 让草稿像数据，与目标的分歧不受控。
 
    </details>
 

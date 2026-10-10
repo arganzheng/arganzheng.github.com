@@ -371,7 +371,7 @@ $$
 
 ### 2. SmoothQuant 的 α
 
-SmoothQuant（Xiao 等 2022）把难度**从激活迁移到权重**：$$Y = XW = (X \cdot \text{diag}(s)^{-1}) (\text{diag}(s) \cdot W)$$，激活通道除以 $$s_j$$、权重行乘 $$s_j$$，$$s_j = \max\lvert X_j \rvert^\alpha / \max\lvert W_j \rvert^{1-\alpha}$$；$$\alpha = 0.5$$ 时两边的每通道最大值被拉平到几何平均——激活的离群被压下去，权重的对应行被抬上来，两者都变得"可量化"。它的形式与 AWQ 惊人地相似——同一个 $$\text{diag}(s)$$ 分解——但方向相反：AWQ 把权重乘大保护权重，SmoothQuant 把激活除小保护激活。$$\alpha$$ 控制迁移多少：$$\alpha = 0$$ 时 $$s_j = 1/\max|W_j|$$（不是恒等——它把权重每通道拉到最大值 1、把这部分难度全推给激活），$$\alpha = 1$$ 把激活每通道拉到最大值 1、难度全推给权重，0.5 让两边的每通道最大值相等。注意本篇用 $$Y = XW$$ 的行向量约定，缩放乘在 $$W$$ 的**行**（输入通道）上。它的局限是 **massive activations 迁移不掉**——它们只在少数 token 上出现，per-channel 的静态 $$s_j$$ 是对所有 token 共享的，为这少数 token 放大 $$s_j$$ 会毁掉这个通道在其他 token 上的精度。实践里 SmoothQuant 让 W8A8 接近无损（INT8 有 255 个级别，容忍度高），但对 W4A4 不够。
+SmoothQuant（Xiao 等 2022）把难度**从激活迁移到权重**：$$Y = XW = (X \cdot \text{diag}(s)^{-1}) (\text{diag}(s) \cdot W)$$，激活通道除以 $$s_j$$、权重行乘 $$s_j$$，$$s_j = \max\lvert X_j \rvert^\alpha / \max\lvert W_j \rvert^{1-\alpha}$$；$$\alpha = 0.5$$ 时两边的每通道最大值被拉平到几何平均——激活的离群被压下去，权重的对应行被抬上来，两者都变得"可量化"。它的形式与 AWQ 惊人地相似——同一个 $$\text{diag}(s)$$ 分解——但方向相反：AWQ 把权重乘大保护权重，SmoothQuant 把激活除小保护激活。$$\alpha$$ 控制迁移多少：$$\alpha = 0$$ 时 $$s_j = 1/\max\lvert W_j \rvert$$（不是恒等——它把权重每通道拉到最大值 1、把这部分难度全推给激活），$$\alpha = 1$$ 把激活每通道拉到最大值 1、难度全推给权重，0.5 让两边的每通道最大值相等。注意本篇用 $$Y = XW$$ 的行向量约定，缩放乘在 $$W$$ 的**行**（输入通道）上。它的局限是 **massive activations 迁移不掉**——它们只在少数 token 上出现，per-channel 的静态 $$s_j$$ 是对所有 token 共享的，为这少数 token 放大 $$s_j$$ 会毁掉这个通道在其他 token 上的精度。实践里 SmoothQuant 让 W8A8 接近无损（INT8 有 255 个级别，容忍度高），但对 W4A4 不够。
 
 ### 3. LLM.int8()：不迁移，分离
 

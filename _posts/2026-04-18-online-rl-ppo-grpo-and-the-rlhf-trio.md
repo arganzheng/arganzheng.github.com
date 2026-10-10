@@ -117,7 +117,7 @@ $$\beta$$ 也可以自适应：InstructGPT 沿用 Ziegler 等 2019 的做法，�
 
 ### 3. 三种 KL 估计量
 
-$$\text{KL}(\pi_\theta \| \pi_{ref}) = \mathbb{E}_{y \sim \pi_\theta}[\log \pi_\theta(y) - \log \pi_{ref}(y)]$$ 对整个序列空间求期望，算不出来，只能用采到的样本估。记 $$\rho = \pi_{ref}(y) / \pi_\theta(y)$$（在每个 token 上算），Schulman 2020 给出三个估计量：
+$$\text{KL}(\pi_\theta \Vert \pi_{ref}) = \mathbb{E}_{y \sim \pi_\theta}[\log \pi_\theta(y) - \log \pi_{ref}(y)]$$ 对整个序列空间求期望，算不出来，只能用采到的样本估。记 $$\rho = \pi_{ref}(y) / \pi_\theta(y)$$（在每个 token 上算），Schulman 2020 给出三个估计量：
 
 | 估计量 | 公式 | 无偏？ | 方差 | 用在 |
 |---|---|---|---|---|
@@ -463,7 +463,7 @@ trainer.train()
 
 | 项 | 公式 / 规则 | 数字 |
 |---|---|---|
-| 目标 | $$\max \mathbb{E}[r] - \beta\, \text{KL}(\pi \ | \pi_{ref})$$ | $$\beta$$：RM 奖励 0.01–0.05，规则奖励 0 |
+| 目标 | $$\max \mathbb{E}[r] - \beta\, \text{KL}(\pi \Vert \pi_{ref})$$ | $$\beta$$：RM 奖励 0.01–0.05，规则奖励 0 |
 | KL 估计 | $$k_1 = \log\frac{\pi}{\pi_{ref}}$$，$$k_3 = \rho - 1 - \log\rho$$ | PPO 用 $$k_1$$ 进奖励，GRPO 用 $$k_3$$ 进 loss |
 | 策略梯度 | $$\mathbb{E}[\nabla \log \pi(y)\,(R - b)]$$；$$b$$ 不依赖 $$y$$ 则无偏 | 一步 = 按奖励加权的 SFT |
 | PPO | $$V_\psi$$ 逐 token baseline<br/>GAE $$\gamma = 1, \lambda = 0.95$$<br/>clip $$\epsilon = 0.2$$ | 四模型，8B 规格 288 GB 状态 |
