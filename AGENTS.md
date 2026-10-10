@@ -206,6 +206,8 @@ Pages has `https_enforced` on.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.
+- Section folding (`js/section-fold.js`) adds accessible per-section h2/h3
+  controls on post pages; TOC and anchor navigation reveal folded targets.
 
 - Categories: front matter `category:` is `life` (essays; nav **Life** →
   cards on `/life/` = `life.html`, `[Life]` in the archive) or absent (tech;
