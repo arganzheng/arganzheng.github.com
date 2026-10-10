@@ -993,6 +993,14 @@ headings, any order, rendered newest first:
 ![](/img/moments/2026/09/a.webp)   image-only lines in a row = one gallery
 ![](/img/moments/2026/09/b.webp)   (1 large · 2 / 4 two columns · 3+ a 3-col grid)
 
+Each entry has a shareable page at `/moments/<id>.html`; its date link and
+share link point there while the month stream and heatmap still point to the
+month anchor. Entry pages show backlinks, shared-tag recommendations and
+`og:image` from the first original picture. In Markdown, `[[id]]` links to
+another entry (not inside code); author-only 批注 opens the publisher with that
+reference prefilled. A Moments share menu can generate a PNG card with a QR
+code to the entry page.
+
 The build caches a 640px WebP thumbnail for each local Moments image under
 `.jekyll-cache/moment-thumbs/`. Multi-image galleries display thumbnails and
 link to the originals; a single image keeps the original as `src` with a
@@ -1036,9 +1044,11 @@ one-off App permission setup: `tools/annotations-worker/README.md`.
 Each card's foot (`_layouts/moments.html`, wired by `js/moments.js`): the ♡,
 评论, 分享 (`.moment-share` → `window.BlogShare.open` of `js/share.js` — the
 same popover as articles: system sheet / 微博 / X / LinkedIn / 微信二维码 /
-复制链接; a completed share counts on the month path via `POST /shares`) and
-`.moment-own` (编辑 → the edit mode above, 删除 → `DELETE /moments` after a
-confirm, then the card fades), shown only when `js/annotations.js` reports
+复制链接; Moments cards also get a generated PNG with a QR code. A completed
+share counts on the month path via `POST /shares`) and
+`.moment-own` (编辑 → the edit mode above, 批注 → a new `[[id]]` reference,
+删除 → `DELETE /moments` after a confirm, then the card fades), shown only
+when `js/annotations.js` reports
 the signed-in viewer (`blog:viewer`) = `site.github_username` — so on month
 pages, where the comments sign the author in; tag pages have no comments and
 show no 编辑 / 删除. `e.month` (`YYYY-MM` from the page URL) gives the
@@ -1051,8 +1061,8 @@ How it is built (`_plugins/moments.rb`):
 - `Moments::Generator` (`:low`) splits `page.content` on the `## YYYY-MM-DD…`
   headings, renders each entry with the site's kramdown converter (no Liquid),
   applies the gallery / quote / music rewrites and stores
-  `page.moments = [{id, url, date, title, time, has_time, place, tags, html,
-  text, img}]` (id `YYYYMMDD[-HHMM]`, `-2` … on collision; title =
+  `page.moments = [{id, url, page, date, title, time, has_time, place, tags, html,
+  text, img, refs_in, related}]` (id `YYYYMMDD[-HHMM]`, `-2` … on collision; title =
   `2026-09-21 08:02`, the section / reaction quote; url = month URL + `#id`;
   img = first image thumbnail). `Moments::Thumbs` uses `cwebp -q 78 -resize
   640 0` without upscaling, caches by source mtime and size under
@@ -1061,8 +1071,9 @@ How it is built (`_plugins/moments.rb`):
   `/moments/tag/<标签>.html` before kramdown (`link_tags`; a `读书/开源` tag
   lands at `tag/读书/开源.html` and counts for `读书` too).
   `site.data.moments = {months, entries, tags, heatmap, stats}` feeds
-  `moments.xml` (one `<item>` per entry, 30 newest, guid = month URL + `#id`,
-  tags as extra `<category>`), `archive.html` (`[Moments]` rows) and the
+  `moments.xml` (one `<item>` per entry, 30 newest, `<link>` = entry page,
+  `<guid>` = month URL + `#id`, tags as extra `<category>`),
+  `archive.html` (`[Moments]` rows) and the
   sidebar (`tags` = tree `[{tag, url, count, children}]`; `heatmap` = the last
   `HEAT_WEEKS` weeks as columns of `{date, count, level 0-4, url, future}`
   ending on the week of `site.time`, Monday first; `stats` = entries / tags /
@@ -1071,8 +1082,9 @@ How it is built (`_plugins/moments.rb`):
   `sitemap: false`); one `/moments/tag/<标签>.html` per tag (`is_tag`,
   `tag`, `moments` = its entries across months, `sitemap: false`, **no
   comments section** — the 评论 link goes to the month page's `#comments`);
+  `/moments/<id>.html` = one entry page (month comments, no embedded comments);
   `/moments/index.json` = `[{id, url, date, time, place, tags, text, img}]`
-  for `js/moments.js` (随机漫步 picks one at random; 每日回顾 shows entries from
+  with entry-page URLs for `js/moments.js` (随机漫步 picks one at random; 每日回顾 shows entries from
   the same day in earlier years, else the same day-of-month in earlier
   months, else hides itself).
 - `_layouts/moments.html` iterates `page.moments` — never `{{ content }}`.

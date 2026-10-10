@@ -141,6 +141,67 @@
 		.pa-sp-qr-hint { display: block; margin-top: 6px; font-size: 12px; line-height: 1.4; color: @gray; }
 	}
 }
+.pa-share-image {
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 20px;
+	background: rgba(0, 0, 0, 0.78);
+	&[hidden] { display: none; }
+	.pa-share-image-panel {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		max-width: min(92vw, 620px);
+		max-height: 94vh;
+		padding: 20px;
+		border-radius: 12px;
+		background: #fff;
+		overflow: auto;
+	}
+	.pa-share-image-close {
+		position: absolute;
+		top: 6px;
+		right: 8px;
+		width: 38px;
+		height: 38px;
+		border: 0;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.6);
+		color: #fff;
+		font-size: 28px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.pa-share-image-preview {
+		display: block;
+		max-width: 100%;
+		max-height: 72vh;
+		object-fit: contain;
+	}
+	p { margin: 12px 0 8px; color: #586069; font-size: 14px; }
+	.pa-share-image-actions { display: flex; gap: 12px; }
+	.pa-share-image-download, .pa-share-image-share {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 92px;
+		min-height: 40px;
+		padding: 0 16px;
+		border: 1px solid #1f8a9c;
+		border-radius: 20px;
+		background: #1f8a9c;
+		color: #fff;
+		font-size: 14px;
+		text-decoration: none;
+		cursor: pointer;
+		&:hover, &:focus { background: #176d7b; color: #fff; text-decoration: none; }
+	}
+}
 @media (max-width: 767px) {
 	// narrow screens: the strip takes its own line under the meta text
 	.post-stats { display: flex; margin: 6px 0 0; &::before { display: none; } &:empty { display: none; } }

@@ -7,7 +7,8 @@
  *   - 分享 popover: system share sheet (Web Share API), Weibo / X / LinkedIn
  *     intent links, WeChat QR (js/vendor/qrcode.min.js, loaded on first use),
  *     copy link. One popover element, re-anchored to whichever button opened it.
- *     Every completed share is one POST /shares.
+ *     Every completed share is one POST /shares; Moments can additionally
+ *     provide a PNG card generator and a long-press / download overlay.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -89,7 +90,7 @@
   }
 
   // ---------------------------------------------------------- share popover
-  var pop = null, popFor = null;
+  var pop = null, popFor = null, cardOverlay = null, cardObjectUrl = null;
   function ensurePop() {
     if (pop) return pop;
     pop = document.createElement('div');
@@ -101,6 +102,7 @@
       '<a class="pa-sp-item" data-k="x" target="_blank" rel="noopener noreferrer"><i class="fa fa-brands fa-twitter"></i>X</a>' +
       '<a class="pa-sp-item" data-k="linkedin" target="_blank" rel="noopener noreferrer"><i class="fa fa-brands fa-linkedin"></i>LinkedIn</a>' +
       '<button type="button" class="pa-sp-item" data-k="wechat"><i class="fa fa-brands fa-weixin"></i>微信扫一扫</button>' +
+      '<button type="button" class="pa-sp-item" data-k="image" hidden><i class="fa fa-image"></i>生成图片</button>' +
       '<button type="button" class="pa-sp-item" data-k="copy"><i class="fa fa-link"></i>复制链接</button>' +
       '<div class="pa-sp-qr" hidden><span class="pa-sp-qr-img"></span><span class="pa-sp-qr-hint">微信扫一扫，分享给朋友或朋友圈</span></div>';
     document.body.appendChild(pop);
@@ -110,11 +112,12 @@
       var k = item.getAttribute('data-k'), d = popFor, done = function () { d.onShared(k); };
       if (k === 'native') { navigator.share({ title: d.title, text: d.text || d.title, url: d.url }).then(done, function () { /* cancelled */ }); closePop(); }
       else if (k === 'wechat') { e.preventDefault(); showQR(d.url); done(); }
+      else if (k === 'image') { closePop(); showCard(d); }
       else if (k === 'copy') { copyText(d.url).then(function () { d.toast('已复制链接'); done(); }, function () { d.toast('复制失败'); }); closePop(); }
       else { done(); closePop(); }
     });
     document.addEventListener('click', function (e) { if (pop && !pop.hidden && !pop.contains(e.target) && !(popFor && popFor.btn.contains(e.target))) closePop(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePop(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closePop(); closeCard(); } });
     window.addEventListener('resize', closePop);
     return pop;
   }
@@ -125,8 +128,8 @@
       text: bar.getAttribute('data-text') || ''
     };
   }
-  // Open the popover anchored to `btn`. `ctx` = { url, title, text, onShared(kind),
-  // toast(msg) }; js/annotations.js reuses it for passage links (BlogShare.open).
+  // Open the popover anchored to `btn`; `ctx.card` optionally returns a PNG Blob.
+  // js/annotations.js reuses it for passage links (BlogShare.open).
   function openPop(ctx, btn) {
     var p = ensurePop(), d = ctx;
     if (popFor) closePop();
@@ -135,6 +138,7 @@
     p.querySelector('[data-k="weibo"]').href = 'https://service.weibo.com/share/share.php?url=' + enc(d.url) + '&title=' + enc(d.title + (d.text ? ' — ' + d.text : ''));
     p.querySelector('[data-k="x"]').href = 'https://twitter.com/intent/tweet?url=' + enc(d.url) + '&text=' + enc(d.title + (d.text ? ' — ' + d.text : ''));
     p.querySelector('[data-k="linkedin"]').href = 'https://www.linkedin.com/sharing/share-offsite/?url=' + enc(d.url);
+    p.querySelector('[data-k="image"]').hidden = typeof d.card !== 'function';
     var qr = p.querySelector('.pa-sp-qr'); qr.hidden = true; qr.querySelector('.pa-sp-qr-img').innerHTML = '';
     p.hidden = false; p.style.visibility = 'hidden';
     var r = btn.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight;
@@ -151,6 +155,42 @@
     pop.hidden = true;
     if (popFor && popFor.btn) popFor.btn.setAttribute('aria-expanded', 'false');
     popFor = null;
+  }
+  function showCard(ctx) {
+    ctx.card().then(function (blob) {
+      closeCard();
+      cardObjectUrl = URL.createObjectURL(blob);
+      var name = 'moment-' + (ctx.id || 'share') + '.png';
+      var file = new File([blob], name, { type: 'image/png' });
+      cardOverlay = document.createElement('div');
+      cardOverlay.className = 'pa-share-image';
+      cardOverlay.setAttribute('role', 'dialog');
+      cardOverlay.setAttribute('aria-modal', 'true');
+      var canShare = false;
+      try { canShare = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { /* unsupported */ }
+      cardOverlay.innerHTML =
+        '<div class="pa-share-image-panel">' +
+          '<button type="button" class="pa-share-image-close" aria-label="关闭">×</button>' +
+          '<img class="pa-share-image-preview" alt="随笔分享图片">' +
+          '<p>长按图片保存，或</p><div class="pa-share-image-actions">' +
+          '<a class="pa-share-image-download" download="' + name + '">下载</a>' +
+          (canShare ? '<button type="button" class="pa-share-image-share">分享图片</button>' : '') +
+          '</div></div>';
+      cardOverlay.querySelector('img').src = cardObjectUrl;
+      cardOverlay.querySelector('.pa-share-image-download').href = cardObjectUrl;
+      cardOverlay.addEventListener('click', function (e) {
+        if (e.target === cardOverlay || e.target.closest('.pa-share-image-close')) closeCard();
+        if (e.target.closest('.pa-share-image-share')) navigator.share({ files: [file], title: ctx.title }).catch(function () {});
+      });
+      document.body.appendChild(cardOverlay);
+      ctx.onShared('image');
+    }).catch(function () { ctx.toast('图片生成失败'); });
+  }
+  function closeCard() {
+    if (cardOverlay) cardOverlay.remove();
+    cardOverlay = null;
+    if (cardObjectUrl) URL.revokeObjectURL(cardObjectUrl);
+    cardObjectUrl = null;
   }
   function isOpenFor(btn) { return !!(pop && !pop.hidden && popFor && popFor.btn === btn); }
   function showQR(url) {
