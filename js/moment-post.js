@@ -15,7 +15,8 @@
   var SESSION_KEY = 'giscus-session', DRAFT_KEY = 'moment-post-draft', QUEUE_DB = 'moment-queue';
   var PENDING_KEY = 'moments-pending';
   var MAX_PICS = 9, MAX_W = 1600;
-  var VIDEO_MAX = 50 * 1024 * 1024, VIDEO_EXT = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm' };
+  var VIDEO_MAX = 50 * 1024 * 1024, VIDEO_SOURCE_MAX = 500 * 1024 * 1024;
+  var VIDEO_EXT = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm' };
   // ?edit=YYYY-MM/<id> (the 编辑 link on a card): load that entry from the worker, PUT it back.
   var EDIT = /[?&]edit=(\d{4}-\d{2})\/(\d{8}(?:-\d{4})?(?:-\d+)?)/.exec(location.search);
   EDIT = EDIT ? { month: EDIT[1], id: EDIT[2] } : null;
@@ -53,7 +54,7 @@
   var done = $('.mp-done'), editor = $('.mp-editor'), queueNote = $('.mp-queue');
   var token = null, user = null, images = [], busy = false;
   // one video instead of the pictures (朋友圈): { file, url, poster, posterUrl, duration } | edit: { url, keep, posterKeep, posterUrl }
-  var video = null;
+  var video = null, videoGeneration = 0, videoCancel = null, videoProcessing = false;
 
   // ---- login (same flow as js/annotations.js)
   function takeSessionFromUrl() {
@@ -221,15 +222,78 @@
       v.src = url; v.load();
     });
   }
+  function cancelVideoProcessing() {
+    var wasProcessing = videoProcessing;
+    videoGeneration++;
+    videoProcessing = false;
+    var cancel = videoCancel; videoCancel = null;
+    if (cancel) { try { cancel(); } catch (e) { /* ignore */ } }
+    if (wasProcessing) busy = false;
+  }
+  function videoTooBig() { setMsg('视频太大（> 50 MB），先剪短一点再发', true); }
+  function formatVideoSize(bytes) { return (bytes / (1024 * 1024)).toFixed(1) + ' MB'; }
   function addVideo(f) {
-    if (f.size > VIDEO_MAX) { setMsg('视频太大（> 50 MB），先剪短一点再发', true); return Promise.resolve(); }
-    busy = true; updateSubmit(); setMsg('读取视频…');
-    return videoPoster(f).then(function (r) {
-      video = { file: f, url: URL.createObjectURL(f), poster: r.poster, posterUrl: r.poster ? URL.createObjectURL(r.poster) : '', duration: r.duration };
-      setMsg('');
-    }).then(function () { busy = false; persistVideo(); renderPics(); renderPreview(); updateSubmit(); });
+    var canCompress = !!window.MomentVideo && typeof VideoEncoder !== 'undefined';
+    if (f.size > (canCompress ? VIDEO_SOURCE_MAX : VIDEO_MAX)) { videoTooBig(); return Promise.resolve(); }
+    cancelVideoProcessing();
+    var generation = videoGeneration, originalUrl = URL.createObjectURL(f);
+    video = { file: f, url: originalUrl, poster: null, posterUrl: '', duration: 0 };
+    videoProcessing = true; busy = true;
+    updateSubmit(); renderPics(); renderPreview(); setMsg('读取视频…');
+    var job = canCompress ? window.MomentVideo.compress(f, {
+      base: BASE,
+      onProgress: function (progress) {
+        if (generation === videoGeneration) setMsg('压缩视频 ' + Math.round(progress * 100) + '%');
+      }
+    }) : { promise: Promise.resolve(null), cancel: function () {} };
+    videoCancel = job.cancel;
+    return Promise.resolve(job.promise).then(function (result) {
+      if (generation !== videoGeneration) return;
+      var f2 = result || f;
+      if (f2.size > VIDEO_MAX) {
+        clearVideo(); persistVideo(); renderPics(); renderPreview(); updateSubmit(); videoTooBig();
+        return;
+      }
+      var posterResult;
+      return videoPoster(f2).then(function (r) {
+        if (generation !== videoGeneration) return;
+        posterResult = r;
+        if (!r.poster && result) {
+          return videoPoster(f).then(function (fallback) {
+            if (generation !== videoGeneration) return;
+            if (fallback.poster) posterResult.poster = fallback.poster;
+            if (!posterResult.duration) posterResult.duration = fallback.duration;
+          });
+        }
+      }).then(function () {
+        if (generation !== videoGeneration) return;
+        var oldUrl = video && video.url, poster = posterResult && posterResult.poster;
+        video = {
+          file: f2,
+          url: URL.createObjectURL(f2),
+          poster: poster || null,
+          posterUrl: poster ? URL.createObjectURL(poster) : '',
+          duration: posterResult ? posterResult.duration : 0
+        };
+        if (oldUrl) URL.revokeObjectURL(oldUrl);
+        videoProcessing = false; videoCancel = null; busy = false;
+        var notice = result ? '已压缩：' + formatVideoSize(f.size) + ' → ' + formatVideoSize(f2.size) : '';
+        setMsg(notice);
+        persistVideo(); renderPics(); renderPreview(); updateSubmit();
+        if (notice) setTimeout(function () { if (!busy && msg.textContent === notice) setMsg(''); }, 4000);
+      });
+    }).catch(function (e) {
+      if (generation !== videoGeneration) return;
+      clearVideo(); persistVideo(); renderPics(); renderPreview(); updateSubmit();
+      setMsg('读取视频失败：' + e.message, true);
+    }).then(function () {
+      if (generation === videoGeneration && videoProcessing) {
+        videoProcessing = false; videoCancel = null; busy = false; updateSubmit();
+      }
+    });
   }
   function clearVideo() {
+    cancelVideoProcessing();
     if (video && video.file) { URL.revokeObjectURL(video.url); if (video.posterUrl) URL.revokeObjectURL(video.posterUrl); }
     video = null;
   }
@@ -476,7 +540,7 @@
   function setMsg(s, bad) { msg.textContent = s || ''; msg.classList.toggle('is-bad', !!bad); }
   function updateSubmit() {
     submit.disabled = busy || !isAuthor() || !hasContent();
-    clear.hidden = EDIT || !(text.value.trim() || selectedTags().length || place.value.trim() || quote.value.trim() || by.value.trim() || music.value.trim() || images.length || video);
+    clear.hidden = EDIT || !(text.value.trim() || selectedTags().length || place.value.trim() || quote.value.trim() || by.value.trim() || music.value.trim() || images.length || video || videoProcessing);
   }
   function onChange() { if (!EDIT) saveDraft(); renderPreview(); updateSubmit(); }
   [text, place, quote, by, music].forEach(function (el) { el.addEventListener('input', onChange); });
@@ -651,8 +715,9 @@
   });
   // ---- edit mode: 删除 + loading the entry
   $('.mp-del').addEventListener('click', function () {
-    if (!EDIT || busy || !isAuthor()) return;
+    if (!EDIT || (busy && !videoProcessing) || !isAuthor()) return;
     if (!window.confirm('删除这条随笔？\n会提交一个删除的 commit，图片一起删掉，1–2 分钟后生效。')) return;
+    clearVideo();
     busy = true; updateSubmit(); setMsg('删除中…');
     ensureToken().then(function (t) { return api('/moments', { method: 'DELETE', token: t, body: { month: EDIT.month, id: EDIT.id } }); })
       .then(function (r) {
@@ -699,7 +764,7 @@
     editor.hidden = false; done.hidden = true; $('.mp-preview-wrap').hidden = false; text.focus();
   });
   clear.addEventListener('click', function () {
-    if (EDIT || busy) return;
+    if (EDIT || (busy && !videoProcessing)) return;
     if (!window.confirm('清空草稿？文字、标签、图片和视频都会删除。')) return;
     resetForm().then(function () { text.focus(); });
   });

@@ -85,6 +85,7 @@ install it as a stand-alone app (head.html).
     </div>
   </section>
 </div>
+<script src="{{ '/js/moment-video.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 <script src="{{ '/js/moment-post.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 <script>
   if ('serviceWorker' in navigator) {
