@@ -1,0 +1,47 @@
+@callout-note: #0969da;
+@callout-tip: #1a7f37;
+@callout-important: #8250df;
+@callout-warning: #9a6700;
+@callout-caution: #d1242f;
+
+.post-container .callout {
+	margin: 1.2em 0;
+	padding: 12px 16px;
+	border-left: 4px solid;
+	border-radius: 4px;
+	font-style: normal;
+}
+.post-container .callout > :last-child { margin-bottom: 0; }
+.post-container .callout-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 .6em;
+	font-weight: 700;
+}
+.post-container .callout-icon { width: 16px; height: 16px; flex: 0 0 16px; }
+.post-container .callout-note {
+	border-color: @callout-note;
+	background-color: fade(@callout-note, 7%);
+	.callout-title { color: @callout-note; }
+}
+.post-container .callout-tip {
+	border-color: @callout-tip;
+	background-color: fade(@callout-tip, 7%);
+	.callout-title { color: @callout-tip; }
+}
+.post-container .callout-important {
+	border-color: @callout-important;
+	background-color: fade(@callout-important, 7%);
+	.callout-title { color: @callout-important; }
+}
+.post-container .callout-warning {
+	border-color: @callout-warning;
+	background-color: fade(@callout-warning, 7%);
+	.callout-title { color: @callout-warning; }
+}
+.post-container .callout-caution {
+	border-color: @callout-caution;
+	background-color: fade(@callout-caution, 7%);
+	.callout-title { color: @callout-caution; }
+}

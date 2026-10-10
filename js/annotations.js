@@ -85,7 +85,7 @@
   // indexed through its TeX source (the MathML <annotation>, see isExcluded),
   // not through the rendered glyphs in .katex-html.
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
+    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .callout-title, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
