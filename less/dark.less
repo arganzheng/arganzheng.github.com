@@ -81,6 +81,15 @@ html[data-theme="dark"] {
 	footer .copyright, footer .list-inline a { color: @dk-muted; }
 }
 
+html[data-theme="dark"] .reading-progress { background-color: @dk-link; }
+html[data-theme="dark"] .reading-position-prompt {
+	background-color: @dk-surface-2;
+	border-color: @dk-border;
+	color: @dk-text;
+	box-shadow: 0 4px 16px fade(@dk-bg, 70%);
+}
+html[data-theme="dark"] .reading-position-prompt .reading-position-close { color: @dk-muted; }
+
 // nav theme toggle (both themes): moon in light, sun in dark
 .nav-theme-toggle a svg { vertical-align: -2px; }
 .nav-theme-sun { display: none; }

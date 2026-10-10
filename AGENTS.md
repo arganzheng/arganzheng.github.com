@@ -201,6 +201,9 @@ Pages has `https_enforced` on.
 
 ## Layout
 
+- Reading position (`js/reading-position.js`) adds a progress bar and a
+  per-post continue-reading prompt; it requires `.post-length` and skips Moments.
+
 - Categories: front matter `category:` is `life` (essays; nav **Life** →
   cards on `/life/` = `life.html`, `[Life]` in the archive) or absent (tech;
   nav **Tech** = the paginated home). `_plugins/home_flow.rb` sets
