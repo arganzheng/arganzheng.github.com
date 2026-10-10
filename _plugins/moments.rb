@@ -11,7 +11,7 @@
 #
 #   page.moments = [{ 'id' => '20260921-0802', 'month' => '2026-09', 'title' => '2026-09-21 08:02',
 #                     'time' => Time, 'place' => '深圳湾', 'html' => …, 'text' => … }, …]
-#   site.data['moments'] = { 'months' => [pages, newest first], 'entries' => [all entries + 'url'] }
+#   site.data['moments'] = { 'months' => [pages, newest first], 'entries' => [all entries + 'url/page/refs/related'] }
 #
 # newest first. The Markdown of each entry is rendered with the site's kramdown
 # converter, then touched up:
@@ -25,9 +25,11 @@
 #   - `#标签` / `#读书/技术` anywhere in the text (flomo style: a `#` after a
 #     space or at the start of a line, outside code and URLs) becomes an
 #     `a.moment-tag` link to the tag's page and lands in `entry['tags']`.
-# `/moments/` (the section's front door) is a copy of the newest month whose
-# comments / views / reactions stay keyed on the month's URL
-# (`comments_path`), so nothing forks between the two addresses.
+#   - `[[id]]` references are code-aware: render empty anchors first so entry
+#     text stays independent, then resolve links and newest-first backlinks.
+# Every entry also gets a `/moments/<id>.html` page, shared-tag recommendations
+# (excluding references), and `/moments/` remains a copy of the newest month.
+# Discussions, views, and reactions stay keyed on the month URL.
 #
 # flomo-style extras, all built here so the layout only loops:
 #   /moments/tag/<标签>.html   every tag and every ancestor of a `父/子` tag: the
@@ -55,6 +57,7 @@ module Moments
   # (`…/#/song`) or an entity (`&#39;`); letters, digits, `_` `-` `·`, `/` for
   # levels; stops at punctuation, so `#读书，` tags 读书. `#1` is not a tag.
   TAG = %r{(?<![\p{L}\p{N}_/&\\])#([\p{L}_][\p{L}\p{N}_\-·]*(?:/[\p{L}\p{N}_\-·]+)*)}
+  REF = /\[\[(\d{8}(?:-\d{4})?(?:-\d+)?)\]\]/
   HEAT_WEEKS = 17
   MUSIC = [
     # 网易云: https://music.163.com/#/song?id=347230  (also /song?id=)
@@ -192,6 +195,25 @@ module Moments
     [out, tags]
   end
 
+  # `[[id]]` → an empty anchor resolved after every month's entries are parsed.
+  def self.link_refs(md)
+    refs = []
+    fenced = false
+    out = md.lines.map do |line|
+      fenced = !fenced if line =~ /\A\s*(```|~~~)/
+      next line if fenced || line =~ /\A\s{4}/ || music_card(line)
+      line.split(/(`[^`]*`)/).each_with_index.map do |seg, i|
+        next seg if i.odd?
+        seg.gsub(REF) do
+          id = Regexp.last_match(1)
+          refs << id
+          %(<a class="moment-ref" data-ref="#{id}"></a>)
+        end
+      end.join
+    end.join
+    [out, refs]
+  end
+
   # Markdown of one entry → HTML with the gallery / quote / music touch-ups.
   def self.render(site, md, thumbs)
     lines = md.lines.map { |l| music_card(l) ? "\n#{music_card(l)}\n" : l }
@@ -262,13 +284,16 @@ module Moments
       e['title'] = e['time'].strftime(e['has_time'] ? '%Y-%m-%d %H:%M' : '%Y-%m-%d')
       e['date'] = e['time'].strftime('%Y-%m-%d')
       e['url'] = "#{page.url}##{e['id']}"
+      e['page'] = "/moments/#{e['id']}.html"
       e['month'] = page.url[/(\d{4}-\d{2})\.html\z/, 1]
       md, e['tags'] = link_tags(e['md'])
+      md, e['refs_out'] = link_refs(md)
       e['html'] = render(site, md, thumbs)
       e['text'] = e['html'].gsub(%r{<(script|style|iframe|audio)\b.*?</\1>}m, ' ').gsub(/<[^>]+>/, ' ').gsub(/\s+/, ' ').strip
       image = e['html'][/<img\b[^>]*>/]
       srcset = image && image[/\bsrcset="([^"]*)"/, 1]
       e['img'] = srcset ? srcset.split(',').first.split.first : image && image[/\bsrc="([^"]*)"/, 1]
+      e['original_img'] = e['html'][/<a class="moment-pic" href="([^"]+)"/, 1]
       e.delete('md')
     end
     entries.sort_by { |e| e['time'] }.reverse
@@ -354,7 +379,57 @@ module Moments
         p.data['newer'] = months[i - 1].url if i > 0
         p.data['older'] = months[i + 1].url if months[i + 1]
       end
-      all = months.flat_map { |p| p.data['moments'].map { |e| e.merge('month' => p.data['month']) } }
+      all = months.flat_map { |p| p.data['moments'] }
+      entries_by_id = all.to_h { |e| [e['id'], e] }
+      all.each { |e| e['refs_in'] = [] }
+      all.sort_by { |e| e['time'] }.reverse_each do |source|
+        source['refs_out'].uniq.each do |id|
+          target = entries_by_id[id]
+          if target
+            target['refs_in'] << { 'id' => source['id'], 'title' => source['title'], 'page' => source['page'] }
+          else
+            Jekyll.logger.warn 'moments:', "#{source['id']} references unknown entry #{id}"
+          end
+        end
+      end
+      all.each do |e|
+        e['html'] = e['html'].gsub(/<a class="moment-ref" data-ref="([^"]+)">\s*<\/a>/) do
+          id = Regexp.last_match(1)
+          target = entries_by_id[id]
+          unless target
+            next CGI.escapeHTML("[[#{id}]]")
+          end
+
+          text = target['text']
+          preview = text.length > 60 ? "#{text[0, 59]}…" : text
+          %(<a class="moment-ref" href="#{target['page']}"><span class="moment-ref-when">#{CGI.escapeHTML(target['title'])}</span><span class="moment-ref-text">#{CGI.escapeHTML(preview)}</span></a>)
+        end
+      end
+      all.each do |entry|
+        linked = [entry['id']] + entry['refs_out']
+        linked.concat(all.select { |other| other['refs_out'].include?(entry['id']) }.map { |other| other['id'] })
+        tags_for_entry = entry['tags'].flat_map do |tag|
+          parts = tag.split('/')
+          (1..parts.length).map { |length| parts.first(length).join('/') }
+        end.uniq
+        entry['related'] = all.filter_map do |other|
+          next if linked.include?(other['id'])
+
+          other_tags = other['tags'].flat_map do |tag|
+            parts = tag.split('/')
+            (1..parts.length).map { |length| parts.first(length).join('/') }
+          end
+          score = (tags_for_entry & other_tags).size
+          next if score.zero?
+
+          text = other['text']
+          { 'id' => other['id'], 'title' => other['title'], 'page' => other['page'],
+            'text' => (text.length > 60 ? "#{text[0, 59]}…" : text), 'img' => other['img'],
+            'score' => score, 'distance' => (other['time'] - entry['time']).abs }
+        end.sort_by { |other| [-other['score'], other['distance']] }.first(3).map do |other|
+          other.reject { |key, _| %w[score distance].include?(key) }
+        end
+      end
       tags = Moments.tag_tree(all)
       heat = Moments.heatmap(all, site.time.to_date)
       site.data['moments'] = {
@@ -373,6 +448,22 @@ module Moments
       index.data = latest.data.merge('permalink' => '/moments/', 'canonical' => latest.url, 'sitemap' => false, 'is_index' => true)
       site.pages << index
 
+      # /moments/<id>.html — a shareable, searchable page for each entry
+      all.each do |e|
+        text = e['text']
+        description = text.length > 120 ? "#{text[0, 119]}…" : text
+        month_url = e['url'].split('#', 2).first
+        entry_page = Jekyll::PageWithoutAFile.new(site, site.source, 'moments', "#{e['id']}.md")
+        entry_page.content = ''
+        entry_page.data = {
+          'layout' => 'moments', 'permalink' => e['page'], 'is_entry' => true, 'sitemap' => true,
+          'moments' => [e], 'month' => e['month'], 'month_url' => month_url,
+          'title' => "随笔 · #{e['title']}", 'description' => description,
+          'header-img' => e['original_img'], 'comments_path' => month_url
+        }.compact
+        site.pages << entry_page
+      end
+
       # /moments/tag/<标签>.html — the entries of a tag (and of its sub-tags) across months
       tags.each do |t|
         pg = Jekyll::PageWithoutAFile.new(site, site.source, 'moments/tag', "#{t['tag'].tr('/', '--')}.md")
@@ -388,7 +479,7 @@ module Moments
       # /moments/index.json — what js/moments.js draws 随机漫步 / 每日回顾 from
       json = Jekyll::PageWithoutAFile.new(site, site.source, 'moments', 'index.json')
       json.content = JSON.generate(all.map do |e|
-        { 'id' => e['id'], 'url' => e['url'], 'date' => e['date'], 'time' => (e['has_time'] ? e['time'].strftime('%H:%M') : nil),
+        { 'id' => e['id'], 'url' => e['page'], 'date' => e['date'], 'time' => (e['has_time'] ? e['time'].strftime('%H:%M') : nil),
           'place' => e['place'], 'tags' => e['tags'], 'text' => CGI.unescapeHTML(e['text'])[0, 140], 'img' => e['img'] }
       end)
       json.data = { 'layout' => nil, 'permalink' => '/moments/index.json', 'sitemap' => false }

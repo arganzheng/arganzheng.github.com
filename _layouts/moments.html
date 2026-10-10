@@ -85,7 +85,10 @@ so on phones the rest of the sidebar can slot in between the cards and them.
 
     <div class="post-container moments">
         <nav class="moments-bar" aria-label="当前范围">
-            {%- if page.is_tag %}
+            {%- if page.is_entry %}
+            {%- assign entry = page.moments.first %}
+            <a class="mm-back" href="{{ page.month_url | prepend: site.baseurl }}#{{ entry.id }}">‹ {{ entry.time | date: "%Y 年 %-m 月" }}</a>
+            {%- elsif page.is_tag %}
             <span class="mm-current"><span class="moment-tag">#{{ page.tag }}</span><small>{{ page.moments.size }} 条</small></span>
             <a class="mm-back" href="{{ '/moments/' | prepend: site.baseurl }}">‹ 全部随笔</a>
             {%- else %}
@@ -96,32 +99,40 @@ so on phones the rest of the sidebar can slot in between the cards and them.
             {%- endif %}
         </nav>
 <!-- article -->
-        <ol class="moments-list" data-path="{{ path }}" data-author="{{ site.github_username | strip }}" data-annotations-api="{{ site.annotations.api }}">
+        <ol class="moments-list" data-path="{{ path }}" data-author="{{ site.github_username | strip }}" data-annotations-api="{{ site.annotations.api }}" data-entry-page="{{ page.is_entry }}">
         {%- for e in page.moments %}
-            {%- assign month_url = e.url | split: '#' | first %}
-            <li class="moment" id="{{ e.id }}" data-title="{{ e.title }}" data-month="{{ e.month }}">
-                <div class="moment-head">
-                    <a class="moment-when" href="{{ e.url | prepend: site.baseurl }}" title="{{ e.title }}"><time datetime="{{ e.time | date: '%Y-%m-%dT%H:%M:%S%:z' }}">{{ e.title }}</time></a>
-                    {%- if e.place %}<span class="moment-place"><i class="fa fa-location-dot"></i> {{ e.place }}</span>{% endif %}
-                </div>
-                <div class="moment-body">
-                    {{ e.html }}
-                </div>
-                <div class="moment-foot">
-                    {%- if page.is_tag %}
-                    <a href="{{ month_url | prepend: site.baseurl }}#comments" class="moment-act" title="到所在月份的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
-                    {%- else %}
-                    <span class="sec-react" data-title="{{ e.title }}" data-kinds="up" data-icon="fa-regular fa-heart" data-icon-on="fa-heart"></span>
-                    <a href="#comments" class="moment-act" title="到本月的评论区"><i class="fa fa-regular fa-comment"></i> 评论</a>
-                    {%- endif %}
-                    <button type="button" class="moment-act moment-share" title="分享这一条" aria-haspopup="true" aria-expanded="false" data-url="{{ site.url }}{{ site.baseurl }}{{ e.url }}" data-title="随笔 · {{ e.title }}" data-text="{{ e.text | truncate: 80 | escape }}"><i class="fa fa-share-alt"></i> 分享</button>
-                    <span class="moment-own" hidden><a href="{{ '/moments/post.html' | prepend: site.baseurl }}?edit={{ e.month }}/{{ e.id }}" class="moment-act moment-edit" title="在发布页里修改这一条"><i class="fa fa-pen"></i> 编辑</a><button type="button" class="moment-act moment-del" title="删除这一条"><i class="fa fa-trash"></i> 删除</button></span>
-                    <span class="moment-toast" aria-live="polite" hidden></span>
-                </div>
-            </li>
+            {% include moment-card.html e=e %}
         {%- endfor %}
         </ol>
 <!-- /article -->
+        {%- if page.is_entry %}
+        {%- assign entry = page.moments.first %}
+        {%- if entry.related and entry.related.size > 0 %}
+        <section class="moment-related">
+            <h2>相关随笔</h2>
+            <div class="ms-slot">
+            {%- for related in entry.related %}
+                <a class="ms-card" href="{{ related.page | prepend: site.baseurl }}">
+                    <time>{{ related.title | escape }}</time>
+                    {%- if related.img %}<img src="{{ related.img | prepend: site.baseurl }}" alt="" loading="lazy">{% endif %}
+                    <p>{{ related.text | escape }}</p>
+                </a>
+            {%- endfor %}
+            </div>
+        </section>
+        {%- endif %}
+        {%- if entry.refs_in and entry.refs_in.size > 0 %}
+        <section class="moment-ref-list" id="refs">
+            <h2>批注（{{ entry.refs_in.size }}）</h2>
+            <ol class="moments-list moment-refs-list">
+            {%- for ref in entry.refs_in %}
+                {%- assign source = site.data.moments.entries | where: 'id', ref.id | first %}
+                {%- if source %}{% include moment-card.html e=source %}{% endif %}
+            {%- endfor %}
+            </ol>
+        </section>
+        {%- endif %}
+        {%- endif %}
         {%- if page.moments.size == 0 %}<p class="moments-empty">{% if page.is_tag %}这个标签下还没有随笔。{% else %}这个月还没写。{% endif %}</p>{% endif %}
 
         {%- if page.older or page.newer %}
@@ -133,7 +144,7 @@ so on phones the rest of the sidebar can slot in between the cards and them.
 
     </div>
 
-    {%- unless page.is_tag %}
+    {%- unless page.is_tag or page.is_entry %}
     <div class="post-container moments-comments">{%- comment -%} .post-container: the comment list styles of annotations.less are scoped to it; js/annotations.js takes the first .post-container (the stream) as its container {%- endcomment %}
         {% include comments.html %}
     </div>

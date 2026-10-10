@@ -18,6 +18,8 @@
   // ?edit=YYYY-MM/<id> (the 编辑 link on a card): load that entry from the worker, PUT it back.
   var EDIT = /[?&]edit=(\d{4}-\d{2})\/(\d{8}(?:-\d{4})?(?:-\d+)?)/.exec(location.search);
   EDIT = EDIT ? { month: EDIT[1], id: EDIT[2] } : null;
+  var REF = new URLSearchParams(location.search).get('ref');
+  REF = REF && /^\d{8}(?:-\d{4})?(?:-\d+)?$/.test(REF) ? REF : null;
   var dateOnly = false, timeTouched = false;
   var TAG = /(^|[^\p{L}\p{N}_\/&\\])#([\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*)/gu;
 
@@ -199,6 +201,9 @@
     return s.split(/\n{2,}/).map(function (para) {
       var h = esc(para).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>').replace(/\n/g, '<br>');
       h = h.replace(TAG, function (m, pre, t) { return pre + '<a class="moment-tag">#' + t + '</a>'; });
+      h = h.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`]*`)/g).map(function (part, i) {
+        return i % 2 ? part : part.replace(/\[\[(\d{8}(?:-\d{4})?(?:-\d+)?)\]\]/g, '<a class="moment-ref"><span class="moment-ref-when">$1</span></a>');
+      }).join('');
       return '<p>' + h + '</p>';
     }).join('');
   }
@@ -301,7 +306,10 @@
   takeSessionFromUrl();
   time.value = nowLocal();
   if (EDIT) { root.classList.add('is-edit'); $('.mp-title').textContent = '编辑随笔'; submit.textContent = '保存'; $('.mp-del').hidden = false; }
-  else loadDraft();
+  else {
+    loadDraft();
+    if (REF) { text.value = '[[' + REF + ']] ' + text.value; saveDraft(); }
+  }
   renderPics(); renderPreview(); renderAuth();
   if (!API) setMsg('未配置 annotations.api，无法发布', true);
   else if (session()) whoAmI().then(function () { if (EDIT && isAuthor()) return loadEntry(); }).catch(function (e) { setMsg(e.message, true); });
