@@ -254,22 +254,47 @@ permalink: /archive/
   #archive .archive-inline-tag:hover { border-color: #0969da; color: #0969da; }
   #archive .archive-chip[aria-pressed="true"]:hover,
   #archive .archive-view-button[aria-pressed="true"]:hover { color: #fff; }
+  #archive .archive-selects {
+    display: grid;
+    grid-template-columns: .8fr 1.4fr 1.2fr .9fr;
+    gap: 10px 16px;
+  }
   #archive .archive-selects label {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
     color: #57606a;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
+    white-space: nowrap;
   }
   #archive .archive-selects select {
-    max-width: 240px;
-    min-height: 32px;
-    padding: 5px 28px 5px 8px;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    height: 32px;
+    margin: 0;
+    padding: 0 28px 0 10px;
     border: 1px solid #d0d7de;
     border-radius: 6px;
-    background: #fff;
+    background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2357606a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center / 10px 6px;
     color: #24292f;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 30px;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  #archive .archive-selects select:hover { border-color: #8c959f; }
+  #archive .archive-selects select:focus {
+    border-color: #0969da;
+    box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
+    outline: none;
   }
   #archive .archive-toolbar-bottom { justify-content: space-between; }
   #archive .archive-result-count {
@@ -350,6 +375,8 @@ permalink: /archive/
     margin-bottom: 28px;
   }
   #archive .archive-card {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     padding: 14px;
     border: 1px solid #d8dee4;
@@ -376,18 +403,43 @@ permalink: /archive/
     color: #6a7481;
     font-size: 12px;
   }
-  #archive .archive-card-tags { margin-top: 9px; }
+  #archive .archive-card-tags { margin-top: auto; padding-top: 10px; }
+  #archive .archive-inline-tag {
+    margin: 0 4px 4px 0;
+    padding: 1px 8px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  #archive .archive-table td:nth-child(1) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #archive .archive-table td:nth-child(4) { min-width: 120px; max-width: 170px; color: #57606a; font-size: 13px; line-height: 1.5; }
+  #archive .archive-table td:nth-child(5) { min-width: 150px; padding-bottom: 7px; }
+  #archive .archive-table td:nth-child(6) { white-space: nowrap; font-variant-numeric: tabular-nums; }
   @media (max-width: 991px) {
     #archive .archive-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 767px) {
     #archive .archive-controls { padding: 11px; }
-    #archive .archive-selects { align-items: stretch; }
-    #archive .archive-selects label { flex: 1 1 45%; min-width: 130px; }
-    #archive .archive-selects select { flex: 1; min-width: 0; max-width: none; }
-    #archive .archive-toolbar-bottom { justify-content: flex-start; }
+    #archive .archive-selects { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+    #archive .archive-view-switch { flex: 1 0 100%; }
     #archive .archive-result-count { margin-left: 0; }
+    #archive .archive-clear-filters { margin-left: auto; }
     #archive .archive-card-grid { grid-template-columns: minmax(0, 1fr); }
+    #archive .archive-table { min-width: 0; }
+    #archive .archive-table th:nth-child(3),
+    #archive .archive-table th:nth-child(4),
+    #archive .archive-table th:nth-child(5),
+    #archive .archive-table td:nth-child(3),
+    #archive .archive-table td:nth-child(4),
+    #archive .archive-table td:nth-child(5) { display: none; }
+    #archive .archive-table th,
+    #archive .archive-table td { padding: 9px 8px; }
+    #archive .archive-table td:nth-child(2),
+    #archive .archive-table td:nth-child(2) * { white-space: normal; overflow-wrap: anywhere; }
+    #archive .archive-table { table-layout: fixed; }
+    #archive .archive-table th:nth-child(1),
+    #archive .archive-table th:nth-child(6) { width: 86px; }
+    #archive .archive-table td:nth-child(1),
+    #archive .archive-table td:nth-child(6) { font-size: 12px; }
   }
 </style>
 
