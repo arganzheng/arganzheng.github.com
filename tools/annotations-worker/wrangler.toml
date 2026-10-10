@@ -13,6 +13,12 @@ ISSUE_LABEL = "划线评论"
 # GITHUB_INSTALLATION_ID is optional (looked up via /repos/{REPO}/installation). 配置可以少一次 API 调用
 GITHUB_INSTALLATION_ID = "160220353"
 GITHUB_APP_ID = "4880637"
+# Public base URL of the R2 bucket (r2.dev URL or custom domain), no trailing slash.
+MEDIA_BASE = ""
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "blog-moments-media"
 
 # GET/POST /views — page-view counter, one row per post in a D1 table (created on
 # first use). Create the database once and paste its id here:
