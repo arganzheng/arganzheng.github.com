@@ -641,6 +641,6 @@ Table: nanoGPT 有的与真实预训练多出来的
 
 ## 下一篇
 
-到这里，一个 GPT-2 结构的模型从零到能续写走完了。但今天的 Llama、Qwen、DeepSeek 已经不是 GPT-2 的样子。[下一篇《从 GPT-2 到 Llama：现代 LLM 的解剖与参数量》](/transformer-anatomy-and-parameter-count.html)从上一篇末尾那五处改动出发——RMSNorm、RoPE、SwiGLU、GQA、去 bias——讲每一处为什么改、改了之后参数怎么数，把 `config.json` 里的六个数字算成 8.03B。
+到这里，一个 GPT-2 结构的模型从零到能续写走完了。但今天的 Llama、Qwen、DeepSeek 已经不是 GPT-2 的样子。[下一篇《从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)先把这个 GPT-2 看成一组可替换的槽位，按时间线和四条演进线排出 2019–2025 年的主要改动，再从上一篇末尾那五处改动出发——RMSNorm、RoPE、SwiGLU、GQA、去 bias——讲每一处为什么改、改了之后参数怎么数，把 `config.json` 里的六个数字算成 8.03B。
 
 [^q0]: **数据**：`prepare.py` 把字符映射成 0–64 的整数存成 `uint16` 的 `train.bin`；`get_batch` 随机切 `batch_size` 个长 `block_size` 的窗口，目标是窗口右移一位。**模型**：按 `meta.pkl` 的词表大小建 `GPT`（或从 checkpoint / GPT-2 权重恢复），包上 GradScaler、优化器、`compile`、DDP。**循环**：每步设学习率（warmup + cosine）→ 到点评估并存 checkpoint → $$k$$ 个 micro-batch 各前向 + 反向累积梯度（loss ÷ $$k$$，同时预取下一批）→ 裁剪 → step → zero_grad。**改层数**：参数量和每步耗时随层数线性增长（层是串行的），loss 的收益递减。详见[第五](#五get_batch穷人的-dataloader)、[九](#九训练循环逐行)、[十一章](#十一改结构2-层4-层8-层)。

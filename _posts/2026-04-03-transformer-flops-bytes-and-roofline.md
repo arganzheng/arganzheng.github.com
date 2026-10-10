@@ -283,7 +283,7 @@ Table: 8 路张量并行下各 GEMM 的切分与通信
 
 （$$r = 0 \ldots 7$$ 为卡号。）attention 内部的 $$QK^\top$$、softmax、$$PV$$ 按 head 独立，每卡只算自己那 4 个 Q head 和 1 个 KV head，也不需要通信。
 
-[《Transformer 与 LLM（05）：今天的模型长什么样——从 GPT-2 到 Llama 与 DeepSeek》](/transformer-anatomy-and-parameter-count.html)第二章说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样允许在 8 卡 TP 下每卡持有一个 KV head。
+[《Transformer 与 LLM（05）：从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)第四章说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样允许在 8 卡 TP 下每卡持有一个 KV head。
 
 ## 四、访存量：每一步要从 HBM 读什么
 
