@@ -3,7 +3,8 @@
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
  *   - Select text in the article -> floating toolbar: 「点赞」 / 「评论」 /
- *     「复制」 / 「搜一搜」 / 「分享」.
+ *     「复制」 / 「搜一搜」 / 「分享」; the author can also 「划线」 for
+ *     readers, who see the same underline as any reader reaction.
  *   - 「点赞」 is an anonymous per-passage counter (worker /reactions, D1;
  *     no login, one per browser in localStorage), and records the chapter
  *     (nearest h2/h3) it sits in.
@@ -18,12 +19,13 @@
  *   - 「分享」 opens the article's share popover (js/share.js, window.BlogShare)
  *     for the passage link; completed shares are counted per passage (`share`
  *     in /reactions) and on the article.
- *     A passage with 点赞 but no comment is underlined too (its quote is stored
- *     server-side and re-anchored here).
+ *     A passage with 点赞 or an author pin but no comment is underlined too
+ *     (its quote is stored server-side and re-anchored here).
  *   - 「评论」 opens a large editor panel *in the flow*, right below the
  *     paragraph, with 取消 / 提交评论 bottom-right. If the selection lies inside
  *     an already-underlined passage the note joins that passage instead.
- *   - Every passage ends with a small marker (💬 comments · 👍, non-zero ones);
+ *   - Every passage ends with a small marker (💬 comments · 👍, non-zero ones;
+ *     a pinned passage with no counts shows a bare comment icon);
  *     clicking it (or the underline) expands a thread panel below the paragraph:
  *     a 赞 / 分享 row, all notes on that passage, their replies, and
  *     a box to add yours.
@@ -458,13 +460,11 @@
       if (a.range) { items.push({ start: a.range.start, end: a.range.end, id: a.id }); anchoredHash[annotHash(a.selector.exact)] = true; }
       else orphans.push(a);
     });
-    // Passages with 赞 but no comment: anchor their stored quote so they
-    // get the underline too (id 'r:<hash>'). A commented passage's reactions ride
-    // on the comment marks.
+    // Reaction-only and author-pinned passages use their stored quote too.
     Object.keys(reactions).forEach(function (h) {
       var r = reactions[h];
       r.range = null; r.marks = [];
-      if (!(r.up > 0) || anchoredHash[h]) return;
+      if (!(r.up > 0 || r.pinned > 0) || anchoredHash[h]) return;
       r.range = anchor({ exact: r.quote });
       if (r.range) items.push({ start: r.range.start, end: r.range.end, id: 'r:' + h });
     });
@@ -507,7 +507,7 @@
     });
     Object.keys(reactions).forEach(function (h) {
       var r = reactions[h];
-      if (!r.marks.length || !(r.up > 0)) return;
+      if (!r.marks.length || !(r.up > 0 || r.pinned > 0)) return;
       out.push({ key: r.range.start + '-' + r.range.end, ids: ['r:' + h], list: [], hash: h, exact: r.quote, reaction: r, marks: r.marks });
     });
     return out;
@@ -545,16 +545,19 @@
     return 'annotation-marker' + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
   }
 
-  // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up (non-zero only).
+  // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up.
   function markerHtml(p) {
-    var r = p.reaction, n = commentCount(p);
+    var r = p.reaction, n = commentCount(p), pinnedOnly = r && r.pinned > 0 && !n && !(r.up > 0);
     return (passageResolved(p) ? '<i class="fa fa-check-circle"></i>' : '') +
       (passageIssues(p) ? '<i class="fa fa-flag"></i>' : '') +
-      (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
+      (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : (pinnedOnly ? '<i class="fa fa-comment"></i>' : '')) +
       (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '');
   }
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
+    if (r && r.pinned > 0 && !n && !(r.up > 0)) {
+      return '点开可评论、点赞' + (r.share ? ' · ' + r.share + ' 次分享' : '');
+    }
     if (passageResolved(p)) parts.push('作者已修正');
     if (passageIssues(p)) parts.push(passageIssues(p) + ' 个待处理的 Issue');
     if (n) parts.push(n + ' 条评论');
@@ -724,11 +727,14 @@
   function reactBarHtml(p) {
     var r = p.reaction || { up: 0, share: 0 }, up = myReaction(p.hash, 'up');
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
-      '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>';
+      '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
+      (isOwner() && r.pinned > 0 ? '<button type="button" class="ap-react-btn ap-react-pin">取消划线</button>' : '');
   }
   function bindReactBar(host, p) {
     host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
     host.querySelector('.ap-react-share').addEventListener('click', function (e) { e.stopPropagation(); sharePassage(e.currentTarget, p.exact, p.list.length > 0); });
+    var pin = host.querySelector('.ap-react-pin');
+    if (pin) pin.addEventListener('click', function () { setPinned(p.exact, false); });
   }
 
   function renderThread(p) {
@@ -1049,6 +1055,7 @@
     try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
     token = null; viewer = null;
     try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: null })); } catch (e) { /* old browsers */ }
+    updateToolbar();
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
     if (discussion) discussion.likes.mine = null; // the counts stay, our own vote marks go
@@ -1297,12 +1304,13 @@
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
     if (!refilterComments()) {
-      if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
       if (commentsHost && !commentsHost.querySelector('.ac-reply-editor, .ap-inline-editor')) renderCommentSection();
     }
+    if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
     loadViewerReactions();
     // Other scripts (js/share.js: author-only buttons) want to know who is logged in.
     try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: viewer })); } catch (e) { /* old browsers */ }
+    updateToolbar();
   }
 
   function renderViewer(userEl, v) {
@@ -1497,7 +1505,11 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined
     }).then(function (r) {
       return r.json().then(function (data) {
-        if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+        if (!r.ok) {
+          var error = new Error((data && data.error) || ('HTTP ' + r.status));
+          error.status = r.status;
+          throw error;
+        }
         return data;
       });
     });
@@ -1792,8 +1804,18 @@
     if (!range) { hideToolbar(); return; }
     ensureToolbar();
     updateCommentButton(range);
+    updatePinButton(range);
     toolbar.style.display = 'block';
     positionToolbar();
+  }
+  function updatePinButton(range) {
+    var btn = toolbar.querySelector('.annotation-tb-pin');
+    btn.hidden = !isOwner();
+    if (btn.hidden) return;
+    var offsets = selectionOffsets(range), p = offsets && passageContaining(offsets);
+    var pinned = !!(p && p.reaction && p.reaction.pinned > 0);
+    btn.innerHTML = '<i class="fa fa-pencil"></i> ' + (pinned ? '取消划线' : '划线');
+    btn.title = pinned ? '取消这段作者划线' : '让读者看到这段下划线';
   }
 
   // The 「评论」 button says what will actually happen: a selection inside an
@@ -1896,6 +1918,7 @@
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
       '<button type="button" class="annotation-tb-up" title="点赞这段话（不用登录）"><i class="fa fa-regular fa-thumbs-up"></i> 点赞</button>' +
+      '<button type="button" class="annotation-tb-pin" hidden><i class="fa fa-pencil"></i> 划线</button>' +
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-regular fa-comment"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
@@ -1914,6 +1937,17 @@
       var exact = p ? p.exact : selectorFromOffsets(offsets).exact;
       if (window.getSelection) window.getSelection().removeAllRanges();
       reactFromToolbar(exact);
+    });
+    toolbar.querySelector('.annotation-tb-pin').addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!isOwner()) return;
+      var range = currentRange(), offsets = range && selectionOffsets(range);
+      if (!offsets) { hideToolbar(); return; }
+      var p = passageContaining(offsets), exact = p ? p.exact : selectorFromOffsets(offsets).exact;
+      var on = !(p && p.reaction && p.reaction.pinned > 0);
+      hideToolbar();
+      if (window.getSelection) window.getSelection().removeAllRanges();
+      setPinned(exact, on);
     });
     [['comment', '']].forEach(function (pair) {
       toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
@@ -2100,8 +2134,12 @@
   function myReaction(hash, kind) { try { return localStorage.getItem(reactKey(hash, kind)) === '1'; } catch (e) { return false; } }
   function rememberReaction(hash, kind, on) { try { if (on) localStorage.setItem(reactKey(hash, kind), '1'); else localStorage.removeItem(reactKey(hash, kind)); } catch (e) { /* ignore */ } }
 
-  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, share: 0, range: null, marks: [] }; }
-  function takeCounts(r, d) { r.up = d.up || 0; r.share = d.share || 0; }
+  function newReaction(hash, quote) { return { hash: hash, quote: quote, section: '', up: 0, share: 0, pinned: 0, range: null, marks: [] }; }
+  function takeCounts(r, d) {
+    r.up = d.up || 0;
+    r.share = d.share || 0;
+    r.pinned = typeof d.pinned === 'number' ? d.pinned : (r.pinned || 0);
+  }
   function isOwner() { return !!(viewer && cfg.author && viewer.login.toLowerCase() === cfg.author.toLowerCase()); }
 
   function loadReactions() {
@@ -2109,7 +2147,7 @@
       reactions = {};
       chapters = {};
       (data.items || []).forEach(function (it) {
-        if (!it || !/^[0-9a-f]{8}$/.test(it.hash) || !(it.up > 0 || it.share > 0)) return;
+        if (!it || !/^[0-9a-f]{8}$/.test(it.hash) || !(it.up > 0 || it.share > 0 || it.pinned > 0)) return;
         if (it.quote && it.quote.indexOf(CHAPTER_PREFIX) === 0) { chapters[it.quote.slice(CHAPTER_PREFIX.length)] = { hash: it.hash, quote: it.quote, up: it.up || 0 }; return; }
         var r = reactions[it.hash] = newReaction(it.hash, it.quote || '');
         r.section = it.section || '';
@@ -2234,9 +2272,17 @@
   // the underline appears or goes.
   function refreshReactionViews(hash) {
     var p = passageFor(['r:' + hash]), r = reactions[hash];
-    var alive = r && r.up > 0;
-    if (!p && !alive) return; // e.g. a share of a passage nobody underlined: nothing to paint
-    if (!p || (!alive && !p.list.length)) { applyHighlights(); if (commentsHost) renderHotPassages(); return; }
+    var alive = r && (r.up > 0 || r.pinned > 0), hadMarks = r && r.marks.length;
+    if (!p && !alive && !hadMarks) return; // e.g. a share of a passage nobody underlined: nothing to paint
+    if (!p || (!alive && !p.list.length)) {
+      applyHighlights();
+      if (panelState && panelState.kind === 'thread' && panelState.ids.indexOf('r:' + hash) !== -1) {
+        var host = panel.querySelector('.ap-react'), fallback = { hash: hash, exact: r.quote, reaction: r, list: [] };
+        if (host) { host.innerHTML = reactBarHtml(fallback); bindReactBar(host, fallback); }
+      }
+      if (commentsHost) renderHotPassages();
+      return;
+    }
     var marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');
     if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); }
     if (panelState && panelState.kind === 'thread' && passageFor(panelState.ids) && passageFor(panelState.ids).hash === hash) {
@@ -2257,6 +2303,31 @@
     if (!p || !p.marks.length) { showToast(wasOn ? '已取消' : '已赞'); return; }
     flashMarks(p.marks);
     showToast(wasOn ? '已取消点赞' : '已点赞这段话');
+  }
+  function setPinned(exact, on) {
+    var hash = annotHash(exact), r = reactions[hash] || (reactions[hash] = newReaction(hash, exact));
+    var before = r.pinned || 0;
+    r.pinned = on ? 1 : 0;
+    refreshReactionViews(hash);
+    return ensureToken().then(function (tk) {
+      return api('/reactions/pin', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tk },
+        body: { path: cfg.path, hash: hash, quote: exact, section: r.section || sectionForExact(exact), on: on }
+      });
+    }).then(function (data) {
+      takeCounts(r, data);
+      refreshReactionViews(hash);
+      showToast(on ? '已划线' : '已取消划线');
+      return true;
+    }).catch(function (err) {
+      r.pinned = before;
+      refreshReactionViews(hash);
+      if (err.status === 404) showToast('worker 还没部署新版本');
+      else if (err.status === 401) showToast('登录已过期，请重新登录 GitHub');
+      else showToast('操作失败：' + err.message);
+      return false;
+    });
   }
 
   // ----------------------------------------------------------- page views
