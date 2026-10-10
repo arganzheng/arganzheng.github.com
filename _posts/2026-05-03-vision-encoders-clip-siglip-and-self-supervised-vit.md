@@ -92,7 +92,7 @@ CLIP 的训练目标作用在**最后一层的 [CLS] 经过投影**的单个向�
 
 ### 3. 编码器的成本
 
-回指 04-08：CLIP ViT-L/14 是 304M 参数、24 层、$$d = 1024$$；$$336^2$$ 输入 576 个 patch，一次前向约 $$2 \times 304M \times 576 \approx 350$$ GFLOPs 加 attention 的 $$O(N^2 d)$$ 项——对 LLM 的 prefill 来说是小头（一个 7B LLM 处理 576 个 token 约 8 TFLOPs），但对高分辨率（tile 到几千个 patch）与视频（几十帧）来说编码器的成本开始显著。
+回指 04-13：CLIP ViT-L/14 是 304M 参数、24 层、$$d = 1024$$；$$336^2$$ 输入 576 个 patch，一次前向约 $$2 \times 304M \times 576 \approx 350$$ GFLOPs 加 attention 的 $$O(N^2 d)$$ 项——对 LLM 的 prefill 来说是小头（一个 7B LLM 处理 576 个 token 约 8 TFLOPs），但对高分辨率（tile 到几千个 patch）与视频（几十帧）来说编码器的成本开始显著。
 
 ## 三、对比学习：CLIP 在优化什么
 
@@ -288,7 +288,7 @@ Table: 对比、生成与自监督三类目标各保留什么
 
 InternVL 1.5 用 6B 的 InternViT 论证"编码器是瓶颈、应该与 LLM 同量级"，但 InternVL 2.5 的多数尺寸退回 300M（InternViT-300M，从 6B 蒸馏），说明**在有联合训练与高分辨率的前提下，300M 量级的编码器不是瓶颈**；6B 编码器的收益主要在 76B 级别的 LLM 上才显现。Qwen2-VL 的 675M、Llama 3.2 Vision 的 630M（ViT-H）、Gemma 3 的 400M 都落在这个区间。
 
-所以选型的优先级：**先把分辨率策略定对（下一章与第二篇），再在 300M–700M 里选一个训练目标合适的编码器（SigLIP 2 一类），最后才考虑放大编码器**。放大编码器的代价也要算——每张图的编码 FLOPs 与参数成正比，高分辨率 tile 或视频帧下，一个 6B 编码器的成本可以超过 LLM 的 prefill（[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html) 的账）。
+所以选型的优先级：**先把分辨率策略定对（下一章与第二篇），再在 300M–700M 里选一个训练目标合适的编码器（SigLIP 2 一类），最后才考虑放大编码器**。放大编码器的代价也要算——每张图的编码 FLOPs 与参数成正比，高分辨率 tile 或视频帧下，一个 6B 编码器的成本可以超过 LLM 的 prefill（[04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html) 的账）。
 
 ### 3. 一个仍在变的结论
 
@@ -298,13 +298,13 @@ InternVL 1.5 用 6B 的 InternViT 论证"编码器是瓶颈、应该与 LLM 同�
 
 ### 1. 分辨率决定信息量
 
-一个 $$14 \times 14$$ 的 patch 在 $$224^2$$ 的图上覆盖原图的 $$1/256$$；对一张 A4 文档的照片，一个 patch 里有几个字——读不出来。$$336^2$$：576 个 patch，每个覆盖更少内容，大字可读。$$1024^2$$：5329 个 patch，小字可读，但 token 数是 336 的 9 倍——04-08 算过这对 LLM 的 prefill 与 KV 意味着什么。
+一个 $$14 \times 14$$ 的 patch 在 $$224^2$$ 的图上覆盖原图的 $$1/256$$；对一张 A4 文档的照片，一个 patch 里有几个字——读不出来。$$336^2$$：576 个 patch，每个覆盖更少内容，大字可读。$$1024^2$$：5329 个 patch，小字可读，但 token 数是 336 的 9 倍——04-13 算过这对 LLM 的 prefill 与 KV 意味着什么。
 
 分辨率是 VLM 在 OCR、文档、图表任务上的第一决定因素：DocVQA 从 $$336^2$$ 的 ~60 到动态高分辨率的 ~95，主要是分辨率的功劳。
 
 ### 2. 位置编码的插值
 
-CLIP ViT 的位置编码是**可学习的绝对位置**，训练时固定 $$16 \times 16$$（$$224 / 14$$）个位置。用在更高分辨率上要把位置编码**插值**到新的网格（双三次插值），然后微调。这是 LLaVA-NeXT 一类 AnyRes 方案的做法——每个 tile 仍是 $$336^2$$（不需要插值），拼多个 tile。Qwen2-VL 的原生分辨率走另一条路：把位置编码换成 **2D RoPE**（[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章），任意分辨率无需插值。SigLIP 2 的 NaFlex 变体也支持原生宽高比。
+CLIP ViT 的位置编码是**可学习的绝对位置**，训练时固定 $$16 \times 16$$（$$224 / 14$$）个位置。用在更高分辨率上要把位置编码**插值**到新的网格（双三次插值），然后微调。这是 LLaVA-NeXT 一类 AnyRes 方案的做法——每个 tile 仍是 $$336^2$$（不需要插值），拼多个 tile。Qwen2-VL 的原生分辨率走另一条路：把位置编码换成 **2D RoPE**（[04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章），任意分辨率无需插值。SigLIP 2 的 NaFlex 变体也支持原生宽高比。
 
 ### 3. 两种高分辨率路径
 

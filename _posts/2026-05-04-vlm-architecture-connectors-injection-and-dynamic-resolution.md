@@ -83,7 +83,7 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 | 五 | 原生动态分辨率 | Qwen2-VL 的做法：2D RoPE、可变 patch 数、2×2 merge、上下限<br/>窗口 attention<br/>NaFlex |
 | 六 | 视频与多图 | 帧采样与时间合并<br/>M-RoPE 的三个轴<br/>token 预算在帧间的分配<br/>交错图文 |
 | 七 | 信息 vs token 的交换 | 五张图在三种策略下的 token 数（表 + 图）<br/>一张"任务 × 分辨率 × 压缩"的效果矩阵<br/>每 token 多少像素 |
-| 八 | 成本 | 回指 04-08 的账<br/>三个决定各改了什么<br/>训练侧的影响 |
+| 八 | 成本 | 回指 04-13 的账<br/>三个决定各改了什么<br/>训练侧的影响 |
 | 九 | 动手（建议） | 分辨率—token—精度的三角 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
@@ -130,7 +130,7 @@ MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 
 ![四张小图：编码器输出的 4×4 个编号 0–15 的 patch 特征；MLP 逐个映射后仍是 4×4 个 z0–z15；2×2 merge 后变成 2×2 个 token，每格标着它拼接的四个 patch 编号（0,1,4,5 / 2,3,6,7 / …）；resampler 输出 3 个 token q0–q2，每个都"看全图"](/img/in-post/multimodal-02-connectors.svg)
 
-压缩率的极限在哪？经验上 **4×（2×2）几乎无损**——一个 $$28 \times 28$$ 像素的区域用一个 LLM token 表示，对文字（一个字约 $$20 \times 20$$ 像素）够用；**16×（4×4）在 OCR 与细节任务上开始掉**，Gemma 3 用 pan & scan（对大图或非方形图再切块）补偿；更高的压缩（64×）只在缩略图或视频帧上用。[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第三章给了 2×2 merge 的精确布局。
+压缩率的极限在哪？经验上 **4×（2×2）几乎无损**——一个 $$28 \times 28$$ 像素的区域用一个 LLM token 表示，对文字（一个字约 $$20 \times 20$$ 像素）够用；**16×（4×4）在 OCR 与细节任务上开始掉**，Gemma 3 用 pan & scan（对大图或非方形图再切块）补偿；更高的压缩（64×）只在缩略图或视频帧上用。[04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)第三章给了 2×2 merge 的精确布局。
 
 ### 3. resampler：Q-Former 与 Perceiver
 
@@ -169,7 +169,7 @@ MM1（McKinzie 等 2024）的消融：connector 的类型（MLP / 池化 / C-Abs
 
 图片 token 与文本 token 拼成一个序列送进 LLM，图片 token 占据序列位置、参与 causal attention、有自己的位置编码、产生 KV。LLM 结构不改，只是输入里有一段"看不懂但能 attend"的 token。LLaVA 起的所有主流 VLM 都是这个。
 
-性质：**简单**（LLM 零改动）、**复用一切**（LLM 的后训练、推理引擎、量化、投机解码全部直接用）、**多图与交错自然**（图片 token 在文本里出现在哪就是哪）。代价：**图片 token 占上下文**——一张高分辨率图 1–3K token，十张图就是 10–30K，与文本竞争窗口；**每层都要为图片 token 算 attention 与 FFN**——04-08 算过一张 576 token 的图在 7B LLM 里的 prefill 约 8 TFLOPs、KV 约 72 MB（Llama 结构）。
+性质：**简单**（LLM 零改动）、**复用一切**（LLM 的后训练、推理引擎、量化、投机解码全部直接用）、**多图与交错自然**（图片 token 在文本里出现在哪就是哪）。代价：**图片 token 占上下文**——一张高分辨率图 1–3K token，十张图就是 10–30K，与文本竞争窗口；**每层都要为图片 token 算 attention 与 FFN**——04-13 算过一张 576 token 的图在 7B LLM 里的 prefill 约 8 TFLOPs、KV 约 72 MB（Llama 结构）。
 
 ### 2. cross-attention 注入
 
@@ -225,7 +225,7 @@ tile 方案的优点是编码器**完全不变**（每个 tile 是标准的 $$33
 Qwen2-VL（Wang 等 2024）让 ViT 直接处理任意大小的图：
 
 1. **可变 patch 数**：图按原尺寸（resize 到 28 的倍数，保持宽高比，像素总数限制在 $$[\text{min}, \text{max}]$$ 之间——默认 $$256 \times 28^2$$ 到 $$1280 \times 28^2$$）切成 $$14 \times 14$$ 的 patch，patch 数 $$N = HW / 14^2$$ 随图变化。
-2. **2D RoPE**：ViT 的位置编码从可学习的绝对位置换成 2D [RoPE](# "tip: rotary position embedding，旋转位置编码：不给每个位置一个可学习向量，而是把 query / key 向量按位置旋转一个角度，两个 token 的注意力分数只依赖它们的相对位置。位置可以是任意整数，所以不需要为新分辨率「插值」出新的位置向量")（[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章），head_dim 的一半编码行号、一半编码列号，任意 $$H \times W$$ 无需插值。
+2. **2D RoPE**：ViT 的位置编码从可学习的绝对位置换成 2D [RoPE](# "tip: rotary position embedding，旋转位置编码：不给每个位置一个可学习向量，而是把 query / key 向量按位置旋转一个角度，两个 token 的注意力分数只依赖它们的相对位置。位置可以是任意整数，所以不需要为新分辨率「插值」出新的位置向量")（[04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章），head_dim 的一半编码行号、一半编码列号，任意 $$H \times W$$ 无需插值。
 3. **2×2 merge**：ViT 输出后相邻 $$2 \times 2$$ 的 patch 特征拼接过 MLP，token 数变为 $$N / 4 = HW / 28^2$$。
 4. **M-RoPE**：进入 LLM 后，图片 token 的位置用三维（时间、高、宽）编码，文本 token 三维相同——让 LLM 知道每个图片 token 的二维位置。
 
@@ -267,7 +267,7 @@ Qwen2.5-VL 用**绝对时间**的 M-RoPE（时间维的位置 id 与真实秒数
 
 ### 2. M-RoPE 的三个轴
 
-[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章讲了 M-RoPE 的结构：head_dim 分成三段，分别编码时间、高、宽。文本 token 三个 id 相同（退化为 1D RoPE）；图片 token 时间 id 固定、高宽 id 是二维网格位置；视频 token 时间 id 随帧递增。它让 LLM 用同一套位置编码处理三种模态，且图片内部的相对位置（"左边的物体"）在 RoPE 的相对性下有意义。后续 token 的位置 id 从图片占据的最大 id + 1 开始，所以一张 $$32 \times 32$$ token 的图只"消耗"32 个位置而不是 1024 个——对长上下文外推有利。
+[04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章讲了 M-RoPE 的结构：head_dim 分成三段，分别编码时间、高、宽。文本 token 三个 id 相同（退化为 1D RoPE）；图片 token 时间 id 固定、高宽 id 是二维网格位置；视频 token 时间 id 随帧递增。它让 LLM 用同一套位置编码处理三种模态，且图片内部的相对位置（"左边的物体"）在 RoPE 的相对性下有意义。后续 token 的位置 id 从图片占据的最大 id + 1 开始，所以一张 $$32 \times 32$$ token 的图只"消耗"32 个位置而不是 1024 个——对长上下文外推有利。
 
 ### 3. 多图与交错
 
@@ -318,7 +318,7 @@ Table: 分辨率策略与任务需求的效果矩阵
 
 ### 1. 三个决定各改了什么
 
-回指 [04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html) 的账：
+回指 [04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html) 的账：
 
 - **connector** 决定 $$N_{img}$$（进 LLM 的 token 数）。LLM 侧的成本——prefill FLOPs $$2 P N_{img}$$、KV $$N_{img} \times$$ 每 token KV——全部随 $$N_{img}$$ 线性。2×2 merge 把这部分除以 4。connector 自身的 FLOPs 可忽略。
 - **注入方式** 决定图片 token 是否产生 KV、是否占用位置。cross-attention 注入下图片特征不进 KV，每层的成本是 $$2 \times N_{text} \times N_{img} \times d$$ 的 cross-attention（只在插入的层），比序列注入的每层 $$2 P N_{img}$$（FFN 也要算）便宜；但新增的 cross-attention 层参数在 decode 时也要读。
@@ -326,7 +326,7 @@ Table: 分辨率策略与任务需求的效果矩阵
 
 ### 2. 训练侧
 
-VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token 增加序列长度——2880 token 的图 + 500 token 的文本 = 3.4K 的序列，激活内存是纯文本 SFT 的 6–7 倍。编码器是否解冻决定它的优化器状态是否存在（675M 参数 × 16 字节 = 10.8 GB）。数据加载是另一个瓶颈：图片解码与 resize 是 CPU 密集的（04-08 第八章），高分辨率下每个样本几十毫秒，需要足够的 dataloader worker 或预处理。
+VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token 增加序列长度——2880 token 的图 + 500 token 的文本 = 3.4K 的序列，激活内存是纯文本 SFT 的 6–7 倍。编码器是否解冻决定它的优化器状态是否存在（675M 参数 × 16 字节 = 10.8 GB）。数据加载是另一个瓶颈：图片解码与 resize 是 CPU 密集的（04-13 第八章），高分辨率下每个样本几十毫秒，需要足够的 dataloader worker 或预处理。
 
 ## 九、动手（建议）
 

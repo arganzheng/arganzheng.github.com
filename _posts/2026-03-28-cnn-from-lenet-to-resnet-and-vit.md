@@ -379,7 +379,7 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 
 - 把实验 3 的 BN 去掉、给残差分支零初始化（$$f(x) = 0$$，块在初始时刻是恒等），看没有 BN 的残差网络能否训——这是 Fixup / SkipInit 一类工作的起点；
 - 用 `conv_as_matrix` 构造 stride 2 或 padding 的卷积矩阵，看稀疏模式怎么变；
-- 把 ViT 的 patch 从 16 改到 8，token 数变 4 倍，用 04 系列第十篇的公式算 attention 的 FLOPs 变了多少倍。
+- 把 ViT 的 patch 从 16 改到 8，token 数变 4 倍，用 04 系列第六篇的公式算 attention 的 FLOPs 变了多少倍。
 
 ## 八、本文小结
 

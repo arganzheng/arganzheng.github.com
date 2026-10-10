@@ -496,7 +496,7 @@ Table: 掌握程度的判据
 - **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在 [《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)系列。本系列第六篇止于"attention 为什么被发明、为什么取代 RNN"。
 - **预训练配方**：具体的学习率、batch、warmup 数值怎么随规模定，scaling law，数据配比。属于 L4。本系列只讲每个开关的原理与诊断。
 - **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现。属于 Infra 地图 03 系列。本系列只到"框架在做什么"。
-- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作。在 04 系列第十一篇。
+- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作。在 04 系列第十四篇。
 - **泛化理论**：VC 维、Rademacher 复杂度、PAC-Bayes。本系列只讲现象与实践中的正则化手段，不做理论。
 - **具体的 CNN / RNN 应用**：目标检测、分割、语音识别的网络设计。本系列只讲两条结构史留给 Transformer 的遗产。
 

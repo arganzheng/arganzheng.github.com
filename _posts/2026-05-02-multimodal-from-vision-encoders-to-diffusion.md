@@ -130,7 +130,7 @@ VQ · AR 图像生成
 贯穿九篇的三条线索：
 
 - **推导线**：InfoNCE 与对比学习为什么学出语义（第一篇）；connector 的信息瓶颈（第二篇）；codec 的 RVQ（第四篇）；ELBO → 去噪目标（第六篇）；score matching 与 flow matching 的统一、CFG 的贝叶斯推导（第七篇）；VQ-VAE 的离散瓶颈（第九篇）。
-- **成本线**：编码器的 FLOPs 与 token 数（回指 04-08）；训练阶段各自的算力；语音 token 与全双工的持续成本（第五篇）；扩散模型每张图的 FLOPs 与 LLM 的对比（第八篇）；AR 图像生成的 token 数与 KV。
+- **成本线**：编码器的 FLOPs 与 token 数（回指 04-13）；训练阶段各自的算力；语音 token 与全双工的持续成本（第五篇）；扩散模型每张图的 FLOPs 与 LLM 的对比（第八篇）；AR 图像生成的 token 数与 KV。
 - **配方线**：LLaVA → Qwen2.5-VL → InternVL 3 的演化；Whisper → Qwen2.5-Omni；SD 1.x → SDXL → SD3 → FLUX；Chameleon → Janus → BAGEL。每一处设计选择在公开报告里的对照。
 
 
@@ -140,13 +140,13 @@ VQ · AR 图像生成
 
 VLM 的第一步是把图片变成向量序列，做这件事的几乎总是一个预训练好的 ViT。它是怎么训出来的，决定了它"看到"什么。
 
-**核心内容**：ViT 回顾（回指 [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)与 [04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)）；对比学习——InfoNCE 的推导、它为什么等价于估计互信息的下界、为什么需要大 batch（负样本数）、温度的作用；CLIP 的 4 亿图文对与训练算力账；SigLIP 用 sigmoid 损失把每对的判定解耦、为什么它对 batch 大小不敏感且更省；自监督（DINOv2）学到的与对比学习不同的东西（局部、几何、密集特征），以及为什么 VLM 里 CLIP 类编码器仍是主流但开始混用；编码器的"盲点"——计数、空间关系、文字、细粒度差别——它们的来源（对比学习的目标只要求区分图文对，不要求精细结构）；分辨率与 patch 大小对 token 数与信息量的影响；编码器选型对照（CLIP ViT-L/14、SigLIP-SO400M、InternViT-6B、DINOv2）。
+**核心内容**：ViT 回顾（回指 [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)与 [04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)）；对比学习——InfoNCE 的推导、它为什么等价于估计互信息的下界、为什么需要大 batch（负样本数）、温度的作用；CLIP 的 4 亿图文对与训练算力账；SigLIP 用 sigmoid 损失把每对的判定解耦、为什么它对 batch 大小不敏感且更省；自监督（DINOv2）学到的与对比学习不同的东西（局部、几何、密集特征），以及为什么 VLM 里 CLIP 类编码器仍是主流但开始混用；编码器的"盲点"——计数、空间关系、文字、细粒度差别——它们的来源（对比学习的目标只要求区分图文对，不要求精细结构）；分辨率与 patch 大小对 token 数与信息量的影响；编码器选型对照（CLIP ViT-L/14、SigLIP-SO400M、InternViT-6B、DINOv2）。
 
 **要回答的问题**：为什么几乎所有 VLM 都用 CLIP / SigLIP 而不用 ImageNet 分类预训练的 ViT？编码器看不到什么？
 
 ### 2. VLM 的结构：connector、注入方式与动态分辨率
 
-编码器输出的几百个向量怎么进入 LLM。04-08 算了每种选择的 token 数与 FLOPs；这一篇讲**为什么这样选、效果差在哪**。
+编码器输出的几百个向量怎么进入 LLM。04-13 算了每种选择的 token 数与 FLOPs；这一篇讲**为什么这样选、效果差在哪**。
 
 **核心内容**：三类 connector——MLP projector（LLaVA：信息全保留、token 数 = patch 数）、pixel-shuffle / 2×2 merge（Qwen2-VL、InternVL：空间压缩 4 倍、信息略损）、Q-Former / Perceiver resampler（BLIP-2、Flamingo、早期 Qwen-VL：固定 token 数、信息瓶颈）——各自的参数量、压缩率与信息损失，以及为什么 2024 年后主流从 Q-Former 回到 MLP + 空间压缩；decoder-only 注入（图片 token 进序列）vs cross-attention 注入（Flamingo、Llama 3.2 Vision：LLM 层间插 cross-attention 层，图片特征不进序列）的取舍——前者简单、复用一切、图片 token 占上下文；后者不占上下文、LLM 文本能力不受影响、但要新增参数与训练；分辨率的三种做法——固定（224 / 336）、AnyRes tile（LLaVA-NeXT、InternVL：切成若干 tile 各编码再拼）、原生动态（Qwen2-VL：ViT 接受任意分辨率，2D RoPE，token 数随图片大小变）——各自的 token 预算与对 OCR / 细节任务的影响；视频——帧采样率、时间维的合并（Qwen2-VL 的 2 帧合并）、M-RoPE 的三维位置、token 预算的分配；多图与交错。
 
@@ -164,7 +164,7 @@ VLM 的训练不是一步到位的：先让 connector 学会对齐、再让 LLM 
 
 声音进入 LLM 有两条路：连续的音频特征（像图片一样经编码器与 connector）或离散的语音 token（像文本一样）。这一篇讲表示：声音在计算机里是什么、怎么变成模型能读的形式、怎么变成离散 token。
 
-**核心内容**：波形（16 kHz 一秒 16000 个数）；分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱并画出来；Whisper 的 encoder-decoder（回指 04-08 的 1500 个位置）；CTC 与 attention 解码的对比；自监督（HuBERT、w2v-BERT）与语义 token；神经 codec——SoundStream / EnCodec 的结构、向量量化就是 K-Means、残差向量量化（RVQ）的推导与一个 2 维手算例子、2000 个向量上 8 级 RVQ 每级误差约减半的实验、训练 RVQ 的四个技巧、语义 token 与声学 token 的分层。
+**核心内容**：波形（16 kHz 一秒 16000 个数）；分帧、FFT、mel 滤波器——用 40 行 NumPy 从一段合成语音算出 log-mel 谱并画出来；Whisper 的 encoder-decoder（回指 04-13 的 1500 个位置）；CTC 与 attention 解码的对比；自监督（HuBERT、w2v-BERT）与语义 token；神经 codec——SoundStream / EnCodec 的结构、向量量化就是 K-Means、残差向量量化（RVQ）的推导与一个 2 维手算例子、2000 个向量上 8 级 RVQ 每级误差约减半的实验、训练 RVQ 的四个技巧、语义 token 与声学 token 的分层。
 
 **要回答的问题**：一秒钟的声音在模型眼里是什么？语音为什么比图片更需要离散 token，RVQ 怎么用几个小码本表示高保真音频？
 
@@ -237,7 +237,7 @@ Table: 各篇的 toy 实验脚本与跑通什么
 ### 前置要求
 
 - [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)：ViT 的结构与 patch embedding。
-- [04 系列](/transformer-and-llm-for-infra-engineers.html)第一、三、八篇：Transformer 结构、KV cache、多模态成本。
+- [04 系列](/transformer-and-llm-for-infra-engineers.html)第一、八、十三篇：Transformer 结构、KV cache、多模态成本。
 - [L5](/post-training-from-sft-to-verifiable-rewards.html)第一、二、四篇：SFT、偏好数据、DPO——第三篇的多模态对齐直接用它们。
 - [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)：K-Means（第四、九篇的码本就是它）、PCA（第八篇的 toy VAE）、逻辑回归与 softmax（第一篇的对比损失）。
 - 概率的基本概念（高斯分布、条件概率、期望）：第六、七篇会在用到的地方原地解释，[L0 数学系列](/math-for-ai-algorithm-engineers.html)是更系统的补充。
@@ -272,7 +272,7 @@ Table: 各篇的 toy 实验脚本与跑通什么
 | 追问 | 答案来自 |
 |---|---|
 | 编码器选 CLIP、SigLIP 还是 InternViT？它看不到什么？ | 第一篇 |
-| 一张图占多少 token 是合适的？用 MLP 还是压缩？固定分辨率还是动态？ | 第二篇 · 04-08 |
+| 一张图占多少 token 是合适的？用 MLP 还是压缩？固定分辨率还是动态？ | 第二篇 · 04-13 |
 | 训练分几个阶段、每阶段冻结谁、用什么数据？怎么防止文本能力退化？ | 第三篇 |
 | 模型描述了图里没有的东西，问题在数据、编码器还是解码？ | 第三篇 |
 | 语音要不要离散化？codec 的比特率与码本层数怎么选？ | 第四篇 |

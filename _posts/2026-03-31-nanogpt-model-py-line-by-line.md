@@ -591,7 +591,7 @@ MFU（model FLOPs utilization）= 实际达到的 FLOP/s ÷ 硬件峰值。[每 
 - $$6N$$：每个参数在前向做一次乘加（$$2N$$，L0 第一篇的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——第十二篇会把它按 GEMM 逐个算出来；
 - $$12 L H Q T$$：attention 里 $$QK^T$$ 与 $$PV$$ 两个矩阵乘**与参数无关**、与上下文长度 $$T$$ 成正比（L0 第一篇第六章表末那一行）：每层每头 $$2 \times 2 \times Q \times T$$ FLOPs 前向，乘 3（含反向）、乘 $$L H$$。
 
-乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。第十二篇讲为什么到不了 100%。
+乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。第六篇讲为什么到不了 100%。
 
 ## 十一、名字对照：nanoGPT、HuggingFace GPT-2、Llama
 
@@ -616,7 +616,7 @@ Table: 同一结构在 nanoGPT、HuggingFace GPT-2 与 Llama 里的名字
 1. LayerNorm → **RMSNorm**（不减均值，省一次运算）；
 2. 位置表 → **RoPE**（第七篇）；
 3. GELU 两矩阵 FFN → **SwiGLU 三矩阵**（gate / up / down，第五篇讲 14336 怎么来的）；
-4. K、V 投影变窄 → **GQA**（多个 Q 头共用一组 K、V，第六篇）；
+4. K、V 投影变窄 → **GQA**（多个 Q 头共用一组 K、V，第八篇）；
 5. **去掉所有 bias**，lm_head 不再与 embedding 共享。
 
 其余——残差流、pre-norm、causal mask、softmax、多头拆合、$$1/\sqrt{d_h}$$——一行没变。所以本篇的 330 行读懂了，`modeling_llama.py` 就只剩五个局部改动要看，这正是第五篇的内容。

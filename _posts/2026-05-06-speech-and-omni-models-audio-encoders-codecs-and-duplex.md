@@ -100,7 +100,7 @@ def log_mel(wave, sr=16000, win=400, hop=160, n_mels=80):
 
 Whisper（Radford 等 2022）是语音的"CLIP"——一个在 68 万小时（v3 用 500 万小时含伪标签）多语言、多任务数据上训的 [encoder-decoder](# "tip: 两个 Transformer：encoder 用双向 attention 把输入（mel 谱）编码成一串特征；decoder 自回归地逐 token 生成输出（转写文本），每一步通过 cross-attention 读 encoder 的特征。翻译模型的经典结构") Transformer，任务是转写（[ASR](# "tip: automatic speech recognition，自动语音识别：语音 → 文字")）与翻译。encoder 输入 30 秒的 log-mel（3000 帧 × 80；large-v3 改为 128 个 mel 频带），过两层卷积——第一层步长 1、第二层步长 2（两层都是 2 会变成 750 帧；HF `modeling_whisper.py` 里 `conv1` stride 1、`conv2` stride 2）→ 1500 帧、20 ms 一帧，加正弦位置编码，32 层 Transformer（large 的 1.55B 是 encoder + decoder 合计，encoder 约 0.64B）；decoder 是标准的自回归文本 decoder，输出转写。
 
-它的 encoder 输出（1500 × 1280）是语音理解任务最常用的特征——就像 CLIP ViT 的 patch 特征。[04-08](/multimodal-vision-encoder-cost-and-image-token-kv.html)第七章算过它的成本：30 秒固定 1500 个位置（不足 30 秒 pad），是 VLM 里 576 个 patch 的 2.6 倍。Qwen2-Audio 用 Whisper-large-v3 的 encoder，再 pool 到 25 Hz（每秒 25 个特征，30 秒 750 个），进 LLM。
+它的 encoder 输出（1500 × 1280）是语音理解任务最常用的特征——就像 CLIP ViT 的 patch 特征。[04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)第七章算过它的成本：30 秒固定 1500 个位置（不足 30 秒 pad），是 VLM 里 576 个 patch 的 2.6 倍。Qwen2-Audio 用 Whisper-large-v3 的 encoder，再 pool 到 25 Hz（每秒 25 个特征，30 秒 750 个），进 LLM。
 
 ### 2. CTC 与 attention 解码
 

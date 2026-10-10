@@ -222,7 +222,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **Infra 工程师不训练模型，但必须知道自己在优化什么：这个模型内部到底是什么、为什么是这个样子、每一步算多少、读多少、存多少？**
 
-十五篇分三段。第一段（01–04）走通 GPT-2 的静态结构、训练 / 推理动态线与 nanoGPT 实现；第二段（05–11）先读 Llama / DeepSeek / VLM 的实践配置地图，再分别展开 attention 与 KV、位置编码与外推、长上下文成本与结构手段、MoE、MTP、多模态；第三段（12–15）依次讲 FLOPs / 访存与 Roofline、浮点格式与混合精度、量化、投机解码与 LoRA。位置外推与长上下文的成本分开讲，量化紧接数值格式。训练侧的 tokenizer、scaling law、数据与配方在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
+十四篇分两段。第一段（01–04）走通 GPT-2 的静态结构、训练 / 推理动态线与 nanoGPT 实现；第二段（05–14）先读 Llama / DeepSeek / VLM 的实践配置地图并数出参数量，06 用 FLOPs / 访存与 Roofline 建立成本工具箱，再分别展开位置编码与外推、attention 与 KV、长上下文成本与结构手段、MoE、MTP、投机解码、多模态、浮点格式与混合精度。量化与 LoRA 在算法地图的《高效推理与压缩》与《LoRA 专题》。训练侧的 tokenizer、scaling law、数据与配方在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 
 这一篇由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
 

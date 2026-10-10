@@ -40,7 +40,7 @@ Table: 预训练配方的三组决定
 
 Table: 训练稳定性的三个机制、监控量与开关
 
-DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某几个开关——报告明确写的是 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第十一篇）、MLA 里对压缩 latent 做的 RMSNorm（不是逐 head 的 QK-norm）、以及一套常规的 warmup / 裁剪配置；上表是各家配方的汇总，不是 V3 的清单。Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
+DeepSeek-V3 报告了"零不可恢复 spike"，但没有把它归因到上表某几个开关——报告明确写的是 FP8 训练里的分块量化与高精度累加（《Transformer 与 LLM》第十四篇）、MLA 里对压缩 latent 做的 RMSNorm（不是逐 head 的 QK-norm）、以及一套常规的 warmup / 裁剪配置；上表是各家配方的汇总，不是 V3 的清单。Kimi K2 在 15.5T token 上零 spike 靠的是 QK-Clip。**稳定性在 2024 年后从"运气"变成了"配置"**。
 
 ### 2. 本文的路线
 
@@ -232,7 +232,7 @@ Kimi K2 是显著的例外：用 **Muon**（Jordan 等 2024）替代 AdamW。Muo
 
 ### 2. batch：梯度噪声尺度与 ramp
 
-batch 以 token 计（《Transformer 与 LLM》第十篇：GEMM 的 $$m$$ 维是 batch × seq）。太小，每步的梯度噪声大、单卡利用率低；太大，同样的 token 数下更新次数少。McCandlish 等 2018 的**梯度噪声尺度**给出临界 batch：
+batch 以 token 计（《Transformer 与 LLM》第六篇：GEMM 的 $$m$$ 维是 batch × seq）。太小，每步的梯度噪声大、单卡利用率低；太大，同样的 token 数下更新次数少。McCandlish 等 2018 的**梯度噪声尺度**给出临界 batch：
 
 $$
 B_{crit} \approx \frac{\text{tr}(\Sigma)}{\lvert G \rvert^2}
@@ -250,7 +250,7 @@ $$B \ll B_{noise}$$ 时每翻倍 batch 步数几乎减半（完美并行）、�
 
 Llama 3 405B 从 4M token（序列 4K）开始，报告写的是 252**M** token 后到 8M（序列 8K）、2.87T 后到 16M——252M 只是 63 步，与下一个刻度 2.87T 相差四个数量级，更像 252B 的笔误；上图按 252B（占 15.6T 的 1.6%）画，这一点以报告原文为准、存疑；DeepSeek-V3 在前 469B token 里从 3072 条序列线性增到 15360 条（12.6M → 63M token）。ramp 的另一个作用是**训练早期用小 batch 多走步**——loss 下降最快的阶段每一步都值钱。
 
-batch 还有一个来自硬件的**下界**。16 384 张卡训 405B，TP 8 × PP 16 = 128 张卡放一份模型，于是有 128 个数据并行副本；每个副本每步至少处理一条 8K 序列（实际为了流水线效率要几条），batch 的下界就是 $$128 \times 8\text{K} = 1$$M token，实际 16M 对应每副本 16 条序列。DeepSeek-V3 的 63M 在 2048 张卡上是每卡 7.5 条 4K 序列，配它的 MoE 专家并行（每个专家要有足够的 token 才不闲着，《Transformer 与 LLM》第八篇）。**核心问题里 3.2M 到 63M 的差距，一半是梯度噪声尺度，一半是"几千张卡上每步至少要有这么多 token 才能并行"**。
+batch 还有一个来自硬件的**下界**。16 384 张卡训 405B，TP 8 × PP 16 = 128 张卡放一份模型，于是有 128 个数据并行副本；每个副本每步至少处理一条 8K 序列（实际为了流水线效率要几条），batch 的下界就是 $$128 \times 8\text{K} = 1$$M token，实际 16M 对应每副本 16 条序列。DeepSeek-V3 的 63M 在 2048 张卡上是每卡 7.5 条 4K 序列，配它的 MoE 专家并行（每个专家要有足够的 token 才不闲着，《Transformer 与 LLM》第十篇）。**核心问题里 3.2M 到 63M 的差距，一半是梯度噪声尺度，一半是"几千张卡上每步至少要有这么多 token 才能并行"**。
 
 配套实验（`batch_lr` 子实验）在同样 token 总量下扫 batch × lr：batch 越大最优 lr 越大，且同样 token 数下大 batch 的最好 loss 更差（8 → 64 时 1.83 → 2.28）——每个 token 的更新次数少了，这个玩具模型的 $$B_{noise}$$ 很小。lr 随 batch 怎么变？SGD 是线性（batch 翻倍 lr 翻倍），Adam 的理论与实验（Malladi 等 2022）都指向**平方根**——batch 翻倍 lr 乘 $$\sqrt 2$$，实验里 4 种 batch 的最优 lr 大致符合。
 
@@ -413,7 +413,7 @@ $$\delta$$ 是写一次 checkpoint 的时间。405B 的完整训练状态是 14 
 
 ### 6. 低精度与稳定性
 
-FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在《Transformer 与 LLM》第十一篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里若不经缩放直接 cast 就超出 E4M3 的 448（结果按 cast 模式饱和到最大值或成 NaN/inf）——所以 V3 的 attention 分数根本不走 FP8，quantize 时也总是先按块求 amax 再缩放，raw logit 从不直接碰 448 这个上限；把 448 当"logit 不能超过的阈值"是误读。
+FP8 训练（DeepSeek-V3）把稳定性的门槛提高了：E4M3 的最大值 448，attention logit 到几百就出界，激活里的离群值让 per-tensor 缩放失效。DeepSeek-V3 的对策在《Transformer 与 LLM》第十四篇讲过——激活按 $$1 \times 128$$、权重按 $$128 \times 128$$ 分块量化，累加每 128 个元素提升到 FP32，且 embedding、lm_head、norm、attention 的 softmax 与 MoE 路由保持高精度。这些让 FP8 下的 14.8T token 没有出现不可恢复的 spike。低精度不是稳定性的敌人，但它把上面每个开关的必要性都放大了一档：BF16 训练里 logit 到 1000 只是"学得差"，FP8 里若不经缩放直接 cast 就超出 E4M3 的 448（结果按 cast 模式饱和到最大值或成 NaN/inf）——所以 V3 的 attention 分数根本不走 FP8，quantize 时也总是先按块求 amax 再缩放，raw logit 从不直接碰 448 这个上限；把 448 当"logit 不能超过的阈值"是误读。
 
 ## 七、长上下文继续预训练
 
@@ -432,7 +432,7 @@ Table: Llama 3 405B 与 DeepSeek-V3 的长上下文继续预训练
 
 "分步"的原因是 RoPE 外推（《Transformer 与 LLM》第七篇）：每一步只把上下文扩 2–4 倍，让模型在"略超训练长度"的区间适应，比一次跳到 128K 稳定。数据换成长文档为主（书、长网页、代码仓库），且要保留一部分短数据防止短上下文能力退化——Llama 3 的"短评测完全恢复"就是这个门槛。
 
-按 FLOPs 算这个阶段比 5% 多：405B 在 128K 上 attention 占每 token FLOPs 的 40%（8K 时 4%，第三篇的 $$s / 6d$$），所以 800B token 的长上下文阶段约相当于主阶段 8% 的算力。系统上它需要**序列并行 / context parallel**——一条 128K 序列的激活（《Transformer 与 LLM》第十篇：每层 $$s \times d \times$$ 若干字节）单卡放不下，要把序列切到多张卡上，attention 通过 ring 或 all-to-all 交换 K、V。这是长上下文阶段与主阶段在 Infra 上最大的不同，也是它被放在最后、只跑 5% token 的第二个原因。
+按 FLOPs 算这个阶段比 5% 多：405B 在 128K 上 attention 占每 token FLOPs 的 40%（8K 时 4%，第三篇的 $$s / 6d$$），所以 800B token 的长上下文阶段约相当于主阶段 8% 的算力。系统上它需要**序列并行 / context parallel**——一条 128K 序列的激活（《Transformer 与 LLM》第六篇：每层 $$s \times d \times$$ 若干字节）单卡放不下，要把序列切到多张卡上，attention 通过 ring 或 all-to-all 交换 K、V。这是长上下文阶段与主阶段在 Infra 上最大的不同，也是它被放在最后、只跑 5% token 的第二个原因。
 
 ## 八、监控：该看的七条曲线
 

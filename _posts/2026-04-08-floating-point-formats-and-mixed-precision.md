@@ -1,7 +1,7 @@
 ---
 layout: post
 series: transformer-and-llm
-title: "Transformer 与 LLM（13）：浮点格式、数值稳定性与混合精度"
+title: "Transformer 与 LLM（14）：浮点格式、数值稳定性与混合精度"
 subtitle: "Floating-Point Formats, Numerical Stability and Mixed Precision"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
@@ -9,7 +9,7 @@ updated: 2026-09-14
 date: 2026-04-08 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第三段的第二篇。第 12 篇的字节数默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题；下一篇在此基础上讲量化。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的最后一篇。前面所有的字节数都默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题、混合精度训练为什么能工作。它是两条线的交接处：训练状态的字节数接到[《预训练》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；把权重、激活与 KV 压到更少的位（量化）在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
 
 第四篇的 `train.py` 里有两行一直没解释：`torch.amp.autocast(dtype=bfloat16)` 与 `GradScaler(enabled=(dtype == "float16"))`——为什么训练要用两种精度、为什么 fp16 需要一个放大器而 bf16 不需要。前面几篇又算了大量的字节数：Llama-3-8B 的权重 16.06 GB、KV cache 每 token 128 KiB、decode 一步至少搬 16 GB，全都默认"每个数占 2 字节"，也就是 BF16。这一篇把镜头再推近一层，从"每个数占几个字节"进入"这几个字节里到底存了什么"，回答一个在训练和推理系统里都绕不开的问题：
 
@@ -96,7 +96,7 @@ Table: 常见浮点与整数格式的位分配、范围与精度
 - **TF32** 不是一种内存格式。它是 Ampere 起 Tensor Core 接受 FP32 输入时在**乘法器入口**做的截断：把 23 位尾数截成 10 位（与 FP16 同精度），指数保留 8 位（与 FP32 同范围），乘积再用 FP32 累加。张量在显存里仍然是 32 位、4 字节，`torch.float32` 的 dtype 不变；开关是 `torch.backends.cuda.matmul.allow_tf32` 或 `torch.set_float32_matmul_precision("high")`。这意味着"FP32 GEMM"在默认开启 TF32 的框架里，输入精度其实只有 $$2^{-10}$$。
 - **E4M3** 是 FP8 的"精度型"变体，但它偏离了 IEEE 惯例：指数全 1 不再保留给 inf，$$S.1111.110$$ 是合法的最大数 $$1.75 \times 2^{8} = 448$$，只有 $$S.1111.111$$ 一个编码（两个符号）留给 NaN。没有 inf 意味着溢出会被饱和（saturate）成 448 或直接变 NaN，取决于转换指令的模式。PyTorch 中的 dtype 名 `float8_e4m3fn` 里的 "fn" 就是 finite + NaN-only 的意思。
 - **E5M2** 是 FP8 的"范围型"变体，与 FP16 共享指数结构（bias 15），可以看作 FP16 砍掉 8 位尾数，保留 IEEE 的 inf/NaN 约定：最大值 $$1.75 \times 2^{15} = 57344$$，最小正规数与 FP16 同为 $$6.1 \times 10^{-5}$$。它只有 3 位有效数字（含隐含位），$$\varepsilon = 0.25$$。
-- **INT8 / INT4** 不是浮点，没有指数，所有可表示数等距分布。它们必须搭配一个（通常是 FP16/FP32 的）缩放因子 scale 才能表示实数，这个 scale 的粒度问题正是第六节和第十四篇的主题。
+- **INT8 / INT4** 不是浮点，没有指数，所有可表示数等距分布。它们必须搭配一个（通常是 FP16/FP32 的）缩放因子 scale 才能表示实数，这个 scale 的粒度问题正是第六节和算法地图[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)量化篇的主题。
 
 ### 3. 一个直观的比较
 
@@ -195,7 +195,7 @@ $$
 m_{t+1} = \max(m_t, m'), \qquad \ell_{t+1} = \ell_t \cdot e^{m_t - m_{t+1}} + \sum_{j \in \text{block}} e^{x_j - m_{t+1}}
 $$
 
-这个重缩放（rescale）常被当作"为了分块而付出的代价"来讲，但它首先是数值动机：如果不随时相对于当前最大值重缩放，分块内的 $$e^{x_j}$$ 就没有溢出保护。第六篇讨论过 FlashAttention 的访存收益，这里补上它的数值前提。
+这个重缩放（rescale）常被当作"为了分块而付出的代价"来讲，但它首先是数值动机：如果不随时相对于当前最大值重缩放，分块内的 $$e^{x_j}$$ 就没有溢出保护。第八篇讨论过 FlashAttention 的访存收益，这里补上它的数值前提。
 
 ### 4. 方差计算中的相消
 
@@ -395,7 +395,7 @@ flowchart TB
 
 DeepSeek-V3 对激活使用 $$1 \times 128$$、对权重使用 $$128 \times 128$$ 的 scale 粒度，并每 128 个归约元素把部分和提升到 FP32。这里关注的是第五章解释的**累加误差控制**：块内有限精度的部分和不能一直累加下去，必须及时转入 FP32。
 
-“为何缩小 scale 的作用范围、如何隔离离群值、沿 k 变化的 scale 为何要在累加中途乘回”属于量化问题，完整推导和对齐表移到[《Transformer 与 LLM（14）：量化》](/quantization-speculative-decoding-and-lora.html#deepseek-v3从-fp8-训练看分块量化)。分块量化同样可以服务训练，并非量化只发生在训练完成之后。
+“为何缩小 scale 的作用范围、如何隔离离群值、沿 k 变化的 scale 为何要在累加中途乘回”属于量化问题，完整推导和对齐表在算法地图[《高效推理与压缩（03）：训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)第七章。分块量化同样可以服务训练，并非量化只发生在训练完成之后。
 
 ## 八、推理中的数值
 
@@ -620,7 +620,7 @@ if torch.cuda.is_available() and hasattr(torch, "_scaled_mm"):
 
 ### 4. llm_cost.py：dtype 字节表与训练状态
 
-本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第五篇 `param_count()` 的 dense 版本；第九篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
+本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第五篇 `param_count()` 的 dense 版本；第十篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
 
 ```python title="llm_cost.py：DTYPE_BYTES 与 training_state_bytes"
 from dataclasses import dataclass
@@ -636,7 +636,7 @@ class ModelConfig:
     d_ff: int
     vocab: int
     tie_embeddings: bool = False
-    param_override: int = 0      # MoE/MLA 模型直接给总参数量 (第九篇的 param_count 可算出)
+    param_override: int = 0      # MoE/MLA 模型直接给总参数量 (第十篇的 param_count 可算出)
 
 LLAMA3_8B  = ModelConfig("Llama-3-8B",  4096, 32, 32, 8, 128, 14336, 128256)
 LLAMA3_70B = ModelConfig("Llama-3-70B", 8192, 80, 64, 8, 128, 28672, 128256)
@@ -654,12 +654,12 @@ def param_count(cfg: ModelConfig) -> dict:
     total = cfg.param_override or (per_layer * cfg.layers + embed + lm_head + d)
     return {"per_layer": per_layer, "embedding": embed, "lm_head": lm_head, "total": total}
 
-# ---- 第十三篇新增 ----
+# ---- 第十四篇新增 ----
 DTYPE_BYTES = {
     "fp32": 4, "tf32": 4,          # TF32 在内存中仍是 32 位
     "fp16": 2, "bf16": 2,
     "fp8_e4m3": 1, "fp8_e5m2": 1,
-    "int8": 1, "int4": 0.5,        # int4 不含 scale/zero-point 开销 (第十四篇)
+    "int8": 1, "int4": 0.5,        # int4 不含 scale/zero-point 开销 (见高效推理系列的量化篇)
 }
 
 def training_state_bytes(cfg: ModelConfig, optimizer: str = "adam", mixed: bool = True,
@@ -745,7 +745,7 @@ BF16 累加 k=4096 相对噪声     ~2^-8 · sqrt(4096) = 0.25 (任何模型, �
 FP32 累加 k=4096 相对噪声     ~2^-24 · 64 = 4e-6 (可忽略)
 ```
 
-下一篇进入文本部分的最后一站：把权重换成 INT4 之后字节数怎么算、投机解码如何用一个小模型改变 decode 的算术强度、LoRA 的额外参数与 FLOPs 各占多少——三种"改变计算形态"的方法。
+正文到此结束。往下有两条路：把权重、激活与 KV 压到比 BF16 更少的位——scale 的粒度、校准、GPTQ / AWQ 与 FP8 推理量化——在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起；本篇的训练状态字节数接到[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。[《系列总结与通关自测》](/transformer-and-llm-series-recap-and-self-test.html)把十四篇压成一张「问题 → 结论 → 必记数字」的表。
 
 配套代码：第九章的四段实验分别是 [`fp_formats.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/fp_formats.py)、[`bf16_update_swallowed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bf16_update_swallowed.py)、[`gemm_error_vs_k.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/gemm_error_vs_k.py) 与 [`llm_cost_06_dtype_state.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_06_dtype_state.py)。
 

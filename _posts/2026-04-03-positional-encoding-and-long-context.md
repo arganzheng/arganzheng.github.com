@@ -6,9 +6,10 @@ subtitle: "Positional Encoding and Extrapolation: RoPE Wavelengths and Context E
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
+date: 2026-04-03 14:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第三篇。第 05 篇只讲到 RoPE 为什么替代位置表，本篇讲位置编码本身：RoPE 的推导与波长、外推为什么失败、各种长度扩展方法改了什么。把上下文拉长之后的成本（KV cache、二次项 attention）与 sliding window 等结构手段在下一篇。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第三篇，也是第一个结构专项。第 05 篇只讲到 RoPE 为什么替代位置表，本篇讲位置编码本身：RoPE 的推导与波长、外推（在比训练时更长的序列上推理）为什么失败、各种长度扩展方法改了什么。下一篇的 MLA 要把 RoPE 从低秩压缩里解耦出来，需要这里的结论；上下文拉长之后的成本（KV cache、二次项 attention）与 sliding window 等结构手段在第 09 篇。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
 
 [《Transformer 与 LLM（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量。Llama 换成了 RoPE，没有表，也就没有写死的行数，但这不等于它能处理任意长度：模型凭什么知道一个 token 在第几个位置？超过训练长度之后它还认不认得？
 
@@ -183,9 +184,9 @@ HF rotate_half（前后半配对）  第 i 对 = (x_i, x_i+64)
 
 ### 4. RoPE 与 KV cache 的关系
 
-第六篇讲 KV cache 时默认存的是投影后的 $$K$$、$$V$$。有了 RoPE 之后，存的是**旋转后**的 $$k_n = R_n W_K x_n$$。因为 $$R_n$$ 只依赖 $$n$$，每个 token 的 key 只需要在它进入时旋转一次，之后所有 query 都可以直接用；这是 RoPE 与 KV cache 天然兼容的原因。相对位置 bias 一类方法（T5、Transformer-XL）其实也能缓存 K、V——bias 加在 logits 上、不进 K，每个新 query 只需算自己那一行 $$b_{m-n}$$（$$s$$ 个标量或一次查表），ALiBi 就是它的特例；区别在于 bias 是 attention kernel 里的一个额外项，而 RoPE 在 kernel 之前逐元素做完、kernel 本身不用知道位置。
+第八篇讲 KV cache 时默认存的是投影后的 $$K$$、$$V$$。有了 RoPE 之后，存的是**旋转后**的 $$k_n = R_n W_K x_n$$。因为 $$R_n$$ 只依赖 $$n$$，每个 token 的 key 只需要在它进入时旋转一次，之后所有 query 都可以直接用；这是 RoPE 与 KV cache 天然兼容的原因。相对位置 bias 一类方法（T5、Transformer-XL）其实也能缓存 K、V——bias 加在 logits 上、不进 K，每个新 query 只需算自己那一行 $$b_{m-n}$$（$$s$$ 个标量或一次查表），ALiBi 就是它的特例；区别在于 bias 是 attention kernel 里的一个额外项，而 RoPE 在 kernel 之前逐元素做完、kernel 本身不用知道位置。
 
-MLA（DeepSeek-V2/V3）把 K、V 压成一个 512 维的 latent $$c$$，decode 时把 $$W_{UK}$$ 吸收进 query 一侧。问题是旋转矩阵 $$R_n$$ 夹在 $$W_{UK}$$ 与 $$c_n$$ 之间，无法与 $$W_{UK}$$ 交换次序，所以吸收后 $$c_n$$ 上没法再补 RoPE。DeepSeek 的解法是把位置信息分离到一个独立的 64 维 "decoupled RoPE" key 上（$$d_h^R = 64$$），与 latent 一起缓存——每层每 token $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，这是第六篇 8.6 GiB（128K 上下文）的来源。位置编码的形式直接决定了 KV cache 的结构。
+MLA（DeepSeek-V2/V3）把 K、V 压成一个 512 维的 latent $$c$$，decode 时把 $$W_{UK}$$ 吸收进 query 一侧。问题是旋转矩阵 $$R_n$$ 夹在 $$W_{UK}$$ 与 $$c_n$$ 之间，无法与 $$W_{UK}$$ 交换次序，所以吸收后 $$c_n$$ 上没法再补 RoPE。DeepSeek 的解法是把位置信息分离到一个独立的 64 维 "decoupled RoPE" key 上（$$d_h^R = 64$$），与 latent 一起缓存——每层每 token $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，这是第八篇 8.6 GiB（128K 上下文）的来源。位置编码的形式直接决定了 KV cache 的结构。
 
 ## 四、波长：RoPE 的频谱
 
@@ -559,7 +560,7 @@ YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 1. 无 mask 的 attention 是置换等变的，causal mask 只给弱的顺序信号，位置要显式注入。正弦编码是加性的，$$q^\top k$$ 展开后依赖绝对位置；可学习编码有硬上限；相对 bias 需要 $$s \times s$$ 的额外项。RoPE 把 $$d_{head}$$ 维向量看成 $$d_{head}/2$$ 个复数、第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，$$q_m^\top k_n = \text{Re}[\sum_i q_i \bar{k}_i e^{\mathrm{i}(m-n)\theta_i}]$$ 只依赖 $$m - n$$——以绝对位置的实现得到相对位置的性质，且与 KV cache 天然兼容。
 2. 每一对的波长 $$\lambda_i = 2\pi \cdot \text{base}^{2i/d_{head}}$$ 是理解一切的钥匙。base 10000、$$d_{head} = 128$$ 时从 6.28 到 5.4 万；训练长度 8K 时 $$i \ge 50$$ 的 14 对没转完一圈，推 32K 时这些维度出现从未见过的相位，是外推失败的根源。base 500000 把最低频波长拉到 256 万，让 128K 内的长距离在数学上可区分，但"见过"只能靠在长序列上训练；高频维度不变，attention 熵随长度增长的问题也不归它管。
 3. PI 把所有 $$\theta_i$$ 除以 factor；NTK-aware 用 $$\text{base}' = \text{base} \cdot \text{factor}^{d/(d-2)}$$ 使最低频恰好插值 factor 倍、最高频不动；YaRN 按 $$r_i = L/\lambda_i$$ 分三段（$$r > \beta$$ 不动、$$r < \alpha$$ 全插值、中间线性），再用 $$\sqrt{1/t} = 0.1 \ln(\text{factor}) + 1$$ 修正温度；Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 就是 $$\alpha = 1$$、$$\beta = 4$$ 的 YaRN 分段规则、不带温度；DeepSeek-V3 与 Qwen2.5 直接用 YaRN 字段。ALiBi 用 $$2^{-8h/n_h}$$ 的线性惩罚，外推好但局部性先验太强、无法表达内容与位置交互，被 RoPE 取代。
-位置方案只回答位置能否外推，不能保证模型在长文中检索与推理的质量；"用得起吗"——KV cache、prefill 的二次项和 sliding window 等结构手段——见下一篇[《Transformer 与 LLM（08）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。
+位置方案只回答位置能否外推，不能保证模型在长文中检索与推理的质量；"用得起吗"——KV cache、prefill 的二次项和 sliding window 等结构手段——见第九篇[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。在那之前先看 attention 自己：[下一篇《Transformer 与 LLM（08）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)讲 MHA → GQA → MQA → MLA 各把每 token 的 KV 压到多少，其中 MLA 要把 RoPE 从低秩压缩里解耦出来单独缓存——用的正是本篇 $$R_m^\top R_n = R_{n-m}$$ 这条性质。
 
 配套代码：RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
 

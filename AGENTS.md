@@ -1204,8 +1204,27 @@ How it is built (`_plugins/moments.rb`):
   Use it sparingly, list only the projects actually refreshed, and keep one
   version set per project per post — refreshing means re-verifying every claim
   about that project, never mixing two versions in one article.
-- Series 4 (`transformer-and-llm`) has 8 posts (the cost table, dated
-  2026-04-02 … 04-09); post 08 closes with 「系列总结（八篇）」. The former
+- Series 4 (`transformer-and-llm`) is **14 posts + recap in two segments**
+  since 2026-10-10 (Discussion #117 + a ChatGPT review): 01–04 基本原理与实现
+  (GPT-2: 静态结构 → token 旅程 → nanoGPT model.py → train.py), 05–14 现代 LLM
+  的演进与实践 (05 读配置数参数 → **06 算量/访存/Roofline 是后面所有专项共用的
+  成本工具箱** → 07 位置编码 → 08 Attention/KV → 09 长上下文 → 10 MoE → 11 MTP →
+  12 投机解码 → 13 多模态 → 14 浮点格式). Series order = post `date:`
+  (2026-03-30 … 04-08; file names were re-dated to match), titles carry
+  「（NN）」, every post opens with 「本篇在系列中的位置」. The former 第三段
+  「通用成本账」 is gone: the old 量化 post was **deleted and merged** into
+  `efficient-inference` 03 (new 第二章 "量化为什么快、什么时候快" + FP8/DeepSeek
+  分块 + LLM.int8()) and 05 (KV 量化 numbers); its URL
+  `/quantization-speculative-decoding-and-lora.html` is a `redirect_from` on
+  the PTQ post. The old 投机解码与 LoRA post kept its URL
+  (`/speculative-decoding-and-lora.html`) but is 投机解码 only; its LoRA half
+  was folded into `lora` 01/02/03. `llm_cost_07_quant_specdec_lora.py` in the
+  labs repo is unchanged (版本号不随文章拆分而变). When referring to this
+  series from elsewhere use the *new* numbers (06 = Roofline, 08 = KV, 12 =
+  投机, 13 = 多模态, 14 = 浮点); 「04-07」 for 量化 is stale — point at
+  高效推理 03 instead. History: the series started as 8 cost-table posts
+  (2026-04-02 … 04-09), grew to 13 then 15 in the 2026-09/10 reorganisations.
+  The former
   posts 09–12 (预训练补篇) were split out on reader request (discussion #24)
   into their own series `pretraining` (《预训练：从 tokenizer 到训练配方》,
   overview `2026-04-09-pretraining-from-tokenizer-to-training-recipe.md`,
@@ -1409,8 +1428,9 @@ How it is built (`_plugins/moments.rb`):
   plus the 横切 导读 `experimental-methodology-for-ai-algorithm-engineers`,
   complete the algorithm roadmap (written 2026-09-14; L6 has no labs — same
   "动手（建议）" rule as post-training 2–8, numbers from papers / tech reports
-  only). L6 builds on 04-07 (量化 / 投机 / LoRA 的账) and 04-03/04-04 (KV) and
-  must not re-derive them; L7 builds on 04-08 (多模态成本) and L3-05 (ViT). Both
+  only). L6 builds on 04-06 (Roofline) / 04-12 (投机解码的账) and 04-08/04-09 (KV) and
+  must not re-derive them (量化的 Roofline 账 now lives *in* L6-03 itself);
+  L7 builds on 04-13 (多模态成本) and L3-05 (ViT). Both
   series link to 04 / L5 posts by design — the "series are independent" rule
   below applies to the Infra series, whereas algorithm-map series cite each
   other through the map's layer structure. Time anchors: nothing later than

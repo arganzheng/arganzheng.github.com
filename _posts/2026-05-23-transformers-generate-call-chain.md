@@ -225,7 +225,7 @@ while self._has_unfinished_sequences(...):
 |---|---|---|
 | greedy / sample | `_sample` | 本文；`do_sample` 只在选 token 那一行分叉 |
 | beam search | `_beam_search` | 每步保留 `num_beams` 条得分最高的前缀，cache 要跟着 `reorder_cache` 重排；长度惩罚 `length_penalty` |
-| assisted / speculative | `_assisted_decoding` | 小模型（`assistant_model`）先猜 $$k$$ 个 token，大模型一次前向验证<br/>接受率的数学在 [L4 第十二篇](/quantization-speculative-decoding-and-lora.html)<br/>`prompt_lookup_num_tokens` 是不用小模型、从 prompt 里找 n-gram 当草稿的变体 |
+| assisted / speculative | `_assisted_decoding` | 小模型（`assistant_model`）先猜 $$k$$ 个 token，大模型一次前向验证<br/>接受率的数学在 [L4 第十二篇](/speculative-decoding-and-lora.html)<br/>`prompt_lookup_num_tokens` 是不用小模型、从 prompt 里找 n-gram 当草稿的变体 |
 | contrastive / DoLa / group beam | 5.x 已移到 Hub 上的 `custom_generate` 仓库 | `_get_deprecated_gen_repo` 会指路 |
 | 自定义 | `custom_generate="user/repo"` 或一个可调用对象 | 从 Hub 仓库的 `custom_generate/generate.py` 加载解码函数（要 `trust_remote_code`） |
 
