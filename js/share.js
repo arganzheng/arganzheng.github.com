@@ -1,7 +1,7 @@
 /*!
- * share.js — the action bar above a post's comments (_includes/post-actions.html)
- * and the `.post-stats` text strips (阅读 · 点赞 · 评论 · 分享) in the
- * post header meta and in every list entry's meta line.
+ * share.js — the action bar above a post's comments, `.post-stats` strips
+ * (阅读 · 点赞 · 评论 · 分享) in post headers and lists, and author-only controls
+ * revealed when `js/annotations.js` identifies the signed-in viewer.
  *   - 点赞 (heart): anonymous per-post counter in the worker's D1 (POST /votes,
  *     dir 'up' | null), one per browser (localStorage), no login.
  *   - 分享 popover: system share sheet (Web Share API), Weibo / X / LinkedIn
@@ -19,7 +19,8 @@
 
   var bars = Array.prototype.slice.call(document.querySelectorAll('.post-actions'));
   var strips = Array.prototype.slice.call(document.querySelectorAll('.post-stats'));
-  if (!bars.length && !strips.length && !document.querySelector('.moment-share')) return; // 随笔 cards reuse the popover (BlogShare.open)
+  var historySpans = Array.prototype.slice.call(document.querySelectorAll('.post-history'));
+  if (!bars.length && !strips.length && !historySpans.length && !document.querySelector('.moment-share')) return; // 随笔 cards reuse the popover (BlogShare.open)
   var enc = encodeURIComponent;
   var version = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
 
@@ -307,13 +308,15 @@
   // ------------------------------------------------- author: export / edit
   var exportBtn = document.querySelector('.post-actions .pa-export');
   var editBtn = document.querySelector('.post-actions .pa-edit');
-  if (exportBtn || editBtn) {
-    var authorBtn = exportBtn || editBtn;
-    var bar = authorBtn.closest('.post-actions'), author = bar.getAttribute('data-author') || '';
+  if (exportBtn || editBtn || historySpans.length) {
+    var bar = document.querySelector('.post-actions[data-author]');
+    var author = (bar && bar.getAttribute('data-author')) ||
+      (historySpans[0] && historySpans[0].getAttribute('data-author')) || '';
     var onViewer = function (v) {
       var allowed = !(v && author && v.login === author);
       if (exportBtn) exportBtn.hidden = allowed;
       if (editBtn) editBtn.hidden = allowed;
+      historySpans.forEach(function (span) { span.hidden = allowed; });
     };
     document.addEventListener('blog:viewer', function (e) { onViewer(e.detail); });
     if (window.BlogAnnotations && window.BlogAnnotations.viewer) onViewer(window.BlogAnnotations.viewer());
