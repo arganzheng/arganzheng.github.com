@@ -3,7 +3,7 @@
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
  *   - Select text in the article -> floating toolbar: 「点赞」 / 「评论」 /
- *     「复制」 / 「搜一搜」 / 「分享」; the author can also 「划线」 for
+ *     「复制」 / 「搜一搜」 / 「分享」; the author can also 「划重点」 for
  *     readers, who see the same underline as any reader reaction.
  *   - 「点赞」 is an anonymous per-passage counter (worker /reactions, D1;
  *     no login, one per browser in localStorage), and records the chapter
@@ -547,17 +547,14 @@
 
   // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up.
   function markerHtml(p) {
-    var r = p.reaction, n = commentCount(p), pinnedOnly = r && r.pinned > 0 && !n && !(r.up > 0);
+    var r = p.reaction, n = commentCount(p);
     return (passageResolved(p) ? '<i class="fa fa-check-circle"></i>' : '') +
       (passageIssues(p) ? '<i class="fa fa-flag"></i>' : '') +
-      (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : (pinnedOnly ? '<i class="fa fa-comment"></i>' : '')) +
+      (n ? '<i class="fa fa-comment"></i><span class="annotation-marker-count">' + n + '</span>' : '') +
       (r && r.up ? '<i class="fa fa-thumbs-up"></i><span class="annotation-marker-count">' + r.up + '</span>' : '');
   }
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
-    if (r && r.pinned > 0 && !n && !(r.up > 0)) {
-      return '点开可评论、点赞' + (r.share ? ' · ' + r.share + ' 次分享' : '');
-    }
     if (passageResolved(p)) parts.push('作者已修正');
     if (passageIssues(p)) parts.push(passageIssues(p) + ' 个待处理的 Issue');
     if (n) parts.push(n + ' 条评论');
@@ -565,15 +562,22 @@
     if (r && r.share) parts.push(r.share + ' 次分享');
     return parts.join(' · ') + '，点击查看';
   }
+  function markIsClickable(mark) {
+    return !mark.closest('a[href]:not(.inline-tip)');
+  }
+  function markerNeeded(p) {
+    return !!markerHtml(p) || (p.marks.length > 0 && !p.marks.some(markIsClickable));
+  }
   function insertMarkers() {
     passages().forEach(function (p) {
+      if (!markerNeeded(p)) return;
       var last = p.marks[p.marks.length - 1];
       var marker = document.createElement('span');
       marker.className = markerClass(p);
       marker.setAttribute('data-annotation-ids', p.ids.join(' '));
       marker.setAttribute('data-hash', p.hash);
       marker.setAttribute('title', markerTitle(p));
-      marker.innerHTML = markerHtml(p);
+      marker.innerHTML = markerHtml(p) || '<i class="fa fa-comment"></i>';
       marker.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
         toggleThread(p.ids, last);
@@ -587,7 +591,7 @@
   }
 
   function bindMark(mark) {
-    if (mark.closest('a[href]:not(.inline-tip)')) return; // links keep navigating; use the marker
+    if (!markIsClickable(mark)) return; // links keep navigating; use the marker
     var host = markHost(mark);
     if (host !== mark && host._hlClick) host.removeEventListener('click', host._hlClick); // re-anchored: one handler per formula
     var onClick = function (e) {
@@ -728,7 +732,7 @@
     var r = p.reaction || { up: 0, share: 0 }, up = myReaction(p.hash, 'up');
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
-      (isOwner() && r.pinned > 0 ? '<button type="button" class="ap-react-btn ap-react-pin">取消划线</button>' : '');
+      (isOwner() && r.pinned > 0 ? '<button type="button" class="ap-react-btn ap-react-pin">取消划重点</button>' : '');
   }
   function bindReactBar(host, p) {
     host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
@@ -1814,8 +1818,8 @@
     if (btn.hidden) return;
     var offsets = selectionOffsets(range), p = offsets && passageContaining(offsets);
     var pinned = !!(p && p.reaction && p.reaction.pinned > 0);
-    btn.innerHTML = '<i class="fa fa-pencil"></i> ' + (pinned ? '取消划线' : '划线');
-    btn.title = pinned ? '取消这段作者划线' : '让读者看到这段下划线';
+    btn.innerHTML = '<i class="fa fa-pencil"></i> ' + (pinned ? '取消划重点' : '划重点');
+    btn.title = pinned ? '取消这段划重点' : '替读者先划好这段';
   }
 
   // The 「评论」 button says what will actually happen: a selection inside an
@@ -1918,7 +1922,7 @@
     toolbar.className = 'annotation-toolbar';
     toolbar.innerHTML =
       '<button type="button" class="annotation-tb-up" title="点赞这段话（不用登录）"><i class="fa fa-regular fa-thumbs-up"></i> 点赞</button>' +
-      '<button type="button" class="annotation-tb-pin" hidden><i class="fa fa-pencil"></i> 划线</button>' +
+      '<button type="button" class="annotation-tb-pin" hidden><i class="fa fa-pencil"></i> 划重点</button>' +
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-regular fa-comment"></i> 评论</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
@@ -2284,6 +2288,11 @@
       return;
     }
     var marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');
+    if (!!marker !== markerNeeded(p)) {
+      applyHighlights();
+      p = passageFor(['r:' + hash]) || p;
+      marker = container.querySelector('.annotation-marker[data-hash="' + hash + '"]');
+    }
     if (marker) { marker.innerHTML = markerHtml(p); marker.title = markerTitle(p); }
     if (panelState && panelState.kind === 'thread' && passageFor(panelState.ids) && passageFor(panelState.ids).hash === hash) {
       var host = panel.querySelector('.ap-react');
@@ -2318,7 +2327,7 @@
     }).then(function (data) {
       takeCounts(r, data);
       refreshReactionViews(hash);
-      showToast(on ? '已划线' : '已取消划线');
+      showToast(on ? '已划重点' : '已取消划重点');
       return true;
     }).catch(function (err) {
       r.pinned = before;

@@ -455,7 +455,7 @@ async function reactions(request, url, env, cors) {
   return json(out, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 async function pinReaction(request, env, cors) {
-  const auth = await requireAuthor(request, env, cors, '划线');
+  const auth = await requireAuthor(request, env, cors, '划重点');
   if (auth.error) return auth.error;
   if (!env.DB) return json({ error: '段落点赞未启用（worker 未绑定 D1）' }, 501, cors);
   await ensureReactionsTable(env);

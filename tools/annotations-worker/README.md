@@ -270,7 +270,7 @@ still GitHub reactions). Needs the D1 binding; 501 without it.
 menu (system share sheet completed, Weibo / X / LinkedIn opened, WeChat QR
 shown, link copied); localhost previews don't count. Same D1 binding.
 
-## Passage 赞 / 分享 / 作者划线 (GET/POST /reactions)
+## Passage 赞 / 分享 / 作者划重点 (GET/POST /reactions)
 
 Anonymous per-passage reactions, same trust model. One row per
 `(path, hash)` in `passage_reactions(path, hash, quote, up, share, section, pinned)` —
@@ -282,12 +282,14 @@ remembers its own in `localStorage["react:<path>:<hash>"]`); `kind: 'share'`
 is a plain +1 (no toggle) and also bumps the article's `shares` row (the
 response carries `shares`). `GET /reactions?path=` lists passages with a
 positive `up`, `share`, or `pinned` value and returns those counters. The blog
-author can pin an exact passage for readers without adding a comment:
+author can pre-highlight an exact passage for readers without adding a comment:
 `POST /reactions/pin {path, hash, quote, section?, on: true|false}` uses the
 GitHub token in `Authorization: Bearer <reader token>` and checks `/user` against
 the repository owner. It returns `{up, share, pinned}` without changing reader
 counters. A pinned passage is anchored and displayed as an ordinary underline;
-readers can then comment or like it. `pinned` is not included in `/reactions/top`
+when it has no comments or likes, it has no trailing marker and readers click
+the underlined text to open it. Readers can then comment or like it. `pinned`
+is not included in `/reactions/top`
 or `/feedback`. The new column is added to existing tables by an idempotent
 `ALTER TABLE` on first use; legacy columns and data remain untouched.
 
