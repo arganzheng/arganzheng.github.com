@@ -62,12 +62,13 @@ install it as a stand-alone app (head.html).
       <button type="button" class="mp-del" title="删除这条随笔" hidden><i class="fa fa-trash"></i></button>
       <button type="button" class="mp-submit" disabled>发布</button>
     </div>
+    <p class="mp-queue" role="status" hidden></p>
   </section>
 
   <section class="mp-done" hidden>
     <p class="mp-done-title"><i class="fa fa-check"></i> 已提交</p>
     <p class="mp-done-text">正在部署，大约 1–2 分钟后上线。</p>
-    <p class="mp-done-links"><a class="mp-done-link" href="#" target="_blank" rel="noopener">查看这条随笔 ›</a><a class="mp-done-commit" href="#" target="_blank" rel="noopener">commit</a></p>
+    <p class="mp-done-links"><a class="mp-done-link" href="#" target="_blank" rel="noopener">查看这条随笔 ›</a><a class="mp-done-month" href="#">这个月 ›</a><a class="mp-done-commit" href="#" target="_blank" rel="noopener">commit</a></p>
     <button type="button" class="mp-again">再写一条</button>
   </section>
 
@@ -84,3 +85,8 @@ install it as a stand-alone app (head.html).
   </section>
 </div>
 <script src="{{ '/js/moment-post.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/moments/sw.js', { scope: '/moments/' }).catch(function () {});
+  }
+</script>

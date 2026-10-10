@@ -22,6 +22,7 @@
         <span class="moment-own" hidden>
             <a href="{{ '/moments/post.html' | prepend: site.baseurl }}?edit={{ e.month }}/{{ e.id }}" class="moment-act moment-edit" title="在发布页里修改这一条"><i class="fa fa-pen"></i> 编辑</a>
             <a href="{{ '/moments/post.html' | prepend: site.baseurl }}?ref={{ e.id }}" class="moment-act moment-annotate" title="引用并批注这一条">批注</a>
+            <button type="button" class="moment-act moment-pin" data-pinned="{{ e.pinned }}" title="置顶这条随笔">{% if e.pinned %}📌 取消置顶{% else %}📌 置顶{% endif %}</button>
             <button type="button" class="moment-act moment-del" title="删除这一条"><i class="fa fa-trash"></i> 删除</button>
         </span>
         <span class="moment-toast" aria-live="polite" hidden></span>

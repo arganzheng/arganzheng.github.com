@@ -1,3 +1,5 @@
+import { rewriteMomentTags } from './moment-tags.mjs';
+
 /**
  * blog-annotations — a tiny, secret-free relay in front of the giscus API.
  *
@@ -89,6 +91,8 @@ export default {
       if (url.pathname === '/reactions/resolve' && request.method === 'POST') return await resolveReaction(request, env, cors);
       if (url.pathname === '/feedback' && request.method === 'GET') return await feedback(url, env, cors);
       if (url.pathname === '/moments' && request.method === 'POST') return await publishMoment(request, env, cors);
+      if (url.pathname === '/moments/pin' && request.method === 'POST') return await pinMoment(request, env, cors);
+      if (url.pathname === '/moments/tags' && request.method === 'POST') return await renameMomentTag(request, env, cors);
       if (url.pathname === '/moments' && request.method === 'GET') return await readMoment(url, request, env, cors);
       if (url.pathname === '/moments' && request.method === 'PUT') return await editMoment(request, env, cors);
       if (url.pathname === '/moments' && request.method === 'DELETE') return await deleteMoment(request, env, cors);
@@ -482,6 +486,29 @@ async function requireAuthor(request, env, cors, what) {
   const owner = String(env.REPO || '').split('/')[0].toLowerCase();
   if (!owner || String(user.login || '').toLowerCase() !== owner) return { error: json({ error: `只有博客作者可以${what}` }, 403, cors) };
   return { user };
+}
+
+async function requireMomentPoster(request, env, cors, what) {
+  if (env.MOMENT_KEY) {
+    const match = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
+    if (match && await sameSecret(match[1], env.MOMENT_KEY)) {
+      const login = String(env.REPO || '').split('/')[0];
+      return { user: { login, name: login, email: `${login}@users.noreply.github.com`, via: 'api' } };
+    }
+  }
+  return requireAuthor(request, env, cors, what);
+}
+
+async function sameSecret(a, b) {
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+  const x = new Uint8Array(left), y = new Uint8Array(right);
+  let difference = 0;
+  for (let i = 0; i < x.length; i++) difference |= x[i] ^ y[i];
+  return difference === 0;
 }
 
 async function resolveReaction(request, env, cors) {
@@ -879,12 +906,92 @@ async function dropPics(gh, headSha, oldUrls, keepTexts, tree) {
 }
 function momentUrl(month, id) { return `/moments/${month}.html#${id}`; }
 
+async function pinMoment(request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '置顶随笔');
+  if (author.error) return author.error;
+  const body = await request.json().catch(() => null);
+  const id = String(body && body.id || '');
+  if (!MOMENT_ID.test(id) || !body || typeof body.pinned !== 'boolean') return json({ error: '`id` or `pinned` is invalid' }, 400, cors);
+
+  const result = await momentCommit(env, author.user, async (gh, headSha) => {
+    const month = `${id.slice(0, 4)}-${id.slice(4, 6)}`;
+    const file = await gh(`/contents/moments/${month}.md?ref=${headSha}`);
+    if (!file) return { response: json({ error: '没有这条随笔' }, 404, cors) };
+    const parsed = parseMonth(new TextDecoder().decode(b64ToBytes(file.content)));
+    if (!parsed.entries.some((entry) => entry.id === id)) return { response: json({ error: '没有这条随笔' }, 404, cors) };
+    const dataFile = await gh(`/contents/_data/moments.yml?ref=${headSha}`);
+    const ids = readPinnedIds(dataFile ? new TextDecoder().decode(b64ToBytes(dataFile.content)) : '');
+    const next = body.pinned ? Array.from(new Set([...ids, id])) : ids.filter((value) => value !== id);
+    if (next.length === ids.length && next.every((value, i) => value === ids[i])) {
+      return { response: json({ id, pinned: body.pinned }, 200, cors) };
+    }
+    return {
+      tree: [{ path: '_data/moments.yml', mode: '100644', type: 'blob', content: writePinnedIds(next) }],
+      message: `随笔: ${body.pinned ? '置顶' : '取消置顶'} ${id}`,
+      result: { id, pinned: body.pinned },
+    };
+  });
+  return result instanceof Response ? result : json(result, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+function readPinnedIds(text) {
+  const match = /^pinned:\s*(.*)$/m.exec(text);
+  if (!match) return [];
+  const inline = /^\[(.*)\]$/.exec(match[1].trim());
+  const values = inline ? inline[1].split(',') : text.slice(match.index + match[0].length).match(/^\s+-\s+[\w-]+/gm) || [];
+  return values.map((value) => (inline ? value.trim() : value.replace(/^\s+-\s+/, '')).replace(/^['"]|['"]$/g, '')).filter((id) => MOMENT_ID.test(id));
+}
+
+function writePinnedIds(ids) {
+  return ids.length ? `pinned:\n${ids.map((id) => `  - ${id}`).join('\n')}\n` : 'pinned: []\n';
+}
+
+async function renameMomentTag(request, env, cors) {
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
+  const author = await requireAuthor(request, env, cors, '重命名标签');
+  if (author.error) return author.error;
+  const body = await request.json().catch(() => null);
+  const from = String(body && body.from || ''), to = String(body && body.to || '');
+  if (!MOMENT_TAG.test(from) || !MOMENT_TAG.test(to) || from === to) return json({ error: '`from` and `to` must be different valid tags' }, 400, cors);
+
+  const result = await momentCommit(env, author.user, async (gh, headSha) => {
+    const entries = await gh(`/contents/moments?ref=${headSha}`);
+    const tree = [], files = [];
+    let changed = 0;
+    for (const item of (entries || []).filter((entry) => entry.type === 'file' && /^\d{4}-\d{2}\.md$/.test(entry.name))) {
+      const file = await gh(`/contents/moments/${item.name}?ref=${headSha}`);
+      if (!file) continue;
+      const path = `moments/${item.name}`;
+      const result = rewriteMomentTags(new TextDecoder().decode(b64ToBytes(file.content)), from, to);
+      if (!result.changed) continue;
+      changed += result.changed;
+      files.push(path);
+      tree.push({ path, mode: '100644', type: 'blob', content: result.content });
+    }
+    if (!changed) return { response: json({ error: '没有用到这个标签' }, 404, cors) };
+    return {
+      tree,
+      message: `随笔: 标签 #${from} → #${to}（${changed} 条）`,
+      result: { changed, files },
+    };
+  });
+  return result instanceof Response ? result : json({ changed: result.changed, files: result.files }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+
 async function publishMoment(request, env, cors) {
   if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
-  const author = await requireAuthor(request, env, cors, '发布随笔');
+  const author = await requireMomentPoster(request, env, cors, '发布随笔');
   if (author.error) return author.error;
   let f;
-  try { f = momentInput(await request.json().catch(() => null)); } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
+  try {
+    const isText = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() === 'text/plain';
+    const body = isText ? { text: await request.text() } : await request.json().catch(() => null);
+    if (body && typeof body === 'object' && !Array.isArray(body) && !body.time) {
+      body.time = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    }
+    f = momentInput(body);
+  } catch (e) { return json({ error: e.message }, e.status || 400, cors); }
   if (f.pics.some((p) => p.url)) return json({ error: '新随笔的图片要上传，不能引用已有图片' }, 400, cors);
 
   const month = `${f.when.y}-${f.when.m}`, path = `moments/${month}.md`;
@@ -897,7 +1004,7 @@ async function publishMoment(request, env, cors) {
     tree.push({ path, mode: '100644', type: 'blob', content: monthText(parsed) });
     return {
       tree,
-      message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n(posted from /moments/post.html)`,
+      message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n(posted from /moments/post.html)${author.user.via === 'api' ? '\n\n(posted via API)' : ''}`,
       result: { url: momentUrl(month, momentId(f.when)), month: `/moments/${month}.html`, file: path, images: urls },
     };
   });

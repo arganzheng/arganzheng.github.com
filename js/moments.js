@@ -192,7 +192,28 @@
       toast(card, '删除失败：' + e.message, 4000);
     });
   }
-  stream.addEventListener('click', function (e) {
+  function savePin(card, btn) {
+    var pinned = btn.getAttribute('data-pinned') !== 'true';
+    btn.disabled = true; toast(card, '提交中…', 60000);
+    ensureToken().then(function (token) {
+      return fetch(api + '/moments/pin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ id: card.id, pinned: pinned }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); });
+    }).then(function () { toast(card, '已提交，1–2 分钟后生效', 5000); })
+      .catch(function (error) { toast(card, '置顶失败：' + error.message, 4000); })
+      .finally(function () { btn.disabled = false; });
+  }
+  function renameTag(btn) {
+    var from = btn.getAttribute('data-tag') || '', to = window.prompt('把 #' + from + ' 改成：', from);
+    if (to === null || to === from) return;
+    var owner = btn.closest('.moment-own'), notice = owner && owner.querySelector('.moment-toast');
+    function show(message) { if (notice) { notice.textContent = message; notice.hidden = false; } }
+    ensureToken().then(function (token) {
+      return fetch(api + '/moments/tags', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ from: from, to: to }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); });
+    }).then(function (data) { show('已提交，更新了 ' + data.changed + ' 条随笔'); })
+      .catch(function (error) { show('重命名失败：' + error.message); });
+  }
+  document.addEventListener('click', function (e) {
     var share = e.target.closest('.moment-share');
     if (share && window.BlogShare) {
       e.stopPropagation();
@@ -210,14 +231,51 @@
     }
     var del = e.target.closest('.moment-del');
     if (del && !del.disabled) remove(del.closest('.moment'), del);
+    var pin = e.target.closest('.moment-pin');
+    if (pin && !pin.disabled) savePin(pin.closest('.moment'), pin);
+    var rename = e.target.closest('.moment-tag-rename');
+    if (rename) renameTag(rename);
   });
   function onViewer(v) {
     var mine = !!(v && author && v.login === author && api);
-    Array.prototype.forEach.call(stream.querySelectorAll('.moment-own'), function (n) { n.hidden = !mine; });
+    var cardActions = mine && list.getAttribute('data-tag-page') !== 'true';
+    Array.prototype.forEach.call(stream.querySelectorAll('.moment-own'), function (n) { n.hidden = !cardActions; });
+    Array.prototype.forEach.call(document.querySelectorAll('.moment-tag-tools'), function (n) { n.hidden = !mine; });
   }
+  function showPending() {
+    if (list.getAttribute('data-entry-page') === 'true' || list.getAttribute('data-tag-page') === 'true') return;
+    var frontDoor = list.getAttribute('data-front-door') === 'true';
+    var month = list.getAttribute('data-month') || '';
+    var currentPath = location.pathname;
+    if (!frontDoor && !/^\/moments\/\d{4}-\d{2}\.html$/.test(currentPath)) return;
+    var pending;
+    try { pending = JSON.parse(localStorage.getItem('moments-pending') || '[]'); } catch (e) { pending = []; }
+    var retained = [], display = [];
+    pending.forEach(function (item) {
+      if (!item || Date.now() - item.at > 15 * 60 * 1000 || document.getElementById(item.id)) return;
+      retained.push(item);
+      var itemMonth = String(item.month || '').match(/\d{4}-\d{2}/);
+      if (frontDoor || itemMonth && itemMonth[0] === month) display.push(item);
+    });
+    try { localStorage.setItem('moments-pending', JSON.stringify(retained.slice(0, 5))); } catch (e) { /* ignore */ }
+    display.reverse().forEach(function (item) {
+      var href = base + (item.url || (item.month + '#' + item.id));
+      var date = item.title || item.id;
+      var tags = (item.tags || []).map(function (tag) { return '<a class="moment-tag" href="' + esc(base + '/moments/tag/' + encodeURI(tag) + '.html') + '">#' + esc(tag) + '</a>'; }).join(' ');
+      var thumbs = (item.thumbs || []).slice(0, 3);
+      var images = thumbs.length ? '<div class="moment-gallery n-' + thumbs.length + '">' + thumbs.map(function (src) { return '<span class="moment-pic"><img src="' + esc(src) + '" alt=""></span>'; }).join('') + '</div>' : '';
+      var html = '<li class="moment moment-pending" id="' + esc(item.id) + '">' +
+        '<div class="moment-head"><a class="moment-when" href="' + esc(href) + '"><time>' + esc(date) + '</time></a>' +
+        (item.place ? '<span class="moment-place">📍 ' + esc(item.place) + '</span>' : '') + '</div>' +
+        '<div class="moment-body">' + (item.text ? '<p>' + esc(item.text.slice(0, 140)) + '</p>' : '') + (tags ? '<p>' + tags + '</p>' : '') + images + '</div>' +
+        '<div class="moment-foot"><span class="moment-pending-badge">部署中…</span></div></li>';
+      list.insertAdjacentHTML('afterbegin', html);
+    });
+  }
+  showPending();
   document.addEventListener('blog:viewer', function (e) { onViewer(e.detail); });
   if (window.BlogAnnotations && window.BlogAnnotations.viewer) onViewer(window.BlogAnnotations.viewer());
-  if (list.getAttribute('data-entry-page') === 'true') {
+  if (list.getAttribute('data-entry-page') === 'true' || list.getAttribute('data-tag-page') === 'true') {
     ensureToken().then(function (t) {
       return fetch('https://api.github.com/user', { headers: { Authorization: 'Bearer ' + t, Accept: 'application/vnd.github+json' } });
     }).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('not signed in')); })

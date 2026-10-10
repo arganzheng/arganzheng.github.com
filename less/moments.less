@@ -461,6 +461,16 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 }
 .moments-empty { color: @mo-muted; }
 
+.post-container.moments {
+	.moment-pinned { margin-bottom: 18px; }
+	.moment-pinned h2 { margin: 0 0 10px; font-size: 17px; font-weight: 650; color: @mo-text; }
+	.moment-pending { opacity: 0.72; background: @mo-soft; }
+	.moment-pending-badge { color: @mo-muted; font-size: 12px; }
+}
+.moments-wrap .moment-tag-tools { display: inline-flex; align-items: center; gap: 8px; }
+.moments-wrap .moment-tag-tools[hidden] { display: none; }
+.moments-wrap .moment-tag-rename { border: 0; padding: 0; background: none; color: @brand-primary; cursor: pointer; }
+
 // the highlight-comment panel and markers sit inside .moment-body like in a post
 .moments .annotation-panel { font-size: 14px; }
 

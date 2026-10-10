@@ -8,6 +8,17 @@
   "background_color": "#ffffff",
   "theme_color": "#1f8a9c",
   "lang": "zh-CN",
+  "share_target": {
+    "action": "/moments/post.html?share=1",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{ "name": "images", "accept": ["image/*"] }]
+    }
+  },
   "icons": [
     { "src": "/img/moments/post-icon-180.png", "sizes": "180x180", "type": "image/png" },
     { "src": "/img/moments/post-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

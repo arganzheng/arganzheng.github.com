@@ -88,6 +88,40 @@ tag / time / image type), `413` picture > 3 MB, `501` no App key; a ref
 update that loses a race with another push is retried once. Times are
 Beijing (`timezone: Asia/Shanghai`), as from the CLI.
 
+### Optional API-key capture
+
+For Shortcuts, Telegram bridges or scripts, set the optional `MOMENT_KEY`
+secret. The worker compares SHA-256 digests and never logs the key. This
+credential is accepted only by `POST /moments`; edits, deletes, pinning and tag
+renames still require the owner's GitHub login.
+
+```bash
+cd tools/annotations-worker
+wrangler secret put MOMENT_KEY
+```
+
+JSON requests can include base64 pictures:
+
+```bash
+curl -X POST "$API/moments" \
+  -H "Authorization: Bearer $MOMENT_KEY" \
+  -H 'Content-Type: application/json' \
+  --data '{"text":"散步时看到海了","time":"2026-10-01 20:15","tags":["散步"],"images":[{"name":"sea.jpg","type":"image/jpeg","data":"<base64>"}]}'
+```
+
+For a text-only request, `text/plain` is the body; the worker supplies the
+current Beijing time. A JSON request can omit `time` for the same default:
+
+```bash
+printf '%s' '散步时看到海了 #散步' | curl -X POST "$API/moments" \
+  -H "Authorization: Bearer $MOMENT_KEY" -H 'Content-Type: text/plain' --data-binary @-
+```
+
+iOS 快捷指令: add **获取 URL 内容**, URL = `$API/moments`, method = POST;
+under headers add `Authorization` = `Bearer <your MOMENT_KEY>`, choose JSON
+request body and add a `text` field containing the shortcut input. Do not put
+the key in logs, screenshots or a shared shortcut.
+
 Editing and deleting (the 编辑 / 删除 links a signed-in author sees on every card
 of a month page, `js/moments.js`; the 发布页 opens as `/moments/post.html?edit=YYYY-MM/<id>`):
 
@@ -105,7 +139,22 @@ of a month page, `js/moments.js`; the 发布页 opens as `/moments/post.html?edi
 - `DELETE /moments { month, id }` removes the block and its pictures the same
   way → `200 { commit, month, file }`.
 
-All three are owner-only like POST; `404` when the id is not in the file.
+- `POST /moments/pin { id, pinned }` rewrites `_data/moments.yml` in one
+  commit. The generated `/moments/` front door shows configured ids in a
+  separate pinned block; their month stream remains unchanged.
+- `POST /moments/tags { from, to }` validates both tag names and rewrites every
+  matching `moments/*.md` entry in one commit. Children such as `#from/child`
+  follow the rename; code and URL text is left alone. An existing `to` tag is
+  merged. The response is `{ changed, files }`; no matches returns 404.
+
+GET/PUT/DELETE still require the owner's GitHub login; `404` when the id is
+not in the file. Pin and tag-management routes also require that login.
+
+The publisher's `/moments/sw.js` is registered only by `post.html`. It caches
+the publisher shell for offline opening, handles Android image/text shares,
+and stores processed picture drafts and network-failed posts in IndexedDB.
+Queued posts retry in order when online; pending cards appear locally until
+the site deploys.
 
 Setup on top of the `/issues` App: give the App repository permission
 **Contents: Read and write** (App settings → Permissions & events → save,
