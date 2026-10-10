@@ -3,14 +3,18 @@
   pager; it sat above the comments until 2026-09-27, where readers did not
   notice it): a lead line 「这篇对你有用？」 then 「点赞」 (anonymous heart, counted by
   the worker's D1 — no login; the number also shows in the header meta), 分享
-  (popover with the platforms), the author-only 「复制为公众号格式」 and the
-  author-only GitHub article edit link. Driven by js/share.js. Counters (views /
-  comments / likes) live in the header meta line, not here.
+  (popover with the platforms), author-only export buttons, and the author-only
+  GitHub article edit link. Driven by js/share.js. Counters (views / comments /
+  likes) live in the header meta line, not here.
 {%- endcomment -%}
 <div class="post-actions"
      data-path="{{ page.comments_path | default: page.url }}"
      data-url="{{ site.url }}{{ site.baseurl }}{{ page.url }}"
+     data-site-url="{{ site.url }}{{ site.baseurl }}"
+     data-source="{{ page.path }}"
+     data-repo="{{ site.giscus.repo }}"
      data-title="{{ page.title | escape }}"
+     data-subtitle="{{ page.subtitle | default: '' | escape }}"
      data-text="{{ page.subtitle | default: page.description | default: '' | escape }}"
      data-author="{{ site.github_username | strip }}"
      data-annotations-api="{{ site.annotations.api }}">
@@ -18,6 +22,8 @@
   <button type="button" class="pa-item pa-like" title="给这篇文章点个赞（不用登录）"><i class="fa fa-regular fa-heart"></i> 点赞<b class="pa-like-n"></b></button>
   <button type="button" class="pa-item pa-share" title="分享" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>
   <button type="button" class="pa-item pa-export" title="复制为公众号 / 知乎可粘贴的格式（仅作者可见）" hidden><i class="fa fa-brands fa-weixin"></i> 复制为公众号格式</button>
+  <button type="button" class="pa-item pa-print" title="打印或存 PDF（仅作者可见）" hidden><i class="fa fa-print"></i> 打印 / 存 PDF</button>
+  <button type="button" class="pa-item pa-markdown" title="复制为 Markdown（仅作者可见）" hidden>复制为 Markdown</button>
   {% if site.giscus.repo %}<a class="pa-item pa-edit" href="https://github.com/{{ site.giscus.repo }}/edit/master/{{ page.path }}" target="_blank" rel="noopener noreferrer" title="在 GitHub 编辑文章" hidden><i class="fa fa-brands fa-github"></i> 在 GitHub 编辑</a>{% endif %}
   <span class="pa-toast" aria-live="polite" hidden></span>
 </div>

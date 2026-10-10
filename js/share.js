@@ -89,6 +89,40 @@
     document.body.removeChild(area);
     return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
   }
+  function absoluteSitePath(siteUrl, path) {
+    return siteUrl.replace(/\/+$/, '') + (path.charAt(0) === '/' ? path : '/' + path);
+  }
+  function stripFrontMatter(source) {
+    var match = source.match(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
+    if (!match) throw new Error('无法识别文章 front matter');
+    return source.slice(match[0].length).replace(/^\s+|\s+$/g, '');
+  }
+  function rewriteMarkdownPaths(markdown, siteUrl) {
+    return markdown
+      .replace(/(\]\()\/(?!\/)([^)\s]+)(?=[^)]*\))/g, function (_, prefix, path) {
+        return prefix + absoluteSitePath(siteUrl, '/' + path);
+      })
+      .replace(/(\bsrc=)(["'])\/(?!\/)([^"']*)\2/gi, function (_, attr, quote, path) {
+        return attr + quote + absoluteSitePath(siteUrl, '/' + path) + quote;
+      });
+  }
+  function fetchMarkdownSource(bar) {
+    var repo = bar.getAttribute('data-repo') || '';
+    var sourcePath = bar.getAttribute('data-source') || '';
+    if (!repo || !sourcePath) return Promise.reject(new Error('缺少文章源文件信息'));
+    var encodedPath = sourcePath.split('/').map(encodeURIComponent).join('/');
+    var apiUrl = 'https://api.github.com/repos/' + repo + '/contents/' + encodedPath + '?ref=master';
+    var rawUrl = 'https://raw.githubusercontent.com/' + repo + '/master/' + encodedPath;
+    return fetch(apiUrl, { headers: { Accept: 'application/vnd.github.raw' } }).then(function (response) {
+      if (!response.ok) throw new Error('GitHub API HTTP ' + response.status);
+      return response.text();
+    }).catch(function () {
+      return fetch(rawUrl).then(function (response) {
+        if (!response.ok) throw new Error('GitHub raw HTTP ' + response.status);
+        return response.text();
+      });
+    });
+  }
 
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, cardOverlay = null, cardObjectUrl = null;
@@ -307,30 +341,86 @@
 
   // ------------------------------------------------- author: export / edit
   var exportBtn = document.querySelector('.post-actions .pa-export');
+  var printBtn = document.querySelector('.post-actions .pa-print');
+  var markdownBtn = document.querySelector('.post-actions .pa-markdown');
   var editBtn = document.querySelector('.post-actions .pa-edit');
-  if (exportBtn || editBtn || historySpans.length) {
+  if (exportBtn || printBtn || markdownBtn || editBtn || historySpans.length) {
     var bar = document.querySelector('.post-actions[data-author]');
     var author = (bar && bar.getAttribute('data-author')) ||
       (historySpans[0] && historySpans[0].getAttribute('data-author')) || '';
+    var isAuthor = false;
     var onViewer = function (v) {
-      var allowed = !(v && author && v.login === author);
-      if (exportBtn) exportBtn.hidden = allowed;
-      if (editBtn) editBtn.hidden = allowed;
-      historySpans.forEach(function (span) { span.hidden = allowed; });
+      isAuthor = !!(v && author && v.login === author);
+      if (exportBtn) exportBtn.hidden = !isAuthor;
+      if (printBtn) printBtn.hidden = !isAuthor;
+      if (markdownBtn) markdownBtn.hidden = !isAuthor;
+      if (editBtn) editBtn.hidden = !isAuthor;
+      historySpans.forEach(function (span) { span.hidden = !isAuthor; });
     };
     document.addEventListener('blog:viewer', function (e) { onViewer(e.detail); });
     if (window.BlogAnnotations && window.BlogAnnotations.viewer) onViewer(window.BlogAnnotations.viewer());
-    if (!exportBtn) return;
-    exportBtn.addEventListener('click', function () {
-      exportBtn.disabled = true;
-      var d = dataOf(bar);
-      var ready = window.WechatExport ? Promise.resolve() : loadScript('/js/wechat-export.js');
-      ready.then(function () { return window.WechatExport.copy({ url: d.url, title: d.title }); }).then(function (info) {
-        toast(bar, '已复制（' + info.images + ' 图 · ' + info.refs + ' 条参考链接），到公众号 / 知乎编辑器里粘贴', 4000);
-      }, function (err) {
-        toast(bar, '失败：' + (err && err.message || err), 4000);
-      }).then(function () { exportBtn.disabled = false; });
-    });
+    if (exportBtn) {
+      exportBtn.addEventListener('click', function () {
+        if (!isAuthor) return;
+        exportBtn.disabled = true;
+        var d = dataOf(bar);
+        var ready = window.WechatExport ? Promise.resolve() : loadScript('/js/wechat-export.js');
+        ready.then(function () { return window.WechatExport.copy({ url: d.url, title: d.title }); }).then(function (info) {
+          toast(bar, '已复制（' + info.images + ' 图 · ' + info.refs + ' 条参考链接），到公众号 / 知乎编辑器里粘贴', 4000);
+        }, function (err) {
+          toast(bar, '失败：' + (err && err.message || err), 4000);
+        }).then(function () { exportBtn.disabled = false; });
+      });
+    }
+    if (printBtn) {
+      printBtn.addEventListener('click', function () {
+        if (!isAuthor || printBtn.disabled) return;
+        var root = document.documentElement;
+        var hadTheme = root.hasAttribute('data-theme');
+        var oldTheme = root.getAttribute('data-theme');
+        var hadPrintClass = root.classList.contains('print-export');
+        var restored = false;
+        function restorePrintState() {
+          if (restored) return;
+          restored = true;
+          window.removeEventListener('afterprint', restorePrintState);
+          if (hadTheme) root.setAttribute('data-theme', oldTheme);
+          else root.removeAttribute('data-theme');
+          if (!hadPrintClass) root.classList.remove('print-export');
+          printBtn.disabled = false;
+        }
+        printBtn.disabled = true;
+        window.addEventListener('afterprint', restorePrintState);
+        root.setAttribute('data-theme', 'light');
+        root.classList.add('print-export');
+        try { window.print(); }
+        catch (err) {
+          restorePrintState();
+          toast(bar, '打印失败：' + (err && err.message || err), 4000);
+        }
+      });
+    }
+    if (markdownBtn) {
+      markdownBtn.addEventListener('click', function () {
+        if (!isAuthor || markdownBtn.disabled) return;
+        markdownBtn.disabled = true;
+        var d = dataOf(bar);
+        fetchMarkdownSource(bar).then(function (source) {
+          var body = stripFrontMatter(source);
+          var siteUrl = bar.getAttribute('data-site-url') || new URL(d.url).origin;
+          body = rewriteMarkdownPaths(body, siteUrl);
+          var subtitle = bar.getAttribute('data-subtitle') || '';
+          var markdown = '# ' + d.title + '\n\n' +
+            (subtitle ? '> ' + subtitle + '\n\n' : '') +
+            body + '\n\n原文：' + d.url + '\n';
+          return copyText(markdown).then(function () {
+            toast(bar, '已复制 Markdown（' + markdown.length + ' 字符）', 4000);
+          });
+        }).catch(function (err) {
+          toast(bar, '失败：' + (err && err.message || err), 4000);
+        }).then(function () { markdownBtn.disabled = false; });
+      });
+    }
   }
 
 })();

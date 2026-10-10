@@ -8555,3 +8555,155 @@ html[data-theme="dark"] .post-container .callout-caution {
 html[data-theme="dark"] .post-container .callout-caution .callout-title {
   color: #f85149;
 }
+@media print {
+  @page author-export {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+  html.print-export {
+    page: author-export;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  html.print-export body {
+    margin: 0 !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  html.print-export body * {
+    color: #000 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  html.print-export .navbar,
+  html.print-export .outline-reopen,
+  html.print-export .sidebar-container,
+  html.print-export .side-catalog,
+  html.print-export .side-series,
+  html.print-export .reading-progress,
+  html.print-export .reading-position-prompt,
+  html.print-export .post-actions,
+  html.print-export .series-nav,
+  html.print-export .series-context,
+  html.print-export .series-toc,
+  html.print-export .post-pager,
+  html.print-export .series-deck,
+  html.print-export .deck-card,
+  html.print-export .post-license,
+  html.print-export .pager,
+  html.print-export .related-posts,
+  html.print-export .related,
+  html.print-export .backlinks,
+  html.print-export .comment,
+  html.print-export .annotation-comments,
+  html.print-export .annotation-panel,
+  html.print-export .annotation-marker,
+  html.print-export .annotation-toolbar,
+  html.print-export .sec-react,
+  html.print-export .code-copy,
+  html.print-export .table-tools,
+  html.print-export .fig-tools,
+  html.print-export .fig-feedback,
+  html.print-export .fig-zoom,
+  html.print-export .heading-anchor,
+  html.print-export .heading-fold,
+  html.print-export .search-overlay,
+  html.print-export #search-overlay,
+  html.print-export .catalog-toggle,
+  html.print-export .pa-share-pop {
+    display: none !important;
+  }
+  html.print-export .container {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  html.print-export .row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  html.print-export .page-header {
+    max-width: none !important;
+    margin: 0 0 18px !important;
+    padding: 0 0 10px !important;
+    border: 0 !important;
+  }
+  html.print-export .intro-header {
+    color: #000 !important;
+    background: #fff !important;
+    background-image: none !important;
+  }
+  html.print-export .intro-header .header-mask,
+  html.print-export .intro-header .header-img-credit {
+    display: none !important;
+  }
+  html.print-export .intro-header .post-heading,
+  html.print-export .intro-header .post-heading * {
+    color: #000 !important;
+  }
+  html.print-export .post-container {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    float: none !important;
+  }
+  html.print-export a,
+  html.print-export a:visited {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+  html.print-export a.external-link::after,
+  html.print-export a[target="_blank"]::after {
+    display: none !important;
+    content: none !important;
+  }
+  html.print-export img,
+  html.print-export svg {
+    max-width: 100% !important;
+  }
+  html.print-export pre,
+  html.print-export .highlight,
+  html.print-export .highlighter-rouge {
+    max-width: 100% !important;
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+  }
+  html.print-export pre code {
+    white-space: inherit !important;
+  }
+  html.print-export .table-responsive {
+    overflow: visible !important;
+    border: 0 !important;
+  }
+  html.print-export pre,
+  html.print-export figure,
+  html.print-export .callout,
+  html.print-export .mermaid,
+  html.print-export tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  html.print-export table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  html.print-export th,
+  html.print-export td {
+    border: 1px solid #777 !important;
+  }
+  html.print-export h1,
+  html.print-export h2,
+  html.print-export h3,
+  html.print-export h4,
+  html.print-export h5,
+  html.print-export h6 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+}
