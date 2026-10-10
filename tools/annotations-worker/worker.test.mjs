@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
-import worker, { entryFields, momentBody, momentInput, renderEntry } from './worker.js';
+import worker, { entryFields, momentBody, momentInput, readPinnedIds, renderEntry, writePinnedIds } from './worker.js';
 
 const env = {
   MOMENT_KEY: 'k',
@@ -40,6 +40,30 @@ test('no-Origin GET /moments remains forbidden even with the API key', async () 
 test('allowed Origin without authentication reaches the route authorization check', async () => {
   const response = await worker.fetch(request('POST', '/moments', undefined, 'https://arganzheng.life'), env, ctx);
   assert.equal(response.status, 401);
+});
+
+test('readPinnedIds parses block lists without dropping the first id', () => {
+  const ids = ['20261006-0900', '20261007-0900'];
+  assert.deepEqual(readPinnedIds('pinned:\n  - 20261006-0900\n'), ids.slice(0, 1));
+  assert.deepEqual(readPinnedIds(`pinned:\n${ids.map((id) => `  - ${id}`).join('\n')}\n`), ids);
+});
+
+test('readPinnedIds parses inline and quoted ids', () => {
+  const ids = ['20261006-0900', '20261007-0900'];
+  assert.deepEqual(readPinnedIds(`pinned: [${ids.join(', ')}]\n`), ids);
+  assert.deepEqual(readPinnedIds(`pinned: ['${ids[0]}', "${ids[1]}"]\n`), ids);
+});
+
+test('readPinnedIds handles empty and missing keys', () => {
+  assert.deepEqual(readPinnedIds('pinned: []\n'), []);
+  assert.deepEqual(readPinnedIds('other: value\n'), []);
+});
+
+test('readPinnedIds round-trips writePinnedIds output', () => {
+  const ids = ['20261006-0900', '20261007-0900'];
+  for (const values of [[], ids.slice(0, 1), ids]) {
+    assert.deepEqual(readPinnedIds(writePinnedIds(values)), values);
+  }
 });
 
 test('multipart POST without Origin and with the API key reaches publish handler', async () => {
