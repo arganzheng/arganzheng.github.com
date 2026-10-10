@@ -49,7 +49,7 @@
 
   var text = $('.mp-text'), file = $('.mp-file'), pics = $('.mp-pics'), tagsBox = $('.mp-tags'), tagNew = $('.mp-tag-new');
   var place = $('.mp-place'), quote = $('.mp-quote'), by = $('.mp-by'), music = $('.mp-music'), time = $('.mp-time');
-  var submit = $('.mp-submit'), msg = $('.mp-msg'), loginBtn = $('.mp-login'), who = $('.mp-who');
+  var submit = $('.mp-submit'), clear = $('.mp-clear'), msg = $('.mp-msg'), loginBtn = $('.mp-login'), who = $('.mp-who');
   var done = $('.mp-done'), editor = $('.mp-editor'), queueNote = $('.mp-queue');
   var token = null, user = null, images = [], busy = false;
   // one video instead of the pictures (朋友圈): { file, url, poster, posterUrl, duration } | edit: { url, keep, posterKeep, posterUrl }
@@ -116,8 +116,10 @@
   }
   function clearDraft() {
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
-    dbAction('moment-post', 'draft', 'readwrite', 'delete', 'pictures').catch(function () {});
-    dbAction('moment-post', 'draft', 'readwrite', 'delete', 'video').catch(function () {});
+    return Promise.all([
+      dbAction('moment-post', 'draft', 'readwrite', 'delete', 'pictures').catch(function () {}),
+      dbAction('moment-post', 'draft', 'readwrite', 'delete', 'video').catch(function () {})
+    ]);
   }
   function persistPictures() {
     return dbAction('moment-post', 'draft', 'readwrite', 'put', 'pictures', images.filter(function (image) { return image.blob; }).map(function (image) { return image.blob; })).catch(function () {});
@@ -472,7 +474,10 @@
   }
 
   function setMsg(s, bad) { msg.textContent = s || ''; msg.classList.toggle('is-bad', !!bad); }
-  function updateSubmit() { submit.disabled = busy || !isAuthor() || !hasContent(); }
+  function updateSubmit() {
+    submit.disabled = busy || !isAuthor() || !hasContent();
+    clear.hidden = EDIT || !(text.value.trim() || selectedTags().length || place.value.trim() || quote.value.trim() || by.value.trim() || music.value.trim() || images.length || video);
+  }
   function onChange() { if (!EDIT) saveDraft(); renderPreview(); updateSubmit(); }
   [text, place, quote, by, music].forEach(function (el) { el.addEventListener('input', onChange); });
   time.addEventListener('input', function () { timeTouched = true; renderPreview(); });
@@ -680,14 +685,23 @@
       .catch(function (e) { busy = false; updateSubmit(); setMsg('读取失败：' + e.message, true); });
   }
 
-  $('.mp-again').addEventListener('click', function () {
-    if (EDIT) { location.href = location.pathname; return; }
-    clearDraft();
+  function resetForm() {
+    var cleared = clearDraft();
     text.value = ''; quote.value = ''; by.value = ''; music.value = ''; place.value = '';
     images.forEach(function (im) { if (im.blob) URL.revokeObjectURL(im.url); }); images = []; clearVideo();
     Array.prototype.forEach.call(tagsBox.querySelectorAll('.mp-tag.is-on'), function (b) { b.classList.remove('is-on'); });
     time.value = nowLocal(); renderPics(); renderPreview(); updateSubmit();
+    return cleared;
+  }
+  $('.mp-again').addEventListener('click', function () {
+    if (EDIT) { location.href = location.pathname; return; }
+    resetForm();
     editor.hidden = false; done.hidden = true; $('.mp-preview-wrap').hidden = false; text.focus();
+  });
+  clear.addEventListener('click', function () {
+    if (EDIT || busy) return;
+    if (!window.confirm('清空草稿？文字、标签、图片和视频都会删除。')) return;
+    resetForm().then(function () { text.focus(); });
   });
   loginBtn.addEventListener('click', login);
 
