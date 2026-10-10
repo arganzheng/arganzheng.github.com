@@ -35,9 +35,28 @@ flowchart LR
 
 ---
 
-## 01 · Transformer 长什么样：只有五种运算
+## 01 · 原始 Transformer 的两半
 
-**结论**：embedding 查表 → **attention（唯一让 token 互相看的地方）** → FFN（逐 token 的非线性，知识在这，占一层 2/3）→ 残差 + LayerNorm → lm_head；attention 是集合运算不知道顺序，位置必须显式给。
+《Attention Is All You Need》里的 Transformer 是为机器翻译设计的 encoder-decoder：encoder 双向读取源句，decoder 用 causal self-attention 生成目标句，再以 cross-attention 读取 encoder 输出。GPT-2 属于后来常见的 decoder-only 路线（[原始论文](https://arxiv.org/html/1706.03762v4)）。
+
+```mermaid
+flowchart LR
+    X["源句"] --> E["Encoder<br/>双向 self-attention + FFN"]
+    E --> M["Encoder 输出"]
+    Y["已生成目标前缀"] --> D["Decoder<br/>causal self-attention<br/>cross-attention + FFN"]
+    M -->|K、V| D
+    D --> P["下一个目标 token"]
+```
+
+<aside class="notes" markdown="1">
+原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。原始论文 base 配置：encoder、decoder 各 6 层，d_model = 512、8 heads、d_ff = 2048（[来源](https://arxiv.org/html/1706.03762v4)）。
+</aside>
+
+<!-- v -->
+
+## 01 · Transformer 长什么样：从论文到 GPT-2
+
+**结论**：原始 Transformer 是 encoder-decoder；GPT-2 走 decoder-only 路线。embedding 查表 → **attention（唯一让 token 互相看的地方）** → FFN（逐 token 的非线性，知识在这，占一层 2/3）→ 残差 + LayerNorm → lm_head；attention 不知道顺序，位置必须显式给。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 330}}}%%

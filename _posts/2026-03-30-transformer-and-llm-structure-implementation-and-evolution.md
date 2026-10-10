@@ -44,9 +44,9 @@ Transformer 的结构图里每个部件为什么在那里？训练与推理的�
 
 ### 01. Transformer 长什么样：从一句话到下一个 token
 
-从 embedding、位置、attention、FFN、残差与 LayerNorm、lm_head 出发，逐个解释部件的作用。用 $$d = 4$$、3 个 token 的例子手算 attention 六步并与 PyTorch 对拍，再看 GPT-2 small 的真实数字、attention 头热力图、换序实验、参数量，以及 decoder-only 与 encoder-decoder 的区别。
+先从[《Attention Is All You Need》](https://arxiv.org/html/1706.03762v4)的机器翻译 encoder-decoder 结构出发，再对照 encoder-only、decoder-only、encoder-decoder 三条路线，最后落到 GPT-2 的 decoder-only。之后从 embedding、位置、attention、FFN、残差与 LayerNorm、lm_head 出发，逐个解释部件的作用；用 $$d = 4$$、3 个 token 的例子手算 attention 六步并与 PyTorch 对拍，再看 GPT-2 small 的数字、attention 头热力图、换序实验与参数量。
 
-> **一个 token 的编号进入模型，到词表上的一个概率分布出来，中间经过了哪些运算？每一个运算承担什么作用、去掉会怎样？**
+> **原始 Transformer 的 encoder-decoder 如何变成 GPT-2 的 decoder-only？一个 token 的编号进入 GPT-2，到词表上的概率分布出来，又经过哪些运算？**
 
 实践：用 `attention_by_hand.py` 手算 attention 并与 PyTorch 对拍。
 
