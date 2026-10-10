@@ -423,3 +423,23 @@ html[data-theme="dark"] .post-container .callout-caution {
 	background-color: mix(@dk-surface, @dk-callout-caution, 90%);
 	.callout-title { color: @dk-callout-caution; }
 }
+
+html[data-theme="dark"] .reading-settings-panel {
+	border-color: @dk-border;
+	background-color: @dk-surface;
+	color: @dk-text;
+}
+html[data-theme="dark"] .rs-setting-label,
+html[data-theme="dark"] .rs-reset { color: @dk-muted; }
+html[data-theme="dark"] .rs-segments {
+	border-color: @dk-border;
+	background-color: @dk-bg;
+}
+html[data-theme="dark"] .rs-segments button + button { border-left-color: @dk-border; }
+html[data-theme="dark"] .rs-segments button[aria-pressed="true"] {
+	background-color: @dk-link;
+	color: @dk-bg;
+}
+html[data-theme="dark"] .rs-segments button:focus-visible,
+html[data-theme="dark"] .rs-reset:focus-visible { outline-color: @dk-link; }
+html[data-theme="dark"] .rs-reset:hover { color: @dk-link; }

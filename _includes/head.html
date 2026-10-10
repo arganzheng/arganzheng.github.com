@@ -37,6 +37,57 @@
             };
         })();
     </script>
+    <script>
+        (function () {
+            var root = document.documentElement;
+            var key = 'reading-settings';
+            var attributes = { size: 'data-rs-size', width: 'data-rs-width', font: 'data-rs-font' };
+            function allowed(name, value) {
+                return name === 'size' ? value === 's' || value === 'l' || value === 'xl' :
+                    name === 'width' ? value === 'narrow' :
+                    name === 'font' ? value === 'serif' : false;
+            }
+            function normalize(value) {
+                value = value && typeof value === 'object' ? value : {};
+                var settings = {};
+                Object.keys(attributes).forEach(function (name) {
+                    if (allowed(name, value[name])) settings[name] = value[name];
+                });
+                return settings;
+            }
+            function apply(settings) {
+                settings = normalize(settings);
+                Object.keys(attributes).forEach(function (name) {
+                    if (settings[name]) root.setAttribute(attributes[name], settings[name]);
+                    else root.removeAttribute(attributes[name]);
+                });
+            }
+            function read() {
+                try {
+                    var saved = localStorage.getItem(key);
+                    return saved ? JSON.parse(saved) : {};
+                } catch (e) {
+                    return {};
+                }
+            }
+            function snapshot() {
+                return Object.keys(attributes).map(function (name) {
+                    return root.getAttribute(attributes[name]) || '';
+                }).join('|');
+            }
+            apply(read());
+            window.addEventListener('storage', function (event) {
+                if (event.key !== key && event.key !== null) return;
+                var before = snapshot(), settings = {};
+                try { settings = event.newValue ? JSON.parse(event.newValue) : {}; } catch (e) {}
+                apply(settings);
+                if (before !== snapshot()) {
+                    window.dispatchEvent(new Event('reading-settings-change'));
+                    window.dispatchEvent(new Event('resize'));
+                }
+            });
+        })();
+    </script>
     {% if page.noindex %}<meta name="robots" content="noindex, nofollow">{% endif %}
     
     <title>{% if page.title %}{{ page.title }} - {{ site.SEOTitle }}{% else %}{{ site.SEOTitle }}{% endif %}</title>
