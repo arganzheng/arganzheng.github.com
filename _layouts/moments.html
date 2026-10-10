@@ -125,6 +125,7 @@ so on phones the rest of the sidebar can slot in between the cards and them.
             <a class="mm-back" href="{{ page.month_url | prepend: site.baseurl }}#{{ entry.id }}">‹ {{ entry.time | date: "%Y 年 %-m 月" }}</a>
             {%- elsif page.is_tag %}
             <span class="mm-current"><span class="moment-tag">#{{ page.tag }}</span><small>{{ page.moments.size }} 条</small></span>
+            <span class="moment-own moment-tag-tools" hidden><button type="button" class="moment-act moment-tag-rename" data-tag="{{ page.tag | escape }}">重命名</button><span class="moment-toast" aria-live="polite" hidden></span></span>
             <a class="mm-back" href="{{ '/moments/' | prepend: site.baseurl }}">‹ 全部随笔</a>
             {%- else %}
             {%- if page.older %}<a class="mm-arrow" href="{{ page.older | prepend: site.baseurl }}" title="上一个月">‹</a>{% else %}<span class="mm-arrow is-off">‹</span>{% endif %}
@@ -133,9 +134,23 @@ so on phones the rest of the sidebar can slot in between the cards and them.
             <span class="post-stats" data-path="{{ path }}" data-annotations-api="{{ site.annotations.api }}"></span>
             {%- endif %}
         </nav>
+        {%- if page.is_index %}
+        {%- assign pinned = site.data.moments.entries | where: 'pinned', true %}
+        {%- if pinned.size > 0 %}
+        <section class="moment-pinned">
+            <h2>📌 置顶</h2>
+            <ol class="moments-list">
+            {%- for e in pinned %}
+                {% include moment-card.html e=e %}
+            {%- endfor %}
+            </ol>
+        </section>
+        {%- endif %}
+        {%- endif %}
 <!-- article -->
-        <ol class="moments-list" data-path="{{ path }}" data-author="{{ site.github_username | strip }}" data-annotations-api="{{ site.annotations.api }}" data-entry-page="{{ page.is_entry }}">
+        <ol class="moments-list" data-path="{{ path }}" data-author="{{ site.github_username | strip }}" data-annotations-api="{{ site.annotations.api }}" data-entry-page="{{ page.is_entry }}" data-front-door="{{ page.is_index }}" data-month="{{ page.month }}" data-tag-page="{{ page.is_tag }}">
         {%- for e in page.moments %}
+            {%- if page.is_index and e.pinned %}{% continue %}{% endif %}
             {% include moment-card.html e=e %}
         {%- endfor %}
         </ol>

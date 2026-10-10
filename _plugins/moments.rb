@@ -12,6 +12,7 @@
 #   page.moments = [{ 'id' => '20260921-0802', 'month' => '2026-09', 'title' => '2026-09-21 08:02',
 #                     'time' => Time, 'place' => '深圳湾', 'html' => …, 'text' => … }, …]
 #   site.data['moments'] = { 'months' => [pages, newest first], 'entries' => [all entries + 'url/page/refs/related'] }
+#   _data/moments.yml supplies entry ids in `pinned`; only /moments/ renders them in its leading block.
 #
 # newest first. The Markdown of each entry is rendered with the site's kramdown
 # converter, then touched up:
@@ -386,6 +387,7 @@ module Moments
 
     def generate(site)
       thumbs = Thumbs.new(site)
+      pinned_ids = Array(site.data.dig('moments', 'pinned')).map(&:to_s)
       months = site.pages.select { |p| p.data['layout'] == 'moments' && p.data['month'] }
       months.each do |page|
         page.data['moments'] = Moments.parse(site, page, thumbs)
@@ -397,6 +399,10 @@ module Moments
         p.data['older'] = months[i + 1].url if months[i + 1]
       end
       all = months.flat_map { |p| p.data['moments'] }
+      all.each { |entry| entry['pinned'] = true if pinned_ids.include?(entry['id']) }
+      (pinned_ids - all.map { |entry| entry['id'] }).each do |id|
+        Jekyll.logger.warn 'moments:', "pinned entry #{id} does not exist"
+      end
       entries_by_id = all.to_h { |e| [e['id'], e] }
       all.each { |e| e['refs_in'] = [] }
       all.sort_by { |e| e['time'] }.reverse_each do |source|

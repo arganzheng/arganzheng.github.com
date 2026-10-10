@@ -6807,6 +6807,38 @@ a.ms-day:hover {
 .moments-empty {
   color: #7a8794;
 }
+.post-container.moments .moment-pinned {
+  margin-bottom: 18px;
+}
+.post-container.moments .moment-pinned h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 650;
+  color: #2b3238;
+}
+.post-container.moments .moment-pending {
+  opacity: 0.72;
+  background: #f3f6f8;
+}
+.post-container.moments .moment-pending-badge {
+  color: #7a8794;
+  font-size: 12px;
+}
+.moments-wrap .moment-tag-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.moments-wrap .moment-tag-tools[hidden] {
+  display: none;
+}
+.moments-wrap .moment-tag-rename {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #00788f;
+  cursor: pointer;
+}
 .moments .annotation-panel {
   font-size: 14px;
 }
@@ -7247,6 +7279,20 @@ body.bare {
 .mp-actions .mp-submit:disabled {
   background: #cfd8de;
   color: #fff;
+}
+.mp-queue {
+  margin: 8px 0 0;
+  color: #7a8794;
+  font-size: 13px;
+}
+.mp-queue button {
+  margin-left: 8px;
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #fff0f0;
+  color: #d1242f;
+  cursor: pointer;
 }
 .mp-done {
   margin-top: 8px;

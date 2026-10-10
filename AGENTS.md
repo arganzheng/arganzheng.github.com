@@ -1042,7 +1042,13 @@ app). Sign in = the comments' giscus OAuth (`localStorage["giscus-session"]`
 JPEG), previews the card with the `.moment` styles and POSTs to the worker's
 `/moments`, which — only for the repo owner — commits the entry + pictures
 to `master` as the GitHub App (Contents: write), in the `moment.py` format;
-the deploy workflow publishes it. `noindex`, `sitemap: false`. Opened as
+the deploy workflow publishes it. Optional Worker secret `MOMENT_KEY` enables
+API-key JSON or `text/plain` posting on `POST /moments` only; author tools
+remain GitHub-login-only. The post page alone registers `/moments/sw.js`:
+the app shell works offline, Android shares are staged in IndexedDB, picture
+drafts survive reloads, and network failures queue for ordered retry. A
+short-lived localStorage card shows a submitted entry until deployment.
+`noindex`, `sitemap: false`. Opened as
 `post.html?edit=YYYY-MM/<id>` (the 编辑 link on a card) it loads that entry
 (worker `GET /moments`, parsed back into the fields; `raw` = non-canonical
 body, edited as Markdown), saves with `PUT /moments { month, id, … }` (kept
@@ -1060,7 +1066,10 @@ share counts on the month path via `POST /shares`) and
 when `js/annotations.js` reports
 the signed-in viewer (`blog:viewer`) = `site.github_username` — so on month
 pages, where the comments sign the author in; tag pages have no comments and
-show no 编辑 / 删除. `e.month` (`YYYY-MM` from the page URL) gives the
+show no 编辑 / 删除. The `.moment-own` controls also pin/unpin via
+`POST /moments/pin`; tag pages can rename or merge tags via `POST /moments/tags`.
+`_data/moments.yml` is the pin source of truth (`pinned: []`); only the front
+door renders a pinned block. `e.month` (`YYYY-MM` from the page URL) gives the
 `?edit=` target and `data-month`.
 
 How it is built (`_plugins/moments.rb`):

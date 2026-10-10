@@ -3,9 +3,8 @@
  * blog.min.js). Login = the comments' giscus OAuth (localStorage
  * "giscus-session" → worker POST /token → GitHub token); the worker's
  * POST /moments accepts the request only when GET /user is the repo owner.
- * Pictures are shrunk to ≤ 1600px wide in a canvas (WebP when the browser can
- * encode it, else JPEG) and sent base64 inside the JSON. The draft (text,
- * tags, place, quote, music) survives a reload in localStorage; pictures don't.
+ * Pictures are shrunk to ≤ 1600px wide in a canvas and saved in IndexedDB with
+ * the text draft; offline publishes are queued until the worker is reachable.
  */
 (function () {
   var root = document.getElementById('mp');
@@ -13,7 +12,8 @@
   var API = (root.getAttribute('data-api') || '').replace(/\/$/, '');
   var OWNER = (root.getAttribute('data-owner') || '').toLowerCase();
   var BASE = root.getAttribute('data-base') || '';
-  var SESSION_KEY = 'giscus-session', DRAFT_KEY = 'moment-post-draft';
+  var SESSION_KEY = 'giscus-session', DRAFT_KEY = 'moment-post-draft', QUEUE_DB = 'moment-queue';
+  var PENDING_KEY = 'moments-pending';
   var MAX_PICS = 9, MAX_W = 1600;
   // ?edit=YYYY-MM/<id> (the 编辑 link on a card): load that entry from the worker, PUT it back.
   var EDIT = /[?&]edit=(\d{4}-\d{2})\/(\d{8}(?:-\d{4})?(?:-\d+)?)/.exec(location.search);
@@ -25,11 +25,31 @@
 
   function $(s) { return root.querySelector(s); }
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function dbOpen(name, store) {
+    return new Promise(function (resolve, reject) {
+      var request = indexedDB.open(name, 1);
+      request.onupgradeneeded = function () { if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store); };
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () { reject(request.error); };
+    });
+  }
+  function dbAction(name, store, mode, method, key, value) {
+    return dbOpen(name, store).then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(store, mode), objectStore = tx.objectStore(store);
+        var request = method === 'put' ? objectStore.put(value, key) : objectStore[method](key);
+        request.onsuccess = function () { resolve(request.result); };
+        request.onerror = function () { reject(request.error); };
+        tx.oncomplete = function () { db.close(); };
+        tx.onerror = function () { db.close(); reject(tx.error); };
+      });
+    });
+  }
 
   var text = $('.mp-text'), file = $('.mp-file'), pics = $('.mp-pics'), tagsBox = $('.mp-tags'), tagNew = $('.mp-tag-new');
   var place = $('.mp-place'), quote = $('.mp-quote'), by = $('.mp-by'), music = $('.mp-music'), time = $('.mp-time');
   var submit = $('.mp-submit'), msg = $('.mp-msg'), loginBtn = $('.mp-login'), who = $('.mp-who');
-  var done = $('.mp-done'), editor = $('.mp-editor');
+  var done = $('.mp-done'), editor = $('.mp-editor'), queueNote = $('.mp-queue');
   var token = null, user = null, images = [], busy = false;
 
   // ---- login (same flow as js/annotations.js)
@@ -51,7 +71,8 @@
     var headers = { 'Content-Type': 'application/json' };
     if (opts.token) headers.Authorization = 'Bearer ' + opts.token;
     return fetch(API + path, { method: opts.method || 'GET', headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); });
+      .catch(function (error) { error.network = true; throw error; })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) { var error = new Error(d.error || ('HTTP ' + r.status)); error.status = r.status; throw error; } return d; }); });
   }
   function ensureToken() {
     if (token) return Promise.resolve(token);
@@ -90,7 +111,18 @@
     (d.tags || []).forEach(function (t) { toggleTag(t, true); });
     if (d.place || d.quote || d.music) $('.mp-more').open = true;
   }
-  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ } }
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
+    dbAction('moment-post', 'draft', 'readwrite', 'delete', 'pictures').catch(function () {});
+  }
+  function persistPictures() {
+    return dbAction('moment-post', 'draft', 'readwrite', 'put', 'pictures', images.filter(function (image) { return image.blob; }).map(function (image) { return image.blob; })).catch(function () {});
+  }
+  function restorePictures() {
+    return dbAction('moment-post', 'draft', 'readonly', 'get', 'pictures').then(function (blobs) {
+      images = (blobs || []).slice(0, MAX_PICS).map(function (blob) { return { blob: blob, url: URL.createObjectURL(blob) }; });
+    }).catch(function () {});
+  }
 
   // ---- tags: chips of the existing tags + new ones typed in
   function selectedTags() { return Array.prototype.map.call(tagsBox.querySelectorAll('.mp-tag.is-on'), function (b) { return b.getAttribute('data-tag'); }); }
@@ -141,11 +173,11 @@
       r.readAsDataURL(blob);
     });
   }
-  file.addEventListener('change', function () {
-    var list = Array.prototype.slice.call(file.files || []);
-    file.value = '';
-    if (!list.length) return;
+  function addFiles(list) {
+    list = Array.prototype.slice.call(list || []);
+    if (!list.length) return Promise.resolve();
     if (images.length + list.length > MAX_PICS) { setMsg('最多 ' + MAX_PICS + ' 张图', true); list = list.slice(0, MAX_PICS - images.length); }
+    if (!list.length) return Promise.resolve();
     busy = true; updateSubmit(); setMsg('处理图片…');
     var chain = Promise.resolve();
     list.forEach(function (f) {
@@ -153,8 +185,28 @@
         images.push({ blob: b, url: URL.createObjectURL(b) }); renderPics(); renderPreview();
       }).catch(function (e) { setMsg(e.message, true); });
     });
-    chain.then(function () { busy = false; setMsg(''); updateSubmit(); });
+    return chain.then(function () { busy = false; setMsg(''); persistPictures(); renderPics(); renderPreview(); updateSubmit(); });
+  }
+  file.addEventListener('change', function () {
+    var list = Array.prototype.slice.call(file.files || []);
+    file.value = '';
+    addFiles(list);
   });
+  function importShare() {
+    if (!new URLSearchParams(location.search).has('shared')) return Promise.resolve();
+    return dbAction('moments-share', 'share', 'readwrite', 'get', 'latest').then(function (shared) {
+      if (!shared) return;
+      var fields = [shared.title, shared.text].filter(Boolean);
+      if (shared.url) fields.push(shared.url);
+      if (fields.length) text.value = [text.value.trim(), fields.join('\n')].filter(Boolean).join('\n\n');
+      saveDraft();
+      var files = (shared.files || []).map(function (item) { return new File([item.blob], item.name || 'shared-image', { type: item.type || item.blob.type }); });
+      return addFiles(files).then(function () { return dbAction('moments-share', 'share', 'readwrite', 'delete', 'latest'); });
+    }).catch(function () {}).then(function () {
+      var url = new URL(location.href); url.searchParams.delete('shared');
+      history.replaceState(history.state, '', url.toString());
+    });
+  }
   // Order = gallery order. ‹ › on each thumbnail (the phone), drag on a mouse.
   function renderPics() {
     Array.prototype.forEach.call(pics.querySelectorAll('.mp-pic'), function (n) { n.remove(); });
@@ -173,7 +225,7 @@
   function movePic(from, to) {
     if (to < 0 || to >= images.length || from === to) return;
     images.splice(to, 0, images.splice(from, 1)[0]);
-    renderPics(); renderPreview();
+    persistPictures(); renderPics(); renderPreview();
   }
   pics.addEventListener('click', function (e) {
     var b = e.target.closest('.mp-pic-x, .mp-pic-l, .mp-pic-r'); if (!b || b.disabled) return;
@@ -181,7 +233,7 @@
     if (b.classList.contains('mp-pic-l')) return movePic(i, i - 1);
     if (b.classList.contains('mp-pic-r')) return movePic(i, i + 1);
     if (images[i].blob) URL.revokeObjectURL(images[i].url); images.splice(i, 1);
-    renderPics(); renderPreview(); updateSubmit();
+    persistPictures(); renderPics(); renderPreview(); updateSubmit();
   });
   var dragFrom = -1;
   pics.addEventListener('dragstart', function (e) { var p = e.target.closest('.mp-pic'); if (!p) return; dragFrom = +p.getAttribute('data-i'); e.dataTransfer.effectAllowed = 'move'; p.classList.add('is-dragging'); });
@@ -228,6 +280,110 @@
   time.addEventListener('input', function () { timeTouched = true; renderPreview(); });
   text.addEventListener('input', function () { text.style.height = 'auto'; text.style.height = Math.min(text.scrollHeight, 400) + 'px'; });
 
+  function tinyThumb(blob) {
+    return new Promise(function (resolve) {
+      var url = URL.createObjectURL(blob), img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, 240 / img.naturalWidth), canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height); URL.revokeObjectURL(url);
+        canvas.toBlob(function (small) {
+          if (!small) return resolve('');
+          var reader = new FileReader(); reader.onload = function () { resolve(String(reader.result)); }; reader.onerror = function () { resolve(''); }; reader.readAsDataURL(small);
+        }, 'image/jpeg', 0.72);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(''); }; img.src = url;
+    });
+  }
+  function savePending(payload, response) {
+    var thumbs = (payload.images || []).filter(function (image) { return image.data; }).slice(0, 3).map(function (image) {
+      var bytes = atob(image.data), array = new Uint8Array(bytes.length);
+      for (var i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
+      return tinyThumb(new Blob([array], { type: image.type || 'image/jpeg' }));
+    });
+    return Promise.all(thumbs).then(function (imagesData) {
+      var pending = [];
+      try { pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch (e) { pending = []; }
+      var entry = {
+        id: (response.url || '').split('#').pop(), month: response.month, url: response.url,
+        title: payload.time, place: payload.place, text: payload.text, tags: payload.tags || [],
+        thumbs: imagesData.filter(Boolean), at: Date.now()
+      };
+      pending = pending.filter(function (item) { return item.id !== entry.id; });
+      pending.unshift(entry);
+      try { localStorage.setItem(PENDING_KEY, JSON.stringify(pending.slice(0, 5))); } catch (e) { /* ignore */ }
+    });
+  }
+  function completePublish(payload, response) {
+    var stored = EDIT ? Promise.resolve() : savePending(payload, response).catch(function () {});
+    return stored.then(function () {
+      if (!EDIT) clearDraft();
+      $('.mp-done-title').innerHTML = '<i class="fa fa-check"></i> ' + (EDIT ? '已更新' : '已提交');
+      $('.mp-done-link').href = BASE + response.url;
+      $('.mp-done-month').href = BASE + response.month;
+      $('.mp-done-month').hidden = !response.month || !!EDIT;
+      $('.mp-done-commit').href = 'https://github.com/' + (root.getAttribute('data-repo') || '') + '/commit/' + response.commit;
+      $('.mp-done-commit').hidden = !root.getAttribute('data-repo');
+      editor.hidden = true; done.hidden = false; $('.mp-preview-wrap').hidden = true;
+      busy = false; setMsg('');
+    });
+  }
+
+  var queueItems = [], queueLoaded = false, queueBusy = false;
+  function showQueue(error) {
+    queueNote.hidden = !queueItems.length && !error;
+    if (!queueNote.hidden) {
+      queueNote.innerHTML = esc(error ? error + '（' + queueItems.length + ' 条待发）' : (queueItems.length + ' 条待发，联网后自动发布')) +
+        (error ? ' <button type="button" class="mp-queue-discard">丢弃</button>' : '');
+    }
+  }
+  function loadQueue() {
+    return dbAction(QUEUE_DB, 'queue', 'readonly', 'get', 'items').then(function (items) {
+      queueItems = items || []; queueLoaded = true; showQueue();
+    }).catch(function () { queueLoaded = true; });
+  }
+  function saveQueue() {
+    return dbAction(QUEUE_DB, 'queue', 'readwrite', 'put', 'items', queueItems);
+  }
+  function queuePayload(payload) {
+    queueItems.push({ key: Date.now() + Math.random(), payload: payload });
+    return saveQueue().then(function () {
+      showQueue(); setMsg('已离线保存，联网后自动发布（' + queueItems.length + ' 条待发）');
+      busy = false; updateSubmit();
+    }).catch(function (error) {
+      queueItems.pop(); busy = false; updateSubmit();
+      setMsg('离线保存失败：' + error.message, true);
+    });
+  }
+  function processQueue() {
+    if (!queueLoaded || queueBusy || !navigator.onLine || !queueItems.length || EDIT) return;
+    queueBusy = true;
+    function next() {
+      if (!queueItems.length) { queueBusy = false; showQueue(); return; }
+      token = null;
+      ensureToken().then(function (fresh) {
+        return api('/moments', { method: 'POST', token: fresh, body: queueItems[0].payload });
+      }).then(function (response) {
+        var current = queueItems[0];
+        return savePending(current.payload, response).then(function () {
+          queueItems.shift(); return saveQueue();
+        }).catch(function (error) {
+          if (queueItems[0] !== current) queueItems.unshift(current);
+          throw error;
+        }).then(next);
+      }).catch(function (error) {
+        queueBusy = false;
+        showQueue(error.status >= 400 && error.status < 500 ? error.message : '');
+      });
+    }
+    next();
+  }
+  queueNote.addEventListener('click', function (event) {
+    if (!event.target.closest('.mp-queue-discard')) return;
+    queueItems.shift(); saveQueue().then(function () { showQueue(); processQueue(); });
+  });
+  window.addEventListener('online', processQueue);
+
   // ---- publish
   submit.addEventListener('click', function () {
     if (submit.disabled) return;
@@ -240,18 +396,15 @@
       if (!im.blob) return { url: im.keep };
       return toBase64(im.blob).then(function (d) { return { name: '', type: im.blob.type, data: d }; });
     }))
-      .then(function (imgs) { payload.images = imgs; return ensureToken(); })
-      .then(function (t) { return api('/moments', { method: EDIT ? 'PUT' : 'POST', token: t, body: payload }); })
-      .then(function (r) {
-        if (!EDIT) clearDraft();
-        $('.mp-done-title').innerHTML = '<i class="fa fa-check"></i> ' + (EDIT ? '已更新' : '已提交');
-        $('.mp-done-link').href = BASE + r.url;
-        $('.mp-done-commit').href = 'https://github.com/' + (root.getAttribute('data-repo') || '') + '/commit/' + r.commit;
-        $('.mp-done-commit').hidden = !root.getAttribute('data-repo');
-        editor.hidden = true; done.hidden = false; $('.mp-preview-wrap').hidden = true;
-        busy = false; setMsg('');
+      .then(function (imgs) {
+        payload.images = imgs;
+        if (!EDIT && !navigator.onLine) return queuePayload(payload);
+        return ensureToken().then(function (t) {
+          return api('/moments', { method: EDIT ? 'PUT' : 'POST', token: t, body: payload });
+        }).then(function (response) { return completePublish(payload, response); });
       })
       .catch(function (e) {
+        if (!EDIT && (e.network || !navigator.onLine)) return queuePayload(payload);
         busy = false; updateSubmit();
         if (/登录/.test(e.message)) { token = null; }
         setMsg('发布失败：' + e.message, true);
@@ -294,6 +447,7 @@
 
   $('.mp-again').addEventListener('click', function () {
     if (EDIT) { location.href = location.pathname; return; }
+    clearDraft();
     text.value = ''; quote.value = ''; by.value = ''; music.value = ''; place.value = '';
     images.forEach(function (im) { if (im.blob) URL.revokeObjectURL(im.url); }); images = [];
     Array.prototype.forEach.call(tagsBox.querySelectorAll('.mp-tag.is-on'), function (b) { b.classList.remove('is-on'); });
@@ -308,10 +462,15 @@
   if (EDIT) { root.classList.add('is-edit'); $('.mp-title').textContent = '编辑随笔'; submit.textContent = '保存'; $('.mp-del').hidden = false; }
   else {
     loadDraft();
-    if (REF) { text.value = '[[' + REF + ']] ' + text.value; saveDraft(); }
+    if (REF && text.value.indexOf('[[' + REF + ']]') < 0) { text.value = '[[' + REF + ']] ' + text.value; saveDraft(); }
   }
-  renderPics(); renderPreview(); renderAuth();
-  if (!API) setMsg('未配置 annotations.api，无法发布', true);
-  else if (session()) whoAmI().then(function () { if (EDIT && isAuthor()) return loadEntry(); }).catch(function (e) { setMsg(e.message, true); });
-  else if (EDIT) setMsg('先登录 GitHub 才能读取并修改这条随笔', true);
+  function finishBoot() {
+    renderPics(); renderPreview(); renderAuth();
+    if (!API) setMsg('未配置 annotations.api，无法发布', true);
+    else if (session()) whoAmI().then(function () { if (EDIT && isAuthor()) return loadEntry(); }).catch(function (e) { setMsg(e.message, true); });
+    else if (EDIT) setMsg('先登录 GitHub 才能读取并修改这条随笔', true);
+    loadQueue().then(processQueue);
+  }
+  if (!EDIT) restorePictures().then(importShare).then(finishBoot);
+  else finishBoot();
 })();
