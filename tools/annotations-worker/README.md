@@ -117,10 +117,20 @@ printf '%s' '散步时看到海了 #散步' | curl -X POST "$API/moments" \
   -H "Authorization: Bearer $MOMENT_KEY" -H 'Content-Type: text/plain' --data-binary @-
 ```
 
-iOS 快捷指令: add **获取 URL 内容**, URL = `$API/moments`, method = POST;
-under headers add `Authorization` = `Bearer <your MOMENT_KEY>`, choose JSON
-request body and add a `text` field containing the shortcut input. Do not put
-the key in logs, screenshots or a shared shortcut.
+Form uploads can send repeated `image` fields:
+
+```bash
+curl -X POST "$API/moments" \
+  -H "Authorization: Bearer $MOMENT_KEY" \
+  -F 'text=散步时看到海了 #散步' -F image=@sea.jpg -F image=@sky.jpg
+```
+
+iOS 快捷指令：在「获取 URL 内容」中设置 URL = `$API/moments`、方法 = POST，
+请求头添加 `Authorization: Bearer <MOMENT_KEY>`；请求体选择 **表单**，
+添加 `text`（文本 = 提供的输入）和 `image`（文件 =
+转换后的照片，可重复添加多张）。先依次「选择照片」→「调整图像大小」
+（宽 1600）→「转换图像」（JPEG）；iPhone HEIC 不受支持，原图也可能超过
+3 MB。不要把密钥放在日志、截图或共享的快捷指令中。
 
 Editing and deleting (the 编辑 / 删除 links a signed-in author sees on every card
 of a month page, `js/moments.js`; the 发布页 opens as `/moments/post.html?edit=YYYY-MM/<id>`):

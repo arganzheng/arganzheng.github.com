@@ -985,14 +985,89 @@ async function renameMomentTag(request, env, cors) {
   return result instanceof Response ? result : json({ changed: result.changed, files: result.files }, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
+export async function momentBody(request) {
+  const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType === 'text/plain') return { text: await request.text() };
+  if (contentType === 'multipart/form-data' || contentType === 'application/x-www-form-urlencoded') {
+    const fd = await request.formData();
+    const body = {};
+    for (const key of ['text', 'place', 'time', 'quote', 'by', 'music']) {
+      const value = fd.get(key);
+      if (typeof value === 'string') body[key] = value;
+    }
+    const tags = fd.getAll('tags')
+      .filter((value) => typeof value === 'string')
+      .flatMap((value) => value.split(/[,，\s]+/))
+      .filter(Boolean);
+    if (tags.length) body.tags = tags;
+
+    body.images = [];
+    const uploads = [...fd.getAll('image'), ...fd.getAll('images')];
+    for (const upload of uploads) {
+      if (typeof upload === 'string') {
+        if (!upload) continue;
+        body.images.push({ name: '', type: sniffMomentImageType(base64PrefixBytes(upload)), data: upload });
+      } else if (upload && typeof upload.arrayBuffer === 'function' && typeof upload.size === 'number') {
+        const number = body.images.length + 1;
+        if (upload.size > MOMENT_IMAGE_BYTES_MAX) {
+          const err = new Error(`第 ${number} 张图太大（> ${MOMENT_IMAGE_BYTES_MAX / 1024 / 1024} MB）`);
+          err.status = 413;
+          throw err;
+        }
+        const bytes = new Uint8Array(await upload.arrayBuffer());
+        const declaredType = typeof upload.type === 'string' ? upload.type : '';
+        const type = Object.prototype.hasOwnProperty.call(MOMENT_IMAGE_TYPES, declaredType)
+          ? declaredType
+          : sniffMomentImageType(bytes) || declaredType;
+        body.images.push({
+          name: typeof upload.name === 'string' ? upload.name : '',
+          type,
+          data: momentBytesToBase64(bytes),
+        });
+      }
+    }
+    return body;
+  }
+  return request.json().catch(() => null);
+}
+
+function base64PrefixBytes(data) {
+  let prefix = data.replace(/\s+/g, '').slice(0, 16);
+  if (!prefix) return new Uint8Array();
+  prefix = prefix.padEnd(Math.ceil(prefix.length / 4) * 4, '=');
+  try {
+    const binary = atob(prefix);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    return new Uint8Array();
+  }
+}
+
+function sniffMomentImageType(bytes) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  if (bytes.length >= 4 && String.fromCharCode.apply(null, bytes.subarray(0, 4)) === 'GIF8') return 'image/gif';
+  if (bytes.length >= 12 &&
+    String.fromCharCode.apply(null, bytes.subarray(0, 4)) === 'RIFF' &&
+    String.fromCharCode.apply(null, bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  return '';
+}
+
+function momentBytesToBase64(bytes) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
 async function publishMoment(request, env, cors) {
   const author = await requireMomentPoster(request, env, cors, '发布随笔');
   if (author.error) return author.error;
   if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
   let f;
   try {
-    const isText = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() === 'text/plain';
-    const body = isText ? { text: await request.text() } : await request.json().catch(() => null);
+    const body = await momentBody(request);
     if (body && typeof body === 'object' && !Array.isArray(body) && !body.time) {
       body.time = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', ' ');
     }
