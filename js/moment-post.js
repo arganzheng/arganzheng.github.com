@@ -207,17 +207,24 @@
       history.replaceState(history.state, '', url.toString());
     });
   }
-  // Order = gallery order. ‹ › on each thumbnail (the phone), drag on a mouse.
+  // ---- picture grid (朋友圈): tap = full-screen preview, long-press (or mouse drag)
+  // picks a picture up, the others make room live; dropping it on the red bar deletes it.
+  var trash = document.createElement('div');
+  trash.className = 'mp-trash'; trash.hidden = true;
+  trash.innerHTML = '<i class="fa fa-trash"></i><span>拖到此处删除</span>';
+  document.body.appendChild(trash);
+  function removePic(i) {
+    if (images[i].blob) URL.revokeObjectURL(images[i].url);
+    images.splice(i, 1);
+    persistPictures(); renderPics(); renderPreview(); updateSubmit();
+  }
   function renderPics() {
     Array.prototype.forEach.call(pics.querySelectorAll('.mp-pic'), function (n) { n.remove(); });
     var add = pics.querySelector('.mp-add');
     images.forEach(function (im, i) {
-      var d = document.createElement('div'); d.className = 'mp-pic'; d.draggable = true; d.setAttribute('data-i', i);
-      d.innerHTML = '<img src="' + im.url + '" alt="">' +
-        '<button type="button" class="mp-pic-x" data-i="' + i + '" title="移除">×</button>' +
-        (images.length > 1 ? '<span class="mp-pic-mv">' +
-          '<button type="button" class="mp-pic-l" data-i="' + i + '" title="前移"' + (i === 0 ? ' disabled' : '') + '>‹</button>' +
-          '<button type="button" class="mp-pic-r" data-i="' + i + '" title="后移"' + (i === images.length - 1 ? ' disabled' : '') + '>›</button></span>' : '');
+      var d = document.createElement('div'); d.className = 'mp-pic'; d.setAttribute('data-i', i);
+      d.setAttribute('role', 'button'); d.tabIndex = 0; d.title = '点按预览，长按拖动排序';
+      d.innerHTML = '<img src="' + im.url + '" alt="" draggable="false">';
       pics.insertBefore(d, add);
     });
     add.hidden = images.length >= MAX_PICS;
@@ -227,19 +234,129 @@
     images.splice(to, 0, images.splice(from, 1)[0]);
     persistPictures(); renderPics(); renderPreview();
   }
-  pics.addEventListener('click', function (e) {
-    var b = e.target.closest('.mp-pic-x, .mp-pic-l, .mp-pic-r'); if (!b || b.disabled) return;
-    var i = +b.getAttribute('data-i');
-    if (b.classList.contains('mp-pic-l')) return movePic(i, i - 1);
-    if (b.classList.contains('mp-pic-r')) return movePic(i, i + 1);
-    if (images[i].blob) URL.revokeObjectURL(images[i].url); images.splice(i, 1);
-    persistPictures(); renderPics(); renderPreview(); updateSubmit();
+
+  var drag = null;   // { from, to, el, ghost, x, y, ox, oy, touch, active, timer }
+  function dragBegin(el, x, y, touch) {
+    if (drag) return;
+    drag = { from: +el.getAttribute('data-i'), el: el, x: x, y: y, touch: touch, active: false };
+    if (touch) drag.timer = setTimeout(dragLift, 350);
+  }
+  function dragLift() {
+    var d = drag, r = d.el.getBoundingClientRect();
+    d.active = true; d.to = d.from;
+    d.ox = d.x - r.left; d.oy = d.y - r.top;
+    d.ghost = d.el.cloneNode(true); d.ghost.className = 'mp-ghost';
+    d.ghost.style.width = r.width + 'px'; d.ghost.style.height = r.height + 'px';
+    document.body.appendChild(d.ghost); ghostAt(d.x, d.y);
+    d.el.classList.add('is-holding');
+    trash.hidden = false; trash.getBoundingClientRect(); trash.classList.add('is-on');
+    document.documentElement.classList.add('mp-dragging');
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+  function ghostAt(x, y) { drag.ghost.style.transform = 'translate(' + (x - drag.ox) + 'px,' + (y - drag.oy) + 'px) scale(1.08)'; }
+  function overTrash(y) { return y >= window.innerHeight - trash.offsetHeight; }
+  // Hit-test with offsetLeft/Top (layout boxes, not the FLIP transforms in flight).
+  function reflow(x, y) {
+    var cells = Array.prototype.slice.call(pics.querySelectorAll('.mp-pic'));
+    var box = pics.getBoundingClientRect(), px = x - box.left, py = y - box.top;
+    var t = -1;
+    cells.forEach(function (c, i) {
+      if (px >= c.offsetLeft && px < c.offsetLeft + c.offsetWidth && py >= c.offsetTop && py < c.offsetTop + c.offsetHeight) t = i;
+    });
+    var cur = cells.indexOf(drag.el);
+    if (t < 0 || t === cur) return;
+    var before = cells.map(function (c) { return [c.offsetLeft, c.offsetTop]; });
+    pics.insertBefore(drag.el, t > cur ? cells[t].nextSibling : cells[t]);
+    cells.forEach(function (c, i) {
+      var dx = before[i][0] - c.offsetLeft, dy = before[i][1] - c.offsetTop;
+      if (!dx && !dy) return;
+      c.style.transition = 'none'; c.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      c.getBoundingClientRect();
+      c.style.transition = ''; c.style.transform = '';
+    });
+    drag.to = t;
+  }
+  function dragMove(x, y, e) {
+    if (!drag) return;
+    if (!drag.active) {
+      if (Math.abs(x - drag.x) + Math.abs(y - drag.y) < 8) return;
+      if (drag.touch) { clearTimeout(drag.timer); drag = null; return; }   // a scroll, not a long-press
+      dragLift();
+    }
+    if (e.cancelable) e.preventDefault();
+    drag.y = y; ghostAt(x, y);
+    var del = overTrash(y);
+    trash.classList.toggle('is-hot', del);
+    trash.querySelector('span').textContent = del ? '松手即可删除' : '拖到此处删除';
+    if (!del) reflow(x, y);
+  }
+  function dragEnd(cancelled) {
+    if (!drag) return;
+    var d = drag; drag = null; clearTimeout(d.timer);
+    if (!d.active) { if (!cancelled) openViewer(d.from); return; }
+    d.ghost.remove();
+    document.documentElement.classList.remove('mp-dragging');
+    trash.classList.remove('is-on', 'is-hot');
+    setTimeout(function () { if (!drag) trash.hidden = true; }, 200);
+    if (!cancelled && overTrash(d.y)) return removePic(d.from);
+    if (d.to !== d.from) movePic(d.from, d.to); else renderPics();
+  }
+  pics.addEventListener('contextmenu', function (e) { if (e.target.closest('.mp-pic')) e.preventDefault(); });
+  pics.addEventListener('touchstart', function (e) {
+    var p = e.target.closest('.mp-pic'); if (!p || e.touches.length > 1) return;
+    dragBegin(p, e.touches[0].clientX, e.touches[0].clientY, true);
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) { if (drag && drag.touch) dragMove(e.touches[0].clientX, e.touches[0].clientY, e); }, { passive: false });
+  document.addEventListener('touchend', function (e) { if (drag && drag.touch) { if (e.cancelable) e.preventDefault(); dragEnd(false); } });
+  document.addEventListener('touchcancel', function () { if (drag && drag.touch) dragEnd(true); });
+  pics.addEventListener('mousedown', function (e) {
+    var p = e.target.closest('.mp-pic'); if (!p || e.button !== 0) return;
+    e.preventDefault(); dragBegin(p, e.clientX, e.clientY, false);
   });
-  var dragFrom = -1;
-  pics.addEventListener('dragstart', function (e) { var p = e.target.closest('.mp-pic'); if (!p) return; dragFrom = +p.getAttribute('data-i'); e.dataTransfer.effectAllowed = 'move'; p.classList.add('is-dragging'); });
-  pics.addEventListener('dragover', function (e) { if (dragFrom < 0) return; e.preventDefault(); var p = e.target.closest('.mp-pic'); Array.prototype.forEach.call(pics.querySelectorAll('.mp-pic.is-over'), function (n) { n.classList.remove('is-over'); }); if (p) p.classList.add('is-over'); });
-  pics.addEventListener('drop', function (e) { var p = e.target.closest('.mp-pic'); if (dragFrom < 0 || !p) return; e.preventDefault(); movePic(dragFrom, +p.getAttribute('data-i')); dragFrom = -1; });
-  pics.addEventListener('dragend', function () { dragFrom = -1; Array.prototype.forEach.call(pics.querySelectorAll('.is-dragging, .is-over'), function (n) { n.classList.remove('is-dragging', 'is-over'); }); });
+  document.addEventListener('mousemove', function (e) { if (drag && !drag.touch) dragMove(e.clientX, e.clientY, e); });
+  document.addEventListener('mouseup', function () { if (drag && !drag.touch) dragEnd(false); });
+  pics.addEventListener('keydown', function (e) {
+    var p = e.target.closest('.mp-pic');
+    if (p && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openViewer(+p.getAttribute('data-i')); }
+  });
+
+  // ---- full-screen preview with 删除 (朋友圈's 预览)
+  var viewer = document.createElement('div'), vi = 0, vx = null;
+  viewer.className = 'mp-viewer'; viewer.hidden = true;
+  viewer.innerHTML = '<img alt=""><span class="mp-viewer-n"></span>' +
+    '<button type="button" class="mp-viewer-del" title="删除这张"><i class="fa fa-trash"></i></button>';
+  document.body.appendChild(viewer);
+  function showViewer() {
+    viewer.querySelector('img').src = images[vi].url;
+    viewer.querySelector('.mp-viewer-n').textContent = images.length > 1 ? (vi + 1) + ' / ' + images.length : '';
+  }
+  function openViewer(i) {
+    if (!images[i]) return;
+    vi = i; showViewer(); viewer.hidden = false;
+    document.documentElement.classList.add('mp-viewing');
+  }
+  function closeViewer() { viewer.hidden = true; document.documentElement.classList.remove('mp-viewing'); }
+  function stepViewer(n) { if (vi + n >= 0 && vi + n < images.length) { vi += n; showViewer(); } }
+  viewer.addEventListener('click', function (e) {
+    if (vx === 'swiped') { vx = null; return; }
+    if (!e.target.closest('.mp-viewer-del')) return closeViewer();
+    if (!confirm('要删除这张照片吗？')) return;
+    removePic(vi);
+    if (!images.length) return closeViewer();
+    vi = Math.min(vi, images.length - 1); showViewer();
+  });
+  viewer.addEventListener('touchstart', function (e) { vx = e.touches[0].clientX; }, { passive: true });
+  viewer.addEventListener('touchend', function (e) {
+    var dx = typeof vx === 'number' ? e.changedTouches[0].clientX - vx : 0;
+    vx = Math.abs(dx) > 50 ? 'swiped' : null;
+    if (vx) stepViewer(dx < 0 ? 1 : -1);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (viewer.hidden) return;
+    if (e.key === 'Escape') closeViewer();
+    else if (e.key === 'ArrowLeft') stepViewer(-1);
+    else if (e.key === 'ArrowRight') stepViewer(1);
+  });
 
   // ---- preview card (same markup as _layouts/moments.html / _plugins/moments.rb)
   function hasContent() { return !!(text.value.trim() || selectedTags().length || quote.value.trim() || images.length || music.value.trim()); }
