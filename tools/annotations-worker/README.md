@@ -84,13 +84,24 @@ Content-Length: 1234567
 <raw video bytes>
 ```
 
-The response is `201 { "src": "https://media.example/moments/YYYY/MM/<random>.mp4" }`.
+The response is `201 { "src": "https://blog-annotations.arganzheng.workers.dev/media/moments/YYYY/MM/<random>.mp4" }`.
+
+### Video delivery (`GET` / `HEAD /media/<key>`)
+
+`MEDIA_BASE` is `https://blog-annotations.arganzheng.workers.dev/media`; video
+URLs point back to this Worker, which reads the object from the `MEDIA` R2
+binding. The `pub-…r2.dev` hostname is not used because downloads from mainland
+China are too slow; its public access can remain enabled. The proxy accepts
+only `moments/YYYY/MM/<hex>.(mp4|mov|m4v|webm)` keys, supports `Range` requests
+and `If-None-Match`, and returns the same headers without a body for `HEAD`.
+No CORS headers are needed for video playback.
+
 The publishing request then uses that URL, with either a repository poster URL
 or a new base64 poster; `poster` may be omitted:
 
 ```json
 { "text": "海边十秒", "time": "2026-10-01 20:15",
-  "video": { "src": "https://media.example/moments/2026/10/3f9a1c2b7d.mp4",
+  "video": { "src": "https://blog-annotations.arganzheng.workers.dev/media/moments/2026/10/3f9a1c2b7d.mp4",
              "poster": { "type": "image/jpeg", "data": "<base64>" } } }
 ```
 
