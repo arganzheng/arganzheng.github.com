@@ -30,7 +30,7 @@
       (label ? '<span class="ms-card-label">' + esc(label) + '</span>' : '') +
       '<time>' + esc(e.date + (e.time ? ' ' + e.time : '')) + (e.place ? ' · ' + esc(e.place) : '') + '</time>' +
       (e.img ? '<img src="' + esc(base + e.img) + '" alt="" loading="lazy">' : '') +
-      (e.text ? '<p>' + esc(e.text) + '</p>' : '') + '</a>';
+      (e.text ? '<p>' + esc(e.text.slice(0, 140)) + '</p>' : '') + '</a>';
   }
 
   function shuffle() {

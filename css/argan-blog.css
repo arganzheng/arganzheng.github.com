@@ -6023,6 +6023,7 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 .ms-heat-year .ms-heat-scroll {
   overflow-x: auto;
   overflow-y: hidden;
+  padding-bottom: 8px;
   scrollbar-width: thin;
 }
 .ms-heat-year .ms-heat-months {

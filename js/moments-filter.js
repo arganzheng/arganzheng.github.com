@@ -80,6 +80,23 @@
     });
     return text.replace(new RegExp('(' + alternatives.join('|') + ')', 'gi'), '<mark>$1</mark>');
   }
+  function snippet(value, terms) {
+    var text = String(value || ''), limit = 140;
+    if (text.length <= limit) return text;
+    var lower = text.toLowerCase(), first = -1, firstLength = 0;
+    terms.forEach(function (term) {
+      var index = lower.indexOf(term.toLowerCase());
+      if (index >= 0 && (first < 0 || index < first || (index === first && term.length > firstLength))) {
+        first = index;
+        firstLength = term.length;
+      }
+    });
+    var start = first >= 0 && first + firstLength > limit - 1 ? Math.max(0, first - 30) : 0;
+    var leading = start > 0;
+    var end = Math.min(text.length, start + limit - (leading ? 1 : 0));
+    if (end < text.length) end -= 1;
+    return (leading ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
+  }
   function matches(entry, current) {
     if (current.img && !entry.img) return false;
     if (current.quote && !entry.quote) return false;
@@ -95,6 +112,7 @@
   function resultCard(entry, terms) {
     var href = base + entry.url;
     var date = entry.date + (entry.time ? ' ' + entry.time : '');
+    var text = snippet(entry.text, terms);
     var place = entry.place ? '<span class="moment-place">· ' + highlighted(entry.place, terms) + '</span>' : '';
     var tags = (entry.tags || []).map(function (tag) {
       return '<a class="moment-tag" href="' + esc(base + '/moments/tag/' + tag + '.html') + '">' + highlighted('#' + tag, terms) + '</a>';
@@ -103,7 +121,7 @@
     return '<li class="moment mf-result" data-entry-id="' + esc(entry.id) + '">' +
       '<div class="moment-head"><a class="moment-when" href="' + esc(href) + '"><time>' + highlighted(date, terms) + '</time></a>' + place + '</div>' +
       '<div class="moment-body mf-result-body"><div class="mf-result-copy">' +
-      (entry.text ? '<p>' + highlighted(entry.text, terms) + '</p>' : '') +
+      (text ? '<p>' + highlighted(text, terms) + '</p>' : '') +
       (tags ? '<div class="mf-result-tags">' + tags + '</div>' : '') +
       '</div>' + image + '</div></li>';
   }

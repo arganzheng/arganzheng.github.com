@@ -498,7 +498,7 @@ module Moments
       json.content = JSON.generate(all.map do |e|
         { 'id' => e['id'], 'url' => e['page'], 'date' => e['date'], 'time' => (e['has_time'] ? e['time'].strftime('%H:%M') : nil),
           'month' => e['month'], 'place' => e['place'], 'tags' => e['tags'],
-          'text' => CGI.unescapeHTML(e['text'])[0, 140], 'img' => e['img'],
+          'text' => CGI.unescapeHTML(e['text']), 'img' => e['img'],
           'quote' => e['html'].include?('class="moment-quote"'),
           'refs' => e['refs_out'].any? || e['refs_in'].any? }
       end)
