@@ -1,12 +1,13 @@
-# Site search index for js/search.js — replaces the old search.json +
-# search-content.ndjson pair, which made the browser download every post's
-# full text (15 MB, 5.5 MB gzipped) before the first keystroke.
+# Site search index and post link previews for js/search.js. It replaces the
+# old search.json + search-content.ndjson pair, which made the browser download
+# every post's full text (15 MB, 5.5 MB gzipped) before the first keystroke.
 #
 # Emitted under /search/ (all as pages, so `jekyll build` cleans them up like
 # any other output):
 #   meta.json        [[url, title, "YYYY-MM-DD", [tags…]], …]   one entry per post, id = index
 #   idx/<0..N-1>.json {key: [id deltas…]}                         inverted index, keys hashed into N buckets
 #   doc/<slug>.txt   plain text of one post (title not included)
+#   preview.json     {url: [title, date, summary, series_name]}   compact post hover previews
 #
 # Keys are what the client can derive from a query without a tokenizer, so the
 # matching semantics stay exactly those of the old in-memory search:
@@ -73,6 +74,7 @@ end
 Jekyll::Hooks.register :site, :post_render do |site|
   posts = site.posts.docs.sort_by { |p| p.date }.reverse
   meta = []
+  preview = {}
   postings = Hash.new { |h, k| h[k] = [] }
   pages = []
 
@@ -83,6 +85,12 @@ Jekyll::Hooks.register :site, :post_render do |site|
     meta << [url, title, post.date.strftime('%Y-%m-%d'), Array(post.data['tags']).map(&:to_s)]
     SearchIndex.keys_of("#{title} #{text}").each { |k| postings[k] << id }
     pages << SearchIndex.page(site, '/search/doc', "#{File.basename(post.url, '.html')}.txt", text)
+    summary = post.data['subtitle'].to_s.strip
+    summary = post.data['description'].to_s.strip if summary.empty?
+    summary = "#{text.chars.first(80).join}…" if summary.empty?
+    summary = summary.chars.first(100).join
+    series = (site.data['series'] || {})[post.data['series']]
+    preview[post.url] = [title, post.date.strftime('%Y-%m-%d'), summary, series && series['name']]
   end
 
   # 随笔: one document per month page (its entries' plain text joined); not the
@@ -107,6 +115,8 @@ Jekyll::Hooks.register :site, :post_render do |site|
     pages << SearchIndex.page(site, '/search/idx', "#{i}.json", JSON.generate(b))
   end
   pages << SearchIndex.page(site, '/search', 'meta.json', JSON.generate(meta))
+
+  pages << SearchIndex.page(site, '/search', 'preview.json', JSON.generate(preview))
 
   site.pages.concat(pages)
   Jekyll.logger.info 'Search index:', "#{posts.size} posts, #{moments.size} moments months, #{postings.size} keys, #{SearchIndex::BUCKETS} buckets"

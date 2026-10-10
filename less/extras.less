@@ -49,7 +49,16 @@
 	.related-date { color: #6a6a6a; }
 	// the tags this recommendation rests on, so the reader sees *why*
 	.related-why { margin-left: 8px; color: #59636e; font-size: 12px; white-space: nowrap; }
+
+	&.backlinks {
+		.h3 small { color: #6a6a6a; font-size: 13px; font-weight: normal; }
+		.backlinks-more {
+			summary { color: #6a6a6a; cursor: pointer; }
+			summary:hover { color: @brand-primary; }
+		}
+	}
 }
+.post-container .related + .related { margin-top: 28px; }
 
 // ---- category badge on the home list (index.html, `category: life`)
 .post-preview .post-cat {

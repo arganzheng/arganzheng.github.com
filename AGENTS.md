@@ -253,6 +253,11 @@ Pages has `https_enforced` on.
   `related_posts_threshold` share a tag. Each entry carries `shared_tags`
   (rarest first) and the include prints up to three as the reason. This is
   why every post needs tags — an untagged post is never recommended.
+- Backlinks ("LINKED FROM") are computed by `_plugins/backlinks.rb`
+  (`:site, :post_read`) from raw Markdown links to published posts, excluding
+  fenced and inline code and resolving `redirect_from` aliases; the three post
+  layouts render the newest-first `post.data['backlinks']` via
+  `_includes/backlinks.html` (eight shown, the rest folded).
 - `_includes/post-stale.html` (all three post layouts, first thing in the
   post column): 「本文写于 / 最后更新于 N 年前，部分内容可能已经过时」 when
   `updated` (else `date`) is >= 3 full years before `site.time` — the daily
@@ -281,6 +286,10 @@ Pages has `https_enforced` on.
   `SearchIndex.bucket_of` in Ruby must stay in sync. **Pagefind was tried and
   rejected** (2026-09-16): word-based segmentation is wrong for CJK substring
   search (参数服务器 → 148 hits via 参数 + 服务器; 一致性哈希 missed 6 of 7).
+  The same generator emits `/search/preview.json` (post title/date/summary/
+  series only, no moments); `js/link-preview.js` lazily loads it for internal
+  article links and shares `InlinePopover`. Search opens with ⌘K / Ctrl+K or
+  `/` (except when typing in an editable field); the nav title lists the keys.
 - Heading anchors: `js/toc.js` appends an empty `a.heading-anchor` to every
   heading in `.post-container` (glyph via CSS in `less/extras.less`, so the
   heading's textContent — what highlight comments anchor to — is unchanged);
