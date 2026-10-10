@@ -4,7 +4,8 @@
 # `_config.yml` defaults), entries separated by a dated heading:
 #
 #   ## 2026-09-21 08:02 @深圳湾      date, optional HH:MM, optional @place
-#   text, images, a quote, a music link — plain Markdown
+#   text, images, a quote, a music link — plain Markdown. One short video uses:
+#   ![视频](https://media.example/moments/2026/10/clip.mp4 "/img/moments/2026/10/poster.jpg")
 #
 # This generator turns each month page into structured data the layout and the
 # feed iterate over instead of `{{ content }}`:
@@ -19,6 +20,8 @@
 #   - a paragraph made only of images (one per line, or several paragraphs in a
 #     row) becomes `.moment-gallery.n-<count>` — 1 large, 2/4 two columns, 3+ a grid;
 #     local images get cached 640px WebP thumbnails; gallery links keep originals;
+#     a video URL in that image syntax becomes `.moment-video`, with the optional
+#     title used as its local poster image;
 #   - a blockquote keeps its line breaks (a poem), and when its last line starts
 #     with —— / — / -- that line becomes `.moment-cite` (the attribution);
 #   - a line that is just a URL of 网易云 / QQ 音乐 / Spotify / Apple Music, or of
@@ -53,6 +56,7 @@ require 'open3'
 module Moments
   HEAD = /\A##\s+(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s+@\s*(.+?))?\s*\z/
   IMG_P = %r{\A<p>\s*(?:<img\b[^>]*>\s*(?:<br\s*/?>)?\s*)+</p>\z}m
+  VIDEO = /\.(?:mp4|mov|m4v|webm)(?:\?|#|$)/i
   # `#读书` `#跑步/马拉松` `#AI-infra`: a `#` not glued to a word (`C#`), a path
   # (`…/#/song`) or an entity (`&#39;`); letters, digits, `_` `-` `·`, `/` for
   # levels; stops at punctuation, so `#读书，` tags 读书. `#1` is not a tag.
@@ -233,6 +237,18 @@ module Moments
       imgs = run.scan(/<img\b[^>]*>/)
       items = imgs.map do |img|
         src = img[/\bsrc="([^"]*)"/, 1]
+        if src.match?(VIDEO)
+          poster_attr = img[/\btitle="([^"]*)"/, 1]
+          poster = poster_attr && CGI.unescapeHTML(poster_attr)
+          media = if poster
+                    thumb = thumbs.url(poster)
+                    %(<img src="#{thumb || poster}" alt="视频" loading="lazy" decoding="async"><span class="moment-play" aria-hidden="true"></span>)
+                  else
+                    %(<video src="#{src}#t=0.1" muted playsinline preload="metadata"></video><span class="moment-play" aria-hidden="true"></span>)
+                  end
+          data = poster ? %( data-poster="#{poster}") : ''
+          next %(<a class="moment-pic moment-video" href="#{src}"#{data}>#{media}</a>)
+        end
         thumb = thumbs.url(src)
         if thumb && thumb != src
           if imgs.size > 1
@@ -245,7 +261,8 @@ module Moments
         end
         %(<a class="moment-pic" href="#{src}">#{img}</a>)
       end
-      %(<div class="moment-gallery n-#{imgs.size}">#{items.join}</div>\n)
+      video_class = imgs.any? { |img| (img[/\bsrc="([^"]*)"/, 1] || '').match?(VIDEO) } ? ' has-video' : ''
+      %(<div class="moment-gallery n-#{imgs.size}#{video_class}">#{items.join}</div>\n)
     end
   end
 
@@ -294,7 +311,12 @@ module Moments
       image = e['html'][/<img\b[^>]*>/]
       srcset = image && image[/\bsrcset="([^"]*)"/, 1]
       e['img'] = srcset ? srcset.split(',').first.split.first : image && image[/\bsrc="([^"]*)"/, 1]
-      e['original_img'] = e['html'][/<a class="moment-pic" href="([^"]+)"/, 1]
+      e['video'] = e['html'][/<a class="moment-pic moment-video" href="([^"]+)"/, 1]
+      e['original_img'] = if e['video']
+                            e['html'][/<a class="moment-pic moment-video"[^>]*\bdata-poster="([^"]+)"/, 1]
+                          else
+                            e['html'][/<a class="moment-pic" href="([^"]+)"/, 1]
+                          end
       e.delete('md')
     end
     entries.sort_by { |e| e['time'] }.reverse
@@ -504,7 +526,7 @@ module Moments
       json.content = JSON.generate(all.map do |e|
         { 'id' => e['id'], 'url' => e['page'], 'date' => e['date'], 'time' => (e['has_time'] ? e['time'].strftime('%H:%M') : nil),
           'month' => e['month'], 'place' => e['place'], 'tags' => e['tags'],
-          'text' => CGI.unescapeHTML(e['text']), 'img' => e['img'],
+          'text' => CGI.unescapeHTML(e['text']), 'img' => e['img'], 'video' => e['video'],
           'quote' => e['html'].include?('class="moment-quote"'),
           'refs' => e['refs_out'].any? || e['refs_in'].any? }
       end)

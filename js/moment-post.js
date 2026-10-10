@@ -15,6 +15,7 @@
   var SESSION_KEY = 'giscus-session', DRAFT_KEY = 'moment-post-draft', QUEUE_DB = 'moment-queue';
   var PENDING_KEY = 'moments-pending';
   var MAX_PICS = 9, MAX_W = 1600;
+  var VIDEO_MAX = 50 * 1024 * 1024, VIDEO_EXT = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm' };
   // ?edit=YYYY-MM/<id> (the 编辑 link on a card): load that entry from the worker, PUT it back.
   var EDIT = /[?&]edit=(\d{4}-\d{2})\/(\d{8}(?:-\d{4})?(?:-\d+)?)/.exec(location.search);
   EDIT = EDIT ? { month: EDIT[1], id: EDIT[2] } : null;
@@ -51,6 +52,8 @@
   var submit = $('.mp-submit'), msg = $('.mp-msg'), loginBtn = $('.mp-login'), who = $('.mp-who');
   var done = $('.mp-done'), editor = $('.mp-editor'), queueNote = $('.mp-queue');
   var token = null, user = null, images = [], busy = false;
+  // one video instead of the pictures (朋友圈): { file, url, poster, posterUrl, duration } | edit: { url, keep, posterKeep, posterUrl }
+  var video = null;
 
   // ---- login (same flow as js/annotations.js)
   function takeSessionFromUrl() {
@@ -114,6 +117,7 @@
   function clearDraft() {
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
     dbAction('moment-post', 'draft', 'readwrite', 'delete', 'pictures').catch(function () {});
+    dbAction('moment-post', 'draft', 'readwrite', 'delete', 'video').catch(function () {});
   }
   function persistPictures() {
     return dbAction('moment-post', 'draft', 'readwrite', 'put', 'pictures', images.filter(function (image) { return image.blob; }).map(function (image) { return image.blob; })).catch(function () {});
@@ -121,7 +125,15 @@
   function restorePictures() {
     return dbAction('moment-post', 'draft', 'readonly', 'get', 'pictures').then(function (blobs) {
       images = (blobs || []).slice(0, MAX_PICS).map(function (blob) { return { blob: blob, url: URL.createObjectURL(blob) }; });
+    }).catch(function () {}).then(function () {
+      return dbAction('moment-post', 'draft', 'readonly', 'get', 'video');
+    }).then(function (v) {
+      if (v && v.file && !images.length) video = { file: v.file, url: URL.createObjectURL(v.file), poster: v.poster || null, posterUrl: v.poster ? URL.createObjectURL(v.poster) : '', duration: v.duration || 0 };
     }).catch(function () {});
+  }
+  function persistVideo() {
+    var v = video && video.file ? { file: video.file, poster: video.poster, duration: video.duration } : null;
+    return dbAction('moment-post', 'draft', 'readwrite', v ? 'put' : 'delete', 'video', v).catch(function () {});
   }
 
   // ---- tags: chips of the existing tags + new ones typed in
@@ -173,9 +185,60 @@
       r.readAsDataURL(blob);
     });
   }
+  function isVideo(f) { return /^video\//.test(f.type || '') || /\.(mp4|mov|m4v|webm)$/i.test(f.name || ''); }
+  function videoType(f) {
+    if (/^video\//.test(f.type || '')) return f.type;
+    var ext = /\.(\w+)$/.exec(f.name || '');
+    return (ext && VIDEO_EXT[ext[1].toLowerCase()]) || 'video/mp4';
+  }
+  function fmtDur(s) { s = Math.round(s); return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + s % 60; }
+  // First frame → JPEG poster (the grid tile, og:image, share card). No poster if the
+  // browser can't decode it (e.g. HEVC in Chrome) — the site then shows the video's own frame.
+  function videoPoster(f) {
+    return new Promise(function (resolve) {
+      var url = URL.createObjectURL(f), v = document.createElement('video'), finished = false;
+      function finish(poster) {
+        if (finished) return; finished = true;
+        var d = isFinite(v.duration) ? v.duration : 0;
+        URL.revokeObjectURL(url); v.removeAttribute('src');
+        resolve({ poster: poster, duration: d });
+      }
+      v.muted = true; v.playsInline = true; v.preload = 'auto';
+      v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
+      v.onloadeddata = function () { v.currentTime = Math.min(0.1, (v.duration || 0) / 2); };
+      v.onseeked = function () {
+        var w = v.videoWidth, h = v.videoHeight;
+        if (!w || !h) return finish(null);
+        var s = Math.min(1, MAX_W / Math.max(w, h)), c = document.createElement('canvas');
+        c.width = Math.round(w * s); c.height = Math.round(h * s);
+        try { c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); } catch (e) { return finish(null); }
+        c.toBlob(function (b) { finish(b); }, 'image/jpeg', 0.85);
+      };
+      v.onerror = function () { finish(null); };
+      setTimeout(function () { finish(null); }, 8000);
+      v.src = url; v.load();
+    });
+  }
+  function addVideo(f) {
+    if (f.size > VIDEO_MAX) { setMsg('视频太大（> 50 MB），先剪短一点再发', true); return Promise.resolve(); }
+    busy = true; updateSubmit(); setMsg('读取视频…');
+    return videoPoster(f).then(function (r) {
+      video = { file: f, url: URL.createObjectURL(f), poster: r.poster, posterUrl: r.poster ? URL.createObjectURL(r.poster) : '', duration: r.duration };
+      setMsg('');
+    }).then(function () { busy = false; persistVideo(); renderPics(); renderPreview(); updateSubmit(); });
+  }
+  function clearVideo() {
+    if (video && video.file) { URL.revokeObjectURL(video.url); if (video.posterUrl) URL.revokeObjectURL(video.posterUrl); }
+    video = null;
+  }
   function addFiles(list) {
     list = Array.prototype.slice.call(list || []);
     if (!list.length) return Promise.resolve();
+    if (list.some(isVideo)) {
+      if (list.length > 1 || images.length || video) { setMsg('一条随笔只能发一个视频，也不能和图片一起发', true); return Promise.resolve(); }
+      return addVideo(list[0]);
+    }
+    if (video) { setMsg('已经有视频了，不能再加图片', true); return Promise.resolve(); }
     if (images.length + list.length > MAX_PICS) { setMsg('最多 ' + MAX_PICS + ' 张图', true); list = list.slice(0, MAX_PICS - images.length); }
     if (!list.length) return Promise.resolve();
     busy = true; updateSubmit(); setMsg('处理图片…');
@@ -214,6 +277,7 @@
   trash.innerHTML = '<i class="fa fa-trash"></i><span>拖到此处删除</span>';
   document.body.appendChild(trash);
   function removePic(i) {
+    if (video) { clearVideo(); persistVideo(); renderPics(); renderPreview(); updateSubmit(); return; }
     if (images[i].blob) URL.revokeObjectURL(images[i].url);
     images.splice(i, 1);
     persistPictures(); renderPics(); renderPreview(); updateSubmit();
@@ -227,7 +291,14 @@
       d.innerHTML = '<img src="' + im.url + '" alt="" draggable="false">';
       pics.insertBefore(d, add);
     });
-    add.hidden = images.length >= MAX_PICS;
+    if (video) {
+      var v = document.createElement('div'); v.className = 'mp-pic mp-pic-video'; v.setAttribute('data-i', 0);
+      v.setAttribute('role', 'button'); v.tabIndex = 0; v.title = '点按播放，长按拖到底部删除';
+      v.innerHTML = (video.posterUrl ? '<img src="' + video.posterUrl + '" alt="" draggable="false">' : '<video src="' + esc(video.url) + '#t=0.1" muted playsinline preload="metadata"></video>') +
+        '<span class="mp-play" aria-hidden="true"></span>' + (video.duration ? '<span class="mp-dur">' + fmtDur(video.duration) + '</span>' : '');
+      pics.insertBefore(v, add);
+    }
+    add.hidden = !!video || images.length >= MAX_PICS;
   }
   function movePic(from, to) {
     if (to < 0 || to >= images.length || from === to) return;
@@ -323,29 +394,34 @@
   // ---- full-screen preview with 删除 (朋友圈's 预览)
   var viewer = document.createElement('div'), vi = 0, vx = null;
   viewer.className = 'mp-viewer'; viewer.hidden = true;
-  viewer.innerHTML = '<img alt=""><span class="mp-viewer-n"></span>' +
+  viewer.innerHTML = '<img alt=""><video controls playsinline hidden></video><span class="mp-viewer-n"></span>' +
     '<button type="button" class="mp-viewer-del" title="删除这张"><i class="fa fa-trash"></i></button>';
   document.body.appendChild(viewer);
   function showViewer() {
-    viewer.querySelector('img').src = images[vi].url;
+    var img = viewer.querySelector('img'), vid = viewer.querySelector('video');
+    img.hidden = !!video; vid.hidden = !video;
+    if (video) { if (vid.getAttribute('src') !== video.url) vid.src = video.url; vid.play().catch(function () {}); viewer.querySelector('.mp-viewer-n').textContent = ''; return; }
+    vid.pause(); vid.removeAttribute('src');
+    img.src = images[vi].url;
     viewer.querySelector('.mp-viewer-n').textContent = images.length > 1 ? (vi + 1) + ' / ' + images.length : '';
   }
   function openViewer(i) {
-    if (!images[i]) return;
+    if (!video && !images[i]) return;
     vi = i; showViewer(); viewer.hidden = false;
     document.documentElement.classList.add('mp-viewing');
   }
-  function closeViewer() { viewer.hidden = true; document.documentElement.classList.remove('mp-viewing'); }
+  function closeViewer() { var vid = viewer.querySelector('video'); vid.pause(); vid.removeAttribute('src'); viewer.hidden = true; document.documentElement.classList.remove('mp-viewing'); }
   function stepViewer(n) { if (vi + n >= 0 && vi + n < images.length) { vi += n; showViewer(); } }
   viewer.addEventListener('click', function (e) {
     if (vx === 'swiped') { vx = null; return; }
+    if (e.target.closest('video')) return;
     if (!e.target.closest('.mp-viewer-del')) return closeViewer();
-    if (!confirm('要删除这张照片吗？')) return;
+    if (!confirm(video ? '要删除这个视频吗？' : '要删除这张照片吗？')) return;
     removePic(vi);
-    if (!images.length) return closeViewer();
+    if (!images.length && !video) return closeViewer();
     vi = Math.min(vi, images.length - 1); showViewer();
   });
-  viewer.addEventListener('touchstart', function (e) { vx = e.touches[0].clientX; }, { passive: true });
+  viewer.addEventListener('touchstart', function (e) { vx = video ? null : e.touches[0].clientX; }, { passive: true });
   viewer.addEventListener('touchend', function (e) {
     var dx = typeof vx === 'number' ? e.changedTouches[0].clientX - vx : 0;
     vx = Math.abs(dx) > 50 ? 'swiped' : null;
@@ -359,7 +435,7 @@
   });
 
   // ---- preview card (same markup as _layouts/moments.html / _plugins/moments.rb)
-  function hasContent() { return !!(text.value.trim() || selectedTags().length || quote.value.trim() || images.length || music.value.trim()); }
+  function hasContent() { return !!(text.value.trim() || selectedTags().length || quote.value.trim() || images.length || video || music.value.trim()); }
   function fmtTime(v) { return v ? v.replace('T', ' ') : ''; }
   function nowLocal() {
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -386,6 +462,11 @@
       h += '<blockquote class="moment-quote"><p>' + esc(quote.value.trim()).replace(/\n/g, '<br>') + '</p>' + (by.value.trim() ? '<div class="moment-cite">' + esc(by.value.trim()) + '</div>' : '') + '</blockquote>';
     }
     if (images.length) h += '<div class="moment-gallery n-' + images.length + '">' + images.map(function (im) { return '<span class="moment-pic"><img src="' + im.url + '" alt=""></span>'; }).join('') + '</div>';
+    if (video) {
+      h += '<div class="moment-gallery n-1 has-video"><span class="moment-pic moment-video">' +
+        (video.posterUrl ? '<img src="' + esc(video.posterUrl) + '" alt="">' : '<video src="' + esc(video.url) + '#t=0.1" muted playsinline preload="metadata"></video>') +
+        '<span class="moment-play" aria-hidden="true"></span></span></div>';
+    }
     if (music.value.trim()) h += '<p class="mp-pv-music"><i class="fa fa-music"></i> ' + esc(music.value.trim()) + '</p>';
     $('.mp-pv-body').innerHTML = h || '<p class="mp-pv-empty">写点什么，这里会出现预览。</p>';
   }
@@ -413,7 +494,8 @@
     });
   }
   function savePending(payload, response) {
-    var thumbs = (payload.images || []).filter(function (image) { return image.data; }).slice(0, 3).map(function (image) {
+    var sources = (payload.images || []).concat(payload.video && payload.video.poster ? [payload.video.poster] : []);
+    var thumbs = sources.filter(function (image) { return image.data; }).slice(0, 3).map(function (image) {
       var bytes = atob(image.data), array = new Uint8Array(bytes.length);
       for (var i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
       return tinyThumb(new Blob([array], { type: image.type || 'image/jpeg' }));
@@ -424,7 +506,7 @@
       var entry = {
         id: (response.url || '').split('#').pop(), month: response.month, url: response.url,
         title: payload.time, place: payload.place, text: payload.text, tags: payload.tags || [],
-        thumbs: imagesData.filter(Boolean), at: Date.now()
+        thumbs: imagesData.filter(Boolean), video: !!payload.video, at: Date.now()
       };
       pending = pending.filter(function (item) { return item.id !== entry.id; });
       pending.unshift(entry);
@@ -444,6 +526,34 @@
       editor.hidden = true; done.hidden = false; $('.mp-preview-wrap').hidden = true;
       busy = false; setMsg('');
     });
+  }
+
+  // The video goes straight to R2 (worker POST /moments/media, raw body); XHR for the progress.
+  function uploadVideo(blob, type, t) {
+    return new Promise(function (resolve, reject) {
+      var x = new XMLHttpRequest();
+      x.open('POST', API + '/moments/media');
+      x.setRequestHeader('Authorization', 'Bearer ' + t);
+      x.setRequestHeader('Content-Type', type);
+      x.upload.onprogress = function (e) { if (e.lengthComputable) setMsg('上传视频 ' + Math.round(e.loaded / e.total * 100) + '%'); };
+      x.onload = function () {
+        var d = {}; try { d = JSON.parse(x.responseText); } catch (e) { /* ignore */ }
+        if (x.status >= 200 && x.status < 300 && d.src) return resolve(d.src);
+        var error = new Error(d.error || ('HTTP ' + x.status)); error.status = x.status; reject(error);
+      };
+      x.onerror = function () { var error = new Error('网络错误'); error.network = true; reject(error); };
+      x.send(blob);
+    });
+  }
+  // payload._video = { blob, type } is a video not uploaded yet (also in queued payloads).
+  function send(payload, method, t) {
+    var up = Promise.resolve();
+    if (payload._video) {
+      up = uploadVideo(payload._video.blob, payload._video.type, t).then(function (src) {
+        payload.video.src = src; delete payload._video; setMsg('发布中…');
+      });
+    }
+    return up.then(function () { return api('/moments', { method: method, token: t, body: payload }); });
   }
 
   var queueItems = [], queueLoaded = false, queueBusy = false;
@@ -479,7 +589,7 @@
       if (!queueItems.length) { queueBusy = false; showQueue(); return; }
       token = null;
       ensureToken().then(function (fresh) {
-        return api('/moments', { method: 'POST', token: fresh, body: queueItems[0].payload });
+        return send(queueItems[0].payload, 'POST', fresh);
       }).then(function (response) {
         var current = queueItems[0];
         return savePending(current.payload, response).then(function () {
@@ -515,9 +625,16 @@
     }))
       .then(function (imgs) {
         payload.images = imgs;
+        if (!video) return;
+        if (!video.file) { payload.video = { src: video.keep, poster: video.posterKeep ? { url: video.posterKeep } : undefined }; return; }
+        payload._video = { blob: video.file, type: videoType(video.file) };
+        payload.video = {};
+        if (video.poster) return toBase64(video.poster).then(function (d) { payload.video.poster = { name: '', type: 'image/jpeg', data: d }; });
+      })
+      .then(function () {
         if (!EDIT && !navigator.onLine) return queuePayload(payload);
         return ensureToken().then(function (t) {
-          return api('/moments', { method: EDIT ? 'PUT' : 'POST', token: t, body: payload });
+          return send(payload, EDIT ? 'PUT' : 'POST', t);
         }).then(function (response) { return completePublish(payload, response); });
       })
       .catch(function (e) {
@@ -554,6 +671,7 @@
         dateOnly = (d.time || '').length === 10;
         time.value = dateOnly ? d.time + 'T00:00' : (d.time || '').replace(' ', 'T');
         images = (d.images || []).map(function (u) { return { url: BASE + u, keep: u }; });
+        video = d.video && d.video.src ? { url: d.video.src, keep: d.video.src, posterKeep: d.video.poster || '', posterUrl: d.video.poster ? BASE + d.video.poster : '' } : null;
         var note = $('.mp-note'); note.hidden = !d.raw;
         text.dispatchEvent(new Event('input'));
         renderPics(); renderPreview();
@@ -566,7 +684,7 @@
     if (EDIT) { location.href = location.pathname; return; }
     clearDraft();
     text.value = ''; quote.value = ''; by.value = ''; music.value = ''; place.value = '';
-    images.forEach(function (im) { if (im.blob) URL.revokeObjectURL(im.url); }); images = [];
+    images.forEach(function (im) { if (im.blob) URL.revokeObjectURL(im.url); }); images = []; clearVideo();
     Array.prototype.forEach.call(tagsBox.querySelectorAll('.mp-tag.is-on'), function (b) { b.classList.remove('is-on'); });
     time.value = nowLocal(); renderPics(); renderPreview(); updateSubmit();
     editor.hidden = false; done.hidden = true; $('.mp-preview-wrap').hidden = false; text.focus();

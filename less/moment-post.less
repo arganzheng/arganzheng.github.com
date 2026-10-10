@@ -53,6 +53,13 @@ body.bare { background: #fff; }
 	.mp-pic { background: @mp-soft; cursor: grab; transition: transform 0.2s ease; -webkit-tap-highlight-color: transparent; }
 	.mp-pic img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-touch-callout: none; }
 	.mp-pic.is-holding { opacity: 0.2; }
+	.mp-pic video { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+	.mp-play {
+		position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+		border: 2px solid rgba(255, 255, 255, 0.92); border-radius: 50%; background: rgba(0, 0, 0, 0.35); pointer-events: none;
+		&::after { content: ""; position: absolute; left: 13px; top: 9px; border-style: solid; border-width: 7px 0 7px 11px; border-color: transparent transparent transparent #fff; }
+	}
+	.mp-dur { position: absolute; right: 6px; bottom: 4px; color: #fff; font-size: 12px; text-shadow: 0 0 3px rgba(0, 0, 0, 0.6); pointer-events: none; }
 	.mp-pic:focus-visible { outline: 2px solid @brand-primary; outline-offset: 2px; }
 	.mp-add {
 		display: block; margin: 0; cursor: pointer; background: #f2f2f2; color: #b2b2b2;
@@ -85,7 +92,8 @@ html.mp-dragging, html.mp-dragging * { cursor: grabbing !important; }
 	position: fixed; inset: 0; z-index: 1001; background: #000;
 	display: flex; align-items: center; justify-content: center;
 	&[hidden] { display: none; }
-	img { max-width: 100%; max-height: 100%; object-fit: contain; }
+	img, video { max-width: 100%; max-height: 100%; object-fit: contain; }
+	[hidden] { display: none; }
 	.mp-viewer-n { position: absolute; left: 0; right: 0; top: calc(16px + env(safe-area-inset-top)); text-align: center; color: #fff; font-size: 15px; }
 	.mp-viewer-del {
 		position: absolute; top: calc(8px + env(safe-area-inset-top)); right: 8px;

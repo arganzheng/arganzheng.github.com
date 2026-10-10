@@ -318,6 +318,28 @@
     });
   }
 
+  // 随笔 小视频: full-screen black player (朋友圈); tap outside the video / Esc / × closes.
+  function playVideo(src) {
+    if (!src) return;
+    var box = document.createElement('div');
+    box.className = 'moment-player';
+    box.innerHTML = '<video controls autoplay playsinline></video><button type="button" class="moment-player-close" aria-label="关闭">×</button>';
+    var v = box.querySelector('video');
+    v.src = src;
+    document.body.appendChild(box);
+    document.documentElement.classList.add('moment-playing');
+    var played = v.play();
+    if (played && played.catch) played.catch(function () {});
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    function close() {
+      v.pause(); v.removeAttribute('src'); box.remove();
+      document.documentElement.classList.remove('moment-playing');
+      document.removeEventListener('keydown', onKey);
+    }
+    box.addEventListener('click', function (e) { if (e.target !== v) close(); });
+    document.addEventListener('keydown', onKey);
+  }
+
   function init() {
     container = document.querySelector('.post-container');
     if (!container) return;
@@ -326,6 +348,7 @@
     if (container.classList.contains('moments')) {
       container.addEventListener('click', function (e) {
         var pic = e.target.closest('.moment-pic');
+        if (pic && pic.classList.contains('moment-video')) { e.preventDefault(); return playVideo(pic.getAttribute('href')); }
         if (!pic || !window.DiagramZoom) return;
         e.preventDefault();
         var gallery = pic.closest('.moment-gallery');

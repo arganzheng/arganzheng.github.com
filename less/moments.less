@@ -359,6 +359,20 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 			.moment-pic { aspect-ratio: auto; justify-self: start; max-width: 300px; background: none; img { width: auto; height: auto; max-width: 100%; max-height: 300px; object-fit: contain; } }
 		}
 		&.n-4 .moment-pic:nth-child(3) { grid-column-start: 1; }
+		// 小视频: poster (or the video's own first frame) + ▶; a tap opens .moment-player
+		.moment-video { cursor: pointer; video { display: block; max-width: 100%; max-height: 300px; margin: 0; } }
+	}
+	.moment-play {
+		position: absolute; left: 50%; top: 50%;
+		width: 46px; height: 46px; margin: -23px 0 0 -23px;
+		border: 2px solid rgba(255, 255, 255, 0.92); border-radius: 50%;
+		background: rgba(0, 0, 0, 0.35);
+		pointer-events: none;
+		&::after {
+			content: ""; position: absolute; left: 17px; top: 12px;
+			border-style: solid; border-width: 9px 0 9px 14px;
+			border-color: transparent transparent transparent #fff;
+		}
 	}
 
 	// ---- quote card
@@ -523,3 +537,15 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 		.moment-gallery, .moment-music { max-width: none; }
 	}
 }
+
+// 随笔 小视频 player (js/figures.js playVideo) — black full screen like 朋友圈.
+.moment-player {
+	position: fixed; inset: 0; z-index: 1100; background: #000;
+	display: flex; align-items: center; justify-content: center;
+	video { max-width: 100%; max-height: 100%; width: auto; height: auto; }
+	.moment-player-close {
+		position: absolute; top: calc(8px + env(safe-area-inset-top)); right: 10px;
+		border: 0; background: none; color: #fff; font-size: 30px; line-height: 1; padding: 6px 10px; cursor: pointer;
+	}
+}
+html.moment-playing { overflow: hidden; }
