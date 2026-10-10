@@ -1004,7 +1004,7 @@ async function publishMoment(request, env, cors) {
     tree.push({ path, mode: '100644', type: 'blob', content: monthText(parsed) });
     return {
       tree,
-      message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n(posted from /moments/post.html)${author.user.via === 'api' ? '\n\n(posted via API)' : ''}`,
+      message: `随笔: ${momentStamp(f.when)}${f.place ? ' @' + f.place : ''}\n\n${(f.text || f.quote || f.music).slice(0, 200)}\n\n${author.user.via === 'api' ? '(posted via API)' : '(posted from /moments/post.html)'}`,
       result: { url: momentUrl(month, momentId(f.when)), month: `/moments/${month}.html`, file: path, images: urls },
     };
   });
