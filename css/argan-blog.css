@@ -6324,7 +6324,9 @@ a.ms-day:hover {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  color: #2b3238;
   font-size: 13.5px;
+  font-weight: 400;
   line-height: 1.55;
 }
 .post-container.moments .moment-gallery {
@@ -6440,7 +6442,9 @@ a.ms-day:hover {
 .post-container.moments .moment-foot {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 8px;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid #f3f6f8;
@@ -6450,6 +6454,7 @@ a.ms-day:hover {
 .post-container.moments .moment-foot .moment-act {
   color: #7a8794;
   text-decoration: none;
+  white-space: nowrap;
 }
 .post-container.moments .moment-foot .moment-act .fa {
   margin-right: 3px;
@@ -6466,9 +6471,10 @@ a.ms-day:hover {
 }
 .post-container.moments .moment-foot .moment-own {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px 16px;
   margin-left: auto;
+  white-space: nowrap;
 }
 .post-container.moments .moment-foot .moment-backrefs {
   color: #00788f;
@@ -6538,6 +6544,10 @@ a.ms-day:hover {
 }
 .post-container.moments .moment-related .ms-card {
   margin: 0;
+}
+.post-container.moments .moment-related .ms-card p {
+  color: #2b3238;
+  font-weight: 400;
 }
 @media (max-width: 767px) {
   .post-container.moments .moment-related .ms-slot {

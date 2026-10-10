@@ -246,7 +246,9 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 				-webkit-line-clamp: 2;
 				-webkit-box-orient: vertical;
 				overflow: hidden;
+				color: @mo-text;
 				font-size: 13.5px;
+				font-weight: 400;
 				line-height: 1.55;
 			}
 		}
@@ -317,15 +319,17 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 	.moment-foot {
 		display: flex;
 		align-items: center;
-		gap: 16px;
+		flex-wrap: wrap;
+		column-gap: 16px;
+		row-gap: 8px;
 		margin-top: 10px;
 		padding-top: 8px;
 		border-top: 1px solid @mo-soft;
 		font-size: 12.5px;
 		color: @mo-muted;
-		.moment-act { color: @mo-muted; text-decoration: none; .fa { margin-right: 3px; } &:hover { color: @brand-primary; } }
+		.moment-act { color: @mo-muted; text-decoration: none; white-space: nowrap; .fa { margin-right: 3px; } &:hover { color: @brand-primary; } }
 		button.moment-act { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
-		.moment-own { display: inline-flex; flex-wrap: wrap; gap: 8px 16px; margin-left: auto; }
+		.moment-own { display: inline-flex; flex-wrap: nowrap; gap: 8px 16px; margin-left: auto; white-space: nowrap; }
 		.moment-backrefs { color: @brand-primary; white-space: nowrap; }
 		.moment-del:hover { color: #c0392b; }
 		.moment-toast { font-size: 12px; color: @brand-primary; }
@@ -353,6 +357,7 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 	h2 { margin: 0 0 12px; font-size: 20px; }
 	.ms-slot { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 	.ms-card { margin: 0; }
+	.ms-card p { color: @mo-text; font-weight: 400; }
 }
 @media (max-width: 767px) {
 	.post-container.moments .moment-related .ms-slot { grid-template-columns: 1fr; }
