@@ -8743,3 +8743,123 @@ html[data-theme="dark"] .rs-reset:focus-visible {
 html[data-theme="dark"] .rs-reset:hover {
   color: #4cb7cb;
 }
+html[data-theme="dark"] #archive .archive-goto-file label,
+html[data-theme="dark"] #archive .archive-control-label,
+html[data-theme="dark"] #archive .archive-selects label {
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-goto-icon {
+  color: #969ba4;
+}
+html[data-theme="dark"] #archive .archive-goto-file input:focus {
+  border-color: #4cb7cb;
+  background-color: #1f2125 !important;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-goto-clear,
+html[data-theme="dark"] #archive .archive-chip,
+html[data-theme="dark"] #archive .archive-view-button,
+html[data-theme="dark"] #archive .archive-clear-filters,
+html[data-theme="dark"] #archive .archive-inline-tag,
+html[data-theme="dark"] #archive .archive-selects select {
+  border-color: #33363c;
+  background-color: #282b30;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-goto-clear:hover,
+html[data-theme="dark"] #archive .archive-chip:hover,
+html[data-theme="dark"] #archive .archive-view-button:hover,
+html[data-theme="dark"] #archive .archive-clear-filters:hover,
+html[data-theme="dark"] #archive .archive-inline-tag:hover {
+  border-color: #4cb7cb;
+  color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-chip[aria-pressed="true"],
+html[data-theme="dark"] #archive .archive-view-button[aria-pressed="true"] {
+  border-color: #4cb7cb;
+  background-color: #4cb7cb;
+  color: #17181b;
+}
+html[data-theme="dark"] #archive .archive-chip[aria-pressed="true"] span {
+  color: #17181b;
+}
+html[data-theme="dark"] #archive .archive-result-count,
+html[data-theme="dark"] #archive .archive-card-meta,
+html[data-theme="dark"] #archive .archive-table-subtitle,
+html[data-theme="dark"] #archive .archive-card-subtitle,
+html[data-theme="dark"] #archive .archive-goto-option small,
+html[data-theme="dark"] #archive .archive-goto-empty,
+html[data-theme="dark"] #archive .archive-subtitle,
+html[data-theme="dark"] #archive .archive-empty {
+  color: #969ba4;
+}
+html[data-theme="dark"] #archive .archive-controls,
+html[data-theme="dark"] #archive .archive-goto-results,
+html[data-theme="dark"] #archive .archive-card {
+  border-color: #33363c;
+  background-color: #1f2125;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-goto-option {
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-goto-option:hover,
+html[data-theme="dark"] #archive .archive-goto-option.active {
+  background-color: #282b30;
+}
+html[data-theme="dark"] #archive .archive-table-scroll {
+  border-color: #33363c;
+}
+html[data-theme="dark"] #archive .archive-table {
+  background-color: #1f2125;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-table th {
+  border-color: #33363c;
+  background-color: #282b30;
+  color: #eceef1;
+}
+html[data-theme="dark"] #archive .archive-table td {
+  border-color: #33363c;
+}
+html[data-theme="dark"] #archive .archive-table tbody tr:hover {
+  background-color: #282b30;
+}
+html[data-theme="dark"] #archive .archive-table-title,
+html[data-theme="dark"] #archive .archive-card-title {
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-table-title:hover,
+html[data-theme="dark"] #archive .archive-card-title:hover {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-type-badge,
+html[data-theme="dark"] #archive .archive-type-badge.archive-type-tech,
+html[data-theme="dark"] #archive .archive-type-badge.archive-type-moments {
+  background-color: #282b30;
+  color: #969ba4;
+}
+html[data-theme="dark"] #archive .archive-type-badge.archive-type-life {
+  background-color: #3a2d20;
+  color: #e6a45c;
+}
+html[data-theme="dark"] #archive .archive-type-badge.archive-type-slides {
+  background-color: #15313c;
+  color: #8bd5ed;
+}
+html[data-theme="dark"] #archive .archive-inline-tag {
+  background-color: #282b30;
+}
+html[data-theme="dark"] #archive h2,
+html[data-theme="dark"] #archive h3 {
+  color: #eceef1;
+}
+html[data-theme="dark"] #archive hr {
+  border-color: #33363c;
+}
+html[data-theme="dark"] #archive .archive-item > span {
+  color: #4cb7cb !important;
+}
+html[data-theme="dark"] #archive .archive-item > small {
+  color: #969ba4 !important;
+}

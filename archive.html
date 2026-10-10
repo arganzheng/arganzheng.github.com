@@ -21,6 +21,47 @@ permalink: /archive/
   <ul id="archive-goto-results" class="archive-goto-results" hidden></ul>
 </div>
 
+<div id="archive-controls" class="archive-controls" hidden>
+  <div class="archive-control-row">
+    <span class="archive-control-label">类型</span>
+    <div class="archive-type-filters" role="group" aria-label="按类型筛选">
+      <button type="button" class="archive-chip" data-type-filter="all" aria-pressed="true">全部 <span data-type-count="all">0</span></button>
+      <button type="button" class="archive-chip" data-type-filter="tech" aria-pressed="false">Tech <span data-type-count="tech">0</span></button>
+      <button type="button" class="archive-chip" data-type-filter="life" aria-pressed="false">Life <span data-type-count="life">0</span></button>
+      <button type="button" class="archive-chip" data-type-filter="slides" aria-pressed="false">Slides <span data-type-count="slides">0</span></button>
+      <button type="button" class="archive-chip" data-type-filter="moments" aria-pressed="false">随笔 <span data-type-count="moments">0</span></button>
+    </div>
+  </div>
+  <div class="archive-control-row archive-selects">
+    <label for="archive-year-filter">年份
+      <select id="archive-year-filter"><option value="">全部</option></select>
+    </label>
+    <label for="archive-series-filter">系列
+      <select id="archive-series-filter"><option value="">全部</option></select>
+    </label>
+    <label for="archive-tag-filter">标签
+      <select id="archive-tag-filter"><option value="">全部</option></select>
+    </label>
+    <label for="archive-sort-filter">排序
+      <select id="archive-sort-filter">
+        <option value="newest">最新发布</option>
+        <option value="oldest">最早发布</option>
+        <option value="updated">最近更新</option>
+        <option value="title">标题</option>
+      </select>
+    </label>
+  </div>
+  <div class="archive-control-row archive-toolbar-bottom">
+    <div class="archive-view-switch" role="group" aria-label="归档视图">
+      <button type="button" class="archive-view-button" data-archive-view="timeline" aria-pressed="true">时间线</button>
+      <button type="button" class="archive-view-button" data-archive-view="table" aria-pressed="false">表格</button>
+      <button type="button" class="archive-view-button" data-archive-view="cards" aria-pressed="false">卡片</button>
+    </div>
+    <span id="archive-result-count" class="archive-result-count" role="status" aria-live="polite">共 0 篇</span>
+    <button type="button" id="archive-clear-filters" class="archive-clear-filters">清除筛选</button>
+  </div>
+</div>
+
 <style>
   .archive-goto-file {
     position: relative;
@@ -159,30 +200,264 @@ permalink: /archive/
   #archive .archive-entry:focus .archive-subtitle {
     color: #00788f;
   }
+  #archive [hidden] { display: none !important; }
+  #archive .archive-controls {
+    margin: -18px 0 24px;
+    padding: 14px;
+    border: 1px solid #d8dee4;
+    border-radius: 10px;
+    background: #f6f8fa;
+  }
+  #archive .archive-control-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  #archive .archive-control-row + .archive-control-row { margin-top: 12px; }
+  #archive .archive-control-label {
+    min-width: 34px;
+    color: #57606a;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  #archive .archive-type-filters,
+  #archive .archive-view-switch { display: flex; flex-wrap: wrap; gap: 6px; }
+  #archive .archive-chip,
+  #archive .archive-view-button,
+  #archive .archive-clear-filters,
+  #archive .archive-inline-tag {
+    border: 1px solid #d0d7de;
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: #fff;
+    color: #57606a;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.3;
+  }
+  #archive .archive-chip span {
+    margin-left: 3px;
+    color: #6e7781;
+    font-variant-numeric: tabular-nums;
+  }
+  #archive .archive-chip[aria-pressed="true"],
+  #archive .archive-view-button[aria-pressed="true"] {
+    border-color: #0969da;
+    background: #0969da;
+    color: #fff;
+  }
+  #archive .archive-chip[aria-pressed="true"] span { color: #fff; }
+  #archive .archive-chip:hover,
+  #archive .archive-view-button:hover,
+  #archive .archive-clear-filters:hover,
+  #archive .archive-inline-tag:hover { border-color: #0969da; color: #0969da; }
+  #archive .archive-chip[aria-pressed="true"]:hover,
+  #archive .archive-view-button[aria-pressed="true"]:hover { color: #fff; }
+  #archive .archive-selects label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #57606a;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  #archive .archive-selects select {
+    max-width: 240px;
+    min-height: 32px;
+    padding: 5px 28px 5px 8px;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    background: #fff;
+    color: #24292f;
+  }
+  #archive .archive-toolbar-bottom { justify-content: space-between; }
+  #archive .archive-result-count {
+    margin-left: auto;
+    color: #57606a;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  #archive .archive-clear-filters { white-space: nowrap; }
+  #archive .archive-table-scroll {
+    margin-bottom: 28px;
+    overflow-x: auto;
+    border: 1px solid #d8dee4;
+    border-radius: 8px;
+  }
+  #archive .archive-table-scroll:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+  #archive .archive-table {
+    width: 100%;
+    min-width: 760px;
+    margin: 0;
+    border-collapse: collapse;
+    color: #24292f;
+    font-size: 14px;
+  }
+  #archive .archive-table th,
+  #archive .archive-table td {
+    padding: 9px 11px;
+    border-bottom: 1px solid #d8dee4;
+    text-align: left;
+    vertical-align: top;
+  }
+  #archive .archive-table th {
+    background: #f6f8fa;
+    color: #57606a;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  #archive .archive-table tbody tr:last-child td { border-bottom: 0; }
+  #archive .archive-table tbody tr:hover { background: #f6f8fa; }
+  #archive .archive-table th[data-sort-column] button {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+  #archive .archive-table th[data-sort-column] button::after {
+    content: "↕";
+    margin-left: 5px;
+    color: #8c959f;
+  }
+  #archive .archive-table th[aria-sort="ascending"] button::after { content: "↑"; }
+  #archive .archive-table th[aria-sort="descending"] button::after { content: "↓"; }
+  #archive .archive-table-title { display: block; font-weight: 600; }
+  #archive .archive-table-subtitle {
+    display: block;
+    margin-top: 2px;
+    color: #6a7481;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  #archive .archive-type-badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 7px;
+    background: #eef1f4;
+    color: #57606a;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  #archive .archive-type-badge.archive-type-life { background: #fff1e5; color: #9a4d00; }
+  #archive .archive-type-badge.archive-type-slides { background: #ddf4ff; color: #09677d; }
+  #archive .archive-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  #archive .archive-card {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid #d8dee4;
+    border-radius: 10px;
+    background: #fff;
+  }
+  #archive .archive-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  #archive .archive-card-title { color: #404040; font-weight: 600; line-height: 1.45; }
+  #archive .archive-card-subtitle {
+    display: -webkit-box;
+    margin-top: 4px;
+    overflow: hidden;
+    color: #6a7481;
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  #archive .archive-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 10px;
+    color: #6a7481;
+    font-size: 12px;
+  }
+  #archive .archive-card-tags { margin-top: 9px; }
+  @media (max-width: 991px) {
+    #archive .archive-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 767px) {
+    #archive .archive-controls { padding: 11px; }
+    #archive .archive-selects { align-items: stretch; }
+    #archive .archive-selects label { flex: 1 1 45%; min-width: 130px; }
+    #archive .archive-selects select { flex: 1; min-width: 0; max-width: none; }
+    #archive .archive-toolbar-bottom { justify-content: flex-start; }
+    #archive .archive-result-count { margin-left: 0; }
+    #archive .archive-card-grid { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 
 {% assign slide_pages = site.pages | where: "layout", "slides" %}
 {% assign timeline_rows = "" %}
 {% for item in site.posts %}
-  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::{{ item.category | default: "tech" }}::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% assign tags_value = "" %}
+  {% for tag in item.tags %}
+    {% assign safe_tag = tag | replace: "::", "：" | replace: "|", "｜" %}
+    {% if tags_value != "" %}{% assign tags_value = tags_value | append: "|" %}{% endif %}
+    {% assign tags_value = tags_value | append: safe_tag %}
+  {% endfor %}
+  {% assign series_value = "" %}
+  {% if item.series %}
+    {% assign series_data = site.data.series[item.series] %}
+    {% assign series_value = series_data.name | default: "" | replace: "::", "：" | replace: "|", "｜" %}
+  {% endif %}
+  {% assign updated_value = "" %}
+  {% if item.updated %}
+    {% assign updated_value = item.updated | date: "%Y-%m-%d" %}
+  {% endif %}
+  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::{{ item.category | default: "tech" }}::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}::{{ tags_value }}::{{ series_value }}::{{ updated_value }}::{{ item.date | date: "%Y" }}###{% endcapture %}
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
 {% for item in slide_pages %}
+  {% assign tags_value = "" %}
+  {% for tag in item.tags %}
+    {% assign safe_tag = tag | replace: "::", "：" | replace: "|", "｜" %}
+    {% if tags_value != "" %}{% assign tags_value = tags_value | append: "|" %}{% endif %}
+    {% assign tags_value = tags_value | append: safe_tag %}
+  {% endfor %}
+  {% assign updated_value = "" %}
+  {% if item.updated %}
+    {% assign updated_value = item.updated | date: "%Y-%m-%d" %}
+  {% endif %}
   {% comment %}Pages (unlike posts) take no date from the filename: a deck without `date:` in its front matter would otherwise sort above everything with an empty year. Send it to the bottom under 未注明日期 instead.{% endcomment %}
   {% if item.date %}
-  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% capture row %}{{ item.date | date: "%Y%m%d%H%M%S" }}::{{ item.date | date: "%Y" }}::{{ item.date | date: "%Y-%m" }}::{{ item.date | date: "%B" }}::{{ item.date | date: "%Y/%m/%d" }}::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}::{{ tags_value }}::::{{ updated_value }}::{{ item.date | date: "%Y" }}###{% endcapture %}
   {% else %}
-  {% capture row %}00000000000000::未注明日期::0000-00::（slides 缺少 date: 前置字段）::—::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}###{% endcapture %}
+  {% capture row %}00000000000000::未注明日期::0000-00::（slides 缺少 date: 前置字段）::—::slides::{{ item.url | prepend: site.baseurl }}::{{ item.title | replace: "::", "：" }}::{{ item.subtitle | default: "" | replace: "::", "：" }}::{{ tags_value }}::::{{ updated_value }}::未注明日期###{% endcapture %}
   {% endif %}
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
 {% comment %}随笔: one row per month page (_plugins/moments.rb), dated the 1st of the month.{% endcomment %}
 {% for item in site.data.moments.months %}
   {% assign mdate = item.month | append: "-01" | date: "%s" | date: "%Y-%m-%d" %}
-  {% capture row %}{{ mdate | date: "%Y%m%d%H%M%S" }}::{{ mdate | date: "%Y" }}::{{ item.month }}::{{ mdate | date: "%B" }}::{{ mdate | date: "%Y/%m/%d" }}::moments::{{ item.url | prepend: site.baseurl }}::{{ item.title }}::{{ item.count }} 条###{% endcapture %}
+  {% capture row %}{{ mdate | date: "%Y%m%d%H%M%S" }}::{{ mdate | date: "%Y" }}::{{ item.month }}::{{ mdate | date: "%B" }}::{{ mdate | date: "%Y/%m/%d" }}::moments::{{ item.url | prepend: site.baseurl }}::{{ item.title }}::{{ item.count }} 条::随笔::::::{{ mdate | date: "%Y" }}###{% endcapture %}
   {% assign timeline_rows = timeline_rows | append: row %}
 {% endfor %}
 {% assign timeline = timeline_rows | split: "###" | sort | reverse %}
+
+<div id="archive-table-view" class="archive-table-view" hidden>
+  <div class="archive-table-scroll" tabindex="0" aria-label="归档表格，可横向滚动">
+    <table class="archive-table">
+      <thead>
+        <tr>
+          <th scope="col" data-sort-column="date" aria-sort="descending"><button type="button">日期</button></th>
+          <th scope="col" data-sort-column="title" aria-sort="none"><button type="button">标题</button></th>
+          <th scope="col">类型</th>
+          <th scope="col">系列</th>
+          <th scope="col">标签</th>
+          <th scope="col" data-sort-column="updated" aria-sort="none"><button type="button">更新</button></th>
+        </tr>
+      </thead>
+      <tbody id="archive-table-body"></tbody>
+    </table>
+  </div>
+</div>
+<p id="archive-filter-empty" class="archive-empty" hidden>没有符合条件的条目。</p>
+<div id="archive-card-view" class="archive-card-grid" hidden></div>
 
 {% assign year = nil %}
 {% assign month_key = nil %}
@@ -197,6 +472,10 @@ permalink: /archive/
 {% assign item_url = cols[6] %}
 {% assign item_title = cols[7] %}
 {% assign item_subtitle = cols[8] %}
+{% assign item_tags = cols[9] %}
+{% assign item_series = cols[10] %}
+{% assign item_updated = cols[11] %}
+{% assign item_data_year = cols[12] %}
 {% unless year == item_year %}
   {% if month_key != nil %}</ul>{% endif %}
   {% assign year = item_year %}
@@ -215,7 +494,11 @@ permalink: /archive/
         data-title="{{ item_title | escape }}"
         data-subtitle="{{ item_subtitle | escape }}"
         data-type="{{ item_type }}"
-        data-date="{{ item_date }}">
+        data-date="{{ item_date }}"
+        data-tags="{{ item_tags | escape }}"
+        data-series="{{ item_series | escape }}"
+        data-updated="{{ item_updated }}"
+        data-year="{{ item_data_year | escape }}">
       <small style="color: #aaa">{{ item_date }}</small>
       &nbsp;&raquo;&nbsp;
       {% if item_type == "slides" %}
@@ -238,7 +521,7 @@ permalink: /archive/
 {% endfor %}
 {% if month_key != nil %}</ul>{% endif %}
 {% if timeline_rows == "" %}
-<p>还没有内容可归档。</p>
+<p class="archive-empty">还没有内容可归档。</p>
 {% endif %}
 </div>
 
@@ -365,5 +648,420 @@ permalink: /archive/
         results.hidden = true;
       }
     });
+  })();
+</script>
+
+<script>
+  (function () {
+    var root = document.getElementById('archive');
+    var controls = document.getElementById('archive-controls');
+    var tableBody = document.getElementById('archive-table-body');
+    var tableView = document.getElementById('archive-table-view');
+    var cardView = document.getElementById('archive-card-view');
+    var emptyMessage = document.getElementById('archive-filter-empty');
+    var typeOrder = ['tech', 'life', 'slides', 'moments'];
+    var typeLabels = { tech: 'Tech', life: 'Life', slides: 'Slides', moments: '随笔' };
+    var validSorts = ['newest', 'oldest', 'updated', 'title'];
+    var validViews = ['timeline', 'table', 'cards'];
+    if (!root || !controls || !tableBody || !tableView || !cardView) return;
+
+    function dateValue(value) {
+      if (!value || value === '—' || value === '未注明日期') return 0;
+      var parsed = Date.parse(value.replace(/\//g, '-') + 'T00:00:00');
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    var items = Array.prototype.slice.call(root.querySelectorAll('.archive-item')).map(function (el) {
+      var date = (el.dataset.date || '').trim();
+      var updated = (el.dataset.updated || '').trim();
+      return {
+        el: el,
+        title: (el.dataset.title || '').trim(),
+        subtitle: (el.dataset.subtitle || '').trim(),
+        type: (el.dataset.type || '').trim(),
+        date: date,
+        dateValue: dateValue(date),
+        updated: updated,
+        updatedValue: dateValue(updated) || dateValue(date),
+        year: (el.dataset.year || '').trim(),
+        series: (el.dataset.series || '').trim(),
+        tags: (el.dataset.tags || '').split('|').filter(Boolean),
+        url: (el.dataset.url || '').trim()
+      };
+    }).filter(function (item) {
+      return item.title && item.url;
+    });
+
+    function countBy(key) {
+      return items.reduce(function (counts, item) {
+        var value = item[key];
+        if (value) counts[value] = (counts[value] || 0) + 1;
+        return counts;
+      }, {});
+    }
+
+    function populateSelect(select, entries) {
+      while (select.options.length > 1) select.remove(1);
+      entries.forEach(function (entry) {
+        var option = document.createElement('option');
+        option.value = entry.value;
+        option.textContent = entry.label;
+        select.appendChild(option);
+      });
+    }
+
+    var yearFilter = document.getElementById('archive-year-filter');
+    var seriesFilter = document.getElementById('archive-series-filter');
+    var tagFilter = document.getElementById('archive-tag-filter');
+    var sortFilter = document.getElementById('archive-sort-filter');
+    var yearCounts = countBy('year');
+    var seriesCounts = countBy('series');
+    var tagCounts = {};
+    items.forEach(function (item) {
+      item.tags.forEach(function (tag) {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+
+    var years = Object.keys(yearCounts).sort(function (a, b) {
+      if (a === '未注明日期') return 1;
+      if (b === '未注明日期') return -1;
+      return b.localeCompare(a, 'zh');
+    });
+    populateSelect(yearFilter, years.map(function (year) {
+      return { value: year, label: year + ' (' + yearCounts[year] + ')' };
+    }));
+    populateSelect(seriesFilter, Object.keys(seriesCounts).sort(function (a, b) {
+      return a.localeCompare(b, 'zh');
+    }).map(function (series) {
+      return { value: series, label: series + ' (' + seriesCounts[series] + ')' };
+    }));
+    populateSelect(tagFilter, Object.keys(tagCounts).sort(function (a, b) {
+      return tagCounts[b] - tagCounts[a] || a.localeCompare(b, 'zh');
+    }).map(function (tag) {
+      return { value: tag, label: tag + ' (' + tagCounts[tag] + ')' };
+    }));
+    Array.prototype.forEach.call(controls.querySelectorAll('[data-type-count]'), function (count) {
+      var type = count.dataset.typeCount;
+      var total = type === 'all' ? items.length : items.filter(function (item) {
+        return item.type === type;
+      }).length;
+      count.textContent = '(' + total + ')';
+    });
+
+    function readStoredView() {
+      try {
+        var view = window.localStorage.getItem('archive-view');
+        return validViews.indexOf(view) !== -1 ? view : 'timeline';
+      } catch (error) {
+        return 'timeline';
+      }
+    }
+
+    function loadState() {
+      var params = new URLSearchParams(window.location.search);
+      var viewParam = params.get('view');
+      var sortParam = params.get('sort');
+      var types = (params.get('type') || '').split(',').filter(function (type, index, list) {
+        return typeOrder.indexOf(type) !== -1 && list.indexOf(type) === index;
+      });
+      var requestedView = validViews.indexOf(viewParam) !== -1 ? viewParam : readStoredView();
+      var sort = validSorts.indexOf(sortParam) !== -1 ? sortParam : 'newest';
+      return {
+        types: types,
+        year: params.get('year') || '',
+        series: params.get('series') || '',
+        tag: params.get('tag') || '',
+        sort: sort,
+        view: sort === 'newest' ? requestedView : 'table'
+      };
+    }
+
+    var state = loadState();
+    if (yearFilter && !yearCounts[state.year]) state.year = '';
+    if (seriesFilter && !seriesCounts[state.series]) state.series = '';
+    if (tagFilter && !tagCounts[state.tag]) state.tag = '';
+
+    function saveView() {
+      try {
+        window.localStorage.setItem('archive-view', state.view);
+      } catch (error) {}
+    }
+
+    function updateUrl() {
+      var url = new URL(window.location.href);
+      ['type', 'year', 'series', 'tag', 'sort', 'view'].forEach(function (key) {
+        url.searchParams.delete(key);
+      });
+      var selectedTypes = typeOrder.filter(function (type) {
+        return state.types.indexOf(type) !== -1;
+      });
+      if (selectedTypes.length) url.searchParams.set('type', selectedTypes.join(','));
+      if (state.year) url.searchParams.set('year', state.year);
+      if (state.series) url.searchParams.set('series', state.series);
+      if (state.tag) url.searchParams.set('tag', state.tag);
+      if (state.sort !== 'newest') url.searchParams.set('sort', state.sort);
+      if (state.view !== 'timeline') url.searchParams.set('view', state.view);
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+
+    function sorted(list) {
+      return list.slice().sort(function (a, b) {
+        if (state.sort === 'oldest') return a.dateValue - b.dateValue || a.title.localeCompare(b.title, 'zh');
+        if (state.sort === 'updated') return b.updatedValue - a.updatedValue || b.dateValue - a.dateValue;
+        if (state.sort === 'title') return a.title.localeCompare(b.title, 'zh');
+        return b.dateValue - a.dateValue || a.title.localeCompare(b.title, 'zh');
+      });
+    }
+
+    function typeBadge(type) {
+      var badge = document.createElement('span');
+      badge.className = 'archive-type-badge archive-type-' + (typeLabels[type] ? type : 'tech');
+      badge.textContent = typeLabels[type] || 'Tech';
+      return badge;
+    }
+
+    function appendTagButtons(container, tags, limit) {
+      var shownTags = limit ? tags.slice(0, limit) : tags;
+      if (!shownTags.length) {
+        container.textContent = '—';
+        return;
+      }
+      shownTags.forEach(function (tag) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'archive-inline-tag';
+        button.dataset.archiveTag = tag;
+        button.textContent = tag;
+        container.appendChild(button);
+      });
+    }
+
+    function renderTable(list) {
+      tableBody.replaceChildren();
+      list.forEach(function (item) {
+        var row = document.createElement('tr');
+        var dateCell = document.createElement('td');
+        var titleCell = document.createElement('td');
+        var typeCell = document.createElement('td');
+        var seriesCell = document.createElement('td');
+        var tagsCell = document.createElement('td');
+        var updatedCell = document.createElement('td');
+        dateCell.textContent = item.date || '—';
+        var titleLink = document.createElement('a');
+        titleLink.className = 'archive-table-title';
+        titleLink.href = item.url;
+        titleLink.textContent = item.title;
+        titleCell.appendChild(titleLink);
+        if (item.subtitle) {
+          var subtitle = document.createElement('small');
+          subtitle.className = 'archive-table-subtitle';
+          subtitle.textContent = item.subtitle;
+          titleCell.appendChild(subtitle);
+        }
+        typeCell.appendChild(typeBadge(item.type));
+        seriesCell.textContent = item.series || '—';
+        appendTagButtons(tagsCell, item.tags);
+        updatedCell.textContent = item.updated || '—';
+        [dateCell, titleCell, typeCell, seriesCell, tagsCell, updatedCell].forEach(function (cell) {
+          row.appendChild(cell);
+        });
+        tableBody.appendChild(row);
+      });
+    }
+
+    function renderCards(list) {
+      cardView.replaceChildren();
+      list.forEach(function (item) {
+        var card = document.createElement('article');
+        card.className = 'archive-card';
+        var heading = document.createElement('div');
+        heading.className = 'archive-card-heading';
+        var link = document.createElement('a');
+        link.className = 'archive-card-title';
+        link.href = item.url;
+        link.textContent = item.title;
+        heading.appendChild(link);
+        heading.appendChild(typeBadge(item.type));
+        card.appendChild(heading);
+        if (item.subtitle) {
+          var subtitle = document.createElement('div');
+          subtitle.className = 'archive-card-subtitle';
+          subtitle.textContent = item.subtitle;
+          card.appendChild(subtitle);
+        }
+        var meta = document.createElement('div');
+        meta.className = 'archive-card-meta';
+        var date = document.createElement('span');
+        date.textContent = item.date || '—';
+        meta.appendChild(date);
+        if (item.series) {
+          var series = document.createElement('span');
+          series.textContent = item.series;
+          meta.appendChild(series);
+        }
+        card.appendChild(meta);
+        var tags = document.createElement('div');
+        tags.className = 'archive-card-tags';
+        appendTagButtons(tags, item.tags, 3);
+        if (item.tags.length) card.appendChild(tags);
+        cardView.appendChild(card);
+      });
+    }
+
+    var yearGroups = [];
+    var monthGroups = [];
+    var currentYear = null;
+    var currentMonth = null;
+    Array.prototype.forEach.call(root.querySelectorAll('h2, h3, hr, ul.list-unstyled'), function (node) {
+      if (node.tagName === 'H2') {
+        currentYear = { heading: node, rule: null, months: [] };
+        yearGroups.push(currentYear);
+        currentMonth = null;
+      } else if (node.tagName === 'HR' && currentYear && !currentYear.rule) {
+        currentYear.rule = node;
+      } else if (node.tagName === 'H3') {
+        currentMonth = { heading: node, list: null, items: [], year: currentYear };
+        monthGroups.push(currentMonth);
+        if (currentYear) currentYear.months.push(currentMonth);
+      } else if (node.tagName === 'UL' && currentMonth) {
+        currentMonth.list = node;
+        currentMonth.items = Array.prototype.slice.call(node.querySelectorAll('.archive-item'));
+      }
+    });
+
+    function updateSortHeaders() {
+      Array.prototype.forEach.call(tableView.querySelectorAll('th[data-sort-column]'), function (header) {
+        var column = header.dataset.sortColumn;
+        var sort = 'none';
+        if (column === 'date' && state.sort === 'newest') sort = 'descending';
+        if (column === 'date' && state.sort === 'oldest') sort = 'ascending';
+        if (column === 'title' && state.sort === 'title') sort = 'ascending';
+        if (column === 'updated' && state.sort === 'updated') sort = 'descending';
+        header.setAttribute('aria-sort', sort);
+      });
+    }
+
+    function render() {
+      var filtered = items.filter(function (item) {
+        return (!state.types.length || state.types.indexOf(item.type) !== -1) &&
+          (!state.year || item.year === state.year) &&
+          (!state.series || item.series === state.series) &&
+          (!state.tag || item.tags.indexOf(state.tag) !== -1);
+      });
+      var ordered = sorted(filtered);
+      var visible = new Set(filtered.map(function (item) { return item.el; }));
+      items.forEach(function (item) {
+        item.el.hidden = !visible.has(item.el);
+      });
+      var showTimeline = state.view === 'timeline';
+      monthGroups.forEach(function (group) {
+        var hasItems = group.items.some(function (el) { return visible.has(el); });
+        group.heading.hidden = !showTimeline || !hasItems;
+        if (group.list) group.list.hidden = !showTimeline || !hasItems;
+      });
+      yearGroups.forEach(function (group) {
+        var hasItems = group.months.some(function (month) {
+          return month.items.some(function (el) { return visible.has(el); });
+        });
+        group.heading.hidden = !showTimeline || !hasItems;
+        if (group.rule) group.rule.hidden = !showTimeline || !hasItems;
+      });
+      tableView.hidden = state.view !== 'table';
+      cardView.hidden = state.view !== 'cards';
+      Array.prototype.forEach.call(controls.querySelectorAll('[data-type-filter]'), function (button) {
+        var type = button.dataset.typeFilter;
+        button.setAttribute('aria-pressed', String(type === 'all' ? state.types.length === 0 : state.types.indexOf(type) !== -1));
+      });
+      Array.prototype.forEach.call(controls.querySelectorAll('[data-archive-view]'), function (button) {
+        button.setAttribute('aria-pressed', String(button.dataset.archiveView === state.view));
+      });
+      yearFilter.value = state.year;
+      seriesFilter.value = state.series;
+      tagFilter.value = state.tag;
+      sortFilter.value = state.sort;
+      document.getElementById('archive-result-count').textContent = '共 ' + filtered.length + ' 篇';
+      if (emptyMessage) emptyMessage.hidden = filtered.length !== 0;
+      renderTable(ordered);
+      renderCards(ordered);
+      updateSortHeaders();
+      controls.hidden = false;
+    }
+
+    controls.addEventListener('click', function (event) {
+      var typeButton = event.target.closest('[data-type-filter]');
+      var viewButton = event.target.closest('[data-archive-view]');
+      if (typeButton) {
+        var type = typeButton.dataset.typeFilter;
+        if (type === 'all') {
+          state.types = [];
+        } else if (state.types.indexOf(type) === -1) {
+          state.types.push(type);
+        } else {
+          state.types = state.types.filter(function (selected) { return selected !== type; });
+        }
+        render();
+        updateUrl();
+      } else if (viewButton) {
+        state.view = viewButton.dataset.archiveView;
+        saveView();
+        render();
+        updateUrl();
+      }
+    });
+    [yearFilter, seriesFilter, tagFilter].forEach(function (select) {
+      select.addEventListener('change', function () {
+        if (select === yearFilter) state.year = select.value;
+        if (select === seriesFilter) state.series = select.value;
+        if (select === tagFilter) state.tag = select.value;
+        render();
+        updateUrl();
+      });
+    });
+    sortFilter.addEventListener('change', function () {
+      state.sort = sortFilter.value;
+      if (state.sort !== 'newest' && state.view === 'timeline') {
+        state.view = 'table';
+        saveView();
+      }
+      render();
+      updateUrl();
+    });
+    tableView.addEventListener('click', function (event) {
+      var header = event.target.closest('th[data-sort-column]');
+      if (!header) return;
+      var column = header.dataset.sortColumn;
+      if (column === 'date') state.sort = state.sort === 'oldest' ? 'newest' : 'oldest';
+      if (column === 'title') state.sort = state.sort === 'title' ? 'newest' : 'title';
+      if (column === 'updated') state.sort = state.sort === 'updated' ? 'newest' : 'updated';
+      if (state.sort !== 'newest' && state.view === 'timeline') {
+        state.view = 'table';
+        saveView();
+      }
+      render();
+      updateUrl();
+    });
+    root.addEventListener('click', function (event) {
+      var tagButton = event.target.closest('[data-archive-tag]');
+      if (!tagButton) return;
+      state.tag = tagButton.dataset.archiveTag;
+      tagFilter.value = state.tag;
+      render();
+      updateUrl();
+    });
+    document.getElementById('archive-clear-filters').addEventListener('click', function () {
+      state = { types: [], year: '', series: '', tag: '', sort: 'newest', view: 'timeline' };
+      saveView();
+      render();
+      updateUrl();
+    });
+    window.addEventListener('popstate', function () {
+      state = loadState();
+      if (!yearCounts[state.year]) state.year = '';
+      if (!seriesCounts[state.series]) state.series = '';
+      if (!tagCounts[state.tag]) state.tag = '';
+      render();
+    });
+    render();
   })();
 </script>
