@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<meta charset="utf-8">
+<title>Redirecting&hellip;</title>
+<link rel="canonical" href="{{ page.redirect.to }}">
+{%- comment -%}
+  jekyll-redirect-from's stock template drops the URL fragment; the site links
+  into articles by fragment all the time (`#annot-<hash>` highlight threads,
+  `#q7` Q&A footnotes, `#:~:text=` shares), so keep it. The <meta refresh> line
+  is also what tools/feedback-queue.cjs and js/dashboard.js parse to follow a
+  renamed post — keep its exact format.
+{%- endcomment %}
+<script>location.replace("{{ page.redirect.to }}" + location.hash)</script>
+<meta http-equiv="refresh" content="0; url={{ page.redirect.to }}">
+<meta name="robots" content="noindex">
+<h1>Redirecting&hellip;</h1>
+<a href="{{ page.redirect.to }}">Click here if you are not redirected.</a>
+</html>

@@ -102,7 +102,10 @@ async function discussions() {
 async function fetchText(url) {
   const r = await fetch(url, { headers: { 'User-Agent': 'feedback-queue' } });
   if (!r.ok) throw new Error(`GET ${url}: HTTP ${r.status}`);
-  return r.text();
+  const html = await r.text();
+  // a renamed post keeps its data path via `comments_path`; follow the jekyll-redirect-from stub once
+  const m = /<meta http-equiv="refresh" content="0; url=([^"]+)">/.exec(html);
+  return m ? fetchText(m[1]) : html;
 }
 
 async function main() {

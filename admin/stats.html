@@ -69,18 +69,18 @@ noindex: true
 <script>
 // title lookup for view paths (posts + pages), generated at build time
 window.DASH_TITLES = {
-{% for p in site.posts %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
+{% for p in site.posts %}  {{ p.comments_path | default: p.url | jsonify }}: {{ p.title | jsonify }},
 {% endfor %}{% for p in site.pages %}{% if p.title %}  {{ p.url | jsonify }}: {{ p.title | jsonify }},
 {% endif %}{% endfor %}  "": ""
 };
 // per-post front matter the 值得翻新 list needs (date / updated / source path)
 window.DASH_META = {
-{% for p in site.posts %}  {{ p.url | jsonify }}: [{{ p.date | date: "%Y-%m-%d" | jsonify }}, {% if p.updated %}{{ p.updated | date: "%Y-%m-%d" | jsonify }}{% else %}null{% endif %}, {{ p.path | jsonify }}, {{ p.category | default: "" | jsonify }}],
+{% for p in site.posts %}  {{ p.comments_path | default: p.url | jsonify }}: [{{ p.date | date: "%Y-%m-%d" | jsonify }}, {% if p.updated %}{{ p.updated | date: "%Y-%m-%d" | jsonify }}{% else %}null{% endif %}, {{ p.path | jsonify }}, {{ p.category | default: "" | jsonify }}, {{ p.url | jsonify }}],
 {% endfor %}  "": null
 };
-// posts only, newest first — the 修订简报 picker
+// posts only, newest first — the 修订简报 picker (data path = comments_path when set, live URL)
 window.DASH_POSTS = [
-{% for p in site.posts %}  [{{ p.url | jsonify }}, {{ p.title | jsonify }}]{% unless forloop.last %},{% endunless %}
+{% for p in site.posts %}  [{{ p.comments_path | default: p.url | jsonify }}, {{ p.title | jsonify }}, {{ p.url | jsonify }}]{% unless forloop.last %},{% endunless %}
 {% endfor %}];
 </script>
 <script src="{{ '/js/feedback-brief.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>

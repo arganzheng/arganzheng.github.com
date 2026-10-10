@@ -203,8 +203,14 @@
 
   function reasonsText(reasons) { return FB.reasonsText(reasons); }
   function isChapter(r) { return (r.quote || '').indexOf(FB.CHAPTER_PREFIX) === 0; }
+  // `path` is the data path (= `comments_path` for a renamed post); the live
+  // page is DASH_META[path][4]. A jekyll-redirect-from stub is followed once.
   function loadArticle(path) {
-    return fetch(path).then(function (r) { return r.text(); }).then(function (html) { return FB.articleFromHtml(DOM, html, titleOf(path)); }).catch(function () { return null; });
+    var m = meta[path], url = (m && m[4]) || path;
+    return fetch(url).then(function (r) { return r.text(); }).then(function (html) {
+      var re = /<meta http-equiv="refresh" content="0; url=([^"]+)">/.exec(html);
+      return re ? fetch(re[1]).then(function (r) { return r.text(); }) : html;
+    }).then(function (html) { return FB.articleFromHtml(DOM, html, titleOf(path)); }).catch(function () { return null; });
   }
 
   function openBrief(path) {

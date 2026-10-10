@@ -8,7 +8,7 @@
   comments / likes) live in the header meta line, not here.
 {%- endcomment -%}
 <div class="post-actions"
-     data-path="{{ page.url }}"
+     data-path="{{ page.comments_path | default: page.url }}"
      data-url="{{ site.url }}{{ site.baseurl }}{{ page.url }}"
      data-title="{{ page.title | escape }}"
      data-text="{{ page.subtitle | default: page.description | default: '' | escape }}"
