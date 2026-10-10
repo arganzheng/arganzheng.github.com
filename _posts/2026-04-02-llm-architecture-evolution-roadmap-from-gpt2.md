@@ -151,7 +151,7 @@ timeline
 
 2025 年下半年，注意力替代路线开始以不同折中进入公开模型：[DeepSeek-V3.2](https://arxiv.org/html/2512.02556v1)报告了 DSA 稀疏 attention；[Qwen3-Next](https://www.alibabacloud.com/blog/602580)组合 Gated DeltaNet 与 gated attention；[Kimi Linear](https://arxiv.org/html/2510.26692)组合 KDA 与 MLA；[MiniMax-M1](https://arxiv.org/html/2506.13585)采用 Lightning Attention 与 softmax attention 混合结构，而[官方对 MiniMax-M2 的说明](https://www.minimax.io/news/why-did-m2-end-up-as-a-full-attention-model)称 M2 选择了 full attention。它们不是一条线性替代链，而是质量、长上下文效率和系统成熟度之间的不同取舍。
 
-截至 2026 年 10 月 10 日，公开资料里还可以看到几种结构方向：[Qwen3.5](https://github.com/QwenLM/Qwen3.5)采用 Gated Delta Networks 与稀疏 MoE；[Kimi K3](https://arxiv.org/html/2607.24653)把 KDA 与 Gated MLA 混合；[Instella-MoE](https://arxiv.org/html/2609.00791)报告了 Gated MLA。2019–2022 年的主旋律是规模与数据，2023 年后结构改动重新活跃，推理成本与长上下文是其中的重要驱动力；这也是现代 LLM 结构系列把[第 02 篇](/transformer-flops-bytes-and-roofline.html)的算量与访存量放在所有专项之前的原因：不先知道什么贵，就看不出每处改动在省什么。
+截至 2026 年 10 月 10 日，公开资料里还可以看到几种结构方向：[Qwen3.5](https://huggingface.co/Qwen/Qwen3.5-35B-A3B/blob/main/config.json)采用 Gated Delta Networks 与稀疏 MoE；[Kimi K3](https://arxiv.org/html/2607.24653)把 KDA 与 Gated MLA 混合；[Instella-MoE](https://arxiv.org/html/2609.00791)报告了 Gated MLA。2019–2022 年的主旋律是规模与数据，2023 年后结构改动重新活跃，推理成本与长上下文是其中的重要驱动力；这也是现代 LLM 结构系列把[第 02 篇](/transformer-flops-bytes-and-roofline.html)的算量与访存量放在所有专项之前的原因：不先知道什么贵，就看不出每处改动在省什么。
 
 ## 五条演进线与一条辅线
 {: #三四条演进线}
@@ -234,27 +234,15 @@ flowchart TB
 
 **读 config 时认它**：`vision_config`、`mm_projector_type` / `projector_hidden_act`、`image_token_id`、`spatial_merge_size`、`cross_attention_layers`。
 
-五条线之外还有一条**训练稳定性辅线**：QK-norm（[Qwen3 技术报告](https://arxiv.org/html/2505.09388)讨论其训练稳定作用）、MuonClip（[MuonClip 技术说明](https://frontier.soket.ai/posts/muon_qk_clip/)）、[DeepSeek-V3 的 auxiliary-loss-free 负载均衡](https://arxiv.org/html/2412.19437)，以及[第 10 篇](/floating-point-formats-and-mixed-precision.html)中的浮点格式与数值稳定性。它们不都改变前向结构，但会影响训练与推理能否稳定运行；训练配方整体见[预训练系列的配方与稳定性篇](/pretraining-recipe-and-training-stability.html)。
+五条线之外还有一条**训练稳定性辅线**：QK-norm（[Qwen3 技术报告](https://arxiv.org/html/2505.09388)讨论其训练稳定作用）、MuonClip（[Kimi K2 技术报告](https://arxiv.org/html/2507.20534)）、[DeepSeek-V3 的 auxiliary-loss-free 负载均衡](https://arxiv.org/html/2412.19437)，以及[第 10 篇](/floating-point-formats-and-mixed-precision.html)中的浮点格式与数值稳定性。它们不都改变前向结构，但会影响训练与推理能否稳定运行；训练配方整体见[预训练系列的配方与稳定性篇](/pretraining-recipe-and-training-stability.html)。
 
 推理模型与 RL 后训练主要改变训练或后训练过程，不是本系列讨论的结构改动；详见[RL 后训练基础设施系列](/rl-post-training-infrastructure.html)与[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)。
 
 
 
-有了路线图，剩下的工作是把它落到真实配置上。第四章讲路线图里没有专篇的三处改动（RMSNorm、SwiGLU、去 bias）加上 GQA 与去共享的参数接口；第五章用三张配置表把 GPT-2 → Llama-3 → DeepSeek-V3 → 2025 年的模型放到五条主线上；第六章算现代 LLM 结构系列的第一笔账——参数量——把 Llama-3-8B 精确到 8,030,261,248，再验证 70B 与 405B，最后解释 DeepSeek-V3 的 config 字段怎么对应 MLA、MoE、MTP、dense 公式在哪里失效；第七章对照 `modeling_llama.py`；第八章给出贯穿脚本 `llm_cost.py` 的第一版。
+有了路线图，下一步是把它落到真实配置上：[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)逐一讲五处改动，读 `config.json`，从配置数出 Llama-3-8B 的 8.03B 参数，并对照 `modeling_llama.py`。
 
-| 章 | 主题 | 内容 |
-|---|---|---|
-| 四 | 五处改动，每一处为什么 | RMSNorm、RoPE、SwiGLU 与 14336、GQA、去 bias：各解决什么问题、代价是什么、参数怎么变 |
-| 五 | 读配置：把路线图落到 `config.json` 上 | GPT-2 与 Llama-3 对照；三代模型的实践地图；2025 年的对照 |
-| 六 | 参数量：从 `config.json` 到 8.03B | 七个矩阵；公式；逐项代入 8B / 70B / 405B；参数分布；常见算错；DeepSeek-V3 的字段 |
-| 七 | 对照 `modeling_llama.py` | 每个类对应哪些矩阵、哪些形状 |
-| 八 | 实践 | `llm_cost.py` 第一版：从 `config.json` 算参数量 |
-| 九 | 本文小结 |  |
-| 十 | 自测 | 6 道题 |
-
-Table: 本文余下的章节安排
-
-每个矩阵在前向里对应的 GEMM 形状（$$m$$、$$k$$、$$n$$）、prefill 与 decode 的差别、张量并行怎么切，放在[下一篇《现代 LLM 结构（02）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)，那里与 FLOPs 一起讲。
+每个矩阵在前向里对应的 GEMM 形状（$$m$$、$$k$$、$$n$$）、prefill 与 decode 的差别、张量并行怎么切，放在[第二篇《现代 LLM 结构（02）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)，那里与 FLOPs 一起讲。
 
 
 
