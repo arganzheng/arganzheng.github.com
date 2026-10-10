@@ -5,7 +5,7 @@
  * Runs weekly from .github/workflows/feedback-queue.yml (or by hand). For every
  * post it builds the same 修订简报 the dashboard shows (js/feedback-brief.js,
  * shared) from:
- *   - worker GET /feedback            (D1: 存疑 + 原因 + 章节, chapter 有用/没看懂, views…)
+ *   - worker GET /feedback            (D1: up/share passage reactions, views…)
  *   - GitHub GraphQL                  (the Comments category: every discussion with comments)
  *   - GitHub REST                     (划线评论 issues and their state; open 待修订 issues)
  *   - the live page                   (does each quote still anchor? which chapter?)

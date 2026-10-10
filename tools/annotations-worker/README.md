@@ -116,7 +116,7 @@ or a new base64 poster; `poster` may be omitted:
 
 with the giscus reader token (`Authorization: Bearer …`, same login as the
 comments). The worker accepts it only when `GET /user` is the owner of `REPO`
-(like `/reactions/resolve`), then — acting as **our GitHub App**, installation
+(like the author-only Moments routes), then — acting as **our GitHub App**, installation
 token with `contents: write` — makes **one commit on `MOMENTS_BRANCH`
 (default `master`)** through the Git Data API: the pictures as
 `img/moments/YYYY/MM/<YYYYMMDD-HHMM-n>.webp` plus the entry appended to
@@ -270,54 +270,34 @@ still GitHub reactions). Needs the D1 binding; 501 without it.
 menu (system share sheet completed, Weibo / X / LinkedIn opened, WeChat QR
 shown, link copied); localhost previews don't count. Same D1 binding.
 
-## Passage 赞 / 存疑 / 分享 (GET/POST /reactions)
+## Passage 赞 / 分享 (GET/POST /reactions)
 
 Anonymous per-passage reactions, same trust model. One row per
-`(path, hash)` in `passage_reactions(path, hash, quote, up, doubt, share)` —
+`(path, hash)` in `passage_reactions(path, hash, quote, up, share, section)` —
 `hash` is the FNV-1a id `js/annotations.js` already uses for `#annot-<hash>`
 links, `quote` the exact text (≤ 600 chars) so the browser can re-anchor and
 underline a passage that has reactions but no comment. `POST {path, hash,
-quote, kind: 'up'|'doubt', on: true|false}` toggles one reader's reaction (the
-browser remembers its own in `localStorage["react:<path>:<hash>"]`); `kind:
-'share'` is a plain +1 (no toggle) and also bumps the article's `shares` row
-(the response carries `shares`). `GET /reactions?path=` lists the post's
-passages with any count. The `share`, `reasons` and `section` columns are added
-to existing tables by `ALTER TABLE` on first use.
+quote, kind: 'up', on: true|false}` toggles one reader's reaction (the browser
+remembers its own in `localStorage["react:<path>:<hash>"]`); `kind: 'share'`
+is a plain +1 (no toggle) and also bumps the article's `shares` row (the
+response carries `shares`). `GET /reactions?path=` lists passages with a
+positive `up` or `share` count and returns only those two counters. The
+additional columns are added to existing tables by `ALTER TABLE` on first use;
+legacy columns remain unused.
 
-**Why a passage is doubted** — `kind: 'reason'` with `reason` one of `wrong |
-unclear | outdated | example | conflict` (有错误 / 没看懂 / 版本过时 / 缺例子 /
-与前文矛盾) bumps that key in the row's `reasons` JSON object; `prev === reason`
-un-counts it instead (the browser lets a reader pick several reasons, one POST
-per toggle; `prev` ≠ `reason` still switches in one call). Every POST may
-carry `section` (nearest heading above the passage, ≤ 120 chars) which is stored
-once per row (`COALESCE`). Both come back in every reactions response.
-
-**Section-level reactions** (the ♡ under a 随笔 entry; until 2026-09-30 also
-点赞 / 没看懂 on every h2–h6, whose rows remain) reuse the same route and table:
-the browser posts `kind: 'up' | 'doubt'` with `quote = '§ ' + <section title>`
-and `section` = the title. The `§ ` prefix is how readers of the table (dashboard, brief,
-`js/annotations.js`) tell a chapter row from a passage row.
-
-**The author answers a 存疑** — `POST /reactions/resolve {path, hash, action}`
-with the reader's giscus token in `Authorization`; the worker calls `GET /user`
-and only accepts the owner of `REPO` (403 otherwise; no extra secret).
-`action: 'resolve'` sets `resolved_at = now, resolved_doubt = doubt` — the count
-is kept, the browser shows the passage green (✓ 作者已修正) and counts only
-doubts above `resolved_doubt` as open, so a doubt raised after the fix turns it
-red again with the delta; `'reopen'` clears the stamp; `'clear'` zeroes `doubt`
-and `reasons`. Answers the row like every other reactions response
-(`up, doubt, share, reasons, resolved_at, resolved_doubt`); 404 when the row
-does not exist. Both columns are `ALTER TABLE`d in on first use.
+**Section-level reactions** (the ♡ under a 随笔 entry) reuse the same route and
+table: the browser posts `kind: 'up'` with `quote = '§ ' + <section title>` and
+`section` = the title. The `§ ` prefix is how readers of the table (dashboard,
+brief, `js/annotations.js`) tell a chapter row from a passage row.
 
 ## Dashboard reads (/stats/top, /views/daily, /reactions/top, /feedback)
 
 `GET /stats/top?limit=100` joins views / votes / shares per post; `GET
 /views/daily?days=30` returns per-day totals (Beijing dates, from the
 `views_daily(path, day, count)` table that every `POST /views` also writes) plus
-the posts read most in the window; `GET /reactions/top?kind=doubt|up|share&limit=50`
-lists the most doubted / liked / shared passages. All public, cached 1–5 min.
-`GET /feedback?path=` returns everything D1 holds about one post — its
-`passage_reactions` rows (with `reasons` / `section`), views, 有用 and shares —
+the posts read most in the window; `GET /reactions/top?kind=up|share&limit=50`
+lists the most liked or shared passages. All public, cached 1–5 min.
+`GET /feedback?path=` returns passage `up` / `share` reactions, views, 有用 and shares —
 for the dashboard's 修订简报 (the Discussion and Issues are fetched by the
 browser from GitHub). Without `path` it returns every post at once —
 `{ posts: { "/slug.html": { reactions, views, up, shares } } }` — for the weekly

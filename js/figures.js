@@ -6,7 +6,7 @@
  * <figcaption> — 「图 N：」 + the image's alt / the diagram's `title:` (Mermaid
  * front matter) or first `%%` comment (「图 N」 alone when there is no title) — and a corner strip with a 放大 button
  * (js/diagram-zoom.js lightbox; pictures do not zoom on click) and a feedback
- * button that selects the caption's title, which pops the usual 点赞 / 存疑 /
+ * button that selects the caption's title, which pops the usual 点赞 /
  * 评论 toolbar. The caption title is the passage:
  * stable as long as the alt stays, readable in the GitHub comment and the brief.
  *
@@ -76,7 +76,7 @@
   }
 
   // Select `target`'s text as if the reader had dragged over it; annotations.js
-  // listens to selectionchange and shows its toolbar (点赞 / 存疑 / 评论 /
+  // listens to selectionchange and shows its toolbar (点赞 / 评论 /
   // 复制 / 搜一搜 / 分享) at the selection. `focusEl` (a caption) is scrolled into
   // view first — a tall picture puts its caption below the fold — focused and
   // flashed, so the reader sees what got picked.
@@ -115,7 +115,7 @@
     return b;
   }
 
-  var FIG_TITLE = '对这张图评论 / 存疑（会选中图题，再从工具条里选）';
+  var FIG_TITLE = '对这张图评论（会选中图题，再从工具条里选）';
   function figureButton(cap) {
     return button(FIG_TITLE, function () { pick(cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), cap); });
   }
@@ -227,7 +227,7 @@
     return src;
   }
 
-  var TABLE_TITLE = '对这张表评论 / 存疑（会选中表格标题，再从工具条里选）';
+  var TABLE_TITLE = '对这张表评论（会选中表格标题，再从工具条里选）';
   function decorateTables() {
     Array.prototype.forEach.call(container.querySelectorAll('table'), function (table) {
       if (table.closest(TABLE_EXCLUDE)) return;
@@ -287,7 +287,7 @@
     }
     return n + 1;
   }
-  var CODE_TITLE = '对这段代码评论 / 存疑（会选中它的标题或「代码块 N」，再从工具条里选）';
+  var CODE_TITLE = '对这段代码评论（会选中它的标题或「代码块 N」，再从工具条里选）';
   function decorateCode() {
     Array.prototype.forEach.call(container.querySelectorAll('pre'), function (pre) {
       if (pre.closest(CODE_EXCLUDE) || pre.closest('.code-block') || pre.querySelector('code.language-mermaid')) return;

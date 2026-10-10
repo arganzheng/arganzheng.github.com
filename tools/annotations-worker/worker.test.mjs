@@ -17,6 +17,23 @@ function request(method, path = '/moments', authorization, origin) {
   return new Request(`https://worker.test${path}`, { method, headers });
 }
 
+test('POST /reactions rejects legacy doubt and reason kinds', async () => {
+  const DB = { exec: async () => {} };
+  for (const kind of ['doubt', 'reason']) {
+    const response = await worker.fetch(new Request('https://worker.test/reactions', {
+      method: 'POST',
+      headers: { Origin: 'https://arganzheng.life', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '/post.html', hash: 'deadbeef', quote: 'quoted text', kind }),
+    }), { ...env, DB }, ctx);
+    assert.equal(response.status, 400);
+  }
+});
+
+test('POST /reactions/resolve is no longer a route', async () => {
+  const response = await worker.fetch(request('POST', '/reactions/resolve', undefined, 'https://arganzheng.life'), env, ctx);
+  assert.equal(response.status, 404);
+});
+
 test('no-Origin POST /moments accepts the configured API key and reaches publish handler', async () => {
   const response = await worker.fetch(request('POST', '/moments', 'Bearer k'), env, ctx);
   assert.equal(response.status, 501);
