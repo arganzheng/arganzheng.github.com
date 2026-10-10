@@ -339,27 +339,26 @@ a.ms-day:hover { box-shadow: 0 0 0 1.5px @brand-primary; }
 		}
 	}
 
-	// ---- gallery: 1 large · 2 / 4 two columns · 3+ three columns (朋友圈)
+	// ---- gallery (朋友圈): one picture at its own shape, 2–9 in same-size squares,
+	// four as 2 × 2 in the three-column grid.
 	.moment-gallery {
 		display: grid;
-		gap: 6px;
+		gap: 4px;
 		margin: 0.6em 0 0.4em;
-		max-width: 480px;
+		max-width: 360px;
 		grid-template-columns: repeat(3, 1fr);
 		.moment-pic {
 			display: block; position: relative;
 			aspect-ratio: 1 / 1; overflow: hidden;
-			border-radius: 6px; background: #f0f3f5;
+			background: #f0f3f5;
 			cursor: zoom-in;
-			img { width: 100%; height: 100%; object-fit: cover; margin: 0; display: block; transition: transform 0.25s ease; }
-			&:hover img { transform: scale(1.03); }
+			img { width: 100%; height: 100%; object-fit: cover; margin: 0; display: block; }
 		}
 		&.n-1 {
 			grid-template-columns: 1fr;
-			max-width: 420px;
-			.moment-pic { aspect-ratio: auto; max-height: 460px; img { height: auto; max-height: 460px; object-fit: contain; width: auto; max-width: 100%; } }
+			.moment-pic { aspect-ratio: auto; justify-self: start; max-width: 300px; background: none; img { width: auto; height: auto; max-width: 100%; max-height: 300px; object-fit: contain; } }
 		}
-		&.n-2, &.n-4 { grid-template-columns: repeat(2, 1fr); max-width: 400px; }
+		&.n-4 .moment-pic:nth-child(3) { grid-column-start: 1; }
 	}
 
 	// ---- quote card
