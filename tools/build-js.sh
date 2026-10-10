@@ -15,6 +15,7 @@ UGLIFY=node_modules/.bin/uglifyjs
 SRC=(
   js/argan-blog.js        # theme: responsive tables/embeds, navbar on scroll, side catalog pin
   js/toc.js               # [TOC] + floating side catalog
+  js/reading-position.js  # article progress and resume prompt (after TOC assigns heading ids)
   js/diagram-zoom.js      # lightbox for Mermaid diagrams / images (window.DiagramZoom, button in figures.js)
   js/code-copy.js         # copy button on code blocks, diagrams, tables
   js/code-tabs.js         # Python / Java tabs on grouped code blocks

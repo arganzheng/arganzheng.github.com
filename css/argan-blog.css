@@ -2140,6 +2140,52 @@ li[id^="fn:"] {
 .post-container .related + .related {
   margin-top: 28px;
 }
+.reading-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #00788f;
+  transform: scaleX(0);
+  transform-origin: left center;
+  z-index: 1100;
+  pointer-events: none;
+  visibility: hidden;
+}
+.reading-progress.is-visible {
+  visibility: visible;
+}
+.reading-position-prompt {
+  position: fixed;
+  z-index: 1101;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+  padding: 8px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  background: #fff;
+  color: #24292f;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  font-size: 13px;
+  transform: translateX(-50%);
+}
+.reading-position-prompt button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.reading-position-prompt .reading-position-close {
+  font-size: 18px;
+  line-height: 1;
+  color: #6a737d;
+}
 .post-preview .post-cat {
   display: inline-block;
   vertical-align: 4px;
@@ -7715,6 +7761,18 @@ html[data-theme="dark"] .mp .mp-actions .mp-clear {
 }
 html[data-theme="dark"] footer .copyright,
 html[data-theme="dark"] footer .list-inline a {
+  color: #969ba4;
+}
+html[data-theme="dark"] .reading-progress {
+  background-color: #4cb7cb;
+}
+html[data-theme="dark"] .reading-position-prompt {
+  background-color: #282b30;
+  border-color: #33363c;
+  color: #d3d5d9;
+  box-shadow: 0 4px 16px rgba(23, 24, 27, 0.7);
+}
+html[data-theme="dark"] .reading-position-prompt .reading-position-close {
   color: #969ba4;
 }
 .nav-theme-toggle a svg {
