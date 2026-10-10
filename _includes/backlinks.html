@@ -1,0 +1,39 @@
+{%- comment -%}
+  page.backlinks is precomputed by _plugins/backlinks.rb from published posts,
+  with redirect aliases resolved and one newest-first entry per source post.
+{%- endcomment -%}
+{%- if page.backlinks.size > 0 -%}
+{%- assign visible_backlinks = page.backlinks | slice: 0, 8 -%}
+{%- assign remaining_count = page.backlinks.size | minus: 8 -%}
+<div class="related backlinks">
+  <p class="h3">LINKED FROM <small>被 {{ page.backlinks.size }} 篇文章引用</small></p>
+  <ul class="list-unstyled">
+    {%- for r in visible_backlinks %}
+    <li>
+      <small class="related-date">{{ r.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
+      <a href="{{ r.url | relative_url }}">{{ r.title }}</a>
+      {%- if r.series_name %}
+      <small class="related-why">{{ r.series_name }}</small>
+      {%- endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- if remaining_count > 0 %}
+  {%- assign remaining_backlinks = page.backlinks | slice: 8, remaining_count %}
+  <details class="backlinks-more">
+    <summary>展开其余 {{ remaining_count }} 篇</summary>
+    <ul class="list-unstyled">
+      {%- for r in remaining_backlinks %}
+      <li>
+        <small class="related-date">{{ r.date | date_to_string }}</small>&nbsp;&raquo;&nbsp;
+        <a href="{{ r.url | relative_url }}">{{ r.title }}</a>
+        {%- if r.series_name %}
+        <small class="related-why">{{ r.series_name }}</small>
+        {%- endif %}
+      </li>
+      {%- endfor %}
+    </ul>
+  </details>
+  {%- endif %}
+</div>
+{%- endif -%}
