@@ -15,6 +15,11 @@
 @dk-muted:     #969ba4;
 @dk-link:      #4cb7cb;   // @brand-primary lightened for contrast on @dk-bg
 @dk-paper:     #f4f5f7;   // light card behind diagrams
+@dk-callout-note:      #4493f8;
+@dk-callout-tip:       #3fb950;
+@dk-callout-important: #ab7df8;
+@dk-callout-warning:   #d29922;
+@dk-callout-caution:   #f85149;
 
 html[data-theme="dark"] {
 	color-scheme: dark;
@@ -382,4 +387,31 @@ html[data-theme="dark"] .post-container pre.lineno .line::before {
 		@dk-border calc(~"100% - 0.9em"),
 		@dk-surface calc(~"100% - 0.9em")
 	);
+}
+
+html[data-theme="dark"] .post-container .callout { color: @dk-text; }
+html[data-theme="dark"] .post-container .callout-note {
+	border-left-color: @dk-callout-note;
+	background-color: mix(@dk-surface, @dk-callout-note, 90%);
+	.callout-title { color: @dk-callout-note; }
+}
+html[data-theme="dark"] .post-container .callout-tip {
+	border-left-color: @dk-callout-tip;
+	background-color: mix(@dk-surface, @dk-callout-tip, 90%);
+	.callout-title { color: @dk-callout-tip; }
+}
+html[data-theme="dark"] .post-container .callout-important {
+	border-left-color: @dk-callout-important;
+	background-color: mix(@dk-surface, @dk-callout-important, 90%);
+	.callout-title { color: @dk-callout-important; }
+}
+html[data-theme="dark"] .post-container .callout-warning {
+	border-left-color: @dk-callout-warning;
+	background-color: mix(@dk-surface, @dk-callout-warning, 90%);
+	.callout-title { color: @dk-callout-warning; }
+}
+html[data-theme="dark"] .post-container .callout-caution {
+	border-left-color: @dk-callout-caution;
+	background-color: mix(@dk-surface, @dk-callout-caution, 90%);
+	.callout-title { color: @dk-callout-caution; }
 }
