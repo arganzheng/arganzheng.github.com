@@ -1,6 +1,5 @@
 # /series.html — one page, one tree: learning map → series → posts (Chirpy-style
-# categories page, folded with <details>). Each series also has a /series/<key>/
-# page with its posts.
+# categories page, folded with <details>). No per-series pages.
 #
 # Inputs: `_data/series.yml` (key → name, overview, roadmap, number, shared_with),
 # `_data/roadmaps.yml` (map key → name, url) and `series: <key>` in post front
@@ -15,8 +14,6 @@
 # (unnumbered, by first post)], other: [series on no map] } and emits /series.html
 # (layout series-index). Future-dated posts are not in site.posts on a normal
 # build, so the counts are what is published today.
-require 'cgi'
-
 module SeriesPages
   RECAP = /-series-recap-and-self-test(\.html|\.md)?\z/
   CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/
@@ -62,7 +59,7 @@ module SeriesPages
         posts = site.posts.docs.select { |p| p.data['series'] == key }.sort_by(&:date)
         overview = by_url[meta['overview']]
         meta['key'] = key
-        meta['url'] = "/series/#{key}/"
+        meta['url'] = "/series.html##{key}"
         meta['count'] = posts.size
         meta['body_count'] = posts.count { |p| p.url !~ RECAP }
         meta['planned'] = [planned[key]['planned'], posts.size].max
@@ -77,23 +74,6 @@ module SeriesPages
             'date' => p.date, 'recap' => !!(p.url =~ RECAP) }
         end
 
-        post_list = meta['posts'].map do |post|
-          href = CGI.escapeHTML("#{site.baseurl}#{post['url']}")
-          title = CGI.escapeHTML(post['title'].to_s)
-          recap_class = post['recap'] ? ' class="is-recap"' : ''
-          "<li#{recap_class}><a href=\"#{href}\">#{title}</a></li>"
-        end.join("\n")
-        overview = if meta['overview']
-                     href = CGI.escapeHTML("#{site.baseurl}#{meta['overview']}")
-                     "<p><a href=\"#{href}\">系列总纲</a></p>"
-                   else
-                     ''
-                   end
-        detail = Jekyll::PageWithoutAFile.new(site, site.source, 'series', File.join(key, 'index.html'))
-        detail.content = "#{overview}<ol class=\"st-posts\">#{post_list}</ol>"
-        detail.data = { 'layout' => 'page', 'title' => meta['name'], 'permalink' => "/series/#{key}/",
-                        'description' => "#{meta['name']}：系列文章与总结" }
-        site.pages << detail
       end
 
       groups = roadmaps.map do |rkey, r|
