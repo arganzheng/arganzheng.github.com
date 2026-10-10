@@ -17,6 +17,7 @@
 # converter, then touched up:
 #   - a paragraph made only of images (one per line, or several paragraphs in a
 #     row) becomes `.moment-gallery.n-<count>` — 1 large, 2/4 two columns, 3+ a grid;
+#     local images get cached 640px WebP thumbnails; gallery links keep originals;
 #   - a blockquote keeps its line breaks (a poem), and when its last line starts
 #     with —— / — / -- that line becomes `.moment-cite` (the attribution);
 #   - a line that is just a URL of 网易云 / QQ 音乐 / Spotify / Apple Music, or of
@@ -44,6 +45,8 @@
 require 'json'
 require 'date'
 require 'cgi'
+require 'fileutils'
+require 'open3'
 
 module Moments
   HEAD = /\A##\s+(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s+@\s*(.+?))?\s*\z/
@@ -72,6 +75,83 @@ module Moments
     [%r{\A/\S+\.(mp3|m4a|ogg|wav)\z}i,
      ->(m) { %(<audio controls preload="none" src="#{m[0]}"></audio>) }]
   ]
+
+  class Thumbs
+    WIDTH = 640
+
+    def initialize(site)
+      @site = site
+      @cache = File.join(site.source, '.jekyll-cache', 'moment-thumbs')
+      @registered = {}
+      @cwebp_available = nil
+      @warned_missing = false
+    end
+
+    def url(src)
+      return src unless src&.start_with?('/img/moments/')
+      return src unless cwebp_available?
+
+      path = src.split(/[?#]/, 2).first
+      relative = path.delete_prefix('/')
+      source = File.expand_path(relative, @site.source)
+      root = File.join(File.expand_path(@site.source), 'img', 'moments')
+      return src unless source.start_with?("#{root}#{File::SEPARATOR}") && File.file?(source)
+
+      source_stat = File.stat(source)
+      relative_thumb = File.join(File.dirname(relative), 'thumb', "#{File.basename(relative, File.extname(relative))}.webp")
+      cached = File.join(@cache, relative_thumb)
+      marker = "#{cached}.source"
+      key = "#{source_stat.mtime.to_r}:#{source_stat.size}"
+      unless File.file?(cached) && File.file?(marker) && File.read(marker) == key && File.mtime(cached) > source_stat.mtime
+        FileUtils.mkdir_p(File.dirname(cached))
+        args = ["cwebp", "-q", "78"]
+        width = image_width(source)
+        args.concat(["-resize", WIDTH.to_s, "0"]) if width && width > WIDTH
+        args.concat([source, "-o", cached])
+        _, stderr, status = Open3.capture3(*args)
+        unless status.success?
+          Jekyll.logger.warn "moments:", "cwebp failed for #{src}: #{stderr.strip}"
+          return src
+        end
+        File.write(marker, key)
+        File.utime(File.atime(cached), [Time.now, source_stat.mtime + 1].max, cached)
+      end
+
+      unless @registered[relative_thumb]
+        static_file = Jekyll::StaticFile.new(@site, @cache, File.dirname(relative_thumb), File.basename(relative_thumb))
+        unless @site.static_files.any? { |file| file.destination(@site.dest) == static_file.destination(@site.dest) }
+          @site.static_files << static_file
+        end
+        @registered[relative_thumb] = true
+      end
+      "/#{relative_thumb}"
+    end
+
+    private
+
+    def cwebp_available?
+      return @cwebp_available unless @cwebp_available.nil?
+
+      _, _, status = Open3.capture3("cwebp", "-version")
+      @cwebp_available = status.success?
+    rescue Errno::ENOENT
+      @cwebp_available = false
+    ensure
+      unless @cwebp_available || @warned_missing
+        Jekyll.logger.warn "moments:", "cwebp not found; using original images"
+        @warned_missing = true
+      end
+    end
+
+    def image_width(path)
+      output, _, status = Open3.capture3("file", "-b", path)
+      return unless status.success?
+
+      output.scan(/(\d+)\s*x\s*\d+/).last&.first&.to_i
+    rescue Errno::ENOENT
+      nil
+    end
+  end
 
   def self.iframe(src, height)
     %(<iframe src="#{src}" height="#{height}" loading="lazy" frameborder="0" allow="autoplay; encrypted-media" title="音乐播放器"></iframe>)
@@ -113,22 +193,35 @@ module Moments
   end
 
   # Markdown of one entry → HTML with the gallery / quote / music touch-ups.
-  def self.render(site, md)
+  def self.render(site, md, thumbs)
     lines = md.lines.map { |l| music_card(l) ? "\n#{music_card(l)}\n" : l }
     # quote lines break where the author broke them: `> a` / `> b` → a<br>b
     lines.each_with_index { |l, i| lines[i] = l.chomp + "  \n" if l =~ /\A>\s*\S/ && lines[i + 1] =~ /\A>\s*\S/ }
     md = lines.join
     html = site.find_converter_instance(Jekyll::Converters::Markdown).convert(md)
     html = html.gsub(/<img\b(?![^>]*\bloading=)/, '<img loading="lazy" decoding="async"')
-    html = galleries(html)
+    html = galleries(html, thumbs)
     quotes(html).strip
   end
 
-  def self.galleries(html)
+  def self.galleries(html, thumbs)
     # consecutive image-only paragraphs merge into one gallery
     html.gsub(%r{(?:<p>\s*(?:<img\b[^>]*>\s*(?:<br\s*/?>)?\s*)+</p>\s*)+}m) do |run|
       imgs = run.scan(/<img\b[^>]*>/)
-      items = imgs.map { |i| %(<a class="moment-pic" href="#{i[/\bsrc="([^"]*)"/, 1]}">#{i}</a>) }
+      items = imgs.map do |img|
+        src = img[/\bsrc="([^"]*)"/, 1]
+        thumb = thumbs.url(src)
+        if thumb && thumb != src
+          if imgs.size > 1
+            img = img.sub(/\bsrc="[^"]*"/, %(src="#{thumb}"))
+          else
+            img = img.sub(/\/?>\z/) do |ending|
+              %( srcset="#{thumb} 640w, #{src} 1600w" sizes="(max-width: 768px) 100vw, 600px"#{ending})
+            end
+          end
+        end
+        %(<a class="moment-pic" href="#{src}">#{img}</a>)
+      end
       %(<div class="moment-gallery n-#{imgs.size}">#{items.join}</div>\n)
     end
   end
@@ -145,7 +238,7 @@ module Moments
     end
   end
 
-  def self.parse(site, page)
+  def self.parse(site, page, thumbs)
     entries = []
     cur = nil
     page.content.each_line do |line|
@@ -171,9 +264,11 @@ module Moments
       e['url'] = "#{page.url}##{e['id']}"
       e['month'] = page.url[/(\d{4}-\d{2})\.html\z/, 1]
       md, e['tags'] = link_tags(e['md'])
-      e['html'] = render(site, md)
+      e['html'] = render(site, md, thumbs)
       e['text'] = e['html'].gsub(%r{<(script|style|iframe|audio)\b.*?</\1>}m, ' ').gsub(/<[^>]+>/, ' ').gsub(/\s+/, ' ').strip
-      e['img'] = e['html'][/<img\b[^>]*\bsrc="([^"]*)"/, 1]
+      image = e['html'][/<img\b[^>]*>/]
+      srcset = image && image[/\bsrcset="([^"]*)"/, 1]
+      e['img'] = srcset ? srcset.split(',').first.split.first : image && image[/\bsrc="([^"]*)"/, 1]
       e.delete('md')
     end
     entries.sort_by { |e| e['time'] }.reverse
@@ -248,9 +343,10 @@ module Moments
     priority :low
 
     def generate(site)
+      thumbs = Thumbs.new(site)
       months = site.pages.select { |p| p.data['layout'] == 'moments' && p.data['month'] }
       months.each do |page|
-        page.data['moments'] = Moments.parse(site, page)
+        page.data['moments'] = Moments.parse(site, page, thumbs)
         page.data['comments_path'] = page.url
       end
       months.sort_by! { |p| p.data['month'] }.reverse!

@@ -328,7 +328,10 @@
         var pic = e.target.closest('.moment-pic');
         if (!pic || !window.DiagramZoom) return;
         e.preventDefault();
-        window.DiagramZoom.open(pic.querySelector('img'));
+        var gallery = pic.closest('.moment-gallery');
+        var pictures = gallery ? Array.prototype.slice.call(gallery.querySelectorAll('.moment-pic')) : [pic];
+        var list = pictures.map(function (item) { return { src: item.getAttribute('href') }; });
+        window.DiagramZoom.open(pic.querySelector('img'), { list: list, index: pictures.indexOf(pic) });
       });
     } else decorateImages();
     decorateDiagrams();

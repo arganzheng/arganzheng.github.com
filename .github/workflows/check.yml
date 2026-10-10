@@ -35,6 +35,9 @@ jobs:
           ruby-version: '4.0'
           bundler-cache: true
 
+      - name: Install WebP tools
+        run: sudo apt-get install -y --no-install-recommends webp
+
       - name: Build
         run: bundle exec jekyll build --future --strict_front_matter
         env:
