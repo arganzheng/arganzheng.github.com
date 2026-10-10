@@ -7525,6 +7525,16 @@ html.mp-viewing {
 .mp-actions .mp-del:hover {
   color: #d1242f;
 }
+.mp-actions .mp-clear {
+  padding: 7px 8px;
+  border: 0;
+  background: none;
+  color: #7a8794;
+  cursor: pointer;
+}
+.mp-actions .mp-clear:hover {
+  color: #2b3238;
+}
 .mp-actions .mp-submit {
   padding: 7px 22px;
   border: 0;
@@ -7744,6 +7754,9 @@ html[data-theme="dark"] .post-container .mermaid {
 }
 html[data-theme="dark"] footer {
   background: transparent;
+  color: #969ba4;
+}
+html[data-theme="dark"] .mp .mp-actions .mp-clear {
   color: #969ba4;
 }
 html[data-theme="dark"] footer .copyright,
