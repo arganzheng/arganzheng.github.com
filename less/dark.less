@@ -1,0 +1,375 @@
+// Dark colour scheme. Everything is scoped to html[data-theme="dark"], which the
+// inline script in _includes/head.html sets (stored choice, else the OS setting)
+// before the stylesheets load. Imported last so it wins over every other bundle
+// file, bootstrap.min.css, github-markdown.css and syntax.css without !important.
+// Diagrams (Mermaid) and images keep their light colours: Mermaid renders with
+// the light theme and posts' classDef fills assume it, so diagrams sit on a light
+// card instead of being re-themed.
+
+@dk-bg:        #17181b;
+@dk-surface:   #1f2125;   // code, cards, popovers
+@dk-surface-2: #282b30;   // hover, table header, inputs
+@dk-border:    #33363c;
+@dk-text:      #d3d5d9;
+@dk-heading:   #eceef1;
+@dk-muted:     #969ba4;
+@dk-link:      #4cb7cb;   // @brand-primary lightened for contrast on @dk-bg
+@dk-paper:     #f4f5f7;   // light card behind diagrams
+
+html[data-theme="dark"] {
+	color-scheme: dark;
+
+	body {
+		background-color: @dk-bg;
+		color: @dk-text;
+	}
+	h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6,
+	.post-container h1, .post-container h2, .post-container h3,
+	.post-container h4, .post-container h5, .post-container h6 { color: @dk-heading; }
+	a { color: @dk-link; }
+	a:hover, a:focus { color: lighten(@dk-link, 12%); }
+	hr { border-color: @dk-border; }
+	.text-muted, small, .small { color: @dk-muted; }
+	::selection { background: fade(@dk-link, 35%); }
+
+	// nav: the light bar on post / moments pages and the scrolled fixed bar
+	.navbar-default, .navbar-custom.is-fixed,
+	nav.navbar-default:not(.navbar-custom) {
+		background-color: fade(@dk-bg, 92%);
+		border-color: @dk-border;
+	}
+	.navbar-default .navbar-nav > li > a,
+	.navbar-default .navbar-brand { color: @dk-text; }
+	.navbar-default .navbar-nav > li > a:hover,
+	.navbar-default .navbar-brand:hover { color: @dk-link; }
+	.navbar-default .navbar-collapse, #huxblog_navbar .navbar-collapse { background: @dk-surface; }
+	.navbar-default .navbar-toggle .icon-bar { background-color: @dk-text; }
+
+	// post body
+	.post-container, .markdown-body { color: @dk-text; }
+	.post-container blockquote, blockquote {
+		color: @dk-muted;
+		border-left-color: @dk-border;
+	}
+	.post-container code, code, kbd {
+		background-color: fade(white, 8%);
+		color: @dk-text;
+	}
+	.post-container pre, pre,
+	.post-container .highlight, .post-container .highlight pre {
+		background-color: @dk-surface;
+		color: @dk-text;
+		border-color: @dk-border;
+	}
+	.post-container pre code, pre code { background: transparent; }
+	table, .post-container table { color: @dk-text; }
+	.post-container table th, .post-container table td,
+	table th, table td { border-color: @dk-border !important; }
+	.post-container table tr, table tr { background-color: transparent; border-color: @dk-border; }
+	.post-container table tr:nth-child(2n), table tr:nth-child(2n) { background-color: fade(white, 3%); }
+	.post-container table th, table th { background-color: @dk-surface-2; }
+
+	// images and diagrams keep light colours
+	.post-container img { filter: brightness(.92); }
+	.mermaid, .post-container .mermaid {
+		background-color: @dk-paper;
+		border-radius: 6px;
+	}
+
+	// footer
+	footer { background: transparent; color: @dk-muted; }
+	footer .copyright, footer .list-inline a { color: @dk-muted; }
+}
+
+// nav theme toggle (both themes): moon in light, sun in dark
+.nav-theme-toggle a svg { vertical-align: -2px; }
+.nav-theme-sun { display: none; }
+html[data-theme="dark"] {
+	.nav-theme-moon { display: none; }
+	.nav-theme-sun { display: inline; }
+}
+
+// Rouge tokens: Github's dark "prettylights" palette (@primer/primitives dark.css),
+// the counterpart of the light values in css/syntax.css.
+html[data-theme="dark"] {
+	--prettylights-syntax-comment: #9198a1;
+	--prettylights-syntax-constant: #79c0ff;
+	--prettylights-syntax-entity: #d2a8ff;
+	--prettylights-syntax-entity-tag: #7ee787;
+	--prettylights-syntax-keyword: #ff7b72;
+	--prettylights-syntax-string: #a5d6ff;
+	--prettylights-syntax-string-regexp: #7ee787;
+	--prettylights-syntax-variable: #ffa657;
+	--prettylights-syntax-storage-modifier-import: #f0f6fc;
+	--prettylights-syntax-brackethighlighter-unmatched: #f85149;
+	--prettylights-syntax-invalid-illegal-text: #f0f6fc;
+	--prettylights-syntax-invalid-illegal-bg: #8e1519;
+	--prettylights-syntax-carriage-return-text: #f0f6fc;
+	--prettylights-syntax-carriage-return-bg: #b62324;
+	--prettylights-syntax-markup-list: #f2cc60;
+	--prettylights-syntax-markup-heading: #1f6feb;
+	--prettylights-syntax-markup-bold: #f0f6fc;
+	--prettylights-syntax-markup-italic: #f0f6fc;
+	--prettylights-syntax-markup-deleted-text: #ffdcd7;
+	--prettylights-syntax-markup-deleted-bg: #67060c;
+	--prettylights-syntax-markup-inserted-text: #aff5b4;
+	--prettylights-syntax-markup-inserted-bg: #033a16;
+	--prettylights-syntax-markup-changed-text: #ffdfb6;
+	--prettylights-syntax-markup-changed-bg: #5a1e02;
+}
+
+// ---- components (hard-coded light colours in the other bundle files)
+html[data-theme="dark"] {
+	// surfaces: cards, boxes, buttons, inputs
+	.post-actions, .series-box, .post-license, .deck-card, .series-tree .st-map,
+	.post-container ol > li > details, .moment, .ms-stats, .ms-card, .moment-foot,
+	div.markdown-toc, .pager li > a, .pager li > span {
+		background-color: @dk-surface;
+		border-color: @dk-border;
+		color: @dk-text;
+	}
+	.pa-item, .table-tools .code-copy, .deck-card-btn, .mf-chip, .ms-heat-toggle button,
+	.mm-arrow, input, select, textarea, .archive-goto-input-wrap input {
+		background-color: @dk-surface-2;
+		border-color: @dk-border;
+		color: @dk-text;
+	}
+	.pa-item:hover, .table-tools .code-copy:hover, .deck-card-btn:hover, .mf-chip:hover,
+	.ms-heat-toggle button:hover, .pager li > a:hover { background-color: lighten(@dk-surface-2, 5%); }
+	.table-tools { background-color: fade(@dk-bg, 90%); }
+	.code-copy-anchor, .code-header { background-color: @dk-surface; border-color: @dk-border; }
+	.post-container .footnotes { border-color: @dk-border; }
+	.deck-thumb-frame { border-color: @dk-border; }
+	.moment-pic { background-color: @dk-surface-2; }
+	.moment-quote { background-color: #24221d; color: #cfc6b6; }
+	.moment-quote p { color: inherit; }
+	.post-pin { background-color: #3a3418; border-color: #6b5d1f; color: #f0d878; }
+
+	// text that was dark grey on white
+	.post-preview .post-meta a, .post-preview .post-meta, .catalog-body a, .side-catalog a,
+	.sb-list a, .st-posts a, .st-name, .st-title, .sb-title, .sb-overview a, .sb-pos,
+	.archive-title, .pa-lead, .pa-item, .deck-card-title a, .deck-card-desc,
+	.ms-card p, .ms-stats b, .mm-current, .moment-body, .moment-body p,
+	.post-figcaption .fig-title, .post-figcaption .fig-no, .related-why,
+	.post-license p, .sb-nav span, li > details > summary,
+	.sidebar-container h5 a, .sidebar-container .short-about p,
+	section h5 a, .short-about p, .archive-goto-file label { color: @dk-text; }
+	.post-preview .post-title, .post-preview > a { color: @dk-heading; }
+	.deck-card-desc, .related-why, .post-figcaption .fig-no, .sb-nav span,
+	.post-license p, .post-preview .post-meta { color: @dk-muted; }
+	.st-item.is-shared .st-name { color: @dk-muted; }
+	.sb-list li.is-current > span, .ul-current, a.is-current {
+		background-color: fade(@dk-link, 16%);
+		border-color: fade(@dk-link, 30%);
+		color: @dk-link;
+	}
+	.moment-tag, .ms-card-label { background-color: fade(@dk-link, 14%); color: @dk-link; }
+	.ms-day.l0 { background-color: @dk-surface-2; }
+
+	// tag cloud: brand teal for the big tags, greys for the small ones
+	.tag-cloud a.tag-weight-s, .tag-cloud a.tag-weight-a { color: @dk-link; }
+	.tag-cloud a.tag-weight-b { color: darken(@dk-link, 6%); }
+	.tag-cloud a.tag-weight-c, .tag-cloud a.tag-weight-d { color: @dk-muted; }
+	.tag-cloud a span, .tag-cloud a sup { color: inherit; }
+	.post-tags a, .tag-cloud a { background-color: fade(white, 6%); border-color: @dk-border; }
+}
+
+// ---- same components, at the specificity of their light rules
+html[data-theme="dark"] {
+	.post-container.moments {
+		.moment { background-color: @dk-surface; border-color: @dk-border; }
+		.moment:hover { border-color: lighten(@dk-border, 12%); }
+		.moment:target, .moment.is-here { border-color: @dk-link; }
+		.moment .moment-foot { border-color: @dk-border; }
+		.moment-pinned h2 { color: @dk-heading; }
+		.moments-pager { border-color: @dk-border; }
+	}
+	.moments-pager { border-color: @dk-border; }
+	.mf-more { background-color: @dk-surface-2; border-color: @dk-border; }
+	.ms-day { background-color: @dk-surface-2; }
+	.ms-day.is-future { background-color: transparent; box-shadow: inset 0 0 0 1px @dk-surface-2; }
+	.ms-day.l1 { background-color: fade(@dk-link, 30%); }
+	.ms-day.l2 { background-color: fade(@dk-link, 55%); }
+	.ms-day.l3 { background-color: fade(@dk-link, 80%); }
+	.ms-day.l4 { background-color: @dk-link; }
+	.comment { border-color: @dk-border; }
+	div.mermaidTooltip { background-color: @dk-surface-2; border-color: @dk-border; color: @dk-text; }
+
+	// comments / passage threads (annotations.less)
+	.post-container .annotation-panel, .post-container .annotation-comments {
+		background-color: @dk-surface;
+		border-color: @dk-border;
+		color: @dk-text;
+		.ap-editor { border-color: @dk-border; }
+		.ap-text, .ac-like, .ap-react-btn, .ap-reason {
+			background-color: @dk-surface-2;
+			border-color: @dk-border;
+			color: @dk-text;
+		}
+		.ac-head, .ap-text, .ap-footer, .ap-tabs { border-color: @dk-border; }
+		.ap-tabs button, .ap-tabs .ap-format button, .ap-issue, .ap-status { color: @dk-muted; }
+		.ap-tabs button.is-active { color: @dk-link; border-bottom-color: @dk-link; }
+		.ap-tabs .ap-format button:hover { background-color: @dk-surface-2; color: @dk-heading; }
+		.ap-muted, .ap-buttons .ap-hint { color: @dk-muted; }
+		.ac-count, .ap-user a, .ap-buttons .ap-issue:hover { color: @dk-heading; }
+		.ap-status .ap-fallback { background-color: @dk-surface-2; color: @dk-text; }
+	}
+
+	// side catalog / outline + 本系列
+	div.side-catalog .catalog-header h5 { color: @dk-heading; }
+	div.side-catalog .catalog-body .h2_nav > a, div.side-catalog .catalog-body .h3_nav > a,
+	div.side-catalog .catalog-body .h4_nav > a, div.side-catalog .catalog-body .h5_nav > a { color: @dk-text; }
+	div.side-catalog .catalog-filter-input { background-color: @dk-surface-2; border-color: @dk-border; color: @dk-text; }
+	.side-series { border-color: @dk-border; }
+	.side-series h5 a { color: @dk-text; }
+
+	// series box / tree (series.less)
+	.sb-list a, .side-series ol a { color: @dk-muted; }
+	.sb-list .is-current > span, .side-series ol .is-current > span { background-color: fade(@dk-link, 16%); color: @dk-link; }
+	.post-container .series-box {
+		.sb-title, .sb-overview a { color: @dk-heading; }
+		.sb-nav a { color: @dk-link; }
+	}
+	.series-tree {
+		.st-map { border-color: @dk-border; }
+		.st-map > summary { color: @dk-heading; }
+		.st-map > summary .st-link { color: @dk-link; }
+		.st-map[open] > summary { border-color: @dk-border; }
+		.st-item > summary { color: @dk-text; }
+		.st-item > summary:hover { background-color: @dk-surface-2; }
+		.st-item.is-shared .st-name { color: @dk-muted; }
+		.st-item:target > summary { background-color: #3a3418; }
+		.st-posts a { color: @dk-muted; }
+		.st-posts .is-overview a { color: @dk-heading; }
+		.st-posts li a:hover, .st-posts li a:focus { color: @dk-link; }
+	}
+
+	// home / tags / archive text
+	.one-tag-list .tag-text, .post-tags a, .post-license a, a.external-link,
+	.moment-tag, .code-header .fig-title { color: @dk-link; }
+	.sidebar-container section h5 a, .sidebar-container ul > li > a, section.visible-md h5 a { color: @dk-text; }
+	.tag-cloud a.tag-weight-s, .tag-cloud a.tag-weight-a { color: @dk-link !important; }
+	.tag-cloud a.tag-weight-b { color: darken(@dk-link, 6%) !important; }
+	.tag-cloud a.tag-weight-c, .tag-cloud a.tag-weight-d { color: @dk-muted !important; }
+	#archive .archive-title { color: @dk-text; }
+	#archive .archive-entry:hover .archive-title, #archive .archive-entry:focus .archive-title { color: @dk-link; }
+}
+
+// ---- rules that the light theme wrote with !important or deep selectors
+html[data-theme="dark"] {
+	div.side-catalog .catalog-body li a { color: @dk-text !important; }
+	div.side-catalog .catalog-body li a:hover, div.side-catalog .catalog-body li a:focus {
+		color: @dk-link !important; background-color: @dk-surface-2;
+	}
+	div.side-catalog .catalog-body li.active > a {
+		color: @dk-link !important; border-left-color: @dk-link; background-color: fade(@dk-link, 16%);
+	}
+	div.side-catalog .catalog-body li.active li > a { color: @dk-text !important; background-color: transparent; }
+
+	.sidebar-container {
+		h5, .short-about p { color: @dk-text; }
+		h5 a, .recommends a { color: @dk-heading !important; }
+		h5 a:hover, .recommends a:hover { color: @dk-link !important; }
+		a, .tags a { color: @dk-muted !important; }
+		.recommends .recommend-desc { color: @dk-muted; }
+	}
+	.side-series h5 a, .post-container .series-box .sb-nav a { color: @dk-text !important; }
+	.side-series h5 a:hover, .post-container .series-box .sb-nav a:hover { color: @dk-link !important; }
+	.post-container .series-box .sb-nav { border-color: @dk-border; }
+	.post-container .series-box .sb-list a { color: @dk-muted; }
+	.post-container .series-box .sb-list .is-current > span,
+	.side-series ol .is-current > span { background-color: fade(@dk-link, 16%); color: @dk-link; }
+	.post-container .series-box .sb-list a:hover, .side-series ol a:hover { background-color: @dk-surface-2; color: @dk-link; }
+
+	.post-container details > summary { color: @dk-heading; }
+	.post-container .related .related-why, .related .related-why { color: @dk-muted; }
+	.post-container .post-stale { background-color: #2e2a17; border-left-color: #8a7420; color: #e3d39a; }
+	.post-preview.is-pinned .post-pin { background-color: #3a3418; border-color: #6b5d1f; color: #f0d878; }
+	.post-container.moments .moment-body .moment-pic { background-color: @dk-surface-2; }
+	.post-container.moments .moment-body .moment-quote { background-color: #24221d; color: #cfc6b6; }
+}
+html[data-theme="dark"] {
+	.moments-side li a { color: @dk-text; }
+	.moments-side li a small { color: @dk-muted; }
+	.moments-side li a:hover { background-color: @dk-surface-2; }
+	.moments-side li a.is-current, .moments-side li a.is-current small { color: @dk-link; background-color: fade(@dk-link, 14%); }
+	.ms-tags li.d1 a, .ms-tags li.d2 a, .ms-tags li.d3 a { color: @dk-muted; }
+	.ms-tags li a::before { border-color: @dk-border; }
+	.post-container.moments .moment-body a.moment-tag,
+	.post-container.moments .moment-body a:not(.moment-pic):not(.moment-act):not(.moment-music-link):not(.moment-tag) { color: @dk-link; }
+	#archive .archive-item > span { color: @dk-link; }
+}
+
+html[data-theme="dark"] {
+	.inline-popover-card {
+		color: @dk-text;
+		background-color: @dk-surface;
+		border-color: @dk-border;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .35);
+	}
+	.inline-popover-card .popover-arrow {
+		background-color: @dk-surface;
+		border-color: @dk-border;
+	}
+	.inline-popover-card .popover-content {
+		code, pre, table th {
+			background-color: @dk-surface-2;
+			color: @dk-text;
+		}
+		pre, table th, table td { border-color: @dk-border; }
+		blockquote {
+			color: @dk-muted;
+			background-color: @dk-surface-2;
+			border-left-color: @dk-link;
+		}
+		a { color: @dk-link; }
+	}
+	.inline-popover-card .popover-footer-link {
+		border-top-color: @dk-border;
+		a { color: @dk-link; }
+	}
+	.inline-popover-card .popover-jump-footnote {
+		border-top-color: @dk-border;
+		a {
+			color: @dk-muted;
+			&:hover { color: @dk-link; }
+		}
+	}
+	.inline-popover-card.link-preview-popover {
+		.lp-title { color: @dk-heading; }
+		.lp-meta, .lp-anchor { color: @dk-muted; }
+	}
+	.post-container .related {
+		.related-date { color: @dk-muted; }
+		&.backlinks {
+			.h3 small { color: @dk-muted; }
+			.backlinks-more {
+				background-color: @dk-surface;
+				border-color: @dk-border;
+				border-left-color: @dk-link;
+				summary {
+					color: @dk-muted;
+					&:hover { color: @dk-link; }
+				}
+			}
+		}
+	}
+}
+
+html[data-theme="dark"] .post-container img[src*=".svg"] {
+	background-color: @dk-paper;
+	padding: 8px;
+	border-radius: 6px;
+	filter: none;
+}
+
+html[data-theme="dark"] .post-container pre.lineno .line::before {
+	color: @dk-muted;
+	background: linear-gradient(
+		to right,
+		@dk-surface calc(~"100% - 0.9em - 1px"),
+		@dk-border calc(~"100% - 0.9em - 1px"),
+		@dk-border calc(~"100% - 0.9em"),
+		@dk-surface calc(~"100% - 0.9em")
+	);
+}
