@@ -68,12 +68,15 @@ const MAX_PAGES = 5;
 
 export default {
   async fetch(request, env, ctx) {
-    const origin = request.headers.get('Origin') || '';
-    const cors = corsHeaders(origin, env);
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
-    if (!cors) return json({ error: 'Origin not allowed' }, 403, {});
-
     const url = new URL(request.url);
+    const origin = request.headers.get('Origin') || '';
+    let cors = corsHeaders(origin, env);
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    if (!cors) {
+      if (request.method === 'POST' && url.pathname === '/moments' && await hasMomentKey(request, env)) cors = {};
+      else return json({ error: 'Origin not allowed' }, 403, {});
+    }
+
     try {
       if (request.method === 'GET' && url.pathname === '/discussions') return await getDiscussion(url, env, ctx, cors);
       if (request.method === 'POST' && url.pathname === '/token') return await relay(`${GISCUS}/oauth/token`, request, cors);
@@ -489,14 +492,17 @@ async function requireAuthor(request, env, cors, what) {
 }
 
 async function requireMomentPoster(request, env, cors, what) {
-  if (env.MOMENT_KEY) {
-    const match = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
-    if (match && await sameSecret(match[1], env.MOMENT_KEY)) {
-      const login = String(env.REPO || '').split('/')[0];
-      return { user: { login, name: login, email: `${login}@users.noreply.github.com`, via: 'api' } };
-    }
+  if (await hasMomentKey(request, env)) {
+    const login = String(env.REPO || '').split('/')[0];
+    return { user: { login, name: login, email: `${login}@users.noreply.github.com`, via: 'api' } };
   }
   return requireAuthor(request, env, cors, what);
+}
+
+async function hasMomentKey(request, env) {
+  if (!env.MOMENT_KEY) return false;
+  const match = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
+  return !!match && await sameSecret(match[1], env.MOMENT_KEY);
 }
 
 async function sameSecret(a, b) {
@@ -980,9 +986,9 @@ async function renameMomentTag(request, env, cors) {
 }
 
 async function publishMoment(request, env, cors) {
-  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
   const author = await requireMomentPoster(request, env, cors, '发布随笔');
   if (author.error) return author.error;
+  if (!env.GITHUB_APP_PRIVATE_KEY || !env.GITHUB_APP_ID) return json({ error: '发布功能未启用（worker 未配置 GitHub App）' }, 501, cors);
   let f;
   try {
     const isText = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase() === 'text/plain';
