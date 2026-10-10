@@ -17,7 +17,7 @@
     var TOC_MARKER = /^\[{1,2}\s*toc\s*\]{1,2}$/i;
     var HEADINGS = 'h1, h2, h3, h4, h5, h6';
     // Post footer areas living inside `.post-container` must stay out of the TOC.
-    var EXCLUDED = '.pager, .related-posts, .share, .comment, .markdown-toc';
+    var EXCLUDED = '.pager, .related-posts, .share, .comment, .markdown-toc, .backlinks';
     // Height of the fixed navbar, used both as scroll offset and spy threshold.
     var NAV_OFFSET = 80;
     var COLLAPSED_CLASS = 'outline-collapsed';
@@ -57,7 +57,7 @@
 
     function headingRawText(node) {
         var clone = node.cloneNode(true);
-        var junk = clone.querySelectorAll('.sec-react, .heading-anchor, .annotation-marker');
+        var junk = clone.querySelectorAll('.sec-react, .heading-anchor, .heading-fold, .annotation-marker');
         for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
         var katexSpans = clone.querySelectorAll('.katex');
         for (var k = 0; k < katexSpans.length; k++) {
@@ -122,6 +122,7 @@
     }
 
     function scrollToHeading(node) {
+        if (window.SectionFold) window.SectionFold.reveal(node);
         var top = node.getBoundingClientRect().top + window.pageYOffset - NAV_OFFSET;
         window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
     }

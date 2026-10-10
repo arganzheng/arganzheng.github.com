@@ -60,6 +60,41 @@
 }
 .post-container .related + .related { margin-top: 28px; }
 
+.post-container > h1, .post-container > h2, .post-container > h3,
+.post-container > h4, .post-container > h5, .post-container > h6 { position: relative; }
+.heading-fold {
+	position: absolute;
+	top: .2em;
+	left: -22px;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: @brand-primary;
+	opacity: 0;
+	cursor: pointer;
+}
+.heading-fold::before {
+	content: "";
+	display: block;
+	width: 0;
+	height: 0;
+	margin: auto;
+	border-left: 5px solid transparent;
+	border-right: 5px solid transparent;
+	border-top: 6px solid currentColor;
+	transition: transform .15s ease;
+}
+.post-container > h1:hover .heading-fold, .post-container > h2:hover .heading-fold,
+.post-container > h3:hover .heading-fold, .post-container > h4:hover .heading-fold,
+.post-container > h5:hover .heading-fold, .post-container > h6:hover .heading-fold,
+.heading-fold:focus-visible, .heading-fold[aria-expanded="false"] { opacity: 1; }
+.heading-fold[aria-expanded="false"]::before { transform: rotate(-90deg); }
+@media (hover: none) { .heading-fold { opacity: .35; } }
+@media (max-width: 767px) { .heading-fold { left: -16px; } }
+@media print { .heading-fold { display: none; } }
+
 // ---- category badge on the home list (index.html, `category: life`)
 .post-preview .post-cat {
 	display: inline-block;

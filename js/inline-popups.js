@@ -27,6 +27,7 @@
 
     function scrollToTargetWithOffset(targetEl) {
       if (!targetEl) return;
+      if (window.SectionFold) window.SectionFold.reveal(targetEl);
       var navbar = document.querySelector('nav.navbar-fixed-top');
       var navHeight = navbar ? navbar.offsetHeight : 65;
       var targetRect = targetEl.getBoundingClientRect();

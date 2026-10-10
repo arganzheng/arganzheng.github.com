@@ -201,6 +201,9 @@ Pages has `https_enforced` on.
 
 ## Layout
 
+- Section folding (`js/section-fold.js`) adds accessible per-section h2/h3
+  controls on post pages; TOC and anchor navigation reveal folded targets.
+
 - Categories: front matter `category:` is `life` (essays; nav **Life** →
   cards on `/life/` = `life.html`, `[Life]` in the archive) or absent (tech;
   nav **Tech** = the paginated home). `_plugins/home_flow.rb` sets

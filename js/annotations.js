@@ -85,7 +85,7 @@
   // indexed through its TeX source (the MathML <annotation>, see isExcluded),
   // not through the rendered glyphs in .katex-html.
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
+    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .heading-fold, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -323,7 +323,7 @@
   }
   // A heading's own words — without the anchor link, reaction buttons and comment markers.
   function headingText(h) {
-    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .heading-anchor, .annotation-marker');
+    var c = h.cloneNode(true), junk = c.querySelectorAll('.sec-react, .heading-anchor, .heading-fold, .annotation-marker');
     for (var i = 0; i < junk.length; i++) junk[i].parentNode.removeChild(junk[i]);
     var katexHtml = c.querySelectorAll('.katex-html');
     for (var k = 0; k < katexHtml.length; k++) katexHtml[k].parentNode.removeChild(katexHtml[k]);
@@ -634,6 +634,7 @@
   }
 
   function scrollIntoViewInstant(el) {
+    if (window.SectionFold) window.SectionFold.reveal(el);
     window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - 160), behavior: 'instant' });
   }
 
