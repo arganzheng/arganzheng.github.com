@@ -1132,15 +1132,15 @@ async function pinMoment(request, env, cors) {
   return result instanceof Response ? result : json(result, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 
-function readPinnedIds(text) {
-  const match = /^pinned:\s*(.*)$/m.exec(text);
+export function readPinnedIds(text) {
+  const match = /^pinned:[ \t]*(.*)$/m.exec(text);
   if (!match) return [];
   const inline = /^\[(.*)\]$/.exec(match[1].trim());
   const values = inline ? inline[1].split(',') : text.slice(match.index + match[0].length).match(/^\s+-\s+[\w-]+/gm) || [];
   return values.map((value) => (inline ? value.trim() : value.replace(/^\s+-\s+/, '')).replace(/^['"]|['"]$/g, '')).filter((id) => MOMENT_ID.test(id));
 }
 
-function writePinnedIds(ids) {
+export function writePinnedIds(ids) {
   return ids.length ? `pinned:\n${ids.map((id) => `  - ${id}`).join('\n')}\n` : 'pinned: []\n';
 }
 

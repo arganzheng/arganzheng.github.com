@@ -194,7 +194,12 @@
     ensureToken().then(function (token) {
       return fetch(api + '/moments/pin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ id: card.id, pinned: pinned }) })
         .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); });
-    }).then(function () { toast(card, '已提交，1–2 分钟后生效', 5000); })
+    }).then(function () {
+      btn.setAttribute('data-pinned', String(pinned));
+      btn.textContent = pinned ? '📌 取消置顶' : '📌 置顶';
+      btn.title = pinned ? '取消置顶' : '置顶这条随笔';
+      toast(card, pinned ? '已置顶，1–2 分钟后生效' : '已取消置顶，1–2 分钟后生效', 5000);
+    })
       .catch(function (error) { toast(card, '置顶失败：' + error.message, 4000); })
       .finally(function () { btn.disabled = false; });
   }
