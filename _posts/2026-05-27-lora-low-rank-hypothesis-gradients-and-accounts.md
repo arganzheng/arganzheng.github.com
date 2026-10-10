@@ -5,6 +5,7 @@ title: "LoRA 专题（01）：低秩假设：为什么两个瘦矩阵够用，�
 subtitle: "LoRA 01: The Low-Rank Hypothesis — Why Two Thin Matrices Suffice, and Exactly What They Save"
 tags: [AI, LLM, LoRA, Post-Training, peft]
 catalog: true
+updated: 2026-10-10
 ---
 
 > **更新 @2026-09-30**：实验用 peft 0.21.1、trl 1.14.1、transformers 5.17.0、PyTorch 2.14（CPU，8 线程），模型 Qwen2.5-0.5B（base），数据 no_robots。配套脚本 `ai-learning-labs/lora/01_low_rank.py`（子实验 `hand` / `account` / `speed` / `init` / `spectrum`）；正文给出理解所需的全部数字。
@@ -162,6 +163,8 @@ Table: 不同 r 与目标矩阵下的可训练参数（Qwen2.5-0.5B 494M 参数�
 
 `get_peft_model(...).print_trainable_parameters()` 打出的 `trainable params: 8,798,208 || all params: 502,830,976 || trainable%: 1.7497` 就是第三行——分母里多出的 8.8M 是 `peft` 把 LoRA 参数也计入了总数。
 
+$$r$$ 与挂在哪些矩阵上是两个独立的旋钮，参数量对两者都是线性的：8B 上 $$r = 64$$ 只挂 attention 是 54.5M，$$r = 16$$ 挂全部七个是 41.9M，两者相近。LoRA 原论文的实验与后续经验都倾向于后者——**以小 $$r$$ 覆盖更多矩阵，比以大 $$r$$ 只覆盖 attention 更有效**：低秩假设对每个矩阵都成立，而覆盖 FFN 让适配能触及模型三分之二以上的参数所在。就成本而言两种选择没有区别，都是 0.5% 量级；第二篇的实验会把这两个旋钮分开扫。
+
 ### 3.2 训练状态：从 120 GiB 到 15.5 GiB
 
 混合精度 + AdamW 下每个**可训练**参数要存：BF16 权重 2 B、FP32 主权重 4 B、Adam 两个矩 8 B、梯度 2 B，共 16 B；每个**冻结**参数只存 BF16 权重 2 B。所以：
@@ -177,6 +180,29 @@ $$
 ### 3.3 计算量：FLOPs 只省三分之一，kernel 数翻三倍
 
 全量训练每个 token 每个参数约 6 次浮点运算：前向 2、反向 4（对输入的梯度 2、对权重的梯度 2）。LoRA：前向多了 $$B A x$$ 两个瘦矩阵乘，$$r = 16$$ 时 0.5B 上每层多 0.73M 对 30M FLOPs（2.5%），8B 上是 0.6%；反向里对输入的梯度 $$W^\top G$$ 照算（2 次），对权重的梯度只算 $$A$$、$$B$$ 的（几乎为 0）。所以 LoRA 每 token 约 $$4N$$ 对全量的 $$6N$$——**理论上只快三分之一**，不是可训练参数少多少倍就快多少倍。
+
+一层线性层上的前向与反向画出来，实线是前向、虚线是反向，标出哪些梯度仍要算、哪一项被省掉：
+
+```mermaid
+%% 图：LoRA 一层线性层的前向与反向：∂L/∂x 仍要算穿过每一层，∂L/∂W 被省掉
+flowchart TB
+    x["输入 x<br/>（仍需保存供反向，激活值不省）"] --> W["冻结 W  d_out × d_in<br/>BF16 一份：无梯度、无主权重、无 Adam"]
+    x --> A["A  r × d_in<br/>可训练，高斯初始化"]
+    A --> B["B  d_out × r<br/>可训练，初始为 0"]
+    W --> y["y = Wx + (α/r) BAx<br/>额外 FLOPs ≈ r(d_in + d_out) / (d_in d_out)，8B 上不到 1%"]
+    B --> y
+    y --> gy["∂L/∂y（来自上一层的反向）"]
+    gy -.->|"∂L/∂x = Wᵀ ∂L/∂y  仍要算，穿过每一层"| x
+    gy -.->|"∂L/∂B = ∂L/∂y (Ax)ᵀ"| B
+    gy -.->|"∂L/∂A = Bᵀ ∂L/∂y xᵀ"| A
+    gy -.->|"∂L/∂W  不算：省掉反向约一半、省掉 14 B/参数状态"| W
+    classDef frozen fill:#eeeeee,stroke:#888;
+    classDef train fill:#d5f5e3,stroke:#1e8449;
+    classDef act fill:#fdebd0,stroke:#b9770e;
+    class W frozen;
+    class A,B train;
+    class x,y,gy act;
+```
 
 实践中往往连三分之一都拿不到，因为 kernel 数变了：每个挂了 LoRA 的线性层，前向从 1 个 GEMM 变成 3 个（$$W x$$、$$A x$$、$$B h$$）加 1 次加法，反向同理。0.5B 的 168 个线性层多出 336 个瘦 GEMM，每个的算术强度都很低（$$r = 16$$ 的矩阵乘几乎是纯带宽操作）。GPU 上表现为 kernel launch 与显存带宽开销，CPU 上表现为一步时间不降反升。第 3.5 节有实测。
 

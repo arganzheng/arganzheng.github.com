@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 "写出 DPO 的损失函数""PPO 的 clipped objective 是什么""AdamW 一步更新怎么算"——这些题是算法岗面试的第二梯队手撕题，考的是**能不能把论文里的公式落成十行正确的代码**。它们的共同难点是细节：label smoothing 平滑的是哪个分布、KL 的两个参数谁是 target、DPO 的四个 log 概率怎么组合、GAE 的递推从哪一端开始、AdamW 的 weight decay 为什么不进动量、LoRA 的 B 为什么初始化为零。这一篇每个组件给出实现、与 PyTorch（或 trl 的公式）对拍、以及面试官会追的一两个"为什么"。
 
-推导与动机在算法地图：损失与优化器见[深度学习基础（03）](/optimizers-from-sgd-to-adamw.html)，PPO / GRPO 见[后训练（03）](/online-rl-ppo-grpo-and-the-rlhf-trio.html)，DPO 见[（04）](/offline-rl-dpo-and-its-family.html)，LoRA 见 [Transformer 与 LLM（07）](/quantization-speculative-decoding-and-lora.html)。
+推导与动机在算法地图：损失与优化器见[深度学习基础（03）](/optimizers-from-sgd-to-adamw.html)，PPO / GRPO 见[后训练（03）](/online-rl-ppo-grpo-and-the-rlhf-trio.html)，DPO 见[（04）](/offline-rl-dpo-and-its-family.html)，LoRA 见[《LoRA 专题》（01）](/lora-low-rank-hypothesis-gradients-and-accounts.html)。
 
 本篇要回答的核心问题是：
 

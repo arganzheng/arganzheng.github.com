@@ -5,6 +5,7 @@ title: "LoRA 专题（02）：选参：r、target_modules、alpha、lr 与 QLoRA
 subtitle: "LoRA 02: Choosing r, target_modules, alpha and lr — and What QLoRA, DoRA and PiSSA Each Change"
 tags: [AI, LLM, LoRA, Post-Training, peft, QLoRA]
 catalog: true
+updated: 2026-10-10
 ---
 
 > **更新 @2026-09-30**：实验用 peft 0.21.1、trl 1.14.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU，8 线程），模型 Qwen2.5-0.5B（base），数据 HuggingFaceH4/no_robots。配套脚本 `ai-learning-labs/lora/02_knobs.py`，`--list` 列出全部配置名；正文给出每种配置的数字。
@@ -203,7 +204,7 @@ Table: DoRA（use_dora=True）对普通 LoRA，其余配置相同（Qwen2.5-0.5B
 
 ### 8.2 双重量化：把缩放系数也量化
 
-每 64 个权重一个 FP32 的 $$m$$，是每参数 $$32 / 64 = 0.5$$ bit 的额外开销。双重量化把每 256 个 $$m$$ 再做一次 8 bit 量化（块内共用一个 FP32 的二级缩放），开销变成 $$8 / 64 + 32 / (64 \times 256) = 0.127$$ bit / 参数。8B 模型省 $$8 \times 10^9 \times 0.373 / 8 = 0.37$$ GB。
+每 64 个权重一个 FP32 的 $$m$$，是每参数 $$32 / 64 = 0.5$$ bit 的额外开销。双重量化把每 256 个 $$m$$ 再做一次 8 bit 量化（块内共用一个 FP32 的二级缩放），开销变成 $$8 / 64 + 32 / (64 \times 256) = 0.127$$ bit / 参数，连同 4 bit 的格点编号总计约 4.13 bit / 参数。8B 模型省 $$8 \times 10^9 \times 0.373 / 8 = 0.37$$ GB；底座 $$8.03 \times 10^9 \times 4.13 / 8 \approx 4.1$$ GB，embedding、lm_head 等保留高精度后约 4.5 GB，加上 LoRA 自己的 0.67 GB 状态，权重侧不到 5.2 GB——一张 24 GB 的消费级卡能微调 8B，剩下的显存决定能开多长的序列。
 
 ### 8.3 分页优化器与计算精度
 

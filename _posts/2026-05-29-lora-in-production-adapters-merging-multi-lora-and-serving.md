@@ -5,6 +5,7 @@ title: "LoRA 专题（03）：工程：adapter 文件、合并、多 LoRA 服务
 subtitle: "LoRA 03: In Production — Adapter Files, Merging, Multi-LoRA Serving and the Free Reference Model"
 tags: [AI, LLM, LoRA, Post-Training, peft, vLLM]
 catalog: true
+updated: 2026-10-10
 ---
 
 > **更新 @2026-09-30**：实验用 peft 0.21.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU），模型 Qwen2.5-0.5B，adapter 是[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训出的 `r16_all`（$$r = 16$$ 全部线性层）与 `r16_attn`（$$r = 16$$ 只挂 attention）。配套脚本 `ai-learning-labs/lora/03_deploy.py`（子实验 `files` / `merge` / `quant` / `multi` / `tokens`）。
@@ -217,7 +218,7 @@ $$
 
 8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
 
-什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大）；或推理框架不支持 LoRA（大多数边缘部署格式）。
+什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大——8B 上 decode $$B = 1$$ 每层除了原来的 7 个 GEMV 多出 14 个极小的 GEMV，$$A$$、$$B$$ 各 $$r \times d$$，$$W_Q$$ 上 $$16 \times 4096 \times 2$$ B = 128 KB，字节数可忽略，但 32 层 × 14 = 448 次额外 kernel 启动，每次几微秒，加起来与 4.8 ms 的 decode 下界同量级：小 kernel 的固定开销比它的 FLOPs 和字节都贵）；或推理框架不支持 LoRA（大多数边缘部署格式）。
 
 ## 六、新加的 token 为什么学不会
 
