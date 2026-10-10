@@ -71,7 +71,7 @@ L1 工具箱系列教的是二十行训练循环。写出它不难，难的是�
 
 ### 准备进入 L4 Transformer / LLM 的算法学习者
 
-你已经能写训练循环，接下来要读 Llama、DeepSeek 的技术报告与 [《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)系列。本系列是那之前的最后一层基础：读完之后，报告里关于初始化、归一化、优化器、稳定性的每一段都有对应的公式可查。
+你已经能写训练循环，接下来要读 Llama、DeepSeek 的技术报告与 [《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)系列。本系列是那之前的最后一层基础：读完之后，报告里关于初始化、归一化、优化器、稳定性的每一段都有对应的公式可查。
 
 ### 做后训练但基础是"跳过来"的工程师
 

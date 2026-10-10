@@ -195,7 +195,7 @@ flowchart TB
 - 困难（hard）难度里的竞赛型题目：后缀自动机、网络流、FFT、高级数据结构（平衡树、可持久化）。它们在工业界面试里极少出现。
 - 系统设计面试（"设计一个短链服务"）。那是另一类面试，另一套方法。
 - 语言特性问答（GIL、JVM 内存模型）。Python 与 Java 的语言机制见 Infra 地图的 [01](/python-for-ai-infra.html) 与 [02](/cpp-for-ai-infra.html) 系列。
-- 模型组件"为什么这样设计"的原理。后六篇只讲"怎么正确地写出来"；推导与设计动机在算法地图 [L3](/deep-learning-foundations.html)、[L4](/transformer-and-llm-for-infra-engineers.html)、[L5](/post-training-from-sft-to-verifiable-rewards.html) 各系列。
+- 模型组件"为什么这样设计"的原理。后六篇只讲"怎么正确地写出来"；推导与设计动机在算法地图 [L3](/deep-learning-foundations.html)、[L4](/transformer-and-llm-structure-implementation-and-evolution.html)、[L5](/post-training-from-sft-to-verifiable-rewards.html) 各系列。
 
 题目一律用自己的话复述题意并给 LeetCode 题号，不照抄题面。
 

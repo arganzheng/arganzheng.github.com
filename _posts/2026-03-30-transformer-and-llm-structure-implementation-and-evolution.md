@@ -1,16 +1,19 @@
 ---
 layout: post
-title: Transformer 与 LLM：结构、实现与算量（总纲）
-subtitle: "Transformers and LLMs: Architecture, Implementation and Arithmetic"
+title: Transformer 与 LLM：结构、实现与演进（总纲）
+subtitle: "Transformers and LLMs: Architecture, Implementation and Evolution"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-10-10
+updated: 2026-10-11
+redirect_from:
+  - /transformer-and-llm-for-infra-engineers.html
+comments_path: /transformer-and-llm-for-infra-engineers.html
 ---
 
 
 ## 内容简介
 
-《Transformer 与 LLM：结构、实现与算量》是一组共十四篇的系列文章，围绕两个问题展开：**一个 GPT 如何工作、如何写出来；现代 LLM 又如何在它的基础上扩展能力、改善质量并调整计算与存储的代价。** 对象是以 decoder-only Transformer 为主干的主流公开模型——GPT-2、Llama-3、DeepSeek-V3，以及接入图片的 VLM。
+《Transformer 与 LLM：结构、实现与演进》是一组共十四篇的系列文章，围绕两个问题展开：**一个 GPT 如何工作、如何写出来；现代 LLM 又如何在它的基础上扩展能力、改善质量并调整计算与存储的代价。** 对象是以 decoder-only Transformer 为主干的主流公开模型——GPT-2、Llama-3、DeepSeek-V3，以及接入图片的 VLM。
 
 它分两段：
 
@@ -396,7 +399,7 @@ Table: 贯穿全系列的三个模型：参数量、权重字节、FLOPs、KV ca
 9. [长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html)
 10. [MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html)
 11. [MTP——改训练目标、不改主干的多 token 预测](/multi-token-prediction-mtp.html)
-12. [投机解码——草稿、验证与收益条件](/speculative-decoding-and-lora.html)
+12. [投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html)
 13. [多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)
 14. [浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)
 

@@ -298,7 +298,7 @@ RNN 的 FLOPs 只有 attention 的 1/16，耗时却只少 3.6 倍：**同一颗 
 
 ### 3. 代价：平方级的算量与 KV cache
 
-Attention 的 FLOPs 是 $$O(T^2 d)$$，RNN 是 $$O(T d^2)$$；$$T > d$$ 之后 attention 更贵，且推理时要保留全部历史的 key 与 value——KV cache，大小 $$O(T)$$。上表 $$T = 4096$$ 时 attention 的 FLOPs 已是 RNN 的 16 倍。[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)系列的第二、三、四篇全是在算这个代价：长上下文的二次项、KV cache 的字节数、GQA / MLA 怎么压它。可以说那个系列是本篇最后一行的展开。
+Attention 的 FLOPs 是 $$O(T^2 d)$$，RNN 是 $$O(T d^2)$$；$$T > d$$ 之后 attention 更贵，且推理时要保留全部历史的 key 与 value——KV cache，大小 $$O(T)$$。上表 $$T = 4096$$ 时 attention 的 FLOPs 已是 RNN 的 16 倍。[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)系列的第二、三、四篇全是在算这个代价：长上下文的二次项、KV cache 的字节数、GQA / MLA 怎么压它。可以说那个系列是本篇最后一行的展开。
 
 ### 4. RNN 的回声
 

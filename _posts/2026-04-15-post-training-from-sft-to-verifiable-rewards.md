@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《后训练：从 SFT 到可验证奖励》是一组共八篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。它面向已经理解 Transformer 与预训练（L4，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)十二篇）、准备把一个基座模型变成能对话、会推理、符合偏好的模型的读者，讲的是**后训练的每一种方法在优化什么目标、改了哪个组件、花多少钱、怎么证明它变好了**。
+《后训练：从 SFT 到可验证奖励》是一组共八篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。它面向已经理解 Transformer 与预训练（L4，[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)十二篇）、准备把一个基座模型变成能对话、会推理、符合偏好的模型的读者，讲的是**后训练的每一种方法在优化什么目标、改了哪个组件、花多少钱、怎么证明它变好了**。
 
 它回答的问题是：
 
@@ -311,7 +311,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 ### 前置要求
 
-- L4 的[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)：参数量与训练状态的账（第一、六篇）、LoRA 的形态（第七篇）、SFT 的 lr 与 warmup 从哪来（第十二篇）；
+- L4 的[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)：参数量与训练状态的账（第一、六篇）、LoRA 的形态（第七篇）、SFT 的 lr 与 warmup 从哪来（第十二篇）；
 - L3 的[《深度学习基础》](/deep-learning-foundations.html)：交叉熵与 softmax 的梯度（第一篇）、AdamW 与学习率调度（第三篇）、过拟合与多 epoch（第四篇）；
 - L2 经典机器学习系列的逻辑回归、分类器的评估（准确率、置信区间）——奖励模型就是逻辑回归；
 - 会用 `transformers` 加载模型与 tokenizer、写一个训练循环；用过或看过 `trl` 的任意一个 trainer 更好。

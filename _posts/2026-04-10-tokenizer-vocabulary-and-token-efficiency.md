@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)把一个 LLM 的成本算成了 token 的函数：每个 token 多少 FLOPs、多少字节 KV、prefill 多长、decode 多久。"token 数"在所有公式里都是自变量——它从哪来，那八篇一直没有问。它来自 tokenizer。
+[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)把一个 LLM 的成本算成了 token 的函数：每个 token 多少 FLOPs、多少字节 KV、prefill 多长、decode 多久。"token 数"在所有公式里都是自变量——它从哪来，那八篇一直没有问。它来自 tokenizer。
 
 本系列是那张成本表的**训练侧**：对象从"模型作为一个计算对象的结构"转到"这个模型是怎么训出来的"——分词与词表、scaling law、数据工程、训练配方。方法不变：写出公式，代入真实模型的数字，解释数字对系统意味着什么。tokenizer 排在端到端那一篇之后、其余各篇之前，因为它同时决定成本表的两端：词表大小 $$V$$ 直接进参数量与 lm_head 的 FLOPs，压缩率决定一段文字要付多少个 token 的钱。
 

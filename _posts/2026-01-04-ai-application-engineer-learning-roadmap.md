@@ -551,7 +551,7 @@ Table: 评测驱动开发的六条纪律
 
 Table: 应用地图与另两张地图的重叠主题分工
 
-三张地图的交点：应用工程师读 [Infra 地图 08 前两篇](/deep-dive-into-vllm.html)能理解 token 计费与延迟形态的来源；读 [04 系列](/transformer-and-llm-for-infra-engineers.html)的 KV cache 与多模态两篇能理解长上下文与图片为什么贵。反过来，Infra 与算法工程师读本图能知道自己的产出被怎样使用、评测与反馈从哪里来。
+三张地图的交点：应用工程师读 [Infra 地图 08 前两篇](/deep-dive-into-vllm.html)能理解 token 计费与延迟形态的来源；读 [04 系列](/transformer-and-llm-structure-implementation-and-evolution.html)的 KV cache 与多模态两篇能理解长上下文与图片为什么贵。反过来，Infra 与算法工程师读本图能知道自己的产出被怎样使用、评测与反馈从哪里来。
 
 
 ## 已有的文章与系列

@@ -237,7 +237,7 @@ Table: 各篇的 toy 实验脚本与跑通什么
 ### 前置要求
 
 - [L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)：ViT 的结构与 patch embedding。
-- [04 系列](/transformer-and-llm-for-infra-engineers.html)第一、八、十三篇：Transformer 结构、KV cache、多模态成本。
+- [04 系列](/transformer-and-llm-structure-implementation-and-evolution.html)第一、八、十三篇：Transformer 结构、KV cache、多模态成本。
 - [L5](/post-training-from-sft-to-verifiable-rewards.html)第一、二、四篇：SFT、偏好数据、DPO——第三篇的多模态对齐直接用它们。
 - [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)：K-Means（第四、九篇的码本就是它）、PCA（第八篇的 toy VAE）、逻辑回归与 softmax（第一篇的对比损失）。
 - 概率的基本概念（高斯分布、条件概率、期望）：第六、七篇会在用到的地方原地解释，[L0 数学系列](/math-for-ai-algorithm-engineers.html)是更系统的补充。

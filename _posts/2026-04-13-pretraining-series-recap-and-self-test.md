@@ -8,7 +8,7 @@ catalog: true
 date: 2026-04-13 20:00:00
 ---
 
-五篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇在一台笔记本上把一次预训练从原始网页到模型完整跑一遍，第二篇算 tokenizer 与词表，第三篇算算力怎么分给参数与数据，第四篇算 15T token 从哪来、丢掉的是什么，第五篇算超参表里每个数字的来历与训练为什么会崩。五篇合起来，是[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)那张成本表的训练侧。
+五篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇在一台笔记本上把一次预训练从原始网页到模型完整跑一遍，第二篇算 tokenizer 与词表，第三篇算算力怎么分给参数与数据，第四篇算 15T token 从哪来、丢掉的是什么，第五篇算超参表里每个数字的来历与训练为什么会崩。五篇合起来，是[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)那张成本表的训练侧。
 
 第二到第五篇每篇的第一章都是「先讲明白」——不算账、只用图和小实验把这一篇的对象讲给没接触过的读者（三种切法与 BPE 逐步图、幂律与 iso-FLOP、一篇网页清洗前后与配比曲线、学习率调坏了长什么样与一次真实的 spike）；账本从第二章起。本文不讲新内容，做三件事：把五篇压成一张表与五段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"五篇能不能连起来用"。
 
@@ -407,7 +407,7 @@ Table: 掌握程度的判据
 
 五篇算的是"一个基座模型怎么训出来"的账，四个方向紧邻但不在范围内：
 
-- **模型作为计算对象的成本**（参数量、FLOPs、字节、KV cache、通信量的推导）是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
+- **模型作为计算对象的成本**（参数量、FLOPs、字节、KV cache、通信量的推导）是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)。
 - **后训练**（SFT、RLHF / DPO、蒸馏、评测）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
 - **深度学习基础的推导**（反向传播、初始化与归一化、优化器）在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)——第五篇直接用了它们的结论。
 - **分布式训练的实现**（TP / PP / EP 怎么切、checkpoint 怎么写、故障怎么恢复）在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列只算它们的量。
@@ -418,7 +418,7 @@ Table: 掌握程度的判据
 
 本系列只讨论"一个基座模型**怎么训出来**"的账。以下内容与它紧邻，但不在范围内：
 
-- **模型作为计算对象的成本**：参数量、FLOPs、字节数、KV cache、通信量的推导。它们是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。
+- **模型作为计算对象的成本**：参数量、FLOPs、字节数、KV cache、通信量的推导。它们是本系列的前提，在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)。
 - **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
 - **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第五篇直接使用它们的结论，推导在[《深度学习基础》](/deep-learning-foundations.html)。
 - **分布式训练的实现**：TP / PP / EP / 序列并行如何切分与同步、checkpoint 如何写、故障如何恢复。本系列只算它们的**量**（GPU 小时、写带宽、回滚代价），实现在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。

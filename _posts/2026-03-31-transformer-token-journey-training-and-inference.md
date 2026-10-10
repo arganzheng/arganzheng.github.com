@@ -7,7 +7,7 @@ tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 ---
 
-> **本篇在系列中的位置。** 第一段的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第一段的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 上一篇把 Transformer 的每个方框打开看了一遍，但那是一张**静止**的图。同一台机器在两种场合下的运转方式很不一样：**训练**时一句话的几千个 token 一起进去、几千个 loss 一起出来、梯度沿原路返回、几十亿参数各挪一小步；**推理**时先把用户的问题一次算完，然后一个字一个字往外吐，每吐一个字只算一个 token。不搞清这两条动态线，就解释不了几件天天碰到的事：为什么训练一次前向能同时算 $$T$$ 个位置的预测、为什么推理"第一个字慢、后面快"、KV cache 到底缓存了什么、为什么训练长上下文时"激活值"比参数本身还占显存。
 

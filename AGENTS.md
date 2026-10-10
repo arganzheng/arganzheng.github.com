@@ -1216,10 +1216,22 @@ How it is built (`_plugins/moments.rb`):
   `efficient-inference` 03 (new 第二章 "量化为什么快、什么时候快" + FP8/DeepSeek
   分块 + LLM.int8()) and 05 (KV 量化 numbers); its URL
   `/quantization-speculative-decoding-and-lora.html` is a `redirect_from` on
-  the PTQ post. The old 投机解码与 LoRA post kept its URL
-  (`/speculative-decoding-and-lora.html`) but is 投机解码 only; its LoRA half
+  the PTQ post. The old 投机解码与 LoRA post is 投机解码 only; its LoRA half
   was folded into `lora` 01/02/03. `llm_cost_07_quant_specdec_lora.py` in the
-  labs repo is unchanged (版本号不随文章拆分而变). When referring to this
+  labs repo is unchanged (版本号不随文章拆分而变). **Title / URL / content must
+  agree** (user rule, 2026-10-11, 「没有商量的余地」): the series was renamed
+  《…结构、实现与演进》 (算量 is a lens now, not a segment), the overview moved
+  `/transformer-and-llm-for-infra-engineers.html` →
+  `/transformer-and-llm-structure-implementation-and-evolution.html` and 12
+  moved `/speculative-decoding-and-lora.html` →
+  `/speculative-decoding-draft-verify-and-payoff.html`, both with
+  `redirect_from` **and `comments_path: <old url>`** — the data key for the
+  Discussion (#117's 划线评论 live under the old path), D1 views / 点赞 / 分享 /
+  reactions and the dashboard. `comments.html`, `post-meta.html`,
+  `post-actions.html`, the list strips and `admin/stats.html` all read
+  `page.comments_path | default: page.url`; `dashboard.js` / `feedback-queue.cjs`
+  fetch the live page through the redirect stub. Use `comments_path` whenever a
+  post with engagement is renamed. When referring to this
   series from elsewhere use the *new* numbers (06 = Roofline, 08 = KV, 12 =
   投机, 13 = 多模态, 14 = 浮点); 「04-07」 for 量化 is stale — point at
   高效推理 03 instead. History: the series started as 8 cost-table posts

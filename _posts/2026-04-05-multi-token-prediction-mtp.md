@@ -8,7 +8,7 @@ catalog: true
 date: 2026-04-05 14:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第七篇，也是 DeepSeek-V3 三处改动（MLA、MoE、MTP）的最后一处。它不改主干，只增加训练时的模块与目标；训练出来的 MTP 模块在推理时可以当投机解码的草稿——下一篇就讲投机解码。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第七篇，也是 DeepSeek-V3 三处改动（MLA、MoE、MTP）的最后一处。它不改主干，只增加训练时的模块与目标；训练出来的 MTP 模块在推理时可以当投机解码的草稿——下一篇就讲投机解码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 前面几篇改的都是**结构**：换归一化、换位置编码、换 FFN、换 attention 的 K/V、把 FFN 换成专家。这一篇改的是另一样东西——**训练目标**。从第二篇起，模型学的一直是"看前文、预测下一个 token"，每个位置只有一个正确答案、一份监督信号。MTP（multi-token prediction，多 token 预测）让每个位置**额外**预测后面第 2、第 3 个 token：同一批数据，榨出两三倍的监督信号；训完之后那几个额外的预测头还能拿来做投机解码的草稿（第十二篇），白送一个 1.8 倍的生成加速。DeepSeek-V3 把它写进了正式的训练配方，是 2024 年以后"改目标"这一条路上最成功的例子。
 
@@ -281,6 +281,6 @@ Table: MTP 的账
 
 ## 下一篇
 
-MTP 模块训练完可以丢掉，也可以留下来当草稿模型。[下一篇《Transformer 与 LLM（12）：投机解码——草稿、验证与收益条件》](/speculative-decoding-and-lora.html)讲它在推理侧的用法：先用草稿猜几个 token，再由主模型一次前向验证，为什么输出分布严格不变、期望一步接受几个、第六篇算出的 memory-bound 区间为什么让验证几乎免费、batch 大了收益为什么消失。
+MTP 模块训练完可以丢掉，也可以留下来当草稿模型。[下一篇《Transformer 与 LLM（12）：投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)讲它在推理侧的用法：先用草稿猜几个 token，再由主模型一次前向验证，为什么输出分布严格不变、期望一步接受几个、第六篇算出的 memory-bound 区间为什么让验证几乎免费、batch 大了收益为什么消失。
 
 [^q0]: **多花的**：每级一个 Transformer block + 一个 $$2d \to d$$ 投影的参数与前向 / 反向算力，加一次 lm_head（embedding 与 lm_head 共享，不额外加参数）。**可能多得的**：同一批数据的监督信号 ×$$(1 + D)$$，主干表示被逼着编码更远的未来（大模型上主任务小幅提升）；一个接受率 85–90% 的投机 draft。**顺序而非并行**：把真实的 $$t_{i+1}$$ 喂给预测 $$t_{i+2}$$ 的模块，保持完整因果链，loss 与主头同难度；并行头跳过中间 token，loss 偏高会干扰主干。**推理时**：可丢弃（模型与普通 decoder-only 无异），或保留当投机解码的 draft（多算一个 block，TPS ~1.8 倍）。详见[第二](#二deepseek-v3-的-mtp-模块)、[三](#三训练目标)、[四章](#四推理时它去哪了)。

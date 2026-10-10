@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-10-10
 ---
 
-> **本篇在系列中的位置。** 第一段（01–04）已经走通 GPT-2 的结构与训练；第二段（05–14：现代 LLM 的演进与实践）改看今天的模型。本篇先给一张真实模型的配置地图：Llama-3、DeepSeek-V3 和 VLM 相对 GPT-2 改了什么、为什么、影响哪笔成本，再把 Llama 的参数量算完整。第 06 篇把参数量换算成算量、字节与时间，第 07–14 篇沿这张地图逐项展开；本篇不提前推导 GQA、MLA、MoE 或 MTP。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第一段（01–04）已经走通 GPT-2 的结构与训练；第二段（05–14：现代 LLM 的演进与实践）改看今天的模型。本篇先给一张真实模型的配置地图：Llama-3、DeepSeek-V3 和 VLM 相对 GPT-2 改了什么、为什么、影响哪笔成本，再把 Llama 的参数量算完整。第 06 篇把参数量换算成算量、字节与时间，第 07–14 篇沿这张地图逐项展开；本篇不提前推导 GQA、MLA、MoE 或 MTP。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 [《Transformer 与 LLM（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)末尾列出了 GPT-2 到 Llama 的五处改动：RMSNorm、RoPE、SwiGLU、GQA、去 bias。但现代模型并不止 Llama：DeepSeek-V3 又换了 attention 和 FFN，并加了 MTP 训练目标；VLM 还在文本模型前面接入图像。这些改动要先放在同一张模型地图里，后面每篇才有明确的位置。
 
@@ -54,7 +54,7 @@ Table: GPT-2 small 与 Llama-3-8B 的逐项对照：骨架不变，五处改动�
 | 长上下文成本 | Llama-3 文本基线仍是全局 causal attention | 长度扩展不自动带来滑窗；局部 / 稀疏是另一组选择 | KV 线性、prefill attention 二次增长；改变可见 token 集才能改变这笔账 | [09 长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) |
 | 专家路由 | Llama 每 token 使用整个 dense FFN | V3：256 个路由专家选 8 个，另有 1 个共享专家 | 扩容量而不同比例增加每 token 算量；总权重与通信仍昂贵 | [10 MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) |
 | 训练目标 | 默认只预测下一个 token | V3 加 1 层 MTP，训练时继续预测后一个 token | 增加训练模块与监督信号；推理可丢弃或用作草稿 | [11 MTP](/multi-token-prediction-mtp.html) |
-| 解码流程 | 每步一次前向产出一个 token | 草稿 + 一次前向验证多个 token（MTP 模块可当草稿） | 不改结构与分布；只在小 batch 的 memory-bound 区间有收益 | [12 投机解码](/speculative-decoding-and-lora.html) |
+| 解码流程 | 每步一次前向产出一个 token | 草稿 + 一次前向验证多个 token（MTP 模块可当草稿） | 不改结构与分布；只在小 batch 的 memory-bound 区间有收益 | [12 投机解码](/speculative-decoding-draft-verify-and-payoff.html) |
 | 输入模态 | 以上文本模型只有 token embedding | VLM 加 vision encoder、connector，或 cross-attention | 图像先算一次编码，再以 image token 或独立 KV 进入 decoder | [13 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
 | 数值精度 | BF16 权重与计算 | V3 用 FP8 训练与推理（分块 scale） | 每个数占几个字节、误差在哪里积累、训练状态每参数几字节 | [14 浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) |
 

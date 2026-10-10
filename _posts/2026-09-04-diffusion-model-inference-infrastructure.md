@@ -315,7 +315,7 @@ Table: 四个项目的源码阅读线
 ### 前置要求
 
 - 理解 LLM 推理引擎的基本机制：prefill 与 decode 的形态差别、KV cache 的字节数、连续批处理、TP 部署、roofline 与 MFU（[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)前五篇的内容；本系列每处对照都会先复述所需的最小集）；
-- 知道 Transformer 一层的 FLOPs 从哪来（$$2 P N$$ 与 $$4 N^2 d$$，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)第二篇）；
+- 知道 Transformer 一层的 FLOPs 从哪来（$$2 P N$$ 与 $$4 N^2 d$$，[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)第二篇）；
 - 知道扩散模型在做什么：从噪声 latent 出发、网络预测噪声或速度、几十步去噪、VAE 解码、CFG 是两次前向（算法地图 L7 第五、六篇的内容；本系列第一篇会用一节复述所需的最小集，不涉及数学）；
 - 会用 diffusers 跑一个文生图 pipeline、读 Python 源码、用 profiler 看时间线；
 - 一张 24 GB 以上的 GPU 用于实践；多卡与视频的内容以计算外推与公开数据为主。

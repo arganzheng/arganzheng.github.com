@@ -9,7 +9,7 @@ updated: 2026-09-14
 date: 2026-04-04 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第四篇。第 05 篇讲了 GQA 为什么让 K/V 投影变窄，第 06 篇给了算术强度与 KV 读取的账，第 07 篇讲了 RoPE；本篇把 MHA → GQA → MQA → MLA 当作一条结构演进讲全，并同时算它们的成本：KV cache 的字节数、并发上限与 kernel 形态。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第四篇。第 05 篇讲了 GQA 为什么让 K/V 投影变窄，第 06 篇给了算术强度与 KV 读取的账，第 07 篇讲了 RoPE；本篇把 MHA → GQA → MQA → MLA 当作一条结构演进讲全，并同时算它们的成本：KV cache 的字节数、并发上限与 kernel 形态。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 第二篇讲了 KV cache 为什么**有**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来，decode 每步只算一个 token。这一篇讲它为什么要**省**：Llama-3-8B 每个 token 的 KV 是 128 KiB，一个 8K 请求 1 GiB，一张 80 GB 的卡除掉权重只能同时服务几十个这样的请求——而如果它还用 GPT-2 那种每个 Q 头各有一组 K/V 的 MHA，会是 512 KiB。attention 是 Transformer 里唯一成本随上下文增长的部分（第六篇把它拆成"权重项"与"上下文项"算成时间），也是过去几年结构改动最集中的地方。
 

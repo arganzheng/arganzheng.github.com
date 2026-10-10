@@ -180,7 +180,7 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 的深入篇。往前，它读的每一段代码都对应地图里的一篇公式或结构图：模型侧对应 [L4 Transformer 系列](/transformer-and-llm-for-infra-engineers.html)第一篇，`generate` 对应 [L0 第五篇](/from-maximum-likelihood-to-cross-entropy.html)第七章，LoRA 对应 [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)，三种 loss 对应[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)。往后，两条路：
+本系列是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 的深入篇。往前，它读的每一段代码都对应地图里的一篇公式或结构图：模型侧对应 [L4 Transformer 系列](/transformer-and-llm-structure-implementation-and-evolution.html)第一篇，`generate` 对应 [L0 第五篇](/from-maximum-likelihood-to-cross-entropy.html)第七章，LoRA 对应 [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)，三种 loss 对应[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)。往后，两条路：
 
 - **推理侧。**第二篇的 `_sample` 是静态 batch、Python 循环、每层 `cat` 的 KV cache——[vLLM 源码系列](/deep-dive-into-vllm.html)读 continuous batching 与 PagedAttention 怎么把这三件事各换掉一个。
 - **训练侧。**第四篇的 `GRPOTrainer` 采样与训练在同一进程——[verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)读 rollout 与 actor 分到不同 worker 之后同一条 GRPO loss 长什么样。

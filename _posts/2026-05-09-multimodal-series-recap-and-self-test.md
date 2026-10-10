@@ -493,7 +493,7 @@ Table: 掌握程度的判据
 
 九篇讲的是多模态模型的部件、数学与账，六个方向紧邻但不在范围内：
 
-- **成本的账**（encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧显存）在 [04 系列《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)——本系列引用它的结论，不重算。
+- **成本的账**（encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧显存）在 [04 系列《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)——本系列引用它的结论，不重算。
 - **CNN 与 ViT 的基础**（patch embedding、残差）在[《深度学习基础》](/deep-learning-foundations.html)系列。
 - **后训练方法本身**（SFT、DPO、RL）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——第三篇的多模态对齐、第八篇的 Diffusion-DPO 直接用它们的形式。
 - **概率与变分下界的数学**在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第六、七篇的推导需要高斯的性质、KL 与 ELBO。

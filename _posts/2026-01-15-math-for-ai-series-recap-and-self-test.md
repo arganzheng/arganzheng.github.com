@@ -515,7 +515,7 @@ Table: 掌握程度的判据
 
 - **动手**：第五、七、八篇的例子与实验在 [ai-learning-labs/math-for-ai](https://github.com/arganzheng/ai-learning-labs/tree/main/math-for-ai)（硬币似然、GPT-2 采样、玩具策略梯度、nanoGPT 上的最小 RL、多种子实跑、scaling law 拟合），其余篇的算例是手算；从这里进入 L1 [《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)，把形状规则、广播、交叉熵在代码里练一遍。
 - **反向传播的完整推导、初始化与归一化、Momentum / Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在第七篇的 SGD 之上，设计动机要到训练神经网络时才看得见，在 L3 [《深度学习基础》](/deep-learning-foundations.html)。
-- **Transformer 的完整算账、scaling law 的实验设计**：第一篇的两条规则与第八篇的拟合在 L4 [《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)里被用来算整个模型与整次训练的账。
+- **Transformer 的完整算账、scaling law 的实验设计**：第一篇的两条规则与第八篇的拟合在 L4 [《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)里被用来算整个模型与整次训练的账。
 - **SFT、奖励模型、DPO 一族、PPO / GRPO 的配方**：第五、六、七篇给了它们的数学，L5 [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)讲怎么用。
 - **量化、投机解码、LoRA 的工程**：第二、三、六篇给了范数、低秩与总变差，L6 [《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)展开。
 - **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法——用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。

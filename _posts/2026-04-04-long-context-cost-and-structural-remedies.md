@@ -8,7 +8,7 @@ catalog: true
 date: 2026-04-04 14:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第五篇。第 07 篇讲了位置能不能外推，第 08 篇讲了 KV cache 的账，本篇讲另一组问题——"用得起吗"：上下文拉长后 KV cache、prefill 与中间量各涨成什么函数，sliding window、全局/局部交错、attention sink、稀疏 attention 又把成本改成了什么函数。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第五篇。第 07 篇讲了位置能不能外推，第 08 篇讲了 KV cache 的账，本篇讲另一组问题——"用得起吗"：上下文拉长后 KV cache、prefill 与中间量各涨成什么函数，sliding window、全局/局部交错、attention sink、稀疏 attention 又把成本改成了什么函数。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 [《Transformer 与 LLM（07）：位置编码与外推》](/positional-encoding-and-long-context.html)回答了模型凭什么知道一个 token 在第几个位置、为什么用 8K 训练的 RoPE 模型不能直接推理 32K。但即使位置编码完全没问题，上下文长度 $$s$$ 仍然受另一组限制：它同时进入 KV cache 的一次项和 attention 算量的二次项。Llama-3-70B 在 128K 上下文下，每个 token 花在 attention 上的算量（344 GFLOPs）已经超过了花在全部权重上的算量（141 GFLOPs）。这些限制与位置怎么编码无关，改变它们要改 attention "看哪些 token"。
 

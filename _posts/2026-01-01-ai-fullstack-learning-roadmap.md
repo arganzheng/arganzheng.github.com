@@ -103,7 +103,7 @@ Table: 同一个名词在三张地图里各讲什么
 
 ### 一个共享的系列
 
-三张地图有三个系列是共享的。两个是基础：Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html)，它们是算法地图 L1 工具箱的深入篇——L1 讲用法，它们讲机制与实现。一个是核心：[《Transformer 与 LLM：结构、实现与算量》](/transformer-and-llm-for-infra-engineers.html)（Infra 地图的 04、算法地图的 L4，十三篇分三段）。第一段（01–04）讲结构与实现——Transformer 的每个部件为什么在那里、一个 token 怎么流过它、用 nanoGPT 的 300 行把它写出来训出来，是两类读者共同的起点；第二段（05–09）讲结构从 GPT-2 到 Llama / DeepSeek 的每一处演进为什么发生；第三段（10–13）算"模型作为一个计算对象的成本"——参数量、FLOPs、字节数、KV、通信量——恰好是算法工程师与 Infra 工程师对话的语言：前者从中知道自己的每个结构决定在硬件上花多少钱，后者从中知道要优化什么。它讨论结构、实现与成本表本身；这张表的训练侧——tokenizer、scaling law、数据工程、训练配方——是紧接着它发布的算法地图系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)，不共享：Infra 读者不需要读，算法读者读完 04 接着读。应用工程师读 04 的 KV cache 与多模态两篇，能理解长上下文与图片为什么贵。
+三张地图有三个系列是共享的。两个是基础：Infra 地图的 [01 Python](/python-for-ai-infra.html) 与 [03 PyTorch](/deep-dive-into-pytorch.html)，它们是算法地图 L1 工具箱的深入篇——L1 讲用法，它们讲机制与实现。一个是核心：[《Transformer 与 LLM：结构、实现与演进》](/transformer-and-llm-structure-implementation-and-evolution.html)（Infra 地图的 04、算法地图的 L4，十四篇分两段）。第一段（01–04）讲基本原理与实现——Transformer 的每个部件为什么在那里、一个 token 怎么流过它、用 nanoGPT 的 300 行把它写出来训出来，是两类读者共同的起点；第二段（05–14）讲现代 LLM 的演进与实践——从 GPT-2 到 Llama / DeepSeek 的每一处结构演进为什么发生，每一处都同时算出"模型作为一个计算对象的成本"——参数量、FLOPs、字节数、KV、通信量——这恰好是算法工程师与 Infra 工程师对话的语言：前者从中知道自己的每个结构决定在硬件上花多少钱，后者从中知道要优化什么。它讨论结构、实现与成本表本身；这张表的训练侧——tokenizer、scaling law、数据工程、训练配方——是紧接着它发布的算法地图系列[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)，不共享：Infra 读者不需要读，算法读者读完 04 接着读。应用工程师读 04 的 KV cache 与多模态两篇，能理解长上下文与图片为什么贵。
 
 ### 一个常见的误分类
 

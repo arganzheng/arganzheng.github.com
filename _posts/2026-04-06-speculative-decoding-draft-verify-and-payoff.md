@@ -5,11 +5,14 @@ title: "Transformer 与 LLM（12）：投机解码——草稿、验证与收益
 subtitle: "Speculative Decoding: Drafts, Verification and When It Pays Off"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-10-10
+updated: 2026-10-11
 date: 2026-04-06 10:00:00
+redirect_from:
+  - /speculative-decoding-and-lora.html
+comments_path: /speculative-decoding-and-lora.html
 ---
 
-> **本篇在系列中的位置。** 第二段的第八篇。第 06 篇算出 batch 小时 decode 受带宽限制、Tensor Core 大多空闲；第 11 篇的 MTP 模块给了一个现成的草稿来源。本篇不改结构、不改数值格式，改的是解码流程：先猜几个 token，再用一次前向验证，输出分布严格不变。LoRA 不在本系列：参数高效微调的账在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第八篇。第 06 篇算出 batch 小时 decode 受带宽限制、Tensor Core 大多空闲；第 11 篇的 MTP 模块给了一个现成的草稿来源。本篇不改结构、不改数值格式，改的是解码流程：先猜几个 token，再用一次前向验证，输出分布严格不变。LoRA 不在本系列：参数高效微调的账在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 第六篇算过 decode 的账：batch 为 $$B$$ 时权重 GEMM 的算术强度约等于 $$B$$，距 H100 的 ridge point 295 差两个数量级，每步时间被"把权重读一遍"钉在 4.8 ms 上，Tensor Core 几乎空转。第十一篇的 MTP 模块在训练时多预测一个 token，推理时可以丢掉——也可以留下来当"草稿"。本篇把这两件事接起来：**既然多算几行几乎不花时间，能不能先猜几个 token，再用一次前向把它们全部验证掉？**
 

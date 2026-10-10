@@ -9,7 +9,7 @@ date: 2026-04-09 20:00:00
 updated: 2026-10-10
 ---
 
-十四篇正文分两段回答两个问题。**01–04：GPT-2 怎么工作、怎么写、怎么训**；**05–14：现代 LLM 改了什么、为什么、花了什么**——05 先读 Llama / DeepSeek / VLM 的真实配置并数出参数量，06 把参数量换成算量、字节与时间（后面所有专项共用的尺子），07–14 再逐项展开位置外推、attention 与 KV、长上下文结构、MoE、MTP、投机解码、多模态与浮点格式。量化与 LoRA 已并入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整路线见[系列总纲](/transformer-and-llm-for-infra-engineers.html)。
+十四篇正文分两段回答两个问题。**01–04：GPT-2 怎么工作、怎么写、怎么训**；**05–14：现代 LLM 改了什么、为什么、花了什么**——05 先读 Llama / DeepSeek / VLM 的真实配置并数出参数量，06 把参数量换成算量、字节与时间（后面所有专项共用的尺子），07–14 再逐项展开位置外推、attention 与 KV、长上下文结构、MoE、MTP、投机解码、多模态与浮点格式。量化与 LoRA 已并入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整路线见[系列总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 本文不讲新内容，做三件事：把十四篇压成一张表与十四段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十四篇能不能连起来用"。
 
@@ -57,7 +57,7 @@ flowchart TB
 | [第九篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？ | KV 线性、prefill attention 二次；滑窗改可见位置、MLA 改 KV 表示 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s |
 | [第十篇：MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) | V3 每 token 只算 37B，为什么比 dense 70B 难部署得多？ | 三个"参数量"分开：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定 decode 带宽——中等 batch 下几乎读全部专家 | $$E[1 - (1 - k/E)^B]$$：$$B = 32$$ 时 163 个、读 434B<br/>FP8 671 GB 放不进 640 GB<br/>每 token 每层 dispatch 56 KiB + combine 112 KiB<br/>每专家 GEMM $$Tk/E$$ 行 |
 | [第十一篇：MTP](/multi-token-prediction-mtp.html) | 每个位置多预测一个 token，多花了什么、多得了什么？为什么顺序不并行？ | 信号密度 ×$$(1 + D)$$，主干被逼编码更远的未来<br/>顺序模块喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）<br/>推理时丢弃或做投机 draft | 自有参数：2 个 RMSNorm + $$2d \to d$$ 投影 + 1 个 block<br/>$$\lambda$$ 0.3 → 0.1<br/>接受率 85–90%、TPS 1.8 倍<br/>nanoGPT 上主任务不变、$$t+2$$ 命中 45%、+29% 参数 |
-| [第十二篇：投机解码——草稿、验证与收益条件](/speculative-decoding-and-lora.html) | 同一套投机解码，为什么 batch 1 加速 2 倍、batch 64 没有收益？ | 接受 / 拒绝重采样让输出分布严格等于目标模型；验证 γ+1 个 token 只在 memory-bound 区间免费 | $$\mathbb{E}[\text{tokens}] = (1-\alpha^{\gamma+1})/(1-\alpha)$$；α=0.8、γ=4、c=0.1：3.36 token、约 2.4×；转折 batch ≈ ridge/(γ+1) ≈ 60 |
+| [第十二篇：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html) | 同一套投机解码，为什么 batch 1 加速 2 倍、batch 64 没有收益？ | 接受 / 拒绝重采样让输出分布严格等于目标模型；验证 γ+1 个 token 只在 memory-bound 区间免费 | $$\mathbb{E}[\text{tokens}] = (1-\alpha^{\gamma+1})/(1-\alpha)$$；α=0.8、γ=4、c=0.1：3.36 token、约 2.4×；转折 batch ≈ ridge/(γ+1) ≈ 60 |
 | [第十三篇：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html) | 一张 1024² 的图在 Qwen2-VL 里等于多少 token？代价在哪？ | 图片贵的不是 encoder（一次性、compute-bound），是它变成的 token 在 decoder 里占的 KV——与同长文本同价，活到请求结束 | $$n_{img} = \lceil H/28 \rceil \lceil W/28 \rceil$$，1024² → 1369<br/>encoder 11.8 TFLOP<br/>70B 规格 KV 428 MiB 是 encoder 输出 21 MiB 的 20 倍<br/>同一张图 576 到 6404 token |
 | [第十四篇：浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) | BF16 相对精度只有 FP16 的 1/8，为什么成了默认？用在权重更新上会怎样？ | 指数位定范围、尾数位定精度；前向反向要范围，更新要精度——所以 BF16 计算 + FP32 master weights | BF16 1/8/7、单位舍入 $$2^{-8} \approx 0.004$$<br/>FP16 最大 65504、$$e^x$$ 在 $$x > 11.09$$ 溢出<br/>E4M3 最大 448 无 inf<br/>$$k = 4096$$ BF16 累加噪声 25%<br/>16 B/参数、8B 训练状态 128 GB |
 
@@ -359,7 +359,7 @@ Table: 跨篇概念的正确阅读入口
 | MoE 激活 37B，部署像 dense 37B | 显存按 671B 算，中等 batch 下每步几乎读全部专家 | 三个数分开：671B / 37B / 随 batch 从 37B 到 671B | [第十篇](/moe-compute-and-communication.html) |
 | MoE 用 TP 切就行 | TP-8 把 2048 宽的专家切成 256 列，GEMM 太瘦，且不减少每卡读的专家数 | 大规模 EP 加 all-to-all；Mixtral 的 14336 宽专家单机 TP 才可行 | [第十篇](/moe-compute-and-communication.html) |
 | BF16 精度低，训练应该用 FP16 | FP16 范围窄，小梯度下溢，要 loss scaling | 深度学习选范围不选精度；BF16 + FP32 master weights | [第十四篇](/floating-point-formats-and-mixed-precision.html) |
-| 投机解码总是加速 | 验证 γ+1 个 token 只在 $$B(\gamma+1) \lesssim \text{ridge}$$ 时免费 | 转折 batch ≈ ridge/(γ+1) ≈ 60，之后加速比下降、大 batch 下低于 1 | [第十二篇](/speculative-decoding-and-lora.html) |
+| 投机解码总是加速 | 验证 γ+1 个 token 只在 $$B(\gamma+1) \lesssim \text{ridge}$$ 时免费 | 转折 batch ≈ ridge/(γ+1) ≈ 60，之后加速比下降、大 batch 下低于 1 | [第十二篇](/speculative-decoding-draft-verify-and-payoff.html) |
 | 权重量化让模型全面加速 | prefill 是 compute-bound，反量化是纯开销 | W4A16 只在 decode 且 $$B \lesssim \text{ridge}/4$$ 时兑现；W8A8 才对 prefill 有效 | [高效推理 03](/post-training-quantization-gptq-awq-and-rotation.html) |
 | 多模态的成本在 vision encoder | encoder 一次性 12 ms、输出用完即弃 | 贵的是 image token 的 KV，是 encoder 输出的 20 倍且活到请求结束 | [第十三篇](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
 
@@ -624,7 +624,7 @@ Table: 掌握程度的判据
 - **量化与参数高效微调**——权重、激活与 KV 怎么压到更少的位、误差怎么控制，在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)；LoRA 的四本账、选参与上线，在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。两者原本是本系列的两篇，已并入对应专题。
 - **kernel 实现、推理引擎的调度与内存管理、分布式并行的实现**——FlashAttention 的分块怎么写、PagedAttention 的 block 怎么管、TP / PP / EP 怎么切分与同步。本系列给出这些机制所依据的数字（IO 复杂度、KV 字节数、all-to-all 的量），不讲机制本身。
 
-回到总纲：[《Transformer 与 LLM：结构、实现与算量》](/transformer-and-llm-for-infra-engineers.html)。
+回到总纲：[《Transformer 与 LLM：结构、实现与演进》](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 ## 七、延伸阅读
 

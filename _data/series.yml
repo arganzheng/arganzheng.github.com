@@ -33,8 +33,8 @@ deep-dive-into-pytorch:
   number: 3
   shared_with: [ai-algorithm]
 transformer-and-llm:
-  name: Transformer 与 LLM：结构、实现与算量
-  overview: /transformer-and-llm-for-infra-engineers.html
+  name: Transformer 与 LLM：结构、实现与演进
+  overview: /transformer-and-llm-structure-implementation-and-evolution.html
   slides: /slides/transformer-and-llm.html
   roadmap: ai-infra
   number: 4

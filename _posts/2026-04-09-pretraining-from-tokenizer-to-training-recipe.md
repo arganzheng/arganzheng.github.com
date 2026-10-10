@@ -10,7 +10,7 @@ catalog: true
 
 ## 内容简介
 
-《预训练：从 tokenizer 到训练配方》是一组共五篇正文加一篇总结的系列文章，面向要做或要读懂一次预训练的算法工程师，以及要为一次预训练做容量与 I/O 规划的训练基础设施工程师。第一篇先在一台笔记本上把一次预训练**从原始网页到能续写英文的模型**完整走一遍，让后面四篇的每个公式与数字都有落脚的地方。它是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)那张成本表的**训练侧**：那八篇把 token 数、参数量、数据量当作给定的输入，算出模型每一步算多少、读多少、存多少；本系列讲这几个输入各自是怎么定下来的——tokenizer 决定 token 数，scaling law 决定参数量与数据量的分配，数据管线决定有多少 token 可用、怎么配，训练配方决定用什么超参把它训出来、怎么不崩。
+《预训练：从 tokenizer 到训练配方》是一组共五篇正文加一篇总结的系列文章，面向要做或要读懂一次预训练的算法工程师，以及要为一次预训练做容量与 I/O 规划的训练基础设施工程师。第一篇先在一台笔记本上把一次预训练**从原始网页到能续写英文的模型**完整走一遍，让后面四篇的每个公式与数字都有落脚的地方。它是[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)那张成本表的**训练侧**：那八篇把 token 数、参数量、数据量当作给定的输入，算出模型每一步算多少、读多少、存多少；本系列讲这几个输入各自是怎么定下来的——tokenizer 决定 token 数，scaling law 决定参数量与数据量的分配，数据管线决定有多少 token 可用、怎么配，训练配方决定用什么超参把它训出来、怎么不崩。
 
 它回答的问题是：
 
@@ -227,7 +227,7 @@ flowchart TB
 
 ### 前置要求
 
-- 读过[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)的第五、十篇，知道参数量公式与 $$6ND$$；
+- 读过[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)的第五、十篇，知道参数量公式与 $$6ND$$；
 - 会读 Python 与 PyTorch 代码；
 - 知道交叉熵、Adam、学习率 warmup 是什么（第五篇会用到它们的结论，不重推）。
 

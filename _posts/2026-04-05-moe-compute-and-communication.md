@@ -9,7 +9,7 @@ updated: 2026-10-10
 date: 2026-04-05 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第六篇。前几篇改的是 attention 与位置，本篇改 FFN：一层换成多个专家加路由，结构上多了什么，成本上又如何拆成总参数、激活参数与 all-to-all 通信。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第六篇。前几篇改的是 attention 与位置，本篇改 FFN：一层换成多个专家加路由，结构上多了什么，成本上又如何拆成总参数、激活参数与 all-to-all 通信。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 到这里为止讨论的都是 dense 模型：每个 token 经过每一层时，会用到这一层的全部权重。参数量、每 token 算量、每步 decode 的权重读取量，三者之间只差一个常数——参数量 $$N$$ 对应每 token $$2N$$ FLOPs，对应每步读 $$N \times \text{bytes/elem}$$ 字节。
 

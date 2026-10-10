@@ -9,7 +9,7 @@ updated: 2026-10-10
 date: 2026-04-07 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第九篇。前面讲的都是文本模型的部件与成本，本篇改输入：vision encoder 与 connector 是新增的结构，image token 的算量与 KV 是它带来的成本。本篇只算账——编码器怎么选、connector 与注入方式各自的设计动机、VLM 怎么训练，在算法地图的[《多模态》系列](/multimodal-from-vision-encoders-to-diffusion.html)第 01–03 篇。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第九篇。前面讲的都是文本模型的部件与成本，本篇改输入：vision encoder 与 connector 是新增的结构，image token 的算量与 KV 是它带来的成本。本篇只算账——编码器怎么选、connector 与注入方式各自的设计动机、VLM 怎么训练，在算法地图的[《多模态》系列](/multimodal-from-vision-encoders-to-diffusion.html)第 01–03 篇。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 前九篇讨论的模型只有一种输入：token id。它查一张 embedding 表得到向量，然后进入 decoder。这个前提决定了前面所有的账——参数量、FLOPs、KV cache——都只与 token 数有关，而 token 数由 tokenizer 决定。
 

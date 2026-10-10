@@ -1,13 +1,13 @@
 ---
 layout: slides
-title: "Transformer 与 LLM：结构、实现与算量"
+title: "Transformer 与 LLM：结构、实现与演进"
 subtitle: "系列精华 · 十四篇正文每篇一页，按 ↓ 看推导、代码与数字"
 permalink: /slides/transformer-and-llm.html
 series: transformer-and-llm
 date: 2026-04-09 23:30:00 +0800
 updated: 2026-10-10
 author: arganzheng
-description: "《Transformer 与 LLM：结构、实现与算量》系列的分享用幻灯片：五种运算、训练与推理两种形态、nanoGPT 逐行、从 config.json 算参数量、KV cache 与 MLA、RoPE 与长上下文、Roofline、MoE、MTP、投机解码、多模态的 KV 代价、浮点格式。"
+description: "《Transformer 与 LLM：结构、实现与演进》系列的分享用幻灯片：五种运算、训练与推理两种形态、nanoGPT 逐行、从 config.json 算参数量、KV cache 与 MLA、RoPE 与长上下文、Roofline、MoE、MTP、投机解码、多模态的 KV 代价、浮点格式。"
 theme: white
 transition: slide
 ---
@@ -22,7 +22,7 @@ transition: slide
 | 二 · 现代 LLM 的演进与实践 | 05–14 | 05 读配置数参数、06 建成本工具箱；之后每处改动：问题 → 方法 → 实现 → 效果 → 代价 → 边界；同一张卡 H100：80 GB、3.35 TB/s、BF16 989 TFLOPS |
 
 <aside class="notes" markdown="1">
-总纲：/transformer-and-llm-for-infra-engineers.html。三个模型：Llama-3-8B / 70B 代表 dense + GQA，DeepSeek-V3 代表 MLA + 细粒度 MoE + FP8；Mixtral 8x7B 与四个多模态模型作对照。
+总纲：/transformer-and-llm-structure-implementation-and-evolution.html。三个模型：Llama-3-8B / 70B 代表 dense + GQA，DeepSeek-V3 代表 MLA + 细粒度 MoE + FP8；Mixtral 8x7B 与四个多模态模型作对照。
 </aside>
 
 ---
@@ -427,7 +427,7 @@ flowchart LR
 Table: 投机解码的正确性、收益与边界
 
 <aside class="notes" markdown="1">
-原文 /speculative-decoding-and-lora.html。单步：q(x)·min(1, p/q) = min(p, q)，拒绝后从 norm(max(0, p − q)) 重采样，两项相加恰好 p(x)。KV 回退要精确到位置：被拒绝位置本身的 KV 也要丢。
+原文 /speculative-decoding-draft-verify-and-payoff.html。单步：q(x)·min(1, p/q) = min(p, q)，拒绝后从 norm(max(0, p − q)) 重采样，两项相加恰好 p(x)。KV 回退要精确到位置：被拒绝位置本身的 KV 也要丢。
 </aside>
 
 ---
@@ -577,7 +577,7 @@ flowchart TB
 - **往后（算法）**：《预训练》——tokenizer、scaling law、数据工程、训练配方
 - **往后（算法）**：《高效推理与压缩》——量化（第 06 篇 Roofline 的收益区间在它的第 03 篇）、投机解码的草稿怎么训；《LoRA 专题》——参数高效微调的四本账
 - **往后（Infra）**：《大模型推理系统揭秘》——把第 06 篇的 Roofline 变成 vLLM 的调度；《大规模训练工程》——把 16 B / 参数切到多卡
-- 原文总纲：`/transformer-and-llm-for-infra-engineers.html`；通关自测 27 题在系列总结
+- 原文总纲：`/transformer-and-llm-structure-implementation-and-evolution.html`；通关自测 27 题在系列总结
 
 <aside class="notes" markdown="1">
 系列总结 /transformer-and-llm-series-recap-and-self-test.html：A 判断与计算 15 题、B 跨篇综合 5 题、C 面试题 7 题。

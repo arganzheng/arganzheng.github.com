@@ -9,7 +9,7 @@ updated: 2026-09-14
 date: 2026-04-03 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的第二篇，是后面所有专项共用的成本工具箱。第 05 篇数出了参数量，本篇把每个矩阵乘换成 FLOPs 与字节数，再放到 Roofline 上换算成时间：prefill 与 decode 为什么不同、decode 为什么受带宽限制、时间下界怎么算。第 07 篇起的每个专项都只算自己相对基线的增量，不再重讲这些定义。第八节「训练侧：激活值与 MFU」只在训练相关的篇目用到，第一遍可以跳过。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的第二篇，是后面所有专项共用的成本工具箱。第 05 篇数出了参数量，本篇把每个矩阵乘换成 FLOPs 与字节数，再放到 Roofline 上换算成时间：prefill 与 decode 为什么不同、decode 为什么受带宽限制、时间下界怎么算。第 07 篇起的每个专项都只算自己相对基线的增量，不再重讲这些定义。第八节「训练侧：激活值与 MFU」只在训练相关的篇目用到，第一遍可以跳过。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 本篇开始算账。第五篇把一个 decoder-only Transformer 拆到了能数出每一个参数的粒度，结论可以压缩成一个公式：
 

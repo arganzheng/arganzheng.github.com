@@ -212,7 +212,7 @@ Table: 本文的章节安排
 
 六篇每一篇都在最后指出它在 LLM 里的形态，合起来 Transformer 的每个部件都有了出处。第一篇：训练 FLOPs $$6ND$$ 与激活重算 $$8ND$$，FlashAttention 是激活重算的算子级版本，Transformer 的 FFN 就是一个两层 MLP。第二篇：Pre-Norm、RMSNorm、残差、final norm、0.02、残差分支 $$1/\sqrt{2L}$$、QK-norm、z-loss、$$\mu$$P。第三篇：AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、裁剪 1.0、warmup、cosine 到 10% 或 WSD、峰值学习率随宽度减小、每参数 8 字节状态是 ZeRO / FSDP 切分的对象。第四篇：预训练不用 dropout、只训一个 epoch、重复到 4 个 epoch 以内、SFT 2–3 个 epoch。第五篇：残差、归一化到处用、pre-activation → Pre-Norm、堆同样的块、$$1 \times 1$$ 卷积 → 逐位置 FFN、patch embedding、一张图 196 / 576 / 5476 个 token。第六篇：attention 本身、query / key / value 的对应、self-attention 去掉循环、$$O(n^2)$$ 与 KV cache、梯度裁剪的起源。
 
-读到这里，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
+读到这里，[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -480,7 +480,7 @@ Table: 掌握程度的判据
 
 六篇讲的是"训练一个深网络时会发生什么"，几个方向紧邻但不在范围内：
 
-- **Transformer 本身**——attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导——在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)。本系列第六篇止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
+- **Transformer 本身**——attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导——在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)。本系列第六篇止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
 - **预训练配方**——学习率、batch、warmup 的具体数值怎么随规模定，scaling law，数据配比——属于 L4，本系列只讲每个开关的原理与诊断。
 - **框架内部与数值格式**——Autograd 引擎、分布式通信、bf16 / fp8 的位布局——属于 Infra 地图的系列，本系列只到"框架在做什么"。
 - **泛化理论**（VC 维、PAC-Bayes）与**具体的 CNN / RNN 应用**（检测、分割、语音识别）不在本系列范围内。
@@ -493,7 +493,7 @@ Table: 掌握程度的判据
 
 本系列有意不展开的内容，以及它们在哪个系列里：
 
-- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在 [《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)系列。本系列第六篇止于"attention 为什么被发明、为什么取代 RNN"。
+- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在 [《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)系列。本系列第六篇止于"attention 为什么被发明、为什么取代 RNN"。
 - **预训练配方**：具体的学习率、batch、warmup 数值怎么随规模定，scaling law，数据配比。属于 L4。本系列只讲每个开关的原理与诊断。
 - **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现。属于 Infra 地图 03 系列。本系列只到"框架在做什么"。
 - **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作。在 04 系列第十四篇。

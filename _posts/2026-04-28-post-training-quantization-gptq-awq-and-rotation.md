@@ -158,7 +158,7 @@ $$
 
 这张表回答了"什么时候该用 W4A16"：**单请求或小 batch 的延迟敏感服务**（本地部署、交互式应用），以及**为了放进一张卡**。高吞吐、大 batch 的服务里，它对 decode 的帮助随 batch 变小，对 prefill 是负的。实际测到的 decode 加速通常在 3 倍左右而非 4 倍，差在几处：lm_head 常保留 FP16（1.05 GB，占 4.27 GB 的四分之一）、KV cache 读取不随权重量化减少、group 元数据、kernel 效率——都能用上面的模型逐项归因。
 
-把它与另一种 decode 加速——投机解码（[04 系列第十二篇](/speculative-decoding-and-lora.html)，本系列上一篇再深入）——画在同一条 $$T(m)$$ 曲线上（对数坐标）：量化把 memory-bound 的平台**向下**移，投机解码把工作点**向右**推，两者的收益都止于平台与斜线的交点：
+把它与另一种 decode 加速——投机解码（[04 系列第十二篇](/speculative-decoding-draft-verify-and-payoff.html)，本系列上一篇再深入）——画在同一条 $$T(m)$$ 曲线上（对数坐标）：量化把 memory-bound 的平台**向下**移，投机解码把工作点**向右**推，两者的收益都止于平台与斜线的交点：
 
 ![Llama-3-8B 在 H100 上的 T(m) 曲线：BF16 与 W4A16 两条平台、共同的 compute 斜线，量化下移平台、投机右移工作点](/img/in-post/quantization-speculative-decoding-and-lora-time-model.svg)
 

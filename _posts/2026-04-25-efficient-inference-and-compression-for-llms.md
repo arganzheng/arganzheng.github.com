@@ -9,7 +9,7 @@ catalog: true
 
 ## 内容简介
 
-《高效推理与压缩（算法侧）》是一组共六篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L6 层。它面向已经理解 Transformer 的成本结构（L4，[《Transformer 与 LLM》](/transformer-and-llm-for-infra-engineers.html)）、并且做过或准备做后训练（L5，[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)）的读者，回答的是一个部署前必然遇到的问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。
+《高效推理与压缩（算法侧）》是一组共六篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L6 层。它面向已经理解 Transformer 的成本结构（L4，[《Transformer 与 LLM》](/transformer-and-llm-structure-implementation-and-evolution.html)）、并且做过或准备做后训练（L5，[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)）的读者，回答的是一个部署前必然遇到的问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。
 
 "推理优化"这个词下面混着两类完全不同的东西。一类改变**模型或解码过程**：量化把权重从 16 bit 变成 4 bit，投机解码让一次前向产出多个 token，KV 驱逐丢掉一部分缓存，剪枝删掉一部分参数。另一类改变**调度与内存管理**：PagedAttention、continuous batching、chunked prefill、PD 分离。前一类是算法工程师的工作——每一种都要回答"输出分布变了没有、变了多少、在哪类输入上变得最多"；后一类是推理引擎的工作，模型不知道它们的存在，输出分布也不因它们改变。这个系列只讲前一类；后一类在 Infra 地图的[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)系列里。
 
@@ -45,7 +45,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### 算法侧与系统侧的分界需要说清楚
 
-一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[04 系列第十二篇](/quantization-speculative-decoding-and-lora.html)）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
+一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[本系列第三篇](/post-training-quantization-gptq-awq-and-rotation.html)第二章，依据是[《Transformer 与 LLM》第六篇](/transformer-flops-bytes-and-roofline.html)的 Roofline）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
 
 ### 现有材料的断层
 
@@ -135,7 +135,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 ### 2. 投机解码：草稿、接受率与树
 
-[04 系列第十二篇](/speculative-decoding-and-lora.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
+[04 系列第十二篇](/speculative-decoding-draft-verify-and-payoff.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
 
 **核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（L5 第七篇），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（04-11）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
 
@@ -199,7 +199,7 @@ Table: 系列建议的动手顺序
 
 ### 前置要求
 
-- [04 系列](/transformer-and-llm-for-infra-engineers.html)第六、八、十二篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
+- [04 系列](/transformer-and-llm-structure-implementation-and-evolution.html)第六、八、十二篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
 - [L5 第七篇](/knowledge-distillation-for-llms.html)（蒸馏）与[第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)（评测）：本系列的恢复手段与评测方法论都来自那里。
 - [L0 数学系列](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
 

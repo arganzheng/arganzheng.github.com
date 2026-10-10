@@ -432,7 +432,7 @@ Table: 掌握程度的判据
 - **L6 生产化与运营**：把第四篇的账与第六篇的客户端纪律做成网关、预算、发布与安全。
 - **L7 产品与体验**：把不确定性呈现给用户。
 
-想理解本系列引用的结论从哪来：token 计费与 TTFT / TPOT 的形态来自 [Infra 地图 08《大模型推理系统揭秘》](/deep-dive-into-vllm.html)的前两篇；长上下文与图片为什么贵来自共享系列[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)的 KV cache 与多模态两篇；三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
+想理解本系列引用的结论从哪来：token 计费与 TTFT / TPOT 的形态来自 [Infra 地图 08《大模型推理系统揭秘》](/deep-dive-into-vllm.html)的前两篇；长上下文与图片为什么贵来自共享系列[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)的 KV cache 与多模态两篇；三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
 ## 七、延伸阅读
 

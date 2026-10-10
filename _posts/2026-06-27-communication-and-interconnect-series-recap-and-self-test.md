@@ -470,7 +470,7 @@ Table: 掌握程度的判据
 - **并行策略的设计与容错恢复**（DP / TP / PP / EP / FSDP 怎么切、hang 定位之后如何恢复训练）在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列只把它们产生的通信模式作为输入。
 - **推理引擎的调度与 KV cache 管理**（continuous batching、分页、prefix caching、PD 分离的调度策略）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——第七篇只讨论 KV 的传输层，不讨论何时搬、搬谁。
 - **kernel 内部**（custom all-reduce 与 DeepEP kernel 的访存与占用率优化）在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)——本系列读它们的结构，不优化它们。
-- **模型作为计算对象的算量**（参数量、FLOPs、KV cache 字节）在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-for-infra-engineers.html)——第七、八篇的字节数从那里出发。
+- **模型作为计算对象的算量**（参数量、FLOPs、KV cache 字节）在[《Transformer 与 LLM：结构、算量与数值》](/transformer-and-llm-structure-implementation-and-evolution.html)——第七、八篇的字节数从那里出发。
 - 本系列在整张地图上的位置（L3）见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
 回到总纲：[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)。

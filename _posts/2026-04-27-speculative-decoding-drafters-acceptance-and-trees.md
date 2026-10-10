@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-投机解码是本系列里唯一**不改变输出分布**的方法。[04 系列第十二篇](/speculative-decoding-and-lora.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
+投机解码是本系列里唯一**不改变输出分布**的方法。[04 系列第十二篇](/speculative-decoding-draft-verify-and-payoff.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
 
 这一篇从那张表往下挖。加速比只由两个量决定——接受率 $$\alpha$$ 与草稿成本 $$c$$——而这两个量都是**算法工程师能改的**：$$\alpha$$ 是草稿分布与目标分布的接近程度，由草稿怎么训练决定；$$c$$ 由草稿的结构决定；树状草稿则改变了"一轮能验证多少"这个游戏规则本身。2023 年的独立小模型 $$\alpha \approx 0.7$$、加速 2 倍；2025 年的 EAGLE-3 报告接受长度 5–6、加速 3–6 倍。差别不在验证算法，在草稿。
 

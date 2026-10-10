@@ -9,7 +9,7 @@ updated: 2026-09-14
 date: 2026-04-08 10:00:00
 ---
 
-> **本篇在系列中的位置。** 第二段的最后一篇。前面所有的字节数都默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题、混合精度训练为什么能工作。它是两条线的交接处：训练状态的字节数接到[《预训练》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；把权重、激活与 KV 压到更少的位（量化）在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第二段的最后一篇。前面所有的字节数都默认每个数 2 字节，本篇讲这 2 字节里存了什么、换成 FP16 / FP8 会在哪里出数值问题、混合精度训练为什么能工作。它是两条线的交接处：训练状态的字节数接到[《预训练》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；把权重、激活与 KV 压到更少的位（量化）在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 第四篇的 `train.py` 里有两行一直没解释：`torch.amp.autocast(dtype=bfloat16)` 与 `GradScaler(enabled=(dtype == "float16"))`——为什么训练要用两种精度、为什么 fp16 需要一个放大器而 bf16 不需要。前面几篇又算了大量的字节数：Llama-3-8B 的权重 16.06 GB、KV cache 每 token 128 KiB、decode 一步至少搬 16 GB，全都默认"每个数占 2 字节"，也就是 BF16。这一篇把镜头再推近一层，从"每个数占几个字节"进入"这几个字节里到底存了什么"，回答一个在训练和推理系统里都绕不开的问题：
 

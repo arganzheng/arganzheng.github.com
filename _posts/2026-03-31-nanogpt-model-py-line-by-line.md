@@ -8,7 +8,7 @@ catalog: true
 date: 2026-03-31 12:00:00
 ---
 
-> **本篇在系列中的位置。** 第一段的第三篇。前两篇的结构图与动态线在这里落成 nanoGPT `model.py` 的 330 行；下一篇写训练循环并真正训一个模型，文末的 GPT-2 / Llama 对照表是第 05 篇的起点。完整地图见[总纲](/transformer-and-llm-for-infra-engineers.html)。
+> **本篇在系列中的位置。** 第一段的第三篇。前两篇的结构图与动态线在这里落成 nanoGPT `model.py` 的 330 行；下一篇写训练循环并真正训一个模型，文末的 GPT-2 / Llama 对照表是第 05 篇的起点。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 前两篇画了 Transformer 的静态结构和 token 流过它的两条动态线。图看懂了，能不能**写出来**？这一篇的答案是 Andrej Karpathy 的 [nanoGPT](https://github.com/karpathy/nanoGPT)：`model.py` 一个文件、330 行、6 个类，完整定义了 GPT-2，能加载 OpenAI 的原版权重并给出和 HuggingFace 一样的输出。它是目前最好的"从图到代码"的范本——没有多余的抽象，每一行都对应前两篇的某个方框或某一步。
 
