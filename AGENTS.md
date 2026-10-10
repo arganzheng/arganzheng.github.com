@@ -1078,6 +1078,15 @@ pictures are sent as `{ url }`, the block is rewritten in place, orphaned
 pictures deleted) and has a 删除 button (`DELETE /moments`). Details and the
 one-off App permission setup: `tools/annotations-worker/README.md`.
 
+Before upload, `js/moment-video.js` uses vendored Mediabunny 1.58.1 (MPL-2.0)
+to convert supported videos to H.264, short side ≤ 720, about 1.2 Mbps, with
+AAC at 96 kbps. This reduces the cost of overseas downloads for readers in
+mainland China (~110 KB/s). Compression is skipped for already compliant
+H.264; if WebCodecs/decode support is unavailable, conversion fails, or the
+result is not smaller, the original is used (the uploaded file must still be
+≤ 50 MB). With both `MomentVideo` and `VideoEncoder` available, the source
+limit is 500 MB; otherwise it is 50 MB.
+
 Each card's foot (`_layouts/moments.html`, wired by `js/moments.js`): the ♡,
 评论, 分享 (`.moment-share` → `window.BlogShare.open` of `js/share.js` — the
 same popover as articles: system sheet / 微博 / X / LinkedIn / 微信二维码 /

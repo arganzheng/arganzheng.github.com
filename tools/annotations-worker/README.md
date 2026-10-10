@@ -86,6 +86,15 @@ Content-Length: 1234567
 
 The response is `201 { "src": "https://blog-annotations.arganzheng.workers.dev/media/moments/YYYY/MM/<random>.mp4" }`.
 
+The 发布页 compresses supported videos in the browser before upload because
+downloads from mainland China are about 110 KB/s. It uses vendored
+Mediabunny 1.58.1 (MPL-2.0): H.264, short side ≤ 720, about 1.2 Mbps, and AAC
+at 96 kbps. Already compliant H.264 is skipped; if WebCodecs/decode support is
+unavailable, conversion fails, or the result is not smaller, it uploads the
+original instead. With both `MomentVideo` and `VideoEncoder`, the source limit
+is 500 MB; otherwise it remains 50 MB, and the final upload limit is always
+50 MB.
+
 ### Video delivery (`GET` / `HEAD /media/<key>`)
 
 `MEDIA_BASE` is `https://blog-annotations.arganzheng.workers.dev/media`; video
