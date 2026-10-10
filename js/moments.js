@@ -41,19 +41,10 @@
     random.querySelector('.ms-slot').innerHTML = card(pick);
   }
 
-  function pad(n) { return (n < 10 ? '0' : '') + n; }
   function daily() {
     if (!review) return;
     var now = new Date(), y = now.getFullYear(), m = now.getMonth() + 1, d = now.getDate();
-    var md = '-' + pad(m) + '-' + pad(d), out = [];
-    all.forEach(function (e) {          // 那年今日
-      var ey = +e.date.slice(0, 4);
-      if (e.date.slice(4) === md && ey < y) out.push({ e: e, label: (y - ey) + ' 年前的今天' });
-    });
-    if (!out.length) all.forEach(function (e) {   // else this day of an earlier month
-      var ey = +e.date.slice(0, 4), em = +e.date.slice(5, 7), ed = +e.date.slice(8, 10), ago = (y - ey) * 12 + (m - em);
-      if (ed === d && ago > 0) out.push({ e: e, label: ago + ' 个月前的今天' });
-    });
+    var out = window.MomentsReview.pickReview(all, y, m, d);
     if (!out.length) return;
     review.querySelector('.ms-slot').innerHTML = out.slice(0, 3).map(function (x) { return card(x.e, x.label); }).join('');
     review.hidden = false;
