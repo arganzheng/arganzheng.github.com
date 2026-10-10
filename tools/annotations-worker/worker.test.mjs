@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
-import worker, { entryFields, momentInput, readPinnedIds, renderEntry, writePinnedIds } from './worker.js';
+import worker, { entryFields, momentBody, momentInput, readPinnedIds, renderEntry, writePinnedIds } from './worker.js';
 
 const env = {
   MOMENT_KEY: 'k',
@@ -64,6 +64,92 @@ test('readPinnedIds round-trips writePinnedIds output', () => {
   for (const values of [[], ids.slice(0, 1), ids]) {
     assert.deepEqual(readPinnedIds(writePinnedIds(values)), values);
   }
+});
+
+test('multipart POST without Origin and with the API key reaches publish handler', async () => {
+  const form = new FormData();
+  form.set('text', '一条快捷指令随笔');
+  const response = await worker.fetch(new Request('https://worker.test/moments', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer k' },
+    body: form,
+  }), env, ctx);
+  assert.equal(response.status, 501);
+});
+
+function multipart(fields) {
+  const form = new FormData();
+  for (const [key, value] of fields) form.append(key, value);
+  return new Request('https://worker.test/moments', { method: 'POST', body: form });
+}
+
+function decodeBase64(data) {
+  return Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+}
+
+test('momentBody parses multipart images, preserves names, and sniffs PNG bytes', async () => {
+  const jpeg = Uint8Array.of(0xff, 0xd8, 0xff, 0x11, 0x22);
+  const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+  const response = await momentBody(multipart([
+    ['text', '海边散步'],
+    ['image', new File([jpeg], 'sea.jpg', { type: 'image/jpeg' })],
+    ['image', new File([png], 'sky.png', { type: '' })],
+  ]), {});
+  const body = response.body;
+  assert.equal(body.text, '海边散步');
+  assert.equal(body.images.length, 2);
+  assert.equal(body.images[0].name, 'sea.jpg');
+  assert.equal(body.images[0].type, 'image/jpeg');
+  assert.deepEqual(decodeBase64(body.images[0].data), jpeg);
+  assert.equal(body.images[1].name, 'sky.png');
+  assert.equal(body.images[1].type, 'image/png');
+  assert.deepEqual(decodeBase64(body.images[1].data), png);
+});
+
+test('momentBody parses comma-separated tags and gives form text entries an empty image list', async () => {
+  const { body } = await momentBody(multipart([
+    ['text', '散步'],
+    ['tags', '散步, 海'],
+  ]), {});
+  assert.equal(body.text, '散步');
+  assert.deepEqual(body.tags, ['散步', '海']);
+  assert.deepEqual(body.images, []);
+});
+
+test('momentBody rejects oversized files before base64 encoding', async () => {
+  const file = new File([new Uint8Array(3 * 1024 * 1024 + 1)], 'large.jpg', { type: 'image/jpeg' });
+  await assert.rejects(momentBody(multipart([['image', file]]), {}), (error) => {
+    assert.equal(error.status, 413);
+    assert.equal(error.message, '第 1 张图太大（> 3 MB）');
+    return true;
+  });
+});
+
+test('momentBody leaves an unknown file type empty when its bytes are not recognized', async () => {
+  const form = new FormData();
+  form.append('image', new File([Uint8Array.of(0x00, 0x01, 0x02, 0x03)], 'unknown.bin', { type: '' }));
+  const { body } = await momentBody({
+    headers: new Headers({ 'Content-Type': 'multipart/form-data' }),
+    formData: async () => form,
+  }, {});
+  assert.equal(body.images[0].type, '');
+});
+
+test('momentBody preserves text/plain and JSON request bodies', async () => {
+  const text = await momentBody(new Request('https://worker.test/moments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: '今天走了很多路',
+  }), {});
+  assert.deepEqual(text, { body: { text: '今天走了很多路' }, uploadedVideo: null });
+
+  const json = { text: '散步', tags: ['散步'], images: [] };
+  const parsed = await momentBody(new Request('https://worker.test/moments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(json),
+  }), {});
+  assert.deepEqual(parsed, { body: json, uploadedVideo: null });
 });
 
 function fakeMedia() {

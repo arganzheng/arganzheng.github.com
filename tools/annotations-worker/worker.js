@@ -798,7 +798,7 @@ function videoFileType(file) {
   return match && MOMENT_VIDEO_EXT_TYPES[match[1]] || declared;
 }
 
-async function momentBody(request, env) {
+export async function momentBody(request, env) {
   const contentType = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
   if (contentType === 'text/plain') return { body: { text: await request.text() }, uploadedVideo: null };
   if (contentType !== 'multipart/form-data' && contentType !== 'application/x-www-form-urlencoded') {
