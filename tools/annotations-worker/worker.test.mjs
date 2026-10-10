@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
-import worker, { entryFields, momentBody, momentInput, readPinnedIds, renderEntry, writePinnedIds } from './worker.js';
+import worker, { entryFields, momentBody, momentInput, momentVideoKey, putMomentVideo, readPinnedIds, renderEntry, writePinnedIds } from './worker.js';
 
 const env = {
   MOMENT_KEY: 'k',
@@ -152,15 +152,188 @@ test('momentBody preserves text/plain and JSON request bodies', async () => {
   assert.deepEqual(parsed, { body: json, uploadedVideo: null });
 });
 
-function fakeMedia() {
-  const puts = [], deletes = [];
+function fakeMedia(objects = new Map()) {
+  const puts = [], deletes = [], gets = [], heads = [];
   return {
     puts,
     deletes,
+    gets,
+    heads,
+    objects,
     async put(...args) { puts.push(args); },
     async delete(...args) { deletes.push(args); },
+    async get(key, { range, onlyIf } = {}) {
+      gets.push({ key, range, onlyIf });
+      const file = objects.get(key);
+      if (!file) return null;
+      const metadata = {
+        size: file.bytes.length,
+        httpEtag: file.etag,
+        writeHttpMetadata(headers) {
+          headers.set('Content-Type', file.type);
+          if (file.cacheControl) headers.set('Cache-Control', file.cacheControl);
+        },
+      };
+      const ifNoneMatch = onlyIf && onlyIf.get('If-None-Match');
+      if (ifNoneMatch && (ifNoneMatch.trim() === '*' || ifNoneMatch.split(',').map((value) => value.trim()).includes(file.etag))) {
+        return { ...metadata, body: null };
+      }
+
+      let bytes = file.bytes;
+      let resolvedRange;
+      const rangeHeader = range && range.get('Range');
+      if (rangeHeader) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+        if (!match) throw new RangeError('unsatisfiable range');
+        if (match[1] === '') {
+          const suffix = Number(match[2]);
+          if (!suffix || !bytes.length) throw new RangeError('unsatisfiable range');
+          const start = Math.max(0, bytes.length - suffix);
+          resolvedRange = { suffix };
+          bytes = bytes.slice(start);
+        } else {
+          const start = Number(match[1]);
+          const requestedEnd = match[2] === '' ? bytes.length - 1 : Number(match[2]);
+          if (start >= bytes.length || requestedEnd < start) throw new RangeError('unsatisfiable range');
+          const end = Math.min(bytes.length - 1, requestedEnd);
+          resolvedRange = { offset: start, length: end - start + 1 };
+          bytes = bytes.slice(start, end + 1);
+        }
+      }
+      return { ...metadata, range: resolvedRange, body: new Response(bytes).body };
+    },
+    async head(key) {
+      heads.push(key);
+      const file = objects.get(key);
+      return file ? { size: file.bytes.length } : null;
+    },
   };
 }
+
+const proxyMediaKey = 'moments/2026/10/abcdef1234.mov';
+const proxyMediaBytes = new TextEncoder().encode('0123456789');
+function proxyMedia() {
+  return fakeMedia(new Map([[
+    proxyMediaKey,
+    {
+      bytes: proxyMediaBytes,
+      type: 'video/quicktime',
+      etag: '"video-etag"',
+      cacheControl: 'public, max-age=31536000, immutable',
+    },
+  ]]));
+}
+
+function proxyRequest(path, options = {}) {
+  return new Request(`https://worker.test${path}`, options);
+}
+
+test('GET /media serves full video bytes without Origin or CORS gating', async () => {
+  const MEDIA = proxyMedia();
+  const request = proxyRequest(`/media/${proxyMediaKey}`);
+  const response = await worker.fetch(request, { MEDIA }, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'video/quicktime');
+  assert.equal(response.headers.get('Accept-Ranges'), 'bytes');
+  assert.equal(response.headers.get('ETag'), '"video-etag"');
+  assert.equal(response.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
+  assert.equal(response.headers.get('Content-Length'), String(proxyMediaBytes.length));
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), proxyMediaBytes);
+  assert.equal(MEDIA.gets[0].key, proxyMediaKey);
+  assert.equal(MEDIA.gets[0].range, request.headers);
+  assert.equal(MEDIA.gets[0].onlyIf, request.headers);
+
+  const fallbackMedia = proxyMedia();
+  fallbackMedia.objects.get(proxyMediaKey).cacheControl = '';
+  const fallback = await worker.fetch(proxyRequest(`/media/${proxyMediaKey}`), { MEDIA: fallbackMedia }, ctx);
+  assert.equal(fallback.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
+
+  const foreignOrigin = await worker.fetch(
+    proxyRequest(`/media/${proxyMediaKey}`, { headers: { Origin: 'https://untrusted.example' } }),
+    { MEDIA },
+    ctx,
+  );
+  assert.equal(foreignOrigin.status, 200);
+});
+
+test('GET /media supports byte ranges and HEAD', async () => {
+  const MEDIA = proxyMedia();
+  const firstBytes = await worker.fetch(
+    proxyRequest(`/media/${proxyMediaKey}`, { headers: { Range: 'bytes=0-1' } }),
+    { MEDIA },
+    ctx,
+  );
+  assert.equal(firstBytes.status, 206);
+  assert.equal(firstBytes.headers.get('Content-Range'), `bytes 0-1/${proxyMediaBytes.length}`);
+  assert.equal(firstBytes.headers.get('Content-Length'), '2');
+  assert.equal(Buffer.from(await firstBytes.arrayBuffer()).toString(), '01');
+
+  const lastBytes = await worker.fetch(
+    proxyRequest(`/media/${proxyMediaKey}`, { headers: { Range: 'bytes=-3' } }),
+    { MEDIA },
+    ctx,
+  );
+  assert.equal(lastBytes.status, 206);
+  assert.equal(lastBytes.headers.get('Content-Range'), `bytes 7-9/${proxyMediaBytes.length}`);
+  assert.equal(Buffer.from(await lastBytes.arrayBuffer()).toString(), '789');
+
+  const head = await worker.fetch(proxyRequest(`/media/${proxyMediaKey}`, { method: 'HEAD' }), { MEDIA }, ctx);
+  assert.equal(head.status, 200);
+  assert.equal(head.body, null);
+  assert.equal(head.headers.get('Content-Length'), String(proxyMediaBytes.length));
+});
+
+test('GET /media handles conditional requests, missing objects, and unsatisfiable ranges', async () => {
+  const MEDIA = proxyMedia();
+  const notModified = await worker.fetch(
+    proxyRequest(`/media/${proxyMediaKey}`, { headers: { 'If-None-Match': '"video-etag"' } }),
+    { MEDIA },
+    ctx,
+  );
+  assert.equal(notModified.status, 304);
+  assert.equal(notModified.body, null);
+  assert.equal(notModified.headers.get('ETag'), '"video-etag"');
+
+  const missing = await worker.fetch(proxyRequest('/media/moments/2026/10/ffffffff.mp4'), { MEDIA }, ctx);
+  assert.equal(missing.status, 404);
+
+  const unsatisfiable = await worker.fetch(
+    proxyRequest(`/media/${proxyMediaKey}`, { headers: { Range: 'bytes=100-' } }),
+    { MEDIA },
+    ctx,
+  );
+  assert.equal(unsatisfiable.status, 416);
+  assert.equal(unsatisfiable.headers.get('Content-Range'), `bytes */${proxyMediaBytes.length}`);
+  assert.deepEqual(MEDIA.heads, [proxyMediaKey]);
+});
+
+test('GET /media rejects invalid keys before accessing R2 and returns 404 without a binding', async () => {
+  const MEDIA = proxyMedia();
+  for (const path of [
+    '/media/../x.mp4',
+    '/media/other/2026/10/ab.mp4',
+    '/media/moments/2026/10/ab.exe',
+  ]) {
+    const request = { url: `https://worker.test${path}`, method: 'GET', headers: new Headers() };
+    const response = await worker.fetch(request, { MEDIA }, ctx);
+    assert.equal(response.status, 404, path);
+  }
+  const normalizedDotDot = await worker.fetch(proxyRequest('/media/../x.mp4'), { MEDIA }, ctx);
+  assert.equal(normalizedDotDot.status, 404);
+  assert.equal(MEDIA.gets.length, 0);
+  assert.equal((await worker.fetch(proxyRequest(`/media/${proxyMediaKey}`), {}, ctx)).status, 404);
+});
+
+test('putMomentVideo and momentVideoKey use the worker /media base', async () => {
+  const MEDIA = fakeMedia();
+  const env = {
+    MEDIA,
+    MEDIA_BASE: 'https://blog-annotations.arganzheng.workers.dev/media',
+  };
+  const src = await putMomentVideo(env, new Uint8Array([1, 2, 3]), 'video/quicktime', 3);
+  assert.match(src, /^https:\/\/blog-annotations\.arganzheng\.workers\.dev\/media\/moments\/\d{4}\/\d{2}\/[0-9a-f]{10}\.mov$/);
+  assert.equal(momentVideoKey(env, src), MEDIA.puts[0][0]);
+});
 
 function mediaRequest(type = 'video/mp4', length = 3, authorization = 'Bearer k') {
   return new Request('https://worker.test/moments/media', {

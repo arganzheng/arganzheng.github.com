@@ -33,6 +33,7 @@ import { rewriteMomentTags } from './moment-tags.mjs';
  *                                                 pictures/posters under img/moments/YYYY/MM/ (same format as tools/moment.py).
  *                                                 Needs the GitHub App with *Contents: read & write* (501 without the key).
  *   POST /moments/media  raw video bytes       -> { src }       author/API-key only; Content-Length required; streams ≤ 50 MB to R2
+ *   GET/HEAD /media/<key>                       -> R2 video bytes; supports conditional and byte-range requests
  *   GET    /moments?month=YYYY-MM&id=…   -> the entry's fields (text, place, tags in text, quote, by, music, images, video, raw)
  *   PUT    /moments    { month, id, …POST fields, images: [{ url } | { type, data }], video? } -> { url, commit } rewrites the entry
  *   DELETE /moments    { month, id }           -> { commit }    removes the entry, pictures/poster, and R2 video
@@ -69,6 +70,13 @@ const MAX_PAGES = 5;
 
 export default {
   async fetch(request, env, ctx) {
+    const rawPath = String(request.url).replace(/^https?:\/\/[^/]+/i, '').split(/[?#]/, 1)[0] || '/';
+    if (rawPath === '/media' || rawPath.startsWith('/media/')) {
+      return momentMediaResponse(request, env, rawPath.slice('/media/'.length));
+    }
+    if ((request.method === 'GET' || request.method === 'HEAD') && /\.(?:mp4|mov|m4v|webm)$/i.test(rawPath)) {
+      return new Response(null, { status: 404 });
+    }
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') || '';
     let cors = corsHeaders(origin, env);
@@ -676,6 +684,7 @@ const MOMENT_IMAGE_BYTES_MAX = 3 * 1024 * 1024;   // the page resizes to ≤ 160
 const MOMENT_IMAGE_TYPES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
 const MOMENT_VIDEO_BYTES_MAX = 50 * 1024 * 1024;
 const MOMENT_VIDEO_TYPES = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v', 'video/webm': 'webm' };
+const MOMENT_MEDIA_KEY = new RegExp(`^moments/\\d{4}/\\d{2}/[0-9a-f]+\\.(?:${Object.values(MOMENT_VIDEO_TYPES).join('|')})$`);
 const MOMENT_VIDEO_EXT_TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm' };
 const MOMENT_TAG = /^[\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*$/u;   // = Moments::TAG in _plugins/moments.rb
 const MOMENT_TIME = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$/;
@@ -727,6 +736,68 @@ export async function putMomentVideo(env, body, type, size) {
     httpMetadata: { contentType: mediaType, cacheControl: 'public, max-age=31536000, immutable' },
   });
   return `${base}/${key}`;
+}
+
+async function momentMediaResponse(request, env, key) {
+  if ((request.method !== 'GET' && request.method !== 'HEAD') || !MOMENT_MEDIA_KEY.test(key) || !env || !env.MEDIA) {
+    return new Response(null, { status: 404 });
+  }
+
+  let obj;
+  try {
+    obj = await env.MEDIA.get(key, { range: request.headers, onlyIf: request.headers });
+  } catch {
+    if (request.headers.has('Range')) {
+      let head = null;
+      try { head = await env.MEDIA.head(key); } catch {}
+      if (head) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes */${head.size}` },
+        });
+      }
+    }
+    return new Response(null, { status: 502 });
+  }
+  if (!obj) return new Response(null, { status: 404 });
+
+  const headers = new Headers();
+  obj.writeHttpMetadata(headers);
+  headers.set('ETag', obj.httpEtag);
+  headers.set('Accept-Ranges', 'bytes');
+  if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  if (!obj.body) return new Response(null, { status: 304, headers });
+
+  let status = 200;
+  if (request.headers.has('Range') && obj.range) {
+    const bounds = momentMediaRange(obj.range, obj.size);
+    if (!bounds) {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes */${obj.size}` },
+      });
+    }
+    status = 206;
+    headers.set('Content-Range', `bytes ${bounds.start}-${bounds.end}/${obj.size}`);
+    headers.set('Content-Length', String(bounds.length));
+  } else {
+    headers.set('Content-Length', String(obj.size));
+  }
+  return new Response(request.method === 'HEAD' ? null : obj.body, { status, headers });
+}
+
+function momentMediaRange(range, size) {
+  if (range && Number.isInteger(range.offset)) {
+    const start = range.offset;
+    const end = range.length == null ? size - 1 : Math.min(size - 1, start + range.length - 1);
+    return end >= start ? { start, end, length: end - start + 1 } : null;
+  }
+  if (range && Number.isInteger(range.suffix) && range.suffix > 0 && size > 0) {
+    const length = Math.min(range.suffix, size);
+    const start = size - length;
+    return { start, end: size - 1, length };
+  }
+  return null;
 }
 
 function imageSlug(name) {
@@ -1090,7 +1161,7 @@ async function dropPics(gh, headSha, oldUrls, keepTexts, tree) {
     if (dirs[dir].has(path.slice(dir.length + 1))) tree.push({ path, mode: '100644', type: 'blob', sha: null });
   }
 }
-function momentVideoKey(env, src) {
+export function momentVideoKey(env, src) {
   const base = momentMediaBase(env);
   if (!base || typeof src !== 'string' || !src.startsWith(`${base}/moments/`)) return null;
   const key = src.slice(base.length + 1).split(/[?#]/, 1)[0];

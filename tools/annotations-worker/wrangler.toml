@@ -13,8 +13,9 @@ ISSUE_LABEL = "划线评论"
 # GITHUB_INSTALLATION_ID is optional (looked up via /repos/{REPO}/installation). 配置可以少一次 API 调用
 GITHUB_INSTALLATION_ID = "160220353"
 GITHUB_APP_ID = "4880637"
-# Public base URL of the R2 bucket (r2.dev URL or custom domain), no trailing slash.
-MEDIA_BASE = "https://pub-a991ac9950bd4bb895bb744a7847d12c.r2.dev"
+# The worker serves R2 at /media because r2.dev is too slow from mainland China.
+# r2.dev public access may stay enabled, but is unused. No trailing slash.
+MEDIA_BASE = "https://blog-annotations.arganzheng.workers.dev/media"
 
 [[r2_buckets]]
 binding = "MEDIA"
