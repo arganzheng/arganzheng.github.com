@@ -8132,3 +8132,71 @@ html[data-theme="dark"] .post-container.moments .moment-body a:not(.moment-pic):
 html[data-theme="dark"] #archive .archive-item > span {
   color: #4cb7cb;
 }
+html[data-theme="dark"] .inline-popover-card {
+  color: #d3d5d9;
+  background-color: #1f2125;
+  border-color: #33363c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"] .inline-popover-card .popover-arrow {
+  background-color: #1f2125;
+  border-color: #33363c;
+}
+html[data-theme="dark"] .inline-popover-card .popover-content code,
+html[data-theme="dark"] .inline-popover-card .popover-content pre,
+html[data-theme="dark"] .inline-popover-card .popover-content table th {
+  background-color: #282b30;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] .inline-popover-card .popover-content pre,
+html[data-theme="dark"] .inline-popover-card .popover-content table th,
+html[data-theme="dark"] .inline-popover-card .popover-content table td {
+  border-color: #33363c;
+}
+html[data-theme="dark"] .inline-popover-card .popover-content blockquote {
+  color: #969ba4;
+  background-color: #282b30;
+  border-left-color: #4cb7cb;
+}
+html[data-theme="dark"] .inline-popover-card .popover-content a {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] .inline-popover-card .popover-footer-link {
+  border-top-color: #33363c;
+}
+html[data-theme="dark"] .inline-popover-card .popover-footer-link a {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] .inline-popover-card .popover-jump-footnote {
+  border-top-color: #33363c;
+}
+html[data-theme="dark"] .inline-popover-card .popover-jump-footnote a {
+  color: #969ba4;
+}
+html[data-theme="dark"] .inline-popover-card .popover-jump-footnote a:hover {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] .inline-popover-card.link-preview-popover .lp-title {
+  color: #eceef1;
+}
+html[data-theme="dark"] .inline-popover-card.link-preview-popover .lp-meta,
+html[data-theme="dark"] .inline-popover-card.link-preview-popover .lp-anchor {
+  color: #969ba4;
+}
+html[data-theme="dark"] .post-container .related .related-date {
+  color: #969ba4;
+}
+html[data-theme="dark"] .post-container .related.backlinks .h3 small {
+  color: #969ba4;
+}
+html[data-theme="dark"] .post-container .related.backlinks .backlinks-more {
+  background-color: #1f2125;
+  border-color: #33363c;
+  border-left-color: #4cb7cb;
+}
+html[data-theme="dark"] .post-container .related.backlinks .backlinks-more summary {
+  color: #969ba4;
+}
+html[data-theme="dark"] .post-container .related.backlinks .backlinks-more summary:hover {
+  color: #4cb7cb;
+}
