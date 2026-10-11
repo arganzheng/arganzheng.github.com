@@ -232,6 +232,7 @@
   }
   function closeMenus() { closePop(); closeExportPop(); }
   function showCard(ctx) {
+    if (typeof ctx.card !== 'function') return;
     ctx.card().then(function (blob) {
       closeCard();
       cardObjectUrl = URL.createObjectURL(blob);

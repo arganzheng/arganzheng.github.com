@@ -458,7 +458,10 @@ Pages has `https_enforced` on.
   single body-level `.pa-share-pop` menu: Web Share API (only when supported),
   Weibo / X / LinkedIn intent URLs built in JS, WeChat QR
   (`js/vendor/qrcode.min.js`, qrcode-generator 1.4.4 MIT, lazy-loaded), copy
-  link. No third-party script. The author-only 「复制为公众号格式」 button is
+  link. 「生成图片」 is available to passage and Moments shares, not article-level
+  shares. No third-party script. Gotcha: `.pa-sp-item { display: flex }`
+  overrides the global `[hidden]`; keep `&[hidden] { display: none; }` nested
+  in its `less/share.less` rule. The author-only 「复制为公众号格式」 button is
   shown when the GitHub viewer equals `site.github_username`: annotations.js
   dispatches `blog:viewer` (detail = viewer or null on logout) from
   `onViewerKnown()` / `logout()` and exposes `BlogAnnotations.viewer()`.
