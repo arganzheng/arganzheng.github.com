@@ -478,8 +478,8 @@ Pages has `https_enforced` on.
   `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」 and 「Markdown 源文」.
   The PDF action temporarily sets the light theme and `html.print-export`,
   calls `window.print()`, then restores the previous state on `afterprint`;
-  Markdown is fetched from the GitHub source and copied verbatim, including
-  front matter and relative paths, without adding a title or original URL.
+  Markdown is fetched from GitHub and downloaded verbatim as a `.md` file
+  under its source filename, including front matter and relative paths.
   Both author menus are hidden unless
   `blog:viewer` matches `site.github_username`; opening one closes the other.
 

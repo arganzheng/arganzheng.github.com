@@ -9,7 +9,7 @@
  *     copy link. One popover element, re-anchored to whichever button opened it.
  *     Every completed share is one POST /shares; Moments can additionally
  *     provide a PNG card generator and a long-press / download overlay.
- *   - author-only 「导出」 menu: save a PDF or copy the GitHub Markdown source verbatim.
+ *   - author-only 「导出」 menu: save a PDF or download the GitHub Markdown source verbatim.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -110,7 +110,7 @@
 
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
-  var menuDismissalBound = false, printPdf = null, copyMarkdown = null;
+  var menuDismissalBound = false, printPdf = null, downloadMarkdown = null;
   var cardOverlay = null, cardObjectUrl = null;
   function bindMenuDismissal() {
     if (menuDismissalBound) return;
@@ -199,7 +199,7 @@
     exportPop.hidden = true;
     exportPop.innerHTML =
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="pdf"><i class="fa fa-file-pdf"></i>存为 PDF</button>' +
-      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md"><i class="fa fa-file-lines"></i>Markdown 源文</button>';
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 源文件"><i class="fa fa-file-lines"></i>Markdown 源文</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
@@ -208,7 +208,7 @@
       var kind = item.getAttribute('data-k');
       closeExportPop();
       if (kind === 'pdf' && printPdf) printPdf(item);
-      else if (kind === 'md' && copyMarkdown) copyMarkdown(item);
+      else if (kind === 'md' && downloadMarkdown) downloadMarkdown(item);
     });
     bindMenuDismissal();
     return exportPop;
@@ -436,13 +436,26 @@
         toast(bar, '打印失败：' + (err && err.message || err), 4000);
       }
     };
-    copyMarkdown = function (item) {
+    downloadMarkdown = function (item) {
       if (!isAuthor || item.disabled) return;
       item.disabled = true;
       fetchMarkdownSource(bar).then(function (source) {
-        return copyText(source).then(function () {
-          toast(bar, '已复制 Markdown 源文（' + source.length + ' 字符）', 4000);
-        });
+        var sourcePath = bar.getAttribute('data-source') || '';
+        var filename = sourcePath.split(/[\\/]/).pop() || 'article.md';
+        var blob = new Blob([source], { type: 'text/markdown;charset=utf-8' });
+        var objectUrl = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        try {
+          link.click();
+          toast(bar, '已下载 ' + filename, 4000);
+        } finally {
+          if (link.parentNode) link.parentNode.removeChild(link);
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        }
       }).catch(function (err) {
         toast(bar, '失败：' + (err && err.message || err), 4000);
       }).then(function () { item.disabled = false; });
