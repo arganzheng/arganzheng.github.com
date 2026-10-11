@@ -32,7 +32,12 @@ const CHECK = `(() => {
     imgs: [...document.images].filter(i=>i.src.includes("/img/in-post/")).map(i=>[i.src.split("/").pop(), i.naturalWidth, i.naturalHeight]),
     katexErrors: [...document.querySelectorAll(".katex-error")].map(e=>e.textContent.slice(0,80)),
     zeroImgs: [...document.images].filter(i=>i.complete&&i.naturalWidth>0&&i.getBoundingClientRect().width<2&&i.src.includes("/img/in-post/")).map(i=>i.src.split("/").pop()),
-    rawMd: [...document.querySelectorAll("td, p, li")].filter(e=>!e.closest("pre")&&/\\]\\(\\/img\\/in-post\\//.test(e.textContent)).map(e=>e.textContent.trim().slice(0,80)),
+    rawMd: [...document.querySelectorAll("td, p, li")].filter(e=>{
+      if(e.closest("pre")) return false;
+      const clone=e.cloneNode(true);
+      clone.querySelectorAll("code").forEach(c=>c.remove());
+      return /\\]\\(\\/img\\/in-post\\//.test(clone.textContent);
+    }).map(e=>e.textContent.trim().slice(0,80)),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
     overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
       .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
