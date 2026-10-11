@@ -104,6 +104,23 @@ html[data-theme="dark"] .post-container > h4 .heading-fold,
 html[data-theme="dark"] .post-container > h5 .heading-fold,
 html[data-theme="dark"] .post-container > h6 .heading-fold { color: @dk-link; }
 
+html[data-theme="dark"] .pa-share-pop {
+	background-color: @dk-surface;
+	border-color: @dk-border;
+	box-shadow: 0 8px 24px fade(@dk-bg, 70%);
+	.pa-sp-item {
+		color: @dk-text;
+		.fa { color: @dk-muted; }
+		&:hover, &:focus {
+			background-color: @dk-surface-2;
+			color: @dk-link;
+			.fa { color: @dk-link; }
+		}
+	}
+	.pa-sp-qr { border-top-color: @dk-border; }
+	.pa-sp-qr-hint { color: @dk-muted; }
+}
+
 // nav theme toggle (both themes): moon in light, sun in dark
 .nav-theme-toggle a svg { vertical-align: -2px; }
 .nav-theme-sun { display: none; }
@@ -151,14 +168,24 @@ html[data-theme="dark"] {
 		border-color: @dk-border;
 		color: @dk-text;
 	}
-	.pa-item, .table-tools .code-copy, .deck-card-btn, .mf-chip, .ms-heat-toggle button,
+	.pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active),
+	.table-tools .code-copy, .deck-card-btn, .mf-chip, .ms-heat-toggle button,
 	.mm-arrow, input, select, textarea, .archive-goto-input-wrap input {
 		background-color: @dk-surface-2;
 		border-color: @dk-border;
 		color: @dk-text;
 	}
-	.pa-item:hover, .table-tools .code-copy:hover, .deck-card-btn:hover, .mf-chip:hover,
+	.pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover,
+	.table-tools .code-copy:hover, .deck-card-btn:hover, .mf-chip:hover,
 	.ms-heat-toggle button:hover, .pager li > a:hover { background-color: lighten(@dk-surface-2, 5%); }
+	.pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover,
+	.pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):focus,
+	.pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active)[aria-expanded="true"] {
+		color: @dk-link;
+		border-color: @dk-link;
+		background-color: lighten(@dk-surface-2, 5%);
+		&:not(.pa-like) .fa { color: @dk-link; }
+	}
 	.table-tools { background-color: fade(@dk-bg, 90%); }
 	.code-copy-anchor, .code-header { background-color: @dk-surface; border-color: @dk-border; }
 	.post-container .footnotes { border-color: @dk-border; }
@@ -171,7 +198,8 @@ html[data-theme="dark"] {
 	// text that was dark grey on white
 	.post-preview .post-meta a, .post-preview .post-meta, .catalog-body a, .side-catalog a,
 	.sb-list a, .st-posts a, .st-name, .st-title, .sb-title, .sb-overview a, .sb-pos,
-	.archive-title, .pa-lead, .pa-item, .deck-card-title a, .deck-card-desc,
+	.archive-title, .pa-lead, .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active),
+	.deck-card-title a, .deck-card-desc,
 	.ms-card p, .ms-stats b, .mm-current, .moment-body, .moment-body p,
 	.post-figcaption .fig-title, .post-figcaption .fig-no, .related-why,
 	.post-license p, .sb-nav span, li > details > summary,

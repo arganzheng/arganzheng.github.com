@@ -4835,6 +4835,11 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   opacity: 0.6;
   cursor: wait;
 }
+.post-actions .pa-download .fa-caret-down {
+  margin: 0 0 0 4px;
+  font-size: 11px;
+  color: #6a6a6a;
+}
 .post-actions .pa-edit {
   color: #fff !important;
   background: #2da44e;
@@ -4977,6 +4982,10 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
 .pa-share-pop .pa-sp-item:hover .fa,
 .pa-share-pop .pa-sp-item:focus .fa {
   color: #00788f;
+}
+.pa-share-pop .pa-sp-item[disabled] {
+  opacity: 0.6;
+  cursor: wait;
 }
 .pa-share-pop .pa-sp-qr {
   display: block;
@@ -7913,6 +7922,32 @@ html[data-theme="dark"] .post-container > h5 .heading-fold,
 html[data-theme="dark"] .post-container > h6 .heading-fold {
   color: #4cb7cb;
 }
+html[data-theme="dark"] .pa-share-pop {
+  background-color: #1f2125;
+  border-color: #33363c;
+  box-shadow: 0 8px 24px rgba(23, 24, 27, 0.7);
+}
+html[data-theme="dark"] .pa-share-pop .pa-sp-item {
+  color: #d3d5d9;
+}
+html[data-theme="dark"] .pa-share-pop .pa-sp-item .fa {
+  color: #969ba4;
+}
+html[data-theme="dark"] .pa-share-pop .pa-sp-item:hover,
+html[data-theme="dark"] .pa-share-pop .pa-sp-item:focus {
+  background-color: #282b30;
+  color: #4cb7cb;
+}
+html[data-theme="dark"] .pa-share-pop .pa-sp-item:hover .fa,
+html[data-theme="dark"] .pa-share-pop .pa-sp-item:focus .fa {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] .pa-share-pop .pa-sp-qr {
+  border-top-color: #33363c;
+}
+html[data-theme="dark"] .pa-share-pop .pa-sp-qr-hint {
+  color: #969ba4;
+}
 .nav-theme-toggle a svg {
   vertical-align: -2px;
 }
@@ -7968,7 +8003,7 @@ html[data-theme="dark"] .pager li > span {
   border-color: #33363c;
   color: #d3d5d9;
 }
-html[data-theme="dark"] .pa-item,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active),
 html[data-theme="dark"] .table-tools .code-copy,
 html[data-theme="dark"] .deck-card-btn,
 html[data-theme="dark"] .mf-chip,
@@ -7982,13 +8017,25 @@ html[data-theme="dark"] .archive-goto-input-wrap input {
   border-color: #33363c;
   color: #d3d5d9;
 }
-html[data-theme="dark"] .pa-item:hover,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover,
 html[data-theme="dark"] .table-tools .code-copy:hover,
 html[data-theme="dark"] .deck-card-btn:hover,
 html[data-theme="dark"] .mf-chip:hover,
 html[data-theme="dark"] .ms-heat-toggle button:hover,
 html[data-theme="dark"] .pager li > a:hover {
   background-color: #34373e;
+}
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):focus,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active)[aria-expanded="true"] {
+  color: #4cb7cb;
+  border-color: #4cb7cb;
+  background-color: #34373e;
+}
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):hover:not(.pa-like) .fa,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active):focus:not(.pa-like) .fa,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active)[aria-expanded="true"]:not(.pa-like) .fa {
+  color: #4cb7cb;
 }
 html[data-theme="dark"] .table-tools {
   background-color: rgba(23, 24, 27, 0.9);
@@ -8032,7 +8079,7 @@ html[data-theme="dark"] .sb-overview a,
 html[data-theme="dark"] .sb-pos,
 html[data-theme="dark"] .archive-title,
 html[data-theme="dark"] .pa-lead,
-html[data-theme="dark"] .pa-item,
+html[data-theme="dark"] .pa-item:not(.pa-export):not(.pa-edit):not(.pa-like.is-active),
 html[data-theme="dark"] .deck-card-title a,
 html[data-theme="dark"] .deck-card-desc,
 html[data-theme="dark"] .ms-card p,

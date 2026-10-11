@@ -428,7 +428,8 @@ Pages has `https_enforced` on.
 - `js/annotations.js` — comments, reader highlight comments ("划线评论"), likes /
   votes and page views, see below.
 - `_includes/post-actions.html` + `js/share.js` (+ `less/share.less`) — action bar
-  「这篇对你有用？ ♥ 点赞 N · 分享 · [复制为公众号格式] · [编辑文章]」, a
+  「这篇对你有用？ ♥ 点赞 N · 分享 · [复制为公众号格式] · [导出] ·
+  [编辑文章]」, a
   bordered card **right under the article body** (first thing after
   `<!-- /article -->`, before the series TOC / license / pager). It sat above
   `comments.html` until 2026-09-27; a reader said the buttons were 「不是很明显，
@@ -473,6 +474,14 @@ Pages has `https_enforced` on.
   execCommand fallback). Relative URLs resolve against the canonical page URL,
   not localhost. Whether the WeChat editor accepts base64 images on paste is
   only verified by pasting.
+  The author-only `.pa-download` 「导出」 button opens a lazy body-level
+  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」 and 「Markdown 源文」.
+  The PDF action temporarily sets the light theme and `html.print-export`,
+  calls `window.print()`, then restores the previous state on `afterprint`;
+  Markdown is fetched from GitHub and downloaded verbatim as a `.md` file
+  under its source filename, including front matter and relative paths.
+  Both author menus are hidden unless
+  `blog:viewer` matches `site.github_username`; opening one closes the other.
 
 ## Comments & highlight comments (js/annotations.js)
 
