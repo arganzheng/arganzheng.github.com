@@ -1,0 +1,29 @@
+---
+layout: page
+title: 私有文章
+description: 作者专用文章列表
+permalink: /private/
+visibility: private
+noindex: true
+sitemap: false
+---
+
+{% assign private_posts = site.private_posts %}
+{% if private_posts and private_posts.size > 0 %}
+{% assign private_posts = private_posts | sort: 'date' | reverse %}
+{% for post in private_posts %}
+<div class="post-preview">
+    <a href="{{ post.url | prepend: site.baseurl }}">
+        <h2 class="post-title">{{ post.title }}</h2>
+        {% if post.subtitle %}<h3 class="post-subtitle">{{ post.subtitle }}</h3>{% endif %}
+        <div class="post-content-preview">{{ post.description | default: post.content | strip_html | remove: '[TOC]' | truncate:340 }}</div>
+    </a>
+    <p class="post-meta">{{ post.date | date: "%B %-d, %Y" }}{% if post.updated %} · 更新于 {{ post.updated | date: "%Y-%m-%d" }}{% endif %}</p>
+</div>
+<hr>
+{% endfor %}
+{% else %}
+<p>暂无私有文章</p>
+{% endif %}
+
+<p class="private-index-dashboard"><a href="{{ '/admin/stats.html' | prepend: site.baseurl }}">作者仪表盘 →</a></p>

@@ -121,8 +121,12 @@
     var api = (localStorage.getItem('annotationsApi') || (carrier && carrier.getAttribute('data-annotations-api')) || '').replace(/\/$/, '');
     takeSessionFromUrl();
     cfg = { api: api, path: location.pathname };
-    if (!section || !container || !window.InlinePopover) return;
-    if (!api) return;
+    if (!section || !container || !window.InlinePopover || !api) {
+      if (getSession() && api) fetchViewer();
+      else dispatchViewer();
+      return;
+    }
+    if (!getSession()) dispatchViewer();
 
     cfg = {
       api: api,
@@ -1295,18 +1299,26 @@
       onViewerKnown();
     }).catch(function (err) {
       viewerPending = null;
-      var hosts = document.querySelectorAll('.ap-editor');
-      for (var i = 0; i < hosts.length; i++) {
-        var u = hosts[i].querySelector('.ap-user');
-        if (u) u.innerHTML = '<span class="ap-muted">' + escapeHtml(err.message) + '</span>';
-        if (!getSession()) refreshAuthUI(hosts[i]);
+      viewer = null;
+      if (cfg && cfg.section) {
+        var hosts = document.querySelectorAll('.ap-editor');
+        for (var i = 0; i < hosts.length; i++) {
+          var u = hosts[i].querySelector('.ap-user');
+          if (u) u.innerHTML = '<span class="ap-muted">' + escapeHtml(err.message) + '</span>';
+          if (!getSession()) refreshAuthUI(hosts[i]);
+        }
       }
+      dispatchViewer();
     });
   }
 
   // The reader's identity just became known: show it in every editor and
   // re-render the lists so their own comments get 编辑 / 删除.
   function onViewerKnown() {
+    if (!cfg || !cfg.section) {
+      dispatchViewer();
+      return;
+    }
     var hosts = document.querySelectorAll('.ap-editor');
     for (var i = 0; i < hosts.length; i++) if (hosts[i].querySelector('.ap-user')) refreshAuthUI(hosts[i]);
     if (!refilterComments()) {
@@ -1314,9 +1326,12 @@
     }
     if (panelState && panelState.kind === 'thread' && !panel.querySelector('.ap-text').value) refreshThreadPanel();
     loadViewerReactions();
-    // Other scripts (js/share.js: author-only buttons) want to know who is logged in.
-    try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: viewer })); } catch (e) { /* old browsers */ }
+    dispatchViewer();
     updateToolbar();
+  }
+
+  function dispatchViewer() {
+    try { document.dispatchEvent(new CustomEvent('blog:viewer', { detail: viewer })); } catch (e) { /* old browsers */ }
   }
 
   function renderViewer(userEl, v) {

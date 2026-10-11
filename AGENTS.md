@@ -259,6 +259,8 @@ Pages has `https_enforced` on.
   only after `blog:viewer` confirms `site.github_username`. `previous_doc` /
   `next_doc` safely skip removed posts, but Jekyll still writes the HTML:
   source and deployed markup remain public, so this is not secrecy.
+  `author-ok` is resolved site-wide and restored from `localStorage.blogAuthor`;
+  `.nav-private` exposes the gated, noindex `/private/` index to the author.
 - Related posts (`_includes/related-posts.html`, "YOU MIGHT ALSO LIKE") come
   from `_plugins/related_posts.rb` (`:site, :post_read`), which fills
   `post.data['related']`: shared tags weighted by rarity (IDF), normalised by

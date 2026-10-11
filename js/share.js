@@ -24,14 +24,24 @@
   var historySpans = Array.prototype.slice.call(document.querySelectorAll('.post-history'));
   function updatePrivatePost(v) {
     var root = document.documentElement;
-    if (!root.classList.contains('private-post')) return;
     var gate = document.querySelector('.private-post-gate');
-    var author = gate && gate.getAttribute('data-author');
-    if (v && author && v.login === author) root.classList.add('author-ok');
-    else root.classList.remove('author-ok');
+    var nav = document.querySelector('.nav-private[data-author]');
+    var author = (nav && nav.getAttribute('data-author')) || (gate && gate.getAttribute('data-author'));
+    var isAuthor = !!(v && author && v.login === author);
+    if (isAuthor) {
+      root.classList.add('author-ok');
+      try { localStorage.setItem('blogAuthor', v.login); } catch (e) {}
+    } else {
+      root.classList.remove('author-ok');
+      try { localStorage.removeItem('blogAuthor'); } catch (e) {}
+    }
   }
   document.addEventListener('blog:viewer', function (e) { updatePrivatePost(e.detail); });
-  if (window.BlogAnnotations && window.BlogAnnotations.viewer) updatePrivatePost(window.BlogAnnotations.viewer());
+  if (window.BlogAnnotations && window.BlogAnnotations.viewer) {
+    var initialViewer = window.BlogAnnotations.viewer();
+    var initialSession = window.BlogAnnotations.core && window.BlogAnnotations.core.getSession && window.BlogAnnotations.core.getSession();
+    if (initialViewer || !initialSession) updatePrivatePost(initialViewer);
+  }
   if (!bars.length && !strips.length && !historySpans.length && !document.querySelector('.moment-share')) return; // 随笔 cards reuse the popover (BlogShare.open)
   var enc = encodeURIComponent;
   var version = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
