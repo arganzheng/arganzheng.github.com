@@ -9,7 +9,7 @@
  *     copy link. One popover element, re-anchored to whichever button opened it.
  *     Every completed share is one POST /shares; Moments can additionally
  *     provide a PNG card generator and a long-press / download overlay.
- *   - author-only 「导出」 menu: save a PDF or copy the Markdown source.
+ *   - author-only 「导出」 menu: save a PDF or copy the GitHub Markdown source verbatim.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -89,23 +89,6 @@
     var ok = document.execCommand('copy');
     document.body.removeChild(area);
     return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
-  }
-  function absoluteSitePath(siteUrl, path) {
-    return siteUrl.replace(/\/+$/, '') + (path.charAt(0) === '/' ? path : '/' + path);
-  }
-  function stripFrontMatter(source) {
-    var match = source.match(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
-    if (!match) throw new Error('无法识别文章 front matter');
-    return source.slice(match[0].length).replace(/^\s+|\s+$/g, '');
-  }
-  function rewriteMarkdownPaths(markdown, siteUrl) {
-    return markdown
-      .replace(/(\]\()\/(?!\/)([^)\s]+)(?=[^)]*\))/g, function (_, prefix, path) {
-        return prefix + absoluteSitePath(siteUrl, '/' + path);
-      })
-      .replace(/(\bsrc=)(["'])\/(?!\/)([^"']*)\2/gi, function (_, attr, quote, path) {
-        return attr + quote + absoluteSitePath(siteUrl, '/' + path) + quote;
-      });
   }
   function fetchMarkdownSource(bar) {
     var repo = bar.getAttribute('data-repo') || '';
@@ -216,7 +199,7 @@
     exportPop.hidden = true;
     exportPop.innerHTML =
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="pdf"><i class="fa fa-file-pdf"></i>存为 PDF</button>' +
-      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md"><i class="fa fa-file-lines"></i>复制 Markdown 源文</button>';
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md"><i class="fa fa-file-lines"></i>Markdown 源文</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
@@ -456,17 +439,9 @@
     copyMarkdown = function (item) {
       if (!isAuthor || item.disabled) return;
       item.disabled = true;
-      var d = dataOf(bar);
       fetchMarkdownSource(bar).then(function (source) {
-        var body = stripFrontMatter(source);
-        var siteUrl = bar.getAttribute('data-site-url') || new URL(d.url).origin;
-        body = rewriteMarkdownPaths(body, siteUrl);
-        var subtitle = bar.getAttribute('data-subtitle') || '';
-        var markdown = '# ' + d.title + '\n\n' +
-          (subtitle ? '> ' + subtitle + '\n\n' : '') +
-          body + '\n\n原文：' + d.url + '\n';
-        return copyText(markdown).then(function () {
-          toast(bar, '已复制 Markdown（' + markdown.length + ' 字符）', 4000);
+        return copyText(source).then(function () {
+          toast(bar, '已复制 Markdown 源文（' + source.length + ' 字符）', 4000);
         });
       }).catch(function (err) {
         toast(bar, '失败：' + (err && err.message || err), 4000);

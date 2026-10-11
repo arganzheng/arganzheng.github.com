@@ -475,11 +475,12 @@ Pages has `https_enforced` on.
   not localhost. Whether the WeChat editor accepts base64 images on paste is
   only verified by pasting.
   The author-only `.pa-download` 「导出」 button opens a lazy body-level
-  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」 and 「复制 Markdown 源文」.
+  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」 and 「Markdown 源文」.
   The PDF action temporarily sets the light theme and `html.print-export`,
   calls `window.print()`, then restores the previous state on `afterprint`;
-  Markdown is fetched from the GitHub source, stripped of front matter, given
-  a title and original URL, and copied. Both author menus are hidden unless
+  Markdown is fetched from the GitHub source and copied verbatim, including
+  front matter and relative paths, without adding a title or original URL.
+  Both author menus are hidden unless
   `blog:viewer` matches `site.github_username`; opening one closes the other.
 
 ## Comments & highlight comments (js/annotations.js)
