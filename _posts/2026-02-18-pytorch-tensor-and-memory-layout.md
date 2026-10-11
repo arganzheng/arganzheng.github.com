@@ -899,6 +899,8 @@ x + 1                                            # 可以：shape / dtype 照常
 x.sum().item()                                   # 报错：没有数据可读
 ```
 
+![普通 Tensor 与 Meta Tensor：两者的元数据完全一样（shape、stride、storage_offset、dtype、layout、requires_grad），只有 device 不同；普通 Tensor 的 Storage 里有 6 个 float32、占 24 字节，Meta Tensor 的 Storage 只记 nbytes = 24、data_ptr() 为 0，没有分配任何数据，所以能推形状、不能读数值](/img/in-post/pytorch-tensor-meta-vs-regular.svg)
+
 | | 普通 Tensor（CPU / CUDA） | Meta Tensor |
 |---|---|---|
 | shape · stride · offset · dtype · layout · requires_grad | 有 | 有，一样可读、一样参与形状推断 |

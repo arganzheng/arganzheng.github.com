@@ -24,14 +24,24 @@ date: 2026-03-30 12:00:00
 
 encoder 每层由**双向 self-attention + FFN**组成，不加 causal mask，源句子的每个位置都能利用整句上下文。decoder 每层依次做**因果 self-attention + cross-attention + FFN**：因果 mask 保证预测目标位置时看不到未来；cross-attention 的 query 来自 decoder，key/value 读取 encoder 的输出。
 
-```mermaid
-flowchart LR
-    X["源句子<br/>英文"] --> E["Encoder × 6<br/>双向 self-attention<br/>FFN"]
-    E -->|encoder 输出| M["源句表示"]
-    Y["已生成的目标前缀<br/>右移一位"] --> D["Decoder × 6<br/>causal self-attention<br/>cross-attention<br/>FFN"]
-    M -->|作为 K、V| D
-    D --> P["下一个目标 token<br/>概率分布"]
-```
+![原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照。左两列是 2017 年的结构：encoder 的 block 是双向 self-attention + FFN，各接 Add & Norm；decoder 的 block 多一个 cross-attention 子层，Q 来自 decoder、K 和 V 来自 encoder 的输出。右列是 GPT：去掉整个 encoder（红色虚线框），cross-attention 随之消失，只保留带 causal mask 的 decoder，LayerNorm 改到子层之前](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg)
+
+图分三列，每列都自下而上：
+
+- **左列 encoder** 读整句英文，每个 block 是"双向 self-attention → Add & Norm → FFN → Add & Norm"。双向的意思是 self-attention 不加 mask，每个词能看到整句——它只负责"读懂"，不负责生成。
+- **中列 decoder** 逐词生成中文。它的 block 比 encoder 多一个子层：causal self-attention 之后先做一次 **cross-attention**——Q 来自 decoder 自己，K、V 来自 encoder 的输出（图中横过来的那条线），"翻译到这里该看原文的哪个词"；然后才是 FFN。
+- **右列 GPT** 就是本文第四章起拆开讲的结构。红色虚线框住的两样东西被整个去掉：encoder 没了，cross-attention 自然也没了。剩下的 decoder block 只有 causal self-attention 与 FFN 两个子层，而且 LayerNorm 从子层之后（Add & Norm）挪到了子层之前（pre-norm，第九章）。
+
+对照本文讲的结构，有四处不同：
+
+| | encoder | 原始 decoder | GPT 的 decoder-only |
+|---|---|---|---|
+| self-attention 的 mask | 无：每个词可以看整句（双向） | 有：只看左边 | 有：只看左边 |
+| cross-attention 子层 | 无 | 有：query 是自己，key / value 是 encoder 的输出 | **无** |
+| 位置编码 | 固定的正弦函数 | 同 | GPT-2 学习式表 / Llama RoPE |
+| 归一化位置 | post-norm | post-norm | pre-norm |
+
+Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
 
 ### cross-attention 去哪了
 {: #cross-attention-去哪了}
@@ -40,7 +50,7 @@ decoder 的 cross-attention 不是让 decoder 再读一遍自己的前缀：它�
 
 ### d2l 10.7 的 encoder-decoder 对照
 
-[《动手学深度学习》10.7](https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html)中的 encoder 对应左侧的双向 self-attention 与 FFN；decoder 对应右侧的因果 self-attention、读取 encoder 输出的 cross-attention 与 FFN。这里保留它作为术语对照；后文只在切换到 GPT-2 时说明这些结构如何取舍，不重复画第二张对照图。
+[《动手学深度学习》10.7](https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html)中的 encoder 对应图中左列的双向 self-attention 与 FFN；decoder 对应中列的因果 self-attention、读取 encoder 输出的 cross-attention 与 FFN。这里保留它作为术语对照；后文只在切换到 GPT-2 时说明这些结构如何取舍，不重复画第二张对照图。
 
 ## 二、三条路线：encoder-only、decoder-only 与 encoder-decoder
 

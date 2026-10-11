@@ -82,7 +82,7 @@
 
   <!-- ===== column 3: GPT decoder-only ===== -->
   <text x="632" y="80" class="t">decoder × N（GPT-2 small：N = 12）</text>
-  <text x="632" y="96" class="m">本文第一至六章讲的就是这一列</text>
+  <text x="632" y="96" class="m">本文第四至十一章讲的就是这一列</text>
   <rect x="537" y="510" width="190" height="36" rx="3" class="emb"/>
   <text x="632" y="525" class="t">prompt + 已生成的 token，一串</text>
   <text x="632" y="540" class="m">embedding + 位置（查表 / RoPE）</text>
