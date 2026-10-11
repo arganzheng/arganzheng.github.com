@@ -4965,6 +4965,9 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
   text-decoration: none;
   cursor: pointer;
 }
+.pa-share-pop .pa-sp-item[hidden] {
+  display: none;
+}
 .pa-share-pop .pa-sp-item .fa {
   width: 22px;
   margin-right: 8px;

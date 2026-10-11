@@ -7,6 +7,7 @@
 
   var WIDTH = 1080, PAD = 120, TEXT_WIDTH = WIDTH - PAD * 2;
   var FONT_SIZE = 54, LINE_HEIGHT = 92;
+  var TITLE_FONT_SIZE = 34, FOOTER_LINE_HEIGHT = 48;
   var SERIF = '54px "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", serif';
   var SANS = '-apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
   var START_PUNCTUATION = /^[，。、：；！？）」』》”’…]$/;
@@ -98,12 +99,13 @@
 
   function wordChar(ch) { return /^[A-Za-z0-9_.-]$/.test(ch); }
 
-  function wrap(ctx, chars) {
+  function wrap(ctx, chars, width) {
+    var maxWidth = typeof width === 'number' ? width : TEXT_WIDTH;
     var lines = [{ chars: [] }];
     function current() { return lines[lines.length - 1]; }
     function add(entry) { current().chars.push(entry); }
     function nextLine() { if (current().chars.length) lines.push({ chars: [] }); }
-    function fits(text) { return ctx.measureText(lineText(current()) + text).width <= TEXT_WIDTH; }
+    function fits(text) { return ctx.measureText(lineText(current()) + text).width <= maxWidth; }
     function addChar(entry) {
       if (current().chars.length && !fits(entry.ch) && !START_PUNCTUATION.test(entry.ch)) nextLine();
       add(entry);
@@ -121,7 +123,7 @@
         var end = i + 1;
         while (end < chars.length && wordChar(chars[end].ch)) end++;
         var word = chars.slice(i, end), text = word.map(function (part) { return part.ch; }).join('');
-        if (ctx.measureText(text).width <= TEXT_WIDTH) {
+        if (ctx.measureText(text).width <= maxWidth) {
           if (current().chars.length && !fits(text)) nextLine();
           for (var w = 0; w < word.length; w++) add(word[w]);
         } else {
@@ -135,6 +137,22 @@
     }
     while (lines.length > 1 && !current().chars.length) lines.pop();
     return lines.filter(function (line) { return line.chars.length; });
+  }
+
+  function wrapTitle(ctx, text, width) {
+    ctx.font = TITLE_FONT_SIZE + 'px ' + SANS;
+    var chars = Array.from(String(text || '').replace(/\s+/g, ' ').trim()).map(function (ch) {
+      return { ch: ch, quote: false };
+    });
+    if (!chars.length || width <= 0) return [];
+    var lines = wrap(ctx, chars, width);
+    if (lines.length > 2) {
+      lines = lines.slice(0, 2);
+      var last = lines[1].chars.slice();
+      while (last.length && ctx.measureText(lineText({ chars: last }) + '…').width > width) last.pop();
+      lines[1] = { chars: last.concat({ ch: '…', quote: false }) };
+    }
+    return lines.map(lineText);
   }
 
   function quoteLineIndexes(lines) {
@@ -196,15 +214,6 @@
     }
   }
 
-  function truncate(ctx, text, maxWidth) {
-    var chars = Array.from(String(text || '').replace(/\s+/g, ' ').trim());
-    ctx.font = '34px ' + SANS;
-    var value = chars.join('');
-    if (ctx.measureText(value).width <= maxWidth) return value;
-    while (chars.length && ctx.measureText(chars.join('') + '…').width > maxWidth) chars.pop();
-    return chars.join('') + '…';
-  }
-
   function renderCard(o, assets) {
     var ctxProbe = document.createElement('canvas').getContext('2d');
     ctxProbe.font = SERIF;
@@ -212,7 +221,12 @@
     var trimmed = trimLines(lines, ctxProbe);
     lines = trimmed.lines;
     var quoteLines = trimmed.quoteLines;
-    var textH = lines.length * LINE_HEIGHT, gap = 180, footerH = 180, bottomPad = 120;
+    var qrX = WIDTH - PAD - 180, authorX = PAD + 120 + 28;
+    var titleWidth = Math.max(0, qrX - authorX - 32);
+    var titleLines = wrapTitle(ctxProbe, o.title, titleWidth);
+    var textH = lines.length * LINE_HEIGHT, gap = 180;
+    var footerH = Math.max(180, FOOTER_LINE_HEIGHT + titleLines.length * FOOTER_LINE_HEIGHT);
+    var bottomPad = 120;
     var topSpace = 360;
     if (topSpace + textH + gap + footerH + bottomPad > 1440) topSpace = 200;
     var height = Math.max(1440, topSpace + textH + gap + footerH + bottomPad);
@@ -227,6 +241,8 @@
     var footerTop = height - bottomPad - footerH;
     var avatar = assets.avatar, qr = assets.qr;
     var avatarX = PAD, avatarY = footerTop + (footerH - 120) / 2;
+    var textBlockHeight = FOOTER_LINE_HEIGHT + titleLines.length * FOOTER_LINE_HEIGHT;
+    var textBlockTop = footerTop + (footerH - textBlockHeight) / 2;
     if (avatar) {
       ctx.save();
       ctx.beginPath();
@@ -236,14 +252,15 @@
       ctx.restore();
     }
 
-    var qrX = WIDTH - PAD - 180, authorX = avatarX + 120 + 28;
-    var titleWidth = Math.max(0, qrX - authorX - 32);
     ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 40px ' + SANS;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(o.author || 'arganzheng', authorX, footerTop + 58, titleWidth);
+    ctx.fillText(o.author || 'arganzheng', authorX, textBlockTop + 40, titleWidth);
     ctx.fillStyle = '#333333';
-    ctx.fillText(truncate(ctx, o.title, titleWidth), authorX, footerTop + 112);
+    ctx.font = TITLE_FONT_SIZE + 'px ' + SANS;
+    for (var t = 0; t < titleLines.length; t++) {
+      ctx.fillText(titleLines[t], authorX, textBlockTop + FOOTER_LINE_HEIGHT + 36 + t * FOOTER_LINE_HEIGHT, titleWidth);
+    }
     if (qr) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(qrX, footerTop, 180, 180);
