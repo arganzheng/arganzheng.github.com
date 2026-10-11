@@ -2239,15 +2239,48 @@
       });
   }
 
+  function passageCardContext(exact) {
+    buildIndex();
+    var match = anchor({ exact: exact });
+    if (!match) return { before: '', after: '' };
+    var segs = segmentsFor(match.start, match.end);
+    if (!segs.length) return { before: '', after: '' };
+    var blockSelector = 'p, li, blockquote, dd, td, th, figcaption, h2, h3, h4, h5, h6';
+    function blockFor(node) {
+      var el = node.nodeType === 1 ? node : node.parentElement;
+      var block = el && el.closest(blockSelector);
+      return block && container.contains(block) ? block : null;
+    }
+    var first = segs[0], last = segs[segs.length - 1];
+    var firstBlock = blockFor(first.node), lastBlock = blockFor(last.node);
+    if (!firstBlock || !lastBlock) return { before: '', after: '' };
+    try {
+      var beforeRange = document.createRange();
+      beforeRange.selectNodeContents(firstBlock);
+      beforeRange.setEnd(first.node, first.from);
+      var afterRange = document.createRange();
+      afterRange.selectNodeContents(lastBlock);
+      afterRange.setStart(last.node, last.to);
+      return {
+        before: beforeRange.toString().slice(-120),
+        after: afterRange.toString().slice(0, 120)
+      };
+    } catch (e) {
+      return { before: '', after: '' };
+    }
+  }
+
   // 分享 a passage: the same popover as the article's 「分享」 (js/share.js,
-  // window.BlogShare) with the passage link and the quote as text. Every completed
-  // share is one more `share` on the passage (worker also bumps the article's
-  // share count). No toggle, no memory — a share is a share.
+  // window.BlogShare) with the passage link, quote, and generated share card.
+  // Every completed share is one more `share` on the passage (worker also
+  // bumps the article's share count). No toggle, no memory — a share is a share.
   function sharePassage(btn, exact, hasThread) {
     var sel = { exact: exact };
     var url = hasThread ? threadLink(sel) : shareLink(sel);
     var quote = exact.length > 120 ? exact.slice(0, 118) + '…' : exact;
     var bar = document.querySelector('.post-actions');
+    var title = (bar && bar.getAttribute('data-title')) || document.title;
+    var context = passageCardContext(exact);
     var counted = function () { countPassageShare(exact); };
     if (!window.BlogShare) {
       copyText(url).then(function () { showToast('分享链接已复制：打开后会自动定位这段文字'); counted(); });
@@ -2255,10 +2288,20 @@
     }
     window.BlogShare.open(btn, {
       url: url,
-      title: (bar && bar.getAttribute('data-title')) || document.title,
+      title: title,
       text: '「' + quote + '」',
       onShared: counted,
-      toast: showToast
+      toast: showToast,
+      card: function () {
+        return window.BlogPassageCard.render({
+          before: context.before,
+          quote: exact,
+          after: context.after,
+          title: title,
+          url: url
+        });
+      },
+      filename: 'passage-' + annotHash(exact) + '.png'
     });
   }
   function countPassageShare(exact) {

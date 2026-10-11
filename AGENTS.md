@@ -627,9 +627,14 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
   Local previews post only when `localStorage.annotationsApi` is set.
 - **Passage 分享** (`sharePassage`, toolbar `.annotation-tb-share`, panel
   `.ap-react-share`): opens the article's share popover — `js/share.js` exposes
-  `window.BlogShare.open(btn, { url, title, text, onShared, toast })` — with
+  `window.BlogShare.open(btn, { url, title, text, onShared, toast, card, filename })` — with
   `threadLink` when the passage has comments, else `shareLink` (`#hl=`), and
-  the quote as text. Each completed share = `countPassageShare` → `POST
+  the quote as text. The 「生成图片」 action calls
+  `window.BlogPassageCard.render` from `js/passage-card.js`, bundled directly
+  before `js/annotations.js` by `tools/build-js.sh`; it uses the full quote,
+  up to two faint context lines from either end of its paragraph, author/avatar
+  metadata from `.post-actions`, and a QR for the same passage URL. Each
+  completed share = `countPassageShare` → `POST
   /reactions kind:'share'` (+1, no toggle, `share` column; the worker also
   bumps the article's `shares` row and the response's `shares` is forwarded as
   a `blog:stats` event for the header badge). A share alone does not underline

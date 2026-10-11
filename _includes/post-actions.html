@@ -17,6 +17,7 @@
      data-subtitle="{{ page.subtitle | default: '' | escape }}"
      data-text="{{ page.subtitle | default: page.description | default: '' | escape }}"
      data-author="{{ site.github_username | strip }}"
+     data-avatar="{{ site['sidebar-avatar'] | relative_url }}"
      data-annotations-api="{{ site.annotations.api }}">
   <span class="pa-lead">这篇对你有用？</span>
   <button type="button" class="pa-item pa-like" title="给这篇文章点个赞（不用登录）"><i class="fa fa-regular fa-heart"></i> 点赞<b class="pa-like-n"></b></button>
