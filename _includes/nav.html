@@ -51,6 +51,9 @@ it; post and moments pages start on a white background, so they take the light b
                             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><text x="1" y="18" fill="currentColor" font-size="15" font-family="system-ui, sans-serif">Aa</text></svg><span class="nav-reading-settings-label"> Reading</span>
                         </a>
                     </li>
+                    <li class="nav-private" data-author="{{ site.github_username | strip | escape }}" data-annotations-api="{{ site.annotations.api | escape }}">
+                        <a href="{{ '/private/' | prepend: site.baseurl }}" title="作者专用文章" aria-label="作者专用文章"><svg class="nav-private-lock" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M7.5 10V7a4.5 4.5 0 0 1 9 0v3M6 10h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/><circle cx="12" cy="15" r="1.2" fill="currentColor"/><path d="M12 16.5v1.7" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"/></svg><span class="nav-private-label"> Private</span></a>
+                    </li>
                     <li class="nav-search-icon">
                         <a href="{{ '/search/' | prepend: site.baseurl }}" title="搜索（⌘K / Ctrl+K 或 /）" aria-label="搜索"><i class="fa fa-search"></i><span class="nav-search-label"> Search</span></a>
                     </li>
@@ -67,12 +70,14 @@ it; post and moments pages start on a white background, so they take the light b
     }
     /* Icon-only on desktop; icon + label inside the collapsed mobile menu. */
     .nav-search-icon .nav-search-label,
+    .nav-private .nav-private-label,
     .nav-theme-toggle .nav-theme-label,
     .nav-reading-settings .nav-reading-settings-label {
         display: none;
     }
     @media only screen and (max-width: 767px) {
         .nav-search-icon .nav-search-label,
+        .nav-private .nav-private-label,
         .nav-theme-toggle .nav-theme-label,
         .nav-reading-settings .nav-reading-settings-label {
             display: inline;

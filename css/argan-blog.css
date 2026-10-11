@@ -352,6 +352,12 @@ pre code {
   font-weight: normal;
   letter-spacing: 0.5px;
 }
+.nav-private-lock {
+  vertical-align: -2px;
+}
+html:not(.author-ok) .nav-private {
+  display: none !important;
+}
 @media only screen and (max-width: 767px) {
   /**
 	 * Layout

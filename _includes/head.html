@@ -13,6 +13,11 @@
         // already says drops the stored choice, so the page follows the OS again.
         (function () {
             var root = document.documentElement;
+            try {
+                if (localStorage.getItem('blogAuthor') === '{{ site.github_username | strip | escape }}') {
+                    root.classList.add('author-ok');
+                }
+            } catch (e) {}
             var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
             var light = '{{ site.chrome-tab-theme-color }}';
             function system() { return mq && mq.matches ? 'dark' : 'light'; }
