@@ -22,6 +22,16 @@
   var bars = Array.prototype.slice.call(document.querySelectorAll('.post-actions'));
   var strips = Array.prototype.slice.call(document.querySelectorAll('.post-stats'));
   var historySpans = Array.prototype.slice.call(document.querySelectorAll('.post-history'));
+  function updatePrivatePost(v) {
+    var root = document.documentElement;
+    if (!root.classList.contains('private-post')) return;
+    var gate = document.querySelector('.private-post-gate');
+    var author = gate && gate.getAttribute('data-author');
+    if (v && author && v.login === author) root.classList.add('author-ok');
+    else root.classList.remove('author-ok');
+  }
+  document.addEventListener('blog:viewer', function (e) { updatePrivatePost(e.detail); });
+  if (window.BlogAnnotations && window.BlogAnnotations.viewer) updatePrivatePost(window.BlogAnnotations.viewer());
   if (!bars.length && !strips.length && !historySpans.length && !document.querySelector('.moment-share')) return; // 随笔 cards reuse the popover (BlogShare.open)
   var enc = encodeURIComponent;
   var version = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';

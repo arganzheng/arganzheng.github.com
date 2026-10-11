@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN"{% if page.visibility == 'private' %} class="private-post"{% endif %}>
 
 {% include head.html %}
 
@@ -9,6 +9,7 @@
     {% include nav.html %}
 
     <main>
+    {% if page.visibility == 'private' %}{% include private-post-gate.html %}{% endif %}
     {{ content }}
     </main>
 

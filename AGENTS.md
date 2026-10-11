@@ -251,6 +251,14 @@ Pages has `https_enforced` on.
   as the others — catalog, pager, related, comments; demo post
   `keynote-layout-demo`). `redirect_from:` works
   (jekyll-redirect-from). `tools/new-post.py` scaffolds a post/draft.
+- Author-only posts use `visibility: private`: the high-priority
+  `_plugins/private_posts.rb` hook removes them from `site.posts` before its
+  browse/search consumers, sets `sitemap: false` and `noindex: true`, and
+  keeps them renderable at their original URL in a separate collection.
+  The `<html>` gate is set before styles load; `js/share.js` reveals the page
+  only after `blog:viewer` confirms `site.github_username`. `previous_doc` /
+  `next_doc` safely skip removed posts, but Jekyll still writes the HTML:
+  source and deployed markup remain public, so this is not secrecy.
 - Related posts (`_includes/related-posts.html`, "YOU MIGHT ALSO LIKE") come
   from `_plugins/related_posts.rb` (`:site, :post_read`), which fills
   `post.data['related']`: shared tags weighted by rarity (IDF), normalised by

@@ -112,6 +112,8 @@
   function init() {
     var section = document.querySelector('section.comment[data-annotations-api]');
     container = document.querySelector('.post-container');
+    var privateLogin = document.querySelector('.private-post-login');
+    if (privateLogin) privateLogin.addEventListener('click', login);
     // List pages have no comment section but do have action bars (js/share.js)
     // that vote through our auth helpers: pick up a returning OAuth session and
     // the API base from any element that carries it, then stop.
@@ -2389,7 +2391,7 @@
     var key = 'viewed:' + cfg.path, now = Date.now(), last = 0;
     try { last = +localStorage.getItem(key) || 0; } catch (e) { /* ignore */ }
     var local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-    var count = !local && now - last > 86400000;
+    var count = !document.documentElement.classList.contains('private-post') && !local && now - last > 86400000;
     var req = count ? api('/views', { method: 'POST', body: { path: cfg.path } }) : api('/views?path=' + encodeURIComponent(cfg.path));
     req.then(function (data) {
       if (count) { try { localStorage.setItem(key, String(now)); } catch (e) { /* ignore */ } }
@@ -2537,6 +2539,7 @@
     // Auth / API plumbing other scripts may reuse.
     core: { api: api, graphql: graphql, getSession: getSession, login: login, ensureToken: ensureToken }
   };
+  window.BlogAuth = { login: login };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

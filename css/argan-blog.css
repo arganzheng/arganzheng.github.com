@@ -2103,6 +2103,53 @@ li[id^="fn:"] {
 .post-container .related-posts {
   margin-top: 48px;
 }
+html.private-post:not(.author-ok) main > :not(.private-post-gate) {
+  display: none !important;
+}
+.private-post-gate {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 68vh;
+  padding: 40px 16px;
+  box-sizing: border-box;
+}
+html.private-post:not(.author-ok) .private-post-gate {
+  display: flex;
+}
+.private-post-gate-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 32px 24px;
+  text-align: center;
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(27, 31, 36, 0.08);
+}
+.private-post-gate h1 {
+  margin: 0 0 22px;
+  font-size: 24px;
+  line-height: 1.4;
+}
+.private-post-login {
+  padding: 10px 18px;
+  border: 1px solid #00788f;
+  border-radius: 6px;
+  background: #00788f;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.private-post-login:hover {
+  background: #005e70;
+  border-color: #005e70;
+}
+.private-post-login:focus-visible {
+  outline: 3px solid rgba(0, 120, 143, 0.35);
+  outline-offset: 2px;
+}
 .post-container .post-stale {
   margin: 0 0 24px;
   padding: 8px 14px;
@@ -8068,6 +8115,27 @@ html[data-theme="dark"] .post-pin {
   background-color: #3a3418;
   border-color: #6b5d1f;
   color: #f0d878;
+}
+html[data-theme="dark"] .private-post-gate-card {
+  background-color: #1f2125;
+  border-color: #33363c;
+  color: #d3d5d9;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="dark"] .private-post-gate h1 {
+  color: #eceef1;
+}
+html[data-theme="dark"] .private-post-login {
+  background-color: #4cb7cb;
+  border-color: #4cb7cb;
+  color: #17181b;
+}
+html[data-theme="dark"] .private-post-login:hover {
+  background-color: #68c2d3;
+  border-color: #68c2d3;
+}
+html[data-theme="dark"] .private-post-login:focus-visible {
+  outline-color: rgba(76, 183, 203, 0.45);
 }
 html[data-theme="dark"] .post-preview .post-meta a,
 html[data-theme="dark"] .post-preview .post-meta,
