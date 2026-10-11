@@ -7,8 +7,9 @@
  *   - 分享 popover: system share sheet (Web Share API), Weibo / X / LinkedIn
  *     intent links, WeChat QR (js/vendor/qrcode.min.js, loaded on first use),
  *     copy link. One popover element, re-anchored to whichever button opened it.
- *     Every completed share is one POST /shares; Moments can additionally
- *     provide a PNG card generator and a long-press / download overlay.
+ *     Every completed share is one POST /shares; Moments and passage shares
+ *     can additionally provide a PNG card generator and a long-press / download
+ *     overlay.
  *   - author-only 「导出」 menu: save a PDF or download the GitHub Markdown source verbatim.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
@@ -234,7 +235,7 @@
     ctx.card().then(function (blob) {
       closeCard();
       cardObjectUrl = URL.createObjectURL(blob);
-      var name = 'moment-' + (ctx.id || 'share') + '.png';
+      var name = ctx.filename || 'moment-' + (ctx.id || 'share') + '.png';
       var file = new File([blob], name, { type: 'image/png' });
       cardOverlay = document.createElement('div');
       cardOverlay.className = 'pa-share-image';
@@ -245,7 +246,7 @@
       cardOverlay.innerHTML =
         '<div class="pa-share-image-panel">' +
           '<button type="button" class="pa-share-image-close" aria-label="关闭">×</button>' +
-          '<img class="pa-share-image-preview" alt="随笔分享图片">' +
+          '<img class="pa-share-image-preview" alt="分享图片">' +
           '<p>长按图片保存，或</p><div class="pa-share-image-actions">' +
           '<a class="pa-share-image-download" download="' + name + '">下载</a>' +
           (canShare ? '<button type="button" class="pa-share-image-share">分享图片</button>' : '') +
