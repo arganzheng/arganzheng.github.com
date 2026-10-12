@@ -282,6 +282,9 @@ Pages has `https_enforced` on.
   plugin preserves code/math spans and handles both public and private posts.
   The three post layouts render newest-first `post.data['backlinks']` via
   `_includes/backlinks.html` (eight shown, the rest folded).
+- `_plugins/highlights.rb` rewrites post and private-post `==文字==` spans to
+  `<mark class="md-hl">` after wikilinks, preserving code and math spans. Run
+  `ruby tools/highlights.test.rb` for its Minitest coverage.
 - `_includes/post-stale.html` (all three post layouts, first thing in the
   post column): 「本文写于 / 最后更新于 N 年前，部分内容可能已经过时」 when
   `updated` (else `date`) is >= 3 full years before `site.time` — the daily
