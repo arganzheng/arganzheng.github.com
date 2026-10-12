@@ -1,6 +1,6 @@
 # Backlinks for published posts. Scan the original Markdown once after posts
-# have been read, resolve current URLs and redirect aliases, then expose each
-# source post on its target for _includes/backlinks.html.
+# have been read, resolve current URLs, redirect aliases, and wikilinks, then
+# expose each source post on its target for _includes/backlinks.html.
 require 'uri'
 
 module Backlinks
@@ -50,6 +50,13 @@ Jekyll::Hooks.register :site, :post_read do |site|
 
     paths.each do |path|
       target = by_url[Backlinks.normalized_path(path, site.baseurl)]
+      next unless target && !target.equal?(source)
+
+      sources_by_target[target][source] = true
+    end
+
+    WikiLinks.references(source.content, source, site).each do |linked_post|
+      target = by_url[Backlinks.normalized_path(linked_post.url, site.baseurl)]
       next unless target && !target.equal?(source)
 
       sources_by_target[target][source] = true
