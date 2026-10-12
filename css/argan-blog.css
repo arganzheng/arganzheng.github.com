@@ -4959,6 +4959,9 @@ html.ap-capturing .table-tools {
   -webkit-user-select: none;
   cursor: crosshair;
 }
+.ap-crop-overlay[data-state="empty"] .ap-crop-image {
+  filter: brightness(0.5);
+}
 .ap-crop-overlay[data-tool="text"] .ap-crop-image {
   cursor: text;
 }
@@ -4978,6 +4981,12 @@ html.ap-capturing .table-tools {
   border: 2px solid #07C160;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
   cursor: move;
+}
+.ap-crop-selection.is-candidate {
+  cursor: crosshair;
+}
+.ap-crop-selection.is-candidate .ap-crop-handle {
+  display: none;
 }
 .ap-crop-size {
   position: absolute;
@@ -10524,14 +10533,6 @@ html[data-theme="sepia"] a:hover,
 html[data-theme="sepia"] a:focus {
   color: #1f4f70;
 }
-html[data-theme="sepia"] h1,
-html[data-theme="sepia"] h2,
-html[data-theme="sepia"] h3,
-html[data-theme="sepia"] h4,
-html[data-theme="sepia"] h5,
-html[data-theme="sepia"] h6 {
-  color: #2b2318;
-}
 html[data-theme="sepia"] hr,
 html[data-theme="sepia"] .page-header {
   border-color: #dccfb2;
@@ -10581,24 +10582,11 @@ html[data-theme="sepia"] .navbar-default .navbar-toggle:focus {
 html[data-theme="sepia"] .navbar-default .navbar-toggle .icon-bar {
   background-color: #7a6c58;
 }
-html[data-theme="sepia"] .intro-header:not(.header-post) {
-  background-color: #f4ecd8;
+html[data-theme="sepia"] .page-header .title {
   color: #2b2318;
 }
-html[data-theme="sepia"] .intro-header:not(.header-post) .site-heading,
-html[data-theme="sepia"] .intro-header:not(.header-post) .page-heading,
-html[data-theme="sepia"] .intro-header:not(.header-post) .post-heading,
-html[data-theme="sepia"] .intro-header:not(.header-post) .page-heading h1,
-html[data-theme="sepia"] .intro-header:not(.header-post) .post-heading h1 {
-  color: #2b2318;
-}
-html[data-theme="sepia"] .intro-header:not(.header-post) .post-heading .meta,
-html[data-theme="sepia"] .intro-header:not(.header-post) .page-heading .subheading {
+html[data-theme="sepia"] .page-header .subtitle {
   color: #7a6c58;
-}
-html[data-theme="sepia"] .page-header,
-html[data-theme="sepia"] .post-heading {
-  border-color: #dccfb2;
 }
 html[data-theme="sepia"] .post-container,
 html[data-theme="sepia"] .markdown-body {

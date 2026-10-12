@@ -7,7 +7,10 @@
     <meta name="keywords"  content="{% if page.tags and page.tags != empty %}{{ page.tags | join: ', ' | escape }}, {% endif %}{{ site.keyword }}">
     <meta name="theme-color" content="{{ site.chrome-tab-theme-color }}">
     <script>
-        // Colour theme is applied before the stylesheets to avoid a flash.
+        // An explicit theme (light, dark, or sepia) wins; otherwise follow the OS.
+        // Apply it before CSS loads to avoid a flash.
+        // Light/dark choices matching the OS are not stored; sepia is always stored.
+        // theme-day remembers sepia as the day theme for the nav toggle.
         (function () {
             var root = document.documentElement;
             try {

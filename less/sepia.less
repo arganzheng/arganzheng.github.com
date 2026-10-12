@@ -23,7 +23,6 @@ html[data-theme="sepia"] {
 		&:hover, &:focus { color: @sp-link-hover; }
 	}
 
-	h1, h2, h3, h4, h5, h6 { color: @sp-heading; }
 	hr, .page-header { border-color: @sp-border; }
 	input, select, textarea {
 		border-color: @sp-border;
@@ -54,18 +53,8 @@ html[data-theme="sepia"] {
 	.navbar-default .navbar-toggle:focus { background-color: @sp-surface-2; }
 	.navbar-default .navbar-toggle .icon-bar { background-color: @sp-muted; }
 
-	.intro-header:not(.header-post) {
-		background-color: @sp-bg;
-		color: @sp-heading;
-	}
-	.intro-header:not(.header-post) .site-heading,
-	.intro-header:not(.header-post) .page-heading,
-	.intro-header:not(.header-post) .post-heading,
-	.intro-header:not(.header-post) .page-heading h1,
-	.intro-header:not(.header-post) .post-heading h1 { color: @sp-heading; }
-	.intro-header:not(.header-post) .post-heading .meta,
-	.intro-header:not(.header-post) .page-heading .subheading { color: @sp-muted; }
-	.page-header, .post-heading { border-color: @sp-border; }
+	.page-header .title { color: @sp-heading; }
+	.page-header .subtitle { color: @sp-muted; }
 
 	.post-container, .markdown-body { color: @sp-text; }
 	.post-container h1, .post-container h2, .post-container h3,
