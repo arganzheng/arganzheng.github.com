@@ -113,7 +113,7 @@ Table: 八篇正文的主题与内容
 | 线索 | 从第一篇到第八篇 |
 |---|---|
 | 推导线 | 链式法则 → 激活导数改变梯度 → Jacobian 乘积与谱范数 → 更新量的量级 → 期望等价与先验 → 卷积线性算子 → embedding 查表与分布式词向量 → 时间反传 |
-| 数字线 | 反向 FLOPs = 2 × 前向 → sigmoid 首层梯度 $$3.94\times10^{-10}$$、20 层 SiLU 测试准确率 92.88% → $$0.9^{128}$$ → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → text8 词表 11,442、向量维度 64 → RNN 不能并行 |
+| 数字线 | 反向 FLOPs = 2 × 前向 → sigmoid 首层梯度 $$3.94\times10^{-10}$$、20 层 SiLU 测试准确率 92.88% → $$0.9^{128}$$ → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → text8 17,005,207 词、71,290 词表、100 维 → RNN 不能并行 |
 | LLM 线 | 6ND · 激活重算 → SwiGLU · GELU → RMSNorm · Pre-Norm · 0.02 → AdamW · warmup · 裁剪到 1.0 → 预训练不用 dropout → ViT / patch → GPT-2 embedding 参数占 31.0% · 上下文表示 → attention → Transformer |
 
 Table: 贯穿八篇的三条线索
@@ -249,13 +249,13 @@ Table: 贯穿八篇的三条线索
 - GPT-2 small 的输入 embedding 表有 38,597,376 个参数，占模型参数约 31.0%；输入与输出词表矩阵是否共享；
 - skip-gram、CBOW、full softmax 与 negative sampling；用二维例子手算正负样本更新；
 - SGNS 与 shifted PMI 的关系、静态词向量的能力边界，以及表示从预测、重建到对比学习的发展；
-- text8 截断语料上的 CPU Word2Vec 案例：比较随机初始化与训练后近邻、排除原词后的类比，并用 PCA 投影向量。
+- 完整 text8 上的 CPU Word2Vec 案例：比较随机初始化与训练后近邻、排除原词后的类比，并用 PCA 投影向量。
 
 核心问题是：
 
 > **一个整数 token 怎样变成可学习的向量？Word2Vec 的邻居与类比从何而来，为什么现代 Transformer 还需要上下文表示？**
 
-实验：在 text8 前 750,000 个词上训练 64 维 skip-gram negative sampling，保留 11,442 个词，训练 1,500 步；对照随机初始化近邻与训练后近邻，并把选定词向量投影到二维 PCA 平面。
+实验：在完整 text8 的 17,005,207 个词上训练 100 维 skip-gram negative sampling；`min_count=5` 后词表 71,290，频率抽样后保留 5,597,324 个词。窗口半径 1–5、5 个负样本、3 个 epoch 共 6,153 步，CPU 耗时 310.0 秒；对照随机初始化近邻与训练后近邻，并把选定词向量投影到二维 PCA 平面。
 
 ### 8. RNN：从 LSTM 到 attention 的诞生
 
@@ -309,7 +309,7 @@ Table: 各篇在 NumPy 小框架里加的东西
 | 第四篇 | 同一个 MLP，四种优化器 × 五个学习率；64 层网络的 warmup | 最优学习率差 300 倍、成绩差不到半个点；lr 1e-2 无 warmup loss 冲到 4.59 |
 | 第五篇 | 1,000 张图的过拟合与三种解药；宽度扫描 | 训练 loss 归零、测试 loss 掉头；double descent 的尖峰在宽度 8–16 |
 | 第六篇 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82%——MLP 参数的 1/3、错误率的 1/3；第一层学出边缘检测器 |
-| 第七篇 | text8 前 750,000 个词的 skip-gram negative sampling | 词表 11,442、向量维度 64；随机初始化与训练后近邻对照，类比排除输入词，附二维 PCA |
+| 第七篇 | 完整 text8 的 skip-gram negative sampling | 17,005,207 个词；`min_count=5` 后词表 71,290，subsampling 后 5,597,324 个词；100 维、3 epochs、CPU 310 秒 |
 | 第八篇 | 字符级 LSTM 写莎士比亚，与 nanoGPT 同预算 | val 1.71 vs 1.66；倒序任务的对齐矩阵 |
 
 Table: 各篇的案例
@@ -344,7 +344,7 @@ Table: 各篇平行的论文与资料阅读线
 
 ### 版本与基线
 
-- 实验基线：第一至五篇用 MNIST（几万样本、几十万到几百万参数的 MLP 与小卷积网络），第四篇的语言模型用 Python 标准库源码做字符级语料，第七篇用官方 text8 语料的截断片段，第八篇用合成的序列任务；所有数字在普通笔记本 CPU 上几分钟到十几分钟内可复现；
+- 实验基线：第一至五篇用 MNIST（几万样本、几十万到几百万参数的 MLP 与小卷积网络），第四篇的语言模型用 Python 标准库源码做字符级语料，第七篇用官方完整 text8 语料，第八篇用合成的序列任务；所有数字在普通笔记本 CPU 上几分钟到十几分钟内可复现；
 - 配套代码：每篇一个脚本，连同系列贯穿的迷你框架 `dlf/` 与作者机器上的运行输出，在 [ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)；
 - 算账时引用的真实网络：ResNet-50（25.6M 参数）、GPT-2（124M 到 1.5B，$$\sqrt{2L}$$ 初始化缩放）、Llama-3-8B（32 层、初始化标准差 0.02、AdamW $$\beta_2 = 0.95$$、weight decay 0.1、裁剪 1.0），超参数取自公开论文与技术报告；
 - 论文引用以第一作者与年份标注。

@@ -86,7 +86,7 @@ Graves 2013 论文里的图 1 画的是同一件事的三层版本——每一�
 
 ![Graves 2013《Generating Sequences With Recurrent Neural Networks》图 1：深层循环网络沿时间展开，输入 x 在底、输出 y 在顶、三个隐藏层横向循环连接。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-graves-fig1.webp)
 
-这个视角把前五篇的一切都带了进来：它是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每层的权重相同**，《[深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的 Jacobian 连乘问题在这里以最纯粹的形式出现。
+把它沿时间展开，是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每一层复用同一组权重**。第二篇《[激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》解释了激活导数怎样进入每步 Jacobian；第三篇《[深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讲的 Jacobian 连乘，在这里沿时间反复乘同一个 $$W$$；第七篇《[Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》的 embedding 则把离散 token 变成 RNN 可接收的向量输入。
 
 ## 三、时间上的反向传播
 

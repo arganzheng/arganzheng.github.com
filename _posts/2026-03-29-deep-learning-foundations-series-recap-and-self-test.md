@@ -44,7 +44,7 @@ flowchart TB
 | [第四篇：优化器](/optimizers-from-sgd-to-adamw.html) | Adam 的两个矩各做什么？AdamW 与 $$L_2$$ 为什么不一样？warmup 为什么不能省？batch 变大学习率怎么变？ | Adam 让每个参数步长 $$\approx \eta$$、与梯度大小无关，因此第一步是满步长 $$\eta \cdot \text{sign}(g)$$、必须 warmup<br/>$$L_2$$ 被 $$1/\sqrt{v}$$ 缩放而 AdamW 不被<br/>线性 scaling 在临界 batch 内成立<br/>裁剪限制步长上界 | Momentum 有效学习率 $$\times 1/(1-\beta)$$<br/>$$\beta_2 = 0.95$$ 记 20 步<br/>8 字节 / 参数，Llama-3-8B 64 GB，16 字节里的 12<br/>$$\lVert W_1 \rVert$$ 22.6 → 2.3、95.6% → 86.2%<br/>warmup：4.59 对 1.26<br/>scaling 到 512 成立、2048 发散<br/>裁剪 1.0 |
 | [第五篇：正则化与泛化](/regularization-and-generalization.html) | 参数是样本几百倍的网络为什么不过拟合？什么数据规模、多少 epoch 后会？怎么提前看到？ | 先算参数 / 数据比定体制<br/>过参数化时优化器挑最小范数、平坦、先学简单的解——隐式正则化<br/>double descent 越过插值阈值再变好<br/>预训练在数据体制里不用 dropout、一个 epoch<br/>SFT 与奖励模型把模型放回过参数化体制 | $$N/D$$：预训练 0.0005、SFT 1600、RM 160、实验 407<br/>宽度 8 测试 loss 5.48、2048 最好 14.5%<br/>wd 把 0.55 压到 0.42，dropout 0.62<br/>重复 4 epoch 以内几乎无损<br/>2 万字符第 16 epoch 拐点、记忆率 10%，20 万第 8 epoch，200 万未到 |
 | [第六篇：CNN](/cnn-from-lenet-to-resnet-and-vit.html) | 卷积的局部连接与权重共享解决什么？ResNet 如何让网络加深，ViT 又为何能去掉卷积？ | 卷积把局部性和平移等变性写进结构；残差让深度增加后仍可训练；数据足够时，ViT 可以从 patch token 学习空间关系 | plain-56 loss 0.72，残差网络 0.13；LeNet-5 61,706 参数、0.82% 错误率；224×224 图像切成 196 个 patch token |
-| [第七篇：Embedding 与表示学习](/embedding-and-representation-learning.html) | 离散 token 怎样变成可学习向量？Word2Vec 如何组织几何结构，为什么还需要上下文表示？ | embedding 是按 token id 查表；预测目标与上下文会塑造向量邻域，但静态词向量不随上下文变化 | GPT-2 small 输入表 38,597,376 参数、约占 31.0%；text8 截断语料词表 11,442，64 维 skip-gram |
+| [第七篇：Embedding 与表示学习](/embedding-and-representation-learning.html) | 离散 token 怎样变成可学习向量？Word2Vec 如何组织几何结构，为什么还需要上下文表示？ | embedding 是按 token id 查表；预测目标与上下文会塑造向量邻域，但静态词向量不随上下文变化 | GPT-2 small 输入表 38,597,376 参数、约占 31.0%；text8 全量 17,005,207 词、词表 71,290，100 维 skip-gram |
 | [第八篇：RNN](/rnn-lstm-and-the-birth-of-attention.html) | RNN 为什么记不住 20 步外的东西？遗忘门与残差什么关系？attention 为解决什么被发明、为什么取代了 RNN？ | BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处<br/>LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是时间上的残差，遗忘门偏置要初始化为 1<br/>attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要 | $$J_k = \text{diag}(1 - h_k^2) W$$<br/>20 步外千分之四、60 步外 $$10^{-10}$$<br/>RNN 10 步失败<br/>$$0.5^{20} \approx 10^{-6}$$、$$\sigma(1) = 0.73$$<br/>倒序 16 token 整句 0% → 76%<br/>attention 算力 4.5 倍<br/>$$O(T^2 d)$$ 对 $$O(T d^2)$$ |
 
 Table: 八篇的核心问题、结论与必记公式
@@ -59,7 +59,7 @@ Table: 八篇的核心问题、结论与必记公式
 | 四 | 四种优化器 × 五个学习率；64 层网络 warmup | 最优 lr 差 300 倍、成绩差不到半个点；1e-2 无 warmup 冲到 4.59 | Kingma & Ba 2014 Algorithm 1 |
 | 五 | 1,000 张图的过拟合；宽度扫描 | 测试 loss 0.40 → 0.55 而准确率不动；double descent 尖峰在宽度 8–16 | Srivastava 2014 dropout；Nakkiran 2019 |
 | 六 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82% | LeNet-5、AlexNet、VGG 表、ResNet 残差块 / bottleneck、ViT |
-| 七 | text8 截断语料上的 skip-gram negative sampling | 词表 11,442、64 维、1,500 步、CPU 5.6 秒 | Word2Vec / negative sampling |
+| 七 | 完整 text8 上的 skip-gram negative sampling | 17,005,207 词、71,290 词表、subsampling 后 5,597,324 词；100 维、3 epochs、CPU 310 秒 | Word2Vec / negative sampling |
 | 八 | 字符级 LSTM 写莎士比亚 | 与 nanoGPT 同预算 val 1.71 vs 1.66 | Graves 2013 展开 RNN / LSTM 细胞<br/>Sutskever 2014<br/>Bahdanau 2015 结构与对齐 |
 
 Table: 八个案例与原论文图一览
@@ -186,8 +186,8 @@ Table: 本文的章节安排
 **必记**：
 
 - GPT-2 small 的输入 embedding 表为 $$50{,}257\times768=38{,}597{,}376$$ 个参数，约占模型参数的 31.0%；输入与输出词表矩阵是否共享取决于具体模型。
-- text8 前 750,000 个词构成 11,442 词词表；64 维 skip-gram、窗口 ±2、5 个负样本训练 1,500 步，CPU 用时约 5.6 秒。
-- 报告训练前随机初始化与训练后近邻；类比计算排除原词，截断语料结果不一定得到 `queen`。二维 PCA 只是投影，不保留全部高维距离关系。
+- 完整 text8 共 17,005,207 词；`min_count=5` 后词表 71,290，频率抽样后保留 5,597,324 词；100 维 skip-gram、动态窗口 1–5、5 个负样本，3 epochs 共 6,153 步，CPU 310.0 秒。
+- computer 的五个近邻包括 computers、machines、computing、hardware、software；`king - man + woman` 排除输入词后得到 montferrat、widowed、matilda、daughter、eschiva，没有得到 `queen`。这是这一语料与训练设置下的结果，不代表普遍语义规律；二维 PCA 不保留全部高维距离关系。
 
 **常见误解**："Embedding 就是 one-hot 的压缩编码"——它是由训练目标更新的参数表，几何关系取决于上下文目标。"词向量里的 king − man + woman 必然等于 queen"——类比是训练语料、词频、训练目标与超参数共同造成的经验规律，不是代数恒等式。
 
@@ -544,7 +544,7 @@ Table: 掌握程度的判据
 
    <details markdown="1"><summary>答案</summary>
 
-   Word2Vec 为每个词保存一组固定向量，Transformer 的 token 表示还依赖当前上下文。类比结果取决于语料、词频、训练步数与目标；本案例使用截断 text8，只训练 1,500 步，排除原词后结果是 `reign` 而非 `queen`，是受限实验而非普遍规律。
+   Word2Vec 为每个词保存一组固定向量，Transformer 的 token 表示还依赖当前上下文。类比结果取决于语料、词频、训练步数与目标；本案例使用完整 text8 训练 3 epochs，排除原词后返回 montferrat 等词而非 `queen`，是特定实验结果而非普遍规律。
 
    </details>
 
@@ -574,5 +574,5 @@ Table: 掌握程度的判据
 
 
 [^q0]: 八个问题：怎样手推两层网络反向传播并说出 $$6ND$$ 与激活为什么要存；sigmoid、ReLU 与门控激活怎样改变梯度；初始化 / 归一化 / 残差各修连乘哪一环；Adam 的矩、warmup 与 batch scaling；参数比样本多时何时泛化、何时过拟合；卷积为何能用更少参数表达局部结构；token id 怎样成为静态或上下文表示；RNN 为什么记不住、attention 如何从 seq2seq 瓶颈中诞生。详见[第二章](#二逐篇回顾)。
-[^q1]: $$\partial L/\partial W = X^T G$$、$$6ND$$、$$8ND$$；sigmoid 导数上限 0.25、$$0.25^{10}\approx9.54\times10^{-7}$$、三 seed 的 20 层激活对照；GPT-2 small embedding 表 38,597,376 个参数、约占 31.0%，text8 词表 11,442；$$\text{Var}(y) = n_{in}\sigma_w^2\text{Var}(x)$$、Kaiming $$2/n_{in}$$、$$2^{-32}$$、$$0.9^{128} \approx 10^{-6}$$；残差 $$I + J$$、$$1/\sqrt{2L}$$；Adam 第一步 $$\eta \cdot \text{sign}(g)$$、$$\beta_2 = 0.95$$ 记 20 步、8 字节 / 参数；$$N/D$$ 0.0005 对 1600；ResNet-50 25.6M / 8.2 GFLOPs；BPTT 20 步千分之四、$$b_f = 1$$、倒序 0% → 76%。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: $$\partial L/\partial W = X^T G$$、$$6ND$$、$$8ND$$；sigmoid 导数上限 0.25、$$0.25^{10}\approx9.54\times10^{-7}$$、三 seed 的 20 层激活对照；GPT-2 small embedding 表 38,597,376 个参数、约占 31.0%，完整 text8 词表 71,290、向量维度 100；$$\text{Var}(y) = n_{in}\sigma_w^2\text{Var}(x)$$、Kaiming $$2/n_{in}$$、$$2^{-32}$$、$$0.9^{128} \approx 10^{-6}$$；残差 $$I + J$$、$$1/\sqrt{2L}$$；Adam 第一步 $$\eta \cdot \text{sign}(g)$$、$$\beta_2 = 0.95$$ 记 20 步、8 字节 / 参数；$$N/D$$ 0.0005 对 1600；ResNet-50 25.6M / 8.2 GFLOPs；BPTT 20 步千分之四、$$b_f = 1$$、倒序 0% → 76%。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；E 组用 4 题检查激活函数与 Embedding（每篇至少 1 题）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

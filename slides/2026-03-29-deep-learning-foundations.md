@@ -203,10 +203,10 @@ flowchart TB
 
 **结论**：one-hot 矩阵乘法等价于 embedding 表查一行；梯度只更新被访问的行。Word2Vec 从上下文预测目标或从目标预测上下文，使向量几何反映共现关系；Transformer 则让表示随上下文变化。
 
-![text8 截断语料训练后选定词向量在二维 PCA 平面上的投影](/img/in-post/embedding-word2vec.webp){: style="max-height: 380px"}
+![完整 text8 训练后选定的 100 维词向量在二维 PCA 平面上的投影](/img/in-post/embedding-word2vec.webp){: style="max-height: 380px"}
 
 <aside class="notes" markdown="1">
-原文 /embedding-and-representation-learning.html。text8 前 750,000 个词、词表 11,442、64 维、窗口 ±2、5 个负样本、1,500 步；CPU 5.6 秒。随机初始化近邻与训练后近邻并列，类比排除输入词，结果不宣称普遍语义规律。
+原文 /embedding-and-representation-learning.html。完整 text8 17,005,207 词，`min_count=5` 后词表 71,290；subsampling 后 5,597,324 词，100 维、动态窗口 1–5、5 个负样本、3 epochs、batch 16,384，共 6,153 步；CPU 310.0 秒。随机初始化近邻与训练后近邻并列，类比排除输入词，结果不宣称普遍语义规律。
 </aside>
 
 <!-- v -->
@@ -214,8 +214,8 @@ flowchart TB
 ### 参数账与实验读数
 
 - GPT-2 small 输入 embedding：50,257 × 768 = 38,597,376 个参数，占模型约 31.0%
-- 训练后 `king` 的近邻是 `ii / rd / iii`；`king - man + woman` 排除输入词后给出 `reign`，没有命中 `queen`
-- 这组结果是截断语料与短训练的演示；PCA 展示投影，不代表高维距离被完整保留
+- 训练后 `computer` 的近邻包括 `computers / machines / computing / hardware / software`；`king - man + woman` 排除输入词后没有命中 `queen`
+- 完整语料训练仍不保证每个类比都命中预期词；PCA 展示投影，不代表高维距离被完整保留
 
 ---
 

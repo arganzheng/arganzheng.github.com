@@ -13,7 +13,7 @@ series: deep-learning-foundations
 
 Embedding 把每个离散符号映射成一个可训练的稠密向量。模型再通过预测、重建或对比等目标，调整这些向量，让它们携带任务需要的信息。
 
-这篇先从 one-hot 与查表出发，再看 word2vec 怎样用上下文训练词向量，以及表示如何从“一个词一个向量”走向“一个 token 在当前句子里的向量”。最后用 text8 训练一个小型 skip-gram 模型。
+这篇先从 one-hot 与查表出发，再看 word2vec 怎样用上下文训练词向量，以及表示如何从“一个词一个向量”走向“一个 token 在当前句子里的向量”。最后用完整 text8 训练 skip-gram 模型。
 
 ### 1. 本文的章节安排
 
@@ -25,7 +25,7 @@ Embedding 把每个离散符号映射成一个可训练的稠密向量。模型�
 | 五 | 从静态到上下文 | 同一个词为什么能有不同表示？ |
 | 六 | 表示学习的监督信号 | 预测、重建、对比分别在学什么？ |
 | 七 | 工程取舍 | 词表大小、稀疏梯度与相似度检索有什么代价？ |
-| 八 | text8 案例 | 小规模 CPU 实验里，近邻和类比会怎样变化？ |
+| 八 | text8 案例 | CPU 训练后的近邻和类比会怎样变化？ |
 | 九–十 | 小结与自测 | 把整条链路收起来，再检查理解 |
 
 ### 2. 来龙去脉
@@ -46,7 +46,6 @@ Bengio 等人的 [神经概率语言模型](https://jmlr.org/papers/v3/bengio03a
 表示的另一条变化是：从“词表中每个词只有一行”，走到“每次出现的 token 都能根据上下文改变”。[ELMo](https://arxiv.org/abs/1802.05365) 用双向语言模型内部状态生成上下文表示；[GPT-2](https://arxiv.org/abs/1907.11692) 与 [BERT](https://arxiv.org/abs/1810.04805) 则把 Transformer 的隐藏状态用于上下文建模。
 
 ## 二、one-hot 与 embedding 表
-{: #embedding-table }
 {: #embedding-table }
 
 假设词表只有“猫、狗、跑”三个词。one-hot 用一个与词表等长的向量表示词 ID：
@@ -230,20 +229,24 @@ GPT-2 的配置来自 [Hugging Face 模型配置](https://huggingface.co/openai-
 
 ## 八、案例：在 text8 上训练 skip-gram
 
-实验从 Matt Mahoney 提供的 [text8 语料](http://mattmahoney.net/dc/text8.zip) 取前 750,000 个词，CPU 上训练一个 64 维 skip-gram + negative sampling 模型。脚本首次运行会下载并缓存压缩语料；训练用窗口半径 2、5 个负样本与 `SparseAdam`。
+实验使用 Matt Mahoney 提供的[完整 text8 语料](http://mattmahoney.net/dc/text8.zip)，共 17,005,207 个词。先按 `min_count=5` 得到 71,290 词词表，再按 Mikolov 等人的高频词抽样公式降低常见词的出现率：词频为 $$f$$、阈值 $$t=10^{-5}$$ 时，若 $$f>t$$，保留概率为 $$P_{\text{keep}}=(\sqrt{f/t}+1)t/f$$。抽样后保留 5,597,324 个词。
+
+训练使用 100 维稀疏 embedding、窗口半径随机取 1–5、每个正样本配 5 个按 $$P(w)\propto f(w)^{0.75}$$ 构造的 alias-table 负样本。批大小为 16,384，`SparseAdam` 学习率从 0.01 衰减到 0.002；对 33,594,601 个训练对完整遍历 3 个 epoch，共 6,153 次更新。脚本首次运行会下载并缓存语料；本次 CPU 运行耗时 310.0 秒。
 
 | 查询词 | 随机初始化的最近邻（余弦） | 训练后的最近邻（余弦） |
 |---|---|---|
-| king | taxation (.498)、pyramid (.453)、psychoactive (.425) | ii (.586)、rd (.574)、iii (.551) |
-| queen | emphasis (.455)、companion (.433)、americana (.421) | england (.526)、virgil (.519)、neptune (.516) |
-| computer | ladder (.520)、thrown (.444)、imperialism (.422) | atlas (.583)、please (.546)、rocky (.531) |
-| language | merrill (.431)、somali (.423)、remarked (.416) | asiatic (.574)、handwriting (.548)、simple (.528) |
+| king | irn (.410)、blaue (.392)、na (.384) | fortinbras (.672)、weds (.660)、montferrat (.646) |
+| queen | auvergne (.455)、specific (.394)、yucat (.370) | elizabeth (.736)、highness (.677)、lady (.650) |
+| computer | ambo (.393)、staged (.390)、soybeans (.383) | computers (.801)、machines (.725)、computing (.710)、hardware (.696)、software (.680) |
+| software | namibian (.471)、dysfunctional (.397)、niger (.389) | proprietary (.753)、macos (.751)、netbeans (.747) |
+| hardware | canucks (.413)、orchestrating (.400)、parse (.362) | cpu (.779)、firmware (.772)、chipsets (.757) |
+| language | tribune (.381)、trs (.377)、microcoded (.366) | languages (.810)、spoken (.717)、syntax (.714) |
 
-类比 $$\text{king}-\text{man}+\text{woman}$$ 在随机初始化时返回 chattanooga、taxation、giant；训练后返回 reign、ii、pneumonia。两次检索都排除了 king、man、woman。这个只取 75 万词前缀、训练 1,500 步的实验没有找到 queen；训练后的邻居也会混入专名与语料里的搭配。它展示的是共现统计怎样改变检索排序，不是高质量词典，也不是类比关系成立的证据。
+类比 $$\text{king}-\text{man}+\text{woman}$$ 在随机初始化时返回 fairclough、mindstorms、bius；训练后返回 montferrat、widowed、matilda、daughter、eschiva。检索时排除了 king、man、woman，训练后也没有得到 queen。computer、software、hardware 的近邻已出现同领域词，但 king 的近邻仍受 text8 中的专名与叙事搭配影响。这展示了共现统计怎样改变检索排序，不是高质量词典，也不是类比关系成立的证据。
 
-![text8 训练后选定词向量在二维 PCA 平面上的投影，标注 king、queen、man、woman、computer、language 等词](/img/in-post/embedding-word2vec.webp)
+![完整 text8 训练后选定的 100 维词向量在二维 PCA 平面上的投影，标注 king、queen、man、woman、computer、software、hardware 等词](/img/in-post/embedding-word2vec.webp)
 
-图中把训练后词向量投影到二维 PCA 平面。PCA 只保留方差最大的两个方向，所以点之间的二维距离不能替代原始 64 维空间里的相似度。
+图中把训练后的 100 维词向量投影到二维 PCA 平面。PCA 只保留方差最大的两个方向，所以点之间的二维距离不能替代原始空间里的相似度。
 
 配套脚本：[`case_embedding_word2vec.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_embedding_word2vec.py)。
 
