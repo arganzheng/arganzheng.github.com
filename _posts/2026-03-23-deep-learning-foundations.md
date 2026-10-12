@@ -93,6 +93,7 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；语�
 | 篇 | 主题 | 内容 |
 |---|---|---|
 | 第一篇 | 反向传播 | 手推两层网络，梯度的形状规则，反向 = 2 × 前向，激活为什么要存 |
+| 第 02 篇（新增） | [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html) | 从 sigmoid、tanh 到 ReLU、GELU、SiLU 与 SwiGLU；比较梯度、门控与计算代价 |
 | 第二篇 | 初始化、归一化与残差 | 方差怎么在层间传播，深网络为什么难训，残差与 Pre-Norm 怎么修 |
 | 第三篇 | 优化器 | 从 SGD 到 AdamW，学习率调度，梯度裁剪，batch 与学习率的 scaling |
 | 第四篇 | 正则化与泛化 | dropout、weight decay、早停；参数远多于样本时什么情况会过拟合、怎么办 |
@@ -137,6 +138,23 @@ Table: 贯穿六篇的三条线索
 > **不用框架，能不能手推并手写一个两层网络的反向传播，用有限差分验证到 $$10^{-6}$$？能不能由此说出为什么训练 FLOPs 是 $$6ND$$、为什么激活要存？[^q1]**
 
 实验：纯 NumPy 实现两层 MLP 的前向、反向与梯度检查；在 MNIST 规模的数据上训到 97% 以上；统计前向与反向的浮点运算次数，验证 2 倍关系。这份代码是后面各篇实验的基座。
+
+### 2. 激活函数：从 sigmoid 到 SwiGLU
+
+新增的第 02 篇[《深度学习基础（02）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)从“没有非线性时，深层 Linear 仍能折叠成一层”出发，沿 sigmoid / tanh、ReLU 及其修补、GELU / SiLU，走到 GLU 门控家族。
+
+这一篇会覆盖：
+
+- 饱和如何让 sigmoid 与 tanh 的梯度变小，ReLU 为什么梯度直通又可能死亡；
+- Leaky ReLU、PReLU、ELU、GELU、SiLU 的公式、导数与曲线；
+- GLU、ReGLU、GeGLU、SwiGLU 的门控结构，以及它对 FFN 矩阵数与宽度的影响；
+- 逐元素激活的访存代价、kernel fusion，以及同一深层 MNIST MLP 上的梯度和准确率对照。
+
+核心问题是：
+
+> **深层网络靠什么打破线性？从 sigmoid 到 SwiGLU，激活函数改变了梯度与 FFN 的哪些部分？**
+
+实验：固定 Kaiming-normal 初始化和 Adam，在同一 20 层 MLP 上比较六种激活函数的初始梯度、250 步后的测试准确率与 ReLU 死亡单元。
 
 ### 2. 训练为什么不稳定：初始化、归一化与残差
 

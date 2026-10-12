@@ -401,7 +401,7 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - **激活必须保存到反向**，因为 $$\partial L / \partial W$$ 需要该层的输入。激活显存与 batch × 序列长度 × 层数 × 宽度成正比、与参数量无关；gradient checkpointing 用一次额外前向换掉它。
 - 梯度检查用 **float64、中心差分、相对误差**，$$< 10^{-6}$$ 通过；训练前看初始 loss 是否接近 $$\ln C$$、能否过拟合一个小 batch。
 - Autograd 做的是录带、每个算子的 backward、saved tensors、`.grad` 累加；手写结果与它差 $$10^{-8}$$。
-- 下一篇把这个网络加深到 64 层，看梯度在层间传播时会发生什么。
+- 下一篇先看激活函数怎样改变反向传播中的导数：《[深度学习基础（02）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；再接着看深网络的初始化、归一化与残差。
 
 配套代码：[`deep-learning-foundations/01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)——本文的全部数字由它跑出（梯度检查、FLOPs、与 autograd 对齐、15 个 epoch 的训练），`--quick` 一分钟内跑完；第九章的训练曲线与错分样本由 [`case_01_mnist_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_mnist_mlp.py) 画出；三个扩展可以直接在上面改。
 

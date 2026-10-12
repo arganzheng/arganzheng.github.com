@@ -375,7 +375,7 @@ $$
 \text{FFN}(x) = \text{GELU}(x W_1 + b_1)\, W_2 + b_2, \qquad W_1 \in \mathbb{R}^{d \times 4d},\; W_2 \in \mathbb{R}^{4d \times d}
 $$
 
-先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（01）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
+先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（01）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配；公式与导数的完整对照见[《深度学习基础（02）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
 
 ### 2. 它在一层里占了三分之二
 

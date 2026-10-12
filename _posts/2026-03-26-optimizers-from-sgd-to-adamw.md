@@ -67,7 +67,7 @@ v ← β₂v + (1−β₂)g²
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | SGD 与它的噪声 | 无偏估计、方差与 1/B、线性 scaling 规则的推导与失效点；实测到 B=512 成立、2048 发散 |
+| 二 | SGD 与它的噪声 | 无偏估计、方差与 1/B、线性 scaling 规则、梯度累积与失效点；实测到 B=512 成立、2048 发散 |
 | 三 | Momentum | 指数移动平均、有效学习率放大 1/(1−β)、Nesterov |
 | 四 | Adam | 两个矩、偏差修正、第一步的更新量恰好是 η、β₂ 的记忆窗、ε、每参数 8 字节 |
 | 五 | AdamW 与 L2 的区别 | L2 被 1/√v 缩放、AdamW 不被<br/>实测同一 λ 下权重范数 2.3 vs 23.6<br/>LLM 里 weight decay 的平衡点含义 |
@@ -114,7 +114,29 @@ $$
 
 由此得到一个直接的推论。$$k$$ 步 batch 为 $$B$$、学习率 $$\eta$$ 的 SGD，总位移是 $$-\eta \sum_{j=1}^{k} g_{B}^{(j)}$$；一步 batch 为 $$kB$$、学习率 $$k\eta$$ 的 SGD，位移是 $$-k\eta\, g_{kB} = -\eta \sum_{j=1}^{k} g_{B}^{(j)}$$（把大 batch 拆成 $$k$$ 个小 batch）。**如果这 $$k$$ 步之内梯度基本不变**，两者走到同一个地方。这就是 Goyal 等 2017 的线性 scaling 规则：batch 乘 $$k$$，学习率乘 $$k$$，训练轨迹近似不变，而每个样本的计算量不变、步数少 $$k$$ 倍——这是大 batch 训练的全部动机。
 
-### 3. 规则在哪里失效
+### 3. 梯度累积：用小显存模拟大 batch
+
+有效全局 batch 是
+$$
+B_{\mathrm{global}}=B_{\mathrm{micro}}\times k\times R
+$$
+其中 $$k$$ 是累积步数，$$R$$ 是 data-parallel rank 数。单卡每次只处理一个 micro-batch，但把 $$k$$ 次梯度累加，再更新一次参数，就能模拟更大的 batch。
+
+每个 micro-batch 的平均 loss 要除以 $$k$$，这样累积后的梯度才等于这 $$k$$ 个 micro-batch 的平均梯度。以下代码假设各 micro-batch 等大，且 loader 的 micro-batch 数能被 $$k$$ 整除；DDP 对 rank 间梯度做平均时，每个 rank 使用相同的除法：
+
+```python
+optimizer.zero_grad(set_to_none=True)
+for micro_step, (inputs, targets) in enumerate(loader):
+    loss = criterion(model(inputs), targets) / accum_steps
+    loss.backward()
+    if (micro_step + 1) % accum_steps == 0:
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+```
+
+它用更多前向 / 反向调用换更低的峰值激活显存；激活显存随 micro-batch 大小增长，参数与优化器状态不变。BatchNorm 的均值、方差仍按每个 micro-batch 单独统计，因此不等价于一次性的大 batch；LayerNorm 与 RMSNorm 在样本 / token 内归一化，不受跨 micro-batch 统计差异影响。
+
+### 4. 规则在哪里失效
 
 "梯度在 $$k$$ 步内基本不变"在 $$k\eta$$ 大到一定程度后不成立：学习率超过 loss 曲面曲率允许的上限（对二次函数是 $$2/\lambda_{max}$$），一步就跨过最优点，发散。第九章的实验：SGD、$$\eta = 0.05 \times B / 32$$、固定 4 个 epoch 的样本预算，$$B = 32, 128, 512$$ 三组的最终 loss 是 0.049、0.048、0.054，准确率都在 96.1% 左右——规则成立；$$B = 2048$$（$$\eta = 3.2$$）第 32 步 NaN，$$B = 8192$$ 第 15 步 NaN——规则失效。存在一个**临界 batch**（McCandlish 等 2018），低于它加 batch 几乎免费，高于它加 batch 只是浪费样本。它由梯度噪声的尺度决定，训练过程中随 loss 下降而增大——这是 LLM 预训练用"batch 逐步增大"的 warmup 策略的依据。
 
