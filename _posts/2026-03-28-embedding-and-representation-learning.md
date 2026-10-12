@@ -28,6 +28,8 @@ Embedding 把每个离散符号映射成一个可训练的稠密向量。模型�
 | 八 | text8 案例 | CPU 训练后的近邻和类比会怎样变化？ |
 | 九–十 | 小结与自测 | 把整条链路收起来，再检查理解 |
 
+Table: Embedding 系列各章的主题与问题
+
 ### 2. 来龙去脉
 
 | 时间 | 想法 | 变化 |
@@ -38,6 +40,8 @@ Embedding 把每个离散符号映射成一个可训练的稠密向量。模型�
 | 2014 | GloVe | 把全局词共现统计纳入向量学习 |
 | 2017 | fastText | 把字符 n-gram 纳入词表示，改善罕见词与形态变化 |
 | 2018–2019 | ELMo、GPT 与 BERT | 表示开始由整句上下文决定，不再是词表里固定的一行 |
+
+Table: 词分布思想与表示学习方法的演进
 
 Harris 在 [《Distributional Structure》](https://doi.org/10.1080/00437956.1954.11659520) 中研究词项的分布环境；Firth 在 [《A synopsis of linguistic theory 1930–1955》](https://languagelog.ldc.upenn.edu/myl/Firth1957.pdf) 中写下常被引用的“知道一个词，要看它与哪些词为伴”。这是一条从统计共现到神经网络表示的线索，不表示后来所有 embedding 都采用同一种目标函数。
 
@@ -55,6 +59,8 @@ Bengio 等人的 [神经概率语言模型](https://jmlr.org/papers/v3/bengio03a
 | 猫 | $$[1,0,0]$$ |
 | 狗 | $$[0,1,0]$$ |
 | 跑 | $$[0,0,1]$$ |
+
+Table: 三词词表的 one-hot 编码示例
 
 向量维度等于词表大小 $$V$$。任意两个不同词的内积都是 0，表示本身不提供“猫比跑更像狗”这样的相似度。
 
@@ -122,6 +128,8 @@ Word2Vec 的两个常见目标只是在输入、预测方向上不同：
 |---|---|---|
 | skip-gram | 中心词 | 窗口内的上下文词 |
 | CBOW | 上下文词向量的平均 | 中心词 |
+
+Table: Skip-gram 与 CBOW 的输入和预测目标
 
 以句子“猫 追着 球 跑”为例，窗口半径为 1 时，skip-gram 会从“追着”预测“猫”和“球”；CBOW 则把“猫”和“球”的向量合起来，预测“追着”。[Word2Vec 原论文](https://arxiv.org/abs/1301.3781) 讨论了这两种架构。
 
@@ -221,6 +229,8 @@ $$
 | GPT-2 small | $$50{,}257\times768$$ | 38.6M | 124M | 31.0% |
 | Llama 3 8B | $$128{,}256\times4{,}096$$ | 525.3M | 8.03B | 6.5% |
 
+Table: GPT-2 与 Llama 3 的 embedding 参数规模
+
 GPT-2 的配置来自 [Hugging Face 模型配置](https://huggingface.co/openai-community/gpt2/blob/main/config.json)。Llama 3 8B 的模型设置见 [Meta 技术报告](https://arxiv.org/abs/2407.21783) 与 [官方 Hugging Face 配置](https://huggingface.co/meta-llama/Meta-Llama-3-8B/blob/main/config.json)，架构定义见 [Meta 官方实现](https://github.com/meta-llama/llama3/blob/main/llama/model.py)。按该配置的层数、注意力与 FFN 矩阵形状合计约 8.03B 参数；官方实现将输入 embedding 与输出投影分别定义，因此输出词表矩阵还占约 6.5%。
 
 词频差异也会影响更新频率：高频词的行每一步都可能更新，罕见词则很少被访问。PyTorch 的 `nn.Embedding(sparse=True)` 能产生稀疏梯度，但标准 AdamW 不接受这种稀疏梯度；`SparseAdam` 等稀疏优化器只处理出现的行。反过来，用普通稠密 AdamW 时，梯度以及一阶、二阶状态都按整张表分配，状态内存随 $$Vd$$ 增长。
@@ -241,6 +251,8 @@ GPT-2 的配置来自 [Hugging Face 模型配置](https://huggingface.co/openai-
 | software | namibian (.471)、dysfunctional (.397)、niger (.389) | proprietary (.753)、macos (.751)、netbeans (.747) |
 | hardware | canucks (.413)、orchestrating (.400)、parse (.362) | cpu (.779)、firmware (.772)、chipsets (.757) |
 | language | tribune (.381)、trs (.377)、microcoded (.366) | languages (.810)、spoken (.717)、syntax (.714) |
+
+Table: text8 词向量训练前后的近邻变化
 
 类比 $$\text{king}-\text{man}+\text{woman}$$ 在随机初始化时返回 fairclough、mindstorms、bius；训练后返回 montferrat、widowed、matilda、daughter、eschiva。检索时排除了 king、man、woman，训练后也没有得到 queen。computer、software、hardware 的近邻已出现同领域词，但 king 的近邻仍受 text8 中的专名与叙事搭配影响。这展示了共现统计怎样改变检索排序，不是高质量词典，也不是类比关系成立的证据。
 
