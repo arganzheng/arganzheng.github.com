@@ -100,7 +100,7 @@ flowchart TB
     L2["`**L2 经典机器学习**
 10 篇 ≈ 4h`"]
     L3["`**L3 深度学习基础**
-6 篇 ≈ 3h`"]
+8 篇 ≈ 3h`"]
     L4["`**L4 LLM 核心**
 04 Transformer 原理与实现 4 篇 ≈ 6h（共享）
 05 现代 LLM 结构 10 篇 ≈ 12h（共享）
@@ -139,7 +139,7 @@ flowchart TB
 | L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
 | L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2.5h（+ 14h + 15h） |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
-| L3 | 深度学习基础 | 梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？ | [系列（6 篇）](/deep-learning-foundations.html) | 3h |
+| L3 | 深度学习基础 | 梯度怎么流？激活怎样改变梯度？为什么深了就难训？卷积、表示学习与循环各留下什么？ | [系列（8 篇）](/deep-learning-foundations.html) | 3h |
 | L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [Transformer 原理与实现（4 篇）](/transformer-and-llm-structure-implementation-and-evolution.html) + [现代 LLM 结构（10 篇）](/llm-architecture-evolution-roadmap-from-gpt2.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 6h + 12h + 5h |
 | L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
@@ -227,18 +227,20 @@ Table: L2 机器学习基础的主题与 LLM 时代的必要性
 
 ### L3 深度学习基础
 
-> **梯度怎么流？为什么深了就难训？CNN 与 RNN 各解决了什么、留下了什么？[^q4]**
+> **梯度怎么流？激活怎样改变梯度？为什么深了就难训？卷积、表示学习与循环各留下什么？[^q4]**
 
-系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（六篇）——反向传播 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · RNN 到 attention。每篇推导 + 算账 + 一个 CPU 上能跑的实验，外加来龙去脉、一个案例（MNIST 从零、64 层 MLP、优化器扫描、double descent、复现 LeNet-5、字符级 LSTM 写莎士比亚）和原论文的结构图。
+系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（八篇正文）——反向传播 · 激活函数 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · Embedding 与表示学习 · RNN 到 attention。案例依次是 MNIST 手推 MLP、20 层 MLP 激活对照、64 层稳定性、优化器与梯度累积、double descent、LeNet、text8 Word2Vec、字符级 LSTM；每篇都配推导、算账、CPU 实验与原论文结构图。
 
 | 主题 | 概念 | 说明 | 在哪一篇 |
 |---|---|---|---|
-| 基本单元 | 感知机、MLP、激活函数（ReLU、GELU、SiLU / Swish）、前向传播、反向传播 | 反向传播要能手推一个两层网络；这是理解一切训练现象的前提 | [第一篇](/backpropagation-by-hand.html) |
-| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第二](/initialization-normalization-and-residual.html)、[四篇](/regularization-and-generalization.html) |
-| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；warmup 是训练稳定性的第一道防线 | [第三篇](/optimizers-from-sgd-to-adamw.html) |
-| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第二篇 |
-| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第五篇](/cnn-from-lenet-to-resnet-and-vit.html) |
-| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第六篇](/rnn-lstm-and-the-birth-of-attention.html) |
+| 基本单元 | 感知机、MLP、前向传播、反向传播 | 反向传播要能手推一个两层网络；这是理解一切训练现象的前提 | [第一篇](/backpropagation-by-hand.html) |
+| 激活函数 | sigmoid、tanh、ReLU、GELU、SiLU、GLU 家族；导数、饱和、稀疏与门控 | 非线性让层叠网络不再等价于一个线性层；激活导数也会改变深层梯度 | [第二篇](/activation-functions-from-sigmoid-to-swiglu.html) |
+| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第三篇](/initialization-normalization-and-residual.html)、[第五篇](/regularization-and-generalization.html) |
+| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；梯度累积以时间换显存，warmup 是训练稳定性的第一道防线 | [第四篇](/optimizers-from-sgd-to-adamw.html) |
+| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第三篇 |
+| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第六篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| 表示学习 | one-hot、Embedding 查表、skip-gram / CBOW、negative sampling、静态与上下文表示 | GPT-2 small 的输入 embedding 表有 38.6M 参数、约占模型参数 31%；text8 案例演示词向量怎样从上下文学习 | [第七篇](/embedding-and-representation-learning.html) |
+| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第八篇](/rnn-lstm-and-the-birth-of-attention.html) |
 | 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲<br/>本层只关心它们对训练稳定性的影响<br/>原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 
 Table: L3 深度学习基础的主题与概念
@@ -404,7 +406,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L1 | `algorithm-tooling/` | numpy、torch（CPU）、pandas、matplotlib；HF 一篇需 transformers / peft / trl 与 Qwen2.5-0.5B |
 | L1 深入 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
 | L2 | `classical-ml/` | numpy、scikit-learn、matplotlib（第七、八篇的句向量用本地缓存的 Qwen2.5-0.5B） |
-| L3 | `deep-learning-foundations/` | NumPy；CNN / RNN 两篇需 PyTorch（CPU） |
+| L3 | `deep-learning-foundations/` | NumPy、PyTorch（CPU）；八篇案例脚本均可本机运行 |
 | L4 | `transformer-and-llm/` 与 `modern-llm-architecture/` | Transformer 原理与实现系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训；现代 LLM 结构系列的参数量与成本表脚本、MTP 实验<br/>预训练系列的实验<br/>纯 Python + PyTorch |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
 | L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl<br/>本地缓存的 Qwen2.5-0.5B 与 `no_robots`<br/>CPU 可跑 |

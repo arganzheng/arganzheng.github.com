@@ -1,12 +1,12 @@
 ---
 layout: slides
 title: "深度学习基础：从反向传播到残差"
-subtitle: "系列精华 · 六篇正文每篇一页，按 ↓ 看实验与原论文图"
+subtitle: "系列精华 · 八篇正文每篇一页，按 ↓ 看实验与原论文图"
 permalink: /slides/deep-learning-foundations.html
 series: deep-learning-foundations
 date: 2026-03-29 23:30:00 +0800
 author: arganzheng
-description: "《深度学习基础》系列的分享用幻灯片：一条连乘链——反向传播写出它、初始化 / 归一化 / 残差修好它、优化器定步长、正则化看泛化，再在 CNN 与 RNN 上各看一遍；每篇一个 CPU 上几分钟能复现的实验。"
+description: "《深度学习基础》系列的分享用幻灯片：一条连乘链——反向传播写出它、激活改变梯度、初始化 / 归一化 / 残差修好它、优化器定步长、正则化看泛化，再在 CNN、Embedding 与 RNN 上看结构演进；每篇一个 CPU 实验。"
 theme: white
 transition: slide
 ---
@@ -16,8 +16,8 @@ transition: slide
 > 深网络训练里的每个现象，能不能**推到公式、代到数字、用几十行代码复现**，然后在 LLM 里认出它的形态？
 
 - 主线是**一条连乘链**：前向的方差每层乘一个因子、反向的梯度是一串 Jacobian 的乘积——因子偏离 1 就指数放大或消失
-- 01 写出这串乘积 → 02 它怎么坏、三样东西各修哪一环 → 03 步长怎么定 → 04 挑出的解为什么泛化 → 05 / 06 在卷积与循环上再看一遍
-- 六篇用同一份几百行的 NumPy 小框架，全部实验笔记本 CPU 几分钟跑完
+- 01 写出这串乘积 → 02 激活改变梯度 → 03 它怎么坏、三样东西各修哪一环 → 04 步长怎么定 → 05 挑出的解为什么泛化 → 06–08 在卷积、表示与循环上看结构演进
+- 八篇用同一份几百行的 NumPy 小框架和配套脚本，实验可在笔记本 CPU 上复现
 
 <aside class="notes" markdown="1">
 总纲：/deep-learning-foundations.html。ResNet 的退化问题与 RNN 的 BPTT 衰减是同一条链的两个历史形态，残差与 LSTM 的遗忘门是同一个修法。
@@ -30,13 +30,15 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    D1["01 反向传播<br/>写出那串 Jacobian 的乘积"] --> D2["02 训练为什么不稳定<br/>初始化 / 归一化 / 残差各修哪一环"]
-    D2 --> D3["03 优化器<br/>拿到稳定的梯度后步长怎么定"]
-    D3 --> D4["04 正则化与泛化<br/>挑出的解为什么泛化、何时不再"]
-    D2 --> D5["05 CNN<br/>ResNet 的退化问题 = 连乘的历史形态一"]
-    D2 --> D6["06 RNN<br/>BPTT 衰减 = 历史形态二；LSTM 遗忘门 ≈ 残差"]
-    D6 -. "seq2seq 瓶颈 → attention 诞生" .-> T["→ L4 Transformer"]
-    D5 -. "patch → token（ViT）" .-> T
+    D1["01 反向传播<br/>写出那串 Jacobian 的乘积"] --> D2["02 激活函数<br/>非线性改变梯度与 FFN"]
+    D2 --> D3["03 初始化 / 归一化 / 残差<br/>稳定深层训练"]
+    D3 --> D4["04 优化器<br/>拿到稳定的梯度后步长怎么定"]
+    D4 --> D5["05 正则化与泛化<br/>挑出的解为什么泛化、何时不再"]
+    D3 --> D6["06 CNN<br/>ResNet 的退化问题 = 连乘的历史形态一"]
+    D6 --> D7["07 Embedding<br/>离散 token → 可学习向量"]
+    D7 --> D8["08 RNN<br/>BPTT 衰减；LSTM 遗忘门 ≈ 残差"]
+    D8 -. "seq2seq 瓶颈 → attention 诞生" .-> T["→ L4 Transformer"]
+    D6 -. "patch → token（ViT）" .-> T
 ```
 
 ---
@@ -66,7 +68,28 @@ flowchart TB
 
 ---
 
-## 02 · 训练为什么不稳定：初始化、归一化与残差
+## 02 · 激活函数：从 sigmoid 到 SwiGLU
+
+**结论**：没有非线性，多层 Linear 仍可折叠成一层；激活的导数决定梯度能否穿过深层，门控激活则增加一个按输入选择信息的分支。小规模 MNIST 实验里，sigmoid 梯度在 20 层后消失并停在机会水平，其他五种激活均能训练。
+
+![sigmoid、tanh、ReLU、LeakyReLU、GELU、SiLU 六种激活函数与导数：每格一组，实线为函数、虚线为导数，共用坐标轴](/img/in-post/activation-functions.webp){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文 /activation-functions-from-sigmoid-to-swiglu.html。20 层 MLP、250 步、三个 seed：sigmoid 10.64% [10.28, 11.35]，tanh 90.48% [89.84, 91.20]，ReLU 91.88% [91.16, 92.49]，LeakyReLU 92.02% [91.89, 92.15]，GELU 92.22% [91.87, 92.48]，SiLU 92.88% [92.63, 93.02]。
+</aside>
+
+<!-- v -->
+
+### ReLU 到 SwiGLU
+
+- sigmoid：导数最大 0.25，重复相乘；$$0.25^{10}\approx 9.54\times10^{-7}$$
+- ReLU：正半轴梯度为 1，但实验中约 12.26% 的隐藏单元对测试样本恒为 0
+- GELU / SiLU：平滑门控；GPT-2 使用 `gelu_new`
+- SwiGLU：三矩阵门控 FFN；Llama、PaLM 等采用
+
+---
+
+## 03 · 训练为什么不稳定：初始化、归一化与残差
 
 **结论**：深网络的稳定性是连乘问题；初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路；**三样必须同用，Pre-Norm 是当前摆法**。
 
@@ -95,7 +118,7 @@ flowchart TB
 
 ---
 
-## 03 · 优化器：从 SGD 到 AdamW 与学习率调度
+## 04 · 优化器：从 SGD 到 AdamW 与学习率调度
 
 **结论**：Adam 让每个参数的步长 $$\approx \eta$$、与梯度大小无关——所以第一步是满步长 $$\eta \cdot \text{sign}(g)$$、**必须 warmup**；$$L_2$$ 被 $$1/\sqrt v$$ 缩放而 AdamW 不被；线性 scaling 只在临界 batch 内成立。
 
@@ -125,7 +148,7 @@ flowchart TB
 
 ---
 
-## 04 · 正则化与泛化：为什么参数比样本多却不过拟合
+## 05 · 正则化与泛化：为什么参数比样本多却不过拟合
 
 **结论**：先算参数 / 数据比定体制；过参数化时优化器挑最小范数、平坦、先学简单的解——**隐式正则化**；double descent 越过插值阈值再变好；预训练在数据体制里不用 dropout、一个 epoch。
 
@@ -146,7 +169,7 @@ flowchart TB
 
 ---
 
-## 05 · CNN：从 LeNet 到 ResNet，再到 ViT
+## 06 · CNN：从 LeNet 到 ResNet，再到 ViT
 
 **结论**：卷积 = 全连接 + **局部性 + 参数共享**两条约束；深度是为了感受野，深了就训不动——BN 修前向、残差修反向；数据够多时约束成负担，ViT 把图切成 token，只留下 patch embedding 这一个 stride 卷积。
 
@@ -176,14 +199,34 @@ flowchart TB
 
 ---
 
-## 06 · RNN：从 LSTM 到 attention 的诞生
+## 07 · Embedding 与表示学习：从 one-hot 到上下文表示
+
+**结论**：one-hot 矩阵乘法等价于 embedding 表查一行；梯度只更新被访问的行。Word2Vec 从上下文预测目标或从目标预测上下文，使向量几何反映共现关系；Transformer 则让表示随上下文变化。
+
+![text8 截断语料训练后选定词向量在二维 PCA 平面上的投影](/img/in-post/embedding-word2vec.webp){: style="max-height: 380px"}
+
+<aside class="notes" markdown="1">
+原文 /embedding-and-representation-learning.html。text8 前 750,000 个词、词表 11,442、64 维、窗口 ±2、5 个负样本、1,500 步；CPU 5.6 秒。随机初始化近邻与训练后近邻并列，类比排除输入词，结果不宣称普遍语义规律。
+</aside>
+
+<!-- v -->
+
+### 参数账与实验读数
+
+- GPT-2 small 输入 embedding：50,257 × 768 = 38,597,376 个参数，占模型约 31.0%
+- 训练后 `king` 的近邻是 `ii / rd / iii`；`king - man + woman` 排除输入词后给出 `reign`，没有命中 `queen`
+- 这组结果是截断语料与短训练的演示；PCA 展示投影，不代表高维距离被完整保留
+
+---
+
+## 08 · RNN：从 LSTM 到 attention 的诞生
 
 **结论**：BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处；LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是**时间上的残差**，遗忘门偏置要初始化为 1；attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要。
 
 ![Graves 2013 图 2：LSTM 记忆细胞——输入门写入、遗忘门自环保持、输出门读出。图片版权归原作者，教学评述引用](/img/in-post/dl-paper-graves-fig2.webp){: style="max-height: 380px"}
 
 <aside class="notes" markdown="1">
-原文 /rnn-lstm-and-the-birth-of-attention.html。J_k = diag(1 − h_k²) W；20 步外梯度千分之四、60 步外 1e-10。
+原文 /rnn-lstm-and-the-birth-of-attention.html。$$J_k = \text{diag}(1-h_k^2)W$$；20 步外梯度千分之四、60 步外 $$10^{-10}$$。
 </aside>
 
 <!-- v -->
@@ -210,16 +253,16 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 flowchart TB
-    CHAIN["梯度 = Jacobian 连乘（01、02）"] --> VAN["因子偏离 1 → 指数消失 / 爆炸（02、05、06）"]
+    CHAIN["梯度 = Jacobian 连乘（01、03）"] --> VAN["因子偏离 1 → 指数消失 / 爆炸（03、06、08）"]
     VAN --> INIT["初始化：t = 0 时因子期望为 1"]
     VAN --> NORM["归一化：前向方差拉回 1"]
     VAN --> RES["残差：I + J 的恒等通路"]
     RES --> GROW["残差流方差增长 → 归一化 + 1/√(2L)"]
-    RES --> LSTM["LSTM 遗忘门 = 时间上的残差（06）"]
-    RES --> PRE["Pre-Norm / ResNet-v2（02、05）"]
+    RES --> LSTM["LSTM 遗忘门 = 时间上的残差（08）"]
+    RES --> PRE["Pre-Norm / ResNet-v2（03、06）"]
     NORM --> SCALE["尺度不变性 → 有效学习率由范数决定"]
-    SCALE --> WD["AdamW weight decay = 范数平衡点（03、04）"]
-    ADAM["Adam 步长 ≈ η（03）"] --> WARM["warmup、β₂ = 0.95、η ∝ 1/n_in"]
+    SCALE --> WD["AdamW weight decay = 范数平衡点（04、05）"]
+    ADAM["Adam 步长 ≈ η（04）"] --> WARM["warmup、β₂ = 0.95、η ∝ 1/n_in"]
 ```
 
 ---
@@ -233,6 +276,7 @@ flowchart TB
 - 参数比样本多就会过拟合——407 倍的网络测试 loss 最好；别停在插值阈值
 - 验证准确率没掉就没过拟合——loss 涨而准确率不变是过度自信
 - ViT 完全不用卷积——patch embedding 就是 stride 卷积
+- Embedding 是 one-hot 的另一个名字——它是按 token id 查表得到的可学习向量
 - RNN 记不住远处是隐状态太小——是训练信号传不到
 {: .fragments}
 
@@ -241,7 +285,7 @@ flowchart TB
 ## 下一步
 
 - **原文**：总纲 [/deep-learning-foundations.html](/deep-learning-foundations.html) · 总结与通关自测 [/deep-learning-foundations-series-recap-and-self-test.html](/deep-learning-foundations-series-recap-and-self-test.html)
-- **配套代码**：[ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)——几百行 NumPy 小框架、64 层七种接法、优化器扫描、double descent、LeNet-5 复现、字符级 LSTM
+- **配套代码**：[ai-learning-labs/deep-learning-foundations](https://github.com/arganzheng/ai-learning-labs/tree/main/deep-learning-foundations)——NumPy 小框架、激活函数对照、64 层七种接法、优化器扫描、double descent、LeNet-5、text8 Word2Vec、字符级 LSTM
 - **往后读**：L4 [Transformer 原理与实现](/transformer-and-llm-structure-implementation-and-evolution.html)与[现代 LLM 结构](/llm-architecture-evolution-roadmap-from-gpt2.html)——前者接 GPT-2 的结构与实现，后者接今天的结构改动与成本
 
 <aside class="notes" markdown="1">
