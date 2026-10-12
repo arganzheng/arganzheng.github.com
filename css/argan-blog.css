@@ -8386,6 +8386,7 @@ body.bare {
   color: #00788f;
 }
 .mp-editor {
+  position: relative;
   border: 1px solid #e4e9ee;
   border-radius: 12px;
   padding: 12px 14px 10px;
@@ -8397,6 +8398,23 @@ body.bare {
   resize: none;
   line-height: 1.7;
   font-size: 16px;
+}
+.mp-editor.is-dropping::after {
+  content: '松手添加图片或视频';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #00788f;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #00788f;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
 }
 .mp-pics {
   position: relative;
@@ -9158,6 +9176,11 @@ html[data-theme="dark"] footer {
 }
 html[data-theme="dark"] .mp .mp-actions .mp-clear {
   color: #969ba4;
+}
+html[data-theme="dark"] .mp .mp-editor.is-dropping::after {
+  background: rgba(31, 33, 37, 0.9);
+  border-color: #4cb7cb;
+  color: #4cb7cb;
 }
 html[data-theme="dark"] footer .copyright,
 html[data-theme="dark"] footer .list-inline a {

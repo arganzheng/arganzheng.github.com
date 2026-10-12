@@ -305,7 +305,8 @@
       return addVideo(list[0]);
     }
     if (video) { setMsg('已经有视频了，不能再加图片', true); return Promise.resolve(); }
-    if (images.length + list.length > MAX_PICS) { setMsg('最多 ' + MAX_PICS + ' 张图', true); list = list.slice(0, MAX_PICS - images.length); }
+    var limitMessage = '';
+    if (images.length + list.length > MAX_PICS) { limitMessage = '最多 ' + MAX_PICS + ' 张图'; setMsg(limitMessage, true); list = list.slice(0, MAX_PICS - images.length); }
     if (!list.length) return Promise.resolve();
     busy = true; updateSubmit(); setMsg('处理图片…');
     var chain = Promise.resolve();
@@ -314,13 +315,70 @@
         images.push({ blob: b, url: URL.createObjectURL(b) }); renderPics(); renderPreview();
       }).catch(function (e) { setMsg(e.message, true); });
     });
-    return chain.then(function () { busy = false; setMsg(''); persistPictures(); renderPics(); renderPreview(); updateSubmit(); });
+    return chain.then(function () { busy = false; setMsg(limitMessage, !!limitMessage); persistPictures(); renderPics(); renderPreview(); updateSubmit(); });
   }
   file.addEventListener('change', function () {
     var list = Array.prototype.slice.call(file.files || []);
     file.value = '';
     addFiles(list);
   });
+  function mediaFiles(list) {
+    return Array.prototype.slice.call(list || []).filter(function (f) { return /^image\//.test(f.type) || isVideo(f); });
+  }
+  function canAddMedia() { return !editor.hidden && !file.disabled; }
+  function isFileDrag(e) {
+    var types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.prototype.indexOf.call(types, 'Files') !== -1;
+  }
+  var fileDragDepth = 0;
+  function clearFileDrop() {
+    fileDragDepth = 0;
+    editor.classList.remove('is-dropping');
+  }
+  document.addEventListener('paste', function (e) {
+    if (!canAddMedia() || !e.clipboardData) return;
+    var files = Array.prototype.slice.call(e.clipboardData.files || []);
+    if (!files.length) {
+      Array.prototype.forEach.call(e.clipboardData.items || [], function (item) {
+        if (item.kind === 'file') {
+          var f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      });
+    }
+    files = mediaFiles(files);
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+  });
+  document.addEventListener('dragenter', function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    fileDragDepth += 1;
+    e.dataTransfer.dropEffect = canAddMedia() ? 'copy' : 'none';
+    editor.classList.toggle('is-dropping', canAddMedia());
+  });
+  document.addEventListener('dragover', function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = canAddMedia() ? 'copy' : 'none';
+    editor.classList.toggle('is-dropping', canAddMedia());
+  });
+  document.addEventListener('dragleave', function (e) {
+    if (!isFileDrag(e)) return;
+    fileDragDepth = Math.max(0, fileDragDepth - 1);
+    if (!fileDragDepth) editor.classList.remove('is-dropping');
+  });
+  document.addEventListener('drop', function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    clearFileDrop();
+    if (!canAddMedia()) return;
+    var dropped = Array.prototype.slice.call(e.dataTransfer.files || []), files = mediaFiles(dropped);
+    if (!files.length && dropped.length) setMsg('只能添加图片或视频', true);
+    else addFiles(files);
+  });
+  document.addEventListener('dragend', clearFileDrop);
   function importShare() {
     if (!new URLSearchParams(location.search).has('shared')) return Promise.resolve();
     return dbAction('moments-share', 'share', 'readwrite', 'get', 'latest').then(function (shared) {
