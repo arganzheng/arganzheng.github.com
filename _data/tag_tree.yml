@@ -27,6 +27,7 @@ similar:
 distinct:
   - [LoRA, QLoRA]
   - [Tokenizer, tokenizers]
+  - [Transformer, transformers]
 
 tree:
   - name: AI
@@ -75,7 +76,7 @@ tree:
           - name: Evaluation
             tags: [LLM-as-a-Judge, Eval Set, Benchmark, A/B Testing, Data Flywheel, Feedback, Analytics]
           - name: 生产与治理
-            tags: [Production, Gateway, LiteLLM, Cost, FinOps, Latency, Reliability, Tracing, OpenTelemetry, Metrics, SLO, Release, Governance, Compliance, EU AI Act, Guardrails, Prompt Injection, OWASP, Trust, Streaming, Real-time]
+            tags: [Production, Gateway, LiteLLM, Cost, FinOps, Latency, Reliability, SRE, Tracing, OpenTelemetry, Metrics, SLO, Release, Governance, Compliance, EU AI Act, Guardrails, Prompt Injection, OWASP, Trust, Streaming, Real-time]
           - name: Product
             tags: [UX, Generative UI, Scenario Selection]
           - name: 物理世界
@@ -85,7 +86,7 @@ tree:
       - name: Java
         tags: [JVM, classloader, spring, Spring MVC, spring-security, aop, cglib, proxy, maven, ant, junit, TDD, log4j, tomcat, quartz, groovy, BTrace, NIO, Mina, Thread Pool, Concurrency]
       - name: 架构
-        tags: [architecture, 分布式, 微服务, rpc, Thrift, Protobuf, 序列化, 高并发, 高可用, 过载保护, Rate Limiting, 消息队列, kafka, zookeeper, 分布式锁, 缓存, 开放平台, API, uuid, 设计模式, 性能优化]
+        tags: [architecture, 网络编程, 分布式, 微服务, rpc, Thrift, Protobuf, 序列化, 高并发, 高可用, 过载保护, Rate Limiting, 消息队列, kafka, zookeeper, 分布式锁, 缓存, 开放平台, API, uuid, 设计模式, 性能优化]
       - name: Web
         tags: [HTTP, nginx, JavaScript, crawler, chrome-headless, puppeteer, DNS, 安全, 移动互联网, 埋点, 广告, 搜索]
   - name: 数据与存储
@@ -96,7 +97,7 @@ tree:
         tags: [neo4j, Titan]
       - name: elasticsearch
       - name: 大数据
-        tags: [hadoop, spark, RDD, shuffle, data skew, cluster]
+        tags: [hadoop, spark, RDD, shuffle, data skew, cluster, Data Pipeline]
   - name: 系统与工程
     children:
       - name: 运维

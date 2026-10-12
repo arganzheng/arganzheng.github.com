@@ -145,8 +145,7 @@ module TagTree
         post.data['published'] != false &&
           post.data['visibility'] != 'private' &&
           post.date &&
-          !Array(post.data['tags']).empty? &&
-          post.date <= site.time
+          !Array(post.data['tags']).empty?
       end
       posts.sort_by! { |post| [-post.date.to_f, post.url.to_s] }
 
