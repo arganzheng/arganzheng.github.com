@@ -10588,6 +10588,15 @@ html[data-theme="sepia"] .page-header .title {
 html[data-theme="sepia"] .page-header .subtitle {
   color: #7a6c58;
 }
+html[data-theme="sepia"] .reading-position-prompt {
+  background-color: #e7dabd;
+  border-color: #dccfb2;
+  color: #3b3124;
+  box-shadow: 0 4px 16px rgba(244, 236, 216, 0.7);
+}
+html[data-theme="sepia"] .reading-position-prompt .reading-position-close {
+  color: #7a6c58;
+}
 html[data-theme="sepia"] .post-container,
 html[data-theme="sepia"] .markdown-body {
   color: #3b3124;
