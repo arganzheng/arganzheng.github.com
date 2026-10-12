@@ -566,16 +566,23 @@ dimension is under 50 px. The returned `shot.viewportRect` is passed as
 `openCropOverlay(canvas, { initialSelection: viewportRect })` and is also used
 by `screenshotAnchorElement` to map the crop centre back to page coordinates.
 
-The overlay keeps the outside mask and starts with the viewport selected using
-a 2 px `#07C160` border and eight resize handles. Readers can move or resize
-the selection, start another selection outside it, and add red boxes, arrows,
-or text. Markup stays in natural screenshot pixels as the selection changes.
-The live size label and icon toolbar follow the selection; double-click or
-Enter completes, Escape cancels, and ⌘/Ctrl+Z undoes markup. The editor still
-uploads a completed PNG through the existing compression path. The toolbar's
-分享 action resolves the same crop plus markup with `action: 'share'`; callers
-show it only when `BlogShare` and `BlogPassageCard` are available, then call
-`BlogShare.showImage(cardFn, filename)` without inserting or uploading a
+When `initialSelection` is provided, the overlay shows it as a candidate with
+the outside mask, a 2 px `#07C160` border, and a live size label, but no handles
+or toolbar. A single click inside commits it; the first click of a double-click
+commits it and the subsequent `dblclick` completes that same rectangle. Enter
+also completes the candidate. A drag of at least 4 px anywhere starts a new
+selection; clicking or double-clicking outside the candidate does nothing.
+Escape cancels, and ⌘/Ctrl+Z is a no-op while the candidate is uncommitted.
+Without `initialSelection`, the image starts fully dimmed with no selection;
+drag to select, and Enter has no effect. After committing, readers can move or
+resize the selection, start another selection outside it, and add red boxes,
+arrows, or text. Markup stays in natural screenshot pixels as the selection changes.
+The live size label and icon toolbar follow a committed selection; double-click
+or Enter completes, Escape cancels, and ⌘/Ctrl+Z undoes markup. The editor
+still uploads a completed PNG through the existing compression path. The
+toolbar's 分享 action resolves the same crop plus markup with `action: 'share'`;
+callers show it only when `BlogShare` and `BlogPassageCard` are available, then
+call `BlogShare.showImage(cardFn, filename)` without inserting or uploading a
 comment image. `BlogPassageCard.renderScreenshot({ image, title, url })`
 creates the share card, reusing the passage-card footer renderer; `showImage`
 counts one article share through the existing `.post-actions` share context.
