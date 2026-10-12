@@ -4828,8 +4828,8 @@ body.outline-unavailable .catalog-mindmap {
   .post-container .annotation-comments .ap-buttons .ap-hint {
     display: none;
   }
-  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7),
-  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7) {
+  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]),
+  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]) {
     display: none;
   }
   .post-container .annotation-panel .ap-comment.is-reply,

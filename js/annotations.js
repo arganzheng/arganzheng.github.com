@@ -1336,6 +1336,8 @@
           reject(new Error('无法处理图片'));
           return;
         }
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
         context.drawImage(img, 0, 0, canvas.width, canvas.height);
         URL.revokeObjectURL(url);
         function finish(blob) {
