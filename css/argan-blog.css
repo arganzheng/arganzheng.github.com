@@ -3849,6 +3849,9 @@ body.outline-unavailable .catalog-mindmap {
   bottom: auto;
   top: -5px;
 }
+.ap-editor .ap-image-input {
+  display: none;
+}
 .post-container .annotation-panel,
 .post-container .annotation-comments {
   margin: 12px 0 20px;
@@ -4135,6 +4138,7 @@ body.outline-unavailable .catalog-mindmap {
 .post-container .annotation-panel .ap-comment-body img,
 .post-container .annotation-comments .ap-comment-body img {
   max-width: 100%;
+  height: auto;
 }
 .post-container .annotation-panel .ap-comment-body code,
 .post-container .annotation-comments .ap-comment-body code {
@@ -4230,6 +4234,11 @@ body.outline-unavailable .catalog-mindmap {
 .post-container .annotation-comments .ap-editor.is-busy {
   opacity: 0.7;
   pointer-events: none;
+}
+.post-container .annotation-panel .ap-editor.is-dragover,
+.post-container .annotation-comments .ap-editor.is-dragover {
+  outline: 2px dashed #00788f;
+  outline-offset: -4px;
 }
 .post-container .annotation-panel .ap-inline-editor,
 .post-container .annotation-comments .ap-inline-editor {
@@ -4404,6 +4413,7 @@ body.outline-unavailable .catalog-mindmap {
 .post-container .annotation-panel .ap-preview img,
 .post-container .annotation-comments .ap-preview img {
   max-width: 100%;
+  height: auto;
 }
 .post-container .annotation-panel .ap-preview code,
 .post-container .annotation-comments .ap-preview code {
@@ -4873,8 +4883,8 @@ body.outline-unavailable .catalog-mindmap {
   .post-container .annotation-comments .ap-buttons .ap-hint {
     display: none;
   }
-  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7),
-  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7) {
+  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]),
+  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]) {
     display: none;
   }
   .post-container .annotation-panel .ap-comment.is-reply,
@@ -8978,6 +8988,10 @@ html[data-theme="dark"] .post-container .annotation-comments {
 html[data-theme="dark"] .post-container .annotation-panel .ap-editor,
 html[data-theme="dark"] .post-container .annotation-comments .ap-editor {
   border-color: #33363c;
+}
+html[data-theme="dark"] .post-container .annotation-panel .ap-editor.is-dragover,
+html[data-theme="dark"] .post-container .annotation-comments .ap-editor.is-dragover {
+  outline-color: #4cb7cb;
 }
 html[data-theme="dark"] .post-container .annotation-panel .ap-text,
 html[data-theme="dark"] .post-container .annotation-comments .ap-text,

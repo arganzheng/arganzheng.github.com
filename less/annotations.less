@@ -194,7 +194,7 @@
 		sub a { text-decoration: none; }
 	}
 	> :last-child { margin-bottom: 0; }
-	img { max-width: 100%; }
+	img { max-width: 100%; height: auto; }
 	code {
 		font-size: 12.5px;
 		padding: 2px 5px;
@@ -237,6 +237,8 @@
 	a { color: @brand-primary; }
 	.zeroclipboard-container, .snippet-clipboard-content .ClipboardButton { display: none; }
 }
+
+.ap-editor .ap-image-input { display: none; }
 
 // ---- in-flow panel (thread or editor), inserted right after the paragraph,
 // and the comment section at the bottom of the post: same building blocks
@@ -414,6 +416,7 @@
 	.ap-editor {
 		border-top: 1px solid #eaeef2;
 		&.is-busy { opacity: 0.7; pointer-events: none; }
+		&.is-dragover { outline: 2px dashed @brand-primary; outline-offset: -4px; }
 	}
 	// editing one's own comment in place (inside .ap-comment-main)
 	.ap-inline-editor {
@@ -737,7 +740,7 @@
 		.ap-head .ap-count { display: none; }
 		.ap-footer { flex-wrap: wrap; }
 		.ap-buttons .ap-hint { display: none; }
-		.ap-tabs .ap-format button:nth-child(n+7) { display: none; }
+		.ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]) { display: none; }
 		.ap-comment.is-reply { margin-left: 20px; }
 		.ap-comment-meta { flex-wrap: wrap; row-gap: 2px; }
 		.ap-comment-meta .ap-meta-actions { gap: 8px; }
