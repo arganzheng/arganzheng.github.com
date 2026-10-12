@@ -1,7 +1,7 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差"
+title: "深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差"
 subtitle: "Why Deep Training Is Unstable: Variance Propagation, Initialization, Normalization and Residual Connections"
 tags: [AI, Deep Learning, LLM]
 catalog: true

@@ -1,7 +1,7 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（02）：激活函数——从 sigmoid 到 SwiGLU"
+title: "深度学习基础（03）：激活函数——从 sigmoid 到 SwiGLU"
 subtitle: "Activation Functions: From Sigmoid to SwiGLU"
 date: 2026-03-24 20:00:00
 tags: [AI, Deep Learning, LLM]
@@ -14,7 +14,7 @@ catalog: true
 
 ## 一、总览：为什么非要非线性
 
-线性层负责混合输入维度；激活函数打破线性，才让层叠起来的网络表示复杂函数。若每层之间没有非线性，任意多层 Linear 都能折叠成一个 Linear（带 bias 时是仿射变换）。《[深度学习基础（01）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」已经把这个矩阵乘法写出来了；这里沿用结论，不重做推导。
+线性层负责混合输入维度；激活函数打破线性，才让层叠起来的网络表示复杂函数。若每层之间没有非线性，任意多层 Linear 都能折叠成一个 Linear（带 bias 时是仿射变换）。《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」已经把这个矩阵乘法写出来了；这里沿用结论，不重做推导。
 
 本篇从 sigmoid 与 tanh 的饱和讲起，经 ReLU 及其修补，走到平滑激活，再到现代 FFN 常用的门控变体。最后把曲线、梯度、参数形状和真实训练放在一起对照。
 
@@ -38,7 +38,7 @@ catalog: true
 | 时间 | 工作 | 留下的东西 |
 |---|---|---|
 | 早期 | Sigmoid、tanh | 平滑、值域有界；深层连乘时容易饱和 |
-| 2010–2012 | [Nair 与 Hinton（2010）](https://icml.cc/Conferences/2010/papers/432.pdf)、[Glorot、Bordes 与 Bengio（2011）](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)、[AlexNet（2012）](https://arxiv.org/abs/1207.0580) | ReLU 从 RBM 与深层网络研究进入大规模视觉模型 |
+| 2010–2012 | [Nair 与 Hinton（2010）](https://icml.cc/Conferences/2010/papers/432.pdf)、[Glorot、Bordes 与 Bengio（2011）](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)、[AlexNet（2012）](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf) | ReLU 从 RBM 与深层网络研究进入大规模视觉模型 |
 | 2013–2015 | [Maas 等（2013）](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf) 的 Leaky ReLU、[He 等（2015）](https://arxiv.org/abs/1502.01852) 的 PReLU、[Clevert 等（2015）](https://arxiv.org/abs/1511.07289) 的 ELU | 给 ReLU 的负半轴留一条梯度路径 |
 | 2016 | [GELU（Hendrycks 与 Gimpel）](https://arxiv.org/abs/1606.08415)；[GLU（Dauphin 等）](https://arxiv.org/abs/1612.08083) | 平滑门控与逐元素门控两条线并行出现 |
 | 2017 | [SiLU（Elfwing 等）](https://arxiv.org/abs/1702.03118)；[Swish（Ramachandran 等）](https://arxiv.org/abs/1710.05941) | 输入乘以 sigmoid 门，得到平滑、略带非单调性的曲线 |
@@ -85,7 +85,7 @@ $$
 
 代价是负半轴的导数为零。如果某个单元对所有输入的预激活都变成负数，它输出永远为零，反向梯度也为零，参数无法靠梯度自己回来——这就是 **dead ReLU**。一次过大的更新可能把单元推到这个区域。
 
-ReLU 让对称、零均值的信号有一半落到 0，初始化时需要补回这部分尺度。《[深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「ReLU 砍掉一半」推导了 Kaiming 初始化里的因子 2；这里不重复推导。
+ReLU 让对称、零均值的信号有一半落到 0，初始化时需要补回这部分尺度。《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「ReLU 砍掉一半」推导了 Kaiming 初始化里的因子 2；这里不重复推导。
 
 ## 四、ReLU 的修补：负半轴留一点路
 
@@ -163,7 +163,7 @@ NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-data
 
 **融合**把相邻小算子合成一次 kernel，减少 launch 与中间张量读写。常见模式是 bias + GELU，以及 SwiGLU 里的 SiLU + multiply。细节见《GPU Kernel 工程（09）：量化与融合 kernel——推理系统的其余部分》的「[bias + activation 与 SiLU-and-mul](/quantization-and-fused-kernels.html)」。
 
-训练时还要反向求梯度，权重梯度需要前向输入，因此激活不能随算完即弃。《[深度学习基础（01）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「激活为什么要存」解释了保存与 gradient checkpointing 的取舍。
+训练时还要反向求梯度，权重梯度需要前向输入，因此激活不能随算完即弃。《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「激活为什么要存」解释了保存与 gradient checkpointing 的取舍。
 
 ## 八、常见激活函数对照
 
@@ -275,7 +275,7 @@ lr=0.6：w 2.00 → -2.20，b 0.00 → -2.40
 
 ## 下一篇
 
-激活函数回答了层与层之间怎样引入非线性；接下来要让这些梯度在深网络里不消失、不爆炸。《[深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》从方差传播与 ReLU 的因子 2 开始。
+激活函数回答了层与层之间怎样引入非线性；接下来要让这些梯度在深网络里不消失、不爆炸。《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》从方差传播与 ReLU 的因子 2 开始。
 
-[^q0]: 多层线性变换的矩阵连乘仍是线性变换；加入 bias 后，仿射变换的复合仍然仿射。详见《[深度学习基础（01）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」。
+[^q0]: 多层线性变换的矩阵连乘仍是线性变换；加入 bias 后，仿射变换的复合仍然仿射。详见《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」。
 [^q1]: Sigmoid / tanh 平滑但会饱和；ReLU 让正半轴梯度直通；GELU 与 SiLU 使用平滑门控；GLU 家族再用一个分支控制另一个分支。本文分别讨论它们的公式、梯度与代价。

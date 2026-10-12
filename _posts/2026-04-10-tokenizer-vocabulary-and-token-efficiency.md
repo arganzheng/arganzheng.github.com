@@ -224,7 +224,7 @@ tokenizer 回答的是"什么算一个符号"，但这只是文本进模型的�
 |---|---|---|---|---|---|
 | one-hot / 词袋 / TF-IDF | 词 | 稀疏向量，维数 = 词表大小，一个词占一维 | 简单、可解释；检索与分类上至今是强基线 | 不带语义（`cat` 与 `dog` 正交）<br/>丢词序<br/>生词没有位置（OOV） | BM25 检索<br/>第四篇数据过滤里的分类器特征 |
 | n-gram 语言模型 | 词 | 不学向量，直接数"前 $$n-1$$ 个词之后接什么"的频率 | next-token prediction 的祖先；困惑度这个指标从这里来 | 只能看 $$n-1$$ 个词<br/>组合爆炸，要靠平滑 | 评估指标 PPL<br/>数据过滤里的 KenLM 困惑度打分 |
-| 静态词向量（Word2Vec、GloVe） | 词 | 几百维稠密向量，单独预训练后冻结 | 相近的词向量相近，`king − man + woman ≈ queen` | 一词一向量，`bank` 的两个意思是同一个点<br/>OOV<br/>与下游模型分开训 | 推荐、轻量检索<br/>小模型的初始化<br/>训练目标与实验见《[深度学习基础（07）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html#word2vec)》「Word2Vec」 |
+| 静态词向量（Word2Vec、GloVe） | 词 | 几百维稠密向量，单独预训练后冻结 | 相近的词向量相近，`king − man + woman ≈ queen` | 一词一向量，`bank` 的两个意思是同一个点<br/>OOV<br/>与下游模型分开训 | 推荐、轻量检索<br/>小模型的初始化<br/>训练目标与实验见《[深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html#word2vec)》「Word2Vec」 |
 | 字符级 / 字节级 | 字符或字节 | 几十到 256 行的 embedding 表，与模型一起训 | 没有 OOV，词表极小，拼写与形态全在序列里 | 序列长 4–5 倍，attention 项贵 $$k^2$$ 倍（上一节的 14 倍） | 字符级 RNN<br/>ByT5 一类字节模型（第七章第 4 节） |
 | 子词 id + 可训练 embedding + 上下文表示 | 子词（BPE / WordPiece / Unigram） | $$V \times d$$ 的 embedding 表与模型**联合训练**，经过 attention 后随上下文变化 | 词表大小可控<br/>没有 OOV<br/>常见词一格<br/>同一 token 在不同句子里向量不同 | 词表是语料的化石（第六章）<br/>数字与多语言的副作用 | 2018 年 ELMo / BERT 之后的几乎所有模型，包括全部 LLM |
 

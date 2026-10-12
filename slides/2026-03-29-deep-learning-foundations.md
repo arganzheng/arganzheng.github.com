@@ -1,7 +1,7 @@
 ---
 layout: slides
 title: "深度学习基础：从反向传播到残差"
-subtitle: "系列精华 · 八篇正文每篇一页，按 ↓ 看实验与原论文图"
+subtitle: "系列精华 · 九篇正文每篇一页，按 ↓ 看实验与原论文图"
 permalink: /slides/deep-learning-foundations.html
 series: deep-learning-foundations
 date: 2026-03-29 23:30:00 +0800
@@ -16,8 +16,8 @@ transition: slide
 > 深网络训练里的每个现象，能不能**推到公式、代到数字、用几十行代码复现**，然后在 LLM 里认出它的形态？
 
 - 主线是**一条连乘链**：前向的方差每层乘一个因子、反向的梯度是一串 Jacobian 的乘积——因子偏离 1 就指数放大或消失
-- 01 写出这串乘积 → 02 激活改变梯度 → 03 它怎么坏、三样东西各修哪一环 → 04 步长怎么定 → 05 挑出的解为什么泛化 → 06–08 在卷积、表示与循环上看结构演进
-- 八篇用同一份几百行的 NumPy 小框架和配套脚本，实验可在笔记本 CPU 上复现
+- 01 回顾演进史 → 02 写出梯度乘积 → 03 激活改变梯度 → 04 稳定深层训练 → 05 步长怎么定 → 06 泛化 → 07–09 看卷积、表示与循环
+- 九篇用同一份几百行的 NumPy 小框架和配套脚本，实验可在笔记本 CPU 上复现
 
 <aside class="notes" markdown="1">
 总纲：/deep-learning-foundations.html。ResNet 的退化问题与 RNN 的 BPTT 衰减是同一条链的两个历史形态，残差与 LSTM 的遗忘门是同一个修法。
@@ -30,20 +30,41 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    D1["01 反向传播<br/>写出那串 Jacobian 的乘积"] --> D2["02 激活函数<br/>非线性改变梯度与 FFN"]
-    D2 --> D3["03 初始化 / 归一化 / 残差<br/>稳定深层训练"]
-    D3 --> D4["04 优化器<br/>拿到稳定的梯度后步长怎么定"]
-    D4 --> D5["05 正则化与泛化<br/>挑出的解为什么泛化、何时不再"]
-    D3 --> D6["06 CNN<br/>ResNet 的退化问题 = 连乘的历史形态一"]
-    D6 --> D7["07 Embedding<br/>离散 token → 可学习向量"]
-    D7 --> D8["08 RNN<br/>BPTT 衰减；LSTM 遗忘门 ≈ 残差"]
+    H["01 深度模型演进史<br/>感知机 → Transformer"] --> D1["02 反向传播<br/>写出那串 Jacobian 的乘积"]
+    D1 --> D2["03 激活函数<br/>非线性改变梯度与 FFN"]
+    D2 --> D3["04 初始化 / 归一化 / 残差<br/>稳定深层训练"]
+    D3 --> D4["05 优化器<br/>拿到稳定的梯度后步长怎么定"]
+    D4 --> D5["06 正则化与泛化<br/>挑出的解为什么泛化、何时不再"]
+    D3 --> D6["07 CNN<br/>ResNet 的退化问题 = 连乘的历史形态一"]
+    D6 --> D7["08 Embedding<br/>离散 token → 可学习向量"]
+    D7 --> D8["09 RNN<br/>BPTT 衰减；LSTM 遗忘门 ≈ 残差"]
     D8 -. "seq2seq 瓶颈 → attention 诞生" .-> T["→ L4 Transformer"]
     D6 -. "patch → token（ViT）" .-> T
 ```
 
 ---
 
-## 01 · 反向传播：手推一个两层网络
+## 01 · 深度模型演进史：从感知机到 Transformer
+
+![从 McCulloch–Pitts 到 Transformer、GPT-3 与 ChatGPT 的深度模型时间线](/img/in-post/dl-evolution-timeline.svg){: style="max-height: 420px"}
+
+从阈值单元、感知机与两次寒冬，到反向传播、预训练、CNN、Embedding、attention 与 Transformer；结构演进不断改变归纳偏置、可训练性与并行度。
+
+<aside class="notes" markdown="1">
+原文 /evolution-of-deep-models-from-perceptron-to-transformer.html。XOR 案例：AND 感知机第 6 轮零误分；XOR 感知机每轮最少 3 次误分并循环；ADALINE 最小二乘 MSE 0.25；H=2 的 MLP 有 13/20 个种子达到 100%，H=4 为 20/20。
+</aside>
+
+<!-- v -->
+
+### XOR：能表示，不等于能学会
+
+![感知机、ADALINE 与 MLP 的 XOR 案例和训练曲线](/img/in-post/dl-evolution-xor.webp){: style="max-height: 430px"}
+
+感知机的单一线性边界无法解 XOR；隐藏层提供表达能力，初始化与优化仍影响能否找到解。
+
+---
+
+## 02 · 反向传播：手推一个两层网络
 
 **结论**：反向传播 = 沿计算图反向拓扑序对每个算子算一次 **VJP**，从不构造 Jacobian；每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向、训练 $$6ND$$；$$\partial L/\partial W = X^\top G$$ 需要本层输入，所以**激活要存**。
 
@@ -68,7 +89,7 @@ flowchart TB
 
 ---
 
-## 02 · 激活函数：从 sigmoid 到 SwiGLU
+## 03 · 激活函数：从 sigmoid 到 SwiGLU
 
 **结论**：没有非线性，多层 Linear 仍可折叠成一层；激活的导数决定梯度能否穿过深层，门控激活则增加一个按输入选择信息的分支。小规模 MNIST 实验里，sigmoid 梯度在 20 层后消失并停在机会水平，其他五种激活均能训练。
 
@@ -89,7 +110,7 @@ flowchart TB
 
 ---
 
-## 03 · 训练为什么不稳定：初始化、归一化与残差
+## 04 · 训练为什么不稳定：初始化、归一化与残差
 
 **结论**：深网络的稳定性是连乘问题；初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路；**三样必须同用，Pre-Norm 是当前摆法**。
 
@@ -118,7 +139,7 @@ flowchart TB
 
 ---
 
-## 04 · 优化器：从 SGD 到 AdamW 与学习率调度
+## 05 · 优化器：从 SGD 到 AdamW 与学习率调度
 
 **结论**：Adam 让每个参数的步长 $$\approx \eta$$、与梯度大小无关——所以第一步是满步长 $$\eta \cdot \text{sign}(g)$$、**必须 warmup**；$$L_2$$ 被 $$1/\sqrt v$$ 缩放而 AdamW 不被；线性 scaling 只在临界 batch 内成立。
 
@@ -148,7 +169,7 @@ flowchart TB
 
 ---
 
-## 05 · 正则化与泛化：为什么参数比样本多却不过拟合
+## 06 · 正则化与泛化：为什么参数比样本多却不过拟合
 
 **结论**：先算参数 / 数据比定体制；过参数化时优化器挑最小范数、平坦、先学简单的解——**隐式正则化**；double descent 越过插值阈值再变好；预训练在数据体制里不用 dropout、一个 epoch。
 
@@ -169,7 +190,7 @@ flowchart TB
 
 ---
 
-## 06 · CNN：从 LeNet 到 ResNet，再到 ViT
+## 07 · CNN：从 LeNet 到 ResNet，再到 ViT
 
 **结论**：卷积 = 全连接 + **局部性 + 参数共享**两条约束；深度是为了感受野，深了就训不动——BN 修前向、残差修反向；数据够多时约束成负担，ViT 把图切成 token，只留下 patch embedding 这一个 stride 卷积。
 
@@ -199,7 +220,7 @@ flowchart TB
 
 ---
 
-## 07 · Embedding 与表示学习：从 one-hot 到上下文表示
+## 08 · Embedding 与表示学习：从 one-hot 到上下文表示
 
 **结论**：one-hot 矩阵乘法等价于 embedding 表查一行；梯度只更新被访问的行。Word2Vec 从上下文预测目标或从目标预测上下文，使向量几何反映共现关系；Transformer 则让表示随上下文变化。
 
@@ -219,7 +240,7 @@ flowchart TB
 
 ---
 
-## 08 · RNN：从 LSTM 到 attention 的诞生
+## 09 · RNN：从 LSTM 到 attention 的诞生
 
 **结论**：BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处；LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是**时间上的残差**，遗忘门偏置要初始化为 1；attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要。
 

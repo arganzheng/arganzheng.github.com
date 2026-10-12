@@ -59,7 +59,7 @@ $$
 
 ### 3. GELU 两矩阵 FFN → SwiGLU 三矩阵
 
-sigmoid、GELU、SiLU 与 GLU 家族的公式、导数和取舍见[《深度学习基础（02）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。
+sigmoid、GELU、SiLU 与 GLU 家族的公式、导数和取舍见[《深度学习基础（03）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。
 
 **传统 FFN。** 原始 Transformer 的 FFN 是两个矩阵夹一个非线性：
 

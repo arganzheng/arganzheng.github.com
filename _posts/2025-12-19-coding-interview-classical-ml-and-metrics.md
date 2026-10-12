@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 LLM 时代的面试仍然会让你手写 k-means、逻辑回归、PCA——不是因为工作里要用它们，而是它们十行代码就能暴露一个人对"模型 = 目标函数 + 优化"的理解是否到位。评测指标是另一类高频手撕：AUC 怎么在 $$O(n \log n)$$ 内算、NDCG 的折扣是什么、F1 在类别极不平衡时为什么比准确率靠谱。CV 相关岗位再加两道：用 im2col 把卷积写成矩阵乘、NMS。这一篇每个组件给出面试够用的实现和一个能说清的"为什么"。
 
-原理在算法地图 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与[后训练（08）评测](/evaluating-llms-benchmarks-judges-and-contamination.html)；卷积见[深度学习基础（06）](/cnn-from-lenet-to-resnet-and-vit.html)。
+原理在算法地图 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与[后训练（08）评测](/evaluating-llms-benchmarks-judges-and-contamination.html)；卷积见[深度学习基础（07）](/cnn-from-lenet-to-resnet-and-vit.html)。
 
 本篇要回答的核心问题是：
 

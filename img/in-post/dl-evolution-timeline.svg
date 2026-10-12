@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1280" role="img" aria-labelledby="title desc">
+  <title id="title">从感知机到 Transformer：深度模型演进时间线</title>
+  <desc id="desc">分段时间轴展示 1943 至 2017 年的神经网络节点、三次兴起、两次寒冬，以及 GPT-3 和 ChatGPT。</desc>
+  <defs>
+    <style>
+      text { font-family: "Arial Unicode MS", "PingFang SC", sans-serif; fill: #283344; }
+      .heading { font-size: 30px; font-weight: 700; }
+      .subheading { font-size: 16px; fill: #596579; }
+      .phase { font-size: 17px; font-weight: 700; }
+      .event { font-size: 16px; font-weight: 600; }
+      .year { font-size: 14px; fill: #526176; }
+      .axis { fill: none; stroke: #526176; stroke-width: 3; stroke-linecap: round; }
+      .tick { stroke: #526176; stroke-width: 2; }
+      .leader { fill: none; stroke: #718096; stroke-width: 1.5; stroke-dasharray: 4 5; }
+      .node { fill: #fffdf8; stroke: #35445c; stroke-width: 3; }
+      .note { font-size: 15px; fill: #596579; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M1,1 L10,6 L1,11" fill="none" stroke="#35445c" stroke-width="2"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="1280" fill="#fffdf8"/>
+  <path d="M38 44 Q410 39 804 45 T1560 42" fill="none" stroke="#e4dfd3" stroke-width="2"/>
+  <text class="heading" x="70" y="92">从感知机到 Transformer</text>
+  <text class="subheading" x="72" y="122">1943–2017 · 时间轴分段排布以留出节点注释空间；右下延伸至 2020+ LLM</text>
+
+  <path d="M95 170 Q292 165 490 171 L490 214 Q290 218 95 212 Z" fill="#e8e9ec" stroke="#8e98a8" stroke-width="2"/>
+  <path d="M493 171 Q687 166 890 172 L889 214 Q687 218 492 212 Z" fill="#dcebdc" stroke="#77a17f" stroke-width="2"/>
+  <path d="M893 170 Q1050 166 1220 172 L1218 214 Q1054 219 891 212 Z" fill="#f4e0d9" stroke="#c98679" stroke-width="2"/>
+  <text class="phase" x="290" y="198" text-anchor="middle">前史 · 1943–1956</text>
+  <text class="phase" x="692" y="198" text-anchor="middle">第一次兴起 · 1957–1969</text>
+  <text class="phase" x="1054" y="198" text-anchor="middle">第一次寒冬 · 1969–1980</text>
+  <path d="M1223 170 Q1367 166 1510 172 L1509 214 Q1367 218 1222 212 Z" fill="#dcebdc" stroke="#77a17f" stroke-width="2"/>
+  <text class="phase" x="1366" y="198" text-anchor="middle">第二次兴起 · 1980–1989</text>
+
+  <path class="axis" d="M88 493 Q580 489 1062 494 T1505 492" marker-end="url(#arrow)"/>
+  <g>
+    <path class="leader" d="M100 490 L100 275"/><circle class="node" cx="100" cy="492" r="7"/>
+    <text class="event" x="100" y="248" text-anchor="start"><tspan x="100">McCulloch–Pitts</tspan><tspan class="year" x="100" dy="21">1943 · 阈值神经元</tspan></text>
+    <path class="leader" d="M313 490 L313 352"/><circle class="node" cx="313" cy="492" r="7"/>
+    <text class="event" x="313" y="325" text-anchor="middle"><tspan x="313">图灵测试</tspan><tspan class="year" x="313" dy="21">1950</tspan></text>
+    <path class="leader" d="M495 490 L495 275"/><circle class="node" cx="495" cy="492" r="7"/>
+    <text class="event" x="495" y="248" text-anchor="middle"><tspan x="495">达特茅斯会议</tspan><tspan class="year" x="495" dy="21">1956 · AI 研究议程</tspan></text>
+    <path class="leader" d="M526 496 L526 650"/><circle class="node" cx="526" cy="493" r="7"/>
+    <text class="event" x="510" y="680" text-anchor="end"><tspan x="510">Rosenblatt 感知机报告</tspan><tspan class="year" x="510" dy="21">1957</tspan></text>
+    <path class="leader" d="M556 490 L556 406"/><circle class="node" cx="556" cy="492" r="7"/>
+    <text class="event" x="556" y="378" text-anchor="middle"><tspan x="556">感知机论文</tspan><tspan class="year" x="556" dy="21">1958 · Psychological Review</tspan></text>
+    <path class="leader" d="M617 496 L617 730"/><circle class="node" cx="617" cy="493" r="7"/>
+    <text class="event" x="617" y="758" text-anchor="middle"><tspan x="617">ADALINE · Widrow–Hoff</tspan><tspan class="year" x="617" dy="21">1960</tspan></text>
+    <path class="leader" d="M890 490 L890 275"/><circle class="node" cx="890" cy="492" r="7"/>
+    <text class="event" x="890" y="248" text-anchor="middle"><tspan x="890">Minsky &amp; Papert</tspan><tspan class="year" x="890" dy="21">1969 · Perceptrons</tspan></text>
+    <path class="leader" d="M1224 496 L1224 650"/><circle class="node" cx="1224" cy="493" r="7"/>
+    <text class="event" x="1224" y="680" text-anchor="middle"><tspan x="1224">Neocognitron</tspan><tspan class="year" x="1224" dy="21">1980 · 福岛邦彦</tspan></text>
+    <path class="leader" d="M1406 490 L1406 352"/><circle class="node" cx="1406" cy="492" r="7"/>
+    <text class="event" x="1406" y="325" text-anchor="middle"><tspan x="1406">反向传播</tspan><tspan class="year" x="1406" dy="21">1986 · Rumelhart 等</tspan></text>
+    <path class="leader" d="M1500 496 L1500 730"/><circle class="node" cx="1500" cy="493" r="7"/>
+    <text class="event" x="1482" y="758" text-anchor="end"><tspan x="1482">LeCun 卷积网络</tspan><tspan class="year" x="1482" dy="21">1989 · 手写邮编识别</tspan></text>
+    <path class="leader" d="M1500 488 L1500 406"/><circle class="node" cx="1500" cy="492" r="7"/>
+    <text class="event" x="1482" y="378" text-anchor="end"><tspan x="1482">万能逼近定理</tspan><tspan class="year" x="1482" dy="21">1989 · Cybenko；Hornik 等</tspan></text>
+  </g>
+  <text class="note" x="78" y="535">时间轴断点 //</text>
+
+  <path d="M95 795 Q700 790 1508 796 L1507 838 Q802 844 95 837 Z" fill="#f4e0d9" stroke="#c98679" stroke-width="2"/>
+  <text class="phase" x="520" y="823" text-anchor="middle">第二次寒冬 · 1990s–2006</text>
+  <path d="M802 795 Q1110 790 1510 796 L1508 838 Q1123 844 800 837 Z" fill="#dcebdc" stroke="#77a17f" stroke-width="2"/>
+  <text class="phase" x="1160" y="823" text-anchor="middle">第三次兴起 · 2006–2017</text>
+
+  <path class="axis" d="M92 1062 Q570 1058 1025 1063 T1510 1061" marker-end="url(#arrow)"/>
+  <g>
+    <path class="leader" d="M110 1060 L110 930"/><circle class="node" cx="110" cy="1062" r="7"/>
+    <text class="event" x="110" y="905" text-anchor="start"><tspan x="110">SVM</tspan><tspan class="year" x="110" dy="21">1995 · 核方法与间隔</tspan></text>
+    <path class="leader" d="M235 1064 L235 1145"/><circle class="node" cx="235" cy="1062" r="7"/>
+    <text class="event" x="235" y="1174" text-anchor="middle"><tspan x="235">LSTM</tspan><tspan class="year" x="235" dy="21">1997 · Hochreiter &amp; Schmidhuber</tspan></text>
+    <path class="leader" d="M295 1060 L295 930"/><circle class="node" cx="295" cy="1062" r="7"/>
+    <text class="event" x="295" y="905" text-anchor="middle"><tspan x="295">LeNet-5</tspan><tspan class="year" x="295" dy="21">1998 · 手写识别</tspan></text>
+    <path class="leader" d="M790 1064 L790 1145"/><circle class="node" cx="790" cy="1062" r="7"/>
+    <text class="event" x="790" y="1174" text-anchor="middle"><tspan x="790">DBN · 逐层预训练</tspan><tspan class="year" x="790" dy="21">2006</tspan></text>
+    <path class="leader" d="M1162 1060 L1050 930"/><circle class="node" cx="1162" cy="1062" r="7"/>
+    <text class="event" x="1050" y="905" text-anchor="middle"><tspan x="1050">AlexNet</tspan><tspan class="year" x="1050" dy="21">2012 · ImageNet</tspan></text>
+    <path class="leader" d="M1224 1064 L980 1145"/><circle class="node" cx="1224" cy="1062" r="7"/>
+    <text class="event" x="980" y="1174" text-anchor="middle"><tspan x="980">Word2Vec</tspan><tspan class="year" x="980" dy="21">2013</tspan></text>
+    <path class="leader" d="M1286 1060 L1250 930"/><circle class="node" cx="1286" cy="1062" r="7"/>
+    <text class="event" x="1250" y="905" text-anchor="middle"><tspan x="1250">seq2seq + Bahdanau attention</tspan><tspan class="year" x="1250" dy="21">2014</tspan></text>
+    <path class="leader" d="M1293 1064 L1190 1145"/><circle class="node" cx="1293" cy="1062" r="7"/>
+    <text class="event" x="1190" y="1174" text-anchor="middle"><tspan x="1190">GAN</tspan><tspan class="year" x="1190" dy="21">2014 · Goodfellow 等</tspan></text>
+    <path class="leader" d="M1348 1060 L1440 930"/><circle class="node" cx="1348" cy="1062" r="7"/>
+    <text class="event" x="1440" y="905" text-anchor="middle"><tspan x="1440">ResNet</tspan><tspan class="year" x="1440" dy="21">2015</tspan></text>
+    <path class="leader" d="M1472 1064 L1495 1145"/><circle class="node" cx="1472" cy="1062" r="7"/>
+    <text class="event" x="1495" y="1174" text-anchor="end"><tspan x="1495">Transformer</tspan><tspan class="year" x="1495" dy="21">2017 · Attention Is All You Need</tspan></text>
+  </g>
+  <path d="M1517 1062 Q1540 1043 1564 1062" fill="none" stroke="#35445c" stroke-width="3" marker-end="url(#arrow)"/>
+  <text class="phase" x="1543" y="970" text-anchor="end">2020+</text>
+  <text class="note" x="1543" y="992" text-anchor="end">GPT-3 · 2020</text>
+  <text class="note" x="1543" y="1013" text-anchor="end">ChatGPT · 2022</text>
+</svg>

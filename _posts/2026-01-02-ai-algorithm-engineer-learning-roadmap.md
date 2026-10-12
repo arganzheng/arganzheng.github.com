@@ -100,7 +100,7 @@ flowchart TB
     L2["`**L2 经典机器学习**
 10 篇 ≈ 4h`"]
     L3["`**L3 深度学习基础**
-8 篇 ≈ 3h`"]
+9 篇 ≈ 4h`"]
     L4["`**L4 LLM 核心**
 04 Transformer 原理与实现 4 篇 ≈ 6h（共享）
 05 现代 LLM 结构 10 篇 ≈ 12h（共享）
@@ -136,12 +136,12 @@ flowchart TB
 
 | 层 | 主题 | 回答的问题 | 文章 | 时长 |
 |---|---|---|---|---|
-| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
+| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（9 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
 | L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2.5h（+ 14h + 15h） |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
-| L3 | 深度学习基础 | 梯度怎么流？激活怎样改变梯度？为什么深了就难训？卷积、表示学习与循环各留下什么？ | [系列（8 篇）](/deep-learning-foundations.html) | 3h |
+| L3 | 深度学习基础 | 深度模型怎样走到 Transformer？梯度怎么流、训练为何不稳？卷积、表示与循环各留下什么？ | [系列（9 篇）](/deep-learning-foundations.html) | 4h |
 | L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [Transformer 原理与实现（4 篇）](/transformer-and-llm-structure-implementation-and-evolution.html) + [现代 LLM 结构（10 篇）](/llm-architecture-evolution-roadmap-from-gpt2.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 6h + 12h + 5h |
-| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
+| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（9 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
 | L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 7h |
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
@@ -227,20 +227,21 @@ Table: L2 机器学习基础的主题与 LLM 时代的必要性
 
 ### L3 深度学习基础
 
-> **梯度怎么流？激活怎样改变梯度？为什么深了就难训？卷积、表示学习与循环各留下什么？[^q4]**
+> **深度模型怎样走到 Transformer？梯度怎么流、训练为何不稳？卷积、表示与循环各留下什么？[^q4]**
 
-系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（八篇正文）——反向传播 · 激活函数 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · Embedding 与表示学习 · RNN 到 attention。案例依次是 MNIST 手推 MLP、20 层 MLP 激活对照、64 层稳定性、优化器与梯度累积、double descent、LeNet、text8 Word2Vec、字符级 LSTM；每篇都配推导、算账、CPU 实验与原论文结构图。
+系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（九篇正文）——深度模型演进史 · 反向传播 · 激活函数 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · Embedding 与表示学习 · RNN 到 attention。案例依次是 XOR 的感知机 / ADALINE / MLP、MNIST 手推 MLP、20 层 MLP 激活对照、64 层稳定性、优化器与梯度累积、double descent、LeNet、text8 Word2Vec、字符级 LSTM；每篇都配推导、算账、CPU 实验与原论文结构图。
 
 | 主题 | 概念 | 说明 | 在哪一篇 |
 |---|---|---|---|
-| 基本单元 | 感知机、MLP、前向传播、反向传播 | 反向传播要能手推一个两层网络；这是理解一切训练现象的前提 | [第一篇](/backpropagation-by-hand.html) |
-| 激活函数 | sigmoid、tanh、ReLU、GELU、SiLU、GLU 家族；导数、饱和、稀疏与门控 | 非线性让层叠网络不再等价于一个线性层；激活导数也会改变深层梯度 | [第二篇](/activation-functions-from-sigmoid-to-swiglu.html) |
-| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第三篇](/initialization-normalization-and-residual.html)、[第五篇](/regularization-and-generalization.html) |
-| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；梯度累积以时间换显存，warmup 是训练稳定性的第一道防线 | [第四篇](/optimizers-from-sgd-to-adamw.html) |
-| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | 第三篇 |
-| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第六篇](/cnn-from-lenet-to-resnet-and-vit.html) |
-| 表示学习 | one-hot、Embedding 查表、skip-gram / CBOW、negative sampling、静态与上下文表示 | GPT-2 small 的输入 embedding 表有 38.6M 参数、约占模型参数 31%；text8 案例演示词向量怎样从上下文学习 | [第七篇](/embedding-and-representation-learning.html) |
-| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第八篇](/rnn-lstm-and-the-birth-of-attention.html) |
+| 演进史 | 感知机、ADALINE、XOR、多层网络、CNN / RNN / attention 到 Transformer | 先看每类结构解决什么、留下什么；感知机的线性边界无法表达 XOR | [第一篇](/evolution-of-deep-models-from-perceptron-to-transformer.html) |
+| 基本单元 | 感知机、MLP、前向传播、反向传播 | 感知机与 MLP 的结构背景见第一篇；反向传播要能手推一个两层网络 | [第一篇：感知机与 MLP](/evolution-of-deep-models-from-perceptron-to-transformer.html)、[第二篇：反向传播](/backpropagation-by-hand.html) |
+| 激活函数 | sigmoid、tanh、ReLU、GELU、SiLU、GLU 家族；导数、饱和、稀疏与门控 | 非线性让层叠网络不再等价于一个线性层；激活导数也会改变深层梯度 | [第三篇](/activation-functions-from-sigmoid-to-swiglu.html) |
+| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第四篇](/initialization-normalization-and-residual.html)、[第六篇](/regularization-and-generalization.html) |
+| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；梯度累积以时间换显存，warmup 是训练稳定性的第一道防线 | [第五篇](/optimizers-from-sgd-to-adamw.html) |
+| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | [第四篇](/initialization-normalization-and-residual.html) |
+| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第七篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| 表示学习 | one-hot、Embedding 查表、skip-gram / CBOW、negative sampling、静态与上下文表示 | GPT-2 small 的输入 embedding 表有 38.6M 参数、约占模型参数 31%；text8 案例演示词向量怎样从上下文学习 | [第八篇](/embedding-and-representation-learning.html) |
+| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第九篇](/rnn-lstm-and-the-birth-of-attention.html) |
 | 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲<br/>本层只关心它们对训练稳定性的影响<br/>原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
 
 Table: L3 深度学习基础的主题与概念
@@ -406,7 +407,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L1 | `algorithm-tooling/` | numpy、torch（CPU）、pandas、matplotlib；HF 一篇需 transformers / peft / trl 与 Qwen2.5-0.5B |
 | L1 深入 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
 | L2 | `classical-ml/` | numpy、scikit-learn、matplotlib（第七、八篇的句向量用本地缓存的 Qwen2.5-0.5B） |
-| L3 | `deep-learning-foundations/` | NumPy、PyTorch（CPU）；八篇案例脚本均可本机运行 |
+| L3 | `deep-learning-foundations/` | NumPy、PyTorch（CPU）；九篇案例脚本均可本机运行 |
 | L4 | `transformer-and-llm/` 与 `modern-llm-architecture/` | Transformer 原理与实现系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训；现代 LLM 结构系列的参数量与成本表脚本、MTP 实验<br/>预训练系列的实验<br/>纯 Python + PyTorch |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
 | L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl<br/>本地缓存的 Qwen2.5-0.5B 与 `no_robots`<br/>CPU 可跑 |
@@ -470,7 +471,7 @@ Table: 读完算法地图后能追问的问题与答案来源
 三张地图不是为了覆盖更多名词，而是为了让 AI 系统里的三类人——造模型的、跑模型的、用模型的——知道自己站在哪里、隔壁在做什么。
 
 [^q0]: 八层加一个横切。L0 数学 → L1 工具 → L2 经典机器学习 → L3 深度学习基础 → L4 Transformer / LLM（结构、tokenizer、scaling law、预训练数据）→ L5 后训练（SFT、偏好对齐、RLVR、蒸馏、评测）→ L6 高效推理与压缩（解码、投机、量化、KV）→ L7 多模态；横切是实验方法论。每层要掌握的内容见上表「需要什么」与各层概念表：数学到读公式、推 loss 不出错；工具到能把想法写成能跑的脚本；经典 ML 与深度学习要方法论与训练现象；L4 要会手搓 GPT 并算账；L5 是工作量最集中的一层。顺序就是层号——每层以上一层为前置，L4 是中心，L5 是重心；已有基础的读者可以从 L4 进入、按需回看前面各层（正文「怎么用这张地图」给了三条路线）。
-[^q1]: 读公式按四个分支拆：线性代数管形状、FLOPs、范数与 SVD（矩阵乘 $$[m,k]\times[k,n]\to[m,n]$$、$$2mnk$$ 次运算）；概率统计管「语言模型是条件分布 $$p(x_t\mid x_{<t})$$」、MLE、置信区间；信息论管熵、交叉熵、KL 与困惑度 $$e^{\text{loss}}$$；微积分与优化管梯度、链式法则、策略梯度。loss 之所以「这样写」，是因为它是建模假设下的最大似然：条件分布假设 + MLE 三行推出交叉熵；Bradley-Terry 偏好假设 + RLHF 目标的闭式解推出 DPO；期望回报对策略参数求导推出策略梯度。八篇正文每篇代真实模型算出数字，见[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)。
+[^q1]: 读公式按四个分支拆：线性代数管形状、FLOPs、范数与 SVD（矩阵乘 $$[m,k]\times[k,n]\to[m,n]$$、$$2mnk$$ 次运算）；概率统计管「语言模型是条件分布 $$p(x_t\mid x_{<t})$$」、MLE、置信区间；信息论管熵、交叉熵、KL 与困惑度 $$e^{\text{loss}}$$；微积分与优化管梯度、链式法则、策略梯度。loss 之所以「这样写」，是因为它是建模假设下的最大似然：条件分布假设 + MLE 三行推出交叉熵；Bradley-Terry 偏好假设 + RLHF 目标的闭式解推出 DPO；期望回报对策略参数求导推出策略梯度。九篇正文每篇代真实模型算出数字，见[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)。
 [^q2]: 六层工具各到「够用」的深度：Python 使用层（协议方法、生成器、装饰器、上下文管理器、多进程与 GIL、读 traceback）→ NumPy / Pandas / Matplotlib（形状直觉、错误分析、曲线）→ PyTorch 使用层（五个对象与二十行训练循环、混合精度、梯度累积、checkpoint）→ Hugging Face 生态（六个库组装一次 LoRA SFT）→ GPU 直觉（显存账：全量微调每参数 16 字节，Llama-3-8B 128.5 GB，一张 80 GB 卡放不下；LoRA 16.06 + 0.67 GB）→ 实验管理（配置、种子、跟踪、复现）。「能跑」最终是显存与算力的算术，不是对工具的熟悉程度；机制层面的深入在 Infra 地图的 01 Python 与 03 PyTorch 系列。见[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)。
 [^q3]: 学习 = 从训练集学到能在**没见过的数据**上成立的规律，判据是训练集 / 验证集 / 测试集的划分与泛化误差，而不是训练误差。「学会了而不是背下来」看训练误差与验证误差的差距（过拟合时训练误差一路降、验证误差回升）、偏差 - 方差分解、以及测试集是否干净——LLM 上的对应物是 benchmark 污染（测试题在训练数据里 = 测试集泄漏）、奖励模型过拟合导致 reward hacking、judge 偏差 = 评估偏差。处理方法也是经典的：更多数据、正则化（RLHF 的 KL 项）、早停、集成、去重与去污染。见[《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)第一篇。
 [^q4]: 梯度沿计算图反向、按链式法则逐层乘 Jacobian 传回：从顶层到第 $$l$$ 层要连乘 $$l$$ 个系数，每个系统性地偏离 1 就指数级消失或爆炸（128 层、每层 0.9 → $$0.9^{128}\approx 1.4\times 10^{-6}$$）——这就是「深了难训」；三种修法是初始化（Xavier / Kaiming 让每层方差守恒）、归一化（BatchNorm / LayerNorm / RMSNorm 把激活钉回单位尺度）、残差（每层 Jacobian 变成 $$I + J_l$$，多一条恒等通路）。CNN 解决了图像的平移不变性与参数共享（LeNet → ResNet），留下残差与 patch 化输入（ViT）；RNN 解决了变长序列，但串行、长程依赖靠门控仍难传梯度，留下的是「用 attention 替代循环」的动机。见[《深度学习基础》](/deep-learning-foundations.html)。
