@@ -4959,6 +4959,9 @@ html.ap-capturing .table-tools {
   -webkit-user-select: none;
   cursor: crosshair;
 }
+.ap-crop-overlay[data-state="empty"] .ap-crop-image {
+  filter: brightness(0.5);
+}
 .ap-crop-overlay[data-tool="text"] .ap-crop-image {
   cursor: text;
 }
@@ -4978,6 +4981,12 @@ html.ap-capturing .table-tools {
   border: 2px solid #07C160;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
   cursor: move;
+}
+.ap-crop-selection.is-candidate {
+  cursor: crosshair;
+}
+.ap-crop-selection.is-candidate .ap-crop-handle {
+  display: none;
 }
 .ap-crop-size {
   position: absolute;

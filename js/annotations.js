@@ -1636,7 +1636,7 @@
       overlay.appendChild(toolbar);
       document.body.appendChild(overlay);
 
-      var selection = null, drag = null, draftShape = null, activeTool = null;
+      var selection = null, candidate = null, drag = null, draftShape = null, activeTool = null;
       var shapes = [], textInput = null, closed = false, exporting = false;
       var listeners = [];
       function listen(target, type, handler, capture) {
@@ -1665,6 +1665,10 @@
         };
       }
       function limit(value, min, max) { return Math.max(min, Math.min(max, value)); }
+      function containsPoint(rect, point) {
+        return !!rect && point.x >= rect.x && point.x <= rect.x + rect.width &&
+          point.y >= rect.y && point.y <= rect.y + rect.height;
+      }
       function resizedSelection(original, point, currentDrag) {
         var dx = point.x - currentDrag.start.x, dy = point.y - currentDrag.start.y;
         var left = original.x, top = original.y;
@@ -1687,11 +1691,23 @@
         sizeLabel.style.top = rect.y >= 30 ? '-25px' : '4px';
       }
       function renderSelection() {
-        if (hasValidSelection(selection)) {
-          setSelectionBox(selection);
+        var validSelection = hasValidSelection(selection);
+        var validCandidate = !validSelection && hasValidSelection(candidate);
+        var rect = validSelection ? selection : (validCandidate ? candidate : null);
+        overlay.setAttribute('data-state', validSelection ? 'selected' : (validCandidate ? 'candidate' : 'empty'));
+        if (rect) {
+          setSelectionBox(rect);
+          selectionBox.classList.toggle('is-candidate', validCandidate);
           selectionBox.style.pointerEvents = activeTool ? 'none' : 'auto';
-          updateToolbarPlacement();
-        } else selectionBox.style.display = 'none';
+          if (validSelection && !(drag && drag.kind === 'selection')) {
+            toolbar.style.display = 'flex';
+            updateToolbarPlacement();
+          } else toolbar.style.display = 'none';
+        } else {
+          selectionBox.style.display = 'none';
+          selectionBox.classList.remove('is-candidate');
+          toolbar.style.display = 'none';
+        }
       }
       function updateToolbarPlacement() {
         if (!hasValidSelection(selection) || !toolbar.isConnected) return;
@@ -1861,6 +1877,20 @@
           else discardTextInput();
         }
         var point = pointFromEvent(event);
+        if (candidate) {
+          var candidateRect = { x: candidate.x, y: candidate.y, width: candidate.width, height: candidate.height };
+          event.preventDefault();
+          drag = {
+            pointerId: event.pointerId,
+            kind: 'candidate',
+            start: point,
+            current: point,
+            candidate: candidateRect,
+            insideCandidate: containsPoint(candidateRect, point)
+          };
+          try { stage.setPointerCapture(event.pointerId); } catch (e) {}
+          return;
+        }
         var handle = event.target.closest && event.target.closest('.ap-crop-handle');
         var kind = activeTool || (handle && selectionBox.contains(handle) ? 'resize' :
           selection && selectionBox.contains(event.target) ? 'move' : 'selection');
@@ -1886,6 +1916,14 @@
       function onPointerMove(event) {
         if (!drag || event.pointerId !== drag.pointerId) return;
         drag.current = pointFromEvent(event);
+        if (drag.kind === 'candidate') {
+          var candidateDx = drag.current.x - drag.start.x, candidateDy = drag.current.y - drag.start.y;
+          if (Math.sqrt(candidateDx * candidateDx + candidateDy * candidateDy) < 4) return;
+          drag.candidateOriginal = drag.candidate;
+          candidate = null;
+          drag.kind = 'selection';
+          selection = { x: drag.start.x, y: drag.start.y, width: 0, height: 0 };
+        }
         if (drag.kind === 'selection') {
           selection = {
             x: Math.min(drag.start.x, drag.current.x),
@@ -1917,7 +1955,14 @@
         onPointerMove(event);
         var finishedDrag = drag;
         drag = null;
-        if (finishedDrag.kind === 'selection') {
+        if (finishedDrag.kind === 'candidate') {
+          if (finishedDrag.insideCandidate && containsPoint(finishedDrag.candidate, finishedDrag.current)) {
+            selection = finishedDrag.candidate;
+            candidate = null;
+          }
+          renderSelection();
+          updateToolbarState();
+        } else if (finishedDrag.kind === 'selection') {
           if (!hasValidSelection(selection)) selection = null;
           renderSelection();
           updateToolbarState();
@@ -1941,7 +1986,13 @@
         if (!drag || event.pointerId !== drag.pointerId) return;
         var cancelledDrag = drag;
         drag = null;
-        if (cancelledDrag.kind === 'selection' || cancelledDrag.kind === 'move' || cancelledDrag.kind === 'resize') {
+        if (cancelledDrag.kind === 'selection') {
+          if (cancelledDrag.candidateOriginal) {
+            candidate = cancelledDrag.candidateOriginal;
+            selection = null;
+          } else selection = cancelledDrag.original;
+          renderSelection();
+        } else if (cancelledDrag.kind === 'move' || cancelledDrag.kind === 'resize') {
           selection = cancelledDrag.original;
           renderSelection();
         }
@@ -2000,6 +2051,11 @@
       function onCancel() { close(null); }
       function onComplete() { exportCrop('complete'); }
       function onDoubleClick(event) {
+        if (candidate) {
+          if (!containsPoint(candidate, pointFromEvent(event))) return;
+          selection = candidate;
+          candidate = null;
+        } else if (!hasValidSelection(selection)) return;
         event.preventDefault();
         event.stopPropagation();
         if (textInput) {
@@ -2015,9 +2071,15 @@
           event.stopPropagation();
           close(null);
         } else if (event.key === 'Enter') {
-          event.preventDefault();
-          event.stopPropagation();
-          exportCrop('complete');
+          if (candidate || hasValidSelection(selection)) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (candidate) {
+              selection = candidate;
+              candidate = null;
+            }
+            exportCrop('complete');
+          }
         } else if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'z') {
           event.preventDefault();
           event.stopPropagation();
@@ -2044,15 +2106,16 @@
       overlay.focus({ preventScroll: true });
       requestAnimationFrame(function () {
         if (closed) return;
-        var imageRect = canvas.getBoundingClientRect();
         var initial = options && options.initialSelection;
         var scale = displayScale();
-        selection = initial ? {
+        selection = null;
+        candidate = initial ? {
           x: initial.left / scale,
           y: initial.top / scale,
           width: initial.width / scale,
           height: initial.height / scale
-        } : { x: 0, y: 0, width: imageRect.width, height: imageRect.height };
+        } : null;
+        if (!hasValidSelection(candidate)) candidate = null;
         renderSelection();
         updateToolbarState();
       });
