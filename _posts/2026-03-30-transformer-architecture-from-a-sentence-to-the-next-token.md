@@ -8,69 +8,19 @@ catalog: true
 date: 2026-03-30 12:00:00
 ---
 
-> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第一篇。先从 2017 年的 encoder-decoder Transformer 读起，再看 encoder-only、decoder-only、encoder-decoder 三条路线，最后落到 GPT-2 的静态结构；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第一篇。先看本系列要拆解的 GPT-2 small 总览，再回到 2017 年的 encoder-decoder Transformer，比较三条路线，最后逐个打开 GPT-2 的部件；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
-2017 年的《Attention Is All You Need》提出的是用于序列到序列任务的 encoder-decoder Transformer；后来，研究者又沿着 encoder-only、decoder-only 与 encoder-decoder 三条路线发展。现代 LLM 常见的 decoder-only 只是其中一条，不是 Transformer 从诞生起就只有的形态。
+先从一张 GPT-2 small 的 decoder-only 结构图开始，再回到 2017 年的《Attention Is All You Need》，看 encoder-decoder 如何为翻译而设计、后来又分出哪三条路线。随后逐个打开模型部件，说明它们做什么、为什么在那里。
 
-从 GPT-2 这一条 decoder-only 路线开始，本文讲**静态结构**：把每个方框打开，说清它是什么、为什么在那里、里面的数怎么算。全篇用一个 4 维、3 个 token 的玩具例子把每一步**手算出来**，再用 GPT-2 small 的真实数字对照。读完这一篇，你应该能对着模型的 `config.json` 画出结构图；下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)再讲一个 token 怎么在训练和推理时**流过**这些方框（动态线），本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把这两篇画的图变成代码。
+本文讲**静态结构**：把每个方框打开，说清它是什么、为什么在那里、里面的数怎么算。全篇用一个 4 维、3 个 token 的玩具例子把每一步**手算出来**，再用 GPT-2 small 的真实数字对照。读完这一篇，你应该能对着模型的 `config.json` 画出结构图；下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)再讲一个 token 怎么在训练和推理时**流过**这些方框（动态线），本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把这两篇画的图变成代码。
 
 本篇要回答的核心问题是：
 
-> **从原始 Transformer 的 encoder-decoder 到 GPT-2 的 decoder-only，结构上发生了什么变化？一个 token 的编号进入 GPT-2，到词表上的概率分布出来，又经过哪些运算？[^q0]**
+> **GPT-2 的 decoder-only 结构里，一个 token 的编号到词表上的概率分布要经过哪些运算？它与原始 Transformer 的 encoder-decoder 又有什么不同？[^q0]**
 
-## 一、从论文出发：为机器翻译设计的 encoder-decoder
+## 一、总览：从一句话到下一个 token
 
-[《Attention Is All You Need》](https://arxiv.org/html/1706.03762v4)提出 Transformer 时，研究对象是机器翻译这样的序列到序列任务：encoder 把源句子变成一串表示，decoder 逐步生成目标句子。论文的 base 配置在 encoder、decoder 各堆 $$N=6$$ 层，$$d_{\text{model}}=512$$、$$h=8$$ 个 attention heads、$$d_{\text{ff}}=2048$$。
-
-encoder 每层由**双向 self-attention + FFN**组成，不加 causal mask，源句子的每个位置都能利用整句上下文。decoder 每层依次做**因果 self-attention + cross-attention + FFN**：因果 mask 保证预测目标位置时看不到未来；cross-attention 的 query 来自 decoder，key/value 读取 encoder 的输出。
-
-![原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照。左两列是 2017 年的结构：encoder 的 block 是双向 self-attention + FFN，各接 Add & Norm；decoder 的 block 多一个 cross-attention 子层，Q 来自 decoder、K 和 V 来自 encoder 的输出。右列是 GPT：去掉整个 encoder（红色虚线框），cross-attention 随之消失，只保留带 causal mask 的 decoder，LayerNorm 改到子层之前](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg)
-
-图分三列，每列都自下而上：
-
-- **左列 encoder** 读整句英文，每个 block 是"双向 self-attention → Add & Norm → FFN → Add & Norm"。双向的意思是 self-attention 不加 mask，每个词能看到整句——它只负责"读懂"，不负责生成。
-- **中列 decoder** 逐词生成中文。它的 block 比 encoder 多一个子层：causal self-attention 之后先做一次 **cross-attention**——Q 来自 decoder 自己，K、V 来自 encoder 的输出（图中横过来的那条线），"翻译到这里该看原文的哪个词"；然后才是 FFN。
-- **右列 GPT** 就是本文第四章起拆开讲的结构。红色虚线框住的两样东西被整个去掉：encoder 没了，cross-attention 自然也没了。剩下的 decoder block 只有 causal self-attention 与 FFN 两个子层，而且 LayerNorm 从子层之后（Add & Norm）挪到了子层之前（pre-norm，第九章）。
-
-对照本文讲的结构，有四处不同：
-
-| | encoder | 原始 decoder | GPT 的 decoder-only |
-|---|---|---|---|
-| self-attention 的 mask | 无：每个词可以看整句（双向） | 有：只看左边 | 有：只看左边 |
-| cross-attention 子层 | 无 | 有：query 是自己，key / value 是 encoder 的输出 | **无** |
-| 位置编码 | 固定的正弦函数 | 同 | GPT-2 学习式表 / Llama RoPE |
-| 归一化位置 | post-norm | post-norm | pre-norm |
-
-Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
-
-### cross-attention 去哪了
-{: #cross-attention-去哪了}
-
-decoder 的 cross-attention 不是让 decoder 再读一遍自己的前缀：它从 encoder 输出中取信息，因此可以将“已译出的目标前缀”与“输入源句”同时用于下一个词的预测。GPT-2 没有独立的 encoder 和源序列，因此没有这一子层；要参考的内容直接拼在输入前面（prompt），由 causal self-attention 读取。
-
-### d2l 10.7 的 encoder-decoder 对照
-
-[《动手学深度学习》10.7](https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html)中的 encoder 对应图中左列的双向 self-attention 与 FFN；decoder 对应中列的因果 self-attention、读取 encoder 输出的 cross-attention 与 FFN。这里保留它作为术语对照；后文只在切换到 GPT-2 时说明这些结构如何取舍，不重复画第二张对照图。
-
-## 二、三条路线：encoder-only、decoder-only 与 encoder-decoder
-
-它们共享 Transformer block 这一基本构件，区别主要在可见范围、预训练目标，以及模型如何接收任务输入、产出结果。
-
-| 路线 | 结构 | 训练目标 | 典型用途 | 年份 |
-|---|---|---|---|---|
-| encoder-only（[BERT](https://arxiv.org/html/1810.04805)） | 双向 self-attention encoder | Masked Language Modeling（原论文还加入 Next Sentence Prediction） | 文本表示、分类、抽取式问答 | 2018 |
-| decoder-only（[GPT](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) / [GPT-2](https://openai.com/index/better-language-models/)） | 带 causal mask 的 decoder，无 encoder 与 cross-attention | 从左到右的 next-token prediction | 续写、开放式生成，也可把理解任务写成提示后的生成 | 2018 / 2019 |
-| encoder-decoder（[T5](https://arxiv.org/html/1910.10683) / [BART](https://arxiv.org/html/1910.13461)） | 双向 encoder + 带 cross-attention 的 causal decoder | T5 的 span corruption 与 text-to-text；BART 的文本去噪重建 | 翻译、摘要等条件生成 | 2019 |
-
-这张表描述的是几类代表模型及其原论文目标，不意味着某条路线只能做表中的一种任务。
-
-## 三、为什么 decoder-only 成为主流，本系列为什么以 GPT-2 为蓝本
-
-decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与建模上的便利来理解；这不是排除其他路线的定论。next-token prediction 既是预训练目标，也与逐步生成的使用方式一致；把任务说明和材料放进同一段 token 序列，就能用同一套模型接口处理续写、问答和工具调用。训练时仍可并行计算所有位置的表示；这不是 decoder-only 独有的优势，encoder-decoder 也能并行训练目标序列，差别在于 decoder 还通过 cross-attention 读取独立的源序列。
-
-本系列以 GPT-2 为蓝本，是因为它结构完整又足够小：[公开的 GPT-2 权重与配置](https://huggingface.co/openai-community/gpt2/blob/main/config.json)可以用 Hugging Face 实现对拍；[nanoGPT 的训练配方与代码](https://github.com/karpathy/nanoGPT)适合在单张 GPU 上跑通从数据到生成的闭环。这样，先把经典 decoder-only 拆明白，再接到 [《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)，看 Llama 式结构具体替换了哪些部件。
-
-## 四、总览：从一句话到下一个 token
+本系列要拆解的是 decoder-only 结构，以 GPT-2 small 为蓝本。第二至四章回到 2017 年的论文，解释这条路线从哪里来；第五章起再逐个打开它的部件。
 
 ### 1. 模型在做的唯一一件事
 
@@ -91,12 +41,12 @@ decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与�
 
 | 部件 | 做什么 | 有没有参数 | 章 |
 |---|---|---|---|
-| token embedding | 整数编号 → 向量（查表） | 有：$$V \times d$$ 的表 | 二 |
-| 位置 embedding | 告诉模型"这是第几个 token" | 有（GPT-2）/ 无（RoPE） | 三 |
-| attention 子层 | 每个 token 看别的 token、把有用的信息加到自己身上 | 有：四个 $$d \times d$$ 的矩阵 | 四 |
-| FFN 子层 | 每个 token 各自过一个两层的小网络 | 有：两个矩阵，$$d \times 4d$$ 与 $$4d \times d$$ | 五 |
-| 残差连接 + LayerNorm | 让几十层能训得动 | LayerNorm 有 $$2d$$ 个；残差没有 | 六 |
-| lm_head | 向量 → 词表上的分数 | 有：$$d \times V$$，常与 embedding 表共用 | 七 |
+| token embedding | 整数编号 → 向量（查表） | 有：$$V \times d$$ 的表 | 五 |
+| 位置 embedding | 告诉模型"这是第几个 token" | 有（GPT-2）/ 无（RoPE） | 六 |
+| attention 子层 | 每个 token 看别的 token、把有用的信息加到自己身上 | 有：四个 $$d \times d$$ 的矩阵 | 七 |
+| FFN 子层 | attention 用权重对 $$V$$ 做加权平均；FFN 再逐 token「放大 → GELU 非线性 → 压回」，也是主要参数与知识的所在（第八章） | 有：两个矩阵，$$d \times 4d$$ 与 $$4d \times d$$ | 八 |
+| 残差连接 + LayerNorm | 让几十层能训得动 | LayerNorm 有 $$2d$$ 个；残差没有 | 九 |
+| lm_head | 向量 → 词表上的分数 | 有：$$d \times V$$，常与 embedding 表共用 | 十 |
 
 Table: decoder-only Transformer 的六种部件与它们的参数
 
@@ -119,14 +69,14 @@ Table: 本文的六种部件与「七个权重矩阵」的对应——七个矩�
 
 ### 3. 本文的章节安排
 
-第四章先立路线图，之后五至十章按上一节表里六种部件的顺序逐个展开；第十一章再把它们叠成一个 block、数出整台 GPT-2 small 的参数。
+第一章先立路线图；第二至四章回到论文，解释 GPT-2 这条路线的来历；第五至十章按上一节表里六种部件的顺序逐个展开。第十一章再把它们叠成一个 block、数出整台 GPT-2 small 的参数。
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 一 | 原始 Transformer | 机器翻译任务<br/>encoder、decoder 与 cross-attention<br/>d2l 10.7 的术语对照 |
-| 二 | 三条路线 | encoder-only、decoder-only、encoder-decoder<br/>结构、目标与典型用途 |
-| 三 | 为什么从 GPT-2 开始 | decoder-only 的常见解释<br/>GPT-2 与 nanoGPT 的实践理由 |
-| 四 | 总览 | 从一句话到下一个 token |
+| 一 | 总览 | 从一句话到下一个 token |
+| 二 | 原始 Transformer | 机器翻译任务<br/>encoder、decoder 与 cross-attention<br/>d2l 10.7 的术语对照 |
+| 三 | 三条路线 | encoder-only、decoder-only、encoder-decoder<br/>结构、目标与典型用途 |
+| 四 | 为什么从 GPT-2 开始 | decoder-only 的常见解释<br/>GPT-2 与 nanoGPT 的实践理由 |
 | 五 | token embedding | 查表：编号 → 向量<br/>查表等价于 one-hot 乘矩阵 |
 | 六 | 位置 embedding | attention 不知道顺序（换序实验）<br/>两种给位置的方法：查位置表与 RoPE |
 | 七 | attention 子层 | 为什么需要它：GPT-2 真实的 attention 图<br/>Q / K / V 三个投影<br/>d = 4 的六步手算<br/>为什么除 √d、为什么 mask<br/>多头：怎么切、为什么各头看的不一样<br/>这一子层的四个参数矩阵 |
@@ -138,6 +88,58 @@ Table: 本文的六种部件与「七个权重矩阵」的对应——七个矩�
 | 十三 | 自测 | 六道题 |
 
 Table: 本文的章节安排
+
+## 二、从论文出发：为机器翻译设计的 encoder-decoder
+
+[《Attention Is All You Need》](https://arxiv.org/html/1706.03762v4)提出 Transformer 时，研究对象是机器翻译这样的序列到序列任务：encoder 把源句子变成一串表示，decoder 逐步生成目标句子。论文的 base 配置在 encoder、decoder 各堆 $$N=6$$ 层，$$d_{\text{model}}=512$$、$$h=8$$ 个 attention heads、$$d_{\text{ff}}=2048$$。
+
+encoder 每层由**双向 self-attention + FFN**组成，不加 causal mask，源句子的每个位置都能利用整句上下文。decoder 每层依次做**因果 self-attention + cross-attention + FFN**：因果 mask 保证预测目标位置时看不到未来；cross-attention 的 query 来自 decoder，key/value 读取 encoder 的输出。
+
+![原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照。左两列是 2017 年的结构：encoder 的 block 是双向 self-attention + FFN，各接 Add & Norm；decoder 的 block 多一个 cross-attention 子层，Q 来自 decoder、K 和 V 来自 encoder 的输出。右列是 GPT：去掉整个 encoder（红色虚线框），cross-attention 随之消失，只保留带 causal mask 的 decoder，LayerNorm 改到子层之前](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg)
+
+图分三列，每列都自下而上：
+
+- **左列 encoder** 读整句英文，每个 block 是"双向 self-attention → Add & Norm → FFN → Add & Norm"。双向的意思是 self-attention 不加 mask，每个词能看到整句——它只负责"读懂"，不负责生成。
+- **中列 decoder** 逐词生成中文。它的 block 比 encoder 多一个子层：causal self-attention 之后先做一次 **cross-attention**——Q 来自 decoder 自己，K、V 来自 encoder 的输出（图中横过来的那条线），"翻译到这里该看原文的哪个词"；然后才是 FFN。
+- **右列 GPT** 是第一章总览的那台机器，第五章起会逐个拆开。红色虚线框住的两样东西被整个去掉：encoder 没了，cross-attention 自然也没了。剩下的 decoder block 只有 causal self-attention 与 FFN 两个子层，而且 LayerNorm 从子层之后（Add & Norm）挪到了子层之前（pre-norm，第九章）。
+
+对照本文讲的结构，有四处不同：
+
+| | encoder | 原始 decoder | GPT 的 decoder-only |
+|---|---|---|---|
+| self-attention 的 mask | 无：每个词可以看整句（双向） | 有：只看左边 | 有：只看左边 |
+| cross-attention 子层 | 无 | 有：query 是自己，key / value 是 encoder 的输出 | **无** |
+| 位置编码 | 固定的正弦函数 | 同 | GPT-2 学习式表 / Llama RoPE |
+| 归一化位置 | post-norm | post-norm | pre-norm |
+
+Table: encoder、原始 decoder 与 GPT 式 decoder-only 的差别
+
+### cross-attention 去哪了
+{: #cross-attention-去哪了}
+
+decoder 的 cross-attention 不是让 decoder 再读一遍自己的前缀：它从 encoder 输出中取信息，因此可以将“已译出的目标前缀”与“输入源句”同时用于下一个词的预测。GPT-2 没有独立的 encoder 和源序列，因此没有这一子层；要参考的内容直接拼在输入前面（prompt），由 causal self-attention 读取。
+
+### d2l 10.7 的 encoder-decoder 对照
+
+[《动手学深度学习》10.7](https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html)中的 encoder 对应图中左列的双向 self-attention 与 FFN；decoder 对应中列的因果 self-attention、读取 encoder 输出的 cross-attention 与 FFN。这里保留它作为术语对照；后文只在切换到 GPT-2 时说明这些结构如何取舍，不重复画第二张对照图。
+
+## 三、三条路线：encoder-only、decoder-only 与 encoder-decoder
+
+它们共享 Transformer block 这一基本构件，区别主要在可见范围、预训练目标，以及模型如何接收任务输入、产出结果。
+
+| 路线 | 结构 | 训练目标 | 典型用途 | 年份 |
+|---|---|---|---|---|
+| encoder-only（[BERT](https://arxiv.org/html/1810.04805)） | 双向 self-attention encoder | Masked Language Modeling（原论文还加入 Next Sentence Prediction） | 文本表示、分类、抽取式问答 | 2018 |
+| decoder-only（[GPT](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) / [GPT-2](https://openai.com/index/better-language-models/)） | 带 causal mask 的 decoder，无 encoder 与 cross-attention | 从左到右的 next-token prediction | 续写、开放式生成，也可把理解任务写成提示后的生成 | 2018 / 2019 |
+| encoder-decoder（[T5](https://arxiv.org/html/1910.10683) / [BART](https://arxiv.org/html/1910.13461)） | 双向 encoder + 带 cross-attention 的 causal decoder | T5 的 span corruption 与 text-to-text；BART 的文本去噪重建 | 翻译、摘要等条件生成 | 2019 |
+
+这张表描述的是几类代表模型及其原论文目标，不意味着某条路线只能做表中的一种任务。
+
+## 四、为什么 decoder-only 成为主流，本系列为什么以 GPT-2 为蓝本
+
+decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与建模上的便利来理解；这不是排除其他路线的定论。next-token prediction 既是预训练目标，也与逐步生成的使用方式一致；把任务说明和材料放进同一段 token 序列，就能用同一套模型接口处理续写、问答和工具调用。训练时仍可并行计算所有位置的表示；这不是 decoder-only 独有的优势，encoder-decoder 也能并行训练目标序列，差别在于 decoder 还通过 cross-attention 读取独立的源序列。
+
+本系列以 GPT-2 为蓝本，是因为它结构完整又足够小：[公开的 GPT-2 权重与配置](https://huggingface.co/openai-community/gpt2/blob/main/config.json)可以用 Hugging Face 实现对拍；[nanoGPT 的训练配方与代码](https://github.com/karpathy/nanoGPT)适合在单张 GPU 上跑通从数据到生成的闭环。这样，先把经典 decoder-only 拆明白，再接到 [《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)，看 Llama 式结构具体替换了哪些部件。
 
 ## 五、token embedding：把编号变成向量
 
@@ -168,9 +170,15 @@ Table: 打乱输入顺序，attention 的输出只是跟着换了位置——三
 
 ### 2. 两种给位置的方法
 
-**方法一：再查一张表。** GPT-2 的做法：另有一张 $$1024 \times 768$$ 的表（`wpe`，position embedding），第 $$i$$ 个位置取第 $$i$$ 行，**逐元素加**到 token 向量上。第 0 个位置的 cat 和第 7 个位置的 cat 于是变成两个不同的向量，attention 就能区分它们了。这张表也是训练学出来的。它有几行，由训练前定下的上下文长度决定：GPT-2（2019）的上下文长度是 1024 个 token（config 里的 `n_positions`），所以表就建 1024 行——行数和上下文长度是同一个数，不是两件事。这种做法的代价不在 1024 这个数本身，而在于上限被**写死在参数里**：训练时只有这 1024 行被训过，第 1025 个位置没有对应的行，推理时就不能超过它；想加长上下文，只能把表扩大、让新增的行从头训。方法二不建表，也就没有这道硬上限。今天看 1024 很小，当年并不小——attention 的算量和那张 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第七章第 6 节），GPT-2 之前的 BERT 是 512，GPT-3 也只到 2048；上下文从 4K（Llama 2）、8K（Llama 3）到 128K（Llama 3.1），靠的是方法二的 RoPE 加上专门的长上下文扩展技术，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)讲。
+**方法一：再查一张表。** GPT-2 有一张 $$1024 \times 768$$ 的表（`wpe`，position embedding）。第 $$i$$ 个位置取第 $$i$$ 行，**逐元素加**到 token 向量上；第 0 个位置的 cat 和第 7 个位置的 cat 因此变成不同的向量，attention 就能区分它们。
+
+这张表也是训练学出来的。表有几行，由训练前定下的上下文长度决定。
+
+GPT-2 的 `n_positions = 1024`，所以表有 1024 行；行数和上下文长度是同一个数。这种做法的代价是上限被**写死在参数里**：第 1025 个位置没有训练过的表行，推理时不能直接超过 1024；想加长，只能扩表并训练新增行。
 
 **方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
+
+两种方法在上下文上限上的差别是：位置表只覆盖训练过的行数，RoPE 则按位置计算旋转角度，没有这道表行数的硬上限。1024 在当时并不算小——attention 的算量和 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第七章第 6 节）；早期 BERT 是 512、GPT-3 是 2048，后来 4K、8K、128K 上下文则在 RoPE 上配合专门的扩展技术，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)会继续讲。
 
 用上一节那两句话把两种方法各走一遍。为了能口算，token 向量取二维：猫 = (2, 0)、追 = (0, 2)、狗 = (2, 1)；方法一的位置表取 4 行：位置 0 = (1, 0)、1 = (0, 1)、2 = (−1, 0)、3 = (0, −1)；方法二让每个位置转 30°（$$q$$、$$k$$ 直接取 token 向量本身，省掉 $$W_Q, W_K$$）：
 
@@ -284,7 +292,11 @@ print((out - ref).abs().max())                            # tensor(5.9605e-08)
 
 ### 4. 为什么除以 √d
 
-$$q \cdot k$$ 是 $$d$$ 项相加。$$d$$ 越大，和的典型大小越大——各项独立、均值 0、方差 1 时，和的标准差正好是 $$\sqrt{d}$$（[《算法工程师的数学（04）：概率入门——语言模型是一个条件分布》](/probability-basics-language-model-as-conditional-distribution.html)用方差算过）。用随机向量实测：
+把点积写开就是 $$q \cdot k = q_1k_1 + \cdots + q_dk_d$$：一共 $$d$$ 项，每项都是可能为正、也可能为负的数。这里说的**标准差**，可以先理解成这些和「典型地离 0 有多远」。
+
+为什么是 $$\sqrt{d}$$，不是 $$d$$？这些项有正有负，会互相抵消一部分。若每项独立、均值为 0、方差为 1，独立项的方差可以相加：总和的方差是 $$d$$，标准差就是 $$\sqrt{d}$$（[《算法工程师的数学（04）：概率入门——语言模型是一个条件分布》](/probability-basics-language-model-as-conditional-distribution.html)用方差算过）。
+
+用 $$d = 4$$ 做个能手算的例子：四项各为 $$+1$$ 或 $$-1$$，总和范围是 $$-4$$ 到 $$4$$；但正负通常会抵消，典型大小是 $$2 = \sqrt{4}$$，不是 4。用随机向量实测：
 
 | $$d$$ | $$q \cdot k$$ 的标准差 | $$\sqrt{d}$$ | 除以 $$\sqrt{d}$$ 后 |
 |---|---:|---:|---:|
@@ -295,7 +307,9 @@ $$q \cdot k$$ 是 $$d$$ 项相加。$$d$$ 越大，和的典型大小越大—�
 
 Table: 随机 q、k 的点积标准差随 d 按 √d 增长；除以 √d 后回到 1
 
-不除会怎样：$$d = 128$$ 时分数的标准差是 11，随便两个 token 的分数就能差出 10 分以上，softmax 后是 0.99995 : 0.00005——一个 token 独占全部权重，其他全被忽略，而且这种极端概率对输入的微小变化几乎没有响应（梯度接近 0，[《算法工程师的数学（05）：从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)），训不动。除以 $$\sqrt{d}$$ 把分数拉回"有区分度但不饱和"的区间。原论文把这个版本叫 **scaled dot-product attention**，"scaled" 就是指这一步。
+**不除会怎样？** 取 $$d = 128$$，假设两个分数相差 10，softmax([10, 0]) 约为 $$(0.99995, 0.00005)$$：几乎全部权重都给了第一个 token。除以 $$\sqrt{128} \approx 11.3$$ 后，分数变成 $$(0.88, 0)$$，softmax 约为 $$(0.71, 0.29)$$，两个 token 都还能贡献信息。
+
+饱和的 softmax 对分数变化也不敏感。对第一个概率 $$p_1$$，$$\partial p_1 / \partial s_1 = p_1(1-p_1)$$；上面两种情况的梯度分别约为 $$0.00005$$ 和 $$0.21$$。前者几乎不响应分数变化，学习就会变慢（[《算法工程师的数学（05）：从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)）。除以 $$\sqrt{d}$$ 把分数拉回有区分度、又不饱和的区间。原论文把这个版本叫 **scaled dot-product attention**，"scaled" 就是指这一步。
 
 ### 5. 为什么 mask：只能看左边
 
@@ -318,8 +332,13 @@ mask 把"看未来的 token"的分数设成 $$-\infty$$，softmax 后权重为 0
 两件常被问的事：
 
 - **多头的代价是什么？** 打分与加权求和不增加算量：$$h$$ 个 $$[T, d_h]$$ 的小乘法加起来与一个 $$[T, d]$$ 的大乘法 FLOPs 相同（$$h \times 2T^2 d_h = 2T^2 d$$），$$W_Q, W_K, W_V$$ 的总大小也不变（12 个 $$768 \times 64$$ 拼起来就是一个 $$768 \times 768$$）。真正多出来的有两样：
-  - **参数：$$W_O$$。** 就是上面"12 个头拼回 $$[T, 768]$$ 之后再过的那个 $$768 \times 768$$"——它的作用是把各头**各自算出的结果混在一起**：拼接只是把 12 段摆在一起，第 $$i$$ 头的输出还只在自己那 64 维里，$$W_O$$ 的每一列都能同时用到 12 个头，后面的 FFN 才拿到一个融合过的向量。单头时并不需要它——$$W_V W_O$$ 可以合成一个矩阵——所以它确实是多头带来的：GPT-2 small 每层多 $$768^2 \approx 0.59$$M 个参数（attention 子层四个矩阵的 1/4），每个 token 多 $$2 \times 768^2 \approx 1.2$$M FLOPs。
-  - **中间结果：权重表多了 $$h$$ 倍。** 单头一层只有一张 $$[T, T]$$ 的 $$P$$，多头是 $$h$$ 张 $$[T, T]$$。$$T = 1024$$ 时 GPT-2 small 一层就是 $$12 \times 1024^2 \approx 12.6$$M 个数，bf16 下 25 MB，训练时反向还要留着；这是 attention 显存随 $$T^2$$ 涨的那一项，也是 FlashAttention 不肯把它写出来的原因（Infra 地图 GPU Kernel 系列）。KV cache 不受影响：缓存的是 $$K, V$$ 各 $$[T, d]$$，切成几个头都一样大。
+  - **参数：$$W_O$$。** $$W_O$$ 与多头一起出现：它把 12 个头的 64 维结果混合起来，让每个输出维度都能看到所有头。单头时 $$W_V W_O$$ 可以合并成一个矩阵，不需要单独的 $$W_O$$。GPT-2 small 每层的 $$W_O$$ 有 $$768^2 \approx 0.59$$M 个参数，是 attention 子层的四分之一；每个 token 另需 $$2 \times 768^2 \approx 1.2$$M FLOPs。
+  - **中间结果：权重表多了 $$h$$ 倍。** 六步手算第 ⑤ 步 softmax 得到权重表 $$P$$，形状是 $$[T, T]$$：一行对应一个 token，记录它分给其他 token 的注意力权重。
+    - 单头每层有一张 $$[T, T]$$ 表；多头每层有 $$h$$ 张。
+    - GPT-2 small 有 12 层、12 个头。$$T = 1024$$ 时，每层每个序列有 $$12 \times 1024 \times 1024 = 12{,}582{,}912$$ 个权重。bf16 每个占 2 字节，合计 $$25{,}165{,}824$$ 字节，约 25 MB（24 MiB）；12 层合计 $$301{,}989{,}888$$ 字节，约 0.30 GB（288 MiB）。
+    - 常规训练的反向计算要用这些权重，求 value $$V$$ 和分数 $$S$$ 的梯度。
+    - [《GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)中的 FlashAttention 不把完整的 $$[T, T]$$ 表写入 GPU 的 HBM：它在片上 SRAM 分块计算 softmax 与加权和，反向时再重算。这样不必物化随 $$T^2$$ 增长的整张表，attention 的额外存储随 $$T$$ 而不是 $$T^2$$ 增长。
+    - KV cache 不受影响：缓存的是 $$K, V$$ 各 $$[T, d]$$，切成几个头都一样大。
 - **为什么每头只有 64 维还够用？** 每个头只需要判断一种关系，64 维足够表达"是不是名词""是不是上一个词"这类问题；真实模型从 GPT-2 到 Llama-3 都保持 $$d_h = 64$$–$$128$$，加大的是头数与层数。
 
 ### 7. 这一子层的参数
@@ -331,12 +350,18 @@ mask 把"看未来的 token"的分数设成 $$-\infty$$，softmax 后权重为 0
 | $$W_Q$$ | 第 2 节：打分要有"我在找什么"的一方 | 768 × 768 | 590,592 |
 | $$W_K$$ | 第 2 节：被打分的一方"我是什么"，与 $$W_Q$$ 分开才能不对称 | 768 × 768 | 590,592 |
 | $$W_V$$ | 第 2 节：被选中后传什么内容，与打分解耦 | 768 × 768 | 590,592 |
-| $$W_O$$ | 第 6 节：12 个头各算出 64 维、拼成 768 维后，用它把各头的结果混合并投影回残差流 | 768 × 768 | 590,592 |
+| $$W_O$$ | 第 6 节：多头拼接后的输出投影，见下节 | 768 × 768 | 590,592 |
 | **合计** | | | **2,362,368 ≈ 2.36M** |
 
 Table: GPT-2 small 一层 attention 子层的四个参数矩阵：来历、形状与数量
 
-为什么恰好是这四个：打分需要一对（$$W_Q$$、$$W_K$$），传内容需要一个（$$W_V$$），多头之后把各头的结果合起来需要一个（$$W_O$$）。$$W_O$$ 在第 6 节之前没有出现，是因为单头时它并不必要——加权求和之后再乘 $$W_O$$，等价于一开始就用 $$W_V W_O$$ 这一个矩阵；多头后 12 个头各有自己的 $$W_V^{(i)}$$（768 × 64），拼接后再乘一个 768 × 768 的 $$W_O$$，第 $$i$$ 头的输出才能影响到全部 768 维，所以它是随多头一起出现的。nanoGPT 里前三个拼成一个 `c_attn`（768 × 2304），$$W_O$$ 叫 `c_proj`（第十一章第 2 节的参数表）。注意 attention **本身**——打分、softmax、加权求和——没有任何参数：它是一套固定的运算，"学"全发生在四个投影矩阵里。Llama 之后的模型把 $$W_K, W_V$$ 缩小（GQA，[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）、把 bias 去掉，但四个矩阵的角色没变。
+打分需要 $$W_Q$$、$$W_K$$；传递内容需要 $$W_V$$；多头之后把各头结果合起来需要 $$W_O$$，见第 6 节。
+
+nanoGPT 把前三个矩阵拼成 `c_attn`（768 × 2304），把 $$W_O$$ 叫作 `c_proj`；参数表见第十一章第 2 节。
+
+Attention 本身没有参数：打分、softmax、加权求和都是固定运算，学习发生在四个投影矩阵里。
+
+Llama 后续用 GQA 缩小 $$W_K, W_V$$，并去掉 bias；四个矩阵的角色不变（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
 
 ## 八、FFN 子层：让每个 token 自己想一想
 
@@ -364,7 +389,7 @@ $$
 
 ### 1. 残差流
 
-第四、五章的两个子层都不是"输入进去、输出出来"，而是**把输出加回输入**：
+第七、八章的两个子层都不是"输入进去、输出出来"，而是**把输出加回输入**：
 
 $$
 x \leftarrow x + \text{Attention}(\text{LN}(x)), \qquad x \leftarrow x + \text{FFN}(\text{LN}(x))
@@ -448,7 +473,7 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
 
 ## 十二、本文小结
 
-- 原始 Transformer 是为机器翻译设计的 encoder-decoder：encoder 双向读源句，decoder 用 causal self-attention 逐步生成，并用 cross-attention 从 encoder 输出取信息；BERT、GPT、T5/BART 代表三条不同路线。
+- 第一章先画出 GPT-2 small 的 decoder-only 总览；第二至四章回到为机器翻译设计的原始 encoder-decoder，说明 encoder、decoder、cross-attention 与三条路线的来历。
 - GPT-2 是本系列拆解 decoder-only 的实践基线，不代表 Transformer 从一开始就是 decoder-only，也不表示 encoder-decoder 只能在 decoder 侧产生训练目标。
 - 一个 decoder-only Transformer 只有**六种部件**：token embedding、位置 embedding、attention、FFN、残差 + LayerNorm、lm_head；从头到尾每个方框的输入输出都是 $$[T, d]$$ 的向量，所以能一层层叠。
 - **attention 是唯一让 token 之间交流的地方**：每个 token 用 query 与所有 key 打分（$$QK^T$$），除 $$\sqrt{d}$$ 防止 softmax 饱和，mask 禁止看未来，softmax 得权重，加权求和 value。$$d = 4$$、$$T = 3$$ 的六步手算与 PyTorch 对拍差 $$6 \times 10^{-8}$$；GPT-2 真实的头学出了"看上一个词"与"it 指回 cat"。
@@ -487,7 +512,7 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
 
    <details markdown="1"><summary>答案</summary>
 
-  attention 四个 $$d \times d$$ 矩阵共 $$4d^2$$；FFN 是 $$d \times 4d$$ 加 $$4d \times d$$ 共 $$8d^2$$。attention 本身（打分、softmax、加权求和）没有参数，参数只在投影矩阵里。见[第八章第 2 节](#2-它在一层里占了三分之二)。
+   attention 四个 $$d \times d$$ 矩阵共 $$4d^2$$；FFN 是 $$d \times 4d$$ 加 $$4d \times d$$ 共 $$8d^2$$。attention 本身（打分、softmax、加权求和）没有参数，参数只在投影矩阵里。见[第八章第 2 节](#2-它在一层里占了三分之二)。
    </details>
 
 5. GPT-2 的上下文上限是 1024 个 token，这个限制来自哪个部件？Llama 为什么没有同样的硬上限？
@@ -501,7 +526,7 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
 
    <details markdown="1"><summary>答案</summary>
 
-   少了 cross-attention（读 encoder 输出的那个）。GPT 把要参考的内容直接拼在输入前面（prompt），由 causal self-attention 去看——见[第一章的 cross-attention 说明](#cross-attention-去哪了)。
+   少了 cross-attention（读 encoder 输出的那个）。GPT 把要参考的内容直接拼在输入前面（prompt），由 causal self-attention 去看——见[第二章的 cross-attention 说明](#cross-attention-去哪了)。
    </details>
 
 ## 下一篇

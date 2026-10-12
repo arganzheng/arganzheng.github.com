@@ -57,7 +57,7 @@ flowchart TB
 | 章 | 内容 |
 |---|---|
 | 二 | `LayerNorm`：为什么自己写 |
-| 三 | `CausalSelfAttention`：47 行，第一篇《Transformer 长什么样》第四章的六步各在哪一行 |
+| 三 | `CausalSelfAttention`：47 行，第一篇《Transformer 长什么样》第七章的六步各在哪一行 |
 | 四 | `MLP` 与 `Block` |
 | 五 | `GPTConfig`：为什么 vocab_size 是 50304 |
 | 六 | `GPT.__init__`：拼结构、权重共享、两种初始化 |
@@ -102,7 +102,7 @@ class LayerNorm(nn.Module):
 
 [`forward`](#ln-fwd) 直接调 `F.layer_norm`：对最后一维（`self.weight.shape` = `(ndim,)`）归一化，$$\epsilon = 10^{-5}$$ 防止除零。注意归一化是**每个 token 自己**做——输入 `[B, T, d]`，沿 `d` 那一维算均值和方差，`B × T` 个 token 各算各的。
 
-## 三、`CausalSelfAttention`：47 行装下第一篇《Transformer 长什么样》的第四章
+## 三、`CausalSelfAttention`：47 行装下第一篇《Transformer 长什么样》的第七章
 
 ```python title='CausalSelfAttention 全文'
 class CausalSelfAttention(nn.Module):
@@ -169,7 +169,7 @@ class CausalSelfAttention(nn.Module):
 
 第一篇里 $$W_Q, W_K, W_V$$ 是三个 $$d \times d$$ 矩阵。这里[只有一个 `c_attn`](#attn-cattn)，形状 $$d \to 3d$$（GPT-2 small：$$768 \to 2304$$）。数学上完全等价——把三个矩阵**横着拼**成一个宽矩阵，$$x$$ 乘一次得到 $$[B, T, 3d]$$，再[沿最后一维切成三段](#attn-split)就是 $$Q, K, V$$。为什么合并：一次大 GEMM 比三次小 GEMM 快（少两次 kernel launch、少两次读 $$x$$），Infra PyTorch 第八篇讲为什么。名字 `c_attn`（c = Conv1D）沿用 OpenAI 原版代码，为了和 HF 权重对上。
 
-[`c_proj`](#attn-cproj) 是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第四章第 6 节的 $$W_O$$：多头拼接后再混合一次。
+[`c_proj`](#attn-cproj) 是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第七章第 6 节的 $$W_O$$：多头拼接后再混合一次。
 
 ### 2. 拆头：`view` + `transpose`
 
@@ -179,7 +179,7 @@ class CausalSelfAttention(nn.Module):
 
 [`self.flash`](#attn-flashflag) 检查 PyTorch 有没有 `scaled_dot_product_attention`（2.0 起有）。有就走[一行](#attn-flash)：`is_causal=True` 让它自己加下三角 mask，内部用 FlashAttention 一类的融合 kernel，**不会真的造出那张 $$[B, nh, T, T]$$ 的分数表**（Infra GPU Kernel 系列第九篇讲它怎么做到），显存从 $$O(T^2)$$ 降到 $$O(T)$$。
 
-没有就走[手写的五行](#attn-manual)——这五行正是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第四章第 3 节的第 ②–⑥ 步：
+没有就走[手写的五行](#attn-manual)——这五行正是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第七章第 3 节的第 ②–⑥ 步：
 
 | 行 | 第一篇的步骤 | 说明 |
 |---|---|---|
@@ -256,7 +256,7 @@ class GPTConfig:
 
 七个超参数（工具箱第一篇的 `dataclass` 配置）。默认值就是 GPT-2 small，只有一处不同：[`vocab_size = 50304`](#cfg-vocab) 而不是真实的 50257。50304 是 50257 向上取到 64 的倍数——lm_head 那个 $$768 \times V$$ 的矩阵乘法在 $$V$$ 是 64 的倍数时 GPU 跑得明显更快（Tensor Core 按 8 / 16 / 64 对齐，Infra GPU Kernel 系列第六篇）；多出来的 47 个词永远不会出现在数据里，模型学会给它们几乎为 0 的概率。从零训练时用 50304；`from_pretrained` 加载 GPT-2 权重时强制回 50257（第九章）。
 
-`block_size` 是上下文上限（位置表的行数，第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第三章第 2 节）；`bias=False` 是 Llama 式的选择，作者注释说"稍好一点、快一点"。
+`block_size` 是上下文上限（位置表的行数，第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第六章第 2 节）；`bias=False` 是 Llama 式的选择，作者注释说"稍好一点、快一点"。
 
 ## 六、`GPT.__init__`：拼结构、共享权重、两种初始化
 
@@ -682,4 +682,4 @@ Table: 同一结构在 nanoGPT、HuggingFace GPT-2 与 Llama 里的名字
 
 模型有了，还差数据、训练循环和一张 GPU。[下一篇《手搓 GPT（下）：nanoGPT train.py 与训一个会续写的模型》](/nanogpt-train-py-and-training-a-model-that-writes.html)把 336 行的训练脚本也逐块过一遍，然后在莎士比亚全集上训 5 分钟，看它从乱码到能写出像样的台词；再改层数和头数各跑一次——"改结构"的第一次体验。
 
-[^q0]: 最少四个类、不到 90 行：`LayerNorm`（可选 bias）、`CausalSelfAttention`（`c_attn` 一次算出 Q/K/V → `view`/`transpose` 拆头 → 打分、缩放、mask、softmax、加权 → 拼回 → `c_proj`）、`MLP`（$$d \to 4d \to$$ GELU $$\to d$$）、`Block`（pre-norm + 两次残差）；`GPT` 把 `wte`、`wpe`、$$L$$ 个 `Block`、`ln_f`、`lm_head` 拼起来，共享 `wte` 与 `lm_head` 的权重，`forward` 的训练分支对全部位置算交叉熵、推理分支只算最后一个位置。其余是周边：`generate`（温度 / top-k / 采样）、`from_pretrained`（按键名拷 HF 权重、四个矩阵转置）、`configure_optimizers`（二维参数才 decay）、`estimate_mfu`（$$6N + 12LHQT$$）。详见[第三](#三causalselfattention47-行装下第一篇transformer-长什么样的第四章)、[六](#六gpt__init__拼结构共享权重两种初始化)、[七章](#七forward训练分支与推理分支)。
+[^q0]: 最少四个类、不到 90 行：`LayerNorm`（可选 bias）、`CausalSelfAttention`（`c_attn` 一次算出 Q/K/V → `view`/`transpose` 拆头 → 打分、缩放、mask、softmax、加权 → 拼回 → `c_proj`）、`MLP`（$$d \to 4d \to$$ GELU $$\to d$$）、`Block`（pre-norm + 两次残差）；`GPT` 把 `wte`、`wpe`、$$L$$ 个 `Block`、`ln_f`、`lm_head` 拼起来，共享 `wte` 与 `lm_head` 的权重，`forward` 的训练分支对全部位置算交叉熵、推理分支只算最后一个位置。其余是周边：`generate`（温度 / top-k / 采样）、`from_pretrained`（按键名拷 HF 权重、四个矩阵转置）、`configure_optimizers`（二维参数才 decay）、`estimate_mfu`（$$6N + 12LHQT$$）。详见[第三](#三causalselfattention47-行装下第一篇transformer-长什么样的第七章)、[六](#六gpt__init__拼结构共享权重两种初始化)、[七章](#七forward训练分支与推理分支)。

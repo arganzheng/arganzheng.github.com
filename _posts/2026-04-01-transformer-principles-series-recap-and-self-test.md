@@ -18,7 +18,7 @@ date: 2026-04-01 23:00:00 +0800
 
 **核心问题**：原始 Transformer 的 encoder-decoder 如何变成 GPT-2 的 decoder-only？一个 token 的编号进入 GPT-2，到词表上的一个概率分布出来，中间经过了哪些运算？
 
-**结论**：[原始 Transformer 论文](https://arxiv.org/html/1706.03762v4)提出的是为机器翻译设计的 encoder-decoder：encoder 双向读取源句，decoder 用 causal self-attention 生成目标句，并通过 cross-attention 读取 encoder 输出；GPT-2 属于 decoder-only 路线，去掉 encoder 与 cross-attention，把要参考的内容拼进输入。进入 GPT-2 后，token embedding 把编号变成向量；attention 是**唯一让 token 之间交流的地方**——query 与所有 key 打分、除 $$\sqrt d$$ 防饱和、causal mask 禁止看未来、softmax 得权重、加权求和 value；它本身不知道顺序，所以位置必须显式给（GPT-2 查表 / Llama RoPE）；FFN 是逐 token 的两层小网络，提供非线性、存知识、占一层参数的 2/3；残差流让多层修正训得动，LayerNorm 让每个子层看到同一尺度；lm_head 与 embedding 共享。encoder-only（BERT）、decoder-only（GPT）与 encoder-decoder（T5/BART）分别对应不同结构与目标。
+**结论**：本篇先从 GPT-2 small 的 decoder-only 总览看起，再回到[原始 Transformer 论文](https://arxiv.org/html/1706.03762v4)：它是为机器翻译设计的 encoder-decoder，encoder 双向读取源句，decoder 用 causal self-attention 生成目标句，并通过 cross-attention 读取 encoder 输出；GPT-2 属于 decoder-only 路线，去掉 encoder 与 cross-attention，把要参考的内容拼进输入。进入 GPT-2 后，token embedding 把编号变成向量；attention 是**唯一让 token 之间交流的地方**——query 与所有 key 打分、除 $$\sqrt d$$ 防饱和、causal mask 禁止看未来、softmax 得权重、加权求和 value；它本身不知道顺序，所以位置必须显式给（GPT-2 查表 / Llama RoPE）；FFN 是逐 token 的两层小网络，提供非线性、存知识、占一层参数的 2/3；残差流让多层修正训得动，LayerNorm 让每个子层看到同一尺度；lm_head 与 embedding 共享。encoder-only（BERT）、decoder-only（GPT）与 encoder-decoder（T5/BART）分别对应不同结构与目标。
 
 **必记**：
 

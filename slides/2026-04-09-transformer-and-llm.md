@@ -1,6 +1,6 @@
 ---
 layout: slides
-title: "Transformer 原理与实现：从论文到手搓 GPT-2"
+title: "Transformer 原理与实现：从 GPT-2 总览到手搓 GPT-2"
 subtitle: "系列精华 · 四篇正文，按 ↓ 看推导、代码与数字"
 permalink: /slides/transformer-and-llm.html
 series: transformer-and-llm
@@ -35,28 +35,11 @@ flowchart LR
 
 ---
 
-## 01 · 原始 Transformer 的两半
+## 01 · GPT-2 的 decoder-only 总览
 
-《Attention Is All You Need》里的 Transformer 是为机器翻译设计的 encoder-decoder：encoder 双向读取源句，decoder 用 causal self-attention 生成目标句，再以 cross-attention 读取 encoder 输出。GPT-2 属于后来常见的 decoder-only 路线（[原始论文](https://arxiv.org/html/1706.03762v4)）。
+先看本系列要拆解的 GPT-2 small 总览；接着回到 2017 年的论文，解释 encoder-decoder、三条路线与 GPT-2 的来历。
 
-```mermaid
-flowchart LR
-    X["源句"] --> E["Encoder<br/>双向 self-attention + FFN"]
-    E --> M["Encoder 输出"]
-    Y["已生成目标前缀"] --> D["Decoder<br/>causal self-attention<br/>cross-attention + FFN"]
-    M -->|K、V| D
-    D --> P["下一个目标 token"]
-```
-
-<aside class="notes" markdown="1">
-原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。原始论文 base 配置：encoder、decoder 各 6 层，d_model = 512、8 heads、d_ff = 2048（[来源](https://arxiv.org/html/1706.03762v4)）。
-</aside>
-
-<!-- v -->
-
-## 01 · Transformer 长什么样：从论文到 GPT-2
-
-**结论**：原始 Transformer 是 encoder-decoder；GPT-2 走 decoder-only 路线。embedding 查表 → **attention（唯一让 token 互相看的地方）** → FFN（逐 token 的非线性，知识在这，占一层 2/3）→ 残差 + LayerNorm → lm_head；attention 不知道顺序，位置必须显式给。
+**结论**：GPT-2 走 decoder-only 路线。embedding 查表 → **attention（唯一让 token 互相看的地方）** → FFN（逐 token 的非线性，知识在这，占一层 2/3）→ 残差 + LayerNorm → lm_head；attention 不知道顺序，位置必须显式给。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 330}}}%%
@@ -74,6 +57,25 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。GPT-2 small：12 × 7.09M + embedding 38.6M + 位置表 0.79M = 124,439,808；FFN 占一层 66.6%。原始 Transformer 是 encoder-decoder，GPT 去掉 encoder 与 cross-attention。
+</aside>
+
+<!-- v -->
+
+## 01 · 回到原始 Transformer：encoder-decoder 的两半
+
+《Attention Is All You Need》里的 Transformer 是为机器翻译设计的 encoder-decoder：encoder 双向读取源句，decoder 用 causal self-attention 生成目标句，再以 cross-attention 读取 encoder 输出。GPT-2 属于后来常见的 decoder-only 路线（[原始论文](https://arxiv.org/html/1706.03762v4)）。
+
+```mermaid
+flowchart LR
+    X["源句"] --> E["Encoder<br/>双向 self-attention + FFN"]
+    E --> M["Encoder 输出"]
+    Y["已生成目标前缀"] --> D["Decoder<br/>causal self-attention<br/>cross-attention + FFN"]
+    M -->|K、V| D
+    D --> P["下一个目标 token"]
+```
+
+<aside class="notes" markdown="1">
+原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。原始论文 base 配置：encoder、decoder 各 6 层，d_model = 512、8 heads、d_ff = 2048（[来源](https://arxiv.org/html/1706.03762v4)）。
 </aside>
 
 <!-- v -->

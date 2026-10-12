@@ -51,7 +51,7 @@ $$
 
 ### 2. 位置表 → RoPE
 
-**GPT-2 的问题。** GPT-2 的位置信息来自一张学出来的表 `wpe`，形状 $$[1024, 768]$$：第 $$i$$ 个位置查第 $$i$$ 行加到 token 向量上（[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第三章）。表有几行，模型就最多能处理多长的上下文；第 1025 个位置没有对应的行，想加长只能扩表再训。而且它给的是**绝对**位置，「猫追狗」出现在第 3 个词还是第 300 个词，模型看到的是两组不同的向量，"相隔 2 个词"这种相对关系要靠模型自己从数据里学。
+**GPT-2 的问题。** GPT-2 的位置信息来自一张学出来的表 `wpe`，形状 $$[1024, 768]$$：第 $$i$$ 个位置查第 $$i$$ 行加到 token 向量上（[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第六章）。表有几行，模型就最多能处理多长的上下文；第 1025 个位置没有对应的行，想加长只能扩表再训。而且它给的是**绝对**位置，「猫追狗」出现在第 3 个词还是第 300 个词，模型看到的是两组不同的向量，"相隔 2 个词"这种相对关系要靠模型自己从数据里学。
 
 **RoPE 怎么做。** RoPE（Su 等 2021）不再往输入上加位置向量，而是在每层 attention 里，把 Q、K 向量的每两维看成一个平面上的点，按位置 $$i$$ 旋转角度 $$i\theta_j$$（不同的两维用不同的频率 $$\theta_j$$）。两个旋转过的向量做点积时，结果只和角度差 $$(i - j)\theta$$ 有关——**相对位置直接出现在 attention 分数里**，不需要模型去学。
 
@@ -661,7 +661,7 @@ class LlamaDecoderLayer(nn.Module):
         return hidden_states
 ```
 
-这是 pre-norm 结构（第 01 篇第四章）的逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
+这是 pre-norm 结构（第 01 篇第九章）的逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
 
 ```python title="LlamaModel 与 LlamaForCausalLM"
 class LlamaModel(LlamaPreTrainedModel):
