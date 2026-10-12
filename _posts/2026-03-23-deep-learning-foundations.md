@@ -113,7 +113,7 @@ Table: 九篇正文的主题与内容
 | 训练中的问题 | 本系列覆盖 | 边界与延伸 |
 |---|---|---|
 | 梯度怎么算？ | [反向传播：手推一个两层网络](/backpropagation-by-hand.html) | — |
-| 非线性选什么？梯度会不会消失？ | [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html) | 覆盖激活与梯度，不系统比较各种损失函数 |
+| 非线性选什么？梯度会不会消失？ | [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html) | — |
 | 信号能否保持深层尺度？ | [初始化、归一化与残差](/initialization-normalization-and-residual.html) | — |
 | 参数怎样更新？学习率与 batch 怎么选？ | [优化器：从 SGD 到 AdamW](/optimizers-from-sgd-to-adamw.html) | — |
 | 训练好后为什么测试表现变差？ | [正则化与泛化](/regularization-and-generalization.html) | 讨论正则化、验证集表现与泛化边界 |

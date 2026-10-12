@@ -98,15 +98,15 @@ ReLU 让对称、零均值的信号有一半落到 0，初始化时需要补回�
 
 ## 四、ReLU 的修补：负半轴留一点路
 
-- **Leaky ReLU**：负半轴改为 $$\alpha x$$，例如 $$\alpha=0.1$$。它保留一条小梯度，不需要学习额外参数。
+- **Leaky ReLU**：负半轴改为 $$\alpha x$$，例如 $$\alpha=0.01$$。它保留一条小梯度，不需要学习额外参数。
 - **PReLU**：把 $$\alpha$$ 设成可学习参数，让模型自己选负半轴斜率。
 - **ELU**：负半轴用 $$\alpha(e^x-1)$$，输出下界为 $$-\alpha$$；它能产生负值，但需要指数运算。
 
 三者都保留了 ReLU 的正半轴直通梯度，又避免负半轴完全没有梯度。现代 Transformer FFN 更常选 GELU 或 SiLU；门控形式见第六章。
 
-![Leaky α=.1、PReLU α=.25、ELU α=1](/img/in-post/activation-relu-variants.webp)
+![Leaky ReLU、PReLU 与 ELU 的函数和导数](/img/in-post/activation-relu-variants.webp)
 
-灰色细线是 ReLU 参考。
+灰色细线是 ReLU 参考。为了看清负半轴，图中 Leaky ReLU 取 $$\alpha=0.1$$，PReLU 取初始值 $$\alpha=0.25$$，ELU 取 $$\alpha=1$$。
 
 ## 五、平滑激活：GELU 与 SiLU
 
@@ -197,7 +197,7 @@ NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-data
 | GELU | $$x\Phi(x)$$ | $$\Phi(x)+x\phi(x)$$ | 约 $$[-0.170,\infty)$$ | 较高：CDF / tanh 近似 | GPT-2 |
 | SiLU | $$x\sigma(x)$$ | $$\sigma+x\sigma(1-\sigma)$$ | 约 $$[-0.278,\infty)$$ | 中：sigmoid + 乘法 | SwiGLU 的门 |
 | GLU | $$a\odot\sigma(b)$$ | $$a'\sigma(b)+ab'\sigma'(b)$$ | 取决于值分支 | 门 + 逐元素乘 | [Dauphin 等（2016）的门控卷积语言模型](https://arxiv.org/abs/1612.08083) |
-| Bilinear / ReGLU / GEGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | Bilinear 的门为恒等；其余门依次为 ReLU、GELU、SiLU |
+| Bilinear / ReGLU / GEGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | Bilinear 的门为恒等；GEGLU：T5 v1.1、Gemma；SwiGLU：PaLM、LLaMA、Llama 3、Qwen2.5 |
 
 Table: 常见激活函数的公式、导数与应用
 
