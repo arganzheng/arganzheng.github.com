@@ -85,6 +85,11 @@ html[data-theme="dark"] {
 	// footer
 	footer { background: transparent; color: @dk-muted; }
 	.mp .mp-actions .mp-clear { color: @dk-muted; }
+	.mp .mp-editor.is-dropping::after {
+		background: fade(@dk-surface, 90%);
+		border-color: @dk-link;
+		color: @dk-link;
+	}
 	footer .copyright, footer .list-inline a { color: @dk-muted; }
 }
 
