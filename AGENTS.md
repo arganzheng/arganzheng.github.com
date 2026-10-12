@@ -242,11 +242,18 @@ Pages has `https_enforced` on.
   `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
   are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
-  is `_includes/tag-cloud.html` (`min=site.featured-condition-size`); `/tags/`
-  renders the same include with `min=0` (`id="tag_cloud"`, one size step
-  larger). Weight tiers `tag-weight-s/a/b/c/d` by post count, styled
-  `.tag-cloud` in `less/extras.less` — pure CSS, the old `tagcloud.js` colour
-  interpolation is gone. RECOMMEND renders
+  is `_includes/tag-cloud.html` (`min=site.featured-condition-size`), unchanged
+  by the hierarchical browser. `_data/tag_tree.yml` owns aliases, curated
+  similar/distinct pairs, and the `/tags/` tree; `_plugins/tag_tree.rb`
+  validates it, canonicalizes document tags before consumers run, and builds
+  `site.data.tag_browser` / `site.data.tag_audit` from public `site.posts`.
+  `tags.html` renders the tree and filtered results; `js/tags.js` is page-only
+  and supports old `#tag` links, group paths, and comma-separated intersection
+  hashes (`/tags/#tag1,tag2`). The author-only `#dash-tags` card receives
+  `window.DASH_TAGS` from `site.data.tag_audit`. The shared cloud still uses
+  `min=0` (`id="tag_cloud"`) on `/tags/`. Weight tiers `tag-weight-s/a/b/c/d`
+  by post count, styled `.tag-cloud` in `less/extras.less` — pure CSS, the old
+  `tagcloud.js` colour interpolation is gone. RECOMMEND renders
   `site.recommends` (`title`/`href`/`desc`) as external links. Styles for these
   live in `less/extras.less`.
 - Post layouts: `post` (default, text header), `header-post` (hero image;

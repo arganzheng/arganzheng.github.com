@@ -258,6 +258,67 @@
   }
   renderWritingSchedule();
 
+  function renderTagAudit() {
+    var section = document.getElementById('dash-tags');
+    if (!section) return;
+    var data = window.DASH_TAGS || {}, host = section.querySelector('.dash-tags-groups');
+    var specs = [
+      {
+        key: 'similar',
+        title: '疑似重复',
+        rows: data.similar || [],
+        render: function (pair) {
+          return '<a href="/tags/#' + encodeURIComponent(pair.a) + '">' + h(pair.a) + '</a> (' + pair.a_count + ') ↔ ' +
+            '<a href="/tags/#' + encodeURIComponent(pair.b) + '">' + h(pair.b) + '</a> (' + pair.b_count + ')';
+        }
+      },
+      {
+        key: 'unplaced',
+        title: '未归组',
+        rows: data.unplaced || [],
+        render: function (item) {
+          return '<a href="/tags/#' + encodeURIComponent(item.tag) + '">' + h(item.tag) + '</a> <span class="dash-muted">' + item.count + ' 篇</span>';
+        }
+      },
+      {
+        key: 'single',
+        title: '只用过 1 次',
+        rows: data.single || [],
+        render: function (item) {
+          return '<a href="/tags/#' + encodeURIComponent(item.tag) + '">' + h(item.tag) + '</a> <span class="dash-muted">· ' +
+            h(item.group_path || '其他') + ' · </span><a href="' + h(item.url) + '">' + h(item.title) + '</a>';
+        }
+      }
+    ];
+    host.innerHTML = specs.map(function (spec) {
+      return '<details class="dash-tags-group" open><summary>' + spec.title + ' <span class="dash-count">' + spec.rows.length +
+        '</span></summary><div class="dash-tags-list" data-kind="' + spec.key + '"></div></details>';
+    }).join('');
+    specs.forEach(function (spec) {
+      var list = host.querySelector('[data-kind="' + spec.key + '"]'), expanded = false;
+      function paint() {
+        var shown = expanded ? spec.rows : spec.rows.slice(0, 20);
+        list.innerHTML = spec.rows.length
+          ? '<ul>' + shown.map(function (item) { return '<li>' + spec.render(item) + '</li>'; }).join('') + '</ul>'
+          : '<p class="dash-muted">暂无</p>';
+        if (spec.rows.length > 20) {
+          var toggle = document.createElement('a');
+          toggle.href = '#';
+          toggle.className = 'dash-toggle';
+          toggle.textContent = expanded ? '收起' : '展开全部 ' + spec.rows.length + ' 项';
+          toggle.addEventListener('click', function (event) {
+            event.preventDefault();
+            expanded = !expanded;
+            paint();
+          });
+          list.appendChild(toggle);
+        }
+      }
+      paint();
+    });
+  }
+  renderTagAudit();
+
   function loadRefresh() {
     var host = document.querySelector('#dash-refresh .dash-list');
     if (!host) return;

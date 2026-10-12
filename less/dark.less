@@ -237,6 +237,18 @@ html[data-theme="dark"] {
 	.tag-cloud a.tag-weight-c, .tag-cloud a.tag-weight-d { color: @dk-muted; }
 	.tag-cloud a span, .tag-cloud a sup { color: inherit; }
 	.post-tags a, .tag-cloud a { background-color: fade(white, 6%); border-color: @dk-border; }
+	.tag-tree-panel, .tag-more { background-color: @dk-surface; border-color: @dk-border; }
+	.tag-tree-panel > summary, .tag-tree-name, .tag-result-title { color: @dk-heading; }
+	#tag-filter, .tag-selected-chip { background-color: @dk-surface-2; border-color: @dk-border; color: @dk-text; }
+	.tag-tree-row.is-selected { background-color: fade(@dk-link, 16%); }
+	.tag-tree-row.is-selected .tag-tree-name, .tag-tree-caret:hover, .tag-tree-caret:focus-visible { color: @dk-link; }
+	.tag-tree-count, .tag-tree-empty, .tag-result-date, .tag-browser-hint,
+	.tag-results-suggestion, .tag-no-match, .tag-noscript { color: @dk-muted; }
+	.tag-result { border-color: @dk-border; }
+	.tag-result-title:hover, .tag-result-title:focus, .tag-result-tag:hover { color: @dk-link; }
+	.tag-result-tag, .tag-selection-clear { background-color: @dk-surface-2; border-color: @dk-border; color: @dk-muted; }
+	.tag-more:hover { background-color: @dk-surface-2; border-color: @dk-link; color: @dk-link; }
+	.tag-results-empty { color: @dk-heading; }
 }
 
 // ---- same components, at the specificity of their light rules
@@ -318,7 +330,7 @@ html[data-theme="dark"] {
 	}
 
 	// home / tags / archive text
-	.one-tag-list .tag-text, .post-tags a, .post-license a, a.external-link,
+	.post-tags a, .post-license a, a.external-link,
 	.moment-tag, .code-header .fig-title { color: @dk-link; }
 	.sidebar-container section h5 a, .sidebar-container ul > li > a, section.visible-md h5 a { color: @dk-text; }
 	.tag-cloud a.tag-weight-s, .tag-cloud a.tag-weight-a { color: @dk-link !important; }
@@ -738,6 +750,12 @@ html[data-theme="dark"] #dash-schedule {
 	.dash-schedule-post .dash-brief-link { color: @dk-muted; border-color: @dk-border; }
 	.dash-schedule-post .dash-brief-link:hover { color: @dk-link; border-color: @dk-link; }
 	.dash-schedule-post.is-flashing { animation-name: dash-schedule-flash-dark; }
+}
+html[data-theme="dark"] #dash-tags {
+	.dash-tags-group { border-color: @dk-border; }
+	.dash-tags-group > summary { color: @dk-heading; }
+	.dash-tags-list a { color: @dk-link; }
+	.dash-tags-list a:hover { color: lighten(@dk-link, 8%); }
 }
 @keyframes dash-schedule-flash-dark {
 	0%, 35% { background-color: #3b3525; }

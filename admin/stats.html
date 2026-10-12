@@ -36,6 +36,12 @@ noindex: true
     <div class="dash-schedule-groups"></div>
   </section>
 
+  <section class="dash-section" id="dash-tags" aria-labelledby="dash-tags-title">
+    <h3 id="dash-tags-title">标签整理</h3>
+    <p class="dash-hint">合并或分组在 <code>_data/tag_tree.yml</code> 里改：aliases 合并、tree 分组、distinct 忽略误报</p>
+    <div class="dash-tags-groups"></div>
+  </section>
+
   <section class="dash-section" id="dash-posts">
     <h3>文章榜 <small class="dash-sort-hint">点表头排序</small></h3>
     <table class="dash-table dash-posts">
@@ -88,6 +94,7 @@ window.DASH_META = {
 {% endfor %}  "": null
 };
 window.DASH_SCHEDULE = {{ site.data.writing_schedule | jsonify }};
+window.DASH_TAGS = {{ site.data.tag_audit | jsonify }};
 // posts only, newest first — the 修订简报 picker (data path = comments_path when set, live URL)
 window.DASH_POSTS = [
 {% for p in site.posts %}  [{{ p.comments_path | default: p.url | jsonify }}, {{ p.title | jsonify }}, {{ p.url | jsonify }}]{% unless forloop.last %},{% endunless %}

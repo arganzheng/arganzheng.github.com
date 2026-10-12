@@ -21,22 +21,29 @@ header-img: "img/tag-bg.jpg"
 
 <!-- Main Content -->
 <div class="container">
-	<div class="row">
-		<div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
-            <!-- 标签云 -->
-			{% include tag-cloud.html id="tag_cloud" min=0 %}
-
-            <!-- 标签列表: ~1400 entries, so keep the markup lean (this page used to be 1.2 MB) -->
-			{%- for tag in site.tags %}
-			<div class="one-tag-list">
-				<span class="fa fa-tag listing-seperator" id="{{ tag[0] }}"><span class="tag-text">{{ tag[0] }}</span></span>
-				{%- for post in tag[1] %}
-				<div class="post-preview"><a href="{{ post.url | prepend: site.baseurl }}"><h2 class="post-title">{{ post.title }}</h2>{% if post.subtitle %}<h3 class="post-subtitle">{{ post.subtitle }}</h3>{% endif %}</a></div>
-				<hr>
-				{%- endfor %}
-			</div>
-			{%- endfor %}
-
-		</div>
-	</div>
+  <div class="tag-browser" id="tag-browser">
+    <details class="tag-tree-panel" id="tag-tree-panel" open>
+      <summary>标签树</summary>
+      <div class="tag-tree-content">
+        <label class="tag-filter-label" for="tag-filter">筛选标签</label>
+        <input id="tag-filter" type="search" placeholder="筛选标签" autocomplete="off">
+        <div class="tag-tree-scroll">
+          <div id="tag-tree"></div>
+          <p class="tag-tree-empty" id="tag-tree-empty" hidden>没有匹配的标签</p>
+        </div>
+      </div>
+    </details>
+    <section class="tag-results" aria-label="标签文章">
+      <div id="tag-results-home">
+        <p class="tag-browser-hint">从左侧选择标签；按住 ⌘ 或点 ＋ 可以多选取交集</p>
+        {% include tag-cloud.html id="tag_cloud" min=0 %}
+      </div>
+      <div id="tag-results-state" aria-live="polite" hidden></div>
+    </section>
+  </div>
+  <noscript>
+    <p class="tag-noscript">标签浏览器需要启用 JavaScript；也可以在<a href="{{ '/archive/' | prepend: site.baseurl }}">归档</a>里按标签筛选文章。</p>
+  </noscript>
+  <script type="application/json" id="tag-data">{{ site.data.tag_browser | jsonify }}</script>
 </div>
+<script src="{{ '/js/tags.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}" defer></script>

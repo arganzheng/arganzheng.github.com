@@ -1,0 +1,113 @@
+# 标签分层与合并（/tags/ 标签树 + 仪表盘「标签整理」）。文章 front matter 不用改。
+#
+# aliases: 别名 -> 主标签。构建时把文章里的别名换成主标签（site.tags、/tags/、归档、
+#          搜索里都只剩主标签）；旧链接 /tags/#别名 会自动跳到主标签。
+# similar: 疑似重复、暂不合并的标签对，只在仪表盘「标签整理」里提示，方便决定。
+# distinct: 名字相近但确实不同的标签对，「标签整理」不再把它们当成疑似重复。
+# tree:    分层。节点 name 和某个标签同名时，节点本身就是那个标签（如 AI-Infra）；
+#          选中节点 = 它自己 + tags + children 里所有标签的文章。
+#          每个标签只能出现一次；没放进来的标签自动归入「其他」。
+#          未发布文章里的标签可以先写进来，没有公开文章的节点不显示。
+
+aliases:
+  Debug: Debugging
+  Benchmarking: Benchmark
+  Blog: 博客
+  Security: 安全
+  机器学习: Machine Learning
+  Distributed: 分布式
+
+similar:
+  - [architecture, 架构]
+  - [Storage, 存储]
+  - [Inference, 大模型推理]
+  - [Concurrency, 高并发]
+  - [Distributed Training, Training]
+
+distinct:
+  - [LoRA, QLoRA]
+  - [Tokenizer, tokenizers]
+
+tree:
+  - name: AI
+    tags: [LLM, Roadmap, Open Source]
+    children:
+      - name: 基础
+        children:
+          - name: 经典 ML
+            tags: [Machine Learning, Math, NumPy, PCA, k-means, AUC, NDCG, 特征工程, Loss Function, Methodology]
+          - name: Deep Learning
+            tags: [Backpropagation, Convolution, LayerNorm, AdamW, Contrastive Learning, NMS, Vision]
+          - name: 大模型
+            tags: [Transformer, Attention, RoPE, Tokenizer, BPE, Embedding, Autoregressive, Long Context, Sparse Attention, Pretraining, Reasoning, Small Models, DeepSeek, Unified Models, Generative Models, Sampling, Decoding, Beam Search]
+          - name: Multimodal
+            tags: [VLM, Speech, Audio, OCR]
+      - name: 框架与工具链
+        children:
+          - name: PyTorch
+            tags: [Autograd]
+          - name: Hugging Face
+            tags: [transformers, tokenizers, datasets, peft, trl, diffusers, Source Code]
+      - name: AI-Infra
+        children:
+          - name: GPU 与 Kernel
+            tags: [GPU, CUDA, Triton, GEMM, Roofline, FlashAttention, MFU, ROCm, Ascend, NPU, MIG, HAMi, Memory Pool]
+          - name: Compiler
+            tags: [MLIR, LLVM, TVM, torch.compile, DSL]
+          - name: 通信与网络
+            tags: [NCCL, RDMA, Allreduce]
+          - name: 训练
+            tags: [Distributed Training, Training, Megatron, DeepSpeed, FSDP, torchtitan, torchft, Parallelism, Sequence Parallelism, Checkpoint, Fault Tolerance, Parameter Server, Ray]
+          - name: 推理
+            tags: [Inference, 大模型推理, vLLM, SGLang, KV Cache, Speculative Decoding, Serving, llm-d, Prompt Caching, Quantization, SVDQuant, Distillation, Pruning, Scheduling]
+          - name: 集群与调度
+            tags: [Kueue, Volcano, DRA, KServe, Gateway API, Multi-Tenancy]
+      - name: Post-Training
+        tags: [RL, RLHF, GRPO, PPO, DPO, SFT, Fine-tuning, LoRA, QLoRA, verl, AReaL]
+      - name: Diffusion
+        tags: [DiT, Video Generation, Image Generation, Text-to-Image, ControlNet, xDiT, PipeFusion, Cache-DiT, TeaCache]
+      - name: AI-Application
+        children:
+          - name: Agent
+            tags: [Coding Agent, Harness, MCP, A2A, Tool Calling, Multi-Agent, Subagent, Memory, Agent Skills, AGENTS.md, Codex, Copilot, Sandbox, Durable Execution, Compaction, Human-in-the-Loop, Structured Output, JSON Schema]
+          - name: 上下文与检索
+            tags: [Context Engineering, Prompt Engineering, RAG, Retrieval, Chunking, GraphRAG, Knowledge Graph, Vector Database, Text-to-SQL, Ontology]
+          - name: Evaluation
+            tags: [LLM-as-a-Judge, Eval Set, Benchmark, A/B Testing, Data Flywheel, Feedback, Analytics]
+          - name: 生产与治理
+            tags: [Production, Gateway, LiteLLM, Cost, FinOps, Latency, Reliability, Tracing, OpenTelemetry, Metrics, SLO, Release, Governance, Compliance, EU AI Act, Guardrails, Prompt Injection, OWASP, Trust, Streaming, Real-time]
+          - name: Product
+            tags: [UX, Generative UI, Scenario Selection]
+          - name: 物理世界
+            tags: [Robotics, Autonomous Driving, Simulation, OTA]
+  - name: 后端开发
+    children:
+      - name: Java
+        tags: [JVM, classloader, spring, Spring MVC, spring-security, aop, cglib, proxy, maven, ant, junit, TDD, log4j, tomcat, quartz, groovy, BTrace, NIO, Mina, Thread Pool, Concurrency]
+      - name: 架构
+        tags: [architecture, 分布式, 微服务, rpc, Thrift, Protobuf, 序列化, 高并发, 高可用, 过载保护, Rate Limiting, 消息队列, kafka, zookeeper, 分布式锁, 缓存, 开放平台, API, uuid, 设计模式, 性能优化]
+      - name: Web
+        tags: [HTTP, nginx, JavaScript, crawler, chrome-headless, puppeteer, DNS, 安全, 移动互联网, 埋点, 广告, 搜索]
+  - name: 数据与存储
+    children:
+      - name: database
+        tags: [mysql, transaction, 主从复制, BDB, redis, aerospike, 存储, Storage]
+      - name: 图数据库
+        tags: [neo4j, Titan]
+      - name: elasticsearch
+      - name: 大数据
+        tags: [hadoop, spark, RDD, shuffle, data skew, cluster]
+  - name: 系统与工程
+    children:
+      - name: 运维
+        tags: [linux, shell, Kubernetes, Observability, Troubleshooting, Debugging, MLOps, CI]
+      - name: 编程语言
+        tags: [Python, C++, 编码, antlr, parser]
+      - name: 工具
+        tags: [git, gitlab, GitHub, vim, productivity]
+  - name: Algorithms
+    tags: [LeetCode, Interview, Data Structures, BFS, DFS, Dynamic Programming, Recursion, Backtracking, Binary Search, Binary Tree, Bloom Filter, Dijkstra, Graph, Greedy, Hash Table, Heap, Intervals, KMP, Knapsack, LRU, Linked List, Monotonic Stack, Prefix Sum, Priority Queue, Sliding Window, Stack, String, Trie, Two Pointers, Union Find, Design]
+  - name: 写作与工作
+    tags: [博客, jekyll, markdown, kramdown, Slides, Demo, 敏捷, 工作, 分享]
+  - name: 生活
+    tags: [生活的艺术, 呼吸, 瑜伽, 感恩节]

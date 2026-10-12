@@ -220,6 +220,43 @@ html:not(.author-ok) #dash-schedule {
 #dash-schedule {
   min-width: 0;
 }
+html:not(.author-ok) #dash-tags {
+  display: none !important;
+}
+#dash-tags {
+  min-width: 0;
+}
+#dash-tags .dash-tags-group {
+  margin: 10px 0;
+  border-top: 1px solid #eaeef2;
+}
+#dash-tags .dash-tags-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 2px;
+  color: #24292f;
+  font-weight: 600;
+  cursor: pointer;
+}
+#dash-tags .dash-tags-group > summary .dash-count {
+  margin-left: auto;
+}
+#dash-tags .dash-tags-list ul {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+#dash-tags .dash-tags-list li {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+#dash-tags .dash-tags-list a {
+  text-decoration: none;
+}
+#dash-tags .dash-tags-list .dash-toggle {
+  display: inline-block;
+  margin: 0 0 10px;
+}
 #dash-schedule .dash-schedule-summary {
   margin-bottom: 12px;
   color: #57606a;
