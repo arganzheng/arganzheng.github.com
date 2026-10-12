@@ -383,4 +383,8 @@ module WikiLinks
       doc.content = WikiLinks.rewrite(doc.content, doc, doc.site)
     end
   end
+
+  Jekyll::Hooks.register :site, :after_reset do |site|
+    site.remove_instance_variable(:@wikilinks_index) if site.instance_variable_defined?(:@wikilinks_index)
+  end
 end

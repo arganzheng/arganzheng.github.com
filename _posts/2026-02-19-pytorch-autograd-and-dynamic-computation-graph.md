@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-上一篇 [[PyTorch 深度实践（02）：Tensor 与内存布局]] 介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。需要回顾整体模型，可以从 [[PyTorch 深度实践（02）：Tensor 与内存布局#一、总览：一个 Tensor 由哪些部分组成]] 开始。
+上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
 
 但 Tensor 只有数据和布局，还不能完成模型训练。训练还需要回答一个问题：
 
