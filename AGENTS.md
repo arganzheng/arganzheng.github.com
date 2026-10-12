@@ -530,7 +530,16 @@ by `authorAssociation`), so list badges match. It is page-level hiding only —
 the comments remain in the public GitHub Discussion; the dashboard / 修订简报 /
 feedback-queue read them on purpose (they are the AI's revision input). `commentEl` and `renderEditor` are shared, so plain comments
 and passage notes have identical reply / edit / delete / 「同时提交 Issue」
-controls. The bottom section (`.annotation-comments`): header bar
+controls.
+
+The shared editor accepts pasted, dropped, or picked screenshots only after
+GitHub login. It compresses still images to at most 1600 px and 3 MB, then
+uploads them through `POST /comments/images` to the Worker’s R2
+`comments/YYYY/MM/` prefix. GitHub rewrites rendered image URLs to camo; the
+sanitizer restores the canonical Worker `/media/` URL for these images. Images
+uploaded from an unposted draft remain in R2 as orphans.
+
+The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply
 editor (`openInlineReply`), and a persistent editor (`.ac-editor`,
 `clearOnSubmit`, draft in `sessionStorage`). Plain comments filed with an

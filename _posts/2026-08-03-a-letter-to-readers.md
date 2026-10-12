@@ -99,7 +99,9 @@ Table: 选中文字后工具条上的按钮
 
 **图和代码块**也能评：图右上角、代码块顶栏各有一个评论小方块，点它就等于选中了图题或代码标题，工具条照常弹出。代码跑不通，就把系统、版本和完整报错贴进评论，勾上 Issue。
 
-拉到文末是**评论区**，和划线评论是同一个讨论串（存在这篇文章的 [GitHub Discussions](https://github.com/arganzheng/arganzheng.github.com/discussions) 里），支持 Markdown、能粘贴图片；自己的评论可以编辑、删除，每条评论可以 <i class="fa fa-caret-up"></i> <i class="fa fa-caret-down"></i> 投票。评论区上方的「<i class="fa fa-regular fa-heart"></i> 点赞」和「分享」不用登录。一篇文章被划得多了，评论区顶部会出现「**最受关注的段落**」——相当于读者版的摘要。
+拉到文末是**评论区**，和划线评论是同一个讨论串（存在这篇文章的 [GitHub Discussions](https://github.com/arganzheng/arganzheng.github.com/discussions) 里），支持 Markdown；自己的评论可以编辑、删除，每条评论可以 <i class="fa fa-caret-up"></i> <i class="fa fa-caret-down"></i> 投票。评论区上方的「<i class="fa fa-regular fa-heart"></i> 点赞」和「分享」不用登录。一篇文章被划得多了，评论区顶部会出现「**最受关注的段落**」——相当于读者版的摘要。
+
+写评论时也能直接把截图 ⌘V 进去，或者拖进来，不用另外找图床。
 
 
 ## 四、幻灯片与随笔

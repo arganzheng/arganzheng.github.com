@@ -1110,7 +1110,7 @@
     { key: 'codeblock', icon: 'fa-regular fa-file-code', title: '代码块 (```)' },
     { key: 'table', icon: 'fa-table', title: '表格 (3×3)' },
     { key: 'link', icon: 'fa-link', title: '链接 [文字](url)' },
-    { key: 'image', icon: 'fa-regular fa-image', title: '图片 ![说明](url)' },
+    { key: 'image', icon: 'fa-regular fa-image', title: '插入图片（也可直接粘贴截图 / 拖拽）' },
     { key: 'ul', icon: 'fa-list-ul', title: '无序列表 (- )' },
     { key: 'ol', icon: 'fa-list-ol', title: '有序列表 (1. )' }
   ];
@@ -1125,12 +1125,13 @@
       '</div>' +
       (opts.replyChip ? '<div class="ap-reply-chip" style="display:none"><i class="fa fa-reply"></i><span></span><button type="button" title="改为对这段文字评论">×</button></div>' : '') +
       '<textarea class="ap-text" rows="' + (opts.compact ? 4 : 6) + '" placeholder="' + escapeAttr(opts.placeholder) + '"></textarea>' +
+      '<input class="ap-image-input" type="file" accept="image/*" multiple hidden>' +
       '<div class="ap-preview" style="display:none"></div>' +
       '<div class="ap-status" style="display:none"></div>' +
       '<div class="ap-footer">' +
         '<span class="ap-user"></span>' +
         '<span class="ap-buttons">' +
-          '<span class="ap-hint">Markdown · ⌘/Ctrl+Enter 提交</span>' +
+          '<span class="ap-hint">Markdown · 可粘贴截图 · ⌘/Ctrl+Enter 提交</span>' +
           (opts.issueOption && cfg.issues ? '<label class="ap-issue" title="除评论外，再以你的名义在 GitHub 仓库创建一个 Issue，提醒作者这里可能有问题"><input type="checkbox"><i class="fa fa-flag"></i> 同时提交 Issue</label>' : '') +
           (opts.onCancel ? '<button type="button" class="ap-cancel">取消</button>' : '') +
           '<button type="button" class="ap-login"><i class="fa fa-brands fa-github"></i> 使用 GitHub 登录</button>' +
@@ -1139,8 +1140,13 @@
       '</div>';
     var ta = host.querySelector('.ap-text');
     var submitBtn = host.querySelector('.ap-submit');
+    var imageInput = host.querySelector('.ap-image-input');
+    var pendingUploads = 0, uploadSequence = 0, uploadError = '';
     if (opts.initialText) ta.value = opts.initialText;
-    function updateSubmitState() { submitBtn.disabled = host.classList.contains('is-busy') || !ta.value.trim(); }
+    function updateSubmitState() {
+      host._apPendingUploads = pendingUploads;
+      submitBtn.disabled = host.classList.contains('is-busy') || pendingUploads > 0 || !ta.value.trim();
+    }
     ta.addEventListener('input', function () { updateSubmitState(); if (opts.onChange) opts.onChange(ta.value); });
     updateSubmitState();
     if (opts.onCancel) host.querySelector('.ap-cancel').addEventListener('click', opts.onCancel);
@@ -1150,9 +1156,95 @@
     // for a passage comment, so nobody wonders whether the quote is kept
     for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(host, this.getAttribute('data-tab'), opts.fallbackText); });
     var fmts = host.querySelectorAll('.ap-format button');
-    for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () { switchTab(host, 'write'); applyFormat(ta, this.getAttribute('data-format')); });
+    for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () {
+      switchTab(host, 'write');
+      if (this.getAttribute('data-format') === 'image') imageInput.click();
+      else applyFormat(ta, this.getAttribute('data-format'));
+    });
+
+    imageInput.addEventListener('change', function () {
+      uploadImages(Array.prototype.slice.call(imageInput.files || []));
+      imageInput.value = '';
+    });
+    ta.addEventListener('paste', function (e) {
+      var files = transferImages(e.clipboardData);
+      if (!files.length) return;
+      e.preventDefault();
+      uploadImages(files);
+    });
+    ta.addEventListener('dragover', function (e) {
+      if (!transferImages(e.dataTransfer).length) return;
+      e.preventDefault();
+      host.classList.add('is-dragover');
+    });
+    ta.addEventListener('dragleave', function (e) {
+      if (!e.relatedTarget || !host.contains(e.relatedTarget)) host.classList.remove('is-dragover');
+    });
+    ta.addEventListener('drop', function (e) {
+      host.classList.remove('is-dragover');
+      var files = transferImages(e.dataTransfer);
+      if (!files.length) return;
+      e.preventDefault();
+      uploadImages(files);
+    });
+
+    function uploadImages(files) {
+      files = (files || []).filter(function (file) { return file && /^image\//i.test(file.type || ''); });
+      if (!files.length) return;
+      if (!getSession()) {
+        setStatus(host, '登录 GitHub 后才能粘贴图片', 'error');
+        return;
+      }
+      files.forEach(uploadImage);
+    }
+
+    function uploadImage(file) {
+      var placeholder = '![上传中 截图-' + (++uploadSequence) + '…]()';
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      ta.setRangeText(placeholder, start, end, 'end');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      pendingUploads++;
+      updateSubmitState();
+      setStatus(host, '正在上传图片…');
+
+      ensureToken().then(function (tk) {
+        return compressCommentImage(file).then(function (blob) {
+          return fetch(cfg.api + '/comments/images', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tk, 'Content-Type': blob.type },
+            body: blob
+          }).then(function (r) {
+            return r.json().then(function (data) {
+              if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+              return data;
+            });
+          });
+        });
+      }).then(function (data) {
+        replacePlaceholder(placeholder, '![' + '截图' + '](' + data.src + ')');
+      }).catch(function (err) {
+        replacePlaceholder(placeholder, '');
+        uploadError = err.message || String(err);
+      }).then(function () {
+        pendingUploads--;
+        updateSubmitState();
+        if (pendingUploads) setStatus(host, '正在上传图片…');
+        else if (uploadError) {
+          setStatus(host, uploadError, 'error');
+          uploadError = '';
+        } else setStatus(host, '');
+      });
+    }
+
+    function replacePlaceholder(placeholder, replacement) {
+      var at = ta.value.indexOf(placeholder);
+      if (at < 0) return;
+      ta.setRangeText(replacement, at, at + placeholder.length, 'preserve');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
 
     function submit() {
+      if (pendingUploads) return;
       var text = ta.value.trim();
       if (!text) return;
       var issueBox = host.querySelector('.ap-issue input');
@@ -1200,6 +1292,77 @@
     });
     refreshAuthUI(host);
     return ta;
+  }
+
+  function transferImages(transfer) {
+    if (!transfer) return [];
+    var images = [], items = transfer.items || [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (item.kind !== 'file' || !/^image\//i.test(item.type || '')) continue;
+      var file = item.getAsFile && item.getAsFile();
+      if (file && images.indexOf(file) < 0) images.push(file);
+    }
+    if (!images.length) {
+      var files = transfer.files || [];
+      for (var f = 0; f < files.length; f++) {
+        if (/^image\//i.test(files[f].type || '') && images.indexOf(files[f]) < 0) images.push(files[f]);
+      }
+    }
+    return images;
+  }
+
+  function compressCommentImage(file) {
+    if (file.type === 'image/gif') {
+      if (file.size > 3 * 1024 * 1024) return Promise.reject(new Error('图片太大（压缩后仍超过 3 MB）'));
+      return Promise.resolve(file);
+    }
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var width = img.naturalWidth, height = img.naturalHeight;
+        if (!width || !height) {
+          URL.revokeObjectURL(url);
+          reject(new Error('无法读取图片'));
+          return;
+        }
+        var scale = Math.min(1, 1600 / Math.max(width, height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        var context = canvas.getContext('2d');
+        if (!context) {
+          URL.revokeObjectURL(url);
+          reject(new Error('无法处理图片'));
+          return;
+        }
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        function finish(blob) {
+          if (!blob) {
+            reject(new Error('无法处理图片'));
+            return;
+          }
+          var originalType = String(file.type || '').toLowerCase();
+          if (Math.max(width, height) <= 1600 && file.size < blob.size &&
+              ['image/webp', 'image/jpeg', 'image/png'].indexOf(originalType) >= 0) blob = file;
+          if (blob.size > 3 * 1024 * 1024) {
+            reject(new Error('图片太大（压缩后仍超过 3 MB）'));
+            return;
+          }
+          resolve(blob);
+        }
+        canvas.toBlob(function (webp) {
+          if (webp && webp.type === 'image/webp') finish(webp);
+          else canvas.toBlob(finish, 'image/jpeg', 0.88);
+        }, 'image/webp', 0.85);
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        reject(new Error('无法读取图片'));
+      };
+      img.src = url;
+    });
   }
 
   // Minimal Markdown helpers for the toolbar: wrap the selection or prefix the
@@ -1291,7 +1454,7 @@
     for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
     host.classList.toggle('is-busy', !!busy);
     var ta = host.querySelector('.ap-text'), submit = host.querySelector('.ap-submit');
-    if (!busy && ta && submit) submit.disabled = !ta.value.trim();
+    if (!busy && ta && submit) submit.disabled = !ta.value.trim() || Number(host._apPendingUploads || 0) > 0;
   }
 
   function refreshAuthUI(host) {
@@ -2494,6 +2657,17 @@
       for (var k = attrs.length - 1; k >= 0; k--) {
         var name = attrs[k].name, value = attrs[k].value;
         if (/^on/i.test(name) || ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
+      }
+      if (el.tagName === 'IMG') {
+        el.setAttribute('loading', 'lazy');
+        var canonical = el.getAttribute('data-canonical-src');
+        if (cfg.api && canonical && canonical.indexOf(cfg.api + '/media/') === 0) {
+          el.setAttribute('src', canonical);
+          var imageLink = el.closest('a');
+          if (imageLink && /^https:\/\/camo\.githubusercontent\.com\//i.test(imageLink.getAttribute('href') || '')) {
+            imageLink.setAttribute('href', canonical);
+          }
+        }
       }
       if (el.tagName === 'A') {
         var samePage = null;

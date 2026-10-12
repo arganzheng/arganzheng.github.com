@@ -265,7 +265,10 @@ html[data-theme="dark"] {
 		background-color: @dk-surface;
 		border-color: @dk-border;
 		color: @dk-text;
-		.ap-editor { border-color: @dk-border; }
+		.ap-editor {
+			border-color: @dk-border;
+			&.is-dragover { outline-color: @dk-link; }
+		}
 		.ap-text, .ac-like, .ap-react-btn, .ap-reason {
 			background-color: @dk-surface-2;
 			border-color: @dk-border;

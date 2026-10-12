@@ -14,6 +14,7 @@ import { rewriteMomentTags } from './moment-tags.mjs';
  *   POST /token        { session }             -> { token }   (giscus /api/oauth/token)
  *   POST /discussions  { input }               -> { id }      (giscus /api/discussions, Authorization passthrough)
  *   POST /issues       { title, body }         -> { number, url }  (optional, see below)
+ *   POST /comments/images raw image bytes      -> { src }     reader GitHub token; stored in R2
  *   GET  /views?path=/slug.html                -> { views }       (optional, needs the D1 binding)
  *   POST /views        { path }                -> { views }       increments, then returns the count
  *   GET  /views/top?limit=50[&order=recent]   -> { rows: [{ path, views, updated_at }] }  for the author's dashboard
@@ -33,7 +34,7 @@ import { rewriteMomentTags } from './moment-tags.mjs';
  *                                                 pictures/posters under img/moments/YYYY/MM/ (same format as tools/moment.py).
  *                                                 Needs the GitHub App with *Contents: read & write* (501 without the key).
  *   POST /moments/media  raw video bytes       -> { src }       author/API-key only; Content-Length required; streams ≤ 50 MB to R2
- *   GET/HEAD /media/<key>                       -> R2 video bytes; supports conditional and byte-range requests
+ *   GET/HEAD /media/<key>                       -> R2 media bytes; supports conditional and byte-range requests
  *   GET    /moments?month=YYYY-MM&id=…   -> the entry's fields (text, place, tags in text, quote, by, music, images, video, raw)
  *   PUT    /moments    { month, id, …POST fields, images: [{ url } | { type, data }], video? } -> { url, commit } rewrites the entry
  *   DELETE /moments    { month, id }           -> { commit }    removes the entry, pictures/poster, and R2 video
@@ -91,6 +92,7 @@ export default {
       if (request.method === 'POST' && url.pathname === '/token') return await relay(`${GISCUS}/oauth/token`, request, cors);
       if (request.method === 'POST' && url.pathname === '/discussions') return await createDiscussion(request, env, cors);
       if (request.method === 'POST' && url.pathname === '/issues') return await createIssue(request, env, cors);
+      if (request.method === 'POST' && url.pathname === '/comments/images') return await uploadCommentImage(request, env, cors);
       if (url.pathname === '/views' && (request.method === 'GET' || request.method === 'POST')) return await views(request, url, env, cors);
       if (url.pathname === '/views/top' && request.method === 'GET') return await viewsTop(url, env, cors);
       if (url.pathname === '/views/daily' && request.method === 'GET') return await viewsDaily(url, env, cors);
@@ -274,6 +276,46 @@ async function createIssue(request, env, cors) {
   const data = await r.json();
   if (!r.ok) return json({ error: data.message || `create issue: HTTP ${r.status}` }, r.status === 403 ? 502 : r.status, cors);
   return json({ number: data.number, url: data.html_url }, 201, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+async function uploadCommentImage(request, env, cors) {
+  const userToken = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!userToken) return json({ error: '需要登录' }, 401, cors);
+  const who = await fetch(`${GITHUB}/user`, { headers: githubHeaders(userToken) });
+  if (who.status === 401) return json({ error: '登录已过期，请重新登录 GitHub' }, 401, cors);
+  if (!who.ok) return json({ error: `GitHub /user: HTTP ${who.status}` }, 502, cors);
+  const user = await who.json();
+
+  const contentType = String(request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  const ext = COMMENT_IMAGE_TYPES[contentType];
+  if (!ext) return json({ error: `图片格式不支持：${contentType}` }, 400, cors);
+  const length = request.headers.get('Content-Length');
+  if (length != null) {
+    if (!/^\d+$/.test(length)) return json({ error: 'Content-Length 不合法' }, 400, cors);
+    if (Number(length) > COMMENT_IMAGE_BYTES_MAX) return json({ error: '图片太大（> 3 MB）' }, 413, cors);
+  }
+  const base = momentMediaBase(env);
+  if (!env.MEDIA || !base) return json({ error: '还没配置图片存储（R2）' }, 501, cors);
+
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > COMMENT_IMAGE_BYTES_MAX) return json({ error: '图片太大（> 3 MB）' }, 413, cors);
+  if (!commentImageMatches(bytes, contentType)) return json({ error: '图片内容与声明格式不匹配' }, 400, cors);
+
+  const when = momentWhen();
+  const key = `comments/${when.y}/${when.m}/${randomHex()}.${ext}`;
+  await env.MEDIA.put(key, bytes, {
+    httpMetadata: { contentType, cacheControl: 'public, max-age=31536000, immutable' },
+    customMetadata: { login: user.login },
+  });
+  return json({ src: `${base}/${key}` }, 201, { ...cors, 'Cache-Control': 'no-store' });
+}
+
+function commentImageMatches(bytes, type) {
+  if (type === 'image/webp') return bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP';
+  if (type === 'image/jpeg') return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (type === 'image/png') return bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  if (type === 'image/gif') return bytes.length >= 4 && String.fromCharCode(...bytes.subarray(0, 4)) === 'GIF8';
+  return false;
 }
 
 // ---- page views (D1) -------------------------------------------------------
@@ -655,6 +697,9 @@ const MOMENT_IMAGE_TYPES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/p
 const MOMENT_VIDEO_BYTES_MAX = 50 * 1024 * 1024;
 const MOMENT_VIDEO_TYPES = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v', 'video/webm': 'webm' };
 const MOMENT_MEDIA_KEY = new RegExp(`^moments/\\d{4}/\\d{2}/[0-9a-f]+\\.(?:${Object.values(MOMENT_VIDEO_TYPES).join('|')})$`);
+const COMMENT_IMAGE_BYTES_MAX = 3 * 1024 * 1024;
+const COMMENT_IMAGE_TYPES = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
+const COMMENT_MEDIA_KEY = /^comments\/\d{4}\/\d{2}\/[0-9a-f]+\.(?:webp|jpg|png|gif)$/;
 const MOMENT_VIDEO_EXT_TYPES = { mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm' };
 const MOMENT_TAG = /^[\p{L}_][\p{L}\p{N}_\-·]*(?:\/[\p{L}\p{N}_\-·]+)*$/u;   // = Moments::TAG in _plugins/moments.rb
 const MOMENT_TIME = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$/;
@@ -684,6 +729,12 @@ function momentMediaBase(env) {
   return String(env && env.MEDIA_BASE || '').replace(/\/+$/, '');
 }
 
+function randomHex(byteCount = 5) {
+  const random = new Uint8Array(byteCount);
+  crypto.getRandomValues(random);
+  return Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function momentError(message, status = 400) {
   const err = new Error(message);
   err.status = status;
@@ -698,9 +749,7 @@ export async function putMomentVideo(env, body, type, size) {
   if (!ext) throw momentError(`视频格式不支持：${type || ''}`);
   if (size > MOMENT_VIDEO_BYTES_MAX) throw momentError(`视频太大（> ${MOMENT_VIDEO_BYTES_MAX / 1024 / 1024} MB）`, 413);
   const w = momentWhen();
-  const random = new Uint8Array(5);
-  crypto.getRandomValues(random);
-  const hex = Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const hex = randomHex();
   const key = `moments/${w.y}/${w.m}/${hex}.${ext}`;
   await env.MEDIA.put(key, body, {
     httpMetadata: { contentType: mediaType, cacheControl: 'public, max-age=31536000, immutable' },
@@ -709,8 +758,8 @@ export async function putMomentVideo(env, body, type, size) {
 }
 
 async function momentMediaResponse(request, env, key) {
-  if ((request.method !== 'GET' && request.method !== 'HEAD') || !MOMENT_MEDIA_KEY.test(key) || !env || !env.MEDIA) {
-    return new Response(null, { status: 404 });
+  if ((request.method !== 'GET' && request.method !== 'HEAD') || !(MOMENT_MEDIA_KEY.test(key) || COMMENT_MEDIA_KEY.test(key)) || !env || !env.MEDIA) {
+    return mediaResponse(null, 404);
   }
 
   let obj;
@@ -721,29 +770,28 @@ async function momentMediaResponse(request, env, key) {
       let head = null;
       try { head = await env.MEDIA.head(key); } catch {}
       if (head) {
-        return new Response(null, {
-          status: 416,
+        return mediaResponse(null, 416, {
           headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes */${head.size}` },
         });
       }
     }
-    return new Response(null, { status: 502 });
+    return mediaResponse(null, 502);
   }
-  if (!obj) return new Response(null, { status: 404 });
+  if (!obj) return mediaResponse(null, 404);
 
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
+  headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('ETag', obj.httpEtag);
   headers.set('Accept-Ranges', 'bytes');
   if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  if (!obj.body) return new Response(null, { status: 304, headers });
+  if (!obj.body) return mediaResponse(null, 304, { headers });
 
   let status = 200;
   if (request.headers.has('Range') && obj.range) {
     const bounds = momentMediaRange(obj.range, obj.size);
     if (!bounds) {
-      return new Response(null, {
-        status: 416,
+      return mediaResponse(null, 416, {
         headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes */${obj.size}` },
       });
     }
@@ -753,7 +801,16 @@ async function momentMediaResponse(request, env, key) {
   } else {
     headers.set('Content-Length', String(obj.size));
   }
-  return new Response(request.method === 'HEAD' ? null : obj.body, { status, headers });
+  return mediaResponse(request.method === 'HEAD' ? null : obj.body, status, { headers });
+}
+
+function mediaResponse(body, status, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set('X-Content-Type-Options', 'nosniff');
+  return new Response(body, {
+    status,
+    headers,
+  });
 }
 
 function momentMediaRange(range, size) {
