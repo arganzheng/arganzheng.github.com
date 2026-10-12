@@ -308,6 +308,11 @@ html[data-theme="dark"] {
 		.st-posts .is-overview a { color: @dk-heading; }
 		.st-posts li a:hover, .st-posts li a:focus { color: @dk-link; }
 	}
+	.st-level, .sb-level {
+		&.l1 { color: #a7d9b4; background: #23372a; border-color: #365741; }
+		&.l2 { color: #a9cef8; background: #243244; border-color: #3a526f; }
+		&.l3 { color: #e6cb8e; background: #3a3325; border-color: #625537; }
+	}
 
 	// home / tags / archive text
 	.one-tag-list .tag-text, .post-tags a, .post-license a, a.external-link,
@@ -663,4 +668,42 @@ html[data-theme="dark"] {
 	.mm-outline-label { color: @dk-text; &:hover { color: @dk-link; background: @dk-surface-2; } }
 	.mm-read { color: #7ee787; }
 	div.side-catalog .catalog-mindmap { color: @dk-muted; border-color: @dk-border; &:hover { color: @dk-link; border-color: @dk-link; } }
+}
+
+html[data-theme="dark"] #dash-schedule {
+	.dash-schedule-summary, .dash-schedule-legend, .dash-schedule-progress-text,
+	.dash-schedule-next, .dash-schedule-end, .dash-schedule-post time { color: @dk-muted; }
+	.dash-schedule-empty, .dash-schedule-month { border-color: @dk-border; background: @dk-surface; }
+	.dash-schedule-month h4, .dash-schedule-series-name { color: @dk-heading; }
+	.dash-cal-weekday { color: @dk-muted; }
+	.dash-cal-day { color: @dk-text; border-color: @dk-border; background-color: @dk-surface-2; }
+	.dash-cal-day:not(:disabled):hover, .dash-cal-day:not(:disabled):focus-visible { outline-color: @dk-link; }
+	.dash-schedule-swatch { border-color: @dk-border; }
+	.dash-cal-day.is-collision, .dash-schedule-swatch.is-collision { border-color: #ff7b72; box-shadow: inset 0 0 0 2px #ff7b72; }
+	.dash-cal-day.is-gap, .dash-schedule-swatch.is-gap {
+		background-color: #3a3325;
+		background-image: repeating-linear-gradient(135deg, rgba(210, 153, 34, .24) 0 3px, transparent 3px 7px);
+		border-color: #9e7c28;
+	}
+	.series-color-0, .dash-schedule-swatch.series-color-0 { color: #c3dbf5; background-color: #26384a; border-color: #405a74; }
+	.series-color-1, .dash-schedule-swatch.series-color-1 { color: #f0d2b1; background-color: #3a3027; border-color: #67513d; }
+	.series-color-2, .dash-schedule-swatch.series-color-2 { color: #c0dfc2; background-color: #29392d; border-color: #45624a; }
+	.series-color-3, .dash-schedule-swatch.series-color-3 { color: #e4c3da; background-color: #392d38; border-color: #60475d; }
+	.series-color-4, .dash-schedule-swatch.series-color-4 { color: #e8d8a7; background-color: #393422; border-color: #625737; }
+	.series-color-5, .dash-schedule-swatch.series-color-5 { color: #b8dedd; background-color: #253638; border-color: #3e5a5c; }
+	.series-color-6, .dash-schedule-swatch.series-color-6 { color: #d1d0f0; background-color: #302f43; border-color: #504f70; }
+	.series-color-7, .dash-schedule-swatch.series-color-7 { color: #edc5c7; background-color: #392a2c; border-color: #624547; }
+	.is-unassigned, .dash-schedule-swatch.is-unassigned { color: @dk-text; background-color: @dk-surface-2; border-color: @dk-border; }
+	.dash-schedule-series, .dash-schedule-series:last-child { border-color: @dk-border; }
+	.dash-schedule-series > summary::before { color: @dk-muted; }
+	.dash-schedule-progress { background-color: @dk-border; }
+	.dash-schedule-progress > span { background-color: @dk-link; }
+	.dash-schedule-post { border-color: @dk-border; }
+	.dash-schedule-post .dash-brief-link { color: @dk-muted; border-color: @dk-border; }
+	.dash-schedule-post .dash-brief-link:hover { color: @dk-link; border-color: @dk-link; }
+	.dash-schedule-post.is-flashing { animation-name: dash-schedule-flash-dark; }
+}
+@keyframes dash-schedule-flash-dark {
+	0%, 35% { background-color: #3b3525; }
+	100% { background-color: transparent; }
 }

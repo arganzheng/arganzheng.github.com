@@ -9,6 +9,7 @@
     <summary>
       <span class="st-no">{% if include.shared %}共享{% elsif include.number %}{{ include.number | prepend: '0' | slice: -2, 2 }}{% endif %}</span>
       <span class="st-name">{{ s.name }}</span>
+      {% if s.level %}<span class="st-level l{{ s.level }}">{% if s.level == 1 %}入门{% elsif s.level == 2 %}进阶{% elsif s.level == 3 %}深入{% endif %}</span>{% endif %}
       <small>{% if s.count == 0 %}即将发布{% if s.planned > 0 %} · {{ s.planned }} 篇{% endif %}{% elsif s.count < s.planned %}已发 {{ s.count }} / {{ s.planned }} 篇{% else %}{{ s.count }} 篇{% endif %}</small>
       <span class="st-read" hidden></span>
     </summary>

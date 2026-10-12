@@ -115,6 +115,149 @@
   // ---- 值得翻新的老文章: views × log(age) for tech posts whose date / updated is >= 3 years old
   var meta = window.DASH_META || {}, REFRESH_YEARS = 3, REFRESH_TOP = 15;
   var srcBase = 'https://github.com/' + repo + '/edit/master/';
+  function editUrl(path) { return srcBase + String(path || '').split('/').map(encodeURIComponent).join('/'); }
+
+  // ---- 写作排期 (future posts are read from raw _posts at build time)
+  function renderWritingSchedule() {
+    var section = document.getElementById('dash-schedule');
+    var tools = window.WritingSchedule;
+    if (!section || !tools) return;
+    var summary = section.querySelector('.dash-schedule-summary');
+    var empty = section.querySelector('.dash-schedule-empty');
+    var calendar = section.querySelector('.dash-schedule-calendar');
+    var legend = section.querySelector('.dash-schedule-legend');
+    var groupsHost = section.querySelector('.dash-schedule-groups');
+    var data = window.DASH_SCHEDULE || {};
+    var today = tools.beijingToday();
+    var posts = tools.upcoming(data.scheduled || []);
+    var grouped = tools.groupSchedule(posts);
+    var byDate = Object.create(null);
+    posts.forEach(function (post) { (byDate[post.date] || (byDate[post.date] = [])).push(post); });
+
+    function itemId(post) { return 'dash-schedule-item-' + String(post.path).replace(/[^a-zA-Z0-9_-]/g, '-'); }
+    function postRows(items, isDraft) {
+      return '<ol class="dash-schedule-posts">' + items.map(function (post) {
+        return '<li class="dash-schedule-post' + (isDraft ? ' is-draft' : '') + '" id="' + h(itemId(post)) + '">' +
+          (post.date ? '<time datetime="' + h(post.date) + '">' + h(post.date) + '</time>' : '') +
+          '<span class="dash-schedule-post-title">' + h(post.title) + '</span>' +
+          '<a class="dash-brief-link" href="' + h(editUrl(post.path)) + '" target="_blank" rel="noopener" title="在 GitHub 编辑源文件">GitHub 编辑</a></li>';
+      }).join('') + '</ol>';
+    }
+    function levelChip(level) {
+      var labels = { 1: '入门', 2: '进阶', 3: '深入' }, label = labels[Number(level)];
+      return label ? '<span class="st-level l' + Number(level) + '">' + label + '</span>' : '';
+    }
+    function seriesRows() {
+      var metaBySeries = data.series || {}, published = data.published || {};
+      return grouped.series.map(function (group) {
+        var meta = metaBySeries[group.key] || {};
+        var count = Number(published[group.key]) || 0;
+        var planned = count + group.posts.length;
+        var progress = planned ? Math.round(count / planned * 100) : 0;
+        var recap = group.posts.filter(function (post) { return post.recap; })[0];
+        var endDate = recap ? recap.date : group.posts[group.posts.length - 1].date;
+        var endLabel = '完结 ' + endDate + (recap ? '' : '（末篇）');
+        return '<details class="dash-schedule-series"><summary>' +
+          '<span class="dash-schedule-series-name">' + h(meta.name || group.key) + '</span>' + levelChip(meta.level) +
+          '<span class="dash-schedule-progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + planned + '" aria-valuenow="' + count + '" aria-label="已发 ' + count + ' / 计划 ' + planned + '">' +
+          '<span style="width:' + progress + '%"></span></span>' +
+          '<span class="dash-schedule-progress-text">已发 ' + count + ' / 计划 ' + planned + '</span>' +
+          '<span class="dash-schedule-next">下一篇 ' + h(group.nextDate) + '</span>' +
+          '<span class="dash-schedule-end">' + h(endLabel) + '</span></summary>' +
+          postRows(group.posts) + '</details>';
+      }).join('');
+    }
+    function calendarHtml() {
+      if (!posts.length) return '';
+      var start = tools.addDays ? tools.addDays(today, 1) : new Date(Date.parse(today + 'T00:00:00Z') + 86400e3).toISOString().slice(0, 10);
+      var last = posts[posts.length - 1].date;
+      var collisions = Object.create(null), gaps = Object.create(null);
+      tools.collisionDates(posts).forEach(function (date) { collisions[date] = true; });
+      tools.gapDates(posts, today, last).forEach(function (date) { gaps[date] = true; });
+      var cursor = new Date(Date.parse(start.slice(0, 7) + '-01T00:00:00Z'));
+      var finalMonth = last.slice(0, 7), months = [];
+      while (cursor.toISOString().slice(0, 7) <= finalMonth) {
+        var year = cursor.getUTCFullYear(), month = cursor.getUTCMonth(), key = cursor.toISOString().slice(0, 7);
+        var days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+        var firstOffset = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7;
+        var cells = [];
+        for (var blank = 0; blank < firstOffset; blank++) cells.push('<span class="dash-cal-blank" aria-hidden="true"></span>');
+        for (var day = 1; day <= days; day++) {
+          var date = key + '-' + String(day).padStart(2, '0');
+          if (date < start || date > last) {
+            cells.push('<span class="dash-cal-blank" aria-hidden="true"></span>');
+            continue;
+          }
+          var items = byDate[date] || [];
+          var className = 'dash-cal-day';
+          if (items.length) {
+            var colored = items.filter(function (post) { return post.series; })[0];
+            className += colored ? ' series-color-' + tools.paletteIndex(colored.series) : ' is-unassigned';
+          }
+          if (collisions[date]) className += ' is-collision';
+          if (gaps[date]) className += ' is-gap';
+          var titles = items.map(function (post) { return post.title; });
+          var tip = date + (titles.length ? '\n' + titles.join('\n') : '');
+          cells.push('<button type="button" class="' + className + '" data-date="' + date + '"' +
+            (items.length ? '' : ' disabled') + ' title="' + h(tip) + '" aria-label="' + h(tip) + '">' +
+            '<time datetime="' + date + '">' + day + '</time>' +
+            (items.length > 1 ? '<small>' + items.length + ' 篇</small>' : '') + '</button>');
+        }
+        while (cells.length % 7) cells.push('<span class="dash-cal-blank" aria-hidden="true"></span>');
+        months.push('<div class="dash-schedule-month"><h4>' + year + ' 年 ' + (month + 1) + ' 月</h4>' +
+          '<div class="dash-cal-grid"><span class="dash-cal-weekday">一</span><span class="dash-cal-weekday">二</span><span class="dash-cal-weekday">三</span><span class="dash-cal-weekday">四</span><span class="dash-cal-weekday">五</span><span class="dash-cal-weekday">六</span><span class="dash-cal-weekday">日</span>' +
+          cells.join('') + '</div></div>');
+        cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      }
+      return '<div class="dash-schedule-months">' + months.join('') + '</div>';
+    }
+
+    if (posts.length) {
+      var last = posts[posts.length - 1].date;
+      var daysLeft = Math.round((Date.parse(last + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400e3);
+      summary.textContent = '已排期 ' + posts.length + ' 篇，排到 ' + last + '（还有 ' + daysLeft + ' 天）';
+      empty.hidden = true;
+      calendar.innerHTML = calendarHtml();
+      legend.innerHTML = '<span class="dash-schedule-legend-title">图例</span>' +
+        grouped.series.map(function (group) {
+          return '<span><i class="dash-schedule-swatch series-color-' + tools.paletteIndex(group.key) + '"></i>' + h((data.series && data.series[group.key] && data.series[group.key].name) || group.key) + '</span>';
+        }).join('') +
+        (grouped.unassigned.length ? '<span><i class="dash-schedule-swatch is-unassigned"></i>未归入系列</span>' : '') +
+        '<span><i class="dash-schedule-swatch is-collision"></i>冲突</span><span><i class="dash-schedule-swatch is-gap"></i>空档 ≥3 天</span>';
+    } else {
+      summary.textContent = '已排期 0 篇';
+      empty.hidden = false;
+      calendar.innerHTML = '';
+      legend.innerHTML = '';
+    }
+
+    var groups = [];
+    if (grouped.series.length) groups.push('<div class="dash-schedule-series-list"><h4>系列进度</h4>' + seriesRows() + '</div>');
+    if (grouped.unassigned.length) groups.push('<section class="dash-schedule-group"><h4>未归入系列 <small>' + grouped.unassigned.length + ' 篇</small></h4>' + postRows(grouped.unassigned) + '</section>');
+    var drafts = data.drafts || [];
+    if (drafts.length) groups.push('<section class="dash-schedule-group dash-schedule-drafts"><h4>草稿（_drafts） <small>' + drafts.length + ' 篇</small></h4>' + postRows(drafts, true) + '</section>');
+    groupsHost.innerHTML = groups.join('');
+
+    calendar.addEventListener('click', function (event) {
+      var cell = event.target.closest('.dash-cal-day');
+      if (!cell || cell.disabled) return;
+      var items = byDate[cell.getAttribute('data-date')] || [];
+      var target = items.length && document.getElementById(itemId(items[0]));
+      if (!target) return;
+      var details = target.closest('details');
+      if (details) details.open = true;
+      window.setTimeout(function () {
+        var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+        target.classList.remove('is-flashing');
+        void target.offsetWidth;
+        target.classList.add('is-flashing');
+        window.setTimeout(function () { target.classList.remove('is-flashing'); }, 1800);
+      }, 40);
+    });
+  }
+  renderWritingSchedule();
+
   function loadRefresh() {
     var host = document.querySelector('#dash-refresh .dash-list');
     if (!host) return;
@@ -131,7 +274,7 @@
       if (!rows.length) { host.innerHTML = '<p class="dash-muted">没有三年以上还在被读的文章。</p>'; return; }
       host.innerHTML = '<ol class="dash-top dash-refresh">' + rows.slice(0, REFRESH_TOP).map(function (r) {
         return '<li><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a> <span class="dash-muted">' + (r.updated ? '更新于' : '写于') + ' ' + h(r.ref.slice(0, 7)) + ' · ' + Math.floor(r.years) + ' 年 · 阅读 ' + fmt(r.views) + (r.up ? ' · 有用 ' + r.up : '') + '</span> ' +
-          '<a class="dash-brief-link" href="#brief=' + h(r.path) + '" title="这篇文章的修订简报">简报</a> <a class="dash-brief-link" href="' + h(srcBase + r.src) + '" target="_blank" rel="noopener" title="在 GitHub 编辑源文件">编辑</a></li>';
+          '<a class="dash-brief-link" href="#brief=' + h(r.path) + '" title="这篇文章的修订简报">简报</a> <a class="dash-brief-link" href="' + h(editUrl(r.src)) + '" target="_blank" rel="noopener" title="在 GitHub 编辑源文件">编辑</a></li>';
       }).join('') + '</ol>' + (rows.length > REFRESH_TOP ? '<p class="dash-muted">共 ' + rows.length + ' 篇符合条件，只列前 ' + REFRESH_TOP + '。</p>' : '');
     }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
   }

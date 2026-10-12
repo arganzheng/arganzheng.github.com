@@ -15,7 +15,7 @@ pinned: true
 
 ## 一、这里写什么
 
-主要是技术，近两年集中在 AI 工程。内容按三张学习地图组织——[AI 算法工程师](/ai-algorithm-engineer-learning-roadmap.html)、[AI-Infra 工程师](/ai-infra-learning-roadmap.html)、[AI 应用工程师](/ai-application-engineer-learning-roadmap.html)——地图下面是三十多个**系列**，比如《[大模型推理系统揭秘](/deep-dive-into-vllm.html)》《GPU Kernel 工程》《通信与互联》。每个系列有总纲、正文和一篇总结自测；文章开头告诉你它是第几篇，文末有整个系列的目录。导航栏的 [Series](/series.html) 是全部系列的树。
+主要是技术，近两年集中在 AI 工程。内容按三张学习地图组织——[AI 算法工程师](/ai-algorithm-engineer-learning-roadmap.html)、[AI-Infra 工程师](/ai-infra-learning-roadmap.html)、[AI 应用工程师](/ai-application-engineer-learning-roadmap.html)——地图下面是三十多个**系列**，比如《[大模型推理系统揭秘](/deep-dive-into-vllm.html)》《GPU Kernel 工程》《通信与互联》。每个系列有总纲、正文和一篇总结自测；文章开头告诉你它是第几篇，文末有整个系列的目录。导航栏的 [Series](/series.html) 是全部系列的树，系列列表也标出「入门 / 进阶 / 深入」，方便按难度挑选。
 
 更早的文章（2009 年起）是 Java、数据库、搜索、大数据。技术之外，[Life](/life/) 是生活类的文章，[Moments](/moments/) 是随笔，[Slides](/slides/) 是幻灯片。[归档](/archive/)可以按类型、年份、系列、标签筛选，切换成时间线、表格或卡片；按主题翻去[标签](/tags/)。
 

@@ -54,6 +54,7 @@
 	.sb-kicker { padding: 0 6px; border-radius: 3px; background: @brand-primary; color: #fff; font-size: 11px; line-height: 18px; }
 	.sb-title { font-weight: 600; color: #24292f; }
 	.sb-pos { white-space: nowrap; }
+	.sb-level { margin-left: 2px; }
 	.sb-toggle {
 		margin-left: auto;
 		font-size: 12px;
@@ -93,6 +94,21 @@
 }
 @media (max-width: 767px) {
 	.post-container .series-box .sb-list { columns: 1; }
+}
+
+.st-level, .sb-level {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 6px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.35;
+	white-space: nowrap;
+	&.l1 { color: #246b45; background: #e9f6ed; border-color: #c5e8cf; }
+	&.l2 { color: #245c94; background: #eaf3ff; border-color: #c8def7; }
+	&.l3 { color: #765119; background: #fff4da; border-color: #f0dfa9; }
 }
 
 // 「本系列」 under the OUTLINE panel (wide screens only — the catalog column is visible-lg)
