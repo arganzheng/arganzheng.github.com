@@ -543,6 +543,10 @@ uploads them through `POST /comments/images` to the Worker’s R2
 `comments/YYYY/MM/` prefix. GitHub rewrites rendered image URLs to camo; the
 sanitizer restores the canonical Worker `/media/` URL for these images. Images
 uploaded from an unposted draft remain in R2 as orphans.
+Browsers with `getDisplayMedia` also show a scissors button beside the image
+button: `captureScreenshot()` hides editors and toolbars with
+`html.ap-capturing`, then `openCropOverlay(canvas)` exports a cropped PNG into
+the same compression and upload path; unsupported browsers hide the button.
 
 The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply
