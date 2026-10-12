@@ -756,6 +756,45 @@ html.ap-capturing {
 	color: #fff;
 	color-scheme: dark;
 }
+.ap-block-present {
+	position: fixed;
+	inset: 0;
+	z-index: 2147483647;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	padding: var(--ap-block-padding, 48px);
+	box-sizing: border-box;
+}
+.ap-block-present.is-wide { justify-content: flex-start; }
+.ap-block-present.is-tall { align-items: flex-start; }
+.ap-block-present-frame {
+	position: relative;
+	flex: 0 0 auto;
+}
+.ap-block-present-content {
+	position: absolute;
+	left: 0;
+	top: 0;
+	transform-origin: top left;
+}
+.ap-block-present .post-container.ap-block-present-article {
+	display: block;
+	max-width: none;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	float: none;
+	box-sizing: border-box;
+}
+.ap-block-present .fig-tools,
+.ap-block-present .table-tools,
+.ap-block-present .code-copy,
+.ap-block-present .code-copy-button {
+	visibility: hidden !important;
+	pointer-events: none !important;
+}
 .ap-crop-stage {
 	position: relative;
 	display: block;

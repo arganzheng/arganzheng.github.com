@@ -120,9 +120,9 @@
     return button(FIG_TITLE, function () { pick(cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), cap); });
   }
 
-  function screenshotButton(title, target) {
+  function screenshotButton(title, target, block) {
     return button(title, function () {
-      document.dispatchEvent(new CustomEvent('blog:screenshot-comment', { detail: { target: target } }));
+      document.dispatchEvent(new CustomEvent('blog:screenshot-comment', { detail: { target: target, block: block } }));
     }, 'fig-screenshot', '<i class="fa fa-scissors" aria-hidden="true"></i>');
   }
 
@@ -175,10 +175,11 @@
       fig.appendChild(img);
       var cap = caption(figureNo(fig), norm(img.getAttribute('alt')));
       fig.appendChild(cap);
-      var strip = tools(fig, media(img));
+      var mediaEl = media(img);
+      var strip = tools(fig, mediaEl);
       strip.appendChild(zoomButton(img));
       strip.appendChild(figureButton(cap));
-      strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no')));
+      strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), mediaEl));
     });
   }
 
@@ -198,7 +199,7 @@
       d.classList.add('code-copy-anchor');
       if (svg) strip.appendChild(zoomButton(svg));
       strip.appendChild(figureButton(cap));
-      strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no')));
+      strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), d.querySelector(':scope > .fig-media') || d));
     });
   }
 
@@ -257,7 +258,7 @@
       var feedback = button(TABLE_TITLE, function () { pick(target, target.closest('.post-figcaption') || target); });
       feedback.classList.add('table-feedback');
       tools.appendChild(feedback);
-      tools.appendChild(screenshotButton('截图评论这张表（⌥S / Alt+S）', target));
+      tools.appendChild(screenshotButton('截图评论这张表（⌥S / Alt+S）', target, anchor));
     });
   }
 
@@ -324,7 +325,7 @@
       Array.prototype.forEach.call(pre.querySelectorAll(':scope > .code-copy'), function (c) { strip.insertBefore(c, strip.firstChild); });
       var target = head.querySelector('.fig-title') || head.querySelector('.fig-no') || code;
       strip.appendChild(button(CODE_TITLE, function () { pick(target, head); }));
-      strip.appendChild(screenshotButton('截图评论这段代码（⌥S / Alt+S）', target));
+      strip.appendChild(screenshotButton('截图评论这段代码（⌥S / Alt+S）', target, anchor));
     });
   }
 

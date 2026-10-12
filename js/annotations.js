@@ -158,7 +158,7 @@
         startScreenshotComment();
       });
       document.addEventListener('blog:screenshot-comment', function (e) {
-        startScreenshotComment(e.detail && e.detail.target);
+        startScreenshotComment(e.detail && e.detail.target, e.detail && e.detail.block);
       });
     }
 
@@ -1421,11 +1421,196 @@
     return { left: left, top: top, width: width, height: height };
   }
 
-  async function captureScreenshot() {
+  function transparentColor(color) {
+    return !color || color === 'transparent' || /rgba\([^)]*,\s*0(?:\.0+)?\)$/.test(color);
+  }
+
+  function captureBackgroundColor() {
+    var candidates = [document.body, document.documentElement, container];
+    for (var i = 0; i < candidates.length; i++) {
+      if (!candidates[i]) continue;
+      var color = window.getComputedStyle(candidates[i]).backgroundColor;
+      if (!transparentColor(color)) return color;
+    }
+    return '#fff';
+  }
+
+  function isolateBlockCloneIds(root) {
+    var svgNamespace = 'http://www.w3.org/2000/svg';
+    var prefix = 'ap-block-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-';
+    var idMap = Object.create(null);
+    var nodes = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
+    for (var i = 0; i < nodes.length; i++) {
+      var id = nodes[i].getAttribute && nodes[i].getAttribute('id');
+      if (!id) continue;
+      if (nodes[i].namespaceURI === svgNamespace) {
+        idMap[id] = prefix + id;
+        nodes[i].setAttribute('id', idMap[id]);
+      } else {
+        nodes[i].removeAttribute('id');
+      }
+    }
+    for (var n = 0; n < nodes.length; n++) {
+      var attrs = nodes[n].attributes;
+      if (!attrs) continue;
+      for (var a = 0; a < attrs.length; a++) {
+        var attr = attrs[a], value = attr.value;
+        if ((attr.name === 'href' || attr.name === 'xlink:href') && value.charAt(0) === '#' && idMap[value.slice(1)]) {
+          value = '#' + idMap[value.slice(1)];
+        }
+        value = value.replace(/url\(\s*(['"]?)#([^)'"]+)\1\s*\)/g, function (match, quote, ref) {
+          return idMap[ref] ? 'url(' + quote + '#' + idMap[ref] + quote + ')' : match;
+        });
+        if (/^(aria-labelledby|aria-describedby|for)$/i.test(attr.name)) {
+          value = value.split(/\s+/).map(function (ref) { return idMap[ref] || ref; }).join(' ');
+        }
+        if (value !== attr.value) nodes[n].setAttribute(attr.name, value);
+      }
+      if (nodes[n].namespaceURI === svgNamespace && nodes[n].tagName.toLowerCase() === 'style') {
+        nodes[n].textContent = nodes[n].textContent.replace(/([^{}]+)(?=\{)/g, function (selector) {
+          return selector.replace(/#([A-Za-z_][\w:.-]*)/g, function (match, ref) {
+            return idMap[ref] ? '#' + idMap[ref] : match;
+          });
+        });
+      }
+    }
+  }
+
+  function captureBlock(blockEl, opts) {
+    opts = opts || {};
+    if (!blockEl || blockEl.nodeType !== 1 || !container || !container.contains(blockEl)) return Promise.resolve(null);
+    var sourceRect = blockEl.getBoundingClientRect();
+    if (sourceRect.width < 1 || sourceRect.height < 1) return Promise.reject(new Error('无法显示要截图的内容'));
+    var sizingSelector = '.table-responsive, table, pre, .code-block';
+    var sourceSizingNodes = [blockEl];
+    var sourceAncestor = blockEl.parentElement;
+    while (sourceAncestor && sourceAncestor !== container) {
+      if (sourceAncestor.matches(sizingSelector)) sourceSizingNodes.push(sourceAncestor);
+      sourceAncestor = sourceAncestor.parentElement;
+    }
+    sourceSizingNodes = sourceSizingNodes.concat(Array.prototype.slice.call(blockEl.querySelectorAll(sizingSelector)));
+    var fullWidth = sourceRect.width;
+    for (var i = 0; i < sourceSizingNodes.length; i++) {
+      fullWidth = Math.max(fullWidth, sourceSizingNodes[i].scrollWidth || 0);
+    }
+
+    var padding = typeof opts.padding === 'number' ? Math.max(0, opts.padding) : 48;
+    var margin = typeof opts.margin === 'number' ? Math.max(0, opts.margin) : 12;
+    var presenter = document.createElement('div');
+    presenter.className = 'ap-block-present';
+    presenter.style.backgroundColor = captureBackgroundColor();
+    var frame = document.createElement('div');
+    frame.className = 'ap-block-present-frame';
+    var content = document.createElement('div');
+    content.className = 'ap-block-present-content';
+    var article = document.createElement('div');
+    article.className = (container.className || 'post-container') + ' ap-block-present-article';
+    article.style.width = fullWidth + 'px';
+    article.style.maxWidth = 'none';
+    article.style.margin = '0';
+    article.style.padding = '0';
+    article.style.float = 'none';
+    var clone = blockEl.cloneNode(true);
+    var cloneStyle = window.getComputedStyle(blockEl);
+    if (cloneStyle.width && cloneStyle.width !== 'auto') clone.style.width = cloneStyle.width;
+    clone.style.boxSizing = cloneStyle.boxSizing;
+    var branch = clone;
+    var ancestor = blockEl.parentElement;
+    while (ancestor && ancestor !== container) {
+      var ancestorClone = ancestor.cloneNode(false);
+      ancestorClone.removeAttribute('id');
+      ancestorClone.appendChild(branch);
+      branch = ancestorClone;
+      ancestor = ancestor.parentElement;
+    }
+    var cloneSizingNodes = [branch].concat(Array.prototype.slice.call(branch.querySelectorAll(sizingSelector)));
+    for (var s = 0; s < cloneSizingNodes.length; s++) {
+      var sizingNode = cloneSizingNodes[s];
+      if (!sizingNode.matches(sizingSelector)) continue;
+      sizingNode.style.maxWidth = 'none';
+      sizingNode.style.maxHeight = 'none';
+      sizingNode.style.overflow = 'visible';
+      sizingNode.style.overflowX = 'visible';
+      sizingNode.style.overflowY = 'visible';
+      sizingNode.style.width = fullWidth + 'px';
+    }
+    isolateBlockCloneIds(branch);
+    article.appendChild(branch);
+    content.appendChild(article);
+    frame.appendChild(content);
+    presenter.appendChild(frame);
+    presenter.style.setProperty('--ap-block-padding', padding + 'px');
+
+    var originalScrollX = window.scrollX, originalScrollY = window.scrollY;
+    function showPresenter() {
+      document.body.appendChild(presenter);
+      var contentRect = content.getBoundingClientRect();
+      if (contentRect.width < 1 || contentRect.height < 1) throw new Error('无法显示要截图的内容');
+      var availableWidth = Math.max(1, window.innerWidth - padding * 2);
+      var availableHeight = Math.max(1, window.innerHeight - padding * 2);
+      var maxScale = 3;
+      var image = blockEl.tagName === 'IMG' ? blockEl : blockEl.querySelector('img');
+      if (image && image.naturalWidth) {
+        var imageUrl = image.currentSrc || image.src || '';
+        var isSvg = /^data:image\/svg\+xml/i.test(imageUrl) || /\.svg(?:[?#]|$)/i.test(imageUrl);
+        if (!isSvg) {
+          var renderedWidth = image.getBoundingClientRect().width;
+          if (renderedWidth > 0) maxScale = Math.max(1, image.naturalWidth / renderedWidth);
+        }
+      }
+      var widthScale = availableWidth / contentRect.width;
+      var scale = widthScale < 1
+        ? Math.max(0.75, Math.min(maxScale, widthScale))
+        : Math.max(1, Math.min(maxScale, widthScale, availableHeight / contentRect.height));
+      frame.style.width = contentRect.width * scale + 'px';
+      frame.style.height = contentRect.height * scale + 'px';
+      content.style.width = contentRect.width + 'px';
+      content.style.height = contentRect.height + 'px';
+      content.style.transform = 'scale(' + scale + ')';
+      if (scale < 1) presenter.classList.add('is-wide');
+      if (contentRect.height * scale > availableHeight) presenter.classList.add('is-tall');
+      clone.getBoundingClientRect();
+    }
+    function removePresenter() {
+      if (presenter.parentNode) presenter.parentNode.removeChild(presenter);
+      if (window.scrollX !== originalScrollX || window.scrollY !== originalScrollY) {
+        window.scrollTo(originalScrollX, originalScrollY);
+      }
+    }
+    return captureScreenshot({
+      beforeCapture: showPresenter,
+      afterFrame: removePresenter,
+      candidateRect: function (viewportRect, viewportWidth, viewportHeight) {
+        var rect = clone.getBoundingClientRect();
+        var left = Math.max(0, rect.left - margin);
+        var top = Math.max(0, rect.top - margin);
+        var right = Math.min(viewportWidth, rect.right + margin);
+        var bottom = Math.min(viewportHeight, rect.bottom + margin);
+        if (right <= left || bottom <= top) return null;
+        return {
+          left: viewportRect.left + left * viewportRect.width / viewportWidth,
+          top: viewportRect.top + top * viewportRect.height / viewportHeight,
+          width: (right - left) * viewportRect.width / viewportWidth,
+          height: (bottom - top) * viewportRect.height / viewportHeight
+        };
+      }
+    });
+  }
+
+  async function captureScreenshot(opts) {
+    opts = opts || {};
     var stream = null, video = null, captured = null;
     var frameWidth = 0, frameHeight = 0, surface, viewportRect;
     var scrollX = 0, scrollY = 0, viewportWidth = 0, viewportHeight = 0;
+    var initialSelection = null, afterFrameCalled = false;
     var metrics;
+    function afterFrame() {
+      if (afterFrameCalled) return;
+      afterFrameCalled = true;
+      if (typeof opts.afterFrame === 'function') {
+        try { opts.afterFrame({ scrollX: scrollX, scrollY: scrollY }); } catch (e) {}
+      }
+    }
     document.documentElement.classList.add('ap-capturing');
     try {
       scrollX = window.scrollX;
@@ -1443,6 +1628,7 @@
         screenX: window.screenX,
         screenY: window.screenY
       };
+      if (typeof opts.beforeCapture === 'function') opts.beforeCapture();
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'browser' },
         audio: false,
@@ -1491,10 +1677,17 @@
       var context = captured.getContext('2d');
       if (!context) throw new Error('无法处理共享画面');
       context.drawImage(video, 0, 0, captured.width, captured.height);
+      initialSelection = viewportRect;
+      if (typeof opts.candidateRect === 'function') {
+        var candidate = opts.candidateRect(viewportRect, viewportWidth, viewportHeight, frameWidth, frameHeight);
+        if (candidate && candidate.width > 0 && candidate.height > 0) initialSelection = candidate;
+      }
+      afterFrame();
     } catch (err) {
       if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return null;
       throw err;
     } finally {
+      afterFrame();
       try {
         if (stream) {
           var tracks = stream.getTracks();
@@ -1512,7 +1705,7 @@
       }
     }
     if (!captured) return null;
-    var crop = await openCropOverlay(captured, { initialSelection: viewportRect });
+    var crop = await openCropOverlay(captured, { initialSelection: initialSelection || viewportRect });
     return crop ? {
       blob: crop.blob,
       rect: crop.rect,
@@ -2247,7 +2440,7 @@
     return true;
   }
 
-  function startScreenshotComment(targetEl) {
+  function startScreenshotComment(targetEl, blockEl) {
     if (!supportsScreenshotCapture() || document.querySelector('.ap-crop-overlay') ||
         document.documentElement.classList.contains('ap-capturing')) return;
     if (!getSession()) {
@@ -2256,7 +2449,8 @@
     }
     hideToolbar();
     if (window.getSelection) window.getSelection().removeAllRanges();
-    captureScreenshot().then(function (shot) {
+    var shotPromise = blockEl ? captureBlock(blockEl) : captureScreenshot();
+    shotPromise.then(function (shot) {
       if (!shot) return;
       if (shot.action === 'share') {
         shareScreenshot(shot.blob);
@@ -2281,6 +2475,7 @@
         showToast('没有对应到文章里的位置，已放到文末评论框');
       }
     }).catch(function (err) {
+      if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
       showToast('截图失败：' + (err.message || String(err)));
     });
   }
@@ -3521,6 +3716,8 @@
     var bar = document.querySelector('.post-actions');
     var title = (bar && bar.getAttribute('data-title')) || document.title;
     var context = passageCardContext(exact);
+    var screenshotBlock = supportsScreenshotCapture() && window.BlogPassageCard &&
+      typeof window.BlogPassageCard.renderScreenshot === 'function' ? blockForCaptionPassage(exact) : null;
     var counted = function () { countPassageShare(exact); };
     if (!window.BlogShare) {
       copyText(url).then(function () { showToast('分享链接已复制：打开后会自动定位这段文字'); counted(); });
@@ -3533,6 +3730,12 @@
       onShared: counted,
       toast: showToast,
       card: function () {
+        if (screenshotBlock) {
+          return captureBlock(screenshotBlock).then(function (shot) {
+            if (!shot) return null;
+            return window.BlogPassageCard.renderScreenshot({ image: shot.blob, title: title, url: url });
+          });
+        }
         return window.BlogPassageCard.render({
           before: context.before,
           quote: exact,
@@ -3543,6 +3746,37 @@
       },
       filename: 'passage-' + annotHash(exact) + '.png'
     });
+  }
+
+  function captionPassageMatches(caption, exact) {
+    var title = caption.querySelector('.fig-title') || caption.querySelector('.fig-no');
+    return !!title && title.textContent.replace(/\s+/g, ' ').trim() === exact;
+  }
+
+  function blockForCaptionPassage(exact) {
+    exact = (exact || '').replace(/\s+/g, ' ').trim();
+    if (!exact) return null;
+    var captions = container.querySelectorAll('.post-figcaption');
+    for (var i = 0; i < captions.length; i++) {
+      if (!captionPassageMatches(captions[i], exact)) continue;
+      var figure = captions[i].previousElementSibling;
+      if (figure && figure.matches('figure.post-figure')) return figure.querySelector(':scope > .fig-media') || figure;
+      if (figure && figure.matches('.mermaid')) return figure.querySelector(':scope > .fig-media') || figure;
+    }
+    var tableCaptions = container.querySelectorAll('.table-caption');
+    for (var t = 0; t < tableCaptions.length; t++) {
+      if (!captionPassageMatches(tableCaptions[t], exact)) continue;
+      var preceding = tableCaptions[t].previousElementSibling;
+      var table = preceding && (preceding.matches('table') ? preceding : preceding.querySelector('table'));
+      if (table) return table.parentElement && table.parentElement.classList.contains('table-responsive') ? table.parentElement : table;
+    }
+    var headers = container.querySelectorAll('.code-header');
+    for (var h = 0; h < headers.length; h++) {
+      if (!captionPassageMatches(headers[h], exact)) continue;
+      var codeBlock = headers[h].closest('.code-block');
+      if (codeBlock) return codeBlock;
+    }
+    return null;
   }
   function countPassageShare(exact) {
     var hash = annotHash(exact);

@@ -258,6 +258,7 @@
   function showCard(ctx) {
     if (typeof ctx.card !== 'function') return;
     ctx.card().then(function (blob) {
+      if (!blob) return;
       closeCard();
       cardObjectUrl = URL.createObjectURL(blob);
       var name = ctx.filename || 'moment-' + (ctx.id || 'share') + '.png';
@@ -284,7 +285,10 @@
       });
       document.body.appendChild(cardOverlay);
       ctx.onShared('image');
-    }).catch(function () { ctx.toast('图片生成失败'); });
+    }).catch(function (err) {
+      if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
+      ctx.toast('图片生成失败');
+    });
   }
   function closeCard() {
     if (cardOverlay) cardOverlay.remove();
