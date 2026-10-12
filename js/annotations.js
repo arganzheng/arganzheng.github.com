@@ -1444,17 +1444,50 @@
       canvas.classList.add('ap-crop-image');
       canvas.setAttribute('aria-label', '待裁剪截图');
       canvas.draggable = false;
+      var markupCanvas = document.createElement('canvas');
+      markupCanvas.className = 'ap-crop-markup';
+      markupCanvas.width = canvas.width;
+      markupCanvas.height = canvas.height;
 
       var selectionBox = document.createElement('div');
       selectionBox.className = 'ap-crop-selection';
       stage.appendChild(canvas);
+      stage.appendChild(markupCanvas);
       stage.appendChild(selectionBox);
 
       var toolbar = document.createElement('div');
       toolbar.className = 'ap-crop-toolbar';
       var hint = document.createElement('span');
       hint.className = 'ap-crop-hint';
-      hint.textContent = '拖动框选要上传的区域 · Enter 完成 · Esc 取消';
+      hint.textContent = '拖动框选区域 · 可画框 / 箭头 / 文字 · 双击或 Enter 完成 · Esc 取消';
+
+      var toolButtons = [];
+      function addToolButton(tool, icon, title) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'ap-crop-tool';
+        button.setAttribute('data-tool', tool);
+        button.setAttribute('title', title);
+        button.setAttribute('aria-label', title);
+        button.setAttribute('aria-pressed', 'false');
+        button.innerHTML = '<i class="' + icon + '" aria-hidden="true"></i>';
+        toolbar.appendChild(button);
+        toolButtons.push(button);
+        return button;
+      }
+      var rectButton = addToolButton('rect', 'fa fa-regular fa-square', '画框');
+      var arrowButton = addToolButton('arrow', 'fa fa-arrow-right', '箭头');
+      var textButton = addToolButton('text', 'fa fa-font', '文字');
+      var undoButton = document.createElement('button');
+      undoButton.type = 'button';
+      undoButton.className = 'ap-crop-undo';
+      undoButton.setAttribute('title', '撤销 (⌘/Ctrl+Z)');
+      undoButton.setAttribute('aria-label', '撤销 (⌘/Ctrl+Z)');
+      undoButton.innerHTML = '<i class="fa fa-arrow-rotate-left" aria-hidden="true"></i>';
+
+      var separator = document.createElement('span');
+      separator.className = 'ap-crop-separator';
+      separator.setAttribute('aria-hidden', 'true');
       var cancelButton = document.createElement('button');
       cancelButton.type = 'button';
       cancelButton.textContent = '取消';
@@ -1465,7 +1498,9 @@
       completeButton.type = 'button';
       completeButton.textContent = '完成';
       completeButton.disabled = true;
-      toolbar.appendChild(hint);
+      toolbar.insertBefore(hint, rectButton);
+      toolbar.appendChild(undoButton);
+      toolbar.appendChild(separator);
       toolbar.appendChild(cancelButton);
       toolbar.appendChild(wholeButton);
       toolbar.appendChild(completeButton);
@@ -1473,66 +1508,269 @@
       overlay.appendChild(toolbar);
       document.body.appendChild(overlay);
 
-      var selection = null, drag = null, closed = false, exporting = false;
+      var selection = null, drag = null, draftShape = null, activeTool = null;
+      var shapes = [], textInput = null, closed = false, exporting = false;
+      var listeners = [];
+      function listen(target, type, handler, capture) {
+        target.addEventListener(type, handler, !!capture);
+        listeners.push({ target: target, type: type, handler: handler, capture: !!capture });
+      }
+      function removeListeners() {
+        for (var i = 0; i < listeners.length; i++) {
+          var listener = listeners[i];
+          listener.target.removeEventListener(listener.type, listener.handler, listener.capture);
+        }
+        listeners = [];
+      }
+      function displayScale() {
+        var rect = canvas.getBoundingClientRect();
+        return rect.width ? canvas.width / rect.width : 1;
+      }
       function hasValidSelection(rect) {
         return !!rect && rect.width >= 8 && rect.height >= 8;
       }
-      function updateSelection(event) {
+      function pointFromEvent(event) {
         var imageRect = canvas.getBoundingClientRect();
-        var x = Math.max(0, Math.min(imageRect.width, event.clientX - imageRect.left));
-        var y = Math.max(0, Math.min(imageRect.height, event.clientY - imageRect.top));
-        var left = Math.min(drag.x, x), top = Math.min(drag.y, y);
-        var width = Math.abs(x - drag.x), height = Math.abs(y - drag.y);
-        selection = { x: left, y: top, width: width, height: height };
-        selectionBox.style.display = 'block';
-        selectionBox.style.left = left + 'px';
-        selectionBox.style.top = top + 'px';
-        selectionBox.style.width = width + 'px';
-        selectionBox.style.height = height + 'px';
-        completeButton.disabled = !hasValidSelection(selection);
-      }
-      function onPointerDown(event) {
-        if (event.button !== undefined && event.button !== 0 && event.pointerType !== 'touch') return;
-        var imageRect = canvas.getBoundingClientRect();
-        if (!imageRect.width || !imageRect.height) return;
-        event.preventDefault();
-        drag = {
-          pointerId: event.pointerId,
+        return {
           x: Math.max(0, Math.min(imageRect.width, event.clientX - imageRect.left)),
           y: Math.max(0, Math.min(imageRect.height, event.clientY - imageRect.top))
         };
-        selection = null;
+      }
+      function setSelectionBox(rect) {
         selectionBox.style.display = 'block';
-        selectionBox.style.left = drag.x + 'px';
-        selectionBox.style.top = drag.y + 'px';
-        selectionBox.style.width = '0';
-        selectionBox.style.height = '0';
-        completeButton.disabled = true;
+        selectionBox.style.left = rect.x + 'px';
+        selectionBox.style.top = rect.y + 'px';
+        selectionBox.style.width = rect.width + 'px';
+        selectionBox.style.height = rect.height + 'px';
+      }
+      function renderSelection() {
+        if (hasValidSelection(selection)) setSelectionBox(selection);
+        else selectionBox.style.display = 'none';
+      }
+      function updateToolbarState() {
+        var valid = hasValidSelection(selection);
+        for (var i = 0; i < toolButtons.length; i++) {
+          toolButtons[i].disabled = !valid || exporting;
+          toolButtons[i].classList.toggle('is-active', toolButtons[i].getAttribute('data-tool') === activeTool);
+          toolButtons[i].setAttribute('aria-pressed', toolButtons[i].getAttribute('data-tool') === activeTool ? 'true' : 'false');
+        }
+        undoButton.disabled = !valid || !shapes.length || exporting;
+        cancelButton.disabled = exporting;
+        wholeButton.disabled = exporting;
+        completeButton.disabled = !valid || exporting;
+      }
+      function updateActiveTool() {
+        overlay.setAttribute('data-tool', activeTool || '');
+        updateToolbarState();
+      }
+      function naturalShapeFromDrag(currentDrag) {
+        var scale = displayScale();
+        return {
+          type: currentDrag.kind,
+          x1: currentDrag.start.x * scale,
+          y1: currentDrag.start.y * scale,
+          x2: currentDrag.current.x * scale,
+          y2: currentDrag.current.y * scale
+        };
+      }
+      function drawShape(context, shape, scale) {
+        if (shape.type === 'rect') {
+          var left = Math.min(shape.x1, shape.x2);
+          var top = Math.min(shape.y1, shape.y2);
+          context.strokeRect(left, top, Math.abs(shape.x2 - shape.x1), Math.abs(shape.y2 - shape.y1));
+        } else if (shape.type === 'arrow') {
+          var dx = shape.x2 - shape.x1, dy = shape.y2 - shape.y1;
+          var length = Math.sqrt(dx * dx + dy * dy);
+          if (!length) return;
+          var angle = Math.atan2(dy, dx);
+          var headLength = Math.max(14 * scale, context.lineWidth * 4);
+          var shaftLength = Math.max(0, length - headLength);
+          var unitX = dx / length, unitY = dy / length;
+          var baseX = shape.x1 + unitX * shaftLength;
+          var baseY = shape.y1 + unitY * shaftLength;
+          var halfAngle = 28 * Math.PI / 180;
+          var leftX = shape.x2 - headLength * Math.cos(angle - halfAngle);
+          var leftY = shape.y2 - headLength * Math.sin(angle - halfAngle);
+          var rightX = shape.x2 - headLength * Math.cos(angle + halfAngle);
+          var rightY = shape.y2 - headLength * Math.sin(angle + halfAngle);
+          context.beginPath();
+          context.moveTo(shape.x1, shape.y1);
+          context.lineTo(baseX, baseY);
+          context.stroke();
+          context.beginPath();
+          context.moveTo(shape.x2, shape.y2);
+          context.lineTo(leftX, leftY);
+          context.lineTo(rightX, rightY);
+          context.closePath();
+          context.fill();
+        } else if (shape.type === 'text') {
+          context.font = 'bold ' + (18 * scale) + 'px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+          context.textBaseline = 'top';
+          context.fillText(shape.text, shape.x, shape.y);
+        }
+      }
+      function redrawMarkup() {
+        var context = markupCanvas.getContext('2d');
+        if (!context) return;
+        var scale = displayScale();
+        context.clearRect(0, 0, markupCanvas.width, markupCanvas.height);
+        context.strokeStyle = '#f5222d';
+        context.fillStyle = '#f5222d';
+        context.lineWidth = 3 * scale;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        for (var i = 0; i < shapes.length; i++) drawShape(context, shapes[i], scale);
+        if (draftShape) drawShape(context, draftShape, scale);
+      }
+      function removeTextInput(input) {
+        if (!input || textInput !== input) return;
+        textInput = null;
+        input.removeEventListener('keydown', input._apCropKeydown);
+        input.removeEventListener('blur', input._apCropBlur);
+        if (input.parentNode) input.parentNode.removeChild(input);
+      }
+      function commitTextInput() {
+        if (!textInput) return;
+        var input = textInput;
+        var text = input.value.trim();
+        if (text) {
+          shapes.push({
+            type: 'text',
+            x: input._apCropX,
+            y: input._apCropY,
+            text: text
+          });
+        }
+        removeTextInput(input);
+        if (text) {
+          redrawMarkup();
+          updateToolbarState();
+        }
+      }
+      function discardTextInput() {
+        if (textInput) removeTextInput(textInput);
+      }
+      function addTextInput(point) {
+        if (textInput) {
+          if (textInput.value.trim()) commitTextInput();
+          else discardTextInput();
+        }
+        var input = document.createElement('input');
+        var scale = displayScale();
+        input.type = 'text';
+        input.className = 'ap-crop-text';
+        input.setAttribute('aria-label', '截图文字');
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.style.left = point.x + 'px';
+        input.style.top = point.y + 'px';
+        input._apCropX = point.x * scale;
+        input._apCropY = point.y * scale;
+        input._apCropKeydown = function (event) {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            event.stopPropagation();
+            commitTextInput();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            discardTextInput();
+          }
+        };
+        input._apCropBlur = commitTextInput;
+        input.addEventListener('keydown', input._apCropKeydown);
+        input.addEventListener('blur', input._apCropBlur);
+        textInput = input;
+        stage.appendChild(input);
+        input.focus();
+      }
+      function undoShape() {
+        if (!shapes.length) return;
+        shapes.pop();
+        redrawMarkup();
+        updateToolbarState();
+      }
+      function onPointerDown(event) {
+        if (event.button !== undefined && event.button !== 0 && event.pointerType !== 'touch') return;
+        if (exporting) return;
+        if (textInput) {
+          if (textInput.value.trim()) commitTextInput();
+          else discardTextInput();
+        }
+        var point = pointFromEvent(event);
+        var kind = activeTool || 'selection';
+        event.preventDefault();
+        drag = {
+          pointerId: event.pointerId,
+          kind: kind,
+          start: point,
+          current: point
+        };
+        if (kind === 'selection') setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
+        else if (kind === 'rect' || kind === 'arrow') {
+          draftShape = naturalShapeFromDrag(drag);
+          redrawMarkup();
+        }
         try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
       }
       function onPointerMove(event) {
         if (!drag || event.pointerId !== drag.pointerId) return;
-        updateSelection(event);
+        drag.current = pointFromEvent(event);
+        if (drag.kind === 'selection') {
+          var left = Math.min(drag.start.x, drag.current.x);
+          var top = Math.min(drag.start.y, drag.current.y);
+          setSelectionBox({
+            x: left,
+            y: top,
+            width: Math.abs(drag.current.x - drag.start.x),
+            height: Math.abs(drag.current.y - drag.start.y)
+          });
+        } else if (drag.kind === 'rect' || drag.kind === 'arrow') {
+          draftShape = naturalShapeFromDrag(drag);
+          redrawMarkup();
+        }
       }
       function onPointerEnd(event) {
         if (!drag || event.pointerId !== drag.pointerId) return;
-        updateSelection(event);
+        drag.current = pointFromEvent(event);
+        var finishedDrag = drag;
         drag = null;
-        if (!hasValidSelection(selection)) {
-          selection = null;
-          selectionBox.style.display = 'none';
-          completeButton.disabled = true;
+        if (finishedDrag.kind === 'selection') {
+          var nextSelection = {
+            x: Math.min(finishedDrag.start.x, finishedDrag.current.x),
+            y: Math.min(finishedDrag.start.y, finishedDrag.current.y),
+            width: Math.abs(finishedDrag.current.x - finishedDrag.start.x),
+            height: Math.abs(finishedDrag.current.y - finishedDrag.start.y)
+          };
+          if (hasValidSelection(nextSelection)) selection = nextSelection;
+          renderSelection();
+          updateToolbarState();
+        } else if (finishedDrag.kind === 'rect' || finishedDrag.kind === 'arrow') {
+          var dx = Math.abs(finishedDrag.current.x - finishedDrag.start.x);
+          var dy = Math.abs(finishedDrag.current.y - finishedDrag.start.y);
+          draftShape = null;
+          if (dx >= 6 || dy >= 6) shapes.push(naturalShapeFromDrag(finishedDrag));
+          redrawMarkup();
+          updateToolbarState();
+        } else if (finishedDrag.kind === 'text') {
+          var textDx = Math.abs(finishedDrag.current.x - finishedDrag.start.x);
+          var textDy = Math.abs(finishedDrag.current.y - finishedDrag.start.y);
+          if (textDx < 6 && textDy < 6) addTextInput(finishedDrag.current);
+        }
+      }
+      function onPointerCancel(event) {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        var cancelledDrag = drag;
+        drag = null;
+        if (cancelledDrag.kind === 'selection') renderSelection();
+        if (cancelledDrag.kind === 'rect' || cancelledDrag.kind === 'arrow') {
+          draftShape = null;
+          redrawMarkup();
         }
       }
       function cleanup() {
-        document.removeEventListener('keydown', onKeyDown, true);
-        canvas.removeEventListener('pointerdown', onPointerDown);
-        canvas.removeEventListener('pointermove', onPointerMove);
-        canvas.removeEventListener('pointerup', onPointerEnd);
-        canvas.removeEventListener('pointercancel', onPointerEnd);
-        cancelButton.removeEventListener('click', onCancel);
-        wholeButton.removeEventListener('click', onWhole);
-        completeButton.removeEventListener('click', onComplete);
+        removeListeners();
+        discardTextInput();
         canvas.classList.remove('ap-crop-image');
         if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
       }
@@ -1545,13 +1783,15 @@
       }
       function exportCrop(whole) {
         if (closed || exporting) return;
+        if (textInput) {
+          if (textInput.value.trim()) commitTextInput();
+          else discardTextInput();
+        }
         if (!whole && !hasValidSelection(selection)) return;
         exporting = true;
-        cancelButton.disabled = true;
-        wholeButton.disabled = true;
-        completeButton.disabled = true;
+        updateToolbarState();
         var imageRect = canvas.getBoundingClientRect();
-        var scale = canvas.width / imageRect.width;
+        var scale = imageRect.width ? canvas.width / imageRect.width : 1;
         var left = 0, top = 0, right = canvas.width, bottom = canvas.height;
         if (!whole) {
           left = Math.max(0, Math.floor(selection.x * scale));
@@ -1568,15 +1808,31 @@
           return;
         }
         context.drawImage(canvas, left, top, output.width, output.height, 0, 0, output.width, output.height);
+        context.drawImage(markupCanvas, left, top, output.width, output.height, 0, 0, output.width, output.height);
         output.toBlob(function (blob) {
           if (!blob) close(null, new Error('无法导出裁剪图片'));
           else close(blob);
         }, 'image/png');
       }
       function onCancel() { close(null); }
-      function onWhole() { exportCrop(true); }
-      function onComplete() { exportCrop(false); }
+      function onWhole() {
+        var imageRect = canvas.getBoundingClientRect();
+        selection = { x: 0, y: 0, width: imageRect.width, height: imageRect.height };
+        renderSelection();
+        updateToolbarState();
+      }
+      function onComplete() { exportCrop(!hasValidSelection(selection)); }
+      function onDoubleClick(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (textInput) {
+          if (textInput.value.trim()) commitTextInput();
+          else discardTextInput();
+        }
+        exportCrop(!hasValidSelection(selection));
+      }
       function onKeyDown(event) {
+        if (textInput && document.activeElement === textInput) return;
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
@@ -1585,16 +1841,29 @@
           event.preventDefault();
           event.stopPropagation();
           exportCrop(!hasValidSelection(selection));
+        } else if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'z') {
+          event.preventDefault();
+          event.stopPropagation();
+          undoShape();
         }
       }
-      canvas.addEventListener('pointerdown', onPointerDown);
-      canvas.addEventListener('pointermove', onPointerMove);
-      canvas.addEventListener('pointerup', onPointerEnd);
-      canvas.addEventListener('pointercancel', onPointerEnd);
-      cancelButton.addEventListener('click', onCancel);
-      wholeButton.addEventListener('click', onWhole);
-      completeButton.addEventListener('click', onComplete);
-      document.addEventListener('keydown', onKeyDown, true);
+      function onToolClick(event) {
+        var tool = event.currentTarget.getAttribute('data-tool');
+        activeTool = activeTool === tool ? null : tool;
+        updateActiveTool();
+      }
+      for (var i = 0; i < toolButtons.length; i++) listen(toolButtons[i], 'click', onToolClick);
+      listen(undoButton, 'click', undoShape);
+      listen(cancelButton, 'click', onCancel);
+      listen(wholeButton, 'click', onWhole);
+      listen(completeButton, 'click', onComplete);
+      listen(canvas, 'pointerdown', onPointerDown);
+      listen(canvas, 'pointermove', onPointerMove);
+      listen(canvas, 'pointerup', onPointerEnd);
+      listen(canvas, 'pointercancel', onPointerCancel);
+      listen(stage, 'dblclick', onDoubleClick);
+      listen(document, 'keydown', onKeyDown, true);
+      updateActiveTool();
       cancelButton.focus();
     });
   }
