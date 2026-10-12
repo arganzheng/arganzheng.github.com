@@ -1481,6 +1481,18 @@
     if (!blockEl || blockEl.nodeType !== 1 || !container || !container.contains(blockEl)) return Promise.resolve(null);
     var sourceRect = blockEl.getBoundingClientRect();
     if (sourceRect.width < 1 || sourceRect.height < 1) return Promise.reject(new Error('无法显示要截图的内容'));
+    var sizingSelector = '.table-responsive, table, pre, .code-block';
+    var sourceSizingNodes = [blockEl];
+    var sourceAncestor = blockEl.parentElement;
+    while (sourceAncestor && sourceAncestor !== container) {
+      if (sourceAncestor.matches(sizingSelector)) sourceSizingNodes.push(sourceAncestor);
+      sourceAncestor = sourceAncestor.parentElement;
+    }
+    sourceSizingNodes = sourceSizingNodes.concat(Array.prototype.slice.call(blockEl.querySelectorAll(sizingSelector)));
+    var fullWidth = sourceRect.width;
+    for (var i = 0; i < sourceSizingNodes.length; i++) {
+      fullWidth = Math.max(fullWidth, sourceSizingNodes[i].scrollWidth || 0);
+    }
 
     var padding = typeof opts.padding === 'number' ? Math.max(0, opts.padding) : 48;
     var margin = typeof opts.margin === 'number' ? Math.max(0, opts.margin) : 12;
@@ -1493,7 +1505,7 @@
     content.className = 'ap-block-present-content';
     var article = document.createElement('div');
     article.className = (container.className || 'post-container') + ' ap-block-present-article';
-    article.style.width = sourceRect.width + 'px';
+    article.style.width = fullWidth + 'px';
     article.style.maxWidth = 'none';
     article.style.margin = '0';
     article.style.padding = '0';
@@ -1510,6 +1522,17 @@
       ancestorClone.appendChild(branch);
       branch = ancestorClone;
       ancestor = ancestor.parentElement;
+    }
+    var cloneSizingNodes = [branch].concat(Array.prototype.slice.call(branch.querySelectorAll(sizingSelector)));
+    for (var s = 0; s < cloneSizingNodes.length; s++) {
+      var sizingNode = cloneSizingNodes[s];
+      if (!sizingNode.matches(sizingSelector)) continue;
+      sizingNode.style.maxWidth = 'none';
+      sizingNode.style.maxHeight = 'none';
+      sizingNode.style.overflow = 'visible';
+      sizingNode.style.overflowX = 'visible';
+      sizingNode.style.overflowY = 'visible';
+      sizingNode.style.width = fullWidth + 'px';
     }
     isolateBlockCloneIds(branch);
     article.appendChild(branch);
@@ -1535,13 +1558,17 @@
           if (renderedWidth > 0) maxScale = Math.max(1, image.naturalWidth / renderedWidth);
         }
       }
-      var scale = Math.max(1, Math.min(maxScale, availableWidth / contentRect.width, availableHeight / contentRect.height));
+      var widthScale = availableWidth / contentRect.width;
+      var scale = widthScale < 1
+        ? Math.max(0.75, Math.min(maxScale, widthScale))
+        : Math.max(1, Math.min(maxScale, widthScale, availableHeight / contentRect.height));
       frame.style.width = contentRect.width * scale + 'px';
       frame.style.height = contentRect.height * scale + 'px';
       content.style.width = contentRect.width + 'px';
       content.style.height = contentRect.height + 'px';
       content.style.transform = 'scale(' + scale + ')';
-      if (scale === 1 && contentRect.height > availableHeight) presenter.classList.add('is-tall');
+      if (scale < 1) presenter.classList.add('is-wide');
+      if (contentRect.height * scale > availableHeight) presenter.classList.add('is-tall');
       clone.getBoundingClientRect();
     }
     function removePresenter() {
