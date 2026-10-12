@@ -1,7 +1,7 @@
 ---
 title: Config Server和SLA在RPC中的作用
 layout: post
-tags: [architecture]
+tags: [架构]
 catalog: true
 ---
 

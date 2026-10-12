@@ -3,7 +3,7 @@ layout: post
 series: agent-and-harness
 title: "工具、Agent 与 harness（05）：权限、沙箱与安全边界"
 subtitle: "Permissions, Sandboxes and Security Boundaries for Agents"
-tags: [AI, LLM, AI-Application, Agent, Harness, Security, Sandbox]
+tags: [AI, LLM, AI-Application, Agent, Harness, 安全, Sandbox]
 catalog: true
 ---
 

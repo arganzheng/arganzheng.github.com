@@ -2,7 +2,7 @@
 layout: post
 series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（13）：Serving Infra 的下一站：从模型执行器到分布式智能操作系统
-tags: [AI, AI-Infra, 大模型推理]
+tags: [AI, AI-Infra, Inference]
 catalog: true
 updated: 2026-09-14
 ---

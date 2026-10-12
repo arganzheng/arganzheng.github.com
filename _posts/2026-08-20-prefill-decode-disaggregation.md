@@ -2,7 +2,7 @@
 layout: post
 series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（09）：PD 分离：从资源混部走向计算解耦
-tags: [AI, AI-Infra, 大模型推理]
+tags: [AI, AI-Infra, Inference]
 catalog: true
 updated: 2026-10-01
 ---

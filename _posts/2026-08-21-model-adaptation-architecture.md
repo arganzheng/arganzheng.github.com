@@ -2,7 +2,7 @@
 layout: post
 series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（10）：模型适配：如何跟上变化极快的模型世界？
-tags: [AI, AI-Infra, 大模型推理]
+tags: [AI, AI-Infra, Inference]
 catalog: true
 updated: 2026-10-01
 ---

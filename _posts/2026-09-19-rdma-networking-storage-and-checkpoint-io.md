@@ -3,7 +3,7 @@ layout: post
 series: ai-platform-engineering
 title: "AI 平台工程（05）：网络与存储——RDMA 进容器、并行文件系统与 checkpoint I/O"
 subtitle: "Networking and Storage: RDMA in Containers, Parallel File Systems and Checkpoint I/O"
-tags: [Kubernetes, GPU, RDMA, Storage, AI, AI-Infra]
+tags: [Kubernetes, GPU, RDMA, 存储, AI, AI-Infra]
 catalog: true
 updated: 2026-09-14
 ---

@@ -2,7 +2,7 @@
 layout: post
 series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（01）：为什么 LLM Serving 比传统 DL 推理难？
-tags: [AI, AI-Infra, 大模型推理]
+tags: [AI, AI-Infra, Inference]
 catalog: true
 updated: 2026-09-14
 ---

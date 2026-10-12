@@ -2,7 +2,7 @@
 layout: post
 series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（02）：如何衡量一个 LLM Serving 系统？
-tags: [AI, AI-Infra, 大模型推理]
+tags: [AI, AI-Infra, Inference]
 catalog: true
 updated: 2026-09-14
 ---

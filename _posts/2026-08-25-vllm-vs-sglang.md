@@ -3,7 +3,7 @@ layout: post
 series: deep-dive-into-vllm
 title: "大模型推理系统揭秘（15）：vLLM 与 SGLang：同一个请求穿过两套 Serving 系统"
 subtitle: "vLLM vs SGLang: One Request Through Two LLM Serving Systems"
-tags: [AI, AI-Infra, 大模型推理, vLLM, SGLang]
+tags: [AI, AI-Infra, Inference, vLLM, SGLang]
 catalog: true
 date: 2026-08-25 12:00:00
 ---

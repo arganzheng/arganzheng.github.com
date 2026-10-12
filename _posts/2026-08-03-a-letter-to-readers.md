@@ -4,7 +4,7 @@ title: "致读者的一封信"
 subtitle: "这里写什么、怎么读、怎么告诉我哪里不对"
 catalog: true
 updated: 2026-10-12
-tags: [Blog, GitHub]
+tags: [博客, GitHub]
 pinned: true
 ---
 

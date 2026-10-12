@@ -3,7 +3,7 @@ layout: post
 series: deep-dive-into-vllm
 title: "大模型推理系统揭秘（16）：系列总结与通关自测"
 subtitle: "Deep Dive into vLLM: Series Recap and Final Self-Test"
-tags: [AI, AI-Infra, 大模型推理]
+tags: [AI, AI-Infra, Inference]
 catalog: true
 date: 2026-08-25 20:00:00
 updated: 2026-10-01

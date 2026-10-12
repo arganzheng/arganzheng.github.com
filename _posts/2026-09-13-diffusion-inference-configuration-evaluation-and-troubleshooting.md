@@ -3,7 +3,7 @@ layout: post
 series: diffusion-inference-infra
 title: "扩散模型推理基础设施（09）：配置、评测与排障——从一张卡的推导到一条伪影的排查"
 subtitle: "Configuration, Evaluation and Troubleshooting for Diffusion Inference (with Series Summary)"
-tags: [Diffusion, Inference, Benchmarking, Evaluation, Troubleshooting, AI, AI-Infra]
+tags: [Diffusion, Inference, Benchmark, Evaluation, Troubleshooting, AI, AI-Infra]
 catalog: true
 ---
 
