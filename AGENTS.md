@@ -203,6 +203,12 @@ Pages has `https_enforced` on.
 
 - Reading position (`js/reading-position.js`) adds a progress bar and a
   per-post continue-reading prompt; it requires `.post-length` and skips Moments.
+- Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
+  size, width, font, and focus choices in `localStorage["reading-settings"]`;
+  the early head script applies them before styles load. Focus is post-only:
+  the script adds `html.rs-focus-page`, and `less/reading-settings.less`
+  scopes its layout changes to that class. Escape exits only when the settings
+  panel is closed, focus is outside editable fields, and no overlay is open.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.

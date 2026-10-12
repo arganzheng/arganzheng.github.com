@@ -24,6 +24,20 @@
 html[data-theme="dark"] {
 	color-scheme: dark;
 
+	&.rs-focus-page[data-rs-focus="on"] {
+		.rs-focus-exit {
+		border-color: @dk-border;
+		background: fade(@dk-surface, 94%);
+		color: @dk-text;
+		box-shadow: 0 2px 10px fade(black, 35%);
+		&:hover { background: @dk-surface-2; }
+		}
+		header.intro-header .post-heading {
+			color: @dk-heading;
+			.tags a { color: @dk-muted; }
+		}
+	}
+
 	body {
 		background-color: @dk-bg;
 		color: @dk-text;

@@ -5,11 +5,13 @@
   var article = document.querySelector(ARTICLE_SELECTOR);
   if (!article) return;
 
+  var root = document.documentElement;
+  root.classList.add('rs-focus-page');
+
   var item = document.querySelector('.nav-reading-settings');
   var trigger = item && item.querySelector('a');
   if (!item || !trigger) return;
 
-  var root = document.documentElement;
   var panel = document.createElement('div');
   panel.id = 'reading-settings-panel';
   panel.className = 'reading-settings-panel';
@@ -31,14 +33,27 @@
       '<button type="button" data-rs-setting="font" data-rs-value="" aria-pressed="false">无衬线</button>' +
       '<button type="button" data-rs-setting="font" data-rs-value="serif" aria-pressed="false">衬线</button>' +
     '</div></div>' +
+    '<div class="rs-setting-row"><span class="rs-setting-label">专注</span><div class="rs-segments" role="group" aria-label="专注阅读">' +
+      '<button type="button" data-rs-setting="focus" data-rs-value="">关</button>' +
+      '<button type="button" data-rs-setting="focus" data-rs-value="on">开</button>' +
+    '</div></div>' +
     '<button type="button" class="rs-reset">恢复默认</button>';
   document.body.appendChild(panel);
 
-  var attributes = { size: 'data-rs-size', width: 'data-rs-width', font: 'data-rs-font' };
+  var exitButton = document.createElement('button');
+  exitButton.type = 'button';
+  exitButton.className = 'rs-focus-exit';
+  exitButton.textContent = '退出专注 · Esc';
+  exitButton.setAttribute('aria-label', '退出专注');
+  exitButton.hidden = true;
+  document.body.appendChild(exitButton);
+
+  var attributes = { size: 'data-rs-size', width: 'data-rs-width', font: 'data-rs-font', focus: 'data-rs-focus' };
   var values = {
     size: ['', 's', 'l', 'xl'],
     width: ['', 'narrow'],
-    font: ['', 'serif']
+    font: ['', 'serif'],
+    focus: ['', 'on']
   };
 
   function selected(name) {
@@ -51,6 +66,7 @@
       var button = buttons[i];
       button.setAttribute('aria-pressed', String(button.getAttribute('data-rs-value') === selected(button.getAttribute('data-rs-setting'))));
     }
+    exitButton.hidden = selected('focus') !== 'on';
   }
 
   function store() {
@@ -121,6 +137,30 @@
     if (name && apply(name, button.getAttribute('data-rs-value'))) changed();
   });
 
+  exitButton.addEventListener('click', function () {
+    if (apply('focus', '')) changed();
+  });
+
+  function visible(element) {
+    if (!element || element.hidden) return false;
+    var style = window.getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+  }
+
+  function overlayOpen() {
+    if (document.querySelector('.mm-overlay, .diagram-zoom.open, .search-overlay.search-active')) return true;
+    var overlays = document.querySelectorAll('.annotation-panel, .annotation-comments');
+    for (var i = 0; i < overlays.length; i++) {
+      if (visible(overlays[i])) return true;
+    }
+    return false;
+  }
+
+  var escapeOverlayWasOpen = false;
+  document.addEventListener('keydown', function (event) {
+    escapeOverlayWasOpen = (event.key === 'Escape' || event.key === 'Esc') && overlayOpen();
+  }, true);
+
   document.addEventListener('click', function (event) {
     if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target)) close(true);
   });
@@ -129,6 +169,13 @@
       event.preventDefault();
       close(true);
     }
+    if (event.key !== 'Escape' && event.key !== 'Esc') return;
+    var active = document.activeElement;
+    var editing = active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) ||
+      active.closest && active.closest('[contenteditable]:not([contenteditable="false"])'));
+    if (panel.hidden && !event.defaultPrevented && !editing && !escapeOverlayWasOpen && selected('focus') === 'on' &&
+        apply('focus', '')) changed();
+    escapeOverlayWasOpen = false;
   });
   window.addEventListener('resize', positionPanel);
   window.addEventListener('scroll', positionPanel, true);

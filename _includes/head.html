@@ -52,11 +52,12 @@
         (function () {
             var root = document.documentElement;
             var key = 'reading-settings';
-            var attributes = { size: 'data-rs-size', width: 'data-rs-width', font: 'data-rs-font' };
+            var attributes = { size: 'data-rs-size', width: 'data-rs-width', font: 'data-rs-font', focus: 'data-rs-focus' };
             function allowed(name, value) {
                 return name === 'size' ? value === 's' || value === 'l' || value === 'xl' :
                     name === 'width' ? value === 'narrow' :
-                    name === 'font' ? value === 'serif' : false;
+                    name === 'font' ? value === 'serif' :
+                    name === 'focus' ? value === 'on' : false;
             }
             function normalize(value) {
                 value = value && typeof value === 'object' ? value : {};
@@ -99,6 +100,9 @@
             });
         })();
     </script>
+    {% if page.layout == 'post' or page.layout == 'header-post' or page.layout == 'keynote' %}
+    <script>document.documentElement.classList.add('rs-focus-page');</script>
+    {% endif %}
     {% if page.noindex %}<meta name="robots" content="noindex, nofollow">{% endif %}
     
     <title>{% if page.title %}{{ page.title }} - {{ site.SEOTitle }}{% else %}{{ site.SEOTitle }}{% endif %}</title>
