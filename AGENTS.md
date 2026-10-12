@@ -232,7 +232,12 @@ Pages has `https_enforced` on.
   picker (worker `GET /feedback` with no path = every post's D1 rows in one
   call, joined with the open `划线评论` / `待修订` issues; a post is listed only
   when it has an open issue — Discussion comments are not fetched for the list,
-  only for the brief itself). `sitemap: false`, `noindex: true`
+  only for the brief itself). `#dash-schedule` is gated by `html.author-ok`;
+  `_plugins/writing_schedule.rb` parses raw `_posts` with safe YAML because
+  future posts are absent from `site.posts`, excludes private/unpublished
+  entries, and supplies `DASH_SCHEDULE` with drafts and published series
+  counts; `js/writing-schedule.js` exports Node-testable Beijing-date,
+  collision, gap and grouping helpers. `sitemap: false`, `noindex: true`
   (`head.html` emits the robots meta for `page.noindex`). Its styles are
   `less/dashboard.less` (`.dash*`).
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
@@ -1236,7 +1241,8 @@ How it is built (`_plugins/moments.rb`):
   absolute paths. `lit` must be `< 20` in the Triton venv (Homebrew's lit 23
   rejects Triton's `lit.cfg.py`).
 - **Series membership** is front matter, not prose: `series: <key>` where
-  `<key>` is an entry in `_data/series.yml` (`name`, `overview` URL). Members
+  `<key>` is an entry in `_data/series.yml` (`name`, `overview` URL, optional
+  `level: 1|2|3` = 入门 / 进阶 / 深入; missing levels have no chip). Members
   are ordered by date; the layouts render the top box (`series-nav.html`,
   since 2026-09-28 a dev.to-style `.series-box`: one line 「系列 《…》 第 N / X
   篇 · 目录 ▸」 folding open into the parts + a 上一篇 / 下一篇 line; it keeps

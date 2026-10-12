@@ -1,7 +1,7 @@
 ---
 layout: page
 title: Dashboard
-description: "作者视角：阅读趋势、文章榜、读者点赞和分享的句子、最近评论、待处理的 Issue"
+description: "作者视角：阅读趋势、写作排期、文章榜、读者反馈与待处理的 Issue"
 permalink: /admin/stats.html
 sitemap: false
 noindex: true
@@ -25,6 +25,15 @@ noindex: true
     <p class="dash-hint">按北京时间每天合计；一个浏览器一篇一天计一次，本地预览不计。<span class="dash-trend-sum"></span></p>
     <div class="dash-bars"><p class="dash-muted">加载中…</p></div>
     <div class="dash-trend-top"></div>
+  </section>
+
+  <section class="dash-section" id="dash-schedule" aria-labelledby="dash-schedule-title">
+    <h3 id="dash-schedule-title">写作排期</h3>
+    <p class="dash-hint dash-schedule-summary" aria-live="polite">加载中…</p>
+    <p class="dash-muted dash-schedule-empty" hidden>没有排期中的文章</p>
+    <div class="dash-schedule-calendar"></div>
+    <div class="dash-schedule-legend" aria-label="日历图例"></div>
+    <div class="dash-schedule-groups"></div>
   </section>
 
   <section class="dash-section" id="dash-posts">
@@ -78,10 +87,12 @@ window.DASH_META = {
 {% for p in site.posts %}  {{ p.comments_path | default: p.url | jsonify }}: [{{ p.date | date: "%Y-%m-%d" | jsonify }}, {% if p.updated %}{{ p.updated | date: "%Y-%m-%d" | jsonify }}{% else %}null{% endif %}, {{ p.path | jsonify }}, {{ p.category | default: "" | jsonify }}, {{ p.url | jsonify }}],
 {% endfor %}  "": null
 };
+window.DASH_SCHEDULE = {{ site.data.writing_schedule | jsonify }};
 // posts only, newest first — the 修订简报 picker (data path = comments_path when set, live URL)
 window.DASH_POSTS = [
 {% for p in site.posts %}  [{{ p.comments_path | default: p.url | jsonify }}, {{ p.title | jsonify }}, {{ p.url | jsonify }}]{% unless forloop.last %},{% endunless %}
 {% endfor %}];
 </script>
 <script src="{{ '/js/feedback-brief.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
+<script src="{{ '/js/writing-schedule.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>
 <script src="{{ '/js/dashboard.js' | prepend: site.baseurl }}?v={{ site.time | date: '%Y%m%d%H%M' }}"></script>

@@ -14,6 +14,7 @@
       <span class="sb-kicker">系列</span>
       <a class="sb-title" href="{{ series_meta.url | default: series_meta.overview | prepend: site.baseurl }}">《{{ series_meta.name }}》</a>
       <span class="sb-pos">第 {{ series_index }} / {{ series_total }} 篇</span>
+      {% if series_meta.level %}<span class="sb-level l{{ series_meta.level }}">{% if series_meta.level == 1 %}入门{% elsif series_meta.level == 2 %}进阶{% elsif series_meta.level == 3 %}深入{% endif %}</span>{% endif %}
       <span class="sb-read" hidden></span>
       <span class="sb-toggle" aria-hidden="true">目录</span>
     </summary>
