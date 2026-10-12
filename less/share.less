@@ -1,6 +1,6 @@
 @import "variables.less";
 
-// ---- action bar right under the article (_includes/post-actions.html, js/share.js): 这篇对你有用？ 点赞 · 分享 · [复制为公众号格式] · [导出]
+// ---- action bar right under the article (_includes/post-actions.html, js/share.js): 这篇对你有用？ 点赞 · 分享 · [导出]
 // A bordered card with a lead line, so it reads as the article's closing ask —
 // the plain strip above the comments went unnoticed (reader, 2026-09-23).
 .post-actions {
@@ -40,14 +40,6 @@
 	.pa-like {
 		.fa { color: #e0245e; }
 		&.is-active { color: #e0245e; border-color: #f4b4c8; background: #fff0f4; &:hover { background: #ffe3eb; border-color: #e0245e; } }
-	}
-	.pa-export {
-		color: #fff;
-		background: #07c160;
-		border-color: #07c160;
-		font-size: 13px;
-		&:hover, &:focus { color: #fff; background: #06ad56; border-color: #06ad56; }
-		&[disabled] { opacity: 0.6; cursor: wait; }
 	}
 	.pa-download .fa-caret-down {
 		margin: 0 0 0 4px;
@@ -216,7 +208,6 @@
 		padding: 14px;
 		.pa-lead { width: 100%; margin: 0; }
 		.pa-item { height: 36px; }
-		.pa-export { width: 100%; justify-content: center; }
 		.pa-toast { left: 0; right: 0; max-width: none; text-align: center; }
 	}
 }

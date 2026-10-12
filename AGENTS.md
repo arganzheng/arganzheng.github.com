@@ -277,8 +277,10 @@ Pages has `https_enforced` on.
   why every post needs tags — an untagged post is never recommended.
 - Backlinks ("LINKED FROM") are computed by `_plugins/backlinks.rb`
   (`:site, :post_read`) from raw Markdown links to published posts, excluding
-  fenced and inline code and resolving `redirect_from` aliases; the three post
-  layouts render the newest-first `post.data['backlinks']` via
+  fenced and inline code, resolving `redirect_from` aliases, and using
+  `_plugins/wikilinks.rb` for Bear-style title/slug and heading links; that
+  plugin preserves code/math spans and handles both public and private posts.
+  The three post layouts render newest-first `post.data['backlinks']` via
   `_includes/backlinks.html` (eight shown, the rest folded).
 - `_includes/post-stale.html` (all three post layouts, first thing in the
   post column): 「本文写于 / 最后更新于 N 年前，部分内容可能已经过时」 when

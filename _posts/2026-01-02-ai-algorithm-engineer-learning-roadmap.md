@@ -379,6 +379,9 @@ Table: 算法地图与 Infra 地图的重叠主题分工
 
 | 层 | 文章 / 系列 | 篇数 |
 |---|---|---|
+
+Table: AI 算法工程师学习地图的层级与系列
+
 {% include series-row.html key="math-for-ai" layer="L0" cols="layer,link,count" %}
 {% include series-row.html key="algorithm-tooling" layer="L1" cols="layer,link,count" %}
 | L1 深入 | [Python 在 AI-Infra](/python-for-ai-infra.html)、[PyTorch 深度实践](/deep-dive-into-pytorch.html)（与 Infra 地图共享） | {{ site.data.series['python-for-ai-infra'].body_planned }} + {{ site.data.series['deep-dive-into-pytorch'].body_planned }} |

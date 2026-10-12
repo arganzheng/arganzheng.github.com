@@ -622,6 +622,8 @@ ready 标签 → /ci run → 合入；mergify needs-rebase    第三篇 · merge
 | 标签（谁打的、何时） | | gh api repos/O/R/issues/N/events |
 | 进入版本 | | git tag --contains <sha>；gh api repos/O/R/releases |
 
+Table: PR 事实信息与来源模板
+
 ## 1. 起点
 - issue 开出时间、报告者、标签；我动手前 issue 下已有的讨论；有没有被部分修复过
 - 我在 issue 里留过什么、maintainer 回过什么（引用原文，注日期）
@@ -646,12 +648,17 @@ ready 标签 → /ci run → 合入；mergify needs-rebase    第三篇 · merge
 | 时间 | 谁 | 意见（≤ 2 行原文） | 我的回应 | 结果（采纳 / 讨论后维持 / 待办） |
 |---|---|---|---|---|
 
+Table: Review 意见与回应模板
+
 ## 7. 合入之后
 - 进了哪个版本；follow-up / revert（gh pr list --search "N"）
 
 ## 8. 时间去了哪里
 | 阶段 | 起止 | 时长 | 归类（等 review / 往返 / CI / 我的工作） | 可省？怎么省 |
 |---|---|---|---|---|
+
+Table: PR 各阶段耗时记录模板
+
 （PR 之前的时间也算：从我决定做到开 PR）
 
 ## 9. 下次省什么

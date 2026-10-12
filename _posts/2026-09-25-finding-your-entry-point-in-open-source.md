@@ -740,6 +740,8 @@ Table: 一周后会不会被关的打分表
 |---|---|---|---|---|---|---|---|
 | 1 | | #     标题 | 标签 / RFC / CI / 回归 / 缺口 | open PR 数与编号；最后一条评论日期与作者 | 行数 / 文件数 / 硬件 | 是（为什么）/ 否 | 选定 / 备选 / 放弃（原因） |
 
+Table: 开源项目候选切入点的信息模板
+
 查重命令记录：
     gh issue view <n> --repo <owner/repo> --comments
     gh pr list --repo <owner/repo> --state open --search "<n> in:body"

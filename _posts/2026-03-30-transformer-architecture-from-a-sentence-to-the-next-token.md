@@ -133,6 +133,8 @@ decoder 的 cross-attention 不是让 decoder 再读一遍自己的前缀：它�
 | decoder-only（[GPT](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) / [GPT-2](https://openai.com/index/better-language-models/)） | 带 causal mask 的 decoder，无 encoder 与 cross-attention | 从左到右的 next-token prediction | 续写、开放式生成，也可把理解任务写成提示后的生成 | 2018 / 2019 |
 | encoder-decoder（[T5](https://arxiv.org/html/1910.10683) / [BART](https://arxiv.org/html/1910.13461)） | 双向 encoder + 带 cross-attention 的 causal decoder | T5 的 span corruption 与 text-to-text；BART 的文本去噪重建 | 翻译、摘要等条件生成 | 2019 |
 
+Table: 三类 Transformer 路线的结构与目标
+
 这张表描述的是几类代表模型及其原论文目标，不意味着某条路线只能做表中的一种任务。
 
 ## 四、为什么 decoder-only 成为主流，本系列为什么以 GPT-2 为蓝本

@@ -739,6 +739,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | 目录 | 职责 | 出处 |
 |---|---|---|
 
+Table: PyTorch 源码目录地图模板
+
 [自带的地图]
 - <文件路径 + 章节名>
 
@@ -756,6 +758,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 [常用 grep 模式]
 | 想找什么 | 命令 |
 |---|---|
+
+Table: 按问题定位源码的命令模板
 
 [追过的符号路径（≥3 条）]
 1. <起点> → ... → <终点文件:函数>（日期）
@@ -776,6 +780,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | torchgen/ + tools/autograd/ | 代码生成器与模板 | torchgen/gen.py；tools/autograd/templates/ |
 | test/ | 176 个 test_*.py + 46 个子目录 | ls test |
 | benchmarks/ | operator_benchmark/ dynamo/ inductor_backends/ 等 | ls benchmarks |
+
+Table: PyTorch 源码目录地图样例
 
 [自带的地图]
 - CONTRIBUTING.md "Codebase structure"
@@ -805,6 +811,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | 算子的测试 | rg -l '<op>' test/*.py；rg -n "'<op>'" torch/testing/_internal/common_methods_invocations.py |
 | 错误字符串 | rg -F -n '<exact message>' aten torch/csrc torch |
 
+Table: 定位 PyTorch 实现位置的查询命令
+
 [追过的符号路径]
 1. torch.logaddexp → torch/__init__.py（from torch._C._VariableFunctions import *）→ native_functions.yaml logaddexp / logaddexp.out（dispatch: CPU, CUDA, MPS, XPU: logaddexp_out）→ aten/src/ATen/native/BinaryOps.cpp CREATE_BINARY_TORCH_IMPL_FUNC(logaddexp_out, logaddexp_stub) → aten/src/ATen/native/cuda/LogAddExpKernel.cu；CPU 在 cpu/BinaryOpsKernel.cpp logaddexp_kernel（2026-09-12）
 2. torch._C._VariableFunctions 本身 → tools/autograd/templates/python_torch_functions.cpp + gen_python_functions.py（num_shards=3）→ 生成 torch/csrc/autograd/generated/python_torch_functions_{0,1,2}.cpp → torch/csrc/autograd/python_torch_functions_manual.cpp gatherTorchFunctions() / initTorchFunctions()（2026-09-12）
@@ -831,6 +839,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | tests/ | 40 个子目录，与 vllm/ 子系统对应 | ls tests |
 | benchmarks/ | benchmark_serving/throughput/latency.py；kernels/ | ls benchmarks |
 | docs/contributing/ | README.md、incremental_build.md、deprecation_policy.md、ci/、model/ | ls docs/contributing |
+
+Table: vLLM 源码目录地图样例
 
 [自带的地图]
 - docs/contributing/README.md（流程，不含目录）
@@ -860,6 +870,8 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | 一个模型 | ls vllm/model_executor/models/ \| rg -i <name> |
 | 配置项 | rg -n '<field>' vllm/config/ vllm/engine/arg_utils.py |
 | 错误字符串 | rg -F -n '<exact message>' vllm |
+
+Table: 定位 vLLM 入口与实现的命令
 
 [追过的符号路径]
 1. vllm serve → pyproject.toml [project.scripts] → vllm/entrypoints/cli/main.py main() → vllm/entrypoints/cli/serve.py ServeSubcommand.cmd() → vllm/entrypoints/openai/api_server.py run_server() / build_async_engine_client_from_engine_args() → vllm/v1/engine/async_llm.py AsyncLLM.from_vllm_config → vllm/v1/engine/core_client.py EngineCoreClient.make_async_mp_client → vllm/v1/engine/core.py EngineCoreProc（2026-09-12）

@@ -23,6 +23,8 @@ redirect_from: /transformer-anatomy-and-parameter-count.html
 | 四 | 源码对照 | 在 `modeling_llama.py` 中找到对应实现 |
 | 五 | 实践 | 用 `llm_cost.py` 第一版复算参数量 |
 
+Table: GPT-2 到 Llama 的五处结构变化
+
 ## 二、五处改动，每一处为什么
 
 decoder-only 的整体结构、残差流为什么把所有子层锁在宽度 $$d$$、pre-norm 为什么比 post-norm 好训，[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的第六、八章已经讲过，GPT-2 就是 pre-norm，这些在 Llama 里都没变。下面只讲变了的五处，每一处回答三个问题：GPT-2 的做法有什么问题、新做法怎么解决、代价（参数、算量、工程）是什么。

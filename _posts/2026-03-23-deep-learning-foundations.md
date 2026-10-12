@@ -92,7 +92,7 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；表�
 
 ## 系列的整体主线
 
-九篇正文先以模型演进史建立问题背景，再建立梯度与非线性的直觉，解释深层训练与更新、泛化，最后分别看视觉、表示与序列结构：
+本系列的终点是读懂 Transformer / LLM 的组件从哪里来。顺序不是照年代排：先用演进史说明模型为什么出现，再看各种网络都会遇到的训练动力学，最后追到 Transformer 直接继承的结构线。
 
 | 篇 | 主题 | 内容 |
 |---|---|---|
@@ -108,7 +108,38 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；表�
 
 Table: 九篇正文的主题与内容
 
-第二至第六篇是**训练动力学**：一个网络从初始化到收敛，梯度经历了什么、参数怎么动、什么时候停。第七至第九篇是**结构史**：卷积、表示学习与循环各自解决了什么、留下了什么——残差与归一化来自 CNN 这条线，token embedding 与上下文表示连接离散词元和向量空间，attention 来自 RNN 这条线。读完第九篇，Transformer 的每一个组件都有了来历，可以接着读 L4 的《Transformer 原理与实现》与《现代 LLM 结构》。
+第二至第六篇覆盖五个跨结构的训练问题：梯度怎样计算、非线性怎样影响梯度、信号怎样穿过深层、参数如何更新、模型怎样泛化。它不是完整的训练工程课程；损失函数只在反向传播篇中作为网络例子出现，混合精度、分布式与显存、数据工程也不在本系列范围内：
+
+| 训练中的问题 | 本系列覆盖 | 边界与延伸 |
+|---|---|---|
+| 梯度怎么算？ | [反向传播：手推一个两层网络](/backpropagation-by-hand.html) | — |
+| 非线性选什么？梯度会不会消失？ | [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html) | — |
+| 信号能否保持深层尺度？ | [初始化、归一化与残差](/initialization-normalization-and-residual.html) | — |
+| 参数怎样更新？学习率与 batch 怎么选？ | [优化器：从 SGD 到 AdamW](/optimizers-from-sgd-to-adamw.html) | — |
+| 训练好后为什么测试表现变差？ | [正则化与泛化](/regularization-and-generalization.html) | 讨论正则化、验证集表现与泛化边界 |
+| 损失函数怎样选择？ | 本系列不讲 | 反向传播篇只以 softmax 交叉熵演示求导；系统介绍见[《算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss》](/from-maximum-likelihood-to-cross-entropy.html) |
+| 混合精度与浮点格式怎样取舍？ | 本系列不讲 | 见[《算法工程师的工具箱（04）：PyTorch 使用层（下）——混合精度、显存的账与多卡启用》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)与[《现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html) |
+| 分布式训练和显存怎样安排？ | 本系列不讲 | 见[《大规模训练工程（01）：训练任务的状态解剖——显存账与 MFU》](/training-state-anatomy-memory-and-mfu.html)及[《大规模训练工程（02）：并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html) |
+| 数据从哪里来、怎样清洗配比？ | 本系列不讲 | [《预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+
+Table: 训练一个网络要回答的问题
+
+结构篇不是把所有神经网络都列一遍，而是挑出三条直接通向 Transformer 的线索：
+
+| Transformer 组件 | 来自哪条结构线 | 本系列对应内容 |
+|---|---|---|
+| FFN 与激活 | MLP | [演进史](/evolution-of-deep-models-from-perceptron-to-transformer.html)与[激活函数篇](/activation-functions-from-sigmoid-to-swiglu.html) |
+| 残差 | CNN 线的 ResNet | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html)与[初始化、归一化与残差篇](/initialization-normalization-and-residual.html) |
+| 归一化 | CNN 中成熟的 BatchNorm；Transformer 使用 LayerNorm / RMSNorm | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html)与[初始化、归一化与残差篇](/initialization-normalization-and-residual.html) |
+| token embedding | 表示学习 | [Embedding 与表示学习篇](/embedding-and-representation-learning.html) |
+| attention | RNN 的 seq2seq 与 encoder-decoder attention | [RNN 篇](/rnn-lstm-and-the-birth-of-attention.html) |
+| patch embedding / ViT | CNN 的图像结构 | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+
+Table: Transformer 的组件从哪里来
+
+Hopfield 网络、Boltzmann machine / RBM、自编码器、GAN、VAE 与 GNN 有各自的历史位置，但不构成本系列的三条结构主线；它们只在演进史的年代叙事中定位。站内的[多模态扩散模型篇](/diffusion-models-ddpm-score-matching-and-flow-matching.html)与[Latent Diffusion 篇](/latent-diffusion-dit-and-text-to-image-recipes.html)延伸生成模型，尚无专门的 GAN 或 VAE 文章。
+
+阅读顺序按依赖关系安排，不按年份：CNN 放在前面，因为残差与归一化在这条线上成熟，后面会复用；Embedding 在 RNN 前，因为循环网络接收的输入已经是 token 向量；RNN 放在最后，以 2014 年 attention 收尾，正好接到 Transformer。RNN / LSTM 的年代早于 Word2Vec；年代顺序见[《深度模型演进史：从感知机到 Transformer》](/evolution-of-deep-models-from-perceptron-to-transformer.html)。
 
 三条交织的线索：
 

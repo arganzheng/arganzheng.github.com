@@ -49,6 +49,8 @@ flowchart TB
 | [第九篇：量化与融合 kernel](/quantization-and-fused-kernels.html) | INT4 weight-only GEMM decode 快 3 倍、prefill 反而慢，用 Roofline 解释 | 用指令换字节：字节除以 4、FLOPs 不变、多一条反量化指令<br/>decode 在斜线上受益，prefill 在屋顶上不动甚至下沉<br/>FP8 字节与 FLOPs 同时减半 | BF16 $$I \approx M$$、W4A16 $$I \approx 4M$$，交叉点 $$M \approx 40$$<br/>decode 8 ms → 约 2 ms<br/>E4M3 max 448 无 inf<br/>residual + RMSNorm 10 → 8 B、RMSNorm + FP8 量化 7 → 3 B |
 | [第十篇：剖析、测试与贡献](/kernel-profiling-testing-and-contribution.html) | ncu 报告 occupancy 25%、long scoreboard 60%，该改什么？ | 先看 SOL：任一接近 90% 就什么都不用改；两者都低才是 latency-bound，再看占用率的限制因素，加 ILP，改完重测 | SOL > 80% 到顶、两者 < 40–50% latency-bound<br/>寄存器 > 32 压占用率、128+ 是 GEMM 常态<br/>BF16 rtol 1.6e-2<br/>边界 shape 0、1、769、5125<br/>`TORCH_LIBRARY` + `register_fake` + `opcheck` |
 
+Table: GPU Kernel 工程系列的章节与核心问题
+
 | [第十一篇：从 CUDA 到昇腾](/ascend-cann-from-cuda-to-ascend-c.html) | 哪些概念可以迁移，哪些必须重写？ | 先搬到核内，再做 Vector Add；`TQue` 管 buffer 生命周期与段间依赖，不是 warp | 固定样例：8 × 2048；每轮 128 个 half，共 16 轮<br/>三队列 payload 1536 B；逻辑流量 98304 B；I = 1/6<br/>NumPy 账本不是 CANN CPU 调试，更不是真机性能 |
 
 Table: 十一篇的核心问题、结论与必记公式
