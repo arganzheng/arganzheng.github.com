@@ -4918,7 +4918,7 @@ html.ap-capturing .table-tools {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 0;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.88);
   color: #fff;
@@ -4927,16 +4927,16 @@ html.ap-capturing .table-tools {
 .ap-crop-stage {
   position: relative;
   display: block;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 128px);
+  max-width: 100vw;
+  max-height: 100vh;
   line-height: 0;
 }
 .ap-crop-image {
   display: block;
   width: auto;
   height: auto;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 128px);
+  max-width: 100vw;
+  max-height: 100vh;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -4976,7 +4976,9 @@ html.ap-capturing .table-tools {
   padding: 8px 10px;
   box-sizing: border-box;
   transform: translateX(-50%);
-  background: rgba(24, 26, 28, 0.96);
+  background: rgba(24, 26, 28, 0.98);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);

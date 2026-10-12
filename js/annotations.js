@@ -106,6 +106,8 @@
   var panelState = null;     // { kind:'thread'|'editor', ids, selector, offsets, join }
   var toast = null;
   var selectionTimer = null;
+  var modernScreenshotPromise = null;
+  var bundleVersion = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
 
   // ------------------------------------------------------------------ init
 
@@ -1383,6 +1385,140 @@
     return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
   }
 
+  function loadModernScreenshot() {
+    if (window.modernScreenshot && typeof window.modernScreenshot.domToCanvas === 'function') {
+      return Promise.resolve(window.modernScreenshot);
+    }
+    if (!modernScreenshotPromise) {
+      modernScreenshotPromise = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = '/js/vendor/modern-screenshot-4.7.0.min.js' + (bundleVersion ? '?v=' + bundleVersion : '');
+        script.onload = function () {
+          if (window.modernScreenshot && typeof window.modernScreenshot.domToCanvas === 'function') resolve(window.modernScreenshot);
+          else reject(new Error('截图渲染库未加载'));
+        };
+        script.onerror = function () {
+          modernScreenshotPromise = null;
+          reject(new Error('截图渲染库加载失败'));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return modernScreenshotPromise;
+  }
+
+  function promiseWithTimeout(promise, timeout) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('页面截图超时')); }, timeout);
+      Promise.resolve(promise).then(function (value) {
+        clearTimeout(timer);
+        resolve(value);
+      }, function (err) {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
+  function pageBackgroundColor() {
+    var elements = [document.body, document.documentElement];
+    for (var i = 0; i < elements.length; i++) {
+      if (!elements[i]) continue;
+      var color = window.getComputedStyle(elements[i]).backgroundColor;
+      if (color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') return color;
+    }
+    return '#fff';
+  }
+
+  async function renderPageScreenshot() {
+    var startedAt = Date.now();
+    var screenshot = await promiseWithTimeout(loadModernScreenshot(), 5000);
+    var scrollX = window.scrollX;
+    var scrollY = window.scrollY;
+    var viewportWidth = window.innerWidth;
+    var viewportHeight = window.innerHeight;
+    var scale = Math.min(window.devicePixelRatio || 1, 4096 / Math.max(viewportWidth, viewportHeight));
+    var root = document.documentElement;
+    var fixedElements = [];
+    var canvas;
+    root.classList.add('ap-capturing');
+    try {
+      await new Promise(function (resolve) { requestAnimationFrame(resolve); });
+      var remaining = Math.max(1, 5000 - (Date.now() - startedAt));
+      var excluded = '.annotation-panel.is-editor, .ap-editor, .annotation-toolbar, .annotation-toast, .fig-tools, .table-tools, .ap-crop-overlay';
+      fixedElements = Array.prototype.filter.call(root.querySelectorAll('*'), function (element) {
+        var style = window.getComputedStyle(element);
+        if ((style.position !== 'fixed' && style.position !== 'sticky') ||
+            style.display === 'none' || style.visibility === 'hidden' ||
+            Number(style.opacity) === 0) return false;
+        var rect = element.getBoundingClientRect();
+        if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
+            rect.left >= viewportWidth || rect.top >= viewportHeight) return false;
+        for (var parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
+          var parentPosition = window.getComputedStyle(parent).position;
+          if (parentPosition === 'fixed' || parentPosition === 'sticky') return false;
+        }
+        return true;
+      }).map(function (element) {
+        var rect = element.getBoundingClientRect();
+        var zIndex = parseInt(window.getComputedStyle(element).zIndex, 10);
+        return { element: element, left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: isNaN(zIndex) ? 0 : zIndex };
+      }).sort(function (a, b) { return a.zIndex - b.zIndex; });
+      canvas = await promiseWithTimeout(screenshot.domToCanvas(root, {
+        width: viewportWidth,
+        height: viewportHeight,
+        scale: scale,
+        maximumCanvasSize: 4096,
+        backgroundColor: pageBackgroundColor(),
+        style: {
+          transform: 'translate(' + (-scrollX) + 'px, ' + (-scrollY) + 'px)',
+          transformOrigin: 'top left'
+        },
+        filter: function (node) {
+          if (!node || node.nodeType !== 1) return true;
+          if (node.matches(excluded) || (node.closest && node.closest(excluded))) return false;
+          return !fixedElements.some(function (item) {
+            return item.element === node || item.element.contains(node);
+          });
+        },
+        timeout: remaining
+      }), remaining);
+      if (fixedElements.length) {
+        remaining = Math.max(1, 5000 - (Date.now() - startedAt));
+        var layers = await promiseWithTimeout(Promise.all(fixedElements.map(function (item) {
+          return screenshot.domToCanvas(item.element, {
+            width: item.width,
+            height: item.height,
+            scale: scale,
+            maximumCanvasSize: 4096,
+            timeout: remaining
+          }).then(function (layer) { return { canvas: layer, item: item }; });
+        })), remaining);
+        var context = canvas.getContext('2d');
+        if (!context) throw new Error('无法合成页面截图');
+        layers.forEach(function (layer) {
+          context.drawImage(layer.canvas, layer.item.left * scale, layer.item.top * scale,
+            layer.item.width * scale, layer.item.height * scale);
+        });
+      }
+    } finally {
+      root.classList.remove('ap-capturing');
+    }
+    if (!canvas) throw new Error('无法渲染当前页面');
+    var crop = await openCropOverlay(canvas);
+    return crop ? {
+      blob: crop.blob,
+      rect: crop.rect,
+      frameWidth: canvas.width,
+      frameHeight: canvas.height,
+      surface: 'page',
+      scrollX: scrollX,
+      scrollY: scrollY,
+      viewportWidth: viewportWidth,
+      viewportHeight: viewportHeight
+    } : null;
+  }
+
   async function captureScreenshot() {
     var stream = null, video = null, captured = null;
     var frameWidth = 0, frameHeight = 0, surface;
@@ -1913,6 +2049,9 @@
       listen(document, 'keydown', onKeyDown, true);
       updateActiveTool();
       cancelButton.focus();
+      requestAnimationFrame(function () {
+        if (!closed) onWhole();
+      });
     });
   }
 
@@ -2000,7 +2139,7 @@
   }
 
   function screenshotAnchorElement(shot) {
-    if (!shot || (shot.surface !== 'browser' && typeof shot.surface !== 'undefined') ||
+    if (!shot || (shot.surface !== 'browser' && shot.surface !== 'page' && typeof shot.surface !== 'undefined') ||
         !shot.frameWidth || !shot.frameHeight || !shot.viewportWidth || !shot.viewportHeight ||
         Math.abs(shot.frameWidth / shot.frameHeight - shot.viewportWidth / shot.viewportHeight) >= 0.03) return null;
 
@@ -2046,7 +2185,12 @@
     }
     hideToolbar();
     if (window.getSelection) window.getSelection().removeAllRanges();
-    captureScreenshot().then(function (shot) {
+    renderPageScreenshot().catch(function (err) {
+      if (window.console && typeof window.console.warn === 'function') {
+        window.console.warn('Page screenshot failed; falling back to screen capture.', err);
+      }
+      return captureScreenshot();
+    }).then(function (shot) {
       if (!shot) return;
       var anchorEl = targetEl || screenshotAnchorElement(shot);
       var range = anchorEl && screenshotAnchorRange(anchorEl);

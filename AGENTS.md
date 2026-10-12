@@ -543,19 +543,30 @@ uploads them through `POST /comments/images` to the Worker’s R2
 `comments/YYYY/MM/` prefix. GitHub rewrites rendered image URLs to camo; the
 sanitizer restores the canonical Worker `/media/` URL for these images. Images
 uploaded from an unposted draft remain in R2 as orphans.
-Browsers with `getDisplayMedia` also show a scissors button beside the image
-button: `captureScreenshot()` hides editors and toolbars with
-`html.ap-capturing`, then `openCropOverlay(canvas)` exports a cropped PNG into
-the same compression and upload path. The crop overlay can add red boxes,
-arrows, and text on a separate natural-pixel canvas; 「整张」 selects all and
-double-click completes the crop. Unsupported browsers hide the button.
+The scissors beside the shared editor's image button still uses
+`captureScreenshot()` / `getDisplayMedia`, so readers can capture other
+windows; it hides editors and toolbars with `html.ap-capturing`, then
+`openCropOverlay(canvas)` exports a cropped PNG into the same compression and
+upload path. The crop overlay can add red boxes, arrows, and text on a separate
+natural-pixel canvas; it fills the viewport, starts with the whole frame
+selected, and double-click completes the crop.
+Article-level `⌥S` and figure / table / code scissors remain gated on
+`getDisplayMedia` support, but use `renderPageScreenshot()` first: it lazy-loads
+`js/vendor/modern-screenshot-4.7.0.min.js` on first use to render the current
+viewport at device-pixel scale (long edge capped at 4096 px), excluding capture
+controls. It applies the current scroll offset to page content, then composites
+visible fixed / sticky elements (navigation, catalog, reading progress) at
+their viewport positions. Only library-load or render failure falls back to
+`captureScreenshot()`; cancelling the crop does not. Unsupported browsers hide
+the article-level entry points.
 `startScreenshotComment(targetEl)` checks GitHub login before capture; without a
-button target it maps the crop centre through `elementFromPoint` only when
-`displaySurface` is `browser` / undefined and the captured frame aspect ratio
-matches the viewport within 0.03. It anchors to figure / Mermaid captions,
-table captions or header rows, code titles, headings, or the first sentence
-(at most 60 characters) of a prose block; if no anchor is reliable, the image
-goes to the bottom comment editor with a toast.
+button target it maps the crop centre through `elementFromPoint` for page
+captures, or for system captures only when `displaySurface` is `browser` /
+undefined and the captured frame aspect ratio matches the viewport within 0.03.
+It anchors to figure / Mermaid captions, table captions or header rows, code
+titles, headings, or the first sentence (at most 60 characters) of a prose
+block; if no anchor is reliable, the image goes to the bottom comment editor
+with a toast.
 
 The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply
