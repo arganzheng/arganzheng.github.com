@@ -548,17 +548,32 @@ uploads them through `POST /comments/images` to the Worker’s R2
 `comments/YYYY/MM/` prefix. GitHub rewrites rendered image URLs to camo; the
 sanitizer restores the canonical Worker `/media/` URL for these images. Images
 uploaded from an unposted draft remain in R2 as orphans.
-Both the scissors beside the shared editor's image button and article-level
-`⌥S` / figure / table / code scissors use `captureScreenshot()` /
-`getDisplayMedia`; the browser asks which surface to share, with the current tab
-preferred. Capture reads window and screen geometry before opening the browser
-prompt. `viewportRectFor(surface, frameWidth, frameHeight, metrics)` returns
+The scissors beside the shared editor's image button and article-level `⌥S`
+use `captureScreenshot()` / `getDisplayMedia`; figure, Mermaid, table and code
+scissors pass both their caption target and block to `captureBlock()`. The
+browser asks which surface to share, with the current tab preferred. Capture
+reads window and screen geometry before opening the browser prompt.
+`viewportRectFor(surface, frameWidth, frameHeight, metrics)` returns
 the whole frame for `browser` or an unknown surface; for `window` and `monitor`
 it maps the browser's inner viewport into captured-frame pixels, clamps it to
 the frame, and falls back to the whole frame if less than half remains or a
 dimension is under 50 px. The returned `shot.viewportRect` is passed as
 `openCropOverlay(canvas, { initialSelection: viewportRect })` and is also used
 by `screenshotAnchorElement` to map the crop centre back to page coordinates.
+
+`captureBlock(blockEl, opts)` uses that same system-capture path, not DOM
+rendering. Before the browser prompt it presents a clone in a full-viewport
+`.ap-block-present` layer, inside a `.post-container` wrapper and the block's
+article ancestors so article styles remain active. It hides figure/table/code
+tools, removes HTML ids, and namespaces SVG ids while updating internal
+references. Raster images may scale up only to their natural pixel width;
+SVG, tables and code scale up to 3×, with 48 px viewport padding and no
+downscaling. A block taller than the viewport stays at 1× and starts at the
+top. Its visible bounds plus 12 px are clamped and mapped through
+`viewportRect` as the crop candidate. The presenter is removed immediately
+after drawing the captured frame and on prompt cancellation, restoring scroll.
+Figure/table/code scissors anchor comments to the caption/header target while
+capturing the whole block; article-level `⌥S` remains the page-position path.
 
 When `initialSelection` is provided, the overlay shows it as a candidate with
 the outside mask, a 2 px `#07C160` border, and a live size label, but no handles
@@ -582,8 +597,16 @@ creates the share card, reusing the passage-card footer renderer; `showImage`
 counts one article share through the existing `.post-actions` share context.
 Unsupported browsers hide the screenshot entry points.
 
-`startScreenshotComment(targetEl)` checks GitHub login before capture; with a
-button target it anchors to that target, otherwise it accepts a crop centre
+`sharePassage` recognises matching figure/Mermaid, table, and code-header
+captions (normalised whitespace; untitled blocks use `.fig-no`). When supported,
+their generated passage image captures the whole block and passes the crop to
+`renderScreenshot` with the already-computed passage URL and filename. `showCard`
+waits for that promise before showing its image overlay; null/AbortError
+cancellation is quiet and does not count a share.
+
+`startScreenshotComment(targetEl, blockEl)` checks GitHub login before
+capture; a button target anchors the comment to that target while an optional
+block selects `captureBlock`, otherwise it accepts a crop centre
 inside `viewportRect` when its aspect ratio matches the page viewport within
 0.03. The centre and crop bounds are mapped through `viewportRect` before
 `elementFromPoint` lookup. It anchors to figure / Mermaid captions, table
