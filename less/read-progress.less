@@ -1,0 +1,44 @@
+.post-actions .pa-read {
+	color: #536b59;
+	.fa { color: #6b8f72; }
+	&.is-read {
+		border-color: #b9d2bd;
+		background: #f1f7f2;
+		color: #2f6f3e;
+		.fa { color: #39834a; }
+	}
+}
+html.private-post .post-actions .pa-read { display: none !important; }
+
+.sb-list li.is-read > a::after,
+.sb-list li.is-read > span::after,
+.st-posts li.is-read > a::after {
+	content: " ✓";
+	color: #75957a;
+	font-size: 11px;
+	white-space: nowrap;
+}
+.sb-read, .st-read, .rp-badge {
+	color: #718c75;
+	font-size: 12px;
+	font-weight: 400;
+	white-space: nowrap;
+}
+.sb-read[hidden], .st-read[hidden] { display: none; }
+.st-read { margin-left: -6px; }
+.rp-badge { display: inline-block; margin-left: 8px; }
+.rp-marker {
+	display: inline-block;
+	margin-left: 6px;
+	color: #718c75;
+	font-size: 11px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+.life-card h2 .rp-marker {
+	padding: 2px 5px;
+	border-radius: 4px;
+	background: rgba(255, 255, 255, 0.18);
+	color: #e1f1e3;
+	font-size: 10px;
+}

@@ -22,6 +22,7 @@
   <span class="pa-lead">这篇对你有用？</span>
   <button type="button" class="pa-item pa-like" title="给这篇文章点个赞（不用登录）"><i class="fa fa-regular fa-heart"></i> 点赞<b class="pa-like-n"></b></button>
   <button type="button" class="pa-item pa-share" title="分享" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>
+  {% unless page.layout == 'slides' %}<button type="button" class="pa-item pa-read" data-url="{{ page.url }}" aria-pressed="false" title="标记已读"><i class="fa fa-check-circle" aria-hidden="true"></i><span class="pa-read-label">标记已读</span></button>{% endunless %}
   <button type="button" class="pa-item pa-export" title="复制为公众号 / 知乎可粘贴的格式（仅作者可见）" hidden><i class="fa fa-brands fa-weixin"></i> 复制为公众号格式</button>
   <button type="button" class="pa-item pa-download" title="导出这篇文章（仅作者可见）" aria-haspopup="true" aria-expanded="false" hidden><i class="fa fa-download"></i> 导出 <i class="fa fa-caret-down"></i></button>
   {% if site.giscus.repo %}<a class="pa-item pa-edit" href="https://github.com/{{ site.giscus.repo }}/edit/master/{{ page.path }}" target="_blank" rel="noopener noreferrer" title="在 GitHub 编辑文章" hidden><i class="fa fa-brands fa-github"></i> 在 GitHub 编辑</a>{% endif %}

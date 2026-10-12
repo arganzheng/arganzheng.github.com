@@ -3235,6 +3235,65 @@ div.catalog-container:has(.side-series) div.side-catalog .catalog-body {
     display: none;
   }
 }
+.post-actions .pa-read {
+  color: #536b59;
+}
+.post-actions .pa-read .fa {
+  color: #6b8f72;
+}
+.post-actions .pa-read.is-read {
+  border-color: #b9d2bd;
+  background: #f1f7f2;
+  color: #2f6f3e;
+}
+.post-actions .pa-read.is-read .fa {
+  color: #39834a;
+}
+html.private-post .post-actions .pa-read {
+  display: none !important;
+}
+.sb-list li.is-read > a::after,
+.sb-list li.is-read > span::after,
+.st-posts li.is-read > a::after {
+  content: " ✓";
+  color: #75957a;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sb-read,
+.st-read,
+.rp-badge {
+  color: #718c75;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.sb-read[hidden],
+.st-read[hidden] {
+  display: none;
+}
+.st-read {
+  margin-left: -6px;
+}
+.rp-badge {
+  display: inline-block;
+  margin-left: 8px;
+}
+.rp-marker {
+  display: inline-block;
+  margin-left: 6px;
+  color: #718c75;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.life-card h2 .rp-marker {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #e1f1e3;
+  font-size: 10px;
+}
 .post-container mark.annotation-hl,
 .post-container .katex.has-note {
   padding: 0 0 1px;
@@ -8841,6 +8900,35 @@ html[data-theme="dark"] #archive .archive-item > span {
 }
 html[data-theme="dark"] #archive .archive-item > small {
   color: #969ba4 !important;
+}
+html[data-theme="dark"] .post-actions .pa-read {
+  color: #969ba4;
+  border-color: #33363c;
+  background-color: #282b30;
+}
+html[data-theme="dark"] .post-actions .pa-read .fa {
+  color: #95b99b;
+}
+html[data-theme="dark"] .post-actions .pa-read.is-read {
+  border-color: #42654a;
+  background-color: #203126;
+  color: #b8d9bd;
+}
+html[data-theme="dark"] .post-actions .pa-read.is-read .fa {
+  color: #9acba3;
+}
+html[data-theme="dark"] .sb-list li.is-read > a::after,
+html[data-theme="dark"] .sb-list li.is-read > span::after,
+html[data-theme="dark"] .st-posts li.is-read > a::after,
+html[data-theme="dark"] .sb-read,
+html[data-theme="dark"] .st-read,
+html[data-theme="dark"] .rp-badge,
+html[data-theme="dark"] .rp-marker {
+  color: #9acba3;
+}
+html[data-theme="dark"] .life-card h2 .rp-marker {
+  background: rgba(0, 0, 0, 0.22);
+  color: #c8e8cd;
 }
 @media print {
   @page author-export {
