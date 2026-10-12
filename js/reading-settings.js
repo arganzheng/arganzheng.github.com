@@ -134,7 +134,11 @@
       return;
     }
     var name = button.getAttribute('data-rs-setting');
-    if (name && apply(name, button.getAttribute('data-rs-value'))) changed();
+    var value = button.getAttribute('data-rs-value');
+    if (name && apply(name, value)) {
+      if (name === 'focus' && value === 'on') close(false);
+      changed();
+    }
   });
 
   exitButton.addEventListener('click', function () {
