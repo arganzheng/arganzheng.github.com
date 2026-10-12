@@ -294,6 +294,8 @@ vllm bench sweep      # 参数扫描，见 vllm/benchmarks/sweep/
 | H100, bf16, [128, 4096]       |        12.1 |       12.0 |   1.01x |
 | A100, fp16, [4096, 4096]      |       201.3 |      165.2 |   1.22x |
 
+Table: 性能案例的前后对比结果
+
 Command: python benchmarks/kernels/benchmark_rmsnorm.py --dtype bfloat16
 ```
 
@@ -951,13 +953,20 @@ Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目
 | 文件 | 改了什么 | 为什么（对应目的的哪一部分） |
 |---|---|---|
 
+Table: PR diff 摘要模板
+
 ### 测试清单
 | 测试 | 位置 | 覆盖什么 | 改动前结果 | 改动后结果 |
 |---|---|---|---|---|
 
+Table: 测试覆盖与结果记录模板
+
 ### benchmark（性能 PR）
 | Case（硬件 / dtype / shape） | Before | After | 倍数 |
 |---|---|---|---|
+
+Table: Benchmark 前后对比模板
+
 命令：
 
 ### 本地检查记录
@@ -967,6 +976,8 @@ Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目
 | 相关测试 | | | |
 | 签名 | git log --format=%B -1 \| grep Signed-off-by（vLLM） | | |
 
+Table: 本地检查步骤与结果模板
+
 ### 描述初稿
 （按目标项目模板填写，见下）
 
@@ -974,9 +985,13 @@ Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目
 | push | 触发方式 | 跑了什么 | 结果 | 红的是不是我的（依据） |
 |---|---|---|---|---|
 
+Table: CI 运行与失败归因模板
+
 ### review 往返
 | 轮次 | 日期 | reviewer | 意见（原文短引） | 类型（改/争/问） | 回应 | 状态 |
 |---|---|---|---|---|---|---|
+
+Table: Review 往返记录模板
 
 ### 结局
 - 合入 / 关闭 / 放弃：

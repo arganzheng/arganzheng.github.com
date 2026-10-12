@@ -560,6 +560,9 @@ Table: 应用地图与另两张地图的重叠主题分工
 
 | 层 | 系列 | 篇数 | 时长 |
 |---|---|---|---|
+
+Table: AI 应用工程师学习地图的系列安排
+
 {% include series-row.html key="model-as-component" layer="L1" cols="layer,link,count,hours" %}
 {% include series-row.html key="context-engineering" layer="L2" cols="layer,link,count,hours" %}
 {% include series-row.html key="retrieval-and-knowledge" layer="L3" cols="layer,link,count,hours" %}

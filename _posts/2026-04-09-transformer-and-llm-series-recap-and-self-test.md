@@ -47,8 +47,7 @@ flowchart TB
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
 
-
-
+Table: Transformer 与 LLM 系列九篇内容回顾
 
 | [第一篇：从 GPT-2 到 Llama——五处改动与参数量](/gpt2-to-llama-five-changes-and-parameter-count.html) | 从 GPT-2 到今天的模型中间发生了什么？给一个 `config.json`，能认出每处改动、并算出参数量？ | GPT-2 是十个可替换的槽位，骨架从未变过；改动沿五条演进线与一条辅线展开：长上下文、参数规模与每 token 成本、attention 替代、训练信号与生成、输入理解与输出生成、训练稳定性；dense Transformer 没有隐藏参数，乘层数加词表精确到个位 | $$N = L[d(2d + 2d_{kv}) + 3d \cdot d_{ff} + 2d] + 2Vd + d$$<br/>8B = 8,030,261,248<br/>层内 FFN 约 80%<br/>词表 8B 占 13%、70B 占 3% |
 | [第二篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
@@ -284,8 +283,7 @@ Table: 跨篇概念的正确阅读入口
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
 
-
-
+Table: Transformer 常见误区及正确理解
 
 | 小模型上 MTP 没收益说明 MTP 无效 | 收益是规模依赖的（13B 以上明显） | 小模型只验证机制与代价 | [第七篇](/multi-token-prediction-mtp.html) |
 | FFN 中间维度就是 $$4d$$ | Llama 用 SwiGLU 三矩阵，14336 = $$\frac{2}{3} \cdot 4d \times 1.3$$ 对齐到 1024 | 以 `intermediate_size` 为准，且数三个矩阵 | [第一篇](/gpt2-to-llama-five-changes-and-parameter-count.html) |

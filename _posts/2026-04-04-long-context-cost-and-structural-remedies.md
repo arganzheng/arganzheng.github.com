@@ -203,6 +203,8 @@ $$
 | Qwen3-Next | 3 : 1 | Gated DeltaNet 与 gated attention；[官方说明](https://www.alibabacloud.com/blog/602580) |
 | Kimi Linear | 3 : 1 | KDA 与 MLA/full attention 混合；[论文](https://arxiv.org/html/2510.26692) |
 
+Table: 混合架构中线性层与全注意力层的比例
+
 比例是论文或官方配置中报告的层级配比，不代表不同模型的状态大小、质量或速度可以直接等同。MiniMax 后续在 M2 选择 full attention；[官方解释](https://www.minimax.io/news/why-did-m2-end-up-as-a-full-attention-model)强调，纸面上的高效 attention 不必然在复杂生产系统中胜过 full attention。
 
 ### 4. Qwen3-Next：128K 与 1M 的每序列状态估算
@@ -228,6 +230,8 @@ $$
 |---:|---:|---:|---:|---:|
 | 128K（131,072） | 12 GiB | 3 GiB | 36 MiB | 3.04 GiB |
 | 1M（1,048,576） | 96 GiB | 24 GiB | 36 MiB | 24.04 GiB |
+
+Table: 不同上下文长度下的 Qwen3-Next 状态显存估算
 
 1M 这一行只是按 24 KiB/token 线性外推；该配置的 `max_position_embeddings` 是 262,144，表格**不表示**模型配置支持 1M 上下文。递归状态不会随 $$T$$ 变长，但长程信息被压进有限维状态，精确检索质量与 full attention 不等价。
 

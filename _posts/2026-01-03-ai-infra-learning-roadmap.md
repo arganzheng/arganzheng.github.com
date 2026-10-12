@@ -444,6 +444,9 @@ Table: 主线技术与同位替代品
 
 | # | 系列 | 层 | 篇数 | 时长 |
 |---|---|---|---|---|
+
+Table: AI Infra 各系列的层级与篇数
+
 {% include series-row.html key="python-for-ai-infra" layer="L1" note="（与算法地图共享）" %}
 {% include series-row.html key="cpp-for-ai-infra" layer="L1" %}
 {% include series-row.html key="deep-dive-into-pytorch" layer="L2" note="（与算法地图共享）" %}
