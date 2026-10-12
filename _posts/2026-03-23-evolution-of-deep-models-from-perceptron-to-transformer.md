@@ -18,8 +18,6 @@ Transformer 不是突然出现的。它接过了感知机、反向传播、卷�
 
 神经网络的发展不是平滑上升。感知机带来第一次热潮，能力边界、资金收缩与英国的研究评估共同构成第一次寒冬；反向传播带来第二次兴起，但算力、数据与训练稳定性仍有限；2006 年逐层预训练重燃深层网络研究，随后 GPU、ImageNet 与更可靠的训练方法让深度学习进入第三次兴起。
 
-图中的兴起与寒冬色带是对研究热度的近似划分，不代表精确的年份边界。
-
 本文讲历史与动机；感知机、ADALINE 和 XOR 先用小例子建立直觉，反向传播、激活、初始化、优化器和各类结构的推导留给系列后续篇章。
 
 时间线尾部的 GPT-3 来自 Brown 等人 2020 年的论文；ChatGPT 则在 2022 年由 OpenAI 面向公众发布。[GPT-3 原论文](https://arxiv.org/abs/2005.14165)；[ChatGPT 发布说明](https://openai.com/index/chatgpt/)
@@ -45,7 +43,7 @@ Transformer 不是突然出现的。它接过了感知机、反向传播、卷�
 
 把多个这样的单元按不同连接方式组合，可以构造 AND、OR、NOT 等逻辑功能。它的重要性不在于模拟了真实神经元的全部生理机制，而在于把“神经网络能计算什么”变成了一个可证明的问题。局限也同样清楚：如果权重是手工固定的，系统能否完成任务取决于设计者已经知道怎样连线。
 
-Donald Hebb 在 1949 年的《The Organization of Behavior》中把问题从“网络能表示什么”推向“经验如何改变连接”。他的学习设想把神经元共同活动与突触连接的持久改变联系起来，为后来基于活动相关性的学习规则提供了概念起点；它不是一个可直接照搬的现代反向传播算法。[Hebb 原著书目与馆藏记录](https://archive.org/details/organizationofbe0000hebb)
+Donald Hebb 在 1949 年的《The Organization of Behavior》中把问题从“网络能表示什么”推向“经验如何改变连接”。他的学习设想把神经元共同活动与突触连接的持久改变联系起来，为后来基于活动相关性的学习规则提供了概念起点。[Hebb 原著书目与馆藏记录](https://archive.org/details/organizationofbe0000hebb)
 
 1950 年，Alan Turing 没有试图给“思考”下一个抽象定义，而是提出模仿游戏：在文字问答条件下，观察者能否可靠地区分机器与人？这把问题变成了可讨论的行为判据。[Turing 原文](https://doi.org/10.1093/mind/LIX.236.433)
 
@@ -57,7 +55,7 @@ Donald Hebb 在 1949 年的《The Organization of Behavior》中把问题从“�
 
 Rosenblatt 在康奈尔航空实验室工作的背景，是把模式识别从人工规定规则转向机器从样例中调整连接。1957 年的技术报告描述了 perceptron 方案；1958 年发表的论文进一步给出概率式的学习理论。[Rosenblatt 1957 年报告](https://bpb-us-e2.wpmucdn.com/websites.umass.edu/dist/a/27637/files/2016/03/rosenblatt-1957.pdf)；[1958 年论文](https://doi.org/10.1037/h0042519)
 
-Mark I Perceptron 不只是纸面上的方程。输入端是一块 photocell retina，光信号进入电路后，连接强度由电机驱动的电位器表示；训练时机器按照反馈改变这些电位器。它的硬件和今天的软件张量很不一样，但共同点是让权重成为能被数据修正的状态，而不是预先写死的逻辑连线。上述装置细节见 Rosenblatt 的技术报告。
+Mark I Perceptron 不只是纸面上的方程。输入端是一块 photocell retina，光信号进入电路后，连接强度由电机驱动的电位器表示；训练时机器按照反馈改变这些电位器。它的硬件和今天的软件张量很不一样，但共同点是让权重成为能被数据修正的状态，而不是预先写死的逻辑连线。[Mark I 操作手册（Cornell Aeronautical Laboratory，1960）](https://apps.dtic.mil/sti/tr/pdf/AD0236965.pdf) 记录了这套视网膜输入与电位器机构。
 
 对二值标签，令 $$\hat y$$ 为预测、$$y$$ 为目标，感知机把分类错误转换成一次有方向的参数更新：
 
@@ -81,9 +79,9 @@ $$
 b\le0,\quad w_1+b>0,\quad w_2+b>0,\quad w_1+w_2+b\le0.
 $$
 
-把中间两式相加，得到 $$w_1+w_2+2b>0$$。再用 $$b\le0$$ 可推出 $$w_1+w_2+b>-b\ge0$$，与最后一式矛盾。问题不是学习率调得不够好；单个线性边界没有表示出 XOR 的能力。
+把中间两式相加，得到 $$w_1+w_2+2b>0$$。再用 $$b\le0$$ 可推出 $$w_1+w_2+b>-b\ge0$$，与最后一式矛盾；单个线性边界无法表示 XOR。
 
-Minsky 与 Papert 1969 年的《Perceptrons》把感知机能力边界作为几何与计算问题系统分析，而非只给 XOR 一个反例。扩充版专章分别讨论 parity / one-in-a-box predicates 的阶数，以及标题就指出“unbounded order”的 ψ-connected 几何性质；这已说明限制不止是某一个 XOR 例子。[原书扫描件](https://papers.baulab.info/papers/Minsky-1969.pdf)；[Parity 专章](https://doi.org/10.7551/mitpress/11301.003.0007)；[ψ-connected 专章](https://doi.org/10.7551/mitpress/11301.003.0010) 我没有从可读文本确认 parity 随视网膜规模增长的精确界，因此不写具体阶数公式。
+Minsky 与 Papert 1969 年的《Perceptrons》把感知机能力边界作为几何与计算问题系统分析，而非只给 XOR 一个反例。扩充版专章分别讨论 parity / one-in-a-box predicates 的阶数，以及标题就指出“unbounded order”的 ψ-connected 几何性质。[原书扫描件](https://papers.baulab.info/papers/Minsky-1969.pdf)；[Parity 专章](https://doi.org/10.7551/mitpress/11301.003.0007)；[ψ-connected 专章](https://doi.org/10.7551/mitpress/11301.003.0010)
 
 研究热度转弱也不能归结为一本书。受限模型的能力与早期公开预期有差距，硬件与数据条件还不足以扩展规模；资助决策、研究议程和领域内部的竞争也共同作用。英国方面，Lighthill 1973 年报告及其公开讨论对当地 AI 研究资助产生了影响，但它不是所有国家、所有研究路线的唯一原因。[Lighthill 原报告与讨论记录](https://www.chilton-computing.org.uk/inf/literature/reports/lighthill_report/p001.htm)
 
@@ -95,11 +93,11 @@ Minsky 与 Papert 1969 年的《Perceptrons》把感知机能力边界作为几�
 
 福岛邦彦的 Neocognitron 把视觉识别设计成层级结构：局部连接提取简单特征，后续层逐步组合它们。论文将其定位为对视觉皮层层级组织的模型；它没有依赖全连接层去记住每个像素组合。[Neocognitron 原论文](https://doi.org/10.1007/BF00344251) 这条局部感受野路线后来在 CNN 中变成了空间参数共享。
 
-Hopfield 在 1982 年讨论带反馈连接的神经网络与物理系统之间的联系，把网络状态与能量函数关联起来；稳定状态可以作为联想记忆的候选答案。[Hopfield 原论文](https://doi.org/10.1073/pnas.79.8.2554) 两年后延伸出的 Boltzmann machine 把随机状态和能量模型结合起来，让网络可以用概率分布表达多个可能解释。它的代价是学习需要处理模型分布与数据分布之间的统计差异，训练比一次前向计算昂贵得多。[Ackley、Hinton 与 Sejnowski 原论文](https://doi.org/10.1207/s15516709cog0901_4)
+Hopfield 在 1982 年讨论带反馈连接的神经网络与物理系统之间的联系，把网络状态与能量函数关联起来；稳定状态可以作为联想记忆的候选答案。[Hopfield 原论文](https://doi.org/10.1073/pnas.79.8.2554) 1985 年，Boltzmann machine 把随机状态和能量模型结合起来，让网络可以用概率分布表达多个可能解释。它的代价是学习需要处理模型分布与数据分布之间的统计差异，训练比一次前向计算昂贵得多。[Ackley、Hinton 与 Sejnowski 原论文](https://doi.org/10.1207/s15516709cog0901_4)
 
 真正让多层网络重新进入主线的，是隐藏层能不能被有效训练。Rumelhart、Hinton 与 Williams 1986 年的反向传播论文展示，误差信号可以从输出层沿计算图反向传播，逐层调整内部权重；多层网络因此不必再靠人工指定每个中间特征。[Nature 原论文](https://doi.org/10.1038/323533a0) 梯度怎样逐层展开，放在《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》推导。
 
-1987 年 NETtalk 把英文拼写窗口映射到发音符号，展示了网络可以从例子中学到字母串与读音之间的分布式关系，而不是查一张手写发音规则表。[NETtalk 原论文](https://doi.org/10.1126/science.3293431) 结果既鼓舞人，也暴露了依赖上下文窗口、训练数据和有限计算资源的边界。
+1987 年 NETtalk 把英文拼写窗口映射到发音符号，展示了网络可以从例子中学到字母串与读音之间的分布式关系，而不是查一张手写发音规则表。[NETtalk 原论文扫描件](https://content.wolfram.com/sites/13/2018/02/01-1-10.pdf) 结果既鼓舞人，也暴露了依赖上下文窗口、训练数据和有限计算资源的边界。
 
 LeCun 等人把反向传播用于手写邮政编码识别：卷积核在空间位置之间共享，局部结构不必为每个像素位置另学一套参数。[LeCun 等（1989）原文](https://doi.org/10.1162/neco.1989.1.4.541) 视觉网络开始把结构先验写进连接方式中，而不是只靠扩大一个全连接 MLP。
 
@@ -117,7 +115,7 @@ $$
 
 Elman 1990 年的简单循环网络把上一时刻的隐藏状态复制到 context units，再作为当前时刻输入，让模型有短期序列记忆。[Elman 原论文](https://doi.org/10.1207/s15516709cog1402_1) 对循环网络训练时，反向传播必须沿时间展开；Werbos 对通过时间的反向传播给出了系统讨论。[BPTT 原论文](https://doi.org/10.1109/5.58337)
 
-反向传播带来了更长的计算路径，也让梯度在多次连乘后可能变得极小。Hochreiter 1991 年的毕业论文系统分析了远处输入如何在反向传播中失去影响，并提出让误差信号保持流动的记忆单元思路；Bengio、Simard 与 Frasconi 1994 年进一步分析了长程依赖训练的困难。[Hochreiter 1991 年论文](https://people.idsia.ch/~juergen/SeppHochreiter1991ThesisAdvisorSchmidhuber.pdf)；[Bengio 等（1994）原论文](https://doi.org/10.1109/72.279181) LSTM 后来用门控和记忆单元改善这个问题；它不是让时间依赖消失，而是为信息提供一条较容易保留的路径。[Hochreiter 与 Schmidhuber（1997）原论文](https://doi.org/10.1162/neco.1997.9.8.1735)
+反向传播带来了更长的计算路径，也让梯度在多次连乘后可能变得极小。Hochreiter 1991 年的毕业论文分析了长程依赖训练中的梯度消失与爆炸；Bengio、Simard 与 Frasconi 1994 年进一步分析了长程依赖训练的困难。[Hochreiter 1991 年论文](https://people.idsia.ch/~juergen/SeppHochreiter1991ThesisAdvisorSchmidhuber.pdf)；[Bengio 等（1994）原论文](https://doi.org/10.1109/72.279181) LSTM 后来用门控和记忆单元改善这个问题；它为信息提供了一条较容易保留的路径。[Hochreiter 与 Schmidhuber（1997）原论文](https://doi.org/10.1162/neco.1997.9.8.1735)
 
 LeNet-5 将卷积、子采样与分类层组织成可训练的手写文档识别系统，论文展示了用于银行支票上的数字识别。[LeNet-5 原论文](https://doi.org/10.1109/5.726791) 这一时期的结构创新已经很丰富，但大规模数据、稳定训练和硬件吞吐还没同时到位。
 
@@ -145,7 +143,7 @@ ReLU 用 $$\max(0,x)$$ 替代饱和的 sigmoid / tanh，在正半轴保留非零
 
 AlexNet 的关键不是单一新层，而是几件事在同一个系统里配合：深卷积网络、ReLU、大规模图像数据、GPU 卷积实现、数据增强和 dropout。Krizhevsky、Sutskever 与 Hinton 报告的模型有 6000 万参数，训练约 5–6 天，使用两块 GTX 580 3GB GPU；训练时使用随机裁剪与翻转等增强，并在全连接层使用 dropout。[AlexNet 原论文](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)
 
-论文报告的 ILSVRC-2012 top-5 错误率是 15.3%，第二名为 26.2%。这不是“深度网络终于解决视觉”的终点，而是一个可复现、可扩展的配方明显改变了大型视觉竞赛的成绩。随后语音识别也出现深度网络的规模化结果，Hinton 等人总结了 DNN acoustic modeling 在语音识别中的进展。[Hinton 等（2012）原文](https://doi.org/10.1109/MSP.2012.2205597)
+论文报告的 ILSVRC-2012 top-5 错误率是 15.3%，第二名为 26.2%。随后语音识别也出现深度网络的规模化结果，Hinton 等人总结了 DNN acoustic modeling 在语音识别中的进展。[Hinton 等（2012）原文](https://doi.org/10.1109/MSP.2012.2205597)
 
 ### 结构分支：更深视觉、词向量与生成模型
 

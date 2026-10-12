@@ -1,154 +1,142 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1450" viewBox="0 0 1900 1450" role="img" aria-labelledby="title desc">
-<title id="title">从感知机到 Transformer：深度模型演进时间线</title><desc id="desc">两行按统一年度坐标映射排列的深度学习历史节点与阶段带。</desc>
-<style>text{font-family:Arial,"PingFang SC",sans-serif;fill:#283344}.h{font-size:34px;font-weight:bold}.sub{font-size:18px;fill:#596579}.phase{font-size:18px;font-weight:bold}.event{font-size:17px;font-weight:600}.year{font-size:15px;fill:#526176}.axis{stroke:#526176;stroke-width:2}.leader{stroke:#748096;stroke-width:1.4}.dot{fill:#fffdf8;stroke:#35445c;stroke-width:3}</style>
-<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#35445c"/></marker></defs>
-<rect width="1900" height="1450" fill="#fffdf8"/><text class="h" x="70" y="62">从感知机到 Transformer</text><text class="sub" x="72" y="94">年份坐标在各行内统一；节点密集处采用非线性刻度。阶段带是近似的历史概括。</text>
-<rect data-row="1" data-start-year="1957" data-end-year="1969" x="478.5" y="160" width="341.5" height="52" rx="7" fill="#dcebdc" stroke="#8792a2"/>
-<text class="phase" x="649.2" y="193" text-anchor="middle">第一次兴起 · 1957–1969</text>
-<rect data-row="1" data-start-year="1969" data-end-year="1980" x="820.0" y="160" width="280.0" height="52" rx="7" fill="#f4e0d9" stroke="#8792a2"/>
-<text class="phase" x="960.0" y="193" text-anchor="middle">第一次寒冬 · 1969–1980</text>
-<rect data-row="1" data-start-year="1980" data-end-year="1995" x="1100.0" y="160" width="650.0" height="52" rx="7" fill="#dcebdc" stroke="#8792a2"/>
-<text class="phase" x="1425.0" y="193" text-anchor="middle">第二次兴起 · 1980–1995</text>
-<line class="axis" x1="100" y1="520" x2="1750" y2="520"/>
-<line data-row="1" data-year="1940" x1="100.0" x2="100.0" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="100.0" y="551" text-anchor="middle">1940</text>
-<line data-row="1" data-year="1950" x1="318.8" x2="318.8" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="318.8" y="551" text-anchor="middle">1950</text>
-<line data-row="1" data-year="1960" x1="563.8" x2="563.8" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="563.8" y="551" text-anchor="middle">1960</text>
-<line data-row="1" data-year="1970" x1="845.5" x2="845.5" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="845.5" y="551" text-anchor="middle">1970</text>
-<line data-row="1" data-year="1980" x1="1100.0" x2="1100.0" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="1100.0" y="551" text-anchor="middle">1980</text>
-<line data-row="1" data-year="1990" x1="1541.7" x2="1541.7" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="1541.7" y="551" text-anchor="middle">1990</text>
-<line data-row="1" data-year="1995" x1="1750.0" x2="1750.0" y1="512" y2="529" stroke="#526176"/>
-<text class="year" x="1750.0" y="551" text-anchor="middle">1995</text>
-<line class="leader" x1="165.6" x2="165.6" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1943" cx="165.6" cy="520" r="7"/>
-<text class="event" x="165.6" y="385" text-anchor="middle">MCP</text>
-<line class="leader" x1="296.9" x2="296.9" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1949" cx="296.9" cy="520" r="7"/>
-<text class="event" x="296.9" y="665" text-anchor="middle">Hebb · learning</text>
-<line class="leader" x1="318.8" x2="318.8" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1950" cx="318.8" cy="520" r="7"/>
-<text class="event" x="318.8" y="385" text-anchor="middle">Turing</text>
-<line class="leader" x1="450.0" x2="450.0" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1956" cx="450.0" cy="520" r="7"/>
-<text class="event" x="450.0" y="665" text-anchor="middle">Dart.</text>
-<line class="leader" x1="478.5" x2="478.5" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1957" cx="478.5" cy="520" r="7"/>
-<text class="event" x="478.5" y="385" text-anchor="middle">Rose</text>
-<line class="leader" x1="506.9" x2="506.9" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1958" cx="506.9" cy="520" r="7"/>
-<text class="event" x="506.9" y="665" text-anchor="middle">M-I</text>
-<line class="leader" x1="563.8" x2="563.8" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1960" cx="563.8" cy="520" r="7"/>
-<text class="event" x="563.8" y="385" text-anchor="middle">ADA</text>
-<line class="leader" x1="620.8" x2="620.8" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1962" cx="620.8" cy="520" r="7"/>
-<text class="event" x="620.8" y="665" text-anchor="middle">Novikoff</text>
-<line class="leader" x1="820.0" x2="820.0" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1969" cx="820.0" cy="520" r="7"/>
-<text class="event" x="820.0" y="385" text-anchor="middle">Minsky</text>
-<line class="leader" x1="921.8" x2="921.8" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1973" cx="921.8" cy="520" r="7"/>
-<text class="event" x="921.8" y="665" text-anchor="middle">Lighthill</text>
-<line class="leader" x1="1100.0" x2="1100.0" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1980" cx="1100.0" cy="520" r="7"/>
-<text class="event" x="1100.0" y="385" text-anchor="middle">Neocognitron</text>
-<line class="leader" x1="1188.9" x2="1188.9" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1982" cx="1188.9" cy="520" r="7"/>
-<text class="event" x="1188.9" y="665" text-anchor="middle">Hopfield</text>
-<line class="leader" x1="1322.2" x2="1322.2" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1985" cx="1322.2" cy="520" r="7"/>
-<text class="event" x="1322.2" y="385" text-anchor="middle">BM</text>
-<line class="leader" x1="1366.7" x2="1366.7" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1986" cx="1366.7" cy="520" r="7"/>
-<text class="event" x="1366.7" y="665" text-anchor="middle">Backprop · PDP</text>
-<line class="leader" x1="1411.1" x2="1411.1" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1987" cx="1411.1" cy="520" r="7"/>
-<text class="event" x="1411.1" y="385" text-anchor="middle">NETtalk</text>
-<line class="leader" x1="1500.0" x2="1500.0" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1989" cx="1500.0" cy="520" r="7"/>
-<text class="event" x="1500.0" y="665" text-anchor="middle">LeCun · UAT</text>
-<line class="leader" x1="1541.7" x2="1541.7" y1="520" y2="405"/>
-<circle class="dot" data-row="1" data-year="1990" cx="1541.7" cy="520" r="7"/>
-<text class="event" x="1541.7" y="385" text-anchor="middle">Elman RNN</text>
-<line class="leader" x1="1750.0" x2="1750.0" y1="520" y2="630"/>
-<circle class="dot" data-row="1" data-year="1995" cx="1750.0" cy="520" r="7"/>
-<text class="event" x="1750.0" y="665" text-anchor="middle">SVM</text>
-<rect data-row="2" data-start-year="1995" data-end-year="2006" x="100.0" y="750" width="400.0" height="52" rx="7" fill="#f4e0d9" stroke="#8792a2"/>
-<text class="phase" x="300.0" y="783" text-anchor="middle">第二次寒冬 · 1995–2006</text>
-<rect data-row="2" data-start-year="2006" data-end-year="2017" x="500.0" y="750" width="960.0" height="52" rx="7" fill="#dcebdc" stroke="#8792a2"/>
-<text class="phase" x="980.0" y="783" text-anchor="middle">第三次兴起 · 2006–2017</text>
-<line class="axis" x1="100" y1="1110" x2="1750" y2="1110"/>
-<line data-row="2" data-year="1995" x1="100.0" x2="100.0" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="100.0" y="1141" text-anchor="middle">1995</text>
-<line data-row="2" data-year="1997" x1="172.7" x2="172.7" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="172.7" y="1141" text-anchor="middle">1997</text>
-<line data-row="2" data-year="1998" x1="209.1" x2="209.1" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="209.1" y="1141" text-anchor="middle">1998</text>
-<line data-row="2" data-year="2000" x1="281.8" x2="281.8" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="281.8" y="1141" text-anchor="middle">2000</text>
-<line data-row="2" data-year="2005" x1="463.6" x2="463.6" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="463.6" y="1141" text-anchor="middle">2005</text>
-<line data-row="2" data-year="2010" x1="780.0" x2="780.0" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="780.0" y="1141" text-anchor="middle">2010</text>
-<line data-row="2" data-year="2012" x1="951.7" x2="951.7" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="951.7" y="1141" text-anchor="middle">2012</text>
-<line data-row="2" data-year="2014" x1="1155.0" x2="1155.0" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="1155.0" y="1141" text-anchor="middle">2014</text>
-<line data-row="2" data-year="2016" x1="1358.3" x2="1358.3" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="1358.3" y="1141" text-anchor="middle">2016</text>
-<line data-row="2" data-year="2017" x1="1460.0" x2="1460.0" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="1460.0" y="1141" text-anchor="middle">2017</text>
-<line data-row="2" data-year="2020" x1="1604.0" x2="1604.0" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="1604.0" y="1141" text-anchor="middle">2020</text>
-<line data-row="2" data-year="2022" x1="1700.0" x2="1700.0" y1="1102" y2="1119" stroke="#526176"/>
-<text class="year" x="1700.0" y="1141" text-anchor="middle">2022</text>
-<line class="leader" x1="390.9" x2="390.9" y1="1110" y2="995"/>
-<line class="leader" x1="172.7" x2="172.7" y1="1110" y2="995"/>
-<circle class="dot" data-row="2" data-year="1997" cx="172.7" cy="1110" r="7"/>
-<text class="event" x="172.7" y="975" text-anchor="middle">LSTM</text>
-<line class="leader" x1="209.1" x2="209.1" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="1998" cx="209.1" cy="1110" r="7"/>
-<text class="event" x="209.1" y="1255" text-anchor="middle">LeNet-5</text>
-<circle class="dot" data-row="2" data-year="2003" cx="390.9" cy="1110" r="7"/>
-<text class="event" x="390.9" y="975" text-anchor="middle">NPLM</text>
-<line class="leader" x1="500.0" x2="500.0" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="2006" cx="500.0" cy="1110" r="7"/>
-<text class="event" x="500.0" y="1255" text-anchor="middle">DBN / AE</text>
-<line class="leader" x1="570.0" x2="570.0" y1="1110" y2="995"/>
-<circle class="dot" data-row="2" data-year="2007" cx="570.0" cy="1110" r="7"/>
-<text class="event" x="570.0" y="975" text-anchor="middle">Pretraining</text>
-<line class="leader" x1="710.0" x2="710.0" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="2009" cx="710.0" cy="1110" r="7"/>
-<text class="event" x="710.0" y="1255" text-anchor="middle">ImageNet</text>
-<line class="leader" x1="780.0" x2="780.0" y1="1110" y2="995"/>
-<circle class="dot" data-row="2" data-year="2010" cx="780.0" cy="1110" r="7"/>
-<text class="event" x="780.0" y="975" text-anchor="middle">ReLU · Glorot</text>
-<line class="leader" x1="951.7" x2="951.7" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="2012" cx="951.7" cy="1110" r="7"/>
-<text class="event" x="951.7" y="1255" text-anchor="middle">AlexNet / speech</text>
-<line class="leader" x1="1053.3" x2="1053.3" y1="1110" y2="995"/>
-<circle class="dot" data-row="2" data-year="2013" cx="1053.3" cy="1110" r="7"/>
-<text class="event" x="1053.3" y="975" text-anchor="middle">Word2Vec</text>
-<line class="leader" x1="1155.0" x2="1155.0" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="2014" cx="1155.0" cy="1110" r="7"/>
-<text class="event" x="1155.0" y="1255" text-anchor="middle">seq2seq / GAN</text>
-<line class="leader" x1="1256.7" x2="1256.7" y1="1110" y2="995"/>
-<circle class="dot" data-row="2" data-year="2015" cx="1256.7" cy="1110" r="7"/>
-<text class="event" x="1256.7" y="975" text-anchor="middle">BN / ResNet</text>
-<line class="leader" x1="1460.0" x2="1460.0" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="2017" cx="1460.0" cy="1110" r="7"/>
-<text class="event" x="1460.0" y="1255" text-anchor="middle">Transformer</text>
-<line class="leader" x1="1604.0" x2="1604.0" y1="1110" y2="995"/>
-<circle class="dot" data-row="2" data-year="2020" cx="1604.0" cy="1110" r="7"/>
-<text class="event" x="1604.0" y="975" text-anchor="middle">GPT-3</text>
-<line class="leader" x1="1700.0" x2="1700.0" y1="1110" y2="1220"/>
-<circle class="dot" data-row="2" data-year="2022" cx="1700.0" cy="1110" r="7"/>
-<text class="event" x="1700.0" y="1255" text-anchor="middle">ChatGPT</text>
-<line x1="1750" y1="1110" x2="1790" y2="1110" stroke="#35445c" stroke-width="2.5" marker-end="url(#arrow)"/>
-<rect x="1794" y="1075" width="96" height="70" rx="8" fill="#e8e9ec" stroke="#8792a2"/><text class="phase" x="1842" y="1104" text-anchor="middle">2020+</text><text class="year" x="1842" y="1128" text-anchor="middle">LLM</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1560" viewBox="0 0 1200 1560" role="img" aria-labelledby="title desc">
+<title id="title">从感知机到 Transformer：深度模型演进时间线</title>
+<desc id="desc">三行按统一年度坐标映射排列的模型历史，阶段带边缘与年份坐标一致。</desc>
+<style>text{font-family:Arial,"PingFang SC",sans-serif;fill:#283344}.h{font-size:27px;font-weight:bold}.sub{font-size:16px;fill:#596579}.phase{font-size:15px;font-weight:bold}.event{font-size:16px;font-weight:600}.year{font-size:14px;fill:#526176}.axis{stroke:#526176;stroke-width:2}.leader{stroke:#748096;stroke-width:1.3}.dot{fill:#fffdf8;stroke:#35445c;stroke-width:2.5}</style>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#35445c"/></marker></defs>
+<rect width="1200" height="1560" fill="#fffdf8"/><text class="h" x="45" y="39">从感知机到 Transformer</text><text class="sub" x="46" y="65">每行独立使用线性年份刻度；节点密集处通过三行展开。阶段带为近似历史分期。</text>
+<rect data-row="1" data-start-year="1943" data-end-year="1957" x="80.00" y="70" width="560.00" height="34" rx="5" fill="#e7e9ef" stroke="#8792a2"/>
+<text class="phase" x="360.00" y="92" text-anchor="middle">理论前史 · 1943–1956</text>
+<rect data-row="1" data-start-year="1957" data-end-year="1969" x="640.00" y="70" width="480.00" height="34" rx="5" fill="#dcebdc" stroke="#8792a2"/>
+<text class="phase" x="880.00" y="92" text-anchor="middle">第一次兴起 · 1957–1969</text>
+<line class="axis" x1="80" y1="340" x2="1120" y2="340"/>
+<line data-row="1" data-year="1943" x1="80.00" x2="80.00" y1="333" y2="348" stroke="#526176"/>
+<text class="year" x="80.00" y="367" text-anchor="middle">1943</text>
+<line data-row="1" data-year="1950" x1="360.00" x2="360.00" y1="333" y2="348" stroke="#526176"/>
+<text class="year" x="360.00" y="367" text-anchor="middle">1950</text>
+<line data-row="1" data-year="1955" x1="560.00" x2="560.00" y1="333" y2="348" stroke="#526176"/>
+<text class="year" x="560.00" y="367" text-anchor="middle">1955</text>
+<line data-row="1" data-year="1960" x1="760.00" x2="760.00" y1="333" y2="348" stroke="#526176"/>
+<text class="year" x="760.00" y="367" text-anchor="middle">1960</text>
+<line data-row="1" data-year="1965" x1="960.00" x2="960.00" y1="333" y2="348" stroke="#526176"/>
+<text class="year" x="960.00" y="367" text-anchor="middle">1965</text>
+<line data-row="1" data-year="1969" x1="1120.00" x2="1120.00" y1="333" y2="348" stroke="#526176"/>
+<text class="year" x="1120.00" y="367" text-anchor="middle">1969</text>
+<line class="leader" x1="80.00" x2="80.00" y1="340" y2="204.00"/>
+<circle class="dot" data-row="1" data-year="1943" cx="80.00" cy="340" r="5"/>
+<text class="event" x="80.00" y="182.00" text-anchor="middle"><tspan x="80.00">McCulloch–Pitts</tspan><tspan class="year" x="80.00" dy="18">1943 · 阈值神经元</tspan></text>
+<line class="leader" x1="320.00" x2="320.00" y1="340" y2="394.00"/>
+<circle class="dot" data-row="1" data-year="1949" cx="320.00" cy="340" r="5"/>
+<text class="event" x="320.00" y="418.00" text-anchor="middle"><tspan x="320.00">Hebb</tspan><tspan class="year" x="320.00" dy="18">1949 · 突触学习假说</tspan></text>
+<line class="leader" x1="360.00" x2="360.00" y1="340" y2="244.00"/>
+<circle class="dot" data-row="1" data-year="1950" cx="360.00" cy="340" r="5"/>
+<text class="event" x="360.00" y="222.00" text-anchor="middle"><tspan x="360.00">图灵测试</tspan><tspan class="year" x="360.00" dy="18">1950 · 机器智能</tspan></text>
+<line class="leader" x1="600.00" x2="600.00" y1="340" y2="434.00"/>
+<circle class="dot" data-row="1" data-year="1956" cx="600.00" cy="340" r="5"/>
+<text class="event" x="600.00" y="458.00" text-anchor="middle"><tspan x="600.00">达特茅斯研讨会</tspan><tspan class="year" x="600.00" dy="18">1956 · 人工智能议程</tspan></text>
+<line class="leader" x1="640.00" x2="640.00" y1="340" y2="284.00"/>
+<circle class="dot" data-row="1" data-year="1957" cx="640.00" cy="340" r="5"/>
+<text class="event" x="640.00" y="262.00" text-anchor="middle"><tspan x="640.00">Rosenblatt 感知机</tspan><tspan class="year" x="640.00" dy="18">1957 · 技术报告</tspan></text>
+<line class="leader" x1="680.00" x2="680.00" y1="340" y2="474.00"/>
+<circle class="dot" data-row="1" data-year="1958" cx="680.00" cy="340" r="5"/>
+<text class="event" x="680.00" y="498.00" text-anchor="middle"><tspan x="680.00">Mark I 感知机</tspan><tspan class="year" x="680.00" dy="18">1958 · 硬件实现</tspan></text>
+<line class="leader" x1="760.00" x2="760.00" y1="340" y2="204.00"/>
+<circle class="dot" data-row="1" data-year="1960" cx="760.00" cy="340" r="5"/>
+<text class="event" x="760.00" y="182.00" text-anchor="middle"><tspan x="760.00">ADALINE</tspan><tspan class="year" x="760.00" dy="18">1960 · 自适应线性元件</tspan></text>
+<line class="leader" x1="840.00" x2="840.00" y1="340" y2="394.00"/>
+<circle class="dot" data-row="1" data-year="1962" cx="840.00" cy="340" r="5"/>
+<text class="event" x="840.00" y="418.00" text-anchor="middle"><tspan x="840.00">Novikoff 收敛定理</tspan><tspan class="year" x="840.00" dy="18">1962 · 误分上界</tspan></text>
+<line class="leader" x1="1120.00" x2="1120.00" y1="340" y2="244.00"/>
+<circle class="dot" data-row="1" data-year="1969" cx="1120.00" cy="340" r="5"/>
+<text class="event" x="1120.00" y="222.00" text-anchor="middle"><tspan x="1120.00">Minsky &amp; Papert</tspan><tspan class="year" x="1120.00" dy="18">1969 · 《Perceptrons》</tspan></text>
+<rect data-row="2" data-start-year="1969" data-end-year="1980" x="80.00" y="560" width="440.00" height="34" rx="5" fill="#f4e0d9" stroke="#8792a2"/>
+<text class="phase" x="300.00" y="582" text-anchor="middle">第一次寒冬 · 1969–1980</text>
+<rect data-row="2" data-start-year="1980" data-end-year="1995" x="520.00" y="560" width="600.00" height="34" rx="5" fill="#dcebdc" stroke="#8792a2"/>
+<text class="phase" x="820.00" y="582" text-anchor="middle">第二次兴起 · 1980–1995</text>
+<line class="axis" x1="80" y1="830" x2="1120" y2="830"/>
+<line data-row="2" data-year="1969" x1="80.00" x2="80.00" y1="823" y2="838" stroke="#526176"/>
+<text class="year" x="80.00" y="857" text-anchor="middle">1969</text>
+<line data-row="2" data-year="1975" x1="320.00" x2="320.00" y1="823" y2="838" stroke="#526176"/>
+<text class="year" x="320.00" y="857" text-anchor="middle">1975</text>
+<line data-row="2" data-year="1980" x1="520.00" x2="520.00" y1="823" y2="838" stroke="#526176"/>
+<text class="year" x="520.00" y="857" text-anchor="middle">1980</text>
+<line data-row="2" data-year="1985" x1="720.00" x2="720.00" y1="823" y2="838" stroke="#526176"/>
+<text class="year" x="720.00" y="857" text-anchor="middle">1985</text>
+<line data-row="2" data-year="1990" x1="920.00" x2="920.00" y1="823" y2="838" stroke="#526176"/>
+<text class="year" x="920.00" y="857" text-anchor="middle">1990</text>
+<line data-row="2" data-year="1995" x1="1120.00" x2="1120.00" y1="823" y2="838" stroke="#526176"/>
+<text class="year" x="1120.00" y="857" text-anchor="middle">1995</text>
+<line class="leader" x1="520.00" x2="520.00" y1="830" y2="694.00"/>
+<circle class="dot" data-row="2" data-year="1980" cx="520.00" cy="830" r="5"/>
+<text class="event" x="520.00" y="672.00" text-anchor="middle"><tspan x="520.00">Neocognitron</tspan><tspan class="year" x="520.00" dy="18">1980 · 层级视觉模型</tspan></text>
+<line class="leader" x1="600.00" x2="600.00" y1="830" y2="884.00"/>
+<circle class="dot" data-row="2" data-year="1982" cx="600.00" cy="830" r="5"/>
+<text class="event" x="600.00" y="908.00" text-anchor="middle"><tspan x="600.00">Hopfield 网络</tspan><tspan class="year" x="600.00" dy="18">1982 · 联想记忆</tspan></text>
+<line class="leader" x1="720.00" x2="720.00" y1="830" y2="734.00"/>
+<circle class="dot" data-row="2" data-year="1985" cx="720.00" cy="830" r="5"/>
+<text class="event" x="720.00" y="712.00" text-anchor="middle"><tspan x="720.00">Boltzmann machine</tspan><tspan class="year" x="720.00" dy="18">1985 · 随机能量模型</tspan></text>
+<line class="leader" x1="760.00" x2="760.00" y1="830" y2="924.00"/>
+<circle class="dot" data-row="2" data-year="1986" cx="760.00" cy="830" r="5"/>
+<text class="event" x="760.00" y="948.00" text-anchor="middle"><tspan x="760.00">反向传播算法</tspan><tspan class="year" x="760.00" dy="18">1986 · 并行分布式处理研究</tspan></text>
+<line class="leader" x1="800.00" x2="800.00" y1="830" y2="774.00"/>
+<circle class="dot" data-row="2" data-year="1987" cx="800.00" cy="830" r="5"/>
+<text class="event" x="800.00" y="752.00" text-anchor="middle"><tspan x="800.00">NETtalk</tspan><tspan class="year" x="800.00" dy="18">1987 · 英文文本转语音</tspan></text>
+<line class="leader" x1="880.00" x2="880.00" y1="830" y2="964.00"/>
+<circle class="dot" data-row="2" data-year="1989" cx="880.00" cy="830" r="5"/>
+<text class="event" x="880.00" y="988.00" text-anchor="middle"><tspan x="880.00">LeCun 卷积网络 · 万能逼近</tspan><tspan class="year" x="880.00" dy="18">1989 · 视觉模型与表达理论</tspan></text>
+<line class="leader" x1="920.00" x2="920.00" y1="830" y2="694.00"/>
+<circle class="dot" data-row="2" data-year="1990" cx="920.00" cy="830" r="5"/>
+<text class="event" x="920.00" y="672.00" text-anchor="middle"><tspan x="920.00">Elman 循环网络</tspan><tspan class="year" x="920.00" dy="18">1990 · 序列上下文</tspan></text>
+<line class="leader" x1="1120.00" x2="1120.00" y1="830" y2="884.00"/>
+<circle class="dot" data-row="2" data-year="1995" cx="1120.00" cy="830" r="5"/>
+<text class="event" x="1120.00" y="908.00" text-anchor="middle"><tspan x="1120.00">支持向量机</tspan><tspan class="year" x="1120.00" dy="18">1995 · 最大间隔与核方法</tspan></text>
+<rect data-row="3" data-start-year="1995" data-end-year="2006" x="80.00" y="1050" width="435.00" height="34" rx="5" fill="#f4e0d9" stroke="#8792a2"/>
+<text class="phase" x="297.50" y="1072" text-anchor="middle">第二次寒冬 · 1995–2006</text>
+<rect data-row="3" data-start-year="2006" data-end-year="2017" x="515.00" y="1050" width="435.00" height="34" rx="5" fill="#dcebdc" stroke="#8792a2"/>
+<text class="phase" x="732.50" y="1072" text-anchor="middle">第三次兴起 · 2006–2017</text>
+<line class="axis" x1="80" y1="1320" x2="950" y2="1320"/>
+<line data-row="3" data-year="1995" x1="80.00" x2="80.00" y1="1313" y2="1328" stroke="#526176"/>
+<text class="year" x="80.00" y="1347" text-anchor="middle">1995</text>
+<line data-row="3" data-year="2000" x1="277.73" x2="277.73" y1="1313" y2="1328" stroke="#526176"/>
+<text class="year" x="277.73" y="1347" text-anchor="middle">2000</text>
+<line data-row="3" data-year="2005" x1="475.45" x2="475.45" y1="1313" y2="1328" stroke="#526176"/>
+<text class="year" x="475.45" y="1347" text-anchor="middle">2005</text>
+<line data-row="3" data-year="2010" x1="673.18" x2="673.18" y1="1313" y2="1328" stroke="#526176"/>
+<text class="year" x="673.18" y="1347" text-anchor="middle">2010</text>
+<line data-row="3" data-year="2015" x1="870.91" x2="870.91" y1="1313" y2="1328" stroke="#526176"/>
+<text class="year" x="870.91" y="1347" text-anchor="middle">2015</text>
+<line data-row="3" data-year="2017" x1="950.00" x2="950.00" y1="1313" y2="1328" stroke="#526176"/>
+<text class="year" x="950.00" y="1347" text-anchor="middle">2017</text>
+<line class="leader" x1="159.09" x2="159.09" y1="1320" y2="1184.00"/>
+<circle class="dot" data-row="3" data-year="1997" cx="159.09" cy="1320" r="5"/>
+<text class="event" x="159.09" y="1162.00" text-anchor="middle"><tspan x="159.09">长短期记忆网络（LSTM）</tspan><tspan class="year" x="159.09" dy="18">1997 · 长程依赖</tspan></text>
+<line class="leader" x1="198.64" x2="198.64" y1="1320" y2="1374.00"/>
+<circle class="dot" data-row="3" data-year="1998" cx="198.64" cy="1320" r="5"/>
+<text class="event" x="198.64" y="1398.00" text-anchor="middle"><tspan x="198.64">LeNet-5</tspan><tspan class="year" x="198.64" dy="18">1998 · 支票数字识别</tspan></text>
+<line class="leader" x1="396.36" x2="396.36" y1="1320" y2="1224.00"/>
+<circle class="dot" data-row="3" data-year="2003" cx="396.36" cy="1320" r="5"/>
+<text class="event" x="396.36" y="1202.00" text-anchor="middle"><tspan x="396.36">神经概率语言模型</tspan><tspan class="year" x="396.36" dy="18">2003 · Bengio 等</tspan></text>
+<line class="leader" x1="515.00" x2="515.00" y1="1320" y2="1414.00"/>
+<circle class="dot" data-row="3" data-year="2006" cx="515.00" cy="1320" r="5"/>
+<text class="event" x="515.00" y="1438.00" text-anchor="middle"><tspan x="515.00">深度信念网络</tspan><tspan class="year" x="515.00" dy="18">2006 · 逐层预训练</tspan></text>
+<line class="leader" x1="633.64" x2="633.64" y1="1320" y2="1264.00"/>
+<circle class="dot" data-row="3" data-year="2009" cx="633.64" cy="1320" r="5"/>
+<text class="event" x="633.64" y="1242.00" text-anchor="middle"><tspan x="633.64">ImageNet 图像数据库</tspan><tspan class="year" x="633.64" dy="18">2009 · 大规模视觉</tspan></text>
+<line class="leader" x1="673.18" x2="673.18" y1="1320" y2="1454.00"/>
+<circle class="dot" data-row="3" data-year="2010" cx="673.18" cy="1320" r="5"/>
+<text class="event" x="673.18" y="1478.00" text-anchor="middle"><tspan x="673.18">修正线性单元 · Xavier 初始化</tspan><tspan class="year" x="673.18" dy="18">2010 · 非饱和激活与尺度</tspan></text>
+<line class="leader" x1="752.27" x2="752.27" y1="1320" y2="1184.00"/>
+<circle class="dot" data-row="3" data-year="2012" cx="752.27" cy="1320" r="5"/>
+<text class="event" x="752.27" y="1162.00" text-anchor="middle"><tspan x="752.27">AlexNet</tspan><tspan class="year" x="752.27" dy="18">2012 · ImageNet 冠军</tspan></text>
+<line class="leader" x1="791.82" x2="791.82" y1="1320" y2="1374.00"/>
+<circle class="dot" data-row="3" data-year="2013" cx="791.82" cy="1320" r="5"/>
+<text class="event" x="791.82" y="1398.00" text-anchor="middle"><tspan x="791.82">Word2Vec</tspan><tspan class="year" x="791.82" dy="18">2013 · 词向量</tspan></text>
+<line class="leader" x1="831.36" x2="831.36" y1="1320" y2="1224.00"/>
+<circle class="dot" data-row="3" data-year="2014" cx="831.36" cy="1320" r="5"/>
+<text class="event" x="831.36" y="1202.00" text-anchor="middle"><tspan x="831.36">序列到序列 · 注意力 · 生成对抗网络</tspan><tspan class="year" x="831.36" dy="18">2014 · 翻译与生成</tspan></text>
+<line class="leader" x1="870.91" x2="870.91" y1="1320" y2="1414.00"/>
+<circle class="dot" data-row="3" data-year="2015" cx="870.91" cy="1320" r="5"/>
+<text class="event" x="870.91" y="1438.00" text-anchor="middle"><tspan x="870.91">批归一化 · 残差网络</tspan><tspan class="year" x="870.91" dy="18">2015 · 更深视觉模型</tspan></text>
+<line class="leader" x1="950.00" x2="950.00" y1="1320" y2="1264.00"/>
+<circle class="dot" data-row="3" data-year="2017" cx="950.00" cy="1320" r="5"/>
+<text class="event" x="950.00" y="1242.00" text-anchor="middle"><tspan x="950.00">Transformer</tspan><tspan class="year" x="950.00" dy="18">2017 · 自注意力架构</tspan></text>
+<line x1="954" y1="1320" x2="1032" y2="1320" stroke="#35445c" stroke-width="2.2" marker-end="url(#arrow)"/><rect x="1040" y="1292" width="145" height="56" rx="7" fill="#e8e9ec" stroke="#8792a2"/><text class="phase" x="1112" y="1316" text-anchor="middle">2020+</text><text class="year" x="1112" y="1336" text-anchor="middle">GPT-3 · ChatGPT</text></svg>
