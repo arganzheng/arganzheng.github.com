@@ -249,7 +249,8 @@
     });
     toolbar.appendChild(search);
     addText(toolbar, Object.keys(state.posts).length + ' 篇文章 · ' + state.passages.length + ' 段摘录', 'favorites-count');
-    var exportButton = makeButton('导出 Markdown', 'favorites-export');
+    var exportButton = makeButton('导出收藏（Markdown）', 'favorites-export');
+    exportButton.title = '把收藏的文章标题、链接和摘录导出成一个 .md 文件（不含文章全文）';
     exportButton.addEventListener('click', function () { exportMarkdown(app, state); });
     var backupButton = makeButton('备份', 'favorites-backup');
     backupButton.addEventListener('click', function () { downloadFile('blogFavorites-' + formatDate(Date.now()) + '.json', JSON.stringify(state, null, 2), 'application/json'); });
