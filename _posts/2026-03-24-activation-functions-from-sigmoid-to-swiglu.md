@@ -43,6 +43,7 @@ catalog: true
 | 2016 | [GELU（Hendrycks 与 Gimpel）](https://arxiv.org/abs/1606.08415)；[GLU（Dauphin 等）](https://arxiv.org/abs/1612.08083) | 平滑门控与逐元素门控两条线并行出现 |
 | 2017 | [SiLU（Elfwing 等）](https://arxiv.org/abs/1702.03118)；[Swish（Ramachandran 等）](https://arxiv.org/abs/1710.05941) | 输入乘以 sigmoid 门，得到平滑、略带非单调性的曲线 |
 | 2020 | [GLU 变体（Shazeer）](https://arxiv.org/abs/2002.05202) | 把 ReLU、GELU、SiLU 放进 GLU 门控结构，得到 ReGLU、GeGLU、SwiGLU |
+| 2022–2024 | [PaLM（2022）](https://arxiv.org/abs/2204.02311)、[LLaMA（2023）](https://arxiv.org/abs/2302.13971)、[Gemma（2024）](https://arxiv.org/abs/2403.08295) | PaLM 与 LLaMA 使用 SwiGLU；Gemma 使用 GeGLU，门控激活进入大语言模型 |
 
 ## 二、Sigmoid 与 tanh：平滑，但会饱和
 
@@ -59,7 +60,7 @@ $$
 $$
 实际值还会乘上权重矩阵的导数因子。
 
-Sigmoid 输出非负，均值通常不在 0 附近。后续线性层接到一批总在正侧的输入，更新方向会带偏置；这也是它在深层隐藏层里不如 ReLU 常见的原因。
+若一个神经元的输入 $$x_i$$ 全为正，权重梯度 $$\partial L/\partial w_i=\delta x_i$$ 就都与 $$\delta$$ 同号。一次更新只能把这组权重整体上移或整体下移，不能在输入维度间灵活调整，优化路径容易 zig-zag；tanh 的零中心输出能缓和这个问题。
 
 tanh 把输出移到 $$(-1,1)$$，以 0 为中心：
 
@@ -84,7 +85,7 @@ $$
 
 代价是负半轴的导数为零。如果某个单元对所有输入的预激活都变成负数，它输出永远为零，反向梯度也为零，参数无法靠梯度自己回来——这就是 **dead ReLU**。一次过大的更新可能把单元推到这个区域。
 
-ReLU 让对称、零均值的信号有一半落到 0，初始化时需要补回这部分尺度。《[训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「ReLU 砍掉一半」推导了 Kaiming 初始化里的因子 2；这里不重复推导。
+ReLU 让对称、零均值的信号有一半落到 0，初始化时需要补回这部分尺度。《[深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「ReLU 砍掉一半」推导了 Kaiming 初始化里的因子 2；这里不重复推导。
 
 ## 四、ReLU 的修补：负半轴留一点路
 
@@ -126,7 +127,7 @@ $$
 
 在 $$[-10,10]$$ 上取 2,000,001 个等距点，与精确的 $$x\Phi(x)$$ 比较，最大绝对误差约 $$4.73\times10^{-4}$$。
 
-![六条曲线分别展示 sigmoid、tanh、ReLU、Leaky ReLU、GELU、SiLU 的激活值与导数；平滑函数在负半轴保留连续变化，ReLU 在零点折断](/img/in-post/activation-functions.webp)
+![六个小图分别展示 sigmoid、tanh、ReLU、Leaky ReLU、GELU 和 SiLU；每图实线为函数、虚线为导数，共用坐标轴](/img/in-post/activation-functions.webp)
 
 ## 六、GLU 家族：用一个分支控制另一个分支
 
@@ -156,7 +157,9 @@ $$
 
 ## 七、成本与融合：算得少，不代表花时少
 
-逐元素激活常是**访存受限**：对一个 BF16 元素，读输入 2 字节、写输出 2 字节；若只做几次算术，计算强度大约只有 1.25 FLOPs/byte。以 $$[T,d_{\mathrm{ff}}]=[4096,11008]$$ 为例，一次读写约 $$4096\times11008\times4 \approx 180$$ MB，按每元素 5 次普通运算估算约 226 MFLOPs。GPU 等待搬运数据的时间可能比算 sigmoid 或 GELU 本身更显眼。
+逐元素激活常是**访存受限**：对一个 BF16 元素，读输入 2 字节、写输出 2 字节；若只做几次算术，计算强度大约只有 1.25 FLOPs/byte。以 $$[T,d_{\mathrm{ff}}]=[4096,11008]$$ 为例，一次读写约 $$4096\times11008\times4 \approx 180$$ MB，按每元素 5 次普通运算估算约 226 MFLOPs。
+
+NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-datasheet-24306)列出 BF16 Tensor Core 峰值 1,979 TFLOPS，星号注明该数值使用 sparsity；dense 峰值约为一半，即 989 TFLOPS。除以 3.35 TB/s HBM 带宽，ridge point 约 $$989/3.35=295$$ FLOPs/byte。逐元素激活约 1.25 FLOPs/byte，只有 ridge point 的 $$1/236$$，说明它更可能受带宽限制。Roofline 的两条上限与 ridge point 见《[现代 LLM 结构（02）：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html)》「五、Roofline：把 FLOPs 和字节数放到同一张图上」的「算术强度与 ridge point」。
 
 **融合**把相邻小算子合成一次 kernel，减少 launch 与中间张量读写。常见模式是 bias + GELU，以及 SwiGLU 里的 SiLU + multiply。细节见《GPU Kernel 工程（09）：量化与融合 kernel——推理系统的其余部分》的「[bias + activation 与 SiLU-and-mul](/quantization-and-fused-kernels.html)」。
 
@@ -171,31 +174,37 @@ $$
 | Sigmoid | $$\sigma(x)$$ | $$\sigma(1-\sigma)$$ | $$(0,1)$$ | 较高：exp | 平滑非线性基线 |
 | tanh | $$\tanh(x)$$ | $$1-\tanh^2(x)$$ | $$(-1,1)$$ | 较高：exp | 零中心输出对照 |
 | ReLU | $$\max(0,x)$$ | $$\mathbf{1}_{x>0}$$ | $$[0,\infty)$$ | 最低 | AlexNet |
-| Leaky / PReLU | $$x\;(x>0),\;\alpha x\;(x<0)$$ | $$1\;(x>0),\;\alpha\;(x<0)$$ | $$\mathbb{R}$$ | 低 | 深层视觉网络实验 |
-| ELU | $$x\;(x>0),\;\alpha(e^x-1)\;(x\le0)$$ | $$1\;(x>0),\;\alpha e^x\;(x\le0)$$ | $$(-\alpha,\infty)$$ | 中：负侧 exp | 深层视觉网络实验 |
+| Leaky / PReLU | $$x\;(x>0),\;\alpha x\;(x<0)$$ | $$1\;(x>0),\;\alpha\;(x<0)$$ | $$\mathbb{R}$$ | 低 | PReLU： [He 等（2015）的 ImageNet 模型](https://arxiv.org/abs/1502.01852)；Leaky ReLU：— |
+| ELU | $$x\;(x>0),\;\alpha(e^x-1)\;(x\le0)$$ | $$1\;(x>0),\;\alpha e^x\;(x\le0)$$ | $$(-\alpha,\infty)$$ | 中：负侧 exp | — |
 | GELU | $$x\Phi(x)$$ | $$\Phi(x)+x\phi(x)$$ | 约 $$[-0.170,\infty)$$ | 较高：CDF / tanh 近似 | GPT-2 |
 | SiLU | $$x\sigma(x)$$ | $$\sigma+x\sigma(1-\sigma)$$ | 约 $$[-0.278,\infty)$$ | 中：sigmoid + 乘法 | SwiGLU 的门 |
-| GLU | $$a\odot\sigma(b)$$ | $$a'\sigma(b)+ab'\sigma'(b)$$ | 取决于值分支 | 门 + 逐元素乘 | T5 v1.1：gated-GELU |
-| ReGLU / GeGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | PaLM、Llama 3、Qwen2.5、Gemma |
+| GLU | $$a\odot\sigma(b)$$ | $$a'\sigma(b)+ab'\sigma'(b)$$ | 取决于值分支 | 门 + 逐元素乘 | [Dauphin 等（2016）的门控卷积语言模型](https://arxiv.org/abs/1612.08083) |
+| ReGLU / GeGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | GeGLU：T5 v1.1、Gemma；SwiGLU：PaLM、LLaMA、Llama 3、Qwen2.5 |
 
 表里的“相对开销”只比较激活与逐元素门控；大模型 FFN 的总耗时还取决于矩阵乘法、融合和硬件。
 
 ## 九、案例：六种激活函数跑同一个深层 MLP
 
-实验固定种子，在 MNIST 上比较 20 层、宽度 256 的 MLP。每种激活使用相同的 Kaiming-normal 初始化、Adam 学习率 $$10^{-3}$$、batch 128 和 250 个更新步；训练子集 12,000 张，测试准确率在标准 MNIST 测试集 10,000 张上计算。
+三个随机种子都在 MNIST 上比较同一个 20 层、宽度 256 的 MLP。每种激活使用相同的 Kaiming-normal 初始化、Adam 学习率 $$10^{-3}$$、batch 128 和 250 个更新步；训练子集 12,000 张，测试准确率在标准 MNIST 测试集 10,000 张上计算。
 
-初始梯度范数取第一与第二十个隐藏 Linear 的权重梯度，在同一批 128 张样本上测量。ReLU 死亡率定义为：测试集前 1,024 张图中，对所有输入都输出 0 的隐藏单元占比。
+初始梯度范数列保留种子 2026 的结果，取第一与第二十个隐藏 Linear 的权重梯度，在同一批 128 张样本上测量。准确率与 ReLU 死亡率报告三个种子的均值和范围。死亡率定义为：测试集前 1,024 张图中，对所有输入都输出 0 的隐藏单元占比。
 
-| 激活 | 初始第一层梯度范数 | 初始第二十层梯度范数 | 250 步后测试准确率 | ReLU 死亡单元 |
+| 激活 | 初始第一层梯度范数 | 初始第二十层梯度范数 | 测试准确率：均值［最小–最大］ | ReLU 死亡率：均值［最小–最大］ |
 |---|---:|---:|---:|---:|
-| sigmoid | $$3.944\times10^{-10}$$ | $$1.010$$ | 10.28% | — |
-| tanh | $$5.015$$ | $$1.303$$ | 91.20% | — |
-| ReLU | $$2.999$$ | $$4.811$$ | 92.49% | 11.41% |
-| LeakyReLU | $$3.182$$ | $$4.758$$ | 92.15% | — |
-| GELU | $$2.722$$ | $$1.452$$ | 92.48% | — |
-| SiLU | $$1.752$$ | $$0.9921$$ | 93.02% | — |
+| sigmoid | $$3.944\times10^{-10}$$ | $$1.010$$ | 10.64%［10.28–11.35］ | — |
+| tanh | $$5.015$$ | $$1.303$$ | 90.48%［89.84–91.20］ | — |
+| ReLU | $$2.999$$ | $$4.811$$ | 91.88%［91.16–92.49］ | 12.26%［11.41–13.22］ |
+| LeakyReLU | $$3.182$$ | $$4.758$$ | 92.02%［91.89–92.15］ | — |
+| GELU | $$2.722$$ | $$1.452$$ | 92.22%［91.87–92.48］ | — |
+| SiLU | $$1.752$$ | $$0.9921$$ | 92.88%［92.63–93.02］ | — |
 
-这个对照只回答“同一初始化、同一优化器与预算下发生了什么”，不代表给每种激活各自调参后的最好成绩。激活改变了网络的导数路径；固定 Kaiming 和学习率会把这种差异直接暴露出来。
+sigmoid 第一层的梯度只有 $$3.94\times10^{-10}$$，第二十层仍约为 $$1.01$$。这是第二章所说导数连乘在训练里的直接表现：梯度传回输入端时几乎消失，准确率均值 10.64%，仍在十分类的随机水平附近。
+
+tanh 的导数在 0 附近约为 1，输出也以 0 为中心；梯度没有像 sigmoid 那样一路缩小，因此这个固定预算下能训练到约 90%。
+
+ReLU 即使用普通学习率 $$10^{-3}$$，仍有平均 12.26% 的隐藏单元对这 1,024 张测试图都输出 0。这里的“死亡”是对整批输入都为零，不是某个样本上的稀疏激活。
+
+ReLU、LeakyReLU 与 GELU 的准确率范围重叠，三次运行不足以区分它们。SiLU 的最低值 92.63% 比其他三者的最高值 92.49% 高 0.14 个百分点；这只说明在这组固定设置下超出了观察到的 seed spread，不足以推出普遍的激活函数排名。
 
 一个单神经元例子能看到死亡如何发生：输入为 $$[1,2]$$，初始权重 $$w=2$$、偏置 $$b=0$$、目标均为 1。过大的 SGD 学习率把参数一步推到负侧；两个输入之后都落在 ReLU 的零梯度区，损失停在非零值。
 
@@ -212,7 +221,7 @@ lr=0.6：w 2.00 → -2.20，b 0.00 → -2.40
 - SwiGLU 等 GLU 变体用门控分支控制值分支，增加一张输入投影矩阵；约 2/3 宽度可维持主要参数预算。
 - 激活是低算术强度的逐元素操作，融合可省中间张量流量；反向所需的前向激活仍要保存或重算。
 
-配套代码：[`case_02_activation_functions.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_activation_functions.py)——生成曲线并复现六种激活的初始化梯度、固定步数训练与死亡 ReLU 示例。
+配套代码：[`case_activation_functions.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_activation_functions.py)——生成曲线并复现六种激活的初始化梯度、三种子固定步数训练与死亡 ReLU 示例。
 
 ## 十一、自测
 
@@ -266,7 +275,7 @@ lr=0.6：w 2.00 → -2.20，b 0.00 → -2.40
 
 ## 下一篇
 
-激活函数回答了层与层之间怎样引入非线性；接下来要让这些梯度在深网络里不消失、不爆炸。《[训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》从方差传播与 ReLU 的因子 2 开始。
+激活函数回答了层与层之间怎样引入非线性；接下来要让这些梯度在深网络里不消失、不爆炸。《[深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》从方差传播与 ReLU 的因子 2 开始。
 
 [^q0]: 多层线性变换的矩阵连乘仍是线性变换；加入 bias 后，仿射变换的复合仍然仿射。详见《[深度学习基础（01）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」。
 [^q1]: Sigmoid / tanh 平滑但会饱和；ReLU 让正半轴梯度直通；GELU 与 SiLU 使用平滑门控；GLU 家族再用一个分支控制另一个分支。本文分别讨论它们的公式、梯度与代价。

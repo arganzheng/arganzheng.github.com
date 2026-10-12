@@ -153,6 +153,8 @@ decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与�
 
 编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
+这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（07）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
+
 ## 六、位置 embedding：告诉模型这是第几个 token
 
 ### 1. attention 不知道顺序
@@ -395,7 +397,7 @@ $$
 x \leftarrow x + \text{Attention}(\text{LN}(x)), \qquad x \leftarrow x + \text{FFN}(\text{LN}(x))
 $$
 
-这就是残差连接（[《深度学习基础（02）：训练为什么不稳定——初始化、归一化与残差》](/initialization-normalization-and-residual.html)讲了它的数学：让梯度能沿着"+"直接传回去，深网络才训得动）。一个有用的读法：把那条从 embedding 一直通到 lm_head 的 $$[T, d]$$ 主干叫**残差流**（residual stream），每个子层都是从主干上读一份、算出一个"修正量"、再加回主干。12 层 = 24 次修正。GPT-2 small 的一个 token 从进到出，它的 768 维向量被修正了 24 次，每次修正量都比主干本身小得多——这也是为什么 Transformer 能到 100 层以上而 RNN 不行。
+这就是残差连接（[《深度学习基础（03）：训练为什么不稳定——初始化、归一化与残差》](/initialization-normalization-and-residual.html)讲了它的数学：让梯度能沿着"+"直接传回去，深网络才训得动）。一个有用的读法：把那条从 embedding 一直通到 lm_head 的 $$[T, d]$$ 主干叫**残差流**（residual stream），每个子层都是从主干上读一份、算出一个"修正量"、再加回主干。12 层 = 24 次修正。GPT-2 small 的一个 token 从进到出，它的 768 维向量被修正了 24 次，每次修正量都比主干本身小得多——这也是为什么 Transformer 能到 100 层以上而 RNN 不行。
 
 ### 2. LayerNorm 做什么
 
