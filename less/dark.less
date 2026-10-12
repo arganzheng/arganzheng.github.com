@@ -604,6 +604,38 @@ html[data-theme="dark"] .annotation-panel .ap-react-fav.is-on {
 	background-color: #38331f;
 	color: #eadc9e;
 }
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl {
+	text-decoration-color: rgba(214, 158, 0, 0.85);
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-multi,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-multi {
+	text-decoration-style: solid;
+	text-decoration-thickness: 2px;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl:hover {
+	text-decoration-color: #b5860a;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.has-issue,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.has-issue {
+	text-decoration-color: rgba(209, 36, 47, 0.8);
+	text-decoration-style: solid;
+	text-decoration-thickness: 2px;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-resolved,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-resolved {
+	text-decoration-color: rgba(26, 127, 55, 0.7);
+	text-decoration-style: solid;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.has-issue:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.has-issue:hover {
+	text-decoration-color: #d1242f;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-resolved:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-resolved:hover {
+	text-decoration-color: #1a7f37;
+}
 html[data-theme="dark"] .favorites-toolbar {
 	border-color: @dk-border;
 	background-color: @dk-surface;

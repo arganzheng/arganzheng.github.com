@@ -182,7 +182,7 @@
     root.querySelectorAll('.footnotes li[id]').forEach(function (li) { fnBodies[li.id] = li; });
     root.querySelectorAll(REMOVE).forEach(function (n) { n.remove(); });
     // Highlights from reader comments: keep the text, drop the mark.
-    root.querySelectorAll('mark.annotation-hl').forEach(function (m) { m.replaceWith.apply(m, Array.prototype.slice.call(m.childNodes)); });
+    root.querySelectorAll('mark.annotation-hl, tspan.annotation-hl').forEach(function (m) { m.replaceWith.apply(m, Array.prototype.slice.call(m.childNodes)); });
 
     function addRef(text, href) {
       for (var k = 0; k < refs.length; k++) if (refs[k].href === href && href) return k + 1;
