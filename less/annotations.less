@@ -240,6 +240,13 @@
 
 .ap-editor .ap-image-input { display: none; }
 
+html.ap-capturing {
+	.annotation-panel.is-editor,
+	.ap-editor,
+	.annotation-toolbar,
+	.annotation-toast { visibility: hidden !important; }
+}
+
 // ---- in-flow panel (thread or editor), inserted right after the paragraph,
 // and the comment section at the bottom of the post: same building blocks
 // (.ap-comment, .ap-editor, …), so one rule set for both.
@@ -734,17 +741,93 @@
 	&.is-visible { opacity: 1; transform: translate(-50%, 0); }
 }
 
+.ap-crop-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 1100;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	box-sizing: border-box;
+	background: rgba(0, 0, 0, .6);
+	color: #fff;
+	color-scheme: dark;
+}
+.ap-crop-stage {
+	position: relative;
+	display: block;
+	max-width: calc(100vw - 48px);
+	max-height: calc(100vh - 128px);
+	line-height: 0;
+}
+.ap-crop-image {
+	display: block;
+	width: auto;
+	height: auto;
+	max-width: calc(100vw - 48px);
+	max-height: calc(100vh - 128px);
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	cursor: crosshair;
+}
+.ap-crop-selection {
+	display: none;
+	position: absolute;
+	z-index: 1;
+	box-sizing: border-box;
+	border: 1px solid #fff;
+	box-shadow: 0 0 0 9999px rgba(0, 0, 0, .5);
+	pointer-events: none;
+}
+.ap-crop-toolbar {
+	position: fixed;
+	left: 50%;
+	bottom: 24px;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	max-width: calc(100vw - 32px);
+	padding: 8px 10px;
+	box-sizing: border-box;
+	transform: translateX(-50%);
+	background: rgba(24, 26, 28, .96);
+	border: 1px solid rgba(255, 255, 255, .2);
+	border-radius: 8px;
+	box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
+	color: #fff;
+}
+.ap-crop-hint { font-size: 12.5px; line-height: 1.4; white-space: nowrap; }
+.ap-crop-toolbar button {
+	padding: 6px 10px;
+	background: #30343a;
+	border: 1px solid #5c626a;
+	border-radius: 5px;
+	color: #fff;
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	&:hover:not(:disabled) { background: @brand-primary; border-color: @brand-primary; }
+	&:disabled { opacity: .5; cursor: not-allowed; }
+}
+
 @media (max-width: 480px) {
 	.post-container .annotation-panel,
 	.post-container .annotation-comments {
 		.ap-head .ap-count { display: none; }
 		.ap-footer { flex-wrap: wrap; }
 		.ap-buttons .ap-hint { display: none; }
-		.ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]) { display: none; }
+		.ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]):not([data-format="screenshot"]) { display: none; }
 		.ap-comment.is-reply { margin-left: 20px; }
 		.ap-comment-meta { flex-wrap: wrap; row-gap: 2px; }
 		.ap-comment-meta .ap-meta-actions { gap: 8px; }
 	}
+	.ap-crop-toolbar { gap: 6px; padding: 7px; }
+	.ap-crop-hint { flex-basis: 100%; white-space: normal; text-align: center; }
 	.post-container .annotation-comments .ac-head { flex-wrap: wrap; row-gap: 6px; }
 }
 

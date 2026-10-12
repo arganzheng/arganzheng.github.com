@@ -3885,6 +3885,12 @@ body.outline-unavailable .catalog-mindmap {
 .ap-editor .ap-image-input {
   display: none;
 }
+html.ap-capturing .annotation-panel.is-editor,
+html.ap-capturing .ap-editor,
+html.ap-capturing .annotation-toolbar,
+html.ap-capturing .annotation-toast {
+  visibility: hidden !important;
+}
 .post-container .annotation-panel,
 .post-container .annotation-comments {
   margin: 12px 0 20px;
@@ -4903,6 +4909,89 @@ body.outline-unavailable .catalog-mindmap {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+.ap-crop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  color-scheme: dark;
+}
+.ap-crop-stage {
+  position: relative;
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 128px);
+  line-height: 0;
+}
+.ap-crop-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 128px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: crosshair;
+}
+.ap-crop-selection {
+  display: none;
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.ap-crop-toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 10px;
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  background: rgba(24, 26, 28, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+.ap-crop-hint {
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.ap-crop-toolbar button {
+  padding: 6px 10px;
+  background: #30343a;
+  border: 1px solid #5c626a;
+  border-radius: 5px;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ap-crop-toolbar button:hover:not(:disabled) {
+  background: #00788f;
+  border-color: #00788f;
+}
+.ap-crop-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 @media (max-width: 480px) {
   .post-container .annotation-panel .ap-head .ap-count,
   .post-container .annotation-comments .ap-head .ap-count {
@@ -4916,8 +5005,8 @@ body.outline-unavailable .catalog-mindmap {
   .post-container .annotation-comments .ap-buttons .ap-hint {
     display: none;
   }
-  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]),
-  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]) {
+  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]):not([data-format="screenshot"]),
+  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]):not([data-format="screenshot"]) {
     display: none;
   }
   .post-container .annotation-panel .ap-comment.is-reply,
@@ -4932,6 +5021,15 @@ body.outline-unavailable .catalog-mindmap {
   .post-container .annotation-panel .ap-comment-meta .ap-meta-actions,
   .post-container .annotation-comments .ap-comment-meta .ap-meta-actions {
     gap: 8px;
+  }
+  .ap-crop-toolbar {
+    gap: 6px;
+    padding: 7px;
+  }
+  .ap-crop-hint {
+    flex-basis: 100%;
+    white-space: normal;
+    text-align: center;
   }
   .post-container .annotation-comments .ac-head {
     flex-wrap: wrap;

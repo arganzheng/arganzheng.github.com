@@ -1160,6 +1160,7 @@
     { key: 'table', icon: 'fa-table', title: '表格 (3×3)' },
     { key: 'link', icon: 'fa-link', title: '链接 [文字](url)' },
     { key: 'image', icon: 'fa-regular fa-image', title: '插入图片（也可直接粘贴截图 / 拖拽）' },
+    { key: 'screenshot', icon: 'fa-scissors', title: '截图（截取当前页面或其他窗口，截图时自动隐藏评论框）' },
     { key: 'ul', icon: 'fa-list-ul', title: '无序列表 (- )' },
     { key: 'ol', icon: 'fa-list-ol', title: '有序列表 (1. )' }
   ];
@@ -1169,6 +1170,7 @@
     host.innerHTML =
       '<div class="ap-tabs"><button type="button" class="is-active" data-tab="write">撰写</button><button type="button" data-tab="preview">预览</button>' +
         '<span class="ap-format">' + FORMAT_BUTTONS.map(function (b) {
+          if (b.key === 'screenshot' && !(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function')) return '';
           return '<button type="button" data-format="' + b.key + '" title="' + b.title + '"><i class="fa ' + b.icon + '"></i></button>';
         }).join('') + '</span>' +
       '</div>' +
@@ -1207,8 +1209,26 @@
     var fmts = host.querySelectorAll('.ap-format button');
     for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () {
       switchTab(host, 'write');
-      if (this.getAttribute('data-format') === 'image') imageInput.click();
-      else applyFormat(ta, this.getAttribute('data-format'));
+      var format = this.getAttribute('data-format');
+      if (format === 'image') {
+        imageInput.click();
+        return;
+      }
+      if (format === 'screenshot') {
+        if (!getSession()) {
+          setStatus(host, '登录 GitHub 后才能截图', 'error');
+          return;
+        }
+        captureScreenshot().then(function (blob) {
+          if (blob) uploadImages([new File([blob], 'screenshot.png', { type: 'image/png' })]);
+        }).catch(function (err) {
+          setStatus(host, '截图失败：' + (err.message || String(err)), 'error');
+        }).then(function () {
+          if (ta.isConnected) ta.focus();
+        });
+        return;
+      }
+      applyFormat(ta, format);
     });
 
     imageInput.addEventListener('change', function () {
@@ -1341,6 +1361,242 @@
     });
     refreshAuthUI(host);
     return ta;
+  }
+
+  async function captureScreenshot() {
+    var stream = null, video = null, captured = null;
+    document.documentElement.classList.add('ap-capturing');
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'browser' },
+        audio: false,
+        preferCurrentTab: true,
+        selfBrowserSurface: 'include',
+        surfaceSwitching: 'exclude'
+      });
+      video = document.createElement('video');
+      video.muted = true;
+      video.setAttribute('playsinline', '');
+      video.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+      video.srcObject = stream;
+      document.body.appendChild(video);
+      await video.play();
+      if (!video.videoWidth || !video.videoHeight) {
+        await new Promise(function (resolve, reject) {
+          var finished = false;
+          var timeout = setTimeout(function () {
+            finished = true;
+            reject(new Error('无法读取共享画面'));
+          }, 5000);
+          function checkSize() {
+            if (finished) return;
+            if (video.videoWidth && video.videoHeight) {
+              finished = true;
+              clearTimeout(timeout);
+              resolve();
+            } else requestAnimationFrame(checkSize);
+          }
+          checkSize();
+        });
+      }
+      await new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
+      await new Promise(function (resolve) { setTimeout(resolve, 300); });
+      captured = document.createElement('canvas');
+      captured.width = video.videoWidth;
+      captured.height = video.videoHeight;
+      var context = captured.getContext('2d');
+      if (!context) throw new Error('无法处理共享画面');
+      context.drawImage(video, 0, 0, captured.width, captured.height);
+    } catch (err) {
+      if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return null;
+      throw err;
+    } finally {
+      try {
+        if (stream) {
+          var tracks = stream.getTracks();
+          for (var i = 0; i < tracks.length; i++) {
+            try { tracks[i].stop(); } catch (e) {}
+          }
+        }
+        if (video) {
+          try { video.pause(); } catch (e) {}
+          video.srcObject = null;
+          if (video.parentNode) video.parentNode.removeChild(video);
+        }
+      } finally {
+        document.documentElement.classList.remove('ap-capturing');
+      }
+    }
+    return captured ? openCropOverlay(captured) : null;
+  }
+
+  function openCropOverlay(canvas) {
+    return new Promise(function (resolve, reject) {
+      var overlay = document.createElement('div');
+      overlay.className = 'ap-crop-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', '裁剪截图');
+      overlay.tabIndex = -1;
+
+      var stage = document.createElement('div');
+      stage.className = 'ap-crop-stage';
+      canvas.classList.add('ap-crop-image');
+      canvas.setAttribute('aria-label', '待裁剪截图');
+      canvas.draggable = false;
+
+      var selectionBox = document.createElement('div');
+      selectionBox.className = 'ap-crop-selection';
+      stage.appendChild(canvas);
+      stage.appendChild(selectionBox);
+
+      var toolbar = document.createElement('div');
+      toolbar.className = 'ap-crop-toolbar';
+      var hint = document.createElement('span');
+      hint.className = 'ap-crop-hint';
+      hint.textContent = '拖动框选要上传的区域 · Enter 完成 · Esc 取消';
+      var cancelButton = document.createElement('button');
+      cancelButton.type = 'button';
+      cancelButton.textContent = '取消';
+      var wholeButton = document.createElement('button');
+      wholeButton.type = 'button';
+      wholeButton.textContent = '整张';
+      var completeButton = document.createElement('button');
+      completeButton.type = 'button';
+      completeButton.textContent = '完成';
+      completeButton.disabled = true;
+      toolbar.appendChild(hint);
+      toolbar.appendChild(cancelButton);
+      toolbar.appendChild(wholeButton);
+      toolbar.appendChild(completeButton);
+      overlay.appendChild(stage);
+      overlay.appendChild(toolbar);
+      document.body.appendChild(overlay);
+
+      var selection = null, drag = null, closed = false, exporting = false;
+      function hasValidSelection(rect) {
+        return !!rect && rect.width >= 8 && rect.height >= 8;
+      }
+      function updateSelection(event) {
+        var imageRect = canvas.getBoundingClientRect();
+        var x = Math.max(0, Math.min(imageRect.width, event.clientX - imageRect.left));
+        var y = Math.max(0, Math.min(imageRect.height, event.clientY - imageRect.top));
+        var left = Math.min(drag.x, x), top = Math.min(drag.y, y);
+        var width = Math.abs(x - drag.x), height = Math.abs(y - drag.y);
+        selection = { x: left, y: top, width: width, height: height };
+        selectionBox.style.display = 'block';
+        selectionBox.style.left = left + 'px';
+        selectionBox.style.top = top + 'px';
+        selectionBox.style.width = width + 'px';
+        selectionBox.style.height = height + 'px';
+        completeButton.disabled = !hasValidSelection(selection);
+      }
+      function onPointerDown(event) {
+        if (event.button !== undefined && event.button !== 0 && event.pointerType !== 'touch') return;
+        var imageRect = canvas.getBoundingClientRect();
+        if (!imageRect.width || !imageRect.height) return;
+        event.preventDefault();
+        drag = {
+          pointerId: event.pointerId,
+          x: Math.max(0, Math.min(imageRect.width, event.clientX - imageRect.left)),
+          y: Math.max(0, Math.min(imageRect.height, event.clientY - imageRect.top))
+        };
+        selection = null;
+        selectionBox.style.display = 'block';
+        selectionBox.style.left = drag.x + 'px';
+        selectionBox.style.top = drag.y + 'px';
+        selectionBox.style.width = '0';
+        selectionBox.style.height = '0';
+        completeButton.disabled = true;
+        try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+      }
+      function onPointerMove(event) {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        updateSelection(event);
+      }
+      function onPointerEnd(event) {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        updateSelection(event);
+        drag = null;
+        if (!hasValidSelection(selection)) {
+          selection = null;
+          selectionBox.style.display = 'none';
+          completeButton.disabled = true;
+        }
+      }
+      function cleanup() {
+        document.removeEventListener('keydown', onKeyDown, true);
+        canvas.removeEventListener('pointerdown', onPointerDown);
+        canvas.removeEventListener('pointermove', onPointerMove);
+        canvas.removeEventListener('pointerup', onPointerEnd);
+        canvas.removeEventListener('pointercancel', onPointerEnd);
+        cancelButton.removeEventListener('click', onCancel);
+        wholeButton.removeEventListener('click', onWhole);
+        completeButton.removeEventListener('click', onComplete);
+        canvas.classList.remove('ap-crop-image');
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }
+      function close(blob, err) {
+        if (closed) return;
+        closed = true;
+        cleanup();
+        if (err) reject(err);
+        else resolve(blob || null);
+      }
+      function exportCrop(whole) {
+        if (closed || exporting) return;
+        if (!whole && !hasValidSelection(selection)) return;
+        exporting = true;
+        cancelButton.disabled = true;
+        wholeButton.disabled = true;
+        completeButton.disabled = true;
+        var imageRect = canvas.getBoundingClientRect();
+        var scale = canvas.width / imageRect.width;
+        var left = 0, top = 0, right = canvas.width, bottom = canvas.height;
+        if (!whole) {
+          left = Math.max(0, Math.floor(selection.x * scale));
+          top = Math.max(0, Math.floor(selection.y * scale));
+          right = Math.min(canvas.width, Math.ceil((selection.x + selection.width) * scale));
+          bottom = Math.min(canvas.height, Math.ceil((selection.y + selection.height) * scale));
+        }
+        var output = document.createElement('canvas');
+        output.width = Math.max(1, right - left);
+        output.height = Math.max(1, bottom - top);
+        var context = output.getContext('2d');
+        if (!context) {
+          close(null, new Error('无法处理裁剪图片'));
+          return;
+        }
+        context.drawImage(canvas, left, top, output.width, output.height, 0, 0, output.width, output.height);
+        output.toBlob(function (blob) {
+          if (!blob) close(null, new Error('无法导出裁剪图片'));
+          else close(blob);
+        }, 'image/png');
+      }
+      function onCancel() { close(null); }
+      function onWhole() { exportCrop(true); }
+      function onComplete() { exportCrop(false); }
+      function onKeyDown(event) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          close(null);
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          event.stopPropagation();
+          exportCrop(!hasValidSelection(selection));
+        }
+      }
+      canvas.addEventListener('pointerdown', onPointerDown);
+      canvas.addEventListener('pointermove', onPointerMove);
+      canvas.addEventListener('pointerup', onPointerEnd);
+      canvas.addEventListener('pointercancel', onPointerEnd);
+      cancelButton.addEventListener('click', onCancel);
+      wholeButton.addEventListener('click', onWhole);
+      completeButton.addEventListener('click', onComplete);
+      document.addEventListener('keydown', onKeyDown, true);
+      cancelButton.focus();
+    });
   }
 
   function transferImages(transfer) {
