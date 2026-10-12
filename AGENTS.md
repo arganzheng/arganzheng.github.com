@@ -881,8 +881,10 @@ re-anchoring.
   parseComment/parseVotes/openThread/closePanel/logout/list/comments`.
 - **Interplay with footnotes / tips / formulas**: the text index excludes footnote
   markers (`sup[id^=fnref]`, `a.footnote`, `.reversefootnote` — footnote *bodies*
-  are indexed and can be annotated), Mermaid,
-  markers/panels and the comment section. **KaTeX**: `.katex-html` (the glyphs)
+  are indexed and can be annotated), annotation markers/panels and the comment
+  section. Rendered Mermaid label text inside `.mermaid svg` is indexed, except
+  SVG `style` / `title` / `desc` and figure tools; each label is a quote boundary,
+  and tapping a label selects that one label. **KaTeX**: `.katex-html` (the glyphs)
   is excluded, but the TeX source in the MathML `<annotation>` is indexed
   (`isExcluded`), so a formula is a passage whose `exact` is `s = 8192` /
   `\frac{a}{b}` as written; a selection boundary inside a formula takes the

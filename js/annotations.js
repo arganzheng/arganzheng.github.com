@@ -2,7 +2,7 @@
  * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
- *   - Select text in the article -> floating toolbar: 「点赞」 / 「评论」 /
+ *   - Select text in the article or tap a Mermaid label -> floating toolbar: 「点赞」 / 「评论」 /
  *     「复制」 / 「搜一搜」 / 「分享」; the author can also 「划重点」 for
  *     readers, who see the same underline as any reader reaction.
  *   - 「点赞」 is an anonymous per-passage counter (worker /reactions, D1;
@@ -82,7 +82,7 @@
   // indexed through its TeX source (the MathML <annotation>, see isExcluded),
   // not through the rendered glyphs in .katex-html.
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .callout-title, .heading-fold, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
+    'script, style, title, desc, noscript, svg, .katex-html, .mermaid-error, .fig-tools, button, .heading-anchor, .callout-title, .heading-fold, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -176,7 +176,7 @@
     var done = false;
     function run() { if (!done) { done = true; fn(); } }
     document.addEventListener('richcontent:rendered', function () {
-      if (done) reanchorAll(); else run();
+      if (done) setTimeout(reanchorAll, 0); else setTimeout(run, 0);
     });
     if (!needsWait) run(); else setTimeout(run, 6000);
   }
@@ -198,7 +198,21 @@
     // Inside a formula only the <annotation encoding="application/x-tex"> text
     // counts: the passage reads `\frac{a}{b}`, the way the author wrote it.
     if (el.closest('.katex-mathml')) return el.tagName.toLowerCase() !== 'annotation';
+    var diagram = el.closest('.mermaid');
+    if (diagram) {
+      if (diagram.classList.contains('mermaid-error') || el.closest('style, title, desc, .fig-tools, button')) return true;
+      return !el.closest('svg');
+    }
     return !!el.closest(EXCLUDE_SELECTOR);
+  }
+  function diagramLabelHost(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    var host = el && el.closest && el.closest('foreignObject, text');
+    return host && host.closest('.mermaid') ? host : null;
+  }
+  function mermaidOf(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    return el && el.closest && el.closest('.mermaid');
   }
   // The element a reader sees for a mark: the whole formula when the mark sits
   // in its hidden TeX source, else the mark itself.
@@ -209,15 +223,38 @@
     return k && container.contains(k) ? k : null;
   }
 
+  function hasLineBreakBetween(a, b) {
+    var range = document.createRange();
+    try {
+      range.setStart(a, a.nodeValue.length);
+      range.setEnd(b, 0);
+      return !!range.cloneContents().querySelector('br');
+    } catch (e) {
+      return false;
+    }
+  }
+
   function buildIndex() {
     var text = '';
     var nodes = [];
     var lastWasSpace = true;
+    var lastHost = null, lastNode = null, hasPreviousNode = false;
     var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
       acceptNode: function (n) { return isExcluded(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
     });
     while (walker.nextNode()) {
       var node = walker.currentNode;
+      var host = diagramLabelHost(node);
+      if (hasPreviousNode && host !== lastHost && text && !lastWasSpace) {
+        text += ' ';
+        lastWasSpace = true;
+      } else if (host && host === lastHost && lastNode && text && !lastWasSpace && hasLineBreakBetween(lastNode, node)) {
+        text += ' ';
+        lastWasSpace = true;
+      }
+      lastHost = host;
+      hasPreviousNode = true;
+      lastNode = node;
       var value = node.nodeValue;
       var charIdx = new Array(value.length);
       for (var i = 0; i < value.length; i++) {
@@ -412,9 +449,8 @@
     return segs;
   }
 
-  // Cut text nodes at every boundary and wrap each piece in ONE <mark> carrying
-  // every id that covers it (overlaps never nest). Pieces are processed
-  // back-to-front so splitText() never invalidates pending offsets.
+  // Cut text nodes at every boundary and wrap each piece in ONE highlight
+  // carrying every id that covers it (overlaps never nest).
   function wrapPieces(items, className) {
     var perNode = [], byNode = new Map(), marks = [];
     items.forEach(function (it) {
@@ -436,8 +472,9 @@
         if (to < piece.nodeValue.length) piece.splitText(to);
         if (from > 0) piece = piece.splitText(from);
         if (!piece.nodeValue.trim()) continue;
-        var mark = document.createElement('mark');
-        mark.className = className + (ids.length > 1 ? ' is-multi' : '');
+        var svgText = node.parentNode.namespaceURI === 'http://www.w3.org/2000/svg' && node.parentNode.closest('text');
+        var mark = svgText ? document.createElementNS('http://www.w3.org/2000/svg', 'tspan') : document.createElement('mark');
+        mark.setAttribute('class', className + (ids.length > 1 ? ' is-multi' : ''));
         mark.setAttribute('data-annotation-ids', ids.join(' '));
         piece.parentNode.insertBefore(mark, piece);
         mark.appendChild(piece);
@@ -461,8 +498,8 @@
   function applyHighlights() {
     var markers = container.querySelectorAll('.annotation-marker');
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
-    unwrap('mark.annotation-hl');
-    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note'); });
+    unwrap('mark.annotation-hl, tspan.annotation-hl');
+    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note', 'has-issue', 'is-resolved'); });
     Array.prototype.forEach.call(container.querySelectorAll('.katex.has-note'), function (k) { k.className = 'katex'; });
     buildIndex();
 
@@ -496,6 +533,12 @@
       // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
       var host = markHost(mark);
       if (host !== mark) { host.classList.add('has-note'); ['has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
+      var diagram = mark.closest('.mermaid');
+      var caption = diagram && diagram.nextElementSibling;
+      if (caption && caption.classList.contains('post-figcaption')) {
+        caption.classList.add('has-note');
+        ['has-issue', 'is-resolved'].forEach(function (c) { if (mark.classList.contains(c)) caption.classList.add(c); });
+      }
     });
     insertMarkers();
     buildIndex();
@@ -576,7 +619,7 @@
     return parts.join(' · ') + '，点击查看';
   }
   function markIsClickable(mark) {
-    return !mark.closest('a[href]:not(.inline-tip)');
+    return !!mark.closest('.mermaid') || !mark.closest('a[href]:not(.inline-tip)');
   }
   function markerNeeded(p) {
     return !!markerHtml(p) || (p.marks.length > 0 && !p.marks.some(markIsClickable));
@@ -585,6 +628,7 @@
     passages().forEach(function (p) {
       if (!markerNeeded(p)) return;
       var last = p.marks[p.marks.length - 1];
+      if (last.closest('.mermaid')) return;
       var marker = document.createElement('span');
       marker.className = markerClass(p);
       marker.setAttribute('data-annotation-ids', p.ids.join(' '));
@@ -638,7 +682,7 @@
     var marks = wrapPieces([{ start: range.start, end: range.end, id: 'flash' }], 'annotation-flash');
     if (!marks.length) return;
     scrollIntoViewInstant(marks[0]);
-    setTimeout(function () { unwrap('mark.annotation-flash'); buildIndex(); }, 2600);
+    setTimeout(function () { unwrap('mark.annotation-flash, tspan.annotation-flash'); buildIndex(); }, 2600);
   }
 
   function scrollIntoViewInstant(el) {
@@ -682,6 +726,11 @@
   // Block element after which an in-flow panel for `node` is inserted.
   function blockFor(node) {
     var el = node.nodeType === 1 ? node : node.parentNode;
+    var diagram = el.closest('.mermaid');
+    if (diagram) {
+      var caption = diagram.nextElementSibling;
+      return caption && caption.classList.contains('post-figcaption') ? caption : diagram;
+    }
     var cell = el.closest('td, th');
     var block = cell ? cell.closest('table') : el.closest(BLOCK_SELECTOR);
     // a note on a table cell / header row goes under the table's caption, like a figure's
@@ -1976,6 +2025,21 @@
       selectionTimer = setTimeout(updateToolbar, 250);
     });
     document.addEventListener('mouseup', function () { setTimeout(updateToolbar, 10); });
+    document.addEventListener('click', function (e) {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var target = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+      if (!target || target.closest('.annotation-hl') || target.closest('a')) return;
+      var host = diagramLabelHost(target);
+      if (!host || !host.textContent.trim()) return;
+      var selection = window.getSelection();
+      if (!selection || !selection.isCollapsed) return;
+      var range = document.createRange();
+      range.selectNodeContents(host);
+      if (!range.toString().trim()) return;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      updateToolbar();
+    });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideToolbar(); if (panelState && panelState.kind === 'thread') closePanel(); } });
     window.addEventListener('scroll', function () { if (toolbar && toolbar.style.display === 'block') positionToolbar(); }, { passive: true });
   }
@@ -1985,6 +2049,12 @@
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
     var range = sel.getRangeAt(0).cloneRange();
     if (!container.contains(range.commonAncestorContainer)) return null;
+    var startHost = diagramLabelHost(range.startContainer), endHost = diagramLabelHost(range.endContainer);
+    if (startHost && endHost !== startHost) {
+      range.setEnd(startHost, startHost.childNodes.length);
+    } else if (!mermaidOf(range.startContainer) && mermaidOf(range.endContainer)) {
+      range.setEndBefore(mermaidOf(range.endContainer));
+    }
     // A boundary inside a formula takes the whole formula (its TeX source is
     // what gets quoted); one inside another excluded element (heading buttons,
     // `↩`…) snaps to that element's edge instead of bailing.
@@ -1998,6 +2068,7 @@
   }
 
   function excludedAncestor(node) {
+    if (diagramLabelHost(node)) return null;
     var el = node.nodeType === 1 ? node : node.parentNode;
     var hit = el && el.closest && el.closest(EXCLUDE_SELECTOR);
     if (!hit || !container.contains(hit)) return null;
