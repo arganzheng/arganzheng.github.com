@@ -112,6 +112,13 @@
   function init() {
     var section = document.querySelector('section.comment[data-annotations-api]');
     container = document.querySelector('.post-container');
+    document.addEventListener('blog:favorites', function () {
+      if (panelState && panelState.kind === 'thread') {
+        var open = passageFor(panelState.ids);
+        if (open) renderThread(open);
+      }
+      if (toolbar && toolbar.style.display !== 'none') updateToolbar();
+    });
     var privateLogin = document.querySelector('.private-post-login');
     if (privateLogin) privateLogin.addEventListener('click', login);
     // List pages have no comment section but do have action bars (js/share.js)
@@ -736,15 +743,31 @@
   // Reaction row of the thread panel (also re-rendered alone after a click).
   function reactBarHtml(p) {
     var r = p.reaction || { up: 0, share: 0 }, up = myReaction(p.hash, 'up');
+    var saved = window.BlogFavorites && window.BlogFavorites.hasPassage(cfg.path, p.exact);
     return '<button type="button" class="ap-react-btn ap-react-up' + (up ? ' is-on' : '') + '" title="' + (up ? '取消点赞' : '点赞这段话（不用登录）') + '"><i class="fa ' + (up ? 'fa-thumbs-up' : 'fa-regular fa-thumbs-up') + '"></i> 点赞' + (r.up ? ' <b>' + r.up + '</b>' : '') + '</button>' +
       '<button type="button" class="ap-react-btn ap-react-share" title="分享这段话（微博 / X / 微信 / 复制链接）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享' + (r.share ? ' <b>' + r.share + '</b>' : '') + '</button>' +
+      '<button type="button" class="ap-react-btn ap-react-fav' + (saved ? ' is-on' : '') + '" title="' + (saved ? '取消收藏这段摘录' : '收藏这段摘录') + '"><i class="fa ' + (saved ? 'fa-bookmark' : 'fa-regular fa-bookmark') + '"></i> ' + (saved ? '已收藏' : '收藏') + '</button>' +
       (isOwner() && r.pinned > 0 ? '<button type="button" class="ap-react-btn ap-react-pin">取消划重点</button>' : '');
   }
   function bindReactBar(host, p) {
     host.querySelector('.ap-react-up').addEventListener('click', function () { react(p.exact, 'up'); });
-    host.querySelector('.ap-react-share').addEventListener('click', function (e) { e.stopPropagation(); sharePassage(e.currentTarget, p.exact, p.list.length > 0); });
+    host.querySelector('.ap-react-share').addEventListener('click', function (e) { e.stopPropagation(); sharePassage(e.currentTarget, p.exact, (p.list || []).length > 0); });
+    var favorite = host.querySelector('.ap-react-fav');
+    if (favorite) favorite.addEventListener('click', function () { togglePassageFavorite(p); });
     var pin = host.querySelector('.ap-react-pin');
     if (pin) pin.addEventListener('click', function () { setPinned(p.exact, false); });
+  }
+
+  function togglePassageFavorite(p) {
+    if (!window.BlogFavorites || !p || document.documentElement.classList.contains('private-post')) return;
+    var r = p.reaction, list = p.list || [], section = (list[0] && list[0].selector && list[0].selector.section) || (r && r.section) || sectionForExact(p.exact);
+    var saved = window.BlogFavorites.togglePassage({
+      path: cfg.path,
+      title: postTitle(),
+      exact: p.exact,
+      section: section
+    });
+    showToast(saved ? '已收藏这段摘录' : '已取消收藏');
   }
 
   function renderThread(p) {
@@ -1826,8 +1849,18 @@
     ensureToolbar();
     updateCommentButton(range);
     updatePinButton(range);
+    updateFavoriteButton(range);
     toolbar.style.display = 'block';
     positionToolbar();
+  }
+  function updateFavoriteButton(range) {
+    var btn = toolbar.querySelector('.annotation-tb-fav');
+    if (!btn) return;
+    var offsets = selectionOffsets(range), p = offsets && passageContaining(offsets);
+    var exact = p ? p.exact : (offsets ? selectorFromOffsets(offsets).exact : '');
+    var saved = !!(window.BlogFavorites && exact && window.BlogFavorites.hasPassage(cfg.path, exact));
+    btn.innerHTML = '<i class="fa ' + (saved ? 'fa-bookmark' : 'fa-regular fa-bookmark') + '"></i> ' + (saved ? '取消收藏' : '收藏');
+    btn.title = saved ? '取消收藏这段文字' : '收藏这段文字';
   }
   function updatePinButton(range) {
     var btn = toolbar.querySelector('.annotation-tb-pin');
@@ -1942,6 +1975,7 @@
       '<button type="button" class="annotation-tb-pin" hidden><i class="fa fa-pencil"></i> 划重点</button>' +
       '<span class="annotation-tb-sep"></span>' +
       '<button type="button" class="annotation-tb-comment"><i class="fa fa-regular fa-comment"></i> 评论</button>' +
+      '<button type="button" class="annotation-tb-fav" title="收藏选中的文字"><i class="fa fa-regular fa-bookmark"></i> 收藏</button>' +
       '<button type="button" class="annotation-tb-copy" title="复制选中的文字"><i class="fa fa-copy"></i> 复制</button>' +
       '<button type="button" class="annotation-tb-search" title="搜这段文字：站内 / Google / Google AI 模式" aria-haspopup="true" aria-expanded="false"><i class="fa fa-search"></i> 搜一搜</button>' +
       '<button type="button" class="annotation-tb-share" title="分享这段话：微博 / X / 微信 / 复制链接（打开后自动定位这段文字）" aria-haspopup="true" aria-expanded="false"><i class="fa fa-share-alt"></i> 分享</button>' +
@@ -1982,6 +2016,17 @@
         if (ctx.mine) editMyComment(ctx.passage, ctx.mine);
         else openComposer(sel, ctx.offsets, endNode, '', pair[1]);
       });
+    });
+    toolbar.querySelector('.annotation-tb-fav').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var range = currentRange(), offsets = range && selectionOffsets(range);
+      if (!offsets || !window.BlogFavorites || document.documentElement.classList.contains('private-post')) { hideToolbar(); return; }
+      var p = passageContaining(offsets), sel = p ? { exact: p.exact, section: ((p.list || [])[0] && (p.list || [])[0].selector.section) || (p.reaction && p.reaction.section) || sectionForOffsets(offsets) } : selectorFromOffsets(offsets);
+      if (!p) sel.section = sectionForOffsets(offsets);
+      var saved = window.BlogFavorites.togglePassage({ path: cfg.path, title: postTitle(), exact: sel.exact, section: sel.section });
+      hideToolbar();
+      if (window.getSelection) window.getSelection().removeAllRanges();
+      showToast(saved ? '已收藏这段摘录' : '已取消收藏');
     });
     toolbar.querySelector('.annotation-tb-copy').addEventListener('click', function (e) {
       e.stopPropagation();
@@ -2542,6 +2587,7 @@
     annotHash: annotHash,
     threadLink: threadLink,
     shareLink: shareLink,
+    encodeFragmentPart: encodeFragmentPart,
     buildCommentBody: buildCommentBody,
     parseComment: parseComment,
     parseVotes: parseVotes,

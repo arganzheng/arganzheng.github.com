@@ -587,6 +587,54 @@ html[data-theme="dark"] .post-actions .pa-read {
 		.fa { color: #9acba3; }
 	}
 }
+html[data-theme="dark"] .post-actions .pa-fav {
+	color: @dk-muted;
+	border-color: @dk-border;
+	background-color: @dk-surface-2;
+	.fa { color: #cbb678; }
+	&.is-active {
+		border-color: #796b3c;
+		background-color: #38331f;
+		color: #eadc9e;
+		.fa { color: #e2c86b; }
+	}
+}
+html[data-theme="dark"] .annotation-panel .ap-react-fav.is-on {
+	border-color: #796b3c;
+	background-color: #38331f;
+	color: #eadc9e;
+}
+html[data-theme="dark"] .favorites-toolbar {
+	border-color: @dk-border;
+	background-color: @dk-surface;
+}
+html[data-theme="dark"] .favorites-search,
+html[data-theme="dark"] .favorites-toolbar button {
+	border-color: @dk-border;
+	background-color: @dk-surface-2;
+	color: @dk-text;
+}
+html[data-theme="dark"] .favorites-count,
+html[data-theme="dark"] .favorites-date,
+html[data-theme="dark"] .favorites-section,
+html[data-theme="dark"] .favorites-notice,
+html[data-theme="dark"] .favorites-empty,
+html[data-theme="dark"] .favorites-nojs,
+html[data-theme="dark"] .favorites-no-results { color: @dk-muted; }
+html[data-theme="dark"] .favorites-notice {
+	border-left-color: #cbb678;
+	background-color: #38331f;
+}
+html[data-theme="dark"] .favorites-group { border-bottom-color: @dk-border; }
+html[data-theme="dark"] .favorites-passage,
+html[data-theme="dark"] .favorites-empty,
+html[data-theme="dark"] .favorites-nojs {
+	border-color: @dk-border;
+	background-color: @dk-surface;
+}
+html[data-theme="dark"] .favorites-quote { color: @dk-text; }
+html[data-theme="dark"] .favorites-empty h2,
+html[data-theme="dark"] .favorites-nojs h2 { color: @dk-heading; }
 html[data-theme="dark"] {
 	.sb-list li.is-read > a::after,
 	.sb-list li.is-read > span::after,
