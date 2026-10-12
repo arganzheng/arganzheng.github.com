@@ -16,7 +16,7 @@ transition: slide
 > 深网络训练里的每个现象，能不能**推到公式、代到数字、用几十行代码复现**，然后在 LLM 里认出它的形态？
 
 - 主线是**一条连乘链**：前向的方差每层乘一个因子、反向的梯度是一串 Jacobian 的乘积——因子偏离 1 就指数放大或消失
-- 01 回顾演进史 → 02 写出梯度乘积 → 03 激活改变梯度 → 04 稳定深层训练 → 05 步长怎么定 → 06 泛化 → 07–09 看卷积、表示与循环
+- 01 按年代回顾模型演进与 XOR → 02 写出梯度乘积 → 03 激活改变梯度 → 04 稳定深层训练 → 05 步长怎么定 → 06 泛化 → 07–09 看视觉、表示与序列
 - 九篇用同一份几百行的 NumPy 小框架和配套脚本，实验可在笔记本 CPU 上复现
 
 <aside class="notes" markdown="1">
@@ -48,10 +48,10 @@ flowchart TB
 
 ![从 McCulloch–Pitts 到 Transformer、GPT-3 与 ChatGPT 的深度模型时间线](/img/in-post/dl-evolution-timeline.svg){: style="max-height: 420px"}
 
-从阈值单元、感知机与两次寒冬，到反向传播、预训练、CNN、Embedding、attention 与 Transformer；结构演进不断改变归纳偏置、可训练性与并行度。
+按年代看，从阈值单元、感知机与两次寒冬，到反向传播、预训练、CNN、Embedding、attention 与 Transformer；结构分支彼此交叉，归纳偏置、可训练性与并行度也随之变化。
 
 <aside class="notes" markdown="1">
-原文 /evolution-of-deep-models-from-perceptron-to-transformer.html。XOR 案例：AND 感知机第 6 轮零误分；XOR 感知机每轮最少 3 次误分并循环；ADALINE 最小二乘 MSE 0.25；H=2 的 MLP 有 13/20 个种子达到 100%，H=4 为 20/20。
+原文 /evolution-of-deep-models-from-perceptron-to-transformer.html。XOR 案例：AND 感知机第 6 轮零误分；XOR 感知机每轮最少 3 次误分，权重状态自第 2 轮起周期 1（输出 `(2, 1)`）；ADALINE 最小二乘 MSE 0.25；H=2 的 MLP 有 13/20 个种子达到 100%，H=4 为 20/20。
 </aside>
 
 <!-- v -->
