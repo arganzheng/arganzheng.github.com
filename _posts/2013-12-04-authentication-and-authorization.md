@@ -599,7 +599,7 @@ LoginUtils.java:
 **1. 客户端 >>>**
 
 1. 用户输入userId和password
-2. 客户端用对称加密算法对消息进行加密：`A1=TEA(S1', randomKey;timestamp;H1;userId`)`，对称密钥`S1'=md5(md5(password) + userId)`
+2. 客户端用对称加密算法对消息进行加密：`A1=TEA(S1', randomKey;timestamp;H1;userId)`，对称密钥`S1'=md5(md5(password) + userId)`
 3. 客户端生成自己的一对公钥clientPublicKey和密钥clientPrivateKey。
 4. 客户端用serverPublicKey对A1和clientPublicKey进行非对称加密: `ECDH(serverPublicKey, userId + A1 + clientPublicKey)`，然后将加密结果发送给服务端。
 
