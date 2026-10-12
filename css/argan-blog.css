@@ -2249,10 +2249,14 @@ html.private-post:not(.author-ok) .private-post-gate {
 }
 .heading-fold {
   position: absolute;
-  top: 0.2em;
+  top: 0;
   left: -22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 18px;
-  height: 18px;
+  height: 1.1em;
+  height: 1lh;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2265,7 +2269,6 @@ html.private-post:not(.author-ok) .private-post-gate {
   display: block;
   width: 0;
   height: 0;
-  margin: auto;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-top: 6px solid currentColor;
