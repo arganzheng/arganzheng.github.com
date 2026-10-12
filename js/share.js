@@ -10,11 +10,11 @@
  *     Every completed share is one POST /shares; Moments and passage shares
  *     can additionally provide a PNG card generator and a long-press / download
  *     overlay.
- *   - author-only 「导出」 menu: save a PDF or download the GitHub Markdown source verbatim.
+ *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, and Markdown.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
- *   - author-only 「复制为公众号格式」 (lazy js/wechat-export.js).
+ *     WeChat and HTML modules are lazy-loaded on first use.
  */
 (function () {
   'use strict';
@@ -131,7 +131,7 @@
 
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
-  var menuDismissalBound = false, printPdf = null, downloadMarkdown = null;
+  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null, downloadMarkdown = null;
   var cardOverlay = null, cardObjectUrl = null;
   function bindMenuDismissal() {
     if (menuDismissalBound) return;
@@ -220,6 +220,8 @@
     exportPop.hidden = true;
     exportPop.innerHTML =
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="pdf"><i class="fa fa-file-pdf"></i>存为 PDF</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="wechat"><i class="fa fa-brands fa-weixin"></i>复制为公众号格式</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="html"><i class="fa fa-file-code"></i>HTML</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 源文件"><i class="fa fa-file-lines"></i>Markdown 源文</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
@@ -229,6 +231,8 @@
       var kind = item.getAttribute('data-k');
       closeExportPop();
       if (kind === 'pdf' && printPdf) printPdf(item);
+      else if (kind === 'wechat' && copyWechat) copyWechat(item);
+      else if (kind === 'html' && downloadHtml) downloadHtml(item);
       else if (kind === 'md' && downloadMarkdown) downloadMarkdown(item);
     });
     bindMenuDismissal();
@@ -401,17 +405,15 @@
   }
 
   // ------------------------------------------------- author: export / edit
-  var wechatBtn = document.querySelector('.post-actions .pa-export');
   var downloadBtn = document.querySelector('.post-actions .pa-download');
   var editBtn = document.querySelector('.post-actions .pa-edit');
-  if (wechatBtn || downloadBtn || editBtn || historySpans.length) {
+  if (downloadBtn || editBtn || historySpans.length) {
     var bar = document.querySelector('.post-actions[data-author]');
     var author = (bar && bar.getAttribute('data-author')) ||
       (historySpans[0] && historySpans[0].getAttribute('data-author')) || '';
     var isAuthor = false;
     var onViewer = function (v) {
       isAuthor = !!(v && author && v.login === author);
-      if (wechatBtn) wechatBtn.hidden = !isAuthor;
       if (downloadBtn) downloadBtn.hidden = !isAuthor;
       if (editBtn) editBtn.hidden = !isAuthor;
       historySpans.forEach(function (span) { span.hidden = !isAuthor; });
@@ -419,19 +421,35 @@
     };
     document.addEventListener('blog:viewer', function (e) { onViewer(e.detail); });
     if (window.BlogAnnotations && window.BlogAnnotations.viewer) onViewer(window.BlogAnnotations.viewer());
-    if (wechatBtn) {
-      wechatBtn.addEventListener('click', function () {
-        if (!isAuthor) return;
-        wechatBtn.disabled = true;
-        var d = dataOf(bar);
-        var ready = window.WechatExport ? Promise.resolve() : loadScript('/js/wechat-export.js');
-        ready.then(function () { return window.WechatExport.copy({ url: d.url, title: d.title }); }).then(function (info) {
-          toast(bar, '已复制（' + info.images + ' 图 · ' + info.refs + ' 条参考链接），到公众号 / 知乎编辑器里粘贴', 4000);
-        }, function (err) {
-          toast(bar, '失败：' + (err && err.message || err), 4000);
-        }).then(function () { wechatBtn.disabled = false; });
-      });
-    }
+    copyWechat = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      var d = dataOf(bar);
+      var ready = window.WechatExport ? Promise.resolve() : loadScript('/js/wechat-export.js');
+      ready.then(function () { return window.WechatExport.copy({ url: d.url, title: d.title }); }).then(function (info) {
+        toast(bar, '已复制（' + info.images + ' 图 · ' + info.refs + ' 条参考链接），到公众号 / 知乎编辑器里粘贴', 4000);
+      }, function (err) {
+        toast(bar, '失败：' + (err && err.message || err), 4000);
+      }).then(function () { item.disabled = false; });
+    };
+    downloadHtml = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      var d = dataOf(bar);
+      var ready = window.HtmlExport ? Promise.resolve() : loadScript('/js/html-export.js');
+      ready.then(function () {
+        return window.HtmlExport.download({
+          title: d.title,
+          subtitle: bar.getAttribute('data-subtitle') || '',
+          url: d.url,
+          date: bar.getAttribute('data-date') || ''
+        });
+      }).then(function (filename) {
+        toast(bar, '已下载 ' + filename, 4000);
+      }, function (err) {
+        toast(bar, '失败：' + (err && err.message || err), 4000);
+      }).then(function () { item.disabled = false; });
+    };
     printPdf = function (item) {
       if (!isAuthor || item.disabled) return;
       var root = document.documentElement;
