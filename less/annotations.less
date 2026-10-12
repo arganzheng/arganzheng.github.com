@@ -244,7 +244,9 @@ html.ap-capturing {
 	.annotation-panel.is-editor,
 	.ap-editor,
 	.annotation-toolbar,
-	.annotation-toast { visibility: hidden !important; }
+	.annotation-toast,
+	.fig-tools,
+	.table-tools { visibility: hidden !important; }
 }
 
 // ---- in-flow panel (thread or editor), inserted right after the paragraph,
@@ -1007,6 +1009,9 @@ html.ap-capturing {
 		.code-copy { position: static; width: 32px; height: 32px; }
 		&:hover { background: rgba(255, 255, 255, 0.85); }
 	}
+	.fig-screenshot { display: none; }
+	html.ap-screenshot-ready & .fig-screenshot { display: inline-flex; }
+	.fig-screenshot .fa-scissors { font-size: 16px; line-height: 1; }
 	.fig-media > .fig-tools, .table-tools {
 		top: 6px;
 		right: 6px;

@@ -3888,7 +3888,9 @@ body.outline-unavailable .catalog-mindmap {
 html.ap-capturing .annotation-panel.is-editor,
 html.ap-capturing .ap-editor,
 html.ap-capturing .annotation-toolbar,
-html.ap-capturing .annotation-toast {
+html.ap-capturing .annotation-toast,
+html.ap-capturing .fig-tools,
+html.ap-capturing .table-tools {
   visibility: hidden !important;
 }
 .post-container .annotation-panel,
@@ -5310,6 +5312,16 @@ html.ap-capturing .annotation-toast {
 .post-container .fig-tools:hover,
 .post-container .table-tools:hover {
   background: rgba(255, 255, 255, 0.85);
+}
+.post-container .fig-screenshot {
+  display: none;
+}
+html.ap-screenshot-ready .post-container .fig-screenshot {
+  display: inline-flex;
+}
+.post-container .fig-screenshot .fa-scissors {
+  font-size: 16px;
+  line-height: 1;
 }
 .post-container .fig-media > .fig-tools,
 .post-container .table-tools {
