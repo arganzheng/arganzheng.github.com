@@ -1521,14 +1521,34 @@
     return hasCounter && !failed ? parts.join('') : null;
   }
 
-  function prepareCounterMarkers(root) {
-    var markers = [], attributes = [], candidates = root.querySelectorAll('li, li *');
-    function markAttribute(element, name, value) {
-      if (!attributes.some(function (entry) { return entry.element === element && entry.name === name; })) {
-        attributes.push({ element: element, name: name, hadValue: element.hasAttribute(name), value: element.getAttribute(name) });
+  function counterClonePath(root, element, excluded) {
+    var path = [];
+    for (var current = element; current && current !== root; current = current.parentNode) {
+      var parent = current.parentNode;
+      if (!parent) return null;
+      var index = 0;
+      for (var sibling = parent.firstChild; sibling && sibling !== current; sibling = sibling.nextSibling) {
+        if (sibling.nodeType === 1 && (sibling.matches(excluded) || (sibling.closest && sibling.closest(excluded)))) continue;
+        index++;
       }
-      element.setAttribute(name, value);
+      path.unshift(index);
     }
+    return current === root ? path : null;
+  }
+
+  function counterCloneNode(root, cloneRoot, element, excluded) {
+    var path = counterClonePath(root, element, excluded);
+    if (!path) return null;
+    var clone = cloneRoot;
+    for (var i = 0; i < path.length && clone; i++) clone = clone.childNodes[path[i]];
+    return clone && clone.nodeType === 1 ? clone : null;
+  }
+
+  function prepareCounterMarkers(root, cloneRoot, excluded) {
+    var used = false;
+    var candidates = [];
+    if (root.matches && root.matches('li')) candidates.push(root);
+    Array.prototype.push.apply(candidates, root.querySelectorAll('li, li *'));
     function copyPseudoStyle(source, target) {
       for (var i = 0; i < source.length; i++) {
         var property = source[i];
@@ -1543,13 +1563,20 @@
       var list = element.closest('ol, ul');
       var item = element.closest('li');
       if (!list || !item || !list.contains(item)) return;
+      var cloneElement = counterCloneNode(root, cloneRoot, element, excluded);
+      var cloneList = counterCloneNode(root, cloneRoot, list, excluded);
+      var cloneItem = counterCloneNode(root, cloneRoot, item, excluded);
+      if (!cloneElement || !cloneList || !cloneItem) return;
       if (element === item && list.tagName === 'OL') {
         var markerStyle = window.getComputedStyle(item, '::marker');
         var listStyleType = window.getComputedStyle(list).listStyleType;
         if (markerStyle.content === 'normal' && listStyleType !== 'none' &&
             markerStyle.display !== 'none' && markerStyle.visibility !== 'hidden' && Number(markerStyle.opacity) !== 0) {
           var itemValue = listItemCounterValue(list, item);
-          if (itemValue !== null) markAttribute(item, 'data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
+          if (itemValue !== null) {
+            cloneItem.setAttribute('data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
+            used = true;
+          }
         }
       }
       ['before', 'after', 'marker'].forEach(function (position) {
@@ -1558,47 +1585,39 @@
             style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
         var text = counterContentText(style.content, list, item);
         if (text === null) return;
-        markAttribute(element, 'data-ap-render-counter-' + position, text);
+        cloneElement.setAttribute('data-ap-render-counter-' + position, text);
+        used = true;
         if (position === 'marker') return;
         var marker = document.createElement('span');
         marker.setAttribute('aria-hidden', 'true');
         marker.setAttribute('data-ap-render-counter-text', '');
         marker.textContent = text;
         copyPseudoStyle(style, marker);
-        if (position === 'before') element.insertBefore(marker, element.firstChild);
-        else element.appendChild(marker);
-        markers.push(marker);
+        if (position === 'before') cloneElement.insertBefore(marker, cloneElement.firstChild);
+        else cloneElement.appendChild(marker);
       });
     });
-    if (!markers.length && !attributes.length) return function () {};
+    if (!used) return;
     var stylesheet = document.createElement('style');
     stylesheet.textContent =
       '[data-ap-render-counter-before]::before,[data-ap-render-counter-after]::after{content:none!important}' +
       '[data-ap-render-counter-marker]::marker{content:attr(data-ap-render-counter-marker)!important}';
-    document.head.appendChild(stylesheet);
-    return function () {
-      if (stylesheet.parentNode) stylesheet.parentNode.removeChild(stylesheet);
-      markers.forEach(function (marker) { if (marker.parentNode) marker.parentNode.removeChild(marker); });
-      attributes.forEach(function (entry) {
-        if (entry.hadValue) entry.element.setAttribute(entry.name, entry.value);
-        else entry.element.removeAttribute(entry.name);
-      });
-    };
+    cloneRoot.appendChild(stylesheet);
   }
 
-  function hideFixedElements(elements) {
-    var previous = elements.map(function (item) {
-      var style = item.element.style;
-      var old = { element: item.element, value: style.getPropertyValue('visibility'), priority: style.getPropertyPriority('visibility') };
-      style.setProperty('visibility', 'hidden', 'important');
-      return old;
+  function tileDimensions(element, rect) {
+    var height = rect.height;
+    var displayMath = !!(element.matches && element.matches('.katex-display'));
+    var math = [];
+    if (displayMath) math.push(element);
+    Array.prototype.push.apply(math, element.querySelectorAll('.katex-display'));
+    math.forEach(function (display) {
+      displayMath = true;
+      var mathRect = display.getBoundingClientRect();
+      var fontSize = parseFloat(window.getComputedStyle(display).fontSize) || 16;
+      height = Math.max(height, mathRect.bottom - rect.top + fontSize * 1.5);
     });
-    return function () {
-      previous.forEach(function (old) {
-        if (old.value) old.element.style.setProperty('visibility', old.value, old.priority);
-        else old.element.style.removeProperty('visibility');
-      });
-    };
+    return { height: height, displayMath: displayMath };
   }
 
   function renderScreenshotStep(promise, timeout, label) {
@@ -1623,19 +1642,12 @@
     output.width = Math.max(1, Math.floor(viewportWidth * scale));
     output.height = Math.max(1, Math.floor(viewportHeight * scale));
     var outputContext = output.getContext('2d');
-    var cleanupCounterMarkers = null;
-    var restoreFixedElements = null;
     if (!outputContext) throw new Error('无法创建页面截图画布');
     outputContext.fillStyle = pageBackgroundColor();
     outputContext.fillRect(0, 0, output.width, output.height);
     documentRoot.classList.add('ap-capturing');
     try {
-      cleanupCounterMarkers = prepareCounterMarkers(root);
       var excluded = '.annotation-panel.is-editor, .ap-editor, .annotation-toolbar, .annotation-toast, .fig-tools, .table-tools, .ap-crop-overlay';
-      var filter = function (node) {
-        if (!node || node.nodeType !== 1) return true;
-        return !(node.matches(excluded) || (node.closest && node.closest(excluded)));
-      };
       fixedElements = Array.prototype.filter.call(root.querySelectorAll('*'), function (element) {
         var style = window.getComputedStyle(element);
         if ((style.position !== 'fixed' && style.position !== 'sticky') ||
@@ -1652,82 +1664,123 @@
       }).map(function (element) {
         var rect = element.getBoundingClientRect();
         var zIndex = parseInt(window.getComputedStyle(element).zIndex, 10);
-        return { element: element, left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: isNaN(zIndex) ? 0 : zIndex };
+        var dimensions = tileDimensions(element, rect);
+        return {
+          element: element,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: dimensions.height,
+          displayMath: dimensions.displayMath,
+          zIndex: isNaN(zIndex) ? 0 : zIndex
+        };
       }).sort(function (a, b) { return a.zIndex - b.zIndex; });
-      restoreFixedElements = hideFixedElements(fixedElements);
+      var fixedSet = new Set(fixedElements.map(function (item) { return item.element; }));
+      function createFilter(rootElement) {
+        return function (node) {
+          if (!node) return true;
+          var element = node.nodeType === 1 ? node : node.parentElement;
+          if (!element) return true;
+          if (element.matches(excluded) || (element.closest && element.closest(excluded))) return false;
+          for (var current = element; current; current = current.parentElement) {
+            if (fixedSet.has(current) && current !== rootElement) return false;
+            if (current === rootElement) break;
+          }
+          return true;
+        };
+      }
+      var filter = createFilter(null);
       await new Promise(function (resolve) { requestAnimationFrame(resolve); });
       var tiles = [];
-        function intersectsViewport(rect) {
-          return rect.width > 0 && rect.height > 0 &&
-            rect.right > 0 && rect.bottom > 0 &&
-            rect.left < viewportWidth && rect.top < viewportHeight;
+      function intersectsViewport(rect) {
+        return rect.width > 0 && rect.height > 0 &&
+          rect.right > 0 && rect.bottom > 0 &&
+          rect.left < viewportWidth && rect.top < viewportHeight;
+      }
+      function hasDirectText(element) {
+        for (var i = 0; i < element.childNodes.length; i++) {
+          var node = element.childNodes[i];
+          if (node.nodeType === 3 && node.nodeValue.trim()) return true;
         }
-        function hasDirectText(element) {
-          for (var i = 0; i < element.childNodes.length; i++) {
-            var node = element.childNodes[i];
-            if (node.nodeType === 3 && node.nodeValue.trim()) return true;
+        return false;
+      }
+      function paintBackground(element, rect) {
+        var color = window.getComputedStyle(element).backgroundColor;
+        if (!color || color === 'transparent' || /,\s*0(?:\.0+)?\s*\)$/.test(color)) return;
+        outputContext.save();
+        outputContext.beginPath();
+        outputContext.rect(0, 0, output.width, output.height);
+        outputContext.clip();
+        outputContext.fillStyle = color;
+        outputContext.fillRect(rect.left * scale, rect.top * scale, rect.width * scale, rect.height * scale);
+        outputContext.restore();
+      }
+      function collectTiles(element) {
+        if (!element || element.nodeType !== 1 || element.matches(excluded) ||
+            (element.closest && element.closest(excluded))) return;
+        var style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ||
+            style.position === 'fixed' || style.position === 'sticky') return;
+        var rect = element.getBoundingClientRect();
+        if (!intersectsViewport(rect)) return;
+        var children = element.children;
+        if (rect.height <= viewportHeight * 1.5 || !children.length || hasDirectText(element)) {
+          var dimensions = tileDimensions(element, rect);
+          tiles.push({
+            element: element,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: dimensions.height,
+            displayMath: dimensions.displayMath
+          });
+          return;
+        }
+        paintBackground(element, rect);
+        Array.prototype.forEach.call(children, collectTiles);
+      }
+      Array.prototype.forEach.call(root.children, collectTiles);
+      var nextTile = 0;
+      var renderTile = async function () {
+        while (nextTile < tiles.length) {
+          var item = tiles[nextTile++];
+          var remaining = renderTimeout - (Date.now() - startedAt);
+          if (remaining <= 0) throw new Error('页面分块渲染超时');
+          var tileStyle = { margin: '0', boxSizing: 'border-box' };
+          if (item.displayMath) {
+            tileStyle.display = 'block';
+            tileStyle.height = item.height + 'px';
+            tileStyle.overflow = 'visible';
           }
-          return false;
+          var tile = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
+            width: item.width,
+            height: item.height,
+            scale: scale,
+            maximumCanvasSize: 4096,
+            style: tileStyle,
+            features: {
+              restoreScrollPosition: item.element.scrollHeight > item.element.clientHeight ||
+                item.element.scrollWidth > item.element.clientWidth
+            },
+            filter: filter,
+            onCloneNode: function (clone) {
+              prepareCounterMarkers(item.element, clone, excluded);
+              if (!item.displayMath) return;
+              clone.style.setProperty('display', 'block', 'important');
+              clone.style.setProperty('height', item.height + 'px', 'important');
+              clone.style.setProperty('overflow', 'visible', 'important');
+              var displays = clone.matches('.katex-display') ? [clone] : [];
+              Array.prototype.push.apply(displays, clone.querySelectorAll('.katex-display'));
+              displays.forEach(function (display) {
+                display.style.setProperty('overflow', 'visible', 'important');
+              });
+            },
+            timeout: remaining
+          }), remaining, '渲染页面分块');
+          outputContext.drawImage(tile, item.left * scale, item.top * scale, item.width * scale, item.height * scale);
         }
-        function paintBackground(element, rect) {
-          var color = window.getComputedStyle(element).backgroundColor;
-          if (!color || color === 'transparent' || /,\s*0(?:\.0+)?\s*\)$/.test(color)) return;
-          outputContext.save();
-          outputContext.beginPath();
-          outputContext.rect(0, 0, output.width, output.height);
-          outputContext.clip();
-          outputContext.fillStyle = color;
-          outputContext.fillRect(rect.left * scale, rect.top * scale, rect.width * scale, rect.height * scale);
-          outputContext.restore();
-        }
-        function collectTiles(element) {
-          if (!element || element.nodeType !== 1 || element.matches(excluded) ||
-              (element.closest && element.closest(excluded))) return;
-          var style = window.getComputedStyle(element);
-          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ||
-              style.position === 'fixed' || style.position === 'sticky') return;
-          var rect = element.getBoundingClientRect();
-          if (!intersectsViewport(rect)) return;
-          var children = element.children;
-          if (rect.height <= viewportHeight * 1.5 || !children.length || hasDirectText(element)) {
-            tiles.push({
-              element: element,
-              left: rect.left,
-              top: rect.top,
-              width: rect.width,
-              height: rect.height
-            });
-            return;
-          }
-          paintBackground(element, rect);
-          Array.prototype.forEach.call(children, collectTiles);
-        }
-        Array.prototype.forEach.call(root.children, collectTiles);
-        var nextTile = 0;
-        var renderTile = async function () {
-          while (nextTile < tiles.length) {
-            var item = tiles[nextTile++];
-            var remaining = renderTimeout - (Date.now() - startedAt);
-            if (remaining <= 0) throw new Error('页面分块渲染超时');
-            var tile = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
-              width: item.width,
-              height: item.height,
-              scale: scale,
-              maximumCanvasSize: 4096,
-              style: { margin: '0', boxSizing: 'border-box' },
-              features: {
-                restoreScrollPosition: item.element.scrollHeight > item.element.clientHeight ||
-                  item.element.scrollWidth > item.element.clientWidth
-              },
-              filter: filter,
-              timeout: remaining
-            }), remaining, '渲染页面分块');
-            outputContext.drawImage(tile, item.left * scale, item.top * scale, item.width * scale, item.height * scale);
-          }
-        };
-        await Promise.all(Array.from({ length: Math.min(3, tiles.length) }, renderTile));
-        restoreFixedElements();
-        restoreFixedElements = null;
+      };
+      await Promise.all(Array.from({ length: Math.min(3, tiles.length) }, renderTile));
       if (fixedElements.length) {
         var layers = [];
         var nextFixedLayer = 0;
@@ -1736,14 +1789,32 @@
             var item = fixedElements[nextFixedLayer++];
             var remaining = renderTimeout - (Date.now() - startedAt);
             if (remaining <= 0) throw new Error('固定图层渲染超时');
+            var fixedStyle = { margin: '0', boxSizing: 'border-box' };
+            if (item.displayMath) {
+              fixedStyle.display = 'block';
+              fixedStyle.height = item.height + 'px';
+              fixedStyle.overflow = 'visible';
+            }
             var layer = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
               width: item.width,
               height: item.height,
               scale: scale,
               maximumCanvasSize: 4096,
-              style: { margin: '0', boxSizing: 'border-box' },
+              style: fixedStyle,
               features: { restoreScrollPosition: true },
-              filter: filter,
+              filter: createFilter(item.element),
+              onCloneNode: function (clone) {
+                prepareCounterMarkers(item.element, clone, excluded);
+                if (!item.displayMath) return;
+                clone.style.setProperty('display', 'block', 'important');
+                clone.style.setProperty('height', item.height + 'px', 'important');
+                clone.style.setProperty('overflow', 'visible', 'important');
+                var displays = clone.matches('.katex-display') ? [clone] : [];
+                Array.prototype.push.apply(displays, clone.querySelectorAll('.katex-display'));
+                displays.forEach(function (display) {
+                  display.style.setProperty('overflow', 'visible', 'important');
+                });
+              },
               timeout: remaining
             }), remaining, '渲染固定图层');
             layers.push({ canvas: layer, item: item });
@@ -1756,11 +1827,8 @@
         });
       }
     } finally {
-      if (restoreFixedElements) restoreFixedElements();
       documentRoot.classList.remove('ap-capturing');
-      if (cleanupCounterMarkers) cleanupCounterMarkers();
     }
-    if (!output) throw new Error('无法渲染当前页面');
     var crop = await openCropOverlay(output);
     return crop ? {
       blob: crop.blob,
