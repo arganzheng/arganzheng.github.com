@@ -549,6 +549,13 @@ button: `captureScreenshot()` hides editors and toolbars with
 the same compression and upload path. The crop overlay can add red boxes,
 arrows, and text on a separate natural-pixel canvas; 「整张」 selects all and
 double-click completes the crop. Unsupported browsers hide the button.
+`startScreenshotComment(targetEl)` checks GitHub login before capture; without a
+button target it maps the crop centre through `elementFromPoint` only when
+`displaySurface` is `browser` / undefined and the captured frame aspect ratio
+matches the viewport within 0.03. It anchors to figure / Mermaid captions,
+table captions or header rows, code titles, headings, or the first sentence
+(at most 60 characters) of a prose block; if no anchor is reliable, the image
+goes to the bottom comment editor with a toast.
 
 The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply

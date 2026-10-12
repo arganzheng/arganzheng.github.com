@@ -120,6 +120,12 @@
     return button(FIG_TITLE, function () { pick(cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), cap); });
   }
 
+  function screenshotButton(title, target) {
+    return button(title, function () {
+      document.dispatchEvent(new CustomEvent('blog:screenshot-comment', { detail: { target: target } }));
+    }, 'fig-screenshot', '<i class="fa fa-scissors" aria-hidden="true"></i>');
+  }
+
   // Strip that holds the buttons (copy · 放大 · feedback). `host` is the
   // element code-copy.js appends its button to; `mount` (default host) is
   // where the strip lives. For pictures and diagrams the mount is the
@@ -172,6 +178,7 @@
       var strip = tools(fig, media(img));
       strip.appendChild(zoomButton(img));
       strip.appendChild(figureButton(cap));
+      strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no')));
     });
   }
 
@@ -191,6 +198,7 @@
       d.classList.add('code-copy-anchor');
       if (svg) strip.appendChild(zoomButton(svg));
       strip.appendChild(figureButton(cap));
+      strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no')));
     });
   }
 
@@ -249,6 +257,7 @@
       var feedback = button(TABLE_TITLE, function () { pick(target, target.closest('.post-figcaption') || target); });
       feedback.classList.add('table-feedback');
       tools.appendChild(feedback);
+      tools.appendChild(screenshotButton('截图评论这张表（⌥S / Alt+S）', target));
     });
   }
 
@@ -315,6 +324,7 @@
       Array.prototype.forEach.call(pre.querySelectorAll(':scope > .code-copy'), function (c) { strip.insertBefore(c, strip.firstChild); });
       var target = head.querySelector('.fig-title') || head.querySelector('.fig-no') || code;
       strip.appendChild(button(CODE_TITLE, function () { pick(target, head); }));
+      strip.appendChild(screenshotButton('截图评论这段代码（⌥S / Alt+S）', target));
     });
   }
 

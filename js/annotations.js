@@ -147,6 +147,21 @@
       section: section
     };
 
+    if (supportsScreenshotCapture()) {
+      document.documentElement.classList.add('ap-screenshot-ready');
+      document.addEventListener('keydown', function (e) {
+        if (e.defaultPrevented || !e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyS') return;
+        var target = e.target && e.target.nodeType === 1 ? e.target : e.target && e.target.parentElement;
+        if (target && (target.matches('INPUT, TEXTAREA, SELECT') || target.isContentEditable)) return;
+        if (document.querySelector('.ap-crop-overlay') || document.documentElement.classList.contains('ap-capturing')) return;
+        e.preventDefault();
+        startScreenshotComment();
+      });
+      document.addEventListener('blog:screenshot-comment', function (e) {
+        startScreenshotComment(e.detail && e.detail.target);
+      });
+    }
+
     bindSelection();
     initCommentSection();
     loadViews();
@@ -1219,8 +1234,8 @@
           setStatus(host, '登录 GitHub 后才能截图', 'error');
           return;
         }
-        captureScreenshot().then(function (blob) {
-          if (blob) uploadImages([new File([blob], 'screenshot.png', { type: 'image/png' })]);
+        captureScreenshot().then(function (shot) {
+          if (shot) uploadImages([new File([shot.blob], 'screenshot.png', { type: 'image/png' })]);
         }).catch(function (err) {
           setStatus(host, '截图失败：' + (err.message || String(err)), 'error');
         }).then(function () {
@@ -1266,6 +1281,7 @@
       }
       files.forEach(uploadImage);
     }
+    ta._apUploadImages = uploadImages;
 
     function uploadImage(file) {
       var placeholder = '![上传中 截图-' + (++uploadSequence) + '…]()';
@@ -1363,10 +1379,20 @@
     return ta;
   }
 
+  function supportsScreenshotCapture() {
+    return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
+  }
+
   async function captureScreenshot() {
     var stream = null, video = null, captured = null;
+    var frameWidth = 0, frameHeight = 0, surface;
+    var scrollX = 0, scrollY = 0, viewportWidth = 0, viewportHeight = 0;
     document.documentElement.classList.add('ap-capturing');
     try {
+      scrollX = window.scrollX;
+      scrollY = window.scrollY;
+      viewportWidth = window.innerWidth;
+      viewportHeight = window.innerHeight;
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'browser' },
         audio: false,
@@ -1374,6 +1400,11 @@
         selfBrowserSurface: 'include',
         surfaceSwitching: 'exclude'
       });
+      var tracks = stream.getVideoTracks();
+      if (tracks.length && tracks[0].getSettings) {
+        var settings = tracks[0].getSettings();
+        surface = settings && settings.displaySurface;
+      }
       video = document.createElement('video');
       video.muted = true;
       video.setAttribute('playsinline', '');
@@ -1401,9 +1432,11 @@
       }
       await new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
       await new Promise(function (resolve) { setTimeout(resolve, 300); });
+      frameWidth = video.videoWidth;
+      frameHeight = video.videoHeight;
       captured = document.createElement('canvas');
-      captured.width = video.videoWidth;
-      captured.height = video.videoHeight;
+      captured.width = frameWidth;
+      captured.height = frameHeight;
       var context = captured.getContext('2d');
       if (!context) throw new Error('无法处理共享画面');
       context.drawImage(video, 0, 0, captured.width, captured.height);
@@ -1427,7 +1460,19 @@
         document.documentElement.classList.remove('ap-capturing');
       }
     }
-    return captured ? openCropOverlay(captured) : null;
+    if (!captured) return null;
+    var crop = await openCropOverlay(captured);
+    return crop ? {
+      blob: crop.blob,
+      rect: crop.rect,
+      frameWidth: frameWidth,
+      frameHeight: frameHeight,
+      surface: surface,
+      scrollX: scrollX,
+      scrollY: scrollY,
+      viewportWidth: viewportWidth,
+      viewportHeight: viewportHeight
+    } : null;
   }
 
   function openCropOverlay(canvas) {
@@ -1811,7 +1856,10 @@
         context.drawImage(markupCanvas, left, top, output.width, output.height, 0, 0, output.width, output.height);
         output.toBlob(function (blob) {
           if (!blob) close(null, new Error('无法导出裁剪图片'));
-          else close(blob);
+          else close({
+            blob: blob,
+            rect: { left: left, top: top, width: output.width, height: output.height }
+          });
         }, 'image/png');
       }
       function onCancel() { close(null); }
@@ -1865,6 +1913,161 @@
       listen(document, 'keydown', onKeyDown, true);
       updateActiveTool();
       cancelButton.focus();
+    });
+  }
+
+  function rangeForOffsets(offsets) {
+    var segs = segmentsFor(offsets.start, offsets.end);
+    if (!segs.length) return null;
+    var range = document.createRange();
+    range.setStart(segs[0].node, segs[0].from);
+    range.setEnd(segs[segs.length - 1].node, segs[segs.length - 1].to);
+    return range;
+  }
+
+  function rangeForContents(el) {
+    if (!el) return null;
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    return range;
+  }
+
+  function screenshotAnchorRange(el) {
+    if (!el || !container) return null;
+    if (el.nodeType !== 1) el = el.parentElement;
+    if (!el || el === container || !container.contains(el)) return null;
+
+    var figure = el.closest('figure.post-figure');
+    if (figure) {
+      var figureCaption = figure.querySelector('.post-figcaption');
+      var figureTitle = figureCaption && (figureCaption.querySelector('.fig-title') || figureCaption.querySelector('.fig-no'));
+      return rangeForContents(figureTitle);
+    }
+
+    var mermaid = el.closest('.mermaid');
+    var mermaidCaption = mermaid ? mermaid.nextElementSibling : null;
+    if (!mermaid && el.closest('.post-figcaption')) {
+      var possibleCaption = el.closest('.post-figcaption');
+      if (possibleCaption.previousElementSibling && possibleCaption.previousElementSibling.classList.contains('mermaid')) {
+        mermaidCaption = possibleCaption;
+      }
+    }
+    if (mermaid || mermaidCaption) {
+      mermaidCaption = mermaidCaption && mermaidCaption.classList.contains('post-figcaption') ? mermaidCaption : null;
+      var mermaidTitle = mermaidCaption && (mermaidCaption.querySelector('.fig-title') || mermaidCaption.querySelector('.fig-no'));
+      return rangeForContents(mermaidTitle);
+    }
+
+    var table = el.closest('table');
+    var responsive = el.closest('.table-responsive');
+    var tableCaption = el.closest('.table-caption');
+    if (table || responsive || tableCaption) {
+      if (!table && responsive) table = responsive.querySelector('table');
+      var tableAnchor = table && table.parentElement.classList.contains('table-responsive') ? table.parentElement : table;
+      if (!tableAnchor && tableCaption) {
+        tableAnchor = tableCaption.previousElementSibling;
+        if (tableAnchor && tableAnchor.classList.contains('table-responsive')) table = tableAnchor.querySelector('table');
+        else if (tableAnchor && tableAnchor.tagName === 'TABLE') table = tableAnchor;
+      }
+      var caption = tableCaption || (tableAnchor && tableAnchor.nextElementSibling);
+      if (caption && !caption.classList.contains('table-caption')) caption = null;
+      var target = caption && caption.querySelector('.fig-title');
+      if (!target && table) target = table.querySelector('thead > tr') || table;
+      return rangeForContents(target);
+    }
+
+    var codeBlock = el.closest('.code-block');
+    if (codeBlock) {
+      var codeHeader = codeBlock.querySelector('.code-header');
+      var codeTitle = codeHeader && (codeHeader.querySelector('.fig-title') || codeHeader.querySelector('.fig-no'));
+      return rangeForContents(codeTitle);
+    }
+
+    var heading = el.closest('h1, h2, h3, h4, h5, h6');
+    if (heading) return rangeForContents(heading);
+
+    var block = el.closest('p, li, blockquote, dd, dt');
+    if (!block) return null;
+    buildIndex();
+    var blockRange = rangeForContents(block);
+    var offsets = blockRange && rangeToOffsets(blockRange);
+    if (!offsets) return null;
+    var text = index.text.slice(offsets.start, offsets.end);
+    var punctuation = /[。！？!?；;]|\. /.exec(text);
+    var length = Math.min(punctuation ? punctuation.index + 1 : text.length, 60);
+    if (!length) return null;
+    return rangeForOffsets({ start: offsets.start, end: offsets.start + length });
+  }
+
+  function screenshotAnchorElement(shot) {
+    if (!shot || (shot.surface !== 'browser' && typeof shot.surface !== 'undefined') ||
+        !shot.frameWidth || !shot.frameHeight || !shot.viewportWidth || !shot.viewportHeight ||
+        Math.abs(shot.frameWidth / shot.frameHeight - shot.viewportWidth / shot.viewportHeight) >= 0.03) return null;
+
+    var rect = shot.rect;
+    var x = (rect.left + rect.width / 2) * shot.viewportWidth / shot.frameWidth + shot.scrollX - window.scrollX;
+    var y = (rect.top + rect.height / 2) * shot.viewportHeight / shot.frameHeight + shot.scrollY - window.scrollY;
+    var cropTop = rect.top * shot.viewportHeight / shot.frameHeight + shot.scrollY - window.scrollY;
+    var cropBottom = (rect.top + rect.height) * shot.viewportHeight / shot.frameHeight + shot.scrollY - window.scrollY;
+    function candidateAt(pointY) {
+      var candidate = document.elementFromPoint(x, pointY);
+      return candidate && candidate !== container && container.contains(candidate) && screenshotAnchorRange(candidate) ? candidate : null;
+    }
+    var candidate = candidateAt(y);
+    if (candidate) return candidate;
+    for (var up = 24; y - up >= cropTop; up += 24) {
+      candidate = candidateAt(y - up);
+      if (candidate) return candidate;
+    }
+    for (var down = 24; y + down <= cropBottom; down += 24) {
+      candidate = candidateAt(y + down);
+      if (candidate) return candidate;
+    }
+    return null;
+  }
+
+  function addScreenshotToEditor(ta, shot) {
+    if (!ta || typeof ta._apUploadImages !== 'function') return false;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta._apUploadImages([new File([shot.blob], 'screenshot.png', { type: 'image/png' })]);
+    ta.setRangeText('\n', ta.selectionStart, ta.selectionEnd, 'end');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    return true;
+  }
+
+  function startScreenshotComment(targetEl) {
+    if (!supportsScreenshotCapture() || document.querySelector('.ap-crop-overlay') ||
+        document.documentElement.classList.contains('ap-capturing')) return;
+    if (!getSession()) {
+      showToast('登录 GitHub 后才能截图评论');
+      return;
+    }
+    hideToolbar();
+    if (window.getSelection) window.getSelection().removeAllRanges();
+    captureScreenshot().then(function (shot) {
+      if (!shot) return;
+      var anchorEl = targetEl || screenshotAnchorElement(shot);
+      var range = anchorEl && screenshotAnchorRange(anchorEl);
+      var offsets = range && selectionOffsets(range);
+      if (offsets) {
+        var sel = selectorFromOffsets(offsets);
+        openComposer(sel, offsets, range.endContainer, '', '');
+        var panelTextarea = panel && panel.querySelector('.ap-text');
+        if (addScreenshotToEditor(panelTextarea, shot)) {
+          var panelRect = panel.getBoundingClientRect();
+          if (panelRect.top < 0 || panelRect.bottom > window.innerHeight) panel.scrollIntoView({ block: 'center' });
+        }
+        return;
+      }
+      var bottomTextarea = document.querySelector('.annotation-comments .ac-editor .ap-text');
+      if (addScreenshotToEditor(bottomTextarea, shot)) {
+        bottomTextarea.scrollIntoView({ block: 'center' });
+        showToast('没有对应到文章里的位置，已放到文末评论框');
+      }
+    }).catch(function (err) {
+      showToast('截图失败：' + (err.message || String(err)));
     });
   }
 
