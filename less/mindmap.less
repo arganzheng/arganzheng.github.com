@@ -175,12 +175,26 @@ body.outline-unavailable .catalog-mindmap { display: none !important; }
 	&:hover { color: #24292f; border-color: #8c959f; background: #f6f8fa; }
 	&[hidden] { display: none !important; }
 }
-.mm-export-status {
-	padding: 0 4px;
-	color: #57606a;
-	font-size: 12px;
-	white-space: nowrap;
-	&:empty { display: none; }
+.mm-toast {
+	position: fixed;
+	bottom: 24px;
+	left: 50%;
+	z-index: 12002;
+	max-width: calc(100vw - 32px);
+	padding: 9px 16px;
+	color: #fff;
+	font-size: 14px;
+	line-height: 1.45;
+	text-align: center;
+	background: rgba(36, 41, 47, 0.96);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 8px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+	opacity: 0;
+	pointer-events: none;
+	transform: translate(-50%, 8px);
+	transition: opacity 0.16s ease, transform 0.16s ease;
+	&.is-visible { opacity: 1; transform: translate(-50%, 0); }
 }
 .mm-outline {
 	overflow: auto;
@@ -255,6 +269,7 @@ body.outline-unavailable .catalog-mindmap { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.mm-toast { transition: none !important; }
 	.mm-overlay *, .mm-overlay *::before, .mm-overlay *::after {
 		scroll-behavior: auto !important;
 		animation-duration: 0.01ms !important;

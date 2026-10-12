@@ -256,12 +256,8 @@
         });
       });
     }
-    var status = document.createElement('span');
-    status.className = 'mm-export-status';
-    status.setAttribute('aria-live', 'polite');
-    toolbar.appendChild(status);
     container.appendChild(toolbar);
-    return { element: toolbar, status: status };
+    return { element: toolbar };
   }
 
   function mount(container, options) {
@@ -296,6 +292,7 @@
     var panStart = null, pinchStart = null, moved = false, ignoreClick = false;
     var mode = options.mode === 'outline' ? 'outline' : 'map';
     var observer = null;
+    var statusToast = null, statusTimer = null;
 
     function applyTransform() {
       if (contentGroup) contentGroup.setAttribute('transform', 'matrix(' + scale + ',0,0,' + scale + ',' + panX + ',' + panY + ')');
@@ -305,10 +302,37 @@
       if (!svg || !layout) return;
       var width = viewport.clientWidth, height = viewport.clientHeight;
       if (!width || !height) return;
-      scale = Math.min((width - 56) / layout.width, (height - 56) / layout.height, 1.5);
+      var topInset = toolbarInfo.element.offsetHeight + 12;
+      var availableHeight = Math.max(1, height - topInset - 12);
+      scale = Math.min((width - 56) / layout.width, availableHeight / layout.height, 1.5);
       scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
       panX = (width - layout.width * scale) / 2;
-      panY = (height - layout.height * scale) / 2;
+      panY = topInset + (availableHeight - layout.height * scale) / 2;
+      hasView = true;
+      applyTransform();
+    }
+
+    function initialView() {
+      if (!svg || !layout) return;
+      var width = viewport.clientWidth, height = viewport.clientHeight;
+      if (!width || !height) return;
+      var topInset = toolbarInfo.element.offsetHeight + 12;
+      var availableHeight = Math.max(1, height - topInset - 12);
+      var fittedScale = Math.min((width - 56) / layout.width, availableHeight / layout.height, 1.5);
+      if (fittedScale >= 0.6) {
+        fit();
+        return;
+      }
+      scale = 0.85;
+      var rootHalfWidth = layout.root.width * scale / 2;
+      var minimumCenter = rootHalfWidth + 12;
+      var maximumCenter = width - rootHalfWidth - 12;
+      var rootCenter = width * 0.36;
+      rootCenter = maximumCenter >= minimumCenter
+        ? Math.min(maximumCenter, Math.max(minimumCenter, rootCenter))
+        : Math.max(minimumCenter, rootCenter);
+      panX = rootCenter - layout.root.x * scale;
+      panY = topInset + availableHeight / 2 - layout.root.y * scale;
       hasView = true;
       applyTransform();
     }
@@ -501,7 +525,7 @@
           applyTransform();
         }
       } else if (!hasView) {
-        window.requestAnimationFrame(fit);
+        window.requestAnimationFrame(initialView);
       }
     }
 
@@ -585,7 +609,7 @@
         button.hidden = mode !== 'map';
       });
       if (remember) safeSet(MODE_KEY, mode);
-      if (mode === 'map') window.requestAnimationFrame(function () { if (!hasView) fit(); });
+      if (mode === 'map') window.requestAnimationFrame(function () { if (!hasView) initialView(); });
       if (typeof options.onMode === 'function') options.onMode(mode);
     }
 
@@ -598,10 +622,26 @@
     }
 
     function setStatus(message) {
-      toolbarInfo.status.textContent = message;
-      if (message) window.setTimeout(function () {
-        if (toolbarInfo.status.textContent === message) toolbarInfo.status.textContent = '';
-      }, 3000);
+      if (!statusToast || !statusToast.parentNode) {
+        statusToast = document.createElement('div');
+        statusToast.className = 'mm-toast';
+        statusToast.setAttribute('role', 'status');
+        statusToast.setAttribute('aria-live', 'polite');
+        var host = container.closest('.mm-overlay') || document.body;
+        host.appendChild(statusToast);
+      }
+      statusToast.textContent = message;
+      statusToast.classList.add('is-visible');
+      if (statusTimer) window.clearTimeout(statusTimer);
+      statusTimer = window.setTimeout(function () {
+        if (!statusToast) return;
+        statusToast.classList.remove('is-visible');
+        statusTimer = window.setTimeout(function () {
+          if (statusToast && statusToast.parentNode) statusToast.parentNode.removeChild(statusToast);
+          statusToast = null;
+          statusTimer = null;
+        }, 180);
+      }, 2000);
     }
 
     function exportPng() {
@@ -744,7 +784,7 @@
     renderOutline();
     renderMap();
     setMode(mode, false);
-    window.requestAnimationFrame(function () { if (!hasView) fit(); });
+    window.requestAnimationFrame(function () { if (!hasView) initialView(); });
     if (window.MutationObserver) {
       observer = new MutationObserver(function (records) {
         if (records.some(function (record) { return record.attributeName === 'data-theme'; })) renderMap();
@@ -752,7 +792,7 @@
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     }
     if (window.ResizeObserver) {
-      var resizeObserver = new ResizeObserver(function () { if (!hasView) fit(); });
+      var resizeObserver = new ResizeObserver(function () { if (!hasView) initialView(); });
       resizeObserver.observe(viewport);
       var disconnect = observer;
       observer = {
@@ -766,7 +806,12 @@
     return {
       setMode: setMode,
       refresh: function () { renderMap(); renderOutline(); },
-      destroy: function () { if (observer) observer.disconnect(); }
+      destroy: function () {
+        if (observer) observer.disconnect();
+        if (statusTimer) window.clearTimeout(statusTimer);
+        if (statusToast && statusToast.parentNode) statusToast.parentNode.removeChild(statusToast);
+        statusToast = null;
+      }
     };
   }
 
@@ -826,7 +871,7 @@
     }
     function close() {
       if (!overlay.parentNode) return;
-      document.removeEventListener('keydown', onKeydown, true);
+      window.removeEventListener('keydown', onKeydown, true);
       if (controller) controller.destroy();
       overlay.remove();
       body.style.overflow = previousOverflow;
@@ -851,7 +896,7 @@
     controller = mount(content, mountOptions);
     controller.setMode(initialMode, false);
     closeButton.addEventListener('click', close);
-    document.addEventListener('keydown', onKeydown, true);
+    window.addEventListener('keydown', onKeydown, true);
     setTabs(initialMode);
     closeButton.focus();
     return { close: close };
@@ -881,8 +926,10 @@
       button.addEventListener('click', function () {
         var currentHeadings = window.BlogOutline ? window.BlogOutline.headings() : [];
         if (currentHeadings.length < 2) return;
+        var postActions = document.querySelector('.post-actions[data-title]');
         var titleNode = document.querySelector('.post-heading h1');
-        var title = titleNode ? titleNode.textContent.trim() : document.title;
+        var title = (postActions && postActions.getAttribute('data-title')) ||
+          (titleNode && titleNode.textContent.trim()) || document.title;
         var slug = window.location.pathname.replace(/\/+$/, '').split('/').pop().replace(/\.[^.]+$/, '') || 'article';
         open({
           title: title,

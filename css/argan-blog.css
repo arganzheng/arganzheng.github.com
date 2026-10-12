@@ -3519,14 +3519,29 @@ body.outline-unavailable .catalog-mindmap {
 .mm-control[hidden] {
   display: none !important;
 }
-.mm-export-status {
-  padding: 0 4px;
-  color: #57606a;
-  font-size: 12px;
-  white-space: nowrap;
+.mm-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 12002;
+  max-width: calc(100vw - 32px);
+  padding: 9px 16px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  background: rgba(36, 41, 47, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
 }
-.mm-export-status:empty {
-  display: none;
+.mm-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 .mm-outline {
   overflow: auto;
@@ -3641,6 +3656,9 @@ body.outline-unavailable .catalog-mindmap {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .mm-toast {
+    transition: none !important;
+  }
   .mm-overlay *,
   .mm-overlay *::before,
   .mm-overlay *::after {
@@ -9594,9 +9612,6 @@ html[data-theme="dark"] .mm-control:hover {
   color: #eceef1;
   background: #282b30;
   border-color: #606770;
-}
-html[data-theme="dark"] .mm-export-status {
-  color: #969ba4;
 }
 html[data-theme="dark"] .mm-outline {
   background: #17181b;
