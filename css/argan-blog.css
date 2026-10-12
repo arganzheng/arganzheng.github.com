@@ -269,6 +269,17 @@ pre code {
 .postlist-container {
   margin-bottom: 15px;
 }
+.post-container mark.md-hl,
+.markdown-body mark.md-hl {
+  padding: 0 0.12em;
+  border-radius: 2px;
+  background-color: #fff1a8;
+  color: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 .post-container a {
   color: #337ab7;
 }
@@ -4964,66 +4975,135 @@ html.ap-capturing .table-tools {
   position: absolute;
   z-index: 2;
   box-sizing: border-box;
-  border: 1px solid #fff;
+  border: 2px solid #07C160;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  cursor: move;
+}
+.ap-crop-size {
+  position: absolute;
+  left: 0;
+  z-index: 4;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(24, 26, 28, 0.9);
+  color: #fff;
+  font: 11px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ap-crop-handle {
+  position: absolute;
+  z-index: 3;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  background: #07C160;
+}
+.ap-crop-handle[data-handle="nw"] {
+  left: 0;
+  top: 0;
+  cursor: nw-resize;
+}
+.ap-crop-handle[data-handle="n"] {
+  left: 50%;
+  top: 0;
+  cursor: n-resize;
+}
+.ap-crop-handle[data-handle="ne"] {
+  left: 100%;
+  top: 0;
+  cursor: ne-resize;
+}
+.ap-crop-handle[data-handle="e"] {
+  left: 100%;
+  top: 50%;
+  cursor: e-resize;
+}
+.ap-crop-handle[data-handle="se"] {
+  left: 100%;
+  top: 100%;
+  cursor: se-resize;
+}
+.ap-crop-handle[data-handle="s"] {
+  left: 50%;
+  top: 100%;
+  cursor: s-resize;
+}
+.ap-crop-handle[data-handle="sw"] {
+  left: 0;
+  top: 100%;
+  cursor: sw-resize;
+}
+.ap-crop-handle[data-handle="w"] {
+  left: 0;
+  top: 50%;
+  cursor: w-resize;
+}
+.ap-crop-overlay[data-tool="rect"] .ap-crop-selection,
+.ap-crop-overlay[data-tool="arrow"] .ap-crop-selection,
+.ap-crop-overlay[data-tool="text"] .ap-crop-selection {
   pointer-events: none;
 }
 .ap-crop-toolbar {
   position: fixed;
-  left: 50%;
-  bottom: 24px;
+  left: 8px;
+  top: 8px;
   z-index: 2;
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: calc(100vw - 32px);
-  padding: 8px 10px;
+  gap: 2px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
   box-sizing: border-box;
-  transform: translateX(-50%);
   background: rgba(24, 26, 28, 0.98);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
   color: #fff;
 }
-.ap-crop-hint {
-  flex-basis: 100%;
-  text-align: center;
-  font-size: 12.5px;
-  line-height: 1.4;
-  white-space: nowrap;
-}
 .ap-crop-toolbar button {
-  padding: 6px 10px;
-  background: #30343a;
-  border: 1px solid #5c626a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
   border-radius: 5px;
   color: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 .ap-crop-toolbar button:hover:not(:disabled) {
-  background: #00788f;
-  border-color: #00788f;
+  background: rgba(255, 255, 255, 0.16);
 }
 .ap-crop-toolbar button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.ap-crop-toolbar button:focus {
+  outline: none;
+}
+.ap-crop-toolbar button:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
+}
 .ap-crop-toolbar .ap-crop-tool,
-.ap-crop-toolbar .ap-crop-undo {
-  min-width: 34px;
-  padding: 6px 8px;
+.ap-crop-toolbar .ap-crop-undo,
+.ap-crop-toolbar .ap-crop-share,
+.ap-crop-toolbar .ap-crop-cancel,
+.ap-crop-toolbar .ap-crop-complete {
+  flex: 0 0 32px;
 }
 .ap-crop-toolbar .ap-crop-tool.is-active {
-  background: #00788f;
-  border-color: #00788f;
+  background: rgba(255, 255, 255, 0.2);
   color: #fff;
+}
+.ap-crop-toolbar .ap-crop-complete {
+  color: #07C160;
 }
 .ap-crop-separator {
   align-self: stretch;
@@ -5078,13 +5158,8 @@ html.ap-capturing .table-tools {
     gap: 8px;
   }
   .ap-crop-toolbar {
-    gap: 6px;
-    padding: 7px;
-  }
-  .ap-crop-hint {
-    flex-basis: 100%;
-    white-space: normal;
-    text-align: center;
+    gap: 1px;
+    padding: 3px;
   }
   .post-container .annotation-comments .ac-head {
     flex-wrap: wrap;
@@ -10038,6 +10113,11 @@ html[data-theme="dark"] .post-container img[src*=".svg"] {
   padding: 8px;
   border-radius: 6px;
   filter: none;
+}
+html[data-theme="dark"] .post-container mark.md-hl,
+html[data-theme="dark"] .markdown-body mark.md-hl {
+  background-color: rgba(250, 204, 21, 0.26);
+  color: inherit;
 }
 html[data-theme="dark"] .post-container pre.lineno .line::before {
   color: #969ba4;

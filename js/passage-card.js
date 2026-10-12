@@ -214,6 +214,44 @@
     }
   }
 
+  function drawFooter(ctx, o, assets, footerTop, footerH, titleLines, qrX, authorX, titleWidth) {
+    var avatar = assets.avatar, qr = assets.qr;
+    var avatarX = PAD, avatarY = footerTop + (footerH - 120) / 2;
+    var textBlockHeight = FOOTER_LINE_HEIGHT + titleLines.length * FOOTER_LINE_HEIGHT;
+    var textBlockTop = footerTop + (footerH - textBlockHeight) / 2;
+    if (avatar) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(avatarX + 60, avatarY + 60, 60, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(avatar, avatarX, avatarY, 120, 120);
+      ctx.restore();
+    }
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = 'bold 40px ' + SANS;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(o.author || 'arganzheng', authorX, textBlockTop + 40, titleWidth);
+    ctx.fillStyle = '#333333';
+    ctx.font = TITLE_FONT_SIZE + 'px ' + SANS;
+    for (var t = 0; t < titleLines.length; t++) {
+      ctx.fillText(titleLines[t], authorX, textBlockTop + FOOTER_LINE_HEIGHT + 36 + t * FOOTER_LINE_HEIGHT, titleWidth);
+    }
+    if (qr) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(qrX, footerTop, 180, 180);
+      ctx.drawImage(qr, qrX, footerTop, 180, 180);
+    }
+  }
+
+  function imageFromBlob(blob) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(blob), image = new Image();
+      image.onload = function () { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = function () { URL.revokeObjectURL(url); reject(new Error('无法读取截图')); };
+      image.src = url;
+    });
+  }
+
   function renderCard(o, assets) {
     var ctxProbe = document.createElement('canvas').getContext('2d');
     ctxProbe.font = SERIF;
@@ -239,33 +277,7 @@
     drawLines(ctx, lines, quoteLines, topSpace);
 
     var footerTop = height - bottomPad - footerH;
-    var avatar = assets.avatar, qr = assets.qr;
-    var avatarX = PAD, avatarY = footerTop + (footerH - 120) / 2;
-    var textBlockHeight = FOOTER_LINE_HEIGHT + titleLines.length * FOOTER_LINE_HEIGHT;
-    var textBlockTop = footerTop + (footerH - textBlockHeight) / 2;
-    if (avatar) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(avatarX + 60, avatarY + 60, 60, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(avatar, avatarX, avatarY, 120, 120);
-      ctx.restore();
-    }
-
-    ctx.fillStyle = '#1a1a1a';
-    ctx.font = 'bold 40px ' + SANS;
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(o.author || 'arganzheng', authorX, textBlockTop + 40, titleWidth);
-    ctx.fillStyle = '#333333';
-    ctx.font = TITLE_FONT_SIZE + 'px ' + SANS;
-    for (var t = 0; t < titleLines.length; t++) {
-      ctx.fillText(titleLines[t], authorX, textBlockTop + FOOTER_LINE_HEIGHT + 36 + t * FOOTER_LINE_HEIGHT, titleWidth);
-    }
-    if (qr) {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(qrX, footerTop, 180, 180);
-      ctx.drawImage(qr, qrX, footerTop, 180, 180);
-    }
+    drawFooter(ctx, o, assets, footerTop, footerH, titleLines, qrX, authorX, titleWidth);
     return new Promise(function (resolve, reject) {
       canvas.toBlob(function (blob) {
         if (blob) resolve(blob); else reject(new Error('图片生成失败'));
@@ -286,5 +298,58 @@
     });
   }
 
-  window.BlogPassageCard = { render: render };
+  function renderScreenshot(o) {
+    o = o || {};
+    var bar = document.querySelector('.post-actions[data-author]');
+    o.author = bar ? bar.getAttribute('data-author') : 'arganzheng';
+    var title = o.title || document.title;
+    var url = o.url || location.href.split('#')[0];
+    return Promise.all([
+      document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve(),
+      avatarImage(),
+      qrImage(url),
+      imageFromBlob(o.image)
+    ]).then(function (assets) {
+      var screenshot = assets[3];
+      if (!screenshot.naturalWidth || !screenshot.naturalHeight) throw new Error('截图尺寸无效');
+      var ctxProbe = document.createElement('canvas').getContext('2d');
+      var qrX = WIDTH - PAD - 180, authorX = PAD + 120 + 28;
+      var titleWidth = Math.max(0, qrX - authorX - 32);
+      var titleLines = wrapTitle(ctxProbe, title, titleWidth);
+      var footerH = Math.max(180, FOOTER_LINE_HEIGHT + titleLines.length * FOOTER_LINE_HEIGHT);
+      var scale = Math.min((WIDTH - PAD * 2) / screenshot.naturalWidth, 1400 / screenshot.naturalHeight, 1);
+      var imageWidth = Math.round(screenshot.naturalWidth * scale);
+      var imageHeight = Math.round(screenshot.naturalHeight * scale);
+      var imageLeft = PAD + ((WIDTH - PAD * 2) - imageWidth) / 2;
+      var imageTop = 120;
+      var footerTop = imageTop + imageHeight + 120;
+      var height = Math.max(1080, footerTop + footerH + 120);
+      var canvas = document.createElement('canvas');
+      canvas.width = WIDTH;
+      canvas.height = height;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#f7f7f7';
+      ctx.fillRect(0, 0, WIDTH, height);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, .18)';
+      ctx.shadowBlur = 22;
+      ctx.shadowOffsetY = 6;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(imageLeft, imageTop, imageWidth, imageHeight);
+      ctx.restore();
+      ctx.drawImage(screenshot, imageLeft, imageTop, imageWidth, imageHeight);
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(imageLeft + .5, imageTop + .5, imageWidth - 1, imageHeight - 1);
+      drawFooter(ctx, { author: o.author, title: title }, { avatar: assets[1], qr: assets[2] },
+        footerTop, footerH, titleLines, qrX, authorX, titleWidth);
+      return new Promise(function (resolve, reject) {
+        canvas.toBlob(function (blob) {
+          if (blob) resolve(blob); else reject(new Error('图片生成失败'));
+        }, 'image/png');
+      });
+    });
+  }
+
+  window.BlogPassageCard = { render: render, renderScreenshot: renderScreenshot };
 })();

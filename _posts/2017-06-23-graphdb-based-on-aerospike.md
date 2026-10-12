@@ -49,7 +49,7 @@ tags: [图数据库, aerospike]
 * vertex label: neo4j的node可以有0个或者多个lable；titan则是0个或者1个，如果没有指定，会使用默认的label。出于性能考虑，GDB要求必须提供一个label。
 * 属性理论上来说是可以有一些附加元信息的，如置信度，作者，来源等；Titan的Property of Property能够很好的支持这个功能；但是考虑到复杂性和需求的特殊性，这里不考虑。
 * 这里不强制要求weighted edge，如果要表示关系的强弱程度(Weight of Edge)，可以在边的properties中增加weight属性，可以用于关系检索时候的排序和截断。
-* 关系也可能有别名，如: 妻子==老婆==夫人，由上层进行归一或者业务存储一个alias的property实现，GDB不处理这个。
+* 关系也可能有别名，如: 妻子 = 老婆 = 夫人，由上层进行归一或者业务存储一个alias的property实现，GDB不处理这个。
 
 
 ### 接口

@@ -311,7 +311,13 @@
   window.BlogShare = {
     open: function (btn, ctx) { if (isOpenFor(btn)) closePop(); else openPop(ctx, btn); },
     close: closePop,
-    copyText: copyText
+    copyText: copyText,
+    showImage: function (card, filename) {
+      var ctx = shareCtx(document.querySelector('.post-actions'));
+      ctx.card = card;
+      ctx.filename = filename;
+      showCard(ctx);
+    }
   };
 
   // ------------------------------------------------------------- 点赞
