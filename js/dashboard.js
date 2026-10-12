@@ -131,6 +131,8 @@
     var today = tools.beijingToday();
     var posts = tools.upcoming(data.scheduled || []);
     var grouped = tools.groupSchedule(posts);
+    var paletteBySeries = Object.create(null);
+    grouped.series.forEach(function (group) { paletteBySeries[group.key] = group.paletteIndex; });
     var byDate = Object.create(null);
     posts.forEach(function (post) { (byDate[post.date] || (byDate[post.date] = [])).push(post); });
 
@@ -190,7 +192,7 @@
           var className = 'dash-cal-day';
           if (items.length) {
             var colored = items.filter(function (post) { return post.series; })[0];
-            className += colored ? ' series-color-' + tools.paletteIndex(colored.series) : ' is-unassigned';
+            className += colored ? ' series-color-' + paletteBySeries[colored.series] : ' is-unassigned';
           }
           if (collisions[date]) className += ' is-collision';
           if (gaps[date]) className += ' is-gap';
@@ -218,7 +220,7 @@
       calendar.innerHTML = calendarHtml();
       legend.innerHTML = '<span class="dash-schedule-legend-title">图例</span>' +
         grouped.series.map(function (group) {
-          return '<span><i class="dash-schedule-swatch series-color-' + tools.paletteIndex(group.key) + '"></i>' + h((data.series && data.series[group.key] && data.series[group.key].name) || group.key) + '</span>';
+          return '<span><i class="dash-schedule-swatch series-color-' + group.paletteIndex + '"></i>' + h((data.series && data.series[group.key] && data.series[group.key].name) || group.key) + '</span>';
         }).join('') +
         (grouped.unassigned.length ? '<span><i class="dash-schedule-swatch is-unassigned"></i>未归入系列</span>' : '') +
         '<span><i class="dash-schedule-swatch is-collision"></i>冲突</span><span><i class="dash-schedule-swatch is-gap"></i>空档 ≥3 天</span>';

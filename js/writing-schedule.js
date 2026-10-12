@@ -68,17 +68,15 @@
     }).sort(function (a, b) {
       return a.nextDate < b.nextDate ? -1 : (a.nextDate > b.nextDate ? 1 : a.key.localeCompare(b.key));
     });
+    series.forEach(function (group, index) {
+      group.paletteIndex = paletteIndex(index);
+    });
     unassigned.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : String(a.path).localeCompare(String(b.path))); });
     return { series: series, unassigned: unassigned };
   }
 
-  function paletteIndex(key) {
-    var hash = 2166136261;
-    String(key || '').split('').forEach(function (char) {
-      hash ^= char.charCodeAt(0);
-      hash = Math.imul(hash, 16777619);
-    });
-    return (hash >>> 0) % 8;
+  function paletteIndex(position) {
+    return position % 8;
   }
 
   return {
