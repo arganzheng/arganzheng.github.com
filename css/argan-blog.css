@@ -10588,6 +10588,32 @@ html[data-theme="sepia"] .page-header .title {
 html[data-theme="sepia"] .page-header .subtitle {
   color: #7a6c58;
 }
+html[data-theme="sepia"] .page-header > small.text-muted > a {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .page-header > small.text-muted > a:hover,
+html[data-theme="sepia"] .page-header > small.text-muted > a:focus {
+  color: #286090;
+}
+html[data-theme="sepia"] .post-preview > a {
+  color: #3b3124;
+}
+html[data-theme="sepia"] .post-preview > a:hover,
+html[data-theme="sepia"] .post-preview > a:focus {
+  color: #286090;
+}
+html[data-theme="sepia"] .post-preview > a > .post-title {
+  color: #2b2318;
+}
+html[data-theme="sepia"] .post-preview > a > .post-subtitle {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .post-preview > a:hover > .post-title,
+html[data-theme="sepia"] .post-preview > a:focus > .post-title,
+html[data-theme="sepia"] .post-preview > a:hover > .post-subtitle,
+html[data-theme="sepia"] .post-preview > a:focus > .post-subtitle {
+  color: #286090;
+}
 html[data-theme="sepia"] .reading-position-prompt {
   background-color: #e7dabd;
   border-color: #dccfb2;

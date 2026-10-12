@@ -55,6 +55,19 @@ html[data-theme="sepia"] {
 
 	.page-header .title { color: @sp-heading; }
 	.page-header .subtitle { color: @sp-muted; }
+	.page-header > small.text-muted > a { color: @sp-muted; }
+	.page-header > small.text-muted > a:hover,
+	.page-header > small.text-muted > a:focus { color: @sp-link; }
+
+	.post-preview > a {
+		color: @sp-text;
+		&:hover, &:focus { color: @sp-link; }
+		> .post-title { color: @sp-heading; }
+		> .post-subtitle { color: @sp-muted; }
+		&:hover > .post-title, &:focus > .post-title,
+		&:hover > .post-subtitle, &:focus > .post-subtitle { color: @sp-link; }
+	}
+
 	.reading-position-prompt {
 		background-color: @sp-surface-2;
 		border-color: @sp-border;
