@@ -106,8 +106,6 @@
   var panelState = null;     // { kind:'thread'|'editor', ids, selector, offsets, join }
   var toast = null;
   var selectionTimer = null;
-  var modernScreenshotPromise = null;
-  var bundleVersion = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
 
   // ------------------------------------------------------------------ init
 
@@ -1237,7 +1235,9 @@
           return;
         }
         captureScreenshot().then(function (shot) {
-          if (shot) uploadImages([new File([shot.blob], 'screenshot.png', { type: 'image/png' })]);
+          if (!shot) return;
+          if (shot.action === 'share') shareScreenshot(shot.blob);
+          else uploadImages([new File([shot.blob], 'screenshot.png', { type: 'image/png' })]);
         }).catch(function (err) {
           setStatus(host, '截图失败：' + (err.message || String(err)), 'error');
         }).then(function () {
@@ -1385,531 +1385,64 @@
     return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
   }
 
-  function loadModernScreenshot() {
-    if (window.modernScreenshot && typeof window.modernScreenshot.domToCanvas === 'function') {
-      return Promise.resolve(window.modernScreenshot);
-    }
-    if (!modernScreenshotPromise) {
-      modernScreenshotPromise = new Promise(function (resolve, reject) {
-        var script = document.createElement('script');
-        script.src = '/js/vendor/modern-screenshot-4.7.0.min.js' + (bundleVersion ? '?v=' + bundleVersion : '');
-        script.onload = function () {
-          if (window.modernScreenshot && typeof window.modernScreenshot.domToCanvas === 'function') resolve(window.modernScreenshot);
-          else reject(new Error('截图渲染库未加载'));
-        };
-        script.onerror = function () {
-          modernScreenshotPromise = null;
-          reject(new Error('截图渲染库加载失败'));
-        };
-        document.head.appendChild(script);
-      });
-    }
-    return modernScreenshotPromise;
-  }
-
-  function promiseWithTimeout(promise, timeout) {
-    return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () { reject(new Error('页面截图超时')); }, timeout);
-      Promise.resolve(promise).then(function (value) {
-        clearTimeout(timer);
-        resolve(value);
-      }, function (err) {
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
-  }
-
-  function pageBackgroundColor() {
-    var elements = [document.body, document.documentElement];
-    for (var i = 0; i < elements.length; i++) {
-      if (!elements[i]) continue;
-      var color = window.getComputedStyle(elements[i]).backgroundColor;
-      if (color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') return color;
-    }
-    return '#fff';
-  }
-
-  function counterEntries(value, defaultValue) {
-    var entries = {};
-    if (!value || value === 'none') return entries;
-    var match, pattern = /([a-zA-Z_-][\w-]*)(?:\s+(-?\d+))?/g;
-    while ((match = pattern.exec(value))) {
-      entries[match[1]] = match[2] === undefined ? defaultValue : parseInt(match[2], 10);
-    }
-    return entries;
-  }
-
-  function listItemCounterValue(list, item) {
-    var items = Array.prototype.filter.call(list.children, function (child) {
-      return child.tagName === 'LI';
-    });
-    var reversed = list.hasAttribute('reversed');
-    var start = parseInt(list.getAttribute('start'), 10);
-    if (isNaN(start)) start = reversed ? items.length : 1;
-    var step = reversed ? -1 : 1;
-    var value = start;
-    for (var i = 0; i < items.length; i++) {
-      var itemValue = parseInt(items[i].getAttribute('value'), 10);
-      if (!isNaN(itemValue)) value = itemValue;
-      if (items[i] === item) return value;
-      value += step;
-    }
-    return null;
-  }
-
-  function cssCounterValues(element, position, name) {
-    if (name === 'list-item') {
-      var item = element.closest('li');
-      var list = item && item.parentElement && item.parentElement.closest('ol, ul');
-      var listValue = list && listItemCounterValue(list, item);
-      return listValue === null || listValue === undefined ? null : [listValue];
-    }
-    var scope = null, baseValue = 0;
-    for (var ancestor = element; ancestor; ancestor = ancestor.parentElement) {
-      var resets = counterEntries(window.getComputedStyle(ancestor).counterReset, 0);
-      if (Object.prototype.hasOwnProperty.call(resets, name)) {
-        scope = ancestor;
-        baseValue = resets[name];
-        break;
-      }
-    }
-    if (!scope) return null;
-    var values = [baseValue], result = null;
-    function applyStyle(style, scopeElement) {
-      var reset = counterEntries(style.counterReset, 0);
-      var pushed = false;
-      if (Object.prototype.hasOwnProperty.call(reset, name)) {
-        if (scopeElement) values[values.length - 1] = reset[name];
-        else { values.push(reset[name]); pushed = true; }
-      }
-      var increments = counterEntries(style.counterIncrement, 1);
-      if (Object.prototype.hasOwnProperty.call(increments, name)) {
-        values[values.length - 1] += increments[name];
-      }
-      return pushed;
-    }
-    function visit(node, scopeElement) {
-      var pushed = applyStyle(window.getComputedStyle(node), scopeElement);
-      var beforePushed = applyStyle(window.getComputedStyle(node, '::before'), false);
-      if (node === element && position === 'before') {
-        result = values.slice();
-        return true;
-      }
-      if (beforePushed) values.pop();
-      var markerPushed = applyStyle(window.getComputedStyle(node, '::marker'), false);
-      if (node === element && position === 'marker') {
-        result = values.slice();
-        return true;
-      }
-      if (markerPushed) values.pop();
-      for (var i = 0; i < node.children.length; i++) {
-        if (visit(node.children[i], false)) return true;
-      }
-      var afterPushed = applyStyle(window.getComputedStyle(node, '::after'), false);
-      if (node === element && position === 'after') {
-        result = values.slice();
-        return true;
-      }
-      if (afterPushed) values.pop();
-      if (pushed) values.pop();
-      return false;
-    }
-    visit(scope, true);
-    return result;
-  }
-
-  function formatCounter(value, style) {
-    if (style === 'decimal-leading-zero') return (value >= 0 && value < 10 ? '0' : '') + value;
-    if (style === 'lower-alpha' || style === 'upper-alpha' || style === 'lower-latin' || style === 'upper-latin') {
-      if (value <= 0) return String(value);
-      var letters = '', base = style.indexOf('upper') === 0 ? 65 : 97;
-      while (value > 0) {
-        value--;
-        letters = String.fromCharCode(base + value % 26) + letters;
-        value = Math.floor(value / 26);
-      }
-      return letters;
-    }
-    if (style === 'lower-roman' || style === 'upper-roman') {
-      if (value <= 0 || value >= 4000) return String(value);
-      var numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
-        [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
-      var roman = '';
-      numerals.forEach(function (entry) {
-        while (value >= entry[0]) { roman += entry[1]; value -= entry[0]; }
-      });
-      return style === 'lower-roman' ? roman.toLowerCase() : roman;
-    }
-    return String(value);
-  }
-
-  function unescapeCssString(value) {
-    return value.slice(1, -1).replace(/\\([0-9a-fA-F]{1,6})\s?|\\(.)/g, function (_, hex, character) {
-      return hex ? String.fromCodePoint(parseInt(hex, 16)) : character;
-    });
-  }
-
-  function counterContentText(content, element, position) {
-    var hasCounter = false, failed = false, parts = [];
-    var pattern = /(counter|counters)\(\s*([a-zA-Z_-][\w-]*)(?:\s*,\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[a-zA-Z-]+))?(?:\s*,\s*([a-zA-Z-]+))?\s*\)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
-    var match;
-    while ((match = pattern.exec(content))) {
-      if (match[1]) {
-        hasCounter = true;
-        var values = cssCounterValues(element, position, match[2]);
-        if (!values) {
-          failed = true;
-          continue;
-        }
-        if (match[1] === 'counters') {
-          if (!match[3] || match[3].charAt(0) !== '"' && match[3].charAt(0) !== "'") {
-            failed = true;
-            continue;
-          }
-          var separator = unescapeCssString(match[3]);
-          var counterStyle = match[4] || 'decimal';
-          parts.push(values.map(function (value) { return formatCounter(value, counterStyle); }).join(separator));
-        } else {
-          var style = match[4] || (match[3] && /^[a-zA-Z-]+$/.test(match[3]) ? match[3] : 'decimal');
-          parts.push(formatCounter(values[values.length - 1], style));
-        }
-      } else {
-        parts.push(unescapeCssString(match[5]));
-      }
-    }
-    return hasCounter && !failed ? parts.join('') : null;
-  }
-
-  function counterClonePath(root, element, excluded) {
-    var path = [];
-    for (var current = element; current && current !== root; current = current.parentNode) {
-      var parent = current.parentNode;
-      if (!parent) return null;
-      var index = 0;
-      for (var sibling = parent.firstChild; sibling && sibling !== current; sibling = sibling.nextSibling) {
-        if (sibling.nodeType === 1 && (sibling.matches(excluded) || (sibling.closest && sibling.closest(excluded)))) continue;
-        index++;
-      }
-      path.unshift(index);
-    }
-    return current === root ? path : null;
-  }
-
-  function counterCloneNode(root, cloneRoot, element, excluded) {
-    var path = counterClonePath(root, element, excluded);
-    if (!path) return null;
-    var clone = cloneRoot;
-    for (var i = 0; i < path.length && clone; i++) clone = clone.childNodes[path[i]];
-    return clone && clone.nodeType === 1 ? clone : null;
-  }
-
-  function prepareCounterMarkers(root, cloneRoot, excluded) {
-    var used = false;
-    var candidates = [];
-    if (root.matches) candidates.push(root);
-    Array.prototype.push.apply(candidates, root.querySelectorAll('*'));
-    function copyPseudoStyle(source, target) {
-      for (var i = 0; i < source.length; i++) {
-        var property = source[i];
-        if (property === 'content' || property === 'counter-increment' || property === 'counter-reset' || property === 'quotes') continue;
-        target.style.setProperty(property, source.getPropertyValue(property));
-      }
-    }
-    Array.prototype.forEach.call(candidates, function (element) {
-      var rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
-          rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
-      var item = element.closest('li');
-      var cloneElement = counterCloneNode(root, cloneRoot, element, excluded);
-      if (!cloneElement) return;
-      var list = item && item.parentElement && item.parentElement.closest('ol, ul');
-      if (element === item && list && list.tagName === 'OL') {
-        var markerStyle = window.getComputedStyle(item, '::marker');
-        var listStyleType = window.getComputedStyle(list).listStyleType;
-        if (markerStyle.content === 'normal' && listStyleType !== 'none' &&
-            markerStyle.display !== 'none' && markerStyle.visibility !== 'hidden' && Number(markerStyle.opacity) !== 0) {
-          var itemValue = listItemCounterValue(list, item);
-          if (itemValue !== null) {
-            cloneElement.setAttribute('data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
-            used = true;
-          }
-        }
-      }
-      ['before', 'after', 'marker'].forEach(function (position) {
-        var style = window.getComputedStyle(element, '::' + position);
-        if (!style.content || !/counter\(/i.test(style.content) ||
-            style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
-        var text = counterContentText(style.content, element, position);
-        if (text === null) return;
-        cloneElement.setAttribute('data-ap-render-counter-' + position, text);
-        used = true;
-        if (position === 'marker') return;
-        var marker = document.createElement('span');
-        marker.setAttribute('aria-hidden', 'true');
-        marker.setAttribute('data-ap-render-counter-text', '');
-        marker.textContent = text;
-        copyPseudoStyle(style, marker);
-        if (position === 'before') cloneElement.insertBefore(marker, cloneElement.firstChild);
-        else cloneElement.appendChild(marker);
-      });
-    });
-    if (!used) return;
-    var stylesheet = document.createElement('style');
-    stylesheet.textContent =
-      '[data-ap-render-counter-before]::before,[data-ap-render-counter-after]::after{content:none!important}' +
-      '[data-ap-render-counter-marker]::marker{content:attr(data-ap-render-counter-marker)!important}';
-    cloneRoot.appendChild(stylesheet);
-  }
-
-  function tileDimensions(element, rect) {
-    var height = rect.height;
-    var displayMath = !!(element.matches && element.matches('.katex-display'));
-    var math = [];
-    if (displayMath) math.push(element);
-    Array.prototype.push.apply(math, element.querySelectorAll('.katex-display'));
-    math.forEach(function (display) {
-      displayMath = true;
-      var mathRect = display.getBoundingClientRect();
-      var fontSize = parseFloat(window.getComputedStyle(display).fontSize) || 16;
-      height = Math.max(height, mathRect.bottom - rect.top + fontSize * 1.5);
-    });
-    return { height: height, displayMath: displayMath };
-  }
-
-  function renderScreenshotStep(promise, timeout, label) {
-    return promiseWithTimeout(promise, timeout).catch(function (error) {
-      throw new Error(label + ': ' + (error && error.message ? error.message : error));
-    });
-  }
-
-  async function renderPageScreenshot() {
-    var startedAt = Date.now();
-    var renderTimeout = 5000;
-    var screenshot = await renderScreenshotStep(loadModernScreenshot(), 5000, '加载截图库');
-    var scrollX = window.scrollX;
-    var scrollY = window.scrollY;
-    var viewportWidth = window.innerWidth;
-    var viewportHeight = window.innerHeight;
-    var scale = Math.min(window.devicePixelRatio || 1, 4096 / Math.max(viewportWidth, viewportHeight));
-    var root = document.body;
-    var documentRoot = document.documentElement;
-    var fixedElements = [];
-    var output = document.createElement('canvas');
-    output.width = Math.max(1, Math.floor(viewportWidth * scale));
-    output.height = Math.max(1, Math.floor(viewportHeight * scale));
-    var outputContext = output.getContext('2d');
-    if (!outputContext) throw new Error('无法创建页面截图画布');
-    outputContext.fillStyle = pageBackgroundColor();
-    outputContext.fillRect(0, 0, output.width, output.height);
-    documentRoot.classList.add('ap-capturing');
-    try {
-      var excluded = '.annotation-panel.is-editor, .ap-editor, .annotation-toolbar, .annotation-toast, .fig-tools, .table-tools, .ap-crop-overlay';
-      fixedElements = Array.prototype.filter.call(root.querySelectorAll('*'), function (element) {
-        var style = window.getComputedStyle(element);
-        if ((style.position !== 'fixed' && style.position !== 'sticky') ||
-            style.display === 'none' || style.visibility === 'hidden' ||
-            Number(style.opacity) === 0) return false;
-        var rect = element.getBoundingClientRect();
-        if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
-            rect.left >= viewportWidth || rect.top >= viewportHeight) return false;
-        for (var parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
-          var parentPosition = window.getComputedStyle(parent).position;
-          if (parentPosition === 'fixed' || parentPosition === 'sticky') return false;
-        }
-        return true;
-      }).map(function (element) {
-        var rect = element.getBoundingClientRect();
-        var zIndex = parseInt(window.getComputedStyle(element).zIndex, 10);
-        var dimensions = tileDimensions(element, rect);
-        return {
-          element: element,
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: dimensions.height,
-          displayMath: dimensions.displayMath,
-          zIndex: isNaN(zIndex) ? 0 : zIndex
-        };
-      }).sort(function (a, b) { return a.zIndex - b.zIndex; });
-      var fixedSet = new Set(fixedElements.map(function (item) { return item.element; }));
-      function createFilter(rootElement) {
-        return function (node) {
-          if (!node) return true;
-          var element = node.nodeType === 1 ? node : node.parentElement;
-          if (!element) return true;
-          if (element.matches(excluded) || (element.closest && element.closest(excluded))) return false;
-          for (var current = element; current; current = current.parentElement) {
-            if (fixedSet.has(current) && current !== rootElement) return false;
-            if (current === rootElement) break;
-          }
-          return true;
-        };
-      }
-      var filter = createFilter(null);
-      await new Promise(function (resolve) { requestAnimationFrame(resolve); });
-      var tiles = [];
-      function intersectsViewport(rect) {
-        return rect.width > 0 && rect.height > 0 &&
-          rect.right > 0 && rect.bottom > 0 &&
-          rect.left < viewportWidth && rect.top < viewportHeight;
-      }
-      function hasDirectText(element) {
-        for (var i = 0; i < element.childNodes.length; i++) {
-          var node = element.childNodes[i];
-          if (node.nodeType === 3 && node.nodeValue.trim()) return true;
-        }
-        return false;
-      }
-      function paintBackground(element, rect) {
-        var color = window.getComputedStyle(element).backgroundColor;
-        if (!color || color === 'transparent' || /,\s*0(?:\.0+)?\s*\)$/.test(color)) return;
-        outputContext.save();
-        outputContext.beginPath();
-        outputContext.rect(0, 0, output.width, output.height);
-        outputContext.clip();
-        outputContext.fillStyle = color;
-        outputContext.fillRect(rect.left * scale, rect.top * scale, rect.width * scale, rect.height * scale);
-        outputContext.restore();
-      }
-      function collectTiles(element) {
-        if (!element || element.nodeType !== 1 || element.matches(excluded) ||
-            (element.closest && element.closest(excluded))) return;
-        var style = window.getComputedStyle(element);
-        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ||
-            style.position === 'fixed' || style.position === 'sticky') return;
-        var rect = element.getBoundingClientRect();
-        if (!intersectsViewport(rect)) return;
-        var children = element.children;
-        if (rect.height <= viewportHeight * 1.5 || !children.length || hasDirectText(element)) {
-          var dimensions = tileDimensions(element, rect);
-          tiles.push({
-            element: element,
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: dimensions.height,
-            displayMath: dimensions.displayMath
-          });
-          return;
-        }
-        paintBackground(element, rect);
-        Array.prototype.forEach.call(children, collectTiles);
-      }
-      Array.prototype.forEach.call(root.children, collectTiles);
-      var nextTile = 0;
-      var renderTile = async function () {
-        while (nextTile < tiles.length) {
-          var item = tiles[nextTile++];
-          var remaining = renderTimeout - (Date.now() - startedAt);
-          if (remaining <= 0) throw new Error('页面分块渲染超时');
-          var tileStyle = { margin: '0', boxSizing: 'border-box' };
-          if (item.displayMath) {
-            tileStyle.display = 'block';
-            tileStyle.height = item.height + 'px';
-            tileStyle.overflow = 'visible';
-          }
-          var tile = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
-            width: item.width,
-            height: item.height,
-            scale: scale,
-            maximumCanvasSize: 4096,
-            style: tileStyle,
-            features: {
-              restoreScrollPosition: item.element.scrollHeight > item.element.clientHeight ||
-                item.element.scrollWidth > item.element.clientWidth
-            },
-            filter: filter,
-            onCloneNode: function (clone) {
-              prepareCounterMarkers(item.element, clone, excluded);
-              if (!item.displayMath) return;
-              clone.style.setProperty('display', 'block', 'important');
-              clone.style.setProperty('height', item.height + 'px', 'important');
-              clone.style.setProperty('overflow', 'visible', 'important');
-              var displays = clone.matches('.katex-display') ? [clone] : [];
-              Array.prototype.push.apply(displays, clone.querySelectorAll('.katex-display'));
-              displays.forEach(function (display) {
-                display.style.setProperty('overflow', 'visible', 'important');
-              });
-            },
-            timeout: remaining
-          }), remaining, '渲染页面分块');
-          outputContext.drawImage(tile, item.left * scale, item.top * scale, item.width * scale, item.height * scale);
-        }
+  function viewportRectFor(surface, frameWidth, frameHeight, metrics) {
+    var fullFrame = { left: 0, top: 0, width: frameWidth, height: frameHeight };
+    var rect;
+    if (surface === 'window') {
+      if (!metrics.outerWidth || !metrics.outerHeight) return fullFrame;
+      var sx = frameWidth / metrics.outerWidth;
+      var sy = frameHeight / metrics.outerHeight;
+      rect = {
+        left: (metrics.outerWidth - metrics.innerWidth) / 2 * sx,
+        top: (metrics.outerHeight - metrics.innerHeight) * sy,
+        width: metrics.innerWidth * sx,
+        height: metrics.innerHeight * sy
       };
-      await Promise.all(Array.from({ length: Math.min(3, tiles.length) }, renderTile));
-      if (fixedElements.length) {
-        var layers = [];
-        var nextFixedLayer = 0;
-        await Promise.all(Array.from({ length: Math.min(3, fixedElements.length) }, async function () {
-          while (fixedElements.length && nextFixedLayer < fixedElements.length) {
-            var item = fixedElements[nextFixedLayer++];
-            var remaining = renderTimeout - (Date.now() - startedAt);
-            if (remaining <= 0) throw new Error('固定图层渲染超时');
-            var fixedStyle = { margin: '0', boxSizing: 'border-box' };
-            if (item.displayMath) {
-              fixedStyle.display = 'block';
-              fixedStyle.height = item.height + 'px';
-              fixedStyle.overflow = 'visible';
-            }
-            var layer = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
-              width: item.width,
-              height: item.height,
-              scale: scale,
-              maximumCanvasSize: 4096,
-              style: fixedStyle,
-              features: { restoreScrollPosition: true },
-              filter: createFilter(item.element),
-              onCloneNode: function (clone) {
-                prepareCounterMarkers(item.element, clone, excluded);
-                if (!item.displayMath) return;
-                clone.style.setProperty('display', 'block', 'important');
-                clone.style.setProperty('height', item.height + 'px', 'important');
-                clone.style.setProperty('overflow', 'visible', 'important');
-                var displays = clone.matches('.katex-display') ? [clone] : [];
-                Array.prototype.push.apply(displays, clone.querySelectorAll('.katex-display'));
-                displays.forEach(function (display) {
-                  display.style.setProperty('overflow', 'visible', 'important');
-                });
-              },
-              timeout: remaining
-            }), remaining, '渲染固定图层');
-            layers.push({ canvas: layer, item: item });
-          }
-        }));
-        layers.sort(function (a, b) { return a.item.zIndex - b.item.zIndex; });
-        layers.forEach(function (layer) {
-          outputContext.drawImage(layer.canvas, layer.item.left * scale, layer.item.top * scale,
-            layer.item.width * scale, layer.item.height * scale);
-        });
-      }
-    } finally {
-      documentRoot.classList.remove('ap-capturing');
+    } else if (surface === 'monitor') {
+      if (!metrics.screenWidth) return fullFrame;
+      var scale = frameWidth / metrics.screenWidth;
+      var originX = metrics.screenX - metrics.screenAvailLeft;
+      var originY = metrics.screenY - metrics.screenAvailTop;
+      rect = {
+        left: (originX + (metrics.outerWidth - metrics.innerWidth) / 2) * scale,
+        top: (originY + metrics.outerHeight - metrics.innerHeight) * scale,
+        width: metrics.innerWidth * scale,
+        height: metrics.innerHeight * scale
+      };
+    } else {
+      return fullFrame;
     }
-    var crop = await openCropOverlay(output);
-    return crop ? {
-      blob: crop.blob,
-      rect: crop.rect,
-      frameWidth: output.width,
-      frameHeight: output.height,
-      surface: 'page',
-      scrollX: scrollX,
-      scrollY: scrollY,
-      viewportWidth: viewportWidth,
-      viewportHeight: viewportHeight
-    } : null;
+    var area = rect.width * rect.height;
+    var left = Math.max(0, rect.left);
+    var top = Math.max(0, rect.top);
+    var width = Math.max(0, Math.min(frameWidth, rect.left + rect.width) - left);
+    var height = Math.max(0, Math.min(frameHeight, rect.top + rect.height) - top);
+    if (!isFinite(area) || area <= 0 || width * height < area * 0.5 || width < 50 || height < 50) return fullFrame;
+    return { left: left, top: top, width: width, height: height };
   }
 
   async function captureScreenshot() {
     var stream = null, video = null, captured = null;
-    var frameWidth = 0, frameHeight = 0, surface;
+    var frameWidth = 0, frameHeight = 0, surface, viewportRect;
     var scrollX = 0, scrollY = 0, viewportWidth = 0, viewportHeight = 0;
+    var metrics;
     document.documentElement.classList.add('ap-capturing');
     try {
       scrollX = window.scrollX;
       scrollY = window.scrollY;
       viewportWidth = window.innerWidth;
       viewportHeight = window.innerHeight;
+      metrics = {
+        outerWidth: window.outerWidth,
+        outerHeight: window.outerHeight,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        screenWidth: window.screen.width,
+        screenAvailLeft: window.screen.availLeft || 0,
+        screenAvailTop: window.screen.availTop || 0,
+        screenX: window.screenX,
+        screenY: window.screenY
+      };
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'browser' },
         audio: false,
@@ -1951,6 +1484,7 @@
       await new Promise(function (resolve) { setTimeout(resolve, 300); });
       frameWidth = video.videoWidth;
       frameHeight = video.videoHeight;
+      viewportRect = viewportRectFor(surface, frameWidth, frameHeight, metrics);
       captured = document.createElement('canvas');
       captured.width = frameWidth;
       captured.height = frameHeight;
@@ -1978,10 +1512,12 @@
       }
     }
     if (!captured) return null;
-    var crop = await openCropOverlay(captured);
+    var crop = await openCropOverlay(captured, { initialSelection: viewportRect });
     return crop ? {
       blob: crop.blob,
       rect: crop.rect,
+      action: crop.action,
+      viewportRect: viewportRect,
       frameWidth: frameWidth,
       frameHeight: frameHeight,
       surface: surface,
@@ -1992,7 +1528,18 @@
     } : null;
   }
 
-  function openCropOverlay(canvas) {
+  function shareScreenshot(blob) {
+    var bar = document.querySelector('.post-actions[data-url]');
+    var url = (bar && bar.getAttribute('data-url')) || location.href.split('#')[0];
+    var titleBar = document.querySelector('.post-actions[data-title]');
+    var title = (titleBar && titleBar.getAttribute('data-title')) || document.title;
+    var filename = 'screenshot-' + Date.now() + '.png';
+    window.BlogShare.showImage(function () {
+      return window.BlogPassageCard.renderScreenshot({ image: blob, title: title, url: url });
+    }, filename);
+  }
+
+  function openCropOverlay(canvas, options) {
     return new Promise(function (resolve, reject) {
       var overlay = document.createElement('div');
       overlay.className = 'ap-crop-overlay';
@@ -2013,15 +1560,23 @@
 
       var selectionBox = document.createElement('div');
       selectionBox.className = 'ap-crop-selection';
+      var sizeLabel = document.createElement('span');
+      sizeLabel.className = 'ap-crop-size';
+      selectionBox.appendChild(sizeLabel);
+      var handleNames = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+      handleNames.forEach(function (name) {
+        var handle = document.createElement('span');
+        handle.className = 'ap-crop-handle';
+        handle.setAttribute('data-handle', name);
+        handle.setAttribute('aria-hidden', 'true');
+        selectionBox.appendChild(handle);
+      });
       stage.appendChild(canvas);
       stage.appendChild(markupCanvas);
       stage.appendChild(selectionBox);
 
       var toolbar = document.createElement('div');
       toolbar.className = 'ap-crop-toolbar';
-      var hint = document.createElement('span');
-      hint.className = 'ap-crop-hint';
-      hint.textContent = '拖动框选区域 · 可画框 / 箭头 / 文字 · 双击或 Enter 完成 · Esc 取消';
 
       var toolButtons = [];
       function addToolButton(tool, icon, title) {
@@ -2037,7 +1592,7 @@
         toolButtons.push(button);
         return button;
       }
-      var rectButton = addToolButton('rect', 'fa fa-regular fa-square', '画框');
+      var rectButton = addToolButton('rect', 'fa fa-regular fa-square', '框');
       var arrowButton = addToolButton('arrow', 'fa fa-arrow-right', '箭头');
       var textButton = addToolButton('text', 'fa fa-font', '文字');
       var undoButton = document.createElement('button');
@@ -2050,21 +1605,32 @@
       var separator = document.createElement('span');
       separator.className = 'ap-crop-separator';
       separator.setAttribute('aria-hidden', 'true');
+      var shareButton = null;
+      if (window.BlogShare && window.BlogPassageCard) {
+        shareButton = document.createElement('button');
+        shareButton.type = 'button';
+        shareButton.className = 'ap-crop-share';
+        shareButton.setAttribute('title', '分享截图');
+        shareButton.setAttribute('aria-label', '分享截图');
+        shareButton.innerHTML = '<i class="fa fa-share-nodes" aria-hidden="true"></i>';
+      }
       var cancelButton = document.createElement('button');
       cancelButton.type = 'button';
-      cancelButton.textContent = '取消';
-      var wholeButton = document.createElement('button');
-      wholeButton.type = 'button';
-      wholeButton.textContent = '整张';
+      cancelButton.className = 'ap-crop-cancel';
+      cancelButton.setAttribute('title', '取消');
+      cancelButton.setAttribute('aria-label', '取消');
+      cancelButton.innerHTML = '<i class="fa fa-xmark" aria-hidden="true"></i>';
       var completeButton = document.createElement('button');
       completeButton.type = 'button';
-      completeButton.textContent = '完成';
+      completeButton.className = 'ap-crop-complete';
+      completeButton.setAttribute('title', '完成');
+      completeButton.setAttribute('aria-label', '完成');
+      completeButton.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i>';
       completeButton.disabled = true;
-      toolbar.insertBefore(hint, rectButton);
       toolbar.appendChild(undoButton);
       toolbar.appendChild(separator);
+      if (shareButton) toolbar.appendChild(shareButton);
       toolbar.appendChild(cancelButton);
-      toolbar.appendChild(wholeButton);
       toolbar.appendChild(completeButton);
       overlay.appendChild(stage);
       overlay.appendChild(toolbar);
@@ -2098,16 +1664,50 @@
           y: Math.max(0, Math.min(imageRect.height, event.clientY - imageRect.top))
         };
       }
+      function limit(value, min, max) { return Math.max(min, Math.min(max, value)); }
+      function resizedSelection(original, point, currentDrag) {
+        var dx = point.x - currentDrag.start.x, dy = point.y - currentDrag.start.y;
+        var left = original.x, top = original.y;
+        var right = original.x + original.width, bottom = original.y + original.height;
+        var handle = currentDrag.handle;
+        if (handle.indexOf('w') >= 0) left = limit(original.x + dx, 0, right - 8);
+        if (handle.indexOf('e') >= 0) right = limit(original.x + original.width + dx, left + 8, canvas.getBoundingClientRect().width);
+        if (handle.indexOf('n') >= 0) top = limit(original.y + dy, 0, bottom - 8);
+        if (handle.indexOf('s') >= 0) bottom = limit(original.y + original.height + dy, top + 8, canvas.getBoundingClientRect().height);
+        return { x: left, y: top, width: right - left, height: bottom - top };
+      }
       function setSelectionBox(rect) {
         selectionBox.style.display = 'block';
         selectionBox.style.left = rect.x + 'px';
         selectionBox.style.top = rect.y + 'px';
         selectionBox.style.width = rect.width + 'px';
         selectionBox.style.height = rect.height + 'px';
+        var scale = displayScale();
+        sizeLabel.textContent = Math.round(rect.width * scale) + ' × ' + Math.round(rect.height * scale);
+        sizeLabel.style.top = rect.y >= 30 ? '-25px' : '4px';
       }
       function renderSelection() {
-        if (hasValidSelection(selection)) setSelectionBox(selection);
-        else selectionBox.style.display = 'none';
+        if (hasValidSelection(selection)) {
+          setSelectionBox(selection);
+          selectionBox.style.pointerEvents = activeTool ? 'none' : 'auto';
+          updateToolbarPlacement();
+        } else selectionBox.style.display = 'none';
+      }
+      function updateToolbarPlacement() {
+        if (!hasValidSelection(selection) || !toolbar.isConnected) return;
+        var rect = selectionBox.getBoundingClientRect();
+        var width = toolbar.offsetWidth, height = toolbar.offsetHeight;
+        var left = rect.right - width, top;
+        if (rect.bottom + 8 + height <= window.innerHeight) top = rect.bottom + 8;
+        else if (rect.top >= height + 8) top = rect.top - height - 8;
+        else {
+          top = rect.bottom - height - 8;
+          left -= 8;
+        }
+        left = Math.max(8, Math.min(window.innerWidth - width - 8, left));
+        top = Math.max(8, Math.min(window.innerHeight - height - 8, top));
+        toolbar.style.left = left + 'px';
+        toolbar.style.top = top + 'px';
       }
       function updateToolbarState() {
         var valid = hasValidSelection(selection);
@@ -2118,12 +1718,13 @@
         }
         undoButton.disabled = !valid || !shapes.length || exporting;
         cancelButton.disabled = exporting;
-        wholeButton.disabled = exporting;
         completeButton.disabled = !valid || exporting;
+        if (shareButton) shareButton.disabled = !valid || exporting;
       }
       function updateActiveTool() {
         overlay.setAttribute('data-tool', activeTool || '');
         updateToolbarState();
+        renderSelection();
       }
       function naturalShapeFromDrag(currentDrag) {
         var scale = displayScale();
@@ -2260,33 +1861,51 @@
           else discardTextInput();
         }
         var point = pointFromEvent(event);
-        var kind = activeTool || 'selection';
+        var handle = event.target.closest && event.target.closest('.ap-crop-handle');
+        var kind = activeTool || (handle && selectionBox.contains(handle) ? 'resize' :
+          selection && selectionBox.contains(event.target) ? 'move' : 'selection');
         event.preventDefault();
         drag = {
           pointerId: event.pointerId,
           kind: kind,
           start: point,
-          current: point
+          current: point,
+          handle: handle && handle.getAttribute('data-handle'),
+          original: selection && { x: selection.x, y: selection.y, width: selection.width, height: selection.height }
         };
-        if (kind === 'selection') setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
+        if (kind === 'selection') {
+          selection = { x: point.x, y: point.y, width: 0, height: 0 };
+          renderSelection();
+        }
         else if (kind === 'rect' || kind === 'arrow') {
           draftShape = naturalShapeFromDrag(drag);
           redrawMarkup();
         }
-        try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+        try { stage.setPointerCapture(event.pointerId); } catch (e) {}
       }
       function onPointerMove(event) {
         if (!drag || event.pointerId !== drag.pointerId) return;
         drag.current = pointFromEvent(event);
         if (drag.kind === 'selection') {
-          var left = Math.min(drag.start.x, drag.current.x);
-          var top = Math.min(drag.start.y, drag.current.y);
-          setSelectionBox({
-            x: left,
-            y: top,
+          selection = {
+            x: Math.min(drag.start.x, drag.current.x),
+            y: Math.min(drag.start.y, drag.current.y),
             width: Math.abs(drag.current.x - drag.start.x),
             height: Math.abs(drag.current.y - drag.start.y)
-          });
+          };
+          renderSelection();
+        } else if (drag.kind === 'move') {
+          var imageRect = canvas.getBoundingClientRect();
+          selection = {
+            x: limit(drag.original.x + drag.current.x - drag.start.x, 0, imageRect.width - drag.original.width),
+            y: limit(drag.original.y + drag.current.y - drag.start.y, 0, imageRect.height - drag.original.height),
+            width: drag.original.width,
+            height: drag.original.height
+          };
+          renderSelection();
+        } else if (drag.kind === 'resize') {
+          selection = resizedSelection(drag.original, drag.current, drag);
+          renderSelection();
         } else if (drag.kind === 'rect' || drag.kind === 'arrow') {
           draftShape = naturalShapeFromDrag(drag);
           redrawMarkup();
@@ -2295,16 +1914,14 @@
       function onPointerEnd(event) {
         if (!drag || event.pointerId !== drag.pointerId) return;
         drag.current = pointFromEvent(event);
+        onPointerMove(event);
         var finishedDrag = drag;
         drag = null;
         if (finishedDrag.kind === 'selection') {
-          var nextSelection = {
-            x: Math.min(finishedDrag.start.x, finishedDrag.current.x),
-            y: Math.min(finishedDrag.start.y, finishedDrag.current.y),
-            width: Math.abs(finishedDrag.current.x - finishedDrag.start.x),
-            height: Math.abs(finishedDrag.current.y - finishedDrag.start.y)
-          };
-          if (hasValidSelection(nextSelection)) selection = nextSelection;
+          if (!hasValidSelection(selection)) selection = null;
+          renderSelection();
+          updateToolbarState();
+        } else if (finishedDrag.kind === 'move' || finishedDrag.kind === 'resize') {
           renderSelection();
           updateToolbarState();
         } else if (finishedDrag.kind === 'rect' || finishedDrag.kind === 'arrow') {
@@ -2324,7 +1941,10 @@
         if (!drag || event.pointerId !== drag.pointerId) return;
         var cancelledDrag = drag;
         drag = null;
-        if (cancelledDrag.kind === 'selection') renderSelection();
+        if (cancelledDrag.kind === 'selection' || cancelledDrag.kind === 'move' || cancelledDrag.kind === 'resize') {
+          selection = cancelledDrag.original;
+          renderSelection();
+        }
         if (cancelledDrag.kind === 'rect' || cancelledDrag.kind === 'arrow') {
           draftShape = null;
           redrawMarkup();
@@ -2343,24 +1963,21 @@
         if (err) reject(err);
         else resolve(blob || null);
       }
-      function exportCrop(whole) {
+      function exportCrop(action) {
         if (closed || exporting) return;
         if (textInput) {
           if (textInput.value.trim()) commitTextInput();
           else discardTextInput();
         }
-        if (!whole && !hasValidSelection(selection)) return;
+        if (!hasValidSelection(selection)) return;
         exporting = true;
         updateToolbarState();
         var imageRect = canvas.getBoundingClientRect();
         var scale = imageRect.width ? canvas.width / imageRect.width : 1;
-        var left = 0, top = 0, right = canvas.width, bottom = canvas.height;
-        if (!whole) {
-          left = Math.max(0, Math.floor(selection.x * scale));
-          top = Math.max(0, Math.floor(selection.y * scale));
-          right = Math.min(canvas.width, Math.ceil((selection.x + selection.width) * scale));
-          bottom = Math.min(canvas.height, Math.ceil((selection.y + selection.height) * scale));
-        }
+        var left = Math.max(0, Math.floor(selection.x * scale));
+        var top = Math.max(0, Math.floor(selection.y * scale));
+        var right = Math.min(canvas.width, Math.ceil((selection.x + selection.width) * scale));
+        var bottom = Math.min(canvas.height, Math.ceil((selection.y + selection.height) * scale));
         var output = document.createElement('canvas');
         output.width = Math.max(1, right - left);
         output.height = Math.max(1, bottom - top);
@@ -2375,18 +1992,13 @@
           if (!blob) close(null, new Error('无法导出裁剪图片'));
           else close({
             blob: blob,
-            rect: { left: left, top: top, width: output.width, height: output.height }
+            rect: { left: left, top: top, width: output.width, height: output.height },
+            action: action
           });
         }, 'image/png');
       }
       function onCancel() { close(null); }
-      function onWhole() {
-        var imageRect = canvas.getBoundingClientRect();
-        selection = { x: 0, y: 0, width: imageRect.width, height: imageRect.height };
-        renderSelection();
-        updateToolbarState();
-      }
-      function onComplete() { exportCrop(!hasValidSelection(selection)); }
+      function onComplete() { exportCrop('complete'); }
       function onDoubleClick(event) {
         event.preventDefault();
         event.stopPropagation();
@@ -2394,7 +2006,7 @@
           if (textInput.value.trim()) commitTextInput();
           else discardTextInput();
         }
-        exportCrop(!hasValidSelection(selection));
+        exportCrop('complete');
       }
       function onKeyDown(event) {
         if (textInput && document.activeElement === textInput) return;
@@ -2405,7 +2017,7 @@
         } else if (event.key === 'Enter') {
           event.preventDefault();
           event.stopPropagation();
-          exportCrop(!hasValidSelection(selection));
+          exportCrop('complete');
         } else if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'z') {
           event.preventDefault();
           event.stopPropagation();
@@ -2420,18 +2032,29 @@
       for (var i = 0; i < toolButtons.length; i++) listen(toolButtons[i], 'click', onToolClick);
       listen(undoButton, 'click', undoShape);
       listen(cancelButton, 'click', onCancel);
-      listen(wholeButton, 'click', onWhole);
+      if (shareButton) listen(shareButton, 'click', function () { exportCrop('share'); });
       listen(completeButton, 'click', onComplete);
-      listen(canvas, 'pointerdown', onPointerDown);
-      listen(canvas, 'pointermove', onPointerMove);
-      listen(canvas, 'pointerup', onPointerEnd);
-      listen(canvas, 'pointercancel', onPointerCancel);
+      listen(stage, 'pointerdown', onPointerDown);
+      listen(stage, 'pointermove', onPointerMove);
+      listen(stage, 'pointerup', onPointerEnd);
+      listen(stage, 'pointercancel', onPointerCancel);
       listen(stage, 'dblclick', onDoubleClick);
       listen(document, 'keydown', onKeyDown, true);
       updateActiveTool();
-      cancelButton.focus();
+      overlay.focus({ preventScroll: true });
       requestAnimationFrame(function () {
-        if (!closed) onWhole();
+        if (closed) return;
+        var imageRect = canvas.getBoundingClientRect();
+        var initial = options && options.initialSelection;
+        var scale = displayScale();
+        selection = initial ? {
+          x: initial.left / scale,
+          y: initial.top / scale,
+          width: initial.width / scale,
+          height: initial.height / scale
+        } : { x: 0, y: 0, width: imageRect.width, height: imageRect.height };
+        renderSelection();
+        updateToolbarState();
       });
     });
   }
@@ -2520,15 +2143,19 @@
   }
 
   function screenshotAnchorElement(shot) {
-    if (!shot || (shot.surface !== 'browser' && shot.surface !== 'page' && typeof shot.surface !== 'undefined') ||
+    if (!shot || !shot.viewportRect ||
         !shot.frameWidth || !shot.frameHeight || !shot.viewportWidth || !shot.viewportHeight ||
-        Math.abs(shot.frameWidth / shot.frameHeight - shot.viewportWidth / shot.viewportHeight) >= 0.03) return null;
+        !shot.viewportRect.width || !shot.viewportRect.height ||
+        Math.abs(shot.viewportRect.width / shot.viewportRect.height - shot.viewportWidth / shot.viewportHeight) >= 0.03) return null;
 
-    var rect = shot.rect;
-    var x = (rect.left + rect.width / 2) * shot.viewportWidth / shot.frameWidth + shot.scrollX - window.scrollX;
-    var y = (rect.top + rect.height / 2) * shot.viewportHeight / shot.frameHeight + shot.scrollY - window.scrollY;
-    var cropTop = rect.top * shot.viewportHeight / shot.frameHeight + shot.scrollY - window.scrollY;
-    var cropBottom = (rect.top + rect.height) * shot.viewportHeight / shot.frameHeight + shot.scrollY - window.scrollY;
+    var rect = shot.rect, viewportRect = shot.viewportRect;
+    var centerX = rect.left + rect.width / 2, centerY = rect.top + rect.height / 2;
+    if (centerX < viewportRect.left || centerX > viewportRect.left + viewportRect.width ||
+        centerY < viewportRect.top || centerY > viewportRect.top + viewportRect.height) return null;
+    var x = (centerX - viewportRect.left) * shot.viewportWidth / viewportRect.width + shot.scrollX - window.scrollX;
+    var y = (centerY - viewportRect.top) * shot.viewportHeight / viewportRect.height + shot.scrollY - window.scrollY;
+    var cropTop = (rect.top - viewportRect.top) * shot.viewportHeight / viewportRect.height + shot.scrollY - window.scrollY;
+    var cropBottom = (rect.top + rect.height - viewportRect.top) * shot.viewportHeight / viewportRect.height + shot.scrollY - window.scrollY;
     function candidateAt(pointY) {
       var candidate = document.elementFromPoint(x, pointY);
       return candidate && candidate !== container && container.contains(candidate) && screenshotAnchorRange(candidate) ? candidate : null;
@@ -2566,13 +2193,12 @@
     }
     hideToolbar();
     if (window.getSelection) window.getSelection().removeAllRanges();
-    renderPageScreenshot().catch(function (err) {
-      if (window.console && typeof window.console.warn === 'function') {
-        window.console.warn('Page screenshot failed; falling back to screen capture.', err);
-      }
-      return captureScreenshot();
-    }).then(function (shot) {
+    captureScreenshot().then(function (shot) {
       if (!shot) return;
+      if (shot.action === 'share') {
+        shareScreenshot(shot.blob);
+        return;
+      }
       var anchorEl = targetEl || screenshotAnchorElement(shot);
       var range = anchorEl && screenshotAnchorRange(anchorEl);
       var offsets = range && selectionOffsets(range);

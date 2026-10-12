@@ -545,34 +545,41 @@ uploads them through `POST /comments/images` to the Worker’s R2
 `comments/YYYY/MM/` prefix. GitHub rewrites rendered image URLs to camo; the
 sanitizer restores the canonical Worker `/media/` URL for these images. Images
 uploaded from an unposted draft remain in R2 as orphans.
-The scissors beside the shared editor's image button still uses
-`captureScreenshot()` / `getDisplayMedia`, so readers can capture other
-windows; it hides editors and toolbars with `html.ap-capturing`, then
-`openCropOverlay(canvas)` exports a cropped PNG into the same compression and
-upload path. The crop overlay can add red boxes, arrows, and text on a separate
-natural-pixel canvas; it fills the viewport, starts with the whole frame
-selected, and double-click completes the crop.
-Article-level `⌥S` and figure / table / code scissors remain gated on
-`getDisplayMedia` support, but use `renderPageScreenshot()` first: it lazy-loads
-`js/vendor/modern-screenshot-4.7.0.min.js` on first use to render the current
-viewport at device-pixel scale (long edge capped at 4096 px), excluding capture
-controls. It walks visible content intersecting the viewport, renders bounded
-tiles instead of cloning and re-laying out the full document, then composites
-visible fixed / sticky elements last in z-index order with their internal scroll
-positions preserved. Large containers contribute their background before their
-visible children are tiled. Visible ordered-list markers and pseudo-content
-using CSS counters get temporary explicit text so numbering survives tile and
-sticky-layer rendering. The renderer has a 5-second budget; library-load or
-render failure falls back to `captureScreenshot()`; cancelling the crop does
-not. Unsupported browsers hide the article-level entry points.
-`startScreenshotComment(targetEl)` checks GitHub login before capture; without a
-button target it maps the crop centre through `elementFromPoint` for page
-captures, or for system captures only when `displaySurface` is `browser` /
-undefined and the captured frame aspect ratio matches the viewport within 0.03.
-It anchors to figure / Mermaid captions, table captions or header rows, code
-titles, headings, or the first sentence (at most 60 characters) of a prose
-block; if no anchor is reliable, the image goes to the bottom comment editor
-with a toast.
+Both the scissors beside the shared editor's image button and article-level
+`⌥S` / figure / table / code scissors use `captureScreenshot()` /
+`getDisplayMedia`; the browser asks which surface to share, with the current tab
+preferred. Capture reads window and screen geometry before opening the browser
+prompt. `viewportRectFor(surface, frameWidth, frameHeight, metrics)` returns
+the whole frame for `browser` or an unknown surface; for `window` and `monitor`
+it maps the browser's inner viewport into captured-frame pixels, clamps it to
+the frame, and falls back to the whole frame if less than half remains or a
+dimension is under 50 px. The returned `shot.viewportRect` is passed as
+`openCropOverlay(canvas, { initialSelection: viewportRect })` and is also used
+by `screenshotAnchorElement` to map the crop centre back to page coordinates.
+
+The overlay keeps the outside mask and starts with the viewport selected using
+a 2 px `#07C160` border and eight resize handles. Readers can move or resize
+the selection, start another selection outside it, and add red boxes, arrows,
+or text. Markup stays in natural screenshot pixels as the selection changes.
+The live size label and icon toolbar follow the selection; double-click or
+Enter completes, Escape cancels, and ⌘/Ctrl+Z undoes markup. The editor still
+uploads a completed PNG through the existing compression path. The toolbar's
+分享 action resolves the same crop plus markup with `action: 'share'`; callers
+show it only when `BlogShare` and `BlogPassageCard` are available, then call
+`BlogShare.showImage(cardFn, filename)` without inserting or uploading a
+comment image. `BlogPassageCard.renderScreenshot({ image, title, url })`
+creates the share card, reusing the passage-card footer renderer; `showImage`
+counts one article share through the existing `.post-actions` share context.
+Unsupported browsers hide the screenshot entry points.
+
+`startScreenshotComment(targetEl)` checks GitHub login before capture; with a
+button target it anchors to that target, otherwise it accepts a crop centre
+inside `viewportRect` when its aspect ratio matches the page viewport within
+0.03. The centre and crop bounds are mapped through `viewportRect` before
+`elementFromPoint` lookup. It anchors to figure / Mermaid captions, table
+captions or header rows, code titles, headings, or the first sentence (at most
+60 characters) of a prose block; if no anchor is reliable, the image goes to
+the bottom comment editor with a toast.
 
 The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply
