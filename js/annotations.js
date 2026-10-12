@@ -2041,7 +2041,7 @@
       listen(stage, 'dblclick', onDoubleClick);
       listen(document, 'keydown', onKeyDown, true);
       updateActiveTool();
-      cancelButton.focus();
+      overlay.focus({ preventScroll: true });
       requestAnimationFrame(function () {
         if (closed) return;
         var imageRect = canvas.getBoundingClientRect();

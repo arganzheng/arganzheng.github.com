@@ -859,6 +859,8 @@ html.ap-capturing {
 	cursor: pointer;
 	&:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
 	&:disabled { opacity: .5; cursor: not-allowed; }
+	&:focus { outline: none; }
+	&:focus-visible { outline: 1px solid rgba(255, 255, 255, .65); outline-offset: 2px; }
 }
 .ap-crop-toolbar .ap-crop-tool,
 .ap-crop-toolbar .ap-crop-undo,

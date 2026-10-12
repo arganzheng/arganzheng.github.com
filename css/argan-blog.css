@@ -5073,6 +5073,13 @@ html.ap-capturing .table-tools {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.ap-crop-toolbar button:focus {
+  outline: none;
+}
+.ap-crop-toolbar button:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
+}
 .ap-crop-toolbar .ap-crop-tool,
 .ap-crop-toolbar .ap-crop-undo,
 .ap-crop-toolbar .ap-crop-share,
