@@ -17,6 +17,11 @@
   panel.setAttribute('aria-label', '阅读设置');
   panel.hidden = true;
   panel.innerHTML =
+    '<div class="rs-setting-row"><span class="rs-setting-label">配色</span><div class="rs-segments" role="group" aria-label="配色">' +
+      '<button type="button" data-rs-theme="light" aria-pressed="false">浅色</button>' +
+      '<button type="button" data-rs-theme="sepia" aria-pressed="false">护眼</button>' +
+      '<button type="button" data-rs-theme="dark" aria-pressed="false">深色</button>' +
+    '</div></div>' +
     '<div class="rs-setting-row"><span class="rs-setting-label">字号</span><div class="rs-segments" role="group" aria-label="字号">' +
       '<button type="button" data-rs-setting="size" data-rs-value="s" aria-pressed="false">小</button>' +
       '<button type="button" data-rs-setting="size" data-rs-value="" aria-pressed="false">标准</button>' +
@@ -50,6 +55,11 @@
     for (var i = 0; i < buttons.length; i++) {
       var button = buttons[i];
       button.setAttribute('aria-pressed', String(button.getAttribute('data-rs-value') === selected(button.getAttribute('data-rs-setting'))));
+    }
+    var theme = root.getAttribute('data-theme') || 'light';
+    var themeButtons = panel.querySelectorAll('[data-rs-theme]');
+    for (var j = 0; j < themeButtons.length; j++) {
+      themeButtons[j].setAttribute('aria-pressed', String(themeButtons[j].getAttribute('data-rs-theme') === theme));
     }
   }
 
@@ -117,6 +127,11 @@
       if (didChange) changed();
       return;
     }
+    var theme = button.getAttribute('data-rs-theme');
+    if (theme) {
+      if (typeof window.setTheme === 'function') window.setTheme(theme);
+      return;
+    }
     var name = button.getAttribute('data-rs-setting');
     if (name && apply(name, button.getAttribute('data-rs-value'))) changed();
   });
@@ -133,6 +148,9 @@
   window.addEventListener('resize', positionPanel);
   window.addEventListener('scroll', positionPanel, true);
   window.addEventListener('reading-settings-change', syncControls);
+  if (window.MutationObserver) {
+    new MutationObserver(syncControls).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  }
 
   item.hidden = false;
   syncControls();
