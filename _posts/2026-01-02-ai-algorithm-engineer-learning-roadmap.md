@@ -136,12 +136,12 @@ flowchart TB
 
 | 层 | 主题 | 回答的问题 | 文章 | 时长 |
 |---|---|---|---|---|
-| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（9 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
+| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
 | L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2.5h（+ 14h + 15h） |
 | L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
 | L3 | 深度学习基础 | 深度模型怎样走到 Transformer？梯度怎么流、训练为何不稳？卷积、表示与循环各留下什么？ | [系列（9 篇）](/deep-learning-foundations.html) | 4h |
 | L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [Transformer 原理与实现（4 篇）](/transformer-and-llm-structure-implementation-and-evolution.html) + [现代 LLM 结构（10 篇）](/llm-architecture-evolution-roadmap-from-gpt2.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 6h + 12h + 5h |
-| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（9 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
+| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
 | L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
 | L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 7h |
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
