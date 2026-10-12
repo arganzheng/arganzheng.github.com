@@ -1,0 +1,19 @@
+{%- assign is_roadmap_page = false -%}
+{%- for roadmap_entry in site.data.roadmaps -%}
+  {%- if page.url == roadmap_entry[1].url -%}{%- assign is_roadmap_page = true -%}{%- endif -%}
+{%- endfor -%}
+{%- if is_roadmap_page %}
+<script type="application/json" id="series-progress-data">
+{
+{%- assign first_series = true -%}
+{%- for series_entry in site.data.series -%}
+  {%- assign s = series_entry[1] -%}
+  {%- if s.overview -%}
+    {%- unless first_series -%},{%- endunless -%}
+    {{ s.key | jsonify }}:{"overview":{{ s.overview | jsonify }},"posts":[{%- for p in s.posts -%}{{ p.url | jsonify }}{%- unless forloop.last -%},{%- endunless -%}{%- endfor -%}]}
+    {%- assign first_series = false -%}
+  {%- endif -%}
+{%- endfor %}
+}
+</script>
+{% endif %}

@@ -575,3 +575,22 @@ html[data-theme="dark"] #archive h3 { color: @dk-heading; }
 html[data-theme="dark"] #archive hr { border-color: @dk-border; }
 html[data-theme="dark"] #archive .archive-item > span { color: @dk-link !important; }
 html[data-theme="dark"] #archive .archive-item > small { color: @dk-muted !important; }
+html[data-theme="dark"] .post-actions .pa-read {
+	color: @dk-muted;
+	border-color: @dk-border;
+	background-color: @dk-surface-2;
+	.fa { color: #95b99b; }
+	&.is-read {
+		border-color: #42654a;
+		background-color: #203126;
+		color: #b8d9bd;
+		.fa { color: #9acba3; }
+	}
+}
+html[data-theme="dark"] {
+	.sb-list li.is-read > a::after,
+	.sb-list li.is-read > span::after,
+	.st-posts li.is-read > a::after,
+	.sb-read, .st-read, .rp-badge, .rp-marker { color: #9acba3; }
+	.life-card h2 .rp-marker { background: rgba(0, 0, 0, 0.22); color: #c8e8cd; }
+}

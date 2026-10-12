@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN"{% if page.visibility == 'private' %} class="private-post"{% endif %}>
+<html lang="zh-CN" data-baseurl="{{ site.baseurl | escape }}"{% if page.visibility == 'private' %} class="private-post"{% endif %}>
 
 {% include head.html %}
 

@@ -10,12 +10,13 @@
       <span class="st-no">{% if include.shared %}共享{% elsif include.number %}{{ include.number | prepend: '0' | slice: -2, 2 }}{% endif %}</span>
       <span class="st-name">{{ s.name }}</span>
       <small>{% if s.count == 0 %}即将发布{% if s.planned > 0 %} · {{ s.planned }} 篇{% endif %}{% elsif s.count < s.planned %}已发 {{ s.count }} / {{ s.planned }} 篇{% else %}{{ s.count }} 篇{% endif %}</small>
+      <span class="st-read" hidden></span>
     </summary>
     <ol class="st-posts">
       {%- if s.overview_title %}<li class="is-overview"><a href="{{ s.overview | prepend: site.baseurl }}">{{ s.overview_title }}</a><small>总览</small></li>{% endif %}
       {%- if s.slides %}<li class="is-overview"><a href="{{ s.slides | prepend: site.baseurl }}">{{ s.name }}（幻灯片）</a><small>分享用 deck</small></li>{% endif %}
       {%- for p in s.posts %}
-      <li{% if p.recap %} class="is-recap"{% endif %}><a href="{{ p.url | prepend: site.baseurl }}">{{ p.subtitle }}</a><small>{{ p.date | date: "%Y-%m-%d" }}</small></li>
+      <li data-url="{{ p.url }}"{% if p.recap %} class="is-recap"{% endif %}><a href="{{ p.url | prepend: site.baseurl }}">{{ p.subtitle }}</a><small>{{ p.date | date: "%Y-%m-%d" }}</small></li>
       {%- endfor %}
     </ol>
   </details>
