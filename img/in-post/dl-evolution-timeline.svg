@@ -1,69 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1308" viewBox="0 0 760 1308" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1278" viewBox="0 0 760 1278" role="img" aria-labelledby="title desc">
 <title id="title">从感知机到 Transformer：深度模型演进时间线</title>
 <desc id="desc">竖向时间线：左侧色块为三次兴起与两次寒冬的近似分期，右侧每行一个事件，按年份先后排列。</desc>
 <style>text{font-family:Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;fill:#283344}.h{font-size:24px;font-weight:bold}.sub{font-size:13.5px;fill:#596579}.phase{font-size:17px;font-weight:bold}.range{font-size:13.5px;fill:#465266}.yr{font-size:15px;font-weight:bold;fill:#35445c}.name{font-size:15.5px;font-weight:600}.desc{font-size:13.5px;fill:#5d6a7e;font-weight:normal}.axis{stroke:#9aa4b4;stroke-width:2}.dot{fill:#fffdf8;stroke:#35445c;stroke-width:2.4}</style>
-<rect width="760" height="1308" fill="#fffdf8"/>
+<rect width="760" height="1278" fill="#fffdf8"/>
 <text class="h" x="16" y="36">从感知机到 Transformer</text>
-<text class="sub" x="16" y="62">每行一个事件，按年份先后排列，行距不代表时间长短；左侧色块为近似的历史分期。</text>
-<rect data-band="理论前史" x="16" y="96" width="150" height="136" rx="6" fill="#e7e9ef" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="161.0" text-anchor="middle">理论前史</text>
-<text class="range" x="91.0" y="180.0" text-anchor="middle">1943–1956</text>
-<rect x="184" y="96" width="560" height="136" rx="6" fill="#e7e9ef" opacity="0.4"/>
-<rect data-band="第一次兴起" x="16" y="246" width="150" height="136" rx="6" fill="#dcebdc" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="311.0" text-anchor="middle">第一次兴起</text>
-<text class="range" x="91.0" y="330.0" text-anchor="middle">1957–1969</text>
-<rect x="184" y="246" width="560" height="136" rx="6" fill="#dcebdc" opacity="0.4"/>
-<rect data-band="第一次寒冬" x="16" y="396" width="150" height="68" rx="6" fill="#f4e0d9" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="427.0" text-anchor="middle">第一次寒冬</text>
-<text class="range" x="91.0" y="446.0" text-anchor="middle">1969–1980</text>
-<rect x="184" y="396" width="560" height="68" rx="6" fill="#f4e0d9" opacity="0.4"/>
-<rect data-band="第二次兴起" x="16" y="478" width="150" height="238" rx="6" fill="#dcebdc" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="594.0" text-anchor="middle">第二次兴起</text>
-<text class="range" x="91.0" y="613.0" text-anchor="middle">1980–1995</text>
-<rect x="184" y="478" width="560" height="238" rx="6" fill="#dcebdc" opacity="0.4"/>
-<rect data-band="第二次寒冬" x="16" y="730" width="150" height="170" rx="6" fill="#f4e0d9" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="812.0" text-anchor="middle">第二次寒冬</text>
-<text class="range" x="91.0" y="831.0" text-anchor="middle">1995–2006</text>
-<rect x="184" y="730" width="560" height="170" rx="6" fill="#f4e0d9" opacity="0.4"/>
-<rect data-band="第三次兴起" x="16" y="914" width="150" height="272" rx="6" fill="#dcebdc" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="1047.0" text-anchor="middle">第三次兴起</text>
-<text class="range" x="91.0" y="1066.0" text-anchor="middle">2006–</text>
-<rect x="184" y="914" width="560" height="272" rx="6" fill="#dcebdc" opacity="0.4"/>
-<rect data-band="大语言模型" x="16" y="1200" width="150" height="68" rx="6" fill="#e8e9ec" stroke="#8792a2"/>
-<text class="phase" x="91.0" y="1231.0" text-anchor="middle">大语言模型</text>
-<text class="range" x="91.0" y="1250.0" text-anchor="middle">2020–</text>
-<rect x="184" y="1200" width="560" height="68" rx="6" fill="#e8e9ec" opacity="0.4"/>
-<line class="axis" x1="196" y1="113.0" x2="196" y2="1251.0"/>
-<g data-year="1943"><circle class="dot" cx="196" cy="113.0" r="5"/><text class="yr" x="214" y="118.0">1943</text><text class="name" x="268" y="118.0">McCulloch–Pitts<tspan class="desc" dx="10">阈值神经元</tspan></text></g>
-<g data-year="1949"><circle class="dot" cx="196" cy="147.0" r="5"/><text class="yr" x="214" y="152.0">1949</text><text class="name" x="268" y="152.0">Hebb<tspan class="desc" dx="10">突触学习假说</tspan></text></g>
-<g data-year="1950"><circle class="dot" cx="196" cy="181.0" r="5"/><text class="yr" x="214" y="186.0">1950</text><text class="name" x="268" y="186.0">图灵测试<tspan class="desc" dx="10">机器智能</tspan></text></g>
-<g data-year="1956"><circle class="dot" cx="196" cy="215.0" r="5"/><text class="yr" x="214" y="220.0">1956</text><text class="name" x="268" y="220.0">达特茅斯研讨会<tspan class="desc" dx="10">人工智能议程</tspan></text></g>
-<g data-year="1957"><circle class="dot" cx="196" cy="263.0" r="5"/><text class="yr" x="214" y="268.0">1957</text><text class="name" x="268" y="268.0">Rosenblatt 感知机<tspan class="desc" dx="10">技术报告</tspan></text></g>
-<g data-year="1958"><circle class="dot" cx="196" cy="297.0" r="5"/><text class="yr" x="214" y="302.0">1958</text><text class="name" x="268" y="302.0">Mark I 感知机<tspan class="desc" dx="10">硬件实现</tspan></text></g>
-<g data-year="1960"><circle class="dot" cx="196" cy="331.0" r="5"/><text class="yr" x="214" y="336.0">1960</text><text class="name" x="268" y="336.0">ADALINE<tspan class="desc" dx="10">自适应线性元件</tspan></text></g>
-<g data-year="1962"><circle class="dot" cx="196" cy="365.0" r="5"/><text class="yr" x="214" y="370.0">1962</text><text class="name" x="268" y="370.0">Novikoff 收敛定理<tspan class="desc" dx="10">误分上界</tspan></text></g>
-<g data-year="1969"><circle class="dot" cx="196" cy="413.0" r="5"/><text class="yr" x="214" y="418.0">1969</text><text class="name" x="268" y="418.0">Minsky &amp; Papert<tspan class="desc" dx="10">《Perceptrons》</tspan></text></g>
-<g data-year="1973"><circle class="dot" cx="196" cy="447.0" r="5"/><text class="yr" x="214" y="452.0">1973</text><text class="name" x="268" y="452.0">Lighthill 报告<tspan class="desc" dx="10">英国 AI 资助收缩</tspan></text></g>
-<g data-year="1980"><circle class="dot" cx="196" cy="495.0" r="5"/><text class="yr" x="214" y="500.0">1980</text><text class="name" x="268" y="500.0">Neocognitron<tspan class="desc" dx="10">层级视觉模型</tspan></text></g>
-<g data-year="1982"><circle class="dot" cx="196" cy="529.0" r="5"/><text class="yr" x="214" y="534.0">1982</text><text class="name" x="268" y="534.0">Hopfield 网络<tspan class="desc" dx="10">联想记忆</tspan></text></g>
-<g data-year="1985"><circle class="dot" cx="196" cy="563.0" r="5"/><text class="yr" x="214" y="568.0">1985</text><text class="name" x="268" y="568.0">Boltzmann machine<tspan class="desc" dx="10">随机能量模型</tspan></text></g>
-<g data-year="1986"><circle class="dot" cx="196" cy="597.0" r="5"/><text class="yr" x="214" y="602.0">1986</text><text class="name" x="268" y="602.0">反向传播算法<tspan class="desc" dx="10">并行分布式处理研究</tspan></text></g>
-<g data-year="1987"><circle class="dot" cx="196" cy="631.0" r="5"/><text class="yr" x="214" y="636.0">1987</text><text class="name" x="268" y="636.0">NETtalk<tspan class="desc" dx="10">英文文本转语音</tspan></text></g>
-<g data-year="1989"><circle class="dot" cx="196" cy="665.0" r="5"/><text class="yr" x="214" y="670.0">1989</text><text class="name" x="268" y="670.0">LeCun 卷积网络 · 万能逼近定理<tspan class="desc" dx="10">视觉模型与表达理论</tspan></text></g>
-<g data-year="1990"><circle class="dot" cx="196" cy="699.0" r="5"/><text class="yr" x="214" y="704.0">1990</text><text class="name" x="268" y="704.0">Elman 循环网络<tspan class="desc" dx="10">序列上下文</tspan></text></g>
-<g data-year="1995"><circle class="dot" cx="196" cy="747.0" r="5"/><text class="yr" x="214" y="752.0">1995</text><text class="name" x="268" y="752.0">支持向量机<tspan class="desc" dx="10">最大间隔与核方法</tspan></text></g>
-<g data-year="1997"><circle class="dot" cx="196" cy="781.0" r="5"/><text class="yr" x="214" y="786.0">1997</text><text class="name" x="268" y="786.0">长短期记忆网络（LSTM）<tspan class="desc" dx="10">长程依赖</tspan></text></g>
-<g data-year="1998"><circle class="dot" cx="196" cy="815.0" r="5"/><text class="yr" x="214" y="820.0">1998</text><text class="name" x="268" y="820.0">LeNet-5<tspan class="desc" dx="10">支票数字识别</tspan></text></g>
-<g data-year="2003"><circle class="dot" cx="196" cy="849.0" r="5"/><text class="yr" x="214" y="854.0">2003</text><text class="name" x="268" y="854.0">神经概率语言模型<tspan class="desc" dx="10">Bengio 等</tspan></text></g>
-<g data-year="2004"><circle class="dot" cx="196" cy="883.0" r="5"/><text class="yr" x="214" y="888.0">2004</text><text class="name" x="268" y="888.0">CIFAR 神经计算项目<tspan class="desc" dx="10">Hinton 发起</tspan></text></g>
-<g data-year="2006"><circle class="dot" cx="196" cy="931.0" r="5"/><text class="yr" x="214" y="936.0">2006</text><text class="name" x="268" y="936.0">深度信念网络<tspan class="desc" dx="10">逐层预训练</tspan></text></g>
-<g data-year="2009"><circle class="dot" cx="196" cy="965.0" r="5"/><text class="yr" x="214" y="970.0">2009</text><text class="name" x="268" y="970.0">GPU 训练 · ImageNet<tspan class="desc" dx="10">算力与大规模数据</tspan></text></g>
-<g data-year="2010"><circle class="dot" cx="196" cy="999.0" r="5"/><text class="yr" x="214" y="1004.0">2010</text><text class="name" x="268" y="1004.0">ReLU · Xavier 初始化<tspan class="desc" dx="10">非饱和激活与尺度</tspan></text></g>
-<g data-year="2012"><circle class="dot" cx="196" cy="1033.0" r="5"/><text class="yr" x="214" y="1038.0">2012</text><text class="name" x="268" y="1038.0">AlexNet<tspan class="desc" dx="10">ImageNet 冠军</tspan></text></g>
-<g data-year="2013"><circle class="dot" cx="196" cy="1067.0" r="5"/><text class="yr" x="214" y="1072.0">2013</text><text class="name" x="268" y="1072.0">Word2Vec<tspan class="desc" dx="10">词向量</tspan></text></g>
-<g data-year="2014"><circle class="dot" cx="196" cy="1101.0" r="5"/><text class="yr" x="214" y="1106.0">2014</text><text class="name" x="268" y="1106.0">序列到序列 · 注意力 · GAN<tspan class="desc" dx="10">翻译与生成</tspan></text></g>
-<g data-year="2015"><circle class="dot" cx="196" cy="1135.0" r="5"/><text class="yr" x="214" y="1140.0">2015</text><text class="name" x="268" y="1140.0">批归一化 · 残差网络<tspan class="desc" dx="10">更深的视觉模型</tspan></text></g>
-<g data-year="2017"><circle class="dot" cx="196" cy="1169.0" r="5"/><text class="yr" x="214" y="1174.0">2017</text><text class="name" x="268" y="1174.0">Transformer<tspan class="desc" dx="10">自注意力架构</tspan></text></g>
-<g data-year="2020"><circle class="dot" cx="196" cy="1217.0" r="5"/><text class="yr" x="214" y="1222.0">2020</text><text class="name" x="268" y="1222.0">GPT-3<tspan class="desc" dx="10">1750 亿参数的语言模型</tspan></text></g>
-<g data-year="2022"><circle class="dot" cx="196" cy="1251.0" r="5"/><text class="yr" x="214" y="1256.0">2022</text><text class="name" x="268" y="1256.0">ChatGPT<tspan class="desc" dx="10">面向公众发布</tspan></text></g>
+<rect data-band="理论前史" x="16" y="66" width="150" height="136" rx="6" fill="#e7e9ef" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="131.0" text-anchor="middle">理论前史</text>
+<text class="range" x="91.0" y="150.0" text-anchor="middle">1943–1956</text>
+<rect x="184" y="66" width="560" height="136" rx="6" fill="#e7e9ef" opacity="0.4"/>
+<rect data-band="第一次兴起" x="16" y="216" width="150" height="136" rx="6" fill="#dcebdc" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="281.0" text-anchor="middle">第一次兴起</text>
+<text class="range" x="91.0" y="300.0" text-anchor="middle">1957–1969</text>
+<rect x="184" y="216" width="560" height="136" rx="6" fill="#dcebdc" opacity="0.4"/>
+<rect data-band="第一次寒冬" x="16" y="366" width="150" height="68" rx="6" fill="#f4e0d9" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="397.0" text-anchor="middle">第一次寒冬</text>
+<text class="range" x="91.0" y="416.0" text-anchor="middle">1969–1980</text>
+<rect x="184" y="366" width="560" height="68" rx="6" fill="#f4e0d9" opacity="0.4"/>
+<rect data-band="第二次兴起" x="16" y="448" width="150" height="238" rx="6" fill="#dcebdc" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="564.0" text-anchor="middle">第二次兴起</text>
+<text class="range" x="91.0" y="583.0" text-anchor="middle">1980–1995</text>
+<rect x="184" y="448" width="560" height="238" rx="6" fill="#dcebdc" opacity="0.4"/>
+<rect data-band="第二次寒冬" x="16" y="700" width="150" height="170" rx="6" fill="#f4e0d9" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="782.0" text-anchor="middle">第二次寒冬</text>
+<text class="range" x="91.0" y="801.0" text-anchor="middle">1995–2006</text>
+<rect x="184" y="700" width="560" height="170" rx="6" fill="#f4e0d9" opacity="0.4"/>
+<rect data-band="第三次兴起" x="16" y="884" width="150" height="272" rx="6" fill="#dcebdc" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="1017.0" text-anchor="middle">第三次兴起</text>
+<text class="range" x="91.0" y="1036.0" text-anchor="middle">2006–</text>
+<rect x="184" y="884" width="560" height="272" rx="6" fill="#dcebdc" opacity="0.4"/>
+<rect data-band="大语言模型" x="16" y="1170" width="150" height="68" rx="6" fill="#e8e9ec" stroke="#8792a2"/>
+<text class="phase" x="91.0" y="1201.0" text-anchor="middle">大语言模型</text>
+<text class="range" x="91.0" y="1220.0" text-anchor="middle">2020–</text>
+<rect x="184" y="1170" width="560" height="68" rx="6" fill="#e8e9ec" opacity="0.4"/>
+<line class="axis" x1="196" y1="83.0" x2="196" y2="1221.0"/>
+<g data-year="1943"><circle class="dot" cx="196" cy="83.0" r="5"/><text class="yr" x="214" y="88.0">1943</text><text class="name" x="268" y="88.0">McCulloch–Pitts<tspan class="desc" dx="10">阈值神经元</tspan></text></g>
+<g data-year="1949"><circle class="dot" cx="196" cy="117.0" r="5"/><text class="yr" x="214" y="122.0">1949</text><text class="name" x="268" y="122.0">Hebb<tspan class="desc" dx="10">突触学习假说</tspan></text></g>
+<g data-year="1950"><circle class="dot" cx="196" cy="151.0" r="5"/><text class="yr" x="214" y="156.0">1950</text><text class="name" x="268" y="156.0">图灵测试<tspan class="desc" dx="10">机器智能</tspan></text></g>
+<g data-year="1956"><circle class="dot" cx="196" cy="185.0" r="5"/><text class="yr" x="214" y="190.0">1956</text><text class="name" x="268" y="190.0">达特茅斯研讨会<tspan class="desc" dx="10">人工智能议程</tspan></text></g>
+<g data-year="1957"><circle class="dot" cx="196" cy="233.0" r="5"/><text class="yr" x="214" y="238.0">1957</text><text class="name" x="268" y="238.0">Rosenblatt 感知机<tspan class="desc" dx="10">技术报告</tspan></text></g>
+<g data-year="1958"><circle class="dot" cx="196" cy="267.0" r="5"/><text class="yr" x="214" y="272.0">1958</text><text class="name" x="268" y="272.0">Mark I 感知机<tspan class="desc" dx="10">硬件实现</tspan></text></g>
+<g data-year="1960"><circle class="dot" cx="196" cy="301.0" r="5"/><text class="yr" x="214" y="306.0">1960</text><text class="name" x="268" y="306.0">ADALINE<tspan class="desc" dx="10">自适应线性元件</tspan></text></g>
+<g data-year="1962"><circle class="dot" cx="196" cy="335.0" r="5"/><text class="yr" x="214" y="340.0">1962</text><text class="name" x="268" y="340.0">Novikoff 收敛定理<tspan class="desc" dx="10">误分上界</tspan></text></g>
+<g data-year="1969"><circle class="dot" cx="196" cy="383.0" r="5"/><text class="yr" x="214" y="388.0">1969</text><text class="name" x="268" y="388.0">Minsky &amp; Papert<tspan class="desc" dx="10">《Perceptrons》</tspan></text></g>
+<g data-year="1973"><circle class="dot" cx="196" cy="417.0" r="5"/><text class="yr" x="214" y="422.0">1973</text><text class="name" x="268" y="422.0">Lighthill 报告<tspan class="desc" dx="10">英国 AI 资助收缩</tspan></text></g>
+<g data-year="1980"><circle class="dot" cx="196" cy="465.0" r="5"/><text class="yr" x="214" y="470.0">1980</text><text class="name" x="268" y="470.0">Neocognitron<tspan class="desc" dx="10">层级视觉模型</tspan></text></g>
+<g data-year="1982"><circle class="dot" cx="196" cy="499.0" r="5"/><text class="yr" x="214" y="504.0">1982</text><text class="name" x="268" y="504.0">Hopfield 网络<tspan class="desc" dx="10">联想记忆</tspan></text></g>
+<g data-year="1985"><circle class="dot" cx="196" cy="533.0" r="5"/><text class="yr" x="214" y="538.0">1985</text><text class="name" x="268" y="538.0">Boltzmann machine<tspan class="desc" dx="10">随机能量模型</tspan></text></g>
+<g data-year="1986"><circle class="dot" cx="196" cy="567.0" r="5"/><text class="yr" x="214" y="572.0">1986</text><text class="name" x="268" y="572.0">反向传播算法<tspan class="desc" dx="10">并行分布式处理研究</tspan></text></g>
+<g data-year="1987"><circle class="dot" cx="196" cy="601.0" r="5"/><text class="yr" x="214" y="606.0">1987</text><text class="name" x="268" y="606.0">NETtalk<tspan class="desc" dx="10">英文文本转语音</tspan></text></g>
+<g data-year="1989"><circle class="dot" cx="196" cy="635.0" r="5"/><text class="yr" x="214" y="640.0">1989</text><text class="name" x="268" y="640.0">LeCun 卷积网络 · 万能逼近定理<tspan class="desc" dx="10">视觉模型与表达理论</tspan></text></g>
+<g data-year="1990"><circle class="dot" cx="196" cy="669.0" r="5"/><text class="yr" x="214" y="674.0">1990</text><text class="name" x="268" y="674.0">Elman 循环网络<tspan class="desc" dx="10">序列上下文</tspan></text></g>
+<g data-year="1995"><circle class="dot" cx="196" cy="717.0" r="5"/><text class="yr" x="214" y="722.0">1995</text><text class="name" x="268" y="722.0">支持向量机<tspan class="desc" dx="10">最大间隔与核方法</tspan></text></g>
+<g data-year="1997"><circle class="dot" cx="196" cy="751.0" r="5"/><text class="yr" x="214" y="756.0">1997</text><text class="name" x="268" y="756.0">长短期记忆网络（LSTM）<tspan class="desc" dx="10">长程依赖</tspan></text></g>
+<g data-year="1998"><circle class="dot" cx="196" cy="785.0" r="5"/><text class="yr" x="214" y="790.0">1998</text><text class="name" x="268" y="790.0">LeNet-5<tspan class="desc" dx="10">支票数字识别</tspan></text></g>
+<g data-year="2003"><circle class="dot" cx="196" cy="819.0" r="5"/><text class="yr" x="214" y="824.0">2003</text><text class="name" x="268" y="824.0">神经概率语言模型<tspan class="desc" dx="10">Bengio 等</tspan></text></g>
+<g data-year="2004"><circle class="dot" cx="196" cy="853.0" r="5"/><text class="yr" x="214" y="858.0">2004</text><text class="name" x="268" y="858.0">CIFAR 神经计算项目<tspan class="desc" dx="10">Hinton 发起</tspan></text></g>
+<g data-year="2006"><circle class="dot" cx="196" cy="901.0" r="5"/><text class="yr" x="214" y="906.0">2006</text><text class="name" x="268" y="906.0">深度信念网络<tspan class="desc" dx="10">逐层预训练</tspan></text></g>
+<g data-year="2009"><circle class="dot" cx="196" cy="935.0" r="5"/><text class="yr" x="214" y="940.0">2009</text><text class="name" x="268" y="940.0">GPU 训练 · ImageNet<tspan class="desc" dx="10">算力与大规模数据</tspan></text></g>
+<g data-year="2010"><circle class="dot" cx="196" cy="969.0" r="5"/><text class="yr" x="214" y="974.0">2010</text><text class="name" x="268" y="974.0">ReLU · Xavier 初始化<tspan class="desc" dx="10">非饱和激活与尺度</tspan></text></g>
+<g data-year="2012"><circle class="dot" cx="196" cy="1003.0" r="5"/><text class="yr" x="214" y="1008.0">2012</text><text class="name" x="268" y="1008.0">AlexNet<tspan class="desc" dx="10">ImageNet 冠军</tspan></text></g>
+<g data-year="2013"><circle class="dot" cx="196" cy="1037.0" r="5"/><text class="yr" x="214" y="1042.0">2013</text><text class="name" x="268" y="1042.0">Word2Vec<tspan class="desc" dx="10">词向量</tspan></text></g>
+<g data-year="2014"><circle class="dot" cx="196" cy="1071.0" r="5"/><text class="yr" x="214" y="1076.0">2014</text><text class="name" x="268" y="1076.0">序列到序列 · 注意力 · GAN<tspan class="desc" dx="10">翻译与生成</tspan></text></g>
+<g data-year="2015"><circle class="dot" cx="196" cy="1105.0" r="5"/><text class="yr" x="214" y="1110.0">2015</text><text class="name" x="268" y="1110.0">批归一化 · 残差网络<tspan class="desc" dx="10">更深的视觉模型</tspan></text></g>
+<g data-year="2017"><circle class="dot" cx="196" cy="1139.0" r="5"/><text class="yr" x="214" y="1144.0">2017</text><text class="name" x="268" y="1144.0">Transformer<tspan class="desc" dx="10">自注意力架构</tspan></text></g>
+<g data-year="2020"><circle class="dot" cx="196" cy="1187.0" r="5"/><text class="yr" x="214" y="1192.0">2020</text><text class="name" x="268" y="1192.0">GPT-3<tspan class="desc" dx="10">1750 亿参数的语言模型</tspan></text></g>
+<g data-year="2022"><circle class="dot" cx="196" cy="1221.0" r="5"/><text class="yr" x="214" y="1226.0">2022</text><text class="name" x="268" y="1226.0">ChatGPT<tspan class="desc" dx="10">面向公众发布</tspan></text></g>
 </svg>
