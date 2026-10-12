@@ -2249,30 +2249,30 @@ html.private-post:not(.author-ok) .private-post-gate {
 }
 .heading-fold {
   position: absolute;
-  top: 0.1em;
-  top: calc(0.5lh - 12px);
-  left: -30px;
-  width: 24px;
-  height: 24px;
+  top: 0;
+  left: -22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 1.1em;
+  height: 1lh;
   padding: 0;
   border: 0;
-  border-radius: 6px;
   background: transparent;
-  color: #8b949e;
-  opacity: 0.55;
+  color: #00788f;
+  opacity: 0;
   cursor: pointer;
-  transition: opacity 0.15s ease, color 0.15s ease, background-color 0.15s ease;
 }
 .heading-fold::before {
   content: "";
   display: block;
-  width: 8px;
-  height: 8px;
-  margin: 6px auto 0;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
-  transition: transform 0.15s ease, margin 0.15s ease;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+  transition: transform 0.15s ease;
 }
 .post-container > h1:hover .heading-fold,
 .post-container > h2:hover .heading-fold,
@@ -2283,23 +2283,18 @@ html.private-post:not(.author-ok) .private-post-gate {
 .heading-fold:focus-visible,
 .heading-fold[aria-expanded="false"] {
   opacity: 1;
-  color: #00788f;
-}
-.heading-fold:hover,
-.heading-fold:focus-visible {
-  background: rgba(0, 120, 143, 0.12);
 }
 .heading-fold[aria-expanded="false"]::before {
-  margin: 8px 0 0 6px;
-  transform: rotate(-45deg);
+  transform: rotate(-90deg);
+}
+@media (hover: none) {
+  .heading-fold {
+    opacity: 0.35;
+  }
 }
 @media (max-width: 767px) {
   .heading-fold {
-    position: static;
-    display: inline-block;
-    vertical-align: middle;
-    margin: -4px 2px 0 -6px;
-    opacity: 0.8;
+    left: -16px;
   }
 }
 @media print {
@@ -8240,21 +8235,7 @@ html[data-theme="dark"] .post-container > h3 .heading-fold,
 html[data-theme="dark"] .post-container > h4 .heading-fold,
 html[data-theme="dark"] .post-container > h5 .heading-fold,
 html[data-theme="dark"] .post-container > h6 .heading-fold {
-  color: #969ba4;
-}
-html[data-theme="dark"] .post-container > h1:hover .heading-fold,
-html[data-theme="dark"] .post-container > h2:hover .heading-fold,
-html[data-theme="dark"] .post-container > h3:hover .heading-fold,
-html[data-theme="dark"] .post-container > h4:hover .heading-fold,
-html[data-theme="dark"] .post-container > h5:hover .heading-fold,
-html[data-theme="dark"] .post-container > h6:hover .heading-fold,
-html[data-theme="dark"] .post-container .heading-fold:focus-visible,
-html[data-theme="dark"] .post-container .heading-fold[aria-expanded="false"] {
   color: #4cb7cb;
-}
-html[data-theme="dark"] .post-container .heading-fold:hover,
-html[data-theme="dark"] .post-container .heading-fold:focus-visible {
-  background: rgba(76, 183, 203, 0.16);
 }
 html[data-theme="dark"] .pa-share-pop {
   background-color: #1f2125;
