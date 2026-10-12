@@ -772,10 +772,19 @@ html.ap-capturing {
 	-webkit-user-select: none;
 	cursor: crosshair;
 }
+.ap-crop-overlay[data-tool="text"] .ap-crop-image { cursor: text; }
+.ap-crop-markup {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
 .ap-crop-selection {
 	display: none;
 	position: absolute;
-	z-index: 1;
+	z-index: 2;
 	box-sizing: border-box;
 	border: 1px solid #fff;
 	box-shadow: 0 0 0 9999px rgba(0, 0, 0, .5);
@@ -801,7 +810,7 @@ html.ap-capturing {
 	box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
 	color: #fff;
 }
-.ap-crop-hint { font-size: 12.5px; line-height: 1.4; white-space: nowrap; }
+.ap-crop-hint { flex-basis: 100%; text-align: center; font-size: 12.5px; line-height: 1.4; white-space: nowrap; }
 .ap-crop-toolbar button {
 	padding: 6px 10px;
 	background: #30343a;
@@ -813,6 +822,38 @@ html.ap-capturing {
 	cursor: pointer;
 	&:hover:not(:disabled) { background: @brand-primary; border-color: @brand-primary; }
 	&:disabled { opacity: .5; cursor: not-allowed; }
+}
+.ap-crop-toolbar .ap-crop-tool,
+.ap-crop-toolbar .ap-crop-undo {
+	min-width: 34px;
+	padding: 6px 8px;
+}
+.ap-crop-toolbar .ap-crop-tool.is-active {
+	background: @brand-primary;
+	border-color: @brand-primary;
+	color: #fff;
+}
+.ap-crop-separator {
+	align-self: stretch;
+	width: 1px;
+	margin: 0 2px;
+	background: rgba(255, 255, 255, .28);
+}
+.ap-crop-text {
+	position: absolute;
+	z-index: 3;
+	box-sizing: border-box;
+	max-width: 100%;
+	min-width: 4em;
+	padding: 1px 2px;
+	border: 1px dashed #f5222d;
+	border-radius: 0;
+	outline: none;
+	background: transparent;
+	color: #f5222d;
+	font-size: 18px;
+	font-weight: bold;
+	line-height: 1.2;
 }
 
 @media (max-width: 480px) {
