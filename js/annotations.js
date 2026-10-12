@@ -1458,23 +1458,65 @@
     return null;
   }
 
-  function cssCounterValue(list, item, name) {
-    if (name === 'list-item') return listItemCounterValue(list, item);
-    var value = 0;
-    var listReset = counterEntries(window.getComputedStyle(list).counterReset, 0);
-    if (Object.prototype.hasOwnProperty.call(listReset, name)) value = listReset[name];
-    var items = Array.prototype.filter.call(list.querySelectorAll('li'), function (candidate) {
-      return candidate.closest('ol, ul') === list;
-    });
-    for (var i = 0; i < items.length; i++) {
-      var style = window.getComputedStyle(items[i]);
-      var resets = counterEntries(style.counterReset, 0);
-      var increments = counterEntries(style.counterIncrement, 1);
-      if (Object.prototype.hasOwnProperty.call(resets, name)) value = resets[name];
-      if (Object.prototype.hasOwnProperty.call(increments, name)) value += increments[name];
-      if (items[i] === item) return value;
+  function cssCounterValues(element, position, name) {
+    if (name === 'list-item') {
+      var item = element.closest('li');
+      var list = item && item.parentElement && item.parentElement.closest('ol, ul');
+      var listValue = list && listItemCounterValue(list, item);
+      return listValue === null || listValue === undefined ? null : [listValue];
     }
-    return null;
+    var scope = null, baseValue = 0;
+    for (var ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+      var resets = counterEntries(window.getComputedStyle(ancestor).counterReset, 0);
+      if (Object.prototype.hasOwnProperty.call(resets, name)) {
+        scope = ancestor;
+        baseValue = resets[name];
+        break;
+      }
+    }
+    if (!scope) return null;
+    var values = [baseValue], result = null;
+    function applyStyle(style, scopeElement) {
+      var reset = counterEntries(style.counterReset, 0);
+      var pushed = false;
+      if (Object.prototype.hasOwnProperty.call(reset, name)) {
+        if (scopeElement) values[values.length - 1] = reset[name];
+        else { values.push(reset[name]); pushed = true; }
+      }
+      var increments = counterEntries(style.counterIncrement, 1);
+      if (Object.prototype.hasOwnProperty.call(increments, name)) {
+        values[values.length - 1] += increments[name];
+      }
+      return pushed;
+    }
+    function visit(node, scopeElement) {
+      var pushed = applyStyle(window.getComputedStyle(node), scopeElement);
+      var beforePushed = applyStyle(window.getComputedStyle(node, '::before'), false);
+      if (node === element && position === 'before') {
+        result = values.slice();
+        return true;
+      }
+      if (beforePushed) values.pop();
+      var markerPushed = applyStyle(window.getComputedStyle(node, '::marker'), false);
+      if (node === element && position === 'marker') {
+        result = values.slice();
+        return true;
+      }
+      if (markerPushed) values.pop();
+      for (var i = 0; i < node.children.length; i++) {
+        if (visit(node.children[i], false)) return true;
+      }
+      var afterPushed = applyStyle(window.getComputedStyle(node, '::after'), false);
+      if (node === element && position === 'after') {
+        result = values.slice();
+        return true;
+      }
+      if (afterPushed) values.pop();
+      if (pushed) values.pop();
+      return false;
+    }
+    visit(scope, true);
+    return result;
   }
 
   function formatCounter(value, style) {
@@ -1502,20 +1544,38 @@
     return String(value);
   }
 
-  function counterContentText(content, list, item) {
+  function unescapeCssString(value) {
+    return value.slice(1, -1).replace(/\\([0-9a-fA-F]{1,6})\s?|\\(.)/g, function (_, hex, character) {
+      return hex ? String.fromCodePoint(parseInt(hex, 16)) : character;
+    });
+  }
+
+  function counterContentText(content, element, position) {
     var hasCounter = false, failed = false, parts = [];
-    var pattern = /counter\(\s*([a-zA-Z_-][\w-]*)(?:\s*,\s*([a-zA-Z-]+))?\s*\)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+    var pattern = /(counter|counters)\(\s*([a-zA-Z_-][\w-]*)(?:\s*,\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[a-zA-Z-]+))?(?:\s*,\s*([a-zA-Z-]+))?\s*\)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
     var match;
     while ((match = pattern.exec(content))) {
       if (match[1]) {
         hasCounter = true;
-        var value = cssCounterValue(list, item, match[1]);
-        if (value === null) failed = true;
-        else parts.push(formatCounter(value, match[2] || 'decimal'));
+        var values = cssCounterValues(element, position, match[2]);
+        if (!values) {
+          failed = true;
+          continue;
+        }
+        if (match[1] === 'counters') {
+          if (!match[3] || match[3].charAt(0) !== '"' && match[3].charAt(0) !== "'") {
+            failed = true;
+            continue;
+          }
+          var separator = unescapeCssString(match[3]);
+          var counterStyle = match[4] || 'decimal';
+          parts.push(values.map(function (value) { return formatCounter(value, counterStyle); }).join(separator));
+        } else {
+          var style = match[4] || (match[3] && /^[a-zA-Z-]+$/.test(match[3]) ? match[3] : 'decimal');
+          parts.push(formatCounter(values[values.length - 1], style));
+        }
       } else {
-        parts.push(match[0].slice(1, -1).replace(/\\([0-9a-fA-F]{1,6})\s?|\\(.)/g, function (_, hex, character) {
-          return hex ? String.fromCodePoint(parseInt(hex, 16)) : character;
-        }));
+        parts.push(unescapeCssString(match[5]));
       }
     }
     return hasCounter && !failed ? parts.join('') : null;
@@ -1547,8 +1607,8 @@
   function prepareCounterMarkers(root, cloneRoot, excluded) {
     var used = false;
     var candidates = [];
-    if (root.matches && root.matches('li')) candidates.push(root);
-    Array.prototype.push.apply(candidates, root.querySelectorAll('li, li *'));
+    if (root.matches) candidates.push(root);
+    Array.prototype.push.apply(candidates, root.querySelectorAll('*'));
     function copyPseudoStyle(source, target) {
       for (var i = 0; i < source.length; i++) {
         var property = source[i];
@@ -1560,21 +1620,18 @@
       var rect = element.getBoundingClientRect();
       if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
           rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
-      var list = element.closest('ol, ul');
       var item = element.closest('li');
-      if (!list || !item || !list.contains(item)) return;
       var cloneElement = counterCloneNode(root, cloneRoot, element, excluded);
-      var cloneList = counterCloneNode(root, cloneRoot, list, excluded);
-      var cloneItem = counterCloneNode(root, cloneRoot, item, excluded);
-      if (!cloneElement || !cloneList || !cloneItem) return;
-      if (element === item && list.tagName === 'OL') {
+      if (!cloneElement) return;
+      var list = item && item.parentElement && item.parentElement.closest('ol, ul');
+      if (element === item && list && list.tagName === 'OL') {
         var markerStyle = window.getComputedStyle(item, '::marker');
         var listStyleType = window.getComputedStyle(list).listStyleType;
         if (markerStyle.content === 'normal' && listStyleType !== 'none' &&
             markerStyle.display !== 'none' && markerStyle.visibility !== 'hidden' && Number(markerStyle.opacity) !== 0) {
           var itemValue = listItemCounterValue(list, item);
           if (itemValue !== null) {
-            cloneItem.setAttribute('data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
+            cloneElement.setAttribute('data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
             used = true;
           }
         }
@@ -1583,7 +1640,7 @@
         var style = window.getComputedStyle(element, '::' + position);
         if (!style.content || !/counter\(/i.test(style.content) ||
             style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
-        var text = counterContentText(style.content, list, item);
+        var text = counterContentText(style.content, element, position);
         if (text === null) return;
         cloneElement.setAttribute('data-ap-render-counter-' + position, text);
         used = true;
