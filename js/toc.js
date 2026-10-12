@@ -121,6 +121,16 @@
         return headings.filter(function (h) { return h.level <= maxLevel; });
     }
 
+    window.BlogOutline = {
+        headings: function () {
+            var container = document.querySelector('.post-container') || document.querySelector('article');
+            if (!container) return [];
+            return clampOutlineDepth(collectHeadings(container)).map(function (heading) {
+                return { id: heading.node.id, text: heading.text, level: heading.level };
+            });
+        }
+    };
+
     function scrollToHeading(node) {
         if (window.SectionFold) window.SectionFold.reveal(node);
         var top = node.getBoundingClientRect().top + window.pageYOffset - NAV_OFFSET;
@@ -299,11 +309,12 @@
         document.body.appendChild(backdrop);
         document.addEventListener('click', function (e) {
             if (!document.body.classList.contains(DRAWER_CLASS)) return;
+            if (document.querySelector('.mm-overlay')) return;
             if (column.contains(e.target) || (open && open.contains(e.target))) return;
             drawer(false);
         });
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && document.body.classList.contains(DRAWER_CLASS)) drawer(false);
+            if (e.key === 'Escape' && !document.querySelector('.mm-overlay') && document.body.classList.contains(DRAWER_CLASS)) drawer(false);
         });
         // widened past the breakpoint: the column is back, the drawer state is meaningless
         var onChange = function () { if (!mq.matches) drawer(false); };
@@ -376,6 +387,7 @@
             document.body.classList.add(COLLAPSED_CLASS, UNAVAILABLE_CLASS);
             return;
         }
+        document.body.classList.remove(UNAVAILABLE_CLASS);
 
         var entries = [];
         buildList(body, headings, entries);

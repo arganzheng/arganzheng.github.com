@@ -18,6 +18,7 @@ SRC=(
   js/section-fold.js      # foldable article sections; follows TOC so heading ids exist
   js/reading-position.js  # article progress and resume prompt (after TOC assigns heading ids)
   js/read-progress.js     # local read markers and per-reader series progress
+  js/mindmap.js           # outline / SVG mind map views
   js/diagram-zoom.js      # lightbox for Mermaid diagrams / images (window.DiagramZoom, button in figures.js)
   js/code-copy.js         # copy button on code blocks, diagrams, tables
   js/code-tabs.js         # Python / Java tabs on grouped code blocks

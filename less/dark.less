@@ -642,3 +642,25 @@ html[data-theme="dark"] {
 	.sb-read, .st-read, .rp-badge, .rp-marker { color: #9acba3; }
 	.life-card h2 .rp-marker { background: rgba(0, 0, 0, 0.22); color: #c8e8cd; }
 }
+
+html[data-theme="dark"] {
+	.series-view-toggle, .mm-tabs { background: @dk-surface; border-color: @dk-border; }
+	.series-view-toggle button, .mm-tabs button { color: @dk-muted; }
+	.series-view-toggle button:hover, .mm-tabs button:hover { color: @dk-heading; }
+	.series-view-toggle button.is-active, .mm-tabs button.is-active {
+		color: @dk-heading;
+		background: @dk-surface-2;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+	}
+	.series-mindmap { background: #1d1f21; border-color: @dk-border; }
+	.mm-overlay { color: @dk-text; background: rgba(29, 31, 33, 0.98); }
+	.mm-header { background: @dk-surface; border-bottom-color: @dk-border; }
+	.mm-close { color: @dk-muted; &:hover { color: @dk-heading; background: @dk-surface-2; } }
+	.mm-controls { background: rgba(31, 33, 37, 0.97); border-color: @dk-border; }
+	.mm-control { color: @dk-text; background: @dk-surface; border-color: @dk-border; &:hover { color: @dk-heading; background: @dk-surface-2; border-color: #606770; } }
+	.mm-outline { background: @dk-bg; }
+	.mm-outline-toggle { color: @dk-muted; &:hover { color: @dk-link; } }
+	.mm-outline-label { color: @dk-text; &:hover { color: @dk-link; background: @dk-surface-2; } }
+	.mm-read { color: #7ee787; }
+	div.side-catalog .catalog-mindmap { color: @dk-muted; border-color: @dk-border; &:hover { color: @dk-link; border-color: @dk-link; } }
+}
