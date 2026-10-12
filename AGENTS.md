@@ -212,6 +212,10 @@ Pages has `https_enforced` on.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.
+- Colour themes are applied before CSS in `_includes/head.html` and use
+  `data-theme="light"|"dark"|"sepia"`; `less/dark.less` and `less/sepia.less`
+  hold scoped overrides. Sepia is a light theme, so never set
+  `color-scheme: dark` for it.
 - Section folding (`js/section-fold.js`) adds accessible per-section h2/h3
   controls on post pages; TOC and anchor navigation reveal folded targets.
 
