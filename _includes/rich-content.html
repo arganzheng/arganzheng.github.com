@@ -183,7 +183,7 @@
       var roots = Array.prototype.filter.call(richContentRoots(), hasMath);
       if (!roots.length) return;
 
-      load('link', { rel: 'stylesheet', href: KATEX + 'katex.min.css' });
+      load('link', { rel: 'stylesheet', href: KATEX + 'katex.min.css', crossorigin: 'anonymous' });
       load('script', { src: KATEX + 'katex.min.js' }, function () {
         load('script', { src: KATEX + 'contrib/auto-render.min.js' }, function () {
           if (typeof renderMathInElement === 'undefined') return;

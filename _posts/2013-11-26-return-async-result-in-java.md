@@ -2,7 +2,7 @@
 layout: post
 title: return async result in java
 catalog: true
-tags: [Java, Concurrency]
+tags: [Java, 高并发]
 ---
 
 

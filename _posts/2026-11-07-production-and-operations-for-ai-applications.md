@@ -2,7 +2,7 @@
 layout: post
 title: 生产化与运营：让 AI 应用可靠、可控、可持续地跑（总纲）
 subtitle: "Production and Operations: Running AI Applications Reliably, Safely and Sustainably"
-tags: [AI, LLM, AI-Application, Production, Security, Cost, Governance]
+tags: [AI, LLM, AI-Application, Production, 安全, Cost, Governance]
 catalog: true
 ---
 

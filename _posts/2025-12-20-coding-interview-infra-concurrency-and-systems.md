@@ -3,7 +3,7 @@ layout: post
 series: coding-interview
 title: "面试手撕代码（19）：Infra 岗手撕——并发与系统"
 subtitle: "Infra Interviews: Thread-Safe LRU, Bounded Queues, Thread Pools, Memory Pools, Blocked GEMM, Ring Allreduce, Paged KV and Token Buckets"
-tags: [Interview, Concurrency, Thread Pool, Memory Pool, GEMM, Allreduce, KV Cache, Rate Limiting, Python, C++, AI-Infra]
+tags: [Interview, 高并发, Thread Pool, Memory Pool, GEMM, Allreduce, KV Cache, Rate Limiting, Python, C++, AI-Infra]
 catalog: true
 updated: 2026-09-15
 ---

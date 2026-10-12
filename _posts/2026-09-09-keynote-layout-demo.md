@@ -5,7 +5,7 @@ subtitle: "上面是可以翻页的幻灯片，下面是文字稿、参考资料
 iframe: "/slides/reveal-demo/play.html"
 navcolor: invert
 catalog: true
-tags: [Blog, Demo, Slides]
+tags: [博客, Demo, Slides]
 ---
 
 你现在看到的这一页就是 `keynote` 布局：**头部不是标题图，而是一份嵌进来的在线幻灯片**（方向键或点右下角箭头翻页，`F` 全屏，`S` 演讲者视图），往下滚就是这篇文章的正文——讲稿、补充说明、参考资料，文末照常有评论区、投票和阅读数。

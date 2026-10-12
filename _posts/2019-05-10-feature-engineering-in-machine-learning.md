@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 机器学习中的特征工程
-tags: [机器学习, 特征工程]
+tags: [Machine Learning, 特征工程]
 catalog: false
 ---
 

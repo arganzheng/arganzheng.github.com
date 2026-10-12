@@ -106,6 +106,8 @@
   var panelState = null;     // { kind:'thread'|'editor', ids, selector, offsets, join }
   var toast = null;
   var selectionTimer = null;
+  var modernScreenshotPromise = null;
+  var bundleVersion = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
 
   // ------------------------------------------------------------------ init
 
@@ -1383,6 +1385,521 @@
     return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
   }
 
+  function loadModernScreenshot() {
+    if (window.modernScreenshot && typeof window.modernScreenshot.domToCanvas === 'function') {
+      return Promise.resolve(window.modernScreenshot);
+    }
+    if (!modernScreenshotPromise) {
+      modernScreenshotPromise = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = '/js/vendor/modern-screenshot-4.7.0.min.js' + (bundleVersion ? '?v=' + bundleVersion : '');
+        script.onload = function () {
+          if (window.modernScreenshot && typeof window.modernScreenshot.domToCanvas === 'function') resolve(window.modernScreenshot);
+          else reject(new Error('截图渲染库未加载'));
+        };
+        script.onerror = function () {
+          modernScreenshotPromise = null;
+          reject(new Error('截图渲染库加载失败'));
+        };
+        document.head.appendChild(script);
+      });
+    }
+    return modernScreenshotPromise;
+  }
+
+  function promiseWithTimeout(promise, timeout) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { reject(new Error('页面截图超时')); }, timeout);
+      Promise.resolve(promise).then(function (value) {
+        clearTimeout(timer);
+        resolve(value);
+      }, function (err) {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
+  function pageBackgroundColor() {
+    var elements = [document.body, document.documentElement];
+    for (var i = 0; i < elements.length; i++) {
+      if (!elements[i]) continue;
+      var color = window.getComputedStyle(elements[i]).backgroundColor;
+      if (color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') return color;
+    }
+    return '#fff';
+  }
+
+  function counterEntries(value, defaultValue) {
+    var entries = {};
+    if (!value || value === 'none') return entries;
+    var match, pattern = /([a-zA-Z_-][\w-]*)(?:\s+(-?\d+))?/g;
+    while ((match = pattern.exec(value))) {
+      entries[match[1]] = match[2] === undefined ? defaultValue : parseInt(match[2], 10);
+    }
+    return entries;
+  }
+
+  function listItemCounterValue(list, item) {
+    var items = Array.prototype.filter.call(list.children, function (child) {
+      return child.tagName === 'LI';
+    });
+    var reversed = list.hasAttribute('reversed');
+    var start = parseInt(list.getAttribute('start'), 10);
+    if (isNaN(start)) start = reversed ? items.length : 1;
+    var step = reversed ? -1 : 1;
+    var value = start;
+    for (var i = 0; i < items.length; i++) {
+      var itemValue = parseInt(items[i].getAttribute('value'), 10);
+      if (!isNaN(itemValue)) value = itemValue;
+      if (items[i] === item) return value;
+      value += step;
+    }
+    return null;
+  }
+
+  function cssCounterValues(element, position, name) {
+    if (name === 'list-item') {
+      var item = element.closest('li');
+      var list = item && item.parentElement && item.parentElement.closest('ol, ul');
+      var listValue = list && listItemCounterValue(list, item);
+      return listValue === null || listValue === undefined ? null : [listValue];
+    }
+    var scope = null, baseValue = 0;
+    for (var ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+      var resets = counterEntries(window.getComputedStyle(ancestor).counterReset, 0);
+      if (Object.prototype.hasOwnProperty.call(resets, name)) {
+        scope = ancestor;
+        baseValue = resets[name];
+        break;
+      }
+    }
+    if (!scope) return null;
+    var values = [baseValue], result = null;
+    function applyStyle(style, scopeElement) {
+      var reset = counterEntries(style.counterReset, 0);
+      var pushed = false;
+      if (Object.prototype.hasOwnProperty.call(reset, name)) {
+        if (scopeElement) values[values.length - 1] = reset[name];
+        else { values.push(reset[name]); pushed = true; }
+      }
+      var increments = counterEntries(style.counterIncrement, 1);
+      if (Object.prototype.hasOwnProperty.call(increments, name)) {
+        values[values.length - 1] += increments[name];
+      }
+      return pushed;
+    }
+    function visit(node, scopeElement) {
+      var pushed = applyStyle(window.getComputedStyle(node), scopeElement);
+      var beforePushed = applyStyle(window.getComputedStyle(node, '::before'), false);
+      if (node === element && position === 'before') {
+        result = values.slice();
+        return true;
+      }
+      if (beforePushed) values.pop();
+      var markerPushed = applyStyle(window.getComputedStyle(node, '::marker'), false);
+      if (node === element && position === 'marker') {
+        result = values.slice();
+        return true;
+      }
+      if (markerPushed) values.pop();
+      for (var i = 0; i < node.children.length; i++) {
+        if (visit(node.children[i], false)) return true;
+      }
+      var afterPushed = applyStyle(window.getComputedStyle(node, '::after'), false);
+      if (node === element && position === 'after') {
+        result = values.slice();
+        return true;
+      }
+      if (afterPushed) values.pop();
+      if (pushed) values.pop();
+      return false;
+    }
+    visit(scope, true);
+    return result;
+  }
+
+  function formatCounter(value, style) {
+    if (style === 'decimal-leading-zero') return (value >= 0 && value < 10 ? '0' : '') + value;
+    if (style === 'lower-alpha' || style === 'upper-alpha' || style === 'lower-latin' || style === 'upper-latin') {
+      if (value <= 0) return String(value);
+      var letters = '', base = style.indexOf('upper') === 0 ? 65 : 97;
+      while (value > 0) {
+        value--;
+        letters = String.fromCharCode(base + value % 26) + letters;
+        value = Math.floor(value / 26);
+      }
+      return letters;
+    }
+    if (style === 'lower-roman' || style === 'upper-roman') {
+      if (value <= 0 || value >= 4000) return String(value);
+      var numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+        [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+      var roman = '';
+      numerals.forEach(function (entry) {
+        while (value >= entry[0]) { roman += entry[1]; value -= entry[0]; }
+      });
+      return style === 'lower-roman' ? roman.toLowerCase() : roman;
+    }
+    return String(value);
+  }
+
+  function unescapeCssString(value) {
+    return value.slice(1, -1).replace(/\\([0-9a-fA-F]{1,6})\s?|\\(.)/g, function (_, hex, character) {
+      return hex ? String.fromCodePoint(parseInt(hex, 16)) : character;
+    });
+  }
+
+  function counterContentText(content, element, position) {
+    var hasCounter = false, failed = false, parts = [];
+    var pattern = /(counter|counters)\(\s*([a-zA-Z_-][\w-]*)(?:\s*,\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[a-zA-Z-]+))?(?:\s*,\s*([a-zA-Z-]+))?\s*\)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+    var match;
+    while ((match = pattern.exec(content))) {
+      if (match[1]) {
+        hasCounter = true;
+        var values = cssCounterValues(element, position, match[2]);
+        if (!values) {
+          failed = true;
+          continue;
+        }
+        if (match[1] === 'counters') {
+          if (!match[3] || match[3].charAt(0) !== '"' && match[3].charAt(0) !== "'") {
+            failed = true;
+            continue;
+          }
+          var separator = unescapeCssString(match[3]);
+          var counterStyle = match[4] || 'decimal';
+          parts.push(values.map(function (value) { return formatCounter(value, counterStyle); }).join(separator));
+        } else {
+          var style = match[4] || (match[3] && /^[a-zA-Z-]+$/.test(match[3]) ? match[3] : 'decimal');
+          parts.push(formatCounter(values[values.length - 1], style));
+        }
+      } else {
+        parts.push(unescapeCssString(match[5]));
+      }
+    }
+    return hasCounter && !failed ? parts.join('') : null;
+  }
+
+  function counterClonePath(root, element, excluded) {
+    var path = [];
+    for (var current = element; current && current !== root; current = current.parentNode) {
+      var parent = current.parentNode;
+      if (!parent) return null;
+      var index = 0;
+      for (var sibling = parent.firstChild; sibling && sibling !== current; sibling = sibling.nextSibling) {
+        if (sibling.nodeType === 1 && (sibling.matches(excluded) || (sibling.closest && sibling.closest(excluded)))) continue;
+        index++;
+      }
+      path.unshift(index);
+    }
+    return current === root ? path : null;
+  }
+
+  function counterCloneNode(root, cloneRoot, element, excluded) {
+    var path = counterClonePath(root, element, excluded);
+    if (!path) return null;
+    var clone = cloneRoot;
+    for (var i = 0; i < path.length && clone; i++) clone = clone.childNodes[path[i]];
+    return clone && clone.nodeType === 1 ? clone : null;
+  }
+
+  function prepareCounterMarkers(root, cloneRoot, excluded) {
+    var used = false;
+    var candidates = [];
+    if (root.matches) candidates.push(root);
+    Array.prototype.push.apply(candidates, root.querySelectorAll('*'));
+    function copyPseudoStyle(source, target) {
+      for (var i = 0; i < source.length; i++) {
+        var property = source[i];
+        if (property === 'content' || property === 'counter-increment' || property === 'counter-reset' || property === 'quotes') continue;
+        target.style.setProperty(property, source.getPropertyValue(property));
+      }
+    }
+    Array.prototype.forEach.call(candidates, function (element) {
+      var rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
+          rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
+      var item = element.closest('li');
+      var cloneElement = counterCloneNode(root, cloneRoot, element, excluded);
+      if (!cloneElement) return;
+      var list = item && item.parentElement && item.parentElement.closest('ol, ul');
+      if (element === item && list && list.tagName === 'OL') {
+        var markerStyle = window.getComputedStyle(item, '::marker');
+        var listStyleType = window.getComputedStyle(list).listStyleType;
+        if (markerStyle.content === 'normal' && listStyleType !== 'none' &&
+            markerStyle.display !== 'none' && markerStyle.visibility !== 'hidden' && Number(markerStyle.opacity) !== 0) {
+          var itemValue = listItemCounterValue(list, item);
+          if (itemValue !== null) {
+            cloneElement.setAttribute('data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
+            used = true;
+          }
+        }
+      }
+      ['before', 'after', 'marker'].forEach(function (position) {
+        var style = window.getComputedStyle(element, '::' + position);
+        if (!style.content || !/counter\(/i.test(style.content) ||
+            style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+        var text = counterContentText(style.content, element, position);
+        if (text === null) return;
+        cloneElement.setAttribute('data-ap-render-counter-' + position, text);
+        used = true;
+        if (position === 'marker') return;
+        var marker = document.createElement('span');
+        marker.setAttribute('aria-hidden', 'true');
+        marker.setAttribute('data-ap-render-counter-text', '');
+        marker.textContent = text;
+        copyPseudoStyle(style, marker);
+        if (position === 'before') cloneElement.insertBefore(marker, cloneElement.firstChild);
+        else cloneElement.appendChild(marker);
+      });
+    });
+    if (!used) return;
+    var stylesheet = document.createElement('style');
+    stylesheet.textContent =
+      '[data-ap-render-counter-before]::before,[data-ap-render-counter-after]::after{content:none!important}' +
+      '[data-ap-render-counter-marker]::marker{content:attr(data-ap-render-counter-marker)!important}';
+    cloneRoot.appendChild(stylesheet);
+  }
+
+  function tileDimensions(element, rect) {
+    var height = rect.height;
+    var displayMath = !!(element.matches && element.matches('.katex-display'));
+    var math = [];
+    if (displayMath) math.push(element);
+    Array.prototype.push.apply(math, element.querySelectorAll('.katex-display'));
+    math.forEach(function (display) {
+      displayMath = true;
+      var mathRect = display.getBoundingClientRect();
+      var fontSize = parseFloat(window.getComputedStyle(display).fontSize) || 16;
+      height = Math.max(height, mathRect.bottom - rect.top + fontSize * 1.5);
+    });
+    return { height: height, displayMath: displayMath };
+  }
+
+  function renderScreenshotStep(promise, timeout, label) {
+    return promiseWithTimeout(promise, timeout).catch(function (error) {
+      throw new Error(label + ': ' + (error && error.message ? error.message : error));
+    });
+  }
+
+  async function renderPageScreenshot() {
+    var startedAt = Date.now();
+    var renderTimeout = 5000;
+    var screenshot = await renderScreenshotStep(loadModernScreenshot(), 5000, '加载截图库');
+    var scrollX = window.scrollX;
+    var scrollY = window.scrollY;
+    var viewportWidth = window.innerWidth;
+    var viewportHeight = window.innerHeight;
+    var scale = Math.min(window.devicePixelRatio || 1, 4096 / Math.max(viewportWidth, viewportHeight));
+    var root = document.body;
+    var documentRoot = document.documentElement;
+    var fixedElements = [];
+    var output = document.createElement('canvas');
+    output.width = Math.max(1, Math.floor(viewportWidth * scale));
+    output.height = Math.max(1, Math.floor(viewportHeight * scale));
+    var outputContext = output.getContext('2d');
+    if (!outputContext) throw new Error('无法创建页面截图画布');
+    outputContext.fillStyle = pageBackgroundColor();
+    outputContext.fillRect(0, 0, output.width, output.height);
+    documentRoot.classList.add('ap-capturing');
+    try {
+      var excluded = '.annotation-panel.is-editor, .ap-editor, .annotation-toolbar, .annotation-toast, .fig-tools, .table-tools, .ap-crop-overlay';
+      fixedElements = Array.prototype.filter.call(root.querySelectorAll('*'), function (element) {
+        var style = window.getComputedStyle(element);
+        if ((style.position !== 'fixed' && style.position !== 'sticky') ||
+            style.display === 'none' || style.visibility === 'hidden' ||
+            Number(style.opacity) === 0) return false;
+        var rect = element.getBoundingClientRect();
+        if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
+            rect.left >= viewportWidth || rect.top >= viewportHeight) return false;
+        for (var parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
+          var parentPosition = window.getComputedStyle(parent).position;
+          if (parentPosition === 'fixed' || parentPosition === 'sticky') return false;
+        }
+        return true;
+      }).map(function (element) {
+        var rect = element.getBoundingClientRect();
+        var zIndex = parseInt(window.getComputedStyle(element).zIndex, 10);
+        var dimensions = tileDimensions(element, rect);
+        return {
+          element: element,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: dimensions.height,
+          displayMath: dimensions.displayMath,
+          zIndex: isNaN(zIndex) ? 0 : zIndex
+        };
+      }).sort(function (a, b) { return a.zIndex - b.zIndex; });
+      var fixedSet = new Set(fixedElements.map(function (item) { return item.element; }));
+      function createFilter(rootElement) {
+        return function (node) {
+          if (!node) return true;
+          var element = node.nodeType === 1 ? node : node.parentElement;
+          if (!element) return true;
+          if (element.matches(excluded) || (element.closest && element.closest(excluded))) return false;
+          for (var current = element; current; current = current.parentElement) {
+            if (fixedSet.has(current) && current !== rootElement) return false;
+            if (current === rootElement) break;
+          }
+          return true;
+        };
+      }
+      var filter = createFilter(null);
+      await new Promise(function (resolve) { requestAnimationFrame(resolve); });
+      var tiles = [];
+      function intersectsViewport(rect) {
+        return rect.width > 0 && rect.height > 0 &&
+          rect.right > 0 && rect.bottom > 0 &&
+          rect.left < viewportWidth && rect.top < viewportHeight;
+      }
+      function hasDirectText(element) {
+        for (var i = 0; i < element.childNodes.length; i++) {
+          var node = element.childNodes[i];
+          if (node.nodeType === 3 && node.nodeValue.trim()) return true;
+        }
+        return false;
+      }
+      function paintBackground(element, rect) {
+        var color = window.getComputedStyle(element).backgroundColor;
+        if (!color || color === 'transparent' || /,\s*0(?:\.0+)?\s*\)$/.test(color)) return;
+        outputContext.save();
+        outputContext.beginPath();
+        outputContext.rect(0, 0, output.width, output.height);
+        outputContext.clip();
+        outputContext.fillStyle = color;
+        outputContext.fillRect(rect.left * scale, rect.top * scale, rect.width * scale, rect.height * scale);
+        outputContext.restore();
+      }
+      function collectTiles(element) {
+        if (!element || element.nodeType !== 1 || element.matches(excluded) ||
+            (element.closest && element.closest(excluded))) return;
+        var style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ||
+            style.position === 'fixed' || style.position === 'sticky') return;
+        var rect = element.getBoundingClientRect();
+        if (!intersectsViewport(rect)) return;
+        var children = element.children;
+        if (rect.height <= viewportHeight * 1.5 || !children.length || hasDirectText(element)) {
+          var dimensions = tileDimensions(element, rect);
+          tiles.push({
+            element: element,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: dimensions.height,
+            displayMath: dimensions.displayMath
+          });
+          return;
+        }
+        paintBackground(element, rect);
+        Array.prototype.forEach.call(children, collectTiles);
+      }
+      Array.prototype.forEach.call(root.children, collectTiles);
+      var nextTile = 0;
+      var renderTile = async function () {
+        while (nextTile < tiles.length) {
+          var item = tiles[nextTile++];
+          var remaining = renderTimeout - (Date.now() - startedAt);
+          if (remaining <= 0) throw new Error('页面分块渲染超时');
+          var tileStyle = { margin: '0', boxSizing: 'border-box' };
+          if (item.displayMath) {
+            tileStyle.display = 'block';
+            tileStyle.height = item.height + 'px';
+            tileStyle.overflow = 'visible';
+          }
+          var tile = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
+            width: item.width,
+            height: item.height,
+            scale: scale,
+            maximumCanvasSize: 4096,
+            style: tileStyle,
+            features: {
+              restoreScrollPosition: item.element.scrollHeight > item.element.clientHeight ||
+                item.element.scrollWidth > item.element.clientWidth
+            },
+            filter: filter,
+            onCloneNode: function (clone) {
+              prepareCounterMarkers(item.element, clone, excluded);
+              if (!item.displayMath) return;
+              clone.style.setProperty('display', 'block', 'important');
+              clone.style.setProperty('height', item.height + 'px', 'important');
+              clone.style.setProperty('overflow', 'visible', 'important');
+              var displays = clone.matches('.katex-display') ? [clone] : [];
+              Array.prototype.push.apply(displays, clone.querySelectorAll('.katex-display'));
+              displays.forEach(function (display) {
+                display.style.setProperty('overflow', 'visible', 'important');
+              });
+            },
+            timeout: remaining
+          }), remaining, '渲染页面分块');
+          outputContext.drawImage(tile, item.left * scale, item.top * scale, item.width * scale, item.height * scale);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, tiles.length) }, renderTile));
+      if (fixedElements.length) {
+        var layers = [];
+        var nextFixedLayer = 0;
+        await Promise.all(Array.from({ length: Math.min(3, fixedElements.length) }, async function () {
+          while (fixedElements.length && nextFixedLayer < fixedElements.length) {
+            var item = fixedElements[nextFixedLayer++];
+            var remaining = renderTimeout - (Date.now() - startedAt);
+            if (remaining <= 0) throw new Error('固定图层渲染超时');
+            var fixedStyle = { margin: '0', boxSizing: 'border-box' };
+            if (item.displayMath) {
+              fixedStyle.display = 'block';
+              fixedStyle.height = item.height + 'px';
+              fixedStyle.overflow = 'visible';
+            }
+            var layer = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
+              width: item.width,
+              height: item.height,
+              scale: scale,
+              maximumCanvasSize: 4096,
+              style: fixedStyle,
+              features: { restoreScrollPosition: true },
+              filter: createFilter(item.element),
+              onCloneNode: function (clone) {
+                prepareCounterMarkers(item.element, clone, excluded);
+                if (!item.displayMath) return;
+                clone.style.setProperty('display', 'block', 'important');
+                clone.style.setProperty('height', item.height + 'px', 'important');
+                clone.style.setProperty('overflow', 'visible', 'important');
+                var displays = clone.matches('.katex-display') ? [clone] : [];
+                Array.prototype.push.apply(displays, clone.querySelectorAll('.katex-display'));
+                displays.forEach(function (display) {
+                  display.style.setProperty('overflow', 'visible', 'important');
+                });
+              },
+              timeout: remaining
+            }), remaining, '渲染固定图层');
+            layers.push({ canvas: layer, item: item });
+          }
+        }));
+        layers.sort(function (a, b) { return a.item.zIndex - b.item.zIndex; });
+        layers.forEach(function (layer) {
+          outputContext.drawImage(layer.canvas, layer.item.left * scale, layer.item.top * scale,
+            layer.item.width * scale, layer.item.height * scale);
+        });
+      }
+    } finally {
+      documentRoot.classList.remove('ap-capturing');
+    }
+    var crop = await openCropOverlay(output);
+    return crop ? {
+      blob: crop.blob,
+      rect: crop.rect,
+      frameWidth: output.width,
+      frameHeight: output.height,
+      surface: 'page',
+      scrollX: scrollX,
+      scrollY: scrollY,
+      viewportWidth: viewportWidth,
+      viewportHeight: viewportHeight
+    } : null;
+  }
+
   async function captureScreenshot() {
     var stream = null, video = null, captured = null;
     var frameWidth = 0, frameHeight = 0, surface;
@@ -1913,6 +2430,9 @@
       listen(document, 'keydown', onKeyDown, true);
       updateActiveTool();
       cancelButton.focus();
+      requestAnimationFrame(function () {
+        if (!closed) onWhole();
+      });
     });
   }
 
@@ -2000,7 +2520,7 @@
   }
 
   function screenshotAnchorElement(shot) {
-    if (!shot || (shot.surface !== 'browser' && typeof shot.surface !== 'undefined') ||
+    if (!shot || (shot.surface !== 'browser' && shot.surface !== 'page' && typeof shot.surface !== 'undefined') ||
         !shot.frameWidth || !shot.frameHeight || !shot.viewportWidth || !shot.viewportHeight ||
         Math.abs(shot.frameWidth / shot.frameHeight - shot.viewportWidth / shot.viewportHeight) >= 0.03) return null;
 
@@ -2046,7 +2566,12 @@
     }
     hideToolbar();
     if (window.getSelection) window.getSelection().removeAllRanges();
-    captureScreenshot().then(function (shot) {
+    renderPageScreenshot().catch(function (err) {
+      if (window.console && typeof window.console.warn === 'function') {
+        window.console.warn('Page screenshot failed; falling back to screen capture.', err);
+      }
+      return captureScreenshot();
+    }).then(function (shot) {
       if (!shot) return;
       var anchorEl = targetEl || screenshotAnchorElement(shot);
       var range = anchorEl && screenshotAnchorRange(anchorEl);

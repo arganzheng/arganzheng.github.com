@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 参数服务器
-tags: [机器学习, 分布式, Parameter Server]
+tags: [Machine Learning, 分布式, Parameter Server]
 catalog: true
 ---
 

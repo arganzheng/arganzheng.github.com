@@ -3,7 +3,7 @@ layout: post
 series: production-and-operations
 title: "生产化与运营（04）：安全——注入、供应链与数据泄漏"
 subtitle: "Security: Prompt Injection, Supply Chain and Data Exfiltration"
-tags: [AI, LLM, AI-Application, Security, Prompt Injection, MCP, OWASP]
+tags: [AI, LLM, AI-Application, 安全, Prompt Injection, MCP, OWASP]
 catalog: true
 ---
 

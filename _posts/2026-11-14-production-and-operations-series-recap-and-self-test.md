@@ -3,7 +3,7 @@ layout: post
 series: production-and-operations
 title: "生产化与运营（08）：系列总结与通关自测"
 subtitle: "Production and Operations: Series Recap and Final Self-Test"
-tags: [AI, LLM, AI-Application, Production, Security, Cost, Governance]
+tags: [AI, LLM, AI-Application, Production, 安全, Cost, Governance]
 catalog: true
 date: 2026-11-14 20:00:00
 ---
