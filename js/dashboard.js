@@ -179,15 +179,13 @@
       while (cursor.toISOString().slice(0, 7) <= finalMonth) {
         var year = cursor.getUTCFullYear(), month = cursor.getUTCMonth(), key = cursor.toISOString().slice(0, 7);
         var days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-        var firstOffset = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7;
+        var displayStart = key === start.slice(0, 7) ? Number(start.slice(8, 10)) : 1;
+        var displayEnd = key === last.slice(0, 7) ? Number(last.slice(8, 10)) : days;
+        var firstOffset = (new Date(Date.UTC(year, month, displayStart)).getUTCDay() + 6) % 7;
         var cells = [];
         for (var blank = 0; blank < firstOffset; blank++) cells.push('<span class="dash-cal-blank" aria-hidden="true"></span>');
-        for (var day = 1; day <= days; day++) {
+        for (var day = displayStart; day <= displayEnd; day++) {
           var date = key + '-' + String(day).padStart(2, '0');
-          if (date < start || date > last) {
-            cells.push('<span class="dash-cal-blank" aria-hidden="true"></span>');
-            continue;
-          }
           var items = byDate[date] || [];
           var className = 'dash-cal-day';
           if (items.length) {
