@@ -554,11 +554,15 @@ Article-level `⌥S` and figure / table / code scissors remain gated on
 `getDisplayMedia` support, but use `renderPageScreenshot()` first: it lazy-loads
 `js/vendor/modern-screenshot-4.7.0.min.js` on first use to render the current
 viewport at device-pixel scale (long edge capped at 4096 px), excluding capture
-controls. It applies the current scroll offset to page content, then composites
-visible fixed / sticky elements (navigation, catalog, reading progress) at
-their viewport positions. Only library-load or render failure falls back to
-`captureScreenshot()`; cancelling the crop does not. Unsupported browsers hide
-the article-level entry points.
+controls. It walks visible content intersecting the viewport, renders bounded
+tiles instead of cloning and re-laying out the full document, then composites
+visible fixed / sticky elements last in z-index order with their internal scroll
+positions preserved. Large containers contribute their background before their
+visible children are tiled. Visible ordered-list markers and pseudo-content
+using CSS counters get temporary explicit text so numbering survives tile and
+sticky-layer rendering. The renderer has a 5-second budget; library-load or
+render failure falls back to `captureScreenshot()`; cancelling the crop does
+not. Unsupported browsers hide the article-level entry points.
 `startScreenshotComment(targetEl)` checks GitHub login before capture; without a
 button target it maps the crop centre through `elementFromPoint` for page
 captures, or for system captures only when `displaySurface` is `browser` /

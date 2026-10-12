@@ -1430,22 +1430,212 @@
     return '#fff';
   }
 
+  function counterEntries(value, defaultValue) {
+    var entries = {};
+    if (!value || value === 'none') return entries;
+    var match, pattern = /([a-zA-Z_-][\w-]*)(?:\s+(-?\d+))?/g;
+    while ((match = pattern.exec(value))) {
+      entries[match[1]] = match[2] === undefined ? defaultValue : parseInt(match[2], 10);
+    }
+    return entries;
+  }
+
+  function listItemCounterValue(list, item) {
+    var items = Array.prototype.filter.call(list.children, function (child) {
+      return child.tagName === 'LI';
+    });
+    var reversed = list.hasAttribute('reversed');
+    var start = parseInt(list.getAttribute('start'), 10);
+    if (isNaN(start)) start = reversed ? items.length : 1;
+    var step = reversed ? -1 : 1;
+    var value = start;
+    for (var i = 0; i < items.length; i++) {
+      var itemValue = parseInt(items[i].getAttribute('value'), 10);
+      if (!isNaN(itemValue)) value = itemValue;
+      if (items[i] === item) return value;
+      value += step;
+    }
+    return null;
+  }
+
+  function cssCounterValue(list, item, name) {
+    if (name === 'list-item') return listItemCounterValue(list, item);
+    var value = 0;
+    var listReset = counterEntries(window.getComputedStyle(list).counterReset, 0);
+    if (Object.prototype.hasOwnProperty.call(listReset, name)) value = listReset[name];
+    var items = Array.prototype.filter.call(list.querySelectorAll('li'), function (candidate) {
+      return candidate.closest('ol, ul') === list;
+    });
+    for (var i = 0; i < items.length; i++) {
+      var style = window.getComputedStyle(items[i]);
+      var resets = counterEntries(style.counterReset, 0);
+      var increments = counterEntries(style.counterIncrement, 1);
+      if (Object.prototype.hasOwnProperty.call(resets, name)) value = resets[name];
+      if (Object.prototype.hasOwnProperty.call(increments, name)) value += increments[name];
+      if (items[i] === item) return value;
+    }
+    return null;
+  }
+
+  function formatCounter(value, style) {
+    if (style === 'decimal-leading-zero') return (value >= 0 && value < 10 ? '0' : '') + value;
+    if (style === 'lower-alpha' || style === 'upper-alpha' || style === 'lower-latin' || style === 'upper-latin') {
+      if (value <= 0) return String(value);
+      var letters = '', base = style.indexOf('upper') === 0 ? 65 : 97;
+      while (value > 0) {
+        value--;
+        letters = String.fromCharCode(base + value % 26) + letters;
+        value = Math.floor(value / 26);
+      }
+      return letters;
+    }
+    if (style === 'lower-roman' || style === 'upper-roman') {
+      if (value <= 0 || value >= 4000) return String(value);
+      var numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+        [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+      var roman = '';
+      numerals.forEach(function (entry) {
+        while (value >= entry[0]) { roman += entry[1]; value -= entry[0]; }
+      });
+      return style === 'lower-roman' ? roman.toLowerCase() : roman;
+    }
+    return String(value);
+  }
+
+  function counterContentText(content, list, item) {
+    var hasCounter = false, failed = false, parts = [];
+    var pattern = /counter\(\s*([a-zA-Z_-][\w-]*)(?:\s*,\s*([a-zA-Z-]+))?\s*\)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+    var match;
+    while ((match = pattern.exec(content))) {
+      if (match[1]) {
+        hasCounter = true;
+        var value = cssCounterValue(list, item, match[1]);
+        if (value === null) failed = true;
+        else parts.push(formatCounter(value, match[2] || 'decimal'));
+      } else {
+        parts.push(match[0].slice(1, -1).replace(/\\([0-9a-fA-F]{1,6})\s?|\\(.)/g, function (_, hex, character) {
+          return hex ? String.fromCodePoint(parseInt(hex, 16)) : character;
+        }));
+      }
+    }
+    return hasCounter && !failed ? parts.join('') : null;
+  }
+
+  function prepareCounterMarkers(root) {
+    var markers = [], attributes = [], candidates = root.querySelectorAll('li, li *');
+    function markAttribute(element, name, value) {
+      if (!attributes.some(function (entry) { return entry.element === element && entry.name === name; })) {
+        attributes.push({ element: element, name: name, hadValue: element.hasAttribute(name), value: element.getAttribute(name) });
+      }
+      element.setAttribute(name, value);
+    }
+    function copyPseudoStyle(source, target) {
+      for (var i = 0; i < source.length; i++) {
+        var property = source[i];
+        if (property === 'content' || property === 'counter-increment' || property === 'counter-reset' || property === 'quotes') continue;
+        target.style.setProperty(property, source.getPropertyValue(property));
+      }
+    }
+    Array.prototype.forEach.call(candidates, function (element) {
+      var rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height || rect.right <= 0 || rect.bottom <= 0 ||
+          rect.left >= window.innerWidth || rect.top >= window.innerHeight) return;
+      var list = element.closest('ol, ul');
+      var item = element.closest('li');
+      if (!list || !item || !list.contains(item)) return;
+      if (element === item && list.tagName === 'OL') {
+        var markerStyle = window.getComputedStyle(item, '::marker');
+        var listStyleType = window.getComputedStyle(list).listStyleType;
+        if (markerStyle.content === 'normal' && listStyleType !== 'none' &&
+            markerStyle.display !== 'none' && markerStyle.visibility !== 'hidden' && Number(markerStyle.opacity) !== 0) {
+          var itemValue = listItemCounterValue(list, item);
+          if (itemValue !== null) markAttribute(item, 'data-ap-render-counter-marker', formatCounter(itemValue, listStyleType));
+        }
+      }
+      ['before', 'after', 'marker'].forEach(function (position) {
+        var style = window.getComputedStyle(element, '::' + position);
+        if (!style.content || !/counter\(/i.test(style.content) ||
+            style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+        var text = counterContentText(style.content, list, item);
+        if (text === null) return;
+        markAttribute(element, 'data-ap-render-counter-' + position, text);
+        if (position === 'marker') return;
+        var marker = document.createElement('span');
+        marker.setAttribute('aria-hidden', 'true');
+        marker.setAttribute('data-ap-render-counter-text', '');
+        marker.textContent = text;
+        copyPseudoStyle(style, marker);
+        if (position === 'before') element.insertBefore(marker, element.firstChild);
+        else element.appendChild(marker);
+        markers.push(marker);
+      });
+    });
+    if (!markers.length && !attributes.length) return function () {};
+    var stylesheet = document.createElement('style');
+    stylesheet.textContent =
+      '[data-ap-render-counter-before]::before,[data-ap-render-counter-after]::after{content:none!important}' +
+      '[data-ap-render-counter-marker]::marker{content:attr(data-ap-render-counter-marker)!important}';
+    document.head.appendChild(stylesheet);
+    return function () {
+      if (stylesheet.parentNode) stylesheet.parentNode.removeChild(stylesheet);
+      markers.forEach(function (marker) { if (marker.parentNode) marker.parentNode.removeChild(marker); });
+      attributes.forEach(function (entry) {
+        if (entry.hadValue) entry.element.setAttribute(entry.name, entry.value);
+        else entry.element.removeAttribute(entry.name);
+      });
+    };
+  }
+
+  function hideFixedElements(elements) {
+    var previous = elements.map(function (item) {
+      var style = item.element.style;
+      var old = { element: item.element, value: style.getPropertyValue('visibility'), priority: style.getPropertyPriority('visibility') };
+      style.setProperty('visibility', 'hidden', 'important');
+      return old;
+    });
+    return function () {
+      previous.forEach(function (old) {
+        if (old.value) old.element.style.setProperty('visibility', old.value, old.priority);
+        else old.element.style.removeProperty('visibility');
+      });
+    };
+  }
+
+  function renderScreenshotStep(promise, timeout, label) {
+    return promiseWithTimeout(promise, timeout).catch(function (error) {
+      throw new Error(label + ': ' + (error && error.message ? error.message : error));
+    });
+  }
+
   async function renderPageScreenshot() {
     var startedAt = Date.now();
-    var screenshot = await promiseWithTimeout(loadModernScreenshot(), 5000);
+    var renderTimeout = 5000;
+    var screenshot = await renderScreenshotStep(loadModernScreenshot(), 5000, '加载截图库');
     var scrollX = window.scrollX;
     var scrollY = window.scrollY;
     var viewportWidth = window.innerWidth;
     var viewportHeight = window.innerHeight;
     var scale = Math.min(window.devicePixelRatio || 1, 4096 / Math.max(viewportWidth, viewportHeight));
-    var root = document.documentElement;
+    var root = document.body;
+    var documentRoot = document.documentElement;
     var fixedElements = [];
-    var canvas;
-    root.classList.add('ap-capturing');
+    var output = document.createElement('canvas');
+    output.width = Math.max(1, Math.floor(viewportWidth * scale));
+    output.height = Math.max(1, Math.floor(viewportHeight * scale));
+    var outputContext = output.getContext('2d');
+    var cleanupCounterMarkers = null;
+    var restoreFixedElements = null;
+    if (!outputContext) throw new Error('无法创建页面截图画布');
+    outputContext.fillStyle = pageBackgroundColor();
+    outputContext.fillRect(0, 0, output.width, output.height);
+    documentRoot.classList.add('ap-capturing');
     try {
-      await new Promise(function (resolve) { requestAnimationFrame(resolve); });
-      var remaining = Math.max(1, 5000 - (Date.now() - startedAt));
+      cleanupCounterMarkers = prepareCounterMarkers(root);
       var excluded = '.annotation-panel.is-editor, .ap-editor, .annotation-toolbar, .annotation-toast, .fig-tools, .table-tools, .ap-crop-overlay';
+      var filter = function (node) {
+        if (!node || node.nodeType !== 1) return true;
+        return !(node.matches(excluded) || (node.closest && node.closest(excluded)));
+      };
       fixedElements = Array.prototype.filter.call(root.querySelectorAll('*'), function (element) {
         var style = window.getComputedStyle(element);
         if ((style.position !== 'fixed' && style.position !== 'sticky') ||
@@ -1464,53 +1654,119 @@
         var zIndex = parseInt(window.getComputedStyle(element).zIndex, 10);
         return { element: element, left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: isNaN(zIndex) ? 0 : zIndex };
       }).sort(function (a, b) { return a.zIndex - b.zIndex; });
-      canvas = await promiseWithTimeout(screenshot.domToCanvas(root, {
-        width: viewportWidth,
-        height: viewportHeight,
-        scale: scale,
-        maximumCanvasSize: 4096,
-        backgroundColor: pageBackgroundColor(),
-        style: {
-          transform: 'translate(' + (-scrollX) + 'px, ' + (-scrollY) + 'px)',
-          transformOrigin: 'top left'
-        },
-        filter: function (node) {
-          if (!node || node.nodeType !== 1) return true;
-          if (node.matches(excluded) || (node.closest && node.closest(excluded))) return false;
-          return !fixedElements.some(function (item) {
-            return item.element === node || item.element.contains(node);
-          });
-        },
-        timeout: remaining
-      }), remaining);
+      restoreFixedElements = hideFixedElements(fixedElements);
+      await new Promise(function (resolve) { requestAnimationFrame(resolve); });
+      var tiles = [];
+        function intersectsViewport(rect) {
+          return rect.width > 0 && rect.height > 0 &&
+            rect.right > 0 && rect.bottom > 0 &&
+            rect.left < viewportWidth && rect.top < viewportHeight;
+        }
+        function hasDirectText(element) {
+          for (var i = 0; i < element.childNodes.length; i++) {
+            var node = element.childNodes[i];
+            if (node.nodeType === 3 && node.nodeValue.trim()) return true;
+          }
+          return false;
+        }
+        function paintBackground(element, rect) {
+          var color = window.getComputedStyle(element).backgroundColor;
+          if (!color || color === 'transparent' || /,\s*0(?:\.0+)?\s*\)$/.test(color)) return;
+          outputContext.save();
+          outputContext.beginPath();
+          outputContext.rect(0, 0, output.width, output.height);
+          outputContext.clip();
+          outputContext.fillStyle = color;
+          outputContext.fillRect(rect.left * scale, rect.top * scale, rect.width * scale, rect.height * scale);
+          outputContext.restore();
+        }
+        function collectTiles(element) {
+          if (!element || element.nodeType !== 1 || element.matches(excluded) ||
+              (element.closest && element.closest(excluded))) return;
+          var style = window.getComputedStyle(element);
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ||
+              style.position === 'fixed' || style.position === 'sticky') return;
+          var rect = element.getBoundingClientRect();
+          if (!intersectsViewport(rect)) return;
+          var children = element.children;
+          if (rect.height <= viewportHeight * 1.5 || !children.length || hasDirectText(element)) {
+            tiles.push({
+              element: element,
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height
+            });
+            return;
+          }
+          paintBackground(element, rect);
+          Array.prototype.forEach.call(children, collectTiles);
+        }
+        Array.prototype.forEach.call(root.children, collectTiles);
+        var nextTile = 0;
+        var renderTile = async function () {
+          while (nextTile < tiles.length) {
+            var item = tiles[nextTile++];
+            var remaining = renderTimeout - (Date.now() - startedAt);
+            if (remaining <= 0) throw new Error('页面分块渲染超时');
+            var tile = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
+              width: item.width,
+              height: item.height,
+              scale: scale,
+              maximumCanvasSize: 4096,
+              style: { margin: '0', boxSizing: 'border-box' },
+              features: {
+                restoreScrollPosition: item.element.scrollHeight > item.element.clientHeight ||
+                  item.element.scrollWidth > item.element.clientWidth
+              },
+              filter: filter,
+              timeout: remaining
+            }), remaining, '渲染页面分块');
+            outputContext.drawImage(tile, item.left * scale, item.top * scale, item.width * scale, item.height * scale);
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(3, tiles.length) }, renderTile));
+        restoreFixedElements();
+        restoreFixedElements = null;
       if (fixedElements.length) {
-        remaining = Math.max(1, 5000 - (Date.now() - startedAt));
-        var layers = await promiseWithTimeout(Promise.all(fixedElements.map(function (item) {
-          return screenshot.domToCanvas(item.element, {
-            width: item.width,
-            height: item.height,
-            scale: scale,
-            maximumCanvasSize: 4096,
-            timeout: remaining
-          }).then(function (layer) { return { canvas: layer, item: item }; });
-        })), remaining);
-        var context = canvas.getContext('2d');
-        if (!context) throw new Error('无法合成页面截图');
+        var layers = [];
+        var nextFixedLayer = 0;
+        await Promise.all(Array.from({ length: Math.min(3, fixedElements.length) }, async function () {
+          while (fixedElements.length && nextFixedLayer < fixedElements.length) {
+            var item = fixedElements[nextFixedLayer++];
+            var remaining = renderTimeout - (Date.now() - startedAt);
+            if (remaining <= 0) throw new Error('固定图层渲染超时');
+            var layer = await renderScreenshotStep(screenshot.domToCanvas(item.element, {
+              width: item.width,
+              height: item.height,
+              scale: scale,
+              maximumCanvasSize: 4096,
+              style: { margin: '0', boxSizing: 'border-box' },
+              features: { restoreScrollPosition: true },
+              filter: filter,
+              timeout: remaining
+            }), remaining, '渲染固定图层');
+            layers.push({ canvas: layer, item: item });
+          }
+        }));
+        layers.sort(function (a, b) { return a.item.zIndex - b.item.zIndex; });
         layers.forEach(function (layer) {
-          context.drawImage(layer.canvas, layer.item.left * scale, layer.item.top * scale,
+          outputContext.drawImage(layer.canvas, layer.item.left * scale, layer.item.top * scale,
             layer.item.width * scale, layer.item.height * scale);
         });
       }
     } finally {
-      root.classList.remove('ap-capturing');
+      if (restoreFixedElements) restoreFixedElements();
+      documentRoot.classList.remove('ap-capturing');
+      if (cleanupCounterMarkers) cleanupCounterMarkers();
     }
-    if (!canvas) throw new Error('无法渲染当前页面');
-    var crop = await openCropOverlay(canvas);
+    if (!output) throw new Error('无法渲染当前页面');
+    var crop = await openCropOverlay(output);
     return crop ? {
       blob: crop.blob,
       rect: crop.rect,
-      frameWidth: canvas.width,
-      frameHeight: canvas.height,
+      frameWidth: output.width,
+      frameHeight: output.height,
       surface: 'page',
       scrollX: scrollX,
       scrollY: scrollY,
