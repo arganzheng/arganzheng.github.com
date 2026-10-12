@@ -172,7 +172,7 @@ $$
 
 ### 3. 负采样与 PMI 的联系
 
-负采样训练出的点积还可以从矩阵角度理解。Levy 与 Goldberg 证明，在特定假设下，skip-gram with negative sampling（SGNS）隐式分解一个 **shifted PMI** 矩阵：词与上下文共现越出乎独立分布的预期，它们的点积越大。
+负采样训练出的点积还可以从矩阵角度理解。Levy 与 Goldberg 在 [2014 年的分析](https://arxiv.org/abs/1402.3722) 中证明，在特定假设下，skip-gram with negative sampling（SGNS）隐式分解一个 **shifted PMI** 矩阵：词与上下文共现越出乎独立分布的预期，它们的点积越大。
 
 因此可以把它看成“用低维向量近似一张词—上下文统计表”。矩阵分解与低维投影的联系可见《[LLM 时代的经典机器学习（08）：降维——PCA、SVD、t-SNE / UMAP 与 embedding 的各向异性](/dimensionality-reduction-pca-svd-tsne-and-umap.html)》「四、三个名字一件事」。
 
@@ -203,7 +203,7 @@ $$
 
 瓶颈迫使表示保留足以重建输入的信息。VAE 在此基础上约束 latent 分布，详见《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html#3-vae-的结构与训练)》「VAE 的结构与训练」。
 
-**对比。** 给定正样本对与一批负样本，让正样本相似度高于负样本。InfoNCE 的一个常见形式是：
+**对比。** 给定正样本对与一批负样本，让正样本相似度高于负样本。van den Oord 等人在 [CPC 原论文](https://arxiv.org/abs/1807.03748) 中使用 InfoNCE；一个常见形式是：
 
 $$
 \mathcal{L}_{\text{NCE}}
@@ -222,7 +222,7 @@ $$
 | GPT-2 small | $$50{,}257\times768$$ | 38.6M | 124M | 31.0% |
 | Llama 3 8B | $$128{,}256\times4{,}096$$ | 525.3M | 8.03B | 6.5% |
 
-GPT-2 的配置来自 [Hugging Face 模型配置](https://huggingface.co/openai-community/gpt2/blob/main/config.json)。Llama 3 8B 的结构维度可见 [Hugging Face 配置](https://huggingface.co/unsloth/llama-3-8b/blob/main/config.json)；按该配置的层数、注意力与 FFN 矩阵形状合计约 8.03B 参数。该模型的输入 embedding 与输出投影不共享，输出词表矩阵还占约 6.5%。
+GPT-2 的配置来自 [Hugging Face 模型配置](https://huggingface.co/openai-community/gpt2/blob/main/config.json)。Llama 3 8B 的模型设置见 [Meta 技术报告](https://arxiv.org/abs/2407.21783) 与 [官方 Hugging Face 配置](https://huggingface.co/meta-llama/Meta-Llama-3-8B/blob/main/config.json)，架构定义见 [Meta 官方实现](https://github.com/meta-llama/llama3/blob/main/llama/model.py)。按该配置的层数、注意力与 FFN 矩阵形状合计约 8.03B 参数；官方实现将输入 embedding 与输出投影分别定义，因此输出词表矩阵还占约 6.5%。
 
 词频差异也会影响更新频率：高频词的行每一步都可能更新，罕见词则很少被访问。PyTorch 的 `nn.Embedding(sparse=True)` 能产生稀疏梯度，但标准 AdamW 不接受这种稀疏梯度；`SparseAdam` 等稀疏优化器只处理出现的行。反过来，用普通稠密 AdamW 时，梯度以及一阶、二阶状态都按整张表分配，状态内存随 $$Vd$$ 增长。
 
