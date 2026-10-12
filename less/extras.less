@@ -144,35 +144,48 @@ html.private-post:not(.author-ok) .private-post-gate { display: flex; }
 .post-container > h4, .post-container > h5, .post-container > h6 { position: relative; }
 .heading-fold {
 	position: absolute;
-	top: .2em;
-	left: -22px;
-	width: 18px;
-	height: 18px;
+	top: .1em;
+	top: calc(.5lh - 12px);
+	left: -30px;
+	width: 24px;
+	height: 24px;
 	padding: 0;
 	border: 0;
+	border-radius: 6px;
 	background: transparent;
-	color: @brand-primary;
-	opacity: 0;
+	color: #8b949e;
+	opacity: .55;
 	cursor: pointer;
+	transition: opacity .15s ease, color .15s ease, background-color .15s ease;
 }
+// chevron: ⌄ when open, › when folded
 .heading-fold::before {
 	content: "";
 	display: block;
-	width: 0;
-	height: 0;
-	margin: auto;
-	border-left: 5px solid transparent;
-	border-right: 5px solid transparent;
-	border-top: 6px solid currentColor;
-	transition: transform .15s ease;
+	width: 8px;
+	height: 8px;
+	margin: 6px auto 0;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(45deg);
+	transition: transform .15s ease, margin .15s ease;
 }
 .post-container > h1:hover .heading-fold, .post-container > h2:hover .heading-fold,
 .post-container > h3:hover .heading-fold, .post-container > h4:hover .heading-fold,
 .post-container > h5:hover .heading-fold, .post-container > h6:hover .heading-fold,
-.heading-fold:focus-visible, .heading-fold[aria-expanded="false"] { opacity: 1; }
-.heading-fold[aria-expanded="false"]::before { transform: rotate(-90deg); }
-@media (hover: none) { .heading-fold { opacity: .35; } }
-@media (max-width: 767px) { .heading-fold { left: -16px; } }
+.heading-fold:focus-visible, .heading-fold[aria-expanded="false"] { opacity: 1; color: @brand-primary; }
+.heading-fold:hover, .heading-fold:focus-visible { background: fade(@brand-primary, 12%); }
+.heading-fold[aria-expanded="false"]::before { margin: 8px 0 0 6px; transform: rotate(-45deg); }
+// phones: the 15px gutter is too narrow, so the chevron sits inline in front of the title
+@media (max-width: 767px) {
+	.heading-fold {
+		position: static;
+		display: inline-block;
+		vertical-align: middle;
+		margin: -4px 2px 0 -6px;
+		opacity: .8;
+	}
+}
 @media print { .heading-fold { display: none; } }
 
 // ---- category badge on the home list (index.html, `category: life`)

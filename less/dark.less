@@ -102,7 +102,17 @@ html[data-theme="dark"] .post-container > h2 .heading-fold,
 html[data-theme="dark"] .post-container > h3 .heading-fold,
 html[data-theme="dark"] .post-container > h4 .heading-fold,
 html[data-theme="dark"] .post-container > h5 .heading-fold,
-html[data-theme="dark"] .post-container > h6 .heading-fold { color: @dk-link; }
+html[data-theme="dark"] .post-container > h6 .heading-fold { color: @dk-muted; }
+html[data-theme="dark"] .post-container > h1:hover .heading-fold,
+html[data-theme="dark"] .post-container > h2:hover .heading-fold,
+html[data-theme="dark"] .post-container > h3:hover .heading-fold,
+html[data-theme="dark"] .post-container > h4:hover .heading-fold,
+html[data-theme="dark"] .post-container > h5:hover .heading-fold,
+html[data-theme="dark"] .post-container > h6:hover .heading-fold,
+html[data-theme="dark"] .post-container .heading-fold:focus-visible,
+html[data-theme="dark"] .post-container .heading-fold[aria-expanded="false"] { color: @dk-link; }
+html[data-theme="dark"] .post-container .heading-fold:hover,
+html[data-theme="dark"] .post-container .heading-fold:focus-visible { background: fade(@dk-link, 16%); }
 
 html[data-theme="dark"] .pa-share-pop {
 	background-color: @dk-surface;
