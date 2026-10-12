@@ -23,27 +23,32 @@ catalog: true
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | Sigmoid 与 tanh | 饱和、梯度消失、输出是否以 0 为中心 |
-| 三 | ReLU | 稀疏、便宜与死亡单元；联系 Kaiming 初始化 |
-| 四 | ReLU 的修补 | Leaky ReLU、PReLU、ELU |
-| 五 | 平滑激活 | GELU、SiLU、非单调区间与 GPT-2 的近似 |
-| 六 | GLU 家族 | GLU、ReGLU、GeGLU、SwiGLU；门控 FFN 的矩阵与宽度 |
+| 三 | ReLU | ReLU 为什么取代 sigmoid；单元为什么会死；它与 Kaiming 初始化如何配合 |
+| 四 | ReLU 的修补 | Leaky ReLU、PReLU、ELU 怎样为负半轴保留梯度 |
+| 五 | 平滑激活 | GELU、SiLU 与 GPT-2 使用的 tanh 近似 |
+| 六 | GLU 家族 | GLU 与各变体怎样用门控分支筛选值分支 |
 | 七 | 成本与融合 | 逐元素读写、kernel fusion、反向所需的保存 |
 | 八 | 对照表 | 公式、导数、值域、代价与代表模型 |
 | 九 | 案例：深层 MNIST MLP | 初始梯度、固定步数准确率、ReLU 死亡单元 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 6 道题 |
 
+Table: 本文各章主题与内容
+
 ### 2. 来龙去脉：从饱和到门控
 
-| 时间 | 工作 | 留下的东西 |
-|---|---|---|
-| 早期 | Sigmoid、tanh | 平滑、值域有界；深层连乘时容易饱和 |
-| 2010–2012 | [Nair 与 Hinton（2010）](https://icml.cc/Conferences/2010/papers/432.pdf)、[Glorot、Bordes 与 Bengio（2011）](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)、[AlexNet（2012）](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf) | ReLU 从 RBM 与深层网络研究进入大规模视觉模型 |
-| 2013–2015 | [Maas 等（2013）](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf) 的 Leaky ReLU、[He 等（2015）](https://arxiv.org/abs/1502.01852) 的 PReLU、[Clevert 等（2015）](https://arxiv.org/abs/1511.07289) 的 ELU | 给 ReLU 的负半轴留一条梯度路径 |
-| 2016 | [GELU（Hendrycks 与 Gimpel）](https://arxiv.org/abs/1606.08415)；[GLU（Dauphin 等）](https://arxiv.org/abs/1612.08083) | 平滑门控与逐元素门控两条线并行出现 |
-| 2017 | [SiLU（Elfwing 等）](https://arxiv.org/abs/1702.03118)；[Swish（Ramachandran 等）](https://arxiv.org/abs/1710.05941) | 输入乘以 sigmoid 门，得到平滑、略带非单调性的曲线 |
-| 2020 | [GLU 变体（Shazeer）](https://arxiv.org/abs/2002.05202) | 把 ReLU、GELU、SiLU 放进 GLU 门控结构，得到 ReGLU、GeGLU、SwiGLU |
-| 2022–2024 | [PaLM（2022）](https://arxiv.org/abs/2204.02311)、[LLaMA（2023）](https://arxiv.org/abs/2302.13971)、[Gemma（2024）](https://arxiv.org/abs/2403.08295) | PaLM 与 LLaMA 使用 SwiGLU；Gemma 使用 GeGLU，门控激活进入大语言模型 |
+| 时间 | 激活函数（论文） | 解决了什么 | 引入或遗留的问题 |
+|---|---|---|---|
+| 早期 | [Sigmoid / tanh](https://www.nature.com/articles/323533a0)（Rumelhart、Hinton 与 Williams，1986） | 平滑可导，反向传播可用；tanh 输出以 0 为中心 | 两端饱和；sigmoid 最大导数为 0.25、输出非零中心，深层连乘时梯度容易消失 |
+| 2010–2012 | [ReLU](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)（[Nair 与 Hinton，2010](https://icml.cc/Conferences/2010/papers/432.pdf)；Glorot 等，2011；[Krizhevsky 等，2012](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)） | 正半轴导数为 1、计算简单且输出稀疏；AlexNet 报告四层 CNN 在 CIFAR-10 达到 25% 训练误差，比 tanh 网络快 6 倍 | 负半轴可能产生死亡单元；零点不可导，输出非零中心且无上界 |
+| 2013–2015 | [Leaky ReLU](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)（Maas 等，2013） / [PReLU](https://arxiv.org/abs/1502.01852)（He 等，2015） / [ELU](https://arxiv.org/abs/1511.07289)（Clevert 等，2015） | 负半轴保留梯度；PReLU 学习斜率，ELU 的负值让激活均值更接近零 | Leaky ReLU 需选斜率、PReLU 增加参数、ELU 需算指数；效果随任务而变 |
+| 2016 | [GELU](https://arxiv.org/abs/1606.08415)（Hendrycks 与 Gimpel，2016） | 用输入大小进行平滑软门控 | 需计算正态 CDF 或 tanh 近似；曲线非单调 |
+| 2016 | [GLU](https://arxiv.org/abs/1612.08083)（Dauphin 等，2016） | 在门控卷积语言模型中用 sigmoid 门控制值分支 | 相比不分门控的卷积层多一张投影矩阵 |
+| 2017 | [SiLU](https://arxiv.org/abs/1702.03118)（Elfwing 等，2017） / [Swish](https://arxiv.org/abs/1710.05941)（Ramachandran 等，2017） | SiLU 用 sigmoid 加权输入；Swish 的 $$\beta=1$$ 在 Mobile NASNet-A、Inception-ResNet-v2 的 ImageNet top-1 分别提升 0.9、0.6 个百分点 | 需计算 sigmoid 与乘法；曲线非单调；可学习的 $$\beta$$ 会增加参数 |
+| 2020 | [GLU](https://arxiv.org/abs/2002.05202)、Bilinear、ReGLU、GEGLU、SwiGLU（Shazeer，2020） | T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低 | 三张矩阵；匹配参数量与计算量时宽度缩为 2/3。论文未解释效果，作者称归于 “divine benevolence” |
+| 2022–2024 | [PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、[Gemma](https://arxiv.org/abs/2403.08295)（2024） | PaLM、LLaMA 使用 SwiGLU；Gemma 使用 GeGLU | 门控 FFN 需要三张投影矩阵 |
+
+Table: 激活函数的提出背景、效果与遗留问题
 
 ## 二、Sigmoid 与 tanh：平滑，但会饱和
 
@@ -70,6 +75,8 @@ $$
 
 它在 0 点的最大导数为 1，但两端同样饱和。中心化改善了输入分布，却没有消除深层反向的连乘问题。
 
+![Sigmoid 与 tanh 的函数和导数](/img/in-post/activation-sigmoid-tanh.webp)
+
 ## 三、ReLU：简单、稀疏，也可能死亡
 
 $$
@@ -87,13 +94,19 @@ $$
 
 ReLU 让对称、零均值的信号有一半落到 0，初始化时需要补回这部分尺度。《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「ReLU 砍掉一半」推导了 Kaiming 初始化里的因子 2；这里不重复推导。
 
+![ReLU 函数与零梯度区](/img/in-post/activation-relu.webp)
+
 ## 四、ReLU 的修补：负半轴留一点路
 
-- **Leaky ReLU**：负半轴改为 $$\alpha x$$，例如 $$\alpha=0.01$$。它保留一条小梯度，不需要学习额外参数。
+- **Leaky ReLU**：负半轴改为 $$\alpha x$$，例如 $$\alpha=0.1$$。它保留一条小梯度，不需要学习额外参数。
 - **PReLU**：把 $$\alpha$$ 设成可学习参数，让模型自己选负半轴斜率。
 - **ELU**：负半轴用 $$\alpha(e^x-1)$$，输出下界为 $$-\alpha$$；它能产生负值，但需要指数运算。
 
 三者都保留了 ReLU 的正半轴直通梯度，又避免负半轴完全没有梯度。现代 Transformer FFN 更常选 GELU 或 SiLU；门控形式见第六章。
+
+![Leaky α=.1、PReLU α=.25、ELU α=1](/img/in-post/activation-relu-variants.webp)
+
+灰色细线是 ReLU 参考。
 
 ## 五、平滑激活：GELU 与 SiLU
 
@@ -127,7 +140,7 @@ $$
 
 在 $$[-10,10]$$ 上取 2,000,001 个等距点，与精确的 $$x\Phi(x)$$ 比较，最大绝对误差约 $$4.73\times10^{-4}$$。
 
-![六个小图分别展示 sigmoid、tanh、ReLU、Leaky ReLU、GELU 和 SiLU；每图实线为函数、虚线为导数，共用坐标轴](/img/in-post/activation-functions.webp)
+![GELU、SiLU 与 tanh 近似曲线](/img/in-post/activation-smooth.webp)
 
 ## 六、GLU 家族：用一个分支控制另一个分支
 
@@ -141,13 +154,16 @@ $$
 
 $$
 \begin{aligned}
+\operatorname{Bilinear}(x)&=(xW)\odot xV \\
 \operatorname{ReGLU}(x)&=\operatorname{ReLU}(xW)\odot xV \\
-\operatorname{GeGLU}(x)&=\operatorname{GELU}(xW)\odot xV \\
+\operatorname{GEGLU}(x)&=\operatorname{GELU}(xW)\odot xV \\
 \operatorname{SwiGLU}(x)&=\operatorname{SiLU}(xW)\odot xV
 \end{aligned}
 $$
 
 一个门控 FFN 有三张矩阵：门投影、值投影、输出投影。普通 FFN 的两张矩阵参数量约 $$2dd_{\mathrm{ff}}$$；门控 FFN 约 $$3dd_g$$。令门控宽度 $$d_g \approx \frac{2}{3}d_{\mathrm{ff}}$$，两者的主要矩阵参数量就接近。
+
+![GLU 投影结构与门函数](/img/in-post/activation-glu-family.webp)
 
 模型例子能从论文和配置里交叉核对：[Llama 3 的官方实现](https://github.com/meta-llama/llama3/blob/main/llama/model.py)用 SiLU 门控，三张投影矩阵对应代码里的 `w1`、`w3`、`w2`；[Qwen2.5 技术报告](https://arxiv.org/abs/2412.15115)称其 dense 模型使用 SwiGLU，[Hugging Face 配置](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/config.json)的 `hidden_act` 为 `silu`。
 
@@ -169,6 +185,8 @@ NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-data
 
 导数里的 $$\phi$$、$$\Phi$$ 分别是标准正态密度与累积分布；门控行的 $$g$$ 表示对应的 ReLU、GELU 或 SiLU。
 
+![六种激活函数与导数总览](/img/in-post/activation-functions.webp)
+
 | 函数 | 公式 | 导数 | 值域 | 相对开销 | 代表模型 / 场景 |
 |---|---|---|---|---|---|
 | Sigmoid | $$\sigma(x)$$ | $$\sigma(1-\sigma)$$ | $$(0,1)$$ | 较高：exp | 平滑非线性基线 |
@@ -179,7 +197,9 @@ NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-data
 | GELU | $$x\Phi(x)$$ | $$\Phi(x)+x\phi(x)$$ | 约 $$[-0.170,\infty)$$ | 较高：CDF / tanh 近似 | GPT-2 |
 | SiLU | $$x\sigma(x)$$ | $$\sigma+x\sigma(1-\sigma)$$ | 约 $$[-0.278,\infty)$$ | 中：sigmoid + 乘法 | SwiGLU 的门 |
 | GLU | $$a\odot\sigma(b)$$ | $$a'\sigma(b)+ab'\sigma'(b)$$ | 取决于值分支 | 门 + 逐元素乘 | [Dauphin 等（2016）的门控卷积语言模型](https://arxiv.org/abs/1612.08083) |
-| ReGLU / GeGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | GeGLU：T5 v1.1、Gemma；SwiGLU：PaLM、LLaMA、Llama 3、Qwen2.5 |
+| Bilinear / ReGLU / GEGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | Bilinear 的门为恒等；其余门依次为 ReLU、GELU、SiLU |
+
+Table: 常见激活函数的公式、导数与应用
 
 表里的“相对开销”只比较激活与逐元素门控；大模型 FFN 的总耗时还取决于矩阵乘法、融合和硬件。
 
@@ -197,6 +217,8 @@ NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-data
 | LeakyReLU | $$3.182$$ | $$4.758$$ | 92.02%［91.89–92.15］ | — |
 | GELU | $$2.722$$ | $$1.452$$ | 92.22%［91.87–92.48］ | — |
 | SiLU | $$1.752$$ | $$0.9921$$ | 92.88%［92.63–93.02］ | — |
+
+Table: 六种激活函数在相同深层 MLP 预算下的结果
 
 sigmoid 第一层的梯度只有 $$3.94\times10^{-10}$$，第二十层仍约为 $$1.01$$。这是第二章所说导数连乘在训练里的直接表现：梯度传回输入端时几乎消失，准确率均值 10.64%，仍在十分类的随机水平附近。
 
