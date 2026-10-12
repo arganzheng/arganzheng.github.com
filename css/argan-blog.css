@@ -2166,6 +2166,12 @@ html.private-post:not(.author-ok) .private-post-gate {
   border-left: 4px solid #e6b800;
   border-radius: 0 4px 4px 0;
 }
+.post-container .wikilink-pending {
+  color: #6a6a6a;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: default;
+}
 .post-container .related li {
   margin-bottom: 4px;
 }
@@ -9739,6 +9745,9 @@ html[data-theme="dark"] .post-container .series-box .sb-list a:hover,
 html[data-theme="dark"] .side-series ol a:hover {
   background-color: #282b30;
   color: #4cb7cb;
+}
+html[data-theme="dark"] .post-container .wikilink-pending {
+  color: #969ba4;
 }
 html[data-theme="dark"] .post-container details > summary {
   color: #eceef1;
