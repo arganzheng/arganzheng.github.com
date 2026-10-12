@@ -3768,6 +3768,52 @@ body.outline-unavailable .catalog-mindmap {
   background: #00788f;
   border-color: #00788f;
 }
+.post-container .mermaid svg tspan.annotation-hl,
+.diagram-zoom svg tspan.annotation-hl {
+  text-decoration: underline;
+  text-decoration-color: rgba(214, 158, 0, 0.85);
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1.5px;
+  cursor: pointer;
+}
+.post-container .mermaid svg tspan.annotation-hl.is-multi,
+.diagram-zoom svg tspan.annotation-hl.is-multi {
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+}
+.post-container .mermaid svg tspan.annotation-hl:hover,
+.diagram-zoom svg tspan.annotation-hl:hover {
+  text-decoration-color: #b5860a;
+}
+.post-container .mermaid svg tspan.annotation-hl.is-new,
+.diagram-zoom svg tspan.annotation-hl.is-new {
+  animation: annotation-flash-underline 2.5s ease-out forwards;
+}
+.post-container .mermaid svg tspan.annotation-hl.has-issue,
+.diagram-zoom svg tspan.annotation-hl.has-issue {
+  text-decoration-color: rgba(209, 36, 47, 0.8);
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+}
+.post-container .mermaid svg tspan.annotation-hl.is-resolved,
+.diagram-zoom svg tspan.annotation-hl.is-resolved {
+  text-decoration-color: rgba(26, 127, 55, 0.7);
+  text-decoration-style: solid;
+}
+.post-container .mermaid svg tspan.annotation-hl.has-issue:hover,
+.diagram-zoom svg tspan.annotation-hl.has-issue:hover {
+  text-decoration-color: #d1242f;
+}
+.post-container .mermaid svg tspan.annotation-hl.is-resolved:hover,
+.diagram-zoom svg tspan.annotation-hl.is-resolved:hover {
+  text-decoration-color: #1a7f37;
+}
+.post-container .mermaid svg tspan.annotation-flash,
+.diagram-zoom svg tspan.annotation-flash {
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 196, 0, 0.9);
+  animation: annotation-flash-underline 2.5s ease-out forwards;
+}
 @keyframes annotation-flash {
   0% {
     background-color: rgba(255, 196, 0, 0.9);
@@ -3777,6 +3823,15 @@ body.outline-unavailable .catalog-mindmap {
   }
   100% {
     background-color: transparent;
+  }
+}
+@keyframes annotation-flash-underline {
+  0%,
+  70% {
+    text-decoration-color: rgba(255, 196, 0, 0.9);
+  }
+  100% {
+    text-decoration-color: rgba(214, 158, 0, 0.85);
   }
 }
 .annotation-toolbar {
@@ -3826,6 +3881,9 @@ body.outline-unavailable .catalog-mindmap {
 .annotation-toolbar.is-below .annotation-tb-arrow {
   bottom: auto;
   top: -5px;
+}
+.ap-editor .ap-image-input {
+  display: none;
 }
 .post-container .annotation-panel,
 .post-container .annotation-comments {
@@ -4113,6 +4171,7 @@ body.outline-unavailable .catalog-mindmap {
 .post-container .annotation-panel .ap-comment-body img,
 .post-container .annotation-comments .ap-comment-body img {
   max-width: 100%;
+  height: auto;
 }
 .post-container .annotation-panel .ap-comment-body code,
 .post-container .annotation-comments .ap-comment-body code {
@@ -4208,6 +4267,11 @@ body.outline-unavailable .catalog-mindmap {
 .post-container .annotation-comments .ap-editor.is-busy {
   opacity: 0.7;
   pointer-events: none;
+}
+.post-container .annotation-panel .ap-editor.is-dragover,
+.post-container .annotation-comments .ap-editor.is-dragover {
+  outline: 2px dashed #00788f;
+  outline-offset: -4px;
 }
 .post-container .annotation-panel .ap-inline-editor,
 .post-container .annotation-comments .ap-inline-editor {
@@ -4382,6 +4446,7 @@ body.outline-unavailable .catalog-mindmap {
 .post-container .annotation-panel .ap-preview img,
 .post-container .annotation-comments .ap-preview img {
   max-width: 100%;
+  height: auto;
 }
 .post-container .annotation-panel .ap-preview code,
 .post-container .annotation-comments .ap-preview code {
@@ -4851,8 +4916,8 @@ body.outline-unavailable .catalog-mindmap {
   .post-container .annotation-comments .ap-buttons .ap-hint {
     display: none;
   }
-  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7),
-  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7) {
+  .post-container .annotation-panel .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]),
+  .post-container .annotation-comments .ap-tabs .ap-format button:nth-child(n+7):not([data-format="image"]) {
     display: none;
   }
   .post-container .annotation-panel .ap-comment.is-reply,
@@ -9288,6 +9353,10 @@ html[data-theme="dark"] .post-container .annotation-panel .ap-editor,
 html[data-theme="dark"] .post-container .annotation-comments .ap-editor {
   border-color: #33363c;
 }
+html[data-theme="dark"] .post-container .annotation-panel .ap-editor.is-dragover,
+html[data-theme="dark"] .post-container .annotation-comments .ap-editor.is-dragover {
+  outline-color: #4cb7cb;
+}
 html[data-theme="dark"] .post-container .annotation-panel .ap-text,
 html[data-theme="dark"] .post-container .annotation-comments .ap-text,
 html[data-theme="dark"] .post-container .annotation-panel .ac-like,
@@ -9893,6 +9962,38 @@ html[data-theme="dark"] .annotation-panel .ap-react-fav.is-on {
   border-color: #796b3c;
   background-color: #38331f;
   color: #eadc9e;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl {
+  text-decoration-color: rgba(214, 158, 0, 0.85);
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-multi,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-multi {
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl:hover {
+  text-decoration-color: #b5860a;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.has-issue,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.has-issue {
+  text-decoration-color: rgba(209, 36, 47, 0.8);
+  text-decoration-style: solid;
+  text-decoration-thickness: 2px;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-resolved,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-resolved {
+  text-decoration-color: rgba(26, 127, 55, 0.7);
+  text-decoration-style: solid;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.has-issue:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.has-issue:hover {
+  text-decoration-color: #d1242f;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-resolved:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-resolved:hover {
+  text-decoration-color: #1a7f37;
 }
 html[data-theme="dark"] .favorites-toolbar {
   border-color: #33363c;

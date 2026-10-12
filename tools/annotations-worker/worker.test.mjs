@@ -493,6 +493,121 @@ test('GET /media rejects invalid keys before accessing R2 and returns 404 withou
   assert.equal((await worker.fetch(proxyRequest(`/media/${proxyMediaKey}`), {}, ctx)).status, 404);
 });
 
+const commentPng = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+function commentImageRequest({ type = 'image/png', authorization = 'Bearer reader-token', origin = 'https://arganzheng.life', bytes = commentPng, contentLength } = {}) {
+  const headers = new Headers({ 'Content-Type': type });
+  if (origin) headers.set('Origin', origin);
+  if (authorization) headers.set('Authorization', authorization);
+  if (contentLength != null) headers.set('Content-Length', String(contentLength));
+  return new Request('https://worker.test/comments/images', { method: 'POST', headers, body: bytes });
+}
+
+function mockGithubUser(login = 'reader', status = 200) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if ((typeof input === 'string' ? input : input.url) === 'https://api.github.com/user') {
+      return Response.json(status === 401 ? { message: 'Bad credentials' } : { login }, { status });
+    }
+    throw new Error('unexpected fetch');
+  };
+  return () => { globalThis.fetch = originalFetch; };
+}
+
+test('POST /comments/images stores an authenticated screenshot and returns its URL', async () => {
+  const MEDIA = fakeMedia();
+  const restoreFetch = mockGithubUser();
+  try {
+    const response = await worker.fetch(commentImageRequest(), {
+      ...env, MEDIA, MEDIA_BASE: 'https://media.example/media',
+    }, ctx);
+    assert.equal(response.status, 201);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    const { src } = await response.json();
+    const [key, bytes, options] = MEDIA.puts[0];
+    assert.match(key, /^comments\/\d{4}\/\d{2}\/[0-9a-f]{10}\.png$/);
+    assert.deepEqual(bytes, commentPng);
+    assert.deepEqual(options.httpMetadata, {
+      contentType: 'image/png',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+    assert.deepEqual(options.customMetadata, { login: 'reader' });
+    assert.equal(src, `https://media.example/media/${key}`);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('POST /comments/images requires a reader token and an allowed Origin', async () => {
+  const noToken = await worker.fetch(commentImageRequest({ authorization: '' }), env, ctx);
+  assert.equal(noToken.status, 401);
+  assert.deepEqual(await noToken.json(), { error: '需要登录' });
+  const badOrigin = await worker.fetch(commentImageRequest({ origin: 'https://untrusted.example' }), env, ctx);
+  assert.equal(badOrigin.status, 403);
+});
+
+test('POST /comments/images rejects expired tokens, unsupported types, and mismatched bytes', async () => {
+  const restoreFetch = mockGithubUser('reader', 401);
+  try {
+    const expired = await worker.fetch(commentImageRequest(), env, ctx);
+    assert.equal(expired.status, 401);
+    assert.deepEqual(await expired.json(), { error: '登录已过期，请重新登录 GitHub' });
+  } finally {
+    restoreFetch();
+  }
+  const restoreValidFetch = mockGithubUser();
+  try {
+    const configured = { ...env, MEDIA: fakeMedia(), MEDIA_BASE: 'https://media.example' };
+    const svg = await worker.fetch(commentImageRequest({ type: 'image/svg+xml' }), configured, ctx);
+    assert.equal(svg.status, 400);
+    const mismatch = await worker.fetch(commentImageRequest({ bytes: Uint8Array.of(1, 2, 3, 4) }), configured, ctx);
+    assert.equal(mismatch.status, 400);
+    assert.equal(configured.MEDIA.puts.length, 0);
+  } finally {
+    restoreValidFetch();
+  }
+});
+
+test('POST /comments/images rejects uploads over 3 MB before and after reading the body', async () => {
+  const restoreFetch = mockGithubUser();
+  try {
+    const MEDIA = fakeMedia();
+    const configured = { ...env, MEDIA, MEDIA_BASE: 'https://media.example' };
+    const early = await worker.fetch(commentImageRequest({
+      contentLength: 3 * 1024 * 1024 + 1,
+    }), configured, ctx);
+    assert.equal(early.status, 413);
+    const oversized = new Uint8Array(3 * 1024 * 1024 + 1);
+    oversized.set(commentPng);
+    const afterRead = await worker.fetch(commentImageRequest({
+      bytes: oversized,
+    }), configured, ctx);
+    assert.equal(afterRead.status, 413);
+    assert.equal(MEDIA.puts.length, 0);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('GET /media serves comment images safely and rejects other comments keys', async () => {
+  const key = 'comments/2026/10/abcdef1234.png';
+  const MEDIA = fakeMedia(new Map([[
+    key,
+    {
+      bytes: commentPng,
+      type: 'image/png',
+      etag: '"comment-image-etag"',
+      cacheControl: 'public, max-age=31536000, immutable',
+    },
+  ]]));
+  const response = await worker.fetch(proxyRequest(`/media/${key}`), { MEDIA }, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'image/png');
+  assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), commentPng);
+  const invalid = await worker.fetch(proxyRequest('/media/comments/x.svg'), { MEDIA }, ctx);
+  assert.equal(invalid.status, 404);
+});
+
 test('putMomentVideo and momentVideoKey use the worker /media base', async () => {
   const MEDIA = fakeMedia();
   const env = {

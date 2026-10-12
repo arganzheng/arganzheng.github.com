@@ -2,7 +2,7 @@
  * annotations.js — highlight comments ("划线评论") on blog posts.
  *
  * Interaction (code-review / WeChat-reading style, no hover popups):
- *   - Select text in the article -> floating toolbar: 「点赞」 / 「评论」 /
+ *   - Select text in the article or tap a Mermaid label -> floating toolbar: 「点赞」 / 「评论」 /
  *     「复制」 / 「搜一搜」 / 「分享」; the author can also 「划重点」 for
  *     readers, who see the same underline as any reader reaction.
  *   - 「点赞」 is an anonymous per-passage counter (worker /reactions, D1;
@@ -82,7 +82,7 @@
   // indexed through its TeX source (the MathML <annotation>, see isExcluded),
   // not through the rendered glyphs in .katex-html.
   var EXCLUDE_SELECTOR = '.comment, .pager, .related-posts, .reversefootnote, sup[id^="fnref"], a.footnote, ' +
-    'script, style, noscript, svg, .katex-html, .mermaid, button, .heading-anchor, .callout-title, .heading-fold, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
+    'script, style, title, desc, noscript, svg, .katex-html, .mermaid-error, .fig-tools, button, .heading-anchor, .callout-title, .heading-fold, .annotation-toolbar, .annotation-panel, .annotation-marker, .sec-react, .moment-head, .moment-foot, .moment-music, .moment-ref';
   var BLOCK_SELECTOR = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, dd, dt, figcaption, figure, .table-caption, .highlight, table';
   var GHOST = { login: 'ghost', url: 'https://github.com/ghost', avatarUrl: 'https://avatars.githubusercontent.com/u/10137?s=64&v=4' };
 
@@ -176,7 +176,7 @@
     var done = false;
     function run() { if (!done) { done = true; fn(); } }
     document.addEventListener('richcontent:rendered', function () {
-      if (done) reanchorAll(); else run();
+      if (done) setTimeout(reanchorAll, 0); else setTimeout(run, 0);
     });
     if (!needsWait) run(); else setTimeout(run, 6000);
   }
@@ -198,7 +198,21 @@
     // Inside a formula only the <annotation encoding="application/x-tex"> text
     // counts: the passage reads `\frac{a}{b}`, the way the author wrote it.
     if (el.closest('.katex-mathml')) return el.tagName.toLowerCase() !== 'annotation';
+    var diagram = el.closest('.mermaid');
+    if (diagram) {
+      if (diagram.classList.contains('mermaid-error') || el.closest('style, title, desc, .fig-tools, button')) return true;
+      return !el.closest('svg');
+    }
     return !!el.closest(EXCLUDE_SELECTOR);
+  }
+  function diagramLabelHost(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    var host = el && el.closest && el.closest('foreignObject, text');
+    return host && host.closest('.mermaid') ? host : null;
+  }
+  function mermaidOf(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    return el && el.closest && el.closest('.mermaid');
   }
   // The element a reader sees for a mark: the whole formula when the mark sits
   // in its hidden TeX source, else the mark itself.
@@ -209,15 +223,38 @@
     return k && container.contains(k) ? k : null;
   }
 
+  function hasLineBreakBetween(a, b) {
+    var range = document.createRange();
+    try {
+      range.setStart(a, a.nodeValue.length);
+      range.setEnd(b, 0);
+      return !!range.cloneContents().querySelector('br');
+    } catch (e) {
+      return false;
+    }
+  }
+
   function buildIndex() {
     var text = '';
     var nodes = [];
     var lastWasSpace = true;
+    var lastHost = null, lastNode = null, hasPreviousNode = false;
     var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
       acceptNode: function (n) { return isExcluded(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
     });
     while (walker.nextNode()) {
       var node = walker.currentNode;
+      var host = diagramLabelHost(node);
+      if (hasPreviousNode && host !== lastHost && text && !lastWasSpace) {
+        text += ' ';
+        lastWasSpace = true;
+      } else if (host && host === lastHost && lastNode && text && !lastWasSpace && hasLineBreakBetween(lastNode, node)) {
+        text += ' ';
+        lastWasSpace = true;
+      }
+      lastHost = host;
+      hasPreviousNode = true;
+      lastNode = node;
       var value = node.nodeValue;
       var charIdx = new Array(value.length);
       for (var i = 0; i < value.length; i++) {
@@ -412,9 +449,8 @@
     return segs;
   }
 
-  // Cut text nodes at every boundary and wrap each piece in ONE <mark> carrying
-  // every id that covers it (overlaps never nest). Pieces are processed
-  // back-to-front so splitText() never invalidates pending offsets.
+  // Cut text nodes at every boundary and wrap each piece in ONE highlight
+  // carrying every id that covers it (overlaps never nest).
   function wrapPieces(items, className) {
     var perNode = [], byNode = new Map(), marks = [];
     items.forEach(function (it) {
@@ -436,8 +472,9 @@
         if (to < piece.nodeValue.length) piece.splitText(to);
         if (from > 0) piece = piece.splitText(from);
         if (!piece.nodeValue.trim()) continue;
-        var mark = document.createElement('mark');
-        mark.className = className + (ids.length > 1 ? ' is-multi' : '');
+        var svgText = node.parentNode.namespaceURI === 'http://www.w3.org/2000/svg' && node.parentNode.closest('text');
+        var mark = svgText ? document.createElementNS('http://www.w3.org/2000/svg', 'tspan') : document.createElement('mark');
+        mark.setAttribute('class', className + (ids.length > 1 ? ' is-multi' : ''));
         mark.setAttribute('data-annotation-ids', ids.join(' '));
         piece.parentNode.insertBefore(mark, piece);
         mark.appendChild(piece);
@@ -461,8 +498,8 @@
   function applyHighlights() {
     var markers = container.querySelectorAll('.annotation-marker');
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
-    unwrap('mark.annotation-hl');
-    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note'); });
+    unwrap('mark.annotation-hl, tspan.annotation-hl');
+    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note', 'has-issue', 'is-resolved'); });
     Array.prototype.forEach.call(container.querySelectorAll('.katex.has-note'), function (k) { k.className = 'katex'; });
     buildIndex();
 
@@ -496,6 +533,12 @@
       // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
       var host = markHost(mark);
       if (host !== mark) { host.classList.add('has-note'); ['has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
+      var diagram = mark.closest('.mermaid');
+      var caption = diagram && diagram.nextElementSibling;
+      if (caption && caption.classList.contains('post-figcaption')) {
+        caption.classList.add('has-note');
+        ['has-issue', 'is-resolved'].forEach(function (c) { if (mark.classList.contains(c)) caption.classList.add(c); });
+      }
     });
     insertMarkers();
     buildIndex();
@@ -576,7 +619,7 @@
     return parts.join(' · ') + '，点击查看';
   }
   function markIsClickable(mark) {
-    return !mark.closest('a[href]:not(.inline-tip)');
+    return !!mark.closest('.mermaid') || !mark.closest('a[href]:not(.inline-tip)');
   }
   function markerNeeded(p) {
     return !!markerHtml(p) || (p.marks.length > 0 && !p.marks.some(markIsClickable));
@@ -585,6 +628,7 @@
     passages().forEach(function (p) {
       if (!markerNeeded(p)) return;
       var last = p.marks[p.marks.length - 1];
+      if (last.closest('.mermaid')) return;
       var marker = document.createElement('span');
       marker.className = markerClass(p);
       marker.setAttribute('data-annotation-ids', p.ids.join(' '));
@@ -638,7 +682,7 @@
     var marks = wrapPieces([{ start: range.start, end: range.end, id: 'flash' }], 'annotation-flash');
     if (!marks.length) return;
     scrollIntoViewInstant(marks[0]);
-    setTimeout(function () { unwrap('mark.annotation-flash'); buildIndex(); }, 2600);
+    setTimeout(function () { unwrap('mark.annotation-flash, tspan.annotation-flash'); buildIndex(); }, 2600);
   }
 
   function scrollIntoViewInstant(el) {
@@ -682,6 +726,11 @@
   // Block element after which an in-flow panel for `node` is inserted.
   function blockFor(node) {
     var el = node.nodeType === 1 ? node : node.parentNode;
+    var diagram = el.closest('.mermaid');
+    if (diagram) {
+      var caption = diagram.nextElementSibling;
+      return caption && caption.classList.contains('post-figcaption') ? caption : diagram;
+    }
     var cell = el.closest('td, th');
     var block = cell ? cell.closest('table') : el.closest(BLOCK_SELECTOR);
     // a note on a table cell / header row goes under the table's caption, like a figure's
@@ -1110,7 +1159,7 @@
     { key: 'codeblock', icon: 'fa-regular fa-file-code', title: '代码块 (```)' },
     { key: 'table', icon: 'fa-table', title: '表格 (3×3)' },
     { key: 'link', icon: 'fa-link', title: '链接 [文字](url)' },
-    { key: 'image', icon: 'fa-regular fa-image', title: '图片 ![说明](url)' },
+    { key: 'image', icon: 'fa-regular fa-image', title: '插入图片（也可直接粘贴截图 / 拖拽）' },
     { key: 'ul', icon: 'fa-list-ul', title: '无序列表 (- )' },
     { key: 'ol', icon: 'fa-list-ol', title: '有序列表 (1. )' }
   ];
@@ -1125,12 +1174,13 @@
       '</div>' +
       (opts.replyChip ? '<div class="ap-reply-chip" style="display:none"><i class="fa fa-reply"></i><span></span><button type="button" title="改为对这段文字评论">×</button></div>' : '') +
       '<textarea class="ap-text" rows="' + (opts.compact ? 4 : 6) + '" placeholder="' + escapeAttr(opts.placeholder) + '"></textarea>' +
+      '<input class="ap-image-input" type="file" accept="image/*" multiple hidden>' +
       '<div class="ap-preview" style="display:none"></div>' +
       '<div class="ap-status" style="display:none"></div>' +
       '<div class="ap-footer">' +
         '<span class="ap-user"></span>' +
         '<span class="ap-buttons">' +
-          '<span class="ap-hint">Markdown · ⌘/Ctrl+Enter 提交</span>' +
+          '<span class="ap-hint">Markdown · 可粘贴截图 · ⌘/Ctrl+Enter 提交</span>' +
           (opts.issueOption && cfg.issues ? '<label class="ap-issue" title="除评论外，再以你的名义在 GitHub 仓库创建一个 Issue，提醒作者这里可能有问题"><input type="checkbox"><i class="fa fa-flag"></i> 同时提交 Issue</label>' : '') +
           (opts.onCancel ? '<button type="button" class="ap-cancel">取消</button>' : '') +
           '<button type="button" class="ap-login"><i class="fa fa-brands fa-github"></i> 使用 GitHub 登录</button>' +
@@ -1139,8 +1189,13 @@
       '</div>';
     var ta = host.querySelector('.ap-text');
     var submitBtn = host.querySelector('.ap-submit');
+    var imageInput = host.querySelector('.ap-image-input');
+    var pendingUploads = 0, uploadSequence = 0, uploadError = '';
     if (opts.initialText) ta.value = opts.initialText;
-    function updateSubmitState() { submitBtn.disabled = host.classList.contains('is-busy') || !ta.value.trim(); }
+    function updateSubmitState() {
+      host._apPendingUploads = pendingUploads;
+      submitBtn.disabled = host.classList.contains('is-busy') || pendingUploads > 0 || !ta.value.trim();
+    }
     ta.addEventListener('input', function () { updateSubmitState(); if (opts.onChange) opts.onChange(ta.value); });
     updateSubmitState();
     if (opts.onCancel) host.querySelector('.ap-cancel').addEventListener('click', opts.onCancel);
@@ -1150,9 +1205,95 @@
     // for a passage comment, so nobody wonders whether the quote is kept
     for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function () { switchTab(host, this.getAttribute('data-tab'), opts.fallbackText); });
     var fmts = host.querySelectorAll('.ap-format button');
-    for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () { switchTab(host, 'write'); applyFormat(ta, this.getAttribute('data-format')); });
+    for (var f = 0; f < fmts.length; f++) fmts[f].addEventListener('click', function () {
+      switchTab(host, 'write');
+      if (this.getAttribute('data-format') === 'image') imageInput.click();
+      else applyFormat(ta, this.getAttribute('data-format'));
+    });
+
+    imageInput.addEventListener('change', function () {
+      uploadImages(Array.prototype.slice.call(imageInput.files || []));
+      imageInput.value = '';
+    });
+    ta.addEventListener('paste', function (e) {
+      var files = transferImages(e.clipboardData);
+      if (!files.length) return;
+      e.preventDefault();
+      uploadImages(files);
+    });
+    ta.addEventListener('dragover', function (e) {
+      if (!transferImages(e.dataTransfer).length) return;
+      e.preventDefault();
+      host.classList.add('is-dragover');
+    });
+    ta.addEventListener('dragleave', function (e) {
+      if (!e.relatedTarget || !host.contains(e.relatedTarget)) host.classList.remove('is-dragover');
+    });
+    ta.addEventListener('drop', function (e) {
+      host.classList.remove('is-dragover');
+      var files = transferImages(e.dataTransfer);
+      if (!files.length) return;
+      e.preventDefault();
+      uploadImages(files);
+    });
+
+    function uploadImages(files) {
+      files = (files || []).filter(function (file) { return file && /^image\//i.test(file.type || ''); });
+      if (!files.length) return;
+      if (!getSession()) {
+        setStatus(host, '登录 GitHub 后才能粘贴图片', 'error');
+        return;
+      }
+      files.forEach(uploadImage);
+    }
+
+    function uploadImage(file) {
+      var placeholder = '![上传中 截图-' + (++uploadSequence) + '…]()';
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      ta.setRangeText(placeholder, start, end, 'end');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      pendingUploads++;
+      updateSubmitState();
+      setStatus(host, '正在上传图片…');
+
+      ensureToken().then(function (tk) {
+        return compressCommentImage(file).then(function (blob) {
+          return fetch(cfg.api + '/comments/images', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tk, 'Content-Type': blob.type },
+            body: blob
+          }).then(function (r) {
+            return r.json().then(function (data) {
+              if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+              return data;
+            });
+          });
+        });
+      }).then(function (data) {
+        replacePlaceholder(placeholder, '![' + '截图' + '](' + data.src + ')');
+      }).catch(function (err) {
+        replacePlaceholder(placeholder, '');
+        uploadError = err.message || String(err);
+      }).then(function () {
+        pendingUploads--;
+        updateSubmitState();
+        if (pendingUploads) setStatus(host, '正在上传图片…');
+        else if (uploadError) {
+          setStatus(host, uploadError, 'error');
+          uploadError = '';
+        } else setStatus(host, '');
+      });
+    }
+
+    function replacePlaceholder(placeholder, replacement) {
+      var at = ta.value.indexOf(placeholder);
+      if (at < 0) return;
+      ta.setRangeText(replacement, at, at + placeholder.length, 'preserve');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
 
     function submit() {
+      if (pendingUploads) return;
       var text = ta.value.trim();
       if (!text) return;
       var issueBox = host.querySelector('.ap-issue input');
@@ -1200,6 +1341,79 @@
     });
     refreshAuthUI(host);
     return ta;
+  }
+
+  function transferImages(transfer) {
+    if (!transfer) return [];
+    var images = [], items = transfer.items || [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (item.kind !== 'file' || !/^image\//i.test(item.type || '')) continue;
+      var file = item.getAsFile && item.getAsFile();
+      if (file && images.indexOf(file) < 0) images.push(file);
+    }
+    if (!images.length) {
+      var files = transfer.files || [];
+      for (var f = 0; f < files.length; f++) {
+        if (/^image\//i.test(files[f].type || '') && images.indexOf(files[f]) < 0) images.push(files[f]);
+      }
+    }
+    return images;
+  }
+
+  function compressCommentImage(file) {
+    if (file.type === 'image/gif') {
+      if (file.size > 3 * 1024 * 1024) return Promise.reject(new Error('图片太大（压缩后仍超过 3 MB）'));
+      return Promise.resolve(file);
+    }
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var width = img.naturalWidth, height = img.naturalHeight;
+        if (!width || !height) {
+          URL.revokeObjectURL(url);
+          reject(new Error('无法读取图片'));
+          return;
+        }
+        var scale = Math.min(1, 1600 / Math.max(width, height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        var context = canvas.getContext('2d');
+        if (!context) {
+          URL.revokeObjectURL(url);
+          reject(new Error('无法处理图片'));
+          return;
+        }
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        function finish(blob) {
+          if (!blob) {
+            reject(new Error('无法处理图片'));
+            return;
+          }
+          var originalType = String(file.type || '').toLowerCase();
+          if (Math.max(width, height) <= 1600 && file.size < blob.size &&
+              ['image/webp', 'image/jpeg', 'image/png'].indexOf(originalType) >= 0) blob = file;
+          if (blob.size > 3 * 1024 * 1024) {
+            reject(new Error('图片太大（压缩后仍超过 3 MB）'));
+            return;
+          }
+          resolve(blob);
+        }
+        canvas.toBlob(function (webp) {
+          if (webp && webp.type === 'image/webp') finish(webp);
+          else canvas.toBlob(finish, 'image/jpeg', 0.88);
+        }, 'image/webp', 0.85);
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        reject(new Error('无法读取图片'));
+      };
+      img.src = url;
+    });
   }
 
   // Minimal Markdown helpers for the toolbar: wrap the selection or prefix the
@@ -1291,7 +1505,7 @@
     for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
     host.classList.toggle('is-busy', !!busy);
     var ta = host.querySelector('.ap-text'), submit = host.querySelector('.ap-submit');
-    if (!busy && ta && submit) submit.disabled = !ta.value.trim();
+    if (!busy && ta && submit) submit.disabled = !ta.value.trim() || Number(host._apPendingUploads || 0) > 0;
   }
 
   function refreshAuthUI(host) {
@@ -1811,6 +2025,21 @@
       selectionTimer = setTimeout(updateToolbar, 250);
     });
     document.addEventListener('mouseup', function () { setTimeout(updateToolbar, 10); });
+    document.addEventListener('click', function (e) {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var target = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+      if (!target || target.closest('.annotation-hl') || target.closest('a')) return;
+      var host = diagramLabelHost(target);
+      if (!host || !host.textContent.trim()) return;
+      var selection = window.getSelection();
+      if (!selection || !selection.isCollapsed) return;
+      var range = document.createRange();
+      range.selectNodeContents(host);
+      if (!range.toString().trim()) return;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      updateToolbar();
+    });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hideToolbar(); if (panelState && panelState.kind === 'thread') closePanel(); } });
     window.addEventListener('scroll', function () { if (toolbar && toolbar.style.display === 'block') positionToolbar(); }, { passive: true });
   }
@@ -1820,6 +2049,12 @@
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
     var range = sel.getRangeAt(0).cloneRange();
     if (!container.contains(range.commonAncestorContainer)) return null;
+    var startHost = diagramLabelHost(range.startContainer), endHost = diagramLabelHost(range.endContainer);
+    if (startHost && endHost !== startHost) {
+      range.setEnd(startHost, startHost.childNodes.length);
+    } else if (!mermaidOf(range.startContainer) && mermaidOf(range.endContainer)) {
+      range.setEndBefore(mermaidOf(range.endContainer));
+    }
     // A boundary inside a formula takes the whole formula (its TeX source is
     // what gets quoted); one inside another excluded element (heading buttons,
     // `↩`…) snaps to that element's edge instead of bailing.
@@ -1833,6 +2068,7 @@
   }
 
   function excludedAncestor(node) {
+    if (diagramLabelHost(node)) return null;
     var el = node.nodeType === 1 ? node : node.parentNode;
     var hit = el && el.closest && el.closest(EXCLUDE_SELECTOR);
     if (!hit || !container.contains(hit)) return null;
@@ -2494,6 +2730,17 @@
       for (var k = attrs.length - 1; k >= 0; k--) {
         var name = attrs[k].name, value = attrs[k].value;
         if (/^on/i.test(name) || ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
+      }
+      if (el.tagName === 'IMG') {
+        el.setAttribute('loading', 'lazy');
+        var canonical = el.getAttribute('data-canonical-src');
+        if (cfg.api && canonical && canonical.indexOf(cfg.api + '/media/') === 0) {
+          el.setAttribute('src', canonical);
+          var imageLink = el.closest('a');
+          if (imageLink && /^https:\/\/camo\.githubusercontent\.com\//i.test(imageLink.getAttribute('href') || '')) {
+            imageLink.setAttribute('href', canonical);
+          }
+        }
       }
       if (el.tagName === 'A') {
         var samePage = null;

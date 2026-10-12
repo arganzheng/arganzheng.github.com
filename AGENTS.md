@@ -535,7 +535,16 @@ by `authorAssociation`), so list badges match. It is page-level hiding only —
 the comments remain in the public GitHub Discussion; the dashboard / 修订简报 /
 feedback-queue read them on purpose (they are the AI's revision input). `commentEl` and `renderEditor` are shared, so plain comments
 and passage notes have identical reply / edit / delete / 「同时提交 Issue」
-controls. The bottom section (`.annotation-comments`): header bar
+controls.
+
+The shared editor accepts pasted, dropped, or picked screenshots only after
+GitHub login. It compresses still images to at most 1600 px and 3 MB, then
+uploads them through `POST /comments/images` to the Worker’s R2
+`comments/YYYY/MM/` prefix. GitHub rewrites rendered image URLs to camo; the
+sanitizer restores the canonical Worker `/media/` URL for these images. Images
+uploaded from an unposted draft remain in R2 as orphans.
+
+The bottom section (`.annotation-comments`): header bar
 (`renderLikeBar`: count + GitHub link; it also paints the `.post-actions` bar above the section), `.ac-group` per top-level comment with its replies, inline reply
 editor (`openInlineReply`), and a persistent editor (`.ac-editor`,
 `clearOnSubmit`, draft in `sessionStorage`). Plain comments filed with an
@@ -877,8 +886,10 @@ re-anchoring.
   parseComment/parseVotes/openThread/closePanel/logout/list/comments`.
 - **Interplay with footnotes / tips / formulas**: the text index excludes footnote
   markers (`sup[id^=fnref]`, `a.footnote`, `.reversefootnote` — footnote *bodies*
-  are indexed and can be annotated), Mermaid,
-  markers/panels and the comment section. **KaTeX**: `.katex-html` (the glyphs)
+  are indexed and can be annotated), annotation markers/panels and the comment
+  section. Rendered Mermaid label text inside `.mermaid svg` is indexed, except
+  SVG `style` / `title` / `desc` and figure tools; each label is a quote boundary,
+  and tapping a label selects that one label. **KaTeX**: `.katex-html` (the glyphs)
   is excluded, but the TeX source in the MathML `<annotation>` is indexed
   (`isExcluded`), so a formula is a passage whose `exact` is `s = 8192` /
   `\frac{a}{b}` as written; a selection boundary inside a formula takes the

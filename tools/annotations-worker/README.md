@@ -25,6 +25,15 @@ No tokens or secrets are needed for reading and commenting: reads go through
 giscus' public API, and writes use the reader's own giscus session (GitHub
 login) exchanged for a token.
 
+## Comment screenshots (`POST /comments/images`)
+
+Comment editors accept pasted, dropped, or picked images. The browser shrinks
+still images to at most 1600 px and uploads them to the existing `MEDIA` R2
+binding; GIFs keep their animation. The worker verifies the reader token with
+GitHub, stores images under `comments/YYYY/MM/`, and returns a `/media/` URL.
+There are no new bindings or secrets to configure; deploy the route with
+`wrangler deploy`.
+
 ## Optional: 「同时提交 Issue」 (POST /issues)
 
 The editor has a checkbox that also files a GitHub Issue for the note, so
