@@ -269,6 +269,17 @@ pre code {
 .postlist-container {
   margin-bottom: 15px;
 }
+.post-container mark.md-hl,
+.markdown-body mark.md-hl {
+  padding: 0 0.12em;
+  border-radius: 2px;
+  background-color: #fff1a8;
+  color: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 .post-container a {
   color: #337ab7;
 }
@@ -9956,6 +9967,11 @@ html[data-theme="dark"] .post-container img[src*=".svg"] {
   padding: 8px;
   border-radius: 6px;
   filter: none;
+}
+html[data-theme="dark"] .post-container mark.md-hl,
+html[data-theme="dark"] .markdown-body mark.md-hl {
+  background-color: rgba(250, 204, 21, 0.26);
+  color: inherit;
 }
 html[data-theme="dark"] .post-container pre.lineno .line::before {
   color: #969ba4;

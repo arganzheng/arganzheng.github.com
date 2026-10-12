@@ -39,6 +39,7 @@
     a: 'color:' + ACCENT + ';text-decoration:none;',
     strong: 'font-weight:700;color:#222;',
     em: 'font-style:italic;',
+    mark: 'background-color:#fff1a8;color:inherit;padding:0 2px;border-radius:2px;',
     del: 'text-decoration:line-through;color:#999;',
     hr: 'margin:1.6em 0;border:0;border-top:1px solid #e1e4e8;',
     img: 'display:block;max-width:100%;margin:0.6em auto 1.2em;border-radius:4px;',
