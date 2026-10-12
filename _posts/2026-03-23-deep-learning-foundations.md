@@ -115,7 +115,7 @@ Table: 九篇正文的主题与内容
 | 线索 | 从第一篇到第九篇 |
 |---|---|
 | 推导线 | 链式法则 → 激活导数改变梯度 → Jacobian 乘积与谱范数 → 更新量的量级 → 期望等价与先验 → 卷积线性算子 → embedding 查表与分布式词向量 → 时间反传 |
-| 数字线 | 感知机线性边界：AND 第 6 轮零误分、XOR 最少 3 次且权重状态周期为 2 → 反向 FLOPs = 2 × 前向 → sigmoid 首层梯度 $$3.94\times10^{-10}$$、20 层 SiLU 测试准确率 92.88% → $$0.9^{128}$$ → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → XOR：ADALINE MSE 0.25、MLP H=4 为 20/20 → text8 17,005,207 词、71,290 词表、100 维 → RNN 不能并行 |
+| 数字线 | 感知机线性边界：AND 第 6 轮零误分、XOR 最少 3 次；权重状态自第 2 轮起周期 1（脚本输出 `(2, 1)`）→ 反向 FLOPs = 2 × 前向 → sigmoid 首层梯度 $$3.94\times10^{-10}$$、20 层 SiLU 测试准确率 92.88% → $$0.9^{128}$$ → 每参数 8 字节 → 一个 epoch 就够 → ResNet-50 的 4.1 GFLOPs → XOR：ADALINE MSE 0.25、MLP H=4 为 20/20 → text8 17,005,207 词、71,290 词表、100 维 → RNN 不能并行 |
 | LLM 线 | 6ND · 激活重算 → SwiGLU · GELU → RMSNorm · Pre-Norm · 0.02 → AdamW · warmup · 裁剪到 1.0 → 预训练不用 dropout → ViT / patch → GPT-2 embedding 参数占 31.0% · 上下文表示 → attention → Transformer |
 
 Table: 贯穿九篇的三条线索

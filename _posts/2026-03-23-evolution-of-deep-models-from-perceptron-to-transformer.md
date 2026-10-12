@@ -18,7 +18,7 @@ Transformer 不是突然出现的。它接过了感知机、反向传播、卷�
 
 神经网络的发展不是平滑上升。感知机带来第一次热潮，能力边界、资金收缩与英国的研究评估共同构成第一次寒冬；反向传播带来第二次兴起，但算力、数据与训练稳定性仍有限；2006 年逐层预训练重燃深层网络研究，随后 GPU、ImageNet 与更可靠的训练方法让深度学习进入第三次兴起。
 
-三次兴起、两次寒冬是对研究热度的概括，不是五个边界精确的年份。Lighthill 的报告发表于 1973 年前后的英国政策讨论中；报告原稿标注为 1972 年 7 月，不能把寒冬归因于单一本书或一份报告。[Lighthill 原报告](https://www.chilton-computing.org.uk/inf/literature/reports/lighthill_report/p001.htm)
+图中的兴起与寒冬色带是对研究热度的近似划分，不代表精确的年份边界。
 
 本文讲历史与动机；感知机、ADALINE 和 XOR 先用小例子建立直觉，反向传播、激活、初始化、优化器和各类结构的推导留给系列后续篇章。
 
@@ -49,7 +49,7 @@ $$
 w \leftarrow w + \eta (y-\hat y)x,\qquad b\leftarrow b+\eta(y-\hat y)
 $$
 
-[1957 年感知机报告](https://archive.org/details/bitsavers_cornellrepPerceptron1957_2026182)；[1958 年论文](https://doi.org/10.1037/h0042519)
+[Rosenblatt，《The Perceptron: A Perceiving and Recognizing Automaton》（Cornell Aeronautical Laboratory Report 85-460-1，1957 年 1 月）](https://bpb-us-e2.wpmucdn.com/websites.umass.edu/dist/a/27637/files/2016/03/rosenblatt-1957.pdf)；[1958 年论文](https://doi.org/10.1037/h0042519)
 
 Novikoff 1962 年的收敛定理给出了条件与上界：若数据可被间隔 $$\gamma$$ 的超平面线性分开，且每个输入满足 $$\|x\|\le R$$，感知机至多犯 $$ (R/\gamma)^2 $$ 次错。[原论文](https://cs.uwaterloo.ca/~y328yu/classics/novikoff.pdf)
 
@@ -77,7 +77,7 @@ Minsky 与 Papert 在 1969 年的《Perceptrons》系统分析了感知机的能
 
 ## 五、多层网络回归
 
-两层隐藏单元已经能表示 XOR。令阈值函数 $$H(z)=1$$（当 $$z\ge0$$），构造隐藏层：
+两个隐藏单元就能表示 XOR。令阈值函数 $$H(z)=1$$（当 $$z\ge0$$），构造隐藏层：
 
 $$
 h_1=H(x_1+x_2-0.5)\quad(\mathrm{OR}),\qquad
@@ -88,7 +88,7 @@ $$
 
 Rumelhart、Hinton 与 Williams 在 1986 年把反向传播用于多层网络学习内部表示。[Nature 原文](https://doi.org/10.1038/323533a0) 推导和手算放在《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》。
 
-Cybenko（1989）证明，具有 sigmoid 激活的单隐藏层网络在适当条件下可一致逼近紧集上的连续函数；Hornik、Stinchcombe 与 White（1989）给出更一般的逼近结果。[Cybenko 原文](https://doi.org/10.1007/BF02551274)；[Hornik 等原文](https://doi.org/10.1016/0893-6080(89)90020-8)
+Cybenko（1989）证明，具有 sigmoid 激活的单隐藏层网络在适当条件下可一致逼近紧集上的连续函数；Hornik、Stinchcombe 与 White（1989）给出更一般的逼近结果。[Cybenko 原文](https://doi.org/10.1007/BF02551274)；[Hornik 等原文](https://doi.org/10.1016/0893-6080%2889%2990020-8)
 
 万能逼近定理说的是存在性：某些函数可以由足够宽的网络表示。它没有告诉我们需要多宽、训练算法是否找到这些参数、有限数据上是否泛化。**能表示 ≠ 能学会。**
 
@@ -100,11 +100,11 @@ Cybenko（1989）证明，具有 sigmoid 激活的单隐藏层网络在适当条
 
 ## 七、2006 年逐层预训练
 
-Hinton、Osindero 与 Teh 在 2006 年提出深度信念网络（DBN）的贪心逐层训练：逐层训练受限玻尔兹曼机（RBM），再微调整个网络。[论文](https://doi.org/10.1162/neco.2006.18.7.1527) RBM 是两个可见层、隐藏层之间对称连接的能量模型；对比散度（contrastive divergence）是常用的近似训练算法，这里不展开推导。[对比散度原文](https://doi.org/10.1162/089976602760128018)
+Hinton、Osindero 与 Teh 在 2006 年提出深度信念网络（DBN）的贪心逐层训练：逐层训练受限玻尔兹曼机（RBM），再微调整个网络。[论文](https://doi.org/10.1162/neco.2006.18.7.1527) RBM 只有可见层和隐藏层两层，层间对称连接、层内无连接，是一种能量模型；对比散度（contrastive divergence）是常用的近似训练算法，这里不展开推导。[对比散度原文](https://doi.org/10.1162/089976602760128018)
 
 同年，Hinton 与 Salakhutdinov 在 Science 展示了用深层自编码器逐层预训练降维；Bengio 等人比较了逐层无监督预训练与深网络训练。[Science 原文](https://doi.org/10.1126/science.1127647)；[Bengio 等论文](https://proceedings.neurips.cc/paper/2006/file/5da713a690c067105aeb2fae32403405-Paper.pdf)
 
-这条路线后来不再是标准的训练前置步骤。ReLU 减轻了饱和问题，Glorot / He 初始化改善了层间尺度，dropout 提供了正则化；GPU 与 ImageNet 让大规模端到端监督训练成为现实。AlexNet 在 ILSVRC-2012 的 top-5 错误率为 15.3%，第二名为 26.2%；论文报告以随机初始化的卷积网络监督训练，并未采用逐层 RBM 预训练。[Nair 与 Hinton（2010）](https://proceedings.mlr.press/v9/nair10a.html)；[Glorot 与 Bengio（2010）](https://proceedings.mlr.press/v9/glorot10a.html)；[He 等（2015）](https://arxiv.org/abs/1502.01852)；[dropout 原文](https://jmlr.org/papers/v15/srivastava14a.html)；[AlexNet 原文](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)
+这条路线后来不再是标准的训练前置步骤。ReLU 减轻了饱和问题，Glorot / He 初始化改善了层间尺度，dropout 提供了正则化；GPU 与 ImageNet 让大规模端到端监督训练成为现实。AlexNet 在 ILSVRC-2012 的 top-5 错误率为 15.3%，第二名为 26.2%；论文报告以随机初始化的卷积网络监督训练，并未采用逐层 RBM 预训练。[Nair 与 Hinton（2010）](https://icml.cc/Conferences/2010/papers/432.pdf)；[Glorot 与 Bengio（2010）](https://proceedings.mlr.press/v9/glorot10a.html)；[He 等（2015）](https://arxiv.org/abs/1502.01852)；[dropout 原文](https://jmlr.org/papers/v15/srivastava14a.html)；[AlexNet 原文](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)
 
 今天 LLM 的“预训练”保留了先学通用表示、再微调的思路，但通常是整个模型做自监督目标训练；它不是先逐层训练 RBM 再堆叠的那套层级预训练。
 
@@ -118,7 +118,7 @@ Neocognitron 将局部感受野与层级特征组合起来；LeNet 把卷积用�
 
 ### 2. Embedding：从编号到几何
 
-Embedding 把离散 token 映射为稠密向量；Word2Vec 展示了如何从上下文预测学习词向量。[Word2Vec 原文](https://arxiv.org/abs/1301.3781) 查表让输入适配神经网络，但静态词向量对同一个词只存一份表示，不能直接表达上下文变化。见《[深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》。
+Bengio 等人 2003 年的神经概率语言模型使用学习到的词向量表示来预测下一个词；Word2Vec 2013 年进一步展示了从上下文预测中学习词向量。[Bengio 等（2003）原文](https://jmlr.org/papers/v3/bengio03a.html)；[Word2Vec 原文](https://arxiv.org/abs/1301.3781) 查表让输入适配神经网络，但静态词向量对同一个词只存一份表示，不能直接表达上下文变化。见《[深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》。
 
 ### 3. 循环网络、seq2seq 与 attention
 
@@ -138,7 +138,7 @@ Transformer 以 self-attention 建立位置间的内容相关连接，训练时�
 | ADALINE | 1960 | 线性输出、平方误差 | 否 | 高 | 自适应滤波、分类 |
 | MLP / 反向传播 | 1986 | 全连接层与非线性组合 | 否 | 高 | 分类、回归 |
 | CNN | 1980–2015 | 局部感受野、平移等变 | 空间共享 | 高 | 图像识别 |
-| Embedding | 2013 | 离散符号查表为向量 | 同一 token 共享一行 | 高 | 语言表示 |
+| Embedding | 2003 / 2013 | 离散符号查表为向量 | 同一 token 共享一行 | 高 | 语言表示 |
 | RNN / LSTM | 1997 | 状态递归、时间平移共享 | 时间共享 | 低，按步串行 | 序列建模 |
 | seq2seq + attention | 2014 | 对齐查询输入状态 | 编码器与解码器分开 | 部分并行 | 机器翻译 |
 | Transformer | 2017 | 内容相关的全局注意力 | 位置间共享投影参数 | 序列位置并行 | 翻译、语言建模 |
@@ -147,7 +147,7 @@ Table: 不同模型用结构假设换取计算效率或数据效率
 
 ## 十、案例：感知机、ADALINE 与 MLP 跑 XOR
 
-实验用 NumPy 固定数据顺序 `(0,0),(0,1),(1,0),(1,1)`。感知机从零权重和偏置开始、学习率 1，AND 在第 6 轮首次达到零误分；XOR 的每轮误分最少为 3，100 轮内没有零误分，权重状态从第 2 轮起以周期 1 循环。
+实验用 NumPy 固定数据顺序 `(0,0),(0,1),(1,0),(1,1)`。感知机从零权重和偏置开始、学习率 1，AND 在第 6 轮首次达到零误分；XOR 的每轮误分最少为 3，100 轮内没有零误分。脚本输出权重状态循环 `(2, 1)`，表示第 2 轮首次重复、周期为 1。
 
 ADALINE 用全批量梯度下降、学习率 0.1 训练 500 轮，最终权重为 `(0.0000000207, 0.0000000207)`，偏置 `0.4999999754`，MSE 为 `0.2500000000`。最小二乘解为 `w=(0,0), b=0.5`，四个样本的预测全是 `0.5`。
 
@@ -156,8 +156,6 @@ ADALINE 用全批量梯度下降、学习率 0.1 训练 500 轮，最终权重�
 两层结构能表达 XOR，不意味着每个初始化都能学到它；H=2 的结果直接显示了表示能力与优化结果之间的差别。
 
 ![XOR 案例：感知机、ADALINE 与成功的 H=4 MLP 决策区域，以及训练误分与 loss 曲线](/img/in-post/dl-evolution-xor.webp)
-
-Table: 感知机、ADALINE 与 MLP 的 XOR 数值来自固定脚本运行
 
 完整输出见 [XOR 实验脚本](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_evolution_xor.py)。
 
@@ -171,22 +169,52 @@ Table: 感知机、ADALINE 与 MLP 的 XOR 数值来自固定脚本运行
 ## 十二、自测
 
 1. 感知机收敛界 $$ (R/\gamma)^2 $$ 中，增大间隔或缩小输入范数分别意味着什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   输入尺度上界越小、线性分隔间隔越大，定理允许的犯错次数越少。
+
+   </details>
+
 2. 为什么单个线性阈值单元无法分类 XOR？
+
+   <details markdown="1"><summary>答案</summary>
+
+   四个 XOR 标签要求的四条线性不等式互相矛盾，单条直线无法把两组对角点分开。
+
+   </details>
+
 3. ADALINE 和感知机分别在哪个量上计算误差、何时更新？
+
+   <details markdown="1"><summary>答案</summary>
+
+   感知机看阈值后的类别，犯错才更新；ADALINE 看阈值前的线性输出与目标的平方误差，沿梯度更新。
+
+   </details>
+
 4. 万能逼近定理没有保证哪些训练或泛化性质？
+
+   <details markdown="1"><summary>答案</summary>
+
+   它不保证最小宽度、优化器能找到参数、样本效率或测试集泛化。
+
+   </details>
+
 5. SVM 在第二次寒冬为何有吸引力？逐层预训练后来为何不再是常规做法？
+
+   <details markdown="1"><summary>答案</summary>
+
+   SVM 有凸目标、核技巧与间隔理论；ReLU、较好初始化、正则化、GPU 与大规模数据让端到端训练更可行。
+
+   </details>
+
 6. Transformer 相比 RNN 提高了什么并行性，又保留了什么长度代价？
 
-<details markdown="1"><summary>答案</summary>
+   <details markdown="1"><summary>答案</summary>
 
-   1. 输入尺度上界越小、线性分隔间隔越大，定理允许的犯错次数越少。
-   2. 四个 XOR 标签要求的四条线性不等式互相矛盾，单条直线无法把两组对角点分开。
-   3. 感知机看阈值后的类别，犯错才更新；ADALINE 看阈值前的线性输出与目标的平方误差，沿梯度更新。
-   4. 它不保证最小宽度、优化器能找到参数、样本效率或测试集泛化。
-   5. SVM 有凸目标、核技巧与间隔理论；ReLU、较好初始化、正则化、GPU 与大规模数据让端到端训练更可行。
-   6. Transformer 可并行计算序列位置，但标准全注意力仍有 $$O(n^2)$$ 的序列长度计算 / 内存代价。
+   Transformer 可并行计算序列位置，但标准全注意力仍有 $$O(n^2)$$ 的序列长度计算 / 内存代价。
 
-</details>
+   </details>
 
 ## 下一篇
 

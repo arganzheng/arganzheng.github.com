@@ -51,7 +51,7 @@ flowchart TB
 从阈值单元、感知机与两次寒冬，到反向传播、预训练、CNN、Embedding、attention 与 Transformer；结构演进不断改变归纳偏置、可训练性与并行度。
 
 <aside class="notes" markdown="1">
-原文 /evolution-of-deep-models-from-perceptron-to-transformer.html。XOR 案例：AND 感知机第 6 轮零误分；XOR 感知机每轮最少 3 次误分并循环；ADALINE 最小二乘 MSE 0.25；H=2 的 MLP 有 13/20 个种子达到 100%，H=4 为 20/20。
+原文 /evolution-of-deep-models-from-perceptron-to-transformer.html。XOR 案例：AND 感知机第 6 轮零误分；XOR 感知机每轮最少 3 次误分，权重状态自第 2 轮起周期 1（输出 `(2, 1)`）；ADALINE 最小二乘 MSE 0.25；H=2 的 MLP 有 13/20 个种子达到 100%，H=4 为 20/20。
 </aside>
 
 <!-- v -->
