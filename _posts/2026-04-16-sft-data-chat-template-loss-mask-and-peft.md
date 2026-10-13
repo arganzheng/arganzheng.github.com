@@ -457,7 +457,7 @@ SFT 训出的模型会按格式回答，但"好回答"与"坏回答"它分不出
 
    <details markdown="1"><summary>答案</summary>
 
-   5 个 epoch——1 万条指令对 8B 模型是极度过参数化体制（L3 第四篇），多 epoch 会背下数据、推开预训练分布。看 held-out 的通用 loss（不是 SFT 验证 loss）随 epoch 的变化，以及几个通用 benchmark 的早期抽检；拐点出现就停。
+   5 个 epoch——1 万条指令对 8B 模型是极度过参数化区间（L3 第四篇），多 epoch 会背下数据、推开预训练分布。看 held-out 的通用 loss（不是 SFT 验证 loss）随 epoch 的变化，以及几个通用 benchmark 的早期抽检；拐点出现就停。
 
    </details>
 
