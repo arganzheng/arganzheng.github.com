@@ -9,18 +9,18 @@
   var PALETTES = {
     light: {
       branches: ['#0969da', '#8250df', '#bf3989', '#cf222e', '#bc4c00', '#9a6700', '#1a7f37', '#0550ae'],
-      tints: ['#ddf4ff', '#fbefff', '#ffeff7', '#ffebe9', '#fff1e5', '#fff8c5', '#dafbe1', '#eaeef2'],
       accent: '#0969da',
       rootText: '#ffffff',
+      branchText: '#ffffff',
       text: '#24292f',
       muted: '#1a7f37',
       background: '#ffffff'
     },
     dark: {
       branches: ['#58a6ff', '#d2a8ff', '#ff7bcb', '#ff7b72', '#ffa657', '#e3b341', '#7ee787', '#79c0ff'],
-      tints: ['#102a43', '#271a3d', '#32182b', '#35191b', '#362318', '#332b17', '#142e22', '#1c2736'],
       accent: '#1f6feb',
       rootText: '#ffffff',
+      branchText: '#0d1117',
       text: '#e6edf3',
       muted: '#7ee787',
       background: '#1d1f21'
@@ -72,9 +72,11 @@
     chars.forEach(function (character) {
       var amount = textUnits(character);
       if (units + amount > 36 && line) {
-        lines.push(line.trim());
-        line = '';
-        units = 0;
+        var tail = /[\w.\-]$/.test(character) ? (line.match(/[\w.\-]+$/) || [''])[0] : '';
+        if (tail.length >= line.length || tail.length > 16) tail = '';
+        lines.push(line.slice(0, line.length - tail.length).trim());
+        line = tail;
+        units = textUnits(tail);
         if (lines.length === 2) overflow = true;
       }
       if (lines.length < 3) {
@@ -106,22 +108,56 @@
     return context.measureText(text).width;
   }
 
-  function measureTree(root, colors, context) {
-    var rootChildren = childrenOf(root);
+  var SIBLING_GAP = [0, 28, 14, 6];
+  var LEVEL_GAP = [0, 64, 52, 40];
+
+  function siblingGap(depth) { return SIBLING_GAP[Math.min(depth, 3)]; }
+  function levelGap(depth) { return LEVEL_GAP[Math.min(depth, 3)]; }
+
+  function stackHeight(items) {
+    if (!items.length) return 0;
+    return items.reduce(function (sum, child) { return sum + child.totalHeight; }, 0) +
+      (items.length - 1) * siblingGap(items[0].depth);
+  }
+
+  function curvePath(startX, startY, endX, endY) {
+    var bend = (endX - startX) / 2;
+    return 'M' + startX + ' ' + startY + ' C' + (startX + bend) + ' ' + startY + ', ' +
+      (endX - bend) + ' ' + endY + ', ' + endX + ' ' + endY;
+  }
+
+  function elbowPath(dir, startX, startY, endX, endY) {
+    var trunkX = startX + dir * Math.min(18, Math.abs(endX - startX) / 2);
+    var dy = endY - startY;
+    var radius = Math.min(8, Math.abs(dy) / 2, Math.abs(trunkX - startX), Math.abs(endX - trunkX));
+    if (Math.abs(dy) < 1 || radius <= 0) return 'M' + startX + ' ' + startY + ' H' + endX + (Math.abs(dy) < 1 ? '' : ' V' + endY);
+    var down = dy > 0 ? 1 : -1;
+    return 'M' + startX + ' ' + startY +
+      ' H' + (trunkX - dir * radius) +
+      ' Q' + trunkX + ' ' + startY + ' ' + trunkX + ' ' + (startY + down * radius) +
+      ' V' + (endY - down * radius) +
+      ' Q' + trunkX + ' ' + endY + ' ' + (trunkX + dir * radius) + ' ' + endY +
+      ' H' + endX;
+  }
+
+  function measureTree(root, colors, context, oneSided) {
     var infos = [];
 
     function measureNode(node, depth, branchIndex) {
       var label = String(node.text || '');
-      var fontSize = depth === 0 ? 16 : depth === 1 ? 14 : 13;
-      var fontWeight = depth < 2 ? 600 : 400;
+      var fontSize = depth === 0 ? 18 : depth === 1 ? 15 : depth === 2 ? 14 : 13;
+      var fontWeight = depth === 0 ? 700 : depth === 1 ? 600 : depth === 2 ? 500 : 400;
       var font = fontWeight + ' ' + fontSize + 'px ' + FONT;
       var lines = wrapText(label);
       var widths = lines.map(function (line) { return measureText(context, line, font); });
       if (node.read && widths.length) widths[widths.length - 1] += 18;
-      var maxWidth = Math.max.apply(null, widths.concat([24]));
+      var textWidth = Math.max.apply(null, widths.concat([24]));
       var box = depth < 2;
-      var lineHeight = fontSize * 1.4;
-      var height = Math.max(box ? 32 : lineHeight + 4, lines.length * lineHeight + (box ? 16 : 4));
+      var lineHeight = Math.round(fontSize * 1.45);
+      var padX = depth === 0 ? 24 : depth === 1 ? 16 : 6;
+      var padY = depth === 0 ? 12 : depth === 1 ? 8 : 5;
+      var height = lines.length * lineHeight + padY * 2;
+      if (box) height = Math.max(depth === 0 ? 48 : 36, height);
       var info = {
         node: node,
         depth: depth,
@@ -131,8 +167,10 @@
         fontSize: fontSize,
         fontWeight: fontWeight,
         lineHeight: lineHeight,
-        textWidth: Math.max.apply(null, widths),
-        width: maxWidth + (box ? 28 : 8),
+        textWidth: textWidth,
+        box: box,
+        dir: 1,
+        width: textWidth + padX * 2,
         height: height,
         children: [],
         totalHeight: height
@@ -143,69 +181,43 @@
         info.children = sourceChildren.map(function (child, index) {
           return measureNode(child, depth + 1, depth === 0 ? index : branchIndex);
         });
-        var childrenHeight = info.children.reduce(function (total, child) { return total + child.totalHeight; }, 0);
-        childrenHeight += Math.max(0, info.children.length - 1) * 20;
-        info.totalHeight = Math.max(height, childrenHeight);
+        info.totalHeight = Math.max(height, stackHeight(info.children));
       }
       return info;
     }
 
-    var rootInfo = measureNode(root, 0, -1);
-    var branches = rootInfo.children.map(function (info, index) {
-      return { info: info, index: index, leaves: leavesOf(info.node), side: 0 };
-    });
-    var sideHeights = [0, 0];
-    var sides = [[], []];
-    branches.forEach(function (branch) {
-      var side = sideHeights[0] <= sideHeights[1] ? 0 : 1;
-      branch.side = side;
-      sides[side].push(branch);
-      sideHeights[side] += branch.leaves;
-    });
-
-    var sideCenters = [[], []];
-    sides.forEach(function (items, side) {
-      var widths = [];
-      items.forEach(function (branch) {
-        (function collect(info) {
-          widths[info.depth] = Math.max(widths[info.depth] || 0, info.width);
-          info.children.forEach(collect);
-        })(branch.info);
-      });
-      var direction = side === 0 ? -1 : 1;
-      var distance = rootInfo.width / 2 + 72;
-      for (var depth = 1; depth <= widths.length; depth++) {
-        var width = widths[depth] || 0;
-        sideCenters[side][depth] = direction * (distance + width / 2);
-        distance += width + 66;
-      }
-    });
-
-    function position(info, side, x, y) {
+    function position(info, dir, x, y) {
       info.x = x;
       info.y = y;
+      info.dir = dir;
       if (!info.children.length) return;
-      var total = info.children.reduce(function (sum, child) { return sum + child.totalHeight; }, 0);
-      total += Math.max(0, info.children.length - 1) * 20;
-      var cursor = y - total / 2;
+      var cursor = y - stackHeight(info.children) / 2;
       info.children.forEach(function (child) {
-        var childY = cursor + child.totalHeight / 2;
-        position(child, side, sideCenters[side][child.depth], childY);
-        cursor += child.totalHeight + 20;
+        var childX = x + dir * (info.width / 2 + levelGap(child.depth) + child.width / 2);
+        position(child, dir, childX, cursor + child.totalHeight / 2);
+        cursor += child.totalHeight + siblingGap(child.depth);
       });
     }
 
-    position(rootInfo, 1, 0, 0);
+    var rootInfo = measureNode(root, 0, -1);
+    rootInfo.x = 0;
+    rootInfo.y = 0;
+    rootInfo.dir = 0;
+    var sides = [[], []], sideLeaves = [0, 0];
+    rootInfo.children.forEach(function (info) {
+      var side = oneSided || sideLeaves[1] <= sideLeaves[0] ? 1 : 0;
+      sides[side].push(info);
+      sideLeaves[side] += leavesOf(info.node);
+    });
     sides.forEach(function (items, side) {
-      var total = items.reduce(function (sum, branch) { return sum + branch.info.totalHeight; }, 0);
-      total += Math.max(0, items.length - 1) * 26;
-      var cursor = -total / 2;
-      items.forEach(function (branch) {
-        var y = cursor + branch.info.totalHeight / 2;
-        position(branch.info, side, sideCenters[side][1], y);
-        cursor += branch.info.totalHeight + 26;
+      var dir = side === 0 ? -1 : 1;
+      var cursor = -stackHeight(items) / 2;
+      items.forEach(function (info) {
+        position(info, dir, dir * (rootInfo.width / 2 + levelGap(1) + info.width / 2), cursor + info.totalHeight / 2);
+        cursor += info.totalHeight + siblingGap(1);
       });
     });
+    if (oneSided && sides[1].length) rootInfo.y = sides[1][0].y;
 
     var minX = 0, maxX = 0, minY = 0, maxY = 0;
     infos.forEach(function (info) {
@@ -220,6 +232,7 @@
     return {
       root: rootInfo,
       nodes: infos,
+      oneSided: !!oneSided,
       width: maxX - minX + padding * 2,
       height: maxY - minY + padding * 2
     };
@@ -313,27 +326,31 @@
       applyTransform();
     }
 
+    function isNarrow() {
+      return viewport.clientWidth > 0 && viewport.clientWidth < 640;
+    }
+
     function initialView() {
       if (!svg || !layout) return;
+      if (layout.oneSided !== isNarrow()) renderMap();
       var width = viewport.clientWidth, height = viewport.clientHeight;
       if (!width || !height) return;
       var topInset = toolbarInfo.element.offsetHeight + 12;
       var availableHeight = Math.max(1, height - topInset - 12);
-      var fittedScale = Math.min((width - 56) / layout.width, availableHeight / layout.height, 1.5);
-      if (fittedScale >= 0.6) {
+      var fitWidth = (width - 56) / layout.width;
+      if (Math.min(fitWidth, availableHeight / layout.height, 1.5) >= 0.6) {
         fit();
         return;
       }
-      scale = 0.85;
-      var rootHalfWidth = layout.root.width * scale / 2;
-      var minimumCenter = rootHalfWidth + 12;
-      var maximumCenter = width - rootHalfWidth - 12;
-      var rootCenter = width * 0.36;
-      rootCenter = maximumCenter >= minimumCenter
-        ? Math.min(maximumCenter, Math.max(minimumCenter, rootCenter))
-        : Math.max(minimumCenter, rootCenter);
-      panX = rootCenter - layout.root.x * scale;
-      panY = topInset + availableHeight / 2 - layout.root.y * scale;
+      if (layout.oneSided) {
+        scale = 0.8;
+        panX = 12 - (layout.root.x - layout.root.width / 2) * scale;
+        panY = topInset + 8 - 32 * scale;
+      } else {
+        scale = Math.max(0.7, Math.min(0.9, fitWidth));
+        panX = (width - layout.width * scale) / 2;
+        panY = topInset + availableHeight / 2 - layout.root.y * scale;
+      }
       hasView = true;
       applyTransform();
     }
@@ -360,7 +377,7 @@
 
     function renderMap(anchorNode) {
       colors = palette();
-      layout = measureTree(tree, colors, context);
+      layout = measureTree(tree, colors, context, isNarrow());
       var anchor = null;
       if (anchorNode && hasView) {
         layout.nodes.some(function (info) {
@@ -383,15 +400,16 @@
       var group = svgElement('g', {});
       layout.nodes.forEach(function (info) {
         info.children.forEach(function (child) {
-          var direction = child.x < info.x ? -1 : 1;
-          var startX = info.x + direction * info.width / 2;
-          var endX = child.x - direction * child.width / 2;
-          var midX = (startX + endX) / 2;
+          var dir = child.dir;
+          var startX = info.x + dir * info.width / 2;
+          var startY = info.box ? info.y : info.y + info.height / 2;
+          var endX = child.x - dir * child.width / 2;
+          var endY = child.box ? child.y : child.y + child.height / 2;
           var edge = svgElement('path', {
-            d: 'M' + startX + ' ' + info.y + ' C' + midX + ' ' + info.y + ', ' + midX + ' ' + child.y + ', ' + endX + ' ' + child.y,
+            d: child.depth === 1 ? curvePath(startX, startY, endX, endY) : elbowPath(dir, startX, startY, endX, endY),
             fill: 'none',
             stroke: child.color,
-            'stroke-width': child.depth === 1 ? 2 : 1,
+            'stroke-width': child.depth === 1 ? 3 : child.depth === 2 ? 2 : 1.5,
             'stroke-linecap': 'round'
           });
           group.appendChild(edge);
@@ -410,61 +428,80 @@
           nodeGroup.setAttribute('role', 'button');
           nodeGroup.setAttribute('aria-label', node.text + (node.read ? '，已读' : ''));
         }
+        if (info.depth >= 2 && action) {
+          nodeGroup.appendChild(svgElement('rect', {
+            'class': 'mm-node-hit',
+            x: -info.width / 2 - 4,
+            y: -info.height / 2 - 3,
+            width: info.width + 8,
+            height: info.height + 6,
+            fill: 'none',
+            'pointer-events': 'all'
+          }));
+        }
         var title = svgElement('title', {});
         title.textContent = String(node.text || '') + (node.read ? ' · 已读' : '');
         nodeGroup.appendChild(title);
-        if (info.depth < 2) {
+        if (info.box) {
           nodeGroup.appendChild(svgElement('rect', {
             x: -info.width / 2,
             y: -info.height / 2,
             width: info.width,
             height: info.height,
-            rx: info.depth === 0 ? 12 : 9,
-            fill: info.depth === 0 ? colors.accent : colors.tints[info.branchIndex % colors.tints.length],
-            stroke: info.depth === 0 ? colors.accent : info.color,
-            'stroke-width': info.depth === 0 ? 1 : 1.6
+            rx: info.depth === 0 ? 12 : 8,
+            fill: info.color,
+            stroke: info.color,
+            'stroke-width': 1
           }));
         }
+        var anchorX = info.box ? 0 : info.dir < 0 ? info.width / 2 - 6 : -info.width / 2 + 6;
         var text = svgElement('text', {
-          'text-anchor': 'middle',
+          'text-anchor': info.box ? 'middle' : info.dir < 0 ? 'end' : 'start',
           'font-family': FONT,
           'font-size': info.fontSize,
           'font-weight': info.fontWeight,
-          fill: info.depth === 0 ? colors.rootText : colors.text
+          fill: info.depth === 0 ? colors.rootText : info.depth === 1 ? colors.branchText : colors.text
         });
-        var startY = -((info.lines.length - 1) * info.lineHeight) / 2 + info.fontSize * 0.35;
+        var startY = (info.box ? 0 : -1) - ((info.lines.length - 1) * info.lineHeight) / 2 + info.fontSize * 0.35;
         info.lines.forEach(function (line, index) {
-          var span = svgElement('tspan', { x: 0, y: startY + index * info.lineHeight });
+          var span = svgElement('tspan', { x: anchorX, y: startY + index * info.lineHeight });
           span.textContent = line;
           if (node.read && index === info.lines.length - 1) {
-            var check = svgElement('tspan', { fill: colors.muted, dx: 5, 'font-weight': 700 });
+            var check = svgElement('tspan', { fill: info.depth < 2 ? 'currentColor' : colors.muted, dx: 5, 'font-weight': 700 });
             check.textContent = '✓';
             span.appendChild(check);
           }
           text.appendChild(span);
         });
         nodeGroup.appendChild(text);
-        if (info.depth >= 2) {
-          var underlineWidth = Math.max(24, info.textWidth);
+        if (!info.box) {
           nodeGroup.appendChild(svgElement('line', {
-            x1: -underlineWidth / 2,
-            x2: underlineWidth / 2,
-            y1: info.height / 2 - 1,
-            y2: info.height / 2 - 1,
+            'class': 'mm-node-line',
+            x1: -info.width / 2,
+            x2: info.width / 2,
+            y1: info.height / 2,
+            y2: info.height / 2,
             stroke: info.color,
-            'stroke-width': 1.4,
+            'stroke-width': info.depth === 2 ? 2 : 1.5,
             'stroke-linecap': 'round'
           }));
         }
         if (childrenOf(node).length) {
-          var direction = info.depth === 0 ? 1 : (info.x < layout.root.x + layout.root.width / 2 ? -1 : 1);
+          var collapsed = !!node.collapsed;
+          var count = String(childrenOf(node).length);
+          var badgeWidth = collapsed ? Math.max(18, count.length * 7 + 10) : 16;
+          var side = info.dir < 0 ? -1 : 1;
           var toggle = svgElement('g', {
-            'class': 'mm-node-toggle',
-            transform: 'translate(' + (direction * (info.width / 2 + 8)) + ' -2)'
+            'class': 'mm-node-toggle ' + (collapsed ? 'is-collapsed' : 'is-expanded'),
+            transform: 'translate(' + (side * (info.width / 2 + badgeWidth / 2 + 4)) + ' ' + (info.box ? 0 : info.height / 2) + ')'
           });
-          toggle.appendChild(svgElement('circle', {
-            r: 8,
-            fill: colors.background,
+          toggle.appendChild(svgElement('rect', {
+            x: -badgeWidth / 2,
+            y: -8,
+            width: badgeWidth,
+            height: 16,
+            rx: 8,
+            fill: collapsed ? info.color : colors.background,
             stroke: info.color,
             'stroke-width': 1.4
           }));
@@ -472,11 +509,11 @@
             'text-anchor': 'middle',
             'dominant-baseline': 'central',
             'font-family': FONT,
-            'font-size': 13,
+            'font-size': collapsed ? 11 : 13,
             'font-weight': 600,
-            fill: info.color
+            fill: collapsed ? colors.background : info.color
           });
-          sign.textContent = node.collapsed ? '+' : '−';
+          sign.textContent = collapsed ? count : '−';
           toggle.appendChild(sign);
           toggle.setAttribute('role', 'button');
           toggle.setAttribute('tabindex', '0');
@@ -649,6 +686,9 @@
       var clone = svg.cloneNode(true);
       var content = clone.querySelector('g');
       content.setAttribute('transform', 'matrix(1,0,0,1,0,0)');
+      Array.prototype.forEach.call(clone.querySelectorAll('.mm-node-toggle.is-expanded'), function (element) {
+        element.parentNode.removeChild(element);
+      });
       clone.setAttribute('viewBox', '0 0 ' + layout.width + ' ' + layout.height);
       clone.setAttribute('width', layout.width);
       clone.setAttribute('height', layout.height);
