@@ -42,7 +42,7 @@ flowchart TB
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
 | [第一篇：深度模型演进史](/evolution-of-deep-models-from-perceptron-to-transformer.html) | 深度模型如何从感知机走到 Transformer？ | 结构偏置逐步解决线性表达、梯度传播、视觉与序列建模问题<br/>能表示不等于能学会 | XOR：ADALINE 最小二乘 MSE 0.25<br/>MLP H=2 有 13/20 seeds 达到 100%，H=4 为 20/20 |
-| [第二篇：损失函数](/loss-functions-from-mse-to-dpo.html) | 「好」怎样写成一个可求导的数？分类为什么不用 MSE？ | 训练只能优化一个可求导标量；loss = 概率假设取负对数<br/>MSE 对 logit 的梯度多乘一个 $$\sigma'$$，饱和区被杀死<br/>focal 按 $$(1-p_t)^\gamma$$ 降权简单样本；label smoothing 给 logit 差有限最优点 | 初始 loss $$\approx \ln C$$（10 类 2.30，GPT-2 10.82）<br/>$$z=-6$$ 时 MSE 梯度是 CE 的 $$1/403$$<br/>focal 把 0.2% 少数类召回 7.4% → 21.6%<br/>CE 94.50% 对 MSE 91.40% |
+| [第二篇：损失函数](/loss-functions-from-mse-to-dpo.html) | 「好」怎样写成一个可求导的数？分类为什么不用 MSE？ | 训练只能优化一个可求导标量；loss = 概率假设取负对数<br/>MSE 对 logit 的梯度多乘一个 $$\sigma'$$，饱和区被杀死<br/>focal 按 $$(1-p_t)^\gamma$$ 降权简单样本；label smoothing 给 logit 差有限最优点 | 初始 loss $$\approx \ln C$$（10 类 2.30，GPT-2 10.82）<br/>$$z=-6$$ 时 MSE 梯度是 CE 的 $$1/405$$<br/>focal 把 0.2% 少数类召回 7.4% → 21.6%<br/>CE 94.50% 对 MSE 91.40% |
 | [第三篇：反向传播](/backpropagation-by-hand.html) | 不用框架能不能手推并手写两层网络的反向传播？为什么训练 FLOPs 是 $$6ND$$、激活为什么要存？ | 反向传播 = 沿计算图反向拓扑序对每个算子算一次 VJP，从不构造 Jacobian<br/>梯度与被求导的量同形<br/>每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向<br/>$$\partial L / \partial W = X^T G$$ 需要本层输入，所以激活要存 | $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$(P - Y)/m$$<br/>$$6ND$$，激活重算 $$8ND$$<br/>实测比值 2.00<br/>激活 552 KiB 对权重 795 KiB，batch × 32 → 17.3 MiB<br/>梯度检查 float64、相对误差 $$< 10^{-6}$$ |
 | [第四篇：激活函数](/activation-functions-from-sigmoid-to-swiglu.html) | 为什么网络需要非线性？sigmoid、ReLU、GELU 与 SwiGLU 的梯度和代价有什么不同？ | sigmoid 饱和使深层梯度连乘衰减<br/>ReLU 正半轴梯度为 1<br/>GELU / SiLU 平滑门控，SwiGLU 把门控用于 FFN | $$\sigma'(x)\le0.25$$，$$0.25^{10}\approx9.54\times10^{-7}$$<br/>20 层 MLP 三 seed 准确率：sigmoid 10.64%，tanh 90.48%，SiLU 92.88% |
 | [第五篇：初始化、归一化与残差](/initialization-normalization-and-residual.html) | 64 层 MLP 不加技巧为什么训不动？三样东西各修哪一段？ | 深网络的稳定性是连乘问题<br/>初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路<br/>三样必须同用，Pre-Norm 是当前摆法 | $$\text{Var}(y) = n_{in}\sigma_w^2 \text{Var}(x)$$，Kaiming $$2/n_{in}$$<br/>$$2^{-32}$$、$$0.9^{128} \approx 1.4 \times 10^{-6}$$<br/>残差流无归一化每层翻倍（$$2^{64}$$）、Pre-Norm 线性<br/>GPT-2 缩放 $$1/\sqrt{2L}$$<br/>Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96<br/>0.02 |
@@ -89,7 +89,7 @@ Table: 本文的章节安排
 
 **核心问题**：训练任务怎样变成一个可求导的标量？不同任务为什么选不同的 loss？loss 曲线不对时往哪看？
 
-**结论**：梯度下降只认一个标量；损失函数是把任务翻译成这个数的一步，依据几乎都是「假设生成分布 → 最大似然 → 取负对数」——MSE 是高斯噪声、CE 是类别分布、Huber 在两段之间折中。分类不用 MSE 的原因在梯度而不是直觉：MSE 对 logit 的梯度多乘一个 $$\sigma'(z)$$，$$z=-6$$ 时只剩 CE 的 $$1/403$$，饱和区被杀死。不均衡给 loss 加权（weighted CE）或给难度加权（focal 的 $$(1-p_t)^\gamma$$）；过度自信把 one-hot 换成平滑目标，logit 差的最优点变有限（$$g^*=\ln 81$$）。语言模型是每步 $$V$$ 分类的 CE，初始 loss $$\approx \ln V$$（GPT-2 10.82），logits 漂移用 z-loss；对比学习是 batch 内 softmax 的 InfoNCE；偏好学习是 Bradley–Terry 形式的 DPO——赢的样本概率升、输的降，$$\beta$$ 拉住参考模型。
+**结论**：梯度下降只认一个标量；损失函数是把任务翻译成这个数的一步，依据几乎都是「假设生成分布 → 最大似然 → 取负对数」——MSE 是高斯噪声、CE 是类别分布、Huber 在两段之间折中。分类不用 MSE 的原因在梯度而不是直觉：MSE 对 logit 的梯度多乘一个 $$\sigma'(z)$$，$$z=-6$$ 时只剩 CE 的 $$1/405$$，饱和区被杀死。不均衡给 loss 加权（weighted CE）或给难度加权（focal 的 $$(1-p_t)^\gamma$$）；过度自信把 one-hot 换成平滑目标，logit 差的最优点变有限（$$g^*=\ln 81$$）。语言模型是每步 $$V$$ 分类的 CE，初始 loss $$\approx \ln V$$（GPT-2 10.82），logits 漂移用 z-loss；对比学习是 batch 内 softmax 的 InfoNCE；偏好学习是 Bradley–Terry 形式的 DPO——赢的样本概率升、输的降，$$\beta$$ 拉住参考模型。
 
 **必记**：
 
@@ -413,7 +413,7 @@ Table: 常见误区与正确说法
 
     <details markdown="1"><summary>答案</summary>
 
-    $$\ln 200000 \approx 12.21$$；4.0 远低于它，说明标签泄漏、加载了已有权重或 loss 算错。MSE 的梯度多乘一个 $$\sigma'(z)\approx0.0025$$，是 CE 的 $$1/403$$——饱和区基本不学。
+    $$\ln 200000 \approx 12.21$$；4.0 远低于它，说明标签泄漏、加载了已有权重或 loss 算错。MSE 的梯度多乘一个 $$\sigma'(z)\approx0.0025$$，是 CE 的 $$1/405$$——饱和区基本不学。
 
     </details>
 
