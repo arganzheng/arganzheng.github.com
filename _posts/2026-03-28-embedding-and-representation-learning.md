@@ -5,6 +5,7 @@ subtitle: "Embeddings and Representation Learning: From One-Hot Vectors to Conte
 date: 2026-03-28 20:00:00
 tags: [AI, Deep Learning, LLM]
 series: deep-learning-foundations
+catalog: true
 ---
 
 词、token、用户 ID 都是离散编号；神经网络接收的却是向量。中间这一步查表，把一个编号变成什么？[^q0]
