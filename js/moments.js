@@ -131,8 +131,8 @@
       var canvas = document.createElement('canvas'), ctx = canvas.getContext('2d'), width = 1080, pad = 72, inner = width - pad * 2;
       ctx.font = '40px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
       var lines = wrap(ctx, paragraphs, inner, 16), quoteLines = [];
-      if (qText) { ctx.font = '32px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'; quoteLines = wrap(ctx, qText, inner - 44, 5); }
-      var image = assets[1], qr = assets[2], imageH = image ? Math.min(1080, inner * image.naturalHeight / image.naturalWidth) : 0;
+      if (qText) { ctx.font = '32px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'; quoteLines = wrap(ctx, qText, inner - 44, 16); }
+      var image = assets[1], qr = assets[2], imageH = image ? Math.min(720, inner * image.naturalHeight / image.naturalWidth) : 0, imageW = image ? Math.min(inner, imageH * image.naturalWidth / image.naturalHeight) : 0;
       var headerH = 48, bodyH = lines.length * 68, quoteH = quoteLines.length ? quoteLines.length * 50 + (cite ? 72 : 0) + 48 : 0, footerH = 230;
       var height = Math.min(2400, pad + headerH + (lines.length ? 28 + bodyH : 0) + quoteH + (imageH ? 28 + imageH : 0) + 48 + footerH + pad);
       canvas.width = width; canvas.height = height; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
@@ -149,9 +149,8 @@
         y += 28;
       }
       if (image && y + imageH < height - footerH) {
-        ctx.save(); ctx.beginPath(); ctx.roundRect(pad, y, inner, imageH, 16); ctx.clip();
-        var ratio = Math.max(inner / image.naturalWidth, imageH / image.naturalHeight), sw = inner / ratio, sh = imageH / ratio;
-        ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, pad, y, inner, imageH); ctx.restore(); y += imageH + 28;
+        ctx.save(); ctx.beginPath(); ctx.roundRect(pad, y, imageW, imageH, 16); ctx.clip();
+        ctx.drawImage(image, pad, y, imageW, imageH); ctx.restore(); y += imageH + 28;
       }
       var footY = height - pad - footerH; ctx.strokeStyle = '#e4e9ee'; ctx.beginPath(); ctx.moveTo(pad, footY); ctx.lineTo(width - pad, footY); ctx.stroke();
       var brand = document.querySelector('.navbar-brand'), siteTitle = brand ? brand.textContent.trim() : document.title;
