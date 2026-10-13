@@ -213,7 +213,10 @@ Pages has `https_enforced` on.
   Focus still adds `html.rs-focus-page`, and
   `less/reading-settings.less` scopes its layout changes to that class. Escape
   exits only when the settings panel is closed, focus is outside editable
-  fields, and no overlay is open.
+  fields, and no overlay is open. Focus enters browser fullscreen on
+  `documentElement` when supported (Esc is locked via Keyboard Lock in Chrome);
+  leaving fullscreen also exits focus mode, and the focus column is capped at
+  1800px.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.

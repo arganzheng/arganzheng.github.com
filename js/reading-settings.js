@@ -14,6 +14,73 @@
 
   var focusItem = document.querySelector('.nav-focus-mode');
   var focusTrigger = focusItem && focusItem.querySelector('a');
+  var ownFullscreen = false;
+  var pendingFullscreen = false;
+  var prevFs = document.fullscreenElement || document.webkitFullscreenElement;
+
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement;
+  }
+
+  function lockEscape() {
+    if (!navigator.keyboard || !navigator.keyboard.lock) return;
+    try {
+      var request = navigator.keyboard.lock(['Escape']);
+      if (request && typeof request.catch === 'function') request.catch(function () {});
+    } catch (e) {}
+  }
+
+  function unlockKeyboard() {
+    if (!navigator.keyboard || !navigator.keyboard.unlock) return;
+    try { navigator.keyboard.unlock(); } catch (e) {}
+  }
+
+  function enterFullscreen() {
+    var el = document.documentElement;
+    var request = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!request || fullscreenElement()) return;
+    pendingFullscreen = true;
+    try {
+      var promise = request.call(el);
+      if (promise && typeof promise.catch === 'function') {
+        promise.catch(function () {
+          pendingFullscreen = false;
+        });
+      }
+    } catch (e) {
+      pendingFullscreen = false;
+    }
+  }
+
+  function exitFullscreen() {
+    ownFullscreen = false;
+    unlockKeyboard();
+    var exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (!exit) return;
+    try {
+      var promise = exit.call(document);
+      if (promise && typeof promise.catch === 'function') promise.catch(function () {});
+    } catch (e) {}
+  }
+
+  function onFullscreenChange() {
+    var currentFs = fullscreenElement();
+    var previousFs = prevFs;
+    prevFs = currentFs;
+
+    if (currentFs === root && pendingFullscreen) {
+      pendingFullscreen = false;
+      ownFullscreen = true;
+    }
+    if (currentFs === root && ownFullscreen) lockEscape();
+    else unlockKeyboard();
+
+    if (previousFs === root && ownFullscreen && !currentFs) {
+      ownFullscreen = false;
+      if (apply('focus', '')) changed();
+    }
+    if (currentFs === root && ownFullscreen && selected('focus') !== 'on') exitFullscreen();
+  }
 
   var panel = document.createElement('div');
   panel.id = 'reading-settings-panel';
@@ -145,7 +212,10 @@
       event.stopPropagation();
       if (window.innerWidth <= 767 && window.__HuxNav__) window.__HuxNav__.close();
       if (!panel.hidden) close(false);
-      if (apply('focus', 'on')) changed();
+      if (apply('focus', 'on')) {
+        changed();
+        enterFullscreen();
+      }
     });
   }
 
@@ -222,7 +292,12 @@
   });
   window.addEventListener('resize', positionPanel);
   window.addEventListener('scroll', positionPanel, true);
-  window.addEventListener('reading-settings-change', syncControls);
+  window.addEventListener('reading-settings-change', function () {
+    syncControls();
+    if (selected('focus') !== 'on' && ownFullscreen && fullscreenElement() === root) exitFullscreen();
+  });
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
   if (window.MutationObserver) {
     new MutationObserver(syncControls).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
   }
