@@ -85,7 +85,7 @@ Table: 四类成本各由哪个变量决定
 
 把六种部件和四个约定排成一列，就是十个**槽位**。从 GPT-2 到今天的每一处结构改动，都是往其中一个槽位里换一个新的填法——没有一处改动换掉了"embedding → L 个相同的 block → norm → lm_head"这个骨架：
 
-| 槽位 | GPT-2 的填法（nanoGPT 里的名字） | 今天常见的填法 | 换它为了回答什么问题 | 在哪一篇 |
+| 槽位 | GPT-2 的填法（nanoGPT 里的名字） | 今天常见的填法 | 替换动机 | 在哪一篇 |
 |---|---|---|---|---|
 | 归一化 | LayerNorm（`ln_1`、`ln_2`、`ln_f`） | RMSNorm | 少一次均值、少一组参数，数值行为更简单 | [01 五处改动](/gpt2-to-llama-five-changes-and-parameter-count.html) |
 | 位置 | 学出来的位置表（`wpe`，1024 行） | RoPE；再加 base 调大、YaRN、NoPE 层交错 | 相对位置怎么进 attention；训练长度之外还认不认得 | [03 位置编码与外推](/positional-encoding-and-long-context.html) |
@@ -156,7 +156,7 @@ timeline
 ## 五条演进线与一条辅线
 {: #三四条演进线}
 
-按"回答什么问题"归类，时间线上的改动落在五条主线与一条辅线上。每条线给出起点、各站、各站的篇目；长上下文线与效率线会共同经过 attention 的 K/V 槽位，而替代 attention 的路线直接改变序列信息的保存方式：
+按"回答什么问题"归类，时间线上的改动落在五条主线与一条辅线上。每条线给出问题、演进路径与对应的 config 字段；长上下文线与效率线会共同经过 attention 的 K/V 槽位，而替代 attention 的路线直接改变序列信息的保存方式：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 130}}}%%
@@ -194,45 +194,97 @@ flowchart TB
 
 ### 1. 更长的上下文（03 → 04 → 05）
 
-**问题**：GPT-2 的上下文是 1024，因为位置表只有 1024 行；今天的模型要处理 128K 甚至更长。拉长上下文要同时解决两件事——**训练长度之外的位置还认不认得**，和**上下文拉长之后 KV、prefill 与并发被什么限制**。前者是位置编码的事，后者与位置编码无关，换任何位置方案都不会消失。
+**问题**：GPT-2 的上下文是 1024，因为位置表只有 1024 行；今天的模型要处理 128K 甚至更长。拉长上下文要同时解决两件事：
 
-**各站**：位置表 → RoPE（相对位置进 attention 分数，没有行数上限）→ RoPE 的 base 从 10⁴ 调到 5×10⁵、YaRN、Llama 3.1 的 scaling（训练长度之外的相位分布怎么处理）——[第 03 篇](/positional-encoding-and-long-context.html)。然后是两条互补的成本手段：GQA / MLA 把每个 token 的 KV 从 512 KiB 压到 128 KiB、再到 70 KiB——[第 04 篇](/attention-variants-and-kv-cache.html)；滑窗、局部 / 全局交错、attention sink、稀疏 attention 改变每个 token 能看到的集合，把 KV 的线性项和 prefill 的二次项改成别的形状——[第 05 篇](/long-context-cost-and-structural-remedies.html)。
+1. 训练长度之外的位置还认不认得——这是位置编码的事；
+2. 上下文拉长之后 KV、prefill 与并发被什么限制——这与位置编码无关，换任何位置方案都不会消失。
 
-**读 config 时认它**：`rope_theta`、`rope_scaling`、`max_position_embeddings`、`num_key_value_heads`（或 MLA 的 `kv_lora_rank`）、`sliding_window` / `layer_types`。
+**演进路径**：
+
+1. 位置表 → RoPE：相对位置进 attention 分数，行数上限消失——[第 03 篇](/positional-encoding-and-long-context.html)；
+2. RoPE 的 base 从 10⁴ 调到 5×10⁵、YaRN、Llama 3.1 的 scaling：处理训练长度之外的相位分布——[第 03 篇](/positional-encoding-and-long-context.html)；
+3. GQA / MLA：每个 token 的 KV 从 512 KiB 压到 128 KiB、再到 70 KiB——[第 04 篇](/attention-variants-and-kv-cache.html)；
+4. 滑窗、局部 / 全局交错、attention sink、稀疏 attention：改变每个 token 能看到的集合，把 KV 的线性项和 prefill 的二次项改成别的形状——[第 05 篇](/long-context-cost-and-structural-remedies.html)。
+
+**对应的 config 字段**：
+
+- `rope_theta`、`rope_scaling`、`max_position_embeddings`：RoPE 的基频、外推缩放与位置上限；
+- `num_key_value_heads`（或 MLA 的 `kv_lora_rank`）：K/V 头数或压缩维数，决定每 token 的 KV 字节；
+- `sliding_window` / `layer_types`：滑窗大小与局部 / 全局交错的层配置。
 
 ### 2. 放大参数规模、压住每 token 成本（01 → 04 → 06 → 10）
 
-**问题**：参数规模扩大时，每 token 的算量、权重字节与 KV 也会变化。这条线追问的是：怎样把规模、每 token 计算与存储成本拆开看，在预算内提高模型能力。
+**问题**：参数规模扩大时，每 token 的算量、权重字节与 KV 一起涨。这条线追问的是：能不能把规模、每 token 计算与存储成本拆开看，在预算内提高模型能力。
 
-**各站**：先看 LayerNorm → RMSNorm、GELU → SwiGLU、去掉 bias 等部件改动，以及怎样从 config 数参数——[第 01 篇](/gpt2-to-llama-five-changes-and-parameter-count.html)。然后 MHA → GQA → MLA 在 attention 槽位上省 K/V 投影的参数和 KV cache——[第 04 篇](/attention-variants-and-kv-cache.html)。再把 dense FFN 换成 MoE，分开总参数与每 token 激活参数、计算与权重驻留——[第 06 篇](/moe-compute-and-communication.html)。最后看每个数占几个字节：BF16、FP8 与更低位宽格式的范围、误差和代价——[第 10 篇](/floating-point-formats-and-mixed-precision.html)；更低位宽的量化方法在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)。
+**演进路径**：
 
-**读 config 时认它**：`rms_norm_eps`、`hidden_act: silu` 加三个 FFN 矩阵、`attention_bias` / `mlp_bias`、`num_key_value_heads`、`n_routed_experts` / `num_experts_per_tok` / `n_shared_experts`、`torch_dtype` 与 `quantization_config`。
+1. LayerNorm → RMSNorm、GELU → SwiGLU、去掉 bias：部件简化，等参数等算量下更低的 loss，并讲清怎样从 config 数参数——[第 01 篇](/gpt2-to-llama-five-changes-and-parameter-count.html)；
+2. MHA → GQA → MLA：省 K/V 投影的参数和 KV cache——[第 04 篇](/attention-variants-and-kv-cache.html)；
+3. dense FFN → MoE：总参数与每 token 激活参数解耦、计算与权重驻留分离——[第 06 篇](/moe-compute-and-communication.html)；
+4. FP32 → BF16 → FP8 与更低位宽：每个数占几个字节、误差在哪积累——[第 10 篇](/floating-point-formats-and-mixed-precision.html)；更低位宽的量化方法在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)。
+
+**对应的 config 字段**：
+
+- `rms_norm_eps`：RMSNorm 的 eps；
+- `hidden_act: silu` 加三个 FFN 矩阵：SwiGLU 的激活与门控结构；
+- `attention_bias` / `mlp_bias`：去 bias 的开关；
+- `num_key_value_heads`：GQA 的 K/V 头数；
+- `n_routed_experts` / `num_experts_per_tok` / `n_shared_experts`：MoE 的专家数与路由；
+- `torch_dtype` 与 `quantization_config`：权重与计算的位宽。
 
 ### 3. 换掉 attention 本身：线性 attention、SSM 与混合架构（05）
 
 **问题**：full attention 为每个 token 保留 K/V，cache 随上下文长度 $$T$$ 线性增长；能否把越来越长的历史压进固定大小的递归状态，或只在少数层保留 full attention？
 
-**各站**：[Mamba](https://arxiv.org/html/2312.00752)用输入选择机制构造 selective SSM；[Jamba](https://arxiv.org/html/2403.19887)混合 Mamba 与 Transformer attention；[MiniMax-01](https://arxiv.org/html/2501.08313)、[Qwen3-Next](https://www.alibabacloud.com/blog/602580)与[Kimi Linear](https://arxiv.org/html/2510.26692)公开了不同的线性 / full-attention 混合方案。它们的层比例、状态和质量折中将在[第 05 篇的新章节](/long-context-cost-and-structural-remedies.html)里按模型配置逐项核算；MiniMax-M2 选择 full attention 的官方解释也放在那里。
+**演进路径**：
 
-**读 config 时认它**：`layer_types`、`full_attention_interval`、`linear_num_key_heads`、`linear_num_value_heads` 等字段；不同模型的字段名并不统一。
+1. [Mamba](https://arxiv.org/html/2312.00752)：用输入选择机制构造 selective SSM，把历史压进固定大小的递归状态；
+2. [Jamba](https://arxiv.org/html/2403.19887)：Mamba 与 Transformer attention 混合；
+3. [MiniMax-01](https://arxiv.org/html/2501.08313)、[Qwen3-Next](https://www.alibabacloud.com/blog/602580)、[Kimi Linear](https://arxiv.org/html/2510.26692)：各自公开的线性 / full-attention 混合比例与折中。
+
+它们的层比例、状态和质量折中将在[第 05 篇的新章节](/long-context-cost-and-structural-remedies.html)里按模型配置逐项核算；MiniMax-M2 选择 full attention 的官方解释也放在那里。
+
+**对应的 config 字段**：
+
+- `layer_types`、`full_attention_interval`：每层是线性还是 full attention、多久一次 full attention；
+- `linear_num_key_heads`、`linear_num_value_heads`：线性部分的 K/V 头数；
+- 注意字段名并不统一：不同模型用不同的键名。
 
 ### 4. 更密的训练信号、更快的生成（07 → 08）
 
-**问题**：GPT-2 的训练目标是每个位置预测下一个 token，解码是每步一次前向产出一个 token。前者决定一批数据能提供多少监督，后者决定 decode 的串行形态——batch 小时每步都要把全部权重从 HBM 读一遍，Tensor Core 大多空转。
+**问题**：
 
-**各站**：MTP 在主干之上加预测模块，训练时同时预测后面几个 token，推理时可以丢掉——[第 07 篇](/multi-token-prediction-mtp.html)；投机解码不改结构、不改输出分布，用一个便宜的草稿（小模型、或留下来的 MTP 模块）先猜几个 token，再用一次前向把它们全部验证掉——[第 08 篇](/speculative-decoding-draft-verify-and-payoff.html)。两站相邻，因为 DeepSeek-V3 的 MTP 模块正是它自己投机解码的草稿来源。
+- 训练目标：GPT-2 每个位置只预测下一个 token——一批数据能给多少监督到此为止；
+- 解码形态：每步一次前向产出一个 token——batch 小时每步都要把全部权重从 HBM 读一遍，Tensor Core 大多空转。
 
-**读 config 时认它**：`num_nextn_predict_layers`；投机解码是推理引擎的配置，不在模型 config 里。
+**演进路径**：
+
+1. MTP：主干之上加预测模块，训练时同时预测后面几个 token，推理时可以丢掉——[第 07 篇](/multi-token-prediction-mtp.html)；
+2. 投机解码：不改结构、不改输出分布，用一个便宜的草稿（小模型、或留下来的 MTP 模块）先猜几个 token，再用一次前向把它们全部验证掉——[第 08 篇](/speculative-decoding-draft-verify-and-payoff.html)。
+
+两站相邻，因为 DeepSeek-V3 的 MTP 模块正是它自己投机解码的草稿来源。
+
+**对应的 config 字段**：
+
+- `num_nextn_predict_layers`：MTP 预测模块的层数；
+- 投机解码不在模型 config 里——它是推理引擎的配置。
 
 ### 5. 模态：输入理解 + 输出生成（09）
 
 **问题**：前几条线改文本模型内部的计算；模态线既研究模型如何读图片、视频、音频，也研究如何生成图像与语音。输入理解与输出生成有不同的编码、解码成本。
 
-**输入侧**：[第 09 篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)计算 vision encoder、connector、cross-attention 与 image token KV 的成本；更细的视觉架构与训练设计见[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)。
+**演进路径**：
 
-**输出侧**：离散图像 token 的自回归步数与 KV、LM 内或旁路的 diffusion、解耦的理解 / 生成路径、语音 token 的生成成本，分别见[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)、[《语音理解、生成与全双工》](/speech-understanding-generation-and-full-duplex.html)和[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)。
+1. 输入侧：vision encoder 加 connector 或 cross-attention，把图片变成 decoder 能处理的 token，并核算 image token 的 KV——[第 09 篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)；更细的视觉架构与训练设计见[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)；
+2. 输出侧：离散图像 token 的自回归步数与 KV、LM 内或旁路的 diffusion、解耦的理解 / 生成路径——[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)与[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)；语音 token 的生成成本——[《语音理解、生成与全双工》](/speech-understanding-generation-and-full-duplex.html)。
 
-**读 config 时认它**：`vision_config`、`mm_projector_type` / `projector_hidden_act`、`image_token_id`、`spatial_merge_size`、`cross_attention_layers`。
+**对应的 config 字段**：
+
+- `vision_config`：vision encoder 的深度与宽度；
+- `mm_projector_type` / `projector_hidden_act`：connector 的结构与激活；
+- `image_token_id`：图片 token 在词表里的位置；
+- `spatial_merge_size`：patch 合并比例，决定每张图占多少 token；
+- `cross_attention_layers`：cross-attention 注入在哪些层。
 
 五条线之外还有一条**训练稳定性辅线**：QK-norm（[Qwen3 技术报告](https://arxiv.org/html/2505.09388)讨论其训练稳定作用）、MuonClip（[Kimi K2 技术报告](https://arxiv.org/html/2507.20534)）、[DeepSeek-V3 的 auxiliary-loss-free 负载均衡](https://arxiv.org/html/2412.19437)，以及[第 10 篇](/floating-point-formats-and-mixed-precision.html)中的浮点格式与数值稳定性。它们不都改变前向结构，但会影响训练与推理能否稳定运行；训练配方整体见[预训练系列的配方与稳定性篇](/pretraining-recipe-and-training-stability.html)。
 
@@ -281,7 +333,10 @@ flowchart TB
     L --> NORM["RMSNorm"] --> HEAD["lm_head<br/>hidden_size × vocab_size = 4096 × 128256<br/>→ 词表上每个 token 一个分数"]
 ```
 
-图里有两处容易让人停下来的地方。**$$W_Q$$ 是 4096 → 4096 而 $$W_K$$、$$W_V$$ 是 4096 → 1024**，因为 Q 有 32 个头、K 和 V 只有 8 个头（GQA）：每个头都是 128 维，$$32 \times 128 = 4096$$，$$8 \times 128 = 1024$$，推理时每个 K/V 头被 4 个 Q 头共用——第一篇讲这一处为什么改、第四篇讲它省了多少 KV。**两个 head_dim 128 必须相同吗？** Q 与 K 的必须相同，因为 attention 分数是 $$q \cdot k$$ 的点积，长度不同乘不了；V 的 head_dim 原则上可以不同——它只参与加权求和，输出再由 $$W_O$$ 投回 hidden_size——DeepSeek-V3 的 MLA 就是 Q/K 每头 192 维（128 + 64 维 RoPE 部分）、V 每头 128 维。Llama 这类 GQA 模型三者都取 128，所以 `config.json` 只给一个 `head_dim`。
+图里有两处容易让人停下来的地方：
+
+1. **$$W_Q$$ 是 4096 → 4096 而 $$W_K$$、$$W_V$$ 是 4096 → 1024**：Q 有 32 个头、K 和 V 只有 8 个头（GQA）。每个头都是 128 维，$$32 \times 128 = 4096$$，$$8 \times 128 = 1024$$；推理时每个 K/V 头被 4 个 Q 头共用——第一篇讲这一处为什么改、第四篇讲它省了多少 KV。
+2. **两个 head_dim 128 必须相同吗？** Q 与 K 的必须相同，因为 attention 分数是 $$q \cdot k$$ 的点积，长度不同乘不了；V 的 head_dim 原则上可以不同——它只参与加权求和，输出再由 $$W_O$$ 投回 hidden_size——DeepSeek-V3 的 MLA 就是 Q/K 每头 192 维（128 + 64 维 RoPE 部分）、V 每头 128 维。Llama 这类 GQA 模型三者都取 128，所以 `config.json` 只给一个 `head_dim`。
 
 从这六个数字出发，不需要运行任何代码，可以算出：
 
