@@ -257,7 +257,7 @@ Post-Norm：$$x_{l+1} = \text{Norm}(x_l + f_l(x_l))$$。Pre-Norm：$$x_{l+1} = x
 
 ### 2. 梯度路径的区别
 
-Pre-Norm 的残差流 $$x_l$$ 从头到尾没有被归一化打断，$$\partial x_{l+1} / \partial x_l = I + J$$ 的恒等项完好，梯度到每一层的量级相同。Post-Norm 的恒等通路每层要穿过一个 Norm，Norm 的 Jacobian 会按输入的尺度缩放梯度——Xiong 等 2020 证明 Post-Norm 里靠近输出的层梯度大、靠近输入的层梯度小，量级差随深度增长；所以 Post-Norm 必须用 warmup（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「六、学习率调度 · 1. Warmup 为什么必须」）把初期的大梯度压住，深了仍然难训。
+Pre-Norm 的残差流 $$x_l$$ 从头到尾没有被归一化打断，$$\partial x_{l+1} / \partial x_l = I + J$$ 的恒等项完好，梯度到每一层的量级相同。Post-Norm 的恒等通路每层要穿过一个 Norm，Norm 的 Jacobian 会按输入的尺度缩放梯度——Xiong 等 2020 证明 Post-Norm 里靠近输出的层梯度大、靠近输入的层梯度小，量级差随深度增长；所以 Post-Norm 必须用 warmup（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「六、学习率调度 · 1. Warmup 为什么必不可少」）把初期的大梯度压住，深了仍然难训。
 
 第九章的实测：Post-Norm 配置梯度范数从底层 0.51 到顶层 1.96，差 4 倍；Pre-Norm 是 0.12 到 0.15。训练上，学习率 0.05 时 Pre-Norm 300 步到 91.6%，Post-Norm 停在 8.8%（loss 2.33）；学习率 0.005 时 Post-Norm 能训到 64%，Pre-Norm 90%。同一个网络、同一份代码，差别只是 Norm 的位置。
 
@@ -273,7 +273,7 @@ Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性�
 
 | 工具 | 针对的问题 | 做法 | 出处 / 使用者 |
 |---|---|---|---|
-| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大；Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必须」 |
+| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大；Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
 | 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
 | QK-norm | attention logits 随训练增长，softmax 饱和，梯度消失或 loss spike | 对 $$Q$$、$$K$$ 各做一次 LayerNorm / RMSNorm 再点积 | Dehghani 等 2023（ViT-22B）；Gemma、Qwen3 等 |
 | z-loss | lm_head 的 logits 整体漂移，softmax 的归一化项 $$\log Z$$ 失控 | loss 加 $$10^{-4} \cdot (\log Z)^2$$，把 $$\log Z$$ 拉向 0 | PaLM |
@@ -371,7 +371,7 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 
 - 把 LayerNorm 换成 RMSNorm，结果应几乎不变；
 - 把深度从 64 改到 16 与 256，看 ln 与 postnorm 在浅时能训、深时不能，prenorm 一直能；
-- 给 postnorm 加 100 步线性 warmup（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必须」），看它能否追上 prenorm。
+- 给 postnorm 加 100 步线性 warmup（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」），看它能否追上 prenorm。
 
 ## 十、本文小结
 
