@@ -9109,7 +9109,7 @@ html.rs-focus-page[data-rs-focus="on"] .post-container > .comment {
 }
 html.rs-focus-page[data-rs-focus="on"] .page-header {
   position: relative;
-  max-width: 790px;
+  max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 15px;
@@ -9134,7 +9134,7 @@ html.rs-focus-page[data-rs-focus="on"] article > .container > .row {
 html.rs-focus-page[data-rs-focus="on"] .post-container {
   float: none;
   width: 100%;
-  max-width: 790px;
+  max-width: 1400px;
   margin: 0 auto;
   padding-top: 36px;
 }
@@ -9145,7 +9145,7 @@ html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row {
 html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
   float: none;
   width: 100%;
-  max-width: 790px;
+  max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 15px;
@@ -9174,13 +9174,21 @@ html.rs-focus-page[data-rs-focus="on"] header.intro-header .post-heading .tags a
 }
 @media only screen and (min-width: 768px) {
   html.rs-focus-page[data-rs-focus="on"] .page-header {
-    padding-right: 5%;
-  }
-  html.rs-focus-page[data-rs-focus="on"] .page-header::after {
-    right: 5%;
+    width: calc(100% - 30px);
   }
   html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
-    padding-right: 5%;
+    padding-right: 15px;
+  }
+}
+@media only screen and (min-width: 1200px) {
+  html.rs-focus-page[data-rs-focus="on"] .page-header {
+    padding-right: 40px;
+  }
+  html.rs-focus-page[data-rs-focus="on"] .page-header::after {
+    right: 40px;
+  }
+  html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
+    padding-right: 40px;
   }
 }
 @media only screen and (max-width: 767px) {
