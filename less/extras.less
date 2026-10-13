@@ -93,9 +93,20 @@ html.private-post:not(.author-ok) .private-post-gate { display: flex; }
 
 	&.backlinks {
 		.h3 small { color: #6a6a6a; font-size: 13px; font-weight: normal; }
+		// the hidden tail is the list's last item: no box, same indent and
+		// rhythm, and the toggle disappears once open so the list reads as one
+		.backlinks-more-item { margin-bottom: 0; }
 		.backlinks-more {
-			summary { color: #6a6a6a; cursor: pointer; }
-			summary:hover { color: @brand-primary; }
+			margin: 0; padding: 0; border: 0; border-radius: 0; background: none;
+			> summary {
+				display: inline-block; margin: 0; font-weight: normal;
+				color: #6a6a6a; font-size: 85%;
+				&::before { content: none; }
+				&::after { content: "\25BE"; margin-left: 4px; }
+				&:hover { color: @brand-primary; }
+			}
+			&[open] > summary { display: none; }
+			> ul { margin: 0; padding: 0; }
 		}
 	}
 }
