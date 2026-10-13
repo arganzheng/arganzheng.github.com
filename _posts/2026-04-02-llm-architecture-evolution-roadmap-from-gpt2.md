@@ -262,7 +262,7 @@ flowchart TB
 1. MTP：主干之上加预测模块，训练时同时预测后面几个 token，推理时可以丢掉——[第 07 篇](/multi-token-prediction-mtp.html)；
 2. 投机解码：不改结构、不改输出分布，用一个便宜的草稿（小模型、或留下来的 MTP 模块）先猜几个 token，再用一次前向把它们全部验证掉——[第 08 篇](/speculative-decoding-draft-verify-and-payoff.html)。
 
-两站相邻，因为 DeepSeek-V3 的 MTP 模块正是它自己投机解码的草稿来源。
+这两步相邻，因为 DeepSeek-V3 的 MTP 模块正是它自己投机解码的草稿来源。
 
 **对应的 config 字段**：
 

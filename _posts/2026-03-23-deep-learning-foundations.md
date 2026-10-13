@@ -471,24 +471,24 @@ Table: 读完深度学习基础系列后应能回答的问题
 这一层是 L4 之前的最后一层基础。它不新，但没有它，后面每一层的"为什么"都只能靠记。
 
 [^q0]: 能训是因为几件事让信号与梯度在逐层传递中保持尺度：激活函数提供非线性并改变 Jacobian 因子，初始化（Xavier / Kaiming）控制每层方差，归一化（BatchNorm / LayerNorm / RMSNorm）把激活钉回单位尺度，残差（每层 Jacobian 变成 $$I+J_l$$）给梯度一条恒等通路——128 层、每层谱范数 0.9 的无残差网络底层梯度只有顶层的 $$1.4\times10^{-6}$$。不能训的时候通常是其中一项失效——激活饱和、初始化尺度错、没有 warmup 让 Adam 在前几百步方差估计不准、Post-Norm 深层不稳、学习率过大。该看的数字：**每层梯度范数**随深度的分布、**激活的均值 / 方差**逐层变化、**全局梯度范数**与 **loss 曲线**（spike 前梯度范数先涨）、attention logit 的最大值；第四篇对照激活导数与训练梯度，第五篇检查初始化 / 归一化 / 残差，第六篇讨论 warmup、学习率与裁剪。
-[^q1]: 这是方差传播问题：残差流的方差随层数线性增长，第 $l$ 个残差分支要按 $1/\sqrt{2L}$ 缩放才不抢主干道；初始化标准差按宽度量级取（768 维约 0.05，GPT-2 取 0.02），推导与数字在[第五篇「一、方差怎样在层间传播」与「七、放到 Transformer 上」](/initialization-normalization-and-residual.html)。
-[^q2]: Adam 的二阶矩 $v$ 在前几十步只由极少样本估计，偏差修正后仍噪声极大，$1/\sqrt v$ 会把步长放大几个数量级，训练开头就被打坏；warmup 让 $v$ 先积累样本再放开步长，几乎不能省。见[第六篇「六、学习率调度 · 1. Warmup 为什么必不可少」](/optimizers-from-sgd-to-adamw.html)。
-[^q3]: dropout 训练时按 $1/(1-p)$ 放大保留单元，期望与推理等价——它用缩小有效容量换泛化；预训练在数据主导区间（$N/D \ll 1$）、一个 epoch 数据尚且看不完，这个交换不划算。见[第七篇「五、显式正则化」](/regularization-and-generalization.html)。
+[^q1]: 这是方差传播问题：残差流的方差随层数线性增长，第 $$l$$ 个残差分支要按 $$1/\sqrt{2L}$$ 缩放才不抢主干道；初始化标准差按宽度量级取（768 维约 0.05，GPT-2 取 0.02），推导与数字在[第五篇「一、方差怎样在层间传播」与「七、放到 Transformer 上」](/initialization-normalization-and-residual.html)。
+[^q2]: Adam 的二阶矩 $$v$$ 在前几十步只由极少样本估计，偏差修正后仍噪声极大，$$1/\sqrt v$$ 会把步长放大几个数量级，训练开头就被打坏；warmup 让 $$v$$ 先积累样本再放开步长，几乎不能省。见[第六篇「六、学习率调度 · 1. Warmup 为什么必不可少」](/optimizers-from-sgd-to-adamw.html)。
+[^q3]: dropout 训练时按 $$1/(1-p)$$ 放大保留单元，期望与推理等价——它用缩小有效容量换泛化；预训练在数据主导区间（$$N/D \ll 1$$）、一个 epoch 数据尚且看不完，这个交换不划算。见[第七篇「五、显式正则化」](/regularization-and-generalization.html)。
 [^q4]: 能，第三篇就是这件事：两层 MLP 的前向 $$h=\sigma(W_1x+b_1)$$、$$\hat y=W_2h+b_2$$，反向按链式法则从 loss 往回：$$\partial L/\partial W_2 = \delta_2 h^\top$$、$$\delta_1 = (W_2^\top\delta_2)\odot\sigma'(z_1)$$、$$\partial L/\partial W_1=\delta_1 x^\top$$，用中心差分 $$(L(\theta+\epsilon)-L(\theta-\epsilon))/2\epsilon$$ 逐分量对拍，相对误差到 $$10^{-6}$$ 量级（float64）。由此可见：前向每个参数做一次乘加（$$2N$$ FLOPs / token），反向要算两样——对输入的梯度 $$W^\top\delta$$ 与对权重的梯度 $$\delta x^\top$$，各 $$2N$$，所以反向 = 2 × 前向，训练一个 token 共 $$6N$$，$$D$$ 个 token 就是 $$6ND$$；而 $$\partial L/\partial W = \delta\, x^\top$$ 需要前向的输入 $$x$$（激活），所以激活必须存到反向用完为止，这就是激活显存与 $$B\times T$$ 成正比、以及激活重算（checkpointing）用算力换显存的根源。
-[^q5]: 没有非线性时 $L$ 层线性堆叠等价于一层，深度失去意义；非线性决定梯度形状：sigmoid 饱和使 $\sigma' \le 0.25$ 连乘消失，ReLU 正半轴导数为 1 但会死单元，GELU / SiLU 平滑门控，SwiGLU 把门控搬进 FFN。见[第四篇](/activation-functions-from-sigmoid-to-swiglu.html)。
-[^q6]: 前向方差与反向梯度都是逐层连乘，因子偏离 1 六十四次后趋零或爆炸；初始化只修 $t=0$，归一化把前向方差拉回但修不了反向，残差给梯度一条 $I+J$ 恒等通路——三样一起用，Pre-Norm 是当前摆法。见[第五篇](/initialization-normalization-and-residual.html)。
+[^q5]: 没有非线性时 $$L$$ 层线性堆叠等价于一层，深度失去意义；非线性决定梯度形状：sigmoid 饱和使 $$\sigma' \le 0.25$$ 连乘消失，ReLU 正半轴导数为 1 但会死单元，GELU / SiLU 平滑门控，SwiGLU 把门控搬进 FFN。见[第四篇](/activation-functions-from-sigmoid-to-swiglu.html)。
+[^q6]: 前向方差与反向梯度都是逐层连乘，因子偏离 1 六十四次后趋零或爆炸；初始化只修 $$t=0$$，归一化把前向方差拉回但修不了反向，残差给梯度一条 $$I+J$$ 恒等通路——三样一起用，Pre-Norm 是当前摆法。见[第五篇](/initialization-normalization-and-residual.html)。
 [^q7]: 一阶矩 $$m$$ 是梯度的指数移动平均（动量，平滑方向）；二阶矩 $$v$$ 是梯度平方的指数移动平均，用 $$1/\sqrt{v}$$ 给每个参数单独缩放步长——梯度常年很小的参数步子大、常年很大的步子小，所以 Adam 对特征尺度与学习率不敏感。AdamW 与在 loss 里加 $$L_2$$ 不一样，因为 $$L_2$$ 项的梯度 $$\lambda w$$ 会进入 $$m$$ 与 $$v$$、被 $$1/\sqrt v$$ 一起缩放——梯度大的参数几乎不衰减；AdamW 把 $$-\eta\lambda w$$ 直接加在参数更新上、绕开自适应缩放，衰减对所有参数一致，这才是真正的 weight decay（在 SGD 下两者才等价）。warmup 在 Adam 下几乎不能省，因为前几十步 $$v$$ 只由极少样本估计、偏差修正后仍噪声极大，$$1/\sqrt v$$ 会把某些参数的步长放大几个数量级，训练在开头就被打坏（RAdam 的分析即此）；线性 warmup 让 $$v$$ 先积累足够样本。
 [^q8]: 因为过参数化网络在梯度下降下有**隐式正则化**：在能拟合训练集的无数个解里，SGD 从小初始化出发会找到范数小、「简单」的那个（线性模型里就是最小范数解），泛化误差随宽度增加先升后降——double descent：在参数量 ≈ 样本量的插值阈值附近最差，继续加宽反而变好。会开始过拟合的条件是**数据规模相对任务太小、或重复 epoch 太多**：第五篇的实验里，小语言模型训 1 epoch 的训练 / 验证 loss 几乎重合，训到 10 epoch 时验证 loss 回升、模型开始逐字记忆训练文本；预训练的实践是数据过一遍（≤ 4 epoch 以内收益接近新数据，之后急剧下降），weight decay 与 dropout 把训练 - 验证差距压小但不改变这个趋势。
-[^q9]: 3×3 卷积相当于只含 9 个非零权重、在全图共享的稀疏全连接；两种残差是同一条 $I+J$ 恒等通路；ViT 把图切成 patch 当 token，数据足够时卷积先验可以从数据里学出来。见[第八篇](/cnn-from-lenet-to-resnet-and-vit.html)。
+[^q9]: 3×3 卷积相当于只含 9 个非零权重、在全图共享的稀疏全连接；两种残差是同一条 $$I+J$$ 恒等通路；ViT 把图切成 patch 当 token，数据足够时卷积先验可以从数据里学出来。见[第八篇](/cnn-from-lenet-to-resnet-and-vit.html)。
 [^q10]: token id 查 embedding 表的一行就是向量；Word2Vec 用「预测邻居」的训练目标把共现结构压进几何（近义靠近、类比成差）；静态向量不分上下文，Transformer 用整句算出随语境变化的表示。见[第九篇](/embedding-and-representation-learning.html)。
-[^q11]: 时间反传是同一个 $W$ 的连乘，20 步外梯度量级约千分之四，信号传不到；遗忘门让细胞状态乘上接近 1 的系数，是时间上的残差通路（$b_f$ 要初始化为 1）；attention 为绕过 seq2seq 的固定向量瓶颈而发明，后来发现可以直接交换任意两个位置的信息、且能并行，于是循环本身被去掉。见[第十篇](/rnn-lstm-and-the-birth-of-attention.html)。
-[^q12]: 先做梯度检查（相对误差 $<10^{-6}$）与逐层梯度范数：逐层范数断说明梯度没传到（第三篇方法、第五篇修结构）；范数正常但不降是学习率 / warmup 问题（第六篇）。
-[^q13]: sigmoid 导数最大 0.25，$L$ 层连乘 $0.25^L$ 指数消失；ReLU 正半轴导数为 1 不衰减，但负半轴恒零会死单元。见[第四篇](/activation-functions-from-sigmoid-to-swiglu.html)。
+[^q11]: 时间反传是同一个 $$W$$ 的连乘，20 步外梯度量级约千分之四，信号传不到；遗忘门让细胞状态乘上接近 1 的系数，是时间上的残差通路（$$b_f$$ 要初始化为 1）；attention 为绕过 seq2seq 的固定向量瓶颈而发明，后来发现可以直接交换任意两个位置的信息、且能并行，于是循环本身被去掉。见[第十篇](/rnn-lstm-and-the-birth-of-attention.html)。
+[^q12]: 先做梯度检查（相对误差 $$<10^{-6}$$）与逐层梯度范数：逐层范数断说明梯度没传到（第三篇方法、第五篇修结构）；范数正常但不降是学习率 / warmup 问题（第六篇）。
+[^q13]: sigmoid 导数最大 0.25，$$L$$ 层连乘 $$0.25^L$$ 指数消失；ReLU 正半轴导数为 1 不衰减，但负半轴恒零会死单元。见[第四篇](/activation-functions-from-sigmoid-to-swiglu.html)。
 [^q14]: 先看全局梯度范数是否 spike、各层激活 RMS 在哪一层开始爆，再看 warmup 是否缺失；对应开关是初始化 / 归一化 / 残差（第五篇）与梯度裁剪、warmup（第六篇）。
 [^q15]: Pre-Norm 把归一化放残差分支内、主干道保持恒等，顶层与底层梯度均衡；0.02 是宽度量级上的初始化标准差。见[第五篇「七、放到 Transformer 上」](/initialization-normalization-and-residual.html)。
-[^q16]: $\beta_1$ 控制动量记忆、$\beta_2$ 控制二阶矩记忆窗、$\lambda$ 是解耦的 weight decay、$\eta$ 是峰值步长；AdamW 每参数存 $m$、$v$ 两个状态共 8 字节。见[第六篇](/optimizers-from-sgd-to-adamw.html)。
+[^q16]: $$\beta_1$$ 控制动量记忆、$$\beta_2$$ 控制二阶矩记忆窗、$$\lambda$$ 是解耦的 weight decay、$$\eta$$ 是峰值步长；AdamW 每参数存 $$m$$、$$v$$ 两个状态共 8 字节。见[第六篇](/optimizers-from-sgd-to-adamw.html)。
 [^q17]: 用 held-out loss 拐点与记忆探针（训练集 prompt 续写与原答案逐字比对）判断；修法是降 epoch、降学习率、按拐点早停或补数据。见[第七篇「七、案例」](/regularization-and-generalization.html)。
-[^q18]: 预训练 $N/D \ll 1$ 在数据主导区间，模型背不下数据，过拟合不是主要风险；一个 epoch 都没看完的数据重复利用价值低，dropout 只缩小有效容量。见[第七篇](/regularization-and-generalization.html)。
+[^q18]: 预训练 $$N/D \ll 1$$ 在数据主导区间，模型背不下数据，过拟合不是主要风险；一个 epoch 都没看完的数据重复利用价值低，dropout 只缩小有效容量。见[第七篇](/regularization-and-generalization.html)。
 [^q19]: patch embedding 是步长等于核大小的卷积特例（Conv2d，k=s=patch），一张 224² 图切成 196 个 token。见[第八篇](/cnn-from-lenet-to-resnet-and-vit.html)。
 [^q20]: token id 直接查表得向量；静态向量每个词固定一行，上下文表示由整句经 self-attention 算出、随语境变化。见[第九篇](/embedding-and-representation-learning.html)。
-[^q21]: RNN 的时间反传使远处梯度消失且逐步串行难并行；attention 直接对任意两个位置做交互、整步可并行，代价是 $O(T^2d)$。见[第十篇](/rnn-lstm-and-the-birth-of-attention.html)。
+[^q21]: RNN 的时间反传使远处梯度消失且逐步串行难并行；attention 直接对任意两个位置做交互、整步可并行，代价是 $$O(T^2d)$$。见[第十篇](/rnn-lstm-and-the-birth-of-attention.html)。
