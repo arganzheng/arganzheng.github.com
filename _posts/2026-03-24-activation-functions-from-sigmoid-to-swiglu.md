@@ -12,9 +12,17 @@ catalog: true
 
 > **如果把 100 层 Linear 叠起来，为什么它仍只能表示一个线性 / 仿射变换？[^q0] sigmoid、ReLU、GELU 和 SwiGLU 分别解决了什么问题？[^q1]**
 
-## 一、总览：为什么非要非线性
+## 一、总览：为什么需要非线性
 
-线性层负责混合输入维度；激活函数打破线性，才让层叠起来的网络表示复杂函数。若每层之间没有非线性，任意多层 Linear 都能折叠成一个 Linear（带 bias 时是仿射变换）。《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」已经把这个矩阵乘法写出来了；这里沿用结论，不重做推导。
+线性层负责混合输入维度；激活函数打破线性，才让层叠起来的网络表示复杂函数。若每层之间没有非线性，任意多层 Linear 都能折叠成一个 Linear（带 bias 时是仿射变换）。
+
+**仿射变换**就是“线性变换再加一个平移”：$$y=xW+b$$。纯线性变换 $$y=xW$$ 一定把原点映到原点；加上 bias 后直线、平面可以整体挪开，不必再穿过原点，但直的仍是直的，不会弯。两个仿射层复合仍是仿射：
+
+$$
+(xW_1+b_1)W_2+b_2 = x\underbrace{(W_1W_2)}_{W}+\underbrace{(b_1W_2+b_2)}_{b}
+$$
+
+所以层数再多，也只相当于一个 $$W$$ 和一个 $$b$$。《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」已经把这个矩阵乘法写出来了；这里沿用结论，不重做推导。
 
 本篇从 sigmoid 与 tanh 的饱和讲起，经 ReLU 及其修补，走到平滑激活，再到现代 FFN 常用的门控变体。最后把曲线、梯度、参数形状和真实训练放在一起对照。
 
@@ -35,18 +43,40 @@ catalog: true
 
 Table: 本文各章主题与内容
 
-### 2. 来龙去脉：从饱和到门控
+### 2. 名字速查：缩写、全称与读法
 
-| 时间 | 激活函数（论文） | 解决了什么 | 引入或遗留的问题 |
-|---|---|---|---|
-| 早期 | [Sigmoid / tanh](https://www.nature.com/articles/323533a0)（Rumelhart、Hinton 与 Williams，1986） | 平滑可导，反向传播可用；tanh 输出以 0 为中心 | 两端饱和；sigmoid 最大导数为 0.25、输出非零中心，深层连乘时梯度容易消失 |
-| 2010–2012 | [ReLU](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)（[Nair 与 Hinton，2010](https://icml.cc/Conferences/2010/papers/432.pdf)；Glorot 等，2011；[Krizhevsky 等，2012](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)） | 正半轴导数为 1、计算简单且输出稀疏；AlexNet 报告四层 CNN 在 CIFAR-10 达到 25% 训练误差，比 tanh 网络快 6 倍 | 负半轴可能产生死亡单元；零点不可导，输出非零中心且无上界 |
-| 2013–2015 | [Leaky ReLU](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)（Maas 等，2013） / [PReLU](https://arxiv.org/abs/1502.01852)（He 等，2015） / [ELU](https://arxiv.org/abs/1511.07289)（Clevert 等，2015） | 负半轴保留梯度；PReLU 学习斜率，ELU 的负值让激活均值更接近零 | Leaky ReLU 需选斜率、PReLU 增加参数、ELU 需算指数；效果随任务而变 |
-| 2016 | [GELU](https://arxiv.org/abs/1606.08415)（Hendrycks 与 Gimpel，2016） | 用输入大小进行平滑软门控 | 需计算正态 CDF 或 tanh 近似；曲线非单调 |
-| 2016 | [GLU](https://arxiv.org/abs/1612.08083)（Dauphin 等，2016） | 在门控卷积语言模型中用 sigmoid 门控制值分支 | 相比不分门控的卷积层多一张投影矩阵 |
-| 2017 | [SiLU](https://arxiv.org/abs/1702.03118)（Elfwing 等，2017） / [Swish](https://arxiv.org/abs/1710.05941)（Ramachandran 等，2017） | SiLU 用 sigmoid 加权输入；Swish 的 $$\beta=1$$ 在 Mobile NASNet-A、Inception-ResNet-v2 的 ImageNet top-1 分别提升 0.9、0.6 个百分点 | 需计算 sigmoid 与乘法；曲线非单调；可学习的 $$\beta$$ 会增加参数 |
-| 2020 | [GLU](https://arxiv.org/abs/2002.05202)、Bilinear、ReGLU、GEGLU、SwiGLU（Shazeer，2020） | T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低 | 三张矩阵；匹配参数量与计算量时宽度缩为 2/3。论文未解释效果，作者称归于 “divine benevolence” |
-| 2022–2024 | [PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、[Gemma](https://arxiv.org/abs/2403.08295)（2024） | PaLM、LLaMA 使用 SwiGLU；Gemma 使用 GeGLU | 门控 FFN 需要三张投影矩阵 |
+激活函数的名字大多是缩写拼起来的：**LU 结尾 = Linear Unit（线性单元）**，前缀说明怎么改；**GLU 结尾 = Gated Linear Unit（门控线性单元）**，前缀说明门用的是哪个函数。读法没有统一标准，下表列英文社区的常见读法。
+
+| 缩写 | 英文全称 | 中文名 | 常见读法 | 一句话 |
+|---|---|---|---|---|
+| sigmoid | logistic sigmoid | S 形函数 | /ˈsɪɡmɔɪd/，“西格莫伊德” | 压到 $$(0,1)$$ |
+| tanh | hyperbolic tangent | 双曲正切 | /tæntʃ/ “坦曲”，或逐字母 T-A-N-H | 压到 $$(-1,1)$$ |
+| ReLU | Rectified Linear Unit | 修正线性单元 | /ˈrɛl.juː/，“瑞-路” | 负数归零 |
+| Leaky ReLU | Leaky Rectified Linear Unit | 带泄漏的 ReLU | “利基 瑞路” | 负半轴留小斜率 |
+| PReLU | Parametric ReLU | 参数化 ReLU | “P-瑞路” | 负半轴斜率可学 |
+| ELU | Exponential Linear Unit | 指数线性单元 | 逐字母 E-L-U，或 /ˈiː.luː/ | 负半轴用指数 |
+| GELU | Gaussian Error Linear Unit | 高斯误差线性单元 | /ˈdʒɛl.uː/，“杰-路” | 乘正态 CDF |
+| SiLU | Sigmoid Linear Unit | sigmoid 加权线性单元 | /ˈsaɪ.luː/，“赛-路” | 乘 sigmoid |
+| Swish | （不是缩写） | — | /swɪʃ/，“斯威什” | SiLU 加可学 $$\beta$$ |
+| GLU | Gated Linear Unit | 门控线性单元 | 逐字母 G-L-U，或 /ɡluː/ “glue” | 一支乘另一支的门 |
+| ReGLU / GEGLU | ReLU-GLU / GELU-GLU | ReLU 门 / GELU 门的 GLU | “瑞-glue” / “吉-glue” | 门换成 ReLU / GELU |
+| SwiGLU | Swish-GLU | Swish 门的 GLU | /ˈswɪɡ.luː/，“斯威-glue” | 门换成 SiLU（Swish，$$\beta=1$$） |
+| FFN / MLP | Feed-Forward Network / Multi-Layer Perceptron | 前馈网络 / 多层感知机 | 逐字母读 | 见第六章 |
+
+Table: 激活函数缩写、全称与读法
+
+### 3. 来龙去脉：从饱和到门控
+
+| 时间 | 激活函数（论文） | 解决了什么 | 引入或遗留的问题 | 主要应用模型 / 场景 |
+|---|---|---|---|---|
+| 早期 | [Sigmoid / tanh](https://www.nature.com/articles/323533a0)（Rumelhart、Hinton 与 Williams，1986） | 平滑可导，反向传播可用；tanh 输出以 0 为中心 | 两端饱和；sigmoid 最大导数为 0.25、输出非零中心，深层连乘时梯度容易消失 | 早期 MLP；[LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf) 的门（sigmoid）与候选状态（tanh）；今天 sigmoid 主要用于二分类输出和各种门 |
+| 2010–2012 | [ReLU](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)（[Nair 与 Hinton，2010](https://icml.cc/Conferences/2010/papers/432.pdf)；Glorot 等，2011；[Krizhevsky 等，2012](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)） | 正半轴导数为 1、计算简单且输出稀疏；AlexNet 报告四层 CNN 在 CIFAR-10 达到 25% 训练误差，比 tanh 网络快 6 倍 | 负半轴可能产生死亡单元；零点不可导，输出非零中心且无上界 | CNN（AlexNet、[ResNet](https://arxiv.org/abs/1512.03385)）；[原始 Transformer](https://arxiv.org/abs/1706.03762) 的 FFN |
+| 2013–2015 | [Leaky ReLU](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)（Maas 等，2013） / [PReLU](https://arxiv.org/abs/1502.01852)（He 等，2015） / [ELU](https://arxiv.org/abs/1511.07289)（Clevert 等，2015） | 负半轴保留梯度；PReLU 学习斜率，ELU 的负值让激活均值更接近零 | Leaky ReLU 需选斜率、PReLU 增加参数、ELU 需算指数；效果随任务而变 | Leaky ReLU：[DCGAN](https://arxiv.org/abs/1511.06434) 判别器等 GAN；PReLU：He 等的 ImageNet 模型；ELU 在主流大模型里少见 |
+| 2016 | [GELU](https://arxiv.org/abs/1606.08415)（Hendrycks 与 Gimpel，2016） | 用输入大小进行平滑软门控 | 需计算正态 CDF 或 tanh 近似；曲线非单调 | [BERT](https://huggingface.co/google-bert/bert-base-uncased/blob/main/config.json)、GPT-2、[ViT](https://arxiv.org/abs/2010.11929) 的 FFN / MLP |
+| 2016 | [GLU](https://arxiv.org/abs/1612.08083)（Dauphin 等，2016） | 在门控卷积语言模型中用 sigmoid 门控制值分支 | 相比不分门控的卷积层多一张投影矩阵 | 门控卷积语言模型（GCNN）；后来成为 GLU 变体的母版 |
+| 2017 | [SiLU](https://arxiv.org/abs/1702.03118)（Elfwing 等，2017） / [Swish](https://arxiv.org/abs/1710.05941)（Ramachandran 等，2017） | SiLU 用 sigmoid 加权输入；Swish 的 $$\beta=1$$ 在 Mobile NASNet-A、Inception-ResNet-v2 的 ImageNet top-1 分别提升 0.9、0.6 个百分点 | 需计算 sigmoid 与乘法；曲线非单调；可学习的 $$\beta$$ 会增加参数 | [EfficientNet](https://arxiv.org/abs/1905.11946) 等 CNN；SwiGLU 的门 |
+| 2020 | GLU 变体：[Bilinear、ReGLU、GEGLU、SwiGLU](https://arxiv.org/abs/2002.05202)（Shazeer，2020，《GLU Variants Improve Transformer》） | T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低 | FFN 从两张矩阵变成三张投影矩阵（门、值、输出，见第六章）；为了参数量不变，中间宽度缩为约 2/3。论文未解释效果，作者称归于 “divine benevolence” | GEGLU：[T5 v1.1](https://huggingface.co/google/t5-v1_1-base/blob/main/config.json)；SwiGLU：见下一行 |
+| 2022–2024 | [PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、[Gemma](https://arxiv.org/abs/2403.08295)（2024） | PaLM、LLaMA 使用 SwiGLU；Gemma 使用 GeGLU | 同上一行的三张投影矩阵 | SwiGLU 成为开源 LLM FFN 的默认：LLaMA / Llama 3、Qwen2.5 等；GeGLU：Gemma |
 
 Table: 激活函数的提出背景、效果与遗留问题
 
@@ -66,6 +96,8 @@ $$
 实际值还会乘上权重矩阵的导数因子。
 
 若一个神经元的输入 $$x_i$$ 全为正，权重梯度 $$\partial L/\partial w_i=\delta x_i$$ 就都与 $$\delta$$ 同号。一次更新只能把这组权重整体上移或整体下移，不能在输入维度间灵活调整，优化路径容易 zig-zag；tanh 的零中心输出能缓和这个问题。
+
+**zig-zag** 指“之字形”折线。以两个权重为例：若最优方向是 $$w_1$$ 变大、$$w_2$$ 变小，而每一步只能让两者同增或同减，就只好先一起往上走一步、再一起往下走一步，在参数平面里来回折返，像锯齿一样逼近目标，比直线走过去慢得多。
 
 tanh 把输出移到 $$(-1,1)$$，以 0 为中心：
 
@@ -144,13 +176,44 @@ $$
 
 ## 六、GLU 家族：用一个分支控制另一个分支
 
-普通两层 FFN 是“升维 → 激活 → 降维”。GLU 把升维分成值分支和门分支，再逐元素相乘：
+### 1. 先看普通 FFN：它就是一个两层 MLP
+
+**MLP**（Multi-Layer Perceptron，多层感知机）是“Linear → 激活 → Linear → …”这类全连接网络的统称。**FFN**（Feed-Forward Network，前馈网络）是 Transformer 里对其中一个子模块的叫法：每个 token 的向量各自过一遍同一个小 MLP，token 之间不交换信息（那是 attention 的事）。代码里这个模块通常就叫 `mlp`，例如 Hugging Face 的 `GPT2MLP`、`LlamaMLP`。
+
+“两层”数的是 Linear 层，中间夹一个激活，也就是一个隐藏层：
 
 $$
-\operatorname{GLU}(x)=(xW+b)\odot\sigma(xV+c)
+\operatorname{FFN}(x)=g(xW_1)\,W_2,\qquad
+x\in\mathbb{R}^{d},\;W_1\in\mathbb{R}^{d\times d_{\mathrm{ff}}},\;W_2\in\mathbb{R}^{d_{\mathrm{ff}}\times d}
 $$
 
-门的输出介于 0 和 1，控制值分支各维保留多少。把门函数换掉，就得到：
+$$W_1$$ 升维（GPT-2 是 768 → 3072），$$g$$ 是 ReLU 或 GELU，$$W_2$$ 再降回 $$d$$。只有一层 Linear 时中间没有激活的位置，按第一章的结论它只是一个仿射变换；所以要有非线性，FFN 至少是两层。
+
+### 2. 门控：让另一组投影决定“放行多少”
+
+普通 FFN 里，第 $$i$$ 个隐藏单元能否通过，只由它自己的预激活决定：$$\operatorname{ReLU}(h_i)$$ 看 $$h_i$$ 正负。GLU（Gated Linear Unit）把升维这一步拆成两支：
+
+- **值分支** $$xV$$：算出“要传的内容”；
+- **门分支** $$xW$$，过门函数后得到每一维的放行比例；
+
+两支逐元素相乘（$$\odot$$），每一维由门决定传多少。原始 GLU 的门是 sigmoid，输出在 0 到 1 之间，像一排独立的音量旋钮：
+
+$$
+\operatorname{GLU}(x)=(xV+c)\odot\sigma(xW+b)
+$$
+
+拿一个 3 维的小例子：值分支 $$xV=[2,\,-1,\,3]$$，门分支 $$xW=[3,\,-3,\,0]$$，则
+
+$$
+\sigma(xW)\approx[0.95,\,0.05,\,0.50],\qquad
+xV\odot\sigma(xW)\approx[1.90,\,-0.05,\,1.50]
+$$
+
+第一维几乎全放行，第二维几乎被关掉，第三维放一半。关键在于：门看的是 $$xW$$，与内容 $$xV$$ 用的是**不同的权重**，模型可以学“根据输入的哪些特征来决定放行哪一维”，而 ReLU 只能“自己决定自己”。这也是 LSTM 里门的思路。
+
+### 3. 换掉门函数，就得到各个变体
+
+[Shazeer（2020）](https://arxiv.org/abs/2002.05202)保持“门 × 值”的结构不变，只把门函数 $$g$$ 换掉（并去掉 bias）：
 
 $$
 \begin{aligned}
@@ -161,13 +224,51 @@ $$
 \end{aligned}
 $$
 
-一个门控 FFN 有三张矩阵：门投影、值投影、输出投影。普通 FFN 的两张矩阵参数量约 $$2dd_{\mathrm{ff}}$$；门控 FFN 约 $$3dd_g$$。令门控宽度 $$d_g \approx \frac{2}{3}d_{\mathrm{ff}}$$，两者的主要矩阵参数量就接近。
+| 变体 | 门函数 $$g$$ | 名字怎么来 | 代表模型 |
+|---|---|---|---|
+| GLU | sigmoid | Gated Linear Unit | Dauphin 等的门控卷积语言模型 |
+| Bilinear | 恒等（不加门函数） | 两个线性投影相乘 = 双线性 | 论文对照组 |
+| ReGLU | ReLU | ReLU + GLU | 论文对照组 |
+| GEGLU | GELU | GELU + GLU | T5 v1.1、Gemma（论文写作 GeGLU） |
+| SwiGLU | SiLU（Swish，$$\beta=1$$） | Swish + GLU | PaLM、LLaMA、Llama 3、Qwen2.5 |
+
+Table: GLU 变体的门函数与代表模型
+
+注意 SiLU 与 sigmoid 不同：SiLU 的输出不限于 $$(0,1)$$，所以 SwiGLU 的门不再是严格的“比例”，而是一个平滑、可正可负的缩放因子；但“一支决定另一支每一维的大小”这个结构没变。
+
+### 4. 三张投影矩阵与 2/3 宽度
+
+把门控放进 FFN，再接回降维矩阵，就是现代 LLM 的 FFN：
+
+$$
+\operatorname{FFN}_{\mathrm{SwiGLU}}(x)=\bigl(\operatorname{SiLU}(xW)\odot xV\bigr)\,W_2
+$$
+
+普通 FFN 的两张矩阵（$$W_1$$ 升维、$$W_2$$ 降维）变成了三张：门投影 $$W$$、值投影 $$V$$、输出投影 $$W_2$$。本文前面表格里说的“三张矩阵”都指这三张。用 PyTorch 写只有几行：
+
+```python
+class SwiGLUFFN(nn.Module):
+    def __init__(self, d, d_g):
+        super().__init__()
+        self.gate = nn.Linear(d, d_g, bias=False)  # W：门投影，Llama 3 叫 w1，HF 叫 gate_proj
+        self.up   = nn.Linear(d, d_g, bias=False)  # V：值投影，w3 / up_proj
+        self.down = nn.Linear(d_g, d, bias=False)  # W2：输出投影，w2 / down_proj
+
+    def forward(self, x):
+        return self.down(F.silu(self.gate(x)) * self.up(x))
+```
+
+普通 FFN 的两张矩阵参数量约 $$2dd_{\mathrm{ff}}$$；门控 FFN 约 $$3dd_g$$。令门控宽度 $$d_g \approx \frac{2}{3}d_{\mathrm{ff}}$$，两者的主要矩阵参数量就接近。以 LLaMA-7B 为例，$$d=4096$$，普通 FFN 取 $$d_{\mathrm{ff}}=4d=16384$$，$$\frac{2}{3}\times16384\approx10923$$，再向上取到 256 的倍数，就是配置里的 11008。
 
 ![GLU 投影结构与门函数](/img/in-post/activation-glu-family.webp)
 
-模型例子能从论文和配置里交叉核对：[Llama 3 的官方实现](https://github.com/meta-llama/llama3/blob/main/llama/model.py)用 SiLU 门控，三张投影矩阵对应代码里的 `w1`、`w3`、`w2`；[Qwen2.5 技术报告](https://arxiv.org/abs/2412.15115)称其 dense 模型使用 SwiGLU，[Hugging Face 配置](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/config.json)的 `hidden_act` 为 `silu`。
+左图对照两种 FFN 的投影结构；右图是五种门函数的曲线。GLU 的 sigmoid 门饱和在 1，Bilinear 的门是一条直线，ReGLU、GEGLU、SwiGLU 在正半轴都近似 $$x$$，差别集中在负半轴：ReLU 截成 0，GELU 和 SiLU 平滑地略低于 0。
+
+模型例子能从论文和配置里交叉核对：[Llama 3 的官方实现](https://github.com/meta-llama/llama3/blob/main/llama/model.py)用 SiLU 门控，`forward` 写作 `self.w2(F.silu(self.w1(x)) * self.w3(x))`；[Qwen2.5 技术报告](https://arxiv.org/abs/2412.15115)称其 dense 模型使用 SwiGLU，[Hugging Face 配置](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/config.json)的 `hidden_act` 为 `silu`。
 
 [PaLM 论文](https://jmlr.org/papers/v24/22-1144.html)明确采用 SwiGLU，并说明 MLP 因此需要三张矩阵。[Gemma 论文](https://arxiv.org/html/2403.08295)称其用 GeGLU。[T5 v1.1 配置](https://huggingface.co/google/t5-v1_1-base/blob/main/config.json)则把 `feed_forward_proj` 写作 `gated-gelu`。
+
+为什么门控更好？Shazeer 的论文只给了实验结果，没有给理论解释。常见的直觉是乘法让 FFN 能表达输入特征之间的二阶交互（$$xW$$ 与 $$xV$$ 相乘），但这只是解释，不是证明。
 
 这些结构的参数量与 FFN 宽度怎么算，见《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》的「[GELU 两矩阵 FFN → SwiGLU 三矩阵](/gpt2-to-llama-five-changes-and-parameter-count.html)」。
 
