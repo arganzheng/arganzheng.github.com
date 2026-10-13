@@ -131,9 +131,9 @@
       var canvas = document.createElement('canvas'), ctx = canvas.getContext('2d'), width = 1080, pad = 72, inner = width - pad * 2;
       ctx.font = '40px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
       var lines = wrap(ctx, paragraphs, inner, 16), quoteLines = [];
-      if (qText) { ctx.font = '32px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'; quoteLines = wrap(ctx, qText, inner - 44, 5); }
-      var image = assets[1], qr = assets[2], imageH = image ? Math.min(1080, inner * image.naturalHeight / image.naturalWidth) : 0;
-      var headerH = 48, bodyH = lines.length * 68, quoteH = quoteLines.length ? quoteLines.length * 50 + (cite ? 72 : 0) + 48 : 0, footerH = 230;
+      if (qText) { ctx.font = '500 32px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'; quoteLines = wrap(ctx, qText, inner - 124, 16); }
+      var image = assets[1], qr = assets[2], imageH = image ? Math.min(720, inner * image.naturalHeight / image.naturalWidth) : 0, imageW = image ? Math.min(inner, imageH * image.naturalWidth / image.naturalHeight) : 0;
+      var headerH = 48, bodyH = lines.length * 68, quoteBoxH = quoteLines.length ? 28 + quoteLines.length * 58 + (cite ? 61 : 0) + 24 : 0, quoteH = quoteBoxH ? quoteBoxH + 48 : 0, footerH = 230;
       var height = Math.min(2400, pad + headerH + (lines.length ? 28 + bodyH : 0) + quoteH + (imageH ? 28 + imageH : 0) + 48 + footerH + pad);
       canvas.width = width; canvas.height = height; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
       ctx.fillStyle = '#7a8794'; ctx.font = '30px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
@@ -142,16 +142,17 @@
       ctx.fillStyle = '#2b3238'; ctx.font = '40px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
       lines.forEach(function (line) { if (y < height - pad - footerH) { ctx.fillText(line, pad, y + 40); y += 68; } });
       if (quoteLines.length && y < height - pad - footerH) {
-        y += 20; ctx.fillStyle = '#1f8a9c'; ctx.fillRect(pad, y, 6, quoteLines.length * 50 + 8);
-        ctx.fillStyle = '#2b3238'; ctx.font = '32px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
-        quoteLines.forEach(function (line) { ctx.fillText(line, pad + 28, y + 34); y += 50; });
-        if (cite) { ctx.fillStyle = '#7a8794'; ctx.textAlign = 'right'; ctx.fillText(cite.replace(/^——\s*/, ''), width - pad, y + 28); ctx.textAlign = 'left'; y += 44; }
+        y += 20; ctx.fillStyle = '#f7f5ef'; ctx.beginPath(); ctx.roundRect(pad, y, inner, quoteBoxH, 16); ctx.fill();
+        ctx.fillStyle = '#d6c9a8'; ctx.font = '88px Georgia, "Times New Roman", serif'; ctx.fillText('\u201C', pad + 28, y + 70);
+        var qy = y + 28; ctx.fillStyle = '#4a4238'; ctx.font = '500 32px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+        quoteLines.forEach(function (line) { ctx.fillText(line, pad + 88, qy + 40); qy += 58; });
+        if (cite) { ctx.fillStyle = '#8a7f6e'; ctx.font = '500 27px -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'; ctx.textAlign = 'right'; ctx.fillText('—— ' + cite.replace(/^——\s*/, ''), width - pad - 36, qy + 12 + 34); ctx.textAlign = 'left'; }
+        y += quoteBoxH;
         y += 28;
       }
       if (image && y + imageH < height - footerH) {
-        ctx.save(); ctx.beginPath(); ctx.roundRect(pad, y, inner, imageH, 16); ctx.clip();
-        var ratio = Math.max(inner / image.naturalWidth, imageH / image.naturalHeight), sw = inner / ratio, sh = imageH / ratio;
-        ctx.drawImage(image, (image.naturalWidth - sw) / 2, (image.naturalHeight - sh) / 2, sw, sh, pad, y, inner, imageH); ctx.restore(); y += imageH + 28;
+        ctx.save(); ctx.beginPath(); ctx.roundRect(pad, y, imageW, imageH, 16); ctx.clip();
+        ctx.drawImage(image, pad, y, imageW, imageH); ctx.restore(); y += imageH + 28;
       }
       var footY = height - pad - footerH; ctx.strokeStyle = '#e4e9ee'; ctx.beginPath(); ctx.moveTo(pad, footY); ctx.lineTo(width - pad, footY); ctx.stroke();
       var brand = document.querySelector('.navbar-brand'), siteTitle = brand ? brand.textContent.trim() : document.title;

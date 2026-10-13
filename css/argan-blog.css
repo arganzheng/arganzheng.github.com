@@ -5916,7 +5916,7 @@ html.ap-screenshot-ready .post-container .fig-screenshot {
 .pa-share-image .pa-share-image-preview {
   display: block;
   max-width: 100%;
-  max-height: 72vh;
+  max-height: calc(94vh - 140px);
   object-fit: contain;
 }
 .pa-share-image p {
@@ -5928,8 +5928,7 @@ html.ap-screenshot-ready .post-container .fig-screenshot {
   display: flex;
   gap: 12px;
 }
-.pa-share-image .pa-share-image-download,
-.pa-share-image .pa-share-image-share {
+.pa-share-image .pa-share-image-download {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5945,9 +5944,7 @@ html.ap-screenshot-ready .post-container .fig-screenshot {
   cursor: pointer;
 }
 .pa-share-image .pa-share-image-download:hover,
-.pa-share-image .pa-share-image-share:hover,
-.pa-share-image .pa-share-image-download:focus,
-.pa-share-image .pa-share-image-share:focus {
+.pa-share-image .pa-share-image-download:focus {
   background: #176d7b;
   color: #fff;
   text-decoration: none;

@@ -261,27 +261,24 @@
       if (!blob) return;
       closeCard();
       cardObjectUrl = URL.createObjectURL(blob);
-      var name = ctx.filename || 'moment-' + (ctx.id || 'share') + '.png';
-      var file = new File([blob], name, { type: 'image/png' });
+      var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
       cardOverlay = document.createElement('div');
       cardOverlay.className = 'pa-share-image';
       cardOverlay.setAttribute('role', 'dialog');
       cardOverlay.setAttribute('aria-modal', 'true');
-      var canShare = false;
-      try { canShare = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { /* unsupported */ }
       cardOverlay.innerHTML =
         '<div class="pa-share-image-panel">' +
           '<button type="button" class="pa-share-image-close" aria-label="关闭">×</button>' +
           '<img class="pa-share-image-preview" alt="分享图片">' +
-          '<p>长按图片保存，或</p><div class="pa-share-image-actions">' +
-          '<a class="pa-share-image-download" download="' + name + '">下载</a>' +
-          (canShare ? '<button type="button" class="pa-share-image-share">分享图片</button>' : '') +
-          '</div></div>';
+          (touch ? '<p>长按图片保存或分享</p>' :
+            '<p>右键图片可复制，或</p><div class="pa-share-image-actions">' +
+            '<a class="pa-share-image-download" download="' + (ctx.filename || 'moment-' + (ctx.id || 'share') + '.png') + '">下载</a></div>') +
+          '</div>';
       cardOverlay.querySelector('img').src = cardObjectUrl;
-      cardOverlay.querySelector('.pa-share-image-download').href = cardObjectUrl;
+      var download = cardOverlay.querySelector('.pa-share-image-download');
+      if (download) download.href = cardObjectUrl;
       cardOverlay.addEventListener('click', function (e) {
         if (e.target === cardOverlay || e.target.closest('.pa-share-image-close')) closeCard();
-        if (e.target.closest('.pa-share-image-share')) navigator.share({ files: [file], title: ctx.title }).catch(function () {});
       });
       document.body.appendChild(cardOverlay);
       ctx.onShared('image');
