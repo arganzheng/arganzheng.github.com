@@ -5,7 +5,7 @@ title: "深度学习基础（09）：RNN——从 LSTM 到 attention 的诞生"
 subtitle: "RNN: Backpropagation Through Time, the LSTM Gate as a Residual Path, and How Attention Was Born from the seq2seq Bottleneck"
 tags: [AI, Deep Learning, LLM]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-13
 ---
 
 Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神经网络的翻译模型上，目的很具体：encoder 把整句话压进一个固定长度的向量，句子长了向量装不下，翻译质量随句长下降——attention 让 decoder 每生成一个词都回头看 encoder 的全部隐状态，绕过这个瓶颈。三年后 Vaswani 等发现，有了 attention 之后循环本身可以不要了。
@@ -45,15 +45,15 @@ Table: 本文的章节安排
 
 ### 3. 来龙去脉：从"记住上一个词"到"看所有的词"
 
-| 年 | 谁 | 当时的问题 | 留下的东西 |
-|---|---|---|---|
-| 1986 / 1990 | Jordan；Elman | 前馈网络的输入是固定长度的，句子、语音不是 | **循环网络**（第二章）：把上一步的隐藏状态喂回来，任意长度的序列用同一组权重处理 |
-| 1994 / 1997 | Bengio 等；Hochreiter & Schmidhuber | RNN 训不了长依赖：梯度沿时间连乘，几十步就消失 | 说清病因（第三章）；**LSTM**（第四章）：用门控的细胞状态给梯度一条加法通路——就是残差 |
-| 2000 / 2014 | Gers 等；Cho 等 | LSTM 忘不掉旧东西 / 门太多参数太多 | 遗忘门（原版 LSTM 没有）；**GRU**：两个门的简化版 |
-| 2013 | Graves | 用 RNN 生成文本和手写 | 深层 LSTM 的字符级语言模型（第八章的案例就是它）；Karpathy 2015 的 char-rnn 让它人尽皆知 |
-| 2014 | Sutskever 等；Cho 等，seq2seq | 机器翻译：输入和输出是两个不同长度的序列 | **编码器–解码器**（第五章）：整句压成一个向量再展开——第一个端到端的神经机器翻译 |
-| 2015 | Bahdanau、Cho、Bengio | 一个向量装不下长句，翻译质量随句长掉 | **attention**（第六章）：解码每一步回头看编码器的所有位置，按相关性加权——路径长度从 $$T$$ 变成 1 |
-| 2017 | Vaswani 等，Transformer | RNN 串行、GPU 喂不饱；attention 既然能看所有位置，还要循环干什么 | 去掉循环、只留 attention（第七章）——L4 系列的全部内容 |
+| 年 | 谁 | 当时的问题 | 怎么解决 | 引入或遗留问题 |
+|---|---|---|---|---|
+| 1986 / 1990 | Jordan；Elman | 前馈网络的输入是固定长度的，句子、语音不是 | **循环网络**（第二章）：把上一步的隐藏状态喂回来，任意长度的序列用同一组权重处理 | 梯度沿时间连乘，长依赖几十步就训不了 |
+| 1994 / 1997 | Bengio 等；Hochreiter & Schmidhuber | RNN 训不了长依赖：梯度沿时间连乘，几十步就消失 | 说清病因（第三章）；**LSTM**（第四章）：用门控的细胞状态给梯度一条加法通路——就是残差 | 忘不掉旧东西；门多、参数多 |
+| 2000 / 2014 | Gers 等；Cho 等 | LSTM 忘不掉旧东西 / 门太多参数太多 | 加遗忘门（原版 LSTM 没有）；**GRU** 减到两个门 | 输入输出长度不同的任务（翻译）还差一个结构 |
+| 2013 | Graves | 用 RNN 生成文本和手写 | 深层 LSTM 的字符级语言模型（第八章的案例就是它）；Karpathy 2015 的 char-rnn 让它人尽皆知 | 生成能做了，不等长的输入输出仍要专门结构 |
+| 2014 | Sutskever 等；Cho 等，seq2seq | 机器翻译：输入和输出是两个不同长度的序列 | **编码器–解码器**（第五章）：整句压成一个向量再展开——第一个端到端的神经机器翻译 | 一个向量装不下长句，翻译质量随句长掉 |
+| 2015 | Bahdanau、Cho、Bengio | 一个向量装不下长句，翻译质量随句长掉 | **attention**（第六章）：解码每一步回头看编码器的所有位置，按相关性加权——路径长度从 $$T$$ 变成 1 | 还带着 RNN 的串行，GPU 喂不饱 |
+| 2017 | Vaswani 等，Transformer | RNN 串行、GPU 喂不饱；attention 既然能看所有位置，还要循环干什么 | 去掉循环、只留 attention（第七章）——L4 系列的全部内容 | RNN 推理时 $$O(1)$$ 内存的优点也丢了——Mamba / RWKV 想拿回来 |
 
 Table: 循环网络与 attention 的来历
 

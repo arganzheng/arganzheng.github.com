@@ -5,7 +5,7 @@ title: "深度学习基础（06）：正则化与泛化——为什么参数比�
 subtitle: "Regularization and Generalization: Double Descent, Implicit Bias, Dropout, Weight Decay and When Overfitting Comes Back"
 tags: [AI, Deep Learning, LLM]
 catalog: true
-updated: 2026-09-20
+updated: 2026-10-13
 ---
 
 [L2 经典机器学习系列](/classical-machine-learning-in-the-llm-era.html)讲过经典机器学习的第一定律：模型容量超过数据量就会过拟合。一个 160 万参数的网络在 4000 个样本上训练，按这条定律应该背下每一个样本、在测试集上一败涂地。第九章的实验里它做到了前半句——训练错误率 0.0%——却没有做到后半句：测试错误率 14.5%，是所有宽度里**最好**的。而一个参数只有样本两倍的小网络，测试错误率 43%。
@@ -63,15 +63,15 @@ Table: 本文的章节安排
 
 ### 3. 来龙去脉：一个理论被现实推翻的过程
 
-| 年 | 谁 | 当时的问题 | 留下的东西 |
-|---|---|---|---|
-| 1943 / 1970 | Tikhonov；Hoerl & Kennard | 病态的方程组解乱跳 | **正则化**这个词：给解加一个"小一点"的偏好——weight decay 的源头（第五章第 1 节，L2 第二篇的 Ridge） |
-| 1971–1995 | Vapnik & Chervonenkis，统计学习理论 | 什么决定一个模型在新数据上的表现 | **容量**（VC 维）越大、样本越少，泛化差越大——第二章的经典预言：模型不能比数据大 |
-| 2012 / 2014 | Hinton 等；Srivastava 等，Dropout | AlexNet 6000 万参数、120 万张图，全连接层严重过拟合 | 训练时随机丢一半神经元（第五章第 2 节）；2012–2017 年几乎每个网络都用 |
-| 2017 | Zhang 等，《Understanding deep learning requires rethinking generalization》 | 深网络参数远多于样本，按 VC 理论应该毫无泛化能力，却泛化得很好 | 实验：同一个网络能把**随机标签**背到 100%（第四章）——容量不是度量，经典理论对深网络失效 |
-| 2018–2019 | Belkin 等；Nakkiran 等，double descent | 那泛化到底随模型大小怎么变 | 测试误差先降、在**插值阈值**升到尖峰、再降（第三章）——"越大越好"在阈值右边成立 |
-| 2020 | GPT-3 | 1750 亿参数、3000 亿 token、一个 epoch | 预训练不用 dropout、只训一遍——因为参数 / 数据比让它根本背不下数据（第六章） |
-| 2023 | Muennighoff 等，《Scaling data-constrained LMs》 | 高质量数据用完了怎么办 | 重复到 4 个 epoch 以内几乎无损，之后收益递减（第六章）——过拟合在 LLM 里以"多 epoch"的形式回来 |
+| 年 | 谁 | 当时的问题 | 怎么解决 | 引入或遗留问题 |
+|---|---|---|---|---|
+| 1943 / 1970 | Tikhonov；Hoerl & Kennard | 病态的方程组解乱跳 | 给解加一个"小一点"的偏好——**正则化**这个词的来源，weight decay 的源头（第五章第 1 节，L2 第二篇的 Ridge） | 为什么"小一点"的解泛化更好，当时没有理论 |
+| 1971–1995 | Vapnik & Chervonenkis，统计学习理论 | 什么决定一个模型在新数据上的表现 | 用**容量**（VC 维）刻画泛化界：容量越大、样本越少，泛化越差——第二章的经典预言：模型不能比数据大 | 深网络参数远超样本却泛化得很好，预言在那里失效 |
+| 2012 / 2014 | Hinton 等；Srivastava 等，Dropout | AlexNet 6000 万参数、120 万张图，全连接层严重过拟合 | 训练时随机丢一半神经元，强迫表示冗余（第五章第 2 节）；2012–2017 年几乎每个网络都用 | LLM 预训练一个 epoch 背不下数据，反而用不上它（第六章） |
+| 2017 | Zhang 等，《Understanding deep learning requires rethinking generalization》 | 深网络参数远多于样本，按 VC 理论应该毫无泛化能力，却泛化得很好 | 用实验证明同一个网络能把**随机标签**背到 100%（第四章）——容量不是度量，经典理论对深网络失效 | 那泛化到底随模型大小怎么变，没有解释 |
+| 2018–2019 | Belkin 等；Nakkiran 等，double descent | 那泛化到底随模型大小怎么变 | 画出测试误差先降、在**插值阈值**升到尖峰、再降的曲线（第三章）——"越大越好"在阈值右边成立 | 解释的是现象不是机制：SGD 为什么恰好落在泛化好的解上仍无理论 |
+| 2020 | GPT-3 | 1750 亿参数、3000 亿 token、一个 epoch | 不靠显式正则化：参数 / 数据比大到根本背不下数据，预训练不用 dropout、只训一遍（第六章） | 高质量数据总有一天用完 |
+| 2023 | Muennighoff 等，《Scaling data-constrained LMs》 | 高质量数据用完了怎么办 | 实测数据重复的边际收益：4 个 epoch 以内几乎无损，之后递减（第六章） | 过拟合在 LLM 里以"多 epoch"的形式回来；小数据微调仍需要正则化 |
 
 Table: 正则化与泛化理论的来历
 

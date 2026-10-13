@@ -5,7 +5,7 @@ title: "深度学习基础（07）：CNN——从 LeNet 到 ResNet，再到 ViT"
 subtitle: "CNN: Convolution as a Constrained Linear Layer, the ResNet Legacy and How ViT Turns Images into Tokens"
 tags: [AI, Deep Learning, LLM]
 catalog: true
-updated: 2026-09-20
+updated: 2026-10-13
 ---
 
 第二至第六篇讲训练动力学，用的网络全是 MLP。这一篇和后两篇依次回看 Transformer 之前的三条结构史——卷积、Embedding 与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；离散 token 的表示连接词表与向量空间；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
@@ -45,16 +45,16 @@ Table: 本文的章节安排
 
 ### 3. 来龙去脉：从猫的视觉皮层到 ImageNet
 
-| 年 | 谁 | 当时的问题 | 留下的东西 |
-|---|---|---|---|
-| 1959–1962 | Hubel & Wiesel（生理学） | 猫的视觉皮层神经元对什么有反应 | 每个神经元只看视野的一小块、对特定方向的边缘敏感；简单细胞 → 复杂细胞的层级——**局部感受野**与**层级特征**的生物原型 |
-| 1980 | Fukushima，Neocognitron | 把 Hubel & Wiesel 的层级做成能识别手写字的模型 | 交替的"S 层"（卷积）与"C 层"（池化），已经是 CNN 的骨架——但当时不知道怎么训 |
-| 1989 / 1998 | LeCun 等 | 邮政编码、支票金额的手写识别要能上线 | 用反向传播训 Neocognitron 式的网络；**LeNet-5**（第四章、第七章的案例）：卷积 + 池化 + 全连接的范式，MNIST 0.95% |
-| 1998–2011 |  | 更大的图（ImageNet 120 万张 224×224）上 CNN 训不动、也不如 SVM + 手工特征 | 十年里 CNN 是小众——算力和数据都不够 |
-| 2012 | Krizhevsky、Sutskever、Hinton，AlexNet | ImageNet 比赛 | 8 层、6000 万参数、两块 GPU、ReLU、dropout，错误率 26% → 16%——深度学习复兴的起点（第四章） |
-| 2014 | Simonyan & Zisserman，VGG；Szegedy 等，GoogLeNet | 再深一点怎么设计 | 只用 3×3 堆到 19 层；1×1 卷积做通道降维、多分支（第四章） |
-| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」）<br/>152 层<br/>之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 |
-| 2020 | Dosovitskiy 等，ViT | 卷积的归纳偏置在数据够多时还是优势吗 | 把图切成 16×16 的 patch 当 token 喂 Transformer；数据够大时超过 CNN（第六章）——多模态 LLM 的视觉编码器由此而来 |
+| 年 | 谁 | 当时的问题 | 怎么解决 | 引入或遗留问题 |
+|---|---|---|---|---|
+| 1959–1962 | Hubel & Wiesel（生理学） | 猫的视觉皮层神经元对什么有反应 | 发现每个神经元只看视野的一小块、对特定方向的边缘敏感，简单细胞 → 复杂细胞层级——**局部感受野**与**层级特征**的生物原型 | 生物原型不是模型——还没人把它做成能识别的机器 |
+| 1980 | Fukushima，Neocognitron | 把 Hubel & Wiesel 的层级做成能识别手写字的模型 | 交替的"S 层"（卷积）与"C 层"（池化），已经是 CNN 的骨架 | 当时不知道怎么训 |
+| 1989 / 1998 | LeCun 等 | 邮政编码、支票金额的手写识别要能上线 | 用反向传播训 Neocognitron 式的网络；**LeNet-5**（第四章、第七章的案例）：卷积 + 池化 + 全连接的范式，MNIST 0.95% | 更大的图（ImageNet 级）上训不动，也不如 SVM + 手工特征 |
+| 1998–2011 |  | 更大的图（ImageNet 120 万张 224×224）上 CNN 训不动、也不如 SVM + 手工特征 | 没有新解法——CNN 在小任务上继续当小众，主流是手工特征 + SVM | 要等算力（GPU）和数据（ImageNet）|
+| 2012 | Krizhevsky、Sutskever、Hinton，AlexNet | ImageNet 比赛 | 两块 GPU + ReLU + dropout 把 8 层、6000 万参数的 CNN 训出来，错误率 26% → 16%——深度学习复兴的起点（第四章） | 8 层之后怎么再加深，没有设计规则 |
+| 2014 | Simonyan & Zisserman，VGG；Szegedy 等，GoogLeNet | 再深一点怎么设计 | 只用 3×3 堆到 19 层；1×1 卷积做通道降维、多分支（第四章） | 再往上堆层数，训练误差反而升高 |
+| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」）<br/>152 层能训，之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 | 卷积的归纳偏置在数据够大时还值不值钱，成了下一个问题 |
+| 2020 | Dosovitskiy 等，ViT | 卷积的归纳偏置在数据够多时还是优势吗 | 把图切成 16×16 的 patch 当 token 喂 Transformer；数据够大时超过 CNN（第六章）——多模态 LLM 的视觉编码器由此而来 | 要大数据才赢 CNN——小数据下卷积仍占优 |
 
 Table: 卷积网络的来历
 
