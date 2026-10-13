@@ -1,7 +1,7 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（09）：RNN——从 LSTM 到 attention 的诞生"
+title: "深度学习基础（10）：RNN——从 LSTM 到 attention 的诞生"
 subtitle: "RNN: Backpropagation Through Time, the LSTM Gate as a Residual Path, and How Attention Was Born from the seq2seq Bottleneck"
 tags: [AI, Deep Learning, LLM]
 catalog: true
@@ -10,7 +10,7 @@ updated: 2026-10-13
 
 Attention 不是为 Transformer 发明的。2014 年它被加到一个循环神经网络的翻译模型上，目的很具体：encoder 把整句话压进一个固定长度的向量，句子长了向量装不下，翻译质量随句长下降——attention 让 decoder 每生成一个词都回头看 encoder 的全部隐状态，绕过这个瓶颈。三年后 Vaswani 等发现，有了 attention 之后循环本身可以不要了。
 
-所以理解 RNN 的意义在于理解 attention 解决了什么。本篇按这条线走：循环网络怎么处理序列，它的梯度在时间上怎么传播（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「梯度作为 Jacobian 的乘积」在时间维上的版本），为什么记不住 20 步之外的东西，LSTM 的门控为什么能记更远——以及那个门在数学上就是残差连接——然后是 seq2seq 的瓶颈、attention 的原始形式，最后是 RNN 的两个致命缺点与 Transformer 的回答。四个实验各对应一段。全篇的核心问题是：
+所以理解 RNN 的意义在于理解 attention 解决了什么。本篇按这条线走：循环网络怎么处理序列，它的梯度在时间上怎么传播（《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「梯度作为 Jacobian 的乘积」在时间维上的版本），为什么记不住 20 步之外的东西，LSTM 的门控为什么能记更远——以及那个门在数学上就是残差连接——然后是 seq2seq 的瓶颈、attention 的原始形式，最后是 RNN 的两个致命缺点与 Transformer 的回答。四个实验各对应一段。全篇的核心问题是：
 
 > **RNN 为什么记不住 20 步之外的东西？[^q0] LSTM 的遗忘门与残差连接是什么关系？[^q1] attention 最初是为了解决什么问题被发明的，它又为什么最终取代了发明它的 RNN？[^q2]**
 
@@ -37,7 +37,7 @@ Table: 从 RNN 到 attention 的四个节点
 | 五 | seq2seq 与它的瓶颈 | encoder-decoder、固定向量、翻译质量随句长下降的实测（8 → 32 步） |
 | 六 | attention 的诞生 | Bahdanau 的公式、对齐矩阵、它与 softmax(QK^T)V 的对应 |
 | 七 | RNN 的两个致命缺点与 Transformer 的回答 | 串行 vs 并行（实测硬件利用率差 4.5 倍）、路径长度、`O(n²)` 的代价、RNN 的回声 |
-| 九 | 案例：字符级 LSTM 写莎士比亚 | 与 Transformer 系列第四篇的 nanoGPT 同一份语料、同一预算：val loss 1.71 vs 1.66<br/>生成样例<br/>seq2seq + attention 的对齐矩阵热力图<br/>其余实验的代码与结果 |
+| 九 | 案例：字符级 LSTM 写莎士比亚 | 与 Transformer 系列第五篇的 nanoGPT 同一份语料、同一预算：val loss 1.71 vs 1.66<br/>生成样例<br/>seq2seq + attention 的对齐矩阵热力图<br/>其余实验的代码与结果 |
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
 
@@ -69,7 +69,7 @@ $$
 h_t = \tanh(W h_{t-1} + U x_t + b), \qquad y_t = V h_t
 $$
 
-$$W \in \mathbb{R}^{d \times d}$$ 是状态到状态的转移，$$U$$ 是输入投影，三组参数与 $$T$$ 无关——这是**时间上的参数共享**，与《[深度学习基础（07）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》「定义与两条公式」里的空间参数共享同类。$$h_t$$ 是到第 $$t$$ 步为止全部历史的摘要，维度固定为 $$d$$。
+$$W \in \mathbb{R}^{d \times d}$$ 是状态到状态的转移，$$U$$ 是输入投影，三组参数与 $$T$$ 无关——这是**时间上的参数共享**，与《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》「定义与两条公式」里的空间参数共享同类。$$h_t$$ 是到第 $$t$$ 步为止全部历史的摘要，维度固定为 $$d$$。
 
 ### 2. 展开
 
@@ -86,7 +86,7 @@ Graves 2013 论文里的图 1 画的是同一件事的三层版本——每一�
 
 ![Graves 2013《Generating Sequences With Recurrent Neural Networks》图 1：深层循环网络沿时间展开，输入 x 在底、输出 y 在顶、三个隐藏层横向循环连接。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-graves-fig1.webp)
 
-把它沿时间展开，是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每一层复用同一组权重**。第三篇《[深度学习基础（03）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》解释了激活导数怎样进入每步 Jacobian；第四篇《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讲的 Jacobian 连乘，在这里沿时间反复乘同一个 $$W$$；第八篇《[深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》的 embedding 则把离散 token 变成 RNN 可接收的向量输入。
+把它沿时间展开，是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每一层复用同一组权重**。第四篇《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》解释了激活导数怎样进入每步 Jacobian；第五篇《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讲的 Jacobian 连乘，在这里沿时间反复乘同一个 $$W$$；第九篇《[深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》的 embedding 则把离散 token 变成 RNN 可接收的向量输入。
 
 ## 三、时间上的反向传播
 
@@ -98,7 +98,7 @@ $$
 \frac{\partial L}{\partial h_t} = \left( \prod_{k=t+1}^{T} J_k^T \right) \frac{\partial L}{\partial h_T}, \qquad J_k = \frac{\partial h_k}{\partial h_{k-1}} = \text{diag}\!\left(1 - h_k^2\right) W
 $$
 
-$$T - t$$ 个 Jacobian 的乘积，每个是"tanh 的导数（在 $$(0, 1]$$ 之间）乘同一个 $$W$$"。《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「梯度作为 Jacobian 的乘积」逐步分析过这个现象：乘积的范数由 $$W$$ 的谱范数与 tanh 导数的乘积决定，系统性地小于 1 就指数衰减，大于 1 就指数爆炸。而这里比 MLP 更糟——$$W$$ 每一步都是同一个，没有"不同层的偏差互相抵消"的运气。
+$$T - t$$ 个 Jacobian 的乘积，每个是"tanh 的导数（在 $$(0, 1]$$ 之间）乘同一个 $$W$$"。《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「梯度作为 Jacobian 的乘积」逐步分析过这个现象：乘积的范数由 $$W$$ 的谱范数与 tanh 导数的乘积决定，系统性地小于 1 就指数衰减，大于 1 就指数爆炸。而这里比 MLP 更糟——$$W$$ 每一步都是同一个，没有"不同层的偏差互相抵消"的运气。
 
 ### 2. 实测：梯度随距离的衰减
 
@@ -112,7 +112,7 @@ $$T - t$$ 个 Jacobian 的乘积，每个是"tanh 的导数（在 $$(0, 1]$$ 之
 
 Table: RNN 梯度随距离的衰减实测
 
-即使 $$W$$ 的最大奇异值接近 3（$$c = 1.5$$），tanh 的导数把它拉回来：以距离 0 的 8.0 为基准，20 步之外的梯度只剩 $$0.40 / 8 = 5\%$$，40 步外是 $$7.3 \times 10^{-3} / 8 \approx 0.09\%$$（表里的数是绝对值，比例要除以 8）。$$c = 1.0$$（标准初始化）时 20 步外是 $$4.0 \times 10^{-3} / 8 = 0.05\%$$，60 步外是 $$10^{-11}$$ 量级。这就是"RNN 记不住 20 步之外的东西"的全部含义：不是它的状态装不下，是**训练信号传不到那么远**——第 $$t$$ 步的输入对 loss 的影响梯度几乎为零，$$U$$ 与 $$W$$ 学不到"保留第 $$t$$ 步信息"这件事。另一边，$$W$$ 稍大就会爆炸；Pascanu 等 2013 系统分析了这两种失败，并提出用梯度裁剪对付爆炸——《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「梯度裁剪」介绍了今天 LLM 训练的这个标配，它最初就是为 RNN 发明的。
+即使 $$W$$ 的最大奇异值接近 3（$$c = 1.5$$），tanh 的导数把它拉回来：以距离 0 的 8.0 为基准，20 步之外的梯度只剩 $$0.40 / 8 = 5\%$$，40 步外是 $$7.3 \times 10^{-3} / 8 \approx 0.09\%$$（表里的数是绝对值，比例要除以 8）。$$c = 1.0$$（标准初始化）时 20 步外是 $$4.0 \times 10^{-3} / 8 = 0.05\%$$，60 步外是 $$10^{-11}$$ 量级。这就是"RNN 记不住 20 步之外的东西"的全部含义：不是它的状态装不下，是**训练信号传不到那么远**——第 $$t$$ 步的输入对 loss 的影响梯度几乎为零，$$U$$ 与 $$W$$ 学不到"保留第 $$t$$ 步信息"这件事。另一边，$$W$$ 稍大就会爆炸；Pascanu 等 2013 系统分析了这两种失败，并提出用梯度裁剪对付爆炸——《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「梯度裁剪」介绍了今天 LLM 训练的这个标配，它最初就是为 RNN 发明的。
 
 ### 3. 实测：记忆长度
 
@@ -185,7 +185,7 @@ flowchart LR
 
 ### 2. 细胞状态的更新式就是残差
 
-细胞状态的更新式是**加法**：新状态 $$=$$ 旧状态（乘一个门）$$+$$ 新信息。对比《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「I + J：一条恒等通路」中的残差 $$x_{l+1} = x_l + f(x_l)$$，结构相同——只多了一个逐元素的门 $$f_t$$。它的 Jacobian 是
+细胞状态的更新式是**加法**：新状态 $$=$$ 旧状态（乘一个门）$$+$$ 新信息。对比《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「I + J：一条恒等通路」中的残差 $$x_{l+1} = x_l + f(x_l)$$，结构相同——只多了一个逐元素的门 $$f_t$$。它的 Jacobian 是
 
 $$
 \frac{\partial c_t}{\partial c_{t-1}} = \text{diag}(f_t) + (\text{依赖 } h_{t-1} \text{ 的项})
@@ -197,7 +197,7 @@ $$
 
 恒等通路只在 $$f_t \approx 1$$ 时打开。默认初始化下 $$b_f = 0$$，$$f_t = \sigma(\text{接近 } 0) \approx 0.5$$——每步保留一半，20 步后是 $$0.5^{20} \approx 10^{-6}$$，通路是关着的。把 $$b_f$$ 初始化为 1（Gers 等 2000 建议；Jozefowicz 等 2015 系统验证），$$f_t \approx \sigma(1) = 0.73$$，20 步后还剩 0.2%……仍然不多，但足以让梯度把 $$f_t$$ 进一步推向 1，训练能启动。第三章的实验就是这个差别：$$b_f = 0$$ 时 LSTM 在 20 步失败，$$b_f = 1$$ 时 20 步与 40 步都在 500 步内学会。
 
-这与《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的教训相同：**残差通路要在初始时刻就是打开的**——ResNet 靠 $$x + f(x)$$ 的结构保证，GPT-2 靠残差分支的小初始化保证，LSTM 靠遗忘门偏置保证。忘了这一条，加了残差也白加。
+这与《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的教训相同：**残差通路要在初始时刻就是打开的**——ResNet 靠 $$x + f(x)$$ 的结构保证，GPT-2 靠残差分支的小初始化保证，LSTM 靠遗忘门偏置保证。忘了这一条，加了残差也白加。
 
 ### 4. 仍然不够
 
@@ -269,7 +269,7 @@ Table: 加上 attention 后倒序任务的准确率
 
 ### 3. 与 softmax(QKᵀ)V 的对应
 
-把 Bahdanau 的式子换一套记号：$$s_{k-1}$$ 是 **query**，$$h_j^{enc}$$ 既是 **key**（用来打分）也是 **value**（用来加权求和），打分函数 $$v_a^T \tanh(W_a h_j + U_a s)$$ 是一个小 MLP（"additive attention"）。Luong 等 2015 把打分简化成点积 $$s^T h_j$$；Vaswani 等 2017 给 query、key、value 各配一个投影矩阵，打分用缩放点积 $$q^T k / \sqrt{d_k}$$（[L0 数学系列第四篇](/probability-basics-language-model-as-conditional-distribution.html)解释了 $$\sqrt{d_k}$$），再把整件事写成矩阵形式：
+把 Bahdanau 的式子换一套记号：$$s_{k-1}$$ 是 **query**，$$h_j^{enc}$$ 既是 **key**（用来打分）也是 **value**（用来加权求和），打分函数 $$v_a^T \tanh(W_a h_j + U_a s)$$ 是一个小 MLP（"additive attention"）。Luong 等 2015 把打分简化成点积 $$s^T h_j$$；Vaswani 等 2017 给 query、key、value 各配一个投影矩阵，打分用缩放点积 $$q^T k / \sqrt{d_k}$$（[L0 数学系列第五篇](/probability-basics-language-model-as-conditional-distribution.html)解释了 $$\sqrt{d_k}$$），再把整件事写成矩阵形式：
 
 $$
 \text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\right) V
@@ -308,7 +308,7 @@ RNN 的推理成本是 $$O(1)$$ / token、状态大小固定——这两点 Tran
 
 ### 0. 与 nanoGPT 同一份语料、同一预算
 
-**问题与数据**：Transformer 系列第四篇用 nanoGPT 在 1 MB 的莎士比亚剧本上训了一个字符级 GPT（4 层、128 维、0.80M 参数，batch 12 × 64 字符 × 2000 步，val loss 4.17 → 1.66）。这一节用**同一份语料、同样的 batch / 上下文 / 步数**训一个 2 层 LSTM（256 维，1.09M 参数），看 2013 年 Graves、2015 年 Karpathy char-rnn 那一代模型和小 Transformer 比在哪、差在哪。这是 RNN 最有名的应用之一——它让"神经网络能写出像人话的东西"第一次进入大众视野。
+**问题与数据**：Transformer 系列第五篇用 nanoGPT 在 1 MB 的莎士比亚剧本上训了一个字符级 GPT（4 层、128 维、0.80M 参数，batch 12 × 64 字符 × 2000 步，val loss 4.17 → 1.66）。这一节用**同一份语料、同样的 batch / 上下文 / 步数**训一个 2 层 LSTM（256 维，1.09M 参数），看 2013 年 Graves、2015 年 Karpathy char-rnn 那一代模型和小 Transformer 比在哪、差在哪。这是 RNN 最有名的应用之一——它让"神经网络能写出像人话的东西"第一次进入大众视野。
 
 **思路**：字符级语言模型——输入 64 个字符，每个位置预测下一个字符，loss 是交叉熵（每字符的 nats）。LSTM 一次读一个字符、状态 $$(h, c)$$ 各 256 维；nanoGPT 一次看全部 64 个。
 
@@ -361,7 +361,7 @@ Then you do hath the destion and stri
 三件事：
 
 - **同一量级**：LSTM val 1.71 vs nanoGPT 1.66。1 MB 的莎士比亚、0.8–1.1M 参数上，2015 年的模型和 2017 年的模型几乎一样好，生成的样子也一样——单词一半是拼出来的，但角色名、冒号、换行、诗行长度、thee / hath 全对。**Transformer 的优势不在这个规模上**。
-- **LSTM 前期快得多**（500 步 1.94 vs 2.40）：循环结构自带"下一个字符和上一个字符相关"的偏置，Transformer 要从数据里学出这个偏置——《[深度学习基础（07）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》「归纳偏置与数据量」一节的序列版。
+- **LSTM 前期快得多**（500 步 1.94 vs 2.40）：循环结构自带"下一个字符和上一个字符相关"的偏置，Transformer 要从数据里学出这个偏置——《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》「归纳偏置与数据量」一节的序列版。
 - **快 15 倍**（27 秒 vs 7 分钟）——但这是 nanoGPT 小 batch 在 MPS 上 kernel 启动瓶颈的假象，不是 LSTM 算得少。真正的差别在第七章：LSTM 的 64 步是**顺序**的，序列长到几千、batch 大到几百时 GPU 喂不饱；Transformer 的 64 个位置是并行的一次矩阵乘。这个规模上看不出来，规模上去就是全部。
 
 **落地还差什么**：把 LSTM 做大（Graves 2013 是 3 层 × 700；2016 年 Google 翻译的 GNMT 是 8 层 LSTM + attention）在 2017 年之前就是最强的序列模型；之后所有资源都转向了 Transformer，不是因为 LSTM 在小数据上更差，而是因为它在大数据、长序列、大 batch 上**训不快**——第七章讲的那两个致命缺点。下面第 1–2 节是本篇其余实验（梯度衰减、记忆长度、遗忘门偏置、seq2seq、计时）的代码与结果。
@@ -411,7 +411,7 @@ for t in range(T, 0, -1):
 
    <details markdown="1"><summary>答案</summary>
 
-   深度为 $$T$$（序列长度）的网络，每层多吃一个输入 $$x_t$$；最大的不同是**每层权重相同**——《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讨论的 Jacobian 连乘问题以最纯粹的形式出现，一个因子偏离 1 就在所有层同时偏离。
+   深度为 $$T$$（序列长度）的网络，每层多吃一个输入 $$x_t$$；最大的不同是**每层权重相同**——《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讨论的 Jacobian 连乘问题以最纯粹的形式出现，一个因子偏离 1 就在所有层同时偏离。
 
    </details>
 

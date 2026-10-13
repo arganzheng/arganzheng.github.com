@@ -155,7 +155,7 @@ decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与�
 
 编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
-这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
+这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
 
 ## 六、位置 embedding：告诉模型这是第几个 token
 
@@ -371,7 +371,7 @@ Llama 后续用 GQA 缩小 $$W_K, W_V$$，并去掉 bias；四个矩阵的角色
 
 ### 1. attention 之后为什么还要一步
 
-回头看第七章第 3 节的第 ⑥ 步：输出是 $$V$$ 的**加权平均**。加权平均是线性运算——不管权重多聪明，输出永远在输入向量张成的空间里，不能"算出"新东西。而且到这一步为止整个模型都是线性的（查表、加法、矩阵乘），[《深度学习基础（02）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)说过：没有非线性，一百层等于一层。
+回头看第七章第 3 节的第 ⑥ 步：输出是 $$V$$ 的**加权平均**。加权平均是线性运算——不管权重多聪明，输出永远在输入向量张成的空间里，不能"算出"新东西。而且到这一步为止整个模型都是线性的（查表、加法、矩阵乘），[《深度学习基础（03）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)说过：没有非线性，一百层等于一层。
 
 所以每个 block 的第二个子层是一个小小的两层神经网络，**每个 token 各自过一遍**（token 之间完全不交流，所以叫 position-wise / 逐位置 FFN）：
 
@@ -379,7 +379,7 @@ $$
 \text{FFN}(x) = \text{GELU}(x W_1 + b_1)\, W_2 + b_2, \qquad W_1 \in \mathbb{R}^{d \times 4d},\; W_2 \in \mathbb{R}^{4d \times d}
 $$
 
-先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（02）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配；公式与导数的完整对照见[《深度学习基础（03）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
+先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（03）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配；公式与导数的完整对照见[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
 
 ### 2. 它在一层里占了三分之二
 
@@ -399,7 +399,7 @@ $$
 x \leftarrow x + \text{Attention}(\text{LN}(x)), \qquad x \leftarrow x + \text{FFN}(\text{LN}(x))
 $$
 
-这就是残差连接（[《深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差》](/initialization-normalization-and-residual.html)讲了它的数学：让梯度能沿着"+"直接传回去，深网络才训得动）。一个有用的读法：把那条从 embedding 一直通到 lm_head 的 $$[T, d]$$ 主干叫**残差流**（residual stream），每个子层都是从主干上读一份、算出一个"修正量"、再加回主干。12 层 = 24 次修正。GPT-2 small 的一个 token 从进到出，它的 768 维向量被修正了 24 次，每次修正量都比主干本身小得多——这也是为什么 Transformer 能到 100 层以上而 RNN 不行。
+这就是残差连接（[《深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差》](/initialization-normalization-and-residual.html)讲了它的数学：让梯度能沿着"+"直接传回去，深网络才训得动）。一个有用的读法：把那条从 embedding 一直通到 lm_head 的 $$[T, d]$$ 主干叫**残差流**（residual stream），每个子层都是从主干上读一份、算出一个"修正量"、再加回主干。12 层 = 24 次修正。GPT-2 small 的一个 token 从进到出，它的 768 维向量被修正了 24 次，每次修正量都比主干本身小得多——这也是为什么 Transformer 能到 100 层以上而 RNN 不行。
 
 ### 2. LayerNorm 做什么
 
