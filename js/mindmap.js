@@ -930,6 +930,7 @@
     var mountOptions = {};
     Object.keys(options).forEach(function (key) { mountOptions[key] = options[key]; });
     mountOptions.mode = initialMode;
+    mountOptions.fullscreen = false;
     mountOptions.onMode = setTabs;
     mountOptions.onNavigate = function (node) {
       close();
