@@ -869,6 +869,7 @@
     var body = document.body;
     var previousOverflow = body.style.overflow;
     var previousMode = safeGet(MODE_KEY);
+    var previousFullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
     var initialMode = previousMode === 'outline' || previousMode === 'map' ? previousMode :
       (options.mode === 'outline' ? 'outline' : 'map');
     var overlay = document.createElement('div');
@@ -910,6 +911,19 @@
     body.appendChild(overlay);
     var fullscreenEntered = false;
     var closing = false;
+    var closeFinished = false;
+    var controller = null;
+    function finishClose() {
+      if (closeFinished || !overlay.parentNode) return;
+      closeFinished = true;
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+      window.removeEventListener('keydown', onKeydown, true);
+      if (controller) controller.destroy();
+      overlay.remove();
+      body.style.overflow = previousOverflow;
+      if (opener && opener.focus) opener.focus();
+    }
     function onFullscreenChange() {
       var fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
       if (fullscreenElement === overlay) {
@@ -917,7 +931,10 @@
           fullscreenEntered = true;
           if (controller) controller.fit();
         }
-      } else if (fullscreenEntered) close();
+      } else if (fullscreenEntered) {
+        if (closing) finishClose();
+        else close();
+      }
     }
     if (options.fullscreen) {
       var requestFullscreen = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
@@ -932,7 +949,6 @@
     }
     body.style.overflow = 'hidden';
     var originalNavigate = options.onNavigate;
-    var controller = null;
     function setTabs(mode) {
       Object.keys(tabButtons).forEach(function (key) {
         tabButtons[key].classList.toggle('is-active', key === mode);
@@ -944,6 +960,16 @@
       closing = true;
       var fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
       if (fullscreenElement === overlay) {
+        var restoreFullscreen = previousFullscreenElement &&
+          (previousFullscreenElement.requestFullscreen || previousFullscreenElement.webkitRequestFullscreen);
+        if (restoreFullscreen) {
+          try {
+            var restore = restoreFullscreen.call(previousFullscreenElement);
+            if (restore && typeof restore.then === 'function') restore.then(finishClose, finishClose);
+            else window.setTimeout(finishClose, 1000);
+            return;
+          } catch (e) {}
+        }
         var exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
         if (exitFullscreen) {
           try {
@@ -952,13 +978,7 @@
           } catch (e) {}
         }
       }
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
-      window.removeEventListener('keydown', onKeydown, true);
-      if (controller) controller.destroy();
-      overlay.remove();
-      body.style.overflow = previousOverflow;
-      if (opener && opener.focus) opener.focus();
+      finishClose();
     }
     function onKeydown(event) {
       if (event.key === 'Escape') {

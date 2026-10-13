@@ -9183,7 +9183,7 @@ html.rs-focus-page[data-rs-focus="on"] .post-container > .comment {
 }
 html.rs-focus-page[data-rs-focus="on"] .page-header {
   position: relative;
-  max-width: 1400px;
+  max-width: 1800px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 15px;
@@ -9208,9 +9208,12 @@ html.rs-focus-page[data-rs-focus="on"] article > .container > .row {
 html.rs-focus-page[data-rs-focus="on"] .post-container {
   float: none;
   width: 100%;
-  max-width: 1400px;
+  max-width: 1800px;
   margin: 0 auto;
   padding-top: 36px;
+}
+html.rs-focus-page[data-rs-focus="on"] header.intro-header .container {
+  max-width: none;
 }
 html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row {
   margin-left: 0;
@@ -9219,7 +9222,7 @@ html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row {
 html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
   float: none;
   width: 100%;
-  max-width: 1400px;
+  max-width: 1800px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 15px;
@@ -9263,6 +9266,18 @@ html.rs-focus-page[data-rs-focus="on"] header.intro-header .post-heading .tags a
   }
   html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
     padding-right: 40px;
+  }
+}
+@media only screen and (min-width: 1801px) and (max-width: 1879px) {
+  html.rs-focus-page[data-rs-focus="on"] .page-header {
+    width: calc(100vw - 80px);
+    margin-left: calc(15px - (100vw - 1800px) / 2);
+  }
+}
+@media only screen and (min-width: 1880px) {
+  html.rs-focus-page[data-rs-focus="on"] .page-header {
+    width: 1800px;
+    margin-left: -25px;
   }
 }
 @media only screen and (max-width: 767px) {
