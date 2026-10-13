@@ -252,6 +252,7 @@
           tree: options.tree,
           mode: 'map',
           filename: options.filename,
+          fullscreen: true,
           onNavigate: options.onNavigate
         });
       });
@@ -373,9 +374,8 @@
       var nextSvg = svgElement('svg', {
         'class': 'mm-map-svg',
         'xmlns': SVG_NS,
-        'viewBox': '0 0 ' + layout.width + ' ' + layout.height,
-        'width': layout.width,
-        'height': layout.height,
+        'width': '100%',
+        'height': '100%',
         'font-family': FONT,
         'role': 'img',
         'aria-label': options.title || '思维导图'
@@ -525,7 +525,7 @@
           applyTransform();
         }
       } else if (!hasView) {
-        window.requestAnimationFrame(initialView);
+        window.requestAnimationFrame(function () { if (!hasView) initialView(); });
       }
     }
 
@@ -707,6 +707,10 @@
       return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     }
 
+    function capturePointer(pointerId) {
+      try { viewport.setPointerCapture(pointerId); } catch (e) {}
+    }
+
     function startPinch() {
       var a = pointerPositions[pointerIds[0]], b = pointerPositions[pointerIds[1]];
       var mid = midpoint(a, b), rect = viewport.getBoundingClientRect();
@@ -720,11 +724,11 @@
       };
       panStart = null;
       moved = true;
+      pointerIds.forEach(capturePointer);
     }
 
     viewport.addEventListener('pointerdown', function (event) {
       if (event.button !== undefined && event.button !== 0) return;
-      viewport.setPointerCapture(event.pointerId);
       pointerPositions[event.pointerId] = point(event);
       pointerIds.push(event.pointerId);
       if (pointerIds.length === 1) {
@@ -748,7 +752,10 @@
         moved = true;
       } else if (panStart) {
         var dx = event.clientX - panStart.point.x, dy = event.clientY - panStart.point.y;
-        if (Math.sqrt(dx * dx + dy * dy) > 4) moved = true;
+        if (!moved && Math.sqrt(dx * dx + dy * dy) > 4) {
+          moved = true;
+          capturePointer(event.pointerId);
+        }
         if (moved) {
           panX = panStart.x + dx;
           panY = panStart.y + dy;
@@ -805,6 +812,7 @@
 
     return {
       setMode: setMode,
+      fit: fit,
       refresh: function () { renderMap(); renderOutline(); },
       destroy: function () {
         if (observer) observer.disconnect();
@@ -860,6 +868,28 @@
     overlay.appendChild(header);
     overlay.appendChild(content);
     body.appendChild(overlay);
+    var fullscreenEntered = false;
+    var closing = false;
+    function onFullscreenChange() {
+      var fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+      if (fullscreenElement === overlay) {
+        if (!fullscreenEntered) {
+          fullscreenEntered = true;
+          if (controller) controller.fit();
+        }
+      } else if (fullscreenEntered) close();
+    }
+    if (options.fullscreen) {
+      var requestFullscreen = overlay.requestFullscreen || overlay.webkitRequestFullscreen;
+      if (requestFullscreen) {
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+        try {
+          var request = requestFullscreen.call(overlay);
+          if (request && typeof request.catch === 'function') request.catch(function () {});
+        } catch (e) {}
+      }
+    }
     body.style.overflow = 'hidden';
     var originalNavigate = options.onNavigate;
     var controller = null;
@@ -870,7 +900,20 @@
       });
     }
     function close() {
-      if (!overlay.parentNode) return;
+      if (!overlay.parentNode || closing) return;
+      closing = true;
+      var fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+      if (fullscreenElement === overlay) {
+        var exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitFullscreen) {
+          try {
+            var exit = exitFullscreen.call(document);
+            if (exit && typeof exit.catch === 'function') exit.catch(function () {});
+          } catch (e) {}
+        }
+      }
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
       window.removeEventListener('keydown', onKeydown, true);
       if (controller) controller.destroy();
       overlay.remove();
@@ -894,6 +937,10 @@
       else if (node.href) window.location.href = node.href;
     };
     controller = mount(content, mountOptions);
+    if (fullscreenEntered || document.fullscreenElement === overlay || document.webkitFullscreenElement === overlay) {
+      fullscreenEntered = true;
+      controller.fit();
+    }
     controller.setMode(initialMode, false);
     closeButton.addEventListener('click', close);
     window.addEventListener('keydown', onKeydown, true);
