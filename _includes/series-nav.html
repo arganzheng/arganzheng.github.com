@@ -19,6 +19,9 @@
       <span class="sb-toggle" aria-hidden="true">目录</span>
     </summary>
     <p class="sb-overview"><a href="{{ series_meta.overview | prepend: site.baseurl }}">系列总览</a> — 为什么这样组织、读它需要什么、读完能做什么{% if series_meta.slides %} · <a href="{{ series_meta.slides | prepend: site.baseurl }}">幻灯片</a> — 整个系列的精华，一份可分享的 deck{% endif %}</p>
+    {%- if series_meta.maps.size > 0 %}
+    <p class="sb-overview sb-maps">学习地图 — {% for m in series_meta.maps %}<a href="{{ m.url | prepend: site.baseurl }}">{{ m.name }}</a> 第 {{ m.index }} / {{ m.total }} 个系列{% unless forloop.last %} · {% endunless %}{% endfor %}</p>
+    {%- endif %}
     <ol class="sb-list">
       {%- for p in series_posts %}
       <li data-url="{{ p.url }}"{% if p.url == page.url %} class="is-current"{% endif %}>
@@ -28,10 +31,18 @@
     </ol>
   </details>
   {%- comment %} also in the bottom box, although the pager below repeats it: the two boxes look alike {% endcomment -%}
-  {%- if series_prev or series_next %}
+  {%- comment %} first part: the map's previous series; finished series' last part (the recap): the next one {% endcomment -%}
+  {%- assign sb_prev_series = nil -%}
+  {%- assign sb_next_series = nil -%}
+  {%- assign sb_map = series_meta.maps | first -%}
+  {%- if sb_map -%}
+    {%- if series_prev == nil and sb_map.prev -%}{%- assign sb_prev_series = site.data.series[sb_map.prev] -%}{%- endif -%}
+    {%- if series_next == nil and sb_map.next and series_meta.status == '完结' -%}{%- assign sb_next_series = site.data.series[sb_map.next] -%}{%- endif -%}
+  {%- endif -%}
+  {%- if series_prev or series_next or sb_prev_series or sb_next_series %}
   <p class="sb-nav">
-    {%- if series_prev %}<span>上一篇：<a href="{{ series_prev.url | prepend: site.baseurl }}">{{ series_prev.title | split: '）：' | last }}</a></span>{% endif -%}
-    {%- if series_next %}<span>下一篇：<a href="{{ series_next.url | prepend: site.baseurl }}">{{ series_next.title | split: '）：' | last }}</a></span>{% endif -%}
+    {%- if series_prev %}<span>上一篇：<a href="{{ series_prev.url | prepend: site.baseurl }}">{{ series_prev.title | split: '）：' | last }}</a></span>{% elsif sb_prev_series %}<span>上一个系列：{% include roadmap-series-link.html s=sb_prev_series %}</span>{% endif -%}
+    {%- if series_next %}<span>下一篇：<a href="{{ series_next.url | prepend: site.baseurl }}">{{ series_next.title | split: '）：' | last }}</a></span>{% elsif sb_next_series %}<span>下一个系列：{% include roadmap-series-link.html s=sb_next_series %}</span>{% endif -%}
   </p>
   {%- endif %}
 </div>

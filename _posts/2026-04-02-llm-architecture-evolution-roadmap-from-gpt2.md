@@ -8,7 +8,7 @@ updated: 2026-10-11
 comments_path: /transformer-anatomy-and-parameter-count.html
 ---
 
-> **系列总览。** 本系列承接《Transformer 原理与实现：从论文到手搓 GPT-2》，从 GPT-2 的结构出发，沿着现代 LLM 的演进路线，读真实模型配置、拆解结构改动，再把它们换算成成本。
+> **系列总览。** 从 GPT-2 的结构出发，沿着现代 LLM 的演进路线，读真实模型配置、拆解结构改动，再把它们换算成成本。
 
 ## 内容简介
 

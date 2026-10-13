@@ -92,8 +92,17 @@
 		}
 	}
 }
+// series-box extras for the learning map (roadmap-box.html on overviews, the 学习地图 line in series-nav.html)
+.post-container .series-box {
+	.sb-maps { margin-top: 0; }
+	.sb-soon { color: #8b949e; small { margin-left: 4px; font-size: 11px; } }
+	.sb-list .sb-soon { display: block; padding: 1px 8px 1px 6px; border-left: 2px solid transparent; &::before { content: counter(ss) "."; display: inline-block; min-width: 1.7em; } }
+	.sb-nav + .sb-nav { margin-top: 4px; padding-top: 0; border-top: 0; }
+	.sb-nav a.sb-map-name { padding: 0; font-weight: 600; color: #57606a; &:hover { background: none; color: @brand-primary; } }
+}
 @media (max-width: 767px) {
 	.post-container .series-box .sb-list { columns: 1; }
+	.post-container .series-box .sb-nav a.sb-map-name { flex-basis: 100%; }
 }
 
 .st-level, .sb-level {
