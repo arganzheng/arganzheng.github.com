@@ -3563,6 +3563,12 @@ body.outline-unavailable .catalog-mindmap {
 .mm-node:focus rect {
   stroke-width: 3;
 }
+.mm-node-hit {
+  stroke: none !important;
+}
+.mm-node:focus line {
+  stroke-width: 2.6;
+}
 .mm-node-toggle text {
   pointer-events: none;
 }
