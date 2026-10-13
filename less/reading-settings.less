@@ -5,6 +5,9 @@
 .nav-reading-settings[hidden] { display: none !important; }
 .nav-reading-settings .nav-reading-settings-label { display: none; }
 .nav-reading-settings svg text { text-transform: none; }
+.nav-focus-mode[hidden] { display: none !important; }
+.nav-focus-mode .nav-focus-mode-label { display: none; }
+.nav-focus-mode a svg { vertical-align: -2px; }
 
 .reading-settings-panel {
 	position: fixed;
@@ -54,6 +57,9 @@
 	background: #0969da;
 	color: #fff;
 }
+.rs-segments button:disabled { cursor: default; opacity: .45; }
+.rs-paper-note { margin: -4px 0 10px 46px; color: #57606a; font-size: 12px; }
+.rs-paper-note[hidden] { display: none; }
 .rs-segments button:focus-visible,
 .rs-reset:focus-visible { position: relative; z-index: 1; outline: 2px solid #0969da; outline-offset: -2px; }
 .rs-reset {
@@ -88,7 +94,7 @@ html.rs-focus-page[data-rs-focus="on"] {
 
 	.page-header {
 		position: relative;
-		max-width: 790px;
+		max-width: 1400px;
 		margin-left: auto;
 		margin-right: auto;
 		padding-left: 15px;
@@ -113,7 +119,7 @@ html.rs-focus-page[data-rs-focus="on"] {
 	.post-container {
 		float: none;
 		width: 100%;
-		max-width: 790px;
+		max-width: 1400px;
 		margin: 0 auto;
 		padding-top: 36px;
 	}
@@ -125,7 +131,7 @@ html.rs-focus-page[data-rs-focus="on"] {
 		> [class*="col-"] {
 			float: none;
 			width: 100%;
-			max-width: 790px;
+			max-width: 1400px;
 			margin-left: auto;
 			margin-right: auto;
 			padding-left: 15px;
@@ -149,15 +155,25 @@ html.rs-focus-page[data-rs-focus="on"] {
 	}
 }
 
+// Line the title block up with .post-container: the header sits in a
+// container with 15px less side padding than `article > .container`.
 @media only screen and (min-width: 768px) {
 	html.rs-focus-page[data-rs-focus="on"] {
+		.page-header { width: calc(100% - 30px); }
+		header.intro-header .container > .row > [class*="col-"] {
+			padding-right: 15px;
+		}
+	}
+}
+@media only screen and (min-width: 1200px) {
+	html.rs-focus-page[data-rs-focus="on"] {
 		.page-header {
-			padding-right: 5%;
+			padding-right: 40px;
 
-			&::after { right: 5%; }
+			&::after { right: 40px; }
 		}
 		header.intro-header .container > .row > [class*="col-"] {
-			padding-right: 5%;
+			padding-right: 40px;
 		}
 	}
 }
@@ -191,6 +207,7 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] { display: none !i
 
 @media only screen and (max-width: 767px) {
 	.nav-reading-settings .nav-reading-settings-label { display: inline; }
+	.nav-focus-mode .nav-focus-mode-label { display: inline; }
 	.reading-settings-panel {
 		top: auto !important;
 		right: 12px !important;
@@ -207,6 +224,7 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] { display: none !i
 }
 @media print {
 	.nav-reading-settings,
+	.nav-focus-mode,
 	.reading-settings-panel { display: none !important; }
 }
 

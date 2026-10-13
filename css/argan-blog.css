@@ -2200,12 +2200,39 @@ html.private-post:not(.author-ok) .private-post-gate {
   font-size: 13px;
   font-weight: normal;
 }
-.post-container .related.backlinks .backlinks-more summary {
-  color: #6a6a6a;
-  cursor: pointer;
+.post-container .related.backlinks .backlinks-more-item {
+  margin-bottom: 0;
 }
-.post-container .related.backlinks .backlinks-more summary:hover {
+.post-container .related.backlinks .backlinks-more {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.post-container .related.backlinks .backlinks-more > summary {
+  display: inline-block;
+  margin: 0;
+  font-weight: normal;
+  color: #6a6a6a;
+  font-size: 85%;
+}
+.post-container .related.backlinks .backlinks-more > summary::before {
+  content: none;
+}
+.post-container .related.backlinks .backlinks-more > summary::after {
+  content: "\25BE";
+  margin-left: 4px;
+}
+.post-container .related.backlinks .backlinks-more > summary:hover {
   color: #00788f;
+}
+.post-container .related.backlinks .backlinks-more[open] > summary {
+  display: none;
+}
+.post-container .related.backlinks .backlinks-more > ul {
+  margin: 0;
+  padding: 0;
 }
 .post-container .related + .related {
   margin-top: 28px;
@@ -9021,6 +9048,15 @@ html.mp-viewing {
 .nav-reading-settings svg text {
   text-transform: none;
 }
+.nav-focus-mode[hidden] {
+  display: none !important;
+}
+.nav-focus-mode .nav-focus-mode-label {
+  display: none;
+}
+.nav-focus-mode a svg {
+  vertical-align: -2px;
+}
 .reading-settings-panel {
   position: fixed;
   z-index: 1200;
@@ -9076,6 +9112,18 @@ html.mp-viewing {
   background: #0969da;
   color: #fff;
 }
+.rs-segments button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.rs-paper-note {
+  margin: -4px 0 10px 46px;
+  color: #57606a;
+  font-size: 12px;
+}
+.rs-paper-note[hidden] {
+  display: none;
+}
 .rs-segments button:focus-visible,
 .rs-reset:focus-visible {
   position: relative;
@@ -9115,7 +9163,7 @@ html.rs-focus-page[data-rs-focus="on"] .post-container > .comment {
 }
 html.rs-focus-page[data-rs-focus="on"] .page-header {
   position: relative;
-  max-width: 790px;
+  max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 15px;
@@ -9140,7 +9188,7 @@ html.rs-focus-page[data-rs-focus="on"] article > .container > .row {
 html.rs-focus-page[data-rs-focus="on"] .post-container {
   float: none;
   width: 100%;
-  max-width: 790px;
+  max-width: 1400px;
   margin: 0 auto;
   padding-top: 36px;
 }
@@ -9151,7 +9199,7 @@ html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row {
 html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
   float: none;
   width: 100%;
-  max-width: 790px;
+  max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
   padding-left: 15px;
@@ -9180,13 +9228,21 @@ html.rs-focus-page[data-rs-focus="on"] header.intro-header .post-heading .tags a
 }
 @media only screen and (min-width: 768px) {
   html.rs-focus-page[data-rs-focus="on"] .page-header {
-    padding-right: 5%;
-  }
-  html.rs-focus-page[data-rs-focus="on"] .page-header::after {
-    right: 5%;
+    width: calc(100% - 30px);
   }
   html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
-    padding-right: 5%;
+    padding-right: 15px;
+  }
+}
+@media only screen and (min-width: 1200px) {
+  html.rs-focus-page[data-rs-focus="on"] .page-header {
+    padding-right: 40px;
+  }
+  html.rs-focus-page[data-rs-focus="on"] .page-header::after {
+    right: 40px;
+  }
+  html.rs-focus-page[data-rs-focus="on"] header.intro-header .container > .row > [class*="col-"] {
+    padding-right: 40px;
   }
 }
 @media only screen and (max-width: 767px) {
@@ -9225,6 +9281,9 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] {
   .nav-reading-settings .nav-reading-settings-label {
     display: inline;
   }
+  .nav-focus-mode .nav-focus-mode-label {
+    display: inline;
+  }
   .reading-settings-panel {
     top: auto !important;
     right: 12px !important;
@@ -9244,6 +9303,7 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] {
 }
 @media print {
   .nav-reading-settings,
+  .nav-focus-mode,
   .reading-settings-panel {
     display: none !important;
   }
@@ -10152,11 +10212,6 @@ html[data-theme="dark"] .post-container .related .related-date {
 html[data-theme="dark"] .post-container .related.backlinks .h3 small {
   color: #969ba4;
 }
-html[data-theme="dark"] .post-container .related.backlinks .backlinks-more {
-  background-color: #1f2125;
-  border-color: #33363c;
-  border-left-color: #4cb7cb;
-}
 html[data-theme="dark"] .post-container .related.backlinks .backlinks-more summary {
   color: #969ba4;
 }
@@ -10222,7 +10277,8 @@ html[data-theme="dark"] .reading-settings-panel {
   color: #d3d5d9;
 }
 html[data-theme="dark"] .rs-setting-label,
-html[data-theme="dark"] .rs-reset {
+html[data-theme="dark"] .rs-reset,
+html[data-theme="dark"] .rs-paper-note {
   color: #969ba4;
 }
 html[data-theme="dark"] .rs-segments {

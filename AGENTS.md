@@ -205,10 +205,15 @@ Pages has `https_enforced` on.
   per-post continue-reading prompt; it requires `.post-length` and skips Moments.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
-  the early head script applies them before styles load. Focus is post-only:
-  the script adds `html.rs-focus-page`, and `less/reading-settings.less`
-  scopes its layout changes to that class. Escape exits only when the settings
-  panel is closed, focus is outside editable fields, and no overlay is open.
+  the early head script applies them before styles load. Focus is entered from
+  the navbar `.nav-focus-mode` button on post pages, not from the Aa panel. The
+  panel's 底色 row chooses light or sepia for daytime through `setTheme()` and
+  is disabled in dark mode; dark mode is selected only by the sun/moon
+  `toggleTheme()`. 恢复默认 resets size, width, font, and paper, but not focus.
+  Focus still adds `html.rs-focus-page`, and
+  `less/reading-settings.less` scopes its layout changes to that class. Escape
+  exits only when the settings panel is closed, focus is outside editable
+  fields, and no overlay is open.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.
@@ -562,7 +567,10 @@ The scissors beside the shared editor's image button and article-level `⌥S`
 use `captureScreenshot()` / `getDisplayMedia`; figure, Mermaid, table and code
 scissors pass both their caption target and block to `captureBlock()`. The
 browser asks which surface to share, with the current tab preferred. Capture
-reads window and screen geometry before opening the browser prompt.
+reads window and screen geometry before opening the browser prompt and refreshes
+it after the frame is ready, because Chrome's sharing infobar can shrink the
+viewport. `captureBlock()` refits its presenter on `resize` until the frame is
+drawn.
 `viewportRectFor(surface, frameWidth, frameHeight, metrics)` returns
 the whole frame for `browser` or an unknown surface; for `window` and `monitor`
 it maps the browser's inner viewport into captured-frame pixels, clamps it to
@@ -577,9 +585,9 @@ rendering. Before the browser prompt it presents a clone in a full-viewport
 article ancestors so article styles remain active. It hides figure/table/code
 tools, removes HTML ids, and namespaces SVG ids while updating internal
 references. Raster images may scale up only to their natural pixel width;
-SVG, tables and code scale up to 3×, with 48 px viewport padding and no
-downscaling. A block taller than the viewport stays at 1× and starts at the
-top. Its visible bounds plus 12 px are clamped and mapped through
+SVG, tables and code scale up to 3×, with 48 px viewport padding. Width may
+scale down to 0.75× when necessary; taller blocks otherwise stay at 1× and
+start at the top. Its visible bounds plus 12 px are clamped and mapped through
 `viewportRect` as the crop candidate. The presenter is removed immediately
 after drawing the captured frame and on prompt cancellation, restoring scroll.
 Figure/table/code scissors anchor comments to the caption/header target while
