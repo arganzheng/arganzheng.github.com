@@ -1542,10 +1542,8 @@
     presenter.style.setProperty('--ap-block-padding', padding + 'px');
 
     var originalScrollX = window.scrollX, originalScrollY = window.scrollY;
-    function showPresenter() {
-      document.body.appendChild(presenter);
-      var contentRect = content.getBoundingClientRect();
-      if (contentRect.width < 1 || contentRect.height < 1) throw new Error('无法显示要截图的内容');
+    var baseWidth = 0, baseHeight = 0;
+    function fit() {
       var availableWidth = Math.max(1, window.innerWidth - padding * 2);
       var availableHeight = Math.max(1, window.innerHeight - padding * 2);
       var maxScale = 3;
@@ -1558,20 +1556,31 @@
           if (renderedWidth > 0) maxScale = Math.max(1, image.naturalWidth / renderedWidth);
         }
       }
-      var widthScale = availableWidth / contentRect.width;
+      var widthScale = availableWidth / baseWidth;
       var scale = widthScale < 1
         ? Math.max(0.75, Math.min(maxScale, widthScale))
-        : Math.max(1, Math.min(maxScale, widthScale, availableHeight / contentRect.height));
-      frame.style.width = contentRect.width * scale + 'px';
-      frame.style.height = contentRect.height * scale + 'px';
-      content.style.width = contentRect.width + 'px';
-      content.style.height = contentRect.height + 'px';
+        : Math.max(1, Math.min(maxScale, widthScale, availableHeight / baseHeight));
+      frame.style.width = baseWidth * scale + 'px';
+      frame.style.height = baseHeight * scale + 'px';
+      content.style.width = baseWidth + 'px';
+      content.style.height = baseHeight + 'px';
       content.style.transform = 'scale(' + scale + ')';
+      presenter.classList.remove('is-wide', 'is-tall');
       if (scale < 1) presenter.classList.add('is-wide');
-      if (contentRect.height * scale > availableHeight) presenter.classList.add('is-tall');
+      if (baseHeight * scale > availableHeight) presenter.classList.add('is-tall');
       clone.getBoundingClientRect();
     }
+    function showPresenter() {
+      document.body.appendChild(presenter);
+      var contentRect = content.getBoundingClientRect();
+      if (contentRect.width < 1 || contentRect.height < 1) throw new Error('无法显示要截图的内容');
+      baseWidth = contentRect.width;
+      baseHeight = contentRect.height;
+      fit();
+      window.addEventListener('resize', fit);
+    }
     function removePresenter() {
+      window.removeEventListener('resize', fit);
       if (presenter.parentNode) presenter.parentNode.removeChild(presenter);
       if (window.scrollX !== originalScrollX || window.scrollY !== originalScrollY) {
         window.scrollTo(originalScrollX, originalScrollY);
@@ -1604,17 +1613,7 @@
     var scrollX = 0, scrollY = 0, viewportWidth = 0, viewportHeight = 0;
     var initialSelection = null, afterFrameCalled = false;
     var metrics;
-    function afterFrame() {
-      if (afterFrameCalled) return;
-      afterFrameCalled = true;
-      if (typeof opts.afterFrame === 'function') {
-        try { opts.afterFrame({ scrollX: scrollX, scrollY: scrollY }); } catch (e) {}
-      }
-    }
-    document.documentElement.classList.add('ap-capturing');
-    try {
-      scrollX = window.scrollX;
-      scrollY = window.scrollY;
+    function readViewportMetrics() {
       viewportWidth = window.innerWidth;
       viewportHeight = window.innerHeight;
       metrics = {
@@ -1628,6 +1627,19 @@
         screenX: window.screenX,
         screenY: window.screenY
       };
+    }
+    function afterFrame() {
+      if (afterFrameCalled) return;
+      afterFrameCalled = true;
+      if (typeof opts.afterFrame === 'function') {
+        try { opts.afterFrame({ scrollX: scrollX, scrollY: scrollY }); } catch (e) {}
+      }
+    }
+    document.documentElement.classList.add('ap-capturing');
+    try {
+      scrollX = window.scrollX;
+      scrollY = window.scrollY;
+      readViewportMetrics();
       if (typeof opts.beforeCapture === 'function') opts.beforeCapture();
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'browser' },
@@ -1670,6 +1682,7 @@
       await new Promise(function (resolve) { setTimeout(resolve, 300); });
       frameWidth = video.videoWidth;
       frameHeight = video.videoHeight;
+      readViewportMetrics();
       viewportRect = viewportRectFor(surface, frameWidth, frameHeight, metrics);
       captured = document.createElement('canvas');
       captured.width = frameWidth;
