@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示"
+title: "深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示"
 subtitle: "Embeddings and Representation Learning: From One-Hot Vectors to Contextual Representations"
 date: 2026-03-28 20:00:00
 tags: [AI, Deep Learning, LLM]
@@ -309,6 +309,6 @@ Word2Vec 用局部上下文训练静态词向量，负采样把全词表归一�
 
 ## 下一篇
 
-下一篇进入序列建模：[《深度学习基础（09）：RNN——从 LSTM 到 attention 的诞生》](/rnn-lstm-and-the-birth-of-attention.html)。
+下一篇进入序列建模：[《深度学习基础（10）：RNN——从 LSTM 到 attention 的诞生》](/rnn-lstm-and-the-birth-of-attention.html)。
 
 [^q0]: 离散 ID 本身没有几何结构。Embedding 把 ID 查成向量；预测、重建或对比等训练目标再把信息写进这些向量。

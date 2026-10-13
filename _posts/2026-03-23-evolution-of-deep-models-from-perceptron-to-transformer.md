@@ -97,7 +97,7 @@ Minsky 与 Papert 1969 年的《Perceptrons》把感知机能力边界作为几�
 
 Hopfield 在 1982 年讨论带反馈连接的神经网络与物理系统之间的联系，把网络状态与能量函数关联起来；稳定状态可以作为联想记忆的候选答案。[Hopfield 原论文](https://doi.org/10.1073/pnas.79.8.2554) 1985 年，Boltzmann machine 把随机状态和能量模型结合起来，让网络可以用概率分布表达多个可能解释。它的代价是学习需要处理模型分布与数据分布之间的统计差异，训练比一次前向计算昂贵得多。[Ackley、Hinton 与 Sejnowski 原论文](https://doi.org/10.1207/s15516709cog0901_4)
 
-真正让多层网络重新进入主线的，是隐藏层能不能被有效训练。Rumelhart、Hinton 与 Williams 1986 年的反向传播论文展示，误差信号可以从输出层沿计算图反向传播，逐层调整内部权重；多层网络因此不必再靠人工指定每个中间特征。[Nature 原论文](https://doi.org/10.1038/323533a0) 梯度怎样逐层展开，放在《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》推导。
+真正让多层网络重新进入主线的，是隐藏层能不能被有效训练。Rumelhart、Hinton 与 Williams 1986 年的反向传播论文展示，误差信号可以从输出层沿计算图反向传播，逐层调整内部权重；多层网络因此不必再靠人工指定每个中间特征。[Nature 原论文](https://doi.org/10.1038/323533a0) 梯度怎样逐层展开，放在《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》推导。
 
 1987 年 NETtalk 把英文拼写窗口映射到发音符号，展示了网络可以从例子中学到字母串与读音之间的分布式关系，而不是查一张手写发音规则表。[NETtalk 原论文扫描件](https://content.wolfram.com/sites/13/2018/02/01-1-10.pdf) 结果既鼓舞人，也暴露了依赖上下文窗口、训练数据和有限计算资源的边界。
 
@@ -125,7 +125,7 @@ LeNet-5 将卷积、子采样与分类层组织成可训练的手写文档识别
 
 当视觉与语音数据仍以小型任务为主时，支持向量机给研究者一个更容易控制的选择。Cortes 与 Vapnik 的 SVM 用最大间隔分类；核函数把高维特征空间的内积写成原空间的计算，凸目标则让优化能到达全局最优解。[SVM 原论文](https://doi.org/10.1007/BF00994018) 小样本、手工特征和有限算力的组合，适合这种有明确目标函数与理论分析的路线。更多推导见[《支持向量机与核方法》](/svm-and-kernel-methods.html)。
 
-深层网络当时难在哪里？sigmoid 的饱和区会使局部导数很小，反向连乘后早期层收到的学习信号减弱；权重初始化的尺度也会影响信号在层间放大还是缩小。网络即使表达能力足够，优化器也未必能有效找到解。激活函数问题见《[深度学习基础（03）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；方差传播见《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》。
+深层网络当时难在哪里？sigmoid 的饱和区会使局部导数很小，反向连乘后早期层收到的学习信号减弱；权重初始化的尺度也会影响信号在层间放大还是缩小。网络即使表达能力足够，优化器也未必能有效找到解。激活函数问题见《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；方差传播见《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》。
 
 与此同时，手工特征、核方法、概率图模型和较小神经网络仍在解决具体问题。把 1995–2006 叫作“所有连接主义研究停止”并不准确；更准确的说法是，通用深层监督网络尚未成为主流工程工具。2004 年，Geoffrey Hinton 在 CIFAR 发起 Neural Computation and Adaptive Perception 项目，后续演变为 Learning in Machines & Brains；CIFAR 自己把这项支持描述为深度学习革命的早期催化因素。[CIFAR 项目沿革](https://cifar.ca/cifarnews/2019/04/08/cifar-announces-new-research-programs-and-ai-chairs/)
 
@@ -149,11 +149,11 @@ AlexNet 的关键不是单一新层，而是几件事在同一个系统里配合
 
 ### 结构分支：更深视觉、词向量与生成模型
 
-2013 年的 Word2Vec 把“从上下文预测词”做成了简单而高效的词向量训练方法；它不是词向量研究的起点。Bengio 等人在 2003 年的神经概率语言模型已经把可学习的分布式词表示放进语言预测模型。[Bengio 等（2003）原论文](https://jmlr.org/papers/v3/bengio03a.html)；[Word2Vec 原论文](https://arxiv.org/abs/1301.3781) 这些向量解决的是离散符号输入的表示问题；静态词向量仍让同一词型共享一个上下文无关的表项。细节见《[深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》。
+2013 年的 Word2Vec 把“从上下文预测词”做成了简单而高效的词向量训练方法；它不是词向量研究的起点。Bengio 等人在 2003 年的神经概率语言模型已经把可学习的分布式词表示放进语言预测模型。[Bengio 等（2003）原论文](https://jmlr.org/papers/v3/bengio03a.html)；[Word2Vec 原论文](https://arxiv.org/abs/1301.3781) 这些向量解决的是离散符号输入的表示问题；静态词向量仍让同一词型共享一个上下文无关的表项。细节见《[深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》。
 
 2014 年，Sutskever 等人用编码器—解码器 RNN 处理序列到序列任务；Bahdanau 等人让解码器在每一步对输入状态加权，缓解把整句压进单个固定向量的瓶颈。[seq2seq 原论文](https://arxiv.org/abs/1409.3215)；[Bahdanau attention 原论文](https://arxiv.org/abs/1409.0473) 同年，Goodfellow 等人提出生成对抗网络，让生成器和判别器通过对抗目标共同训练。[GAN 原论文](https://arxiv.org/abs/1406.2661)
 
-视觉网络也沿不同方向加深：VGG 用连续的小卷积核堆叠深度，GoogLeNet 用 Inception 模块组合不同尺度的卷积与池化。[VGG 原论文](https://arxiv.org/abs/1409.1556)；[GoogLeNet 原论文](https://arxiv.org/abs/1409.4842) 这些是 CNN 设计空间中的两种选择，不应被写成通向 Transformer 的必经单线。卷积到 ViT 的结构细节见《[深度学习基础（07）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》。
+视觉网络也沿不同方向加深：VGG 用连续的小卷积核堆叠深度，GoogLeNet 用 Inception 模块组合不同尺度的卷积与池化。[VGG 原论文](https://arxiv.org/abs/1409.1556)；[GoogLeNet 原论文](https://arxiv.org/abs/1409.4842) 这些是 CNN 设计空间中的两种选择，不应被写成通向 Transformer 的必经单线。卷积到 ViT 的结构细节见《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》。
 
 2015 年的 Batch Normalization 把小批量激活归一化并加入可学习的变换参数，作者报告它可加快训练并允许更高学习率。[BN 原论文](https://arxiv.org/abs/1502.03167) 同年的 ResNet 把输入通过恒等捷径加到残差变换上，使优化目标变成学习对输入的增量；论文的 ILSVRC-2015 网络最深达到 152 层，提交系统 top-5 错误率为 3.57%。[ResNet 原论文](https://arxiv.org/abs/1512.03385)
 
@@ -262,4 +262,4 @@ ADALINE 用全批量梯度下降、学习率 0.1 训练 500 轮，最终权重�
 
 ## 下一篇
 
-下一篇是《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》。
+下一篇是《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》。

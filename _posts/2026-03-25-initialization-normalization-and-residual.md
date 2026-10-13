@@ -1,14 +1,14 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差"
+title: "深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差"
 subtitle: "Why Deep Training Is Unstable: Variance Propagation, Initialization, Normalization and Residual Connections"
 tags: [AI, Deep Learning, LLM]
 catalog: true
 updated: 2026-10-13
 ---
 
-《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的那个两层网络怎么训都能训。把它加深到 64 层，同样的代码会出现四种结局：loss 停在 $$\ln 10$$ 一步不动；第三步变成 NaN；能动但慢得像没训；正常收敛。四种结局对应的网络只差三样东西——权重初始化的标准差、有没有归一化层、有没有残差连接——而这三样东西恰好是 1990 年代到 2016 年深度学习解决"深了就训不动"这个问题的三步。
+《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的那个两层网络怎么训都能训。把它加深到 64 层，同样的代码会出现四种结局：loss 停在 $$\ln 10$$ 一步不动；第三步变成 NaN；能动但慢得像没训；正常收敛。四种结局对应的网络只差三样东西——权重初始化的标准差、有没有归一化层、有没有残差连接——而这三样东西恰好是 1990 年代到 2016 年深度学习解决"深了就训不动"这个问题的三步。
 
 本篇把这三步各自推到公式、算到数字、在同一个 64 层网络上测出来。推导的主线只有一条：**信号的方差在层间怎么传播，梯度作为一串 Jacobian 的乘积怎么放大或缩小**。三种方案各自动了这条链上的哪一环，决定了它们能修什么、修不了什么。最后落到当前 LLM 的标准配置——Pre-Norm、RMSNorm、残差、初始化标准差 0.02、残差分支缩放——每一项在本篇都有它的来历与数字。全篇的核心问题是：
 
@@ -99,7 +99,7 @@ $$
 
 ### 2. 反向的方差传播
 
-反向传播里 $$\partial L / \partial x = W^T (\partial L / \partial y)$$（推导见《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「三、矩阵求导的形状规则 · 1. Linear 层的三条公式」），同样的推导给出 $$\text{Var}(\partial L / \partial x_j) = n_{out}\, \sigma_w^2\, \text{Var}(\partial L / \partial y_i)$$，不变的条件是 $$\sigma_w^2 = 1/n_{out}$$（ReLU 网络是 $$2 / n_{out}$$）。
+反向传播里 $$\partial L / \partial x = W^T (\partial L / \partial y)$$（推导见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「三、矩阵求导的形状规则 · 1. Linear 层的三条公式」），同样的推导给出 $$\text{Var}(\partial L / \partial x_j) = n_{out}\, \sigma_w^2\, \text{Var}(\partial L / \partial y_i)$$，不变的条件是 $$\sigma_w^2 = 1/n_{out}$$（ReLU 网络是 $$2 / n_{out}$$）。
 
 ### 3. Jacobian 的连乘与谱范数
 
@@ -203,7 +203,7 @@ RMSNorm 去掉了减均值这一步和 $$\beta$$。省的东西可以列出来�
 
 ### 4. 归一化的另一个作用：尺度不变性
 
-归一化之后的输出对输入的整体尺度不敏感：$$\text{Norm}(cx) = \text{Norm}(x)$$。第 1 节的向量就能验证：$$\text{Norm}([4,8,12,16]) = \text{Norm}([2,4,6,8])$$，乘 2 的输出一模一样。于是归一化层**之前**那个权重矩阵的尺度不影响前向——$$W$$ 乘 2，输出不变。这带来一个重要的副作用：该权重的梯度与它的范数成反比（尺度大了，同样的扰动产生的相对变化小），等价于一个随权重范数自动调节的有效学习率。这是 weight decay 在有归一化的网络里仍然有用的原因之一（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别 · 3. LLM 里 weight decay 的真实含义」），也是初始化常数可以不随宽度变的原因（[第三章](#三方案一初始化)第 3 节）。
+归一化之后的输出对输入的整体尺度不敏感：$$\text{Norm}(cx) = \text{Norm}(x)$$。第 1 节的向量就能验证：$$\text{Norm}([4,8,12,16]) = \text{Norm}([2,4,6,8])$$，乘 2 的输出一模一样。于是归一化层**之前**那个权重矩阵的尺度不影响前向——$$W$$ 乘 2，输出不变。这带来一个重要的副作用：该权重的梯度与它的范数成反比（尺度大了，同样的扰动产生的相对变化小），等价于一个随权重范数自动调节的有效学习率。这是 weight decay 在有归一化的网络里仍然有用的原因之一（见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别 · 3. LLM 里 weight decay 的真实含义」），也是初始化常数可以不随宽度变的原因（[第三章](#三方案一初始化)第 3 节）。
 
 ### 5. 归一化修不了反向的连乘
 
@@ -257,7 +257,7 @@ Post-Norm：$$x_{l+1} = \text{Norm}(x_l + f_l(x_l))$$。Pre-Norm：$$x_{l+1} = x
 
 ### 2. 梯度路径的区别
 
-Pre-Norm 的残差流 $$x_l$$ 从头到尾没有被归一化打断，$$\partial x_{l+1} / \partial x_l = I + J$$ 的恒等项完好，梯度到每一层的量级相同。Post-Norm 的恒等通路每层要穿过一个 Norm，Norm 的 Jacobian 会按输入的尺度缩放梯度——Xiong 等 2020 证明 Post-Norm 里靠近输出的层梯度大、靠近输入的层梯度小，量级差随深度增长；所以 Post-Norm 必须用 warmup（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「六、学习率调度 · 1. Warmup 为什么必不可少」）把初期的大梯度压住，深了仍然难训。
+Pre-Norm 的残差流 $$x_l$$ 从头到尾没有被归一化打断，$$\partial x_{l+1} / \partial x_l = I + J$$ 的恒等项完好，梯度到每一层的量级相同。Post-Norm 的恒等通路每层要穿过一个 Norm，Norm 的 Jacobian 会按输入的尺度缩放梯度——Xiong 等 2020 证明 Post-Norm 里靠近输出的层梯度大、靠近输入的层梯度小，量级差随深度增长；所以 Post-Norm 必须用 warmup（见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「六、学习率调度 · 1. Warmup 为什么必不可少」）把初期的大梯度压住，深了仍然难训。
 
 第九章的实测：Post-Norm 配置梯度范数从底层 0.51 到顶层 1.96，差 4 倍；Pre-Norm 是 0.12 到 0.15。训练上，学习率 0.05 时 Pre-Norm 300 步到 91.6%，Post-Norm 停在 8.8%（loss 2.33）；学习率 0.005 时 Post-Norm 能训到 64%，Pre-Norm 90%。同一个网络、同一份代码，差别只是 Norm 的位置。
 
@@ -273,13 +273,13 @@ Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性�
 
 | 工具 | 针对的问题 | 做法 | 出处 / 使用者 |
 |---|---|---|---|
-| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大<br/>Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
-| 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
+| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大<br/>Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
+| 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
 | QK-norm | attention logits 随训练增长，softmax 饱和，梯度消失或 loss spike | 对 $$Q$$、$$K$$ 各做一次 LayerNorm / RMSNorm 再点积 | Dehghani 等 2023（ViT-22B）<br/>Gemma、Qwen3 等 |
 | z-loss | lm_head 的 logits 整体漂移，softmax 的归一化项 $$\log Z$$ 失控 | loss 加 $$10^{-4} \cdot (\log Z)^2$$，把 $$\log Z$$ 拉向 0 | PaLM |
 | Embedding 缩放 | embedding 输出尺度与残差流不匹配 | embedding 乘 $$\sqrt{d}$$（Gemma）或用更大初始化 | 原始 Transformer 即有 |
 | $$\mu$$P | 最优学习率随宽度漂移，小模型调出的超参数在大模型上失效 | 按宽度缩放初始化与学习率，使不同宽度下特征更新量级一致 | Yang 等 2022<br/>被多个开源模型采用 |
-| 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」<br/>几乎所有 LLM |
+| 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」<br/>几乎所有 LLM |
 
 Table: 大模型上的稳定性工具
 
@@ -297,11 +297,11 @@ loss spike——训练中 loss 突然跳高、有时能恢复有时不能——�
 
 Table: 训练诊断：三条曲线的健康形状与病态
 
-第一条对应第[二](#二一条链前向的方差与反向的-jacobian)、[五](#五方案三残差连接)章，第二条对应第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)、[六](#六pre-norm-与-post-norm)章，第三条是《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的内容。三条曲线加起来，第一章那张表里的每一种失败都能在几百步之内被定位到具体的层与具体的原因。
+第一条对应第[二](#二一条链前向的方差与反向的-jacobian)、[五](#五方案三残差连接)章，第二条对应第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)、[六](#六pre-norm-与-post-norm)章，第三条是《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的内容。三条曲线加起来，第一章那张表里的每一种失败都能在几百步之内被定位到具体的层与具体的原因。
 
 ## 九、案例：把 MLP 加深到 64 层——七种接法哪些能训
 
-**问题**：《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》「九、案例：MNIST 手写数字，NumPy 从零」里的两层 MLP 加深到 64 层会怎样？这是 2010–2015 年整个领域面对的问题（来龙去脉那张表的每一行都是它的一次回答）。这一章在同一份数据（MNIST）、同一个骨架（784 → 256 的输入投影 + 64 个 256 宽的块 + 256 → 10 的输出层）上，只改初始化 / 归一化 / 残差的接法，七种配置各训一遍，看哪些能训、哪些不能、为什么。
+**问题**：《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》「九、案例：MNIST 手写数字，NumPy 从零」里的两层 MLP 加深到 64 层会怎样？这是 2010–2015 年整个领域面对的问题（来龙去脉那张表的每一行都是它的一次回答）。这一章在同一份数据（MNIST）、同一个骨架（784 → 256 的输入投影 + 64 个 256 宽的块 + 256 → 10 的输出层）上，只改初始化 / 归一化 / 残差的接法，七种配置各训一遍，看哪些能训、哪些不能、为什么。
 
 **思路**：先不训，只做一次前向反向，看**初始时刻**每层的激活多大、梯度多大（第二、三章的方差传播说它们应该保持在 1 附近）；再 SGD 训 300 步，两个学习率。前者是"体检"，后者是"结果"——体检不过的，结果一定不好；体检过了的，也不一定能训（plain-kaiming 就是例子）。
 
@@ -371,7 +371,7 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 
 - 把 LayerNorm 换成 RMSNorm，结果应几乎不变；
 - 把深度从 64 改到 16 与 256，看 ln 与 postnorm 在浅时能训、深时不能，prenorm 一直能；
-- 给 postnorm 加 100 步线性 warmup（见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」），看它能否追上 prenorm。
+- 给 postnorm 加 100 步线性 warmup（见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」），看它能否追上 prenorm。
 
 ## 十、本文小结
 
@@ -381,7 +381,7 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 - **残差**把 Jacobian 变成 $$I + J$$，给梯度一条恒等通路，各层梯度范数变得均匀。代价是残差流方差增长：无归一化时每层**翻倍**（$$2^{64}$$），Pre-Norm 下**线性**，再乘 $$1/\sqrt{2L}$$ 可压平；缩放只修初始时刻，残差与归一化必须同用。
 - **Pre-Norm** 保住恒等通路，梯度各层同量级、能用大学习率；**Post-Norm** 顶层梯度是底层的 4 倍，需要 warmup、深了难训。LLM 选 Pre-Norm 加 final norm。
 - 规模化之后的补丁——warmup、裁剪、QK-norm、z-loss、$$\mu$$P、$$\beta_2 = 0.95$$——各针对一个具体的失稳来源；诊断看三条曲线：各层激活 RMS、各层梯度范数、更新量 / 参数比。
-- 有了稳定的梯度之后怎么用它更新参数，见《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》。
+- 有了稳定的梯度之后怎么用它更新参数，见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》。
 
 配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练，[`case_02_deep_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_deep_mlp.py) 把它们画成曲线；[`case_02_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_concept_figures.py) 生成本篇的概念图与模拟数字；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`。
 
