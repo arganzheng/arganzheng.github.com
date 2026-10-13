@@ -1386,7 +1386,13 @@ How it is built (`_plugins/moments.rb`):
     `SeriesPages.link_maps` into `site.data.roadmaps[k].order` and each
     series' `maps` (`index` / `total` / `prev` / `next` keys, own map first).
     Overview posts get a `.series-box.roadmap-box` at the top (map, 第 N / X
-    个系列, the map's series, 上一个 / 下一个系列 per map); `series-nav.html`
+    个系列, the map's series, 上一个 / 下一个系列 per map), the same box
+    unfolded at the bottom (`series-toc.html`, carries `.series-toc` like the
+    article bottom box) and a `.side-series.side-roadmap` block under the
+    right-hand OUTLINE panel listing the primary map's series
+    (`series-side.html`; both read `overview_meta`, the `site.data.series`
+    entry whose `overview` is the page, set by `series-context.html`);
+    `series-nav.html`
     adds a 学习地图 line, swaps 上一篇 for 上一个系列 on a series' first post
     and 下一篇 for 下一个系列 on a finished (`status` 完结) series' last post.
     Series whose overview is not published render as grey 即将发布 text
