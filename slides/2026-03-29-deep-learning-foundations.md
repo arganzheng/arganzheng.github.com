@@ -274,16 +274,16 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 flowchart TB
-    CHAIN["梯度 = Jacobian 连乘（01、03）"] --> VAN["因子偏离 1 → 指数消失 / 爆炸（03、06、08）"]
+    CHAIN["梯度 = Jacobian 连乘（02,04）"] --> VAN["因子偏离 1 → 指数消失 / 爆炸（04,07,09）"]
     VAN --> INIT["初始化：t = 0 时因子期望为 1"]
     VAN --> NORM["归一化：前向方差拉回 1"]
     VAN --> RES["残差：I + J 的恒等通路"]
     RES --> GROW["残差流方差增长 → 归一化 + 1/√(2L)"]
-    RES --> LSTM["LSTM 遗忘门 = 时间上的残差（08）"]
-    RES --> PRE["Pre-Norm / ResNet-v2（03、06）"]
+    RES --> LSTM["LSTM 遗忘门 = 时间上的残差（09）"]
+    RES --> PRE["Pre-Norm / ResNet-v2（04,07）"]
     NORM --> SCALE["尺度不变性 → 有效学习率由范数决定"]
-    SCALE --> WD["AdamW weight decay = 范数平衡点（04、05）"]
-    ADAM["Adam 步长 ≈ η（04）"] --> WARM["warmup、β₂ = 0.95、η ∝ 1/n_in"]
+    SCALE --> WD["AdamW weight decay = 范数平衡点（05,06）"]
+    ADAM["Adam 步长 ≈ η（05）"] --> WARM["warmup、β₂ = 0.95、η ∝ 1/n_in"]
 ```
 
 ---

@@ -59,8 +59,6 @@
 	color: #fff;
 }
 .rs-segments button:disabled { cursor: default; opacity: .45; }
-.rs-paper-note { margin: -4px 0 10px 46px; color: #57606a; font-size: 12px; }
-.rs-paper-note[hidden] { display: none; }
 .rs-segments button:focus-visible,
 .rs-reset:focus-visible { position: relative; z-index: 1; outline: 2px solid #0969da; outline-offset: -2px; }
 .rs-reset {
@@ -78,7 +76,6 @@
 html.rs-focus-page[data-rs-focus="on"] {
 	.navbar-custom,
 	nav.navbar-default,
-	#reading-settings-panel,
 	.side-catalog,
 	.outline-reopen,
 	.sidebar-container,
@@ -202,13 +199,20 @@ html.rs-focus-page[data-rs-focus="on"] {
 	}
 }
 
-html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit {
+html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls {
 	position: fixed;
 	z-index: 1190;
 	top: 16px;
 	right: 16px;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls[hidden] { display: none !important; }
+html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls button {
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	padding: 8px 12px;
 	border: 1px solid #d0d7de;
 	border-radius: 999px;
@@ -218,9 +222,8 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit {
 	font: 500 13px/1.3 @rs-sans-stack;
 	cursor: pointer;
 }
-html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit:hover { background: #f6f8fa; }
-html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
-html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] { display: none !important; }
+html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls button:hover { background: #f6f8fa; }
+html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls button:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 
 @media only screen and (max-width: 767px) {
 	.nav-reading-settings .nav-reading-settings-label { display: inline; }
@@ -237,11 +240,12 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] { display: none !i
 		overflow-y: auto;
 		border-radius: 14px;
 	}
-	html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit { top: 12px; right: 12px; }
+	html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls { top: 12px; right: 12px; }
 }
 @media print {
 	.nav-reading-settings,
 	.nav-focus-mode,
+	.rs-focus-controls,
 	.reading-settings-panel { display: none !important; }
 }
 

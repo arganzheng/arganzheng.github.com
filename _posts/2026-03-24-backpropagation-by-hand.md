@@ -1,7 +1,7 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（02）：反向传播——手推一个两层网络"
+title: "深度学习基础（03）：反向传播——手推一个两层网络"
 subtitle: "Backpropagation by Hand: Shapes, the 2x Rule and Why Activations Must Be Saved"
 tags: [AI, Deep Learning, LLM]
 catalog: true
@@ -10,7 +10,7 @@ updated: 2026-10-13
 
 `loss.backward()` 是训练代码里最短的一行，也是被理解得最少的一行。它做的事在 1986 年就已经写清楚了：沿着计算图反向应用链式法则。但只有自己推过一遍、写过一遍、用有限差分验证过一遍，才会真的知道三件后面每一篇都要用的事——**梯度的形状与被求导的量相同**、**反向的计算量是前向的两倍**、**前向的中间结果必须保留到反向**。第一件决定了怎么读任何一个梯度公式，第二件是训练 FLOPs 等于 $$6ND$$ 的来源，第三件是激活显存与激活重算的全部原因。
 
-上一篇《[深度学习基础（01）：深度模型演进史——从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html)》解释了多层网络为何成为研究问题；这里转向它的梯度怎样计算。
+上一篇《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》给出了要优化的目标；这里转向它的梯度怎样计算。
 
 本篇用一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）把这三件事推到底。选它是因为它足够小——每一步的形状能写在一行里——又足够完整：Transformer 里除了 attention 之外的每个部件（Linear、激活函数、norm、loss）的反向都是同一套规则。全篇的核心问题是：
 
@@ -25,7 +25,7 @@ updated: 2026-10-13
 1. **层级结构**：一个输入层（习惯上不计入层数）、一个或多个隐藏层、一个输出层。"两层 MLP"指两个带参数的层——一个隐藏层加一个输出层。
 2. **全连接**（fully connected）：每一层的每个神经元与上一层的所有神经元相连，所以又叫 FC 层、Dense 层；数学上一层就是一次矩阵乘加偏置 $$xW + b$$。
 3. **非线性激活**：隐藏层的输出要过一个非线性函数（ReLU、sigmoid、tanh）。没有它，两个线性层叠起来 $$(xW_1)W_2 = x(W_1 W_2)$$ 仍是一个线性层，再深也只能拟合线性函数。
-4. **单向传播**：信号从输入逐层向前到输出，内部没有循环（第九篇的 RNN 有）。
+4. **单向传播**：信号从输入逐层向前到输出，内部没有循环（第十篇的 RNN 有）。
 
 本文的 MLP 把 784 维输入（一张 28×28 的手写数字图拉直）分成 10 类：隐藏层 256 个神经元、激活 ReLU，输出层 10 个神经元、过 softmax 变成 10 个类别的概率：
 
@@ -75,7 +75,7 @@ Table: 本文的章节安排
 | 1970 | Linnainmaa（赫尔辛基，硕士论文） | 一个复合函数的数值计算里，舍入误差怎么一步步累积 | **反向模式自动微分**：从输出往回、逐节点乘局部导数——就是反向传播的数学 | 给出了反向传播的完整数学形式 | 当时没人把它和神经网络连起来 |
 | 1974 / 1982 | Werbos（哈佛博士论文） | 怎么训练多层网络（当时只会训单层感知机） | 明确提出用反向模式算多层网络的梯度 | 论文几乎没人读，方法没传开 | 多层网络的训练问题在公共视野里仍待解决 |
 | 1986 | Rumelhart、Hinton、Williams，《Nature》 | 多层网络如何训练<br/>感知机的表达边界见《[深度学习基础（01）：深度模型演进史——从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html)》「XOR 与第一次寒冬」 | 给这个方法起名**反向传播**，并用一个多层网络学到内部表示的实验说服了整个领域（第二、四章的推导就是他们的公式） | 反向传播成为唯一的训练方式，至今没有替代者 | 每个新网络仍要手推一遍梯度 |
-| 1989 | LeCun 等（贝尔实验室） | 手写邮政编码识别 | 第一次用反向传播训卷积网络做真实任务（第七篇） | 手写邮政编码识别能上线——本篇第九章的 MNIST 是它的直系后代 | 只验证了小网络与小任务<br/>手推梯度的问题还在 |
+| 1989 | LeCun 等（贝尔实验室） | 手写邮政编码识别 | 第一次用反向传播训卷积网络做真实任务（第八篇） | 手写邮政编码识别能上线——本篇第九章的 MNIST 是它的直系后代 | 只验证了小网络与小任务<br/>手推梯度的问题还在 |
 | 2007–2017 | Theano、Torch、TensorFlow、PyTorch autograd | 每个新网络都要手推一遍梯度、还老推错 | **自动微分框架**：写前向，反向自动生成（第八章） | 手推梯度从必修变成了"理解框架在做什么" | 框架把反向的内存账藏起来了——激活要存的量随网络变大 |
 | 2022 | FlashAttention | 反向要存的激活太大 | 激活重算（第六章） | 成为长序列训练的标配 | 反向传播的内存账在 40 年后仍是主要矛盾 |
 
@@ -175,7 +175,7 @@ $$
 
 ### 3. softmax 与交叉熵
 
-$$L = -\frac{1}{m}\sum_i \log p_{i, y_i}, \; p_i = \text{softmax}(z_i)$$。[L0 数学系列第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)推过对单个样本 $$\partial L_i / \partial z_i = p_i - e_{y_i}$$（$$e_{y_i}$$ 是 one-hot）。对 batch 取平均后：
+$$L = -\frac{1}{m}\sum_i \log p_{i, y_i}, \; p_i = \text{softmax}(z_i)$$。[L0 数学系列第八篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)推过对单个样本 $$\partial L_i / \partial z_i = p_i - e_{y_i}$$（$$e_{y_i}$$ 是 one-hot）。对 batch 取平均后：
 
 $$
 \frac{\partial L}{\partial Z} = \frac{1}{m}(P - Y_{\text{onehot}}) \in \mathbb{R}^{m \times 10}
@@ -294,7 +294,7 @@ $$\epsilon$$ 有两头约束：太大截断误差大，太小舍入误差大—�
 
 ### 3. 两个训练前的 sanity check
 
-梯度对了，训练前还有两个几乎免费的检查。**初始 loss 应接近 $$\ln C$$**：10 类是 $$\ln 10 = 2.30$$，本文实验初始 2.46（Kaiming 初始化让 logits 方差略大于 1，比均匀分布稍差，正常）；远大于它说明初始化太大，远小于它说明数据泄漏或 loss 算错。LLM 上对应 $$\ln V \approx 11.8$$（L0 数学系列第五篇）。**能过拟合一个小 batch**：拿 16 个样本反复训，loss 应能降到接近 0；降不下去说明梯度没传到某处，或学习率不对。这两个检查在框架里同样适用。
+梯度对了，训练前还有两个几乎免费的检查。**初始 loss 应接近 $$\ln C$$**：10 类是 $$\ln 10 = 2.30$$，本文实验初始 2.46（Kaiming 初始化让 logits 方差略大于 1，比均匀分布稍差，正常）；远大于它说明初始化太大，远小于它说明数据泄漏或 loss 算错。LLM 上对应 $$\ln V \approx 11.8$$（L0 数学系列第六篇）。**能过拟合一个小 batch**：拿 16 个样本反复训，loss 应能降到接近 0；降不下去说明梯度没传到某处，或学习率不对。这两个检查在框架里同样适用。
 
 ## 八、Autograd 做了什么
 
@@ -311,7 +311,7 @@ Table: Autograd 自动化的四个机制及本文对应
 
 `torch.no_grad()` 关掉录带（推理与评测时省激活显存）；`.detach()` 把一个张量从图上摘下来（RL 里对 old logprobs 常用）；`torch.utils.checkpoint` 就是第六章的激活重算。第九章的实验把手写梯度与 PyTorch autograd 的结果对了一遍，差在 $$10^{-8}$$ 量级——两边算的是同一组公式，差异只是浮点求和顺序。
 
-Autograd 引擎的实现——图怎么存、多线程怎么调度、hook 在哪里——属于 Infra 地图 [03 系列第三篇](/pytorch-autograd-and-dynamic-computation-graph.html)。算法工程师到这一层就够：知道它记了什么、存了什么、什么时候释放。
+Autograd 引擎的实现——图怎么存、多线程怎么调度、hook 在哪里——属于 Infra 地图 [03 系列第四篇](/pytorch-autograd-and-dynamic-computation-graph.html)。算法工程师到这一层就够：知道它记了什么、存了什么、什么时候释放。
 
 ## 九、案例：MNIST 手写数字，NumPy 从零
 
@@ -346,7 +346,7 @@ def softmax_ce(logits, y):
     return loss, d / m, p
 ```
 
-一个数值细节：这里先算 softmax 再取 log，正确类的 logit 比最大值低 700 以上时 `exp` 会下溢成 0、`log(0) = -inf`（配套脚本加了 `1e-12` 兜底，代价是 loss 被截在 27.6 上下——《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的实验里 logits 到 $$10^9$$ 时打印的 loss 就是这个上限，不是真实值）。生产实现（PyTorch 的 `cross_entropy`）用 log-sum-exp 形式 `logp = z - log(sum(exp(z)))` 直接算对数概率，没有这一步下溢。
+一个数值细节：这里先算 softmax 再取 log，正确类的 logit 比最大值低 700 以上时 `exp` 会下溢成 0、`log(0) = -inf`（配套脚本加了 `1e-12` 兜底，代价是 loss 被截在 27.6 上下——《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的实验里 logits 到 $$10^9$$ 时打印的 loss 就是这个上限，不是真实值）。生产实现（PyTorch 的 `cross_entropy`）用 log-sum-exp 形式 `logp = z - log(sum(exp(z)))` 直接算对数概率，没有这一步下溢。
 
 网络是 `MLP([784, 256, 10])`，训练循环就是 `forward → softmax_ce → backward → 对每个参数 P -= lr * dP`。梯度检查在一个 `[20, 16, 5]` 的 float64 小网络上做，每个参数随机抽 30 个元素、$$\epsilon = 10^{-6}$$、中心差分。FLOPs 用一个全局计数器在每次矩阵乘处累加。
 
@@ -383,9 +383,9 @@ epoch 15  train loss 0.0585  test acc 97.61%
 
 ![左：第 1 个 epoch 469 步的 batch loss，从 ln 10 = 2.30 的瞎猜水平在 100 步内掉到 0.5；中：15 个 epoch 的训练 loss 与测试准确率，92.5% → 97.6%；右：错分的 239 张里的前 16 张，多是 5↔6、4↔9、7↔2](/img/in-post/dl-case-01-training.svg)
 
-初始 loss 2.46——接近 $$\ln 10 = 2.30$$（10 类瞎猜），第七章说的 sanity check 之一：如果初始 loss 远大于它，是初始化太大；远小于它，是标签泄漏。前 100 步 loss 就从 2.3 掉到 0.5，之后越来越慢——第一个 epoch 结束 92.5%，再训 14 个 epoch 才到 97.6%。10,000 张测试图错 239 张（2.39%），最常混的是 7→2（12 次）、9→7、9→4（各 11 次）——和 L2 第四篇 KNN 错的是同一批字。
+初始 loss 2.46——接近 $$\ln 10 = 2.30$$（10 类瞎猜），第七章说的 sanity check 之一：如果初始 loss 远大于它，是初始化太大；远小于它，是标签泄漏。前 100 步 loss 就从 2.3 掉到 0.5，之后越来越慢——第一个 epoch 结束 92.5%，再训 14 个 epoch 才到 97.6%。10,000 张测试图错 239 张（2.39%），最常混的是 7→2（12 次）、9→7、9→4（各 11 次）——和 L2 第五篇 KNN 错的是同一批字。
 
-**和 L2 的两个分类器比**：KNN 2.95%、RBF-SVM 1.43%、这个两层 MLP 2.39%——三种完全不同的方法在同一份数据上落在同一个量级。MLP 的优势不在这个数字上，在于**它学出来的特征可以继续堆**：加深、加卷积（第七篇的 LeNet-5 到 0.9% 以下）、换数据（同一份代码换成文本、语音），而 KNN 和 SVM 到这里就到顶了。这也是为什么后面八篇都在这 120 行上加东西，而不是换方法。
+**和 L2 的两个分类器比**：KNN 2.95%、RBF-SVM 1.43%、这个两层 MLP 2.39%——三种完全不同的方法在同一份数据上落在同一个量级。MLP 的优势不在这个数字上，在于**它学出来的特征可以继续堆**：加深、加卷积（第八篇的 LeNet-5 到 0.9% 以下）、换数据（同一份代码换成文本、语音），而 KNN 和 SVM 到这里就到顶了。这也是为什么后面八篇都在这 120 行上加东西，而不是换方法。
 
 ### 3. 三个值得自己动手的扩展
 
@@ -393,7 +393,7 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - 加一层，看 FLOPs 比值仍是 2、激活线性增长；
 - 把梯度检查改在 float32 上做，观察相对误差跳到 $$10^{-2}$$ 量级——第七章的论证。
 
-**落地还差什么**：97.6% 在 MNIST 上是 1998 年的水平（LeNet-5 0.95%，今天的最好结果 0.2% 以下）；这 120 行没有的东西每一样都是后面文章要补的：激活函数为何不可少（第三篇）、深了训不动（第四篇）、SGD 太慢太挑学习率（第五篇）、数据少了过拟合（第六篇）、把图拉直成 784 维丢掉了"相邻像素相关"这个信息（第七篇的卷积）、离散 token 怎样成为向量（第八篇）、循环网络与 attention（第九篇）。生产里没有人用 NumPy 写反向传播——但读懂了这 120 行，第八章的 `loss.backward()` 就不再是黑盒，第五、六章的两笔账（反向两倍算量、激活占显存）就是你看训练日志时脑子里的第一反应。
+**落地还差什么**：97.6% 在 MNIST 上是 1998 年的水平（LeNet-5 0.95%，今天的最好结果 0.2% 以下）；这 120 行没有的东西每一样都是后面文章要补的：激活函数为何不可少（第四篇）、深了训不动（第五篇）、SGD 太慢太挑学习率（第六篇）、数据少了过拟合（第七篇）、把图拉直成 784 维丢掉了"相邻像素相关"这个信息（第八篇的卷积）、离散 token 怎样成为向量（第九篇）、循环网络与 attention（第十篇）。生产里没有人用 NumPy 写反向传播——但读懂了这 120 行，第八章的 `loss.backward()` 就不再是黑盒，第五、六章的两笔账（反向两倍算量、激活占显存）就是你看训练日志时脑子里的第一反应。
 
 ## 十、本文小结
 
@@ -403,7 +403,7 @@ epoch 15  train loss 0.0585  test acc 97.61%
 - **激活必须保存到反向**，因为 $$\partial L / \partial W$$ 需要该层的输入。激活显存与 batch × 序列长度 × 层数 × 宽度成正比、与参数量无关；gradient checkpointing 用一次额外前向换掉它。
 - 梯度检查用 **float64、中心差分、相对误差**，$$< 10^{-6}$$ 通过；训练前看初始 loss 是否接近 $$\ln C$$、能否过拟合一个小 batch。
 - Autograd 做的是录带、每个算子的 backward、saved tensors、`.grad` 累加；手写结果与它差 $$10^{-8}$$。
-- 下一篇先看激活函数怎样改变反向传播中的导数：《[深度学习基础（03）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；再接着看深网络的初始化、归一化与残差。
+- 下一篇先看激活函数怎样改变反向传播中的导数：《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；再接着看深网络的初始化、归一化与残差。
 
 配套代码：[`deep-learning-foundations/01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)——本文的全部数字由它跑出（梯度检查、FLOPs、与 autograd 对齐、15 个 epoch 的训练），`--quick` 一分钟内跑完；第九章的训练曲线与错分样本由 [`case_01_mnist_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_mnist_mlp.py) 画出；三个扩展可以直接在上面改。
 

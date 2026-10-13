@@ -1,14 +1,14 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（07）：CNN——从 LeNet 到 ResNet，再到 ViT"
+title: "深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT"
 subtitle: "CNN: Convolution as a Constrained Linear Layer, the ResNet Legacy and How ViT Turns Images into Tokens"
 tags: [AI, Deep Learning, LLM]
 catalog: true
 updated: 2026-10-13
 ---
 
-第二至第六篇讲训练动力学，用的网络全是 MLP。这一篇和后两篇依次回看 Transformer 之前的三条结构史——卷积、Embedding 与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；离散 token 的表示连接词表与向量空间；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
+第二至第七篇讲训练动力学，用的网络全是 MLP。这一篇和后两篇依次回看 Transformer 之前的三条结构史——卷积、Embedding 与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；离散 token 的表示连接词表与向量空间；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
 
 卷积网络的故事可以压缩成三句话：**卷积是一个被强约束的线性层**，约束带来的参数节省与归纳偏置让它在数据不多时远胜 MLP；**深度是为了感受野**（receptive field，一个输出位置能看到输入的范围），而深了就训不动，ResNet 用残差解决了它；**数据足够多时约束成了负担**，ViT 把图切成 patch、当成 token 送进标准 Transformer，只保留了卷积的一个影子——patch embedding 本身就是一个 stride 等于 kernel 的卷积。三句话各对应本篇的一个实验。全篇的核心问题是：
 
@@ -53,7 +53,7 @@ Table: 本文的章节安排
 | 1998–2011 |  | 更大的图（ImageNet 120 万张 224×224）上 CNN 训不动、也不如 SVM + 手工特征 | 没有新解法 | CNN 在小任务上继续当小众，主流是手工特征 + SVM | 要等算力（GPU）和数据（ImageNet）|
 | 2012 | Krizhevsky、Sutskever、Hinton，AlexNet | ImageNet 比赛 | 两块 GPU + ReLU + dropout 把 8 层、6000 万参数的 CNN 训出来 | 错误率 26% → 16%——深度学习复兴的起点（第四章） | 8 层之后怎么再加深，没有设计规则 |
 | 2014 | Simonyan & Zisserman，VGG<br/>Szegedy 等，GoogLeNet | 再深一点怎么设计 | VGG：只用 3×3 堆到 19 层<br/>GoogLeNet：1×1 卷积做通道降维、多分支（第四章） | VGG-16 堆到 16 层<br/>GoogLeNet 22 层、参数只有 6.8M | 再往上堆层数，训练误差反而升高 |
-| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」） | 152 层能训<br/>之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 | 卷积的归纳偏置在数据够大时还值不值钱，成了下一个问题 |
+| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」） | 152 层能训<br/>之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 | 卷积的归纳偏置在数据够大时还值不值钱，成了下一个问题 |
 | 2020 | Dosovitskiy 等，ViT | 卷积的归纳偏置在数据够多时还是优势吗 | 把图切成 16×16 的 patch 当 token 喂 Transformer | 数据够大时超过 CNN（第六章）<br/>多模态 LLM 的视觉编码器由此而来 | 要大数据才赢 CNN——小数据下卷积仍占优 |
 
 Table: 卷积网络的来历
@@ -70,7 +70,7 @@ $$
 y_{o, i, j} = \sum_{c=1}^{C_{in}} \sum_{a=0}^{k_h - 1} \sum_{b=0}^{k_w - 1} k_{o, c, a, b}\, x_{c,\, i + a,\, j + b} + \beta_o
 $$
 
-**参数量** $$= C_{out} \cdot C_{in} \cdot k_h \cdot k_w + C_{out}$$，与图像大小无关。**FLOPs** $$= 2 \cdot H_{out} \cdot W_{out} \cdot C_{out} \cdot C_{in} \cdot k_h \cdot k_w$$——每个输出位置做一次长度为 $$C_{in} k_h k_w$$ 的内积，与图像大小成正比。这是卷积与全连接层最大的算术区别：全连接层每个参数每样本用一次（2 FLOPs，[第二篇](/backpropagation-by-hand.html)），卷积层每个参数被用"输出位置数"次。ResNet-50 有 2560 万参数、每张图 82 亿 FLOPs（$$2 \times$$ 乘加），比值 320 FLOPs / 参数——即一个参数平均被用了 **160** 次（每次 2 FLOPs），是全连接的 160 倍。
+**参数量** $$= C_{out} \cdot C_{in} \cdot k_h \cdot k_w + C_{out}$$，与图像大小无关。**FLOPs** $$= 2 \cdot H_{out} \cdot W_{out} \cdot C_{out} \cdot C_{in} \cdot k_h \cdot k_w$$——每个输出位置做一次长度为 $$C_{in} k_h k_w$$ 的内积，与图像大小成正比。这是卷积与全连接层最大的算术区别：全连接层每个参数每样本用一次（2 FLOPs，[第三篇](/backpropagation-by-hand.html)），卷积层每个参数被用"输出位置数"次。ResNet-50 有 2560 万参数、每张图 82 亿 FLOPs（$$2 \times$$ 乘加），比值 320 FLOPs / 参数——即一个参数平均被用了 **160** 次（每次 2 FLOPs），是全连接的 160 倍。
 
 ### 2. 它就是一个稀疏矩阵
 
@@ -97,7 +97,7 @@ row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
 
 ### 3. 约束就是先验
 
-《[深度学习基础（06）：正则化与泛化——为什么参数比样本多却不过拟合](/regularization-and-generalization.html)》的「显式正则化」把它说成"把模型拉向某种简单解的先验"。卷积的两条约束是最强的一种：不是拉向、而是**只允许**满足局部性与平移等变性的解。在图像上这个先验几乎总是对的（一只猫在左上角和右下角是同一只猫），所以数据不多时 CNN 远胜 MLP。但它也是一个上限——长距离的关系（图像两端的两个物体）要靠堆很多层才能看到（第三章），而数据足够多时模型本可以自己学出比"局部 + 平移"更好的先验（第六章）。
+《[深度学习基础（07）：正则化与泛化——为什么参数比样本多却不过拟合](/regularization-and-generalization.html)》的「显式正则化」把它说成"把模型拉向某种简单解的先验"。卷积的两条约束是最强的一种：不是拉向、而是**只允许**满足局部性与平移等变性的解。在图像上这个先验几乎总是对的（一只猫在左上角和右下角是同一只猫），所以数据不多时 CNN 远胜 MLP。但它也是一个上限——长距离的关系（图像两端的两个物体）要靠堆很多层才能看到（第三章），而数据足够多时模型本可以自己学出比"局部 + 平移"更好的先验（第六章）。
 
 ## 三、感受野、stride 与深度
 
@@ -122,7 +122,7 @@ stride 为 $$s$$ 的卷积（或池化）把特征图缩小 $$s$$ 倍，之后�
 
 ### 3. 深了就训不动
 
-感受野要求深，深了就遇到《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讨论的问题：方差衰减或爆炸、梯度连乘。2014 年的 VGG 到 19 层就停了，不是不想更深，是更深训不动。BatchNorm（2015 年初）解决了前向的一半；同年底 ResNet 用残差解决了反向的一半，一口气到 152 层。第五章的实验在 56 层上复现这个转折。
+感受野要求深，深了就遇到《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讨论的问题：方差衰减或爆炸、梯度连乘。2014 年的 VGG 到 19 层就停了，不是不想更深，是更深训不动。BatchNorm（2015 年初）解决了前向的一半；同年底 ResNet 用残差解决了反向的一半，一口气到 152 层。第五章的实验在 56 层上复现这个转折。
 
 ## 四、五个里程碑
 
@@ -154,7 +154,7 @@ VGG：一张表而不是一张图，因为它的结构简单到能用表格写�
 
 ![He 等 2015《Deep Residual Learning》图 2：残差块——输入 x 经两层权重层得到 F(x)，与 x 相加后过 ReLU，右侧的弧线是恒等映射（identity）。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-resnet-fig2.webp)
 
-ResNet：结构图只需要画一个块——弧线那条恒等通路就是《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」里的 $$I + J$$，也是 Transformer 每一层的残差。
+ResNet：结构图只需要画一个块——弧线那条恒等通路就是《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」里的 $$I + J$$，也是 Transformer 每一层的残差。
 
 两个趋势值得看：参数量从 AlexNet 的 60M 到 GoogLeNet 的 6.8M 再到 ResNet-50 的 25.6M——大全连接层被砍掉后（AlexNet 的 60M 里 58M 在最后三个全连接层），参数量不再是深度的函数；层数从 8 到 152，深度成了主要的扩展维度。
 
@@ -203,7 +203,7 @@ He 等 2015 的出发点是一个实验事实：在 CIFAR-10 上，56 层的 pla
 
 Table: 20 层与 56 层 plain / 残差网络的实测
 
-两个观察。第一，**退化问题复现了**：plain 网络从 20 层到 56 层，训练 loss 从 0.13 恶化到 0.72；残差网络 0.09 与 0.13，深了没有变坏。第二，**梯度爆炸的方向**：plain-56 第 1 块的梯度范数是第 56 块的 2849 倍——是靠近输入的层梯度大，不是小。这与《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》展示的无归一化梯度消失相反：有了 BN 的深 plain 网络，梯度反向穿过每个 BN 时被输入方差归一化放大，越靠输入越大（Yang 等 2019 从平均场理论证明了 BN 在深 plain 网络里必然导致梯度爆炸）。BN 修了前向，把反向的问题换了一个方向。残差网络的比值在 3 左右——恒等通路把它压平了。
+两个观察。第一，**退化问题复现了**：plain 网络从 20 层到 56 层，训练 loss 从 0.13 恶化到 0.72；残差网络 0.09 与 0.13，深了没有变坏。第二，**梯度爆炸的方向**：plain-56 第 1 块的梯度范数是第 56 块的 2849 倍——是靠近输入的层梯度大，不是小。这与《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》展示的无归一化梯度消失相反：有了 BN 的深 plain 网络，梯度反向穿过每个 BN 时被输入方差归一化放大，越靠输入越大（Yang 等 2019 从平均场理论证明了 BN 在深 plain 网络里必然导致梯度爆炸）。BN 修了前向，把反向的问题换了一个方向。残差网络的比值在 3 左右——恒等通路把它压平了。
 
 ### 3. 四样遗产
 
@@ -213,7 +213,7 @@ ResNet 留给 Transformer 的不只是残差：
 |---|---|---|
 | 残差连接 | $$x + f(x)$$，每块 | $$x + \text{Attn}(\cdot)$$，$$x + \text{FFN}(\cdot)$$，每层两次 |
 | 归一化到处用 | 每个卷积后一个 BN | 每个子层一个 LayerNorm / RMSNorm |
-| Pre-activation | ResNet-v2（He 等 2016）把 BN 与 ReLU 移到卷积**之前**、残差相加之后不再有非线性，更深更稳 | **Pre-Norm**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「Pre-Norm 与 Post-Norm」）——同一个想法后来进了 Transformer：原始 Transformer（2017）与 BERT 用的是 Post-Norm，GPT-2（2019）起 Pre-Norm 成为主流 |
+| Pre-activation | ResNet-v2（He 等 2016）把 BN 与 ReLU 移到卷积**之前**、残差相加之后不再有非线性，更深更稳 | **Pre-Norm**（《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「Pre-Norm 与 Post-Norm」）——同一个想法后来进了 Transformer：原始 Transformer（2017）与 BERT 用的是 Post-Norm，GPT-2（2019）起 Pre-Norm 成为主流 |
 | 堆同样的块 | 一个块的设计定好，重复 $$N$$ 次，只改深度与宽度 | 一层的设计定好，重复 $$L$$ 次<br/>scaling 只动 $$L$$、$$d$$、$$d_{ff}$$ |
 
 Table: ResNet 留给 Transformer 的四样遗产
@@ -258,7 +258,7 @@ token 数 $$= (H / p) \times (W / p)$$，由分辨率与 patch 大小决定，�
 
 Table: 不同分辨率与 patch 大小下的 token 数
 
-这张表是 L7 多模态的入口：VLM 把 ViT 的输出 token 送进 LLM，一张图占多少上下文、多少 KV cache，从这里开始算——[现代 LLM 结构第九篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)把这笔账算完了。attention 的算量随 token 数平方增长，所以高分辨率图像要么用更大的 patch、要么在 encoder 后合并 token（2×2 merge）、要么用窗口 attention——三种办法都在那一篇。
+这张表是 L7 多模态的入口：VLM 把 ViT 的输出 token 送进 LLM，一张图占多少上下文、多少 KV cache，从这里开始算——[现代 LLM 结构第十篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)把这笔账算完了。attention 的算量随 token 数平方增长，所以高分辨率图像要么用更大的 patch、要么在 encoder 后合并 token（2×2 merge）、要么用窗口 attention——三种办法都在那一篇。
 
 ### 5. 卷积的残余
 
@@ -275,7 +275,7 @@ Table: 不同分辨率与 patch 大小下的 token 数
 
 ### 0. LeNet-5：6 万参数的 1998 年网络
 
-**问题与数据**：MNIST，与 L2 第四篇（KNN 2.95%）、第五篇（RBF-SVM 1.43%）、本系列第二篇（两层 MLP 2.39%）同一份数据、同一个划分。1998 年 LeCun 等在这份数据上报了 LeNet-5 0.95% 的错误率，SVM 1.1%——卷积网络第一次在公开对比里领先。这一节把第四章那张图里的网络一层层写出来、训一遍、和前面三种方法对照。
+**问题与数据**：MNIST，与 L2 第五篇（KNN 2.95%）、第六篇（RBF-SVM 1.43%）、本系列第三篇（两层 MLP 2.39%）同一份数据、同一个划分。1998 年 LeCun 等在这份数据上报了 LeNet-5 0.95% 的错误率，SVM 1.1%——卷积网络第一次在公开对比里领先。这一节把第四章那张图里的网络一层层写出来、训一遍、和前面三种方法对照。
 
 **思路**：按原图的 C1-S2-C3-S4-C5-F6-OUT 七层照搬，只把 1998 年的三处改成今天的写法——tanh → ReLU、平均池化 → 最大池化、RBF 输出层 → softmax；结构、每层的通道数和核大小一个不改。
 
@@ -329,9 +329,9 @@ Table: LeNet-5 在 MNIST 上的训练
 
 | 方法 | 参数 | 测试错误率 | 出处 |
 |---|---:|---:|---|
-| KNN，$$k = 3$$ | 0（存 60,000 张） | 2.95% | L2 第四篇 |
-| 两层 MLP 784-256-10 | 203,530 | 2.39% | 本系列第二篇 |
-| RBF-SVM | 16,122 个支持向量 | 1.43% | L2 第五篇 |
+| KNN，$$k = 3$$ | 0（存 60,000 张） | 2.95% | L2 第五篇 |
+| 两层 MLP 784-256-10 | 203,530 | 2.39% | 本系列第三篇 |
+| RBF-SVM | 16,122 个支持向量 | 1.43% | L2 第六篇 |
 | LeNet-5（1998 原文） | 60K | 0.95% | LeCun 等 1998 |
 | **LeNet-5（本节复现，5 个 epoch）** | 61,706 | **0.82%** | |
 
@@ -384,12 +384,12 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 ## 八、本文小结
 
 - **卷积是带两条约束的线性层**：局部性（矩阵稀疏）与参数共享（各行是同一核的平移）。$$3 \times 3$$ 核在 $$6 \times 6$$ 图上是一个 $$16 \times 36$$ 矩阵、144 个非零、9 个自由参数；ResNet-50 一个卷积层的等价全连接矩阵有 $$4 \times 10^{10}$$ 个元素。参数量与图像大小无关，FLOPs 与之成正比（ResNet-50：25.6M 参数、8.2 GFLOPs、每个参数用 320 次）。
-- **深度是为了感受野**：$$1 + 2L$$，stride 与池化把它乘上去；深了就遇到《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讨论的全部问题。VGG 止于 19 层，BN 修前向，残差修反向，ResNet 到 152 层。
+- **深度是为了感受野**：$$1 + 2L$$，stride 与池化把它乘上去；深了就遇到《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讨论的全部问题。VGG 止于 19 层，BN 修前向，残差修反向，ResNet 到 152 层。
 - 五个里程碑各留下一样东西：ReLU 与 GPU（AlexNet）、小核堆深（VGG）、$$1 \times 1$$ 卷积与全局池化（GoogLeNet）、残差 + BN + 堆同样的块（ResNet）。Bottleneck 块用 $$1 \times 1$$ 降维把参数压 17 倍；$$1 \times 1$$ 卷积就是逐位置的线性层，与 Transformer 的 FFN 同类。
 - **退化问题复现**：plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72，残差网络不变；有 BN 的深 plain 网络梯度**向输入方向爆炸**（第 1 块是第 56 块的 2849 倍），残差把比值压到 3。ResNet-v2 的 pre-activation 是 Pre-Norm 的前身。
 - **ViT**：数据足够多时卷积的先验成为负担；把图切成 $$(H/p)(W/p)$$ 个 patch、线性投影成 token、送进标准 encoder。**Patch embedding 就是 kernel = stride = $$p$$ 的卷积**（实测差 $$10^{-6}$$，590,592 个参数）。一张 224 图是 196 个 token，CLIP-336 是 576，原生分辨率 1024² 是 5476——这是多模态成本的起点。
 - 卷积退到了 patch embedding、语音前端、U-Net 与 ConvNeXt；懂到"带约束的线性层 + 会算账 + 认得出 patch embedding"即可。
-- 下一篇先看[《深度学习基础（08）：Embedding 与表示学习——从 one-hot 到上下文表示》](/embedding-and-representation-learning.html)，再看循环网络怎样处理序列、为什么记不住远处，以及 attention 如何从它的瓶颈里被发明出来。
+- 下一篇先看[《深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示》](/embedding-and-representation-learning.html)，再看循环网络怎样处理序列、为什么记不住远处，以及 attention 如何从它的瓶颈里被发明出来。
 
 配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟；第七章的 LeNet-5 复现是 [`case_05_lenet5.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_lenet5.py)（MPS / CPU 均可，10 秒到 1 分钟）；原论文结构图由 `tools/paper_figures.py` 从 PDF 裁出。
 

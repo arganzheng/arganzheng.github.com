@@ -1,7 +1,7 @@
 ---
 layout: post
 series: deep-learning-foundations
-title: "深度学习基础（06）：正则化与泛化——为什么参数比样本多却不过拟合"
+title: "深度学习基础（07）：正则化与泛化——为什么参数比样本多却不过拟合"
 subtitle: "Regularization and Generalization: Double Descent, Implicit Bias, Dropout, Weight Decay and When Overfitting Comes Back"
 tags: [AI, Deep Learning, LLM]
 catalog: true
@@ -59,7 +59,7 @@ Table: 本文的章节安排
 
 | 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留问题 |
 |---|---|---|---|---|---|
-| 1943 / 1970 | Tikhonov<br/>Hoerl & Kennard | 病态的方程组解乱跳 | 给解加一个"小一点"的偏好 | **正则化**这个词与 weight decay 的源头（第五章第 1 节，L2 第二篇的 Ridge） | 为什么"小一点"的解泛化更好，当时没有理论 |
+| 1943 / 1970 | Tikhonov<br/>Hoerl & Kennard | 病态的方程组解乱跳 | 给解加一个"小一点"的偏好 | **正则化**这个词与 weight decay 的源头（第五章第 1 节，L2 第三篇的 Ridge） | 为什么"小一点"的解泛化更好，当时没有理论 |
 | 1971–1995 | Vapnik & Chervonenkis，统计学习理论 | 什么决定一个模型在新数据上的表现 | 用**容量**（VC 维）刻画泛化界：容量越大、样本越少，泛化越差 | 第二章的经典预言：模型不能比数据大——统治了几十年的泛化观 | 深网络参数远超样本却泛化得很好，预言在那里失效 |
 | 2012 / 2014 | Hinton 等<br/>Srivastava 等，Dropout | AlexNet 6000 万参数、120 万张图，全连接层严重过拟合 | 训练时随机丢一半神经元，强迫表示冗余（第五章第 2 节） | 2012–2017 年几乎每个网络都用 | LLM 预训练一个 epoch 背不下数据，反而用不上它（第六章） |
 | 2017 | Zhang 等，《Understanding deep learning requires rethinking generalization》 | 深网络参数远多于样本，按 VC 理论应该毫无泛化能力，却泛化得很好 | 用实验证明同一个网络能把**随机标签**背到 100%（第四章） | 容量不是度量，经典理论对深网络失效——泛化理论被公开动摇 | 那泛化到底随模型大小怎么变，没有解释 |
@@ -143,7 +143,7 @@ SGD（以及 Adam）有系统性的偏好：
 
 ![最小范数解：解集 w1 + 2 w2 = 5 是一条直线；从原点出发的梯度下降轨迹收敛到直线上离原点最近的点 w* = (1,2)（范数 √5 ≈ 2.236），而不是同样插值但范数 5 的解 (5,0)](/img/in-post/dl-reg-min-norm.svg)
 
-**平坦极小值。** SGD 的噪声（《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》「SGD 与它的噪声」中的尺度 $$\eta / \sqrt{B}$$）让参数在尖锐的极小值里待不住——一点扰动就跳出去——而在平坦的极小值里能停下。平坦的极小值对参数扰动不敏感，通常也对输入扰动不敏感，泛化更好。这解释了一个反复被观察到的现象：**大 batch（噪声小）训出来的模型泛化略差**，即使训练 loss 相同；也解释了为什么学习率衰减要留到最后——早期的大噪声是在挑盆地。
+**平坦极小值。** SGD 的噪声（《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》「SGD 与它的噪声」中的尺度 $$\eta / \sqrt{B}$$）让参数在尖锐的极小值里待不住——一点扰动就跳出去——而在平坦的极小值里能停下。平坦的极小值对参数扰动不敏感，通常也对输入扰动不敏感，泛化更好。这解释了一个反复被观察到的现象：**大 batch（噪声小）训出来的模型泛化略差**，即使训练 loss 相同；也解释了为什么学习率衰减要留到最后——早期的大噪声是在挑盆地。
 
 **先学简单的。** 网络在训练早期先拟合低频、简单的模式，晚期才去拟合高频、复杂的（包括噪声标签）。这就是早停有效的原因：在网络开始拟合噪声之前停下。
 
@@ -175,7 +175,7 @@ Table: 五种显式正则化手段总览
 
 **问题**：参数没有约束地涨，拟合出来的函数越来越扭曲。
 
-**怎么解决**：给参数一个均值 0、方差 $$\sigma^2$$ 的高斯先验 $$p(\theta) \propto \exp(-\|\theta\|^2 / 2\sigma^2)$$，最大后验估计（L0 数学系列第四篇的 MAP）在负对数似然上多出一项 $$\frac{1}{2\sigma^2}\|\theta\|^2$$——这就是 $$L_2$$ 正则，$$\lambda = 1/\sigma^2$$。它说的先验是"参数应该小"，也就是"函数应该平缓"。《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别」讨论了它在 Adam 下的正确形式与它在 LLM 里作为"范数平衡点"的含义。
+**怎么解决**：给参数一个均值 0、方差 $$\sigma^2$$ 的高斯先验 $$p(\theta) \propto \exp(-\|\theta\|^2 / 2\sigma^2)$$，最大后验估计（L0 数学系列第五篇的 MAP）在负对数似然上多出一项 $$\frac{1}{2\sigma^2}\|\theta\|^2$$——这就是 $$L_2$$ 正则，$$\lambda = 1/\sigma^2$$。它说的先验是"参数应该小"，也就是"函数应该平缓"。《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别」讨论了它在 Adam 下的正确形式与它在 LLM 里作为"范数平衡点"的含义。
 
 一个数字感受它的力度：AdamW 的解耦衰减是每步把参数乘 $$1 - \eta\lambda$$。$$\eta = 10^{-3}$$、$$\lambda = 0.5$$ 时这个因子是 $$0.9995$$；如果梯度是零，一个权重 1000 步后收缩到 $$0.9995^{1000} \approx 0.606$$——衰减不依赖 loss，它一直把参数往零点拉。
 
@@ -258,7 +258,7 @@ Table: 四种正则化配置的测试 loss 与早停点
 
 回到第一章的表：Llama-3-8B 每个参数分到约 1900 个 token。这个区间里模型是**欠拟合**的——训练 loss 与验证 loss 几乎重合（差在 0.01 nat 量级），加更多数据、更多算力 loss 还会降（这正是 scaling law 描述的）。过拟合不是风险，容量才是瓶颈。任何减少有效容量的正则化（dropout 最典型）都在浪费算力。GPT-2 还用 dropout 0.1；GPT-3 之后的大模型几乎全部去掉；Llama、Qwen、DeepSeek 的 config 里没有 dropout。
 
-Weight decay 保留了下来，但如《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》所述，它在这里的角色主要是控制参数范数与有效学习率，不是防过拟合。
+Weight decay 保留了下来，但如《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》所述，它在这里的角色主要是控制参数范数与有效学习率，不是防过拟合。
 
 ### 2. 一个 epoch
 
@@ -290,7 +290,7 @@ Table: 小语言模型三种数据量下的过拟合表现
 
 ### 2. SFT
 
-SFT 就在第一行那个区间：8B 模型、几千到几万条指令（几百万 token），参数是 token 的上千倍。典型现象：训练 loss 平滑下降，验证 loss 在第 2–3 个 epoch 后回升，模型对训练集里的问题逐字复述回答、对稍微改写的问题失去泛化。当前实践因此把 SFT 控制在 2–3 个 epoch；数据量大（几十万条以上）时 1–2 个；学习率比预训练小一个量级（《[深度学习基础（05）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「峰值学习率的量级」）也是同一个考虑——不要把预训练学到的表示冲掉。检测手段就是上面的记忆探针：拿训练集的 prompt 让模型生成，与训练集的回答比对。
+SFT 就在第一行那个区间：8B 模型、几千到几万条指令（几百万 token），参数是 token 的上千倍。典型现象：训练 loss 平滑下降，验证 loss 在第 2–3 个 epoch 后回升，模型对训练集里的问题逐字复述回答、对稍微改写的问题失去泛化。当前实践因此把 SFT 控制在 2–3 个 epoch；数据量大（几十万条以上）时 1–2 个；学习率比预训练小一个量级（《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「峰值学习率的量级」）也是同一个考虑——不要把预训练学到的表示冲掉。检测手段就是上面的记忆探针：拿训练集的 prompt 让模型生成，与训练集的回答比对。
 
 ### 3. 奖励模型
 
@@ -363,7 +363,7 @@ Table: 小语言模型 2 万字符逐 epoch 的 loss 与记忆率
 - LLM 预训练**不用 dropout、只训一个 epoch**，因为在数据主导区间里容量是瓶颈；数据受限时重复到 4 个 epoch 以内几乎无损，之后收益递减（Muennighoff 等 2023）。
 - 过拟合在 **SFT 与奖励模型**上回来：小语言模型实验里 2 万字符时第 16 个 epoch 起 held-out loss 回升、逐字记忆率升到 10%；20 万字符拐点在第 8 个 epoch；200 万字符 10 个 epoch 未到拐点。
 - 诊断：训练 / 验证 gap、held-out 拐点、**测试 loss 涨而准确率不变 = 过度自信**、记忆探针。
-- 下一篇进入结构史：[《深度学习基础（07）：CNN——从 LeNet 到 ResNet，再到 ViT》](/cnn-from-lenet-to-resnet-and-vit.html)，看卷积网络解决了什么、ResNet 留下了什么、ViT 怎么把图切成 token。
+- 下一篇进入结构史：[《深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT》](/cnn-from-lenet-to-resnet-and-vit.html)，看卷积网络解决了什么、ResNet 留下了什么、ViT 怎么把图切成 token。
 
 配套代码：[`deep-learning-foundations/04_regularization.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/04_regularization.py)——`dd` / `reg` / `lm` 三个子实验，完整跑约 15 分钟，`--quick` 两分钟；字符级语料用的是 Python 自带的标准库源码，不需要下载。第三、五章的曲线由 [`case_04_regularization_plots.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_04_regularization_plots.py) 画出，第一、三、四、五、七章的概念图与工作实例由 [`case_04_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_04_concept_figures.py) 画出（不需要训练）。
 
