@@ -3567,6 +3567,9 @@ body.outline-unavailable .catalog-mindmap {
 .mm-node[role="button"]:hover > .mm-node-line {
   stroke-width: 3;
 }
+.mm-node-hit {
+  stroke: none !important;
+}
 .mm-node-toggle text {
   pointer-events: none;
 }

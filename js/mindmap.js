@@ -428,6 +428,17 @@
           nodeGroup.setAttribute('role', 'button');
           nodeGroup.setAttribute('aria-label', node.text + (node.read ? '，已读' : ''));
         }
+        if (info.depth >= 2 && action) {
+          nodeGroup.appendChild(svgElement('rect', {
+            'class': 'mm-node-hit',
+            x: -info.width / 2 - 4,
+            y: -info.height / 2 - 3,
+            width: info.width + 8,
+            height: info.height + 6,
+            fill: 'none',
+            'pointer-events': 'all'
+          }));
+        }
         var title = svgElement('title', {});
         title.textContent = String(node.text || '') + (node.read ? ' · 已读' : '');
         nodeGroup.appendChild(title);
