@@ -14,13 +14,7 @@ catalog: true
 
 ## 一、总览：为什么需要非线性
 
-线性层负责混合输入维度；激活函数打破线性，才让层叠起来的网络表示复杂函数。若每层之间没有非线性，任意多层 Linear 都能折叠成一个 Linear（带 bias 时是仿射变换）。
-
-**仿射变换**就是“线性变换再加一个平移”：$$y=xW+b$$。纯线性变换 $$y=xW$$ 一定把原点映到原点；加上 bias 后直线、平面可以整体挪开，不必再穿过原点，但直的仍是直的，不会弯。两个仿射层复合仍是仿射：
-
-$$
-(xW_1+b_1)W_2+b_2 = x\underbrace{(W_1W_2)}_{W}+\underbrace{(b_1W_2+b_2)}_{b}
-$$
+线性层负责混合输入维度；激活函数打破线性，才让层叠起来的网络表示复杂函数。若每层之间没有非线性，任意多层 Linear 都能折叠成一个 Linear（带 bias 时是[仿射变换](# "tip: 线性变换再加一个平移：$y=xW+b$。纯线性变换 $y=xW$ 一定把原点映到原点；加上 bias 后直线、平面可以整体挪开，不必再穿过原点，但直的仍是直的，不会弯。两个仿射层复合仍是仿射：$(xW_1+b_1)W_2+b_2=x(W_1W_2)+(b_1W_2+b_2)$。")）。
 
 所以层数再多，也只相当于一个 $$W$$ 和一个 $$b$$。《[深度学习基础（02）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「两层网络前向」已经把这个矩阵乘法写出来了；这里沿用结论，不重做推导。
 
@@ -67,7 +61,7 @@ Table: 激活函数缩写、全称与读法
 
 ### 3. 来龙去脉：从饱和到门控
 
-| 时间 | 激活函数（论文） | 解决了什么 | 引入或遗留的问题 | 主要应用模型 / 场景 |
+| 时间 | 激活函数（论文） | 怎么解决 | 引入或遗留问题 | 主要应用模型 / 场景 |
 |---|---|---|---|---|
 | 早期 | [Sigmoid / tanh](https://www.nature.com/articles/323533a0)（Rumelhart、Hinton 与 Williams，1986） | 平滑可导，反向传播可用；tanh 输出以 0 为中心 | 两端饱和；sigmoid 最大导数为 0.25、输出非零中心，深层连乘时梯度容易消失 | 早期 MLP；[LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf) 的门（sigmoid）与候选状态（tanh）；今天 sigmoid 主要用于二分类输出和各种门 |
 | 2010–2012 | [ReLU](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)（[Nair 与 Hinton，2010](https://icml.cc/Conferences/2010/papers/432.pdf)；Glorot 等，2011；[Krizhevsky 等，2012](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)） | 正半轴导数为 1、计算简单且输出稀疏；AlexNet 报告四层 CNN 在 CIFAR-10 达到 25% 训练误差，比 tanh 网络快 6 倍 | 负半轴可能产生死亡单元；零点不可导，输出非零中心且无上界 | CNN（AlexNet、[ResNet](https://arxiv.org/abs/1512.03385)）；[原始 Transformer](https://arxiv.org/abs/1706.03762) 的 FFN |
@@ -75,8 +69,7 @@ Table: 激活函数缩写、全称与读法
 | 2016 | [GELU](https://arxiv.org/abs/1606.08415)（Hendrycks 与 Gimpel，2016） | 用输入大小进行平滑软门控 | 需计算正态 CDF 或 tanh 近似；曲线非单调 | [BERT](https://huggingface.co/google-bert/bert-base-uncased/blob/main/config.json)、GPT-2、[ViT](https://arxiv.org/abs/2010.11929) 的 FFN / MLP |
 | 2016 | [GLU](https://arxiv.org/abs/1612.08083)（Dauphin 等，2016） | 在门控卷积语言模型中用 sigmoid 门控制值分支 | 相比不分门控的卷积层多一张投影矩阵 | 门控卷积语言模型（GCNN）；后来成为 GLU 变体的母版 |
 | 2017 | [SiLU](https://arxiv.org/abs/1702.03118)（Elfwing 等，2017） / [Swish](https://arxiv.org/abs/1710.05941)（Ramachandran 等，2017） | SiLU 用 sigmoid 加权输入；Swish 的 $$\beta=1$$ 在 Mobile NASNet-A、Inception-ResNet-v2 的 ImageNet top-1 分别提升 0.9、0.6 个百分点 | 需计算 sigmoid 与乘法；曲线非单调；可学习的 $$\beta$$ 会增加参数 | [EfficientNet](https://arxiv.org/abs/1905.11946) 等 CNN；SwiGLU 的门 |
-| 2020 | GLU 变体：[Bilinear、ReGLU、GEGLU、SwiGLU](https://arxiv.org/abs/2002.05202)（Shazeer，2020，《GLU Variants Improve Transformer》） | T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低 | FFN 从两张矩阵变成三张投影矩阵（门、值、输出，见第六章）；为了参数量不变，中间宽度缩为约 2/3。论文未解释效果，作者称归于 “divine benevolence” | GEGLU：[T5 v1.1](https://huggingface.co/google/t5-v1_1-base/blob/main/config.json)；SwiGLU：见下一行 |
-| 2022–2024 | [PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、[Gemma](https://arxiv.org/abs/2403.08295)（2024） | PaLM、LLaMA 使用 SwiGLU；Gemma 使用 GeGLU | 同上一行的三张投影矩阵 | SwiGLU 成为开源 LLM FFN 的默认：LLaMA / Llama 3、Qwen2.5 等；GeGLU：Gemma |
+| 2020 | GLU 变体：[Bilinear、ReGLU、GEGLU、SwiGLU](https://arxiv.org/abs/2002.05202)（Shazeer，2020，《GLU Variants Improve Transformer》） | 把 GLU 的 sigmoid 门分别换成恒等、ReLU、GELU、SiLU，得到四种变体；T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低 | FFN 从两张矩阵变成三张投影矩阵（门、值、输出，见第六章）；为了参数量不变，中间宽度缩为约 2/3。论文未解释效果，作者称归于 “divine benevolence” | GEGLU：[T5 v1.1](https://huggingface.co/google/t5-v1_1-base/blob/main/config.json)、[Gemma](https://arxiv.org/abs/2403.08295)（2024，写作 GeGLU）；SwiGLU：[PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、Llama 3、Qwen2.5 等，成为开源 LLM FFN 的默认 |
 
 Table: 激活函数的提出背景、效果与遗留问题
 
@@ -170,9 +163,9 @@ $$
 \left(1+\tanh\left(\sqrt{\frac{2}{\pi}}\left(x+0.044715x^3\right)\right)\right)
 $$
 
-在 $$[-10,10]$$ 上取 2,000,001 个等距点，与精确的 $$x\Phi(x)$$ 比较，最大绝对误差约 $$4.73\times10^{-4}$$。
+在 $$[-10,10]$$ 上取 2,000,001 个等距点，与精确的 $$x\Phi(x)$$ 比较，最大绝对误差约 $$4.73\times10^{-4}$$——这个量级在函数图上完全看不出两条曲线的差别，所以右图直接画它们的差。
 
-![GELU、SiLU 与 tanh 近似曲线](/img/in-post/activation-smooth.webp)
+![GELU、SiLU 与 ReLU 参照及其导数；右：tanh 近似 gelu_new 与精确 GELU 之差](/img/in-post/activation-smooth.webp)
 
 ## 六、GLU 家族：用一个分支控制另一个分支
 
@@ -244,7 +237,17 @@ $$
 \operatorname{FFN}_{\mathrm{SwiGLU}}(x)=\bigl(\operatorname{SiLU}(xW)\odot xV\bigr)\,W_2
 $$
 
-普通 FFN 的两张矩阵（$$W_1$$ 升维、$$W_2$$ 降维）变成了三张：门投影 $$W$$、值投影 $$V$$、输出投影 $$W_2$$。本文前面表格里说的“三张矩阵”都指这三张。用 PyTorch 写只有几行：
+普通 FFN 的两张矩阵（$$W_1$$ 升维、$$W_2$$ 降维）变成了三张：门投影 $$W$$、值投影 $$V$$、输出投影 $$W_2$$。本文前面表格里说的“三张矩阵”都指这三张。同三张矩阵在不同代码库里有不同名字：
+
+| 本文记号（Shazeer 2020） | 作用 | 按功能命名 | Llama 官方代码 | Hugging Face |
+|---|---|---|---|---|
+| $$W$$ | 门投影 | $$W_{\text{gate}}$$ | `w1` | `gate_proj` |
+| $$V$$ | 值投影（升维） | $$W_{\text{up}}$$ | `w3` | `up_proj` |
+| $$W_2$$ | 输出投影（降维） | $$W_{\text{down}}$$ | `w2` | `down_proj` |
+
+Table: 三张投影矩阵在不同实现里的名字
+
+up / down 按的是宽度变化的方向：$$W_{\text{up}}$$ 把 $$d$$ 升到 $$d_g$$，$$W_{\text{down}}$$ 再降回 $$d$$。用 PyTorch 写只有几行：
 
 ```python
 class SwiGLUFFN(nn.Module):
