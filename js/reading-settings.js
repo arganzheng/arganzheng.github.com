@@ -17,6 +17,7 @@
   var ownFullscreen = false;
   var pendingFullscreen = false;
   var prevFs = document.fullscreenElement || document.webkitFullscreenElement;
+  var unloading = false;
 
   function fullscreenElement() {
     return document.fullscreenElement || document.webkitFullscreenElement;
@@ -38,7 +39,7 @@
   function enterFullscreen() {
     var el = document.documentElement;
     var request = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (!request || fullscreenElement()) return;
+    if (!request || fullscreenElement() || pendingFullscreen) return;
     pendingFullscreen = true;
     try {
       var promise = request.call(el);
@@ -77,7 +78,7 @@
 
     if (previousFs === root && ownFullscreen && !currentFs) {
       ownFullscreen = false;
-      if (apply('focus', '')) changed();
+      if (!unloading && apply('focus', '')) changed();
     }
     if (currentFs === root && ownFullscreen && selected('focus') !== 'on') exitFullscreen();
   }
@@ -269,6 +270,37 @@
     return false;
   }
 
+  function isEditing(element) {
+    return !!(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName) ||
+      element.closest && element.closest('[contenteditable]:not([contenteditable="false"])')));
+  }
+
+  function canReenterFullscreen() {
+    return selected('focus') === 'on' && !fullscreenElement() &&
+      !!(root.requestFullscreen || root.webkitRequestFullscreen) && !overlayOpen() && panel.hidden;
+  }
+
+  document.addEventListener('click', function (event) {
+    if (!canReenterFullscreen()) return;
+    var target = event.target;
+    if (target && target.nodeType !== 1) target = target.parentElement;
+    if (target && target.closest && target.closest(
+      'a, button, input, textarea, select, label, summary, video, audio, [contenteditable]:not([contenteditable="false"]), [role="button"], [tabindex]'
+    )) return;
+    var selection = window.getSelection && window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    enterFullscreen();
+  }, true);
+
+  document.addEventListener('keydown', function (event) {
+    if (!canReenterFullscreen() || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key !== ' ' && event.key !== 'PageDown' && event.key !== 'PageUp' &&
+        event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End' &&
+        event.code !== 'Space') return;
+    if (isEditing(document.activeElement)) return;
+    enterFullscreen();
+  }, true);
+
   var escapeOverlayWasOpen = false;
   document.addEventListener('keydown', function (event) {
     escapeOverlayWasOpen = (event.key === 'Escape' || event.key === 'Esc') && overlayOpen();
@@ -284,14 +316,15 @@
     }
     if (event.key !== 'Escape' && event.key !== 'Esc') return;
     var active = document.activeElement;
-    var editing = active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) ||
-      active.closest && active.closest('[contenteditable]:not([contenteditable="false"])'));
-    if (panel.hidden && !event.defaultPrevented && !editing && !escapeOverlayWasOpen && selected('focus') === 'on' &&
+    if (panel.hidden && !event.defaultPrevented && !isEditing(active) && !escapeOverlayWasOpen && selected('focus') === 'on' &&
         apply('focus', '')) changed();
     escapeOverlayWasOpen = false;
   });
   window.addEventListener('resize', positionPanel);
   window.addEventListener('scroll', positionPanel, true);
+  window.addEventListener('pagehide', function () { unloading = true; });
+  window.addEventListener('beforeunload', function () { unloading = true; });
+  window.addEventListener('pageshow', function (event) { if (event.persisted) unloading = false; });
   window.addEventListener('reading-settings-change', function () {
     syncControls();
     if (selected('focus') !== 'on' && ownFullscreen && fullscreenElement() === root) exitFullscreen();

@@ -216,7 +216,8 @@ Pages has `https_enforced` on.
   fields, and no overlay is open. Focus enters browser fullscreen on
   `documentElement` when supported (Esc is locked via Keyboard Lock in Chrome);
   leaving fullscreen also exits focus mode, and the focus column is capped at
-  1800px.
+  1800px. After reload or navigation restores focus, the first plain click or
+  scroll key re-enters fullscreen.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.
