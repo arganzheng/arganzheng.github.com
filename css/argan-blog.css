@@ -2200,12 +2200,39 @@ html.private-post:not(.author-ok) .private-post-gate {
   font-size: 13px;
   font-weight: normal;
 }
-.post-container .related.backlinks .backlinks-more summary {
-  color: #6a6a6a;
-  cursor: pointer;
+.post-container .related.backlinks .backlinks-more-item {
+  margin-bottom: 0;
 }
-.post-container .related.backlinks .backlinks-more summary:hover {
+.post-container .related.backlinks .backlinks-more {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.post-container .related.backlinks .backlinks-more > summary {
+  display: inline-block;
+  margin: 0;
+  font-weight: normal;
+  color: #6a6a6a;
+  font-size: 85%;
+}
+.post-container .related.backlinks .backlinks-more > summary::before {
+  content: none;
+}
+.post-container .related.backlinks .backlinks-more > summary::after {
+  content: "\25BE";
+  margin-left: 4px;
+}
+.post-container .related.backlinks .backlinks-more > summary:hover {
   color: #00788f;
+}
+.post-container .related.backlinks .backlinks-more[open] > summary {
+  display: none;
+}
+.post-container .related.backlinks .backlinks-more > ul {
+  margin: 0;
+  padding: 0;
 }
 .post-container .related + .related {
   margin-top: 28px;
@@ -10153,11 +10180,6 @@ html[data-theme="dark"] .post-container .related .related-date {
 }
 html[data-theme="dark"] .post-container .related.backlinks .h3 small {
   color: #969ba4;
-}
-html[data-theme="dark"] .post-container .related.backlinks .backlinks-more {
-  background-color: #1f2125;
-  border-color: #33363c;
-  border-left-color: #4cb7cb;
 }
 html[data-theme="dark"] .post-container .related.backlinks .backlinks-more summary {
   color: #969ba4;

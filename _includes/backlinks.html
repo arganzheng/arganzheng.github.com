@@ -17,10 +17,9 @@
       {%- endif %}
     </li>
     {%- endfor %}
-  </ul>
-  {%- if remaining_count > 0 %}
-  {%- assign remaining_backlinks = page.backlinks | slice: 8, remaining_count %}
-  <details class="backlinks-more">
+    {%- if remaining_count > 0 %}
+    {%- assign remaining_backlinks = page.backlinks | slice: 8, remaining_count %}
+    <li class="backlinks-more-item"><details class="backlinks-more">
     <summary>展开其余 {{ remaining_count }} 篇</summary>
     <ul class="list-unstyled">
       {%- for r in remaining_backlinks %}
@@ -33,7 +32,8 @@
       </li>
       {%- endfor %}
     </ul>
-  </details>
-  {%- endif %}
+    </details></li>
+    {%- endif %}
+  </ul>
 </div>
 {%- endif -%}
