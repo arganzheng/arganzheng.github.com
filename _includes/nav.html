@@ -51,6 +51,11 @@ it; post and moments pages start on a white background, so they take the light b
                             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><text x="1" y="18" fill="currentColor" font-size="15" font-family="system-ui, sans-serif">Aa</text></svg><span class="nav-reading-settings-label"> Reading</span>
                         </a>
                     </li>
+                    <li class="nav-focus-mode" hidden>
+                        <a href="#" role="button" title="专注阅读（Esc 退出）" aria-label="专注阅读" aria-pressed="false">
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="nav-focus-mode-label"> Focus</span>
+                        </a>
+                    </li>
                     <li class="nav-favorites">
                         <a href="{{ '/favorites/' | prepend: site.baseurl }}" title="我的收藏" aria-label="我的收藏"><svg class="nav-favorites-bookmark" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M6 4.5A2.5 2.5 0 0 1 8.5 2h7A2.5 2.5 0 0 1 18 4.5V21l-6-3.5L6 21z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2"/></svg><span class="nav-favorites-label"> Favorites</span></a>
                     </li>
@@ -76,7 +81,8 @@ it; post and moments pages start on a white background, so they take the light b
     .nav-favorites .nav-favorites-label,
     .nav-private .nav-private-label,
     .nav-theme-toggle .nav-theme-label,
-    .nav-reading-settings .nav-reading-settings-label {
+    .nav-reading-settings .nav-reading-settings-label,
+    .nav-focus-mode .nav-focus-mode-label {
         display: none;
     }
     @media only screen and (max-width: 767px) {
@@ -84,7 +90,8 @@ it; post and moments pages start on a white background, so they take the light b
         .nav-favorites .nav-favorites-label,
         .nav-private .nav-private-label,
         .nav-theme-toggle .nav-theme-label,
-        .nav-reading-settings .nav-reading-settings-label {
+        .nav-reading-settings .nav-reading-settings-label,
+        .nav-focus-mode .nav-focus-mode-label {
             display: inline;
         }
     }

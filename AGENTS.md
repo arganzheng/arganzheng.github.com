@@ -205,10 +205,15 @@ Pages has `https_enforced` on.
   per-post continue-reading prompt; it requires `.post-length` and skips Moments.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
-  the early head script applies them before styles load. Focus is post-only:
-  the script adds `html.rs-focus-page`, and `less/reading-settings.less`
-  scopes its layout changes to that class. Escape exits only when the settings
-  panel is closed, focus is outside editable fields, and no overlay is open.
+  the early head script applies them before styles load. Focus is entered from
+  the navbar `.nav-focus-mode` button on post pages, not from the Aa panel. The
+  panel's 底色 row chooses light or sepia for daytime through `setTheme()` and
+  is disabled in dark mode; dark mode is selected only by the sun/moon
+  `toggleTheme()`. 恢复默认 resets size, width, font, and paper, but not focus.
+  Focus still adds `html.rs-focus-page`, and
+  `less/reading-settings.less` scopes its layout changes to that class. Escape
+  exits only when the settings panel is closed, focus is outside editable
+  fields, and no overlay is open.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.

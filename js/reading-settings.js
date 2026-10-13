@@ -12,6 +12,9 @@
   var trigger = item && item.querySelector('a');
   if (!item || !trigger) return;
 
+  var focusItem = document.querySelector('.nav-focus-mode');
+  var focusTrigger = focusItem && focusItem.querySelector('a');
+
   var panel = document.createElement('div');
   panel.id = 'reading-settings-panel';
   panel.className = 'reading-settings-panel';
@@ -19,11 +22,11 @@
   panel.setAttribute('aria-label', '阅读设置');
   panel.hidden = true;
   panel.innerHTML =
-    '<div class="rs-setting-row"><span class="rs-setting-label">配色</span><div class="rs-segments" role="group" aria-label="配色">' +
-      '<button type="button" data-rs-theme="light" aria-pressed="false">浅色</button>' +
-      '<button type="button" data-rs-theme="sepia" aria-pressed="false">护眼</button>' +
-      '<button type="button" data-rs-theme="dark" aria-pressed="false">深色</button>' +
+    '<div class="rs-setting-row rs-paper-row"><span class="rs-setting-label">底色</span><div class="rs-segments" role="group" aria-label="日间底色">' +
+      '<button type="button" data-rs-paper="light" aria-pressed="false">白</button>' +
+      '<button type="button" data-rs-paper="sepia" aria-pressed="false">米黄</button>' +
     '</div></div>' +
+    '<p class="rs-paper-note" hidden>深色模式下不适用</p>' +
     '<div class="rs-setting-row"><span class="rs-setting-label">字号</span><div class="rs-segments" role="group" aria-label="字号">' +
       '<button type="button" data-rs-setting="size" data-rs-value="s" aria-pressed="false">小</button>' +
       '<button type="button" data-rs-setting="size" data-rs-value="" aria-pressed="false">标准</button>' +
@@ -37,10 +40,6 @@
     '<div class="rs-setting-row"><span class="rs-setting-label">字体</span><div class="rs-segments" role="group" aria-label="字体">' +
       '<button type="button" data-rs-setting="font" data-rs-value="" aria-pressed="false">无衬线</button>' +
       '<button type="button" data-rs-setting="font" data-rs-value="serif" aria-pressed="false">衬线</button>' +
-    '</div></div>' +
-    '<div class="rs-setting-row"><span class="rs-setting-label">专注</span><div class="rs-segments" role="group" aria-label="专注阅读">' +
-      '<button type="button" data-rs-setting="focus" data-rs-value="">关</button>' +
-      '<button type="button" data-rs-setting="focus" data-rs-value="on">开</button>' +
     '</div></div>' +
     '<button type="button" class="rs-reset">恢复默认</button>';
   document.body.appendChild(panel);
@@ -65,18 +64,27 @@
     return root.getAttribute(attributes[name]) || '';
   }
 
+  function dayPaper() {
+    var t = root.getAttribute('data-theme');
+    if (t === 'light' || t === 'sepia') return t;
+    try { return localStorage.getItem('theme-day') === 'sepia' ? 'sepia' : 'light'; } catch (e) { return 'light'; }
+  }
+
   function syncControls() {
     var buttons = panel.querySelectorAll('[data-rs-setting]');
     for (var i = 0; i < buttons.length; i++) {
       var button = buttons[i];
       button.setAttribute('aria-pressed', String(button.getAttribute('data-rs-value') === selected(button.getAttribute('data-rs-setting'))));
     }
+    if (focusTrigger) focusTrigger.setAttribute('aria-pressed', String(selected('focus') === 'on'));
     exitButton.hidden = selected('focus') !== 'on';
-    var theme = root.getAttribute('data-theme') || 'light';
-    var themeButtons = panel.querySelectorAll('[data-rs-theme]');
-    for (var j = 0; j < themeButtons.length; j++) {
-      themeButtons[j].setAttribute('aria-pressed', String(themeButtons[j].getAttribute('data-rs-theme') === theme));
+    var dark = root.getAttribute('data-theme') === 'dark';
+    var paperButtons = panel.querySelectorAll('[data-rs-paper]');
+    for (var j = 0; j < paperButtons.length; j++) {
+      paperButtons[j].disabled = dark;
+      paperButtons[j].setAttribute('aria-pressed', String(paperButtons[j].getAttribute('data-rs-paper') === dayPaper()));
     }
+    panel.querySelector('.rs-paper-note').hidden = !dark;
   }
 
   function store() {
@@ -131,6 +139,16 @@
     }
   });
 
+  if (focusTrigger) {
+    focusTrigger.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (window.innerWidth <= 767 && window.__HuxNav__) window.__HuxNav__.close();
+      if (!panel.hidden) close(false);
+      if (apply('focus', 'on')) changed();
+    });
+  }
+
   panel.addEventListener('click', function (event) {
     event.stopPropagation();
     var button = event.target.closest('button');
@@ -138,14 +156,20 @@
     if (button.classList.contains('rs-reset')) {
       var didChange = false;
       Object.keys(attributes).forEach(function (name) {
-        didChange = apply(name, '') || didChange;
+        if (name !== 'focus') didChange = apply(name, '') || didChange;
       });
       if (didChange) changed();
+      if (root.getAttribute('data-theme') === 'sepia') {
+        if (typeof window.setTheme === 'function') window.setTheme('light');
+      } else if (root.getAttribute('data-theme') === 'dark') {
+        try { localStorage.removeItem('theme-day'); } catch (e) {}
+      }
+      syncControls();
       return;
     }
-    var theme = button.getAttribute('data-rs-theme');
-    if (theme) {
-      if (typeof window.setTheme === 'function') window.setTheme(theme);
+    var paper = button.getAttribute('data-rs-paper');
+    if (paper) {
+      if (root.getAttribute('data-theme') !== 'dark' && typeof window.setTheme === 'function') window.setTheme(paper);
       return;
     }
     var name = button.getAttribute('data-rs-setting');
@@ -204,5 +228,6 @@
   }
 
   item.hidden = false;
+  if (focusItem) focusItem.hidden = false;
   syncControls();
 })();

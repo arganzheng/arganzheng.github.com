@@ -9042,6 +9042,15 @@ html.mp-viewing {
 .nav-reading-settings svg text {
   text-transform: none;
 }
+.nav-focus-mode[hidden] {
+  display: none !important;
+}
+.nav-focus-mode .nav-focus-mode-label {
+  display: none;
+}
+.nav-focus-mode a svg {
+  vertical-align: -2px;
+}
 .reading-settings-panel {
   position: fixed;
   z-index: 1200;
@@ -9096,6 +9105,18 @@ html.mp-viewing {
 .rs-segments button[aria-pressed="true"] {
   background: #0969da;
   color: #fff;
+}
+.rs-segments button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.rs-paper-note {
+  margin: -4px 0 10px 46px;
+  color: #57606a;
+  font-size: 12px;
+}
+.rs-paper-note[hidden] {
+  display: none;
 }
 .rs-segments button:focus-visible,
 .rs-reset:focus-visible {
@@ -9254,6 +9275,9 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] {
   .nav-reading-settings .nav-reading-settings-label {
     display: inline;
   }
+  .nav-focus-mode .nav-focus-mode-label {
+    display: inline;
+  }
   .reading-settings-panel {
     top: auto !important;
     right: 12px !important;
@@ -9273,6 +9297,7 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-exit[hidden] {
 }
 @media print {
   .nav-reading-settings,
+  .nav-focus-mode,
   .reading-settings-panel {
     display: none !important;
   }
@@ -10246,7 +10271,8 @@ html[data-theme="dark"] .reading-settings-panel {
   color: #d3d5d9;
 }
 html[data-theme="dark"] .rs-setting-label,
-html[data-theme="dark"] .rs-reset {
+html[data-theme="dark"] .rs-reset,
+html[data-theme="dark"] .rs-paper-note {
   color: #969ba4;
 }
 html[data-theme="dark"] .rs-segments {
