@@ -46,12 +46,12 @@ Transformer 之后，"深度学习基础"常被当成历史课跳过。但打开
 
 | 技术报告里的词 | 它是哪个基础概念在大模型上的形态 | 篇 |
 |---|---|---|
-| sigmoid、GELU、SiLU、SwiGLU | 导数怎样改变梯度流；门控 FFN 如何用激活选择信息 | 第三篇 |
+| sigmoid、GELU、SiLU、SwiGLU | 导数怎样改变梯度流<br/>门控 FFN 如何用激活选择信息 | 第三篇 |
 | RMSNorm、Pre-Norm | 方差在层间怎么传播，归一化放在残差分支前还是后 | 第四篇 |
 | 初始化标准差 0.02、GPT-2 残差分支除以 $$\sqrt{2L}$$ | 残差流的方差随层数线性增长 | 第四篇 |
 | $$\mu$$P、z-loss、QK-norm | 规模化之后的三个稳定性补丁：学习率随宽度漂移、lm_head logits 漂移、attention logits 增长 | 第四篇第七章 |
-| loss spike、梯度裁剪、warmup | 梯度范数的量级与坏 batch；Adam 初期步长偏大；裁剪把一步总范数压回阈值 | 第五篇 |
-| AdamW 的 $$\beta_2$$、weight decay 系数 | 二阶矩的记忆长度；解耦的 L2 正则 | 第四、五篇 |
+| loss spike、梯度裁剪、warmup | 梯度范数的量级与坏 batch<br/>Adam 初期步长偏大<br/>裁剪把一步总范数压回阈值 | 第五篇 |
+| AdamW 的 $$\beta_2$$、weight decay 系数 | 二阶矩的记忆长度<br/>解耦的 L2 正则 | 第四、五篇 |
 | 预训练不用 dropout、一个 epoch | dropout 的期望等价与数据充足时的正则化需求 | 第六篇 |
 | token embedding、Word2Vec、weight tying | 离散 token 如何查表成向量，词向量如何从上下文学习 | 第八篇 |
 
@@ -98,12 +98,12 @@ L7 多模态的 vision encoder 来自 ViT，ViT 来自 CNN 的 patch 化；表�
 |---|---|---|
 | 第一篇 | [深度模型演进史：从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html) | 感知机到 Transformer 的演进、XOR 与训练动机 |
 | 第二篇 | [反向传播：手推一个两层网络](/backpropagation-by-hand.html) | 梯度的形状规则，反向 = 2 × 前向，激活为什么要存 |
-| 第三篇 | [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html) | 从 sigmoid、tanh 到 ReLU、GELU、SiLU 与 SwiGLU；比较梯度、门控与计算代价 |
+| 第三篇 | [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html) | 从 sigmoid、tanh 到 ReLU、GELU、SiLU 与 SwiGLU<br/>比较梯度、门控与计算代价 |
 | 第四篇 | [初始化、归一化与残差](/initialization-normalization-and-residual.html) | 方差怎么在层间传播，深网络为什么难训，残差与 Pre-Norm 怎么修 |
 | 第五篇 | [优化器：从 SGD 到 AdamW](/optimizers-from-sgd-to-adamw.html) | 学习率调度、梯度裁剪、梯度累积，batch 与学习率的 scaling |
-| 第六篇 | [正则化与泛化](/regularization-and-generalization.html) | dropout、weight decay、早停；参数远多于样本时什么情况会过拟合、怎么办 |
+| 第六篇 | [正则化与泛化](/regularization-and-generalization.html) | dropout、weight decay、早停<br/>参数远多于样本时什么情况会过拟合、怎么办 |
 | 第七篇 | [CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html) | 卷积作为参数共享，感受野，ViT 把图切成 token |
-| 第八篇 | [Embedding 与表示学习](/embedding-and-representation-learning.html) | 从 one-hot 查表、Word2Vec 到上下文表示；token embedding 如何学出可用的几何结构 |
+| 第八篇 | [Embedding 与表示学习](/embedding-and-representation-learning.html) | 从 one-hot 查表、Word2Vec 到上下文表示<br/>token embedding 如何学出可用的几何结构 |
 | 第九篇 | [RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html) | 时间上的反传与梯度消失，LSTM 的门，seq2seq 的瓶颈，attention 的诞生 |
 
 Table: 九篇正文的主题与内容
@@ -117,7 +117,7 @@ Table: 九篇正文的主题与内容
 | 信号能否保持深层尺度？ | [初始化、归一化与残差](/initialization-normalization-and-residual.html) | — |
 | 参数怎样更新？学习率与 batch 怎么选？ | [优化器：从 SGD 到 AdamW](/optimizers-from-sgd-to-adamw.html) | — |
 | 训练好后为什么测试表现变差？ | [正则化与泛化](/regularization-and-generalization.html) | 讨论正则化、验证集表现与泛化边界 |
-| 损失函数怎样选择？ | 本系列不讲 | 反向传播篇只以 softmax 交叉熵演示求导；系统介绍见[《算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss》](/from-maximum-likelihood-to-cross-entropy.html) |
+| 损失函数怎样选择？ | 本系列不讲 | 反向传播篇只以 softmax 交叉熵演示求导<br/>系统介绍见[《算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss》](/from-maximum-likelihood-to-cross-entropy.html) |
 | 混合精度与浮点格式怎样取舍？ | 本系列不讲 | 见[《算法工程师的工具箱（04）：PyTorch 使用层（下）——混合精度、显存的账与多卡启用》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)与[《现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html) |
 | 分布式训练和显存怎样安排？ | 本系列不讲 | 见[《大规模训练工程（01）：训练任务的状态解剖——显存账与 MFU》](/training-state-anatomy-memory-and-mfu.html)及[《大规模训练工程（02）：并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html) |
 | 数据从哪里来、怎样清洗配比？ | 本系列不讲 | [《预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
@@ -130,7 +130,7 @@ Table: 训练一个网络要回答的问题
 |---|---|---|
 | FFN 与激活 | MLP | [演进史](/evolution-of-deep-models-from-perceptron-to-transformer.html)与[激活函数篇](/activation-functions-from-sigmoid-to-swiglu.html) |
 | 残差 | CNN 线的 ResNet | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html)与[初始化、归一化与残差篇](/initialization-normalization-and-residual.html) |
-| 归一化 | CNN 中成熟的 BatchNorm；Transformer 使用 LayerNorm / RMSNorm | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html)与[初始化、归一化与残差篇](/initialization-normalization-and-residual.html) |
+| 归一化 | CNN 中成熟的 BatchNorm<br/>Transformer 使用 LayerNorm / RMSNorm | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html)与[初始化、归一化与残差篇](/initialization-normalization-and-residual.html) |
 | token embedding | 表示学习 | [Embedding 与表示学习篇](/embedding-and-representation-learning.html) |
 | attention | RNN 的 seq2seq 与 encoder-decoder attention | [RNN 篇](/rnn-lstm-and-the-birth-of-attention.html) |
 | patch embedding / ViT | CNN 的图像结构 | [CNN 篇](/cnn-from-lenet-to-resnet-and-vit.html) |
@@ -332,10 +332,10 @@ Table: 贯穿九篇的三条线索
 | 第四篇 | 深层堆叠<br/>Kaiming 初始化<br/>LayerNorm / RMSNorm<br/>残差块<br/>逐层方差与梯度范数统计 |
 | 第五篇 | SGD · Momentum · Adam · AdamW<br/>学习率调度<br/>梯度裁剪与梯度累积 |
 | 第六篇 | dropout<br/>weight decay<br/>训练 - 验证曲线<br/>宽度扫描 |
-| 第七篇 | Conv2d 与它的全连接等价形式；patch embedding（PyTorch 对照 CIFAR-10） |
+| 第七篇 | Conv2d 与它的全连接等价形式<br/>patch embedding（PyTorch 对照 CIFAR-10） |
 | 第八篇 | one-hot 查表<br/>skip-gram negative sampling<br/>text8 近邻、类比与 PCA |
-| 第九篇 | RNN 单元 · LSTM 单元 · BPTT；Bahdanau attention |
-| 案例脚本 | 原有 `case_01` … `case_06` 案例脚本；新增 `case_activation_functions.py`、`case_embedding_word2vec.py`；`tools/paper_figures.py` 从原论文 PDF 裁结构图 |
+| 第九篇 | RNN 单元 · LSTM 单元 · BPTT<br/>Bahdanau attention |
+| 案例脚本 | 原有 `case_01` … `case_06` 案例脚本<br/>新增 `case_activation_functions.py`、`case_embedding_word2vec.py`<br/>`tools/paper_figures.py` 从原论文 PDF 裁结构图 |
 
 Table: 各篇在 NumPy 小框架里加的东西
 
@@ -343,15 +343,15 @@ Table: 各篇在 NumPy 小框架里加的东西
 
 | 篇 | 案例 | 数字 |
 |---|---|---|
-| 第一篇 | XOR：感知机、ADALINE 与两层 MLP | AND 第 6 轮零误分；XOR 感知机最少 3 次误分；ADALINE MSE 0.25；H=4 为 20/20
-| 第二篇 | MNIST 手写数字，120 行 NumPy 从零 | 15 个 epoch 97.6%；与 KNN 2.95% / SVM 1.43% 同一份数据 |
-| 第三篇 | 20 层 MLP 对比六种激活函数，三个随机种子 | sigmoid 准确率 10.64%；tanh 90.48%；ReLU 91.88%；SiLU 92.88%；ReLU 死亡单元 12.26% |
-| 第四篇 | 把 MLP 加深到 64 层，七种接法 | 只有 Pre-Norm 在两个学习率下都能训；逐层激活 std / 梯度范数曲线 |
-| 第五篇 | 同一个 MLP，四种优化器 × 五个学习率；64 层网络的 warmup | 最优学习率差 300 倍、成绩差不到半个点；lr 1e-2 无 warmup loss 冲到 4.59 |
-| 第六篇 | 1,000 张图的过拟合与三种解药；宽度扫描 | 训练 loss 归零、测试 loss 掉头；double descent 的尖峰在宽度 8–16 |
-| 第七篇 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82%——MLP 参数的 1/3、错误率的 1/3；第一层学出边缘检测器 |
-| 第八篇 | 完整 text8 的 skip-gram negative sampling | 17,005,207 个词；`min_count=5` 后词表 71,290，subsampling 后 5,597,324 个词；100 维、3 epochs、CPU 310 秒 |
-| 第九篇 | 字符级 LSTM 写莎士比亚，与 nanoGPT 同预算 | val 1.71 vs 1.66；倒序任务的对齐矩阵 |
+| 第一篇 | XOR：感知机、ADALINE 与两层 MLP | AND 第 6 轮零误分<br/>XOR 感知机最少 3 次误分<br/>ADALINE MSE 0.25<br/>H=4 为 20/20
+| 第二篇 | MNIST 手写数字，120 行 NumPy 从零 | 15 个 epoch 97.6%<br/>与 KNN 2.95% / SVM 1.43% 同一份数据 |
+| 第三篇 | 20 层 MLP 对比六种激活函数，三个随机种子 | sigmoid 准确率 10.64%<br/>tanh 90.48%<br/>ReLU 91.88%<br/>SiLU 92.88%<br/>ReLU 死亡单元 12.26% |
+| 第四篇 | 把 MLP 加深到 64 层，七种接法 | 只有 Pre-Norm 在两个学习率下都能训<br/>逐层激活 std / 梯度范数曲线 |
+| 第五篇 | 同一个 MLP，四种优化器 × 五个学习率<br/>64 层网络的 warmup | 最优学习率差 300 倍、成绩差不到半个点<br/>lr 1e-2 无 warmup loss 冲到 4.59 |
+| 第六篇 | 1,000 张图的过拟合与三种解药<br/>宽度扫描 | 训练 loss 归零、测试 loss 掉头<br/>double descent 的尖峰在宽度 8–16 |
+| 第七篇 | 复现 LeNet-5 | 61,706 个参数、5 个 epoch、0.82%——MLP 参数的 1/3、错误率的 1/3<br/>第一层学出边缘检测器 |
+| 第八篇 | 完整 text8 的 skip-gram negative sampling | 17,005,207 个词<br/>`min_count=5` 后词表 71,290，subsampling 后 5,597,324 个词<br/>100 维、3 epochs、CPU 310 秒 |
+| 第九篇 | 字符级 LSTM 写莎士比亚，与 nanoGPT 同预算 | val 1.71 vs 1.66<br/>倒序任务的对齐矩阵 |
 
 Table: 各篇的案例
 
@@ -412,7 +412,7 @@ Table: 各篇平行的论文与资料阅读线
 
 | 问题 | 答案在 |
 |---|---|
-| loss 不降，是梯度没传到还是学习率不对？ | 第二篇：梯度检查；第四篇：逐层梯度与初始化；第五篇：学习率与 warmup |
+| loss 不降，是梯度没传到还是学习率不对？ | 第二篇：梯度检查<br/>第四篇：逐层梯度与初始化<br/>第五篇：学习率与 warmup |
 | sigmoid 深层梯度为什么消失？ReLU 有什么不同？ | 第三篇：激活函数导数与死亡单元 |
 | loss 爆成 NaN，先看哪个数字？ | 第四篇：逐层激活方差、梯度范数与裁剪 |
 | 这个网络为什么要 Pre-Norm？初始化为什么是 0.02？ | 第四篇：方差传播与残差流 |
