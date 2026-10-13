@@ -1380,6 +1380,17 @@ How it is built (`_plugins/moments.rb`):
     computed figure (~57 h) is the honest one. A first cut
     with cards + per-series pages + badges on the list pages was dropped the
     same day as 「太复杂了」 — keep this page a plain tree.
+  - **Between series** (`_includes/roadmap-box.html`, 2026-10-13): each map's
+    reading order is the order of the `series-row.html key="…"` rows in its
+    roadmap post (fallback: own `number`, then shared), computed by
+    `SeriesPages.link_maps` into `site.data.roadmaps[k].order` and each
+    series' `maps` (`index` / `total` / `prev` / `next` keys, own map first).
+    Overview posts get a `.series-box.roadmap-box` at the top (map, 第 N / X
+    个系列, the map's series, 上一个 / 下一个系列 per map); `series-nav.html`
+    adds a 学习地图 line, swaps 上一篇 for 上一个系列 on a series' first post
+    and 下一篇 for 下一个系列 on a finished (`status` 完结) series' last post.
+    Series whose overview is not published render as grey 即将发布 text
+    (`roadmap-series-link.html`), so no link points at a future post.
 - **Update-note exception:** when no usable version predates the post (no tag,
   or the only tag is months stale), a post may cite a newer version *if* it
   carries a note as the first line of the body:

@@ -45,6 +45,32 @@ module SeriesPages
     out
   end
 
+  # Reading order of each learning map = the order of the
+  # `{% include series-row.html key="…" %}` rows in its roadmap post (the map's
+  # 系列总览 table, shared series included where they are read); without the
+  # post, own series by `number` then shared ones. Sets roadmaps[k]['order']
+  # (series keys) and, on every series, `maps` = [{ key, name, short, url, index,
+  # label, total, prev, next }] (prev / next are series keys; own map first) — read by
+  # _includes/roadmap-box.html (overview posts) and series-nav.html.
+  def self.link_maps(series, roadmaps, by_url)
+    series.each_value { |m| m['maps'] = [] }
+    roadmaps.each do |rkey, r|
+      post = by_url[r['url']]
+      keys = post ? post.content.scan(/series-row\.html\s+key="([\w-]+)"/).flatten.uniq.select { |k| series[k] } : []
+      if keys.empty?
+        own = series.select { |_, m| m['roadmap'] == rkey }.sort_by { |_, m| m['number'].to_i }.map(&:first)
+        shared = series.select { |_, m| Array(m['shared_with']).include?(rkey) }.sort_by { |_, m| m['first'] || Time.at(0) }.map(&:first)
+        keys = own + shared
+      end
+      r['order'] = keys
+      keys.each_with_index do |k, i|
+        entry = { 'key' => rkey, 'name' => r['name'], 'short' => r['short'], 'label' => r['short'].to_s =~ /\A\p{Han}/ ? "#{r['short']}地图" : "#{r['short']} 地图", 'url' => r['url'],
+                  'index' => i + 1, 'total' => keys.size, 'prev' => i.positive? ? keys[i - 1] : nil, 'next' => keys[i + 1] }
+        series[k]['roadmap'] == rkey ? series[k]['maps'].unshift(entry) : series[k]['maps'] << entry
+      end
+    end
+  end
+
   class Generator < Jekyll::Generator
     safe true
     priority :low
@@ -74,6 +100,8 @@ module SeriesPages
             'date' => p.date, 'recap' => !!(p.url =~ RECAP) }
         end
       end
+
+      SeriesPages.link_maps(series, roadmaps, by_url)
 
       groups = roadmaps.map do |rkey, r|
         own = series.values.select { |s| s['roadmap'] == rkey }.sort_by { |s| s['number'].to_i }

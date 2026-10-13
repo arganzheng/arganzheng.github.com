@@ -1,0 +1,8 @@
+{%- comment -%}
+  One series as a link to its overview (总纲), by the part of its name before
+  「：」; plain text + 即将发布 while the overview is not published yet.
+  `s` = site.data.series entry. Used by roadmap-box.html and series-nav.html.
+{%- endcomment -%}
+{%- assign rsl = include.s -%}
+{%- assign rsl_name = rsl.name | split: '：' | first -%}
+{%- if rsl.overview_title -%}<a href="{{ rsl.overview | prepend: site.baseurl }}" title="{{ rsl.name }}">{{ rsl_name }}</a>{%- else -%}<span class="sb-soon" title="{{ rsl.name }}">{{ rsl_name }}<small>即将发布</small></span>{%- endif -%}
