@@ -206,10 +206,10 @@ Pages has `https_enforced` on.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
   the early head script applies them before styles load. Focus is entered from
-  the navbar `.nav-focus-mode` button on post pages, not from the Aa panel. The
-  panel's 底色 row chooses light or sepia for daytime through `setTheme()` and
-  is disabled in dark mode; dark mode is selected only by the sun/moon
-  `toggleTheme()`. 恢复默认 resets size, width, font, and paper, but not focus.
+  the navbar `.nav-focus-mode` button on post pages; its top-right Aa pill opens
+  the same reading-settings panel. The panel's 配色 row chooses light, sepia,
+  or dark through `setTheme()`. 恢复默认 resets size, width, font, and paper,
+  but not focus; in dark mode it only clears the remembered daytime theme.
   Focus still adds `html.rs-focus-page`, and
   `less/reading-settings.less` scopes its layout changes to that class. Escape
   exits only when the settings panel is closed, focus is outside editable

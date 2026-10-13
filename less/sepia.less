@@ -8,6 +8,14 @@
 @sp-link: #286090;
 @sp-link-hover: #1f4f70;
 
+html[data-theme="sepia"].rs-focus-page[data-rs-focus="on"] .rs-focus-controls button {
+	border-color: @sp-border;
+	background: fade(@sp-bg, 94%);
+	color: @sp-text;
+	box-shadow: 0 2px 10px fade(@sp-text, 18%);
+	&:hover { background: @sp-surface-2; }
+}
+
 html[data-theme="sepia"] {
 	color-scheme: light;
 	background-color: @sp-bg;

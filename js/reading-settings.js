@@ -11,6 +11,7 @@
   var item = document.querySelector('.nav-reading-settings');
   var trigger = item && item.querySelector('a');
   if (!item || !trigger) return;
+  var activeTrigger = trigger;
 
   var focusItem = document.querySelector('.nav-focus-mode');
   var focusTrigger = focusItem && focusItem.querySelector('a');
@@ -90,11 +91,11 @@
   panel.setAttribute('aria-label', '阅读设置');
   panel.hidden = true;
   panel.innerHTML =
-    '<div class="rs-setting-row rs-paper-row"><span class="rs-setting-label">底色</span><div class="rs-segments" role="group" aria-label="日间底色">' +
+    '<div class="rs-setting-row rs-paper-row"><span class="rs-setting-label">配色</span><div class="rs-segments" role="group" aria-label="配色">' +
       '<button type="button" data-rs-paper="light" aria-pressed="false">白</button>' +
       '<button type="button" data-rs-paper="sepia" aria-pressed="false">米黄</button>' +
+      '<button type="button" data-rs-paper="dark" aria-pressed="false">深色</button>' +
     '</div></div>' +
-    '<p class="rs-paper-note" hidden>深色模式下不适用</p>' +
     '<div class="rs-setting-row"><span class="rs-setting-label">字号</span><div class="rs-segments" role="group" aria-label="字号">' +
       '<button type="button" data-rs-setting="size" data-rs-value="s" aria-pressed="false">小</button>' +
       '<button type="button" data-rs-setting="size" data-rs-value="" aria-pressed="false">标准</button>' +
@@ -112,13 +113,28 @@
     '<button type="button" class="rs-reset">恢复默认</button>';
   document.body.appendChild(panel);
 
+  var focusControls = document.createElement('div');
+  focusControls.className = 'rs-focus-controls';
+  focusControls.hidden = true;
+
+  var settingsButton = document.createElement('button');
+  settingsButton.type = 'button';
+  settingsButton.className = 'rs-focus-settings';
+  settingsButton.textContent = 'Aa';
+  settingsButton.setAttribute('aria-label', '阅读设置');
+  settingsButton.setAttribute('title', '阅读设置（字号、宽度、字体、配色）');
+  settingsButton.setAttribute('aria-haspopup', 'dialog');
+  settingsButton.setAttribute('aria-controls', 'reading-settings-panel');
+  settingsButton.setAttribute('aria-expanded', 'false');
+  focusControls.appendChild(settingsButton);
+
   var exitButton = document.createElement('button');
   exitButton.type = 'button';
   exitButton.className = 'rs-focus-exit';
   exitButton.textContent = '退出专注 · Esc';
   exitButton.setAttribute('aria-label', '退出专注');
-  exitButton.hidden = true;
-  document.body.appendChild(exitButton);
+  focusControls.appendChild(exitButton);
+  document.body.appendChild(focusControls);
 
   var attributes = { size: 'data-rs-size', width: 'data-rs-width', font: 'data-rs-font', focus: 'data-rs-focus' };
   var values = {
@@ -132,12 +148,6 @@
     return root.getAttribute(attributes[name]) || '';
   }
 
-  function dayPaper() {
-    var t = root.getAttribute('data-theme');
-    if (t === 'light' || t === 'sepia') return t;
-    try { return localStorage.getItem('theme-day') === 'sepia' ? 'sepia' : 'light'; } catch (e) { return 'light'; }
-  }
-
   function syncControls() {
     var buttons = panel.querySelectorAll('[data-rs-setting]');
     for (var i = 0; i < buttons.length; i++) {
@@ -145,14 +155,13 @@
       button.setAttribute('aria-pressed', String(button.getAttribute('data-rs-value') === selected(button.getAttribute('data-rs-setting'))));
     }
     if (focusTrigger) focusTrigger.setAttribute('aria-pressed', String(selected('focus') === 'on'));
-    exitButton.hidden = selected('focus') !== 'on';
-    var dark = root.getAttribute('data-theme') === 'dark';
+    focusControls.hidden = selected('focus') !== 'on';
+    if (selected('focus') !== 'on' && activeTrigger === settingsButton && !panel.hidden) close(false);
+    var theme = root.getAttribute('data-theme') || 'light';
     var paperButtons = panel.querySelectorAll('[data-rs-paper]');
     for (var j = 0; j < paperButtons.length; j++) {
-      paperButtons[j].disabled = dark;
-      paperButtons[j].setAttribute('aria-pressed', String(paperButtons[j].getAttribute('data-rs-paper') === dayPaper()));
+      paperButtons[j].setAttribute('aria-pressed', String(paperButtons[j].getAttribute('data-rs-paper') === theme));
     }
-    panel.querySelector('.rs-paper-note').hidden = !dark;
   }
 
   function store() {
@@ -183,15 +192,23 @@
 
   function positionPanel() {
     if (panel.hidden || window.innerWidth <= 767) return;
-    var rect = trigger.getBoundingClientRect();
+    var rect = activeTrigger.getBoundingClientRect();
     panel.style.top = Math.round(rect.bottom + 8) + 'px';
     panel.style.right = Math.max(12, window.innerWidth - rect.right) + 'px';
+  }
+
+  function openPanel(anchor) {
+    activeTrigger = anchor;
+    panel.hidden = false;
+    activeTrigger.setAttribute('aria-expanded', 'true');
+    positionPanel();
   }
 
   function close(restoreFocus) {
     panel.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
-    if (restoreFocus) trigger.focus();
+    settingsButton.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) activeTrigger.focus();
   }
 
   trigger.addEventListener('click', function (event) {
@@ -199,12 +216,17 @@
     event.stopPropagation();
     if (panel.hidden) {
       if (window.innerWidth <= 767 && window.__HuxNav__) window.__HuxNav__.close();
-      panel.hidden = false;
-      trigger.setAttribute('aria-expanded', 'true');
-      positionPanel();
+      openPanel(trigger);
     } else {
       close(false);
     }
+  });
+
+  settingsButton.addEventListener('click', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (panel.hidden) openPanel(settingsButton);
+    else close(false);
   });
 
   if (focusTrigger) {
@@ -240,7 +262,7 @@
     }
     var paper = button.getAttribute('data-rs-paper');
     if (paper) {
-      if (root.getAttribute('data-theme') !== 'dark' && typeof window.setTheme === 'function') window.setTheme(paper);
+      if (typeof window.setTheme === 'function') window.setTheme(paper);
       return;
     }
     var name = button.getAttribute('data-rs-setting');
@@ -307,7 +329,8 @@
   }, true);
 
   document.addEventListener('click', function (event) {
-    if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target)) close(true);
+    if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target) &&
+        !settingsButton.contains(event.target)) close(true);
   });
   document.addEventListener('keydown', function (event) {
     if (!panel.hidden && (event.key === 'Escape' || event.key === 'Esc')) {
