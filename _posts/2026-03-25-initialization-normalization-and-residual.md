@@ -35,8 +35,8 @@ $$
 
 | 方案 | 作用在链的哪一环 | 解决了什么 | 解决不了什么 |
 |---|---|---|---|
-| 初始化（Xavier / Kaiming） | 让每个因子在初始时刻的期望为 1 | 初始时刻前向方差、反向方差不爆不消 | 训练开始后因子偏离 1；因子的随机波动累积 |
-| 归一化（BN / LN / RMSNorm） | 每层前向后强制把方差拉回 1 | 前向方差在整个训练过程中受控；对权重尺度不敏感 | 反向仍是连乘；64 层无残差的网络加了 LN 仍几乎训不动 |
+| 初始化（Xavier / Kaiming） | 让每个因子在初始时刻的期望为 1 | 初始时刻前向方差、反向方差不爆不消 | 训练开始后因子偏离 1<br/>因子的随机波动累积 |
+| 归一化（BN / LN / RMSNorm） | 每层前向后强制把方差拉回 1 | 前向方差在整个训练过程中受控<br/>对权重尺度不敏感 | 反向仍是连乘<br/>64 层无残差的网络加了 LN 仍几乎训不动 |
 | 残差连接 | 把每层的 Jacobian 从 $$J$$ 变成 $$I + J$$ | 梯度有一条恒等通路，不再随深度指数衰减 | 残差流方差随深度增长——需要归一化或缩放配合 |
 
 Table: 三种方案各动了连乘链的哪一环
@@ -57,7 +57,7 @@ Table: 三种方案各动了连乘链的哪一环
 | 方案三：残差 | 五 | I + J 的恒等通路、残差流方差增长、GPT-2 的 1/√(2L) |
 | 方案二 + 三 的组合 | 六 | Pre-Norm 与 Post-Norm 的梯度路径，LLM 为什么选 Pre-Norm |
 | 规模化之后 | 七 | loss spike、QK-norm、z-loss、μP、embedding 缩放 |
-| 落地 | 八、九 | 诊断的三条曲线；64 层 MLP 七种接法的案例 |
+| 落地 | 八、九 | 诊断的三条曲线<br/>64 层 MLP 七种接法的案例 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
@@ -65,15 +65,15 @@ Table: 本文的章节安排
 
 ### 3. 来龙去脉：每一样都是为了"再深一点"
 
-| 年 | 谁 | 当时的问题 | 怎么解决 | 引入或遗留问题 |
-|---|---|---|---|---|
-| 1998 | LeCun 等，《Efficient BackProp》 | 网络训不动，多半是输入没归一、权重初始化随手取 | 输入标准化、权重按 $$1/\sqrt{n}$$ 初始化——第一份"怎么让网络能训"的工程手册 | 经验配方，没有解释为什么这些数字有效 |
-| 2010 | Glorot & Bengio（Xavier 初始化） | 5 层以上的 sigmoid / tanh 网络就训不动了，为什么 | 逐层分析**方差怎么传**（第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)章）：前向方差和反向方差都要保持不变，解出 $$\sigma^2 = 2/(n_{in} + n_{out})$$ | 推导按近似恒等的激活算，没算 ReLU 砍掉的一半——ReLU 网络用它到 30 层就训不动 |
-| 2015 | He 等（Kaiming 初始化） | ReLU 网络用 Xavier 到 30 层就不行 | ReLU 砍掉一半方差，所以 $$\sigma^2 = 2/n$$（[第三章](#三方案一初始化)）；第一次把 30 层的 ReLU 网络训起来 | 只保证 $$t = 0$$ 的初始时刻，训着训着分布又变了 |
-| 2015 | Ioffe & Szegedy，BatchNorm | 初始化只管第一步，训着训着分布又变了 | **归一化层**（[第四章](#四方案二归一化)）：每层强制拉回均值 0 方差 1，学习率可以大 10 倍 | 统计量依赖 batch，batch 小噪声大；训练与推理不一致；序列长度不一没法用 |
-| 2015 | He 等，ResNet | 有了 BN，56 层还是比 20 层差——不是过拟合，是训练误差更高 | **残差连接**（[第五章](#五方案三残差连接)）：$$x + f(x)$$，梯度多一条恒等通路，152 层能训；之后深度不再是瓶颈 | 残差流方差随深度增长，需要归一化或缩放配合 |
-| 2016 | Ba、Kiros、Hinton，LayerNorm | RNN / 序列模型 batch 内长度不一，BN 用不了 | 按样本、沿特征归一化（[第四章](#四方案二归一化)）——Transformer 用的就是它 | 和残差怎么摆还没解决：Post-Norm 要靠 warmup、深了难训 |
-| 2019 / 2020 | Zhang & Sennrich，RMSNorm；Xiong 等，Pre-LN | LayerNorm 里减均值是不是必要的；原始 Transformer 的 Post-Norm 为什么必须 warmup | 去掉减均值省 7% 时间效果不变（[第四章](#四方案二归一化)）；证明 Post-Norm 靠近输出的层梯度大、Pre-Norm 各层梯度均匀（[第六章](#六pre-norm-与-post-norm)）——LLM 全部改用 Pre-Norm + RMSNorm | Pre-LN 的残差流方差随深度线性增长，最后还要再加一个 final norm |
+| 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留问题 |
+|---|---|---|---|---|---|
+| 1998 | LeCun 等，《Efficient BackProp》 | 网络训不动，多半是输入没归一、权重初始化随手取 | 输入标准化、权重按 $$1/\sqrt{n}$$ 初始化 | 第一份"怎么让网络能训"的工程手册，成为那几年的默认做法 | 经验配方，没有解释为什么这些数字有效 |
+| 2010 | Glorot & Bengio（Xavier 初始化） | 5 层以上的 sigmoid / tanh 网络就训不动了，为什么 | 逐层分析**方差怎么传**（第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)章）：前向方差和反向方差都要保持不变，解出 $$\sigma^2 = 2/(n_{in} + n_{out})$$ | 初始化第一次有了原则，成为那之后几年的默认 | 推导按近似恒等的激活算，没算 ReLU 砍掉的一半——ReLU 网络用它到 30 层就训不动 |
+| 2015 | He 等（Kaiming 初始化） | ReLU 网络用 Xavier 到 30 层就不行 | ReLU 砍掉一半方差，所以 $$\sigma^2 = 2/n$$（[第三章](#三方案一初始化)） | 第一次把 30 层的 ReLU 网络训起来 | 只保证 $$t = 0$$ 的初始时刻，训着训着分布又变了 |
+| 2015 | Ioffe & Szegedy，BatchNorm | 初始化只管第一步，训着训着分布又变了 | **归一化层**（[第四章](#四方案二归一化)）：每层强制拉回均值 0 方差 1 | 学习率可以大 10 倍<br/>成为随后几年深度网络的标配 | 统计量依赖 batch，batch 小噪声大<br/>训练与推理不一致<br/>序列长度不一没法用 |
+| 2015 | He 等，ResNet | 有了 BN，56 层还是比 20 层差——不是过拟合，是训练误差更高 | **残差连接**（[第五章](#五方案三残差连接)）：$$x + f(x)$$，梯度多一条恒等通路 | 152 层能训<br/>之后深度不再是瓶颈，"堆同样的块"成为网络的标准形态 | 残差流方差随深度增长，需要归一化或缩放配合 |
+| 2016 | Ba、Kiros、Hinton，LayerNorm | RNN / 序列模型 batch 内长度不一，BN 用不了 | 按样本、沿特征归一化（[第四章](#四方案二归一化)） | Transformer 用的就是它 | 和残差怎么摆还没解决：Post-Norm 要靠 warmup、深了难训 |
+| 2019 / 2020 | Zhang & Sennrich，RMSNorm<br/>Xiong 等，Pre-LN | LayerNorm 里减均值是不是必要的<br/>原始 Transformer 的 Post-Norm 为什么必须 warmup | 去掉减均值（[第四章](#四方案二归一化)）<br/>证明 Post-Norm 靠近输出的层梯度大、Pre-Norm 各层梯度均匀（[第六章](#六pre-norm-与-post-norm)） | 减均值省 7% 时间效果不变<br/>LLM 全部改用 Pre-Norm + RMSNorm | Pre-LN 的残差流方差随深度线性增长，最后还要再加一个 final norm |
 
 Table: 初始化、归一化与残差的来历
 
@@ -273,13 +273,13 @@ Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性�
 
 | 工具 | 针对的问题 | 做法 | 出处 / 使用者 |
 |---|---|---|---|
-| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大；Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
+| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大<br/>Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
 | 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
-| QK-norm | attention logits 随训练增长，softmax 饱和，梯度消失或 loss spike | 对 $$Q$$、$$K$$ 各做一次 LayerNorm / RMSNorm 再点积 | Dehghani 等 2023（ViT-22B）；Gemma、Qwen3 等 |
+| QK-norm | attention logits 随训练增长，softmax 饱和，梯度消失或 loss spike | 对 $$Q$$、$$K$$ 各做一次 LayerNorm / RMSNorm 再点积 | Dehghani 等 2023（ViT-22B）<br/>Gemma、Qwen3 等 |
 | z-loss | lm_head 的 logits 整体漂移，softmax 的归一化项 $$\log Z$$ 失控 | loss 加 $$10^{-4} \cdot (\log Z)^2$$，把 $$\log Z$$ 拉向 0 | PaLM |
 | Embedding 缩放 | embedding 输出尺度与残差流不匹配 | embedding 乘 $$\sqrt{d}$$（Gemma）或用更大初始化 | 原始 Transformer 即有 |
-| $$\mu$$P | 最优学习率随宽度漂移，小模型调出的超参数在大模型上失效 | 按宽度缩放初始化与学习率，使不同宽度下特征更新量级一致 | Yang 等 2022；被多个开源模型采用 |
-| 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」；几乎所有 LLM |
+| $$\mu$$P | 最优学习率随宽度漂移，小模型调出的超参数在大模型上失效 | 按宽度缩放初始化与学习率，使不同宽度下特征更新量级一致 | Yang 等 2022<br/>被多个开源模型采用 |
+| 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《[深度学习基础（05）](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」<br/>几乎所有 LLM |
 
 Table: 大模型上的稳定性工具
 
@@ -293,7 +293,7 @@ loss spike——训练中 loss 突然跳高、有时能恢复有时不能——�
 |---|---|---|
 | 各层激活的 RMS（或标准差） | 各层同量级，训练中缓慢变化 | 随深度指数衰减 → 初始化太小或激活函数因子没算<br/>随深度指数增长 → 残差没有归一化<br/>某层突然跳大 → 该层权重出问题 |
 | 各层梯度的范数 | 各层同量级（有残差 + Pre-Norm 时几乎相等） | 随深度衰减几个量级 → 没有残差或 Post-Norm 太深<br/>顶层远大于底层 → Post-Norm，需要 warmup<br/>某步全局范数突增 → loss spike 的前兆，裁剪会介入 |
-| 更新量与参数的比 $$\lVert \Delta W \rVert / \lVert W \rVert$$ | 约 $$10^{-3}$$ 量级 | 远大于 → 学习率太大；远小于 → 学习率太小或该层没在学 |
+| 更新量与参数的比 $$\lVert \Delta W \rVert / \lVert W \rVert$$ | 约 $$10^{-3}$$ 量级 | 远大于 → 学习率太大<br/>远小于 → 学习率太小或该层没在学 |
 
 Table: 训练诊断：三条曲线的健康形状与病态
 
@@ -314,7 +314,7 @@ Table: 训练诊断：三条曲线的健康形状与病态
 | plain-naive | Linear → ReLU | $$\sigma = 1/\sqrt{256}$$（忘了 ReLU 的因子 2） |
 | plain-kaiming | Linear → ReLU | $$\sigma = \sqrt{2/256}$$ |
 | ln | Linear → LayerNorm → ReLU | Kaiming |
-| res-nonorm | $$x + W_2\,\text{ReLU}(W_1 x)$$ | Kaiming；$$W_2$$ 用 $$1/\sqrt{256}$$ |
+| res-nonorm | $$x + W_2\,\text{ReLU}(W_1 x)$$ | Kaiming<br/>$$W_2$$ 用 $$1/\sqrt{256}$$ |
 | res-nonorm-scaled | 同上 | $$W_2$$ 再乘 $$1/\sqrt{2L} = 1/\sqrt{128}$$ |
 | prenorm | $$x + W_2\,\text{ReLU}(W_1\,\text{LN}(x))$$，末尾一个 final LN | 同上 |
 | postnorm | $$\text{LN}(x + W_2\,\text{ReLU}(W_1 x))$$ | 同 res-nonorm |

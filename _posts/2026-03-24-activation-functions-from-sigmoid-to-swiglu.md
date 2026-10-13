@@ -25,7 +25,7 @@ catalog: true
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | Sigmoid 与 tanh | 饱和、梯度消失、输出是否以 0 为中心 |
-| 三 | ReLU | ReLU 为什么取代 sigmoid；单元为什么会死；它与 Kaiming 初始化如何配合 |
+| 三 | ReLU | ReLU 为什么取代 sigmoid<br/>单元为什么会死<br/>它与 Kaiming 初始化如何配合 |
 | 四 | ReLU 的修补 | Leaky ReLU、PReLU、ELU 怎样为负半轴保留梯度 |
 | 五 | 平滑激活 | GELU、SiLU 与 GPT-2 使用的 tanh 近似 |
 | 六 | GLU 家族 | GLU 与各变体怎样用门控分支筛选值分支 |
@@ -61,15 +61,15 @@ Table: 激活函数缩写、全称与读法
 
 ### 3. 来龙去脉：从饱和到门控
 
-| 时间 | 激活函数（论文） | 当时的问题 | 怎么解决 | 引入或遗留问题 | 主要应用模型 / 场景 |
-|---|---|---|---|---|---|
-| 早期 | [Sigmoid / tanh](https://www.nature.com/articles/323533a0)（Rumelhart、Hinton 与 Williams，1986） | 需要可导的非线性让反向传播可用 | sigmoid 与 tanh 平滑可导；tanh 输出以 0 为中心 | 两端饱和；sigmoid 最大导数为 0.25、输出非零中心，深层连乘时梯度容易消失 | 早期 MLP；[LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf) 的门（sigmoid）与候选状态（tanh）；今天 sigmoid 主要用于二分类输出和各种门 |
-| 2010–2012 | [ReLU](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)（[Nair 与 Hinton，2010](https://icml.cc/Conferences/2010/papers/432.pdf)；Glorot 等，2011；[Krizhevsky 等，2012](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)） | sigmoid / tanh 饱和导致深层梯度消失、训练慢 | 正半轴导数为 1、计算简单且输出稀疏；AlexNet 报告四层 CNN 在 CIFAR-10 达到 25% 训练误差，比 tanh 网络快 6 倍 | 负半轴可能产生死亡单元；零点不可导，输出非零中心且无上界 | CNN（AlexNet、[ResNet](https://arxiv.org/abs/1512.03385)）；[原始 Transformer](https://arxiv.org/abs/1706.03762) 的 FFN |
-| 2013–2015 | [Leaky ReLU](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)（Maas 等，2013） / [PReLU](https://arxiv.org/abs/1502.01852)（He 等，2015） / [ELU](https://arxiv.org/abs/1511.07289)（Clevert 等，2015） | ReLU 死亡单元、输出非零中心 | 负半轴保留梯度；PReLU 学习斜率，ELU 的负值让激活均值更接近零 | Leaky ReLU 需选斜率、PReLU 增加参数、ELU 需算指数；效果随任务而变 | Leaky ReLU：[DCGAN](https://arxiv.org/abs/1511.06434) 判别器等 GAN；PReLU：He 等的 ImageNet 模型；ELU 在主流大模型里少见 |
-| 2016 | [GELU](https://arxiv.org/abs/1606.08415)（Hendrycks 与 Gimpel，2016） | ReLU 在 0 点硬截断、不光滑 | 用输入大小进行平滑软门控 | 需计算正态 CDF 或 tanh 近似；曲线非单调 | [BERT](https://huggingface.co/google-bert/bert-base-uncased/blob/main/config.json)、GPT-2、[ViT](https://arxiv.org/abs/2010.11929) 的 FFN / MLP |
-| 2016 | [GLU](https://arxiv.org/abs/1612.08083)（Dauphin 等，2016） | 卷积语言模型需要像 LSTM 门一样控制信息流 | 用 sigmoid 门控制值分支 | 相比不分门控的卷积层多一张投影矩阵 | 门控卷积语言模型（GCNN）；后来成为 GLU 变体的母版 |
-| 2017 | [SiLU](https://arxiv.org/abs/1702.03118)（Elfwing 等，2017） / [Swish](https://arxiv.org/abs/1710.05941)（Ramachandran 等，2017） | 与 GELU 同：ReLU 在 0 点硬截断、不光滑 | SiLU 用 sigmoid 加权输入；Swish 的 $$\beta=1$$ 在 Mobile NASNet-A、Inception-ResNet-v2 的 ImageNet top-1 分别提升 0.9、0.6 个百分点 | 需计算 sigmoid 与乘法；曲线非单调；可学习的 $$\beta$$ 会增加参数 | [EfficientNet](https://arxiv.org/abs/1905.11946) 等 CNN；SwiGLU 的门 |
-| 2020 | GLU 变体：[Bilinear、ReGLU、GEGLU、SwiGLU](https://arxiv.org/abs/2002.05202)（Shazeer，2020，《GLU Variants Improve Transformer》） | 在固定参数预算下进一步提升 Transformer FFN 质量 | 把 GLU 的 sigmoid 门分别换成恒等、ReLU、GELU、SiLU，得到四种变体；T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低 | FFN 从两张矩阵变成三张投影矩阵（门、值、输出，见第六章）；为了参数量不变，中间宽度缩为约 2/3。论文未解释效果，作者称归于 “divine benevolence” | GEGLU：[T5 v1.1](https://huggingface.co/google/t5-v1_1-base/blob/main/config.json)、[Gemma](https://arxiv.org/abs/2403.08295)（2024，写作 GeGLU）；SwiGLU：[PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、Llama 3、Qwen2.5 等，成为开源 LLM FFN 的默认 |
+| 时间 | 激活函数（论文） | 当时的问题 | 怎么解决 | 效果 | 引入或遗留问题 | 主要应用模型 / 场景 |
+|---|---|---|---|---|---|---|
+| 早期 | [Sigmoid / tanh](https://www.nature.com/articles/323533a0)（Rumelhart、Hinton 与 Williams，1986） | 需要可导的非线性让反向传播可用 | sigmoid 与 tanh 平滑可导<br/>tanh 输出以 0 为中心 | 反向传播在多层网络上可用<br/>sigmoid 的门控特性后来被 LSTM 沿用 | 两端饱和<br/>sigmoid 最大导数为 0.25、输出非零中心，深层连乘时梯度容易消失 | 早期 MLP<br/>[LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf) 的门（sigmoid）与候选状态（tanh）<br/>今天 sigmoid 主要用于二分类输出和各种门 |
+| 2010–2012 | [ReLU](https://proceedings.mlr.press/v15/glorot11a/glorot11a.pdf)（[Nair 与 Hinton，2010](https://icml.cc/Conferences/2010/papers/432.pdf)<br/>Glorot 等，2011<br/>[Krizhevsky 等，2012](https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf)） | sigmoid / tanh 饱和导致深层梯度消失、训练慢 | 正半轴导数为 1<br/>计算简单且输出稀疏 | AlexNet 报告四层 CNN 在 CIFAR-10 达到 25% 训练误差，比 tanh 网络快 6 倍 | 负半轴可能产生死亡单元<br/>零点不可导，输出非零中心且无上界 | CNN（AlexNet、[ResNet](https://arxiv.org/abs/1512.03385)）<br/>[原始 Transformer](https://arxiv.org/abs/1706.03762) 的 FFN |
+| 2013–2015 | [Leaky ReLU](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)（Maas 等，2013） / [PReLU](https://arxiv.org/abs/1502.01852)（He 等，2015） / [ELU](https://arxiv.org/abs/1511.07289)（Clevert 等，2015） | ReLU 死亡单元、输出非零中心 | 负半轴保留梯度<br/>PReLU 学习斜率，ELU 的负值让激活均值更接近零 | 效果随任务而变，没有统一赢家 | Leaky ReLU 需选斜率<br/>PReLU 增加参数<br/>ELU 需算指数 | Leaky ReLU：[DCGAN](https://arxiv.org/abs/1511.06434) 判别器等 GAN<br/>PReLU：He 等的 ImageNet 模型<br/>ELU 在主流大模型里少见 |
+| 2016 | [GELU](https://arxiv.org/abs/1606.08415)（Hendrycks 与 Gimpel，2016） | ReLU 在 0 点硬截断、不光滑 | 用输入大小进行平滑软门控 | 成为 BERT、GPT-2、ViT FFN / MLP 的默认 | 需计算正态 CDF 或 tanh 近似<br/>曲线非单调 | [BERT](https://huggingface.co/google-bert/bert-base-uncased/blob/main/config.json)、GPT-2、[ViT](https://arxiv.org/abs/2010.11929) 的 FFN / MLP |
+| 2016 | [GLU](https://arxiv.org/abs/1612.08083)（Dauphin 等，2016） | 卷积语言模型需要像 LSTM 门一样控制信息流 | 用 sigmoid 门控制值分支 | 在 GCNN 上验证门控卷积可行，后来成为 GLU 变体的母版 | 相比不分门控的卷积层多一张投影矩阵 | 门控卷积语言模型（GCNN） |
+| 2017 | [SiLU](https://arxiv.org/abs/1702.03118)（Elfwing 等，2017） / [Swish](https://arxiv.org/abs/1710.05941)（Ramachandran 等，2017） | 与 GELU 同：ReLU 在 0 点硬截断、不光滑 | SiLU 用 sigmoid 加权输入<br/>Swish 用同款曲线、把斜率做成可学习的 $$\beta$$ | Swish 的 $$\beta=1$$ 在 Mobile NASNet-A、Inception-ResNet-v2 的 ImageNet top-1 分别提升 0.9、0.6 个百分点 | 需计算 sigmoid 与乘法<br/>曲线非单调<br/>可学习的 $$\beta$$ 会增加参数 | [EfficientNet](https://arxiv.org/abs/1905.11946) 等 CNN<br/>SwiGLU 的门 |
+| 2020 | GLU 变体：[Bilinear、ReGLU、GEGLU、SwiGLU](https://arxiv.org/abs/2002.05202)（Shazeer，2020，《GLU Variants Improve Transformer》） | 在固定参数预算下进一步提升 Transformer FFN 质量 | 把 GLU 的 sigmoid 门分别换成恒等、ReLU、GELU、SiLU，得到四种变体 | T5 的预训练表中 GEGLU、SwiGLU 的 held-out log-perplexity 最低<br/>论文未解释效果，作者称归于 “divine benevolence” | FFN 从两张矩阵变成三张投影矩阵（门、值、输出，见第六章）<br/>为了参数量不变，中间宽度缩为约 2/3 | GEGLU：[T5 v1.1](https://huggingface.co/google/t5-v1_1-base/blob/main/config.json)、[Gemma](https://arxiv.org/abs/2403.08295)（2024，写作 GeGLU）<br/>SwiGLU：[PaLM](https://arxiv.org/abs/2204.02311)（2022）、[LLaMA](https://arxiv.org/abs/2302.13971)（2023）、Llama 3、Qwen2.5 等，成为开源 LLM FFN 的默认 |
 
 Table: 激活函数的提出背景、效果与遗留问题
 
@@ -296,12 +296,12 @@ NVIDIA 的 [H100 SXM 数据表](https://resources.nvidia.com/en-us-gpu/h100-data
 | Sigmoid | $$\sigma(x)$$ | $$\sigma(1-\sigma)$$ | $$(0,1)$$ | 较高：exp | 平滑非线性基线 |
 | tanh | $$\tanh(x)$$ | $$1-\tanh^2(x)$$ | $$(-1,1)$$ | 较高：exp | 零中心输出对照 |
 | ReLU | $$\max(0,x)$$ | $$\mathbf{1}_{x>0}$$ | $$[0,\infty)$$ | 最低 | AlexNet |
-| Leaky / PReLU | $$x\;(x>0),\;\alpha x\;(x<0)$$ | $$1\;(x>0),\;\alpha\;(x<0)$$ | $$\mathbb{R}$$ | 低 | PReLU： [He 等（2015）的 ImageNet 模型](https://arxiv.org/abs/1502.01852)；Leaky ReLU：— |
+| Leaky / PReLU | $$x\;(x>0),\;\alpha x\;(x<0)$$ | $$1\;(x>0),\;\alpha\;(x<0)$$ | $$\mathbb{R}$$ | 低 | PReLU：[He 等（2015）的 ImageNet 模型](https://arxiv.org/abs/1502.01852)<br/>Leaky ReLU：— |
 | ELU | $$x\;(x>0),\;\alpha(e^x-1)\;(x\le0)$$ | $$1\;(x>0),\;\alpha e^x\;(x\le0)$$ | $$(-\alpha,\infty)$$ | 中：负侧 exp | — |
 | GELU | $$x\Phi(x)$$ | $$\Phi(x)+x\phi(x)$$ | 约 $$[-0.170,\infty)$$ | 较高：CDF / tanh 近似 | GPT-2 |
 | SiLU | $$x\sigma(x)$$ | $$\sigma+x\sigma(1-\sigma)$$ | 约 $$[-0.278,\infty)$$ | 中：sigmoid + 乘法 | SwiGLU 的门 |
 | GLU | $$a\odot\sigma(b)$$ | $$a'\sigma(b)+ab'\sigma'(b)$$ | 取决于值分支 | 门 + 逐元素乘 | [Dauphin 等（2016）的门控卷积语言模型](https://arxiv.org/abs/1612.08083) |
-| Bilinear / ReGLU / GEGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | Bilinear 的门为恒等；GEGLU：T5 v1.1、Gemma；SwiGLU：PaLM、LLaMA、Llama 3、Qwen2.5 |
+| Bilinear / ReGLU / GEGLU / SwiGLU | $$g(xW)\odot xV$$ | $$J=W\,\operatorname{diag}(g'(xW)\odot xV)+V\,\operatorname{diag}(g(xW))$$ | 取决于门函数与输入 | 三投影 + 门控乘法 | Bilinear 的门为恒等<br/>GEGLU：T5 v1.1、Gemma<br/>SwiGLU：PaLM、LLaMA、Llama 3、Qwen2.5 |
 
 Table: 常见激活函数的公式、导数与应用
 

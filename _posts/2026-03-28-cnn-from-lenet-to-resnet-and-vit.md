@@ -22,9 +22,9 @@ updated: 2026-10-13
 
 | 阶段 | 年代 | 解决的问题 | 代表 | 留给 Transformer 的 |
 |---|---|---|---|---|
-| 卷积作为归纳偏置 | 1989–2014 | 图像的局部性与平移不变性；用参数共享把参数量压下来 | LeNet、AlexNet、VGG、GoogLeNet | 1×1 卷积 = 逐位置的线性层；小核堆深 |
-| 深度与残差 | 2015–2016 | 深了训不动（退化问题）；BN 让前向稳定，残差让反向稳定 | ResNet、ResNet-v2 | **残差连接、归一化、堆同样的块、pre-activation（Pre-Norm 的前身）** |
-| 去掉归纳偏置 | 2020– | 数据够多时局部性约束成了上限；把图切成 token 交给 attention | ViT、ConvNeXt | **patch embedding = stride 卷积；一张图等于多少 token** |
+| 卷积作为归纳偏置 | 1989–2014 | 图像的局部性与平移不变性<br/>用参数共享把参数量压下来 | LeNet、AlexNet、VGG、GoogLeNet | 1×1 卷积 = 逐位置的线性层<br/>小核堆深 |
+| 深度与残差 | 2015–2016 | 深了训不动（退化问题）<br/>BN 让前向稳定，残差让反向稳定 | ResNet、ResNet-v2 | **残差连接、归一化、堆同样的块、pre-activation（Pre-Norm 的前身）** |
+| 去掉归纳偏置 | 2020– | 数据够多时局部性约束成了上限<br/>把图切成 token 交给 attention | ViT、ConvNeXt | **patch embedding = stride 卷积**<br/>**一张图等于多少 token** |
 
 Table: 卷积网络的三个阶段
 
@@ -45,16 +45,16 @@ Table: 本文的章节安排
 
 ### 3. 来龙去脉：从猫的视觉皮层到 ImageNet
 
-| 年 | 谁 | 当时的问题 | 怎么解决 | 引入或遗留问题 |
-|---|---|---|---|---|
-| 1959–1962 | Hubel & Wiesel（生理学） | 猫的视觉皮层神经元对什么有反应 | 发现每个神经元只看视野的一小块、对特定方向的边缘敏感，简单细胞 → 复杂细胞层级——**局部感受野**与**层级特征**的生物原型 | 生物原型不是模型——还没人把它做成能识别的机器 |
-| 1980 | Fukushima，Neocognitron | 把 Hubel & Wiesel 的层级做成能识别手写字的模型 | 交替的"S 层"（卷积）与"C 层"（池化），已经是 CNN 的骨架 | 当时不知道怎么训 |
-| 1989 / 1998 | LeCun 等 | 邮政编码、支票金额的手写识别要能上线 | 用反向传播训 Neocognitron 式的网络；**LeNet-5**（第四章、第七章的案例）：卷积 + 池化 + 全连接的范式，MNIST 0.95% | 更大的图（ImageNet 级）上训不动，也不如 SVM + 手工特征 |
-| 1998–2011 |  | 更大的图（ImageNet 120 万张 224×224）上 CNN 训不动、也不如 SVM + 手工特征 | 没有新解法——CNN 在小任务上继续当小众，主流是手工特征 + SVM | 要等算力（GPU）和数据（ImageNet）|
-| 2012 | Krizhevsky、Sutskever、Hinton，AlexNet | ImageNet 比赛 | 两块 GPU + ReLU + dropout 把 8 层、6000 万参数的 CNN 训出来，错误率 26% → 16%——深度学习复兴的起点（第四章） | 8 层之后怎么再加深，没有设计规则 |
-| 2014 | Simonyan & Zisserman，VGG；Szegedy 等，GoogLeNet | 再深一点怎么设计 | 只用 3×3 堆到 19 层；1×1 卷积做通道降维、多分支（第四章） | 再往上堆层数，训练误差反而升高 |
-| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」）<br/>152 层能训，之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 | 卷积的归纳偏置在数据够大时还值不值钱，成了下一个问题 |
-| 2020 | Dosovitskiy 等，ViT | 卷积的归纳偏置在数据够多时还是优势吗 | 把图切成 16×16 的 patch 当 token 喂 Transformer；数据够大时超过 CNN（第六章）——多模态 LLM 的视觉编码器由此而来 | 要大数据才赢 CNN——小数据下卷积仍占优 |
+| 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留问题 |
+|---|---|---|---|---|---|
+| 1959–1962 | Hubel & Wiesel（生理学） | 猫的视觉皮层神经元对什么有反应 | 发现每个神经元只看视野的一小块、对特定方向的边缘敏感，简单细胞 → 复杂细胞层级 | **局部感受野**与**层级特征**的生物原型 | 生物原型不是模型——还没人把它做成能识别的机器 |
+| 1980 | Fukushima，Neocognitron | 把 Hubel & Wiesel 的层级做成能识别手写字的模型 | 交替的"S 层"（卷积）与"C 层"（池化） | CNN 的骨架已经成形 | 当时不知道怎么训 |
+| 1989 / 1998 | LeCun 等 | 邮政编码、支票金额的手写识别要能上线 | 用反向传播训 Neocognitron 式的网络 | **LeNet-5**（第四章、第七章的案例）确立卷积 + 池化 + 全连接的范式，MNIST 错误率 0.95% | 更大的图（ImageNet 级）上训不动，也不如 SVM + 手工特征 |
+| 1998–2011 |  | 更大的图（ImageNet 120 万张 224×224）上 CNN 训不动、也不如 SVM + 手工特征 | 没有新解法 | CNN 在小任务上继续当小众，主流是手工特征 + SVM | 要等算力（GPU）和数据（ImageNet）|
+| 2012 | Krizhevsky、Sutskever、Hinton，AlexNet | ImageNet 比赛 | 两块 GPU + ReLU + dropout 把 8 层、6000 万参数的 CNN 训出来 | 错误率 26% → 16%——深度学习复兴的起点（第四章） | 8 层之后怎么再加深，没有设计规则 |
+| 2014 | Simonyan & Zisserman，VGG<br/>Szegedy 等，GoogLeNet | 再深一点怎么设计 | VGG：只用 3×3 堆到 19 层<br/>GoogLeNet：1×1 卷积做通道降维、多分支（第四章） | VGG-16 堆到 16 层<br/>GoogLeNet 22 层、参数只有 6.8M | 再往上堆层数，训练误差反而升高 |
+| 2015 | He 等，ResNet | 56 层比 20 层训练误差还高——深了反而差 | **残差连接**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「I + J：一条恒等通路」） | 152 层能训<br/>之后深度不再是问题，"堆同样的块"成为一切现代网络的形态 | 卷积的归纳偏置在数据够大时还值不值钱，成了下一个问题 |
+| 2020 | Dosovitskiy 等，ViT | 卷积的归纳偏置在数据够多时还是优势吗 | 把图切成 16×16 的 patch 当 token 喂 Transformer | 数据够大时超过 CNN（第六章）<br/>多模态 LLM 的视觉编码器由此而来 | 要大数据才赢 CNN——小数据下卷积仍占优 |
 
 Table: 卷积网络的来历
 
@@ -130,10 +130,10 @@ stride 为 $$s$$ 的卷积（或池化）把特征图缩小 $$s$$ 倍，之后�
 
 | 网络 | 年 | 层数 | 参数 | 引入的东西 | 今天还在用的 |
 |---|---|---|---|---|---|
-| LeNet-5 | 1998 | 5 | 60K | 卷积 + 池化 + 全连接的范式；反向传播训练 | 范式本身 |
-| AlexNet | 2012 | 8 | 60M | ReLU、dropout、GPU 训练、数据增强；ImageNet 上把错误率从 26% 降到 16% | ReLU、GPU、增强 |
-| VGG-16 | 2014 | 16 | 138M | 只用 $$3 \times 3$$ 核堆深；两个 $$3 \times 3$$ 的感受野等于一个 $$5 \times 5$$，参数 18 vs 25 且多一个非线性 | 小核堆深；"空间减半通道翻倍" |
-| GoogLeNet | 2014 | 22 | 6.8M | $$1 \times 1$$ 卷积做通道降维（bottleneck）<br/>多分支<br/>去掉大全连接层，用全局平均池化 | $$1 \times 1$$ 卷积；全局平均池化 |
+| LeNet-5 | 1998 | 5 | 60K | 卷积 + 池化 + 全连接的范式<br/>反向传播训练 | 范式本身 |
+| AlexNet | 2012 | 8 | 60M | ReLU、dropout、GPU 训练、数据增强<br/>ImageNet 上把错误率从 26% 降到 16% | ReLU、GPU、增强 |
+| VGG-16 | 2014 | 16 | 138M | 只用 $$3 \times 3$$ 核堆深<br/>两个 $$3 \times 3$$ 的感受野等于一个 $$5 \times 5$$，参数 18 vs 25 且多一个非线性 | 小核堆深<br/>"空间减半通道翻倍" |
+| GoogLeNet | 2014 | 22 | 6.8M | $$1 \times 1$$ 卷积做通道降维（bottleneck）<br/>多分支<br/>去掉大全连接层，用全局平均池化 | $$1 \times 1$$ 卷积<br/>全局平均池化 |
 | ResNet-50 / 152 | 2015 | 50 / 152 | 25.6M / 60M | 残差连接<br/>BN 到处用<br/>bottleneck 残差块 | **残差、归一化、堆同样的块** |
 
 Table: 经典 CNN 各解决了什么
@@ -214,7 +214,7 @@ ResNet 留给 Transformer 的不只是残差：
 | 残差连接 | $$x + f(x)$$，每块 | $$x + \text{Attn}(\cdot)$$，$$x + \text{FFN}(\cdot)$$，每层两次 |
 | 归一化到处用 | 每个卷积后一个 BN | 每个子层一个 LayerNorm / RMSNorm |
 | Pre-activation | ResNet-v2（He 等 2016）把 BN 与 ReLU 移到卷积**之前**、残差相加之后不再有非线性，更深更稳 | **Pre-Norm**（《[深度学习基础（04）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》「Pre-Norm 与 Post-Norm」）——同一个想法后来进了 Transformer：原始 Transformer（2017）与 BERT 用的是 Post-Norm，GPT-2（2019）起 Pre-Norm 成为主流 |
-| 堆同样的块 | 一个块的设计定好，重复 $$N$$ 次，只改深度与宽度 | 一层的设计定好，重复 $$L$$ 次；scaling 只动 $$L$$、$$d$$、$$d_{ff}$$ |
+| 堆同样的块 | 一个块的设计定好，重复 $$N$$ 次，只改深度与宽度 | 一层的设计定好，重复 $$L$$ 次<br/>scaling 只动 $$L$$、$$d$$、$$d_{ff}$$ |
 
 Table: ResNet 留给 Transformer 的四样遗产
 
