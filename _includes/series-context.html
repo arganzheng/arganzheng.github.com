@@ -5,7 +5,10 @@
     series_index  1-based position of the current post
     series_total  member count
     series_prev / series_next  neighbouring posts (nil at the ends)
-  Include once before series-nav.html / series-toc.html / the pager.
+  and, for a page that *is* a series overview (it has no `series:` of its own):
+    overview_meta  the site.data.series entry whose `overview` == page.url
+  Include once before series-nav.html / roadmap-box.html / series-toc.html /
+  series-side.html / the pager.
 {%- endcomment -%}
 {%- assign series_meta = nil -%}
 {%- if page.series -%}
@@ -23,3 +26,9 @@
     {%- endif -%}
   {%- endfor -%}
 {%- endif -%}
+{%- assign overview_meta = nil -%}
+{%- unless page.series -%}
+  {%- for oc_entry in site.data.series -%}
+    {%- if oc_entry[1].overview == page.url -%}{%- assign overview_meta = oc_entry[1] -%}{%- endif -%}
+  {%- endfor -%}
+{%- endunless -%}

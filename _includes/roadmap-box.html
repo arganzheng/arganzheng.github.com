@@ -1,19 +1,20 @@
 {%- comment -%}
-  Top of a series overview (总纲): where the series sits in its learning map —
-  the same .series-box as series-nav.html, 「地图 《…学习地图》 第 N / X 个系列」
-  folding open into the map's series in reading order (current one highlighted),
-  then 上一个系列 / 下一个系列 per map (a shared series gets one line per map).
-  Data: `maps` / roadmaps[k].order from _plugins/series_pages.rb, i.e. the row
-  order of each roadmap post's 系列总览 table — nothing to maintain here.
+  The learning-map box on a series overview (总纲): the same .series-box as
+  series-nav.html, 「地图 《…学习地图》 第 N / X 个系列」 folding open into the
+  map's series in reading order (current one highlighted), then
+  上一个系列 / 下一个系列 per map (a shared series gets one line per map).
+  Rendered at the top of the post and, with `open=true bottom=true` from
+  series-toc.html, unfolded at the bottom — the bottom copy carries the
+  .series-toc class so WeChat export / the feedback brief exclude it like the
+  article bottom box. Data: `maps` / roadmaps[k].order from
+  _plugins/series_pages.rb, i.e. the row order of each roadmap post's
+  系列总览 table — nothing to maintain here. Needs series-context.html first
+  (overview_meta).
 {%- endcomment -%}
-{%- assign rb_series = nil -%}
-{%- for rb_entry in site.data.series -%}
-  {%- if rb_entry[1].overview == page.url -%}{%- assign rb_series = rb_entry[1] -%}{%- endif -%}
-{%- endfor -%}
-{%- if rb_series and rb_series.maps.size > 0 -%}
-{%- assign rb_map = rb_series.maps[0] -%}
-<div class="series-nav series-box roadmap-box">
-  <details>
+{%- if overview_meta and overview_meta.maps.size > 0 -%}
+{%- assign rb_map = overview_meta.maps[0] -%}
+<div class="series-nav series-box roadmap-box{% if include.bottom %} series-toc{% endif %}">
+  <details{% if include.open %} open{% endif %}>
     <summary>
       <span class="sb-kicker">地图</span>
       <a class="sb-title" href="{{ rb_map.url | prepend: site.baseurl }}">《{{ rb_map.name }}》</a>
@@ -23,14 +24,14 @@
     <ol class="sb-list">
       {%- for rb_key in site.data.roadmaps[rb_map.key].order %}
       {%- assign rb_s = site.data.series[rb_key] %}
-      <li{% if rb_key == rb_series.key %} class="is-current"><span>{{ rb_s.name | split: '：' | first }}</span>{% else %}>{% include roadmap-series-link.html s=rb_s %}{% endif %}</li>
+      <li{% if rb_key == overview_meta.key %} class="is-current"><span>{{ rb_s.name | split: '：' | first }}</span>{% else %}>{% include roadmap-series-link.html s=rb_s %}{% endif %}</li>
       {%- endfor %}
     </ol>
   </details>
-  {%- for rb_m in rb_series.maps %}
+  {%- for rb_m in overview_meta.maps %}
   {%- if rb_m.prev or rb_m.next %}
   <p class="sb-nav">
-    {%- if rb_series.maps.size > 1 %}<a class="sb-map-name" href="{{ rb_m.url | prepend: site.baseurl }}">{{ rb_m.label }}</a>{% endif -%}
+    {%- if overview_meta.maps.size > 1 %}<a class="sb-map-name" href="{{ rb_m.url | prepend: site.baseurl }}">{{ rb_m.label }}</a>{% endif -%}
     {%- if rb_m.prev %}{% assign rb_p = site.data.series[rb_m.prev] %}<span>上一个系列：{% include roadmap-series-link.html s=rb_p %}</span>{% endif -%}
     {%- if rb_m.next %}{% assign rb_n = site.data.series[rb_m.next] %}<span>下一个系列：{% include roadmap-series-link.html s=rb_n %}</span>{% endif -%}
   </p>

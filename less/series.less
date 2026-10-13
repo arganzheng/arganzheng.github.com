@@ -147,6 +147,15 @@
 		li { margin: 0; }
 		// the theme sets `.sidebar-container a { color: #bfbfbf !important }`
 		a { color: #57606a !important; &:hover, &:focus { color: @brand-primary !important; } }
+		// unpublished series (即将发布) line up with the link rows the mixin draws
+		.sb-soon {
+			display: block;
+			padding: 1px 8px 1px 6px;
+			border-left: 2px solid transparent;
+			color: #8b949e;
+			&::before { content: counter(ss) "."; display: inline-block; min-width: 1.7em; }
+			small { margin-left: 4px; font-size: 10px; }
+		}
 	}
 }
 // leave the series block room under a long outline

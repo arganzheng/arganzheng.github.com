@@ -1,6 +1,9 @@
 {%- comment -%}
-  Bottom-of-post series box: the same .series-box as the top (series-nav.html),
-  list unfolded. Keeps the .series-toc class (WeChat export, annotations and
-  the feedback brief exclude it). Needs series-context.html first.
+  Bottom-of-post navigation box: the same .series-box as the top, list
+  unfolded — series-nav.html for member articles, roadmap-box.html for
+  overview (总纲) posts (each renders nothing on the other kind of page).
+  Keeps the .series-toc class (WeChat export, annotations and the feedback
+  brief exclude it). Needs series-context.html first.
 {%- endcomment -%}
 {%- include series-nav.html open=true bottom=true -%}
+{%- include roadmap-box.html open=true bottom=true -%}

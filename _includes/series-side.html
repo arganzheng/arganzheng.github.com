@@ -2,7 +2,10 @@
   「本系列」 block under the OUTLINE panel on wide screens (the sticky catalog
   column of the three post layouts): the series' parts in order, current one
   highlighted, so the reader can jump between parts without scrolling to the
-  top or bottom of the article. Needs series-context.html first.
+  top or bottom of the article. On an overview (总纲) page — no `series:` of
+  its own — the same slot lists the series of its primary learning map
+  instead (.side-roadmap), current series highlighted. Needs
+  series-context.html first.
 {%- endcomment -%}
 {%- if series_meta -%}
 <div class="side-series">
@@ -12,6 +15,16 @@
     <li{% if p.url == page.url %} class="is-current"{% endif %}>
       {%- if p.url == page.url %}<span>{{ p.title | split: '）：' | last }}</span>{% else %}<a href="{{ p.url | prepend: site.baseurl }}">{{ p.title | split: '）：' | last }}</a>{% endif -%}
     </li>
+    {%- endfor %}
+  </ol>
+</div>
+{%- elsif overview_meta and overview_meta.maps.size > 0 -%}
+{%- assign m = overview_meta.maps[0] -%}
+<div class="side-series side-roadmap">
+  <h5><a href="{{ m.url | prepend: site.baseurl }}" title="{{ m.name }}">{{ m.label }}</a><small>{{ m.index }} / {{ m.total }}</small></h5>
+  <ol>
+    {%- for sr_key in site.data.roadmaps[m.key].order %}
+    <li{% if sr_key == overview_meta.key %} class="is-current"><span>{{ site.data.series[sr_key].name | split: '：' | first }}</span>{% else %}>{% assign sr_s = site.data.series[sr_key] %}{% include roadmap-series-link.html s=sr_s %}{% endif %}</li>
     {%- endfor %}
   </ol>
 </div>
