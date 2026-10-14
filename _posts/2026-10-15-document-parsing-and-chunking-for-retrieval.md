@@ -7,13 +7,44 @@ tags: [AI, LLM, AI-Application, RAG, OCR, Chunking]
 catalog: true
 ---
 
-向量库里存的是什么，取决于文档被解析成了什么、又被切成了什么。一份两栏 PDF 被逐行交错成流畅的胡话、一张财务表格被压成一段丢掉了行列、每一页的页眉被注入到每一个块里——这些错误产出的 markdown 看起来干净，embedding 照常算，检索照常返回，只是返回的东西不对。一个开源解析器基准的作者把它叫作"RAG 流水线里最大的静默失败来源"。本篇讲检索的上游：**解析**（把文件变成结构化文本）与**分块**（把文本切成检索的单位），以及块上要带什么**元数据**。
+向量库里存的是什么，取决于文档被解析成了什么、又被切成了什么。一份两栏 PDF 被逐行交错成流畅的胡话、一张财务表格被压成一段丢掉了行列、每一页的页眉被注入到每一个块里——这些错误产出的 markdown 看起来干净，embedding 照常算，检索照常返回，只是返回的东西不对。一个开源解析器基准的作者把它叫作"RAG（retrieval-augmented generation）流水线里最大的静默失败来源"。本篇讲检索的上游：**解析**（把文件变成结构化文本）与**分块**（把文本切成检索的单位），以及块上要带什么**元数据**。
 
-2025 年这一层的格局换了一遍：Docling 1.0、Marker 1.0、MinerU、Mistral OCR、OlmoOCR、PaddleOCR-VL、DeepSeek-OCR 2 相继发布；一个 0.9B 参数的开放模型在文档理解基准 OmniDocBench 上拿到 96.34 分，高于 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59——读文档这件事，小而专的模型胜过前沿通用模型，且权重是 Apache 2.0。这改变了"直接调 OCR API"的默认。
+2025 年这一层的格局换了一遍：Docling 1.0、Marker 1.0、MinerU、Mistral OCR、OlmoOCR、PaddleOCR-VL、DeepSeek-OCR 2 相继发布；一个 0.9B 参数的开放模型在文档理解基准 OmniDocBench 上拿到 96.34 分，高于 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59——读文档这件事，小而专的模型胜过前沿通用模型，且权重是 Apache 2.0。这改变了"直接调 OCR（optical character recognition）API"的默认。
 
 本篇要回答的核心问题是：
 
 > **解析有哪三个梯级、各在什么文档上够用？[^q0] 三个静默失败是什么、怎么发现？[^q1] 分块怎么选，contextual retrieval 为什么有效，元数据里为什么必须有权限？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| embedding | — | 把文本变成向量，意思相近的文本向量也相近 |
+| RAG | retrieval-augmented generation | 检索增强生成：先检索相关内容放进上下文，再让模型回答 |
+| Docling / Marker / MinerU | — | 开源的布局模型解析器：先检测版面，再抽文字和表格 |
+| Mistral OCR / OlmoOCR / PaddleOCR-VL / DeepSeek-OCR | — | 用视觉语言模型读文档的 OCR 模型 |
+| OCR | optical character recognition | 光学字符识别，把图片里的字读出来 |
+| OmniDocBench | — | 文档解析基准，覆盖多类文档与版面 |
+| Apache 2.0 | Apache License 2.0 | 允许商用的宽松开源许可证 |
+| contextual retrieval | — | 给每个块前置一段模型写的上下文说明，再建索引 |
+| LlamaParse / Reducto | — | 按页收费的托管文档解析服务 |
+| late chunking | — | 先整篇过 embedding 模型，再按块切出向量 |
+| PyMuPDF4LLM / pdfplumber / MarkItDown | — | 直接读 PDF 文本层的规则抽取库 |
+| DOM | Document Object Model | 网页的树状结构 |
+| XML | Extensible Markup Language | Office 文件内部用的标记格式 |
+| LF AI & Data | Linux Foundation AI & Data | Linux 基金会下托管 AI 开源项目的基金会 |
+| MIT | MIT License | 宽松的开源许可证 |
+| VLM | vision-language model | 能看图的语言模型，这里用来读文档图像 |
+| token | — | 模型处理文本的基本单位 |
+| small-to-big | — | 用小块检索、返回它所属的大块 |
+| BM25 | Best Matching 25 | 按词频和文档长度打分的经典关键词检索算法 |
+| top-k | — | 按分数取前 k 个结果，如 top-20 |
+| rerank | — | 对召回的候选重新精排打分 |
+| prompt caching | — | 缓存重复的 prompt 前缀，降低成本与延迟 |
+| L7 | — | 应用地图第七层：产品与体验 |
+| ACL | access control list | 访问控制列表：记录谁能看这份文档 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -47,18 +78,18 @@ flowchart TB
 
 ### 1. 梯级一：规则抽取
 
-PyMuPDF4LLM、pdfplumber、MarkItDown 一类读 PDF 自带的文本层（或 HTML 的 DOM、Office 的 XML），按坐标重排成 markdown。**毫秒级、免费、无 GPU**，比视觉模型便宜两个量级以上。够用的条件：**数字原生**（文本层存在且正确）、版式简单（单栏、少表格）。对扫描件无效（没有文本层），对复杂表格与多栏常出第三章的错。它是第一步：先用它跑全部文档，把它处理不好的挑出来给上一个梯级。
+PyMuPDF4LLM、pdfplumber、MarkItDown 一类读 PDF 自带的文本层（或 HTML 的 DOM（Document Object Model）、Office 的 XML（Extensible Markup Language）），按坐标重排成 markdown。**毫秒级、免费、无 GPU**，比视觉模型便宜两个量级以上。够用的条件：**数字原生**（文本层存在且正确）、版式简单（单栏、少表格）。对扫描件无效（没有文本层），对复杂表格与多栏常出第三章的错。它是第一步：先用它跑全部文档，把它处理不好的挑出来给上一个梯级。
 
 ### 2. 梯级二：布局模型
 
-Docling（IBM，2025 年捐给 LF AI & Data 基金会，MIT 许可）、Marker、MinerU：一个布局检测模型找出页面上的块（标题、段落、表格、图、页眉页脚），一个表格结构模型恢复行列，再按检测到的阅读顺序拼接。**本地运行**（GPU 加速但 CPU 可跑）、**免费、数据不出域**。强项是复杂表格与多栏版式——Docling 是混合语料的默认安全选项，Marker 在学术论文上快而准（GPU 下），MinerU 均衡。一个公开基准（4 个开源解析器 × 6 类 PDF）里 Docling 与 MinerU 在全部文档上可靠完成，Marker 结构分最高但在 17 MB 的大文件上超时。
+Docling（IBM，2025 年捐给 LF AI & Data（Linux Foundation AI & Data）基金会，MIT 许可）、Marker、MinerU：一个布局检测模型找出页面上的块（标题、段落、表格、图、页眉页脚），一个表格结构模型恢复行列，再按检测到的阅读顺序拼接。**本地运行**（GPU 加速但 CPU 可跑）、**免费、数据不出域**。强项是复杂表格与多栏版式——Docling 是混合语料的默认安全选项，Marker 在学术论文上快而准（GPU 下），MinerU 均衡。一个公开基准（4 个开源解析器 × 6 类 PDF）里 Docling 与 MinerU 在全部文档上可靠完成，Marker 结构分最高但在 17 MB 的大文件上超时。
 
 ### 3. 梯级三：视觉语言模型
 
 把每页渲染成图，让一个多模态模型直接"读"出结构化文本。**唯一能可靠处理扫描件、手写、密集财务表格、数学公式**的梯级。两条路线：
 
 - **托管 API**：Mistral OCR 4（每千页 4 美元、批处理 2 美元；170 种语言；输出带边界框、块分类、逐块置信度；可单容器自托管）、LlamaParse（按页计信用点，含 agentic 模式）、Reducto 一类。
-- **开放权重的文档 VLM**：PaddleOCR-VL-1.6（0.9B 参数，Apache 2.0，OmniDocBench v1.6 上 96.34 分——1,651 页、10 类文档、5 种语言的基准，Gemini 3 Pro 92.91、GPT-5.2 86.59）、MinerU 的 VLM 后端、DeepSeek-OCR 2、OlmoOCR。**一张 GPU 上的小模型比前沿通用模型更会读文档**，且成本在规模上远低于 API。
+- **开放权重的文档 VLM（vision-language model）**：PaddleOCR-VL-1.6（0.9B 参数，Apache 2.0，OmniDocBench v1.6 上 96.34 分——1,651 页、10 类文档、5 种语言的基准，Gemini 3 Pro 92.91、GPT-5.2 86.59）、MinerU 的 VLM 后端、DeepSeek-OCR 2、OlmoOCR。**一张 GPU 上的小模型比前沿通用模型更会读文档**，且成本在规模上远低于 API。
 
 这改变了默认：2024 年"调 OCR API"是合理的懒选择；2026 年托管 API 的优势只剩"不用管 GPU"，准确率与大规模成本都在开放模型一侧。
 
@@ -192,7 +223,7 @@ flowchart TB
 
 ### 2. Contextual retrieval
 
-Anthropic 2024 年 9 月提出的做法：对每个块，让模型（读整篇文档与该块）生成一段 50–100 token 的"这块在文档里的位置与含义"（"本块来自 ACME 2025 年 Q3 财报的营收部分，比较了……"），**前置到块上**，再做 embedding 与 BM25 索引。他们的数字：contextual embedding + contextual BM25 让 top-20 检索失败率降低 49%，再加 rerank 降低 67%。成本：每个块一次模型调用（读整篇文档）——用 prompt caching 把文档放在缓存前缀（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》），每块只付读价，一百万 token 的语料大约一美元量级。
+Anthropic 2024 年 9 月提出的做法：对每个块，让模型（读整篇文档与该块）生成一段 50–100 token 的"这块在文档里的位置与含义"（"本块来自 ACME 2025 年 Q3 财报的营收部分，比较了……"），**前置到块上**，再做 embedding 与 BM25（Best Matching 25）索引。他们的数字：contextual embedding + contextual BM25 让 top-20 检索失败率降低 49%，再加 rerank 降低 67%。成本：每个块一次模型调用（读整篇文档）——用 prompt caching 把文档放在缓存前缀（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》），每块只付读价，一百万 token 的语料大约一美元量级。
 
 ### 3. Late chunking
 
@@ -247,7 +278,7 @@ Table: 块上要带的字段
 
 ### 2. 权限为什么必须在元数据里
 
-生成时过滤（模型看完所有检索结果再删掉用户无权看的）是错的：模型已经在上下文里看到了它不该看的内容，答案可能已经受它影响，注入攻击可以把它诱导出来。正确做法是**检索时过滤**：查询里带用户的权限，向量库只返回该用户可见的块——这要求每个块的元数据里有权限信息，且它与源系统的 ACL 同步（文档权限变了元数据要跟着变）。2024 年 Slack AI 被演示的数据抽取与 Microsoft 365 Copilot 的 SharePoint 过度共享问题（第七篇），根源都是"能搜到不该看的"。
+生成时过滤（模型看完所有检索结果再删掉用户无权看的）是错的：模型已经在上下文里看到了它不该看的内容，答案可能已经受它影响，注入攻击可以把它诱导出来。正确做法是**检索时过滤**：查询里带用户的权限，向量库只返回该用户可见的块——这要求每个块的元数据里有权限信息，且它与源系统的 ACL（access control list）同步（文档权限变了元数据要跟着变）。2024 年 Slack AI 被演示的数据抽取与 Microsoft 365 Copilot 的 SharePoint 过度共享问题（第七篇），根源都是"能搜到不该看的"。
 
 ```mermaid
 %% 图：权限在检索时过滤，不在生成后过滤——生成后过滤：模型已经在上下文里看到了无权的块，答案可能已受影响、注入可以把它诱导出来，删掉引用也来不及；检索时过滤：查询带用户的权限，向量库只返回该用户可见的块，模型从头就看不到
