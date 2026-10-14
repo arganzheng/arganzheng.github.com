@@ -7,9 +7,93 @@ catalog: true
 ---
 
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| SSA | static single assignment | 静态单赋值：每个值只被赋值一次 |
+| MLIR | Multi-Level Intermediate Representation | LLVM 社区的多层 IR 框架，可以自定义方言 |
+| TVM | — | Apache 的深度学习编译器，靠调度语言和自动调优 |
+| pass | — | 编译器里一次完整的分析或变换，按顺序排成流水线 |
+| AOTAutograd | ahead-of-time autograd | torch.compile 里提前生成反向图的那一步 |
+| Inductor | — | torch.compile 的后端，生成 Triton 代码 |
+| TTIR | Triton IR | Triton 最上层的 MLIR 方言，还没有 layout |
+| TTGIR | TritonGPU IR | 带 layout 的 Triton GPU 方言 |
+| LLVM | —（最初是 Low Level Virtual Machine，现已不作缩写） | 通用编译器基础设施，CPU / GPU 后端共用 |
+| IR | intermediate representation | 中间表示：编译器各阶段之间传递的程序形式 |
+| PTX | Parallel Thread Execution | NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译 |
+| cubin | CUDA binary | GPU 上直接加载执行的二进制文件 |
+| layout | — | 张量元素怎样分到寄存器、线程、warp 上 |
+| contiguity | — | AxisInfo 推出的「连续多少个元素地址相邻」 |
+| MMA | matrix multiply-accumulate | 矩阵乘加，Tensor Core 指令的统称 |
+| wgmma | warpgroup MMA | Hopper 上以 4 个 warp 为单位的异步 MMA |
+| dialect | — | MLIR 里一组 Op、类型、属性的命名空间 |
+| XLA | Accelerated Linear Algebra | Google 的 ML 编译器，TensorFlow / JAX 在用 |
+| Graal | — | 用 Java 写的 JIT 编译器，IR 是 Sea of Nodes |
+| epilogue | — | kernel 主循环之后写回结果的那一段 |
+| IREE | Intermediate Representation Execution Environment | 基于 MLIR 的端到端 ML 编译与运行时 |
+| StableHLO | — | XLA 的 HLO 算子集的稳定版 MLIR 方言 |
+| lit / FileCheck | — | LLVM 的测试驱动与输出匹配工具 |
+| Linear Layout | — | Triton 3.x 把 layout 统一成位向量上的线性映射 |
+| GF(2) | Galois field of two elements | 只有 0、1 的有限域，加法是异或 |
+| warp specialization | — | 让不同 warp 分别负责搬数和计算 |
+| PR | pull request | 向开源仓库提交的代码修改请求 |
+| C1 / C2 | client compiler / server compiler | HotSpot 的两级 JIT 编译器 |
+| JIT | just-in-time | 运行时即时编译 |
+| Sea of Nodes | — | HotSpot C2 和 Graal 用的图状 IR |
+| JVM | Java Virtual Machine | Java 虚拟机 |
+| ML | machine learning | 机器学习 |
+| spill | — | 寄存器不够时把值存到 local memory |
+| lowering | — | 把 IR 下降到更低一层抽象 |
+| NVPTX | — | LLVM 里生成 PTX 的 NVIDIA 后端 |
+| ptxas | — | NVIDIA 把 PTX 编成 SASS 的汇编器 |
+| ODS | Operation Definition Specification | MLIR 用 TableGen 声明 Op 的机制 |
+| AST | abstract syntax tree | 抽象语法树：源码解析后的树形结构 |
+| TMA | Tensor Memory Accelerator | Hopper 起的异步张量搬运单元 |
+| CFG | control-flow graph | 控制流图：基本块与跳转边构成的图 |
+| lattice | — | 数据流分析里值的格，迭代到不动点 |
+| AOT | ahead-of-time | 运行前提前编译 |
+| HLO | High Level Operations | XLA 的高层算子 IR |
+| Halide | — | 图像处理 DSL，首创算法与调度分离 |
+| Glow | — | Facebook 的神经网络编译器 |
+| SelectionDAG / GlobalISel | — | LLVM 的两套指令选择框架 |
+| ISA | instruction set architecture | 指令集架构 |
+| SASS | —（NVIDIA 未给出官方全称） | NVIDIA GPU 真正执行的机器指令 |
+| AMDGPU | — | LLVM 里 AMD GPU 的后端 |
+| GCN | Graphics Core Next | AMD 较早的 GPU 架构与 ISA |
+| CDNA | —（AMD 的计算向架构，C 指 Compute） | AMD 数据中心 GPU 的架构 |
+| TableGen | — | LLVM 的声明式记录语言，用来生成 C++ |
+| canonicalize | — | 把 IR 化成规范形式的通用 pass |
+| DRR | Declarative Rewrite Rules | 用 TableGen 写 rewrite pattern 的方式 |
+| PDLL | PDL Language | MLIR 写 pattern 的专用语言 |
+| CSE | common subexpression elimination | 公共子表达式消除 |
+| BF16 | bfloat16 | 8 位指数、7 位尾数的 16 位浮点格式 |
+| FP8 | 8-bit floating point | 8 位浮点格式（E4M3 / E5M2） |
+| TMEM | Tensor Memory | Blackwell 上 Tensor Core 专用的片上存储 |
+| TF32 | TensorFloat-32 | Ampere 起 Tensor Core 用的 19 位浮点格式 |
+| GEMM | general matrix multiply | 通用矩阵乘 |
+| mbarrier | — | shared memory 里的异步屏障对象，跟踪到达和完成 |
+| CTA | cooperative thread array | CUDA 里的线程块 |
+| MFMA | matrix fused multiply-add | AMD CDNA 的矩阵指令 |
+| WMMA | —（AMD 语境：wave matrix multiply-accumulate） | AMD RDNA 的矩阵指令 |
+| TE | Tensor Expression | TVM 的张量表达式与调度接口 |
+| TIR | TensorIR | TVM 的低层张量程序 IR |
+| AutoTVM / Ansor / MetaSchedule | — | TVM 三代自动调优框架 |
+| MLC-LLM | Machine Learning Compilation for LLM | 用 TVM 把 LLM 部署到手机和浏览器的项目 |
+| FFI | foreign function interface | 跨语言调用接口 |
+| CUTLASS | CUDA Templates for Linear Algebra Subroutines | NVIDIA 的 C++ GEMM 模板库 |
+| CuTe | — | CUTLASS 3 的 layout / 张量抽象库 |
+| RFC | request for comments | 社区里提出设计、征求意见的文档 |
+| RAII | resource acquisition is initialization | C++ 用对象生命周期管理资源的惯用法 |
+| CRTP | curiously recurring template pattern | C++ 派生类把自己当模板参数传给基类的写法 |
+| XPU | — | Intel 对 GPU 等加速器的统称 |
+| ASIC | application-specific integrated circuit | 专用集成电路，各家 AI 加速芯片 |
+
+Table: 本文用到的术语与缩写
+
 ## 内容简介
 
-《ML 编译器内部：从 SSA、MLIR 到 Triton 编译器》是一组共十三篇正文的系列文章，是 [AI-Infra 学习地图](/ai-infra-learning-roadmap.html)上唯一的**选修**系列。它面向两类人：已经用 Triton 写过 kernel、想知道编译器替自己做的那些决定是**怎么**做出来的工程师；以及准备进入 Triton、MLIR、TVM 这类项目做编译器开发的贡献者。
+《ML 编译器内部：从 SSA、MLIR 到 Triton 编译器》是一组共十三篇正文的系列文章，是 [AI-Infra 学习地图](/ai-infra-learning-roadmap.html)上唯一的**选修**系列。它面向两类人：已经用 Triton 写过 kernel、想知道编译器替自己做的那些决定是**怎么**做出来的工程师；以及准备进入 Triton、MLIR（Multi-Level Intermediate Representation）、TVM 这类项目做编译器开发的贡献者。
 
 它回答的问题是：
 
@@ -28,7 +112,7 @@ catalog: true
 
 Table: 黑盒视角与打开黑盒的对照
 
-要做到这一点，需要先补上通用编译器的机制：IR、SSA、数据流分析、pattern rewrite、dialect conversion、LLVM 后端。它们不是 Triton 特有的，而是 Triton、TVM、XLA、Inductor 乃至 Java 的 C2 / Graal 共同的语言。系列前四篇讲这套语言，中间七篇用它读 Triton 编译器的源码，第十二篇用它对照 TVM 的另一条路，第十三篇讲编译器开发者的日常工作方式。
+要做到这一点，需要先补上通用编译器的机制：IR（intermediate representation）、SSA（static single assignment）、数据流分析、pattern rewrite、dialect conversion、LLVM 后端。它们不是 Triton 特有的，而是 Triton、TVM、XLA（Accelerated Linear Algebra）、Inductor 乃至 Java 的 C2 / Graal 共同的语言。系列前四篇讲这套语言，中间七篇用它读 Triton 编译器的源码，第十二篇用它对照 TVM 的另一条路，第十三篇讲编译器开发者的日常工作方式。
 
 
 ## 为什么写这个系列？
@@ -37,23 +121,23 @@ Table: 黑盒视角与打开黑盒的对照
 
 `torch.compile` 生成的所有 GPU 代码是 Triton，vLLM、SGLang、FlashInfer 里大量融合算子是 Triton，Unsloth、Liger-Kernel 这类训练加速库几乎全部是 Triton。这些代码的性能不取决于程序员写了什么，而取决于编译器对它做了什么：同一个 kernel，`tl.load` 的指针能不能被分析出 16 字节对齐，决定它是一条 `ld.global.v4` 还是四条 `ld.global.b32`；一个 layout 转换能不能被消除，决定 epilogue 有没有一次 shared memory 往返。
 
-只会"用"Triton 的工程师，遇到性能问题只能试——换 `BLOCK_SIZE`、加 `tl.multiple_of`、调 `num_stages`——因为不知道编译器在看什么。能读编译器的工程师，会 dump 出 TTGIR，看到 `sizePerThread = [1]`，知道是 `AxisInfo` 没推出 contiguity，再回头看是哪个指针运算把信息丢了。这个系列要把读者从前一种变成后一种。
+只会"用"Triton 的工程师，遇到性能问题只能试——换 `BLOCK_SIZE`、加 `tl.multiple_of`、调 `num_stages`——因为不知道编译器在看什么。能读编译器的工程师，会 dump 出 TTGIR（TritonGPU IR），看到 `sizePerThread = [1]`，知道是 `AxisInfo` 没推出 contiguity，再回头看是哪个指针运算把信息丢了。这个系列要把读者从前一种变成后一种。
 
 ### MLIR 已经是 ML 编译器的通用基础设施
 
-Triton 编译器是一组 MLIR 方言和 pass；`torch-mlir`、IREE、XLA 的 StableHLO、TVM 的部分组件、以及各家 AI 加速器厂商的编译器，都建立在 MLIR 上。MLIR 定义了一套所有这些项目共享的词汇——Operation、Region、Dialect、Pass、Pattern、Conversion——和一套共享的工具（`mlir-opt`、`--mlir-print-ir-after-all`、lit / FileCheck）。学会这套东西，读任何一个 MLIR 项目的源码都有了入口；不学，读 Triton 的 `lib/` 目录就像读没有类型定义的代码。
+Triton 编译器是一组 MLIR 方言和 pass；`torch-mlir`、IREE（Intermediate Representation Execution Environment）、XLA 的 StableHLO、TVM 的部分组件、以及各家 AI 加速器厂商的编译器，都建立在 MLIR 上。MLIR 定义了一套所有这些项目共享的词汇——Operation、Region、Dialect、Pass、Pattern、Conversion——和一套共享的工具（`mlir-opt`、`--mlir-print-ir-after-all`、lit / FileCheck）。学会这套东西，读任何一个 MLIR 项目的源码都有了入口；不学，读 Triton 的 `lib/` 目录就像读没有类型定义的代码。
 
 ### 主线两篇留下的三个缺口
 
 《GPU Kernel 工程》第七篇说清了六层 IR 各做什么，但有三处只能给出结论、给不出机制：
 
-1. **layout 是什么**。那篇教读者读 `sizePerThread` / `threadsPerWarp` / `warpsPerCTA`，但没有说 `#blocked`、`#mma`、`#dot_op`、`#slice` 之间怎样转换、转换的代价怎么算、编译器怎么判断两个 layout 是否等价。答案是 Triton 3.x 引入的 **Linear Layout**：把每种 layout 统一表示为 GF(2) 上的线性映射，layout 之间的转换、组合、求逆都变成矩阵运算。它是理解 Triton 3.x 编译器的钥匙，主线里没有位置放它。
+1. **layout 是什么**。那篇教读者读 `sizePerThread` / `threadsPerWarp` / `warpsPerCTA`，但没有说 `#blocked`、`#mma`、`#dot_op`、`#slice` 之间怎样转换、转换的代价怎么算、编译器怎么判断两个 layout 是否等价。答案是 Triton 3.x 引入的 **Linear Layout**：把每种 layout 统一表示为 GF(2)（Galois field of two elements）上的线性映射，layout 之间的转换、组合、求逆都变成矩阵运算。它是理解 Triton 3.x 编译器的钥匙，主线里没有位置放它。
 2. **pass 的算法**。那篇列了 Coalesce、Pipeline、RemoveLayoutConversions 的名字和效果，没有讲算法——`RemoveLayoutConversions` 的前向传播与后向重物化怎么决定把一个 `convert_layout` 往哪个方向推、什么时候接受重算换取消除转换。
-3. **从 TTGIR 到 PTX 那一跳**。一个块级的 `tt.reduce` 怎么变成"线程内累加 → warp shuffle → shared memory 跨 warp"三级代码；一个 `convert_layout` 什么时候走 shuffle、什么时候走 shared memory；barrier 由谁插、shared memory 由谁分配。这一跳是 `TritonGPUToLLVM` 目录下两万多行 C++，也是 Triton PR 最密集的地方。
+3. **从 TTGIR 到 PTX 那一跳**。一个块级的 `tt.reduce` 怎么变成"线程内累加 → warp shuffle → shared memory 跨 warp"三级代码；一个 `convert_layout` 什么时候走 shuffle、什么时候走 shared memory；barrier 由谁插、shared memory 由谁分配。这一跳是 `TritonGPUToLLVM` 目录下两万多行 C++，也是 Triton PR（pull request）最密集的地方。
 
 ### 编译器知识对 Java 工程师是"已有一半"
 
-后端工程师对编译器不陌生：`javac` 生成字节码，HotSpot 的 C1 / C2 做 JIT，Graal 用 Sea of Nodes IR，GraalVM 的 Truffle 做部分求值。SSA、逃逸分析、内联、循环不变量外提，都在 JVM 调优的日常词汇里。ML 编译器用的是同一套骨架，差别在 IR 的抽象层级（张量而不是标量）和优化目标（访存和 layout 而不是分支预测和逃逸）。本系列在每一个通用机制处给出 JVM 的对应物，让读者把已有的一半知识接上另一半。
+后端工程师对编译器不陌生：`javac` 生成字节码，HotSpot 的 C1 / C2（client compiler / server compiler）做 JIT（just-in-time），Graal 用 Sea of Nodes IR，GraalVM 的 Truffle 做部分求值。SSA、逃逸分析、内联、循环不变量外提，都在 JVM（Java Virtual Machine）调优的日常词汇里。ML（machine learning）编译器用的是同一套骨架，差别在 IR 的抽象层级（张量而不是标量）和优化目标（访存和 layout 而不是分支预测和逃逸）。本系列在每一个通用机制处给出 JVM 的对应物，让读者把已有的一半知识接上另一半。
 
 ### 现有材料的断层
 
@@ -72,7 +156,7 @@ Triton 的 issue 里大量是"某个形状下编译出的代码有 spill"、"某
 
 ### 做硬件适配、需要给新后端接 Triton 或 MLIR 的工程师
 
-Triton 的 `third_party/` 目录是它的后端插件机制：NVIDIA 和 AMD 各一套方言和 lowering。给一个新加速器接 Triton，要理解哪些 pass 是通用的（TTIR、TTGIR 的大部分）、哪些是后端的（`TritonGPUToLLVM` 里的 `TargetInfo`、MMA 版本选择、异步拷贝指令）。
+Triton 的 `third_party/` 目录是它的后端插件机制：NVIDIA 和 AMD 各一套方言和 lowering。给一个新加速器接 Triton，要理解哪些 pass 是通用的（TTIR、TTGIR 的大部分）、哪些是后端的（`TritonGPUToLLVM` 里的 `TargetInfo`、MMA（matrix multiply-accumulate）版本选择、异步拷贝指令）。
 
 ### 想在 ML 编译器之间迁移知识的人
 
@@ -123,15 +207,15 @@ Table: 贯穿系列的三条线索
 这一篇会讨论：
 
 - 编译器的三段：前端（源码 → IR）、中端（IR → IR）、后端（IR → 机器码），以及"中端"为什么是编译器工作量最大的部分；
-- IR 的几种形态：AST、三地址码、控制流图（CFG）与基本块；
+- IR 的几种形态：AST（abstract syntax tree）、三地址码、控制流图（CFG）与基本块；
 - SSA：每个值只赋一次、φ 函数、支配树与支配边界；为什么 SSA 让 use-def 链变成 O(1)、让绝大多数优化变简单；用 `clang -emit-llvm` 和 `opt -passes=mem2reg` 亲眼看一段 C 代码变成 SSA；
 - 数据流分析：活跃变量、可达定义、常量传播的格（lattice）与不动点迭代；
 - 经典标量优化：常量折叠、公共子表达式消除、死代码消除、循环不变量外提、内联，每个都在 LLVM 上跑一遍；
 - pass 与 pass manager：pass 的粒度（模块 / 函数 / 循环）、analysis 与 transform 的区别、analysis 失效；
 - "lowering"与"渐进式下降"：为什么不是一步从源码到机器码，每一层 IR 保留什么信息、丢掉什么信息；
-- Java 参照：`javac` 只做前端、HotSpot C2 的 Sea of Nodes、Graal IR、JIT 与 AOT 的取舍；
+- Java 参照：`javac` 只做前端、HotSpot C2 的 Sea of Nodes、Graal IR、JIT 与 AOT（ahead-of-time）的取舍；
 - ML 编译器为什么存在：标量 IR 丢掉了张量语义——融合、layout、内存规划、对 Tensor Core 这种"矩阵指令"的匹配都需要在张量层面做；
-- ML 编译器家谱：XLA / HLO、TVM / Halide、Glow、nvcc、Inductor、Triton、MLIR 各自的出身与位置。
+- ML 编译器家谱：XLA / HLO（High Level Operations）、TVM / Halide、Glow、nvcc、Inductor、Triton、MLIR 各自的出身与位置。
 
 核心问题是：
 
@@ -147,9 +231,9 @@ Table: 贯穿系列的三条线索
 - 新 pass manager 与 `opt -passes=`；`-O2` 流水线里的关键 pass 与顺序；
 - 后端：指令选择（SelectionDAG 与 GlobalISel）、指令调度、寄存器分配、机器码发射，以及为什么 GPU 后端的寄存器分配决定 occupancy；
 - **NVPTX 后端**：地址空间（global / shared / local / const）在 IR 里怎么表示、`llvm.nvvm.*` intrinsic、内联汇编（`asm sideeffect`）、kernel 的 metadata（`nvvm.annotations`、`maxntid`）；用 `llc -march=nvptx64` 把一段 LLVM IR 编成 PTX；
-- PTX 是什么：虚拟 ISA、前向兼容、`.version` / `.target`；
+- PTX 是什么：虚拟 ISA（instruction set architecture）、前向兼容、`.version` / `.target`；
 - **ptxas 是第二个编译器**：PTX → SASS 的寄存器分配、指令调度、spill；`-v` 输出怎么读、`n_regs` / `n_spills` 从哪来；为什么 Triton 的 LLVM IR 看起来"寄存器无限"；
-- AMD 的对应物：AMDGPU 后端、GCN / CDNA ISA、`llvm.amdgcn.*`；
+- AMD 的对应物：AMDGPU 后端、GCN（Graphics Core Next） / CDNA ISA、`llvm.amdgcn.*`；
 - LLVM 在 Triton 里的位置：Triton 自己 fork 的 LLVM、`make_llir` / `make_ptx` 两个阶段调用了 LLVM 的哪些部分。
 
 核心问题是：
@@ -184,7 +268,7 @@ Table: 贯穿系列的三条线索
 - Pass 基础设施：`OperationPass<ModuleOp>` 与 `OperationPass<FuncOp>`、PassManager 的嵌套、analysis 的缓存与失效、`--pass-pipeline` 的文本语法；
 - Pattern Rewrite：`RewritePattern` 的 `match` 与 `rewrite`、`PatternRewriter` 为什么不能直接修改 IR、greedy driver 的工作方式（worklist、不动点、benefit）；
 - Canonicalization 与 folding：`hasCanonicalizer`、`fold` 方法、`arith.constant` 的物化，为什么 canonicalize 是所有流水线里出现最多的 pass；
-- 声明式的 pattern：DRR（TableGen）与 PDLL，Triton 的 `Combine.td` 就是 DRR；
+- 声明式的 pattern：DRR（Declarative Rewrite Rules，用 TableGen 写）与 PDLL（PDL Language），Triton 的 `Combine.td` 就是 DRR；
 - **Dialect Conversion**：`ConversionTarget` 的合法性声明、`TypeConverter`、`ConversionPattern` 与 `OpAdaptor`、`applyPartialConversion` 与 `applyFullConversion`、materialization；为什么它比 greedy rewrite 复杂——一次性替换多个方言时类型不一致的过渡状态怎么处理；
 - 用 `mlir-opt` 把一个 `linalg.matmul` 逐步下降：linalg → scf 循环 → memref → llvm，每一步看 IR；
 - 数据流分析框架：`dataflow::SparseForwardDataFlowAnalysis`、lattice 的 `join`，Triton 的 `AxisInfo` 就建在它上面；
@@ -207,7 +291,7 @@ Table: 贯穿系列的三条线索
 - `tt` 方言的 op 一览：指针运算（`addptr`、`splat`、`broadcast`、`make_range`、`expand_dims`）、访存（`load` / `store` 与 mask、`other`、cache 修饰符）、计算（`dot`、`reduce`、`scan`、`elementwise`）、张量描述符（`make_tensor_descriptor`、`descriptor_load`）；
 - `semantic.py`：Python 层的类型检查与广播规则，为什么 Triton 的广播比 NumPy 严格；
 - 函数调用与内联：`tt.call` 与 inliner pass；
-- TTIR 级 pass：`Combine`（DRR 模式，如 `dot + add → dot(acc)`）、`ReorderBroadcast`、`RewriteTensorDescriptorToPointer`、`LoopUnroll`、CSE、canonicalize——它们的顺序在 `third_party/nvidia/backend/compiler.py` 的 `make_ttir` 里；
+- TTIR（Triton IR）级 pass：`Combine`（DRR 模式，如 `dot + add → dot(acc)`）、`ReorderBroadcast`、`RewriteTensorDescriptorToPointer`、`LoopUnroll`、CSE（common subexpression elimination）、canonicalize——它们的顺序在 `third_party/nvidia/backend/compiler.py` 的 `make_ttir` 里；
 - 用 `triton.compile` 拿到一个 matmul 的 TTIR，逐行对照 Python 源码。
 
 核心问题是：
@@ -225,7 +309,7 @@ Table: 贯穿系列的三条线索
 - 信息从哪来：函数参数的 `tt.divisibility = 16` 属性由前端按实参值标上，`tl.multiple_of` / `tl.max_contiguous` / `tl.max_constancy` 是显式注入（它们只是在 op 上挂一个属性），`constexpr` 常量自带精确值；`tl.assume` 为什么不在这个名单里；
 - 建在 MLIR dataflow 框架上：`AxisInfoAnalysis` 是一个 `SparseForwardDataFlowAnalysis`，lattice 的 `join` 取最保守值，循环里为什么要迭代到不动点；
 - 信息怎么丢：一次 `remsi`、一个未标注的 stride、一个 `int64` 溢出保护，都能让 contiguity 归 1；用 `triton-opt --test-print-alignment` 把每个值的 AxisInfo 打出来；
-- 谁在消费它：Coalesce（第七篇）、`LoadStoreOpToLLVM` 的向量宽度（第十篇）、mask 的全真判断、TMA 描述符的对齐检查；
+- 谁在消费它：Coalesce（第七篇）、`LoadStoreOpToLLVM` 的向量宽度（第十篇）、mask 的全真判断、TMA（Tensor Memory Accelerator）描述符的对齐检查；
 - 与 LLVM 的 `KnownBits` / `ScalarEvolution` 对照。
 
 核心问题是：
@@ -249,7 +333,7 @@ Table: 贯穿系列的三条线索
 
 核心问题是：
 
-> **一个 `[64, 64]` 的 BF16 张量、`num_warps=4`，写出它默认 `#blocked` layout 的 Linear Layout 矩阵（哪些输入位映射到哪些输出位）。它到 `#nvidia_mma` 累加器 layout 的转换，为什么不能只用 warp 内 shuffle 完成，而必须经过 shared memory？从矩阵的哪一部分能看出来？**
+> **一个 `[64, 64]` 的 BF16（bfloat16）张量、`num_warps=4`，写出它默认 `#blocked` layout 的 Linear Layout 矩阵（哪些输入位映射到哪些输出位）。它到 `#nvidia_mma` 累加器 layout 的转换，为什么不能只用 warp 内 shuffle 完成，而必须经过 shared memory？从矩阵的哪一部分能看出来？**
 
 ### 8. Triton 编译器（四）：layout 优化与 Tensor Core 路径
 
@@ -258,10 +342,10 @@ Table: 贯穿系列的三条线索
 这一篇会覆盖：
 
 - **RemoveLayoutConversions** 的两个阶段：前向传播（把 layout 沿 def-use 链向下推，直到遇到 load / store 这类"锚点"）与后向重物化（把 `convert_layout` 沿操作数向上推、必要时复制一段计算，用重算换取消除转换）；代价模型——什么时候复制值得；循环携带值上的传播为什么特别；`hoistConvertOnTopOfExtOrBroadcast` 这类局部规则；
-- **AccelerateMatmul**：按 compute capability 选 MMA 版本（Ampere `mma.sync` v2、Hopper `wgmma` v3、Blackwell `tcgen05` v5），为累加器生成 `#nvidia_mma` layout，为操作数生成 `#dot_op`，决定 `warpsPerCTA` 的形状与 `instrShape`；`kWidth` 是什么、为什么 BF16 与 FP8 不同；Blackwell 路径把累加器放进 Tensor Memory（TMEM）的改写；
+- **AccelerateMatmul**：按 compute capability 选 MMA 版本（Ampere `mma.sync` v2、Hopper `wgmma` v3、Blackwell `tcgen05` v5），为累加器生成 `#nvidia_mma` layout，为操作数生成 `#dot_op`，决定 `warpsPerCTA` 的形状与 `instrShape`；`kWidth` 是什么、为什么 BF16 与 FP8（8-bit floating point）不同；Blackwell 路径把累加器放进 Tensor Memory（TMEM）的改写；
 - **OptimizeDotOperands**：把转置折进 `ldmatrix.trans` / 让操作数直接从 shared memory 喂给 `wgmma`，消掉一次寄存器往返；
 - **OptimizeThreadLocality**：reduce 前重排 layout，让更多 reduce 在线程内完成；
-- **ReduceDataDuplication**、**F32DotTC**（TF32 拆三次 BF16 的模拟）、`CombineTensorSelectAndIf` 这些小 pass 的位置；
+- **ReduceDataDuplication**、**F32DotTC**（TF32（TensorFloat-32）拆三次 BF16 的模拟）、`CombineTensorSelectAndIf` 这些小 pass 的位置；
 - 读 lit 测试：`test/TritonGPU/combine.mlir`、`accelerate-matmul.mlir`、`dot-operands.mlir` 里每个 case 的前后 IR；
 - 一个 matmul 走完这几个 pass 之后 TTGIR 的样子，标出每个 layout 是哪个 pass 决定的。
 
@@ -271,7 +355,7 @@ Table: 贯穿系列的三条线索
 
 ### 9. Triton 编译器（五）：软件流水、异步与 warp specialization
 
-第九篇讲循环变换。GEMM 的 K 循环要把下一块的 load 与当前块的 `mma` 重叠，这在 CUDA 里是手写的多 stage `cp.async` 环形缓冲，在 Triton 里是几个 pass 的合作。
+第九篇讲循环变换。GEMM（general matrix multiply）的 K 循环要把下一块的 load 与当前块的 `mma` 重叠，这在 CUDA 里是手写的多 stage `cp.async` 环形缓冲，在 Triton 里是几个 pass 的合作。
 
 这一篇会覆盖：
 
@@ -283,7 +367,7 @@ Table: 贯穿系列的三条线索
 - **ReorderInstructions**：把 `local_load` 移到离使用者更近的地方，减少寄存器压力；
 - Hopper 路径：TMA（`make_tensor_descriptor` → `async_tma_copy_global_to_local`、`mbarrier`）与 `wgmma`（`warp_group_dot`、异步 MMA 与 `warp_group_dot_wait`）；`TMALowering`、`FenceInsertion`、`MMALowering` 这些 TritonNvidiaGPU 方言的 pass；
 - **Warp specialization**：把循环体切成 load 分区与 MMA 分区，让不同 warp group 各干一件事；`PartitionLoops`、`PartitionScheduling`、`OptimizePartitionWarps` 的分工，以及自动 warp specialization 的启用条件；
-- Blackwell：`tcgen05.mma` 与 TMEM（`tmem_alloc`、`tmem_load` / `tmem_store`、`TensorMemoryAllocation`）、两 CTA 的 MMA、`PlanCTA`；
+- Blackwell：`tcgen05.mma` 与 TMEM（`tmem_alloc`、`tmem_load` / `tmem_store`、`TensorMemoryAllocation`）、两 CTA（cooperative thread array）的 MMA、`PlanCTA`；
 - **Gluon**：Triton 3.4 之后的显式 layout 子语言——用户在 Python 里直接写 `BlockedLayout`、`NVMMASharedLayout`、`mbarrier`、`tma`、`tcgen05`，跳过 Coalesce 到 Pipeline 的自动决定；它把《GPU Kernel 工程》第七篇说的"编译器的边界"变成了一个正式的出口。
 
 核心问题是：
@@ -325,7 +409,7 @@ Table: 贯穿系列的三条线索
 - 编译缓存：cache key 由源码哈希、特化 key、编译选项、后端与 ptxas 版本组成；`~/.triton/cache/<hash>/` 里的 JSON、`.ttir` … `.cubin` 各文件；什么改动会导致重新编译；
 - launcher：`make_launcher.py` 生成的 C 代码——参数打包、`cuLaunchKernelEx`、cluster 维度、TMA 描述符的传递；`driver.py` 与 `driver.c` 加载 cubin（`cuModuleLoadData`）与查询设备属性；
 - 运行时的几件事：`CompiledKernel.run` 的参数检查、`launch_metadata`、`autotune` 的 benchmark 循环与 `prune_configs_by`、`do_bench` 与 L2 flush、`triton.knobs` 与环境变量（`TRITON_KERNEL_DUMP`、`TRITON_ALWAYS_COMPILE`、`MLIR_ENABLE_DUMP`）；
-- **AMD 后端对照**：`third_party/amd` 的 `make_ttgir` 顺序有什么不同（`AMDGPUAccelerateMatmul` 选 MFMA / WMMA、`StreamPipeline` 代替 Pipeline、`ReorderInstructions` 的 AMD 版、`BypassLDSForDotOperand`）、`#amd_mfma` layout、`llvm.amdgcn.*` 与 `hsaco`；哪些代码是共享的、哪些是各自的——这是"给新硬件接 Triton"的地图；
+- **AMD 后端对照**：`third_party/amd` 的 `make_ttgir` 顺序有什么不同（`AMDGPUAccelerateMatmul` 选 MFMA（matrix fused multiply-add） / WMMA、`StreamPipeline` 代替 Pipeline、`ReorderInstructions` 的 AMD 版、`BypassLDSForDotOperand`）、`#amd_mfma` layout、`llvm.amdgcn.*` 与 `hsaco`；哪些代码是共享的、哪些是各自的——这是"给新硬件接 Triton"的地图；
 - Interpreter 模式：`TRITON_INTERPRET=1` 用 NumPy 逐 program 执行，它跳过整条流水线，是调正确性的工具。
 
 核心问题是：
@@ -342,9 +426,9 @@ Table: 贯穿系列的三条线索
 - Tensor Expression（TE）与调度原语：`split` / `reorder` / `tile` / `fuse` / `vectorize` / `unroll` / `bind` / `compute_at` / `cache_read` / `cache_write`，用一个 matmul 把 CPU 与 GPU 的调度写出来、看生成的循环嵌套；
 - **TensorIR**（TIR）：block 与 iter_var、`T.grid`、读写区域声明；schedule 原语作为 IR 变换，可 round-trip 打印；TIR 的 lowering 流水线（`LowerTVMBuiltin`、`StorageFlatten`、`ThreadSync`、`InjectDoubleBuffer`、`VectorizeLoop`）——与 Triton 的 pass 一一对应地放在一张表里；
 - 自动调优：AutoTVM 的模板搜索、Ansor / MetaSchedule 的 sketch 生成与代价模型、搜索空间与 Triton `autotune` 的枚举空间在规模上差几个量级；`dlight` 的规则式调度；
-- 图层：Relax 的 dataflow block、算子融合与 `FuseOps`、与 Triton 只做单 kernel 的边界；MLC-LLM 怎样用 TVM 把 LLM 编到手机和浏览器上；
-- TVM 的 FFI 与运行时；TVM 在 v0.20 之后与 MLIR 生态的关系；
-- **设计空间对照表**：谁决定 tile（用户 / 搜索 / 编译器）、谁决定线程映射、layout 是显式的还是隐式的、有没有图层、自动调优在哪一层、对新硬件的适配成本——Triton、Gluon、TVM、Halide、XLA / StableHLO、IREE、Inductor、CUTLASS / CuTe、nvcc 放在同一张表里。
+- 图层：Relax 的 dataflow block、算子融合与 `FuseOps`、与 Triton 只做单 kernel 的边界；MLC-LLM（Machine Learning Compilation for LLM）怎样用 TVM 把 LLM 编到手机和浏览器上；
+- TVM 的 FFI（foreign function interface）与运行时；TVM 在 v0.20 之后与 MLIR 生态的关系；
+- **设计空间对照表**：谁决定 tile（用户 / 搜索 / 编译器）、谁决定线程映射、layout 是显式的还是隐式的、有没有图层、自动调优在哪一层、对新硬件的适配成本——Triton、Gluon、TVM、Halide、XLA / StableHLO、IREE、Inductor、CUTLASS（CUDA Templates for Linear Algebra Subroutines） / CuTe、nvcc 放在同一张表里。
 
 核心问题是：
 
@@ -363,7 +447,7 @@ Table: 贯穿系列的三条线索
 - 调试工具：`TRITON_KERNEL_DUMP` / `TRITON_KERNEL_OVERRIDE`（手改 PTX 或 TTGIR 再喂回流水线）、`TRITON_ENABLE_LLVM_DEBUG` 与 `-debug-only=`、`op->dump()`、断点打在哪个 pattern；
 - 读一个真实的 Triton PR：一个 layout / lowering 改动的 diff 结构——`.td` 改动、C++ pattern、lit 测试、Python 端测试各在哪里；
 - 给 Triton 加一个 pass 的最小流程：`Passes.td` 注册、`.cpp` 实现、CMake、Python 绑定（`passes.ttgpuir.add_xxx`）、插进 `compiler.py` 的流水线、lit 测试；
-- 贡献者的地图：Triton 社区的 RFC、`docs/` 里的设计文档、每周会议、issue 标签；MLIR 上游的 Discourse 与 review 流程。
+- 贡献者的地图：Triton 社区的 RFC（request for comments）、`docs/` 里的设计文档、每周会议、issue 标签；MLIR 上游的 Discourse 与 review 流程。
 
 核心问题是：
 
@@ -405,7 +489,7 @@ MLIR 的源码用 LLVM 23.1.1；Homebrew 的 `llvm` 包同时装好了 `mlir-opt
 
 - 读过《GPU Kernel 工程》系列，至少是第一、二、五、六、七篇：知道 warp、shared memory、bank conflict、`mma.sync`、`cp.async` 是什么，用 Triton 写过 kernel，读过 TTGIR 与 PTX 的 dump；
 - 读过《PyTorch 深度实践》第七篇：知道 `torch.compile` 的三段与 Inductor 生成 Triton 的位置；
-- 能读 C++：模板、继承与虚函数、RAII、lambda；MLIR 与 Triton 的 C++ 大量使用 CRTP 与 TableGen 生成的类，第三篇会解释这些生成代码的形状；
+- 能读 C++：模板、继承与虚函数、RAII（resource acquisition is initialization）、lambda；MLIR 与 Triton 的 C++ 大量使用 CRTP（curiously recurring template pattern）与 TableGen 生成的类，第三篇会解释这些生成代码的形状；
 - 能读 Python：`ast` 模块、装饰器、类型注解；
 - 线性代数：矩阵乘法、GF(2) 上的矩阵（第七篇会从定义讲起，不要求预先知道）。
 
@@ -425,7 +509,7 @@ MLIR 的源码用 LLVM 23.1.1；Homebrew 的 `llvm` 包同时装好了 `mlir-opt
 
 ### 关于 AMD 与其他后端
 
-主线是 NVIDIA 后端；AMD 后端在第十一篇作为"另一套 `third_party/`"完整对照一次，说明哪些 pass 是共享的、哪些是各自的。其他厂商基于 Triton 的后端（Intel XPU、各家 ASIC）遵循同一套插件机制，不单独展开。
+主线是 NVIDIA 后端；AMD 后端在第十一篇作为"另一套 `third_party/`"完整对照一次，说明哪些 pass 是共享的、哪些是各自的。其他厂商基于 Triton 的后端（Intel XPU、各家 ASIC（application-specific integrated circuit））遵循同一套插件机制，不单独展开。
 
 
 ## 章节目录
