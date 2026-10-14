@@ -7,13 +7,32 @@ tags: [AI, LLM, AI-Application, Production, Latency, Streaming]
 catalog: true
 ---
 
-事故先说：一个 RAG 问答的 p95 延迟 9 秒，用户在 4 秒时就关了页面。团队换了更快的模型，p95 降到 7 秒——没解决。分解后发现：检索 1.2 秒（rerank 对 50 个候选逐个打分）、prefill 2.5 秒（每次带 60K 的上下文且缓存不命中——前缀里有时间戳）、排队 1 秒（峰值时段）、输出 3 秒（400 token 的回答且不流式）。四段各有各的药，换模型只碰了一段。
+事故先说：一个 RAG（retrieval-augmented generation）问答的 p95（95th percentile）延迟 9 秒，用户在 4 秒时就关了页面。团队换了更快的模型，p95 降到 7 秒——没解决。分解后发现：检索 1.2 秒（rerank 对 50 个候选逐个打分）、prefill 2.5 秒（每次带 60K 的上下文且缓存不命中——前缀里有时间戳）、排队 1 秒（峰值时段）、输出 3 秒（400 token 的回答且不流式）。四段各有各的药，换模型只碰了一段。
 
 这一篇讲延迟的分解、每一段的手段、感知延迟、p95 预算的分配，以及 agent 多步任务的延迟怎么压。
 
 本篇要回答的核心问题是：
 
 > **延迟怎么分解到每一段，每段的手段是什么？[^q0] 感知延迟与绝对延迟怎么分开优化，p95 预算怎么分？[^q1] agent 的多步延迟怎么压，延迟与成本、质量怎么一起看？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| RAG | retrieval-augmented generation | 先检索资料、再让模型据此回答 |
+| p50 / p95 / p99 | 50th / 95th / 99th percentile | 中位数、95 分位、99 分位 |
+| rerank | — | 用更贵的模型给召回的候选重新打分排序 |
+| prefill | — | 模型读完整个输入、算出第一个 token 之前的阶段 |
+| TTFT | time to first token | 从发出请求到收到第一个输出 token 的时间 |
+| fallback | — | 主模型失败时改走的备用模型或供应商 |
+| prompt caching | — | 供应商缓存相同的前缀，命中时跳过这段 prefill |
+| Batch / Flex | — | 供应商的异步批处理与低价慢速层级 |
+| L7 | — | 应用工程师学习地图的第 7 层：产品与呈现 |
+| PTC | programmatic tool calling | 让模型写代码一次调多个工具，把多轮变一轮 |
+| MCP | Model Context Protocol | 模型调用外部工具与数据的开放协议；Tasks 是它的异步任务扩展 |
+| effort | — | 推理模型的思考档位参数 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -70,7 +89,7 @@ Table: 延迟的分段与手段
 
 ### 3. prefill
 
-**缓存命中是最大杠杆**：命中时 prefill 跳过前缀，TTFT 从秒级到几百毫秒（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）；事故里的时间戳在前缀让命中率为零。**瘦身**：《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》的 prompt 瘦身、《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的卸载与清理——agent 的每步都带几十 K 时 prefill 是主因。**新版本预热**：上线前用一批请求把新前缀写进缓存（第一轮全写 1.25× 的成本换用户不遇到冷启动）。
+**缓存命中是最大杠杆**：命中时 prefill 跳过前缀，TTFT（time to first token）从秒级到几百毫秒（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）；事故里的时间戳在前缀让命中率为零。**瘦身**：《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》的 prompt 瘦身、《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的卸载与清理——agent 的每步都带几十 K 时 prefill 是主因。**新版本预热**：上线前用一批请求把新前缀写进缓存（第一轮全写 1.25× 的成本换用户不遇到冷启动）。
 
 ```mermaid
 %% 图：一次对话式 RAG 请求的七段耗时（毫秒，p95）修前与修后——修前：检索 1,200（rerank 50 个候选）、排队 1,000（峰值）、prefill 2,500（60K 上下文、时间戳毁掉缓存）、输出 3,000（不流式）；修后：rerank 候选 20 并两路并行 400、避峰 300、去掉时间戳缓存命中 300、流式首字 1 秒后出现；TTFT 从 4.8 秒到 1 秒
@@ -184,7 +203,7 @@ flowchart TB
 
 ### 3. 延迟的分布
 
-与成本同理（第二篇）：看 p50 / p95 / p99，长尾（缓存未命中、排队、fallback 路径）单独画像；发布的门禁里"延迟不退化"看 p95（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）。
+与成本同理（第二篇）：看 p50（50th percentile） / p95 / p99（99th percentile），长尾（缓存未命中、排队、fallback 路径）单独画像；发布的门禁里"延迟不退化"看 p95（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）。
 
 ## 五、agent 的多步延迟
 
@@ -217,7 +236,7 @@ xychart-beta
 
 ### 2. 工具的延迟
 
-工具是 agent 每步的一部分：慢的工具（编译、大查询、外部 API）要有超时与异步形态（提交后轮询——MCP Tasks 扩展，《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》）；agent 在等慢工具时可以并行做别的（模型决定，或运行时调度）。
+工具是 agent 每步的一部分：慢的工具（编译、大查询、外部 API）要有超时与异步形态（提交后轮询——MCP（Model Context Protocol） Tasks 扩展，《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》）；agent 在等慢工具时可以并行做别的（模型决定，或运行时调度）。
 
 ### 3. 压缩的延迟
 
@@ -253,7 +272,7 @@ TTFT p50 / p95、总时长 p50 / p95、按段的 p95、缓存命中率、排队�
 2. **先做免费的**：缓存排列（去掉前缀里的动态内容）、rerank 候选数、并行检索、流式、限长。
 3. **分 p95 预算到每段**，每段告警；四层超时从预算来。
 4. **新版本预热缓存**，避免用户遇到冷启动。
-5. **agent 先减步数**（PTC、工具描述、工作流化），再并行，再后台异步；步骤流推前端。
+5. **agent 先减步数**（PTC（programmatic tool calling）、工具描述、工作流化），再并行，再后台异步；步骤流推前端。
 6. **三个数字一起报**：每次改动看延迟、成本、质量的变化。
 
 ## 八、本文小结
