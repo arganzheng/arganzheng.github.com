@@ -10,11 +10,55 @@ date: 2026-05-25 12:00:00
 
 > **更新 @2026-09-30**：本文对着 **peft 0.21.0**（`tuners/lora/layer.py` 2739 行、`tuners/tuners_utils.py` 2781 行）与 **trl 1.13.0**（`trainer/sft_trainer.py` 1927 行、`dpo_trainer.py` 1823 行、`grpo_trainer.py` 3497 行）读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。trl 是 Hugging Face 几个库里改得最快的一个（一年三十多个版本，`SFTTrainer` 的数据契约改过数次），路径与名字以 1.13.0 为准，不引用行号；读别的版本请以本地源码对照。
 
-工具箱第五篇那六行里，第三行 `get_peft_model(model, LoraConfig(...))` 和第五、六行 `SFTTrainer(...).train()` 是两个最"黑"的盒子：前者进去一个 `nn.Module`、出来一个只有 1.8% 参数可训的 `nn.Module`，后者进去一个 `Dataset`、出来一个训好的模型。前三篇把 transformers 的模型、生成、数据读完了，这一篇读剩下的两个库：peft 怎么把《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的 $$W + BA$$ 变成一次 `forward` 里的一行加法，trl 怎么把[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)的三个 loss——SFT 的带 mask 交叉熵、DPO 的 $$-\log\sigma(\beta \Delta)$$、GRPO 的组内归一化优势——各写成十几行。
+工具箱第五篇那六行里，第三行 `get_peft_model(model, LoraConfig(...))` 和第五、六行 `SFTTrainer(...).train()` 是两个最"黑"的盒子：前者进去一个 `nn.Module`、出来一个只有 1.8% 参数可训的 `nn.Module`，后者进去一个 `Dataset`、出来一个训好的模型。前三篇把 transformers 的模型、生成、数据读完了，这一篇读剩下的两个库：peft 怎么把《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的 $$W + BA$$ 变成一次 `forward` 里的一行加法，trl 怎么把[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)的三个 loss——SFT 的带 mask 交叉熵、DPO（Direct Preference Optimization）的 $$-\log\sigma(\beta \Delta)$$、GRPO（Group Relative Policy Optimization）的组内归一化优势——各写成十几行。
 
 本篇要回答的核心问题是：
 
 > **`get_peft_model` 怎么找到要替换的层、替换成什么？`SFTTrainer` 的 `labels` 里的 `-100` 是在哪一步、按什么规则填的？`dpo_loss` 与 GRPO 的 `_compute_loss` 里，论文的公式各对应哪几行？[^q0]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| peft | Parameter-Efficient Fine-Tuning | HF 的参数高效微调库，LoRA 就在这里 |
+| trl | Transformer Reinforcement Learning | HF 的后训练库：SFT、DPO、GRPO 的 Trainer |
+| SVD | singular value decomposition | 奇异值分解 |
+| LoRA | Low-Rank Adaptation | 给权重加一个低秩增量 BA，只训 A、B 两个小矩阵 |
+| SFT | supervised fine-tuning | 有监督微调：拿标注好的回答训模型 |
+| DPO | Direct Preference Optimization | 直接用好 / 差回答对训模型，不单独训奖励模型 |
+| GRPO | Group Relative Policy Optimization | 同一 prompt 采一组回答，组内归一化奖励当优势 |
+| packing | — | 把多条短样本拼进一条序列，省掉 padding |
+| PPO | Proximal Policy Optimization | 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算法 |
+| kaiming | — | Kaiming（He）初始化：按输入维度缩放的随机初始化 |
+| bfd | Best Fit Decreasing | 按长度降序，每条放进剩余空间最合适的箱子 |
+| KL | Kullback–Leibler divergence | KL 散度，衡量两个分布差多远 |
+| rsLoRA | rank-stabilized LoRA | scaling 用 α/√r 代替 α/r，秩大时更稳 |
+| adapter | — | 挂在冻结基座上的一小组可训参数，这里就是 LoRA 的 A、B |
+| vLLM | — | 开源的 LLM 推理引擎 |
+| PiSSA | Principal Singular values and Singular vectors Adaptation | 用 W 的前 r 个奇异向量初始化 A、B |
+| bf16 | bfloat16 | 16 位浮点，指数位与 fp32 一样、尾数只有 8 位 |
+| fp32 | 32-bit floating point | 单精度浮点 |
+| Hub | — | Hugging Face 的模型 / 数据集仓库 |
+| FlashAttention | — | 分块计算、不物化 T×T 矩阵的 attention kernel |
+| varlen | variable-length | 按每段长度切开拼接序列算 attention 的接口 |
+| SDPA | scaled dot-product attention | PyTorch 的融合 attention 函数，自选 kernel |
+| logits | — | softmax 之前、每个词表位置一个的未归一化分数 |
+| DFT | Dynamic Fine-Tuning | 按预测概率给每个 token 的 loss 加权的 SFT 变体 |
+| Liger | — | LinkedIn 的融合 kernel 库，省 logits 显存 |
+| cDPO | conservative DPO | 给 DPO 加标签平滑，对标注噪声更鲁棒 |
+| RPO | Regularized Preference Optimization | DPO loss 再加一项 chosen 的 SFT loss |
+| RL | reinforcement learning | 强化学习 |
+| rollout | — | 用当前策略生成回答的阶段 |
+| Dr. GRPO | GRPO Done Right | 去掉按长度、按组标准差归一的 GRPO 修正版 |
+| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | GRPO 的改进：clip-higher、过滤全对 / 全错组等 |
+| dynamic sampling | — | DAPO 的做法：丢掉全对 / 全错的组再补采 |
+| k3 | — | Schulman 给的一种 KL 估计式，非负、方差小 |
+| clip-higher | — | DAPO 的做法：裁剪上界 ε_high 设得比下界大 |
+| GSPO | Group Sequence Policy Optimization | 重要性比按整条序列算，而不是按 token |
+| REINFORCE | — | 最基本的策略梯度：loss = −A·log π |
+| Adam | adaptive moment estimation | 按梯度一阶、二阶矩自适应步长的优化器 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -76,7 +120,7 @@ Table: 本文的章节安排
 model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", lora_dropout=0.05))
 ```
 
-`mapping_func.get_peft_model`（200 行）按 `peft_config.task_type` 查 `MODEL_TYPE_TO_PEFT_MODEL_MAPPING` 选一个包装类（不传 `task_type` 时是通用的 `PeftModel`，配套脚本打印 `PeftModel`），它的 `__init__` 再按 `peft_type` 选 tuner——LoRA 是 `LoraModel`（`tuners/lora/model.py`）。所以返回值是三层套娃：`PeftModel.base_model` 是 `LoraModel`，`LoraModel.model` 才是原来的 `Qwen2ForCausalLM`——**原模型对象被原地修改**（层被替换），不是拷贝。`peft_model.base_model.model.model.layers[0].self_attn.q_proj` 这样的路径就是这么来的。
+`mapping_func.get_peft_model`（200 行）按 `peft_config.task_type` 查 `MODEL_TYPE_TO_PEFT_MODEL_MAPPING` 选一个包装类（不传 `task_type` 时是通用的 `PeftModel`，配套脚本打印 `PeftModel`），它的 `__init__` 再按 `peft_type` 选 tuner——LoRA（Low-Rank Adaptation）是 `LoraModel`（`tuners/lora/model.py`）。所以返回值是三层套娃：`PeftModel.base_model` 是 `LoraModel`，`LoraModel.model` 才是原来的 `Qwen2ForCausalLM`——**原模型对象被原地修改**（层被替换），不是拷贝。`peft_model.base_model.model.model.layers[0].self_attn.q_proj` 这样的路径就是这么来的。
 
 ### 2. `target_modules` 与 `all-linear`
 
@@ -140,7 +184,7 @@ nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight, a=math.sqrt(5))    # 
 nn.init.zeros_(self.lora_B[adapter_name].weight)                               # B 全零
 ```
 
-配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA 就是这里的一个分支。
+配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA（rank-stabilized LoRA）在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD（singular value decomposition）或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA（Principal Singular values and Singular vectors Adaptation）就是这里的一个分支。
 
 ### 2. `forward`：一行
 
@@ -161,7 +205,7 @@ def forward(self, x, *args, **kwargs):
     return result
 ```
 
-核心一行 `result + lora_B(lora_A(dropout(x))) * scaling` 就是 $$xW + \frac{\alpha}{r}\,x A^T B^T$$——**先算瘦的 `lora_A(x)`**（$$[T, 896] \to [T, 16]$$），再 `lora_B`（$$[T, 16] \to [T, 896]$$），永远不物化 $$BA$$；《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》讲结合律成本时说的"先让输入过瘦的那个"，代码里天然如此。配套脚本给 B 填随机数后对拍：`forward == base + B(A x)*scaling: True`。`_cast_input_dtype` 是 bf16 基座 + fp32 adapter 时的类型对齐（LoRA 参数常保持 fp32，工具箱第四篇的混合精度）。`disable_adapters` 分支是 `with model.disable_adapter():` 上下文——第六章 DPO 用它拿参考模型的输出，不用再存一份基座。
+核心一行 `result + lora_B(lora_A(dropout(x))) * scaling` 就是 $$xW + \frac{\alpha}{r}\,x A^T B^T$$——**先算瘦的 `lora_A(x)`**（$$[T, 896] \to [T, 16]$$），再 `lora_B`（$$[T, 16] \to [T, 896]$$），永远不物化 $$BA$$；《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》讲结合律成本时说的"先让输入过瘦的那个"，代码里天然如此。配套脚本给 B 填随机数后对拍：`forward == base + B(A x)*scaling: True`。`_cast_input_dtype` 是 bf16（bfloat16）基座 + fp32（32-bit floating point）adapter 时的类型对齐（LoRA 参数常保持 fp32，工具箱第四篇的混合精度）。`disable_adapters` 分支是 `with model.disable_adapter():` 上下文——第六章 DPO 用它拿参考模型的输出，不用再存一份基座。
 
 ### 3. `merge`、`unmerge` 与 `get_delta_weight`
 
@@ -231,7 +275,7 @@ if "labels" not in column_names:
 
 Table: pack_dataset 的三种策略
 
-`bfd` 配合 `padding_free=True`（用了 bfd 会自动开）：collator 把一个 batch 的几条**拼成一行**，用 `position_ids` 标出每段从 0 重新计数，交给 FlashAttention 的 varlen 接口按 `position_ids` 切段算 attention——不同样本之间互不可见，又没有 padding 浪费。这就是为什么 `bfd` 要求 `attn_implementation` 是 flash / kernels 系（sdpa 不支持从 `position_ids` 推段边界，构造时会警告）。
+`bfd` 配合 `padding_free=True`（用了 bfd 会自动开）：collator 把一个 batch 的几条**拼成一行**，用 `position_ids` 标出每段从 0 重新计数，交给 FlashAttention 的 varlen（variable-length）接口按 `position_ids` 切段算 attention——不同样本之间互不可见，又没有 padding 浪费。这就是为什么 `bfd` 要求 `attn_implementation` 是 flash / kernels 系（sdpa 不支持从 `position_ids` 推段边界，构造时会警告）。
 
 ## 五、trl：SFT 的一步
 
@@ -302,7 +346,7 @@ $$
 \mathcal{L}_{\text{DPO}} = -\log\sigma\!\left(\beta\left[\log\frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \log\frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\right]\right)
 $$
 
-就是 `sigmoid` 那一行：两个 logratio 相减是方括号，乘 $$\beta$$，`logsigmoid` 取负。`label_smoothing` 把它变成 $$-(1-\epsilon)\log\sigma(\beta\Delta) - \epsilon\log\sigma(-\beta\Delta)$$（cDPO，对标注噪声鲁棒）。`loss_type` 可以是一个列表配 `loss_weights`——`["sigmoid", "sft"]` 就是 RPO（加一项 chosen 的 SFT loss 防止 chosen 概率也一起掉，后训练第三篇讨论的那个现象）。`f_divergence_type` 换掉 KL 时改的是 logratio 到 score 的映射（`js_divergence`、`alpha_divergence`），loss 形式不变。`chosen_rewards - rejected_rewards > 0` 的比例就是日志里的 `rewards/accuracies`。
+就是 `sigmoid` 那一行：两个 logratio 相减是方括号，乘 $$\beta$$，`logsigmoid` 取负。`label_smoothing` 把它变成 $$-(1-\epsilon)\log\sigma(\beta\Delta) - \epsilon\log\sigma(-\beta\Delta)$$（cDPO，对标注噪声鲁棒）。`loss_type` 可以是一个列表配 `loss_weights`——`["sigmoid", "sft"]` 就是 RPO（加一项 chosen 的 SFT loss 防止 chosen 概率也一起掉，后训练第三篇讨论的那个现象）。`f_divergence_type` 换掉 KL（Kullback–Leibler divergence）时改的是 logratio 到 score 的映射（`js_divergence`、`alpha_divergence`），loss 形式不变。`chosen_rewards - rejected_rewards > 0` 的比例就是日志里的 `rewards/accuracies`。
 
 ## 七、trl：GRPO
 
@@ -320,7 +364,7 @@ if self.scale_rewards != "none":
     advantages = advantages / (std_rewards + 1e-4)
 ```
 
-`rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（Dr. GRPO 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO 的 dynamic sampling 要把它们过滤掉的原因。
+`rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（Dr. GRPO 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization）的 dynamic sampling 要把它们过滤掉的原因。
 
 ### 3. `_compute_loss`
 
@@ -349,7 +393,7 @@ elif self.loss_type == "dapo": ...
 - `lora.Linear` 持 `base_layer` + 以 adapter 名为键的 `lora_A`（kaiming）/ `lora_B`（零）/ `scaling`（$$\alpha/r$$，rsLoRA 是 $$\alpha/\sqrt r$$）；`forward` 是 `base(x) + B(A(dropout(x))) * scaling`，先算瘦的；`merge` 把 $$\frac{\alpha}{r}BA$$ 加进 `weight.data`；`state_dict` 只存 adapter。
 - `SFTTrainer` 三种数据格式；`labels` 在 `_prepare_dataset` 的 `build_labels` 这一次 `map` 里造：所有 mask 位为 1 才等于 `input_ids`，否则 `-100`；collator 只 pad（labels 用 `-100`），`padding_free` 时拼一行并把每段首 token 置 `-100`；`compute_loss` 走 transformers 的 `ForCausalLMLoss`，trl 只加准确率与熵。
 - DPO：chosen / rejected 拼一个 batch 前向；参考模型 = 独立模型 / `disable_adapter()` / 预计算；`dpo_loss` 的 `sigmoid` 分支就是 $$-\log\sigma(\beta\Delta)$$，`loss_type` 列表可组合。
-- GRPO：采样（transformers 或 vLLM）→ `reward_funcs` → 组内减均值除标准差 → PPO 裁剪（`epsilon_low/high`）+ 可选 KL → `loss_type` 决定按什么归一。
+- GRPO：采样（transformers 或 vLLM）→ `reward_funcs` → 组内减均值除标准差 → PPO（Proximal Policy Optimization）裁剪（`epsilon_low/high`）+ 可选 KL → `loss_type` 决定按什么归一。
 
 ## 九、自测
 
@@ -362,7 +406,7 @@ elif self.loss_type == "dapo": ...
 2. LoRA 训练时 `optimizer` 只拿到 8.8M 个参数，但反向传播仍要经过冻结的 `base_layer`。为什么？省下的到底是什么？
 
    <details markdown="1"><summary>答案</summary>
-   `result = base_layer(x) + ...` 里 `x` 来自上一层，对 `x` 的梯度要穿过 `base_layer.weight`（$$W^T G$$）传回去，这一半算量与全量相同。省的是对 `W` 自身的梯度（`requires_grad=False`，autograd 不算 $$G x^T$$）、它的 fp32 主权重与 Adam 两个矩（每参数 12–16 字节）——后训练第二篇那张 7.36 GiB → 1.03 GiB 的表。
+   `result = base_layer(x) + ...` 里 `x` 来自上一层，对 `x` 的梯度要穿过 `base_layer.weight`（$$W^T G$$）传回去，这一半算量与全量相同。省的是对 `W` 自身的梯度（`requires_grad=False`，autograd 不算 $$G x^T$$）、它的 fp32 主权重与 Adam（adaptive moment estimation）两个矩（每参数 12–16 字节）——后训练第二篇那张 7.36 GiB → 1.03 GiB 的表。
    </details>
 
 3. 数据是 `messages` 格式，用 Qwen2.5 自带模板，`SFTConfig(assistant_only_loss=True)`。会发生什么？两条修法各有什么代价？
