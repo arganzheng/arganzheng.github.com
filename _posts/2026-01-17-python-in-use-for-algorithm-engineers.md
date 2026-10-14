@@ -8,11 +8,40 @@ catalog: true
 updated: 2026-09-20
 ---
 
-算法工程师每天写的 Python 不多，读的很多：`transformers` 的 `Trainer`、别人的数据脚本、论文附带的训练代码。这些代码里反复出现同一小撮语法——`__getitem__`、`yield`、`@torch.no_grad()`、`with torch.autocast(...)`、`**kwargs`、`@dataclass`——它们不是 PyTorch 发明的，是 Python 的**协议**：PyTorch 只是约定"你按这个形状写，我就能用"。本篇从要做的四件事出发——过一遍语料、写配置、读懂训练代码、把预处理跑快——把这一小撮语法带出来，讲到会读会用为止。Python 的**机制**（这些语法在解释器里怎么实现、GIL 是什么、装饰器怎么改函数）是 Infra 地图 [01 系列](/python-for-ai-infra.html)的内容，那是本篇的深入篇，本篇末尾给出对照表。
+算法工程师每天写的 Python 不多，读的很多：`transformers` 的 `Trainer`、别人的数据脚本、论文附带的训练代码。这些代码里反复出现同一小撮语法——`__getitem__`、`yield`、`@torch.no_grad()`、`with torch.autocast(...)`、`**kwargs`、`@dataclass`——它们不是 PyTorch 发明的，是 Python 的**协议**：PyTorch 只是约定"你按这个形状写，我就能用"。本篇从要做的四件事出发——过一遍语料、写配置、读懂训练代码、把预处理跑快——把这一小撮语法带出来，讲到会读会用为止。Python 的**机制**（这些语法在解释器里怎么实现、GIL（global interpreter lock）是什么、装饰器怎么改函数）是 Infra 地图 [01 系列](/python-for-ai-infra.html)的内容，那是本篇的深入篇，本篇末尾给出对照表。
 
 全篇的核心问题是：
 
-> **别人的训练代码里 `__getitem__`、`yield`、`@torch.no_grad()`、`with autocast(...)`、`**kwargs` 各在干什么？[^q0] 一份 10 GB 的 JSONL 语料怎么在 16 GB 内存的机器上过一遍、去重、统计？[^q1] 预处理太慢，开多线程为什么没用、开多进程为什么也到不了 8 倍？[^q2]**
+> **别人的训练代码里 `__getitem__`、`yield`、`@torch.no_grad()`、`with autocast(...)`、`**kwargs` 各在干什么？[^q0] 一份 10 GB 的 JSONL（JSON Lines）语料怎么在 16 GB 内存的机器上过一遍、去重、统计？[^q1] 预处理太慢，开多线程为什么没用、开多进程为什么也到不了 8 倍？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| GIL | global interpreter lock | 全局解释器锁，同一时刻只有一个线程跑 Python 字节码 |
+| JSONL | JSON Lines | 每行一个 JSON 对象的文本格式，适合逐行流式读 |
+| JDK | Java Development Kit | Java 的开发工具包，含编译器与运行时 |
+| Maven | — | Java 的依赖管理与构建工具 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台，conda 能连它的运行库一起装 |
+| IDE | integrated development environment | 集成开发环境，如 VS Code、PyCharm |
+| MinHash | — | 用哈希签名估计两段文本相似度的近似去重方法 |
+| LLM | large language model | 大语言模型 |
+| LSH | locality-sensitive hashing | 局部敏感哈希，让相似的文本落进同一个桶 |
+| LoRA | low-rank adaptation | 冻结原权重、只训低秩矩阵的微调方法 |
+| SFT | supervised fine-tuning | 监督微调，用指令和回答对训练模型 |
+| YAML | YAML Ain't Markup Language | 缩进表示层级的配置文件格式 |
+| bf16 | bfloat16（brain floating point） | 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位 |
+| tokenize | — | 把文本切成 token 的预处理步骤 |
+| worker | — | 进程池里实际干活的子进程 |
+| CPython | — | Python 的官方解释器，用 C 写成 |
+| pickle | — | Python 的对象序列化模块，进程间传数据靠它 |
+| fp32 | 32-bit floating point | 单精度浮点，每个数 4 字节 |
+| pdb | Python debugger | Python 自带的命令行调试器 |
+| PR | pull request | 向代码仓库提交修改、请求合并 |
+| hook | — | 挂在 forward 前后、被自动调用的回调函数 |
+| I/O | input/output | 输入输出，如读写磁盘、网络 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -52,12 +81,12 @@ Table: 本文的章节安排
 
 ### 1. Python 的"环境"是什么
 
-Python 解释器启动时，从几个固定目录（`sys.path`）里找 `import` 的包，其中最重要的是 `site-packages`。系统自带的那个 Python 只有一个 `site-packages`，所有项目装的包混在一起：项目 A 要 `torch 2.4`、项目 B 要 `torch 2.6`，装后者就把前者覆盖了——`pip install` 是按**包名**往 `site-packages/torch/` 这个目录里放文件，同一个 `site-packages` 里一个包名只能有一个版本，装 2.6 就是把 2.4 的文件替换掉，两个版本没法并存。**环境**（virtual environment）就是给一个项目单独造一份 `site-packages` 和一个指向它的 `python` 可执行文件——Java 里对应的不是 JDK，而是每个项目自己的依赖树（Maven 的 `.m2` 按坐标隔离，Python 的包没有坐标，只能靠目录隔离）。
+Python 解释器启动时，从几个固定目录（`sys.path`）里找 `import` 的包，其中最重要的是 `site-packages`。系统自带的那个 Python 只有一个 `site-packages`，所有项目装的包混在一起：项目 A 要 `torch 2.4`、项目 B 要 `torch 2.6`，装后者就把前者覆盖了——`pip install` 是按**包名**往 `site-packages/torch/` 这个目录里放文件，同一个 `site-packages` 里一个包名只能有一个版本，装 2.6 就是把 2.4 的文件替换掉，两个版本没法并存。**环境**（virtual environment）就是给一个项目单独造一份 `site-packages` 和一个指向它的 `python` 可执行文件——Java 里对应的不是 JDK（Java Development Kit），而是每个项目自己的依赖树（Maven 的 `.m2` 按坐标隔离，Python 的包没有坐标，只能靠目录隔离）。
 
 建环境有三种常见工具，做的是同一件事：
 
 1. **`venv`**：标准库自带，`python -m venv .venv` 在项目目录下造一个 `.venv/`；只管 Python 包，Python 解释器本身用系统的。
-2. **`conda`**：连解释器版本、CUDA 运行库这类非 Python 的东西一起管，`conda create -n proj python=3.12`；重，但在没有 root、要换 Python 版本的机器上省事。
+2. **`conda`**：连解释器版本、CUDA（Compute Unified Device Architecture）运行库这类非 Python 的东西一起管，`conda create -n proj python=3.12`；重，但在没有 root、要换 Python 版本的机器上省事。
 3. **`uv`**：Rust 写的新一代工具，兼容 `venv` + `pip` 的用法但快一到两个数量级，还能锁依赖、管 Python 版本；本系列的脚本用它。
 
 装包的工具是 `pip`（`uv pip` 是同一套接口）。**一条规则：一个项目一个环境，环境里装什么写在文件里**（`requirements.txt` 或 `pyproject.toml`）。
@@ -73,7 +102,7 @@ python -m pip list | grep -i torch                # python -m：用"当前这个
 
 ### 3. 出问题先怀疑环境
 
-`import torch` 报 `ModuleNotFoundError`、`torch.cuda.is_available()` 是 `False`、两台机器结果不一样——三件事的第一嫌疑都是环境：终端里的 `python` 与 IDE 里的不是同一个、装了 CPU 版的 torch、依赖版本没锁。`pip freeze > requirements.lock` 把实验时的版本存进 run 目录（第六篇"能复现"的一部分）。环境、打包与交付的完整做法在 Infra 01 第七篇。
+`import torch` 报 `ModuleNotFoundError`、`torch.cuda.is_available()` 是 `False`、两台机器结果不一样——三件事的第一嫌疑都是环境：终端里的 `python` 与 IDE（integrated development environment）里的不是同一个、装了 CPU 版的 torch、依赖版本没锁。`pip freeze > requirements.lock` 把实验时的版本存进 run 目录（第六篇"能复现"的一部分）。环境、打包与交付的完整做法在 Infra 01 第七篇。
 
 ## 三、流式过一遍语料
 
@@ -165,7 +194,7 @@ for r in ds: ...                                                      # 到这�
 
 ## 四、配置：`dataclass`
 
-训练脚本的参数——模型名、学习率、batch、步数、LoRA 目标层——要能**有默认值、能从命令行覆盖、能存进 run 目录、能被 IDE 补全**。`@dataclass` 一次满足：
+训练脚本的参数——模型名、学习率、batch、步数、LoRA（low-rank adaptation）目标层——要能**有默认值、能从命令行覆盖、能存进 run 目录、能被 IDE 补全**。`@dataclass` 一次满足：
 
 ```python title='用 @dataclass 定义训练配置 TrainConfig'
 from dataclasses import dataclass, field, asdict, replace
@@ -202,7 +231,7 @@ json.dump(asdict(cfg2), open(run_dir / "config.json", "w"))   # 存盘：datacla
 1. **可变默认值要用 `field(default_factory=...)`。** 类体里的 `lora_targets: list = ["q_proj"]` 在**定义类时**求值一次，那个 `list` 对象成为类属性，之后每个实例的默认值都是同一个对象——实例 A `append` 了，实例 B 也看得到。Java 里字段初始化器 `List<String> tags = new ArrayList<>();` 是每次 `new` 都执行一遍，所以没有这个坑；Python 的函数默认参数（`def f(x=[])`）也是同一个陷阱。`default_factory=lambda: [...]` 传的是一个"每次构造时调用一次"的函数，每个实例拿到自己的 `list`。`dataclass` 会直接拒绝 `list` / `dict` / `set` 字面量默认值并抛 `ValueError`，但自定义的可变对象它查不出来，要自己记住。
 2. **校验放在 `__post_init__`。** `dataclass` 生成的 `__init__` 赋完值会调它；非法组合在构造时就炸，而不是训了 500 步之后。
 
-`transformers` 的 `TrainingArguments`、`peft` 的 `LoraConfig` 都是 `dataclass`，`Trainer(args=TrainingArguments(...))` 传的就是这样一个对象；命令行解析用 `argparse` 或 `HfArgumentParser`（直接从 `dataclass` 的字段生成参数），配置文件用 JSON / YAML 读成 `dict` 后 `TrainConfig(**d)` 展开。
+`transformers` 的 `TrainingArguments`、`peft` 的 `LoraConfig` 都是 `dataclass`，`Trainer(args=TrainingArguments(...))` 传的就是这样一个对象；命令行解析用 `argparse` 或 `HfArgumentParser`（直接从 `dataclass` 的字段生成参数），配置文件用 JSON / YAML（YAML Ain't Markup Language）读成 `dict` 后 `TrainConfig(**d)` 展开。
 
 类型标注 `lr: float` 在运行时**不做检查**（传字符串也能构造），它服务的是阅读、IDE 补全与 `dataclass` 这类读标注的工具；要做校验用 `pydantic`。类型系统的完整讨论在 Infra 01 第二篇。
 
@@ -395,7 +424,7 @@ Table: 三类最常见的错误与第一反应
 
 Table: 本篇各章对应的 Infra 01 系列机制篇
 
-算法工作的日常在左边两列就够了；读框架源码、给框架提 PR、排查 `DataLoader` 卡死这类问题时，右边那一列是必需的。
+算法工作的日常在左边两列就够了；读框架源码、给框架提 PR（pull request）、排查 `DataLoader` 卡死这类问题时，右边那一列是必需的。
 
 ## 九、本文小结
 
@@ -454,4 +483,4 @@ Table: 本篇各章对应的 Infra 01 系列机制篇
 
 [^q0]: 它们各是一个 Python 协议，PyTorch 建在上面：`__len__` / `__getitem__` 是 `Dataset` 的全部要求，`DataLoader` 按索引来取；`yield` 定义生成器，`for batch in loader` 每次要下一个才算下一个，所以数据不会一次全进内存；`@torch.no_grad()` 是装饰器——"函数包函数"，进入时关梯度、退出时恢复；`with autocast(...)` 是上下文管理器，进入改状态、退出（含异常）保证恢复；`**kwargs` 把一个 dict 原样透传给下一层，看到它就去找那个 dict 里有什么键。另外 `model(x)` 走 `__call__` 再到 `forward`，hooks 挂在中间，所以不要直接调 `forward`。详见[第五章](#五训练代码里的六个语法)。
 [^q1]: 用生成器逐行读，读 → 过滤 → 去重 → 统计每步一个生成器串起来，同一时刻内存里只有一条记录加去重用的哈希集合。实测 19.4 MB 的 JSONL 读成 `list` 峰值 102.9 MB（文件大小的 5.3 倍，每个 dict、每个字符串都是带头的 Python 对象），生成器 11.5 MB 且与文件大小无关；按 5 倍算，10 GB 读成 `list` 要 50 GB，流式几十 MB 就够。精确去重靠内容哈希的集合；近似去重（MinHash）在 《[LLM 时代的经典机器学习（09）：去重——MinHash 与 LSH 的概率](/deduplication-minhash-and-lsh-probabilities.html)》。详见[第三章](#三流式过一遍语料)。
-[^q2]: 线程没用是因为 GIL：CPython 同一时刻只让一个线程执行字节码，CPU 密集的任务 8 线程 1.0×；线程只对等待（I/O、等 GPU）有用。进程池每个 worker 是独立解释器，实测 8 个 worker 3.1×，差在进程启动、输入输出的 `pickle` 序列化——任务越轻占比越大；`chunksize` 让每次传一批，任务越重越接近核数倍。`DataLoader(num_workers)` 与 `datasets.map(num_proc)` 用的都是进程池。详见[第六章](#六多进程预处理)。
+[^q2]: 线程没用是因为 GIL：CPython 同一时刻只让一个线程执行字节码，CPU 密集的任务 8 线程 1.0×；线程只对等待（I/O（input/output）、等 GPU）有用。进程池每个 worker 是独立解释器，实测 8 个 worker 3.1×，差在进程启动、输入输出的 `pickle` 序列化——任务越轻占比越大；`chunksize` 让每次传一批，任务越重越接近核数倍。`DataLoader(num_workers)` 与 `datasets.map(num_proc)` 用的都是进程池。详见[第六章](#六多进程预处理)。
