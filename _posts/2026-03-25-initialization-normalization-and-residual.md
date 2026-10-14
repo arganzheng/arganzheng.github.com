@@ -35,7 +35,7 @@ $$L$$ 层网络的前向是 $$L$$ 个函数的复合 $$f_L\circ\cdots\circ f_1$$
 
   于是 $$\text{Var}(h_l)=a_l\,\text{Var}(h_{l-1})$$。从第 1 层递推到第 $$L$$ 层，得到 $$\text{Var}(h_L)=\text{Var}(x)\,a_1a_2\cdots a_L=\text{Var}(x)\prod_l a_l$$。代个数：$$n_{in}=256$$、激活用 ReLU，取 $$\sigma_w^2=2/256$$ 时 $$a_l=256\times\frac{2}{256}\times\frac12=1$$，这就是 Kaiming 初始化；取 $$\sigma_w^2=1/256$$ 时 $$a_l=0.5$$，64 层后方差只剩 $$0.5^{64}$$。
 
-  ![一层 Linear + ReLU 的方差变化：输入 x 方差为 1，Linear 之后方差放大 n_in σ_w² 倍到约 2，ReLU 把一半置零，二阶矩回到约 1，所以 a_l ≈ 1](/img/in-post/dl-init-norm-one-layer.svg)
+  ![一层 Linear + ReLU 的方差变化：输入方差为 1，经过 Linear 放大到约 2，ReLU 把一半置零后二阶矩回到约 1](/img/in-post/dl-init-norm-one-layer.svg)
 
   图里用 $$n_{in}=256$$、$$\sigma_w^2=2/256$$ 模拟了一层：Linear 把方差从 1 放大到约 2，ReLU 把一半置零，二阶矩回到约 1，正好 $$a_l\approx1$$。
 - **Jacobian 逐层相乘**。$$J_l=\partial h_l/\partial h_{l-1}$$ 是第 $$l$$ 层输出对输入的导数矩阵，叫 Jacobian，第 $$(i,j)$$ 个元素是 $$\partial h_{l,i}/\partial h_{l-1,j}$$。链式法则说复合函数的导数是各层导数的乘积。反向传播时梯度从 $$\partial L/\partial h_L$$ 往回走，每过一层左乘一个 $$J_l^{T}$$：
