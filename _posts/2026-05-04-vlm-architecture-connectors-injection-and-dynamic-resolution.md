@@ -8,15 +8,48 @@ catalog: true
 updated: 2026-09-14
 ---
 
-上一篇的编码器把一张图变成了几百个 $$d_v$$ 维向量（CLIP-L 是 1024 维）。LLM 的输入是 $$d$$ 维向量（7B 模型是 4096 维）——两边维度不同、"语言"也不同，中间要有一个转接头。这一步有三个设计决定：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个决定合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
+上一篇的编码器把一张图变成了几百个 $$d_v$$ 维向量（CLIP-L 是 1024 维）。LLM 的输入是 $$d$$ 维向量（7B 模型是 4096 维）——两边维度不同、"语言"也不同，中间要有一个转接头。这一步有三个设计选择：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个选择合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
 
-[现代 LLM 结构第九篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过这三个决定的**成本**：三类 connector 的 token 数表、两种注入的 FLOPs 与 KV 对照、M-RoPE 的三维位置、视频与音频的 token 数。这一篇讲成本背后的**动机与效果**：为什么 2024 年后主流从 Q-Former 回到 MLP、cross-attention 注入为什么被 Llama 3.2 选中又被多数人放弃、原生分辨率解决了 tile 的什么问题。每个选择都是一次"信息 vs token"的交换，这一篇把交换的两边都说清楚。
+《[现代 LLM 结构（09）：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)》已经算过这三个设计选择的**成本**：三类 connector 的 token 数表、两种注入的 FLOPs 与 KV 对照、M-RoPE 的三维位置、视频与音频的 token 数。这一篇讲成本背后的**动机与效果**：为什么 2024 年后主流从 Q-Former 回到 MLP、cross-attention 注入为什么被 Llama 3.2 选中又被多数人放弃、原生分辨率解决了 tile 的什么问题。每个选择都是一次"信息 vs token"的交换，这一篇把交换的两边都说清楚。
 
 本篇要回答的核心问题是：
 
 > **LLaVA 的一个 MLP 与 BLIP-2 的 Q-Former 相差什么？[^q0] 为什么 Qwen2-VL 要让 ViT 接受原生分辨率？[^q1]**
 
-## 一、总览：三个决定、一张地图
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| VLM | vision-language model | 能看图回答问题的语言模型 |
+| connector | — | 编码器与 LLM 之间的转接头：映射维度、可选压缩 token |
+| ViT | Vision Transformer | 把图像切成 patch、每块变成一个向量的编码器 |
+| MLP | multi-layer perceptron | 多层感知机，LLaVA 用它当 connector |
+| Q-Former | querying Transformer | BLIP-2 的 connector：K 个可学习 query 做 cross-attention |
+| BLIP-2 | bootstrapped language-image pre-training | Salesforce 的 VLM，connector 是 Q-Former |
+| LLaVA | large language and vision assistant | 早期主流 VLM，connector 是线性层 / MLP |
+| resampler | — | Perceiver 式 connector：固定个数的 query 抽出固定 token 数 |
+| Perceiver | — | DeepMind 的「固定 query 抽特征」结构，Flamingo 采用 |
+| KV | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
+| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
+| FFN | feed-forward network | Transformer 每层里的前馈网络子层 |
+| GELU | Gaussian error linear unit | MLP 里常用的一种平滑激活函数 |
+| tile | — | 把大图切成固定大小的块各自编码的分辨率策略 |
+| AnyRes | any resolution | LLaVA-NeXT 的 tile 方案：选网格 + 全图缩略图 |
+| pixel shuffle | — | space-to-depth 重排：k×k 邻域拼成一个 token |
+| pan & scan | — | Gemma 3 对大图再切块浏览的补偿手段 |
+| RoPE | rotary position embedding | 旋转位置编码，按相对位置旋转向量 |
+| M-RoPE | multimodal RoPE | Qwen2-VL 的三维（时间/高/宽）位置编码 |
+| packing | — | 把多条样本拼成一个序列用 mask 隔开的 batch 技巧 |
+| NaFlex | native flexible resolution | SigLIP 2 的原生宽高比、可变分辨率变体 |
+| DocVQA / ChartQA / TextVQA / InfoVQA | — | 文档 / 图表 / 场景文字 / 信息图问答 benchmark |
+| MMBench / MathVista / VQAv2 / OCRBench | — | 综合评测 / 数学图形 / 图片问答 / OCR 评测 |
+| SFT | supervised fine-tuning | 监督微调，用指令数据训练模型 |
+| NFNet | normalizer-free network | Flamingo 用的无归一化 CNN 编码器 |
+| OCR | optical character recognition | 光学字符识别，读出图里的文字 |
+
+Table: 本文用到的术语与缩写
+
+## 一、总览：三个设计选择、一张对照表
 
 ### 1. 主流 VLM 的结构选择
 
@@ -37,7 +70,7 @@ updated: 2026-09-14
 
 Table: 主流 VLM 的结构选择
 
-表里每一行都是同一个三段结构上的三个决定——编码器、connector、注入方式——加一个分辨率策略：
+上面这张表（表 1）把 12 个主流 VLM 摆在同一个三段结构上看：编码器 → connector → 注入方式。编码器的选择在《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》已经讲过，本篇的三个设计选择是每一行剩下的三列——connector、注入方式、分辨率策略。下面这张结构图（图 1）把三段结构与两条注入路径画出来：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -65,13 +98,33 @@ image token 与文本同价：同样的 attention、同样的 KV`"]
     class SEQ,XA llm
 ```
 
-三个趋势读得出来：（1）注入方式几乎全部收敛到 decoder 序列；（2）connector 从"固定 query 的 resampler"（Flamingo、BLIP-2、Qwen-VL）转向"MLP + 空间压缩"（2×2 merge / pixel shuffle / pooling）；（3）分辨率从固定转向 tile 或原生动态。
+从上表可以看出三个趋势：
 
-### 2. 先说答案
+1. 注入方式几乎全部收敛到 decoder 序列；
+2. connector 从「固定 query 的 resampler」（Flamingo、BLIP-2、Qwen-VL）转向「MLP + 空间压缩」（2×2 merge / pixel shuffle / pooling）；
+3. 分辨率从固定转向 tile 或原生动态。
 
-LLaVA 的 MLP 与 BLIP-2 的 Q-Former 差在**信息瓶颈的位置**。MLP 对每个 patch 特征独立做一个映射，576 个 patch 进去 576 个 token 出来，空间结构与全部信息保留，代价是 token 多；Q-Former 用 32 个可学习的 query 对全部 patch 做 cross-attention，把任意数量的 patch 压成 32 个 token，token 少，但 32 个向量装不下一张图的细节——尤其是 OCR、小物体、精确位置。常见的说法"query 与内容无关、没有自适应"要说准：固定的是 query 的**个数与初始向量**，attention 权重 $$QK^\top$$ 随每张图的 key 变化，读出的内容当然随图变（toy：同一个 query，把两个 patch 的 key 对调，输出从 3.48 变成 6.52）；它的真正限制是**预算固定**（32 个槽位分给整张图）与**空间结构丢失**。实证上 LLaVA-1.5 用 MLP 在 12 个 benchmark 上超过了用 Q-Former 的 BLIP-2 与 InstructBLIP，之后 Q-Former 基本退出。2024 年的折中是 MLP + **空间压缩**（2×2 merge）：压缩 4 倍但保持空间结构，每个输出 token 对应一个确定的 2×2 patch 区域。
+### 2. LLaVA 的 MLP 与 BLIP-2 的 Q-Former 相差什么
 
-Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：**边界**（tile 之间没有 attention，一个跨 tile 的物体或一行文字被切断）、**失真**（把任意宽高比的图 resize 或 pad 到正方形 tile 会拉伸或浪费）、**token 效率**（小图也要占满一个 tile 的 576 个 token，大图的 tile 网格与内容的实际密度不匹配）。原生分辨率让 token 数**与图片的像素数成比例**（每 $$28 \times 28$$ 像素一个 token），一张 $$224 \times 224$$ 的图 64 个 token、一张 $$1344 \times 896$$ 的文档 1536 个 token，全图在一个 attention 里。代价是 ViT 的 attention 是 $$O(N^2)$$——Qwen2.5-VL 用窗口 attention 缓解——以及位置编码要换成 2D RoPE。第五章展开。
+先回答上面的第一个问题：LLaVA 的一个 MLP 与 BLIP-2 的 Q-Former 相差什么？两者差在**信息瓶颈的位置**。
+
+MLP（multi-layer perceptron，多层感知机——两层线性变换夹一个非线性激活的小网络）对每个 patch 特征独立做一个映射：576 个 patch 进去、576 个 token 出来，空间结构与全部信息保留，代价是 token 多。
+
+Q-Former（querying Transformer——BLIP-2 提出的 connector，用一组可学习的 query 向量通过 cross-attention 从图像特征里抽取信息）用 32 个可学习的 query 对全部 patch 做 cross-attention，把任意数量的 patch 压成 32 个 token：token 少，但 32 个向量装不下一张图的细节——尤其是 OCR、小物体、精确位置。
+
+常见的说法「query 与内容无关、没有自适应」要说准：固定的是 query 的**个数与初始向量**，attention 权重 $$QK^\top$$ 随每张图的 key 变化，读出的内容当然随图变——在第二章的 toy 代码里，同一个 query 把两个 patch 的 key 对调，输出从 3.48 变成 6.52。它的真正限制是**预算固定**（32 个槽位分给整张图）与**空间结构丢失**。
+
+实证上，LLaVA-1.5 用 MLP 在 12 个 benchmark 上超过了用 Q-Former 的 BLIP-2 与 InstructBLIP，之后 Q-Former 基本退出主流。
+
+2024 年的折中是 MLP + **空间压缩**（2×2 merge）：压缩 4 倍但保持空间结构，每个输出 token 对应一个确定的 2×2 patch 区域。
+
+第二个问题：Qwen2-VL 为什么让 ViT 接受原生分辨率？是为了解决 tile 方案的三个问题：
+
+1. **边界**：tile 之间没有 attention，一个跨 tile 的物体或一行文字被切断；
+2. **失真**：把任意宽高比的图 resize 或 pad 到正方形 tile 会拉伸或浪费；
+3. **token 效率**：小图也要占满一个 tile 的 576 个 token，大图的 tile 网格与内容的实际密度不匹配。
+
+原生分辨率让 token 数**与图片的像素数成比例**（每 $$28 \times 28$$ 像素一个 token），一张 $$224 \times 224$$ 的图 64 个 token、一张 $$1344 \times 896$$ 的文档 1536 个 token，全图在一个 attention 里。代价是 ViT 的 attention 是 $$O(N^2)$$——Qwen2.5-VL 用窗口 attention 缓解——以及位置编码要换成 2D RoPE。第五章展开。
 
 ### 3. 本文的章节安排
 
@@ -83,7 +136,7 @@ Qwen2-VL 让 ViT 接受原生分辨率，是为了解决 tile 的三个问题：
 | 五 | 原生动态分辨率 | Qwen2-VL 的做法：2D RoPE、可变 patch 数、2×2 merge、上下限<br/>窗口 attention<br/>NaFlex |
 | 六 | 视频与多图 | 帧采样与时间合并<br/>M-RoPE 的三个轴<br/>token 预算在帧间的分配<br/>交错图文 |
 | 七 | 信息 vs token 的交换 | 五张图在三种策略下的 token 数（表 + 图）<br/>一张"任务 × 分辨率 × 压缩"的效果矩阵<br/>每 token 多少像素 |
-| 八 | 成本 | 回指 04-13 的账<br/>三个决定各改了什么<br/>训练侧的影响 |
+| 八 | 成本 | 回指 04-13 的账<br/>三个设计选择各改了什么<br/>训练侧的影响 |
 | 九 | 动手（建议） | 分辨率—token—精度的三角 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
@@ -316,7 +369,7 @@ Table: 分辨率策略与任务需求的效果矩阵
 
 ## 八、成本
 
-### 1. 三个决定各改了什么
+### 1. 三个设计选择各改了什么
 
 回指 [04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html) 的账：
 
@@ -399,4 +452,4 @@ Table: VLM 结构的规则小结
    </details>
 
 [^q0]: LLaVA 的 MLP 对每个 patch 独立映射、不丢信息、保留空间结构、把「看哪里」交给 LLM 的 attention；BLIP-2 的 Q-Former 用 32 个可学习 query（个数固定，读取内容仍随图变）把整张图压成 32 个 token，装不下细节、丢了空间结构、且多了一个要单独训的模块——LLaVA-1.5 的实证让主流转向 MLP，2024 年的折中是 MLP + 2×2 merge，压缩 4 倍、经验上几乎无损。详见[第二章](#二connector从编码器空间到-llm-空间)、[第三章](#三注入方式)。
-[^q1]: 因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个决定合起来是一次「信息 vs token」的交换：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。详见[第四章](#四固定分辨率与-tile)、[第五章](#五原生动态分辨率)、[第七章](#七信息-vs-token-的交换)。
+[^q1]: 因为 tile 方案切断跨块的物体与文字行、pad 与拉伸造成失真、小图也要占满一个 tile 的 token；原生分辨率让 token 数与像素数成正比、全图在一个 attention 里，用 2D RoPE 取代需要插值的绝对位置编码，代价是 ViT 的 $$O(N^2)$$ attention（Qwen2.5-VL 用窗口 attention 解决）与可变长度的 batch 工程。三个设计选择合起来是一次「信息 vs token」的交换：自然图片对 token 数不敏感，文档与文字任务要每 $$28 \times 28$$ 像素一个 token。详见[第四章](#四固定分辨率与-tile)、[第五章](#五原生动态分辨率)、[第七章](#七信息-vs-token-的交换)。

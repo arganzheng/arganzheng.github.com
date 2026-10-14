@@ -8,32 +8,85 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一个**视觉语言模型**（vision-language model，VLM——能看图回答问题的语言模型，如 GPT-4o、Qwen2.5-VL）的第一步是把一张图变成几百个向量。语言模型只认"一串向量"：一句话先被切成 token、每个 token 查表变成一个向量，再送进 Transformer；图片没有"词"，要先有一个部件把像素变成同样形状的一串向量，这个部件叫**视觉编码器**（vision encoder）。做这件事的几乎总是一个预训练好的 ViT——LLaVA 用 CLIP ViT-L/14，Qwen2-VL 用自己训的 ViT（从 DFN 的 CLIP 初始化），InternVL 用 InternViT-6B，Gemma 3 与 PaliGemma 用 SigLIP-SO400M。这个 ViT 是怎么训出来的，决定了它"看到"什么、看不到什么，进而决定了 VLM 的上限：一个对文字不敏感的编码器，后面接多大的 LLM 也读不好文档；一个对计数不敏感的编码器，模型就数不清图里有几只猫。
+一个**视觉语言模型**（vision-language model，VLM——能看图回答问题的语言模型，如 GPT-4o、Qwen2.5-VL）的第一步是把一张图变成几百个向量。语言模型只认"一串向量"：一句话先被切成 token、每个 token 查表变成一个向量，再送进 Transformer；图片没有"词"，要先有一个部件把像素变成同样形状的一串向量，这个部件叫**视觉编码器**（vision encoder）。做这件事的几乎总是一个预训练好的 **ViT**（Vision Transformer，视觉版 Transformer——把图像切成小块、每块变成一个向量后送进 Transformer，第二章细讲）——LLaVA 用 CLIP ViT-L/14，Qwen2-VL 用自己训的 ViT（从 DFN 的 CLIP 初始化），InternVL 用 InternViT-6B，Gemma 3 与 PaliGemma 用 SigLIP-SO400M。这里的 **CLIP**（Contrastive Language–Image Pre-training，图文对比预训练——用「这张图配这段文字」做训练信号的模型，第三章细讲）与 **SigLIP**（把 CLIP 的 softmax 损失换成 sigmoid 的改进版，第四章细讲）是后文反复出现的两条线。这个 ViT 是怎么训出来的，决定了它"看到"什么、看不到什么，进而决定了 VLM 的上限：一个对文字不敏感的编码器，后面接多大的 LLM 也读不好文档；一个对计数不敏感的编码器，模型就数不清图里有几只猫。
 
-编码器的训练方式有三类：**监督分类**（ImageNet 上的 ViT，[《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》](/cnn-from-lenet-to-resnet-and-vit.html)）、**图文对比学习**（CLIP、SigLIP——当前 VLM 的主流）、**自监督**（DINOv2、MAE——不需要文本）。VLM 几乎全用第二类，原因不是它的图像特征最好（在密集预测任务上 DINOv2 更好），而是它的特征空间**已经与语言对齐**——connector 只需要做一个小的映射。理解对比学习在优化什么、为什么能学出语义、以及它的目标函数决定了哪些信息被保留哪些被丢掉，是理解整个理解线的起点。
+编码器之间的差别主要在**训练信号**：ImageNet 标签的**有监督分类**、图文对的**对比学习**（CLIP、SigLIP——当前 VLM 的主流）、不碰文本的**自蒸馏**（**DINOv2**，自蒸馏指「让学生模型模仿教师模型、教师又是学生的滑动平均」，第六章细讲）与**掩码重建**（**MAE**，masked autoencoder——遮住大部分 patch 让模型重建像素，第六章细讲），最后还有与 LLM 一起从头训的**端到端**路线。VLM 几乎全用对比这一路，原因不是它的图像特征最好（在密集预测任务上 DINOv2 更好），而是它的特征空间**已经与语言对齐**——connector 只需要做一个小的映射。理解对比学习在优化什么、为什么能学出语义、以及它的目标函数决定了哪些信息被保留哪些被丢掉，是理解整个理解线的起点。
 
 本篇要回答的核心问题是：
 
 > **为什么几乎所有 VLM 都用 CLIP / SigLIP 而不用 ImageNet 分类预训练的 ViT？[^q0] 编码器看不到什么？[^q1]**
 
-## 一、总览：三类编码器与它们学到的东西
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| VLM | vision-language model | 能看图回答问题的语言模型 |
+| ViT | Vision Transformer | 把图像切成 patch、每块变成一个向量送进 Transformer 的编码器 |
+| CLIP | Contrastive Language–Image Pre-training | OpenAI 的图文对比模型，用「图文是否配对」训练 |
+| SigLIP | Sigmoid Loss for Language-Image Pre-training | CLIP 的 sigmoid 损失版，对 batch 大小不敏感 |
+| patch | — | 图像被切成的小方块，一个 patch 变成一个向量 |
+| [CLS] | classification token | 一个不对应任何 patch 的额外向量，汇总整图信息 |
+| InfoNCE | — | 对比学习损失：把正确配对当 B 选 1 的分类题 |
+| MLP | multi-layer perceptron | 多层感知机，这里指两层的小映射网络 |
+| WIT | WebImageText | OpenAI 抓的 4 亿图文对数据集 |
+| OCR | optical character recognition | 光学字符识别，读出图里的文字 |
+| MAE | masked autoencoder | 遮住大部分 patch 重建像素的自监督编码器 |
+| DINO | self-distillation with no labels | 自蒸馏自监督方法；DINOv2 是其放大版 |
+| iBOT | image BERT pre-training with online tokenizer | 自蒸馏 + patch 级掩码目标的自监督方法 |
+| MIM | masked image modeling | 掩码图像建模：遮住一部分、重建被遮住的 |
+| PCA | principal component analysis | 主成分分析，把高维特征压到两三维看结构 |
+| EMA | exponential moving average | 滑动平均，教师模型取学生参数的移动平均 |
+| CapPa | captioners are scalable vision learners too, parallel prediction | 用 caption 生成（或并行预测）目标的编码器训练法 |
+| NaFlex | native flexible resolution | SigLIP 2 的原生宽高比、可变分辨率变体 |
+| RoPE | rotary position embedding | 旋转位置编码，按位置旋转向量，任意分辨率无需插值 |
+| pixel shuffle | — | space-to-depth 重排：k×k 邻域拼成一个 token |
+| AnyRes | any resolution | LLaVA-NeXT 的切 tile 方案：选网格 + 全图缩略图 |
+| pan & scan | — | Gemma 3 对大图再切块浏览的补偿手段 |
+| ARO | attribute, relation, order | 测属性绑定与词序敏感性的 benchmark |
+| VSR | visual spatial reasoning | 测空间关系（左/右/上/下）的 benchmark |
+| TextVQA / DocVQA / ChartQA | — | 场景文字 / 文档 / 图表问答 benchmark |
+| VQAv2 / MMBench / MathVista | — | 自然图片问答 / 综合评测 / 数学图形评测 |
+| V100 | NVIDIA Volta GPU | 2017 年的训练卡，CLIP 用它训了 12 天 |
+| KV | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
+| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
+
+Table: 本文用到的术语与缩写
+
+## 一、总览：编码器按监督信号分类
 
 ### 1. 一张对照表
 
-| 训练方式 | 代表 | 监督信号 | 学到什么 | 弱在什么 | 在 VLM 里 |
+| 监督信号 | 代表 | 信号从哪来 | 学到什么 | 弱在什么 | 在 VLM 中的用途 |
 |---|---|---|---|---|---|
-| 监督分类 | ViT-L/16 (ImageNet-21k) | 1000 / 21K 类标签 | 类别判别性特征 | 类别之外的一切；与语言无对齐 | 早期（2021）用过，很快被替代 |
-| 图文对比 | CLIP、OpenCLIP、SigLIP、DFN、EVA-CLIP | 图文对是否匹配 | 与文本对齐的全局语义 | 计数、空间关系、文字、细粒度 | **主流**：LLaVA、Qwen-VL、InternVL、PaliGemma、Gemma 3 |
-| 自监督 | DINOv2、MAE、iBOT | 图像自身（视图一致、重建） | 局部、几何、密集特征；对细节敏感 | 无语言对齐；全局语义弱于 CLIP | 混用（Cambrian-1、Eagle：多编码器拼接）或作为 CLIP 的补充 |
-| 端到端联合训练 | Fuyu、EVE、Chameleon | 与 LLM 一起从头训 | 与 LLM 完全一致的表示 | 需要海量图文数据；效率低 | 少数模型；趋势是"预训练编码器 + 联合微调" |
+| 有监督分类 | ViT-L/16 (ImageNet-21k) | 人工标注的 1000 / 21K 类标签 | 类别判别性特征 | 类别之外的一切；与语言无对齐 | 早期（2021）用过，很快被替代 |
+| 对比 | CLIP、OpenCLIP、SigLIP、DFN、EVA-CLIP | 图文对是否匹配 | 与文本对齐的全局语义 | 计数、空间关系、文字、细粒度 | **主流**：LLaVA、Qwen-VL、InternVL、PaliGemma、Gemma 3 |
+| 自蒸馏 | DINOv2、iBOT | 同一张图的不同裁剪要给出一致的特征 | 局部、几何、密集特征；对细节敏感 | 无语言对齐；全局语义弱于 CLIP | 混用（Cambrian-1、Eagle：多编码器拼接）或作为 CLIP 的补充 |
+| 掩码重建 | MAE、EVA 的 MIM 初始化 | 遮住大部分 patch、重建被遮住的部分 | 细节特征 | 线性可分性差；无语言对齐 | 不直接用作 VLM 编码器；价值在初始化 |
+| 端到端联合训练 | Fuyu、EVE、Chameleon | 不设独立的视觉目标，与 LLM 一起从头训 | 与 LLM 完全一致的表示 | 需要海量图文数据；效率低 | 少数模型；趋势是"预训练编码器 + 联合微调" |
 
-Table: 视觉编码器训练方式对照
+Table: 视觉编码器按监督信号分类
 
-### 2. 先说答案
+这套分法与《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html)》「十、表示学习的五种监督信号」是同一个视角：编码器的差别不在结构——它们几乎全是 ViT——而在拿来当监督的那个信号。信号之外还有一些编码器这张表没覆盖：CNN 编码器（ConvNeXt，Eagle 用它做混合编码器的一支，见《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》）与图像生成一侧的 VAE / VQ tokenizer——后者把图变成离散 token 服务的是"画出来"而不是"看懂"，不在本篇范围。
 
-VLM 用 CLIP / SigLIP 有三个原因。**对齐**：对比学习把图像特征投到与文本共享的空间，"一张猫的图"与"a photo of a cat"的向量接近——LLM 的 embedding 空间虽然不是同一个空间，但从一个已经"语义化"的空间映射过去，比从一个只区分 1000 个类的空间映射容易得多，LLaVA 用一个两层 MLP 就够了。**覆盖**：ImageNet 的 1000 类（或 21K 类）之外的概念——文字、图表、界面截图、艺术风格、抽象概念——分类模型从没见过，而 4 亿到 100 亿图文对里什么都有。**规模**：对比学习的数据是网上抓的图文对，几乎无限；分类标签要人标。ImageNet 预训练的 ViT 在 2021 年的 VLM（如早期的 Frozen、VisualGPT）里用过，效果远不如 CLIP，之后就没人用了。
+### 2. 为什么是 CLIP / SigLIP，它又看不到什么
 
-编码器看不到什么：**计数**（"三只猫"与"四只猫"的图文对在对比学习里几乎不需要区分——描述里很少精确计数）、**空间关系**（"猫在桌子左边"与"右边"的图文对同样少）、**文字**（CLIP 对图中文字有一定敏感性，但分辨率 224 / 336 下小字不可读——这是 OCR 任务需要高分辨率的原因）、**细粒度差别**（两个几乎一样的图在对比学习里是"同一类"，没有信号区分它们）、**否定与属性绑定**（"红色的杯子与蓝色的盘子" vs "蓝色的杯子与红色的盘子"——词袋式的对齐分不开）。这些盲点来自目标函数：对比学习只要求**把配对的图文与不配对的区分开**，网络学到的是完成这个任务所需的最少信息，而计数、空间、绑定在网上的图文对里很少成为区分的关键。第五章展开。
+先回答上面的第一个问题：为什么几乎所有 VLM 都用 CLIP / SigLIP，而不用 ImageNet 分类预训练的 ViT？三个原因：
+
+1. **对齐**：对比学习把图像特征投到与文本共享的空间，"一张猫的图"与"a photo of a cat"的向量接近——LLM 的 embedding 空间虽然不是同一个空间，但从一个已经"语义化"的空间映射过去，比从一个只区分 1000 个类的空间映射容易得多，LLaVA 用一个两层 MLP 就够了。
+2. **覆盖**：ImageNet 的 1000 类（或 21K 类）之外的概念——文字、图表、界面截图、艺术风格、抽象概念——分类模型从没见过，而 4 亿到 100 亿图文对里什么都有。
+3. **规模**：对比学习的数据是网上抓的图文对，几乎无限；分类标签要人标。
+
+ImageNet 预训练的 ViT 在 2021 年的 VLM（如早期的 Frozen、VisualGPT）里用过，效果远不如 CLIP，之后就没人用了。
+
+第二个问题：编码器看不到什么？对照上表"弱在什么"那一列，CLIP 类编码器的盲点有五类：
+
+- **计数**："三只猫"与"四只猫"的图文对在对比学习里几乎不需要区分——描述里很少精确计数。
+- **空间关系**："猫在桌子左边"与"右边"的图文对同样少。
+- **文字**：CLIP 对图中文字有一定敏感性，但分辨率 224 / 336 下小字不可读——这是 OCR（optical character recognition，光学字符识别——读出图里的文字）任务需要高分辨率的原因。
+- **细粒度差别**：两个几乎一样的图在对比学习里是"同一类"，没有信号区分它们。
+- **否定与属性绑定**："红色的杯子与蓝色的盘子" vs "蓝色的杯子与红色的盘子"——词袋式的对齐分不开。
+
+这些盲点来自目标函数：对比学习只要求**把配对的图文与不配对的区分开**，网络学到的是完成这个任务所需的最少信息，而计数、空间、绑定在网上的图文对里很少成为区分的关键。第五章展开。
 
 ### 3. 本文的章节安排
 
@@ -62,6 +115,8 @@ Table: 本文的章节安排
 1. **切块**：按 $$P \times P$$ 的小方块（**patch**）切分，得到 $$N = HW / P^2$$ 块。$$336 \times 336$$ 的图、$$P = 14$$：每边 24 块，$$N = 576$$。
 2. **每块拉平、乘一个矩阵**：一个 $$14 \times 14 \times 3 = 588$$ 个数的块拉成一行，乘一个 $$588 \times d$$ 的矩阵 $$W$$ 变成 $$d$$ 维向量（CLIP ViT-L 的 $$d = 1024$$）。这一步叫 **patch embedding**，就是第二篇线性回归那种"加权和"，对 588 个像素做 1024 次；数学上等价于一个步长为 $$P$$ 的卷积。
 3. **加位置、送进 Transformer**：每个向量加上一个表示"我是第几块"的位置编码（否则 Transformer 不知道块的顺序——它对输入的排列不敏感），然后送进标准的 Transformer encoder。"encoder"指的是**双向 attention**：每个 patch 都能看到所有其他 patch，不像语言模型那样只能看前面的。
+
+这里有两个实现上的细节容易问。一是 patch 是不是一定要正方形：不是，切块等价于一个步长 $$P$$ 的卷积，核的高与宽可以不同，正方形只是 ViT 的约定（也是几乎所有实现的默认）。二是 $$H$$、$$W$$ 是不是 $$P$$ 的倍数：必须是——如果除不尽，步长 $$P$$ 的卷积直接把最后不够一块的像素丢掉，所以预处理要保证整除。办法是把图先变成合适的尺寸：CLIP 是先把短边 resize 再 center-crop 到 $$224^2$$（或 $$336^2$$），LLaVA-1.5 是保持宽高比 resize 后 pad 到正方形；Qwen2-VL 则把每张图 resize 到高、宽都是 28 的倍数（patch 14 × 2×2 merge，见《[多模态（02）：VLM 的结构：connector、注入方式与动态分辨率](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)》），对应 Hugging Face 的 `Qwen2VLImageProcessor` 里的 `smart_resize` 函数。
 
 用一张 8×8 的手写数字、$$P = 2$$、$$d = 3$$ 把这三步缩小到能看清：
 
@@ -92,7 +147,7 @@ CLIP 的训练目标作用在**最后一层的 [CLS] 经过投影**的单个向�
 
 ### 3. 编码器的成本
 
-回指 04-13：CLIP ViT-L/14 是 304M 参数、24 层、$$d = 1024$$；$$336^2$$ 输入 576 个 patch，一次前向约 $$2 \times 304M \times 576 \approx 350$$ GFLOPs 加 attention 的 $$O(N^2 d)$$ 项——对 LLM 的 prefill 来说是小头（一个 7B LLM 处理 576 个 token 约 8 TFLOPs），但对高分辨率（tile 到几千个 patch）与视频（几十帧）来说编码器的成本开始显著。
+回指 04-13：CLIP ViT-L/14 是 304M 参数、24 层、$$d = 1024$$；$$336^2$$ 输入 576 个 patch，一次前向约 $$2 \times 304M \times 576 \approx 350$$ GFLOPs（FLOPs 是 floating point operations，浮点运算次数，衡量算力开销的单位）加 attention 的 $$O(N^2 d)$$ 项——对 LLM 的 prefill（预填充，一次性处理整段输入的那一步）来说是小头（一个 7B LLM 处理 576 个 token 约 8 TFLOPs），但对高分辨率（tile 到几千个 patch）与视频（几十帧）来说编码器的成本开始显著。
 
 ## 三、对比学习：CLIP 在优化什么
 
@@ -316,15 +371,15 @@ CLIP ViT 的位置编码是**可学习的绝对位置**，训练时固定 $$16 \
 
 ## 九、选型对照
 
-| 编码器 | 参数 | 训练 | 原生分辨率 / patch | 输出 token（默认） | 在 VLM 里 | 特点 |
-|---|---|---|---|---|---|---|
-| CLIP ViT-L/14-336 | 304M | 对比，WIT 400M | 336 / 14 | 576 | LLaVA-1.5 / NeXT、早期多数 | 基线<br/>倒数第二层<br/>OCR 弱 |
-| SigLIP-SO400M/14-384 | 400M | sigmoid 对比，WebLI 10B | 384 / 14 | 729 | PaliGemma、Gemma 3、Idefics3、Molmo | 形状优化；当前最常用 |
-| SigLIP 2 SO400M（NaFlex） | 400M | sigmoid + caption + 自监督 | 任意 | 可变 | 2025 新模型 | 密集特征与 OCR 更好 |
-| InternViT-6B | 6B | 对比 + 生成，与 LLM 联训 | 448 / 14 | 1024 → 256（pixel shuffle） | InternVL 1.5 / 2 大模型 | 规模化编码器；InternVL 2.5 小模型用 300M 版 |
-| Qwen2-VL ViT | 675M | 从 DFN CLIP 初始化，2D RoPE，与 LLM 联训 | 原生动态 | 随图大小 | Qwen2-VL / 2.5-VL | 原生分辨率；窗口 attention（2.5） |
-| DINOv2-L/14 | 304M | 自蒸馏，LVD-142M | 518 / 14 | 1369 | Cambrian-1（拼接） | 密集、几何；无语言对齐 |
-| AIMv2-L | 300M | 自回归（patch + 文本） | 224–448 | — | 研究 | 生成目标的对齐 |
+| 编码器 | 类别 | 参数 | 训练 | 原生分辨率 / patch | 输出 token（默认） | 在 VLM 中的用途 | 特点 |
+|---|---|---|---|---|---|---|---|
+| CLIP ViT-L/14-336 | 对比 | 304M | 对比，WIT 400M | 336 / 14 | 576 | LLaVA-1.5 / NeXT、早期多数 | 基线<br/>倒数第二层<br/>OCR 弱 |
+| SigLIP-SO400M/14-384 | 对比 | 400M | sigmoid 对比，WebLI 10B | 384 / 14 | 729 | PaliGemma、Gemma 3、Idefics3、Molmo | 形状优化；当前最常用 |
+| SigLIP 2 SO400M（NaFlex） | 对比 + 生成 + 自蒸馏 | 400M | sigmoid + caption + 自监督 | 任意 | 可变 | 2025 新模型 | 密集特征与 OCR 更好 |
+| InternViT-6B | 对比 + 生成 | 6B | 对比 + 生成，与 LLM 联训 | 448 / 14 | 1024 → 256（pixel shuffle） | InternVL 1.5 / 2 大模型 | 规模化编码器；InternVL 2.5 小模型用 300M 版 |
+| Qwen2-VL ViT | 对比初始化 + 联训 | 675M | 从 DFN CLIP 初始化，2D RoPE，与 LLM 联训 | 原生动态 | 随图大小 | Qwen2-VL / 2.5-VL | 原生分辨率；窗口 attention（2.5） |
+| DINOv2-L/14 | 自蒸馏 | 304M | 自蒸馏，LVD-142M | 518 / 14 | 1369 | Cambrian-1（拼接） | 密集、几何；无语言对齐 |
+| AIMv2-L | 生成（自回归） | 300M | 自回归（patch + 文本） | 224–448 | — | 研究 | 生成目标的对齐 |
 
 Table: 视觉编码器选型对照
 
