@@ -76,13 +76,13 @@ $$
 q(x_t \mid x_{t-1}) = \mathcal{N}\big(x_t;\ \sqrt{1 - \beta_t}\, x_{t-1},\ \beta_t I\big), \qquad t = 1, \ldots, T
 $$
 
-读法：$$\mathcal{N}(x; \mu, \sigma^2 I)$$ 表示"$$x$$ 服从均值 $$\mu$$、每个维度方差 $$\sigma^2$$ 的高斯分布"（L2 第二篇的钟形曲线，这里每个维度独立一条）。所以这一步是：把上一步的 $$x_{t-1}$$ 缩小成 $$\sqrt{1 - \beta_t}$$ 倍，再加上标准差 $$\sqrt{\beta_t}$$ 的噪声——写成采样形式就是 $$x_t = \sqrt{1 - \beta_t}\, x_{t-1} + \sqrt{\beta_t}\, \epsilon$$，$$\epsilon \sim \mathcal{N}(0, I)$$。为什么要缩小？为了让方差不爆炸：如果 $$x_{t-1}$$ 的方差是 1，缩小后方差 $$1 - \beta_t$$，加噪后 $$1 - \beta_t + \beta_t = 1$$——每一步都保持方差为 1（"方差保持"，下篇会再遇到这个词）。
+读法：$$\mathcal{N}(x; \mu, \sigma^2 I)$$ 表示"$$x$$ 服从均值 $$\mu$$、每个维度方差 $$\sigma^2$$ 的高斯分布"（《[LLM 时代的经典机器学习（03）：逻辑回归与奖励模型——每个分类头的原型](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)》的钟形曲线，这里每个维度独立一条）。所以这一步是：把上一步的 $$x_{t-1}$$ 缩小成 $$\sqrt{1 - \beta_t}$$ 倍，再加上标准差 $$\sqrt{\beta_t}$$ 的噪声——写成采样形式就是 $$x_t = \sqrt{1 - \beta_t}\, x_{t-1} + \sqrt{\beta_t}\, \epsilon$$，$$\epsilon \sim \mathcal{N}(0, I)$$。为什么要缩小？为了让方差不爆炸：如果 $$x_{t-1}$$ 的方差是 1，缩小后方差 $$1 - \beta_t$$，加噪后 $$1 - \beta_t + \beta_t = 1$$——每一步都保持方差为 1（"方差保持"，下篇会再遇到这个词）。
 
 $$\beta_t$$ 是预设的**噪声调度**（DDPM：$$T = 1000$$，$$\beta_t$$ 从 $$10^{-4}$$ 线性到 $$0.02$$——开始加得极少，后面加得多）。记 $$\alpha_t = 1 - \beta_t$$，$$\bar\alpha_t = \prod_{s \le t} \alpha_s$$（前 $$t$$ 个 $$\alpha$$ 的乘积，读"alpha bar"）。
 
 ### 3. 闭式解：从 $$x_0$$ 一步到 $$x_t$$
 
-高斯的组合仍是高斯。先看两步：$$x_2 = \sqrt{\alpha_2}\, x_1 + \sqrt{1 - \alpha_2}\, \epsilon_1 = \sqrt{\alpha_2 \alpha_1}\, x_0 + \sqrt{\alpha_2 (1 - \alpha_1)}\, \epsilon_0 + \sqrt{1 - \alpha_2}\, \epsilon_1$$。后两项是两个**独立**的零均值高斯，它们的和仍是零均值高斯、**方差相加**（L2 第一篇"独立量的方差相加"）：$$\alpha_2(1 - \alpha_1) + (1 - \alpha_2) = 1 - \alpha_1 \alpha_2$$。用两个数验算：$$\alpha_1 = 0.9, \alpha_2 = 0.8$$，信号系数 $$\sqrt{0.72} = 0.849$$，噪声方差 $$0.8 \times 0.1 + 0.2 = 0.28 = 1 - 0.72$$——信号系数的平方加噪声方差恰好是 1。归纳到 $$t$$ 步得到从 $$x_0$$ 直接到 $$x_t$$ 的**闭式**：
+高斯的组合仍是高斯。先看两步：$$x_2 = \sqrt{\alpha_2}\, x_1 + \sqrt{1 - \alpha_2}\, \epsilon_1 = \sqrt{\alpha_2 \alpha_1}\, x_0 + \sqrt{\alpha_2 (1 - \alpha_1)}\, \epsilon_0 + \sqrt{1 - \alpha_2}\, \epsilon_1$$。后两项是两个**独立**的零均值高斯，它们的和仍是零均值高斯、**方差相加**（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》"独立量的方差相加"）：$$\alpha_2(1 - \alpha_1) + (1 - \alpha_2) = 1 - \alpha_1 \alpha_2$$。用两个数验算：$$\alpha_1 = 0.9, \alpha_2 = 0.8$$，信号系数 $$\sqrt{0.72} = 0.849$$，噪声方差 $$0.8 \times 0.1 + 0.2 = 0.28 = 1 - 0.72$$——信号系数的平方加噪声方差恰好是 1。归纳到 $$t$$ 步得到从 $$x_0$$ 直接到 $$x_t$$ 的**闭式**：
 
 $$
 q(x_t \mid x_0) = \mathcal{N}\big(x_t;\ \sqrt{\bar\alpha_t}\, x_0,\ (1 - \bar\alpha_t) I\big), \qquad
@@ -140,7 +140,7 @@ $$
 
 ### 1. 为什么需要一个"下界"
 
-我们想让模型给训练数据高概率——最大化 $$\log p_\theta(x_0)$$（L2 第二篇的最大似然）。但 $$p_\theta(x_0)$$ 要对所有可能的中间路径 $$x_1, \ldots, x_T$$ 积分，算不出来。办法是找一个**永远不大于** $$\log p_\theta(x_0)$$、但算得出来的量，去最大化它——把下界推高，真值只会更高。这个量叫**变分下界**（evidence lower bound，ELBO），VAE 用的是同一招。推导用到一个不等式（Jensen：$$\log$$ 是凹函数，$$\log \mathbb{E}[\cdot] \ge \mathbb{E}[\log \cdot]$$）和一个巧妙的选择——把前向过程 $$q(x_{1:T} \mid x_0)$$ 当作"猜中间路径的分布"。结果写成负对数（越小越好）：
+我们想让模型给训练数据高概率——最大化 $$\log p_\theta(x_0)$$（《[LLM 时代的经典机器学习（03）：逻辑回归与奖励模型——每个分类头的原型](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)》的最大似然）。但 $$p_\theta(x_0)$$ 要对所有可能的中间路径 $$x_1, \ldots, x_T$$ 积分，算不出来。办法是找一个**永远不大于** $$\log p_\theta(x_0)$$、但算得出来的量，去最大化它——把下界推高，真值只会更高。这个量叫**变分下界**（evidence lower bound，ELBO），VAE 用的是同一招。推导用到一个不等式（Jensen：$$\log$$ 是凹函数，$$\log \mathbb{E}[\cdot] \ge \mathbb{E}[\log \cdot]$$）和一个巧妙的选择——把前向过程 $$q(x_{1:T} \mid x_0)$$ 当作"猜中间路径的分布"。结果写成负对数（越小越好）：
 
 $$
 -\log p_\theta(x_0) \le \mathbb{E}_q\Big[ \underbrace{D_{KL}(q(x_T \mid x_0) \,\|\, p(x_T))}_{L_T} + \sum_{t=2}^{T} \underbrace{D_{KL}\big(q(x_{t-1} \mid x_t, x_0) \,\|\, p_\theta(x_{t-1} \mid x_t)\big)}_{L_{t-1}} \underbrace{- \log p_\theta(x_0 \mid x_1)}_{L_0} \Big]

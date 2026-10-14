@@ -141,7 +141,7 @@ Table: offload 的三种粒度
 - **CPU offload**（`--text-encoder-cpu-offload`）：用时搬到 GPU（T5-XXL 9 GiB，0.4 s），算完搬回。SGLang 对显存 < 30 GB 的卡自动开启；
 - **留在 CPU 上算**：T5-XXL 512 token 在 CPU 上几秒，比搬运还慢，一般不做；
 - **独立服务 / 独立卡**：文本编码器作为一个 stage 单独部署，输出 embedding 传给 DiT 的卡——第七篇的三段分离；vLLM-Omni 的 stage-based 部署与 SGLang 的 disaggregation 都支持；
-- **不加载**：SD3 允许推理时不加载 T5（只用两个 CLIP），省 9 GiB，代价是文字渲染与复杂 prompt 变差（算法地图 L7 第六篇的消融）。
+- **不加载**：SD3 允许推理时不加载 T5（只用两个 CLIP），省 9 GiB，代价是文字渲染与复杂 prompt 变差（算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》的消融）。
 
 另一个细节：**prompt embedding 缓存**。同一个 prompt 被反复请求（同 prompt 多 seed、批量出图）时，文本编码器的输出可以按 prompt 哈希缓存——vLLM-Omni 的 `PromptEmbedCache`、diffusers 的 `text_kv_cache` hook；每条 4 MiB，缓存一千条 4 GiB。这是扩散推理里唯一像"前缀缓存"的东西。
 

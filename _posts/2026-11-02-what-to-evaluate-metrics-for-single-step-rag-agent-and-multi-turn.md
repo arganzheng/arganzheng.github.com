@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Evaluation, Metrics]
 catalog: true
 ---
 
-评测集有了、评分方法有了，第三个问题是**评什么**。一个分类器评准确率就够；一个 RAG 要分开评检索与生成（L3 第七篇）；一个 agent 要看结果之外的过程（L4 第九篇）；一个多轮客服要看策略遵循与轮数；所有应用都要把成本与延迟和质量一起报。这一篇把散在前四层的指标收成一张矩阵，补上多轮对话与安全两块，并讲三条横切的原则：按分布看、按类型分层、成本延迟并列。
+评测集有了、评分方法有了，第三个问题是**评什么**。一个分类器评准确率就够；一个 RAG 要分开评检索与生成（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）；一个 agent 要看结果之外的过程（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）；一个多轮客服要看策略遵循与轮数；所有应用都要把成本与延迟和质量一起报。这一篇把散在前四层的指标收成一张矩阵，补上多轮对话与安全两块，并讲三条横切的原则：按分布看、按类型分层、成本延迟并列。
 
 本篇要回答的核心问题是：
 
@@ -22,8 +22,8 @@ catalog: true
 %% 图：四种应用形态各评什么，以及所有形态都要并列报的三样
 flowchart LR
     F{"应用形态"} --> S["<b>单步</b><br/>结果：准确率 / F1 / rubric<br/>形式：格式遵循率、schema 通过率、拒答正确率"]
-    F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，L3 第七篇）"]
-    F --> AG["<b>agent</b><br/>结果之外看过程：步数、越权、<br/>工具选择、部分结果、成本<br/>（L4 第九篇）"]
+    F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）"]
+    F --> AG["<b>agent</b><br/>结果之外看过程：步数、越权、<br/>工具选择、部分结果、成本<br/>（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）"]
     F --> MT["<b>多轮</b><br/>策略遵循、轮数、目标达成、<br/>上下文丢失点"]
     S & RG & AG & MT --> X["所有形态都并列报：<br/>成本 / 任务 · p95 延迟 · 安全（红队通过率）<br/>按分布看（跑 n 次），按类型分层"]
 
@@ -32,9 +32,9 @@ flowchart LR
 
 | 形态 | 结果 | 过程 / 形式 | 成本与延迟 | 安全 | 主要出处 |
 |---|---|---|---|---|---|
-| 单步（分类 / 抽取 / 生成） | 准确率 / F1 / 精确匹配；judge 分（rubric） | 格式遵循率、schema 通过率、拒答正确率、出口使用率 | 每次 token 与美元、TTFT、总时长 | 敏感信息、注入抵抗 | L1 第五篇、L2 第三篇 |
-| RAG | faithfulness、answer relevance、引用正确率 | recall@k / MRR / nDCG（检索侧）、context precision、零结果率 | 每次问答成本（含 rerank）、检索延迟 | "不该看到"零结果率 | L3 第七篇 |
-| agent | 任务完成率（自动验收优先） | 步数、token、美元、墙钟<br/>工具选择正确率、弯路与重复<br/>部分结果质量 | 每任务成本 p50 / p95 | 越权尝试、沙箱拒绝、绕过障碍提议、注入下的行为 | L4 第九篇 |
+| 单步（分类 / 抽取 / 生成） | 准确率 / F1 / 精确匹配；judge 分（rubric） | 格式遵循率、schema 通过率、拒答正确率、出口使用率 | 每次 token 与美元、TTFT、总时长 | 敏感信息、注入抵抗 | 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》 |
+| RAG | faithfulness、answer relevance、引用正确率 | recall@k / MRR / nDCG（检索侧）、context precision、零结果率 | 每次问答成本（含 rerank）、检索延迟 | "不该看到"零结果率 | 《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》 |
+| agent | 任务完成率（自动验收优先） | 步数、token、美元、墙钟<br/>工具选择正确率、弯路与重复<br/>部分结果质量 | 每任务成本 p50 / p95 | 越权尝试、沙箱拒绝、绕过障碍提议、注入下的行为 | 《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》 |
 | 多轮对话 | 任务完成、用户目标达成 | 策略遵循率、轮数、澄清提问的恰当性、状态保持（不忘前文） | 每会话成本 | 越界请求的处理 | 本篇 |
 | 代码生成 | 测试通过率（pass@k）、编译率 | 改动范围（diff 大小）、是否引入无关改动 | 成本 | 危险命令 | L4 |
 | 全部 | — | 一致率（k 次里相同结论的比例）、方差 | 永远与质量一起报 | 红队集通过率 | 本篇横切 |
@@ -53,7 +53,7 @@ Table: 各形态的指标矩阵
 
 ### 2. 形式
 
-**格式遵循率**（输出能否被解析）、**schema 通过率**（strict 下应为 100%，不是则查截断——L2 第三篇）、**拒答正确率**分两半：该拒的拒了（召回）、不该拒的没拒（精确）——两者常此消彼长，都要报；**出口使用率**（`cannot_classify` 一类出口用了多少、其中多少是真的该用）。
+**格式遵循率**（输出能否被解析）、**schema 通过率**（strict 下应为 100%，不是则查截断——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）、**拒答正确率**分两半：该拒的拒了（召回）、不该拒的没拒（精确）——两者常此消彼长，都要报；**出口使用率**（`cannot_classify` 一类出口用了多少、其中多少是真的该用）。
 
 ### 3. 为什么形式指标单列
 
@@ -81,11 +81,11 @@ flowchart TB
 
 ## 三、RAG 与 agent
 
-### 1. RAG（L3 第七篇的回顾）
+### 1. RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的回顾）
 
 分开评：检索侧（查询，相关块）→ recall@50 / recall@5 分层、MRR、nDCG（分级标注）；生成侧（查询，固定块，理想答案）→ faithfulness（断言被块支持的比例）、answer relevance、引用正确率、拒答正确率（块里没答案时说不知道）；端到端与固定检索的差是检索损失；三个数字定位退化在哪段。运营侧：零结果率、拒答率、新鲜度。
 
-### 2. agent（L4 第九篇的回顾）
+### 2. agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的回顾）
 
 六维：结果（自动验收：测试、断言、状态检查）、效率（步数 / token / 美元 / 墙钟与基线比）、过程正确性（工具选择、参数、弯路、重复）、安全（越权尝试、沙箱拒绝、绕过障碍）、鲁棒性（评测集里故意放工具错误、注入、缺信息，看行为是问人 / 降级 / 硬闯）、部分结果质量。评测集每条含环境快照；录制回放做非模型改动的回归。
 
@@ -205,7 +205,7 @@ xychart-beta
 
 ### 3. 成本与延迟并列
 
-质量涨 2 分、成本涨 3 倍不一定是进步（L1 第四篇）。每次评测同时报：每次 / 每任务的 token 与美元（含缓存读写、推理 token、rerank、judge）、TTFT、总时长的 p50 / p95。一张"质量 vs 成本"的散点图比两个数字有用。
+质量涨 2 分、成本涨 3 倍不一定是进步（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。每次评测同时报：每次 / 每任务的 token 与美元（含缓存读写、推理 token、rerank、judge）、TTFT、总时长的 p50 / p95。一张"质量 vs 成本"的散点图比两个数字有用。
 
 ```mermaid
 %% 图：质量 vs 成本的散点（示意）——五个候选配置：A 便宜但质量低，B 质量高但每任务 0.06 美元，C 与 D 在质量相近处成本差三倍，E 质量最高成本也最高；门禁线画在质量 88 处，线以上最便宜的是 C；两个数字分开报时 D 会因为「质量 91」被选中
@@ -222,7 +222,7 @@ xychart-beta
 
 ## 七、公开基准的位置
 
-L1 第五篇与 L4 第九篇讲过：基准（MMLU、SWE-bench Verified、Terminal-Bench、τ-bench、RAG 的 BEIR 一类）受污染、饱和、脚手架、分布四个局限，只用来**缩范围**（新模型值不值得进你的评测）、不用来决策；报告基准时说明版本与 harness。它们在矩阵里的位置是"结果"列的外部参照，不替代任何一格。
+《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》与 《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》讲过：基准（MMLU、SWE-bench Verified、Terminal-Bench、τ-bench、RAG 的 BEIR 一类）受污染、饱和、脚手架、分布四个局限，只用来**缩范围**（新模型值不值得进你的评测）、不用来决策；报告基准时说明版本与 harness。它们在矩阵里的位置是"结果"列的外部参照，不替代任何一格。
 
 ## 八、实践建议
 
@@ -263,7 +263,7 @@ L1 第五篇与 L4 第九篇讲过：基准（MMLU、SWE-bench Verified、Termin
 4. pass@5 = 0.95 与 pass^5 = 0.60 各是什么意思？生产系统该看哪个？
 
    <details markdown="1"><summary>答案</summary>
-   pass@5：五次里至少一次成功的用例比例——演示与"能不能做到"看它。pass^5：五次全部成功的比例——生产每次都要对，看它。0.95 与 0.60 的差距说明一致率低（L1 第一篇的非确定性），生产可靠性以 0.60 为准，要提高一致性（约束解码、更明确的 prompt、降 temperature）而不是庆祝 0.95。详见[第六章](#六三条横切原则)。
+   pass@5：五次里至少一次成功的用例比例——演示与"能不能做到"看它。pass^5：五次全部成功的比例——生产每次都要对，看它。0.95 与 0.60 的差距说明一致率低（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的非确定性），生产可靠性以 0.60 为准，要提高一致性（约束解码、更明确的 prompt、降 temperature）而不是庆祝 0.95。详见[第六章](#六三条横切原则)。
    </details>
 
 5. 为什么用户模拟器要像 judge 一样校准？校准什么？

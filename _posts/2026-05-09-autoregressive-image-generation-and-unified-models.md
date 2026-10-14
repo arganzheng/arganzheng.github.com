@@ -104,7 +104,7 @@ $$
 
 解码器 $$D$$ 从 $$z_q$$ 重建图。图就变成了 $$h \times w$$ 个整数（码字索引）——$$256^2$$ 的图、$$f = 16$$：$$16 \times 16 = 256$$ 个 token，每个 $$\log_2 K$$ bit。
 
-"码本 / 最近邻 / 查表"这些词在第四篇 RVQ 里已经出现过：**VQ 就是 K-Means**（L2 第七篇）——码本是簇中心，量化是归到最近的中心。先不用神经网络，把它做到最小：编码器 = 把 $$8 \times 8$$ 的手写数字切成 16 个 $$2 \times 2$$ 的 patch（每个 4 个像素），码本 = 对全部 patch 做 K-Means（$$K = 32$$），量化 = 每个 patch 取最近簇中心的编号，解码器 = 查码本、拼回 $$8 \times 8$$：
+"码本 / 最近邻 / 查表"这些词在第四篇 RVQ 里已经出现过：**VQ 就是 K-Means**（《[LLM 时代的经典机器学习（11）：系列总结与通关自测](/classical-ml-series-recap-and-self-test.html)》）——码本是簇中心，量化是归到最近的中心。先不用神经网络，把它做到最小：编码器 = 把 $$8 \times 8$$ 的手写数字切成 16 个 $$2 \times 2$$ 的 patch（每个 4 个像素），码本 = 对全部 patch 做 K-Means（$$K = 32$$），量化 = 每个 patch 取最近簇中心的编号，解码器 = 查码本、拼回 $$8 \times 8$$：
 
 ```python title="K-Means 码本：最小的 VQ-VAE"
 km = KMeans(32).fit(ALL.reshape(-1, 4))                   # ① 训练码本 = 对 1797 × 16 个 2×2 patch 做 k-means
@@ -130,7 +130,7 @@ $$
 \mathcal{L} = \lVert x - D(z_q) \rVert^2 + \lVert \text{sg}[z_e] - e \rVert^2 + \beta \lVert z_e - \text{sg}[e] \rVert^2
 $$
 
-- 重建项的梯度通过**直通估计**传回编码器：前向用 $$z_q$$，反向把 $$\partial \mathcal{L} / \partial z_q$$ 直接当作 $$\partial \mathcal{L} / \partial z_e$$（与 [L6 第四篇](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的 STE 相同）。
+- 重建项的梯度通过**直通估计**传回编码器：前向用 $$z_q$$，反向把 $$\partial \mathcal{L} / \partial z_q$$ 直接当作 $$\partial \mathcal{L} / \partial z_e$$（与 [《[高效推理与压缩（04）：量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的 STE 相同）。
 - 第二项（codebook loss）让被选中的码字向编码器输出移动（只更新码本）；实践中用 EMA 替代——每个码字是它被分配到的所有 $$z_e$$ 的移动平均。
 - 第三项（commitment loss，$$\beta = 0.25$$）让编码器输出向被选中的码字靠——防止编码器输出在码字之间乱跳。
 
@@ -194,7 +194,7 @@ $$
 \tilde\ell = \ell_\emptyset + w (\ell_c - \ell_\emptyset)
 $$
 
-在 logits 上做外推再 softmax 采样。LlamaGen 报告 CFG 对 FID 的改善巨大（无 CFG 的 FID 是有 CFG 的 3–5 倍），$$w = 1.75$$–$$2$$（AR 上的 $$w$$ 比扩散小得多——logits 空间的外推与噪声空间的外推尺度不同）。与 [L6 第一篇](/decoding-strategies-sampling-and-constrained-generation.html)的采样参数一样，top-k / temperature 也影响 AR 图像生成的质量与多样性。
+在 logits 上做外推再 softmax 采样。LlamaGen 报告 CFG 对 FID 的改善巨大（无 CFG 的 FID 是有 CFG 的 3–5 倍），$$w = 1.75$$–$$2$$（AR 上的 $$w$$ 比扩散小得多——logits 空间的外推与噪声空间的外推尺度不同）。与 [《[高效推理与压缩（01）：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html)》](/decoding-strategies-sampling-and-constrained-generation.html)的采样参数一样，top-k / temperature 也影响 AR 图像生成的质量与多样性。
 
 ### 3. 栅格顺序的问题
 

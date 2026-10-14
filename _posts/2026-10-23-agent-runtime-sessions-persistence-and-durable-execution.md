@@ -45,7 +45,7 @@ Table: 三种服务形态的对照
 
 ### 1. 为什么是日志
 
-agent 的状态是什么？用户说过的话、模型的每次输出（含思考块）、每次工具调用与结果、每次审批、每次压缩、每次子 agent 的调度、每次注入上下文的内容。把它们存成一个"当前状态"对象有三个问题：崩溃时对象在内存里；无法回答"第 17 步模型看到了什么"（L1 第一篇的非确定性调试要求）；无法从中间分叉。**事件溯源**——只追加不可变的事件、状态从事件派生——三个问题都解决：日志落盘就是持久化；任意一步的上下文可以重放到那一步得到；从任意一步分叉就是复制前缀。
+agent 的状态是什么？用户说过的话、模型的每次输出（含思考块）、每次工具调用与结果、每次审批、每次压缩、每次子 agent 的调度、每次注入上下文的内容。把它们存成一个"当前状态"对象有三个问题：崩溃时对象在内存里；无法回答"第 17 步模型看到了什么"（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的非确定性调试要求）；无法从中间分叉。**事件溯源**——只追加不可变的事件、状态从事件派生——三个问题都解决：日志落盘就是持久化；任意一步的上下文可以重放到那一步得到；从任意一步分叉就是复制前缀。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -72,24 +72,24 @@ DeepSeek Harness 把这做成了架构的中心。`packages/core/session` 拥有
 
 ### 3. Codex：rollout 与 thread-store
 
-Codex 的会话对象持有历史，`rollout` crate 负责把每一步写成 rollout 记录（持久化），`thread-store` 管理线程（会话）的存储与查找，`message-history` 与 `history` crate 处理历史的呈现；"从已有 rollout 恢复会话"是仓库规范里列出的外部兼容面之一（"resuming sessions from existing rollouts"），与 app-server API、CLI 参数并列——说明日志格式被当作契约。远程压缩（`compact_remote_v2`）在日志里也是一条记录（L2 第四篇：加密 blob 作为 `compaction` item）。
+Codex 的会话对象持有历史，`rollout` crate 负责把每一步写成 rollout 记录（持久化），`thread-store` 管理线程（会话）的存储与查找，`message-history` 与 `history` crate 处理历史的呈现；"从已有 rollout 恢复会话"是仓库规范里列出的外部兼容面之一（"resuming sessions from existing rollouts"），与 app-server API、CLI 参数并列——说明日志格式被当作契约。远程压缩（`compact_remote_v2`）在日志里也是一条记录（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》：加密 blob 作为 `compaction` item）。
 
 ### 4. 日志里要有什么
 
 | 事件类 | 内容 | 为什么要记 |
 |---|---|---|
 | 用户输入 | 原文、附件引用、时间 | 起点 |
-| 模型输出 | 文本、工具调用（`call_id`、参数）、思考块（原样，L1 第三篇）、`stop_reason`、usage | 重放、成本、推理状态 |
+| 模型输出 | 文本、工具调用（`call_id`、参数）、思考块（原样，《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）、`stop_reason`、usage | 重放、成本、推理状态 |
 | 工具执行 | 调用、结果（含错误）、耗时、沙箱、是否卸载与定位符 | 配对、调试、审计 |
 | 审批 | 请求、决定、决定者、时间 | 审计（谁批的）；挂起 / 唤醒的边界 |
 | 上下文操作 | 压缩（摘要内容或 blob 引用）、清理了哪些、注入了什么（记忆、规则） | "模型可见 ⟺ 已记录" |
 | 子 agent | 派发、参数、返回的摘要、子会话 id | 跨会话的追溯 |
-| 系统 | 模型版本、prompt 版本、工具集版本、配置 | L2 第六篇的版本绑定；L5 的归因 |
+| 系统 | 模型版本、prompt 版本、工具集版本、配置 | 《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的版本绑定；L5 的归因 |
 | 卫士 | 哪个卫士触发、动作 | 健康度 |
 
 Table: 会话日志里要记的事件
 
-记完整的请求体（或能重建它的事件）是 L1 第一篇定位非确定性、L5 录制回放的前提。
+记完整的请求体（或能重建它的事件）是 《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》定位非确定性、L5 录制回放的前提。
 
 ### 5. 日志的成本
 
@@ -99,7 +99,7 @@ Table: 会话日志里要记的事件
 
 ### 1. 概念
 
-durable execution 是工作流引擎领域的老概念：把一段长流程的每一步的**输入、输出、决定**持久化，进程崩溃后从最后一个持久化点继续，而不是从头；等待外部事件（人、定时器、回调）时不占进程。Temporal、Cadence、AWS Step Functions、Azure Durable Functions 是代表。agent 运行时的需求与它几乎一致——只是"步骤"由模型决定而不是代码，这让工作流引擎的"确定性重放"（重放时代码必须做同样的决定）要换成"重放事件而不重跑模型"（L1 第一篇：模型不可复现，所以重放的是记录的输出）。
+durable execution 是工作流引擎领域的老概念：把一段长流程的每一步的**输入、输出、决定**持久化，进程崩溃后从最后一个持久化点继续，而不是从头；等待外部事件（人、定时器、回调）时不占进程。Temporal、Cadence、AWS Step Functions、Azure Durable Functions 是代表。agent 运行时的需求与它几乎一致——只是"步骤"由模型决定而不是代码，这让工作流引擎的"确定性重放"（重放时代码必须做同样的决定）要换成"重放事件而不重跑模型"（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》：模型不可复现，所以重放的是记录的输出）。
 
 ### 2. LangGraph 的 checkpoint
 
@@ -111,7 +111,7 @@ LangGraph 把 agent 显式建成有状态的图：节点是步骤（调模型、
 
 ### 4. 自己实现的最小集
 
-不用引擎时，最小实现是：日志 append-only 落盘（每步 fsync 或写数据库）；启动时从日志重建上下文并从最后一个未完成的步骤继续（未完成的工具调用要判断是否已执行——幂等 id，L1 第六篇）；挂起点（等审批）把会话标为等待并释放 worker，唤醒时重新加载；一个调度器分发会话到 worker，会话内串行、会话间并行。这就是一个小型 durable execution 引擎。
+不用引擎时，最小实现是：日志 append-only 落盘（每步 fsync 或写数据库）；启动时从日志重建上下文并从最后一个未完成的步骤继续（未完成的工具调用要判断是否已执行——幂等 id，《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；挂起点（等审批）把会话标为等待并释放 worker，唤醒时重新加载；一个调度器分发会话到 worker，会话内串行、会话间并行。这就是一个小型 durable execution 引擎。
 
 ```mermaid
 %% 图：durable execution 的最小实现——每步的输入 / 输出 / 决定 append-only 落盘；进程在第 10 步崩溃后，新 worker 从日志重建上下文、检查第 10 步的工具调用是否已执行（幂等 id），从最后一个未完成的步骤继续而不是从头；等审批时会话标为等待、worker 归还，唤醒时重新加载
@@ -197,7 +197,7 @@ flowchart LR
 
 ### 5. 会话隔离
 
-多用户、多租户下每个会话有自己的工作目录 / 沙箱、自己的凭据、自己的预算；日志按会话分区；子 agent 的会话与父会话关联但隔离。一个会话的失控（死循环、大量工具调用）不能影响其他会话——按会话的限流与预算（L1 第六篇的令牌桶在这里按会话分）。
+多用户、多租户下每个会话有自己的工作目录 / 沙箱、自己的凭据、自己的预算；日志按会话分区；子 agent 的会话与父会话关联但隔离。一个会话的失控（死循环、大量工具调用）不能影响其他会话——按会话的限流与预算（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的令牌桶在这里按会话分）。
 
 ## 五、三种交付形态
 
@@ -287,7 +287,7 @@ flowchart LR
 3. 工作流引擎的"确定性重放"假设与 agent 的非确定性怎么调和？
 
    <details markdown="1"><summary>答案</summary>
-   工作流引擎重放时重新执行代码、期望做出同样的决定；模型不可复现（L1 第一篇），所以模型调用与工具执行要作为 activity——结果被记录、重放时直接用记录的结果不重跑。这正是 L1 第一篇"录制回放"在运行时里的形态。详见[第三章](#三durable-execution)。
+   工作流引擎重放时重新执行代码、期望做出同样的决定；模型不可复现（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》），所以模型调用与工具执行要作为 activity——结果被记录、重放时直接用记录的结果不重跑。这正是 《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》"录制回放"在运行时里的形态。详见[第三章](#三durable-execution)。
    </details>
 
 4. 一个审批请求让 worker 线程阻塞等待用户点击，平均等 40 分钟。100 个并发会话需要多少 worker？正确做法是什么？

@@ -134,7 +134,7 @@ MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 
 ### 3. resampler：Q-Former 与 Perceiver
 
-第三类不按位置映射，而是"提问"。先回忆 attention 的三步（L2 第五篇的核回归 = attention）：一个 **query** 向量与每个 **key** 向量算相似度、softmax 成权重、按权重加权平均对应的 **value** 向量。自注意力里 query、key、value 都来自同一串 token；**cross-attention** 里 query 来自一边、key / value 来自另一边——"用 A 去查 B"。
+第三类不按位置映射，而是"提问"。先回忆 attention 的三步（《[LLM 时代的经典机器学习（09）：去重——MinHash 与 LSH 的概率](/deduplication-minhash-and-lsh-probabilities.html)》的核回归 = attention）：一个 **query** 向量与每个 **key** 向量算相似度、softmax 成权重、按权重加权平均对应的 **value** 向量。自注意力里 query、key、value 都来自同一串 token；**cross-attention** 里 query 来自一边、key / value 来自另一边——"用 A 去查 B"。
 
 **Perceiver resampler**（Flamingo，Alayrac 等 2022）：$$K$$ 个**可学习的** query 向量（$$K = 64$$，是模型参数，与输入图片无关）对编码器的全部 patch 特征做若干层 cross-attention（key / value 是 patch 特征），输出 $$K$$ 个向量。任意数量的 patch → 固定 $$K$$ 个 token。toy 上 $$K = 3$$：
 

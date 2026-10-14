@@ -113,7 +113,7 @@ Rombach 等 2022（Latent Diffusion Models）的观察：图像生成的"感知�
 
 ### 2. 把它缩小到能跑：PCA 当 VAE，16 维里做扩散
 
-L2 第八篇的 PCA 就是最简单的自编码器：编码器 = 投影到前 $$k$$ 个主成分，解码器 = 乘回去加均值。用它当"VAE"，在 1797 张 $$8 \times 8$$ 手写数字上把 64 个像素压成 16 个数：
+《[LLM 时代的经典机器学习（08）：降维——PCA、SVD、t-SNE / UMAP 与 embedding 的各向异性](/dimensionality-reduction-pca-svd-tsne-and-umap.html)》的 PCA 就是最简单的自编码器：编码器 = 投影到前 $$k$$ 个主成分，解码器 = 乘回去加均值。用它当"VAE"，在 1797 张 $$8 \times 8$$ 手写数字上把 64 个像素压成 16 个数：
 
 ```text title="PCA 当 VAE：不同 latent 维度的压缩与重建"
 latent  4 维：压缩 16.0 倍，重建 MSE 0.0376，保留方差 48.7%

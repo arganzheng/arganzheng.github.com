@@ -9,7 +9,7 @@ catalog: true
 
 上一篇把文档变成了带元数据的块。这一篇讲怎么把块存起来、怎么找回来：选哪个 embedding 模型、用什么索引结构、放在哪个向量库、怎么把 BM25 与向量的结果合起来、为什么 rerank 是整条流水线上性价比最高的一步、以及权限过滤为什么必须发生在这一步。
 
-这一层的选型与 L1 第五篇的模型选型同构：榜单（MTEB）只能缩范围，决定要在自己的查询集上做；并且它有一个模型选型没有的隐藏成本——**换 embedding 模型意味着全量重建索引**。2026 年的候选很多（Qwen3-Embedding 登顶 MMTEB、Gemini Embedding、Voyage-3-large、Cohere Embed v4 支持 128K 与多模态、OpenAI text-embedding-3），而 MTEB 本身被指出用二元相关性抹平了模型之间的差异。选对模型之后，混合检索与 rerank 带来的提升常常比换模型大。
+这一层的选型与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的模型选型同构：榜单（MTEB）只能缩范围，决定要在自己的查询集上做；并且它有一个模型选型没有的隐藏成本——**换 embedding 模型意味着全量重建索引**。2026 年的候选很多（Qwen3-Embedding 登顶 MMTEB、Gemini Embedding、Voyage-3-large、Cohere Embed v4 支持 128K 与多模态、OpenAI text-embedding-3），而 MTEB 本身被指出用二元相关性抹平了模型之间的差异。选对模型之后，混合检索与 rerank 带来的提升常常比换模型大。
 
 本篇要回答的核心问题是：
 
@@ -69,14 +69,14 @@ Table: embedding 模型候选
 
 ### 2. MTEB 为什么不能直接用
 
-与 L1 第五篇讲的 Arena 同一类问题：
+与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》讲的 Arena 同一类问题：
 
 - **版本不可比**：MTEB 与 MMTEB、Multilingual v1 与 v2 的任务集不同，跨版本的分数不能横比。
 - **二元相关性**：MTEB 的检索数据集多用"相关 / 不相关"二值标注，nDCG 这类指标在二值标签下退化——分不清"完美答案"与"勉强相关"。ZeroEntropy 2026 年用三个 judge 对 28 个 MTEB 检索数据集重标分级相关性，重评 16 个 embedding 模型与 7 个 rerank 模型，排名明显变化。
 - **聚合分数掩盖任务方差**：一个模型在分类上强、在检索上弱，平均分看不出来；你只关心检索。
 - **领域与语言**：中文法律文书、内部代码、医疗记录不在榜单的分布里。
 
-用法与 L1 第五篇相同：**榜单缩范围，自己的查询集决定**。
+用法与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》相同：**榜单缩范围，自己的查询集决定**。
 
 ### 3. 判据
 
@@ -265,7 +265,7 @@ Cohere Rerank、Voyage rerank、Qwen3-Reranker（开放，0.6B / 4B / 8B）、BG
 
 ### 3. 全量重建
 
-三种情况要全量重建：换 embedding 模型（向量空间变了，新旧向量不可比）、改分块策略、改 contextual 前缀。百万块的语料重建是几小时到一天的 embedding 调用加索引构建；要有**双写切换**的流程（新索引建好、评测通过、流量切换、旧索引保留一段时间），与 L2 第六篇的发布流程同构。这是"换 embedding 模型很贵"的具体含义。
+三种情况要全量重建：换 embedding 模型（向量空间变了，新旧向量不可比）、改分块策略、改 contextual 前缀。百万块的语料重建是几小时到一天的 embedding 调用加索引构建；要有**双写切换**的流程（新索引建好、评测通过、流量切换、旧索引保留一段时间），与 《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的发布流程同构。这是"换 embedding 模型很贵"的具体含义。
 
 ## 八、实践建议
 

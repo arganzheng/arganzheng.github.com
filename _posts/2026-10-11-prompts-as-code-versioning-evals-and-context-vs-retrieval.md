@@ -39,7 +39,7 @@ flowchart TB
     class T gate
 ```
 
-这张图与任何软件的发布流程同构，只有两处不同：**评测门禁是对分布的**（每条用例跑 $$k$$ 次，L1 第一篇的非确定性），**模型升级会从右侧重新触发整个流程**（依赖变了，测试要重跑）。
+这张图与任何软件的发布流程同构，只有两处不同：**评测门禁是对分布的**（每条用例跑 $$k$$ 次，《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的非确定性），**模型升级会从右侧重新触发整个流程**（依赖变了，测试要重跑）。
 
 ### 2. 本文的章节安排
 
@@ -105,8 +105,8 @@ flowchart LR
 flowchart LR
     W["prompt 版本 N（不可变）"]
     W --> T["模板 + 分区结构 + 变量占位<br/>← 第二篇的六个部分"]
-    W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← L1 第三、五篇"]
-    W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · L1 第二篇"]
+    W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← 《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》、《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》"]
+    W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》"]
     W --> C["缓存断点的位置<br/>← 第五篇"]
     W --> N["变更说明：改了什么 · 为什么 · 评测结果"]
     T & M & S & C --> B["一起决定行为：<br/>同文本换 effort ≠ 同一版本；同 schema 换字段顺序 ≠ 同一版本"]
@@ -122,11 +122,11 @@ flowchart LR
 
 ### 1. 与模型版本绑定
 
-prompt 版本 N 是在模型 M 上评测通过的；M 变了，N 的评测结果作废。绑定的做法：版本对象里记模型 id（钉快照，L1 第五篇），模型升级时创建新版本 N+1（文本可以不变、绑定变）并重跑门禁。这让"模型升级"在流程里与"改 prompt"是同一件事——都是新版本、都过门禁。供应商的弃用通知（L1 第五篇第八章）触发的正是这条路径。
+prompt 版本 N 是在模型 M 上评测通过的；M 变了，N 的评测结果作废。绑定的做法：版本对象里记模型 id（钉快照，《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》），模型升级时创建新版本 N+1（文本可以不变、绑定变）并重跑门禁。这让"模型升级"在流程里与"改 prompt"是同一件事——都是新版本、都过门禁。供应商的弃用通知（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》「八、供应商风险与弃用周期」）触发的正是这条路径。
 
 ### 2. 评测门禁
 
-每个新版本在合并 / 打标签前跑评测集（L1 第五篇建的那一个，L5 讲方法）：
+每个新版本在合并 / 打标签前跑评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》建的那一个，L5 讲方法）：
 
 | 指标 | 门禁 |
 |---|---|
@@ -281,7 +281,7 @@ flowchart TB
 ## 七、实践建议
 
 1. **给 prompt 加版本**：先把 prompt 从代码里的字符串挪到独立文件（版本库）或注册表，每个版本记绑定的模型与参数；trace 里记版本。
-2. **接评测门禁**：把 L1 第五篇的评测集接到 CI（promptfoo 或自写脚本），每个 prompt 版本跑一次，输出逐条 diff。
+2. **接评测门禁**：把 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的评测集接到 CI（promptfoo 或自写脚本），每个 prompt 版本跑一次，输出逐条 diff。
 3. **用标签做发布**：`staging` → `prod-canary` → `production`，回滚是移标签。
 4. **给项目写 AGENTS.md**：命令、硬规则、结构；跨工具的团队同时提供 CLAUDE.md（符号链接或 include）。
 5. **把重复的任务流程写成 SKILL.md**：`description` 写清何时用，脚本进 `scripts/`，放 `.agents/skills/`。
@@ -322,7 +322,7 @@ flowchart TB
 
    <details markdown="1">
    <summary>答案</summary>
-   两者成本相近：全放每次 40K × 读价（Sonnet 5 \$0.20 / 百万）= \$0.008，一天 \$24，每月更新一次缓存失效一次可忽略；检索每次约 3K × \$2 / 百万 = \$0.006 加检索系统。决定因素是质量：问题是定位型（"X 的标准"），40K 已接近有效长度的风险区且制度文档词汇与用户问法常不匹配（L1 第一篇的 NoLiMa 情形），检索加引用更可靠且能给出条目编号（L7 的可信度）；若问题多为跨章节综合则全放更好。倾向检索。详见[第六章](#六上下文-vs-检索)。
+   两者成本相近：全放每次 40K × 读价（Sonnet 5 \$0.20 / 百万）= \$0.008，一天 \$24，每月更新一次缓存失效一次可忽略；检索每次约 3K × \$2 / 百万 = \$0.006 加检索系统。决定因素是质量：问题是定位型（"X 的标准"），40K 已接近有效长度的风险区且制度文档词汇与用户问法常不匹配（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的 NoLiMa 情形），检索加引用更可靠且能给出条目编号（L7 的可信度）；若问题多为跨章节综合则全放更好。倾向检索。详见[第六章](#六上下文-vs-检索)。
    </details>
 
 5. 团队同时用 Claude Code 与 Codex，写了一份 AGENTS.md 但 Claude Code 没有读它。原因与做法？

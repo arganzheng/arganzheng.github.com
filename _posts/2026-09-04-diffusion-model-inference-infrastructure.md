@@ -204,7 +204,7 @@ catalog: true
 
 这一篇会覆盖：
 
-- 步数蒸馏与 guidance 蒸馏的系统含义（不推导方法，方法在算法地图 L7 第六篇）：FLUX.1-schnell 4 步无 CFG = dev 的 1/7 FLOPs，单卡 1 s；SD3-Turbo、LCM、DMD2 的 1–4 步；
+- 步数蒸馏与 guidance 蒸馏的系统含义（不推导方法，方法在算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》）：FLUX.1-schnell 4 步无 CFG = dev 的 1/7 FLOPs，单卡 1 s；SD3-Turbo、LCM、DMD2 的 1–4 步；
 - 失效的：跨步缓存（4 步之间没有冗余，首末步还要全算）、PipeFusion（依赖 stale activation 的相似性）、CFG 并行（没有 CFG 了）；仍有效的：attention 后端、编译、量化、序列并行；
 - 形态变了：单卡亚秒 → 多卡的意义从延迟变为吞吐 → batch 开始有意义（小模型、少步下 GEMM 不饱和）→ 调度像 LLM 的 prefill 池；
 - 实时交互：StreamDiffusion 的 stream batch——把处于不同去噪步的连续帧拼成一个 batch 一次前向；
@@ -316,7 +316,7 @@ Table: 四个项目的源码阅读线
 
 - 理解 LLM 推理引擎的基本机制：prefill 与 decode 的形态差别、KV cache 的字节数、连续批处理、TP 部署、roofline 与 MFU（[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)前五篇的内容；本系列每处对照都会先复述所需的最小集）；
 - 知道 Transformer 一层的 FLOPs 从哪来（$$2 P N$$ 与 $$4 N^2 d$$，[《现代 LLM 结构（02）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)）；
-- 知道扩散模型在做什么：从噪声 latent 出发、网络预测噪声或速度、几十步去噪、VAE 解码、CFG 是两次前向（算法地图 L7 第五、六篇的内容；本系列第一篇会用一节复述所需的最小集，不涉及数学）；
+- 知道扩散模型在做什么：从噪声 latent 出发、网络预测噪声或速度、几十步去噪、VAE 解码、CFG 是两次前向（算法地图 《[多模态（06）：扩散模型（上）：DDPM——加噪、去噪与「预测噪声」](/diffusion-models-ddpm-score-matching-and-flow-matching.html)》、《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》的内容；本系列第一篇会用一节复述所需的最小集，不涉及数学）；
 - 会用 diffusers 跑一个文生图 pipeline、读 Python 源码、用 profiler 看时间线；
 - 一张 24 GB 以上的 GPU 用于实践；多卡与视频的内容以计算外推与公开数据为主。
 

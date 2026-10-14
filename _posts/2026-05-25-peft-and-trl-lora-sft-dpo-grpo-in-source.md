@@ -10,7 +10,7 @@ date: 2026-05-25 12:00:00
 
 > **更新 @2026-09-30**：本文对着 **peft 0.21.0**（`tuners/lora/layer.py` 2739 行、`tuners/tuners_utils.py` 2781 行）与 **trl 1.13.0**（`trainer/sft_trainer.py` 1927 行、`dpo_trainer.py` 1823 行、`grpo_trainer.py` 3497 行）读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。trl 是 Hugging Face 几个库里改得最快的一个（一年三十多个版本，`SFTTrainer` 的数据契约改过数次），路径与名字以 1.13.0 为准，不引用行号；读别的版本请以本地源码对照。
 
-工具箱第五篇那六行里，第三行 `get_peft_model(model, LoraConfig(...))` 和第五、六行 `SFTTrainer(...).train()` 是两个最"黑"的盒子：前者进去一个 `nn.Module`、出来一个只有 1.8% 参数可训的 `nn.Module`，后者进去一个 `Dataset`、出来一个训好的模型。前三篇把 transformers 的模型、生成、数据读完了，这一篇读剩下的两个库：peft 怎么把[ L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)的 $$W + BA$$ 变成一次 `forward` 里的一行加法，trl 怎么把[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)的三个 loss——SFT 的带 mask 交叉熵、DPO 的 $$-\log\sigma(\beta \Delta)$$、GRPO 的组内归一化优势——各写成十几行。
+工具箱第五篇那六行里，第三行 `get_peft_model(model, LoraConfig(...))` 和第五、六行 `SFTTrainer(...).train()` 是两个最"黑"的盒子：前者进去一个 `nn.Module`、出来一个只有 1.8% 参数可训的 `nn.Module`，后者进去一个 `Dataset`、出来一个训好的模型。前三篇把 transformers 的模型、生成、数据读完了，这一篇读剩下的两个库：peft 怎么把[ 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html)的 $$W + BA$$ 变成一次 `forward` 里的一行加法，trl 怎么把[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)的三个 loss——SFT 的带 mask 交叉熵、DPO 的 $$-\log\sigma(\beta \Delta)$$、GRPO 的组内归一化优势——各写成十几行。
 
 本篇要回答的核心问题是：
 
@@ -140,7 +140,7 @@ nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight, a=math.sqrt(5))    # 
 nn.init.zeros_(self.lora_B[adapter_name].weight)                               # B 全零
 ```
 
-配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 L0 第三篇讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA 就是这里的一个分支。
+配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA 就是这里的一个分支。
 
 ### 2. `forward`：一行
 
@@ -161,7 +161,7 @@ def forward(self, x, *args, **kwargs):
     return result
 ```
 
-核心一行 `result + lora_B(lora_A(dropout(x))) * scaling` 就是 $$xW + \frac{\alpha}{r}\,x A^T B^T$$——**先算瘦的 `lora_A(x)`**（$$[T, 896] \to [T, 16]$$），再 `lora_B`（$$[T, 16] \to [T, 896]$$），永远不物化 $$BA$$；L0 第一篇讲结合律成本时说的"先让输入过瘦的那个"，代码里天然如此。配套脚本给 B 填随机数后对拍：`forward == base + B(A x)*scaling: True`。`_cast_input_dtype` 是 bf16 基座 + fp32 adapter 时的类型对齐（LoRA 参数常保持 fp32，工具箱第四篇的混合精度）。`disable_adapters` 分支是 `with model.disable_adapter():` 上下文——第六章 DPO 用它拿参考模型的输出，不用再存一份基座。
+核心一行 `result + lora_B(lora_A(dropout(x))) * scaling` 就是 $$xW + \frac{\alpha}{r}\,x A^T B^T$$——**先算瘦的 `lora_A(x)`**（$$[T, 896] \to [T, 16]$$），再 `lora_B`（$$[T, 16] \to [T, 896]$$），永远不物化 $$BA$$；《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》讲结合律成本时说的"先让输入过瘦的那个"，代码里天然如此。配套脚本给 B 填随机数后对拍：`forward == base + B(A x)*scaling: True`。`_cast_input_dtype` 是 bf16 基座 + fp32 adapter 时的类型对齐（LoRA 参数常保持 fp32，工具箱第四篇的混合精度）。`disable_adapters` 分支是 `with model.disable_adapter():` 上下文——第六章 DPO 用它拿参考模型的输出，不用再存一份基座。
 
 ### 3. `merge`、`unmerge` 与 `get_delta_weight`
 
@@ -296,7 +296,7 @@ for loss_type, loss_weight in zip(self.loss_types, self.loss_weights):
 chosen_rewards = self.beta * chosen_logratios.detach(); rejected_rewards = self.beta * rejected_logratios.detach()
 ```
 
-[L0 第六篇](/entropy-cross-entropy-and-kl-to-dpo.html)推出的
+[《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)》](/entropy-cross-entropy-and-kl-to-dpo.html)推出的
 
 $$
 \mathcal{L}_{\text{DPO}} = -\log\sigma\!\left(\beta\left[\log\frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \log\frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\right]\right)
@@ -320,7 +320,7 @@ if self.scale_rewards != "none":
     advantages = advantages / (std_rewards + 1e-4)
 ```
 
-`rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——[L0 第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（Dr. GRPO 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO 的 dynamic sampling 要把它们过滤掉的原因。
+`rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——[《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》](/derivatives-gradients-chain-rule-and-policy-gradient.html)的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（Dr. GRPO 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO 的 dynamic sampling 要把它们过滤掉的原因。
 
 ### 3. `_compute_loss`
 

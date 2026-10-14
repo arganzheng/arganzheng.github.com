@@ -17,7 +17,7 @@ catalog: true
 
 > **模型这一步该看到什么、看多少、按什么顺序？怎么让输出可解析、可稳定？上下文长了怎么办？怎么排列才能让缓存命中？怎么像管代码一样管 prompt？[^q0]**
 
-答案分六篇。**第一篇**建立上下文的解剖：一次请求里模型看到的一切分几层、各占多少 token、各由谁维护，用 Claude Code 公开的"上下文窗口时间线"与 Manus 的数字做实例，并说明为什么"注意力预算"是有限的（L1 第一篇的有效上下文问题在这里变成一个设计约束）。**第二篇**讲 prompt 设计里稳定的部分——模式——与不稳定的部分——措辞：2026 年推理模型上哪些经典技巧（few-shot、"一步步想"）失效甚至有害，公开的 system prompt（Anthropic 发布的 claude.ai system prompt、Claude Code 的 system prompt 结构）长什么样，供应商的模型专属 prompting 指南在说什么。**第三篇**深入结构化输出：约束解码的机制（Outlines、XGrammar、llguidance 一类在 vLLM 里的实现，四家 API 的 strict 模式），schema 的设计模式（推理字段在前、拒答出口、枚举收窄），失败的修复与重试，流式部分 JSON。**第四篇**讲上下文预算与压缩——本系列最重要的一篇：给每一部分定配额，超了先卸载（Deep Agents 的 20K token 卸载规则、Manus 的"文件系统即上下文"）、再清理工具结果（Anthropic API 的 context editing）、再压缩（Claude Code 在约 83.5% 处的 auto-compact 与它保留什么、Codex 的两级压缩与服务端加密的 `/responses/compact`、Anthropic 服务端 compaction 的 150K 默认阈值），用子 agent 隔离探索性上下文，用 todo 文件"复述"目标防止漂移。**第五篇**讲 prompt caching 与上下文的排列：Anthropic 的显式断点怎么分层放、OpenAI 与 DeepSeek 的自动前缀缓存要什么条件、Gemini 的显式缓存对象与存储费；Manus 的三条规则——前缀稳定、只追加、确定性序列化——以及"屏蔽工具而不是删除工具"这类反直觉的做法；命中率作为生产 agent 的第一指标。**第六篇**讲 prompt 当代码管：放版本库还是 prompt 注册表（Langfuse 的版本与标签、OpenAI 在 Assistants API 关闭后的 Prompts 对象、promptfoo），与模型版本绑定，每次改动跑评测集，用标签做 A/B 与回滚；AGENTS.md 与 SKILL.md 这两个 2025–2026 年成为跨工具标准的 prompt 工件；最后回答"全放上下文、检索、还是 agentic retrieval"的决策，把话题交给 L3。
+答案分六篇。**第一篇**建立上下文的解剖：一次请求里模型看到的一切分几层、各占多少 token、各由谁维护，用 Claude Code 公开的"上下文窗口时间线"与 Manus 的数字做实例，并说明为什么"注意力预算"是有限的（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的有效上下文问题在这里变成一个设计约束）。**第二篇**讲 prompt 设计里稳定的部分——模式——与不稳定的部分——措辞：2026 年推理模型上哪些经典技巧（few-shot、"一步步想"）失效甚至有害，公开的 system prompt（Anthropic 发布的 claude.ai system prompt、Claude Code 的 system prompt 结构）长什么样，供应商的模型专属 prompting 指南在说什么。**第三篇**深入结构化输出：约束解码的机制（Outlines、XGrammar、llguidance 一类在 vLLM 里的实现，四家 API 的 strict 模式），schema 的设计模式（推理字段在前、拒答出口、枚举收窄），失败的修复与重试，流式部分 JSON。**第四篇**讲上下文预算与压缩——本系列最重要的一篇：给每一部分定配额，超了先卸载（Deep Agents 的 20K token 卸载规则、Manus 的"文件系统即上下文"）、再清理工具结果（Anthropic API 的 context editing）、再压缩（Claude Code 在约 83.5% 处的 auto-compact 与它保留什么、Codex 的两级压缩与服务端加密的 `/responses/compact`、Anthropic 服务端 compaction 的 150K 默认阈值），用子 agent 隔离探索性上下文，用 todo 文件"复述"目标防止漂移。**第五篇**讲 prompt caching 与上下文的排列：Anthropic 的显式断点怎么分层放、OpenAI 与 DeepSeek 的自动前缀缓存要什么条件、Gemini 的显式缓存对象与存储费；Manus 的三条规则——前缀稳定、只追加、确定性序列化——以及"屏蔽工具而不是删除工具"这类反直觉的做法；命中率作为生产 agent 的第一指标。**第六篇**讲 prompt 当代码管：放版本库还是 prompt 注册表（Langfuse 的版本与标签、OpenAI 在 Assistants API 关闭后的 Prompts 对象、promptfoo），与模型版本绑定，每次改动跑评测集，用标签做 A/B 与回滚；AGENTS.md 与 SKILL.md 这两个 2025–2026 年成为跨工具标准的 prompt 工件；最后回答"全放上下文、检索、还是 agentic retrieval"的决策，把话题交给 L3。
 
 系列的组织原则：**每一项上下文策略都是在 L1 的失效模式与账之间做交换**。压缩用一次推理的成本换有效上下文；缓存用前缀的稳定性换 90% 的输入折价；结构化输出用 schema 的约束换解析的确定性；few-shot 用 token 换遵循率。六篇的每一篇都把新引入的手段记回 L1 的两张表。
 
@@ -76,7 +76,7 @@ Table: 六篇的主题与建立的东西
 
 三条贯穿的线：
 
-- **上下文是有限资源，不是桶。** 注意力对 token 是 $$n^2$$ 的两两关系，每加一个 token 都在消耗一份有限的"注意力预算"；L1 第一篇的 Context Rot 数据是这个约束的实证。所以每一篇的问题都是"这一段值不值得占这份预算"。
+- **上下文是有限资源，不是桶。** 注意力对 token 是 $$n^2$$ 的两两关系，每加一个 token 都在消耗一份有限的"注意力预算"；《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的 Context Rot 数据是这个约束的实证。所以每一篇的问题都是"这一段值不值得占这份预算"。
 - **顺序即成本。** 稳定的放前面、动态的放后面，这一条同时决定缓存命中率（第五篇）、压缩后什么能存活（第四篇）、模型对指令的注意（第一篇的位置效应）。
 - **prompt 是代码。** 有版本、有测试、有发布流程、有回滚；改一个词就是一次发布，模型升级就是一次依赖升级。
 
@@ -99,25 +99,25 @@ Table: 六篇的主题与建立的东西
 
 > 核心问题：**约束解码在推理引擎里是怎么实现的？为什么 strict 模式对 schema 有限制？schema 该怎么设计才既可靠又不损害推理？解析失败了怎么修？[^q3]**
 
-L1 第二篇讲了结构化输出的三个层次与"保证语法不保证语义"。这一篇深入：约束解码把 JSON schema 编译成状态机（正则 / 上下文无关文法），每一步采样时把不合法 token 的概率置零——Outlines、XGrammar、llguidance 一类库在 vLLM 与 SGLang 里的实现，四家 API 的 strict 模式为什么要求 `additionalProperties: false`、所有字段 required、不支持部分 schema 特性（编译成本与状态空间），首次使用一个 schema 的编译延迟与缓存。schema 设计模式：推理字段排在结论前（字段顺序即生成顺序）、显式的拒答 / 不确定出口、枚举替代自由字符串、避免深层可选嵌套、数组长度上限；"直接输出严格格式损害推理"的证据与推理模型对它的缓解。解析层：Pydantic / zod / instructor 一类的角色，业务校验，失败的修复（把校验错误放回上下文重试一次），流式部分 JSON 的增量解析，`stop_reason` 为 `max_tokens` 时的处理。格式遵循率作为独立指标。
+《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲了结构化输出的三个层次与"保证语法不保证语义"。这一篇深入：约束解码把 JSON schema 编译成状态机（正则 / 上下文无关文法），每一步采样时把不合法 token 的概率置零——Outlines、XGrammar、llguidance 一类库在 vLLM 与 SGLang 里的实现，四家 API 的 strict 模式为什么要求 `additionalProperties: false`、所有字段 required、不支持部分 schema 特性（编译成本与状态空间），首次使用一个 schema 的编译延迟与缓存。schema 设计模式：推理字段排在结论前（字段顺序即生成顺序）、显式的拒答 / 不确定出口、枚举替代自由字符串、避免深层可选嵌套、数组长度上限；"直接输出严格格式损害推理"的证据与推理模型对它的缓解。解析层：Pydantic / zod / instructor 一类的角色，业务校验，失败的修复（把校验错误放回上下文重试一次），流式部分 JSON 的增量解析，`stop_reason` 为 `max_tokens` 时的处理。格式遵循率作为独立指标。
 
 ### 4. 上下文预算与压缩：给每一部分定配额，超了怎么办
 
 > 核心问题：**怎样给上下文的每一层定 token 配额？超了先做什么、再做什么？压缩会丢什么、怎么知道丢了什么？子 agent 与 todo 文件各解决什么？[^q4]**
 
-预算表：system 与工具定义、记忆、历史、检索、工具返回、预留给输出的余量（Claude Code 预留约 33K，即窗口的 16.5%）各占多少，按任务类型给三档参考。然后是一条**处理顺序**，代价从低到高：（1）**不让它进来**——卸载：Deep Agents 的规则是工具返回超过 20,000 token 就写到文件系统、上下文里只留路径加前 10 行预览；Manus 的"文件系统即上下文"——可恢复的压缩（保留 URL、保留路径，内容随时能再读）；（2）**清理**——Anthropic API 的 context editing 按策略清掉旧的工具返回（`clear_tool_uses`），Deep Agents 在 85% 时把旧的写入调用截成指针；（3）**压缩**——用一次模型调用把历史摘要成一段：Claude Code 在约 83.5% 处 auto-compact，压缩后 system prompt 不变、根目录 CLAUDE.md 与自动记忆从磁盘重注入、按路径的规则与子目录 CLAUDE.md 丢失；Codex 先试"会话记忆压缩"（用已结构化的任务状态替代摘要，多数情况不调模型），不够再调 `/responses/compact` 得到加密 blob，触发点在轮前与循环边界；Anthropic 服务端 compaction 默认 150K 触发（最低 50K），可替换默认的摘要 prompt；DeepSeek Harness 的 SDK 把压缩策略做成可显式配置的"语义检查点"。（4）**隔离**——子 agent 在自己的窗口里做探索，只把摘要带回。（5）**复述**——Manus 的 todo.md：把目标写在上下文末尾并不断更新，对抗"目标漂到中间"。压缩与推理状态的关系（L1 第三篇：只能在思考链结束处做），以及**怎么评测压缩**——用"压缩前后模型能否回答同一组问题"探测什么存活了。一张表比较五个系统的阈值与策略。
+预算表：system 与工具定义、记忆、历史、检索、工具返回、预留给输出的余量（Claude Code 预留约 33K，即窗口的 16.5%）各占多少，按任务类型给三档参考。然后是一条**处理顺序**，代价从低到高：（1）**不让它进来**——卸载：Deep Agents 的规则是工具返回超过 20,000 token 就写到文件系统、上下文里只留路径加前 10 行预览；Manus 的"文件系统即上下文"——可恢复的压缩（保留 URL、保留路径，内容随时能再读）；（2）**清理**——Anthropic API 的 context editing 按策略清掉旧的工具返回（`clear_tool_uses`），Deep Agents 在 85% 时把旧的写入调用截成指针；（3）**压缩**——用一次模型调用把历史摘要成一段：Claude Code 在约 83.5% 处 auto-compact，压缩后 system prompt 不变、根目录 CLAUDE.md 与自动记忆从磁盘重注入、按路径的规则与子目录 CLAUDE.md 丢失；Codex 先试"会话记忆压缩"（用已结构化的任务状态替代摘要，多数情况不调模型），不够再调 `/responses/compact` 得到加密 blob，触发点在轮前与循环边界；Anthropic 服务端 compaction 默认 150K 触发（最低 50K），可替换默认的摘要 prompt；DeepSeek Harness 的 SDK 把压缩策略做成可显式配置的"语义检查点"。（4）**隔离**——子 agent 在自己的窗口里做探索，只把摘要带回。（5）**复述**——Manus 的 todo.md：把目标写在上下文末尾并不断更新，对抗"目标漂到中间"。压缩与推理状态的关系（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》：只能在思考链结束处做），以及**怎么评测压缩**——用"压缩前后模型能否回答同一组问题"探测什么存活了。一张表比较五个系统的阈值与策略。
 
 ### 5. prompt caching 与上下文的排列
 
 > 核心问题：**四家的缓存各要什么条件？断点怎么分层放？为什么"屏蔽工具"比"删除工具"好？命中率低于多少要查什么？[^q5]**
 
-L1 第四篇算了缓存的账（读 0.1×、写 1.25×、读一次回本）。这一篇讲怎样让它命中。机制回顾：缓存的是前缀的 KV，逐字节相同才命中，顺序 tools → system → messages。四家的条件：Anthropic 显式 `cache_control`（最多 4 个断点、20 块回看、5 分钟 / 1 小时 TTL）或顶层自动；OpenAI 自动（1,024 起、128 倍数、GPT-5.6 起断点在最近一条可缓存消息末尾）；Gemini 隐式加显式缓存对象（按小时存储费，适合长文档反复问答）；DeepSeek 自动磁盘缓存（64 token 粒度）。分层放断点：静态（system、工具定义）→ 半静态（few-shot、用户画像）→ 动态（历史）→ 当前轮，各放一个断点，变化频率低的在前。Manus 的三条规则：**前缀稳定**（一个时间戳毁掉全部）、**只追加**（不修改历史、序列化要确定性——JSON 键序一变就失效）、**显式标断点**。反直觉的一条：动态增删工具会破坏前缀，Manus 的做法是保留全部工具定义、用 logits 屏蔽（自托管）或 `tool_choice` 约束（API）控制可用性；OpenAI / Anthropic 的 tool search 是另一条路——定义按需加载，代价是它们本身不在前缀里。命中率的监控与排查表：低于 50% 查动态内容、查历史修改、查间隔超 TTL、查工具集变化。与压缩的配合：压缩必然失效一次，之后以短前缀重建。
+《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》算了缓存的账（读 0.1×、写 1.25×、读一次回本）。这一篇讲怎样让它命中。机制回顾：缓存的是前缀的 KV，逐字节相同才命中，顺序 tools → system → messages。四家的条件：Anthropic 显式 `cache_control`（最多 4 个断点、20 块回看、5 分钟 / 1 小时 TTL）或顶层自动；OpenAI 自动（1,024 起、128 倍数、GPT-5.6 起断点在最近一条可缓存消息末尾）；Gemini 隐式加显式缓存对象（按小时存储费，适合长文档反复问答）；DeepSeek 自动磁盘缓存（64 token 粒度）。分层放断点：静态（system、工具定义）→ 半静态（few-shot、用户画像）→ 动态（历史）→ 当前轮，各放一个断点，变化频率低的在前。Manus 的三条规则：**前缀稳定**（一个时间戳毁掉全部）、**只追加**（不修改历史、序列化要确定性——JSON 键序一变就失效）、**显式标断点**。反直觉的一条：动态增删工具会破坏前缀，Manus 的做法是保留全部工具定义、用 logits 屏蔽（自托管）或 `tool_choice` 约束（API）控制可用性；OpenAI / Anthropic 的 tool search 是另一条路——定义按需加载，代价是它们本身不在前缀里。命中率的监控与排查表：低于 50% 查动态内容、查历史修改、查间隔超 TTL、查工具集变化。与压缩的配合：压缩必然失效一次，之后以短前缀重建。
 
 ### 6. prompt 当代码管：版本、评测、A/B，以及上下文 vs 检索
 
 > 核心问题：**prompt 放版本库还是注册表？怎么与模型版本绑定？改一个词要跑什么？AGENTS.md 与 SKILL.md 是什么、怎么写？什么时候全放上下文、什么时候检索？[^q6]**
 
-工件：prompt 在版本库里（与代码同步发布、代码审查、diff 可见）还是在注册表里（Langfuse 的不可变版本加可移动标签——`production` / `staging` / `prod-a`，运行时按标签取，改 prompt 不用重新部署；OpenAI 在 Assistants API 关闭后把 Assistants 的"指令 + 工具"束改成只能在控制台创建的 Prompts 对象并建议把 id 放进源码）；两种做法的取舍与混合。流程：每个 prompt 版本绑定模型版本与参数（effort、`max_tokens`）；改动即发布——跑评测集（L1 第五篇的评测集，L5 的方法）、看格式遵循率与任务指标、灰度、可回滚；A/B 用标签随机分流并把 trace 绑到版本。两个跨工具的 prompt 工件：**AGENTS.md**（2025 年 8 月发布的开放格式，六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理——项目的常驻指令：结构、命令、硬规则）与 **SKILL.md**（Anthropic 2025 年 10 月发布、12 月开放为标准，`name` ≤ 64 字符、`description` ≤ 1,024 字符，四十多个客户端支持，`.agents/skills/` 成为中立目录——按需加载的技能，只有描述常驻、正文用到时才进上下文，这正是第四章"渐进披露"的实例）；它们的写法与陷阱（Claude Code 读 CLAUDE.md 不原生读 AGENTS.md、路径不统一）。最后的决策表：**全放上下文**（小而稳定的资料 + 缓存）、**流水线检索**（大语料、高并发问答）、**agentic retrieval**（复杂任务、模型自己决定查什么）——按语料大小、变化频率、查询类型、缓存后的成本四个维度选，交给 L3。
+工件：prompt 在版本库里（与代码同步发布、代码审查、diff 可见）还是在注册表里（Langfuse 的不可变版本加可移动标签——`production` / `staging` / `prod-a`，运行时按标签取，改 prompt 不用重新部署；OpenAI 在 Assistants API 关闭后把 Assistants 的"指令 + 工具"束改成只能在控制台创建的 Prompts 对象并建议把 id 放进源码）；两种做法的取舍与混合。流程：每个 prompt 版本绑定模型版本与参数（effort、`max_tokens`）；改动即发布——跑评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的评测集，L5 的方法）、看格式遵循率与任务指标、灰度、可回滚；A/B 用标签随机分流并把 trace 绑到版本。两个跨工具的 prompt 工件：**AGENTS.md**（2025 年 8 月发布的开放格式，六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理——项目的常驻指令：结构、命令、硬规则）与 **SKILL.md**（Anthropic 2025 年 10 月发布、12 月开放为标准，`name` ≤ 64 字符、`description` ≤ 1,024 字符，四十多个客户端支持，`.agents/skills/` 成为中立目录——按需加载的技能，只有描述常驻、正文用到时才进上下文，这正是第四章"渐进披露"的实例）；它们的写法与陷阱（Claude Code 读 CLAUDE.md 不原生读 AGENTS.md、路径不统一）。最后的决策表：**全放上下文**（小而稳定的资料 + 缓存）、**流水线检索**（大语料、高并发问答）、**agentic retrieval**（复杂任务、模型自己决定查什么）——按语料大小、变化频率、查询类型、缓存后的成本四个维度选，交给 L3。
 
 ### 7. 系列总结与通关自测
 
@@ -164,7 +164,7 @@ Table: 各篇实践建议的内容
 
 Table: 本系列的版本与事实基线
 
-各家的阈值与默认值会变，文中引用时标注来源与日期；读者应以自己读到本文时的文档为准。价格沿用 L1 第四篇的 2026 年 9 月价目。
+各家的阈值与默认值会变，文中引用时标注来源与日期；读者应以自己读到本文时的文档为准。价格沿用 《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的 2026 年 9 月价目。
 
 
 ## 章节目录

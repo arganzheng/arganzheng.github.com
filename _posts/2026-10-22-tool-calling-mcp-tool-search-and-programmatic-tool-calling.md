@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Agent, MCP, Tool Calling]
 catalog: true
 ---
 
-L1 第二篇讲了工具调用在**模型 API** 上的协议：模型返回 `tool_call`，应用执行，结果按 `call_id` 送回。这一篇讲工具的**生态协议**——工具从哪来、怎么被发现、怎么被授权、怎么被描述——以及 2026 年围绕"工具太多"出现的两个新机制：**tool search**（定义按需加载）与**程序化工具调用**（模型写一段程序调多个工具，只把结果送回）。
+《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲了工具调用在**模型 API** 上的协议：模型返回 `tool_call`，应用执行，结果按 `call_id` 送回。这一篇讲工具的**生态协议**——工具从哪来、怎么被发现、怎么被授权、怎么被描述——以及 2026 年围绕"工具太多"出现的两个新机制：**tool search**（定义按需加载）与**程序化工具调用**（模型写一段程序调多个工具，只把结果送回）。
 
 生态协议的事实标准是 **MCP**（Model Context Protocol）。它 2024 年 11 月由 Anthropic 发布，2025 年 12 月捐给 Linux 基金会下的 Agentic AI Foundation（Anthropic、OpenAI、Block 共同创始，治理按维护者而不是公司席位），TypeScript 与 Python SDK 各过十亿次累计下载，AWS 与 Google 都有几十个托管 MCP server。2026-07-28 版是它发布以来最大的修订，有破坏性变更——本篇第二章讲它改了什么、为什么。
 
@@ -38,9 +38,9 @@ flowchart TB
 
 | 来源 | 谁执行 | 谁定义 schema | 代表 |
 |---|---|---|---|
-| 应用自定义函数 | 你的代码 | 你 | L1 第二篇的 function calling |
+| 应用自定义函数 | 你的代码 | 你 | 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的 function calling |
 | MCP server | server（本地进程或远程 HTTP） | server 暴露，client 发现 | 文件系统、GitHub、数据库、企业系统的 MCP server |
-| 供应商服务端工具 | 供应商 | 供应商 | web search、code interpreter、file search、computer use（L1 第二篇第三章） |
+| 供应商服务端工具 | 供应商 | 供应商 | web search、code interpreter、file search、computer use（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》「三、工具调用是一个协议」） |
 | harness 内置工具 | harness | harness | Codex 的 shell / `apply_patch` / `plan`；DeepSeek Harness 的 fs / shell / todo |
 
 Table: 工具的四个来源
@@ -120,13 +120,13 @@ flowchart TB
 - **用 MCP 接外部工具是默认**：主流 harness 都是 MCP client（Codex 的 `codex-mcp` / `rmcp-client` crate，DeepSeek Harness 的 `mcp` 包组，Claude Code 原生）；自己写的业务工具也可以做成 MCP server 让多个 agent 复用。
 - **检查 server 的规范版本**：2026-07-28 有破坏性变更，旧 server 在新 client 上可能要改。
 - **远程 server 必须做授权**：HTTP 传输的 server 应实现 OAuth 2.1 流程，token 带 `resource`、server 校验受众；stdio 的 server 从环境取凭据、不做 OAuth。
-- **安全**：MCP 规范的安全章节写得直白——它"通过任意数据访问与代码执行路径实现强大能力"，一个恶意或被攻陷的 server 就是一个注入源与数据出口。工具返回是不可信输入（L1 第二篇）；server 的权限要按最小原则给（第五篇）。
+- **安全**：MCP 规范的安全章节写得直白——它"通过任意数据访问与代码执行路径实现强大能力"，一个恶意或被攻陷的 server 就是一个注入源与数据出口。工具返回是不可信输入（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）；server 的权限要按最小原则给（第五篇）。
 
 ## 三、工具描述与它的位置
 
 ### 1. 描述是 prompt
 
-L1 第二篇讲过：工具的名字、描述、参数 schema 三部分都是模型读的文本，写法决定用不用对。2026 年的补充是**描述与系统提示的分工**：工具描述说"这个工具做什么、参数是什么、什么时候用 / 不用"；系统提示说跨工具的政策（L2 第二篇：先搜再答、哪些要确认、并行偏好、工具预算）。Codex 把项目的 `AGENTS.md` 拼进系统提示（`core/src/agents_md.rs`），DeepSeek Harness 的 `system-prompt` 包负责 prompt 段与工具 schema 的组装——两家都把"工具怎么用"的政策与"工具是什么"的定义分开放。
+《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲过：工具的名字、描述、参数 schema 三部分都是模型读的文本，写法决定用不用对。2026 年的补充是**描述与系统提示的分工**：工具描述说"这个工具做什么、参数是什么、什么时候用 / 不用"；系统提示说跨工具的政策（《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》：先搜再答、哪些要确认、并行偏好、工具预算）。Codex 把项目的 `AGENTS.md` 拼进系统提示（`core/src/agents_md.rs`），DeepSeek Harness 的 `system-prompt` 包负责 prompt 段与工具 schema 的组装——两家都把"工具怎么用"的政策与"工具是什么"的定义分开放。
 
 ### 2. 从模型的视角写
 
@@ -134,27 +134,27 @@ DeepSeek Harness 的仓库规范里有一条值得所有人抄："**从模型的
 
 ### 3. 结果也是契约
 
-工具返回的形状同样要为模型设计（L3 第五篇的七要素）：摘要 + 引用而不是全文、结构化、带失败建议、大结果卸载。DeepSeek Harness 把"卸载"做成了独立包组 `spill`：全文存到上下文外、返回一个带取回指引的定位符——第四篇。
+工具返回的形状同样要为模型设计（《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》的七要素）：摘要 + 引用而不是全文、结构化、带失败建议、大结果卸载。DeepSeek Harness 把"卸载"做成了独立包组 `spill`：全文存到上下文外、返回一个带取回指引的定位符——第四篇。
 
 ## 四、tool search
 
 ### 1. 问题
 
-一个 agent 接十几个 MCP server，每个暴露几个到几十个工具，完整 schema 加起来几千到上万 token，每一步都在上下文里（L2 第一篇的 ②）。三个代价：预算、缓存前缀（工具定义在最前，任何一个 server 的变化让一切失效——L2 第五篇）、选择准确率（工具越多模型越容易选错——L1 第二篇）。
+一个 agent 接十几个 MCP server，每个暴露几个到几十个工具，完整 schema 加起来几千到上万 token，每一步都在上下文里（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》的 ②）。三个代价：预算、缓存前缀（工具定义在最前，任何一个 server 的变化让一切失效——《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）、选择准确率（工具越多模型越容易选错——《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）。
 
 ### 2. 做法
 
-**定义按需加载**：常驻上下文的只有工具的名字（或一行描述），模型需要时先调一个 `tool_search`（按关键词或语义找工具），返回匹配工具的完整 schema，再调用。三家都有：Codex 的 `tools/handlers/tool_search.rs`（MCP 工具的搜索与延迟暴露，`mcp_tool_exposure.rs` 决定哪些常驻）；Claude Code 默认延迟加载 MCP 工具 schema，只有名字常驻；OpenAI Responses 与 Agents API 的 tool search（"在需要时加载定义"）；Anthropic API 的 tool search 工具。Agent Skills 的 `SKILL.md`（L2 第六篇）是同一原则在技能上的版本——只有 `description` 常驻。
+**定义按需加载**：常驻上下文的只有工具的名字（或一行描述），模型需要时先调一个 `tool_search`（按关键词或语义找工具），返回匹配工具的完整 schema，再调用。三家都有：Codex 的 `tools/handlers/tool_search.rs`（MCP 工具的搜索与延迟暴露，`mcp_tool_exposure.rs` 决定哪些常驻）；Claude Code 默认延迟加载 MCP 工具 schema，只有名字常驻；OpenAI Responses 与 Agents API 的 tool search（"在需要时加载定义"）；Anthropic API 的 tool search 工具。Agent Skills 的 `SKILL.md`（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）是同一原则在技能上的版本——只有 `description` 常驻。
 
 ### 3. 代价
 
-- **按需加载的定义不在缓存前缀里**：它出现在历史中间、每次可能不同（L2 第一篇自测 5、第五篇）。总 token 通常下降，但命中率这个比例可能变差——看绝对量。
+- **按需加载的定义不在缓存前缀里**：它出现在历史中间、每次可能不同（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》自测 5、第五篇）。总 token 通常下降，但命中率这个比例可能变差——看绝对量。
 - **多一步**：先搜再调，延迟与一次模型调用。
 - **搜索的质量**：模型能不能用对关键词找到工具，取决于工具名与描述——又回到第三章。
 
 ### 4. 什么时候用
 
-工具超过二十个、或多个 MCP server 动态接入时用；工具十个以内且稳定，全部常驻放在前缀里更好（可缓存、无额外步骤）。L2 第五篇的"屏蔽而不删除"是另一个维度：阶段性可用的工具用 `tool_choice` 或 logits 屏蔽，不增删定义。
+工具超过二十个、或多个 MCP server 动态接入时用；工具十个以内且稳定，全部常驻放在前缀里更好（可缓存、无额外步骤）。《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》的"屏蔽而不删除"是另一个维度：阶段性可用的工具用 `tool_choice` 或 logits 屏蔽，不增删定义。
 
 ```mermaid
 %% 图：tool search 的账——12 个 MCP server 共 80 个工具全部常驻：每步 9K token 在前缀里、任一 server 变化让前缀全部失效、模型在 80 个里选错的概率高；按需加载：常驻只有 80 行名字约 1K，模型先调 tool_search 找到 2 个工具的完整 schema（+600，在历史中间、不进缓存），再调用；总 token 降，命中率这个比例可能反而变差——看绝对量
@@ -238,8 +238,8 @@ flowchart LR
 
 ### 3. 它换到了什么
 
-- **上下文预算**：中间结果不进上下文——L2 第四篇的"不让它进来"做到极致。一个 500 条订单的任务，传统方式几万 token 进出几轮，PTC 几百 token（程序 + 结果）。
-- **确定性**：过滤、汇总、排序由代码做，不由模型在 JSON 里"手算"——L1 第一篇的幻觉在这一段被消除。
+- **上下文预算**：中间结果不进上下文——《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的"不让它进来"做到极致。一个 500 条订单的任务，传统方式几万 token 进出几轮，PTC 几百 token（程序 + 结果）。
+- **确定性**：过滤、汇总、排序由代码做，不由模型在 JSON 里"手算"——《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的幻觉在这一段被消除。
 - **延迟**：四轮模型调用变一轮。
 - **隐私**：中间数据不经过模型供应商的存储（OpenAI 的 ZDR 兼容性正来自这一点）。
 
@@ -287,7 +287,7 @@ flowchart LR
 3. 一个 agent 接了 8 个 MCP server 共 60 个工具，全部常驻，缓存命中率 40%。上 tool search 后总输入 token 降了 35%，命中率降到 30%。这是变好还是变坏？
 
    <details markdown="1"><summary>答案</summary>
-   变好。命中率是比例，按需加载的定义不在前缀里让比例下降，但未缓存 token 的绝对量与总成本都降了（L2 第五篇：看绝对量与节省美元）。同时应验证工具选择准确率是否上升（60 个工具常驻时容易选错）。详见[第四章](#四tool-search)。
+   变好。命中率是比例，按需加载的定义不在前缀里让比例下降，但未缓存 token 的绝对量与总成本都降了（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》：看绝对量与节省美元）。同时应验证工具选择准确率是否上升（60 个工具常驻时容易选错）。详见[第四章](#四tool-search)。
    </details>
 
 4. "拉 2,000 条日志，找出错误率最高的三个服务"这个任务，传统工具调用与 PTC 各要几轮、上下文里进多少东西？PTC 需要额外准备什么？

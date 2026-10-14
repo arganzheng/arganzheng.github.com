@@ -55,13 +55,13 @@ flowchart LR
     class S1,S2,S3,S4 st
 ```
 
-几个词先说清：**冻结**（freeze）= 这部分参数不更新，只做前向；**lr** = [学习率](# "tip: learning rate：每一步参数沿梯度走多远。L2 第二篇：太大发散、太小慢。这里的关键是新参数（connector）与旧参数（LLM）该用不同的学习率")；**SFT** = 监督微调（supervised fine-tuning），用"问题 → 标准回答"的数据训模型；**epoch** = 把全部训练数据过一遍。
+几个词先说清：**冻结**（freeze）= 这部分参数不更新，只做前向；**lr** = [学习率](# "tip: learning rate：每一步参数沿梯度走多远。《[LLM 时代的经典机器学习（03）：逻辑回归与奖励模型——每个分类头的原型](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)》：太大发散、太小慢。这里的关键是新参数（connector）与旧参数（LLM）该用不同的学习率")；**SFT** = 监督微调（supervised fine-tuning），用"问题 → 标准回答"的数据训模型；**epoch** = 把全部训练数据过一遍。
 
 早期（LLaVA-1.5）只有 1 + 3 两阶段；2024 年后主流是 1 + 2 + 3（+ 4）。阶段 2 是变化最大的一步——它的数据量从 LLaVA 的零到 Qwen2-VL 的 1.4T token、InternVL 2.5 的数亿样本。
 
 ### 2. 先说答案
 
-**先冻结 LLM 只训 connector**，因为 connector 是随机初始化的：它的输出一开始是噪声，如果此时 LLM 也在训练，LLM 会收到"视觉 token 是噪声"的梯度，为了降低 loss 它学会**忽略**视觉 token（或者更糟——它的文本表示被噪声梯度破坏）。冻结 LLM 让 connector 在一个固定的目标空间里学习映射——"让 LLM 用现有的能力读懂这些向量"——几十万条 caption、几千步就够。之后解冻 LLM 时，connector 已经给出有意义的输入，LLM 学的是"怎么用"而不是"要不要用"。这与 [L5 第一篇](/sft-data-chat-template-loss-mask-and-peft.html)里讨论的"新增的 embedding 与 LoRA 更新不到 embedding"是同一类问题：**新参数与旧参数不能用同一个学习率、同一个阶段训**。后续研究（Prismatic VLMs、MM1）发现如果 connector 用合理的初始化与更小的 lr，单阶段也可以，但两阶段仍是稳妥的默认。
+**先冻结 LLM 只训 connector**，因为 connector 是随机初始化的：它的输出一开始是噪声，如果此时 LLM 也在训练，LLM 会收到"视觉 token 是噪声"的梯度，为了降低 loss 它学会**忽略**视觉 token（或者更糟——它的文本表示被噪声梯度破坏）。冻结 LLM 让 connector 在一个固定的目标空间里学习映射——"让 LLM 用现有的能力读懂这些向量"——几十万条 caption、几千步就够。之后解冻 LLM 时，connector 已经给出有意义的输入，LLM 学的是"怎么用"而不是"要不要用"。这与 [《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》](/sft-data-chat-template-loss-mask-and-peft.html)里讨论的"新增的 embedding 与 LoRA 更新不到 embedding"是同一类问题：**新参数与旧参数不能用同一个学习率、同一个阶段训**。后续研究（Prismatic VLMs、MM1）发现如果 connector 用合理的初始化与更小的 lr，单阶段也可以，但两阶段仍是稳妥的默认。
 
 **幻觉的来源**有三处。**数据**：训练 caption 里物体的共现统计——"厨房"的图 90% 有"冰箱"，模型学到看到厨房就说冰箱，不管这张图里有没有；以及指令数据（GPT-4 合成的 LLaVA-Instruct）本身包含幻觉——GPT-4 只看了文本描述与框，生成的对话里有不存在的细节，模型学到了它们。**编码器**：上一篇讲的盲点——编码器没有保留的信息（计数、小物体、空间关系），LLM 只能靠语言先验补全，补全的就是幻觉。**解码**：LLM 是一个强大的语言模型，视觉 token 只是上下文的一部分；生成越长，对视觉 token 的注意力越弱、对已生成文本的依赖越强（"文本惯性"），长描述的后半段幻觉率显著高于前半段。三处对应三类缓解：清洗与平衡数据、加负样本（"图里没有冰箱"）；提高分辨率、解冻编码器、多编码器；偏好对齐（RLHF-V、DPO 用幻觉 / 无幻觉的对）与解码侧的对比（VCD：用加噪图的输出做对比）。第六章展开。
 
@@ -178,7 +178,7 @@ LLaVA-OneVision（2024）的 SFT 数据 3.2M 条，分为单图、多图、视�
 
 ### 3. 偏好对齐
 
-多模态的 RLHF / DPO 目标主要是**减少幻觉与提高描述的准确性**，方法与 [L5 第二、四篇](/preference-data-and-reward-models.html)相同，差别在数据：
+多模态的 RLHF / DPO 目标主要是**减少幻觉与提高描述的准确性**，方法与 [《[后训练（02）：偏好数据与奖励模型：Bradley-Terry、pairwise loss 与 reward hacking](/preference-data-and-reward-models.html)》、《[后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)》](/preference-data-and-reward-models.html)相同，差别在数据：
 
 - **RLHF-V**（Yu 等 2024）：人类对模型的描述做**片段级修正**（标出幻觉的句子并改写），构造"有幻觉 / 修正后"的偏好对，DPO 训练；1.4K 对就显著降低幻觉。
 - **LLaVA-RLHF**：奖励模型加"事实增强"——RM 输入里附上图片的真实 caption，让它能判断幻觉。
@@ -222,7 +222,7 @@ LLaVA-1.5 在 POPE 的共现子集上准确率约 85%；经过 RLHF-V 或高质�
 
 ### 2. 三个来源
 
-**数据的共现偏差**。训练 caption 与 VQA 数据里物体的共现有强统计规律（"餐桌"与"椅子"、"街道"与"汽车"），模型把它学成先验。这个机制小到可以用一个两特征的逻辑回归（L2 第三篇）看清：造 2 万个样本，"厨房"场景里 90% 有冰箱、其他场景 10%；模型看两个特征——"场景是不是厨房"（来自文本，总是准确）与"视觉上看到冰箱没有"（来自编码器，只有 60% 的时候如实、40% 随机）——预测"有没有冰箱"：
+**数据的共现偏差**。训练 caption 与 VQA 数据里物体的共现有强统计规律（"餐桌"与"椅子"、"街道"与"汽车"），模型把它学成先验。这个机制小到可以用一个两特征的逻辑回归（《[LLM 时代的经典机器学习（04）：三个基础分类器——朴素贝叶斯、KNN 与决策树](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)》）看清：造 2 万个样本，"厨房"场景里 90% 有冰箱、其他场景 10%；模型看两个特征——"场景是不是厨房"（来自文本，总是准确）与"视觉上看到冰箱没有"（来自编码器，只有 60% 的时候如实、40% 随机）——预测"有没有冰箱"：
 
 ```text title='两特征逻辑回归学到的"厨房有冰箱"先验'
 学到的权重：场景=厨房 +4.35，视觉证据=看到冰箱 +2.77，偏置 -3.57

@@ -148,7 +148,7 @@ for r in clean(iter_jsonl(path)):                                # 读 → 过�
 按长度分桶(词数下界): 0+: 8339, 10+: 16465, 20+: 16754, 30+: 16550, 40+: 16529, 50+: 18230
 ```
 
-这就是数据工程的最小形态：**读、过滤、去重、统计**四步，每步一个生成器。预训练系列第四篇的数据流水线——质量过滤、MinHash 近似去重（L2 第五篇）、配比——是同一个骨架换上更重的每一步。`Counter` 是 `dict` 的子类，`Counter()[k] += 1` 不用先判断键在不在；`pathlib.Path` 让 `path / "train.jsonl"`、`path.stat().st_size`、`path.exists()` 不用拼字符串。
+这就是数据工程的最小形态：**读、过滤、去重、统计**四步，每步一个生成器。预训练系列第四篇的数据流水线——质量过滤、MinHash 近似去重（《[LLM 时代的经典机器学习（09）：去重——MinHash 与 LSH 的概率](/deduplication-minhash-and-lsh-probabilities.html)》）、配比——是同一个骨架换上更重的每一步。`Counter` 是 `dict` 的子类，`Counter()[k] += 1` 不用先判断键在不在；`pathlib.Path` 让 `path / "train.jsonl"`、`path.stat().st_size`、`path.exists()` 不用拼字符串。
 
 ### 3. 与 `datasets` 的关系
 
@@ -453,5 +453,5 @@ Table: 本篇各章对应的 Infra 01 系列机制篇
 下一篇进入数据科学三剑客：在 NumPy 上建立形状直觉——轴、广播、`einsum`，手写一个 causal attention 并与 PyTorch 对数值；然后用 Pandas 分析评测结果、用 Matplotlib 看训练曲线。
 
 [^q0]: 它们各是一个 Python 协议，PyTorch 建在上面：`__len__` / `__getitem__` 是 `Dataset` 的全部要求，`DataLoader` 按索引来取；`yield` 定义生成器，`for batch in loader` 每次要下一个才算下一个，所以数据不会一次全进内存；`@torch.no_grad()` 是装饰器——"函数包函数"，进入时关梯度、退出时恢复；`with autocast(...)` 是上下文管理器，进入改状态、退出（含异常）保证恢复；`**kwargs` 把一个 dict 原样透传给下一层，看到它就去找那个 dict 里有什么键。另外 `model(x)` 走 `__call__` 再到 `forward`，hooks 挂在中间，所以不要直接调 `forward`。详见[第五章](#五训练代码里的六个语法)。
-[^q1]: 用生成器逐行读，读 → 过滤 → 去重 → 统计每步一个生成器串起来，同一时刻内存里只有一条记录加去重用的哈希集合。实测 19.4 MB 的 JSONL 读成 `list` 峰值 102.9 MB（文件大小的 5.3 倍，每个 dict、每个字符串都是带头的 Python 对象），生成器 11.5 MB 且与文件大小无关；按 5 倍算，10 GB 读成 `list` 要 50 GB，流式几十 MB 就够。精确去重靠内容哈希的集合；近似去重（MinHash）在 L2 第五篇。详见[第三章](#三流式过一遍语料)。
+[^q1]: 用生成器逐行读，读 → 过滤 → 去重 → 统计每步一个生成器串起来，同一时刻内存里只有一条记录加去重用的哈希集合。实测 19.4 MB 的 JSONL 读成 `list` 峰值 102.9 MB（文件大小的 5.3 倍，每个 dict、每个字符串都是带头的 Python 对象），生成器 11.5 MB 且与文件大小无关；按 5 倍算，10 GB 读成 `list` 要 50 GB，流式几十 MB 就够。精确去重靠内容哈希的集合；近似去重（MinHash）在 《[LLM 时代的经典机器学习（09）：去重——MinHash 与 LSH 的概率](/deduplication-minhash-and-lsh-probabilities.html)》。详见[第三章](#三流式过一遍语料)。
 [^q2]: 线程没用是因为 GIL：CPython 同一时刻只让一个线程执行字节码，CPU 密集的任务 8 线程 1.0×；线程只对等待（I/O、等 GPU）有用。进程池每个 worker 是独立解释器，实测 8 个 worker 3.1×，差在进程启动、输入输出的 `pickle` 序列化——任务越轻占比越大；`chunksize` 让每次传一批，任务越重越接近核数倍。`DataLoader(num_workers)` 与 `datasets.map(num_proc)` 用的都是进程池。详见[第六章](#六多进程预处理)。
