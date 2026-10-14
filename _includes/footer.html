@@ -93,7 +93,6 @@
     </div>
 </footer>
 
-{% assign v = site.time | date: '%Y%m%d%H%M' %}
 <!-- One bundle (tools/build-js.sh -> js/blog.min.js, `npm run js`), in this order:
      argan-blog.js   theme behaviour: responsive tables / embeds, navbar on scroll, side catalog pin
                      (no jQuery / Bootstrap JS on this site any more: the navbar toggle is in nav.html,
@@ -111,7 +110,7 @@
      annotations.js  comments & highlight comments (划线评论), rendered from the post's GitHub Discussion
      share.js        action bar, share menu, .post-stats strip
      slides-player.js deck landing page (/slides/foo.html): bar driving the reveal.js iframe -->
-<script src="{{ "/js/blog.min.js" | prepend: site.baseurl }}?v={{ v }}"></script>
+<script src="{{ "/js/blog.min.js" | prepend: site.baseurl }}?v={{ "/js/blog.min.js" | asset_v }}"></script>
 
 <!-- WeChat QR popover: toggle on icon click, close on any outside click -->
 <script>
@@ -145,21 +144,26 @@
 <script type="text/javascript">
     if(navigator.serviceWorker){
         {% if site.service-worker %}
-        // For security reasons, a service worker can only control the pages that are in the same directory level or below it. That's why we put sw.js at ROOT level.
-        navigator.serviceWorker
-            .register('/sw.js')
-            .then((registration) => {console.log('Service Worker Registered. ', registration)})
-            .catch((error) => {console.log('ServiceWorker registration failed: ', error)})
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
         {% else %}
-        // If SW is disabled in config, actively unregister previous registrations to avoid stale content.
-        navigator.serviceWorker.getRegistrations().then((registrations) => {
-            registrations.forEach((registration) => registration.unregister())
-        })
-        if(window.caches){
-            caches.keys().then((keys) => {
-                keys.forEach((key) => caches.delete(key))
+        const rootWorker = navigator.serviceWorker.controller &&
+            navigator.serviceWorker.controller.scriptURL === location.origin + '/sw.js'
+        navigator.serviceWorker.getRegistrations().then((registrations) => Promise.all(
+            registrations
+                .filter((registration) => registration.scope === location.origin + '/')
+                .map((registration) => registration.unregister())
+        )).then(() => {
+            const cleanup = window.caches
+                ? caches.keys().then((keys) => Promise.all(
+                    keys
+                        .filter((key) => key.startsWith('blog-') || key === 'precache-v1' || key === 'runtime')
+                        .map((key) => caches.delete(key))
+                )).catch(() => {})
+                : Promise.resolve()
+            return cleanup.then(() => {
+                if (rootWorker) location.reload()
             })
-        }
+        }).catch(() => {})
         {% endif %}
     }
 </script>

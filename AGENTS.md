@@ -442,17 +442,23 @@ Pages has `https_enforced` on.
   `data-toggle="tooltip"` pager attributes are dead. **Bootstrap 3 CSS stays**
   (`css/bootstrap.min.css`; grid, navbar, tables, `.embed-responsive`,
   `.visible-*/.hidden-*` are all in use) — don't swap in Bootstrap 5.
-- Local CSS/JS in `head.html` / `footer.html` carry `?v=<build time>` for
-  cache busting (GitHub Pages serves `max-age=600`; the old `no-cache` meta
-  tags were removed). Font Awesome 4.7 is a self-hosted **subset**:
+- Local CSS/JS in `head.html` / `footer.html` carry `?v=<asset_v>` (the first
+  10 hex digits of each file's MD5) for content-based cache busting; changing
+  an asset changes its URL. Font Awesome 4.7 is a self-hosted **subset**:
   `tools/fa-subset.py` scans templates/js/posts/less for `fa-*` classes and
   `content:"\fXXX"` glyphs and writes `css/font-awesome.min.css` +
   `fonts/fontawesome-webfont.woff2` (~20 KB, vs 77 KB full) from the full
   copies in `tools/fa/`. ~150 common icons are always included (`ALWAYS` in
   the script) so new posts rarely need anything; CI runs `--check` and fails
   with the missing icon names if they do — then run the script (needs
-  `pip install fonttools brotli`). `sw.js` is disabled via
-  `service-worker: false`.
+  `pip install fonttools brotli`).
+- Offline reading: root `sw.js` uses network-first for HTML and other same-origin
+  assets, cache-first only for fingerprinted CSS/JS and versioned KaTeX/Mermaid
+  CDN files; `asset_v` hashes local files, and pages with a robots `noindex`
+  meta tag are not cached. Set `service-worker: false` in `_config.yml` and
+  open a page to unregister only the root scope, clear `blog-*` plus legacy
+  caches, and refresh once if the current page is controlled by the root worker;
+  `/moments/sw.js` and `moments-post-*` are left alone.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the

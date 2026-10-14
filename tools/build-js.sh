@@ -37,6 +37,7 @@ SRC=(
   js/moments.js           # /moments/ sidebar cards and shared index.json loader
   js/moments-filter.js    # Moments stream filters and heatmap range toggle
   js/reading-settings.js  # per-reader article typography and width preferences
+  js/offline-banner.js    # cached-page timestamp banner
 )
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT

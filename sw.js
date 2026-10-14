@@ -1,146 +1,278 @@
-/* ===========================================================
- * sw.js
- * ===========================================================
- * Copyright 2016 @huxpro
- * Licensed under Apache 2.0 
- * Register service worker.
- * ========================================================== */
+---
+layout: null
+permalink: /sw.js
+---
+'use strict';
 
-const PRECACHE = 'precache-v1';
-const RUNTIME = 'runtime';
-const HOSTNAME_WHITELIST = [
-  self.location.hostname,
-  "cdnjs.cloudflare.com"
-]
+// build {{ site.time | date: "%Y%m%d%H%M%S" }}
+const CACHE_PAGES = 'blog-pages-v1';
+const CACHE_STATIC = 'blog-static-v1';
+const CACHE_IMAGES = 'blog-img-v1';
+const CACHE_CDN = 'blog-cdn-v1';
+const CURRENT_CACHES = new Set([CACHE_PAGES, CACHE_STATIC, CACHE_IMAGES, CACHE_CDN]);
+const CDN_PREFIXES = [
+  'https://cdn.jsdelivr.net/npm/katex@',
+  'https://cdn.jsdelivr.net/npm/mermaid@'
+];
+const NAVIGATION_TIMEOUT = 8000;
+const PAGE_LIMIT = 60;
+const IMAGE_LIMIT = 300;
 
-
-// The Util Function to hack URLs of intercepted requests
-const getFixedUrl = (req) => {
-  var now = Date.now();
-  url = new URL(req.url)
-
-  // 1. fixed http URL
-  // Just keep syncing with location.protocol 
-  // fetch(httpURL) belongs to active mixed content. 
-  // And fetch(httpRequest) is not supported yet.
-  url.protocol = self.location.protocol
-
-  // 2. add query for caching-busting.
-  // Github Pages served with Cache-Control: max-age=600
-  // max-age on mutable content is error-prone, with SW life of bugs can even extend.
-  // Until cache mode of Fetch API landed, we have to workaround cache-busting with query string.
-  // Cache-Control-Bug: https://bugs.chromium.org/p/chromium/issues/detail?id=453190
-  url.search += (url.search ? '&' : '?') + 'cache-bust=' + now;
-  return url.href
-}
-
-// The Util Function to detect and polyfill req.mode="navigate"
-// request.mode of 'navigate' is unfortunately not supported in Chrome
-// versions older than 49, so we need to include a less precise fallback,
-// which checks for a GET request with an Accept: text/html header.
-const isNavigationReq = (req) => (req.mode === 'navigate' || (req.method === 'GET' && req.headers.get('accept').includes('text/html')))
-
-// The Util Function to detect if a req is end with extension
-// Accordin to Fetch API spec <https://fetch.spec.whatwg.org/#concept-request-destination>
-// Any HTML's navigation has consistently mode="navigate" type="" and destination="document" 
-// including requesting an img (or any static resources) from URL Bar directly.
-// So It ends up with that regExp is still the king of URL routing ;)
-// P.S. An url.pathname has no '.' can not indicate it ends with extension (e.g. /api/version/1.2/)
-const endWithExtension = (req) => Boolean(new URL(req.url).pathname.match(/\.\w+$/))
-
-// Redirect in SW manually fixed github pages arbitray 404s on things?blah 
-// what we want:
-//    repo?blah -> !(gh 404) -> sw 302 -> repo/?blah 
-//    .ext?blah -> !(sw 302 -> .ext/?blah -> gh 404) -> .ext?blah 
-// If It's a navigation req and it's url.pathname isn't end with '/' or '.ext'
-// it should be a dir/repo request and need to be fixed (a.k.a be redirected)
-// Tracking https://twitter.com/Huxpro/status/798816417097224193
-const shouldRedirect = (req) => (isNavigationReq(req) && new URL(req.url).pathname.substr(-1) !== "/" && !endWithExtension(req))
-
-// The Util Function to get redirect URL
-// `${url}/` would mis-add "/" in the end of query, so we use URL object.
-// P.P.S. Always trust url.pathname instead of the whole url string.
-const getRedirectUrl = (req) => {
-  url = new URL(req.url)
-  url.pathname += "/"
-  return url.href
-}
-
-/**
- *  @Lifecycle Install
- *  Precache anything static to this version of your app.
- *  e.g. App Shell, 404, JS/CSS dependencies...
- *
- *  waitUntil() : installing ====> installed
- *  skipWaiting() : waiting(installed) ====> activating
- */
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(PRECACHE).then(cache => {
-      return cache.add('offline.html')
-      .then(self.skipWaiting())
-      .catch(err => console.log(err))
-    })
-  )
+self.addEventListener('install', event => {
+  event.waitUntil(self.skipWaiting());
 });
 
-
-/**
- *  @Lifecycle Activate
- *  New one activated when old isnt being used.
- *
- *  waitUntil(): activating ====> activated
- */
-self.addEventListener('activate',  event => {
-  console.log('service worker activated.')
-  event.waitUntil(self.clients.claim());
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    const names = await caches.keys();
+    await Promise.all(names
+      .filter(name => (name.startsWith('blog-') && !CURRENT_CACHES.has(name)) ||
+        name === 'precache-v1' || name === 'runtime')
+      .map(name => caches.delete(name)));
+  })());
 });
 
+function cacheUrl(url) {
+  const key = new URL(url);
+  key.search = '';
+  key.hash = '';
+  return key.href;
+}
 
-/**
- *  @Functional Fetch
- *  All network requests are being intercepted here.
- * 
- *  void respondWith(Promise<Response> r);
- */
-self.addEventListener('fetch', event => {
-  // logs for debugging
-  console.log(`fetch ${event.request.url}`)
-  //console.log(` - type: ${event.request.type}; destination: ${event.request.destination}`)
-  //console.log(` - mode: ${event.request.mode}, accept: ${event.request.headers.get('accept')}`)
+function pageTitle(html) {
+  const match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
+  return match ? match[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '未命名文章';
+}
 
-  // Skip some of cross-origin requests, like those for Google Analytics.
-  if (HOSTNAME_WHITELIST.indexOf(new URL(event.request.url).hostname) > -1) {
-    
-    // Redirect in SW manually fixed github pages 404s on repo?blah 
-    if(shouldRedirect(event.request)){
-      event.respondWith(Response.redirect(getRedirectUrl(event.request)))
+async function trimPages(cache) {
+  const requests = await cache.keys();
+  const pages = await Promise.all(requests.map(async request => {
+    const response = await cache.match(request);
+    return { request, time: Number(response && response.headers.get('sw-cached-at')) || 0 };
+  }));
+  pages.sort((a, b) => b.time - a.time);
+  await Promise.all(pages.slice(PAGE_LIMIT).map(page => cache.delete(page.request)));
+}
+
+function cacheNavigationResponse(request, network) {
+  return network.then(async response => {
+    if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) return;
+
+    const html = await response.clone().text();
+    const cache = await caches.open(CACHE_PAGES);
+    const key = cacheUrl(request.url);
+    if (html.includes('name="robots" content="noindex')) {
+      await cache.delete(key);
       return;
     }
 
-    // Stale-while-revalidate 
-    // similar to HTTP's stale-while-revalidate: https://www.mnot.net/blog/2007/12/12/stale
-    // Upgrade from Jake's to Surma's: https://gist.github.com/surma/eb441223daaedf880801ad80006389f1
-    const cached = caches.match(event.request);
-    const fixedUrl = getFixedUrl(event.request);
-    const fetched = fetch(fixedUrl, {cache: "no-store"});
-    const fetchedCopy = fetched.then(resp => resp.clone());
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    headers.set('sw-cached-at', String(Date.now()));
+    headers.set('sw-title', encodeURIComponent(pageTitle(html)));
+    await cache.put(key, new Response(html, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    }));
+    await trimPages(cache);
+  }).catch(() => {});
+}
 
-    // Call respondWith() with whatever we get first.
-    // If the fetch fails (e.g disconnected), wait for the cache.
-    // If there’s nothing in cache, wait for the fetch. 
-    // If neither yields a response, return offline pages.
-    event.respondWith(
-      Promise.race([fetched.catch(_ => cached), cached])
-        .then(resp => resp || fetched)
-        .catch(_ => caches.match('offline.html'))
-    );
+function offlinePage(cache) {
+  return (async () => {
+    let links = [];
+    if (cache) {
+      const requests = await cache.keys();
+      links = await Promise.all(requests.map(async request => {
+        const response = await cache.match(request);
+        if (!response) return null;
+        let title = response.headers.get('sw-title') || '';
+        try { title = decodeURIComponent(title); } catch (_) {}
+        return {
+          url: request.url,
+          title: title || new URL(request.url).pathname,
+          time: Number(response.headers.get('sw-cached-at')) || 0
+        };
+      }));
+    }
+    links = links.filter(Boolean).sort((a, b) => b.time - a.time);
+    const items = links.map(page => {
+      const title = page.title.replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[character]);
+      const url = page.url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      return `<li><a href="${url}">${title}</a></li>`;
+    }).join('');
+    const html = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>当前离线</title>
+<style>
+:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{max-width:720px;margin:12vh auto;padding:0 24px;background:#fff;color:#24292f;line-height:1.65}
+h1{font-size:1.6rem}
+li{margin:.5em 0}
+a{color:#0969da}
+@media(prefers-color-scheme:dark){body{background:#17181b;color:#d3d5d9}a{color:#4cb7cb}}
+</style>
+</head>
+<body>
+<h1>当前离线，这一页还没有缓存</h1>
+<p>可以先打开最近读过的文章：</p>
+<ul>${items || '<li>目前没有已缓存的文章</li>'}</ul>
+</body>
+</html>`;
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    });
+  })();
+}
 
-    // Update the cache with the version we fetched (only for ok status)
-    event.waitUntil(
-      Promise.all([fetchedCopy, caches.open(RUNTIME)])
-        .then(([response, cache]) => response.ok && cache.put(event.request, response))
-        .catch(_ => {/* eat any errors */})
-    );
+async function offlineCopy(response) {
+  const html = await response.clone().text();
+  const cachedAt = response.headers.get('sw-cached-at') || '';
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  const offlineHtml = html.replace(/<html(?=[\s>])/i, `<html data-sw-offline="${cachedAt}"`);
+  return new Response(offlineHtml, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+function navigationResponse(request, event) {
+  const network = fetch(request, { cache: 'no-cache' });
+  event.waitUntil(cacheNavigationResponse(request, network));
+  return (async () => {
+    let cache = null;
+    let cached = null;
+    try {
+      cache = await caches.open(CACHE_PAGES);
+      cached = await cache.match(cacheUrl(request.url));
+    } catch (_) {}
+
+    if (!cached) {
+      try {
+        return await network;
+      } catch (_) {
+        return offlinePage(cache);
+      }
+    }
+
+    const timeout = {};
+    try {
+      const result = await Promise.race([
+        network,
+        new Promise(resolve => setTimeout(() => resolve(timeout), NAVIGATION_TIMEOUT))
+      ]);
+      return result === timeout ? offlineCopy(cached) : result;
+    } catch (_) {
+      return offlineCopy(cached);
+    }
+  })();
+}
+
+function cacheFirstCdn(request) {
+  return caches.open(CACHE_CDN).then(async cache => {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+
+    const response = await fetch(request);
+    if (response.ok || response.type === 'opaque') {
+      try { await cache.put(request, response.clone()); } catch (_) {}
+    }
+    return response;
+  });
+}
+
+async function trimCache(cache, limit) {
+  const requests = await cache.keys();
+  const excess = requests.length - limit;
+  if (excess > 0) {
+    await Promise.all(requests.slice(0, excess).map(request => cache.delete(request)));
   }
+}
+
+function versionedAsset(request, url) {
+  return caches.open(CACHE_STATIC).then(async cache => {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+
+    try {
+      const response = await fetch(request);
+      if (response.ok && response.type === 'basic') {
+        await cache.put(request, response.clone());
+        const older = (await cache.keys()).filter(key => {
+          const oldUrl = new URL(key.url);
+          return oldUrl.origin === url.origin && oldUrl.pathname === url.pathname &&
+            key.url !== request.url;
+        });
+        await Promise.all(older.map(key => cache.delete(key)));
+      }
+      return response;
+    } catch (error) {
+      const older = await cache.match(request, { ignoreSearch: true });
+      if (older) return older;
+      throw error;
+    }
+  });
+}
+
+function networkFirst(request, cacheName) {
+  return caches.open(cacheName).then(async cache => {
+    try {
+      const response = await fetch(request);
+      if (response.ok && response.type === 'basic') {
+        try {
+          await cache.delete(request);
+          await cache.put(request, response.clone());
+          if (cacheName === CACHE_IMAGES) await trimCache(cache, IMAGE_LIMIT);
+        } catch (_) {}
+      }
+      return response;
+    } catch (error) {
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      throw error;
+    }
+  });
+}
+
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET' || request.headers.has('range') ||
+      request.destination === 'video' || request.destination === 'audio') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) {
+    if (CDN_PREFIXES.some(prefix => request.url.startsWith(prefix))) {
+      event.respondWith(cacheFirstCdn(request));
+    }
+    return;
+  }
+
+  if (['/moments', '/admin', '/private'].some(path =>
+    url.pathname === path || url.pathname.startsWith(`${path}/`))) return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(navigationResponse(request, event));
+    return;
+  }
+
+  if (url.searchParams.has('v') && /\.(?:css|js)$/i.test(url.pathname)) {
+    event.respondWith(versionedAsset(request, url));
+    return;
+  }
+
+  const cacheName = request.destination === 'image' || request.destination === 'font'
+    ? CACHE_IMAGES : CACHE_STATIC;
+  event.respondWith(networkFirst(request, cacheName));
 });
