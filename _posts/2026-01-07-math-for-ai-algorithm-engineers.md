@@ -161,7 +161,7 @@ flowchart TB
 
 | 篇 | 推导线（这一篇推出的结论） | 数字线（代真实模型算出的数） | LLM 线（它在模型里是什么） |
 |---|---|---|---|
-| 一 | 形状规则 $$[m,k] \times [k,n] \to [m,n]$$、成本规则 $$2mnk$$ | 33.5 MFLOPs / token（Llama-3-8B 的一个 $$4096 \times 4096$$） | attention 与 MLP 的 GEMM |
+| 一 | 形状规则 $$[m,k] \times [k,n] \to [m,n]$$、成本规则 $$2mnk$$ | 33.5 MFLOPs / token | attention 与 MLP 的 GEMM |
 | 二 | 内积、范数、余弦 = 内积 ÷ 两个长度 | $$\lVert W - \hat W \rVert_F$$ 不是量化该最小化的量 | attention score、embedding 检索 |
 | 三 | 旋转矩阵正交 → RoPE 只依赖相对位置；截断 SVD 是最优低秩近似 | LoRA $$r = 16$$：41.9 M 参数、0.52% | RoPE、LoRA |
 | 四 | 链式法则分解联合概率 → 语言模型是条件分布；独立和的方差相加 → 除以 $$\sqrt{d_k}$$ | 分量方差 $$\sigma^2$$ 时 $$D$$ 个分量的内积方差是 $$D\sigma^4$$（单位方差时 $$D$$） | next-token 预测、attention 的缩放 |
@@ -274,7 +274,7 @@ Table: 后面各层对四个数学分支的依赖矩阵
 - 三步推导：乘积取对数变求和（1000 个 0.01 相乘为什么是 0）、取负变最小化、除以 token 数——就是每 token 的负对数似然；$$-\log p$$ 的曲线；bit 是"猜数字要问几个问题"；
 - SFT 的 loss mask（画出一条真实对话的 26 个 token 哪 3 个算 loss）、奖励模型（曲线）、DPO 都是同一个模板换一个概率；
 - 一个立刻能用的数字：训练开始时 loss 约为 $$\ln V$$——nanoGPT 莎士比亚实测首步 4.1676 vs $$\ln 65 = 4.174$$；三种 bug（初始化太大、目标泄漏、pad 算进 loss）的曲线各长什么样；
-- softmax：为什么用指数；手算与 PyTorch 对拍；GPT（generative pre-trained transformer）-2 在"确定"与"开放"位置的真实分布；温度、top-k、top-p 在真实分布上的效果；
+- softmax：为什么用指数；手算与 PyTorch 对拍；GPT-2 在"确定"与"开放"位置的真实分布；温度、top-k、top-p 在真实分布上的效果；
 - 减去最大值的数值技巧，以及它在 FlashAttention 在线 softmax 里的形态；
 - 案例：读懂一条真实训练日志——困惑度、bits/char、train–val 差距。
 

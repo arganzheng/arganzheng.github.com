@@ -401,7 +401,7 @@ L5 后训练系列里的每一种在线 RL 算法都是在 $$\mathbb{E}[A(y)\nab
 | PPO | 一个单独训练的价值网络估 $$b$$（critic），逐 token 的优势 | 把 $$\pi_\theta / \pi_{\text{old}}$$ 的比值裁剪在 $$[1 - \epsilon, 1 + \epsilon]$$，加 KL 惩罚 |
 | GRPO | 同一个 prompt 采 $$G$$ 条回答，用这一组的均值当 $$b$$、用组内标准差归一化：$$A_i = (R_i - \text{mean}) / \text{std}$$ → 不需要价值网络 | 同 PPO 的裁剪 |
 
-Table: REINFORCE、PPO（proximal policy optimization）、GRPO 的 baseline 来源与更新限制
+Table: REINFORCE、PPO、GRPO 的 baseline 来源与更新限制
 
 读懂本章，这些算法之间的差别就只剩这两个问题。但 GRPO 的"减组内均值"**不能**直接套第 3 节那一行证明——组均值里含 $$R_i$$ 自己，不是"与 $$y$$ 无关的 $$b$$"。在玩具实验上把它算出来：$$G = 2$$ 时枚举全部 $$10 \times 10 = 100$$ 种采样组合、按概率加权求期望——GRPO 估计的期望是 0.0250，正好是精确梯度 0.05 的 $$1 - 1/2 = 0.5$$ 倍；$$n = 4$$ 时表里的均值 0.0374 ≈ $$0.05 \times (1 - 1/4)$$。所以 GRPO 的估计是**有偏的**（方向对、尺度缩 $$1 - 1/G$$，$$G$$ 大时可忽略），再除以组内标准差又引入一个偏差；严格无偏的做法是留一法（**RLOO**：每条的 baseline 用其余 $$G - 1$$ 条的均值），表里它的均值 0.0505 回到了精确值。《[后训练（03）：在线 RL：PPO、GRPO 与 RLHF 三件套](/online-rl-ppo-grpo-and-the-rlhf-trio.html)》的 Dr. GRPO 讨论的就是这些。
 

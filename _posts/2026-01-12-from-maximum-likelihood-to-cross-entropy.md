@@ -231,7 +231,7 @@ Table: 同一个负对数似然模板下的各种 loss
 
 **SFT 的 loss mask。** 一条对话 `user: 1+1=?` / `assistant: 2` 经 Qwen2.5 的 chat 模板变成 26 个 token（含系统提示与角色标记），其中只有回答的 3 个 token 算 loss：
 
-![Qwen2.5 chat 模板下一条对话的 26 个 token：前 23 个是 prompt（mask 0），后 3 个——答案 2、结束标记、换行——是回答（mask 1）](/img/in-post/math-05-sft-loss-mask.svg)
+![Qwen2.5 chat 模板下一条对话的 26 个 token：前 23 个是 prompt，后 3 个——答案 2、结束标记、换行——是回答（mask 1）](/img/in-post/math-05-sft-loss-mask.svg)
 
 loss 是 mask 为 1 的 3 个位置的 $$-\log p$$ 之和**除以 3**——不是除以 26。分母除错了，loss 会凭空变小（第六章的 bug 之一就是这类），多条长短不一的对话之间也不可比。后训练系列第一篇展开 mask 的各种细节（多轮对话、只训最后一轮、工具调用的返回要不要算）。
 
@@ -348,7 +348,7 @@ Table: 同一组 logits，直接算 softmax 溢出成 NaN，先减最大值则�
 | `The United States of` | `␣America` | **0.966** | ≈ 1 | **1** |
 | `The capital of France is` | `␣the` | 0.085 | 0.359 | **1503** |
 
-Table: GPT（generative pre-trained transformer）-2 在一个"确定"位置与一个"开放"位置的输出分布（␣ 表示 token 自带的前导空格）
+Table: GPT-2 在一个"确定"位置与一个"开放"位置的输出分布（␣ 表示 token 自带的前导空格）
 
 第一个位置下一个词几乎只有一个可能，GPT-2 把 96.6% 押在 `␣America` 上；第二个位置可以接很多种说法（`␣the capital of the French Republic`、`␣a gritty bastion of French`、`␣Paris`……），概率摊到了上千个 token 上，第一名只有 8.5%。**困惑度**（下一篇）度量的就是这种平均的分散程度：确定的位置贡献接近 0 的 loss，开放的位置贡献几个 nat。
 

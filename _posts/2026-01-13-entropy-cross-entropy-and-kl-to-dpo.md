@@ -93,7 +93,7 @@ Table: 三个分布的熵
 训练日志里的 loss（每 token 交叉熵，nat）有一种更直觉的读法：**困惑度**（perplexity）
 
 $$
-\text{PPL（perplexity）} = e^{\text{loss}}
+\text{PPL} = e^{\text{loss}}
 $$
 
 它的含义是"模型每一步平均在几个 token 里犹豫"：若模型在每个位置都对 $$k$$ 个 token 给均匀概率 $$1/k$$，loss $$= \ln k$$，PPL $$= k$$。所以 loss 1.8 nat 对应 PPL $$e^{1.8} = 6.05$$——平均每步在 6 个候选里选。同一个 loss 换成 bit 是 $$1.8 \times 1.44 = 2.6$$ bit/token。
@@ -103,7 +103,7 @@ $$
 | PPL | 12.2 | 7.39 | 6.05 | 4.48 | 2.72 |
 | bit/token | 3.61 | 2.89 | 2.60 | 2.16 | 1.44 |
 
-Table: loss（nat）与困惑度的对应
+Table: loss与困惑度的对应
 
 这两个换算要熟到不用计算器：看到 PPL 6 知道 loss 1.8，看到 loss 2.0 知道 PPL 7.4。
 
@@ -204,7 +204,7 @@ $$\sigma$$ 是 **sigmoid** 函数：把任意实数压到 $$(0, 1)$$，$$\sigma(
 套用上一篇的模板——把观察到的偏好的概率放进 $$-\log$$：
 
 $$
-\mathcal{L}_{\text{RM（reward model）}} = -\log \sigma\big(r(x, y_w) - r(x, y_l)\big)
+\mathcal{L}_{\text{RM}} = -\log \sigma\big(r(x, y_w) - r(x, y_l)\big)
 $$
 
 它就是**逻辑回归**的 loss（L2 系列会从分类的角度再讲一遍逻辑回归），只是"特征"换成了两个回答的分差。L2 说"逻辑回归是奖励模型的数学骨架"，指的就是这一行。
@@ -269,7 +269,7 @@ loss 要求：对好回答的偏好增量 > 对坏回答的偏好增量，差得
 **总变差距离**（total variation distance）是比 KL 更朴素的分布距离：
 
 $$
-\mathrm{TV（total variation）}(p, q) = \frac{1}{2}\sum_x \lvert p(x) - q(x) \rvert
+\mathrm{TV}(p, q) = \frac{1}{2}\sum_x \lvert p(x) - q(x) \rvert
 $$
 
 它等于"两个分布对同一个事件给出的概率之差的最大值"，取值 $$[0, 1]$$，对称、有界——KL 不对称、可以无穷大。
@@ -284,7 +284,7 @@ $$
 
 ### 2. 互信息与对比学习
 
-**互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss（InfoNCE）给出互信息的一个下界 $$I \ge \log N - \mathcal{L}_{\text{InfoNCE}}$$——**最小化** loss 就是抬高这个下界，让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
+**互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss给出互信息的一个下界 $$I \ge \log N - \mathcal{L}_{\text{InfoNCE}}$$——**最小化** loss 就是抬高这个下界，让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
 
 ## 八、本文小结
 

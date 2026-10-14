@@ -115,7 +115,7 @@ $$
 
 ### 2. RoPE 一行推导
 
-位置编码要解决的问题：attention 的 score $$q^T k$$（第二篇）不知道两个 token 相隔多远，需要把位置信息放进去。RoPE（Rotary Position Embedding）的做法是：**第 $$m$$ 个位置的 query 旋转 $$m\theta$$，第 $$n$$ 个位置的 key 旋转 $$n\theta$$**，然后照常算内积：
+位置编码要解决的问题：attention 的 score $$q^T k$$（第二篇）不知道两个 token 相隔多远，需要把位置信息放进去。RoPE的做法是：**第 $$m$$ 个位置的 query 旋转 $$m\theta$$，第 $$n$$ 个位置的 key 旋转 $$n\theta$$**，然后照常算内积：
 
 $$
 (R_{m\theta}\, q)^T (R_{n\theta}\, k) = q^T R_{m\theta}^T R_{n\theta}\, k = q^T R_{-m\theta} R_{n\theta}\, k = q^T R_{(n - m)\theta}\, k
@@ -226,7 +226,7 @@ $$
 
 **微调**是拿一个训好的模型在少量新数据上继续训。全量微调要更新全部 $$N$$ 个参数，每个参数还要配梯度、优化器状态（L1 工具箱第四篇算这笔账：每参数 16 字节，8B 模型 128 GB，一张卡放不下）。
 
-LoRA（Low-Rank Adaptation）的假设是：**微调对权重的改动 $$\Delta W$$ 是低秩的**——预训练已经学到了"通用能力"，微调只是在少数几个方向上调一调。于是不存 $$\Delta W \in \mathbb{R}^{m \times n}$$，而存两个瘦矩阵
+LoRA的假设是：**微调对权重的改动 $$\Delta W$$ 是低秩的**——预训练已经学到了"通用能力"，微调只是在少数几个方向上调一调。于是不存 $$\Delta W \in \mathbb{R}^{m \times n}$$，而存两个瘦矩阵
 
 $$
 \Delta W = BA, \qquad B \in \mathbb{R}^{m \times r},\; A \in \mathbb{R}^{r \times n},\; r \ll m, n
