@@ -7,6 +7,94 @@ catalog: true
 ---
 
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| SFT | supervised fine-tuning | 用标注好的指令-回答对做监督微调 |
+| RM | reward model | 给一条回答打一个标量分数的模型 |
+| PPO | Proximal Policy Optimization | 带裁剪的策略梯度算法，经典 RLHF 用它 |
+| GRPO | Group Relative Policy Optimization | 用同一 prompt 一组回答的均值当 baseline，省掉价值模型 |
+| DPO | Direct Preference Optimization | 把奖励折进 loss，直接在偏好对上训策略 |
+| KTO | Kahneman-Tversky Optimization | 只要单条回答「好 / 坏」标签的偏好优化 |
+| ORPO | Odds Ratio Preference Optimization | 在 SFT loss 上加 odds ratio 项，不要参考模型 |
+| RLVR | reinforcement learning with verifiable rewards | 奖励来自规则验证器（答案匹配、单元测试）的 RL |
+| KL | Kullback–Leibler divergence | 衡量两个分布差多远，这里用来拴住策略不跑远 |
+| chat template | — | 把多轮对话拼成一条 token 序列的格式约定 |
+| loss mask | — | 决定哪些 token 参与算 loss 的掩码 |
+| pairwise loss | — | 对一对回答算的 loss：好的那条分数要更高 |
+| reward hacking | — | 策略钻奖励的空子，分数涨了、质量没涨 |
+| RL | reinforcement learning | 强化学习：采样、拿奖励、按奖励更新策略 |
+| RLHF | reinforcement learning from human feedback | 用人类偏好训奖励模型，再用 RL 优化策略 |
+| baseline | — | 从回报里减掉的参照值，只降方差、不改期望 |
+| PRM / ORM | process reward model / outcome reward model | 给每一步打分 / 只看最终答案的奖励模型 |
+| test-time compute | — | 推理时多花算力（多采样、搜索、长思考）换准确率 |
+| logits | — | softmax 之前的原始分数；logits 级蒸馏传的就是它 |
+| on-policy / off-policy | — | 训练数据由当前策略自己生成 / 由别的策略生成 |
+| LoRA | Low-Rank Adaptation | 冻结原权重，只训一对低秩矩阵 |
+| GSM8K | Grade School Math 8K | 小学数学应用题集，测试集 1319 题 |
+| packing | — | 把多条短样本拼进一条序列，省掉 padding |
+| RLOO | REINFORCE Leave-One-Out | 用组内其余样本的均值当 baseline 的 REINFORCE |
+| REINFORCE++ | — | 在 REINFORCE 上加 PPO 式的裁剪等技巧，不要价值模型 |
+| MDP | Markov decision process | 马尔可夫决策过程：状态、动作、转移、奖励 |
+| rollout | — | 用当前策略生成回答或多轮轨迹的过程 |
+| LLM-as-judge | — | 用一个强模型给回答打分或做成对比较 |
+| Arena | — | 匿名成对比较、按 Bradley-Terry 排名的人评平台 |
+| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | GRPO 的改进版：上下裁剪解耦、动态采样 |
+| GSPO | Group Sequence Policy Optimization | 把重要性比率从 token 级改到序列级的 GRPO |
+| IPO | Identity Preference Optimization | 换掉 BT 假设、缓解 DPO 过拟合的变体 |
+| SimPO | Simple Preference Optimization | 去掉参考模型，用长度归一化的对数概率做奖励 |
+| cDPO / rDPO | conservative DPO / robust DPO | 针对偏好标签噪声的两种 DPO 变体 |
+| RLAIF | reinforcement learning from AI feedback | 用 AI 代替人给偏好打标签 |
+| OpenRLHF / verl | — | 两个开源的 RL 后训练框架 |
+| 6ND | — | 训练算量估算：6 × 参数量 × token 数 |
+| GAE | Generalized Advantage Estimation | 用价值模型按 λ 加权估计每一步的优势 |
+| PEFT | parameter-efficient fine-tuning | 只训少量参数的微调方法总称 |
+| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
+| LIMA | Less Is More for Alignment | 只用 1000 条精选数据做 SFT 的论文 |
+| self-instruct | — | 让模型自己生成指令数据的自举方法 |
+| ShareGPT / Alpaca / UltraChat | — | 从更强模型的输出里收集的指令数据集 |
+| QLoRA | Quantized LoRA | 底座量化到 4 bit，在上面训 LoRA |
+| NF4 | 4-bit NormalFloat | QLoRA 用的 4 bit 数据类型，按正态分布分位 |
+| DoRA | Weight-Decomposed Low-Rank Adaptation | 把权重拆成幅度与方向，分开微调 |
+| Prefix-Tuning / P-Tuning | — | 在输入前加可学习向量的微调方法 |
+| HH | Helpful and Harmless | Anthropic 的有用 / 无害人工偏好数据 |
+| UltraFeedback | — | GPT-4 打分的公开偏好数据集 |
+| KV | key–value | KV cache：生成时缓存的注意力键值 |
+| PRM800K | — | OpenAI 的 80 万条逐步标注数学推理数据 |
+| self-consistency | — | 同一题多次采样，取多数答案 |
+| best-of-N | — | 采 N 个回答，用打分模型挑最好的一个 |
+| MCTS | Monte Carlo tree search | 蒙特卡洛树搜索 |
+| ReAct | Reasoning and Acting | 思考、行动、观察交替的 Agent 格式 |
+| SWE-RL | software engineering RL | 用 PR 补丁的相似度做奖励训代码修复 |
+| Search-R1 / ReTool | — | 把搜索 / 代码解释器当工具训的 RLVR 方法 |
+| τ-bench | tool-agent-user benchmark | 多轮客服场景的 Agent 评测 |
+| BFCL | Berkeley Function Calling Leaderboard | 函数调用能力的评测榜 |
+| SWE-bench | software engineering benchmark | 修真实 GitHub issue 的评测，Verified 是人工核过的 500 题 |
+| GAIA | General AI Assistants | 要多步搜索与工具使用的通用助手评测 |
+| Terminal-Bench | — | 在终端里完成任务的 Agent 评测 |
+| MiniLLM | — | 用反向 KL 做 LLM 蒸馏的方法 |
+| mode-covering / mode-seeking | — | 前向 KL 让学生覆盖教师所有模式 / 反向 KL 让它集中在主模式 |
+| GKD | Generalized Knowledge Distillation | on-policy 蒸馏：教师在学生自己生成的序列上给分布 |
+| QAT | quantization-aware training | 训练时模拟量化，让模型适应低精度 |
+| MMLU / MMLU-Pro | Massive Multitask Language Understanding | 57 科知识选择题；Pro 是加难的版本 |
+| GPQA | Graduate-Level Google-Proof Q&A | 研究生级、搜不到答案的科学题 |
+| MATH / MATH-500 | — | 竞赛数学题集；MATH-500 是其中 500 题的子集 |
+| AIME | American Invitational Mathematics Examination | 美国数学邀请赛，每年 30 题 |
+| HumanEval / LiveCodeBench | — | 代码生成评测：手写的 164 题 / 持续收集的新题 |
+| IFEval | Instruction-Following Evaluation | 541 条可以自动验证的指令约束 |
+| MT-Bench | Multi-Turn Benchmark | 80 道两轮对话题，用强模型当 judge |
+| AlpacaEval | — | 和参考模型比胜率的自动对话评测 |
+| few-shot | — | prompt 里先给几道带答案的示例 |
+| CoT | chain of thought | 先写推理步骤再给答案 |
+| pass@k | — | 采 k 次至少一次做对的概率 |
+| win rate | — | 成对比较里胜出的比例 |
+| canary | — | 埋进评测数据的特殊字符串，用来查有没有被训进去 |
+| AdamW | Adam with decoupled weight decay | 把权重衰减从梯度更新里分开的 Adam |
+| BT | Bradley–Terry | 成对比较的概率模型：胜率 = σ(两者分差) |
+
+Table: 本文用到的术语与缩写
+
 ## 内容简介
 
 《后训练：从 SFT 到可验证奖励》是一组共八篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。它面向已经理解 Transformer 与预训练（L4，[《Transformer 原理与实现》](/transformer-and-llm-structure-implementation-and-evolution.html)四篇 + [《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)十篇）、准备把一个基座模型变成能对话、会推理、符合偏好的模型的读者，讲的是**后训练的每一种方法在优化什么目标、改了哪个组件、花多少钱、怎么证明它变好了**。
@@ -15,7 +103,7 @@ catalog: true
 
 > **一个只会续写的基座模型，经过哪几步变成能回答问题、能拒绝、能一步步推导数学题的模型？每一步的目标函数是什么，为什么这样写？训完之后，怎么知道它真的变好了而不是学会了讨好评委？[^q0]**
 
-后训练的方法很多——SFT、RM、PPO、GRPO、DPO、KTO、ORPO、RLVR、蒸馏——名字每几个月多几个。本系列不按名字罗列，而按**一个不变的骨架**组织：所有基于偏好或奖励的方法都在操作同样三个组件——**策略**（要训的模型）、**奖励**（判断输出好坏的信号）、**参考**（防止策略跑太远的锚）。每种方法的区别只在于：奖励从哪来（人标、模型打分、规则验证、教师分布）、参考怎么约束（KL 惩罚、闭式折叠进 loss、干脆去掉）、以及为了估计策略梯度还要不要第四个组件（价值模型）。把每种方法放回这三件套上，一族十几个名字就变成一张表：
+后训练的方法很多——SFT（supervised fine-tuning）、RM、PPO、GRPO、DPO、KTO、ORPO、RLVR（reinforcement learning with verifiable rewards）、蒸馏——名字每几个月多几个。本系列不按名字罗列，而按**一个不变的骨架**组织：所有基于偏好或奖励的方法都在操作同样三个组件——**策略**（要训的模型）、**奖励**（判断输出好坏的信号）、**参考**（防止策略跑太远的锚）。每种方法的区别只在于：奖励从哪来（人标、模型打分、规则验证、教师分布）、参考怎么约束（KL（Kullback–Leibler divergence）惩罚、闭式折叠进 loss、干脆去掉）、以及为了估计策略梯度还要不要第四个组件（价值模型）。把每种方法放回这三件套上，一族十几个名字就变成一张表：
 
 | 方法 | 奖励从哪来 | 参考怎么约束 | 要不要价值模型 | 对应篇目 |
 |---|---|---|---|---|
@@ -35,9 +123,9 @@ Table: 后训练方法按「奖励、参考、价值模型」三件套排开
 
 举一个例子说明这个系列的取法。"DPO 不需要奖励模型"是每篇介绍都有的一句话；本系列要把它变成三件可验证的事：
 
-1. **推导**：RLHF 的目标 $$\max_\pi \mathbb{E}[r(x, y)] - \beta\, \text{KL}(\pi \| \pi_{ref})$$ 有闭式最优解 $$\pi^*(y \mid x) \propto \pi_{ref}(y \mid x) \exp(r / \beta)$$，反解出 $$r = \beta \log(\pi^* / \pi_{ref}) + \text{const}$$，代入 Bradley-Terry 的偏好概率，奖励模型就被两个策略的对数比替代——**DPO 不是没有奖励，而是把奖励用策略与参考的比值隐式表达了**。
-2. **算账**：PPO 要四个模型在显存里（策略、参考、奖励、价值，7B 规格约 250 GB 训练状态），DPO 只要两个且参考模型的对数概率可以离线预计算，一张 80 GB 的卡加 LoRA 就能训 7B。
-3. **实验**：同一份偏好数据，DPO 与 PPO 各训一遍，比 RM 分数、比 KL、比 GSM8K——看到 DPO 的隐式奖励在训练分布外过拟合得更快。
+1. **推导**：RLHF（reinforcement learning from human feedback）的目标 $$\max_\pi \mathbb{E}[r(x, y)] - \beta\, \text{KL}(\pi \| \pi_{ref})$$ 有闭式最优解 $$\pi^*(y \mid x) \propto \pi_{ref}(y \mid x) \exp(r / \beta)$$，反解出 $$r = \beta \log(\pi^* / \pi_{ref}) + \text{const}$$，代入 Bradley-Terry 的偏好概率，奖励模型就被两个策略的对数比替代——**DPO 不是没有奖励，而是把奖励用策略与参考的比值隐式表达了**。
+2. **算账**：PPO 要四个模型在显存里（策略、参考、奖励、价值，7B 规格约 250 GB 训练状态），DPO 只要两个且参考模型的对数概率可以离线预计算，一张 80 GB 的卡加 LoRA（Low-Rank Adaptation）就能训 7B。
+3. **实验**：同一份偏好数据，DPO 与 PPO 各训一遍，比 RM 分数、比 KL、比 GSM8K（Grade School Math 8K）——看到 DPO 的隐式奖励在训练分布外过拟合得更快。
 
 系列覆盖的范围可以概括为后训练流水线的五段（第四段有一个多轮的延伸）加一个贯穿的度量：
 
@@ -62,7 +150,7 @@ Table: 后训练流水线的五段与对应篇目
 
 ### 名字太多，骨架只有一个
 
-PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO、cDPO；RLHF、RLAIF、RLVR。每个名字对应一篇论文、一组实验、一个"比前者好"的表。不把它们放回同一个骨架，就只能记；放回去之后，每个名字是骨架上一处改动——去掉价值模型、把奖励折进 loss、把成对比较换成单样本、把 KL 项去掉、把 token 级重要性比换成序列级。本系列的第三、四篇各有一张表，把这一族按"改了三件套的哪一件"排开。
+PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO、cDPO；RLHF、RLAIF（reinforcement learning from AI feedback）、RLVR。每个名字对应一篇论文、一组实验、一个"比前者好"的表。不把它们放回同一个骨架，就只能记；放回去之后，每个名字是骨架上一处改动——去掉价值模型、把奖励折进 loss、把成对比较换成单样本、把 KL 项去掉、把 token 级重要性比换成序列级。本系列的第三、四篇各有一张表，把这一族按"改了三件套的哪一件"排开。
 
 ### 每一步都能算账，而账很少被算
 
@@ -72,7 +160,7 @@ PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO�
 
 - **论文**每篇一个方法，实验设置各异，很难横向比；
 - **框架文档**（`trl`、OpenRLHF、verl）讲配置项，把目标函数当已知；
-- **课程与教程**多停在 InstructGPT 三步法或 DPO，缺 2025 年的推理 RL 与蒸馏；
+- **课程与教程**多停在 InstructGPT 三步法或 DPO，缺 2025 年的推理 RL（reinforcement learning）与蒸馏；
 - **技术报告**（Llama 3、DeepSeek-R1、Qwen3、Tülu 3）给出配方但不解释每一步为什么。
 
 本系列取的是中间那段路：每个方法推到目标函数、算到成本、跑到曲线，再对到公开配方里的那一行。
@@ -86,7 +174,7 @@ PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO�
 
 ### 已经在做 SFT / DPO，但对 RL 与推理模型生疏的工程师
 
-你的流水线停在 SFT + DPO，想加 GRPO 或 RLVR，但 PPO 的四个模型、GAE、KL 系数、rollout 引擎这些词让你迟疑。第三、五篇是为此准备的：从策略梯度推到 PPO，再看 GRPO 去掉了什么、RLVR 换掉了什么，以及一次训练的显存与 token 账。
+你的流水线停在 SFT + DPO，想加 GRPO 或 RLVR，但 PPO 的四个模型、GAE（Generalized Advantage Estimation）、KL 系数、rollout 引擎这些词让你迟疑。第三、五篇是为此准备的：从策略梯度推到 PPO，再看 GRPO 去掉了什么、RLVR 换掉了什么，以及一次训练的显存与 token 账。
 
 ### 需要评测与选型、而不是训练的工程师
 
@@ -101,11 +189,11 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 八篇按后训练流水线的顺序推进，前一篇的产物是后一篇的输入：
 
-1. 第一篇：SFT —— 基座 → 会按格式回答；数据、模板、mask、PEFT、遗忘
+1. 第一篇：SFT —— 基座 → 会按格式回答；数据、模板、mask、PEFT（parameter-efficient fine-tuning）、遗忘
 2. 第二篇：偏好数据与奖励模型 —— 人的判断 → 一个可微的信号；Bradley-Terry、RM 的过拟合与 hacking
 3. 第三篇：在线 RL —— 用奖励改策略；PPO 的四个模型 → GRPO 的三个；三件套对照表
 4. 第四篇：离线 RL —— 不采样，把奖励折进 loss；DPO 的推导与它的一族变体；拒绝采样 + SFT
-5. 第五篇：推理模型与可验证奖励 —— 奖励换成验证器；R1 的配方、长思维链、PRM/ORM、test-time compute
+5. 第五篇：推理模型与可验证奖励 —— 奖励换成验证器；R1 的配方、长思维链、PRM（process reward model）/ORM、test-time compute
 6. 第六篇：Agent 与工具调用的 RL —— 奖励延后到多轮之后；环境、轨迹、工具输出的 mask、异步 rollout
 7. 第七篇：蒸馏 —— 奖励换成教师分布；logits 级、序列级、on-policy；R1 → 小模型
 8. 第八篇：评测 —— 每一步"变好了"怎么证明；benchmark、judge、Arena、污染、自建
@@ -115,7 +203,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 三条交织的线索：
 
 - 推导线：交叉熵 → Bradley-Terry 与 pairwise loss → 策略梯度、优势、KL 约束 → 闭式最优解与 DPO → 规则奖励下的 GRPO → 多轮轨迹的信用分配 → 前向 KL 与反向 KL → 评测的统计
-- 成本线：SFT 一个模型 → RM 一个 → PPO 四个 / GRPO 三个 → DPO 两个（参考可离线） → RLVR 的 rollout token 数 → Agent RL 的环境步数与沙箱 → 蒸馏的教师推理 FLOPs → 评测的 judge 调用
+- 成本线：SFT 一个模型 → RM 一个 → PPO 四个 / GRPO 三个 → DPO 两个（参考可离线） → RLVR 的 rollout token 数 → Agent RL 的环境步数与沙箱 → 蒸馏的教师推理 FLOPs（floating point operations） → 评测的 judge 调用
 - 配方线：InstructGPT 三步法 → Llama 3 的六轮 SFT+DPO → Tülu 3 的 RLVR → DeepSeek-R1 的四阶段与蒸馏 → Qwen3 的思考模式融合 → Kimi K2 的大规模 Agent 数据合成与 RL
 
 每一篇都用同样的方法：**写出目标函数并解释每一项，算出这一步的显存、token 与数据成本，给出在小模型上跑一遍的骨架与该看的曲线，再对到公开配方里的那一行**。
@@ -134,7 +222,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - loss mask：只对回复部分算 loss，prompt 部分不算；为什么算 prompt 会伤害模型；多轮时只算最后一轮还是每一轮；
 - packing 与它的 attention 掩码问题（《[预训练（05）：训练配方与稳定性：学习率、batch、调度与 loss spike](/pretraining-recipe-and-training-stability.html)》的跨文档 attention 在这里再出现一次）；
 - 全量微调的账：8B 模型 16 字节/参数的训练状态 128 GB（《[预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)》），lr $$10^{-5}$$ 量级、2–3 个 epoch、cosine；
-- 参数高效微调：LoRA 的 $$W + BA$$（《[预训练（05）：训练配方与稳定性：学习率、batch、调度与 loss spike](/pretraining-recipe-and-training-stability.html)》的参数与状态账）、秩与目标矩阵的选择（r 16–64，全部线性层优于只做 attention）、QLoRA 的 NF4 底座、DoRA 的幅度 - 方向分解；Prefix-Tuning / P-Tuning / Adapter 的位置；LoRA 在什么任务上追不上全量；
+- 参数高效微调：LoRA 的 $$W + BA$$（《[预训练（05）：训练配方与稳定性：学习率、batch、调度与 loss spike](/pretraining-recipe-and-training-stability.html)》的参数与状态账）、秩与目标矩阵的选择（r 16–64，全部线性层优于只做 attention）、QLoRA（Quantized LoRA）的 NF4 底座、DoRA（Weight-Decomposed Low-Rank Adaptation）的幅度 - 方向分解；Prefix-Tuning / P-Tuning / Adapter 的位置；LoRA 在什么任务上追不上全量；
 - 灾难性遗忘：SFT 后通用能力下降的度量与三种对策——混入预训练数据回放、更小的 lr、模型平均（Llama 3 对每轮 SFT/DPO 的 checkpoint 做平均）；
 - 公开配方：InstructGPT 的 SFT、Llama 3 的 SFT（lr 1e-5，8.5K–9K 步，拒绝采样生成的数据）、Tülu 3 的 SFT 数据配比、DeepSeek-R1 的冷启动 SFT（几千条长思维链）。
 
@@ -172,9 +260,9 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 这一篇会覆盖：
 
 - RLHF 的目标函数：$$\max_\pi \mathbb{E}_{x, y \sim \pi}[r(x, y)] - \beta\, \text{KL}(\pi \| \pi_{ref})$$；每一项在防什么——没有 KL 项策略会坍缩到 RM 的漏洞上；$$\beta$$ 的量级与它对输出多样性的影响；
-- 策略梯度：REINFORCE 的 $$\nabla \log \pi(y) \cdot R$$、为什么方差大、baseline 为什么不改变期望只降方差；把 token 当动作、把序列当 episode——LLM 的 RL 是"只有最后一步有奖励"的稀疏奖励问题；
+- 策略梯度：REINFORCE 的 $$\nabla \log \pi(y) \cdot R$$、为什么方差大、baseline 为什么不改变期望只降方差；把 token 当动作、把序列当 episode——LLM（large language model）的 RL 是"只有最后一步有奖励"的稀疏奖励问题；
 - PPO 的四个组件：策略、参考（算 KL）、奖励（打分）、价值（估计 baseline）；GAE 的 $$\lambda$$ 与 $$\gamma$$；clip 的 $$\epsilon$$ 在做什么——限制每次更新策略比值 $$\pi / \pi_{old}$$ 的范围；每批 rollout 做几个 epoch 的更新；
-- 显存账：7B 规格下策略与价值各 112 GB 训练状态，参考与 RM 各 14 GB 推理权重，合计约 250 GB，加上 rollout 的 KV cache——这是 PPO 需要 8 张卡起步的原因；
+- 显存账：7B 规格下策略与价值各 112 GB 训练状态，参考与 RM 各 14 GB 推理权重，合计约 250 GB，加上 rollout 的 KV（key–value） cache——这是 PPO 需要 8 张卡起步的原因；
 - GRPO（DeepSeekMath 2024）：同一 prompt 采样一组 $$G$$ 个回答，用组内的均值与标准差归一化奖励作为优势，去掉价值模型；显存降到三个模型；代价是每个 prompt 要生成 $$G$$ 倍的 token；
 - RLOO 与 REINFORCE++：leave-one-out baseline、全局 baseline——同样去掉价值模型的另外两种做法；它们与 GRPO 在方差与偏差上的区别；
 - 2025 年对 GRPO 的修正：DAPO 的 clip-higher、动态采样、token 级 loss 与超长惩罚；Dr. GRPO 去掉长度与标准差归一化带来的偏差；GSPO（Qwen3）把 token 级重要性比换成序列级——每一个修正对应 GRPO 目标函数里的一项；
@@ -237,14 +325,14 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 这一篇会覆盖：
 
-- 问题设定：把多轮工具调用写成 MDP——状态是到目前为止的全部对话（含工具输出），动作是模型生成的一段 token（思考 + 工具调用或最终回答），环境是工具与沙箱，奖励通常只在最后一步；与第三篇"单步 bandit"的区别就在这一个"多步"；
+- 问题设定：把多轮工具调用写成 MDP（Markov decision process）——状态是到目前为止的全部对话（含工具输出），动作是模型生成的一段 token（思考 + 工具调用或最终回答），环境是工具与沙箱，奖励通常只在最后一步；与第三篇"单步 bandit"的区别就在这一个"多步"；
 - 工具调用的格式：函数 schema（JSON）、chat template 里的 tool 角色与特殊 token、并行调用、ReAct 式的思考 - 行动 - 观察交替；格式本身要先靠 SFT 学会，RL 只在会用工具的模型上才有起点；
 - 轨迹数据的三种来源：人工示范（贵且少）、更强模型生成再按结果过滤（拒绝采样在多轮上的形态）、大规模合成环境（Kimi K2 用模拟的工具与用户批量造轨迹）；为什么 Agent SFT 数据比对话 SFT 数据难得多——每条都要真实跑过环境；
 - 奖励的设计：结果奖励（测试通过、答案匹配、任务完成的判定）为主；过程奖励与 rubric judge 作为 shaping 的风险（第二篇的 hacking 在多轮上更容易）；对无效调用、超时、超步数的惩罚；
 - 训练目标：GRPO / PPO 在轨迹级上的写法——loss 只算模型生成的 token，**工具输出与用户轮次全部 mask 掉**（第一篇 loss mask 的多轮版本）；轨迹级优势与 turn 级信用分配的取舍；KL 与 clip 在长轨迹上的行为；
 - 系统与成本：rollout 要与环境交互，每一步有 IO 与沙箱启动的延迟，同一 batch 的轨迹长度与耗时方差极大——**异步 rollout** 与 off-policy 修正成为必需（Infra 地图选修那一节在这里被逼出来）；一次训练的成本要加上环境步数与沙箱数，代码任务里环境比模型贵是常态；
 - 公开配方：SWE-RL（用 GitHub PR 的相似度做奖励训代码修复）、Search-R1 与 ReTool（搜索 / 代码解释器作为工具的 RLVR）、Kimi K2 的 Agent 数据合成与 RL、Qwen3 的 Agent 阶段、o3 / gpt-oss 把工具调用放进思维链；
-- 评测的预告：τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测哪一类 Agent 能力，第八篇展开。
+- 评测的预告：τ-bench、BFCL（Berkeley Function Calling Leaderboard）、SWE-bench Verified、GAIA、Terminal-Bench 各测哪一类 Agent 能力，第八篇展开。
 
 核心问题是：
 
@@ -279,7 +367,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 这一篇会覆盖：
 
 - 主流 benchmark 各测什么、多大、怎么算分：知识（MMLU 的 57 科 14K 题、MMLU-Pro、GPQA 的研究生级 448 题）、数学（GSM8K 1319 题、MATH 5000 题与 MATH-500、AIME 每年 30 题）、代码（HumanEval 164 题、LiveCodeBench、SWE-bench 的 2294 个真实 issue 与 Verified 500）、指令遵循（IFEval 的 541 条可验证约束）、对话（MT-Bench 80 题两轮、AlpacaEval）、Agent（τ-bench 的多轮客服任务、BFCL 的函数调用、GAIA、Terminal-Bench——它们评的是整条轨迹的结果，方差与成本都比单轮高一个量级）；每个 benchmark 的饱和程度与它还能区分什么；
-- 评测协议的细节如何改变分数：few-shot 数、CoT 与否、采样温度、答案抽取的正则、pass@k 的 $$k$$——同一模型在不同协议下相差十几个点是常态；`lm-evaluation-harness` 一类工具的作用是固定协议；
+- 评测协议的细节如何改变分数：few-shot 数、CoT（chain of thought）与否、采样温度、答案抽取的正则、pass@k 的 $$k$$——同一模型在不同协议下相差十几个点是常态；`lm-evaluation-harness` 一类工具的作用是固定协议；
 - LLM-as-judge：用强模型给回答打分或成对比较；三种系统性偏差——位置偏差（偏爱先出现的）、长度偏差（偏爱长的）、自我偏好（偏爱同家族模型的文风）——与对策（交换顺序、长度控制的 win rate、多 judge）；judge 一致率与准确率的区别；
 - 人类偏好 Arena：匿名成对比较 + Bradley-Terry 打分（第二篇的模型在这里用来给模型排名）；它测的是"人喜欢"而非"正确"，风格与长度的影响；style control；
 - 污染：benchmark 题目在训练集里（《[预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)》的 8-gram 检测是训练侧的对策）；评测侧的检测——用改写过的题、比较训练集出现前后发布的题目、canary 字符串；被污染的分数是无意义的；
@@ -333,7 +421,7 @@ Table: 贯穿全系列的单卡后训练流水线
 ### 前置要求
 
 - L4 的[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)：参数量与训练状态的账（第一、二、十篇）；LoRA 与 SFT 的实践不在这两个系列；
-- L3 的[《深度学习基础》](/deep-learning-foundations.html)：交叉熵与 softmax 的梯度（第一篇）、AdamW 与学习率调度（第三篇）、过拟合与多 epoch（第四篇）；
+- L3 的[《深度学习基础》](/deep-learning-foundations.html)：交叉熵与 softmax 的梯度（第一篇）、AdamW（Adam with decoupled weight decay）与学习率调度（第三篇）、过拟合与多 epoch（第四篇）；
 - L2 经典机器学习系列的逻辑回归、分类器的评估（准确率、置信区间）——奖励模型就是逻辑回归；
 - 会用 `transformers` 加载模型与 tokenizer、写一个训练循环；用过或看过 `trl` 的任意一个 trainer 更好。
 
