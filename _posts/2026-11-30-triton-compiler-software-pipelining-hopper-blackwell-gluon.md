@@ -9,13 +9,52 @@ catalog: true
 
 到上一篇为止，matmul kernel 的 layout 已经定好，但循环还是朴素的：每次迭代先等 A、B 从 global memory 到达，再喂 Tensor Core，再发下一次 load。GPU 的访存延迟几百个时钟，Tensor Core 一条 `mma` 十几个时钟——朴素循环里 Tensor Core 绝大部分时间在等。GPU Kernel 系列第三、七篇从用户视角讲过解法：**软件流水**——第 i 次迭代算的时候，第 i+1、i+2 次的数据已经在路上。那两篇给的是 `num_stages` 这个旋钮和"编译器会做"的承诺。这一篇打开编译器，看它怎么做：把一个 `scf.for` 变成带 prologue、多缓冲、异步拷贝、显式等待的循环，要经过哪几个决定，每个决定在哪个 pass 里。
 
-然后是硬件把"异步"接过去的部分。Ampere 的 `cp.async` 让 load 异步；Hopper 加了 TMA（一条指令搬一个 tile）、`wgmma`（异步的、操作数在 shared memory 里的 Tensor Core 指令）、mbarrier（硬件计数的同步对象）；Blackwell 再加 `tcgen05`（单线程发起的 MMA）和 Tensor Memory（累加器不再占寄存器）。每一代都把更多的"编排"交给硬件，编译器要生成的 IR 形状也随之改变。**warp specialization** 是这条路的自然终点：不同的 warp 做不同的事——有的只发 load，有的只发 MMA——生产者 / 消费者用 mbarrier 握手。
+然后是硬件把"异步"接过去的部分。Ampere 的 `cp.async` 让 load 异步；Hopper 加了 TMA（一条指令搬一个 tile）、`wgmma`（异步的、操作数在 shared memory 里的 Tensor Core 指令）、mbarrier（硬件计数的同步对象）；Blackwell 再加 `tcgen05`（单线程发起的 MMA（matrix multiply-accumulate））和 Tensor Memory（累加器不再占寄存器）。每一代都把更多的"编排"交给硬件，编译器要生成的 IR（intermediate representation） 形状也随之改变。**warp specialization** 是这条路的自然终点：不同的 warp 做不同的事——有的只发 load，有的只发 MMA——生产者 / 消费者用 mbarrier 握手。
 
 最后是 Gluon。当编译器的自动决定不够好时，Triton 3.4 起给了一条出路：一个 layout、shared memory、mbarrier、TMA、`wgmma` / `tcgen05` 全部**显式**的子语言，运行在同一个编译器上，只是跳过了本篇和前两篇讲的所有自动 pass。
 
 总纲对这一篇提出的核心问题是：
 
 > **`num_stages=3` 的 matmul 循环，流水化之后 prologue 里有几次 load、循环体里 `async_wait` 等的是哪一批、shared memory 里有几个缓冲？[^q0] Hopper 上换成 TMA + `wgmma` 之后这些数字怎么变，多出来的 mbarrier 是谁在等谁？[^q1] warp specialization 把哪些 op 分给了哪些 warp？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| layout | — | 元素到（寄存器、lane、warp）位置的映射 |
+| tensor descriptor | — | 记录 tile 形状 / stride / swizzle 的描述符，TMA 用它取数 |
+| scf | structured control flow | MLIR 的结构化控制流方言（`scf.for` / `scf.if`） |
+| prologue / epilogue | — | 流水化循环的前面预填段 / 末尾收尾段 |
+| pass | — | 编译器对 IR 做的一次变换或分析 |
+| Ampere / Hopper / Blackwell | — | NVIDIA GPU 连续三代架构 |
+| cp.async | — | Ampere 的异步拷贝指令，load 不再阻塞 |
+| TMA | Tensor Memory Accelerator | Hopper 起的异步张量搬运硬件单元 |
+| wgmma | warpgroup MMA | Hopper 上以 4 个 warp 为单位的异步 MMA |
+| mbarrier | memory barrier | Hopper 起硬件计数的异步同步对象 |
+| tcgen05 | — | Blackwell 的第五代 Tensor Core 指令族 |
+| MMA | matrix multiply-accumulate | 矩阵乘加，Tensor Core 指令的统称 |
+| IR | intermediate representation | 中间表示：编译器各阶段之间传递的程序形式 |
+| warp specialization | — | 让不同 warp 各管一段（load / MMA / epilogue）的组织方式 |
+| Gluon | — | Triton 里直接指定 layout 的低层编程方言 |
+| TTGIR | TritonGPU IR | 带 layout 的 Triton GPU 方言 |
+| modulo scheduling | — | 把循环切成 stage、让多次迭代交错执行的经典调度 |
+| MLIR | Multi-Level Intermediate Representation | LLVM 社区的多层 IR 框架，可自定义方言 |
+| DFS | depth-first search | 深度优先搜索 |
+| AxisInfo | — | Triton 分析每个张量连续性 / 整除性的 pass |
+| commit group | — | `cp.async` 的分组提交单位，按组等待完成 |
+| WAR | write after read | 写后读冒险：读还没完就被写覆盖 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| CUtensorMap | — | CUDA 驱动里 TMA 用的 tensor map 对象 |
+| TTIR | Triton IR | Triton 最上层的 MLIR 方言，还没有 layout |
+| TMEM | Tensor Memory | Blackwell 上 Tensor Core 专用的片上存储 |
+| SM | streaming multiprocessor | GPU 上执行线程块的计算单元 |
+| CUTLASS | CUDA Templates for Linear Algebra Subroutines | NVIDIA 的 C++ GEMM 模板库 |
+| MoE | mixture of experts | 混合专家：每个 token 只走少数几个专家 |
+| CDNA | —（AMD 称 Compute DNA） | AMD 数据中心 GPU 架构 |
+| LLVM | —（最初是 Low Level Virtual Machine，现已不作缩写） | 通用编译器基础设施，CPU / GPU 后端共用 |
+| PTX | Parallel Thread Execution | NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -63,7 +102,7 @@ flowchart TB
     L --> S --> LL --> E --> P
 ```
 
-拆开的好处是每一步都可以单独测试、单独替换：用户可以用 `tl.range(..., num_stages=…)` 或直接给 op 挂 `tt.latency` 属性覆盖第一步；`ScheduleLoops` 对 warp specialization 与普通流水共用；`PipelineExpander` 是从 MLIR 上游的 `scf` 流水器改来的通用展开器，不懂 GPU。
+拆开的好处是每一步都可以单独测试、单独替换：用户可以用 `tl.range(..., num_stages=…)` 或直接给 op 挂 `tt.latency` 属性覆盖第一步；`ScheduleLoops` 对 warp specialization 与普通流水共用；`PipelineExpander` 是从 MLIR（Multi-Level Intermediate Representation） 上游的 `scf` 流水器改来的通用展开器，不懂 GPU。
 
 ### 2. AssignLatencies：提前几个迭代
 
@@ -139,7 +178,7 @@ if (canUseAsyncCp || isTMALoad(op)) {
 
 ## 三、Ampere 上的产物
 
-上一篇结尾的 matmul（`sm_80`、`num_warps = 4`、`num_stages = 3`）流水化后的 TTGIR，删掉地址运算后按执行顺序读：
+上一篇结尾的 matmul（`sm_80`、`num_warps = 4`、`num_stages = 3`）流水化后的 TTGIR（TritonGPU IR），删掉地址运算后按执行顺序读：
 
 ```mlir title="Ampere 上流水化后的 TTGIR"
 %a = ttg.local_alloc : () -> !ttg.memdesc<2x128x32xbf16, #shared, #smem, mutable>        // ① 2 个缓冲
@@ -184,7 +223,7 @@ ttg.local_dealloc %a
 1. ① **2 个缓冲**：`num_stages = 3` → latency 2 → `stageDiff = 2`。不是 3——`num_stages` 数的是 stage（load 的 stage 0、中间 1、`dot` 的 stage 2），缓冲数是 load 与 `dot` 的 stage 差。
 2. ③ **prologue 里 2 次 load**（每次 A、B 各一组）：迭代 0 与迭代 1 的，分别进缓冲 0 和 1；每次都带一个"这次迭代存在吗"的 mask（② 与 `%acc_39`），K 太小时 load 被谓词掉而不是越界。
 3. ④ ⑦ **`async_wait {num = 2}` 等的是最老的一批**：`num` 是"允许还在飞的 commit group 数"；每次迭代 A、B 各 1 组，允许 2 组在飞 = 允许最近一个迭代的 load 未完成 = 等待再之前那个迭代的到达。循环体里等的是"本次迭代要用的数据"，它在两个迭代前发出。
-4. ⑨ load 发在 `dot` 之后、`dot` 用的缓冲是刚刚 `wait` 到的那个，新 load 写的是上一轮 `dot` 用完的那个——**stage 高的先执行**（§二.3 的 cluster 顺序）保证了缓冲的读写不冲突，不需要额外 barrier（`async_wait` 之后 `LowerLoops` 插的 `local_load` 与下一轮 `async_copy` 之间的 WAR 由第十篇的 `Membar` 分析保证）。
+4. ⑨ load 发在 `dot` 之后、`dot` 用的缓冲是刚刚 `wait` 到的那个，新 load 写的是上一轮 `dot` 用完的那个——**stage 高的先执行**（§二.3 的 cluster 顺序）保证了缓冲的读写不冲突，不需要额外 barrier（`async_wait` 之后 `LowerLoops` 插的 `local_load` 与下一轮 `async_copy` 之间的 WAR（write after read） 由第十篇的 `Membar` 分析保证）。
 5. ⑤ ⑧ ⑩ ⑪ `Prefetch` 的痕迹：K = 32 拆成两个 16，每轮两条 `dot`，第 0 个子块在上一轮末尾就 `local_load` 好了（作为 iter_arg `%a_82` 传进来）。
 6. ⑥ 15 个 iter_args：累加器 1 + 指针 2 + 缓冲下标 2 + `async` token 4 + 缓冲视图 2 + wait token 2 + 预取操作数 2。
 
@@ -241,7 +280,7 @@ def matmul_tma_kernel(a_desc, b_desc, c_desc, K, BLOCK_M: tl.constexpr, BLOCK_N:
     c_desc.store([off_m, off_n], acc.to(tl.bfloat16))
 ```
 
-`a_desc` 是 host 侧 `TensorDescriptor.from_tensor(a, [BLOCK_M, BLOCK_K])` 建的：底层是 CUDA 的 `CUtensorMap`（128 字节，描述 global 张量的基址、shape、stride、tile 大小、swizzle），由驱动 API `cuTensorMapEncodeTiled` 填充，作为 kernel 参数传入（签名里是 `tensordesc<bf16[128, 32]>`，TTIR 里是 `!tt.tensordesc<128x32xbf16>`）。`sm_90` 上编译（`num_stages = 3`）：
+`a_desc` 是 host 侧 `TensorDescriptor.from_tensor(a, [BLOCK_M, BLOCK_K])` 建的：底层是 CUDA（Compute Unified Device Architecture） 的 `CUtensorMap`（128 字节，描述 global 张量的基址、shape、stride、tile 大小、swizzle），由驱动 API `cuTensorMapEncodeTiled` 填充，作为 kernel 参数传入（签名里是 `tensordesc<bf16[128, 32]>`，TTIR（Triton IR） 里是 `!tt.tensordesc<128x32xbf16>`）。`sm_90` 上编译（`num_stages = 3`）：
 
 ```mlir title="TMA 版本在 sm_90 上的 TTGIR"
 %a = ttg.local_alloc : () -> !ttg.memdesc<3x128x32xbf16, #shared, #smem, mutable>
@@ -302,7 +341,7 @@ ttng.wait_barrier %acc_2, %c0_i32
 %acc_13 = ttng.tmem_load %acc_4 : !ttg.memdesc<128x128xf32, #tmem, ...> -> tensor<128x128xf32, #linear>   // ④ 读回寄存器
 ```
 
-1. ① **Tensor Memory**（TMEM）：Blackwell 每个 SM 新增的 256 KB 片上存储，专门放 MMA 的累加器。`#ttng.tensor_memory_encoding<blockM = 128, blockN = 128, colStride = 1>` 描述 tile 在 TMEM 的 128 行 × 512 列（每列 32 位）里怎么放；`metadata["tmem_size"] = 128` 是占用的列数。**累加器不再占寄存器**——上一篇算的"`[128, 128]` f32 累加器每线程 128 个寄存器"在 Blackwell 上归零，寄存器可以全给 epilogue 和别的用途。
+1. ① **Tensor Memory**（TMEM）：Blackwell 每个 SM（streaming multiprocessor） 新增的 256 KB 片上存储，专门放 MMA 的累加器。`#ttng.tensor_memory_encoding<blockM = 128, blockN = 128, colStride = 1>` 描述 tile 在 TMEM 的 128 行 × 512 列（每列 32 位）里怎么放；`metadata["tmem_size"] = 128` 是占用的列数。**累加器不再占寄存器**——上一篇算的"`[128, 128]` f32 累加器每线程 128 个寄存器"在 Blackwell 上归零，寄存器可以全给 epilogue 和别的用途。
 2. ② `tcgen05.mma`：由**单个线程**发起（`elect.sync` 选一个），操作数 A、B 在 shared memory（描述符），累加器 D 在 TMEM（地址），`%arg28` 是 `use_acc`（第一次迭代为 false 即"清零累加"，省掉显式 `tmem_store` 的开销——IR 里那个 iter_arg `%arg28 = %false` 就是它）。指令异步执行，完成时 ③ `tc_gen5_commit` 让它到达一个 mbarrier。**MMA 从"warp 集体执行的指令"变成了"一个线程提交给引擎的任务"**——这是 warp specialization 在 Blackwell 上自然的原因：既然一个线程就能发 MMA，让一个 warp 专门干这个即可。
 3. ④ `tmem_load` 把结果读回寄存器，layout 是一个 `#linear`（`tcgen05.ld` 的 32x32b 等形状规定的、用 `#ttg.linear` 直接写出基向量的布局），然后照常 `convert_layout` / store。
 
@@ -312,7 +351,7 @@ ttng.wait_barrier %acc_2, %c0_i32
 
 ### 1. 为什么
 
-流水化让 load 与 MMA 在**时间上**重叠，但它们仍由同一组 warp 发出：一个 warp 的指令流里 `wgmma`、`cp.async.bulk`、`mbarrier.try_wait`、地址计算轮流出现，任何一个卡住（例如等 barrier）都让这个 warp 后面的指令一起等。而 Hopper / Blackwell 的 TMA 与 MMA 都是"一个线程发一条指令，硬件引擎干活"——发指令的成本极低，**瓶颈变成了指令之间的依赖与调度**。解法是**空间上**分开：一组 warp 只管发 TMA（生产者），一组只管发 MMA（消费者），一组做 epilogue，之间用 mbarrier 握手——每组的指令流都是紧凑的循环，没有互相等待。CUTLASS 在 Hopper 上的 "warp-specialized persistent ping-pong" kernel 就是这个结构，Triton 3.3 起让编译器自动生成它。
+流水化让 load 与 MMA 在**时间上**重叠，但它们仍由同一组 warp 发出：一个 warp 的指令流里 `wgmma`、`cp.async.bulk`、`mbarrier.try_wait`、地址计算轮流出现，任何一个卡住（例如等 barrier）都让这个 warp 后面的指令一起等。而 Hopper / Blackwell 的 TMA 与 MMA 都是"一个线程发一条指令，硬件引擎干活"——发指令的成本极低，**瓶颈变成了指令之间的依赖与调度**。解法是**空间上**分开：一组 warp 只管发 TMA（生产者），一组只管发 MMA（消费者），一组做 epilogue，之间用 mbarrier 握手——每组的指令流都是紧凑的循环，没有互相等待。CUTLASS（CUDA Templates for Linear Algebra Subroutines） 在 Hopper 上的 "warp-specialized persistent ping-pong" kernel 就是这个结构，Triton 3.3 起让编译器自动生成它。
 
 ### 2. IR：`ttg.warp_specialize`
 
@@ -360,7 +399,7 @@ ttng.wait_barrier %acc_2, %c0_i32                               // ④ 默认区
 
 ### 1. 为什么
 
-前四篇的自动 pass 在 matmul 这类规则 kernel 上工作得很好，但每一个都是启发式：Coalesce 的 128 bit 上限、`RemoveLayoutConversions` 的"Hacky resolve"、`warpsPerTileV2` 的偏向 M、`AssignLatencies` 的均分、warp 划分的固定模式。当 kernel 变得不规则（attention 的 causal mask 与在线 softmax、MoE 的分组、解码阶段的小 batch），启发式选错的概率上升，而用户**没有任何手段**去改一个 layout 或一个 stage 分配——Triton 的抽象把它们全藏起来了。同时 Hopper / Blackwell 的性能上限越来越依赖精细的编排（warp specialization 的分区形状、TMEM 的分配、mbarrier 的 phase 管理），CUTLASS 用 C++ 模板把这些暴露给专家，Triton 没有对应物。
+前四篇的自动 pass 在 matmul 这类规则 kernel 上工作得很好，但每一个都是启发式：Coalesce 的 128 bit 上限、`RemoveLayoutConversions` 的"Hacky resolve"、`warpsPerTileV2` 的偏向 M、`AssignLatencies` 的均分、warp 划分的固定模式。当 kernel 变得不规则（attention 的 causal mask 与在线 softmax、MoE（mixture of experts） 的分组、解码阶段的小 batch），启发式选错的概率上升，而用户**没有任何手段**去改一个 layout 或一个 stage 分配——Triton 的抽象把它们全藏起来了。同时 Hopper / Blackwell 的性能上限越来越依赖精细的编排（warp specialization 的分区形状、TMEM 的分配、mbarrier 的 phase 管理），CUTLASS 用 C++ 模板把这些暴露给专家，Triton 没有对应物。
 
 **Gluon**（Triton 3.4 起，`triton.experimental.gluon`）是这个对应物：一个与 Triton 共用前端、编译器与运行时，但 **layout、shared memory、同步与硬件指令全部显式**的子语言。
 
@@ -431,7 +470,7 @@ flowchart LR
 
 `third_party/nvidia/backend/compiler.py` 的 `make_ttgir` 开头：`if knobs.compilation.enable_experimental_consan or is_gluon: … return` 分支——Gluon 的 TTGIR 只过几个不改变 layout 的 pass（`ttgpuir.add_inliner`、`add_canonicalizer`、`add_resolve_auto_encodings`、`add_allocate_warp_groups` 等），**第七、八、九篇讲的全部自动 pass 一个不跑**。用户写的 layout 就是最终的 layout，用户放的 barrier 就是最终的 barrier。换来的是：写错 layout 编译器只报类型错误不会替你修，忘了 wait 就是数据竞争。
 
-Gluon 的意义超出"专家模式"：它是**编译器边界的制度化**。Triton 的设计承诺是"用户定 tile，编译器定 layout"（第一篇 §八.2）；十年的经验说这个承诺在规则 kernel 上兑现得很好、在前沿硬件的前沿 kernel 上兑现不了。Gluon 把边界画在了 TTGIR 这一层：往上（Python 前端、类型系统、运行时、缓存）和往下（TTGIR → LLVM → PTX 的 lowering，第十篇）都复用，中间那段启发式的 layout 与调度决策由用户接管。新硬件特性（Blackwell 的 `tcgen05`、TMEM、Rubin）现在往往**先在 Gluon 里暴露**，等编译器的自动路径成熟再进 `tl`。
+Gluon 的意义超出"专家模式"：它是**编译器边界的制度化**。Triton 的设计承诺是"用户定 tile，编译器定 layout"（第一篇 §八.2）；十年的经验说这个承诺在规则 kernel 上兑现得很好、在前沿硬件的前沿 kernel 上兑现不了。Gluon 把边界画在了 TTGIR 这一层：往上（Python 前端、类型系统、运行时、缓存）和往下（TTGIR → LLVM → PTX（Parallel Thread Execution） 的 lowering，第十篇）都复用，中间那段启发式的 layout 与调度决策由用户接管。新硬件特性（Blackwell 的 `tcgen05`、TMEM、Rubin）现在往往**先在 Gluon 里暴露**，等编译器的自动路径成熟再进 `tl`。
 
 ## 八、本文小结
 
