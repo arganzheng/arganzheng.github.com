@@ -7,11 +7,75 @@ catalog: true
 ---
 
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| AI-Infra | AI infrastructure | 训练、推理平台和框架这一层的底层基础设施 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台和运行时 |
+| Autograd | automatic differentiation | PyTorch 的自动求导引擎 |
+| Dispatcher | — | 按设备和运行时上下文给算子挑实现的分发器 |
+| kernel | — | 在 CPU / GPU 上真正执行一个算子的函数 |
+| DDP | DistributedDataParallel | 数据并行：每卡一份模型，反向时同步梯度 |
+| FSDP | Fully Sharded Data Parallel | 把参数、梯度、优化器状态分片到各卡的数据并行 |
+| DataLoader | — | PyTorch 的数据加载器，多进程读数据、组 batch |
+| graph break | — | torch.compile 遇到捕获不了的代码，把图断开 |
+| dtype | data type | Tensor 元素的数据类型，如 float32、int64 |
+| DeepSpeed | — | 微软的分布式训练库，ZeRO 出自这里 |
+| TorchTitan | — | PyTorch 官方的大模型预训练参考实现 |
+| Triton | — | OpenAI 的 GPU kernel 编程语言和编译器 |
+| metadata | — | 描述 Tensor 怎么解释数据的信息：形状、步幅、类型等 |
+| OOM | out of memory | 显存不够，分配失败 |
+| eager mode | — | 逐个算子立即执行的默认模式 |
+| ATen | A Tensor library | PyTorch 的 C++ 张量与算子库 |
+| stride | — | 每个维度前进一步，在内存里要跳过几个元素 |
+| CI | continuous integration | 持续集成：每次提交自动跑构建和测试 |
+| JAX | — | Google 的函数式数值计算与深度学习框架 |
+| ABI | application binary interface | 编译后的二进制之间的调用约定 |
+| FX | — | PyTorch 的图表示和图变换工具（torch.fx） |
+| TorchDynamo | — | torch.compile 的前端，从 Python 字节码捕获计算图 |
+| AOTAutograd | ahead-of-time Autograd | 编译前提前把前向、反向图都生成出来 |
+| TorchInductor | — | torch.compile 的默认后端，生成融合后的 kernel |
+| guard | — | 编译结果能否复用的前提条件检查 |
+| FLOPs | floating point operations | 浮点运算次数，衡量计算量 |
+| FP16 | 16-bit floating point | 半精度浮点，5 位指数、10 位尾数 |
+| BF16 | bfloat16, brain floating point | 8 位指数的 16 位浮点，范围同 FP32 |
+| TF32 | TensorFloat-32 | Ampere 起 Tensor Core 用的 19 位精度矩阵乘格式 |
+| SPMD | single program, multiple data | 每个进程跑同一份程序、处理不同数据 |
+| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
+| AllReduce / AllGather / ReduceScatter / AllToAll | — | 四种集合通信原语：求和、拼接、求和后分片、全交换 |
+| P2P | peer-to-peer | 两个进程之间的点对点收发 |
+| ZeRO | Zero Redundancy Optimizer | 把优化器状态、梯度、参数分片，去掉数据并行的冗余 |
+| FSDP2 | — | FSDP 的第二版，基于 DTensor 按参数分片 |
+| DTensor | distributed tensor | 带分片 / 复制布局描述的分布式 Tensor |
+| HSDP | Hybrid Sharded Data Parallel | 机内分片、机间复制的 FSDP 变体 |
+| TP | tensor parallelism | 张量并行：把一个层的权重切到多张卡 |
+| PP | pipeline parallelism | 流水线并行：按层切模型，micro-batch 流过各段 |
+| GPipe | — | Google 提出的流水线并行方案 |
+| 1F1B | one forward, one backward | 流水线里前向、反向交替的调度方式 |
+| CP | context parallelism | 上下文并行：沿序列维切分长序列 |
+| EP | expert parallelism | 专家并行：MoE 的不同专家放在不同卡 |
+| OpInfo | — | PyTorch 测试里描述单个算子的条目，驱动批量测试 |
+| AMP | automatic mixed precision | 自动混合精度：部分算子用低精度跑 |
+| CPython | — | Python 的官方 C 语言实现 |
+| GIL | global interpreter lock | CPython 的全局解释器锁，同一时刻只有一个线程跑字节码 |
+| RAII | resource acquisition is initialization | C++ 用对象生命周期管理资源的惯用法 |
+| Tensor Core | — | NVIDIA GPU 上专做矩阵乘的计算单元 |
+| LLM | large language model | 大语言模型 |
+| KV | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
+| prefill / decode | — | 推理的两阶段：一次处理整段提示 / 逐 token 生成 |
+| PrivateUse1 | — | 留给第三方硬件后端的保留 dispatch key |
+| codegen | code generation | 由脚本按描述文件自动生成源码 |
+| BC / FC | backward / forward compatibility | 向后 / 向前兼容：新旧版本互相能用 |
+| RC | release candidate | 发布候选版 |
+
+Table: 本文用到的术语与缩写
+
 ## 内容简介
 
-《PyTorch 深度实践：从 Tensor 到深度学习运行时》是一组共十篇的系列文章，面向有后端工程经验、尤其是 Java 背景、准备进入 AI-Infra 方向的工程师，系统梳理 PyTorch 从 Python API 到 C++、CUDA、编译器、性能分析和分布式运行时的主要机制。
+《PyTorch 深度实践：从 Tensor 到深度学习运行时》是一组共十篇的系列文章，面向有后端工程经验、尤其是 Java 背景、准备进入 AI-Infra（AI infrastructure） 方向的工程师，系统梳理 PyTorch 从 Python API 到 C++、CUDA（Compute Unified Device Architecture）、编译器、性能分析和分布式运行时的主要机制。
 
-它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)讲 PyTorch 的"用"——五个对象、二十行训练循环、显存的账——本系列讲"改"：Dispatcher、Autograd 引擎、编译、分布式。两张地图共享本系列，算法方向的读者按需读。
+它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)讲 PyTorch 的"用"——五个对象、二十行训练循环、显存的账——本系列讲"改"：Dispatcher、Autograd（automatic differentiation） 引擎、编译、分布式。两张地图共享本系列，算法方向的读者按需读。
 
 这个系列不是 PyTorch API 速查表，也不是机器学习算法教程，而是试图回答一个问题：
 
@@ -82,7 +146,7 @@ optimizer.step()
 - Python 调用是如何进入 C++ 和 CUDA 的？
 - `torch.compile()` 为什么有时加速，有时反而变慢？
 - GPU 利用率不高时，问题究竟在模型、数据、Kernel 还是同步？
-- DDP 与 FSDP 分别解决什么问题？
+- DDP（DistributedDataParallel） 与 FSDP（Fully Sharded Data Parallel） 分别解决什么问题？
 - 一个自定义算子怎样才能真正具备生产质量？
 
 如果只停留在 API 层，这些问题往往只能依靠搜索和经验解决。这个系列希望把这些现象还原成可以理解和验证的机制。
@@ -137,7 +201,7 @@ CPU / CUDA / Meta Kernel
 - `torch.compile()` 的 graph break 是什么？
 - DDP 如何同步梯度？FSDP 为什么能够节省显存？
 - 一个 C++/CUDA 扩展如何安全地接入 PyTorch？
-- 如何为算子设计跨设备、跨 dtype 的测试？
+- 如何为算子设计跨设备、跨 dtype（data type） 的测试？
 
 ### 想读懂 PyTorch 和训练框架源码的开发者
 
@@ -159,7 +223,7 @@ CPU / CUDA / Meta Kernel
 - 训练速度不稳定；
 - GPU 利用率很低；
 - 显存逐步增长；
-- 换一个 batch size 就 OOM；
+- 换一个 batch size 就 OOM（out of memory）；
 - 多卡训练速度没有线性提升；
 - 模型在 eager 下正常，compile 后结果异常；
 - 自定义算子无法处理非连续 Tensor；
@@ -248,7 +312,7 @@ Table: 十篇的标题、线索、源码目录与实践落点
 - PyTorch 从动态图走向编译执行的架构演进；
 - Eager Mode 的基本定位；
 - Python、C++、CUDA 三层之间的关系；
-- Tensor、Autograd、Dispatcher、ATen、Kernel 的关系；
+- Tensor、Autograd、Dispatcher、ATen（A Tensor library）、Kernel 的关系；
 - `torch.compile`、分布式和扩展机制在整体架构中的位置。
 
 核心问题是：
@@ -457,7 +521,7 @@ add.out
 - CUDA 自定义算子；
 - 自定义 Autograd；
 - 算子注册；
-- ABI 和编译问题；
+- ABI（application binary interface） 和编译问题；
 - Python 与 C++ 之间的数据传递。
 
 实践项目分成四个阶段：
@@ -501,7 +565,7 @@ Autograd / Dispatcher
 - Graph Break；
 - Guard；
 - Dynamic Shape；
-- AOTAutograd；
+- AOTAutograd（ahead-of-time Autograd）；
 - TorchInductor；
 - Triton；
 - 算子融合；
@@ -580,7 +644,7 @@ def f(x, weight, bias):
 - `torch.cuda.synchronize()` 与隐式同步点；
 - `torch.utils.benchmark`、PyTorch Profiler、Nsight Systems、Nsight Compute；
 - Kernel Launch 开销、CUDA Graphs；
-- Memory Bandwidth、Compute Throughput、FLOPs、Arithmetic Intensity、Occupancy；
+- Memory Bandwidth、Compute Throughput、FLOPs（floating point operations）、Arithmetic Intensity、Occupancy；
 - 低精度（FP16、BF16、TF32）作为处方及其代价；
 - CUDA Caching Allocator、`allocated` 与 `reserved`、显存碎片；
 - 训练显存的构成与峰值；
@@ -630,15 +694,15 @@ def f(x, weight, bias):
 
 这一篇会覆盖：
 
-- SPMD 执行模型、Process、Rank、World Size、Process Group、`DeviceMesh`；
-- NCCL 与 Gloo；
-- Broadcast、Reduce、AllReduce、AllGather、ReduceScatter、AllToAll、P2P；
+- SPMD（single program, multiple data） 执行模型、Process、Rank、World Size、Process Group、`DeviceMesh`；
+- NCCL（NVIDIA Collective Communications Library） 与 Gloo；
+- Broadcast、Reduce、AllReduce、AllGather、ReduceScatter、AllToAll、P2P（peer-to-peer）；
 - 通信成本模型：α + β、Ring 与 Tree、`algbw` 与 `busbw`；
 - 通信的异步语义与通信/计算重叠；
 - DDP：Reducer、Gradient Bucket、通信 hook；
-- ZeRO 三阶段与 FSDP2：`fully_shard`、DTensor、分片单元、预取、HSDP；
+- ZeRO（Zero Redundancy Optimizer） 三阶段与 FSDP2：`fully_shard`、DTensor（distributed tensor）、分片单元、预取、HSDP；
 - 张量并行（TP）：列/行切分、Megatron 式共轭算子、词表并行、Sequence Parallel；
-- 流水线并行（PP）：GPipe、1F1B、交错调度、Zero Bubble、`torch.distributed.pipelining`；
+- 流水线并行（PP）：GPipe、1F1B（one forward, one backward）、交错调度、Zero Bubble、`torch.distributed.pipelining`；
 - 上下文并行（CP）：Ring Attention、负载均衡；
 - 专家并行（EP）：dispatch/combine、容量因子、负载均衡损失；
 - 多维混合并行的组合原则，以及训练与推理的并行选择差异；
@@ -682,7 +746,7 @@ def f(x, weight, bias):
 
 前六关是框架维护者的视角，第七关是使用者的视角。七个关卡共同守住三件事：**正确性**（主要由 ②）、**性能**（主要由 ③）、**兼容性**（主要由 ⑥）；构建是一切验证的前提，合入与发布把验证变成强制的、自动的流程。
 
-框架与应用的区别在于**组合爆炸**：两千多个算子 × 十几种 dtype × 多个后端 × 各种 shape 与 layout × 多种执行模式。这个事实塑造了数据驱动的 OpInfo 测试、分层的 CI，以及按稳定程度分级的接口面。
+框架与应用的区别在于**组合爆炸**：两千多个算子 × 十几种 dtype × 多个后端 × 各种 shape 与 layout × 多种执行模式。这个事实塑造了数据驱动的 OpInfo 测试、分层的 CI（continuous integration），以及按稳定程度分级的接口面。
 
 实践终点是把第六篇的 `scale_shift` 算子（`myops` 项目）重新拿出来，让它走完这七关：复用 PyTorch 的测试基础设施、建立 Benchmark 基线与回归阈值、搭 CI 矩阵、守住 Schema 契约并完成一次向后兼容的演进、发布制品，最后站到使用者一侧看如何跟随 PyTorch 升级。
 
@@ -791,7 +855,7 @@ Table: 各 PyTorch 主题同步补充的数学
 
 PyTorch 的以下部分变化较快：
 
-- AMP API；
+- AMP（automatic mixed precision） API；
 - `torch.compile` 内部实现；
 - `torch.export`；
 - Triton 集成；
@@ -810,10 +874,10 @@ PyTorch 的以下部分变化较快：
 
 本系列聚焦 PyTorch 的编程模型、执行引擎、算子系统、编译器、性能和分布式运行时，不试图覆盖所有 AI-Infra 领域。以下内容与本系列紧邻，但不在范围内：
 
-- **Python 语言本身**：CPython 的对象模型、GIL、异步、类型系统。本系列假设读者已经掌握，只在 Python 与 C++ 边界处涉及；
-- **C++ 语言本身**：模板、RAII、静态注册等在源码阅读中反复出现的特性。本系列解释它们在 PyTorch 中的用途，不讲语言机制；
+- **Python 语言本身**：CPython 的对象模型、GIL（global interpreter lock）、异步、类型系统。本系列假设读者已经掌握，只在 Python 与 C++ 边界处涉及；
+- **C++ 语言本身**：模板、RAII（resource acquisition is initialization）、静态注册等在源码阅读中反复出现的特性。本系列解释它们在 PyTorch 中的用途，不讲语言机制；
 - **单个 CUDA Kernel 的内部优化**：访存合并、共享内存、Tensor Core 编程。第六篇给出读懂一个 Kernel 所需的最小概念，第八篇在系统层面判断瓶颈类型，Kernel 内部如何写到硬件极限不展开；
-- **LLM 推理系统**：请求生命周期、Continuous Batching、KV Cache 管理、Prefill/Decode 分离、集群路由。本系列覆盖它们所依赖的模型计算、GPU 执行、显存和通信基础，不讨论 Serving 系统自身的设计。
+- **LLM（large language model） 推理系统**：请求生命周期、Continuous Batching、KV（key–value） Cache 管理、Prefill/Decode 分离、集群路由。本系列覆盖它们所依赖的模型计算、GPU 执行、显存和通信基础，不讨论 Serving 系统自身的设计。
 
 
 ## 章节目录
@@ -872,5 +936,5 @@ Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
 这正是从后端工程师走向 AI-Infra 工程师时，PyTorch 最值得深入学习的部分。
 
 [^q0]: 靠分层：**Tensor**（数据 + 形状 / 步幅 / dtype / 设备 / 生命周期，Python 对象是 C++ `TensorImpl` 的句柄）表达数据；每个算子经 **Dispatcher** 按 Tensor 的 DispatchKeySet 选实现——Autograd key 上先记录 `grad_fn` 建图（**可求导**），再落到 CPU / CUDA / 第三方后端的 kernel（**可扩展**：新算子注册到同一张表，新硬件走 PrivateUse1）；**编译**（Dynamo 捕获整图 → AOTAutograd 拆前后向 → Inductor 生成融合 kernel）把逐算子分发整体换掉（**可优化**）；**分布式**对参数、梯度、优化器状态、激活、数据五类状态各做复制或分片，用集合通信在 stream 上与计算重叠（**可分布式**）。四种能力能叠加，因为都建立在同一个算子系统之上。
-[^q1]: Python 的 `torch.add` 是 codegen 生成的 C++ 绑定（`torch/csrc/autograd/generated/python_torch_functions*.cpp`）：解析参数 → 调 `at::add` → 进入 **Dispatcher**，用两个输入 Tensor 的 DispatchKeySet 取最高优先级的 key：先到 Autograd key 的包装（`VariableType::add`），若需要求导就创建 `AddBackward0` 节点、记录输入 → 重新分发到后端 key（CPU / CUDA）→ `TensorIterator` 处理广播、类型提升、内存布局 → 调用对应 kernel（CPU 向量化循环或 CUDA `elementwise_kernel`）→ 结果 Tensor 带着 `grad_fn` 返回 Python。第五篇沿这条路径逐层读源码。
+[^q1]: Python 的 `torch.add` 是 codegen（code generation） 生成的 C++ 绑定（`torch/csrc/autograd/generated/python_torch_functions*.cpp`）：解析参数 → 调 `at::add` → 进入 **Dispatcher**，用两个输入 Tensor 的 DispatchKeySet 取最高优先级的 key：先到 Autograd key 的包装（`VariableType::add`），若需要求导就创建 `AddBackward0` 节点、记录输入 → 重新分发到后端 key（CPU / CUDA）→ `TensorIterator` 处理广播、类型提升、内存布局 → 调用对应 kernel（CPU 向量化循环或 CUDA `elementwise_kernel`）→ 结果 Tensor 带着 `grad_fn` 返回 Python。第五篇沿这条路径逐层读源码。
 [^q2]: 前向时每个需要求导的算子在 Dispatcher 的 Autograd 层记录一个 `Node`（`grad_fn`），保存反向需要的输入 / 输出，节点之间通过 `next_functions` 连成一张以输出为根的有向无环图；`loss.backward()` 从根节点出发，按拓扑序（引擎维护每个节点的依赖计数，就绪的入队、多设备多线程执行）对每个节点调用它的 `apply`——把上游传来的梯度乘上本算子的局部 Jacobian（链式法则的一步）——再把结果分发给下游节点，叶子 Tensor 的梯度累加进 `.grad`。因为图是在前向执行时**动态**记录的，每次 forward 建一张新图，Python 的 `if` / `for` 直接决定图长什么样，用完即释放。
