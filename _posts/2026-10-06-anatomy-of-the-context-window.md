@@ -7,13 +7,36 @@ tags: [AI, LLM, AI-Application, Context Engineering, Agent]
 catalog: true
 ---
 
-《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲过：模型能可靠利用的上下文远小于它标称的长度，而且长上下文按 token 计费、线性拖慢 TTFT。这一篇从另一头看同一个问题：**一次请求里模型到底看到了什么**。多数工程师第一次把发给模型的完整请求体打印出来时都会吃惊——用户那句 20 个字的问题外面裹着两万 token 的 system prompt、工具定义、历史、检索结果与工具返回，而其中一半是上一步某个工具返回的原始 JSON。
+《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲过：模型能可靠利用的上下文远小于它标称的长度，而且长上下文按 token 计费、线性拖慢 TTFT（time to first token）。这一篇从另一头看同一个问题：**一次请求里模型到底看到了什么**。多数工程师第一次把发给模型的完整请求体打印出来时都会吃惊——用户那句 20 个字的问题外面裹着两万 token 的 system prompt、工具定义、历史、检索结果与工具返回，而其中一半是上一步某个工具返回的原始 JSON。
 
 要管理上下文，先要能解剖它。本篇建立一个七层模型：每层是什么、由谁维护、多大、变化多快、能不能压缩——后面五篇的每一种策略（预算、压缩、缓存、版本）都是对某几层的操作。实例用两个公开材料：Claude Code 文档里的"上下文窗口时间线"（一个会话从启动到压缩每一步进了什么），以及 Manus 公开的两个数字（一个任务约 50 次工具调用、输入输出 100 : 1）。
 
 本篇要回答的核心问题是：
 
 > **模型在这一步看到的上下文由哪几层组成，各由谁维护、多大、变化多快？[^q0] 一个 agent 会话的上下文是怎样长起来的，为什么不管理就一定漂移？[^q1] "注意力预算"有限这件事的机制是什么，对设计意味着什么？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| TTFT | time to first token | 首 token 延迟，从发请求到收到第一个 token |
+| CLAUDE.md / AGENTS.md | — | 项目说明文件，Claude Code 读前者，多家工具读后者 |
+| MCP | Model Context Protocol | 给模型接工具和数据源的开放协议 |
+| PostToolUse hook | — | Claude Code 每次工具调用后触发的钩子 |
+| auto-compact | — | Claude Code 窗口快满时自动压缩历史 |
+| tool search | — | 工具定义不常驻，用到时再检索加载 |
+| SKILL.md | — | Agent Skills 的技能文件，只有描述常驻 |
+| progressive disclosure | — | 渐进披露：常驻一行描述，用到再加载全文 |
+| L1–L7 | layer 1–7 | 《AI 应用工程师学习地图》的七层，本系列是 L2 |
+| prefill | — | 模型一次读完全部输入、建好 KV 的阶段 |
+| KV cache | key–value cache | 缓存前缀的注意力键值，前缀相同就能复用 |
+| Lost in the Middle | — | 发现模型对窗口中间的信息利用最差的研究 |
+| LLM | large language model | 大语言模型 |
+| RULER | — | 长上下文基准，测模型的真实可用长度 |
+| NoLiMa | — | 长上下文基准，问题与答案没有字面重合 |
+| Context Rot | — | Chroma 的研究：输入越长模型表现越不均匀地退化 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -95,7 +118,7 @@ flowchart TB
 
 ### 2. 工具与技能定义
 
-每个工具的名字、描述、参数 schema；每个技能的描述行。性质：稳定、靠前、**按数量线性增长**——几十个 MCP 工具的完整 schema 可以是几千到上万 token。两种应对：Claude Code 与 OpenAI 的 tool search 把完整 schema 延迟加载（常驻的只有名字或一行描述，模型需要时再取——代价是这些按需加载的内容不在缓存前缀里）；Agent Skills 标准把这个思路做成规范——`SKILL.md` 只有 `description`（≤ 1,024 字符）常驻，正文与脚本用到时才读。这叫**渐进披露**（progressive disclosure），是这一层的核心设计原则。
+每个工具的名字、描述、参数 schema；每个技能的描述行。性质：稳定、靠前、**按数量线性增长**——几十个 MCP（Model Context Protocol）工具的完整 schema 可以是几千到上万 token。两种应对：Claude Code 与 OpenAI 的 tool search 把完整 schema 延迟加载（常驻的只有名字或一行描述，模型需要时再取——代价是这些按需加载的内容不在缓存前缀里）；Agent Skills 标准把这个思路做成规范——`SKILL.md` 只有 `description`（≤ 1,024 字符）常驻，正文与脚本用到时才读。这叫**渐进披露**（progressive disclosure），是这一层的核心设计原则。
 
 ```mermaid
 %% 图：渐进披露——常驻在上下文里的只是每个工具的名字和每个技能的一行描述（几十 token），完整的 schema 与 SKILL.md 正文放在外面，模型判断要用时再加载；30 个工具的完整定义从常驻的 9K 变成常驻 1K + 按需 300
@@ -142,7 +165,7 @@ flowchart LR
 
 ### 1. 两个数字
 
-Manus 公开的生产统计：一个典型任务约 **50 次工具调用**，输入与输出 token 的比例约 **100 : 1**。第二个数字的含义是：agent 的成本几乎全在输入侧——每一步都把累积的上下文重新传一遍、prefill 一遍，而模型每步只产出几百 token 的决定。这与聊天产品（输入输出比例接近 1 : 1 到 10 : 1）完全不同，也是为什么 Manus 把 KV-cache 命中率列为第一指标（第五篇）。
+Manus 公开的生产统计：一个典型任务约 **50 次工具调用**，输入与输出 token 的比例约 **100 : 1**。第二个数字的含义是：agent 的成本几乎全在输入侧——每一步都把累积的上下文重新传一遍、prefill 一遍，而模型每步只产出几百 token 的决定。这与聊天产品（输入输出比例接近 1 : 1 到 10 : 1）完全不同，也是为什么 Manus 把 KV-cache（key–value cache）命中率列为第一指标（第五篇）。
 
 ### 2. 增长的形状
 

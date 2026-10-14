@@ -15,6 +15,27 @@ catalog: true
 
 > **怎样给上下文的每一层定配额，超了先做什么、再做什么？[^q0] 五个公开系统的卸载、清理、压缩各在什么阈值触发、保留什么？[^q1] 压缩会丢什么，怎么评测它丢了什么？[^q2]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| auto-compact | — | Claude Code 窗口快满时自动压缩历史 |
+| CLAUDE.md | — | Claude Code 启动时读入的项目说明文件 |
+| compaction | — | 用一次模型调用把历史摘要成一段 |
+| context editing | — | Anthropic API 按策略清掉旧工具返回的功能 |
+| memory tool | — | Anthropic API 让模型读写持久记忆的工具 |
+| RAG | retrieval-augmented generation | 先检索资料，再让模型据此回答 |
+| L1–L7 | layer 1–7 | 《AI 应用工程师学习地图》的七层，本系列是 L2 |
+| tool search | — | 工具定义不常驻，用到时再检索加载 |
+| SKILL.md | — | 技能说明文件，只有描述常驻，正文按需读 |
+| micro-compact | — | Claude Code 大压缩前对旧工具返回的局部清理 |
+| AES | Advanced Encryption Standard | 对称加密标准，Codex 用它加密压缩结果 |
+| JSONL | JSON Lines | 每行一个 JSON 对象的文本格式 |
+| prefill | — | 模型一次读完全部输入、建好 KV 的阶段 |
+| recitation | — | 复述：每步把目标和进度重写到上下文末尾 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览
 
 ### 1. 处理顺序

@@ -28,6 +28,44 @@ flowchart TB
 
 ```
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| A/B | A/B testing | 把流量随机分给两个版本，比较指标 |
+| auto-compact | — | Claude Code 窗口快满时自动压缩历史 |
+| CoT | chain-of-thought | 让模型先写出推理步骤再回答 |
+| few-shot | — | 在 prompt 里放几个示例让模型照着做 |
+| CLAUDE.md | — | Claude Code 启动时读入的项目说明文件 |
+| eagerness / tool preamble | — | GPT-5 指南里的主动性档位 / 调工具前后各说一句 |
+| Outlines / XGrammar / llguidance | — | 三个约束解码库，把 schema 编译成自动机 |
+| FSM | finite-state machine | 有限状态机，表达不了递归结构 |
+| CFG | context-free grammar | 上下文无关文法，能表达递归的嵌套结构 |
+| compaction | — | 用一次模型调用把历史摘要成一段 |
+| AGENTS.md / SKILL.md | — | 项目的常驻指令文件 / 按需加载的技能说明 |
+| agentic retrieval | — | 让 agent 自己决定查什么、查几次 |
+| Langfuse | — | 开源的 prompt 管理平台，版本加可移动标签 |
+| effort | — | 推理模型思考量的档位参数 |
+| TTL | time to live | 缓存条目的存活时间，过期就失效 |
+| Context Rot | — | Chroma 的研究：输入越长模型表现越不均匀地退化 |
+| TTFT | time to first token | 首 token 延迟，从发请求到收到第一个 token |
+| prefill | — | 模型一次读完全部输入、建好 KV 的阶段 |
+| L1–L7 | layer 1–7 | 《AI 应用工程师学习地图》的七层，本系列是 L2 |
+| AES | Advanced Encryption Standard | 对称加密标准，Codex 用它加密压缩结果 |
+| RAG | retrieval-augmented generation | 先检索资料，再让模型据此回答 |
+| tokenizer | — | 把文本切成 token 的组件，换模型可能就变 |
+| context engineering | — | 决定模型每一步看到哪些 token 的工程 |
+| Lost in the Middle | — | 发现模型对窗口中间的信息利用最差的研究 |
+| NoLiMa | — | 长上下文基准，问题与答案没有字面重合 |
+| rerank | — | 对检索出的候选再精排一次 |
+| GraphRAG | — | 先从语料建知识图谱、再在图上检索的 RAG |
+| harness | — | 包在模型调用外面的 agent 运行时框架 |
+| judge | — | 给模型输出打分的评测模型 |
+| prompt injection | — | 混进上下文的文字冒充指令，劫持模型行为 |
+| LLM | large language model | 大语言模型 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**上下文是有限、有序、有版本的资源，每一段都要为它占的预算辩护，每一次排列都有成本含义，每一次改动都是一次发布**。
@@ -71,7 +109,7 @@ Table: 本文的章节安排
 
 **核心问题**：哪些稳定、哪些随模型变？哪些技巧失效？成熟产品的 system prompt 怎么组织？
 
-**结论**：模式六部分——身份与"不做什么"、可检验规则（每条配评测用例）、分区标记、跨工具政策（eagerness 档位、工具预算、preamble）、格式与拒答出口、知识截止与日期。推理模型上删 CoT 指令（用 effort）、few-shot 只留格式示例（历史本身是有害的 few-shot——Manus）、夸奖无增量、负面改肯定替代、矛盾指令让推理模型浪费思考。公开材料：claude.ai system prompt 随版本改措辞；Claude Code 把动态环境放末尾、CLAUDE.md 独立；GPT-5 guide 证明措辞是模型专属的。边界：prompt 不是安全边界，不能补模型能力。
+**结论**：模式六部分——身份与"不做什么"、可检验规则（每条配评测用例）、分区标记、跨工具政策（eagerness 档位、工具预算、preamble）、格式与拒答出口、知识截止与日期。推理模型上删 CoT（chain-of-thought）指令（用 effort）、few-shot 只留格式示例（历史本身是有害的 few-shot——Manus）、夸奖无增量、负面改肯定替代、矛盾指令让推理模型浪费思考。公开材料：claude.ai system prompt 随版本改措辞；Claude Code 把动态环境放末尾、CLAUDE.md 独立；GPT-5 guide 证明措辞是模型专属的。边界：prompt 不是安全边界，不能补模型能力。
 
 **必记**：模式 vs 措辞的表；六部分；"给原因而不是加规则"；换模型只调措辞。
 
@@ -81,7 +119,7 @@ Table: 本文的章节安排
 
 **核心问题**：约束解码怎么实现、为什么是硬保证、strict 为什么有限制？schema 怎么设计？解析层处理什么？
 
-**结论**：schema 编译成自动机，每步把不合法 token 置零——数学保证；FSM（Outlines）不能表达递归，下推自动机（XGrammar / llguidance）可以；strict 限制来自状态空间（可选字段指数增长、任意键名不可枚举）与编译成本，schema 应稳定且占 token。七个模式：顺序即生成顺序、拒答出口、enum、描述是 prompt、限深度、稳定 schema、结果用输出 schema 动作用工具。解析层：`refusal` → `stop_reason` → 类型校验 → 业务校验 → 出口路由 → 带错误重试一次 → 降级；流式部分 JSON 增量解析。
+**结论**：schema 编译成自动机，每步把不合法 token 置零——数学保证；Outlines 的 FSM（finite-state machine）不能表达递归，下推自动机（XGrammar / llguidance）可以；strict 限制来自状态空间（可选字段指数增长、任意键名不可枚举）与编译成本，schema 应稳定且占 token。七个模式：顺序即生成顺序、拒答出口、enum、描述是 prompt、限深度、稳定 schema、结果用输出 schema 动作用工具。解析层：`refusal` → `stop_reason` → 类型校验 → 业务校验 → 出口路由 → 带错误重试一次 → 降级；流式部分 JSON 增量解析。
 
 **必记**：保证 / 不保证的表；推理字段前置 2–5 个百分点；strict 下截断仍会发生；动态 enum 毁编译缓存与前缀。
 
@@ -101,7 +139,7 @@ Table: 本文的章节安排
 
 **核心问题**：四家条件、断点分层、破坏前缀的操作、命中率排查？
 
-**结论**：一条规则（前缀逐字节相同、tools → system → messages、改动处起失效）的推论：四层四个断点（工具 / 静态 system / 半静态 / 最后一条历史），动态段最后；四家机制差异（显式 vs 自动、存储费、粒度）；十种破坏操作与 Manus 三条规则；屏蔽工具不删除、不删失败、不整理历史、长 TTL 看轮次间隔；命中率与未缓存绝对量、节省美元一起看，排查表按症状定位。
+**结论**：一条规则（前缀逐字节相同、tools → system → messages、改动处起失效）的推论：四层四个断点（工具 / 静态 system / 半静态 / 最后一条历史），动态段最后；四家机制差异（显式 vs 自动、存储费、粒度）；十种破坏操作与 Manus 三条规则；屏蔽工具不删除、不删失败、不整理历史、长 TTL（time to live）看轮次间隔；命中率与未缓存绝对量、节省美元一起看，排查表按症状定位。
 
 **必记**：排列图；1,024 起静默不缓存；20 块回看；`prompt_cache_key`；稳态 70–90%；diff 两次请求体找第一个不同字节。
 
@@ -288,7 +326,7 @@ Table: 常见误区与正确说法
 8. 判断：Codex 的 `/responses/compact` 返回的压缩结果可以由应用读取并编辑。
 
    <details markdown="1"><summary>答案</summary>
-   错。它是 AES 加密的 `compaction` item，只有 OpenAI 服务端能解密；应用只原样送回。可读、可编辑的是 Claude Code / Anthropic API 的文本摘要。
+   错。它是 AES（Advanced Encryption Standard）加密的 `compaction` item，只有 OpenAI 服务端能解密；应用只原样送回。可读、可编辑的是 Claude Code / Anthropic API 的文本摘要。
    </details>
 
 9. 判断：SKILL.md 的 `description` 字段可以省略，只要正文写清楚。
@@ -305,7 +343,7 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. 一个 RAG 客服助手的请求体按顺序是：当前时间（秒）→ system 规则 → 本轮检索结果 → 工具定义 → 历史 → 用户消息。列出它违反了本系列的哪些原则，给出正确顺序，并说明每处修改对命中率、注意力、压缩存活各有什么影响。
+1. 一个 RAG（retrieval-augmented generation）客服助手的请求体按顺序是：当前时间（秒）→ system 规则 → 本轮检索结果 → 工具定义 → 历史 → 用户消息。列出它违反了本系列的哪些原则，给出正确顺序，并说明每处修改对命中率、注意力、压缩存活各有什么影响。
 
    <details markdown="1"><summary>答案</summary>
    违反：时间戳在最前（第五篇：全部失效）；检索在历史前（每轮不同让历史失效）；工具定义在 system 后（tools → system 的缓存顺序被打乱，且工具定义应是最稳定的一层）；system 里没有日期放在动态段。正确顺序：tools → system（静态规则）→ 半静态（画像 / few-shot）→ 历史（只追加）→ 动态段（日期到天、本轮检索、用户消息）。影响：命中率从接近 0 恢复到稳态 70–90%；注意力——检索结果与用户消息在末尾（位置效应最好），规则在开头；压缩存活——常驻层不在历史里不受压缩影响，检索结果作为动态段每轮替换本就不该存活。
@@ -332,7 +370,7 @@ Table: 常见误区与正确说法
 5. 把本系列的六篇与 L1 的七条失效模式对应起来：每篇主要对付哪几条、用什么手段、在 L1 的账上换的是什么。
 
    <details markdown="1"><summary>答案</summary>
-   第一篇：上下文标称 ≠ 有效——分层与预算基线，无直接成本。第二篇：指令遵循与 prompt 敏感——模式 vs 措辞、可检验规则、删失效技巧；token 换遵循率。第三篇：指令遵循（格式）与幻觉（拒答出口）——约束解码与 schema 设计；schema 的 token 与编译换解析确定性。第四篇：上下文标称 ≠ 有效与越界（目标漂移）——卸载 / 清理 / 压缩 / 复述；一次推理成本换有效上下文。第五篇：纯账——排列换 90% 输入折价与 TTFT。第六篇：供应商变更与 prompt 敏感——版本、门禁、灰度；评测成本换回归保护。
+   第一篇：上下文标称 ≠ 有效——分层与预算基线，无直接成本。第二篇：指令遵循与 prompt 敏感——模式 vs 措辞、可检验规则、删失效技巧；token 换遵循率。第三篇：指令遵循（格式）与幻觉（拒答出口）——约束解码与 schema 设计；schema 的 token 与编译换解析确定性。第四篇：上下文标称 ≠ 有效与越界（目标漂移）——卸载 / 清理 / 压缩 / 复述；一次推理成本换有效上下文。第五篇：纯账——排列换 90% 输入折价与 TTFT（time to first token）。第六篇：供应商变更与 prompt 敏感——版本、门禁、灰度；评测成本换回归保护。
    </details>
 
 ### C. 面试题（7 题）
