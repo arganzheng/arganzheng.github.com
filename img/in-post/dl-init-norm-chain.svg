@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="800.39952pt" height="483.59952pt" viewBox="0 0 800.39952 483.59952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="872.39952pt" height="627.599035pt" viewBox="0 0 872.39952 627.599035" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -20,597 +20,703 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 483.59952
-L 800.39952 483.59952
-L 800.39952 0
+   <path d="M 0 627.599035
+L 872.39952 627.599035
+L 872.39952 0
 L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
-    <path d="M 76.338847 203.325399
-L 127.28326 203.325399
-Q 133.105479 203.325399 133.105479 199.571803
-L 133.105479 171.419832
-Q 133.105479 167.666236 127.28326 167.666236
-L 76.338847 167.666236
-Q 70.516628 167.666236 70.516628 171.419832
-L 70.516628 199.571803
-Q 70.516628 203.325399 76.338847 203.325399
+    <path d="M 153.179085 114.94061
+L 194.887395 114.94061
+Q 199.654059 114.94061 199.654059 110.983989
+L 199.654059 81.309326
+Q 199.654059 77.352704 194.887395 77.352704
+L 153.179085 77.352704
+Q 148.412421 77.352704 148.412421 81.309326
+L 148.412421 110.983989
+Q 148.412421 114.94061 153.179085 114.94061
 z
-" clip-path="url(#p390b47072a)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
-    <path d="M 294.672047 203.325399
-L 345.61646 203.325399
-Q 351.438679 203.325399 351.438679 199.571803
-L 351.438679 171.419832
-Q 351.438679 167.666236 345.61646 167.666236
-L 294.672047 167.666236
-Q 288.849828 167.666236 288.849828 171.419832
-L 288.849828 199.571803
-Q 288.849828 203.325399 294.672047 203.325399
+    <path d="M 534.512205 114.94061
+L 576.220515 114.94061
+Q 580.987179 114.94061 580.987179 110.983989
+L 580.987179 81.309326
+Q 580.987179 77.352704 576.220515 77.352704
+L 534.512205 77.352704
+Q 529.745541 77.352704 529.745541 81.309326
+L 529.745541 110.983989
+Q 529.745541 114.94061 534.512205 114.94061
 z
-" clip-path="url(#p390b47072a)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
-    <path d="M 556.671887 203.325399
-L 607.6163 203.325399
-Q 613.438519 203.325399 613.438519 199.571803
-L 613.438519 171.419832
-Q 613.438519 167.666236 607.6163 167.666236
-L 556.671887 167.666236
-Q 550.849668 167.666236 550.849668 171.419832
-L 550.849668 199.571803
-Q 550.849668 203.325399 556.671887 203.325399
+    <path d="M 153.179085 283.097034
+L 194.887395 283.097034
+Q 199.654059 283.097034 199.654059 279.140412
+L 199.654059 249.465749
+Q 199.654059 245.509127 194.887395 245.509127
+L 153.179085 245.509127
+Q 148.412421 245.509127 148.412421 249.465749
+L 148.412421 279.140412
+Q 148.412421 283.097034 153.179085 283.097034
 z
-" clip-path="url(#p390b47072a)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
-    <path d="M 163.672127 203.325399
-L 214.61654 203.325399
-Q 220.438759 203.325399 220.438759 199.571803
-L 220.438759 171.419832
-Q 220.438759 167.666236 214.61654 167.666236
-L 163.672127 167.666236
-Q 157.849908 167.666236 157.849908 171.419832
-L 157.849908 199.571803
-Q 157.849908 203.325399 163.672127 203.325399
+    <path d="M 534.512205 283.097034
+L 576.220515 283.097034
+Q 580.987179 283.097034 580.987179 279.140412
+L 580.987179 249.465749
+Q 580.987179 245.509127 576.220515 245.509127
+L 534.512205 245.509127
+Q 529.745541 245.509127 529.745541 249.465749
+L 529.745541 279.140412
+Q 529.745541 283.097034 534.512205 283.097034
 z
-" clip-path="url(#p390b47072a)" style="fill: #fdeee0; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
-    <path d="M 382.005327 203.325399
-L 432.94974 203.325399
-Q 438.771959 203.325399 438.771959 199.571803
-L 438.771959 171.419832
-Q 438.771959 167.666236 432.94974 167.666236
-L 382.005327 167.666236
-Q 376.183108 167.666236 376.183108 171.419832
-L 376.183108 199.571803
-Q 376.183108 203.325399 382.005327 203.325399
+    <path d="M 275.32485 283.097034
+L 334.90815 283.097034
+Q 339.674814 283.097034 339.674814 279.140412
+L 339.674814 249.465749
+Q 339.674814 245.509127 334.90815 245.509127
+L 275.32485 245.509127
+Q 270.558186 245.509127 270.558186 249.465749
+L 270.558186 279.140412
+Q 270.558186 283.097034 275.32485 283.097034
 z
-" clip-path="url(#p390b47072a)" style="fill: #fdeee0; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #fdeee0; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
-    <path d="M 644.005167 203.325399
-L 694.94958 203.325399
-Q 700.771799 203.325399 700.771799 199.571803
-L 700.771799 171.419832
-Q 700.771799 167.666236 694.94958 167.666236
-L 644.005167 167.666236
-Q 638.182948 167.666236 638.182948 171.419832
-L 638.182948 199.571803
-Q 638.182948 203.325399 644.005167 203.325399
+    <path d="M 656.65797 283.097034
+L 716.24127 283.097034
+Q 721.007934 283.097034 721.007934 279.140412
+L 721.007934 249.465749
+Q 721.007934 245.509127 716.24127 245.509127
+L 656.65797 245.509127
+Q 651.891306 245.509127 651.891306 249.465749
+L 651.891306 279.140412
+Q 651.891306 283.097034 656.65797 283.097034
 z
-" clip-path="url(#p390b47072a)" style="fill: #fdeee0; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #fdeee0; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_8">
-    <path d="M 516.644133 366.372233
-L 603.977413 366.372233
-Q 609.799632 366.372233 609.799632 362.618636
-L 609.799632 308.660692
-Q 609.799632 304.907095 603.977413 304.907095
-L 516.644133 304.907095
-Q 510.821915 304.907095 510.821915 308.660692
-L 510.821915 362.618636
-Q 510.821915 366.372233 516.644133 366.372233
+    <path d="M 623.887155 500.711228
+L 677.512125 500.711228
+Q 682.278789 500.711228 682.278789 496.754606
+L 682.278789 467.079944
+Q 682.278789 463.123322 677.512125 463.123322
+L 623.887155 463.123322
+Q 619.120491 463.123322 619.120491 467.079944
+L 619.120491 496.754606
+Q 619.120491 500.711228 623.887155 500.711228
 z
-" clip-path="url(#p390b47072a)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_9">
-    <path d="M 378.36644 366.372233
-L 465.69972 366.372233
-Q 471.521939 366.372233 471.521939 362.618636
-L 471.521939 308.660692
-Q 471.521939 304.907095 465.69972 304.907095
-L 378.36644 304.907095
-Q 372.544221 304.907095 372.544221 308.660692
-L 372.544221 362.618636
-Q 372.544221 366.372233 378.36644 366.372233
+    <path d="M 278.304015 500.711228
+L 331.928985 500.711228
+Q 336.695649 500.711228 336.695649 496.754606
+L 336.695649 467.079944
+Q 336.695649 463.123322 331.928985 463.123322
+L 278.304015 463.123322
+Q 273.537351 463.123322 273.537351 467.079944
+L 273.537351 496.754606
+Q 273.537351 500.711228 278.304015 500.711228
 z
-" clip-path="url(#p390b47072a)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_10">
-    <path d="M 138.19992 366.372233
-L 225.5332 366.372233
-Q 231.355419 366.372233 231.355419 362.618636
-L 231.355419 308.660692
-Q 231.355419 304.907095 225.5332 304.907095
-L 138.19992 304.907095
-Q 132.377701 304.907095 132.377701 308.660692
-L 132.377701 362.618636
-Q 132.377701 366.372233 138.19992 366.372233
+    <path d="M 614.94966 569.952108
+L 686.44962 569.952108
+Q 691.216284 569.952108 691.216284 565.995487
+L 691.216284 536.320824
+Q 691.216284 532.364202 686.44962 532.364202
+L 614.94966 532.364202
+Q 610.182996 532.364202 610.182996 536.320824
+L 610.182996 565.995487
+Q 610.182996 569.952108 614.94966 569.952108
 z
-" clip-path="url(#p390b47072a)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#p31afded530)" style="fill: #e6f4ee; stroke: #009e73; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 269.36652 569.952108
+L 340.86648 569.952108
+Q 345.633144 569.952108 345.633144 565.995487
+L 345.633144 536.320824
+Q 345.633144 532.364202 340.86648 532.364202
+L 269.36652 532.364202
+Q 264.599856 532.364202 264.599856 536.320824
+L 264.599856 565.995487
+Q 264.599856 569.952108 269.36652 569.952108
+z
+" clip-path="url(#p31afded530)" style="fill: #e6f4ee; stroke: #009e73; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
-    <text style="font: 14px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="400.19976" y="21.275986" transform="rotate(-0 400.19976 21.275986)">前向：方差是每层因子的连乘</text>
+    <!-- 前向：方差逐层乘 $a_l$ -->
+    <g transform="translate(354.38976 21.96)">
+     <text>
+      <tspan style="font: 18px 'Heiti TC'" x="0 18 36 54 72 90 108 126 144" y="-0.40625">前向：方差逐层乘 </tspan>
+      <tspan style="font: oblique 18px 'DejaVu Sans'" x="148.5" y="-0.40625">a</tspan>
+      <tspan style="font: oblique 12.6px 'DejaVu Sans'" x="159.530273" y="2.546875">l</tspan>
+     </text>
+    </g>
    </g>
    <g id="text_2">
     <!-- $\mathrm{Var}(h_L) = \mathrm{Var}(x)\, a_1 a_2 \cdots a_L$ -->
-    <g transform="translate(314.65976 49.427957)">
+    <g transform="translate(332.32976 51.634663)">
      <text>
-      <tspan style="font: 14px 'DejaVu Sans'" x="0 9.577148 18.15625 23.912109 44.089746 52.279199 66.737207 76.314355 84.893457 90.649316 104.396387 142.525241" y="-0.359375">Var()=Var()⋯</tspan>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="29.374023 96.11123 112.131295 127.328268 156.525241" y="-0.359375">hxaaa</tspan>
-      <tspan style="font: oblique 9.8px 'DejaVu Sans'" x="38.24707 165.104342" y="1.9375">LL</tspan>
-      <tspan style="font: 9.8px 'DejaVu Sans'" x="120.710397 135.90737" y="1.9375">12</tspan>
+      <tspan style="font: 17px 'DejaVu Sans'" x="0 11.629395 22.046875 29.036133 53.537549 63.481885 81.038037 92.667432 103.084912 110.07417 126.767041 173.066364" y="-0.078125">Var()=Var()⋯</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="35.668457 116.706494 136.15943 154.612897 190.066364" y="-0.078125">hxaaa</tspan>
+      <tspan style="font: oblique 11.9px 'DejaVu Sans'" x="46.442871 200.483844" y="2.7109375">LL</tspan>
+      <tspan style="font: 11.9px 'DejaVu Sans'" x="146.576911 165.030377" y="2.7109375">12</tspan>
      </text>
     </g>
    </g>
    <g id="text_3">
-    <!-- $x$ -->
-    <g transform="translate(31.811093 190.573552)">
-     <text>
-      <tspan style="font: oblique 15px 'DejaVu Sans'" x="0" y="-0.796875">x</tspan>
-     </text>
-    </g>
+    <text style="fill: #0072b2; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: end" x="84.65829" y="100.54736" transform="rotate(-0 84.65829 100.54736)">只靠初始化</text>
    </g>
    <g id="text_4">
-    <!-- $f_1$ -->
-    <g transform="translate(96.001053 189.716599)">
+    <!-- $x$ -->
+    <g transform="translate(109.04994 102.239939)">
      <text>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="0" y="-0.359375">f</tspan>
-      <tspan style="font: 9.8px 'DejaVu Sans'" x="4.928711" y="1.9375">1</tspan>
+      <tspan style="font: oblique 18px 'DejaVu Sans'" x="0" y="-0.15625">x</tspan>
      </text>
     </g>
    </g>
    <g id="text_5">
-    <!-- $f_2$ -->
-    <g transform="translate(314.334253 189.716599)">
+    <!-- $f_1$ -->
+    <g transform="translate(166.97824 101.271892)">
      <text>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="0" y="-0.359375">f</tspan>
-      <tspan style="font: 9.8px 'DejaVu Sans'" x="4.928711" y="1.9375">2</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="0" y="-0.078125">f</tspan>
+      <tspan style="font: 11.9px 'DejaVu Sans'" x="5.984863" y="2.7109375">1</tspan>
      </text>
     </g>
    </g>
    <g id="text_6">
+    <text style="fill: #7f7f7f; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="174.03324" y="146.242874" transform="rotate(-0 174.03324 146.242874)">Linear + 非线性</text>
+   </g>
+   <g id="text_7">
     <!-- $f_L$ -->
-    <g transform="translate(576.754093 189.716599)">
+    <g transform="translate(548.82136 101.271892)">
      <text>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="0" y="-0.359375">f</tspan>
-      <tspan style="font: oblique 9.8px 'DejaVu Sans'" x="4.928711" y="1.9375">L</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="0" y="-0.078125">f</tspan>
+      <tspan style="font: oblique 11.9px 'DejaVu Sans'" x="5.984863" y="2.7109375">L</tspan>
      </text>
     </g>
    </g>
-   <g id="text_7">
-    <text style="font: 9px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="189.144333" y="188.542458" transform="rotate(-0 189.144333 188.542458)">Norm</text>
-   </g>
    <g id="text_8">
-    <text style="font: 9px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="407.477533" y="188.542458" transform="rotate(-0 407.477533 188.542458)">Norm</text>
+    <text style="fill: #7f7f7f; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="555.36636" y="146.242874" transform="rotate(-0 555.36636 146.242874)">Linear + 非线性</text>
    </g>
    <g id="text_9">
-    <text style="font: 9px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="669.477373" y="188.542458" transform="rotate(-0 669.477373 188.542458)">Norm</text>
+    <!-- $h_1$ -->
+    <g transform="translate(426.76476 101.271892)">
+     <text>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="0" y="-0.078125">h</tspan>
+      <tspan style="font: 11.9px 'DejaVu Sans'" x="10.774414" y="2.7109375">1</tspan>
+     </text>
+    </g>
    </g>
    <g id="text_10">
-    <!-- $h_1$ -->
-    <g transform="translate(239.59652 189.716599)">
+    <!-- $\cdots$ -->
+    <g transform="translate(475.3664 101.901423)">
      <text>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="0" y="-0.359375">h</tspan>
-      <tspan style="font: 9.8px 'DejaVu Sans'" x="8.873047" y="1.9375">1</tspan>
+      <tspan style="font: 17px 'DejaVu Sans'" x="0" y="-0.046875">⋯</tspan>
      </text>
     </g>
    </g>
    <g id="text_11">
-    <!-- $h_2$ -->
-    <g transform="translate(457.92972 189.716599)">
+    <!-- $h_L$ -->
+    <g transform="translate(807.99288 101.573376)">
      <text>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="0" y="-0.359375">h</tspan>
-      <tspan style="font: 9.8px 'DejaVu Sans'" x="8.873047" y="1.9375">2</tspan>
+      <tspan style="font: oblique 18px 'DejaVu Sans'" x="0" y="-0.328125">h</tspan>
+      <tspan style="font: oblique 12.6px 'DejaVu Sans'" x="11.408203" y="2.625">L</tspan>
      </text>
     </g>
    </g>
+   <g id="patch_12">
+    <path d="M 128.366772 96.146657
+Q 139.474368 96.146657 149.240323 96.146657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 145.640323 94.346657
+L 149.240323 96.146657
+L 145.640323 97.946657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 197.483691 96.146657
+Q 309.884988 96.146657 420.944644 96.146657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 417.344644 94.346657
+L 420.944644 96.146657
+L 417.344644 97.946657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 450.115137 96.146657
+Q 460.031597 96.146657 468.606416 96.146657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 465.006416 94.346657
+L 468.606416 96.146657
+L 465.006416 97.946657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 497.780032 96.146657
+Q 514.849071 96.146657 530.576469 96.146657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 526.976469 94.346657
+L 530.576469 96.146657
+L 526.976469 97.946657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 578.813047 96.146657
+Q 689.427417 96.146657 798.700147 96.146657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 795.100147 94.346657
+L 798.700147 96.146657
+L 795.100147 97.946657
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
    <g id="text_12">
-    <!-- $\cdots$ -->
-    <g transform="translate(509.644133 190.235036)">
+    <!-- 方差 $\times$ $a_1$ -->
+    <g transform="translate(279.300665 119.535678)">
      <text>
-      <tspan style="font: 14px 'DejaVu Sans'" x="0" y="-0.265625">⋯</tspan>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 40.142578" y="-0.515625">方差  </tspan>
+      <tspan style="font: 13px 'DejaVu Sans'" x="29.25" y="-0.515625">×</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="43.392578" y="-0.515625">a</tspan>
+      <tspan style="font: 9.1px 'DejaVu Sans'" x="51.358887" y="1.6171875">1</tspan>
      </text>
     </g>
    </g>
    <g id="text_13">
-    <!-- $h_L$ -->
-    <g transform="translate(727.027333 190.018083)">
+    <!-- 方差 $\times$ $a_L$ -->
+    <g transform="translate(661.023785 119.535678)">
      <text>
-      <tspan style="font: oblique 15px 'DejaVu Sans'" x="0" y="-0.609375">h</tspan>
-      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="9.506836" y="1.8515625">L</tspan>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 40.142578" y="-0.515625">方差  </tspan>
+      <tspan style="font: 13px 'DejaVu Sans'" x="29.25" y="-0.515625">×</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="43.392578" y="-0.515625">a</tspan>
+      <tspan style="font: oblique 9.1px 'DejaVu Sans'" x="51.358887" y="1.6171875">L</tspan>
      </text>
     </g>
-   </g>
-   <g id="patch_11">
-    <path d="M 52.869271 185.495818
-Q 63.239387 185.495818 72.267862 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 68.667862 183.695818
-L 72.267862 185.495818
-L 68.667862 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_12">
-    <path d="M 130.011004 185.495818
-Q 145.478661 185.495818 159.604677 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 156.004677 183.695818
-L 159.604677 185.495818
-L 156.004677 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_13">
-    <path d="M 217.344284 185.495818
-Q 224.078864 185.495818 229.471804 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 225.871804 183.695818
-L 229.471804 185.495818
-L 225.871804 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_14">
-    <path d="M 263.919545 185.495818
-Q 277.93316 185.495818 290.605134 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 287.005134 183.695818
-L 290.605134 185.495818
-L 287.005134 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_15">
-    <path d="M 348.344204 185.495818
-Q 363.811861 185.495818 377.937877 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 374.337877 183.695818
-L 377.937877 185.495818
-L 374.337877 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_16">
-    <path d="M 435.677484 185.495818
-Q 442.412064 185.495818 447.805004 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 444.205004 183.695818
-L 447.805004 185.495818
-L 444.205004 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_17">
-    <path d="M 482.256832 185.495818
-Q 491.172891 185.495818 498.747309 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 495.147309 183.695818
-L 498.747309 185.495818
-L 495.147309 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_18">
-    <path d="M 533.202311 185.495818
-Q 543.572427 185.495818 552.600902 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 549.000902 183.695818
-L 552.600902 185.495818
-L 549.000902 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_19">
-    <path d="M 610.344044 185.495818
-Q 625.811701 185.495818 639.937717 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 636.337717 183.695818
-L 639.937717 185.495818
-L 636.337717 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_20">
-    <path d="M 697.682299 185.495818
-Q 705.870675 185.495818 712.717411 185.495818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 709.117411 183.695818
-L 712.717411 185.495818
-L 709.117411 187.295818
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="text_14">
-    <!-- $\times$ $a_1$ -->
-    <g style="fill: #0072b2" transform="translate(89.821053 224.027243)">
-     <text>
-      <tspan style="font: 11px 'DejaVu Sans'" x="0" y="-0.4375">×</tspan>
-      <tspan style="font: 11px 'Heiti TC'" x="9.216797" y="-0.4375"> </tspan>
-      <tspan style="font: oblique 11px 'DejaVu Sans'" x="11.966797" y="-0.4375">a</tspan>
-      <tspan style="font: 7.7px 'DejaVu Sans'" x="18.70752" y="1.3671875">1</tspan>
-     </text>
-    </g>
+    <text style="fill: #0072b2; font: 700 16px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="308.095665" y="165.387537" transform="rotate(-0 308.095665 165.387537)">初始化</text>
    </g>
    <g id="text_15">
-    <!-- $\times$ $a_2$ -->
-    <g style="fill: #0072b2" transform="translate(308.154253 224.027243)">
+    <!-- 选 $W$ 的标准差， -->
+    <g style="fill: #0072b2" transform="translate(259.410665 198.173535)">
      <text>
-      <tspan style="font: 11px 'DejaVu Sans'" x="0" y="-0.4375">×</tspan>
-      <tspan style="font: 11px 'Heiti TC'" x="9.216797" y="-0.4375"> </tspan>
-      <tspan style="font: oblique 11px 'DejaVu Sans'" x="11.966797" y="-0.4375">a</tspan>
-      <tspan style="font: 7.7px 'DejaVu Sans'" x="18.70752" y="1.3671875">2</tspan>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 29.104004 32.354004 45.354004 58.354004 71.354004 84.354004" y="-0.34375">选  的标准差，</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="16.25" y="-0.34375">W</tspan>
      </text>
     </g>
+    <!-- 让 $t=0$ 时每个 $a_l \approx 1$ -->
+    <g style="fill: #0072b2" transform="translate(244.980665 212.694128)">
+     <text>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 45.576172 48.826172 61.826172 74.826172 87.826172" y="-0.359375">让  时每个 </tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="16.25 91.076172" y="-0.359375">ta</tspan>
+      <tspan style="font: 13px 'DejaVu Sans'" x="23.879883 37.305176 104.458936 117.884229" y="-0.359375">=0≈1</tspan>
+      <tspan style="font: oblique 9.1px 'DejaVu Sans'" x="99.04248" y="1.7734375">l</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_17">
+    <path d="M 308.095665 150.527868
+Q 308.095665 142.143427 308.095665 135.100627
+" style="fill: none; stroke: #0072b2; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 306.295665 138.700627
+L 308.095665 135.100627
+L 309.895665 138.700627
+" style="fill: none; stroke: #0072b2; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="text_16">
-    <!-- $\times$ $a_L$ -->
-    <g style="fill: #0072b2" transform="translate(570.484093 224.027243)">
+    <text style="fill: #e69f00; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: end" x="84.65829" y="268.703783" transform="rotate(-0 84.65829 268.703783)">加归一化</text>
+   </g>
+   <g id="text_17">
+    <!-- $x$ -->
+    <g transform="translate(109.04994 270.396362)">
      <text>
-      <tspan style="font: 11px 'DejaVu Sans'" x="0" y="-0.4375">×</tspan>
-      <tspan style="font: 11px 'Heiti TC'" x="9.216797" y="-0.4375"> </tspan>
-      <tspan style="font: oblique 11px 'DejaVu Sans'" x="11.966797" y="-0.4375">a</tspan>
-      <tspan style="font: oblique 7.7px 'DejaVu Sans'" x="18.70752" y="1.3671875">L</tspan>
+      <tspan style="font: oblique 18px 'DejaVu Sans'" x="0" y="-0.15625">x</tspan>
      </text>
     </g>
    </g>
-   <g id="text_17">
-    <text style="font: 14px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="400.19976" y="255.875746" transform="rotate(-0 400.19976 255.875746)">反向：梯度是 Jacobian 的连乘</text>
-   </g>
    <g id="text_18">
-    <!-- $\partial L / \partial x \;=\; J_1^{\top} J_2^{\top} \cdots J_L^{\top}\;\partial L / \partial h_L$ -->
-    <g transform="translate(313.60976 284.027717)">
+    <!-- $f_1$ -->
+    <g transform="translate(166.97824 269.428315)">
      <text>
-      <tspan style="font: 14px 'DejaVu Sans'" x="0 15.039062 19.755859 41.796092 95.740009 131.377103 146.416165 151.132962" y="-0.7828124999999986">∂/∂=⋯∂/∂</tspan>
-      <tspan style="font: oblique 14px 'DejaVu Sans'" x="7.239258 26.995117 60.042378 77.891193 109.740009 138.61636 158.37222" y="-0.7828124999999986">LxJJJLh</tspan>
-      <tspan style="font: 9.8px 'DejaVu Sans'" x="64.171285 67.062385 82.0201 84.9112 116.760015" y="3.0453125000000014 -6.142187499999997 3.0453125000000014 -6.1421875 -6.142187499999997">1⊤2⊤⊤</tspan>
-      <tspan style="font: oblique 9.8px 'DejaVu Sans'" x="113.868915 167.245267" y="3.0453125000000014 1.5140625000000014">LL</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="0" y="-0.078125">f</tspan>
+      <tspan style="font: 11.9px 'DejaVu Sans'" x="5.984863" y="2.7109375">1</tspan>
      </text>
     </g>
    </g>
    <g id="text_19">
-    <!-- $J_L^{\top}$ -->
-    <g transform="translate(551.990773 329.217275)">
-     <text>
-      <tspan style="font: oblique 13px 'DejaVu Sans'" x="0" y="-0.6468749999999996">J</tspan>
-      <tspan style="font: 9.1px 'DejaVu Sans'" x="6.519984" y="-5.6234375000000005">⊤</tspan>
-      <tspan style="font: oblique 9.1px 'DejaVu Sans'" x="3.833984" y="2.9078124999999986">L</tspan>
-     </text>
-    </g>
+    <text style="fill: #7f7f7f; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="174.03324" y="314.399298" transform="rotate(-0 174.03324 314.399298)">Linear + 非线性</text>
    </g>
    <g id="text_20">
-    <!-- → $I+J_L^{\top}$ -->
-    <g style="fill: #009e73" transform="translate(538.035773 353.01565)">
+    <!-- $f_L$ -->
+    <g transform="translate(548.82136 269.428315)">
      <text>
-      <tspan style="font: 11px 'Heiti TC'" x="0 11" y="-0.3968750000000014">→ </tspan>
-      <tspan style="font: oblique 11px 'DejaVu Sans'" x="13.75 30.49707" y="-0.3968750000000014">IJ</tspan>
-      <tspan style="font: 11px 'DejaVu Sans'" x="19.137207" y="-0.3968750000000014">+</tspan>
-      <tspan style="font: 7.7px 'DejaVu Sans'" x="36.012633" y="-4.6078125000000005">⊤</tspan>
-      <tspan style="font: oblique 7.7px 'DejaVu Sans'" x="33.741211" y="2.6109374999999986">L</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="0" y="-0.078125">f</tspan>
+      <tspan style="font: oblique 11.9px 'DejaVu Sans'" x="5.984863" y="2.7109375">L</tspan>
      </text>
     </g>
    </g>
    <g id="text_21">
-    <!-- $J_2^{\top}$ -->
-    <g transform="translate(413.71308 329.217275)">
-     <text>
-      <tspan style="font: oblique 13px 'DejaVu Sans'" x="0" y="-0.6468750000000014">J</tspan>
-      <tspan style="font: 9.1px 'DejaVu Sans'" x="3.833984 6.519984" y="2.9078124999999986 -5.6234375000000005">2⊤</tspan>
-     </text>
-    </g>
+    <text style="fill: #7f7f7f; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="555.36636" y="314.399298" transform="rotate(-0 555.36636 314.399298)">Linear + 非线性</text>
    </g>
    <g id="text_22">
-    <!-- → $I+J_2^{\top}$ -->
-    <g style="fill: #009e73" transform="translate(399.75808 353.01565)">
-     <text>
-      <tspan style="font: 11px 'Heiti TC'" x="0 11" y="-0.3968750000000014">→ </tspan>
-      <tspan style="font: oblique 11px 'DejaVu Sans'" x="13.75 30.49707" y="-0.3968750000000014">IJ</tspan>
-      <tspan style="font: 11px 'DejaVu Sans'" x="19.137207" y="-0.3968750000000014">+</tspan>
-      <tspan style="font: 7.7px 'DejaVu Sans'" x="33.741211 36.012633" y="2.6109374999999986 -4.6078125000000005">2⊤</tspan>
-     </text>
-    </g>
+    <text style="font: 15px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="305.1165" y="269.380815" transform="rotate(-0 305.1165 269.380815)">归一化</text>
    </g>
    <g id="text_23">
-    <!-- $J_1^{\top}$ -->
-    <g transform="translate(173.54656 329.217275)">
-     <text>
-      <tspan style="font: oblique 13px 'DejaVu Sans'" x="0" y="-0.6468749999999996">J</tspan>
-      <tspan style="font: 9.1px 'DejaVu Sans'" x="3.833984 6.519984" y="2.9078124999999986 -5.6234375000000005">1⊤</tspan>
-     </text>
-    </g>
+    <text style="font: 15px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="686.44962" y="269.380815" transform="rotate(-0 686.44962 269.380815)">归一化</text>
    </g>
    <g id="text_24">
-    <!-- → $I+J_1^{\top}$ -->
-    <g style="fill: #009e73" transform="translate(159.59156 353.01565)">
-     <text>
-      <tspan style="font: 11px 'Heiti TC'" x="0 11" y="-0.3968750000000014">→ </tspan>
-      <tspan style="font: oblique 11px 'DejaVu Sans'" x="13.75 30.49707" y="-0.3968750000000014">IJ</tspan>
-      <tspan style="font: 11px 'DejaVu Sans'" x="19.137207" y="-0.3968750000000014">+</tspan>
-      <tspan style="font: 7.7px 'DejaVu Sans'" x="33.741211 36.012633" y="2.6109374999999986 -4.6078125000000005">1⊤</tspan>
-     </text>
-    </g>
+    <text style="fill: #e69f00; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="305.1165" y="314.399298" transform="rotate(-0 305.1165 314.399298)">BN / LN / RMSNorm</text>
    </g>
    <g id="text_25">
-    <!-- $\partial L / \partial h_L$ -->
-    <g transform="translate(666.15292 339.257476)">
+    <!-- $h_1$ -->
+    <g transform="translate(426.76476 269.428315)">
      <text>
-      <tspan style="font: 12px 'DejaVu Sans'" x="0 12.890625 16.933594" y="-0.875">∂/∂</tspan>
-      <tspan style="font: oblique 12px 'DejaVu Sans'" x="6.205078 23.138672" y="-0.875">Lh</tspan>
-      <tspan style="font: oblique 8.4px 'DejaVu Sans'" x="30.744141" y="1.09375">L</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="0" y="-0.078125">h</tspan>
+      <tspan style="font: 11.9px 'DejaVu Sans'" x="10.774414" y="2.7109375">1</tspan>
      </text>
     </g>
    </g>
    <g id="text_26">
     <!-- $\cdots$ -->
-    <g transform="translate(298.588707 340.378883)">
+    <g transform="translate(475.3664 270.057846)">
      <text>
-      <tspan style="font: 14px 'DejaVu Sans'" x="0" y="-0.265625">⋯</tspan>
+      <tspan style="font: 17px 'DejaVu Sans'" x="0" y="-0.046875">⋯</tspan>
      </text>
     </g>
    </g>
    <g id="text_27">
-    <!-- $\partial L / \partial x$ -->
-    <g transform="translate(28.408867 339.701851)">
+    <!-- $h_L$ -->
+    <g transform="translate(807.99288 269.729799)">
      <text>
-      <tspan style="font: 12px 'DejaVu Sans'" x="0 12.890625 16.933594" y="-0.25">∂/∂</tspan>
-      <tspan style="font: oblique 12px 'DejaVu Sans'" x="6.205078 23.138672" y="-0.25">Lx</tspan>
+      <tspan style="font: oblique 18px 'DejaVu Sans'" x="0" y="-0.328125">h</tspan>
+      <tspan style="font: oblique 12.6px 'DejaVu Sans'" x="11.408203" y="2.625">L</tspan>
      </text>
     </g>
    </g>
-   <g id="patch_21">
-    <path d="M 645.642488 335.639664
-Q 625.810635 335.639664 607.320422 335.639664
+   <g id="patch_18">
+    <path d="M 128.366772 264.30308
+Q 139.474368 264.30308 149.240323 264.30308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 610.920422 337.439664
-L 607.320422 335.639664
-L 610.920422 333.839664
+    <path d="M 145.640323 262.50308
+L 149.240323 264.30308
+L 145.640323 266.10308
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_19">
+    <path d="M 197.485655 264.30308
+Q 233.020652 264.30308 267.214008 264.30308
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 263.614008 262.50308
+L 267.214008 264.30308
+L 263.614008 266.10308
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_20">
+    <path d="M 341.675895 264.30308
+Q 381.979932 264.30308 420.942329 264.30308
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 417.342329 262.50308
+L 420.942329 264.30308
+L 417.342329 266.10308
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_21">
+    <path d="M 450.115137 264.30308
+Q 460.031597 264.30308 468.606416 264.30308
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 465.006416 262.50308
+L 468.606416 264.30308
+L 465.006416 266.10308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="patch_22">
-    <path d="M 514.644789 335.639664
-Q 491.17153 335.639664 469.039911 335.639664
+    <path d="M 497.780032 264.30308
+Q 514.849071 264.30308 530.576469 264.30308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 472.639911 337.439664
-L 469.039911 335.639664
-L 472.639911 333.839664
+    <path d="M 526.976469 262.50308
+L 530.576469 264.30308
+L 526.976469 266.10308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="patch_23">
-    <path d="M 376.365763 335.639664
-Q 349.255287 335.639664 323.486452 335.639664
+    <path d="M 578.818775 264.30308
+Q 614.353772 264.30308 648.547128 264.30308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 327.086452 337.439664
-L 323.486452 335.639664
-L 327.086452 333.839664
+    <path d="M 644.947128 262.50308
+L 648.547128 264.30308
+L 644.947128 266.10308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="patch_24">
-    <path d="M 289.030262 335.639664
-Q 258.283562 335.639664 228.878502 335.639664
+    <path d="M 723.011015 264.30308
+Q 761.525217 264.30308 798.697778 264.30308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 232.478502 337.439664
-L 228.878502 335.639664
-L 232.478502 333.839664
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_25">
-    <path d="M 136.199243 335.639664
-Q 109.088767 335.639664 83.319932 335.639664
-" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 86.919932 337.439664
-L 83.319932 335.639664
-L 86.919932 333.839664
+    <path d="M 795.097778 262.50308
+L 798.697778 264.30308
+L 795.097778 266.10308
 " style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="text_28">
-    <text style="fill: #0072b2; font: 700 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="152.755467" y="89.309916" transform="rotate(-0 152.755467 89.309916)">初始化</text>
+    <!-- 方差 $\times$ $a_1$ -->
+    <g transform="translate(204.225707 287.692101)">
+     <text>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 40.142578" y="-0.515625">方差  </tspan>
+      <tspan style="font: 13px 'DejaVu Sans'" x="29.25" y="-0.515625">×</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="43.392578" y="-0.515625">a</tspan>
+      <tspan style="font: 9.1px 'DejaVu Sans'" x="51.358887" y="1.6171875">1</tspan>
+     </text>
+    </g>
    </g>
    <g id="text_29">
-    <!-- 选 $W$ 的标准差， -->
-    <g style="fill: #0072b2" transform="translate(113.432967 112.829301)">
+    <!-- 方差 $\times$ $a_L$ -->
+    <g transform="translate(585.948827 287.692101)">
      <text>
-      <tspan style="font: 10.5px 'Heiti TC'" x="0 10.5 23.50708 26.13208 36.63208 47.13208 57.63208 68.13208" y="-0.984375">选  的标准差，</tspan>
-      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="13.125" y="-0.984375">W</tspan>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 40.142578" y="-0.515625">方差  </tspan>
+      <tspan style="font: 13px 'DejaVu Sans'" x="29.25" y="-0.515625">×</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="43.392578" y="-0.515625">a</tspan>
+      <tspan style="font: oblique 9.1px 'DejaVu Sans'" x="51.358887" y="1.6171875">L</tspan>
      </text>
     </g>
-    <!-- 让 $t=0$ 时每个 $a_l \approx 1$ -->
-    <g style="fill: #0072b2" transform="translate(101.777967 124.557473)">
-     <text>
-      <tspan style="font: 10.5px 'Heiti TC'" x="0 10.5 36.811523 39.436523 49.936523 60.436523 70.936523" y="-0.0">让  时每个 </tspan>
-      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="13.125 73.561523" y="-0.0">ta</tspan>
-      <tspan style="font: 10.5px 'DejaVu Sans'" x="19.287598 30.131104 84.384351 95.227856" y="-0.0">=0≈1</tspan>
-      <tspan style="font: oblique 7.35px 'DejaVu Sans'" x="79.99585" y="1.8046875">l</tspan>
-     </text>
-    </g>
-   </g>
-   <g id="patch_26">
-    <path d="M 118.468258 132.821636
-Q 105.053399 144.434672 102.331109 160.608692
-" style="fill: none; stroke: #0072b2; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 104.703663 157.357386
-L 102.331109 160.608692
-L 101.153597 156.759865
-" style="fill: none; stroke: #0072b2; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_27">
-    <path d="M 187.489387 131.258534
-Q 259.127901 121.512537 317.402401 161.996462
-" style="fill: none; stroke: #0072b2; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 315.472816 158.464224
-L 317.402401 161.996462
-L 313.41886 161.420787
-" style="fill: none; stroke: #0072b2; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="text_30">
-    <text style="fill: #e69f00; font: 700 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="589.421867" y="89.309916" transform="rotate(-0 589.421867 89.309916)">归一化</text>
+    <text style="fill: #e69f00; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="380.191458" y="287.692101" transform="rotate(-0 380.191458 287.692101)">方差回到 1</text>
    </g>
    <g id="text_31">
-    <text style="fill: #e69f00; font: 10.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(532.700539 112.829301)">每层之后把方差拉回 1，</text>
-    <text style="fill: #e69f00; font: 10.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(521.171867 124.431473)">前向的连乘链每层被切断一次</text>
-   </g>
-   <g id="patch_28">
-    <path d="M 543.777568 131.24707
-Q 470.30945 120.784472 410.227943 162.014207
-" style="fill: none; stroke: #e69f00; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 414.214724 161.461418
-L 410.227943 162.014207
-L 412.177781 158.493109
-" style="fill: none; stroke: #e69f00; stroke-width: 1.2; stroke-linecap: round"/>
-   </g>
-   <g id="patch_29">
-    <path d="M 634.957689 132.241114
-Q 657.279788 140.982609 667.928608 160.951324
-" style="fill: none; stroke: #e69f00; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 667.822908 156.92779
-L 667.928608 160.951324
-L 664.646361 158.621764
-" style="fill: none; stroke: #e69f00; stroke-width: 1.2; stroke-linecap: round"/>
+    <text style="fill: #e69f00; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="761.524578" y="287.692101" transform="rotate(-0 761.524578 287.692101)">方差回到 1</text>
    </g>
    <g id="text_32">
-    <text style="fill: #009e73; font: 700 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="400.19976" y="424.787573" transform="rotate(-0 400.19976 424.787573)">残差</text>
-   </g>
-   <g id="text_33">
-    <!-- 反向每个因子从 $J_l^{\top}$ 变成 $I + J_l^{\top}$，多一条不乘任何 $J$ 的直通路（$I$：单位矩阵） -->
-    <g style="fill: #009e73" transform="translate(222.11976 448.103558)">
+    <!-- 初始化是每个网络都要做的一步，只决定 $a_l$ 的起点； -->
+    <g style="fill: #555555" transform="translate(284.48976 344.20396)">
      <text>
-      <tspan style="font: 10.5px 'Heiti TC'" x="0 10.5 21 31.5 42 52.5 63 73.5 89.560192 92.185192 102.685192 113.185192 145.231224 155.731224 166.231224 176.731224 187.231224 197.731224 208.231224 218.731224 229.231224 234.952904 237.577904 248.077904 258.577904 269.077904 279.577904 293.174583 303.674583 314.174583 324.674583 335.174583 345.674583" y="-0.3968750000000014">反向每个因子从  变成 ，多一条不乘任何  的直通路（：单位矩阵）</tspan>
-      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="76.125 115.810192 131.796032 231.856224 290.077904" y="-0.3968750000000014">JIJJI</tspan>
-      <tspan style="font: 7.35px 'DejaVu Sans'" x="81.424914 137.095946" y="-4.6078125000000005">⊤⊤</tspan>
-      <tspan style="font: oblique 7.35px 'DejaVu Sans'" x="79.22168 134.892712" y="2.6109374999999986">ll</tspan>
-      <tspan style="font: 10.5px 'DejaVu Sans'" x="120.952526" y="-0.3968750000000014">+</tspan>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 39 52 65 78 91 104 117 130 143 156 169 182 195 208 221 234 248.100049 251.350049 264.350049 277.350049 290.350049" y="-0.359375">初始化是每个网络都要做的一步，只决定  的起点；</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="237.25" y="-0.359375">a</tspan>
+      <tspan style="font: oblique 9.1px 'DejaVu Sans'" x="245.216309" y="1.7734375">l</tspan>
+     </text>
+    </g>
+    <!-- 归一化是另外加进结构的部件。Transformer 实际用 Pre-Norm——归一化放在 $f_l$ 之前、残差分支里（见第六章） -->
+    <g style="fill: #555555" transform="translate(113.47476 359.36196)">
+     <text>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 39 52 65 78 91 104 117 130 143 156 169 182 187.537994 191.450989 200.329987 208.259995 213.303986 217.385986 225.900986 229.81398 242.00798 250.457977 254.370972 257.620972 270.620972 283.620972 296.620972 299.870972 307.566971 311.479965 319.929962 324.245956 333.865952 342.380951 346.293945 384.487946 397.487946 410.487946 423.487946 436.487946 449.487946 460.198346 463.448346 476.448346 489.448346 502.448346 515.448346 528.448346 541.448346 554.448346 567.448346 580.448346 593.448346 606.448346 619.448346 632.448346" y="-0.28125">归一化是另外加进结构的部件。Transformer 实际用 Pre-Norm归一化放在  之前、残差分支里（见第六章）</tspan>
+      <tspan style="font: 13px 'DejaVu Sans Display'" x="358.487946 371.487946" y="-0.28125">——</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="452.737946" y="-0.28125">f</tspan>
+      <tspan style="font: oblique 9.1px 'DejaVu Sans'" x="457.314606" y="1.8515625">l</tspan>
      </text>
     </g>
    </g>
-   <g id="patch_30">
-    <path d="M 325.425932 417.649985
-Q 247.163214 413.476008 184.579718 368.562425
+   <g id="text_33">
+    <text style="font: 700 18px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="436.19976" y="397.839063" transform="rotate(-0 436.19976 397.839063)">反向：梯度是 Jacobian 的连乘</text>
+   </g>
+   <g id="text_34">
+    <!-- $\partial L / \partial x \;=\; J_1^{\top} J_2^{\top} \cdots J_L^{\top}\;\partial L / \partial h_L$ -->
+    <g transform="translate(331.05476 427.513726)">
+     <text>
+      <tspan style="font: 17px 'DejaVu Sans'" x="0 18.261719 23.989258 50.752397 116.256037 159.529808 177.791526 183.519065" y="-0.15781249999999858">∂/∂=⋯∂/∂</tspan>
+      <tspan style="font: oblique 17px 'DejaVu Sans'" x="8.790527 32.779785 72.908602 94.58232 133.256037 168.320335 192.309593" y="-0.15781249999999858">LxJJJLh</tspan>
+      <tspan style="font: 11.9px 'DejaVu Sans'" x="77.922274 81.433052 99.595992 103.10677 141.780487" y="4.490625000000001 -6.665625 4.490625000000001 -6.665625 -6.665625">1⊤2⊤⊤</tspan>
+      <tspan style="font: oblique 11.9px 'DejaVu Sans'" x="138.269709 203.084007" y="4.490625000000001 2.6312500000000014">LL</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_35">
+    <text style="fill: #7f7f7f; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: end" x="84.65829" y="486.317978" transform="rotate(-0 84.65829 486.317978)">无残差</text>
+   </g>
+   <g id="text_36">
+    <!-- $J_L^{\top}$ -->
+    <g transform="translate(640.45964 486.717275)">
+     <text>
+      <tspan style="font: oblique 16px 'DejaVu Sans'" x="0" y="-0.03281249999999858">J</tspan>
+      <tspan style="font: 11.2px 'DejaVu Sans'" x="8.024427" y="-6.1578125">⊤</tspan>
+      <tspan style="font: oblique 11.2px 'DejaVu Sans'" x="4.71875" y="4.342187500000001">L</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_37">
+    <!-- $J_1^{\top}$ -->
+    <g transform="translate(294.8765 486.717275)">
+     <text>
+      <tspan style="font: oblique 16px 'DejaVu Sans'" x="0" y="-0.03281249999999858">J</tspan>
+      <tspan style="font: 11.2px 'DejaVu Sans'" x="4.71875 8.024427" y="4.342187500000001 -6.1578125">1⊤</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_38">
+    <!-- $\partial L / \partial h_L$ -->
+    <g transform="translate(795.18288 486.439541)">
+     <text>
+      <tspan style="font: 15px 'DejaVu Sans'" x="0 16.113281 21.166992" y="-0.609375">∂/∂</tspan>
+      <tspan style="font: oblique 15px 'DejaVu Sans'" x="7.756348 28.92334" y="-0.609375">Lh</tspan>
+      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="38.430176" y="1.8515625">L</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_39">
+    <!-- $\cdots$ -->
+    <g transform="translate(469.40807 487.672041)">
+     <text>
+      <tspan style="font: 17px 'DejaVu Sans'" x="0" y="-0.046875">⋯</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_40">
+    <!-- $\partial L / \partial x$ -->
+    <g transform="translate(95.47494 486.995009)">
+     <text>
+      <tspan style="font: 15px 'DejaVu Sans'" x="0 16.113281 21.166992" y="-0.0625">∂/∂</tspan>
+      <tspan style="font: oblique 15px 'DejaVu Sans'" x="7.756348 28.92334" y="-0.0625">Lx</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_25">
+    <path d="M 785.743822 481.917275
+Q 732.926107 481.917275 681.450033 481.917275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 685.050033 483.717275
+L 681.450033 481.917275
+L 685.050033 480.117275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_26">
+    <path d="M 621.291441 481.917275
+Q 556.559091 481.917275 493.168382 481.917275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 496.768382 483.717275
+L 493.168382 481.917275
+L 496.768382 480.117275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_27">
+    <path d="M 463.991529 481.917275
+Q 399.259179 481.917275 335.86847 481.917275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 339.46847 483.717275
+L 335.86847 481.917275
+L 339.46847 480.117275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_28">
+    <path d="M 275.708301 481.917275
+Q 210.975951 481.917275 147.585242 481.917275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 151.185242 483.717275
+L 147.585242 481.917275
+L 151.185242 480.117275
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_41">
+    <text style="fill: #009e73; font: 13px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: end" x="84.65829" y="555.558858" transform="rotate(-0 84.65829 555.558858)">有残差</text>
+   </g>
+   <g id="text_42">
+    <!-- $I+J_L^{\top}$ -->
+    <g transform="translate(629.69964 555.658155)">
+     <text>
+      <tspan style="font: oblique 15px 'DejaVu Sans'" x="0 22.836914" y="-0.9078124999999986">IJ</tspan>
+      <tspan style="font: 15px 'DejaVu Sans'" x="7.346191" y="-0.9078124999999986">+</tspan>
+      <tspan style="font: 10.5px 'DejaVu Sans'" x="30.359131" y="-6.65">⊤</tspan>
+      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="27.260742" y="3.1937500000000014">L</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_43">
+    <!-- $I+J_1^{\top}$ -->
+    <g transform="translate(284.1165 555.658155)">
+     <text>
+      <tspan style="font: oblique 15px 'DejaVu Sans'" x="0 22.836914" y="-0.9078124999999986">IJ</tspan>
+      <tspan style="font: 15px 'DejaVu Sans'" x="7.346191" y="-0.9078124999999986">+</tspan>
+      <tspan style="font: 10.5px 'DejaVu Sans'" x="27.260742 30.359131" y="3.1937500000000014 -6.65">1⊤</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_44">
+    <!-- $\partial L / \partial h_L$ -->
+    <g transform="translate(795.18288 555.680421)">
+     <text>
+      <tspan style="font: 15px 'DejaVu Sans'" x="0 16.113281 21.166992" y="-0.609375">∂/∂</tspan>
+      <tspan style="font: oblique 15px 'DejaVu Sans'" x="7.756348 28.92334" y="-0.609375">Lh</tspan>
+      <tspan style="font: oblique 10.5px 'DejaVu Sans'" x="38.430176" y="1.8515625">L</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_45">
+    <!-- $\cdots$ -->
+    <g transform="translate(469.40807 556.912921)">
+     <text>
+      <tspan style="font: 17px 'DejaVu Sans'" x="0" y="-0.046875">⋯</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_46">
+    <!-- $\partial L / \partial x$ -->
+    <g transform="translate(95.47494 556.235889)">
+     <text>
+      <tspan style="font: 15px 'DejaVu Sans'" x="0 16.113281 21.166992" y="-0.0625">∂/∂</tspan>
+      <tspan style="font: oblique 15px 'DejaVu Sans'" x="7.756348 28.92334" y="-0.0625">Lx</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_29">
+    <path d="M 785.740331 551.158155
+Q 737.692216 551.158155 690.985742 551.158155
 " style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 186.454993 372.123793
-L 184.579718 368.562425
-L 188.553978 369.199026
+    <path d="M 694.585742 552.958155
+L 690.985742 551.158155
+L 694.585742 549.358155
+" style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_30">
+    <path d="M 611.75724 551.158155
+Q 551.790096 551.158155 493.164593 551.158155
+" style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 496.764593 552.958155
+L 493.164593 551.158155
+L 496.764593 549.358155
 " style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="patch_31">
-    <path d="M 474.91784 417.267469
-Q 524.030282 404.791083 558.016613 369.035621
+    <path d="M 463.990656 551.158155
+Q 404.023512 551.158155 345.398009 551.158155
 " style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 554.23174 370.404833
-L 558.016613 369.035621
-L 556.841059 372.885046
+    <path d="M 348.998009 552.958155
+L 345.398009 551.158155
+L 348.998009 549.358155
 " style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_32">
+    <path d="M 266.1741 551.158155
+Q 206.206956 551.158155 147.581453 551.158155
+" style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 151.181453 552.958155
+L 147.581453 551.158155
+L 151.181453 549.358155
+" style="fill: none; stroke: #009e73; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_47">
+    <!-- 残差让反向每个因子多一项 $I$：连乘展开后总有一条不乘任何 $J$ 的直通路（$I$ 是单位矩阵） -->
+    <g style="fill: #009e73" transform="translate(183.41476 606.460149)">
+     <text>
+      <tspan style="font: 13px 'Heiti TC'" x="0 13 26 39 52 65 78 91 104 117 130 143 156 163.083984 176.083984 189.083984 202.083984 215.083984 228.083984 241.083984 254.083984 267.083984 280.083984 293.083984 306.083984 319.083984 332.083984 345.083984 352.167969 355.417969 368.417969 381.417969 394.417969 407.417969 424.251953 427.501953 440.501953 453.501953 466.501953 479.501953 492.501953" y="-0.25">残差让反向每个因子多一项 ：连乘展开后总有一条不乘任何  的直通路（ 是单位矩阵）</tspan>
+      <tspan style="font: oblique 13px 'DejaVu Sans'" x="159.25 348.333984 420.417969" y="-0.25">IJI</tspan>
+     </text>
+    </g>
    </g>
   </g>
  </g>
  <defs>
-  <clipPath id="p390b47072a">
-   <rect x="7.2" y="7.2" width="785.99952" height="469.19952"/>
+  <clipPath id="p31afded530">
+   <rect x="7.2" y="12.068446" width="857.99952" height="608.330589"/>
   </clipPath>
  </defs>
 </svg>
