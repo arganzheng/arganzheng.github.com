@@ -11,6 +11,7 @@
   var MAX_PASSAGES = 2000;
   var pageNotice = '';
   var pageSearch = '';
+  var offlinePages = {};
 
   function emptyState() {
     return { posts: {}, passages: [] };
@@ -261,6 +262,35 @@
     toolbar.appendChild(exportButton); toolbar.appendChild(backupButton); toolbar.appendChild(restoreButton); toolbar.appendChild(file);
     app.appendChild(toolbar);
     if (pageNotice) { addText(app, pageNotice, 'favorites-notice').setAttribute('role', 'status'); pageNotice = ''; }
+    var offline = Object.keys(offlinePages).map(function (path) { return offlinePages[path]; }).filter(function (entry) {
+      return !searchValue || (entry.title + ' ' + entry.path).toLowerCase().indexOf(searchValue.toLowerCase()) !== -1;
+    });
+    if (offline.length) {
+      var section = document.createElement('section'); section.className = 'favorites-offline';
+      var head = document.createElement('div'); head.className = 'favorites-offline-head';
+      var bytes = offline.reduce(function (sum, entry) { return sum + (entry.bytes || 0); }, 0);
+      var heading = document.createElement('h2');
+      heading.textContent = '离线保存 · ' + offline.length + ' 篇 · 共 ' + (bytes / 1048576).toFixed(1) + ' MB';
+      head.appendChild(heading);
+      var clear = makeButton('全部清除', 'favorites-offline-clear');
+      clear.addEventListener('click', function () {
+        if (confirm('删除全部离线保存的文章？')) window.BlogOfflineSave.clear();
+      });
+      head.appendChild(clear); section.appendChild(head);
+      var offlineList = document.createElement('ul'); offlineList.className = 'favorites-offline-list';
+      offline.forEach(function (entry) {
+        var row = document.createElement('li'); row.className = 'favorites-offline-item';
+        var link = document.createElement('a'); link.className = 'favorites-offline-title';
+        link.href = entry.path; link.textContent = entry.title; row.appendChild(link);
+        var meta = document.createElement('span'); meta.className = 'favorites-offline-meta';
+        meta.textContent = '保存于 ' + formatDate(entry.savedAt) + ' · ' + (entry.bytes / 1048576).toFixed(1) + ' MB';
+        row.appendChild(meta);
+        var remove = makeButton('删除', 'favorites-remove');
+        remove.addEventListener('click', function () { window.BlogOfflineSave.remove(entry.path); });
+        row.appendChild(remove); offlineList.appendChild(row);
+      });
+      section.appendChild(offlineList); app.appendChild(section);
+    }
     if (!groups.length) {
       var empty = document.createElement('div'); empty.className = 'favorites-empty';
       empty.innerHTML = '<h2>还没有收藏</h2><p>在文章中选中文字后点「收藏」，或在文章底部操作栏点「收藏」。收藏只保存在当前浏览器里，建议定期备份。</p>';
@@ -277,6 +307,7 @@
     var head = document.createElement('header'); head.className = 'favorites-group-head';
     var link = document.createElement('a'); link.href = siteUrl(app, group.path); link.textContent = group.title; link.className = 'favorites-group-title';
     head.appendChild(link);
+    if (offlinePages[normalizePath(group.path)]) addText(head, '已离线', 'favorites-offline-badge');
     addText(head, '收藏于 ' + formatDate(group.latest), 'favorites-date');
     if (group.post) {
       var remove = makeButton('移除文章', 'favorites-remove favorites-remove-post');
@@ -374,6 +405,16 @@
     var state = event.detail && event.detail.posts ? cleanState(event.detail) : readState();
     syncNav(state); renderArticleButtons(state); renderFavoritesPage(state);
   });
+  function loadOfflinePages() {
+    if (!window.BlogOfflineSave) return;
+    window.BlogOfflineSave.list().then(function (entries) {
+      offlinePages = {};
+      entries.forEach(function (entry) { offlinePages[normalizePath(entry.path)] = entry; });
+      renderFavoritesPage(readState());
+    });
+  }
+  document.addEventListener('blog:offline-saved', loadOfflinePages);
+  setTimeout(loadOfflinePages, 0);
   window.addEventListener('storage', function (event) {
     if (event.key === KEY || event.key === null) notify();
   });

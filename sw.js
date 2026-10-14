@@ -9,7 +9,9 @@ const CACHE_PAGES = 'blog-pages-v1';
 const CACHE_STATIC = 'blog-static-v1';
 const CACHE_IMAGES = 'blog-img-v1';
 const CACHE_CDN = 'blog-cdn-v1';
-const CURRENT_CACHES = new Set([CACHE_PAGES, CACHE_STATIC, CACHE_IMAGES, CACHE_CDN]);
+const CACHE_SAVED = 'blog-saved-v1';
+const SAVED_MANIFEST = self.location.origin + '/__offline-saved__.json';
+const CURRENT_CACHES = new Set([CACHE_PAGES, CACHE_STATIC, CACHE_IMAGES, CACHE_CDN, CACHE_SAVED]);
 const CDN_PREFIXES = [
   'https://cdn.jsdelivr.net/npm/katex@',
   'https://cdn.jsdelivr.net/npm/mermaid@'
@@ -83,6 +85,16 @@ function cacheNavigationResponse(request, network) {
 
 function offlinePage(cache) {
   return (async () => {
+    let saved = [];
+    try {
+      const savedCache = await caches.open(CACHE_SAVED);
+      const manifestResponse = await savedCache.match(SAVED_MANIFEST);
+      const manifest = manifestResponse ? await manifestResponse.json() : { pages: {} };
+      saved = Object.keys(manifest.pages || {}).map(url => {
+        const page = manifest.pages[url];
+        return { url, title: page.title || page.path || url, time: Number(page.savedAt) || 0 };
+      }).sort((a, b) => b.time - a.time);
+    } catch (_) {}
     let links = [];
     if (cache) {
       const requests = await cache.keys();
@@ -98,14 +110,17 @@ function offlinePage(cache) {
         };
       }));
     }
-    links = links.filter(Boolean).sort((a, b) => b.time - a.time);
-    const items = links.map(page => {
+    links = links.filter(Boolean).filter(page => !saved.some(item => item.url === page.url))
+      .sort((a, b) => b.time - a.time);
+    const renderItem = page => {
       const title = page.title.replace(/[&<>"']/g, character => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       })[character]);
       const url = page.url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-      return `<li><a href="${url}">${title}</a></li>`;
-    }).join('');
+      return `<li><a href="${url}">${title}</a>${page.time ? `<small>（保存于 ${new Date(page.time).toISOString().slice(0, 10)}）</small>` : ''}</li>`;
+    };
+    const savedSection = saved.length ? `<h2>离线保存的文章</h2><ul>${saved.map(renderItem).join('')}</ul>` : '';
+    const recentSection = links.length ? `<h2>最近读过</h2><ul>${links.map(renderItem).join('')}</ul>` : '';
     const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -123,8 +138,7 @@ a{color:#0969da}
 </head>
 <body>
 <h1>当前离线，这一页还没有缓存</h1>
-<p>可以先打开最近读过的文章：</p>
-<ul>${items || '<li>目前没有已缓存的文章</li>'}</ul>
+${savedSection}${recentSection}${saved.length || links.length ? '' : '<p>目前没有已缓存的文章</p>'}
 </body>
 </html>`;
     return new Response(html, {
@@ -160,6 +174,10 @@ function navigationResponse(request, event) {
     } catch (_) {}
 
     if (!cached) {
+      try { cached = await (await caches.open(CACHE_SAVED)).match(cacheUrl(request.url)); } catch (_) {}
+    }
+
+    if (!cached) {
       try {
         return await network;
       } catch (_) {
@@ -184,6 +202,8 @@ function cacheFirstCdn(request) {
   return caches.open(CACHE_CDN).then(async cache => {
     const cached = await cache.match(request);
     if (cached) return cached;
+    const saved = await (await caches.open(CACHE_SAVED)).match(request);
+    if (saved) return saved;
 
     const response = await fetch(request);
     if (response.ok || response.type === 'opaque') {
@@ -219,8 +239,13 @@ function versionedAsset(request, url) {
       }
       return response;
     } catch (error) {
+      const savedCache = await caches.open(CACHE_SAVED);
+      const saved = await savedCache.match(request);
+      if (saved) return saved;
       const older = await cache.match(request, { ignoreSearch: true });
       if (older) return older;
+      const savedOlder = await savedCache.match(request, { ignoreSearch: true });
+      if (savedOlder) return savedOlder;
       throw error;
     }
   });
@@ -241,6 +266,8 @@ function networkFirst(request, cacheName) {
     } catch (error) {
       const cached = await cache.match(request);
       if (cached) return cached;
+      const saved = await (await caches.open(CACHE_SAVED)).match(request);
+      if (saved) return saved;
       throw error;
     }
   });
