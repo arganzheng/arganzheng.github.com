@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 前五篇改的是表示（量化）、过程（解码、投机）与缓存（KV），模型的参数数量与结构没有变。最后一条线改**参数的数量**：删掉一部分权重、一部分 head、一部分层，让模型本身变小。剪枝是最老的压缩方法（LeCun 等 1989 的 Optimal Brain Damage），在 CNN 时代成熟，在 LLM 上重新变得重要——因为"一个 70B 怎么变成一个能用的 8B"这个问题有了新的答案：不是从头训一个 8B，而是从 70B 剪出来再蒸馏，用十分之一的 token 达到相近的效果。
 
-剪枝与前几篇的根本区别是：**剪掉的东西不能靠更好的舍入找回来**，必须靠训练恢复。所以剪枝几乎总是"剪枝 + 蒸馏"的组合（[《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》](/knowledge-distillation-for-llms.html)的方法在这里是工具），它的算力账是"剪枝 + 恢复的 token 数"与"从头训一个同样大小的模型的 token 数"的比较。这也让它成为小模型配方的一部分——2024–2025 年发布的小模型（Llama 3.2 1B / 3B、Minitron、Gemma 3 1B、Qwen 的小尺寸）里，有一部分是从大模型剪出来的。
+剪枝与前几篇的根本区别是：**剪掉的东西不能靠更好的舍入找回来**，必须靠训练恢复。所以剪枝几乎总是"剪枝 + 蒸馏"的组合（[L5 第七篇](/knowledge-distillation-for-llms.html)的方法在这里是工具），它的算力账是"剪枝 + 恢复的 token 数"与"从头训一个同样大小的模型的 token 数"的比较。这也让它成为小模型配方的一部分——2024–2025 年发布的小模型（Llama 3.2 1B / 3B、Minitron、Gemma 3 1B、Qwen 的小尺寸）里，有一部分是从大模型剪出来的。
 
 本篇要回答的核心问题是：
 
@@ -169,7 +169,7 @@ Michel 等 2019 的经典发现："大部分 head 可以在推理时被删掉而
 
 ### 2. SFT 恢复 vs 蒸馏恢复
 
-两种恢复方式：**继续预训练**（在预训练数据上用交叉熵训）与**蒸馏**（让剪枝后的模型匹配原模型的 logits 分布，[《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》](/knowledge-distillation-for-llms.html)）。Minitron 的对照：同样 94B token，蒸馏比继续预训练在 MMLU 上高 3–4 个点、在 GSM8K 上高更多。原因在 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》讲过：蒸馏的目标是每个位置的完整分布（几十 bit 的信号），交叉熵只有正确 token（几 bit）；且"恢复到原模型"比"重新学习"是更明确的任务。Minitron 还加了中间层的蒸馏损失（让剪枝模型的隐状态匹配原模型对应层的隐状态，需要一个线性映射处理维度不同）——在剪得很重时有帮助，剪得轻时可以省。
+两种恢复方式：**继续预训练**（在预训练数据上用交叉熵训）与**蒸馏**（让剪枝后的模型匹配原模型的 logits 分布，[L5 第七篇](/knowledge-distillation-for-llms.html)）。Minitron 的对照：同样 94B token，蒸馏比继续预训练在 MMLU 上高 3–4 个点、在 GSM8K 上高更多。原因在 L5 第七篇讲过：蒸馏的目标是每个位置的完整分布（几十 bit 的信号），交叉熵只有正确 token（几 bit）；且"恢复到原模型"比"重新学习"是更明确的任务。Minitron 还加了中间层的蒸馏损失（让剪枝模型的隐状态匹配原模型对应层的隐状态，需要一个线性映射处理维度不同）——在剪得很重时有帮助，剪得轻时可以省。
 
 蒸馏恢复的成本是每步多一次教师前向。教师是原模型（15B），学生是 8B，教师前向约是学生前向 + 反向的 $$15 / (3 \times 8) \approx 0.6$$ 倍——总算力约 1.6 倍于纯训练。
 
@@ -238,7 +238,7 @@ MobileLLM（Liu 等 2024）在 125M–350M 上系统地测了：同参数量下�
 - **测量**：在 256 条校准文本上前向，记录每层输入 / 输出的余弦相似度（Block Influence），画出随层的曲线。预期：前几层低、中后段高、最后一层降。
 - **剪枝**：按 BI 删掉 4 层（14%）与 7 层（25%），两种策略——BI 最低的 $$n$$ 层（可能分散）与 Gromov 式的连续 $$n$$ 层。用 `transformers` 直接删 `model.layers` 中的对应项并更新 config。
 - **不恢复的评测**：WikiText 困惑度；MMLU（5-shot）；GSM8K（8-shot）；IFEval；一个 needle 任务（8K）。预期：困惑度小升、MMLU 小降、GSM8K 与 IFEval 大降。
-- **恢复**：用 [《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》](/sft-data-chat-template-loss-mask-and-peft.html)的 SFT 脚本改成蒸馏（教师为原模型，logits KL；`trl` 的 `GKDTrainer` 设 `lmbda=0`、`beta=0` 即前向 KL logits 级），在 1–2B token 的混合文本上训（24 GB 卡上一两天）。每 200M token 评一次上述任务，画恢复曲线。
+- **恢复**：用 [L5 第一篇](/sft-data-chat-template-loss-mask-and-peft.html)的 SFT 脚本改成蒸馏（教师为原模型，logits KL；`trl` 的 `GKDTrainer` 设 `lmbda=0`、`beta=0` 即前向 KL logits 级），在 1–2B token 的混合文本上训（24 GB 卡上一两天）。每 200M token 评一次上述任务，画恢复曲线。
 - **对照**：同样的 token 用交叉熵（继续预训练）恢复，与蒸馏比。
 
 该看的：困惑度与 GSM8K 的退化比例（预期相差一个量级）；连续删与分散删的差别；蒸馏与交叉熵恢复曲线的差；恢复到 1B token 时各任务恢复了几成、哪个任务恢复最慢。不引用任何未跑过的数字。

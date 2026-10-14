@@ -280,7 +280,7 @@ Table: 常见误区与正确说法
 5. 把本系列五篇与前六层对应：每篇把前面哪些机制翻译成了产品决策。
 
    <details markdown="1"><summary>答案</summary>
-   场景（1）：L1 失效模式与选型评测集 → 四维度与量边界；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》单位经济学 → 价值维度。形态（2）：《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级 → 形态梯子；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》运行时与 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》上下文管理 → 后台 agent 成立的条件；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》中间物 → 审阅落点。信任（3）：L3 引用正确率与 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》记忆来源 → 显示依据；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》确认门与审批 → 结构性核对；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》问人 → 推信号。呈现（4）：《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》出口 → 拒答与行为梯子；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》 `justification` → 审批三要素；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》事件流与 L5 决策点 → 步骤分层；《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》结构化输出与 《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 MCP Apps → 生成式 UI；《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》感知延迟 → 流式与骨架。指标（5）：《[评测、可观测与可追溯（03）：评什么——单步、RAG、agent 与多轮的指标矩阵](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)》会话单位与第四篇在线信号 → 矩阵；《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》反馈绑定与 《[生产化与运营（07）：数据飞轮与物理世界的上线](/data-flywheel-and-deploying-to-the-physical-world.html)》飞轮 → 回流；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》 → 成本 vs 价值。
+   场景（1）：L1 失效模式与选型评测集 → 四维度与量边界；L6 第二篇单位经济学 → 价值维度。形态（2）：L4 第八篇六级 → 形态梯子；L4 第三篇运行时与 L2 第四篇上下文管理 → 后台 agent 成立的条件；L4 第八篇中间物 → 审阅落点。信任（3）：L3 引用正确率与 L4 第八篇记忆来源 → 显示依据；L4 第五篇确认门与审批 → 结构性核对；L4 第八篇问人 → 推信号。呈现（4）：L2 第三篇出口 → 拒答与行为梯子；L4 第五篇 `justification` → 审批三要素；L4 第三篇事件流与 L5 决策点 → 步骤分层；L2 第三篇结构化输出与 L4 第二篇 MCP Apps → 生成式 UI；L6 第三篇感知延迟 → 流式与骨架。指标（5）：L5 第三篇会话单位与第四篇在线信号 → 矩阵；L5 第六篇反馈绑定与 L6 第七篇飞轮 → 回流；L6 第二篇 → 成本 vs 价值。
    </details>
 
 ### C. 面试题（7 题）
@@ -319,7 +319,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 三原则：诚实、可核对、可行动；(2) 引用到段落、正确率是产品指标、无依据不呈现为事实；(3) 置信度用行为梯子（直接给 / 候选 / 澄清 / 拒答）与语言——数字不可解读且模型自评不可靠（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）；(4) 拒答三部分；(5) 步骤分层、审批三要素、diff 部分接受；(6) 呈现是前六层机制的翻译（出口、justification、决策点、结构化输出）。
+   **答案要点**：(1) 三原则：诚实、可核对、可行动；(2) 引用到段落、正确率是产品指标、无依据不呈现为事实；(3) 置信度用行为梯子（直接给 / 候选 / 澄清 / 拒答）与语言——数字不可解读且模型自评不可靠（L5 第七篇）；(4) 拒答三部分；(5) 步骤分层、审批三要素、diff 部分接受；(6) 呈现是前六层机制的翻译（出口、justification、决策点、结构化输出）。
    **追问方向**：步骤全展开为什么是噪声；审批只有两个按钮会怎样。
    **好答案与一般答案的区别**：一般答案说"标注 AI 生成、给置信度"；好答案给行为梯子、拒答三部分、与工程机制的对应。
 

@@ -113,9 +113,9 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - 指令数据的三种来源：人工编写（InstructGPT 的 13K、LIMA 的 1K）、self-instruct 一类的自举、从更强模型蒸馏（ShareGPT、Alpaca、UltraChat）；数量与质量的取舍——LIMA 的"1000 条够了"与 Tülu 3 的 93.9 万条各在什么条件下成立；
 - 多轮对话的格式与 chat template：角色标记、特殊 token（第九篇留下的 256 个位）、system prompt；模板不一致是 SFT 最常见的静默错误；
 - loss mask：只对回复部分算 loss，prompt 部分不算；为什么算 prompt 会伤害模型；多轮时只算最后一轮还是每一轮；
-- packing 与它的 attention 掩码问题（《[现代 LLM 结构（08）：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html)》的跨文档 attention 在这里再出现一次）；
-- 全量微调的账：8B 模型 16 字节/参数的训练状态 128 GB（《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》），lr $$10^{-5}$$ 量级、2–3 个 epoch、cosine；
-- 参数高效微调：LoRA 的 $$W + BA$$（《[现代 LLM 结构（08）：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html)》的参数与状态账）、秩与目标矩阵的选择（r 16–64，全部线性层优于只做 attention）、QLoRA 的 NF4 底座、DoRA 的幅度 - 方向分解；Prefix-Tuning / P-Tuning / Adapter 的位置；LoRA 在什么任务上追不上全量；
+- packing 与它的 attention 掩码问题（L4 第十二篇的跨文档 attention 在这里再出现一次）；
+- 全量微调的账：8B 模型 16 字节/参数的训练状态 128 GB（L4 第十一篇），lr $$10^{-5}$$ 量级、2–3 个 epoch、cosine；
+- 参数高效微调：LoRA 的 $$W + BA$$（L4 第十二篇的参数与状态账）、秩与目标矩阵的选择（r 16–64，全部线性层优于只做 attention）、QLoRA 的 NF4 底座、DoRA 的幅度 - 方向分解；Prefix-Tuning / P-Tuning / Adapter 的位置；LoRA 在什么任务上追不上全量；
 - 灾难性遗忘：SFT 后通用能力下降的度量与三种对策——混入预训练数据回放、更小的 lr、模型平均（Llama 3 对每轮 SFT/DPO 的 checkpoint 做平均）；
 - 公开配方：InstructGPT 的 SFT、Llama 3 的 SFT（lr 1e-5，8.5K–9K 步，拒绝采样生成的数据）、Tülu 3 的 SFT 数据配比、DeepSeek-R1 的冷启动 SFT（几千条长思维链）。
 
@@ -263,7 +263,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - 评测协议的细节如何改变分数：few-shot 数、CoT 与否、采样温度、答案抽取的正则、pass@k 的 $$k$$——同一模型在不同协议下相差十几个点是常态；`lm-evaluation-harness` 一类工具的作用是固定协议；
 - LLM-as-judge：用强模型给回答打分或成对比较；三种系统性偏差——位置偏差（偏爱先出现的）、长度偏差（偏爱长的）、自我偏好（偏爱同家族模型的文风）——与对策（交换顺序、长度控制的 win rate、多 judge）；judge 一致率与准确率的区别；
 - 人类偏好 Arena：匿名成对比较 + Bradley-Terry 打分（第二篇的模型在这里用来给模型排名）；它测的是"人喜欢"而非"正确"，风格与长度的影响；style control；
-- 污染：benchmark 题目在训练集里（《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》的 8-gram 检测是训练侧的对策）；评测侧的检测——用改写过的题、比较训练集出现前后发布的题目、canary 字符串；被污染的分数是无意义的；
+- 污染：benchmark 题目在训练集里（L4 第十一篇的 8-gram 检测是训练侧的对策）；评测侧的检测——用改写过的题、比较训练集出现前后发布的题目、canary 字符串；被污染的分数是无意义的；
 - 能力分解与错误分析：总分不告诉你改什么；按题型 / 长度 / 领域切分，看错误的类型（没理解、算错、格式错、拒答）；
 - 自建评测集：什么时候必须（业务任务、私有领域、防污染）、怎么建（从真实流量采样、标注协议、大小与置信区间）、怎么维护；
 - 评测的统计：多少题才能区分两个模型 1 个点的差异（二项分布的置信区间：1000 题上约 ±3 个点）；多 seed；报告的诚实性。

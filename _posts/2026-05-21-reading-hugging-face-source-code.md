@@ -18,7 +18,7 @@ catalog: true
 
 Hugging Face 的五个库加起来几十万行，本系列不通读，只沿**一次 LoRA SFT 会走到的调用链**读：模型怎么加载、一次前向怎么走到 loss、`generate` 的循环长什么样、文本怎么变成 `input_ids`、数据怎么从 Arrow 文件到一个 batch、LoRA 怎么挂到 `nn.Linear` 上、SFT 的 `-100` 在哪一步填、DPO 与 GRPO 的公式各是哪十几行。每一篇的写法相同：先用一张调用链图给出骨架，再逐段贴源码——只贴那一段真正在做事的几行，其余用文件名 + 函数名指路——最后把它与本地图前面各层的公式或结构图对上。
 
-举一个例子说明这个系列的取法。「LoRA 是给权重加一个低秩增量 $$BA$$」是 [《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html)的数学；到了源码里它是三件可查验的事：（一）`inject_adapter` 用 `named_modules` 逐个匹配 `target_modules`，命中的 `nn.Linear` 被 `setattr` 换成 `lora.Linear`，`all-linear` 会排除 `lm_head`；（二）`update_layer` 建 `lora_A`（kaiming）与 `lora_B`（全零），`scaling = α/r`——所以训练开始时增量恰好为零；（三）`forward` 只多一行 `result + lora_B(lora_A(dropout(x))) * scaling`，先算瘦的那一半，永远不物化 $$BA$$。Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`state_dict` 里只有 adapter。
+举一个例子说明这个系列的取法。「LoRA 是给权重加一个低秩增量 $$BA$$」是 [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)的数学；到了源码里它是三件可查验的事：（一）`inject_adapter` 用 `named_modules` 逐个匹配 `target_modules`，命中的 `nn.Linear` 被 `setattr` 换成 `lora.Linear`，`all-linear` 会排除 `lm_head`；（二）`update_layer` 建 `lora_A`（kaiming）与 `lora_B`（全零），`scaling = α/r`——所以训练开始时增量恰好为零；（三）`forward` 只多一行 `result + lora_B(lora_A(dropout(x))) * scaling`，先算瘦的那一半，永远不物化 $$BA$$。Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`state_dict` 里只有 adapter。
 
 系列覆盖的范围是那六行代码的四段，每段一篇：
 
@@ -70,7 +70,7 @@ flowchart LR
 
 ### 1. transformers 模型侧：from_pretrained 怎么把三个文件变成 nn.Module，forward 怎么走到 loss
 
-[第一篇](/transformers-from-pretrained-to-forward-and-loss.html)读 `models/auto/`、`modeling_utils.py`、`models/llama/modeling_llama.py` 与 `loss/loss_utils.py`。加载的六步：`AutoConfig` 读 `model_type` → `modeling_auto.py` 的表选类 → 解析 safetensors → `torch.device("meta")` 下建骨架 → `safe_open` mmap 按名字填 → `tie_weights`、初始化缺失键、`eval()`。前向：一个 `DecoderLayer` 的 RMSNorm、RoPE、MLP、两条残差与 《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的公式逐行对应；attention 是 `ALL_ATTENTION_FUNCTIONS[config._attn_implementation]` 的一次函数指针调用；loss 不在建模文件里，按类名分派到 `ForCausalLMLoss`。最后读 `modular_qwen2.py`，看 518 个模型怎么维护。
+[第一篇](/transformers-from-pretrained-to-forward-and-loss.html)读 `models/auto/`、`modeling_utils.py`、`models/llama/modeling_llama.py` 与 `loss/loss_utils.py`。加载的六步：`AutoConfig` 读 `model_type` → `modeling_auto.py` 的表选类 → 解析 safetensors → `torch.device("meta")` 下建骨架 → `safe_open` mmap 按名字填 → `tie_weights`、初始化缺失键、`eval()`。前向：一个 `DecoderLayer` 的 RMSNorm、RoPE、MLP、两条残差与 L4 第一篇的公式逐行对应；attention 是 `ALL_ATTENTION_FUNCTIONS[config._attn_implementation]` 的一次函数指针调用；loss 不在建模文件里，按类名分派到 `ForCausalLMLoss`。最后读 `modular_qwen2.py`，看 518 个模型怎么维护。
 
 它回答的问题：`from_pretrained` 加载 8B bf16 模型时峰值内存为什么约等于最终的 16 GB 而不是 32 GB？`attn_implementation="sdpa"` 与 `"eager"` 的 logits 为什么在 fp32 下差 $$10^{-4}$$、bf16 下差 1.0？`labels` 传进去之后，`-100` 与 `num_items_in_batch` 各在哪一行起作用？
 
@@ -102,10 +102,10 @@ flowchart LR
 
 | 六行里的哪一行 | 入口文件 | 读到哪里为止 | 对应的前置篇 | 篇 |
 |---|---|---|---|---|
-| `AutoModelForCausalLM.from_pretrained(name)` | `models/auto/auto_factory.py` → `modeling_utils.py` → `models/llama/modeling_llama.py` | `ForCausalLMLoss`（`loss/loss_utils.py`） | [《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的结构图、[《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》](/from-maximum-likelihood-to-cross-entropy.html)的交叉熵 | 01 |
-| `model.generate(**inputs, do_sample=True, top_p=0.9)` | `generation/utils.py` | `_sample` 循环里的 `multinomial` 与 `stopping_criteria` | 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》第七章的采样公式 | 02 |
+| `AutoModelForCausalLM.from_pretrained(name)` | `models/auto/auto_factory.py` → `modeling_utils.py` → `models/llama/modeling_llama.py` | `ForCausalLMLoss`（`loss/loss_utils.py`） | [L4 第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html)的结构图、[L0 第五篇](/from-maximum-likelihood-to-cross-entropy.html)的交叉熵 | 01 |
+| `model.generate(**inputs, do_sample=True, top_p=0.9)` | `generation/utils.py` | `_sample` 循环里的 `multinomial` 与 `stopping_criteria` | L0 第五篇第七章的采样公式 | 02 |
 | `tok.apply_chat_template(messages)` / `load_dataset(name).map(fn)` | `tokenization_utils_tokenizers.py`、`utils/chat_template_utils.py` / `arrow_dataset.py`、`load.py` | Rust 的 `encode_batch` / `ArrowWriter` 与 `collate_fn` | [预训练第二篇](/tokenizer-vocabulary-and-token-efficiency.html)的 BPE | 03 |
-| `get_peft_model(model, LoraConfig(...))` | `peft/mapping_func.py` → `tuners/lora/model.py` → `tuners/lora/layer.py` | `Linear.forward` 的一行 | [《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html)的 $$W + BA$$ | 04 |
+| `get_peft_model(model, LoraConfig(...))` | `peft/mapping_func.py` → `tuners/lora/model.py` → `tuners/lora/layer.py` | `Linear.forward` 的一行 | [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)的 $$W + BA$$ | 04 |
 | `SFTTrainer(...).train()`（及 DPO / GRPO） | `trl/trainer/sft_trainer.py`、`dpo_trainer.py`、`grpo_trainer.py` | `build_labels`、`dpo_loss`、`_compute_loss` | [后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第一、三、四篇 | 04 |
 
 Table: 六行代码各自的入口、终点与对应的前置篇
@@ -120,7 +120,7 @@ Table: 六行代码各自的入口、终点与对应的前置篇
 |---|---|---|
 | 工具箱第五篇的六行代码 | 跑过一次，知道 `config.json` / `tokenizer.json` / `safetensors` 各是什么 | [工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
 | `nn.Module`、`state_dict`、`DataLoader` | 知道键名从属性路径来、`collate_fn` 做什么 | [工具箱第三篇](/pytorch-in-use-five-objects-and-a-training-loop.html) |
-| Transformer 的结构 | 能画出一个 decoder block，知道 RoPE、GQA、KV cache 各在哪 | [《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
+| Transformer 的结构 | 能画出一个 decoder block，知道 RoPE、GQA、KV cache 各在哪 | [L4 第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
 | SFT / DPO / GRPO 的目标函数 | 认得 $$-\log\sigma(\beta\Delta)$$ 与 $$(R - \text{mean}) / \text{std}$$ | [后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第一、三、四篇 |
 
 Table: 读本系列需要的前置
@@ -135,7 +135,7 @@ transformers 5.17.0、tokenizers 0.23.2、datasets 5.0.1、peft 0.21.0、trl 1.1
 
 | 篇 | 标题 | 读它需要 |
 |---|---|---|
-| 01 | [transformers 模型侧：from_pretrained 怎么把三个文件变成 nn.Module，forward 怎么走到 loss](/transformers-from-pretrained-to-forward-and-loss.html) | 《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》 |
+| 01 | [transformers 模型侧：from_pretrained 怎么把三个文件变成 nn.Module，forward 怎么走到 loss](/transformers-from-pretrained-to-forward-and-loss.html) | L4 第一篇 |
 | 02 | [generate：一次采样的完整调用链](/transformers-generate-call-chain.html) | 01 |
 | 03 | [tokenizers 与 datasets：从 messages 到 input_ids，从 Arrow 文件到 collate_fn](/tokenizers-and-datasets-from-messages-to-input-ids.html) | 工具箱第五篇 |
 | 04 | [peft 与 trl：LoRA 怎么挂上去，SFT / DPO / GRPO 的 loss 各在哪一行](/peft-and-trl-lora-sft-dpo-grpo-in-source.html) | 01–03、后训练系列 |
@@ -155,4 +155,4 @@ Table: 章节目录
 
 之后遇到任何一个新的 Trainer、新的 `LogitsProcessor`、新的模型目录，方法相同：找到注册表、找到 `compute_loss`、找到 `forward` 里那一行调用，往下追。
 
-[^q0]: 每行一条调用链，各对应一篇：`from_pretrained` → `AutoConfig` 读 `config.json` 查架构映射 → 构造 `Qwen2ForCausalLM` → `safetensors` 按 `state_dict` 键名加载（L4 结构图的七样东西就是 `modeling_qwen2.py` 里的七个类）；`model.generate` → `GenerationMixin.generate` 的循环：`prepare_inputs_for_generation` → `forward` 取最后位置 logits → `LogitsProcessor` → 采样 → 更新 KV cache（`DynamicCache`）（对应 《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》的 decode）；`apply_chat_template` → Jinja 模板渲染成字符串 → tokenizer 的预分词 + BPE 合并 → `input_ids`；`load_dataset(...).map` → Arrow 文件 → `Dataset.map` 的批处理 / 多进程 / 缓存指纹；`get_peft_model` → `inject_adapter` 匹配 `target_modules` 把 `nn.Linear` 换成 `lora.Linear`（`scaling = α/r`、`lora_B` 全零，对应 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》）；`SFTTrainer` 在 `DataCollator` 里填 `-100` 做 loss mask，`DPOTrainer` 的 `dpo_loss` 十几行是 $$-\log\sigma(\beta(\log\pi/\pi_{ref}|_w - \log\pi/\pi_{ref}|_l))$$，`GRPOTrainer` 的组内相对优势与裁剪比率各十几行（对应 L5 的公式）。
+[^q0]: 每行一条调用链，各对应一篇：`from_pretrained` → `AutoConfig` 读 `config.json` 查架构映射 → 构造 `Qwen2ForCausalLM` → `safetensors` 按 `state_dict` 键名加载（L4 结构图的七样东西就是 `modeling_qwen2.py` 里的七个类）；`model.generate` → `GenerationMixin.generate` 的循环：`prepare_inputs_for_generation` → `forward` 取最后位置 logits → `LogitsProcessor` → 采样 → 更新 KV cache（`DynamicCache`）（对应 L4 第二篇的 decode）；`apply_chat_template` → Jinja 模板渲染成字符串 → tokenizer 的预分词 + BPE 合并 → `input_ids`；`load_dataset(...).map` → Arrow 文件 → `Dataset.map` 的批处理 / 多进程 / 缓存指纹；`get_peft_model` → `inject_adapter` 匹配 `target_modules` 把 `nn.Linear` 换成 `lora.Linear`（`scaling = α/r`、`lora_B` 全零，对应 L0 第三篇）；`SFTTrainer` 在 `DataCollator` 里填 `-100` 做 loss mask，`DPOTrainer` 的 `dpo_loss` 十几行是 $$-\log\sigma(\beta(\log\pi/\pi_{ref}|_w - \log\pi/\pi_{ref}|_l))$$，`GRPOTrainer` 的组内相对优势与裁剪比率各十几行（对应 L5 的公式）。

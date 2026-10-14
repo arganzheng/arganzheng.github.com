@@ -158,7 +158,7 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart LR
     IN["① 输入侧：来源标记与分区<br/>外部内容标为数据 · 分区标记 · 过滤（只降概率）"] --> M["模型"]
-    M --> P["② 权限与沙箱（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》四层）<br/>注入让模型想做 · 四层让它做不到"]
+    M --> P["② 权限与沙箱（L4 第五篇四层）<br/>注入让模型想做 · 四层让它做不到"]
     P --> O["③ 输出处理<br/>渲染前脱敏链接 / 图片 / HTML · 执行前检查命令 / SQL · CSP"]
     O --> D["④ 数据流控制<br/>读了敏感数据的会话不能对外发 · 跨资源边界要审批 · 工具间数据流"]
     D --> R["⑤ 监控与红队<br/>异常动作检测 · 注入用例进评测集 · 持续红队"]
@@ -193,7 +193,7 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
-    Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件日志）"]
+    Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（L4 第三篇的事件日志）"]
     O --> M["模型 id + 快照、prompt 版本"]
     O --> R["检索到的文档 id 与当时的权限"]
     O --> A["谁批准了这版 prompt 上线（发布记录）"]
@@ -230,7 +230,7 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
     C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
-    V --> G["门禁：评测集（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）"]
+    V --> G["门禁：评测集（L5 第四篇）"]
     G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
     CN -- "在线指标正常" --> PR["production"]
     CN -- "回归" --> RB["一键回滚到上一个版本"]
@@ -269,7 +269,7 @@ flowchart LR
     F --> Q["bad case 队列<br/>owner · SLA · 分类 · 去重"]
     Q --> E["评测集<br/>每周补 · hold-out · 版本绑定"]
     E --> I["改进<br/>prompt · 检索 · 工具描述 · 策略 · 路由"]
-    I --> G["门禁 → 影子 → 灰度<br/>（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》 · 第六篇）"]
+    I --> G["门禁 → 影子 → 灰度<br/>（L5 第四篇 · 第六篇）"]
     G --> U
     E -->|"几千条真实（输入，理想输出）对"| FT["微调小模型<br/>行为优化：编译规则、降成本、提一致性"]
     FT --> G

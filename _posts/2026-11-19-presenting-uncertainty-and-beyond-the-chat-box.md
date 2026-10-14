@@ -46,13 +46,13 @@ flowchart TB
 | 呈现 | 背后的机制 | 层 |
 |---|---|---|
 | 引用可点开 | 检索的块 id 与来源文档、引用正确率 | L3、L5 |
-| 不确定用行为表达 | 拒答出口、自一致性、judge | 《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》、《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》 |
-| 拒答说缺什么 | 结构化输出的出口字段与原因 | 《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》 |
-| 首字前的骨架、token 流、步骤流、进度 | 流式事件、运行时的事件流 | 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》、《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》、《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》 |
-| agent 步骤可视化 | 会话日志、决策点日志 | 《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》 |
-| 审批带理由与影响 | `execpolicy` 的 `justification`、权限判定 | 《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》 |
-| diff 式审阅 | 变更的前后状态、提案先于生效 | 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》 |
-| 生成式 UI | 结构化输出、MCP Apps | 《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》、《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 |
+| 不确定用行为表达 | 拒答出口、自一致性、judge | L2 第三篇、L5 第七篇 |
+| 拒答说缺什么 | 结构化输出的出口字段与原因 | L2 第三篇 |
+| 首字前的骨架、token 流、步骤流、进度 | 流式事件、运行时的事件流 | L1 第二篇、L4 第三篇、L6 第三篇 |
+| agent 步骤可视化 | 会话日志、决策点日志 | L4 第三篇、L5 第六篇 |
+| 审批带理由与影响 | `execpolicy` 的 `justification`、权限判定 | L4 第五篇 |
+| diff 式审阅 | 变更的前后状态、提案先于生效 | L4 第八篇 |
+| 生成式 UI | 结构化输出、MCP Apps | L2 第三篇、L4 第二篇 |
 
 Table: 呈现方式与背后机制的对应
 
@@ -64,11 +64,11 @@ Table: 呈现方式与背后机制的对应
 
 ### 1. 引用与来源
 
-每个事实断言能**点开定位到原文**（哪份文档、哪一段，高亮）；引用的粒度到句子或段落而不是"参考文档 A"；引用正确率（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》、《[评测、可观测与可追溯（03）：评什么——单步、RAG、agent 与多轮的指标矩阵](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)》）在这里是产品指标——一个指向无关段落的引用比没有引用更伤信任。**没有依据的断言不呈现为事实**（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）：要么去掉，要么明确标为"未找到依据的推断"。来源的可信度也呈现（内部文档 vs 网页 vs 模型自身知识）。
+每个事实断言能**点开定位到原文**（哪份文档、哪一段，高亮）；引用的粒度到句子或段落而不是"参考文档 A"；引用正确率（L3 第七篇、L5 第三篇）在这里是产品指标——一个指向无关段落的引用比没有引用更伤信任。**没有依据的断言不呈现为事实**（L5 第七篇）：要么去掉，要么明确标为"未找到依据的推断"。来源的可信度也呈现（内部文档 vs 网页 vs 模型自身知识）。
 
 ### 2. 置信度：用行为不用数字
 
-不给用户原始的置信分数——用户无法解读"0.73"，且模型的自评不可靠（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）。用**行为**表达确定程度：
+不给用户原始的置信分数——用户无法解读"0.73"，且模型的自评不可靠（L5 第七篇）。用**行为**表达确定程度：
 
 | 系统的确定程度 | 呈现 |
 |---|---|
@@ -79,7 +79,7 @@ Table: 呈现方式与背后机制的对应
 
 Table: 用行为表达确定程度
 
-用语言而不是数字（"我不确定"、"这一点没有找到依据"），并在系统提示里让模型按这个梯子行为（《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》的出口设计）。
+用语言而不是数字（"我不确定"、"这一点没有找到依据"），并在系统提示里让模型按这个梯子行为（L2 第二篇的出口设计）。
 
 ```mermaid
 %% 图：置信度用行为不用数字——系统内部有依据数量、自一致性、检索分数这些信号，但不把「0.73」给用户；映射成四级行为：高 → 直接给答案 + 可点开的引用；中 → 给几个候选并说差别；低 → 问一个澄清问题或说「我不确定，以下是找到的相关信息」；无 → 拒答三部分（缺什么 · 下一步 · 已知部分）
@@ -102,25 +102,25 @@ flowchart TB
 
 ### 3. 拒答
 
-"无法回答"是最差的拒答。好的拒答有三部分：**缺什么**（"你的问题里没有订单号"、"知识库里没有关于 X 的内容"）、**下一步**（"提供订单号，或我帮你查最近的三笔"、"你可以联系 …"）、**已知的部分**（"关于 Y 我找到了这些"）。拒答是产品的正常路径而不是错误页——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口字段（原因、缺失信息、建议）就是为这个呈现设计的；拒答率进面板（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》、《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）。
+"无法回答"是最差的拒答。好的拒答有三部分：**缺什么**（"你的问题里没有订单号"、"知识库里没有关于 X 的内容"）、**下一步**（"提供订单号，或我帮你查最近的三笔"、"你可以联系 …"）、**已知的部分**（"关于 Y 我找到了这些"）。拒答是产品的正常路径而不是错误页——L2 第三篇的出口字段（原因、缺失信息、建议）就是为这个呈现设计的；拒答率进面板（L3 第七篇、L5 第四篇）。
 
 ## 三、进度、步骤、审批、diff
 
 ### 1. 首字前与流式
 
-首字前 0.5–1 秒：骨架、状态（"正在检索…"）、**已知信息先渲染**（用户的问题回显、检索到的来源先列出来——来源在回答之前就有）。token 流让用户在第一个 token 就开始读（《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》的感知延迟）。结构化输出用增量解析边到边渲染（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）。
+首字前 0.5–1 秒：骨架、状态（"正在检索…"）、**已知信息先渲染**（用户的问题回显、检索到的来源先列出来——来源在回答之前就有）。token 流让用户在第一个 token 就开始读（L6 第三篇的感知延迟）。结构化输出用增量解析边到边渲染（L2 第三篇）。
 
 ### 2. agent 步骤的可视化
 
-用户要知道 agent 在做什么、为什么。**分层**：默认一行摘要（"已读取 3 个文件，正在修改 `auth.py`"），可展开到步骤（每步的工具、参数摘要、结果摘要），再展开到完整内容——DeepSeek Harness 的 Trajectory 视图按来源检视每条记录，Codex 与 Claude Code 的步骤流是同一思想的不同密度。**不分层的全量步骤是噪声**，用户会关掉。步骤可视化同时是信任校准（透明）与调试入口（用户能指出哪步错了——反馈带 trace id，《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》）。
+用户要知道 agent 在做什么、为什么。**分层**：默认一行摘要（"已读取 3 个文件，正在修改 `auth.py`"），可展开到步骤（每步的工具、参数摘要、结果摘要），再展开到完整内容——DeepSeek Harness 的 Trajectory 视图按来源检视每条记录，Codex 与 Claude Code 的步骤流是同一思想的不同密度。**不分层的全量步骤是噪声**，用户会关掉。步骤可视化同时是信任校准（透明）与调试入口（用户能指出哪步错了——反馈带 trace id，L5 第六篇）。
 
 ### 3. 进度与预估
 
-长任务给进度（完成 3 / 7 步、已用 2 分钟）与预估（基于历史同类任务的分布——不确定就给范围）；后台 agent 的完成通知与失败通知（部分结果 + 阻塞原因——《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）。
+长任务给进度（完成 3 / 7 步、已用 2 分钟）与预估（基于历史同类任务的分布——不确定就给范围）；后台 agent 的完成通知与失败通知（部分结果 + 阻塞原因——L4 第九篇）。
 
 ### 4. 审批的交互
 
-审批请求要让人在几秒内判断：**为什么问**（`justification`——"这条命令会删除目录"）、**影响范围**（会改哪些文件、会调哪个外部系统、能不能撤销）、**选项**（允许一次 / 允许本会话这类 / 拒绝 / 让我看细节——《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的批一类解审批疲劳）、**默认安全**（超时不批 = 拒绝）。审批不该是一个"允许 / 拒绝"的弹窗——那会训练用户点允许。
+审批请求要让人在几秒内判断：**为什么问**（`justification`——"这条命令会删除目录"）、**影响范围**（会改哪些文件、会调哪个外部系统、能不能撤销）、**选项**（允许一次 / 允许本会话这类 / 拒绝 / 让我看细节——L4 第五篇的批一类解审批疲劳）、**默认安全**（超时不批 = 拒绝）。审批不该是一个"允许 / 拒绝"的弹窗——那会训练用户点允许。
 
 ```mermaid
 %% 图：agent 步骤的分层呈现——默认只有一行摘要「已读取 3 个文件，正在修改 auth.py」；点开到步骤列表（每步的工具、参数摘要、结果摘要、耗时）；再点开到完整内容（完整参数、完整返回、模型的思考摘要）；不分层的全量步骤流是噪声，用户会关掉；每一层都能从这里点「这步错了」带 trace id 反馈
@@ -128,7 +128,7 @@ flowchart TB
     L1["第一层：一行摘要（默认）<br/>「已读取 3 个文件，正在修改 auth.py · 第 6 / 9 步 · 1 分 20 秒」"]
     L1 -->|"点开"| L2["第二层：步骤列表<br/>① grep 'login' → 12 处 · 0.3 s<br/>② read auth.py → 4K · 0.1 s<br/>③ read session.py → 2K<br/>④ edit auth.py：+8 −3 行<br/>⑤ run pytest → 2 fail ✗<br/>⑥ edit auth.py（进行中）"]
     L2 -->|"再点开某一步"| L3["第三层：完整内容<br/>完整参数 · 完整工具返回（或卸载定位符）· 审批记录 · 模型思考摘要"]
-    L2 -.->|"「这一步错了」→ 反馈带 trace id + 步骤 id"| FB["bad case 队列（《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》）"]
+    L2 -.->|"「这一步错了」→ 反馈带 trace id + 步骤 id"| FB["bad case 队列（L5 第六篇）"]
     X["✗ 不分层：几十步全量滚屏 = 噪声，用户关掉"] -.-> L1
     classDef l fill:#fff7e0,stroke:#c98a00,color:#222
     classDef fb fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -179,9 +179,9 @@ flowchart LR
 |---|---|---|---|
 | **内联建议** | 在用户正在编辑的地方直接给（补全、改写建议、灰字） | 高频、粒度小、用户在流中 | 代码补全、邮件补全、表格公式建议 |
 | **按钮化动作** | 一次点击触发预定义的任务（"总结"、"翻译"、"修复这个错误"、"生成测试"） | 任务明确、参数少、用户不该写 prompt | 编辑器右键菜单、邮件的"起草回复" |
-| **环境感知** | AI 在用户的工作流里而不是另一个窗口：IDE、邮件客户端、表格、CRM、IM 内 | 几乎所有生产力场景 | Copilot 在 IDE、AI 在 Slack / 飞书里（OpenHarness 的 ohmo——《[工具、Agent 与 harness（06）：源码级对照——Codex、DeepSeek Harness、Claude Code 与 OpenHarness](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)》） |
-| **生成式 UI** | 模型输出结构化数据，前端渲染成表格 / 图表 / 表单 / 卡片而不是一段文字 | 输出有结构（对比、列表、数据、可选项） | 购物比较卡片、数据分析的图表、表单预填；MCP Apps 是协议层版本（《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》） |
-| **语音与实时** | 语音输入输出、低延迟的来回（Realtime API，《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》） | 免手、移动、客服电话、陪练 | 语音助手、电话客服 |
+| **环境感知** | AI 在用户的工作流里而不是另一个窗口：IDE、邮件客户端、表格、CRM、IM 内 | 几乎所有生产力场景 | Copilot 在 IDE、AI 在 Slack / 飞书里（OpenHarness 的 ohmo——L4 第六篇） |
+| **生成式 UI** | 模型输出结构化数据，前端渲染成表格 / 图表 / 表单 / 卡片而不是一段文字 | 输出有结构（对比、列表、数据、可选项） | 购物比较卡片、数据分析的图表、表单预填；MCP Apps 是协议层版本（L4 第二篇） |
+| **语音与实时** | 语音输入输出、低延迟的来回（Realtime API，L1 第二篇） | 免手、移动、客服电话、陪练 | 语音助手、电话客服 |
 | **后台交付** | 提任务、走开、收到 PR / 草稿 / 报告 / 通知 | 多步、有落点、可等（第二篇） | 后台 coding agent、定时报告 |
 | **环境自动** | 无界面：事件触发、AI 处理、结果进系统（分类、路由、抽取） | 边界内、可验证、高量（第二篇的自动化） | 工单分类、表单抽取 |
 
@@ -257,7 +257,7 @@ flowchart TB
 2. 团队想在每条回答旁显示"置信度 87%"。为什么不该？替代是什么？
 
    <details markdown="1"><summary>答案</summary>
-   用户无法解读数字，且模型自评的置信度不可靠（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）——87% 可能对应任何真实正确率，反而制造虚假的精确感。替代：用行为表达——确定时直接给 + 引用，中等时给候选并说差别，低时问澄清或说"我不确定"，无时拒答说缺什么；用语言不用数字。详见[第二章](#二引用置信度拒答)。
+   用户无法解读数字，且模型自评的置信度不可靠（L5 第七篇）——87% 可能对应任何真实正确率，反而制造虚假的精确感。替代：用行为表达——确定时直接给 + 引用，中等时给候选并说差别，低时问澄清或说"我不确定"，无时拒答说缺什么；用语言不用数字。详见[第二章](#二引用置信度拒答)。
    </details>
 
 3. 一个 coding agent 默认展开全部步骤（每次工具调用的完整参数与返回），用户反馈"太乱关掉了"。怎么改？
@@ -269,13 +269,13 @@ flowchart TB
 4. 审批弹窗只有"允许 / 拒绝"两个按钮，用户点允许的比例 99%。问题与改法？
 
    <details markdown="1"><summary>答案</summary>
-   没有理由与影响范围，用户无法判断只能点允许（审批疲劳 + 过度信任）；99% 说明审批已失效。改：显示为什么问（`justification`）、影响范围（改哪些文件、调哪个系统、可否撤销）、选项加"允许本会话这类"与"看细节"、超时即拒；同时按 《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的风险分级减少不必要的审批，只问真正需要判断的。详见[第三章](#三进度步骤审批diff)。
+   没有理由与影响范围，用户无法判断只能点允许（审批疲劳 + 过度信任）；99% 说明审批已失效。改：显示为什么问（`justification`）、影响范围（改哪些文件、调哪个系统、可否撤销）、选项加"允许本会话这类"与"看细节"、超时即拒；同时按 L4 第五篇的风险分级减少不必要的审批，只问真正需要判断的。详见[第三章](#三进度步骤审批diff)。
    </details>
 
 5. 一个"AI 比较三款产品"的功能输出一段 400 字的文字。用第五章判断该是什么形态。
 
    <details markdown="1"><summary>答案</summary>
-   输出有结构（三个对象 × 若干维度）→ 生成式 UI：模型输出结构化数据（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》），前端渲染成对比表格或卡片，维度可排序、可点开来源；参数少且明确（三款产品、几个维度）→ 可按钮化触发而不是让用户写 prompt。一段文字把结构压平了，用户还要自己在脑子里建表。详见[第五章](#五非对话形态)、[第六章](#六选形态的判据)。
+   输出有结构（三个对象 × 若干维度）→ 生成式 UI：模型输出结构化数据（L2 第三篇），前端渲染成对比表格或卡片，维度可排序、可点开来源；参数少且明确（三款产品、几个维度）→ 可按钮化触发而不是让用户写 prompt。一段文字把结构压平了，用户还要自己在脑子里建表。详见[第五章](#五非对话形态)、[第六章](#六选形态的判据)。
    </details>
 
 [^q0]: 引用：每个事实断言可点开定位到原文段落并高亮，粒度到句段而非"参考文档 A"，引用正确率是产品指标（指向无关段落比没有更伤信任），无依据的断言不呈现为事实（去掉或标为推断），来源可信度可见。置信度不给原始分数（用户无法解读、模型自评不可靠），用行为梯子表达：高——直接给 + 引用；中——给候选并说差别；低——问澄清或"我不确定，以下是相关信息"；无——拒答；用语言不用数字，系统提示与出口 schema 让模型按梯子行为。拒答三部分：缺什么（"没有订单号"、"知识库无 X"）、下一步（提供信息、替代操作、联系人）、已知的部分；拒答是正常路径不是错误页，出口字段为它设计，拒答率进面板。详见[第二章](#二引用置信度拒答)。

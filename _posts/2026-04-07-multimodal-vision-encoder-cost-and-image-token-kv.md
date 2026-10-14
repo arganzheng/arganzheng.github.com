@@ -39,7 +39,7 @@ flowchart TB
 
 三段各自是什么、为什么需要：
 
-1. **vision encoder**（视觉编码器）：文字有 tokenizer 把字切成 token，图片没有——像素太多（100 万个），也没有"词"。ViT 的办法是先把图切成 14×14 像素的小方块（**patch**，相当于图片的"字"），每个方块拉直成一个向量，再用一个独立的 Transformer 让方块之间互相看（attention），输出每个方块的语义向量。这个 encoder 通常先用图文对比学习（CLIP，《[算法工程师的数学（02）：内积、范数与余弦相似度](/inner-product-norms-and-cosine-similarity.html)》提过）单独训好，所以它输出的向量已经"懂图"。
+1. **vision encoder**（视觉编码器）：文字有 tokenizer 把字切成 token，图片没有——像素太多（100 万个），也没有"词"。ViT 的办法是先把图切成 14×14 像素的小方块（**patch**，相当于图片的"字"），每个方块拉直成一个向量，再用一个独立的 Transformer 让方块之间互相看（attention），输出每个方块的语义向量。这个 encoder 通常先用图文对比学习（CLIP，L0 第二篇提过）单独训好，所以它输出的向量已经"懂图"。
 2. **connector**（连接层）：encoder 输出的向量维度（比如 1280）和 decoder 用的维度（4096）不一样，个数也太多（几千个）——所以要一个小网络把相邻几个合并、再投影到 decoder 的维度。它输出的每个向量就叫一个 **image token**：从 decoder 的角度看，它和查 embedding 表得到的文字 token 向量没有任何区别。
 3. **decoder**：就是前面讨论的那个 LLM。image token 插在文字 token 之间，attention 让文字 token 能"看到"图片 token，于是模型可以回答关于图的问题。也正因为 decoder 一视同仁，每个 image token 都要走一遍 prefill、都要占一份 KV cache——这就是本篇要算的账。
 

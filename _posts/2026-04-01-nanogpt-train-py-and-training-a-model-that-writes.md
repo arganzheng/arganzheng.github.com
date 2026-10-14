@@ -75,7 +75,7 @@ train has 1,003,854 tokens
 val has 111,540 tokens
 ```
 
-三个决定：`uint16`（词表 < 65536，两字节够，文件是文本的两倍大而不是 8 倍）；训练 / 验证按 9 : 1 **切开**（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》：验证集要没见过）；`meta.pkl` 存字符表，训练脚本从它读词表大小、采样脚本用它把编号翻回字符。真实预训练用 BPE 分词、词表几万到十几万（预训练系列第二篇），但"文本 → 整数数组 → 随机切窗口"这条流水线完全一样——nanoGPT 的 OpenWebText 版本只是把 65 换成 50257、把 1 MB 换成 17 GB。
+三个决定：`uint16`（词表 < 65536，两字节够，文件是文本的两倍大而不是 8 倍）；训练 / 验证按 9 : 1 **切开**（L2 第一篇：验证集要没见过）；`meta.pkl` 存字符表，训练脚本从它读词表大小、采样脚本用它把编号翻回字符。真实预训练用 BPE 分词、词表几万到十几万（预训练系列第二篇），但"文本 → 整数数组 → 随机切窗口"这条流水线完全一样——nanoGPT 的 OpenWebText 版本只是把 65 换成 50257、把 1 MB 换成 17 GB。
 
 ## 三、配置：72 个全局变量与一个 `exec`
 
@@ -132,7 +132,7 @@ exec(open('configurator.py').read()) # overrides from command line or config fil
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 ```
 
-（为省篇幅删去了 wandb 与 DDP backend 三行。）默认值是 **GPT-2 small 在 OpenWebText 上的复现配方**：12 层 768 维、上下文 1024、每次迭代 [`5 × 8` 次梯度累积](#cfg-accum) × 12 × 1024 ≈ 49 万 token（8 卡各 5 次）、60 万步、峰值学习率 6e-4、warmup 2000 步后 cosine 衰减到 6e-5、weight decay 0.1、梯度裁剪 1.0——这组数字就是预训练系列第五篇讨论的"训练配方"，[六个优化器参数](#cfg-opt)与 GPT-3 论文一致（$$\beta_2 = 0.95$$ 而不是 Adam 默认的 0.999，《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》讲为什么）。
+（为省篇幅删去了 wandb 与 DDP backend 三行。）默认值是 **GPT-2 small 在 OpenWebText 上的复现配方**：12 层 768 维、上下文 1024、每次迭代 [`5 × 8` 次梯度累积](#cfg-accum) × 12 × 1024 ≈ 49 万 token（8 卡各 5 次）、60 万步、峰值学习率 6e-4、warmup 2000 步后 cosine 衰减到 6e-5、weight decay 0.1、梯度裁剪 1.0——这组数字就是预训练系列第五篇讨论的"训练配方"，[六个优化器参数](#cfg-opt)与 GPT-3 论文一致（$$\beta_2 = 0.95$$ 而不是 Adam 默认的 0.999，L3 第三篇讲为什么）。
 
 [`dtype`](#cfg-dtype)：有 CUDA 且支持 bf16 就用 bf16，否则 fp16（要配 GradScaler，第七章）；CPU / MPS 上这一行会选 fp16，但第四章会看到 CPU 实际不用 autocast。
 
@@ -375,7 +375,7 @@ def get_lr(it):
     return min_lr + coeff * (learning_rate - min_lr)
 ```
 
-[`estimate_loss`](#el-fn)：训练日志里每步的 loss 只来自一个 batch，抖得厉害；评估时在训练集和验证集上各取 `eval_iters` 个 batch 求平均，得到一个稳定的数。`model.eval()` / `model.train()` 切换 dropout（第二篇第七章的表）；`@torch.no_grad()` 不建图。**train loss 与 val loss 的差**就是过拟合的信号（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》）——第十章的实跑里能看到它逐渐拉开。
+[`estimate_loss`](#el-fn)：训练日志里每步的 loss 只来自一个 batch，抖得厉害；评估时在训练集和验证集上各取 `eval_iters` 个 batch 求平均，得到一个稳定的数。`model.eval()` / `model.train()` 切换 dropout（第二篇第七章的表）；`@torch.no_grad()` 不建图。**train loss 与 val loss 的差**就是过拟合的信号（L2 第一篇）——第十章的实跑里能看到它逐渐拉开。
 
 [`get_lr`](#lr-fn)：工具箱第三篇画过的那条曲线——前 `warmup_iters` 步从 0 线性升到 `learning_rate`，之后 cosine 衰减到 `min_lr`，超过 `lr_decay_iters` 后保持 `min_lr`。注意它是一个纯函数，每步算一个数再写进 `optimizer.param_groups`（下一章第一行），没有用 PyTorch 的 `LRScheduler`——效果一样，代码更直白。
 
@@ -521,7 +521,7 @@ real 7m34s
 
 - **step 0 的 4.17 ≈ $$\ln 65 = 4.17$$**——第二篇说的"随机初始化在词表上均匀乱猜"，65 个字符。
 - **2000 步后 val loss 1.66**：每个字符平均 $$e^{1.66} \approx 5.3$$ 个候选里犹豫（工具箱第三篇的 PPL）；从 65 到 5.3，它学到了英语拼写和莎士比亚的格式。
-- **train 与 val 从 step 1000 起拉开**（1.90 / 1.95 → 1.50 / 1.66）：1 MB 数据、0.8M 参数，开始过拟合；再训下去 val 会停在 1.6 左右而 train 继续降——《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》的曲线。真实预训练数据远大于参数，几乎不会过拟合。
+- **train 与 val 从 step 1000 起拉开**（1.90 / 1.95 → 1.50 / 1.66）：1 MB 数据、0.8M 参数，开始过拟合；再训下去 val 会停在 1.6 左右而 train 继续降——L2 第一篇的曲线。真实预训练数据远大于参数，几乎不会过拟合。
 - **MFU 0.2%**：MPS 上 12 × 64 = 768 个 token 的小 batch 完全喂不饱硬件（`estimate_mfu` 还按 A100 的 312 TFLOPS 算分母）；每步 320 ms 里绝大部分是 kernel 启动开销——Infra PyTorch 第八篇的 launch-bound。这个配置是为了几分钟看到结果，不是为了效率。
 
 用 `sample.py` 读回 checkpoint 续写（贪心以外的采样，温度 0.8、top-k 200）：

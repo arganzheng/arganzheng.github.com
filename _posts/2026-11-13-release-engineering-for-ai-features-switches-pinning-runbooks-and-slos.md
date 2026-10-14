@@ -9,7 +9,7 @@ catalog: true
 
 事故先说：周五下午一位工程师在控制台改了一句 system prompt 上线；周一发现一类用例的拒答率翻倍——但没有版本记录，不知道改了什么，也没法一键回滚；同时供应商在周末把浮动别名指向了新快照，两个变化叠在一起，分不清谁造成的。另一个：模型供应商宕机 40 分钟，AI 功能全部报错，没有 fallback、没有降级、没有 runbook，值班的人不知道该做什么。
 
-这一篇把 《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》（prompt 当代码管）与 《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》（门禁、影子、灰度）合成一个**发布体系**：什么算发布、特性开关与 kill switch、钉版本、依赖变更的纳入、五本 runbook、质量与成本 SLO、值班。
+这一篇把 L2 第六篇（prompt 当代码管）与 L5 第四篇（门禁、影子、灰度）合成一个**发布体系**：什么算发布、特性开关与 kill switch、钉版本、依赖变更的纳入、五本 runbook、质量与成本 SLO、值班。
 
 本篇要回答的核心问题是：
 
@@ -24,7 +24,7 @@ catalog: true
 %% 图：改动 = 发布：版本 → 门禁 → 灰度 → 生产 / 回滚，钉快照与 kill switch
 flowchart TB
     C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
-    V --> G["门禁：评测集（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）"]
+    V --> G["门禁：评测集（L5 第四篇）"]
     G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
     CN -- "在线指标正常" --> PR["production"]
     CN -- "回归" --> RB["一键回滚到上一个版本"]
@@ -36,7 +36,7 @@ flowchart TB
 
 - **什么算发布**
   - → 版本化（不可变 + 六元组 + 批准人）
-  - → 门禁（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）
+  - → 门禁（L5 第四篇）
   - → 影子（高风险改动）
   - → 灰度（开关按比例）
   - → 全量
@@ -69,11 +69,11 @@ flowchart TB
 
 Table: 算作发布的改动清单
 
-原则：**改动 = 发布**，全部版本化、全部过门禁（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）、全部可回滚。"在控制台改一句"必须变成"提一个版本"。
+原则：**改动 = 发布**，全部版本化、全部过门禁（L5 第四篇）、全部可回滚。"在控制台改一句"必须变成"提一个版本"。
 
 ### 2. 版本化
 
-《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》：不可变版本 + 标签（`staging` / `canary` / `production`）；每次发布记六元组（评测集 × prompt × 模型快照 × 工具集 × 检索配置 × judge）+ 门禁结果 + 批准人（第五篇的责任矩阵）+ 时间。配置即代码（《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》）：版本库或注册表，不在某人的控制台点击里。
+L2 第六篇：不可变版本 + 标签（`staging` / `canary` / `production`）；每次发布记六元组（评测集 × prompt × 模型快照 × 工具集 × 检索配置 × judge）+ 门禁结果 + 批准人（第五篇的责任矩阵）+ 时间。配置即代码（L5 第六篇）：版本库或注册表，不在某人的控制台点击里。
 
 ## 三、特性开关与 kill switch
 
@@ -83,7 +83,7 @@ Table: 算作发布的改动清单
 
 ### 2. kill switch
 
-秒级把一个功能切到降级或关——不经发布流程、不改代码、有权限的人（值班）能操作。用途：供应商宕机（切降级）、成本暴涨（关非核心）、注入 / 越权事件（关涉事功能）、质量骤降（切回旧版本或降级）。它是 《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》 fallback 的最后一级、第二篇降级梯子的第五级——**必须在上线前就存在并演练过**。
+秒级把一个功能切到降级或关——不经发布流程、不改代码、有权限的人（值班）能操作。用途：供应商宕机（切降级）、成本暴涨（关非核心）、注入 / 越权事件（关涉事功能）、质量骤降（切回旧版本或降级）。它是 L5 第七篇 fallback 的最后一级、第二篇降级梯子的第五级——**必须在上线前就存在并演练过**。
 
 ### 3. 开关的层次
 
@@ -126,11 +126,11 @@ flowchart TB
 
 | 依赖 | 钉法 | 不钉的后果 |
 |---|---|---|
-| 模型 | 带日期的快照 id，不用浮动别名 | 供应商静默升级（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》） |
+| 模型 | 带日期的快照 id，不用浮动别名 | 供应商静默升级（L5 第四篇） |
 | prompt | 版本号 / 哈希 | 不知道线上跑的是哪版 |
 | 工具集 | 版本号；MCP server 的版本 + 描述 / schema 哈希 | 描述投毒、行为漂移（第四篇） |
-| 检索 | embedding 模型版本（换了要全量重建——《[检索与知识接入（04）：索引、混合检索与 rerank](/indexing-hybrid-search-and-reranking.html)》）、索引版本 | 新旧向量不可比 |
-| harness | 运行时版本（两个开源 harness 都在快速迭代——《[工具、Agent 与 harness（06）：源码级对照——Codex、DeepSeek Harness、Claude Code 与 OpenHarness](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)》） | 行为变、日志格式变 |
+| 检索 | embedding 模型版本（换了要全量重建——L3 第四篇）、索引版本 | 新旧向量不可比 |
+| harness | 运行时版本（两个开源 harness 都在快速迭代——L4 第六篇） | 行为变、日志格式变 |
 | judge | 模型快照 + rubric 版本 | 尺子变了 |
 | 价目表 | 带日期 | 成本算错 |
 
@@ -138,7 +138,7 @@ Table: 要钉住的依赖与不钉的后果
 
 ### 2. 依赖变更是别人替你做的发布
 
-供应商的模型更新、弃用（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的周期表）、价格变化、条款变化（第五篇）、API 变更（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的 2026 年变更清单）、MCP server 更新——都会改变系统行为，但不经你的流程。纳入的做法：**探针集每日跑**（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》——模型指纹）、**订阅通知**（changelog、弃用邮件、状态页、MCP server 的 release）、**登记与评估**（第五篇的供应商变更治理）、**决定**（跟进 / 钉旧版 / 迁移 / 换 fallback 顺序），走同一套门禁与灰度。弃用是有截止日期的发布：日历上标出来，提前一个周期迁移。
+供应商的模型更新、弃用（L1 第五篇的周期表）、价格变化、条款变化（第五篇）、API 变更（L1 第二篇的 2026 年变更清单）、MCP server 更新——都会改变系统行为，但不经你的流程。纳入的做法：**探针集每日跑**（L5 第四篇——模型指纹）、**订阅通知**（changelog、弃用邮件、状态页、MCP server 的 release）、**登记与评估**（第五篇的供应商变更治理）、**决定**（跟进 / 钉旧版 / 迁移 / 换 fallback 顺序），走同一套门禁与灰度。弃用是有截止日期的发布：日历上标出来，提前一个周期迁移。
 
 ```mermaid
 %% 图：两种发布走同一条流程——你自己的改动（十类之一）提版本、过门禁、灰度、全量、监控；别人替你做的发布（供应商模型更新、弃用、价格、条款、API 变更、MCP server 更新）从探针漂移或通知进来，登记、影响评估后，同样决定跟进 / 钉旧版 / 迁移 / 换 fallback，走同一套门禁与灰度；弃用有截止日，日历上标出来提前一个周期迁移
@@ -178,9 +178,9 @@ flowchart TB
 
 - 旧模型快照还在（弃用了就回不去——要有 fallback 而不是回滚）
 - 旧 prompt 与当前工具集 / schema 兼容
-- 会话状态可读：加密的服务端压缩 item 不能跨模型（《[工具、Agent 与 harness（06）：源码级对照——Codex、DeepSeek Harness、Claude Code 与 OpenHarness](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)》）；新版本写的会话日志格式旧版本能读（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的格式版本）
+- 会话状态可读：加密的服务端压缩 item 不能跨模型（L4 第六篇）；新版本写的会话日志格式旧版本能读（L4 第三篇的格式版本）
 - 索引：换了 embedding 的新索引与旧 prompt 兼容吗（通常无关，但检索配置的回滚要与索引版本对齐）
-- 回滚也是一次发布：记录、通知、事后分析（《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》）
+- 回滚也是一次发布：记录、通知、事后分析（L5 第六篇）
 
 ### 3. 前向修复
 
@@ -212,11 +212,11 @@ flowchart TB
 
 ## 六、五本 runbook
 
-每本：触发条件（告警）、第一步（止损）、诊断（看什么）、处置（做什么）、恢复条件、事后（《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》的五段事后分析）、联系人。
+每本：触发条件（告警）、第一步（止损）、诊断（看什么）、处置（做什么）、恢复条件、事后（L5 第六篇的五段事后分析）、联系人。
 
 ### 1. 模型供应商宕机 / 严重降级
 
-触发：错误率 / 超时率骤升、供应商状态页。止损：fallback 链自动切（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性——有状态会话降档不跨供应商）；不够则 kill switch 切降级路径；用户提示"AI 功能暂时降级"。诊断：是全供应商还是某区域 / 某模型；网关的熔断状态。处置：调整路由表；监控 fallback 模型的质量与成本（它们不同）。恢复：供应商恢复且探针通过 → 逐步切回。事后：fallback 覆盖率与质量差距。
+触发：错误率 / 超时率骤升、供应商状态页。止损：fallback 链自动切（L1 第六篇的方向性——有状态会话降档不跨供应商）；不够则 kill switch 切降级路径；用户提示"AI 功能暂时降级"。诊断：是全供应商还是某区域 / 某模型；网关的熔断状态。处置：调整路由表；监控 fallback 模型的质量与成本（它们不同）。恢复：供应商恢复且探针通过 → 逐步切回。事后：fallback 覆盖率与质量差距。
 
 ### 2. 成本暴涨
 
@@ -228,11 +228,11 @@ flowchart TB
 
 ### 4. 越权 / 误操作事件
 
-触发：沙箱拒绝骤升、用户报告数据被改 / 删、审计发现。止损：kill switch；停止相关 agent 会话；**回滚数据**（备份、git、提案机制——《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》）。诊断：审计链——哪个会话、哪步、什么权限判定放行了、为什么（决策点日志）；PocketOS 五环自检（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》）。处置：执行策略加规则（`prompt` / `forbidden`）、权限档收紧、Guardian 审查 prompt 加模式、确认门。事后：五段分析，产出评测用例。
+触发：沙箱拒绝骤升、用户报告数据被改 / 删、审计发现。止损：kill switch；停止相关 agent 会话；**回滚数据**（备份、git、提案机制——L4 第八篇）。诊断：审计链——哪个会话、哪步、什么权限判定放行了、为什么（决策点日志）；PocketOS 五环自检（L4 第五篇）。处置：执行策略加规则（`prompt` / `forbidden`）、权限档收紧、Guardian 审查 prompt 加模式、确认门。事后：五段分析，产出评测用例。
 
 ### 5. 质量骤降
 
-触发：在线 judge / 拒答率 / 格式失败率 / 负反馈率超 SLO 错误预算，或探针漂移。止损：回滚到上一版本（若有本地发布）或切旧快照（若是供应商变更）。诊断：版本 diff 时间线——有本地变更吗？没有 → 探针确认供应商变更；三个数字定位（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》 / 《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）；失败分类分布哪类涨了。处置：修 + 门禁 + 灰度；供应商变更则钉旧快照或跟进评测。
+触发：在线 judge / 拒答率 / 格式失败率 / 负反馈率超 SLO 错误预算，或探针漂移。止损：回滚到上一版本（若有本地发布）或切旧快照（若是供应商变更）。诊断：版本 diff 时间线——有本地变更吗？没有 → 探针确认供应商变更；三个数字定位（L3 第七篇 / L5 第四篇）；失败分类分布哪类涨了。处置：修 + 门禁 + 灰度；供应商变更则钉旧快照或跟进评测。
 
 ## 七、SLO 与值班
 
@@ -317,7 +317,7 @@ AI 功能进值班轮转；值班手册 = 五本 runbook + kill switch 的操作
 3. 供应商宣布某模型 90 天后弃用。按本文这是什么？要做什么？
 
    <details markdown="1"><summary>答案</summary>
-   一次有截止日期的、别人替你做的发布。登记 → 评估（新模型在评测集上的表现、成本、tokenizer 与 API 差异——《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》）→ 排计划（提前一个周期，上日历）→ 新版本过门禁 → 影子 → 灰度 → 全量 → 更新 fallback 链与版本矩阵（给钉旧模型的租户单独迁移）；弃用日前确认没有租户还在旧模型上。详见[第四章](#四钉版本与依赖变更)。
+   一次有截止日期的、别人替你做的发布。登记 → 评估（新模型在评测集上的表现、成本、tokenizer 与 API 差异——L1 第五篇）→ 排计划（提前一个周期，上日历）→ 新版本过门禁 → 影子 → 灰度 → 全量 → 更新 fallback 链与版本矩阵（给钉旧模型的租户单独迁移）；弃用日前确认没有租户还在旧模型上。详见[第四章](#四钉版本与依赖变更)。
    </details>
 
 4. 一个越权事件：agent 删了客户数据。按第四本 runbook 写出前四步。

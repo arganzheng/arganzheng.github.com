@@ -279,7 +279,7 @@ xychart-beta
 ### 2. 后果
 
 - **代码生成里的弃用 API**：模型学到的是训练截止时的库用法。本系列第二篇会讲 OpenAI 的 Assistants API 在 2026 年 8 月关闭、Gemini 的 Interactions API 在 6 月改了 schema——一个知识截止在此之前的模型会自信地生成已失效的调用方式。Google 为此专门提供了 Interactions API 迁移的 coding agent skill 与 Docs MCP，就是在用工具补知识截止。
-- **价格、政策、人事**：任何会变的事实都不该来自权重。这是 《[检索与知识接入（01）：进上下文还是进权重——知识类型决定接入方式](/knowledge-in-context-or-in-weights.html)》"进上下文还是进权重"的判据之一。
+- **价格、政策、人事**：任何会变的事实都不该来自权重。这是 L3 第一篇"进上下文还是进权重"的判据之一。
 
 ### 3. 检测与应对
 

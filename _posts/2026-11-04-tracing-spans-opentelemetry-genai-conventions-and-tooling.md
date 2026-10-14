@@ -59,15 +59,15 @@ flowchart TB
 
 ### 1. 模型调用
 
-最重要的 span。记**完整的输入**（系统提示、工具定义、历史、当前输入——或一个能重建它的引用：prompt 版本 + 历史事件 id，避免每条 trace 重复存几十 KB）、**完整输出**（文本、工具调用、思考块——《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的推理状态要原样保留才能重放）、`usage`（输入 / 输出 / 缓存读 / 缓存写 / 推理 token——《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的五项成本）、模型 id 与快照、effort、temperature、`stop_reason`、TTFT 与总时长、错误类型与重试次数、请求 id（供应商侧的，报障用）。没有完整输入输出的 trace 无法做录制回放与 bad case 复现（第六篇）。
+最重要的 span。记**完整的输入**（系统提示、工具定义、历史、当前输入——或一个能重建它的引用：prompt 版本 + 历史事件 id，避免每条 trace 重复存几十 KB）、**完整输出**（文本、工具调用、思考块——L1 第三篇的推理状态要原样保留才能重放）、`usage`（输入 / 输出 / 缓存读 / 缓存写 / 推理 token——L1 第四篇的五项成本）、模型 id 与快照、effort、temperature、`stop_reason`、TTFT 与总时长、错误类型与重试次数、请求 id（供应商侧的，报障用）。没有完整输入输出的 trace 无法做录制回放与 bad case 复现（第六篇）。
 
 ### 2. 工具调用
 
-名称、参数、结果（大结果卸载后存引用与摘要——《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）、耗时、沙箱类型与拒绝、审批请求与决定（谁、何时）、幂等 id、错误。工具 span 是 《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》安全事件的来源（越权尝试、沙箱拒绝计数）。
+名称、参数、结果（大结果卸载后存引用与摘要——L2 第四篇）、耗时、沙箱类型与拒绝、审批请求与决定（谁、何时）、幂等 id、错误。工具 span 是 L4 第五篇安全事件的来源（越权尝试、沙箱拒绝计数）。
 
 ### 3. 检索
 
-查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的三个数字要从这里算。
+查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——L3 第七篇的三个数字要从这里算。
 
 ### 4. 事件
 
@@ -79,7 +79,7 @@ flowchart TB
 
 ### 6. 子 agent
 
-子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，《[工具、Agent 与 harness（07）：多 agent——编排、handoff 与 A2A](/multi-agent-orchestration-handoff-and-a2a.html)》的树状追溯靠这两个引用。
+子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，L4 第七篇的树状追溯靠这两个引用。
 
 ```mermaid
 %% 图：一条模型调用 span 的完整属性与它们各服务于谁——完整输入输出（或可重建的引用）服务录制回放与 bad case 复现；五项 usage 服务成本分析；模型快照与 effort 服务版本 diff 与 A/B 归因；stop_reason 与 TTFT 服务截断率与延迟排查；请求 id 服务向供应商报障；缺任何一项就有一件事做不了
@@ -165,7 +165,7 @@ flowchart TB
 
 | 工具 | 特点 | 适合 |
 |---|---|---|
-| Langfuse | 开源可自托管<br/>v3 围绕 OTel 重建<br/>trace + prompt 管理（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
+| Langfuse | 开源可自托管<br/>v3 围绕 OTel 重建<br/>trace + prompt 管理（L2 第六篇）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
 | LangSmith | LangChain 栈原生；trace、评测、数据集、playground | LangChain / LangGraph 用户 |
 | Arize Phoenix | 开源<br/>OpenInference 约定<br/>评测与 embedding 可视化 | 严谨的评测与可视化；自托管 |
 | Braintrust | trace 到评测的闭环（从 trace 一键建用例、跑评测、比版本） | 评测驱动的团队 |
@@ -182,7 +182,7 @@ OTel SDK 打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对�
 
 ### 3. 与会话日志的关系
 
-《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件溯源会话日志已经含了 trace 的大部分内容——它是运行时的状态；trace 是它的**可观测投影**。两者可以一份数据两种视图（从日志导出 span），不要维护两套。
+L4 第三篇的事件溯源会话日志已经含了 trace 的大部分内容——它是运行时的状态；trace 是它的**可观测投影**。两者可以一份数据两种视图（从日志导出 span），不要维护两套。
 
 ```mermaid
 %% 图：会话日志与 trace 是一份数据的两种视图——运行时写 append-only 的事件日志（它是状态：恢复、重放、分叉靠它）；一个导出器把日志事件映射成 OTel span 与事件（模型调用事件 → gen_ai chat span，工具事件 → execute_tool span，压缩 / 审批 / 卫士 → span 事件），送进可观测后端做面板、告警、评测采样；不要让 agent 循环各写一份
@@ -280,7 +280,7 @@ flowchart TB
 5. 为什么说 trace 是会话日志的"可观测投影"？维护两套会怎样？
 
    <details markdown="1"><summary>答案</summary>
-   《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件溯源日志已含每步的输入输出、工具、审批、压缩——它是运行时的状态与事实来源；trace 需要的就是这些内容按 OTel 形状组织，可以从日志导出 span。两套会不一致（日志里有的 trace 里没有、时间戳与 id 对不上）、双倍存储、bad case 在两处找。一份数据两种视图。详见[第四章](#四工具与自建)。
+   L4 第三篇的事件溯源日志已含每步的输入输出、工具、审批、压缩——它是运行时的状态与事实来源；trace 需要的就是这些内容按 OTel 形状组织，可以从日志导出 span。两套会不一致（日志里有的 trace 里没有、时间戳与 id 对不上）、双倍存储、bad case 在两处找。一份数据两种视图。详见[第四章](#四工具与自建)。
    </details>
 
 [^q0]: 三级树：会话 span 记用户 / 租户、版本六元组（prompt、模型快照、工具集、检索配置、harness、权限档）、时间、总成本；任务 / 轮次 span 记用户输入、最终输出、状态（完成 / 部分 / 失败 / 拒答）、成本、时长、用户反馈；模型调用 span 记完整输入（或 prompt 版本 + 历史事件 id 的可重建引用）、完整输出含思考块、usage 五项（输入 / 输出 / 缓存读 / 缓存写 / 推理）、模型 id 与快照、effort、temperature、stop_reason、TTFT 与总时长、错误与重试、供应商请求 id；工具 span 记名称、参数、结果或卸载引用、耗时、沙箱与拒绝、审批请求与决定、幂等 id、错误；检索 span 记改写前后查询、过滤含权限、两路候选与分数、RRF 与 rerank 后排序、进上下文的块 id、零结果；事件挂在 turn 上——压缩、卸载、卫士、审批、决策点；子会话 id 双向链接成森林。详见[第一章](#一总览)、[第二章](#二每种-span-记什么)。

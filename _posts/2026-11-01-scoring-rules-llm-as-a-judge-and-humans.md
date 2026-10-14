@@ -53,7 +53,7 @@ Table: 三层评分的对照
 
 ### 1. 能用规则的比想象多
 
-结构化输出（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）让大量判定变成规则：字段齐不齐、枚举对不对、数值在容差内、日期格式、引用的条目 id 是否存在于检索结果里、拒答出口是否被正确使用（该拒的用了、不该拒的没用）、代码是否编译 / 测试是否通过、agent 是否越权（沙箱事件计数）、步数与成本是否在预算内。把期望设计成可规则判定的形态，是评测集（第一篇）与输出 schema（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）联合设计的结果。
+结构化输出（L2 第三篇）让大量判定变成规则：字段齐不齐、枚举对不对、数值在容差内、日期格式、引用的条目 id 是否存在于检索结果里、拒答出口是否被正确使用（该拒的用了、不该拒的没用）、代码是否编译 / 测试是否通过、agent 是否越权（沙箱事件计数）、步数与成本是否在预算内。把期望设计成可规则判定的形态，是评测集（第一篇）与输出 schema（L2 第三篇）联合设计的结果。
 
 ### 2. 规则的边界
 
@@ -192,7 +192,7 @@ judge 的模型升级、rubric 改动、任务分布变化（新类型的用例�
 
 ### 1. rubric
 
-judge 的 prompt 是一份 rubric：判什么、每个分数级的定义、明确要忽略的（格式、长度、礼貌用语）、给出理由再给分（推理前置——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）、输出结构化（分数 + 理由 + 引用的证据）。rubric 短而具体优于长而全（长的会漂移）。rubric 是 prompt，按 《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》版本化。
+judge 的 prompt 是一份 rubric：判什么、每个分数级的定义、明确要忽略的（格式、长度、礼貌用语）、给出理由再给分（推理前置——L2 第三篇）、输出结构化（分数 + 理由 + 引用的证据）。rubric 短而具体优于长而全（长的会漂移）。rubric 是 prompt，按 L2 第六篇版本化。
 
 ### 2. pointwise 还是 pairwise
 
@@ -213,7 +213,7 @@ Table: pointwise 与 pairwise 的对照
 
 ### 4. 选 judge
 
-结论与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》同构：**去偏策略比 judge 的大小重要**——Gemini 2.5 Flash + 组合去偏（κ = 0.549，≈ 0.001 美元）胜过 Claude Sonnet 4 同策略（≈ 0.015 美元），便宜 15 倍。选法：两三个候选在你的校准集上跑第四章的协议，选 kappa 高、偏差小、便宜的；避免与被评模型同家族（或至少加跨家族对照）；judge 的模型版本钉住（它也会静默变——第四篇）。
+结论与 L1 第五篇同构：**去偏策略比 judge 的大小重要**——Gemini 2.5 Flash + 组合去偏（κ = 0.549，≈ 0.001 美元）胜过 Claude Sonnet 4 同策略（≈ 0.015 美元），便宜 15 倍。选法：两三个候选在你的校准集上跑第四章的协议，选 kappa 高、偏差小、便宜的；避免与被评模型同家族（或至少加跨家族对照）；judge 的模型版本钉住（它也会静默变——第四篇）。
 
 ```mermaid
 %% 图：去偏策略比 judge 的大小重要——Gemini 2.5 Flash 加组合去偏（交换顺序 · 长度匹配 · 忽略格式 · 遮蔽来源 · 先理由后分）κ = 0.549、每次约 0.001 美元；Claude Sonnet 4 同策略约 0.015 美元、κ 更低；中档模型 + 去偏比前沿模型便宜 15 倍且更准

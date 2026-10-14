@@ -134,7 +134,7 @@ MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 
 ### 3. resampler：Q-Former 与 Perceiver
 
-第三类不按位置映射，而是"提问"。先回忆 attention 的三步（《[LLM 时代的经典机器学习（05）：SVM 与核方法——最大间隔、核技巧与 attention 的远亲](/svm-and-kernel-methods.html)》的核回归 = attention）：一个 **query** 向量与每个 **key** 向量算相似度、softmax 成权重、按权重加权平均对应的 **value** 向量。自注意力里 query、key、value 都来自同一串 token；**cross-attention** 里 query 来自一边、key / value 来自另一边——"用 A 去查 B"。
+第三类不按位置映射，而是"提问"。先回忆 attention 的三步（L2 第五篇的核回归 = attention）：一个 **query** 向量与每个 **key** 向量算相似度、softmax 成权重、按权重加权平均对应的 **value** 向量。自注意力里 query、key、value 都来自同一串 token；**cross-attention** 里 query 来自一边、key / value 来自另一边——"用 A 去查 B"。
 
 **Perceiver resampler**（Flamingo，Alayrac 等 2022）：$$K$$ 个**可学习的** query 向量（$$K = 64$$，是模型参数，与输入图片无关）对编码器的全部 patch 特征做若干层 cross-attention（key / value 是 patch 特征），输出 $$K$$ 个向量。任意数量的 patch → 固定 $$K$$ 个 token。toy 上 $$K = 3$$：
 
@@ -247,7 +247,7 @@ def tokens_native(h, w, unit=28, lo=256, hi=1280):
 
 ViT 的 attention 是 $$O(N^2 d)$$。$$N = 5120$$ 个 patch（$$1280 \times 4$$，merge 之前）时 attention 的 FLOPs 是 $$4 \times 5120^2 \times 1280 \approx 134$$ GFLOPs 每层（$$QK^\top$$ 与 $$AV$$ 各 $$2N^2d$$），32 层 4.3 TFLOPs，与 patch 的线性部分（$$2 \times 675M \times 5120 \approx 6.9$$ TFLOPs）同量级——不可忽略，且激活内存 $$N^2$$ 增长。Qwen2.5-VL 把 ViT 的大部分层改成**窗口 attention**（$$112 \times 112$$ 像素的窗口，即 $$8 \times 8$$ 个 patch，只有 4 层保留全局 attention），把 attention 成本变成线性。这与 Swin Transformer 的思路一致，效果上几乎无损。
 
-另一个代价是**工程**：可变 token 数的 batch 需要 padding 或 packing（Qwen2-VL 用 packing——多张图的 patch 拼成一个序列，用 attention mask 隔开，与 [《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》](/sft-data-chat-template-loss-mask-and-peft.html)讲的 SFT packing 同一个技术）。
+另一个代价是**工程**：可变 token 数的 batch 需要 padding 或 packing（Qwen2-VL 用 packing——多张图的 patch 拼成一个序列，用 attention mask 隔开，与 [L5 第一篇](/sft-data-chat-template-loss-mask-and-peft.html)讲的 SFT packing 同一个技术）。
 
 ### 4. NaFlex 与趋势
 

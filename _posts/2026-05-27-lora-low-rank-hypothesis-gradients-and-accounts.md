@@ -72,7 +72,7 @@ flowchart TB
     class A,B,S train
 ```
 
-参数量：$$W$$ 有 $$d_{in} d_{out}$$ 个，$$A$$ 与 $$B$$ 一共 $$r(d_{in} + d_{out})$$ 个。$$d_{in} = d_{out} = 4096$$、$$r = 16$$ 时是 $$16 \times 8192 = 131{,}072$$ 对 $$16{,}777{,}216$$，128 倍。[《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html)里有一个 $$4 \times 4$$、$$r = 2$$ 的数值例子说明 $$BA$$ 的每一行都是 $$A$$ 的行的线性组合，本文不重复。
+参数量：$$W$$ 有 $$d_{in} d_{out}$$ 个，$$A$$ 与 $$B$$ 一共 $$r(d_{in} + d_{out})$$ 个。$$d_{in} = d_{out} = 4096$$、$$r = 16$$ 时是 $$16 \times 8192 = 131{,}072$$ 对 $$16{,}777{,}216$$，128 倍。[L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html)里有一个 $$4 \times 4$$、$$r = 2$$ 的数值例子说明 $$BA$$ 的每一行都是 $$A$$ 的行的线性组合，本文不重复。
 
 ### 2.2 梯度：用一个 2×3 的例子手算
 

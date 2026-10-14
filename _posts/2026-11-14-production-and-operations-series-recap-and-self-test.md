@@ -159,7 +159,7 @@ flowchart LR
 
 ### 3. 改动 = 发布，依赖也会变
 
-第六篇的十类、第五篇的供应商变更治理、《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》的探针——供应商的模型更新、弃用、条款变化、MCP server 更新都是别人替你做的发布，要探针、通知、登记、评估、日历。
+第六篇的十类、第五篇的供应商变更治理、L5 第四篇的探针——供应商的模型更新、弃用、条款变化、MCP server 更新都是别人替你做的发布，要探针、通知、登记、评估、日历。
 
 ```mermaid
 %% 图：生产与运营七篇的关系：网关是入口，成本、延迟、安全、治理都汇到发布，飞轮回流到发布，供应商与 MCP 变更也是发布
@@ -312,7 +312,7 @@ Table: 常见误区与正确说法
 2. 用第四篇的五层为一个"读用户邮件并起草回复"的 agent 设计防御，说明 EchoLeak 的七环各在哪层被拦。
 
    <details markdown="1"><summary>答案</summary>
-   ① 输入侧：邮件内容进上下文时标为不可信数据并分区，分类器辅助（拦 ②③ 的概率）；② 权限与沙箱：按任务最小权限——起草回复的会话只能读该线程与必要的联系人，不能读任意内部文件（拦 ④）；工具只有"起草"没有"发送"，发送需人批（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的中间物）；③ 输出处理：草稿渲染前脱敏所有形态链接与图片、不自动加载、CSP 最小化（拦 ⑤⑥⑦）；④ 数据流控制：读过敏感附件的会话生成的草稿里不能有外链（拦 ④→⑥）；⑤ 监控与红队：陌生域名外链告警，EchoLeak 模式进红队集与门禁。
+   ① 输入侧：邮件内容进上下文时标为不可信数据并分区，分类器辅助（拦 ②③ 的概率）；② 权限与沙箱：按任务最小权限——起草回复的会话只能读该线程与必要的联系人，不能读任意内部文件（拦 ④）；工具只有"起草"没有"发送"，发送需人批（L4 第八篇的中间物）；③ 输出处理：草稿渲染前脱敏所有形态链接与图片、不自动加载、CSP 最小化（拦 ⑤⑥⑦）；④ 数据流控制：读过敏感附件的会话生成的草稿里不能有外链（拦 ④→⑥）；⑤ 监控与红队：陌生域名外链告警，EchoLeak 模式进红队集与门禁。
    </details>
 
 3. 供应商宣布 60 天后弃用你在用的模型，同时条款更新为默认可用于改进。用第五、六篇列出全部要做的事与顺序。
@@ -330,7 +330,7 @@ Table: 常见误区与正确说法
 5. 把本系列七篇与前五层对应：每篇主要用了前面哪些层的机制，把什么变成了运营。
 
    <details markdown="1"><summary>答案</summary>
-   网关（1）：《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的重试 / 限流 / fallback 方向性 → 集中到一层；《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》缓存 → 不破坏。成本（2）：《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》公式与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》级联、L2 缓存与瘦身、L4 卫士 → 归因、预算、梯子、单位经济学。延迟（3）：《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》 TTFT 与第六篇超时、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》缓存、《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 PTC 与第七篇并行 → 分段预算与面板。安全（4）：《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》四层、《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》分区、《[检索与知识接入（04）：索引、混合检索与 rerank](/indexing-hybrid-search-and-reranking.html)》权限过滤 → 五层与供应链与密钥。治理（5）：《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》会话日志、《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》 trace 与决策点 → 审计链；《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》 `store` → 保留策略。发布（6）：《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》版本、《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》门禁与探针 → 开关、钉版本、runbook、SLO。飞轮（7）：《[评测、可观测与可追溯（01）：评测集——AI 应用的单元测试](/eval-sets-the-unit-tests-of-ai-applications.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》评测集与反馈绑定、《[检索与知识接入（01）：进上下文还是进权重——知识类型决定接入方式](/knowledge-in-context-or-in-weights.html)》微调顺序、《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》仿真 → 飞轮与 OTA。
+   网关（1）：L1 第六篇的重试 / 限流 / fallback 方向性 → 集中到一层；L2 第五篇缓存 → 不破坏。成本（2）：L1 第四篇公式与 L1 第五篇级联、L2 缓存与瘦身、L4 卫士 → 归因、预算、梯子、单位经济学。延迟（3）：L1 第四篇 TTFT 与第六篇超时、L2 第五篇缓存、L4 第二篇 PTC 与第七篇并行 → 分段预算与面板。安全（4）：L4 第五篇四层、L2 第二篇分区、L3 第四篇权限过滤 → 五层与供应链与密钥。治理（5）：L4 第三篇会话日志、L5 第五、六篇 trace 与决策点 → 审计链；L1 第二篇 `store` → 保留策略。发布（6）：L2 第六篇版本、L5 第四篇门禁与探针 → 开关、钉版本、runbook、SLO。飞轮（7）：L5 第一、六篇评测集与反馈绑定、L3 第一篇微调顺序、L5 第七篇仿真 → 飞轮与 OTA。
    </details>
 
 ### C. 面试题（7 题）

@@ -128,7 +128,7 @@ Table: 本文的章节安排
 
 ### 2. 扩散推理需要知道的最小集
 
-本系列不涉及扩散的数学（在算法地图 《[多模态（05）：语音（下）：语音理解、语音生成与全双工](/speech-understanding-generation-and-full-duplex.html)》），但系统工程师需要知道下面五件事，它们各自对应一个系统含义：
+本系列不涉及扩散的数学（在算法地图 L7 第五篇），但系统工程师需要知道下面五件事，它们各自对应一个系统含义：
 
 | 事实 | 系统含义 |
 |---|---|
@@ -246,7 +246,7 @@ Table: 五个模型的每步账
 两点：
 
 - **图像模型的 attention 占 20–30%**，是 GEMM 负载。SD3 的占比比 FLUX 高，因为它的 $$d$$ 小（1536）——线性项 $$\propto P_\text{tok} \propto L d^2$$，attention 项 $$\propto L d$$，$$d$$ 越小 attention 相对越大。
-- **视频模型的 attention 占 70–90%**。Wan 一步 6.5 PFLOPs 里 4.7 P 是 attention；HunyuanVideo 129 帧的 attention 是线性项的 6.5 倍。按 $$4 L N^2 d$$ 算：$$4 \times 60 \times 119{,}056^2 \times 3072 = 10.5$$ P，一步 12.1 P，50 步 604 P（算法地图 《[多模态（06）：扩散模型（上）：DDPM——加噪、去噪与「预测噪声」](/diffusion-models-ddpm-score-matching-and-flow-matching.html)》的成本一节给出的就是这笔账的粗略版本）。视频生成的 attention 比直觉更重——早期的粗估常把它当作"与线性项相当"，差了一个 6 倍。
+- **视频模型的 attention 占 70–90%**。Wan 一步 6.5 PFLOPs 里 4.7 P 是 attention；HunyuanVideo 129 帧的 attention 是线性项的 6.5 倍。按 $$4 L N^2 d$$ 算：$$4 \times 60 \times 119{,}056^2 \times 3072 = 10.5$$ P，一步 12.1 P，50 步 604 P（算法地图 L7 第六篇的成本一节给出的就是这笔账的粗略版本）。视频生成的 attention 比直觉更重——早期的粗估常把它当作"与线性项相当"，差了一个 6 倍。
 
 ### 4. 三段合计
 
@@ -561,7 +561,7 @@ $$
 
 ### 3. 本篇涉及的算法侧结论
 
-只用了三条：一步是一次对 $$N$$ 个 token 的完整前向；CFG 是两次前向；步数是采样器参数、可以被蒸馏。它们的来由在《[多模态（05）：语音（下）：语音理解、语音生成与全双工](/speech-understanding-generation-and-full-duplex.html)》、《[多模态（06）：扩散模型（上）：DDPM——加噪、去噪与「预测噪声」](/diffusion-models-ddpm-score-matching-and-flow-matching.html)》。
+只用了三条：一步是一次对 $$N$$ 个 token 的完整前向；CFG 是两次前向；步数是采样器参数、可以被蒸馏。它们的来由在算法地图 L7 第五、六篇。
 
 ### 4. 下一篇
 

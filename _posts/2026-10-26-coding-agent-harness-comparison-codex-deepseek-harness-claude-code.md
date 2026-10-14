@@ -98,7 +98,7 @@ flowchart LR
 
 ### 4. 上下文：加密 blob vs 可读事件
 
-《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》与本系列第四篇讲过：Codex 的服务端压缩返回只有 OpenAI 能解的加密 item——保留模型内部状态、损失可能更小、但不可读不可审计且绑供应商；DeepSeek Harness 的压缩摘要是可读的会话事件——可审计、可换 prompt、可跨供应商，但只保留摘要写出的东西。这是"模型耦合"维度在上下文层的投影。两家都有"压缩前的便宜一步"（会话记忆 / 修剪器）与卸载（截断规则 / `spill`）。
+L2 第四篇与本系列第四篇讲过：Codex 的服务端压缩返回只有 OpenAI 能解的加密 item——保留模型内部状态、损失可能更小、但不可读不可审计且绑供应商；DeepSeek Harness 的压缩摘要是可读的会话事件——可审计、可换 prompt、可跨供应商，但只保留摘要写出的东西。这是"模型耦合"维度在上下文层的投影。两家都有"压缩前的便宜一步"（会话记忆 / 修剪器）与卸载（截断规则 / `spill`）。
 
 ### 5. 权限与审批：策略语言 vs 规则 + 模式 vs 插件
 
@@ -173,7 +173,7 @@ Codex 对接 Responses API（reasoning item 跨轮、服务端压缩、PTC 都�
 
 ### 12. 基准：Minimal 模式
 
-DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编辑器，"为在最小环境里对模型做基准"——它承认 harness 会影响模型的表现，所以比较模型时要把 harness 降到最小。《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》讲的"供应商自报分数条件不一"里的"脚手架"变量，在这里被显式控制。
+DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编辑器，"为在最小环境里对模型做基准"——它承认 harness 会影响模型的表现，所以比较模型时要把 harness 降到最小。L1 第五篇讲的"供应商自报分数条件不一"里的"脚手架"变量，在这里被显式控制。
 
 ## 三、三种交付形态
 
@@ -205,7 +205,7 @@ Table: 三种交付形态的对照
 | DeepSeek Harness | **`spill` / `guard` / `subagent` 作为独立包组** | 卸载、卫士、委派各是一个可换的接缝，而不是循环里的 if |
 | Claude Code | **六步判定顺序与"deny 高于一切"** | 可编程（hooks、回调）与硬边界（deny）的精确分层 |
 | Claude Code | **subagent vs agent teams 的诚实取舍表** | 什么时候要贵的那种，文档说清了 |
-| Claude Code | **`settingSources`、CLAUDE.md、`.claude/agents`、skills 的文件系统约定** | 把配置放在仓库里、随代码版本化——《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》 |
+| Claude Code | **`settingSources`、CLAUDE.md、`.claude/agents`、skills 的文件系统约定** | 把配置放在仓库里、随代码版本化——L2 第六篇 |
 | OpenHarness | **轻量与复用** | 不是每个团队都需要五十万行；复用底层 CLI 的订阅与沙箱、把精力放在个人 agent 的交互（即时通讯）上，是一种务实路线 |
 | 全部 | **一个核心多个面**、**MCP + SKILL.md + AGENTS.md 的共享层**、**压缩前的便宜一步** | 四家独立收敛到的东西，大概率是对的 |
 
@@ -246,7 +246,7 @@ Table: 从每家 harness 学什么
    Codex 的 `execpolicy`：Starlark 策略文件可放版本库、`match` / `not_match` 是加载时校验的测试、`justification` 进审批提示、CLI 可离线评估一条命令的判定——四个要求都满足。Claude Code 的规则可审计但没有内置测试；DeepSeek Harness 可用插件实现同样的东西但要自己写。详见[第二章](#二逐维度的取舍)、[第四章](#四从每家学什么)。
    </details>
 
-4. DeepSeek Harness 的 Minimal 模式解决 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》里的哪个问题？
+4. DeepSeek Harness 的 Minimal 模式解决 L1 第五篇里的哪个问题？
 
    <details markdown="1"><summary>答案</summary>
    "供应商自报分数条件不一——脚手架不同不可横比"。Minimal 模式只留 shell 与文件编辑器，把 harness 对模型表现的影响降到最小，让不同模型在同一最小环境里比较；它显式承认 harness 是基准里的一个变量并把它控制住。详见[第二章](#二逐维度的取舍)。
