@@ -19,6 +19,31 @@ updated: 2026-09-21
 
 答案的骨架是中篇末尾那句话——**边界要校验，内部要干净**：外部数据进门时用 Pydantic 付一次校验成本，进门之后用零开销的 `@dataclass` 传递，靠 mypy 做静态保证。
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| mypy | — | 静态类型检查器，开发时给 dataclass 内部传递做保证 |
+| worker | — | 推理或训练里独立干活的进程，之间要传消息 |
+| Bean Validation | — | Java 的校验规范（JSR 380），用注解声明约束 |
+| Pydantic | — | 按类型注解做运行时校验的数据模型库 |
+| PEP | Python Enhancement Proposal | Python 的改进提案，PEP 526 定义了变量注解语法 |
+| CI | continuous integration | 持续集成，在提交时自动跑检查 |
+| OpenAPI | — | 描述 HTTP 接口的规范，FastAPI 从模型自动生成 |
+| YAML | YAML Ain't Markup Language | 常见的配置文件格式 |
+| KV cache | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
+| FastAPI | — | 以 Pydantic 为核心、按类型注解解析请求的 Web 框架 |
+| coercion | — | 类型强制转换，比如把字符串 "42" 转成 int |
+| vLLM | — | 开源的大模型推理引擎，本系列常引它的源码 |
+| Swagger | — | Java 生态里从注解生成接口文档的工具 |
+| DeepSpeed | — | 微软的分布式训练库，并行策略写在配置文件里 |
+| Fail-Fast | — | 启动时配置一错就立刻失败，而不是跑到一半才报 |
+| ABC | abstract base class | 抽象基类，要求子类显式继承 |
+| DTO | data transfer object | 只装数据、在层与层之间传递的对象 |
+| AST | abstract syntax tree | 抽象语法树，Lombok 在编译期改的就是它 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览
 
 ### 1. 在三篇地图上的位置
@@ -95,8 +120,8 @@ Table: 本文的章节安排
 所谓数据契约，就是对"一组数据长什么样"的正式约定。在 AI-Infra 系统里，它无处不在：
 
 - **请求体**：`/v1/chat/completions` 收到的 JSON 应该有哪些字段、什么类型、什么取值范围；
-- **配置项**：从 `.env`、YAML 读进来的一堆字符串，怎么变成强类型的配置对象；
-- **模型元数据**：模型名、量化方式、并行度、KV cache 配置在进程间传递时的形状；
+- **配置项**：从 `.env`、YAML（YAML Ain't Markup Language）读进来的一堆字符串，怎么变成强类型的配置对象；
+- **模型元数据**：模型名、量化方式、并行度、KV cache（key–value cache）配置在进程间传递时的形状；
 - **内部数据结构**：一次推理请求在引擎内部流转时携带的上下文。
 
 在 Java 里这件事由多个技术栈拼起来：Lombok / `record` 消除模板代码，Bean Validation 做校验，Jackson 做序列化，`@ConfigurationProperties` 做配置绑定。Python 则高度收敛——`@dataclass` 和 Pydantic 两个工具覆盖了绝大部分场景。看一眼 Pydantic 模型的定义：
@@ -139,7 +164,7 @@ class User:
 
 问题很明显：**大量 `self.x = x` 的模板代码**。字段一多就难以维护，而且还要手写 `__repr__`、`__eq__` 才能方便调试和比较。
 
-Python 3.7 引入的数据类消除了这些样板。它利用类变量类型标注（PEP 526）语法：
+Python 3.7 引入的数据类消除了这些样板。它利用类变量类型标注（PEP 526（PEP 即 Python Enhancement Proposal））语法：
 
 ```python title='用 @dataclass 定义 User'
 from dataclasses import dataclass
