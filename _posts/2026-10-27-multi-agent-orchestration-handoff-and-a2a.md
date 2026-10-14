@@ -7,13 +7,35 @@ tags: [AI, LLM, AI-Application, Agent, Multi-Agent, A2A]
 catalog: true
 ---
 
-"多 agent"是 2025–2026 年被过度使用的词。多数被叫作多 agent 的系统，要么是一个 agent 加几个子 agent（第四篇），要么是一条工作流里几个模型调用（第一篇）；真正需要多个**对等的、有自己上下文与目标的** agent 协作的场景比想象中少。这一篇先说什么时候不需要，再讲三种真正的模式——orchestrator-workers、handoff、层级——各自的代表实现（Anthropic 的多 agent 研究系统、OpenAI Agents SDK 的 handoff、Claude Code 的 agent teams、GPT-5.6 的 ultra 模式）、跨厂商 agent 之间的协议 A2A，以及成本（Anthropic 的数字：约 15 倍于聊天的 token）与调试代价。
+"多 agent"是 2025–2026 年被过度使用的词。多数被叫作多 agent 的系统，要么是一个 agent 加几个子 agent（第四篇），要么是一条工作流里几个模型调用（第一篇）；真正需要多个**对等的、有自己上下文与目标的** agent 协作的场景比想象中少。这一篇先说什么时候不需要，再讲三种真正的模式——orchestrator-workers、handoff、层级——各自的代表实现（Anthropic 的多 agent 研究系统、OpenAI Agents SDK（software development kit）的 handoff、Claude Code 的 agent teams、GPT-5.6 的 ultra 模式）、跨厂商 agent 之间的协议 A2A（Agent2Agent），以及成本（Anthropic 的数字：约 15 倍于聊天的 token）与调试代价。
 
 一条纪律贯穿全篇：**先用一个 agent 加更好的工具**。多 agent 是在单 agent 的工具、上下文、权限都做好之后，为了隔离、并行、专业化三个明确理由才引入的。
 
 本篇要回答的核心问题是：
 
-> **什么时候需要多 agent，什么时候不需要？[^q0] orchestrator-workers、handoff、层级三种模式各适合什么，代表实现是什么？[^q1] A2A 是什么、与 MCP 怎么分工，多 agent 的成本与调试代价有多大？[^q2]**
+> **什么时候需要多 agent，什么时候不需要？[^q0] orchestrator-workers、handoff、层级三种模式各适合什么，代表实现是什么？[^q1] A2A 是什么、与 MCP（Model Context Protocol）怎么分工，多 agent 的成本与调试代价有多大？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
+| GPT-5.6 | — | OpenAI 的模型，Responses 里有 PTC 与 ultra 模式 |
+| A2A | Agent2Agent | 不同厂商的 agent 之间互相委派任务的协议 |
+| orchestrator-workers | — | 主 agent 拆任务、分给 worker、再汇总结果 |
+| handoff | — | 把对话控制权整个交给另一个 agent |
+| agent teams | — | Claude Code 的实验功能：多个 agent 互相通信协作 |
+| ultra | — | GPT-5.6 的多 agent 并行模式 |
+| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
+| worker | — | 执行子任务的 agent（或执行 workflow 的进程） |
+| subagent | — | 主 agent 起的子 agent，独立上下文，只回传摘要 |
+| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
+| ACP | Agent Client Protocol | 客户端驱动外部 agent 的协议，如拉起 Claude Code |
+| p50 / p95 | — | 中位数 / 第 95 百分位，用来看长尾 |
+| L5 | — | 《AI 应用工程师学习地图》的第 5 层 |
+| trace | — | 一次任务每一步输入输出与决策的完整记录 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 

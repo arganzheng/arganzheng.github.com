@@ -9,11 +9,42 @@ catalog: true
 
 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲了工具调用在**模型 API** 上的协议：模型返回 `tool_call`，应用执行，结果按 `call_id` 送回。这一篇讲工具的**生态协议**——工具从哪来、怎么被发现、怎么被授权、怎么被描述——以及 2026 年围绕"工具太多"出现的两个新机制：**tool search**（定义按需加载）与**程序化工具调用**（模型写一段程序调多个工具，只把结果送回）。
 
-生态协议的事实标准是 **MCP**（Model Context Protocol）。它 2024 年 11 月由 Anthropic 发布，2025 年 12 月捐给 Linux 基金会下的 Agentic AI Foundation（Anthropic、OpenAI、Block 共同创始，治理按维护者而不是公司席位），TypeScript 与 Python SDK 各过十亿次累计下载，AWS 与 Google 都有几十个托管 MCP server。2026-07-28 版是它发布以来最大的修订，有破坏性变更——本篇第二章讲它改了什么、为什么。
+生态协议的事实标准是 **MCP**（Model Context Protocol）。它 2024 年 11 月由 Anthropic 发布，2025 年 12 月捐给 Linux 基金会下的 Agentic AI Foundation（Anthropic、OpenAI、Block 共同创始，治理按维护者而不是公司席位），TypeScript 与 Python SDK（software development kit）各过十亿次累计下载，AWS 与 Google 都有几十个托管 MCP server。2026-07-28 版是它发布以来最大的修订，有破坏性变更——本篇第二章讲它改了什么、为什么。
 
 本篇要回答的核心问题是：
 
 > **MCP 2026-07-28 版改了什么，为什么？[^q0] 工具描述怎么写才让模型用对，tool search 解决什么、付什么代价？[^q1] 程序化工具调用是什么，四家各怎么实现，它解决的是哪个问题？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| tool search | — | 工具定义按需检索加载，不一次塞进上下文 |
+| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
+| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
+| SKILL.md | — | 技能包的说明文件，用到时才加载 |
+| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
+| LSP | Language Server Protocol | 编辑器与语言服务器之间的协议，MCP 借鉴了它 |
+| stdio | standard input/output | 标准输入输出，本地 MCP server 的传输方式 |
+| Streamable HTTP | — | MCP 的远程传输：普通 HTTP，响应可流式返回 |
+| MRTR | multi round-trip request | server 需要输入时结束请求，由 client 带结果重发 |
+| OAuth | Open Authorization | 授权委托标准，远程 MCP server 用它鉴权 |
+| RFC | Request for Comments | IETF 发布互联网标准的文档系列 |
+| DCR | Dynamic Client Registration | OAuth 客户端运行时自动注册（RFC 7591） |
+| CIMD | Client ID Metadata Document | 用一个 URL 上的元数据文档代替客户端注册 |
+| CLI | command-line interface | 命令行界面 |
+| RPC | remote procedure call | 远程过程调用 |
+| crate | — | Rust 的包，Codex 按 crate 拆模块 |
+| gRPC | gRPC Remote Procedure Calls | Google 开源的 RPC 框架，用 Protobuf 编码 |
+| logits | — | 模型对每个候选 token 输出的未归一化分数 |
+| L2 / L6 | — | 《AI 应用工程师学习地图》的第 2、6 层 |
+| PTC | programmatic tool calling | 模型写程序调多个工具，只把结果送回上下文 |
+| GPT-5.6 | — | OpenAI 的模型，Responses 里有 PTC 与 ultra 模式 |
+| ZDR | zero data retention | 零数据保留：供应商不存请求与响应数据 |
+| Code Mode | — | Cloudflare 的方案：让模型写代码调用 MCP 工具 |
+| trace | — | 一次任务每一步输入输出与决策的完整记录 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -91,7 +122,7 @@ flowchart LR
 
 Table: MCP 2026-07-28 的变更
 
-一句话：**2026 年的 MCP 把自己从"一个有会话的 RPC 协议"改成"一个能在普通 HTTP 上横向扩展、授权按 OAuth 部署实践对齐、核心小扩展多的协议"**。注册表（server 的目录）仍在预览（API 2025 年 10 月冻结在 v0.1），不要把依赖建在它的稳定性上。
+一句话：**2026 年的 MCP 把自己从"一个有会话的 RPC（remote procedure call）协议"改成"一个能在普通 HTTP 上横向扩展、授权按 OAuth（Open Authorization）部署实践对齐、核心小扩展多的协议"**。注册表（server 的目录）仍在预览（API 2025 年 10 月冻结在 v0.1），不要把依赖建在它的稳定性上。
 
 ```mermaid
 %% 图：MCP 从有状态到无状态——2025 版每个连接先 initialize 握手、协商版本与能力、拿一个 Mcp-Session-Id，之后的请求都要落到同一个 server 实例；2026-07-28 版取消握手，版本与能力放进每个请求的 _meta 与头里，任何一个实例都能处理任何一个请求，能放在普通的负载均衡与无状态函数后面
@@ -130,7 +161,7 @@ flowchart TB
 
 ### 2. 从模型的视角写
 
-DeepSeek Harness 的仓库规范里有一条值得所有人抄："**从模型的视角写模型可见的契约**：prompt、工具 schema、结果、诊断只含任务相关的概念，不含 UI、传输、实现的词汇。"一个工具描述里出现"调用后端 gRPC 接口"、"返回 Protobuf"对模型没有意义；"按订单号查询订单状态，返回状态、金额、更新时间；订单号未知时先用 `search_orders`"才是。
+DeepSeek Harness 的仓库规范里有一条值得所有人抄："**从模型的视角写模型可见的契约**：prompt、工具 schema、结果、诊断只含任务相关的概念，不含 UI、传输、实现的词汇。"一个工具描述里出现"调用后端 gRPC（gRPC Remote Procedure Calls）接口"、"返回 Protobuf"对模型没有意义；"按订单号查询订单状态，返回状态、金额、更新时间；订单号未知时先用 `search_orders`"才是。
 
 ### 3. 结果也是契约
 
@@ -238,10 +269,10 @@ flowchart LR
 
 ### 3. 它换到了什么
 
-- **上下文预算**：中间结果不进上下文——《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的"不让它进来"做到极致。一个 500 条订单的任务，传统方式几万 token 进出几轮，PTC 几百 token（程序 + 结果）。
+- **上下文预算**：中间结果不进上下文——《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的"不让它进来"做到极致。一个 500 条订单的任务，传统方式几万 token 进出几轮，PTC（programmatic tool calling）几百 token（程序 + 结果）。
 - **确定性**：过滤、汇总、排序由代码做，不由模型在 JSON 里"手算"——《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的幻觉在这一段被消除。
 - **延迟**：四轮模型调用变一轮。
-- **隐私**：中间数据不经过模型供应商的存储（OpenAI 的 ZDR 兼容性正来自这一点）。
+- **隐私**：中间数据不经过模型供应商的存储（OpenAI 的 ZDR（zero data retention）兼容性正来自这一点）。
 
 ### 4. 它付的代价
 
@@ -265,7 +296,7 @@ flowchart LR
 ## 七、本文小结
 
 - 工具四个来源（自定义、MCP、供应商服务端、harness 内置）在模型眼里相同，差别在执行位置、权限落点、定义占的上下文。
-- MCP 2026-07-28：无状态核心（去掉 `initialize` 与会话 id，协商放进每请求）、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP、企业授权，默认关闭、独立版本）、授权加固（`iss` 校验、`resource` 绑定受众、DCR 弃用改 CIMD）、十二个月弃用政策；由 Agentic AI Foundation 治理，SDK 各过十亿下载，注册表仍预览。
+- MCP 2026-07-28：无状态核心（去掉 `initialize` 与会话 id，协商放进每请求）、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP、企业授权，默认关闭、独立版本）、授权加固（`iss` 校验、`resource` 绑定受众、DCR（Dynamic Client Registration）弃用改 CIMD（Client ID Metadata Document））、十二个月弃用政策；由 Agentic AI Foundation 治理，SDK 各过十亿下载，注册表仍预览。
 - 工具描述是 prompt，从模型的视角写、不含实现词汇；跨工具的政策放系统提示（Codex 的 `AGENTS.md`、DeepSeek Harness 的 `system-prompt`）；结果的形状同样是契约。
 - tool search：定义按需加载，解决预算、前缀失效、选择准确率；代价是按需定义不在缓存里、多一步、依赖描述质量；二十个以上工具用。
 - 程序化工具调用：模型写程序在沙箱里调多个工具、只回结果——Anthropic PTC、OpenAI GPT-5.6（ZDR 兼容）、Cloudflare Code Mode、DeepSeek Harness Code 模式 / `ptc-runtime`、Codex `code-mode`；换到预算、确定性、延迟、隐私，付出沙箱、可观测、模型编码能力、审批粒度。
@@ -302,7 +333,7 @@ flowchart LR
    传统多轮工具调用下，中间结果作为消息进入上下文、在服务端状态（Responses 默认存储）里留存；ZDR 组织不能用服务端状态。PTC 让中间结果只存在于程序运行的内存里、不进上下文、不落服务端存储，只有最终输出进入模型——所以整个流程不产生需要保留的中间数据，与 ZDR 兼容。详见[第五章](#五程序化工具调用)。
    </details>
 
-[^q0]: 2026-07-28 是 MCP 发布以来最大的修订：无状态核心——取消 `initialize` 握手，版本与能力协商放进每个请求的 `_meta` 与 `MCP-Protocol-Version` 头，Streamable HTTP 去掉协议级会话与 `Mcp-Session-Id`，为的是能在普通 HTTP 基础设施上横向扩展；多轮往返请求替代 server 发起的请求；正式的扩展框架——反向 DNS 标识、`extensions` 能力协商、独立仓库与版本、默认关闭，官方扩展有 Tasks（长任务的轮询、中途输入、持久句柄）、MCP Apps（对话内 UI）、OAuth 客户端凭据、企业托管授权，另有 Skills over MCP 工作组；授权加固——RFC 9207 `iss` 校验防混淆、RFC 8707 `resource` 绑定受众防 token 混用、凭据绑定发行者、动态客户端注册弃用改为客户端元数据文档、`application_type` 解决 CLI 的 localhost 重定向；Sampling / Roots / Logging 十二个月弃用窗口。治理在 Agentic AI Foundation（Linux 基金会，Anthropic 2025-12 捐赠，OpenAI、Block 共创），SDK 各过十亿下载，注册表仍预览。详见[第二章](#二mcp-2026-07-28)。
+[^q0]: 2026-07-28 是 MCP 发布以来最大的修订：无状态核心——取消 `initialize` 握手，版本与能力协商放进每个请求的 `_meta` 与 `MCP-Protocol-Version` 头，Streamable HTTP 去掉协议级会话与 `Mcp-Session-Id`，为的是能在普通 HTTP 基础设施上横向扩展；多轮往返请求替代 server 发起的请求；正式的扩展框架——反向 DNS 标识、`extensions` 能力协商、独立仓库与版本、默认关闭，官方扩展有 Tasks（长任务的轮询、中途输入、持久句柄）、MCP Apps（对话内 UI）、OAuth 客户端凭据、企业托管授权，另有 Skills over MCP 工作组；授权加固——RFC 9207 `iss` 校验防混淆、RFC 8707 `resource` 绑定受众防 token 混用、凭据绑定发行者、动态客户端注册弃用改为客户端元数据文档、`application_type` 解决 CLI（command-line interface）的 localhost 重定向；Sampling / Roots / Logging 十二个月弃用窗口。治理在 Agentic AI Foundation（Linux 基金会，Anthropic 2025-12 捐赠，OpenAI、Block 共创），SDK 各过十亿下载，注册表仍预览。详见[第二章](#二mcp-2026-07-28)。
 
 [^q1]: 描述是 prompt：名字、描述、参数 schema 都是模型读的文本，从模型的视角写——做什么、参数、什么时候用与不用、返回什么，不含 UI / 传输 / 实现词汇（DeepSeek Harness 的仓库规范）；跨工具的政策（先搜再答、确认、并行、预算）放系统提示（Codex 拼 `AGENTS.md`，DeepSeek Harness 的 `system-prompt` 组装）；结果的形状同样是契约（摘要 + 引用、结构化、失败建议、大结果卸载——`spill`）。tool search 解决工具太多的三个代价——占预算、工具定义在前缀最前任何变化毁缓存、选择准确率下降——做法是只常驻名字或一行描述，模型需要时先搜再调（Codex `tools/handlers/tool_search.rs`、Claude Code 延迟加载 MCP schema、OpenAI / Anthropic 的 tool search；SKILL.md 是同一原则）；代价是按需定义不在缓存前缀（看绝对量不看命中率）、多一步、依赖描述质量；二十个以上工具用，十个以内全常驻。详见[第三章](#三工具描述与它的位置)、[第四章](#四tool-search)。
 

@@ -15,6 +15,31 @@ catalog: true
 
 > **L2 的卸载 / 清理 / 压缩在 Codex 与 DeepSeek Harness 里各是什么模块，怎么配合？[^q0] plan / todo / goal 作为复述机制怎么实现？[^q1] 子 agent 有哪三种形态，各在什么情况下用、成本多少？[^q2]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
+| auto-compact | — | Claude Code 上下文快满时自动压缩历史 |
+| subagent | — | 主 agent 起的子 agent，独立上下文，只回传摘要 |
+| agent teams | — | Claude Code 的实验功能：多个 agent 互相通信协作 |
+| L2 / L5 | — | 《AI 应用工程师学习地图》的第 2、5 层 |
+| spill | — | DeepSeek Harness 把大工具输出存到外面的包组 |
+| AGENTS.md / CLAUDE.md | — | 放在项目里、每次会话自动读进上下文的说明文件 |
+| crate | — | Rust 的包，Codex 按 crate 拆模块 |
+| P0 | priority 0 | 最高优先级 |
+| rollout | — | Codex 存会话事件的记录文件 |
+| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
+| GPT-5.6 | — | OpenAI 的模型，Responses 里有 PTC 与 ultra 模式 |
+| ultra | — | GPT-5.6 的多 agent 并行模式 |
+| spawn / fork | — | 子 agent 从空白上下文起 / 复制父会话历史再起 |
+| ACP | Agent Client Protocol | 客户端驱动外部 agent 的协议，如拉起 Claude Code |
+| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
+| SKILL.md | — | 技能包的说明文件，用到时才加载 |
+| trace | — | 一次任务每一步输入输出与决策的完整记录 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览
 
 ### 1. 策略到实现
@@ -73,7 +98,7 @@ flowchart TB
 
 ### 2. Codex 的截断
 
-Codex 没有单独的 spill 概念，工具返回在处理器里按上限截断（shell 输出的行数与字节上限），大内容（文件、图片）用专门的工具按需读取（`view_image`、文件读取工具的范围参数）。仓库规范里对"模型可见上下文"有硬规则："不能有无界的项——注入模型上下文的一切都要有有界大小与硬上限；**没有大于 10K token 的项**；能超过 1K token 的新单项按 P0 审查。"这是"卸载"作为代码审查规则的形态。
+Codex 没有单独的 spill 概念，工具返回在处理器里按上限截断（shell 输出的行数与字节上限），大内容（文件、图片）用专门的工具按需读取（`view_image`、文件读取工具的范围参数）。仓库规范里对"模型可见上下文"有硬规则："不能有无界的项——注入模型上下文的一切都要有有界大小与硬上限；**没有大于 10K token 的项**；能超过 1K token 的新单项按 P0（priority 0）审查。"这是"卸载"作为代码审查规则的形态。
 
 ### 3. 清理
 
@@ -87,7 +112,7 @@ DeepSeek Harness 的 `compaction-tool-result-pruner` 在压缩之前先修剪超
 
 ### 2. DeepSeek Harness 的 `compaction` 包组
 
-包组的说明："让长对话在接近模型上下文上限时继续工作：随 token 压力累积自动把旧历史浓缩成摘要，按需用 `/compact`，超大工具输出可以先修剪，图片能力不足的路由把图片换成占位符。"五个包：`compaction`（接缝）、`compaction-basic`（自动压缩）、`command-compact`（`/compact` 命令）、`compaction-tool-result-pruner`（修剪）、`compaction-image-offload`（图片卸载）。SDK 文档里提到默认组合"带显式组合的语义检查点策略"——压缩策略是配置出来的，不是写死的。压缩摘要作为一个会话事件进日志（"模型可见 ⟺ 已记录"），有独立的 token 上限。
+包组的说明："让长对话在接近模型上下文上限时继续工作：随 token 压力累积自动把旧历史浓缩成摘要，按需用 `/compact`，超大工具输出可以先修剪，图片能力不足的路由把图片换成占位符。"五个包：`compaction`（接缝）、`compaction-basic`（自动压缩）、`command-compact`（`/compact` 命令）、`compaction-tool-result-pruner`（修剪）、`compaction-image-offload`（图片卸载）。SDK（software development kit）文档里提到默认组合"带显式组合的语义检查点策略"——压缩策略是配置出来的，不是写死的。压缩摘要作为一个会话事件进日志（"模型可见 ⟺ 已记录"），有独立的 token 上限。
 
 ### 3. 共同点
 
@@ -174,7 +199,7 @@ subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）
 
 Table: DeepSeek Harness 的七种 subagent 后端
 
-最后两个值得停一下：一个 harness 可以把另外两家的 harness 作为自己的子 agent——委派一个子任务给 Claude Code 或 Codex，拿回结果。`hooks/` 包组还有 Claude Code / Codex 的 hooks 桥接。这说明 2026 年 harness 之间的**互操作已经是事实**：它们共享 MCP、共享 SKILL.md、共享 AGENTS.md（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》），现在还能互相调用。"该用哪个 harness"的问题正在变成"该怎么组合"。
+最后两个值得停一下：一个 harness 可以把另外两家的 harness 作为自己的子 agent——委派一个子任务给 Claude Code 或 Codex，拿回结果。`hooks/` 包组还有 Claude Code / Codex 的 hooks 桥接。这说明 2026 年 harness 之间的**互操作已经是事实**：它们共享 MCP（Model Context Protocol）、共享 SKILL.md、共享 AGENTS.md（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》），现在还能互相调用。"该用哪个 harness"的问题正在变成"该怎么组合"。
 
 ```mermaid
 %% 图：子 agent 的三种形态与 DeepSeek Harness 的七种后端——spawn 从零开始隔离的上下文（适合独立探索），fork 复制父会话的事件前缀继承历史（适合接着当前状态并行做一件事，事件溯源让它只是复制前缀），进程外经 SDK / ACP 起外部 agent，甚至把 Claude Code 或 Codex 拉起当子 agent；主 agent 拿回的只有摘要
@@ -240,7 +265,7 @@ Table: 委派子 agent 在不同情形下是否值得
 3. **把目标做成事件**：plan / todo / goal 进日志、每步可见，作为压缩的材料。
 4. **子 agent 先做只读的探索型**：spawn、受限工具、返回结构化摘要；比较主窗口 token 与端到端成本。
 5. **每个子 agent 有自己的预算与卫士**，轨迹可从父会话追到。
-6. **试一次跨 harness 委派**：用 DeepSeek Harness 的 `subagent-claude-code` 或自己的 ACP 桥接，把一个子任务交给另一家 harness，看结果格式与成本。
+6. **试一次跨 harness 委派**：用 DeepSeek Harness 的 `subagent-claude-code` 或自己的 ACP（Agent Client Protocol）桥接，把一个子任务交给另一家 harness，看结果格式与成本。
 
 ## 八、本文小结
 
