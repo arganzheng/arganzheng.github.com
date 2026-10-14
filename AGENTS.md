@@ -459,6 +459,8 @@ Pages has `https_enforced` on.
   open a page to unregister only the root scope, clear `blog-*` plus legacy
   caches, and refresh once if the current page is controlled by the root worker;
   `/moments/sw.js` and `moments-post-*` are left alone.
+  Explicit article copies live in `blog-saved-v1`, are managed by
+  `js/offline-save.js`, and are listed in the saved-cache manifest.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by
   `_layouts/post.html`, `header-post.html` and `keynote.html`. It is an empty
   `section.comment > .annotation-comments` shell with data attributes; the

@@ -10564,6 +10564,42 @@ html[data-theme="dark"] .post-actions .pa-fav.is-active {
 html[data-theme="dark"] .post-actions .pa-fav.is-active .fa {
   color: #e2c86b;
 }
+html[data-theme="dark"] .post-actions .pa-offline {
+  color: #969ba4;
+  border-color: #33363c;
+  background-color: #282b30;
+}
+html[data-theme="dark"] .post-actions .pa-offline .fa {
+  color: #83b9ca;
+}
+html[data-theme="dark"] .post-actions .pa-offline.is-active {
+  border-color: #477587;
+  background-color: #1d3037;
+  color: #c2e3ec;
+}
+html[data-theme="dark"] .favorites-offline {
+  border-color: #33363c;
+  background: #1f2125;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] .favorites-offline-clear {
+  border-color: #33363c;
+  background: #282b30;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] .favorites-offline-item {
+  border-color: #33363c;
+}
+html[data-theme="dark"] .favorites-offline-meta {
+  color: #969ba4;
+}
+html[data-theme="dark"] .favorites-offline-title {
+  color: #8bd0e0;
+}
+html[data-theme="dark"] .favorites-offline-badge {
+  background: #1d3037;
+  color: #c2e3ec;
+}
 html[data-theme="dark"] .annotation-panel .ap-react-fav.is-on {
   border-color: #796b3c;
   background-color: #38331f;
@@ -11497,7 +11533,8 @@ html[data-theme="sepia"] .favorites-nojs {
   background-color: #efe4cb;
 }
 html[data-theme="sepia"] .favorites-search,
-html[data-theme="sepia"] .favorites-toolbar button {
+html[data-theme="sepia"] .favorites-toolbar button,
+html[data-theme="sepia"] .favorites-offline-clear {
   border-color: #dccfb2;
   background-color: #e7dabd;
   color: #3b3124;
@@ -11506,6 +11543,20 @@ html[data-theme="sepia"] .favorites-notice {
   border-left-color: #9b803b;
   background-color: #f5e9c7;
   color: #5e4b25;
+}
+html[data-theme="sepia"] .favorites-offline {
+  border-color: #dccfb2;
+  background-color: #efe4cb;
+  color: #3b3124;
+}
+html[data-theme="sepia"] .favorites-offline-item {
+  border-color: #dccfb2;
+}
+html[data-theme="sepia"] .favorites-offline-meta {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .favorites-offline-title {
+  color: #286090;
 }
 html[data-theme="sepia"] .favorites-group {
   border-bottom-color: #dccfb2;
@@ -11603,6 +11654,97 @@ html[data-theme="sepia"] .post-container .callout-caution {
 }
 html[data-theme="sepia"] .post-container .callout-title {
   color: inherit;
+}
+/* Per-article offline copies */
+.post-actions .pa-offline {
+  color: #2f5f73;
+}
+.post-actions .pa-offline .fa {
+  color: #3f7f99;
+}
+.post-actions .pa-offline.is-active {
+  border-color: #9cc6d6;
+  background-color: #eef7fa;
+}
+html.private-post .post-actions .pa-offline {
+  display: none !important;
+}
+.pa-offline-size {
+  margin-left: 0.35em;
+  white-space: nowrap;
+}
+.favorites-offline {
+  margin: 1em 0 1.5em;
+  padding: 1em;
+  border: 1px solid #d7e6ea;
+  border-radius: 6px;
+  background: #f7fafb;
+}
+.favorites-offline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+}
+.favorites-offline-head h2 {
+  margin: 0;
+  font-size: 1.15em;
+}
+.favorites-offline-clear {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid #d5d0c5;
+  border-radius: 5px;
+  background: #fff;
+  color: #5d584e;
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.favorites-offline-clear:hover {
+  border-color: #00788f;
+  color: #00788f;
+}
+.favorites-offline-list {
+  list-style: none;
+  margin: 0.6em 0 0;
+  padding: 0;
+}
+.favorites-offline-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  padding: 0.55em 0;
+  border-top: 1px solid #d7e6ea;
+}
+.favorites-offline-title {
+  flex: 1;
+  min-width: 0;
+  color: #00788f;
+}
+.favorites-offline-meta {
+  color: #667;
+  font-size: 0.88em;
+}
+.favorites-offline-badge {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0.05em 0.4em;
+  border-radius: 10px;
+  background: #eef7fa;
+  color: #2f5f73;
+  font-size: 0.75em;
+}
+@media (max-width: 480px) {
+  .pa-offline-size {
+    display: none;
+  }
+  .favorites-offline-item {
+    flex-wrap: wrap;
+  }
+  .favorites-offline-meta {
+    width: 100%;
+  }
 }
 .offline-banner {
   position: sticky;
