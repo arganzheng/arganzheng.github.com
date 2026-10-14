@@ -7,19 +7,55 @@ catalog: true
 ---
 
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| L1–L7 | — | 「AI 应用工程师学习地图」的七层，本系列是 L7 |
+| BCG | Boston Consulting Group | 波士顿咨询，和哈佛合做了 758 名顾问的实验 |
+| demo | — | 精选输入下跑通的演示，离产品还差长尾 |
+| copilot | — | 人主导、AI 给建议、人逐条接受的形态 |
+| agent | — | AI 主导多步执行、人监督或审结果的形态 |
+| GitHub Copilot | — | GitHub 的 AI 编码助手，建议接受率长期约三成 |
+| Codex cloud / Claude Code on the web / Devin | — | 提任务、走开、回来审 PR 的后台 coding agent 产品 |
+| Cursor / Composer | — | AI 代码编辑器；Composer 是它的编辑器内 agent |
+| PR | pull request | 代码合并请求，带 diff 和评论，适合审阅 |
+| onboarding | — | 新用户上手引导，用来说清 AI 擅长和不擅长什么 |
+| DeepSeek Harness Trajectory | — | DeepSeek Harness 里按来源检视 agent 每步记录的视图 |
+| justification | — | 审批请求里附带的理由：为什么要做这一步 |
+| diff | — | 改动前后的差异视图，可以逐处核对、接受 |
+| UI | user interface | 用户界面；生成式 UI 指模型出结构化数据、前端渲染 |
+| CSAT | customer satisfaction score | 客户满意度评分 |
+| A/B | — | A/B 测试：用户随机分组，对比两个版本 |
+| AskHR | — | IBM 的 AI HR 助手，接管常规问答与请假审批 |
+| PM | product manager | 产品经理 |
+| UX | user experience | 用户体验 |
+| Codex CLI | — | OpenAI 在本机终端里跑的编码 agent |
+| PocketOS | — | agent 9 秒删掉生产库的事故，开发者没看它要执行什么 |
+| IDE | integrated development environment | 集成开发环境，写代码的编辑器 |
+| CRM | customer relationship management | 客户关系管理系统 |
+| MCP Apps | Model Context Protocol Apps | MCP 的扩展，让工具返回可交互的界面 |
+| Realtime API | — | 低延迟语音实时交互的模型接口 |
+| trace id | — | 一次会话或任务的追踪编号，反馈靠它接回日志 |
+| bad case | — | 出错的样本，进队列后补进评测集 |
+| pp | percentage point | 百分点 |
+| few-shot | — | 在提示里放几个示例，让模型照着做 |
+
+Table: 本文用到的术语与缩写
+
 ## 内容简介
 
 《产品与体验：把不确定的能力做成可信的产品》是一组共五篇的系列文章，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第七层（L7）的正文，也是应用地图的最后一个系列。前六层把一个 AI 应用从模型组件到生产运营搭了起来；这一层回到起点的问题：**这个能力该做成什么产品、给谁、以什么形态、让人怎么信任它、怎么知道它有用**。
 
 这一层的特殊性只有一条，但它决定一切：**产品里有一个会出错、且不知道自己什么时候出错的组件**（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》）。传统产品的功能要么对要么坏，AI 产品的功能是"多数时候对、有时错、错得很自然"。于是场景选择要问"错了代价多大、能不能被发现"；形态选择要问"人在哪一步看结果"；信任要被**校准**而不是最大化——过度信任让用户把错误当真（Air Canada 的乘客、引用虚构判例的律师），信任不足让功能没人用；不确定性要被**呈现**而不是隐藏；指标要量"真的有用"而不是"用了多少"。
 
-2024–2026 年的公开案例给了这一层足够的教材。**Klarna** 2024 年宣布 AI 客服做了 700 个人的工作、解决三分之二的工单、把处理时间从 11 分钟压到 2 分钟；2025 年 CEO 承认裁得太狠、复杂与情绪化的问题 AI 处理不了、客户要能找到人；到 2026 年变成混合模式——AI 做第一响应、人处理例外与挽留。**Duolingo** 2025 年 4 月宣布"AI-first、逐步停用 AI 能做的合同工"，一周后 CEO 改口"AI 不是替代员工"。**Gartner** 2026 年预测被 AI 裁掉的岗位三成会在 2029 年前补回、成本更高。哈佛与 BCG 对 758 名顾问的实验给了这些故事的结构：在 AI 擅长的任务边界内快 25%、质量高 40%，边界外用 AI 的人出错率反而高 19 个百分点——**"锯齿状边界"**：同一个工作流里相邻的两个任务，一个 AI 碾压、一个 AI 拖累。产品设计的核心工作就是找到这条边界，把 AI 放在边界内、把人放在边界上。
+2024–2026 年的公开案例给了这一层足够的教材。**Klarna** 2024 年宣布 AI 客服做了 700 个人的工作、解决三分之二的工单、把处理时间从 11 分钟压到 2 分钟；2025 年 CEO 承认裁得太狠、复杂与情绪化的问题 AI 处理不了、客户要能找到人；到 2026 年变成混合模式——AI 做第一响应、人处理例外与挽留。**Duolingo** 2025 年 4 月宣布"AI-first、逐步停用 AI 能做的合同工"，一周后 CEO 改口"AI 不是替代员工"。**Gartner** 2026 年预测被 AI 裁掉的岗位三成会在 2029 年前补回、成本更高。哈佛与 BCG（Boston Consulting Group）对 758 名顾问的实验给了这些故事的结构：在 AI 擅长的任务边界内快 25%、质量高 40%，边界外用 AI 的人出错率反而高 19 个百分点——**"锯齿状边界"**：同一个工作流里相邻的两个任务，一个 AI 碾压、一个 AI 拖累。产品设计的核心工作就是找到这条边界，把 AI 放在边界内、把人放在边界上。
 
 它回答的问题是：
 
 > **哪些场景该做 AI 产品、哪些不该，demo 与产品之间的鸿沟是什么？copilot、agent、自动化三种形态怎么选，2026 年为什么后台 agent 成了主流？人机分工怎么定、信任怎么校准？不确定性怎么呈现、非对话形态有哪些？产品指标量什么、怎么回流到系统？[^q0]**
 
-五篇沿一条线走。**第一篇**场景选择：四个维度（价值、可验证性、错误容忍度、频率）与锯齿状边界；Klarna、Duolingo、IBM 的回撤与它们共同的错误（把"简单查询上的 700 人"外推到全部客服）；GitHub Copilot 从补全到 agent 的十年为什么成立（代码可验证、错误可撤销、高频）；demo–产品鸿沟的五个来源（分布、长尾、集成、信任、成本）；"80% 的 demo 是 20% 的产品"。**第二篇**形态：copilot（人主导、AI 建议）→ agent（AI 主导、人监督）→ 自动化（无人在环）的梯子，与 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级人机分工的产品侧对应；2024–2026 年的形态演进——补全 → 对话 → 编辑器内 agent → **后台 agent**（Codex cloud、Claude Code on the web、Cursor 后台 agent、Devin：提任务、走开、回来审 PR），为什么它成了主流（异步交付把等待变成了并行、PR 是天然的审阅落点）；按任务选形态的决策表；同一产品里多形态并存。**第三篇**人机分工与信任校准：过度信任（自动化偏见——人不再核对）与信任不足（有功能没人用）都是失败；采纳率与修改率的公开数据（Copilot 建议接受率约三成、多数被接受的建议被再编辑）说明"人在编辑"是常态而不是失败；校准的手段——显示依据与来源、显示不确定性、可撤销、可核对的呈现、期望管理、渐进的自主性（先 copilot 后 agent）；把"绕过障碍"与"不确定"作为需要人介入的信号推给用户（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》）；onboarding 里教用户 AI 不擅长什么。**第四篇**不确定性的呈现与非对话形态：引用与来源（可点开、定位到原文——L3 与 L5 的引用正确率在这里有产品意义）、置信度怎么呈现（不给原始分数、用行为表达：直接给 / 给几个候选 / 问人）、拒答的呈现（说缺什么、下一步能做什么，而不是"无法回答"）、流式与进度（《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》的感知延迟）、agent 步骤的可视化（DeepSeek Harness 的 Trajectory 视图、Codex 与 Claude Code 的步骤流）、审批的交互（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的 `justification` 与影响范围）、diff 式审阅（PR、变更预览）；非对话形态——内联建议、按钮化的动作、环境感知（在用户的工作流里而不是另一个窗口）、生成式 UI、语音与实时；对话不是默认。**第五篇**产品指标与回流：采纳率、修改率、任务完成率、时间节省（自报 vs 实测的差距）、留存、升级率（转人工、放弃）、CSAT、每任务成本 vs 价值（《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》）；北极星怎么选；反指标（消息数、"AI 用量"一类的虚荣指标）；定性研究（看用户怎么用、怎么绕过）；指标回流到飞轮（《[生产化与运营（07）：数据飞轮与物理世界的上线](/data-flywheel-and-deploying-to-the-physical-world.html)》）与评测集（L5）；A/B 在 AI 产品里的特殊性。
+五篇沿一条线走。**第一篇**场景选择：四个维度（价值、可验证性、错误容忍度、频率）与锯齿状边界；Klarna、Duolingo、IBM 的回撤与它们共同的错误（把"简单查询上的 700 人"外推到全部客服）；GitHub Copilot 从补全到 agent 的十年为什么成立（代码可验证、错误可撤销、高频）；demo–产品鸿沟的五个来源（分布、长尾、集成、信任、成本）；"80% 的 demo 是 20% 的产品"。**第二篇**形态：copilot（人主导、AI 建议）→ agent（AI 主导、人监督）→ 自动化（无人在环）的梯子，与 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级人机分工的产品侧对应；2024–2026 年的形态演进——补全 → 对话 → 编辑器内 agent → **后台 agent**（Codex cloud、Claude Code on the web、Cursor 后台 agent、Devin：提任务、走开、回来审 PR（pull request）），为什么它成了主流（异步交付把等待变成了并行、PR 是天然的审阅落点）；按任务选形态的决策表；同一产品里多形态并存。**第三篇**人机分工与信任校准：过度信任（自动化偏见——人不再核对）与信任不足（有功能没人用）都是失败；采纳率与修改率的公开数据（Copilot 建议接受率约三成、多数被接受的建议被再编辑）说明"人在编辑"是常态而不是失败；校准的手段——显示依据与来源、显示不确定性、可撤销、可核对的呈现、期望管理、渐进的自主性（先 copilot 后 agent）；把"绕过障碍"与"不确定"作为需要人介入的信号推给用户（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》）；onboarding 里教用户 AI 不擅长什么。**第四篇**不确定性的呈现与非对话形态：引用与来源（可点开、定位到原文——L3 与 L5 的引用正确率在这里有产品意义）、置信度怎么呈现（不给原始分数、用行为表达：直接给 / 给几个候选 / 问人）、拒答的呈现（说缺什么、下一步能做什么，而不是"无法回答"）、流式与进度（《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》的感知延迟）、agent 步骤的可视化（DeepSeek Harness 的 Trajectory 视图、Codex 与 Claude Code 的步骤流）、审批的交互（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的 `justification` 与影响范围）、diff 式审阅（PR、变更预览）；非对话形态——内联建议、按钮化的动作、环境感知（在用户的工作流里而不是另一个窗口）、生成式 UI（user interface）、语音与实时；对话不是默认。**第五篇**产品指标与回流：采纳率、修改率、任务完成率、时间节省（自报 vs 实测的差距）、留存、升级率（转人工、放弃）、CSAT（customer satisfaction score）、每任务成本 vs 价值（《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》）；北极星怎么选；反指标（消息数、"AI 用量"一类的虚荣指标）；定性研究（看用户怎么用、怎么绕过）；指标回流到飞轮（《[生产化与运营（07）：数据飞轮与物理世界的上线](/data-flywheel-and-deploying-to-the-physical-world.html)》）与评测集（L5）；A/B 在 AI 产品里的特殊性。
 
 系列的组织原则：**每一篇都以"这个组件会出错"为前提**。场景选边界内的、形态让人在合适的位置、信任校准到与实际能力一致、不确定性诚实呈现、指标量真实价值——五篇是同一个前提的五个推论。
 
@@ -40,8 +76,8 @@ catalog: true
 
 ### 现有材料的断层
 
-- **产品方法论**（PM 的书）不讲"组件会出错"这个前提下的设计；
-- **AI UX 指南**（各大厂的设计准则）讲呈现原则，很少与前六层的工程机制（引用正确率、拒答出口、审批的 justification）接起来；
+- **产品方法论**（PM（product manager）的书）不讲"组件会出错"这个前提下的设计；
+- **AI UX（user experience）指南**（各大厂的设计准则）讲呈现原则，很少与前六层的工程机制（引用正确率、拒答出口、审批的 justification）接起来；
 - **案例报道**讲回撤，不讲判断边界的方法；
 - **指标文章**多停在采纳率，不讲自报与实测的差距、不讲回流。
 
@@ -105,7 +141,7 @@ Table: 六篇的主题与建立的东西
 
 > 核心问题：**引用、置信度、拒答、进度、步骤、审批、diff 各怎么呈现？对话为什么不该是默认形态，非对话形态有哪些？[^q4]**
 
-呈现的原则：**诚实、可核对、可行动**。**引用与来源**：每个事实断言可点开定位到原文（L3 的引用正确率在这里是产品指标）；没有依据的断言不呈现为事实（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）。**置信度**：不给原始分数（用户无法解读且模型的分数不可靠——《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》），用**行为**表达——确定时直接给、不确定时给几个候选并说差别、很不确定时问人或说不知道；用语言而不是数字。**拒答**：说缺什么（"你的问题里没有订单号"）、下一步能做什么（"提供订单号或我帮你查最近的订单"）、而不是"无法回答"（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口在这里落地）。**流式与进度**：首字前的骨架与已知信息、token 流、步骤流、进度与预估（《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》）。**agent 步骤的可视化**：用户能看到 agent 在做什么、为什么（DeepSeek Harness 的 Trajectory 视图按来源检视每条记录，Codex 与 Claude Code 的步骤流）——透明是信任校准的手段也是调试的入口；但要分层（默认摘要、可展开细节），否则是噪声。**审批的交互**：为什么要问（`justification`）、影响范围（会改哪些文件、会调哪个外部系统、能不能撤销）、批一类的选项（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的审批疲劳）。**diff 式审阅**：变更以 diff 呈现（代码、文档、配置、数据的前后对比）而不是整段替换——人能核对、能部分接受。**非对话形态**：对话框是 2023 年的默认，不是最好的默认——**内联建议**（在用户正在编辑的地方）、**按钮化的动作**（"总结"、"翻译"、"修复"——一次点击而不是一段 prompt）、**环境感知**（AI 在用户的工作流里而不是另一个窗口：IDE、邮件、表格、CRM 内）、**生成式 UI**（模型输出结构化数据、前端渲染成表格 / 图表 / 表单而不是一段文字——MCP Apps 是协议层的版本，《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》）、**语音与实时**（Realtime API 一类，《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）、**后台交付**（第二篇的 PR / 草稿 / 通知）。选形态的判据：用户在哪、任务多长、输出是什么形状、要不要来回。
+呈现的原则：**诚实、可核对、可行动**。**引用与来源**：每个事实断言可点开定位到原文（L3 的引用正确率在这里是产品指标）；没有依据的断言不呈现为事实（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）。**置信度**：不给原始分数（用户无法解读且模型的分数不可靠——《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》），用**行为**表达——确定时直接给、不确定时给几个候选并说差别、很不确定时问人或说不知道；用语言而不是数字。**拒答**：说缺什么（"你的问题里没有订单号"）、下一步能做什么（"提供订单号或我帮你查最近的订单"）、而不是"无法回答"（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口在这里落地）。**流式与进度**：首字前的骨架与已知信息、token 流、步骤流、进度与预估（《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》）。**agent 步骤的可视化**：用户能看到 agent 在做什么、为什么（DeepSeek Harness 的 Trajectory 视图按来源检视每条记录，Codex 与 Claude Code 的步骤流）——透明是信任校准的手段也是调试的入口；但要分层（默认摘要、可展开细节），否则是噪声。**审批的交互**：为什么要问（`justification`）、影响范围（会改哪些文件、会调哪个外部系统、能不能撤销）、批一类的选项（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的审批疲劳）。**diff 式审阅**：变更以 diff 呈现（代码、文档、配置、数据的前后对比）而不是整段替换——人能核对、能部分接受。**非对话形态**：对话框是 2023 年的默认，不是最好的默认——**内联建议**（在用户正在编辑的地方）、**按钮化的动作**（"总结"、"翻译"、"修复"——一次点击而不是一段 prompt）、**环境感知**（AI 在用户的工作流里而不是另一个窗口：IDE、邮件、表格、CRM（customer relationship management）内）、**生成式 UI**（模型输出结构化数据、前端渲染成表格 / 图表 / 表单而不是一段文字——MCP Apps（Model Context Protocol Apps）是协议层的版本，《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》）、**语音与实时**（Realtime API 一类，《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）、**后台交付**（第二篇的 PR / 草稿 / 通知）。选形态的判据：用户在哪、任务多长、输出是什么形状、要不要来回。
 
 ### 5. 产品指标与回流
 
