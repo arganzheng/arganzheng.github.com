@@ -8,7 +8,7 @@ catalog: true
 date: 2026-09-27 20:00:00
 ---
 
-四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"我们想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR 的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
+四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"我们想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR（pull request）的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
 
 本文不讲新内容，做三件事：把四篇压成一张表与四段回顾，把贯穿四篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"四篇能不能连起来用"。第四篇末尾「系列总结」讲的三样东西（贡献日志、两套流程的对照、看 PR 的眼光）与三种能力，本文第三章完整覆盖。
 
@@ -26,9 +26,49 @@ flowchart TB
 
 ```
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| PR | pull request | 向上游提交的一组改动，review 后合入 |
+| maintainer | — | 有权限 review 和合入代码的项目维护者 |
+| CI | continuous integration | 持续集成，每次提交自动构建、跑测试 |
+| kernel | — | 在 GPU 上执行的一个计算函数 |
+| RFC | request for comments | 大改动动手前公开征求意见的设计文档 |
+| LOC | lines of code | 代码行数 |
+| actionable | — | PyTorch 标签：可以直接发 PR，有人愿意 review |
+| DCO | Developer Certificate of Origin | 开发者原创声明，每个 commit 带 Signed-off-by |
+| diff | — | 改动前后的逐行差异 |
+| pre-commit | — | 每次 git commit 前自动跑检查的框架 |
+| clangd | — | C++ 语言服务器，提供跨文件跳转 |
+| torchgen | — | PyTorch 的代码生成器，从 yaml 生成绑定与头文件 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| OpInfo | — | PyTorch 测试里每个算子的元数据登记 |
+| cherry-pick | — | 把一个 commit 单独挑到另一条分支上 |
+| ATen | A Tensor Library | PyTorch 的 C++ 张量与算子库 |
+| good first issue | — | 标给新人的简单 issue 标签 |
+| ghstack | — | PyTorch 的堆叠 PR 工具，一个 commit 一个 PR |
+| EasyCLA | — | Linux Foundation 的 CLA 签署服务，PyTorch 用它 |
+| CLA | Contributor License Agreement | 贡献者许可协议，签一次即授权项目使用你的代码 |
+| KV | key–value | 推理时缓存的注意力键值（KV cache） |
+| Buildkite | — | vLLM 用的 CI 平台 |
+| flaky test | — | 时过时不过、结果不稳定的测试 |
+| trailer | — | commit message 末尾「键: 值」格式的行 |
+| NCCL | NVIDIA Collective Communications Library | 多 GPU 之间做集合通信的库 |
+| dtype | — | 张量的数据类型，如 float32、complex128 |
+| FSDP | Fully Sharded Data Parallel | 把参数、梯度、优化器状态分片到各卡的数据并行 |
+| H100 | — | NVIDIA Hopper 架构的数据中心 GPU |
+| mergify | — | 按规则打标签、提示 rebase 的合入机器人 |
+| HUD | heads-up display | PyTorch 的 CI 状态看板 |
+| IDE | integrated development environment | 集成开发环境 |
+| BC | backward compatibility | 向后兼容；BC-breaking 指破坏旧用法的改动 |
+| triage | — | 给 issue 分类、打标签、指派负责人 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**maintainer 的 review 时间是项目最稀缺的资源，所有规则都是为了保护它；细节会变，这条逻辑不变，理解了它就能在规则变化后自己推导出新的做法**。四篇按一次贡献的自然顺序推进——先读懂、再找到、再做出、最后看两个完整的实例——每篇同时用 PyTorch 与 vLLM 做例子：一个是十年历史、治理成熟、流程厚重、CI 全跑、bot 合入的框架；一个是两周一版、按需跑 CI、maintainer 手动合入、规则还在快速演化的引擎。
+系列的一句话主张是：**maintainer 的 review 时间是项目最稀缺的资源，所有规则都是为了保护它；细节会变，这条逻辑不变，理解了它就能在规则变化后自己推导出新的做法**。四篇按一次贡献的自然顺序推进——先读懂、再找到、再做出、最后看两个完整的实例——每篇同时用 PyTorch 与 vLLM 做例子：一个是十年历史、治理成熟、流程厚重、CI（continuous integration）全跑、bot 合入的框架；一个是两周一版、按需跑 CI、maintainer 手动合入、规则还在快速演化的引擎。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
@@ -62,7 +102,7 @@ Table: 本文的章节安排
 **必记**：
 
 - 规模与分层：PyTorch 21663 个文件约 475 万行，`c10/` → `aten/` → `torch/csrc/` → `torch/`；vLLM 6596 个文件约 202 万行，`csrc/` → `vllm/`，`tests/` 40 个子目录对应 `vllm/` 子系统。
-- 构建：PyTorch `pip install -e . -v --no-build-isolation`（纯 Python 用 `tools/nightly.py`）；vLLM `VLLM_USE_PRECOMPILED=1 uv pip install -e .` 跳过 CUDA 编译，改 kernel 用 `cmake --preset release` 增量。
+- 构建：PyTorch `pip install -e . -v --no-build-isolation`（纯 Python 用 `tools/nightly.py`）；vLLM `VLLM_USE_PRECOMPILED=1 uv pip install -e .` 跳过 CUDA（Compute Unified Device Architecture）编译，改 kernel 用 `cmake --preset release` 增量。
 - 测试框架三件套：`TestCase` / `run_tests`、`instantiate_device_type_tests`（CI 里的 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 要去掉后缀找源码）、OpInfo。
 - 发布节奏：PyTorch 约 2 个月一个 minor、cut 到发布 3–4 周、`@pytorchbot cherry-pick -c regression` 等五种理由；vLLM 约 2 周一版、cut 到发布 1–2 天。
 
@@ -72,13 +112,13 @@ Table: 本文的章节安排
 
 **核心问题**：一个项目每天新增几十个 issue、几十个 PR。maintainer 最希望有人来做的是哪一类工作？你怎么判断自己选的题不会在一周后被关闭？
 
-**结论**：大多数失败的贡献不是做错了而是选错了——撞车、越级、选了项目不要的、选了做不完的。选题是去读 maintainer 已写出的"想要什么"，再在动手前查一次重。PyTorch 真正决定选题的是状态标签链 needs reproduction → needs research → needs design → actionable，只有 `actionable` 该动手，因为打标的 maintainer 已承诺 review；vLLM 没有状态机，`help wanted` 加分步骤正文是"欢迎"的信号。RFC 的载体不同（`pytorch/rfcs` 仓库 vs `750-RFC.yml` issue 模板），判断标准相同——有没有需要 maintainer 拍板的设计决策，而不是行数。issue 之外的信号源：CI 失败、性能回归、成体系的文档与类型批次、补测试、deprecation 流水线、复现、测量——产出是信息而不是 diff，几乎不会撞车。查重是三条 `gh` 命令，第三条按关键词搜最能抓到没链 issue 的重复 PR。
+**结论**：大多数失败的贡献不是做错了而是选错了——撞车、越级、选了项目不要的、选了做不完的。选题是去读 maintainer 已写出的"想要什么"，再在动手前查一次重。PyTorch 真正决定选题的是状态标签链 needs reproduction → needs research → needs design → actionable，只有 `actionable` 该动手，因为打标的 maintainer 已承诺 review；vLLM 没有状态机，`help wanted` 加分步骤正文是"欢迎"的信号。RFC（request for comments）的载体不同（`pytorch/rfcs` 仓库 vs `750-RFC.yml` issue 模板），判断标准相同——有没有需要 maintainer 拍板的设计决策，而不是行数。issue 之外的信号源：CI 失败、性能回归、成体系的文档与类型批次、补测试、deprecation 流水线、复现、测量——产出是信息而不是 diff，几乎不会撞车。查重是三条 `gh` 命令，第三条按关键词搜最能抓到没链 issue 的重复 PR。
 
 **必记**：
 
 - PyTorch：682 个标签（`module:` 257、`ciflow/` 68、`release notes:` 65）；`actionable` 396 open、占 13,985 个 open issue 的不到 3%；`needs reproduction` 535、`skipped` 200。
 - vLLM：63 个标签；`good first issue` 21、`help wanted` 32、`closed-as-slop` 97 个已关闭 PR；`600-new-model.yml` 写的 "new model" 与实际标签 `new-model` 不一致，按标题前缀搜。
-- RFC 门槛：vLLM >500 LOC 架构改动，不含 kernel / data / config / test，无 RFC 标 `rfc-required`（该标签截至 2026-09 不在列表中）；Feedback Period 通常至少一周。
+- RFC 门槛：vLLM >500 LOC（lines of code）架构改动，不含 kernel / data / config / test，无 RFC 标 `rfc-required`（该标签截至 2026-09 不在列表中）；Feedback Period 通常至少一周。
 - 三条查重命令：`gh issue view <n> --comments`、`gh pr list --state open --search "<n> in:body"`、`--search "<keywords>"`；Fail-closed。
 
 **常见误解**："issue 还 open 就是没人在做"——#191394 挂着 5 个 open PR，第六个没有价值；要看 open PR 数与最后一条评论日期。另一个："typo PR 是最安全的第一个 PR"——vLLM 明文 "No low-value busywork PRs"，PyTorch 的 `AI_POLICY.md` 划了"meaningful human involvement"的底线；替代方案是 systematic 的批次，#183036 里 maintainer 要的正是"不让其他 optimizer 出同样问题"的修法。
@@ -94,7 +134,7 @@ Table: 本文的章节安排
 - PyTorch：2000 行硬上限；61 个 linter；148 个 workflow；49 个 `ciflow/*`（需写权限）；`merge_rules.yaml` 33 条，每条 `patterns` / `approved_by` / `mandatory_checks_name`（几乎都是 `EasyCLA`、`Lint`、`pull`），`Core Maintainers` 兜底；合入还需 `release notes:` 或 `topic: not user facing` 标签。
 - vLLM：500 行 RFC 线、6 个 open PR 上限；35 个 test_area；pre-commit 需 `verified` / `ready` 或作者 ≥4 个合入 PR；`/ci run` 授权链：写权限 → 受信名单 → 非作者拒绝 → draft 拒绝 → `ready` 标签 → 受信 reviewer 的 approval；`run_all_patterns`（`csrc/`、`CMakeLists.txt`、`setup.py` 等）改了就全跑。
 - benchmark 六要素：基线、对比、硬件、shape、方法与命令、不利 case；vLLM kernel 脚本放 `benchmarks/kernels/`，端到端用 `vllm bench`（`benchmarks/benchmark_*.py` 在 v0.28.0 只是弃用桩）。
-- 签名与 review：CLA 签一次 vs DCO 每个 commit `-s`（漏签要 rebase 重写）；PyTorch 4 个工作日无回应留言、再去每周五 Office Hours；vLLM 7 天可 ping、`pr-review-request@vllm.ai` 加急。
+- 签名与 review：CLA（Contributor License Agreement）签一次 vs DCO（Developer Certificate of Origin）每个 commit `-s`（漏签要 rebase 重写）；PyTorch 4 个工作日无回应留言、再去每周五 Office Hours；vLLM 7 天可 ping、`pr-review-request@vllm.ai` 加急。
 
 **常见误解**："我的 PR 被 approve 了为什么合不进"——approve 的人不在改动文件对应规则的 `approved_by` 里，或缺 `release notes:` 标签，或 `pull` 里有失败项；拒绝信息会告诉你差哪条。另一个："CI 是绿的"在两边含义不同——vLLM 新贡献者的 PR 默认连 pre-commit 都不跑，一片灰色不等于绿。
 
@@ -102,7 +142,7 @@ Table: 本文的章节安排
 
 **核心问题**：两个都是"小"PR，却各花了作者一到几周。这些时间花在哪里了？哪些是可以省的，哪些是这个项目的正常成本？
 
-**结论**：走读分七个阶段——起点、阅读、diff、测试与数据、CI、review、合入之后——每阶段一条 `gh` / `git` 命令作为出处，时间戳排成时间线，每段空白归到"谁在等谁"。PyTorch #185344（`torch.linalg.lu` 的后端切换启发式）：issue 由 linalg maintainer 开、长期贡献者接，没有 `actionable` 也合入了——那条规则针对新贡献者；diff 一个文件 +104 −0；没有新增测试，用 4 种 GPU、3792 个采样点的命中率表（97.5%）代替；3 小时 42 分后收到三条行内意见，全部关于注释——数字与描述对齐、"Blackwell" 指哪块卡、删掉代码注释里的 "Authored with Claude"；`@pytorchbot merge` 被两个无关的 docs 任务挡住，`merge -i` 合入；进 v2.13.0。vLLM #47272（启动检查预留 KV null block）：issue 被部分修复过又被 stale bot 关闭，PR 开出后 47 天无 review、作者未 ping；社区成员开配套 PR #52530 并主动划界；maintainer 一条带代码的意见把范围扩到 auto-fit；`ready` → `/ci run` → 6 个失败全是自己引入的边界测试 → 修测试 → 88 项全绿 → 合入；08-20 合入 main，但 v0.28.0 的分支 08-17 已切出。
+**结论**：走读分七个阶段——起点、阅读、diff、测试与数据、CI、review、合入之后——每阶段一条 `gh` / `git` 命令作为出处，时间戳排成时间线，每段空白归到"谁在等谁"。PyTorch #185344（`torch.linalg.lu` 的后端切换启发式）：issue 由 linalg maintainer 开、长期贡献者接，没有 `actionable` 也合入了——那条规则针对新贡献者；diff 一个文件 +104 −0；没有新增测试，用 4 种 GPU、3792 个采样点的命中率表（97.5%）代替；3 小时 42 分后收到三条行内意见，全部关于注释——数字与描述对齐、"Blackwell" 指哪块卡、删掉代码注释里的 "Authored with Claude"；`@pytorchbot merge` 被两个无关的 docs 任务挡住，`merge -i` 合入；进 v2.13.0。vLLM #47272（启动检查预留 KV（key–value）null block）：issue 被部分修复过又被 stale bot 关闭，PR 开出后 47 天无 review、作者未 ping；社区成员开配套 PR #52530 并主动划界；maintainer 一条带代码的意见把范围扩到 auto-fit；`ready` → `/ci run` → 6 个失败全是自己引入的边界测试 → 修测试 → 88 项全绿 → 合入；08-20 合入 main，但 v0.28.0 的分支 08-17 已切出。
 
 **必记**：
 
@@ -131,7 +171,7 @@ Table: 本文的章节安排
 
 PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致的风格。第一篇：PyTorch 分四层、`torchgen` 生成代码、commit 正文含 PR 描述、约两个月一版；vLLM 两层、无源码生成、commit 只有 trailer、约两周一版。第二篇：PyTorch 682 个标签五层前缀加四态状态机、RFC 在独立仓库、flaky test 由 bot 自动开 issue；vLLM 63 个标签平铺、RFC 是 issue 模板、CI 失败由人开 issue。第三篇：PyTorch 推送即跑几百项检查、`@pytorchbot merge` 按 `merge_rules.yaml` 校验、CLA 一次；vLLM 默认只跑 pre-commit、`/ci run` 按需、maintainer 打 `ready` 手动合入、DCO 每个 commit。第四篇落到编号：#185344 的 219 项检查、3 小时 42 分收到 review；#47272 的 88 项检查、47 天沉默。
 
-两种风格各有代价：PyTorch 把信息放进结构化元数据，机器先替 reviewer 回答很多问题，但外部贡献者打不了 `ciflow/*`；vLLM 把信息放进描述正文，描述写得好坏影响更大，且新贡献者连 lint 都要等人打 `verified`。总纲说学会这两套再读 NCCL、Megatron-LM、FlashAttention、Triton、SGLang 的 `CONTRIBUTING.md`，半小时就能定位差别——先问"它更像哪一个、差在哪几格"。
+两种风格各有代价：PyTorch 把信息放进结构化元数据，机器先替 reviewer 回答很多问题，但外部贡献者打不了 `ciflow/*`；vLLM 把信息放进描述正文，描述写得好坏影响更大，且新贡献者连 lint 都要等人打 `verified`。总纲说学会这两套再读 NCCL（NVIDIA Collective Communications Library）、Megatron-LM、FlashAttention、Triton、SGLang 的 `CONTRIBUTING.md`，半小时就能定位差别——先问"它更像哪一个、差在哪几格"。
 
 ### 4. 贡献日志：四页证据链
 
@@ -236,7 +276,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   issue 进 `oncall: pt2` 队列；PR 触发 `ciflow/h100-distributed`。前者告诉你 issue 会被哪个 oncall 看到——没人理先查它有没有落进任何 `oncall:`；后者意味着改 FSDP 的 PR 会自动在 H100 上跑分布式任务。
+   issue 进 `oncall: pt2` 队列；PR 触发 `ciflow/h100-distributed`。前者告诉你 issue 会被哪个 oncall 看到——没人理先查它有没有落进任何 `oncall:`；后者意味着改 FSDP（Fully Sharded Data Parallel）的 PR 会自动在 H100 上跑分布式任务。
 
    </details>
 
@@ -286,7 +326,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇判断表：docs 任务与一个只改 `.cpp` 的 PR 无关、Dr. CI 归为脚本错误 → "与改动无关"，处理是 `@pytorchbot merge -i` 忽略；六个 Buildkite 失败成对出现（`mirror: amd`）、失败测试都把 KV 池开在新边界上 → "main 绿我红且在改动附近 → 我的问题"，处理是修三个测试并再 `/ci run`。第二篇：如果 docs 任务在 main 上也持续红，它本身就是一个 CI 失败切入点（HUD 与 `DISABLED` issue；Project 20 看板与 `450-ci-failure.yml`）——分辨"我的"与"main 的"是同一套动作的两个用途。
+   第三篇判断表：docs 任务与一个只改 `.cpp` 的 PR 无关、Dr. CI 归为脚本错误 → "与改动无关"，处理是 `@pytorchbot merge -i` 忽略；六个 Buildkite 失败成对出现（`mirror: amd`）、失败测试都把 KV 池开在新边界上 → "main 绿我红且在改动附近 → 我的问题"，处理是修三个测试并再 `/ci run`。第二篇：如果 docs 任务在 main 上也持续红，它本身就是一个 CI 失败切入点（HUD（heads-up display）与 `DISABLED` issue；Project 20 看板与 `450-ci-failure.yml`）——分辨"我的"与"main 的"是同一套动作的两个用途。
 
    </details>
 
@@ -298,7 +338,7 @@ Table: 常见误区与正确说法
 
    **答案要点**：(1) 从报错提取 2–3 个最具体的符号，字符串字面量优先，`rg -F`；(2) 画顶层地图判断在哪一层——`c10/` → `aten/` → `torch/csrc/` → `torch/`，`CONTRIBUTING.md` "Codebase structure" 是自带地图；(3) 找登记表 `native_functions.yaml`，沿 `dispatch:` 到 `native/*.cpp`，再 `rg -l` 到 `cpu/`、`cuda/` 下的 kernel；(4) 头文件找不到、`.pyi` 跳转断掉，知道是 `torchgen` 生成的，回 yaml；(5) 读测试与 OpInfo 当规格，`git log -S` 看有没有人已经修了；(6) 构建放最后、可选。
    **追问方向**：vLLM 怎么追（`pyproject.toml` → `cli/main.py` → `api_server.py` → `v1/engine/`）；`git blame` 为什么要 `-w -C`；什么时候必须构建。
-   **好答案与一般答案的区别**：一般答案说"用 grep 和 IDE 跳转"；好答案先找登记表、知道哪些文件是生成的、把测试与历史也当阅读对象，并给出时间预算。
+   **好答案与一般答案的区别**：一般答案说"用 grep 和 IDE（integrated development environment）跳转"；好答案先找登记表、知道哪些文件是生成的、把测试与历史也当阅读对象，并给出时间预算。
 
    </details>
 

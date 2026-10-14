@@ -8,9 +8,9 @@ catalog: true
 updated: 2026-09-14
 ---
 
-前三篇讲的都是规则：目录怎么读、标签怎么看、PR 怎么写、CI 怎么跑。规则读完之后最常见的一种失败是——它们在脑子里是分开的。一个贡献者知道 vLLM 要在描述里写 Purpose / Test Plan / Test Result，知道 PyTorch 要用 `@pytorchbot merge`，知道 CI 红了要先看是不是 main 本来就红；但真正开一个 PR 的时候，他不知道这些规则在**一个真实的时间线上**是怎么排列的：哪一步会卡多久、reviewer 的第一条评论通常是关于什么、"改了再提"到底要往返几次、合入之后什么时候才算进了版本。规则是静态的，一次贡献是动态的，中间缺一段实录。
+前三篇讲的都是规则：目录怎么读、标签怎么看、PR（pull request）怎么写、CI（continuous integration）怎么跑。规则读完之后最常见的一种失败是——它们在脑子里是分开的。一个贡献者知道 vLLM 要在描述里写 Purpose / Test Plan / Test Result，知道 PyTorch 要用 `@pytorchbot merge`，知道 CI 红了要先看是不是 main 本来就红；但真正开一个 PR 的时候，他不知道这些规则在**一个真实的时间线上**是怎么排列的：哪一步会卡多久、reviewer 的第一条评论通常是关于什么、"改了再提"到底要往返几次、合入之后什么时候才算进了版本。规则是静态的，一次贡献是动态的，中间缺一段实录。
 
-本篇补这一段。它选取两个已经合入的真实 PR——PyTorch 一个、vLLM 一个——从 issue 开始，到讨论、实现、测试、CI、review、合入、进入哪个版本，逐步走读。每一步都用 `gh` CLI 从 GitHub 取真实材料：PR 描述、diff、每一条 review 评论及其时间、每一次 CI 触发与失败、每一个标签是谁在什么时候打的。正文引用的所有评论都标注 handle 与日期，所有数字都能用 `gh pr view` / `gh api` 复核；本文不虚构任何一句对话。
+本篇补这一段。它选取两个已经合入的真实 PR——PyTorch 一个、vLLM 一个——从 issue 开始，到讨论、实现、测试、CI、review、合入、进入哪个版本，逐步走读。每一步都用 `gh` CLI（command-line interface）从 GitHub 取真实材料：PR 描述、diff、每一条 review 评论及其时间、每一次 CI 触发与失败、每一个标签是谁在什么时候打的。正文引用的所有评论都标注 handle 与日期，所有数字都能用 `gh pr view` / `gh api` 复核；本文不虚构任何一句对话。
 
 两个 PR 都不大：PyTorch 的那个改了一个文件、加了 104 行；vLLM 的那个改了六个文件、加 109 行删 16 行。但一个从 issue 到合入用了一个月、PR 本身开了五天；另一个 PR 开了五十天，其中四十七天没有一条 review。这就是本篇要回答的核心问题：
 
@@ -18,7 +18,51 @@ updated: 2026-09-14
 
 答案要靠时间线算出来，而不是靠感觉。本篇会为两个 PR 各画一张由真实时间戳（`createdAt`、每条评论的 `created_at`、`mergedAt`）构成的时间线表，把时间分解到"等待"、"往返"、"CI"、"作者自己的工作"四类里，再逐项判断可省不可省。最后一章是全系列的总结：把两个走读里出现的每一个环节映射回前三篇的对应小节。
 
-版本与数据基线：源码路径以 PyTorch v2.14.0、vLLM v0.28.0 检出为准；两个 PR 的 GitHub 数据（描述、评论、标签、检查状态、时间戳）均为 **截至 2026-09-07 用 `gh` 查询**的结果，时间统一为 UTC。本文不引用其他系列的文章，不展开两个改动背后的技术原理——LU 分解的后端选择与 KV cache 的块分配只解释到"读懂这个 diff"所需的程度。
+版本与数据基线：源码路径以 PyTorch v2.14.0、vLLM v0.28.0 检出为准；两个 PR 的 GitHub 数据（描述、评论、标签、检查状态、时间戳）均为 **截至 2026-09-07 用 `gh` 查询**的结果，时间统一为 UTC（Coordinated Universal Time）。本文不引用其他系列的文章，不展开两个改动背后的技术原理——LU（lower–upper）分解的后端选择与 KV cache（key–value cache）的块分配只解释到"读懂这个 diff"所需的程度。
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| PR | pull request | 向上游提交的一组改动，review 后合入 |
+| CI | continuous integration | 持续集成，每次提交自动构建、跑测试 |
+| diff | — | 改动前后的逐行差异 |
+| CLI | command-line interface | 命令行界面，这里指 GitHub 的 gh 命令 |
+| UTC | Coordinated Universal Time | 协调世界时，文中时间都按它记 |
+| LU | lower–upper | LU 分解：把矩阵拆成下三角 L 和上三角 U |
+| KV | key–value | 推理时缓存的注意力键值（KV cache） |
+| Blackwell | — | NVIDIA 新一代 GPU 架构，RTX 5090 和 B200 都属于它 |
+| maintainer | — | 有权限 review 和合入代码的项目维护者 |
+| mergify | — | 按规则打标签、提示 rebase 的合入机器人 |
+| Buildkite | — | vLLM 用的 CI 平台 |
+| ghstack | — | PyTorch 的堆叠 PR 工具，一个 commit 一个 PR |
+| OOM | out of memory | 显存不够，分配失败 |
+| squash merge | — | 把 PR 的多个 commit 压成一个再合入 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| autograd | — | PyTorch 的自动求导系统 |
+| PP | pipeline parallel | 流水线并行：模型按层切到不同卡上 |
+| RFC | request for comments | 大改动动手前公开征求意见的设计文档 |
+| cuSOLVER | — | NVIDIA 的 GPU 线性代数求解库 |
+| cuBLAS | — | NVIDIA 的 GPU 矩阵运算库 |
+| RTX 6000 Ada | — | NVIDIA Ada 架构的专业工作站显卡 |
+| ATen | A Tensor Library | PyTorch 的 C++ 张量与算子库 |
+| triage | — | 给 issue 分类、打标签、指派负责人 |
+| actionable | — | PyTorch 标签：可以直接发 PR，有人愿意 review |
+| dtype | — | 张量的数据类型，如 float32、float64 |
+| ROCm | Radeon Open Compute | AMD 的 GPU 软件栈 |
+| QR | — | QR 分解：把矩阵拆成正交阵 Q 和上三角阵 R |
+| LSTSQ | least squares | 最小二乘求解，对应 torch.linalg.lstsq |
+| FP64 | 64-bit floating point | 双精度浮点 |
+| ETA | estimated time of arrival | 预计完成时间 |
+| trailer | — | commit message 末尾「键: 值」格式的行 |
+| docstring | — | 写在函数开头的说明文字 |
+| pre-commit | — | 每次 git commit 前自动跑检查的框架 |
+| DCO | Developer Certificate of Origin | 开发者原创声明，每个 commit 带 Signed-off-by |
+| H200 | — | NVIDIA Hopper 架构的数据中心 GPU |
+| MI250 / MI300 | — | AMD Instinct 系列数据中心 GPU |
+| cherry-pick | — | 把一个 commit 单独挑到另一条分支上 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -162,14 +206,14 @@ gh pr list --repo vllm-project/vllm --state merged \
 
 ### 3. 候选与淘汰
 
-PyTorch 侧看了六个候选。#188110（cudaMallocAsync 在 OOM 前 trim 池并重试，+92，有 `test/test_cuda.py` 测试和真实训练负载的吞吐图，@ngimel 的 review 导致两处修改）各方面都好，但 body 里没有关联任何 issue，淘汰。#175374（allocator 的 `is_graph_capture` 标志，有 `Fixes`、有测试、有 `CHANGES_REQUESTED`）只有一个 squash 后的 commit，review 前后的代码变化无法从 commit 列表还原；且它从 2 月开到 5 月，与 vLLM 那个的形态重复。#175898（`cholesky_solve` 批量性能，有 benchmark 表和测试）关联的是另一个 PR 而不是 issue，且创建于 2 月。#180090（autograd 在 CUDA graph 捕获期间的 stream 引用，+333）规模在上限、review 三十多轮，走读会超出一小时。最终选 **#185344**：ghstack、`Fixes #181999`、作者自己打的三个 `module:` 标签、`ciflow/trunk`、benchmark 数据、三条 review 意见都导致了代码改动、`@pytorchbot merge` 失败后 `merge -i` 的完整过程。
+PyTorch 侧看了六个候选。#188110（cudaMallocAsync 在 OOM（out of memory）前 trim 池并重试，+92，有 `test/test_cuda.py` 测试和真实训练负载的吞吐图，@ngimel 的 review 导致两处修改）各方面都好，但 body 里没有关联任何 issue，淘汰。#175374（allocator 的 `is_graph_capture` 标志，有 `Fixes`、有测试、有 `CHANGES_REQUESTED`）只有一个 squash 后的 commit，review 前后的代码变化无法从 commit 列表还原；且它从 2 月开到 5 月，与 vLLM 那个的形态重复。#175898（`cholesky_solve` 批量性能，有 benchmark 表和测试）关联的是另一个 PR 而不是 issue，且创建于 2 月。#180090（autograd 在 CUDA（Compute Unified Device Architecture）graph 捕获期间的 stream 引用，+333）规模在上限、review 三十多轮，走读会超出一小时。最终选 **#185344**：ghstack、`Fixes #181999`、作者自己打的三个 `module:` 标签、`ciflow/trunk`、benchmark 数据、三条 review 意见都导致了代码改动、`@pytorchbot merge` 失败后 `merge -i` 的完整过程。
 
-vLLM 侧看了四个候选。#47165（把不可处理的图片 URL 从 500 改成 422，+288，`verified` 标签）流程完整但 body 用的是作者自己的章节结构而不是 Purpose / Test Plan / Test Result。#49206（priority 调度静默跳过请求，+159）与 #54962（PP 的 tensor 发送等待，+85）都符合条件，但 review 只有一轮且很短。最终选 **#47272**：`[Bugfix][Core]` 前缀、`Fixes #35541`、Purpose / Test Plan / Test Result 三段外还有 "Not a duplicate" 一段（`AGENTS.md` 对 AI 辅助 PR 的要求）、`Signed-off-by` 加 `Co-authored-by: Claude`、`ready` 标签、`/ci run` 两次、六个 Buildkite 任务失败并修复、maintainer 一条带代码的 review 意见导致新 commit 与新测试、社区成员开了配套 PR 又主动关闭——所有流程要素齐全，而且它的时间线极不均匀，正好用来回答核心问题。
+vLLM 侧看了四个候选。#47165（把不可处理的图片 URL 从 500 改成 422，+288，`verified` 标签）流程完整但 body 用的是作者自己的章节结构而不是 Purpose / Test Plan / Test Result。#49206（priority 调度静默跳过请求，+159）与 #54962（PP（pipeline parallel）的 tensor 发送等待，+85）都符合条件，但 review 只有一轮且很短。最终选 **#47272**：`[Bugfix][Core]` 前缀、`Fixes #35541`、Purpose / Test Plan / Test Result 三段外还有 "Not a duplicate" 一段（`AGENTS.md` 对 AI 辅助 PR 的要求）、`Signed-off-by` 加 `Co-authored-by: Claude`、`ready` 标签、`/ci run` 两次、六个 Buildkite 任务失败并修复、maintainer 一条带代码的 review 意见导致新 commit 与新测试、社区成员开了配套 PR 又主动关闭——所有流程要素齐全，而且它的时间线极不均匀，正好用来回答核心问题。
 
 ### 4. 两条放宽的标准
 
 - **PyTorch #185344 没有新增测试**。它改的是性能启发式（在两个都正确的后端之间选择），正确性由既有的 `test/test_linalg.py` 中 `test_linalg_lu_family` 等用例覆盖，PR 用 3792 个采样点的命中率表代替了测试。在 2026 年 3 月到 9 月合入的、满足其余全部条件的 PyTorch CUDA PR 里，没有一个同时具备 `Fixes #`、ghstack、benchmark 数字、review 导致修改、新增测试——第二章第 3 节里的 #188110 有测试但没有 issue。这里放宽"有测试"。
-- **两个 PR 都没有 RFC**。两个都是 issue 驱动的修复；本系列讨论的 RFC 流程（`pytorch/rfcs`、vLLM 的 `750-RFC.yml`）适用于大改动，几十到几百行的 PR 本来就不该走 RFC，这一点与标准不冲突，但要说明。
+- **两个 PR 都没有 RFC（request for comments）**。两个都是 issue 驱动的修复；本系列讨论的 RFC 流程（`pytorch/rfcs`、vLLM 的 `750-RFC.yml`）适用于大改动，几十到几百行的 PR 本来就不该走 RFC，这一点与标准不冲突，但要说明。
 
 ## 三、走读一：PyTorch #185344
 
@@ -227,7 +271,7 @@ enum class SolverBackend : char {
 
 规则本身是一个纯函数 `get_lu_factor_solver_backend(batch, m, n, dtype)`：非方阵与 batch=1 走 cuSOLVER（前者因为 cuBLAS 不支持矩形输入，后者因为 cuBLAS 的优势只在批量场景）；batch=2 用一组小阈值（float32/complex64 为 `8400 * batch`，double 类为 `2200 * batch`）；batch>2 时 float32/complex64 用 `18600 * batch`，float64 用 `16600 * batch * isqrt(batch)`，complex128 用 `5200 * batch * isqrt(batch)`；最后 `n * n > threshold` 则 cuSOLVER，否则 cuBLAS。注释解释了为什么 float64 需要 `batch^1.5`——"cuBLAS's cost grows more slowly with N for float64 than for other dtypes"——这是从数据里看出来的经验规律，不是推导。
 
-第二个 hunk 在 `lu_factor` 里把原来的硬编码分支包进 `#ifdef USE_ROCM`，非 ROCm 路径改为调用新函数：
+第二个 hunk 在 `lu_factor` 里把原来的硬编码分支包进 `#ifdef USE_ROCM`，非 ROCm（Radeon Open Compute）路径改为调用新函数：
 
 ```cpp title="lu_factor 里的 ROCm 分支与新函数调用"
 +#ifdef USE_ROCM
@@ -405,7 +449,7 @@ Test Plan 只有一条命令：`pytest tests/v1/core/test_kv_cache_utils.py -k r
 
 ### 5. CI
 
-PR 开出时 github-actions bot 的第一条评论就说明了 vLLM 的 CI 策略："PRs do not trigger a full CI run by default. Once the PR is approved and ready to go, your PR reviewer(s) can run CI…" 从 GitHub 上的记录看，7 月 1 日到 8 月 19 日之间这个 PR 只跑过 `pre-commit`、DCO 与 mergify 的检查；08-19 bot 的 "CI is now available for this PR" 也印证了此前没有 Buildkite 权限。
+PR 开出时 github-actions bot 的第一条评论就说明了 vLLM 的 CI 策略："PRs do not trigger a full CI run by default. Once the PR is approved and ready to go, your PR reviewer(s) can run CI…" 从 GitHub 上的记录看，7 月 1 日到 8 月 19 日之间这个 PR 只跑过 `pre-commit`、DCO（Developer Certificate of Origin）与 mergify 的检查；08-19 bot 的 "CI is now available for this PR" 也印证了此前没有 Buildkite 权限。
 
 2026-08-19 22:44 @njhill 打 `ready` 标签、22:45 评论 `/ci run`，bot 回复 "✅ Triggered Buildkite CI #84702 for commit `f9b5892cdad2`"。这一轮**六个任务失败**。作者 08-20 01:11 的评论把失败分析得很完整——三个测试套件各在两种硬件（H200 与 MI250/MI300）上失败，同一根因：
 

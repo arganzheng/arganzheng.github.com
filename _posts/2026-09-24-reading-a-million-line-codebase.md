@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一位工程师在 GitHub 上看到 PyTorch 的一个 issue：`torch.logaddexp` 在 complex128 上 CPU 与 CUDA 的结果不一致。他会写 CUDA，觉得这是个好的第一个 PR。克隆仓库，`rg logaddexp` 一下，两百多个匹配；打开 `torch/__init__.py` 想找 `def logaddexp`，没有；点 IDE 的"跳转到定义"，跳到一个 `.pyi` 文件里的类型签名就断了；再往下找 C++ 实现，发现 `aten/src/ATen/native/BinaryOps.cpp` 里只有一行宏 `CREATE_BINARY_TORCH_IMPL_FUNC(logaddexp_out, logaddexp_stub)`，而 clangd 对整个 `aten/` 目录报"找不到头文件 `ATen/ops/logaddexp_native.h`"——这个文件在仓库里确实不存在。两个小时过去，他还没有找到那个要改的 kernel 在哪个文件。
+一位工程师在 GitHub 上看到 PyTorch 的一个 issue：`torch.logaddexp` 在 complex128 上 CPU 与 CUDA（Compute Unified Device Architecture）的结果不一致。他会写 CUDA，觉得这是个好的第一个 PR（pull request）。克隆仓库，`rg logaddexp` 一下，两百多个匹配；打开 `torch/__init__.py` 想找 `def logaddexp`，没有；点 IDE（integrated development environment）的"跳转到定义"，跳到一个 `.pyi` 文件里的类型签名就断了；再往下找 C++ 实现，发现 `aten/src/ATen/native/BinaryOps.cpp` 里只有一行宏 `CREATE_BINARY_TORCH_IMPL_FUNC(logaddexp_out, logaddexp_stub)`，而 clangd 对整个 `aten/` 目录报"找不到头文件 `ATen/ops/logaddexp_native.h`"——这个文件在仓库里确实不存在。两个小时过去，他还没有找到那个要改的 kernel 在哪个文件。
 
 这不是能力问题。这位工程师读得懂 CUDA kernel，也修得了数值 bug，他缺的是一套**面对百万行代码库的阅读方法**，以及对这个项目"自己提供了哪些辅助"的了解：PyTorch 的 `CONTRIBUTING.md` 有一节 "Codebase structure" 把目录职责写清楚了；`native_functions.yaml` 是所有算子的登记表；报"找不到头文件"是因为那些头文件由 `torchgen` 在构建时生成，构建一次就都有了；而那个 kernel 就在 `aten/src/ATen/native/cuda/LogAddExpKernel.cu`，从 yaml 里的 `dispatch:` 字段两步就能追到。
 
@@ -19,6 +19,41 @@ updated: 2026-09-14
 本篇的核心问题：
 
 > **给你一个从未见过的百万行仓库和一个报错信息，两小时之内你能把它定位到一个文件的一个函数吗？[^q0] 靠什么？[^q1]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| kernel | — | 在 GPU 或 CPU 上执行的一个计算函数 |
+| PR | pull request | 向上游提交的一组改动，review 后合入 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| IDE | integrated development environment | 集成开发环境，提供跳转、补全 |
+| clangd | — | C++ 语言服务器，靠 compile_commands.json 做跨文件跳转 |
+| ATen | A Tensor Library | PyTorch 的 C++ 张量与算子库 |
+| torchgen | — | PyTorch 的代码生成器，从 yaml 生成绑定与头文件 |
+| OpInfo | — | PyTorch 测试里每个算子的元数据登记 |
+| autograd | — | PyTorch 的自动求导系统 |
+| dtype | — | 张量的数据类型，如 float32、complex128 |
+| KV | key–value | 推理时缓存的注意力键值（KV cache） |
+| MoE | mixture of experts | 混合专家：每个 token 只走部分专家网络 |
+| ABI | application binary interface | 二进制接口，编译产物之间的调用约定 |
+| CLI | command-line interface | 命令行界面 |
+| MPS | Metal Performance Shaders | 苹果 GPU 的计算后端 |
+| XPU | — | Intel GPU 在 PyTorch 里的设备名 |
+| ROCm | Radeon Open Compute | AMD 的 GPU 软件栈 |
+| editable install | — | pip install -e，改了 Python 源码不用重装 |
+| docstring | — | 写在函数开头的说明文字 |
+| CI | continuous integration | 持续集成，每次提交自动构建、跑测试 |
+| AD | automatic differentiation | 自动微分；forward AD 指前向模式 |
+| fixture | — | pytest 里给测试准备环境的可复用函数 |
+| trailer | — | commit message 末尾「键: 值」格式的行 |
+| squash merge | — | 把 PR 的多个 commit 压成一个再合入 |
+| DCO | Developer Certificate of Origin | 开发者原创声明，每个 commit 带 Signed-off-by |
+| DP | data parallel | 数据并行：多份模型副本各处理一部分请求 |
+| RC | release candidate | 正式发布前的候选版本 |
+| cherry-pick | — | 把一个 commit 单独挑到另一条分支上 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -156,13 +191,13 @@ vLLM 的分层比 PyTorch 简单：**`csrc/`（kernel）→ `vllm/`（一切其�
 
 ## 三、找到入口点
 
-入口点是"用户可见的 API 或命令"与"真正干活的代码"之间的第一个连接点。两个项目的入口结构都是固定的：PyTorch 的 `torch.<op>` 全部经过同一条绑定链路，vLLM 的 `vllm <subcommand>` 全部经过同一个 CLI 分发器。掌握这两条链路，任何一个具体符号的追踪都是套模板。
+入口点是"用户可见的 API 或命令"与"真正干活的代码"之间的第一个连接点。两个项目的入口结构都是固定的：PyTorch 的 `torch.<op>` 全部经过同一条绑定链路，vLLM 的 `vllm <subcommand>` 全部经过同一个 CLI（command-line interface）分发器。掌握这两条链路，任何一个具体符号的追踪都是套模板。
 
 ### 1. PyTorch：`torch.logaddexp` 到 CUDA kernel
 
 以引言里那个 issue 为例——`torch.logaddexp` 在 complex128 上 CPU 与 CUDA 不一致。目标是找到 CUDA kernel 所在的文件。
 
-**第一步：确认它是一个 ATen 算子。** 在 `torch/__init__.py` 里找不到 `def logaddexp`，因为它不是 Python 定义的。`torch/__init__.py` 中有这样一段：`from torch._C._VariableFunctions import *`，以及紧随其后的一个循环 `for __name in dir(_C._VariableFunctions)`，把 C++ 模块 `torch._C._VariableFunctions` 上的所有函数挂到 `torch` 命名空间。所以 `torch.logaddexp` 是 `torch._C._VariableFunctions.logaddexp`，一个 C++ 绑定。
+**第一步：确认它是一个 ATen（A Tensor Library）算子。** 在 `torch/__init__.py` 里找不到 `def logaddexp`，因为它不是 Python 定义的。`torch/__init__.py` 中有这样一段：`from torch._C._VariableFunctions import *`，以及紧随其后的一个循环 `for __name in dir(_C._VariableFunctions)`，把 C++ 模块 `torch._C._VariableFunctions` 上的所有函数挂到 `torch` 命名空间。所以 `torch.logaddexp` 是 `torch._C._VariableFunctions.logaddexp`，一个 C++ 绑定。
 
 **第二步：查登记表。** 所有 ATen 算子都登记在 `aten/src/ATen/native/native_functions.yaml`：
 
@@ -187,7 +222,7 @@ rg -n -A6 '^- func: logaddexp' aten/src/ATen/native/native_functions.yaml
   tags: pointwise
 ```
 
-这十行告诉我们四件事：`logaddexp` 是一个 structured kernel（`structured: True`），它的实现委托给 `logaddexp.out`（`structured_delegate`）；CPU、CUDA、MPS、XPU 四个后端共用一个 C++ 函数名 `logaddexp_out`（`dispatch:`）；它同时是方法与函数（`variants`），所以 `x.logaddexp(y)` 与 `torch.logaddexp(x, y)` 都存在。每个字段的含义在 `aten/src/ATen/native/README.md` 里有解释。
+这十行告诉我们四件事：`logaddexp` 是一个 structured kernel（`structured: True`），它的实现委托给 `logaddexp.out`（`structured_delegate`）；CPU、CUDA、MPS（Metal Performance Shaders）、XPU 四个后端共用一个 C++ 函数名 `logaddexp_out`（`dispatch:`）；它同时是方法与函数（`variants`），所以 `x.logaddexp(y)` 与 `torch.logaddexp(x, y)` 都存在。每个字段的含义在 `aten/src/ATen/native/README.md` 里有解释。
 
 **第三步：找 `dispatch:` 指向的 C++ 函数。**
 
@@ -278,7 +313,7 @@ async_llm = AsyncLLM.from_vllm_config(...)
 
 `init_app_state()` 初始化 app state；HTTP 路由本身不在这个文件里，而是按接口拆在 `vllm/entrypoints/openai/chat_completion/api_router.py`、`completion/api_router.py`、`models/api_router.py` 等文件中（`@router.post(...)` 装饰器），请求处理类如 `OpenAIServingChat` 在 `vllm/entrypoints/openai/chat_completion/serving.py`。
 
-**第五步：引擎。** `vllm/v1/engine/async_llm.py` 的 `AsyncLLM(EngineClient)` 是前端进程里的引擎对象；它的 `__init__` 里 `self.engine_core = EngineCoreClient.make_async_mp_client(...)` 创建一个到引擎核心进程的客户端。引擎核心本身是 `vllm/v1/engine/core.py` 的 `EngineCore`（单进程版）与 `EngineCoreProc`（独立进程版，多进程时用）；调度器在 `vllm/v1/core/sched/`，KV cache 管理在 `vllm/v1/core/kv_cache_manager.py`。
+**第五步：引擎。** `vllm/v1/engine/async_llm.py` 的 `AsyncLLM(EngineClient)` 是前端进程里的引擎对象；它的 `__init__` 里 `self.engine_core = EngineCoreClient.make_async_mp_client(...)` 创建一个到引擎核心进程的客户端。引擎核心本身是 `vllm/v1/engine/core.py` 的 `EngineCore`（单进程版）与 `EngineCoreProc`（独立进程版，多进程时用）；调度器在 `vllm/v1/core/sched/`，KV cache（key–value cache）管理在 `vllm/v1/core/kv_cache_manager.py`。
 
 写成一行：
 
@@ -342,7 +377,7 @@ rg -ln 'void rms_norm\(' csrc
 
 第一条命中 `csrc/libtorch_stable/torch_bindings.cpp` 里 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 块中的 `ops.def("rms_norm(Tensor! result, Tensor input, Tensor? weight, float epsilon) ...")`，同文件末尾 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)` 块把它绑到 C++ 函数；第二条命中 `csrc/libtorch_stable/layernorm_kernels.cu`（CUDA 实现）与 `csrc/cpu/layernorm.cpp`（CPU 实现）。声明在 `csrc/libtorch_stable/ops.h`。
 
-扩展模块的名字在 `vllm/platforms/cuda.py` 里：`import vllm._C_stable_libtorch  # noqa`，注释写着 "import custom ops, trigger op registration"；`CudaPlatform.import_kernels()` 还会尝试导入 `vllm._moe_C_stable_libtorch` 等。这些 `.so` 由 `CMakeLists.txt` 定义（v0.28.0 的注释说明 CUDA 算子已从旧的 `_C` 迁到 `_C_stable_libtorch`，`_C` 仅 ROCm 保留），`*.so` 在 `.gitignore` 里。
+扩展模块的名字在 `vllm/platforms/cuda.py` 里：`import vllm._C_stable_libtorch  # noqa`，注释写着 "import custom ops, trigger op registration"；`CudaPlatform.import_kernels()` 还会尝试导入 `vllm._moe_C_stable_libtorch` 等。这些 `.so` 由 `CMakeLists.txt` 定义（v0.28.0 的注释说明 CUDA 算子已从旧的 `_C` 迁到 `_C_stable_libtorch`，`_C` 仅 ROCm（Radeon Open Compute）保留），`*.so` 在 `.gitignore` 里。
 
 vLLM 版的一行链：
 
@@ -489,9 +524,9 @@ instantiate_device_type_tests(TestBinaryUfuncsDevice, globals(), allow_xpu=True)
 instantiate_device_type_tests(TestBinaryUfuncsCUDA, globals(), only_for="cuda")
 ```
 
-这一行把 `TestBinaryUfuncsDevice` 变成 `TestBinaryUfuncsDeviceCPU`、`TestBinaryUfuncsDeviceCUDA` 等，测试方法的 `device` 参数由框架填入。所以在 CI 日志里看到 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 这样的名字时，要去掉后缀找源码：类名 `TestBinaryUfuncsDevice`，方法 `test_logaddexp`。`AGENTS.md` 的要求是 "For any test that checks numerics of the on-device implementation, use `instantiate_device_type_tests` to write device-generic tests"。
+这一行把 `TestBinaryUfuncsDevice` 变成 `TestBinaryUfuncsDeviceCPU`、`TestBinaryUfuncsDeviceCUDA` 等，测试方法的 `device` 参数由框架填入。所以在 CI（continuous integration）日志里看到 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 这样的名字时，要去掉后缀找源码：类名 `TestBinaryUfuncsDevice`，方法 `test_logaddexp`。`AGENTS.md` 的要求是 "For any test that checks numerics of the on-device implementation, use `instantiate_device_type_tests` to write device-generic tests"。
 
-**`common_methods_invocations.py` 的 OpInfo。** 这是 PyTorch 对每个算子的元数据登记：支持的 dtype、是否支持 forward AD、样例输入生成器、已知的跳过项。`logaddexp` 的条目：
+**`common_methods_invocations.py` 的 OpInfo。** 这是 PyTorch 对每个算子的元数据登记：支持的 dtype、是否支持 forward AD（automatic differentiation，前向模式自动微分）、样例输入生成器、已知的跳过项。`logaddexp` 的条目：
 
 ```python title="logaddexp 的 OpInfo 条目"
 BinaryUfuncInfo('logaddexp',
@@ -637,7 +672,7 @@ git show -s --format='%H%n%an%n%cs%n%B' 7b9f2dad89
 - Co-authored-by: OpenAI Codex <codex@openai.com>
 - Co-authored-by: Nick Hill <nickhill123@gmail.com>
 
-正文里只有 trailer：`Signed-off-by`（DCO 签名，vLLM 每个 commit 必须有）、`Co-authored-by`（这里包括一个 AI 助手——`AGENTS.md` 要求 AI 辅助的提交用这个 trailer 声明）。**"为什么改"不在 commit 里，在 PR 页面上。**所以读 vLLM 历史的第二步永远是 `gh pr view <PR 号> --repo vllm-project/vllm`。截至 2026-09 查询，#43417 的描述以 "## Purpose" 开头："Fail promptly when a frontend process exits while engine cores are still initializing"，接着解释了 `launch_core_engines` 的启动屏障原来只监视本地引擎核心与 DP coordinator，API server 进程在这个窗口内退出会让父进程一直等；标签是 `frontend`、`ready`、`v1`、`rust`。改动涉及 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`，测试在 `tests/v1/engine/test_startup_watch_processes.py`。`git tag --contains 7b9f2dad89` 显示它进入了 `v0.28.0`（以及 `v0.27.2rc0`）。
+正文里只有 trailer：`Signed-off-by`（DCO（Developer Certificate of Origin）签名，vLLM 每个 commit 必须有）、`Co-authored-by`（这里包括一个 AI 助手——`AGENTS.md` 要求 AI 辅助的提交用这个 trailer 声明）。**"为什么改"不在 commit 里，在 PR 页面上。**所以读 vLLM 历史的第二步永远是 `gh pr view <PR 号> --repo vllm-project/vllm`。截至 2026-09 查询，#43417 的描述以 "## Purpose" 开头："Fail promptly when a frontend process exits while engine cores are still initializing"，接着解释了 `launch_core_engines` 的启动屏障原来只监视本地引擎核心与 DP（data parallel）coordinator，API server 进程在这个窗口内退出会让父进程一直等；标签是 `frontend`、`ready`、`v1`、`rust`。改动涉及 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`，测试在 `tests/v1/engine/test_startup_watch_processes.py`。`git tag --contains 7b9f2dad89` 显示它进入了 `v0.28.0`（以及 `v0.27.2rc0`）。
 
 两个项目的对比：
 
@@ -663,7 +698,7 @@ PR 号                  标题末尾 (#N)，正文 Pull Request resolved: 链接
 - | 2.15 | 28 Sept 2026 | 28 Oct 2026 | (Nov 2026) | Not planned |
 - | 2.16 | 23 Nov 2026 | 22 Dec 2026 | (Jan 2027) | Not planned |
 
-表格上方注明 "All future dates below are tentative" 与 "Patch Releases are optional"。从表里读出的节奏：branch cut 到发布约三到四周，相邻 minor 版本相隔约两个月。"General Overview" 一节列出发布的步骤（cut release branch → drafting RCs 与 cherry-pick → final RC → promote to stable）；"Frequently Asked Questions" 解释 branch cut 之后 "new features *are not* added to the release branch"，cherry-pick 需要在 release tracker issue 里提名，可以用 `@pytorchbot cherry-pick -c [reason]` 自动化；"Cherry Picking Fixes" 一节强调 "The cherry pick process is not an invitation to add new features, it is mainly there to fix regressions"，`-c` 的取值是 `regression`、`critical`、`fixnewfeature`、`docs`、`release` 五种。
+表格上方注明 "All future dates below are tentative" 与 "Patch Releases are optional"。从表里读出的节奏：branch cut 到发布约三到四周，相邻 minor 版本相隔约两个月。"General Overview" 一节列出发布的步骤（cut release branch → drafting RCs（release candidate）与 cherry-pick → final RC → promote to stable）；"Frequently Asked Questions" 解释 branch cut 之后 "new features *are not* added to the release branch"，cherry-pick 需要在 release tracker issue 里提名，可以用 `@pytorchbot cherry-pick -c [reason]` 自动化；"Cherry Picking Fixes" 一节强调 "The cherry pick process is not an invitation to add new features, it is mainly there to fix regressions"，`-c` 的取值是 `regression`、`critical`、`fixnewfeature`、`docs`、`release` 五种。
 
 对贡献者的含义：一个在 8 月 10 日之后合入 main 的 feature，不会进 2.14，要等 10 月 28 日的 2.15；如果它是 regression fix，可以走 cherry-pick 进 2.14 的 patch 版本。
 

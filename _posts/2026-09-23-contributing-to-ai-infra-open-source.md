@@ -7,18 +7,52 @@ catalog: true
 ---
 
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| AI-Infra | AI infrastructure | 支撑模型训练与推理的底层软件：框架、引擎、通信库 |
+| kernel | — | 在 GPU 上执行的一个计算函数 |
+| CI | continuous integration | 持续集成，每次提交自动构建、跑测试 |
+| PR | pull request | 向上游提交的一组改动，review 后合入 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| RFC | request for comments | 大改动动手前公开征求意见的设计文档 |
+| diff | — | 改动前后的逐行差异 |
+| maintainer | — | 有权限 review 和合入代码的项目维护者 |
+| lintrunner | — | PyTorch 的本地 lint 统一入口 |
+| lint | — | 静态检查代码风格和常见错误 |
+| pre-commit | — | 每次 git commit 前自动跑检查的框架 |
+| CLA | Contributor License Agreement | 贡献者许可协议，签一次即授权项目使用你的代码 |
+| DCO | Developer Certificate of Origin | 开发者原创声明，每个 commit 带 Signed-off-by |
+| Buildkite | — | vLLM 用的 CI 平台 |
+| mergify | — | 自动 rebase、打标签的合入机器人 |
+| ghstack | — | PyTorch 的堆叠 PR 工具，一个 commit 一个 PR |
+| NCCL | NVIDIA Collective Communications Library | 多 GPU 之间做集合通信的库 |
+| CLI | command-line interface | 命令行界面 |
+| clangd | — | C++ 语言服务器，提供跨文件跳转 |
+| OpInfo | — | PyTorch 测试里每个算子的元数据登记 |
+| cherry-pick | — | 把一个 commit 单独挑到另一条分支上 |
+| CC | carbon copy | 抄送；RFC 模板里列出要通知的人 |
+| HUD | heads-up display | PyTorch 的 CI 状态看板 |
+| flaky test | — | 时过时不过、结果不稳定的测试 |
+| triage | — | 给 issue 分类、打标签、指派负责人 |
+| wheel | — | Python 的预编译安装包 |
+| CODEOWNERS | — | 按路径指定由谁 review 的 GitHub 配置文件 |
+
+Table: 本文用到的术语与缩写
+
 ## 内容简介
 
-《AI-Infra 开源贡献指南》是一组共四篇的系列文章，面向已经能读懂一部分源码、想把自己的第一个改动合入 PyTorch、vLLM 这类大型 AI-Infra 项目的工程师。它不讲任何一层的技术原理，只讲一件事：**如何进入并参与建设一个百万行的开源项目**。
+《AI-Infra 开源贡献指南》是一组共四篇的系列文章，面向已经能读懂一部分源码、想把自己的第一个改动合入 PyTorch、vLLM 这类大型 AI-Infra（AI infrastructure）项目的工程师。它不讲任何一层的技术原理，只讲一件事：**如何进入并参与建设一个百万行的开源项目**。
 
 它回答的问题是：
 
 > **面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动？[^q0]**
 
-这个问题在技术上并不深，却拦住了很多有能力的人。一个能写出高质量 kernel 的工程师，可能在 PyTorch 的 `aten/` 目录前不知从何读起；一个能修 bug 的人，可能不知道 vLLM 的 CI 为什么没有跑、PR 为什么三周没人看。这些障碍与 CUDA 或 Python 无关，与**项目的运作方式**有关：
+这个问题在技术上并不深，却拦住了很多有能力的人。一个能写出高质量 kernel 的工程师，可能在 PyTorch 的 `aten/` 目录前不知从何读起；一个能修 bug 的人，可能不知道 vLLM 的 CI（continuous integration）为什么没有跑、PR（pull request）为什么三周没人看。这些障碍与 CUDA（Compute Unified Device Architecture）或 Python 无关，与**项目的运作方式**有关：
 
 - 代码怎么组织：→ 目录地图、入口点、符号追踪、测试即文档、历史即注释
-- 工作从哪里来：→ issue 标签、RFC、roadmap、CI 失败、性能回归、文档与类型缺口
+- 工作从哪里来：→ issue 标签、RFC（request for comments）、roadmap、CI 失败、性能回归、文档与类型缺口
 - 改动怎么被接受：→ 最小 diff、测试、benchmark、PR 描述、CI 矩阵、review 往返
 - 人怎么打交道：→ maintainer 的时间预算、review 文化、被拒后怎么办、AI 辅助的项目政策
 
@@ -37,7 +71,7 @@ catalog: true
 
 Table: 同一环节 PyTorch 与 vLLM 的做法
 
-学会在这两个项目里做贡献，迁移到 NCCL、Megatron-LM、FlashAttention、Triton、SGLang 的成本很低——它们的流程都是这两种风格的变体。
+学会在这两个项目里做贡献，迁移到 NCCL（NVIDIA Collective Communications Library）、Megatron-LM、FlashAttention、Triton、SGLang 的成本很低——它们的流程都是这两种风格的变体。
 
 第四篇会选取两个已经合入的真实 PR，各自从 issue 到合入完整走一遍，把前三篇讲的方法落到具体的 diff、CI 日志和 review 对话上。
 
@@ -124,7 +158,7 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 这一篇会覆盖：
 
 - 先画目录地图再读代码：PyTorch 的 `c10/` → `aten/` → `torch/csrc/` → `torch/` 分层，`torchgen/` 与 `native_functions.yaml` 生成的代码在哪里；vLLM 的 `vllm/` 与 `csrc/` 的分工，`vllm/v1/` 引擎与 `vllm/model_executor/` 的位置；`CONTRIBUTING.md` 的 "Codebase structure" 一节和 `docs/contributing/` 目录是两个项目自带的地图；
-- 找到入口点：一个 Python API 调用最终落到哪个文件，一个 CLI 命令从哪里开始；PyTorch 的 `torch/_C/` 绑定与 vLLM 的 `vllm/entrypoints/`；
+- 找到入口点：一个 Python API 调用最终落到哪个文件，一个 CLI（command-line interface）命令从哪里开始；PyTorch 的 `torch/_C/` 绑定与 vLLM 的 `vllm/entrypoints/`；
 - 构建一次：不构建就没有 `compile_commands.json`，clangd 就无法跳转；PyTorch 的 `pip install -e . --no-build-isolation` 与只做 Python 开发时的 `tools/nightly.py`；vLLM 的 `VLLM_USE_PRECOMPILED=1 uv pip install -e .` 与 `docs/contributing/incremental_build.md` 描述的 CMake 增量编译；
 - 从一个符号追到底：ripgrep 的用法、clangd 的跨文件跳转、Python 侧的 `inspect` 与断点；宏和代码生成造成的"找不到定义"怎么处理；
 - 用测试当文档：PyTorch 的 `test/` 按主题组织（`test_*.py`、`distributed/`、`inductor/`、`cpp/`），`torch/testing/_internal/` 下的 `TestCase`、`instantiate_device_type_tests`、OpInfo；vLLM 的 `tests/` 按子系统组织（`kernels/`、`distributed/`、`models/`、`entrypoints/`、`evals/`）；一个函数的测试往往是它最准确的规格说明；
@@ -144,8 +178,8 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 这一篇会覆盖：
 
 - issue 标签体系：vLLM 的 `good first issue` 与 `new-model` 标签、`docs/contributing/README.md` 里的 "Job Board" 与 onboarding 任务看板；PyTorch 以 `module:` 前缀的模块标签（`.github/labeler.yml`、`label_to_label.yml` 定义了自动打标规则）、`actionable` 标签的含义；标签是 maintainer 表达"我们想要什么"的主要渠道；
-- RFC 与 roadmap：PyTorch 的大改动走 `pytorch/rfcs` 仓库，vLLM 用 `.github/ISSUE_TEMPLATE/750-RFC.yml` 模板（Motivation、Proposed Change、Feedback Period 通常至少一周、CC List），超过 500 行的架构改动要求先有 RFC（`docs/contributing/README.md` 提到会打 `rfc-required` 标签，但截至 2026-09 该标签并不在仓库标签列表中——文档与实践不同步是这类项目的常态，正文会讨论怎么对待）；roadmap issue 是找"maintainer 想做但没人手"的工作的地方；
-- CI 失败：vLLM 的 `docs/contributing/ci/failures.md` 描述了 CI 失败看板和 `[CI Failure]` issue 模板；PyTorch 的 HUD 显示 main 上哪些任务在红；修一个已知的 flaky test 是低风险、高感谢度的切入点；
+- RFC 与 roadmap：PyTorch 的大改动走 `pytorch/rfcs` 仓库，vLLM 用 `.github/ISSUE_TEMPLATE/750-RFC.yml` 模板（Motivation、Proposed Change、Feedback Period 通常至少一周、CC List（carbon copy list）），超过 500 行的架构改动要求先有 RFC（`docs/contributing/README.md` 提到会打 `rfc-required` 标签，但截至 2026-09 该标签并不在仓库标签列表中——文档与实践不同步是这类项目的常态，正文会讨论怎么对待）；roadmap issue 是找"maintainer 想做但没人手"的工作的地方；
+- CI 失败：vLLM 的 `docs/contributing/ci/failures.md` 描述了 CI 失败看板和 `[CI Failure]` issue 模板；PyTorch 的 HUD（heads-up display）显示 main 上哪些任务在红；修一个已知的 flaky test 是低风险、高感谢度的切入点；
 - 性能回归：vLLM 的 `700-performance-discussion.yml` issue 模板与 `benchmarks/` 目录；PyTorch 的 `benchmarks/` 下按子系统组织的 benchmark 套件；一个带复现脚本和数字的回归报告本身就是贡献；
 - 文档与类型缺口：过时的 docstring、缺失的类型标注、和实际行为不一致的说明；这类改动门槛低，但两个项目现在都明确不欢迎"单个 typo"式的一次性 PR，要成规模、成体系地做；
 - "别人不愿做但有价值"的工作：补测试覆盖、给旧代码加 deprecation warning（vLLM 有 `docs/contributing/deprecation_policy.md`）、把 issue 里的复现整理成测试用例、对硬件适配路径做验证；
@@ -169,7 +203,7 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 - benchmark 数据：性能改动必须附数字——前后对比、测量方法、硬件、shape；vLLM 的 kernel benchmark 放 `benchmarks/kernels/`，端到端用 `vllm bench serve|throughput|latency`（旧的 `benchmarks/benchmark_*.py` 在 v0.28.0 里只剩打印弃用提示的桩）；PyTorch 的 PR 模板把"性能相关 PR 附 benchmark 结果"列入 checklist；
 - 本地 lint：PyTorch 的 `.lintrunner.toml` 定义了数十个 linter（FLAKE8、CLANGFORMAT、CLANGTIDY、RUFF、CODESPELL 等），用 `spin lint` / `spin fixlint` 运行；vLLM 用 `pre-commit`（ruff、clang-format、typos、markdownlint、mypy 多版本、signoff 检查等），`pre-commit install` 后每次 commit 自动跑；lint 不过 CI 根本不会往下走；
 - PR 描述规范：vLLM 的 PR 模板要求 Purpose、Test Plan、Test Result 三段，标题必须带 `[Bugfix]`、`[Kernel]`、`[Core]`、`[Model]`、`[Doc]` 等前缀；PyTorch 的 `.github/PULL_REQUEST_TEMPLATE/` 下有三个模板（修 issue、文档/typo、预先批准），修 issue 的 PR 必须写 `Fixes #`，"没有关联 issue 的 PR 可能被自动关闭"，描述"过于冗长会被视为 spam"；
-- DCO 与签名：vLLM 要求每个 commit 带 `Signed-off-by`（`git commit -s`），`pre-commit` 的 `signoff-commit` 钩子和 `mergify` 都会检查；PyTorch 走 CLA；
+- DCO（Developer Certificate of Origin）与签名：vLLM 要求每个 commit 带 `Signed-off-by`（`git commit -s`），`pre-commit` 的 `signoff-commit` 钩子和 `mergify` 都会检查；PyTorch 走 CLA（Contributor License Agreement）；
 - CI 矩阵：PyTorch 的 `.github/workflows/` 下有一百多个 workflow，`pull.yml` 在每个 PR 上跑，`trunk.yml`、`periodic.yml`、`slow.yml`、`inductor.yml` 在 main 上、按周期或按标签触发，`ciflow/` 标签（`.github/pytorch-probot.yml` 列出）用来手动拉起某一组任务；vLLM 用 Buildkite，`.buildkite/test_areas/*.yaml` 按领域定义任务，每个任务声明 `source_file_dependencies` 决定改了哪些文件才触发、在什么 GPU 上跑；vLLM 的 CI 不会自动为每个 commit 全跑，需要 reviewer 或 `ready` 标签之后用 `/ci run`；
 - 读 CI 日志：怎么区分自己引入的失败和 main 上已有的失败；PyTorch 的 `CONTRIBUTING.md` 有 "CI failure tips" 一节；vLLM 的 CI 失败看板；
 - review 往返：vLLM 承诺 reviewer 每 2–3 天给状态、7 天没动可以 ping（文档提到的 `action-required` 标签同样不在当前标签列表中）；PyTorch 由 triage 团队打模块标签并分配 reviewer，4 个工作日没回应可以留言催；怎么回复 review 意见、什么时候争辩、什么时候照做；
