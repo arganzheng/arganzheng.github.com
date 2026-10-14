@@ -149,7 +149,7 @@ AlexNet 的关键不是单一新层，而是几件事在同一个系统里配合
 
 ### 结构分支：更深视觉、词向量与生成模型
 
-2013 年的 Word2Vec 把“从上下文预测词”做成了简单而高效的词向量训练方法；它不是词向量研究的起点。Bengio 等人在 2003 年的神经概率语言模型已经把可学习的分布式词表示放进语言预测模型。[Bengio 等（2003）原论文](https://jmlr.org/papers/v3/bengio03a.html)；[Word2Vec 原论文](https://arxiv.org/abs/1301.3781) 这些向量解决的是离散符号输入的表示问题；静态词向量仍让同一词型共享一个上下文无关的表项。细节见《[深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》。
+2013 年的 Word2Vec 把“从上下文预测词”做成了简单而高效的词向量训练方法；它不是词向量研究的起点。Bengio 等人在 2003 年的神经概率语言模型已经把可学习的分布式词表示放进语言预测模型。[Bengio 等（2003）原论文](https://jmlr.org/papers/v3/bengio03a.html)；[Word2Vec 原论文](https://arxiv.org/abs/1301.3781) 这些向量解决的是离散符号输入的表示问题；静态词向量仍让同一词型共享一个上下文无关的表项。细节见《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html)》。
 
 2014 年，Sutskever 等人用编码器—解码器 RNN 处理序列到序列任务；Bahdanau 等人让解码器在每一步对输入状态加权，缓解把整句压进单个固定向量的瓶颈。[seq2seq 原论文](https://arxiv.org/abs/1409.3215)；[Bahdanau attention 原论文](https://arxiv.org/abs/1409.0473) 同年，Goodfellow 等人提出生成对抗网络，让生成器和判别器通过对抗目标共同训练。[GAN 原论文](https://arxiv.org/abs/1406.2661)
 

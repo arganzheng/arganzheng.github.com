@@ -220,7 +220,7 @@ flowchart TB
 
 ---
 
-## 08 · Embedding 与表示学习：从 one-hot 到上下文表示
+## 08 · Embedding 与表示学习：从查表到句向量
 
 **结论**：one-hot 矩阵乘法等价于 embedding 表查一行；梯度只更新被访问的行。Word2Vec 从上下文预测目标或从目标预测上下文，使向量几何反映共现关系；Transformer 则让表示随上下文变化。
 

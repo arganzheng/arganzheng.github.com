@@ -392,7 +392,7 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - **退化问题复现**：plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72，残差网络不变；有 BN 的深 plain 网络梯度**向输入方向爆炸**（第 1 块是第 56 块的 2849 倍），残差把比值压到 3。ResNet-v2 的 pre-activation 是 Pre-Norm 的前身。
 - **ViT**：数据足够多时卷积的先验成为负担；把图切成 $$(H/p)(W/p)$$ 个 patch、线性投影成 token、送进标准 encoder。**Patch embedding 就是 kernel = stride = $$p$$ 的卷积**（实测差 $$10^{-6}$$，590,592 个参数）。一张 224 图是 196 个 token，CLIP-336 是 576，原生分辨率 1024² 是 5476——这是多模态成本的起点。
 - 卷积退到了 patch embedding、语音前端、U-Net 与 ConvNeXt；懂到"带约束的线性层 + 会算账 + 认得出 patch embedding"即可。
-- 下一篇先看[《深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示》](/embedding-and-representation-learning.html)，再看循环网络怎样处理序列、为什么记不住远处，以及 attention 如何从它的瓶颈里被发明出来。
+- 下一篇先看[《深度学习基础（09）：Embedding 与表示学习——从查表到句向量》](/embedding-and-representation-learning.html)，再看循环网络怎样处理序列、为什么记不住远处，以及 attention 如何从它的瓶颈里被发明出来。
 
 配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟；第七章的 LeNet-5 复现是 [`case_05_lenet5.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_lenet5.py)（MPS / CPU 均可，10 秒到 1 分钟）；原论文结构图由 `tools/paper_figures.py` 从 PDF 裁出。
 

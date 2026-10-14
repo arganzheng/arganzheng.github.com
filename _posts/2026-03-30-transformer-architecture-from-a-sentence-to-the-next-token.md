@@ -155,7 +155,7 @@ decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与�
 
 编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
-这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
+这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
 
 ## 六、位置 embedding：告诉模型这是第几个 token
 

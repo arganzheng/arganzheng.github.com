@@ -53,7 +53,7 @@ Table: 系列覆盖的模型演进史、六个训练动力学问题与三类结�
 
 | 部件 | 回答的问题 | 在哪一篇 |
 |---|---|---|
-| 输入 / Embedding | 离散 token 或像素怎样变成向量 | 《[深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示](/embedding-and-representation-learning.html)》 |
+| 输入 / Embedding | 离散 token 或像素怎样变成向量 | 《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html)》 |
 | 层：线性 / 卷积 / 循环 / attention | 结构的先验从哪来 | 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》《[深度学习基础（10）：RNN——从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)》 |
 | 激活函数 | 非线性怎样改变梯度 | 《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》 |
 | 归一化 + 残差 | 深层的尺度怎么稳住 | 《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》 |
@@ -315,9 +315,9 @@ Table: 贯穿十篇的三条线索
 
 实验：用 NumPy 实现二维卷积并验证它等价于一个稀疏的全连接矩阵；用 PyTorch 在 CIFAR-10 上对比一个 plain 深网络与加残差的同深度网络；实现 patch embedding，验证它与 stride 卷积输出一致。
 
-### 8. Embedding 与表示学习：从 one-hot 到上下文表示
+### 8. Embedding 与表示学习：从查表到句向量
 
-第九篇[《深度学习基础（09）：Embedding 与表示学习——从 one-hot 到上下文表示》](/embedding-and-representation-learning.html)从离散 token 编号出发，解释模型怎样查表得到稠密向量，以及训练目标怎样把有用的几何结构写进向量空间。
+第九篇[《深度学习基础（09）：Embedding 与表示学习——从查表到句向量》](/embedding-and-representation-learning.html)从离散 token 编号出发，解释模型怎样查表得到稠密向量，以及训练目标怎样把有用的几何结构写进向量空间。
 
 这一篇会覆盖：
 
@@ -438,7 +438,7 @@ Table: 各篇平行的论文与资料阅读线
 5. [优化器：从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)
 6. [正则化与泛化：为什么参数比样本多却不过拟合](/regularization-and-generalization.html)
 7. [CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)
-8. [Embedding 与表示学习：从 one-hot 到上下文表示](/embedding-and-representation-learning.html)
+8. [Embedding 与表示学习：从查表到句向量](/embedding-and-representation-learning.html)
 9. [RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
 10. [系列总结与通关自测](/deep-learning-foundations-series-recap-and-self-test.html)
 
