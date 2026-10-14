@@ -130,7 +130,7 @@ $$
 \mathcal{L} = \lVert x - D(z_q) \rVert^2 + \lVert \text{sg}[z_e] - e \rVert^2 + \beta \lVert z_e - \text{sg}[e] \rVert^2
 $$
 
-- 重建项的梯度通过**直通估计**传回编码器：前向用 $$z_q$$，反向把 $$\partial \mathcal{L} / \partial z_q$$ 直接当作 $$\partial \mathcal{L} / \partial z_e$$（与 [《[高效推理与压缩（04）：量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的 STE 相同）。
+- 重建项的梯度通过**直通估计**传回编码器：前向用 $$z_q$$，反向把 $$\partial \mathcal{L} / \partial z_q$$ 直接当作 $$\partial \mathcal{L} / \partial z_e$$（与 《[高效推理与压缩（04）：量化感知训练、低比特与量化模型的评测](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)》的 STE 相同）。
 - 第二项（codebook loss）让被选中的码字向编码器输出移动（只更新码本）；实践中用 EMA 替代——每个码字是它被分配到的所有 $$z_e$$ 的移动平均。
 - 第三项（commitment loss，$$\beta = 0.25$$）让编码器输出向被选中的码字靠——防止编码器输出在码字之间乱跳。
 
@@ -194,7 +194,7 @@ $$
 \tilde\ell = \ell_\emptyset + w (\ell_c - \ell_\emptyset)
 $$
 
-在 logits 上做外推再 softmax 采样。LlamaGen 报告 CFG 对 FID 的改善巨大（无 CFG 的 FID 是有 CFG 的 3–5 倍），$$w = 1.75$$–$$2$$（AR 上的 $$w$$ 比扩散小得多——logits 空间的外推与噪声空间的外推尺度不同）。与 [《[高效推理与压缩（01）：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html)》](/decoding-strategies-sampling-and-constrained-generation.html)的采样参数一样，top-k / temperature 也影响 AR 图像生成的质量与多样性。
+在 logits 上做外推再 softmax 采样。LlamaGen 报告 CFG 对 FID 的改善巨大（无 CFG 的 FID 是有 CFG 的 3–5 倍），$$w = 1.75$$–$$2$$（AR 上的 $$w$$ 比扩散小得多——logits 空间的外推与噪声空间的外推尺度不同）。与 《[高效推理与压缩（01）：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html)》的采样参数一样，top-k / temperature 也影响 AR 图像生成的质量与多样性。
 
 ### 3. 栅格顺序的问题
 

@@ -1942,7 +1942,7 @@ SkipList类定义在 arangodb/3rdParty/rocksdb/v5.1.4/db/skiplist.h 中：
 	int MMFilesSkiplistIndex::insert(transaction::Methods* trx, TRI_voc_rid_t revisionId, 
 	                          VPackSlice const& doc, bool isRollback);
 
-两者都把document转换成 vector<MMFilesSkiplistIndexElement>，然后插入到Skiplist中。
+两者都把document转换成 vector&lt;MMFilesSkiplistIndexElement&gt;，然后插入到Skiplist中。
 不同的地方在于 Persistent Index 先把 MMFilesSkiplistIndexElement 序列化成 [arangodb/velocypack](https://github.com/arangodb/velocypack/blob/master/include/velocypack/Slice.h) 数据格式，再调用rocksdb::Transaction的Put方法，将数据插入到RocksDB中去，而索引的构建交给了RocksDB（底层索引结构恰好也是skiplist）。
 
 不过这里没有搞明白Persistent Index要先转成MMFilesSkiplistIndexElement，Skiplist是rocksDB的底层实现，只要把要索引的key插入就可以了啊？

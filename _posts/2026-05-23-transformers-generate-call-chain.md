@@ -12,7 +12,7 @@ date: 2026-05-23 12:00:00
 
 上一篇的前向在 `logits` 处结束：`[B, T, 151936]` 个分数。推理时接下来的每一件事——把最后一个位置的分数变成一个 token、把它拼回去、再前向一次——都在 `model.generate(...)` 里。这个函数是 transformers 最常被调用、也最常被抱怨"看不懂"的函数：`generate` 本身 400 行，它调的 `_sample` 300 行，分散在四个文件里的 `LogitsProcessor` 有五十多个类。
 
-其实骨架很简单：**一份配置 → 一串对 logits 的变换 → 一串停止条件 → 一个 while 循环**。本篇按这四段读，最后把 `temperature=0.7, top_k=50, top_p=0.9` 这三个参数各自对应的十行代码摆出来——[《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》](/from-maximum-likelihood-to-cross-entropy.html)讲的采样公式，代码里就是这几行。
+其实骨架很简单：**一份配置 → 一串对 logits 的变换 → 一串停止条件 → 一个 while 循环**。本篇按这四段读，最后把 `temperature=0.7, top_k=50, top_p=0.9` 这三个参数各自对应的十行代码摆出来——《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲的采样公式，代码里就是这几行。
 
 本篇要回答的核心问题是：
 
@@ -205,7 +205,7 @@ while self._has_unfinished_sequences(...):
     ...
 ```
 
-`_prefill` 把整段 prompt 喂给 `forward`（`generate` 之前已经在 `model_kwargs` 里塞了 `logits_to_keep=1`——上一篇第七章那个参数，prefill 只算最后一个位置的 logits），返回的 `outputs.past_key_values` 就是装满 prompt 的 cache。之后每一步 `prepare_inputs_for_generation` 做的事是 `input_ids[:, -1:]`——**只切最后一个 token**，其余从 cache 里来。[《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》](/transformer-token-journey-training-and-inference.html)讲的 prefill / decode 两阶段，在代码里是"同一个 `forward`、第一次喂整段、之后每次喂一个"。
+`_prefill` 把整段 prompt 喂给 `forward`（`generate` 之前已经在 `model_kwargs` 里塞了 `logits_to_keep=1`——上一篇第七章那个参数，prefill 只算最后一个位置的 logits），返回的 `outputs.past_key_values` 就是装满 prompt 的 cache。之后每一步 `prepare_inputs_for_generation` 做的事是 `input_ids[:, -1:]`——**只切最后一个 token**，其余从 cache 里来。《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》讲的 prefill / decode 两阶段，在代码里是"同一个 `forward`、第一次喂整段、之后每次喂一个"。
 
 `_update_model_kwargs_for_generation` 在两步之间做簿记：把 `outputs.past_key_values` 放回 `model_kwargs`，给 `attention_mask` 在末尾 `cat` 一列 1（padding 的 batch 需要它），`cache_position` 加一。`position_ids` 不在这里算——上一篇说过，模型自己从 `cache.get_seq_length()` 推。
 

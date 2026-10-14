@@ -140,7 +140,7 @@ VQ · AR 图像生成
 
 VLM 的第一步是把图片变成向量序列，做这件事的几乎总是一个预训练好的 ViT。它是怎么训出来的，决定了它"看到"什么。
 
-**核心内容**：ViT 回顾（回指 [《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》](/cnn-from-lenet-to-resnet-and-vit.html)与 [04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)）；对比学习——InfoNCE 的推导、它为什么等价于估计互信息的下界、为什么需要大 batch（负样本数）、温度的作用；CLIP 的 4 亿图文对与训练算力账；SigLIP 用 sigmoid 损失把每对的判定解耦、为什么它对 batch 大小不敏感且更省；自监督（DINOv2）学到的与对比学习不同的东西（局部、几何、密集特征），以及为什么 VLM 里 CLIP 类编码器仍是主流但开始混用；编码器的"盲点"——计数、空间关系、文字、细粒度差别——它们的来源（对比学习的目标只要求区分图文对，不要求精细结构）；分辨率与 patch 大小对 token 数与信息量的影响；编码器选型对照（CLIP ViT-L/14、SigLIP-SO400M、InternViT-6B、DINOv2）。
+**核心内容**：ViT 回顾（回指 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》与 [04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)）；对比学习——InfoNCE 的推导、它为什么等价于估计互信息的下界、为什么需要大 batch（负样本数）、温度的作用；CLIP 的 4 亿图文对与训练算力账；SigLIP 用 sigmoid 损失把每对的判定解耦、为什么它对 batch 大小不敏感且更省；自监督（DINOv2）学到的与对比学习不同的东西（局部、几何、密集特征），以及为什么 VLM 里 CLIP 类编码器仍是主流但开始混用；编码器的"盲点"——计数、空间关系、文字、细粒度差别——它们的来源（对比学习的目标只要求区分图文对，不要求精细结构）；分辨率与 patch 大小对 token 数与信息量的影响；编码器选型对照（CLIP ViT-L/14、SigLIP-SO400M、InternViT-6B、DINOv2）。
 
 **要回答的问题**：为什么几乎所有 VLM 都用 CLIP / SigLIP 而不用 ImageNet 分类预训练的 ViT？编码器看不到什么？
 
@@ -236,7 +236,7 @@ Table: 各篇的 toy 实验脚本与跑通什么
 
 ### 前置要求
 
-- [《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》](/cnn-from-lenet-to-resnet-and-vit.html)：ViT 的结构与 patch embedding。
+- 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》：ViT 的结构与 patch embedding。
 - [现代 LLM 结构系列](/llm-architecture-evolution-roadmap-from-gpt2.html)第 01、04、09 篇：Transformer 结构、KV cache、多模态成本。
 - [L5](/post-training-from-sft-to-verifiable-rewards.html)第一、二、四篇：SFT、偏好数据、DPO——第三篇的多模态对齐直接用它们。
 - [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)：K-Means（第四、九篇的码本就是它）、PCA（第八篇的 toy VAE）、逻辑回归与 softmax（第一篇的对比损失）。

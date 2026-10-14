@@ -9,7 +9,7 @@ tags: [neo4j, 图数据库]
 neo4j提供了如下批量导入工具：
 
 1. 通过`neo4j-admin import`命令可以将数据从 CSV 文件批量导入到未使用的数据库。load data into a previously unused database.
-2. 通过`[LOAD CSV](https://neo4j.com/docs/developer-manual/3.2/cypher/clauses/load-csv/)`语句 import small to medium-sized CSV files into an existing database.
+2. 通过[LOAD CSV](https://neo4j.com/docs/developer-manual/3.2/cypher/clauses/load-csv/)语句 import small to medium-sized CSV files into an existing database.
 
 CSV数据格式参见: [10.2.2. CSV file header format](https://neo4j.com/docs/operations-manual/current/tools/import/file-header-format/)。
 

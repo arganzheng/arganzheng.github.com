@@ -180,7 +180,7 @@ ES已经内建了很多analyzer，一般情况下可以直接使用，不需要�
 **TIPS**
 
 上面列出的都是ES内建的组件，如果不能满足的你要求，可以找一下有没有相关的插件可以使用。
-比如这个 [icu analysis plugin](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/analysis-icu-plugin.html]。
+比如这个 [icu analysis plugin](http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/analysis-icu-plugin.html)。
 
 
 ### 我们会用到的语言分析器

@@ -241,7 +241,7 @@ spring的AutowireCapableBeanFactory其实非常强大，Spring3.0允许任何通
     </beans>
 
 stackoverflow上有一个非常详细讲解`<context:annotation-config>`和`<context:component-scan>`的帖子：
-[Difference between <context:annotation-config> vs <context:component-scan>](http://stackoverflow.com/questions/7414794/difference-between-contextannotation-config-vs-contextcomponent-scan)。很长，这里就不quote了。简单来说就是两个步骤：
+<a href="http://stackoverflow.com/questions/7414794/difference-between-contextannotation-config-vs-contextcomponent-scan">Difference between &lt;context:annotation-config&gt; vs &lt;context:component-scan&gt;</a>。很长，这里就不quote了。简单来说就是两个步骤：
 
 1. 扫描类：`<context:component-scan>` + `@Controller`, `@Component`, etc.
 2. 通过注解方式注入该类的依赖：`<context:annotation-config/>` 

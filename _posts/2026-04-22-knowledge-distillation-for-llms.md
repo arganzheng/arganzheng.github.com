@@ -243,7 +243,7 @@ Table: 三种蒸馏形态的成本对照
 
 ### 3. 预训练阶段的蒸馏
 
-Gemma 2（2024）在**预训练**阶段就用蒸馏：2B 与 9B 模型不用硬标签的 next-token loss，而用一个更大教师在每个位置的分布（top-k 离线），训练 token 数远超 Chinchilla 最优（2B 训了 2T token，是最优的 50 倍）。理由是软标签每 token 的信息量大，同样的 token 数学到更多，等效于"用信息更密的数据过训练"（《[预训练（03）：Scaling law：从 Chinchilla 到\](/scaling-laws-and-compute-optimal-training.html)》）。Gemma 3 沿用。它把蒸馏从"后训练的一步"变成"小模型预训练的方式"——代价是要先有一个大教师，且每个 token 要教师前向一次（$$2N_T$$，Gemma 2 的教师未公开规模）。
+Gemma 2（2024）在**预训练**阶段就用蒸馏：2B 与 9B 模型不用硬标签的 next-token loss，而用一个更大教师在每个位置的分布（top-k 离线），训练 token 数远超 Chinchilla 最优（2B 训了 2T token，是最优的 50 倍）。理由是软标签每 token 的信息量大，同样的 token 数学到更多，等效于"用信息更密的数据过训练"（《[预训练（03）：Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)》）。Gemma 3 沿用。它把蒸馏从"后训练的一步"变成"小模型预训练的方式"——代价是要先有一个大教师，且每个 token 要教师前向一次（$$2N_T$$，Gemma 2 的教师未公开规模）。
 
 ## 八、蒸馏的极限
 

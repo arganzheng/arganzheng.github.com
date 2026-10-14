@@ -170,7 +170,7 @@ Table: 对话 RLHF 与推理模型的 rollout 账
 
 ### 2. 长尾：最长的那条决定一步多久
 
-FLOPs 只是一半。decode 是串行的：一条 32K 的回答要 32K 步 decode，每步几十毫秒（memory-bound，《[预训练（03）：Scaling law：从 Chinchilla 到\](/scaling-laws-and-compute-optimal-training.html)》），**单条序列的生成时间以十分钟计**；同一波里其他序列早就结束，GPU 在等最后一条。回答长度的分布在推理任务上极宽（简单题几百 token、难题几万），一步 rollout 的墙钟时间由最长的几条决定，GPU 平均利用率可以掉到 30% 以下。
+FLOPs 只是一半。decode 是串行的：一条 32K 的回答要 32K 步 decode，每步几十毫秒（memory-bound，《[预训练（03）：Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)》），**单条序列的生成时间以十分钟计**；同一波里其他序列早就结束，GPU 在等最后一条。回答长度的分布在推理任务上极宽（简单题几百 token、难题几万），一步 rollout 的墙钟时间由最长的几条决定，GPU 平均利用率可以掉到 30% 以下。
 
 三种系统层的对策，都是把"等最长的"变成"不等"：
 
@@ -196,7 +196,7 @@ Table: 控制推理长度的五种做法
 
 ### 4. 部署时的账
 
-训练时的长度问题在部署时按用户量放大。一个推理模型对每个请求生成 5K token 的思维链，与对话模型的 500 token 相比，decode 步数、KV cache 占用、首 token 之后的延迟全部 10 倍——《[预训练（03）：Scaling law：从 Chinchilla 到\](/scaling-laws-and-compute-optimal-training.html)》的推理感知 scaling law 里 $$D_{inf}$$ 直接乘 10，最优模型尺寸相应更小。这是"思考预算"作为产品功能存在的原因，也是第七篇蒸馏在推理模型上尤其重要的原因。
+训练时的长度问题在部署时按用户量放大。一个推理模型对每个请求生成 5K token 的思维链，与对话模型的 500 token 相比，decode 步数、KV cache 占用、首 token 之后的延迟全部 10 倍——《[预训练（03）：Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据](/scaling-laws-and-compute-optimal-training.html)》的推理感知 scaling law 里 $$D_{inf}$$ 直接乘 10，最优模型尺寸相应更小。这是"思考预算"作为产品功能存在的原因，也是第七篇蒸馏在推理模型上尤其重要的原因。
 
 ## 六、PRM 与 ORM
 

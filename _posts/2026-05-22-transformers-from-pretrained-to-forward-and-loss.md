@@ -12,7 +12,7 @@ date: 2026-05-22 12:00:00
 
 [工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，第一行就是 `AutoModelForCausalLM.from_pretrained(name)`。那一篇把它当黑盒：进去一个 Hub 名字，出来一个 `nn.Module`。这一篇把黑盒打开：这个函数怎么根据 `config.json` 里的一个字段挑出 `Qwen2ForCausalLM` 这个类、怎么在不占内存的情况下先搭出骨架再把 `safetensors` 里的 290 个张量填进去、`forward` 从 `input_ids` 到 `loss` 经过哪几个文件、attention 那一行为什么能在 eager / SDPA / FlashAttention 之间切换而模型代码一个字不改。
 
-读完这一篇，[《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的那张结构图上的每个方框，你都能在 `modeling_llama.py` 里指出是哪个类的哪几行；也能回答工程里最常见的三个问题：为什么加载 8B 模型时内存不会先冲到 32 GB、为什么 `attn_implementation="sdpa"` 与 `"eager"` 的结果差到 $$10^{-4}$$、`labels` 传进去之后 loss 是怎么算的。
+读完这一篇，《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》画的那张结构图上的每个方框，你都能在 `modeling_llama.py` 里指出是哪个类的哪几行；也能回答工程里最常见的三个问题：为什么加载 8B 模型时内存不会先冲到 32 GB、为什么 `attn_implementation="sdpa"` 与 `"eager"` 的结果差到 $$10^{-4}$$、`labels` 传进去之后 loss 是怎么算的。
 
 本篇要回答的核心问题是：
 
@@ -199,7 +199,7 @@ cos = emb.cos() * self.attention_scaling
 sin = emb.sin() * self.attention_scaling
 ```
 
-`inv_freq` 就是 [《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html) 的 $$\theta_i = \text{base}^{-2i/d_h}$$——`dim = head_dim = 64`，所以 `inv_freq` 有 32 个数（配套脚本打印 `(32,)`，fp32 buffer）。`freqs = inv_freq ⊗ position_ids` 是每个位置每一对的角度 $$m\theta_i$$；`cat((freqs, freqs))` 把 32 个角度复制成 64 个，因为 transformers 的实现把 64 维**前后两半**配对（第 $$i$$ 维与第 $$i + 32$$ 维一对），而不是相邻两维配对——这决定了 `rotate_half` 的写法：
+`inv_freq` 就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》 的 $$\theta_i = \text{base}^{-2i/d_h}$$——`dim = head_dim = 64`，所以 `inv_freq` 有 32 个数（配套脚本打印 `(32,)`，fp32 buffer）。`freqs = inv_freq ⊗ position_ids` 是每个位置每一对的角度 $$m\theta_i$$；`cat((freqs, freqs))` 把 32 个角度复制成 64 个，因为 transformers 的实现把 64 维**前后两半**配对（第 $$i$$ 维与第 $$i + 32$$ 维一对），而不是相邻两维配对——这决定了 `rotate_half` 的写法：
 
 ```python title="rotate_half 与 apply_rotary_pos_emb"
 def rotate_half(x):
@@ -328,7 +328,7 @@ self.values = torch.cat([self.values, value_states], dim=-2)
 return self.keys, self.values
 ```
 
-第 $$l$$ 层的 attention 把本步算出的 k、v 交给 `update`，它拼到历史后面，**返回拼好的全部**——attention 拿返回值算，所以 decode 时 q 只有 1 个 token，k、v 是全部 $$t$$ 个。`dim=-2` 是序列维：keys 形状 `[B, h_kv, t, d_h]`。配套脚本：prefill 5 个 token 后 `layers[0].keys` 是 `(1, 2, 5, 64)`，`get_seq_length() = 5`；喂 1 个 token 再前向，`get_seq_length() = 6`、logits 形状 `(1, 1, 151936)`。[《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》](/transformer-token-journey-training-and-inference.html)讲的 KV cache 账（每 token 每层 $$2 \times h_{kv} \times d_h \times 2$$ 字节）就是这两个张量的大小。
+第 $$l$$ 层的 attention 把本步算出的 k、v 交给 `update`，它拼到历史后面，**返回拼好的全部**——attention 拿返回值算，所以 decode 时 q 只有 1 个 token，k、v 是全部 $$t$$ 个。`dim=-2` 是序列维：keys 形状 `[B, h_kv, t, d_h]`。配套脚本：prefill 5 个 token 后 `layers[0].keys` 是 `(1, 2, 5, 64)`，`get_seq_length() = 5`；喂 1 个 token 再前向，`get_seq_length() = 6`、logits 形状 `(1, 1, 151936)`。《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》讲的 KV cache 账（每 token 每层 $$2 \times h_{kv} \times d_h \times 2$$ 字节）就是这两个张量的大小。
 
 ### 2. `position_ids` 从 cache 长度来
 

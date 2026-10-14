@@ -10,7 +10,7 @@ catalog: true
 
 ## 内容简介
 
-《LoRA 专题》是一组共三篇正文加一篇总结的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L5 后训练层的**专题篇**。LoRA（Low-Rank Adaptation，Hu 等 2021）是今天做 SFT 的默认方式：一张消费级显卡微调 8B 模型、一个底座服务上百个客户的定制版本、DPO / GRPO 里省掉一份参考模型，背后都是它。本站此前把 LoRA 拆在几处讲——[《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html)讲数学骨架，[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装一次 LoRA SFT，[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第五章讲它在 SFT 里的地位，[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 `lora.Linear` 的实现，《现代 LLM 结构》系列曾有半篇算它的计算形态（那半篇的内容已并入本系列）——读者反馈是「每处都只讲了一角」。本系列把它讲全：一个从没用过 LoRA 的人读完，应当能独立决定**用不用、怎么配、怎么上线**，并说得出每个决定的依据。
+《LoRA 专题》是一组共三篇正文加一篇总结的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L5 后训练层的**专题篇**。LoRA（Low-Rank Adaptation，Hu 等 2021）是今天做 SFT 的默认方式：一张消费级显卡微调 8B 模型、一个底座服务上百个客户的定制版本、DPO / GRPO 里省掉一份参考模型，背后都是它。本站此前把 LoRA 拆在几处讲——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲数学骨架，[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装一次 LoRA SFT，[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第五章讲它在 SFT 里的地位，[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 `lora.Linear` 的实现，《现代 LLM 结构》系列曾有半篇算它的计算形态（那半篇的内容已并入本系列）——读者反馈是「每处都只讲了一角」。本系列把它讲全：一个从没用过 LoRA 的人读完，应当能独立决定**用不用、怎么配、怎么上线**，并说得出每个决定的依据。
 
 它回答的问题是：
 
@@ -116,8 +116,8 @@ Table: 三篇正文的配套实验
 
 | 需要 | 到什么程度 | 在哪里学 |
 |---|---|---|
-| 矩阵的秩与 SVD | 知道秩 $$r$$ 的矩阵能写成 $$r$$ 个外积之和、前 $$r$$ 个奇异值的截断是最优低秩近似 | [《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html) |
-| 反向传播与 Adam | 能写出一个线性层的 $$\partial \mathcal{L} / \partial W$$、知道 Adam 每参数存两个矩 | [《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》](/derivatives-gradients-chain-rule-and-policy-gradient.html)、[《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》](/backpropagation-by-hand.html)、[《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》](/optimizers-from-sgd-to-adamw.html) |
+| 矩阵的秩与 SVD | 知道秩 $$r$$ 的矩阵能写成 $$r$$ 个外积之和、前 $$r$$ 个奇异值的截断是最优低秩近似 | 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》 |
+| 反向传播与 Adam | 能写出一个线性层的 $$\partial \mathcal{L} / \partial W$$、知道 Adam 每参数存两个矩 | 《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》、《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》、《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》 |
 | SFT 的数据格式 | 知道 chat template、loss mask、`completion_only_loss` 是什么 | [后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第二至四章 |
 | `peft` / `trl` 的用法 | 跑过一次 `get_peft_model` + `SFTTrainer` | [工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
 | 训练的算量与状态字节数 | 知道前向 $$2N$$、反向 $$4N$$，混合精度 + Adam 每参数 16 字节从哪来 | [《现代 LLM 结构》第二篇](/transformer-flops-bytes-and-roofline.html)、《现代 LLM 结构》第十篇 |
