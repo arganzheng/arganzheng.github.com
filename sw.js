@@ -42,7 +42,7 @@ function cacheUrl(url) {
 
 function pageTitle(html) {
   const match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
-  return match ? match[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '未命名文章';
+  return match ? match[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().replace(/\s+-\s+阿甘的博客\s*\|.*$/, '') : '未命名文章';
 }
 
 async function trimPages(cache) {
