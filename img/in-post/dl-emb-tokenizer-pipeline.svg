@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="843.59952pt" height="267.59952pt" viewBox="0 0 843.59952 267.59952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 267.59952
+L 843.59952 267.59952
+L 843.59952 0
+L 0 0
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 11.345998 172.834686
+L 135.725926 172.834686
+Q 139.042724 172.834686 139.042724 167.20803
+L 139.042724 100.39149
+Q 139.042724 94.764834 135.725926 94.764834
+L 11.345998 94.764834
+Q 8.0292 94.764834 8.0292 100.39149
+L 8.0292 167.20803
+Q 8.0292 172.834686 11.345998 172.834686
+z
+" clip-path="url(#pe67537dec0)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 173.039904 171.076356
+L 239.375866 171.076356
+Q 242.692664 171.076356 242.692664 165.4497
+L 242.692664 102.14982
+Q 242.692664 96.523164 239.375866 96.523164
+L 173.039904 96.523164
+Q 169.723106 96.523164 169.723106 102.14982
+L 169.723106 165.4497
+Q 169.723106 171.076356 173.039904 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #eef3fa; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 264.251851 171.076356
+L 295.968733 171.076356
+Q 299.285531 171.076356 299.285531 165.4497
+L 299.285531 102.14982
+Q 299.285531 96.523164 295.968733 96.523164
+L 264.251851 96.523164
+Q 260.935053 96.523164 260.935053 102.14982
+L 260.935053 165.4497
+Q 260.935053 171.076356 264.251851 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 308.406726 171.076356
+L 340.123607 171.076356
+Q 343.440405 171.076356 343.440405 165.4497
+L 343.440405 102.14982
+Q 343.440405 96.523164 340.123607 96.523164
+L 308.406726 96.523164
+Q 305.089928 96.523164 305.089928 102.14982
+L 305.089928 165.4497
+Q 305.089928 171.076356 308.406726 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 352.5616 171.076356
+L 384.278482 171.076356
+Q 387.59528 171.076356 387.59528 165.4497
+L 387.59528 102.14982
+Q 387.59528 96.523164 384.278482 96.523164
+L 352.5616 96.523164
+Q 349.244802 96.523164 349.244802 102.14982
+L 349.244802 165.4497
+Q 349.244802 171.076356 352.5616 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 396.716475 171.076356
+L 454.138541 171.076356
+Q 457.455339 171.076356 457.455339 165.4497
+L 457.455339 102.14982
+Q 457.455339 96.523164 454.138541 96.523164
+L 396.716475 96.523164
+Q 393.399676 96.523164 393.399676 102.14982
+L 393.399676 165.4497
+Q 393.399676 171.076356 396.716475 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 466.576534 171.076356
+L 498.293416 171.076356
+Q 501.610214 171.076356 501.610214 165.4497
+L 501.610214 102.14982
+Q 501.610214 96.523164 498.293416 96.523164
+L 466.576534 96.523164
+Q 463.259736 96.523164 463.259736 102.14982
+L 463.259736 165.4497
+Q 463.259736 171.076356 466.576534 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 510.731409 171.076356
+L 600.284957 171.076356
+Q 603.601755 171.076356 603.601755 165.4497
+L 603.601755 102.14982
+Q 603.601755 96.523164 600.284957 96.523164
+L 510.731409 96.523164
+Q 507.41461 96.523164 507.41461 102.14982
+L 507.41461 165.4497
+Q 507.41461 171.076356 510.731409 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 612.722949 171.076356
+L 663.71872 171.076356
+Q 667.035518 171.076356 667.035518 165.4497
+L 667.035518 102.14982
+Q 667.035518 96.523164 663.71872 96.523164
+L 612.722949 96.523164
+Q 609.406151 96.523164 609.406151 102.14982
+L 609.406151 165.4497
+Q 609.406151 171.076356 612.722949 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #ffffff; stroke: #0072b2; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 680.30271 171.076356
+L 771.514658 171.076356
+Q 774.831456 171.076356 774.831456 165.4497
+L 774.831456 102.14982
+Q 774.831456 96.523164 771.514658 96.523164
+L 680.30271 96.523164
+Q 676.985912 96.523164 676.985912 102.14982
+L 676.985912 165.4497
+Q 676.985912 171.076356 680.30271 171.076356
+z
+" clip-path="url(#pe67537dec0)" style="fill: #eef3fa; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font: 8.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(65.035962 127.284908)">文本</text>
+    <text style="font: 8.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(24.334243 136.677143)">Embedding vectors are </text>
+    <text style="font: 8.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(39.09104 146.069377)">surprisingly useful</text>
+   </g>
+   <g id="text_2">
+    <text style="font: 10px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(184.547729 131.660072)">tokenizer</text>
+    <text style="font: 10px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(197.697729 142.70976)">BPE</text>
+   </g>
+   <g id="text_3">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(272.025526 132.194994)">Emb</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(269.72162 140.48226)">31567</text>
+   </g>
+   <g id="text_4">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(316.690166 132.194994)">edd</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(315.954229 140.48226)">6048</text>
+   </g>
+   <g id="text_5">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(362.858908 132.194994)">ing</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(362.186838 140.48226)">278</text>
+   </g>
+   <g id="text_6">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(412.174774 132.194994)">vectors</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(415.038836 140.48226)">30104</text>
+   </g>
+   <g id="text_7">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(476.307826 132.194994)">are</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(476.201772 140.48226)">389</text>
+   </g>
+   <g id="text_8">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(536.432987 132.194994)">surprisingly</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(545.119511 140.48226)">12362</text>
+   </g>
+   <g id="text_9">
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(627.840952 132.194994)">useful</text>
+    <text style="font: 7.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(629.909897 140.48226)">4465</text>
+   </g>
+   <g id="text_10">
+    <text style="font: 8.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(692.720832 131.981026)">embedding 表 E</text>
+    <text style="font: 8.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'" transform="translate(705.227786 141.37326)">V × d 查行</text>
+   </g>
+   <g id="patch_12">
+    <path d="M 135.6533 133.79976
+Q 151.273382 133.79976 165.551824 133.79976
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 161.951824 131.99976
+L 165.551824 133.79976
+L 161.951824 135.59976
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 245.517934 133.79976
+Q 251.812892 133.79976 256.766209 133.79976
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 253.166209 131.99976
+L 256.766209 133.79976
+L 253.166209 135.59976
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 678.152784 133.79976
+Q 678.191248 133.79976 676.888071 133.79976
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 673.288071 131.99976
+L 676.888071 133.79976
+L 673.288071 135.59976
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_11">
+    <text style="fill: #444444; font: 9.5px 'Heiti SC', 'Heiti TC', 'Arial Unicode MS', 'DejaVu Sans'; text-anchor: middle" x="214.49988" y="52.625467" transform="rotate(-0 214.49988 52.625467)">文本 → token ID → 查表 → 每行一个 d 维向量</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pe67537dec0">
+   <rect x="7.2" y="7.2" width="829.19952" height="253.19952"/>
+  </clipPath>
+ </defs>
+</svg>

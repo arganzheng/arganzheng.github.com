@@ -857,6 +857,11 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     table. `.table-caption` is in `BLOCK_SELECTOR` and `blockFor` redirects a
     table cell's panel to the caption, so a note on a table lands under its
     caption and `:has()` outlines the table.
+  - `js/table-select.js` adds spreadsheet-style rectangular selection to
+    article tables: mouse-only, a drag becomes a cell selection when it
+    crosses a cell boundary; a drag within one cell remains native text
+    selection, and touch input does not activate it. Copying a selected
+    rectangle writes TSV plain text and an HTML table.
   - **Fenced blocks** (`js/figures.js` `decorateCode`, 2026-09-30): every
     `pre` in the article (rouge's `.highlighter-rouge` wrapper, or a bare
     `<pre>` from an untyped fence, which gets wrapped in a `div`) becomes

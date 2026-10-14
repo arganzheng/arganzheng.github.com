@@ -21,6 +21,7 @@ SRC=(
   js/mindmap.js           # outline / SVG mind map views
   js/diagram-zoom.js      # lightbox for Mermaid diagrams / images (window.DiagramZoom, button in figures.js)
   js/code-copy.js         # copy button on code blocks, diagrams, tables
+  js/table-select.js      # spreadsheet-style rectangular cell selection in article tables
   js/code-tabs.js         # Python / Java tabs on grouped code blocks
   js/figures.js           # captions + feedback handle (before annotations.js: the caption is what gets underlined)
   js/code-tokens.js       # member-access colouring rouge cannot express

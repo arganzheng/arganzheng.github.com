@@ -19,21 +19,23 @@ Embedding 能嵌入的不只是词。句子、图像、位置、图里的节点�
 
 | 嵌入什么 | 代表方法 | 怎么得到向量 | 去处 |
 |---|---|---|---|
-| 词 | LSA、PPMI + SVD、GloVe、Word2Vec | 统计共现再分解，或预测上下文 | [第四章](#counting-embeddings)、[第五章](#word2vec) |
-| 子词 / 词片 | fastText、BPE | 字符 n-gram 求和<br/>按频率合并 | [第六章](#subword-embeddings) |
-| 句子与文本 | Sentence-BERT、SimCSE、E5 / BGE | 对比学习或弱监督对 | [第八章](#sentence-embeddings) |
-| 图像 | ViT、CLIP | patch 投影<br/>图文对比 | [第九章](#beyond-words)、《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》 |
-| 位置 | 正弦编码、RoPE | 编码 token 的先后位置 | [第九章](#beyond-words)、《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》 |
-| 图节点与实体 | DeepWalk、node2vec、TransE | 随机游走当句子跑 skip-gram<br/>关系平移 | [第九章](#beyond-words) |
-| ID 与类别特征 | 矩阵分解、双塔 | 从交互数据里学 | [第九章](#beyond-words) |
+| 词 | LSA、PPMI + SVD、GloVe、Word2Vec | 计数分解<br/>预测 | [第四章](#counting-embeddings)、[第五章](#word2vec) |
+| 子词 / 词片 | fastText、BPE | 预测（随主任务训练） | [第六章](#subword-embeddings) |
+| 句子与文本 | Sentence-BERT、SimCSE、E5 / BGE | 对比<br/>有监督（NLI 对） | [第八章](#sentence-embeddings) |
+| 图像 | ViT、CLIP | 预测（MAE）<br/>重建（VAE）<br/>对比（CLIP）<br/>自蒸馏（DINO）<br/>有监督（ImageNet） | [第九章](#beyond-words)、《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》 |
+| 位置 | 正弦编码、RoPE | 固定公式<br/>预测（可学习位置表随语言模型一起训） | [第九章](#beyond-words)、《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》 |
+| 图节点与实体 | DeepWalk、node2vec、TransE | 预测（随机游走 + skip-gram）<br/>对比（TransE 间隔损失） | [第九章](#beyond-words) |
+| ID 与类别特征 | 矩阵分解、双塔 | 计数分解（矩阵分解）<br/>对比（双塔的采样负例）<br/>有监督（CTR） | [第九章](#beyond-words) |
 
 Table: 各类 embedding 对象、代表方法与本文去处
 
-同一张图画出来：
+同一张图画出来。读法：**左列是嵌入的对象，中列是得到向量的七种信号，箭头表示「这种对象用过这种信号」**：
 
-![embedding 全景：左边是嵌入的对象（词、子词、句子、图像、位置、图节点、ID），中间是四类得到向量的信号（计数与分解、预测、上下文、对比），右边是它们共同的产物——一个 d 维向量空间](/img/in-post/dl-emb-landscape.svg)
+![embedding 全景：左边是嵌入的对象（词、子词、句子与文本、图像 ViT patch、位置、图节点与实体、ID），中间是七种得到向量的信号（计数分解、预测、重建、对比、自蒸馏、有监督、固定公式），右边是它们共同的产物——一个 d 维向量空间](/img/in-post/dl-emb-landscape.svg)
 
-这篇先从 one-hot 与查表出发，再按「怎么得到向量」分四块展开：计数式分解（第四章）、预测式词向量（第五章）、子词方法（第六章），然后是向量应用的两大延伸——随上下文变化的表示（第七章）和句子级表示（第八章），最后把对象铺开（第九章）、把训练信号收拢（第十章）。实验还是用完整 text8 训练 skip-gram 模型收尾。
+这篇先从 one-hot 与查表出发，第二、三章立住 embedding 表和分布式假设；第四到八章以词为主线往下走——计数式分解（第四章）、预测式词向量（第五章）、子词方法（第六章）、随上下文变化的表示（第七章）、句子级表示（第八章）；第九章换一条轴，把对象铺开；第十章再换一个角度，把前面所有方法按训练信号归类。实验还是用完整 text8 训练 skip-gram 模型收尾。
+
+还有一件容易和「信号」混着看的事：**同一个词在所有上下文里只有一个向量（静态），还是随句子变（上下文相关），是架构属性，不是信号**——ELMo 与 Word2Vec 用的是同一种预测信号，只是架构从查表换成了 LSTM。第七章专门讲这条线。
 
 ### 1. 本文的章节安排
 
@@ -122,6 +124,22 @@ print(table.weight.grad.coalesce().values())
 ```
 
 输出的索引只有第 0、2 行。默认 `sparse=False` 时梯度张量是稠密的，只是未查到的行数值为零；两种情况不要混为一谈。
+
+### tokenizer 与 embedding 表：谁给谁什么
+
+读者常问 embedding 和 tokenizer 是什么关系，其实是流水线上的两道工序：
+
+1. **文本 → token ID**：tokenizer 先把字符串切成 token 并编号。GPT-2 的 BPE 把 "Embedding" 切成 `Emb` `edd` `ing` 三段，编号 31567、6048、278——词表外的词不存在，只会被拆得更碎。
+2. **token ID → 向量**：embedding 层拿 ID 查表，每个 ID 取出一行 $$d$$ 维向量。
+
+![tokenizer 与 embedding 的流水线：一句文本先被 BPE 切成七个 token 并给出 ID，再拿 ID 去查一张 V 乘 d 的表，每行取出一个向量](/img/in-post/dl-emb-tokenizer-pipeline.svg)
+
+几点容易混的地方：
+
+- **tokenizer 是先训练再冻结的**。BPE 的训练是数相邻符号对的合并次数，没有梯度、没有网络；冻结之后它只是一件查表工具。词表大小 $$V$$ 就是 embedding 表的行数。
+- **两者是绑死的**。换一个 tokenizer，编号全变，原来的表就是一堆没有意义的行。
+- **加特殊 token 就是加行**。给 chat template 加 `<|im_start|>` 这类记号时，要在表尾追加新行并初始化、随训练学出来。
+- **词这个单位是会移动的**。Word2Vec 时代用空格切词再按频率截断词表；第六章会看到 fastText 与 BPE 怎么把这条边界模糊掉。五种文本表示方式的对照见《[预训练（02）：分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)》「2. 文本怎么变成数字：五种表示方式，以及 LLM 为什么选"子词 + embedding"」。
 
 ### GPT-2 的词表矩阵有多大？
 
@@ -234,22 +252,28 @@ Table: Skip-gram 与 CBOW 的输入和预测目标
 给定中心词向量 $$v_c$$，模型要为词表中每个候选上下文词计算分数：
 
 $$
-s_w=v_w^\top v_c,\qquad
+s_w=v_w^{\prime\top} v_c,\qquad
 P(w\mid c)=\frac{\exp(s_w)}{\sum_{u\in V}\exp(s_u)}.
 $$
 
 词表每增加一个词，就多算一个长度为 $$d$$ 的点积。取 $$V=50{,}000$$、$$d=300$$，单个中心词一次全词表打分约需 $$2Vd=30$$ 百万 FLOPs；批量与 softmax 归一化还会增加工作量。
 
-Mikolov 等人在 [《Distributed Representations of Words and Phrases and their Compositionality》](https://arxiv.org/abs/1310.4546) 中采用**负采样**：不再归一化全词表概率，而是让一个真实的中心词—上下文词对得分高，再让 $$k$$ 个噪声词对得分低。每个样本只算 $$k+1$$ 个点积。
-
-对一个正样本 $$ (c,o) $$ 和负样本 $$n_1,\ldots,n_k$$，目标可写成：
+Mikolov 等人在 [《Distributed Representations of Words and Phrases and their Compositionality》](https://arxiv.org/abs/1310.4546) 中采用**负采样**。先补一件上面没说清的事：Word2Vec 维护的是**两张** embedding 表——输入表 $$v_w$$ 是词当中心词时查的行，输出表 $$v^{\prime}_w$$ 是词当上下文候选时查的行；上面 softmax 那个昂贵的归一化，就是要对输出表的全部 $$V$$ 行各算一个点积。负采样把它换成一个二分类：真实样本 $$(c,o)$$（中心词 $$c$$、真实上下文词 $$o$$）把 $$v^{\prime}_o$$ 与 $$v_c$$ 的点积推高，再抽 $$k$$ 个「噪声词」$$n_1,\ldots,n_k$$，把 $$v^{\prime}_{n_j}$$ 与 $$v_c$$ 的点积压低：
 
 $$
--\log\sigma(v_o^\top v_c)
--\sum_{j=1}^{k}\log\sigma(-v_{n_j}^\top v_c).
+-\log\sigma(v_o^{\prime\top} v_c)
+-\sum_{j=1}^{k}\log\sigma(-v_{n_j}^{\prime\top} v_c),
 $$
 
-它就是“真实共现”与“抽来的噪声”之间的二分类。若 $$d=300$$、$$k=5$$，每个正样本是 6 个点积，约 3,600 FLOPs，而不是 3,000 万量级。
+其中 $$\sigma(x)=1/(1+e^{-x})$$ 是 sigmoid 函数，把点积压成 0 到 1 之间的概率。每个样本只算 $$k+1$$ 个点积。
+
+负样本按噪声分布 $$P_n(w)\propto f(w)^{3/4}$$ 抽，$$f(w)$$ 是词在语料里的频次。叫它「负」是因为抽中的词几乎不可能是真的上下文。取 3/4 次幂是 Mikolov 等人试出来的：它把分布压平，低频词被抽到的机会比原频率高，「的」这类超高频词被压低。拿两个词算一遍：假如「的」的频率是 0.05、「猫」是 0.0005，原始频率差 100 倍；各取 3/4 次幂后 $$0.05^{0.75}\approx0.106$$、$$0.0005^{0.75}\approx0.0034$$，只差约 31 倍。$$k$$ 的建议值是小语料 5–20，大语料 2–5。
+
+具体看一个样本：中心词「追」、正样本上下文「猫」，抽 5 个负样本「球、狗、鱼、跑、睡」。随机初始化两张 $$d=8$$ 的表、跑 15 步 SGD，各对的 $$\sigma$$ 分数如下（数字由 `case_09_concept_figures.py` 算出）：
+
+![负采样示意：中心词「追」对正样本「猫」和五个负样本分别算 sigmoid 分数；15 步 SGD 后正样本 0.89，五个负样本 0.11 到 0.15](/img/in-post/dl-emb-negsample.svg)
+
+若 $$d=300$$、$$k=5$$，每个正样本是 6 个点积，约 3,600 FLOPs，而不是 3,000 万量级。
 
 ### 2. 二维手算与类比
 
@@ -307,7 +331,7 @@ $$
 
 第二章的 GPT-2 例子已经出现过 weight tying：输入表与输出投影共享同一组权重，查表和打分用的是同一张表。[Press 与 Wolf 2017](https://arxiv.org/abs/1608.05859) 在语言模型上系统验证过这个做法：共享之后困惑度没有上升反而下降，模型还少带一张词表矩阵。
 
-分工上，tokenizer 负责把字符串切成离散 token ID；embedding 表负责把 ID 映射到可训练向量。表示方式的对照见《[预训练（02）：分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)》「2. 文本怎么变成数字：五种表示方式，以及 LLM 为什么选"子词 + embedding"」。
+tokenizer 与 embedding 表的分工（谁切词、谁查表）第二章「tokenizer 与 embedding 表」一节已经说过，这里只看表示层面的变化。
 
 ## 八、句子与文本 embedding
 {: #sentence-embeddings }
@@ -371,7 +395,7 @@ Embedding 不只嵌入词。凡是「离散、数量大、需要被模型连续�
 
 ## 十、表示学习的五种监督信号
 
-“表示学习”不是一个固定网络结构，而是用某种训练目标，让向量保存对任务有用的信息。信号一共五种，它们的差别在监督从哪里来。五种信号的输入与目标画在一排：
+“表示学习”不是一个固定网络结构，而是用某种训练目标，让向量保存对任务有用的信息。本文的方法按信号数其实有七种：第四章的**计数分解**不占梯度、不进这张表，位置的**固定公式**（正弦、RoPE）根本不学——剩下的五种都靠梯度训练，差别在监督从哪里来。五种信号的输入与目标画在一排：
 
 ![五种监督信号的示意：预测用前文推下一个词或盖住中间猜回来；重建把 x 压进瓶颈再还原；对比让正例近、负例远；自蒸馏让同一输入的两个视图对齐，teacher 用 EMA；有监督用人工标签](/img/in-post/dl-emb-supervision-signals.svg)
 
@@ -456,7 +480,7 @@ Table: text8 词向量训练前后的近邻变化
 
 ## 十三、本文小结
 
-Embedding 表把离散 ID 映射为可训练向量；得到这些向量的路线则分四条：计数式分解（LSA、PPMI+SVD、GloVe）、预测式训练（Word2Vec、语言模型）、子词与哈希方法处理开放词表、以及句子与更广义对象上的对比和监督信号。
+Embedding 表把离散 ID 映射为可训练向量；后面的内容沿两条轴展开：**嵌入什么**——词、子词、句子与文本、图像、位置、图节点与实体、ID 与类别特征；**用什么信号得到**——计数分解（LSA、PPMI+SVD、GloVe）、预测（Word2Vec、BERT、GPT、MAE）、重建（AE、VAE）、对比（CLIP、SimCSE、TransE、双塔）、自蒸馏（BYOL、DINO）、有监督（ImageNet、NLI、CTR），以及根本不用学的固定公式（正弦、RoPE）。静态还是上下文相关是第三条独立的轴：它是架构属性，不是信号。
 
 Word2Vec 用局部上下文训练静态词向量，负采样把全词表归一化改成少量正负样本判别，Levy & Goldberg 证明它和 PMI 分解学的是同一张统计表。现代语言模型把输入 embedding 继续变成受上下文影响的 hidden state，句子向量由专门的编码器给出，位置、图像、图节点和推荐 ID 走同一条「查表或映射 → 用信号摆向量」的路。工程上，词表乘维度决定参数量，稀疏访问与优化器状态决定了训练成本。
 
