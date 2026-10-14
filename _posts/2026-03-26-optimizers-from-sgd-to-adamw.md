@@ -99,7 +99,7 @@ Table: 本文的章节安排
 | 2014 | Kingma & Ba | 把 Momentum 和 RMSProp 合起来，再修好初期偏差 | **Adam**（第四章）：$$m$$、$$v$$ 两个矩 + 偏差修正 | 默认超参 $$(0.9, 0.999, 10^{-8})$$ 十年没变<br/>成为深度学习的默认优化器 | weight decay 加在 loss 里效果不对——比 SGD + wd 差 |
 | 2017 | Loshchilov & Hutter | Adam 上 weight decay 效果不对——比 SGD + wd 差 | **AdamW**：把 wd 从梯度里拿出来直接作用于参数（第五章） | LLM 全部用它 | 大 batch 下学习率怎么定还没有答案 |
 | 2017 | Goyal 等（Facebook） | 用 8,192 的 batch 一小时训完 ImageNet，学习率怎么定 | **线性 scaling 规则** + **warmup**（第二、六章） | 一小时训完 ImageNet<br/>成为 LLM 训练配置的两条默认 | warmup 只管开头<br/>峰值之后怎么降是第六章 cosine / WSD 的事 |
-| 2018 / 2024 | Shazeer & Stern<br/>Zhao 等 | 优化器状态 8 字节 / 参数，比模型本身还大 | **Adafactor**：分解<br/>**GaLore**：低秩存 $$v$$（第八章） | 省状态是大模型时代的新问题 | 二阶与新优化器还在探索（第八章第 3 节） |
+| 2018 / 2024 | Shazeer & Stern<br/>Zhao 等 | 优化器状态 8 字节 / 参数，比模型本身还大 | **Adafactor**：把 $$v$$ 分解成行、列两个向量<br/>**GaLore**：低秩存 $$v$$（第八章） | 省状态是大模型时代的新问题 | 二阶与新优化器还在探索（第八章第 3 节） |
 
 Table: 优化器的来历
 
