@@ -1156,6 +1156,14 @@ html.ap-capturing {
 
 // ---- tables: caption, copy format menu, and feedback handle (js/code-copy.js + js/figures.js)
 .post-container {
+	table.ts-dragging {
+		user-select: none;
+		-webkit-user-select: none;
+		cursor: cell;
+	}
+	td.ts-selected, th.ts-selected {
+		box-shadow: inset 0 0 0 100vmax rgba(9,105,218,.14);
+	}
 	.table-responsive {
 		width: max-content;
 		max-width: 100%;
