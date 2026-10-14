@@ -5689,7 +5689,29 @@ html.ap-screenshot-ready .post-container .fig-screenshot {
 }
 .post-container td.ts-selected,
 .post-container th.ts-selected {
-  box-shadow: inset 0 0 0 100vmax rgba(9, 105, 218, 0.14);
+  --ts-tint: rgba(9, 105, 218, 0.14);
+}
+.post-container td.ts-note-t,
+.post-container th.ts-note-t {
+  --ts-t: rgba(214, 158, 0, 0.55);
+}
+.post-container td.ts-note-b,
+.post-container th.ts-note-b {
+  --ts-b: rgba(214, 158, 0, 0.55);
+}
+.post-container td.ts-note-l,
+.post-container th.ts-note-l {
+  --ts-l: rgba(214, 158, 0, 0.55);
+}
+.post-container td.ts-note-r,
+.post-container th.ts-note-r {
+  --ts-r: rgba(214, 158, 0, 0.55);
+}
+.post-container td.ts-selected,
+.post-container th.ts-selected,
+.post-container td.ts-note,
+.post-container th.ts-note {
+  box-shadow: inset 0 0 0 100vmax var(--ts-tint, transparent), inset 0 2px 0 var(--ts-t, transparent), inset 0 -2px 0 var(--ts-b, transparent), inset 2px 0 0 var(--ts-l, transparent), inset -2px 0 0 var(--ts-r, transparent);
 }
 .post-container .table-responsive {
   width: max-content;
@@ -9594,7 +9616,7 @@ html[data-theme="dark"] table th {
 }
 html[data-theme="dark"] .post-container td.ts-selected,
 html[data-theme="dark"] .post-container th.ts-selected {
-  box-shadow: inset 0 0 0 100vmax rgba(76, 183, 203, 0.24);
+  --ts-tint: rgba(76, 183, 203, 0.24);
 }
 html[data-theme="dark"] .post-container img {
   filter: brightness(0.92);
@@ -11129,7 +11151,7 @@ html[data-theme="sepia"] .markdown-body table tbody tr:hover {
 }
 html[data-theme="sepia"] .post-container td.ts-selected,
 html[data-theme="sepia"] .post-container th.ts-selected {
-  box-shadow: inset 0 0 0 100vmax rgba(40, 96, 144, 0.18);
+  --ts-tint: rgba(40, 96, 144, 0.18);
 }
 html[data-theme="sepia"] .post-container .footnotes {
   border-color: #dccfb2;

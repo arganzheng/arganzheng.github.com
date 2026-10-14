@@ -511,6 +511,9 @@
   }
 
   function applyHighlights() {
+    container.querySelectorAll('td[class*="ts-note"], th[class*="ts-note"]').forEach(function (cell) {
+      cell.classList.remove('ts-note', 'ts-note-t', 'ts-note-b', 'ts-note-l', 'ts-note-r');
+    });
     var markers = container.querySelectorAll('.annotation-marker');
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
     unwrap('mark.annotation-hl, tspan.annotation-hl');
@@ -554,6 +557,19 @@
         caption.classList.add('has-note');
         ['has-issue', 'is-resolved'].forEach(function (c) { if (mark.classList.contains(c)) caption.classList.add(c); });
       }
+    });
+    annotations.forEach(function (a) {
+      if (!a.selector.cells || !a.marks.length || !window.BlogTableSelect ||
+          !window.BlogTableSelect.cellsFrom) return;
+      var cell = a.marks[0].closest('td, th');
+      if (!cell) return;
+      window.BlogTableSelect.cellsFrom(cell, a.selector.cells).forEach(function (item) {
+        item.cell.classList.add('ts-note');
+        if (item.top) item.cell.classList.add('ts-note-t');
+        if (item.bottom) item.cell.classList.add('ts-note-b');
+        if (item.left) item.cell.classList.add('ts-note-l');
+        if (item.right) item.cell.classList.add('ts-note-r');
+      });
     });
     insertMarkers();
     buildIndex();
@@ -3176,7 +3192,9 @@
       } catch (e) { /* ignore */ }
     }
     if (!link) return;
-    var fragment = parseTextFragment(link.getAttribute('href'));
+    var linkHref = link.getAttribute('href');
+    var fragment = parseTextFragment(linkHref);
+    var cellsMatch = /#annot-[0-9a-f]{8}-cells-(\d+)-(\d+)-(\d+)-(\d+)/.exec(linkHref);
     var linkBlock = link.closest('p, sub') || link;
     while (linkBlock.parentNode !== quote && linkBlock.parentNode !== root) linkBlock = linkBlock.parentNode;
     issueLink = linkBlock.querySelector('a[href*="/issues/"]');
@@ -3188,6 +3206,14 @@
     root.removeChild(quote);
     rec.noteHTML = root.innerHTML;
     rec.selector = { exact: exact, prefix: fragment.prefix, suffix: fragment.suffix, section: sectionM ? sectionM[1] : '' };
+    if (cellsMatch && +cellsMatch[1] * +cellsMatch[2] > 1) {
+      rec.selector.cells = {
+        rows: +cellsMatch[1],
+        cols: +cellsMatch[2],
+        dr: +cellsMatch[3],
+        dc: +cellsMatch[4]
+      };
+    }
     rec.issue = issueLink ? { url: issueLink.getAttribute('href'), number: issueNo ? +issueNo[1] : 0 } : null;
   }
 
@@ -3252,7 +3278,11 @@
     if (sel.suffix) parts.push('-' + encodeFragmentPart(sel.suffix));
     return ':~:text=' + parts.join(',');
   }
-  function threadLink(sel) { return cfg.siteUrl + cfg.path + '#annot-' + annotHash(sel.exact) + textFragment(sel); }
+  function threadLink(sel) {
+    return cfg.siteUrl + cfg.path + '#annot-' + annotHash(sel.exact) +
+      (sel.cells ? '-cells-' + [sel.cells.rows, sel.cells.cols, sel.cells.dr, sel.cells.dc].join('-') : '') +
+      textFragment(sel);
+  }
   function shareLink(sel) { return cfg.siteUrl + cfg.path + '#hl=' + encodeFragmentPart(sel.exact); }
 
   function escapeMarkdown(s) {
@@ -3296,10 +3326,22 @@
     window.addEventListener('scroll', function () { if (toolbar && toolbar.style.display === 'block') positionToolbar(); }, { passive: true });
   }
 
+  function tableSelection() {
+    var selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return null;
+    return window.BlogTableSelect && window.BlogTableSelect.current();
+  }
+
   function currentRange() {
-    var sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-    var range = sel.getRangeAt(0).cloneRange();
+    var sel = window.getSelection(), range;
+    if (!sel || sel.isCollapsed) {
+      var ts = tableSelection();
+      if (!ts) return null;
+      range = ts.range.cloneRange();
+    } else {
+      if (sel.rangeCount === 0) return null;
+      range = sel.getRangeAt(0).cloneRange();
+    }
     if (!container.contains(range.commonAncestorContainer)) return null;
     var startHost = diagramLabelHost(range.startContainer), endHost = diagramLabelHost(range.endContainer);
     if (startHost && endHost !== startHost) {
@@ -3332,6 +3374,11 @@
 
   function updateToolbar() {
     if (panelState && panelState.kind === 'editor') return;
+    if (container.querySelector('table.ts-dragging')) {
+      if (toolbar) toolbar.style.display = 'none';
+      closeSearchMenu();
+      return;
+    }
     var range = currentRange();
     if (!range) { hideToolbar(); return; }
     ensureToolbar();
@@ -3385,7 +3432,8 @@
   function positionToolbar() {
     var range = currentRange();
     if (!range) return;
-    var rect = range.getBoundingClientRect();
+    var ts = tableSelection();
+    var rect = ts ? ts.rect : range.getBoundingClientRect();
     var scrollX = window.pageXOffset, scrollY = window.pageYOffset;
     var w = toolbar.offsetWidth, h = toolbar.offsetHeight;
     var below = rect.top - h - 10 < 60;
@@ -3397,7 +3445,11 @@
     toolbar.style.left = left + 'px';
   }
 
-  function hideToolbar() { if (toolbar) toolbar.style.display = 'none'; closeSearchMenu(); }
+  function hideToolbar() {
+    if (toolbar) toolbar.style.display = 'none';
+    closeSearchMenu();
+    if (window.BlogTableSelect) window.BlogTableSelect.clear();
+  }
 
   // ------------------------------------------------------------ 搜一搜 menu
   // 站内 = the site search overlay (search-overlay.html exposes
@@ -3495,14 +3547,16 @@
     [['comment', '']].forEach(function (pair) {
       toolbar.querySelector('.annotation-tb-' + pair[0]).addEventListener('click', function (e) {
         e.stopPropagation();
+        var ts = tableSelection();
         var range = currentRange();
         var ctx = range ? selectionContext(range) : { offsets: null };
         if (!ctx.offsets) { hideToolbar(); return; }
         var sel = selectorFromOffsets(ctx.offsets);
+        if (ts) sel.cells = ts.cells;
         var endNode = range.endContainer;
         hideToolbar();
         if (ctx.mine) editMyComment(ctx.passage, ctx.mine);
-        else openComposer(sel, ctx.offsets, endNode, '', pair[1]);
+        else openComposer(sel, ctx.offsets, endNode, ts ? ts.markdown + '\n\n' : '', pair[1]);
       });
     });
     toolbar.querySelector('.annotation-tb-fav').addEventListener('click', function (e) {
@@ -3518,17 +3572,19 @@
     });
     toolbar.querySelector('.annotation-tb-copy').addEventListener('click', function (e) {
       e.stopPropagation();
+      var ts = tableSelection();
       var range = currentRange();
       if (!range) return;
-      copyText(range.toString()).then(function () { showToast('已复制'); });
+      copyText(ts ? ts.text : range.toString()).then(function () { showToast('已复制'); });
       hideToolbar();
     });
     toolbar.querySelector('.annotation-tb-search').addEventListener('click', function (e) {
       e.stopPropagation();
+      var ts = tableSelection();
       var range = currentRange();
       if (!range) return;
       var offsets = selectionOffsets(range);
-      var q = range.toString().replace(/\s+/g, ' ').trim().slice(0, 200);
+      var q = (ts ? ts.text : range.toString()).replace(/\s+/g, ' ').trim().slice(0, 200);
       openSearchMenu(e.currentTarget, q, offsets ? sectionForOffsets(offsets) : '');
     });
     toolbar.querySelector('.annotation-tb-share').addEventListener('click', function (e) {
