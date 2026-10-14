@@ -210,9 +210,9 @@ resampler（K = 3 个 query）：(16, 8) → (3, 12)；不论图有多少 patch�
    第 0 个 query 的注意力分布（16 个 patch）：[0.07 0.06 0.08 0.07 0.07 0.04 0.06 0.05 0.02 0.05 0.09 0.07 0.07 0.08 0.07 0.05]
 ```
 
-每个输出 token 是全部 16 个 patch 的加权平均，权重由"这个 query 问什么"与"这个 patch 是什么"共同决定；训练让 query 学会问"图里主要物体是什么"一类的通用问题。真实尺寸的样子（toy：随机特征与随机 query，只演示形状与权重范围，训练好的 query 会集中得多）：
+每个输出 token 是全部 16 个 patch 的加权平均，权重由"这个 query 问什么"与"这个 patch 是什么"共同决定；训练让 query 学会问"图里主要物体是什么"一类的通用问题。真实尺寸的样子（构造的 toy：patch 特征带上空间结构——左上角一个物体、中间一条文字带、右下角一块背景，三个 query 各被构造为对其中一块有亲和度。演示的是「每个 query 读图里不同区域」会长什么样，不是训练好的 BLIP-2 权重）：
 
-![resampler 流程与 query 注意力：左边 576 个 patch 特征做 key / value，32 个可学习 query 做 query，输出 32 个 token，每个是全部 patch 的加权平均；右边三张 24×24 热力图是 toy 里 query 0 / 7 / 15 在 576 个 patch 上的注意力权重，都散布在全图](/img/in-post/multimodal-02-resampler-attention.svg)
+![resampler 流程与 query 注意力：左边是流程——576 个 patch 特征作 key / value 与 32 个可学习 query 一起进 cross-attention（softmax(QKᵀ/√d)·V），输出 32 个 token，每个是 patch 的加权平均；右边三张 24×24 热力图是构造 toy 里 query 0 / 7 / 15 的注意力权重，各自集中在左上角物体、中间文字带、右下角背景三块区域](/img/in-post/multimodal-02-resampler-attention.svg)
 
 注意输出个数与图片大小**完全无关**：patch 有 576 个还是 9216 个，query 还是那 $$K$$ 个，输出还是 $$K$$ 个 token——这正是它的卖点与瓶颈。
 
