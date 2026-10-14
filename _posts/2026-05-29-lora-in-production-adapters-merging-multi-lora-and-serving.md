@@ -8,9 +8,50 @@ catalog: true
 updated: 2026-10-10
 ---
 
-> **更新 @2026-09-30**：实验用 peft 0.21.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU），模型 Qwen2.5-0.5B，adapter 是[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训出的 `r16_all`（$$r = 16$$ 全部线性层）与 `r16_attn`（$$r = 16$$ 只挂 attention）。配套脚本 `ai-learning-labs/lora/03_deploy.py`（子实验 `files` / `merge` / `quant` / `multi` / `tokens`）。
+> **更新 @2026-09-30**：实验用 peft 0.21.1（Parameter-Efficient Fine-Tuning）、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU），模型 Qwen2.5-0.5B，adapter 是[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训出的 `r16_all`（$$r = 16$$ 全部线性层）与 `r16_attn`（$$r = 16$$ 只挂 attention）。配套脚本 `ai-learning-labs/lora/03_deploy.py`（子实验 `files` / `merge` / `quant` / `multi` / `tokens`）。
 
-前两篇回答了"为什么"与"怎么配"，训出来的东西是一个目录：`adapter_config.json` 加一个几十 MB 的 `adapter_model.safetensors`。本文回答从这个目录到线上服务之间的每一个问题：文件里有什么、装回去与训练结束时是否一致、合并前后差多少、换一个量化过的底座差多少、两个 adapter 能不能同时挂或加起来、一个底座服务几十个客户的显存怎么算、为什么 DPO 用了 LoRA 就不用再放参考模型、为什么新加的特殊 token 学不会。每个问题都有一个实验和一组数字。
+前两篇回答了"为什么"与"怎么配"，训出来的东西是一个目录：`adapter_config.json` 加一个几十 MB 的 `adapter_model.safetensors`。本文回答从这个目录到线上服务之间的每一个问题：文件里有什么、装回去与训练结束时是否一致、合并前后差多少、换一个量化过的底座差多少、两个 adapter 能不能同时挂或加起来、一个底座服务几十个客户的显存怎么算、为什么 DPO（Direct Preference Optimization）用了 LoRA 就不用再放参考模型、为什么新加的特殊 token 学不会。每个问题都有一个实验和一组数字。
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| peft | Parameter-Efficient Fine-Tuning | Hugging Face 的参数高效微调库，存取、合并 adapter 都靠它 |
+| bitsandbytes | — | 做 4 / 8 bit 量化的库，NF4 底座用它加载 |
+| adapter | — | 训完存下的 LoRA 权重（A、B），挂到底座上用 |
+| safetensors | — | Hugging Face 的张量文件格式，adapter 权重存在里面 |
+| DPO | Direct Preference Optimization | 直接用偏好对训练的对齐方法，需要参考模型 |
+| FP32 | 32-bit floating point | 单精度浮点，本文的 adapter 用它训 |
+| BF16 | bfloat16 | 16 bit 浮点，范围同 FP32、尾数短，常用的服务精度 |
+| rsLoRA | rank-stabilized LoRA | 缩放改成 α/√r 的 LoRA |
+| DoRA | Weight-Decomposed Low-Rank Adaptation | 幅度与方向分开训，adapter 里多一个幅度向量 |
+| PiSSA | Principal Singular values and Singular vectors Adaptation | 用 W 的主奇异方向初始化，会改底座 |
+| OLoRA | Orthonormal Low-Rank Adaptation | 用 W 的 QR 分解初始化，会改底座 |
+| lm_head | — | 输出层，把 hidden 映射成词表 logits |
+| multi-LoRA | — | 一个底座挂多个 adapter、按请求切换的服务方式 |
+| NF4 | 4-bit NormalFloat | 按正态分位数取 16 个格点的 4 bit 格式 |
+| HF | Hugging Face | 开源模型与库的平台，这里指它的源码系列 |
+| vLLM | — | 开源 LLM 推理引擎，支持 multi-LoRA |
+| llama.cpp | — | C/C++ 写的本地推理框架 |
+| TensorRT-LLM | — | NVIDIA 的 LLM 推理框架 |
+| logits | — | softmax 之前的词表分数 |
+| GEMM | general matrix multiply | 通用矩阵乘，线性层的主体运算 |
+| kernel | — | 设备上执行一次算子的函数，每次启动有固定开销 |
+| INT4 | 4-bit integer | 均匀 16 格的 4 bit 整数量化 |
+| QLoRA | Quantized LoRA | 在 NF4 底座上训 LoRA 的方法 |
+| TIES / DARE | TrIm, Elect Sign & Merge / Drop And REscale | 两种先稀疏化再合并、减少任务冲突的方法 |
+| GRPO | Group Relative Policy Optimization | 组内相对奖励的强化学习方法，KL 项要参考模型 |
+| KL | Kullback–Leibler divergence | 衡量两个分布差多远，这里约束策略别离参考太远 |
+| trl | Transformer Reinforcement Learning | Hugging Face 的后训练库，提供 DPOTrainer、GRPOTrainer |
+| Punica | — | 多 LoRA 服务系统（Chen 等 2023），vLLM 借用了它的 kernel |
+| SGMV | Segmented Gather Matrix-Vector multiplication | 按 adapter 分段、一次算完各组瘦矩阵乘的 kernel |
+| BGMV | Batched Gather Matrix-Vector multiplication | 每个请求取自己的 adapter 做矩阵–向量乘的 kernel |
+| KV | key–value | 推理时缓存的注意力键值，KV cache 占大块显存 |
+| decode | — | 逐 token 生成的阶段，batch 小、每步读一遍权重 |
+| GEMV | general matrix–vector multiply | 矩阵乘向量，decode 时 batch 为 1 的线性层 |
+| ulp | unit in the last place | 浮点数最后一位的单位，更小的增量会被舍掉 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、adapter 文件里有什么
 
@@ -25,7 +66,7 @@ r16_all/
   adapter_model.safetensors    33.6 MB     # 336 个张量 = 24 层 × 7 个矩阵 × (A, B)，FP32
 ```
 
-`adapter_model.safetensors` 的第一个键是 `base_model.model.model.layers.0.mlp.down_proj.lora_A.weight`，形状 `(16, 4864)`——键名里带着它要挂到底座哪个模块上。对照：底座 494M 参数 FP32 存 1.84 GiB、BF16 存 0.92 GiB；只挂 attention 的 `r16_attn` 是 8.27 MB；8B 底座 BF16 16 GB，r=16 全部线性层的 adapter 42M × 2 B = 84 MB。
+`adapter_model.safetensors` 的第一个键是 `base_model.model.model.layers.0.mlp.down_proj.lora_A.weight`，形状 `(16, 4864)`——键名里带着它要挂到底座哪个模块上。对照：底座 494M 参数 FP32（32-bit floating point）存 1.84 GiB、BF16（bfloat16）存 0.92 GiB；只挂 attention 的 `r16_attn` 是 8.27 MB；8B 底座 BF16 16 GB，r=16 全部线性层的 adapter 42M × 2 B = 84 MB。
 
 `adapter_config.json` 里决定加载行为的字段：
 
@@ -62,7 +103,7 @@ Table: adapter 装到不同底座上会发生什么
 
 ### 1.3 PiSSA / OLoRA 的 adapter 是特例
 
-PiSSA、OLoRA 这类初始化会**改底座**：$$W = W_{res} + B_0 A_0$$，训练的是 $$W_{res}$$ 上的 $$B$$、$$A$$。直接存下的 adapter 对着的是 $$W_{res}$$，装到原始 $$W$$ 上就错了。`peft` 的解法是 `save_pretrained(..., path_initial_model_for_weight_conversion=...)`：把训练后的 $$BA$$ 与初始的 $$B_0 A_0$$ 相减，转换成一个对着原始 $$W$$ 的普通 LoRA（秩变成 $$2r$$）。用了这些初始化又要发 adapter，这一步不能省。
+PiSSA（Principal Singular values and Singular vectors Adaptation）、OLoRA（Orthonormal Low-Rank Adaptation）这类初始化会**改底座**：$$W = W_{res} + B_0 A_0$$，训练的是 $$W_{res}$$ 上的 $$B$$、$$A$$。直接存下的 adapter 对着的是 $$W_{res}$$，装到原始 $$W$$ 上就错了。`peft` 的解法是 `save_pretrained(..., path_initial_model_for_weight_conversion=...)`：把训练后的 $$BA$$ 与初始的 $$B_0 A_0$$ 相减，转换成一个对着原始 $$W$$ 的普通 LoRA（秩变成 $$2r$$）。用了这些初始化又要发 adapter，这一步不能省。
 
 ## 二、加载与合并：数值上等价到什么程度
 
@@ -97,7 +138,7 @@ merge_and_unload 后：模型里 lora 模块 0 个，参数量 494.0M（与底�
 三个数字各说明一件事：
 
 - **合并前后 logits 的最大差 $$3 \times 10^{-4}$$**（logits 本身量级 10，相对 $$10^{-5}$$；adapter 让 logits 变了 18.8），是 FP32 加法舍入穿过 24 层累积的结果，不是行为差异。BF16 下合并要小心：$$W$$ 是 BF16、$$\Delta W$$ 比 $$W$$ 小两个数量级，`W + ΔW` 在 BF16 里会丢掉 $$\Delta W$$ 的大部分有效位。做法是把 $$W$$ 升到 FP32 加完再转回 BF16（`peft` 对 BF16 权重会这样做），或者干脆存 FP32 / BF16 两份。
-- **前向时间**：合并后少了 336 个瘦 GEMM 与 168 次加法，单条请求在 CPU 上快 18%（65 → 53 ms）。GPU 上小 batch 时差距类似（kernel launch 主导），大 batch 时差距变小。
+- **前向时间**：合并后少了 336 个瘦 GEMM（general matrix multiply）与 168 次加法，单条请求在 CPU 上快 18%（65 → 53 ms）。GPU 上小 batch 时差距类似（kernel launch 主导），大 batch 时差距变小。
 - **合并后的模型与底座一样大**：一个 17 MB 的 adapter 换成一个 0.92 GiB 的模型（BF16）。要服务几十个 adapter 时这就是问题，第五节算这笔账。
 
 `merge_adapter()` 与 `merge_and_unload()` 的区别：前者只把 $$\Delta W$$ 加进 $$W$$ 但保留 `lora.Linear` 结构（可以 `unmerge_adapter()` 减回去，用于训练中评估或多 adapter 切换），后者把结构也换回去，不可逆。
@@ -128,7 +169,7 @@ Table: 训练与服务时底座精度的四种组合
 
 Table: 同一个 adapter 换底座精度、以及先合并再量化的效果（`03_deploy.py quant`；NF4 = bitsandbytes `load_in_4bit`、双重量化，CPU）
 
-看什么：**换底座精度带来的差别与量化误差同量级，adapter 并没有失效**。训练前 FP32 → NF4 差 0.084，训练后两种组合差 0.092；adapter 在 FP32 上带来 −0.099、装到 NF4 上仍带来 −0.092。先合并再量化与量化底座挂 adapter 几乎一样（2.4854 / 2.4860）——0.5B 上 $$\Delta W$$ 比 NF4 的量化步长小得多，加进去再量化基本被四舍五入掉了，于是与不合并同解。最后一行说明配对训练的价值：对着 NF4 底座训的 QLoRA adapter 在 NF4 底座上是 2.4663，比 FP32 上训的搬过来好 0.02——它学会了补一部分量化误差。QLoRA 训的 adapter 装到 BF16 底座上是同一件事反过来——差别不大但确实存在，而且方向不确定，上线前要在验证集上重测一次，不能默认等价。`peft` 对 bitsandbytes 底座的 `merge_and_unload` 会先反量化再加 $$\Delta W$$ 再重新量化，多一次量化误差；要最干净的合并结果，用 BF16 底座加载 adapter 再合并，然后按服务需要量化。
+看什么：**换底座精度带来的差别与量化误差同量级，adapter 并没有失效**。训练前 FP32 → NF4（4-bit NormalFloat）差 0.084，训练后两种组合差 0.092；adapter 在 FP32 上带来 −0.099、装到 NF4 上仍带来 −0.092。先合并再量化与量化底座挂 adapter 几乎一样（2.4854 / 2.4860）——0.5B 上 $$\Delta W$$ 比 NF4 的量化步长小得多，加进去再量化基本被四舍五入掉了，于是与不合并同解。最后一行说明配对训练的价值：对着 NF4 底座训的 QLoRA（Quantized LoRA）adapter 在 NF4 底座上是 2.4663，比 FP32 上训的搬过来好 0.02——它学会了补一部分量化误差。QLoRA 训的 adapter 装到 BF16 底座上是同一件事反过来——差别不大但确实存在，而且方向不确定，上线前要在验证集上重测一次，不能默认等价。`peft` 对 bitsandbytes 底座的 `merge_and_unload` 会先反量化再加 $$\Delta W$$ 再重新量化，多一次量化误差；要最干净的合并结果，用 BF16 底座加载 adapter 再合并，然后按服务需要量化。
 
 ## 四、多个 adapter：切换、合成、参考模型
 
@@ -181,7 +222,7 @@ Table: 两个同任务 adapter 的三种合成（`03_deploy.py multi`）
 
 ### 4.3 `disable_adapter()`：DPO / GRPO 的免费参考模型
 
-DPO 的 loss 里有 $$\log \pi_\theta / \pi_{ref}$$，GRPO 的 KL 项也要 $$\pi_{ref}$$，$$\pi_{ref}$$ 是训练开始时的策略。全量训练要在显存里再放一份模型；LoRA 下训练开始时的策略就是**底座本身**（$$B = 0$$，$$W' = W$$），所以：
+DPO 的 loss 里有 $$\log \pi_\theta / \pi_{ref}$$，GRPO（Group Relative Policy Optimization）的 KL（Kullback–Leibler divergence）项也要 $$\pi_{ref}$$，$$\pi_{ref}$$ 是训练开始时的策略。全量训练要在显存里再放一份模型；LoRA 下训练开始时的策略就是**底座本身**（$$B = 0$$，$$W' = W$$），所以：
 
 ```python title="关闭 adapter 取参考模型的 logits"
 with model.disable_adapter():
@@ -216,9 +257,9 @@ $$
 \text{槽位显存} = \texttt{max\_loras} \times \sum_{\text{挂 LoRA 的矩阵}} \texttt{max\_lora\_rank} \times (d_{in} + d_{out}) \times 2\ \text{字节}
 $$
 
-8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
+8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV（key–value）cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
 
-什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大——8B 上 decode $$B = 1$$ 每层除了原来的 7 个 GEMV 多出 14 个极小的 GEMV，$$A$$、$$B$$ 各 $$r \times d$$，$$W_Q$$ 上 $$16 \times 4096 \times 2$$ B = 128 KB，字节数可忽略，但 32 层 × 14 = 448 次额外 kernel 启动，每次几微秒，加起来与 4.8 ms 的 decode 下界同量级：小 kernel 的固定开销比它的 FLOPs 和字节都贵）；或推理框架不支持 LoRA（大多数边缘部署格式）。
+什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大——8B 上 decode $$B = 1$$ 每层除了原来的 7 个 GEMV（general matrix–vector multiply）多出 14 个极小的 GEMV，$$A$$、$$B$$ 各 $$r \times d$$，$$W_Q$$ 上 $$16 \times 4096 \times 2$$ B = 128 KB，字节数可忽略，但 32 层 × 14 = 448 次额外 kernel 启动，每次几微秒，加起来与 4.8 ms 的 decode 下界同量级：小 kernel 的固定开销比它的 FLOPs 和字节都贵）；或推理框架不支持 LoRA（大多数边缘部署格式）。
 
 ## 六、新加的 token 为什么学不会
 
@@ -283,7 +324,7 @@ Table: LoRA 上线前的检查项
 2. 用 BF16 底座合并一个 $$\lVert \Delta W \rVert / \lVert W \rVert \approx 10^{-3}$$ 的 adapter，直接 `W += ΔW`。会丢多少？
 
    <details markdown="1"><summary>答案</summary>
-   BF16 有 8 位尾数（相对精度约 $$2^{-8} \approx 4 \times 10^{-3}$$）。$$\Delta W$$ 的元素比 $$W$$ 小三个数量级，小于 $$W$$ 的一个 ulp，加法结果四舍五入后大部分元素的 $$\Delta W$$ 直接丢失——合并后的模型接近没合并。要在 FP32 里加。
+   BF16 有 8 位尾数（相对精度约 $$2^{-8} \approx 4 \times 10^{-3}$$）。$$\Delta W$$ 的元素比 $$W$$ 小三个数量级，小于 $$W$$ 的一个 ulp（unit in the last place），加法结果四舍五入后大部分元素的 $$\Delta W$$ 直接丢失——合并后的模型接近没合并。要在 FP32 里加。
    </details>
 
 3. 两个各自独立训练的 $$r = 16$$ adapter，用 `combination_type="linear", weights=[1, 1]` 合成。得到的 $$\Delta W$$ 与 $$B_1 A_1 + B_2 A_2$$ 差在哪？用什么方式能精确得到后者？
