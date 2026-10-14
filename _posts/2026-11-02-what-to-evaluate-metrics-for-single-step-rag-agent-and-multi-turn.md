@@ -7,11 +7,43 @@ tags: [AI, LLM, AI-Application, Evaluation, Metrics]
 catalog: true
 ---
 
-评测集有了、评分方法有了，第三个问题是**评什么**。一个分类器评准确率就够；一个 RAG 要分开评检索与生成（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）；一个 agent 要看结果之外的过程（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）；一个多轮客服要看策略遵循与轮数；所有应用都要把成本与延迟和质量一起报。这一篇把散在前四层的指标收成一张矩阵，补上多轮对话与安全两块，并讲三条横切的原则：按分布看、按类型分层、成本延迟并列。
+评测集有了、评分方法有了，第三个问题是**评什么**。一个分类器评准确率就够；一个 RAG（retrieval-augmented generation）要分开评检索与生成（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）；一个 agent 要看结果之外的过程（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）；一个多轮客服要看策略遵循与轮数；所有应用都要把成本与延迟和质量一起报。这一篇把散在前四层的指标收成一张矩阵，补上多轮对话与安全两块，并讲三条横切的原则：按分布看、按类型分层、成本延迟并列。
 
 本篇要回答的核心问题是：
 
 > **不同应用形态各评什么指标？[^q0] 为什么过程指标要与结果并列，多轮对话与安全怎么评？[^q1] 每题跑几次、怎么报告，公开基准在这张矩阵里的位置是什么？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| RAG | retrieval-augmented generation | 检索增强生成：先检索资料再让模型回答 |
+| harness | — | 包在模型外面的运行框架：循环、工具、权限 |
+| judge | — | 给输出打分的模型，即 LLM-as-judge |
+| rubric | — | 评分细则：每一档分数对应什么表现 |
+| F1 | — | 精确率与召回率的调和平均（F1 score） |
+| TTFT | time to first token | 从发请求到收到第一个 token 的时间 |
+| faithfulness | — | 回答里的断言有多少被检索块支持 |
+| answer relevance | — | 回答是否切中问题 |
+| recall@k | — | 前 k 个检索结果覆盖了多少相关块 |
+| MRR | mean reciprocal rank | 第一个相关结果排名倒数的平均 |
+| nDCG | normalized discounted cumulative gain | 按排名位置打折、再归一化的排序质量分 |
+| context precision | — | 检索结果里相关块是否排在前面 |
+| rerank | — | 用更强的模型对初检结果重新排序 |
+| p50 / p95 | — | 第 50 / 95 百分位，看中位数和长尾 |
+| pass@k / pass^k | — | k 次里至少一次通过 / k 次全部通过的比例 |
+| L3 / L4 / L6 | — | 学习地图的第三层（检索）、第四层（agent）、第六层（生产化） |
+| ROUGE | Recall-Oriented Understudy for Gisting Evaluation | 按与参考文本的词重叠给摘要打分 |
+| strict | — | 结构化输出的严格模式，按 schema 约束解码 |
+| trace | — | 一次请求从头到尾的调用记录 |
+| τ-bench | — | 测 agent 在多轮对话里遵循业务策略的基准 |
+| MMLU | Massive Multitask Language Understanding | 57 个学科的多选题知识基准 |
+| SWE-bench Verified | — | 从真实 GitHub issue 取题的代码修复基准的人工核验子集 |
+| Terminal-Bench | — | 让 agent 在终端里完成任务的基准 |
+| BEIR | Benchmarking IR | 跨多个领域的零样本检索评测基准 |
+| temperature | — | 采样温度，越低输出越确定 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -49,7 +81,7 @@ Table: 各形态的指标矩阵
 
 ### 1. 结果
 
-分类：准确率、按类的精确率 / 召回 / F1、混淆矩阵（哪两类混）。抽取：字段级精确匹配 / 容差匹配、字段级 F1（多值字段）。生成（摘要、改写、回复）：rubric 打分（judge，校准过——第二篇）、与参考的重叠（ROUGE 一类，只作弱信号）、人工抽检。
+分类：准确率、按类的精确率 / 召回 / F1、混淆矩阵（哪两类混）。抽取：字段级精确匹配 / 容差匹配、字段级 F1（多值字段）。生成（摘要、改写、回复）：rubric 打分（judge，校准过——第二篇）、与参考的重叠（ROUGE（Recall-Oriented Understudy for Gisting Evaluation）一类，只作弱信号）、人工抽检。
 
 ### 2. 形式
 
@@ -83,7 +115,7 @@ flowchart TB
 
 ### 1. RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的回顾）
 
-分开评：检索侧（查询，相关块）→ recall@50 / recall@5 分层、MRR、nDCG（分级标注）；生成侧（查询，固定块，理想答案）→ faithfulness（断言被块支持的比例）、answer relevance、引用正确率、拒答正确率（块里没答案时说不知道）；端到端与固定检索的差是检索损失；三个数字定位退化在哪段。运营侧：零结果率、拒答率、新鲜度。
+分开评：检索侧（查询，相关块）→ recall@50 / recall@5 分层、MRR（mean reciprocal rank）、nDCG（normalized discounted cumulative gain，分级标注）；生成侧（查询，固定块，理想答案）→ faithfulness（断言被块支持的比例）、answer relevance、引用正确率、拒答正确率（块里没答案时说不知道）；端到端与固定检索的差是检索损失；三个数字定位退化在哪段。运营侧：零结果率、拒答率、新鲜度。
 
 ### 2. agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的回顾）
 
@@ -205,7 +237,7 @@ xychart-beta
 
 ### 3. 成本与延迟并列
 
-质量涨 2 分、成本涨 3 倍不一定是进步（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。每次评测同时报：每次 / 每任务的 token 与美元（含缓存读写、推理 token、rerank、judge）、TTFT、总时长的 p50 / p95。一张"质量 vs 成本"的散点图比两个数字有用。
+质量涨 2 分、成本涨 3 倍不一定是进步（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。每次评测同时报：每次 / 每任务的 token 与美元（含缓存读写、推理 token、rerank、judge）、TTFT（time to first token）、总时长的 p50 / p95。一张"质量 vs 成本"的散点图比两个数字有用。
 
 ```mermaid
 %% 图：质量 vs 成本的散点（示意）——五个候选配置：A 便宜但质量低，B 质量高但每任务 0.06 美元，C 与 D 在质量相近处成本差三倍，E 质量最高成本也最高；门禁线画在质量 88 处，线以上最便宜的是 C；两个数字分开报时 D 会因为「质量 91」被选中
@@ -222,7 +254,7 @@ xychart-beta
 
 ## 七、公开基准的位置
 
-《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》与 《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》讲过：基准（MMLU、SWE-bench Verified、Terminal-Bench、τ-bench、RAG 的 BEIR 一类）受污染、饱和、脚手架、分布四个局限，只用来**缩范围**（新模型值不值得进你的评测）、不用来决策；报告基准时说明版本与 harness。它们在矩阵里的位置是"结果"列的外部参照，不替代任何一格。
+《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》与 《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》讲过：基准（MMLU（Massive Multitask Language Understanding）、SWE-bench Verified、Terminal-Bench、τ-bench、RAG 的 BEIR（Benchmarking IR）一类）受污染、饱和、脚手架、分布四个局限，只用来**缩范围**（新模型值不值得进你的评测）、不用来决策；报告基准时说明版本与 harness。它们在矩阵里的位置是"结果"列的外部参照，不替代任何一格。
 
 ## 八、实践建议
 

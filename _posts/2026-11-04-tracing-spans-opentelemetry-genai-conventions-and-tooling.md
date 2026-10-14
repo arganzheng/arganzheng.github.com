@@ -9,11 +9,50 @@ catalog: true
 
 前四篇讲评测，后两篇讲可观测与可追溯。trace 是它们的数据源：评测集从 trace 里采、bad case 带 trace id、门禁的逐条 diff 要能打开那一条的完整轨迹、供应商静默升级要从 trace 的指标里看出来。这一篇讲 trace **记什么、怎么组织、按什么约定、用什么工具、敏感数据与成本怎么处理**。
 
-一个现状要先说清：OpenTelemetry 的 GenAI 语义约定让各家可观测工具共享一种 trace 形状——但到 2026 年中它**全部仍是 Development 状态**（没有一个 `gen_ai.*` 的 span、事件、指标、属性标为 Stable），2026 年 6 月刚从核心仓库迁入独立的 `semantic-conventions-genai`，属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`），主流框架同时发出几代属性。"用标准"的正确姿势是：按约定打点、钉住版本、把改名当破坏性变更、在后端归一。
+一个现状要先说清：OpenTelemetry 的 GenAI（generative AI）语义约定让各家可观测工具共享一种 trace 形状——但到 2026 年中它**全部仍是 Development 状态**（没有一个 `gen_ai.*` 的 span、事件、指标、属性标为 Stable），2026 年 6 月刚从核心仓库迁入独立的 `semantic-conventions-genai`，属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`），主流框架同时发出几代属性。"用标准"的正确姿势是：按约定打点、钉住版本、把改名当破坏性变更、在后端归一。
 
 本篇要回答的核心问题是：
 
 > **trace 记什么、怎么组织成三级树，每种 span 的属性是什么？[^q0] OpenTelemetry GenAI 语义约定的现状与正确用法是什么？[^q1] 工具怎么选、要不要自建，敏感数据、采样与成本怎么处理？[^q2]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| trace | — | 一次请求从头到尾的调用记录，由 span 组成 |
+| bad case | — | 线上出错、值得收进评测集的具体用例 |
+| OpenTelemetry | — | 开源的可观测标准，规定 trace、指标、日志的格式 |
+| GenAI | generative AI | 生成式 AI；OTel 用它命名大模型相关的约定 |
+| Development / Stable | — | OTel 约定的成熟度等级；Development 随时可能改 |
+| span | — | trace 里的一个节点，对应一次模型或工具调用 |
+| effort | — | 推理强度参数，控制模型想多久 |
+| TTFT | time to first token | 从发请求到收到第一个 token 的时间 |
+| RRF | reciprocal rank fusion | 按排名倒数合并两路检索结果 |
+| rerank | — | 用更强的模型对初检结果重新排序 |
+| usage | — | 接口返回的 token 用量 |
+| temperature | — | 采样温度，越低输出越确定 |
+| harness | — | 包在模型外面的运行框架：循环、工具、权限 |
+| blob | — | 压缩时存到外部的大块原文，trace 里只留引用 |
+| A/B | — | 分流对照实验：两组流量各用一个版本比指标 |
+| handoff | — | 一个 agent 把任务交给另一个 agent |
+| A2A | Agent2Agent | Google 提出的 agent 之间互相调用的协议 |
+| Langfuse / LangSmith / Braintrust / Helicone | — | LLM 应用的 trace 与评测工具 |
+| Arize Phoenix | — | Arize 的开源 trace 与评测工具 |
+| Datadog / Honeycomb / New Relic | — | 通用可观测与 APM 平台，带 LLM 模块 |
+| OTel | OpenTelemetry | OpenTelemetry 的简称 |
+| OpenInference | — | Arize 维护的 LLM trace 约定，与 OTel 对齐 |
+| Collector | — | OTel 的采集服务，收数据、做映射、转发后端 |
+| LangChain / LangGraph | — | LLM 应用开发框架 / 它的 agent 编排库 |
+| playground | — | 在界面上直接改 prompt 试跑的调试页 |
+| embedding | — | 把文本或图像变成向量 |
+| LLM | large language model | 大语言模型 |
+| APM | application performance monitoring | 应用性能监控：请求、耗时、错误率面板 |
+| ClickHouse / Grafana | — | 列式数据库 / 开源监控面板 |
+| SDK | software development kit | 接入用的客户端库 |
+| durable execution | — | 进程崩了也能从断点接着跑的执行方式 |
+| PII | personally identifiable information | 能识别到具体个人的信息 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -59,7 +98,7 @@ flowchart TB
 
 ### 1. 模型调用
 
-最重要的 span。记**完整的输入**（系统提示、工具定义、历史、当前输入——或一个能重建它的引用：prompt 版本 + 历史事件 id，避免每条 trace 重复存几十 KB）、**完整输出**（文本、工具调用、思考块——《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的推理状态要原样保留才能重放）、`usage`（输入 / 输出 / 缓存读 / 缓存写 / 推理 token——《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的五项成本）、模型 id 与快照、effort、temperature、`stop_reason`、TTFT 与总时长、错误类型与重试次数、请求 id（供应商侧的，报障用）。没有完整输入输出的 trace 无法做录制回放与 bad case 复现（第六篇）。
+最重要的 span。记**完整的输入**（系统提示、工具定义、历史、当前输入——或一个能重建它的引用：prompt 版本 + 历史事件 id，避免每条 trace 重复存几十 KB）、**完整输出**（文本、工具调用、思考块——《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的推理状态要原样保留才能重放）、`usage`（输入 / 输出 / 缓存读 / 缓存写 / 推理 token——《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的五项成本）、模型 id 与快照、effort、temperature、`stop_reason`、TTFT（time to first token）与总时长、错误类型与重试次数、请求 id（供应商侧的，报障用）。没有完整输入输出的 trace 无法做录制回放与 bad case 复现（第六篇）。
 
 ### 2. 工具调用
 
@@ -67,7 +106,7 @@ flowchart TB
 
 ### 3. 检索
 
-查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的三个数字要从这里算。
+查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF（reciprocal rank fusion）后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的三个数字要从这里算。
 
 ### 4. 事件
 
@@ -178,7 +217,7 @@ Table: 可观测工具候选
 
 ### 2. 自建的最小集
 
-OTel SDK 打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对象存储 + 索引）→ 查询与面板（Grafana）。加：完整输入输出的存储（对象存储 + 引用）、评测集采样的查询、bad case 队列（第六篇）。自建的理由通常是数据合规与规模成本；代价是评测闭环要自己拼。
+OTel（OpenTelemetry）SDK（software development kit）打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对象存储 + 索引）→ 查询与面板（Grafana）。加：完整输入输出的存储（对象存储 + 引用）、评测集采样的查询、bad case 队列（第六篇）。自建的理由通常是数据合规与规模成本；代价是评测闭环要自己拼。
 
 ### 3. 与会话日志的关系
 
@@ -205,7 +244,7 @@ flowchart TB
 
 ### 1. 敏感数据
 
-trace 里有用户输入、模型输出、工具返回——含个人信息、业务数据、可能的凭据。措施：**分级**（元数据 vs 内容）、**脱敏**（PII 识别与替换，在采集侧做）、**访问控制**（内容只对有权限的角色可见）、**保留期**（内容短、元数据长）、**不记凭据**（工具参数里的 token 在打点前抹掉）、**用户删除请求**能定位并删除。OTel 约定里内容默认可关，就是为此。
+trace 里有用户输入、模型输出、工具返回——含个人信息、业务数据、可能的凭据。措施：**分级**（元数据 vs 内容）、**脱敏**（PII（personally identifiable information）识别与替换，在采集侧做）、**访问控制**（内容只对有权限的角色可见）、**保留期**（内容短、元数据长）、**不记凭据**（工具参数里的 token 在打点前抹掉）、**用户删除请求**能定位并删除。OTel 约定里内容默认可关，就是为此。
 
 ### 2. 采样
 
@@ -248,7 +287,7 @@ flowchart TB
 
 - 三级树：会话（版本六元组、权限档、总成本）→ 任务（输入输出、状态、反馈）→ span（模型调用：完整输入输出、五项 usage、effort、stop_reason、TTFT；工具：参数结果沙箱审批幂等 id；检索：查询候选排序块 id）+ 事件（压缩、卸载、卫士、审批、决策点）+ 子会话链接。
 - OTel GenAI 约定：`{operation} {model}` 命名、`gen_ai.provider.name`、请求 / 响应 / 用量 / agent / 工具属性、内容事件、指标；2026 年迁入独立仓库、全部 Development 无 Stable、属性改名（`system` → `provider.name`）、`invoke_agent` 拆分、span 扩展到 agent 循环、OpenInference 对齐、Langfuse v3 重建；用法是按约定打点、钉版本、改名当破坏性变更、后端归一、业务属性用 `app.*`。
-- 工具：Langfuse、LangSmith、Phoenix、Braintrust、Helicone、APM 模块，按评测闭环 / 自托管 / 成本 / 栈选；自建最小集；trace 是会话日志的可观测投影。
+- 工具：Langfuse、LangSmith、Phoenix、Braintrust、Helicone、APM（application performance monitoring）模块，按评测闭环 / 自托管 / 成本 / 栈选；自建最小集；trace 是会话日志的可观测投影。
 - 敏感数据分级脱敏访问控制短保留不记凭据；元数据全量、内容按比例、bad case 全量；内容进对象存储。
 
 ## 八、自测
@@ -287,4 +326,4 @@ flowchart TB
 
 [^q1]: 内容：span 名 `{operation} {model}`、操作（chat / embeddings / execute_tool / invoke_agent / create_agent / 检索 / 记忆）、`gen_ai.provider.name` 作风味判别、请求响应用量属性（2026 年加缓存与推理 token）、agent 属性（id / name / version）、工具属性、内容事件（默认可关）、时长 / 用量 / TTFT / 流式指标。现状（2026-09）：约定迁入独立仓库 `semantic-conventions-genai`（核心 v1.42.0 于 2026-06 移走全部 GenAI 内容）；所有 GenAI 专属元素仍 Development、无一 Stable；属性改名 `gen_ai.system` → `gen_ai.provider.name`，`invoke_agent` 拆 client / internal，`execute_tool` 命名收紧；`OTEL_SEMCONV_STABILITY_OPT_IN` 选版本；span 扩展到整个 agent 循环；OpenInference 对齐、Langfuse v3 围绕 OTel 重建。用法：按约定打点、钉版本、改名当破坏性变更、框架混发几代时在后端归一、业务属性放 `app.*` 不塞 `gen_ai.*`。详见[第三章](#三opentelemetry-genai-语义约定)。
 
-[^q2]: 工具：Langfuse（开源自托管、OTel、trace + prompt 管理 + 评测）、LangSmith（LangChain 栈）、Arize Phoenix（开源、OpenInference）、Braintrust（trace 到评测闭环）、Helicone（网关式）、APM 的 LLM 模块；按评测闭环、自托管、成本（按 trace 量计费）、栈选，多从开源起步。自建最小集：OTel SDK → Collector → ClickHouse / 对象存储 → Grafana，加完整内容存储、采样查询、bad case 队列；理由是合规与规模成本。trace 是会话日志的可观测投影，一份数据两种视图。敏感数据：元数据与内容分级、采集侧脱敏 PII、内容访问控制、内容短保留元数据长保留、工具参数里的凭据打点前抹掉、支持用户删除。采样：元数据全量、内容 1–10%、bad case（负反馈、错误、卫士、越权、拒答）内容全量，尾采样优于头采样。成本：每会话几 MB 内容、十万会话几百 GB / 天——内容进对象存储存引用、元数据进列式库、按保留期分层。详见[第四章](#四工具与自建)、[第五章](#五敏感数据采样保留与成本)。
+[^q2]: 工具：Langfuse（开源自托管、OTel、trace + prompt 管理 + 评测）、LangSmith（LangChain 栈）、Arize Phoenix（开源、OpenInference）、Braintrust（trace 到评测闭环）、Helicone（网关式）、APM 的 LLM（large language model）模块；按评测闭环、自托管、成本（按 trace 量计费）、栈选，多从开源起步。自建最小集：OTel SDK → Collector → ClickHouse / 对象存储 → Grafana，加完整内容存储、采样查询、bad case 队列；理由是合规与规模成本。trace 是会话日志的可观测投影，一份数据两种视图。敏感数据：元数据与内容分级、采集侧脱敏 PII、内容访问控制、内容短保留元数据长保留、工具参数里的凭据打点前抹掉、支持用户删除。采样：元数据全量、内容 1–10%、bad case（负反馈、错误、卫士、越权、拒答）内容全量，尾采样优于头采样。成本：每会话几 MB 内容、十万会话几百 GB / 天——内容进对象存储存引用、元数据进列式库、按保留期分层。详见[第四章](#四工具与自建)、[第五章](#五敏感数据采样保留与成本)。

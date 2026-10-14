@@ -13,6 +13,37 @@ catalog: true
 
 > **录制回放怎么做，什么改动能不重跑模型？[^q0] 决策点日志记什么，失败分类学怎么建与用？[^q1] 版本 diff 与反馈绑定怎么把线上问题变成评测用例？[^q2]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| trace | — | 一次请求从头到尾的调用记录，由 span 组成 |
+| effort | — | 推理强度参数，控制模型想多久 |
+| bad case | — | 线上出错、值得收进评测集的具体用例 |
+| SLA | service level agreement | 服务等级约定，这里指每类失败多久内要处理 |
+| schema | — | 约束输出结构的格式定义 |
+| fixture | — | 单元测试里固定的输入数据 |
+| DeepSeek Harness | — | DeepSeek 的 agent 运行框架 |
+| recorded-session replay | — | 录下的会话不调模型直接重放 |
+| harness | — | 包在模型外面的运行框架：循环、工具、权限 |
+| span | — | trace 里的一个节点，对应一次模型或工具调用 |
+| tool search | — | 工具多时让模型先搜再加载工具定义 |
+| L1–L7 | — | 《AI 应用工程师学习地图》的七层编号 |
+| recall | — | 召回率：该找到的找到了多少 |
+| embedding | — | 把文本变成向量，检索时按向量相似度找块 |
+| rerank | — | 用更强的模型对初检结果重新排序 |
+| faithfulness | — | 回答是否忠于检索到的资料 |
+| fallback | — | 主路径失败时退到的备用方案 |
+| durable execution | — | 进程崩了也能从断点接着跑的执行方式 |
+| judge | — | 给输出打分的评审模型 |
+| prompt caching | — | 供应商缓存相同的 prompt 前缀，省钱省时间 |
+| A/B | — | 分流对照实验：两组流量各用一个版本比指标 |
+| YAML | YAML Ain't Markup Language | 常用的配置文件格式 |
+| Starlark | — | Python 方言的配置语言，这里写执行策略 |
+| turn | — | 多轮对话里的一轮 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览
 
 ### 1. 从坏结果到修复
@@ -33,7 +64,7 @@ flowchart TB
 
 
 1. 用户点踩 / 系统告警 / 抽检发现
-2. 反馈绑定：带 trace id 进 bad case 队列（owner · SLA）
+2. 反馈绑定：带 trace id 进 bad case 队列（owner · SLA（service level agreement））
 3. 打开 trace：三级树 + 决策点日志 → 定位到那一步
 4. 失败分类：打类（幻觉 / 检索没找到 / 上下文腐化 / 越权 / …）
 5. 版本 diff：这类失败何时开始？对齐哪次变更？
@@ -207,7 +238,7 @@ flowchart TB
 
 ### 3. 配置即代码
 
-要能 diff，变更必须是**可 diff 的工件**：prompt 在版本库或注册表（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）、检索配置在 YAML、执行策略在 Starlark 文件、工具描述在代码——不在某人的控制台点击里。"配置即代码"在这一层的价值是可追溯。
+要能 diff，变更必须是**可 diff 的工件**：prompt 在版本库或注册表（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）、检索配置在 YAML（YAML Ain't Markup Language）、执行策略在 Starlark 文件、工具描述在代码——不在某人的控制台点击里。"配置即代码"在这一层的价值是可追溯。
 
 ## 六、反馈绑定与 bad case 队列
 

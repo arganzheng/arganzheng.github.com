@@ -7,9 +7,66 @@ catalog: true
 ---
 
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| L1–L7 | — | 《AI 应用工程师学习地图》的七层编号，本系列是 L5 |
+| LLM-as-judge | — | 用一个大模型按标准给另一个模型的输出打分 |
+| RAG | retrieval-augmented generation | 检索增强生成：先检索资料再让模型回答 |
+| trace | — | 一次请求从头到尾的调用记录，由 span 组成 |
+| OpenTelemetry | — | 开源的可观测标准，规定 trace、指标、日志的格式 |
+| GenAI | generative AI | 生成式 AI；OTel 用它命名大模型相关的约定 |
+| guardrails | — | 运行时对输入输出做的检查与拦截 |
+| fallback | — | 主路径失败时退到的备用方案 |
+| LangChain | — | 常用的 LLM 应用开发框架，也发了 agent 调查报告 |
+| hold-out | — | 留出集：不参与迭代、只做最后验证的用例 |
+| Cohen's kappa | — | 校正了机遇一致之后的两方一致性系数，记作 κ |
+| Combined Budget | — | 那项去偏研究里组合多种去偏手段的一种策略 |
+| substantial | — | kappa 分级里 0.61–0.80 一档，算「高度一致」 |
+| recall@k | — | 前 k 个检索结果覆盖了多少相关内容 |
+| faithfulness | — | 回答里的说法是否都有检索内容支撑 |
+| harness | — | 包在模型外面的运行框架：循环、工具、权限 |
+| A/B | — | 分流对照实验：两组流量各用一个版本比指标 |
+| span | — | trace 里的一个节点，对应一次模型或工具调用 |
+| usage | — | 接口返回的 token 用量 |
+| effort | — | 推理强度参数，控制模型想多久 |
+| Development / Stable | — | OTel 约定的成熟度等级；Development 随时可能改 |
+| OTel | OpenTelemetry | OpenTelemetry 的简称 |
+| Langfuse / LangSmith / Braintrust / Helicone | — | LLM 应用的 trace 与评测工具 |
+| Arize Phoenix | — | Arize 的开源 trace 与评测工具 |
+| OpenInference | — | Arize 维护的 LLM trace 约定，与 OTel 对齐 |
+| bad case | — | 线上出错、值得收进评测集的具体用例 |
+| sim-to-real | — | 在仿真里有效的东西搬到真实世界后的差距 |
+| HIL | hardware-in-the-loop | 硬件在环：真硬件接仿真环境测试 |
+| SIL | software-in-the-loop | 软件在环：软件接仿真环境测试，不上真硬件 |
+| APM | application performance monitoring | 应用性能监控：请求、耗时、错误率面板 |
+| SDK | software development kit | 工具厂商提供的接入库 |
+| CI | continuous integration | 持续集成：每次提交自动跑检查 |
+| evals | evaluations | 评测用例与评测流程的统称 |
+| LLM | large language model | 大语言模型 |
+| CD | continuous delivery | 持续交付：通过检查的改动自动发布 |
+| rubric | — | 评分细则：每一档分数对应什么表现 |
+| pairwise / pointwise | — | 两两比较打分 / 单条独立打分 |
+| F1 | — | 精确率与召回率的调和平均（F1 score） |
+| TTFT | time to first token | 从发请求到收到第一个 token 的时间 |
+| MRR | mean reciprocal rank | 第一个相关结果排名倒数的平均 |
+| nDCG | normalized discounted cumulative gain | 按排名位置打折、再归一化的排序质量分 |
+| τ-bench | — | 测 agent 在多轮对话里遵循业务策略的基准 |
+| pass@k | — | 跑 k 次里至少一次通过的比例 |
+| canary | — | 金丝雀发布：先放一小部分流量给新版本 |
+| SLA | service level agreement | 服务等级约定，这里指处理时限 |
+| CARLA | Car Learning to Act | 开源的自动驾驶仿真器 |
+| NVIDIA Cosmos | — | NVIDIA 的世界模型平台，生成场景与传感器数据 |
+| pp | percentage points | 百分点 |
+| RAGAS | Retrieval Augmented Generation Assessment | 开源的 RAG 评测框架 |
+| promptfoo / OpenAI Evals | — | 开源的 prompt 与模型评测框架 |
+
+Table: 本文用到的术语与缩写
+
 ## 内容简介
 
-《评测、可观测与可追溯：怎么知道改了之后更好了》是一组共七篇的系列文章，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第五层（L5）的正文。前四层反复说"在评测集上证明"、"用 judge 评"、"从 trace 里采"、"接评测门禁"——这一层讲这些东西本身：**评测集**怎么建、怎么运营；**评分**用规则、模型还是人，LLM-as-judge 的偏差有多大、怎么校准；单步、RAG、agent 各**评什么**；改动怎么过**门禁**、供应商静默升级怎么发现、在线怎么评；**trace** 记什么、怎么与 OpenTelemetry 的 GenAI 语义约定对齐；**可追溯**的几项实践——录制回放、决策点日志、失败分类、版本 diff、反馈绑定；以及**运行时**的可靠性（guardrails、fallback）与**物理世界**的仿真（自动驾驶、机器人怎样用仿真替代"在真实世界里试"）。
+《评测、可观测与可追溯：怎么知道改了之后更好了》是一组共七篇的系列文章，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第五层（L5）的正文。前四层反复说"在评测集上证明"、"用 judge 评"、"从 trace 里采"、"接评测门禁"——这一层讲这些东西本身：**评测集**怎么建、怎么运营；**评分**用规则、模型还是人，LLM-as-judge 的偏差有多大、怎么校准；单步、RAG（retrieval-augmented generation）、agent 各**评什么**；改动怎么过**门禁**、供应商静默升级怎么发现、在线怎么评；**trace** 记什么、怎么与 OpenTelemetry 的 GenAI（generative AI）语义约定对齐；**可追溯**的几项实践——录制回放、决策点日志、失败分类、版本 diff、反馈绑定；以及**运行时**的可靠性（guardrails、fallback）与**物理世界**的仿真（自动驾驶、机器人怎样用仿真替代"在真实世界里试"）。
 
 为什么这一层是应用工程里最常被跳过、又最决定成败的一层：AI 应用的每一次改动——换一个词、换一个模型、改一个 schema、加一个工具——都可能让一部分用例由对变错，而模型的输出没有类型检查、没有编译错误、没有单元测试会红。LangChain 2026 年的《State of AI Agents》报告：57% 的组织有 agent 在生产，**质量是部署的最大障碍（32%，几乎是第二名的两倍）**；89% 的团队接了可观测，**只有 52% 接了评测**——"看得见"与"能判断好坏"之间的差距，就是事故的来源。评测是 AI 应用的测试体系，可观测是它的日志与监控，可追溯是"出了事能定位到哪一步"。三者缺一，其他六层的每一次改进都无法被证明。
 
@@ -17,7 +74,7 @@ catalog: true
 
 > **评测集从哪来、多大、怎么维护？规则、judge、人各评什么，judge 的偏差有多大、怎么校准？单步、RAG、agent 各评什么指标？改动怎么过门禁、供应商静默升级怎么发现、在线怎么评？trace 记什么、怎么对齐 OpenTelemetry？出了事怎么追到那一步？物理世界的系统怎么用仿真替代真实测试？[^q0]**
 
-七篇沿一条线走。**第一篇**建评测集：它是 AI 应用的单元测试——从真实流量采（高频、边界、失败过的）、几十条起、每条有可检验的期望、hold-out、版本化、与 prompt / 模型 / 工具集版本绑定；合成数据的位置与陷阱；标注的组织。**第二篇**讲评分：能用规则的不用模型（格式、schema、精确匹配、测试通过），需要判断的用 LLM-as-judge——但 judge 是一个**要先被测量的测量仪器**：2026 年的两项大规模研究给出的数字——精确匹配一致率相对 Cohen's kappa 普遍虚高 33–41 个百分点；judge 的排名在不同基准间移动多达 14 位；两个生产部署的 judge 同时表现出 >0.95 的重测信度与 >0.10 的位置偏差（"一致但有偏"）；**风格偏差**（偏爱 markdown 而非纯文本，0.10–0.76）是最大的一类，远超位置偏差（≤ 0.04）；冗长偏差因模型而异（有的偏长、Claude 偏短、GPT-4o 中性）；一个中档模型加对的去偏策略（Gemini 2.5 Flash + Combined Budget，κ = 0.549，每次评估约 0.001 美元）胜过前沿 judge 且便宜约 15 倍。校准的最小协议：与人工标注比 kappa（≥ 0.61 才算 substantial）、交换顺序、长度匹配、遮蔽来源、跨家族 judge、用敏感度 / 特异度反推真实通过率。人的位置：校准集、抽检、争议裁决。**第三篇**按对象讲评什么：单步任务（准确率、格式遵循率、拒答正确率、成本、延迟）、RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的分开评：recall@k、faithfulness、引用正确率）、agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的轨迹六维）、多轮对话（策略遵循、任务完成、轮数）、安全（注入抵抗、越权尝试）——一张矩阵；每题跑 $$k$$ 次看分布。**第四篇**讲回归与门禁：改动 = 发布，评测集 × $$k$$ 次、逐条 diff、阈值、灰度、回滚（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的流程在这里给出完整实现）；**供应商静默升级**的检测（固定探针集定时跑、分数漂移告警）；A/B 与在线评测（隐式反馈：采纳 / 修改 / 重试 / 放弃；显式：点踩；抽样 judge）；离线与在线的相关性校验。**第五篇**讲 trace：会话 → 任务 → 步骤三级树，每个 span 记什么（完整输入输出、usage、effort、工具参数与结果、沙箱与审批、卫士、压缩）；**OpenTelemetry GenAI 语义约定**的现状——2026 年迁入独立仓库 `semantic-conventions-genai`，`gen_ai.*` 的 span、事件、指标、属性全部仍是 Development 状态（没有 Stable），属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`，用 `OTEL_SEMCONV_STABILITY_OPT_IN` 钉版本），span 已从单次模型调用扩展到整个 agent 循环（`invoke_agent`、`execute_tool`、检索、记忆）；工具（Langfuse v3 围绕 OTel 重建、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone）的选择与自建；敏感数据、采样、保留期。**第六篇**讲可追溯的实践：录制回放（改非模型部分不重跑模型）、决策点日志（让轨迹能画成状态图）、失败分类学（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的十类推广到全部应用）、版本 diff（prompt / 模型 / 工具集 / 检索配置的变更与指标变化对齐）、反馈绑定（每条用户反馈带 trace id 进 bad case 队列）。**第七篇**讲运行时可靠性与物理世界：guardrails（输入 / 输出检查、置信度与拒答、在线 judge 拦截）、fallback（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性）、幻觉检测的实际手段；然后是物理世界的仿真——为什么自动驾驶与机器人不能"在生产里试"，仿真的层次（场景仿真、日志回放、传感器仿真、数字孪生、世界模型生成）、开环 vs 闭环、sim-to-real 差距、覆盖率与长尾、影子模式、HIL / SIL；以及 agent 的沙箱环境与它的同构关系。
+七篇沿一条线走。**第一篇**建评测集：它是 AI 应用的单元测试——从真实流量采（高频、边界、失败过的）、几十条起、每条有可检验的期望、hold-out、版本化、与 prompt / 模型 / 工具集版本绑定；合成数据的位置与陷阱；标注的组织。**第二篇**讲评分：能用规则的不用模型（格式、schema、精确匹配、测试通过），需要判断的用 LLM-as-judge——但 judge 是一个**要先被测量的测量仪器**：2026 年的两项大规模研究给出的数字——精确匹配一致率相对 Cohen's kappa 普遍虚高 33–41 个百分点；judge 的排名在不同基准间移动多达 14 位；两个生产部署的 judge 同时表现出 >0.95 的重测信度与 >0.10 的位置偏差（"一致但有偏"）；**风格偏差**（偏爱 markdown 而非纯文本，0.10–0.76）是最大的一类，远超位置偏差（≤ 0.04）；冗长偏差因模型而异（有的偏长、Claude 偏短、GPT-4o 中性）；一个中档模型加对的去偏策略（Gemini 2.5 Flash + Combined Budget，κ = 0.549，每次评估约 0.001 美元）胜过前沿 judge 且便宜约 15 倍。校准的最小协议：与人工标注比 kappa（≥ 0.61 才算 substantial）、交换顺序、长度匹配、遮蔽来源、跨家族 judge、用敏感度 / 特异度反推真实通过率。人的位置：校准集、抽检、争议裁决。**第三篇**按对象讲评什么：单步任务（准确率、格式遵循率、拒答正确率、成本、延迟）、RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的分开评：recall@k、faithfulness、引用正确率）、agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的轨迹六维）、多轮对话（策略遵循、任务完成、轮数）、安全（注入抵抗、越权尝试）——一张矩阵；每题跑 $$k$$ 次看分布。**第四篇**讲回归与门禁：改动 = 发布，评测集 × $$k$$ 次、逐条 diff、阈值、灰度、回滚（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的流程在这里给出完整实现）；**供应商静默升级**的检测（固定探针集定时跑、分数漂移告警）；A/B 与在线评测（隐式反馈：采纳 / 修改 / 重试 / 放弃；显式：点踩；抽样 judge）；离线与在线的相关性校验。**第五篇**讲 trace：会话 → 任务 → 步骤三级树，每个 span 记什么（完整输入输出、usage、effort、工具参数与结果、沙箱与审批、卫士、压缩）；**OpenTelemetry GenAI 语义约定**的现状——2026 年迁入独立仓库 `semantic-conventions-genai`，`gen_ai.*` 的 span、事件、指标、属性全部仍是 Development 状态（没有 Stable），属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`，用 `OTEL_SEMCONV_STABILITY_OPT_IN` 钉版本），span 已从单次模型调用扩展到整个 agent 循环（`invoke_agent`、`execute_tool`、检索、记忆）；工具（Langfuse v3 围绕 OTel（OpenTelemetry）重建、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone）的选择与自建；敏感数据、采样、保留期。**第六篇**讲可追溯的实践：录制回放（改非模型部分不重跑模型）、决策点日志（让轨迹能画成状态图）、失败分类学（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的十类推广到全部应用）、版本 diff（prompt / 模型 / 工具集 / 检索配置的变更与指标变化对齐）、反馈绑定（每条用户反馈带 trace id 进 bad case 队列）。**第七篇**讲运行时可靠性与物理世界：guardrails（输入 / 输出检查、置信度与拒答、在线 judge 拦截）、fallback（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性）、幻觉检测的实际手段；然后是物理世界的仿真——为什么自动驾驶与机器人不能"在生产里试"，仿真的层次（场景仿真、日志回放、传感器仿真、数字孪生、世界模型生成）、开环 vs 闭环、sim-to-real 差距、覆盖率与长尾、影子模式、HIL（hardware-in-the-loop）/ SIL（software-in-the-loop）；以及 agent 的沙箱环境与它的同构关系。
 
 系列的组织原则：**评测是测试，可观测是日志，可追溯是调试**——三者对应传统软件工程里三件成熟的事，只是对象从确定性代码变成了概率性组件。每篇都说清"传统做法在哪里失效、要换成什么"。
 
@@ -26,7 +83,7 @@ catalog: true
 
 ### 看得见不等于能判断
 
-89% 接了可观测、52% 接了评测——这个差距是这一层最重要的事实。一个 agent 幻觉出一次工具调用、重试了一次付费的副作用、在模型升级后悄悄变差，在 APM 面板上都是"请求成功、4.2 秒"，直到退款队列涨起来。可观测告诉你发生了什么，评测告诉你它对不对。多数团队有前者没后者，于是每次改动都靠"看几个例子感觉不错"上线。
+89% 接了可观测、52% 接了评测——这个差距是这一层最重要的事实。一个 agent 幻觉出一次工具调用、重试了一次付费的副作用、在模型升级后悄悄变差，在 APM（application performance monitoring）面板上都是"请求成功、4.2 秒"，直到退款队列涨起来。可观测告诉你发生了什么，评测告诉你它对不对。多数团队有前者没后者，于是每次改动都靠"看几个例子感觉不错"上线。
 
 ### judge 是仪器，先测仪器
 
@@ -42,10 +99,10 @@ OpenTelemetry 的 GenAI 语义约定让各家可观测工具共享一种 trace �
 
 ### 现有材料的断层
 
-- **可观测工具的文档**教你接 SDK，不讲评测集怎么建、judge 怎么校准；
-- **评测论文**讲 judge 的偏差与基准的设计，不讲怎么接进 CI 与发布流程；
+- **可观测工具的文档**教你接 SDK（software development kit），不讲评测集怎么建、judge 怎么校准；
+- **评测论文**讲 judge 的偏差与基准的设计，不讲怎么接进 CI（continuous integration）与发布流程；
 - **"evals 教程"**多停在"写几个断言 + 用 GPT 打分"，不讲校准、分布、门禁、在线相关性；
-- **自动驾驶的仿真文献**与 LLM 应用的评测材料几乎没有交集。
+- **自动驾驶的仿真文献**与 LLM（large language model）应用的评测材料几乎没有交集。
 
 本系列想填补的是从"有几个 prompt 测试"到"有一套能证明改动更好、能发现供应商漂移、能追到出事那一步、能与物理世界的验证方法对话的评测与可观测体系"之间的那段路。
 
@@ -108,7 +165,7 @@ Table: 七篇的主题与传统对应
 
 > 核心问题：**不同形态的应用各评什么？过程指标为什么与结果并列？每题跑几次？[^q3]**
 
-一张矩阵。**单步任务**（分类、抽取、生成）：准确率 / F1、格式遵循率、schema 通过率、拒答正确率（该拒的拒、不该拒的不拒——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口）、成本、TTFT 与总时长；**RAG**（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）：检索侧 recall@k / MRR / nDCG，生成侧 faithfulness / answer relevance / 引用正确率，固定检索评生成，三个数字定位；**agent**（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）：结果、效率（步数 / token / 美元 / 墙钟）、过程正确性、安全（越权尝试）、鲁棒性（面对工具错误与注入）、部分结果质量；**多轮对话**：任务完成、策略遵循（τ-bench 式）、轮数、用户模拟器的设计与它的局限；**安全**：注入抵抗率（红队集）、越权、敏感信息泄漏（L3 的"不该看到"集）。横切：每题 $$k$$ 次看分布（pass@k、一致率、方差）；按类型分层报告而不是一个总分；成本与延迟永远与质量一起报（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。公开基准的位置（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）：缩范围，不决策。
+一张矩阵。**单步任务**（分类、抽取、生成）：准确率 / F1、格式遵循率、schema 通过率、拒答正确率（该拒的拒、不该拒的不拒——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口）、成本、TTFT（time to first token）与总时长；**RAG**（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）：检索侧 recall@k / MRR / nDCG（normalized discounted cumulative gain），生成侧 faithfulness / answer relevance / 引用正确率，固定检索评生成，三个数字定位；**agent**（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）：结果、效率（步数 / token / 美元 / 墙钟）、过程正确性、安全（越权尝试）、鲁棒性（面对工具错误与注入）、部分结果质量；**多轮对话**：任务完成、策略遵循（τ-bench 式）、轮数、用户模拟器的设计与它的局限；**安全**：注入抵抗率（红队集）、越权、敏感信息泄漏（L3 的"不该看到"集）。横切：每题 $$k$$ 次看分布（pass@k、一致率、方差）；按类型分层报告而不是一个总分；成本与延迟永远与质量一起报（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。公开基准的位置（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）：缩范围，不决策。
 
 ### 4. 回归与门禁：CI、供应商静默升级、A/B 与在线评测
 
@@ -126,13 +183,13 @@ Table: 七篇的主题与传统对应
 
 > 核心问题：**出了事怎么追到那一步？改了非模型部分怎么便宜地回归？怎么把用户的一句"不好"变成可修的 bug？[^q6]**
 
-**录制回放**：把评测集里每步的模型输出录下来，改工具、解析、卫士、权限、检索配置时重放而不重跑模型——省钱、可复现；只有改 prompt / 模型 / effort 才重跑（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》、《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）；DeepSeek Harness 的 keyless recorded-session replay 是产品级实例。**决策点日志**：在循环的每个分支打结构化事件（选了哪个工具与为什么、终止原因、权限判定、预算余量、卫士触发、压缩决定），让轨迹能画成状态图。**失败分类学**：《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的十类推广到全部应用形态——为每条失败打类，分布进面板，每类有对应的药；新失效模式从人工抽检里发现并加进分类。**版本 diff**：把 prompt / 模型 / 工具集 / 检索配置 / harness 的变更时间线与指标曲线对齐——"命中率骤降接部署时间线"（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）的一般化。**反馈绑定**：每条用户反馈（点踩、修改、重试、投诉）带 trace id 落库进 bad case 队列，队列有 owner 与 SLA，处理结果回到评测集——这是评测集"随 bad case 长"的机制。事后分析的模板。
+**录制回放**：把评测集里每步的模型输出录下来，改工具、解析、卫士、权限、检索配置时重放而不重跑模型——省钱、可复现；只有改 prompt / 模型 / effort 才重跑（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》、《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）；DeepSeek Harness 的 keyless recorded-session replay 是产品级实例。**决策点日志**：在循环的每个分支打结构化事件（选了哪个工具与为什么、终止原因、权限判定、预算余量、卫士触发、压缩决定），让轨迹能画成状态图。**失败分类学**：《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的十类推广到全部应用形态——为每条失败打类，分布进面板，每类有对应的药；新失效模式从人工抽检里发现并加进分类。**版本 diff**：把 prompt / 模型 / 工具集 / 检索配置 / harness 的变更时间线与指标曲线对齐——"命中率骤降接部署时间线"（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）的一般化。**反馈绑定**：每条用户反馈（点踩、修改、重试、投诉）带 trace id 落库进 bad case 队列，队列有 owner 与 SLA（service level agreement），处理结果回到评测集——这是评测集"随 bad case 长"的机制。事后分析的模板。
 
 ### 7. 运行时可靠性与物理世界的仿真
 
 > 核心问题：**上线后怎么在运行时拦住坏输出？物理世界的系统为什么不能"在生产里试"，仿真怎么替代？数字 agent 的沙箱环境与它有什么同构？[^q7]**
 
-运行时：**guardrails**——输入侧（注入检测、敏感信息、越界请求）、输出侧（schema 与业务校验、敏感信息、引用存在性、在线 judge 抽样拦截）；**置信度与拒答**（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口、L7 的呈现）；**幻觉检测的实际手段**（引用对照、自一致性采样、事实核对工具）与它们的成本；**fallback**（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性：推理状态不可跨供应商）。然后是**物理世界**：自动驾驶、机器人、工业控制的失败可能致命且不可逆，"评测"必须在真实世界之外完成——仿真的层次：**场景仿真**（CARLA 一类：可编程的场景、可复现、可放大长尾）、**日志回放**（真实传感器数据重放，开环）、**传感器仿真**（渲染相机 / 激光雷达）、**数字孪生**（特定场地的高保真复制）、**世界模型生成**（用生成模型合成场景与传感器数据——NVIDIA Cosmos 一类）；**开环 vs 闭环**（回放不响应系统的动作、闭环仿真才能测决策的后果）；**sim-to-real 差距**与域随机化；**覆盖率与长尾**（几百万公里的真实里程覆盖不了的稀有事件靠仿真放大）；**影子模式**（新版本在车上跑但不控制、与旧版本或人的决策对比——Tesla 一类公开描述过的做法）；**HIL / SIL**（硬件 / 软件在环）。同构：数字 agent 的容器快照环境、录制回放、影子模式、红队集，是同一套思想在低代价世界的版本；"验证决定自主"（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》）在物理世界是最严格的形态。
+运行时：**guardrails**——输入侧（注入检测、敏感信息、越界请求）、输出侧（schema 与业务校验、敏感信息、引用存在性、在线 judge 抽样拦截）；**置信度与拒答**（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》的出口、L7 的呈现）；**幻觉检测的实际手段**（引用对照、自一致性采样、事实核对工具）与它们的成本；**fallback**（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性：推理状态不可跨供应商）。然后是**物理世界**：自动驾驶、机器人、工业控制的失败可能致命且不可逆，"评测"必须在真实世界之外完成——仿真的层次：**场景仿真**（CARLA（Car Learning to Act）一类：可编程的场景、可复现、可放大长尾）、**日志回放**（真实传感器数据重放，开环）、**传感器仿真**（渲染相机 / 激光雷达）、**数字孪生**（特定场地的高保真复制）、**世界模型生成**（用生成模型合成场景与传感器数据——NVIDIA Cosmos 一类）；**开环 vs 闭环**（回放不响应系统的动作、闭环仿真才能测决策的后果）；**sim-to-real 差距**与域随机化；**覆盖率与长尾**（几百万公里的真实里程覆盖不了的稀有事件靠仿真放大）；**影子模式**（新版本在车上跑但不控制、与旧版本或人的决策对比——Tesla 一类公开描述过的做法）；**HIL / SIL**（硬件 / 软件在环）。同构：数字 agent 的容器快照环境、录制回放、影子模式、红队集，是同一套思想在低代价世界的版本；"验证决定自主"（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》）在物理世界是最严格的形态。
 
 ### 8. 系列总结与通关自测
 
