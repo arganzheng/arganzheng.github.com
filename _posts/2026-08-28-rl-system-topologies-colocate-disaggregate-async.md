@@ -8,17 +8,77 @@ catalog: true
 updated: 2026-09-14
 ---
 
-上一篇算出的三段时间——生成 602 秒（其中长尾 196 秒）、前向 72 秒、训练 136 秒——是在"64 张卡先全部做生成、再全部做训练"的前提下算的。这只是三种可能之一。同样 64 张卡，也可以 46 张只做生成、18 张只做训练，两边同时跑；还可以更进一步，让训练不等生成、生成不等训练，各自按自己的节奏走。三种安排下，一步的墙钟分别是 **810 秒、约 750 秒、约 610 秒**，全步 MFU 分别是 **13%、14%、17%**——差别看起来不大，但那是因为上一篇的长尾假设（$$L_{max} / \bar L = 4$$）相当温和。把长尾放到推理模型训练里常见的程度，或者把 Agent 环境的等待加进来，第三种安排会比第一种快两到三倍，而 verl 的公开实验里正是这个数字。
+上一篇算出的三段时间——生成 602 秒（其中长尾 196 秒）、前向 72 秒、训练 136 秒——是在"64 张卡先全部做生成、再全部做训练"的前提下算的。这只是三种可能之一。同样 64 张卡，也可以 46 张只做生成、18 张只做训练，两边同时跑；还可以更进一步，让训练不等生成、生成不等训练，各自按自己的节奏走。三种安排下，一步的墙钟分别是 **810 秒、约 750 秒、约 610 秒**，全步 MFU（model FLOPs utilization）分别是 **13%、14%、17%**——差别看起来不大，但那是因为上一篇的长尾假设（$$L_{max} / \bar L = 4$$）相当温和。把长尾放到推理模型训练里常见的程度，或者把 Agent 环境的等待加进来，第三种安排会比第一种快两到三倍，而 verl（Volcano Engine Reinforcement Learning for LLMs）的公开实验里正是这个数字。
 
-这三种安排就是 RL 后训练系统的三种**形态**：**共置**（colocate，所有角色在同一组卡上时分复用）、**分离**（disaggregate，rollout 与训练各占一个 GPU 池，空分复用）、**异步**（async，在分离之上拆掉每步的同步墙）。它们不是三个框架的三个默认值，而是在同一张账上做的三种交换：共置用切换换来"每个阶段都用满全部卡"，分离用固定配比换来"两类负载各用合适的配置、可以重叠"，异步用样本过期换来"没有任何一方在等"。这一篇把三种形态的时间模型建出来，看每一种把 GPU 用到几成、代价在哪、什么时候先撑不住；然后讨论 rollout : train 的 GPU 配比怎么定、为什么它在训练过程中会变；最后落到 verl 的三种 trainer 模式——`sync`、`colocate_async`、`separate_async`——看同一套控制流怎样只靠换配置切换形态。
+这三种安排就是 RL（reinforcement learning）后训练系统的三种**形态**：**共置**（colocate，所有角色在同一组卡上时分复用）、**分离**（disaggregate，rollout 与训练各占一个 GPU 池，空分复用）、**异步**（async，在分离之上拆掉每步的同步墙）。它们不是三个框架的三个默认值，而是在同一张账上做的三种交换：共置用切换换来"每个阶段都用满全部卡"，分离用固定配比换来"两类负载各用合适的配置、可以重叠"，异步用样本过期换来"没有任何一方在等"。这一篇把三种形态的时间模型建出来，看每一种把 GPU 用到几成、代价在哪、什么时候先撑不住；然后讨论 rollout : train 的 GPU 配比怎么定、为什么它在训练过程中会变；最后落到 verl 的三种 trainer 模式——`sync`、`colocate_async`、`separate_async`——看同一套控制流怎样只靠换配置切换形态。
 
 要讨论形态，先要有一个把三个作业组织起来的编程模型。HybridFlow（verl 的论文）的**单控制器 + 多 worker 组**是这个领域的共同形态，本篇第二章先讲它，因为三种形态的差别全部在"worker 组怎样映射到 GPU"这一层，而控制流不变。
 
 本篇的核心问题：
 
-> **同样 64 张卡、同样的 GRPO 配置，共置、分离（48 : 16）与异步三种形态下，一步的墙钟时间与 GPU 利用率各是多少？[^q0] 回答长度的方差从小变大时，哪种形态先撑不住？[^q1]**
+> **同样 64 张卡、同样的 GRPO（Group Relative Policy Optimization）配置，共置、分离（48 : 16）与异步三种形态下，一步的墙钟时间与 GPU 利用率各是多少？[^q0] 回答长度的方差从小变大时，哪种形态先撑不住？[^q1]**
 
 本篇沿用上一篇的符号与 8B 推理场景（$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、$$L_{max} = 32\text{K}$$、64 × H100）。所有时间都是模型估算，公开实验数字注明出处。
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
+| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
+| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
+| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
+| HybridFlow | — | verl 对应的论文，单控制器加多控制器的混合编程模型 |
+| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
+| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
+| off-policy | — | 样本不是由当前策略生成的 |
+| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| IPC | inter-process communication | 进程间通信；CUDA IPC 让别的进程直接映射这块显存 |
+| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
+| RDMA | remote direct memory access | 远程直接内存访问，跨机传输不经过 CPU |
+| on-policy | — | 样本由当前策略生成 |
+| staleness | — | 生成样本的策略比当前策略落后几个版本 |
+| SPMD | single program, multiple data | 每张卡跑同一份程序、处理不同数据 |
+| RLHF | reinforcement learning from human feedback | 基于人类反馈的强化学习 |
+| DeepSpeed-Chat | — | 微软 DeepSpeed 的 RLHF 训练框架 |
+| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
+| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
+| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
+| PPO | Proximal Policy Optimization | 近端策略优化：用 clip 限制每步更新幅度 |
+| Ray | — | 分布式计算框架，verl 用它创建和调度各个 worker |
+| actor | — | 被训练的策略模型 |
+| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
+| logprob | — | token 的对数概率 |
+| reward | — | 奖励，给 rollout 打的分 |
+| TransferQueue | — | verl 的样本传输队列，数据不经单控制器 |
+| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
+| replay buffer | — | 存放已生成样本、供训练取用的缓冲区 |
+| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
+| checkpoint | — | 保存下来的模型权重与训练状态 |
+| decode | — | 逐 token 生成的阶段，memory-bound |
+| CUDA graph | — | 把一串 kernel 录下来整体重放，省掉逐个启动的开销 |
+| TFLOPS | tera floating point operations per second | 每秒 10^12 次浮点运算，卡的峰值算力单位 |
+| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
+| H20 | — | NVIDIA 面向中国市场的 Hopper 卡，算力低、显存大 |
+| L40S | — | NVIDIA Ada 架构的数据中心卡，没有 NVLink |
+| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
+| IB | InfiniBand | 机间高速网络，支持 RDMA |
+| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
+| mini-batch | — | 一次优化器更新用的那批样本 |
+| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样 |
+| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
+| micro-batch | — | 一次前向反向处理的那批样本 |
+| NIXL | NVIDIA Inference Xfer Library | NVIDIA 面向推理的点对点数据传输库 |
+| Mooncake | — | Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重 |
+| abort | — | 中止进行中的生成请求 |
+| NO-OP | no operation | 空操作 |
+| EP | expert parallelism | 专家并行：MoE 的专家分到不同卡 |
+| sleep mode | — | vLLM 释放权重与 KV cache 显存、之后再唤醒的模式 |
+| offload | — | 把参数或优化器状态挪到 CPU 内存 |
+| critic | — | PPO 里估计价值、用来算优势的模型 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -78,9 +138,9 @@ Table: 本文的章节安排
 
 ### 1. 两种写法
 
-把 RL 一步的数据流写成程序，有两种做法。**多控制器**（multi-controller，也叫 SPMD 全程）：每个 GPU 进程跑同一份代码，代码里既有生成又有训练，靠 rank 判断自己该做什么，进程之间用集合通信交换数据——预训练就是这样写的，早期的 RLHF 实现（DeepSpeed-Chat）也是。**单控制器**（single-controller）：一个中心进程持有 RL 算法的数据流（先生成、再打分、再算优势、再更新），把每一段派给一组 worker 执行，worker 组内部仍是 SPMD 的分布式计算。
+把 RL 一步的数据流写成程序，有两种做法。**多控制器**（multi-controller，也叫 SPMD（single program, multiple data）全程）：每个 GPU 进程跑同一份代码，代码里既有生成又有训练，靠 rank 判断自己该做什么，进程之间用集合通信交换数据——预训练就是这样写的，早期的 RLHF（reinforcement learning from human feedback）实现（DeepSpeed-Chat）也是。**单控制器**（single-controller）：一个中心进程持有 RL 算法的数据流（先生成、再打分、再算优势、再更新），把每一段派给一组 worker 执行，worker 组内部仍是 SPMD 的分布式计算。
 
-多控制器的问题在 RL 里特别突出：生成、参考前向、训练三段的并行配置不同（推理引擎 TP = 1 或 2，训练器 FSDP 或 TP × PP），同一份 SPMD 代码要在三种并行布局之间切换，每加一个角色（价值模型、奖励模型）或换一种算法（PPO → GRPO → 加蒸馏 teacher），rank 逻辑就要重写。HybridFlow（Sheng 等 2024，verl 的论文）的贡献是把两层分开：**算法的数据流在单控制器里、每个作业的分布式计算在各自的 worker 组里**，中间用一层"分发 / 收集"装饰器接起来。
+多控制器的问题在 RL 里特别突出：生成、参考前向、训练三段的并行配置不同（推理引擎 TP = 1 或 2，训练器 FSDP（Fully Sharded Data Parallel）或 TP × PP），同一份 SPMD 代码要在三种并行布局之间切换，每加一个角色（价值模型、奖励模型）或换一种算法（PPO（Proximal Policy Optimization） → GRPO → 加蒸馏 teacher），rank 逻辑就要重写。HybridFlow（Sheng 等 2024，verl 的论文）的贡献是把两层分开：**算法的数据流在单控制器里、每个作业的分布式计算在各自的 worker 组里**，中间用一层"分发 / 收集"装饰器接起来。
 
 ### 2. HybridFlow 的三层
 
@@ -167,15 +227,15 @@ $$U_{colocate} = \frac{\sum_i F_i}{n \cdot F_{peak} \cdot \sum_i T_i} = \frac{T_
 
 ### 3. 它换来的
 
-- **每个阶段用满全部卡**：训练用 64 张卡的算力，生成用 64 张卡的显存放 KV。没有配比问题——不存在"一边闲着"。
-- **权重同步在卡内**：训练器与推理引擎在同一进程，新权重经 CUDA IPC 或进程内张量传递进推理引擎，不走网络（8B 一步 0.3 秒以内）。
+- **每个阶段用满全部卡**：训练用 64 张卡的算力，生成用 64 张卡的显存放 KV（key-value）。没有配比问题——不存在"一边闲着"。
+- **权重同步在卡内**：训练器与推理引擎在同一进程，新权重经 CUDA IPC（inter-process communication）或进程内张量传递进推理引擎，不走网络（8B 一步 0.3 秒以内）。
 - **严格 on-policy**：每一步用的样本都是当前权重生成的，算法上最干净，reward 曲线最容易解释。
 - **实现最简单**：一个进程、一组卡、控制器顺序调用；verl 的默认模式 `sync` 就是它。
 
 ### 4. 它付出的
 
 - **显存切换**：每步两次（生成前放下训练状态、建 KV 池；训练前反过来），8B 场景不到 1 秒，但带着 CUDA graph 重捕获、KV 池重分配、prefix cache 失效的隐性代价，32B 以上是几秒到十几秒——第三篇。
-- **阶段无法重叠**：生成时训练器的算力闲着（64 张卡的 989 TFLOPS 只用了 4%），训练时推理引擎的 KV 池不存在。
+- **阶段无法重叠**：生成时训练器的算力闲着（64 张卡的 989 TFLOPS（tera floating point operations per second）只用了 4%），训练时推理引擎的 KV 池不存在。
 - **长尾拖住全部卡**：196 秒里 64 张卡都在为几条序列服务，这是共置最大的浪费。$$L_{max} / \bar L$$ 越大、回答长度分布越宽，浪费越大；Agent 训练里一条卡在十分钟测试上的轨迹能让 64 张卡等十分钟。
 - **两类负载共用一套并行配置的卡**：推理引擎想要 TP = 1（8B 一卡一实例、并发最大），训练器在大模型上想要 TP × PP；共置下两者各自建自己的进程组，卡数必须一致，配置上互相牵制。
 
@@ -209,7 +269,7 @@ rollout 池 (46)  ├── 生成 batch t （用 θ_{t-1}）761 s ──┤├�
 
 ### 3. 分离换来的
 
-- **两侧各用合适的并行配置与卡型**：rollout 池可以是 TP = 1 的多实例、用 FP8 权重、甚至用推理卡（H20、L40S）；训练池用 TP × PP、要 NVLink 与 IB。异构集群在这里有意义。
+- **两侧各用合适的并行配置与卡型**：rollout 池可以是 TP = 1 的多实例、用 FP8（8-bit floating point）权重、甚至用推理卡（H20、L40S）；训练池用 TP × PP、要 NVLink 与 IB（InfiniBand）。异构集群在这里有意义。
 - **推理引擎常驻**：不再每步 sleep / wake，KV 池、CUDA graph、prefix cache 都留着；只需要接收新权重。
 - **可以重叠**：一步流水或更深的异步。
 - **各自独立扩缩**：rollout 慢就加 rollout 卡，训练慢就加训练卡——这是共置做不到的（共置加卡两边一起加）。
@@ -217,7 +277,7 @@ rollout 池 (46)  ├── 生成 batch t （用 θ_{t-1}）761 s ──┤├�
 ### 4. 分离付出的
 
 - **配比要事先定**：$$n_r : n_t$$ 定错一边就闲着。46 : 18 是让两边时间相等的解，而"相等"随训练推进会变（第七章）。
-- **权重同步跨机**：16 GB 从训练池广播到 46 张 rollout 卡，400 Gb/s IB 下几秒；671B MoE 是分钟级——第四篇。
+- **权重同步跨机**：16 GB 从训练池广播到 46 张 rollout 卡，400 Gb/s IB 下几秒；671B MoE（mixture of experts）是分钟级——第四篇。
 - **两个池的显存都不能借给对方**：训练池的 18 张卡在训练时显存紧、生成时全空；rollout 池反过来。
 - **至少一步 off-policy**（若要重叠）。
 
@@ -240,7 +300,7 @@ rollout 池 (42)  ├─────────── 持续生成：完成一�
 
 从共置的 810 到异步的 619，省下的 191 秒几乎等于长尾的 196 秒。**异步的全部收益就是把长尾吞掉**；吞吐部分并没有变快，只是摊在了更少的卡上。所以异步的收益取决于长尾占生成时间的比例——第六章专门算。上一篇的 $$L_{max} / \bar L = 4$$ 下长尾占三分之一，收益 1.3 倍；推理模型训练里常见的 $$L_{max} = 28\text{K}$$–$$32\text{K}$$、$$\bar L$$ 几 K、分布重尾，长尾占一半以上，收益到两倍以上。
 
-verl 的 `fully_async_policy` 文档（美团搜索团队）给了一组公开实验，Qwen2.5-Math-7B、DAPO、回答上限 28K、H20：
+verl 的 `fully_async_policy` 文档（美团搜索团队）给了一组公开实验，Qwen2.5-Math-7B、DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization）、回答上限 28K、H20：
 
 - **卡数**：共置同步 步时间；其中生成；异步（配比）；步时间；400 步总时间；提速
 - **32**：790 s；357 s；16 : 16；295 s；3d17h → 1d9h；2.66×
@@ -319,7 +379,7 @@ $$\frac{n_r}{n_t} = \frac{T_{gen}^{(64)}}{T_{train}^{(64)}} = \frac{\text{生成
 
 8B 推理场景异步：$$406 / 208 \approx 2$$，即 2 : 1（42 : 22）；一步流水要把长尾算进生成侧：$$602 / 208 \approx 2.9$$（46 : 18）。对话场景（$$\bar L = 1\text{K}$$，16 卡）生成 47 秒、前向 + 训练 63 秒，配比约 3 : 4——回答短时训练侧反而是大头；32B 推理场景生成 1565 秒、前向 + 训练 840 秒，接近 2 : 1；PPO 多一个价值模型，训练侧翻倍，配比往训练侧挪。
 
-一个常见的误区是按 FLOP 配：FLOP 上训练是生成的 3 倍，会得出 1 : 3；按时间是 2 : 1，**方向相反**。配比一定按时间。
+一个常见的误区是按 FLOP（floating point operation）配：FLOP 上训练是生成的 3 倍，会得出 1 : 3；按时间是 2 : 1，**方向相反**。配比一定按时间。
 
 ### 2. 为什么会变
 
@@ -336,7 +396,7 @@ $$\frac{n_r}{n_t} = \frac{T_{gen}^{(64)}}{T_{train}^{(64)}} = \frac{\text{生成
 
 静态配比只能靠重启换；生产系统要能在运行中调。三种做法：
 
-- **弹性 rollout 实例**：rollout 池是一组独立的推理实例（server 模式），加一台机器就多几个实例注册进负载均衡器；训练侧固定。要求权重同步支持动态拓扑——NIXL / Mooncake 一类的点对点传输（第四篇）比 NCCL 广播（要重建进程组）合适。
+- **弹性 rollout 实例**：rollout 池是一组独立的推理实例（server 模式），加一台机器就多几个实例注册进负载均衡器；训练侧固定。要求权重同步支持动态拓扑——NIXL（NVIDIA Inference Xfer Library） / Mooncake 一类的点对点传输（第四篇）比 NCCL（NVIDIA Collective Communications Library）广播（要重建进程组）合适。
 - **训练池的卡兼职 rollout**：训练池在等样本时显存与算力都闲着，让它们上一组 hybrid 推理实例帮着生成，缓冲够了再切回训练。verl 的**动态资源调度**（`use_dynamic_resource_scheduling`）就是这个：standalone 实例常驻、hybrid 实例在训练池上按策略激活 / 停用，停用顺序是"先从负载均衡器摘掉 → 中断在飞请求（部分 rollout 转到 standalone 继续）→ sleep 释放显存"，文档报告 Qwen3.5-35B-A3B 上端到端快 15%。v1 的 `separate_async` trainer 内置了同样的形状：`HybridEngineMode` 在 `TRAINER` 与 `ROLLOUT` 之间切换，`switch_to_rollout()` 是"同步权重 → resume 实例 → 加进负载均衡器"，`switch_to_trainer()` 是"摘掉 → abort → sleep"。
 - **反过来：rollout 池的卡兼职训练**——不常见，因为训练器的进程组与并行配置不能随意变卡数。
 

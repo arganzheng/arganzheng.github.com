@@ -8,9 +8,9 @@ catalog: true
 updated: 2026-09-14
 ---
 
-前六篇每讲一个机制都给了 verl 里的落点：一个目录、一个类、一个函数名。这一篇把落点串成线。线的起点是一条命令——`python -m verl.trainer.main_ppo algorithm.adv_estimator=grpo trainer.nnodes=1 trainer.n_gpus_per_node=8 ...`——终点是 8 张卡上各自的进程在做什么、一个训练步的数据怎样在它们之间流动、一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token 经过哪些函数。追完这条线，前六篇的"账"与"机制"就都有了代码的锚点；再看 slime 与 AReaL 在同一条线的哪几段做了不同的选择，就能分清哪些是这类系统的必然、哪些是 verl 的取舍。
+前六篇每讲一个机制都给了 verl（Volcano Engine Reinforcement Learning for LLMs）里的落点：一个目录、一个类、一个函数名。这一篇把落点串成线。线的起点是一条命令——`python -m verl.trainer.main_ppo algorithm.adv_estimator=grpo trainer.nnodes=1 trainer.n_gpus_per_node=8 ...`——终点是 8 张卡上各自的进程在做什么、一个训练步的数据怎样在它们之间流动、一个 bf16（bfloat16）参数从优化器更新完成到推理引擎用它生成下一个 token 经过哪些函数。追完这条线，前六篇的"账"与"机制"就都有了代码的锚点；再看 slime 与 AReaL 在同一条线的哪几段做了不同的选择，就能分清哪些是这类系统的必然、哪些是 verl 的取舍。
 
-verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一条主路：**v1 trainer + FSDP 后端 + vLLM server 模式 + 共置 `sync`**，然后在每个分叉口指一下另一条路（Megatron、SGLang、`separate_async`）在哪。读法上建议开着源码对照——文中引用的都是 v0.9.0 tag 的路径与函数名，不引行号。
+verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一条主路：**v1 trainer + FSDP（Fully Sharded Data Parallel）后端 + vLLM server 模式 + 共置 `sync`**，然后在每个分叉口指一下另一条路（Megatron、SGLang、`separate_async`）在哪。读法上建议开着源码对照——文中引用的都是 v0.9.0 tag 的路径与函数名，不引行号。
 
 本篇的核心问题：
 
@@ -18,11 +18,89 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 
 版本：verl v0.9.0（tag `483b8a0`，2026-08-14）；对照 slime v0.3.0、AReaL 当前主分支与论文。
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
+| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
+| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
+| AReaL | — | 蚂蚁与清华开源的完全异步 RL 训练系统 |
+| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
+| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
+| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
+| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
+| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
+| EngineCore | — | vLLM v1 里跑调度与前向的核心进程 |
+| Ray | — | 分布式计算框架，verl 用它创建和调度各个 worker |
+| RPC | remote procedure call | 远程过程调用 |
+| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
+| all-gather | — | 每张卡把各自的分片收齐，得到完整张量 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| IPC | inter-process communication | 进程间通信；CUDA IPC 让别的进程直接映射这块显存 |
+| ZMQ | ZeroMQ | 轻量消息库，常用来在进程间传控制消息 |
+| checkpoint | — | 保存下来的模型权重与训练状态 |
+| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
+| TransferQueue | — | verl 的样本传输队列，数据不经单控制器 |
+| replay buffer | — | 存放已生成样本、供训练取用的缓冲区 |
+| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
+| SPMD | single program, multiple data | 每张卡跑同一份程序、处理不同数据 |
+| PR | pull request | 代码合并请求 |
+| actor | — | 被训练的策略模型 |
+| ABC | abstract base class | 抽象基类 |
+| KL | Kullback–Leibler | KL 散度，衡量两个分布差多远 |
+| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
+| HybridFlow | — | verl 对应的论文，单控制器加多控制器的混合编程模型 |
+| DP | data parallelism | 数据并行：每份副本处理不同数据 |
+| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
+| RM | reward model | 奖励模型，给回答打分 |
+| critic | — | PPO 里估计价值、用来算优势的模型 |
+| PPO | Proximal Policy Optimization | 近端策略优化：用 clip 限制每步更新幅度 |
+| SFT | supervised fine-tuning | 监督微调 |
+| micro-batch | — | 一次前向反向处理的那批样本 |
+| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
+| MTP | multi-token prediction | 多 token 预测；推理时可当投机解码的草稿头 |
+| offload | — | 把参数或优化器状态挪到 CPU 内存 |
+| decoupled PPO | — | 把采样策略与近端锚点分开的 PPO 变体 |
+| abort | — | 中止进行中的生成请求 |
+| GSPO | Group Sequence Policy Optimization | 用序列级重要性比做 clip 的 GRPO 变体 |
+| IS | importance sampling | 重要性采样：用两个分布的概率比修正样本 |
+| reward | — | 奖励，给 rollout 打的分 |
+| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
+| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
+| bucket | — | 把多个张量打包成一块连续缓冲再传 |
+| RDMA | remote direct memory access | 远程直接内存访问，跨机传输不经过 CPU |
+| staleness | — | 生成样本的策略比当前策略落后几个版本 |
+| DataProto | — | verl 在 worker 之间传 batch 的数据结构 |
+| GLM | General Language Model | 智谱的大模型系列 |
+| VeOmni | — | 字节开源的模型训练框架，verl 的训练后端之一 |
+| TorchTitan | — | PyTorch 官方的大模型预训练框架 |
+| TRT-LLM | TensorRT-LLM | NVIDIA 的 LLM 推理引擎 |
+| uni-agent | — | verl 的 Agent 网关，统一管理多轮会话 |
+| LLM | large language model | 大语言模型 |
+| RS | rejection sampling | 拒绝采样：比值越界的样本直接丢掉 |
+| logprob | — | token 的对数概率 |
+| FSDP2 | — | PyTorch 第二代 FSDP，每个参数用 DTensor 分片 |
+| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
+| on-policy | — | 样本由当前策略生成 |
+| OpenRLHF | — | 最早基于 Ray + vLLM 的开源 RLHF 框架 |
+| RLHF | reinforcement learning from human feedback | 基于人类反馈的强化学习 |
+| HF | Hugging Face | 模型托管平台；HF 格式指 transformers 的权重命名 |
+| decode | — | 逐 token 生成的阶段，memory-bound |
+| CUDA graph | — | 把一串 kernel 录下来整体重放，省掉逐个启动的开销 |
+| NIXL | NVIDIA Inference Xfer Library | NVIDIA 面向推理的点对点数据传输库 |
+| Mooncake | — | Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重 |
+| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
+| OOM | out of memory | 显存不够，分配失败 |
+| harness | — | 驱动 Agent 与环境交互的外层程序 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览
 
 ### 1. 一个参数从优化器到推理引擎的旅程
 
-8 卡共置、FSDP、vLLM TP = 2（4 个实例）、`sync` 模式。第 $$t$$ 步的 `update_actor` 结束后，某一层 `q_proj.weight` 的一个 bf16 分片：
+8 卡共置、FSDP、vLLM TP（tensor parallelism） = 2（4 个实例）、`sync` 模式。第 $$t$$ 步的 `update_actor` 结束后，某一层 `q_proj.weight` 的一个 bf16 分片：
 
 ```text title="一个 bf16 分片的旅程：从 update_actor 到推理引擎"
  #   在哪个进程                    函数                                                          做什么
@@ -40,7 +118,7 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 12   vLLM EngineCore                scheduler → model_runner.execute_model → CUDA graph（地址没变，不重捕获）   decode 一步，qkv_proj 的 GEMM 用的就是 #8 写进去的字节 → 一个 token
 ```
 
-十二步、四类进程（driver、hybrid worker、vLLM server / EngineCore、AgentLoopWorker）、三条链路（Ray RPC、NVLink all-gather、CUDA IPC + ZMQ）。分离形态下第 2 步走 `nccl` / `nixl` / `delta_sharded` 后端，第 6–8 步换成 checkpoint engine 的 `send_weights` / `receive_weights`（第四篇），其余不变。
+十二步、四类进程（driver、hybrid worker、vLLM server / EngineCore、AgentLoopWorker）、三条链路（Ray RPC（remote procedure call）、NVLink all-gather、CUDA IPC（inter-process communication） + ZMQ）。分离形态下第 2 步走 `nccl` / `nixl` / `delta_sharded` 后端，第 6–8 步换成 checkpoint engine 的 `send_weights` / `receive_weights`（第四篇），其余不变。
 
 ### 2. 进程地图
 
@@ -119,7 +197,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1  trainer.n_gpus_per_node=8
 ```
 
-配置是 Hydra：`verl/trainer/config/ppo_trainer.yaml` 是根，通过 `defaults` 组合 `actor/`、`rollout/`、`engine/`、`algorithm/` 等子配置；命令行覆盖任意叶子。三个与系统形态直接相关的默认值：`trainer.use_v1: true`（v1 trainer）、`trainer.v1.trainer_mode: sync`、`actor_rollout_ref.hybrid_engine: true`（共置）。`rollout.mode` 在 0.9 里只有 server 模式——SPMD 的 rollout 已退役（PR #4411；`vllm_rollout.py` 的 `generate_sequences` 直接 `raise NotImplementedError`）。
+配置是 Hydra：`verl/trainer/config/ppo_trainer.yaml` 是根，通过 `defaults` 组合 `actor/`、`rollout/`、`engine/`、`algorithm/` 等子配置；命令行覆盖任意叶子。三个与系统形态直接相关的默认值：`trainer.use_v1: true`（v1 trainer）、`trainer.v1.trainer_mode: sync`、`actor_rollout_ref.hybrid_engine: true`（共置）。`rollout.mode` 在 0.9 里只有 server 模式——SPMD（single program, multiple data）的 rollout 已退役（PR（pull request） #4411；`vllm_rollout.py` 的 `generate_sequences` 直接 `raise NotImplementedError`）。
 
 ### 2. `main_ppo`
 
@@ -138,7 +216,7 @@ main_ppo.main(config)
 
 ### 3. `PPOTrainer.__init__` 与 `init()`
 
-`trainer_base.py` 的 `PPOTrainer` 是 ABC，三个子类只覆盖钩子。构造时决定几个布尔量：`use_reference_policy`（有 KL 就要 ref）、`use_critic`（GRPO 为 False）、`use_teacher_policy`（蒸馏）；`_build_replay_buffer()` 按模式选 `ReplayBuffer`（sync）或 `ReplayBufferAsync`。`init()` → `_setup()` 是全部基础设施的构造点，第三、四、六章逐段读它。
+`trainer_base.py` 的 `PPOTrainer` 是 ABC（abstract base class），三个子类只覆盖钩子。构造时决定几个布尔量：`use_reference_policy`（有 KL（Kullback–Leibler）就要 ref）、`use_critic`（GRPO（Group Relative Policy Optimization）为 False）、`use_teacher_policy`（蒸馏）；`_build_replay_buffer()` 按模式选 `ReplayBuffer`（sync）或 `ReplayBufferAsync`。`init()` → `_setup()` 是全部基础设施的构造点，第三、四、六章逐段读它。
 
 ## 三、单控制器：`RayWorkerGroup` 与 `@register`
 
@@ -174,7 +252,7 @@ class ActorRolloutRefWorker(Worker):
 装饰器只在方法上挂一个属性 `{dispatch_mode, execute_mode, blocking}`。`RayWorkerGroup` 构造时 `_bind_worker_method` 扫描 worker 类的所有方法，对带这个属性的每一个，在**组对象上生成同名方法**：
 
 - **组方法 update_actor(data)**
-  - 1. dispatch_fn(worker_group, data) → 把 data 按 DP 切成 world_size 份（nd_compute：按 "train" mesh 的 dp 维切，TP/PP 内的 rank 拿同一份）
+  - 1. dispatch_fn(worker_group, data) → 把 data 按 DP（data parallelism）切成 world_size 份（nd_compute：按 "train" mesh 的 dp 维切，TP/PP（pipeline parallelism）内的 rank 拿同一份）
   - 2. execute_fn → 对每个 worker 调 worker.update_actor.remote(chunk_i)（execute_all）
   - 3. collect_fn(worker_group, outputs) → 收回各 rank 的输出，按 mesh 拼回（只从每个 dp 组的一个 rank 收）
   - blocking=False → 返回 futures，调用方用 ray.get 或直接传给下一个组方法（_materialize_futures 自动等待）
@@ -203,7 +281,7 @@ if config.reward.reward_model.enable_resource_pool:
 self.resource_pool_manager = ResourcePoolManager(resource_pool_spec, mapping)
 ```
 
-`Role` 枚举（`trainer/ppo/utils.py`）：`Actor / Rollout / ActorRollout / Critic / RefPolicy / RewardModel / ActorRolloutRef / Env / TeacherModel`。默认全部角色映射到 `global_pool`——**共置就是"所有角色一个池"**；生成式 RM 开 `enable_resource_pool` 就多一个 `reward_pool`；`separate_async` 的 standalone rollout 不走这张表，由 `LLMServerManager.create(start_rank=...)` 另起（第六章）。
+`Role` 枚举（`trainer/ppo/utils.py`）：`Actor / Rollout / ActorRollout / Critic / RefPolicy / RewardModel / ActorRolloutRef / Env / TeacherModel`。默认全部角色映射到 `global_pool`——**共置就是"所有角色一个池"**；生成式 RM（reward model）开 `enable_resource_pool` 就多一个 `reward_pool`；`separate_async` 的 standalone rollout 不走这张表，由 `LLMServerManager.create(start_rank=...)` 另起（第六章）。
 
 ### 2. placement group
 
@@ -220,7 +298,7 @@ for resource_pool, class_dict in self.resource_pool_to_cls.items():
     spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())                # 按前缀拆回几个"虚拟"组
 ```
 
-`WorkerDict` 在一个进程里持有 `{"actor_rollout_ref": ActorRolloutRefWorker(...), "critic": TrainingWorker(...)}`，方法名加前缀（`actor_rollout_ref_update_actor`）；`spawn` 生成的每个虚拟组把前缀去掉、重新绑定，控制器看到的仍是 `self.actor_rollout_wg.update_actor(...)` 与 `self.critic_wg.update_critic(...)`——**同一批进程、两个句柄**。这就是"共置"在代码里的形状：不是两个进程共享一张卡，是一个进程里两个对象轮流用显存。PPO 的 critic 与 actor 在同一进程里，第一篇算的"两套 16N"就在同一个 CUDA context 里。
+`WorkerDict` 在一个进程里持有 `{"actor_rollout_ref": ActorRolloutRefWorker(...), "critic": TrainingWorker(...)}`，方法名加前缀（`actor_rollout_ref_update_actor`）；`spawn` 生成的每个虚拟组把前缀去掉、重新绑定，控制器看到的仍是 `self.actor_rollout_wg.update_actor(...)` 与 `self.critic_wg.update_critic(...)`——**同一批进程、两个句柄**。这就是"共置"在代码里的形状：不是两个进程共享一张卡，是一个进程里两个对象轮流用显存。PPO（Proximal Policy Optimization）的 critic 与 actor 在同一进程里，第一篇算的"两套 16N"就在同一个 CUDA（Compute Unified Device Architecture） context 里。
 
 ## 五、hybrid worker：`ActorRolloutRefWorker` 与 model engine
 
@@ -236,11 +314,11 @@ ActorRolloutRefWorker（verl/workers/engine_workers.py）        —— 角色�
   └── self.checkpoint_engine: 按 config.rollout.checkpoint_engine.backend 建（共置下强制 naive）
 ```
 
-`TrainingWorker` 是通用的：critic 用它、蒸馏的 teacher 用它、SFT 也用它。它把一次 `train_batch(data)` 展开为：按 `ppo_micro_batch_size` 或动态 token 数（`use_dynamic_bsz` + `ppo_max_token_len_per_gpu`）切 micro-batch → 每个 micro-batch `engine.forward_backward_step`（loss_fn 由 `set_loss_fn` 注入——PPO 的 policy loss 在 `trainer/ppo/core_algos.py`，trainer 在 `_setup` 里注入）→ 梯度累积 → `engine.optimizer_step`。RL 特有的东西（哪些位置算 loss、优势怎么用）全在 loss_fn 里，worker 不知道。
+`TrainingWorker` 是通用的：critic 用它、蒸馏的 teacher 用它、SFT（supervised fine-tuning）也用它。它把一次 `train_batch(data)` 展开为：按 `ppo_micro_batch_size` 或动态 token 数（`use_dynamic_bsz` + `ppo_max_token_len_per_gpu`）切 micro-batch → 每个 micro-batch `engine.forward_backward_step`（loss_fn 由 `set_loss_fn` 注入——PPO 的 policy loss 在 `trainer/ppo/core_algos.py`，trainer 在 `_setup` 里注入）→ 梯度累积 → `engine.optimizer_step`。RL（reinforcement learning）特有的东西（哪些位置算 loss、优势怎么用）全在 loss_fn 里，worker 不知道。
 
 ### 2. `init_model`
 
-`ActorRolloutRefWorker.init_model()`（`@register(ONE_TO_ALL)`，每个 worker 并行执行）：先建 ref（若有，配置从 actor 派生、MTP 强制关）、再建 actor（`TrainingWorker(config)` → `engine.initialize()` 建 FSDP 模型与优化器）、最后建 rollout 句柄——**server 模式下这里不启动 vLLM**，只是 `vLLMRollout` 对象记下 `replica_rank / rollout_rank`，真正的 server 由 `LLMServerManager` 在 `_setup` 的后半段起（第六章），起好后 `_ensure_server_handle()` 按名字（`vllm_<replica>` 前缀）找到它。
+`ActorRolloutRefWorker.init_model()`（`@register(ONE_TO_ALL)`，每个 worker 并行执行）：先建 ref（若有，配置从 actor 派生、MTP（multi-token prediction）强制关）、再建 actor（`TrainingWorker(config)` → `engine.initialize()` 建 FSDP 模型与优化器）、最后建 rollout 句柄——**server 模式下这里不启动 vLLM**，只是 `vLLMRollout` 对象记下 `replica_rank / rollout_rank`，真正的 server 由 `LLMServerManager` 在 `_setup` 的后半段起（第六章），起好后 `_ensure_server_handle()` 按名字（`vllm_<replica>` 前缀）找到它。
 
 ### 3. 三个 `@register` 方法与前六篇的对应
 
@@ -346,7 +424,7 @@ _update_actor(batch)
   → 收回 actor/* 指标（pg_loss、clip 比例、grad_norm、entropy）
 ```
 
-worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / GSPO / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
+worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / GSPO（Group Sequence Policy Optimization） / clip-cov / …）加 `rollout_correction` 的 IS（importance sampling）权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
 
 ### 3. 数据在哪
 
@@ -367,18 +445,18 @@ v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`�
   - 4 build_process_group(rollout) actor_wg.execute_checkpoint_engine("prepare") 拿 master 元数据 → 两侧 init_process_group
   - **5 ray.get(actor_wg.update_weights(mode=backend) + rollout.update_weights())**：训练侧 send_weights ∥ 推理侧 receive_weights
   - **6 execute_checkpoint_engine("finalize")**：两侧销毁临时进程组
-  - **7 resume_kv_cache_replicas(); resume_generation_replicas()**：恢复 KV、续接请求
+  - **7 resume_kv_cache_replicas(); resume_generation_replicas()**：恢复 KV（key-value）、续接请求
 
 第 5 步训练侧走 `ActorRolloutRefWorker.update_weights(mode != "naive")` 的分支：`delta_sharded` 把整个 `actor.engine` 交给引擎（它自己驱动 seed / steady 状态机与快照）；其他后端先 `get_per_tensor_param()` 拿生成器再 `checkpoint_engine.send_weights(generator)`。推理侧 `CheckpointEngineWorker.update_weights()` 在每个 rollout worker 上跑：`receive_weights()` 产出张量流 → `rollout.update_weights(流)` → IPC 进 vLLM——**最后一跳仍是第一章的 #7–#8**。
 
 ### 2. 三个引擎的形状
 
 - **NCCLCheckpointEngine（nccl_checkpoint_engine.py）**
-  - prepare()：rank 0 起 ZMQ pub 服务发元数据；build_topology：world = 1 + 推理总卡数；init_process_group：临时 NCCL 组
+  - prepare()：rank 0 起 ZMQ pub 服务发元数据；build_topology：world = 1 + 推理总卡数；init_process_group：临时 NCCL（NVIDIA Collective Communications Library）组
   - send_weights：split_weight_chunks 切大张量 → 双缓冲 bucket → BroadcastOperation（异步线程里 broadcast）→ 换缓冲
   - receive_weights：_receive_weight_chunks 收 bucket + 元数据 → merge_weight_chunks 拼回 → yield (name, tensor)
 - **NIXLCheckpointEngine / MooncakeCheckpointEngine**
-  - 同样的 send / receive 接口；传输换成注册显存 + RDMA 单边写；拓扑是环，成员表可动态改
+  - 同样的 send / receive 接口；传输换成注册显存 + RDMA（remote direct memory access）单边写；拓扑是环，成员表可动态改
 - **DeltaCheckpointEngine（delta_checkpoint_engine.py + delta_sync/）**
   - send_weights(engine)：首次 seed 走 engine.get_per_tensor_param 的全量；之后 engine.get_per_tensor_param_delta_shard → 稀疏 gather → bucket → 广播
   - receive：稀疏负载 → SGLang custom_weight_loader（delta_loader.apply_delta）原地覆盖
@@ -426,7 +504,7 @@ ReplayBufferAsync 覆盖：_stale_terminal_keys（drop）· _has_enough_samples�
 
 ### 1. slime：不做抽象
 
-slime v0.3.0（智谱，GLM 系列的 RL 框架）的 `train.py` 不到 200 行，主循环直白到可以整段读：
+slime v0.3.0（智谱，GLM（General Language Model）系列的 RL 框架）的 `train.py` 不到 200 行，主循环直白到可以整段读：
 
 ```python title="slime train.py 的主循环"
 pgs = create_placement_groups(args)                                   # rollout 与 actor 的 placement group（可共置可分离）
@@ -477,14 +555,14 @@ AReaL 的论点是：一旦接受异步，**系统与算法必须一起设计**�
 
 ### 3. OpenRLHF 的位置
 
-OpenRLHF（2023–2024）是最早把 Ray + vLLM 用于 RLHF 的开源实现：actor / critic / ref / RM 各一组 Ray actor，vLLM 引擎独立、用 NCCL 广播同步权重——verl 的角色划分、"vLLM 作为独立引擎 + 广播权重"的路径都能在它身上找到原型。它没有走到的是单控制器的分发抽象、共置的显存切换、异步的样本通路；2025 年后活跃度下降，v0.11 仍在维护但已不是新任务的默认选择。
+OpenRLHF（2023–2024）是最早把 Ray + vLLM 用于 RLHF（reinforcement learning from human feedback）的开源实现：actor / critic / ref / RM 各一组 Ray actor，vLLM 引擎独立、用 NCCL 广播同步权重——verl 的角色划分、"vLLM 作为独立引擎 + 广播权重"的路径都能在它身上找到原型。它没有走到的是单控制器的分发抽象、共置的显存切换、异步的样本通路；2025 年后活跃度下降，v0.11 仍在维护但已不是新任务的默认选择。
 
 ### 4. 哪些是必然、哪些是取舍
 
 把三个框架放在一起，这条链上**三家都有、写法趋同**的段落是这类系统的必然：
 
 - 推理引擎以服务形态存在、通过 sleep / release 让渡显存、通过 IPC / NCCL / RDMA 接收权重、按版本号标记样本；
-- 训练器导出 HF 命名的张量流（verl 与 slime 都经 Megatron-Bridge，AReaL 有自己的转换层）；
+- 训练器导出 HF（Hugging Face）命名的张量流（verl 与 slime 都经 Megatron-Bridge，AReaL 有自己的转换层）；
 - 样本经一个缓冲 / 队列解耦生产与消费，GRPO 以组为单位；
 - agent 逻辑是用户的一个函数 / 协程，框架只要一条轨迹。
 
@@ -499,7 +577,7 @@ OpenRLHF（2023–2024）是最早把 Ray + vLLM 用于 RLHF 的开源实现：a
 - 共置在代码里是 `create_colocated_worker_cls`：一个进程持有多个角色对象、`spawn` 拆成多个句柄；`ActorRolloutRefWorker` 三层（角色 / `TrainingWorker` / `BaseEngine`），RL 侧只调引擎的六七个方法。
 - rollout 是 `RolloutReplica`（等价一条 `vllm serve`）+ `vLLMHttpServer`（Ray actor 包 `AsyncLLM`）+ `LLMServerClient`（最空实例 + 粘性）；共置下 `vLLMColocateWorkerExtension` 在同卡的 vLLM 进程里接 IPC。
 - `_step_once` 九个阶段各一个 `marked_timer`；RL 算法全部在 `core_algos.py`；`_compute_advantage` 是 driver 上唯一碰张量的阶段。
-- checkpoint engine：naive 直接进程内；其他后端七步（abort → 建组 → send ∥ receive → finalize → 恢复 → resume）；三种引擎形状（NCCL 双缓冲广播、NIXL / Mooncake 环、delta 稀疏 gather）。
+- checkpoint engine：naive 直接进程内；其他后端七步（abort → 建组 → send ∥ receive → finalize → 恢复 → resume）；三种引擎形状（NCCL 双缓冲广播、NIXL（NVIDIA Inference Xfer Library） / Mooncake 环、delta 稀疏 gather）。
 - 样本通路：TransferQueue（元数据 + 存储）是同步与异步统一的解耦点；`ReplayBuffer.sample` 同一份代码两种节律；`refill_fn` 补发；`_reissue_inflight_prompts` 恢复。
 - 对照：slime 赌"少一层抽象"（只绑 Megatron + SGLang、参数透传），AReaL 赌"异步是主线"（准入控制 + decoupled PPO 默认）；三家趋同的段落（服务化推理引擎、HF 张量流、缓冲、agent 函数）是必然，不同的（抽象厚度、默认形态、控制点、修正默认、组合自由度）是取舍。
 
@@ -522,7 +600,7 @@ Table: verl 源码索引
 
 ### 3. 下一篇
 
-代码追完，剩下的是把前七篇变成决策与运维：给定模型、GPU 数与任务形态，按什么顺序推出系统形态、配比、两套并行配置、同步方式；跑起来后全步 MFU 怎么算、损失拆到哪几项；RL 状态的 checkpoint 除了训练状态还有什么；两次运行怎样对齐到 bitwise；以及那些只有 RL 系统才有的故障——跨引擎的 NCCL hang、同步中途的 OOM、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏——各自的信号与排查路径：
+代码追完，剩下的是把前七篇变成决策与运维：给定模型、GPU 数与任务形态，按什么顺序推出系统形态、配比、两套并行配置、同步方式；跑起来后全步 MFU（model FLOPs utilization）怎么算、损失拆到哪几项；RL 状态的 checkpoint 除了训练状态还有什么；两次运行怎样对齐到 bitwise；以及那些只有 RL 系统才有的故障——跨引擎的 NCCL hang、同步中途的 OOM（out of memory）、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏——各自的信号与排查路径：
 
 > **凌晨两点告警：reward 曲线从上升变成平台，步时间没变，没有报错。十分钟内你要判断是 staleness 涨了、是训推不一致、是某个沙箱池挂了导致 reward 全为零、还是权重同步漏了一部分参数。你需要的每一个信号，在开训前有没有采集？**
 
@@ -560,7 +638,7 @@ Table: verl 源码索引
 
    <details markdown="1"><summary>答案</summary>
 
-   abort（停调度）→ 建临时进程组 → send ∥ receive（双缓冲）→ finalize → 恢复调度器状态 → resume；NCCL 双缓冲广播适合固定集群同步形态；NIXL / Mooncake 环适合弹性、异构、跨机的分离形态；delta 稀疏 gather 适合大模型 / MoE 的增量同步。
+   abort（停调度）→ 建临时进程组 → send ∥ receive（双缓冲）→ finalize → 恢复调度器状态 → resume；NCCL 双缓冲广播适合固定集群同步形态；NIXL / Mooncake 环适合弹性、异构、跨机的分离形态；delta 稀疏 gather 适合大模型 / MoE（mixture of experts）的增量同步。
 
    </details>
 

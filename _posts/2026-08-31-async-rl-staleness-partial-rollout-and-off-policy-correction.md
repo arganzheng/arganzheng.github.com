@@ -10,15 +10,71 @@ updated: 2026-09-14
 
 第二篇的结论是异步把长尾吞掉、把一步的墙钟从 12 分钟压到 5 分钟。代价写得很轻："样本过期"。这一篇把这个代价展开——它其实是三个不同的东西，各有各的机制、各有各的信号，混在一起时 reward 曲线只会告诉你"变缓了"，不会告诉你为什么。
 
-第一个是 **staleness**：训练用第 $$t$$ 步的权重更新，样本由第 $$t - k$$ 步的权重生成，重要性比 $$\pi_\theta / \pi_{old}$$ 偏离 1，PPO 的 clip 开始大量触发；更隐蔽的是，**过期程度与回答长度相关**——长回答生成得慢、更容易过期——所以"丢弃过期样本"这个看似中性的策略会系统性地丢掉长回答，改变训练数据的长度分布。第二个是**训推不一致**：推理引擎（vLLM，可能 FP8，FlashInfer 的 attention，TP 的 all-reduce 顺序）算出的 $$\log \pi$$ 与训练器（FSDP，bf16，FlashAttention）算出的**本来就不同**，哪怕权重逐位相同；这个差在 dense 模型上每 token $$10^{-3}$$ 量级，在 MoE 上因为路由的不连续可以大一个数量级，8K token 的序列级比值会爆——它是一种与异步无关、但在异步里被放大的 off-policy。第三个是**缓冲区的淘汰规则**：DAPO 过滤掉全对 / 全错的组、失败的 rollout 被丢、过期的被 drop——每一条规则都在改变进入训练的样本分布，而它们的效果与前两者纠缠在一起。
+第一个是 **staleness**：训练用第 $$t$$ 步的权重更新，样本由第 $$t - k$$ 步的权重生成，重要性比 $$\pi_\theta / \pi_{old}$$ 偏离 1，PPO（Proximal Policy Optimization）的 clip 开始大量触发；更隐蔽的是，**过期程度与回答长度相关**——长回答生成得慢、更容易过期——所以"丢弃过期样本"这个看似中性的策略会系统性地丢掉长回答，改变训练数据的长度分布。第二个是**训推不一致**：推理引擎（vLLM，可能 FP8，FlashInfer 的 attention，TP（tensor parallelism）的 all-reduce 顺序）算出的 $$\log \pi$$ 与训练器（FSDP（Fully Sharded Data Parallel），bf16，FlashAttention）算出的**本来就不同**，哪怕权重逐位相同；这个差在 dense 模型上每 token $$10^{-3}$$ 量级，在 MoE（mixture of experts）上因为路由的不连续可以大一个数量级，8K token 的序列级比值会爆——它是一种与异步无关、但在异步里被放大的 off-policy。第三个是**缓冲区的淘汰规则**：DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization）过滤掉全对 / 全错的组、失败的 rollout 被丢、过期的被 drop——每一条规则都在改变进入训练的样本分布，而它们的效果与前两者纠缠在一起。
 
-要区分三者，靠的不是事后分析而是**事前记录**：每条样本的生成版本与训练版本的差（staleness 分布）、推理侧与训练侧 $$\log \pi$$ 的逐 token 差（不一致的量）、每一类淘汰的计数与被淘汰样本的长度分布（缓冲的偏置）。这一篇把这三条线各自的机制、代价、修正与信号讲清楚，然后落到 verl 的 `colocate_async` / `separate_async` 里它们实现在哪，末尾用 AReaL 的设计作对照——它从第一天起就是异步的，把这些问题当主线而不是补丁。
+要区分三者，靠的不是事后分析而是**事前记录**：每条样本的生成版本与训练版本的差（staleness 分布）、推理侧与训练侧 $$\log \pi$$ 的逐 token 差（不一致的量）、每一类淘汰的计数与被淘汰样本的长度分布（缓冲的偏置）。这一篇把这三条线各自的机制、代价、修正与信号讲清楚，然后落到 verl（Volcano Engine Reinforcement Learning for LLMs）的 `colocate_async` / `separate_async` 里它们实现在哪，末尾用 AReaL 的设计作对照——它从第一天起就是异步的，把这些问题当主线而不是补丁。
 
 本篇的核心问题：
 
 > **从同步换成 $$k \le 2$$ 的异步，一步的墙钟从 12 分钟降到 5 分钟，但 reward 曲线的斜率变缓了。是 staleness、是训推不一致、还是缓冲区淘汰规则？[^q0] 要区分这三个原因，需要事前记录哪些信号？[^q1]**
 
 版本：verl v0.9.0（`verl/trainer/ppo/v1/replay_buffer.py`、`trainer_separate_async.py`、`docs/algo/rollout_corr.md`、`docs/advance/fully_async.md`）、AReaL（Fu 等 2025，arXiv 2505.24298，及当前文档）。算法层面只讨论"系统要为修正提供什么"，不评价各修正对效果的优劣——那是[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)系列的事。
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| reward | — | 奖励，给 rollout 打的分 |
+| staleness | — | 生成样本的策略比当前策略落后几个版本 |
+| PPO | Proximal Policy Optimization | 近端策略优化：用 clip 限制每步更新幅度 |
+| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
+| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
+| FlashInfer | — | LLM 推理用的 attention 与采样 kernel 库 |
+| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
+| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
+| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
+| FlashAttention | — | 分块计算、不写出注意力矩阵的 attention kernel |
+| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
+| off-policy | — | 样本不是由当前策略生成的 |
+| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样 |
+| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
+| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
+| AReaL | — | 蚂蚁与清华开源的完全异步 RL 训练系统 |
+| TIS | truncated importance sampling | 截断重要性采样：权重超过上限就截到上限 |
+| MIS | masked importance sampling | 屏蔽式重要性采样：权重越界的 token 直接不算梯度 |
+| FP16 | 16-bit floating point | 半精度浮点，尾数比 BF16 多 |
+| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
+| logprob | — | token 的对数概率 |
+| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
+| decoupled PPO | — | 把采样策略与近端锚点分开的 PPO 变体 |
+| abort | — | 中止进行中的生成请求 |
+| mini-batch | — | 一次优化器更新用的那批样本 |
+| AIME | American Invitational Mathematics Examination | 美国数学邀请赛，常用的推理评测集 |
+| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
+| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
+| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
+| EFLOP | exa floating point operations | 10^18 次浮点运算 |
+| compute-bound | — | 瓶颈在算力 |
+| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
+| KL | Kullback–Leibler | KL 散度，衡量两个分布差多远 |
+| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
+| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的总线 |
+| GEMM | general matrix multiply | 通用矩阵乘，训练算力的主体 |
+| IS | importance sampling | 重要性采样：用两个分布的概率比修正样本 |
+| CI | continuous integration | 持续集成，每次提交自动跑测试 |
+| decode | — | 逐 token 生成的阶段，memory-bound |
+| replay buffer | — | 存放已生成样本、供训练取用的缓冲区 |
+| TransferQueue | — | verl 的样本传输队列，数据不经单控制器 |
+| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
+| NO-OP | no operation | 空操作 |
+| micro-batch | — | 一次前向反向处理的那批样本 |
+| DP | data parallelism | 数据并行：每份副本处理不同数据 |
+| actor | — | 被训练的策略模型 |
+| checkpoint | — | 保存下来的模型权重与训练状态 |
+| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
+| LLM | large language model | 大语言模型 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -51,7 +107,7 @@ Table: off-policy 的三个原因、要记的信号与处理
 
 ### 2. off-policy 的三个来源
 
-在线 RL 假设训练的样本来自当前策略。异步系统里有三处偏离：
+在线 RL（reinforcement learning）假设训练的样本来自当前策略。异步系统里有三处偏离：
 
 | 来源 | 偏离的方向 | 大小 | 是否可控 |
 |---|---|---|---|
@@ -118,7 +174,7 @@ $$s_i$$ 里的 $$\tau_i$$ 是生成用时，与回答长度成正比。同步间
 公开的消融：
 
 - **AReaL 论文**：不做算法修正时，staleness 从 0 增到 4–8，数学任务的最终准确率明显下降；加 decoupled PPO loss 后 staleness 到 4 基本无损、8 略降。系统侧 staleness 4–8 已经足够让 rollout 与训练完全重叠（论文报告同等卡数下相对同步系统最高 2.77 倍的训练加速，1.5B–14B 的数学任务）。
-- **verl `fully_async` 文档**（7B、128 卡、DAPO）：`staleness_threshold` 0 / 0.1 / 0.3 / 0.5 四档的 400 步总时间 25.9 / 20.0 / 17.3 / 17.4 小时，AIME 准确率 0.26 / 0.30 / 0.29 / 0.31——0.3 与 0.5 时间几乎一样，作者注明"回答长度在训练中变化显著导致不稳定，需要进一步分析"。
+- **verl `fully_async` 文档**（7B、128 卡、DAPO）：`staleness_threshold` 0 / 0.1 / 0.3 / 0.5 四档的 400 步总时间 25.9 / 20.0 / 17.3 / 17.4 小时，AIME（American Invitational Mathematics Examination）准确率 0.26 / 0.30 / 0.29 / 0.31——0.3 与 0.5 时间几乎一样，作者注明"回答长度在训练中变化显著导致不稳定，需要进一步分析"。
 - 一步流水（$$s \equiv 1$$）在多数报告里与同步无差别。
 
 结论是 $$s \le 2$$–4 配合修正基本安全，再往上收益递减（时间上）而风险递增（效果上）。但这些都是数学任务上的结论，**换任务要重验**——Agent 任务的轨迹更长、reward 更稀疏，对 staleness 的容忍度不同。
@@ -144,13 +200,13 @@ Kimi k1.5 的报告（Kimi Team 2025）最早把它写清楚：每一轮 rollout
 
 ### 2. 代价一：重 prefill
 
-续接时，已生成的前缀在推理引擎里的 KV 是**旧权重**算的，不能用（权重换了、prefix cache 已清）。新请求要对"原 prompt + 已生成部分"重新 prefill：一条中断在 8K 处的序列，续接付 $$2N \times 8\text{K}$$ 的 prefill FLOP。一步里被中断的序列数 = 同步时刻的在飞序列数（8B 场景每实例 90 条 × 64 实例 ≈ 6000 条，平均已生成 4K）→ 约 $$2 \times 8 \times 10^9 \times 2.4 \times 10^7 = 0.4$$ EFLOP，是一步 FLOP 的 6%。prefill 是 compute-bound、MFU 高，时间上几秒到十几秒——**不大，但每次同步都付**，同步越频繁付得越多。这是"同步频率不能无限调细"的第二个原因（第一个是同步本身的空转，第四篇第八章）。
+续接时，已生成的前缀在推理引擎里的 KV（key-value）是**旧权重**算的，不能用（权重换了、prefix cache 已清）。新请求要对"原 prompt + 已生成部分"重新 prefill：一条中断在 8K 处的序列，续接付 $$2N \times 8\text{K}$$ 的 prefill FLOP（floating point operation）。一步里被中断的序列数 = 同步时刻的在飞序列数（8B 场景每实例 90 条 × 64 实例 ≈ 6000 条，平均已生成 4K）→ 约 $$2 \times 8 \times 10^9 \times 2.4 \times 10^7 = 0.4$$ EFLOP（exa floating point operations），是一步 FLOP 的 6%。prefill 是 compute-bound、MFU（model FLOPs utilization）高，时间上几秒到十几秒——**不大，但每次同步都付**，同步越频繁付得越多。这是"同步频率不能无限调细"的第二个原因（第一个是同步本身的空转，第四篇第八章）。
 
 ### 3. 代价二：分段的 π_old
 
 一条序列的 token 来自不同版本的策略：前 8K 由 $$\theta_{t-3}$$ 采样、接着 8K 由 $$\theta_{t-2}$$……PPO 的 $$\log \pi_{old}$$ 要**逐 token 记录**（推理引擎采样时顺手算的 logprob，各段来自各自的版本），不能用任何一个版本的前向重算——重算得到的是"$$\theta_{t-3}$$ 在整条序列上的 logprob"，与实际的采样分布不符。所以部分 rollout 几乎强制了"用推理侧 logprob 当 $$\pi_{old}$$"（verl 的 `use_rollout_log_probs` / `bypass_mode`），也就把训推不一致（第五章）直接放进了重要性比。
 
-存储开销：每 token 一个 fp32 的 logprob（4 字节）加一个版本号（1–2 字节），8K 序列 40 KB，一步几百 MB——可忽略。真正的开销在**语义**：优势函数、KL 项、长度归一化都要处理"一条序列里有几段不同 staleness"这件事。verl 的 `fully_async/partial/max_partial_span` 指标记的就是一个周期里被训练的部分 rollout 样本最大跨了几个版本。
+存储开销：每 token 一个 fp32 的 logprob（4 字节）加一个版本号（1–2 字节），8K 序列 40 KB，一步几百 MB——可忽略。真正的开销在**语义**：优势函数、KL（Kullback–Leibler）项、长度归一化都要处理"一条序列里有几段不同 staleness"这件事。verl 的 `fully_async/partial/max_partial_span` 指标记的就是一个周期里被训练的部分 rollout 样本最大跨了几个版本。
 
 ### 4. 代价三：中断本身
 
@@ -170,7 +226,7 @@ $$L = \mathbb{E}\left[\frac{\pi_{prox}(a)}{\pi_{behave}(a)} \cdot \min\left(\fra
 
 前一个比值是重要性权重（不求梯度），修正 staleness；后一个是 PPO 的信任域，围着一个**稳定的** $$\pi_{prox}$$ 而不是围着各条样本各自的 $$\pi_{behave}$$。系统要为它提供三份 logprob：$$\log \pi_{behave}$$（推理侧记录）、$$\log \pi_{prox}$$（训练器用快照前向）、$$\log \pi_\theta$$（训练时前向）——比同步 PPO 多一份。
 
-verl 的 `separate_async` trainer 实现了它，用的手段很直接（`trainer_separate_async.py` 的 `_compute_old_log_prob`）：一个同步周期有 $$k$$ 个 mini-batch，第一个 mini-batch 时把当前权重存到 CPU（`save_model_to_cpu(0)`）作为 $$\pi_{prox}$$；之后每个 mini-batch 先存当前权重、恢复快照 0、算 old_log_prob、再恢复当前——**每个 mini-batch 多两次权重的 CPU 往返**（32B 每次 66 GB，PCIe 几秒），换来周期内所有 mini-batch 用同一个 $$\pi_{prox}$$。`DetachActorWorker` 是为这个 CPU 快照能力换的 worker 类。第四篇提过增量同步可以直接对着这个快照做 diff，两个机制共用一份 CPU 副本。
+verl 的 `separate_async` trainer 实现了它，用的手段很直接（`trainer_separate_async.py` 的 `_compute_old_log_prob`）：一个同步周期有 $$k$$ 个 mini-batch，第一个 mini-batch 时把当前权重存到 CPU（`save_model_to_cpu(0)`）作为 $$\pi_{prox}$$；之后每个 mini-batch 先存当前权重、恢复快照 0、算 old_log_prob、再恢复当前——**每个 mini-batch 多两次权重的 CPU 往返**（32B 每次 66 GB，PCIe（Peripheral Component Interconnect Express）几秒），换来周期内所有 mini-batch 用同一个 $$\pi_{prox}$$。`DetachActorWorker` 是为这个 CPU 快照能力换的 worker 类。第四篇提过增量同步可以直接对着这个快照做 diff，两个机制共用一份 CPU 副本。
 
 ### 3. 重算还是不重算
 
@@ -203,7 +259,7 @@ Table: 异步下 π_old 的三个选项
 
 Table: 来源
 
-前两项是 bf16 的固有噪声、无法消除、也基本无害（均值接近 0）。后三项是系统性偏差：FP8 让 $$\pi_{rollout}$$ 整体偏离；MoE 的路由翻转是**不连续**的——同一个 token 在两边可能走不同的专家，logprob 差不是小扰动而是"另一个分布的样本"。Liu、Li 等 2025 的分析（verl 的 rollout correction 文档引用的 "When Speed Kills Stability" 系列）把这归为"toxic tails"：极少数 token 的比值极端，主导了梯度。另一条线（Qi 等 2025，"Defeating the Training-Inference Mismatch via FP16"）指出 bf16 的 8 位尾数是主要来源，两侧都换 FP16 能把不一致降一个量级——代价是训练侧要处理 FP16 的溢出（loss scaling）。
+前两项是 bf16 的固有噪声、无法消除、也基本无害（均值接近 0）。后三项是系统性偏差：FP8 让 $$\pi_{rollout}$$ 整体偏离；MoE 的路由翻转是**不连续**的——同一个 token 在两边可能走不同的专家，logprob 差不是小扰动而是"另一个分布的样本"。Liu、Li 等 2025 的分析（verl 的 rollout correction 文档引用的 "When Speed Kills Stability" 系列）把这归为"toxic tails"：极少数 token 的比值极端，主导了梯度。另一条线（Qi 等 2025，"Defeating the Training-Inference Mismatch via FP16（16-bit floating point）"）指出 bf16 的 8 位尾数是主要来源，两侧都换 FP16 能把不一致降一个量级——代价是训练侧要处理 FP16 的溢出（loss scaling）。
 
 ### 2. 为什么它在同步形态下也在
 
@@ -220,13 +276,13 @@ Table: 来源
 
 ### 4. MoE 的特殊处理
 
-路由翻转让"逐 token 的比值"失去意义——两边走了不同的专家，比值不是 $$\pi_\theta / \pi_{old}$$ 而是两个不同函数的比。缓解的方向有三：**路由回放**（router replay：推理时记录每个 token 选中的专家，训练时强制走同样的专家——verl 0.9 的 CI 里有 "router-replay" 的测试项）；**推理侧确定性**（消掉并列翻转的随机部分，第八篇）；**屏蔽**（MIS 把翻转的 token 去掉，代价是丢 1–5% 的 token）。这也是第一篇 MoE 场景表里那行"MoE 的 decode 效率问题在别处"的另一半：MoE 在 RL 里的麻烦不只是 all-to-all，还有这层路由不一致。
+路由翻转让"逐 token 的比值"失去意义——两边走了不同的专家，比值不是 $$\pi_\theta / \pi_{old}$$ 而是两个不同函数的比。缓解的方向有三：**路由回放**（router replay：推理时记录每个 token 选中的专家，训练时强制走同样的专家——verl 0.9 的 CI（continuous integration）里有 "router-replay" 的测试项）；**推理侧确定性**（消掉并列翻转的随机部分，第八篇）；**屏蔽**（MIS 把翻转的 token 去掉，代价是丢 1–5% 的 token）。这也是第一篇 MoE 场景表里那行"MoE 的 decode 效率问题在别处"的另一半：MoE 在 RL 里的麻烦不只是 all-to-all，还有这层路由不一致。
 
 ## 六、样本缓冲
 
 ### 1. 结构
 
-异步系统的中心是一个样本缓冲（replay buffer / message queue）：推理侧完成一条进一条，训练侧取满一个 batch 训一次。verl v1 的 `ReplayBuffer` 建在 TransferQueue 上，键是 `{uid}_{session_id}_{index}`（prompt、GRPO 组内第几条、第几个输出），值是 token id / logprob / mask 等，**标签**（status、global_steps 等）单独存在元数据服务器上——训练器选样本只看标签，不搬数据。
+异步系统的中心是一个样本缓冲（replay buffer / message queue）：推理侧完成一条进一条，训练侧取满一个 batch 训一次。verl v1 的 `ReplayBuffer` 建在 TransferQueue 上，键是 `{uid}_{session_id}_{index}`（prompt、GRPO（Group Relative Policy Optimization）组内第几条、第几个输出），值是 token id / logprob / mask 等，**标签**（status、global_steps 等）单独存在元数据服务器上——训练器选样本只看标签，不搬数据。
 
 GRPO 的组约束让缓冲以**组**为单位：一个 prompt 的 $$G$$ 条要全部完成（`finished`）或有失败（`failure`）才成为"终态组"，才能被取；组内归一化的优势要 $$G$$ 条齐了才能算。所以缓冲的深度按组数计，一个组的完成时间由它最慢的那条决定——**组内的长尾**是异步吞不掉的（它比批的长尾小得多：$$G = 16$$ 条里最长的 vs 8192 条里最长的）。
 
@@ -255,7 +311,7 @@ Table: 淘汰矩阵
 
 ### 5. 变长 global batch
 
-同步形态下一步的 batch 是固定的 $$B \times G$$ 条；异步下取满 $$B$$ 个终态组就走，但组的**token 数**差别很大（都是短回答的组 vs 都打满 $$L_{max}$$ 的组）。训练侧按 token 数打包 micro-batch（verl 的 `use_dynamic_bsz`、`ppo_max_token_len_per_gpu`），一个 mini-batch 的训练时间随 token 数波动——这让"同步间隔 $$T_{sync}$$"本身也是波动的，反过来影响 staleness 的分布。`_balance_batch` 在 DP rank 之间按序列长度均衡，避免一个 rank 拿到全部长回答。
+同步形态下一步的 batch 是固定的 $$B \times G$$ 条；异步下取满 $$B$$ 个终态组就走，但组的**token 数**差别很大（都是短回答的组 vs 都打满 $$L_{max}$$ 的组）。训练侧按 token 数打包 micro-batch（verl 的 `use_dynamic_bsz`、`ppo_max_token_len_per_gpu`），一个 mini-batch 的训练时间随 token 数波动——这让"同步间隔 $$T_{sync}$$"本身也是波动的，反过来影响 staleness 的分布。`_balance_batch` 在 DP（data parallelism） rank 之间按序列长度均衡，避免一个 rank 拿到全部长回答。
 
 ## 七、异步下的权重同步
 
@@ -394,7 +450,7 @@ slime 的 `train_async.py` 与 `fully_async_rollout.py` 是"一步流水 + 流�
 
 ### 3. 下一篇
 
-本篇的长尾来自回答长度的方差；下一篇的长尾来自**环境**。多轮 Agent 训练里一条轨迹是模型与工具交替几十轮，其中八成 token 是环境返回的，一轮工具调用几毫秒到几分钟，几千个沙箱容器同时在跑测试——rollout 不再是"推理引擎批量生成"，而是一个由 LLM 服务、工具网关、沙箱集群、reward 服务组成的分布式系统，异步在这里从优化变成必需，部分 rollout 的边界只能落在轮与轮之间：
+本篇的长尾来自回答长度的方差；下一篇的长尾来自**环境**。多轮 Agent 训练里一条轨迹是模型与工具交替几十轮，其中八成 token 是环境返回的，一轮工具调用几毫秒到几分钟，几千个沙箱容器同时在跑测试——rollout 不再是"推理引擎批量生成"，而是一个由 LLM（large language model）服务、工具网关、沙箱集群、reward 服务组成的分布式系统，异步在这里从优化变成必需，部分 rollout 的边界只能落在轮与轮之间：
 
 > **500 个代码任务 × $$G = 8$$ × 20 轮，每轮跑一次几十秒的测试。一步 rollout 要多少次容器执行、多少 CPU·小时、并发多少个沙箱才能在 30 分钟内完成？GPU 这一侧在这 30 分钟里做了什么？**
 

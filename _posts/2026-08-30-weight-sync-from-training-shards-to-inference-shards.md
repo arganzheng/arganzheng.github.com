@@ -8,23 +8,99 @@ catalog: true
 updated: 2026-09-14
 ---
 
-每一步训练结束，优化器改完了参数，推理引擎里的那份权重就旧了。把新权重送过去听起来是一次拷贝——8B 模型 16 GB，NVLink 一秒、InfiniBand 几秒。但两边的权重**不是同一个形状的东西**：训练器里它是 FSDP 按第 0 维切成 64 份的 DTensor，或者 Megatron 的 TP = 4 × PP = 2 × EP = 8 分片，QKV 三个矩阵融合成一个、专家堆叠成一个大张量、名字是 `decoder.layers.3.self_attention.linear_qkv.weight`；推理引擎里它是 vLLM 按 TP = 8 切的列、专家按 EP = 4 分组、可能是 FP8 加一组 128 × 128 的块缩放、名字是 `model.layers.3.self_attn.qkv_proj.weight`。所以"同步"是两件事：**布局**（怎样从一种切法映射到另一种）和**传输**（字节从哪张卡到哪张卡、走哪条链路）。前者决定要不要在中间过一遍"完整张量"、由谁过；后者决定秒数。
+每一步训练结束，优化器改完了参数，推理引擎里的那份权重就旧了。把新权重送过去听起来是一次拷贝——8B 模型 16 GB，NVLink 一秒、InfiniBand 几秒。但两边的权重**不是同一个形状的东西**：训练器里它是 FSDP（Fully Sharded Data Parallel）按第 0 维切成 64 份的 DTensor，或者 Megatron 的 TP（tensor parallelism） = 4 × PP = 2 × EP = 8 分片，QKV 三个矩阵融合成一个、专家堆叠成一个大张量、名字是 `decoder.layers.3.self_attention.linear_qkv.weight`；推理引擎里它是 vLLM 按 TP = 8 切的列、专家按 EP = 4 分组、可能是 FP8（8-bit floating point）加一组 128 × 128 的块缩放、名字是 `model.layers.3.self_attn.qkv_proj.weight`。所以"同步"是两件事：**布局**（怎样从一种切法映射到另一种）和**传输**（字节从哪张卡到哪张卡、走哪条链路）。前者决定要不要在中间过一遍"完整张量"、由谁过；后者决定秒数。
 
-秒数的量级：8B 在 NVLink 内不到一秒、跨机几秒；32B 跨机十几秒；235B 的 MoE 用最朴素的做法——每个参数 all-gather 成完整张量、rank 0 广播——要**四分多钟**，而用 verl 0.9 的增量同步（每个训练 rank 只对自己那片分片做字节 diff、只传变化的位置）是 **12–15 秒**，且从 32B 到 235B 几乎不随模型变大而变长。差二十倍的不是链路带宽，是"谁持有完整张量"这个设计决定。
+秒数的量级：8B 在 NVLink 内不到一秒、跨机几秒；32B 跨机十几秒；235B 的 MoE（mixture of experts）用最朴素的做法——每个参数 all-gather 成完整张量、rank 0 广播——要**四分多钟**，而用 verl（Volcano Engine Reinforcement Learning for LLMs） 0.9 的增量同步（每个训练 rank 只对自己那片分片做字节 diff、只传变化的位置）是 **12–15 秒**，且从 32B 到 235B 几乎不随模型变大而变长。差二十倍的不是链路带宽，是"谁持有完整张量"这个设计决定。
 
-这一篇把同步拆成布局与传输两半，各自把步骤、字节数、时间算清楚：布局一侧讲名字与形状的映射（Megatron-Bridge 做的事）、FSDP 与 Megatron 各自导出的形态、为什么"先 all-gather 再广播"在大模型上不可行；传输一侧讲 CUDA IPC、NCCL 广播、NIXL / Mooncake 的 RDMA 点对点、经 CPU 或磁盘中转的 checkpoint 路径，以及分桶与流水；然后是两个把字节数压下去的手段——量化传输与增量同步；最后是正确性：同步中途推理引擎能不能生成、哪些"权重之外的权重"会漏。
+这一篇把同步拆成布局与传输两半，各自把步骤、字节数、时间算清楚：布局一侧讲名字与形状的映射（Megatron-Bridge 做的事）、FSDP 与 Megatron 各自导出的形态、为什么"先 all-gather 再广播"在大模型上不可行；传输一侧讲 CUDA IPC（inter-process communication）、NCCL（NVIDIA Collective Communications Library）广播、NIXL / Mooncake 的 RDMA 点对点、经 CPU 或磁盘中转的 checkpoint 路径，以及分桶与流水；然后是两个把字节数压下去的手段——量化传输与增量同步；最后是正确性：同步中途推理引擎能不能生成、哪些"权重之外的权重"会漏。
 
 本篇的核心问题：
 
 > **训练器是 Megatron TP=4、PP=2、EP=8 的 671B MoE，推理引擎是 vLLM TP=8、EP=4 的 FP8 副本，两边在不同机器。一次同步要做哪几步映射、传多少字节、走哪条链路、至少几秒？[^q0] 增量同步能省多少？[^q1]**
 
-版本：verl v0.9.0（`verl/checkpoint_engine/`、`verl/workers/rollout/vllm_rollout/`、`docs/advance/delta_weight_sync.md`）、vLLM v0.27.1、Megatron Core 0.18 与 Megatron-Bridge。带宽按 H100 节点：NVLink 450 GB/s 单向、每卡一张 400 Gb/s ConnectX-7（50 GB/s）、PCIe pinned 25 GB/s。
+版本：verl v0.9.0（`verl/checkpoint_engine/`、`verl/workers/rollout/vllm_rollout/`、`docs/advance/delta_weight_sync.md`）、vLLM v0.27.1、Megatron Core 0.18 与 Megatron-Bridge。带宽按 H100 节点：NVLink 450 GB/s 单向、每卡一张 400 Gb/s ConnectX-7（50 GB/s）、PCIe（Peripheral Component Interconnect Express） pinned 25 GB/s。
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
+| InfiniBand | — | 机间高速网络，支持 RDMA |
+| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
+| DTensor | distributed tensor | PyTorch 的分布式张量，带着自己的分片布局 |
+| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
+| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
+| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
+| EP | expert parallelism | 专家并行：MoE 的专家分到不同卡 |
+| QKV | query, key, value | 注意力的三个投影，常合并成一个矩阵 |
+| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
+| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
+| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
+| all-gather | — | 每张卡把各自的分片收齐，得到完整张量 |
+| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
+| IPC | inter-process communication | 进程间通信；CUDA IPC 让别的进程直接映射这块显存 |
+| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
+| NIXL | NVIDIA Inference Xfer Library | NVIDIA 面向推理的点对点数据传输库 |
+| Mooncake | — | Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重 |
+| RDMA | remote direct memory access | 远程直接内存访问，跨机传输不经过 CPU |
+| checkpoint | — | 保存下来的模型权重与训练状态 |
+| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
+| ConnectX-7 | — | NVIDIA 的 400 Gb/s 网卡 |
+| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的总线 |
+| MLA | Multi-head Latent Attention | DeepSeek 的注意力，把 KV 压成一个低秩向量 |
+| DP | data parallelism | 数据并行：每份副本处理不同数据 |
+| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
+| HF | Hugging Face | 模型托管平台；HF 格式指 transformers 的权重命名 |
+| IB | InfiniBand | 机间高速网络，支持 RDMA |
+| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
+| VeOmni | — | 字节开源的模型训练框架，verl 的训练后端之一 |
+| TRT-LLM | TensorRT-LLM | NVIDIA 的 LLM 推理引擎 |
+| bucket | — | 把多个张量打包成一块连续缓冲再传 |
+| MXFP4 | microscaling FP4 | 按小块共享缩放因子的 4 位浮点格式 |
+| GEMM | general matrix multiply | 通用矩阵乘，训练算力的主体 |
+| GroupedGEMM | grouped GEMM | 一次 kernel 算多组矩阵乘，MoE 专家用 |
+| FusedMoE | — | vLLM 把路由与专家计算融合在一起的 MoE 层 |
+| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
+| decode | — | 逐 token 生成的阶段，memory-bound |
+| MLP | multi-layer perceptron | 多层感知机，Transformer 层里的前馈网络 |
+| FSDP2 | — | PyTorch 第二代 FSDP，每个参数用 DTensor 分片 |
+| FSDP1 | — | PyTorch 第一代 FSDP，把参数拼成扁平大张量再切 |
+| LoRA | Low-Rank Adaptation | 只训练低秩增量矩阵的参数高效微调 |
+| HCCL | Huawei Collective Communication Library | 华为昇腾的集合通信库 |
+| UCX | Unified Communication X | 统一的高性能通信框架，支持 RDMA |
+| UCCL | — | 伯克利开源的 GPU 通信库，覆盖集合通信、P2P 与 EP |
+| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
+| P2P | peer-to-peer | 点对点传输 |
+| offload | — | 把参数或优化器状态挪到 CPU 内存 |
+| ZMQ | ZeroMQ | 轻量消息库，常用来在进程间传控制消息 |
+| abort | — | 中止进行中的生成请求 |
+| SM | streaming multiprocessor | GPU 的流式多处理器 |
+| H20 | — | NVIDIA 面向中国市场的 Hopper 卡，算力低、显存大 |
+| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
+| NaN | not a number | 非数值，数值溢出或 0/0 的结果 |
+| GSM8K | Grade School Math 8K | 约 8.5K 道小学数学应用题的数据集 |
+| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
+| reward | — | 奖励，给 rollout 打的分 |
+| decoupled PPO | — | 把采样策略与近端锚点分开的 PPO 变体 |
+| PPO | Proximal Policy Optimization | 近端策略优化：用 clip 限制每步更新幅度 |
+| mini-batch | — | 一次优化器更新用的那批样本 |
+| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
+| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
+| MTP | multi-token prediction | 多 token 预测；推理时可当投机解码的草稿头 |
+| actor | — | 被训练的策略模型 |
+| RoPE | rotary position embedding | 旋转位置编码 |
+| staleness | — | 生成样本的策略比当前策略落后几个版本 |
+| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
+| off-policy | — | 样本不是由当前策略生成的 |
+
+Table: 本文用到的术语与缩写
 
 ## 一、总览
 
 ### 1. 671B 训练分片到 FP8 推理副本：一次同步几步、几秒
 
-671B MoE（DeepSeek-V3 规格：61 层、每层 256 个路由专家 + 1 个共享专家、MLA 注意力），训练器 Megatron TP = 4 × PP = 2 × EP = 8（64 卡一个副本，DP 再往外扩），推理引擎 vLLM TP = 8 × EP = 4 的 FP8 副本（32 卡一个实例），两边在不同机器，一次同步：
+671B MoE（DeepSeek-V3 规格：61 层、每层 256 个路由专家 + 1 个共享专家、MLA（Multi-head Latent Attention）注意力），训练器 Megatron TP = 4 × PP = 2 × EP = 8（64 卡一个副本，DP（data parallelism）再往外扩），推理引擎 vLLM TP = 8 × EP = 4 的 FP8 副本（32 卡一个实例），两边在不同机器，一次同步：
 
 | 步骤 | 在哪做 | 字节（全模型） | 说明 |
 |---|---|---|---|
@@ -59,7 +135,7 @@ Table: 一次权重同步的账
 
 Table: 权重同步的两半问题：布局与传输
 
-两半之间的接口是一个**流**：`(name, tensor)` 的生成器，名字是 HF 命名、张量是完整形状（或 delta 的稀疏表示），dtype 是推理侧要的。checkpoint engine 只管把这个流分桶送到对面，不知道 FSDP 还是 Megatron；引擎后端只管产出这个流，不知道对面是 vLLM 还是 SGLang。这层分工让 verl 能用同一套传输代码服务 FSDP / Megatron / VeOmni 三种训练后端与 vLLM / SGLang / TRT-LLM 三种推理后端。
+两半之间的接口是一个**流**：`(name, tensor)` 的生成器，名字是 HF（Hugging Face）命名、张量是完整形状（或 delta 的稀疏表示），dtype 是推理侧要的。checkpoint engine 只管把这个流分桶送到对面，不知道 FSDP 还是 Megatron；引擎后端只管产出这个流，不知道对面是 vLLM 还是 SGLang。这层分工让 verl 能用同一套传输代码服务 FSDP / Megatron / VeOmni 三种训练后端与 vLLM / SGLang / TRT-LLM（TensorRT-LLM）三种推理后端。
 
 ### 3. 本文的章节安排
 
@@ -94,7 +170,7 @@ model.layers.3.mlp.experts.17.down_proj.weight decoder.layers.3.mlp.experts.line
                                                 （或 GroupedGEMM 的堆叠张量 [E_local, ...]）          （堆叠成 [E, ...] 的一个大张量）
 ```
 
-三点差别：**融合**（Megatron 把 QKV、gate/up 融合成一个 GEMM，且 QKV 的融合是按注意力组**交错**的，不是顺序拼接——拆开时要按 `num_query_groups` 重排）；**专家堆叠**（Megatron 的 GroupedGEMM 与 vLLM 的 FusedMoE 都把本地专家堆成一个张量，但堆的是各自 EP 分组下的本地专家、顺序与编号不同）；**dtype 与量化布局**（推理侧 FP8 的 `weight_scale_inv`、MXFP4 的 `weight_scale` 是训练侧没有的张量）。
+三点差别：**融合**（Megatron 把 QKV、gate/up 融合成一个 GEMM（general matrix multiply），且 QKV 的融合是按注意力组**交错**的，不是顺序拼接——拆开时要按 `num_query_groups` 重排）；**专家堆叠**（Megatron 的 GroupedGEMM（grouped GEMM）与 vLLM 的 FusedMoE 都把本地专家堆成一个张量，但堆的是各自 EP 分组下的本地专家、顺序与编号不同）；**dtype 与量化布局**（推理侧 FP8 的 `weight_scale_inv`、MXFP4（microscaling FP4）的 `weight_scale` 是训练侧没有的张量）。
 
 所有映射都以 **HF 命名 + HF 形状**为中间语言：训练侧把自己的分片翻译成 HF 张量流，推理侧的 `load_weights()` 本来就会读 HF checkpoint、自带 HF → 内部的映射（vLLM 每个模型类里的 `stacked_params_mapping`）。于是训练侧只需要做"mcore → HF"这半程。
 
@@ -115,7 +191,7 @@ Table: Megatron-Bridge 映射表的映射类型
 
 最后一行是布局问题里最容易错的地方：Megatron 的 TP 切法与 HF 的拆法**维度不同**——QKV 融合矩阵按 TP 切的是"每个 rank 拿几个注意力组"，HF 拆的是"Q / K / V 三块"，两种切法交叉，必须先 gather 成完整再拆。所以 Megatron 一侧导出完整 HF 张量的最小单位是"一个参数在 TP 组内 all-gather 一次"。
 
-verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering TP+EP and hybrid-Mamba"——映射表要覆盖到 TP 与 EP 的组合与新的层类型，每种新模型都要补这张表，这是接一个新模型进 RL 训练时最常见的工作量。
+verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering TP+EP and hybrid-Mamba"——映射表要覆盖到 TP 与 EP 的组合与新的层类型，每种新模型都要补这张表，这是接一个新模型进 RL（reinforcement learning）训练时最常见的工作量。
 
 ### 3. MoE 与 MLA 的特殊之处
 
@@ -123,7 +199,7 @@ verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering T
 
 **MLA**：DeepSeek 的注意力把 K / V 压成一个低秩的 `kv_a_proj`（$$d_c = 512$$）加 `kv_b_proj`，Q 也有 `q_a / q_b` 两段；vLLM 为了 decode 效率会把 `kv_b_proj` 吸收进 Q / O 投影（weight absorption），这是加载时做的**推理侧变换**——权重同步只需送 HF 形状的 `kv_b_proj`，vLLM 自己重新吸收。但这意味着 `load_weights` 之后有一段推理侧的计算，且吸收后的张量不在 HF 命名里、每次同步都要重算。
 
-**共享专家与 dense 层**：DeepSeek-V3 前 3 层是 dense MLP、每层有 1 个共享专家，这些走注意力 / dense 层的 TP 路径。同一个模型里两条路径并存，映射表要分别覆盖。
+**共享专家与 dense 层**：DeepSeek-V3 前 3 层是 dense MLP（multi-layer perceptron）、每层有 1 个共享专家，这些走注意力 / dense 层的 TP 路径。同一个模型里两条路径并存，映射表要分别覆盖。
 
 ## 三、布局之二：从分片到完整再到分片
 
@@ -131,7 +207,7 @@ verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering T
 
 训练侧的切法（FSDP 的 `Shard(0)`、Megatron 的 TP 列 / 行）与推理侧的切法（vLLM 的 TP 按头 / 列）不一致，且中间要拆融合、要重排；最简单的做法是训练侧 gather 成完整 HF 张量，推理侧按自己的规则切。**"完整"只是逐参数的**——一次只有一个参数是完整的，流式处理——但它决定了两件事：
 
-- 通信量：训练侧 all-gather 每个参数一次，总量 = 全模型字节（每 rank 接收 $$(1 - 1/tp)$$ 份）。8B 16 GB 在 NVLink 内可忽略；671B bf16 1.34 TB 是 3 秒以上的纯 NVLink 时间，且 TP 组跨节点时走 IB 更慢。
+- 通信量：训练侧 all-gather 每个参数一次，总量 = 全模型字节（每 rank 接收 $$(1 - 1/tp)$$ 份）。8B 16 GB 在 NVLink 内可忽略；671B bf16（bfloat16） 1.34 TB 是 3 秒以上的纯 NVLink 时间，且 TP 组跨节点时走 IB（InfiniBand）更慢。
 - 谁持有它：如果所有训练 rank 都 gather（FSDP 的 `full_tensor()` 就是这样：每个 rank 都得到完整张量），然后只有 rank 0 发送，其余 rank 的 gather 白做；如果只有 rank 0 gather，其他 rank 要把分片发给它——都是"全模型经过一个点"。
 
 ### 2. FSDP 的导出
@@ -148,7 +224,7 @@ per_tensor_param = (
 per_tensor_param = unfuse_moe_params(per_tensor_param, model_type)   # 融合的专家 → 逐专家
 ```
 
-三个细节：FSDP2 的 `state_dict()` 只拿引用、`full_tensor()` 时才 all-gather，所以峰值是一个参数；FSDP1 要先 `load_fsdp_model_to_gpu` 把整个分片搬上卡再 unshard（0.9 为 FSDP2 跳过了这一步，release note 里的 "skips the whole-shard staging round trip"）；LoRA 有两条路——`merge=True` 时先把 adapter 合进 base 再导出完整权重，`merge=False` 时只导 adapter、推理侧当 LoRA 加载（每步传的字节从 2N 降到 adapter 的几十 MB，第七章）。
+三个细节：FSDP2 的 `state_dict()` 只拿引用、`full_tensor()` 时才 all-gather，所以峰值是一个参数；FSDP1 要先 `load_fsdp_model_to_gpu` 把整个分片搬上卡再 unshard（0.9 为 FSDP2 跳过了这一步，release note 里的 "skips the whole-shard staging round trip"）；LoRA（Low-Rank Adaptation）有两条路——`merge=True` 时先把 adapter 合进 base 再导出完整权重，`merge=False` 时只导 adapter、推理侧当 LoRA 加载（每步传的字节从 2N 降到 adapter 的几十 MB，第七章）。
 
 FSDP 的分片是"每个参数沿第 0 维切 $$n$$ 份"，与 HF 形状只差一次 concat，**没有 Megatron 那种融合 / 交错问题**——这是 FSDP 后端在权重同步上简单得多的原因，也是 `delta_sharded` 先只支持 FSDP 的原因（第七章）。
 
@@ -190,26 +266,26 @@ Table: 五条链路
 
 ### 2. CUDA IPC（同卡）
 
-共置的路径，第三篇讲过：完整张量装进 512 MB 的 bucket，bucket 的 CUDA IPC handle 经 ZMQ 发给同一张卡上的推理 worker 进程，worker 打开 handle、切出张量、`load_weights`。不经网络、不经 CPU，带宽是显存带宽；峰值是两个 bucket。它也是**所有跨机方式的最后一跳**：跨机传到推理节点上的某个 rank 后，同节点其他推理 rank 拿数据仍走 IPC 或 NVLink。
+共置的路径，第三篇讲过：完整张量装进 512 MB 的 bucket，bucket 的 CUDA IPC handle 经 ZMQ（ZeroMQ）发给同一张卡上的推理 worker 进程，worker 打开 handle、切出张量、`load_weights`。不经网络、不经 CPU，带宽是显存带宽；峰值是两个 bucket。它也是**所有跨机方式的最后一跳**：跨机传到推理节点上的某个 rank 后，同节点其他推理 rank 拿数据仍走 IPC 或 NVLink。
 
 ### 3. NCCL 广播（一对多）
 
 训练 rank 0 建一个临时的 NCCL 进程组，成员是它自己加所有推理 rank（`build_topology`：world = 1 + 推理总卡数），逐 bucket `broadcast`。要点：
 
 - **进程组是临时的**：每次同步 `init_process_group` → 广播 → `finalize`；因为推理实例集合变了（弹性、故障）就要重建，NCCL 建组是秒级的固定开销；
-- **与训练 / 推理各自的 NCCL 通信不能撞**：训练器的 FSDP 进程组、推理引擎的 TP 进程组、同步用的广播组，三套通信器共存于同一批卡；同步时训练器空闲（它刚更新完）、推理侧被 abort（第九章），所以不会同时发 collective——但如果异步形态下推理引擎正在 decode（TP all-reduce 在跑）又收到广播，两套通信器在同一张卡上争 SM 与网卡，轻则慢、重则死锁（第八篇的 hang 一类）；
+- **与训练 / 推理各自的 NCCL 通信不能撞**：训练器的 FSDP 进程组、推理引擎的 TP 进程组、同步用的广播组，三套通信器共存于同一批卡；同步时训练器空闲（它刚更新完）、推理侧被 abort（第九章），所以不会同时发 collective——但如果异步形态下推理引擎正在 decode（TP all-reduce 在跑）又收到广播，两套通信器在同一张卡上争 SM（streaming multiprocessor）与网卡，轻则慢、重则死锁（第八篇的 hang 一类）；
 - **元数据走 ZMQ**：bucket 里有哪些张量、各自的 offset / shape / dtype，用 ZMQ pub-sub 单独发（`MasterMetadata`），NCCL 只传字节；
 - **`magic_recv` 缓冲**：0.9 修了一个"广播缓冲被复用导致权重损坏"的问题，加了独立的接收缓冲与广播完成后的 stream 同步——bucket 复用与异步 NCCL 之间的竞争是这条路径的典型 bug。
 
 ### 4. NIXL / Mooncake（点对点 + 环）
 
-NVIDIA 的 NIXL（Dynamo 项目的传输库，底层 UCX / UCCL / Mooncake）与 Mooncake Transfer Engine 提供 RDMA 的**单边写**：发送方把 bucket 直接写进接收方注册好的显存，不需要接收方参与 collective。verl 的两个引擎用它做"all-gather + 环形点对点"：训练 rank 0 gather 出 bucket → 写给第一个推理 rank → 它写给下一个 → 环。相比 NCCL 广播：
+NVIDIA 的 NIXL（Dynamo 项目的传输库，底层 UCX（Unified Communication X） / UCCL / Mooncake）与 Mooncake Transfer Engine 提供 RDMA 的**单边写**：发送方把 bucket 直接写进接收方注册好的显存，不需要接收方参与 collective。verl 的两个引擎用它做"all-gather + 环形点对点"：训练 rank 0 gather 出 bucket → 写给第一个推理 rank → 它写给下一个 → 环。相比 NCCL 广播：
 
 - **不需要进程组**：加减实例只是改环的成员表，适合弹性 rollout 与故障恢复（一个实例挂了，环绕过它）；
 - **异构**：训练侧 H100、推理侧 H20 或别的卡，只要 RDMA 可达；
 - **带宽相当**：基准里与 NCCL 打平（都被 rank 0 的出口限制）；真正的优势要多源发送才体现——每个训练 rank 直接写给需要它那片分片的推理 rank，MoE 的专家天然适合（第二章第 3 节）。
 
-MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 `kimi_ckpt_engine` 后端接的就是它）是这条路上做得最彻底的公开实现：训练侧先 offload 到 CPU pinned 内存，用 Mooncake 做 P2P 传到每个推理节点的一个 worker，再用 NCCL 在节点内广播；它的 README 给出的量级是 **1T 参数的模型在几千张 GPU 上约 20 秒**完成一次全量更新。设计要点是把"训练侧 offload"与"传输"流水化——训练器一边 offload 一边发，接收侧一边收一边加载——三段重叠。
+MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 `kimi_ckpt_engine` 后端接的就是它）是这条路上做得最彻底的公开实现：训练侧先 offload 到 CPU pinned 内存，用 Mooncake 做 P2P（peer-to-peer）传到每个推理节点的一个 worker，再用 NCCL 在节点内广播；它的 README 给出的量级是 **1T 参数的模型在几千张 GPU 上约 20 秒**完成一次全量更新。设计要点是把"训练侧 offload"与"传输"流水化——训练器一边 offload 一边发，接收侧一边收一边加载——三段重叠。
 
 ### 5. 经 checkpoint 中转
 
@@ -289,13 +365,13 @@ flowchart LR
 - **每个 rank 只管自己的分片**：在 pinned CPU 内存里存一份自己分片的快照，每步导出时按整数位比较（bit-exact，无阈值），得到变化的 `(position, value)`；位置换算成参数在 HF 完整张量里的绝对坐标（从 DTensor 的 spec 本地算出，不需要通信）。
 - **稀疏 gather 到 rank 0**：只传变化对，量按稀疏比缩；rank 0 只做拼接与分桶，不知道布局；`counts[K]` 对齐保证 gather 在各 rank 间步调一致。
 - **首次是全量种子**：第一次同步走普通的全量路径（values-only），同时建立快照；之后每步都是稀疏的。
-- **推理侧原地覆盖**：SGLang 的 `--custom-weight-loader` 钩子挂一个 verl 提供的 loader（`verl.workers.rollout.sglang_rollout.delta_loader.apply_delta`），校验每个 bucket 的校验和、把稀疏 delta 变成 NaN 掩码的稠密张量、只覆盖非 NaN 位置；接收侧峰值是一个 bucket，与模型大小无关。
+- **推理侧原地覆盖**：SGLang 的 `--custom-weight-loader` 钩子挂一个 verl 提供的 loader（`verl.workers.rollout.sglang_rollout.delta_loader.apply_delta`），校验每个 bucket 的校验和、把稀疏 delta 变成 NaN（not a number）掩码的稠密张量、只覆盖非 NaN 位置；接收侧峰值是一个 bucket，与模型大小无关。
 
 **没有任何 rank 持有完整模型**——全量 all-gather 与 rank 0 物化都消失了。这就是它在 0.5B 上也比全量快（1.3 倍）的原因：省的不只是字节。
 
 ### 3. 测量
 
-verl 文档（H100、GSM8K GRPO、v1 `separate_async`、SGLang、稳态每步同步）：
+verl 文档（H100、GSM8K（Grade School Math 8K） GRPO（Group Relative Policy Optimization）、v1 `separate_async`、SGLang、稳态每步同步）：
 
 | 模型（布局） | delta_sharded | 全量 NCCL | 提速 |
 |---|---|---|---|
@@ -314,7 +390,7 @@ Table: verl 文档中 delta_sharded 与全量 NCCL 的同步耗时
 
 当前范围：分离形态（`hybrid_engine=False`）、FSDP1 / FSDP2 训练侧（需要 `Shard(0)` 的 DTensor）、SGLang 推理侧 bf16。Megatron 训练侧在路线图上（mcore → HF 的转换器要改写成"按块可分"的形式，交错 QKV 与 gate/up 拼接是行 / 块置换、能改；TP 列切用 `BlockPlacement` 的 dim-1 偏移表达）；量化推理侧（对量化后的字节做 diff）也在路线图上。VeOmni 的 FSDP2 + EP 已支持（"EP-aware sharded delta export"）。
 
-增量同步与 decoupled PPO 有一个巧合的协同：后者本来就要保留上一步的权重（第五篇），diff 可以直接对着它做、省掉专用快照。
+增量同步与 decoupled PPO（Proximal Policy Optimization）有一个巧合的协同：后者本来就要保留上一步的权重（第五篇），diff 可以直接对着它做、省掉专用快照。
 
 ## 八、一次同步多少秒
 
@@ -358,7 +434,7 @@ $$T_{mb}$$ 是一个 mini-batch 的训练时间。$$k$$ 大同步少、staleness
 - **中断**（abort）：立刻中断在飞请求，保存已生成的 token 与状态，同步完成后用新权重续接——部分 rollout，verl 的 `abort_replicas → update_weights → resume_generation_replicas` 三步；续接时已生成的前缀要在新权重下**重新 prefill**（第三篇第六章）；
 - **双缓冲**：推理引擎持有两份权重，写新的时用旧的生成，写完切换——显存翻倍，只在小模型上可行；vLLM / SGLang 都没有内置。
 
-verl 的 `CheckpointEngineManager.update_weights()` 的完整顺序：abort 全部实例 → （可选）释放 KV 池 → 建进程组 → 训练侧 `send` 与推理侧 `receive` 并行 → finalize → 恢复 KV 池 → resume 被中断的请求。中间还有 `reset_prefix_cache(reset_connector=True)`——连外挂的 KV 存储（Mooncake store 一类 connector）也要清，因为里面的 KV 是旧权重算的。
+verl 的 `CheckpointEngineManager.update_weights()` 的完整顺序：abort 全部实例 → （可选）释放 KV（key-value）池 → 建进程组 → 训练侧 `send` 与推理侧 `receive` 并行 → finalize → 恢复 KV 池 → resume 被中断的请求。中间还有 `reset_prefix_cache(reset_connector=True)`——连外挂的 KV 存储（Mooncake store 一类 connector）也要清，因为里面的 KV 是旧权重算的。
 
 ### 2. 权重之外的权重
 
@@ -376,7 +452,7 @@ verl 的 `CheckpointEngineManager.update_weights()` 的完整顺序：abort 全�
 
 Table: 权重之外的权重
 
-0.9 的 release note 里 "reset all caches after weight updates"、"MTP drafter weights preserved"、"SGLang stays LoRA-free when merge=True" 三条 fix 都属于这一类。**同步的正确性检查**：slime 的 `--check-weight-update-equal` 在同步后把推理引擎的权重与训练器比一遍；verl 的 delta 引擎每个 bucket 带校验和；最朴素也最可靠的是同步后用固定 prompt 贪心生成几条、与训练器前向的 argmax 对比。
+0.9 的 release note 里 "reset all caches after weight updates"、"MTP（multi-token prediction） drafter weights preserved"、"SGLang stays LoRA-free when merge=True" 三条 fix 都属于这一类。**同步的正确性检查**：slime 的 `--check-weight-update-equal` 在同步后把推理引擎的权重与训练器比一遍；verl 的 delta 引擎每个 bucket 带校验和；最朴素也最可靠的是同步后用固定 prompt 贪心生成几条、与训练器前向的 argmax 对比。
 
 ### 3. 版本
 
