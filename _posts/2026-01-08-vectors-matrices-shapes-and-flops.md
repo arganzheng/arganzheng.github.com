@@ -93,7 +93,7 @@ Table: 标量、向量、矩阵、张量的维度与代码形状
 
 Table: 批量矩阵乘法的维度对应关系
 
-简单说：**对这类 `matmul`，最后两维负责矩阵乘法，前面的维度负责批次对应与广播。**如果要指定其他轴之间的对应关系或收缩求和，可以使用 `einsum`、`tensordot` 等运算（L1 第二篇第四章）。第五章第 1 节再展开批维度的账。
+简单说：**对这类 `matmul`，最后两维负责矩阵乘法，前面的维度负责批次对应与广播。**如果要指定其他轴之间的对应关系或收缩求和，可以使用 `einsum`、`tensordot` 等运算（《[算法工程师的工具箱（02）：数据科学三剑客——NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线](/numpy-pandas-matplotlib-for-algorithm-engineers.html)》「四、reshape、transpose 与 einsum」）。第五章第 1 节再展开批维度的账。
 
 对后端工程师，一个有用的理解是：**常见的稠密张量由底层存储和描述访问方式的元数据组成**。除了数据类型、设备等信息，关键元数据包括：
 
@@ -398,7 +398,7 @@ Table: Llama-3-8B 一层的七个权重矩阵：形状、参数量与 FLOPs
 - **一个 token 过整个模型约 $$2N$$ FLOPs**——每个参数用一次乘一次加，与第四章的观察一致；
 - 上图 attention 框里的 $$QK^T$$ 与 $$\text{softmax}(\cdot) V$$ 那两个矩阵乘**不在七个矩阵里**——它们乘的是数据和数据（Q 乘 K、分数乘 V），没有参数，所以表的主体没有它们，单列在表外一行：一个 token 在每层要与全部 $$T$$ 个 token 各算一次内积再各加权一次，FLOPs 是每层 $$4Td$$、与参数量无关，随 $$T$$ 线性增长（整句话一起算就是 $$T^2$$）。$$T = 512$$ 时只占一层权重 FLOPs 的 2%，可以忽略；$$T = 128$$K 时是权重的 5 倍，成了大头——这就是长上下文贵在哪里。
 
-这七个矩阵只是**一层 block 里带参数的部分**。整台 decoder-only Transformer 还有几样不在这七个里的部件——两张 embedding 表、LayerNorm 的缩放与偏置、lm_head——它们和这七个矩阵怎么对应，以及同一套矩阵在 GPT-2 small 里叫什么、形状多大，见《Transformer 原理与实现》第一篇《[从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》第一章「六种部件」后面的对应表。
+这七个矩阵只是**一层 block 里带参数的部分**。整台 decoder-only Transformer 还有几样不在这七个里的部件——两张 embedding 表、LayerNorm 的缩放与偏置、lm_head——它们和这七个矩阵怎么对应，以及同一套矩阵在 GPT-2 small 里叫什么、形状多大，见《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》第一章「六种部件」后面的对应表。
 
 ### 2. 打分前为什么要先投影：$$W_Q$$ 与 $$W_K$$
 

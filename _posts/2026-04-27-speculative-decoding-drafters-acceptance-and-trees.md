@@ -120,12 +120,12 @@ greedy 下验证规则退化为逐 token 比较，不需要计算概率比。一
 
 ### 1. 正确的训练目标
 
-要最小化 $$\text{TV}(p, q)$$，直接优化 TV 不方便（不可微处多）。Pinsker 不等式给了一个可微的上界：$$\text{TV}(p, q) \le \sqrt{\frac{1}{2} \text{KL}(p \Vert q)}$$。最小化 KL$$(p \Vert q)$$ 就是**前向 KL 的 logits 级蒸馏**（[L5 第七篇](/knowledge-distillation-for-llms.html)第三章）——草稿是学生，目标模型是教师。这个联系不只是类比：Zhou 等 2024（DistillSpec）系统地验证了用蒸馏训练草稿模型，相对普通投机解码的**加速比**再提高 10–45%（论文摘要的口径是 speedup，不是接受率）。
+要最小化 $$\text{TV}(p, q)$$，直接优化 TV 不方便（不可微处多）。Pinsker 不等式给了一个可微的上界：$$\text{TV}(p, q) \le \sqrt{\frac{1}{2} \text{KL}(p \Vert q)}$$。最小化 KL$$(p \Vert q)$$ 就是**前向 KL 的 logits 级蒸馏**（《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》第三章）——草稿是学生，目标模型是教师。这个联系不只是类比：Zhou 等 2024（DistillSpec）系统地验证了用蒸馏训练草稿模型，相对普通投机解码的**加速比**再提高 10–45%（论文摘要的口径是 speedup，不是接受率）。
 
 三个推论：
 
 - **草稿应该匹配目标模型，而不是匹配数据**。一个在训练数据上困惑度更低的小模型，不一定是更好的草稿——目标是像目标模型一样犯错。
-- **on-policy 很重要**。草稿在推理时看到的前缀是目标模型生成的文本（被接受的 token 来自 $$p$$）。所以训练时的前缀不应只来自数据集——DistillSpec 的 on-policy 指的是**草稿模型自己生成**的序列（学生采样，教师在其上打分），与 L5 第七篇 GKD 的定义一致，修的是草稿自己的暴露偏差；被接受的前缀来自目标这一点是另一层考虑。DistillSpec 报告 on-policy 数据优于固定数据集。
+- **on-policy 很重要**。草稿在推理时看到的前缀是目标模型生成的文本（被接受的 token 来自 $$p$$）。所以训练时的前缀不应只来自数据集——DistillSpec 的 on-policy 指的是**草稿模型自己生成**的序列（学生采样，教师在其上打分），与 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》 GKD 的定义一致，修的是草稿自己的暴露偏差；被接受的前缀来自目标这一点是另一层考虑。DistillSpec 报告 on-policy 数据优于固定数据集。
 - **前向 KL 还是反向 KL**：前向 KL 让草稿 mode-covering——在目标模型有概率的地方都放概率，这对接受率有利（重叠大）；反向 KL 让草稿 mode-seeking——集中在目标的峰上，在 greedy 下有利（argmax 一致率高）。DistillSpec 的结论是任务与温度依赖，没有普适的赢家，但前向 KL 是稳妥的默认。
 
 ### 2. 独立小模型的局限

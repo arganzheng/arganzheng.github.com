@@ -351,7 +351,7 @@ $$
 \mathcal{L} = -\mathbb{E} \log \sigma\Big( -\beta T\, \omega(t) \big[ (\lVert \epsilon^w - \epsilon_\theta(x^w_t) \rVert^2 - \lVert \epsilon^w - \epsilon_{ref}(x^w_t) \rVert^2) - (\lVert \epsilon^l - \epsilon_\theta(x^l_t) \rVert^2 - \lVert \epsilon^l - \epsilon_{ref}(x^l_t) \rVert^2) \big] \Big)
 $$
 
-即"让模型相对参考模型在好图上的去噪误差降得比在差图上多"。它继承了 DPO 的全部性质（L5 第四篇），包括似然同降与过优化。
+即"让模型相对参考模型在好图上的去噪误差降得比在差图上多"。它继承了 DPO 的全部性质（《[后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)》），包括似然同降与过优化。
 
 ## 十、动手（建议）
 

@@ -341,7 +341,7 @@ W 的形状 (65, 10)（64 个像素 + 1 偏置 → 10 类）；手写 softmax GD
 
 ### 3. 它就是语言模型的输出层
 
-语言模型最后一层 `nn.Linear(d_model, vocab)` + softmax，就是一个 $$K = \text{vocab}$$（几万到几十万）类的 softmax 回归：特征是前面几十层 Transformer 算出的 $$d_{\text{model}}$$ 维向量，"类别"是词表里的每个 token，loss 是 $$-\log p_{\text{下一个 token}}$$——与上面手写数字的代码一行一行对应，只是 $$W$$ 从 $$65 \times 10$$ 变成了 $$4096 \times 128000$$。L1 第二篇那个小 Transformer 最后的 `nn.Linear(d, vocab)` 就是它。
+语言模型最后一层 `nn.Linear(d_model, vocab)` + softmax，就是一个 $$K = \text{vocab}$$（几万到几十万）类的 softmax 回归：特征是前面几十层 Transformer 算出的 $$d_{\text{model}}$$ 维向量，"类别"是词表里的每个 token，loss 是 $$-\log p_{\text{下一个 token}}$$——与上面手写数字的代码一行一行对应，只是 $$W$$ 从 $$65 \times 10$$ 变成了 $$4096 \times 128000$$。《[算法工程师的工具箱（02）：数据科学三剑客——NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线](/numpy-pandas-matplotlib-for-algorithm-engineers.html)》那个小 Transformer 最后的 `nn.Linear(d, vocab)` 就是它。
 
 ## 七、奖励模型 = 逻辑回归
 

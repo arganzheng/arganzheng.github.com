@@ -226,7 +226,7 @@ llama.cpp 社区（以及 Turboderp 的 exllama 评测）已经把 KL 作为量�
 | 代码 | HumanEval+、MBPP+ | 精确语法对误差敏感 |
 | 多语言 | MGSM 或 目标语言的任务 | 非英文的退化是英文的几倍 |
 | 指令遵循 | IFEval | 格式与约束 |
-| 对话质量 | MT-Bench 或 Arena-Hard（judge） | 风格漂移；judge 的偏差见 L5 第八篇 |
+| 对话质量 | MT-Bench 或 Arena-Hard（judge） | 风格漂移；judge 的偏差见 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》 |
 | 分布 | 逐 token KL（均值与 P99） | 不需要 benchmark 的直接度量 |
 
 Table: 量化模型评测的任务组合
@@ -235,7 +235,7 @@ Table: 量化模型评测的任务组合
 
 ### 3. 协议一致性
 
-比较量化前后必须用**完全相同的协议**：同样的采样参数（第一篇——温度对结果的影响可能大于量化的影响）、同样的 few-shot、同样的抽取方式、同样的引擎（不同引擎的 kernel 数值差异也在 KL 0.001 的量级，但对 argmax 翻转有影响）。且要**多次采样**：量化引起的 1–2 个点的差异，在单次采样的噪声范围内（L5 第八篇的方差表），需要 $$n \ge 4$$ 的采样均值或配对检验才能判断。
+比较量化前后必须用**完全相同的协议**：同样的采样参数（第一篇——温度对结果的影响可能大于量化的影响）、同样的 few-shot、同样的抽取方式、同样的引擎（不同引擎的 kernel 数值差异也在 KL 0.001 的量级，但对 argmax 翻转有影响）。且要**多次采样**：量化引起的 1–2 个点的差异，在单次采样的噪声范围内（《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》的方差表），需要 $$n \ge 4$$ 的采样均值或配对检验才能判断。
 
 一个常见的错误：量化模型用 vLLM 评、全精度模型用 transformers 评，两者的数值实现不同（attention kernel、RMSNorm 的精度），差异被归到量化头上。
 

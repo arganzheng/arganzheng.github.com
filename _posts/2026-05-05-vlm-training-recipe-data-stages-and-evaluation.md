@@ -158,7 +158,7 @@ Table: 阶段 2 的数据类型与它们教会什么
 
 ### 3. 文本数据的混入
 
-只用多模态数据继续训练 LLM 会让它的**文本能力退化**——MMLU 掉几个点、代码与数学掉更多、对话风格变差。原因是分布偏移（所有训练样本都带图，模型对"没有图的问题"的处理变弱）与遗忘（[L5 第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第六章的机制）。缓解是在阶段 2 与 3 都混入纯文本数据：Qwen2-VL 混文本预训练数据；LLaVA-OneVision 的 SFT 里混文本指令数据；Llama 3.2 Vision 靠 cross-attention 结构完全避开这个问题（文本路径不动）。混入比例从 10% 到 50% 不等，一个常见的检查是训练前后在 MMLU / GSM8K / HumanEval 上的回归测试。
+只用多模态数据继续训练 LLM 会让它的**文本能力退化**——MMLU 掉几个点、代码与数学掉更多、对话风格变差。原因是分布偏移（所有训练样本都带图，模型对"没有图的问题"的处理变弱）与遗忘（《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》第六章的机制）。缓解是在阶段 2 与 3 都混入纯文本数据：Qwen2-VL 混文本预训练数据；LLaVA-OneVision 的 SFT 里混文本指令数据；Llama 3.2 Vision 靠 cross-attention 结构完全避开这个问题（文本路径不动）。混入比例从 10% 到 50% 不等，一个常见的检查是训练前后在 MMLU / GSM8K / HumanEval 上的回归测试。
 
 ### 4. 学习率与冻结
 
@@ -174,7 +174,7 @@ LLaVA-OneVision（2024）的 SFT 数据 3.2M 条，分为单图、多图、视�
 
 ### 2. 数据的格式细节
 
-多模态 SFT 沿用 [L5 第一篇](/sft-data-chat-template-loss-mask-and-peft.html)的全部机制：chat template（图片占位符是一个特殊 token，被替换成 $$N_{img}$$ 个视觉 token）、loss mask（只算回复）、packing（可变的图片 token 数让 packing 更重要）。一个多模态特有的坑：**图片 token 的位置**——图在文本之前还是之后、多图的顺序——训练与推理要一致，否则效果明显下降。
+多模态 SFT 沿用 《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》的全部机制：chat template（图片占位符是一个特殊 token，被替换成 $$N_{img}$$ 个视觉 token）、loss mask（只算回复）、packing（可变的图片 token 数让 packing 更重要）。一个多模态特有的坑：**图片 token 的位置**——图在文本之前还是之后、多图的顺序——训练与推理要一致，否则效果明显下降。
 
 ### 3. 偏好对齐
 
@@ -183,7 +183,7 @@ LLaVA-OneVision（2024）的 SFT 数据 3.2M 条，分为单图、多图、视�
 - **RLHF-V**（Yu 等 2024）：人类对模型的描述做**片段级修正**（标出幻觉的句子并改写），构造"有幻觉 / 修正后"的偏好对，DPO 训练；1.4K 对就显著降低幻觉。
 - **LLaVA-RLHF**：奖励模型加"事实增强"——RM 输入里附上图片的真实 caption，让它能判断幻觉。
 - **合成偏好**：用一个 VLM 生成多条描述，用检测器或强模型判断哪条幻觉少，构造对。
-- **RL with verifiable rewards**（2025）：对可验证的多模态任务（数学图形题、图表数值、计数）用规则奖励做 GRPO——Vision-R1、VLM-R1 等工作把 [L5 第五篇](/reasoning-models-and-verifiable-rewards.html)的方法搬到多模态，报告在 MathVista 一类上有提升。
+- **RL with verifiable rewards**（2025）：对可验证的多模态任务（数学图形题、图表数值、计数）用规则奖励做 GRPO——Vision-R1、VLM-R1 等工作把 《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》的方法搬到多模态，报告在 MathVista 一类上有提升。
 
 ### 4. 文本能力的保持（再说一次）
 
@@ -272,13 +272,13 @@ grounding 数据的作用值得单独说：要求模型在描述物体时给出�
 | RefCOCO | 框 | grounding | IoU 阈值 |
 | POPE / HallusionBench | 是 / 否 | 幻觉 | 见上 |
 | Video-MME / MVBench / EgoSchema | 多选 | 视频理解 | 帧数与采样策略影响大 |
-| MMVet / LLaVA-Bench | 开放回答，GPT-4 评分 | 综合对话能力 | judge 偏差（L5 第八篇） |
+| MMVet / LLaVA-Bench | 开放回答，GPT-4 评分 | 综合对话能力 | judge 偏差（《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》） |
 
 Table: VLM benchmark 各测什么
 
 ### 2. 协议陷阱
 
-[L5 第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)的全部问题在这里都有，多模态再加几个：
+《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》的全部问题在这里都有，多模态再加几个：
 
 - **分辨率与 token 预算**：同一模型在不同 `max_pixels` 下 DocVQA 可以差 10 个点；报告要写明。
 - **视频的帧数**：Video-MME 在 8 帧、32 帧、64 帧下分数差别大；有的模型用 1 fps 有的用固定帧数。

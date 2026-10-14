@@ -41,7 +41,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 这一层最容易被忽略的事实是：**除了投机解码，所有的推理优化都改变了模型的输出**。量化到 4 bit 的模型在困惑度上只差 0.1，但在长上下文检索、多步推理、低资源语言上的退化可能是几个点到十几个点；KV 驱逐在摘要任务上无损，在"大海捞针"上直接失败；层裁剪去掉 25% 的层困惑度只升一点，下游任务掉一半。这些退化是**分布不均匀**的——它们集中在某些能力上——而常用的评测（困惑度、MMLU）恰好对它们不敏感。
 
-所以这个系列的每一篇都有一节讲"怎么评"。一个压缩方法在论文里报告的"精度损失 < 1%"，要问：在哪个指标上、哪类任务上、什么协议下。这是 L5 第八篇评测方法论在这一层的直接应用。
+所以这个系列的每一篇都有一节讲"怎么评"。一个压缩方法在论文里报告的"精度损失 < 1%"，要问：在哪个指标上、哪类任务上、什么协议下。这是 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》评测方法论在这一层的直接应用。
 
 ### 算法侧与系统侧的分界需要说清楚
 
@@ -137,7 +137,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 [现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
 
-**核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（L5 第七篇），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（04-11）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
+**核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（04-11）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
 
 **要回答的问题**：为什么 EAGLE 的接受率高于 Medusa 而草稿成本差不多？一个 70B 模型该用什么草稿？
 
@@ -190,7 +190,7 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 | 三 | 同一模型做 RTN / GPTQ / AWQ 的 INT4，group 128 与 32 | 困惑度、MMLU、一个长上下文任务；哪个先掉 |
 | 四 | 计算量化模型对全精度模型的逐 token KL；比较困惑度差与 KL | KL 对任务退化的预测力 |
 | 五 | vLLM 开 `kv_cache_dtype=fp8`；再试 H2O / SnapKV 的开源实现 | 大海捞针任务上的准确率随 KV 预算的曲线 |
-| 六 | 用 Block Influence 裁掉 8 层，测困惑度与 5 个 benchmark；用 L5 第一篇的 SFT 脚本蒸馏恢复 | 困惑度与任务退化的不一致；恢复曲线 |
+| 六 | 用 Block Influence 裁掉 8 层，测困惑度与 5 个 benchmark；用 《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》的 SFT 脚本蒸馏恢复 | 困惑度与任务退化的不一致；恢复曲线 |
 
 Table: 系列建议的动手顺序
 
@@ -200,7 +200,7 @@ Table: 系列建议的动手顺序
 ### 前置要求
 
 - [现代 LLM 结构系列](/llm-architecture-evolution-roadmap-from-gpt2.html)第 02、04、08 篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
-- [L5 第七篇](/knowledge-distillation-for-llms.html)（蒸馏）与[第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)（评测）：本系列的恢复手段与评测方法论都来自那里。
+- 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》（蒸馏）与[第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)（评测）：本系列的恢复手段与评测方法论都来自那里。
 - [L0 数学系列](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
 
 ### 版本与基线
