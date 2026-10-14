@@ -134,6 +134,9 @@ html[data-theme="sepia"] {
 		background-color: fade(@sp-surface-2, 65%);
 	}
 	.post-container table tbody tr:hover, .markdown-body table tbody tr:hover { background-color: @sp-surface-2; }
+	.post-container td.ts-selected, .post-container th.ts-selected {
+		box-shadow: inset 0 0 0 100vmax fade(@sp-link, 18%);
+	}
 	.post-container .footnotes { border-color: @sp-border; }
 
 	.post-actions, .post-license, .post-container .series-box, .deck-card,
