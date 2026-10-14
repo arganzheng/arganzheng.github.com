@@ -10569,11 +10569,19 @@ html[data-theme="dark"] .favorites-offline {
   background: #1f2125;
   color: #d3d5d9;
 }
+html[data-theme="dark"] .favorites-offline-clear {
+  border-color: #33363c;
+  background: #282b30;
+  color: #d3d5d9;
+}
 html[data-theme="dark"] .favorites-offline-item {
   border-color: #33363c;
 }
 html[data-theme="dark"] .favorites-offline-meta {
   color: #969ba4;
+}
+html[data-theme="dark"] .favorites-offline-title {
+  color: #8bd0e0;
 }
 html[data-theme="dark"] .favorites-offline-badge {
   background: #1d3037;
@@ -11508,7 +11516,8 @@ html[data-theme="sepia"] .favorites-nojs {
   background-color: #efe4cb;
 }
 html[data-theme="sepia"] .favorites-search,
-html[data-theme="sepia"] .favorites-toolbar button {
+html[data-theme="sepia"] .favorites-toolbar button,
+html[data-theme="sepia"] .favorites-offline-clear {
   border-color: #dccfb2;
   background-color: #e7dabd;
   color: #3b3124;
@@ -11517,6 +11526,20 @@ html[data-theme="sepia"] .favorites-notice {
   border-left-color: #9b803b;
   background-color: #f5e9c7;
   color: #5e4b25;
+}
+html[data-theme="sepia"] .favorites-offline {
+  border-color: #dccfb2;
+  background-color: #efe4cb;
+  color: #3b3124;
+}
+html[data-theme="sepia"] .favorites-offline-item {
+  border-color: #dccfb2;
+}
+html[data-theme="sepia"] .favorites-offline-meta {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .favorites-offline-title {
+  color: #286090;
 }
 html[data-theme="sepia"] .favorites-group {
   border-bottom-color: #dccfb2;
@@ -11630,6 +11653,7 @@ html.private-post .post-actions .pa-offline {
   display: none !important;
 }
 .pa-offline-size {
+  margin-left: 0.35em;
   white-space: nowrap;
 }
 .favorites-offline {
@@ -11649,6 +11673,21 @@ html.private-post .post-actions .pa-offline {
   margin: 0;
   font-size: 1.15em;
 }
+.favorites-offline-clear {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid #d5d0c5;
+  border-radius: 5px;
+  background: #fff;
+  color: #5d584e;
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.favorites-offline-clear:hover {
+  border-color: #00788f;
+  color: #00788f;
+}
 .favorites-offline-list {
   list-style: none;
   margin: 0.6em 0 0;
@@ -11664,6 +11703,7 @@ html.private-post .post-actions .pa-offline {
 .favorites-offline-title {
   flex: 1;
   min-width: 0;
+  color: #00788f;
 }
 .favorites-offline-meta {
   color: #667;

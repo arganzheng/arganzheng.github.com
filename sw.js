@@ -117,7 +117,11 @@ function offlinePage(cache) {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       })[character]);
       const url = page.url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-      return `<li><a href="${url}">${title}</a>${page.time ? `<small>（保存于 ${new Date(page.time).toISOString().slice(0, 10)}）</small>` : ''}</li>`;
+      const date = new Date(page.time);
+      const savedDate = date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0');
+      return `<li><a href="${url}">${title}</a>${page.time ? `<small>（保存于 ${savedDate}）</small>` : ''}</li>`;
     };
     const savedSection = saved.length ? `<h2>离线保存的文章</h2><ul>${saved.map(renderItem).join('')}</ul>` : '';
     const recentSection = links.length ? `<h2>最近读过</h2><ul>${links.map(renderItem).join('')}</ul>` : '';

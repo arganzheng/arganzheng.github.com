@@ -5,7 +5,7 @@
 	&.is-active { border-color: #9cc6d6; background-color: #eef7fa; }
 }
 html.private-post .post-actions .pa-offline { display: none !important; }
-.pa-offline-size { white-space: nowrap; }
+.pa-offline-size { margin-left: .35em; white-space: nowrap; }
 .favorites-offline {
 	margin: 1em 0 1.5em;
 	padding: 1em;
@@ -15,9 +15,15 @@ html.private-post .post-actions .pa-offline { display: none !important; }
 }
 .favorites-offline-head { display: flex; align-items: center; justify-content: space-between; gap: .75em; }
 .favorites-offline-head h2 { margin: 0; font-size: 1.15em; }
+.favorites-offline-clear {
+	height: 34px; padding: 0 11px; border: 1px solid #d5d0c5;
+	border-radius: 5px; background: #fff; color: #5d584e; cursor: pointer;
+	flex: 0 0 auto; white-space: nowrap;
+	&:hover { border-color: @brand-primary; color: @brand-primary; }
+}
 .favorites-offline-list { list-style: none; margin: .6em 0 0; padding: 0; }
 .favorites-offline-item { display: flex; align-items: center; gap: .75em; padding: .55em 0; border-top: 1px solid #d7e6ea; }
-.favorites-offline-title { flex: 1; min-width: 0; }
+.favorites-offline-title { flex: 1; min-width: 0; color: @brand-primary; }
 .favorites-offline-meta { color: #667; font-size: .88em; }
 .favorites-offline-badge {
 	display: inline-block; margin-left: .5em; padding: .05em .4em;

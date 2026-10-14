@@ -270,7 +270,7 @@
       var head = document.createElement('div'); head.className = 'favorites-offline-head';
       var bytes = offline.reduce(function (sum, entry) { return sum + (entry.bytes || 0); }, 0);
       var heading = document.createElement('h2');
-      heading.textContent = '离线保存 · ' + offline.length + ' 篇 · 共 ' + (bytes / 1048576).toFixed(1) + ' MB';
+      heading.textContent = '离线保存 · ' + offline.length + ' 篇 · 共 ' + window.BlogOfflineSave.formatSize(bytes);
       head.appendChild(heading);
       var clear = makeButton('全部清除', 'favorites-offline-clear');
       clear.addEventListener('click', function () {
@@ -281,9 +281,9 @@
       offline.forEach(function (entry) {
         var row = document.createElement('li'); row.className = 'favorites-offline-item';
         var link = document.createElement('a'); link.className = 'favorites-offline-title';
-        link.href = entry.path; link.textContent = entry.title; row.appendChild(link);
+        link.href = siteUrl(app, entry.path); link.textContent = entry.title; row.appendChild(link);
         var meta = document.createElement('span'); meta.className = 'favorites-offline-meta';
-        meta.textContent = '保存于 ' + formatDate(entry.savedAt) + ' · ' + (entry.bytes / 1048576).toFixed(1) + ' MB';
+        meta.textContent = '保存于 ' + formatDate(entry.savedAt) + ' · ' + window.BlogOfflineSave.formatSize(entry.bytes);
         row.appendChild(meta);
         var remove = makeButton('删除', 'favorites-remove');
         remove.addEventListener('click', function () { window.BlogOfflineSave.remove(entry.path); });

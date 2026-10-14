@@ -9,6 +9,13 @@
   ];
   var supported = 'caches' in window && !!navigator.serviceWorker;
   var manifestKey = new Request(MANIFEST_URL);
+  var mutationQueue = Promise.resolve();
+
+  function serializeMutation(operation) {
+    var result = mutationQueue.then(operation, operation);
+    mutationQueue = result.catch(function () {});
+    return result;
+  }
 
   function changed() {
     document.dispatchEvent(new CustomEvent('blog:offline-saved'));
@@ -126,7 +133,10 @@
       if (index >= urls.length) return Promise.resolve();
       var url = urls[index++];
       return (onlyMissing ? cache.match(url) : Promise.resolve(null)).then(function (existing) {
-        if (existing) { stored.push(url); return; }
+        if (existing) {
+          stored.push(url);
+          return existing.blob().then(function (blob) { bytes += blob.size; });
+        }
         var options = CDN.some(function (prefix) { return url.indexOf(prefix) === 0; }) ? { mode: 'cors' } : undefined;
         return fetch(url, options).then(function (response) {
           if (!response.ok) return;
@@ -153,7 +163,7 @@
     } catch (_) {}
   }
 
-  function save(path, refreshing) {
+  function saveNow(path, refreshing) {
     if (!supported) return Promise.reject(new Error('浏览器不支持离线保存'));
     var key = pageUrl(path);
     if (key !== pageUrl(location.pathname)) return Promise.reject(new Error('只能保存当前文章'));
@@ -190,7 +200,11 @@
     });
   }
 
-  function remove(path) {
+  function save(path, refreshing) {
+    return serializeMutation(function () { return saveNow(path, refreshing); });
+  }
+
+  function removeNow(path) {
     var key = pageUrl(path);
     return getCache(false).then(function (cache) {
       if (!cache) return false;
@@ -204,13 +218,23 @@
     });
   }
 
+  function remove(path) {
+    return serializeMutation(function () { return removeNow(path); });
+  }
+
   function clear() {
     if (!supported) return Promise.resolve(false);
-    return caches.delete(CACHE).then(function (deleted) { changed(); return deleted; });
+    return serializeMutation(function () {
+      return caches.delete(CACHE).then(function (deleted) {
+        if (deleted) changed();
+        return deleted;
+      });
+    });
   }
 
   window.BlogOfflineSave = {
     list: list, has: has, save: save, remove: remove, clear: clear,
+    formatSize: formatSize,
     supported: supported
   };
 
@@ -230,7 +254,7 @@
     button.classList.toggle('is-active', !!entry);
     button.setAttribute('aria-pressed', entry ? 'true' : 'false');
     label.textContent = entry ? '已离线保存' : '离线保存';
-    size.textContent = entry ? ' · ' + formatSize(entry.bytes) : '';
+    size.textContent = entry ? '· ' + formatSize(entry.bytes) : '';
     button.title = entry ? '已保存 ' + formatSize(entry.bytes) + '，点击删除离线副本' :
       '离线保存这篇文章（连同站内图片），断网也能打开';
     button._offlineEntry = entry || null;
@@ -280,5 +304,4 @@
     var run = window.requestIdleCallback || function (callback) { return setTimeout(callback, 500); };
     run(refreshSavedPage);
   }, { once: true });
-  changed();
 })();
