@@ -1,0 +1,75 @@
+.offline-banner {
+	position: sticky;
+	top: 0;
+	z-index: 1040;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	box-sizing: border-box;
+	width: 100%;
+	padding: 6px 12px;
+	border-bottom: 1px solid #d0d7de;
+	background: rgba(246, 248, 250, .98);
+	color: #404040;
+	font-size: 13px;
+	line-height: 1.35;
+	text-align: center;
+}
+
+.offline-banner-message { min-width: 0; }
+
+.offline-banner-refresh {
+	flex: 0 0 auto;
+	padding: 3px 9px;
+	border: 1px solid currentColor;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.offline-banner-refresh:hover,
+.offline-banner-refresh:focus-visible {
+	background: rgba(0, 0, 0, .06);
+}
+
+body.has-offline-banner .navbar-custom,
+body.has-offline-banner nav.navbar-default:not(.navbar-custom) {
+	top: var(--offline-banner-height, 40px);
+}
+
+html[data-theme="dark"] .offline-banner {
+	border-color: #33363c;
+	background: rgba(31, 33, 37, .98);
+	color: #d3d5d9;
+}
+
+html[data-theme="dark"] .offline-banner-refresh:hover,
+html[data-theme="dark"] .offline-banner-refresh:focus-visible {
+	background: rgba(255, 255, 255, .08);
+}
+
+html[data-theme="sepia"] .offline-banner {
+	border-color: @sp-border;
+	background: fade(@sp-surface, 98%);
+	color: @sp-text;
+}
+
+html[data-theme="sepia"] .offline-banner-refresh:hover,
+html[data-theme="sepia"] .offline-banner-refresh:focus-visible {
+	background: fade(@sp-text, 8%);
+}
+
+@media (max-width: 480px) {
+	.offline-banner {
+		gap: 6px;
+		padding: 5px 8px;
+		font-size: 12px;
+	}
+
+	.offline-banner-message { text-align: left; }
+	.offline-banner-refresh { padding: 3px 7px; }
+}
