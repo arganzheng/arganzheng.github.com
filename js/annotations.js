@@ -212,7 +212,7 @@
     if (!el || !el.closest) return false;
     // Inside a formula only the <annotation encoding="application/x-tex"> text
     // counts: the passage reads `\frac{a}{b}`, the way the author wrote it.
-    if (el.closest('.katex-mathml')) return el.tagName.toLowerCase() !== 'annotation';
+    if (el.closest('.katex-mathml')) return !el.closest('annotation');
     var diagram = el.closest('.mermaid');
     if (diagram) {
       if (diagram.classList.contains('mermaid-error') || el.closest('style, title, desc, .fig-tools, button')) return true;
