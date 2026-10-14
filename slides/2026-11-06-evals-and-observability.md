@@ -121,8 +121,8 @@ flowchart LR
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
 flowchart LR
     F{"应用形态"} --> S["<b>单步</b><br/>结果：准确率 / F1 / rubric<br/>形式：格式遵循率、schema 通过率、拒答正确率"]
-    F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，L3 第七篇）"]
-    F --> AG["<b>agent</b><br/>结果之外看过程：步数、越权、<br/>工具选择、部分结果、成本<br/>（L4 第九篇）"]
+    F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）"]
+    F --> AG["<b>agent</b><br/>结果之外看过程：步数、越权、<br/>工具选择、部分结果、成本<br/>（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）"]
     F --> MT["<b>多轮</b><br/>策略遵循、轮数、目标达成、<br/>上下文丢失点"]
     S & RG & AG & MT --> X["所有形态都并列报：<br/>成本 / 任务 · p95 延迟 · 安全（红队通过率）<br/>按分布看（跑 n 次），按类型分层"]
 

@@ -12,7 +12,7 @@ updated: 2026-09-14
 
 QAT 的核心技术问题只有一个：量化的 round 函数梯度处处为零（或无定义），怎么反向传播？答案是直通估计器（STE）——一个数学上"错"但实践上有效的技巧。围绕它有一族方法：让 scale 可学习（LSQ）、只在训练末段做 QAT、用全精度的自己做教师（QAT + 蒸馏）、从头就用低比特训练（BitNet）。
 
-这一篇的另一半讲**怎么评一个量化模型**。困惑度是所有量化论文的主指标，但它掩盖了任务级的退化：一个困惑度只升 0.1 的 4-bit 模型，在长上下文检索上可能掉 10 个点，在低资源语言上掉更多。评测方法是 L5 第八篇的直接应用，但量化有它特有的陷阱。
+这一篇的另一半讲**怎么评一个量化模型**。困惑度是所有量化论文的主指标，但它掩盖了任务级的退化：一个困惑度只升 0.1 的 4-bit 模型，在长上下文检索上可能掉 10 个点，在低资源语言上掉更多。评测方法是 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》的直接应用，但量化有它特有的陷阱。
 
 本篇要回答的核心问题是：
 
@@ -137,7 +137,7 @@ Llama 3.2 与 Gemma 3 的 QAT 都没有报告用可学习 scale——它们用�
 
 ### 2. QAT + 蒸馏
 
-QAT 的训练目标可以是普通的交叉熵（next-token 预测），也可以是**对全精度模型的蒸馏**（[L5 第七篇](/knowledge-distillation-for-llms.html)的 logits 级 KL）。后者几乎总是更好，原因是：（1）目标更"稠密"——每个位置有完整的分布而不只是一个正确 token，量化模型要恢复的正是这个分布；（2）目标就是量化前的自己，"恢复到原样"比"继续学习新东西"是更合适的任务；（3）不需要新数据——任何文本经全精度模型前向就是标签，甚至不需要高质量数据。成本是每步多一次教师前向（约 1/3 的额外算力）。
+QAT 的训练目标可以是普通的交叉熵（next-token 预测），也可以是**对全精度模型的蒸馏**（[《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》](/knowledge-distillation-for-llms.html)的 logits 级 KL）。后者几乎总是更好，原因是：（1）目标更"稠密"——每个位置有完整的分布而不只是一个正确 token，量化模型要恢复的正是这个分布；（2）目标就是量化前的自己，"恢复到原样"比"继续学习新东西"是更合适的任务；（3）不需要新数据——任何文本经全精度模型前向就是标签，甚至不需要高质量数据。成本是每步多一次教师前向（约 1/3 的额外算力）。
 
 Gemma 3 QAT 明确用了这个配方。这也是 TernaryLLM、BitDistiller 等极低比特工作的标准做法。
 
@@ -226,7 +226,7 @@ llama.cpp 社区（以及 Turboderp 的 exllama 评测）已经把 KL 作为量�
 | 代码 | HumanEval+、MBPP+ | 精确语法对误差敏感 |
 | 多语言 | MGSM 或 目标语言的任务 | 非英文的退化是英文的几倍 |
 | 指令遵循 | IFEval | 格式与约束 |
-| 对话质量 | MT-Bench 或 Arena-Hard（judge） | 风格漂移；judge 的偏差见 L5 第八篇 |
+| 对话质量 | MT-Bench 或 Arena-Hard（judge） | 风格漂移；judge 的偏差见 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》 |
 | 分布 | 逐 token KL（均值与 P99） | 不需要 benchmark 的直接度量 |
 
 Table: 量化模型评测的任务组合
@@ -235,7 +235,7 @@ Table: 量化模型评测的任务组合
 
 ### 3. 协议一致性
 
-比较量化前后必须用**完全相同的协议**：同样的采样参数（第一篇——温度对结果的影响可能大于量化的影响）、同样的 few-shot、同样的抽取方式、同样的引擎（不同引擎的 kernel 数值差异也在 KL 0.001 的量级，但对 argmax 翻转有影响）。且要**多次采样**：量化引起的 1–2 个点的差异，在单次采样的噪声范围内（L5 第八篇的方差表），需要 $$n \ge 4$$ 的采样均值或配对检验才能判断。
+比较量化前后必须用**完全相同的协议**：同样的采样参数（第一篇——温度对结果的影响可能大于量化的影响）、同样的 few-shot、同样的抽取方式、同样的引擎（不同引擎的 kernel 数值差异也在 KL 0.001 的量级，但对 argmax 翻转有影响）。且要**多次采样**：量化引起的 1–2 个点的差异，在单次采样的噪声范围内（《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》的方差表），需要 $$n \ge 4$$ 的采样均值或配对检验才能判断。
 
 一个常见的错误：量化模型用 vLLM 评、全精度模型用 transformers 评，两者的数值实现不同（attention kernel、RMSNorm 的精度），差异被归到量化头上。
 

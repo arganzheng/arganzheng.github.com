@@ -90,7 +90,7 @@ $$
 
 ### 1. decode 是 memory-bound
 
-生成一个 token 要把**参与矩阵乘的权重读一遍**（8B 模型 bf16 驻留 16.06 GB；输入 embedding 只查一行不用整表读，每步实际约 15 GB——这里按 16.06 粗算），每个权重只做 2 次 FLOP（乘、加，L0 第一篇的 $$2N$$）。算术强度 $$= 2N / 2N = 1$$ FLOP/字节，远低于 295。所以 batch = 1 时一个 token 的时间**下限**是搬权重的时间（同算法、同精度、KV 很短的冷读估计；量化、投机解码、更高带宽的卡都能超过它）：
+生成一个 token 要把**参与矩阵乘的权重读一遍**（8B 模型 bf16 驻留 16.06 GB；输入 embedding 只查一行不用整表读，每步实际约 15 GB——这里按 16.06 粗算），每个权重只做 2 次 FLOP（乘、加，《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的 $$2N$$）。算术强度 $$= 2N / 2N = 1$$ FLOP/字节，远低于 295。所以 batch = 1 时一个 token 的时间**下限**是搬权重的时间（同算法、同精度、KV 很短的冷读估计；量化、投机解码、更高带宽的卡都能超过它）：
 
 $$
 \frac{16.06\ \text{GB}}{3.35\ \text{TB/s}} \approx 4.8\ \text{ms} \quad \Rightarrow \quad \approx 209\ \text{token/s}
@@ -118,7 +118,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 ### 3. 用它判断结构改动
 
 - 把 FFN 做大（$$d_{ff}$$ 翻倍）：参数与 FLOPs 同比涨，decode 每 token 多读一倍权重——memory-bound 的时间翻倍；
-- 换成 MoE（每 token 只激活一部分专家）：FLOPs 降、**全部专家的权重都要驻留在显存里**；每步实际读多少取决于 batch——batch 1 只读被选中的几个专家，batch 大了几乎所有专家都会被某个 token 选中、读的字节趋近全部权重——所以"稀疏省算量不省显存、大 batch 下也不省访存"（L4 第八篇）；
+- 换成 MoE（每 token 只激活一部分专家）：FLOPs 降、**全部专家的权重都要驻留在显存里**；每步实际读多少取决于 batch——batch 1 只读被选中的几个专家，batch 大了几乎所有专家都会被某个 token 选中、读的字节趋近全部权重——所以"稀疏省算量不省显存、大 batch 下也不省访存"（《[现代 LLM 结构（04）：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)》）；
 - 上下文变长：attention 的 $$QK^T$$ 与 $$T^2$$ 成正比，KV cache 与 $$T$$ 成正比（下一章）；
 - 量化到 4 bit：decode 读的字节降到 1/4，memory-bound 的时间也降到 1/4——这是量化对推理有效的根本原因（L6）。
 
@@ -135,7 +135,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 
 Table: 显存的四块：大小由什么决定
 
-前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（L0 第四篇：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)。
+前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)。
 
 ### 2. OOM 归因
 
@@ -183,7 +183,7 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 读法：
 
 - **矩阵乘（`mm` / `addmm` / `bmm`）与 attention 应占大头**——这里 `mm` 25% + `addmm` 10% + attention 前后向 26% ≈ 60%，正常。如果 `copy_`、`to`、`contiguous` 或几千个小算子占大头，就是形状转换或 launch 开销在吃时间。
-- **反向约是前向的两倍**：`_scaled_dot_product_flash_attention_backward` 8.4 ms vs 前向 5.2 ms，`gelu_backward` 5.6 vs 3.8——L3 第一篇讲的"反向 = 2 × 前向"在表里直接可见。
+- **反向约是前向的两倍**：`_scaled_dot_product_flash_attention_backward` 8.4 ms vs 前向 5.2 ms，`gelu_backward` 5.6 vs 3.8——《[深度学习基础（01）：深度模型演进史——从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html)》讲的"反向 = 2 × 前向"在表里直接可见。
 - `mm` 调用 43 次：4 层 × 每层几个线性层 × 前向 + 反向两个 GEMM。数一数就知道模型结构。
 
 会读它意味着能回答"这一步 300 ms 花在哪"——是 attention、是 FFN 的 GEMM、是数据加载等 GPU 空转（表里 GPU 时间加起来远小于墙钟时间）、还是几千个小算子的 launch 开销。到这里为止；怎么让那个算子快起来，是 Infra 06 系列的事。
@@ -217,7 +217,7 @@ seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算�
 {"run_id": "20260914-205033", "commit": "a9531a3", "metrics": {"loss_seed0": 3.2379, "loss_seed1": 3.3783}}
 ```
 
-三件事：同 seed 两次结果**完全一致**（CPU 上；GPU 上某些 kernel——比如 atomic add 的 scatter——本身非确定，需要 `torch.use_deterministic_algorithms(True)` 且接受变慢）；换个 seed 差 0.14——**20 步的训练里 seed 的影响比很多"方法改进"都大**，这是 L0 第八篇"多 seed 报均值与标准差"在工程上的原因；记录是一个 JSON，七项齐全。
+三件事：同 seed 两次结果**完全一致**（CPU 上；GPU 上某些 kernel——比如 atomic add 的 scatter——本身非确定，需要 `torch.use_deterministic_algorithms(True)` 且接受变慢）；换个 seed 差 0.14——**20 步的训练里 seed 的影响比很多"方法改进"都大**，这是 《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》"多 seed 报均值与标准差"在工程上的原因；记录是一个 JSON，七项齐全。
 
 ### 3. 与方法论的关系
 

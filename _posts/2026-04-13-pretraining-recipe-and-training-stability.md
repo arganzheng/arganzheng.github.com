@@ -305,7 +305,7 @@ $$\eta = 3 \times 10^{-4}$$、$$\lambda = 0.1$$ 时 $$\tau = 33\text{K}$$ 步—
 
 ### 6. warmup
 
-lr 从 0 线性升到峰值。Adam 的二阶矩 $$v$$ 在前几十步还是几个样本的平均，估计很差，直接用峰值 lr 的更新方向是噪声——这是 warmup 的必要性（L3 第三篇）。公开配方的 warmup 占总步数不到 1%：Llama 3 405B 8000 / 975K = 0.8%，Llama 2 2000 / 500K = 0.4%，DeepSeek-V3 2000 / 235K = 0.9%。它以步数而不是 token 数定，因为它服务的是优化器状态而不是数据。warmup 的第二个作用是让第六章的三个机制在训练最脆弱的阶段（初始化附近，attention 还没学会分散、logit 范数还小但梯度大）不被大 lr 触发；OLMo 与 Wortsman 的消融都显示更长的 warmup 能容忍更大的峰值 lr。
+lr 从 0 线性升到峰值。Adam 的二阶矩 $$v$$ 在前几十步还是几个样本的平均，估计很差，直接用峰值 lr 的更新方向是噪声——这是 warmup 的必要性（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》）。公开配方的 warmup 占总步数不到 1%：Llama 3 405B 8000 / 975K = 0.8%，Llama 2 2000 / 500K = 0.4%，DeepSeek-V3 2000 / 235K = 0.9%。它以步数而不是 token 数定，因为它服务的是优化器状态而不是数据。warmup 的第二个作用是让第六章的三个机制在训练最脆弱的阶段（初始化附近，attention 还没学会分散、logit 范数还小但梯度大）不被大 lr 触发；OLMo 与 Wortsman 的消融都显示更长的 warmup 能容忍更大的峰值 lr。
 
 ## 五、调度
 
@@ -367,7 +367,7 @@ Table: 有无 QK-norm 在不同峰值 lr 下的 loss 与最大 attention logit
 | QK-norm | attention logit 增长 | OLMo 2、Gemma 3、Qwen3 都开；Gemma 2 曾用 tanh soft-cap（attention 50、输出 30），Gemma 3 换回 QK-norm |
 | z-loss $$10^{-4}$$ | 输出 logit 漂移 | PaLM、OLMo 2、多数开源配方 |
 | 梯度裁剪 1.0 | 单步过大 | 几乎全部 |
-| 初始化 $$\mathcal{N}(0, 0.02)$$，残差分支缩放 | 前向 / 反向方差随深度爆炸（L3 第二篇） | GPT-2 的 $$1 / \sqrt{2L}$$；OLMo 2 全部 0.02 且不缩放，靠 norm 位置 |
+| 初始化 $$\mathcal{N}(0, 0.02)$$，残差分支缩放 | 前向 / 反向方差随深度爆炸（《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》） | GPT-2 的 $$1 / \sqrt{2L}$$；OLMo 2 全部 0.02 且不缩放，靠 norm 位置 |
 | weight decay 排除 embedding 与 norm | 罕见 token 的 embedding 被单向拉向 0 | OLMo 2 明确排除 |
 | Adam $$\epsilon$$ 随规模减小 | 更新被 $$\epsilon$$ 淹没 | Llama 2 $$10^{-5}$$；Wortsman 建议更小 |
 

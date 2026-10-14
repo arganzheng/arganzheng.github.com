@@ -169,7 +169,7 @@ flowchart TB
     IDX -->|"决定怎么找"| R50["recall@50 / @5（第七篇）"]
     P -->|"权限进元数据"| PERM["检索时过滤 · 不该看到查询集"]
     IDX --> PERM
-    F["形态：流水线 / agentic（第五篇）"] -->|"决定检索次数与上下文增长"| COST["成本与延迟（L1 第四篇 · L2 第四篇）"]
+    F["形态：流水线 / agentic（第五篇）"] -->|"决定检索次数与上下文增长"| COST["成本与延迟（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》 · 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）"]
     R50 --> GEN["固定检索下的生成质量（第七篇）"]
     GEN --> E2E["端到端"]
     R50 --> E2E
@@ -198,7 +198,7 @@ flowchart TB
 
 ### 4. 选型同构、评测同源
 
-embedding 与 rerank 的选型（第四篇）与 L1 第五篇的模型选型同一方法：榜单缩范围、自己的集决定、警惕榜单的失真、算隐藏成本（重建）。评测集（第七篇）与 L1 第五篇、L2 第六篇的评测集同源：从真实流量采、几十条起、每周补、hold-out、版本化、作为门禁。
+embedding 与 rerank 的选型（第四篇）与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的模型选型同一方法：榜单缩范围、自己的集决定、警惕榜单的失真、算隐藏成本（重建）。评测集（第七篇）与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的评测集同源：从真实流量采、几十条起、每周补、hold-out、版本化、作为门禁。
 
 ### 5. 概念表
 
@@ -322,7 +322,7 @@ Table: 常见误区与正确说法
 1. 一个制造企业要做"设备维修助手"：知识源有维修手册 PDF（扫描件为主，大量表格）、设备台账与工单数据库、老师傅的经验总结、每天更新的备件价格。为每个源选接入方式与检索类型，说明解析梯级与权限处理。
 
    <details markdown="1"><summary>答案</summary>
-   维修手册：非结构化、扫描件 → 检索，解析用梯级 ③（VLM：Mistral OCR 4 或自托管 PaddleOCR-VL），表格一表一块，按章节结构切，结构路径前缀，向量 + BM25 + rerank，元数据带设备型号与权限。设备台账与工单：结构化 → SQL + 语义层（"近 30 天故障率"等概念），或小本体（设备 → 工单 → 备件，动作如"创建工单"带权限）。老师傅经验：非结构化文本，量小 → 检索（或小而稳定时全放上下文配缓存，L2 第六篇）；术语（"跳机"）做 few-shot 术语表。备件价格：每天变 → 工具查系统，不入索引。agentic 形态：三类做成工具（search_manual、sql、read），级联——流水线默认、复杂故障诊断走 agent 循环有步数上限。权限：手册与工单按工厂 / 角色的 ACL 进元数据，召回时过滤，"不该看到"查询集进 CI。
+   维修手册：非结构化、扫描件 → 检索，解析用梯级 ③（VLM：Mistral OCR 4 或自托管 PaddleOCR-VL），表格一表一块，按章节结构切，结构路径前缀，向量 + BM25 + rerank，元数据带设备型号与权限。设备台账与工单：结构化 → SQL + 语义层（"近 30 天故障率"等概念），或小本体（设备 → 工单 → 备件，动作如"创建工单"带权限）。老师傅经验：非结构化文本，量小 → 检索（或小而稳定时全放上下文配缓存，《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）；术语（"跳机"）做 few-shot 术语表。备件价格：每天变 → 工具查系统，不入索引。agentic 形态：三类做成工具（search_manual、sql、read），级联——流水线默认、复杂故障诊断走 agent 循环有步数上限。权限：手册与工单按工厂 / 角色的 ACL 进元数据，召回时过滤，"不该看到"查询集进 CI。
    </details>
 
 2. 一个 RAG 客服系统 recall@50 为 0.92、recall@5 为 0.61、固定检索下 faithfulness 0.95、端到端正确率 0.70。定位问题并给出改法与预期。

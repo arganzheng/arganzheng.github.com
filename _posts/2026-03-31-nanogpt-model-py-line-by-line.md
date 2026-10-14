@@ -173,7 +173,7 @@ class CausalSelfAttention(nn.Module):
 
 ### 2. 拆头：`view` + `transpose`
 
-[三行 `view(...).transpose(1, 2)`](#attn-view) 就是第一篇那张"多头形状变化"图：`[B, T, d]` → `view` 成 `[B, T, nh, hs]`（把每行的 $$d$$ 个数按顺序切成 $$nh$$ 段，不动数据）→ `transpose(1, 2)` 成 `[B, nh, T, hs]`（把"头"换到 batch 后面）。为什么要把头换到第 1 维：接下来的 `q @ k.transpose(-2, -1)` 是**批量矩阵乘**（L0 第一篇第五章：最后两维做矩阵乘，前面的维度是批），`B × nh` 个头就成了 `B × nh` 个独立的 $$[T, hs] \times [hs, T]$$，一次调用全算完。`transpose` 只改 stride 不搬数据（Infra PyTorch 第二篇）——这是下面 `contiguous()` 出现的原因。
+[三行 `view(...).transpose(1, 2)`](#attn-view) 就是第一篇那张"多头形状变化"图：`[B, T, d]` → `view` 成 `[B, T, nh, hs]`（把每行的 $$d$$ 个数按顺序切成 $$nh$$ 段，不动数据）→ `transpose(1, 2)` 成 `[B, nh, T, hs]`（把"头"换到 batch 后面）。为什么要把头换到第 1 维：接下来的 `q @ k.transpose(-2, -1)` 是**批量矩阵乘**（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》第五章：最后两维做矩阵乘，前面的维度是批），`B × nh` 个头就成了 `B × nh` 个独立的 $$[T, hs] \times [hs, T]$$，一次调用全算完。`transpose` 只改 stride 不搬数据（Infra PyTorch 第二篇）——这是下面 `contiguous()` 出现的原因。
 
 ### 3. 两条路径：Flash 与手写
 
@@ -186,7 +186,7 @@ class CausalSelfAttention(nn.Module):
 | `att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))` | ② 打分 ③ 缩放 | $$QK^T / \sqrt{d_h}$$；注意除的是**每头维度** $$hs = 64$$，不是 $$d$$ |
 | `att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))` | ④ mask | 下三角外填 $$-\infty$$；`[:T, :T]` 是因为 mask 按最大长度 `block_size` 预先建好，实际序列可能更短 |
 | `att = F.softmax(att, dim=-1)` | ⑤ softmax | 沿最后一维（key 那一维）归一化，每行和为 1 |
-| `att = self.attn_dropout(att)` | — | 训练时随机丢一些权重（正则化，L3 第四篇）；`eval()` 下不做 |
+| `att = self.attn_dropout(att)` | — | 训练时随机丢一些权重（正则化，《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》）；`eval()` 下不做 |
 | `y = att @ v` | ⑥ 加权求和 | `[B, nh, T, T] × [B, nh, T, hs] → [B, nh, T, hs]` |
 
 Table: 手写 attention 的五行与第一篇六步的对应
@@ -335,7 +335,7 @@ class GPT(nn.Module):
 
 ### 3. 两种初始化
 
-[`self.apply(self._init_weights)`](#gpt-init) 对每个子模块调一次 [`_init_weights`](#initweights)：所有 `Linear` 与 `Embedding` 的权重从 $$\mathcal{N}(0, 0.02^2)$$ 采样，bias 置 0。0.02 是 GPT-2 论文的数（$$1/\sqrt{d}$$ 量级，L3 第二篇讲初始化的方差怎么定）。第二篇第二章那个"随机初始化 loss ≈ $$\ln V$$"就靠它——初始化太大 logits 就会很极端。
+[`self.apply(self._init_weights)`](#gpt-init) 对每个子模块调一次 [`_init_weights`](#initweights)：所有 `Linear` 与 `Embedding` 的权重从 $$\mathcal{N}(0, 0.02^2)$$ 采样，bias 置 0。0.02 是 GPT-2 论文的数（$$1/\sqrt{d}$$ 量级，《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》讲初始化的方差怎么定）。第二篇第二章那个"随机初始化 loss ≈ $$\ln V$$"就靠它——初始化太大 logits 就会很极端。
 
 然后[对所有 `c_proj.weight` 再来一次](#gpt-scaled)，标准差改成 $$0.02 / \sqrt{2L}$$。为什么？`c_proj` 是每个子层**写回残差流**的那个矩阵（attention 的 $$W_O$$ 与 FFN 的第二个矩阵）。$$L$$ 层有 $$2L$$ 个子层往残差流里加东西，如果每份的方差都一样，残差流的方差会随 $$2L$$ 线性增长；把每份的标准差除以 $$\sqrt{2L}$$，$$2L$$ 份加起来的方差恰好回到 1。这是 GPT-2 论文里的一句话，nanoGPT 忠实实现了它；第一篇第五章第 1 节说残差流上"每次修正量都比主干小得多"，这就是保证它的手段。
 
@@ -377,7 +377,7 @@ class GPT(nn.Module):
 
 这 20 行就是第二篇的两条动态线合在一起。
 
-**共同部分**（[6 行](#fwd-emb)）：`wte(idx)` 查表得 `[b, t, d]`；[`pos = arange(t)`](#fwd-pos) 是 `[0, 1, ..., t-1]`，`wpe(pos)` 得 `[t, d]`，与 `tok_emb` 相加时**广播**到每句话（L0 第一篇第五章第 3 节）；dropout；依次过每个 block；`ln_f`。[`assert t <= block_size`](#fwd-assert) 是位置表只有 `block_size` 行的直接后果。
+**共同部分**（[6 行](#fwd-emb)）：`wte(idx)` 查表得 `[b, t, d]`；[`pos = arange(t)`](#fwd-pos) 是 `[0, 1, ..., t-1]`，`wpe(pos)` 得 `[t, d]`，与 `tok_emb` 相加时**广播**到每句话（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》第五章第 3 节）；dropout；依次过每个 block；`ln_f`。[`assert t <= block_size`](#fwd-assert) 是位置表只有 `block_size` 行的直接后果。
 
 **训练分支**（传了 `targets`，[2 行](#fwd-loss)）：对**全部** $$t$$ 个位置算 lm_head 得 `[b, t, V]`，拍平成 `[b·t, V]` 与 `[b·t]` 的目标算交叉熵——第二篇第三章那一行。`ignore_index=-1`：目标里标成 $$-1$$ 的位置不算 loss（padding 用，nanoGPT 自己没用到）。注意这里用的是 `targets.view(-1)`：`view` 要求张量连续，`train.py` 的 `get_batch` 用 `torch.stack` 造出的 `y` 是连续的所以没问题；如果你自己传 `idx[:, 1:]` 这样的切片进来，会报 "view size is not compatible"（`nanogpt_walkthrough.py` 里特意 `.contiguous()` 了一下），这是 Infra PyTorch 第二篇那个问题的又一次现身。
 
@@ -424,9 +424,9 @@ class GPT(nn.Module):
 
 1. [`idx_cond`](#gen-crop)：序列超过 `block_size` 就只保留最后 `block_size` 个——位置表只有那么多行，再长模型也看不了（GPT-2 的硬上限）。
 2. [`self(idx_cond)`](#gen-fwd)：整段前向。**注意这里每一步都重新前向整段序列**——nanoGPT 没有 KV cache，用的是第二篇第六章第 1 节说的"朴素做法"。对一个教学仓库这是正确的取舍（少 30 行、少一类 bug）；代价是生成 $$n$$ 个 token 的计算量随 $$n^2$$ 增长。第二篇的 `token_journey.py` 给同样结构加了 cache，两者输出逐 token 一致。
-3. [`/ temperature`](#gen-temp)：只取最后一个位置的 logits（第七章的推理分支其实已经只返回了这一个位置），除以温度——温度 < 1 让分布更尖（更保守），> 1 更平（更随机），趋近 0 就是贪心（L0 第五篇画过温度对分布的影响）。
+3. [`/ temperature`](#gen-temp)：只取最后一个位置的 logits（第七章的推理分支其实已经只返回了这一个位置），除以温度——温度 < 1 让分布更尖（更保守），> 1 更平（更随机），趋近 0 就是贪心（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》画过温度对分布的影响）。
 4. [top-k](#gen-topk)：`torch.topk` 取前 $$k$$ 大的 logits，比第 $$k$$ 大还小的全部设成 $$-\infty$$（softmax 后为 0）——把长尾里那些概率 0.001 的词砍掉，避免采到明显的胡话。
-5. [`multinomial`](#gen-sample)：按概率抽一个（L0 第四篇的类别分布采样）。
+5. [`multinomial`](#gen-sample)：按概率抽一个（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》的类别分布采样）。
 6. [`cat`](#gen-cat)：接到序列末尾，下一轮继续。
 
 `@torch.no_grad()` 让整个循环不建计算图（推理没有反向）。`nanogpt_walkthrough.py` 第 5 步用真实 GPT-2 权重跑了三组：
@@ -588,8 +588,8 @@ class GPT(nn.Module):
 
 MFU（model FLOPs utilization）= 实际达到的 FLOP/s ÷ 硬件峰值。[每 token 的 FLOPs](#mfu-flops) 是 $$6N + 12 L H Q T$$：
 
-- $$6N$$：每个参数在前向做一次乘加（$$2N$$，L0 第一篇的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——第十二篇会把它按 GEMM 逐个算出来；
-- $$12 L H Q T$$：attention 里 $$QK^T$$ 与 $$PV$$ 两个矩阵乘**与参数无关**、与上下文长度 $$T$$ 成正比（L0 第一篇第六章表末那一行）：每层每头 $$2 \times 2 \times Q \times T$$ FLOPs 前向，乘 3（含反向）、乘 $$L H$$。
+- $$6N$$：每个参数在前向做一次乘加（$$2N$$，《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——第十二篇会把它按 GEMM 逐个算出来；
+- $$12 L H Q T$$：attention 里 $$QK^T$$ 与 $$PV$$ 两个矩阵乘**与参数无关**、与上下文长度 $$T$$ 成正比（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》第六章表末那一行）：每层每头 $$2 \times 2 \times Q \times T$$ FLOPs 前向，乘 3（含反向）、乘 $$L H$$。
 
 乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。第六篇讲为什么到不了 100%。
 

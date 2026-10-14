@@ -127,7 +127,7 @@ sequenceDiagram
 
 ### 1. 三件事
 
-Autograd 是 PyTorch 帮你算梯度（L0 第七篇）的机制。使用层只需要知道三件事：
+Autograd 是 PyTorch 帮你算梯度（《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》）的机制。使用层只需要知道三件事：
 
 1. **前向时记录计算图。** 对 `requires_grad=True` 的 Tensor 做的每个运算都被记下来（用了哪个函数、输入是谁），形成一张从参数到 loss 的图。下一小节画出这张图。
 2. **`loss.backward()` 从 loss 反向走一遍图，把每个叶子参数的梯度累加到它的 `.grad` 里。** 是**累加**不是覆盖——连续两次 `backward()` 不 `zero_grad`，`.grad` 里是两次的和。所以每步更新前要 `opt.zero_grad()`。这个设计的副产品是**梯度累积**几乎不需要额外代码：想用 4 倍的有效 batch，就每 4 个 batch 才 `step` 和 `zero_grad` 一次——只有两处要留意：每个小 batch 的 loss 要除以累积步数（或按总 token 数归一化），否则梯度是 4 倍；梯度裁剪要放在累积完、`step` 之前，而不是每个小 batch 都裁。
@@ -175,7 +175,7 @@ flowchart TB
 
 `loss = (w·x − 1)²` 的计算图。前向从上往下算出 25，同时每个运算记下自己的反向节点；`backward()` 从 loss 沿虚线往回走，每经过一个节点乘上它的局部导数。
 
-`w.grad = 20` 是链式法则（L0 第七篇）一步步乘出来的。把 $$L = (wx - 1)^2$$ 看成三层函数的复合：$$u = wx$$，$$v = u - 1$$，$$L = v^2$$。每一层对自己输入的导数：
+`w.grad = 20` 是链式法则（《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》）一步步乘出来的。把 $$L = (wx - 1)^2$$ 看成三层函数的复合：$$u = wx$$，$$v = u - 1$$，$$L = v^2$$。每一层对自己输入的导数：
 
 $$
 \frac{\partial L}{\partial v} = 2v = 2 \times 5 = 10,\qquad
@@ -297,7 +297,7 @@ class TinyGPT(nn.Module):
         return self.head(self.ln(x))                               # logits [B, T, vocab]
 ```
 
-L4 的 `modeling_llama.py` 是同样的结构放大版：`LlamaModel` → `LlamaDecoderLayer` → `LlamaAttention` / `LlamaMLP`，多了 RoPE、RMSNorm、GQA 与 SwiGLU，骨架一样。840,448 这个数怎么来的：`tok` 与 `pos` 各 $$128 \times 128 = 16{,}384$$；每个 Block 里 `qkv` $$128 \times 384 = 49{,}152$$、`proj` $$16{,}384$$、两个 LayerNorm 各 $$256$$、MLP $$128 \times 512 + 512 + 512 \times 128 + 128 = 131{,}712$$，合计 $$197{,}760$$，4 层 $$791{,}040$$；最后的 `ln` 256、`head` 16,384。加起来 $$16{,}384 \times 2 + 791{,}040 + 256 + 16{,}384 = 840{,}448$$。这是 L0 第一篇"从结构算参数量"的最小练习。
+L4 的 `modeling_llama.py` 是同样的结构放大版：`LlamaModel` → `LlamaDecoderLayer` → `LlamaAttention` / `LlamaMLP`，多了 RoPE、RMSNorm、GQA 与 SwiGLU，骨架一样。840,448 这个数怎么来的：`tok` 与 `pos` 各 $$128 \times 128 = 16{,}384$$；每个 Block 里 `qkv` $$128 \times 384 = 49{,}152$$、`proj` $$16{,}384$$、两个 LayerNorm 各 $$256$$、MLP $$128 \times 512 + 512 + 512 \times 128 + 128 = 131{,}712$$，合计 $$197{,}760$$，4 层 $$791{,}040$$；最后的 `ln` 256、`head` 16,384。加起来 $$16{,}384 \times 2 + 791{,}040 + 256 + 16{,}384 = 840{,}448$$。这是 《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》"从结构算参数量"的最小练习。
 
 ## 五、Dataset、DataLoader 与 Optimizer
 
@@ -346,7 +346,7 @@ sched.step()        # 学习率走一步：opt.param_groups[0]["lr"] 变成新�
 opt.zero_grad(set_to_none=True)
 ```
 
-这里只有**一个**优化器。`sched` 不是第二个优化器，是一个**学习率调度器**（scheduler）：它不碰参数，只在每次 `sched.step()` 时按预定曲线算出新的学习率，写进 `opt.param_groups[i]["lr"]`——下一次 `opt.step()` 就用新值。两者的分工：`Optimizer` 决定"用梯度怎么改参数"（L0 第七篇：$$\theta \leftarrow \theta - \eta \nabla L$$；AdamW 多了两个矩，L3 第三篇讲；`weight_decay=0.1` 是 L0 第二篇的正则化项），调度器决定"这一步的 $$\eta$$ 是多少"。先 warmup 再 cosine 衰减是 LLM 训练的标配（L0 第七篇第六章）；本文用的曲线：
+这里只有**一个**优化器。`sched` 不是第二个优化器，是一个**学习率调度器**（scheduler）：它不碰参数，只在每次 `sched.step()` 时按预定曲线算出新的学习率，写进 `opt.param_groups[i]["lr"]`——下一次 `opt.step()` 就用新值。两者的分工：`Optimizer` 决定"用梯度怎么改参数"（《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》：$$\theta \leftarrow \theta - \eta \nabla L$$；AdamW 多了两个矩，《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》讲；`weight_decay=0.1` 是 《[算法工程师的数学（02）：内积、范数与余弦相似度](/inner-product-norms-and-cosine-similarity.html)》的正则化项），调度器决定"这一步的 $$\eta$$ 是多少"。先 warmup 再 cosine 衰减是 LLM 训练的标配（《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》第六章）；本文用的曲线：
 
 ```python title='先 warmup 再 cosine 衰减的学习率曲线'
 def cosine_with_warmup(step, cfg):
@@ -360,7 +360,7 @@ sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: cosine_with_warmup(s, c
 
 ![学习率调度曲线：前 100 步从 0 线性升到 3e-4（warmup），之后按 cosine 曲线从 3e-4 降到 3e-5；sched.step() 每步只算这个系数并写进 opt.param_groups 的 lr，参数由 opt.step() 改](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg)
 
-画出来就是上面这条线。`weight_decay=0.1` 那个参数也顺便说清：它让每一步 `opt.step()` 在按梯度更新之外，再把每个参数往 0 的方向缩一点点（乘 $$1 - \eta \cdot 0.1$$），相当于给 loss 加了一项"参数别太大"的惩罚——L0 第二篇讲它为什么能防过拟合，这里只要知道它是优化器的参数、不是调度器的。
+画出来就是上面这条线。`weight_decay=0.1` 那个参数也顺便说清：它让每一步 `opt.step()` 在按梯度更新之外，再把每个参数往 0 的方向缩一点点（乘 $$1 - \eta \cdot 0.1$$），相当于给 loss 加了一项"参数别太大"的惩罚——《[算法工程师的数学（02）：内积、范数与余弦相似度](/inner-product-norms-and-cosine-similarity.html)》讲它为什么能防过拟合，这里只要知道它是优化器的参数、不是调度器的。
 
 ## 六、二十行训练循环，训一个小 Transformer
 
@@ -433,18 +433,18 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 下面每条开头的代码就是上面的某一行：悬停它，那一行会亮起；点击跳过去。反过来，代码左侧蓝色的行号悬停就能看到对应的解释。
 
 - [`TinyGPT(cfg).to(DEV)`](#model)：建模型并把全部参数搬到 GPU（第二章的 `device`；`DEV = "cuda" if torch.cuda.is_available() else "cpu"`）。
-- [`AdamW(model.parameters(), ...)`](#opt)：优化器拿到全部可训练参数的引用；`weight_decay=0.1` 是 L0 第二篇的正则化。
+- [`AdamW(model.parameters(), ...)`](#opt)：优化器拿到全部可训练参数的引用；`weight_decay=0.1` 是 《[算法工程师的数学（02）：内积、范数与余弦相似度](/inner-product-norms-and-cosine-similarity.html)》的正则化。
 - [`LambdaLR(opt, ...)`](#sched)：调度器拿到优化器，每步按 warmup + cosine 改它的学习率（第五章第 2 节）。
 - [`get_batch(train, cfg, gen)`](#batch)：取一个 batch，`x` 是 `[32, 128]` 的字符 id，`y` 是每个位置的下一个字符。真实项目里这一行是 `for step, batch in enumerate(loader)`（第五章第 1 节）。
 - [`.to(DEV, non_blocking=True)`](#to-dev)：数据搬到 GPU，`non_blocking=True` 让拷贝与前一步的计算重叠（第二章）。
-- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 L4 第十一篇。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
+- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
 - [`model(x)`](#forward)：前向，走 `__call__` → `forward`（第四章），得到 `[B, T, V]` 的 logits。
-- [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（L0 第五篇：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里**你自己标成** −100 的位置不算 loss，这就是 **SFT 的 loss mask**（L0 第五篇第四章）。注意 `ignore_index` 只是"跳过值为 −100 的位置"，它不知道哪些是 prompt、哪些是 padding：把 prompt 与 padding 写成 −100 是数据处理（collator / 模板）那一步的事，这一行只负责跳过。还有 labels 与 logits 的**错位**：位置 $$t$$ 的 logits 预测的是 $$x_{t+1}$$，所以要么 labels 整体左移一位（HF 的 `labels=input_ids` 是模型内部帮你 shift），要么自己 `logits[:, :-1]` 对 `labels[:, 1:]`——上面的玩具循环里 `x`、`y` 已经是错开一位取的。`cross_entropy` 算的就是 L0 第五篇的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
-- [`loss.backward()`](#backward)：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；L0 第七篇链式法则）。
-- [`clip_grad_norm_(..., 1.0)`](#clip)：算所有梯度拼起来的总范数，超过 1.0 就整体缩放到 1.0——**梯度裁剪**，防 loss spike（L3 第三篇）。返回值是裁剪前的范数，值得打出来看。
-- [`opt.step(); sched.step(); opt.zero_grad(set_to_none=True)`](#update)：三件事一行。`opt.step()`——AdamW 用 `.grad` 更新参数（L3 第三篇）；`sched.step()`——学习率按曲线走一步（L0 第七篇第六章）；`opt.zero_grad(set_to_none=True)`——清梯度，置 `None` 而不是填 0，省一次显存写。清零放在 `step` 之后而不是 `backward` 之前，是为了让第三章说的梯度累积只改这一行的位置就能实现。
+- [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里**你自己标成** −100 的位置不算 loss，这就是 **SFT 的 loss mask**（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》第四章）。注意 `ignore_index` 只是"跳过值为 −100 的位置"，它不知道哪些是 prompt、哪些是 padding：把 prompt 与 padding 写成 −100 是数据处理（collator / 模板）那一步的事，这一行只负责跳过。还有 labels 与 logits 的**错位**：位置 $$t$$ 的 logits 预测的是 $$x_{t+1}$$，所以要么 labels 整体左移一位（HF 的 `labels=input_ids` 是模型内部帮你 shift），要么自己 `logits[:, :-1]` 对 `labels[:, 1:]`——上面的玩具循环里 `x`、`y` 已经是错开一位取的。`cross_entropy` 算的就是 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
+- [`loss.backward()`](#backward)：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》链式法则）。
+- [`clip_grad_norm_(..., 1.0)`](#clip)：算所有梯度拼起来的总范数，超过 1.0 就整体缩放到 1.0——**梯度裁剪**，防 loss spike（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》）。返回值是裁剪前的范数，值得打出来看。
+- [`opt.step(); sched.step(); opt.zero_grad(set_to_none=True)`](#update)：三件事一行。`opt.step()`——AdamW 用 `.grad` 更新参数（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》）；`sched.step()`——学习率按曲线走一步（《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》第六章）；`opt.zero_grad(set_to_none=True)`——清梯度，置 `None` 而不是填 0，省一次显存写。清零放在 `step` 之后而不是 `backward` 之前，是为了让第三章说的梯度累积只改这一行的位置就能实现。
 - [`if step % 100 == 0: print(...)`](#log)：每 100 步才 `loss.item()`——它会同步 GPU（第二章第 3 节），别每步做。
-- [评估那五行](#eval)：`model.eval()` 切换 dropout / BatchNorm 的行为（本模型没有，写上是习惯），`torch.no_grad()` 不建图（第三章第三件事），验证集上算一次 loss，`exp` 一下就是 [PPL](# "tip: perplexity，困惑度 = exp(每 token 交叉熵)。直觉是模型每步在多少个候选里犹豫：PPL 128 等于在 128 个字符里均匀乱猜，PPL 9.6 是在不到 10 个里犹豫；L0 第六篇")。
+- [评估那五行](#eval)：`model.eval()` 切换 dropout / BatchNorm 的行为（本模型没有，写上是习惯），`torch.no_grad()` 不建图（第三章第三件事），验证集上算一次 loss，`exp` 一下就是 [PPL](# "tip: perplexity，困惑度 = exp(每 token 交叉熵)。直觉是模型每步在多少个候选里犹豫：PPL 128 等于在 128 个字符里均匀乱猜，PPL 9.6 是在不到 10 个里犹豫；《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)》")。
 
 ### 4. 多出来的四样
 
@@ -453,7 +453,7 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 1. **[`autocast`](#autocast)。** 不开，所有矩阵乘在 fp32 上跑：显存里的激活是 bf16 的两倍，Tensor Core 的 bf16 吞吐也用不上，同一张卡上速度与能放的 batch 都差一倍多。只对 GPU 成立——CPU 上开它是纯开销。
 2. **[`.float()` 与 `ignore_index`](#loss)。** 不加 `.float()`，softmax 在 bf16 上算：bf16 只有 8 位尾数，几万个 logits 里 `exp` 之后求和会丢掉小项，loss 从第一步起就带着系统误差，训到后期梯度不准。不加 `ignore_index=-100`（且 labels 里没把 prompt / padding 标成 −100），SFT 数据里的 prompt 也被当成学习目标——模型花一半算力去学"复述问题"，而且 padding 位置的 loss 会把平均值拉偏。
 3. **[`clip_grad_norm_`](#clip)。** 不裁，某一个 batch 里的坏样本产生一个特别大的梯度，一步就把参数推到很远的地方，loss 冲上去，之后可能回不来——这就是 loss spike。裁剪把这一步的总范数压回 1.0，参数只往那个方向走一小步。
-4. **学习率调度（[建调度器](#sched)、[每步 `sched.step()`](#update)）。** 不 warmup，第一步就用 $$3 \times 10^{-4}$$：AdamW 的二阶矩估计在前几步还没稳定，实际步长可能比设定大很多倍，前几步就发散（L3 第三篇讲 Adam 为什么需要 warmup）；不衰减，后期学习率太大，loss 在最优点附近来回抖、收不下去。
+4. **学习率调度（[建调度器](#sched)、[每步 `sched.step()`](#update)）。** 不 warmup，第一步就用 $$3 \times 10^{-4}$$：AdamW 的二阶矩估计在前几步还没稳定，实际步长可能比设定大很多倍，前几步就发散（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》讲 Adam 为什么需要 warmup）；不衰减，后期学习率太大，loss 在最优点附近来回抖、收不下去。
 
 所以**这二十行是正常的、也是够用的**：真实训练代码只会在它外面再包日志、评估、checkpoint 与分布式，不会在里面再多什么——那层外壳就是第 7 节的 `Trainer`。
 
@@ -477,8 +477,8 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 三件事对上了 L0：
 
-1. **第一步 loss 5.07 ≈ $$\ln 128 = 4.85$$**：随机初始化的模型接近均匀分布（L0 第五篇的 sanity check）。略高于 4.85 是因为初始 logits 不完全为零。
-2. **PPL 从 128 降到 9.6**：一分钟之后模型每步"在不到 10 个字符里犹豫"（L0 第六篇）。采样出来的文本已经有 `def`、空格、换行的结构，单词还是胡编的——84 万参数、一分钟能到的程度。
+1. **第一步 loss 5.07 ≈ $$\ln 128 = 4.85$$**：随机初始化的模型接近均匀分布（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》的 sanity check）。略高于 4.85 是因为初始 logits 不完全为零。
+2. **PPL 从 128 降到 9.6**：一分钟之后模型每步"在不到 10 个字符里犹豫"（《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)》）。采样出来的文本已经有 `def`、空格、换行的结构，单词还是胡编的——84 万参数、一分钟能到的程度。
 3. **grad_norm 在 0.3 上下，没有触发裁剪**（阈值 1.0）；第一步 2.0 是正常的——初始化后梯度大。lr 一列能看到 warmup（前 50 步从 0 升到 $$3 \times 10^{-4}$$）与 cosine 衰减（到 $$3 \times 10^{-5}$$）。
 
 ### 6. 一个 CPU 上的陷阱
@@ -544,4 +544,4 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 下一篇讲这个训练循环要多少资源：混合精度在 GPU 上为什么快、显存的账（每参数 16 字节）、激活与 checkpointing、以及多卡怎么启用。
 
-[^q0]: **能**。五个对象各站一个位置：`Dataset` / `DataLoader` 取数组 batch，`nn.Module` 前向算 logits，`cross_entropy` 算 loss，Autograd 反向把梯度累加到 `.grad`，`Optimizer.step()` 更新参数（[第一章](#一总览)的环，[第二](#二tensor)至[五章](#五datasetdataloader-与-optimizer)逐个展开）。二十行里每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`zero_grad(set_to_none=True)` 是 Autograd 的累加语义、`.item()` 每 100 步一次是避免同步。84 万参数的字符级 Transformer 在 CPU 上一分钟从 PPL 128 到 9.6，第一步 loss 5.07 $$\approx \ln 128$$ 是 L0 第五篇那个检查（[第六章](#六二十行训练循环训一个小-transformer)）。
+[^q0]: **能**。五个对象各站一个位置：`Dataset` / `DataLoader` 取数组 batch，`nn.Module` 前向算 logits，`cross_entropy` 算 loss，Autograd 反向把梯度累加到 `.grad`，`Optimizer.step()` 更新参数（[第一章](#一总览)的环，[第二](#二tensor)至[五章](#五datasetdataloader-与-optimizer)逐个展开）。二十行里每一行都对应一个概念：`autocast` 是混合精度、`.float()` 是 softmax 的数值、`ignore_index=-100` 是 SFT 的 loss mask、`clip_grad_norm_` 是梯度裁剪、`zero_grad(set_to_none=True)` 是 Autograd 的累加语义、`.item()` 每 100 步一次是避免同步。84 万参数的字符级 Transformer 在 CPU 上一分钟从 PPL 128 到 9.6，第一步 loss 5.07 $$\approx \ln 128$$ 是 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》那个检查（[第六章](#六二十行训练循环训一个小-transformer)）。

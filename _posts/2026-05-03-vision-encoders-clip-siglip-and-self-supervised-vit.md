@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 一个**视觉语言模型**（vision-language model，VLM——能看图回答问题的语言模型，如 GPT-4o、Qwen2.5-VL）的第一步是把一张图变成几百个向量。语言模型只认"一串向量"：一句话先被切成 token、每个 token 查表变成一个向量，再送进 Transformer；图片没有"词"，要先有一个部件把像素变成同样形状的一串向量，这个部件叫**视觉编码器**（vision encoder）。做这件事的几乎总是一个预训练好的 ViT——LLaVA 用 CLIP ViT-L/14，Qwen2-VL 用自己训的 ViT（从 DFN 的 CLIP 初始化），InternVL 用 InternViT-6B，Gemma 3 与 PaliGemma 用 SigLIP-SO400M。这个 ViT 是怎么训出来的，决定了它"看到"什么、看不到什么，进而决定了 VLM 的上限：一个对文字不敏感的编码器，后面接多大的 LLM 也读不好文档；一个对计数不敏感的编码器，模型就数不清图里有几只猫。
 
-编码器的训练方式有三类：**监督分类**（ImageNet 上的 ViT，[L3 第五篇](/cnn-from-lenet-to-resnet-and-vit.html)）、**图文对比学习**（CLIP、SigLIP——当前 VLM 的主流）、**自监督**（DINOv2、MAE——不需要文本）。VLM 几乎全用第二类，原因不是它的图像特征最好（在密集预测任务上 DINOv2 更好），而是它的特征空间**已经与语言对齐**——connector 只需要做一个小的映射。理解对比学习在优化什么、为什么能学出语义、以及它的目标函数决定了哪些信息被保留哪些被丢掉，是理解整个理解线的起点。
+编码器的训练方式有三类：**监督分类**（ImageNet 上的 ViT，[《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》](/cnn-from-lenet-to-resnet-and-vit.html)）、**图文对比学习**（CLIP、SigLIP——当前 VLM 的主流）、**自监督**（DINOv2、MAE——不需要文本）。VLM 几乎全用第二类，原因不是它的图像特征最好（在密集预测任务上 DINOv2 更好），而是它的特征空间**已经与语言对齐**——connector 只需要做一个小的映射。理解对比学习在优化什么、为什么能学出语义、以及它的目标函数决定了哪些信息被保留哪些被丢掉，是理解整个理解线的起点。
 
 本篇要回答的核心问题是：
 

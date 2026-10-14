@@ -10,7 +10,7 @@ catalog: true
 
 后面四篇各讲预训练的一个环节——分词、scaling law、数据、配方——每篇都会把公式代进 Llama 3 和 DeepSeek-V3 的数字。但如果你从来没有见过一次预训练从头到尾是什么样，那些数字就没有地方放。所以这一篇先**走一遍**：在一台 MacBook 上，从两个 Common Crawl 的原始网页文件出发，过滤、去重、训 tokenizer、打包、选模型大小、定配方、训练、评测，最后得到一个会续写英文的小模型。每一步都回答三个问题：**做什么、为什么要做、做完之后剩下多少**——文档数、字节数、token 数、参数量、loss。每一步末尾指向后面展开它的那一篇。
 
-它与《Transformer 原理与实现》第四篇（nanoGPT 训莎士比亚）的区别：那一篇的数据是一份现成的 1 MB 文本、词表是 65 个字符、模型大小是拍脑袋定的；这一篇的数据是真正的网页——多语言、满是导航栏和垃圾、有重复——**预训练里 80% 的工程量在数据**，跳过它就看不到预训练的样子。全部代码在 [`transformer-and-llm/pretrain_e2e/`](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm/pretrain_e2e)，八个脚本对应八步，`run_all.sh` 一键跑完（下载约 215 MB；MPS 上约两小时，其中选尺寸的扫描占大半，`--quick` 可缩到二十分钟）。
+它与《Transformer 原理与实现》第四篇（nanoGPT 训莎士比亚）的区别：那一篇的数据是一份现成的 1 MB 文本、词表是 65 个字符、模型大小是拍脑袋定的；这一篇的数据是真正的网页——多语言、满是导航栏和垃圾、有重复——**预训练里 80% 的工程量在数据**，跳过它就看不到预训练的样子。全部代码在 [`transformer-and-llm/pretrain_e2e/`](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm/pretrain_e2e)，八个脚本对应八步，`run_all.sh` 一键跑完（下载约 215 MB；MPS——PyTorch 在 Apple Silicon 上的 GPU 后端，Metal Performance Shaders，`device="mps"`——上约两小时，其中选尺寸的扫描占大半，`--quick` 可缩到二十分钟）。
 
 全篇的核心问题是：
 
@@ -59,7 +59,12 @@ Table: 八步流水线：每步的输入输出、本文实跑的规模与它在�
 
 ### 1. 为什么是 Common Crawl
 
-训练一个语言模型需要的文本量以万亿 token 计（Llama 3 是 15T），世界上只有一个地方有这么多公开文本：**网页**。Common Crawl 是一个非营利组织，每个月抓一次全网，把结果公开放在 Amazon S3 上——每月约 30 亿个网页、几百 TB。几乎所有开源模型的预训练数据都从它开始（GPT-3 的 60%、Llama、FineWeb、DCLM）。
+训练一个语言模型需要的文本量以万亿 token 计（Llama 3 是 15T），世界上只有一个地方有这么多公开文本：**网页**。Common Crawl 是一个非营利组织，每个月抓一次全网，把结果公开放在 Amazon S3 上——每月约 30 亿个网页、几百 TB。几乎所有开源模型的预训练数据都从它开始，只是用法各家不同：
+
+- GPT-3：过滤后的 Common Crawl 占整个训练配比的 60%——这个比例是**采样权重**，不是 token 数（[Brown 等 2020](https://arxiv.org/abs/2005.14165)，Table 2.2）；
+- Llama 1：English CommonCrawl 占 67%，另有 15% 来自 C4——C4 本身就是过滤过的 Common Crawl（[Touvron 等 2023](https://arxiv.org/abs/2302.13971)，Table 1）；
+- FineWeb：整个数据集都由 Common Crawl 的快照构建（[Penedo 等 2024](https://arxiv.org/abs/2406.17557)）；
+- DCLM：它的 DCLM-Pool 也全部来自 Common Crawl（[Li 等 2024](https://arxiv.org/abs/2406.11794)）。
 
 它提供三种格式：**WARC**（原始 HTTP 响应，含完整 HTML）、**WAT**（元数据）、**WET**（从 HTML 里抽出来的纯文本）。本文用 WET——正文抽取这一步 Common Crawl 已经做了，虽然做得粗（第四篇会讲为什么 FineWeb 宁愿从 WARC 重新抽）。一个月的抓取被切成 9 万个文件，每个文件约 100 MB 压缩、3 万个网页。我们取两个（`step1_raw.py`）。
 
@@ -200,9 +205,9 @@ Table: 词表大小与压缩率（同一批 750 万字符的文本）
 
 词表每翻一倍，每个 token 多代表约 0.4–0.5 个字符，**边际收益递减**；而词表带来的成本（embedding 参数 $$2Vd$$、输出层 softmax 的开销）是线性的。所以词表大小是一个最优化问题——第二篇算这笔账。
 
-## 六、打包：把文档变成定长的批
+## 六、打包：把文档变成定长的训练样本
 
-GPU 要吃**形状一致**的批：每次 32 条、每条 256 个 token。但文档长短不一——本文的语料里中位数 607 个 token，最短几十、最长几万。标准做法（`step5_pack.py`）：
+这一章做的事一句话说完：**把清洗好的文档变成训练样本**。GPU 要吃**形状一致**的批，所以先把术语钉死：一条 256 token 的块叫一条**序列**（也就是一个训练样本），32 条序列组成一个**批**。但文档长短不一——本文的语料里中位数 607 个 token，最短几十、最长几万。标准做法（`step5_pack.py`）：
 
 1. 每篇文档 tokenize，末尾加一个特殊 token `<|endoftext|>`（文档边界）；
 2. 所有文档首尾相接成一条长流；
@@ -220,6 +225,10 @@ Table: 打包后的数字
 ![左：文档 token 数分布，22% 不到 256；右：一条 256 token 的序列里有几个文档边界——四分之一的序列跨了文档](/img/in-post/pretrain-e2e-5-pack.svg)
 
 代价：一条序列常常跨过文档边界，模型在预测下一篇文档的开头时能"看到"上一篇无关的内容。Llama 3 用**文档掩码**让 attention 不跨过 `<|endoftext|>`，DeepSeek-V3 不管它——第五篇讨论这个取舍。我们不管它（与 nanoGPT 一致）。
+
+那一条长文档被切开之后呢？文档均值 1,027 个 token，平均被切成约 4 条序列。**每条序列是一个独立的训练样本**，它们之间没有先后关系：`step5_pack.py` 把文档按 98/2 分到 train.bin 与 val.bin 之后首尾相接，训练时 `trainer.py` 的 `data.batch()` 每次在整条 token 流里**随机取一个起点、截 256 个 token**当作一条样本——不是按预先切好的 42,503 条不重叠块顺序喂的（那 42,503 只是用来统计的数字）。所以一篇长文档的第 2 段永远不会把第 1 段当上下文看到，模型也学不到超过 256 token 的依赖——这正是上下文长度这个数字在限制的东西。真实的预训练把窗口开得长得多（Llama 3 是 8K，后来中期训练再扩到 128K，见《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》），文档切碎的代价在窗口越大时越小。
+
+![打包示意：文档流按「endoftext」特殊 token 相接，每 256 token 切一条序列；训练时随机起点取样成批，一篇 1,000 token 文档的 4 段散在不同的批里](/img/in-post/pretrain-e2e-5-chunks.svg)
 
 把 10,815 篇文档按 98/2 切成训练集与验证集（**按文档切**，不是按 token 切——否则同一篇文章的前半在训练集、后半在验证集，验证 loss 会虚低），训练集 10.9M 个 token。这就是 Llama 3 的 15T token 在本文里的对应物——**小了六个数量级**，流水线一样。
 
@@ -398,7 +407,7 @@ Table: 同一条流水线在两个规模上
 
 ## 十二、自测
 
-1. 一篇网页的正文是 "Home | Products | About | Contact | © 2024 All rights reserved"。四道筛子里哪几道会删它？为什么这样的文本不值得学？
+1. 一篇网页的正文是 "Home &#124; Products &#124; About &#124; Contact &#124; © 2024 All rights reserved"。四道筛子里哪几道会删它？为什么这样的文本不值得学？
 
    <details markdown="1"><summary>答案</summary>
 

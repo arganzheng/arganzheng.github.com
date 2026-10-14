@@ -36,7 +36,7 @@ Table: NumPy、Pandas、Matplotlib 三件事与章节安排
 
 ### 1. 形状与 dtype
 
-NumPy 的核心对象是 `ndarray`：一块连续内存加一个**形状**（shape）和一个**元素类型**（dtype）。L0 第一篇的标量 / 向量 / 矩阵 / 张量在这里就是 0 / 1 / 2 / 多维的 ndarray：
+NumPy 的核心对象是 `ndarray`：一块连续内存加一个**形状**（shape）和一个**元素类型**（dtype）。《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的标量 / 向量 / 矩阵 / 张量在这里就是 0 / 1 / 2 / 多维的 ndarray：
 
 ```python title='ndarray 的形状、维数、dtype 与字节数'
 import numpy as np
@@ -159,7 +159,7 @@ b = np.arange(3)[:, None] # (3, 1)
 
 ### 1. 多头 attention 的形状变换
 
-L0 第一篇说多头 attention 把 $$d$$ 拆成 $$h$$ 个头，每个头用 $$d_h = d / h$$ 维各算一份 attention。代码里是四行，用到四个操作，先把它们交代清楚：
+《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》说多头 attention 把 $$d$$ 拆成 $$h$$ 个头，每个头用 $$d_h = d / h$$ 维各算一份 attention。代码里是四行，用到四个操作，先把它们交代清楚：
 
 | 操作 | 是什么 | 例子 |
 |---|---|---|
@@ -233,13 +233,13 @@ Table: 常见公式的 einsum 写法
 
 ```python title='30 行 NumPy 实现的 causal attention'
 def softmax(x, axis=-1):
-    x = x - x.max(axis=axis, keepdims=True)       # 减最大值：L0 第五篇的数值技巧；keepdims 让它能广播回去
+    x = x - x.max(axis=axis, keepdims=True)       # 减最大值：《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》的数值技巧；keepdims 让它能广播回去
     e = np.exp(x)
     return e / e.sum(axis=axis, keepdims=True)
 
 def causal_attention_np(Q, K, V):                  # Q, K, V: [B, T, d]
     B, T, d = Q.shape
-    S = np.einsum("btd,bsd->bts", Q, K) / np.sqrt(d)   # [B, T, T]：query t 对 key s 的分数；除 √d 见 L0 第四篇
+    S = np.einsum("btd,bsd->bts", Q, K) / np.sqrt(d)   # [B, T, T]：query t 对 key s 的分数；除 √d 见 《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》
     mask = np.triu(np.ones((T, T), dtype=bool), k=1)   # 上三角（不含对角线）为 True：s > t 是"未来"
     S = np.where(mask, -np.inf, S)                     # [T, T] 的 mask 广播到 [B, T, T]；−∞ 过 softmax 变 0
     P = softmax(S, axis=-1)                            # 沿 key 维归一化：每个 query 的权重和为 1
@@ -330,7 +330,7 @@ number_theory    0.610    100     0.640 -0.030  0.096
 
 ### 4. 带着置信区间读表
 
-上面那张表里 `algebra` 提升了 7.5 个点、`number_theory` 退化了 3 个点。这两个数能不能信？L0 第八篇的答案是：一个用 $$n$$ 道题测出来的正确率 $$\hat p$$，本身有 $$\pm 1.96\sqrt{\hat p(1 - \hat p)/n}$$ 的 95% 置信区间；两次测量的差小于这个区间，就分不出是方法的差别还是题目抽样的运气。
+上面那张表里 `algebra` 提升了 7.5 个点、`number_theory` 退化了 3 个点。这两个数能不能信？《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》的答案是：一个用 $$n$$ 道题测出来的正确率 $$\hat p$$，本身有 $$\pm 1.96\sqrt{\hat p(1 - \hat p)/n}$$ 的 95% 置信区间；两次测量的差小于这个区间，就分不出是方法的差别还是题目抽样的运气。
 
 这一步在 Pandas 里是一行：`summary` 的每一列是一个 ndarray，四则运算与 `np.sqrt` 逐元素作用在整列上（第三章的广播），不用写循环：
 
@@ -382,7 +382,7 @@ merged.filter(~pl.col("correct") & pl.col("correct_base"))
 ax.set_xscale("log")
 ```
 
-左右两张子图是**同一组曲线**，只有 x 轴刻度不同。训练的前 1% 步数决定了初始化与 warmup 是否对（L0 第五篇：第一步 loss 该是 $$\ln V$$，这里 7.2 对应 $$V \approx 1300$$；L3：warmup 期间 loss 先慢后快），但在左图的线性 x 轴上前 100 步被压成最左边一条竖线，什么也看不出。右图的对数 x 轴给前 100 步分了一半宽度：起点、warmup 期间那段平缓、随后加速下降都看得见。**看训练早期一律用对数 x 轴。**
+左右两张子图是**同一组曲线**，只有 x 轴刻度不同。训练的前 1% 步数决定了初始化与 warmup 是否对（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》：第一步 loss 该是 $$\ln V$$，这里 7.2 对应 $$V \approx 1300$$；L3：warmup 期间 loss 先慢后快），但在左图的线性 x 轴上前 100 步被压成最左边一条竖线，什么也看不出。右图的对数 x 轴给前 100 步分了一半宽度：起点、warmup 期间那段平缓、随后加速下降都看得见。**看训练早期一律用对数 x 轴。**
 
 ### 3. 多 seed 画均值与阴影带
 
@@ -401,7 +401,7 @@ step 1000：A − B = 0.300，约 1.7 个标准差
 
 ### 4. 双对数
 
-scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_yscale("log")`），因为幂律在双对数下是直线（L0 第八篇）。看到这种图先读斜率。
+scaling law 的图横纵轴都是对数刻度（`ax.set_xscale("log"); ax.set_yscale("log")`），因为幂律在双对数下是直线（《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》）。看到这种图先读斜率。
 
 ## 八、三个库与 PyTorch 的边界
 

@@ -147,7 +147,7 @@ flowchart TB
 
 ### 1. 为什么要切
 
-块是检索的单位、也是进入上下文的单位（L2 第一篇的 ⑤）。太大：一个块含多个主题，embedding 是它们的平均，检索精度降，放进上下文占预算；太小：失去上下文（"第 3 条"不知道属于哪一章），embedding 缺少语义。embedding 模型有输入长度上限（Gemini Embedding 001 是 2K token，多数 8K–32K，Cohere Embed v4 128K），块不能超过它。
+块是检索的单位、也是进入上下文的单位（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》的 ⑤）。太大：一个块含多个主题，embedding 是它们的平均，检索精度降，放进上下文占预算；太小：失去上下文（"第 3 条"不知道属于哪一章），embedding 缺少语义。embedding 模型有输入长度上限（Gemini Embedding 001 是 2K token，多数 8K–32K，Cohere Embed v4 128K），块不能超过它。
 
 ### 2. 策略
 
@@ -192,7 +192,7 @@ flowchart TB
 
 ### 2. Contextual retrieval
 
-Anthropic 2024 年 9 月提出的做法：对每个块，让模型（读整篇文档与该块）生成一段 50–100 token 的"这块在文档里的位置与含义"（"本块来自 ACME 2025 年 Q3 财报的营收部分，比较了……"），**前置到块上**，再做 embedding 与 BM25 索引。他们的数字：contextual embedding + contextual BM25 让 top-20 检索失败率降低 49%，再加 rerank 降低 67%。成本：每个块一次模型调用（读整篇文档）——用 prompt caching 把文档放在缓存前缀（L1 第四篇、L2 第五篇），每块只付读价，一百万 token 的语料大约一美元量级。
+Anthropic 2024 年 9 月提出的做法：对每个块，让模型（读整篇文档与该块）生成一段 50–100 token 的"这块在文档里的位置与含义"（"本块来自 ACME 2025 年 Q3 财报的营收部分，比较了……"），**前置到块上**，再做 embedding 与 BM25 索引。他们的数字：contextual embedding + contextual BM25 让 top-20 检索失败率降低 49%，再加 rerank 降低 67%。成本：每个块一次模型调用（读整篇文档）——用 prompt caching 把文档放在缓存前缀（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》），每块只付读价，一百万 token 的语料大约一美元量级。
 
 ### 3. Late chunking
 

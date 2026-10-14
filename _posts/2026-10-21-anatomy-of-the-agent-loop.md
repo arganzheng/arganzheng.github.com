@@ -41,19 +41,19 @@ flowchart TB
 loop(task):
     ctx = [system, tools, task]
     for step in 1..MAX_STEPS:                       # 卫士 ①：步数
-        resp = model(ctx)                           # 一次调用（L1 第二篇的契约）
-        ctx.append(resp.message)                    # 含 thinking 块（L1 第三篇）
+        resp = model(ctx)                           # 一次调用（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的契约）
+        ctx.append(resp.message)                    # 含 thinking 块（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）
         if no resp.tool_calls: return resp.text     # 终止条件 A：模型说完了
         for call in resp.tool_calls:                # 可并行
             if is_repeat(call, ctx): warn(ctx)       # 卫士 ②：重复调用
             if not permitted(call): result = deny(call)   # 权限（第五篇）
             else: result = run(call, timeout=T)     # 卫士 ③：单次超时；沙箱（第五篇）
-            ctx.append(tool_result(call.id, result))       # 配对（L1 第二篇）
+            ctx.append(tool_result(call.id, result))       # 配对（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）
         if tokens(ctx) > BUDGET: compact(ctx)       # 卫士 ④：预算；压缩（第四篇）
     return partial(ctx)                             # 终止条件 B：预算耗尽，交付部分结果
 ```
 
-四个卫士与两个终止条件是最小循环与"能上生产的循环"之间的第一道差别。没有它们，一个找不到答案的 agent 会无限换词重试（L3 第五篇），一个卡住的工具会让整个会话挂死，一个长任务会在第 50 步撞上下文上限（L2 第一篇）。
+四个卫士与两个终止条件是最小循环与"能上生产的循环"之间的第一道差别。没有它们，一个找不到答案的 agent 会无限换词重试（《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》），一个卡住的工具会让整个会话挂死，一个长任务会在第 50 步撞上下文上限（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》）。
 
 ### 2. 本文的章节安排
 
@@ -63,23 +63,23 @@ loop(task):
 
 ### 1. 组装上下文
 
-L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加**（历史不修改，否则缓存与推理状态都坏——L1 第三篇、L2 第五篇）、**工具返回的截断与卸载**（L2 第四篇）、**当前目标的复述**（第四篇）。失控点：动态内容混进前缀让每一步都是缓存写入；工具返回不截断让上下文在十几步内爆掉。
+L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加**（历史不修改，否则缓存与推理状态都坏——《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）、**工具返回的截断与卸载**（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）、**当前目标的复述**（第四篇）。失控点：动态内容混进前缀让每一步都是缓存写入；工具返回不截断让上下文在十几步内爆掉。
 
 ### 2. 调模型
 
-一次 L1 第二篇的调用：流式、带工具定义、带 effort（L1 第三篇）。失控点：没有超时（一次调用挂住整个循环）；重试策略不区分错误类型（L1 第六篇）；每步都用最高 effort（成本与 TTFT，L1 第三篇的按步选档）。
+一次 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的调用：流式、带工具定义、带 effort（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）。失控点：没有超时（一次调用挂住整个循环）；重试策略不区分错误类型（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；每步都用最高 effort（成本与 TTFT，《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的按步选档）。
 
 ### 3. 解析输出
 
-模型返回文本、工具调用、或两者。**工具调用是模型的"决定"，不是执行**——这是 L1 第二篇的协议：`call_id`、`name`、`arguments`。失控点：参数不是合法 JSON（strict 工具 schema 解决）、调用了不存在的工具（把错误作为结果送回让它改）、同一步返回了互相矛盾的多个调用。
+模型返回文本、工具调用、或两者。**工具调用是模型的"决定"，不是执行**——这是 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的协议：`call_id`、`name`、`arguments`。失控点：参数不是合法 JSON（strict 工具 schema 解决）、调用了不存在的工具（把错误作为结果送回让它改）、同一步返回了互相矛盾的多个调用。
 
 ### 4. 权限与执行
 
-每个调用先过权限（能不能做、要不要问人——第五篇），再在沙箱里执行（第五篇），并行的调用并行执行（Codex 的 `tools/parallel.rs`），每个有独立超时。失控点集中在这里，PocketOS 的五环全在这一段（L1 第一篇）。
+每个调用先过权限（能不能做、要不要问人——第五篇），再在沙箱里执行（第五篇），并行的调用并行执行（Codex 的 `tools/parallel.rs`），每个有独立超时。失控点集中在这里，PocketOS 的五环全在这一段（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》）。
 
 ### 5. 写回
 
-每个 `call_id` 对应一条结果，缺一个就 400；错误也是结果（`is_error`）；大结果卸载留引用。失控点：漏配对；结果里带了注入文字（工具返回是不可信输入——L1 第二篇、L6）。
+每个 `call_id` 对应一条结果，缺一个就 400；错误也是结果（`is_error`）；大结果卸载留引用。失控点：漏配对；结果里带了注入文字（工具返回是不可信输入——《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》、L6）。
 
 ### 6. 终止
 
@@ -132,7 +132,7 @@ Codex CLI 的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` �
 
 ### 2. turn loop：一次用户输入触发
 
-收到 `Op::UserInput` 后：组装 prompt（系统指令、`AGENTS.md`——`core/src/agents_md.rs`、工具定义、对话历史），调 Responses API（L1 第二篇：Codex 只对接 Responses，reasoning item 跨轮保留），处理返回的输出项——文本推给客户端，工具调用交给第三层，直到模型不再返回工具调用。压缩在这一层的边界触发（L2 第四篇讲过：轮前检查 + 长工具链的循环边界，`core/src/compact.rs` 一族）。
+收到 `Op::UserInput` 后：组装 prompt（系统指令、`AGENTS.md`——`core/src/agents_md.rs`、工具定义、对话历史），调 Responses API（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》：Codex 只对接 Responses，reasoning item 跨轮保留），处理返回的输出项——文本推给客户端，工具调用交给第三层，直到模型不再返回工具调用。压缩在这一层的边界触发（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》讲过：轮前检查 + 长工具链的循环边界，`core/src/compact.rs` 一族）。
 
 ### 3. 工具编排器
 
@@ -303,7 +303,7 @@ flowchart TB
 4. 一个"审核报销单"的任务：读单据 → 抽字段 → 查政策 → 判断 → 写结论。该用工作流还是 agent？哪一步可能需要循环？
 
    <details markdown="1"><summary>答案</summary>
-   主体是工作流——五步事先知道、每步输入输出清楚、失败可在代码里处理（抽取失败转人工）。可能需要循环的只有"查政策"：单据情形复杂时要多轮检索与追问（L3 第五篇的 agentic retrieval），在这一步嵌一个有步数上限的小循环，其余保持固定。详见[第五章](#五工作流还是-agent)。
+   主体是工作流——五步事先知道、每步输入输出清楚、失败可在代码里处理（抽取失败转人工）。可能需要循环的只有"查政策"：单据情形复杂时要多轮检索与追问（《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》的 agentic retrieval），在这一步嵌一个有步数上限的小循环，其余保持固定。详见[第五章](#五工作流还是-agent)。
    </details>
 
 5. DeepSeek Harness 的重复调用提醒是"咨询式"的——提醒模型而不强制终止。这样设计的理由是什么？什么情况下你会改成强制？

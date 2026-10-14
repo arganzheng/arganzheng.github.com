@@ -144,7 +144,7 @@ flowchart TB
 
 ### 2. 权限范围是错误的上限
 
-L1 第一篇的结论在第五篇展开成四层，在第二篇（MCP server 是权限主体、PTC 的审批粒度）、第四篇（子 agent 的权限继承与收紧）、第七篇（handoff 的上下文与权限）、第八篇（风险五级、本体的动作权限）、第九篇（越权尝试作为指标）反复出现。harness 的首要价值是压低上限，其次才是让模型更能干。
+《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的结论在第五篇展开成四层，在第二篇（MCP server 是权限主体、PTC 的审批粒度）、第四篇（子 agent 的权限继承与收紧）、第七篇（handoff 的上下文与权限）、第八篇（风险五级、本体的动作权限）、第九篇（越权尝试作为指标）反复出现。harness 的首要价值是压低上限，其次才是让模型更能干。
 
 ### 3. 能自动验证到什么程度就能自主到什么程度
 
@@ -342,7 +342,7 @@ Table: 常见误区与正确说法
 5. 把本系列九篇对应到 L1 的七条失效模式与 L2、L3 的关键结论：每篇主要防哪条、用了前面哪些层的东西。
 
    <details markdown="1"><summary>答案</summary>
-   1 防非确定性的死循环（卫士），用 L1 工具协议；2 防指令遵循（用错工具）与上下文（定义占预算），用 L1 第二篇、L2 第五篇缓存；3 防"任务丢了"与供应商锁定，用 L1 第三篇推理状态（重放不重跑）；4 防上下文标称 ≠ 有效与预算耗尽，是 L2 第四篇的实现，子 agent 用 L2 第一篇隔离；5 防越界，是 L1 第一篇 PocketOS 的答案，工具返回不可信来自 L1 第二篇；6 综合；7 防预算耗尽（15 倍），缓存不共享来自 L2 第五篇；8 防不可逆错误（人）与知识截止（记忆是 L3 的检索，本体是 L3 第六篇）；9 验证全部，评测集方法来自 L1 第五篇、L3 第七篇。
+   1 防非确定性的死循环（卫士），用 L1 工具协议；2 防指令遵循（用错工具）与上下文（定义占预算），用 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》缓存；3 防"任务丢了"与供应商锁定，用 《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》推理状态（重放不重跑）；4 防上下文标称 ≠ 有效与预算耗尽，是 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的实现，子 agent 用 《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》隔离；5 防越界，是 《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》 PocketOS 的答案，工具返回不可信来自 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》；6 综合；7 防预算耗尽（15 倍），缓存不共享来自 《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》；8 防不可逆错误（人）与知识截止（记忆是 L3 的检索，本体是 《[检索与知识接入（06）：结构化知识——SQL、本体与 GraphRAG](/structured-knowledge-sql-ontology-and-graphrag.html)》）；9 验证全部，评测集方法来自 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》。
    </details>
 
 ### C. 面试题（8 题）

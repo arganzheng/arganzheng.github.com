@@ -98,7 +98,7 @@ flowchart LR
 
 **回答侧**决定质量上限。黄色的那条路——**当前模型采样 $$K$$ 条、用奖励模型或验证器选最好**——是 2024 年后的主路：它不依赖外部强模型、回答的风格与模型自己一致（避免学 GPT-4 的口癖）、且随着模型变强数据自动变好。它的名字是拒绝采样（rejection sampling），第四篇把它作为最简单的"离线 RL"讲。
 
-**过滤**是两侧共用的一步：规则（长度、语言、重复、拒答模板）、LLM 打分（让一个强模型按 1–5 给"有帮助 / 正确 / 安全"打分，只留高分——与 L4 第十一篇的数据打分同一思路）、去重（prompt 的 MinHash）、以及**对评测集去污染**——Tülu 3 对全部 SFT 来源与一组 benchmark 做 8-gram 重叠检查，发现若干公开 SFT 集含有测试题，去掉了它们。SFT 数据比预训练小几个量级，去污染的成本可以忽略，不做是没有理由的。
+**过滤**是两侧共用的一步：规则（长度、语言、重复、拒答模板）、LLM 打分（让一个强模型按 1–5 给"有帮助 / 正确 / 安全"打分，只留高分——与 《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》的数据打分同一思路）、去重（prompt 的 MinHash）、以及**对评测集去污染**——Tülu 3 对全部 SFT 来源与一组 benchmark 做 8-gram 重叠检查，发现若干公开 SFT 集含有测试题，去掉了它们。SFT 数据比预训练小几个量级，去污染的成本可以忽略，不做是没有理由的。
 
 ### 3. 数量与质量
 
@@ -120,7 +120,7 @@ flowchart LR
 
 ### 5. 多轮与配比
 
-多轮对话数据（ShareGPT 一类）让模型学会跟踪上下文与轮次边界；单轮数据便宜但训出的模型在第三轮开始"忘记"角色。配比上，2024 年后的配方把 SFT 数据按能力分桶（对话、推理、代码、多语言、工具、安全、长上下文），每桶的比例靠消融定——与预训练数据配比（L4 第十一篇）同一套方法论，只是每桶的量从 T 级降到 K–M 级。Tülu 3 公开了它的桶：通用对话与知识约三成，数学与推理约三成，代码一成多，其余是指令遵循、安全（含"该拒绝的"与"不该拒绝的"两类）、多语言、精确指令遵循。**安全桶的两面都要有**：只放拒答样本会训出过度拒绝的模型。
+多轮对话数据（ShareGPT 一类）让模型学会跟踪上下文与轮次边界；单轮数据便宜但训出的模型在第三轮开始"忘记"角色。配比上，2024 年后的配方把 SFT 数据按能力分桶（对话、推理、代码、多语言、工具、安全、长上下文），每桶的比例靠消融定——与预训练数据配比（《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》）同一套方法论，只是每桶的量从 T 级降到 K–M 级。Tülu 3 公开了它的桶：通用对话与知识约三成，数学与推理约三成，代码一成多，其余是指令遵循、安全（含"该拒绝的"与"不该拒绝的"两类）、多语言、精确指令遵循。**安全桶的两面都要有**：只放拒答样本会训出过度拒绝的模型。
 
 ## 三、格式：chat template 与特殊 token
 
@@ -162,14 +162,14 @@ Table: Qwen、Llama 3 与 Gemma 的聊天模板对照
 模板与 tokenizer 的交界处有几个反复出现的错误，每个都是"loss 正常、行为不对"：
 
 - **双 BOS**。Llama 系的模板自带 `<|begin_of_text|>`，而 `tokenizer(text)` 默认也加 BOS；把模板渲染的字符串再过一次 tokenizer 就得到两个 BOS。模型在两个 BOS 上训练、推理时只有一个（或反过来），第一个 token 的分布就偏了。正确的做法是渲染时 `tokenize=True` 一步到位，或 `add_special_tokens=False`。
-- **末尾的换行**。ChatML 的 `<|im_end|>\n`——那个 `\n` 属于模板还是回答？训练时如果把它算进 completion、推理时又在 `<|im_end|>` 处停，模型学到的"结束"比实际的停止位置多一个 token。L4 第九篇讲的 token 边界偏差在这里是同一件事：模板的每个字符都要在训练与推理里以同样的方式切分。
+- **末尾的换行**。ChatML 的 `<|im_end|>\n`——那个 `\n` 属于模板还是回答？训练时如果把它算进 completion、推理时又在 `<|im_end|>` 处停，模型学到的"结束"比实际的停止位置多一个 token。《[现代 LLM 结构（05）：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html)》讲的 token 边界偏差在这里是同一件事：模板的每个字符都要在训练与推理里以同样的方式切分。
 - **停止 token 没注册**。推理框架按 `eos_token_id` 停；如果模板的结束符是 `<|im_end|>` 而 `generation_config.json` 里的 eos 只有 `<|endoftext|>`，模型会在说完后继续生成下一轮的 `<|im_start|>user`。Qwen 的 `generation_config` 里因此登记了两个 eos。
 
 ### 3. 特殊 token 的 embedding 是欠训练的
 
-L4 第九篇留了一个伏笔：Llama 3 的 128 256 里有 256 个预留位，Qwen2.5 的 tokenizer 有 151 665 个 token 而模型 embedding 有 151 936 行。这些特殊 token 在预训练语料里几乎不出现（或只作为文档分隔符），它们的 embedding 在预训练结束时接近初始化值。SFT 的一部分工作就是把它们训出来——模型要学会"看到 `<|im_start|>assistant` 之后进入回答模式、生成 `<|im_end|>` 表示说完"。这也是为什么几千条 SFT 数据就能让模型"学会停"：它要学的只是几个 token 的 embedding 与它们在 lm_head 里的那几行，参数很少、出现很密（每条样本都有）。
+《[现代 LLM 结构（05）：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html)》留了一个伏笔：Llama 3 的 128 256 里有 256 个预留位，Qwen2.5 的 tokenizer 有 151 665 个 token 而模型 embedding 有 151 936 行。这些特殊 token 在预训练语料里几乎不出现（或只作为文档分隔符），它们的 embedding 在预训练结束时接近初始化值。SFT 的一部分工作就是把它们训出来——模型要学会"看到 `<|im_start|>assistant` 之后进入回答模式、生成 `<|im_end|>` 表示说完"。这也是为什么几千条 SFT 数据就能让模型"学会停"：它要学的只是几个 token 的 embedding 与它们在 lm_head 里的那几行，参数很少、出现很密（每条样本都有）。
 
-这带来一个 LoRA 的陷阱：LoRA 只加在线性层上，**embedding 与 lm_head 不在其中**。如果 SFT 引入了基座没见过的特殊 token（比如给一个只有 `<|endoftext|>` 的基座加 ChatML），LoRA 训练根本更新不到这些 token 的 embedding，模型永远学不会停。对策是把 `embed_tokens` 与 `lm_head` 加进 `modules_to_save`（全量训练这两个矩阵，其余 LoRA），或者用基座已经预留并在预训练里见过的 token（Qwen2.5 的 `<|im_start|>` / `<|im_end|>` 就是这样，所以本篇的 LoRA 实验不需要额外处理）。新加的 token 还有初始化问题：随机初始化的 embedding 范数与已训练的 token 不在一个量级，常见做法是用现有 token embedding 的均值初始化（L4 第九篇扩词表的做法）。
+这带来一个 LoRA 的陷阱：LoRA 只加在线性层上，**embedding 与 lm_head 不在其中**。如果 SFT 引入了基座没见过的特殊 token（比如给一个只有 `<|endoftext|>` 的基座加 ChatML），LoRA 训练根本更新不到这些 token 的 embedding，模型永远学不会停。对策是把 `embed_tokens` 与 `lm_head` 加进 `modules_to_save`（全量训练这两个矩阵，其余 LoRA），或者用基座已经预留并在预训练里见过的 token（Qwen2.5 的 `<|im_start|>` / `<|im_end|>` 就是这样，所以本篇的 LoRA 实验不需要额外处理）。新加的 token 还有初始化问题：随机初始化的 embedding 范数与已训练的 token 不在一个量级，常见做法是用现有 token embedding 的均值初始化（《[现代 LLM 结构（05）：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html)》扩词表的做法）。
 
 ### 4. 模板的其他内容
 
@@ -213,7 +213,7 @@ SFT 样本长短不一（中位数 256、p90 548、最大 2134 token），一个
 
 Table: 不同 max_length 下 padding 的有效比例与 packing 序列数
 
-**不 packing、随机组 batch 时一半的算力花在 padding 上。**两种修法：按长度相近分组（length grouping，把浪费降到 10% 以内，不改变样本边界）；或 packing——把多条样本首尾相接填满一条 `max_length` 的序列（L4 第十二篇的预训练做法）。packing 怎么装是一个装箱问题：`trl` 的 `packing_strategy="bfd"`（best-fit decreasing：样本按长度降序，每条放进剩余空间最合适的那个箱）比朴素的首尾相接少切断样本；"wrapped"策略把样本切开填满每一箱，吞吐最高但样本被截断。
+**不 packing、随机组 batch 时一半的算力花在 padding 上。**两种修法：按长度相近分组（length grouping，把浪费降到 10% 以内，不改变样本边界）；或 packing——把多条样本首尾相接填满一条 `max_length` 的序列（《[现代 LLM 结构（08）：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html)》的预训练做法）。packing 怎么装是一个装箱问题：`trl` 的 `packing_strategy="bfd"`（best-fit decreasing：样本按长度降序，每条放进剩余空间最合适的那个箱）比朴素的首尾相接少切断样本；"wrapped"策略把样本切开填满每一箱，吞吐最高但样本被截断。
 
 packing 的问题也和预训练一样：标准的因果 attention 会让后一条样本看到前一条，需要块对角的 attention 掩码，或 FlashAttention 的变长接口（`trl` 的 `padding_free=True`，把每条样本的位置 id 重置并让 kernel 按样本边界做 attention）。不加掩码的 packing 在预训练里影响不大（DeepSeek-V3 就不掩），在 SFT 里影响更明显——样本短、跨样本的干扰比例高，且不同样本的 system prompt 与角色标记会互相混淆。
 
@@ -229,7 +229,7 @@ packing 的问题也和预训练一样：标准的因果 attention 会让后一�
 
 ### 1. 全量微调的账
 
-全量 SFT 与预训练的状态账相同：混合精度 + AdamW 下每参数 16 字节（L4 第十一篇），8B 模型 128 GB，不算激活值就要两张 80 GB 的卡加 ZeRO / FSDP。学习率取预训练峰值的十分之一量级——Llama 3 用 $$10^{-5}$$，Tülu 3 对 8B 用 $$5 \times 10^{-6}$$、70B 用 $$2 \times 10^{-6}$$，Qwen2.5 从 $$7 \times 10^{-6}$$ 衰减到 $$7 \times 10^{-7}$$。原因是 SFT 的数据量小、epoch 多，大 lr 会在几百步里把预训练的权重推得太远（第六章的遗忘）。与预训练相比 warmup 更短（几十到几百步或 3% 的步数）、调度多为线性或 cosine 到 0、weight decay 常设为 0（数据少、步数少，decay 来不及起作用，反而干扰）。
+全量 SFT 与预训练的状态账相同：混合精度 + AdamW 下每参数 16 字节（《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》），8B 模型 128 GB，不算激活值就要两张 80 GB 的卡加 ZeRO / FSDP。学习率取预训练峰值的十分之一量级——Llama 3 用 $$10^{-5}$$，Tülu 3 对 8B 用 $$5 \times 10^{-6}$$、70B 用 $$2 \times 10^{-6}$$，Qwen2.5 从 $$7 \times 10^{-6}$$ 衰减到 $$7 \times 10^{-7}$$。原因是 SFT 的数据量小、epoch 多，大 lr 会在几百步里把预训练的权重推得太远（第六章的遗忘）。与预训练相比 warmup 更短（几十到几百步或 3% 的步数）、调度多为线性或 cosine 到 0、weight decay 常设为 0（数据少、步数少，decay 来不及起作用，反而干扰）。
 
 激活值在 SFT 里比预训练更容易成为瓶颈：序列长（Qwen2.5 的 SFT 用 32K）、batch 小，每层激活 $$\propto$$ 序列长 × $$d$$，加上 attention 的中间量；梯度检查点（重算激活）几乎是默认开着的，代价是多约三分之一的前向 FLOPs。
 
@@ -244,7 +244,7 @@ $$
 \frac{\partial \mathcal{L}}{\partial A} = \frac{\alpha}{r} \, B^\top \frac{\partial \mathcal{L}}{\partial W'}
 $$
 
-$$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动；从第二步起两者每步都一起更新（不是交替），$$A$$ 的梯度随 $$B$$ 长大而变大——这是 LoRA 头几步 loss 动得慢的原因之一，也是它常用比全量大的 lr 的原因。还要纠正一个常见说法：LoRA **不需要**算 $$d_{out} \times d_{in}$$ 的完整 $$\partial\mathcal{L}/\partial W'$$。设上游梯度 $$G = \partial\mathcal{L}/\partial y$$（$$d_{out} \times$$ batch），则 $$\partial\mathcal{L}/\partial B = G (A x)^\top$$、$$\partial\mathcal{L}/\partial A = B^\top G\, x^\top$$，两个都是小矩阵乘，autograd 走的就是这条路（CPU 验证：`W.grad is None`，`A.grad`/`B.grad` 与公式逐元素相等）。所以 LoRA 省的不只是**存储**（不存 $$W$$ 的梯度与 Adam 状态），反向对权重那一半的算量也省了；没省的是对输入的梯度 $$\partial\mathcal{L}/\partial x = W^\top G + A^\top B^\top G$$——它要穿过冻结的 $$W$$ 传到前一层，与全量一样。L4 第十二篇算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
+$$B = 0$$ 让第一步 $$A$$ 没有梯度、只有 $$B$$ 动；从第二步起两者每步都一起更新（不是交替），$$A$$ 的梯度随 $$B$$ 长大而变大——这是 LoRA 头几步 loss 动得慢的原因之一，也是它常用比全量大的 lr 的原因。还要纠正一个常见说法：LoRA **不需要**算 $$d_{out} \times d_{in}$$ 的完整 $$\partial\mathcal{L}/\partial W'$$。设上游梯度 $$G = \partial\mathcal{L}/\partial y$$（$$d_{out} \times$$ batch），则 $$\partial\mathcal{L}/\partial B = G (A x)^\top$$、$$\partial\mathcal{L}/\partial A = B^\top G\, x^\top$$，两个都是小矩阵乘，autograd 走的就是这条路（CPU 验证：`W.grad is None`，`A.grad`/`B.grad` 与公式逐元素相等）。所以 LoRA 省的不只是**存储**（不存 $$W$$ 的梯度与 Adam 状态），反向对权重那一半的算量也省了；没省的是对输入的梯度 $$\partial\mathcal{L}/\partial x = W^\top G + A^\top B^\top G$$——它要穿过冻结的 $$W$$ 传到前一层，与全量一样。《[现代 LLM 结构（08）：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html)》算过它的参数量：$$r (d_{in} + d_{out})$$ 每个矩阵。配套实验在 0.5B 上的账：
 
 ```text title='0.5B 上全量与三种 LoRA 的可训练参数与训练状态占用'
 配置                      可训练参数     占比    训练状态(混合精度)   8B 规格同比例
@@ -258,7 +258,7 @@ LoRA r=64 全部线性层           35.2M     7.12%        1.38 GiB         22 G
 三个旋钮：
 
 - **秩 $$r$$**：8–64 常见。QLoRA 论文与后续消融的共同结论是 $$r$$ 的影响远小于目标矩阵的选择；Biderman 等 2024 在代码与数学的继续预训练上发现 $$r = 256$$ 仍追不上全量，但在指令微调上 $$r = 16$$ 已接近。
-- **目标矩阵**：只做 attention 的 q/k/v/o（最早的做法）明显不如**全部线性层**（加 FFN 的 gate/up/down）——FFN 占了 80% 的参数（L4 第五篇），只动 attention 是在 20% 的参数里找低秩子空间。上表里从 attention 到全部线性层参数翻 4 倍，效果差别远大于 $$r$$ 从 16 到 64。
+- **目标矩阵**：只做 attention 的 q/k/v/o（最早的做法）明显不如**全部线性层**（加 FFN 的 gate/up/down）——FFN 占了 80% 的参数（《[现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量](/gpt2-to-llama-five-changes-and-parameter-count.html)》），只动 attention 是在 20% 的参数里找低秩子空间。上表里从 attention 到全部线性层参数翻 4 倍，效果差别远大于 $$r$$ 从 16 到 64。
 - **$$\alpha$$**：缩放因子，$$\alpha / r$$ 是有效学习率的一部分；常取 $$\alpha = 2r$$。rsLoRA（Kalajdzievski 2023）指出 $$\alpha / r$$ 的缩放让 $$r$$ 增大时更新幅度按 $$1/r$$ 塌缩（$$BA$$ 的每个元素是 $$r$$ 项之和、量级 $$\sqrt r$$，除以 $$r$$ 后是 $$1/\sqrt r$$），建议改用 $$\alpha / \sqrt r$$，这样大 $$r$$ 才真的学得更多。
 
 一张常用的起点表（QLoRA 与后续工作的经验值）：
@@ -292,7 +292,7 @@ LoRA r=16 全部线性层 lr 1e-4       训练 loss 2.183    验证回复 loss 2
 
 训完后 $$W' = W + \frac{\alpha}{r} BA$$ 可以算出来存成一个普通模型，推理零开销。两个注意点：合并后再量化（GPTQ / AWQ）与先量化底座再挂 LoRA 不等价——QLoRA 训出的 adapter 是对着 NF4 底座学的，合并进 BF16 底座会有微小的失配，多数情况可忽略但值得知道；合并后模型文件与底座一样大，几十个 adapter 就是几十份 16 GB。
 
-不合并时一个底座可以同时挂几十个 LoRA 按请求切换（L4 第十二篇的 batched GEMV：把不同请求的 $$A$$、$$B$$ 作为一个批次的小 GEMM 算，S-LoRA、vLLM 的多 LoRA 支持），每个 adapter 只占几十 MB——这是 LoRA 在产品侧的另一个价值：一个模型服务上百个客户的定制版本。
+不合并时一个底座可以同时挂几十个 LoRA 按请求切换（《[现代 LLM 结构（08）：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html)》的 batched GEMV：把不同请求的 $$A$$、$$B$$ 作为一个批次的小 GEMM 算，S-LoRA、vLLM 的多 LoRA 支持），每个 adapter 只占几十 MB——这是 LoRA 在产品侧的另一个价值：一个模型服务上百个客户的定制版本。
 
 ### 5. LoRA 学得少、忘得少
 
@@ -339,7 +339,7 @@ Table: 缓解遗忘的四种对策
 
 ### 1. 一次 SFT 的账
 
-用 L4 第十篇的 $$6ND$$：Llama 3 8B 规格、100 万条样本、平均 1000 token、2 个 epoch，$$D = 2 \times 10^9$$，$$C = 6 \times 8 \times 10^9 \times 2 \times 10^9 = 9.6 \times 10^{19}$$ FLOPs，H100 上 40% MFU 约 **67 GPU 小时**——预训练 146 万 GPU 小时的两万分之一。padding 的浪费（第四章：不 packing 时一半）与梯度检查点（多三分之一前向）会把它翻到 150–200 小时，仍然微不足道。
+用 《[现代 LLM 结构（06）：MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html)》的 $$6ND$$：Llama 3 8B 规格、100 万条样本、平均 1000 token、2 个 epoch，$$D = 2 \times 10^9$$，$$C = 6 \times 8 \times 10^9 \times 2 \times 10^9 = 9.6 \times 10^{19}$$ FLOPs，H100 上 40% MFU 约 **67 GPU 小时**——预训练 146 万 GPU 小时的两万分之一。padding 的浪费（第四章：不 packing 时一半）与梯度检查点（多三分之一前向）会把它翻到 150–200 小时，仍然微不足道。
 
 SFT 便宜到成本几乎全在数据上：100 万条样本如果由人写，按每条 10 分钟算是 17 万人时；由 GPT-4 级模型生成，按每条 1000 token 输出算是 10 亿输出 token 的 API 费用；由自己的模型拒绝采样生成，是 $$K$$ 倍的推理 FLOPs 加奖励模型打分——$$K = 8$$、8B 模型、100 万条 × 1000 token 是 $$2 \times 8\text{B} \times 8 \times 10^9 = 1.3 \times 10^{20}$$ FLOPs，与 SFT 训练本身同量级。**后训练的成本结构与预训练相反：算力便宜，数据贵**；而数据的成本正在从人时变成推理 FLOPs。
 
@@ -457,7 +457,7 @@ SFT 训出的模型会按格式回答，但"好回答"与"坏回答"它分不出
 
    <details markdown="1"><summary>答案</summary>
 
-   5 个 epoch——1 万条指令对 8B 模型是极度过参数化区间（L3 第四篇），多 epoch 会背下数据、推开预训练分布。看 held-out 的通用 loss（不是 SFT 验证 loss）随 epoch 的变化，以及几个通用 benchmark 的早期抽检；拐点出现就停。
+   5 个 epoch——1 万条指令对 8B 模型是极度过参数化区间（《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》），多 epoch 会背下数据、推开预训练分布。看 held-out 的通用 loss（不是 SFT 验证 loss）随 epoch 的变化，以及几个通用 benchmark 的早期抽检；拐点出现就停。
 
    </details>
 

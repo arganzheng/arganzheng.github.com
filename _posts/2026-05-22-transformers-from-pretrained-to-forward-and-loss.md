@@ -12,7 +12,7 @@ date: 2026-05-22 12:00:00
 
 [工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，第一行就是 `AutoModelForCausalLM.from_pretrained(name)`。那一篇把它当黑盒：进去一个 Hub 名字，出来一个 `nn.Module`。这一篇把黑盒打开：这个函数怎么根据 `config.json` 里的一个字段挑出 `Qwen2ForCausalLM` 这个类、怎么在不占内存的情况下先搭出骨架再把 `safetensors` 里的 290 个张量填进去、`forward` 从 `input_ids` 到 `loss` 经过哪几个文件、attention 那一行为什么能在 eager / SDPA / FlashAttention 之间切换而模型代码一个字不改。
 
-读完这一篇，[L4 第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的那张结构图上的每个方框，你都能在 `modeling_llama.py` 里指出是哪个类的哪几行；也能回答工程里最常见的三个问题：为什么加载 8B 模型时内存不会先冲到 32 GB、为什么 `attn_implementation="sdpa"` 与 `"eager"` 的结果差到 $$10^{-4}$$、`labels` 传进去之后 loss 是怎么算的。
+读完这一篇，[《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的那张结构图上的每个方框，你都能在 `modeling_llama.py` 里指出是哪个类的哪几行；也能回答工程里最常见的三个问题：为什么加载 8B 模型时内存不会先冲到 32 GB、为什么 `attn_implementation="sdpa"` 与 `"eager"` 的结果差到 $$10^{-4}$$、`labels` 传进去之后 loss 是怎么算的。
 
 本篇要回答的核心问题是：
 
@@ -49,7 +49,7 @@ flowchart TB
     LOAD --> FWD
 ```
 
-上半是加载，下半是前向。加载的六步里只有第五步真正读磁盘、占内存；前向的五步里，第三、四步就是 L4 第一篇那张图的一个 block，第五步是 L0 第五篇讲的交叉熵。整个 `transformers` 包有 518 个模型目录，但 decoder-only 语言模型几乎全是 `modeling_llama.py` 的变体——所以本文读 Llama 的文件，用 Qwen2.5-0.5B 跑。
+上半是加载，下半是前向。加载的六步里只有第五步真正读磁盘、占内存；前向的五步里，第三、四步就是 《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》那张图的一个 block，第五步是 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲的交叉熵。整个 `transformers` 包有 518 个模型目录，但 decoder-only 语言模型几乎全是 `modeling_llama.py` 的变体——所以本文读 Llama 的文件，用 Qwen2.5-0.5B 跑。
 
 ### 2. 本文的章节安排
 
@@ -57,7 +57,7 @@ flowchart TB
 |---|---|---|
 | 二 | Auto 类怎么选类 | `model_type` → 配置类 → 模型类的两张表<br/>`_LazyAutoMapping` 为什么是惰性的<br/>`trust_remote_code` 走的另一条路 |
 | 三 | 权重怎么装进去 | 三个文件的解析<br/>meta 设备上的骨架<br/>`safe_open` 与 `get_slice`<br/>名字映射与 `missing / unexpected keys`<br/>`tie_weights`<br/>`dtype` 与 `device_map` |
-| 四 | 一个 block 的代码 | `LlamaRMSNorm`、`LlamaRotaryEmbedding` + `apply_rotary_pos_emb`、`LlamaMLP`、`LlamaDecoderLayer`——与 L4 第一篇的公式逐行对应 |
+| 四 | 一个 block 的代码 | `LlamaRMSNorm`、`LlamaRotaryEmbedding` + `apply_rotary_pos_emb`、`LlamaMLP`、`LlamaDecoderLayer`——与 《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的公式逐行对应 |
 | 五 | attention 那一行 | `LlamaAttention.forward`<br/>`ALL_ATTENTION_FUNCTIONS` 注册表<br/>`eager_attention_forward` 与 `sdpa_attention_forward` 的差别<br/>GQA 的 `repeat_kv`<br/>mask 怎么造 |
 | 六 | KV cache | `DynamicCache` 与 `DynamicLayer.update` 的 `torch.cat`<br/>`get_seq_length` 怎么决定 `position_ids`<br/>一次 prefill + 一次 decode 的形状 |
 | 七 | 从 logits 到 loss | `LlamaForCausalLM.forward` 的 `logits_to_keep`<br/>`loss_function` 的分派<br/>`ForCausalLMLoss` 的 shift、`-100` 与 `num_items_in_batch` |
@@ -159,7 +159,7 @@ Table: 加载时三类对不上的键
 
 ### 1. 与结构图对照
 
-L4 第一篇的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → FFN → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
+《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → FFN → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
 
 | 图里的方框 | 类 / 函数 | 参数 |
 |---|---|---|
@@ -185,7 +185,7 @@ def forward(self, hidden_states):
     return self.weight * hidden_states.to(input_dtype)
 ```
 
-公式 $$\text{RMSNorm}(x) = \frac{x}{\sqrt{\text{mean}(x^2) + \epsilon}} \cdot \gamma$$ 一行一个：先升到 fp32 算均方（bf16 下 896 个数的平方和会丢精度，L3 第二篇），乘 `rsqrt`，再降回输入 dtype 后乘 `weight`。类上的装饰器 `@use_kernel_forward_from_hub("RMSNorm")` 是 5.x 的 `kernels` 集成：设了 `use_kernels=True` 时这个 `forward` 会被 Hub 上的 fused kernel 替换，模型代码不改。
+公式 $$\text{RMSNorm}(x) = \frac{x}{\sqrt{\text{mean}(x^2) + \epsilon}} \cdot \gamma$$ 一行一个：先升到 fp32 算均方（bf16 下 896 个数的平方和会丢精度，《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》），乘 `rsqrt`，再降回输入 dtype 后乘 `weight`。类上的装饰器 `@use_kernel_forward_from_hub("RMSNorm")` 是 5.x 的 `kernels` 集成：设了 `use_kernels=True` 时这个 `forward` 会被 Hub 上的 fused kernel 替换，模型代码不改。
 
 ### 3. RoPE：算一次 cos / sin，每层用
 
@@ -199,7 +199,7 @@ cos = emb.cos() * self.attention_scaling
 sin = emb.sin() * self.attention_scaling
 ```
 
-`inv_freq` 就是 [L0 第三篇](/orthogonal-rotation-svd-and-low-rank.html) 的 $$\theta_i = \text{base}^{-2i/d_h}$$——`dim = head_dim = 64`，所以 `inv_freq` 有 32 个数（配套脚本打印 `(32,)`，fp32 buffer）。`freqs = inv_freq ⊗ position_ids` 是每个位置每一对的角度 $$m\theta_i$$；`cat((freqs, freqs))` 把 32 个角度复制成 64 个，因为 transformers 的实现把 64 维**前后两半**配对（第 $$i$$ 维与第 $$i + 32$$ 维一对），而不是相邻两维配对——这决定了 `rotate_half` 的写法：
+`inv_freq` 就是 [《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》](/orthogonal-rotation-svd-and-low-rank.html) 的 $$\theta_i = \text{base}^{-2i/d_h}$$——`dim = head_dim = 64`，所以 `inv_freq` 有 32 个数（配套脚本打印 `(32,)`，fp32 buffer）。`freqs = inv_freq ⊗ position_ids` 是每个位置每一对的角度 $$m\theta_i$$；`cat((freqs, freqs))` 把 32 个角度复制成 64 个，因为 transformers 的实现把 64 维**前后两半**配对（第 $$i$$ 维与第 $$i + 32$$ 维一对），而不是相邻两维配对——这决定了 `rotate_half` 的写法：
 
 ```python title="rotate_half 与 apply_rotary_pos_emb"
 def rotate_half(x):
@@ -214,7 +214,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     return q_embed, k_embed
 ```
 
-对一对 $$(x_1, x_2)$$，$$(x_1 \cos - x_2 \sin,\; x_2 \cos + x_1 \sin)$$ 正是二维旋转矩阵作用的结果——L0 第三篇的 $$R_\theta$$ 用逐元素乘写出来了，没有任何矩阵乘。`LlamaModel.forward` 里 `position_embeddings = self.rotary_emb(hidden_states, position_ids)` **只算一次**，然后传给全部 24 层——cos / sin 与层无关。`rope_type != "default"` 时（Llama 3 的 `llama3`、长上下文的 `yarn`、`dynamic`）换的只是 `inv_freq` 的算法（`modeling_rope_utils.ROPE_INIT_FUNCTIONS`）和 `attention_scaling`，L4 第七篇讨论的那些外推方法在代码里就是这张表的一项。
+对一对 $$(x_1, x_2)$$，$$(x_1 \cos - x_2 \sin,\; x_2 \cos + x_1 \sin)$$ 正是二维旋转矩阵作用的结果——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的 $$R_\theta$$ 用逐元素乘写出来了，没有任何矩阵乘。`LlamaModel.forward` 里 `position_embeddings = self.rotary_emb(hidden_states, position_ids)` **只算一次**，然后传给全部 24 层——cos / sin 与层无关。`rope_type != "default"` 时（Llama 3 的 `llama3`、长上下文的 `yarn`、`dynamic`）换的只是 `inv_freq` 的算法（`modeling_rope_utils.ROPE_INIT_FUNCTIONS`）和 `attention_scaling`，《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》讨论的那些外推方法在代码里就是这张表的一项。
 
 ### 4. MLP：一行
 
@@ -328,7 +328,7 @@ self.values = torch.cat([self.values, value_states], dim=-2)
 return self.keys, self.values
 ```
 
-第 $$l$$ 层的 attention 把本步算出的 k、v 交给 `update`，它拼到历史后面，**返回拼好的全部**——attention 拿返回值算，所以 decode 时 q 只有 1 个 token，k、v 是全部 $$t$$ 个。`dim=-2` 是序列维：keys 形状 `[B, h_kv, t, d_h]`。配套脚本：prefill 5 个 token 后 `layers[0].keys` 是 `(1, 2, 5, 64)`，`get_seq_length() = 5`；喂 1 个 token 再前向，`get_seq_length() = 6`、logits 形状 `(1, 1, 151936)`。[L4 第二篇](/transformer-token-journey-training-and-inference.html)讲的 KV cache 账（每 token 每层 $$2 \times h_{kv} \times d_h \times 2$$ 字节）就是这两个张量的大小。
+第 $$l$$ 层的 attention 把本步算出的 k、v 交给 `update`，它拼到历史后面，**返回拼好的全部**——attention 拿返回值算，所以 decode 时 q 只有 1 个 token，k、v 是全部 $$t$$ 个。`dim=-2` 是序列维：keys 形状 `[B, h_kv, t, d_h]`。配套脚本：prefill 5 个 token 后 `layers[0].keys` 是 `(1, 2, 5, 64)`，`get_seq_length() = 5`；喂 1 个 token 再前向，`get_seq_length() = 6`、logits 形状 `(1, 1, 151936)`。[《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》](/transformer-token-journey-training-and-inference.html)讲的 KV cache 账（每 token 每层 $$2 \times h_{kv} \times d_h \times 2$$ 字节）就是这两个张量的大小。
 
 ### 2. `position_ids` 从 cache 长度来
 

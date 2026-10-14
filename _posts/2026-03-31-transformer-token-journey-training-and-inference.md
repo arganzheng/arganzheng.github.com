@@ -80,7 +80,7 @@ loss（标量）: 2.7805   ≈ ln(16) = 2.7726
 
 - 从 `wte` 到 `ln_f`，形状一直是 $$[B, T, d] = [2, 5, 8]$$——上一篇说的"每个方框输入输出相同"在这里变成一列相同的数字；只有两处临时变宽（QKV 合并成 $$3d$$、FFN 放大到 $$4d$$）又缩回来。
 - `lm_head` 之后是 $$[B, T, V] = [2, 5, 16]$$：**每个位置**都有一个词表分布，不只是最后一个。这是下一节的关键。
-- 随机初始化的 loss 恰好约等于 $$\ln V = \ln 16 = 2.77$$：模型还什么都不会，每个位置在 16 个词里均匀乱猜，交叉熵就是 $$\ln V$$（L0 第五篇）。GPT-2 词表 50257，训练开始时 loss 约 10.8，同理。
+- 随机初始化的 loss 恰好约等于 $$\ln V = \ln 16 = 2.77$$：模型还什么都不会，每个位置在 16 个词里均匀乱猜，交叉熵就是 $$\ln V$$（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》）。GPT-2 词表 50257，训练开始时 loss 约 10.8，同理。
 
 ### 2. Teacher forcing：一次前向，T 个训练信号
 
@@ -110,7 +110,7 @@ T 个 loss 的平均 = 2.7583（两句话一起平均就是上面的 2.7805）
 
 ### 1. 交叉熵
 
-每个位置的 loss 是 $$-\log p_i(y_i)$$：模型分给正确答案的概率取对数再取负（L0 第五篇讲了它为什么是这个形状）。位置 0 给正确答案 3 的概率是 0.068，$$-\ln 0.068 = 2.69$$。$$B \times T$$ 个 loss 取平均，得到一个标量——训练日志里那个数。
+每个位置的 loss 是 $$-\log p_i(y_i)$$：模型分给正确答案的概率取对数再取负（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲了它为什么是这个形状）。位置 0 给正确答案 3 的概率是 0.068，$$-\ln 0.068 = 2.69$$。$$B \times T$$ 个 loss 取平均，得到一个标量——训练日志里那个数。
 
 代码上就是一行：
 
@@ -122,7 +122,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 ### 2. 反向沿哪条路
 
-`loss.backward()` 从这个标量出发，沿前向的每一步反着走一遍（L3 第一篇的链式法则、Infra PyTorch 第三篇的 Autograd）：lm_head → `ln_f` → block1 的 FFN → block1 的 attention → block0 …… → `wpe`、`wte`。每个参数拿到一份和自己同形状的梯度：
+`loss.backward()` 从这个标量出发，沿前向的每一步反着走一遍（《[深度学习基础（01）：深度模型演进史——从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html)》的链式法则、Infra PyTorch 第三篇的 Autograd）：lm_head → `ln_f` → block1 的 FFN → block1 的 attention → block0 …… → `wpe`、`wte`。每个参数拿到一份和自己同形状的梯度：
 
 ```text title='backward 后每个参数拿到同形状的梯度'
   wte.weight                   参数 (16, 8)      梯度范数 1.0940
@@ -132,7 +132,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
   ……共 28 个参数张量、1,952 个数，每个都有 .grad
 ```
 
-反向过 attention 时，梯度会**沿着注意力权重流回被关注的 token**：位置 4 的 loss 会通过 attention 权重影响 token 0 的表示——这就是"远处的 token 也能得到训练信号"的机制，RNN 做不到这一点（L3 第六篇）。
+反向过 attention 时，梯度会**沿着注意力权重流回被关注的 token**：位置 4 的 loss 会通过 attention 权重影响 token 0 的表示——这就是"远处的 token 也能得到训练信号"的机制，RNN 做不到这一点（《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》）。
 
 ### 3. 为反向保存的东西：激活值
 
@@ -144,13 +144,13 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 ## 四、更新：AdamW 走一步
 
-有了每个参数的 `.grad`，优化器把参数沿梯度反方向挪一小步（L3 第三篇的 AdamW：不是直接减梯度，而是维护每个参数的一阶、二阶动量再决定步长）。同一个 batch 更新前后：
+有了每个参数的 `.grad`，优化器把参数沿梯度反方向挪一小步（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的 AdamW：不是直接减梯度，而是维护每个参数的一阶、二阶动量再决定步长）。同一个 batch 更新前后：
 
 ```text title='AdamW 走一步：同一 batch 更新前后的 loss'
   更新前 2.7805 → 更新后 2.6832（同一 batch；真实训练每步换一个新 batch）
 ```
 
-一步就下降了 0.1——但这是在**同一个 batch** 上量的，只说明更新方向对；真正的进步要看新 batch 上的 loss（L2 第一篇：训练集 vs 验证集）。
+一步就下降了 0.1——但这是在**同一个 batch** 上量的，只说明更新方向对；真正的进步要看新 batch 上的 loss（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》：训练集 vs 验证集）。
 
 到这里训练的一步走完了。清单如下——这就是工具箱第三篇那二十行的每一行在模型内部对应的事：
 
@@ -189,7 +189,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 ### 2. 从分布里抽一个 token
 
-每步得到的是词表上的一个分布，怎么变成一个 token？最简单是取概率最大的（贪心），但那样会重复、呆板；实际用**采样**：按概率随机抽，再用温度调节分布的尖锐程度、用 top-k / top-p 砍掉长尾（L0 第五篇讲温度，高效推理系列第一篇讲采样策略）。nanoGPT 的 `generate` 就是"温度 + top-k + 按概率抽"三行（下一篇）。采样意味着同一个 prompt 每次生成不同——这是特性不是 bug，评测时要固定它。
+每步得到的是词表上的一个分布，怎么变成一个 token？最简单是取概率最大的（贪心），但那样会重复、呆板；实际用**采样**：按概率随机抽，再用温度调节分布的尖锐程度、用 top-k / top-p 砍掉长尾（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲温度，高效推理系列第一篇讲采样策略）。nanoGPT 的 `generate` 就是"温度 + top-k + 按概率抽"三行（下一篇）。采样意味着同一个 prompt 每次生成不同——这是特性不是 bug，评测时要固定它。
 
 ## 六、KV cache：为什么旧 token 不用重算
 
@@ -197,7 +197,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 最朴素的 decode：每生成一个 token，把**整段序列**（prompt + 已生成的）重新前向一遍，取最后一个位置。生成第 100 个 token 时要算 $$T + 100$$ 个位置，其中 $$T + 99$$ 个上一步刚算过。总计算量随生成长度平方增长。
 
-哪些能省？回头看上一篇 attention 的六步：位置 $$i$$ 的 **K 和 V** 只由 token $$i$$ 自己的向量算出（$$k_i = x_i W_K$$），而 causal mask 保证 $$x_i$$ 本身只依赖 token $$0..i$$——**后面来了新 token，前面所有位置的 K、V 一个数都不会变**（L0 第四篇用图讲过这条因果性）。既然不变，算一次存下来就行。至于 Q：只有新 token 需要 Q（只有它要做预测），旧 token 的 Q 用过就没用了。
+哪些能省？回头看上一篇 attention 的六步：位置 $$i$$ 的 **K 和 V** 只由 token $$i$$ 自己的向量算出（$$k_i = x_i W_K$$），而 causal mask 保证 $$x_i$$ 本身只依赖 token $$0..i$$——**后面来了新 token，前面所有位置的 K、V 一个数都不会变**（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》用图讲过这条因果性）。既然不变，算一次存下来就行。至于 Q：只有新 token 需要 Q（只有它要做预测），旧 token 的 Q 用过就没用了。
 
 于是：
 

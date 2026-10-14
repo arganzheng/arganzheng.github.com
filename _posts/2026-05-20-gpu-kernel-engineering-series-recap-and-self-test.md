@@ -264,9 +264,7 @@ Table: 本文的章节安排
 
 之后每篇的 memory-bound 部分都是这句话的变奏。第四篇 fused residual + RMSNorm 读 3 写 2 → 读 2 写 2，online softmax 把读 3 次降到读 2 次。第八篇 FlashAttention 不物化 $$S$$、$$P$$，132 MiB → 66 MiB → 借 L2 约 4 MiB；decode 每步读 128 KiB × $$s$$ 的 KV，分页不改字节，减字节只能靠 KV 量化与 GQA。第九篇把它做成一张融合表——10 → 8、7 → 3、6 已是下界——并把权重字节除以 4 或 2。第十篇一句话收尾：SOL Memory 高时只能减字节。
 
-### 4. 数据复用的层次：shared、寄存器、fragment、L2
-
-第一篇给出内存层次：每层带宽差一个数量级，shared 每 SM 每周期 128 B，是数据复用的场所，容量决定分块尺寸。第四篇第一次用它，但只用来汇总 32 个 warp 的部分和，bank conflict 与 padding 在这里是一段话。第五篇它变成主角：tile 搬进 shared 被 128 个线程反复读，全局读取减 128 倍；shared 带宽随即成为第二屋顶，寄存器成为第三层复用，`cp.async` 让搬运不经过寄存器。
+### 4. 数据复用的层次：shared、寄存器、fragment、《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》给出内存层次：每层带宽差一个数量级，shared 每 SM 每周期 128 B，是数据复用的场所，容量决定分块尺寸。第四篇第一次用它，但只用来汇总 32 个 warp 的部分和，bank conflict 与 padding 在这里是一段话。第五篇它变成主角：tile 搬进 shared 被 128 个线程反复读，全局读取减 128 倍；shared 带宽随即成为第二屋顶，寄存器成为第三层复用，`cp.async` 让搬运不经过寄存器。
 
 第六篇复用的单位从线程变成 warp：fragment 是硬件规定的寄存器布局，`ldmatrix` 按它装载，shared 必须 XOR swizzle；Hopper 的 `wgmma` 直接读 shared，寄存器只剩累加器。第七篇把这三层交给编译器——TTGIR 的 `#shared` 与 `#mma` 就是第五、六篇的手工决定，`num_stages` 就是 `cp.async` 的级数。第八篇多了一层 L2：$$K, V$$ 重读 $$N / B_r$$ 次但大多命中 L2，理论 66 MiB 实际近 4 MiB。
 

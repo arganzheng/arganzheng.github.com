@@ -113,7 +113,7 @@ Rombach 等 2022（Latent Diffusion Models）的观察：图像生成的"感知�
 
 ### 2. 把它缩小到能跑：PCA 当 VAE，16 维里做扩散
 
-L2 第八篇的 PCA 就是最简单的自编码器：编码器 = 投影到前 $$k$$ 个主成分，解码器 = 乘回去加均值。用它当"VAE"，在 1797 张 $$8 \times 8$$ 手写数字上把 64 个像素压成 16 个数：
+《[LLM 时代的经典机器学习（08）：降维——PCA、SVD、t-SNE / UMAP 与 embedding 的各向异性](/dimensionality-reduction-pca-svd-tsne-and-umap.html)》的 PCA 就是最简单的自编码器：编码器 = 投影到前 $$k$$ 个主成分，解码器 = 乘回去加均值。用它当"VAE"，在 1797 张 $$8 \times 8$$ 手写数字上把 64 个像素压成 16 个数：
 
 ```text title="PCA 当 VAE：不同 latent 维度的压缩与重建"
 latent  4 维：压缩 16.0 倍，重建 MSE 0.0376，保留方差 48.7%
@@ -351,7 +351,7 @@ $$
 \mathcal{L} = -\mathbb{E} \log \sigma\Big( -\beta T\, \omega(t) \big[ (\lVert \epsilon^w - \epsilon_\theta(x^w_t) \rVert^2 - \lVert \epsilon^w - \epsilon_{ref}(x^w_t) \rVert^2) - (\lVert \epsilon^l - \epsilon_\theta(x^l_t) \rVert^2 - \lVert \epsilon^l - \epsilon_{ref}(x^l_t) \rVert^2) \big] \Big)
 $$
 
-即"让模型相对参考模型在好图上的去噪误差降得比在差图上多"。它继承了 DPO 的全部性质（L5 第四篇），包括似然同降与过优化。
+即"让模型相对参考模型在好图上的去噪误差降得比在差图上多"。它继承了 DPO 的全部性质（《[后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)》），包括似然同降与过优化。
 
 ## 十、动手（建议）
 

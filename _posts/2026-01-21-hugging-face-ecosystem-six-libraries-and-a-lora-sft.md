@@ -89,7 +89,7 @@ Table: 本文的章节安排
 
 | 字段 | 值 | 意思 |
 |---|---:|---|
-| `hidden_size` | 896 | 每个 token 在模型里是一个 896 维的向量（L0 第一篇的 $$d$$） |
+| `hidden_size` | 896 | 每个 token 在模型里是一个 896 维的向量（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的 $$d$$） |
 | `num_hidden_layers` | 24 | 这样的 Transformer 层叠了 24 层 |
 | `num_attention_heads` | 14 | attention 分 14 个头，每头 $$896 / 14 = 64$$ 维 |
 | `num_key_value_heads` | 2 | K、V 只有 2 个头，14 个 Q 头分成 2 组共用（GQA，省 KV cache） |
@@ -128,7 +128,7 @@ flowchart TB
 
 `config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，见[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
 
-参数量就是把图里每个矩形的面积加起来（L0 第一篇"从结构算参数量"），Qwen2 的 q/k/v 带 bias：
+参数量就是把图里每个矩形的面积加起来（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》"从结构算参数量"），Qwen2 的 q/k/v 带 bias：
 
 | 部件 | 形状 | 参数 |
 |---|---|---:|
@@ -163,7 +163,7 @@ Table: Qwen2-0.5B 各部件的形状与参数量
 2. **不能执行代码**：header 是纯 JSON，数据区只是张量的原始字节（没有任何 Python 对象），加载过程不做任何反序列化——`torch.save` 的 pickle 格式则可以在加载时执行任意代码，所以 Hub 默认用 safetensors。
 3. **分片**：大模型按张量名切成 `model-0000k-of-0000n.safetensors`，`model.safetensors.index.json` 是"张量名 → 在哪个文件"的索引。
 
-模型卡（README）里的评测数字要带着 L0 第八篇的置信区间读。以 Qwen2.5-0.5B 技术报告里的两个数为例：GSM8K 41.6%，这个集有 1,319 题，95% 区间 $$\pm 1.96\sqrt{0.416 \times 0.584 / 1319} \approx \pm 2.7$$ 个点；HumanEval 30.5%，只有 164 题，区间 $$\pm 7.0$$ 个点。所以两个 0.5B 模型在 HumanEval 上差 5 个点，分不出谁好；差 2 个点的 GSM8K 也在噪声里。
+模型卡（README）里的评测数字要带着 《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》的置信区间读。以 Qwen2.5-0.5B 技术报告里的两个数为例：GSM8K 41.6%，这个集有 1,319 题，95% 区间 $$\pm 1.96\sqrt{0.416 \times 0.584 / 1319} \approx \pm 2.7$$ 个点；HumanEval 30.5%，只有 164 题，区间 $$\pm 7.0$$ 个点。所以两个 0.5B 模型在 HumanEval 上差 5 个点，分不出谁好；差 2 个点的 GSM8K 也在噪声里。
 
 ## 三、六个库各管什么
 
@@ -273,7 +273,7 @@ for step, batch in enumerate(loader):  # Dataset.__getitem__ + collate_fn
 
 Table: SFTTrainer 一次训练背后发生的事
 
-`LoraConfig` 的四个参数：`r` 是秩（L0 第三篇）；`lora_alpha` 是缩放，实际加到输出上的是 $$\frac{\alpha}{r} BA x$$，常取 $$\alpha = 2r$$；`target_modules="all-linear"` 把七个线性层都挂上（也可以只挂 `q_proj, v_proj`）；`lora_dropout` 是 LoRA 分支上的 dropout。
+`LoraConfig` 的四个参数：`r` 是秩（《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》）；`lora_alpha` 是缩放，实际加到输出上的是 $$\frac{\alpha}{r} BA x$$，常取 $$\alpha = 2r$$；`target_modules="all-linear"` 把七个线性层都挂上（也可以只挂 `q_proj, v_proj`）；`lora_dropout` 是 LoRA 分支上的 dropout。
 
 ## 五、在 0.5B 模型上跑通
 
@@ -321,7 +321,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 挂了 LoRA 的线性层: ['down_proj', 'gate_proj', 'k_proj', 'o_proj', 'q_proj', 'up_proj', 'v_proj']
 ```
 
-七个线性层——与 L0 第三篇表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。第四篇的账：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
+七个线性层——与 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。第四篇的账：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
 
 ### 3. loss mask 的比例
 
@@ -329,7 +329,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 一个 batch: input_ids (4, 36), labels 里被 mask 成 -100 的 token 122/144 (85%，prompt 与 padding 不算 loss)
 ```
 
-4 条样本 padding 到 36 长，144 个位置里 122 个是 −100：system prompt、user 的问题、padding 都不算 loss，**只有 assistant 的那几个 token（`Paris.<|im_end|>`）进入交叉熵**。这就是 L0 第五篇第四章"SFT 只对回答部分求和"的实物。85% 被 mask 掉意味着有效 token 很少——真实 SFT 数据的回复要长得多，比例会反过来。
+4 条样本 padding 到 36 长，144 个位置里 122 个是 −100：system prompt、user 的问题、padding 都不算 loss，**只有 assistant 的那几个 token（`Paris.<|im_end|>`）进入交叉熵**。这就是 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》第四章"SFT 只对回答部分求和"的实物。85% 被 mask 掉意味着有效 token 很少——真实 SFT 数据的回复要长得多，比例会反过来。
 
 ### 4. 20 步
 
@@ -347,7 +347,7 @@ loss 从 5.3 降到 1.7；生成时**答案学会了**（Paris、Rome——后�
 merge_and_unload 后参数量 494 M（LoRA 已合回基座，推理零开销）
 ```
 
-$$W' = W + \frac{\alpha}{r} BA$$，L0 第三篇的"合并"用法。
+$$W' = W + \frac{\alpha}{r} BA$$，《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的"合并"用法。
 
 ## 六、为什么读源码是最快的路
 
@@ -356,11 +356,11 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 | 想学 | 读 | 大约多长 |
 |---|---|---|
 | Llama 的结构 | `transformers/models/llama/modeling_llama.py`：`LlamaAttention`、`LlamaMLP`、`LlamaDecoderLayer`、`apply_rotary_pos_emb` | 核心几百行；每个类都是第三篇的 `nn.Module` |
-| DPO 的 loss 到底怎么算 | `trl/trainer/dpo_trainer.py` 里 `dpo_loss`：把 L0 第六篇推出的公式变成十几行代码，还能看到 IPO、hinge 等变体各改了哪一行 | 几十行 |
-| GRPO 的优势怎么算、KL 怎么加 | `trl/trainer/grpo_trainer.py`：L0 第七篇的 $$(R - \text{mean}) / \text{std}$$ 与裁剪 | 几百行 |
-| LoRA 怎么挂上去 | `peft/tuners/lora/layer.py`：`Linear.forward` 里 `result += lora_B(lora_A(dropout(x))) * scaling` | 一行核心——L0 第三篇的 $$BAx$$ |
+| DPO 的 loss 到底怎么算 | `trl/trainer/dpo_trainer.py` 里 `dpo_loss`：把 《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)》推出的公式变成十几行代码，还能看到 IPO、hinge 等变体各改了哪一行 | 几十行 |
+| GRPO 的优势怎么算、KL 怎么加 | `trl/trainer/grpo_trainer.py`：《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$ 与裁剪 | 几百行 |
+| LoRA 怎么挂上去 | `peft/tuners/lora/layer.py`：`Linear.forward` 里 `result += lora_B(lora_A(dropout(x))) * scaling` | 一行核心——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的 $$BAx$$ |
 | SFT 的 loss mask 与 packing | `trl/trainer/sft_trainer.py` 与它的 data collator | 几百行 |
-| `generate` 的采样 | `transformers/generation/utils.py` 与 `logits_process.py`：temperature、top-k、top-p 各是一个 `LogitsProcessor` | 每个 processor 十几行——L0 第五篇第七章 |
+| `generate` 的采样 | `transformers/generation/utils.py` 与 `logits_process.py`：temperature、top-k、top-p 各是一个 `LogitsProcessor` | 每个 processor 十几行——《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》第七章 |
 
 Table: 值得直接读的 Hugging Face 源码入口
 
@@ -384,7 +384,7 @@ Table: 值得直接读的 Hugging Face 源码入口
 
    <details markdown="1"><summary>答案</summary>
 
-   就是 Llama-3-8B，8.03B（L0 第一篇的表）。
+   就是 Llama-3-8B，8.03B（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的表）。
 
    </details>
 
