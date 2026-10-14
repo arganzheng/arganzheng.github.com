@@ -17,7 +17,7 @@ LLM serving 用多卡有两个理由：权重放不下（70B 的 140 GB 要切�
 
 ## 一、总览
 
-### 1. 先说答案：四种刀法、一张通信表
+### 1. 8 张卡怎么切：四种并行各通信多少
 
 ```mermaid
 %% 图：四种刀法：切序列（Ulysses / Ring / USP）、切 CFG、切层加 patch（PipeFusion）、切权重（TP）

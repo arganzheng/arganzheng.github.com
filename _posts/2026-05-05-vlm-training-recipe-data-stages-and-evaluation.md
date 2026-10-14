@@ -59,7 +59,7 @@ flowchart LR
 
 早期（LLaVA-1.5）只有 1 + 3 两阶段；2024 年后主流是 1 + 2 + 3（+ 4）。阶段 2 是变化最大的一步——它的数据量从 LLaVA 的零到 Qwen2-VL 的 1.4T token、InternVL 2.5 的数亿样本。
 
-### 2. 先说答案
+### 2. 为什么先冻结 LLM 只训 connector
 
 **先冻结 LLM 只训 connector**，因为 connector 是随机初始化的：它的输出一开始是噪声，如果此时 LLM 也在训练，LLM 会收到"视觉 token 是噪声"的梯度，为了降低 loss 它学会**忽略**视觉 token（或者更糟——它的文本表示被噪声梯度破坏）。冻结 LLM 让 connector 在一个固定的目标空间里学习映射——"让 LLM 用现有的能力读懂这些向量"——几十万条 caption、几千步就够。之后解冻 LLM 时，connector 已经给出有意义的输入，LLM 学的是"怎么用"而不是"要不要用"。这与 《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》里讨论的"新增的 embedding 与 LoRA 更新不到 embedding"是同一类问题：**新参数与旧参数不能用同一个学习率、同一个阶段训**。后续研究（Prismatic VLMs、MM1）发现如果 connector 用合理的初始化与更小的 lr，单阶段也可以，但两阶段仍是稳妥的默认。
 

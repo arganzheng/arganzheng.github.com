@@ -15,24 +15,43 @@ catalog: true
 
 > **一个只会续写的基座模型，经过哪几步变成能回答问题、能拒绝、能一步步推导数学题的模型？每一步的目标函数是什么，为什么这样写？训完之后，怎么知道它真的变好了而不是学会了讨好评委？[^q0]**
 
-后训练的方法很多——SFT、RM、PPO、GRPO、DPO、KTO、ORPO、RLVR、蒸馏——名字每几个月多几个。本系列不按名字罗列，而按**一个不变的骨架**组织：所有基于偏好或奖励的方法都在操作同样三个组件——**策略**（要训的模型）、**奖励**（判断输出好坏的信号）、**参考**（防止策略跑太远的锚）。每种方法的区别只在于：奖励从哪来（人标、模型打分、规则验证、教师分布）、参考怎么约束（KL 惩罚、闭式折叠进 loss、干脆去掉）、以及为了估计策略梯度还要不要第四个组件（价值模型）。把每种方法放回这三件套上，一族十几个名字就变成一张表。
+后训练的方法很多——SFT、RM、PPO、GRPO、DPO、KTO、ORPO、RLVR、蒸馏——名字每几个月多几个。本系列不按名字罗列，而按**一个不变的骨架**组织：所有基于偏好或奖励的方法都在操作同样三个组件——**策略**（要训的模型）、**奖励**（判断输出好坏的信号）、**参考**（防止策略跑太远的锚）。每种方法的区别只在于：奖励从哪来（人标、模型打分、规则验证、教师分布）、参考怎么约束（KL 惩罚、闭式折叠进 loss、干脆去掉）、以及为了估计策略梯度还要不要第四个组件（价值模型）。把每种方法放回这三件套上，一族十几个名字就变成一张表：
+
+| 方法 | 奖励从哪来 | 参考怎么约束 | 要不要价值模型 | 对应篇目 |
+|---|---|---|---|---|
+| SFT | 没有奖励——目标是标注好的回答 | 没有参考，只有策略 | 不要 | 《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》 |
+| RM（奖励模型） | 它就是造奖励的：人标的偏好对，Bradley-Terry | —（它不是策略方法） | — | 《[后训练（02）：偏好数据与奖励模型：Bradley-Terry、pairwise loss 与 reward hacking](/preference-data-and-reward-models.html)》 |
+| PPO | 奖励模型在线打分 | 对参考模型加 KL 惩罚 | 要（估计 baseline） | 《[后训练（03）：在线 RL：PPO、GRPO 与 RLHF 三件套](/online-rl-ppo-grpo-and-the-rlhf-trio.html)》 |
+| GRPO | 奖励模型或规则验证器在线打分 | 对参考模型加 KL 惩罚 | 不要——组内 $$G$$ 个回答的均值做 baseline | 同上（第三篇）；规则奖励见《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》 |
+| DPO | 不显式建模——奖励被策略与参考的对数比替代（隐式奖励） | 闭式折叠进 loss（$$\beta$$ 项） | 不要 | 《[后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)》 |
+| KTO | 单样本的「好 / 坏」标签（前景理论的效用函数） | 保留参考（估计 KL） | 不要 | 同上（第四篇） |
+| ORPO | SFT loss 上加一个 odds ratio 项 | 去掉参考模型 | 不要 | 同上（第四篇） |
+| RLVR | 规则验证器：答案匹配、代码测试、格式检查 | 对参考模型加 KL 惩罚（GRPO 形态） | 不要 | 《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》 |
+| 蒸馏 | 教师模型的分布（logits 级 / 序列级 / on-policy） | 无参考——猫是教师本身 | 不要 | 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》 |
+
+Table: 后训练方法按「奖励、参考、价值模型」三件套排开
 
 每一篇用同样的三步处理它的方法——**推导**（目标函数从哪来、每一项在做什么）、**算账**（一次训练要几个模型在显存里、生成多少 token、标多少数据、花多少 GPU 小时）、**动手**（给出用 `trl` 在一个 0.5B–1.5B 的开源小模型上跑通的骨架与该看的曲线；第一篇附完整实验与作者机器上的数字）——最后指出这一步在 Llama 3、DeepSeek-R1、Qwen3、Tülu 3 这些公开配方里的形态。
 
-举一个例子说明这个系列的取法。"DPO 不需要奖励模型"是每篇介绍都有的一句话；本系列要把它变成三件可验证的事：（一）推导：RLHF 的目标 $$\max_\pi \mathbb{E}[r(x, y)] - \beta\, \text{KL}(\pi \| \pi_{ref})$$ 有闭式最优解 $$\pi^*(y \mid x) \propto \pi_{ref}(y \mid x) \exp(r / \beta)$$，反解出 $$r = \beta \log(\pi^* / \pi_{ref}) + \text{const}$$，代入 Bradley-Terry 的偏好概率，奖励模型就被两个策略的对数比替代——**DPO 不是没有奖励，而是把奖励用策略与参考的比值隐式表达了**。（二）算账：PPO 要四个模型在显存里（策略、参考、奖励、价值，7B 规格约 250 GB 训练状态），DPO 只要两个且参考模型的对数概率可以离线预计算，一张 80 GB 的卡加 LoRA 就能训 7B。（三）实验：同一份偏好数据，DPO 与 PPO 各训一遍，比 RM 分数、比 KL、比 GSM8K——看到 DPO 的隐式奖励在训练分布外过拟合得更快。
+举一个例子说明这个系列的取法。"DPO 不需要奖励模型"是每篇介绍都有的一句话；本系列要把它变成三件可验证的事：
+
+1. **推导**：RLHF 的目标 $$\max_\pi \mathbb{E}[r(x, y)] - \beta\, \text{KL}(\pi \| \pi_{ref})$$ 有闭式最优解 $$\pi^*(y \mid x) \propto \pi_{ref}(y \mid x) \exp(r / \beta)$$，反解出 $$r = \beta \log(\pi^* / \pi_{ref}) + \text{const}$$，代入 Bradley-Terry 的偏好概率，奖励模型就被两个策略的对数比替代——**DPO 不是没有奖励，而是把奖励用策略与参考的比值隐式表达了**。
+2. **算账**：PPO 要四个模型在显存里（策略、参考、奖励、价值，7B 规格约 250 GB 训练状态），DPO 只要两个且参考模型的对数概率可以离线预计算，一张 80 GB 的卡加 LoRA 就能训 7B。
+3. **实验**：同一份偏好数据，DPO 与 PPO 各训一遍，比 RM 分数、比 KL、比 GSM8K——看到 DPO 的隐式奖励在训练分布外过拟合得更快。
 
 系列覆盖的范围可以概括为后训练流水线的五段（第四段有一个多轮的延伸）加一个贯穿的度量：
 
-```text title="后训练流水线的五段与对应篇目"
-第一段   SFT              指令数据、chat template、loss mask、packing、全量 vs LoRA、遗忘        → 第一篇
-第二段   偏好与奖励        偏好数据的三种形态、Bradley-Terry、奖励模型的训练与它的过拟合            → 第二篇
-第三段   用奖励优化策略    在线 RL：采样 - 打分 - 更新；PPO、GRPO、RLOO、REINFORCE++                → 第三篇
-                          离线 RL：不采样，从固定偏好数据直接推 loss；DPO 一族、拒绝采样          → 第四篇
-第四段   可验证奖励        RLVR、R1 的配方、长思维链、PRM 与 ORM、test-time compute               → 第五篇
-第四段＋ Agent RL          多轮工具调用作为 MDP、环境与轨迹数据、结果奖励、工具输出的 mask、异步 rollout   → 第六篇
-第五段   蒸馏             logits 级、序列级、on-policy；R1 → 小模型                              → 第七篇
-度量     评测             benchmark 各测什么、LLM-as-judge 的偏差、Arena、污染、自建评测集         → 第八篇
-```
+| 段 | 做什么 | 输入 / 输出 | 对应篇目 |
+|---|---|---|---|
+| 第一段：SFT | 指令数据、chat template、loss mask、packing、全量 vs LoRA、遗忘 | 基座 + 指令数据 → 会按格式回答的模型 | 《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》 |
+| 第二段：偏好与奖励 | 偏好数据的三种形态、Bradley-Terry、奖励模型的训练与它的过拟合 | 人的偏好判断 → 一个可微的奖励信号 | 《[后训练（02）：偏好数据与奖励模型：Bradley-Terry、pairwise loss 与 reward hacking](/preference-data-and-reward-models.html)》 |
+| 第三段：用奖励优化策略 | 在线 RL：采样 - 打分 - 更新，PPO、GRPO、RLOO、REINFORCE++；离线 RL：不采样，从固定偏好数据直接推 loss，DPO 一族、拒绝采样 | 策略 + 奖励 → 更好的策略 | 《[后训练（03）：在线 RL：PPO、GRPO 与 RLHF 三件套](/online-rl-ppo-grpo-and-the-rlhf-trio.html)》、《[后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)》 |
+| 第四段：可验证奖励 | RLVR、R1 的配方、长思维链、PRM 与 ORM、test-time compute | 策略 + 规则验证器 → 会推理的模型 | 《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》 |
+| 第四段＋：Agent RL | 多轮工具调用作为 MDP、环境与轨迹数据、结果奖励、工具输出的 mask、异步 rollout | 策略 + 环境 → 会用工具的模型 | 《[后训练（06）：Agent 与工具调用的 RL：多轮环境、轨迹数据与延后的奖励](/agentic-rl-tool-use-environments-and-trajectories.html)》 |
+| 第五段：蒸馏 | logits 级、序列级、on-policy；R1 → 小模型 | 教师模型的分布 → 小模型 | 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》 |
+| 度量：评测 | benchmark 各测什么、LLM-as-judge 的偏差、Arena、污染、自建评测集 | 各阶段的模型 → 「变好了没有」的证据 | 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》 |
+
+Table: 后训练流水线的五段与对应篇目
 
 
 ## 为什么写这个系列？
@@ -282,16 +301,18 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 本系列的贯穿物是**一条在单张消费级 GPU 上能跑完的后训练流水线**，用 `trl` 与 Qwen2.5 的 0.5B / 1.5B 模型：
 
-```text title="贯穿全系列的单卡后训练流水线"
-第一篇    SFT           Qwen2.5-0.5B + 指令数据子集 → 对话模型；loss mask、packing、LoRA 的对照
-第二篇    RM            UltraFeedback 子集 → 0.5B 奖励模型；过拟合曲线、长度偏好
-第三篇    GRPO          第一篇的模型 + 第二篇的 RM → 在线 RL；奖励 / KL / 长度曲线
-第四篇    DPO           同一份偏好数据 → DPO；与 GRPO 的输出对照
-第五篇    RLVR          Qwen2.5-1.5B-Instruct + GSM8K 答案匹配 → 推理模型；长度与准确率曲线，best-of-N
-第六篇    Agent RL      Qwen2.5-1.5B-Instruct + Python 计算器工具 → 多轮 GRPO；工具输出 mask 的对照；轨迹长度分布
-第七篇    蒸馏          第五篇的模型为教师 → 0.5B 学生；三种蒸馏对照
-第八篇    评测          lm-evaluation-harness 的协议对照；judge 的偏差测量；置信区间
-```
+| 步骤 | 做什么 | 输入 / 产物 | 对应篇目 |
+|---|---|---|---|
+| SFT | Qwen2.5-0.5B + 指令数据子集 | → 对话模型；loss mask、packing、LoRA 的对照 | 第一篇 |
+| RM | UltraFeedback 子集 | → 0.5B 奖励模型；过拟合曲线、长度偏好 | 第二篇 |
+| GRPO | 第一篇的模型 + 第二篇的 RM | → 在线 RL；奖励 / KL / 长度曲线 | 第三篇 |
+| DPO | 同一份偏好数据 | → DPO；与 GRPO 的输出对照 | 第四篇 |
+| RLVR | Qwen2.5-1.5B-Instruct + GSM8K 答案匹配 | → 推理模型；长度与准确率曲线，best-of-N | 第五篇 |
+| Agent RL | Qwen2.5-1.5B-Instruct + Python 计算器工具 | → 多轮 GRPO；工具输出 mask 的对照；轨迹长度分布 | 第六篇 |
+| 蒸馏 | 第五篇的模型为教师 | → 0.5B 学生；三种蒸馏对照 | 第七篇 |
+| 评测 | lm-evaluation-harness 的协议对照 | → judge 的偏差测量；置信区间 | 第八篇 |
+
+Table: 贯穿全系列的单卡后训练流水线
 
 第一篇的实验完整可跑，脚本与作者机器上的输出在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training)；第二到八篇给出的是**动手骨架**——`trl` 对应 trainer 的最小配置、自定义的奖励函数 / rollout / 数据格式那几十行，以及训起来之后该看的几条曲线——文中不引用未跑过的数字，公开配方的数字均注明来源。第二、四、八篇在 CPU 或极小配置上可以跑通（分钟到小时级），第三、五、六、七篇的 RL 与蒸馏需要一张 16–24 GB 的 GPU。所有动手的目的是**看曲线的形状与输出的变化**，不是刷分——0.5B 模型的绝对分数没有意义。
 

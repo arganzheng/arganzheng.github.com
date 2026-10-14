@@ -22,7 +22,7 @@ updated: 2026-09-14
 
 ## 一、总览
 
-### 1. 先说答案
+### 1. 671B 训练分片到 FP8 推理副本：一次同步几步、几秒
 
 671B MoE（DeepSeek-V3 规格：61 层、每层 256 个路由专家 + 1 个共享专家、MLA 注意力），训练器 Megatron TP = 4 × PP = 2 × EP = 8（64 卡一个副本，DP 再往外扩），推理引擎 vLLM TP = 8 × EP = 4 的 FP8 副本（32 卡一个实例），两边在不同机器，一次同步：
 
@@ -36,7 +36,7 @@ updated: 2026-09-14
 | ⑥ 推理侧：每个 rank 取自己的 TP 切片 + EP 专家子集 | GPU | 每卡写入 21 GB | vLLM load_weights 按名字找到目标张量 |
 | ⑦ 缓存失效 + 版本号 | 推理引擎 | — | reset_prefix_cache；记下 global_steps |
 
-Table: 先说答案
+Table: 一次权重同步的账
 
 时间的三个量级：
 

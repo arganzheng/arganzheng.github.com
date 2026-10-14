@@ -17,7 +17,7 @@ catalog: true
 
 ## 一、总览
 
-### 1. 先说答案：视频的账由 $$N^2$$ 主导
+### 1. 视频的账为什么由 $$N^2$$ 主导
 
 ```mermaid
 %% 图：视频的账由 N² 主导：720p 81 帧经 3D VAE 与 patchify 变成 75,600 token，attention 占一步 FLOPs 的 72%

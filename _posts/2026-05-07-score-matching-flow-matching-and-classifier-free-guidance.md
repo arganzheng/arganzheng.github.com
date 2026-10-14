@@ -30,7 +30,7 @@ Table: DDPM、score matching 与 flow matching 的对照
 
 三行的网络输入都是（带噪样本，时间），输出都是一个与样本同形状的向量场。噪声 $$\epsilon$$、分数 $$s$$、速度 $$v$$ 之间是**线性变换**（第三章给出公式）——训练其中一个就能算出另外两个。差别在：训练时对不同时间步的**加权**不同、采样时的**路径**不同（曲线 vs 直线）。
 
-### 2. 先说答案
+### 2. DDPM、score matching、flow matching 为什么是同一件事
 
 三者在高斯加噪路径下是同一件事，因为它们都在学同一个对象——每个噪声水平 $$t$$ 下带噪数据分布 $$p_t(x)$$ 的**分数** $$\nabla_x \log p_t(x)$$——的不同参数化。DDPM 学的噪声 $$\epsilon$$ 与分数的关系是 $$s = -\epsilon / \sigma_t$$（Tweedie 公式的推论，第二章）；flow matching 学的速度 $$v$$ 是 $$\epsilon$$ 与 $$x_0$$ 的差，也可以用分数表达。三种损失在换元后只差一个与 $$t$$ 有关的权重（一般 coupling / 非高斯路径的 flow matching 不在此列）。它们的采样都是解同一个概率流 ODE（或对应的 SDE），只是 flow matching 选择的前向过程让 ODE 的轨迹更容易拉直，因而少步数就够。
 

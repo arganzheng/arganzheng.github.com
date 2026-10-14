@@ -47,7 +47,7 @@ flowchart TB
 
 VLM 的结构选择（connector 有几种、注入方式怎么选、动态分辨率怎么做）与训练配方，在 L7 多模态系列的[第三篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)、[第二篇](/vlm-training-recipe-data-stages-and-evaluation.html)展开；本篇只在上面这条链路上**算账**——因为对 Infra 来说，"图片贵在哪"决定了显存怎么分、批怎么组。
 
-### 1. 先说答案
+### 1. 一张 1024² 的图在 LLM 里值多少 token、占多少显存
 
 一张图进入多模态 LLM，要经过三段，每段一笔账：
 

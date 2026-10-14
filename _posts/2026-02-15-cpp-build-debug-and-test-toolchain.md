@@ -980,7 +980,7 @@ Python-level repr of *this:
 tensor([1., 2., 3., 4.], dtype=torch.float64)
 ```
 
-它的实现原理很巧妙，第十二章逐段读脚本本身；这里先说结论：脚本不自己解析内存布局，而是在被调试进程里**调用一个 C++ 函数** `torch::gdb::tensor_repr(tensor)`（`torch/csrc/utils.cpp`），那个函数把 Tensor 包成 Python 对象、调 Python 的 `repr()`、把结果字符串拷到 `malloc` 的缓冲区返回。所以你看到的就是 Python 里 `print(t)` 会打印的东西——包括 dtype、device、requires_grad。三条命令：
+它的实现原理很巧妙，第十二章逐段读脚本本身；一句话版本：脚本不自己解析内存布局，而是在被调试进程里**调用一个 C++ 函数** `torch::gdb::tensor_repr(tensor)`（`torch/csrc/utils.cpp`），那个函数把 Tensor 包成 Python 对象、调 Python 的 `repr()`、把结果字符串拷到 `malloc` 的缓冲区返回。所以你看到的就是 Python 里 `print(t)` 会打印的东西——包括 dtype、device、requires_grad。三条命令：
 
 | 命令 | 参数类型 | 背后的 C++ 函数 |
 |---|---|---|

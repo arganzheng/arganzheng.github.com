@@ -20,7 +20,7 @@ updated: 2026-09-14
 
 ## 一、总览：把奖励折进策略
 
-### 1. 先说答案
+### 1. DPO 真的不需要奖励模型吗
 
 第三篇的目标 $$\max_\pi \mathbb{E}[r(x, y)] - \beta\, \text{KL}(\pi \| \pi_{ref})$$ 对每个 prompt 有闭式解：
 

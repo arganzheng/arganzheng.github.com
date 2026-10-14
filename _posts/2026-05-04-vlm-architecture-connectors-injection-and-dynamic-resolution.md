@@ -145,6 +145,8 @@ Table: 本文的章节安排
 
 ## 二、connector：从编码器空间到 LLM 空间
 
+编码器说自己的语言（视觉特征），LLM 只认词表里的 embedding——connector 就是中间的翻译。本章的问题是：翻译要不要附带压缩、要不要做选择，四种做法的差别就在这两点。
+
 ### 1. MLP projector
 
 最简单的转接头：每个向量各自过一个小网络，从 $$d_v$$ 维变成 $$d$$ 维。LLaVA（Liu 等 2023）用一个线性层（一个矩阵乘），LLaVA-1.5 改成两层 [MLP](# "tip: multi-layer perceptron，多层感知机：线性层 → 非线性激活 → 线性层。GELU 是一种平滑的激活函数，作用类似 ReLU")：$$z_i = W_2\, \text{GELU}(W_1 h_i)$$，对每个 patch 特征 $$h_i \in \mathbb{R}^{d_v}$$ 独立作用，输出 $$z_i \in \mathbb{R}^d$$。参数量 $$d_v d + d^2$$：CLIP-L（1024）到 Vicuna-7B（4096）是 $$1024 \times 4096 + 4096^2 \approx 21M$$，相对 7B 可以忽略。token 数不变。
@@ -160,6 +162,12 @@ z_mlp = mlp(h)                                                       # [16, 12]�
 ```text title="MLP projector 的形状与参数量"
 MLP projector：(16, 8) → (16, 12)；参数 264（d_v·d + d² 量级）
 ```
+
+真实尺寸走一遍（LLaVA-1.5）：一张 336×336×3 的图 → 24×24 = 576 个 patch → 576 个 1024 维向量 → 每行独立过同一个 MLP → 576 个 4096 维向量 → 与文本 token 首尾相接进 decoder：
+
+![LLaVA-1.5 的 MLP projector 全流程：336×336×3 的图 → 24×24 = 576 个 patch → 576 行 1024 维 → 同一个 MLP（Linear 1024→4096、GELU、Linear 4096→4096，约 21M 参数）→ 576 行 4096 维 → 与文本 token 序列拼接](/img/in-post/multimodal-02-mlp-projector.svg)
+
+为什么**每个 patch 共用一个 MLP** 就够了？这个 MLP 干的事是坐标变换：把「CLIP 眼里的这个 patch」换算成「LLM 空间里的一个向量」。它不做摘要——576 个进去 576 个出来，一个不少——所以不需要按位置区别对待，同一个换算对所有 patch 适用；要丢要留交给后面 LLM 的 attention 决定。
 
 它的性质：**逐 token、不做压缩**（输出维度 $$d \ge d_v$$，没有把多个 patch 合并；但"可逆"不是保证——$$W_1$$ 可以不满秩、GELU 不是单射，toy 上 $$x = -2$$ 与 $$x \approx -0.0988$$ 过 GELU 得到同一个值——它保留的是**空间粒度**，不是数学意义的信息无损）、**保留空间结构**（第 $$i$$ 个输出对应第 $$i$$ 个 patch，位置由 LLM 的位置编码给出）、**不做任何选择**（所有 patch 一律进 LLM，让 LLM 的 attention 决定看哪）。LLaVA-1.5 的实验证明，就凭这个 MLP 加 558K 对齐数据 + 665K 指令数据，在 12 个 benchmark 上超过用 Q-Former 的 InstructBLIP 与用 129M 数据的 BLIP-2——**LLM 的 attention 比一个小的 resampler 更会挑信息**。
 
@@ -202,9 +210,15 @@ resampler（K = 3 个 query）：(16, 8) → (3, 12)；不论图有多少 patch�
    第 0 个 query 的注意力分布（16 个 patch）：[0.07 0.06 0.08 0.07 0.07 0.04 0.06 0.05 0.02 0.05 0.09 0.07 0.07 0.08 0.07 0.05]
 ```
 
-每个输出 token 是全部 16 个 patch 的加权平均，权重由"这个 query 问什么"与"这个 patch 是什么"共同决定；训练让 query 学会问"图里主要物体是什么"一类的通用问题。
+每个输出 token 是全部 16 个 patch 的加权平均，权重由"这个 query 问什么"与"这个 patch 是什么"共同决定；训练让 query 学会问"图里主要物体是什么"一类的通用问题。真实尺寸的样子（toy：随机特征与随机 query，只演示形状与权重范围，训练好的 query 会集中得多）：
 
-**Q-Former**（BLIP-2，Li 等 2023）：结构类似（32 个 query、12 层 BERT 式的 cross-attention + self-attention），但训练分两阶段——先用图文对比 / 匹配 / 生成三个目标训 Q-Former 让 query 学会提取"与文本相关"的特征，再接 LLM 训第二阶段。
+![resampler 流程与 query 注意力：左边 576 个 patch 特征做 key / value，32 个可学习 query 做 query，输出 32 个 token，每个是全部 patch 的加权平均；右边三张 24×24 热力图是 toy 里 query 0 / 7 / 15 在 576 个 patch 上的注意力权重，都散布在全图](/img/in-post/multimodal-02-resampler-attention.svg)
+
+注意输出个数与图片大小**完全无关**：patch 有 576 个还是 9216 个，query 还是那 $$K$$ 个，输出还是 $$K$$ 个 token——这正是它的卖点与瓶颈。
+
+**Q-Former**（BLIP-2，Li 等 2023）：结构类似（$$K = 32$$ 个 768 维 query，BERT-base 规模约 188M 参数，12 层，每层是 self-attention + 对 patch 的 cross-attention 交替），但训练分两阶段——先用图文对比 / 匹配 / 生成三个目标训 Q-Former 让 query 学会提取"与文本相关"的特征，再接 LLM 训第二阶段。
+
+**Perceiver resampler 与 Q-Former 的差别**：Flamingo 用 $$K = 64$$ 个 latent，Perceiver 式的堆叠——latent 对视觉特征做 cross-attention，再在 latent 之间叠 self-attention 层（而不是像 Q-Former 那样以 BERT 初始化、自带文本空间）。并且 Flamingo 把视觉信息的注入放在别处完成：冻结的 LLM 每层之间再插 gated cross-attention（第三章），resampler 只负责把任意多的视觉特征压成固定的 64 个。
 
 **Qwen-VL 的 resampler**：单层 cross-attention，256 个 query，加了 2D 绝对位置编码在 key 上以保留位置信息。
 
@@ -217,6 +231,8 @@ LLaVA-1.5 之后的实证（Cambrian-1 的系统对照、MM1 的消融）一致�
 MM1（McKinzie 等 2024）的消融：connector 的类型（MLP / 池化 / C-Abstractor）对最终效果的影响**远小于**分辨率与 token 数的影响。connector 只要不丢信息、不引入瓶颈就够了；真正决定效果的是进 LLM 的 token 承载了多少信息（分辨率）与 LLM 有多少 token 可以看（token 数）。这是本篇后半的主题。
 
 ## 三、注入方式
+
+connector 解决的是「翻译成 LLM 的向量」，注入方式解决的是「翻译好的向量放在哪里」：塞进文本序列里当普通 token，还是不进序列、让文本 token 隔着层来 attend。前者什么都不用改，后者不占上下文但要动 LLM。
 
 ### 1. decoder 序列注入
 

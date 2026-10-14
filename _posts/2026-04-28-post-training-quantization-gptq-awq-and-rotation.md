@@ -34,7 +34,7 @@ Table: 训练后量化方法对照
 
 五种方法里前三种只量化权重（W4A16 / W8A16），GEMM 仍在 BF16 上算，收益是字节；后两种也量化激活，GEMM 在 INT8 / INT4 / FP8 Tensor Core 上算，收益是字节加算力。两类的难度差一个量级：权重是静态的、可以离线慢慢算；激活是动态的、每次前向都不同、且有离群值。
 
-### 2. 先说答案
+### 2. 4-bit 模型慢在哪、快在哪
 
 4-bit 模型**快在** decode：权重字节除以 4，memory-bound 区间内每步时间接近除以 4（实际 2.5–3.5 倍，因为 KV 读取与 dequant 开销）。**慢在**两处：prefill（compute-bound，W4A16 的 dequant 是额外的算子，且 INT4 权重要先转成 BF16 再乘，没有算力收益——除非用 W4A4 / W8A8 让 Tensor Core 直接算低比特）；以及大 batch 的 decode（同样进入 compute-bound）。所以 4-bit 权重量化是为**低 batch、长输出**的负载设计的，高吞吐负载要用 W8A8 或 FP8。
 
@@ -294,7 +294,7 @@ RTN 在 INT8 per-channel 下几乎无损、零成本，是 W8A16 与 FP8 的默�
 
 ### 1. OBS 的推导
 
-先说结论：GPTQ 继承 OBQ（Optimal Brain Quantization）的思路——逐个量化权重，每量化一个，就调整剩下未量化的权重去补偿它带来的输出误差，补偿量由该层输入的 Hessian 决定。下面从头推这个公式。目标是量化一行权重 $$w \in \mathbb{R}^d$$ 的一部分，使层输出误差最小。OBS（Optimal Brain Surgeon，Hassibi & Stork 1993）的原始问题是**剪枝**：把第 $$q$$ 个权重置零，其余权重如何调整使输出误差最小。二次目标 $$\mathcal{E}(\delta) = \delta^\top H \delta$$（$$H = 2XX^\top$$，$$\delta$$ 是权重的变化），约束 $$\delta_q = -w_q$$（第 $$q$$ 个权重变成零），即 $$e_q^\top \delta + w_q = 0$$。拉格朗日：
+结论先说在前面：GPTQ 继承 OBQ（Optimal Brain Quantization）的思路——逐个量化权重，每量化一个，就调整剩下未量化的权重去补偿它带来的输出误差，补偿量由该层输入的 Hessian 决定。下面从头推这个公式。目标是量化一行权重 $$w \in \mathbb{R}^d$$ 的一部分，使层输出误差最小。OBS（Optimal Brain Surgeon，Hassibi & Stork 1993）的原始问题是**剪枝**：把第 $$q$$ 个权重置零，其余权重如何调整使输出误差最小。二次目标 $$\mathcal{E}(\delta) = \delta^\top H \delta$$（$$H = 2XX^\top$$，$$\delta$$ 是权重的变化），约束 $$\delta_q = -w_q$$（第 $$q$$ 个权重变成零），即 $$e_q^\top \delta + w_q = 0$$。拉格朗日：
 
 $$
 \mathcal{L}(\delta, \lambda) = \delta^\top H \delta + \lambda (e_q^\top \delta + w_q)

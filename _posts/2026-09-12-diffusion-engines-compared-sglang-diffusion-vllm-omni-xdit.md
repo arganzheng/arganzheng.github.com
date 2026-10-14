@@ -17,7 +17,7 @@ catalog: true
 
 ## 一、总览
 
-### 1. 先说答案：三条路径
+### 1. 一个生图请求在三个引擎里各走哪条路
 
 ```mermaid
 %% 图：SGLang Diffusion 的路径：http_server → DiffGenerator → SchedulerClient → Scheduler 进程 → GPUWorker → ComposedPipelineBase
