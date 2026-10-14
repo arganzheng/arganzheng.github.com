@@ -1162,7 +1162,19 @@ html.ap-capturing {
 		cursor: cell;
 	}
 	td.ts-selected, th.ts-selected {
-		box-shadow: inset 0 0 0 100vmax rgba(9,105,218,.14);
+		--ts-tint: rgba(9,105,218,.14);
+	}
+	td.ts-note-t, th.ts-note-t { --ts-t: fade(@annot-line, 55%); }
+	td.ts-note-b, th.ts-note-b { --ts-b: fade(@annot-line, 55%); }
+	td.ts-note-l, th.ts-note-l { --ts-l: fade(@annot-line, 55%); }
+	td.ts-note-r, th.ts-note-r { --ts-r: fade(@annot-line, 55%); }
+	td.ts-selected, th.ts-selected, td.ts-note, th.ts-note {
+		box-shadow:
+			inset 0 0 0 100vmax var(--ts-tint, transparent),
+			inset 0 2px 0 var(--ts-t, transparent),
+			inset 0 -2px 0 var(--ts-b, transparent),
+			inset 2px 0 0 var(--ts-l, transparent),
+			inset -2px 0 0 var(--ts-r, transparent);
 	}
 	.table-responsive {
 		width: max-content;
