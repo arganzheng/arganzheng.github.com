@@ -221,7 +221,18 @@ async function createDiscussion(request, env, cors) {
   // Only the discussion *input* comes from the client; repo is pinned so this
   // cannot be used to create discussions elsewhere.
   const { input } = await request.json();
-  if (!input || !input.title) return json({ error: '`input.title` is required' }, 400, cors);
+  // Reject anything that isn't a plain, flat object with the expected shape,
+  // and explicitly block prototype-pollution keys before re-serializing it.
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    Array.isArray(input) ||
+    !input.title ||
+    typeof input.title !== 'string' ||
+    ['__proto__', 'constructor', 'prototype'].some((k) => Object.prototype.hasOwnProperty.call(input, k))
+  ) {
+    return json({ error: '`input.title` is required' }, 400, cors);
+  }
   const forwarded = new Request(request, { body: JSON.stringify({ repo: env.REPO, input }) });
   return relay(`${GISCUS}/discussions`, forwarded, cors);
 }
