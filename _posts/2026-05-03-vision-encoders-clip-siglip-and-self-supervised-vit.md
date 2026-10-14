@@ -1,14 +1,14 @@
 ---
 layout: post
 series: multimodal
-title: "多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT"
-subtitle: "Vision Encoders: CLIP, SigLIP and Self-Supervised ViTs"
+title: "多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT"
+subtitle: "VLM Architecture (I): Vision Encoders — CLIP, SigLIP and Self-Supervised ViTs"
 tags: [AI, Multimodal, Vision, Contrastive Learning]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-14
 ---
 
-一个**视觉语言模型**（vision-language model，VLM——能看图回答问题的语言模型，如 GPT-4o、Qwen2.5-VL）的第一步是把一张图变成几百个向量。语言模型只认"一串向量"：一句话先被切成 token、每个 token 查表变成一个向量，再送进 Transformer；图片没有"词"，要先有一个部件把像素变成同样形状的一串向量，这个部件叫**视觉编码器**（vision encoder）。做这件事的几乎总是一个预训练好的 **ViT**（Vision Transformer，视觉版 Transformer——把图像切成小块、每块变成一个向量后送进 Transformer，第二章细讲）——LLaVA 用 CLIP ViT-L/14，Qwen2-VL 用自己训的 ViT（从 DFN 的 CLIP 初始化），InternVL 用 InternViT-6B，Gemma 3 与 PaliGemma 用 SigLIP-SO400M。这里的 **CLIP**（Contrastive Language–Image Pre-training，图文对比预训练——用「这张图配这段文字」做训练信号的模型，第三章细讲）与 **SigLIP**（把 CLIP 的 softmax 损失换成 sigmoid 的改进版，第四章细讲）是后文反复出现的两条线。这个 ViT 是怎么训出来的，决定了它"看到"什么、看不到什么，进而决定了 VLM 的上限：一个对文字不敏感的编码器，后面接多大的 LLM 也读不好文档；一个对计数不敏感的编码器，模型就数不清图里有几只猫。
+一个**视觉语言模型**（vision-language model，VLM——能看图回答问题的语言模型，如 GPT-4o、Qwen2.5-VL）的第一步是把一张图变成几百个向量。语言模型只认"一串向量"：一句话先被切成 token、每个 token 查表变成一个向量，再送进 Transformer；图片没有"词"，要先有一个部件把像素变成同样形状的一串向量，这个部件叫**视觉编码器**（vision encoder）。一个 VLM 由四个部件组成：分辨率策略（图怎么送进编码器）→ 视觉编码器 → connector（把编码器的输出映射到 LLM 的输入空间）→ 注入方式（图像 token 怎么进 LLM）。VLM 的结构分上下两篇讲，本篇是上篇，只讲视觉编码器；其余三个部件在下篇《[多模态（02）：VLM 的结构（下）：connector、注入方式与分辨率策略](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)》，那里的图 1 把四个部件画在一起。做这件事的几乎总是一个预训练好的 **ViT**（Vision Transformer，视觉版 Transformer——把图像切成小块、每块变成一个向量后送进 Transformer，第二章细讲）——LLaVA 用 CLIP ViT-L/14，Qwen2-VL 用自己训的 ViT（从 DFN 的 CLIP 初始化），InternVL 用 InternViT-6B，Gemma 3 与 PaliGemma 用 SigLIP-SO400M。这里的 **CLIP**（Contrastive Language–Image Pre-training，图文对比预训练——用「这张图配这段文字」做训练信号的模型，第三章细讲）与 **SigLIP**（把 CLIP 的 softmax 损失换成 sigmoid 的改进版，第四章细讲）是后文反复出现的两条线。这个 ViT 是怎么训出来的，决定了它"看到"什么、看不到什么，进而决定了 VLM 的上限：一个对文字不敏感的编码器，后面接多大的 LLM 也读不好文档；一个对计数不敏感的编码器，模型就数不清图里有几只猫。
 
 编码器之间的差别主要在**训练信号**：ImageNet 标签的**有监督分类**、图文对的**对比学习**（CLIP、SigLIP——当前 VLM 的主流）、不碰文本的**自蒸馏**（**DINOv2**，自蒸馏指「让学生模型模仿教师模型、教师又是学生的滑动平均」，第六章细讲）与**掩码重建**（**MAE**，masked autoencoder——遮住大部分 patch 让模型重建像素，第六章细讲），最后还有与 LLM 一起从头训的**端到端**路线。VLM 几乎全用对比这一路，原因不是它的图像特征最好（在密集预测任务上 DINOv2 更好），而是它的特征空间**已经与语言对齐**——connector 只需要做一个小的映射。理解对比学习在优化什么、为什么能学出语义、以及它的目标函数决定了哪些信息被保留哪些被丢掉，是理解整个理解线的起点。
 
@@ -116,7 +116,7 @@ Table: 本文的章节安排
 2. **每块拉平、乘一个矩阵**：一个 $$14 \times 14 \times 3 = 588$$ 个数的块拉成一行，乘一个 $$588 \times d$$ 的矩阵 $$W$$ 变成 $$d$$ 维向量（CLIP ViT-L 的 $$d = 1024$$）。这一步叫 **patch embedding**，就是第二篇线性回归那种"加权和"，对 588 个像素做 1024 次；数学上等价于一个步长为 $$P$$ 的卷积。
 3. **加位置、送进 Transformer**：每个向量加上一个表示"我是第几块"的位置编码（否则 Transformer 不知道块的顺序——它对输入的排列不敏感），然后送进标准的 Transformer encoder。"encoder"指的是**双向 attention**：每个 patch 都能看到所有其他 patch，不像语言模型那样只能看前面的。
 
-这里有两个实现上的细节容易问。一是 patch 是不是一定要正方形：不是，切块等价于一个步长 $$P$$ 的卷积，核的高与宽可以不同，正方形只是 ViT 的约定（也是几乎所有实现的默认）。二是 $$H$$、$$W$$ 是不是 $$P$$ 的倍数：必须是——如果除不尽，步长 $$P$$ 的卷积直接把最后不够一块的像素丢掉，所以预处理要保证整除。办法是把图先变成合适的尺寸：CLIP 是先把短边 resize 再 center-crop 到 $$224^2$$（或 $$336^2$$），LLaVA-1.5 是保持宽高比 resize 后 pad 到正方形；Qwen2-VL 则把每张图 resize 到高、宽都是 28 的倍数（patch 14 × 2×2 merge，见《[多模态（02）：VLM 的结构：connector、注入方式与动态分辨率](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)》），对应 Hugging Face 的 `Qwen2VLImageProcessor` 里的 `smart_resize` 函数。
+这里有两个实现上的细节容易问。一是 patch 是不是一定要正方形：不是，切块等价于一个步长 $$P$$ 的卷积，核的高与宽可以不同，正方形只是 ViT 的约定（也是几乎所有实现的默认）。二是 $$H$$、$$W$$ 是不是 $$P$$ 的倍数：必须是——如果除不尽，步长 $$P$$ 的卷积直接把最后不够一块的像素丢掉，所以预处理要保证整除。办法是把图先变成合适的尺寸：CLIP 是先把短边 resize 再 center-crop 到 $$224^2$$（或 $$336^2$$），LLaVA-1.5 是保持宽高比 resize 后 pad 到正方形；Qwen2-VL 则把每张图 resize 到高、宽都是 28 的倍数（patch 14 × 2×2 merge，见《[多模态（02）：VLM 的结构（下）：connector、注入方式与分辨率策略](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)》），对应 Hugging Face 的 `Qwen2VLImageProcessor` 里的 `smart_resize` 函数。
 
 用一张 8×8 的手写数字、$$P = 2$$、$$d = 3$$ 把这三步缩小到能看清：
 
@@ -367,7 +367,7 @@ CLIP ViT 的位置编码是**可学习的绝对位置**，训练时固定 $$16 \
 
 **原生动态**（Qwen2-VL）：ViT 直接处理任意大小的图，patch 数随图大小变（设上下限），全图在一个 attention 里；然后 2×2 merge 压缩 4 倍。信息完整，但 ViT 的 attention 是 $$O(N^2)$$，大图时编码器成本高（Qwen2-VL 的 ViT 用了窗口 attention 缓解——Qwen2.5-VL）。
 
-两者都在下一篇的 connector 与分辨率章节里与 token 预算一起讨论。
+两者都在下篇的 connector 与分辨率章节里与 token 预算一起讨论。
 
 ## 九、选型对照
 

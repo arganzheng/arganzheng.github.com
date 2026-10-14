@@ -108,8 +108,8 @@ Table: 本文用到的术语与缩写
 
 | 篇 | 主题 | 线 | 回答的问题 |
 |---|---|---|---|
-| 一 | 视觉编码器：CLIP、SigLIP 与自监督 ViT | 理解 | 一张图变成的几百个向量里有什么？对比学习为什么能学出"语义" |
-| 二 | VLM 的结构：connector、注入方式与动态分辨率 | 理解 | 图片 token 怎么进入 LLM？三类 connector 与两种注入各自的取舍；分辨率怎么处理 |
+| 一 | VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT | 理解 | 一张图变成的几百个向量里有什么？对比学习为什么能学出"语义" |
+| 二 | VLM 的结构（下）：connector、注入方式与分辨率策略 | 理解 | 图片 token 怎么进入 LLM？三类 connector 与两种注入各自的取舍；分辨率怎么处理 |
 | 三 | VLM 的训练：数据、阶段与评测 | 理解 | 先训什么后训什么、每阶段冻结谁<br/>数据从哪来<br/>多模态幻觉从哪来 |
 | 四 | 语音（上）：从波形到 token——mel 谱、Whisper 与神经 codec | 理解 → 生成 | 一秒声音在模型眼里是什么？声音怎么变成离散 token（RVQ） |
 | 五 | 语音（下）：语音理解、语音生成与全双工 | 理解 → 生成 | 怎么听、怎么说<br/>LLM 直接说为什么伤文本能力<br/>全双工的时延 |
@@ -229,7 +229,7 @@ VQ · AR 图像生成
 
 ## 章节结构与分章导读
 
-### 1. 视觉编码器：CLIP、SigLIP 与自监督 ViT
+### 1. VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT
 
 VLM 的第一步是把图片变成向量序列，做这件事的几乎总是一个预训练好的 ViT。它是怎么训出来的，决定了它"看到"什么。
 
@@ -237,7 +237,7 @@ VLM 的第一步是把图片变成向量序列，做这件事的几乎总是一�
 
 **要回答的问题**：为什么几乎所有 VLM 都用 CLIP / SigLIP 而不用 ImageNet 分类预训练的 ViT？编码器看不到什么？
 
-### 2. VLM 的结构：connector、注入方式与动态分辨率
+### 2. VLM 的结构（下）：connector、注入方式与分辨率策略
 
 编码器输出的几百个向量怎么进入 LLM。04-13 算了每种选择的 token 数与 FLOPs；这一篇讲**为什么这样选、效果差在哪**。
 
@@ -346,8 +346,8 @@ Table: 各篇的 toy 实验脚本与跑通什么
 
 ## 章节目录
 
-1. [视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)
-2. [VLM 的结构：connector、注入方式与动态分辨率](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)
+1. [VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)
+2. [VLM 的结构（下）：connector、注入方式与分辨率策略](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)
 3. [VLM 的训练：数据、阶段与评测](/vlm-training-recipe-data-stages-and-evaluation.html)
 4. [语音（上）：从波形到 token——mel 谱、Whisper 与神经 codec](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)
 5. [语音（下）：语音理解、语音生成与全双工](/speech-understanding-generation-and-full-duplex.html)

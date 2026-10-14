@@ -242,7 +242,7 @@ ViT 对 Transformer encoder **几乎没有改动**，改的只是输入：把一
 
 没有卷积、没有池化、没有"空间减半通道翻倍"。一张图就是 196 个 token，之后的每一步与处理 196 个词完全相同。图像的二维结构只通过位置编码告诉模型——模型要自己从数据里学出"相邻 patch 相关"这件事，这就是它需要更多数据的原因。
 
-切块、拉平、投影这三步用一张 8×8 的小图逐步算出来的过程，见《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》的「二、ViT 回顾：编码器输出的是什么 · 1. 从图到序列」。ViT 在多模态里怎么用，比如 VLM 取哪一层、编码器的成本、CLIP 和 SigLIP 怎么训，也都在那一篇。
+切块、拉平、投影这三步用一张 8×8 的小图逐步算出来的过程，见《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》的「二、ViT 回顾：编码器输出的是什么 · 1. 从图到序列」。ViT 在多模态里怎么用，比如 VLM 取哪一层、编码器的成本、CLIP 和 SigLIP 怎么训，也都在那一篇。
 
 ### 3. Patch embedding 就是一个卷积
 

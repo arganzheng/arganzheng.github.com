@@ -22,7 +22,7 @@ Embedding 能嵌入的不只是词。句子、图像、位置、图里的节点�
 | 词 | LSA、PPMI + SVD、GloVe、Word2Vec | 计数分解<br/>预测 | [第四章](#counting-embeddings)、[第五章](#word2vec) |
 | 子词 / 词片 | fastText、BPE | 预测（随主任务训练） | [第六章](#subword-embeddings) |
 | 句子与文本 | Sentence-BERT、SimCSE、E5 / BGE | 对比<br/>有监督（NLI 对） | [第八章](#sentence-embeddings) |
-| 图像 | ViT、CLIP | 预测（MAE）<br/>重建（VAE）<br/>对比（CLIP）<br/>自蒸馏（DINO）<br/>有监督（ImageNet） | [第九章](#beyond-words)、《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》 |
+| 图像 | ViT、CLIP | 预测（MAE）<br/>重建（VAE）<br/>对比（CLIP）<br/>自蒸馏（DINO）<br/>有监督（ImageNet） | [第九章](#beyond-words)、《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》 |
 | 位置 | 正弦编码、RoPE | 固定公式<br/>预测（可学习位置表随语言模型一起训） | [第九章](#beyond-words)、《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》 |
 | 图节点与实体 | DeepWalk、node2vec、TransE | 预测（随机游走 + skip-gram）<br/>对比（TransE 间隔损失） | [第九章](#beyond-words) |
 | ID 与类别特征 | 矩阵分解、双塔 | 计数分解（矩阵分解）<br/>对比（双塔的采样负例）<br/>有监督（CTR） | [第九章](#beyond-words) |
@@ -377,7 +377,7 @@ Embedding 不只嵌入词。凡是「离散、数量大、需要被模型连续�
 
 - **问题**：像素不是离散符号，但 Transformer 需要 token。
 - **怎么解决**：把图切成 patch，每个 patch 线性投影成向量。patch embedding 等价于步长等于核大小的卷积；CLIP 再用图文对比把图像和文本放进同一个空间。
-- **效果与遗留问题**：切图的过程见《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》「六、从 CNN 到 ViT · 2. ViT 的结构」，CLIP 与 ViT 在多模态里的用法见《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》「二、ViT 回顾：编码器输出的是什么」。
+- **效果与遗留问题**：切图的过程见《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》「六、从 CNN 到 ViT · 2. ViT 的结构」，CLIP 与 ViT 在多模态里的用法见《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》「二、ViT 回顾：编码器输出的是什么」。
 
 ### 3. 图节点与知识图谱实体
 
@@ -418,7 +418,7 @@ $$
 {\exp(s(q,k^+)/\tau)+\sum_j\exp(s(q,k_j^-)/\tau)}.
 $$
 
-这里 $$q$$ 是查询，$$k^+$$ 是匹配对象，$$k_j^-$$ 是负样本，$$\tau$$ 控制 softmax 的尖锐度。SimCSE、CLIP 走的就是这条路；InfoNCE 的推导与温度细节见《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》「六、对比与度量学习」，互信息与 InfoNCE 的关系见《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html#2-互信息与对比学习)》「互信息与对比学习」，图文对比的 CLIP 例子见《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html#1-infonce)》「InfoNCE」。
+这里 $$q$$ 是查询，$$k^+$$ 是匹配对象，$$k_j^-$$ 是负样本，$$\tau$$ 控制 softmax 的尖锐度。SimCSE、CLIP 走的就是这条路；InfoNCE 的推导与温度细节见《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》「六、对比与度量学习」，互信息与 InfoNCE 的关系见《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html#2-互信息与对比学习)》「互信息与对比学习」，图文对比的 CLIP 例子见《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html#1-infonce)》「InfoNCE」。
 
 **4. 无负样本的自蒸馏。** 对比的麻烦是需要大量负样本。BYOL（[Grill 等 2020](https://arxiv.org/abs/2006.07733)）与 DINO（[Caron 等 2021](https://arxiv.org/abs/2104.14294)）干脆不要负样本：同一输入做两个增广视图，student 网络预测 teacher 网络的输出。这本来会塌缩成常数解（所有输入输出同一个向量），两家用相似的手段避免：BYOL 给 student 加一个 predictor、并给 teacher 用 student 的指数滑动平均（EMA）+ stop-gradient；DINO 给 teacher 输出做中心化与锐化。
 

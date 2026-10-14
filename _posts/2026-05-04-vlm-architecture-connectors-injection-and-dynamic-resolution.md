@@ -1,14 +1,16 @@
 ---
 layout: post
 series: multimodal
-title: "多模态（02）：VLM 的结构：connector、注入方式与动态分辨率"
-subtitle: "VLM Architecture: Connectors, Injection Methods and Dynamic Resolution"
+title: "多模态（02）：VLM 的结构（下）：connector、注入方式与分辨率策略"
+subtitle: "VLM Architecture (II): Connectors, Injection Methods and Resolution Strategies"
 tags: [AI, Multimodal, VLM, 架构]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-14
 ---
 
-上一篇的编码器把一张图变成了几百个 $$d_v$$ 维向量（CLIP-L 是 1024 维）。LLM 的输入是 $$d$$ 维向量（7B 模型是 4096 维）——两边维度不同、"语言"也不同，中间要有一个转接头。这一步有三个设计选择：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个选择合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
+VLM 由四个部件组成：分辨率策略 → 视觉编码器 → connector → 注入方式。上篇《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》讲了视觉编码器，本篇讲其余三个。
+
+编码器把一张图变成了几百个 $$d_v$$ 维向量（CLIP-L 是 1024 维）。LLM 的输入是 $$d$$ 维向量（7B 模型是 4096 维）——两边维度不同、"语言"也不同，中间要有一个转接头。这一步有三个设计选择：**connector**——用什么把编码器的 $$d_v$$ 维特征映射到 LLM 的 $$d$$ 维输入空间，顺便要不要压缩 token 数；**注入方式**——图片 token 是像文本一样进入 LLM 的输入序列（decoder-only 注入），还是通过额外的 cross-attention 层被 LLM "看"（cross-attention 注入）；**分辨率策略**——固定尺寸、切 tile、还是让编码器接受原生分辨率。三个选择合起来回答一个问题：一张图在 LLM 里占多少 token、保留了多少信息、花了多少算力。
 
 《[现代 LLM 结构（09）：多模态：vision encoder 的算量与 image token 的 KV 代价](/multimodal-vision-encoder-cost-and-image-token-kv.html)》已经算过这三个设计选择的**成本**：三类 connector 的 token 数表、两种注入的 FLOPs 与 KV 对照、M-RoPE 的三维位置、视频与音频的 token 数。这一篇讲成本背后的**动机与效果**：为什么 2024 年后主流从 Q-Former 回到 MLP、cross-attention 注入为什么被 Llama 3.2 选中又被多数人放弃、原生分辨率解决了 tile 的什么问题。每个选择都是一次"信息 vs token"的交换，这一篇把交换的两边都说清楚。
 
@@ -70,14 +72,17 @@ Table: 本文用到的术语与缩写
 
 Table: 主流 VLM 的结构选择
 
-上面这张表（表 1）把 12 个主流 VLM 摆在同一个三段结构上看：编码器 → connector → 注入方式。编码器的选择在《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》已经讲过，本篇的三个设计选择是每一行剩下的三列——connector、注入方式、分辨率策略。下面这张结构图（图 1）把三段结构与两条注入路径画出来：
+上面这张表（表 1）把 12 个主流 VLM 按四个部件摆在一起看：分辨率策略 → 编码器 → connector → 注入方式。编码器在上篇讲过，本篇讲每一行剩下的三列：connector、注入方式、分辨率策略。下面这张结构图（图 1）把四个部件与两条注入路径画在一起：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
-%% 图：VLM 的三段结构：视觉编码器 → connector → 注入 LLM decoder，注入方式有拼进序列与 cross-attention 两种
+%% 图：VLM 的四个部件：分辨率策略 → 视觉编码器 → connector → 注入 LLM decoder，注入方式有拼进序列与 cross-attention 两种
 flowchart TB
-    IMG["图像
-固定分辨率 / tile / 原生动态"] --> ENC["`**① 视觉编码器**（ViT）
+    IMG["图像（任意尺寸、任意宽高比）"] --> RES["`**⓪ 分辨率策略**
+固定分辨率（缩放到 224 / 336）· tile（切成固定大小的块 + 缩略图）
+· 原生动态（按原图尺寸切 patch）
+决定 N_patch`"]
+    RES --> ENC["`**① 视觉编码器**（ViT）（上篇）
 每个 patch 一个特征
 N_patch × d_v`"]
     ENC --> CON["`**② connector**
@@ -94,7 +99,7 @@ image token 与文本同价：同样的 attention、同样的 KV`"]
 
     classDef enc fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef llm fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
-    class ENC,CON enc
+    class RES,ENC,CON enc
     class SEQ,XA llm
 ```
 
