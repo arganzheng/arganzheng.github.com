@@ -18,6 +18,65 @@ date: 2026-03-30 12:00:00
 
 > **GPT-2 的 decoder-only 结构里，一个 token 的编号到词表上的概率分布要经过哪些运算？它与原始 Transformer 的 encoder-decoder 又有什么不同？[^q0]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| token | — | 文本切出的最小单位，每个对应一个整数编号 |
+| GPT / GPT-2 / GPT-3 | Generative Pre-trained Transformer | OpenAI 的 decoder-only 模型系列，GPT-2 small 是本文蓝本 |
+| encoder / decoder | — | encoder 读完整段输入产出表示；decoder 逐个生成输出 |
+| decoder-only | — | 去掉 encoder、只留带 causal mask 的 decoder 的结构 |
+| nanoGPT | — | Karpathy 写的极简 GPT 训练代码库 |
+| embedding | — | 把 token 编号查表变成向量 |
+| block | — | 一层 Transformer：attention 与 FFN 两个子层加残差 |
+| LayerNorm | layer normalization | 把每个 token 的向量减均值、除标准差，统一尺度 |
+| lm_head | language modeling head | 把最后的向量投影成词表上每个词的分数 |
+| self-attention | — | 序列内部的 token 互相看的 attention |
+| causal mask | — | 把「看未来 token」的分数设成 −∞ 的遮罩 |
+| FFN | feed-forward network | 逐 token「放大 → GELU → 压回」的前馈子层 |
+| Q / K / V | query / key / value | attention 里的查询、键、值三组向量 |
+| RoPE | rotary position embedding | 按位置旋转 q、k 的位置编码，Llama 采用 |
+| GELU | Gaussian error linear unit | ReLU 的平滑版激活函数，GPT-2 的 FFN 用它 |
+| MLP | multi-layer perceptron | 多层感知机；在 Transformer 里就是 FFN 子层 |
+| Llama | Large Language Model Meta AI | Meta 的开源模型系列，本文多处拿它对照 |
+| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
+| GQA | grouped-query attention | 多个 query 头共享一组 K、V，缩小 KV cache |
+| SiLU | sigmoid linear unit | x·sigmoid(x) 形式的激活函数，Llama 的 FFN 用它 |
+| cross-attention | — | decoder 用自己的 query 去读 encoder 输出的 attention |
+| d2l | Dive into Deep Learning | 《动手学深度学习》，本文拿它的 10.7 节做术语对照 |
+| encoder-only / encoder-decoder | — | 只用 encoder 的路线 / encoder 与 decoder 都用的路线 |
+| one-hot | — | 只有一位是 1、其余全 0 的向量 |
+| pre-norm / post-norm | — | LayerNorm 放在子层之前 / 之后 |
+| head | — | 多头 attention 里各自一套投影的一个「头」 |
+| Add & Norm | — | 原论文的「残差相加 + LayerNorm」 |
+| BERT | Bidirectional Encoder Representations from Transformers | Google 2018 年的 encoder-only 模型 |
+| T5 | Text-to-Text Transfer Transformer | Google 的 encoder-decoder 模型，把任务都写成文本到文本 |
+| BART | Bidirectional and Auto-Regressive Transformers | Facebook 的 encoder-decoder 去噪预训练模型 |
+| span corruption | — | T5 的预训练目标：遮掉连续片段让模型补出来 |
+| LLM | large language model | 大语言模型 |
+| Hugging Face | — | 托管模型权重、提供 transformers 库的平台 |
+| SVD | singular value decomposition | 奇异值分解 |
+| kernel | — | 在 GPU 上执行的一个计算函数 |
+| FlashAttention | — | 分块计算 attention、不写出整张 T×T 权重表的 kernel |
+| bf16 | bfloat16（brain floating point） | 16 位浮点格式，指数位与 FP32 相同 |
+| HBM | high bandwidth memory | GPU 的显存，容量大但比片上存储慢 |
+| SRAM | static random-access memory | GPU 片上的小而快的存储 |
+| KV cache | key–value cache | 推理时缓存前面 token 的 K、V，后续步不用重算 |
+| ReLU | rectified linear unit | 负半轴截成 0 的激活函数 |
+| SwiGLU | Swish-gated linear unit | 带门控的 FFN 激活，Llama 用三个矩阵实现 |
+| MoE | mixture of experts | 把 FFN 复制成多个专家、每个 token 只走其中几个 |
+| RNN | recurrent neural network | 按时间步递推的循环神经网络 |
+| CNN | convolutional neural network | 卷积神经网络 |
+| BatchNorm | batch normalization | 跨 batch 统计均值方差的归一化，CNN 常用 |
+| RMSNorm | root mean square layer normalization | 只除均方根、不减均值的 LayerNorm 简化版 |
+| warmup | — | 训练初期把学习率从很小逐步升上去 |
+| logits | — | softmax 之前每个词的原始分数 |
+| prefill / decode | — | 推理时一次处理整段提示 / 每步生成一个新 token |
+| BLEU | bilingual evaluation understudy | 机器翻译常用的自动评分指标 |
+| NeurIPS | Conference on Neural Information Processing Systems | 机器学习顶级会议 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览：从一句话到下一个 token
 
 本系列要拆解的是 decoder-only 结构，以 GPT-2 small 为蓝本。第二至四章回到 2017 年的论文，解释这条路线从哪里来；第五章起再逐个打开它的部件。
@@ -30,8 +89,8 @@ date: 2026-03-30 12:00:00
 
 图分左右两半，自下而上读：
 
-- **左半是整台机器。**最底下进来的是一串整数（token 编号）；经过 token embedding 与位置 embedding 两次查表，变成每个 token 一个 768 维向量；然后进入 12 个结构完全相同、参数各自一份的 block；出来后做最后一次 LayerNorm（`ln_f`），乘 lm_head 得到词表上 50257 个分数，softmax 变成概率。淡蓝底的框把**一个 block**展开：两个子层，每个子层都是"LayerNorm → 变换 → 加回原输入"，虚线就是那条加回去的残差（第九章）。
-- **右半把 attention 子层放大。**它是整张图里唯一让 token 之间交流的地方（第七章）：同一个输入分别乘三个矩阵得到 Q、K、V，Q 与 K 打分、加 causal mask 只保留左边、softmax 成权重、按权重把 V 加起来；12 个头各自在 64 维上算完再拼成 768 维，最后乘 W_O。这一子层的全部参数就是四个 768 × 768 的矩阵。
+- **左半是整台机器。**最底下进来的是一串整数（token 编号）；经过 token embedding 与位置 embedding 两次查表，变成每个 token 一个 768 维向量；然后进入 12 个结构完全相同、参数各自一份的 block；出来后做最后一次 LayerNorm（layer normalization，`ln_f`），乘 lm_head（language modeling head）得到词表上 50257 个分数，softmax 变成概率。淡蓝底的框把**一个 block**展开：两个子层，每个子层都是"LayerNorm → 变换 → 加回原输入"，虚线就是那条加回去的残差（第九章）。
+- **右半把 attention 子层放大。**它是整张图里唯一让 token 之间交流的地方（第七章）：同一个输入分别乘三个矩阵得到 Q、K、V（query、key、value），Q 与 K 打分、加 causal mask 只保留左边、softmax 成权重、按权重把 V 加起来；12 个头各自在 64 维上算完再拼成 768 维，最后乘 W_O。这一子层的全部参数就是四个 768 × 768 的矩阵。
 
 图里每个方框的输入和输出都是"若干个 768 维向量"——一个 token 一个向量，从头到尾形状不变（$$[T, d]$$，$$T$$ 是 token 数，$$d$$ 是隐藏维度，GPT-2 small 的 $$d = 768$$；只有最后 lm_head 把它变成 $$[T, V]$$）。这是 Transformer 能"一层层叠"的前提，也是读结构图时最重要的一条线索：**任何一个方框，问它的输入输出形状是什么，就知道它在干什么。**
 
@@ -50,9 +109,9 @@ date: 2026-03-30 12:00:00
 
 Table: decoder-only Transformer 的六种部件与它们的参数
 
-六种部件里，attention 是**唯一让 token 之间交流**的地方，其他五种都是"每个 token 各自算"——两次查表、FFN、残差 + LayerNorm、lm_head 都只看自己这一行。这是理解 Transformer 的第一把钥匙：把它想成 $$T$$ 条平行的流水线，只在 attention 那一站互相传递信息。
+六种部件里，attention 是**唯一让 token 之间交流**的地方，其他五种都是"每个 token 各自算"——两次查表、FFN（feed-forward network）、残差 + LayerNorm、lm_head 都只看自己这一行。这是理解 Transformer 的第一把钥匙：把它想成 $$T$$ 条平行的流水线，只在 attention 那一站互相传递信息。
 
-这张表和《算法工程师的数学》第一篇《向量、矩阵与形状》第六章的「[七个权重矩阵](/vectors-matrices-shapes-and-flops.html#1-七个权重矩阵)」数的是同一台机器，只是切法不同。那一章只数**一层 block 里带参数的矩阵**：attention 四个（$$W_Q, W_K, W_V, W_O$$）加 MLP 三个（Llama 的 $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$），按形状规则算出 Llama-3-8B 一层 218M 参数、81% 在 MLP。本文数的是**整台机器有几种不同的东西**，所以多出了三样不在那七个里的部件——两张 embedding 表、LayerNorm 的 $$2d$$ 个数、以及 lm_head。两张表对起来是这样：
+这张表和《算法工程师的数学》第一篇《向量、矩阵与形状》第六章的「[七个权重矩阵](/vectors-matrices-shapes-and-flops.html#1-七个权重矩阵)」数的是同一台机器，只是切法不同。那一章只数**一层 block 里带参数的矩阵**：attention 四个（$$W_Q, W_K, W_V, W_O$$）加 MLP（multi-layer perceptron）三个（Llama 的 $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$），按形状规则算出 Llama-3-8B 一层 218M 参数、81% 在 MLP。本文数的是**整台机器有几种不同的东西**，所以多出了三样不在那七个里的部件——两张 embedding 表、LayerNorm 的 $$2d$$ 个数、以及 lm_head。两张表对起来是这样：
 
 | 本文的部件 | 对应「七个权重矩阵」里的哪几个 | GPT-2 small 里的实际矩阵（nanoGPT 命名） | 两个模型的差别 |
 |---|---|---|---|
@@ -139,7 +198,7 @@ Table: 三类 Transformer 路线的结构与目标
 
 ## 四、为什么 decoder-only 成为主流，本系列为什么以 GPT-2 为蓝本
 
-decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与建模上的便利来理解；这不是排除其他路线的定论。next-token prediction 既是预训练目标，也与逐步生成的使用方式一致；把任务说明和材料放进同一段 token 序列，就能用同一套模型接口处理续写、问答和工具调用。训练时仍可并行计算所有位置的表示；这不是 decoder-only 独有的优势，encoder-decoder 也能并行训练目标序列，差别在于 decoder 还通过 cross-attention 读取独立的源序列。
+decoder-only 后来成为许多 LLM（large language model）的常见形态，可以从几种工程与建模上的便利来理解；这不是排除其他路线的定论。next-token prediction 既是预训练目标，也与逐步生成的使用方式一致；把任务说明和材料放进同一段 token 序列，就能用同一套模型接口处理续写、问答和工具调用。训练时仍可并行计算所有位置的表示；这不是 decoder-only 独有的优势，encoder-decoder 也能并行训练目标序列，差别在于 decoder 还通过 cross-attention 读取独立的源序列。
 
 本系列以 GPT-2 为蓝本，是因为它结构完整又足够小：[公开的 GPT-2 权重与配置](https://huggingface.co/openai-community/gpt2/blob/main/config.json)可以用 Hugging Face 实现对拍；[nanoGPT 的训练配方与代码](https://github.com/karpathy/nanoGPT)适合在单张 GPU 上跑通从数据到生成的闭环。这样，先把经典 decoder-only 拆明白，再接到 [《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)，看 Llama 式结构具体替换了哪些部件。
 
@@ -153,7 +212,7 @@ decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与�
 
 ### 2. 查表等价于 one-hot 乘矩阵
 
-编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
+编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（floating point operations，[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
 这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
 
@@ -180,7 +239,7 @@ Table: 打乱输入顺序，attention 的输出只是跟着换了位置——三
 
 GPT-2 的 `n_positions = 1024`，所以表有 1024 行；行数和上下文长度是同一个数。这种做法的代价是上限被**写死在参数里**：第 1025 个位置没有训练过的表行，推理时不能直接超过 1024；想加长，只能扩表并训练新增行。
 
-**方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
+**方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（rotary position embedding，旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
 
 两种方法在上下文上限上的差别是：位置表只覆盖训练过的行数，RoPE 则按位置计算旋转角度，没有这道表行数的硬上限。1024 在当时并不算小——attention 的算量和 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第七章第 6 节）；早期 BERT 是 512、GPT-3 是 2048，后来 4K、8K、128K 上下文则在 RoPE 上配合专门的扩展技术，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)会继续讲。
 
@@ -339,10 +398,10 @@ mask 把"看未来的 token"的分数设成 $$-\infty$$，softmax 后权重为 0
   - **参数：$$W_O$$。** $$W_O$$ 与多头一起出现：它把 12 个头的 64 维结果混合起来，让每个输出维度都能看到所有头。单头时 $$W_V W_O$$ 可以合并成一个矩阵，不需要单独的 $$W_O$$。GPT-2 small 每层的 $$W_O$$ 有 $$768^2 \approx 0.59$$M 个参数，是 attention 子层的四分之一；每个 token 另需 $$2 \times 768^2 \approx 1.2$$M FLOPs。
   - **中间结果：权重表多了 $$h$$ 倍。** 六步手算第 ⑤ 步 softmax 得到权重表 $$P$$，形状是 $$[T, T]$$：一行对应一个 token，记录它分给其他 token 的注意力权重。
     - 单头每层有一张 $$[T, T]$$ 表；多头每层有 $$h$$ 张。
-    - GPT-2 small 有 12 层、12 个头。$$T = 1024$$ 时，每层每个序列有 $$12 \times 1024 \times 1024 = 12{,}582{,}912$$ 个权重。bf16 每个占 2 字节，合计 $$25{,}165{,}824$$ 字节，约 25 MB（24 MiB）；12 层合计 $$301{,}989{,}888$$ 字节，约 0.30 GB（288 MiB）。
+    - GPT-2 small 有 12 层、12 个头。$$T = 1024$$ 时，每层每个序列有 $$12 \times 1024 \times 1024 = 12{,}582{,}912$$ 个权重。bf16（bfloat16）每个占 2 字节，合计 $$25{,}165{,}824$$ 字节，约 25 MB（24 MiB）；12 层合计 $$301{,}989{,}888$$ 字节，约 0.30 GB（288 MiB）。
     - 常规训练的反向计算要用这些权重，求 value $$V$$ 和分数 $$S$$ 的梯度。
-    - [《GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)中的 FlashAttention 不把完整的 $$[T, T]$$ 表写入 GPU 的 HBM：它在片上 SRAM 分块计算 softmax 与加权和，反向时再重算。这样不必物化随 $$T^2$$ 增长的整张表，attention 的额外存储随 $$T$$ 而不是 $$T^2$$ 增长。
-    - KV cache 不受影响：缓存的是 $$K, V$$ 各 $$[T, d]$$，切成几个头都一样大。
+    - [《GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)中的 FlashAttention 不把完整的 $$[T, T]$$ 表写入 GPU 的 HBM（high bandwidth memory）：它在片上 SRAM（static random-access memory）分块计算 softmax 与加权和，反向时再重算。这样不必物化随 $$T^2$$ 增长的整张表，attention 的额外存储随 $$T$$ 而不是 $$T^2$$ 增长。
+    - KV（key–value）cache 不受影响：缓存的是 $$K, V$$ 各 $$[T, d]$$，切成几个头都一样大。
 - **为什么每头只有 64 维还够用？** 每个头只需要判断一种关系，64 维足够表达"是不是名词""是不是上一个词"这类问题；真实模型从 GPT-2 到 Llama-3 都保持 $$d_h = 64$$–$$128$$，加大的是头数与层数。
 
 ### 7. 这一子层的参数
@@ -365,7 +424,7 @@ nanoGPT 把前三个矩阵拼成 `c_attn`（768 × 2304），把 $$W_O$$ 叫作 
 
 Attention 本身没有参数：打分、softmax、加权求和都是固定运算，学习发生在四个投影矩阵里。
 
-Llama 后续用 GQA 缩小 $$W_K, W_V$$，并去掉 bias；四个矩阵的角色不变（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
+Llama 后续用 GQA（grouped-query attention）缩小 $$W_K, W_V$$，并去掉 bias；四个矩阵的角色不变（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
 
 ## 八、FFN 子层：让每个 token 自己想一想
 
@@ -379,7 +438,7 @@ $$
 \text{FFN}(x) = \text{GELU}(x W_1 + b_1)\, W_2 + b_2, \qquad W_1 \in \mathbb{R}^{d \times 4d},\; W_2 \in \mathbb{R}^{4d \times d}
 $$
 
-先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（03）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配；公式与导数的完整对照见[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
+先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU（Gaussian error linear unit）是 ReLU（rectified linear unit）的平滑版本（[《深度学习基础（03）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配；公式与导数的完整对照见[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU（Swish-gated linear unit）、宽度改为约 2.7 倍（本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
 
 ### 2. 它在一层里占了三分之二
 
@@ -387,7 +446,7 @@ $$
 
 ### 3. 知识存在哪
 
-有一个有用的直觉：把 $$W_1$$ 的 3072 列看成 3072 个"探测器"，每个探测器问输入向量一个问题（"这是不是在讲一种动物？""前面是不是出现了 Paris？"），GELU 决定答"是"的强度，$$W_2$$ 再把答"是"的探测器对应的"回答向量"加起来。可解释性研究（Geva 等，2021 起）确实在真实模型的 FFN 里找到了这种 key–value 结构：某些神经元专门在特定主题出现时激活，并把对应的词推向输出。这也是为什么"往模型里塞知识"（预训练）主要涨的是 FFN，而 MoE（[现代 LLM 结构（06）](/moe-compute-and-communication.html)）选择把 **FFN** 复制成多个专家而不是复制 attention。
+有一个有用的直觉：把 $$W_1$$ 的 3072 列看成 3072 个"探测器"，每个探测器问输入向量一个问题（"这是不是在讲一种动物？""前面是不是出现了 Paris？"），GELU 决定答"是"的强度，$$W_2$$ 再把答"是"的探测器对应的"回答向量"加起来。可解释性研究（Geva 等，2021 起）确实在真实模型的 FFN 里找到了这种 key–value 结构：某些神经元专门在特定主题出现时激活，并把对应的词推向输出。这也是为什么"往模型里塞知识"（预训练）主要涨的是 FFN，而 MoE（mixture of experts，[现代 LLM 结构（06）](/moe-compute-and-communication.html)）选择把 **FFN** 复制成多个专家而不是复制 attention。
 
 ## 九、残差连接与 LayerNorm：让几十层能训
 
@@ -399,7 +458,7 @@ $$
 x \leftarrow x + \text{Attention}(\text{LN}(x)), \qquad x \leftarrow x + \text{FFN}(\text{LN}(x))
 $$
 
-这就是残差连接（[《深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差》](/initialization-normalization-and-residual.html)讲了它的数学：让梯度能沿着"+"直接传回去，深网络才训得动）。一个有用的读法：把那条从 embedding 一直通到 lm_head 的 $$[T, d]$$ 主干叫**残差流**（residual stream），每个子层都是从主干上读一份、算出一个"修正量"、再加回主干。12 层 = 24 次修正。GPT-2 small 的一个 token 从进到出，它的 768 维向量被修正了 24 次，每次修正量都比主干本身小得多——这也是为什么 Transformer 能到 100 层以上而 RNN 不行。
+这就是残差连接（[《深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差》](/initialization-normalization-and-residual.html)讲了它的数学：让梯度能沿着"+"直接传回去，深网络才训得动）。一个有用的读法：把那条从 embedding 一直通到 lm_head 的 $$[T, d]$$ 主干叫**残差流**（residual stream），每个子层都是从主干上读一份、算出一个"修正量"、再加回主干。12 层 = 24 次修正。GPT-2 small 的一个 token 从进到出，它的 768 维向量被修正了 24 次，每次修正量都比主干本身小得多——这也是为什么 Transformer 能到 100 层以上而 RNN（recurrent neural network）不行。
 
 ### 2. LayerNorm 做什么
 
@@ -409,11 +468,11 @@ $$
 x = (2, 4, 4, 6) \;\to\; \mu = 4,\; \sigma^2 = 2 \;\to\; \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} = (-1.41,\, 0,\, 0,\, 1.41) \;\to\; \gamma \odot (\cdot) + \beta
 $$
 
-它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第七章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN 里 BatchNorm 的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)），作用相同。
+它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第七章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN（convolutional neural network）里 BatchNorm（batch normalization）的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，本系列第五篇[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)），作用相同。
 
 ### 3. pre-norm 与 post-norm
 
-LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pre-norm）还是**之后**（原论文 2017 与 d2l 10.7 画的是 $$\text{LN}(x + \text{Sublayer}(x))$$，叫 post-norm）？两者数学上不等价：pre-norm 下残差流本身不经过归一化，梯度有一条干净的直通路；post-norm 下每层输出都被重新归一化，深了以后需要 warmup 和小学习率才不发散（Xiong 等，2020）。现代大模型几乎全部用 pre-norm，代价是最后要多加一次 `ln_f`（图 1 里"最后一次 LayerNorm"那个框），否则残差流的尺度直接进 lm_head。
+LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pre-norm）还是**之后**（原论文 2017 与 d2l（Dive into Deep Learning）10.7 画的是 $$\text{LN}(x + \text{Sublayer}(x))$$，叫 post-norm）？两者数学上不等价：pre-norm 下残差流本身不经过归一化，梯度有一条干净的直通路；post-norm 下每层输出都被重新归一化，深了以后需要 warmup 和小学习率才不发散（Xiong 等，2020）。现代大模型几乎全部用 pre-norm，代价是最后要多加一次 `ln_f`（图 1 里"最后一次 LayerNorm"那个框），否则残差流的尺度直接进 lm_head。
 
 ## 十、lm_head：把向量变成词表上的分数
 
@@ -539,4 +598,4 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
 
 [^q0]: 六种部件：**embedding 查表**（编号 → 向量，否则编号只是任意整数）；**位置信息**（attention 是集合运算，不加它分不清词序）；**attention**（唯一让 token 互相看的地方：$$\text{softmax}(QK^T/\sqrt d + M)V$$，去掉它每个 token 只能看自己）；**FFN**（逐 token 的非线性变换，去掉它整个模型是线性的、存不了知识）；**残差 + LayerNorm**（去掉残差深了训不动，去掉 LayerNorm 残差流尺度失控）；最后 **lm_head** 把向量变成词表上的分数。详见[第五](#五token-embedding把编号变成向量)至[第十章](#十lm_head把向量变成词表上的分数)。
 
-[^heads]: Michel, Levy & Neubig, *Are Sixteen Heads Really Better than One?* (NeurIPS 2019)：训好的 BERT / 机器翻译模型里，很多层在推理时只留一个头，效果几乎不变；Voita 等人同年的工作把 Transformer 翻译模型 48 个 encoder 头剪到 10 个，BLEU 只掉 0.15。
+[^heads]: Michel, Levy & Neubig, *Are Sixteen Heads Really Better than One?* (NeurIPS 2019)：训好的 BERT / 机器翻译模型里，很多层在推理时只留一个头，效果几乎不变；Voita 等人同年的工作把 Transformer 翻译模型 48 个 encoder 头剪到 10 个，BLEU（bilingual evaluation understudy）只掉 0.15。
