@@ -228,18 +228,21 @@ Table: ResNet 留给 Transformer 的四样遗产
 
 ### 2. ViT 的结构
 
-ViT 对 Transformer encoder **几乎没有改动**，改的只是输入。下图是 Dosovitskiy 等 2020 论文的图 1：
+ViT 对 Transformer encoder **几乎没有改动**，改的只是输入：把一张图切成小块，每块当成一个词。下图是 Dosovitskiy 等 2020 论文的图 1，左边是整个模型，右边是 encoder 的一层：
 
 ![Dosovitskiy 等 2020《An Image is Worth 16×16 Words》图 1：把图像切成固定大小的 patch，每个 patch 线性投影后加位置编码，前面拼一个可学习的 [class] token，送进标准 Transformer encoder，最后由 [class] 的输出接 MLP 分类头。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-vit-fig1.webp)
 
-按形状走一遍：
+左图从下往上读，按 ViT-B/16 的形状走一遍：
 
-1. 图像 $$[3, 224, 224]$$，切成 $$16 \times 16$$ 的 patch，共 $$(224 / 16)^2 = 196$$ 个；
-2. patch 序列 $$[196, 3 \cdot 16 \cdot 16 = 768]$$，线性投影到 $$d = 768$$（"patch embedding"），前面拼一个 `[CLS]` token，加可学习的位置编码；
-3. token 序列 $$[197, 768]$$，过标准 Transformer encoder × 12 层（Pre-Norm，MHA + FFN；块结构同 BERT，但 BERT 是 Post-Norm）；
-4. `[CLS]` 的输出 → 分类头。
+1. **切块**。图像 $$[3, 224, 224]$$ 切成 $$16 \times 16$$ 的 patch，每边 14 块，共 $$(224 / 16)^2 = 196$$ 个。每个 patch 拉平成 $$3 \cdot 16 \cdot 16 = 768$$ 个数，得到 $$[196, 768]$$。
+2. **线性投影**。每个 patch 乘同一个 $$768 \times 768$$ 的矩阵，变成 $$d = 768$$ 维的向量。这一步叫 patch embedding，就是图里的 Linear Projection of Flattened Patches。
+3. **拼 `[CLS]`、加位置编码**。前面拼一个可学习的 `[CLS]` 向量，就是图里带 * 的 0 号，它不对应任何 patch，专门用来汇总整张图。再给 197 个向量各加一个可学习的位置编码，也就是图里紫色的序号，告诉模型每块原来在图上哪个位置。得到 $$[197, 768]$$。
+4. **过 Transformer encoder**。右图是其中一层：Norm → Multi-Head Attention → 加回残差，再 Norm → MLP → 加回残差，一共叠 $$L = 12$$ 层。归一化放在分支入口，是 Pre-Norm（见《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的「六、Pre-Norm 与 Post-Norm」）。attention 是双向的，每个 patch 都能看到其他所有 patch。块结构和 BERT 一样，只是 BERT 用 Post-Norm。
+5. **分类头**。取最后一层 `[CLS]` 位置的输出，接分类头得到类别。预训练时分类头是带一个隐层的 MLP，微调时换成一个线性层。
 
 没有卷积、没有池化、没有"空间减半通道翻倍"。一张图就是 196 个 token，之后的每一步与处理 196 个词完全相同。图像的二维结构只通过位置编码告诉模型——模型要自己从数据里学出"相邻 patch 相关"这件事，这就是它需要更多数据的原因。
+
+切块、拉平、投影这三步用一张 8×8 的小图逐步算出来的过程，见《[多模态（01）：视觉编码器：CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》的「二、ViT 回顾：编码器输出的是什么 · 1. 从图到序列」。ViT 在多模态里怎么用，比如 VLM 取哪一层、编码器的成本、CLIP 和 SigLIP 怎么训，也都在那一篇。
 
 ### 3. Patch embedding 就是一个卷积
 

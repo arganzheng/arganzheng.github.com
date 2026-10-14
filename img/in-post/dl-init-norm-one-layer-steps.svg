@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="656.39952pt" height="224.39952pt" viewBox="0 0 656.39952 224.39952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 224.39952
+L 656.39952 224.39952
+L 656.39952 0
+L 0 0
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="line2d_1">
+    <path d="M 82.634944 42.19992
+L 303.054779 94.6998
+" clip-path="url(#p76128b1fac)" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 82.634944 77.19984
+L 303.054779 94.6998
+" clip-path="url(#p76128b1fac)" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 82.634944 147.19968
+L 303.054779 94.6998
+" clip-path="url(#p76128b1fac)" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="patch_2">
+    <path d="M 453.924666 111.324762
+L 523.474614 111.324762
+Q 527.754611 111.324762 527.754611 107.82477
+L 527.754611 81.57483
+Q 527.754611 78.074838 523.474614 78.074838
+L 453.924666 78.074838
+Q 449.644669 78.074838 449.644669 81.57483
+L 449.644669 107.82477
+Q 449.644669 111.324762 453.924666 111.324762
+z
+" clip-path="url(#p76128b1fac)" style="fill: #fdeee0; stroke: #e69f00; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="line2d_4">
+    <path d="M 49.999968 171.262125
+L 403.099704 171.262125
+" clip-path="url(#p76128b1fac)" style="fill: none; stroke: #e69f00; stroke-width: 2.2; stroke-linecap: square"/>
+   </g>
+   <g id="line2d_5">
+    <path d="M 413.799696 171.262125
+L 606.399552 171.262125
+" clip-path="url(#p76128b1fac)" style="fill: none; stroke: #009e73; stroke-width: 2.2; stroke-linecap: square"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 71.399952 50.9499
+C 74.237623 50.9499 76.959452 50.027947 78.965989 48.38709
+C 80.972525 46.746233 82.099944 44.520442 82.099944 42.19992
+C 82.099944 39.879398 80.972525 37.653607 78.965989 36.01275
+C 76.959452 34.371893 74.237623 33.44994 71.399952 33.44994
+C 68.562281 33.44994 65.840452 34.371893 63.833915 36.01275
+C 61.827379 37.653607 60.69996 39.879398 60.69996 42.19992
+C 60.69996 44.520442 61.827379 46.746233 63.833915 48.38709
+C 65.840452 50.027947 68.562281 50.9499 71.399952 50.9499
+z
+" clip-path="url(#p76128b1fac)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 71.399952 85.94982
+C 74.237623 85.94982 76.959452 85.027867 78.965989 83.38701
+C 80.972525 81.746153 82.099944 79.520362 82.099944 77.19984
+C 82.099944 74.879318 80.972525 72.653527 78.965989 71.01267
+C 76.959452 69.371813 74.237623 68.44986 71.399952 68.44986
+C 68.562281 68.44986 65.840452 69.371813 63.833915 71.01267
+C 61.827379 72.653527 60.69996 74.879318 60.69996 77.19984
+C 60.69996 79.520362 61.827379 81.746153 63.833915 83.38701
+C 65.840452 85.027867 68.562281 85.94982 71.399952 85.94982
+z
+" clip-path="url(#p76128b1fac)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <!-- $\vdots$ -->
+    <g transform="translate(65.899952 115.923432)">
+     <text>
+      <tspan style="font: 11px 'DejaVu Sans'" x="0" y="-0.5">⋮</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_5">
+    <path d="M 71.399952 155.94966
+C 74.237623 155.94966 76.959452 155.027707 78.965989 153.38685
+C 80.972525 151.745993 82.099944 149.520202 82.099944 147.19968
+C 82.099944 144.879158 80.972525 142.653367 78.965989 141.01251
+C 76.959452 139.371653 74.237623 138.4497 71.399952 138.4497
+C 68.562281 138.4497 65.840452 139.371653 63.833915 141.01251
+C 61.827379 142.653367 60.69996 144.879158 60.69996 147.19968
+C 60.69996 149.520202 61.827379 151.745993 63.833915 153.38685
+C 65.840452 155.027707 68.562281 155.94966 71.399952 155.94966
+z
+" clip-path="url(#p76128b1fac)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_2">
+    <!-- $n_{in}$ 个输入，每个方差 $\sigma_x^2$ -->
+    <g transform="translate(22.079952 20.972475)">
+     <text>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="0 88.193408" y="-0.8734375000000014">nσ</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="5.704102 7.454443 93.89751" y="0.6031249999999986 0.6031249999999986 1.5874999999999986">inx</tspan>
+      <tspan style="font: 9px 'Heiti TC'" x="11.693408 13.943408 22.943408 31.943408 40.943408 49.943408 58.943408 67.943408 76.943408 85.943408" y="-0.8734375000000014"> 个输入，每个方差 </tspan>
+      <tspan style="font: 6.3px 'DejaVu Sans'" x="94.299463" y="-4.3187500000000005">2</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_6">
+    <path d="M 317.499768 106.074774
+C 321.18874 106.074774 324.727119 104.876235 327.335616 102.743121
+C 329.944113 100.610008 331.409758 97.716478 331.409758 94.6998
+C 331.409758 91.683122 329.944113 88.789592 327.335616 86.656479
+C 324.727119 84.523365 321.18874 83.324826 317.499768 83.324826
+C 313.810796 83.324826 310.272417 84.523365 307.66392 86.656479
+C 305.055423 88.789592 303.589778 91.683122 303.589778 94.6998
+C 303.589778 97.716478 305.055423 100.610008 307.66392 102.743121
+C 310.272417 104.876235 313.810796 106.074774 317.499768 106.074774
+z
+" clip-path="url(#p76128b1fac)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_3">
+    <!-- $W_{i1}$ -->
+    <g transform="translate(185.374861 64.163235)">
+     <text>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="0" y="-0.4375">W</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="8.898926" y="1.0390625">i</tspan>
+      <tspan style="font: 6.3px 'DejaVu Sans'" x="10.649268" y="1.0390625">1</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_4">
+    <!-- $W_{i2}$ -->
+    <g transform="translate(185.374861 81.663195)">
+     <text>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="0" y="-0.4375">W</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="8.898926" y="1.0390625">i</tspan>
+      <tspan style="font: 6.3px 'DejaVu Sans'" x="10.649268" y="1.0390625">2</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_5">
+    <!-- $W_{i,n_{in}}$ -->
+    <g transform="translate(181.684861 115.974756)">
+     <text>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="0" y="-0.4375">W</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="8.898926 13.879248" y="1.0390625">in</tspan>
+      <tspan style="font: 6.3px 'DejaVu Sans'" x="10.649268" y="1.0390625">,</tspan>
+      <tspan style="font: oblique 4.41px 'DejaVu Sans'" x="17.872119 19.097358" y="2.0726562499999996">in</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_6">
+    <!-- 每一项 $W_{ij}x_j$：方差 $\sigma_w^2\sigma_x^2$ -->
+    <g transform="translate(139.104864 26.524962)">
+     <text>
+      <tspan style="font: 9px 'Heiti TC'" x="0 9 18 27 49.218311 58.218311 67.218311 76.218311" y="-0.8734375000000014">每一项 ：方差 </tspan>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="29.25 41.895703 78.468311 89.571094" y="-0.8734375000000014">Wxσσ</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="38.148926 39.899268 47.221875 84.172412 95.275195" y="0.6031249999999986 0.6031249999999986 0.6031249999999986 1.5874999999999986 1.5874999999999986">ijjwx</tspan>
+      <tspan style="font: 6.3px 'DejaVu Sans'" x="84.574365 95.677148" y="-4.3187500000000005">22</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_7">
+    <path d="M 333.943659 94.6998
+Q 352.539303 94.6998 369.793306 94.6998
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 366.193306 92.8998
+L 369.793306 94.6998
+L 366.193306 96.4998
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_7">
+    <!-- $z_i$ -->
+    <g transform="translate(388.274712 98.016128)">
+     <text>
+      <tspan style="font: oblique 11px 'DejaVu Sans'" x="0" y="-0.984375">z</tspan>
+      <tspan style="font: oblique 7.7px 'DejaVu Sans'" x="5.773926" y="0.8203125">i</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_8">
+    <!-- $n_{in}$ 项相加：Var$(z_i)=n_{in}\sigma_w^2\sigma_x^2$ -->
+    <g transform="translate(293.38974 120.284748)">
+     <text>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="0 68.628635 89.908273 101.601682 112.704465" y="-0.8734375000000014">nznσσ</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="5.704102 7.454443 73.352756 95.612375 97.362717 107.305783 118.408566" y="0.6031249999999986 0.6031249999999986 0.6031249999999986 0.6031249999999986 0.6031249999999986 1.5874999999999986 1.5874999999999986">iniinwx</tspan>
+      <tspan style="font: 9px 'Heiti TC'" x="11.693408 13.943408 22.943408 31.943408 40.943408 49.943408 56.261401 62.408405" y="-0.8734375000000014"> 项相加：Var</tspan>
+      <tspan style="font: 9px 'DejaVu Sans'" x="65.117404 75.349191 80.61384" y="-0.8734375000000014">()=</tspan>
+      <tspan style="font: 6.3px 'DejaVu Sans'" x="107.707736 118.810519" y="-4.3187500000000005">22</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_8">
+    <path d="M 413.658109 94.6998
+Q 433.060265 94.6998 451.120781 94.6998
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 447.520781 92.8998
+L 451.120781 94.6998
+L 447.520781 96.4998
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_9">
+    <!-- $\phi$（如 ReLU） -->
+    <g transform="translate(457.24964 97.7998)">
+     <text>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="0" y="-0.765625">ϕ</tspan>
+      <tspan style="font: 10px 'Heiti TC'" x="6.59668 16.596664 26.596649 29.096634 35.166626 41.666611 46.286606 52.836594" y="-0.765625">（如 ReLU）</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="patch_9">
+    <path d="M 524.941291 94.6998
+Q 549.689322 94.6998 573.095712 94.6998
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+    <path d="M 569.495712 92.8998
+L 573.095712 94.6998
+L 569.495712 96.4998
+" style="fill: none; stroke: #8a8a8a; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_10">
+    <!-- $h_i$ -->
+    <g transform="translate(590.96956 98.016128)">
+     <text>
+      <tspan style="font: oblique 11px 'DejaVu Sans'" x="0" y="-0.640625">h</tspan>
+      <tspan style="font: oblique 7.7px 'DejaVu Sans'" x="6.97168" y="1.1640625">i</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_11">
+    <!-- 二阶矩 $\times\,c_\phi$（ReLU：$1/2$） -->
+    <g transform="translate(487.1196 132.914718)">
+     <text>
+      <tspan style="font: 9px 'Heiti TC'" x="0 9 18 27 47.602471 56.602471 62.065468 67.915459 72.073448 77.968437 101.077812" y="-0.59375">二阶矩 （ReLU：）</tspan>
+      <tspan style="font: 9px 'DejaVu Sans'" x="29.25 86.968437 92.694512 95.351738" y="-0.59375">×1/2</tspan>
+      <tspan style="font: oblique 9px 'DejaVu Sans'" x="38.252226" y="-0.59375">c</tspan>
+      <tspan style="font: oblique 6.3px 'DejaVu Sans'" x="43.200469" y="0.8828125">ϕ</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_12">
+    <!-- 第一步 Linear：$\times\ n_{in}\sigma_w^2$ -->
+    <g style="fill: #e69f00" transform="translate(172.249836 190.424602)">
+     <text>
+      <tspan style="font: 10px 'Heiti TC'" x="0 9.999985 19.999969 29.999954 32.499939 37.119934 39.119919 45.21991 51.719894 58.549881 61.559875" y="-0.9765625">第一步 Linear：</tspan>
+      <tspan style="font: 10px 'DejaVu Sans'" x="71.55986" y="-0.9765625">×</tspan>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="83.185804 96.17848" y="-0.9765625">nσ</tspan>
+      <tspan style="font: oblique 7px 'DejaVu Sans'" x="89.523695 91.468519 102.516371" y="0.6640625 0.6640625 1.7578125">inw</tspan>
+      <tspan style="font: 7px 'DejaVu Sans'" x="102.962985" y="-4.8046875">2</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_13">
+    <!-- 第二步 激活：$\times\ c_\phi$ -->
+    <g style="fill: #009e73" transform="translate(467.799624 189.524602)">
+     <text>
+      <tspan style="font: 10px 'Heiti TC'" x="0 9.999985 19.999969 29.999954 32.499939 42.499924 52.499908" y="-0.859375">第二步 激活：</tspan>
+      <tspan style="font: 10px 'DejaVu Sans'" x="62.499893" y="-0.859375">×</tspan>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="74.125837" y="-0.859375">c</tspan>
+      <tspan style="font: oblique 7px 'DejaVu Sans'" x="79.623884" y="0.78125">ϕ</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_14">
+    <!-- 一层合起来：$a_l=n_{in}\sigma_w^2 c_\phi$ -->
+    <g transform="translate(269.99976 211.424554)">
+     <text>
+      <tspan style="font: 10px 'Heiti TC'" x="0 9.999985 19.999969 29.999954 39.999939 49.999924" y="-0.9765625">一层合起来：</tspan>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="59.999908 80.62149 93.614166 105.950592" y="-0.9765625">anσc</tspan>
+      <tspan style="font: oblique 7px 'DejaVu Sans'" x="66.127838 86.959381 88.904205 99.952057 111.448639" y="0.6640625 0.6640625 0.6640625 1.7578125 0.6640625">linwϕ</tspan>
+      <tspan style="font: 10px 'DejaVu Sans'" x="70.294342" y="-0.9765625">=</tspan>
+      <tspan style="font: 7px 'DejaVu Sans'" x="100.398671" y="-4.8046875">2</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_15">
+    <!-- $x_1$ -->
+    <g transform="translate(66.049952 45.214764)">
+     <text>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="0" y="-0.53125">x</tspan>
+      <tspan style="font: 7px 'DejaVu Sans'" x="5.917969" y="1.109375">1</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_16">
+    <!-- $x_2$ -->
+    <g transform="translate(66.049952 80.214684)">
+     <text>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="0" y="-0.53125">x</tspan>
+      <tspan style="font: 7px 'DejaVu Sans'" x="5.917969" y="1.109375">2</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_17">
+    <!-- $x_{n_{in}}$ -->
+    <g transform="translate(63.749952 149.114524)">
+     <text>
+      <tspan style="font: oblique 10px 'DejaVu Sans'" x="0" y="-0.53125">x</tspan>
+      <tspan style="font: oblique 7px 'DejaVu Sans'" x="5.917969" y="1.109375">n</tspan>
+      <tspan style="font: oblique 4.9px 'DejaVu Sans'" x="10.354492 11.715869" y="2.2578125">in</tspan>
+     </text>
+    </g>
+   </g>
+   <g id="text_18">
+    <!-- $\Sigma$ -->
+    <g transform="translate(313.659768 98.761988)">
+     <text>
+      <tspan style="font: 12px 'DejaVu Sans'" x="0" y="-0.25">Σ</tspan>
+     </text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p76128b1fac">
+   <rect x="7.2" y="7.2" width="641.99952" height="209.99952"/>
+  </clipPath>
+ </defs>
+</svg>

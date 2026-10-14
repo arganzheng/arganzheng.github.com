@@ -22,29 +22,35 @@ $$L$$ 层网络的前向是 $$L$$ 个函数的复合 $$f_L\circ\cdots\circ f_1$$
 
 分析深网络稳不稳，要看两样逐层相乘的量：
 
-- **方差逐层相乘**。先看一层怎么放大方差，分两步，前提是权重和输入相互独立、均值为 0（这就是「方差传播的近似」）：
+**1、前向方差逐层相乘。** 先看一层怎么放大方差。前提是权重和输入相互独立、均值为 0，这就是「方差传播的近似」。一层分两步，下图把这两步画在一起：
 
-  1. **Linear**。输出的一个分量是 $$z_i=\sum_{j=1}^{n_{in}}W_{ij}x_j$$，$$n_{in}$$ 是输入维度。每一项是两个独立、均值为 0 的数相乘，方差是 $$\sigma_w^2\sigma_x^2$$，$$\sigma_w^2$$ 是权重的方差，$$\sigma_x^2$$ 是输入的方差。$$n_{in}$$ 项相互独立，方差直接相加，所以 $$\text{Var}(z_i)=n_{in}\sigma_w^2\sigma_x^2$$，比输入放大了 $$n_{in}\sigma_w^2$$ 倍。
-  2. **激活函数**。再过一个非线性 $$\phi$$，信号的大小又变一次。变的倍数记作 $$c_\phi=\mathbb{E}[\phi(z)^2]/\mathbb{E}[z^2]$$，它只取决于激活函数本身。ReLU 把负的一半置零、正的一半原样保留，所以 $$c_{\text{ReLU}}=1/2$$；tanh 在 0 附近接近恒等，$$c\approx1$$。这里比的是二阶矩 $$\mathbb{E}[h^2]$$，不是方差，因为下一层求和时用到的正是它，详见[第三章](#三方案一初始化)第 2 节。
+![一层的方差是怎么被放大的：左边 n_in 个输入，每个方差 σ_x²；每条连线乘一个权重，每一项的方差是 σ_w²σ_x²；n_in 项在求和节点相加，方差变成 n_in σ_w² σ_x²，这是第一步 Linear，放大 n_in σ_w² 倍；再过激活函数，二阶矩乘 c_φ，ReLU 是 1/2，这是第二步；两步合起来就是 a_l](/img/in-post/dl-init-norm-one-layer-steps.svg)
 
-  两步合起来，第 $$l$$ 层的放大因子是
+第一步是 Linear。输出的一个分量是 $$z_i=\sum_{j=1}^{n_{in}}W_{ij}x_j$$，$$n_{in}$$ 是输入维度，也就是图里左边那一列有多少个输入。每一项 $$W_{ij}x_j$$ 是两个独立、均值为 0 的数相乘，方差是 $$\sigma_w^2\sigma_x^2$$，$$\sigma_w^2$$ 是权重的方差，$$\sigma_x^2$$ 是输入的方差。$$n_{in}$$ 项相互独立，方差直接相加，所以 $$\text{Var}(z_i)=n_{in}\sigma_w^2\sigma_x^2$$，比输入放大了 $$n_{in}\sigma_w^2$$ 倍。
 
-  $$
-  a_l=n_{in}\,\sigma_w^2\,c_\phi
-  $$
+第二步是激活函数。$$z_i$$ 再过一个非线性 $$\phi$$，信号的大小又变一次。变的倍数记作 $$c_\phi=\mathbb{E}[\phi(z)^2]/\mathbb{E}[z^2]$$，它只取决于激活函数本身。ReLU 把负的一半置零、正的一半原样保留，所以 $$c_{\text{ReLU}}=1/2$$；tanh 在 0 附近接近恒等，$$c\approx1$$。这里比的是二阶矩 $$\mathbb{E}[h^2]$$，不是方差，因为下一层求和时用到的正是它，详见[第三章](#三方案一初始化)第 2 节。
 
-  于是 $$\text{Var}(h_l)=a_l\,\text{Var}(h_{l-1})$$。从第 1 层递推到第 $$L$$ 层，得到 $$\text{Var}(h_L)=\text{Var}(x)\,a_1a_2\cdots a_L=\text{Var}(x)\prod_l a_l$$。代个数：$$n_{in}=256$$、激活用 ReLU，取 $$\sigma_w^2=2/256$$ 时 $$a_l=256\times\frac{2}{256}\times\frac12=1$$，这就是 Kaiming 初始化；取 $$\sigma_w^2=1/256$$ 时 $$a_l=0.5$$，64 层后方差只剩 $$0.5^{64}$$。
+两步合起来，第 $$l$$ 层的放大因子是
 
-  ![一层 Linear + ReLU 的方差变化：输入方差为 1，经过 Linear 放大到约 2，ReLU 把一半置零后二阶矩回到约 1](/img/in-post/dl-init-norm-one-layer.svg)
+$$
+a_l=n_{in}\,\sigma_w^2\,c_\phi
+$$
 
-  图里用 $$n_{in}=256$$、$$\sigma_w^2=2/256$$ 模拟了一层：Linear 把方差从 1 放大到约 2，ReLU 把一半置零，二阶矩回到约 1，正好 $$a_l\approx1$$。
-- **Jacobian 逐层相乘**。$$J_l=\partial h_l/\partial h_{l-1}$$ 是第 $$l$$ 层输出对输入的导数矩阵，叫 Jacobian，第 $$(i,j)$$ 个元素是 $$\partial h_{l,i}/\partial h_{l-1,j}$$。链式法则说复合函数的导数是各层导数的乘积。反向传播时梯度从 $$\partial L/\partial h_L$$ 往回走，每过一层左乘一个 $$J_l^{T}$$：
+于是 $$\text{Var}(h_l)=a_l\,\text{Var}(h_{l-1})$$。从第 1 层递推到第 $$L$$ 层，得到 $$\text{Var}(h_L)=\text{Var}(x)\,a_1a_2\cdots a_L=\text{Var}(x)\prod_l a_l$$。代个数：$$n_{in}=256$$、激活用 ReLU，取 $$\sigma_w^2=2/256$$ 时 $$a_l=256\times\frac{2}{256}\times\frac12=1$$，这就是 Kaiming 初始化；取 $$\sigma_w^2=1/256$$ 时 $$a_l=0.5$$，64 层后方差只剩 $$0.5^{64}$$。
 
-  $$
-  \frac{\partial L}{\partial x}=J_1^{T}J_2^{T}\cdots J_L^{T}\,\frac{\partial L}{\partial h_L}
-  $$
+用随机数模拟一层，能直接看到这两步：
 
-  这里 $$\partial L$$ 的 $$L$$ 是 loss，和层数 $$L$$ 不是一回事。要转置，是因为 $$L$$ 对 $$h_{l-1,j}$$ 的导数是 $$\sum_i \frac{\partial L}{\partial h_{l,i}}\frac{\partial h_{l,i}}{\partial h_{l-1,j}}$$，把 $$J_l$$ 的第 $$j$$ 列拿来加权求和，写成矩阵就是 $$J_l^{T}$$。向量形式的链式法则见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「二、链式法则与计算图 · 2. 链式法则的向量形式」，Jacobian 的定义和例子见《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的「三、链式法则与 Jacobian · 2. 向量情形与 Jacobian」。
+![一层 Linear + ReLU 的方差变化：输入方差为 1，经过 Linear 放大到约 2，ReLU 把一半置零后二阶矩回到约 1](/img/in-post/dl-init-norm-one-layer.svg)
+
+图里用 $$n_{in}=256$$、$$\sigma_w^2=2/256$$ 模拟了一层：Linear 把方差从 1 放大到约 2，ReLU 把一半置零，二阶矩回到约 1，正好 $$a_l\approx1$$。
+
+**2、反向 Jacobian 逐层相乘。** $$J_l=\partial h_l/\partial h_{l-1}$$ 是第 $$l$$ 层输出对输入的导数矩阵，叫 Jacobian，第 $$(i,j)$$ 个元素是 $$\partial h_{l,i}/\partial h_{l-1,j}$$。链式法则说复合函数的导数是各层导数的乘积。反向传播时梯度从 $$\partial L/\partial h_L$$ 往回走，每过一层左乘一个 $$J_l^{T}$$：
+
+$$
+\frac{\partial L}{\partial x}=J_1^{T}J_2^{T}\cdots J_L^{T}\,\frac{\partial L}{\partial h_L}
+$$
+
+这里 $$\partial L$$ 的 $$L$$ 是 loss，和层数 $$L$$ 不是一回事。要转置，是因为 $$L$$ 对 $$h_{l-1,j}$$ 的导数是 $$\sum_i \frac{\partial L}{\partial h_{l,i}}\frac{\partial h_{l,i}}{\partial h_{l-1,j}}$$，把 $$J_l$$ 的第 $$j$$ 列拿来加权求和，写成矩阵就是 $$J_l^{T}$$。向量形式的链式法则见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「二、链式法则与计算图 · 2. 链式法则的向量形式」，Jacobian 的定义和例子见《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的「三、链式法则与 Jacobian · 2. 向量情形与 Jacobian」。
 
 用一个标量三层网络看第二点：$$y=\tanh\!\bigl(w_3\tanh(w_2\tanh(w_1x))\bigr)$$，链式法则给出
 
@@ -102,10 +108,10 @@ Table: 本文的章节安排
 | 1998 | LeCun 等，《Efficient BackProp》 | 网络训不动，多半是输入没归一、权重初始化随手取 | 输入标准化、权重按 $$1/\sqrt{n}$$ 初始化 | 第一份"怎么让网络能训"的工程手册，成为那几年的默认做法 | 经验配方，没有解释为什么这些数字有效 |
 | 2010 | Glorot & Bengio（Xavier 初始化） | 5 层以上的 sigmoid / tanh 网络就训不动了，为什么 | 逐层分析**方差怎么传**（第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)章）：前向方差和反向方差都要保持不变，解出 $$\sigma^2 = 2/(n_{in} + n_{out})$$ | 初始化第一次有了原则，成为那之后几年的默认 | 推导按近似恒等的激活算，没算 ReLU 砍掉的一半——ReLU 网络用它到 30 层就训不动 |
 | 2015 | He 等（Kaiming 初始化） | ReLU 网络用 Xavier 到 30 层就不行 | ReLU 砍掉一半方差，所以 $$\sigma^2 = 2/n$$（[第三章](#三方案一初始化)） | 第一次把 30 层的 ReLU 网络训起来 | 只保证 $$t = 0$$ 的初始时刻，训着训着分布又变了 |
-| 2015 | Ioffe & Szegedy，BatchNorm | 初始化只管第一步，训着训着分布又变了 | **归一化层**（[第四章](#四方案二归一化)）：每层强制拉回均值 0 方差 1 | 学习率可以大 10 倍<br/>成为随后几年深度网络的标配 | 统计量依赖 batch，batch 小噪声大<br/>训练与推理不一致<br/>序列长度不一没法用 |
+| 2015 | Ioffe & Szegedy | 初始化只管第一步，训着训着分布又变了 | **BatchNorm**（归一化层，[第四章](#四方案二归一化)）：每层强制拉回均值 0 方差 1 | 学习率可以大 10 倍<br/>成为随后几年深度网络的标配 | 统计量依赖 batch，batch 小噪声大<br/>训练与推理不一致<br/>序列长度不一没法用 |
 | 2015 | He 等，ResNet | 有了 BN，56 层还是比 20 层差——不是过拟合，是训练误差更高 | **残差连接**（[第五章](#五方案三残差连接)）：$$x + f(x)$$，梯度多一条恒等通路 | 152 层能训<br/>之后深度不再是瓶颈，"堆同样的块"成为网络的标准形态 | 残差流方差随深度增长，需要归一化或缩放配合 |
-| 2016 | Ba、Kiros、Hinton，LayerNorm | RNN / 序列模型 batch 内长度不一，BN 用不了 | 按样本、沿特征归一化（[第四章](#四方案二归一化)） | Transformer 用的就是它 | 和残差怎么摆还没解决：Post-Norm 要靠 warmup、深了难训 |
-| 2019 / 2020 | Zhang & Sennrich，RMSNorm<br/>Xiong 等，Pre-LN | LayerNorm 里减均值是不是必要的<br/>原始 Transformer 的 Post-Norm 为什么必须 warmup | 去掉减均值（[第四章](#四方案二归一化)）<br/>证明 Post-Norm 靠近输出的层梯度大、Pre-Norm 各层梯度均匀（[第六章](#六pre-norm-与-post-norm)） | 减均值省 7% 时间效果不变<br/>LLM 全部改用 Pre-Norm + RMSNorm | Pre-LN 的残差流方差随深度线性增长，最后还要再加一个 final norm |
+| 2016 | Ba、Kiros、Hinton | RNN / 序列模型 batch 内长度不一，BN 用不了 | **LayerNorm**：按样本、沿特征归一化（[第四章](#四方案二归一化)） | Transformer 用的就是它 | 和残差怎么摆还没解决：Post-Norm 要靠 warmup、深了难训 |
+| 2019 / 2020 | Zhang & Sennrich<br/>Xiong 等 | LayerNorm 里减均值是不是必要的<br/>原始 Transformer 的 Post-Norm 为什么必须 warmup | **RMSNorm**：去掉减均值（[第四章](#四方案二归一化)）<br/>**Pre-LN**：证明 Post-Norm 靠近输出的层梯度大、Pre-Norm 各层梯度均匀（[第六章](#六pre-norm-与-post-norm)） | 减均值省 7% 时间效果不变<br/>LLM 全部改用 Pre-Norm + RMSNorm | Pre-LN 的残差流方差随深度线性增长，最后还要再加一个 final norm |
 
 Table: 初始化、归一化与残差的来历
 
