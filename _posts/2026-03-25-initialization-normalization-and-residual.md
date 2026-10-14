@@ -5,7 +5,7 @@ title: "深度学习基础（05）：训练为什么不稳定——初始化、�
 subtitle: "Why Deep Training Is Unstable: Variance Propagation, Initialization, Normalization and Residual Connections"
 tags: [AI, Deep Learning, LLM]
 catalog: true
-updated: 2026-10-13
+updated: 2026-10-14
 ---
 
 《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的那个两层网络怎么训都能训。把它加深到 64 层，同样的代码会出现四种结局：loss 停在 $$\ln 10$$ 一步不动；第三步变成 NaN；能动但慢得像没训；正常收敛。四种结局对应的网络只差三样东西——权重初始化的标准差、有没有归一化层、有没有残差连接——而这三样东西恰好是 1990 年代到 2016 年深度学习解决"深了就训不动"这个问题的三步。
@@ -18,10 +18,18 @@ updated: 2026-10-13
 
 ### 1. 深网络的一条链
 
-$$L$$ 层网络的前向是 $$L$$ 个函数的复合 $$f_L\circ\cdots\circ f_1$$，每层是 Linear 接一个非线性。分析深网络稳不稳，要看两样逐层相乘的量：
+$$L$$ 层网络的前向是 $$L$$ 个函数的复合 $$f_L\circ\cdots\circ f_1$$，每层是 Linear 接一个非线性。$$\circ$$ 是函数复合：$$(g\circ f)(x)=g(f(x))$$，先算右边的 $$f$$，再把结果交给 $$g$$。所以 $$f_L\circ\cdots\circ f_1$$ 就是先过第 1 层、再过第 2 层，一直到第 $$L$$ 层。记第 $$l$$ 层的输出为 $$h_l=f_l(h_{l-1})$$，输入 $$h_0=x$$。
 
-- **方差传播的近似**下，每层把信号的方差乘一个因子 $$a_l$$，所以 $$\text{Var}(h_L)=\text{Var}(x)\prod_l a_l$$；
-- **链式法则**：复合函数的导数是各层 Jacobian $$J_l=\partial h_l/\partial h_{l-1}$$ 的乘积，$$\partial L/\partial x$$ 与 $$\partial L/\partial h_L$$ 之间隔着 $$L$$ 个 $$J_l^{T}$$。
+分析深网络稳不稳，要看两样逐层相乘的量：
+
+- **方差逐层相乘**。在方差传播的近似下（权重和输入相互独立、均值为 0），一层 Linear 输出的方差是输入方差的 $$n_{in}\sigma_w^2$$ 倍，$$n_{in}$$ 是输入维度，$$\sigma_w^2$$ 是权重的方差；再过激活函数，还要乘一个由激活决定的因子，ReLU 大约砍掉一半。两样合起来记作 $$a_l$$，就有 $$\text{Var}(h_l)=a_l\,\text{Var}(h_{l-1})$$。从第 1 层递推到第 $$L$$ 层，得到 $$\text{Var}(h_L)=\text{Var}(x)\,a_1a_2\cdots a_L=\text{Var}(x)\prod_l a_l$$。$$a_l$$ 的推导在[第二章](#二一条链前向的方差与反向的-jacobian)第 1 节和[第三章](#三方案一初始化)第 2 节。
+- **Jacobian 逐层相乘**。$$J_l=\partial h_l/\partial h_{l-1}$$ 是第 $$l$$ 层输出对输入的导数矩阵，叫 Jacobian，第 $$(i,j)$$ 个元素是 $$\partial h_{l,i}/\partial h_{l-1,j}$$。链式法则说复合函数的导数是各层导数的乘积。反向传播时梯度从 $$\partial L/\partial h_L$$ 往回走，每过一层左乘一个 $$J_l^{T}$$：
+
+  $$
+  \frac{\partial L}{\partial x}=J_1^{T}J_2^{T}\cdots J_L^{T}\,\frac{\partial L}{\partial h_L}
+  $$
+
+  这里 $$\partial L$$ 的 $$L$$ 是 loss，和层数 $$L$$ 不是一回事。要转置，是因为 $$L$$ 对 $$h_{l-1,j}$$ 的导数是 $$\sum_i \frac{\partial L}{\partial h_{l,i}}\frac{\partial h_{l,i}}{\partial h_{l-1,j}}$$，把 $$J_l$$ 的第 $$j$$ 列拿来加权求和，写成矩阵就是 $$J_l^{T}$$。向量形式的链式法则见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「二、链式法则与计算图 · 2. 链式法则的向量形式」，Jacobian 的定义和例子见《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的「三、链式法则与 Jacobian · 2. 向量情形与 Jacobian」。
 
 用一个标量三层网络看第二点：$$y=\tanh\!\bigl(w_3\tanh(w_2\tanh(w_1x))\bigr)$$，链式法则给出
 
@@ -98,17 +106,17 @@ Table: 初始化、归一化与残差的来历
 
 ### 1. 一层 Linear 对方差做了什么
 
-$$y = Wx$$，$$W \in \mathbb{R}^{n_{out} \times n_{in}}$$，元素独立同分布、均值 0、方差 $$\sigma_w^2$$；$$x$$ 的分量独立、均值 0、方差 $$\sigma_x^2$$。$$y$$ 的每个分量是 $$n_{in}$$ 个独立项之和：$$y_i = \sum_j W_{ij} x_j$$，方差相加（见《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》的「七、高斯的两条性质 · 1. 独立高斯之和仍是高斯，方差相加」）：
+$$y = Wx$$，$$W \in \mathbb{R}^{n_{out} \times n_{in}}$$，元素独立同分布、均值 0、方差 $$\sigma_w^2$$；$$x$$ 的分量独立、均值 0、方差 $$\sigma_x^2$$。$$y$$ 的每个分量是 $$n_{in}$$ 个独立项之和：$$y_i = \sum_j W_{ij} x_j$$。每一项 $$W_{ij}x_j$$ 是两个独立、均值为 0 的量相乘，均值还是 0，方差等于 $$\mathbb{E}[W_{ij}^2]\,\mathbb{E}[x_j^2]=\sigma_w^2\sigma_x^2$$；$$n_{in}$$ 个独立项相加，方差也相加（见《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》的「七、高斯的两条性质 · 1. 独立高斯之和仍是高斯，方差相加」）：
 
 $$
 \text{Var}(y_i) = n_{in}\, \sigma_w^2\, \sigma_x^2
 $$
 
-要让方差不变，$$\sigma_w^2 = 1 / n_{in}$$。代 $$n_{in} = 256$$ 进去看这条链有多敏感：$$\sigma_w^2 = 1/256$$ 时每层方差乘 1；$$\sigma_w^2 = 2/256$$ 时每层乘 2，64 层后是 $$2^{64} \approx 1.8 \times 10^{19}$$；$$\sigma_w^2 = 0.5/256$$ 时每层乘 0.5，64 层后是 $$2^{-64} \approx 5.4 \times 10^{-20}$$。
+这就是第一章里纯 Linear 情形下的 $$a_l=n_{in}\sigma_w^2$$。要让方差不变，$$\sigma_w^2 = 1 / n_{in}$$。代 $$n_{in} = 256$$ 进去看这条链有多敏感：$$\sigma_w^2 = 1/256$$ 时每层方差乘 1；$$\sigma_w^2 = 2/256$$ 时每层乘 2，64 层后是 $$2^{64} \approx 1.8 \times 10^{19}$$；$$\sigma_w^2 = 0.5/256$$ 时每层乘 0.5，64 层后是 $$2^{-64} \approx 5.4 \times 10^{-20}$$。
 
 ### 2. 反向的方差传播
 
-反向传播里 $$\partial L / \partial x = W^T (\partial L / \partial y)$$（推导见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「三、矩阵求导的形状规则 · 1. Linear 层的三条公式」），同样的推导给出 $$\text{Var}(\partial L / \partial x_j) = n_{out}\, \sigma_w^2\, \text{Var}(\partial L / \partial y_i)$$，不变的条件是 $$\sigma_w^2 = 1/n_{out}$$（ReLU 网络是 $$2 / n_{out}$$）。
+反向传播里 $$\partial L / \partial x = W^T (\partial L / \partial y)$$（推导见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「三、矩阵求导的形状规则 · 1. Linear 层的三条公式」）。写成分量是 $$\partial L/\partial x_j=\sum_i W_{ij}\,\partial L/\partial y_i$$，是 $$n_{out}$$ 项之和，每项是一个权重乘一个上游梯度。按上一节的办法算方差，得到 $$\text{Var}(\partial L / \partial x_j) = n_{out}\, \sigma_w^2\, \text{Var}(\partial L / \partial y_i)$$，不变的条件是 $$\sigma_w^2 = 1/n_{out}$$。ReLU 网络是 $$2 / n_{out}$$：ReLU 反向只让输入为正的那一半位置的梯度通过，原因和[第三章](#三方案一初始化)第 2 节前向砍掉一半相同。
 
 ### 3. Jacobian 的连乘与谱范数
 
@@ -118,7 +126,7 @@ $$
 \frac{\partial L}{\partial x_l} = J_l^T J_{l+1}^T \cdots J_{L}^T \frac{\partial L}{\partial x_{L+1}}
 $$
 
-它的范数上界是各 Jacobian 谱范数（最大奇异值）的乘积。每层因子 $$a$$ 的微小偏离都会被深度指数放大，画出来就是几条直线：
+这里 $$x_l$$ 是第 $$l$$ 层的输入，也就是第一章的 $$h_{l-1}$$。矩阵 $$J$$ 的谱范数 $$\lVert J\rVert_2$$ 是它把一个向量拉长的最大倍数，等于最大奇异值（见《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的「四、秩与 SVD · 2. SVD：任何矩阵都能这样分解」）。梯度向量每过一层最多被拉长 $$\lVert J_l\rVert_2$$ 倍，所以它的范数不超过 $$\prod_l \lVert J_l\rVert_2 \cdot \lVert \partial L/\partial x_{L+1}\rVert$$。每层因子 $$a$$ 的微小偏离都会被深度指数放大，画出来就是几条直线：
 
 ![每层因子 a 的 a^L 随深度 L 的曲线（对数纵轴）：a = 0.5 在 64 层落到 5e-20，a = 0.9 在 128 层落到 1.4e-6，a = 1.0 持平，a = 1.1 与 a = 2 指数上行](/img/in-post/dl-init-norm-product.svg)
 
@@ -126,7 +134,7 @@ $$
 
 ### 1. Xavier：前向与反向的折中
 
-第二章的结论是前向要 $$\sigma_w^2 = 1/n_{in}$$、反向要 $$\sigma_w^2 = 1/n_{out}$$，两者只在 $$n_{in} = n_{out}$$ 时同时满足——这是 **Xavier / Glorot 初始化**（Glorot & Bengio 2010）取调和平均 $$\sigma^2 = 2 / (n_{in} + n_{out})$$ 的原因，也是 He 等 2015 论证"只满足一个方向就够"的地方：只要每层的比例 $$n_{out}/n_{in}$$ 不系统性地偏向一边，另一个方向的偏差是常数因子而不是指数因子。
+第二章的结论是前向要 $$\sigma_w^2 = 1/n_{in}$$、反向要 $$\sigma_w^2 = 1/n_{out}$$，两者只在 $$n_{in} = n_{out}$$ 时同时满足——这是 **Xavier / Glorot 初始化**（Glorot & Bengio 2010）取调和平均 $$\sigma^2 = 2 / (n_{in} + n_{out})$$ 的原因（$$1/n_{in}$$ 和 $$1/n_{out}$$ 的调和平均是 $$\frac{2}{n_{in}+n_{out}}$$，两个宽度相等时就是 $$1/n$$，两个条件同时满足），也是 He 等 2015 论证"只满足一个方向就够"的地方：只要每层的比例 $$n_{out}/n_{in}$$ 不系统性地偏向一边，另一个方向的偏差是常数因子而不是指数因子。
 
 ### 2. ReLU 砍掉一半：Kaiming
 
@@ -208,11 +216,11 @@ RMSNorm 去掉了减均值这一步和 $$\beta$$。省的东西可以列出来�
 
 效果上减均值本来就无关紧要：归一化的作用主要来自"固定尺度"，不来自"中心化"。用上一节的向量对照一下就清楚——$$x=[2,4,6,8]$$ 有均值，LN 与 RMSNorm 输出不同；而 $$x=[-3,-1,1,3]$$ 均值本来就是 0（$$\text{RMS}=\sqrt{5}$$），LN 与 RMSNorm 给出完全相同的输出 $$[-1.342,\,-0.447,\,0.447,\,1.342]$$。激活值一旦接近零均值，减均值就不再做功。Zhang & Sennrich 的实验与后来 Llama 系列的实践也表明质量不受影响，当前 LLM（Llama、Qwen、DeepSeek、Gemma）几乎全用 RMSNorm。
 
-它的反向也更简单：记 $$\hat x = x / r$$，$$r = \sqrt{\text{mean}(x^2) + \epsilon}$$，则 $$\partial L / \partial x = \frac{1}{r}\left[ g - \hat x \cdot \text{mean}(g \odot \hat x) \right]$$，其中 $$g = \gamma \odot \partial L / \partial \hat x$$。[第九章](#九案例把-mlp-加深到-64-层七种接法哪些能训)的代码实现了 LayerNorm 与 RMSNorm 两个类的前向反向。
+它的反向也更简单：记 $$\hat x = x / r$$，$$r = \sqrt{\text{mean}(x^2) + \epsilon}$$，则 $$\partial L / \partial x = \frac{1}{r}\left[ g - \hat x \cdot \text{mean}(g \odot \hat x) \right]$$，其中 $$g = \gamma \odot \partial L / \partial \hat x$$。推导只有一步：$$\hat x_i=x_i/r$$ 对 $$x_j$$ 求导分两部分，分子直接给出 $$\delta_{ij}/r$$；分母 $$r$$ 也依赖 $$x_j$$，$$\partial r/\partial x_j=x_j/(d\,r)$$，贡献 $$-x_ix_j/(d\,r^3)$$。乘上 $$g_i$$ 对 $$i$$ 求和，再用 $$x/r=\hat x$$ 整理，就是上式。[第九章](#九案例把-mlp-加深到-64-层七种接法哪些能训)的代码实现了 LayerNorm 与 RMSNorm 两个类的前向反向。
 
 ### 4. 归一化的另一个作用：尺度不变性
 
-归一化之后的输出对输入的整体尺度不敏感：$$\text{Norm}(cx) = \text{Norm}(x)$$。第 1 节的向量就能验证：$$\text{Norm}([4,8,12,16]) = \text{Norm}([2,4,6,8])$$，乘 2 的输出一模一样。于是归一化层**之前**那个权重矩阵的尺度不影响前向——$$W$$ 乘 2，输出不变。这带来一个重要的副作用：该权重的梯度与它的范数成反比（尺度大了，同样的扰动产生的相对变化小），等价于一个随权重范数自动调节的有效学习率。这是 weight decay 在有归一化的网络里仍然有用的原因之一（见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别 · 3. LLM 里 weight decay 的真实含义」），也是初始化常数可以不随宽度变的原因（[第三章](#三方案一初始化)第 3 节）。
+归一化之后的输出对输入的整体尺度不敏感：$$\text{Norm}(cx) = \text{Norm}(x)$$。第 1 节的向量就能验证：$$\text{Norm}([4,8,12,16]) = \text{Norm}([2,4,6,8])$$，乘 2 的输出一模一样。于是归一化层**之前**那个权重矩阵的尺度不影响前向——$$W$$ 乘 2，输出不变。这带来一个重要的副作用：该权重的梯度与它的范数成反比。设 loss 是 $$\ell(W)$$，因为 $$\ell(cW)=\ell(W)$$ 对任何 $$c>0$$ 成立，两边对 $$W$$ 求导得 $$c\,\nabla\ell(cW)=\nabla\ell(W)$$，即 $$\nabla\ell(cW)=\nabla\ell(W)/c$$：权重放大 $$c$$ 倍，梯度缩小 $$c$$ 倍，相对更新缩小 $$c^2$$ 倍。这等价于一个随权重范数自动调节的有效学习率。这是 weight decay 在有归一化的网络里仍然有用的原因之一（见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别 · 3. LLM 里 weight decay 的真实含义」），也是初始化常数可以不随宽度变的原因（[第三章](#三方案一初始化)第 3 节）。
 
 ### 5. 归一化修不了反向的连乘
 
@@ -244,7 +252,7 @@ $$
 
 残差修好了反向，却给前向带来新问题：每个块往残差流上**加**东西，方差只增不减。增长的速度取决于 $$f_l$$ 的输出方差与 $$x_l$$ 的关系：
 
-**没有归一化时，方差每层翻倍。** 若 $$f_l(x) = W_2\, \text{ReLU}(W_1 x)$$ 且初始化让 $$\text{Var}(f_l(x)) \approx \text{Var}(x)$$，则 $$\text{Var}(x_{l+1}) = \text{Var}(x_l) + \text{Var}(f_l(x_l)) \approx 2\,\text{Var}(x_l)$$。因为 $$f_l$$ 对输入尺度是齐次的——$$x$$ 大一倍，$$f_l(x)$$ 也大一倍。64 层后方差是 $$2^{64}$$，标准差 $$2^{32} \approx 4 \times 10^9$$。第九章的 "res-nonorm" 配置实测第 64 块标准差 $$6.0 \times 10^9$$，第一步就 NaN。
+**没有归一化时，方差每层翻倍。** 若 $$f_l(x) = W_2\, \text{ReLU}(W_1 x)$$ 且初始化让 $$\text{Var}(f_l(x)) \approx \text{Var}(x)$$，则 $$\text{Var}(x_{l+1}) = \text{Var}(x_l) + \text{Var}(f_l(x_l)) \approx 2\,\text{Var}(x_l)$$。两项方差能直接相加，是因为初始化时 $$f_l(x_l)$$ 和 $$x_l$$ 近似不相关（$$W_1, W_2$$ 是新的随机矩阵）。因为 $$f_l$$ 对输入尺度是齐次的——$$x$$ 大一倍，$$f_l(x)$$ 也大一倍。64 层后方差是 $$2^{64}$$，标准差 $$2^{32} \approx 4 \times 10^9$$。第九章的 "res-nonorm" 配置实测第 64 块标准差 $$6.0 \times 10^9$$，第一步就 NaN。
 
 **有 Pre-Norm 时，方差线性增长。** $$f_l(x) = W_2\, \text{ReLU}(W_1\, \text{Norm}(x))$$，归一化让 $$f_l$$ 的输出方差与 $$x$$ 的尺度无关，是一个常数 $$\sigma_f^2$$。于是 $$\text{Var}(x_L) = \text{Var}(x_0) + L \sigma_f^2$$——线性，不是指数。实测 Pre-Norm 配置第 1 块标准差 1.29、第 64 块 1.46，方差从 1.66 到 2.13，几乎可以忽略。
 
@@ -285,7 +293,7 @@ Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性�
 | Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大<br/>Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
 | 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
 | QK-norm | attention logits 随训练增长，softmax 饱和，梯度消失或 loss spike | 对 $$Q$$、$$K$$ 各做一次 LayerNorm / RMSNorm 再点积 | Dehghani 等 2023（ViT-22B）<br/>Gemma、Qwen3 等 |
-| z-loss | lm_head 的 logits 整体漂移，softmax 的归一化项 $$\log Z$$ 失控 | loss 加 $$10^{-4} \cdot (\log Z)^2$$，把 $$\log Z$$ 拉向 0 | PaLM |
+| z-loss | lm_head 的 logits 整体漂移，softmax 的归一化项 $$\log Z$$（$$Z=\sum_i e^{z_i}$$，$$z_i$$ 是 logits）失控 | loss 加 $$10^{-4} \cdot (\log Z)^2$$，把 $$\log Z$$ 拉向 0 | PaLM |
 | Embedding 缩放 | embedding 输出尺度与残差流不匹配 | embedding 乘 $$\sqrt{d}$$（Gemma）或用更大初始化 | 原始 Transformer 即有 |
 | $$\mu$$P | 最优学习率随宽度漂移，小模型调出的超参数在大模型上失效 | 按宽度缩放初始化与学习率，使不同宽度下特征更新量级一致 | Yang 等 2022<br/>被多个开源模型采用 |
 | 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」<br/>几乎所有 LLM |
