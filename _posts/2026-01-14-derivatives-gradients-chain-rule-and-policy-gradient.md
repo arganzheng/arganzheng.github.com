@@ -16,6 +16,29 @@ updated: 2026-09-30
 
 > **能不能用链式法则推一层的梯度？[^q0] 能不能对一个期望求导，得到策略梯度？[^q1]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| softmax | — | 把一组分数归一化成概率分布的函数 |
+| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
+| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
+| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
+| loss | — | 损失函数，训练要最小化的目标值 |
+| Jacobian | — | 雅可比矩阵，向量函数的全导数 |
+| REINFORCE | — | 最早的策略梯度算法，用 score function 估计梯度 |
+| PPO | proximal policy optimization | 带裁剪目标、防步子过大的策略梯度方法 |
+| GRPO | group relative policy optimization | 用组内均值替代价值模型的策略梯度方法 |
+| VJP | vector–Jacobian product | 向量左乘雅可比，反向传播实际算的东西 |
+| logits | — | softmax 之前的那组原始分数 |
+| MSE | mean squared error | 均方误差，预测与目标差的平方均值 |
+| LLM | large language model | 大语言模型 |
+| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
+| RLOO | REINFORCE leave-one-out | 用组内留一均值做 baseline 的 REINFORCE |
+| RLHF | reinforcement learning from human feedback | 用人类反馈的奖励做强化学习微调 |
+| SGD | stochastic gradient descent | 随机梯度下降，按小批数据的梯度更新参数 |
+| Hessian | — | 二阶导数矩阵，描述 loss 曲面的弯曲 |
+
 ## 一、总览
 
 ### 1. 本文的对象
@@ -378,7 +401,7 @@ L5 后训练系列里的每一种在线 RL 算法都是在 $$\mathbb{E}[A(y)\nab
 | PPO | 一个单独训练的价值网络估 $$b$$（critic），逐 token 的优势 | 把 $$\pi_\theta / \pi_{\text{old}}$$ 的比值裁剪在 $$[1 - \epsilon, 1 + \epsilon]$$，加 KL 惩罚 |
 | GRPO | 同一个 prompt 采 $$G$$ 条回答，用这一组的均值当 $$b$$、用组内标准差归一化：$$A_i = (R_i - \text{mean}) / \text{std}$$ → 不需要价值网络 | 同 PPO 的裁剪 |
 
-Table: REINFORCE、PPO、GRPO 的 baseline 来源与更新限制
+Table: REINFORCE、PPO（proximal policy optimization）、GRPO 的 baseline 来源与更新限制
 
 读懂本章，这些算法之间的差别就只剩这两个问题。但 GRPO 的"减组内均值"**不能**直接套第 3 节那一行证明——组均值里含 $$R_i$$ 自己，不是"与 $$y$$ 无关的 $$b$$"。在玩具实验上把它算出来：$$G = 2$$ 时枚举全部 $$10 \times 10 = 100$$ 种采样组合、按概率加权求期望——GRPO 估计的期望是 0.0250，正好是精确梯度 0.05 的 $$1 - 1/2 = 0.5$$ 倍；$$n = 4$$ 时表里的均值 0.0374 ≈ $$0.05 \times (1 - 1/4)$$。所以 GRPO 的估计是**有偏的**（方向对、尺度缩 $$1 - 1/G$$，$$G$$ 大时可忽略），再除以组内标准差又引入一个偏差；严格无偏的做法是留一法（**RLOO**：每条的 baseline 用其余 $$G - 1$$ 条的均值），表里它的均值 0.0505 回到了精确值。《[后训练（03）：在线 RL：PPO、GRPO 与 RLHF 三件套](/online-rl-ppo-grpo-and-the-rlhf-trio.html)》的 Dr. GRPO 讨论的就是这些。
 
@@ -386,7 +409,7 @@ Table: REINFORCE、PPO、GRPO 的 baseline 来源与更新限制
 
 ### 5. 与 DPO 的关系
 
-上一篇的 DPO 不走这条路：它把 RL 目标的最优解反解出来，直接在偏好数据上做监督学习，不需要采样、不需要估计期望的梯度。代价是只能用离线的偏好对，不能像策略梯度那样在训练中不断从当前策略采新样本并用验证器打分——这是"离线 vs 在线"的根本差别，L5 展开。
+上一篇的 DPO（direct preference optimization）不走这条路：它把 RL（reinforcement learning）目标的最优解反解出来，直接在偏好数据上做监督学习，不需要采样、不需要估计期望的梯度。代价是只能用离线的偏好对，不能像策略梯度那样在训练中不断从当前策略采新样本并用验证器打分——这是"离线 vs 在线"的根本差别，L5 展开。
 
 ## 六、梯度下降与学习率
 

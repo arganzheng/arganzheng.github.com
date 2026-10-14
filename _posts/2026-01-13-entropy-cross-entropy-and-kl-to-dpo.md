@@ -8,11 +8,32 @@ catalog: true
 updated: 2026-09-17
 ---
 
-信息论在这张地图上看起来最"理论"，却是后训练的主语言：SFT 的 loss 是交叉熵，RLHF 与 DPO 的约束项是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。它们全部建立在三个量上——**熵、交叉熵、KL 散度**——以及一条把三者连起来的等式。这一篇从定义讲起，讲清 KL 的两个方向为什么行为完全不同，然后走完一条完整的推导链：从"最大化奖励且不偏离参考模型"的目标，推出它的闭式最优解，再推出 DPO 的 loss。
+信息论在这张地图上看起来最"理论"，却是后训练的主语言：SFT（supervised fine-tuning）的 loss 是交叉熵，RLHF（reinforcement learning from human feedback）与 DPO 的约束项是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。它们全部建立在三个量上——**熵、交叉熵、KL 散度**——以及一条把三者连起来的等式。这一篇从定义讲起，讲清 KL 的两个方向为什么行为完全不同，然后走完一条完整的推导链：从"最大化奖励且不偏离参考模型"的目标，推出它的闭式最优解，再推出 DPO 的 loss。
 
 全篇的核心问题是：
 
 > **能不能分清熵、交叉熵、KL 各是什么？[^q0] 能不能从 KL 约束的最优策略推出 DPO 的 loss？[^q1]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
+| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
+| RLHF | reinforcement learning from human feedback | 用人类反馈的奖励做强化学习微调 |
+| SFT | supervised fine-tuning | 用标注答案做监督微调 |
+| loss | — | 损失函数，训练要最小化的目标值 |
+| LLM | large language model | 大语言模型 |
+| PPL | perplexity | 困惑度，交叉熵的指数，越小越好 |
+| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
+| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
+| RM | reward model | 奖励模型，给回答打分的小模型 |
+| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
+| IPO | identity preference optimization | DPO 的变体，防止确定性偏好下过拟合 |
+| KTO | Kahneman–Tversky optimization | 只要单样本好坏标签、不要成对偏好的方法 |
+| TV | total variation | 全变差距离，另一种分布间距离 |
+| CLIP | Contrastive Language–Image Pre-training | OpenAI 的图文对比模型，把图和文嵌进同一空间 |
+| softmax | — | 把一组分数归一化成概率分布的函数 |
 
 ## 一、总览
 
@@ -72,7 +93,7 @@ Table: 三个分布的熵
 训练日志里的 loss（每 token 交叉熵，nat）有一种更直觉的读法：**困惑度**（perplexity）
 
 $$
-\text{PPL} = e^{\text{loss}}
+\text{PPL（perplexity）} = e^{\text{loss}}
 $$
 
 它的含义是"模型每一步平均在几个 token 里犹豫"：若模型在每个位置都对 $$k$$ 个 token 给均匀概率 $$1/k$$，loss $$= \ln k$$，PPL $$= k$$。所以 loss 1.8 nat 对应 PPL $$e^{1.8} = 6.05$$——平均每步在 6 个候选里选。同一个 loss 换成 bit 是 $$1.8 \times 1.44 = 2.6$$ bit/token。
@@ -183,7 +204,7 @@ $$\sigma$$ 是 **sigmoid** 函数：把任意实数压到 $$(0, 1)$$，$$\sigma(
 套用上一篇的模板——把观察到的偏好的概率放进 $$-\log$$：
 
 $$
-\mathcal{L}_{\text{RM}} = -\log \sigma\big(r(x, y_w) - r(x, y_l)\big)
+\mathcal{L}_{\text{RM（reward model）}} = -\log \sigma\big(r(x, y_w) - r(x, y_l)\big)
 $$
 
 它就是**逻辑回归**的 loss（L2 系列会从分类的角度再讲一遍逻辑回归），只是"特征"换成了两个回答的分差。L2 说"逻辑回归是奖励模型的数学骨架"，指的就是这一行。
@@ -248,7 +269,7 @@ loss 要求：对好回答的偏好增量 > 对坏回答的偏好增量，差得
 **总变差距离**（total variation distance）是比 KL 更朴素的分布距离：
 
 $$
-\mathrm{TV}(p, q) = \frac{1}{2}\sum_x \lvert p(x) - q(x) \rvert
+\mathrm{TV（total variation）}(p, q) = \frac{1}{2}\sum_x \lvert p(x) - q(x) \rvert
 $$
 
 它等于"两个分布对同一个事件给出的概率之差的最大值"，取值 $$[0, 1]$$，对称、有界——KL 不对称、可以无穷大。

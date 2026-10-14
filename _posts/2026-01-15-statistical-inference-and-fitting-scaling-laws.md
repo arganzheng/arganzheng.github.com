@@ -16,6 +16,18 @@ updated: 2026-09-30
 
 > **HumanEval 上差 3 个点算不算提升？[^q0] scaling law 的曲线是怎么拟出来的、$$D/N \approx 20$$ 从哪来？[^q1]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| loss | — | 损失函数，训练要最小化的目标值 |
+| MMLU | Massive Multitask Language Understanding | 多任务选择题为形式的常识与知识 benchmark |
+| GSM8K | — | 小学数学文字题 benchmark，8.5K 题 |
+| SE | standard error | 标准误，统计量自身的波动大小 |
+| GPT | generative pre-trained transformer | OpenAI 的生成式预训练模型系列 |
+| BFGS | — | 一种拟牛顿优化方法，用梯度近似二阶信息 |
+| CLT | central limit theorem | 中心极限定理：均值近似正态，方差随 n 收缩 |
+
 ## 一、总览
 
 ### 1. 两件事
@@ -50,7 +62,7 @@ Table: 本文的章节安排
 
 "会不一样"到什么程度？直接模拟：假设一个模型的真实正确率是 80%，给它出 164 道题（HumanEval 的题数）评一次，记下正确率；再换 164 道题评一次……评 1000 次（`noise` 段）：
 
-![真实正确率 80% 的同一个模型，在 164 / 1319 / 14042 道题上各评 1000 次的正确率分布：HumanEval 从 0.70 散到 0.89，GSM8K 0.77–0.84，MMLU 0.79–0.81](/img/in-post/math-08-sampling-noise.svg)
+![真实正确率 80% 的同一个模型，在 164 / 1319 / 14042 道题上各评 1000 次的正确率分布：HumanEval 从 0.70 散到 0.89，GSM8K 0.77–0.84，MMLU（Massive Multitask Language Understanding） 0.79–0.81](/img/in-post/math-08-sampling-noise.svg)
 
 同一个模型、同样的真实水平 80%，在 HumanEval 上一次评测能落在 **0.70 到 0.89** 之间。评出 0.85 和评出 0.75 的可能是同一个模型。这就是抽样噪声——本章的全部内容是给这团散布一个数字。
 
@@ -59,7 +71,7 @@ Table: 本文的章节安排
 第四篇算过：每道题对错是一次伯努利试验（方差 $$p(1 - p)$$），$$n$$ 道题的平均 $$\hat p$$ 的方差是 $$p(1 - p) / n$$。它的平方根叫 $$\hat p$$ 的**标准误**（standard error）：
 
 $$
-\text{SE}(\hat p) = \sqrt{\frac{\hat p (1 - \hat p)}{n}}
+\text{SE（standard error）}(\hat p) = \sqrt{\frac{\hat p (1 - \hat p)}{n}}
 $$
 
 （真实的 $$p$$ 不知道，用 $$\hat p$$ 代。）标准误就是上图那团散布的**标准差**——"估计值围绕真实值抖动的典型幅度"。模拟与公式对得上：

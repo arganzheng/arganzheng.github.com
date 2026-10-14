@@ -12,7 +12,29 @@ updated: 2026-09-20
 
 本篇从零建立这两条规则。全篇的核心问题是：
 
-> **看到任何一个矩阵乘法，能不能立刻写出输出形状和 FLOPs？[^q0] 能不能代入一个真实模型算出一个数字？[^q1]**
+> **看到任何一个矩阵乘法，能不能立刻写出输出形状和 FLOPs（floating-point operations）？[^q0] 能不能代入一个真实模型算出一个数字？[^q1]**
+
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| token | — | 模型处理文字的最小单位，大致是一个词或半个词 |
+| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
+| FLOPs | floating-point operations | 浮点运算次数，算量的计量单位 |
+| reshape | — | 不改数据、只改形状的数组操作 |
+| shape | — | 张量各维的大小，矩阵乘法的合法性由它决定 |
+| einsum | Einstein summation | 爱因斯坦求和约定，用下标写法描述张量收缩 |
+| stride | — | 数组在内存里相邻元素的字节间隔 |
+| prefill | — | 推理时一次性处理整段 prompt 的阶段 |
+| LLM | large language model | 大语言模型 |
+| MLP | multi-layer perceptron | 多层感知机：线性层 + 非线性激活叠起来的网络 |
+| GELU | Gaussian error linear unit | 一种平滑的激活函数，作用类似 ReLU |
+| softmax | — | 把一组分数归一化成概率分布的函数 |
+| GLU | gated linear unit | 门控线性单元，两路线性相乘的激活结构 |
+| GPT | generative pre-trained transformer | OpenAI 的生成式预训练模型系列 |
+| FFN | feed-forward network | 前馈网络，Transformer 里 attention 之外的另一半参数 |
+| KV | key / value | attention 里被查的键与取值的值 |
+| embedding | — | 把离散对象（token、图块）查表变成向量的表示 |
 
 ## 一、总览
 
@@ -93,7 +115,7 @@ Table: 标量、向量、矩阵、张量的维度与代码形状
 
 Table: 批量矩阵乘法的维度对应关系
 
-简单说：**对这类 `matmul`，最后两维负责矩阵乘法，前面的维度负责批次对应与广播。**如果要指定其他轴之间的对应关系或收缩求和，可以使用 `einsum`、`tensordot` 等运算（《[算法工程师的工具箱（02）：数据科学三剑客——NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线](/numpy-pandas-matplotlib-for-algorithm-engineers.html)》「四、reshape、transpose 与 einsum」）。第五章第 1 节再展开批维度的账。
+简单说：**对这类 `matmul`，最后两维负责矩阵乘法，前面的维度负责批次对应与广播。**如果要指定其他轴之间的对应关系或收缩求和，可以使用 `einsum（Einstein summation）`、`tensordot` 等运算（《[算法工程师的工具箱（02）：数据科学三剑客——NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线](/numpy-pandas-matplotlib-for-algorithm-engineers.html)》「四、reshape、transpose 与 einsum」）。第五章第 1 节再展开批维度的账。
 
 对后端工程师，一个有用的理解是：**常见的稠密张量由底层存储和描述访问方式的元数据组成**。除了数据类型、设备等信息，关键元数据包括：
 
@@ -368,7 +390,7 @@ Table: 一个 token 过一层的六步：玩具尺寸 d = 4、d_ff = 8 下每一
 | $$W_{\text{up}}$$ | 把 $$h$$ 放大到 $$d_{ff} = 14336$$ 维 | 更宽的中间层 = 更多可以被门选中的通道，FFN 存"知识"的容量主要在这里（《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》「八、FFN 子层：让每个 token 自己想一想」把 FFN 看成键值记忆） |
 | $$W_{\text{down}}$$ | 把 14336 维压回 4096 维，加回残差流 | 中间层的结果要回到残差流才能被下一层和输出层用到；它与 $$W_{\text{up}}$$ 一起构成"先展开再压回"的瓶颈 |
 
-Table: 七个矩阵各是什么、为什么少不了：attention 的四个管 token 之间怎么交流，MLP 的三个管每个 token 自己怎么变换
+Table: 七个矩阵各是什么、为什么少不了：attention 的四个管 token 之间怎么交流，MLP（multi-layer perceptron）的三个管每个 token 自己怎么变换
 
 $$W_{\text{gate}}$$ 不是 Transformer 必需的。原始 Transformer、BERT、GPT-2 / GPT-3 的 MLP 只有两个矩阵：$$\text{GELU}(h W_1)\, W_2$$，$$W_1$$ 把 $$d$$ 放大到 $$d_{ff} = 4d$$、$$W_2$$ 压回来，参数 $$2 \times 4d \times d = 8d^2$$。多出 $$W_{\text{gate}}$$ 的是 **GLU**（gated linear unit）一族：$$\big(\text{act}(h W_{\text{gate}}) \odot h W_{\text{up}}\big)\, W_{\text{down}}$$——激活用 SiLU 叫 SwiGLU（PaLM、Llama、Mistral、Qwen），用 GELU 叫 GeGLU（Gemma）。三个矩阵若仍取 $$4d$$ 宽就是 $$12d^2$$，所以 GLU 通常把 $$d_{ff}$$ 缩到 $$\tfrac{8}{3} d$$，$$3 \times \tfrac{8}{3} d \times d = 8d^2$$，与两矩阵版参数持平；Llama-3-8B 在此基础上再乘 1.3、向上取整到 1024 的倍数：$$\tfrac{8}{3} \times 4096 \approx 10922$$，$$\times 1.3 \approx 14198$$，取整得 14336（3.5 倍）。
 
@@ -398,7 +420,7 @@ Table: Llama-3-8B 一层的七个权重矩阵：形状、参数量与 FLOPs
 - **一个 token 过整个模型约 $$2N$$ FLOPs**——每个参数用一次乘一次加，与第四章的观察一致；
 - 上图 attention 框里的 $$QK^T$$ 与 $$\text{softmax}(\cdot) V$$ 那两个矩阵乘**不在七个矩阵里**——它们乘的是数据和数据（Q 乘 K、分数乘 V），没有参数，所以表的主体没有它们，单列在表外一行：一个 token 在每层要与全部 $$T$$ 个 token 各算一次内积再各加权一次，FLOPs 是每层 $$4Td$$、与参数量无关，随 $$T$$ 线性增长（整句话一起算就是 $$T^2$$）。$$T = 512$$ 时只占一层权重 FLOPs 的 2%，可以忽略；$$T = 128$$K 时是权重的 5 倍，成了大头——这就是长上下文贵在哪里。
 
-这七个矩阵只是**一层 block 里带参数的部分**。整台 decoder-only Transformer 还有几样不在这七个里的部件——两张 embedding 表、LayerNorm 的缩放与偏置、lm_head——它们和这七个矩阵怎么对应，以及同一套矩阵在 GPT-2 small 里叫什么、形状多大，见《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》第一章「六种部件」后面的对应表。
+这七个矩阵只是**一层 block 里带参数的部分**。整台 decoder-only Transformer 还有几样不在这七个里的部件——两张 embedding 表、LayerNorm 的缩放与偏置、lm_head——它们和这七个矩阵怎么对应，以及同一套矩阵在 GPT（generative pre-trained transformer）-2 small 里叫什么、形状多大，见《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》第一章「六种部件」后面的对应表。
 
 ### 2. 打分前为什么要先投影：$$W_Q$$ 与 $$W_K$$
 

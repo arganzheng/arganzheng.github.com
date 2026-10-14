@@ -14,6 +14,22 @@ updated: 2026-09-17
 
 > **"语言模型是一个条件分布"这句话的每个词是什么意思？[^q0] 它决定了哪些事？[^q1]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| token | — | 模型处理文字的最小单位，大致是一个词或半个词 |
+| KV | key / value | attention 里被查的键与取值的值 |
+| loss | — | 损失函数，训练要最小化的目标值 |
+| MAP | maximum a posteriori | 最大后验估计，加先验的参数估计 |
+| prompt | — | 给模型的输入文本 |
+| decoder | — | 自回归生成 token 的那半边（GPT 全是 decoder） |
+| LLM | large language model | 大语言模型 |
+| SFT | supervised fine-tuning | 用标注答案做监督微调 |
+| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
+| softmax | — | 把一组分数归一化成概率分布的函数 |
+| VAE | variational autoencoder | 变分自编码器，带概率隐空间的生成模型 |
+
 ## 一、总览
 
 ### 1. 本文的对象
@@ -153,7 +169,7 @@ p("我 爱 北京") = p("我") × p("爱" | "我") × p("北京" | "我 爱")
 - **推理是逐个 token 生成**：从 $$p_\theta(\cdot \mid \text{prompt})$$ 里抽一个 token，接到后面，再算下一个分布，再抽……每一步只依赖前文。
 - **KV cache 能增量追加**：算 $$p(x_{t+1} \mid x_{\le t})$$ 时前文 $$x_{\le t}$$ 与上一步的 $$x_{<t}$$ 只多了一个 token。"条件分布"本身只保证前文不变；要让前面 token 的中间结果（key、value）**不用重算**，还需要架构上的一条性质——因果 attention 里第 $$i$$ 个位置的 key / value 只依赖 $$x_{\le i}$$，后面来了新 token 也不改它。Transformer decoder 满足这一条，所以缓存有效；一个双向编码器就不满足（新 token 会改前面所有位置的表示）。画出来是这样：
 
-  ![KV cache 为什么可以只追加：第 3 步前三个 token 的 k、v 已在缓存里；第 4 步来了新 token 只新算 k₄、v₄，旧的一个数都不变；新 token 的 q₄ 去和全部四个 k 算分](/img/in-post/probability-basics-kv-cache-causal-append.svg)
+  ![KV（key / value） cache 为什么可以只追加：第 3 步前三个 token 的 k、v 已在缓存里；第 4 步来了新 token 只新算 k₄、v₄，旧的一个数都不变；新 token 的 q₄ 去和全部四个 k 算分](/img/in-post/probability-basics-kv-cache-causal-append.svg)
 
   这条性质决定了推理成本的形状：decode 每一步只算一个新 token 的 K、V（一次小矩阵乘），而不是把整句话重算一遍——上下文越长，省得越多。《[现代 LLM 结构（04）：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)》算这笔账。
 - **评测依赖采样设置**：同一个模型、不同的抽样方式（温度、top-p，第五篇）是**不同的分布**，比较模型时要固定它们。

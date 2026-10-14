@@ -16,6 +16,23 @@ updated: 2026-09-30
 
 > **能不能从"语言模型是条件分布"出发，三行推出交叉熵 loss？[^q0] 训练开始时 loss 应该是多少？[^q1]**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| softmax | — | 把一组分数归一化成概率分布的函数 |
+| SFT | supervised fine-tuning | 用标注答案做监督微调 |
+| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
+| loss | — | 损失函数，训练要最小化的目标值 |
+| PPL | perplexity | 困惑度，交叉熵的指数，越小越好 |
+| GPT | generative pre-trained transformer | OpenAI 的生成式预训练模型系列 |
+| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
+| LLM | large language model | 大语言模型 |
+| NLL | negative log-likelihood | 负对数似然，MLE 实际优化的 loss |
+| logits | — | softmax 之前的那组原始分数 |
+| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
+| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
+
 ## 一、总览
 
 ### 1. 本文的路线
@@ -331,7 +348,7 @@ Table: 同一组 logits，直接算 softmax 溢出成 NaN，先减最大值则�
 | `The United States of` | `␣America` | **0.966** | ≈ 1 | **1** |
 | `The capital of France is` | `␣the` | 0.085 | 0.359 | **1503** |
 
-Table: GPT-2 在一个"确定"位置与一个"开放"位置的输出分布（␣ 表示 token 自带的前导空格）
+Table: GPT（generative pre-trained transformer）-2 在一个"确定"位置与一个"开放"位置的输出分布（␣ 表示 token 自带的前导空格）
 
 第一个位置下一个词几乎只有一个可能，GPT-2 把 96.6% 押在 `␣America` 上；第二个位置可以接很多种说法（`␣the capital of the French Republic`、`␣a gritty bastion of French`、`␣Paris`……），概率摊到了上千个 token 上，第一名只有 8.5%。**困惑度**（下一篇）度量的就是这种平均的分散程度：确定的位置贡献接近 0 的 loss，开放的位置贡献几个 nat。
 
@@ -489,7 +506,7 @@ Table: 一条 nanoGPT 训练日志的三行与它们的含义
 
    </details>
 
-下一篇进入信息论：熵、交叉熵、KL 三个量的定义与关系，KL 的方向为什么决定"对齐会降低多样性"，以及从 KL 约束的最优策略一路推出 DPO。
+下一篇进入信息论：熵、交叉熵、KL（Kullback–Leibler）三个量的定义与关系，KL 的方向为什么决定"对齐会降低多样性"，以及从 KL 约束的最优策略一路推出 DPO。
 
 配套代码：[`math-for-ai/05_mle_to_cross_entropy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/05_mle_to_cross_entropy.py)——硬币似然曲线、玩具语言模型、下溢演示、softmax 对拍与溢出、nanoGPT 首步 loss 与三种 bug、GPT-2 上的温度 / top-k / top-p、Qwen2.5 chat 模板的 loss mask、奖励模型曲线、读日志；本文全部图与数字由它生成，输出在 `expected/`。
 
