@@ -22,18 +22,54 @@ updated: 2026-09-14
 - 为什么一个 Tensor 的 `shape` 相同，性能却可能完全不同？[^q4]
 - 为什么把模型移动到 GPU 后，输入数据还需要单独移动？[^q5]
 - 为什么 `float16` 不只是把每个数字占用的字节数减半？[^q6]
-- 为什么一个看似普通的 in-place 操作会和 Autograd 冲突？[^q7]
+- 为什么一个看似普通的 in-place 操作会和 Autograd（automatic differentiation） 冲突？[^q7]
 - 为什么数据已经“释放”了，GPU 显存仍然显示被占用？[^q8]
 
 这些问题背后都指向同一个事实：
 
 > **Tensor 不只是数据本身，而是数据、形状、布局、类型、设备和生命周期的组合。**
 
+## 术语与缩写
+
+| 缩写 | 全称 | 一句话解释 |
+|---|---|---|
+| kernel | — | 在设备上真正执行一个算子的函数 |
+| in-place | — | 直接改写输入 Tensor 本身、不新建输出的操作 |
+| Autograd | automatic differentiation | PyTorch 的自动求导引擎 |
+| stride | — | 每个维度前进一步，在内存里要跳过几个元素 |
+| contiguous | — | 元素在内存里按行优先紧密排列 |
+| Storage | — | Tensor 底下真正存放数据的那段一维内存 |
+| view | — | 和原 Tensor 共享 Storage、只换解释方式的 Tensor |
+| dtype | data type | Tensor 元素的数据类型，如 float32、int64 |
+| metadata | — | 描述怎么解释数据的信息：形状、步幅、类型等 |
+| FP16 | 16-bit floating point | 半精度浮点，5 位指数、10 位尾数 |
+| BF16 | bfloat16, brain floating point | 8 位指数的 16 位浮点，范围同 FP32 |
+| dtype promotion | — | 不同 dtype 参与运算时自动提升到公共类型 |
+| H2D | host to device | 主机内存拷到显存 |
+| Meta device | — | 只推导形状、类型，不存真实数据的设备 |
+| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台和运行时 |
+| caching allocator | — | PyTorch 缓存已释放显存块以便复用的分配器 |
+| workspace | — | 算子临时申请的中间缓冲区 |
+| NCHW / NHWC | — | 两种图像 Tensor 维度顺序：通道在前 / 通道在后 |
+| memory format | — | 同一形状下的维度存放顺序，如 channels_last |
+| FP32 | 32-bit floating point | 单精度浮点，深度学习的默认精度 |
+| ulp | unit in the last place | 浮点数最低位一格代表的数值间隔 |
+| pinned memory | — | 锁页主机内存，GPU 能直接用 DMA 读取 |
+| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的主板总线 |
+| NVLink | — | NVIDIA GPU 之间的高速直连 |
+| checkpoint | — | 保存到磁盘的模型参数和训练状态 |
+| JVM | Java Virtual Machine | Java 虚拟机 |
+| GC | garbage collection | 垃圾回收：自动释放不再可达的对象 |
+| Tensor Core | — | NVIDIA GPU 上专做矩阵乘的计算单元 |
+| DMA | direct memory access | 不经 CPU、由设备直接搬运内存 |
+
+Table: 本文用到的术语与缩写
+
 ## 一、总览：一个 Tensor 由哪些部分组成
 
 ### 1. 本文的主线
 
-本文会从一个简化的 Tensor 模型开始，逐步解释 Storage、Shape、Stride、Storage Offset、dtype、device、view、拷贝和 contiguous：先建立“逻辑视图 + 物理存储”的整体模型，再逐个展开描述 Tensor 的各个字段，然后讨论 view / clone / detach / in-place 与广播这几组容易混淆的操作，最后从 Tensor 视角解释显存问题，并动手实现一个简化版 Tensor 来验证这套模型。后面 Autograd、Dispatcher、Kernel 和性能分析文章，都会以本文建立的 Tensor 心智模型为基础。
+本文会从一个简化的 Tensor 模型开始，逐步解释 Storage、Shape、Stride、Storage Offset、dtype（data type）、device、view、拷贝和 contiguous：先建立“逻辑视图 + 物理存储”的整体模型，再逐个展开描述 Tensor 的各个字段，然后讨论 view / clone / detach / in-place 与广播这几组容易混淆的操作，最后从 Tensor 视角解释显存问题，并动手实现一个简化版 Tensor 来验证这套模型。后面 Autograd、Dispatcher、Kernel 和性能分析文章，都会以本文建立的 Tensor 心智模型为基础。
 
 ### 2. 本文的章节安排
 
@@ -164,7 +200,7 @@ flowchart LR
 - `sizes` 决定逻辑上有多少个元素；
 - `strides` 决定多维索引如何映射到 Storage；
 - `dtype` 决定如何解释每个元素的二进制内容；
-- `device` 决定 Storage 位于 CPU、CUDA 还是其他设备。
+- `device` 决定 Storage 位于 CPU、CUDA（Compute Unified Device Architecture） 还是其他设备。
 
 这些字段在源码里对应两个 C++ 对象，都位于第一篇代码地图最底层的 `c10/core/`：Python 的 `torch.Tensor` 持有一个 `c10::TensorImpl`，`sizes`、`strides`、`storage_offset`、`dtype`、`device` 以及 Autograd 元数据都是它的成员；`TensorImpl` 再持有一个 `c10::StorageImpl`，里面只有数据指针、字节数和分配器。多个 `TensorImpl` 可以指向同一个 `StorageImpl`——这就是后文 view 的实现基础。本篇讨论的是源码上最底层的抽象，之所以放在系列最前面，是因为 Autograd、算子分发、Kernel 和显存分析都建立在这几个字段之上。
 
@@ -678,16 +714,16 @@ small = large[0, 0, :10].clone()
 
 ### 2. FP16 与 BF16
 
-FP16 和 BF16 都通常占用 16 bit，但位分配不同：
+FP16（16-bit floating point） 和 BF16（bfloat16, brain floating point） 都通常占用 16 bit，但位分配不同：
 
 - FP16：更多位用于尾数，指数范围较小
-- BF16：指数范围接近 FP32，尾数精度较低
+- BF16：指数范围接近 FP32（32-bit floating point），尾数精度较低
 
 把三种格式的位域画在一起（每个字符代表 1 bit）：
 
 ![FP32 / FP16 / BF16 的位布局：FP32 是 1 + 8 + 23，FP16 是 1 + 5 + 10，BF16 是 1 + 8 + 7；BF16 的 16 位就是 FP32 的高 16 位，转换时按低 16 位舍入](/img/in-post/pytorch-tensor-float-bit-layouts.svg)
 
-位域重合不等于"转换就是砍掉低 16 位"：`x.to(torch.bfloat16)` 按**最近偶数舍入**，低 16 位大于一半时会向上进位。例：`1.005` 的 FP32 尾数低 16 位超过一半，转 BF16 得 `1.0078125`（`1 + 2^-7`），而直接截断会得到 `1.0`；两者都离 1.005 一个 ulp 以内，但方向不同，累加起来偏差不一样。
+位域重合不等于"转换就是砍掉低 16 位"：`x.to(torch.bfloat16)` 按**最近偶数舍入**，低 16 位大于一半时会向上进位。例：`1.005` 的 FP32 尾数低 16 位超过一半，转 BF16 得 `1.0078125`（`1 + 2^-7`），而直接截断会得到 `1.0`；两者都离 1.005 一个 ulp（unit in the last place） 以内，但方向不同，累加起来偏差不一样。
 
 因此二者的工程特性不同：
 
@@ -859,7 +895,7 @@ batch = batch.to("cuda", non_blocking=True)
 - 数据预处理是否成为瓶颈；
 - GPU 计算时间是否足够长；
 - 是否存在隐式同步；
-- 主机内存和 PCIe/NVLink 带宽。
+- 主机内存和 PCIe（Peripheral Component Interconnect Express）/NVLink 带宽。
 
 ### 4. Device mismatch
 
