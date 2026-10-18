@@ -5,7 +5,7 @@ title: "高效推理与压缩（06）：剪枝、深度缩放与小模型配方"
 subtitle: "Pruning, Depth Scaling and How Small Models Are Made"
 tags: [AI, LLM, Inference, Pruning, Small Models]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 前五篇改的是表示（量化）、过程（解码、投机）与缓存（KV），模型的参数数量与结构没有变。最后一条线改**参数的数量**：删掉一部分权重、一部分 head、一部分层，让模型本身变小。剪枝是最老的压缩方法（LeCun 等 1989 的 Optimal Brain Damage），在 CNN 时代成熟，在 LLM 上重新变得重要——因为"一个 70B 怎么变成一个能用的 8B"这个问题有了新的答案：不是从头训一个 8B，而是从 70B 剪出来再蒸馏，用十分之一的 token 达到相近的效果。
@@ -77,7 +77,20 @@ SparseGPT（Frantar & Alistarh 2023）把 GPTQ 的工程改造用在剪枝上：
 
 ### 3. Wanda：不需要 Hessian
 
-Wanda（Sun 等 2023）的观察：LLM 里权重的重要性主要由**它乘的激活有多大**决定（上一篇 AWQ 的同一个观察）。重要性得分 $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert_2$$（权重幅度 × 对应输入通道的激活范数），在每一行内比较、剪掉最小的。不需要 $$H$$、不需要更新其余权重、几分钟完成。50% 稀疏下与 SparseGPT 接近（Llama-2-70B 困惑度差 0.1 以内），2:4 下略差。
+设一行权重 $$w=[0.20,0.35,0.80,1.00]$$，校准输入为 $$x=[10,1,1,1]$$。这个单样本例子里的输入 RMS 就是各通道的绝对值。
+
+| 通道 | 权重 | 输入 RMS | 幅度分数 $$\lvert w\rvert$$ | Wanda 分数 |
+|---:|---:|---:|---:|---:|
+| 1 | 0.20 | 10 | 0.20 | 2.00 |
+| 2 | 0.35 | 1 | 0.35 | 0.35 |
+| 3 | 0.80 | 1 | 0.80 | 0.80 |
+| 4 | 1.00 | 1 | 1.00 | 1.00 |
+
+![同一行权重用幅度分数和 Wanda 分数排序，并比较剪枝后的输出](/img/in-post/pruning-wanda-magnitude-example.svg)
+
+两种方法都剪掉四个通道中分数最低的一个。幅度剪掉通道 1，输出从 4.15 降到 2.15；Wanda 剪掉通道 2，输出是 3.80。通道 1 的权重较小，但它乘上了大输入。
+
+Wanda（Sun 等 2023）把校准集里的输入大小纳入重要性估计。每行按 $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert_2$$ 排序，删掉最小项；不需要 $$H$$，也不更新剩余权重。实际校准会聚合多条输入，不是只看上面这个单样本。50% 稀疏下，Wanda 与 SparseGPT 接近（Llama-2-70B 困惑度差 0.1 以内）；2:4 下略差。
 
 它说明的事：对 LLM，"哪些权重重要"的一阶答案是"乘大激活的那些"，二阶的补偿（OBS）在 50% 稀疏度上只多贡献一点。更高的稀疏度（60–70%）上 SparseGPT 的优势扩大，但两者都开始明显退化——非结构化剪枝在 LLM 上的"免费区间"大约到 50%。
 
@@ -93,7 +106,11 @@ Wanda（Sun 等 2023）的观察：LLM 里权重的重要性主要由**它乘的
 
 ### 1. 为什么中后层"多余"
 
-Transformer 是残差结构：$$h_{l+1} = h_l + f_l(h_l)$$。如果 $$f_l(h_l)$$ 相对于 $$h_l$$ 很小，删掉第 $$l$$ 层（$$h_{l+1} := h_l$$）对残差流的影响就小。测量每层输入与输出的余弦相似度 $$\cos(h_l, h_{l+1})$$，多个独立的工作（Gromov 等 2024 "The Unreasonable Ineffectiveness of the Deeper Layers"；Men 等 2024 ShortGPT）在 Llama-2 / Qwen / Mistral 上得到一致的图景：
+每个 Transformer block 都在残差流上叠加一项变换。若这一项相对当前状态很小，跳过这一层只会改变很少：
+
+$$h_{l+1} = h_l + f_l(h_l)$$
+
+测量每层输入与输出的余弦相似度 $$\cos(h_l, h_{l+1})$$，多个独立的工作（Gromov 等 2024 "The Unreasonable Ineffectiveness of the Deeper Layers"；Men 等 2024 ShortGPT）在 Llama-2 / Qwen / Mistral 上得到一致的图景：
 
 - **前几层**（尤其第一层）相似度低（0.3–0.6）——它们把 token embedding 变成上下文表示，改动大；
 - **中后层**相似度高（0.85–0.95）——每层是残差流上的小修正；
@@ -104,6 +121,10 @@ Transformer 是残差结构：$$h_{l+1} = h_l + f_l(h_l)$$。如果 $$f_l(h_l)$$
 ### 2. Block Influence 与剪哪些层
 
 ShortGPT 定义了 Block Influence：$$\text{BI}_l = 1 - \mathbb{E}_{x}\big[\cos(h_l^{(x)}, h_{l+1}^{(x)})\big]$$，在校准集上对每层测量，BI 低的层先剪。Gromov 等用另一个度量——删掉第 $$l$$ 到 $$l + n$$ 连续 $$n$$ 层后 $$h_l$$ 与 $$h_{l+n+1}$$ 的角距离——找出最适合删的**连续块**（连续删比分散删对后面的层影响更可预测）。两者都指向中后段：Llama-2-70B 删掉约第 50–70 层中的 20 层（25%），MMLU 几乎不变（Gromov 的发现——但注意下一节），困惑度升 0.3–0.5。
+
+下面的曲线用合成相似度计算，只展示 BI 的读法，不是模型测量结果。真实剪枝要在校准集上逐层计算。
+
+![合成层相似度得到的 Block Influence 曲线；中间层的分数较低](/img/in-post/pruning-layer-importance-synthetic.svg)
 
 剪多少层：Gromov 等发现有一个"悬崖"——删到某个比例（Llama-2-70B 约 40–45%，13B 约 30%）之前 MMLU 几乎平坦，之后骤降到随机。困惑度则是平滑上升的。这个悬崖的存在本身说明 MMLU 测的是与困惑度不同的东西。
 
@@ -141,7 +162,7 @@ Sheared LLaMA（Xia 等 2024）用另一条路：给每个 head、每个 FFN 神
 
 ### 3. Minitron：深度与宽度的组合
 
-Minitron 系统地比较了各种剪枝轴的组合（Nemotron-4 15B → 8B → 4B）：
+Minitron 论文比较了从 Nemotron-4 15B 得到 8B / 4B 的剪枝轴组合；[NVIDIA 的技术说明](https://developer.nvidia.com/blog/how-to-prune-and-distill-llama-3-1-8b-to-an-nvidia-llama-3-1-minitron-4b-model/)把模型家族的后续步骤写成 15B → 8B → 4B：
 
 - **只剪深度**恢复后最差——一致于第三章：层做的是组合，删了不容易补回。
 - **只剪宽度**（FFN + hidden + head）恢复后最好。
@@ -175,14 +196,16 @@ Michel 等 2019 的经典发现："大部分 head 可以在推理时被删掉而
 
 ### 3. Minitron 的流水线与算力账
 
-完整流水线：
+下面是完整流水线。尺寸按 [Minitron 论文](https://arxiv.org/abs/2407.14679)的架构表；4B 的后续路径与训练预算按 [NVIDIA 技术说明](https://developer.nvidia.com/blog/how-to-prune-and-distill-llama-3-1-8b-to-an-nvidia-llama-3-1-minitron-4b-model/)。
 
-1. **重要性估计**：在 1024 条校准样本上前向一次，收集每层、每 head、每 FFN 神经元、每 hidden 维的激活统计。分钟级。
-2. **剪枝**：按目标形状（比如 15B → 8B：层 32 → 32，hidden 6144 → 4096，FFN 24576 → 16384，head 48 → 32）删掉重要性最低的。
-3. **轻量搜索**：几种候选形状各用 ~2B token 短训，选最好的。
-4. **蒸馏恢复**：94B token，教师为原 15B 模型，logits KL + 可选的中间层损失。
+![Minitron 从 Nemotron-4 15B 剪枝并蒸馏到 8B，再继续压到 4B 的训练流水线](/img/in-post/pruning-minitron-pipeline.svg)
 
-算力账（Minitron 论文的数字）：Nemotron-4 15B 从头训用了 8T token；8B 剪枝 + 蒸馏用 94B token（约 1.2%，即 **85 倍**）；4B 从 8B 再剪 + 蒸馏用 94B token。8B 的结果与从头训的同规模模型相当或更好（MMLU 与 Nemotron-3 8B 比高约 10 个点——不过 Nemotron-3 是老一代数据）。论文摘要写的"每多出一个模型省至多 40 倍 token"是相对其从头训的小模型基线（不是 15B 的 8T）的比较；8T / 94B 算出来的 85 倍与它不是同一个分子分母，两个数不要混用。这个账的前提是**大模型已经存在**——剪枝的 token 节省是相对于"再训一个小模型"而言的，大模型的 8T token 是沉没成本。
+1. **重要性估计**：在 1024 条校准样本上前向一次，收集每层、每 head、每 FFN 神经元、每 hidden 维的激活统计。
+2. **剪枝**：按目标形状删除重要性最低的部分。15B → 8B 时，层数保持 32，hidden 从 6144 降到 4096，FFN 从 24576 降到 16384，attention heads 保持 48，query groups 保持 8。
+3. **轻量搜索**：论文的轻量 retraining 默认用 1.8B token（400 steps）比较候选架构；这不是最终蒸馏的 token 数。
+4. **蒸馏恢复**：论文报告 Minitron 8B 使用 94B token，教师为原 15B 模型，训练目标包括 logits KL，也可加中间层损失。
+
+算力账：Nemotron-4 15B 从头训练用了 8T token；Minitron 8B 剪枝 + 蒸馏用 94B token（约 1.2%，即 **85 倍**）。NVIDIA 的技术说明把 4B 描述为从 8B 继续剪枝并蒸馏，估算每个新增模型约用 100B token。8B 的结果与从头训的同规模模型相当或更好（MMLU 与 Nemotron-3 8B 比高约 10 个点——不过 Nemotron-3 是老一代数据）。论文摘要写的"每多出一个模型省至多 40 倍 token"是相对其从头训的小模型基线（不是 15B 的 8T）的比较；8T / 94B 算出来的 85 倍与它不是同一个分子分母，两个数不要混用。这个账的前提是**大模型已经存在**——剪枝的 token 节省是相对于"再训一个小模型"而言的，大模型的 8T token 是沉没成本。
 
 Llama 3.1 Minitron 4B（从 Llama-3.1-8B 剪）与 Mistral-NeMo-Minitron 8B（从 12B 剪）延续了这条路线，Mistral-NeMo-Minitron 8B 在多个 benchmark 上超过了从头训的 Llama-3.1-8B。
 
@@ -197,7 +220,7 @@ Llama 3.1 Minitron 4B（从 Llama-3.1-8B 剪）与 Mistral-NeMo-Minitron 8B（�
 | 模型 | 规模 | 来源 | 训练 token | 备注 |
 |---|---|---|---|---|
 | Llama 3.2 1B / 3B | 1.23B / 3.21B | 从 Llama 3.1 8B **剪枝**（宽度）+ 用 8B 与 70B 的 logits **蒸馏** | 蒸馏阶段 ~9T token（预训练规模） | 官方描述：结构化剪枝初始化 + 蒸馏；深度 16 / 28 层 |
-| Minitron 8B / 4B | 8B / 4B | 从 Nemotron-4 15B 剪枝 + 蒸馏 | 94B / 94B | "至多 40× token 节省"的原始报告（相对其小模型基线） |
+| Minitron 8B / 4B | 8B / 4B | 15B → 8B；NVIDIA 说明的后续 8B → 4B | 8B：94B；4B：约 100B（NVIDIA 估算） | "至多 40× token 节省"的原始报告（相对其小模型基线） |
 | Llama 3.1 Minitron 4B | 4.5B | 从 Llama 3.1 8B 剪 | 94B | Width 与 Depth 两版 |
 | Gemma 3 1B | 1B | **从头**训，用大模型蒸馏（logits） | 2T | Google 的小模型一直是"从头 + 蒸馏" |
 | Qwen2.5 0.5B / 1.5B / 3B | — | **从头**训 | 18T（全系列同数据） | 同数据、同配方、不同规模 |
@@ -211,7 +234,9 @@ Table: 公开小模型：从头训还是剪出来
 
 ### 2. 深而窄还是浅而宽
 
-MobileLLM（Liu 等 2024）在 125M–350M 上系统地测了：同参数量下，**深而窄**（更多层、更小的 hidden）比浅而宽好——30 层 × 512 维优于 12 层 × 768 维，差几个点。解释是层数决定了模型能做的"顺序计算步数"，小模型的瓶颈在这里而不在每层的宽度。它还发现 embedding 共享（tied embedding，[预训练（02）](/tokenizer-vocabulary-and-token-efficiency.html)）与 GQA 在小模型上都有效——小模型的 embedding 占参数比例大（125M 模型 32K 词表的 embedding 是 25%），共享省下的参数可以加层。
+![MobileLLM 125M 深而窄的 30 层 × 512 维结构与浅而宽的 12 层 × 768 维结构对比](/img/in-post/pruning-depth-vs-width-mobilellm.svg)
+
+MobileLLM（Liu 等 2024）在 125M–350M 上系统地测了：同参数量下，**深而窄**（更多层、更小的 hidden）比浅而宽好——30 层 × 512 维优于 12 层 × 768 维，差几个点。[论文](https://arxiv.org/abs/2402.14905)展示了 125M 模型从 12 层 × 768 维到 30 层 × 512 维的结构调整。层数决定了模型能做的"顺序计算步数"，小模型的瓶颈在这里而不在每层的宽度。它还发现 embedding 共享（tied embedding，[预训练（02）](/tokenizer-vocabulary-and-token-efficiency.html)）与 GQA 在小模型上都有效——小模型的 embedding 占参数比例大（125M 模型 32K 词表的 embedding 是 25%），共享省下的参数可以加层。
 
 这与第四章 Minitron 的"剪深度恢复最差"不矛盾：剪深度差是因为**删掉已训好的层**破坏了组合能力；从头设计时深一点好是因为**给模型更多的顺序步数**。两者都说层是小模型最宝贵的资源。但 Llama 3.2 1B 只有 16 层（宽 2048），Qwen2.5-0.5B 有 24 层（宽 896）——各家的选择并不一致，延迟（层数决定串行深度）是反向的考虑。
 
