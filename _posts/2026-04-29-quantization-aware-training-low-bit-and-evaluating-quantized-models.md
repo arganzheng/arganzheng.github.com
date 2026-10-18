@@ -5,7 +5,7 @@ title: "高效推理与压缩（04）：量化感知训练、低比特与量化�
 subtitle: "Quantization-Aware Training, Extreme Low-Bit and How to Evaluate a Quantized Model"
 tags: [AI, LLM, Inference, Quantization, Evaluation]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 上一篇的 PTQ 在 4 bit 权重上把困惑度损失压到 0.1–0.3，在 W8A8 上接近无损。再往下——3 bit、2 bit、三值权重，或者激活也到 4 bit、KV 也到 4 bit——逐层最小化输出误差的代理目标不够了：误差太大，后面的层"消化"不掉，最终 loss 的退化不再与逐层误差成比例。这时需要**训练参与**：让模型在知道自己会被量化的前提下学习，把量化误差学回去一部分。这是量化感知训练（QAT）。
@@ -59,7 +59,11 @@ Table: 本文的章节安排
 
 ### 1. 问题
 
-假量化（fake quantization）在训练时模拟量化：前向把权重 $$w$$ 变成 $$\hat{w} = \Delta \cdot \text{round}(w / \Delta)$$（保持浮点存储，但取值只在格点上），用 $$\hat{w}$$ 计算 loss。反向要对 $$w$$ 求梯度：
+训练时仍保留一份 fp32 主权重。每次前向先把它裁到表示范围，再量化到格点、反量化成浮点数，送进线性层计算。反向时 round 的真实梯度几乎处处为零，STE 用一个近似梯度让主权重仍能更新。
+
+![假量化的两条路径：前向依次裁剪、量化、反量化；反向用裁剪 STE 传递梯度，范围外置零](/img/in-post/quantization-aware-training-straight-through-estimator.svg)
+
+前向先裁剪权重，再量化到最近格点。记裁剪范围为 $$[-c,c]$$，则 $$\hat{w} = \Delta \cdot \text{round}(\text{clip}(w, -c, c) / \Delta)$$。反向要对 $$w$$ 求梯度：
 
 $$
 \frac{\partial \mathcal{L}}{\partial w} = \frac{\partial \mathcal{L}}{\partial \hat{w}} \cdot \frac{\partial \hat{w}}{\partial w}
@@ -69,9 +73,9 @@ $$
 
 ### 2. 直通估计器
 
-![STE：前向走 round 的台阶，反向当作 y = x；fp32 主权重被更新，跨过格点时量化值才跳一格](/img/in-post/quantization-aware-training-straight-through-estimator.svg)
-
 STE（Bengio 等 2013；Hinton 的课程里更早提到）的做法：**反向时把 round 当作恒等函数**，$$\partial \hat{w} / \partial w := 1$$。于是 $$\partial \mathcal{L} / \partial w = \partial \mathcal{L} / \partial \hat{w}$$——用量化后权重的梯度更新量化前的权重。实现上是一行：
+
+![量化前向是阶梯函数；裁剪 STE 的反向梯度在范围内为 1，范围外为 0。示例使用 Δ=0.5、裁剪范围 ±1.5](/img/in-post/quantization-aware-training-ste-quantizer.svg)
 
 $$
 \hat{w} = w + \text{stop\_gradient}\big(Q(w) - w\big)
@@ -97,7 +101,23 @@ QAT 前向要与部署时的推理精确匹配：同样的 group size、同样�
 
 ### 1. LSQ：让 scale 有梯度
 
-上一篇的 scale 由权重范围决定（$$\max$$ 或搜索）。QAT 里可以让它**可学习**，让训练自己决定裁剪多少。LSQ（Esser 等 2020）推导了 scale 的梯度。量化函数（对称，$$b$$ bit，$$Q_N = 2^{b-1} - 1$$）：
+上一篇的 scale 由权重范围或搜索结果决定。LSQ（Esser 等 2020）把它也交给训练，让模型在舍入误差和裁剪误差之间找平衡。
+
+先看一个 3-bit 的小例子。令 $$Q_N=3$$、初始 scale $$\Delta=0.5$$，用重建损失 $$\mathcal{L}=\frac12\sum_i(\hat{w}_i-t_i)^2$$。表里给出每个权重的量化码、反量化值，以及它对 scale 梯度的贡献：
+
+| $$w$$ | $$t$$ | $$q \rightarrow \hat{w}$$ | $$\partial \hat{w}/\partial\Delta$$ | $$g_i\,\partial\hat{w}/\partial\Delta$$ |
+|---:|---:|---:|---:|---:|
+| −1.20 | −0.80 | −2 → −1.00 | +0.40 | −0.080 |
+| −0.40 | −0.30 | −1 → −0.50 | −0.20 | +0.040 |
+| +0.15 | +0.20 | 0 → 0.00 | −0.30 | +0.060 |
+| +0.72 | +0.90 | +1 → +0.50 | −0.44 | +0.176 |
+| +1.60 | +1.40 | +3 → +1.50（裁剪） | +3.00 | +0.300 |
+
+Table: LSQ 的一个 scale 梯度步骤
+
+这里 $$g_i=\hat{w}_i-t_i$$，五项相加得到未缩放的 $$\partial\mathcal{L}/\partial\Delta=0.496$$。LSQ 再乘上 $$1/\sqrt{NQ_N}=1/\sqrt{15}\approx0.2582$$，缩放后的梯度为 $$0.1281$$。若学习率是 $$0.1$$，这一步会把 $$\Delta$$ 从 $$0.5$$ 更新到约 $$0.4872$$。
+
+对称量化函数（$$b$$ bit，$$Q_N=2^{b-1}-1$$）是：
 
 $$
 \hat{w} = \Delta \cdot \text{round}\Big(\text{clip}\big(\tfrac{w}{\Delta}, -Q_N, Q_N\big)\Big)
@@ -147,6 +167,10 @@ QLoRA（Dettmers 等 2023）不是 QAT——底座被 PTQ 到 4 bit 并**冻结*
 
 **NF4（NormalFloat 4）**。假设权重是零均值高斯，NF4 的格点按"每个格点等概率"的原则取标准正态的分位数——但**不是**"$$[0, 1]$$ 等分 16 段取中点"那么简单：那样得到的 16 个点关于 0 对称、最靠近 0 的两个是 $$\pm 0.042$$，没有 0（CPU 复算）。bitsandbytes 的 `create_normal_map` 实际做法是：正半轴取 $$[\text{offset}, 1]$$ 上 9 个等距概率的分位数（offset ≈ 0.9677），负半轴取 $$[1 - \text{offset}, 0.5]$$ 上 8 个，加上 0，再按最大值归一化——得到 8 个正数、7 个负数、1 个零共 16 点。实际的格点是 $$\{-1, -0.696, -0.525, -0.395, -0.284, -0.185, -0.091, 0, 0.080, 0.161, 0.246, 0.338, 0.441, 0.563, 0.723, 1\}$$（非对称，正负各半的说法不对）。"信息论最优"说的是等概率占用码字，它不等于最小 MSE（那是 Lloyd–Max 量化器），absmax 归一化后的 block 也不再是标准高斯。量化时按 group（64）取 absmax 归一化到 $$[-1, 1]$$，找最近的格点。对高斯权重，NF4 比均匀 INT4 的 MSE 低约 30%。
 
+这组格点与 [QLoRA Appendix E](https://arxiv.org/abs/2305.14314) 的发布值逐项核对；[bitsandbytes 的 `create_normal_map`](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.48.1/bitsandbytes/functional.py) 用正态分位点生成同一组非均匀 level。
+
+![标准正态密度上的 NF4 与对称均匀 INT4 格点；NF4 由 QLoRA Appendix E 的正态分位点构造，并与发布表逐项核对](/img/in-post/quantization-aware-training-nf4-grid.svg)
+
 **双重量化**。每 64 个权重一个 FP32 scale，元数据是 $$32 / 64 = 0.5$$ bit/权重——不小。QLoRA 把这些 scale 再量化到 FP8（每 256 个 scale 一个 FP32 二级 scale），元数据降到 $$8/64 + 32/(64 \times 256) \approx 0.127$$ bit/权重。总的 $$4.127$$ bit/权重。
 
 QLoRA 的意义是**训练时**的内存：65B 模型的 4-bit 底座 33 GB + LoRA 与优化器状态几 GB + 激活，一张 48 GB 的卡能微调 65B。推理时 NF4 需要查表 dequant，比 INT4 慢；部署通常把 LoRA 合并回全精度权重再用 GPTQ / AWQ 重新量化——或者像 Llama 3.2 那样保持"INT4 底座 + BF16 LoRA"的形态直接服务。
@@ -169,6 +193,8 @@ QLoRA 的意义是**训练时**的内存：65B 模型的 4-bit 底座 33 GB + Lo
 ### 2. BitNet b1.58：三值权重
 
 BitNet b1.58（Ma 等 2024）走另一条路：**从头**在三值权重 $$\{-1, 0, 1\}$$ 下训练（1.58 bit = $$\log_2 3$$）。前向：权重按 absmean 缩放后 round 到三值；激活量化到 INT8（per-token absmax）；STE 反向；主权重保持 BF16。
+
+![合成高斯权重与 absmean 缩放后三值权重的直方图；数据来自固定随机种子的 N(0,1) 样本](/img/in-post/quantization-aware-training-bitnet-ternary.svg)
 
 三值权重的乘法退化为加法与符号翻转——GEMM 不需要乘法器，这是它的硬件愿景（专用芯片上能耗降一个量级）。论文的 scaling 结果：3B 的 BitNet b1.58 与 3B 的 FP16 Llama 在困惑度与零样本任务上相当（同样的 100B token），并声称在更大规模上差距进一步缩小。后续（BitNet b1.58 2B4T，2025）在 4T token 上训了一个 2B 模型，结果与同规模的全精度开源模型相近。
 
@@ -213,6 +239,8 @@ $$
 在同一批文本上计算（不需要标签、不需要 benchmark），直接度量"量化改变了多少分布"——这正是本系列的核心问题。它比困惑度差好在：（1）困惑度只看正确 token 的概率，KL 看整个分布——一个把概率从正确 token 挪到另一个合理 token 上的误差，困惑度看到一点变化，KL 看到全部；（2）它不依赖文本的"正确性"，模型自己生成的文本上也能算，可以在目标负载的 prompt 上测；（3）它的分布（按 token、按位置、按 token 类型）可以拆开看——KL 集中在哪些 token 上，就是退化会出现在哪类任务上。
 
 llama.cpp 社区（以及 Turboderp 的 exllama 评测）已经把 KL 作为量化格式的标准比较指标；学术论文里用得还少。经验上 4-bit 的均值 KL 在 0.01–0.05 nat 之间，超过 0.1 时任务退化明显。**KL 的分位数**比均值更有信息：P99 的 KL 告诉你最坏的那 1% token 被改变了多少——它们就是关键 token。
+
+![量化评测的不同视角：Llama-3-8B GPTQ W4 的困惑度和任务退化，以及文中给出的 4-bit 逐 token KL 常见范围；KL 数值是一般经验范围，不是同一轮评测](/img/in-post/quantization-aware-training-evaluation-metrics.svg)
 
 ### 2. 任务组合
 
