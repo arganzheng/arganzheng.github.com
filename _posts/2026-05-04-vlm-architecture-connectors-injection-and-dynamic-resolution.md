@@ -18,39 +18,6 @@ VLM 由四个部件组成：分辨率策略 → 视觉编码器 → connector �
 
 > **LLaVA 的一个 MLP 与 BLIP-2 的 Q-Former 相差什么？[^q0] 为什么 Qwen2-VL 要让 ViT 接受原生分辨率？[^q1]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| VLM | vision-language model | 能看图回答问题的语言模型 |
-| connector | — | 编码器与 LLM 之间的转接头：映射维度、可选压缩 token |
-| ViT | Vision Transformer | 把图像切成 patch、每块变成一个向量的编码器 |
-| MLP | multi-layer perceptron | 多层感知机，LLaVA 用它当 connector |
-| Q-Former | querying Transformer | BLIP-2 的 connector：K 个可学习 query 做 cross-attention |
-| BLIP-2 | bootstrapped language-image pre-training | Salesforce 的 VLM，connector 是 Q-Former |
-| LLaVA | large language and vision assistant | 早期主流 VLM，connector 是线性层 / MLP |
-| resampler | — | Perceiver 式 connector：固定个数的 query 抽出固定 token 数 |
-| Perceiver | — | DeepMind 的「固定 query 抽特征」结构，Flamingo 采用 |
-| KV | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
-| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
-| FFN | feed-forward network | Transformer 每层里的前馈网络子层 |
-| GELU | Gaussian error linear unit | MLP 里常用的一种平滑激活函数 |
-| tile | — | 把大图切成固定大小的块各自编码的分辨率策略 |
-| AnyRes | any resolution | LLaVA-NeXT 的 tile 方案：选网格 + 全图缩略图 |
-| pixel shuffle | — | space-to-depth 重排：k×k 邻域拼成一个 token |
-| pan & scan | — | Gemma 3 对大图再切块浏览的补偿手段 |
-| RoPE | rotary position embedding | 旋转位置编码，按相对位置旋转向量 |
-| M-RoPE | multimodal RoPE | Qwen2-VL 的三维（时间/高/宽）位置编码 |
-| packing | — | 把多条样本拼成一个序列用 mask 隔开的 batch 技巧 |
-| NaFlex | native flexible resolution | SigLIP 2 的原生宽高比、可变分辨率变体 |
-| DocVQA / ChartQA / TextVQA / InfoVQA | — | 文档 / 图表 / 场景文字 / 信息图问答 benchmark |
-| MMBench / MathVista / VQAv2 / OCRBench | — | 综合评测 / 数学图形 / 图片问答 / OCR 评测 |
-| SFT | supervised fine-tuning | 监督微调，用指令数据训练模型 |
-| NFNet | normalizer-free network | Flamingo 用的无归一化 CNN 编码器 |
-| OCR | optical character recognition | 光学字符识别，读出图里的文字 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览：三个设计选择、一张对照表
 
 ### 1. 主流 VLM 的结构选择
@@ -116,9 +83,9 @@ image token 与文本同价：同样的 attention、同样的 KV`"]
 
 先回答上面的第一个问题：LLaVA 的一个 MLP 与 BLIP-2 的 Q-Former 相差什么？两者差在**信息瓶颈的位置**。
 
-MLP（multi-layer perceptron，多层感知机——两层线性变换夹一个非线性激活的小网络）对每个 patch 特征独立做一个映射：576 个 patch 进去、576 个 token 出来，空间结构与全部信息保留，代价是 token 多。
+MLP（多层感知机——两层线性变换夹一个非线性激活的小网络）对每个 patch 特征独立做一个映射：576 个 patch 进去、576 个 token 出来，空间结构与全部信息保留，代价是 token 多。
 
-Q-Former（querying Transformer——BLIP-2 提出的 connector，用一组可学习的 query 向量通过 cross-attention 从图像特征里抽取信息）用 32 个可学习的 query 对全部 patch 做 cross-attention，把任意数量的 patch 压成 32 个 token：token 少，但 32 个向量装不下一张图的细节——尤其是 OCR、小物体、精确位置。
+Q-Former（BLIP-2 提出的 connector，用一组可学习的 query 向量通过 cross-attention 从图像特征里抽取信息）用 32 个可学习的 query 对全部 patch 做 cross-attention，把任意数量的 patch 压成 32 个 token：token 少，但 32 个向量装不下一张图的细节——尤其是 OCR、小物体、精确位置。
 
 常见的说法「query 与内容无关、没有自适应」要说准：固定的是 query 的**个数与初始向量**，attention 权重 $$QK^\top$$ 随每张图的 key 变化，读出的内容当然随图变——在第二章的 toy 代码里，同一个 query 把两个 patch 的 key 对调，输出从 3.48 变成 6.52。它的真正限制是**预算固定**（32 个槽位分给整张图）与**空间结构丢失**。
 
