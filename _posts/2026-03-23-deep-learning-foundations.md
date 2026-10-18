@@ -43,6 +43,10 @@ Transformer 的每一层都靠这条恒等通路，Pre-Norm 与 Post-Norm 的全
 Table: 系列覆盖的模型演进史、六个训练动力学问题与三类结构
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="deep-learning-foundations" %}
+
 ## 一个深度网络由哪些部件组成
 
 把十篇正文压到一张图上，就是一条前向链加一条训练回路：
