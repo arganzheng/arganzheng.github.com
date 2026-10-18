@@ -4,6 +4,7 @@ title: "LoRA 专题：SFT 的默认微调方式，从低秩假设到多租户服
 subtitle: "LoRA, the Default Way to Fine-Tune: From the Low-Rank Hypothesis to Multi-Tenant Serving — Series Overview"
 tags: [AI, LLM, LoRA, Post-Training, peft]
 catalog: true
+updated: 2026-09-30
 ---
 
 > **更新 @2026-09-30**：本系列的实验用 **peft 0.21.1**（Parameter-Efficient Fine-Tuning）、**trl 1.14.1**（Transformer Reinforcement Learning）、**transformers 5.17.0**、**bitsandbytes 0.50.2**、**PyTorch 2.14（CPU）**，模型是本地缓存的 Qwen2.5-0.5B，数据是 HuggingFaceH4/no_robots。文中的参数名（`r`、`lora_alpha`、`target_modules`、`use_rslora`、`init_lora_weights`……）以这组版本为准；LoRA 的数学与账目不随版本变。

@@ -6,6 +6,7 @@ subtitle: "Inside transformers, Part 1: from_pretrained, the Decoder Stack, Atte
 tags: [Hugging Face, transformers, PyTorch, LLM, AI]
 catalog: true
 date: 2026-05-22 12:00:00
+updated: 2026-09-30
 ---
 
 > **更新 @2026-09-30**：本文对着 **transformers 5.17.0**（2026-09-09 发布）的源码读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。文中的文件路径、类名、函数名以该版本为准，不引用行号；transformers 的目录结构改得很快，读别的版本时请以本地源码对照——找入口的方法不变。

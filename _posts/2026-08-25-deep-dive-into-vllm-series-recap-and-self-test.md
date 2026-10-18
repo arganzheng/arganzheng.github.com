@@ -6,7 +6,7 @@ subtitle: "Deep Dive into vLLM: Series Recap and Final Self-Test"
 tags: [AI, AI-Infra, Inference]
 catalog: true
 date: 2026-08-25 20:00:00
-updated: 2026-10-01
+updated: 2026-10-18
 ---
 
 十五篇正文回答了一个问题：**一个文本生成请求，为什么会演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统——vLLM 又是怎样把它组织起来的**。前三篇定义问题、立尺子、画全景；第四到第七篇是单机上的三个战场（调度、KV Cache、GPU 执行）加上解码这一步的三种扩展；第八到第九篇沿规模线扩到多卡与多实例（PD 分离），第十到第十二篇看模型生态、请求形态、异构硬件三种变化各停在哪一层；第十三篇望向集群级的系统，第十四篇回到源码把每个抽象落到对象、状态变化与调用链上，第十五篇用同一套框架对照 SGLang。十五篇反复回到同一个请求算账：Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token。
@@ -467,7 +467,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先定义 workload：服务对象是持续生成过程，输入 / 输出长度未知，Prefill compute-bound、Decode memory-bound（第一篇）；(2) 再定尺子：TTFT / TPOT / ITL / Goodput，指标映射到阶段（第二篇）；(3) 画全景：控制面 / 数据面分离，Scheduler 决策、ModelRunner 执行、之间只传元数据（第三篇）；(4) 四个核心问题——这一轮谁执行多少（token 级调度）、状态放哪怎么复用（分页 KV + Prefix Cache）、怎么算得更快（四种浪费）、怎么扩出去（TP/PP/EP/CP/DP）；(5) 两个横切约束：模型在变、硬件在变，要有分层的适配边界。
+   **答案要点**：(1) 先定义 workload：服务对象是持续生成过程，输入 / 输出长度未知，Prefill compute-bound、Decode memory-bound（第一篇）；(2) 再定尺子：TTFT / TPOT / ITL / Goodput，指标映射到阶段（第二篇）；(3) 画全景：控制面 / 数据面分离，Scheduler 决策、ModelRunner 执行、之间只传元数据（第三篇）；(4) 四个核心问题——这一轮谁执行多少（token 级调度）、状态放哪怎么复用（分页 KV + Prefix Cache）、怎么算得更快（四种浪费）、怎么扩出去（TP/PP/EP/CP/DP）；(5) 两个横切约束：模型在变、请求形态在变、硬件在变，要有分层的适配边界。
    **追问方向**：为什么调度单位是 token；KV Cache 为什么是第一号内存问题；什么时候需要 PD 分离。
    **好答案与一般答案的区别**：一般答案罗列 PagedAttention、continuous batching 等名词；好答案先从 workload 推出约束，再说每个机制解决哪个约束。
 
@@ -555,6 +555,6 @@ Table: 掌握程度的判据
 
 回到总纲：[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)。
 
-[^q0]: 四个核心问题加两个横切约束：这一轮谁执行、执行多少（token 级调度、Chunked Prefill、准入与抢占）；历史状态放哪、怎么复用、何时释放（分页 KV、Prefix Cache、GQA / MLA / FP8）；已经确定要算的 token 怎么算得更快（四种浪费：CUDA Graph、FlashAttention 与融合、量化、投机解码，以及采样 / 结构化输出对这一步的扩展）；一张卡不够怎么扩（TP / PP / EP / CP / DP、PD 分离、集群级的状态平面与编排）；模型在变、硬件在变时变化停在哪一层（三层适配、五层硬件边界）。再加上能把每个概念落到源码里的对象、状态变化与调用链，以及把同一套框架用到第二个引擎（SGLang）上、分清出发点与时间差。详见[第二章](#二逐篇回顾)。
+[^q0]: 四个核心问题加三个横切约束：这一轮谁执行、执行多少（token 级调度、Chunked Prefill、准入与抢占）；历史状态放哪、怎么复用、何时释放（分页 KV、Prefix Cache、GQA / MLA / FP8）；已经确定要算的 token 怎么算得更快（四种浪费：CUDA Graph、FlashAttention 与融合、量化、投机解码，以及采样 / 结构化输出对这一步的扩展）；一张卡不够怎么扩（TP / PP / EP / CP / DP、PD 分离、集群级的状态平面与编排）；模型、请求形态、硬件在变时变化停在哪一层（三层适配、multi-LoRA 与多模态、五层硬件边界）。再加上能把每个概念落到源码里的对象、状态变化与调用链，以及把同一套框架用到第二个引擎（SGLang）上、分清出发点与时间差。详见[第二章](#二逐篇回顾)。
 [^q1]: 贯穿全文的请求：Llama-3-70B 每 token KV 320 KB（每层 4 KB）、请求 734 MB、权重每卡 17.6 GB、拐点 295 FLOP/B、Prefill 算力下界 37 ms（40% MFU 约 92 ms）、Decode 一步带宽下界 5.3 ms、实测约 10 ms；TPOT = (E2E − TTFT) / (N − 1)，Goodput 按请求计、三项"与"；2050 token 按 512 切 5 段；`block_size` 16、一块每卡 640 KB、2000 token 125 块全命中；旧系统有效 KV 20.4%–38.2%；MHA → GQA-8 → FP8 是 2.56 MB → 320 KB → 160 KB；capture sizes [1, 2, 4] + 8 步进 + 16 步进、默认 FULL_AND_PIECEWISE；投机解码分界约 300 token / 步 / 卡、batch 1 约 2.1×、batch 128 每步慢 1.9 倍；TP8 每层 2 次 all-reduce、每步 160 次；8 个 rank-16 LoRA 槽位 1.44 GB / 卡；一张图 KV 约 encoder 输出的 20 倍；PD 交接 2048 token 640 MiB、400 Gb/s 共享链路 13.42 ms。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

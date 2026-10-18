@@ -4,6 +4,7 @@ title: "读 Hugging Face 源码：从 from_pretrained 到 GRPO 的 loss（总纲
 subtitle: "Reading the Hugging Face Source: transformers, tokenizers, datasets, peft and trl, One Call Chain at a Time"
 tags: [Hugging Face, transformers, peft, trl, LoRA, AI]
 catalog: true
+updated: 2026-10-18
 ---
 
 > **更新 @2026-09-30**：本系列对着 **transformers 5.17.0**（2026-09-09 发布）、**tokenizers 0.23.2**、**datasets 5.0.1**、**peft 0.21.0**、**trl 1.13.0** 的源码读，模型用本地缓存的 Qwen2.5-0.5B。文中的文件路径、类名、函数名以这组版本为准，不引用行号；读别的版本请以本地源码对照——找入口的方法不变。
@@ -49,7 +50,7 @@ Table: 本文用到的术语与缩写
 
 ## 内容简介
 
-《读 Hugging Face 源码》是一组共四篇的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 两层的**深入篇**。[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA（Low-Rank Adaptation）SFT（supervised fine-tuning），并在末尾说「读源码是最快的路」，列了六个入口；读者问：既然代码量不大，能不能把这几个入口真的读一遍？本系列就是那一遍。
+《读 Hugging Face 源码》是一组共四篇的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 两层的**深入篇**。[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA（Low-Rank Adaptation）SFT（supervised fine-tuning），并在末尾列了六个读源码的入口。本系列沿这六个入口，把源码读一遍。
 
 它回答的问题是：
 
@@ -57,7 +58,13 @@ Table: 本文用到的术语与缩写
 
 Hugging Face 的五个库加起来几十万行，本系列不通读，只沿**一次 LoRA SFT 会走到的调用链**读：模型怎么加载、一次前向怎么走到 loss、`generate` 的循环长什么样、文本怎么变成 `input_ids`、数据怎么从 Arrow 文件到一个 batch、LoRA 怎么挂到 `nn.Linear` 上、SFT 的 `-100` 在哪一步填、DPO（Direct Preference Optimization）与 GRPO（Group Relative Policy Optimization）的公式各是哪十几行。每一篇的写法相同：先用一张调用链图给出骨架，再逐段贴源码——只贴那一段真正在做事的几行，其余用文件名 + 函数名指路——最后把它与本地图前面各层的公式或结构图对上。
 
-举一个例子说明这个系列的取法。「LoRA 是给权重加一个低秩增量 $$BA$$」是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的数学；到了源码里它是三件可查验的事：（一）`inject_adapter` 用 `named_modules` 逐个匹配 `target_modules`，命中的 `nn.Linear` 被 `setattr` 换成 `lora.Linear`，`all-linear` 会排除 `lm_head`；（二）`update_layer` 建 `lora_A`（kaiming）与 `lora_B`（全零），`scaling = α/r`——所以训练开始时增量恰好为零；（三）`forward` 只多一行 `result + lora_B(lora_A(dropout(x))) * scaling`，先算瘦的那一半，永远不物化 $$BA$$。Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`state_dict` 里只有 adapter。
+举一个例子说明这个系列的取法。「LoRA 是给权重加一个低秩增量 $$BA$$」是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的数学；到了源码里它是三件可查验的事：
+
+1. `inject_adapter` 用 `named_modules` 逐个匹配 `target_modules`，命中的 `nn.Linear` 被 `setattr` 换成 `lora.Linear`，`all-linear` 会排除 `lm_head`；
+2. `update_layer` 建 `lora_A`（kaiming）与 `lora_B`（全零），`scaling = α/r`——所以训练开始时增量恰好为零；
+3. `forward` 只多一行 `result + lora_B(lora_A(dropout(x))) * scaling`，先算瘦的那一半，永远不物化 $$BA$$。
+
+Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`state_dict` 里只有 adapter。
 
 系列覆盖的范围是那六行代码的四段，每段一篇：
 

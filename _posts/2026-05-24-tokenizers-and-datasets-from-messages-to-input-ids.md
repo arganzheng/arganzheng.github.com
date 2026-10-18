@@ -6,6 +6,7 @@ subtitle: "Inside tokenizers and datasets: the Rust Pipeline, Chat Templates, Ar
 tags: [Hugging Face, tokenizers, datasets, LLM, AI]
 catalog: true
 date: 2026-05-24 12:00:00
+updated: 2026-09-30
 ---
 
 > **更新 @2026-09-30**：本文对着 **tokenizers 0.23.2**（Rust 库 + Python 绑定）、**transformers 5.17.0** 的 `tokenization_utils_base.py` / `tokenization_utils_tokenizers.py` / `utils/chat_template_utils.py`、**datasets 5.0.1** 的 `arrow_dataset.py`（7417 行）/ `load.py` / `builder.py` / `iterable_dataset.py` 读，配套脚本在 `ai-learning-labs/hf-source-reading/`，用本地缓存的 Qwen2.5-0.5B tokenizer 与 `HuggingFaceH4/no_robots` 数据集。路径与名字以这些版本为准，不引用行号。

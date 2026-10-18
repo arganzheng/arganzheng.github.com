@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（01）：为什么 LLM Serving 比传统 DL 推理难？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -42,7 +42,7 @@ LLM Serving 则完全不同。一个请求可能携带几十个，也可能携�
 | 三 | Prefill 与 Decode | 两种完全不同的 GPU Workload：计算规模、瓶颈与优化手段 |
 | 四 | 吞吐与时延 | Batch 增大带来的收益与代价，SLO 约束下的权衡 |
 | 五 | 三个根本变化 | 动态执行、带状态推理、混合 Workload |
-| 六 | 阅读地图 | 后续内容围绕的四个核心问题与两个横切约束 |
+| 六 | 阅读地图 | 后续内容围绕的四个核心问题与三个横切约束 |
 | 七 | 一个贯穿全文的例子 | Llama-3-70B / 8×H100 / 2050+300 token 的基础算账 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
@@ -53,19 +53,31 @@ Table: 本文的章节安排
 
 理解 LLM Serving 的第一步，不是从某个具体优化技术开始，而是先看清它与典型传统 DL Serving 在**服务对象**上的差异：**从一次 Forward 到持续生成**。
 
-许多传统深度学习推理任务都可以抽象为“一次请求对应一次前向计算”：请求进入 → 组 Batch → 执行一次 Forward → 返回结果。
+许多传统深度学习推理任务都可以抽象为“一次请求对应一次前向计算”：
+
+```text
+请求进入 → 组 Batch → 执行一次 Forward → 返回结果
+```
 
 即使输入 shape 存在一定变化，系统通常也可以通过 padding、bucketing 或预编译的执行形态，将请求规整为有限几种执行模式。在推理过程中，中间激活一般即可释放。
 
 LLM Serving 则不同。一个请求通常要经历：
 
-1. 请求进入
-2. Prompt Processing / Prefill
-3. 生成第一个 Token
-4. Decode Step 1
-5. Decode Step 2
-6. Decode Step ...
-7. EOS 或达到长度上限
+```text title='一个 LLM 请求要经历的步骤'
+请求进入
+  ↓
+Prompt Processing / Prefill
+  ↓
+生成第一个 Token
+  ↓
+Decode Step 1
+  ↓
+Decode Step 2
+  ↓
+Decode Step ...
+  ↓
+EOS 或达到长度上限
+```
 
 它的输入和输出都具有动态性：
 
@@ -306,7 +318,7 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 
 Table: LLM Serving 的四个核心问题与代码落点
 
-四问之外还有两个**横切约束**：模型在变、硬件在变——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
+四问之外还有三个**横切约束**：模型在变（第 10 篇）、请求形态在变（第 11 篇：一个请求可以带自己的 LoRA、带几张图片）、硬件在变（第 12 篇）——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
 
 ## 七、一个贯穿全文的例子
 
@@ -355,7 +367,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 - Prefill 与 Decode 是两种截然不同的 Workload：前者一次处理 N 个 token、偏 Compute-Bound；后者每步只处理 1 个 token、却要读全部历史 KV、偏 Memory-Bound。两者竞争同一组 GPU 资源，这是 Continuous Batching、Token Budget、Chunked Prefill、抢占与 PD 分离存在的原因。
 - 扩大 Batch 提升吞吐，但会抬高单请求延迟、尾延迟和 KV Cache 压力；目标不是最大 Batch，而是在 SLO 约束下选择合适的执行规模。
 - 归纳为三个根本变化：从静态计算到动态执行、从无状态推理到带状态推理、从单一 Workload 到 Prefill/Decode 混合 Workload。
-- 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加模型与硬件两个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
+- 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加模型、请求形态与硬件三个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
 
 ## 九、自测
 
@@ -395,7 +407,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 
    <details markdown="1"><summary>答案</summary>
 
-   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加模型与硬件两个横切约束。
+   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加模型、请求形态与硬件三个横切约束。
 
    </details>
 

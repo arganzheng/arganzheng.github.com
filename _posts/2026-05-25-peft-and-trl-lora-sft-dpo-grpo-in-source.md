@@ -6,6 +6,7 @@ subtitle: "Inside peft and trl: get_peft_model, the LoRA Linear, SFT Labels and 
 tags: [Hugging Face, peft, trl, LoRA, SFT, DPO, GRPO, AI]
 catalog: true
 date: 2026-05-25 12:00:00
+updated: 2026-09-30
 ---
 
 > **更新 @2026-09-30**：本文对着 **peft 0.21.0**（`tuners/lora/layer.py` 2739 行、`tuners/tuners_utils.py` 2781 行）与 **trl 1.13.0**（`trainer/sft_trainer.py` 1927 行、`dpo_trainer.py` 1823 行、`grpo_trainer.py` 3497 行）读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。trl 是 Hugging Face 几个库里改得最快的一个（一年三十多个版本，`SFTTrainer` 的数据契约改过数次），路径与名字以 1.13.0 为准，不引用行号；读别的版本请以本地源码对照。

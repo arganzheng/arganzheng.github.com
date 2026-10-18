@@ -6,6 +6,7 @@ subtitle: "Inside transformers, Part 2: generate, GenerationConfig, LogitsProces
 tags: [Hugging Face, transformers, LLM, Sampling, AI]
 catalog: true
 date: 2026-05-23 12:00:00
+updated: 2026-09-30
 ---
 
 > **更新 @2026-09-30**：本文对着 **transformers 5.17.0** 的 `generation/` 目录读（`utils.py` 4250 行、`logits_process.py` 3222 行、`stopping_criteria.py` 643 行、`configuration_utils.py` 1892 行），配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。路径与名字以该版本为准，不引用行号。

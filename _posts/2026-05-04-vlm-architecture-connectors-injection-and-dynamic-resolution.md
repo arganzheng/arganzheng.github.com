@@ -5,7 +5,7 @@ title: "多模态（02）：VLM 的结构（下）：connector、注入方式与
 subtitle: "VLM Architecture (II): Connectors, Injection Methods and Resolution Strategies"
 tags: [AI, Multimodal, VLM, 架构]
 catalog: true
-updated: 2026-10-14
+updated: 2026-10-18
 ---
 
 VLM 由四个部件组成：分辨率策略 → 视觉编码器 → connector → 注入方式。上篇《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》讲了视觉编码器，本篇讲其余三个。
@@ -55,24 +55,24 @@ Table: 本文用到的术语与缩写
 
 ### 1. 主流 VLM 的结构选择
 
-| 模型 | 编码器 | connector | 压缩 | 注入 | 分辨率 | 一张图的 token |
+| 模型 | 分辨率 | 编码器 | connector | 压缩 | 注入 | 一张图的 token |
 |---|---|---|---|---|---|---|
-| Flamingo（2022） | NFNet | Perceiver resampler | 固定 64 | cross-attention（gated） | 固定 | 64（不进序列） |
-| BLIP-2（2023） | EVA ViT-g | Q-Former（32 query） | 固定 32 | decoder 序列 | 224 | 32 |
-| LLaVA-1.5（2023） | CLIP-L/14-336 | 2 层 MLP | 无 | decoder 序列 | 336 | 576 |
-| Qwen-VL（2023） | ViT-bigG | cross-attention resampler（256 query） | 固定 256 | decoder 序列 | 448 | 256 |
-| LLaVA-NeXT（2024） | CLIP-L/14-336 | MLP | 无 | decoder 序列 | AnyRes ≤ 4 tile + 全图 | 576 × 5 = 2880 |
-| InternVL 1.5 / 2（2024） | InternViT-6B / 300M | pixel shuffle + MLP | 4× | decoder 序列 | 448 tile ≤ 40 + 缩略图 | 256 / tile |
-| Qwen2-VL（2024） | 675M ViT，2D RoPE | 2×2 merge + MLP | 4× | decoder 序列 | 原生动态 | $$HW / (28^2)$$，可设上下限 |
-| Llama 3.2 Vision（2024） | ViT-H/14 | 投影 | 无 | **cross-attention**（每 4 层插 1 层） | 560，≤ 4 tile | 不进序列 |
-| Idefics3（2024） | SigLIP-SO400M | pixel shuffle | 4× | decoder 序列 | tile | 169 / tile |
-| Molmo（2024） | CLIP-L/14-336 | 2×2 pooling + MLP | 4× | decoder 序列 | tile（≤ 12） | 144 / tile |
-| Gemma 3（2025） | SigLIP-SO400M-896 | 平均池化 | 16× | decoder 序列 | 896 固定 + pan & scan | 256 |
-| Qwen2.5-VL（2025） | 675M ViT，窗口 attention | 2×2 merge + MLP | 4× | decoder 序列 | 原生动态 | 同 Qwen2-VL |
+| Flamingo（2022） | 固定 | NFNet | Perceiver resampler | 固定 64 | cross-attention（gated） | 64（不进序列） |
+| BLIP-2（2023） | 224 | EVA ViT-g | Q-Former（32 query） | 固定 32 | decoder 序列 | 32 |
+| LLaVA-1.5（2023） | 336 | CLIP-L/14-336 | 2 层 MLP | 无 | decoder 序列 | 576 |
+| Qwen-VL（2023） | 448 | ViT-bigG | cross-attention resampler（256 query） | 固定 256 | decoder 序列 | 256 |
+| LLaVA-NeXT（2024） | AnyRes ≤ 4 tile + 全图 | CLIP-L/14-336 | MLP | 无 | decoder 序列 | 576 × 5 = 2880 |
+| InternVL 1.5 / 2（2024） | 448 tile ≤ 40 + 缩略图 | InternViT-6B / 300M | pixel shuffle + MLP | 4× | decoder 序列 | 256 / tile |
+| Qwen2-VL（2024） | 原生动态 | 675M ViT，2D RoPE | 2×2 merge + MLP | 4× | decoder 序列 | $$HW / (28^2)$$，可设上下限 |
+| Llama 3.2 Vision（2024） | 560，≤ 4 tile | ViT-H/14 | 投影 | 无 | **cross-attention**（每 4 层插 1 层） | 不进序列 |
+| Idefics3（2024） | tile | SigLIP-SO400M | pixel shuffle | 4× | decoder 序列 | 169 / tile |
+| Molmo（2024） | tile（≤ 12） | CLIP-L/14-336 | 2×2 pooling + MLP | 4× | decoder 序列 | 144 / tile |
+| Gemma 3（2025） | 896 固定 + pan & scan | SigLIP-SO400M-896 | 平均池化 | 16× | decoder 序列 | 256 |
+| Qwen2.5-VL（2025） | 原生动态 | 675M ViT，窗口 attention | 2×2 merge + MLP | 4× | decoder 序列 | 同 Qwen2-VL |
 
 Table: 主流 VLM 的结构选择
 
-上面这张表（表 1）把 12 个主流 VLM 按四个部件摆在一起看：分辨率策略 → 编码器 → connector → 注入方式。编码器在上篇讲过，本篇讲每一行剩下的三列：connector、注入方式、分辨率策略。下面这张结构图（图 1）把四个部件与两条注入路径画在一起：
+上面这张表（表 1）把 12 个主流 VLM 按四个部件摆在一起看。列的顺序就是一张图走过的顺序：先按分辨率策略缩放或切块，再进编码器，经 connector 映射，最后注入 LLM。编码器在上篇讲过，本篇讲每一行剩下的三列：connector、注入方式、分辨率策略。下面这张结构图（图 1）把四个部件与两条注入路径画在一起：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -102,6 +102,9 @@ image token 与文本同价：同样的 attention、同样的 KV`"]
     class RES,ENC,CON enc
     class SEQ,XA llm
 ```
+
+> [!NOTE]
+> cross-attention 在本篇出现在两个地方，容易混。一处在 connector 里面：resampler / Q-Former 用一组 query 对全部 patch 做 cross-attention，把几百个 patch 压成几十个 token。另一处是注入方式 B：LLM 每隔几层插一层 cross-attention，去读图像特征。所以 cross-attention 不是 connector 的替代品，走 cross-attention 注入的模型也有 connector——表 1 里 Flamingo 用的是 Perceiver resampler，Llama 3.2 Vision 用的是投影。
 
 从上表可以看出三个趋势：
 

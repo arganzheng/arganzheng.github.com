@@ -4,6 +4,7 @@ title: 通信与互联：从 NCCL 到 RDMA（总纲）
 subtitle: Communication and Interconnect for AI-Infra, from NCCL to RDMA
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-06-27
 ---
 
 

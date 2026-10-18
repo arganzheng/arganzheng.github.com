@@ -4,7 +4,7 @@ title: "现代 LLM 结构：从 GPT-2 到今天的演进（总纲）"
 subtitle: "Modern LLM Architecture: From GPT-2 to Today"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-10-11
+updated: 2026-10-18
 comments_path: /transformer-anatomy-and-parameter-count.html
 ---
 
@@ -24,9 +24,9 @@ comments_path: /transformer-anatomy-and-parameter-count.html
 |---|---|---|---|
 | 更长的上下文 | 训练长度之外位置还认不认得；上下文拉长后 KV、prefill 与并发被什么限制 | RoPE 的 base 与 YaRN；GQA / MLA；滑窗、交错、sink、稀疏 attention | 03、04、05 |
 | 放大参数规模、压住每 token 成本 | 参数规模与每 token 算量能不能解耦；每个数能不能少占几个字节 | SwiGLU、GQA / MLA、MoE；FP8 训练与推理 | 01、04、06、10 |
-| 换掉 attention 本身 | 能否不保留逐 token 的全量 K/V，同时保住足够的长程建模能力 | 线性 attention、SSM、线性 / full attention 混合架构 | 05 |
+| 让序列状态不随上下文增长 | 能否不保留逐 token 的全量 K/V，同时保住足够的长程建模能力 | 线性 attention、SSM、线性 / full attention 混合架构 | 05 |
 | 更密的训练信号、更快的生成 | 同一批数据能不能给更多监督；decode 的串行形态能不能打破 | MTP；投机解码 | 07、08 |
-| 模态：输入理解与输出生成 | 图像、视频、音频如何进入模型，又如何从模型生成；成本在哪一环 | vision encoder、connector、cross-attention、离散图像 token、自回归语音与 diffusion | 09 |
+| 模态：输入理解与输出生成 | 图像、视频、音频如何进入模型，又如何从模型生成；成本在哪一环 | vision encoder + connector，图像 token 拼进序列或经 cross-attention 层读入；离散图像 token、自回归语音与 diffusion | 09 |
 
 Table: 现代 LLM 结构系列的五条演进线
 
@@ -97,12 +97,16 @@ Table: 四类成本各由哪个变量决定
 | 输出层 | lm_head 与 `wte` 共享权重 | 大模型不共享 | 词表大小与模型规模的关系 | [01 参数量](/gpt2-to-llama-five-changes-and-parameter-count.html) |
 | 训练目标 | 只预测下一个 token | MTP：同时预测后面几个 | 同一批数据能不能给更多监督 | [07 MTP](/multi-token-prediction-mtp.html) |
 | 解码流程 | 每步一次前向、产出一个 token | 投机解码：草稿 + 一次前向验证多个 | decode 的串行形态能不能打破 | [08 投机解码](/speculative-decoding-draft-verify-and-payoff.html) |
-| 输入模态 | 只有 token embedding | vision encoder + connector，或 cross-attention | 图片怎么变成 decoder 能处理的 token，代价在哪一环 | [09 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
+| 输入模态 | 只有 token embedding | vision encoder + connector，再拼进序列或经 cross-attention 层读入 | 图片怎么变成 decoder 能处理的 token，代价在哪一环 | [09 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
 | 数值格式 | FP32（可选 BF16 autocast） | BF16 训练 → FP8 训练与推理 → MXFP4 / INT4 发布 | 每个数占几个字节，误差在哪里积累 | [10 浮点格式与混合精度](/floating-point-formats-and-mixed-precision.html) |
 
 Table: GPT-2 的槽位、今天的填法与展开它们的篇目——现代 LLM 结构系列的目录就是这张表
 
-两件事值得先说清。其一，**规模不在表里**：从 124M 到 8B、70B、1T，$$d$$、$$L$$、$$V$$ 的放大不换任何槽位，但它决定每一处改动值不值得——GQA 在 124M 的模型上省不出什么，在 70B 上省的是几十 GB 的 KV。规模怎么选是[预训练系列](/pretraining-from-tokenizer-to-training-recipe.html)的 scaling law，规模带来的算量与字节是[第 02 篇](/transformer-flops-bytes-and-roofline.html)。其二，**一处改动可以同时服务两个问题**：GQA 既省 10% 的参数也省 4 倍的 KV，MLA 既是 attention 变体也是长上下文手段。本篇把每处改动放在它**主要回答的问题**所在的线上，并在该篇里说明它的次要收益；读者不必纠结一处改动"属于"哪条线。
+> [!NOTE]
+> 这张表没写出来的两点：
+>
+> - **规模不在表里**：从 124M 到 8B、70B、1T，$$d$$、$$L$$、$$V$$ 的放大不换任何槽位，但它决定每一处改动值不值得——GQA 在 124M 的模型上省不出什么，在 70B 上省的是几十 GB 的 KV。规模怎么选是[预训练系列](/pretraining-from-tokenizer-to-training-recipe.html)的 scaling law，规模带来的算量与字节是[第 02 篇](/transformer-flops-bytes-and-roofline.html)。
+> - **一处改动可以同时服务两个问题**：GQA 既省 10% 的参数也省 4 倍的 KV，MLA 既是 attention 变体也是长上下文手段。本篇把每处改动放在它**主要回答的问题**所在的线上，并在该篇里说明它的次要收益；读者不必纠结一处改动"属于"哪条线。
 
 ## 时间线：这些改动是什么时候、为什么出现的
 {: #二时间线这些改动是什么时候为什么出现的}
@@ -171,7 +175,7 @@ flowchart TB
         direction LR
         B0["dense FFN · MHA<br/>FP32 / BF16"] -->|本篇| B1["RMSNorm · SwiGLU<br/>去 bias"] -->|04| B2["GQA / MQA / MLA<br/>（与线 1 同一处）"] -->|06| B3["MoE：专家 + 路由"] -->|10| B4["FP8 训练与推理<br/>MXFP4 / INT4 发布"]
     end
-    subgraph L3["线 3：换掉 attention 本身"]
+    subgraph L3["线 3：让序列状态不随上下文增长"]
         direction LR
         E0["Full attention<br/>逐 token K/V"] -->|05| E1["Mamba / Jamba<br/>SSM + attention"] -->|05| E2["MiniMax / Qwen3-Next<br/>混合 attention"] -->|05| E3["Kimi Linear<br/>KDA + full attention"]
     end
@@ -181,7 +185,7 @@ flowchart TB
     end
     subgraph L5["线 5：输入理解 + 输出生成"]
         direction LR
-        D0["只有文本 token"] -->|09| D1["输入：vision encoder<br/>connector / cross-attention"] -->|09| D2["输出：图像 token / diffusion<br/>自回归语音"]
+        D0["只有文本 token"] -->|09| D1["输入：vision encoder + connector<br/>拼进序列 / cross-attention 注入"] -->|09| D2["输出：图像 token / diffusion<br/>自回归语音"]
     end
     subgraph AUX["辅线：训练稳定性"]
         direction LR
@@ -191,6 +195,14 @@ flowchart TB
     classDef base fill:#fef3c7,stroke:#b45309;
     class A0,B0,C0,D0,E0,S0 base;
 ```
+
+每条线下面的「演进路径」按出现的先后编号，但编号不都是递进关系：
+
+- 线 1 的前两步是递进，先有 RoPE，才谈得上调 base 和 YaRN；后两步是并列的两类手段，GQA / MLA 压每个 token 的 KV 字节，滑窗、稀疏 attention 改每个 token 能看到的范围。
+- 线 2 的四步是四个独立的杠杆，可以叠着用，DeepSeek-V3 就是 MLA + MoE + FP8 训练。
+- 线 3 是递进，从纯 SSM 走到 SSM 与 attention 混合，再到线性 / full attention 按比例混合。
+- 线 4 的两步并列，放在一起是因为 MTP 模块可以直接当投机解码的草稿。
+- 线 5 的输入、输出是两侧，互不依赖。
 
 ### 1. 更长的上下文（03 → 04 → 05）
 
@@ -232,7 +244,7 @@ flowchart TB
 - `n_routed_experts` / `num_experts_per_tok` / `n_shared_experts`：MoE 的专家数与路由；
 - `torch_dtype` 与 `quantization_config`：权重与计算的位宽。
 
-### 3. 换掉 attention 本身：线性 attention、SSM 与混合架构（05）
+### 3. 让序列状态不随上下文增长：线性 attention、SSM 与混合架构（05）
 
 **问题**：full attention 为每个 token 保留 K/V，cache 随上下文长度 $$T$$ 线性增长；能否把越来越长的历史压进固定大小的递归状态，或只在少数层保留 full attention？
 
@@ -242,7 +254,7 @@ flowchart TB
 2. [Jamba](https://arxiv.org/html/2403.19887)：Mamba 与 Transformer attention 混合；
 3. [MiniMax-01](https://arxiv.org/html/2501.08313)、[Qwen3-Next](https://www.alibabacloud.com/blog/602580)、[Kimi Linear](https://arxiv.org/html/2510.26692)：各自公开的线性 / full-attention 混合比例与折中。
 
-它们的层比例、状态和质量折中将在[第 05 篇的新章节](/long-context-cost-and-structural-remedies.html)里按模型配置逐项核算；MiniMax-M2 选择 full attention 的官方解释也放在那里。
+前两条线都还保留逐 token 的 K/V，只是让它变小、变少；这条线的目标是让模型记住历史所需的状态不再随上下文长度增长。做法是换掉 attention 本身，把大部分层换成线性 attention 或 SSM。它们的层比例、状态和质量折中在[第 05 篇](/long-context-cost-and-structural-remedies.html)第四章「换掉 attention：线性 attention、SSM 与混合架构」里按模型配置逐项核算；MiniMax-M2 选择 full attention 的官方解释也放在那里。
 
 **对应的 config 字段**：
 
@@ -275,7 +287,7 @@ flowchart TB
 
 **演进路径**：
 
-1. 输入侧：vision encoder 加 connector 或 cross-attention，把图片变成 decoder 能处理的 token，并核算 image token 的 KV——[第 09 篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)；更细的视觉架构与训练设计见[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)；
+1. 输入侧：vision encoder 加 connector 把图片变成 decoder 能处理的向量，再选一种注入方式——当作 token 拼进序列，或在 decoder 里插 cross-attention 层去读；并核算 image token 的 KV——[第 09 篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)；更细的视觉架构与训练设计见[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)；
 2. 输出侧：离散图像 token 的自回归步数与 KV、LM 内或旁路的 diffusion、解耦的理解 / 生成路径——[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)与[《从视觉编码器到 diffusion》](/multimodal-from-vision-encoders-to-diffusion.html)；语音 token 的生成成本——[《语音理解、生成与全双工》](/speech-understanding-generation-and-full-duplex.html)。
 
 **对应的 config 字段**：
@@ -333,7 +345,7 @@ flowchart TB
     L --> NORM["RMSNorm"] --> HEAD["lm_head<br/>hidden_size × vocab_size = 4096 × 128256<br/>→ 词表上每个 token 一个分数"]
 ```
 
-图里有两处容易让人停下来的地方：
+图中有两点值得注意：
 
 1. **$$W_Q$$ 是 4096 → 4096 而 $$W_K$$、$$W_V$$ 是 4096 → 1024**：Q 有 32 个头、K 和 V 只有 8 个头（GQA）。每个头都是 128 维，$$32 \times 128 = 4096$$，$$8 \times 128 = 1024$$；推理时每个 K/V 头被 4 个 Q 头共用——第一篇讲这一处为什么改、第四篇讲它省了多少 KV。
 2. **两个 head_dim 128 必须相同吗？** Q 与 K 的必须相同，因为 attention 分数是 $$q \cdot k$$ 的点积，长度不同乘不了；V 的 head_dim 原则上可以不同——它只参与加权求和，输出再由 $$W_O$$ 投回 hidden_size——DeepSeek-V3 的 MLA 就是 Q/K 每头 192 维（128 + 64 维 RoPE 部分）、V 每头 128 维。Llama 这类 GQA 模型三者都取 128，所以 `config.json` 只给一个 `head_dim`。
