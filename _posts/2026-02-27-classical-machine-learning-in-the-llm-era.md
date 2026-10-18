@@ -138,6 +138,10 @@ Table: 各篇的真实数据案例
 案例的数据全部公开、自动下载（openml / UCI / Hugging Face），脚本在 `classical-ml/case_*.py`，CPU 上几秒到几分钟。
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="classical-ml" %}
+
 ## 为什么写这个系列？
 
 ### 方法论比模型活得久
