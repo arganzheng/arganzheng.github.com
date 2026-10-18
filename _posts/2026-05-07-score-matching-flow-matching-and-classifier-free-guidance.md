@@ -5,6 +5,7 @@ title: "多模态（07）：扩散模型（下）：score matching、flow matchi
 subtitle: "Diffusion II: Score Matching, Flow Matching, Noise Schedules, and Classifier-Free Guidance"
 tags: [AI, Multimodal, Diffusion, Generative Models]
 catalog: true
+updated: 2026-10-18
 date: 2026-05-07 20:00:00 +0800
 ---
 
@@ -17,6 +18,8 @@ date: 2026-05-07 20:00:00 +0800
 > **DDPM、score matching、flow matching 为什么是同一件事？[^q0] CFG 的 $$w = 7.5$$ 在数学上意味着什么？[^q1]**
 
 ## 一、总览：三种视角、一个网络
+
+上篇从 DDPM 出发，网络学的是加进去的噪声。这一篇换两个角度看同一个网络：**score（分数）**告诉我，往哪个方向移动会让当前样本更像数据；**velocity（速度）**告诉我，沿着一条从噪声到数据的路径该往哪走。**classifier-free guidance（无分类器引导，CFG）**则用 prompt 把这条去噪路径往条件样本的方向推。
 
 ### 1. 一张对照表
 
@@ -36,20 +39,24 @@ Table: DDPM、score matching 与 flow matching 的对照
 
 CFG 的 $$w = 7.5$$ 意味着**每一步**用的分数被换成了 $$(1-w)\,s_\emptyset + w\,s_c$$——在每个噪声水平上，它是"$$p_t(x \mid c)^{w} / p_t(x)^{w-1}$$ 归一化"这个锐化分布的分数：条件 $$c$$ 下比无条件更可能的区域被放大 $$w$$ 次幂，其他区域被压掉。要说清一点：这个锐化是**逐噪声层**的，把每一层都锐化之后再一路采到 $$t = 0$$，终点分布**不等于**把干净数据分布 $$p_0(x \mid c)$$ 锐化——"先加噪再锐化"与"先锐化再加噪"不交换（第五章给一个一维高斯反例，Bradley & Nakkiran 2024 的结论）。"CFG 采样 $$p(x\mid c)^w/p(x)^{w-1}$$"是一个好用的直觉，不是采样定理。$$w = 1$$ 是原条件分布；$$w = 7.5$$ 让样本强烈偏向"最典型地符合 $$c$$"的模式——保真度与文本一致性上升、多样性下降、颜色饱和度过高（over-saturation）。它是一个**有意的分布改变**，与 《[高效推理与压缩（01）：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html)》的低温采样是同类操作。第五章展开。
 
+把输出换成分数或速度时，公式里会用到哪些量，容易一眼看混。我把上篇的噪声参数化、Tweedie 估计和直线路径的速度放在一张图里。一般的高斯路径写成 $$x_t = \alpha_t x_0 + \sigma_t \epsilon$$；速度 $$v = \epsilon - x_0$$ 则特指 flow matching 的线性路径 $$\alpha_t = 1-t,\ \sigma_t=t$$。
+
+![在高斯路径 x_t = α_t x_0 + σ_t ε 下，噪声、分数与 Tweedie 的 x̂_0 可线性换算；在线性 flow path α_t=1−t、σ_t=t 下，v=ε−x_0，并可由 x_t 与 v 还原噪声和数据](/img/in-post/score-matching-flow-matching-and-classifier-free-guidance-parameterizations.svg)
+
 ### 3. 本文的章节安排
 
 本文按"换一种语言 → 再换一种语言 → 两个工程技术"组织：先把上篇的噪声预测器翻译成"分数"（第二章），再翻译成"速度场"（第三章），每次翻译都在 toy 上验证是同一个东西；然后讲调度（第四章）与 CFG（第五章）。
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | score matching | 分数是什么（把上篇的模型画成箭头图）<br/>Tweedie 公式（toy 验算）<br/>去噪分数匹配 = 噪声预测<br/>SDE 与概率流 ODE |
+| 二 | score matching | 一维高斯混合与二维分数场<br/>Tweedie 公式（toy 验算）<br/>去噪分数匹配 = 加权噪声预测<br/>反向 SDE 与概率流 ODE 的采样步骤 |
 | 三 | flow matching | 直线路径与速度场<br/>toy 上从零训一个（代码）<br/>与 DDPM 的换算<br/>轨迹为什么弯、reflow 怎么拉直（图）<br/>1 / 2 / 5 / 20 步对比（图） |
-| 四 | 噪声调度与时间步采样 | linear / cosine / 零终端 SNR<br/>logit-normal<br/>分辨率与调度的耦合 |
-| 五 | classifier-free guidance | 条件 dropout<br/>从贝叶斯到 $$\tilde\epsilon$$<br/>toy 上 w = 0 / 1 / 2 / 4 / 8（图）<br/>它在采样什么分布<br/>副作用与修正 |
-| 六 | 成本 | 训练与采样的 FLOPs；与 LLM 的对比 |
+| 四 | 噪声调度与时间步采样 | linear / cosine / 零终端 SNR<br/>logit-normal 密度图<br/>分辨率与调度的耦合及经验 shift |
+| 五 | classifier-free guidance | 条件 dropout<br/>从贝叶斯到 $$\tilde\epsilon$$<br/>toy 上 w = 0 / 1 / 2 / 4 / 8（图）<br/>它在采样什么分布<br/>高 guidance 的视觉副作用与修正 |
+| 六 | 成本 | 训练与采样的 FLOPs<br/>每步网络调用数、CFG 倍数与蒸馏<br/>与 LLM 的对比 |
 | 七 | 动手（建议） | CIFAR-10 上 DDPM vs flow matching；配套代码 |
 | 八 | 本文小结 |  |
-| 九 | 自测 | 5 道题 |
+| 九 | 自测 | 7 道题 |
 
 Table: 本文的章节安排
 
@@ -57,29 +64,65 @@ Table: 本文的章节安排
 
 ### 1. 分数
 
-分布 $$p(x)$$ 的**分数**（score）是 $$\nabla_x \log p(x)$$——对数密度的梯度（《[LLM 时代的经典机器学习（03）：逻辑回归与奖励模型——每个分类头的原型](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)》：梯度指向函数上升最快的方向）：在每一点，它是一个箭头，指向"概率密度增加最快"的方向，箭头长度是增加的速率。在数据密集的地方附近，箭头都指向数据。上篇训好的 DDPM 模型可以直接画成这样的箭头图（第 2 节会说明为什么它就是分数）：
+先看一维的分数。设数据来自两个高斯峰，一个在左、一个在右。$$p(x)$$ 是这两个峰叠起来的密度；$$s(x) = \frac{d}{dx}\log p(x)$$ 的正负号表示密度往哪边升高，绝对值表示升高得有多快。离峰很远时，箭头通常指向所在一侧最近的峰，离峰越远，分数的绝对值通常越大；到峰顶时，曲线斜率为零，分数也为零。两峰之间的谷底也是驻点，分数同样为零，但它是局部最小值，左右两侧的箭头会从谷底分别指向两边的峰。
+
+图中的具体混合分布是：
+
+$$
+p_0(x)=\frac{1}{2}\mathcal N(x;-2,0.55^2)
++\frac{1}{2}\mathcal N(x;2,0.55^2)
+$$
+
+两个分量等权，峰分别在 $$-2$$ 和 $$2$$。在左峰左边，例如 $$x=-3$$，密度往右升，分数为正；在右峰右边，例如 $$x=3$$，密度往左升，分数为负。两个峰顶和中间的谷底都给出零分数，但含义不同：峰顶是局部最大，谷底是局部最小。只看分数是否为零，不能判断一个点是不是高概率样本；还要看周围密度如何变化。
+
+下方把这个分布再与标准差为 $$1.7$$ 的高斯噪声卷积。每个峰会从标准差 $$0.55$$ 展宽到 $$\sqrt{0.55^2+1.7^2}$$，两个峰因此大幅重叠，谷底变浅。噪声并没有把数据变成另一种目标；它只是把原本稀疏、断开的区域填平，让附近的分数变化更连续。二维图里也能看到同一个过程：噪声大时箭头比较平滑，噪声小时才开始贴合月牙的轮廓。
+
+![两分量高斯混合的密度 p(x) 与 score 曲线：干净分布有两个窄峰；加入较大高斯噪声后分布变宽、趋于平滑，score 也不再在谷底剧烈变化](/img/in-post/score-matching-flow-matching-and-classifier-free-guidance-score-1d.svg)
+
+更一般地，分布 $$p(x)$$ 的分数写作 $$s(x)=\nabla_x\log p(x)$$，也就是对数密度的梯度；梯度指向函数上升最快的方向（《[LLM 时代的经典机器学习（03）：逻辑回归与奖励模型——每个分类头的原型](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)》）。到了二维，分数就是一个向量，每个位置都有一个箭头，箭头长度表示密度上升的快慢。上篇训好的 DDPM 模型可以直接画成这样的箭头图（第 2 节会说明为什么它就是分数）：
 
 ![三张箭头图，灰点是缩放后的数据：t = 600（σ = 0.99）箭头几乎全部指向中心，均匀而短；t = 300（σ = 0.78）箭头开始朝两个月牙的位置弯；t = 80（σ = 0.26）箭头密集地指向两个月牙的轮廓，离数据越远箭头越长](/img/in-post/multimodal-07-score-field.svg)
 
 怎么读：每个网格点画的是网络在那里算出的分数向量。噪声大（$$t = 600$$）时，带噪分布接近一个大高斯，分数就是"指向原点"；噪声小（$$t = 80$$）时，分数精确地指向月牙。**采样就是顺着箭头走**——知道分数就能采样：Langevin 动力学 $$x \leftarrow x + \frac{\delta}{2} \nabla_x \log p(x) + \sqrt{\delta}\, z$$ 反复迭代收敛到 $$p$$。分数**不需要归一化常数**（$$\nabla \log(p / Z) = \nabla \log p$$），这是它相对于直接建模密度的优势。
 
-问题：数据分布的分数在数据稀疏的区域估计不准，且低维流形上的数据让分数无定义。解法（Song & Ermon 2019）：对数据加不同尺度的高斯噪声，学**每个噪声尺度下**带噪分布 $$p_\sigma(x) = \int p(x_0) \mathcal{N}(x; x_0, \sigma^2 I) dx_0$$ 的分数，从大噪声（分数处处有定义、指向数据的大致方向）到小噪声逐步 Langevin——这就是"扩散"。
+直接估计干净数据的分数有个麻烦：图片大多落在很薄的低维流形附近，流形外的密度接近零，梯度既难从有限样本学出来，也可能数值不稳定。给数据加高斯噪声，相当于用高斯核把原分布平滑开：
+
+$$
+p_\sigma(x) = \int p(x_0)\,\mathcal{N}(x; x_0, \sigma^2 I)\,dx_0
+$$
+
+平滑后，原来互不相连的高密度区域之间有了连续的过渡，分数在更大的空间范围内可估计。大噪声时，分数先告诉我数据大致在哪；噪声变小时，它再补上局部细节。反向采样每一步都要查询当前噪声水平的分数，所以网络要学一整族 $$p_t$$ 的分数，而不是只学干净分布的一个向量场。这就是为什么分数匹配要把时间步或噪声尺度作为网络输入。
 
 ### 2. 去噪分数匹配
 
-怎么学 $$\nabla_x \log p_\sigma(x)$$？Vincent 2011 的去噪分数匹配：
+怎么学 $$\nabla_x \log p_\sigma(x)$$？训练数据给我一对干净样本和加噪样本，所以可以直接写出条件分布。沿用一般高斯路径 $$x_t = \alpha_t x_0 + \sigma_t \epsilon$$，给定 $$x_0$$ 后，$$x_t$$ 是均值为 $$\alpha_t x_0$$、方差为 $$\sigma_t^2 I$$ 的高斯。对这个高斯求分数只要对它的 log-density 求导：
+
+$$
+\begin{aligned}
+\nabla_{x_t}\log p(x_t\mid x_0)
+&= -\frac{x_t-\alpha_t x_0}{\sigma_t^2}
+= -\frac{\epsilon}{\sigma_t},\\
+\epsilon_\theta=-\sigma_t s_\theta
+&\quad\Longrightarrow\quad
+\mathcal L_{\rm DSM}
+= \mathbb E\left\lVert s_\theta+\frac{\epsilon}{\sigma_t}\right\rVert^2
+= \mathbb E\frac{\lVert\epsilon_\theta-\epsilon\rVert^2}{\sigma_t^2}.
+\end{aligned}
+$$
+
+所以噪声目标就是条件高斯分数乘上 $$-\sigma_t$$。DSM 与噪声 MSE 还差一个随时间步变化的权重 $$1/\sigma_t^2$$。因此，DSM 与 DDPM 的 $$\epsilon$$-loss 目标可线性换算，各时间步的权重却不一定相同。Vincent 2011 的去噪分数匹配写成：
 
 $$
 \mathbb{E}_{x_0, \tilde x \sim \mathcal{N}(x_0, \sigma^2 I)} \big\lVert s_\theta(\tilde x, \sigma) - \nabla_{\tilde x} \log \mathcal{N}(\tilde x; x_0, \sigma^2 I) \big\rVert^2
 $$
 
-即让网络匹配**条件**分布 $$p(\tilde x \mid x_0)$$ 的分数（这个是显式的高斯，分数 $$= -(\tilde x - x_0) / \sigma^2 = -\epsilon / \sigma$$），可以证明它的最优解等于**边缘**分布 $$p_\sigma$$ 的分数（对 $$x_0$$ 积分后一致）。于是
+即让网络匹配**条件**分布 $$p(\tilde x \mid x_0)$$ 的分数。这个目标可计算，因为 $$x_0$$ 是训练样本、噪声也是我们自己抽的。网络看见 $$\tilde x$$ 时并不知道具体是哪一个 $$x_0$$，所以 MSE 的最优输出是所有可能 $$x_0$$ 对应条件分数的平均；对条件分布积分后，这个平均正好是**边缘**分布 $$p_\sigma$$ 的分数。换句话说，训练时用的是已知的条件分数，学到的却是我们真正需要的带噪数据分数。回到加性噪声记号：
 
 $$
 s_\theta(\tilde x, \sigma) \approx -\frac{\epsilon}{\sigma} \quad \Longleftrightarrow \quad \epsilon_\theta = -\sigma\, s_\theta
 $$
 
-**去噪分数匹配就是噪声预测**，差一个 $$-\sigma$$ 的因子。DDPM 的 $$\epsilon_\theta$$ 学的正是 $$-\sqrt{1 - \bar\alpha_t}\, \nabla_{x_t} \log p_t(x_t)$$。
+**去噪分数匹配就是噪声预测**，差一个 $$-\sigma$$ 的因子。DDPM 的 $$\epsilon_\theta$$ 学的正是 $$-\sqrt{1 - \bar\alpha_t}\, \nabla_{x_t} \log p_t(x_t)$$；若把 DSM 与噪声 MSE 直接比较，还要注意前面那项随 $$t$$ 变化的权重。
 
 ### 3. Tweedie 公式
 
@@ -90,6 +133,18 @@ $$
 $$
 
 后验均值等于观测加 $$\sigma^2$$ 倍的分数——"最好的去噪结果 = 带噪点沿分数方向走 $$\sigma^2$$ 那么远"。用 toy 验算（$$t = 300$$，DDPM 的记号里 $$x_t = \sqrt{\bar\alpha_t} x_0 + \sigma_t \epsilon$$，所以走完还要除以 $$\sqrt{\bar\alpha_t}$$）：
+
+在一般路径 $$x_t=\alpha_t x_0+\sigma_t\epsilon$$ 下，对应的去噪估计是 $$\hat x_0=(x_t+\sigma_t^2 s_\theta)/\alpha_t$$。若网络预测噪声，代入 $$s_\theta=-\epsilon_\theta/\sigma_t$$，就得到 $$\hat x_0=(x_t-\sigma_t\epsilon_\theta)/\alpha_t$$。这正是上篇 DDPM 采样循环里每一步用来估计干净图像的量；Tweedie 解释了这一步为什么能从分数算出来。
+
+分母 $$\alpha_t$$ 来自观测坐标的缩放。令 $$y=x_t/\alpha_t$$，它就变成 $$y=x_0+(\sigma_t/\alpha_t)\epsilon$$。在 $$y$$ 上套用加性高斯噪声的 Tweedie 公式，再用链式法则换回 $$x_t$$：
+
+$$
+\mathbb E[x_0\mid x_t]
+=y+\frac{\sigma_t^2}{\alpha_t^2}\nabla_y\log p_y(y)
+=\frac{x_t+\sigma_t^2\nabla_{x_t}\log p_t(x_t)}{\alpha_t}.
+$$
+
+如果 $$\alpha_t=1$$，坐标没有缩放，这个结果就退回 $$\tilde x+\sigma^2s$$。在 DDPM 里，信号系数随时间变化，所以不能漏掉最后的除法。
 
 ```text title="Tweedie 公式的 toy 验算"
 真实 x_0 = [-0.45 -0.17]，带噪 x_t = [ 0.81 -1.31]，x_t + σ²·s 再除以 √ᾱ = [ 0.53 -0.85]
@@ -105,19 +160,32 @@ $$
 dx = f(x, t)\, dt + g(t)\, dw
 $$
 
+可以把它看成 DDPM 的连续极限：每一步变得无限小，漂移项 $$f\,dt$$ 负责确定性的缩放，布朗运动增量 $$g\,dw$$ 负责这一步新加的随机噪声。对 VP（variance preserving）路径，参数选成让信号与噪声总方差保持在同一尺度。
+
 DDPM 对应 VP（variance preserving）SDE：$$f = -\frac{1}{2}\beta(t) x$$，$$g = \sqrt{\beta(t)}$$；Song & Ermon 的 NCSN 对应 VE（variance exploding）SDE。Anderson 1982 的结果：这个 SDE 有一个时间反向的 SDE
 
 $$
 dx = \big[f(x, t) - g(t)^2 \nabla_x \log p_t(x)\big] dt + g(t)\, d\bar w
 $$
 
-从 $$x_T \sim p_T$$ 反向解它，得到 $$x_0 \sim p_0$$。它只需要分数——正是网络学的东西。更进一步，存在一个**确定性**的 ODE 与这个 SDE 有相同的边缘分布 $$p_t$$：
+沿反向时间从 $$x_T\sim p_T$$ 积分到 $$x_0$$ 时，漂移里多出一项由分数决定的修正；每一步还会继续抽新的布朗噪声 $$d\bar w$$。分数告诉反向漂移该往哪走，随机项则让同一个起点仍有多条可能轨迹。反向 SDE 只需要网络估计的分数，不需要知道真实密度本身。
+
+更进一步，存在一个**确定性**的 ODE 与这个 SDE 有相同的边缘分布 $$p_t$$：
 
 $$
 \frac{dx}{dt} = f(x, t) - \frac{1}{2} g(t)^2 \nabla_x \log p_t(x)
 $$
 
-这是**概率流 ODE**。DDIM 的 $$\eta = 0$$ 正是它的一种离散化。有了 ODE，采样就是数值积分——可以用任何高阶求解器（Heun、DPM-Solver 利用了 ODE 的半线性结构做指数积分，10–20 步达到 DDIM 50 步的质量）。
+这是**probability-flow ODE（概率流 ODE）**。它没有每一步新抽的随机噪声；给定初始噪声和求解器，轨迹是确定的，但每个时刻的整体样本分布仍与反向 SDE 相同。DDIM 的 $$\eta=0$$ 可以看作这一概率流的一种离散化。确定性轨迹可以交给数值 ODE 求解器，不限于固定步长的 Euler；Heun、DPM-Solver 等方法利用了更高阶信息或 ODE 结构，可能用更少的网络调用达到相近误差。
+
+相同边缘分布不表示同一张图沿两种方法会走同一条路。反向 SDE 每一步都加入新随机量，同一初始点可以得到不同轨迹；ODE 没有这项噪声，同一起点和同一求解器对应确定的轨迹。Heun 这类高阶方法还可能在一个时间区间里多次查询网络，所以时间表上的“步数”不总等于实际前向次数。
+
+用 ODE 采样时，我会按这个顺序做：
+
+1. 选求解器和一组时间点，例如 Euler、Heun 或 DPM-Solver。
+2. 从终端噪声分布抽一个 $$x_T$$。
+3. 每一步把当前 $$x_t,t$$（以及条件 $$c$$）送进网络；若网络输出的是 $$\epsilon$$ 或 $$v$$，先换成求解器需要的分数或速度。
+4. 用求解器更新到下一个时间点，直到回到数据端。采样路径和少步数结果见[第三章第 3 节](#三flow-matching直线的视角)。
 
 至此三种视角汇合了两种：DDPM 的噪声预测 = 分数的负 $$\sigma$$ 倍；DDPM 的采样 = 反向 SDE 的离散化；DDIM = 概率流 ODE 的离散化。
 
@@ -165,6 +233,8 @@ $$
 \epsilon = x_t + (1 - t)\, v, \qquad x_0 = x_t - t\, v, \qquad s = -\frac{\epsilon}{t} = -\frac{x_t + (1-t) v}{t}
 $$
 
+前两项可以直接从线性路径解出来。把 $$\epsilon=x_0+v$$ 代入 $$x_t=(1-t)x_0+t\epsilon$$，得到 $$x_t=x_0+tv$$，所以 $$x_0=x_t-tv$$；再代回 $$\epsilon=x_0+v$$，就是 $$\epsilon=x_t+(1-t)v$$。分数关系随后由 $$s=-\epsilon/\sigma_t$$ 和 $$\sigma_t=t$$ 得到。
+
 （直线路径下 $$\sigma_t = t$$。）所以 flow matching 的 $$v$$-预测与 DDPM 的 $$\epsilon$$-预测学的是同一个信息，训练损失只差一个与 $$t$$ 有关的权重（$$\lVert v - v_\theta \rVert^2 = \lVert \epsilon - \epsilon_\theta \rVert^2 / (1-t)^2$$ 一类）。Kingma & Gao 2023 把这些损失统一成"加权的 ELBO"——在**高斯路径**（$$x_t = a_t x_0 + b_t \epsilon$$、噪声与数据独立配对）这个前提下，不同方法的差别归结为对不同噪声水平的加权、坐标 / 时间的重参数化与端点的选择。前提要记住：一般的 flow matching 允许非高斯路径与非独立 coupling（例如 OT 配对的 reflow），那些不在"同一个分数的不同参数化"之列。这是核心问题前半的答案。
 
 ### 3. 为什么直线让步数少
@@ -200,6 +270,8 @@ reflow 后**一步**就生成出两个月牙（0.030），而 DDIM 一步是灾�
 
 另一个实用的好处：直线路径下 $$t$$ 的语义直接——$$t = 0.5$$ 就是"一半数据一半噪声"——调度设计更直观（第四章）。
 
+步数很少时，积分器只在少数位置观察速度场。长时间间隔中的轨迹弯曲和局部误差来不及修正。增加步数通常会改善数值积分，但网络调用也会线性增加。reflow 从训练阶段降低轨迹弯曲；蒸馏直接训练少步学生。
+
 ## 四、噪声调度与时间步采样
 
 ### 1. 调度决定"什么噪声水平被学得多"
@@ -213,11 +285,33 @@ reflow 后**一步**就生成出两个月牙（0.030），而 DDIM 一步是灾�
 
 ### 2. 时间步采样：logit-normal
 
-flow matching 的 $$t \sim U[0, 1]$$ 让所有噪声水平等权。SD3 发现**中间的 $$t$$** 更难也更重要（两端要么几乎是数据要么几乎是噪声，预测容易），于是用 **logit-normal** 采样：$$t = \sigma(u)$$，$$u \sim \mathcal{N}(0, 1)$$，让 $$t$$ 集中在 0.5 附近。消融显示它优于均匀采样与几种其他方案。
+flow matching 的 $$t\sim U[0,1]$$ 会让每个等宽时间区间被抽到的概率相同。logit-normal 先抽一个正态数，再用 sigmoid 把它压到 $$0$$ 和 $$1$$ 之间：
+
+$$
+u\sim\mathcal N(\mu,s^2),\qquad t=\operatorname{sigmoid}(u),\qquad
+p(t)=\frac{1}{s\,t(1-t)}\,
+\phi\!\left(\frac{\operatorname{logit}(t)-\mu}{s}\right)
+$$
+
+这里的 $$p(t)$$ 是变量变换后的密度，因子 $$1/[t(1-t)]$$ 是 Jacobian。以 $$\mu=0,s=1$$ 为例，密度在 $$t=0.5$$ 附近高于均匀分布，在两端更低。中间的样本同时保留结构和噪声，模型要判断哪些结构该留下、哪些噪声该去掉。SD3 在 rectified-flow 训练中报告了这种采样优于均匀采样和若干备选方案（Esser 等，2024，[SD3 论文](https://arxiv.org/abs/2403.03206)）。
+
+参数 $$\mu$$ 移动 log-odds 时间里的采样重心，$$s$$ 控制分布宽度。$$\mu=0$$ 时，密度关于 $$0.5$$ 对称。减小 $$s$$ 会把抽样集中到中段，增大 $$s$$ 会提高两端的概率。靠近数据端时，输入接近干净样本；靠近噪声端时，结构很弱。中段同时保留结构和噪声，模型要分辨两者各自的贡献。
+
+![均匀时间步采样与 logit-normal 时间步采样的密度对比；logit-normal 在中间噪声水平抽样更多，在两端抽样更少](/img/in-post/score-matching-flow-matching-and-classifier-free-guidance-logit-normal.svg)
 
 ### 3. 分辨率与调度的耦合
 
-同一个噪声水平在不同分辨率下的"破坏程度"不同：$$1024^2$$ 的图加 $$\sigma = 1$$ 的噪声，相邻像素平均后噪声被抵消一部分，图的低频结构仍清晰；$$256^2$$ 的图加同样的噪声几乎看不出内容。所以高分辨率需要**更多噪声**才能达到同样的破坏。SD3 的做法：把时间步按分辨率**平移**（shift），$$t_{new} = \frac{\alpha t}{1 + (\alpha - 1) t}$$，$$\alpha = \sqrt{m / n}$$（$$m$$、$$n$$ 是两个分辨率的 token 数）——$$1024^2$$ 相比 $$256^2$$ token 数是 16 倍，公式给 $$\alpha = 4$$；SD3 实际用的 $$\alpha = 3$$ 是在人评上扫出来的经验值，论文自己也说公式只给量级。FLUX 沿用（并在采样时也做动态平移）。Simple Diffusion（Hoogeboom 等 2023）更早提出了同样的调度缩放。这是从 $$256^2$$ 到 $$1024^2$$ 直接训练（不用超分级联）成为可能的原因之一。
+图像分辨率变高时，新增像素不等于新增独立信息。相邻像素和 latent patch 往往相关，局部轮廓、颜色块会跨多个位置延续。我用这个现象理解调度 shift：相同时间步在高分辨率输入里可能留下更多可利用的空间结构。
+
+SD3 的做法是按分辨率平移时间步：
+
+$$
+t_{\rm new}=\frac{\alpha t}{1+(\alpha-1)t},\qquad \alpha=\sqrt{m/n}
+$$
+
+$$m,n$$ 分别是目标与基准分辨率的 token 数。以 $$256^2$$ 到 $$1024^2$$ 为例，token 数比是 $$16$$，公式给出 $$\alpha=4$$。当 $$\alpha>1$$ 时，中间时间点会移向更大的 $$t$$，在线性 flow path 上也就是更多噪声。SD3 根据人评结果采用 $$\alpha=3$$。FLUX 也使用分辨率相关的 shift，并在采样时动态调整。更早的 Simple Diffusion（Hoogeboom 等，2023）研究了同类的高分辨率调度缩放。分辨率改变后，训练和采样使用的噪声时间分布也要重新校准。
+
+代入基准时间 $$t=0.5$$、$$\alpha=4$$，得到 $$t_{\rm new}=0.8$$。在线性路径上，同一索引对应更靠近噪声端的样本。高分辨率输入的局部相关性可能让相同强度的噪声仍留下更多轮廓，因此有些配方会把时间步往噪声端平移。
 
 ## 五、classifier-free guidance
 
@@ -254,7 +348,7 @@ w = 8：100.0%，标准差 0.417
 
 ![五张散点图，灰色是全部数据、红色是指定「类 0」生成的样本：w = 0 红点铺满两个月牙；w = 1 红点基本在上面的月牙上、少数落到下面；w = 2 全在上月牙、覆盖整条弧；w = 4 集中在上月牙中段；w = 8 红点被推到月牙外侧、末端甩出一撮离群点](/img/in-post/multimodal-07-cfg.svg)
 
-$$w = 0$$ 无条件，两个月牙各一半；$$w = 1$$ 是纯条件采样，95% 在对的月牙上但有 5% 漏到另一边；$$w = 2$$ 几乎全对且仍覆盖整条弧；$$w = 4$$ 全对，但样本挤到月牙中段——**多样性开始下降**（标准差 0.60 → 0.35）；$$w = 8$$ 样本被推到数据之外、甩出离群点——这就是文生图里"过饱和"的二维版本：外推走过了头，落到了训练分布没有的地方。
+$$w = 0$$ 时是无条件采样，两个月牙各占一半。$$w = 1$$ 时是纯条件采样，95% 落在目标月牙，5% 落错边。$$w = 2$$ 时几乎全对，仍覆盖整条弧。$$w = 4$$ 时样本挤到月牙中段，多样性开始下降（标准差 0.60 → 0.35）。$$w = 8$$ 时样本被推到数据之外，甩出离群点。文生图里的过饱和也是这种外推过头：样本落到训练分布之外。
 
 ### 2. 它在采样什么分布
 
@@ -270,14 +364,16 @@ $$
 
 ### 3. 副作用与修正
 
-- **过饱和与过曝**：$$w$$ 大时 $$\tilde\epsilon$$ 的范数超出训练分布，像素值被推出 $$[-1, 1]$$，颜色饱和、对比过强。修正：**动态阈值**（Imagen：每步把预测的 $$\hat x_0$$ 按分位数裁剪再缩放）；**CFG rescale**（Lin 等 2024：把 $$\tilde\epsilon$$ 的标准差缩回 $$\epsilon_c$$ 的标准差）。
-- **多样性坍缩**：同一 prompt 的样本趋同。修正：**区间 guidance**（Kynkäänniemi 等 2024：只在中间噪声水平用 guidance，两端 $$w = 1$$——大噪声时 guidance 破坏多样性、小噪声时无益）；**自适应 $$w$$**。
-- **两倍成本**：每步两次前向（条件与无条件）。修正：**CFG 蒸馏**（Meng 等 2023：训一个直接输出 $$\tilde\epsilon$$ 的学生，$$w$$ 作为输入）；FLUX.1-dev 与 schnell 就是 guidance 蒸馏过的模型，只需一次前向、$$w$$ 作为条件输入。
-- **负 prompt**：把 $$\emptyset$$ 换成一段"不想要的描述"$$c^-$$，$$\tilde\epsilon = \epsilon(c^-) + w(\epsilon(c) - \epsilon(c^-))$$——沿"远离 $$c^-$$、靠近 $$c$$"的方向外推。这是社区里"negative prompt"的数学。
+$$w$$ 越大，条件方向的外推越远。文生图里，颜色会过浓，亮部或暗部会被压死。局部对比也会变强。继续增大时，物体边缘可能出现光晕或不自然纹理，画面也会偏向训练分布外的“典型 prompt 样本”。同一个 prompt 换随机种子后，构图和细节也可能趋同。
+
+- **过饱和与过曝**：$$w$$ 大时，$$\tilde\epsilon$$ 的范数可能超出训练分布。反复更新会让预测的 $$\hat x_0$$ 越出合理像素范围，造成颜色饱和、对比过强。**动态阈值**（Imagen）在每一步按 $$\hat x_0$$ 绝对值的高分位数确定缩放范围。它先裁剪极端值，再缩回正常区间，避免少数值拉坏整张图的亮度范围。**CFG rescale**（Lin 等，2024）比较 guided 与 conditional 噪声预测的标准差，再把前者缩回后者附近，保留引导方向并限制幅度。
+- **多样性坍缩**：同一 prompt 的种子更容易收敛到类似构图，细节变化变少。**区间 guidance**（Kynkäänniemi 等，2024）只在中间噪声区间使用较强 guidance，两端退回 $$w=1$$。这样，大噪声阶段能留下更多整体布局；小噪声阶段也不容易把局部纹理反复推向同一种样式。**自适应 $$w$$** 根据时间步或当前预测幅度逐步调小 guidance，避免固定的大权重从头到尾作用在采样上。
+- **两倍成本**：常规 CFG 每步分别计算条件和无条件预测。**CFG 蒸馏**（Meng 等，2023）用教师的两次预测训练学生。学生一次前向就能近似 $$\tilde\epsilon$$，并把 $$w$$ 作为输入条件。FLUX.1-dev 与 schnell 都使用 guidance distillation，推理时只需一次前向。
+- **负 prompt**：把空条件 $$\emptyset$$ 换成一段“不想要的描述”$$c^-$$，$$\tilde\epsilon = \epsilon(c^-) + w(\epsilon(c) - \epsilon(c^-))$$。这样模型沿着远离负 prompt、靠近正 prompt 的方向外推；它并不是从结果里逐字删除负 prompt 提到的物体，也不能保证绝对排除它们。
 
 ### 4. guidance scale 的典型值
 
-SD 1.x / 2.x：7.5；SDXL：5–7；SD3：3.5–7（rectified flow 下需要的 $$w$$ 更小）；FLUX.1-dev（蒸馏）：3.5；Imagen：动态阈值下可到 10+。$$w$$ 与模型、调度、是否蒸馏耦合，不可跨模型比较——与 《[高效推理与压缩（01）：解码策略、采样与约束生成](/decoding-strategies-sampling-and-constrained-generation.html)》的温度同理。
+SD 1.x / 2.x：7.5；SDXL：5–7；SD3：3.5–7（rectified flow 下常用的 $$w$$ 较小）；FLUX.1-dev（蒸馏）：3.5；Imagen：使用动态阈值时可到 10+。这些数是各模型家族的经验起点；不同实现的 $$w$$ 定义和采样配置有差异，数值不能直接横向比较。
 
 ## 六、成本
 
@@ -287,7 +383,24 @@ SD 1.x / 2.x：7.5；SDXL：5–7；SD3：3.5–7（rectified flow 下需要的 
 
 ### 2. 采样
 
-一张图 = 步数 × 每步前向（CFG 下 ×2）。SD 1.5：50 步 × 2 × 0.8 = 80 TFLOPs，A100 上约 2–3 秒；SDXL（2.6B U-Net，$$128^2$$ latent）：约 5 倍。与 LLM 对比：生成 1000 个 token 的 7B LLM 是 $$2 \times 7B \times 1000 = 14$$ TFLOPs 的算力但 memory-bound、约 20–30 秒；一张 SD 图是它的 5 倍 FLOPs 却只要 3 秒——扩散模型的每步是一次大 batch 的 GEMM（整张图的所有 patch 并行），**compute-bound、没有 KV cache、没有自回归的串行**。这是扩散模型服务与 LLM 服务形态不同的根源，下一篇展开。
+先把网络的一次前向记成 $$F$$，采样器实际调用网络 $$N$$ 次，那么不带 CFG 的采样量约为 $$N F$$。每一步普通 CFG 要得到有条件和无条件两个预测，约为 $$2NF$$；有些实现把两份输入沿 batch 维拼起来，一次调用 U-Net，但 batch 变成两倍，计算量仍大致相同，只是可能少一些调用开销。批处理不会把两份预测变成一次预测。
+
+所以一张图的主要成本可以先粗算成：
+
+$$
+\text{采样 FLOPs}\ \approx\ \text{采样步数}\times
+\begin{cases}
+1 & \text{无 CFG 或已蒸馏}\\
+2 & \text{每步常规 CFG}
+\end{cases}
+\times F
+$$
+
+实际估算时，我会数网络被查询几次，而不是只数时间表上有几个点。Euler 通常每个区间查一次；Heun 这类高阶方法可能在区间内多查一次来修正方向。CFG 又让每次查询包含条件和无条件两份输入。把两份输入拼成 batch=2 可以减少调用开销，但模型仍要算两份数据，FLOPs 不会因此减半。硬件利用率会影响真实耗时，所以这个公式适合做同配置下的成本比较，不等于精确秒数。
+
+SD 1.5：50 步 × 2 × 0.8 = 80 TFLOPs，A100 上约 2–3 秒；SDXL（2.6B U-Net，$$128^2$$ latent）：约 5 倍。若换用 guidance distillation，可以省掉每步第二份预测；少步蒸馏和更高阶 ODE solver 则减少网络调用次数。这两种优化分别减少“每步算几次”和“总共走几步”，细节留给后续的蒸馏章节。
+
+与 LLM 对比：生成 1000 个 token 的 7B LLM 是 $$2 \times 7B \times 1000 = 14$$ TFLOPs 的算力但 memory-bound、约 20–30 秒；一张 SD 图是它的 5 倍 FLOPs 却只要 3 秒——扩散模型的每步是一次大 batch 的 GEMM（整张图的所有 patch 并行），**compute-bound、没有 KV cache、没有自回归的串行**。这是扩散模型服务与 LLM 服务形态不同的根源，下一篇展开。
 
 ## 七、动手（建议）
 
@@ -306,16 +419,17 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 
 | 项 | 公式 | 备注 |
 |---|---|---|
-| 分数 | $$s = \nabla \log p_t$$，指向密度上升最快的方向；去噪分数匹配 = 噪声预测，$$\epsilon = -\sigma s$$ | toy：DDPM 模型画成箭头图，箭头指向月牙 |
-| Tweedie | $$\mathbb{E}[x_0 \mid x_t] = x_t + \sigma^2 s$$ | 去噪 = 沿分数走一步；给的是后验均值 |
-| SDE / ODE | 反向 SDE $$dx = [f - g^2 s] dt + g\, d\bar w$$；概率流 ODE $$dx = [f - \frac{1}{2} g^2 s] dt$$ | 任意求解器；DPM-Solver 10–20 步 |
+| 分数 | $$s = \nabla \log p_t$$，指向密度上升最快的方向；DSM 目标 $$-\epsilon/\sigma$$ | 一维混合高斯先看峰与谷；加噪让稀疏区域的分数更平滑 |
+| 参数化 | $$s=-\epsilon/\sigma_t$$；$$\hat x_0=(x_t+\sigma_t^2s)/\alpha_t$$；线性路径 $$v=\epsilon-x_0$$ | 不同输出可线性换算；速度公式依赖直线路径 |
+| Tweedie | $$\mathbb{E}[x_0 \mid x_t] = (x_t + \sigma_t^2 s)/\alpha_t$$ | DDPM 采样循环里的 $$\hat x_0$$ 是沿分数修正后的后验均值 |
+| SDE / ODE | 反向 SDE $$dx = [f - g^2 s] dt + g\, d\bar w$$；概率流 ODE $$dx = [f - \frac{1}{2} g^2 s] dt$$ | 边缘分布相同；ODE 确定，可用数值求解器 |
 | flow matching | $$x_t = (1-t) x_0 + t \epsilon$$，$$\mathcal{L} = \lVert v_\theta - (\epsilon - x_0) \rVert^2$$ | 条件速度的期望 = 边缘速度；与 $$\epsilon$$ 线性换算 |
 | 统一 | 所有损失 = 加权 ELBO，差别只在噪声水平的权重与路径形状 | Kingma & Gao 2023 |
 | 直线 | 随机配对 → 边缘轨迹弯（toy 直线度 0.49）；reflow 在 ODE 配对上重训 → 1.00，一步采样 0.030 | SD3 / FLUX 20–30 步；5 步时 FM 0.041 vs DDIM 0.099 |
-| 调度 | cosine<br/>零终端 SNR<br/>logit-normal 采 $$t$$<br/>分辨率平移 $$\alpha = \sqrt{m/n}$$ | 高分辨率需更多噪声 |
+| 调度 | cosine<br/>零终端 SNR<br/>logit-normal 采 $$t$$<br/>分辨率平移 $$\alpha = \sqrt{m/n}$$ | logit-normal 增加中段采样；resolution shift 是经验校准 |
 | CFG | $$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$；每个噪声层 $$\propto p_t(x) p_t(c \mid x)^w$$，终点不是 $$p_0$$ 的幂分布 | toy：$$w$$ 1 → 4 命中 95% → 100%、标准差 0.60 → 0.35；$$w = 8$$ 甩出分布外 |
-| 修正 | 过饱和 → 动态阈值 / rescale<br/>多样性 → 区间 guidance<br/>两倍成本 → CFG 蒸馏 | FLUX-dev 是蒸馏过的 |
-| 成本 | 训练每样本一个 $$t$$<br/>采样步数 × 2（CFG）× 前向<br/>compute-bound、无 KV | SD 1.5 一张图 80 TFLOPs、3 秒 |
+| 修正 | 过饱和 → 动态阈值 / rescale<br/>多样性 → 区间 guidance<br/>两倍成本 → CFG 蒸馏 | 分别控制数值范围、guidance 时间区间与前向次数 |
+| 成本 | 训练每样本一个 $$t$$<br/>采样步数 × 每步前向数 × 单次前向成本<br/>compute-bound、无 KV | 常规 CFG 每步两份预测；蒸馏可改成一份 |
 
 Table: score matching、flow matching 与 CFG 的公式小结
 
@@ -358,6 +472,22 @@ Table: score matching、flow matching 与 CFG 的公式小结
    <details markdown="1"><summary>答案</summary>
 
    后验均值是"所有可能产生 $$x_t$$ 的 $$x_0$$ 的平均"，噪声大时可能的 $$x_0$$ 很多，平均是一张模糊的图（toy 上落在月牙的中间）。每一步只朝均值走一小段、再让下一步在更低的噪声水平上重新估计，逐步细化才得到清晰的样本——直线度高的模型（reflow 后）例外，因为它的一步就是整条路。
+
+   </details>
+
+6. 为什么 score matching 不只学习干净数据的分数？DSM 训练时又为什么不需要知道边缘分布 $$p_t$$？
+
+   <details markdown="1"><summary>答案</summary>
+
+   干净样本集中在低维流形附近，流形外的密度极低，分数难以从有限数据估计；加噪把分布平滑开，采样时则需要网络在每个噪声水平都给出分数。训练时给定 $$x_0$$ 和人为采样的噪声，就能算出条件高斯分数 $$-\epsilon/\sigma_t$$；MSE 的最优预测是这些条件分数在给定 $$x_t$$ 下的平均，等于边缘分数。
+
+   </details>
+
+7. 概率流 ODE 与反向 SDE 的采样有什么区别？若用普通 CFG 采样 $$N$$ 步，网络大约要做多少次前向？
+
+   <details markdown="1"><summary>答案</summary>
+
+   反向 SDE 每一步仍抽新的随机噪声；概率流 ODE 不加新噪声，给定初始点后轨迹确定，但两者每个时刻的边缘分布相同。普通 CFG 每步要分别算无条件和有条件预测，所以约为 $$2N$$ 次前向；若把两份输入拼进一个 batch，调用次数可能少一些，但算术量仍接近两份预测。
 
    </details>
 
