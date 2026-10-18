@@ -5,7 +5,7 @@ title: "后训练（06）：Agent 与工具调用的 RL：多轮环境、轨迹�
 subtitle: "Agentic RL: Multi-Turn Environments, Trajectory Data and Delayed Rewards"
 tags: [AI, LLM, Post-Training, RLHF, Agent]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 第五篇的模型一次生成到底：读 prompt，想几千 token，给答案，验证器打分。真实的任务不长这样。修一个 GitHub issue 要读文件、改代码、跑测试、看报错、再改；回答一个需要查资料的问题要搜索、读结果、再搜索；操作一个系统要发命令、看输出、决定下一步。模型的一段输出之后是**环境的**输出，模型再基于它继续——几轮到几十轮之后，任务才有结果，奖励才能算。
@@ -71,16 +71,7 @@ Table: 本文的章节安排
 
 一条 $$T$$ 轮的轨迹：
 
-```text title="T 轮轨迹与第 t 轮开始时的上下文布局"
-τ = (s_0, a_0, o_0, a_1, o_1, …, a_{T-1})              o_t 是环境对 a_t 的返回
-
-上下文（第 t 轮开始时）：
-┌────────────┬────────┬─────────┬────────┬─────────┬─────┬─────────┐
-│ system+工具 │ 用户任务 │ a_0     │ o_0    │ a_1     │ …   │ o_{t-1} │
-│  schema    │        │ 模型生成 │ 环境返回 │ 模型生成 │     │ 环境返回 │
-└────────────┴────────┴─────────┴────────┴─────────┴─────┴─────────┘
-    mask=0      mask=0   mask=1    mask=0    mask=1          mask=0
-```
+![T 轮轨迹与第 t 轮开始时的上下文布局](/img/in-post/agentic-rl-tool-use-environments-and-trajectories-context-layout.svg)
 
 底行的 mask 就是第六章的全部内容：**只有 $$a_t$$ 是策略的输出**，loss 与对数概率只在它们上面算。
 

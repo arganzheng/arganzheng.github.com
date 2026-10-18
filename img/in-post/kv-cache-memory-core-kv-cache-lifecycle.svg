@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="700" viewBox="0 0 760 700" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">KV Cache 生命周期全景</title>
+<rect width="760" height="700" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker></defs>
+<text x="380" y="30" font-size="17" fill="#222222" text-anchor="middle" font-weight="700" >KV Cache 生命周期全景</text>
+<rect x="16" y="44" width="356" height="190" rx="7" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<rect x="388" y="44" width="356" height="190" rx="7" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<text x="194" y="68" font-size="14" fill="#234b70" text-anchor="middle" font-weight="700" >Prefill 阶段</text>
+<text x="566" y="68" font-size="14" fill="#216437" text-anchor="middle" font-weight="700" >Decode 阶段</text>
+<text x="32" y="93" font-size="12.5" fill="#334155" text-anchor="start" font-weight="600" >prompt tokens:</text>
+<text x="32" y="113" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >[t₁, t₂, ..., tₙ]</text>
+<line x1="194" y1="117" x2="194" y2="132" stroke="#64748b" stroke-width="1.3" marker-end="url(#arrow)"/>
+<rect x="30" y="136" width="328" height="90" rx="5" fill="#eef4fb" stroke="#5b84a6" stroke-width="1.2" />
+<text x="44" y="158" font-size="12.5" fill="#234b70" text-anchor="start" font-weight="600" >批量写入 KV Cache 块</text>
+<text x="44" y="180" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >Block 0: [t₁~t₁₆]</text>
+<text x="44" y="198" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >Block 1: [t₁₇~t₃₂]</text>
+<text x="44" y="216" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >Block 2: [t₃₃~tₙ]</text>
+<text x="406" y="93" font-size="12.5" fill="#334155" text-anchor="start" font-weight="600" >每步 1 个新 token:</text>
+<text x="406" y="113" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >[tₙ₊₁], [tₙ₊₂], ...</text>
+<line x1="566" y1="117" x2="566" y2="132" stroke="#64748b" stroke-width="1.3" marker-end="url(#arrow)"/>
+<rect x="406" y="145" width="320" height="70" rx="5" fill="#f0f7f1" stroke="#5c9468" stroke-width="1.2" />
+<text x="566" y="170" font-size="13" fill="#216437" text-anchor="middle" font-weight="600" >增量追加 1 个 slot</text>
+<text x="566" y="195" font-size="12.5" fill="#333333" text-anchor="middle" font-weight="400" >Block 2: 追加 tₙ₊₁</text>
+<rect x="16" y="248" width="728" height="230" rx="7" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2" />
+<text x="34" y="274" font-size="14" fill="#222222" text-anchor="start" font-weight="700" >Attention 读取</text>
+<text x="34" y="301" font-size="12.5" fill="#334155" text-anchor="start" font-weight="600" >Block Table (虚拟→物理映射):</text>
+<text x="52" y="324" font-size="12.5" fill="#234b70" text-anchor="start" font-weight="400" >req_42 → [PhyBlock_7, PhyBlock_13, PhyBlock_21]</text>
+<text x="34" y="353" font-size="12.5" fill="#334155" text-anchor="start" font-weight="600" >Attention Kernel 通过 Block Table 索引读取:</text>
+<text x="52" y="373" font-size="11.5" fill="#475569" text-anchor="start" font-weight="400" font-family="SFMono-Regular, Consolas, monospace">for each query position:</text>
+<text x="52" y="391" font-size="11.5" fill="#475569" text-anchor="start" font-weight="400" font-family="SFMono-Regular, Consolas, monospace">for each block in block_table[req]:</text>
+<text x="70" y="409" font-size="11.5" fill="#475569" text-anchor="start" font-weight="400" font-family="SFMono-Regular, Consolas, monospace">K_block = kv_cache[block_id, :, :key_heads, :]</text>
+<text x="70" y="427" font-size="11.5" fill="#475569" text-anchor="start" font-weight="400" font-family="SFMono-Regular, Consolas, monospace">V_block = kv_cache[block_id, :, :val_heads, :]</text>
+<text x="70" y="445" font-size="11.5" fill="#475569" text-anchor="start" font-weight="400" font-family="SFMono-Regular, Consolas, monospace">score += Q @ K_blockᵀ</text>
+<text x="70" y="463" font-size="11.5" fill="#475569" text-anchor="start" font-weight="400" font-family="SFMono-Regular, Consolas, monospace">attn_out = softmax(scores) @ V_blocks</text>
+<rect x="16" y="492" width="728" height="190" rx="7" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<text x="34" y="519" font-size="14" fill="#222222" text-anchor="start" font-weight="700" >生命周期终结</text>
+<text x="38" y="549" font-size="13" fill="#234b70" text-anchor="start" font-weight="700" >请求完成:</text>
+<text x="52" y="574" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >Scheduler → KVCacheManager.free(request)</text>
+<text x="52" y="595" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ ref_cnt-- 对所有块</text>
+<text x="52" y="616" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ ref_cnt == 0 的块归还 free_block_queue</text>
+<text x="52" y="637" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ 有 block_hash 的块进入 LRU 缓存（Prefix Cache）</text>
+<text x="52" y="658" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ 无 hash 的块立即回收</text>
+<line x1="378" y1="542" x2="378" y2="664" stroke="#cbd5e1" stroke-width="1"/>
+<text x="398" y="549" font-size="13" fill="#b42318" text-anchor="start" font-weight="700" >抢占:</text>
+<text x="412" y="574" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ 释放所有块</text>
+<text x="412" y="595" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ num_computed_tokens = 0 （需从头重算）</text>
+<text x="412" y="616" font-size="11.7" fill="#334155" text-anchor="start" font-weight="400" >→ 但 Prefix Cache 命中可跳过部分重算</text>
+</svg>

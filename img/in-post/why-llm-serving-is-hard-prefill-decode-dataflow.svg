@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="606" viewBox="0 0 760 606" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">Prefill 与 Decode 的数据流对照</title>
+<rect width="760" height="606" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker></defs>
+<rect x="16" y="18" width="356" height="570" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<rect x="388" y="18" width="356" height="570" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<text x="194" y="48" font-size="16" fill="#234b70" text-anchor="middle" font-weight="700" >Prefill 数据流</text>
+<text x="566" y="48" font-size="16" fill="#216437" text-anchor="middle" font-weight="700" >Decode 数据流</text>
+<text x="34" y="79" font-size="13" fill="#334155" text-anchor="start" font-weight="600" >input_ids:</text>
+<text x="34" y="101" font-size="13" fill="#333333" text-anchor="start" font-weight="400" >[t₁, t₂, t₃, ..., tₙ]</text>
+<text x="34" y="121" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >(N 个 Prompt Token 并行输入)</text>
+<line x1="194" y1="128" x2="194" y2="143" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="32" y="148" width="142" height="112" rx="5" fill="#eef4fb" stroke="#5b84a6" stroke-width="1.2" />
+<text x="103" y="172" font-size="14" fill="#234b70" text-anchor="middle" font-weight="600" >QKV Proj</text>
+<text x="44" y="198" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >Q: [N, H, d]</text>
+<text x="44" y="219" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >K: [N, Hkv, d]</text>
+<text x="44" y="240" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >V: [N, Hkv, d]</text>
+<line x1="174" y1="205" x2="202" y2="205" stroke="#2f6f9f" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="174" y1="232" x2="202" y2="232" stroke="#2f6f9f" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="188" y="197" font-size="10" fill="#234b70" text-anchor="middle" font-weight="600" >K</text>
+<text x="188" y="224" font-size="10" fill="#234b70" text-anchor="middle" font-weight="600" >V</text>
+<rect x="204" y="148" width="150" height="112" rx="5" fill="#f0f7f1" stroke="#5c9468" stroke-width="1.2" />
+<text x="279" y="176" font-size="14" fill="#216437" text-anchor="middle" font-weight="600" >KV Cache</text>
+<text x="279" y="203" font-size="12.5" fill="#333333" text-anchor="middle" font-weight="400" >(N 个新位置)</text>
+<text x="279" y="227" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >(批量写入 Prompt)</text>
+<rect x="32" y="276" width="322" height="102" rx="5" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="46" y="301" font-size="12.5" fill="#333333" text-anchor="start" font-weight="600" >Attention: 逻辑上计算 Q × Kᵀ</text>
+<text x="46" y="322" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >和 Attention × V</text>
+<text x="46" y="346" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >实际通常由 FlashAttention 等 Kernel</text>
+<text x="46" y="365" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >分块完成</text>
+<line x1="194" y1="379" x2="194" y2="393" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="32" y="400" width="322" height="65" rx="5" fill="#fff9e9" stroke="#c98a00" stroke-width="1.2" />
+<text x="46" y="426" font-size="12.5" fill="#333333" text-anchor="start" font-weight="600" >只取最后 1 个 Position 的 Logits</text>
+<text x="46" y="449" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >→ Sampling → 第 1 个 Output Token</text>
+<rect x="32" y="482" width="322" height="82" rx="5" fill="#f6f7f8" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="46" y="510" font-size="12.5" fill="#333333" text-anchor="start" font-weight="600" >特征: Compute-Bound 倾向</text>
+<text x="46" y="536" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >高 GPU 利用率，大矩阵 GEMM</text>
+<text x="406" y="79" font-size="13" fill="#334155" text-anchor="start" font-weight="600" >input_ids:</text>
+<text x="406" y="101" font-size="13" fill="#333333" text-anchor="start" font-weight="400" >[tₙ₊ₖ]</text>
+<text x="406" y="121" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >(1 个新 Token 输入)</text>
+<line x1="566" y1="128" x2="566" y2="143" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="404" y="148" width="142" height="112" rx="5" fill="#eef4fb" stroke="#5b84a6" stroke-width="1.2" />
+<text x="475" y="172" font-size="14" fill="#234b70" text-anchor="middle" font-weight="600" >QKV Proj</text>
+<text x="416" y="198" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >q: [1, H, d]</text>
+<text x="416" y="219" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >k: [1, Hkv, d]</text>
+<text x="416" y="240" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >v: [1, Hkv, d]</text>
+<line x1="546" y1="205" x2="574" y2="205" stroke="#2f6f9f" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="546" y1="232" x2="574" y2="232" stroke="#2f6f9f" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="560" y="197" font-size="10" fill="#234b70" text-anchor="middle" font-weight="600" >k</text>
+<text x="560" y="224" font-size="10" fill="#234b70" text-anchor="middle" font-weight="600" >v</text>
+<rect x="576" y="148" width="150" height="112" rx="5" fill="#f0f7f1" stroke="#5c9468" stroke-width="1.2" />
+<text x="651" y="176" font-size="14" fill="#216437" text-anchor="middle" font-weight="600" >KV Cache</text>
+<text x="651" y="203" font-size="12.5" fill="#333333" text-anchor="middle" font-weight="400" >(1 个新位置)</text>
+<text x="651" y="227" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >(增量写入 / 追加)</text>
+<rect x="404" y="276" width="322" height="102" rx="5" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="418" y="301" font-size="12.5" fill="#333333" text-anchor="start" font-weight="600" >Attention: q × K_historyᵀ → × V</text>
+<text x="418" y="326" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >(读取全部历史 KV)</text>
+<rect x="404" y="400" width="322" height="65" rx="5" fill="#fff9e9" stroke="#c98a00" stroke-width="1.2" />
+<text x="418" y="426" font-size="12.5" fill="#333333" text-anchor="start" font-weight="600" >Logits → Sampling</text>
+<text x="418" y="449" font-size="12.5" fill="#333333" text-anchor="start" font-weight="400" >→ 下一个 Output Token</text>
+<rect x="404" y="482" width="322" height="82" rx="5" fill="#f6f7f8" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="418" y="510" font-size="12.5" fill="#333333" text-anchor="start" font-weight="600" >特征: Memory-Bound 倾向</text>
+<text x="418" y="536" font-size="12" fill="#333333" text-anchor="start" font-weight="400" >单请求并行度低，大量 HBM 读取</text>
+</svg>

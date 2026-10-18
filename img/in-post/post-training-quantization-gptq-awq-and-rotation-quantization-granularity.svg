@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="490" viewBox="0 0 760 490" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">三种量化粒度的 (s, z) 共享范围</title>
+<rect width="760" height="490" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker></defs>
+<text x="380" y="30" font-size="13" fill="#334155" text-anchor="middle" font-weight="600" >d_in（归约维 k）</text>
+<line x1="130" y1="37" x2="626" y2="37" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="18" y="56" width="724" height="116" rx="7" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<text x="34" y="81" font-size="13" fill="#234b70" text-anchor="start" font-weight="700" >per-tensor</text>
+<text x="240" y="81" font-size="13" fill="#333333" text-anchor="start" font-weight="400" >整个矩阵共用一个 (s, z)</text>
+<text x="620" y="81" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >元数据 1 个</text>
+<rect x="36" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="69" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="102" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="135" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="168" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="201" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="234" y="96" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="36" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="69" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="102" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="135" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="168" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="201" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<rect x="234" y="121" width="31" height="22" rx="1" fill="#dceaf7" stroke="#7a9cc6" stroke-width="1.2" />
+<path d="M274 96 H284 V143 H274" fill="none" stroke="#234b70" stroke-width="1.4"/>
+<text x="298" y="124" font-size="12" fill="#234b70" text-anchor="start" font-weight="700" >(s, z)</text>
+<rect x="18" y="184" width="724" height="139" rx="7" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<text x="34" y="210" font-size="13" fill="#234b70" text-anchor="start" font-weight="700" >per-channel</text>
+<text x="240" y="210" font-size="13" fill="#333333" text-anchor="start" font-weight="400" >每行共享一个 (s, z)</text>
+<text x="620" y="210" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >元数据 d_out 个</text>
+<text x="620" y="232" font-size="12" fill="#334155" text-anchor="middle" font-weight="400" >(W_Q: 4096 个)</text>
+<rect x="36" y="224" width="360" height="22" rx="1" fill="#e1f0df" stroke="#91a28d" stroke-width="1.2" />
+<text x="46" y="240" font-size="11.5" fill="#333333" text-anchor="start" font-weight="400" >行 0 ······················ (s₀, z₀)</text>
+<rect x="36" y="252" width="360" height="22" rx="1" fill="#fcebd6" stroke="#91a28d" stroke-width="1.2" />
+<text x="46" y="268" font-size="11.5" fill="#333333" text-anchor="start" font-weight="400" >行 1 ······················ (s₁, z₁)</text>
+<text x="46" y="296" font-size="11.5" fill="#333333" text-anchor="start" font-weight="400" >...</text>
+<rect x="18" y="335" width="724" height="140" rx="7" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" />
+<text x="34" y="357" font-size="13" fill="#234b70" text-anchor="start" font-weight="700" >per-group  g=128</text>
+<text x="620" y="359" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >每行 d_in/g 组</text>
+<text x="620" y="383" font-size="12" fill="#334155" text-anchor="middle" font-weight="400" >元数据 d_out·d_in/g</text>
+<text x="620" y="405" font-size="12" fill="#334155" text-anchor="middle" font-weight="400" >(W_Q: 4096×32</text>
+<text x="620" y="426" font-size="12" fill="#334155" text-anchor="middle" font-weight="400" >= 131072 个)</text>
+<text x="79.0" y="379" font-size="10.5" fill="#64748b" text-anchor="middle" font-weight="400" >g=128</text>
+<text x="169.0" y="379" font-size="10.5" fill="#64748b" text-anchor="middle" font-weight="400" >g=128</text>
+<text x="259.0" y="379" font-size="10.5" fill="#64748b" text-anchor="middle" font-weight="400" >g=128</text>
+<rect x="36" y="386" width="86" height="34" rx="1" fill="#e1f0df" stroke="#91a28d" stroke-width="1.2" />
+<text x="79.0" y="408" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >(s00,z00)</text>
+<rect x="126" y="386" width="86" height="34" rx="1" fill="#e1f0df" stroke="#91a28d" stroke-width="1.2" />
+<text x="169.0" y="408" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >(s01,z01)</text>
+<rect x="216" y="386" width="86" height="34" rx="1" fill="#e1f0df" stroke="#91a28d" stroke-width="1.2" />
+<text x="259.0" y="408" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >(s02,z02)</text>
+<rect x="306" y="386" width="86" height="34" rx="1" fill="#e1f0df" stroke="#91a28d" stroke-width="1.2" />
+<text x="349.0" y="408" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >...</text>
+<rect x="36" y="426" width="86" height="34" rx="1" fill="#fcebd6" stroke="#91a28d" stroke-width="1.2" />
+<text x="79.0" y="448" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >(s10,z10)</text>
+<rect x="126" y="426" width="86" height="34" rx="1" fill="#fcebd6" stroke="#91a28d" stroke-width="1.2" />
+<text x="169.0" y="448" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >(s11,z11)</text>
+<rect x="216" y="426" width="86" height="34" rx="1" fill="#fcebd6" stroke="#91a28d" stroke-width="1.2" />
+<text x="259.0" y="448" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >(s12,z12)</text>
+<rect x="306" y="426" width="86" height="34" rx="1" fill="#fcebd6" stroke="#91a28d" stroke-width="1.2" />
+<text x="349.0" y="448" font-size="11.5" fill="#333333" text-anchor="middle" font-weight="400" >...</text>
+</svg>

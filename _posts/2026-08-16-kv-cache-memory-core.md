@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（05）：KV Cache：LLM Serving 的第一号内存问题
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -224,54 +224,7 @@ T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**
 
 上一章讲的是「块从哪来」，这一章讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
 
-``` title="KV Cache 生命周期全景"
-                     KV Cache 生命周期全景
-
-  ┌─────── Prefill 阶段 ──────┐   ┌────── Decode 阶段 ──────┐
-  │                            │   │                          │
-  │  prompt tokens:            │   │  每步 1 个新 token:       │
-  │  [t₁, t₂, ..., tₙ]       │   │  [tₙ₊₁], [tₙ₊₂], ...   │
-  │       │                    │   │       │                  │
-  │       ▼                    │   │       ▼                  │
-  │  ┌─────────────────┐      │   │  ┌──────────┐           │
-  │  │ 批量写入 KV     │      │   │  │ 增量追加  │           │
-  │  │ Cache 块        │      │   │  │ 1 个 slot │           │
-  │  │                 │      │   │  │           │           │
-  │  │ Block 0: [t₁~t₁₆]│   │   │  │ Block 2:  │           │
-  │  │ Block 1: [t₁₇~t₃₂]│  │   │  │ 追加 tₙ₊₁ │           │
-  │  │ Block 2: [t₃₃~tₙ] │   │   │  └──────────┘           │
-  │  └─────────────────┘      │   │                          │
-  └────────────────────────────┘   └──────────────────────────┘
-
-  ┌─────── Attention 读取 ──────────────────────────────────┐
-  │                                                         │
-  │  Block Table (虚拟→物理映射):                            │
-  │  req_42 → [PhyBlock_7, PhyBlock_13, PhyBlock_21]       │
-  │                                                         │
-  │  Attention Kernel 通过 Block Table 索引读取:             │
-  │  for each query position:                               │
-  │    for each block in block_table[req]:                  │
-  │      K_block = kv_cache[block_id, :, :key_heads, :]    │
-  │      V_block = kv_cache[block_id, :, :val_heads, :]    │
-  │      score += Q @ K_blockᵀ                              │
-  │    attn_out = softmax(scores) @ V_blocks               │
-  └─────────────────────────────────────────────────────────┘
-
-  ┌─────── 生命周期终结 ────────────────────────────────────┐
-  │                                                         │
-  │  请求完成:                                               │
-  │    Scheduler → KVCacheManager.free(request)             │
-  │    → ref_cnt-- 对所有块                                  │
-  │    → ref_cnt == 0 的块归还 free_block_queue              │
-  │    → 有 block_hash 的块进入 LRU 缓存（Prefix Cache）     │
-  │    → 无 hash 的块立即回收                                 │
-  │                                                         │
-  │  抢占:                                                   │
-  │    → 释放所有块                                          │
-  │    → num_computed_tokens = 0 （需从头重算）               │
-  │    → 但 Prefix Cache 命中可跳过部分重算                   │
-  └─────────────────────────────────────────────────────────┘
-```
+![KV Cache 生命周期全景](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg)
 
 **① 写入**——两个阶段的写法完全不同：
 
@@ -359,27 +312,7 @@ sequenceDiagram
 
 vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值依赖其前驱块的哈希，因此只有完全相同的前缀序列才会产生相同的哈希链。下图把三种情况摆在一起：B 与 A 共享前缀（命中 + 分叉），C 只在第一个 token 上与 A 不同（全部未命中）：
 
-```text title="链式哈希：三个请求的命中与分叉"
-链式哈希：h_i = hash(h_{i-1}, 本块 16 个 token, extra_keys)，h_0 前驱 = NONE_HASH
-查找：逐块沿链比对 hash，第一次未命中即停止，之后的块全部重算
-
-           Blk 0          Blk 1      ...    Blk 124        Blk 125
-Req A  h0=hash(NONE,   h1=hash(h0,        h124=hash(h123,  "Hi" 未写满
-       t1..t16)        t17..t32)          ...)             → 不参与 hash
-         │0xABC1         │0xDEF2            │0x77F0           │
-         ▼               ▼                  ▼                 ▼
-       ┌──────┐        ┌──────┐           ┌──────┐          ┌──────┐
-       │PB 7  │        │PB 13 │    ...    │PB 91 │          │PB 40 │ A 私有
-       │ref=2 │        │ref=2 │           │ref=2 │          │ref=1 │
-       └──────┘        └──────┘           └──────┘          └──────┘
-         ▲               ▲                  ▲               ┌──────┐
-         │命中           │命中               │命中            │PB 55 │ B 私有
-Req B  h0 相同 ───────► h1 相同 ──── ... ──► h124 相同  ─────►│ref=1 │ "Bye"
-                                            125 块共享        └──────┘ 分叉
-
-Req C  h0'=hash(NONE, t1',t2..t16) ≠ h0 → 未命中，查找停止
-       即使 t2..t2000 与 A 完全相同，h1'=hash(h0',…) 也全部不同 → 一块都复用不了
-```
+![链式哈希：三个请求的命中与分叉](/img/in-post/kv-cache-memory-core-chained-hash-fork.svg)
 
 由此可见"命中"不是单块比对，而是从链头开始的一段连续匹配：分叉点之前的块共享同一份物理块（`ref_cnt` 累加），分叉点及之后各自申请新块；而链头一旦不同，后面再像也没用——这正是链式哈希保证正确性的方式，代价是命中的粒度只能是"前缀"。
 

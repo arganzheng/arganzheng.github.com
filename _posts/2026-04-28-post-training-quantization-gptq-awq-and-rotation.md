@@ -7,7 +7,7 @@ tags: [AI, LLM, Inference, Quantization]
 catalog: true
 redirect_from:
   - /quantization-speculative-decoding-and-lora.html
-updated: 2026-10-10
+updated: 2026-10-18
 ---
 
 量化是把权重（有时也把激活、KV cache）从 16 bit 浮点变成 4 bit 或 8 bit。它与[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)的数值格式强相关，但不是一回事：数值格式问的是"训练和计算该用什么格式算，误差在哪里积累、怎么控制"，目标是误差可控、训练稳定；量化问的是"哪些张量可以压到比计算格式更少的位、按什么粒度放 scale、用什么校准补偿误差"，目标是字节数下降、输出分布尽量不变——它允许有损。两者共享词汇（INT8、FP8、E4M3、scale、累加精度），交汇点是细粒度 scale：DeepSeek-V3 的 FP8 训练给每个 $$1 \times 128$$ 激活块、$$128 \times 128$$ 权重块各配一个 scale，用的正是量化的手段。
@@ -92,25 +92,7 @@ $$s$$ 是 scale（实数），$$z$$ 是 zero point（一个**整数**编码，�
 
 $$s$$ 与 $$z$$ 按什么范围共享，决定了量化的**粒度**（行 = 输出通道，横向 = GEMM 的归约维 $$k = d_{in}$$）：
 
-```text title="三种量化粒度的 (s, z) 共享范围"
-                 d_in（归约维 k）─────────────────────▶
-           ┌────────────────────────────────────────┐
-per-tensor │ 整个矩阵共用一个 (s, z)                │ 元数据 1 个
-           └────────────────────────────────────────┘
-
-           ┌────────────────────────────────────────┐
-per-       │ 行 0 ························ (s0, z0) │ 元数据 d_out 个
-channel    │ 行 1 ························ (s1, z1) │ （W_Q: 4096 个）
-           │ ...                                    │
-           └────────────────────────────────────────┘
-
-           ┌─────────┬─────────┬─────────┬──────────┐
-per-group  │ g=128   │ g=128   │ g=128   │ ...      │ 每行 d_in/g 组
-g=128      │(s00,z00)│(s01,z01)│(s02,z02)│          │ 元数据 d_out·d_in/g
-           ├─────────┼─────────┼─────────┼──────────┤ （W_Q: 4096×32
-           │(s10,z10)│(s11,z11)│(s12,z12)│ ...      │  = 131072 个）
-           └─────────┴─────────┴─────────┴──────────┘
-```
+![三种量化粒度的 (s, z) 共享范围](/img/in-post/post-training-quantization-gptq-awq-and-rotation-quantization-granularity.svg)
 
 per-channel 的 scale 沿 $$k$$ 不变，可以在 GEMM 累加完之后在 epilogue 一次乘回；per-group 的 scale 沿 $$k$$ 每 $$g$$ 个元素换一次，必须在累加过程中乘——这是 W4A16 kernel 要在片上做反量化、而不能把 scale 留到最后的原因。per-group 的元数据开销：每个权重 $$b$$ 位，每 $$g$$ 个权重摊一个 scale 和一个 zero，$$\text{bit/weight} = b + (b_{\text{scale}} + b_{\text{zero}})/g$$。INT4、$$g = 128$$、FP16 scale + 4-bit zero：$$4 + 20/128 = 4.16$$ bit；FP16 scale + FP16 zero：$$4 + 32/128 = 4.25$$ bit。所以常说的"INT4 模型"实际是 **4.16–4.25 bit/权重**（第四章第 2 节再看 group size 的取舍）。代入 Llama-3-70B：$$70.55 \times 10^9 \times 4.25 / 8 \approx 37.5$$ GB，embedding 与 lm_head 保留 BF16 则约 40.6 GB——能放进一张 80 GB 的 H100，剩下约 40 GB 给 KV cache；BF16 的 141 GB 需要至少两张卡。这是 weight-only 量化最直接、也最不需要 Roofline 就能理解的收益：把一个模型从两卡变成一卡。Llama-3-8B：$$8.03 \times 4.25 / 8 \approx 4.27$$ GB。
 
