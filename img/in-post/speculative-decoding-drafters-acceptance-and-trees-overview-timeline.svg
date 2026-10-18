@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="500" viewBox="0 0 760 500" role="img" aria-labelledby="title desc">
+  <title id="title">普通解码与投机解码的时间线</title>
+  <desc id="desc">普通解码每次目标前向生成一个 token；投机解码先用草稿模型连续提出三个 token，再由目标模型一次前向验证三个位置并额外计算一个 bonus token。接受率决定保留的草稿前缀，草稿成本决定起草时间。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#58738e"/>
+    </marker>
+    <style>
+      .title { font: 700 21px system-ui, sans-serif; fill: #182b3f; }
+      .sub { font: 13px system-ui, sans-serif; fill: #51677c; }
+      .lane { font: 700 15px system-ui, sans-serif; fill: #203a52; }
+      .label { font: 700 13px system-ui, sans-serif; fill: #20364b; }
+      .detail { font: 12px system-ui, sans-serif; fill: #52677c; }
+      .small { font: 11px system-ui, sans-serif; fill: #536a80; }
+      .draft { fill: #eaf3fb; stroke: #4c82b1; stroke-width: 1.6; rx: 8; }
+      .target { fill: #fff2dd; stroke: #c38432; stroke-width: 1.7; rx: 8; }
+      .out { fill: #e7f4ec; stroke: #43845f; stroke-width: 1.6; rx: 8; }
+      .arrow { fill: none; stroke: #58738e; stroke-width: 1.6; marker-end: url(#arrow); }
+      .rule { stroke: #d8e1e9; stroke-width: 1; }
+      .call { fill: #f4f7fa; stroke: #a7b8c7; stroke-width: 1.2; rx: 8; }
+    </style>
+  </defs>
+  <rect width="760" height="500" fill="#fff"/>
+  <text class="title" x="28" y="34">普通解码与投机解码：把多个 token 的验证并到一次前向</text>
+  <text class="sub" x="28" y="56">示例取 γ = 3。投机解码仍按位置验证，只是目标模型一次算出这三个位置及 bonus token 的分布。</text>
+
+  <text class="lane" x="28" y="103">普通解码</text>
+  <text class="small" x="28" y="123">3 个 token</text>
+  <rect class="target" x="132" y="82" width="158" height="60"/>
+  <text class="label" x="211" y="106" text-anchor="middle">Target forward</text>
+  <text class="detail" x="211" y="127" text-anchor="middle">输出 x₁</text>
+  <path class="arrow" d="M292 112 H322"/>
+  <rect class="target" x="328" y="82" width="158" height="60"/>
+  <text class="label" x="407" y="106" text-anchor="middle">Target forward</text>
+  <text class="detail" x="407" y="127" text-anchor="middle">输出 x₂</text>
+  <path class="arrow" d="M488 112 H518"/>
+  <rect class="target" x="524" y="82" width="158" height="60"/>
+  <text class="label" x="603" y="106" text-anchor="middle">Target forward</text>
+  <text class="detail" x="603" y="127" text-anchor="middle">输出 x₃</text>
+  <text class="small" x="700" y="116">3 次</text>
+
+  <line class="rule" x1="28" y1="166" x2="732" y2="166"/>
+
+  <text class="lane" x="28" y="213">投机解码</text>
+  <text class="small" x="28" y="233">起草 γ 步</text>
+  <rect class="draft" x="112" y="190" width="72" height="56"/>
+  <text class="label" x="148" y="213" text-anchor="middle">Draft</text>
+  <text class="detail" x="148" y="232" text-anchor="middle">x̃₁</text>
+  <path class="arrow" d="M186 218 H202"/>
+  <rect class="draft" x="208" y="190" width="72" height="56"/>
+  <text class="label" x="244" y="213" text-anchor="middle">Draft</text>
+  <text class="detail" x="244" y="232" text-anchor="middle">x̃₂</text>
+  <path class="arrow" d="M282 218 H298"/>
+  <rect class="draft" x="304" y="190" width="72" height="56"/>
+  <text class="label" x="340" y="213" text-anchor="middle">Draft</text>
+  <text class="detail" x="340" y="232" text-anchor="middle">x̃₃</text>
+  <text class="small" x="244" y="267" text-anchor="middle">每步成本 c，总计 γc</text>
+
+  <path class="arrow" d="M378 218 H398"/>
+  <rect class="target" x="404" y="183" width="160" height="72"/>
+  <text class="label" x="484" y="207" text-anchor="middle">Target forward</text>
+  <text class="detail" x="484" y="227" text-anchor="middle">并行计算 p₁…p₄</text>
+  <text class="small" x="484" y="245" text-anchor="middle">一次验证 γ 个位置</text>
+
+  <path class="arrow" d="M566 218 H584"/>
+  <rect class="out" x="590" y="183" width="142" height="72"/>
+  <text class="label" x="661" y="207" text-anchor="middle">输出前缀</text>
+  <text class="detail" x="661" y="227" text-anchor="middle">接受若干草稿</text>
+  <text class="small" x="661" y="245" text-anchor="middle">再加修正 / bonus token</text>
+
+  <rect class="call" x="28" y="308" width="340" height="72"/>
+  <text class="label" x="48" y="334">接受率 α</text>
+  <text class="detail" x="48" y="356">决定一轮能保留多长的草稿前缀。</text>
+  <rect class="call" x="392" y="308" width="340" height="72"/>
+  <text class="label" x="412" y="334">草稿成本 c</text>
+  <text class="detail" x="412" y="356">决定 γ 次起草要花多少时间；越低越好。</text>
+
+  <line class="rule" x1="28" y1="404" x2="732" y2="404"/>
+  <text class="detail" x="380" y="436" text-anchor="middle">加速来自两处：提高 α 增加一轮输出，降低 c 减少起草开销。</text>
+  <text class="small" x="380" y="461" text-anchor="middle">目标模型验证仍需一次前向；memory-bound 时可接近普通一步的成本。</text>
+</svg>

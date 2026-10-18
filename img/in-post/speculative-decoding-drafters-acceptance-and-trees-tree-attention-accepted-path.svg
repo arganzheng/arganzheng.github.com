@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480" role="img" aria-labelledby="title desc">
+  <title id="title">树状草稿与 tree attention mask</title>
+  <desc id="desc">候选树有三个 token 深度。示例接受 B、B1，拒绝 B1a 并从残差分布采样 C。矩阵显示每个节点只关注共同前缀和自己的祖先。</desc>
+  <defs>
+    <style>
+      .title{font:700 20px system-ui,sans-serif;fill:#182b3f}.head{font:700 14px system-ui,sans-serif;fill:#20364b}
+      .label{font:600 12px system-ui,sans-serif;fill:#263f56}.small{font:10px system-ui,sans-serif;fill:#52677c}
+      .node{fill:#eaf3fb;stroke:#4c82b1;stroke-width:1.3}.accepted{fill:#e7f4ec;stroke:#43845f;stroke-width:2}
+      .rejected{fill:#fff0ed;stroke:#c45d4a;stroke-width:1.8}.edge{stroke:#9aabb9;stroke-width:1.3}
+      .ok{fill:none;stroke:#43845f;stroke-width:3}.bad{fill:none;stroke:#c45d4a;stroke-width:2;stroke-dasharray:4 3}
+    </style>
+  </defs>
+  <rect width="760" height="480" fill="#fff"/>
+  <text class="title" x="24" y="32">树状草稿：节点只看自己的祖先</text>
+  <text class="small" x="24" y="52">左：候选树与接受路径。右：行是 query，列是 key；P 表示共同前缀。</text>
+  <text class="head" x="28" y="82">候选树（3 层 token）</text>
+  <g class="edge">
+    <path d="M62 145 L130 205 M62 145 L260 205 M130 235 L90 284 M130 235 L175 284 M260 235 L300 284"/>
+    <path d="M90 314 L65 363 M90 314 L120 363 M300 314 L300 363"/>
+  </g>
+  <path class="ok" d="M62 145 L260 205 L300 284"/><path class="bad" d="M300 314 L300 363"/>
+  <circle class="node" cx="62" cy="137" r="22"/><text class="small" x="62" y="141" text-anchor="middle">prefix</text>
+  <circle class="node" cx="130" cy="215" r="20"/><text class="small" x="130" y="219" text-anchor="middle">A (1)</text>
+  <circle class="accepted" cx="260" cy="215" r="20"/><text class="small" x="260" y="219" text-anchor="middle">B (6)</text>
+  <circle class="node" cx="90" cy="294" r="20"/><text class="small" x="90" y="298" text-anchor="middle">A1 (2)</text>
+  <circle class="node" cx="175" cy="294" r="20"/><text class="small" x="175" y="298" text-anchor="middle">A2 (5)</text>
+  <circle class="accepted" cx="300" cy="294" r="20"/><text class="small" x="300" y="298" text-anchor="middle">B1 (7)</text>
+  <circle class="node" cx="65" cy="373" r="19"/><text class="small" x="65" y="377" text-anchor="middle">A1a (3)</text>
+  <circle class="node" cx="120" cy="373" r="19"/><text class="small" x="120" y="377" text-anchor="middle">A1b (4)</text>
+  <circle class="rejected" cx="300" cy="373" r="22"/><text class="small" x="300" y="377" text-anchor="middle">B1a (8)</text>
+  <text class="small" x="62" y="424" fill="#43845f">接受 B → B1</text><text class="small" x="190" y="424" fill="#c45d4a">拒绝 B1a → 残差补 C</text>
+
+  <line x1="378" y1="72" x2="378" y2="448" stroke="#d7e0e8"/>
+  <text class="head" x="398" y="82">tree attention mask</text>
+  <text class="small" x="398" y="102">绿色 = 可见；灰色 = 屏蔽</text>
+  <g class="small" text-anchor="middle">
+    <text x="432" y="128">P</text><text x="452" y="128">1</text><text x="472" y="128">2</text><text x="492" y="128">3</text><text x="512" y="128">4</text><text x="532" y="128">5</text><text x="552" y="128">6</text><text x="572" y="128">7</text><text x="592" y="128">8</text>
+  </g>
+  <g class="small" text-anchor="end"><text x="420" y="151">1</text><text x="420" y="173">2</text><text x="420" y="195">3</text><text x="420" y="217">4</text><text x="420" y="239">5</text><text x="420" y="261">6</text><text x="420" y="283">7</text><text x="420" y="305">8</text></g>
+  <rect x="424" y="136" width="180" height="176" fill="#f0f2f4" stroke="#d0d8df"/>
+  <g stroke="#d0d8df" stroke-width="1">
+    <path d="M444 136V312 M464 136V312 M484 136V312 M504 136V312 M524 136V312 M544 136V312 M564 136V312 M584 136V312"/>
+    <path d="M424 158H604 M424 180H604 M424 202H604 M424 224H604 M424 246H604 M424 268H604 M424 290H604"/>
+  </g>
+  <g fill="#a9d8b8">
+    <rect x="424" y="136" width="20" height="22"/><rect x="444" y="136" width="20" height="22"/>
+    <rect x="424" y="158" width="20" height="22"/><rect x="444" y="158" width="20" height="22"/><rect x="464" y="158" width="20" height="22"/>
+    <rect x="424" y="180" width="20" height="22"/><rect x="444" y="180" width="20" height="22"/><rect x="464" y="180" width="20" height="22"/><rect x="484" y="180" width="20" height="22"/>
+    <rect x="424" y="202" width="20" height="22"/><rect x="444" y="202" width="20" height="22"/><rect x="464" y="202" width="20" height="22"/><rect x="504" y="202" width="20" height="22"/>
+    <rect x="424" y="224" width="20" height="22"/><rect x="444" y="224" width="20" height="22"/><rect x="524" y="224" width="20" height="22"/>
+    <rect x="424" y="246" width="20" height="22"/><rect x="544" y="246" width="20" height="22"/>
+    <rect x="424" y="268" width="20" height="22"/><rect x="544" y="268" width="20" height="22"/><rect x="564" y="268" width="20" height="22"/>
+    <rect x="424" y="290" width="20" height="22"/><rect x="544" y="290" width="20" height="22"/><rect x="564" y="290" width="20" height="22"/><rect x="584" y="290" width="20" height="22"/>
+  </g>
+  <text class="small" x="398" y="347">节点编号对应左图括号。每行仅包含共同前缀、</text>
+  <text class="small" x="398" y="365">当前节点和它的祖先；兄弟与其他分支不可见。</text>
+  <text class="small" x="398" y="403">位置编码按深度赋值，同层兄弟的位置相同。</text>
+</svg>

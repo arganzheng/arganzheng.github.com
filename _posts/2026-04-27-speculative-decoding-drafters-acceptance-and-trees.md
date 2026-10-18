@@ -5,7 +5,7 @@ title: "高效推理与压缩（02）：投机解码：草稿、接受率与树"
 subtitle: "Speculative Decoding: Drafters, Acceptance Rates and Draft Trees"
 tags: [AI, LLM, Inference, Speculative Decoding]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 投机解码是本系列里唯一**不改变输出分布**的方法。[现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)已经完成了它的基础部分：拒绝采样保证输出严格等于目标分布的证明、期望接受长度 $$\frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、以及 Roofline 决定的收益区间——验证 $$\gamma + 1$$ 个 token 几乎免费的条件是 $$B(\gamma + 1) \lesssim \text{ridge}$$，超过就亏本。那一篇把草稿方案列成了一张表（独立小模型、Medusa、EAGLE、n-gram、MTP），给了各自"通常报告"的接受率区间。
@@ -20,7 +20,11 @@ updated: 2026-09-14
 
 ### 1. 从 04-12 接过来的公式
 
-一轮投机解码：草稿产出 $$\gamma$$ 个 token，目标模型一次前向验证，期望产出
+普通解码每生成一个 token，都要等目标模型跑一次 forward。投机解码先让便宜的 draft 连续提出 $$\gamma$$ 个 token，再让 target 一次性算出这些位置的分布。Target 从左到右验证：前缀接受多少，取决于草稿和目标的接受率；起草花多久，取决于草稿成本。两者一起决定加速。
+
+![普通解码与投机解码的时间线：草稿成本与接受率如何决定加速](/img/in-post/speculative-decoding-drafters-acceptance-and-trees-overview-timeline.svg)
+
+一轮产出多少 token，可以用接受率 $$\alpha$$ 估算：
 
 $$
 \mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}, \qquad
@@ -52,7 +56,11 @@ flowchart TB
     class V target
 ```
 
-（在 memory-bound 区间内，验证的时间等于一次普通 decode 步。）$$\alpha$$ 是单个位置的期望接受率，$$c$$ 是草稿一步相对于目标一步的时间。$$\alpha = 0.8$$、$$\gamma = 4$$、$$c = 0.1$$ 时加速 2.4 倍。这个公式假设各位置的接受独立同分布——实际上接受率随位置递减（后面的草稿 token 以前面的草稿为条件，错误累积），所以真实的接受长度低于公式，但公式的结构是对的。
+（在 memory-bound 区间内，验证的时间等于一次普通 decode 步。）$$\alpha$$ 是单个位置的期望接受率，$$c$$ 是草稿一步相对于目标一步的时间。$$\alpha = 0.8$$、$$\gamma = 4$$、$$c = 0.1$$ 时加速 2.4 倍。
+
+![按第一章公式计算的期望加速比随接受率变化曲线](/img/in-post/speculative-decoding-drafters-acceptance-and-trees-expected-speedup.svg)
+
+曲线按各位置接受率独立同分布计算。真实草稿的接受率会随位置递减，所以长草稿的实际收益通常低于这条估算曲线。
 
 ### 2. 两个自由度
 
@@ -94,11 +102,23 @@ Table: 本文的章节安排
 
 ### 1. 接受率等于 1 减总变差距离
 
-04-12 证明了单步接受概率 $$\beta = \sum_x \min(p(x), q(x))$$。总变差距离的定义是 $$\text{TV}(p, q) = \frac{1}{2} \sum_x \lvert p(x) - q(x) \rvert$$。用 $$\lvert a - b \rvert = a + b - 2\min(a, b)$$：
+Target 的分布记作 $$p$$，draft 提议的分布记作 $$q$$。Draft 抽到 token $$x$$ 后，以 $$\min(1, p(x)/q(x))$$ 的概率接受；拒绝时，改从 $$\text{norm}(\max(0,p-q))$$ 抽一个 token。接受概率是两个分布重叠的总质量。
+
+![五 token 示例：逐 token 接受概率与拒绝后的残差分布](/img/in-post/speculative-decoding-drafters-acceptance-and-trees-accept-reject-residual.svg)
+
+图里 token C 的接受概率是 $$\min(1, 0.18/0.25)=0.72$$。五个 token 的总接受概率 $$\beta$$ 是 0.80；拒绝概率是 0.20，残差分布为 $$(0.75, 0.25, 0, 0, 0)$$。接受时贡献 $$\min(p,q)$$，拒绝时贡献残差，两部分相加恢复原来的 $$p$$。
+
+单步接受概率可以写成 $$\beta = \sum_x \min(p(x), q(x))$$，总变差距离定义为 $$\text{TV}(p, q) = \frac{1}{2} \sum_x \lvert p(x) - q(x) \rvert$$。两者的关系来自下面这一步：
+
+<details markdown="1"><summary>推导</summary>
+
+用恒等式 $$\lvert a - b \rvert = a + b - 2\min(a, b)$$ 展开总变差距离：
 
 $$
 \text{TV}(p, q) = \frac{1}{2} \sum_x \big(p(x) + q(x) - 2 \min(p(x), q(x))\big) = \frac{1}{2}(1 + 1) - \sum_x \min(p, q) = 1 - \beta
 $$
+
+</details>
 
 所以 $$\beta = 1 - \text{TV}(p, q)$$。接受率就是两个分布的重叠部分。这给了"怎么提高接受率"一个精确的目标：**让草稿分布在总变差意义下接近目标分布**。它也说明了为什么草稿的"准确率"（argmax 是否一致）不是正确的度量——两个 argmax 相同但形状不同的分布，TV 距离可以很大；反过来 argmax 不同但形状接近的分布，接受率可以很高。
 
@@ -140,13 +160,21 @@ greedy 下验证规则退化为逐 token 比较，不需要计算概率比。一
 
 ## 四、Medusa 与 EAGLE：草稿看到了什么
 
+这几种方案的差别，先看草稿每一步能用到什么信息：独立小模型只看 token 前缀；Medusa 的多个头都从目标模型最后一层的隐状态出发；EAGLE 把目标特征和上一个草稿 token 一起送回草稿模块，逐步往前预测。
+
+![独立草稿模型、Medusa 多头和 EAGLE 特征自回归的输入与预测方式](/img/in-post/speculative-decoding-drafters-acceptance-and-trees-draft-architectures.svg)
+
 ### 1. Medusa：多个头，各猜一个位置
 
 Medusa（Cai 等 2024）在目标模型最后一层的隐状态 $$h_t$$ 上接 $$K$$ 个轻量头（每个是一层残差 MLP 加一个 lm_head），第 $$k$$ 个头预测第 $$t + k + 1$$ 个 token：
 
+<details markdown="1"><summary>推导</summary>
+
 $$
 p^{(k)}(x_{t+k+1}) = \text{softmax}\big(W_k \cdot (\text{SiLU}(W'_k h_t) + h_t)\big)
 $$
+
+</details>
 
 一次目标前向同时出所有 $$K$$ 个头的预测——草稿成本几乎为零（$$K$$ 个 MLP + $$K$$ 个 lm_head，lm_head 是 $$d \times V$$，是主要开销）。$$K = 3$$–$$5$$。
 
@@ -160,19 +188,27 @@ EAGLE（Li 等 2024）的两个观察：（1）**token 级的自回归不确定�
 
 结构：一个单层 decoder（与目标模型同宽），输入是目标模型的特征序列 $$f_{\le t}$$ 与 token 的 embedding $$e(x_{\le t+1})$$ 拼接后降维（一个 $$2d \to d$$ 的线性层），输出预测的特征 $$\hat{f}_{t+1}$$；再过目标模型的 lm_head（共享、冻结）得到草稿 token 的分布。草稿的自回归：
 
+<details markdown="1"><summary>推导</summary>
+
 $$
 \hat{f}_{t+1} = \text{Draft}(f_{\le t}, e(x_{\le t+1})), \quad
 \hat{x}_{t+2} \sim \text{softmax}(W_{lm} \hat{f}_{t+1}), \quad
 \hat{f}_{t+2} = \text{Draft}(f_{\le t}, \hat{f}_{t+1}, e(x_{\le t+1}), e(\hat{x}_{t+2})), \ \ldots
 $$
 
+</details>
+
 每一步草稿都以前一步的草稿 token **和特征**为条件——这是与 Medusa 的本质差别。成本：一层 decoder + 一次 lm_head，对 70B（80 层）来说 $$c \approx 1/80 +$$ lm_head $$\approx 0.02$$–$$0.03$$；对 7B（32 层）$$c \approx 0.04$$–$$0.05$$。
 
 训练目标是两项：特征回归（预测特征与真实特征的 smooth L1）+ token 分类（预测的 token 分布与目标分布的交叉熵）：
 
+<details markdown="1"><summary>推导</summary>
+
 $$
 \mathcal{L} = \mathcal{L}_{reg}(\hat{f}_{t+1}, f_{t+1}) + w_{cls} \cdot \text{CE}\big(\text{softmax}(W_{lm} \hat{f}_{t+1}), \text{softmax}(W_{lm} f_{t+1})\big)
 $$
+
+</details>
 
 $$w_{cls} = 0.1$$。数据是 ShareGPT 一类的对话数据经目标模型前向得到的特征（不需要目标模型生成——但 EAGLE 也发现用目标模型生成的文本效果更好，与第三章的 on-policy 结论一致）。训练一个 EAGLE 头对 70B 目标约 1–2 天单机 8 卡，比 Medusa 贵但远低于任何目标模型的训练。
 
@@ -221,6 +257,10 @@ Table: Medusa 与 EAGLE 三代的对照
 ### 2. tree attention 的 mask
 
 把树的所有节点展平成一个序列送进目标模型做一次前向，但 attention mask 不是因果下三角——每个节点只能看到它在树上的祖先（加上共同的前缀）。这是一个稀疏的、由树结构决定的 mask：节点 $$i$$ 与节点 $$j$$ 之间的 mask 为 1 当且仅当 $$j$$ 是 $$i$$ 的祖先。位置编码也按树的深度赋值（同一层的兄弟节点位置相同）。一次前向后，每个节点的输出就是目标模型在"以该节点的祖先路径为前缀"条件下的分布——正是验证需要的。
+
+下面的树有三个 token 层。验证接受 B、B1，拒绝 B1a 后，从残差分布补出 C。右侧的 mask 把共同前缀和每个节点的祖先标为可见；同层兄弟和其他分支互不可见。
+
+![树状草稿的祖先 attention mask 与本轮接受路径](/img/in-post/speculative-decoding-drafters-acceptance-and-trees-tree-attention-accepted-path.svg)
 
 实现上，tree attention 要求 attention kernel 支持任意 mask（FlashAttention 的标准 kernel 只支持因果 / 滑窗；需要 FlexAttention 一类或专门的 kernel），KV cache 要能存树的分支再按接受结果回收——这是引擎侧的复杂度（vLLM 的 EAGLE 支持经过了多次重写），也是很多系统长期只支持链式草稿的原因。
 

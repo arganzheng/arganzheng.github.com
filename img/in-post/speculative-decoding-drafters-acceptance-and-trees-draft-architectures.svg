@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" role="img" aria-labelledby="title desc">
+  <title id="title">独立草稿、Medusa 和 EAGLE 的输入与预测方式</title>
+  <desc id="desc">独立草稿语言模型自回归读取 token 前缀；Medusa 的多个头各自读取目标模型最后层隐状态并独立预测未来位置；EAGLE 将目标特征和前一个草稿 token 反馈到特征空间中的自回归模块。</desc>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="#59758f"/></marker>
+    <style>
+      .title{font:700 20px system-ui,sans-serif;fill:#182b3f}.head{font:700 15px system-ui,sans-serif;fill:#20364b}
+      .label{font:600 12px system-ui,sans-serif;fill:#263f56}.small{font:11px system-ui,sans-serif;fill:#52677c}
+      .card{fill:#f7f9fb;stroke:#aabac8;stroke-width:1.2;rx:9}.input{fill:#eaf3fb;stroke:#4c82b1;stroke-width:1.4;rx:7}
+      .module{fill:#fff2dd;stroke:#c38432;stroke-width:1.4;rx:7}.token{fill:#e7f4ec;stroke:#43845f;stroke-width:1.3;rx:7}
+      .arrow{fill:none;stroke:#59758f;stroke-width:1.4;marker-end:url(#arr)}.feedback{fill:none;stroke:#9a6f9c;stroke-width:1.3;stroke-dasharray:4 3;marker-end:url(#arr)}
+    </style>
+  </defs>
+  <rect width="760" height="400" fill="#fff"/>
+  <text class="title" x="24" y="32">草稿方案的关键差别：每一步能看见什么</text>
+  <rect class="card" x="20" y="54" width="230" height="322"/>
+  <text class="head" x="38" y="82">独立小模型</text><text class="small" x="38" y="102">只用 token 前缀，自回归起草</text>
+  <rect class="input" x="39" y="124" width="192" height="44"/>
+  <text class="label" x="135" y="143" text-anchor="middle">前缀 token x₁…xₜ</text><text class="small" x="135" y="160" text-anchor="middle">目标模型的 token 输入</text>
+  <path class="arrow" d="M135 169 V190"/><rect class="module" x="55" y="193" width="160" height="48"/>
+  <text class="label" x="135" y="214" text-anchor="middle">独立 draft LM q</text><text class="small" x="135" y="231" text-anchor="middle">单独训练的小模型</text>
+  <path class="arrow" d="M135 242 V265"/>
+  <rect class="token" x="39" y="268" width="57" height="42"/><rect class="token" x="111" y="268" width="57" height="42"/><rect class="token" x="183" y="268" width="48" height="42"/>
+  <text class="label" x="67" y="294" text-anchor="middle">x̃₁</text><text class="label" x="139" y="294" text-anchor="middle">x̃₂</text><text class="label" x="207" y="294" text-anchor="middle">x̃₃</text>
+  <path class="arrow" d="M97 289 H108"/><path class="arrow" d="M169 289 H180"/>
+  <text class="small" x="135" y="343" text-anchor="middle">前一草稿 token 喂给下一步</text>
+
+  <rect class="card" x="265" y="54" width="230" height="322"/>
+  <text class="head" x="283" y="82">Medusa</text><text class="small" x="283" y="102">多个头从同一个最后层状态出发</text>
+  <rect class="input" x="300" y="124" width="160" height="44"/>
+  <text class="label" x="380" y="143" text-anchor="middle">目标模型最后层 hₜ</text><text class="small" x="380" y="160" text-anchor="middle">一次 target forward</text>
+  <path class="arrow" d="M380 169 V187 H320 V200"/><path class="arrow" d="M380 187 V200"/><path class="arrow" d="M380 187 H440 V200"/>
+  <rect class="module" x="286" y="203" width="68" height="46"/><rect class="module" x="346" y="203" width="68" height="46"/><rect class="module" x="406" y="203" width="68" height="46"/>
+  <text class="label" x="320" y="222" text-anchor="middle">head +1</text><text class="small" x="320" y="239" text-anchor="middle">预测位置 1</text>
+  <text class="label" x="380" y="222" text-anchor="middle">head +2</text><text class="small" x="380" y="239" text-anchor="middle">预测位置 2</text>
+  <text class="label" x="440" y="222" text-anchor="middle">head +3</text><text class="small" x="440" y="239" text-anchor="middle">预测位置 3</text>
+  <path class="arrow" d="M320 250 V272"/><path class="arrow" d="M380 250 V272"/><path class="arrow" d="M440 250 V272"/>
+  <rect class="token" x="291" y="275" width="58" height="40"/><rect class="token" x="351" y="275" width="58" height="40"/><rect class="token" x="411" y="275" width="58" height="40"/>
+  <text class="label" x="320" y="300" text-anchor="middle">x̃₁</text><text class="label" x="380" y="300" text-anchor="middle">x̃₂</text><text class="label" x="440" y="300" text-anchor="middle">x̃₃</text>
+  <text class="small" x="380" y="343" text-anchor="middle">各头独立，不读前一草稿 token</text>
+
+  <rect class="card" x="510" y="54" width="230" height="322"/>
+  <text class="head" x="528" y="82">EAGLE</text><text class="small" x="528" y="102">在目标特征空间自回归起草</text>
+  <rect class="input" x="528" y="124" width="194" height="48"/>
+  <text class="label" x="625" y="144" text-anchor="middle">目标特征 fₜ + token embedding</text><text class="small" x="625" y="162" text-anchor="middle">每步带上前一个草稿 token</text>
+  <path class="arrow" d="M625 173 V194"/><rect class="module" x="545" y="197" width="160" height="48"/>
+  <text class="label" x="625" y="218" text-anchor="middle">EAGLE decoder</text><text class="small" x="625" y="235" text-anchor="middle">预测下一个特征</text>
+  <path class="arrow" d="M625 246 V264"/><rect class="token" x="568" y="267" width="114" height="42"/>
+  <text class="label" x="625" y="285" text-anchor="middle">共享 lm_head</text><text class="small" x="625" y="301" text-anchor="middle">得到草稿 token</text>
+  <path class="feedback" d="M682 289 H712 V331 H625 V311"/>
+  <text class="small" x="625" y="350" text-anchor="middle">预测特征与 token 反馈到下一步</text>
+</svg>
