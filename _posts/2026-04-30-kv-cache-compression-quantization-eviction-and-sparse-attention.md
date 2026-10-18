@@ -5,10 +5,10 @@ title: "高效推理与压缩（05）：KV cache 压缩：量化、驱逐与稀�
 subtitle: "KV Cache Compression: Quantization, Eviction and Sparse Attention"
 tags: [AI, LLM, Inference, KV Cache, Long Context]
 catalog: true
-updated: 2026-10-10
+updated: 2026-10-18
 ---
 
-[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3-70B 在 128K 上下文下每个请求的 KV 是 40 GiB（GQA 之后）——权重 141 GB 的近三成，一张 80 GB 卡的一半；decode 每步要把它全部读一遍，单请求 128K 时 KV 读取已是权重的 30%，batch 到 4 就与权重相当（每 token 320 KiB，$$141\text{ GB}/320\text{ KiB} \approx 43$$ 万 token 与权重打平），长上下文 + 并发下 KV 读取超过权重读取成为 decode 的主要流量。结构级的解法——GQA 把 KV 头数除以 8、MLA 把每 token 的 KV 压到 576 维——在训练时就决定了，训好之后不能改。
+[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)算过 KV cache 的账：Llama-3.1-70B 在 128K 上下文下每个请求的 KV 是 40 GiB，约为 141 GB 权重体积的三成，也接近 80 GB 显存的一半。decode 每步都要读取上下文里的 KV；batch 到 4 时，KV 读取量已接近权重读取。长上下文和并发会让 KV 成为 decode 的主要流量。GQA 将 KV head 数降到八分之一；MLA 每层每 token 只存 576 个数。这些是训练时确定的结构，训好之后不能改。
 
 这一篇讲**训好之后**还能对 KV 做什么。三条路：**量化**（每个元素的字节从 2 降到 1 或 0.5 甚至 0.25）、**驱逐**（丢掉一部分 token 的 KV，只留"重要"的）、**稀疏 attention**（每步只读一部分 KV——如果模型训练时就这样，推理时可以精确地这样做）。三条路对输出分布的影响从小到大：量化是可控的噪声；驱逐是有损的、任务依赖的近似；训练时就稀疏的 attention 在推理时是精确的（但需要重新训练）。
 
@@ -67,6 +67,12 @@ Table: 本文的章节安排
 
 ### 1. key 与 value 的分布不同
 
+我先用一组合成张量看这个差别。K 的第 3 个通道在所有 token 上都放大 12 倍；V 没有固定的离群通道，只让不同 token 的整体幅度变化。图里用同一套 signed INT4 量化器比较 per-channel 和 per-token 的重建误差。它是构造出来的例子，不是模型测量。
+
+![合成 K 与 V 的通道热图，以及 signed INT4 按通道或按 token 分组时的 RMSE 对比](/img/in-post/kv-cache-compression-kivi-granularity.svg)
+
+这组样本里，K 的普通通道按 channel 分组时 RMSE 是 0.092，按 token 分组是 0.538；V 则是 per-token 的 0.087，低于 per-channel 的 0.141。K 的 RMSE 只统计非离群通道，V 统计全部元素。
+
 KV 量化的第一个事实（Liu 等 2024 KIVI 的分析；Hooper 等 2024 KVQuant 独立发现）：**key 有固定通道的离群值，value 没有**。
 
 key 是 $$W_K$$ 作用在 hidden state 上的结果（再经过 RoPE）。hidden state 有通道级离群（上一篇讲的 LayerNorm γ 放大的维度），$$W_K$$ 是线性的，这些离群传到 key 的某些通道上——对所有 token 都在同样的通道，幅度是其他通道的几十倍。RoPE 是逐对维度的旋转，不改变每对维度的范数，所以离群保留在原来的维度对上（只是在对内旋转）。
@@ -74,6 +80,8 @@ key 是 $$W_K$$ 作用在 hidden state 上的结果（再经过 RoPE）。hidden
 value 是 $$W_V$$ 作用在同一个 hidden state 上，理论上也会继承离群——但实证上 value 的分布在通道间接近均匀，没有系统性离群通道。一个解释是训练动力学：value 直接乘 attention 权重后求和进入输出，离群的 value 通道会主导输出、被后面的层"惩罚"；而 key 只参与点积打分，离群通道在点积里被 query 的对应通道"选择"（query 的这些通道小或大决定关注与否），是 attention 实现"关注特定位置"的机制之一。
 
 ### 2. 误差怎么进入 attention
+
+用两个位置看 key 的误差：原来的 logits 都是 0，attention 各占 0.5。若量化误差让其中一个 logit 增加 0.5，概率就变成约 0.622 和 0.378。key 误差先改写权重分配，value 误差则改写加权和里的内容。
 
 key 的误差 $$\delta k$$ 进入 logits：$$q^\top (k + \delta k) = q^\top k + q^\top \delta k$$。softmax 对 logits 的误差是**指数级**敏感的——logits 差 1 对应概率比差 $$e$$。如果 $$q^\top \delta k$$ 在不同位置上的量级是 0.5，那么 attention 分布被明显扰动；且 query 在离群通道上的值大（那是它选择位置的方式），离群通道的 key 误差被 query 放大。这就是 key 量化比 value 量化难的原因。
 
@@ -142,7 +150,26 @@ PyramidKV（Cai 等 2024）的观察：不同层的 attention 模式不同——
 
 ### 6. 驱逐在 needle 上失败的原因
 
-把前面三种策略在同一段上下文上留下的 KV 画出来，失败的原因一眼可见：
+先看 10 个 token、缓存预算为 6 的 toy example。H2O 在最近 3 个之外按累计注意力选 3 个；StreamingLLM 留 sink 和最近 5 个；SnapKV 用问题窗口的 attention 选较早的 3 个，再留最近 3 个。表里的分数是为说明选留过程而设的，不是论文或 benchmark 结果。
+
+| Token | 内容 | H2O 累计 attention | 问题窗口 attention |
+|---:|---|---:|---:|
+| 1 | sink | 10.0 | 0.01 |
+| 2 | 背景 | 8.0 | 0.02 |
+| 3 | 普通 token | 1.2 | 0.03 |
+| 4 | needle | 0.1 | 0.60 |
+| 5 | 实体 | 6.0 | 0.04 |
+| 6 | 普通 token | 0.4 | 0.05 |
+| 7 | 段落标题 | 2.0 | 0.06 |
+| 8 | 文档尾部 | 1.0 | 0.07 |
+| 9 | 问题前缀 | 0.6 | 0.08 |
+| 10 | 问题 | 0.3 | 0.04 |
+
+![10 个 token 的驱逐示例：H2O 按累计分数选留，SnapKV 按问题 attention 选留；只有 SnapKV 保留低历史分数的 needle](/img/in-post/kv-cache-compression-eviction-scores.svg)
+
+H2O 留下 $$\{1,2,5,8,9,10\}$$，StreamingLLM 留下 sink 1 和最近的 6–10，SnapKV 留下问题分数最高的较早 token 4、7、6，再加最近的 8–10。needle 是 token 4，只有 SnapKV 把它留住。
+
+原有图把三种策略在同一段上下文上的结果并排画出：
 
 ![三种 KV 驱逐策略在 24 个 token 上各保留哪些：StreamingLLM 留 sink 与窗口，H2O 留累计注意力高的与窗口，SnapKV 按问题选；只有 SnapKV 留下了针](/img/in-post/kv-cache-compression-eviction-policies.svg)
 
@@ -171,6 +198,10 @@ PyramidKV（Cai 等 2024）的观察：不同层的 attention 模式不同——
 - **固定模式**：滑窗（每个 query 看最近 $$w$$ 个）、全局 token（少数位置全部可见）、扩张（隔 $$k$$ 个看一个）、块对角。Longformer / BigBird 时代的做法；现代模型里滑窗与全局层交错（Gemma 2/3、gpt-oss）是它的活形态。
 - **内容路由**：每个 query 按内容选择看哪些 KV 块——需要一个便宜的"选块"机制。这是 NSA 与 MoBA 的路线。
 - **压缩 + 选择**：先把 KV 压缩成粗粒度的摘要（每块一个向量），query 对摘要做 attention 决定关注哪些块，再对选中的块做细粒度 attention。
+
+图里用 16 个 token 画出三种可见范围。block top-k 的路由结果是合成示意；正文里的 NSA 使用 32-token 压缩块、top-16 选择块和 512-token 滑窗，MoBA 使用 512-token 块并选 top-3。
+
+![同一段因果序列的 dense、sliding-window 与 block top-k attention mask；block 路由是合成示意](/img/in-post/kv-cache-compression-sparse-attention-patterns.svg)
 
 ### 2. NSA：三分支与可微的选择
 
@@ -216,20 +247,31 @@ Table: KV 压缩的负载决策表
 
 ### 1. 字节账
 
-Llama-3.1-70B（80 层、8 KV head、head_dim 128）每 token 的 KV：$$2 \times 80 \times 8 \times 128 \times 2 = 327{,}680$$ 字节 = 320 KiB（BF16）。128K = 131072 token 上下文：40 GiB（约 43 GB；下表沿用二进制单位，写作 GB 的地方都是 GiB）。
+先拿一个公开配置算账。Llama-3.1-70B 有 80 层、64 个 attention head、8 个 KV head，hidden size 是 8192，所以每个 head 的维度是 128；这些数和 [Hugging Face 的 `config.json`](https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct/blob/main/config.json) 一致，[Meta 的 torchtune 配置](https://github.com/meta-pytorch/torchtune/blob/main/torchtune/models/llama3_1/_model_builders.py)也列出了同一组结构参数。BF16 下，GQA 每 token 存 320 KiB，32K token 占 10 GiB，128K 占 40 GiB。FP8 把它减半；KIVI INT4 加上 scale/zero 后约 12.5 GiB，再另留 40 MiB 的 BF16 residual window。
 
-| 配置 | 每 token | 128K | 备注 |
-|---|---|---|---|
-| BF16 | 320 KB | 40 GB | 基线 |
-| FP8 | 160 KB + scale（per-head 静态，忽略） | 20 GB | 免费 |
-| INT4 KIVI（G = 32，R = 128 残差） | 80 KiB + scale/zero（每 32 token 每通道 FP16 ×2：$$2 \times 80 \times 8 \times 128 \times 4 / 32$$ = 20 KiB） | 12.5 GiB + 残差 40 MiB | 元数据 25%——group 小的代价 |
-| INT2 KIVI（同 G = 32） | 40 KiB + 同样 20 KiB 元数据 | 7.5 GiB + 残差 | 元数据占一半，2 bit 的"4 倍"只兑现 2.7 倍 |
-| INT4 + SnapKV 25% | 上述 × 0.25 | 3.1 GB | 仅 QA 形态 |
-| MLA（DeepSeek-V3，训练时决定） | 576 × 2 = 1.15 KB（61 层：70 KB） | 8.8 GB | 结构级；不同模型 |
+下图把 GQA 的 BF16、FP8、INT4 和一个同尺寸的 MHA 对照放在一起。MHA 的 64 个 KV head 是反事实对照，不是 Llama-3.1-70B 的配置。
 
-Table: Llama-3.1-70B 各配置的 KV 字节账
+![Llama-3.1-70B GQA 的 KV cache 在 32K 与 128K 下的占用；MHA 是同尺寸、64 个 KV head 的对照计算](/img/in-post/kv-cache-compression-memory-budget.svg)
 
-INT4 KV 的元数据比权重量化重（group 沿 token 维度只有 32），实际压缩 3.2 倍而不是 4 倍。
+| 配置 | 每 token | 32K | 128K | 备注 |
+|---|---|---:|---:|---|
+| Llama-3.1-70B GQA，BF16 | 320 KiB | 10 GiB | 40 GiB | 基线 |
+| GQA，FP8 | 160 KiB + scale（per-head 静态，忽略） | 5 GiB | 20 GiB | 每个元素 1 byte |
+| GQA，INT4 KIVI（$$G = 32$$，$$R = 128$$） | 80 KiB 载荷 + 20 KiB scale/zero | 3.125 GiB + 40 MiB residual | 12.5 GiB + 40 MiB residual | 元数据占载荷的 25% |
+| GQA，INT2 KIVI（$$G = 32$$） | 40 KiB 载荷 + 20 KiB scale/zero | 1.875 GiB + 40 MiB residual | 7.5 GiB + 40 MiB residual | 元数据占载荷的一半 |
+| GQA，INT4 + SnapKV 25% | 约 25 KiB + residual | 约 0.78 GiB + 40 MiB | 约 3.1 GiB + 40 MiB | 仅适合问题已知的 QA |
+| 同尺寸 MHA，BF16（对照） | 2.5 MiB | 80 GiB | 320 GiB | 假设 64 个 KV head |
+| DeepSeek-V3 MLA，BF16 | 每层 1.125 KiB；61 层共 68.6 KiB | 2.14 GiB | 8.58 GiB | 结构级；不同模型 |
+
+Table: KV cache 的每 token 与长上下文字节账
+
+BF16/FP8/INT4 KIVI 的数字按 Llama-3.1-70B 的 GQA 配置计算；MLA 一行使用 DeepSeek-V3 的独立配置，不能据此比较模型质量。MHA 行只把 KV head 数改为 64，用来显示 GQA 的缓存差异。INT4 的 scale/zero 已计入，residual window 另列；分页与 allocator 的额外空间没有计入。
+
+每 token 的基础账只数两份张量：K 和 V。若每层有 $$H_{kv}$$ 个 KV head、每个 head 维度为 $$D$$，每个数占 $$b$$ 字节，就得到 $$2 \times L \times H_{kv} \times D \times b$$。代入 Llama-3.1-70B 的 BF16 配置就是 $$2 \times 80 \times 8 \times 128 \times 2 = 327{,}680$$ 字节，即 320 KiB。MHA 把 8 个 KV head 换成 64 个，每 token 变成 2.5 MiB。
+
+MLA 不直接存每个 attention head 展开的 K 和 V。DeepSeek-V3 配置里，KV latent rank 是 512，RoPE key 维度是 64；每层每 token 缓存 576 个 BF16 数，61 层合计 68.6 KiB，128K 时约 8.58 GiB。[DeepSeek-V3 `config.json`](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)给出了这几个维度。
+
+![Full K/V 与 MLA latent cache 的每层、每 token 存储结构和容量](/img/in-post/kv-cache-compression-mla-latent-cache.svg)
 
 ### 2. 运行时开销
 
@@ -237,7 +279,7 @@ FP8 KV 的 dequant 在 attention kernel 内，开销几个百分点，被 KV 读
 
 ### 3. 与其他方法的叠加
 
-KV 量化与权重量化叠加：decode 的两项流量（权重、KV）都减少，在长上下文下 KV 量化的边际收益更大（Llama-3-70B 每 token KV 320 KiB，与 141 GB 权重打平要约 43 万 token——单请求 430K，或 batch 4 × 108K、batch 8 × 54K；"约 40K 交叉"只在 batch ≈ 10 时成立，交叉点随并发移动）。KV 量化与投机解码叠加：验证 $$N_{tree}$$ 个 token 要读 KV，KV 字节减半让长上下文下投机的验证成本也减半（上一篇第八章的问题被缓解）。驱逐与投机叠加则要小心——树的多条路径需要一致的 KV 视图。
+KV 量化与权重量化叠加时，decode 的权重与 KV 两项流量都会减少。上下文变长后，KV 读取逐渐接近权重读取。以 Llama-3-70B 为例，每 token 的 KV 是 320 KiB；与 141 GB 权重打平约需 43 万 token。batch 增大后，每一步要读多个请求的 KV，交叉点会前移。KV 量化也会减少投机解码验证 $$N_{tree}$$ 个 token 时的 KV 读取量。驱逐与投机解码叠加要注意：树的多条路径需要一致的 KV 视图。
 
 ## 九、动手（建议）
 

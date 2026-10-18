@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif">
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="380" y="25" fill="#202938" font-size="15" text-anchor="middle" font-weight="700">同一组 10 个 token，留 6 个：策略保留的内容不同</text>
+<text x="380" y="45" fill="#64748b" font-size="10" text-anchor="middle" font-weight="normal">分数是 toy example，不是论文或 benchmark 结果；t4 是 needle，t10 是问题末尾</text>
+<text x="16" y="73" fill="#334155" font-size="11" text-anchor="start" font-weight="700">H2O 累计注意力</text>
+<line x1="128" y1="120" x2="721" y2="120" stroke="#cbd5e1"/>
+<rect x="136" y="86.0" width="26" height="34.0" fill="#4d9a5c" rx="2"/>
+<text x="149.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t1</text>
+<text x="149.0" y="82.0" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">10.0</text>
+<rect x="193" y="92.8" width="26" height="27.2" fill="#4d9a5c" rx="2"/>
+<text x="206.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t2</text>
+<text x="206.0" y="88.8" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">8.0</text>
+<rect x="250" y="115.92" width="26" height="4.08" fill="#4d9a5c" rx="2"/>
+<text x="263.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t3</text>
+<text x="263.0" y="111.92" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">1.2</text>
+<rect x="307" y="119.66" width="26" height="0.34" fill="#4d9a5c" rx="2"/>
+<text x="320.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t4</text>
+<text x="320.0" y="115.66" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.1</text>
+<rect x="364" y="99.6" width="26" height="20.4" fill="#4d9a5c" rx="2"/>
+<text x="377.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t5</text>
+<text x="377.0" y="95.6" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">6.0</text>
+<rect x="421" y="118.64" width="26" height="1.36" fill="#4d9a5c" rx="2"/>
+<text x="434.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t6</text>
+<text x="434.0" y="114.64" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.4</text>
+<rect x="478" y="113.2" width="26" height="6.8" fill="#4d9a5c" rx="2"/>
+<text x="491.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t7</text>
+<text x="491.0" y="109.2" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">2.0</text>
+<rect x="535" y="116.6" width="26" height="3.4" fill="#4d9a5c" rx="2"/>
+<text x="548.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t8</text>
+<text x="548.0" y="112.6" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">1.0</text>
+<rect x="592" y="117.96" width="26" height="2.04" fill="#4d9a5c" rx="2"/>
+<text x="605.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t9</text>
+<text x="605.0" y="113.96" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.6</text>
+<rect x="649" y="118.98" width="26" height="1.02" fill="#4d9a5c" rx="2"/>
+<text x="662.0" y="134" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t10</text>
+<text x="662.0" y="114.98" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.3</text>
+<line x1="320.0" y1="81" x2="320.0" y2="121" stroke="#c0392b" stroke-dasharray="3 3"/>
+<text x="16" y="163" fill="#334155" font-size="11" text-anchor="start" font-weight="700">问题观察窗 attention</text>
+<line x1="128" y1="210" x2="721" y2="210" stroke="#cbd5e1"/>
+<rect x="136" y="209.43333333333334" width="26" height="0.5666666666666668" fill="#8a6bd1" rx="2"/>
+<text x="149.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t1</text>
+<text x="149.0" y="205.43333333333334" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.01</text>
+<rect x="193" y="208.86666666666667" width="26" height="1.1333333333333335" fill="#8a6bd1" rx="2"/>
+<text x="206.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t2</text>
+<text x="206.0" y="204.86666666666667" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.02</text>
+<rect x="250" y="208.3" width="26" height="1.7000000000000002" fill="#8a6bd1" rx="2"/>
+<text x="263.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t3</text>
+<text x="263.0" y="204.3" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.03</text>
+<rect x="307" y="176.0" width="26" height="34.0" fill="#8a6bd1" rx="2"/>
+<text x="320.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t4</text>
+<text x="320.0" y="172.0" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.60</text>
+<rect x="364" y="207.73333333333332" width="26" height="2.266666666666667" fill="#8a6bd1" rx="2"/>
+<text x="377.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t5</text>
+<text x="377.0" y="203.73333333333332" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.04</text>
+<rect x="421" y="207.16666666666666" width="26" height="2.833333333333334" fill="#8a6bd1" rx="2"/>
+<text x="434.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t6</text>
+<text x="434.0" y="203.16666666666666" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.05</text>
+<rect x="478" y="206.6" width="26" height="3.4000000000000004" fill="#8a6bd1" rx="2"/>
+<text x="491.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t7</text>
+<text x="491.0" y="202.6" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.06</text>
+<rect x="535" y="206.03333333333333" width="26" height="3.9666666666666672" fill="#8a6bd1" rx="2"/>
+<text x="548.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t8</text>
+<text x="548.0" y="202.03333333333333" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.07</text>
+<rect x="592" y="205.46666666666667" width="26" height="4.533333333333334" fill="#8a6bd1" rx="2"/>
+<text x="605.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t9</text>
+<text x="605.0" y="201.46666666666667" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.08</text>
+<rect x="649" y="207.73333333333332" width="26" height="2.266666666666667" fill="#8a6bd1" rx="2"/>
+<text x="662.0" y="224" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">t10</text>
+<text x="662.0" y="203.73333333333332" fill="#334155" font-size="8" text-anchor="middle" font-weight="normal">0.04</text>
+<line x1="320.0" y1="171" x2="320.0" y2="211" stroke="#c0392b" stroke-dasharray="3 3"/>
+<text x="16" y="254" fill="#334155" font-size="11" text-anchor="start" font-weight="700">预算留存</text>
+<text x="126" y="284" fill="#334155" font-size="11" text-anchor="end" font-weight="700">StreamingLLM</text>
+<rect x="130" y="267" width="38" height="25" rx="4" fill="#c98a00" stroke="#cbd5e1" stroke-width="1"/>
+<text x="149" y="284" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t1</text>
+<rect x="187" y="267" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="206" y="284" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t2</text>
+<rect x="244" y="267" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="263" y="284" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t3</text>
+<rect x="301" y="267" width="38" height="25" rx="4" fill="#edf0f4" stroke="#c0392b" stroke-width="2"/>
+<text x="320" y="284" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t4</text>
+<rect x="358" y="267" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="377" y="284" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t5</text>
+<rect x="415" y="267" width="38" height="25" rx="4" fill="#8a6bd1" stroke="#cbd5e1" stroke-width="1"/>
+<text x="434" y="284" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t6</text>
+<rect x="472" y="267" width="38" height="25" rx="4" fill="#8a6bd1" stroke="#cbd5e1" stroke-width="1"/>
+<text x="491" y="284" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t7</text>
+<rect x="529" y="267" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="548" y="284" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t8</text>
+<rect x="586" y="267" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="605" y="284" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t9</text>
+<rect x="643" y="267" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="662" y="284" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t10</text>
+<text x="126" y="327" fill="#334155" font-size="11" text-anchor="end" font-weight="700">H2O</text>
+<rect x="130" y="310" width="38" height="25" rx="4" fill="#4d9a5c" stroke="#cbd5e1" stroke-width="1"/>
+<text x="149" y="327" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t1</text>
+<rect x="187" y="310" width="38" height="25" rx="4" fill="#4d9a5c" stroke="#cbd5e1" stroke-width="1"/>
+<text x="206" y="327" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t2</text>
+<rect x="244" y="310" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="263" y="327" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t3</text>
+<rect x="301" y="310" width="38" height="25" rx="4" fill="#edf0f4" stroke="#c0392b" stroke-width="2"/>
+<text x="320" y="327" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t4</text>
+<rect x="358" y="310" width="38" height="25" rx="4" fill="#4d9a5c" stroke="#cbd5e1" stroke-width="1"/>
+<text x="377" y="327" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t5</text>
+<rect x="415" y="310" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="434" y="327" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t6</text>
+<rect x="472" y="310" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="491" y="327" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t7</text>
+<rect x="529" y="310" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="548" y="327" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t8</text>
+<rect x="586" y="310" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="605" y="327" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t9</text>
+<rect x="643" y="310" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="662" y="327" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t10</text>
+<text x="126" y="370" fill="#334155" font-size="11" text-anchor="end" font-weight="700">SnapKV</text>
+<rect x="130" y="353" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="149" y="370" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t1</text>
+<rect x="187" y="353" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="206" y="370" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t2</text>
+<rect x="244" y="353" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="263" y="370" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t3</text>
+<rect x="301" y="353" width="38" height="25" rx="4" fill="#8a6bd1" stroke="#c0392b" stroke-width="2"/>
+<text x="320" y="370" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t4</text>
+<rect x="358" y="353" width="38" height="25" rx="4" fill="#edf0f4" stroke="#cbd5e1" stroke-width="1"/>
+<text x="377" y="370" fill="#8792a2" font-size="9" text-anchor="middle" font-weight="600">t5</text>
+<rect x="415" y="353" width="38" height="25" rx="4" fill="#8a6bd1" stroke="#cbd5e1" stroke-width="1"/>
+<text x="434" y="370" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t6</text>
+<rect x="472" y="353" width="38" height="25" rx="4" fill="#8a6bd1" stroke="#cbd5e1" stroke-width="1"/>
+<text x="491" y="370" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t7</text>
+<rect x="529" y="353" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="548" y="370" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t8</text>
+<rect x="586" y="353" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="605" y="370" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t9</text>
+<rect x="643" y="353" width="38" height="25" rx="4" fill="#1f6fb2" stroke="#cbd5e1" stroke-width="1"/>
+<text x="662" y="370" fill="#fff" font-size="9" text-anchor="middle" font-weight="600">t10</text>
+<text x="136" y="407" fill="#c98a00" font-size="9" text-anchor="start" font-weight="700">金色：sink</text>
+<text x="258" y="407" fill="#1f6fb2" font-size="9" text-anchor="start" font-weight="700">蓝色：最近窗口</text>
+<text x="414" y="407" fill="#4d9a5c" font-size="9" text-anchor="start" font-weight="700">绿色：H2O 累计 top-k</text>
+<text x="136" y="429" fill="#8a6bd1" font-size="9" text-anchor="start" font-weight="700">紫色：SnapKV 问题 top-k    红框：needle t4</text>
+<text x="380" y="458" fill="#475569" font-size="10" text-anchor="middle" font-weight="normal">StreamingLLM 和 H2O 都没留 t4；SnapKV 用问题的 attention 把它选了出来。</text>
+</svg>
