@@ -32,6 +32,9 @@ python3 tools/liquid-scan.py && ok "no unescaped {{ / {% in code blocks" || bad 
 step "Q&A footnotes ([^qN] ↔ [^qN]:)"
 python3 tools/qfootnotes.py --check >/dev/null && ok "every [^qN] has one definition, numbered in reading order" || { python3 tools/qfootnotes.py --check | tail -20; bad "q footnotes inconsistent — see above (tools/qfootnotes.py --fix renumbers)"; }
 
+step "glossary data files"
+ruby tools/glossary-check.rb && ok "glossary terms consistent and reachable" || bad "glossary-check failures — see above"
+
 step "css/ is built from less/"
 tools/build-css.sh --check >/dev/null 2>&1 && ok "css/argan-blog{,.min}.css match less/" || bad "css/ is stale or hand-edited — run: npm run css"
 

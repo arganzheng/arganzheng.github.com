@@ -12,29 +12,7 @@ updated: 2026-09-20
 
 本篇从零建立这两条规则。全篇的核心问题是：
 
-> **看到任何一个矩阵乘法，能不能立刻写出输出形状和 FLOPs（floating-point operations）？[^q0] 能不能代入一个真实模型算出一个数字？[^q1]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| token | — | 模型处理文字的最小单位，大致是一个词或半个词 |
-| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
-| FLOPs | floating-point operations | 浮点运算次数，算量的计量单位 |
-| reshape | — | 不改数据、只改形状的数组操作 |
-| shape | — | 张量各维的大小，矩阵乘法的合法性由它决定 |
-| einsum | Einstein summation | 爱因斯坦求和约定，用下标写法描述张量收缩 |
-| stride | — | 数组在内存里相邻元素的字节间隔 |
-| prefill | — | 推理时一次性处理整段 prompt 的阶段 |
-| LLM | large language model | 大语言模型 |
-| MLP | multi-layer perceptron | 多层感知机：线性层 + 非线性激活叠起来的网络 |
-| GELU | Gaussian error linear unit | 一种平滑的激活函数，作用类似 ReLU |
-| softmax | — | 把一组分数归一化成概率分布的函数 |
-| GLU | gated linear unit | 门控线性单元，两路线性相乘的激活结构 |
-| GPT | generative pre-trained transformer | OpenAI 的生成式预训练模型系列 |
-| FFN | feed-forward network | 前馈网络，Transformer 里 attention 之外的另一半参数 |
-| KV | key / value | attention 里被查的键与取值的值 |
-| embedding | — | 把离散对象（token、图块）查表变成向量的表示 |
+> **看到任何一个矩阵乘法，能不能立刻写出输出形状和 FLOPs？[^q0] 能不能代入一个真实模型算出一个数字？[^q1]**
 
 ## 一、总览
 
@@ -390,9 +368,9 @@ Table: 一个 token 过一层的六步：玩具尺寸 d = 4、d_ff = 8 下每一
 | $$W_{\text{up}}$$ | 把 $$h$$ 放大到 $$d_{ff} = 14336$$ 维 | 更宽的中间层 = 更多可以被门选中的通道，FFN 存"知识"的容量主要在这里（《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》「八、FFN 子层：让每个 token 自己想一想」把 FFN 看成键值记忆） |
 | $$W_{\text{down}}$$ | 把 14336 维压回 4096 维，加回残差流 | 中间层的结果要回到残差流才能被下一层和输出层用到；它与 $$W_{\text{up}}$$ 一起构成"先展开再压回"的瓶颈 |
 
-Table: 七个矩阵各是什么、为什么少不了：attention 的四个管 token 之间怎么交流，MLP的三个管每个 token 自己怎么变换
+Table: 七个矩阵各是什么、为什么少不了：attention 的四个管 token 之间怎么交流，MLP 的三个管每个 token 自己怎么变换
 
-$$W_{\text{gate}}$$ 不是 Transformer 必需的。原始 Transformer、BERT、GPT-2 / GPT-3 的 MLP 只有两个矩阵：$$\text{GELU}(h W_1)\, W_2$$，$$W_1$$ 把 $$d$$ 放大到 $$d_{ff} = 4d$$、$$W_2$$ 压回来，参数 $$2 \times 4d \times d = 8d^2$$。多出 $$W_{\text{gate}}$$ 的是 **GLU**（gated linear unit）一族：$$\big(\text{act}(h W_{\text{gate}}) \odot h W_{\text{up}}\big)\, W_{\text{down}}$$——激活用 SiLU 叫 SwiGLU，用 GELU 叫 GeGLU。三个矩阵若仍取 $$4d$$ 宽就是 $$12d^2$$，所以 GLU 通常把 $$d_{ff}$$ 缩到 $$\tfrac{8}{3} d$$，$$3 \times \tfrac{8}{3} d \times d = 8d^2$$，与两矩阵版参数持平；Llama-3-8B 在此基础上再乘 1.3、向上取整到 1024 的倍数：$$\tfrac{8}{3} \times 4096 \approx 10922$$，$$\times 1.3 \approx 14198$$，取整得 14336（3.5 倍）。
+$$W_{\text{gate}}$$ 不是 Transformer 必需的。原始 Transformer、BERT、GPT-2 / GPT-3 的 MLP 只有两个矩阵：$$\text{GELU}(h W_1)\, W_2$$，$$W_1$$ 把 $$d$$ 放大到 $$d_{ff} = 4d$$、$$W_2$$ 压回来，参数 $$2 \times 4d \times d = 8d^2$$。多出 $$W_{\text{gate}}$$ 的是 **GLU**（gated linear unit）一族：$$\big(\text{act}(h W_{\text{gate}}) \odot h W_{\text{up}}\big)\, W_{\text{down}}$$——激活用 SiLU 叫 SwiGLU（PaLM、Llama、Mistral、Qwen），用 GELU 叫 GeGLU（Gemma）。三个矩阵若仍取 $$4d$$ 宽就是 $$12d^2$$，所以 GLU 通常把 $$d_{ff}$$ 缩到 $$\tfrac{8}{3} d$$，$$3 \times \tfrac{8}{3} d \times d = 8d^2$$，与两矩阵版参数持平；Llama-3-8B 在此基础上再乘 1.3、向上取整到 1024 的倍数：$$\tfrac{8}{3} \times 4096 \approx 10922$$，$$\times 1.3 \approx 14198$$，取整得 14336（3.5 倍）。
 
 参数只在 ①③④⑥ 四步里出现：$$3 \times 16 + 16 + 2 \times 32 + 32 = 160$$ 个数，FLOPs 恰好是它的两倍 320（再加 ② 里随 $$T$$ 变的那部分）。把 4 换成 4096、8 换成 14336、1 个头换成 32 个 query 头 + 8 个 KV 头，就是下面 Llama-3-8B 的表。七个带 $$W$$ 的框就是这一层的全部参数；其余框（attention 内部、逐元素运算、加法）没有参数。用形状规则逐个读 Llama-3-8B 的这七个矩阵（$$d = 4096$$；MLP 中间维度 $$d_{ff} = 14336$$，先把向量放大到 3.5 倍再压回来；attention 用 **GQA**——32 个 query 头，但 key / value 只有 8 个头、由每 4 个 query 头共用，所以 $$W_K, W_V$$ 的输出维是 $$8 \times 128 = 1024$$ 而不是 4096。为什么要共用：推理时每个 token 的 K、V 要存下来反复用，头少四倍存的就少四倍，现代 LLM 结构（04）算这笔账）：
 

@@ -10,51 +10,6 @@ date: 2026-05-29 20:00:00
 
 三篇正文回答了一个问题：**为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好，每个旋钮该取多少，训完的东西怎么上线**。第一篇讲低秩假设、$$W + \frac{\alpha}{r}BA$$ 的梯度与四本账，并直接检验全量微调的 $$\Delta W$$ 有多低秩；第二篇把十三种配置在同一份数据上各训 80 步，每个旋钮给一组数字；第三篇从 adapter 文件走到 multi-LoRA 服务。本文把三篇压成一张速查表，拎出贯穿三篇的四条线，列常见误区，再给一套自测。
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| adapter | — | 训完存下的 LoRA 权重（A、B），挂到底座上用 |
-| multi-LoRA | — | 一个底座挂多个 adapter、按请求切换的服务方式 |
-| lr | learning rate | 学习率 |
-| DoRA | Weight-Decomposed Low-Rank Adaptation | 幅度与方向分开训的 LoRA 变体 |
-| QLoRA | Quantized LoRA | 底座量化到 NF4、上面再挂 LoRA 的训练方法 |
-| LoRA | Low-Rank Adaptation | 冻结 W、只训一对瘦矩阵 B、A 的微调方法 |
-| kernel | — | 设备上执行一次算子的函数 |
-| lm_head | — | 输出层，把 hidden 映射成词表 logits |
-| rsLoRA | rank-stabilized LoRA | 缩放改成 α/√r 的 LoRA |
-| PiSSA | Principal Singular values and Singular vectors Adaptation | 用 W 的主奇异方向初始化，会改底座 |
-| OLoRA | Orthonormal Low-Rank Adaptation | 用 W 的 QR 分解初始化，会改底座 |
-| CorDA | Context-oriented Decomposition Adaptation | 用数据协方差加权的 SVD 选初始方向，会改底座 |
-| EVA | Explained Variance Adaptation | 用激活的 SVD 初始化 A，不改底座 |
-| LoftQ | LoRA-Fine-Tuning-aware Quantization | 对着量化误差初始化，只对 QLoRA 有意义 |
-| NF4 | 4-bit NormalFloat | 按正态分位数取 16 个格点的 4 bit 格式 |
-| BF16 | bfloat16 | 16 bit 浮点，范围同 FP32、尾数短 |
-| logits | — | softmax 之前的词表分数 |
-| FP32 | 32-bit floating point | 单精度浮点 |
-| trl | Transformer Reinforcement Learning | Hugging Face 的后训练库，DPO / GRPO 训练器在里面 |
-| FLOPs | floating point operations | 浮点运算次数，计算量的单位 |
-| Adam | adaptive moment estimation | 每个参数存两个矩的优化器 |
-| MLP | multi-layer perceptron | 每层的前馈子层 |
-| LoRA+ | — | 给 B 设更大学习率的 LoRA 变体 |
-| DPO | Direct Preference Optimization | 直接用偏好对训练的对齐方法，需要参考模型 |
-| GRPO | Group Relative Policy Optimization | 组内相对奖励的强化学习方法，KL 项要参考模型 |
-| vLLM | — | 开源 LLM 推理引擎，支持 multi-LoRA |
-| GPT-3 | Generative Pre-trained Transformer 3 | OpenAI 的 175B 模型，LoRA 原论文的实验对象 |
-| ulp | unit in the last place | 浮点数最后一位的单位，更小的增量会被舍掉 |
-| AdamW | Adam with decoupled weight decay | 权重衰减与梯度更新分开的 Adam |
-| SGD | stochastic gradient descent | 随机梯度下降 |
-| INT4 | 4-bit integer | 4 bit 整数量化格式 |
-| FP8 | 8-bit floating point | 8 bit 浮点格式，常用于推理量化 |
-| KL | Kullback–Leibler divergence | 衡量策略离参考模型多远的散度 |
-| HF | Hugging Face | 开源模型与库的平台，这里指它的源码系列 |
-| GPTQ | — | 逐层用二阶信息补偿误差的训练后权重量化方法 |
-| AWQ | Activation-aware Weight Quantization | 按激活大小保护重要通道的权重量化方法 |
-| S-LoRA | — | 同时服务上千个 adapter 的系统（Sheng 等 2023） |
-| Punica | — | 多 LoRA 服务系统，提供分组瘦矩阵乘 kernel |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ```text title="三篇正文的骨架与共用的一组实验"
@@ -102,9 +57,9 @@ Table: 三篇正文的速查表
 ### 01 低秩假设：为什么两个瘦矩阵够用，以及它省了哪几本账
 
 - **一个公式**：$$W' = W + \frac{\alpha}{r} BA$$，$$B = 0$$ 使起点等于底座，$$A$$ 随机使 $$B$$ 有梯度可走；两个都为 0 学不动，两个都随机把 loss 从 2.49 打到 14.8（实测）。
-- **梯度只需两次瘦矩阵乘**：$$\partial B = s\, G A^\top$$、$$\partial A = s\, B^\top G$$，但对输入的梯度 $$W^\top G$$ 一步也省不掉——所以 LoRA（Low-Rank Adaptation）的反向不比全量少多少 FLOPs（floating point operations）。
-- **四本账里省的是两本**：0.5B 上梯度 1885 MB → 34 MB、Adam（adaptive moment estimation）状态 3769 MB → 67 MB；前向没有变快（0.91 s 对 0.94 s，算子反而从 5091 涨到 9963），激活值一样。一步 3.46 s → 2.31 s，省的全是优化器那一段。
-- **低秩假设的边界**：全量微调 80 步的 $$\Delta W$$ 本身不低秩（秩 16 只占方阵 40–68%、MLP（multi-layer perceptron）矩阵 20–28% 的能量），但截到秩 1 就拿到 95% 的收益、秩 16 好于不截——有用的部分低秩，高秩部分只带来遗忘。这就是"内在秩很低"与"LoRA 学得少忘得也少"是同一件事的原因；它在小数据的格式/风格 SFT 上成立，在大数据的继续预训练上失效。
+- **梯度只需两次瘦矩阵乘**：$$\partial B = s\, G A^\top$$、$$\partial A = s\, B^\top G$$，但对输入的梯度 $$W^\top G$$ 一步也省不掉——所以 LoRA 的反向不比全量少多少 FLOPs。
+- **四本账里省的是两本**：0.5B 上梯度 1885 MB → 34 MB、Adam 状态 3769 MB → 67 MB；前向没有变快（0.91 s 对 0.94 s，算子反而从 5091 涨到 9963），激活值一样。一步 3.46 s → 2.31 s，省的全是优化器那一段。
+- **低秩假设的边界**：全量微调 80 步的 $$\Delta W$$ 本身不低秩（秩 16 只占方阵 40–68%、MLP 矩阵 20–28% 的能量），但截到秩 1 就拿到 95% 的收益、秩 16 好于不截——有用的部分低秩，高秩部分只带来遗忘。这就是"内在秩很低"与"LoRA 学得少忘得也少"是同一件事的原因；它在小数据的格式/风格 SFT 上成立，在大数据的继续预训练上失效。
 
 ### 02 选参：r、target_modules、alpha、lr 与 QLoRA / DoRA / PiSSA 各让模型变成什么
 
@@ -112,16 +67,16 @@ Table: 三篇正文的速查表
 
 - **$$r$$ 是容量**：$$r = 4 \to 16$$ 验证回复 loss 从 2.4141 到 2.3943（全量 2.3924），$$16 \to 64$$ 不再改善（2.3958），遗忘却从 +0.0107 涨到 +0.0436、超过全量的 +0.0213。小任务 $$r = 16$$ 够；知识注入要大 $$r$$ 或全量。
 - **挂哪里比 $$r$$ 重要**：只挂 attention（2.2M）2.4113，挂全部线性层（8.8M）2.3943；同样参数翻 4 倍，$$r$$ 从 16 到 64 却没有收益。默认 `all-linear`。
-- **scaling 与 lr（learning rate）是一个旋钮**：$$r = 64$$ 上 scaling 0.5 / 2 / 4（rsLoRA）的遗忘 +0.0087 / +0.0436 / +0.0727，scaling 4 的验证 loss 反而最差；lr 1e-5 只学到一半、1e-3 遗忘是全量的 4 倍。LoRA 的 lr 比全量大 10–20 倍，但"LoRA 忘得少"的前提是它学得也少。
-- **变体在小任务上不比默认好**：LoRA+（$$B$$ 的 lr × 4）2.3998、PiSSA（Principal Singular values and Singular vectors Adaptation）2.4152 且遗忘更大、DoRA（Weight-Decomposed Low-Rank Adaptation）与 LoRA 相同（2.3942）但慢 27%；它们各有适用场合（长训练、收敛紧、极小 $$r$$），不是默认开关。
-- **QLoRA（Quantized LoRA）只动冻结权重那本账**：NF4（4-bit NormalFloat，16 个正态分位数格点）+ 双重量化 + 分页优化器，0.5B 的底座从 988 MB 到 430 MB；代价是每步的反量化与底座本身的量化误差，adapter 训出来要和它配对的精度一起看（第三篇）。
+- **scaling 与 lr 是一个旋钮**：$$r = 64$$ 上 scaling 0.5 / 2 / 4（rsLoRA）的遗忘 +0.0087 / +0.0436 / +0.0727，scaling 4 的验证 loss 反而最差；lr 1e-5 只学到一半、1e-3 遗忘是全量的 4 倍。LoRA 的 lr 比全量大 10–20 倍，但"LoRA 忘得少"的前提是它学得也少。
+- **变体在小任务上不比默认好**：LoRA+（$$B$$ 的 lr × 4）2.3998、PiSSA 2.4152 且遗忘更大、DoRA 与 LoRA 相同（2.3942）但慢 27%；它们各有适用场合（长训练、收敛紧、极小 $$r$$），不是默认开关。
+- **QLoRA 只动冻结权重那本账**：NF4（16 个正态分位数格点）+ 双重量化 + 分页优化器，0.5B 的底座从 988 MB 到 430 MB；代价是每步的反量化与底座本身的量化误差，adapter 训出来要和它配对的精度一起看（第三篇）。
 
 ### 03 工程：adapter 文件、合并、多 LoRA 服务与参考模型
 
-- **adapter 是两个文件**：`adapter_config.json`（`LoraConfig` + 底座名）与 `adapter_model.safetensors`（键名带着挂载位置；0.5B r=16 全部线性层 FP32（32-bit floating point）存 33.6 MB，BF16（bfloat16）约 17 MB），底座的版本、词表、精度都是它的隐含依赖。
+- **adapter 是两个文件**：`adapter_config.json`（`LoraConfig` + 底座名）与 `adapter_model.safetensors`（键名带着挂载位置；0.5B r=16 全部线性层 FP32 存 33.6 MB，BF16 约 17 MB），底座的版本、词表、精度都是它的隐含依赖。
 - **合并是精确的**：`merge_and_unload` 后 logits 差 $$3 \times 10^{-4}$$（FP32 舍入），CPU 单条请求快 18%；BF16 上加 $$\Delta W$$ 要升到 FP32 再加。
 - **换底座精度 = 量化误差，不是失效**：FP32 训的 adapter 装到 NF4 底座 2.4860、先合并再量化 2.4854，两者与训练前 NF4 底座（2.5780）的差和 FP32 上一样约 0.09；对着 NF4 训的 QLoRA adapter 在 NF4 上更好（2.4663）。上线前在目标精度上重测一次。
-- **多 adapter**：`set_adapter` 零拷贝切换（2.3943 / 2.4113 与各自训完一致）；`add_weighted_adapter` 的 `linear` 有交叉项、`cat` 精确但秩相加、`svd` 精确又可控秩，同任务合成拿到的是平均而非叠加；`disable_adapter()` 就是 DPO（Direct Preference Optimization）/ GRPO（Group Relative Policy Optimization）的免费参考模型（2.4936 = 底座）。
+- **多 adapter**：`set_adapter` 零拷贝切换（2.3943 / 2.4113 与各自训完一致）；`add_weighted_adapter` 的 `linear` 有交叉项、`cat` 精确但秩相加、`svd` 精确又可控秩，同任务合成拿到的是平均而非叠加；`disable_adapter()` 就是 DPO / GRPO 的免费参考模型（2.4936 = 底座）。
 - **服务账**：50 个 r=16 adapter 挂在一个 BF16 底座上多 0.82 GiB，存 50 份合并模型是 46 GiB；vLLM 的 `max_loras × max_lora_rank` 预留的就是这块。
 - **新 token 学不会**：LoRA 不碰 `embed_tokens` / `lm_head`，新 token 那一行训一步改动为 0；`trainable_token_indices` 只训那几行（+896 个参数），`modules_to_save` 训整张表（+272M，比 LoRA 本身大 30 倍）。
 
@@ -173,13 +128,13 @@ Table: 常见误区
    $$8 \times 8192 / 4096^2 = 1/256$$。scaling：$$16/8 = 2$$ 与 $$16/32 = 0.5$$；rsLoRA：$$16/\sqrt 8 = 5.66$$ 与 $$16/\sqrt{32} = 2.83$$。
    </details>
 
-2. 混合精度 AdamW（Adam with decoupled weight decay）下，70B 模型全量微调的训练状态多少？全部线性层 $$r = 16$$ 的 LoRA 呢（线性层约占 95% 参数，按 8B 的 0.52% 比例放大到约 0.4%）？QLoRA 呢？
+2. 混合精度 AdamW 下，70B 模型全量微调的训练状态多少？全部线性层 $$r = 16$$ 的 LoRA 呢（线性层约占 95% 参数，按 8B 的 0.52% 比例放大到约 0.4%）？QLoRA 呢？
 
    <details markdown="1"><summary>答案</summary>
    全量 $$16 \times 70 \times 10^9 = 1.12$$ TB。LoRA：冻结 140 GB + 可训练 $$0.28 \times 10^9 \times 14 = 3.9$$ GB ≈ 144 GB。QLoRA：冻结权重 4.127 bit → 36 GB，加 3.9 GB ≈ 40 GB，一张 48 GB 的卡放得下（不含激活值）。
    </details>
 
-3. 用第一篇的 $$2 \times 3$$ 例子（$$W$$、$$x = (2, 1, 1)$$、$$t = (3, 0)$$、$$s = 2$$），若 $$A = (0, 1, 1)$$、$$B = (0, 0)^\top$$，第一步 $$\partial \mathcal{L}/\partial B$$ 是多少？一步 SGD（stochastic gradient descent，lr 0.1）后 $$y$$ 是多少？
+3. 用第一篇的 $$2 \times 3$$ 例子（$$W$$、$$x = (2, 1, 1)$$、$$t = (3, 0)$$、$$s = 2$$），若 $$A = (0, 1, 1)$$、$$B = (0, 0)^\top$$，第一步 $$\partial \mathcal{L}/\partial B$$ 是多少？一步 SGD（lr 0.1）后 $$y$$ 是多少？
 
    <details markdown="1"><summary>答案</summary>
    $$y = Wx = (4, 1)$$，$$G = (1, 1)$$，$$h = Ax = 0 + 1 + 1 = 2$$，$$\partial \mathcal{L}/\partial B = 2 \cdot (1, 1) \cdot 2 = (4, 4)$$。$$B \leftarrow (-0.4, -0.4)$$，$$y = (4, 1) + 2 \cdot (-0.4, -0.4) \cdot 2 = (2.4, -0.6)$$——一步就冲过了目标 $$(3, 0)$$，lr 对这个 $$h$$ 太大。
@@ -208,7 +163,7 @@ Table: 常见误区
 7. 用 QLoRA（NF4 底座）训好一个 adapter，线上想用 BF16 底座并合并后交给 vLLM。写出步骤，并说明每一步的数值等价程度与要测什么。
 
    <details markdown="1"><summary>答案</summary>
-   ① 加载 BF16 底座 + adapter（adapter 是对 NF4 底座学的，装到 BF16 上差别与底座量化误差同量级，03 §3）；② 在验证集上算一次 loss，与训练日志比（03 §2.1）；③ `merge_and_unload`，FP32 里加再转 BF16（03 §2.2）；④ 合并前后 logits 差应在 $$10^{-5}$$ 以下；⑤ 若线上要 INT4（4-bit integer）/FP8（8-bit floating point），对合并后的模型再量化并重测。若差别不可接受，改用 NF4 底座 + adapter 不合并的方案服务。
+   ① 加载 BF16 底座 + adapter（adapter 是对 NF4 底座学的，装到 BF16 上差别与底座量化误差同量级，03 §3）；② 在验证集上算一次 loss，与训练日志比（03 §2.1）；③ `merge_and_unload`，FP32 里加再转 BF16（03 §2.2）；④ 合并前后 logits 差应在 $$10^{-5}$$ 以下；⑤ 若线上要 INT4/FP8，对合并后的模型再量化并重测。若差别不可接受，改用 NF4 底座 + adapter 不合并的方案服务。
    </details>
 
 8. 一个底座要服务 30 个客户，其中 25 个是"改口吻"的小 adapter（$$r = 8$$），5 个是"加领域知识"的大需求。给出方案与依据。
@@ -220,7 +175,7 @@ Table: 常见误区
 9. LoRA 训 GRPO，`beta > 0`。参考模型的 logits 怎么来？与 DPO 比，这里省下的显存与算力各是多少？如果 GRPO 中途把 adapter `merge` 进底座会发生什么？
 
    <details markdown="1"><summary>答案</summary>
-   `disable_adapter()` 下再前向一次（03 §4.3）。省一份模型显存（8B 16 GB）与一份权重读取，不省参考前向的计算——DPO 同理。中途 merge 后，"关掉 adapter"得到的不再是初始策略而是当前策略，KL（Kullback–Leibler divergence）项恒为 0，参考模型形同虚设。
+   `disable_adapter()` 下再前向一次（03 §4.3）。省一份模型显存（8B 16 GB）与一份权重读取，不省参考前向的计算——DPO 同理。中途 merge 后，"关掉 adapter"得到的不再是初始策略而是当前策略，KL 项恒为 0，参考模型形同虚设。
    </details>
 
 ### C. 面试题
@@ -248,7 +203,7 @@ Table: 常见误区
 - 继续后训练：[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第二篇起的偏好数据、DPO、GRPO，本系列第三篇的 `disable_adapter()` 会在那里再出现。
 - 读实现：[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列第一、三篇的一个公式。
 - 服务侧：[vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列第三篇只算了账。
-- 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ / AWQ（Activation-aware Weight Quantization）/ FP8，本系列第二篇的 NF4 是其中面向训练的一种。
+- 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ / AWQ / FP8，本系列第二篇的 NF4 是其中面向训练的一种。
 
 ## 七、延伸阅读
 

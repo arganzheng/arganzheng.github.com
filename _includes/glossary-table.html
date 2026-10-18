@@ -1,0 +1,48 @@
+{% comment %}
+  Series glossary table.
+  {% include glossary-table.html series="math-for-ai" %}
+      → <div id="glossary"> table 缩写 | 全称 | 一句话解释 | 首次出现
+  {% include glossary-table.html roadmap="ai-algorithm" %}
+      → every series on the map that has data, merged in map order and deduped
+        by term (first series wins), + 系列 column, inside a closed <details>.
+{% endcomment %}
+{% if include.series %}
+{% assign entries = site.data.glossary[include.series] %}
+<div id="glossary" class="glossary-table" markdown="0">
+<table>
+<thead>
+<tr><th>缩写</th><th>全称</th><th>一句话解释</th><th>首次出现</th></tr>
+</thead>
+<tbody>
+{% for e in entries %}
+<tr>
+<td>{{ e.term }}</td>
+<td>{{ e.full }}</td>
+<td>{{ e.desc }}</td>
+<td>{% if e.first %}<a href="{{ e.first.url }}">{{ e.first.title }}</a>{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% elsif include.roadmap %}
+{% assign entries = site.data.glossary_maps[include.roadmap] %}
+<details class="glossary-table glossary-roadmap">
+<summary>本地图涉及的 {{ entries.size }} 个术语与缩写（展开）</summary>
+<table>
+<thead>
+<tr><th>缩写</th><th>全称</th><th>一句话解释</th><th>系列</th></tr>
+</thead>
+<tbody>
+{% for e in entries %}
+<tr>
+<td>{{ e.term }}</td>
+<td>{{ e.full }}</td>
+<td>{{ e.desc }}</td>
+<td>{{ e.series_names | join: '、' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</details>
+{% endif %}

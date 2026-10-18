@@ -17,32 +17,6 @@ updated: 2026-09-30
 
 > **`tok.apply_chat_template(messages, tokenize=True)` 与 `load_dataset(name).map(fn, num_proc=4)` 各经过了哪几层？哪一层在 Python、哪一层在 Rust / Arrow？为什么第二次 `map` 几乎不花时间？[^q0]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| Arrow | — | Apache Arrow 列式格式，datasets 缓存就是它 |
-| Jinja | — | Python 模板引擎，chat template 用它写 |
-| BPE | byte-pair encoding | 字节对编码：反复合并最常见的相邻 pair 得到词表 |
-| mmap | memory map | 把文件映射进内存，读到哪页才从磁盘加载哪页 |
-| fingerprint | — | datasets 给每个数据集算的哈希，用作缓存文件名 |
-| NFC | Normalization Form C | Unicode 规范化形式：组合字符合成一个码位 |
-| parquet | — | Apache Parquet 列式存储文件，Hub 上的数据集常用 |
-| SFT | supervised fine-tuning | 有监督微调：拿标注好的回答训模型 |
-| streaming | — | 边读远端文件边产出样本，不下载、不转 Arrow |
-| ByteLevel | — | 把每个字节映射成一个可见字符的预分词 / 解码方式 |
-| UTF-8 | Unicode Transformation Format, 8-bit | 变长字节编码，一个汉字通常占 3 字节 |
-| OOV | out of vocabulary | 词表外：输入里有词表表示不了的部分 |
-| rayon | — | Rust 的数据并行库，encode_batch 靠它多线程 |
-| NER | named entity recognition | 命名实体识别：标出人名、地名这类片段 |
-| QA | question answering | 问答；抽取式 QA 从原文里划出答案 |
-| assistant mask | — | 0/1 列表，标出哪些 token 属于 assistant 回合 |
-| dill | — | 能序列化 lambda 和闭包的 pickle 扩展库 |
-| shard | — | 数据集切出的一片，可以分给不同 worker |
-| FineWeb | — | HF 发布的大规模网页预训练语料 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ### 1. 两条流水线
@@ -101,7 +75,7 @@ Table: 本文的章节安排
 
 Table: tokenizer.json 的五段与 Qwen2.5 的配置
 
-[L4 预训练系列第一篇](/tokenizer-vocabulary-and-token-efficiency.html)讲了 BPE（byte-pair encoding）的算法与词表设计；这里补代码层面的两点。
+[L4 预训练系列第一篇](/tokenizer-vocabulary-and-token-efficiency.html)讲了 BPE 的算法与词表设计；这里补代码层面的两点。
 
 ### 2. `Ġ` 与字节级
 
@@ -111,7 +85,7 @@ tokens: ['The', 'Ġcat', 'Ġsat', 'Ġon', 'Ġthe', 'Ġmat', '.', 'Ġç', 'Į', '
 ids:    [785, 8251, 7578, 389, 279, 5517, 13, 10236, 234, 104, 104427, 102628, 44729, 17447, 1773]
 ```
 
-`Ġ` 是字节 0x20（空格）在 ByteLevel 映射下的可见字符——GPT-2 的做法是把 256 个字节一一映射到 Unicode 的可打印区，这样 BPE 的词表里没有任何"不可见"或"不合法"的字符串，任何输入都不会 OOV（out of vocabulary）。副作用是中文看起来是乱码：`猫` 的 UTF-8（Unicode Transformation Format, 8-bit）是三个字节 `E7 8C AB`，映射成 `ç`、`Į`、`«`，词表里没有把这三个合并起来的 merge，所以 `猫` 被切成 3 个 token（前面还带一个空格）；`坐在` 两个字六个字节合成了一个 token `åĿĲåľ¨`——常见词组在训练语料里出现够多，merges 表学到了它。`decoder` 段负责把这些字符逐个还原成字节再 UTF-8 解码，所以 `decode` 永远能还原原文，即使单个 token 不是完整字符。
+`Ġ` 是字节 0x20（空格）在 ByteLevel 映射下的可见字符——GPT-2 的做法是把 256 个字节一一映射到 Unicode 的可打印区，这样 BPE 的词表里没有任何"不可见"或"不合法"的字符串，任何输入都不会 OOV。副作用是中文看起来是乱码：`猫` 的 UTF-8 是三个字节 `E7 8C AB`，映射成 `ç`、`Į`、`«`，词表里没有把这三个合并起来的 merge，所以 `猫` 被切成 3 个 token（前面还带一个空格）；`坐在` 两个字六个字节合成了一个 token `åĿĲåľ¨`——常见词组在训练语料里出现够多，merges 表学到了它。`decoder` 段负责把这些字符逐个还原成字节再 UTF-8 解码，所以 `decode` 永远能还原原文，即使单个 token 不是完整字符。
 
 ### 3. 正则切词决定了 token 边界
 
@@ -131,7 +105,7 @@ BPE 的合并**只在正则切出的一段内部**发生——这是为什么 `c
 
 1. **加载与对齐**：`__init__` 用 `TokenizerFast.from_file(tokenizer.json)` 建后端，再按 `tokenizer_config.json` 设 `truncation` / `padding` / 特殊 token；`added_tokens_decoder` 里的 22 个 `AddedToken`（`<|im_start|>` 等）是**绕过 BPE**直接匹配的字符串——所以 `len(tok) = 151665 = 151643 + 22`，`vocab_size` 属性只算 BPE 的 151643，`config.json` 里的 `vocab_size: 151936` 又是另一个数（embedding 表留了余量对齐到 64 的倍数）。三个数不同是新手常撞的坑。
 2. **`__call__` → `_batch_encode_plus`**：把字符串或字符串列表整理成 batch，设好截断 / 填充，一次 `self._tokenizer.encode_batch(...)` 进 Rust——Rust 内部用 rayon 多线程，这是它比纯 Python 快两个数量级的原因。返回的 `Encoding` 对象带 `ids`、`tokens`、`offsets`（每个 token 在原文的字符区间，配套脚本打印 `(0,3), (3,7)...`）、`attention_mask`、`special_tokens_mask`。
-3. **`BatchEncoding`**：一个 dict 子类，`return_tensors="pt"` 时把列表转成张量，`.to(device)` 一起搬，还保留 `word_ids()` / `char_to_token()` 这类对齐查询——NER（named entity recognition）、抽取式 QA（question answering）靠它们。
+3. **`BatchEncoding`**：一个 dict 子类，`return_tensors="pt"` 时把列表转成张量，`.to(device)` 一起搬，还保留 `word_ids()` / `char_to_token()` 这类对齐查询——NER、抽取式 QA 靠它们。
 
 ### 2. padding 与 `attention_mask`
 
@@ -176,7 +150,7 @@ if return_assistant_tokens_mask and not re.search(r"\{\%-?\s*generation\s*-?\%\}
 ```
 {% endraw %}
 
-配套脚本对 Qwen2.5-0.5B 的模板跑这条正则：**False**——它没有这个标记。这就是下一篇 `SFTTrainer(assistant_only_loss=True)` 在 Qwen2.5 上会报错、要先换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板的原因；SFT（supervised fine-tuning）的 loss mask 有两种来源，这是第一种，另一种（`prompt` / `completion` 格式）在下一篇。
+配套脚本对 Qwen2.5-0.5B 的模板跑这条正则：**False**——它没有这个标记。这就是下一篇 `SFTTrainer(assistant_only_loss=True)` 在 Qwen2.5 上会报错、要先换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板的原因；SFT 的 loss mask 有两种来源，这是第一种，另一种（`prompt` / `completion` 格式）在下一篇。
 
 ## 五、`load_dataset` 到 Arrow
 
@@ -192,7 +166,7 @@ features: {'prompt': Value('string'), ..., 'messages': List({'content': Value('s
 arrow table type: MemoryMappedTable
 ```
 
-`Dataset` 对象（`arrow_dataset.py`）的核心是三个字段：`_data`（一个 `MemoryMappedTable`——`pyarrow.memory_map` 打开的文件，**不读进内存**，操作系统按页调入）、`_indices`（可选的行号表，见第六章）、`_format_type`（取出时转成什么）。`Features` 是 Arrow schema 的 datasets 版：`Value("string")`、`List(...)`、`ClassLabel`、`Image`；它决定 `.arrow` 里每列的类型，也决定 `map` 输出能不能写回去（类型对不上 `ArrowWriter` 会报错——这是 `map` 里最常见的报错来源）。100 GB 的数据集 `load_dataset` 之后进程只多几十 MB 常驻内存，靠的就是 mmap（memory map）。
+`Dataset` 对象（`arrow_dataset.py`）的核心是三个字段：`_data`（一个 `MemoryMappedTable`——`pyarrow.memory_map` 打开的文件，**不读进内存**，操作系统按页调入）、`_indices`（可选的行号表，见第六章）、`_format_type`（取出时转成什么）。`Features` 是 Arrow schema 的 datasets 版：`Value("string")`、`List(...)`、`ClassLabel`、`Image`；它决定 `.arrow` 里每列的类型，也决定 `map` 输出能不能写回去（类型对不上 `ArrowWriter` 会报错——这是 `map` 里最常见的报错来源）。100 GB 的数据集 `load_dataset` 之后进程只多几十 MB 常驻内存，靠的就是 mmap。
 
 ## 六、`map` 与 fingerprint
 
@@ -280,4 +254,4 @@ def _getitem(self, key, **kwargs):
 
 数据到了 `input_ids` 与 `attention_mask`，模型能算 logits 与 loss，缺的是"训"这个动作：冻结基座、挂上 LoRA、按 prompt 长度把 `labels` 置 `-100`、packing、每步的 `compute_loss`——以及 DPO 那十几行 loss、GRPO 的组内归一化优势。下一篇读 `peft/tuners/lora/layer.py` 与 `trl/trainer/{sft,dpo,grpo}_trainer.py`。
 
-[^q0]: `apply_chat_template`：Python 侧 `render_jinja_template` 用沙箱 Jinja 把 `messages` 渲染成一个带 `<|im_start|>` 的字符串（`add_generation_prompt` 决定末尾补不补 `<|im_start|>assistant\n`），再 `self(rendered)` → `_batch_encode_plus` → `self._tokenizer.encode_batch` 进入 Rust：normalizer（NFC，Normalization Form C）→ pre_tokenizer（正则切词 + 字节级）→ BPE 合并 → post_processor → `Encoding`，回到 Python 包成 `BatchEncoding`。`load_dataset(...).map(fn)`：`load.py` 选 builder → `download_and_prepare` 落成 `.arrow` → `Dataset` 是 mmap 的 Arrow 表视图 → `map` 先按 fingerprint（上游 fingerprint + "map" + 参数 + `dill` 序列化的 `fn` 的哈希）算缓存文件名，命中则直接打开，否则 `_map_single` 按批取、调 `fn`、`ArrowWriter` 写文件；`num_proc` 按行号分片多进程。第二次相同的 `map` 命中同名缓存文件，只做校验与打开。详见[第二章](#二tokenizerjson-里的五段)、[第四章](#四chat-template)、[第六章](#六map-与-fingerprint)。
+[^q0]: `apply_chat_template`：Python 侧 `render_jinja_template` 用沙箱 Jinja 把 `messages` 渲染成一个带 `<|im_start|>` 的字符串（`add_generation_prompt` 决定末尾补不补 `<|im_start|>assistant\n`），再 `self(rendered)` → `_batch_encode_plus` → `self._tokenizer.encode_batch` 进入 Rust：normalizer（NFC）→ pre_tokenizer（正则切词 + 字节级）→ BPE 合并 → post_processor → `Encoding`，回到 Python 包成 `BatchEncoding`。`load_dataset(...).map(fn)`：`load.py` 选 builder → `download_and_prepare` 落成 `.arrow` → `Dataset` 是 mmap 的 Arrow 表视图 → `map` 先按 fingerprint（上游 fingerprint + "map" + 参数 + `dill` 序列化的 `fn` 的哈希）算缓存文件名，命中则直接打开，否则 `_map_single` 按批取、调 `fn`、`ArrowWriter` 写文件；`num_proc` 按行号分片多进程。第二次相同的 `map` 命中同名缓存文件，只做校验与打开。详见[第二章](#二tokenizerjson-里的五段)、[第四章](#四chat-template)、[第六章](#六map-与-fingerprint)。

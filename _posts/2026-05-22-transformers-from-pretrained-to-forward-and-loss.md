@@ -11,49 +11,13 @@ updated: 2026-09-30
 
 > **更新 @2026-09-30**：本文对着 **transformers 5.17.0**（2026-09-09 发布）的源码读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。文中的文件路径、类名、函数名以该版本为准，不引用行号；transformers 的目录结构改得很快，读别的版本时请以本地源码对照——找入口的方法不变。
 
-[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA（Low-Rank Adaptation）SFT（supervised fine-tuning），第一行就是 `AutoModelForCausalLM.from_pretrained(name)`。那一篇把它当黑盒：进去一个 Hub 名字，出来一个 `nn.Module`。这一篇把黑盒打开：这个函数怎么根据 `config.json` 里的一个字段挑出 `Qwen2ForCausalLM` 这个类、怎么在不占内存的情况下先搭出骨架再把 `safetensors` 里的 290 个张量填进去、`forward` 从 `input_ids` 到 `loss` 经过哪几个文件、attention 那一行为什么能在 eager / SDPA（scaled dot-product attention）/ FlashAttention 之间切换而模型代码一个字不改。
+[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，第一行就是 `AutoModelForCausalLM.from_pretrained(name)`。那一篇把它当黑盒：进去一个 Hub 名字，出来一个 `nn.Module`。这一篇把黑盒打开：这个函数怎么根据 `config.json` 里的一个字段挑出 `Qwen2ForCausalLM` 这个类、怎么在不占内存的情况下先搭出骨架再把 `safetensors` 里的 290 个张量填进去、`forward` 从 `input_ids` 到 `loss` 经过哪几个文件、attention 那一行为什么能在 eager / SDPA / FlashAttention 之间切换而模型代码一个字不改。
 
 读完这一篇，《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》画的那张结构图上的每个方框，你都能在 `modeling_llama.py` 里指出是哪个类的哪几行；也能回答工程里最常见的三个问题：为什么加载 8B 模型时内存不会先冲到 32 GB、为什么 `attn_implementation="sdpa"` 与 `"eager"` 的结果差到 $$10^{-4}$$、`labels` 传进去之后 loss 是怎么算的。
 
 本篇要回答的核心问题是：
 
 > **`AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-0.5B")` 这一行执行时，transformers 做了哪几步？之后 `model(input_ids, labels=labels)` 的一次前向，经过了哪些文件的哪些函数？[^q0]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| LoRA | Low-Rank Adaptation | 给权重加一个低秩增量 BA，只训 A、B 两个小矩阵 |
-| SFT | supervised fine-tuning | 有监督微调：拿标注好的回答训模型 |
-| Hub | — | Hugging Face 的模型 / 数据集仓库 |
-| safetensors | — | HF 的权重格式：JSON 头 + 原始字节，可 mmap |
-| eager | — | 按公式逐步算的 attention，会物化 T×T 权重 |
-| SDPA | scaled dot-product attention | PyTorch 的融合 attention 函数，自选 kernel |
-| FlashAttention | — | 分块计算、不物化 T×T 矩阵的 attention kernel |
-| meta 设备 | — | 只记形状和 dtype、不分配存储的虚拟设备 |
-| RMSNorm | Root Mean Square Layer Normalization | 只除以均方根、不减均值的归一化 |
-| MLP | multi-layer perceptron | 多层感知机，这里指每层 attention 之后的前馈子层 |
-| GQA | grouped-query attention | 多个 q 头共用一组 k、v 头，KV cache 更小 |
-| KV cache | key–value cache | 推理时缓存每层算过的 k、v，新 token 只算自己的 |
-| prefill | — | 生成前把整段 prompt 一次前向、填满 KV cache |
-| decode | — | prefill 之后每步只喂一个新 token 的生成阶段 |
-| logits | — | softmax 之前、每个词表位置一个的未归一化分数 |
-| mmap | memory map | 把文件映射进内存，读到哪页才从磁盘加载哪页 |
-| bf16 | bfloat16 | 16 位浮点，指数位与 fp32 一样、尾数只有 8 位 |
-| fp32 | 32-bit floating point | 单精度浮点 |
-| accelerate | — | HF 的设备分配与分布式训练库 |
-| FFN | feed-forward network | 前馈网络，block 里 attention 之后那个子层 |
-| SiLU | Sigmoid Linear Unit | 激活函数 x·sigmoid(x)，又叫 Swish |
-| RoPE | rotary position embedding | 旋转位置编码：按位置把 q、k 的每对维度旋转一个角度 |
-| SVD | singular value decomposition | 奇异值分解 |
-| LLM | large language model | 大语言模型 |
-| SwiGLU | Swish-Gated Linear Unit | 用 SiLU 做门控的 FFN：两路相乘再降维 |
-| pre-norm | — | 先归一化再进子层、残差绕过归一化的写法 |
-| nanoGPT | — | Karpathy 写的极简 GPT 训练代码 |
-| vLLM | — | 开源的 LLM 推理引擎 |
-| PagedAttention | — | vLLM 按固定大小块管理 KV cache 的 attention |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -170,7 +134,7 @@ for k in file_pointer.keys():
     merged_state_dict[k] = file_pointer.get_slice(k)  # don't materialize yet
 ```
 
-`get_slice` 返回的还不是张量，是一个"切片句柄"——真正的读盘发生在 `core_model_loading.convert_and_load_state_dict_in_model` 把它赋给模型参数的那一刻，而且是 mmap（memory map）：操作系统按页把文件映射进来，读到哪页才加载哪页。所以 290 个张量的加载在配套脚本里显示为 `Loading weights: 100% 290/290 [00:00<00:00, 7030 it/s]`——快到看不见，因为大部分字节还没真的读。
+`get_slice` 返回的还不是张量，是一个"切片句柄"——真正的读盘发生在 `core_model_loading.convert_and_load_state_dict_in_model` 把它赋给模型参数的那一刻，而且是 mmap：操作系统按页把文件映射进来，读到哪页才加载哪页。所以 290 个张量的加载在配套脚本里显示为 `Loading weights: 100% 290/290 [00:00<00:00, 7030 it/s]`——快到看不见，因为大部分字节还没真的读。
 
 "按名字填"是 `state_dict` 的语义：文件里的键 `model.layers.0.self_attn.q_proj.weight` 对应模型里 `model.layers[0].self_attn.q_proj.weight` 这个属性路径（工具箱第三篇讲 `state_dict` 时说过键名从属性路径来）。两边对不上的键分三类，`from_pretrained` 结束后都在 `loading_info` 里：
 
@@ -190,13 +154,13 @@ Table: 加载时三类对不上的键
 
 ### 5. `dtype` 与 `device_map`
 
-`dtype=torch.bfloat16` 在 `_get_dtype` 里决定：不传时 5.x 默认用 `config.json` 里的 `torch_dtype`（Qwen2.5 是 bf16），传 `"auto"` 同义。骨架在 meta 设备上就按这个 dtype 建，填权重时 safetensors 里的 bf16（bfloat16）直接拷贝，不经过 fp32（32-bit floating point）。`device_map="auto"` 走 accelerate 的 `_get_device_map`：按各 GPU 的空闲显存把 `_no_split_modules = ["LlamaDecoderLayer"]` 声明的最小单元（一整层）分配到设备上，放不下的层去 CPU 或磁盘——这是单机多卡推理不写并行代码就能跑起 70B 的原因，代价是层间的设备拷贝（[Infra 03 系列](/deep-dive-into-pytorch.html)讲它与真正的张量并行的区别）。
+`dtype=torch.bfloat16` 在 `_get_dtype` 里决定：不传时 5.x 默认用 `config.json` 里的 `torch_dtype`（Qwen2.5 是 bf16），传 `"auto"` 同义。骨架在 meta 设备上就按这个 dtype 建，填权重时 safetensors 里的 bf16 直接拷贝，不经过 fp32。`device_map="auto"` 走 accelerate 的 `_get_device_map`：按各 GPU 的空闲显存把 `_no_split_modules = ["LlamaDecoderLayer"]` 声明的最小单元（一整层）分配到设备上，放不下的层去 CPU 或磁盘——这是单机多卡推理不写并行代码就能跑起 70B 的原因，代价是层间的设备拷贝（[Infra 03 系列](/deep-dive-into-pytorch.html)讲它与真正的张量并行的区别）。
 
 ## 四、一个 block 的代码
 
 ### 1. 与结构图对照
 
-《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm（Root Mean Square Layer Normalization）→ attention → 残差 → RMSNorm → FFN（feed-forward network）→ 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
+《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → FFN → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
 
 | 图里的方框 | 类 / 函数 | 参数 |
 |---|---|---|
@@ -260,7 +224,7 @@ def forward(self, x):
     return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 ```
 
-SwiGLU（Swish-Gated Linear Unit）：$$W_{down}\,(\text{SiLU}(W_{gate} x) \odot W_{up} x)$$。`act_fn = ACT2FN[config.hidden_act]`，`config.json` 里 `"hidden_act": "silu"`。三个矩阵 $$896 \times 4864$$ 就是工具箱第五篇那张参数表里一层 13M 参数的来源。
+SwiGLU：$$W_{down}\,(\text{SiLU}(W_{gate} x) \odot W_{up} x)$$。`act_fn = ACT2FN[config.hidden_act]`，`config.json` 里 `"hidden_act": "silu"`。三个矩阵 $$896 \times 4864$$ 就是工具箱第五篇那张参数表里一层 13M 参数的来源。
 
 ### 5. DecoderLayer：pre-norm 的两条残差
 
@@ -275,7 +239,7 @@ hidden_states = self.mlp(hidden_states)
 hidden_states = residual + hidden_states
 ```
 
-与《Transformer 原理与实现》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节 nanoGPT 的两行 `x = x + attn(ln_1(x)); x = x + mlp(ln_2(x))` 完全一样，只是写开了。`post_attention_layernorm` 这个名字容易误读——它是 MLP（multi-layer perceptron）**之前**的 norm（"attention 之后"），仍是 pre-norm。类继承 `GradientCheckpointingLayer`：它重写了 `__call__`，`model.gradient_checkpointing_enable()` 之后每层的前向被 `torch.utils.checkpoint` 包住，反向时重算激活换显存（L1 工具箱第四篇的账）。
+与《Transformer 原理与实现》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节 nanoGPT 的两行 `x = x + attn(ln_1(x)); x = x + mlp(ln_2(x))` 完全一样，只是写开了。`post_attention_layernorm` 这个名字容易误读——它是 MLP **之前**的 norm（"attention 之后"），仍是 pre-norm。类继承 `GradientCheckpointingLayer`：它重写了 `__call__`，`model.gradient_checkpointing_enable()` 之后每层的前向被 `torch.utils.checkpoint` 包住，反向时重算激活换显存（L1 工具箱第四篇的账）。
 
 ## 五、attention 那一行
 
@@ -299,7 +263,7 @@ attn_output = attn_output.reshape(*input_shape, -1).contiguous()
 attn_output = self.o_proj(attn_output)
 ```
 
-前四行是[工具箱第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html)第四章画的 reshape / transpose：把 `[B, T, d]` 拆成 `[B, T, h, d_h]` 再把 head 维挪到前面。`view(hidden_shape)` 里的 `-1` 让同一段代码既能处理 q（14 个头）也能处理 k、v（2 个头）——GQA（grouped-query attention）在这里只是 `k_proj` 的输出维更窄。然后 RoPE（rotary position embedding）、写 cache、**调一个函数指针**、拼回 `[B, T, d]`、过 `o_proj`。
+前四行是[工具箱第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html)第四章画的 reshape / transpose：把 `[B, T, d]` 拆成 `[B, T, h, d_h]` 再把 head 维挪到前面。`view(hidden_shape)` 里的 `-1` 让同一段代码既能处理 q（14 个头）也能处理 k、v（2 个头）——GQA 在这里只是 `k_proj` 的输出维更窄。然后 RoPE、写 cache、**调一个函数指针**、拼回 `[B, T, d]`、过 `o_proj`。
 
 ### 2. 注册表：模型代码不改，实现随便换
 
@@ -365,7 +329,7 @@ self.values = torch.cat([self.values, value_states], dim=-2)
 return self.keys, self.values
 ```
 
-第 $$l$$ 层的 attention 把本步算出的 k、v 交给 `update`，它拼到历史后面，**返回拼好的全部**——attention 拿返回值算，所以 decode 时 q 只有 1 个 token，k、v 是全部 $$t$$ 个。`dim=-2` 是序列维：keys 形状 `[B, h_kv, t, d_h]`。配套脚本：prefill 5 个 token 后 `layers[0].keys` 是 `(1, 2, 5, 64)`，`get_seq_length() = 5`；喂 1 个 token 再前向，`get_seq_length() = 6`、logits 形状 `(1, 1, 151936)`。《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》讲的 KV cache（key–value cache）账（每 token 每层 $$2 \times h_{kv} \times d_h \times 2$$ 字节）就是这两个张量的大小。
+第 $$l$$ 层的 attention 把本步算出的 k、v 交给 `update`，它拼到历史后面，**返回拼好的全部**——attention 拿返回值算，所以 decode 时 q 只有 1 个 token，k、v 是全部 $$t$$ 个。`dim=-2` 是序列维：keys 形状 `[B, h_kv, t, d_h]`。配套脚本：prefill 5 个 token 后 `layers[0].keys` 是 `(1, 2, 5, 64)`，`get_seq_length() = 5`；喂 1 个 token 再前向，`get_seq_length() = 6`、logits 形状 `(1, 1, 151936)`。《[Transformer 原理与实现（02）：一个 token 的旅程——训练侧与推理侧](/transformer-token-journey-training-and-inference.html)》讲的 KV cache 账（每 token 每层 $$2 \times h_{kv} \times d_h \times 2$$ 字节）就是这两个张量的大小。
 
 ### 2. `position_ids` 从 cache 长度来
 

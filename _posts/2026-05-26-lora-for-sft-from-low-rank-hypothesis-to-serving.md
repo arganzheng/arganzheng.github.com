@@ -7,63 +7,17 @@ catalog: true
 updated: 2026-09-30
 ---
 
-> **更新 @2026-09-30**：本系列的实验用 **peft 0.21.1**（Parameter-Efficient Fine-Tuning）、**trl 1.14.1**（Transformer Reinforcement Learning）、**transformers 5.17.0**、**bitsandbytes 0.50.2**、**PyTorch 2.14（CPU）**，模型是本地缓存的 Qwen2.5-0.5B，数据是 HuggingFaceH4/no_robots。文中的参数名（`r`、`lora_alpha`、`target_modules`、`use_rslora`、`init_lora_weights`……）以这组版本为准；LoRA 的数学与账目不随版本变。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| peft | Parameter-Efficient Fine-Tuning | Hugging Face 的参数高效微调库，LoRA 的标准实现 |
-| trl | Transformer Reinforcement Learning | Hugging Face 的后训练库，提供 SFTTrainer、DPOTrainer |
-| bitsandbytes | — | 做 4 / 8 bit 量化的库，QLoRA 靠它加载 NF4 底座 |
-| LoRA | Low-Rank Adaptation | 冻结原权重，只训一对低秩矩阵 B、A 的微调方法 |
-| SFT | supervised fine-tuning | 监督微调：用指令–回复数据继续训模型 |
-| DPO | Direct Preference Optimization | 直接用偏好对训练的对齐方法，需要参考模型 |
-| GRPO | Group Relative Policy Optimization | 组内相对奖励的强化学习方法，KL 项要参考模型 |
-| SVD | singular value decomposition | 奇异值分解，用来看 ΔW 的秩、做低秩截断 |
-| RoPE | rotary position embedding | 旋转位置编码，出现在数学篇的标题里 |
-| HF | Hugging Face | 开源模型与库的平台，这里指它的源码系列 |
-| adapter | — | 训完存下的 LoRA 权重（A、B），挂到底座上用 |
-| FLOPs | floating point operations | 浮点运算次数，计算量的单位 |
-| rsLoRA | rank-stabilized LoRA | 把缩放从 α/r 改成 α/√r 的 LoRA |
-| lr | learning rate | 学习率 |
-| LoRA+ | — | 给 B 设比 A 更大学习率的 LoRA 变体 |
-| PiSSA | Principal Singular values and Singular vectors Adaptation | 用 W 的主奇异方向初始化 A、B |
-| DoRA | Weight-Decomposed Low-Rank Adaptation | 把权重拆成幅度与方向，只对方向挂 LoRA |
-| OLoRA | Orthonormal Low-Rank Adaptation | 用 W 的 QR 分解初始化 LoRA |
-| EVA | Explained Variance Adaptation | 用激活的 SVD 初始化 A，并按方差重分各层的 r |
-| LoftQ | LoRA-Fine-Tuning-aware Quantization | 对着量化误差初始化 LoRA，配合 QLoRA 用 |
-| QLoRA | Quantized LoRA | 底座量化到 4 bit、上面再挂 LoRA 的训练方法 |
-| NF4 | 4-bit NormalFloat | 按正态分布分位数取 16 个格点的 4 bit 格式 |
-| multi-LoRA | — | 一个底座同时挂多个 adapter、按请求切换的服务方式 |
-| GPT-3 | Generative Pre-trained Transformer 3 | OpenAI 的 175B 模型，LoRA 原论文在它上面做实验 |
-| kernel | — | 设备上执行一次算子的函数，个数决定调度开销 |
-| Kaiming | — | 按输入维度缩放的随机初始化（He 等 2015），peft 的默认 |
-| QR | — | QR 分解：矩阵 = 正交矩阵 Q × 上三角矩阵 R |
-| safetensors | — | Hugging Face 的张量文件格式，adapter 权重存在里面 |
-| logits | — | softmax 之前的词表分数 |
-| FP32 | 32-bit floating point | 单精度浮点 |
-| vLLM | — | 开源 LLM 推理引擎，支持 multi-LoRA 服务 |
-| BF16 | bfloat16 | 16 bit 浮点，范围同 FP32、尾数短 |
-| Adam | adaptive moment estimation | 每个参数存一阶、二阶两个矩的优化器 |
-| SGD | stochastic gradient descent | 随机梯度下降 |
-| AdamW | Adam with decoupled weight decay | 权重衰减与梯度更新分开的 Adam |
-| KV | key–value | 注意力里的键与值；这里指 K、V 投影的维度 |
-| cosine | — | 学习率按余弦曲线从峰值降到接近零的调度 |
-| warmup | — | 训练开头几步把学习率从零逐步升到峰值 |
-| GEMM | general matrix multiply | 通用矩阵乘，线性层前向反向的主体 |
-
-Table: 本文用到的术语与缩写
+> **更新 @2026-09-30**：本系列的实验用 **peft 0.21.1**、**trl 1.14.1**、**transformers 5.17.0**、**bitsandbytes 0.50.2**、**PyTorch 2.14（CPU）**，模型是本地缓存的 Qwen2.5-0.5B，数据是 HuggingFaceH4/no_robots。文中的参数名（`r`、`lora_alpha`、`target_modules`、`use_rslora`、`init_lora_weights`……）以这组版本为准；LoRA 的数学与账目不随版本变。
 
 ## 内容简介
 
-《LoRA 专题》是一组共三篇正文加一篇总结的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L5 后训练层的**专题篇**。LoRA（Low-Rank Adaptation，Hu 等 2021）是今天做 SFT（supervised fine-tuning）的默认方式：一张消费级显卡微调 8B 模型、一个底座服务上百个客户的定制版本、DPO / GRPO 里省掉一份参考模型，背后都是它。本站此前把 LoRA 拆在几处讲——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲数学骨架，[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装一次 LoRA SFT，[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第五章讲它在 SFT 里的地位，[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 `lora.Linear` 的实现，《现代 LLM 结构》系列曾有半篇算它的计算形态（那半篇的内容已并入本系列）——读者反馈是「每处都只讲了一角」。本系列把它讲全：一个从没用过 LoRA 的人读完，应当能独立决定**用不用、怎么配、怎么上线**，并说得出每个决定的依据。
+《LoRA 专题》是一组共三篇正文加一篇总结的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L5 后训练层的**专题篇**。LoRA（Low-Rank Adaptation，Hu 等 2021）是今天做 SFT 的默认方式：一张消费级显卡微调 8B 模型、一个底座服务上百个客户的定制版本、DPO / GRPO 里省掉一份参考模型，背后都是它。本站此前把 LoRA 拆在几处讲——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲数学骨架，[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装一次 LoRA SFT，[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第五章讲它在 SFT 里的地位，[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 `lora.Linear` 的实现，《现代 LLM 结构》系列曾有半篇算它的计算形态（那半篇的内容已并入本系列）——读者反馈是「每处都只讲了一角」。本系列把它讲全：一个从没用过 LoRA 的人读完，应当能独立决定**用不用、怎么配、怎么上线**，并说得出每个决定的依据。
 
 它回答的问题是：
 
 > **为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好？`r`、`lora_alpha`、`target_modules`、学习率各取多少、依据是什么？训完的 adapter 怎么存、怎么合并、怎么让一个底座同时服务几十个 adapter？什么时候低秩假设不成立、该回到全量微调？[^q0]**
 
-三篇正文都配同一组实验：Qwen2.5-0.5B 上，同一份 800 条指令数据、同样 80 步，把全量微调与十二种 LoRA 配置逐个训一遍，比验证集回复的 loss、比普通文本 loss 的变化（遗忘）、比每步耗时；再把全量微调学到的 $$\Delta W$$ 做 SVD（singular value decomposition），看它到底有多"低秩"。所有数字在一台 8 线程的 CPU 上跑出，与作者在 Apple Silicon 上跑[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)的基线一致（训练前验证回复 loss 2.4936、普通文本 loss 2.8748）。
+三篇正文都配同一组实验：Qwen2.5-0.5B 上，同一份 800 条指令数据、同样 80 步，把全量微调与十二种 LoRA 配置逐个训一遍，比验证集回复的 loss、比普通文本 loss 的变化（遗忘）、比每步耗时；再把全量微调学到的 $$\Delta W$$ 做 SVD，看它到底有多"低秩"。所有数字在一台 8 线程的 CPU 上跑出，与作者在 Apple Silicon 上跑[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)的基线一致（训练前验证回复 loss 2.4936、普通文本 loss 2.8748）。
 
 系列覆盖的范围是三段：
 
@@ -75,11 +29,15 @@ Table: 本文用到的术语与缩写
 
 Table: 系列三段的范围
 
+## 术语与缩写
+
+{% include glossary-table.html series="lora" %}
+
 ## 为什么写这个系列？
 
 ### LoRA 已经是 SFT 的事实标准，但多数人只会抄一份配置
 
-`r=16, lora_alpha=32, target_modules="all-linear", lr=2e-4` 这一行几乎出现在每个 SFT 脚本里。它为什么是 16 而不是 4 或 256？`all-linear` 比只挂 attention 好多少？为什么 LoRA 的 lr（learning rate）要比全量大一个量级？换成 QLoRA（Quantized LoRA）会掉多少精度？这些问题每一个都有可复现的答案，但散在五篇论文和十几个 GitHub issue 里。本系列把它们收拢，每个旋钮给出**一次对照实验的数字**而不是一句经验。
+`r=16, lora_alpha=32, target_modules="all-linear", lr=2e-4` 这一行几乎出现在每个 SFT 脚本里。它为什么是 16 而不是 4 或 256？`all-linear` 比只挂 attention 好多少？为什么 LoRA 的 lr 要比全量大一个量级？换成 QLoRA 会掉多少精度？这些问题每一个都有可复现的答案，但散在五篇论文和十几个 GitHub issue 里。本系列把它们收拢，每个旋钮给出**一次对照实验的数字**而不是一句经验。
 
 ### 低秩假设是一个可以直接检验的经验假设
 
@@ -115,7 +73,7 @@ flowchart TB
 贯穿三篇的几条线，在系列总结里单独拎出来：
 
 - **一个公式**：$$W' = W + \frac{\alpha}{r} BA$$，$$A \in \mathbb{R}^{r \times d_{in}}$$ 随机、$$B \in \mathbb{R}^{d_{out} \times r}$$ 为零。第一篇推它的梯度，第二篇调它的每个符号，第三篇把它合并回 $$W$$ 或按请求切换 $$(A, B)$$。
-- **四本账**：可训练参数 $$r(d_{in} + d_{out})$$、训练状态（冻结权重 2 B + 可训练 16 B）、前向多出的 FLOPs（floating point operations）与 kernel、激活值一分不省。每一篇都回到这四本账上算一次。
+- **四本账**：可训练参数 $$r(d_{in} + d_{out})$$、训练状态（冻结权重 2 B + 可训练 16 B）、前向多出的 FLOPs 与 kernel、激活值一分不省。每一篇都回到这四本账上算一次。
 - **一个假设**：$$\Delta W$$ 低秩。第一篇检验它，第二篇看它在哪些配置下成立得更好（`all-linear` 优于 attention-only、$$r$$ 的边际收益很快归零），第三篇看它失效时该做什么（全量、或 LoRA 加数据回放）。
 - **一份数据、一组数字**：训练前验证回复 loss 2.4936；全量 80 步与 LoRA $$r = 16$$ 全部线性层 80 步各降到多少、忘掉多少——所有配置在这一组数字上对照。
 
@@ -129,15 +87,15 @@ flowchart TB
 
 ### 2. 选参：r、target_modules、alpha、lr 与 QLoRA / DoRA / PiSSA 各让模型变成什么
 
-每个旋钮一节，每节一组对照数字。秩 $$r$$ 取 4 / 16 / 64；目标矩阵只挂 attention 与挂全部线性层；$$\alpha$$ 固定时 $$r$$ 增大让更新按 $$1/r$$ 塌缩、rsLoRA（rank-stabilized LoRA）的 $$\alpha / \sqrt r$$ 怎么修；lr 取 $$10^{-5}$$ / $$10^{-4}$$ / $$10^{-3}$$ 与 LoRA+ 的 $$A$$、$$B$$ 分别设 lr；初始化：默认 Kaiming / 零、PiSSA 用 $$W$$ 的主奇异方向、OLoRA 的 QR、EVA 用激活的 SVD、LoftQ 对着量化误差初始化；DoRA（Weight-Decomposed Low-Rank Adaptation）把幅度与方向分开训；QLoRA 的 NF4、双重量化、分页优化器与它在 CPU 上的实测。全量与十二种 LoRA 配置在同一张表里比验证 loss、遗忘与每步耗时，最后给一张「任务类型 × 资源 → 配置」的选择表。
+每个旋钮一节，每节一组对照数字。秩 $$r$$ 取 4 / 16 / 64；目标矩阵只挂 attention 与挂全部线性层；$$\alpha$$ 固定时 $$r$$ 增大让更新按 $$1/r$$ 塌缩、rsLoRA 的 $$\alpha / \sqrt r$$ 怎么修；lr 取 $$10^{-5}$$ / $$10^{-4}$$ / $$10^{-3}$$ 与 LoRA+ 的 $$A$$、$$B$$ 分别设 lr；初始化：默认 Kaiming / 零、PiSSA 用 $$W$$ 的主奇异方向、OLoRA 的 QR、EVA 用激活的 SVD、LoftQ 对着量化误差初始化；DoRA 把幅度与方向分开训；QLoRA 的 NF4、双重量化、分页优化器与它在 CPU 上的实测。全量与十二种 LoRA 配置在同一张表里比验证 loss、遗忘与每步耗时，最后给一张「任务类型 × 资源 → 配置」的选择表。
 
 > **同样 80 步，$$r$$ 从 4 到 64 验证 loss 差多少？只挂 attention 差多少？lr 大十倍会怎样？rsLoRA、DoRA、PiSSA 各比默认好多少？什么时候该放弃 LoRA 用全量？[^q2]**
 
 ### 3. 工程：adapter 文件、合并、多 LoRA 服务与参考模型
 
-`save_pretrained` 存下的 `adapter_config.json` 与 `adapter_model.safetensors` 各有什么、为什么只有几十 MB；`PeftModel.from_pretrained` 装回去与训练结束时的数值一致；`merge_and_unload` 前后 logits 的最大差是浮点舍入量级、前向时间怎么变；adapter 对着 FP32 底座学、装到 NF4 底座上差多少、先合并再量化又差多少；一个底座挂两个 adapter 的 `set_adapter` 切换、`add_weighted_adapter` 的 linear / cat / svd 三种合成；`disable_adapter()` 让 DPO（Direct Preference Optimization）/ GRPO（Group Relative Policy Optimization）不必再放一份参考模型；multi-LoRA 服务的显存账与 vLLM 的 `max_loras × max_lora_rank`；新加特殊 token 只挂 LoRA 学不会、`trainable_token_indices` 与 `modules_to_save` 各怎么修。
+`save_pretrained` 存下的 `adapter_config.json` 与 `adapter_model.safetensors` 各有什么、为什么只有几十 MB；`PeftModel.from_pretrained` 装回去与训练结束时的数值一致；`merge_and_unload` 前后 logits 的最大差是浮点舍入量级、前向时间怎么变；adapter 对着 FP32 底座学、装到 NF4 底座上差多少、先合并再量化又差多少；一个底座挂两个 adapter 的 `set_adapter` 切换、`add_weighted_adapter` 的 linear / cat / svd 三种合成；`disable_adapter()` 让 DPO / GRPO 不必再放一份参考模型；multi-LoRA 服务的显存账与 vLLM 的 `max_loras × max_lora_rank`；新加特殊 token 只挂 LoRA 学不会、`trainable_token_indices` 与 `modules_to_save` 各怎么修。
 
-> **一个 8B 模型的 adapter 多大？合并后与合并前的输出差多少？QLoRA 训出的 adapter 装到 BF16（bfloat16）底座上会怎样？一个底座服务 50 个客户，用 50 个 adapter 与存 50 份合并模型差多少显存？[^q3]**
+> **一个 8B 模型的 adapter 多大？合并后与合并前的输出差多少？QLoRA 训出的 adapter 装到 BF16 底座上会怎样？一个底座服务 50 个客户，用 50 个 adapter 与存 50 份合并模型差多少显存？[^q3]**
 
 ### 4. 系列总结与通关自测
 
@@ -175,7 +133,7 @@ Table: 读本系列需要的前置
 
 ### 版本与基线
 
-peft 0.21.1、trl 1.14.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU）；模型 Qwen/Qwen2.5-0.5B（base，494M 参数，24 层，hidden 896，中间层 4864，KV（key–value）维 128），数据 HuggingFaceH4/no_robots 的 800 条单轮样本训练、100 条验证，遗忘用 wikitext-2 测试集的 60 段。训练配置与[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)相同：batch 4 × 512、80 步、cosine、warmup 8 步、只对回复算 loss。
+peft 0.21.1、trl 1.14.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU）；模型 Qwen/Qwen2.5-0.5B（base，494M 参数，24 层，hidden 896，中间层 4864，KV 维 128），数据 HuggingFaceH4/no_robots 的 800 条单轮样本训练、100 条验证，遗忘用 wikitext-2 测试集的 60 段。训练配置与[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)相同：batch 4 × 512、80 步、cosine、warmup 8 步、只对回复算 loss。
 
 ## 章节目录
 
@@ -202,6 +160,6 @@ Table: 章节目录
 8. 说出 LoRA 在 DPO / GRPO 里怎么省掉参考模型、新加 token 为什么学不会、怎么修。
 
 [^q0]: 因为微调学到的权重增量 $$\Delta W$$ 近似低秩：对全量微调的 $$\Delta W$$ 做 SVD，前 16 个奇异方向已解释大部分能量，截到秩 16 后效果几乎不变——所以用 $$BA$$（$$B$$ 全零初始化，训练开始时增量恰为零）就够。选参依据是对照实验：$$r$$ 取 16 左右（4 → 64 验证 loss 差别在百分之几，64 遗忘更多）；`lora_alpha` 定 scaling $$\alpha/r$$，$$\alpha$$ 固定时增大 $$r$$ 会让更新塌缩，rsLoRA 改用 $$\alpha/\sqrt r$$；`target_modules` 挂全部线性层比只挂 attention 好得多；lr 比全量高一个量级（$$10^{-4}$$ 级）。adapter 以 `adapter_config.json` + `adapter_model.safetensors` 存（8B 模型几十 MB），`merge_and_unload` 合并后 logits 差在浮点舍入量级，多 adapter 服务靠 vLLM 的 `max_loras × max_lora_rank` 在一个底座上按请求切换。低秩假设不成立的情形：要学大量新知识 / 新语言、新加特殊 token 的 embedding、或 $$\Delta W$$ 的奇异值衰减很慢时，回到全量微调（或 `modules_to_save` 全量训那几层）。
-[^q1]: $$4096\times4096$$ 有 16.8M 参数，$$r=16$$ 的 LoRA 只有 $$2\times4096\times16 = 131{,}072$$ 个——少 **128 倍**。训练一步的时间没有少这么多倍，是因为前向与反向对**输入激活**的梯度仍要穿过完整的冻结权重（$$W^\top\delta$$ 的 GEMM（general matrix multiply）一个不少），省掉的只是对权重的梯度 $$\delta x^\top$$ 与优化器状态——所以时间通常只省 20–40%，显存省得多（无梯度与 Adam（adaptive moment estimation）状态：每参数从 16 字节降到权重的 2 字节）。全量微调学到的 $$\Delta W$$ 截到秩 16：第一篇的实验里奇异值前几十个之后迅速衰减，截断后的 $$\Delta W$$ 在验证集上保留了绝大部分收益（loss 差在百分之几以内），这就是低秩假设的直接证据。
+[^q1]: $$4096\times4096$$ 有 16.8M 参数，$$r=16$$ 的 LoRA 只有 $$2\times4096\times16 = 131{,}072$$ 个——少 **128 倍**。训练一步的时间没有少这么多倍，是因为前向与反向对**输入激活**的梯度仍要穿过完整的冻结权重（$$W^\top\delta$$ 的 GEMM 一个不少），省掉的只是对权重的梯度 $$\delta x^\top$$ 与优化器状态——所以时间通常只省 20–40%，显存省得多（无梯度与 Adam 状态：每参数从 16 字节降到权重的 2 字节）。全量微调学到的 $$\Delta W$$ 截到秩 16：第一篇的实验里奇异值前几十个之后迅速衰减，截断后的 $$\Delta W$$ 在验证集上保留了绝大部分收益（loss 差在百分之几以内），这就是低秩假设的直接证据。
 [^q2]: Qwen2.5-0.5B、800 条指令、80 步的对照：$$r$$ 从 4 到 64 验证回复 loss 只差百分之几（4 已能学会格式，64 对普通文本 loss 的遗忘更明显）；只挂 attention 比挂全部线性层明显差——FFN 占三分之二参数，不挂它学不到多少；lr 大十倍（$$10^{-3}$$）训练 loss 降得快但验证 loss 回升、遗忘陡增，$$10^{-5}$$ 则 80 步几乎没动；rsLoRA 在大 $$r$$ 下比默认好（修正了 $$\alpha/r$$ 的塌缩），DoRA 与 PiSSA 比默认好零点零几的 loss、代价是多一点显存与计算。该放弃 LoRA 用全量的时机：任务需要大量新知识或新语言、新加特殊 token、$$\Delta W$$ 奇异值衰减慢、或显存本来就放得下且追求最后一点效果。第二篇末尾给出「任务类型 × 资源 → 配置」的选择表。
 [^q3]: 8B 模型、$$r=16$$ 挂全部线性层约 40M 参数，bf16 下 **约 80 MB**（Qwen2.5-0.5B 上 8.8M 参数、十几 MB）。合并（`merge_and_unload`，$$W + BA\cdot\text{scaling}$$）前后 logits 的最大差在浮点舍入量级（$$10^{-3}$$ 以内，bf16），输出 token 一致；合并后前向少一次瘦矩阵乘，略快。QLoRA 的 adapter 是对着 **NF4 量化后的底座**学的，装到 BF16 底座上会有一个系统性偏差（它学进了量化误差的补偿），loss 略变差，通常可接受但要重新评测；先合并再量化又是另一个数。50 个客户：50 个 adapter 各 80 MB = 4 GB 显存共享一个 16 GB 的底座，而 50 份合并模型是 50 × 16 GB = 800 GB——差两个数量级，这就是 multi-LoRA 服务（vLLM 的 `max_loras × max_lora_rank`）存在的理由。

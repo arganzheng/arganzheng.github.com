@@ -482,7 +482,11 @@
         var htmlContent = simpleMarkdownToHtml(rawTip);
 
         if (url) {
-          htmlContent += '<div class="popover-footer-link"><a href="' + url + '" target="_blank" rel="noopener noreferrer">了解更多 <i class="fa fa-external-link"></i></a></div>';
+          if (url.charAt(0) === '/' || url.charAt(0) === '#') {
+            htmlContent += '<div class="popover-footer-link"><a href="' + url + '">详见</a></div>';
+          } else {
+            htmlContent += '<div class="popover-footer-link"><a href="' + url + '" target="_blank" rel="noopener noreferrer">了解更多 <i class="fa fa-external-link"></i></a></div>';
+          }
         }
 
         el.addEventListener('mouseenter', function () {

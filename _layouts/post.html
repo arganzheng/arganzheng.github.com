@@ -36,6 +36,9 @@ layout: default
 				{% include post-stale.html %}
 				{% include series-context.html %}{% include series-nav.html %}{% include roadmap-box.html %}
 <!-- article -->
+{% if page.series and site.data.glossary[page.series] %}
+<p class="glossary-note">文中缩写第一次出现时，悬停可看全称和解释；本系列的全部术语见导读里的<a href="{{ site.data.series[page.series].overview }}#glossary">术语与缩写</a>。</p>
+{% endif %}
 {{ content | replace: '<img src=', '<img loading="lazy" decoding="async" src=' }}
 <!-- /article -->
 {% include series-deck.html %}

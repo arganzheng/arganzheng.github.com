@@ -2050,6 +2050,11 @@ li[id^="fn:"] {
     max-width: calc(100vw - 24px);
   }
 }
+.glossary-note {
+  font-size: 0.85em;
+  color: #8b949e;
+  margin-bottom: 1.2em;
+}
 .comment {
   margin-top: 40px;
   padding-top: 24px;

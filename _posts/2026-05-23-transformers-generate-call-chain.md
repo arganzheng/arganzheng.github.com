@@ -19,38 +19,6 @@ updated: 2026-09-30
 
 > **`model.generate(**inputs, max_new_tokens=8, do_sample=True, temperature=0.7, top_k=50, top_p=0.9)` 执行时，参数怎么变成一串 `LogitsProcessor`？decode 循环的每一步做了哪几件事、在哪一行停下？[^q0]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| logits | — | softmax 之前、每个词表位置一个的未归一化分数 |
-| temperature | — | logits 先除以 T 再 softmax，T 越小分布越尖 |
-| top-k | — | 只保留分数最高的 k 个 token |
-| top-p | — | nucleus 采样：只留累计概率达到 p 的那些高分 token |
-| decode | — | prefill 之后每步只喂一个新 token 的生成阶段 |
-| greedy | — | 每步直接取分数最高的 token，不采样 |
-| beam search | — | 每步保留得分最高的若干条前缀 |
-| assisted / speculative decoding | — | 投机解码：小模型先猜几个 token，大模型一次验证 |
-| prefill | — | 生成前把整段 prompt 一次前向、填满 KV cache |
-| kwargs | keyword arguments | 调用时按名字传进来的参数 |
-| chunked prefill | — | 把长 prompt 切块依次前向，降低显存峰值 |
-| min-p | — | 去掉概率低于「最大概率 × p」的 token |
-| repetition penalty | — | 降低已出现过的 token 的分数 |
-| bos | beginning of sequence | 序列开始 token |
-| eos | end of sequence | 序列结束 token，生成到它就停 |
-| n-gram | — | 连续 n 个 token 的片段 |
-| warper | — | 改分布形状的 LogitsProcessor，只在采样时装配 |
-| CTRL | Conditional Transformer Language Model | Salesforce 的可控生成模型，重复惩罚出自其论文 |
-| vLLM | — | 开源的 LLM 推理引擎 |
-| continuous batching | — | 一条序列结束就把位置让给新请求的动态调度 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| CUDA graph | — | 把一串 kernel 录成图一次提交，省 CPU 发射开销 |
-| LLM | large language model | 大语言模型 |
-| DoLa | Decoding by Contrasting Layers | 用深层与浅层 logits 之差来解码 |
-| SSE | Server-Sent Events | HTTP 上服务端单向推送的流式协议 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ### 1. 四段
@@ -95,7 +63,7 @@ Table: 本文的章节安排
 
 ### 1. 三层优先级
 
-`generate` 的第一件实事是 `self._prepare_generation_config(generation_config, **kwargs)`。它的注释写得很清楚：**调用时的 kwargs（keyword arguments）> 模型的 `self.generation_config` > 全局默认值**。`self.generation_config` 是 `from_pretrained` 收尾时（上一篇第三章的 `adjust_generation_fn`）从仓库的 `generation_config.json` 读出来的——Qwen2.5-0.5B 的是：
+`generate` 的第一件实事是 `self._prepare_generation_config(generation_config, **kwargs)`。它的注释写得很清楚：**调用时的 kwargs > 模型的 `self.generation_config` > 全局默认值**。`self.generation_config` 是 `from_pretrained` 收尾时（上一篇第三章的 `adjust_generation_fn`）从仓库的 `generation_config.json` 读出来的——Qwen2.5-0.5B 的是：
 
 ```text title="Qwen2.5-0.5B 的 generation_config.json"
 {'max_new_tokens': 2048, 'do_sample': False, 'bos_token_id': 151643, 'eos_token_id': 151643}
@@ -181,7 +149,7 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
         return scores.scatter(1, input_ids, score)
 ```
 
-（5.17 的实现多了 3 维 `scores` 与 packed 序列的分支，二维路径就是这三行。）`penalty > 1` 时出现过的 token 分数一律下降；正负分要分开处理，因为"变小"对正数是除、对负数是乘——这是 CTRL（Conditional Transformer Language Model）论文里的原始定义，也是它被批评"对 logit 的尺度敏感"的原因。
+（5.17 的实现多了 3 维 `scores` 与 packed 序列的分支，二维路径就是这三行。）`penalty > 1` 时出现过的 token 分数一律下降；正负分要分开处理，因为"变小"对正数是除、对负数是乘——这是 CTRL 论文里的原始定义，也是它被批评"对 logit 的尺度敏感"的原因。
 
 配套脚本用 `output_scores=True` 把每一步 processor 之后的 `scores` 拿出来：第一步 151936 个分数里**只有 1 个是有限值**——`temperature=0.7` 之后第一名的概率已经超过 0.9，top-p 把其他全删了；`multinomial` 在这一步等于 argmax。采样与 greedy 的前两个 token 因此相同（`' mat.'`），之后才分叉。
 
@@ -250,7 +218,7 @@ while self._has_unfinished_sequences(...):
 
 ### 3. `torch.compile` 与 chunked prefill
 
-`model_forward = self.get_compiled_call(compile_config) if self._valid_auto_compile_criteria(...) else self.__call__`：用 `StaticCache` 且在 CUDA（Compute Unified Device Architecture）上时 decode 的 `forward` 会被自动 `torch.compile`（形状固定才编得起来——这是 `StaticLayer` 存在的理由）。`prefill_chunk_size` 设了时 `_prefill` 把 prompt 按块 `torch.split` 后依次前向，每块都写进同一个 cache——长 prompt 的显存峰值从 $$O(T)$$ 的激活降到 $$O(\text{chunk})$$。这两个都是 [vLLM 系列](/deep-dive-into-vllm.html)里 CUDA graph 与 chunked prefill 的最简版本。
+`model_forward = self.get_compiled_call(compile_config) if self._valid_auto_compile_criteria(...) else self.__call__`：用 `StaticCache` 且在 CUDA 上时 decode 的 `forward` 会被自动 `torch.compile`（形状固定才编得起来——这是 `StaticLayer` 存在的理由）。`prefill_chunk_size` 设了时 `_prefill` 把 prompt 按块 `torch.split` 后依次前向，每块都写进同一个 cache——长 prompt 的显存峰值从 $$O(T)$$ 的激活降到 $$O(\text{chunk})$$。这两个都是 [vLLM 系列](/deep-dive-into-vllm.html)里 CUDA graph 与 chunked prefill 的最简版本。
 
 ## 六、别的模式
 
@@ -276,14 +244,14 @@ for piece in streamer:        # 主线程边打印
     print(piece, end="")
 ```
 
-`_sample` 里只有两处与 streamer 有关：每步 `stop_check`（内部 `streamer.put(next_tokens)`）、结束时 `streamer.end()`。`TextStreamer.put` 累积 token 并在解码出完整的词（`decode` 结果以空格或换行结尾，中文按字）时打印；`TextIteratorStreamer` 把文本片段放进一个 `Queue`，`__next__` 从队列取——所以 `generate` 要跑在另一个线程。这就是 Web 服务里 SSE（Server-Sent Events）流式接口的最简实现；`generate` 本身是同步阻塞的，transformers 5.x 另有 `AsyncTextIteratorStreamer` 与 `transformers serve` 做了异步版本。
+`_sample` 里只有两处与 streamer 有关：每步 `stop_check`（内部 `streamer.put(next_tokens)`）、结束时 `streamer.end()`。`TextStreamer.put` 累积 token 并在解码出完整的词（`decode` 结果以空格或换行结尾，中文按字）时打印；`TextIteratorStreamer` 把文本片段放进一个 `Queue`，`__next__` 从队列取——所以 `generate` 要跑在另一个线程。这就是 Web 服务里 SSE 流式接口的最简实现；`generate` 本身是同步阻塞的，transformers 5.x 另有 `AsyncTextIteratorStreamer` 与 `transformers serve` 做了异步版本。
 
 ## 八、本文小结
 
 - `generate` = 配置合并 → 装配处理器与停止条件 → 选模式 → `_sample` 循环。配置三层优先级：kwargs > 仓库的 `generation_config.json` > 全局默认；不认识的 kwargs 转给 `forward`。
 - `LogitsProcessor` 是"拿 logits 返回 logits"的纯函数，按 `_get_logits_processor` 里 `append` 的固定顺序串起来：processor（penalty 等）在前、warper（temperature → top-k → top-p → min-p）在后；greedy 不加 warper。
 - temperature 一行除法；top-k 用 `topk` 取阈值再 `masked_fill(-inf)`；top-p 升序累计到 $$1-p$$ 删除再 `scatter` 回原位；repetition penalty 正分除、负分乘。
-- 停止条件返回 `[B]` 布尔向量；`EosTokenCriteria` 用 `torch.isin` 支持多个 eos（end of sequence）；停了的序列填 pad 继续跟跑（静态 batch）。
+- 停止条件返回 `[B]` 布尔向量；`EosTokenCriteria` 用 `torch.isin` 支持多个 eos；停了的序列填 pad 继续跟跑（静态 batch）。
 - 循环里 prefill 与 decode 是同一个 `forward`：第一次喂整段并 `logits_to_keep=1`，之后每次 `input_ids[:, -1:]` + cache；`_update_model_kwargs_for_generation` 给 `attention_mask` 加一列；`DeferredStopCheck` 把 GPU→CPU 同步推迟一步。
 - 流式输出只是 `streamer.put` / `end` 两个钩子 + 一个线程。
 
