@@ -10423,7 +10423,7 @@ html[data-theme="dark"] .rs-reset:hover {
 }
 html[data-theme="dark"] #archive .archive-goto-file label,
 html[data-theme="dark"] #archive .archive-control-label,
-html[data-theme="dark"] #archive .archive-selects label {
+html[data-theme="dark"] #archive .archive-filter-label {
   color: #d3d5d9;
 }
 html[data-theme="dark"] #archive .archive-goto-icon {
@@ -10439,18 +10439,56 @@ html[data-theme="dark"] #archive .archive-chip,
 html[data-theme="dark"] #archive .archive-view-button,
 html[data-theme="dark"] #archive .archive-clear-filters,
 html[data-theme="dark"] #archive .archive-inline-tag,
-html[data-theme="dark"] #archive .archive-selects select {
+html[data-theme="dark"] #archive .archive-selects select,
+html[data-theme="dark"] #archive .archive-multi-toggle,
+html[data-theme="dark"] #archive .archive-multi-search,
+html[data-theme="dark"] #archive .archive-multi-clear {
   border-color: #33363c;
   background-color: #282b30;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-multi-panel {
+  border-color: #33363c;
+  background-color: #1f2125;
   color: #d3d5d9;
 }
 html[data-theme="dark"] #archive .archive-goto-clear:hover,
 html[data-theme="dark"] #archive .archive-chip:hover,
 html[data-theme="dark"] #archive .archive-view-button:hover,
 html[data-theme="dark"] #archive .archive-clear-filters:hover,
-html[data-theme="dark"] #archive .archive-inline-tag:hover {
+html[data-theme="dark"] #archive .archive-inline-tag:hover,
+html[data-theme="dark"] #archive .archive-multi-clear:hover {
   border-color: #4cb7cb;
   color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-multi-toggle.is-active {
+  border-color: #4cb7cb;
+  color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-multi-toggle:hover {
+  border-color: #969ba4;
+}
+html[data-theme="dark"] #archive .archive-multi-toggle.is-active:hover {
+  border-color: #4cb7cb;
+  color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-multi-toggle:focus,
+html[data-theme="dark"] #archive .archive-multi-search:focus {
+  border-color: #4cb7cb;
+  box-shadow: none;
+}
+html[data-theme="dark"] #archive .archive-multi-option label {
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #archive .archive-multi-option label:hover {
+  background-color: #282b30;
+}
+html[data-theme="dark"] #archive .archive-multi-count,
+html[data-theme="dark"] #archive .archive-multi-none {
+  color: #969ba4;
+}
+html[data-theme="dark"] #archive .archive-multi-footer {
+  border-color: #33363c;
 }
 html[data-theme="dark"] #archive .archive-chip[aria-pressed="true"],
 html[data-theme="dark"] #archive .archive-view-button[aria-pressed="true"] {
@@ -10485,7 +10523,8 @@ html[data-theme="dark"] #archive .archive-goto-option:hover,
 html[data-theme="dark"] #archive .archive-goto-option.active {
   background-color: #282b30;
 }
-html[data-theme="dark"] #archive .archive-selects select {
+html[data-theme="dark"] #archive .archive-selects select,
+html[data-theme="dark"] #archive .archive-multi-toggle {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa4b2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 html[data-theme="dark"] #archive .archive-selects select:hover {
@@ -11484,7 +11523,10 @@ html[data-theme="sepia"] #archive .archive-goto-results,
 html[data-theme="sepia"] #archive .archive-card,
 html[data-theme="sepia"] #archive .archive-table,
 html[data-theme="sepia"] #archive .archive-goto-file input,
-html[data-theme="sepia"] #archive .archive-selects select {
+html[data-theme="sepia"] #archive .archive-selects select,
+html[data-theme="sepia"] #archive .archive-multi-toggle,
+html[data-theme="sepia"] #archive .archive-multi-panel,
+html[data-theme="sepia"] #archive .archive-multi-search {
   border-color: #dccfb2;
   background-color: #efe4cb;
   color: #3b3124;
@@ -11505,7 +11547,8 @@ html[data-theme="sepia"] #archive .archive-chip,
 html[data-theme="sepia"] #archive .archive-view-button,
 html[data-theme="sepia"] #archive .archive-clear-filters,
 html[data-theme="sepia"] #archive .archive-inline-tag,
-html[data-theme="sepia"] #archive .archive-goto-clear {
+html[data-theme="sepia"] #archive .archive-goto-clear,
+html[data-theme="sepia"] #archive .archive-multi-clear {
   border-color: #dccfb2;
   background-color: #e7dabd;
   color: #3b3124;
@@ -11513,9 +11556,36 @@ html[data-theme="sepia"] #archive .archive-goto-clear {
 html[data-theme="sepia"] #archive .archive-chip:hover,
 html[data-theme="sepia"] #archive .archive-view-button:hover,
 html[data-theme="sepia"] #archive .archive-clear-filters:hover,
-html[data-theme="sepia"] #archive .archive-inline-tag:hover {
+html[data-theme="sepia"] #archive .archive-inline-tag:hover,
+html[data-theme="sepia"] #archive .archive-multi-clear:hover {
   border-color: #286090;
   color: #286090;
+}
+html[data-theme="sepia"] #archive .archive-multi-toggle.is-active,
+html[data-theme="sepia"] #archive .archive-multi-toggle.is-active:hover {
+  border-color: #286090;
+  color: #286090;
+}
+html[data-theme="sepia"] #archive .archive-multi-toggle:hover {
+  border-color: #7a6c58;
+}
+html[data-theme="sepia"] #archive .archive-multi-toggle:focus,
+html[data-theme="sepia"] #archive .archive-multi-search:focus {
+  border-color: #286090;
+  box-shadow: 0 0 0 3px rgba(40, 96, 144, 0.15);
+}
+html[data-theme="sepia"] #archive .archive-multi-option label {
+  color: #3b3124;
+}
+html[data-theme="sepia"] #archive .archive-multi-option label:hover {
+  background-color: #e7dabd;
+}
+html[data-theme="sepia"] #archive .archive-multi-count,
+html[data-theme="sepia"] #archive .archive-multi-none {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] #archive .archive-multi-footer {
+  border-color: #dccfb2;
 }
 html[data-theme="sepia"] #archive .archive-chip[aria-pressed="true"],
 html[data-theme="sepia"] #archive .archive-view-button[aria-pressed="true"] {

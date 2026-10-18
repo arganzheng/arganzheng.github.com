@@ -391,6 +391,7 @@ Pages has `https_enforced` on.
   `archive.html` still parks a deck with no date at all under a 未注明日期
   bucket at the bottom (it used to float to the top with an empty year). Posts never need `date:` (only to order several posts
   on the same day).
+  Archive year/series/tag filters use array state (`years`, `series`, `tags`); URL values are comma-separated, OR within a filter and AND across filters.
 - `_includes/rich-content.html` — Mermaid (11.17.2) + KaTeX (0.18.7, only the
   public `.katex` / `.katex-display` classes are referenced from our code, so
   0.18's internal class prefixing did not matter) loaders, shared by
