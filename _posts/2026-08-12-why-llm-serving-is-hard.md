@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（01）：为什么 LLM Serving 比传统 DL 推理难？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -42,7 +42,7 @@ LLM Serving 则完全不同。一个请求可能携带几十个，也可能携�
 | 三 | Prefill 与 Decode | 两种完全不同的 GPU Workload：计算规模、瓶颈与优化手段 |
 | 四 | 吞吐与时延 | Batch 增大带来的收益与代价，SLO 约束下的权衡 |
 | 五 | 三个根本变化 | 动态执行、带状态推理、混合 Workload |
-| 六 | 阅读地图 | 后续内容围绕的四个核心问题与两个横切约束 |
+| 六 | 阅读地图 | 后续内容围绕的四个核心问题与三个横切约束 |
 | 七 | 一个贯穿全文的例子 | Llama-3-70B / 8×H100 / 2050+300 token 的基础算账 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
@@ -53,19 +53,31 @@ Table: 本文的章节安排
 
 理解 LLM Serving 的第一步，不是从某个具体优化技术开始，而是先看清它与典型传统 DL Serving 在**服务对象**上的差异：**从一次 Forward 到持续生成**。
 
-许多传统深度学习推理任务都可以抽象为“一次请求对应一次前向计算”：请求进入 → 组 Batch → 执行一次 Forward → 返回结果。
+许多传统深度学习推理任务都可以抽象为“一次请求对应一次前向计算”：
+
+```text
+请求进入 → 组 Batch → 执行一次 Forward → 返回结果
+```
 
 即使输入 shape 存在一定变化，系统通常也可以通过 padding、bucketing 或预编译的执行形态，将请求规整为有限几种执行模式。在推理过程中，中间激活一般即可释放。
 
 LLM Serving 则不同。一个请求通常要经历：
 
-1. 请求进入
-2. Prompt Processing / Prefill
-3. 生成第一个 Token
-4. Decode Step 1
-5. Decode Step 2
-6. Decode Step ...
-7. EOS 或达到长度上限
+```text title='一个 LLM 请求要经历的步骤'
+请求进入
+  ↓
+Prompt Processing / Prefill
+  ↓
+生成第一个 Token
+  ↓
+Decode Step 1
+  ↓
+Decode Step 2
+  ↓
+Decode Step ...
+  ↓
+EOS 或达到长度上限
+```
 
 它的输入和输出都具有动态性：
 
@@ -103,50 +115,11 @@ LLM Serving 需要在显存预算、请求生命周期、生成进度和服务�
 
 LLM 推理通常分为 Prefill 与 Decode 两个阶段：
 
-```text title='一次请求的时间线：一段 Prefill 后逐个 Decode'
-──[       Prefill       ]──[D][D][D][D][D][D][D]──▶
-                            ↑  ↑  ↑  ↑  ↑  ↑  ↑
-                  每步生成 1 个 Token
-```
+![一次请求的时间线：一段 Prefill 后逐个 Decode](/img/in-post/why-llm-serving-is-hard-request-timeline.svg)
 
 Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 Token 的生成速度和稳定性**。二者不仅执行顺序不同，计算规模、并行方式和硬件瓶颈也明显不同。
 
-```text title='Prefill 与 Decode 的数据流对照'
-┌──────────────────────────── Prefill 数据流 ─────────────────────────────┐
-│                                                                         │
-│  input_ids: [t₁, t₂, t₃, ..., tₙ]    (N 个 Prompt Token 并行输入)      │
-│       │                                                                 │
-│       ▼                                                                 │
-│  ┌─────────┐  Q: [N, H, d]                                             │
-│  │  QKV    │  K: [N, Hkv, d]   ──写入──▶  KV Cache (N 个新位置)         │
-│  │  Proj   │  V: [N, Hkv, d]   ──写入──▶  (批量写入 Prompt)             │
-│  └─────────┘                                                            │
-│       │                                                                 │
-│  Attention: 逻辑上计算 Q × Kᵀ 和 Attention × V                          │
-│             实际通常由 FlashAttention 等 Kernel 分块完成                │
-│       │                                                                 │
-│  只取最后 1 个 Position 的 Logits → Sampling → 第 1 个 Output Token     │
-│                                                                         │
-│  特征: Compute-Bound 倾向，高 GPU 利用率，大矩阵 GEMM                   │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────── Decode 数据流 ──────────────────────────────┐
-│                                                                         │
-│  input_ids: [tₙ₊ₖ]                 (1 个新 Token 输入)                   │
-│       │                                                                 │
-│       ▼                                                                 │
-│  ┌─────────┐  q: [1, H, d]                                             │
-│  │  QKV    │  k: [1, Hkv, d]   ──追加──▶  KV Cache (1 个新位置)         │
-│  │  Proj   │  v: [1, Hkv, d]   ──追加──▶  (增量写入)                    │
-│  └─────────┘                                                            │
-│       │                                                                 │
-│  Attention: q × K_historyᵀ → × V       (读取全部历史 KV)                │
-│       │                                                                 │
-│  Logits → Sampling → 下一个 Output Token                                │
-│                                                                         │
-│  特征: Memory-Bound 倾向，单请求并行度低，大量 HBM 读取                  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+![Prefill 与 Decode 的数据流对照](/img/in-post/why-llm-serving-is-hard-prefill-decode-dataflow.svg)
 
 可以把两者的差异概括为：
 
@@ -192,15 +165,7 @@ Table: Prefill 与 Decode 的对比
 - 更严重的尾延迟；
 - 更大的 KV Cache 压力。
 
-```mermaid
-%% 图：Batch Size 对吞吐和延迟的影响：吞吐随 batch 增大趋于饱和，单请求延迟持续上升
-xychart-beta
-    title "Batch Size 对吞吐和延迟的影响"
-    x-axis "Batch Size" [1, 2, 4, 8, 16, 32]
-    y-axis "相对值" 0 --> 100
-    line "吞吐" [12, 25, 45, 68, 85, 92]
-    line "单请求延迟" [10, 16, 25, 39, 60, 88]
-```
+![Batch Size 对吞吐和延迟的影响](/img/in-post/why-llm-serving-is-hard-batch-throughput-latency.svg)
 
 一般而言：
 
@@ -210,16 +175,7 @@ xychart-beta
 
 因此，系统目标不是简单地追求最大 Batch，而是在 SLO 约束下选择合适的执行规模：
 
-```text title='吞吐与时延的权衡：可接受区间'
-吞吐最大化
-      ▲
-      │      可接受区间
-      │    ┌──────────┐
-      │   /            \
-      │  /              \
-      └────────────────────▶
-          延迟 / 尾延迟约束
-```
+![吞吐与时延的权衡：可接受区间](/img/in-post/why-llm-serving-is-hard-acceptable-tradeoff.svg)
 
 调度器需要同时考虑：
 
@@ -249,24 +205,7 @@ LLM Serving 中：
 
 因此，系统需要持续调度，而不是只在请求到达时进行一次 Batch 组装。下面用 4 个槽位、12 个 step 的时间线对比两种做法（`P` = Prefill，`D` = Decode 一步，`E` = 生成 EOS 的那一步，`.` = 槽位空转）：
 
-```text title='静态 Batch 的空转：最长请求决定整批结束'
-静态 Batch：整批同进同出，最长的请求决定整批何时结束
-step    1  2  3  4  5  6  7  8  9 10 11 12
-R1     [P][D][D][D][E] .  .  .  .  .  .  .    5 步有效，7 步空转
-R2     [P][D][D][D][D][D][D][D][D][D][D][E]   12 步有效
-R3     [P][D][E] .  .  .  .  .  .  .  .  .    3 步有效，9 步空转
-R4     [P][D][D][D][D][D][E] .  .  .  .  .    7 步有效，5 步空转
-R5..   ── 排队，直到 step 12 整批结束才能进入 ──▶
-有效槽位 27 / 48
-
-Continuous Batching：以 step 为粒度，完成的请求离开，等待的请求补位
-step    1  2  3  4  5  6  7  8  9 10 11 12
-slot1  [P][D][D][D][E][P][D][D][D][D][E][P]   R1 → R5 → R8
-slot2  [P][D][D][D][D][D][D][D][D][D][D][E]   R2
-slot3  [P][D][E][P][D][D][D][D][E][P][D][D]   R3 → R6 → R9
-slot4  [P][D][D][D][D][D][E][P][D][D][D][D]   R4 → R7
-有效槽位 48 / 48
-```
+![静态 Batch 的空转：最长请求决定整批结束](/img/in-post/why-llm-serving-is-hard-static-vs-continuous-batching.svg)
 
 静态 Batch 里，R3 在 step 3 就结束了，但它的槽位要空转到 step 12 才能让给排队的 R5；输出长度越不均匀，浪费越大。Continuous Batching 把调度粒度从“一批请求”降到“一个 step”，任何一步结束都可以有请求离开、有请求进入，槽位始终有事可做。代价是同一个 step 里会混着新请求的 Prefill 和老请求的 Decode（如 step 6 的 slot1 与 slot2），一个长 Prompt 的 Prefill 会拖慢同批所有 Decode 的这一步——这正是第三章说的资源竞争，也是 Chunked Prefill 和 Token Budget 要解决的问题。
 
@@ -306,7 +245,7 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 
 Table: LLM Serving 的四个核心问题与代码落点
 
-四问之外还有两个**横切约束**：模型在变、硬件在变——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
+四问之外还有三个**横切约束**：模型在变（第 10 篇）、请求形态在变（第 11 篇：一个请求可以带自己的 LoRA、带几张图片）、硬件在变（第 12 篇）——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
 
 ## 七、一个贯穿全文的例子
 
@@ -355,7 +294,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 - Prefill 与 Decode 是两种截然不同的 Workload：前者一次处理 N 个 token、偏 Compute-Bound；后者每步只处理 1 个 token、却要读全部历史 KV、偏 Memory-Bound。两者竞争同一组 GPU 资源，这是 Continuous Batching、Token Budget、Chunked Prefill、抢占与 PD 分离存在的原因。
 - 扩大 Batch 提升吞吐，但会抬高单请求延迟、尾延迟和 KV Cache 压力；目标不是最大 Batch，而是在 SLO 约束下选择合适的执行规模。
 - 归纳为三个根本变化：从静态计算到动态执行、从无状态推理到带状态推理、从单一 Workload 到 Prefill/Decode 混合 Workload。
-- 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加模型与硬件两个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
+- 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加模型、请求形态与硬件三个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
 
 ## 九、自测
 
@@ -395,7 +334,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 
    <details markdown="1"><summary>答案</summary>
 
-   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加模型与硬件两个横切约束。
+   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加模型、请求形态与硬件三个横切约束。
 
    </details>
 

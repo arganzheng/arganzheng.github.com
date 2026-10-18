@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="360" viewBox="0 0 760 360" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">吞吐与时延的权衡：可接受区间</title>
+<rect width="760" height="360" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker></defs>
+<path d="M110 286 L110 78 Q350 74 500 86 Q617 110 690 278 L690 286 Z" fill="#e7f4e8" stroke="#3f8f54" stroke-width="2"/>
+<line x1="110" y1="286" x2="110" y2="62" stroke="#334155" stroke-width="1.7" marker-end="url(#arrow)"/>
+<line x1="110" y1="286" x2="704" y2="286" stroke="#334155" stroke-width="1.7" marker-end="url(#arrow)"/>
+<text x="96" y="52" font-size="14" fill="#333333" text-anchor="end" font-weight="600" >吞吐最大化</text>
+<text x="405" y="328" font-size="14" fill="#333333" text-anchor="middle" font-weight="600" >延迟 / 尾延迟约束</text>
+<text x="398" y="178" font-size="15" fill="#2f6b3f" text-anchor="middle" font-weight="600" >可接受区间</text>
+</svg>

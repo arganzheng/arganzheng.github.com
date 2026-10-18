@@ -302,7 +302,8 @@ html[data-theme="sepia"] {
 
 	#archive .archive-controls, #archive .archive-goto-results,
 	#archive .archive-card, #archive .archive-table, #archive .archive-goto-file input,
-	#archive .archive-selects select {
+	#archive .archive-selects select, #archive .archive-multi-toggle,
+	#archive .archive-multi-panel, #archive .archive-multi-search {
 		border-color: @sp-border;
 		background-color: @sp-surface;
 		color: @sp-text;
@@ -312,9 +313,25 @@ html[data-theme="sepia"] {
 	#archive .archive-table tbody tr:hover { background-color: @sp-surface-2; }
 	#archive .archive-chip, #archive .archive-view-button,
 	#archive .archive-clear-filters, #archive .archive-inline-tag,
-	#archive .archive-goto-clear { border-color: @sp-border; background-color: @sp-surface-2; color: @sp-text; }
+	#archive .archive-goto-clear, #archive .archive-multi-clear {
+		border-color: @sp-border;
+		background-color: @sp-surface-2;
+		color: @sp-text;
+	}
 	#archive .archive-chip:hover, #archive .archive-view-button:hover,
-	#archive .archive-clear-filters:hover, #archive .archive-inline-tag:hover { border-color: @sp-link; color: @sp-link; }
+	#archive .archive-clear-filters:hover, #archive .archive-inline-tag:hover,
+	#archive .archive-multi-clear:hover { border-color: @sp-link; color: @sp-link; }
+	#archive .archive-multi-toggle.is-active,
+	#archive .archive-multi-toggle.is-active:hover { border-color: @sp-link; color: @sp-link; }
+	#archive .archive-multi-toggle:hover { border-color: @sp-muted; }
+	#archive .archive-multi-toggle:focus, #archive .archive-multi-search:focus {
+		border-color: @sp-link;
+		box-shadow: 0 0 0 3px fade(@sp-link, 15%);
+	}
+	#archive .archive-multi-option label { color: @sp-text; }
+	#archive .archive-multi-option label:hover { background-color: @sp-surface-2; }
+	#archive .archive-multi-count, #archive .archive-multi-none { color: @sp-muted; }
+	#archive .archive-multi-footer { border-color: @sp-border; }
 	#archive .archive-chip[aria-pressed="true"],
 	#archive .archive-view-button[aria-pressed="true"] { border-color: @sp-link; background-color: @sp-link; color: #fffaf0; }
 	#archive .archive-result-count, #archive .archive-card-meta,

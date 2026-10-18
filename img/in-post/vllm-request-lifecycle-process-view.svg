@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="900" viewBox="0 0 760 900" role="img" aria-labelledby="title desc">
+  <title id="title">vLLM V1 默认多进程部署：进程职责、线程与 IPC</title>
+  <desc id="desc">API Server、EngineCoreProc 与 WorkerProc 的职责、线程和 IPC 路径。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#40566f"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#2b7a78"/>
+    </marker>
+    <style>
+      text { font-family: Arial, "Noto Sans CJK SC", sans-serif; fill: #182535; }
+      .heading { font-size: 22px; font-weight: 700; }
+      .label { font-size: 16px; font-weight: 700; }
+      .body { font-size: 15px; }
+      .small { font-size: 13px; }
+      .box { stroke-width: 2; rx: 16; }
+      .thread { fill: #fff; stroke: #b8c7d8; stroke-width: 1.4; rx: 9; }
+    </style>
+  </defs>
+  <rect width="760" height="900" fill="#fff"/>
+  <text x="380" y="36" text-anchor="middle" class="heading">默认部署：vllm serve + AsyncMPClient + MultiprocExecutor</text>
+
+  <rect x="42" y="56" width="676" height="174" class="box" fill="#eef5ff" stroke="#5880b4"/>
+  <text x="66" y="87" class="heading">进程 A · API Server</text>
+  <text x="66" y="116" class="body">FastAPI 路由 · uvicorn / uvloop 事件循环</text>
+  <rect x="62" y="132" width="636" height="77" class="thread"/>
+  <text x="80" y="158" class="label">AsyncLLM</text>
+  <text x="80" y="183" class="body">InputProcessor → AsyncMPClient · OutputProcessor → detokenize → SSE</text>
+  <text x="80" y="201" class="small">文本处理留在这里；默认多进程路径下不持有模型权重，也不跑 GPU forward</text>
+
+  <line x1="228" y1="230" x2="228" y2="327" stroke="#40566f" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="250" y="265" class="label">ZMQ + msgpack</text>
+  <text x="250" y="287" class="body">ADD: EngineCoreRequest</text>
+  <text x="250" y="307" class="small">ABORT · UTILITY</text>
+  <line x1="532" y1="327" x2="532" y2="230" stroke="#40566f" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="553" y="265" class="label">ZMQ + msgpack</text>
+  <text x="553" y="287" class="body">EngineCoreOutputs</text>
+  <text x="553" y="307" class="small">只有 token ids，没有文本</text>
+
+  <rect x="42" y="329" width="676" height="246" class="box" fill="#fff6e9" stroke="#c6873d"/>
+  <text x="66" y="361" class="heading">进程 B · EngineCoreProc</text>
+  <rect x="62" y="377" width="636" height="52" class="thread"/>
+  <text x="80" y="400" class="label">输入线程</text>
+  <text x="232" y="400" class="body">ZMQ 接收 → MsgpackDecoder → input_queue</text>
+  <text x="80" y="419" class="small">ADD / ABORT / UTILITY 消息</text>
+  <rect x="62" y="438" width="636" height="59" class="thread"/>
+  <text x="80" y="462" class="label">主线程 · run_busy_loop()</text>
+  <text x="80" y="484" class="body">Scheduler.schedule() → Executor.execute_model() → update_from_output()</text>
+  <rect x="62" y="506" width="636" height="52" class="thread"/>
+  <text x="80" y="529" class="label">输出线程</text>
+  <text x="232" y="529" class="body">output_queue → MsgpackEncoder → ZMQ 发送</text>
+  <text x="80" y="548" class="small">Scheduler 持有请求状态和 KVCacheManager 元数据</text>
+
+  <line x1="228" y1="575" x2="228" y2="678" stroke="#2b7a78" stroke-width="2.4" marker-end="url(#arrow-green)"/>
+  <text x="250" y="613" class="label">MessageQueue</text>
+  <text x="250" y="635" class="body">SchedulerOutput 广播</text>
+  <text x="250" y="656" class="small">同机共享内存</text>
+  <line x1="532" y1="678" x2="532" y2="575" stroke="#2b7a78" stroke-width="2.4" marker-end="url(#arrow-green)"/>
+  <text x="553" y="613" class="label">MessageQueue</text>
+  <text x="553" y="635" class="body">ModelRunnerOutput</text>
+  <text x="553" y="656" class="small">由 output_rank 回传</text>
+
+  <rect x="42" y="680" width="676" height="173" class="box" fill="#eff9f4" stroke="#4b9477"/>
+  <text x="66" y="712" class="heading">进程 C · WorkerProc × model-parallel world_size</text>
+  <rect x="62" y="728" width="636" height="118" class="thread"/>
+  <text x="80" y="753" class="label">WorkerProc 主线程</text>
+  <text x="80" y="777" class="body">MessageQueue 出队 → Worker → GPUModelRunner</text>
+  <text x="80" y="800" class="body">GPU：各 rank 的 weight shard + KV cache</text>
+  <text x="80" y="819" class="small">各 rank 之间的 TP collective 和 PP 传输</text>
+  <text x="80" y="837" class="small">走 NCCL / PyTorch distributed，不经过 EngineCore</text>
+
+  <text x="380" y="880" text-anchor="middle" class="small">跨机时，worker 控制队列走远程传输；共享内存只适用于同机 worker。</text>
+</svg>

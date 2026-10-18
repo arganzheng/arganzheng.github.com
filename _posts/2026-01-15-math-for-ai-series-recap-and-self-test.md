@@ -32,33 +32,6 @@ flowchart TB
 
 ```
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
-| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
-| LLM | large language model | 大语言模型 |
-| loss | — | 损失函数，训练要最小化的目标值 |
-| token | — | 模型处理文字的最小单位，大致是一个词或半个词 |
-| QK | — | query 与 key，attention 里算相似度的两个投影 |
-| SVD | singular value decomposition | 奇异值分解，把矩阵拆成旋转-伸缩-旋转 |
-| softmax | — | 把一组分数归一化成概率分布的函数 |
-| PPL | perplexity | 困惑度，交叉熵的指数，越小越好 |
-| TV | total variation | 全变差距离，另一种分布间距离 |
-| RLHF | reinforcement learning from human feedback | 用人类反馈的奖励做强化学习微调 |
-| GRPO | group relative policy optimization | 用组内均值替代价值模型的策略梯度方法 |
-| SE | standard error | 标准误，统计量自身的波动大小 |
-| MMLU | Massive Multitask Language Understanding | 多任务选择题为形式的常识与知识 benchmark |
-| GSM8K | — | 小学数学文字题 benchmark，8.5K 题 |
-| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
-| logits | — | softmax 之前的那组原始分数 |
-| SFT | supervised fine-tuning | 用标注答案做监督微调 |
-| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
-| PPO | proximal policy optimization | 带裁剪目标、防步子过大的策略梯度方法 |
-| Jacobian | — | 雅可比矩阵，向量函数的全导数 |
-| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
-
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**算法工程师需要的数学是一个最小集，每个概念只学到"读公式不卡壳、推导 loss 不出错、代进真实模型算出一个数字"三个标准**。主线按"先会算形状与成本，再会把模型看成分布，再会度量分布之间的差，再会对目标求导，最后会判断实验结果"推进；每篇用同一种方法——从定义讲起，推到公式，代入 Llama-3-8B（$$d = 4096$$、32 层、词表 128256）或真实 benchmark 的题数算出数字，指出它在后面哪一层、哪个公式里出现。
@@ -70,7 +43,7 @@ flowchart TB
 | [第三篇：正交与旋转、特征值与 SVD](/orthogonal-rotation-svd-and-low-rank.html) | RoPE 为什么能编码相对位置？LoRA 为什么能用半个百分点的参数微调？ | 正交保内积，所以旋转 $$m\theta$$ 与 $$n\theta$$ 后的内积只剩 $$n - m$$；截断 SVD 是最好的低秩近似，LoRA 的每个参数都省在 $$r(m + n) \ll mn$$ | $$(R_{m\theta} q)^T (R_{n\theta} k) = q^T R_{(n-m)\theta} k$$<br/>$$\theta_i = \text{base}^{-2i/d_h}$$，128 维拆 64 对<br/>$$W = U \Sigma V^T$$<br/>Llama-3-8B 上 $$r = 16$$ 是 41.9M 参数、0.52% |
 | [第四篇：概率入门](/probability-basics-language-model-as-conditional-distribution.html) | "语言模型是一个条件分布"每个词是什么意思？它决定了哪些事？ | 语言模型是链式法则 $$p(x_{1:T}) = \prod_t p(x_t \mid x_{<t})$$ 里每一项的参数化；它决定 next-token 目标、逐 token 生成、KV cache、评测依赖采样设置 | $$p(a, b) = p(a \mid b)\,p(b)$$<br/>独立和的方差相加，标准差 $$\sqrt{n}\sigma$$<br/>样本均值标准差 $$\sigma/\sqrt{n}$$<br/>高斯 95% 在 $$\mu \pm 1.96\sigma$$<br/>$$d_k = 128$$ 时 score 标准差约 11.3，所以除 $$\sqrt{d_k}$$ |
 | [第五篇：从最大似然到交叉熵](/from-maximum-likelihood-to-cross-entropy.html) | 能不能三行推出交叉熵 loss？训练开始时 loss 应该是多少？ | 取对数 → 取负 → 除以 token 数，得到每 token 负对数似然<br/>真实分布 one-hot 时它就是交叉熵<br/>所有 loss 都是这个模板换一个概率 | $$\mathcal{L} = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$<br/>初始 loss $$\approx \ln V$$，Llama-3 是 11.8<br/>1 nat = 1.44 bit<br/>softmax 差值决定比值，差 1 是 2.7 倍、差 5 是 148 倍<br/>温度改变分布 |
-| [第六篇：熵、交叉熵与 KL](/entropy-cross-entropy-and-kl-to-dpo.html) | 熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO？ | $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$<br/>KL 不对称，RLHF 用 reverse——"对齐降低多样性"还要奖励形状配合，不是定义行为<br/>闭式解反解奖励、代入 Bradley-Terry、$$Z(x)$$ 抵消得 DPO | PPL $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit<br/>loss 降不到数据的熵 $$E = 1.69$$ 以下<br/>$$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$<br/>$$\sigma(2) = 0.88$$<br/>接受率 $$\alpha = \sum_x \min(p, q) = 1 - \mathrm{TV}$$ |
+| [第六篇：熵、交叉熵与 KL](/entropy-cross-entropy-and-kl-to-dpo.html) | 熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO？ | $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$<br/>KL 不对称，RLHF 用 reverse（mode-seeking 倾向）——"对齐降低多样性"还要奖励形状配合，不是定义行为<br/>闭式解反解奖励、代入 Bradley-Terry、$$Z(x)$$ 抵消得 DPO | PPL $$= e^{\text{loss}}$$，loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit<br/>loss 降不到数据的熵 $$E = 1.69$$ 以下<br/>$$\pi^* \propto \pi_{\text{ref}}\, e^{r/\beta}$$<br/>$$\sigma(2) = 0.88$$<br/>接受率 $$\alpha = \sum_x \min(p, q) = 1 - \mathrm{TV}$$ |
 | [第七篇：导数、梯度与链式法则](/derivatives-gradients-chain-rule-and-policy-gradient.html) | 能不能用链式法则推一层的梯度？能不能对一个期望求导得到策略梯度？ | 梯度与参数同形<br/>softmax + 交叉熵的梯度是 $$p - y$$<br/>期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望，策略梯度是"按奖励加权的最大似然"，减 baseline 期望不变 | $$\partial \mathcal{L}/\partial z = p - y$$，分量在 $$[-1, 1]$$<br/>$$\nabla J = \mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$<br/>$$\mathbb{E}[\nabla\log\pi] = 0$$<br/>GRPO 优势 $$(R_i - \text{mean})/\text{std}$$<br/>随机梯度噪声方差 $$\propto 1/B$$ |
 | [第八篇：统计推断与拟合](/statistical-inference-and-fitting-scaling-laws.html) | HumanEval 差 3 个点算不算提升？$$D/N \approx 20$$ 从哪来？ | 95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，164 题分辨不出 3 个点<br/>幂律在双对数上是直线<br/>固定 $$C = 6ND$$ 用拉格朗日乘子，$$N$$、$$D$$ 应同步增长 | HumanEval ±6.1%、GSM8K ±1.6%、MMLU ±0.8%<br/>独立比较显著差异 8.7 / 2.3 / 1.1 个点<br/>$$E = 1.69, A = 406.4, B = 410.7, \alpha = 0.34, \beta = 0.28$$<br/>$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$<br/>70B ↔ 1.4T |
 
@@ -177,7 +150,7 @@ Table: 本文的章节安排
 
 ### 6. 第六篇：熵、交叉熵与 KL——从困惑度到 DPO
 
-**核心问题**（[第六篇](/entropy-cross-entropy-and-kl-to-dpo.html)）：能不能分清熵、交叉熵、KL（Kullback–Leibler）各是什么？能不能从 KL 约束的最优策略推出 DPO 的 loss？
+**核心问题**（[第六篇](/entropy-cross-entropy-and-kl-to-dpo.html)）：能不能分清熵、交叉熵、KL 各是什么？能不能从 KL 约束的最优策略推出 DPO 的 loss？
 
 **结论**：熵 $$H(p) = -\sum p\log p$$ 是分布自身的不确定程度，均匀分布最大（$$\log V$$）、确定性分布为 0；交叉熵 $$H(p, q) = -\sum p\log q$$ 是用 $$q$$ 编码 $$p$$ 的平均码长；KL 是多付的那部分，$$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$，非负、不对称。训练时 $$p$$ 是 one-hot 所以交叉熵就是负对数似然；蒸馏时 $$p$$ 是 teacher 的软分布，最小化交叉熵与最小化 KL 只差常数；等式还说明 loss 降不到数据的熵以下——Chinchilla 的 $$E = 1.69$$ 就是对这个下限的估计。困惑度 $$e^{\text{loss}}$$ 读作"每步平均在几个 token 里犹豫"。KL 的方向决定行为：forward 期望在 $$p$$ 上、mode-covering、$$q$$ 变宽；reverse 期望在 $$q$$ 上、mode-seeking、$$q$$ 收窄。RLHF 的 $$\beta D_{\mathrm{KL}}(\pi \Vert \pi_{\text{ref}})$$ 是 reverse——策略可以放弃参考模型的一部分模式，但不能去参考模型认为不可能的地方，于是在高概率区里挑奖励高的收窄，"对齐降低多样性"不是副作用而是定义行为。Bradley-Terry 把偏好变成概率 $$\sigma(r_w - r_l)$$，奖励模型的 loss 是逻辑回归。DPO 的推导链四步：KL 约束目标的闭式解 $$\pi^* = \frac{1}{Z}\pi_{\text{ref}} e^{r/\beta}$$ → 反解 $$r = \beta\log(\pi^*/\pi_{\text{ref}}) + \beta\log Z$$ → 代入 Bradley-Terry，同一 prompt 的 $$Z(x)$$ 抵消 → 用 $$\pi_\theta$$ 代 $$\pi^*$$ 套模板。没有一步超出最小集。
 
@@ -185,7 +158,7 @@ Table: 本文的章节安排
 
 - $$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$；$$p = (0.5, 0.5)$$、$$q = (0.9, 0.1)$$：$$H(p) = 0.693$$、$$H(p, q) = 1.204$$、$$D(p \Vert q) = 0.511$$、$$D(q \Vert p) = 0.368$$。
 - PPL $$= e^{\text{loss}}$$：2.5 → 12.2、2.0 → 7.39、1.8 → 6.05、1.5 → 4.48、1.0 → 2.72；bit/token = loss × 1.44。
-- PPL（perplexity）依赖 tokenizer，跨 tokenizer 比要用 bits per byte。
+- PPL 依赖 tokenizer，跨 tokenizer 比要用 bits per byte。
 - reverse KL：$$q$$ 在 $$p$$ 为零处有概率则惩罚无穷；$$\beta$$ 越大越保守，越小越激进、越容易 reward hacking。
 - $$\sigma(0) = 0.5$$、$$\sigma(2) = 0.88$$、$$\sigma(-2) = 0.12$$；$$\mathcal{L}_{\text{RM}} = -\log\sigma(r_w - r_l)$$。
 - $$\mathcal{L}_{\text{DPO}} = -\log\sigma\big(\beta\log\frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta\log\frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)}\big)$$；去掉 $$\pi_{\text{ref}}$$ 就失去"不偏离"的约束。
@@ -219,7 +192,7 @@ Table: 本文的章节安排
 **必记**：
 
 - $$\text{SE}(\hat p) = \sqrt{\hat p(1 - \hat p)/n}$$；95% 用 1.96、99% 用 2.58、90% 用 1.64。
-- HumanEval 164 题 / 0.80：SE（standard error） 3.1%、±6.1%、独立比较显著差异 8.7 个点；GSM8K 1319 / 0.90：0.8%、±1.6%、2.3 个点；MMLU（Massive Multitask Language Understanding） 14042 / 0.70：0.4%、±0.8%、1.1 个点。
+- HumanEval 164 题 / 0.80：SE 3.1%、±6.1%、独立比较显著差异 8.7 个点；GSM8K 1319 / 0.90：0.8%、±1.6%、2.3 个点；MMLU 14042 / 0.70：0.4%、±0.8%、1.1 个点。
 - 差值的 SE $$= \sqrt{\text{SE}_1^2 + \text{SE}_2^2}$$，两个 3.1% 是 4.4%；配对检验（McNemar）只看分歧题。
 - 双对数直线斜率 $$-0.07$$：参数量 ×10，loss ×0.85；斜率 $$-0.1$$、×100：loss ×0.63。
 - Chinchilla：$$E = 1.69$$、$$A = 406.4$$、$$B = 410.7$$、$$\alpha = 0.34$$、$$\beta = 0.28$$；8B 配 160B 是 2.16、配 15T 是 1.95，94 倍数据换 0.21 nat；70B 配 1.4T 是 1.94。
@@ -478,7 +451,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 位置 $$m$$ 的 query 转 $$m\theta$$、位置 $$n$$ 的 key 转 $$n\theta$$，$$(R_{m\theta}q)^T(R_{n\theta}k) = q^T R_{m\theta}^T R_{n\theta} k = q^T R_{(n-m)\theta} k$$，用了正交矩阵的转置是逆、旋转角度相加；(2) 结果只含 $$n - m$$，整句平移 score 不变；(3) 128 维拆 64 对，$$\theta_i = \text{base}^{-2i/d_h}$$ 从 1 到约 $$1.2 \times 10^{-4}$$，快的对分辨近距离、慢的分辨远距离；(4) 训练只见过 8K 位置、推理到 128K 时慢的对没转过那么大的角，外推方法全是在改这组 $$\theta_i$$——缩小 $$\theta_i$$、调大 base、或分频段处理；(5) 复数写法 $$e^{im\theta}$$ 与矩阵写法等价，代码用前者。
+   **答案要点**：(1) 位置 $$m$$ 的 query 转 $$m\theta$$、位置 $$n$$ 的 key 转 $$n\theta$$，$$(R_{m\theta}q)^T(R_{n\theta}k) = q^T R_{m\theta}^T R_{n\theta} k = q^T R_{(n-m)\theta} k$$，用了正交矩阵的转置是逆、旋转角度相加；(2) 结果只含 $$n - m$$，整句平移 score 不变；(3) 128 维拆 64 对，$$\theta_i = \text{base}^{-2i/d_h}$$ 从 1 到约 $$1.2 \times 10^{-4}$$，快的对分辨近距离、慢的分辨远距离；(4) 训练只见过 8K 位置、推理到 128K 时慢的对没转过那么大的角，外推方法全是在改这组 $$\theta_i$$——缩小 $$\theta_i$$、调大 base（Llama-3 用 500000）、或分频段处理；(5) 复数写法 $$e^{im\theta}$$ 与矩阵写法等价，代码用前者。
    **追问方向**：正交矩阵为什么保持内积；旋转量化为什么可以先乘一个正交矩阵再量化（$$WR^T \cdot RX = WX$$）。
    **好答案与一般答案的区别**：一般答案说"RoPE 是相对位置编码"；好答案写出那一行推导，并说出外推方法改的是 $$\theta_i$$ 的分布而不是别的。
 
@@ -504,7 +477,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-6. GRPO（group relative policy optimization）里优势为什么要减组内均值、除组内标准差？一组回答全对时怎么办？它与 PPO（proximal policy optimization）的区别在哪一步？
+6. GRPO 里优势为什么要减组内均值、除组内标准差？一组回答全对时怎么办？它与 PPO 的区别在哪一步？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -543,7 +516,7 @@ Table: 掌握程度的判据
 - **动手**：第五、七、八篇的例子与实验在 [ai-learning-labs/math-for-ai](https://github.com/arganzheng/ai-learning-labs/tree/main/math-for-ai)（硬币似然、GPT-2 采样、玩具策略梯度、nanoGPT 上的最小 RL、多种子实跑、scaling law 拟合），其余篇的算例是手算；从这里进入 L1 [《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)，把形状规则、广播、交叉熵在代码里练一遍。
 - **反向传播的完整推导、初始化与归一化、Momentum / Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在第七篇的 SGD 之上，设计动机要到训练神经网络时才看得见，在 L3 [《深度学习基础》](/deep-learning-foundations.html)。
 - **Transformer 的完整算账、scaling law 的实验设计**：第一篇的两条规则与第八篇的拟合在 L4 [《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)里被用来算整个模型与整次训练的账。
-- **SFT（supervised fine-tuning）、奖励模型、DPO 一族、PPO / GRPO 的配方**：第五、六、七篇给了它们的数学，L5 [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)讲怎么用。
+- **SFT、奖励模型、DPO 一族、PPO / GRPO 的配方**：第五、六、七篇给了它们的数学，L5 [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)讲怎么用。
 - **量化、投机解码、LoRA 的工程**：第二、三、六篇给了范数、低秩与总变差，L6 [《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)展开。
 - **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法——用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。
 
@@ -553,7 +526,7 @@ Table: 掌握程度的判据
 
 本系列有意不展开的内容，以及它们在哪个系列里：
 
-- **不是数学教材**：每个概念只讲到后面用到的深度。SVD（singular value decomposition）讲到"任何矩阵可以分解成正交基与奇异值、截断即低秩近似"，不证明存在性；中心极限定理讲到"为什么可以用正态近似"，不证明。
+- **不是数学教材**：每个概念只讲到后面用到的深度。SVD 讲到"任何矩阵可以分解成正交基与奇异值、截断即低秩近似"，不证明存在性；中心极限定理讲到"为什么可以用正态近似"，不证明。
 - **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法。用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。
 - **Momentum、Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在 SGD 之上，但设计动机要到训练神经网络时才看得见，放在 L3 深度学习基础系列。
 - **反向传播的完整推导**、**Transformer 的完整算账**、**scaling law 的实验设计**：分别在 L3、L4 系列。本系列只给它们需要的数学。

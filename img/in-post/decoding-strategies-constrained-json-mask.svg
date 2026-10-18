@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="500" viewBox="0 0 760 500" role="img" aria-labelledby="title desc">
+  <title id="title">JSON grammar 状态与 token mask</title>
+  <desc id="desc">示意 JSON Schema 中 status 只能是 ok 或 error。生成到 status 值的位置时，FSM 只允许这两个 token，其余 logits 设为负无穷，再对剩下的候选重新归一化。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#64809a"/>
+    </marker>
+    <style>
+      .title { font: 700 20px system-ui, sans-serif; fill: #17283b; }
+      .sub { font: 13px system-ui, sans-serif; fill: #53677d; }
+      .heading { font: 700 14px system-ui, sans-serif; fill: #20364b; }
+      .text { font: 13px system-ui, sans-serif; fill: #30465b; }
+      .small { font: 11px system-ui, sans-serif; fill: #53677d; }
+      .mono { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #30465b; }
+      .box { fill: #f4f7fa; stroke: #8298ac; stroke-width: 1.3; rx: 8; }
+      .focus { fill: #fff1d9; stroke: #c38432; stroke-width: 2; rx: 8; }
+      .allowed { fill: #e3f2e8; stroke: #58936a; stroke-width: 1.2; }
+      .blocked { fill: #f4eded; stroke: #c7a0a0; stroke-width: 1.1; }
+      .edge { fill: none; stroke: #64809a; stroke-width: 1.6; marker-end: url(#arrow); }
+      .rule { stroke: #d7e0e8; stroke-width: 1; }
+    </style>
+  </defs>
+  <rect width="760" height="500" fill="#fff"/>
+  <text class="title" x="24" y="31">结构化输出：FSM 决定当前允许哪些 token</text>
+  <text class="sub" x="24" y="53">例子：JSON Schema 要求 status 只能是 “ok” 或 “error”。</text>
+
+  <rect class="box" x="24" y="78" width="190" height="132"/>
+  <text class="heading" x="40" y="103">Schema 约束</text>
+  <text class="mono" x="40" y="133">{</text>
+  <text class="mono" x="54" y="153">"status":</text>
+  <text class="mono" x="54" y="173">  enum ["ok", "error"]</text>
+  <text class="mono" x="40" y="193">}</text>
+
+  <text class="heading" x="242" y="91">语法状态</text>
+  <rect class="box" x="242" y="112" width="86" height="54"/>
+  <text class="text" x="285" y="136" text-anchor="middle">对象开始</text>
+  <text class="small" x="285" y="153" text-anchor="middle">期待 {</text>
+  <rect class="box" x="354" y="112" width="94" height="54"/>
+  <text class="text" x="401" y="136" text-anchor="middle">键名 status</text>
+  <text class="small" x="401" y="153" text-anchor="middle">期待冒号</text>
+  <rect class="focus" x="474" y="104" width="110" height="70"/>
+  <text class="heading" x="529" y="131" text-anchor="middle">当前状态</text>
+  <text class="small" x="529" y="151" text-anchor="middle">读取 enum 值</text>
+  <rect class="box" x="610" y="112" width="116" height="54"/>
+  <text class="text" x="668" y="136" text-anchor="middle">值结束</text>
+  <text class="small" x="668" y="153" text-anchor="middle">期待 , 或 }</text>
+  <path class="edge" d="M328 139 L350 139"/>
+  <text class="small" x="339" y="126" text-anchor="middle">{"</text>
+  <path class="edge" d="M448 139 L470 139"/>
+  <text class="small" x="459" y="126" text-anchor="middle">:</text>
+  <path class="edge" d="M584 139 L606 139"/>
+  <text class="small" x="595" y="126" text-anchor="middle">"ok" / "error"</text>
+  <path class="edge" d="M668 168 C668 195 529 195 529 178"/>
+  <text class="small" x="601" y="204">结束字符串后继续语法</text>
+
+  <path class="edge" d="M529 218 L529 244"/>
+  <text class="small" x="24" y="237">当前前缀：</text>
+  <text class="mono" x="104" y="237">{"status":</text>
+  <text class="small" x="242" y="237">logits → 合法 token mask → softmax</text>
+
+  <rect class="box" x="24" y="258" width="712" height="186"/>
+  <text class="heading" x="42" y="283">候选 token 在当前状态的打分</text>
+  <text class="small" x="56" y="307">token</text>
+  <text class="small" x="300" y="307">原始 logit</text>
+  <text class="small" x="440" y="307">mask 后</text>
+  <text class="small" x="592" y="307">归一化概率</text>
+  <line class="rule" x1="42" y1="315" x2="718" y2="315"/>
+
+  <rect class="allowed" x="42" y="323" width="676" height="27" rx="5"/>
+  <text class="mono" x="56" y="342">"ok"</text><text class="mono" x="314" y="342">2.0</text><text class="mono" x="454" y="342">2.0</text><text class="mono" x="606" y="342">0.690</text>
+  <rect class="allowed" x="42" y="354" width="676" height="27" rx="5"/>
+  <text class="mono" x="56" y="373">"error"</text><text class="mono" x="314" y="373">1.2</text><text class="mono" x="454" y="373">1.2</text><text class="mono" x="606" y="373">0.310</text>
+  <rect class="blocked" x="42" y="385" width="676" height="23" rx="5"/>
+  <text class="mono" x="56" y="402">"pending"</text><text class="mono" x="314" y="402">1.6</text><text class="mono" x="454" y="402">−∞</text><text class="mono" x="606" y="402">0</text>
+  <rect class="blocked" x="42" y="412" width="676" height="23" rx="5"/>
+  <text class="mono" x="56" y="429">123</text><text class="mono" x="314" y="429">0.8</text><text class="mono" x="454" y="429">−∞</text><text class="mono" x="606" y="429">0</text>
+  <text class="small" x="24" y="472">演示用 token 候选；真实 tokenizer 的一个 token 可能跨越多个语法字符。</text>
+</svg>

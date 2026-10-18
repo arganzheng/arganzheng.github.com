@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="410" viewBox="0 0 760 410" role="img" aria-labelledby="title desc">
+  <title id="title">扩散模型的噪声、分数、干净样本与速度参数化</title>
+  <desc id="desc">高斯路径上噪声、score 和 Tweedie 去噪估计可以线性换算；在线性 flow matching 路径上，速度等于噪声减去数据，并可由当前位置和速度恢复两端。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#34445a"/>
+    </marker>
+  </defs>
+  <rect width="760" height="410" rx="16" fill="#fffdf8"/>
+  <text x="380" y="30" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" font-weight="700" fill="#1f2937">一个网络输出，几种线性参数化</text>
+  <text x="380" y="57" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#34445a">高斯路径：xₜ = αₜ x₀ + σₜ ε</text>
+
+  <rect x="20" y="76" width="720" height="190" rx="12" fill="#eef4fb" stroke="#9bb7d7" stroke-width="1.5"/>
+  <rect x="38" y="99" width="184" height="92" rx="10" fill="#ffffff" stroke="#3b6fb6" stroke-width="2"/>
+  <text x="130" y="126" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#214c83">噪声预测</text>
+  <text x="130" y="158" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" fill="#1f2937">ε̂</text>
+
+  <line x1="226" y1="145" x2="278" y2="145" stroke="#34445a" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <rect x="286" y="99" width="184" height="92" rx="10" fill="#ffffff" stroke="#e0812c" stroke-width="2"/>
+  <text x="378" y="126" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#9d5214">分数预测</text>
+  <text x="378" y="158" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" fill="#1f2937">ŝ ≈ ∇ₓ log pₜ(xₜ)</text>
+
+  <line x1="474" y1="145" x2="526" y2="145" stroke="#34445a" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <rect x="534" y="99" width="188" height="92" rx="10" fill="#ffffff" stroke="#4a9a5b" stroke-width="2"/>
+  <text x="628" y="126" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#2d6e3b">Tweedie 去噪估计</text>
+  <text x="628" y="158" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" fill="#1f2937">x̂₀</text>
+
+  <text x="252" y="211" text-anchor="middle" font-family="Arial, sans-serif" font-size="12.5" fill="#34445a">ŝ = −ε̂ / σₜ</text>
+  <text x="500" y="211" text-anchor="middle" font-family="Arial, sans-serif" font-size="12.5" fill="#34445a">x̂₀ = (xₜ + σₜ² ŝ) / αₜ</text>
+  <text x="380" y="235" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#34445a">反向换算：ε̂ = −σₜ ŝ；x̂₀ = (xₜ − σₜ ε̂) / αₜ</text>
+  <text x="380" y="255" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#526174">Tweedie 给的是给定 xₜ 时 x₀ 的后验均值，不是唯一的真实来源图像</text>
+
+  <rect x="20" y="282" width="720" height="108" rx="12" fill="#fff3e7" stroke="#e5aa71" stroke-width="1.5"/>
+  <text x="380" y="305" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#8a4a15">Flow matching 直线路径：αₜ = 1 − t，σₜ = t</text>
+  <text x="138" y="339" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#1f2937">位置：xₜ = (1 − t)x₀ + tε</text>
+  <text x="380" y="339" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#1f2937">速度：v = ε − x₀</text>
+  <text x="622" y="339" text-anchor="middle" font-family="Arial, sans-serif" font-size="12.5" fill="#1f2937">ε = xₜ + (1 − t)v</text>
+  <text x="622" y="360" text-anchor="middle" font-family="Arial, sans-serif" font-size="12.5" fill="#1f2937">x₀ = xₜ − tv</text>
+  <text x="258" y="370" text-anchor="middle" font-family="Arial, sans-serif" font-size="12.5" fill="#8a4a15">s = −ε/t = −[xₜ + (1 − t)v]/t</text>
+</svg>

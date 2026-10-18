@@ -7,6 +7,7 @@ tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-02 12:00:00 +0800
 redirect_from: /transformer-anatomy-and-parameter-count.html
+updated: 2026-10-18
 ---
 
 > **本篇在系列中的位置。** 现代 LLM 结构的第 01 篇，承接[系列总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)，从 GPT-2 走到 Llama，先认出现代模型改动的五个位置，再读真实配置并逐项数出参数。
@@ -184,7 +185,7 @@ Table: GPT-2 small 与 Llama-3-8B 的逐项对照：骨架不变，五处改动�
 | FFN 的份数 | Llama 每 token 使用整个 dense FFN | V3：256 个路由专家选 8 个，另有 1 个共享专家 | 扩大模型规模而不同比例增加每 token 算量；总权重与通信仍昂贵 | 2 | [10 MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) |
 | 训练目标 | 默认只预测下一个 token | V3 加 1 层 MTP，训练时继续预测后一个 token | 增加训练模块与监督信号；推理可丢弃或用作草稿 | 3 | [11 MTP](/multi-token-prediction-mtp.html) |
 | 解码流程 | 每步一次前向产出一个 token | 草稿 + 一次前向验证多个 token（MTP 模块可当草稿） | 不改结构与分布；只在小 batch 的 memory-bound 区间有收益 | 3 | [12 投机解码](/speculative-decoding-draft-verify-and-payoff.html) |
-| 输入模态 | 以上文本模型只有 token embedding | VLM 加 vision encoder、connector，或 cross-attention | 图像先算一次编码，再以 image token 或独立 KV 进入 decoder | 4 | [13 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
+| 输入模态 | 以上文本模型只有 token embedding | VLM 加 vision encoder + connector，再拼进序列或经 cross-attention 层读入 | 图像先算一次编码，再以 image token 或独立 KV 进入 decoder | 4 | [13 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
 | 数值精度 | BF16 权重与计算 | V3 用 FP8 训练与推理（分块 scale） | 每个数占几个字节、误差在哪里积累、训练状态每参数几字节 | 2 | [14 浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) |
 
 Table: 模型实践地图：各处变化的动机、成本、所在的演进线与后续专项

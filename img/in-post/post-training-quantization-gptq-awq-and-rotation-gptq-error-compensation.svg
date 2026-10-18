@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="340" viewBox="0 0 760 340" role="img" aria-labelledby="title desc">
+  <title id="title">GPTQ 的列量化与 Hessian 补偿</title>
+  <desc id="desc">先把第一列权重从 0.6 量化到 0.5，再依据输入通道相关性将第二列从 0.6 调到 0.7098，校准样本上的输出误差下降。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-teal" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#0f766e"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .title { font-size: 20px; font-weight: 700; }
+      .label { font-size: 15px; font-weight: 600; }
+      .small { font-size: 13px; }
+      .box { fill: #f1f5f9; stroke: #64748b; stroke-width: 1.5; rx: 12; }
+      .red { fill: #fff1f2; stroke: #be123c; stroke-width: 1.6; rx: 12; }
+      .teal { fill: #ccfbf1; stroke: #0f766e; stroke-width: 1.6; rx: 12; }
+      .line { stroke: #334155; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .teal-line { stroke: #0f766e; stroke-width: 2; fill: none; marker-end: url(#arrow-teal); }
+    </style>
+  </defs>
+  <rect width="760" height="340" fill="#ffffff"/>
+  <text class="title" x="28" y="34">GPTQ：把本列的舍入误差分摊给剩余列</text>
+
+  <rect class="box" x="28" y="74" width="190" height="98"/>
+  <text class="label" x="123" y="101" text-anchor="middle">原始权重行</text>
+  <text class="label" x="123" y="128" text-anchor="middle">w = [0.6, 0.6]</text>
+  <text class="small" x="123" y="153" text-anchor="middle">样本输出 [1.20, 1.08]</text>
+
+  <path class="line" d="M218 123 H265"/>
+  <rect class="red" x="273" y="74" width="190" height="98"/>
+  <text class="label" x="368" y="101" text-anchor="middle">量化第 1 列</text>
+  <text class="label" x="368" y="128" text-anchor="middle">0.6 → 0.5</text>
+  <text class="small" x="368" y="153" text-anchor="middle">未补偿误差平方和 0.0200</text>
+
+  <path class="teal-line" d="M463 123 H510"/>
+  <rect class="teal" x="518" y="74" width="214" height="98"/>
+  <text class="label" x="625" y="101" text-anchor="middle">Hessian / OBS 补偿</text>
+  <text class="label" x="625" y="128" text-anchor="middle">Δw₂ = +0.1098</text>
+  <text class="small" x="625" y="153" text-anchor="middle">w₂：0.600 → 0.7098</text>
+
+  <path class="line" d="M625 172 V220 H502"/>
+  <rect class="box" x="273" y="214" width="229" height="82"/>
+  <text class="label" x="387" y="241" text-anchor="middle">补偿后的输出</text>
+  <text class="small" x="387" y="264" text-anchor="middle">[1.2098, 1.0678]</text>
+  <text class="small" x="387" y="284" text-anchor="middle">误差平方和 0.000244</text>
+
+  <rect class="box" x="28" y="214" width="190" height="82"/>
+  <text class="label" x="123" y="241" text-anchor="middle">相关校准输入</text>
+  <text class="small" x="123" y="264" text-anchor="middle">X = [[1, 1],</text>
+  <text class="small" x="123" y="284" text-anchor="middle">     [1, 0.8]]</text>
+  <path class="line" d="M218 255 H265"/>
+
+  <text class="small" x="624" y="238" text-anchor="middle">相关通道能抵消</text>
+  <text class="small" x="624" y="260" text-anchor="middle">第 1 列的舍入误差</text>
+  <text class="small" x="624" y="286" text-anchor="middle">下一步再量化第 2 列</text>
+</svg>

@@ -8,50 +8,9 @@ catalog: true
 updated: 2026-10-10
 ---
 
-> **更新 @2026-09-30**：实验用 peft 0.21.1（Parameter-Efficient Fine-Tuning）、trl 1.14.1（Transformer Reinforcement Learning）、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU，8 线程），模型 Qwen2.5-0.5B（base），数据 HuggingFaceH4/no_robots。配套脚本 `ai-learning-labs/lora/02_knobs.py`，`--list` 列出全部配置名；正文给出每种配置的数字。
+> **更新 @2026-09-30**：实验用 peft 0.21.1、trl 1.14.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU，8 线程），模型 Qwen2.5-0.5B（base），数据 HuggingFaceH4/no_robots。配套脚本 `ai-learning-labs/lora/02_knobs.py`，`--list` 列出全部配置名；正文给出每种配置的数字。
 
-`LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", lora_dropout=0.05)` 加 `learning_rate=2e-4`——这一行出现在几乎每个 SFT（supervised fine-tuning）脚本里。本文把它拆成一个个旋钮，每个旋钮回到 $$W' = W + \frac{\alpha}{r} BA$$ 里的位置，然后用同一份数据、同样 80 步的对照实验给一组数字：秩 $$r$$、挂哪些矩阵、$$\alpha$$ 与 rsLoRA、学习率与 LoRA+、初始化家族（PiSSA / OLoRA / EVA / LoftQ）、DoRA（Weight-Decomposed Low-Rank Adaptation）、QLoRA（Quantized LoRA）。最后是全部十三种配置并排的一张表，和一张按任务与资源选配置的表。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| peft | Parameter-Efficient Fine-Tuning | Hugging Face 的参数高效微调库，LoraConfig 来自它 |
-| trl | Transformer Reinforcement Learning | Hugging Face 的后训练库，本文用它的 SFTTrainer |
-| bitsandbytes | — | 做 4 / 8 bit 量化的库，QLoRA 的 NF4 靠它 |
-| SFT | supervised fine-tuning | 监督微调：用指令–回复数据继续训模型 |
-| rsLoRA | rank-stabilized LoRA | 缩放从 α/r 改成 α/√r 的 LoRA |
-| LoRA+ | — | 给 B 设比 A 大 λ 倍学习率的 LoRA 变体 |
-| PiSSA | Principal Singular values and Singular vectors Adaptation | 用 W 的主奇异方向初始化，并改底座 |
-| OLoRA | Orthonormal Low-Rank Adaptation | 用 W 的 QR 分解初始化，并改底座 |
-| EVA | Explained Variance Adaptation | 用激活的 SVD 初始化 A，不改底座 |
-| LoftQ | LoRA-Fine-Tuning-aware Quantization | 对着量化误差初始化，只对 QLoRA 有意义 |
-| DoRA | Weight-Decomposed Low-Rank Adaptation | 把权重拆成幅度与方向，只对方向挂 LoRA |
-| QLoRA | Quantized LoRA | 底座量化到 NF4、上面再挂 LoRA 的训练方法 |
-| AdamW | Adam with decoupled weight decay | 权重衰减与梯度更新分开的 Adam |
-| cosine | — | 学习率按余弦曲线降到接近零的调度 |
-| warmup | — | 开头几步把学习率从零逐步升到峰值 |
-| lr | learning rate | 学习率 |
-| GPT-3 | Generative Pre-trained Transformer 3 | OpenAI 的 175B 模型，LoRA 原论文在它上面做实验 |
-| MLP | multi-layer perceptron | 每层的前馈子层（gate、up、down） |
-| AdaLoRA | Adaptive LoRA | 训练中按重要性动态分配各矩阵 r 的变体 |
-| lm_head | — | 输出层，把 hidden 映射成词表 logits |
-| GQA | grouped-query attention | 多个 query 头共享一组 K、V 头，k、v 投影很窄 |
-| Adam | adaptive moment estimation | 按梯度一阶、二阶矩归一化更新量的优化器 |
-| kernel | — | 设备上执行一次算子的函数 |
-| CorDA | Context-oriented Decomposition Adaptation | 用数据协方差加权的 SVD 选初始方向 |
-| Kaiming | — | 按输入维度缩放的随机初始化，peft 的默认 |
-| SVD | singular value decomposition | 奇异值分解 |
-| QR | — | QR 分解：正交矩阵 Q × 上三角矩阵 R |
-| GSM8K | Grade School Math 8K | 约 8500 道小学数学应用题的评测集 |
-| BF16 | bfloat16 | 16 bit 浮点，范围同 FP32、尾数短 |
-| NF4 | 4-bit NormalFloat | 按正态分位数取 16 个格点的 4 bit 格式 |
-| INT4 | 4-bit integer | 均匀 16 格的 4 bit 整数量化 |
-| FP32 | 32-bit floating point | 单精度浮点，缩放系数与本文的 LoRA 底座用它 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台，分页优化器用它的统一内存 |
-| Vicuna | — | 用 GPT-4 打分的对话评测，QLoRA 论文用它 |
-
-Table: 本文用到的术语与缩写
+`LoraConfig(r=16, lora_alpha=32, target_modules="all-linear", lora_dropout=0.05)` 加 `learning_rate=2e-4`——这一行出现在几乎每个 SFT 脚本里。本文把它拆成一个个旋钮，每个旋钮回到 $$W' = W + \frac{\alpha}{r} BA$$ 里的位置，然后用同一份数据、同样 80 步的对照实验给一组数字：秩 $$r$$、挂哪些矩阵、$$\alpha$$ 与 rsLoRA、学习率与 LoRA+、初始化家族（PiSSA / OLoRA / EVA / LoftQ）、DoRA、QLoRA。最后是全部十三种配置并排的一张表，和一张按任务与资源选配置的表。
 
 ## 一、实验设置：十三种配置，三个指标
 
@@ -68,7 +27,7 @@ Table: 本文用到的术语与缩写
 
 Table: 实验设置
 
-基线是全量微调 lr（learning rate）$$10^{-5}$$：训练 loss 2.409 → 2.182，验证回复 loss **2.3924**，普通文本 loss +0.0213，6.7 s/步——与[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)在 Apple Silicon 上跑出的数字相同。LoRA 的默认配置（$$r = 16$$、全部线性层、$$\alpha = 32$$、lr $$10^{-4}$$）是所有对照的另一个锚点。
+基线是全量微调 lr $$10^{-5}$$：训练 loss 2.409 → 2.182，验证回复 loss **2.3924**，普通文本 loss +0.0213，6.7 s/步——与[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)在 Apple Silicon 上跑出的数字相同。LoRA 的默认配置（$$r = 16$$、全部线性层、$$\alpha = 32$$、lr $$10^{-4}$$）是所有对照的另一个锚点。
 
 80 步、800 条数据是一个刻意的小实验：它能分辨旋钮之间的差别，但绝对数字不代表"LoRA 能训到多好"。每一节末尾都标出哪些结论在大模型、长训练上会变。
 
@@ -90,7 +49,7 @@ Table: r = 4 / 16 / 64（都是 all-linear、α = 2r 即 scaling 2、lr 1e-4）�
 - **从 4 到 16 收益明显（2.4141 → 2.3943），从 16 到 64 没有再改善（2.3958）**，$$r = 16$$ 已经追到全量的 0.002 以内。$$r$$ 的边际收益递减，与 Hu 等 2021 在 GPT-3 上的观察一致（$$r = 8$$ 与 $$r = 64$$ 学到的子空间前几个方向高度重合）。
 - $$r$$ 越大，**遗忘也越大**：普通文本 loss 变化 −0.0007 / +0.0107 / +0.0436，$$r = 64$$ 已经是全量（+0.0213）的两倍。$$r$$ 是一个容量旋钮，不是"越大越好"。
 - 什么时候要大 $$r$$：数据量大（万条以上）、任务离预训练分布远（新领域、新语言、代码/数学）、要注入知识。Biderman 等 2024 在代码继续预训练上 $$r = 256$$ 仍不如全量；指令微调上 $$r = 16 \sim 64$$ 已接近。
-- `rank_pattern` 可以给不同矩阵不同的 $$r$$（如 MLP（multi-layer perceptron）大、attention 小）；AdaLoRA（Adaptive LoRA，Zhang 等 2023）按重要性动态分配 $$r$$。两者都是"$$r$$ 该花在哪"的问题，默认均匀分配在多数任务上够用。
+- `rank_pattern` 可以给不同矩阵不同的 $$r$$（如 MLP 大、attention 小）；AdaLoRA（Zhang 等 2023）按重要性动态分配 $$r$$。两者都是"$$r$$ 该花在哪"的问题，默认均匀分配在多数任务上够用。
 
 ## 三、target_modules：只挂 attention 还是全部线性层
 
@@ -109,14 +68,14 @@ Table: target_modules：只挂 attention 对全部线性层，与"参数同样�
 
 - 从 attention 到全部线性层参数多了 4 倍，验证 loss 改善 0.017（2.4113 → 2.3943）；把 $$r$$ 从 16 提到 64 同样是参数翻 4 倍，却没有改善。参数应该花在**挂哪里**，不是花在 $$r$$ 上。代价是遗忘从 +0.0018 到 +0.0107：只挂 attention 的模型改得最少。**MLP 层承载了大部分"知识"与非线性变换**，只改注意力等于只改"看哪里"不改"怎么算"。
 - `target_modules="all-linear"` 在 `peft` 里展开为模型中所有 `nn.Linear` **减去输出层 `lm_head`**——输出层挂 LoRA 会让 adapter 与词表大小相关（151936 × 16），且改输出分布的效果差。
-- 想再省：k_proj、v_proj 在 GQA（grouped-query attention）模型上只有 896 × 128，挂不挂对参数量几乎没影响，不必特意排除；真要省就去掉 gate/up/down 中的一个，但没有证据说明哪一个更不重要。
+- 想再省：k_proj、v_proj 在 GQA 模型上只有 896 × 128，挂不挂对参数量几乎没影响，不必特意排除；真要省就去掉 gate/up/down 中的一个，但没有证据说明哪一个更不重要。
 - embedding 与 lm_head 不在 `all-linear` 里（embedding 不是 `nn.Linear`，lm_head 被排除）。加了新 token 时它们必须另外处理——[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)第六节。
 
 ## 四、alpha 与 rsLoRA：缩放常数怎么随 r 变
 
 ### 4.1 α / r 是什么
 
-前向是 $$W x + \frac{\alpha}{r} B A x$$，$$\alpha / r$$ 是一个不训练的常数（`scaling`）。它的作用是让**改 $$r$$ 时不必重调学习率**：Adam（adaptive moment estimation）的更新量与梯度尺度无关，每步 $$B$$、$$A$$ 的每个元素大约动 lr 那么多，$$B A x$$ 的尺度随 $$r$$ 增长（$$r$$ 个方向的贡献相加），除以 $$r$$ 把它拉回来。所以固定 $$\alpha$$、改 $$r$$，大致能用同一个 lr。
+前向是 $$W x + \frac{\alpha}{r} B A x$$，$$\alpha / r$$ 是一个不训练的常数（`scaling`）。它的作用是让**改 $$r$$ 时不必重调学习率**：Adam 的更新量与梯度尺度无关，每步 $$B$$、$$A$$ 的每个元素大约动 lr 那么多，$$B A x$$ 的尺度随 $$r$$ 增长（$$r$$ 个方向的贡献相加），除以 $$r$$ 把它拉回来。所以固定 $$\alpha$$、改 $$r$$，大致能用同一个 lr。
 
 三个例子：$$r = 16$$、$$\alpha = 32$$ → scaling 2；$$r = 64$$、$$\alpha = 32$$ → scaling 0.5；$$r = 64$$、$$\alpha = 128$$ → scaling 2。社区惯例 $$\alpha = 2r$$ 就是让 scaling 恒为 2——这等于说"$$\alpha / r$$ 这个设计根本没起作用，我们手动固定了它"。
 
@@ -198,7 +157,7 @@ Table: LoRA+（B 的 lr 是 A 的 4 倍）对普通 LoRA，其余配置相同（
 
 Table: LoRA 的初始化家族
 
-它们分两类：**改底座的**（PiSSA、OLoRA、CorDA（Context-oriented Decomposition Adaptation）：训的是 $$W_{res}$$ 上的 adapter，[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)1.3 节讲怎么把它转成对原始 $$W$$ 的普通 adapter）与**不改底座的**（EVA：只是选了更好的 $$A$$，adapter 与普通 LoRA 完全兼容）。本实验跑 PiSSA（$$r = 16$$，`pissa_niter_4`）：
+它们分两类：**改底座的**（PiSSA、OLoRA、CorDA：训的是 $$W_{res}$$ 上的 adapter，[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)1.3 节讲怎么把它转成对原始 $$W$$ 的普通 adapter）与**不改底座的**（EVA：只是选了更好的 $$A$$，adapter 与普通 LoRA 完全兼容）。本实验跑 PiSSA（$$r = 16$$，`pissa_niter_4`）：
 
 | 配置 | 可训练参数 | 训练 loss（10 步 → 80 步） | 验证回复 loss | 普通文本 loss 变化 | s/步 |
 |---|---|---|---|---|---|
@@ -207,7 +166,7 @@ Table: LoRA 的初始化家族
 
 Table: PiSSA 初始化（init_lora_weights="pissa_niter_4"）对默认初始化，其余配置相同（Qwen2.5-0.5B，no_robots 800 条，80 步 × batch 4 × 512，CPU；训练前验证回复 loss 2.4936、普通文本 loss 2.8748）
 
-读法：PiSSA 让 adapter 从 $$W$$ 最主要的方向出发，论文（Meng 等 2024）在 GSM8K（Grade School Math 8K）等任务上报告比 LoRA 收敛更快、高几个点。本实验里它**更差**：验证 loss 2.4152 对 2.3943，遗忘 +0.0526 对 +0.0107，前期训练 loss 也看不出更快。原因就在它的设计里：它训的正是 $$W$$ 的主奇异方向，也就是**预训练模型最重要的那部分**，学一个小任务时首先动的是通用能力，遗忘的风险相应更大——CorDA 的"知识保留模式"（选任务无关的方向）就是冲着这一点来的。EVA 在不改底座的前提下拿到类似的收敛加速，是更保守的选择。
+读法：PiSSA 让 adapter 从 $$W$$ 最主要的方向出发，论文（Meng 等 2024）在 GSM8K 等任务上报告比 LoRA 收敛更快、高几个点。本实验里它**更差**：验证 loss 2.4152 对 2.3943，遗忘 +0.0526 对 +0.0107，前期训练 loss 也看不出更快。原因就在它的设计里：它训的正是 $$W$$ 的主奇异方向，也就是**预训练模型最重要的那部分**，学一个小任务时首先动的是通用能力，遗忘的风险相应更大——CorDA 的"知识保留模式"（选任务无关的方向）就是冲着这一点来的。EVA 在不改底座的前提下拿到类似的收敛加速，是更保守的选择。
 
 ## 七、DoRA：把幅度与方向分开
 
@@ -230,11 +189,11 @@ Table: DoRA（use_dora=True）对普通 LoRA，其余配置相同（Qwen2.5-0.5B
 
 ## 八、QLoRA：把冻结权重量化到 4 bit
 
-第一篇的账：8B 模型 LoRA 训练状态 15.5 GiB，其中 15 GiB 是冻结的 BF16（bfloat16）权重。QLoRA（Dettmers 等 2023）把这一块量化到 4 bit，LoRA 部分不变，8B 的训练状态降到 5 GiB 左右，65B 可以在一张 48 GB 的卡上微调。它由三件事组成：
+第一篇的账：8B 模型 LoRA 训练状态 15.5 GiB，其中 15 GiB 是冻结的 BF16 权重。QLoRA（Dettmers 等 2023）把这一块量化到 4 bit，LoRA 部分不变，8B 的训练状态降到 5 GiB 左右，65B 可以在一张 48 GB 的卡上微调。它由三件事组成：
 
 ### 8.1 NF4：按正态分布分位数取的 16 个格点
 
-普通 INT4（4-bit integer）把 $$[-1, 1]$$ 均分成 16 格；权重是近似正态分布的，均分会浪费两端的格点。NF4（4-bit NormalFloat）用标准正态分布的 16 个分位数做格点（对称、含 0）：
+普通 INT4 把 $$[-1, 1]$$ 均分成 16 格；权重是近似正态分布的，均分会浪费两端的格点。NF4 用标准正态分布的 16 个分位数做格点（对称、含 0）：
 
 ```text title="NF4 的 16 个格点（归一化到 [-1, 1]）"
 -1.0000 -0.6962 -0.5251 -0.3949 -0.2844 -0.1848 -0.0911  0.0000
@@ -245,11 +204,11 @@ Table: DoRA（use_dora=True）对普通 LoRA，其余配置相同（Qwen2.5-0.5B
 
 ### 8.2 双重量化：把缩放系数也量化
 
-每 64 个权重一个 FP32（32-bit floating point）的 $$m$$，是每参数 $$32 / 64 = 0.5$$ bit 的额外开销。双重量化把每 256 个 $$m$$ 再做一次 8 bit 量化（块内共用一个 FP32 的二级缩放），开销变成 $$8 / 64 + 32 / (64 \times 256) = 0.127$$ bit / 参数，连同 4 bit 的格点编号总计约 4.13 bit / 参数。8B 模型省 $$8 \times 10^9 \times 0.373 / 8 = 0.37$$ GB；底座 $$8.03 \times 10^9 \times 4.13 / 8 \approx 4.1$$ GB，embedding、lm_head 等保留高精度后约 4.5 GB，加上 LoRA 自己的 0.67 GB 状态，权重侧不到 5.2 GB——一张 24 GB 的消费级卡能微调 8B，剩下的显存决定能开多长的序列。
+每 64 个权重一个 FP32 的 $$m$$，是每参数 $$32 / 64 = 0.5$$ bit 的额外开销。双重量化把每 256 个 $$m$$ 再做一次 8 bit 量化（块内共用一个 FP32 的二级缩放），开销变成 $$8 / 64 + 32 / (64 \times 256) = 0.127$$ bit / 参数，连同 4 bit 的格点编号总计约 4.13 bit / 参数。8B 模型省 $$8 \times 10^9 \times 0.373 / 8 = 0.37$$ GB；底座 $$8.03 \times 10^9 \times 4.13 / 8 \approx 4.1$$ GB，embedding、lm_head 等保留高精度后约 4.5 GB，加上 LoRA 自己的 0.67 GB 状态，权重侧不到 5.2 GB——一张 24 GB 的消费级卡能微调 8B，剩下的显存决定能开多长的序列。
 
 ### 8.3 分页优化器与计算精度
 
-分页优化器（paged optimizer）用 CUDA（Compute Unified Device Architecture）统一内存把 Adam 状态放在可以换出到 CPU 的页上，防止长序列 batch 的激活峰值把显存打爆——它解决的是激活值那本账的尖峰，与量化无关。计算时每个线性层先把 NF4 块反量化成 BF16（`bnb_4bit_compute_dtype`）再做矩阵乘：**权重存 4 bit，算的时候仍是 16 bit**，反量化每步都要做，所以 QLoRA 一步比 LoRA 慢 30–50%。
+分页优化器（paged optimizer）用 CUDA 统一内存把 Adam 状态放在可以换出到 CPU 的页上，防止长序列 batch 的激活峰值把显存打爆——它解决的是激活值那本账的尖峰，与量化无关。计算时每个线性层先把 NF4 块反量化成 BF16（`bnb_4bit_compute_dtype`）再做矩阵乘：**权重存 4 bit，算的时候仍是 16 bit**，反量化每步都要做，所以 QLoRA 一步比 LoRA 慢 30–50%。
 
 ### 8.4 实测
 

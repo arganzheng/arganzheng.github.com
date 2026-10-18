@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 390" role="img" aria-labelledby="title desc">
+  <title id="title">知识蒸馏的三种粒度</title>
+  <desc id="desc">Logits 级传递教师的完整概率分布，序列级传递教师采样的硬 token，特征级匹配教师与学生的隐藏状态；图中标出各自计算损失的位置。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6" fill="none" stroke="#566579" stroke-width="1.4"/>
+    </marker>
+    <style>
+      .title { font: 600 18px Arial, sans-serif; fill: #243244; }
+      .head { font: 600 15px Arial, sans-serif; fill: #243244; }
+      .label { font: 13px Arial, sans-serif; fill: #344255; }
+      .small { font: 12px Arial, sans-serif; fill: #526174; }
+      .teacher { fill: #eaf2fc; stroke: #5b8fd6; }
+      .student { fill: #fff4df; stroke: #d28b21; }
+      .loss { fill: #e9f5e9; stroke: #5a9e67; }
+      .plain { fill: #fff; stroke: #abb7c4; }
+      .edge { fill: none; stroke: #566579; stroke-width: 1.4; marker-end: url(#arrow); }
+      .card { stroke: #d3dbe4; stroke-width: 1; }
+    </style>
+  </defs>
+  <rect x="1" y="1" width="758" height="388" rx="14" fill="#fff" stroke="#e0e5eb"/>
+  <text class="title" x="380" y="27" text-anchor="middle">三种粒度：教师传什么，loss 在哪里算</text>
+
+  <g>
+    <rect class="card" x="10" y="44" width="240" height="332" rx="12" fill="#f4f8fe"/>
+    <text class="head" x="130" y="70" text-anchor="middle">Logits 级</text>
+    <text class="small" x="130" y="91" text-anchor="middle">同一前缀上的软分布</text>
+    <rect class="plain" x="24" y="105" width="212" height="31" rx="6"/>
+    <text class="label" x="130" y="125" text-anchor="middle">数据 / 教师序列 y&lt;t</text>
+    <path class="edge" d="M83 136 L83 151"/>
+    <path class="edge" d="M177 136 L177 151"/>
+    <rect class="teacher" x="20" y="153" width="99" height="68" rx="7"/>
+    <text class="label" x="69.5" y="176" text-anchor="middle">Teacher</text>
+    <text class="small" x="69.5" y="195" text-anchor="middle">p_T：V 维分布</text>
+    <text class="small" x="69.5" y="211" text-anchor="middle">或 top-k</text>
+    <rect class="student" x="131" y="153" width="99" height="68" rx="7"/>
+    <text class="label" x="180.5" y="176" text-anchor="middle">Student</text>
+    <text class="small" x="180.5" y="195" text-anchor="middle">q_S：V 维预测</text>
+    <text class="small" x="180.5" y="211" text-anchor="middle">同一前缀</text>
+    <path class="edge" d="M69 221 L69 243 L130 258"/>
+    <path class="edge" d="M181 221 L181 243 L130 258"/>
+    <rect class="loss" x="26" y="260" width="208" height="67" rx="7"/>
+    <text class="label" x="130" y="284" text-anchor="middle">每个位置计算 KL</text>
+    <text class="head" x="130" y="307" text-anchor="middle">KL(p_T ‖ q_S)</text>
+    <text class="small" x="130" y="351" text-anchor="middle">传递：完整分布或其 top-k 近似</text>
+  </g>
+
+  <g>
+    <rect class="card" x="260" y="44" width="240" height="332" rx="12" fill="#fff9ee"/>
+    <text class="head" x="380" y="70" text-anchor="middle">序列级</text>
+    <text class="small" x="380" y="91" text-anchor="middle">教师生成，学生模仿</text>
+    <rect class="plain" x="274" y="105" width="212" height="31" rx="6"/>
+    <text class="label" x="380" y="125" text-anchor="middle">Prompt</text>
+    <path class="edge" d="M380 136 L380 151"/>
+    <rect class="teacher" x="276" y="153" width="208" height="61" rx="7"/>
+    <text class="label" x="380" y="177" text-anchor="middle">Teacher 采样回答 y_T</text>
+    <text class="small" x="380" y="198" text-anchor="middle">过滤后只保留硬 token</text>
+    <path class="edge" d="M380 214 L380 231"/>
+    <rect class="student" x="276" y="233" width="208" height="53" rx="7"/>
+    <text class="label" x="380" y="255" text-anchor="middle">Student 在 y_T 前缀上预测</text>
+    <text class="small" x="380" y="275" text-anchor="middle">每个位置对齐一个目标 token</text>
+    <path class="edge" d="M380 286 L380 300"/>
+    <rect class="loss" x="276" y="302" width="208" height="46" rx="7"/>
+    <text class="head" x="380" y="331" text-anchor="middle">交叉熵 CE</text>
+    <text class="small" x="380" y="366" text-anchor="middle">不传递教师的备选概率</text>
+  </g>
+
+  <g>
+    <rect class="card" x="510" y="44" width="240" height="332" rx="12" fill="#f3faf4"/>
+    <text class="head" x="630" y="70" text-anchor="middle">特征级</text>
+    <text class="small" x="630" y="91" text-anchor="middle">同一输入，对齐中间层</text>
+    <rect class="plain" x="524" y="105" width="212" height="31" rx="6"/>
+    <text class="label" x="630" y="125" text-anchor="middle">输入序列 x</text>
+    <path class="edge" d="M579 136 L579 151"/>
+    <path class="edge" d="M681 136 L681 151"/>
+    <rect class="teacher" x="520" y="153" width="100" height="62" rx="7"/>
+    <text class="label" x="570" y="177" text-anchor="middle">Teacher</text>
+    <text class="small" x="570" y="198" text-anchor="middle">h_T^k / attention</text>
+    <rect class="student" x="640" y="153" width="100" height="62" rx="7"/>
+    <text class="label" x="690" y="177" text-anchor="middle">Student</text>
+    <text class="small" x="690" y="198" text-anchor="middle">h_S^l / attention</text>
+    <path class="edge" d="M690 215 L690 233 L630 250"/>
+    <rect class="plain" x="570" y="239" width="120" height="36" rx="7"/>
+    <text class="small" x="630" y="262" text-anchor="middle">W 投影（宽度不同）</text>
+    <path class="edge" d="M570 215 L570 288 L630 299"/>
+    <path class="edge" d="M630 275 L630 299"/>
+    <rect class="loss" x="526" y="301" width="208" height="47" rx="7"/>
+    <text class="head" x="630" y="330" text-anchor="middle">MSE / attention loss</text>
+    <text class="small" x="630" y="366" text-anchor="middle">选定层之间匹配表示</text>
+  </g>
+</svg>

@@ -16,29 +16,6 @@ updated: 2026-09-30
 
 > **能不能用链式法则推一层的梯度？[^q0] 能不能对一个期望求导，得到策略梯度？[^q1]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| softmax | — | 把一组分数归一化成概率分布的函数 |
-| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
-| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
-| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
-| loss | — | 损失函数，训练要最小化的目标值 |
-| Jacobian | — | 雅可比矩阵，向量函数的全导数 |
-| REINFORCE | — | 最早的策略梯度算法，用 score function 估计梯度 |
-| PPO | proximal policy optimization | 带裁剪目标、防步子过大的策略梯度方法 |
-| GRPO | group relative policy optimization | 用组内均值替代价值模型的策略梯度方法 |
-| VJP | vector–Jacobian product | 向量左乘雅可比，反向传播实际算的东西 |
-| logits | — | softmax 之前的那组原始分数 |
-| MSE | mean squared error | 均方误差，预测与目标差的平方均值 |
-| LLM | large language model | 大语言模型 |
-| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
-| RLOO | REINFORCE leave-one-out | 用组内留一均值做 baseline 的 REINFORCE |
-| RLHF | reinforcement learning from human feedback | 用人类反馈的奖励做强化学习微调 |
-| SGD | stochastic gradient descent | 随机梯度下降，按小批数据的梯度更新参数 |
-| Hessian | — | 二阶导数矩阵，描述 loss 曲面的弯曲 |
-
 ## 一、总览
 
 ### 1. 本文的对象
@@ -409,7 +386,7 @@ Table: REINFORCE、PPO、GRPO 的 baseline 来源与更新限制
 
 ### 5. 与 DPO 的关系
 
-上一篇的 DPO（direct preference optimization）不走这条路：它把 RL（reinforcement learning）目标的最优解反解出来，直接在偏好数据上做监督学习，不需要采样、不需要估计期望的梯度。代价是只能用离线的偏好对，不能像策略梯度那样在训练中不断从当前策略采新样本并用验证器打分——这是"离线 vs 在线"的根本差别，L5 展开。
+上一篇的 DPO 不走这条路：它把 RL 目标的最优解反解出来，直接在偏好数据上做监督学习，不需要采样、不需要估计期望的梯度。代价是只能用离线的偏好对，不能像策略梯度那样在训练中不断从当前策略采新样本并用验证器打分——这是"离线 vs 在线"的根本差别，L5 展开。
 
 ## 六、梯度下降与学习率
 

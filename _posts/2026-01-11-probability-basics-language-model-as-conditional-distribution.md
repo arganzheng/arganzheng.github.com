@@ -14,22 +14,6 @@ updated: 2026-09-17
 
 > **"语言模型是一个条件分布"这句话的每个词是什么意思？[^q0] 它决定了哪些事？[^q1]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| token | — | 模型处理文字的最小单位，大致是一个词或半个词 |
-| KV | key / value | attention 里被查的键与取值的值 |
-| loss | — | 损失函数，训练要最小化的目标值 |
-| MAP | maximum a posteriori | 最大后验估计，加先验的参数估计 |
-| prompt | — | 给模型的输入文本 |
-| decoder | — | 自回归生成 token 的那半边（GPT 全是 decoder） |
-| LLM | large language model | 大语言模型 |
-| SFT | supervised fine-tuning | 用标注答案做监督微调 |
-| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
-| softmax | — | 把一组分数归一化成概率分布的函数 |
-| VAE | variational autoencoder | 变分自编码器，带概率隐空间的生成模型 |
-
 ## 一、总览
 
 ### 1. 本文的对象

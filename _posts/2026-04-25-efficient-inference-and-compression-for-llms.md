@@ -4,6 +4,7 @@ title: 高效推理与压缩（算法侧）：解码、投机、量化与 KV（�
 subtitle: "Efficient Inference and Model Compression: The Algorithm Side"
 tags: [AI, LLM, Inference, Quantization]
 catalog: true
+updated: 2026-10-18
 ---
 
 
@@ -80,7 +81,7 @@ Table: 本文用到的术语与缩写
 
 "推理优化"这个词下面混着两类完全不同的东西。一类改变**模型或解码过程**：量化把权重从 16 bit 变成 4 bit，投机解码让一次前向产出多个 token，KV（key–value）驱逐丢掉一部分缓存，剪枝删掉一部分参数。另一类改变**调度与内存管理**：PagedAttention、continuous batching、chunked prefill、PD（prefill–decode）分离。前一类是算法工程师的工作——每一种都要回答"输出分布变了没有、变了多少、在哪类输入上变得最多"；后一类是推理引擎的工作，模型不知道它们的存在，输出分布也不因它们改变。这个系列只讲前一类；后一类在 Infra 地图的[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)系列里。
 
-系列按"改什么"分四条线：**改解码过程**（解码策略与约束、投机解码）、**改权重表示**（训练后量化、量化感知训练与低比特）、**改 KV**（KV 量化、驱逐与稀疏 attention）、**改结构**（剪枝、层裁剪与小模型配方）。每条线用同一把尺子衡量：分布是否改变、收益的区间在哪里、代价是什么。
+系列按"改什么"分四条线：**改解码过程**（decoding strategy、constrained decoding、speculative decoding）、**改权重表示**（PTQ（post-training quantization，训练后量化）、QAT（quantization-aware training，量化感知训练）与低比特）、**改 KV**（KV quantization、eviction（驱逐）与 sparse attention）、**改结构**（pruning（剪枝）、layer pruning 与小模型配方）。每条线用同一把尺子衡量：分布是否改变、收益的区间在哪里、代价是什么。
 
 | 篇 | 主题 | 改什么 | 分布是否改变 |
 |---|---|---|---|

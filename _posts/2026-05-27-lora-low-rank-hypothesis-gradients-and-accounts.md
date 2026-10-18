@@ -8,60 +8,15 @@ catalog: true
 updated: 2026-10-10
 ---
 
-> **更新 @2026-09-30**：实验用 peft 0.21.1（Parameter-Efficient Fine-Tuning）、trl 1.14.1（Transformer Reinforcement Learning）、transformers 5.17.0、PyTorch 2.14（CPU，8 线程），模型 Qwen2.5-0.5B（base），数据 no_robots。配套脚本 `ai-learning-labs/lora/01_low_rank.py`（子实验 `hand` / `account` / `speed` / `init` / `spectrum`）；正文给出理解所需的全部数字。
+> **更新 @2026-09-30**：实验用 peft 0.21.1、trl 1.14.1、transformers 5.17.0、PyTorch 2.14（CPU，8 线程），模型 Qwen2.5-0.5B（base），数据 no_robots。配套脚本 `ai-learning-labs/lora/01_low_rank.py`（子实验 `hand` / `account` / `speed` / `init` / `spectrum`）；正文给出理解所需的全部数字。
 
-LoRA（Low-Rank Adaptation）的全部内容是一句话：**冻结 $$W$$，只训一对瘦矩阵 $$B$$、$$A$$，让 $$W' = W + \frac{\alpha}{r} BA$$**。这一句里有三个不显然的地方：为什么改动可以只有秩 $$r$$、这一对瘦矩阵的梯度怎么算与省了什么、以及"省"的到底是四本账里的哪几本。本文把三件事各落到数字上：一个 $$2 \times 3$$ 的手算、Qwen2.5-0.5B 与 Llama-3.1-8B 上按 `config.json` 逐矩阵算出的账，以及一个直接的检验——把 0.5B 全量微调 80 步得到的 168 个 $$\Delta W$$ 做 SVD（singular value decomposition），截到秩 16 装回去看效果剩多少。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| peft | Parameter-Efficient Fine-Tuning | Hugging Face 的参数高效微调库，本文实验用它挂 LoRA |
-| trl | Transformer Reinforcement Learning | Hugging Face 的后训练库，提供 SFTTrainer |
-| LoRA | Low-Rank Adaptation | 冻结 W，只训一对瘦矩阵 B、A 的微调方法 |
-| SVD | singular value decomposition | 奇异值分解，本文用它看 ΔW 的谱并截秩 |
-| RoBERTa | Robustly optimized BERT approach | 改进训练方法的 BERT，内在维度实验用的模型 |
-| MRPC | Microsoft Research Paraphrase Corpus | 判断两句话是否同义的小数据集 |
-| Adapter | — | Houlsby 等 2019 的方法：每层串联插一个瓶颈小网络 |
-| MLP | multi-layer perceptron | 多层感知机；在 Transformer 里指每层的前馈子层 |
-| FFN | feed-forward network | 前馈网络，即每层的 MLP 子层 |
-| Prefix-Tuning | — | 每层前面接几个可训的虚拟 token 的 K、V |
-| P-Tuning / Prompt Tuning | — | 只在输入前加可训的连续 prompt 向量 |
-| BitFit | Bias-terms Fine-tuning | 只训 bias 的微调方法 |
-| kernel | — | 设备上执行一次算子的函数，个数决定调度开销 |
-| GPT-3 | Generative Pre-trained Transformer 3 | OpenAI 的 175B 模型，LoRA 原论文在它上面做实验 |
-| QLoRA | Quantized LoRA | 底座量化到 4 bit、上面再挂 LoRA 的方法 |
-| SFT | supervised fine-tuning | 监督微调：用指令–回复数据继续训模型 |
-| lr | learning rate | 学习率 |
-| SGD | stochastic gradient descent | 随机梯度下降，手算例子用它走一步 |
-| autograd | automatic differentiation | PyTorch 的自动求导，用来核对手算梯度 |
-| Kaiming | — | 按输入维度缩放的随机初始化（He 等 2015） |
-| PiSSA | Principal Singular values and Singular vectors Adaptation | 用 W 的主奇异方向初始化 A、B |
-| OLoRA | Orthonormal Low-Rank Adaptation | 用 W 的 QR 分解初始化 LoRA |
-| EVA | Explained Variance Adaptation | 用激活的 SVD 初始化 A |
-| LoftQ | LoRA-Fine-Tuning-aware Quantization | 对着量化误差初始化 LoRA |
-| FLOPs | floating point operations | 浮点运算次数，计算量的单位 |
-| Adam | adaptive moment estimation | 每个参数存两个矩的优化器，状态占 8 B/参数 |
-| KV | key–value | 注意力的键与值；这里指 K、V 投影的维度 |
-| GQA | grouped-query attention | 多个 query 头共享一组 K、V 头，k、v 投影因此很窄 |
-| AdamW | Adam with decoupled weight decay | 权重衰减与梯度更新分开的 Adam |
-| BF16 | bfloat16 | 16 bit 浮点，范围同 FP32、尾数短 |
-| FP32 | 32-bit floating point | 单精度浮点，混合精度里的主权重用它 |
-| GEMM | general matrix multiply | 通用矩阵乘，线性层的主体运算 |
-| FlashAttention | — | 分块计算注意力、不存注意力分数矩阵的 kernel |
-| LayerNorm | layer normalization | 层归一化 |
-| logits | — | softmax 之前的词表分数 |
-| aten | A Tensor Library | PyTorch 底层的张量算子库，profiler 按它计数 |
-| fan_in | — | 一层的输入维度，决定 Kaiming 初始化的幅度 |
-| lm_head | — | 输出层，把 hidden 映射成词表 logits |
-
-Table: 本文用到的术语与缩写
+LoRA 的全部内容是一句话：**冻结 $$W$$，只训一对瘦矩阵 $$B$$、$$A$$，让 $$W' = W + \frac{\alpha}{r} BA$$**。这一句里有三个不显然的地方：为什么改动可以只有秩 $$r$$、这一对瘦矩阵的梯度怎么算与省了什么、以及"省"的到底是四本账里的哪几本。本文把三件事各落到数字上：一个 $$2 \times 3$$ 的手算、Qwen2.5-0.5B 与 Llama-3.1-8B 上按 `config.json` 逐矩阵算出的账，以及一个直接的检验——把 0.5B 全量微调 80 步得到的 168 个 $$\Delta W$$ 做 SVD，截到秩 16 装回去看效果剩多少。
 
 ## 一、来龙去脉：从"内在维度"到 LoRA
 
 ### 1.1 微调的自由度远小于参数量
 
-2020 年 Aghajanyan 等人问了一个问题：微调一个预训练模型，到底需要多少个自由度？他们的做法是把全部参数的更新限制在一个随机的 $$d$$ 维子空间里——$$\theta = \theta_0 + P z$$，$$P$$ 是固定的随机投影，只训 $$z \in \mathbb{R}^d$$——然后看 $$d$$ 取多小还能达到全量微调 90% 的效果。答案是几百：RoBERTa-large 有 3.5 亿参数，在 MRPC（Microsoft Research Paraphrase Corpus）上 $$d \approx 200$$ 就够。这个 $$d$$ 叫**内在维度**（intrinsic dimension），而且模型越大它越小。
+2020 年 Aghajanyan 等人问了一个问题：微调一个预训练模型，到底需要多少个自由度？他们的做法是把全部参数的更新限制在一个随机的 $$d$$ 维子空间里——$$\theta = \theta_0 + P z$$，$$P$$ 是固定的随机投影，只训 $$z \in \mathbb{R}^d$$——然后看 $$d$$ 取多小还能达到全量微调 90% 的效果。答案是几百：RoBERTa-large 有 3.5 亿参数，在 MRPC 上 $$d \approx 200$$ 就够。这个 $$d$$ 叫**内在维度**（intrinsic dimension），而且模型越大它越小。
 
 这就是 LoRA 的出发点：既然微调只需要几百个方向，就没有必要给每个参数都配一份梯度和优化器状态。问题是随机投影 $$P$$ 太浪费——它占的内存和全量一样，而且随机方向不一定是好方向。
 
@@ -79,7 +34,7 @@ Table: 本文用到的术语与缩写
 
 Table: LoRA 之前的参数高效微调方法，以及 LoRA 与它们的差别
 
-LoRA 赢在两点：**并联而不是串联**，所以训完可以把 $$BA$$ 加回 $$W$$，推理时一个 kernel 都不多；**不占序列长度**，所以不影响上下文预算。Hu 等 2021 在 GPT-3 175B 上的数字：只给注意力的 $$W_q$$、$$W_v$$ 挂 $$r = 4$$ 的 LoRA，可训练参数少一万倍、显存少三倍、每个任务的 checkpoint 从 350 GB 变成 35 MB，效果与全量微调持平或更好。后来 QLoRA（Quantized LoRA，2023）让 65B 模型能在一张 48 GB 的卡上微调，LoRA 就成了 SFT（supervised fine-tuning）的默认方式。
+LoRA 赢在两点：**并联而不是串联**，所以训完可以把 $$BA$$ 加回 $$W$$，推理时一个 kernel 都不多；**不占序列长度**，所以不影响上下文预算。Hu 等 2021 在 GPT-3 175B 上的数字：只给注意力的 $$W_q$$、$$W_v$$ 挂 $$r = 4$$ 的 LoRA，可训练参数少一万倍、显存少三倍、每个任务的 checkpoint 从 350 GB 变成 35 MB，效果与全量微调持平或更好。后来 QLoRA（2023）让 65B 模型能在一张 48 GB 的卡上微调，LoRA 就成了 SFT 的默认方式。
 
 ## 二、公式：前向、梯度、初始化
 
@@ -147,7 +102,7 @@ $$
 - $$\partial \mathcal{L} / \partial B = s\, G\, h = 2 \cdot (1, 1) \cdot 1 = (2, 2)^\top$$。
 - $$\partial \mathcal{L} / \partial A = s\, B^\top G\, x^\top = 2 \cdot 0 \cdot x^\top = (0, 0, 0)$$。
 
-用 lr（learning rate）0.1 做一步 SGD（stochastic gradient descent）：$$B \leftarrow (0, 0) - 0.1 \cdot (2, 2) = (-0.2, -0.2)$$，$$A$$ 不变。
+用 lr 0.1 做一步 SGD：$$B \leftarrow (0, 0) - 0.1 \cdot (2, 2) = (-0.2, -0.2)$$，$$A$$ 不变。
 
 第二步：
 
@@ -158,17 +113,17 @@ $$
 
 此时等效的 $$\Delta W = s\, B A = 2 \cdot \begin{pmatrix} -0.2 \\ -0.2 \end{pmatrix} (1, -1, 0) = \begin{pmatrix} -0.4 & 0.4 & 0 \\ -0.4 & 0.4 & 0 \end{pmatrix}$$，两行成比例，秩 1——不论训多久，$$\Delta W$$ 的秩不会超过 $$r$$。
 
-`01_low_rank.py hand` 用 autograd（automatic differentiation）跑同一个例子，`B.grad = [2.0, 2.0]`、`A.grad = [0.0, 0.0, 0.0]`、第二步 `A.grad = [-0.96, -0.48, -0.48]`，`W.grad = None`，与手算逐个一致。
+`01_low_rank.py hand` 用 autograd 跑同一个例子，`B.grad = [2.0, 2.0]`、`A.grad = [0.0, 0.0, 0.0]`、第二步 `A.grad = [-0.96, -0.48, -0.48]`，`W.grad = None`，与手算逐个一致。
 
 ### 2.3 初始化：为什么是 A 随机、B 为零
 
 初始化要满足两个条件：训练开始时 $$W' = W$$（不能一上来就把预训练模型改坏），又不能让梯度全为零（否则永远学不动）。$$B A$$ 只要有一个为零就满足第一条；两个都为零则 $$\partial \mathcal{L} / \partial B = s G (Ax)^\top = 0$$、$$\partial \mathcal{L} / \partial A = s B^\top G x^\top = 0$$，违反第二条。所以是**一个零、一个随机**。选 $$B = 0$$、$$A$$ 随机（`peft` 默认 Kaiming 均匀，`init_lora_weights="gaussian"` 是 $$\mathcal{N}(0, 1/r)$$）而不是反过来，有一个不那么显然的理由：$$A$$ 随机时 $$h = A x$$ 是输入的一个随机投影，第一步 $$B$$ 的梯度 $$s G h^\top$$ 立刻就是有信息的；若 $$A = 0$$、$$B$$ 随机，第一步 $$h = 0$$，只有 $$A$$ 动而 $$A$$ 的梯度 $$s B^\top G x^\top$$ 里的 $$B$$ 是无关的随机方向。第五节的实验把五种初始化各训 20 步比一比。
 
-PiSSA（Principal Singular values and Singular vectors Adaptation）、OLoRA、EVA、LoftQ（LoRA-Fine-Tuning-aware Quantization）这些"更聪明的初始化"都不满足 $$BA = 0$$，它们的做法是同时改 $$W$$ 让 $$W_{res} + BA = W$$ 仍成立——留到[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)。
+PiSSA、OLoRA、EVA、LoftQ 这些"更聪明的初始化"都不满足 $$BA = 0$$，它们的做法是同时改 $$W$$ 让 $$W_{res} + BA = W$$ 仍成立——留到[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)。
 
 ## 三、四本账：LoRA 省了什么、没省什么
 
-"LoRA 省显存"是对的，但省的是四本账中的一本半。四本账是：可训练参数、训练状态、计算量（FLOPs（floating point operations）与 kernel 数）、激活值。
+"LoRA 省显存"是对的，但省的是四本账中的一本半。四本账是：可训练参数、训练状态、计算量（FLOPs 与 kernel 数）、激活值。
 
 | 账 | 全量微调 | LoRA（r=16，全部线性层） | 省多少 |
 |---|---|---|---|
@@ -181,7 +136,7 @@ Table: 四本账：全量微调与 LoRA 各花多少
 
 ### 3.1 可训练参数：逐矩阵算
 
-Qwen2.5-0.5B 的每层有七个线性层：注意力的 $$q, k, v, o$$ 与 MLP（multi-layer perceptron）的 gate、up、down。hidden 896、中间层 4864、KV（key–value）维 128（GQA，即 grouped-query attention，2 个 KV 头），24 层。按 `config.json` 逐个算 $$r = 16$$ 的 LoRA 参数 $$r(d_{in} + d_{out})$$：
+Qwen2.5-0.5B 的每层有七个线性层：注意力的 $$q, k, v, o$$ 与 MLP 的 gate、up、down。hidden 896、中间层 4864、KV 维 128（GQA，2 个 KV 头），24 层。按 `config.json` 逐个算 $$r = 16$$ 的 LoRA 参数 $$r(d_{in} + d_{out})$$：
 
 | 矩阵 | 形状 in × out | 参数 | $$r = 16$$ LoRA | LoRA / 原矩阵 |
 |---|---|---|---|---|
@@ -208,11 +163,11 @@ Table: 不同 r 与目标矩阵下的可训练参数（Qwen2.5-0.5B 494M 参数�
 
 `get_peft_model(...).print_trainable_parameters()` 打出的 `trainable params: 8,798,208 || all params: 502,830,976 || trainable%: 1.7497` 就是第三行——分母里多出的 8.8M 是 `peft` 把 LoRA 参数也计入了总数。
 
-$$r$$ 与挂在哪些矩阵上是两个独立的旋钮，参数量对两者都是线性的：8B 上 $$r = 64$$ 只挂 attention 是 54.5M，$$r = 16$$ 挂全部七个是 41.9M，两者相近。LoRA 原论文的实验与后续经验都倾向于后者——**以小 $$r$$ 覆盖更多矩阵，比以大 $$r$$ 只覆盖 attention 更有效**：低秩假设对每个矩阵都成立，而覆盖 FFN（feed-forward network）让适配能触及模型三分之二以上的参数所在。就成本而言两种选择没有区别，都是 0.5% 量级；第二篇的实验会把这两个旋钮分开扫。
+$$r$$ 与挂在哪些矩阵上是两个独立的旋钮，参数量对两者都是线性的：8B 上 $$r = 64$$ 只挂 attention 是 54.5M，$$r = 16$$ 挂全部七个是 41.9M，两者相近。LoRA 原论文的实验与后续经验都倾向于后者——**以小 $$r$$ 覆盖更多矩阵，比以大 $$r$$ 只覆盖 attention 更有效**：低秩假设对每个矩阵都成立，而覆盖 FFN 让适配能触及模型三分之二以上的参数所在。就成本而言两种选择没有区别，都是 0.5% 量级；第二篇的实验会把这两个旋钮分开扫。
 
 ### 3.2 训练状态：从 120 GiB 到 15.5 GiB
 
-混合精度 + AdamW 下每个**可训练**参数要存：BF16（bfloat16）权重 2 B、FP32（32-bit floating point）主权重 4 B、Adam 两个矩 8 B、梯度 2 B，共 16 B；每个**冻结**参数只存 BF16 权重 2 B。所以：
+混合精度 + AdamW 下每个**可训练**参数要存：BF16 权重 2 B、FP32 主权重 4 B、Adam 两个矩 8 B、梯度 2 B，共 16 B；每个**冻结**参数只存 BF16 权重 2 B。所以：
 
 $$
 \text{训练状态} = 2\,N_{total} + 14\,N_{trainable}\ \text{字节}
@@ -249,11 +204,11 @@ flowchart TB
     class x,y,gy act;
 ```
 
-实践中往往连三分之一都拿不到，因为 kernel 数变了：每个挂了 LoRA 的线性层，前向从 1 个 GEMM（general matrix multiply）变成 3 个（$$W x$$、$$A x$$、$$B h$$）加 1 次加法，反向同理。0.5B 的 168 个线性层多出 336 个瘦 GEMM，每个的算术强度都很低（$$r = 16$$ 的矩阵乘几乎是纯带宽操作）。GPU 上表现为 kernel launch 与显存带宽开销，CPU 上表现为一步时间不降反升。第 3.5 节有实测。
+实践中往往连三分之一都拿不到，因为 kernel 数变了：每个挂了 LoRA 的线性层，前向从 1 个 GEMM 变成 3 个（$$W x$$、$$A x$$、$$B h$$）加 1 次加法，反向同理。0.5B 的 168 个线性层多出 336 个瘦 GEMM，每个的算术强度都很低（$$r = 16$$ 的矩阵乘几乎是纯带宽操作）。GPU 上表现为 kernel launch 与显存带宽开销，CPU 上表现为一步时间不降反升。第 3.5 节有实测。
 
 ### 3.4 激活值：一分不省
 
-反向传播要用前向时的中间结果，这些激活值与**可训练参数无关**，只与 batch、序列长、hidden、层数有关。不开 FlashAttention 与重计算时，一个 Transformer 层每 token 大约要存 $$34 h$$ 字节（BF16，Korthikanti 等 2022 的估算，含注意力、MLP、LayerNorm（layer normalization）、dropout 各处的输入），再加注意力分数 $$5 a s$$ 字节（$$a$$ 头数、$$s$$ 序列长）。用本系列的训练配置算 Qwen2.5-0.5B：batch 4 × 512 = 2048 token，$$h = 896$$，24 层：
+反向传播要用前向时的中间结果，这些激活值与**可训练参数无关**，只与 batch、序列长、hidden、层数有关。不开 FlashAttention 与重计算时，一个 Transformer 层每 token 大约要存 $$34 h$$ 字节（BF16，Korthikanti 等 2022 的估算，含注意力、MLP、LayerNorm、dropout 各处的输入），再加注意力分数 $$5 a s$$ 字节（$$a$$ 头数、$$s$$ 序列长）。用本系列的训练配置算 Qwen2.5-0.5B：batch 4 × 512 = 2048 token，$$h = 896$$，24 层：
 
 $$
 34 \times 896 \times 2048 \times 24 \approx 1.5 \times 10^9\ \text{字节} \approx 1.4\ \text{GiB}
@@ -275,7 +230,7 @@ Table: 全量与 LoRA 一步训练的实测（FP32，CPU；`01_low_rank.py speed
 读法：
 
 - **前向没有变快**（0.91 对 0.94 s）：LoRA 的前向多了 $$168 \times 2$$ 个瘦矩阵乘与 168 次加法，算子数几乎翻倍（5091 → 9963，矩阵乘 437 → 1445），只是它们都很小。
-- **省的是梯度与 Adam（adaptive moment estimation）状态**：1885 MB → 34 MB、3769 MB → 67 MB，正是 $$494M \times 4\ \text{B}$$ 对 $$8.8M \times 4\ \text{B}$$ 那两本账（3.1、3.2 节）。
+- **省的是梯度与 Adam 状态**：1885 MB → 34 MB、3769 MB → 67 MB，正是 $$494M \times 4\ \text{B}$$ 对 $$8.8M \times 4\ \text{B}$$ 那两本账（3.1、3.2 节）。
 - **一步快了三分之一**（3.46 → 2.31 s），来自两处：反向不算 $$\partial \mathcal{L} / \partial W$$ 那 168 个 $$d_{out} \times d_{in}$$ 的外积（3.3 节），以及 Adam 更新从 494M 个参数变成 8.8M 个。序列拉长到 512 时（第二篇的对照矩阵）差距缩到 6.7 对 6.3 s/步——对输入的梯度要穿过每一个冻结的 $$W$$，这部分随序列长线性增长，LoRA 一分不省。
 
 ## 四、检验低秩假设：全量微调的 ΔW 到底有多"低秩"

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="610" viewBox="0 0 760 610" role="img" aria-labelledby="title desc">
+  <title id="title">解码循环：logits 到下一个 token</title>
+  <desc id="desc">展示单步解码中的重复惩罚、temperature、top-k/top-p/min-p 截断、约束 mask、归一化、采样或 argmax 和追加 token，并对比 Hugging Face 与 vLLM 的处理顺序。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#56718b"/>
+    </marker>
+    <style>
+      .title { font: 700 21px system-ui, sans-serif; fill: #17283b; }
+      .sub { font: 13px system-ui, sans-serif; fill: #53677d; }
+      .step { font: 700 13px system-ui, sans-serif; fill: #31506c; }
+      .label { font: 600 15px system-ui, sans-serif; fill: #20364b; }
+      .detail { font: 12px system-ui, sans-serif; fill: #52657a; }
+      .box { fill: #f3f7fb; stroke: #7891a8; stroke-width: 1.4; rx: 9; }
+      .box-strong { fill: #e5f0fb; stroke: #4479a8; stroke-width: 1.8; rx: 9; }
+      .box-warm { fill: #fff2dd; stroke: #c38432; stroke-width: 1.6; rx: 9; }
+      .arrow { fill: none; stroke: #56718b; stroke-width: 1.7; marker-end: url(#arrow); }
+      .rule { stroke: #d7e0e8; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="610" fill="#ffffff"/>
+  <text class="title" x="28" y="34">单步解码：每一步都从 logits 开始</text>
+  <text class="sub" x="28" y="56">下面是概念上的阅读顺序；同一组参数在不同推理框架里可能按不同顺序执行。</text>
+
+  <g>
+    <rect class="box-strong" x="72" y="76" width="616" height="42"/>
+    <text class="step" x="91" y="102">1</text>
+    <text class="label" x="119" y="102">模型输出 logits z</text>
+    <text class="detail" x="427" y="102">每个词表 token 一个分数</text>
+
+    <path class="arrow" d="M380 119 L380 134"/>
+    <rect class="box" x="72" y="137" width="616" height="42"/>
+    <text class="step" x="91" y="163">2</text>
+    <text class="label" x="119" y="163">重复惩罚</text>
+    <text class="detail" x="427" y="163">修改已出现 token 的 logits（可选）</text>
+
+    <path class="arrow" d="M380 180 L380 195"/>
+    <rect class="box" x="72" y="198" width="616" height="42"/>
+    <text class="step" x="91" y="224">3</text>
+    <text class="label" x="119" y="224">Temperature</text>
+    <text class="detail" x="427" y="224">logits 除以 T，改变分布尖锐度</text>
+
+    <path class="arrow" d="M380 241 L380 256"/>
+    <rect class="box-warm" x="72" y="259" width="616" height="50"/>
+    <text class="step" x="91" y="289">4</text>
+    <text class="label" x="119" y="281">截断候选集</text>
+    <text class="detail" x="427" y="281">top-k、top-p、min-p；通常选一种</text>
+    <text class="detail" x="427" y="299">被移除的 token logits 设为 −∞</text>
+
+    <path class="arrow" d="M380 310 L380 325"/>
+    <rect class="box-warm" x="72" y="328" width="616" height="42"/>
+    <text class="step" x="91" y="354">5</text>
+    <text class="label" x="119" y="354">约束 mask</text>
+    <text class="detail" x="427" y="354">屏蔽此状态下不合法的 token</text>
+
+    <path class="arrow" d="M380 371 L380 386"/>
+    <rect class="box" x="72" y="389" width="616" height="42"/>
+    <text class="step" x="91" y="415">6</text>
+    <text class="label" x="119" y="415">Softmax 重新归一化</text>
+    <text class="detail" x="427" y="415">得到当前可选 token 的概率</text>
+
+    <path class="arrow" d="M380 432 L380 447"/>
+    <rect class="box-strong" x="72" y="450" width="616" height="42"/>
+    <text class="step" x="91" y="476">7</text>
+    <text class="label" x="119" y="476">采样（T &gt; 0）或 argmax（greedy）</text>
+    <text class="detail" x="427" y="476">选出下一个 token</text>
+
+    <path class="arrow" d="M380 493 L380 508"/>
+    <rect class="box-strong" x="72" y="511" width="616" height="38"/>
+    <text class="step" x="91" y="535">8</text>
+    <text class="label" x="119" y="535">追加到上下文，再运行下一步</text>
+  </g>
+
+  <line class="rule" x1="28" y1="565" x2="732" y2="565"/>
+  <text class="detail" x="28" y="585">HF Transformers：重复 / prefix 处理器在前；temperature → top-k → top-p → min-p。</text>
+  <text class="detail" x="28" y="602">vLLM：token allowlist / bad words → penalties → temperature → min-p → top-k / top-p。</text>
+</svg>

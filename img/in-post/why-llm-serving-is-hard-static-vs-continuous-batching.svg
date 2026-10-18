@@ -1,0 +1,254 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">静态 Batch 的空转：最长请求决定整批结束</title>
+<rect width="760" height="520" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker></defs>
+<text x="24" y="30" font-size="14" fill="#222222" text-anchor="start" font-weight="700" >静态 Batch：整批同进同出，最长的请求决定整批何时结束</text>
+<text x="82" y="70" font-size="12" fill="#475569" text-anchor="end" font-weight="600" >step</text>
+<text x="119.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >1</text>
+<text x="150.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >2</text>
+<text x="181.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >3</text>
+<text x="212.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >4</text>
+<text x="243.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >5</text>
+<text x="274.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >6</text>
+<text x="305.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >7</text>
+<text x="336.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >8</text>
+<text x="367.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >9</text>
+<text x="398.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >10</text>
+<text x="429.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >11</text>
+<text x="460.5" y="70" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >12</text>
+<text x="82" y="96" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >R1</text>
+<rect x="104" y="80" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="96" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="80" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="96" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="80" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="96" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="197" y="80" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="96" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="228" y="80" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="96" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="259" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="290" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="321" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="352" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="383" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="414" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="445" y="80" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="96" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<text x="490" y="96" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >5 步有效，7 步空转</text>
+<text x="82" y="121" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >R2</text>
+<rect x="104" y="105" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="121" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="197" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="228" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="259" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="290" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="321" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="352" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="383" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="414" y="105" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="121" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="445" y="105" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="121" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<text x="490" y="121" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >12 步有效</text>
+<text x="82" y="146" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >R3</text>
+<rect x="104" y="130" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="146" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="130" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="146" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="130" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="146" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="197" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="228" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="259" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="290" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="321" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="352" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="383" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="414" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="445" y="130" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="146" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<text x="490" y="146" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >3 步有效，9 步空转</text>
+<text x="82" y="171" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >R4</text>
+<rect x="104" y="155" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="171" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="155" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="171" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="155" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="171" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="197" y="155" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="171" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="228" y="155" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="171" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="259" y="155" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="171" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="290" y="155" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="171" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="321" y="155" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="171" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="352" y="155" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="171" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="383" y="155" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="171" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="414" y="155" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="171" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<rect x="445" y="155" width="29" height="22" rx="2" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="171" font-size="12" fill="#64748b" text-anchor="middle" font-weight="600" >.</text>
+<text x="490" y="171" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >7 步有效，5 步空转</text>
+<text x="82" y="194" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >R5..</text>
+<text x="106" y="194" font-size="12" fill="#475569" text-anchor="start" font-weight="400" >── 排队，直到 step 12 整批结束才能进入 ──▶</text>
+<text x="490" y="229" font-size="12.5" fill="#334155" text-anchor="start" font-weight="700" >有效槽位 27 / 48</text>
+<line x1="22" y1="246" x2="738" y2="246" stroke="#cbd5e1" stroke-width="1"/>
+<text x="24" y="274" font-size="14" fill="#222222" text-anchor="start" font-weight="700" >Continuous Batching：以 step 为粒度，完成的请求离开，等待的请求补位</text>
+<text x="82" y="310" font-size="12" fill="#475569" text-anchor="end" font-weight="600" >step</text>
+<text x="119.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >1</text>
+<text x="150.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >2</text>
+<text x="181.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >3</text>
+<text x="212.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >4</text>
+<text x="243.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >5</text>
+<text x="274.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >6</text>
+<text x="305.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >7</text>
+<text x="336.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >8</text>
+<text x="367.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >9</text>
+<text x="398.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >10</text>
+<text x="429.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >11</text>
+<text x="460.5" y="310" font-size="12" fill="#475569" text-anchor="middle" font-weight="600" >12</text>
+<text x="82" y="336" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >slot1</text>
+<rect x="104" y="320" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="336" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="197" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="228" y="320" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="336" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="259" y="320" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="336" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="290" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="321" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="352" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="383" y="320" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="336" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="414" y="320" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="336" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="445" y="320" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="336" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<text x="490" y="336" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >R1 → R5 → R8</text>
+<text x="82" y="361" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >slot2</text>
+<rect x="104" y="345" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="361" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="197" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="228" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="259" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="290" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="321" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="352" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="383" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="414" y="345" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="361" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="445" y="345" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="361" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<text x="490" y="361" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >R2</text>
+<text x="82" y="386" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >slot3</text>
+<rect x="104" y="370" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="386" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="370" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="386" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="197" y="370" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="386" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="228" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="259" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="290" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="321" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="352" y="370" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="386" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="383" y="370" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="386" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="414" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="445" y="370" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="386" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<text x="490" y="386" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >R3 → R6 → R9</text>
+<text x="82" y="411" font-size="12" fill="#334155" text-anchor="end" font-weight="600" >slot4</text>
+<rect x="104" y="395" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="118.5" y="411" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="135" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="149.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="166" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="180.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="197" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="211.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="228" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="242.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="259" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="273.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="290" y="395" width="29" height="22" rx="2" fill="#fee2e2" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="304.5" y="411" font-size="12" fill="#b42318" text-anchor="middle" font-weight="600" >E</text>
+<rect x="321" y="395" width="29" height="22" rx="2" fill="#dbeafe" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="335.5" y="411" font-size="12" fill="#1f5c9a" text-anchor="middle" font-weight="600" >P</text>
+<rect x="352" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="366.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="383" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="397.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="414" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="428.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<rect x="445" y="395" width="29" height="22" rx="2" fill="#dcfce7" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="459.5" y="411" font-size="12" fill="#256b3c" text-anchor="middle" font-weight="600" >D</text>
+<text x="490" y="411" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >R4 → R7</text>
+<text x="490" y="469" font-size="12.5" fill="#334155" text-anchor="start" font-weight="700" >有效槽位 48 / 48</text>
+<line x1="28" y1="491" x2="50" y2="491" stroke="#1f5c9a" stroke-width="12"/>
+<text x="58" y="496" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >P = Prefill</text>
+<line x1="190" y1="491" x2="212" y2="491" stroke="#256b3c" stroke-width="12"/>
+<text x="220" y="496" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >D = Decode 一步</text>
+<line x1="372" y1="491" x2="394" y2="491" stroke="#b42318" stroke-width="12"/>
+<text x="402" y="496" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >E = 生成 EOS 的那一步</text>
+<rect x="594" y="484" width="20" height="14" rx="1" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.2" />
+<text x="622" y="496" font-size="12" fill="#334155" text-anchor="start" font-weight="400" >. = 槽位空转</text>
+</svg>

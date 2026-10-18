@@ -8,7 +8,7 @@ catalog: true
 date: 2026-05-25 20:00:00
 ---
 
-四篇正文回答了一个问题：**[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)那六行代码，执行时各经过哪些文件的哪些函数**。第一篇读模型的加载与一次前向，第二篇读 `generate` 的循环，第三篇读文本与数据两条流水线，第四篇读 LoRA（Low-Rank Adaptation）怎么挂上去与三种 loss 各在哪一行。本文把四篇压成一张「问题 → 文件 → 函数」的索引表，拎出贯穿五个库的四条设计线，再给一套自测。
+四篇正文回答了一个问题：**[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)那六行代码，执行时各经过哪些文件的哪些函数**。第一篇读模型的加载与一次前向，第二篇读 `generate` 的循环，第三篇读文本与数据两条流水线，第四篇读 LoRA 怎么挂上去与三种 loss 各在哪一行。本文把四篇压成一张「问题 → 文件 → 函数」的索引表，拎出贯穿五个库的四条设计线，再给一套自测。
 
 > **读完这四篇，你应该能回答哪些问题？[^q0] 哪些文件名、函数名与数字必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -28,65 +28,6 @@ flowchart TB
     T3 -- "apply_chat_template · map" --> T4
     T1 -- "model.loss_function" --> T4
 ```
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| LoRA | Low-Rank Adaptation | 给权重加一个低秩增量 BA，只训 A、B 两个小矩阵 |
-| peft | Parameter-Efficient Fine-Tuning | HF 的参数高效微调库，LoRA 就在这里 |
-| trl | Transformer Reinforcement Learning | HF 的后训练库：SFT、DPO、GRPO 的 Trainer |
-| SFT | supervised fine-tuning | 有监督微调：拿标注好的回答训模型 |
-| Arrow | — | Apache Arrow 列式格式，datasets 缓存就是它 |
-| KV cache | key–value cache | 推理时缓存每层算过的 k、v，新 token 只算自己的 |
-| meta device | — | 只记形状和 dtype、不分配存储的虚拟设备 |
-| mmap | memory map | 把文件映射进内存，读到哪页才从磁盘加载哪页 |
-| SDPA | scaled dot-product attention | PyTorch 的融合 attention 函数，自选 kernel |
-| eager | — | 按公式逐步算的 attention，会物化 T×T 权重 |
-| fp32 | 32-bit floating point | 单精度浮点 |
-| bf16 | bfloat16 | 16 位浮点，指数位与 fp32 一样、尾数只有 8 位 |
-| warper | — | 改分布形状的 LogitsProcessor，只在采样时装配 |
-| fingerprint | — | datasets 给每个数据集算的哈希，用作缓存文件名 |
-| DPO | Direct Preference Optimization | 直接用好 / 差回答对训模型，不单独训奖励模型 |
-| GRPO | Group Relative Policy Optimization | 同一 prompt 采一组回答，组内归一化奖励当优势 |
-| KL | Kullback–Leibler divergence | KL 散度，衡量两个分布差多远 |
-| safetensors | — | HF 的权重格式：JSON 头 + 原始字节，可 mmap |
-| RMSNorm | Root Mean Square Layer Normalization | 只除以均方根、不减均值的归一化 |
-| GQA | grouped-query attention | 多个 q 头共用一组 k、v 头，KV cache 更小 |
-| SwiGLU | Swish-Gated Linear Unit | 用 SiLU 做门控的 FFN：两路相乘再降维 |
-| MLP | multi-layer perceptron | 多层感知机，这里指每层 attention 之后的前馈子层 |
-| micro-batch | — | 梯度累积里每次前向的那一小份 batch |
-| top-k | — | 只保留分数最高的 k 个 token |
-| top-p | — | nucleus 采样：只留累计概率达到 p 的那些高分 token |
-| greedy | — | 每步直接取分数最高的 token，不采样 |
-| beam search | — | 每步保留得分最高的若干条前缀 |
-| vLLM | — | 开源的 LLM 推理引擎 |
-| continuous batching | — | 一条序列结束就把位置让给新请求的动态调度 |
-| NFC | Normalization Form C | Unicode 规范化形式：组合字符合成一个码位 |
-| ByteLevel | — | 把每个字节映射成一个可见字符的预分词 / 解码方式 |
-| BPE | byte-pair encoding | 字节对编码：反复合并最常见的相邻 pair 得到词表 |
-| Jinja | — | Python 模板引擎，chat template 用它写 |
-| dill | — | 能序列化 lambda 和闭包的 pickle 扩展库 |
-| AdamW | Adam with decoupled weight decay | 带解耦权重衰减的 Adam 优化器，每个参数存两份矩 |
-| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | GRPO 的改进：clip-higher、过滤全对 / 全错组等 |
-| dynamic sampling | — | DAPO 的做法：丢掉全对 / 全错的组再补采 |
-| RoPE | rotary position embedding | 旋转位置编码：按位置把 q、k 的每对维度旋转一个角度 |
-| PagedAttention | — | vLLM 按固定大小块管理 KV cache 的 attention |
-| verl | Volcano Engine Reinforcement Learning | 字节开源的 LLM 强化学习训练框架 |
-| rollout | — | 用当前策略生成回答的阶段 |
-| actor | — | RL 里被训练、负责生成回答的策略模型 |
-| bitsandbytes | — | 做 4 / 8 bit 量化的库，Linear4bit 来自它 |
-| accelerate | — | HF 的设备分配与分布式训练库 |
-| DDP | Distributed Data Parallel | 数据并行：每卡一份完整模型，梯度做 all-reduce |
-| FSDP | Fully Sharded Data Parallel | 把参数、梯度、优化器状态切到各卡的数据并行 |
-| DoRA | Weight-Decomposed Low-Rank Adaptation | 把权重拆成幅度和方向，方向用 LoRA 更新 |
-| AdaLoRA | — | 按重要性给各层自适应分配秩的 LoRA 变体 |
-| IA3 | Infused Adapter by Inhibiting and Amplifying Inner Activations | 只学几个逐元素缩放激活的向量 |
-| prompt tuning | — | 只训一段拼在输入前面的软提示向量 |
-| value head | — | 模型上额外加的输出标量价值的头，PPOTrainer 要用 |
-| KTO | Kahneman-Tversky Optimization | 只要单条「好 / 不好」标注的偏好优化 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览：系列回答的问题与主线
 
@@ -117,9 +58,9 @@ Table: 本文的章节安排
 
 ### 1. 第一篇：transformers 模型侧——from_pretrained 怎么把三个文件变成 nn.Module，forward 怎么走到 loss
 
-**骨架。**`AutoModelForCausalLM.from_pretrained(name)` 的六步：`AutoConfig.from_pretrained` 读 `config.json` 的 `model_type`；`_LazyAutoMapping` 用 `(model_type, "AutoModelForCausalLM")` 查 `modeling_auto.py` 里的表得到 `Qwen2ForCausalLM`——`architectures` 字段不参与选类；解析仓库里的 safetensors 分片；在 `torch.device("meta")` 下建骨架，不分配一字节权重；`safe_open` 拿到每个张量的切片句柄，赋值时才 mmap（memory map）读盘、按 `state_dict` 键名填；收尾 `tie_weights`、初始化缺失键、`eval()`，`generation_config.json` 也在此时读入。前向：`Qwen2DecoderLayer` 的 RMSNorm（Root Mean Square Layer Normalization）、`apply_rotary_pos_emb`（前后两半配对）、`repeat_kv`（GQA，`expand` 不拷内存）、SwiGLU MLP、两条残差；attention 那一行是 `ALL_ATTENTION_FUNCTIONS[config._attn_implementation](...)`——eager 是手算六步加 fp32 softmax，sdpa（scaled dot-product attention）是一次 `scaled_dot_product_attention`；KV cache 是 `DynamicCache`，每层 `cat` 到 `key_states`；loss 不在建模文件里，`self.loss_function` 按类名分派到 `loss/loss_utils.py` 的 `ForCausalLMLoss`。最后读 `modular_qwen2.py`：不到 200 行继承 Llama / Mistral，`modular_model_converter.py` 展开成自包含的 `modeling_qwen2.py`。
+**骨架。**`AutoModelForCausalLM.from_pretrained(name)` 的六步：`AutoConfig.from_pretrained` 读 `config.json` 的 `model_type`；`_LazyAutoMapping` 用 `(model_type, "AutoModelForCausalLM")` 查 `modeling_auto.py` 里的表得到 `Qwen2ForCausalLM`——`architectures` 字段不参与选类；解析仓库里的 safetensors 分片；在 `torch.device("meta")` 下建骨架，不分配一字节权重；`safe_open` 拿到每个张量的切片句柄，赋值时才 mmap 读盘、按 `state_dict` 键名填；收尾 `tie_weights`、初始化缺失键、`eval()`，`generation_config.json` 也在此时读入。前向：`Qwen2DecoderLayer` 的 RMSNorm、`apply_rotary_pos_emb`（前后两半配对）、`repeat_kv`（GQA，`expand` 不拷内存）、SwiGLU MLP、两条残差；attention 那一行是 `ALL_ATTENTION_FUNCTIONS[config._attn_implementation](...)`——eager 是手算六步加 fp32 softmax，sdpa 是一次 `scaled_dot_product_attention`；KV cache 是 `DynamicCache`，每层 `cat` 到 `key_states`；loss 不在建模文件里，`self.loss_function` 按类名分派到 `loss/loss_utils.py` 的 `ForCausalLMLoss`。最后读 `modular_qwen2.py`：不到 200 行继承 Llama / Mistral，`modular_model_converter.py` 展开成自包含的 `modeling_qwen2.py`。
 
-**总纲的问题。**8B bf16（bfloat16）加载峰值约等于 16 GB：meta device 骨架不占内存，权重 mmap 逐个赋进参数，不会同时存在「文件里一份 + 模型里一份」。sdpa 与 eager 在 fp32 下差 $$1.7 \times 10^{-4}$$、bf16 下差到 1.0：数学相同、求和顺序不同，bf16 只有 8 位尾数——比较两个 attention 实现的输出必须在 fp32。`labels` 传进去后：`ForCausalLMLoss` 先 `shift`（`logits[:, :-1]` 对 `labels[:, 1:]`），`cross_entropy(ignore_index=-100)` 只对非 `-100` 位置求和；`num_items_in_batch` 传入时分母从本 micro-batch 的有效 token 数换成整个梯度累积周期的总数，梯度累积才与大 batch 等价。
+**总纲的问题。**8B bf16 加载峰值约等于 16 GB：meta device 骨架不占内存，权重 mmap 逐个赋进参数，不会同时存在「文件里一份 + 模型里一份」。sdpa 与 eager 在 fp32 下差 $$1.7 \times 10^{-4}$$、bf16 下差到 1.0：数学相同、求和顺序不同，bf16 只有 8 位尾数——比较两个 attention 实现的输出必须在 fp32。`labels` 传进去后：`ForCausalLMLoss` 先 `shift`（`logits[:, :-1]` 对 `labels[:, 1:]`），`cross_entropy(ignore_index=-100)` 只对非 `-100` 位置求和；`num_items_in_batch` 传入时分母从本 micro-batch 的有效 token 数换成整个梯度累积周期的总数，梯度累积才与大 batch 等价。
 
 ### 2. 第二篇：generate——一次采样的完整调用链
 
@@ -131,13 +72,13 @@ Table: 本文的章节安排
 
 **骨架。**`tokenizer.json`（Qwen2.5 的 7 MB）顶层九个键，后五个就是 Rust 流水线：`normalizer`（NFC）→ `pre_tokenizer`（GPT-2 正则切词 + `ByteLevel`）→ `model`（BPE，vocab 151643、merges 151387）→ `post_processor`（Qwen 不加特殊 token；Llama 的 `TemplateProcessing` 在此加 `<s>`）→ `decoder`。`Tokenizer.from_file` 读它就搭出整条流水线，Python、Node、Rust 共用。Python 壳 `PreTrainedTokenizerFast`：`__call__ → encode_batch`（进 Rust）→ `BatchEncoding`，padding 与 `added_tokens` 对齐在壳里做。`apply_chat_template` 是沙箱 Jinja 渲染 `tokenizer_config.json` 里的 `chat_template`；`return_assistant_tokens_mask=True` 依赖模板里的 `{% raw %}{% generation %}{% endraw %}` 标记。`load_dataset` 找 builder → `download_and_prepare` → `~/.cache/…/no_robots-train.arrow`；`Dataset` = `MemoryMappedTable` 视图 `_data` + 可选行索引 `_indices` + 格式；`map` 按 `writer_batch_size` 取批 → 调函数 → `ArrowWriter` 写 `cache-<fingerprint>.arrow`，fingerprint 由上一个 fingerprint、变换名、全部参数（函数用 `dill` 序列化）哈希；`shuffle` / `select` 只生成行号表；`__getitem__` 切 Arrow → formatter → dict，变长 padding 在 `DataLoader` 的 `collate_fn` 里。
 
-**总纲的问题。**三个数：151665 是 `len(tok)` = 基础词表 + `added_tokens`（22 个特殊 token）；151643 是 `vocab_size` = BPE（byte-pair encoding）表大小；151936 是 `config.vocab_size` = embedding 行数，为 GPU 对齐补到 128 的倍数——加 10 个特殊 token 只有 `len(tok)` 变，仍小于 151936，模型不用 `resize_token_embeddings`。`"12345"` 是 5 个 token：GPT-2 正则在 `pre_tokenizer` 里把数字单个切开，BPE 的合并只在「词」内进行；`"hello"` 是一个整词、merges 表里能合到底。改 print 后 10 分钟重跑：函数字节码变了，`dill` 哈希变，fingerprint 变，缓存文件名对不上——用 `new_fingerprint=` 固定，或把函数拆成不变的模块级函数。
+**总纲的问题。**三个数：151665 是 `len(tok)` = 基础词表 + `added_tokens`（22 个特殊 token）；151643 是 `vocab_size` = BPE 表大小；151936 是 `config.vocab_size` = embedding 行数，为 GPU 对齐补到 128 的倍数——加 10 个特殊 token 只有 `len(tok)` 变，仍小于 151936，模型不用 `resize_token_embeddings`。`"12345"` 是 5 个 token：GPT-2 正则在 `pre_tokenizer` 里把数字单个切开，BPE 的合并只在「词」内进行；`"hello"` 是一个整词、merges 表里能合到底。改 print 后 10 分钟重跑：函数字节码变了，`dill` 哈希变，fingerprint 变，缓存文件名对不上——用 `new_fingerprint=` 固定，或把函数拆成不变的模块级函数。
 
 ### 4. 第四篇：peft 与 trl——LoRA 怎么挂上去，SFT / DPO / GRPO 的 loss 各在哪一行
 
 **骨架。**peft：`get_peft_model` 返回 `PeftModel(LoraModel(model))`，原模型被原地改；`_prepare_adapter_config` 把 `all-linear` 展开成所有 `nn.Linear` 名（排除 `lm_head`）；`inject_adapter` 用 `named_modules` 逐个匹配，命中的交给 `_create_and_replace` 新建 `lora.Linear(base_layer, r, lora_alpha, ...)` 再 `setattr(parent, name, new_module)`；`update_layer` 建 `lora_A = Linear(in, r)`（kaiming）、`lora_B = Linear(r, out)`（全零）、`scaling = α/r`，`_mark_only_adapters_as_trainable` 冻结其余；`forward` 多一行 `result + lora_B(lora_A(dropout(x))) * scaling`，先算瘦的一半；`merge` 把 `get_delta_weight` 加进 `base_layer.weight.data`。trl：`SFTTrainer._prepare_dataset` 接受 messages / prompt-completion / 纯文本三种格式，套模板、tokenize、按 `completion_mask` 或 `assistant_masks` 在 `build_labels` 这一次 `map` 里造 `labels`（不该学的位 `-100`），可选 `pack_dataset`（bfd）；`DataCollatorForLanguageModeling` 只 pad（`input_ids` 用 pad id、`labels` 用 `-100`），`padding_free` 时拼成一行加 `position_ids` 并把每段首 token 置 `-100`；`compute_loss` 走模型的 `loss_function`。`DPOTrainer`：`concatenated_forward` 把 chosen 与 rejected 拼成一个 batch 前向，取 completion 的 log p 之和；参考 log p 来自 `ref_model`、或 peft 时 `disable_adapter()` 下再前向一次、或 `precompute_ref_log_probs`；`dpo_loss` 的 `sigmoid` 分支是 `-logsigmoid(β((logπ_c − logπref_c) − (logπ_r − logπref_r)))`，其余 `loss_type` 各改一行。`GRPOTrainer`：`_generate_and_score_completions` 每个 prompt 采 $$G$$ 条、过 `reward_funcs`；`advantages = (r − mean_group) / (std_group + 1e-4)`；`_compute_loss`：`ratio = exp(logπ − logπ_old)`，`-min(ratio·A, clip(ratio, 1−ε_low, 1+ε_high)·A)`，`beta != 0` 时加 `β·KL`（k3 估计），`loss_type` 决定按条平均（grpo）、全 token 平均（bnpo）还是除常数（dr_grpo）。
 
-**总纲的问题。**`target_modules=["q_proj", "v_proj"]` 是「模块名以此结尾」的列表匹配，能命中 `model.layers.3.self_attn.q_proj`；字符串 `"q_proj|v_proj"` 被当作正则 `re.fullmatch`，要匹配完整路径必须写成 `".*\.(q_proj|v_proj)"`，原样写匹配不到。LoRA 反向仍经过冻结的 `base_layer`：梯度要从 loss 传到每一层的输入 $$x$$，才能到达更靠前的 `lora_A`，`base_layer` 的 `weight.grad` 不算但 $$\partial L / \partial x = g W$$ 必须算；省下的是优化器状态（AdamW 两份动量 × 全部参数）与权重梯度，激活内存不省。GRPO（Group Relative Policy Optimization）一组 8 条全对：`r − mean = 0`，`advantages` 全零，`per_token_loss` 全零，这组对本步梯度零贡献；DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization）的 dynamic sampling 把这样的组过滤掉、重采到 batch 满；`beta=0` 时 trl 不建参考模型、不算 `per_token_kl`。
+**总纲的问题。**`target_modules=["q_proj", "v_proj"]` 是「模块名以此结尾」的列表匹配，能命中 `model.layers.3.self_attn.q_proj`；字符串 `"q_proj|v_proj"` 被当作正则 `re.fullmatch`，要匹配完整路径必须写成 `".*\.(q_proj|v_proj)"`，原样写匹配不到。LoRA 反向仍经过冻结的 `base_layer`：梯度要从 loss 传到每一层的输入 $$x$$，才能到达更靠前的 `lora_A`，`base_layer` 的 `weight.grad` 不算但 $$\partial L / \partial x = g W$$ 必须算；省下的是优化器状态（AdamW 两份动量 × 全部参数）与权重梯度，激活内存不省。GRPO 一组 8 条全对：`r − mean = 0`，`advantages` 全零，`per_token_loss` 全零，这组对本步梯度零贡献；DAPO 的 dynamic sampling 把这样的组过滤掉、重采到 batch 满；`beta=0` 时 trl 不建参考模型、不算 `per_token_kl`。
 
 ## 三、贯穿全系列的几条线
 
@@ -155,7 +96,7 @@ tokenizers 的 assistant mask（`{% raw %}{% generation %}{% endraw %}`）→ tr
 
 ### 4. 一个上下文省一份模型
 
-`PeftModel.disable_adapter()` 让同一个模型在 LoRA 关掉时就是参考模型：DPO（Direct Preference Optimization）的 `ref log p`、GRPO 的 KL（Kullback–Leibler divergence）都可以这样算，省掉一份完整权重；`merge` / `unmerge` 与之类似，改 `weight.data` 而不改结构。
+`PeftModel.disable_adapter()` 让同一个模型在 LoRA 关掉时就是参考模型：DPO 的 `ref log p`、GRPO 的 KL 都可以这样算，省掉一份完整权重；`merge` / `unmerge` 与之类似，改 `weight.data` 而不改结构。
 
 | 概念 | 在哪一篇 | 与谁相连 |
 |---|---|---|
@@ -214,7 +155,7 @@ Table: 常见误区与正确说法
 4. 一次 `SFTTrainer.train()` 中 `-100` 出现在哪三处、由哪三个库的哪三个函数写入或消费？
 5. 换一个新模型架构到 transformers（假设已合入），`generate`、`get_peft_model`、`SFTTrainer` 分别需要它提供什么，才能不改一行代码直接用？
 
-**答案要点。**（1）第三篇：`chat_template_utils.py` 检查模板里是否有 `{% raw %}{% generation %}{% endraw %}`，Qwen2.5 的模板没有，`return_assistant_tokens_mask` 报 `ValueError`；第四篇的 `_prepare_dataset` 传了这个参数。修法一：换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板（要保证与原模板渲染结果一致，否则分布漂移）；修法二：改成 prompt-completion 格式走 `completion_mask`（多轮对话只能对最后一轮算 loss）。（2）第一处：没有 cache 时 `forward` 把这一个 token 当作位置 0 的完整序列，RoPE（rotary position embedding）位置错、attention 看不到历史；第二处：`prepare_inputs_for_generation` 只切最后一个 token 的前提是 `past_key_values` 里有之前所有层的 K/V——要么全序列重算，要么带 cache。（3）`DPOTrainer` 在 `ref_model is None and is_peft_model` 时用 `with self.model.disable_adapter():` 再前向一次；`disable_adapter` 让每个 `lora.Linear.forward` 走 `self.base_layer(x)` 分支——第一篇里被 `setattr` 换掉的那些 `nn.Linear`。（4）trl `build_labels`（mask 为 0 的位）、trl `DataCollatorForLanguageModeling`（pad 位、`padding_free` 段首）、transformers `ForCausalLMLoss`（`ignore_index=-100` 消费）；来源之一是 tokenizers 的 assistant mask。（5）`generate`：`GenerationMixin` 与 `forward` 接受 `past_key_values` / `use_cache`、返回 `logits`；`get_peft_model`：模块是 `nn.Linear`（或有对应 LoRA 层的类型）且命名可被 `target_modules` 匹配；`SFTTrainer`：`forward(labels=...)` 返回 `loss`（即走 `loss_function`），tokenizer 有 `chat_template`。
+**答案要点。**（1）第三篇：`chat_template_utils.py` 检查模板里是否有 `{% raw %}{% generation %}{% endraw %}`，Qwen2.5 的模板没有，`return_assistant_tokens_mask` 报 `ValueError`；第四篇的 `_prepare_dataset` 传了这个参数。修法一：换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板（要保证与原模板渲染结果一致，否则分布漂移）；修法二：改成 prompt-completion 格式走 `completion_mask`（多轮对话只能对最后一轮算 loss）。（2）第一处：没有 cache 时 `forward` 把这一个 token 当作位置 0 的完整序列，RoPE 位置错、attention 看不到历史；第二处：`prepare_inputs_for_generation` 只切最后一个 token 的前提是 `past_key_values` 里有之前所有层的 K/V——要么全序列重算，要么带 cache。（3）`DPOTrainer` 在 `ref_model is None and is_peft_model` 时用 `with self.model.disable_adapter():` 再前向一次；`disable_adapter` 让每个 `lora.Linear.forward` 走 `self.base_layer(x)` 分支——第一篇里被 `setattr` 换掉的那些 `nn.Linear`。（4）trl `build_labels`（mask 为 0 的位）、trl `DataCollatorForLanguageModeling`（pad 位、`padding_free` 段首）、transformers `ForCausalLMLoss`（`ignore_index=-100` 消费）；来源之一是 tokenizers 的 assistant mask。（5）`generate`：`GenerationMixin` 与 `forward` 接受 `past_key_values` / `use_cache`、返回 `logits`；`get_peft_model`：模块是 `nn.Linear`（或有对应 LoRA 层的类型）且命名可被 `target_modules` 匹配；`SFTTrainer`：`forward(labels=...)` 返回 `loss`（即走 `loss_function`），tokenizer 有 `chat_template`。
 
 ### C. 面试题（6 题）
 
@@ -249,13 +190,13 @@ Table: 掌握程度的判据
 本系列没有读的部分，需要时从下面进：
 
 - **transformers 的其余目录。**`models/` 里 encoder、多模态（`Qwen2VLForConditionalGeneration` 的 `pixel_values` 怎么进 `inputs_embeds`）、`integrations/`（flash attention、bitsandbytes 量化的 `Linear4bit`）、`trainer.py`（trl 的三个 Trainer 都继承它：训练循环、梯度累积、`num_items_in_batch` 的来源）。
-- **accelerate。**`device_map="auto"` 的切分与 `dispatch_model`、多卡下 `Trainer` 的 DDP（Distributed Data Parallel）/ FSDP（Fully Sharded Data Parallel）包装——[Infra 地图](/ai-infra-learning-roadmap.html)的分布式训练系列。
-- **peft 的其他 tuner。**`tuners/` 目录下 DoRA（Weight-Decomposed Low-Rank Adaptation）、AdaLoRA、IA3（Infused Adapter by Inhibiting and Amplifying Inner Activations）、prompt tuning，结构与 `lora/` 相同：一个 `Config`、一个 `Model`、一个 `Layer`。
+- **accelerate。**`device_map="auto"` 的切分与 `dispatch_model`、多卡下 `Trainer` 的 DDP / FSDP 包装——[Infra 地图](/ai-infra-learning-roadmap.html)的分布式训练系列。
+- **peft 的其他 tuner。**`tuners/` 目录下 DoRA、AdaLoRA、IA3、prompt tuning，结构与 `lora/` 相同：一个 `Config`、一个 `Model`、一个 `Layer`。
 - **trl 的其他 Trainer。**`PPOTrainer`（带 value head）、`RewardTrainer`、`KTOTrainer`、`OnlineDPOTrainer`，以及 GRPO 的 vLLM 采样后端（`use_vllm=True`，`vllm_client.py`）。
 - **datasets 的 streaming。**`IterableDataset` 与 `iterable_dataset.py`：不落 Arrow、边下边用，`shuffle` 变成缓冲区随机——预训练规模的数据只能这样读。
 
 版本与文件名以总纲所述为准；这几个库的目录结构一年内会变，读的方法不变。
 
-[^q0]: 五个：`from_pretrained` 怎么把三个文件变成 `nn.Module`（六步）；`generate` 一步做哪六件事、processor 串怎么装配；`tokenizer.json` 五段与 `map` 的 fingerprint；LoRA 怎么被 `setattr` 挂上去、`forward` 多的那一行；SFT（supervised fine-tuning）的 `-100`、`dpo_loss`、GRPO 的优势 / 裁剪 / 归一各在哪几行。
+[^q0]: 五个：`from_pretrained` 怎么把三个文件变成 `nn.Module`（六步）；`generate` 一步做哪六件事、processor 串怎么装配；`tokenizer.json` 五段与 `map` 的 fingerprint；LoRA 怎么被 `setattr` 挂上去、`forward` 多的那一行；SFT 的 `-100`、`dpo_loss`、GRPO 的优势 / 裁剪 / 归一各在哪几行。
 [^q1]: `_LazyAutoMapping`、`torch.device("meta")`、`safe_open`、`ALL_ATTENTION_FUNCTIONS`、`ForCausalLMLoss`；`_get_logits_processor`、`unfinished_sequences`；normalizer → pre_tokenizer → model → post_processor → decoder、151665 / 151643 / 151936、`cache-<fingerprint>.arrow`；`inject_adapter`、`result + lora_B(lora_A(dropout(x))) * scaling`、`scaling = α/r`、8.8M（1.8%）；`build_labels`、`-logsigmoid(β·Δ)`、`(r − mean) / (std + 1e-4)`。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 6 题面试题（能不看答案讲两分钟）；再按 D 表的「掌握」判据，拿一个没读过的 Trainer 试 30 分钟。

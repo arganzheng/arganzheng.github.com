@@ -8,32 +8,11 @@ catalog: true
 updated: 2026-09-17
 ---
 
-信息论在这张地图上看起来最"理论"，却是后训练的主语言：SFT（supervised fine-tuning）的 loss 是交叉熵，RLHF（reinforcement learning from human feedback）与 DPO 的约束项是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。它们全部建立在三个量上——**熵、交叉熵、KL 散度**——以及一条把三者连起来的等式。这一篇从定义讲起，讲清 KL 的两个方向为什么行为完全不同，然后走完一条完整的推导链：从"最大化奖励且不偏离参考模型"的目标，推出它的闭式最优解，再推出 DPO 的 loss。
+信息论在这张地图上看起来最"理论"，却是后训练的主语言：SFT 的 loss 是交叉熵，RLHF 与 DPO 的约束项是 KL，蒸馏的目标是 KL，投机解码的接受率是两个分布的总变差。它们全部建立在三个量上——**熵、交叉熵、KL 散度**——以及一条把三者连起来的等式。这一篇从定义讲起，讲清 KL 的两个方向为什么行为完全不同，然后走完一条完整的推导链：从"最大化奖励且不偏离参考模型"的目标，推出它的闭式最优解，再推出 DPO 的 loss。
 
 全篇的核心问题是：
 
 > **能不能分清熵、交叉熵、KL 各是什么？[^q0] 能不能从 KL 约束的最优策略推出 DPO 的 loss？[^q1]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
-| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
-| RLHF | reinforcement learning from human feedback | 用人类反馈的奖励做强化学习微调 |
-| SFT | supervised fine-tuning | 用标注答案做监督微调 |
-| loss | — | 损失函数，训练要最小化的目标值 |
-| LLM | large language model | 大语言模型 |
-| PPL | perplexity | 困惑度，交叉熵的指数，越小越好 |
-| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
-| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
-| RM | reward model | 奖励模型，给回答打分的小模型 |
-| RL | reinforcement learning | 强化学习，用奖励信号优化策略 |
-| IPO | identity preference optimization | DPO 的变体，防止确定性偏好下过拟合 |
-| KTO | Kahneman–Tversky optimization | 只要单样本好坏标签、不要成对偏好的方法 |
-| TV | total variation | 全变差距离，另一种分布间距离 |
-| CLIP | Contrastive Language–Image Pre-training | OpenAI 的图文对比模型，把图和文嵌进同一空间 |
-| softmax | — | 把一组分数归一化成概率分布的函数 |
 
 ## 一、总览
 
@@ -103,7 +82,7 @@ $$
 | PPL | 12.2 | 7.39 | 6.05 | 4.48 | 2.72 |
 | bit/token | 3.61 | 2.89 | 2.60 | 2.16 | 1.44 |
 
-Table: loss与困惑度的对应
+Table: loss（nat）与困惑度的对应
 
 这两个换算要熟到不用计算器：看到 PPL 6 知道 loss 1.8，看到 loss 2.0 知道 PPL 7.4。
 
@@ -284,7 +263,7 @@ $$
 
 ### 2. 互信息与对比学习
 
-**互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss给出互信息的一个下界 $$I \ge \log N - \mathcal{L}_{\text{InfoNCE}}$$——**最小化** loss 就是抬高这个下界，让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
+**互信息** $$I(X; Y) = D_{\mathrm{KL}}\big(p(x, y) \,\Vert\, p(x)\,p(y)\big)$$ 度量两个变量的相关程度：联合分布离"独立时的分布"有多远，独立时为 0。CLIP 的对比学习 loss（InfoNCE）给出互信息的一个下界 $$I \ge \log N - \mathcal{L}_{\text{InfoNCE}}$$——**最小化** loss 就是抬高这个下界，让配对的图文比不配对的更"相关"。L7 多模态系列讲；这里知道定义即可。
 
 ## 八、本文小结
 

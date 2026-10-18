@@ -5,7 +5,7 @@ title: "后训练（01）：SFT：指令数据、chat template、loss mask 与�
 subtitle: "Supervised Fine-Tuning: Instruction Data, Chat Templates, Loss Masking and Parameter-Efficient Fine-Tuning"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
-updated: 2026-10-14
+updated: 2026-10-18
 ---
 
 预训练结束时的模型是一个续写器：给它一段文字，它给出最可能的下一段文字。问它"法国的首都是哪里"，它可能回答"巴黎"，也可能续写成一道选择题的另外三个选项，或者一篇关于欧洲首都的文章。它有知识，没有**格式**——不知道什么时候该停、谁在说话、什么算"回答"。
@@ -46,7 +46,7 @@ Table: SFT 与预训练的四处不同
 | 四 | 目标 | loss mask 与它的梯度<br/>多轮的 mask<br/>packing 与跨样本 attention<br/>padding 浪费的账<br/>mean 与 sum<br/>NEFTune |
 | 五 | 全量与 LoRA | 全量的状态账与 lr<br/>LoRA 的 $$W + BA$$、梯度、秩、alpha、目标矩阵、超参表<br/>QLoRA、DoRA、rsLoRA、PiSSA<br/>合并与多 LoRA<br/>LoRA 学得少、忘得少 |
 | 六 | 遗忘 | 度量、机制、四种对策 |
-| 七 | 成本与配方 | 一次 SFT 的 GPU 小时与数据成本<br/>七个公开配方的 SFT 对照<br/>推理 SFT 的"少即是多" |
+| 七 | 成本与配方 | 一次 SFT 的 GPU 小时与数据成本<br/>七个公开配方的 SFT 对照<br/>推理 SFT 的"少即是多"<br/>让模型会写思维链要做什么 |
 | 八 | 实践 | `01_sft.py` 的五个实验 |
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
@@ -389,6 +389,17 @@ Table: 公开 SFT 配方对照
 ### 3. 推理 SFT 的"少即是多"
 
 2025 年 LIMA 的故事在推理模型上重演了一次。s1（Muennighoff 等 2025）用 **1000 条**精选的数学题加 Gemini 生成的长思维链，在 Qwen2.5-32B 上 SFT，AIME 与 MATH 上接近 o1-preview；LIMO 用 817 条得到类似结果。条件与 LIMA 相同：基座强（Qwen2.5-32B 的预训练里已有大量数学与推理数据）、数据精选（难度、多样性、思维链质量三重筛选）、评测的是"能不能把已有能力以长思维链的形式拿出来"。它再次说明 SFT 教的是**形式**——这里的形式是"先想很久再答"——而形式是低秩的、少量数据就够；第五篇会讲当形式不够、需要 RL 才能提升的边界在哪。
+
+### 4. 让模型会写思维链，后训练要做什么
+
+s1 和 LIMO 的数据，每条回答都是先写思维链（CoT，chain-of-thought），再给答案。要让一个模型支持 CoT，后训练这边要做这几件事：
+
+1. **数据**：回答里要带推理过程。来源有两种：一是拿 R1、QwQ 这类推理模型生成再筛（蒸馏）；二是让模型自己对可验证的题采样多次，只留答案对的（拒绝采样）。筛的时候不光看答案，也要看思维链本身：有没有中英混杂，是不是在原地打转，长度合不合理。
+2. **格式**：思维链放在一对标记里，常见的是 `<think>…</think>`，chat template 要认这对标记。loss mask 不用改，思维链是回复的一部分，照样算 loss。多轮要注意：Qwen3 和 R1 的模板拼历史时会删掉前几轮的思维链，只留最终回答。训练数据也要这样拼，不然训练和推理看到的上下文不一样（第三章）。
+3. **长度**：带思维链的回答常有几千到上万 token，`max_seq_length` 要放到 16K–32K，显存和 packing 的账都要重算（第四章）。
+4. **SFT 之后接 RL**：SFT 教会的是"先想再答"这个形式。想得对不对、该想多久，要靠可验证奖励的 RL。R1 就是先用几千条长思维链做冷启动 SFT，再做 RL，见《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》。
+
+如果想让同一个模型既能想也能直接答（Qwen3 的思考 / 非思考模式），SFT 数据里两种回答都要有。非思考的样本 `<think></think>` 留空，用 prompt 里的开关（Qwen3 是 `/think`、`/no_think`）决定走哪一种。
 
 ## 八、实践：`01_sft.py` 的五个实验
 

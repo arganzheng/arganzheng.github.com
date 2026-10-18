@@ -5,7 +5,7 @@ title: "后训练（07）：蒸馏：logits 级、序列级与 on-policy"
 subtitle: "Knowledge Distillation for LLMs: Logit-Level, Sequence-Level and On-Policy"
 tags: [AI, LLM, Post-Training, Distillation]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 前六篇的奖励有两种来源：人（经过 RM 或 DPO 的转译）与验证器。第三种来源是**另一个模型**——一个更大、更强、或已经训好的教师，它对每个 token 的概率分布、或它生成的序列，成为学生的训练信号。这就是蒸馏（Hinton 等 2015）。它在 LLM 上有三种形态：学生匹配教师的 logits（token 级）、学生在教师生成的文本上做 SFT（序列级）、学生自己生成、教师在学生的序列上逐 token 打分（on-policy）。三者学到的东西不同、漏掉的东西不同、成本相差几个数量级。
@@ -20,15 +20,22 @@ updated: 2026-09-14
 
 ### 1. 三种蒸馏各让学生学到什么、漏掉什么
 
+这里说的“三种蒸馏”就是下表三行：logits 级、序列级、on-policy；第二章的“三种粒度”——logits、token 序列、隐藏特征——是另一种分类，不与这三行一一对应。两条轴分别是序列来源（数据、教师、学生）和教师传递的信息（分布、硬 token、隐藏特征）：logits 级在数据或教师序列上匹配分布，序列级用教师生成的硬 token，on-policy 在学生序列上匹配教师分布。下文用 $$p_T$$ 表示教师分布、$$q_S$$ 表示学生分布。
+
 | 形态 | 学生看到什么 | 目标 | 学到 | 漏掉 | 需要 |
 |---|---|---|---|---|---|
-| **logits 级** | 教师在**给定序列**每个位置的完整分布 $$p_T(\cdot \mid y_{<t})$$ | $$\sum_t \text{KL}(p_T \Vert p_S)$$ | 每个位置上"次优选项有多好"——暗知识；每 token 几 bit 到几十 bit 的信号 | 学生自己生成时的分布（序列来自教师或数据，不来自学生） | 同一 tokenizer；教师在线前向或存 top-k |
+| **logits 级** | 教师在**给定序列**每个位置的完整分布 $$p_T(\cdot \mid y_{<t})$$ | $$\sum_t \text{KL}(p_T \Vert q_S)$$ | 每个位置上"次优选项有多好"——暗知识；每 token 几 bit 到几十 bit 的信号 | 学生自己生成时的分布（序列来自教师或数据，不来自学生） | 同一 tokenizer；教师在线前向或存 top-k |
 | **序列级** | 教师**生成**的文本 | 交叉熵（就是 SFT） | 教师的输出模式：推理链的写法、格式、风格 | 教师的不确定性；每 token 只有 1 个硬标签 | 教师推理一遍；tokenizer 可以不同 |
-| **on-policy** | 教师在**学生自己采样的序列**上每个位置的分布 | $$\mathbb{E}_{y \sim p_S}\big[\sum_t D(p_T \Vert p_S)\big]$$ | 在学生会去的地方纠正学生——修暴露偏差 | 教师从未生成、学生也采不到的模式 | 同一 tokenizer；每步教师前向 |
+| **on-policy** | 教师在**学生自己采样的序列**上每个位置的分布 | $$\mathbb{E}_{y \sim q_S}\big[\sum_t D(p_T \Vert q_S)\big]$$ | 在学生会去的地方纠正学生——修暴露偏差 | 教师从未生成、学生也采不到的模式 | 同一 tokenizer；每步教师前向 |
 
 Table: 蒸馏的三种形态：学生看到什么、学到什么
 
-三种形态的差别只在两处：**序列是谁生成的**、**目标是硬标签还是教师的分布**：
+| KL | 定义 | 学生的倾向 |
+|---|---|---|
+| 前向 KL | $$\mathrm{KL}(p_T \Vert q_S)=\mathbb{E}_{z\sim p_T}\!\left[\log \frac{p_T(z)}{q_S(z)}\right]$$ | 期望取自教师分布；学生要覆盖教师有概率的模式 |
+| 反向 KL | $$\mathrm{KL}(q_S \Vert p_T)=\mathbb{E}_{z\sim q_S}\!\left[\log \frac{q_S(z)}{p_T(z)}\right]$$ | 期望取自学生分布；学生倾向集中在教师认可的模式 |
+
+Table: 两种 KL：期望取自谁的分布
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
@@ -36,11 +43,11 @@ Table: 蒸馏的三种形态：学生看到什么、学到什么
 flowchart TB
     %% 三个子图之间没有连线时 dagre 会把它们横排；用不可见边把三块叠成一列
     subgraph C["on-policy"]
-        CS["`学生**采样** y ~ p_S`"] --> CT["教师前向
+        CS["`学生**采样** y ~ q_S`"] --> CT["教师前向
 p_T(· | 前缀)"]
         CS --> CS2["学生前向
-p_S(· | 前缀)"]
-        CT --> CK["D(p_T ‖ p_S)
+q_S(· | 前缀)"]
+        CT --> CK["D(p_T ‖ q_S)
 在学生会去的地方纠正"]
         CS2 --> CK
     end
@@ -52,8 +59,8 @@ p_S(· | 前缀)"]
         A1["数据 / 教师的序列 y"] --> AT["教师前向
 p_T(· | 前缀)"]
         A1 --> AS["学生前向
-p_S(· | 前缀)"]
-        AT --> AK["KL(p_T ‖ p_S)
+q_S(· | 前缀)"]
+        AT --> AK["KL(p_T ‖ q_S)
 每位置完整分布"]
         AS --> AK
     end
@@ -76,8 +83,8 @@ p_S(· | 前缀)"]
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 三种粒度 | Hinton 的软标签与温度<br/>序列级 = 在教师输出上 SFT<br/>特征级为什么在 LLM 上少用 |
-| 三 | 前向 KL 与反向 KL | 定义、梯度、mode-covering 与 mode-seeking<br/>JSD 与 skew KL<br/>生成任务上选哪个 |
+| 二 | 三种粒度 | logits 软标签与温度示例<br/>序列级 = 在教师输出上 SFT<br/>特征级为什么在 LLM 上少用 |
+| 三 | 前向 KL 与反向 KL | 期望与梯度<br/>mode-covering / mode-seeking 的数值例子<br/>JSD 与 skew KL |
 | 四 | on-policy 蒸馏 | 暴露偏差<br/>GKD 的目标<br/>它就是 token 级稠密奖励的 RL<br/>Qwen3 与 Thinking Machines 的实践 |
 | 五 | 词表不同怎么办 | 为什么 logits 级需要同一 tokenizer<br/>对齐与最优传输的办法<br/>序列级的普适性 |
 | 六 | 成本 | 序列级的教师推理<br/>logits 级的 $$V$$ 个数与 top-k<br/>on-policy 的每步教师前向<br/>与 RL 的对比 |
@@ -97,12 +104,24 @@ Table: 本文的章节安排
 Hinton 等 2015 的原始形式：教师与学生的 logits 各除以温度 $$\tau$$ 再 softmax，学生最小化两个软化分布的 KL：
 
 $$
-\mathcal{L}_{KD} = \tau^2 \cdot \text{KL}\big(p_T^{(\tau)} \,\|\, p_S^{(\tau)}\big),\qquad p^{(\tau)}_j = \frac{\exp(z_j / \tau)}{\sum_k \exp(z_k / \tau)}
+\mathcal{L}_{KD} = \tau^2 \cdot \text{KL}\big(p_T^{(\tau)} \,\|\, q_S^{(\tau)}\big),\qquad p^{(\tau)}_j = \frac{\exp(z_j / \tau)}{\sum_k \exp(z_k / \tau)}
 $$
 
 $$\tau > 1$$ 把分布拉平，让教师分给次优选项的小概率变得可见——"这张图 90% 是猫、5% 是狗、0.1% 是汽车"里的 5% 与 0.1% 是**暗知识**（dark knowledge）：硬标签只说"猫"，软标签还说"它长得有点像狗、完全不像汽车"。$$\tau^2$$ 因子补偿软化后梯度按 $$1 / \tau^2$$ 缩小。在 LLM 上，每个位置的词表分布本来就很平（下一个 token 常有几十个合理选项），$$\tau = 1$$ 是常见默认；每个位置提供的信息是整个 $$V$$ 维分布而不是一个 token——**每 token 几 bit 到几十 bit**，对比硬标签的不到 1 bit（在已经会写的模型上，正确 token 的概率本来就高，交叉熵的信息量很小）。
 
-LLM 上的 logits 级蒸馏对每个位置算 $$\text{KL}(p_T(\cdot \mid y_{<t}) \Vert p_S(\cdot \mid y_{<t}))$$，前缀 $$y_{<t}$$ 来自数据（预训练语料、SFT 数据或教师的生成），教师与学生在**同一个前缀**上各算一次前向。它常与硬标签的交叉熵加权混合：$$\alpha \mathcal{L}_{KD} + (1 - \alpha) \mathcal{L}_{CE}$$。
+LLM 上的 logits 级蒸馏对每个位置算 $$\text{KL}(p_T(\cdot \mid y_{<t}) \Vert q_S(\cdot \mid y_{<t}))$$，前缀 $$y_{<t}$$ 来自数据（预训练语料、SFT 数据或教师的生成），教师与学生在**同一个前缀**上各算一次前向。它常与硬标签的交叉熵加权混合：$$\alpha \mathcal{L}_{KD} + (1 - \alpha) \mathcal{L}_{CE}$$。
+
+看一个四-token 例子。教师 logits 是 $$[4,2,1,0]$$，依次对应 token A、B、C、D。温度 $$\tau=1$$ 时，教师概率约为 $$[0.831,0.112,0.041,0.015]$$；温度调到 $$\tau=2$$ 后，分布变成 $$[0.579,0.213,0.129,0.078]$$。B、C、D 的相对可能性更清楚了。
+
+学生 logits 取 $$[3.2,2.2,0.6,-0.4]$$，同样用 $$\tau=2$$，得到 $$q_S=[0.489,0.297,0.133,0.081]$$：
+
+| token | A | B | C | D |
+|---|---:|---:|---:|---:|
+| 教师 $$p_T^{(1)}$$ | 0.831 | 0.112 | 0.041 | 0.015 |
+| 教师 $$p_T^{(2)}$$ | 0.579 | 0.213 | 0.129 | 0.078 |
+| 学生 $$q_S^{(2)}$$ | 0.489 | 0.297 | 0.133 | 0.081 |
+
+以 $$\tau=2$$ 的教师分布为软标签，交叉熵是 $$-\sum_j p_{T,j}^{(2)}\log q_{S,j}^{(2)}=1.1308$$ nat，KL 是 $$0.0210$$ nat。蒸馏损失乘上 $$\tau^2$$ 后为 $$0.0840$$ nat。完整目标在每个位置都传 $$V$$ 个概率；离线保存很占空间，常见做法是在线计算，或只存 top-k token 及其概率，尾部会被截断或合并。第六章会算这笔存储成本。
 
 ### 2. 序列级：在教师的输出上 SFT
 
@@ -110,9 +129,15 @@ Kim & Rush 2016 提出的序列级蒸馏：让教师对 prompt 生成回答，�
 
 它学到的是教师的**输出模式**：怎么组织一段推理、什么时候回头检查、用什么格式收尾。它漏掉的是教师的不确定性：教师在某个位置认为"也可以换个方法"的 30% 概率，在采样出的那一条序列里不存在。序列级蒸馏与人写的 SFT 数据相比的优势是**量与一致性**——教师可以生成百万条、风格统一、可以按验证器过滤（R1 只保留答案正确的）；劣势是教师的错误与偏见照单全收（第一篇第二章的两个副作用）。
 
+训练时先让教师对同一个 prompt 生成一条或多条回答，再用验证器、规则或人工筛掉不合格样本。学生把留下的回答当作标准答案，对每个位置预测教师写下的那个 token，损失就是普通交叉熵。学生看不到教师当时考虑过的其他 token，所以暗知识会丢掉；但一条完整、正确的推理轨迹已经能教会学生解题步骤、格式和收尾方式。R1-Distill 是最常见的例子：它把筛过的 R1 输出直接当 SFT 数据。
+
 ### 3. 特征级：为什么 LLM 上少用
 
-匹配中间层的隐状态或注意力图（TinyBERT、MiniLM）在 BERT 类编码器上很有效，在 LLM 上少见。原因：教师与学生层数、宽度不同，要设计层的映射与投影；生成模型的中间表示与"下一 token"的关系不如编码器的表示与分类任务的关系直接；而 logits 级已经提供了足够密的信号。它在**剪枝后的恢复**里还有位置（第七章）：学生是从教师剪出来的，层与层天然对齐。
+特征级蒸馏直接匹配教师与学生的中间表示。在同一输入上取教师第 $$k$$ 层的隐藏向量 $$h_T^k$$ 和学生第 $$l$$ 层的 $$h_S^l$$，再用 MSE 或注意力损失让它们接近。宽度不同时，可学习一个投影 $$W$$，匹配 $$W h_S^l$$ 与 $$h_T^k$$。
+
+这要求能读取两个模型的内部状态，也要选好层映射。TinyBERT、MiniLM 在 BERT 类编码器上使用过这类方法。LLM 的层数、宽度和结构常不同，表示空间不容易直接对齐；logits 已经提供了密集的下一-token 信号，所以特征级在 LLM 上较少见。剪枝恢复是一个例外：学生从教师删层或缩宽度得到，层之间更容易对应。
+
+![Logits 级、序列级和特征级蒸馏中教师传递的信号、序列来源与损失位置](/img/in-post/knowledge-distillation-for-llms-distillation-granularity.svg)
 
 ### 4. 三者的关系
 
@@ -133,11 +158,22 @@ Table: 三种蒸馏与 SFT 按「序列来自谁、标签硬还是软」排开
 两个分布 $$p$$（教师）、$$q_\theta$$（学生）：
 
 $$
-\text{KL}(p \| q_\theta) = \sum_j p_j \log \frac{p_j}{q_{\theta, j}} \quad (\text{前向}),\qquad
-\text{KL}(q_\theta \| p) = \sum_j q_{\theta, j} \log \frac{q_{\theta, j}}{p_j} \quad (\text{反向})
+\text{KL}(p \| q_\theta)
+= \mathbb{E}_{z \sim p}\!\left[\log \frac{p(z)}{q_\theta(z)}\right]
+= \sum_j p_j \log \frac{p_j}{q_{\theta,j}}
+\quad (\text{前向})
 $$
 
-前向 KL 的期望在 $$p$$ 下，梯度 $$-\sum_j p_j \nabla \log q_{\theta,j}$$——按教师的概率加权提高学生的对数概率，是"教师说什么学生学什么"的最大似然。反向 KL 的期望在 $$q_\theta$$ 下，梯度 $$\sum_j \nabla q_{\theta, j} (\log q_{\theta,j} - \log p_j + 1)$$——学生在**自己**有概率的地方比较自己与教师，自己高教师低的地方被压下去。
+$$
+\text{KL}(q_\theta \| p)
+= \mathbb{E}_{z \sim q_\theta}\!\left[\log \frac{q_\theta(z)}{p(z)}\right]
+= \sum_j q_{\theta,j} \log \frac{q_{\theta,j}}{p_j}
+\quad (\text{反向})
+$$
+
+前向 KL 从教师分布取样。它的梯度是 $$-\mathbb{E}_{z\sim p}[\nabla_\theta \log q_\theta(z)]$$。每次教师给某个 token 概率，梯度就推动学生提高该 token 的概率。
+
+反向 KL 从学生分布取样。它的梯度是 $$\mathbb{E}_{z\sim q_\theta}[(\log q_\theta(z)-\log p(z)+1)\nabla_\theta\log q_\theta(z)]$$。学生在自己常采到、但教师不认可的位置会受到更大惩罚；教师有概率而学生从不采样的模式不会直接贡献这次估计。
 
 ### 2. mode-covering 与 mode-seeking
 
@@ -148,15 +184,29 @@ $$
 
 对分类，两者差别不大（分布尖、容量够）。对**生成**，差别决定学生的行为：前向 KL 训出的学生会生成教师**永远不会生成**的序列（那些摊在峰间的概率——语法上像、内容上错的文本），因为它要覆盖教师的全部多样性而自己容量不够；反向 KL 训出的学生只生成教师会认可的序列，多样性略低但**不会产生教师概率为零的输出**。MiniLLM（Gu 等 2023）用这个理由选反向 KL，在指令跟随上显著优于前向 KL 的学生，且长文本上更少幻觉。
 
+用四个 token 看两种 KL 的权重差别。教师把 A、B 都看作合理选项，C、D 的概率低。spread 学生把概率平均摊开；pick-A 学生主要押 A：
+
+| 分布 | A | B | C | D | 前向 $$\mathrm{KL}(p_T\Vert q_S)$$ | 反向 $$\mathrm{KL}(q_S\Vert p_T)$$ |
+|---|---:|---:|---:|---:|---:|---:|
+| 教师 $$p_T$$ | 0.450 | 0.450 | 0.080 | 0.020 | — | — |
+| spread $$q_S$$ | 0.250 | 0.250 | 0.250 | 0.250 | 0.387 nat | 0.622 nat |
+| pick-A $$q_S$$ | 0.900 | 0.080 | 0.019 | 0.001 | 0.640 nat | 0.455 nat |
+
+前向 KL 更偏向 spread，因为它不愿漏掉教师的 B。反向 KL 在这两个候选中更偏向 pick-A，因为期望按学生采样加权，教师没给高概率的尾部不该占太多质量。单个 token 的表格展示权重方向；容量受限的整段生成如何把学生推向某个模式，见下图。
+
+双峰教师是 $$p_T=0.5\,\mathcal{N}(-2,0.55^2)+0.5\,\mathcal{N}(2,0.55^2)$$，学生只能用一个高斯拟合。数值优化后，前向 KL 的学生中心在 $$0$$、标准差约 $$2.07$$，会覆盖两个峰。反向 KL 的学生从右峰旁（$$\mu=1.8,\sigma=0.6$$）开始，收敛到右峰。
+
+![双峰教师与单高斯学生的 KL 拟合：前向 KL 学生覆盖两峰，反向 KL 学生从右峰附近初始化（μ=1.8、σ=0.6）后收敛到右峰](/img/in-post/knowledge-distillation-for-llms-forward-reverse-kl.svg)
+
 ### 3. 反向 KL 需要采样
 
-前向 KL 在给定前缀上是一个 $$V$$ 维求和，直接算。反向 KL 的期望在 $$q_\theta$$ 下：**在序列层面**，它要在学生的输出分布上求期望，只能靠从学生采样——这把蒸馏变成了 RL（下一章）。在单个 token 位置上两者都能直接算（都是 $$V$$ 维求和），差别只在加权方向。
+在一个固定前缀上，两个 KL 都是 $$V$$ 维求和。到整段序列上，反向 KL 的期望落在学生自己的输出分布上；要估计它，就得让学生先采样，再让教师和学生在采到的前缀上比较分布。这就是 on-policy 蒸馏的来源，第四章会展开。前向 KL 则可以直接在教师或数据提供的前缀上计算。
 
 ### 4. 中间选项
 
-- **JSD**（Jensen-Shannon）：$$\frac{1}{2}\text{KL}(p \Vert m) + \frac{1}{2}\text{KL}(q \Vert m)$$，$$m = (p + q) / 2$$，对称、有界、两种行为的折中；GKD 用带参数 $$\beta$$ 的广义 JSD 在两端之间插值。
-- **skew KL**（DistiLLM，Ko 等 2024）：把 $$q$$ 换成 $$\alpha p + (1 - \alpha) q$$ 再算 KL，避免 $$q \to 0$$ 处的数值爆炸，收敛更稳。
-- **总变差**（TVD）：对离群位置更鲁棒。
+- **JSD**（Jensen-Shannon）：先取混合分布 $$m=(p+q)/2$$，再算 $$\frac12\mathrm{KL}(p\Vert m)+\frac12\mathrm{KL}(q\Vert m)$$。两边都向中间分布靠，JSD 有界；广义 JSD 用 $$\beta$$ 调整两边的权重，GKD 用它在前向和反向之间插值。
+- **skew KL**（DistiLLM，Ko 等 2024）：把 KL 里的学生分布替换为 $$\alpha p+(1-\alpha)q$$。混合项保留了一部分教师概率，学生给某个教师 token 很小的概率时，分母仍有教师的支撑，梯度不会像原始 KL 那样陡增。$$\alpha$$ 控制平滑程度。
+- **总变差**（TVD）：$$\frac12\sum_j |p_j-q_j|$$，直接看概率质量相差多少，不取对数。它有上界，单个很小的概率不会因分母接近零而主导损失。
 
 实践里的规律：**数据丰富、学生容量接近教师**时前向 KL 够用；**学生小、任务是开放生成**时反向 KL 或 JSD 更好；两者的差别在 on-policy 设置下缩小（下一章：学生采样已经让训练分布是学生的了）。
 
@@ -168,17 +218,17 @@ $$
 
 ### 2. GKD
 
-Generalized Knowledge Distillation（Agarwal 等 2023）让学生**自己采样**序列 $$y \sim p_S(\cdot \mid x)$$，教师在这条序列的每个位置给出分布 $$p_T(\cdot \mid x, y_{<t})$$，学生最小化每个位置上的散度：
+Generalized Knowledge Distillation（Agarwal 等 2023）让学生**自己采样**序列 $$y \sim q_S(\cdot \mid x)$$，教师在这条序列的每个位置给出分布 $$p_T(\cdot \mid x, y_{<t})$$，学生最小化每个位置上的散度：
 
 $$
-\mathcal{L}_{GKD} = \mathbb{E}_{x}\, \mathbb{E}_{y \sim p_S(\cdot \mid x)} \left[ \frac{1}{\lvert y \rvert} \sum_{t} D\big(p_T(\cdot \mid x, y_{<t})\ \|\ p_S(\cdot \mid x, y_{<t})\big) \right]
+\mathcal{L}_{GKD} = \mathbb{E}_{x}\, \mathbb{E}_{y \sim q_S(\cdot \mid x)} \left[ \frac{1}{\lvert y \rvert} \sum_{t} D\big(p_T(\cdot \mid x, y_{<t})\ \|\ q_S(\cdot \mid x, y_{<t})\big) \right]
 $$
 
 $$D$$ 可以是前向 KL、反向 KL 或 JSD。关键在期望的下标：**序列来自学生**。学生走到哪，教师就在哪纠正它——学生偏离教师轨道之后的每一步，都有"教师在这里会怎么做"的信号。论文用一个参数 $$\lambda$$ 混合：以概率 $$\lambda$$ 用学生采样的序列，以概率 $$1 - \lambda$$ 用数据里的序列；$$\lambda = 1$$ 是纯 on-policy，$$\lambda = 0$$ 退回 logits 级蒸馏。
 
 ### 3. 它像 RL，但不是"最大化教师对数概率"
 
-把 $$D$$ 取反向 KL，逐 token 展开，GKD 的目标是 $$\mathbb{E}_{y \sim p_S}[\sum_t \log p_S(y_t) - \log p_T(y_t)]$$。它有两项：$$-\mathbb{E}_{p_S}[\log p_T]$$ 是"教师不认可的地方罚"，$$\mathbb{E}_{p_S}[\log p_S] = -H(p_S)$$ 是**学生自己的熵**。两项都在，最优解才是 $$p_S = p_T$$。一个常见的简化是把第二项扔掉、说成"最小化反向 KL 等于最大化教师对数概率"——那是另一个目标，它的最优解是学生把全部概率押在教师的 argmax 上（离散例：教师 (0.8, 0.2)，学生 (0.8, 0.2) 时 KL ≈ 0、$$\mathbb{E}\log p_T = -0.50$$；学生 (0.999, 0.001) 时 KL 涨到 0.22，$$\mathbb{E}\log p_T$$ 却"更好"地升到 −0.22）。熵项就是防坍缩的那一项。
+把 $$D$$ 取反向 KL，逐 token 展开，GKD 的目标是 $$\mathbb{E}_{y \sim q_S}[\sum_t \log q_S(y_t) - \log p_T(y_t)]$$。它有两项：$$-\mathbb{E}_{q_S}[\log p_T]$$ 是"教师不认可的地方罚"，$$\mathbb{E}_{q_S}[\log q_S] = -H(q_S)$$ 是**学生自己的熵**。两项都在，最优解才是 $$q_S = p_T$$。一个常见的简化是把第二项扔掉、说成"最小化反向 KL 等于最大化教师对数概率"——那是另一个目标，它的最优解是学生把全部概率押在教师的 argmax 上（离散例：教师 (0.8, 0.2)，学生 (0.8, 0.2) 时 KL ≈ 0、$$\mathbb{E}\log p_T = -0.50$$；学生 (0.999, 0.001) 时 KL 涨到 0.22，$$\mathbb{E}\log p_T$$ 却"更好"地升到 −0.22）。熵项就是防坍缩的那一项。
 
 与第三篇的对照要放对位置：**采样像 RL**——序列来自学生自己，所以修的是暴露偏差；**梯度不像 RL**——GKD 论文（4.1 节）明确不对采样过程反传，只在采样出的序列上对每个位置的 token 级散度求梯度（sampling 视为 stop-gradient），而 RL 的 policy gradient 恰恰要对"采到这条序列的概率"求导。所以它不需要价值网络、不需要组内归一化、方差远小于 RL；代价是它不是序列级散度的无偏梯度，而是一个逐 token 的替代目标。MiniLLM 走的是另一条路——真正把 $$\log p_T$$ 当序列级奖励做 policy gradient，并加上方差修正。
 
@@ -308,11 +358,13 @@ trainer.train()
 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
-| logits 级 | $$\tau^2 \text{KL}(p_T^{(\tau)} \Vert p_S^{(\tau)})$$，每位置 $$V$$ 维 | 暗知识<br/>每 token 几到几十 bit<br/>需同一 tokenizer |
+| logits 级 | $$\tau^2 \text{KL}(p_T^{(\tau)} \Vert q_S^{(\tau)})$$，每位置 $$V$$ 维 | 暗知识<br/>每 token 几到几十 bit<br/>需同一 tokenizer |
 | 序列级 | 教师生成 → 学生 SFT | 学输出模式<br/>丢不确定性<br/>跨词表<br/>R1-Distill |
-| 前向 KL | $$\sum_j p_j \log(p_j / q_j)$$，mode-covering | 学生容量不足时在峰间放概率 → 生成教师不会生成的东西 |
-| 反向 KL | $$\sum_j q_j \log(q_j / p_j)$$，mode-seeking | 只在教师认可处放概率；序列级需采样（MiniLLM） |
-| on-policy（GKD） | $$\mathbb{E}_{y \sim p_S}[\sum_t D(p_T \Vert p_S)]$$ | 修暴露偏差<br/>采样像 RL、梯度是 token 级散度（不经采样反传）<br/>Qwen3、Thinking Machines |
+| 特征级 | 匹配教师与学生的隐藏向量或注意力图 | 需白盒访问、层映射与维度投影；剪枝恢复时容易对齐 |
+| 前向 KL | $$\mathrm{KL}(p_T \Vert q_S)=\sum_j p_j \log(p_j / q_j)$$，mode-covering | 期望来自教师分布；容量不足时会在峰间放概率 |
+| 反向 KL | $$\mathrm{KL}(q_S \Vert p_T)=\sum_j q_j \log(q_j / p_j)$$，mode-seeking | 期望来自学生分布；序列级需学生采样（MiniLLM） |
+| on-policy（GKD） | $$\mathbb{E}_{y \sim q_S}[\sum_t D(p_T \Vert q_S)]$$ | 修暴露偏差<br/>采样像 RL、梯度是 token 级散度（不经采样反传）<br/>Qwen3、Thinking Machines |
+| 两类分类轴 | 形态：logits 级 / 序列级 / on-policy；粒度：logits / token 序列 / 隐藏特征 | 形态看序列来源与监督目标；粒度看教师传递的信息 |
 | 词表 | logits 级要求 id 与位置对齐 | 序列级绕开；ULD 用排序后的最优传输 |
 | 成本 | 序列级：教师生成 + 学生 SFT；on-policy：每步教师前向 $$2N_T$$ | R1-Distill 32B 约 1–2K GPU 小时，RL 几万；on-policy ≈ RL 的 1/10 |
 | 组合 | 剪枝 + 蒸馏（Minitron 40 倍省 token）<br/>QAT + 蒸馏（教师是自己）<br/>预训练蒸馏（Gemma 2） |  |
@@ -335,7 +387,7 @@ Table: 知识蒸馏的公式与规则小结
 
    </details>
 
-2. 前向 KL $$\text{KL}(p_T \Vert p_S)$$ 与反向 KL $$\text{KL}(p_S \Vert p_T)$$ 各让学生学成什么样？学生容量不足时哪个更危险？
+2. 前向 KL $$\text{KL}(p_T \Vert q_S)$$ 与反向 KL $$\text{KL}(q_S \Vert p_T)$$ 各让学生学成什么样？学生容量不足时哪个更危险？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -347,7 +399,7 @@ Table: 知识蒸馏的公式与规则小结
 
    <details markdown="1"><summary>答案</summary>
 
-   训练时学生只在教师 / 数据的前缀上学，推理时前缀是自己生成的、一旦偏离就没见过——暴露偏差。GKD 在学生自己采样的序列上算逐 token 的 $$D(p_T \Vert p_S)$$：采样来自学生（像 RL），但梯度只对散度项求、不对采样过程反传（不像 RL）；反向 KL 里学生的熵项不能丢，否则目标退化成"押教师 argmax"。
+   训练时学生只在教师 / 数据的前缀上学，推理时前缀是自己生成的、一旦偏离就没见过——暴露偏差。GKD 在学生自己采样的序列上算逐 token 的 $$D(p_T \Vert q_S)$$：采样来自学生（像 RL），但梯度只对散度项求、不对采样过程反传（不像 RL）；反向 KL 里学生的熵项不能丢，否则目标退化成"押教师 argmax"。
 
    </details>
 
@@ -364,6 +416,14 @@ Table: 知识蒸馏的公式与规则小结
    <details markdown="1"><summary>答案</summary>
 
    序列级可以（只用文本）；logits 级不能直接做——两边的 $$V$$ 维分布 id 与位置都对不上，要用 ULD 一类把分布排序后做最优传输对齐；on-policy 同 logits 级。
+
+   </details>
+
+6. 总览中的“三种蒸馏”和第二章的“三种粒度”分别按什么分类？前向 KL 与反向 KL 的期望各从哪个分布取样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   三种蒸馏形态是 logits 级、序列级、on-policy，按序列来源与监督信号分类；三种粒度是 logits、token 序列、隐藏特征，按教师传递的信息分类。前向 KL 的期望来自教师分布 $$p_T$$，反向 KL 的期望来自学生分布 $$q_S$$。
 
    </details>
 

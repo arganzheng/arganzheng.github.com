@@ -5,7 +5,7 @@ title: "高效推理与压缩（01）：解码策略、采样与约束生成"
 subtitle: "Decoding Strategies: Sampling, Truncation, Penalties and Constrained Generation"
 tags: [AI, LLM, Inference, Decoding]
 catalog: true
-updated: 2026-09-14
+updated: 2026-10-18
 ---
 
 模型的一次前向给出的不是一个 token，是一个 $$V$$ 维的分布。从这个分布里取一个 token 的规则——greedy、beam、temperature、top-k、top-p、min-p、重复惩罚、语法约束——统称解码策略。它不改变模型的任何参数，不改变一次前向的成本，但决定了用户看到的每一个字、决定了评测报出的每一个数字、也决定了 RL 训练时策略探索到什么。同一个模型在 GSM8K 上，greedy 报 78、temperature 0.6 采样报 76、多次采样投票报 85——三个数字都"对"，说的是不同的事。
@@ -38,6 +38,10 @@ Table: 解码策略的分类表
 
 前七行在**单步**上操作，最后两行涉及**多步**。单步策略的组合顺序也重要——先 temperature 再 top-p，与先 top-p 再 temperature，结果不同（第三章第五节）。
 
+![解码循环中 logits、惩罚、temperature、截断、约束 mask 与选 token 的位置](/img/in-post/decoding-strategies-sampling-loop.svg)
+
+图里先按概念顺序串起一步解码。Hugging Face Transformers 和 vLLM 的实际执行顺序不同，第三章会对照源码说明。
+
 ### 2. temperature 调大，pass@1 与 pass@64 各怎么变
 
 温度从 0.6 升到 1.0，单次采样的准确率（pass@1）下降，因为分布变平、采到错误 token 的概率变大；多次采样中至少一次正确的概率（pass@64）通常上升，因为 64 次采样的多样性变大、覆盖了更多解法。两个指标对温度的最优点不同——pass@1 在低温、pass@k 在中高温——这是"温度调多少"没有单一答案的原因，也是 RL 训练（需要探索，用高温）与部署（需要单次准确，用低温）的采样参数不同的原因。第七章展开。
@@ -46,16 +50,16 @@ Table: 解码策略的分类表
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 搜索 | greedy 的短视<br/>beam search 的长度偏差与重复<br/>为什么 LLM 上几乎不用 beam |
-| 三 | 变形与截断 | temperature 与熵的推导<br/>top-k / top-p / min-p 各裁掉什么<br/>组合顺序 |
+| 二 | 搜索 | greedy 的短视<br/>beam search 的长度偏差与重复<br/>开放式 chat 为什么通常选采样 |
+| 三 | 变形与截断 | temperature 与熵的推导<br/>top-k / top-p / min-p 各裁掉什么<br/>框架中的组合顺序 |
 | 四 | 重复惩罚 | 三种惩罚的数学<br/>副作用<br/>为什么推理模型要关掉它 |
 | 五 | 约束解码 | 语法 → 状态机 → token mask<br/>两种编译策略<br/>预处理成本<br/>对分布的影响 |
 | 六 | 多步：多次采样与选择 | self-consistency、best-of-n、pass@k 的无偏估计；test-time compute |
-| 七 | 采样参数与评测 | pass@1 与 pass@k 对温度的相反响应<br/>推理模型为什么 greedy 变差<br/>RL 与推理的温度一致性 |
+| 七 | 采样参数与评测 | pass@1 与 pass@k 对温度的相反响应<br/>推理模型为什么 greedy 变差<br/>模型卡、API 参数与结构化输出工具 |
 | 八 | 成本 | 采样本身的成本<br/>约束解码的开销<br/>多次采样的账 |
 | 九 | 动手（建议） | 一张温度 × 截断的扫描表 |
-| 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十 | 本文小结 | 解码规则和模型参数建议 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -77,6 +81,10 @@ greedy 的另一个问题是**重复**。在开放生成中，一旦模型进入
 
 beam search 每步维持 $$B$$ 条候选序列（beam），对每条扩展所有 $$V$$ 个 token，从 $$B \times V$$ 个延续里按累计对数概率保留前 $$B$$ 条。它在翻译上是几十年的默认，$$B = 4$$ 或 $$5$$ 通常比 greedy 好 1–2 BLEU。
 
+![beam width 为 2 的三步搜索树，比较 greedy 和累计 log-prob](/img/in-post/decoding-strategies-beam-search-tree.svg)
+
+图中 greedy 第一步选概率最高的 A，最后得到累计 log-prob −2.00。beam 同时保留 A 和 B，后来走到 B1a，累计值 −1.32，超过 greedy 路径。
+
 它在 LLM 的开放生成上失效，有两个结构性原因：
 
 **长度偏差**。累计对数概率是负数的和，序列越长和越小。beam search 系统性地偏好短序列——它会尽早选择 EOS。常用的修正是长度归一化 $$\frac{1}{T^\alpha} \sum_t \log p(y_t \mid \cdot)$$（$$\alpha \approx 0.6$$–$$1.0$$），但这引入了一个与任务相关的超参数，且只是缓解。
@@ -87,7 +95,9 @@ beam search 的成本是 $$B$$ 倍的前向（可以 batch 成一次），加上
 
 ### 3. beam 还在哪里用
 
-短输出、有明确正确答案、且答案空间小的任务：翻译、语音识别的解码、约束下的结构化输出。以及一类特殊用法——**推理模型的搜索**（第六章）：在推理链的步骤级别做 beam search，用过程奖励模型（PRM）给每条 beam 打分，这时"最大化概率"被"最大化奖励"替代，长度偏差与平淡的问题不再出现。
+短输出、有明确正确答案、且答案空间小的任务：翻译、语音识别的解码、约束下的结构化输出。Transformers 文档也把 beam search 放在图像描述、语音识别这类 input-grounded 任务中介绍；开放式 chat 的模型配置则更常见 temperature、top-p 等采样参数，所以 beam 通常不是聊天生成的默认选择。[生成策略文档](https://huggingface.co/docs/transformers/en/generation_strategies)
+
+以及一类特殊用法——**推理模型的搜索**（第六章）：在推理链的步骤级别做 beam search，用过程奖励模型（PRM）给每条 beam 打分，这时"最大化概率"被"最大化奖励"替代，长度偏差与平淡的问题不再出现。
 
 ## 三、变形与截断：temperature、top-k、top-p、min-p
 
@@ -146,13 +156,19 @@ min-p 在高温度下比 top-p 稳定，原因是它对每个 token **独立**�
 
 Table: 三种截断在不同分布形状上裁掉的部分
 
+![同一个合成 Zipf-like token 分布在不同温度和截断规则下的概率](/img/in-post/decoding-strategies-temperature-and-truncation.svg)
+
+上排把同一组 20 个 token 的概率按 $$p_i \propto i^{-1.1}$$ 计算，再分别应用三种温度。下排固定 $$T=1$$：top-k=5 保留 5 个，top-p=0.9 累计到 0.901 后保留 13 个，min-p=0.1 的阈值是 $$0.1p_{\max}$$，保留 8 个。图中是合成分布，不是某个模型的输出。
+
 ### 6. 组合顺序
 
-实践中常同时开 temperature、top-k、top-p（有时加 min-p）。顺序在不同实现里不同，且结果不同。Hugging Face `generate` 的默认顺序是 temperature → top-k → top-p（作为 logits processor 依次作用）；vLLM 的采样器是 temperature → top-k → top-p → min-p（实现细节随版本变）。**先温度再截断**意味着截断作用在温度变形后的分布上——这是 top-p 在高温下失效的原因（上一节）。**先截断再温度**则是在原始分布上决定保留谁，再对保留的部分变形——高温下更安全，但多数库不是这个顺序。
+组合顺序由框架实现决定。当前 Hugging Face Transformers `generate` 先加入 repetition penalty、prefix constraint 等 processor；采样 warper 随后按 temperature → top-k → top-p → min-p 执行。[源码](https://github.com/huggingface/transformers/blob/main/src/transformers/generation/utils.py) vLLM 的 sampler 文档列出的顺序是 token allowlist / bad words → penalties → temperature → min-p → top-k / top-p。[Sampler 文档](https://docs.vllm.ai/en/stable/api/vllm/v1/sample/sampler/)
+
+**先温度再截断**时，截断作用在温度变形后的分布上——这是 top-p 在高温下失效的原因（上一节）。先截断再调温度，则先按原始分布决定保留谁。不要把某个框架的顺序当成通用规则。
 
 min-p 的论文建议的顺序是 temperature → min-p，让阈值在变形后的分布上计算；但因为它的相对性，两种顺序的差别比 top-p 小得多。
 
-一个实用的规则：**不要同时开三个截断**。top-k 与 top-p 同时开时，实际起作用的几乎总是更严的那个，另一个只增加困惑。当前多数模型的推荐配置是 temperature + top-p（Llama、Qwen 的默认）或 temperature + min-p（社区在高温创意写作上的选择），推理模型的推荐配置在第七章。
+一个实用的规则：**不要同时开三个截断**。top-k 与 top-p 同时开时，通常是较严的一个先决定候选集。各模型的推荐值见第七章。
 
 ## 四、重复惩罚
 
@@ -178,7 +194,7 @@ frequency penalty 的线性增长在长输出上尤其危险：一个出现了 5
 
 ### 3. 推理模型为什么要关掉它
 
-推理模型的思维链有大量结构性重复："让我检查一下"、"所以"、"等式两边"、重新计算同一个中间量。DeepSeek-R1、Qwen3 的推荐采样参数里都没有重复惩罚（或明确设为 1.0），推荐的是 temperature 0.6、top-p 0.95。开了重复惩罚的推理模型会在验算时因为不能重复之前的式子而出错，或者被迫换一种表述从而引入错误。
+推理模型的思维链有大量结构性重复："让我检查一下"、"所以"、"等式两边"、重新计算同一个中间量。DeepSeek-R1 和 Qwen3 的主推荐配置都把重点放在 temperature、top-p 上，没有要求额外调整 repetition penalty。开了重复惩罚的推理模型会在验算时因为不能重复之前的式子而出错，或者被迫换一种表述从而引入错误。
 
 重复的根本解法不在解码，在训练：后训练充分的模型很少陷入循环；RL 训练里的长度惩罚与格式奖励也抑制它。解码侧的重复惩罚是对训练不足的补丁，应当作为最后手段、以最小的力度使用。
 
@@ -191,6 +207,10 @@ frequency penalty 的线性增长在长输出上尤其危险：一个出现了 5
 ### 2. 从语法到 token mask
 
 约束的表达方式从简到繁：正则表达式、JSON Schema、上下文无关语法（CFG）。执行的方式都一样：维护一个状态（当前在语法的哪个位置），每步计算"从这个状态出发，哪些 token 是合法的下一步"，把不合法的 token 的 logits 置 $$-\infty$$，然后照常采样。
+
+![JSON Schema 对应的语法状态，以及当前状态作用到 logits 的 token mask](/img/in-post/decoding-strategies-constrained-json-mask.svg)
+
+图中当前状态只接受 `"ok"` 和 `"error"`，mask 后其余 token 的概率为零。这里的 token 拼写是示意；真实 tokenizer 的一个 token 可能覆盖多个语法字符。
 
 难点在**token 与字符的不对齐**。语法定义在字符上（`{`、`"`、数字），而模型输出 token——一个 token 可能是 `{"`、`": "`、`123`，跨越了多个语法状态。所以"从状态 $$s$$ 出发合法的 token 集合"需要对每个 token 模拟它的全部字符能否被语法接受、接受后到达哪个状态。词表 128K、状态数几千到几万，朴素地每步计算是 $$O(V \times L)$$（$$L$$ 是 token 的平均字符数），每步几十毫秒——比一次前向还慢。
 
@@ -264,6 +284,27 @@ RL 的 rollout 需要探索——温度太低时组内样本几乎一样，GRPO 
 
 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》讲过协议的每个细节都改变分数；采样参数是其中最大的一项。一份可复现的评测报告要写明：temperature、top-p / top-k / min-p、重复惩罚、最大输出长度、采样次数 $$n$$、报告的是 pass@1 的均值还是 pass@k、是否有约束解码（选择题的答案抽取是靠约束还是靠正则）。一个常见的不一致来源：选择题用约束解码强制输出 A/B/C/D，与让模型自由回答再抽取答案，分数可以差好几个点——前者剥夺了模型"先推理再回答"的机会。
 
+### 5. 主流接口和模型推荐参数
+
+下面是几个模型卡里写明的推荐值，换模型要看它自己的卡；top-k 没有注明时记为“未给”。
+
+| 模型与模式 | temperature | top-p | top-k | 来源 |
+|---|---:|---:|---:|---|
+| Qwen2.5-7B-Instruct | 0.7 | 0.8 | 20 | [generation_config.json](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/generation_config.json) |
+| Qwen3-4B，thinking | 0.6 | 0.95 | 20 | [模型卡](https://huggingface.co/Qwen/Qwen3-4B/blob/main/README.md) |
+| Qwen3-4B，non-thinking | 0.7 | 0.8 | 20 | [模型卡](https://huggingface.co/Qwen/Qwen3-4B/blob/main/README.md) |
+| DeepSeek-R1，评测采样 | 0.6（建议范围 0.5–0.7） | 0.95 | 未给 | [模型卡](https://huggingface.co/deepseek-ai/DeepSeek-R1) |
+
+Table: 几个开放模型公开的采样参数起点
+
+OpenAI Chat Completions API 提供 temperature（0–2）和 top-p，并建议一次只调其中一个。参数是否支持取决于具体模型；reasoning models 的支持情况要查对应模型说明。[API 参数](https://developers.openai.com/api/reference/resources/chat) [Reasoning models 指南](https://developers.openai.com/api/docs/guides/reasoning)
+
+Anthropic Messages API 定义 temperature、top-k 和 top-p。当前 Claude 4.7 及之后的模型、以及 Mythos Preview 不接受非默认采样值；传入非默认值会报错。[Messages API](https://platform.claude.com/docs/en/api/messages) [参数限制说明](https://platform.claude.com/docs/en/build-with-claude/working-with-messages)
+
+结构化输出也已经进入主流 API 和 serving 工具。OpenAI Structured Outputs 可通过 JSON Schema 约束响应或 function call。[OpenAI 文档](https://developers.openai.com/api/docs/guides/structured-outputs) vLLM 当前文档列出 xgrammar 和 guidance 两种 structured-output backend。[vLLM 文档](https://docs.vllm.ai/en/stable/features/structured_outputs/) Outlines 提供 JSON Schema 生成接口，也提供 llguidance backend。[Outlines JSON generation](https://dottxt-ai.github.io/outlines/reference/generation/generation/) [llguidance backend](https://dottxt-ai.github.io/outlines/latest/api_reference/backends/llguidance/)
+
+min-p 已是常见推理工具的可选参数。vLLM 的 `SamplingParams` 有 `min_p`，默认 0 表示关闭；llama.cpp 命令行提供 `--min-p`，当前文档默认值为 0.05。[vLLM SamplingParams](https://docs.vllm.ai/en/stable/api/vllm/sampling_params/) [llama.cpp CLI](https://github.com/ggerganov/llama.cpp/blob/master/tools/cli/README.md)
+
 ## 八、成本
 
 ### 1. 采样本身
@@ -302,12 +343,13 @@ $$n$$ 条链的成本是 $$n$$ 倍的解码 token，prefill 通过 prefix 共享
 | 目标 | 最大化序列概率不是生成的正确目标 | beam 在开放生成上失效：长度偏差、平淡与重复 |
 | temperature | $$p_T \propto \exp(z/T)$$；$$dH/dT = \text{Var}(z)/T^3$$ | 效果依赖 logits 尺度，跨模型不可比；不把任何概率置零 |
 | 截断 | top-k 固定个数<br/>top-p 固定质量<br/>min-p 相对于 $$p_{\max}$$ | 尾部总质量可达 10%<br/>top-p 在高温下失效<br/>min-p 更稳 |
-| 顺序 | 多数库：temperature → top-k → top-p → min-p | 不要同时开多个截断 |
+| 顺序 | HF：temperature → top-k → top-p → min-p；vLLM：temperature → min-p → top-k → top-p | 处理顺序由具体框架决定 |
 | 重复惩罚 | 乘法（CTRL）/ presence / frequency | 伤代码、数学与推理；推理模型关掉 |
 | 约束解码 | 语法 → FSM / PDA → token mask；预编译或运行时 | 逐 token 约束 ≠ 条件分布；schema 远离自然格式时降质量 |
 | 多次采样 | self-consistency 投票<br/>best-of-n<br/>pass@k $$= 1 - \binom{n-c}{k}/\binom{n}{k}$$ | RLVR 提高 pass@1 不提高 pass@k |
 | 温度与评测 | pass@1 最优低温（~0.2）；pass@k 最优中高温（~0.8） | 两者不能用同一组参数报告 |
-| 推理模型 | 不用 greedy；$$T = 0.6$$、top-p 0.95、无惩罚（R1 / Qwen3 模型卡） | 训练时 $$T = 1$$ 采样，greedy 路径未被训练 |
+| 推理模型 | Qwen3 / R1 各有模型卡采样建议，见第七章 | 不把一个温度或惩罚值推广到所有模型 |
+| 业界配置 | 模型卡提供各自的 temperature / top-p / top-k 起点；API 与模型有关 | OpenAI、vLLM、Outlines 提供结构化输出接口或工具 |
 | 成本 | 采样几十到几百微秒<br/>约束 < 5%<br/>$$n$$ 次采样 $$n$$ 倍 token | test-time compute 用 $$n$$ 倍成本换 pass@n |
 
 Table: 解码策略的规则与公式小结
@@ -354,6 +396,14 @@ Table: 解码策略的规则与公式小结
    <details markdown="1"><summary>答案</summary>
 
    把概率质量集中到已有的正确解上（熵下降），而不是创造新的正确解：单次采样命中率高了，多次采样能覆盖的解集没变大。与上一系列“放大而非创造”的结论一致。
+
+   </details>
+
+6. Hugging Face Transformers 和 vLLM 对 top-k、top-p、min-p 的默认执行顺序有什么不同？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Transformers 的 warper 顺序是 temperature → top-k → top-p → min-p；vLLM 的 sampler 是 temperature → min-p → top-k → top-p。前置的惩罚和约束处理也不完全相同，所以组合参数时要看具体实现。
 
    </details>
 

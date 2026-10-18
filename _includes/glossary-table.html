@@ -1,0 +1,24 @@
+{% comment %}
+  Series glossary table (alphabetical by term), collapsed by default.
+  The tips' 详见 links point at <overview>#glossary, so this <details> is the
+  hash target; js/inline-popups.js opens it when the hash lands on it.
+  {% include glossary-table.html series="math-for-ai" %}
+{% endcomment %}
+{% assign entries = site.data.glossary[include.series] %}
+<details id="glossary" class="glossary-table">
+<summary>本系列的 {{ entries.size }} 个术语与缩写（展开）</summary>
+<table>
+<thead>
+<tr><th>缩写</th><th>全称</th><th>一句话解释</th></tr>
+</thead>
+<tbody>
+{% for e in entries %}
+<tr>
+<td>{{ e.term }}</td>
+<td>{{ e.full }}</td>
+<td>{{ e.desc }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</details>

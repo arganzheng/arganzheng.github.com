@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="440" viewBox="0 0 760 440" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">链式哈希：三个请求的命中与分叉</title>
+<rect width="760" height="440" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker><marker id="green-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#32844b"/></marker><marker id="orange-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c98a00"/></marker></defs>
+<text x="20" y="28" font-size="12.5" fill="#222222" text-anchor="start" font-weight="600" >链式哈希：h_i = hash(h_{i-1}, 本块 16 个 token, extra_keys)，h_0 前驱 = NONE_HASH</text>
+<text x="20" y="52" font-size="12.5" fill="#475569" text-anchor="start" font-weight="400" >查找：逐块沿链比对 hash，第一次未命中即停止，之后的块全部重算</text>
+<text x="162" y="89" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >Blk 0</text>
+<text x="304" y="89" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >Blk 1</text>
+<text x="480" y="89" font-size="13" fill="#334155" text-anchor="middle" font-weight="600" >...</text>
+<text x="546" y="89" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >Blk 124</text>
+<text x="674" y="89" font-size="12.5" fill="#334155" text-anchor="middle" font-weight="600" >Blk 125</text>
+<text x="162" y="111" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >h0=hash(NONE,</text>
+<text x="162" y="126" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >t1..t16)</text>
+<text x="304" y="111" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >h1=hash(h0,</text>
+<text x="304" y="126" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >t17..t32)</text>
+<text x="546" y="111" font-size="10" fill="#475569" text-anchor="middle" font-weight="400" >h124=hash(h123,</text>
+<text x="546" y="126" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >...)</text>
+<text x="674" y="111" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >"Hi" 未写满</text>
+<text x="674" y="126" font-size="10.5" fill="#475569" text-anchor="middle" font-weight="400" >→ 不参与 hash</text>
+<text x="24" y="163" font-size="12.5" fill="#334155" text-anchor="start" font-weight="700" >Req A</text>
+<rect x="114" y="144" width="96" height="69" rx="5" fill="#eef4fb" stroke="#5b84a6" stroke-width="1.2" />
+<text x="162" y="168" font-size="12" fill="#234b70" text-anchor="middle" font-weight="600" >0xABC1</text>
+<text x="162" y="192" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >PB 7  ·  ref=2</text>
+<rect x="256" y="144" width="96" height="69" rx="5" fill="#eef4fb" stroke="#5b84a6" stroke-width="1.2" />
+<text x="304" y="168" font-size="12" fill="#234b70" text-anchor="middle" font-weight="600" >0xDEF2</text>
+<text x="304" y="192" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >PB 13 · ref=2</text>
+<text x="405" y="179" font-size="16" fill="#64748b" text-anchor="middle" font-weight="400" >...</text>
+<rect x="498" y="144" width="96" height="69" rx="5" fill="#eef4fb" stroke="#5b84a6" stroke-width="1.2" />
+<text x="546" y="168" font-size="12" fill="#234b70" text-anchor="middle" font-weight="600" >0x77F0</text>
+<text x="546" y="192" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >PB 91 · ref=2</text>
+<rect x="620" y="144" width="106" height="69" rx="5" fill="#fff8e8" stroke="#c98a00" stroke-width="1.2" />
+<text x="673" y="167" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >PB 40 · ref=1</text>
+<text x="673" y="190" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >A 私有 · “Hi”</text>
+<line x1="210" y1="179" x2="256" y2="179" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="352" y1="179" x2="498" y2="179" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="594" y1="179" x2="620" y2="179" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="24" y="317" font-size="12.5" fill="#334155" text-anchor="start" font-weight="700" >Req B</text>
+<line x1="75" y1="310" x2="594" y2="310" stroke="#32844b" stroke-width="1.4"/>
+<line x1="162" y1="310" x2="162" y2="216" stroke="#32844b" stroke-width="1.4" marker-end="url(#green-arrow)"/>
+<line x1="304" y1="310" x2="304" y2="216" stroke="#32844b" stroke-width="1.4" marker-end="url(#green-arrow)"/>
+<line x1="546" y1="310" x2="546" y2="216" stroke="#32844b" stroke-width="1.4" marker-end="url(#green-arrow)"/>
+<path d="M114 217 V229 H150 M174 229 H292 M316 229 H534 M558 229 H594 V217" fill="none" stroke="#32844b" stroke-width="1.3"/>
+<text x="482" y="249" font-size="11" fill="#216437" text-anchor="middle" font-weight="700" >125 块共享（ref=2）</text>
+<rect x="101" y="257" width="122" height="25" rx="3" fill="#ffffff"/>
+<text x="162" y="274" font-size="10.5" fill="#216437" text-anchor="middle" font-weight="600" >命中（h0 相同）</text>
+<rect x="243" y="257" width="122" height="25" rx="3" fill="#ffffff"/>
+<text x="304" y="274" font-size="10.5" fill="#216437" text-anchor="middle" font-weight="600" >命中（h1 相同）</text>
+<text x="405" y="274" font-size="13" fill="#475569" text-anchor="middle" font-weight="400" >...</text>
+<rect x="481" y="257" width="130" height="25" rx="3" fill="#ffffff"/>
+<text x="546" y="274" font-size="10.5" fill="#216437" text-anchor="middle" font-weight="600" >命中（h124 相同）</text>
+<rect x="626" y="282" width="100" height="56" rx="5" fill="#fff8e8" stroke="#c98a00" stroke-width="1.2" />
+<text x="676" y="305" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >PB 55 · ref=1</text>
+<text x="676" y="326" font-size="10.5" fill="#333333" text-anchor="middle" font-weight="400" >B 私有 · “Bye”</text>
+<line x1="587" y1="205" x2="637" y2="280" stroke="#c98a00" stroke-width="1.8" marker-end="url(#orange-arrow)"/>
+<text x="628" y="236" font-size="11" fill="#9a6700" text-anchor="start" font-weight="700" >分叉</text>
+<text x="24" y="389" font-size="12.5" fill="#b42318" text-anchor="start" font-weight="700" >Req C</text>
+<rect x="112" y="355" width="614" height="58" rx="5" fill="#fff5f4" stroke="#d28a84" stroke-width="1.2" />
+<text x="128" y="379" font-size="12" fill="#8f261f" text-anchor="start" font-weight="600" >h0'=hash(NONE, t1',t2..t16) ≠ h0 → 未命中，查找停止</text>
+<text x="128" y="400" font-size="11.5" fill="#8f261f" text-anchor="start" font-weight="400" >即使 t2..t2000 与 A 完全相同，h1'=hash(h0',…) 也全部不同 → 一块都复用不了</text>
+</svg>

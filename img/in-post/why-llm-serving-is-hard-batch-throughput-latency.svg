@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520" role="img" aria-labelledby="svg-title" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif" font-size="13" fill="#333333">
+<title id="svg-title">Batch Size 对吞吐和延迟的影响</title>
+<rect width="760" height="520" fill="#ffffff"/>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#475569"/></marker></defs>
+<text x="380" y="30" font-size="17" fill="#222222" text-anchor="middle" font-weight="700" >Batch Size 对吞吐和延迟的影响</text>
+<line x1="96" y1="398.0" x2="690" y2="398.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="402.0" font-size="12" fill="#555555" text-anchor="end" font-weight="400" >0</text>
+<line x1="96" y1="332.8" x2="690" y2="332.8" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="336.8" font-size="12" fill="#555555" text-anchor="end" font-weight="400" >20</text>
+<line x1="96" y1="267.6" x2="690" y2="267.6" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="271.6" font-size="12" fill="#555555" text-anchor="end" font-weight="400" >40</text>
+<line x1="96" y1="202.4" x2="690" y2="202.4" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="206.4" font-size="12" fill="#555555" text-anchor="end" font-weight="400" >60</text>
+<line x1="96" y1="137.2" x2="690" y2="137.2" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="141.2" font-size="12" fill="#555555" text-anchor="end" font-weight="400" >80</text>
+<line x1="96" y1="72.0" x2="690" y2="72.0" stroke="#e5e7eb" stroke-width="1"/>
+<text x="84" y="76.0" font-size="12" fill="#555555" text-anchor="end" font-weight="400" >100</text>
+<line x1="96" y1="398" x2="690" y2="398" stroke="#334155" stroke-width="1.5"/>
+<line x1="96" y1="398" x2="96" y2="72" stroke="#334155" stroke-width="1.5"/>
+<text x="28" y="236" font-size="13" fill="#333333" text-anchor="middle" font-weight="500" transform="rotate(-90 28 236)">相对值</text>
+<text x="393" y="444" font-size="13" fill="#333333" text-anchor="middle" font-weight="500" >Batch Size</text>
+<line x1="122" y1="398" x2="122" y2="403" stroke="#334155" stroke-width="1"/>
+<text x="122" y="422" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >1</text>
+<line x1="230" y1="398" x2="230" y2="403" stroke="#334155" stroke-width="1"/>
+<text x="230" y="422" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >2</text>
+<line x1="338" y1="398" x2="338" y2="403" stroke="#334155" stroke-width="1"/>
+<text x="338" y="422" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >4</text>
+<line x1="446" y1="398" x2="446" y2="403" stroke="#334155" stroke-width="1"/>
+<text x="446" y="422" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >8</text>
+<line x1="554" y1="398" x2="554" y2="403" stroke="#334155" stroke-width="1"/>
+<text x="554" y="422" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >16</text>
+<line x1="662" y1="398" x2="662" y2="403" stroke="#334155" stroke-width="1"/>
+<text x="662" y="422" font-size="12" fill="#333333" text-anchor="middle" font-weight="400" >32</text>
+<polyline points="122,358.88 230,316.5 338,251.3 446,176.32 554,120.89999999999998 662,98.07999999999998" fill="none" stroke="#0070c9" stroke-width="3" />
+<circle cx="122" cy="358.88" r="5.5" fill="#0070c9" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="230" cy="316.5" r="5.5" fill="#0070c9" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="338" cy="251.3" r="5.5" fill="#0070c9" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="446" cy="176.32" r="5.5" fill="#0070c9" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="554" cy="120.89999999999998" r="5.5" fill="#0070c9" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="662" cy="98.07999999999998" r="5.5" fill="#0070c9" stroke="#ffffff" stroke-width="1.5"/>
+<polyline points="122,365.4 230,345.84000000000003 338,316.5 446,270.86 554,202.4 662,111.12" fill="none" stroke="#d62828" stroke-width="3" />
+<circle cx="122" cy="365.4" r="5.5" fill="#d62828" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="230" cy="345.84000000000003" r="5.5" fill="#d62828" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="338" cy="316.5" r="5.5" fill="#d62828" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="446" cy="270.86" r="5.5" fill="#d62828" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="554" cy="202.4" r="5.5" fill="#d62828" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="662" cy="111.12" r="5.5" fill="#d62828" stroke="#ffffff" stroke-width="1.5"/>
+<line x1="240" y1="488" x2="274" y2="488" stroke="#0070c9" stroke-width="3"/>
+<circle cx="257" cy="488" r="4.5" fill="#0070c9"/>
+<text x="283" y="493" font-size="13" fill="#333333" text-anchor="start" font-weight="400" >吞吐</text>
+<line x1="412" y1="488" x2="446" y2="488" stroke="#d62828" stroke-width="3"/>
+<circle cx="429" cy="488" r="4.5" fill="#d62828"/>
+<text x="455" y="493" font-size="13" fill="#333333" text-anchor="start" font-weight="400" >单请求延迟</text>
+</svg>

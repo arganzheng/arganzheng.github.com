@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="540" viewBox="0 0 760 540" role="img" aria-labelledby="title desc">
+  <title id="title">Speculative decoding 的接受与拒绝残差</title>
+  <desc id="desc">五个 token 的目标分布 p 与草稿分布 q。按 min(1,p/q) 接受；拒绝后从归一化的正残差 max(0,p-q) 采样。接受质量与拒绝残差相加还原 p。</desc>
+  <defs>
+    <style>
+      .title { font: 700 21px system-ui, sans-serif; fill: #182b3f; }
+      .subtitle { font: 13px system-ui, sans-serif; fill: #52677c; }
+      .head { font: 700 14px system-ui, sans-serif; fill: #20364b; }
+      .label { font: 12px system-ui, sans-serif; fill: #334d65; }
+      .small { font: 11px system-ui, sans-serif; fill: #52677c; }
+      .value { font: 600 12px system-ui, sans-serif; fill: #20364b; }
+      .panel { fill: #f5f8fb; stroke: #aabac8; stroke-width: 1.2; rx: 8; }
+      .rule { stroke: #d7e0e8; stroke-width: 1; }
+      .target { fill: #4c82b1; }
+      .draft { fill: #d18a2e; }
+      .accept { fill: #43845f; }
+      .resid { fill: #8c6bb1; }
+      .track { fill: #e0e6ec; }
+    </style>
+  </defs>
+  <rect width="760" height="540" fill="#fff"/>
+  <text class="title" x="28" y="34">拒绝采样：拒绝后从残差里补一个 token</text>
+  <text class="subtitle" x="28" y="56">p 是目标分布，q 是草稿提议分布；五个 token 的数值是同一组实算示例。</text>
+
+  <rect class="panel" x="24" y="76" width="276" height="270"/>
+  <text class="head" x="42" y="102">目标 p 与草稿 q</text>
+  <rect class="target" x="43" y="116" width="10" height="10"/>
+  <text class="small" x="59" y="126">target p</text>
+  <rect class="draft" x="132" y="116" width="10" height="10"/>
+  <text class="small" x="148" y="126">draft q</text>
+  <g class="small" text-anchor="end">
+    <text x="62" y="165">A</text><text x="62" y="201">B</text><text x="62" y="237">C</text><text x="62" y="273">D</text><text x="62" y="309">E</text>
+  </g>
+  <g>
+    <rect class="target" x="75" y="151" width="105" height="12" rx="3"/><rect class="draft" x="75" y="166" width="60" height="8" rx="3"/>
+    <rect class="target" x="75" y="187" width="75" height="12" rx="3"/><rect class="draft" x="75" y="202" width="60" height="8" rx="3"/>
+    <rect class="target" x="75" y="223" width="54" height="12" rx="3"/><rect class="draft" x="75" y="238" width="75" height="8" rx="3"/>
+    <rect class="target" x="75" y="259" width="36" height="12" rx="3"/><rect class="draft" x="75" y="274" width="45" height="8" rx="3"/>
+    <rect class="target" x="75" y="295" width="30" height="12" rx="3"/><rect class="draft" x="75" y="310" width="60" height="8" rx="3"/>
+  </g>
+  <g class="value">
+    <text x="191" y="162">.35 / .20</text><text x="191" y="198">.25 / .20</text><text x="191" y="234">.18 / .25</text>
+    <text x="191" y="270">.12 / .15</text><text x="191" y="306">.10 / .20</text>
+  </g>
+
+  <rect class="panel" x="316" y="76" width="192" height="270"/>
+  <text class="head" x="334" y="102">接受概率 min(1,p/q)</text>
+  <g class="small" text-anchor="end">
+    <text x="350" y="165">A</text><text x="350" y="201">B</text><text x="350" y="237">C</text><text x="350" y="273">D</text><text x="350" y="309">E</text>
+  </g>
+  <g>
+    <rect class="track" x="362" y="151" width="94" height="16" rx="4"/><rect class="accept" x="362" y="151" width="94" height="16" rx="4"/>
+    <rect class="track" x="362" y="187" width="94" height="16" rx="4"/><rect class="accept" x="362" y="187" width="94" height="16" rx="4"/>
+    <rect class="track" x="362" y="223" width="94" height="16" rx="4"/><rect class="accept" x="362" y="223" width="67.7" height="16" rx="4"/>
+    <rect class="track" x="362" y="259" width="94" height="16" rx="4"/><rect class="accept" x="362" y="259" width="75.2" height="16" rx="4"/>
+    <rect class="track" x="362" y="295" width="94" height="16" rx="4"/><rect class="accept" x="362" y="295" width="47" height="16" rx="4"/>
+  </g>
+  <g class="value">
+    <text x="466" y="164">1.00</text><text x="466" y="200">1.00</text><text x="466" y="236">0.72</text>
+    <text x="466" y="272">0.80</text><text x="466" y="308">0.50</text>
+  </g>
+  <text class="small" x="334" y="330">β = Σ min(p,q) = 0.80</text>
+
+  <rect class="panel" x="524" y="76" width="212" height="270"/>
+  <text class="head" x="542" y="102">拒绝后残差 r</text>
+  <text class="small" x="542" y="126">norm(max(0, p − q))</text>
+  <g class="small" text-anchor="end">
+    <text x="570" y="165">A</text><text x="570" y="201">B</text><text x="570" y="237">C</text><text x="570" y="273">D</text><text x="570" y="309">E</text>
+  </g>
+  <g>
+    <rect class="track" x="582" y="151" width="94" height="16" rx="4"/><rect class="resid" x="582" y="151" width="70.5" height="16" rx="4"/>
+    <rect class="track" x="582" y="187" width="94" height="16" rx="4"/><rect class="resid" x="582" y="187" width="23.5" height="16" rx="4"/>
+    <rect class="track" x="582" y="223" width="94" height="16" rx="4"/>
+    <rect class="track" x="582" y="259" width="94" height="16" rx="4"/>
+    <rect class="track" x="582" y="295" width="94" height="16" rx="4"/>
+  </g>
+  <g class="value">
+    <text x="686" y="164">.75</text><text x="686" y="200">.25</text><text x="686" y="236">0</text>
+    <text x="686" y="272">0</text><text x="686" y="308">0</text>
+  </g>
+  <text class="small" x="542" y="330">P(reject) = 1 − β = 0.20</text>
+
+  <line class="rule" x1="28" y1="367" x2="732" y2="367"/>
+  <text class="head" x="32" y="394">接受与拒绝两条路径合起来，正好还原目标分布 p</text>
+  <rect class="panel" x="28" y="410" width="704" height="96"/>
+  <text class="label" x="46" y="435">接受贡献 min(p,q)</text>
+  <text class="value" x="214" y="435">(.20, .20, .18, .12, .10)</text>
+  <text class="label" x="46" y="461">拒绝贡献 .20 × r</text>
+  <text class="value" x="214" y="461">(.15, .05, 0, 0, 0)</text>
+  <text class="head" x="46" y="489">相加 = p</text>
+  <text class="head" x="214" y="489">(.35, .25, .18, .12, .10)</text>
+  <text class="small" x="380" y="528" text-anchor="middle">每个 token 的接受概率不同；被拒时从正残差采样，整体输出仍服从 p。</text>
+</svg>

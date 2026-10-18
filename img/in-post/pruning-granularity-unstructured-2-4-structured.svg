@@ -99,7 +99,7 @@
 <rect x="170" y="151" width="12" height="12" fill="#eee" stroke="#fff"/>
 <rect x="183" y="151" width="12" height="12" fill="#1f6fb2" stroke="#fff"/>
 <text x="118.0" y="182" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">零散在任何位置</text>
-<text x="118.0" y="198" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">稠密 GEMM 照样算：几乎不提速</text>
+<text x="118.0" y="198" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">稠密 GEMM 不跳过零，通常只省存储</text>
 <text x="318.0" y="48" fill="#333" font-size="12" text-anchor="middle" font-weight="600">2:4 半结构化</text>
 <rect x="240" y="60" width="12" height="12" fill="#eee" stroke="#fff"/>
 <rect x="253" y="60" width="12" height="12" fill="#eee" stroke="#fff"/>
@@ -198,8 +198,8 @@
 <rect x="370" y="151" width="12" height="12" fill="#eee" stroke="#fff"/>
 <rect x="383" y="151" width="12" height="12" fill="#1f6fb2" stroke="#fff"/>
 <text x="318.0" y="182" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">每 4 个里恰好 2 个为零</text>
-<text x="318.0" y="198" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">稀疏 Tensor Core：GEMM ≤ 2×</text>
-<text x="518.0" y="48" fill="#333" font-size="12" text-anchor="middle" font-weight="600">结构化：整列 / 整个 head</text>
+<text x="318.0" y="198" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">兼容 Sparse Tensor Core：理论上限 2×</text>
+<text x="518.0" y="48" fill="#333" font-size="12" text-anchor="middle" font-weight="600">结构化：整通道 / 整个 head</text>
 <rect x="440" y="60" width="12" height="12" fill="#1f6fb2" stroke="#fff"/>
 <rect x="453" y="60" width="12" height="12" fill="#1f6fb2" stroke="#fff"/>
 <rect x="466" y="60" width="12" height="12" fill="#eee" stroke="#fff"/>
@@ -296,8 +296,8 @@
 <rect x="557" y="151" width="12" height="12" fill="#eee" stroke="#fff"/>
 <rect x="570" y="151" width="12" height="12" fill="#1f6fb2" stroke="#fff"/>
 <rect x="583" y="151" width="12" height="12" fill="#1f6fb2" stroke="#fff"/>
-<text x="518.0" y="182" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">整列删掉 → 矩阵变窄</text>
-<text x="518.0" y="198" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">任何硬件直接提速；精度掉最多</text>
-<text x="40" y="232" fill="#333" font-size="12" text-anchor="start" font-weight="normal">层裁剪是更粗的粒度：整层删掉（32 层 → 24 层），每 token 的 FLOPs 与权重字节按比例减少——第三章。</text>
+<text x="518.0" y="182" fill="#333" font-size="11" text-anchor="middle" font-weight="normal">删除通道 → 稠密矩阵变窄</text>
+<text x="518.0" y="198" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">普通 GEMM 可计算；时延取决于形状</text>
+<text x="40" y="232" fill="#333" font-size="12" text-anchor="start" font-weight="normal">层裁剪是更粗的粒度：整层删除后 FLOPs 与权重字节减少；实际时延看部署 kernel——第三章。</text>
 <text x="40" y="252" fill="#333" font-size="12" text-anchor="start" font-weight="normal">一条规律：剪得越自由、精度越好保，但硬件越难兑现；剪得越规整、硬件越省事，但恢复越费——第六章讲为什么恢复必须蒸馏。</text>
 </svg>

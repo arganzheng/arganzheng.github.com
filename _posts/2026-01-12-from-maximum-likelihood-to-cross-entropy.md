@@ -16,23 +16,6 @@ updated: 2026-09-30
 
 > **能不能从"语言模型是条件分布"出发，三行推出交叉熵 loss？[^q0] 训练开始时 loss 应该是多少？[^q1]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| softmax | — | 把一组分数归一化成概率分布的函数 |
-| SFT | supervised fine-tuning | 用标注答案做监督微调 |
-| DPO | direct preference optimization | 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法 |
-| loss | — | 损失函数，训练要最小化的目标值 |
-| PPL | perplexity | 困惑度，交叉熵的指数，越小越好 |
-| GPT | generative pre-trained transformer | OpenAI 的生成式预训练模型系列 |
-| MLE | maximum likelihood estimation | 最大似然估计，让数据概率最大的参数估计 |
-| LLM | large language model | 大语言模型 |
-| NLL | negative log-likelihood | 负对数似然，MLE 实际优化的 loss |
-| logits | — | softmax 之前的那组原始分数 |
-| tokenizer | — | 把文本切成 token、给出 ID 的组件 |
-| KL | Kullback–Leibler | KL 散度，衡量两个分布差多少的非对称度量 |
-
 ## 一、总览
 
 ### 1. 本文的路线
@@ -231,7 +214,7 @@ Table: 同一个负对数似然模板下的各种 loss
 
 **SFT 的 loss mask。** 一条对话 `user: 1+1=?` / `assistant: 2` 经 Qwen2.5 的 chat 模板变成 26 个 token（含系统提示与角色标记），其中只有回答的 3 个 token 算 loss：
 
-![Qwen2.5 chat 模板下一条对话的 26 个 token：前 23 个是 prompt，后 3 个——答案 2、结束标记、换行——是回答（mask 1）](/img/in-post/math-05-sft-loss-mask.svg)
+![Qwen2.5 chat 模板下一条对话的 26 个 token：前 23 个是 prompt（mask 0），后 3 个——答案 2、结束标记、换行——是回答（mask 1）](/img/in-post/math-05-sft-loss-mask.svg)
 
 loss 是 mask 为 1 的 3 个位置的 $$-\log p$$ 之和**除以 3**——不是除以 26。分母除错了，loss 会凭空变小（第六章的 bug 之一就是这类），多条长短不一的对话之间也不可比。后训练系列第一篇展开 mask 的各种细节（多轮对话、只训最后一轮、工具调用的返回要不要算）。
 
@@ -506,7 +489,7 @@ Table: 一条 nanoGPT 训练日志的三行与它们的含义
 
    </details>
 
-下一篇进入信息论：熵、交叉熵、KL（Kullback–Leibler）三个量的定义与关系，KL 的方向为什么决定"对齐会降低多样性"，以及从 KL 约束的最优策略一路推出 DPO。
+下一篇进入信息论：熵、交叉熵、KL 三个量的定义与关系，KL 的方向为什么决定"对齐会降低多样性"，以及从 KL 约束的最优策略一路推出 DPO。
 
 配套代码：[`math-for-ai/05_mle_to_cross_entropy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/05_mle_to_cross_entropy.py)——硬币似然曲线、玩具语言模型、下溢演示、softmax 对拍与溢出、nanoGPT 首步 loss 与三种 bug、GPT-2 上的温度 / top-k / top-p、Qwen2.5 chat 模板的 loss mask、奖励模型曲线、读日志；本文全部图与数字由它生成，输出在 `expected/`。
 

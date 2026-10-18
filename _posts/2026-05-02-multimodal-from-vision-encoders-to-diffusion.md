@@ -4,6 +4,7 @@ title: 多模态：从视觉编码器到扩散模型（总纲）
 subtitle: "Multimodal Models: From Vision Encoders to Diffusion"
 tags: [AI, LLM, Multimodal, Diffusion]
 catalog: true
+updated: 2026-10-18
 ---
 
 
@@ -179,12 +180,15 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 flowchart TB
     subgraph U["理解线：把模态送进 LLM"]
         direction TB
-        ENC["`**一 · 视觉编码器**
-ViT · CLIP / SigLIP · DINOv2
+        subgraph VLM["VLM 的结构"]
+            direction TB
+            ENC["`**一 · VLM 的结构（上）**
+视觉编码器：ViT · CLIP / SigLIP · DINOv2
 一张图 → 几百个向量`"]
-        ARCH["`**二 · VLM 结构**
+            ARCH["`**二 · VLM 的结构（下）**
 connector · 注入方式
-动态分辨率 · 视频`"]
+分辨率策略 · 视频`"]
+        end
         TRAIN["`**三 · VLM 训练**
 阶段 · 数据 · 评测 · 幻觉`"]
         AUDIO["`**四 · 语音（上）**
@@ -218,6 +222,7 @@ VQ · AR 图像生成
     class ENC,ARCH,TRAIN,AUDIO,AUDIO2 und
     class DIFF,DIFF2,LDM gen
     class UNI uni
+    style VLM fill:#f5faff,stroke:#2e6da4,stroke-dasharray:4 3
 ```
 
 贯穿九篇的三条线索：

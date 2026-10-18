@@ -4,6 +4,7 @@ title: 大规模训练工程：从并行策略到容错恢复（总纲）
 subtitle: Large-Scale Training Engineering, from Parallelism to Fault Tolerance
 tags: [Megatron, DeepSpeed, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-09-06
 ---
 
 

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="326" viewBox="0 0 760 326" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#475569"/></marker></defs>
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="380" y="25" fill="#202938" font-size="15" text-anchor="middle" font-weight="700">Full K/V 与 MLA：每个 token 写入的缓存形状</text>
+<rect x="18" y="46" width="350" height="228" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.4"/>
+<rect x="392" y="46" width="350" height="228" rx="12" fill="#f0fdfa" stroke="#238a83" stroke-width="1.4"/>
+<text x="193" y="72" fill="#334155" font-size="12" text-anchor="middle" font-weight="700">Llama 3.1 70B · GQA · BF16</text>
+<text x="193" y="96" fill="#475569" font-size="11" text-anchor="middle" font-weight="normal">每层都存完整 K 和 V</text>
+<rect x="43" y="112" width="132" height="46" rx="8" fill="#e7eef9" stroke="#3b6fb6"/>
+<rect x="210" y="112" width="132" height="46" rx="8" fill="#fff1e6" stroke="#e0812c"/>
+<text x="109" y="132" fill="#202938" font-size="12" text-anchor="middle" font-weight="700">K：8 × 128</text>
+<text x="109" y="149" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">每个 KV head</text>
+<text x="276" y="132" fill="#202938" font-size="12" text-anchor="middle" font-weight="700">V：8 × 128</text>
+<text x="276" y="149" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">每个 KV head</text>
+<line x1="177" y1="135" x2="205" y2="135" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="193" y="188" fill="#334155" font-size="11" text-anchor="middle" font-weight="600">2 × 8 × 128 × 2 bytes = 4 KiB</text>
+<text x="193" y="207" fill="#475569" font-size="10" text-anchor="middle" font-weight="normal">每层、每 token</text>
+<text x="193" y="239" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="700">80 层 → 320 KiB/token → 40 GiB / 128K</text>
+<text x="567" y="72" fill="#334155" font-size="12" text-anchor="middle" font-weight="700">DeepSeek-V3 · MLA · BF16</text>
+<text x="567" y="96" fill="#475569" font-size="11" text-anchor="middle" font-weight="normal">每层缓存低秩 latent 与 RoPE key</text>
+<rect x="416" y="112" width="146" height="46" rx="8" fill="#e7f6f2" stroke="#238a83"/>
+<rect x="584" y="112" width="132" height="46" rx="8" fill="#f2ecfb" stroke="#8a6bd1"/>
+<text x="489" y="132" fill="#202938" font-size="12" text-anchor="middle" font-weight="700">c_KV：rank 512</text>
+<text x="489" y="149" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">低秩 KV latent</text>
+<text x="650" y="132" fill="#202938" font-size="12" text-anchor="middle" font-weight="700">k_RoPE：64</text>
+<text x="650" y="149" fill="#475569" font-size="9" text-anchor="middle" font-weight="normal">位置编码分量</text>
+<line x1="565" y1="135" x2="579" y2="135" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="567" y="188" fill="#334155" font-size="11" text-anchor="middle" font-weight="600">(512 + 64) × 2 bytes = 1.125 KiB</text>
+<text x="567" y="207" fill="#475569" font-size="10" text-anchor="middle" font-weight="normal">每层、每 token；读时由共享投影还原</text>
+<text x="567" y="239" fill="#238a83" font-size="10" text-anchor="middle" font-weight="700">61 层 → 68.6 KiB/token → 8.58 GiB / 128K</text>
+<text x="380" y="300" fill="#64748b" font-size="9" text-anchor="middle" font-weight="normal">两边使用各自官方配置中的维度；缓存字节数可比，模型质量不是同一条件下的对照。</text>
+</svg>
