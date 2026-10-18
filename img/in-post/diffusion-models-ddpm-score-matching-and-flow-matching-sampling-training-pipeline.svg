@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470" role="img" aria-labelledby="title desc">
+  <title id="title">扩散模型的采样与训练流程</title>
+  <desc id="desc">上方展示 Stable Diffusion 风格的采样流程，下方展示用真实样本构造带噪输入并预测噪声的训练流程。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#465a70"/>
+    </marker>
+    <marker id="blue-arrow" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#3b6fb6"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; fill: #233247; }
+      .panel { fill: #f8fafc; stroke: #8a9bb0; stroke-width: 1.4; }
+      .box { stroke-width: 1.2; }
+      .title { font-size: 16px; font-weight: 700; }
+      .label { font-size: 13px; font-weight: 650; }
+      .small { font-size: 11.5px; }
+      .arrow { fill: none; stroke: #465a70; stroke-width: 1.5; marker-end: url(#arrow); }
+      .condition { fill: none; stroke: #3b6fb6; stroke-width: 1.5; stroke-dasharray: 4 3; marker-end: url(#blue-arrow); }
+    </style>
+  </defs>
+
+  <rect class="panel" x="10" y="10" width="740" height="280" rx="12"/>
+  <text class="title" x="24" y="38">采样：Stable Diffusion 风格文生图</text>
+
+  <rect class="box" x="24" y="55" width="108" height="46" rx="8" fill="#e8f1fb" stroke="#3b6fb6"/>
+  <text class="label" x="78" y="75" text-anchor="middle">prompt</text>
+  <text class="small" x="78" y="91" text-anchor="middle">“一只狐狸”</text>
+  <path class="arrow" d="M132 78 H154"/>
+
+  <rect class="box" x="154" y="55" width="112" height="46" rx="8" fill="#e8f1fb" stroke="#3b6fb6"/>
+  <text class="label" x="210" y="83" text-anchor="middle">Text Encoder</text>
+  <path class="arrow" d="M266 78 H288"/>
+
+  <rect class="box" x="288" y="55" width="124" height="46" rx="8" fill="#e8f1fb" stroke="#3b6fb6"/>
+  <text class="label" x="350" y="75" text-anchor="middle">条件向量 c</text>
+  <text class="small" x="350" y="91" text-anchor="middle">condition vectors</text>
+
+  <rect class="box" x="24" y="164" width="110" height="52" rx="8" fill="#f1f3f5" stroke="#7b8794"/>
+  <text class="label" x="79" y="185" text-anchor="middle">纯高斯噪声</text>
+  <text class="small" x="79" y="202" text-anchor="middle">x_T ~ N(0, I)</text>
+  <path class="arrow" d="M134 190 H164"/>
+
+  <rect x="152" y="121" width="369" height="145" rx="10" fill="#ffffff" stroke="#607d9b" stroke-width="1.4"/>
+  <text class="label" x="336" y="146" text-anchor="middle">去噪循环（DDIM 可用 50 步）</text>
+  <path class="condition" d="M350 101 V127 H227 V164"/>
+
+  <rect class="box" x="164" y="165" width="126" height="49" rx="7" fill="#e8f1fb" stroke="#3b6fb6"/>
+  <text class="label" x="227" y="185" text-anchor="middle">U-Net / DiT</text>
+  <text class="small" x="227" y="201" text-anchor="middle">预测噪声 ε̂</text>
+
+  <path class="arrow" d="M290 190 H303"/>
+  <rect class="box" x="303" y="165" width="92" height="49" rx="7" fill="#fff1df" stroke="#d68a35"/>
+  <text class="small" x="349" y="185" text-anchor="middle">估计干净样本</text>
+  <text class="label" x="349" y="201" text-anchor="middle">x̂₀</text>
+
+  <path class="arrow" d="M395 190 H409"/>
+  <rect class="box" x="409" y="165" width="97" height="49" rx="7" fill="#e9f4eb" stroke="#4a9a5b"/>
+  <text class="small" x="457" y="185" text-anchor="middle">更新到较少噪声</text>
+  <text class="label" x="457" y="201" text-anchor="middle">xₜ₋₁</text>
+
+  <path class="arrow" d="M457 214 V236 H227 V214"/>
+  <text class="small" x="342" y="258" text-anchor="middle">时间步递减，重复 N 次</text>
+
+  <path class="arrow" d="M521 190 H550"/>
+  <text class="small" x="535" y="179" text-anchor="middle">t = 0</text>
+  <rect class="box" x="550" y="164" width="92" height="52" rx="8" fill="#e9f4eb" stroke="#4a9a5b"/>
+  <text class="label" x="596" y="185" text-anchor="middle">VAE Decoder</text>
+  <text class="small" x="596" y="202" text-anchor="middle">latent → 像素</text>
+  <path class="arrow" d="M642 190 H671"/>
+  <rect class="box" x="671" y="164" width="67" height="52" rx="8" fill="#e9f4eb" stroke="#4a9a5b"/>
+  <text class="label" x="704.5" y="194" text-anchor="middle">图像</text>
+
+  <rect class="panel" x="10" y="300" width="740" height="160" rx="12"/>
+  <text class="title" x="24" y="329">训练：用真实噪声监督同一网络</text>
+
+  <rect class="box" x="20" y="357" width="105" height="62" rx="8" fill="#e8f1fb" stroke="#3b6fb6"/>
+  <text class="label" x="72.5" y="381" text-anchor="middle">真实样本</text>
+  <text class="small" x="72.5" y="400" text-anchor="middle">x₀（图像 / latent）</text>
+  <path class="arrow" d="M125 388 H145"/>
+
+  <rect class="box" x="145" y="357" width="95" height="62" rx="8" fill="#f1f3f5" stroke="#7b8794"/>
+  <text class="label" x="192.5" y="381" text-anchor="middle">随机抽取</text>
+  <text class="small" x="192.5" y="400" text-anchor="middle">t 和 ε</text>
+  <path class="arrow" d="M240 388 H260"/>
+
+  <rect class="box" x="260" y="357" width="165" height="62" rx="8" fill="#fff1df" stroke="#d68a35"/>
+  <text class="label" x="342.5" y="376" text-anchor="middle">闭式加噪，一步得到 x_t</text>
+  <text class="small" x="342.5" y="394" text-anchor="middle">x_t = √ᾱ_t x₀ +</text>
+  <text class="small" x="342.5" y="410" text-anchor="middle">√(1−ᾱ_t) ε</text>
+  <path class="arrow" d="M425 388 H445"/>
+
+  <rect class="box" x="445" y="357" width="120" height="62" rx="8" fill="#e8f1fb" stroke="#3b6fb6"/>
+  <text class="label" x="505" y="381" text-anchor="middle">同一网络</text>
+  <text class="small" x="505" y="400" text-anchor="middle">输入 xₜ、t；预测 ε̂</text>
+  <path class="arrow" d="M565 388 H585"/>
+
+  <rect class="box" x="585" y="357" width="140" height="62" rx="8" fill="#f8e9e9" stroke="#c94c4c"/>
+  <text class="label" x="655" y="381" text-anchor="middle">比较 ε̂ 与 ε</text>
+  <text class="small" x="655" y="400" text-anchor="middle">MSE</text>
+</svg>
