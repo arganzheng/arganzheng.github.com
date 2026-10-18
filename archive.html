@@ -33,23 +33,44 @@ permalink: /archive/
     </div>
   </div>
   <div class="archive-control-row archive-selects">
-    <label for="archive-year-filter">年份
-      <select id="archive-year-filter"><option value="">全部</option></select>
-    </label>
-    <label for="archive-series-filter">系列
-      <select id="archive-series-filter"><option value="">全部</option></select>
-    </label>
-    <label for="archive-tag-filter">标签
-      <select id="archive-tag-filter"><option value="">全部</option></select>
-    </label>
-    <label for="archive-sort-filter">排序
+    <div class="archive-filter-field archive-multi" data-filter="year">
+      <span class="archive-filter-label" id="archive-year-label">年份</span>
+      <button type="button" class="archive-multi-toggle" id="archive-year-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-year-label archive-year-filter" aria-controls="archive-year-panel"><span class="archive-multi-value">全部</span></button>
+      <div class="archive-multi-panel" id="archive-year-panel" hidden>
+        <ul class="archive-multi-options" role="group" aria-label="年份"></ul>
+        <p class="archive-multi-none" hidden>没有匹配的年份</p>
+        <div class="archive-multi-footer"><button type="button" class="archive-multi-clear">清空</button></div>
+      </div>
+    </div>
+    <div class="archive-filter-field archive-multi" data-filter="series">
+      <span class="archive-filter-label" id="archive-series-label">系列</span>
+      <button type="button" class="archive-multi-toggle" id="archive-series-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-series-label archive-series-filter" aria-controls="archive-series-panel"><span class="archive-multi-value">全部</span></button>
+      <div class="archive-multi-panel" id="archive-series-panel" hidden>
+        <input type="search" class="archive-multi-search" placeholder="筛选系列" aria-label="筛选系列">
+        <ul class="archive-multi-options" role="group" aria-label="系列"></ul>
+        <p class="archive-multi-none" hidden>没有匹配的系列</p>
+        <div class="archive-multi-footer"><button type="button" class="archive-multi-clear">清空</button></div>
+      </div>
+    </div>
+    <div class="archive-filter-field archive-multi" data-filter="tag">
+      <span class="archive-filter-label" id="archive-tag-label">标签</span>
+      <button type="button" class="archive-multi-toggle" id="archive-tag-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-tag-label archive-tag-filter" aria-controls="archive-tag-panel"><span class="archive-multi-value">全部</span></button>
+      <div class="archive-multi-panel" id="archive-tag-panel" hidden>
+        <input type="search" class="archive-multi-search" placeholder="筛选标签" aria-label="筛选标签">
+        <ul class="archive-multi-options" role="group" aria-label="标签"></ul>
+        <p class="archive-multi-none" hidden>没有匹配的标签</p>
+        <div class="archive-multi-footer"><button type="button" class="archive-multi-clear">清空</button></div>
+      </div>
+    </div>
+    <div class="archive-filter-field archive-sort-field">
+      <label class="archive-filter-label" for="archive-sort-filter">排序</label>
       <select id="archive-sort-filter">
         <option value="newest">最新发布</option>
         <option value="oldest">最早发布</option>
         <option value="updated">最近更新</option>
         <option value="title">标题</option>
       </select>
-    </label>
+    </div>
   </div>
   <div class="archive-control-row archive-toolbar-bottom">
     <div class="archive-view-switch" role="group" aria-label="归档视图">
@@ -259,18 +280,25 @@ permalink: /archive/
     grid-template-columns: .8fr 1.4fr 1.2fr .9fr;
     gap: 10px 16px;
   }
-  #archive .archive-selects label {
+  #archive .archive-filter-field {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
+    margin: 0;
+  }
+  #archive .archive-filter-label {
+    display: block;
+    flex: 0 0 auto;
     margin: 0;
     color: #57606a;
     font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
   }
-  #archive .archive-selects select {
+  #archive .archive-selects select,
+  #archive .archive-multi-toggle {
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
@@ -296,6 +324,119 @@ permalink: /archive/
     box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
     outline: none;
   }
+  #archive .archive-multi-toggle {
+    display: flex;
+    align-items: center;
+    text-align: left;
+  }
+  #archive .archive-multi-value {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #archive .archive-multi-toggle:hover { border-color: #8c959f; }
+  #archive .archive-multi-toggle:focus {
+    border-color: #0969da;
+    box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
+    outline: none;
+  }
+  #archive .archive-multi-toggle.is-active {
+    border-color: #00788f;
+    color: #00788f;
+  }
+  #archive .archive-filter-field.is-open { z-index: 31; }
+  #archive .archive-multi-panel {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    left: 0;
+    width: max(100%, 240px);
+    max-width: min(420px, calc(100vw - 24px));
+    max-height: 320px;
+    box-sizing: border-box;
+    overflow: hidden;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(27, 31, 36, .16);
+    color: #24292f;
+    font-size: 13px;
+    font-weight: 400;
+    white-space: normal;
+  }
+  #archive .archive-multi-panel[hidden],
+  #archive .archive-multi-none[hidden],
+  #archive .archive-multi-option[hidden] { display: none !important; }
+  #archive .archive-multi-search {
+    display: block;
+    width: calc(100% - 16px);
+    height: 32px;
+    margin: 8px;
+    padding: 0 9px;
+    border: 1px solid #d0d7de;
+    border-radius: 5px;
+    background: #fff;
+    color: #24292f;
+    font: inherit;
+  }
+  #archive .archive-multi-search:focus {
+    border-color: #0969da;
+    box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
+    outline: none;
+  }
+  #archive .archive-multi-options {
+    max-height: 215px;
+    margin: 0;
+    padding: 4px 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+  #archive .archive-multi-option label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 10px;
+    color: #24292f;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.35;
+    white-space: normal;
+  }
+  #archive .archive-multi-option label:hover { background: #f6f8fa; }
+  #archive .archive-multi-option input { flex: 0 0 auto; margin: 0; accent-color: #00788f; }
+  #archive .archive-multi-name { min-width: 0; overflow-wrap: anywhere; }
+  #archive .archive-multi-count {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: #6e7781;
+    font-variant-numeric: tabular-nums;
+  }
+  #archive .archive-multi-none {
+    margin: 0;
+    padding: 12px 10px;
+    color: #6e7781;
+  }
+  #archive .archive-multi-footer {
+    padding: 7px 8px;
+    border-top: 1px solid #d0d7de;
+    text-align: right;
+  }
+  #archive .archive-multi-clear {
+    padding: 4px 9px;
+    border: 1px solid #d0d7de;
+    border-radius: 5px;
+    background: #fff;
+    color: #57606a;
+    cursor: pointer;
+    font: inherit;
+  }
+  #archive .archive-multi-clear:hover { border-color: #00788f; color: #00788f; }
+  #archive .archive-sort-field select { flex: 1 1 auto; }
   #archive .archive-toolbar-bottom { justify-content: space-between; }
   #archive .archive-result-count {
     margin-left: auto;
@@ -420,6 +561,11 @@ permalink: /archive/
   @media (max-width: 767px) {
     #archive .archive-controls { padding: 11px; }
     #archive .archive-selects { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+    #archive .archive-multi-panel {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+    }
     #archive .archive-view-switch { flex: 1 0 100%; }
     #archive .archive-result-count { margin-left: 0; }
     #archive .archive-clear-filters { margin-left: auto; }
@@ -752,19 +898,6 @@ permalink: /archive/
       }, {});
     }
 
-    function populateSelect(select, entries) {
-      while (select.options.length > 1) select.remove(1);
-      entries.forEach(function (entry) {
-        var option = document.createElement('option');
-        option.value = entry.value;
-        option.textContent = entry.label;
-        select.appendChild(option);
-      });
-    }
-
-    var yearFilter = document.getElementById('archive-year-filter');
-    var seriesFilter = document.getElementById('archive-series-filter');
-    var tagFilter = document.getElementById('archive-tag-filter');
     var sortFilter = document.getElementById('archive-sort-filter');
     var yearCounts = countBy('year');
     var seriesCounts = countBy('series');
@@ -780,19 +913,132 @@ permalink: /archive/
       if (b === '未注明日期') return -1;
       return b.localeCompare(a, 'zh');
     });
-    populateSelect(yearFilter, years.map(function (year) {
-      return { value: year, label: year + ' (' + yearCounts[year] + ')' };
-    }));
-    populateSelect(seriesFilter, Object.keys(seriesCounts).sort(function (a, b) {
+    var yearOptions = years.map(function (year) {
+      return { value: year, name: year, count: yearCounts[year] };
+    });
+    var seriesOptions = Object.keys(seriesCounts).sort(function (a, b) {
       return a.localeCompare(b, 'zh');
     }).map(function (series) {
-      return { value: series, label: series + ' (' + seriesCounts[series] + ')' };
-    }));
-    populateSelect(tagFilter, Object.keys(tagCounts).sort(function (a, b) {
+      return { value: series, name: series, count: seriesCounts[series] };
+    });
+    var tagOptions = Object.keys(tagCounts).sort(function (a, b) {
       return tagCounts[b] - tagCounts[a] || a.localeCompare(b, 'zh');
     }).map(function (tag) {
-      return { value: tag, label: tag + ' (' + tagCounts[tag] + ')' };
-    }));
+      return { value: tag, name: tag, count: tagCounts[tag] };
+    });
+    var filterOptions = {
+      years: yearOptions,
+      series: seriesOptions,
+      tags: tagOptions
+    };
+    var filterDefinitions = [
+      { name: 'year', key: 'years', param: 'year', options: yearOptions, empty: '没有匹配的年份' },
+      { name: 'series', key: 'series', param: 'series', options: seriesOptions, empty: '没有匹配的系列' },
+      { name: 'tag', key: 'tags', param: 'tag', options: tagOptions, empty: '没有匹配的标签' }
+    ];
+
+    function orderedValues(key, values) {
+      var selected = new Set(values);
+      return filterOptions[key].filter(function (option) {
+        return selected.has(option.value);
+      }).map(function (option) {
+        return option.value;
+      });
+    }
+
+    function parseFilterValues(params, definition) {
+      var requested = (params.get(definition.param) || '').split(',').map(function (value) {
+        return value.trim();
+      }).filter(Boolean);
+      return orderedValues(definition.key, requested);
+    }
+
+    function buildMultiFilter(definition) {
+      var field = controls.querySelector('[data-filter="' + definition.name + '"]');
+      var toggle = field.querySelector('.archive-multi-toggle');
+      var panel = field.querySelector('.archive-multi-panel');
+      var list = field.querySelector('.archive-multi-options');
+      var search = field.querySelector('.archive-multi-search');
+      var noResults = field.querySelector('.archive-multi-none');
+      var clearButton = field.querySelector('.archive-multi-clear');
+      var value = toggle.querySelector('.archive-multi-value');
+      var checkboxes = [];
+
+      definition.options.forEach(function (option) {
+        var item = document.createElement('li');
+        item.className = 'archive-multi-option';
+        item.dataset.filterName = option.name.toLowerCase();
+        var label = document.createElement('label');
+        var checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = option.value;
+        checkbox.addEventListener('change', function () {
+          var selected = state[definition.key].slice();
+          if (checkbox.checked && selected.indexOf(option.value) === -1) {
+            selected.push(option.value);
+          } else if (!checkbox.checked) {
+            selected = selected.filter(function (entry) { return entry !== option.value; });
+          }
+          state[definition.key] = orderedValues(definition.key, selected);
+          render();
+          updateUrl();
+        });
+        var name = document.createElement('span');
+        name.className = 'archive-multi-name';
+        name.textContent = option.name;
+        var count = document.createElement('span');
+        count.className = 'archive-multi-count';
+        count.textContent = '(' + option.count + ')';
+        label.appendChild(checkbox);
+        label.appendChild(name);
+        label.appendChild(count);
+        item.appendChild(label);
+        list.appendChild(item);
+        checkboxes.push({ input: checkbox, option: option, item: item });
+      });
+
+      if (search) {
+        search.addEventListener('input', function () {
+          var query = search.value.trim().toLowerCase();
+          var visibleCount = 0;
+          checkboxes.forEach(function (entry) {
+            var visible = entry.option.name.toLowerCase().indexOf(query) !== -1;
+            entry.item.hidden = !visible;
+            if (visible) visibleCount += 1;
+          });
+          noResults.hidden = visibleCount !== 0;
+        });
+      }
+
+      clearButton.addEventListener('click', function () {
+        state[definition.key] = [];
+        render();
+        updateUrl();
+      });
+      toggle.addEventListener('click', function () {
+        if (!panel.hidden) {
+          closeMultiFilters();
+          return;
+        }
+        closeMultiFilters();
+        field.classList.add('is-open');
+        panel.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+        if (search) search.focus();
+      });
+
+      return {
+        field: field,
+        toggle: toggle,
+        panel: panel,
+        value: value,
+        checkboxes: checkboxes,
+        search: search,
+        noResults: noResults,
+        definition: definition
+      };
+    }
+
     Array.prototype.forEach.call(controls.querySelectorAll('[data-type-count]'), function (count) {
       var type = count.dataset.typeCount;
       var total = type === 'all' ? items.length : items.filter(function (item) {
@@ -821,23 +1067,70 @@ permalink: /archive/
       var sort = validSorts.indexOf(sortParam) !== -1 ? sortParam : 'newest';
       return {
         types: types,
-        year: params.get('year') || '',
-        series: params.get('series') || '',
-        tag: params.get('tag') || '',
+        years: parseFilterValues(params, filterDefinitions[0]),
+        series: parseFilterValues(params, filterDefinitions[1]),
+        tags: parseFilterValues(params, filterDefinitions[2]),
         sort: sort,
         view: sort === 'newest' ? requestedView : 'table'
       };
     }
 
     var state = loadState();
-    if (yearFilter && !yearCounts[state.year]) state.year = '';
-    if (seriesFilter && !seriesCounts[state.series]) state.series = '';
-    if (tagFilter && !tagCounts[state.tag]) state.tag = '';
+    var multiFilters = {};
+    filterDefinitions.forEach(function (definition) {
+      multiFilters[definition.key] = buildMultiFilter(definition);
+    });
+
+    function closeMultiFilters() {
+      Object.keys(multiFilters).forEach(function (key) {
+        var filter = multiFilters[key];
+        filter.field.classList.remove('is-open');
+        filter.panel.hidden = true;
+        filter.toggle.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    document.addEventListener('click', function (event) {
+      if (!event.target.closest || !event.target.closest('.archive-multi')) closeMultiFilters();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      var openFilter = Object.keys(multiFilters).map(function (key) {
+        return multiFilters[key];
+      }).find(function (filter) {
+        return !filter.panel.hidden;
+      });
+      if (!openFilter) return;
+      event.preventDefault();
+      closeMultiFilters();
+      openFilter.toggle.focus();
+    });
 
     function saveView() {
       try {
         window.localStorage.setItem('archive-view', state.view);
       } catch (error) {}
+    }
+
+    function updateFilterParams(url) {
+      filterDefinitions.forEach(function (definition) {
+        url.searchParams.delete(definition.param);
+        var values = orderedValues(definition.key, state[definition.key]);
+        if (values.length) url.searchParams.set(definition.param, values.join(','));
+      });
+    }
+
+    function archiveUrl(url) {
+      var search = url.search.replace(/([?&](?:year|series|tag)=)([^&]*)/g, function (_, prefix, value) {
+        return prefix + value.replace(/%2C/gi, ',');
+      });
+      return url.pathname + search + url.hash;
+    }
+
+    function normalizeFilterUrl() {
+      var url = new URL(window.location.href);
+      updateFilterParams(url);
+      window.history.replaceState(null, '', archiveUrl(url));
     }
 
     function updateUrl() {
@@ -849,12 +1142,10 @@ permalink: /archive/
         return state.types.indexOf(type) !== -1;
       });
       if (selectedTypes.length) url.searchParams.set('type', selectedTypes.join(','));
-      if (state.year) url.searchParams.set('year', state.year);
-      if (state.series) url.searchParams.set('series', state.series);
-      if (state.tag) url.searchParams.set('tag', state.tag);
+      updateFilterParams(url);
       if (state.sort !== 'newest') url.searchParams.set('sort', state.sort);
       if (state.view !== 'timeline') url.searchParams.set('view', state.view);
-      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      window.history.replaceState(null, '', archiveUrl(url));
     }
 
     function sorted(list) {
@@ -995,11 +1286,14 @@ permalink: /archive/
     }
 
     function render() {
+      controls.hidden = false;
       var filtered = items.filter(function (item) {
         return (!state.types.length || state.types.indexOf(item.type) !== -1) &&
-          (!state.year || item.year === state.year) &&
-          (!state.series || item.series === state.series) &&
-          (!state.tag || item.tags.indexOf(state.tag) !== -1);
+          (!state.years.length || state.years.indexOf(item.year) !== -1) &&
+          (!state.series.length || state.series.indexOf(item.series) !== -1) &&
+          (!state.tags.length || state.tags.some(function (tag) {
+            return item.tags.indexOf(tag) !== -1;
+          }));
       });
       var ordered = sorted(filtered);
       var visible = new Set(filtered.map(function (item) { return item.el; }));
@@ -1028,16 +1322,32 @@ permalink: /archive/
       Array.prototype.forEach.call(controls.querySelectorAll('[data-archive-view]'), function (button) {
         button.setAttribute('aria-pressed', String(button.dataset.archiveView === state.view));
       });
-      yearFilter.value = state.year;
-      seriesFilter.value = state.series;
-      tagFilter.value = state.tag;
+      Object.keys(multiFilters).forEach(function (key) {
+        var filter = multiFilters[key];
+        var selected = state[key];
+        filter.checkboxes.forEach(function (entry) {
+          entry.input.checked = selected.indexOf(entry.option.value) !== -1;
+        });
+        var selectedNames = filter.definition.options.filter(function (option) {
+          return selected.indexOf(option.value) !== -1;
+        }).map(function (option) {
+          return option.name;
+        });
+        var fullText = selectedNames.length ? selectedNames.join('、') : '全部';
+        filter.toggle.title = fullText;
+        filter.value.textContent = fullText;
+        if (selectedNames.length > 1 && filter.value.clientWidth > 0 &&
+            filter.value.scrollWidth > filter.value.clientWidth) {
+          filter.value.textContent = selectedNames.length + ' 项';
+        }
+        filter.toggle.classList.toggle('is-active', selected.length > 0);
+      });
       sortFilter.value = state.sort;
       document.getElementById('archive-result-count').textContent = '共 ' + filtered.length + ' 篇';
       if (emptyMessage) emptyMessage.hidden = filtered.length !== 0;
       renderTable(ordered);
       renderCards(ordered);
       updateSortHeaders();
-      controls.hidden = false;
     }
 
     controls.addEventListener('click', function (event) {
@@ -1060,15 +1370,6 @@ permalink: /archive/
         render();
         updateUrl();
       }
-    });
-    [yearFilter, seriesFilter, tagFilter].forEach(function (select) {
-      select.addEventListener('change', function () {
-        if (select === yearFilter) state.year = select.value;
-        if (select === seriesFilter) state.series = select.value;
-        if (select === tagFilter) state.tag = select.value;
-        render();
-        updateUrl();
-      });
     });
     sortFilter.addEventListener('change', function () {
       state.sort = sortFilter.value;
@@ -1096,24 +1397,29 @@ permalink: /archive/
     root.addEventListener('click', function (event) {
       var tagButton = event.target.closest('[data-archive-tag]');
       if (!tagButton) return;
-      state.tag = tagButton.dataset.archiveTag;
-      tagFilter.value = state.tag;
+      var tag = tagButton.dataset.archiveTag;
+      if (state.tags.indexOf(tag) === -1) {
+        state.tags.push(tag);
+      } else {
+        state.tags = state.tags.filter(function (selected) { return selected !== tag; });
+      }
+      state.tags = orderedValues('tags', state.tags);
       render();
       updateUrl();
     });
     document.getElementById('archive-clear-filters').addEventListener('click', function () {
-      state = { types: [], year: '', series: '', tag: '', sort: 'newest', view: 'timeline' };
+      state = { types: [], years: [], series: [], tags: [], sort: 'newest', view: 'timeline' };
       saveView();
       render();
       updateUrl();
     });
     window.addEventListener('popstate', function () {
       state = loadState();
-      if (!yearCounts[state.year]) state.year = '';
-      if (!seriesCounts[state.series]) state.series = '';
-      if (!tagCounts[state.tag]) state.tag = '';
+      closeMultiFilters();
       render();
+      normalizeFilterUrl();
     });
     render();
+    normalizeFilterUrl();
   })();
 </script>
