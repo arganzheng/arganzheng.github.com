@@ -26,76 +26,37 @@ module Glossary
     /(?<![#{BOUND}])#{Regexp.escape(term)}(?![#{BOUND}])/
   end
 
+  # Alphabetical (case-insensitive) order for the overview's series table.
   def self.entries_for(site, key, raw)
-    meta = (site.data['series'] || {})[key] || {}
-    posts = site.posts.docs.select { |p| p.data['series'] == key }.sort_by(&:date)
-    masked = posts.map { |p| mask_markdown(p.content) }
-    entries = raw.map do |e|
-      patterns = ([e['term']] + Array(e['aliases'])).map { |t| term_re(t) }
-      hit_idx = nil
-      offset = nil
-      masked.each_with_index do |body, i|
-        hit = patterns.map { |re| re.match(body) }.compact.min_by { |m| m.begin(0) }
-        next unless hit
-        hit_idx = i
-        offset = hit.begin(0)
-        break
-      end
-      first = if hit_idx
-        title = posts[hit_idx].data['title'].to_s
-        subtitle = title.include?('）：') ? title.split('）：', 2).last : title
-        { 'title' => title, 'url' => posts[hit_idx].url,
-          'label' => format('（%02d）%s', hit_idx + 1, subtitle.split('——').first) }
-      end
-      e.merge('first' => first, 'overview' => meta['overview'],
-              '_sort' => [hit_idx || 1 << 30, offset || 0])
-    end
-    entries.sort_by { |e| e['_sort'] }.map { |e| e.reject { |k, _| k == '_sort' } }
+    overview = (site.data['series'] || {}).dig(key, 'overview')
+    raw.map { |e| e.merge('overview' => overview) }
+      .sort_by { |e| e['term'].to_s.downcase }
   end
 
-  def self.merge_maps(site, glossaries)
-    roadmaps = site.data['roadmaps'] || {}
-    series_meta = site.data['series'] || {}
-    out = {}
-    roadmaps.each do |rkey, r|
-      order = Array(r['order']).select { |k| glossaries[k] }
-      if order.empty?
-        own = series_meta.select { |_, m| m['roadmap'] == rkey }.sort_by { |_, m| m['number'].to_i }.map(&:first)
-        shared = series_meta.select { |_, m| Array(m['shared_with']).include?(rkey) }.sort_by { |_, m| m['first'] || Time.at(0) }.map(&:first)
-        order = (own + shared).select { |k| glossaries[k] }
-      end
-      merged = {}
-      order.each do |key|
-        name = series_meta.dig(key, 'name') || key
-        glossaries[key].each do |e|
-          row = (merged[e['term']] ||= e.merge('series_names' => []))
-          row['series_names'] << name unless row['series_names'].include?(name)
-        end
-      end
-      out[rkey] = merged.values
-    end
-    out
-  end
-
-  # Wrap each term's first occurrence. Spans are located over the unblocked
-  # text nodes only, then spliced in right-to-left so offsets stay valid.
+  # Wrap each term's first occurrence inside every h2 section (section 0 =
+  # content before the first <h2). Spans are located over the unblocked text
+  # nodes only, then spliced in right-to-left so offsets stay valid.
   def self.process(html, entries, overview)
     segments = text_segments(html)
     return html if segments.empty?
 
+    h2s = html.enum_for(:scan, /<h2\b/).map { Regexp.last_match.begin(0) }
+    section_of = ->(pos) { h2s.count { |h| h <= pos } }
     spans = []
     entries.sort_by { |e| -e['term'].to_s.length }.each do |e|
+      seen_sections = {}
       ([e['term']] + Array(e['aliases'])).sort_by { |t| -t.length }.each do |t|
-        next if spans.any? { |s| s[:entry].equal?(e) }
         re = term_re(t)
         segments.each do |pos, len|
+          sec = section_of.call(pos)
+          next if seen_sections[sec]
           hit = re.match(html[pos, len])
           next unless hit
           range = (pos + hit.begin(0))...(pos + hit.end(0))
           next if spans.any? { |s| range.begin < s[:range].end && s[:range].begin < range.end }
 
           spans << { range: range, entry: e, text: hit[0] }
-          break
+          seen_sections[sec] = true
         end
       end
     end
@@ -182,7 +143,6 @@ Jekyll::Hooks.register :site, :post_read do |site|
     h[key] = enriched unless enriched.empty?
   end
   site.data['glossary'] = glossaries
-  site.data['glossary_maps'] = Glossary.merge_maps(site, glossaries)
 end
 
 Jekyll::Hooks.register :documents, :post_convert do |doc|

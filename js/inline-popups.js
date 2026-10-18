@@ -514,9 +514,31 @@
 
   window.initInlinePopups = initInlinePopups;
 
+  // 详见 links point at <overview>#glossary, a collapsed <details>: open it
+  // (and any ancestor <details>) when the hash lands on it or inside it.
+  function openDetailsForHash() {
+    var hash = location.hash.slice(1);
+    if (!hash) return;
+    var target = document.getElementById(hash) || document.querySelector('[name="' + hash + '"]');
+    if (!target) return;
+    var node = target;
+    var hit = false;
+    while (node) {
+      if (node.tagName === 'DETAILS') { node.open = true; hit = true; }
+      node = node.parentElement;
+    }
+    if (hit) target.scrollIntoView();
+  }
+
+  window.addEventListener('hashchange', openDetailsForHash);
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initInlinePopups);
+    document.addEventListener('DOMContentLoaded', function () {
+      initInlinePopups();
+      openDetailsForHash();
+    });
   } else {
     initInlinePopups();
+    openDetailsForHash();
   }
 })();
