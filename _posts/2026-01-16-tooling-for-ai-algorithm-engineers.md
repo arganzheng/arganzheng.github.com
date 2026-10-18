@@ -107,6 +107,10 @@ Table: 本文用到的术语与缩写
 Table: 工具箱系列覆盖的六层工具
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="algorithm-tooling" %}
+
 ## 为什么写这个系列？
 
 ### "用"与"改"的边界

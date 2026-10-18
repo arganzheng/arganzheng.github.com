@@ -8,39 +8,11 @@ catalog: true
 updated: 2026-09-20
 ---
 
-算法工作里的代码，十行里有八行在跟**形状**打交道：这个张量是 `[batch, seq, hidden]` 还是 `[seq, batch, hidden]`（后者不是错的——RNN（recurrent neural network）时代与 `nn.MultiheadAttention(batch_first=False)` 的默认布局把序列维放在最前面，两种布局都在用，本系列统一用前者）、softmax 沿哪一维、mask 怎么加到 score 上、多头 attention 的 reshape 与 transpose 是什么顺序。PyTorch 的 Tensor 语义与 NumPy 的 ndarray（N-dimensional array）一致，所以形状直觉先在 NumPy 上建立——它没有 GPU、没有自动求导、没有任何干扰，只有形状。本篇用 NumPy 把 L0 讲过的 attention 从公式写成代码并与 PyTorch 对数值；然后讲另外两件天天要做的事：用 Pandas 分析评测结果，用 Matplotlib 看训练曲线。
+算法工作里的代码，十行里有八行在跟**形状**打交道：这个张量是 `[batch, seq, hidden]` 还是 `[seq, batch, hidden]`（后者不是错的——RNN 时代与 `nn.MultiheadAttention(batch_first=False)` 的默认布局把序列维放在最前面，两种布局都在用，本系列统一用前者）、softmax 沿哪一维、mask 怎么加到 score 上、多头 attention 的 reshape 与 transpose 是什么顺序。PyTorch 的 Tensor 语义与 NumPy 的 ndarray 一致，所以形状直觉先在 NumPy 上建立——它没有 GPU、没有自动求导、没有任何干扰，只有形状。本篇用 NumPy 把 L0 讲过的 attention 从公式写成代码并与 PyTorch 对数值；然后讲另外两件天天要做的事：用 Pandas 分析评测结果，用 Matplotlib 看训练曲线。
 
 全篇的核心问题是：
 
 > **看到一个 attention 的公式，能不能写出对应的 `einsum`？[^q0] 拿到评测结果，能不能按类别算出错误率、找出退化的题？[^q1] 看到一条 loss 曲线，知道该看哪里？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| RNN | recurrent neural network | 循环神经网络，按时间步逐个处理序列 |
-| softmax | — | 把一组分数归一化成概率分布的函数 |
-| mask | — | 掩码，把不该看的位置加上 −∞ 或置零 |
-| ndarray | N-dimensional array | NumPy 的多维数组：一块内存加形状和 dtype |
-| einsum | Einstein summation | 用下标字符串写张量乘加的函数 |
-| causal | — | causal attention：每个位置只看自己和前面 |
-| seed | — | 随机数种子，换 seed 相当于换一次运气 |
-| dtype | data type | 数组元素的类型，如 float32、bfloat16 |
-| LayerNorm | layer normalization | 层归一化，每个 token 沿 hidden 维自己归一化 |
-| SQL | Structured Query Language | 关系数据库的查询语言，`GROUP BY` 就是分组聚合 |
-| logits | — | softmax 之前的原始分数，每个词一个 |
-| RMSNorm | root mean square normalization | 只按均方根缩放、不减均值的归一化 |
-| head | — | 多头 attention 里的一个头，各用 d/h 维算一份 |
-| stride | — | 每一维走一步要跨过多少个元素 |
-| Infra | infrastructure | 训练与推理的底层系统：框架、算子、集群 |
-| kernel | — | 在 GPU 上执行的一个函数，通常对应一个算子 |
-| FlashAttention | — | 分块计算、不显式构造 T×T 矩阵的 attention kernel |
-| scaling law | — | loss 随参数量、数据量按幂律下降的经验规律 |
-| Polars | — | Rust 写的 DataFrame 库，多线程、惰性执行 |
-| Seaborn | — | 建在 Matplotlib 上的统计绘图库 |
-| warmup | — | 训练开头让学习率从小慢慢升到目标值 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -100,7 +72,7 @@ Table: 索引与切片的三种写法
 
 ### 3. 轴：所有"沿哪个维度"是一个概念
 
-沿轴操作都要指定沿哪个**轴**（axis）进行。规约类（求和、平均、最大）让那个轴在结果里消失；softmax、LayerNorm（layer normalization）也沿轴算，但**不减轴**——它们对那一维上的每个数各输出一个数，形状不变（下面表里 softmax、LayerNorm 两行的输出形状与输入相同，"loss 沿 token 维平均"那行才是规约）：
+沿轴操作都要指定沿哪个**轴**（axis）进行。规约类（求和、平均、最大）让那个轴在结果里消失；softmax、LayerNorm 也沿轴算，但**不减轴**——它们对那一维上的每个数各输出一个数，形状不变（下面表里 softmax、LayerNorm 两行的输出形状与输入相同，"loss 沿 token 维平均"那行才是规约）：
 
 ```python title='沿轴规约：axis 与 keepdims'
 x.sum(axis=-1)    # 沿最后一维求和：(32, 128)——每个 token 的 4096 个数加起来
@@ -109,7 +81,7 @@ x.max(axis=1)     # 沿 seq 取最大：(32, 4096)
 x.sum(axis=-1, keepdims=True)   # (32, 128, 1)——保留那一维为 1，方便下一步广播
 ```
 
-`axis=-1` 是"最后一维"，是最常用的写法，因为按 PyTorch 的约定最后一维是特征维。用 SQL（Structured Query Language）类比：`x.sum(axis=0)` 相当于把其余所有维度当 `GROUP BY` 的键、对 axis 0 上的元素做 `SUM`——被聚合的那一维在结果里消失，其余维度原样保留。把这一个概念对到模型里：
+`axis=-1` 是"最后一维"，是最常用的写法，因为按 PyTorch 的约定最后一维是特征维。用 SQL 类比：`x.sum(axis=0)` 相当于把其余所有维度当 `GROUP BY` 的键、对 axis 0 上的元素做 `SUM`——被聚合的那一维在结果里消失，其余维度原样保留。把这一个概念对到模型里：
 
 | 操作 | 张量 | 轴 | 含义 |
 |---|---|---|---|
@@ -210,7 +182,7 @@ S = Q @ K.transpose(0, 1, 3, 2)              # ④ [B, h, T, d_h] × [B, h, d_h,
 图 1 用 $$T = 3$$、$$d = 4$$、$$h = 2$$ 画出这四步。两个改形状的操作性质不同：
 
 1. **`reshape` 不移动数据**，只改变"怎么读这块内存"。`(B, T, d)` 与 `(B, T, h, d_h)` 是同一块内存的两种解释：图 1 的 ② 只是把 ① 每行的 4 个格子画成两组，一个字节都没动，所以零成本。
-2. **`transpose` 也不移动数据，但让内存不再连续**。图 1 的 ③ 里 head 0 的三行在内存里分别来自 ① 的三行开头，中间隔着 head 1 的格子——按 ③ 的顺序读，地址不再是一个接一个的。在 NumPy 里这透明；在 PyTorch 里 `transpose` 之后再 `view` 会报错，要先 `.contiguous()`（真的复制一份成连续的）或用 `reshape`（自动判断要不要复制）。stride 与内存布局的细节属于 Infra（infrastructure）03 系列第二篇，这里知道"transpose 之后不连续"即可。
+2. **`transpose` 也不移动数据，但让内存不再连续**。图 1 的 ③ 里 head 0 的三行在内存里分别来自 ① 的三行开头，中间隔着 head 1 的格子——按 ③ 的顺序读，地址不再是一个接一个的。在 NumPy 里这透明；在 PyTorch 里 `transpose` 之后再 `view` 会报错，要先 `.contiguous()`（真的复制一份成连续的）或用 `reshape`（自动判断要不要复制）。stride 与内存布局的细节属于 Infra 03 系列第二篇，这里知道"transpose 之后不连续"即可。
 
 第 ④ 行是 `@` 的多维用法：`K.transpose(0, 1, 3, 2)` 把 K 的最后两维交换成 `[d_h, T]`，然后 `[T, d_h] @ [d_h, T]` 得到每个头的 `[T, T]` 分数表，前面的 `B, h` 两维是"有 $$B \times h$$ 份"。
 
