@@ -30,12 +30,27 @@ module Glossary
     meta = (site.data['series'] || {})[key] || {}
     posts = site.posts.docs.select { |p| p.data['series'] == key }.sort_by(&:date)
     masked = posts.map { |p| mask_markdown(p.content) }
-    raw.map do |e|
+    entries = raw.map do |e|
       patterns = ([e['term']] + Array(e['aliases'])).map { |t| term_re(t) }
-      idx = masked.index { |body| patterns.any? { |re| body =~ re } }
-      e.merge('first' => idx ? { 'title' => posts[idx].data['title'], 'url' => posts[idx].url } : nil,
-              'overview' => meta['overview'])
+      hit_idx = nil
+      offset = nil
+      masked.each_with_index do |body, i|
+        hit = patterns.map { |re| re.match(body) }.compact.min_by { |m| m.begin(0) }
+        next unless hit
+        hit_idx = i
+        offset = hit.begin(0)
+        break
+      end
+      first = if hit_idx
+        title = posts[hit_idx].data['title'].to_s
+        subtitle = title.include?('）：') ? title.split('）：', 2).last : title
+        { 'title' => title, 'url' => posts[hit_idx].url,
+          'label' => format('（%02d）%s', hit_idx + 1, subtitle.split('——').first) }
+      end
+      e.merge('first' => first, 'overview' => meta['overview'],
+              '_sort' => [hit_idx || 1 << 30, offset || 0])
     end
+    entries.sort_by { |e| e['_sort'] }.map { |e| e.reject { |k, _| k == '_sort' } }
   end
 
   def self.merge_maps(site, glossaries)

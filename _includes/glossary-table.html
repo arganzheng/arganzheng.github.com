@@ -19,7 +19,7 @@
 <td>{{ e.term }}</td>
 <td>{{ e.full }}</td>
 <td>{{ e.desc }}</td>
-<td>{% if e.first %}<a href="{{ e.first.url }}">{{ e.first.title }}</a>{% else %}—{% endif %}</td>
+<td>{% if e.first %}<a href="{{ e.first.url }}" title="{{ e.first.title }}">{{ e.first.label }}</a>{% else %}—{% endif %}</td>
 </tr>
 {% endfor %}
 </tbody>
@@ -39,7 +39,7 @@
 <td>{{ e.term }}</td>
 <td>{{ e.full }}</td>
 <td>{{ e.desc }}</td>
-<td>{{ e.series_names | join: '、' }}</td>
+<td>{% for n in e.series_names %}{{ n | split: '：' | first }}{% unless forloop.last %}、{% endunless %}{% endfor %}</td>
 </tr>
 {% endfor %}
 </tbody>

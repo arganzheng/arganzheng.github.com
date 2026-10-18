@@ -59,7 +59,7 @@ Dir.glob(File.join(ROOT, '_data', 'glossary', '*.yml')).sort.each do |file|
 
     prev = fulls[term]
     full = e['full'].to_s
-    warnings << "'#{term}' has full '#{prev.keys.first}' in #{prev.values.first} but '#{full}' in #{key}" if !prev.empty? && !prev.key?(full)
+    failures << "'#{term}' has full '#{prev.keys.first}' in #{prev.values.first} but '#{full}' in #{key}" if !prev.empty? && !prev.key?(full)
     prev[full] ||= key
   end
 end
