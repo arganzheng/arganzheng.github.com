@@ -7,80 +7,6 @@ catalog: true
 ---
 
 
-## 缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| Infra | infrastructure | 训练与推理的底层系统：框架、算子、集群 |
-| DPO | direct preference optimization | 不训奖励模型、直接用偏好对训练的对齐方法 |
-| hinge | — | 合页损失 max(0, 1−x)，这里指换掉 DPO 里的 sigmoid |
-| bf16 | bfloat16（brain floating point） | 16 位浮点，指数位与 fp32 一样多，尾数只有 7 位 |
-| fp32 | 32-bit floating point | 单精度浮点，每个数 4 字节 |
-| AdamW | Adam with decoupled weight decay | 权重衰减与梯度更新分开的 Adam，每参数存两个矩 |
-| LoRA | low-rank adaptation | 冻结原权重，只训一对低秩矩阵的微调方法 |
-| SVD | singular value decomposition | 奇异值分解，LoRA 低秩近似的数学来源 |
-| RoPE | rotary position embedding | 旋转位置编码，按位置旋转 query 和 key |
-| Autograd | — | PyTorch 的自动求导：前向记图、反向算梯度 |
-| checkpointing | — | gradient checkpointing，反向时重算激活，用计算换显存 |
-| DDP | distributed data parallel | 每卡一份完整模型，反向后 all-reduce 梯度 |
-| FSDP | fully sharded data parallel | 参数、梯度、优化器状态切到各卡上 |
-| SFT | supervised fine-tuning | 监督微调，用指令和回答对训练模型 |
-| Hub | — | Hugging Face Hub，托管模型与数据集的网站 |
-| profiler | — | 记录每个算子耗时的性能分析工具 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台与运行时 |
-| GIL | global interpreter lock | 全局解释器锁，同一时刻只有一个线程跑 Python 代码 |
-| AMP | automatic mixed precision | 自动混合精度，PyTorch 里就是 autocast |
-| Dispatcher | — | PyTorch 内部按设备、dtype 把算子分到具体实现 |
-| Tensor Core | — | NVIDIA GPU 上专做矩阵乘的硬件单元 |
-| kernel | — | 在 GPU 上执行的一个函数，通常对应一个算子 |
-| MFU | model FLOPs utilization | 实际算力占硬件峰值算力的比例 |
-| checkpoint | — | 训练中途存下的模型与优化器状态，可以接着训 |
-| OOM | out of memory | 显存（或内存）不够，程序报错退出 |
-| LLM | large language model | 大语言模型 |
-| nanoGPT | — | Karpathy 的极简 GPT 训练代码，约 300 行 |
-| GPT | generative pre-trained transformer | OpenAI 的生成式预训练模型系列 |
-| `trl` | Transformer Reinforcement Learning | Hugging Face 的后训练库：SFT、DPO、GRPO 的 Trainer |
-| seed | — | 随机数种子，固定后结果可复现 |
-| einsum | Einstein summation | 用下标字母写张量乘加的函数 |
-| FLOP / FLOPs | floating-point operation(s) | 浮点运算（次数），算力开销的单位 |
-| traceback | — | Python 报错时打印的调用栈 |
-| JSONL | JSON Lines | 每行一个 JSON 对象的文本格式，适合流式读 |
-| ndarray | N-dimensional array | NumPy 的多维数组类型 |
-| dtype | data type | 数组元素的数据类型，如 float32、bfloat16 |
-| LayerNorm | layer normalization | 层归一化，沿 hidden 维做归一化 |
-| causal | — | 每个位置只看自己和之前位置的注意力 |
-| reduction | — | 求和、均值这类把多个数归成一个的运算 |
-| loss scaling | — | fp16 训练时把 loss 放大，防止梯度下溢成 0 |
-| fp16 | 16-bit floating point | 半精度浮点，指数位少，梯度容易下溢 |
-| KV cache | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
-| QLoRA | quantized LoRA | 底座权重 4-bit 量化后再挂 LoRA |
-| all-reduce | — | 各卡的数求和后，每张卡都拿到同一份结果 |
-| `peft` | Parameter-Efficient Fine-Tuning | Hugging Face 的参数高效微调库，LoRA 在这里 |
-| BPE | byte-pair encoding | 反复合并高频相邻字节对来造词表的分词算法 |
-| Arrow | — | Apache Arrow 列式内存格式，`datasets` 用它存数据 |
-| GRPO | group relative policy optimization | 用组内平均奖励当基线的策略梯度方法 |
-| chat template | — | 把多轮对话拼成模型训练时格式的模板 |
-| safetensors | — | Hugging Face 的权重文件格式，安全、加载快 |
-| loss mask | — | 只让回答部分的 token 计入 loss 的掩码 |
-| packing | — | 把多条短样本拼进一个序列，减少 padding |
-| H100 | NVIDIA Hopper GPU | 2022 年的数据中心卡，本系列算账用的硬件 |
-| ridge | — | Roofline 图上算力线与带宽线的交点 |
-| TFLOPS | tera floating-point operations per second | 每秒万亿次浮点运算，算力峰值的单位 |
-| memory-bound / compute-bound | — | 受显存带宽限制 / 受算力限制 |
-| decode | — | 生成阶段每步只算一个新 token |
-| prefill | — | 一次性处理整段 prompt、填满 KV cache 的阶段 |
-| launch | — | kernel launch，CPU 向 GPU 提交一个 kernel 的固定开销 |
-| stream | — | CUDA 里按顺序执行 kernel 的队列 |
-| W&B | Weights & Biases | 在线实验跟踪工具，记录指标与配置 |
-| MLflow | — | 开源的实验跟踪与模型管理平台 |
-| Hydra | — | Meta 开源的配置管理框架，命令行覆盖配置 |
-| decoder-only | — | 只有解码器、逐 token 自回归生成的模型结构 |
-| SXM | — | NVIDIA 的板载模块形态，功耗与带宽高于 PCIe 版 |
-| HBM3 | high bandwidth memory 3 | 第三代高带宽显存，H100 SXM 上 3.35 TB/s |
-| DataFrame | — | Pandas 的二维表格对象 |
-
-Table: 本文用到的术语与缩写
-
 ## 内容简介
 
 《算法工程师的工具箱：从一个想法到一次能跑的实验》是一组共六篇的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L1 层（编程与工具）。它面向读完 [L0 数学](/math-for-ai-algorithm-engineers.html)、会一门编程语言、准备第一次亲手训一个模型的读者，讲的是**把一个想法变成一次能跑、能复现、能与 baseline 对比的实验，要经过哪些工具、每个工具用到什么程度**。
@@ -89,9 +15,9 @@ Table: 本文用到的术语与缩写
 
 > **能不能在一天之内，把一篇论文里的方法变成一次能跑、能复现、能与 baseline 对比的实验？[^q0]**
 
-算法工程师的日常是把一个想法变成一次实验：读到一篇论文说"把 DPO（direct preference optimization）的 sigmoid 换成 hinge 会更稳"，当天下午就要在一个 1B 模型、一万条偏好对上跑出对比曲线。这条路上要经过的东西很固定——NumPy / Pandas 处理数据与结果、PyTorch 定义与训练模型、Hugging Face 提供模型与训练器、GPU 决定跑得动跑不动、实验跟踪工具记录发生了什么。每一样都能学成一门专业，但算法工程师对每一样的需求只到某个深度为止，越过那条线就进入了 Infra（infrastructure）地图的范围。本系列逐个工具说明那条线在哪里：会到什么程度就够、哪些内部不需要懂、以及为什么。和 L0 一样，每一篇尽量给出一个能算出来的数字——因为"跑得动跑不动"最终是显存与算力的算术，而不是对工具的熟悉程度。
+算法工程师的日常是把一个想法变成一次实验：读到一篇论文说"把 DPO 的 sigmoid 换成 hinge 会更稳"，当天下午就要在一个 1B 模型、一万条偏好对上跑出对比曲线。这条路上要经过的东西很固定——NumPy / Pandas 处理数据与结果、PyTorch 定义与训练模型、Hugging Face 提供模型与训练器、GPU 决定跑得动跑不动、实验跟踪工具记录发生了什么。每一样都能学成一门专业，但算法工程师对每一样的需求只到某个深度为止，越过那条线就进入了 Infra 地图的范围。本系列逐个工具说明那条线在哪里：会到什么程度就够、哪些内部不需要懂、以及为什么。和 L0 一样，每一篇尽量给出一个能算出来的数字——因为"跑得动跑不动"最终是显存与算力的算术，而不是对工具的熟悉程度。
 
-举一个例子说明这个系列的取法。"全量微调一个 8B 模型要多少显存"在第四篇里是一道算术题：训练时每个参数在显存里有五份东西（bf16 权重 2 字节、bf16 梯度 2 字节、fp32 主权重 4 字节、AdamW（Adam with decoupled weight decay）的两个矩各 4 字节），共 16 字节；Llama-3-8B 的 8.03B 参数 × 16 = 128.5 GB，一张 80 GB 的卡放不下；换成 LoRA（low-rank adaptation，《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》算过是 41.9M 可训练参数）就是 16.06 GB 的冻结权重加 0.67 GB 的训练状态，一张卡绰绰有余。会算这笔账，"全量还是 LoRA、几张卡"就从试出来变成算出来。
+举一个例子说明这个系列的取法。"全量微调一个 8B 模型要多少显存"在第四篇里是一道算术题：训练时每个参数在显存里有五份东西（bf16 权重 2 字节、bf16 梯度 2 字节、fp32 主权重 4 字节、AdamW 的两个矩各 4 字节），共 16 字节；Llama-3-8B 的 8.03B 参数 × 16 = 128.5 GB，一张 80 GB 的卡放不下；换成 LoRA（《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》算过是 41.9M 可训练参数）就是 16.06 GB 的冻结权重加 0.67 GB 的训练状态，一张卡绰绰有余。会算这笔账，"全量还是 LoRA、几张卡"就从试出来变成算出来。
 
 系列覆盖的范围可以概括为六层工具：
 
@@ -115,7 +41,7 @@ Table: 工具箱系列覆盖的六层工具
 
 ### "用"与"改"的边界
 
-同一个名词——Python、PyTorch、CUDA（Compute Unified Device Architecture）——在两张地图上都出现，分工用一句话说清：**算法地图"用"它们，Infra 地图"改"它们**。
+同一个名词——Python、PyTorch、CUDA——在两张地图上都出现，分工用一句话说清：**算法地图"用"它们，Infra 地图"改"它们**。
 
 | 工具 | 算法工程师（本系列） | Infra 工程师（Infra 地图） |
 |---|---|---|
@@ -126,7 +52,7 @@ Table: 工具箱系列覆盖的六层工具
 
 Table: Python、PyTorch、CUDA 在算法地图与 Infra 地图上的分工
 
-需要越界的时候是知道的：当你发现"用"解决不了问题——一个算子太慢、一个并行策略框架不支持、一个 OOM（out of memory）靠调参绕不过去——就是该翻 Infra 地图的时候。
+需要越界的时候是知道的：当你发现"用"解决不了问题——一个算子太慢、一个并行策略框架不支持、一个 OOM 靠调参绕不过去——就是该翻 Infra 地图的时候。
 
 ### 现有材料的断层
 
@@ -146,11 +72,11 @@ Table: Python、PyTorch、CUDA 在算法地图与 Infra 地图上的分工
 
 ### 后端工程师转算法
 
-你会 Python，会用 API 调模型，想自己训一个。你的缺口不是语言而是"科学计算的那套东西"——形状、广播、张量、自动求导——从第二篇开始补；第一篇可以快速翻过，只看第五章那张"PyTorch API ↔ Python 协议"的对照表。Python 的机制（GIL（global interpreter lock）、内存、C 扩展）不在本系列里，在 Infra 01。
+你会 Python，会用 API 调模型，想自己训一个。你的缺口不是语言而是"科学计算的那套东西"——形状、广播、张量、自动求导——从第二篇开始补；第一篇可以快速翻过，只看第五章那张"PyTorch API ↔ Python 协议"的对照表。Python 的机制（GIL、内存、C 扩展）不在本系列里，在 Infra 01。
 
 ### 会用 `Trainer` 但不知道它在做什么的人
 
-你能跑通 `trl` 的 SFT（supervised fine-tuning），但 loss 不对、OOM、跑得慢的时候不知道往哪看。第三篇的二十行训练循环是所有高层封装背后的东西，第四篇的显存账与第六篇的 profiler 是排查这三类问题的工具。
+你能跑通 `trl` 的 SFT，但 loss 不对、OOM、跑得慢的时候不知道往哪看。第三篇的二十行训练循环是所有高层封装背后的东西，第四篇的显存账与第六篇的 profiler 是排查这三类问题的工具。
 
 ### Infra 工程师，想知道算法同事怎么用你维护的东西
 
@@ -208,7 +134,7 @@ Table: 贯穿六篇的三条线索
 
 核心问题是：
 
-> **别人的训练代码里 `__getitem__`、`yield`、`@torch.no_grad()`、`with autocast(...)`、`**kwargs` 各在干什么？一份 10 GB 的 JSONL（JSON Lines）语料怎么在 16 GB 内存的机器上过一遍？预处理开多线程为什么没用？[^q1]**
+> **别人的训练代码里 `__getitem__`、`yield`、`@torch.no_grad()`、`with autocast(...)`、`**kwargs` 各在干什么？一份 10 GB 的 JSONL 语料怎么在 16 GB 内存的机器上过一遍？预处理开多线程为什么没用？[^q1]**
 
 ### 2. 数据科学三剑客：NumPy 的形状直觉、Pandas 的错误分析、Matplotlib 的曲线
 
@@ -217,7 +143,7 @@ Table: 贯穿六篇的三条线索
 这一篇会覆盖：
 
 - ndarray：形状、dtype、索引与切片；
-- 轴（axis）：所有"沿哪个维度"的操作是一个概念——softmax 沿词表维、LayerNorm（layer normalization）沿 hidden 维、loss 沿 token 维平均；
+- 轴（axis）：所有"沿哪个维度"的操作是一个概念——softmax 沿词表维、LayerNorm 沿 hidden 维、loss 沿 token 维平均；
 - 广播的三条规则，以及为什么形状错误常常**不报错**；
 - reshape / transpose：多头 attention 的形状变换；`reshape` 不移动数据、`transpose` 之后内存不连续；
 - [`einsum`](# "tip: 爱因斯坦求和记号的函数版：用一个下标字符串写出哪些维相乘、哪些维求和，例如 np.einsum('btd,bsd->bts', Q, K) 就是每个 batch 里 Q 与 K 的转置相乘；第二篇第五章")：把公式翻译成代码的最短路径，attention 的 $$QK^T$$ 一行；
@@ -254,10 +180,10 @@ Table: 贯穿六篇的三条线索
 这一篇会覆盖：
 
 - 混合精度：`autocast` 让矩阵乘在 bf16 上跑、reduction 留在 fp32；bf16 为什么不需要 loss scaling、fp16 为什么需要；
-- **显存的账**：训练时显存分四块——权重、梯度与优化器状态、激活、（推理时的）KV cache（key–value cache）。前两块每参数 16 字节（bf16 权重 + bf16 梯度 + fp32 主权重 + AdamW 两个矩）；Llama-3-8B 全量微调 128.5 GB、LoRA 16.7 GB、QLoRA（quantized LoRA）约 5 GB；
+- **显存的账**：训练时显存分四块——权重、梯度与优化器状态、激活、（推理时的）KV cache。前两块每参数 16 字节（bf16 权重 + bf16 梯度 + fp32 主权重 + AdamW 两个矩）；Llama-3-8B 全量微调 128.5 GB、LoRA 16.7 GB、QLoRA 约 5 GB；
 - 激活是四块里最难算的一块：与参数量无关、与 batch × 序列长度成正比；gradient checkpointing 用约 30% 的计算换掉大部分激活；
 - 一个 OOM 先问落在哪一块；
-- 多卡训练：DDP（distributed data parallel，每卡一份完整模型，all-reduce 梯度）、FSDP（fully sharded data parallel，参数 / 梯度 / 状态切到各卡）；`torchrun`；张量并行、流水并行属于预训练规模；
+- 多卡训练：DDP（每卡一份完整模型，all-reduce 梯度）、FSDP（参数 / 梯度 / 状态切到各卡）；`torchrun`；张量并行、流水并行属于预训练规模；
 - 在跑之前算出显存、与 `max_memory_allocated()` 对比。
 
 核心问题是：
@@ -270,7 +196,7 @@ Table: 贯穿六篇的三条线索
 
 这一篇会覆盖：
 
-- 六个库各管什么，按一次微调里用到的顺序：`tokenizers`（把文本切成 token id；BPE（byte-pair encoding）训练与编码）→ `datasets`（装数据；Arrow、`map`、`streaming`）→ `transformers`（模型定义与加载、`generate`、`Trainer`）→ `peft`（Parameter-Efficient Fine-Tuning，参数高效微调；LoRA 挂到模型上）→ `trl`（Transformer Reinforcement Learning；SFT / DPO / GRPO（group relative policy optimization）/ Reward 的 Trainer）→ `accelerate`（多卡启动）。六者的关系：`transformers` 是中心，`tokenizers` 与 `datasets` 给它喂输入，`peft` 改它的层，`trl` 用它的 `Trainer` 训，`accelerate` 把这一切放到多卡上；
+- 六个库各管什么，按一次微调里用到的顺序：`tokenizers`（把文本切成 token id；BPE 训练与编码）→ `datasets`（装数据；Arrow、`map`、`streaming`）→ `transformers`（模型定义与加载、`generate`、`Trainer`）→ `peft`（Parameter-Efficient Fine-Tuning，参数高效微调；LoRA 挂到模型上）→ `trl`（Transformer Reinforcement Learning；SFT / DPO / GRPO / Reward 的 Trainer）→ `accelerate`（多卡启动）。六者的关系：`transformers` 是中心，`tokenizers` 与 `datasets` 给它喂输入，`peft` 改它的层，`trl` 用它的 `Trainer` 训，`accelerate` 把这一切放到多卡上；
 - 这六个库与 PyTorch 的分工：PyTorch 是底座——`transformers` 的模型就是一个 `nn.Module`，`Trainer` 里跑的就是第三篇那二十行。算法工程师日常两者都用：改模型结构、写自定义 loss 时在 PyTorch 层；换数据、调配方、跑一次标准 SFT / DPO 时在这六个库的层。第五篇开头有一张对照表；
 - Hub 上的三个文件：`config.json`（从它算参数量）、`tokenizer.json`（词表、特殊 token、chat template）、`*.safetensors`；
 - 六行组装一次 LoRA SFT，以及它背后发生的每件事——chat template、loss mask、packing、LoRA 挂载——在第三篇的二十行里的对应位置；
@@ -287,12 +213,12 @@ Table: 贯穿六篇的三条线索
 
 这一篇会覆盖：
 
-- GPU 的两个上限：算力与显存带宽；算术强度；H100 的 [ridge](# "tip: Roofline 图上算力线与带宽线的交点，等于峰值算力 ÷ 显存带宽（H100：989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOP/字节）；算术强度低于它的 kernel 受带宽限制，高于它的受算力限制；第六篇第二章") 约 295 FLOP（floating-point operation，浮点运算）/ 字节；
+- GPU 的两个上限：算力与显存带宽；算术强度；H100 的 [ridge](# "tip: Roofline 图上算力线与带宽线的交点，等于峰值算力 ÷ 显存带宽（H100：989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOP/字节）；算术强度低于它的 kernel 受带宽限制，高于它的受算力限制；第六篇第二章") 约 295 FLOP / 字节；
 - decode 是 memory-bound（8B 模型 batch 1 下限 4.8 ms / token）、prefill 与训练是 compute-bound——"为什么 batch 大才快"；
 - 显存的四块（权重、梯度与状态、激活、KV cache）与 OOM 归因；
 - kernel、launch 开销、stream 与为什么 `time.time()` 测不出 GPU 时间；
 - 读 `torch.profiler` 的表：前三个最耗时的算子、GPU 空转比例；
-- 实验管理的最小记录：run id、commit、配置、数据版本、seed、环境、指标——齐了才谈复现；W&B（Weights & Biases）/ MLflow、Hydra、git 各管哪一项；
+- 实验管理的最小记录：run id、commit、配置、数据版本、seed、环境、指标——齐了才谈复现；W&B / MLflow、Hydra、git 各管哪一项；
 - 随机性：seed、确定性算法、多 seed 报均值与方差。
 
 核心问题是：
@@ -345,7 +271,7 @@ Table: 各篇平行的源码阅读线
 ### 版本与基线
 
 - PyTorch 2.x；Hugging Face 各库以文中出现的接口为准，库的版本变化快、函数名会变，但找入口的方法不变（从 Trainer 的 `compute_loss` 往下追）；
-- 算账时引用的真实模型：Llama-3-8B（8.03B 参数、$$d = 4096$$、32 层）；硬件：H100 SXM（80 GB HBM3、3.35 TB/s、bf16 稠密约 989 TFLOPS（tera floating-point operations per second））；
+- 算账时引用的真实模型：Llama-3-8B（8.03B 参数、$$d = 4096$$、32 层）；硬件：H100 SXM（80 GB HBM3、3.35 TB/s、bf16 稠密约 989 TFLOPS）；
 - 脚本在 CPU 上运行，第五篇的模型是 Qwen2.5-0.5B。
 
 
