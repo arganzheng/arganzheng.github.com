@@ -22,7 +22,7 @@ catalog: true
 系列以一个框架为源码阅读对象：**verl**（ByteDance Seed 发起、社区维护，HybridFlow 论文的开源实现）。选它不是因为它唯一，而是因为它是当前的事实标准，且**一套代码覆盖了本系列要讲的全部形态**——共置 / 分离 / 异步三种 trainer 模式、FSDP 与 Megatron 两种训练后端、vLLM 与 SGLang 两种推理后端、NCCL / NIXL / 增量三种权重同步方式、agent loop 与沙箱网关。每一篇的机制都能在 verl 里找到对应的实现，8 卡实践也全部用它。第七篇末尾用一节对照两个取向相反的框架——**slime**（智谱，只绑 Megatron + SGLang、参数原样透传、刻意不做抽象，GLM 系列的 RL 框架）与 **AReaL**（蚂蚁，从第一天起就是完全异步的设计，论文把异步的算法修正写得最清楚）——看同一个问题上它们与 verl 的分歧点在哪，以此分清哪些是这类负载的必然，哪些是 verl 的选择。OpenRLHF 作为最早的 Ray + vLLM 开源实现只在历史脉络里提及。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="rl-post-training-infra" %}
 
