@@ -2,9 +2,6 @@
 - term: RCCL
   full: ROCm Communication Collectives Library
   desc: AMD 平台上与 NCCL API 一致的通信库
-- term: NVL72
-  full: "—"
-  desc: 72 张 GPU 在一个 NVLink 域里的机柜
 - term: PCI
   full: Peripheral Component Interconnect
   desc: PCIe 的前身，Linux 里仍沿用这个名字
@@ -20,9 +17,6 @@
 - term: GIN
   full: GPU-Initiated Networking
   desc: NCCL 2.28 加入的由 GPU 发起网络通信的接口
-- term: doorbell
-  full: "—"
-  desc: 通知网卡「有新请求」的寄存器写
 - term: WQE
   full: work queue element
   desc: 提交给网卡的一个工作请求
@@ -47,9 +41,6 @@
 - term: EP
   full: expert parallelism
   desc: 专家并行，把 MoE 的专家分到不同卡上
-- term: FlashInfer
-  full: "—"
-  desc: 推理用 kernel 库，也带 all-reduce 实现
 - term: DP
   full: data parallelism
   desc: 数据并行，每张卡一份完整模型
@@ -71,33 +62,21 @@
 - term: GEMM
   full: general matrix multiply
   desc: 通用矩阵乘
-- term: PyNccl
-  full: "—"
-  desc: vLLM 用 ctypes 直接调 NCCL 的封装
 - term: UCC
   full: Unified Collective Communication
   desc: UCX 之上的集合通信库，可作 PyTorch 后端
 - term: SM
   full: streaming multiprocessor
   desc: GPU 的计算单元，通信 kernel 也要占用
-- term: TCPStore
-  full: "—"
-  desc: PyTorch 基于 TCP 的键值存储，用于 rendezvous
 - term: LL / LL128
   full: low latency / low latency 128
   desc: NCCL 的两种低延迟协议，用 flag 代替内存屏障
 - term: PAT
   full: Parallel Aggregated Trees
   desc: NCCL 为大规模 all_gather / reduce_scatter 加的算法
-- term: communicator
-  full: "—"
-  desc: NCCL 里一组 rank 的通信上下文
 - term: NVLS
   full: NVLink SHARP
   desc: 借助 NVSwitch 在交换芯片里归约
-- term: CollNet
-  full: "—"
-  desc: NCCL 借助网络内归约（如 SHARP）的算法
 - term: SHM
   full: shared memory
   desc: 经主机共享内存传数据的 NCCL transport
@@ -107,9 +86,6 @@
 - term: NVMe
   full: Non-Volatile Memory Express
   desc: 走 PCIe 的固态盘接口协议
-- term: GDRCopy
-  full: "—"
-  desc: 基于 GPUDirect RDMA 的低延迟显存拷贝库
 - term: DMA
   full: direct memory access
   desc: 设备不经 CPU 直接读写内存
@@ -158,15 +134,9 @@
 - term: TP
   full: tensor parallelism
   desc: 张量并行，把一层的矩阵切到多张卡上
-- term: rank
-  full: "—"
-  desc: 分布式任务里一个进程（通常一张卡）的编号
 - term: IBGDA
   full: InfiniBand GPUDirect Async
   desc: GPU 自己往网卡提交 RDMA 请求，不经 CPU
-- term: dispatch / combine
-  full: "—"
-  desc: MoE 里把 token 发给专家 / 把结果收回来
 - term: UCX
   full: Unified Communication X
   desc: 统一封装 RDMA、共享内存等传输的通信框架
@@ -179,51 +149,24 @@
 - term: ECN
   full: Explicit Congestion Notification
   desc: 交换机在包上打拥塞标记，让发送端降速
-- term: DeepEP
-  full: "—"
-  desc: DeepSeek 开源的 MoE 专家并行通信库
 - term: SHARP
   full: Scalable Hierarchical Aggregation and Reduction Protocol
   desc: 在交换机里做归约的技术
 - term: DDP
   full: Distributed Data Parallel
   desc: PyTorch 的数据并行封装
-- term: verbs
-  full: "—"
-  desc: RDMA 的底层编程接口（libibverbs）
 - term: HPC
   full: high-performance computing
   desc: 高性能计算
 - term: IB
   full: InfiniBand
   desc: InfiniBand 的简称
-- term: watchdog
-  full: "—"
-  desc: ProcessGroupNCCL 里检测通信超时的后台线程
-- term: vLLM
-  full: "—"
-  desc: 开源大模型推理引擎
-- term: CUDA
-  full: Compute Unified Device Architecture
-  desc: NVIDIA 的 GPU 编程平台
-- term: straggler
-  full: "—"
-  desc: 拖慢所有人的那张慢卡
-- term: root complex
-  full: "—"
-  desc: CPU 一侧的 PCIe 根节点，下挂 switch 和设备
 - term: NUMA
   full: non-uniform memory access
   desc: 多路 CPU 下内存与设备按插槽分组，跨组更慢
-- term: bucket
-  full: "—"
-  desc: 把多个小梯度攒成一块再通信的合并单位
 - term: RoCE
   full: RDMA over Converged Ethernet
   desc: 在以太网上承载 RDMA
-- term: KV
-  full: key–value
-  desc: KV cache，推理时缓存的注意力键值
 - term: PD
   full: prefill–decode
   desc: PD 分离：prefill 与 decode 放到不同节点上跑
@@ -233,60 +176,21 @@
 - term: FSDP
   full: Fully Sharded Data Parallel
   desc: PyTorch 的全分片数据并行
-- term: all_to_all
-  full: "—"
-  desc: 每张卡给其他每张卡各发一份不同的数据
 - term: MoE
   full: mixture of experts
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: prefill
-  full: "—"
-  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
-- term: decode
-  full: "—"
-  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
-- term: GPUDirect
-  full: "—"
-  desc: NVIDIA 让网卡、存储等直接访问显存的一组技术
-- term: proxy
-  full: "—"
-  desc: NCCL 在 CPU 上替 GPU 驱动网络收发的线程
 - term: NIC
   full: network interface card
   desc: 网卡
-- term: NVSwitch
-  full: "—"
-  desc: 节点内把多张 GPU 的 NVLink 全互连起来的交换芯片
-- term: ring / tree
-  full: "—"
-  desc: NCCL 的两种基本算法：环形接力与树形归约
-- term: channel
-  full: "—"
-  desc: NCCL 把一次集合通信切成的并行子任务，各占一个 block
 - term: busbw
   full: bus bandwidth / algorithm bandwidth
   desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
 - term: algbw
   full: bus bandwidth / algorithm bandwidth
   desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
-- term: InfiniBand
-  full: "—"
-  desc: HPC 和 AI 集群常用的无损 RDMA 网络
-- term: NVLink
-  full: "—"
-  desc: NVIDIA 的 GPU 间高速直连链路
 - term: PCIe
   full: Peripheral Component Interconnect Express
   desc: 主板上连接 GPU、网卡和 CPU 的总线
-- term: all_reduce
-  full: "—"
-  desc: 三种最常用的集合通信：全归约、全收集、归约后分片
-- term: all_gather
-  full: "—"
-  desc: 三种最常用的集合通信：全归约、全收集、归约后分片
-- term: reduce_scatter
-  full: "—"
-  desc: 三种最常用的集合通信：全归约、全收集、归约后分片
 - term: RDMA
   full: remote direct memory access
   desc: 网卡直接读写远端内存，绕开对端 CPU 和内核

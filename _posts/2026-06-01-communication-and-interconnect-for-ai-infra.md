@@ -32,7 +32,7 @@ updated: 2026-06-27
 系列贯穿的方法是：**先用代价模型算出理论时间，再用 nccl-tests 和 profiler 测出实际时间，再用拓扑、算法和协议解释差距，再动手缩小差距**。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="communication-and-interconnect" %}
 
