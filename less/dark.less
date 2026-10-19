@@ -322,6 +322,13 @@ html[data-theme="dark"] {
 		.sb-title, .sb-overview a { color: @dk-heading; }
 		.sb-nav a { color: @dk-link; }
 	}
+	.continue-series {
+		border-color: @dk-border;
+		border-left-color: @dk-link;
+		background: @dk-surface;
+		.continue-series-link { color: @dk-link; }
+		.continue-series-dismiss { color: @dk-muted; &:hover, &:focus { color: @dk-link; } }
+	}
 	.series-tree {
 		.st-map { border-color: @dk-border; }
 		.st-map > summary { color: @dk-heading; }

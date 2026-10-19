@@ -12,8 +12,11 @@
 # `_includes/series-row.html` renders a roadmap table row from these; then builds
 # `site.data.series_index` = { roadmaps: [map + series (by number) + shared
 # (unnumbered, by first post)], other: [series on no map] } and emits /series.html
-# (layout series-index). Future-dated posts are not in site.posts on a normal
-# build, so the counts are what is published today.
+# (layout series-index) and /series-map.json (public posts only). Future-dated
+# posts are not in site.posts on a normal build, so the counts are what is
+# published today.
+require 'json'
+
 module SeriesPages
   RECAP = /-series-recap-and-self-test(\.html|\.md)?\z/
   CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/
@@ -80,9 +83,19 @@ module SeriesPages
       roadmaps = site.data['roadmaps'] || {}
       by_url = site.posts.docs.each_with_object({}) { |p, h| h[p.url] = p }
       planned = SeriesPages.planned(site)
+      series_map = {}
 
       series.each do |key, meta|
         posts = site.posts.docs.select { |p| p.data['series'] == key }.sort_by(&:date)
+        public_posts = posts.reject do |p|
+          p.data['published'] == false || p.data['visibility'] == 'private'
+        end
+        unless public_posts.empty?
+          series_map[key] = {
+            'name' => meta['name'],
+            'posts' => public_posts.map { |p| [p.url, SeriesPages.subtitle(p.data['title'])] }
+          }
+        end
         overview = by_url[meta['overview']]
         meta['key'] = key
         meta['url'] = "/series.html##{key}"
@@ -118,6 +131,11 @@ module SeriesPages
       index.data = { 'layout' => 'series-index', 'title' => '系列文章', 'permalink' => '/series.html',
                      'description' => '成体系地读：按学习地图组织，地图 → 系列 → 单篇，点开一层即可展开' }
       site.pages << index
+
+      map = Jekyll::PageWithoutAFile.new(site, site.source, '', 'series-map.json')
+      map.content = JSON.generate('series' => series_map)
+      map.data = { 'layout' => nil, 'sitemap' => false, 'permalink' => '/series-map.json' }
+      site.pages << map
     end
   end
 end

@@ -73,20 +73,32 @@
         if (pill) pill.remove();
         pill = null;
     }
+    function resume(value, heading) {
+        if (heading && window.SectionFold) window.SectionFold.reveal(heading);
+        window.scrollTo({ top: Math.max(0, (heading ? absTop(heading) : 0) + (+value.dy || 0)), behavior: 'smooth' });
+        dismiss();
+    }
     function restore() {
+        var requestedPath = null;
+        try {
+            requestedPath = sessionStorage.getItem('blogResume');
+            if (requestedPath !== null) sessionStorage.removeItem('blogResume');
+        } catch (e) { /* storage may be unavailable */ }
         if (location.hash || y() >= 200) return;
         try {
             var value = JSON.parse(localStorage.getItem(key));
             if (!value || value.p < .05 || value.p > .95 || !value.t || Date.now() - value.t > 90 * 86400000) return;
             var heading = value.id && document.getElementById(value.id);
+            if (requestedPath === location.pathname) {
+                resume(value, heading);
+                return;
+            }
             pill = document.createElement('div'); pill.className = 'reading-position-prompt';
             var label = document.createElement('span');
             label.textContent = heading ? '上次读到「' + cleanText(heading) + '」 · ' : '上次读到 ' + Math.round(value.p * 100) + '% · ';
             var go = document.createElement('button'); go.type = 'button'; go.className = 'reading-position-resume'; go.textContent = '继续阅读';
             go.addEventListener('click', function () {
-                if (heading && window.SectionFold) window.SectionFold.reveal(heading);
-                window.scrollTo({ top: Math.max(0, (heading ? absTop(heading) : 0) + (+value.dy || 0)), behavior: 'smooth' });
-                dismiss();
+                resume(value, heading);
             });
             var close = document.createElement('button'); close.type = 'button'; close.className = 'reading-position-close';
             close.setAttribute('aria-label', '关闭'); close.textContent = '×'; close.addEventListener('click', dismiss);
