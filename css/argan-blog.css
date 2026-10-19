@@ -10517,6 +10517,19 @@ html[data-theme="dark"] #archive .archive-multi-panel {
   background-color: #1f2125;
   color: #d3d5d9;
 }
+html[data-theme="dark"] #archive .archive-multi-chip {
+  background-color: rgba(76, 183, 203, 0.18);
+  color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-multi-chip-remove:hover {
+  background-color: rgba(76, 183, 203, 0.28);
+}
+html[data-theme="dark"] #archive .archive-multi-chip-remove:focus-visible {
+  outline-color: #4cb7cb;
+}
+html[data-theme="dark"] #archive .archive-active-group-label {
+  color: #969ba4;
+}
 html[data-theme="dark"] #archive .archive-goto-clear:hover,
 html[data-theme="dark"] #archive .archive-chip:hover,
 html[data-theme="dark"] #archive .archive-view-button:hover,
@@ -11609,6 +11622,19 @@ html[data-theme="sepia"] #archive .archive-multi-search {
   border-color: #dccfb2;
   background-color: #efe4cb;
   color: #3b3124;
+}
+html[data-theme="sepia"] #archive .archive-multi-chip {
+  background-color: rgba(40, 96, 144, 0.14);
+  color: #286090;
+}
+html[data-theme="sepia"] #archive .archive-multi-chip-remove:hover {
+  background-color: rgba(40, 96, 144, 0.22);
+}
+html[data-theme="sepia"] #archive .archive-multi-chip-remove:focus-visible {
+  outline-color: #286090;
+}
+html[data-theme="sepia"] #archive .archive-active-group-label {
+  color: #7a6c58;
 }
 html[data-theme="sepia"] #archive .archive-table th {
   border-color: #dccfb2;

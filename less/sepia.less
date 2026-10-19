@@ -320,6 +320,13 @@ html[data-theme="sepia"] {
 		background-color: @sp-surface;
 		color: @sp-text;
 	}
+	#archive .archive-multi-chip {
+		background-color: fade(@sp-link, 14%);
+		color: @sp-link;
+	}
+	#archive .archive-multi-chip-remove:hover { background-color: fade(@sp-link, 22%); }
+	#archive .archive-multi-chip-remove:focus-visible { outline-color: @sp-link; }
+	#archive .archive-active-group-label { color: @sp-muted; }
 	#archive .archive-table th { border-color: @sp-border; background-color: @sp-surface-2; color: @sp-heading; }
 	#archive .archive-table td, #archive .archive-table-scroll { border-color: @sp-border; }
 	#archive .archive-table tbody tr:hover { background-color: @sp-surface-2; }

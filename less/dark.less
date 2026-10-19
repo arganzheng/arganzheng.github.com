@@ -561,6 +561,17 @@ html[data-theme="dark"] #archive .archive-multi-panel {
 	background-color: @dk-surface;
 	color: @dk-text;
 }
+html[data-theme="dark"] #archive .archive-multi-chip {
+	background-color: fade(@dk-link, 18%);
+	color: @dk-link;
+}
+html[data-theme="dark"] #archive .archive-multi-chip-remove:hover {
+	background-color: fade(@dk-link, 28%);
+}
+html[data-theme="dark"] #archive .archive-multi-chip-remove:focus-visible {
+	outline-color: @dk-link;
+}
+html[data-theme="dark"] #archive .archive-active-group-label { color: @dk-muted; }
 html[data-theme="dark"] #archive .archive-goto-clear:hover,
 html[data-theme="dark"] #archive .archive-chip:hover,
 html[data-theme="dark"] #archive .archive-view-button:hover,

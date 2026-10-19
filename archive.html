@@ -72,6 +72,10 @@ permalink: /archive/
       </select>
     </div>
   </div>
+  <div class="archive-control-row archive-active-filters" hidden>
+    <span class="archive-control-label">已选</span>
+    <div class="archive-active-list"></div>
+  </div>
   <div class="archive-control-row archive-toolbar-bottom">
     <div class="archive-view-switch" role="group" aria-label="归档视图">
       <button type="button" class="archive-view-button" data-archive-view="timeline" aria-pressed="true">时间线</button>
@@ -242,6 +246,28 @@ permalink: /archive/
     font-size: 13px;
     font-weight: 600;
   }
+  #archive .archive-active-filters { align-items: flex-start; }
+  #archive .archive-active-list {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    gap: 14px;
+    min-width: 0;
+  }
+  #archive .archive-active-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+  }
+  #archive .archive-active-group-label {
+    color: #6e7781;
+    font-size: 12px;
+    line-height: 20px;
+    white-space: nowrap;
+  }
   #archive .archive-type-filters,
   #archive .archive-view-switch { display: flex; flex-wrap: wrap; gap: 6px; }
   #archive .archive-chip,
@@ -318,16 +344,16 @@ permalink: /archive/
     appearance: none;
     transition: border-color .15s ease, box-shadow .15s ease;
   }
+  #archive .archive-multi-toggle {
+    display: flex;
+    align-items: center;
+    text-align: left;
+  }
   #archive .archive-selects select:hover { border-color: #8c959f; }
   #archive .archive-selects select:focus {
     border-color: #0969da;
     box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
     outline: none;
-  }
-  #archive .archive-multi-toggle {
-    display: flex;
-    align-items: center;
-    text-align: left;
   }
   #archive .archive-multi-value {
     display: block;
@@ -346,6 +372,50 @@ permalink: /archive/
   #archive .archive-multi-toggle.is-active {
     border-color: #00788f;
     color: #00788f;
+  }
+  #archive .archive-multi-chip {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 240px;
+    min-width: 0;
+    height: 20px;
+    box-sizing: border-box;
+    padding: 0 2px 0 7px;
+    border-radius: 4px;
+    background: #e6f3f5;
+    color: #00788f;
+    font-size: 12px;
+    line-height: 20px;
+  }
+  #archive .archive-multi-chip-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #archive .archive-multi-chip-remove {
+    display: inline-flex;
+    flex: 0 0 16px;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  #archive .archive-multi-chip-remove:hover { background: rgba(0, 0, 0, .08); }
+  #archive .archive-multi-chip-remove:focus-visible {
+    outline: 2px solid #0969da;
+    outline-offset: 1px;
   }
   #archive .archive-filter-field.is-open { z-index: 31; }
   #archive .archive-multi-panel {
@@ -862,6 +932,8 @@ permalink: /archive/
     var validSorts = ['newest', 'oldest', 'updated', 'title'];
     var validViews = ['timeline', 'table', 'cards'];
     if (!root || !controls || !tableBody || !tableView || !cardView) return;
+    var activeFilters = controls.querySelector('.archive-active-filters');
+    var activeList = activeFilters.querySelector('.archive-active-list');
 
     function dateValue(value) {
       if (!value || value === '—' || value === '未注明日期') return 0;
@@ -932,9 +1004,9 @@ permalink: /archive/
       tags: tagOptions
     };
     var filterDefinitions = [
-      { name: 'year', key: 'years', param: 'year', options: yearOptions, empty: '没有匹配的年份' },
-      { name: 'series', key: 'series', param: 'series', options: seriesOptions, empty: '没有匹配的系列' },
-      { name: 'tag', key: 'tags', param: 'tag', options: tagOptions, empty: '没有匹配的标签' }
+      { name: 'year', label: '年份', key: 'years', param: 'year', options: yearOptions, empty: '没有匹配的年份' },
+      { name: 'series', label: '系列', key: 'series', param: 'series', options: seriesOptions, empty: '没有匹配的系列' },
+      { name: 'tag', label: '标签', key: 'tags', param: 'tag', options: tagOptions, empty: '没有匹配的标签' }
     ];
 
     function orderedValues(key, values) {
@@ -1038,6 +1110,32 @@ permalink: /archive/
         definition: definition
       };
     }
+
+    activeFilters.addEventListener('click', function (event) {
+      var removeButton = event.target.closest('.archive-multi-chip-remove');
+      if (!removeButton) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var key = removeButton.dataset.filter;
+      var selected = state[key].slice();
+      var value = removeButton.dataset.value;
+      if (selected.indexOf(value) === -1) return;
+      var buttons = Array.prototype.slice.call(activeList.querySelectorAll('.archive-multi-chip-remove'));
+      var removeIndex = buttons.indexOf(removeButton);
+      var focusButton = buttons[removeIndex + 1] || buttons[removeIndex - 1];
+      var focusFilter = focusButton && focusButton.dataset.filter;
+      var focusValue = focusButton && focusButton.dataset.value;
+      state[key] = selected.filter(function (entry) { return entry !== value; });
+      render();
+      updateUrl();
+      var nextButton = focusFilter && Array.prototype.find.call(
+        activeList.querySelectorAll('.archive-multi-chip-remove'),
+        function (button) {
+          return button.dataset.filter === focusFilter && button.dataset.value === focusValue;
+        }
+      );
+      (nextButton || multiFilters[key].toggle).focus();
+    });
 
     Array.prototype.forEach.call(controls.querySelectorAll('[data-type-count]'), function (count) {
       var type = count.dataset.typeCount;
@@ -1285,6 +1383,43 @@ permalink: /archive/
       });
     }
 
+    function renderActiveFilters() {
+      activeList.replaceChildren();
+      var selectedCount = 0;
+      filterDefinitions.forEach(function (definition) {
+        var selected = state[definition.key];
+        if (!selected.length) return;
+        selectedCount += selected.length;
+        var group = document.createElement('span');
+        group.className = 'archive-active-group';
+        var groupLabel = document.createElement('span');
+        groupLabel.className = 'archive-active-group-label';
+        groupLabel.textContent = definition.label;
+        group.appendChild(groupLabel);
+        definition.options.forEach(function (option) {
+          if (selected.indexOf(option.value) === -1) return;
+          var chip = document.createElement('span');
+          chip.className = 'archive-multi-chip';
+          chip.title = option.name;
+          var name = document.createElement('span');
+          name.className = 'archive-multi-chip-name';
+          name.textContent = option.name;
+          var removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'archive-multi-chip-remove';
+          removeButton.setAttribute('aria-label', '取消选择 ' + option.name);
+          removeButton.dataset.filter = definition.key;
+          removeButton.dataset.value = option.value;
+          removeButton.textContent = '×';
+          chip.appendChild(name);
+          chip.appendChild(removeButton);
+          group.appendChild(chip);
+        });
+        activeList.appendChild(group);
+      });
+      activeFilters.hidden = selectedCount === 0;
+    }
+
     function render() {
       controls.hidden = false;
       var filtered = items.filter(function (item) {
@@ -1342,6 +1477,7 @@ permalink: /archive/
         }
         filter.toggle.classList.toggle('is-active', selected.length > 0);
       });
+      renderActiveFilters();
       sortFilter.value = state.sort;
       document.getElementById('archive-result-count').textContent = '共 ' + filtered.length + ' 篇';
       if (emptyMessage) emptyMessage.hidden = filtered.length !== 0;
