@@ -4899,6 +4899,25 @@ html.ap-capturing .table-tools {
 .post-container .annotation-comments .ac-head .ac-github:hover {
   color: #00788f;
 }
+.post-container .annotation-comments .ac-head .ac-archived-toggle {
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  background: transparent;
+  color: #59636e;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.post-container .annotation-comments .ac-head .ac-archived-toggle:hover {
+  color: #00788f;
+  border-color: #00788f;
+  background: #f2f7f8;
+}
+.post-container .annotation-comments .ac-head .ac-archived-toggle + .ac-github {
+  margin-left: 0;
+}
 .post-container .annotation-comments .ac-empty {
   margin: 14px 0;
   font-size: 13.5px;
@@ -4967,6 +4986,9 @@ html.ap-capturing .table-tools {
   margin-right: 0;
   padding-left: 10px;
   padding-right: 0;
+}
+.post-container .annotation-comments .ac-group.is-archived {
+  background: #f6f8fa;
 }
 .post-container .annotation-comments .ac-reply-editor {
   margin: 4px 0 12px 38px;
@@ -5472,6 +5494,72 @@ html.ap-capturing .table-tools {
 .post-container .annotation-panel .ap-comment.has-issue.is-resolved,
 .post-container .annotation-comments .ap-comment.has-issue.is-resolved {
   box-shadow: inset 3px 0 0 rgba(26, 127, 55, 0.6);
+}
+.post-container mark.annotation-hl.is-archived,
+.post-container .katex.has-note.is-archived {
+  border-bottom: 1.5px dashed #57606a;
+}
+.post-container mark.annotation-hl.is-archived:hover,
+.post-container .katex.has-note.is-archived:hover {
+  border-bottom-color: #57606a;
+  background-color: rgba(87, 96, 106, 0.09);
+}
+.post-container .mermaid svg tspan.annotation-hl.is-archived,
+.post-container .diagram-zoom svg tspan.annotation-hl.is-archived {
+  text-decoration-color: #57606a;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1.5px;
+}
+.post-container .mermaid svg tspan.annotation-hl.is-archived:hover,
+.post-container .diagram-zoom svg tspan.annotation-hl.is-archived:hover {
+  text-decoration-color: #57606a;
+  background-color: rgba(87, 96, 106, 0.09);
+}
+.post-container .annotation-marker.is-archived {
+  color: #57606a;
+  background: #f1f3f5;
+  border-color: #c7cdd4;
+}
+.post-container .annotation-marker.is-archived:hover {
+  color: #fff;
+  background: #57606a;
+  border-color: #57606a;
+}
+.post-container .annotation-panel .ap-comment.is-archived > .ap-comment-main > .ap-comment-body,
+.post-container .annotation-comments .ap-comment.is-archived > .ap-comment-main > .ap-comment-body {
+  color: #57606a;
+}
+.post-container .annotation-panel .ap-resolved-badge.is-archived,
+.post-container .annotation-comments .ap-resolved-badge.is-archived {
+  color: #57606a;
+  background: #f1f3f5;
+  border-color: #c7cdd4;
+}
+.post-container .annotation-archived-section {
+  margin-left: 8px;
+}
+.post-container .ap-archived-item {
+  padding-bottom: 10px;
+}
+.post-container .ap-archived-item + .ap-archived-item {
+  border-top: 1px solid #eaeef2;
+  padding-top: 8px;
+}
+.post-container .ap-archived-item .ap-archived-quote {
+  margin: 0 0 5px;
+  padding: 5px 10px;
+  border-left: 3px solid #c7cdd4;
+  color: #57606a;
+  font-size: 12px;
+}
+.post-container .ap-archived-item .ac-github {
+  display: inline-block;
+  margin: 0 0 0 48px;
+  color: #59636e;
+  text-decoration: none;
+}
+.post-container .ap-archived-item .ac-github:hover {
+  color: #00788f;
 }
 .post-container .post-figure.fig-flash > .fig-media,
 .post-container img.fig-flash {
@@ -10794,6 +10882,63 @@ html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.has-issue:hover {
 html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-resolved:hover,
 html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-resolved:hover {
   text-decoration-color: #1a7f37;
+}
+html[data-theme="dark"] .post-container mark.annotation-hl.is-archived,
+html[data-theme="dark"] .post-container .katex.has-note.is-archived {
+  border-bottom: 1.5px dashed #9aa4ad;
+}
+html[data-theme="dark"] .post-container mark.annotation-hl.is-archived:hover,
+html[data-theme="dark"] .post-container .katex.has-note.is-archived:hover {
+  border-bottom-color: #b8c1c9;
+  background-color: rgba(154, 164, 173, 0.14);
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-archived,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-archived {
+  text-decoration-color: #9aa4ad;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1.5px;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-archived:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-archived:hover {
+  text-decoration-color: #b8c1c9;
+}
+html[data-theme="dark"] .post-container .annotation-marker.is-archived {
+  color: #b8c1c9;
+  background: #30363d;
+  border-color: #6e7681;
+}
+html[data-theme="dark"] .post-container .annotation-marker.is-archived:hover {
+  color: #151b23;
+  background: #b8c1c9;
+  border-color: #b8c1c9;
+}
+html[data-theme="dark"] .post-container .annotation-comments .ac-archived-toggle {
+  color: #b8c1c9;
+  border-color: #6e7681;
+  background: transparent;
+}
+html[data-theme="dark"] .post-container .annotation-comments .ac-archived-toggle:hover {
+  color: #d2f4ff;
+  border-color: #8bd0e0;
+  background: #24343a;
+}
+html[data-theme="dark"] .post-container .annotation-comments .ac-group.is-archived {
+  background: #20252b;
+}
+html[data-theme="dark"] .post-container .annotation-panel .ap-comment.is-archived > .ap-comment-main > .ap-comment-body,
+html[data-theme="dark"] .post-container .annotation-comments .ap-comment.is-archived > .ap-comment-main > .ap-comment-body,
+html[data-theme="dark"] .post-container .annotation-panel .ap-resolved-badge.is-archived,
+html[data-theme="dark"] .post-container .annotation-comments .ap-resolved-badge.is-archived {
+  color: #b8c1c9;
+}
+html[data-theme="dark"] .post-container .annotation-panel .ap-resolved-badge.is-archived,
+html[data-theme="dark"] .post-container .annotation-comments .ap-resolved-badge.is-archived {
+  background: #30363d;
+  border-color: #6e7681;
+}
+html[data-theme="dark"] .post-container .ap-archived-quote {
+  border-left-color: #6e7681;
+  color: #b8c1c9;
 }
 html[data-theme="dark"] .favorites-toolbar {
   border-color: #33363c;
