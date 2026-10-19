@@ -1,0 +1,358 @@
+---
+- term: IDE
+  full: integrated development environment
+  desc: 集成开发环境，如 VS Code
+- term: RFC
+  full: Request for Comments
+  desc: IETF 发布互联网标准的文档系列
+- term: trace
+  full: "—"
+  desc: 一次任务每一步输入输出与决策的完整记录
+- term: SDK
+  full: software development kit
+  desc: 软件开发工具包，这里指写 agent 的库
+- term: LSP
+  full: Language Server Protocol
+  desc: 编辑器与语言服务器之间的协议，MCP 借鉴了它
+- term: gRPC
+  full: gRPC Remote Procedure Calls
+  desc: Google 开源的 RPC 框架，用 Protobuf 编码
+- term: KV
+  full: key–value
+  desc: 推理时缓存的注意力键值，即 KV cache
+- term: OOM
+  full: out of memory
+  desc: 内存耗尽
+- term: worker
+  full: "—"
+  desc: 执行子任务的 agent（或执行 workflow 的进程）
+- term: fallback
+  full: "—"
+  desc: 主路径失败时退回的备用路径
+- term: CPython
+  full: "—"
+  desc: Python 的官方解释器，用 C 写成
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台，conda 能连它的运行库一起装
+- term: dtype
+  full: data type
+  desc: 数组元素的类型，如 float32、bfloat16
+- term: einsum
+  full: Einstein summation
+  desc: 用下标字符串写张量乘加的函数
+- term: FlashAttention
+  full: "—"
+  desc: 分块计算、不显式构造 T×T 矩阵的 attention kernel
+- term: GIL
+  full: global interpreter lock
+  desc: 全局解释器锁，同一时刻只有一个线程跑 Python 字节码
+- term: hook
+  full: "—"
+  desc: 挂在 forward 前后、被自动调用的回调函数
+- term: JDK
+  full: Java Development Kit
+  desc: Java 的开发工具包，含编译器与运行时
+- term: kernel
+  full: "—"
+  desc: 在 GPU 上执行的一个函数，通常对应一个算子
+- term: Maven
+  full: "—"
+  desc: Java 的依赖管理与构建工具
+- term: XOR
+  full: exclusive or
+  desc: 异或；线性边界分不开的经典反例
+- term: ROCm
+  full: Radeon Open Compute
+  desc: AMD 的 GPU 软件栈
+- term: watchdog
+  full: "—"
+  desc: ProcessGroupNCCL 里检测通信超时的后台线程
+- term: vLLM
+  full: "—"
+  desc: 开源大模型推理引擎
+- term: NCCL
+  full: NVIDIA Collective Communications Library
+  desc: NVIDIA 的集合通信库，多卡通信的事实标准
+- term: enum
+  full: "—"
+  desc: 枚举：字段只能取列表里的值
+- term: clangd
+  full: "—"
+  desc: C++ 语言服务器，提供跨文件跳转
+- term: lint
+  full: "—"
+  desc: 静态检查代码风格和常见错误
+- term: lintrunner
+  full: "—"
+  desc: PyTorch 的本地 lint 统一入口
+- term: ATen
+  full: A Tensor Library
+  desc: PyTorch 的 C++ 张量与算子库
+- term: torchgen
+  full: "—"
+  desc: PyTorch 的代码生成器，从 yaml 生成绑定与头文件
+- term: autograd
+  full: automatic differentiation
+  desc: PyTorch 的自动求导系统
+- term: ABI
+  full: application binary interface
+  desc: 二进制接口，编译产物之间的调用约定
+- term: XPU
+  full: "—"
+  desc: Intel GPU 在 PyTorch 里的设备名
+- term: docstring
+  full: "—"
+  desc: 写在函数开头的说明文字
+- term: AD
+  full: automatic differentiation
+  desc: 自动微分；forward AD 指前向模式
+- term: fixture
+  full: "—"
+  desc: pytest 里给测试准备环境的可复用函数
+- term: BC
+  full: backward compatibility
+  desc: 向后兼容；BC-breaking 指破坏旧用法的改动
+- term: AOT
+  full: ahead-of-time
+  desc: 提前编译；这里指 torch.compile 的 AOT 缓存
+- term: codegen
+  full: code generation
+  desc: 由脚本按描述文件自动生成源码
+- term: RAII
+  full: resource acquisition is initialization
+  desc: C++ 用对象生命周期管理资源的惯用法
+- term: guard
+  full: "—"
+  desc: 编译结果能否复用的前提条件检查
+- term: FX
+  full: "—"
+  desc: PyTorch 的图表示和图变换工具（torch.fx）
+- term: graph break
+  full: "—"
+  desc: torch.compile 遇到捕获不了的代码，把图断开
+- term: DataLoader
+  full: "—"
+  desc: PyTorch 的数据加载器，多进程读数据、组 batch
+- term: Dispatcher
+  full: "—"
+  desc: 按设备和运行时上下文给算子挑实现的分发器
+- term: Autograd
+  full: automatic differentiation
+  desc: PyTorch 的自动求导引擎
+- term: Meta
+  full: "—"
+  desc: 只推导形状、类型，不存真实数据的设备 / 实现
+- term: view
+  full: "—"
+  desc: 和原 Tensor 共享存储、只换解释方式的 Tensor
+- term: TorchScript
+  full: "—"
+  desc: PyTorch 早期的静态图方案，现处维护模式
+- term: stream
+  full: "—"
+  desc: GPU 上按提交顺序执行任务的队列
+- term: AOTInductor
+  full: "—"
+  desc: 把 Inductor 编译结果打包成可部署产物的路径
+- term: DispatchKey
+  full: "—"
+  desc: Dispatcher 用来区分后端和功能层的键
+- term: OpenMP
+  full: Open Multi-Processing
+  desc: C/C++ 共享内存多线程并行的编译指令标准
+- term: Storage
+  full: "—"
+  desc: Tensor 底下真正存放数据的那段一维内存
+- term: caching allocator
+  full: "—"
+  desc: PyTorch 缓存已释放显存块以便复用的分配器
+- term: JVM
+  full: Java Virtual Machine
+  desc: Java 虚拟机
+- term: GC
+  full: garbage collection
+  desc: 垃圾回收：自动释放不再可达的对象
+- term: KV cache
+  full: key–value cache
+  desc: 推理时缓存每层算过的 k、v，新 token 只算自己的
+- term: schema
+  full: "—"
+  desc: 约束输出结构的格式定义
+- term: mmap
+  full: memory map
+  desc: 把文件映射进内存，读到哪页才从磁盘加载哪页
+- term: CUDA graph
+  full: "—"
+  desc: 把一串 kernel 录成图一次提交，省 CPU 发射开销
+- term: aten
+  full: A Tensor Library
+  desc: PyTorch 底层的张量算子库，profiler 按它计数
+- term: CRTP
+  full: curiously recurring template pattern
+  desc: C++ 派生类把自己当模板参数传给基类的写法
+- term: SASS
+  full: "—（NVIDIA 未给出官方全称）"
+  desc: NVIDIA GPU 真正执行的机器指令
+- term: ISA
+  full: instruction set architecture
+  desc: 指令集架构
+- term: AST
+  full: abstract syntax tree
+  desc: 抽象语法树：源码解析后的树形结构
+- term: JIT
+  full: just-in-time compilation
+  desc: 运行时即时编译
+- term: PTX
+  full: Parallel Thread Execution
+  desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
+- term: LLVM
+  full: "—（最初是 Low Level Virtual Machine，现已不作缩写）"
+  desc: 通用编译器基础设施，CPU / GPU 后端共用
+- term: pass
+  full: "—"
+  desc: 编译器里一次完整的分析或变换，按顺序排成流水线
+- term: nvcc
+  full: "—"
+  desc: NVIDIA 的 CUDA C++ 编译器
+- term: AMD
+  full: "—"
+  desc: GPU 厂商，其线程编排与 NVIDIA 不同
+- term: Ampere
+  full: "—"
+  desc: NVIDIA GPU 连续三代架构
+- term: Hopper
+  full: "—"
+  desc: NVIDIA GPU 连续三代架构
+- term: A100
+  full: NVIDIA Ampere GPU
+  desc: 2020 年的数据中心卡，shared memory 上限 163 KB
+- term: Tab 补全
+  full: "—"
+  desc: 编辑器里灰字提示、按 Tab 接受的代码补全
+- term: wheel
+  full: "—"
+  desc: Python 的预编译分发包格式（.whl）
+- term: PEP
+  full: Python Enhancement Proposal
+  desc: Python 的改进提案，语言和生态规范都以它为准
+- term: frame
+  full: "—"
+  desc: 执行帧，一次函数调用的局部变量与执行位置
+- term: loader
+  full: "—"
+  desc: 导入系统的两步：finder 找到模块，loader 执行它
+- term: cell
+  full: "—"
+  desc: 闭包里装自由变量的格子，内外层函数共享它
+- term: setuptools
+  full: "—"
+  desc: 最常用的 Python 打包构建工具
+- term: venv
+  full: virtual environment
+  desc: 标准库自带的虚拟环境，隔离一套解释器和依赖
+- term: libtorch
+  full: "—"
+  desc: PyTorch 的 C++ 核心动态库，体积数百 MB
+- term: slot
+  full: "—"
+  desc: 类型对象上给每个特殊方法留的槽位，运算时直接取
+- term: mypy
+  full: "—"
+  desc: 静态类型检查器，开发时给 dataclass 内部传递做保证
+- term: stub
+  full: "—"
+  desc: 存根文件（.pyi），只放类型声明不放实现
+- term: sealed interface
+  full: "—"
+  desc: Java 17 起的密封接口，限定哪些类能实现它
+- term: PyPI
+  full: Python Package Index
+  desc: 官方的 Python 包仓库，types-* 存根包也发在这里
+- term: XML
+  full: Extensible Markup Language
+  desc: Office 文件内部用的标记格式
+- term: block
+  full: "—"
+  desc: 一层 Transformer：attention 与 FFN 两个子层加残差
+- term: TLS
+  full: thread-local storage
+  desc: 线程局部存储：每个线程各有一份的变量
+- term: GCC
+  full: GNU Compiler Collection
+  desc: GNU 的 C/C++ 编译器
+- term: JNI
+  full: Java Native Interface
+  desc: Java 调 C/C++ 代码的接口
+- term: ODR
+  full: one definition rule
+  desc: 单一定义规则：同一实体全程序只能有一处定义
+- term: RPATH
+  full: run-time search path
+  desc: 可执行文件里写死的动态库搜索路径
+- term: MSVC
+  full: Microsoft Visual C++
+  desc: 微软的 C++ 编译器
+- term: NRVO
+  full: named return value optimization
+  desc: 具名返回值优化：返回局部变量省掉拷贝
+- term: RVO
+  full: return value optimization
+  desc: 返回值优化的统称，NRVO 是常见情形
+- term: SFINAE
+  full: substitution failure is not an error
+  desc: 模板替换失败不算错、换下一个候选重载的规则
+- term: MKL
+  full: Math Kernel Library
+  desc: Intel 的数学计算库，PyTorch 的 CPU 算子走它
+- term: UB
+  full: undefined behavior
+  desc: 未定义行为：标准没规定的写法，结果任意
+- term: IIFE
+  full: immediately invoked function expression
+  desc: 定义完立刻调用的函数表达式
+- term: RUNPATH
+  full: "—"
+  desc: ELF 里另一种动态库搜索路径字段，优先级低于 RPATH
+- term: AVX2
+  full: Advanced Vector Extensions 2
+  desc: Intel 的 256 位 SIMD 指令集
+- term: AVX
+  full: Advanced Vector Extensions
+  desc: Intel 的 SIMD 指令集总称
+- term: AVX512
+  full: Advanced Vector Extensions 512
+  desc: 512 位的 AVX 指令集
+- term: SIMD
+  full: single instruction, multiple data
+  desc: 单指令多数据：一条指令算一批元素
+- term: HIP
+  full: "—"
+  desc: AMD 的类 CUDA 编程接口，ROCm 用它
+- term: RTTI
+  full: run-time type information
+  desc: 运行时类型信息，dynamic_cast 靠它
+- term: ELF
+  full: Executable and Linkable Format
+  desc: Linux 的可执行文件与动态库格式
+- term: DWARF
+  full: "—"
+  desc: ELF 里的调试信息格式
+- term: POD
+  full: plain old data
+  desc: 可以按位拷贝的普通数据类型
+- term: SONAME
+  full: shared object name
+  desc: 动态库的 soname，链接时记进依赖
+- term: JDWP
+  full: Java Debug Wire Protocol
+  desc: Java 调试器 attach 用的协议
+- term: CTAD
+  full: class template argument deduction
+  desc: 类模板参数推导，C++17 起
+- term: JMM
+  full: Java Memory Model
+  desc: Java 内存模型：规定多线程间的可见性
+- term: CAS
+  full: compare-and-swap
+  desc: 比较并交换，无锁并发的基础指令

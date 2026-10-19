@@ -41,6 +41,10 @@ class TensorBase {
 - 在 C++ 层出错时（编译错误、链接错误、段错误、ABI 不匹配），知道去哪里找原因。
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="cpp-for-ai-infra" %}
+
 ## 为什么写这个系列？
 
 ### AI-Infra 的核心项目都是 C++ 内核、Python 外壳
