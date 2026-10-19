@@ -310,9 +310,13 @@
         if (pre.hasAttribute('data-title')) anchor.setAttribute('data-title', pre.getAttribute('data-title'));
       }
       var lang = codeLang(anchor, code), kind = codeKind(lang);
+      var title = norm(anchor.getAttribute('data-title'));
+      if (!title && pre.getAttribute('data-lines') === '1' && !pre.classList.contains('lineno') && !anchor.closest('.code-tabs')) {
+        Array.prototype.forEach.call(anchor.querySelectorAll('.code-copy'), function (copy) { copy.remove(); });
+        return;
+      }
       anchor.classList.add('code-block', 'code-copy-anchor');
       anchor.setAttribute('data-kind', kind);
-      var title = norm(anchor.getAttribute('data-title'));
       var head = document.createElement('div');
       head.className = 'code-header' + (title ? '' : ' is-untitled');
       var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = kind + ' ' + codeNo(anchor, kind) + (title ? '：' : '');
