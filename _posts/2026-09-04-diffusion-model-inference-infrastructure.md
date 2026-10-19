@@ -22,7 +22,7 @@ catalog: true
 系列**不设单一的源码阅读对象**。与《大模型推理系统揭秘》以 vLLM 为主线、《RL 后训练基础设施》以 verl 为主线不同，扩散推理的三个主要引擎——**SGLang Diffusion**（SGLang 在 2025 年 11 月并入的图像 / 视频生成框架，继承 SGLang 的 scheduler 与 kernel 栈）、**vLLM-Omni**（vLLM 面向全模态与非自回归模型的扩展，以 stage 分离的流水线为特点）、**xDiT**（并行方法的源头：USP、PipeFusion、CFG 并行、Parallel VAE 都从这里出来）——各自代表一种取向，没有哪一个像 vLLM 之于 LLM serving 那样成为事实标准；而 **diffusers** 是三者共同的底座（模型定义、调度器、缓存 hook 的接口）。所以正文以机制为主，每篇末尾用一张表对照同一个机制在三个引擎里的位置；第八篇专门用一个请求的路径把三个引擎完整走一遍，看它们在哪一段做了不同的选择、为什么。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="diffusion-inference-infra" %}
 
