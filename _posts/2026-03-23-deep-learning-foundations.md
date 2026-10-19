@@ -43,7 +43,7 @@ Transformer 的每一层都靠这条恒等通路，Pre-Norm 与 Post-Norm 的全
 Table: 系列覆盖的模型演进史、六个训练动力学问题与三类结构
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="deep-learning-foundations" %}
 

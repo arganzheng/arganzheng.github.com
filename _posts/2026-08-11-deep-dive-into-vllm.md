@@ -23,7 +23,7 @@ updated: 2026-10-01
 
 读者可以按顺序建立完整认知，也可以根据自身关注点选择调度、KV Cache、GPU 执行、多卡并行或集群 Serving 等主题阅读；每段主线包含哪几篇、带着具体问题该从哪篇进入，见下文「系列的整体主线」与「怎么读：按目标选篇」。
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="deep-dive-into-vllm" %}
 

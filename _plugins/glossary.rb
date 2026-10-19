@@ -54,9 +54,9 @@ module Glossary
     end
   end
 
-  # Wrap each term's first occurrence inside every h2 section (section 0 =
-  # content before the first <h2). Spans are located over the unblocked text
-  # nodes only, then spliced in right-to-left so offsets stay valid.
+  # Wrap each term's first occurrence in the whole post. Spans are located
+  # over the unblocked text nodes only, then spliced in right-to-left so
+  # offsets stay valid.
   def self.process(html, entries, overview)
     # Work on a binary copy: String#[]/getbyte/index are byte-based there, so
     # scattered offset access stays O(1) instead of quadratic on multibyte
@@ -66,8 +66,6 @@ module Glossary
     segments = text_segments(html)
     return html.force_encoding(Encoding::UTF_8) if segments.empty?
 
-    h2s = html.enum_for(:scan, /<h2\b/).map { Regexp.last_match.begin(0) }
-    section_of = ->(pos) { (h2s.bsearch_index { |h| h > pos } || h2s.length) }
     first, _heads_re = combined_index(entries)
 
     # Phase 1: for every match string, its first boundary-valid occurrence
@@ -98,18 +96,18 @@ module Glossary
     end
 
     # Phase 2: same claim order as before — entries longest-first, aliases
-    # longest-first, segments in order, first unclaimed-section candidate
-    # wins; claimed ranges are disjoint and sorted so overlap is a two-
+    # longest-first, segments in order, first candidate wins; one span per
+    # entry. Claimed ranges are disjoint and sorted so overlap is a two-
     # neighbour check.
     spans = []
     entries.sort_by { |e| -e['term'].to_s.length }.each do |e|
-      seen_sections = {}
+      seen = false
       ([e['term']] + Array(e['aliases'])).sort_by { |t| -t.length }.each do |t|
+        break if seen
         cts = cand[t.b] or next
         segments.each_with_index do |(pos, _), si|
+          break if seen
           hp = cts[si] or next
-          sec = section_of.call(pos)
-          next if seen_sections[sec]
           range = hp...(hp + t.b.bytesize)
           i = spans.bsearch_index { |s| s[:range].begin >= range.begin } || spans.length
           overlap = (i.positive? && spans[i - 1][:range].end > range.begin) ||
@@ -117,7 +115,7 @@ module Glossary
           next if overlap
 
           spans.insert(i, { range: range, entry: e, text: t })
-          seen_sections[sec] = true
+          seen = true
         end
       end
     end

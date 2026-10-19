@@ -1,16 +1,4 @@
 ---
-- term: trace
-  full: "—"
-  desc: 一次任务每一步输入输出与决策的完整记录
-- term: checkpoint
-  full: "—"
-  desc: 某一步之后的状态快照，崩溃后从这里续跑
-- term: rollout
-  full: "—"
-  desc: 一次采样生成：给一组 prompt 跑完整前向
-- term: serving
-  full: "—"
-  desc: 把模型部署成在线推理服务
 - term: MCP
   full: Model Context Protocol
   desc: 模型客户端连接工具服务器的开放协议
@@ -23,18 +11,9 @@
 - term: gRPC
   full: gRPC Remote Procedure Calls
   desc: Google 开源的 RPC 框架，用 Protobuf 编码
-- term: logits
-  full: "—"
-  desc: 模型对每个候选 token 输出的未归一化分数
-- term: KV
-  full: key–value
-  desc: 推理时缓存的注意力键值，即 KV cache
 - term: OOM
   full: out of memory
   desc: 内存耗尽
-- term: worker
-  full: "—"
-  desc: 执行子任务的 agent（或执行 workflow 的进程）
 - term: P0
   full: priority 0
   desc: 最高优先级
@@ -44,90 +23,42 @@
 - term: HF
   full: Hugging Face
   desc: 模型与数据集托管平台
-- term: fallback
-  full: "—"
-  desc: 主路径失败时退回的备用路径
-- term: OpenTelemetry
-  full: "—"
-  desc: 开源的 trace / 指标 / 日志采集标准
-- term: RL
-  full: reinforcement learning
-  desc: 强化学习
 - term: bf16
   full: bfloat16
   desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
-- term: CUDA
-  full: Compute Unified Device Architecture
-  desc: NVIDIA 的 GPU 编程平台，conda 能连它的运行库一起装
+  aliases: [BF16]
 - term: dtype
   full: data type
   desc: 数组元素的类型，如 float32、bfloat16
 - term: FLOPs
   full: floating-point operations
   desc: 浮点运算次数，算力的计量单位
+  aliases: [FLOP]
 - term: fp32
   full: 32-bit floating point
   desc: 单精度浮点，每个数 4 字节
-- term: FlashAttention
-  full: "—"
-  desc: 分块计算、不显式构造 T×T 矩阵的 attention kernel
+  aliases: [FP32]
 - term: FSDP
   full: Fully Sharded Data Parallel
   desc: 把参数、梯度、优化器状态切到各卡的数据并行
 - term: GiB
   full: gibibyte
   desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
-- term: H100
-  full: "—"
-  desc: NVIDIA 的 Hopper 架构训练卡，显存账本按它算
-- term: head
-  full: "—"
-  desc: 多头 attention 里的一个头，各用 d/h 维算一份
 - term: Infra
   full: infrastructure
   desc: 训练与推理的底层系统：框架、算子、集群
-- term: kernel
-  full: "—"
-  desc: 在 GPU 上执行的一个函数，通常对应一个算子
 - term: LayerNorm
   full: layer normalization
   desc: 层归一化，每个 token 沿 hidden 维自己归一化
 - term: LoRA
   full: Low-Rank Adaptation
   desc: 冻结原权重、只训低秩矩阵的微调方法
-- term: mask
-  full: "—"
-  desc: 掩码，把不该看的位置加上 −∞ 或置零
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
   desc: 只按均方根缩放、不减均值的归一化
-- term: seed
-  full: "—"
-  desc: 随机数种子，换 seed 相当于换一次运气
-- term: softmax
-  full: "—"
-  desc: 把一组分数归一化成概率分布的函数
-- term: tokenize
-  full: "—"
-  desc: 把文本切成 token 的预处理步骤
-- term: batch
-  full: "—"
-  desc: 一次梯度更新用到的那一小批样本
-- term: benchmark
-  full: "—"
-  desc: 公开评测集，用来给模型打分排名
-- term: hidden state
-  full: "—"
-  desc: Transformer 某一层输出的向量
 - term: MMLU
   full: Massive Multitask Language Understanding
   desc: 57 个学科的多选题 benchmark
-- term: n-gram
-  full: "—"
-  desc: 连续 n 个词（或字符）组成的片段
-- term: self-consistency
-  full: "—"
-  desc: 同一题多次采样、按多数票取答案
 - term: RCCL
   full: ROCm Communication Collectives Library
   desc: AMD 平台上与 NCCL API 一致的通信库
@@ -143,9 +74,6 @@
 - term: EP
   full: expert parallelism
   desc: 专家并行，把 MoE 的专家分到不同卡上
-- term: FlashInfer
-  full: "—"
-  desc: 推理用 kernel 库，也带 all-reduce 实现
 - term: DP
   full: data parallelism
   desc: 数据并行，每张卡一份完整模型
@@ -167,9 +95,6 @@
 - term: SM
   full: streaming multiprocessor
   desc: GPU 的计算单元，通信 kernel 也要占用
-- term: communicator
-  full: "—"
-  desc: NCCL 里一组 rank 的通信上下文
 - term: NVML
   full: NVIDIA Management Library
   desc: 查询 GPU 状态与拓扑的管理库
@@ -194,33 +119,15 @@
 - term: TP
   full: tensor parallelism
   desc: 张量并行，把一层的矩阵切到多张卡上
-- term: rank
-  full: "—"
-  desc: 分布式任务里一个进程（通常一张卡）的编号
-- term: dispatch / combine
-  full: "—"
-  desc: MoE 里把 token 发给专家 / 把结果收回来
 - term: NIXL
   full: NVIDIA Inference Xfer Library
   desc: NVIDIA 的推理数据传输库，用来搬 KV cache
-- term: DeepEP
-  full: "—"
-  desc: DeepSeek 开源的 MoE 专家并行通信库
 - term: IB
   full: InfiniBand
   desc: InfiniBand 的简称
-- term: vLLM
-  full: "—"
-  desc: 开源大模型推理引擎
-- term: straggler
-  full: "—"
-  desc: 拖慢所有人的那张慢卡
 - term: NUMA
   full: non-uniform memory access
   desc: 多路 CPU 下内存与设备按插槽分组，跨组更慢
-- term: bucket
-  full: "—"
-  desc: 把多个小梯度攒成一块再通信的合并单位
 - term: RoCE
   full: RDMA over Converged Ethernet
   desc: 在以太网上承载 RDMA
@@ -233,33 +140,9 @@
 - term: MoE
   full: mixture of experts
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: prefill
-  full: "—"
-  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
-- term: decode
-  full: "—"
-  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
-- term: GPUDirect
-  full: "—"
-  desc: NVIDIA 让网卡、存储等直接访问显存的一组技术
-- term: proxy
-  full: "—"
-  desc: NCCL 在 CPU 上替 GPU 驱动网络收发的线程
 - term: NIC
   full: network interface card
   desc: 网卡
-- term: NVSwitch
-  full: "—"
-  desc: 节点内把多张 GPU 的 NVLink 全互连起来的交换芯片
-- term: channel
-  full: "—"
-  desc: NCCL 把一次集合通信切成的并行子任务，各占一个 block
-- term: InfiniBand
-  full: "—"
-  desc: HPC 和 AI 集群常用的无损 RDMA 网络
-- term: NVLink
-  full: "—"
-  desc: NVIDIA 的 GPU 间高速直连链路
 - term: PCIe
   full: Peripheral Component Interconnect Express
   desc: 主板上连接 GPU、网卡和 CPU 的总线
@@ -269,36 +152,15 @@
 - term: NCCL
   full: NVIDIA Collective Communications Library
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: SGLang
-  full: "—"
-  desc: 开源推理引擎，与 vLLM 并列
 - term: A/B
   full: A/B testing
   desc: 把流量随机分给两个版本，比较指标
 - term: RAG
   full: retrieval-augmented generation
   desc: 先检索资料，再让模型据此回答
-- term: JSON schema
-  full: "—"
-  desc: 描述 JSON 字段、类型和取值约束的规范
 - term: FSM
   full: finite-state machine
   desc: 有限状态机，每个状态对应一组允许的 token
-- term: tokenizer
-  full: "—"
-  desc: 把文本切成 token 的组件，各模型不同
-- term: rerank
-  full: "—"
-  desc: 对检索出的候选再精排一次
-- term: XPU
-  full: "—"
-  desc: Intel GPU 在 PyTorch 里的设备名
-- term: docstring
-  full: "—"
-  desc: 写在函数开头的说明文字
-- term: B200
-  full: "—"
-  desc: NVIDIA Blackwell 架构的数据中心 GPU
 - term: LM
   full: language model
   desc: 语言模型；LM Eval 指 lm-eval 评测
@@ -311,81 +173,33 @@
 - term: NPU
   full: neural processing unit
   desc: 神经网络专用处理器，这里指昇腾
-- term: cuBLAS
-  full: "—"
-  desc: NVIDIA 的 GPU 矩阵运算库
-- term: H200
-  full: "—"
-  desc: NVIDIA Hopper 架构的数据中心 GPU
-- term: MI300
-  full: "—"
-  desc: AMD Instinct 系列数据中心 GPU
-- term: Tensor Core
-  full: "—"
-  desc: NVIDIA GPU 上专做矩阵乘的计算单元
 - term: CP
   full: context parallelism
   desc: 上下文并行：沿序列维切分长序列
 - term: 1F1B
   full: one forward, one backward
   desc: 流水线里前向、反向交替的调度方式
-- term: GPipe
-  full: "—"
-  desc: Google 提出的流水线并行方案
-- term: BF16
-  full: bfloat16
-  desc: 8 位指数的 16 位浮点，范围同 FP32
 - term: FP16
   full: 16-bit floating point
   desc: 半精度浮点，5 位指数、10 位尾数
-- term: FX
-  full: "—"
-  desc: PyTorch 的图表示和图变换工具（torch.fx）
-- term: metadata
-  full: "—"
-  desc: 描述 Tensor 怎么解释数据的信息：形状、步幅、类型等
-- term: Triton
-  full: "—"
-  desc: OpenAI 的 GPU kernel 编程语言和编译器
-- term: stream
-  full: "—"
-  desc: GPU 上按提交顺序执行任务的队列
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
   desc: NVIDIA 的 C++ 矩阵乘模板库
 - term: H2D
   full: host to device
   desc: 主机内存拷到显存
-- term: FP32
-  full: 32-bit floating point
-  desc: 单精度浮点，深度学习的默认精度
-- term: attention
-  full: "—"
-  desc: 注意力：按相关性加权混合其他位置的向量
 - term: CNN
   full: convolutional neural network
   desc: 卷积神经网络：局部感受野 + 权值共享
-- term: embedding
-  full: "—"
-  desc: 把离散对象（token、词）查表变成向量的表示
-- term: encoder
-  full: "—"
-  desc: 编码输入得到表示的那半边（BERT 全是 encoder）
 - term: FFN
   full: feed-forward network
   desc: 前馈网络：Transformer block 里 attention 之后的子层
 - term: GELU
   full: Gaussian error linear unit
   desc: 平滑的 ReLU 变体，GPT 时代的默认激活
-- term: KV cache
-  full: key–value cache
-  desc: 推理时缓存每层算过的 k、v，新 token 只算自己的
 - term: MLP
   full: multi-layer perceptron
   desc: 多层感知机：线性层 + 非线性激活叠起来的网络
-- term: residual
-  full: "—"
-  desc: 残差连接：输出 = 子层结果 + 输入，让深层可训
 - term: RoPE
   full: rotary position embedding
   desc: 旋转位置编码：按位置把向量转一个角度
@@ -413,57 +227,21 @@
 - term: INT8
   full: 8-bit integer
   desc: 8 bit 整数量化，精度损失最小的低比特档
-- term: Medusa
-  full: "—"
-  desc: 给模型加多个并行解码头、一次猜多个 token 的投机方法
 - term: MLA
   full: multi-head latent attention
   desc: 把 KV 压成低秩隐向量的 attention，DeepSeek 用它
 - term: MTP
   full: multi-token prediction
   desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
-- term: SmoothQuant
-  full: "—"
-  desc: 把激活的异常值折进权重的量化方法，让两边都好量化
 - term: W4A16
   full: "—"
   desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
 - term: W8A8
   full: "—"
   desc: 权重、激活都 8 bit 的量化档
-- term: schema
-  full: "—"
-  desc: 约束输出结构的格式定义
-- term: logprobs
-  full: "—"
-  desc: 模型给每个输出 token 的对数概率
-- term: safetensors
-  full: "—"
-  desc: HF 的权重格式：JSON 头 + 原始字节，可 mmap
 - term: BPE
   full: byte-pair encoding
   desc: 字节对编码：反复合并最常见的相邻 pair 得到词表
-- term: PagedAttention
-  full: "—"
-  desc: vLLM 按固定大小块管理 KV cache 的 attention
-- term: top-k
-  full: "—"
-  desc: 只保留分数最高的 k 个 token
-- term: top-p
-  full: "—"
-  desc: nucleus 采样：只留累计概率达到 p 的那些高分 token
-- term: chunked prefill
-  full: "—"
-  desc: 把长 prompt 切块依次前向，降低显存峰值
-- term: repetition penalty
-  full: "—"
-  desc: 降低已出现过的 token 的分数
-- term: continuous batching
-  full: "—"
-  desc: 一条序列结束就把位置让给新请求的动态调度
-- term: CUDA graph
-  full: "—"
-  desc: 把一串 kernel 录成图一次提交，省 CPU 发射开销
 - term: SSE
   full: Server-Sent Events
   desc: HTTP 上服务端单向推送的流式协议
@@ -473,27 +251,6 @@
 - term: QA
   full: question answering
   desc: 问答；抽取式 QA 从原文里划出答案
-- term: micro-batch
-  full: "—"
-  desc: 梯度累积里每次前向的那一小份 batch
-- term: actor
-  full: "—"
-  desc: RL 里被训练、负责生成回答的策略模型
-- term: adapter
-  full: "—"
-  desc: 挂在冻结基座上的一小组可训参数，这里就是 LoRA 的 A、B
-- term: multi-LoRA
-  full: "—"
-  desc: 一个底座同时挂多个 adapter、按请求切换的服务方式
-- term: Adapter
-  full: "—"
-  desc: Houlsby 等 2019 的方法：每层串联插一个瓶颈小网络
-- term: lm_head
-  full: language modeling head
-  desc: 输出层，把 hidden 映射成词表 logits
-- term: Punica
-  full: "—"
-  desc: 多 LoRA 服务系统（Chen 等 2023），vLLM 借用了它的 kernel
 - term: SGMV
   full: Segmented Gather Matrix-Vector multiplication
   desc: 按 adapter 分段、一次算完各组瘦矩阵乘的 kernel
@@ -503,84 +260,21 @@
 - term: QK
   full: "—"
   desc: query 与 key，attention 里算相似度的两个投影
-- term: Hessian
-  full: "—"
-  desc: 二阶导数矩阵，描述 loss 曲面的弯曲
-- term: warp specialization
-  full: "—"
-  desc: 让不同 warp 分别负责搬数和计算
-- term: layout
-  full: "—"
-  desc: 张量元素怎样分到寄存器、线程、warp 上
 - term: IR
   full: intermediate representation
   desc: 中间表示：编译器各阶段之间传递的程序形式
-- term: Inductor
-  full: "—"
-  desc: torch.compile 的后端，生成 Triton 代码
-- term: warp
-  full: "—"
-  desc: GPU 上齐步执行的一组线程（NVIDIA 32 个）
-- term: AMD
-  full: "—"
-  desc: GPU 厂商，其线程编排与 NVIDIA 不同
-- term: Hopper
-  full: "—"
-  desc: NVIDIA GPU 连续三代架构
-- term: compute capability
-  full: "—"
-  desc: NVIDIA GPU 的代际版本号（80 = Ampere、90 = Hopper）
 - term: DFS
   full: depth-first search
   desc: 深度优先搜索
-- term: barrier
-  full: "—"
-  desc: 线程块内的同步点（`bar.sync`）
-- term: A100
-  full: NVIDIA Ampere GPU
-  desc: 2020 年的数据中心卡，shared memory 上限 163 KB
-- term: connector
-  full: "—"
-  desc: 编码器与 LLM 之间的转接头：映射维度、可选压缩 token
 - term: LLaVA
   full: large language and vision assistant
   desc: 早期主流 VLM，connector 是线性层 / MLP
-- term: patch
-  full: "—"
-  desc: 图像被切成的小方块，一个 patch 变成一个向量
-- term: Whisper
-  full: "—"
-  desc: OpenAI 的语音识别模型，常被引用作音频编码器
-- term: chat template
-  full: "—"
-  desc: 把多轮对话拼成模型输入串的模板
-- term: DeepSeek
-  full: "—"
-  desc: DeepSeek 系列模型；本系列多次引它的 V3 配方
-- term: Gemma
-  full: "—"
-  desc: Google 的开源模型系列
 - term: MFU
   full: model FLOPs utilization
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
 - term: SLO
   full: service level objective
   desc: 服务等级目标，如可用率、延迟的承诺值
-- term: KV Cache
-  full: key–value cache
-  desc: 推理时缓存的注意力键值，随序列长度增长
-- term: loader
-  full: "—"
-  desc: 导入系统的两步：finder 找到模块，loader 执行它
-- term: slot
-  full: "—"
-  desc: 类型对象上给每个特殊方法留的槽位，运算时直接取
-- term: FastAPI
-  full: "—"
-  desc: 以 Pydantic 为核心、按类型注解解析请求的 Web 框架
-- term: Cohere
-  full: "—"
-  desc: 常用的 rerank 模型
 - term: TFLOPS
   full: tera floating point operations per second
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
@@ -590,33 +284,15 @@
 - term: QKV
   full: query, key, value
   desc: 注意力的三个投影，常合并成一个矩阵
-- term: FLOP
-  full: floating point operation
-  desc: 一次浮点运算；文中算力账按 FLOP 记
-- term: Mooncake
-  full: "—"
-  desc: Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重
-- term: Ray
-  full: "—"
-  desc: 分布式计算框架，verl 用它创建和调度各个 worker
 - term: HBM
   full: high bandwidth memory
   desc: GPU 上的高带宽显存
 - term: TFLOP
   full: tera floating point operations
   desc: 10^12 次浮点运算
-- term: TransferQueue
-  full: "—"
-  desc: verl 的样本传输队列，数据不经单控制器
-- term: abort
-  full: "—"
-  desc: 中止进行中的生成请求
 - term: D2H
   full: device to host
   desc: 显存拷回主机内存
-- term: EngineCore
-  full: "—"
-  desc: vLLM v1 里跑调度与前向的核心进程
 - term: ZMQ
   full: ZeroMQ
   desc: 轻量消息库，常用来在进程间传控制消息
@@ -626,27 +302,9 @@
 - term: LRU
   full: least recently used
   desc: 最近最少使用：先淘汰最久没用的
-- term: LMCache
-  full: "—"
-  desc: 把 KV cache 存到 CPU / 磁盘再复用的缓存层
 - term: Q / K / V
   full: query / key / value
   desc: attention 里的查询、键、值三组向量
-- term: decoder-only
-  full: "—"
-  desc: Transformer 的三条路线：只用 encoder、只用 decoder、两者都用
-- term: decoder
-  full: "—"
-  desc: encoder 读完整段输入产出表示；decoder 逐个生成输出 token
-- term: GPT-2
-  full: Generative Pre-trained Transformer
-  desc: OpenAI 的 decoder-only 模型系列，GPT-2 small 是本文蓝本
-- term: block
-  full: "—"
-  desc: 一层 Transformer：attention 与 FFN 两个子层加残差
-- term: Llama
-  full: Large Language Model Meta AI
-  desc: Meta 的开源模型系列，本文多处拿它对照
 - term: SRAM
   full: static random-access memory
   desc: GPU 片上的小而快的存储
@@ -671,6 +329,3 @@
 - term: MQA
   full: multi-query attention
   desc: 所有 q 头共享一组 k、v 头的注意力变体
-- term: PIECEWISE
-  full: "—"
-  desc: vLLM 把 CUDA graph 切成几段录制的模式
