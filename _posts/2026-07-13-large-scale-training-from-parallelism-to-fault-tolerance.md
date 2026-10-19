@@ -35,6 +35,10 @@ Table: 三个问题对应的三种工程
 系列以三个框架为源码阅读对象：**Megatron-LM**（Megatron Core）、**DeepSpeed** 和 **torchtitan**。它们代表了三种不同的设计取向——Megatron 从模型结构出发切分，DeepSpeed 从优化器状态出发切分，torchtitan 用 PyTorch 原生的 DTensor 与 FSDP2 把切分做成可组合的——对照着读，比只读其中一个更容易看清"哪些是必然的，哪些是选择"。
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="large-scale-training" %}
+
 ## 为什么写这个系列？
 
 ### 训练任务的成本让"跑满"成为硬指标
