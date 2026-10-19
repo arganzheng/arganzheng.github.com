@@ -1,0 +1,388 @@
+---
+- term: TFLOPS
+  full: tera floating point operations per second
+  desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
+- term: HBM3
+  full: High Bandwidth Memory 3
+  desc: H100 用的第三代高带宽显存
+- term: SXM
+  full: Server PCI Express Module
+  desc: NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡
+- term: KL
+  full: Kullback–Leibler divergence
+  desc: KL 散度，衡量两个分布差多远
+- term: NaN
+  full: not a number
+  desc: 非数值，数值溢出或 0/0 的结果
+- term: DP
+  full: data parallelism
+  desc: 数据并行：每份副本处理不同数据
+- term: CP
+  full: context parallelism
+  desc: 上下文并行：长序列按长度切到多张卡
+- term: VeOmni
+  full: "—"
+  desc: 字节开源的模型训练框架，verl 的训练后端之一
+- term: harness
+  full: "—"
+  desc: 驱动 Agent 与环境交互的外层程序
+- term: DAPO
+  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  desc: 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样
+- term: replay buffer
+  full: "—"
+  desc: 存放已生成样本、供训练取用的缓冲区
+- term: logprob
+  full: "—"
+  desc: token 的对数概率
+- term: TIS
+  full: truncated importance sampling
+  desc: 截断重要性采样：权重超过上限就截到上限
+- term: decoupled PPO
+  full: "—"
+  desc: 把采样策略与近端锚点分开的 PPO 变体
+- term: FSDP2
+  full: "—"
+  desc: PyTorch 第二代 FSDP，每个参数用 DTensor 分片
+- term: MTP
+  full: multi-token prediction
+  desc: 多 token 预测；推理时可当投机解码的草稿头
+- term: MoE
+  full: mixture of experts
+  desc: 混合专家：每个 token 只激活一部分专家
+- term: InfiniBand
+  full: "—"
+  desc: 机间高速网络，支持 RDMA
+- term: NVLink
+  full: "—"
+  desc: NVIDIA 机内 GPU 之间的高速互联
+- term: LoRA
+  full: Low-Rank Adaptation
+  desc: 只训练低秩增量矩阵的参数高效微调
+- term: MXFP4
+  full: microscaling FP4
+  desc: 按小块共享缩放因子的 4 位浮点格式
+- term: bucket
+  full: "—"
+  desc: 把多个张量打包成一块连续缓冲再传
+- term: RDMA
+  full: remote direct memory access
+  desc: 远程直接内存访问，跨机传输不经过 CPU
+- term: QKV
+  full: query, key, value
+  desc: 注意力的三个投影，常合并成一个矩阵
+- term: PCIe
+  full: Peripheral Component Interconnect Express
+  desc: CPU 与 GPU 之间的总线
+- term: offload
+  full: "—"
+  desc: 把参数或优化器状态挪到 CPU 内存
+- term: sleep mode
+  full: "—"
+  desc: vLLM 释放权重与 KV cache 显存、之后再唤醒的模式
+- term: SPMD
+  full: single program, multiple data
+  desc: 每张卡跑同一份程序、处理不同数据
+- term: critic
+  full: "—"
+  desc: PPO 里估计价值、用来算优势的模型
+- term: actor
+  full: "—"
+  desc: 被训练的策略模型
+- term: H100
+  full: "—"
+  desc: NVIDIA Hopper 架构训练卡，本系列默认的硬件
+- term: DeepSeekMath
+  full: "—"
+  desc: DeepSeek 的数学模型论文，GRPO 出自这里
+- term: prefill
+  full: "—"
+  desc: 一次算完整段 prompt 的阶段，compute-bound
+- term: RM
+  full: reward model
+  desc: 奖励模型，给回答打分
+- term: FLOP
+  full: floating point operation
+  desc: 一次浮点运算；文中算力账按 FLOP 记
+- term: PPO
+  full: Proximal Policy Optimization
+  desc: 近端策略优化：用 clip 限制每步更新幅度
+- term: CUDA graph
+  full: "—"
+  desc: 把一串 kernel 录下来整体重放，省掉逐个启动的开销
+- term: MFU
+  full: model FLOPs utilization
+  desc: 模型 FLOP 利用率：有效算力占峰值的比例
+- term: OOM
+  full: out of memory
+  desc: 显存不够，分配失败
+- term: GSM8K
+  full: Grade School Math 8K
+  desc: 约 8.5K 道小学数学应用题的数据集
+- term: staleness
+  full: "—"
+  desc: 生成样本的策略比当前策略落后几个版本
+- term: Mooncake
+  full: "—"
+  desc: Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重
+- term: IPC
+  full: inter-process communication
+  desc: 进程间通信；CUDA IPC 让别的进程直接映射这块显存
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台
+- term: FP8
+  full: 8-bit floating point
+  desc: 8 位浮点，rollout 侧常用的低精度格式
+- term: EP
+  full: expert parallelism
+  desc: 专家并行：MoE 的专家分到不同卡
+- term: PP
+  full: pipeline parallelism
+  desc: 流水线并行：按层切到多张卡
+- term: TP
+  full: tensor parallelism
+  desc: 张量并行：一层的矩阵切到多张卡
+- term: DTensor
+  full: distributed tensor
+  desc: PyTorch 的分布式张量，带着自己的分片布局
+- term: FLOPs
+  full: floating-point operations
+  desc: 浮点运算次数，算力开销单位
+- term: Ray
+  full: "—"
+  desc: 分布式计算框架，verl 用它创建和调度各个 worker
+- term: OpenRLHF
+  full: "—"
+  desc: 最早基于 Ray + vLLM 的开源 RLHF 框架
+- term: AReaL
+  full: "—"
+  desc: 蚂蚁与清华开源的完全异步 RL 训练系统
+- term: GLM
+  full: General Language Model
+  desc: 智谱的大模型系列
+- term: slime
+  full: "—"
+  desc: 智谱的 RL 框架，只绑 Megatron + SGLang
+- term: agent loop
+  full: "—"
+  desc: verl 里驱动多轮生成与工具调用的循环
+- term: NIXL
+  full: NVIDIA Inference Xfer Library
+  desc: NVIDIA 面向推理的点对点数据传输库
+- term: NCCL
+  full: NVIDIA Collective Communications Library
+  desc: NVIDIA 的 GPU 集合通信库
+- term: SGLang
+  full: "—"
+  desc: 开源 LLM 推理引擎，verl 的另一个推理后端
+- term: HybridFlow
+  full: "—"
+  desc: verl 对应的论文，单控制器加多控制器的混合编程模型
+- term: GEMM
+  full: general matrix multiply
+  desc: 通用矩阵乘，训练算力的主体
+- term: decode
+  full: "—"
+  desc: 逐 token 生成的阶段，memory-bound
+- term: SFT
+  full: supervised fine-tuning
+  desc: 监督微调
+- term: verl
+  full: Volcano Engine Reinforcement Learning
+  desc: 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象
+- term: reward
+  full: "—"
+  desc: 奖励，给 rollout 打的分
+- term: GRPO
+  full: Group Relative Policy Optimization
+  desc: 组内回答互相比较算优势的 PPO 变体，不需要 critic
+- term: RLHF
+  full: reinforcement learning from human feedback
+  desc: 基于人类反馈的强化学习
+- term: KV
+  full: key–value
+  desc: 注意力的键值；KV cache 是推理时缓存的键值，随序列变长
+- term: vLLM
+  full: "—"
+  desc: 开源 LLM 推理引擎，PagedAttention 出自它
+- term: checkpoint
+  full: "—"
+  desc: 保存下来的模型权重与训练状态
+- term: Megatron
+  full: "—"
+  desc: NVIDIA 的大模型训练框架，TP / PP / EP 齐全
+- term: FSDP
+  full: Fully Sharded Data Parallel
+  desc: PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分
+- term: rollout
+  full: "—"
+  desc: 用当前策略生成回答（轨迹）的那一步
+- term: RL
+  full: reinforcement learning
+  desc: 强化学习；本系列指 LLM 的在线 RL 后训练
+- term: HBM
+  full: high bandwidth memory
+  desc: GPU 上的高带宽显存
+- term: DPO
+  full: Direct Preference Optimization
+  desc: 直接偏好优化：离线学偏好对，不需要 rollout
+- term: MLA
+  full: multi-head latent attention
+  desc: DeepSeek 的注意力，把 KV 压成一个低秩向量
+- term: EFLOP
+  full: exa floating point operations
+  desc: 10^18 次浮点运算
+- term: GQA
+  full: grouped-query attention
+  desc: 多个 query 头共享一组 KV 头
+- term: FlashAttention
+  full: "—"
+  desc: 分块计算、不写出注意力矩阵的 attention kernel
+- term: TFLOP
+  full: tera floating point operations
+  desc: 10^12 次浮点运算
+- term: TransferQueue
+  full: "—"
+  desc: verl 的样本传输队列，数据不经单控制器
+- term: H20
+  full: "—"
+  desc: NVIDIA 面向中国市场的 Hopper 卡，算力低、显存大
+- term: L40S
+  full: "—"
+  desc: NVIDIA Ada 架构的数据中心卡，没有 NVLink
+- term: IB
+  full: InfiniBand
+  desc: 机间高速网络，支持 RDMA
+- term: abort
+  full: "—"
+  desc: 中止进行中的生成请求
+- term: NPU
+  full: neural processing unit
+  desc: 神经网络处理器，这里指昇腾等非 NVIDIA 加速卡
+- term: RoPE
+  full: rotary position embedding
+  desc: 旋转位置编码
+- term: FSDP1
+  full: "—"
+  desc: PyTorch 第一代 FSDP，把参数拼成扁平大张量再切
+- term: H2D
+  full: host to device
+  desc: 主机内存拷到显存
+- term: D2H
+  full: device to host
+  desc: 显存拷回主机内存
+- term: NUMA
+  full: non-uniform memory access
+  desc: 非一致内存访问：内存离哪颗 CPU 近，访问就快
+- term: UPI
+  full: Ultra Path Interconnect
+  desc: Intel 多路 CPU 之间的互联
+- term: EngineCore
+  full: "—"
+  desc: vLLM v1 里跑调度与前向的核心进程
+- term: PFLOP
+  full: peta floating point operations
+  desc: 10^15 次浮点运算
+- term: ZMQ
+  full: ZeroMQ
+  desc: 轻量消息库，常用来在进程间传控制消息
+- term: ACK
+  full: acknowledgement
+  desc: 确认消息
+- term: HF
+  full: Hugging Face
+  desc: 模型托管平台；HF 格式指 transformers 的权重命名
+- term: GroupedGEMM
+  full: grouped GEMM
+  desc: 一次 kernel 算多组矩阵乘，MoE 专家用
+- term: FusedMoE
+  full: "—"
+  desc: vLLM 把路由与专家计算融合在一起的 MoE 层
+- term: MLP
+  full: multi-layer perceptron
+  desc: 多层感知机，Transformer 层里的前馈网络
+- term: HCCL
+  full: Huawei Collective Communication Library
+  desc: 华为昇腾的集合通信库
+- term: UCX
+  full: Unified Communication X
+  desc: 统一的高性能通信框架，支持 RDMA
+- term: UCCL
+  full: "—"
+  desc: 伯克利开源的 GPU 通信库，覆盖集合通信、P2P 与 EP
+- term: P2P
+  full: peer-to-peer
+  desc: 点对点传输
+- term: SM
+  full: streaming multiprocessor
+  desc: GPU 的流式多处理器
+- term: FlashInfer
+  full: "—"
+  desc: LLM 推理用的 attention 与采样 kernel 库
+- term: MIS
+  full: masked importance sampling
+  desc: 屏蔽式重要性采样：权重越界的 token 直接不算梯度
+- term: FP16
+  full: 16-bit floating point
+  desc: 半精度浮点，尾数比 BF16 多
+- term: AIME
+  full: American Invitational Mathematics Examination
+  desc: 美国数学邀请赛，常用的推理评测集
+- term: IS
+  full: importance sampling
+  desc: 重要性采样：用两个分布的概率比修正样本
+- term: LRU
+  full: least recently used
+  desc: 最近最少使用：先淘汰最久没用的
+- term: LMCache
+  full: "—"
+  desc: 把 KV cache 存到 CPU / 磁盘再复用的缓存层
+- term: OpenHands
+  full: "—"
+  desc: 开源的代码 Agent 平台
+- term: HPA
+  full: Horizontal Pod Autoscaler
+  desc: Kubernetes 按指标自动增减副本数
+- term: VLM
+  full: vision-language model
+  desc: 视觉语言模型
+- term: RPC
+  full: remote procedure call
+  desc: 远程过程调用
+- term: ABC
+  full: abstract base class
+  desc: 抽象基类
+- term: GSPO
+  full: Group Sequence Policy Optimization
+  desc: 用序列级重要性比做 clip 的 GRPO 变体
+- term: DataProto
+  full: "—"
+  desc: verl 在 worker 之间传 batch 的数据结构
+- term: TorchTitan
+  full: "—"
+  desc: PyTorch 官方的大模型预训练框架
+- term: RS
+  full: rejection sampling
+  desc: 拒绝采样：比值越界的样本直接丢掉
+- term: RNG
+  full: random number generator
+  desc: 随机数生成器
+- term: TTL
+  full: time to live
+  desc: 存活时间，到期自动清除
+- term: GC
+  full: garbage collection
+  desc: 垃圾回收
+- term: H200
+  full: "—"
+  desc: NVIDIA Hopper 卡，显存 141 GB
+- term: PagedAttention
+  full: "—"
+  desc: vLLM 按页管理 KV cache 的方法
+- term: PD
+  full: prefill–decode
+  desc: PD 分离：prefill 与 decode 放在不同实例
+- term: VLA
+  full: vision-language-action
+  desc: 视觉-语言-动作模型，输出机器人动作

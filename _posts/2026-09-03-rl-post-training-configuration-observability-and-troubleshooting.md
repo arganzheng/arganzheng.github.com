@@ -8,83 +8,15 @@ catalog: true
 updated: 2026-09-14
 ---
 
-凌晨两点，告警：reward 曲线从上升变成平台，步时间没变，日志里没有报错。这一步是训到第 400 步的 32B 推理模型 GRPO（Group Relative Policy Optimization），128 张卡，`separate_async`。可能的原因至少四个：staleness 涨了（回答变长、同步没跟上）；训推不一致变大了（某个实例的 vLLM 在上一次弹性扩容后版本不同）；某个沙箱池挂了、它上面的任务 reward 全是零；上一次权重同步漏了一部分参数（一个实例的 `update_weights` 超时，版本号却推进了）。它们在 reward 曲线上长得一样。十分钟内区分它们，靠的不是这十分钟里的机智，是开训前采集了哪些信号——这是本系列最后一篇的主题。
+凌晨两点，告警：reward 曲线从上升变成平台，步时间没变，日志里没有报错。这一步是训到第 400 步的 32B 推理模型 GRPO，128 张卡，`separate_async`。可能的原因至少四个：staleness 涨了（回答变长、同步没跟上）；训推不一致变大了（某个实例的 vLLM 在上一次弹性扩容后版本不同）；某个沙箱池挂了、它上面的任务 reward 全是零；上一次权重同步漏了一部分参数（一个实例的 `update_weights` 超时，版本号却推进了）。它们在 reward 曲线上长得一样。十分钟内区分它们，靠的不是这十分钟里的机智，是开训前采集了哪些信号——这是本系列最后一篇的主题。
 
-前七篇建立了账（第一篇）、形态（第二篇）、四个机制（第三到六篇）、代码（第七篇）。这一篇把它们变成两件可以照着做的事：**开训前**——给定模型、GPU 数、任务形态，按固定顺序推出系统形态、配比、两套并行配置、同步方式与异步参数，算出全步 MFU（model FLOPs utilization）的预期值并逐项拆解损失，为 RL（reinforcement learning）特有的状态设计 checkpoint，决定要不要为确定性付吞吐的代价，列出必须采集的指标；**开训后**——一张故障表，每一类只有 RL 系统才有的故障（跨引擎的 NCCL（NVIDIA Collective Communications Library） hang、同步中途的 OOM（out of memory）、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏、Ray 对象存储溢出）的信号与排查路径，以及回到开头那十分钟的决策树。末尾是引擎对平台的要求，和全系列的总结。
+前七篇建立了账（第一篇）、形态（第二篇）、四个机制（第三到六篇）、代码（第七篇）。这一篇把它们变成两件可以照着做的事：**开训前**——给定模型、GPU 数、任务形态，按固定顺序推出系统形态、配比、两套并行配置、同步方式与异步参数，算出全步 MFU 的预期值并逐项拆解损失，为 RL 特有的状态设计 checkpoint，决定要不要为确定性付吞吐的代价，列出必须采集的指标；**开训后**——一张故障表，每一类只有 RL 系统才有的故障（跨引擎的 NCCL hang、同步中途的 OOM、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏、Ray 对象存储溢出）的信号与排查路径，以及回到开头那十分钟的决策树。末尾是引擎对平台的要求，和全系列的总结。
 
 本篇的核心问题：
 
 > **凌晨两点告警：reward 曲线从上升变成平台，步时间没变，没有报错。十分钟内你要判断是 staleness 涨了、是训推不一致、是某个沙箱池挂了导致 reward 全为零、还是权重同步漏了一部分参数。你需要的每一个信号，在开训前有没有采集？[^q0]**
 
-版本：verl（Volcano Engine Reinforcement Learning for LLMs） v0.9.0（`docs/advance/determinism.md`、`rl_insight.md`、`grafana_prometheus.md`、`checkpoint.rst`；`trainer/ppo/metric_utils.py`）、vLLM v0.27.1。数字沿用前七篇的场景。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| reward | — | 奖励，给 rollout 打的分 |
-| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
-| staleness | — | 生成样本的策略比当前策略落后几个版本 |
-| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
-| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
-| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
-| checkpoint | — | 保存下来的模型权重与训练状态 |
-| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
-| OOM | out of memory | 显存不够，分配失败 |
-| Ray | — | 分布式计算框架，verl 用它创建和调度各个 worker |
-| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
-| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
-| off-policy | — | 样本不是由当前策略生成的 |
-| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
-| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
-| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
-| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
-| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
-| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
-| EP | expert parallelism | 专家并行：MoE 的专家分到不同卡 |
-| CP | context parallelism | 上下文并行：长序列按长度切到多张卡 |
-| offload | — | 把参数或优化器状态挪到 CPU 内存 |
-| DP | data parallelism | 数据并行：每份副本处理不同数据 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| CUDA graph | — | 把一串 kernel 录下来整体重放，省掉逐个启动的开销 |
-| bucket | — | 把多个张量打包成一块连续缓冲再传 |
-| LoRA | Low-Rank Adaptation | 只训练低秩增量矩阵的参数高效微调 |
-| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
-| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
-| decode | — | 逐 token 生成的阶段，memory-bound |
-| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
-| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
-| mini-batch | — | 一次优化器更新用的那批样本 |
-| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
-| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
-| RM | reward model | 奖励模型，给回答打分 |
-| RNG | random number generator | 随机数生成器 |
-| TransferQueue | — | verl 的样本传输队列，数据不经单控制器 |
-| YAML | YAML Ain't Markup Language | 配置文件格式 |
-| abort | — | 中止进行中的生成请求 |
-| GEMM | general matrix multiply | 通用矩阵乘，训练算力的主体 |
-| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
-| actor | — | 被训练的策略模型 |
-| IS | importance sampling | 重要性采样：用两个分布的概率比修正样本 |
-| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样 |
-| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
-| MTP | multi-token prediction | 多 token 预测；推理时可当投机解码的草稿头 |
-| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
-| NaN | not a number | 非数值，数值溢出或 0/0 的结果 |
-| logprob | — | token 的对数概率 |
-| TIS | truncated importance sampling | 截断重要性采样：权重超过上限就截到上限 |
-| MIS | masked importance sampling | 屏蔽式重要性采样：权重越界的 token 直接不算梯度 |
-| TTL | time to live | 存活时间，到期自动清除 |
-| GC | garbage collection | 垃圾回收 |
-| DataProto | — | verl 在 worker 之间传 batch 的数据结构 |
-| IB | InfiniBand | 机间高速网络，支持 RDMA |
-| RDMA | remote direct memory access | 远程直接内存访问，跨机传输不经过 CPU |
-| ZMQ | ZeroMQ | 轻量消息库，常用来在进程间传控制消息 |
-| IPC | inter-process communication | 进程间通信；CUDA IPC 让别的进程直接映射这块显存 |
-| harness | — | 驱动 Agent 与环境交互的外层程序 |
-| replay buffer | — | 存放已生成样本、供训练取用的缓冲区 |
-
-Table: 本文用到的术语与缩写
+版本：verl v0.9.0（`docs/advance/determinism.md`、`rl_insight.md`、`grafana_prometheus.md`、`checkpoint.rst`；`trainer/ppo/metric_utils.py`）、vLLM v0.27.1。数字沿用前七篇的场景。
 
 ## 一、总览
 
@@ -229,7 +161,7 @@ DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$，代码�
 
 Table: 训练侧与推理侧并行配置的选法
 
-两边的 TP（tensor parallelism） / EP（expert parallelism）不同是权重同步布局映射的来源（第四篇）；两边都要 EP 的 MoE（mixture of experts）是最复杂的组合。
+两边的 TP / EP 不同是权重同步布局映射的来源（第四篇）；两边都要 EP 的 MoE 是最复杂的组合。
 
 ## 三、全步 MFU
 
@@ -237,7 +169,7 @@ Table: 训练侧与推理侧并行配置的选法
 
 $$U = \frac{\sum_{\text{三段}} \text{FLOP}}{n_{\text{全部 GPU}} \cdot F_{peak} \cdot T_{step}}$$
 
-分子是一步的全部有用 FLOP（生成 + 前向 + 训练，第一篇的 12N × token 数），分母是**全部** GPU（rollout 池 + 训练池 + RM（reward model）池）× 峰值 × 墙钟。它是整个 RL 步的利用率，与训练侧的 MFU（40% 上下）、decode 的 MFU（个位数）都不是一回事——**它才是要优化的数字**，而且它的理论上限本来就低（第一篇：13% 上限的配置很常见），所以看它的绝对值意义不大，看**它与预期值的差**、以及**差拆到哪几项**才有意义。
+分子是一步的全部有用 FLOP（生成 + 前向 + 训练，第一篇的 12N × token 数），分母是**全部** GPU（rollout 池 + 训练池 + RM 池）× 峰值 × 墙钟。它是整个 RL 步的利用率，与训练侧的 MFU（40% 上下）、decode 的 MFU（个位数）都不是一回事——**它才是要优化的数字**，而且它的理论上限本来就低（第一篇：13% 上限的配置很常见），所以看它的绝对值意义不大，看**它与预期值的差**、以及**差拆到哪几项**才有意义。
 
 verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它的原料；`separate_async` 的 `_get_n_gpus_for_throughput` 把 standalone rollout 卡数也算进分母（否则会高估）。
 
@@ -255,7 +187,7 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
         再减：Python / 调度开销、TransferQueue 读写、reward 计算等待、验证（test_freq）、checkpoint 保存 …… 实测常在 8–10%
 ```
 
-同一配置换 `separate_async`（42 : 22）：长尾项归零、两池各自的 MFU 分别是 decode 的 4% 与训练的 40%，加权后 17%。**先砍长尾（一档形态），再看 decode 的 c（gpu_memory_utilization、FP8（8-bit floating point）、TP），最后才是训练 MFU**——与预训练的优化顺序相反。
+同一配置换 `separate_async`（42 : 22）：长尾项归零、两池各自的 MFU 分别是 decode 的 4% 与训练的 40%，加权后 17%。**先砍长尾（一档形态），再看 decode 的 c（gpu_memory_utilization、FP8、TP），最后才是训练 MFU**——与预训练的优化顺序相反。
 
 ### 3. 三个容易高估的地方
 
@@ -267,7 +199,7 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 
 ### 1. 训练状态之外
 
-预训练的 checkpoint 是模型 + 优化器 + dataloader 位置 + RNG（random number generator）。RL 系统多出的状态：
+预训练的 checkpoint 是模型 + 优化器 + dataloader 位置 + RNG。RL 系统多出的状态：
 
 | 状态 | 在哪 | 存不存 | 不存的后果 |
 |---|---|---|---|
@@ -295,7 +227,7 @@ verl 的做法（`_save_checkpoint` / `_load_checkpoint` / `_reissue_inflight_pr
 
 Table: 频率与代价
 
-大模型的 checkpoint 要**异步**（先拷到 CPU pinned 内存、后台写盘，训练继续）——verl 的 checkpoint 管理器（0.9 重写，YAML（YAML Ain't Markup Language）配置）支持；`save_lora_only` 让 LoRA（Low-Rank Adaptation）训练只存 adapter。异步保存与第三篇的 offload、第五篇的 decoupled 快照三者都要 pinned 内存，要一起算。
+大模型的 checkpoint 要**异步**（先拷到 CPU pinned 内存、后台写盘，训练继续）——verl 的 checkpoint 管理器（0.9 重写，YAML 配置）支持；`save_lora_only` 让 LoRA 训练只存 adapter。异步保存与第三篇的 offload、第五篇的 decoupled 快照三者都要 pinned 内存，要一起算。
 
 ### 3. 恢复语义
 
@@ -365,7 +297,7 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
   - → 告警：一侧 idle > 30% 持续 10 步 → 配比漂了
 - **第三篇 · 显存**
   - 每卡 memory_allocated / reserved 在 "Before resume weights / After update_weights / After resume kv_cache" 三点
-  - vLLM 的 gpu_cache_usage_perc · num_preempted（KV（key-value）池不够时的抢占）
+  - vLLM 的 gpu_cache_usage_perc · num_preempted（KV 池不够时的抢占）
   - → 告警：reserved − allocated 持续增长（碎片）；preemption > 0
 - **第四篇 · 同步**
   - timing_s/update_weights · 传输字节 · 每实例 global_steps（版本）· delta 的 changed_ratio 与校验失败数
@@ -373,8 +305,8 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
 - **第五篇 · off-policy**
   - training/off_policy/evicted_samples · evicted_samples_staleness/{mean, max} · staleness 直方图（自加）
   - training/rollout_probs_diff_{mean, max, std}
-  - actor/pg_clipfrac · actor/ppo_kl · rollout_correction 的 IS（importance sampling）权重统计与 mask 比例
-  - 被训练样本长度 vs 生成样本长度（自加）· DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization） filtered 计数 · failure 组计数
+  - actor/pg_clipfrac · actor/ppo_kl · rollout_correction 的 IS 权重统计与 mask 比例
+  - 被训练样本长度 vs 生成样本长度（自加）· DAPO filtered 计数 · failure 组计数
   - → 告警：probs_diff_max 出现 > 1 的尖峰；staleness mean 超阈值一半；clipfrac 比基线翻倍
 - **第六篇 · 环境**
   - 每轮环境耗时分布（p50 / p99）· 轨迹轮数分布 · 沙箱队列深度 · 容器启动时间 · 执行超时率 · 失败率 · 活跃容器数 vs 上限
@@ -485,7 +417,7 @@ Table: 引擎对平台的要求
 
    <details markdown="1"><summary>答案</summary>
 
-   它量的是训推不一致，同步形态下也存在（bf16（bfloat16）约 $$10^{-3}$$），有了基线才知道异步后的增量是 staleness 还是不一致；跳升：推理引擎升级 / 换 kernel、开了 FP8 或量化、MoE 路由翻转增多——或者权重同步漏了部分参数（持续偏大而非跳变）。
+   它量的是训推不一致，同步形态下也存在（bf16 约 $$10^{-3}$$），有了基线才知道异步后的增量是 staleness 还是不一致；跳升：推理引擎升级 / 换 kernel、开了 FP8 或量化、MoE 路由翻转增多——或者权重同步漏了部分参数（持续偏大而非跳变）。
 
    </details>
 
@@ -509,7 +441,7 @@ Table: 引擎对平台的要求
 
    <details markdown="1"><summary>答案</summary>
 
-   同步后对推理侧与训练侧按层或按桶算校验和（或抽几个 tensor `allclose`），对比桶数、字节数与预期；日志的“成功”只说传输完成，不说映射表是否覆盖了全部参数——新加的层（LoRA、MTP（multi-token prediction）头、embedding tied 与否）常被映射漏掉而没有任何报错。
+   同步后对推理侧与训练侧按层或按桶算校验和（或抽几个 tensor `allclose`），对比桶数、字节数与预期；日志的“成功”只说传输完成，不说映射表是否覆盖了全部参数——新加的层（LoRA、MTP 头、embedding tied 与否）常被映射漏掉而没有任何报错。
 
    </details>
 

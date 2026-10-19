@@ -7,119 +7,30 @@ catalog: true
 ---
 
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
-| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
-| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
-| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
-| checkpoint | — | 保存下来的模型权重与训练状态 |
-| LLM | large language model | 大语言模型 |
-| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
-| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
-| RLHF | reinforcement learning from human feedback | 基于人类反馈的强化学习 |
-| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
-| reward | — | 奖励，给 rollout 打的分 |
-| off-policy | — | 样本不是由当前策略生成的 |
-| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
-| SFT | supervised fine-tuning | 监督微调 |
-| decode | — | 逐 token 生成的阶段，memory-bound |
-| memory-bound | — | 瓶颈在显存带宽，算力闲着 |
-| compute-bound | — | 瓶颈在算力 |
-| GEMM | general matrix multiply | 通用矩阵乘，训练算力的主体 |
-| HybridFlow | — | verl 对应的论文，单控制器加多控制器的混合编程模型 |
-| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
-| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
-| NIXL | NVIDIA Inference Xfer Library | NVIDIA 面向推理的点对点数据传输库 |
-| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
-| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
-| GLM | General Language Model | 智谱的大模型系列 |
-| AReaL | — | 蚂蚁与清华开源的完全异步 RL 训练系统 |
-| OpenRLHF | — | 最早基于 Ray + vLLM 的开源 RLHF 框架 |
-| Ray | — | 分布式计算框架，verl 用它创建和调度各个 worker |
-| AI-Infra | AI infrastructure | AI 基础设施：训练、推理背后的系统 |
-| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
-| DTensor | distributed tensor | PyTorch 的分布式张量，带着自己的分片布局 |
-| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
-| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
-| EP | expert parallelism | 专家并行：MoE 的专家分到不同卡 |
-| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
-| on-policy | — | 样本由当前策略生成 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| IPC | inter-process communication | 进程间通信；CUDA IPC 让别的进程直接映射这块显存 |
-| Mooncake | — | Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重 |
-| staleness | — | 生成样本的策略比当前策略落后几个版本 |
-| GSM8K | Grade School Math 8K | 约 8.5K 道小学数学应用题的数据集 |
-| OOM | out of memory | 显存不够，分配失败 |
-| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
-| CUDA graph | — | 把一串 kernel 录下来整体重放，省掉逐个启动的开销 |
-| PPO | Proximal Policy Optimization | 近端策略优化：用 clip 限制每步更新幅度 |
-| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
-| RM | reward model | 奖励模型，给回答打分 |
-| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
-| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
-| DeepSeekMath | — | DeepSeek 的数学模型论文，GRPO 出自这里 |
-| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
-| actor | — | 被训练的策略模型 |
-| critic | — | PPO 里估计价值、用来算优势的模型 |
-| SPMD | single program, multiple data | 每张卡跑同一份程序、处理不同数据 |
-| sleep mode | — | vLLM 释放权重与 KV cache 显存、之后再唤醒的模式 |
-| offload | — | 把参数或优化器状态挪到 CPU 内存 |
-| pinned memory | — | 锁页内存，GPU 可以直接 DMA 读写 |
-| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的总线 |
-| hybrid engine | — | 训练器与推理引擎在同一进程里切换的实现 |
-| QKV | query, key, value | 注意力的三个投影，常合并成一个矩阵 |
-| all-gather | — | 每张卡把各自的分片收齐，得到完整张量 |
-| RDMA | remote direct memory access | 远程直接内存访问，跨机传输不经过 CPU |
-| bucket | — | 把多个张量打包成一块连续缓冲再传 |
-| MXFP4 | microscaling FP4 | 按小块共享缩放因子的 4 位浮点格式 |
-| LoRA | Low-Rank Adaptation | 只训练低秩增量矩阵的参数高效微调 |
-| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
-| InfiniBand | — | 机间高速网络，支持 RDMA |
-| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
-| MTP | multi-token prediction | 多 token 预测；推理时可当投机解码的草稿头 |
-| FSDP2 | — | PyTorch 第二代 FSDP，每个参数用 DTensor 分片 |
-| decoupled PPO | — | 把采样策略与近端锚点分开的 PPO 变体 |
-| TIS | truncated importance sampling | 截断重要性采样：权重超过上限就截到上限 |
-| logprob | — | token 的对数概率 |
-| replay buffer | — | 存放已生成样本、供训练取用的缓冲区 |
-| DAPO | Decoupled Clip and Dynamic sAmpling Policy Optimization | 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样 |
-| uni-agent | — | verl 的 Agent 网关，统一管理多轮会话 |
-| harness | — | 驱动 Agent 与环境交互的外层程序 |
-| SWE-bench | — | 用真实 GitHub issue 测代码修复的 benchmark |
-| VeOmni | — | 字节开源的模型训练框架，verl 的训练后端之一 |
-| CP | context parallelism | 上下文并行：长序列按长度切到多张卡 |
-| DP | data parallelism | 数据并行：每份副本处理不同数据 |
-| NaN | not a number | 非数值，数值溢出或 0/0 的结果 |
-| KL | Kullback–Leibler | KL 散度，衡量两个分布差多远 |
-| SXM | Server PCI Express Module | NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡 |
-| HBM3 | High Bandwidth Memory 3 | H100 用的第三代高带宽显存 |
-| TFLOPS | tera floating point operations per second | 每秒 10^12 次浮点运算，卡的峰值算力单位 |
-
-Table: 本文用到的术语与缩写
-
 ## 内容简介
 
-《RL 后训练基础设施：rollout 与训练如何共享一组 GPU》是一组共八篇的系列文章，面向已经理解大规模训练引擎（并行策略、FSDP / Megatron、checkpoint）和 LLM 推理引擎（vLLM 的调度、KV cache、权重加载）的工程师，系统讲解 RLHF / GRPO（Group Relative Policy Optimization）一类**在线强化学习后训练**的系统是如何组织的：一个 RL（reinforcement learning）训练步里的**生成（rollout）、打分（reward）、更新（train）**三段各花多少算力与显存，训练框架与推理引擎怎样在同一组 GPU 上共存或分离，每一步的新权重怎样从训练器的分片布局搬进推理引擎，异步与 off-policy 怎样把 GPU 的等待压掉，Agent 训练的沙箱集群与长尾轨迹怎样调度，以及 verl 这个当前的事实标准框架怎样把这些机制组织成一个系统。
+《RL 后训练基础设施：rollout 与训练如何共享一组 GPU》是一组共八篇的系列文章，面向已经理解大规模训练引擎（并行策略、FSDP / Megatron、checkpoint）和 LLM 推理引擎（vLLM 的调度、KV cache、权重加载）的工程师，系统讲解 RLHF / GRPO 一类**在线强化学习后训练**的系统是如何组织的：一个 RL 训练步里的**生成（rollout）、打分（reward）、更新（train）**三段各花多少算力与显存，训练框架与推理引擎怎样在同一组 GPU 上共存或分离，每一步的新权重怎样从训练器的分片布局搬进推理引擎，异步与 off-policy 怎样把 GPU 的等待压掉，Agent 训练的沙箱集群与长尾轨迹怎样调度，以及 verl 这个当前的事实标准框架怎样把这些机制组织成一个系统。
 
 它回答的问题是：
 
 > **一个 RL 后训练任务，同时是一个推理服务和一个训练任务。这两样东西怎样共享一组 GPU，而不让任何一方在等另一方？[^q0]**
 
-这个问题在预训练和 SFT（supervised fine-tuning）里不存在：那里只有训练，模型从数据里读 token；在线 RL 里 token 是模型**自己生成**的，每一步先要跑一次推理——批量、长序列、decode 为主——再拿生成的样本训练，然后把新权重送回推理引擎生成下一批。生成是 memory-bound 的 decode，训练是 compute-bound 的 GEMM（general matrix multiply），两者对 GPU 的用法相反，对显存的要求互斥（一个要 KV cache，一个要参数 + 梯度 + 优化器状态），而且每一步之间有一道同步的墙。公开报告里 rollout 占 RL 训练墙钟时间的 60–80%，GPU 平均利用率常在 30% 以下——**优化 RL 后训练 = 让训练循环里的推理引擎不闲着，也不让训练器等它**。
+这个问题在预训练和 SFT 里不存在：那里只有训练，模型从数据里读 token；在线 RL 里 token 是模型**自己生成**的，每一步先要跑一次推理——批量、长序列、decode 为主——再拿生成的样本训练，然后把新权重送回推理引擎生成下一批。生成是 memory-bound 的 decode，训练是 compute-bound 的 GEMM，两者对 GPU 的用法相反，对显存的要求互斥（一个要 KV cache，一个要参数 + 梯度 + 优化器状态），而且每一步之间有一道同步的墙。公开报告里 rollout 占 RL 训练墙钟时间的 60–80%，GPU 平均利用率常在 30% 以下——**优化 RL 后训练 = 让训练循环里的推理引擎不闲着，也不让训练器等它**。
 
 系列的组织原则来自这个负载自身的结构：**RL 训练的一步是三个形态不同的作业加两次同步**。生成是一个 serving 作业，打分是一次或几次前向（或一个外部服务），训练是一个常规的分布式训练步；两次同步是"样本从推理引擎到训练器"与"权重从训练器到推理引擎"。把三个作业的算力、显存、时间和两次同步的字节数与耗时追踪清楚，就是理解 RL 基础设施的全部；系统形态（共置 / 分离 / 异步）、权重同步的传输方式、Agent 环境的调度，都是在这张账上做交换。
 
-系列以一个框架为源码阅读对象：**verl**（ByteDance Seed 发起、社区维护，HybridFlow 论文的开源实现）。选它不是因为它唯一，而是因为它是当前的事实标准，且**一套代码覆盖了本系列要讲的全部形态**——共置 / 分离 / 异步三种 trainer 模式、FSDP 与 Megatron 两种训练后端、vLLM 与 SGLang 两种推理后端、NCCL（NVIDIA Collective Communications Library） / NIXL（NVIDIA Inference Xfer Library） / 增量三种权重同步方式、agent loop 与沙箱网关。每一篇的机制都能在 verl 里找到对应的实现，8 卡实践也全部用它。第七篇末尾用一节对照两个取向相反的框架——**slime**（智谱，只绑 Megatron + SGLang、参数原样透传、刻意不做抽象，GLM（General Language Model）系列的 RL 框架）与 **AReaL**（蚂蚁，从第一天起就是完全异步的设计，论文把异步的算法修正写得最清楚）——看同一个问题上它们与 verl 的分歧点在哪，以此分清哪些是这类负载的必然，哪些是 verl 的选择。OpenRLHF 作为最早的 Ray + vLLM 开源实现只在历史脉络里提及。
+系列以一个框架为源码阅读对象：**verl**（ByteDance Seed 发起、社区维护，HybridFlow 论文的开源实现）。选它不是因为它唯一，而是因为它是当前的事实标准，且**一套代码覆盖了本系列要讲的全部形态**——共置 / 分离 / 异步三种 trainer 模式、FSDP 与 Megatron 两种训练后端、vLLM 与 SGLang 两种推理后端、NCCL / NIXL / 增量三种权重同步方式、agent loop 与沙箱网关。每一篇的机制都能在 verl 里找到对应的实现，8 卡实践也全部用它。第七篇末尾用一节对照两个取向相反的框架——**slime**（智谱，只绑 Megatron + SGLang、参数原样透传、刻意不做抽象，GLM 系列的 RL 框架）与 **AReaL**（蚂蚁，从第一天起就是完全异步的设计，论文把异步的算法修正写得最清楚）——看同一个问题上它们与 verl 的分歧点在哪，以此分清哪些是这类负载的必然，哪些是 verl 的选择。OpenRLHF 作为最早的 Ray + vLLM 开源实现只在历史脉络里提及。
 
+
+## 术语与缩写
+
+{% include glossary-table.html series="rl-post-training-infra" %}
 
 ## 为什么写这个系列？
 
 ### RL 后训练是当前增长最快的一类 AI-Infra 负载
 
-2025 年以后，前沿模型的能力增量主要来自后训练里的强化学习：可验证奖励的推理模型（DeepSeek-R1 一族）、多轮工具调用的 Agent 训练、以及在此之上的蒸馏。它们的算力开销已经不是"预训练之后的一点微调"：一个推理模型的 RL 训练，一步 rollout 几千万到几亿 token，总算力到 $$10^{22}$$–$$10^{23}$$ FLOPs（floating point operations），与一个小模型的预训练相当；Agent 训练每一步还要驱动几千个沙箱容器跑测试。集群里为 RL 预留的 GPU 份额在快速上升，而它的系统问题——推理引擎与训练框架的共存、权重同步、异步、环境调度——在预训练和推理服务两条主线里都没有对应物。
+2025 年以后，前沿模型的能力增量主要来自后训练里的强化学习：可验证奖励的推理模型（DeepSeek-R1 一族）、多轮工具调用的 Agent 训练、以及在此之上的蒸馏。它们的算力开销已经不是"预训练之后的一点微调"：一个推理模型的 RL 训练，一步 rollout 几千万到几亿 token，总算力到 $$10^{22}$$–$$10^{23}$$ FLOPs，与一个小模型的预训练相当；Agent 训练每一步还要驱动几千个沙箱容器跑测试。集群里为 RL 预留的 GPU 份额在快速上升，而它的系统问题——推理引擎与训练框架的共存、权重同步、异步、环境调度——在预训练和推理服务两条主线里都没有对应物。
 
 ### 它是两条主线的组合，但组合本身是新问题
 
@@ -139,13 +50,13 @@ Table: 把组件放进 RL 循环之后才出现的五个问题
 
 ### 框架已经收敛到可以写"机制"而不是"实现"
 
-2024 年这个领域的框架各自为战、接口每月都变。到本系列写作时（2026 年 9 月初），情况已经不同：verl 的 HybridFlow 编程模型（单控制器 + 多 worker 组）成了多数框架的共同形态；"共置 / 分离 / 异步"三种系统形态都有了生产实现并且可以在同一个框架里切换；权重同步的传输方式（NCCL 广播、CUDA IPC（inter-process communication）、NIXL / Mooncake、增量同步）与推理引擎的显存让渡接口（vLLM 的 sleep / wake_up、SGLang 的 memory saver）已经稳定；异步训练的算法修正（重要性比、staleness 上限、部分 rollout）在 AReaL、verl、slime 里的写法基本一致。机制稳定、实现仍在变——正是适合写系列的时候：正文以机制为主，源码只在必要处引用，版本随文标注。
+2024 年这个领域的框架各自为战、接口每月都变。到本系列写作时（2026 年 9 月初），情况已经不同：verl 的 HybridFlow 编程模型（单控制器 + 多 worker 组）成了多数框架的共同形态；"共置 / 分离 / 异步"三种系统形态都有了生产实现并且可以在同一个框架里切换；权重同步的传输方式（NCCL 广播、CUDA IPC、NIXL / Mooncake、增量同步）与推理引擎的显存让渡接口（vLLM 的 sleep / wake_up、SGLang 的 memory saver）已经稳定；异步训练的算法修正（重要性比、staleness 上限、部分 rollout）在 AReaL、verl、slime 里的写法基本一致。机制稳定、实现仍在变——正是适合写系列的时候：正文以机制为主，源码只在必要处引用，版本随文标注。
 
 ### 现有材料的断层
 
 - **论文**（HybridFlow、AReaL、DeepSeek-R1、Kimi k1.5 的系统章节）给出了设计与数字，但不讲一个具体的任务怎么配、卡怎么分、慢在哪；
 - **框架文档**告诉你每个配置项是什么，不告诉你在给定模型、GPU 数与 rollout 长度下应该选共置还是分离、rollout 与训练的 GPU 比例多少；
-- **博客与教程**大多停在"用 verl 跑通一个 GSM8K（Grade School Math 8K）的 GRPO"，很少触及权重同步的字节数、显存切换的耗时、异步的 staleness 边界、沙箱集群的调度；
+- **博客与教程**大多停在"用 verl 跑通一个 GSM8K 的 GRPO"，很少触及权重同步的字节数、显存切换的耗时、异步的 staleness 边界、沙箱集群的调度；
 - **一线团队的经验**散落在各框架的 release note、issue 与内部文档里。
 
 本系列想填补的是从"能跑通一个 7B 的 GRPO"到"能为一个几百卡的 RL 任务做出系统形态与资源配比的决策、并解释它的利用率为什么是这个数"之间的那段路。
@@ -155,7 +66,7 @@ Table: 把组件放进 RL 循环之后才出现的五个问题
 
 ### 负责 RL 训练任务的系统工程师
 
-你的团队在做推理模型或 Agent 的 RL 训练，任务能跑，但 GPU 利用率低、一步的墙钟时间大半在等 rollout、权重同步一次要几十秒、规模再扩大就 OOM（out of memory）或 hang。你需要知道时间去了哪、每一项的理论下界是多少、哪种系统形态对你的负载合适。本系列是为这个阶段准备的。
+你的团队在做推理模型或 Agent 的 RL 训练，任务能跑，但 GPU 利用率低、一步的墙钟时间大半在等 rollout、权重同步一次要几十秒、规模再扩大就 OOM 或 hang。你需要知道时间去了哪、每一项的理论下界是多少、哪种系统形态对你的负载合适。本系列是为这个阶段准备的。
 
 ### 训练平台与调度团队
 
@@ -174,7 +85,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 八篇文章按"先算账、再定形态、再解决形态带来的三个问题、最后读源码与配置"的顺序推进：
 
-1. 第一篇：负载画像 —— 一步 RL 里发生什么：三段作业的算力、显存与时间账（生成 / 打分 / 训练的 FLOPs 与 MFU（model FLOPs utilization） · 四个模型的显存 · KV cache 的量 · 为什么 rollout 占一半以上）
+1. 第一篇：负载画像 —— 一步 RL 里发生什么：三段作业的算力、显存与时间账（生成 / 打分 / 训练的 FLOPs 与 MFU · 四个模型的显存 · KV cache 的量 · 为什么 rollout 占一半以上）
 2. 第二篇：系统形态 —— 共置、分离与异步：三种拓扑的利用率、气泡与正确性代价（单控制器与 worker 组 · 时分复用 vs 空分复用 · rollout : train 的 GPU 配比）
 3. 第三篇：共置 —— 训练器与推理引擎在同一组 GPU 上共存（显存归属切换 · sleep / wake_up 与 memory saver · CUDA graph 与 KV 池的重建代价）
 4. 第四篇：权重同步 —— 从训练分片到推理分片（布局映射与重分片 · NCCL 广播 / CUDA IPC / NIXL · 量化传输与增量同步 · 一次同步多少秒）
@@ -196,14 +107,14 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 ### 1. 负载画像：一步 RL 里发生什么
 
-第一篇建立全系列的记账框架。它不讨论任何系统形态，只回答一个问题：**一个 GRPO / PPO（Proximal Policy Optimization）训练步里，生成、打分、训练三段各做多少 FLOP（floating point operation）、占多少显存、在什么 MFU 下花多少秒？**
+第一篇建立全系列的记账框架。它不讨论任何系统形态，只回答一个问题：**一个 GRPO / PPO 训练步里，生成、打分、训练三段各做多少 FLOP、占多少显存、在什么 MFU 下花多少秒？**
 
 这一篇会讨论：
 
 - 一步的结构：$$B$$ 个 prompt × $$G$$ 条回答 × 平均长度 $$\bar L$$ 的 rollout；参考模型与（若有）奖励模型 / 价值模型的前向；策略的前向 + 反向；两次同步——样本进训练器、权重回推理引擎；
-- FLOPs 的拆分：生成 $$2N$$、参考前向 $$2N$$、RM（reward model）前向 $$2N_{RM}$$、策略训练 $$6N$$，合计约 $$12N$$ 每 token；PPO 再加价值网络约 $$8N$$；**按 FLOPs 训练占一半、生成只占六分之一**；
+- FLOPs 的拆分：生成 $$2N$$、参考前向 $$2N$$、RM 前向 $$2N_{RM}$$、策略训练 $$6N$$，合计约 $$12N$$ 每 token；PPO 再加价值网络约 $$8N$$；**按 FLOPs 训练占一半、生成只占六分之一**；
 - 时间的拆分：训练与前向是大 GEMM，MFU 40% 上下；生成是 decode，每步一个 token、memory-bound，对话长度下 MFU 只有 10% 上下，长思维链下 KV 读取占了带宽的大半、只剩个位数；再加长尾——同一波里最长的回答决定这一波何时结束——**按时间生成占一半以上**，HybridFlow（verl）与 OpenRLHF 的论文都报告 rollout 占 60–80%；
-- 显存的四份：训练状态（bf16（bfloat16）参数 + 梯度 + fp32 主参数与 Adam 状态，每参数 16 字节，来自大规模训练系列第一篇的公式）、参考模型与 RM 的 bf16 权重、推理引擎的权重副本、KV cache；对话 RLHF 的 4096 条 × 1300 token 在 Llama-3-8B 规格下是 680 GiB 的 KV，推理模型 8K–32K 的回答是它的 8 到 64 倍——**任何一张卡都放不下全部，rollout 必须分波或分卡**；
+- 显存的四份：训练状态（bf16 参数 + 梯度 + fp32 主参数与 Adam 状态，每参数 16 字节，来自大规模训练系列第一篇的公式）、参考模型与 RM 的 bf16 权重、推理引擎的权重副本、KV cache；对话 RLHF 的 4096 条 × 1300 token 在 Llama-3-8B 规格下是 680 GiB 的 KV，推理模型 8K–32K 的回答是它的 8 到 64 倍——**任何一张卡都放不下全部，rollout 必须分波或分卡**；
 - 三段作业的形态对比：生成是 serving（请求、批、KV 池、连续批处理），训练是分布式训练步（并行、梯度、优化器），打分要么是 prefill 形态的前向、要么是外部服务（规则验证器、代码沙箱、生成式 RM）——它们对 GPU 的用法为什么互斥；
 - 推理模型与 Agent 把账放大了什么：$$\bar L$$ 从 1K 到 32K 让 rollout 的 token 数与 KV 多一到两个数量级、墙钟从分钟到几十分钟；Agent 轨迹里八成 token 来自环境，训练要过它们的前向却不产生梯度，每个有效 token 的代价是单轮的 5 倍；
 - 公开配方的账：DeepSeekMath / R1 的 GRPO、Kimi k1.5、Qwen3 的后训练报告里能推出的 rollout 规模、GPU 数与步时间。
@@ -220,7 +131,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 这一篇会覆盖：
 
-- HybridFlow 的编程模型（verl 的论文）：**单控制器**负责 RL 算法的数据流（一步里谁先谁后、样本怎么流），**多个 worker 组**（actor、rollout、ref、critic、RM）各自用 SPMD（single program, multiple data）方式跑自己的分布式计算；这个模型为什么让"换算法"与"换系统形态"互不干扰，以及它的代价（控制器与 worker 之间的数据搬运）；
+- HybridFlow 的编程模型（verl 的论文）：**单控制器**负责 RL 算法的数据流（一步里谁先谁后、样本怎么流），**多个 worker 组**（actor、rollout、ref、critic、RM）各自用 SPMD 方式跑自己的分布式计算；这个模型为什么让"换算法"与"换系统形态"互不干扰，以及它的代价（控制器与 worker 之间的数据搬运）；
 - **共置（colocate）**：所有角色在同一组 GPU 上**时分复用**——生成时显存归推理引擎，训练时归训练器；优点是每个阶段都能用满全部 GPU、权重同步在卡内完成；代价是显存要在两种状态之间切换、阶段之间无法重叠、长尾拖住所有卡；
 - **分离（disaggregate）**：rollout 与训练在不同的 GPU 池上**空分复用**；优点是两种负载各用适合自己的并行配置、可以重叠；代价是配比要事先定好、权重同步要跨机器、配比不对就有一方空转；
 - **异步（async）**：分离之上再去掉每步的同步墙——训练用 $$k$$ 步前的权重生成的样本，生成不等训练；GPU 利用率最高，代价是 off-policy 与它的算法修正（第五篇）；
@@ -241,9 +152,9 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 这一篇会覆盖：
 
 - 显存归属的问题：训练器需要每参数 16 字节加激活，推理引擎需要权重副本加尽可能大的 KV 池；两者加起来远超 80 GB，所以生成时训练状态要让出去、训练时 KV 池要让出去；
-- 推理引擎的让渡接口：vLLM 的 **sleep mode**——level 1 把权重拷到 CPU、释放 KV 池，level 2 连权重也丢弃（下次 wake_up 后重新同步）；它建立在 vLLM 的 `CuMemAllocator`（用 CUDA（Compute Unified Device Architecture）虚拟内存 API 把物理页从虚拟地址上摘下再挂回）之上；SGLang 的 `torch_memory_saver` 走同一条路；
+- 推理引擎的让渡接口：vLLM 的 **sleep mode**——level 1 把权重拷到 CPU、释放 KV 池，level 2 连权重也丢弃（下次 wake_up 后重新同步）；它建立在 vLLM 的 `CuMemAllocator`（用 CUDA 虚拟内存 API 把物理页从虚拟地址上摘下再挂回）之上；SGLang 的 `torch_memory_saver` 走同一条路；
 - 训练器一侧的让渡：FSDP 的参数与优化器状态 offload 到 CPU、`torch.cuda.empty_cache`、Megatron 的 offload 路径；两侧让渡的顺序与 pinned memory 的用量；
-- 切换的代价：一次 sleep + wake_up 要搬多少字节（8B 的 16 GB 权重 PCIe（Peripheral Component Interconnect Express）往返约 1 秒；70B 的 140 GB 是十几秒），CUDA graph 是否要重新捕获、KV 池是否要重新分配与预热、prefix cache 是否失效；每步两次切换在步时间里占多少；
+- 切换的代价：一次 sleep + wake_up 要搬多少字节（8B 的 16 GB 权重 PCIe 往返约 1 秒；70B 的 140 GB 是十几秒），CUDA graph 是否要重新捕获、KV 池是否要重新分配与预热、prefix cache 是否失效；每步两次切换在步时间里占多少；
 - 共置下的权重同步：训练器与推理引擎在同一进程或同一台机器——`update_weights` 走 CUDA IPC 或进程内张量传递，不走网络；verl 的 `ActorRolloutRefWorker`——同一个 worker 同时持有训练器与推理引擎——与 hybrid engine 的实现；
 - 显存碎片与 allocator：训练与推理两套 allocator 在同一块显存上交替，`expandable_segments`、mem pool 的用法与坑；
 - 共置形态的适用边界：模型多大、$$\bar L$$ 多长时切换代价开始不可忽视，何时应换分离。
@@ -260,14 +171,14 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 这一篇会覆盖：
 
-- 问题的两半：**布局**（训练器按 FSDP 的 DTensor 或 Megatron 的 TP（tensor parallelism） / PP（pipeline parallelism） / EP 切分，推理引擎按自己的 TP / EP 切分，两边的切法、rank 数、甚至参数名都不同）与**传输**（字节从训练卡到推理卡走哪条链路）；
-- 名字与形状的映射：Hugging Face 的参数名 ↔ Megatron 的融合权重（QKV（query, key, value）合并、gate/up 合并、专家堆叠）；Megatron-Bridge / mbridge 做的就是这层映射；FSDP 一侧 `full_state_dict` 与 sharded state dict 的区别，为什么"先 all-gather 成完整权重再广播"在大模型上不可行；
-- 传输方式：共置下的 CUDA IPC；分离下的 **NCCL 广播**（训练 rank 0 → 所有推理 rank，或按分片点对点）、**NIXL / Mooncake** 的 RDMA（remote direct memory access）传输、经磁盘或对象存储的 checkpoint 中转；各自的带宽、对进程组的要求、与训练 / 推理各自 NCCL 通信的冲突；
+- 问题的两半：**布局**（训练器按 FSDP 的 DTensor 或 Megatron 的 TP / PP / EP 切分，推理引擎按自己的 TP / EP 切分，两边的切法、rank 数、甚至参数名都不同）与**传输**（字节从训练卡到推理卡走哪条链路）；
+- 名字与形状的映射：Hugging Face 的参数名 ↔ Megatron 的融合权重（QKV 合并、gate/up 合并、专家堆叠）；Megatron-Bridge / mbridge 做的就是这层映射；FSDP 一侧 `full_state_dict` 与 sharded state dict 的区别，为什么"先 all-gather 成完整权重再广播"在大模型上不可行；
+- 传输方式：共置下的 CUDA IPC；分离下的 **NCCL 广播**（训练 rank 0 → 所有推理 rank，或按分片点对点）、**NIXL / Mooncake** 的 RDMA 传输、经磁盘或对象存储的 checkpoint 中转；各自的带宽、对进程组的要求、与训练 / 推理各自 NCCL 通信的冲突；
 - 分桶与流水：权重按 bucket 逐个 gather → 传输 → 加载，让三步重叠、并把峰值显存限制在一个 bucket；bucket 大小的选择；
-- **量化传输**：推理引擎用 FP8（8-bit floating point） / MXFP4（microscaling FP4）权重时，同步路径上要做在线量化——scale 怎么算、与推理侧的量化格式怎样对齐；
-- **增量同步**：每步只有一部分权重变化明显（LoRA（Low-Rank Adaptation）时更极端——只传 adapter）；verl 0.9 的 `delta_sharded` checkpoint engine 让每个训练 rank 只对自己的分片做字节 diff、只传变化的位置，报告 7B–72B 上比全量 NCCL 广播快 1.9–3.1 倍；
-- 一次同步多少秒：8B 的 16 GB 在 NVLink 内几秒、跨机 InfiniBand 几十秒；405B 的 810 GB、DeepSeek-V3 规格的 671B MoE（mixture of experts）是分钟级——与步时间相比值不值、异步下同步频率怎么定；
-- 正确性：同步中途推理引擎不能生成（或必须知道自己在用哪个版本）；MTP（multi-token prediction）草稿模型、LoRA 合并、量化 scale 这些"权重之外的权重"漏同步的后果。
+- **量化传输**：推理引擎用 FP8 / MXFP4 权重时，同步路径上要做在线量化——scale 怎么算、与推理侧的量化格式怎样对齐；
+- **增量同步**：每步只有一部分权重变化明显（LoRA 时更极端——只传 adapter）；verl 0.9 的 `delta_sharded` checkpoint engine 让每个训练 rank 只对自己的分片做字节 diff、只传变化的位置，报告 7B–72B 上比全量 NCCL 广播快 1.9–3.1 倍；
+- 一次同步多少秒：8B 的 16 GB 在 NVLink 内几秒、跨机 InfiniBand 几十秒；405B 的 810 GB、DeepSeek-V3 规格的 671B MoE 是分钟级——与步时间相比值不值、异步下同步频率怎么定；
+- 正确性：同步中途推理引擎不能生成（或必须知道自己在用哪个版本）；MTP 草稿模型、LoRA 合并、量化 scale 这些"权重之外的权重"漏同步的后果。
 
 核心问题是：
 
@@ -285,7 +196,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 - **部分 rollout**（Kimi k1.5、AReaL）：给每步的生成设 token 或时间上限，没生成完的序列暂停、下一步用新权重继续——一条轨迹跨越多个策略版本；它把长尾截平的代价是同一条序列的不同段来自不同策略；
 - 算法修正：重要性比 $$\rho = \pi_\theta / \pi_{old}$$ 与 clip 在 off-policy 下的行为；AReaL 的 decoupled PPO loss（把"生成策略"与"近端策略"分开）；按 token 记录 $$\log \pi_{old}$$ 与策略版本号的系统开销；
 - **训推不一致**（training-inference mismatch）：推理引擎（vLLM / SGLang，可能 FP8、不同的 kernel 与 reduce 顺序）算出的 $$\log \pi$$ 与训练器（FSDP / Megatron，bf16）算出的不同，本身就是一种 off-policy；TIS（truncated importance sampling）等修正；为什么要监控两侧 logprob 的差、以及 verl / slime 把它做成了测试项；
-- 样本通路：rollout 完成一条就进**样本缓冲**（replay buffer），训练器取够一个 batch 就更新；缓冲的淘汰规则（过期、DAPO（Decoupled Clip and Dynamic sAmpling Policy Optimization）式过滤掉全对 / 全错的组、失败的 rollout）；流式数据加载与"变长 global batch"；
+- 样本通路：rollout 完成一条就进**样本缓冲**（replay buffer），训练器取够一个 batch 就更新；缓冲的淘汰规则（过期、DAPO 式过滤掉全对 / 全错的组、失败的 rollout）；流式数据加载与"变长 global batch"；
 - 异步下的权重同步频率与方式：不再是"每步一次、全员停下"，而是推理引擎在请求之间换权重、或多个推理实例轮流更新；正在生成的请求怎么办——中断重来、还是记下版本继续；
 - 异步的可观测：off-policy 指标（staleness 分布、$$\rho$$ 的分布、被裁掉的比例）、缓冲区深度、两侧的等待时间；
 - verl 的 `colocate_async` / `separate_async` 里这些机制的实现：replay buffer、staleness 策略、流式 dataloader、异步 checkpoint 恢复；AReaL 的完全异步设计（rollout controller + 样本缓冲 + 版本管理）作为原型在第七篇对照。
@@ -342,11 +253,11 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 这一篇会覆盖：
 
-- 配置的推导顺序：先按第一篇算三段的时间 → 按第二篇选形态与配比 → 训练侧的并行配置（FSDP / Megatron 的 TP / PP / EP / CP（context parallelism），与预训练相同的逻辑但 batch 形态不同——变长、按 token 数打包）→ 推理侧的并行配置（vLLM 的 TP / EP / DP（data parallelism）、KV 池大小、最大并发）→ 权重同步方式；MoE 模型两侧都要 EP，长上下文训练侧要 CP；
+- 配置的推导顺序：先按第一篇算三段的时间 → 按第二篇选形态与配比 → 训练侧的并行配置（FSDP / Megatron 的 TP / PP / EP / CP，与预训练相同的逻辑但 batch 形态不同——变长、按 token 数打包）→ 推理侧的并行配置（vLLM 的 TP / EP / DP、KV 池大小、最大并发）→ 权重同步方式；MoE 模型两侧都要 EP，长上下文训练侧要 CP；
 - 全步 MFU：把三段的 FLOPs 除以全部 GPU 的峰值 × 墙钟，得到整个 RL 步的利用率——它才是要优化的数字；逐项拆解损失（rollout 长尾、切换、同步、训练 MFU、环境等待）；
 - **RL 状态的 checkpoint**：除了训练状态，还有样本缓冲、数据集位置、rollout 引擎里正在生成的请求、异步下的策略版本表；恢复时重放还是丢弃进行中的 rollout；异步 trainer 的恢复语义；
 - **确定性**：RL 的 reward 曲线对随机性极敏感，排障的前提是两次运行能对齐——vLLM 的确定性推理、训练侧的确定性算法、采样种子；"bitwise 对齐的 reward 曲线"是可以做到的，代价是什么；
-- 常见故障：跨引擎的 NCCL 进程组 hang（训练与推理各自的通信在同一批卡上交叉）、权重同步中途的显存峰值 OOM、sleep / wake_up 之后的 CUDA graph 失效、训推 logprob 差异过大导致的 NaN（not a number）与 reward 崩塌、沙箱泄漏耗尽 CPU 集群、Ray 的对象存储溢出；每一类的信号与排查路径；
+- 常见故障：跨引擎的 NCCL 进程组 hang（训练与推理各自的通信在同一批卡上交叉）、权重同步中途的显存峰值 OOM、sleep / wake_up 之后的 CUDA graph 失效、训推 logprob 差异过大导致的 NaN 与 reward 崩塌、沙箱泄漏耗尽 CPU 集群、Ray 的对象存储溢出；每一类的信号与排查路径；
 - 可观测：三段各自的 token/s 与 GPU 时间、每步的切换与同步耗时、off-policy 指标、rollout 长度分布与长尾、MoE 的专家负载均衡、环境的排队与失败率；哪些该告警；
 - 与平台的接口：一个 RL 任务向调度器申请的是"两类 GPU 池 + 一个 CPU 池 + 若干服务"，gang scheduling、弹性与抢占的语义与预训练任务不同；本篇只给出引擎侧的要求。
 
@@ -401,7 +312,7 @@ Table: 各篇末尾「实践」对应的动手内容
 
 - 理解分布式训练的状态与并行：知道 FSDP / Megatron 把参数、梯度、优化器状态切在哪、每参数 16 字节从哪来、TP / PP / DP / EP 各是什么（[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)前两篇的内容）；
 - 理解 LLM 推理引擎的基本机制：prefill 与 decode 的形态差别、KV cache 的字节数、连续批处理、TP 部署（[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)前五篇的内容）；
-- 知道 GRPO / PPO 一步在做什么：采样、打分、更新，参考模型与 KL（Kullback–Leibler），重要性比与 clip（[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)第三篇的内容；本系列第一篇会用一节复述所需的最小集）；
+- 知道 GRPO / PPO 一步在做什么：采样、打分、更新，参考模型与 KL，重要性比与 clip（[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)第三篇的内容；本系列第一篇会用一节复述所需的最小集）；
 - 会用 Ray 启动多进程任务、读 Python 源码、用 profiler 看时间线；
 - 至少一台 8 卡 GPU 机器（Ampere 或更新）用于实践；几百卡的内容以计算外推与公开数据为主。
 
@@ -416,7 +327,7 @@ Table: 各篇末尾「实践」对应的动手内容
 - **verl v0.9.0**（2026-08-14）为全系列的源码对象：统一的 v1 trainer（`sync` / `colocate_async` / `separate_async`）、model engine（FSDP / Megatron / VeOmni）、rollout server 模式、checkpoint engine（含 `delta_sharded`）、agent loop 与 uni-agent；它 pin 的 vLLM 与 SGLang 版本随文标注；
 - 对照框架只在第七篇末节与个别机制处出现：**slime v0.3.0**（2026-05-31）；**AReaL** 以其论文（Fu 等 2025，arXiv 2505.24298）与当前文档的异步机制为准；OpenRLHF 只提脉络，不引源码；
 - 推理引擎以 **vLLM v0.27.1** 为主（与《大模型推理系统揭秘》一致），SGLang 作为对照；训练器以 **PyTorch 2.13.0** 的 FSDP2 与 **Megatron Core 0.18.0** 为准（与《大规模训练工程》一致）；
-- 硬件以 **H100 SXM**（80 GB HBM3（High Bandwidth Memory 3），BF16 dense 约 989 TFLOPS（tera floating point operations per second））为默认分析对象，节点内 8 卡 NVLink、节点间 InfiniBand；模型以 **Llama-3-8B / Qwen3-32B** 规格的 dense 模型与 **DeepSeek-V3** 规格的 MoE 为主要算例；给出的公开数字均注明来源（HybridFlow、AReaL、DeepSeek-R1、Kimi k1.5、各框架的 release note），实测会因集群与版本而异。
+- 硬件以 **H100 SXM**（80 GB HBM3，BF16 dense 约 989 TFLOPS）为默认分析对象，节点内 8 卡 NVLink、节点间 InfiniBand；模型以 **Llama-3-8B / Qwen3-32B** 规格的 dense 模型与 **DeepSeek-V3** 规格的 MoE 为主要算例；给出的公开数字均注明来源（HybridFlow、AReaL、DeepSeek-R1、Kimi k1.5、各框架的 release note），实测会因集群与版本而异。
 
 这个领域的框架仍在快速迭代，正文以**机制**为主：显存让渡、布局映射、传输方式、staleness 控制、环境服务化——这些在四个框架里的写法已经趋同，比任何一个框架的配置项稳定。源码引用只到目录与关键函数，不引用行号。
 
@@ -457,6 +368,6 @@ Table: 各篇末尾「实践」对应的动手内容
 2. **实现能力**：读懂并修改 verl（或同类框架）里的显存让渡、权重同步、异步控制与环境接入，或不依赖框架把这几段自己写出来；
 3. **运维能力**：为一个持续数天到数周的 RL 任务设计 checkpoint、确定性、监控与告警方案，让它在推理引擎、训练器、沙箱集群三方都可能出问题的前提下把全步利用率维持在可解释的水平。
 
-这是 AI-Infra（AI infrastructure）引擎层里训练与推理两条主线**会合**的那一块：训练引擎与推理引擎不再各管一段，而是在同一个循环里、同一组 GPU 上轮流工作。
+这是 AI-Infra 引擎层里训练与推理两条主线**会合**的那一块：训练引擎与推理引擎不再各管一段，而是在同一个循环里、同一组 GPU 上轮流工作。
 
 [^q0]: 把 RL 一步看成**三个形态不同的作业加两次同步**：生成（serving 作业，memory-bound 的 decode，要 KV cache）、打分（几次前向或外部服务）、训练（compute-bound 的分布式训练步，要参数 + 梯度 + 优化器状态），同步是「样本从推理引擎到训练器」与「权重从训练器到推理引擎」。共享 GPU 的三种形态各换一样东西：**共置**（同一组卡上两套引擎分时复用，切换时卸载 / 重载显存，权重同步走进程内或 NCCL 广播，简单但 rollout 期间训练器闲着）、**分离**（推理与训练各占一组卡，权重同步走 RDMA / NCCL 跨机，各自满载但要配比两边算力使没人等）、**异步**（允许用落后一两个版本的权重生成，用 off-policy 修正换掉同步墙，GPU 利用率最高、算法上要付代价）。verl 一套代码覆盖三种形态，系列沿它读源码并给每种形态算算力、显存、时间与同步字节数的账。

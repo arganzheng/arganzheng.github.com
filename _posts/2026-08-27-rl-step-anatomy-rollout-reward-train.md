@@ -8,83 +8,19 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一个 8B 的策略模型做 GRPO（Group Relative Policy Optimization）：512 个 prompt、每个采 16 条回答、回答平均 8K token。这一步要生成 6700 万个 token，参考模型与旧策略要再各过一遍 7100 万个 token 的前向，训练要对同样多的 token 做前向加反向。合计 6.8×10¹⁸ FLOP（floating point operation），其中训练占一半、生成只占六分之一。但在 64 张 H100 上，生成要 600 秒、训练 135 秒——**按时间生成占四分之三**。整步下来，64 张卡的算力只用到了 13%。
+一个 8B 的策略模型做 GRPO：512 个 prompt、每个采 16 条回答、回答平均 8K token。这一步要生成 6700 万个 token，参考模型与旧策略要再各过一遍 7100 万个 token 的前向，训练要对同样多的 token 做前向加反向。合计 6.8×10¹⁸ FLOP，其中训练占一半、生成只占六分之一。但在 64 张 H100 上，生成要 600 秒、训练 135 秒——**按时间生成占四分之三**。整步下来，64 张卡的算力只用到了 13%。
 
-这几个数字是本系列后面七篇的全部起点。系统形态（共置 / 分离 / 异步）要解决的是"生成的 600 秒里训练器在做什么、训练的 135 秒里推理引擎在做什么"；显存切换要解决的是"同一张卡上训练状态与 KV（key-value） cache 怎么轮流占"；权重同步要解决的是"每步 16 GB 新权重怎么进推理引擎"；异步要解决的是"600 秒里有 196 秒是等最长的几条回答，能不能不等"；Agent 篇要解决的是"当 rollout 还要等几千个容器跑测试时，这张账再放大多少"。不先把这些数字算出来，后面每一个决定都只能靠试。
+这几个数字是本系列后面七篇的全部起点。系统形态（共置 / 分离 / 异步）要解决的是"生成的 600 秒里训练器在做什么、训练的 135 秒里推理引擎在做什么"；显存切换要解决的是"同一张卡上训练状态与 KV cache 怎么轮流占"；权重同步要解决的是"每步 16 GB 新权重怎么进推理引擎"；异步要解决的是"600 秒里有 196 秒是等最长的几条回答，能不能不等"；Agent 篇要解决的是"当 rollout 还要等几千个容器跑测试时，这张账再放大多少"。不先把这些数字算出来，后面每一个决定都只能靠试。
 
-算这些数字不需要 GPU，需要的是一套一致的记账方法：一步 RL（reinforcement learning）是**三个形态不同的作业加两次同步**——生成是 serving 作业、打分是一次或几次前向（或一个外部服务）、训练是常规的分布式训练步；两次同步是样本从推理引擎进训练器、新权重从训练器回推理引擎。每个作业有明确的 FLOPs（floating point operations）公式、显存公式与时间模型；把它们与硬件的三个数字（峰值算力、HBM（high bandwidth memory）容量、HBM 带宽）放在一起，就得到三段各花多少秒、整步的 GPU 利用率上限是多少这两个答案。
+算这些数字不需要 GPU，需要的是一套一致的记账方法：一步 RL 是**三个形态不同的作业加两次同步**——生成是 serving 作业、打分是一次或几次前向（或一个外部服务）、训练是常规的分布式训练步；两次同步是样本从推理引擎进训练器、新权重从训练器回推理引擎。每个作业有明确的 FLOPs 公式、显存公式与时间模型；把它们与硬件的三个数字（峰值算力、HBM 容量、HBM 带宽）放在一起，就得到三段各花多少秒、整步的 GPU 利用率上限是多少这两个答案。
 
-这一篇不讨论任何系统形态，也不进入任何框架的源码。它只做一件事：把这套记账方法建立起来，给出符号、公式，算清四个场景（8B 对话、8B 推理、32B 推理、DeepSeek-V3 规格的 MoE（mixture of experts）推理）的完整数字，并解释为什么 RL 后训练的系统问题与预训练、推理服务都不同。
+这一篇不讨论任何系统形态，也不进入任何框架的源码。它只做一件事：把这套记账方法建立起来，给出符号、公式，算清四个场景（8B 对话、8B 推理、32B 推理、DeepSeek-V3 规格的 MoE 推理）的完整数字，并解释为什么 RL 后训练的系统问题与预训练、推理服务都不同。
 
 本篇的核心问题：
 
 > **一个 8B 策略模型，$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$，在 64 张 H100 上做 GRPO。一步生成多少 token、多少 KV、要分几波？[^q0] 三段各要多少 GPU·秒？[^q1] GPU 平均利用率的理论上限是多少？[^q2] ——这一步之后每一篇要解决的，就是实际值与这个上限之间的差。**
 
-文中所有硬件峰值都是**标称值**（H100 SXM bf16（bfloat16） dense 989 TFLOPS（tera floating point operations per second）、HBM3 3.35 TB/s、80 GB），字节数用十进制单位（1 GB = 10⁹ 字节），KV 按惯例用 KiB / GiB 注明；所有时间都是在明确写出的 MFU（model FLOPs utilization）或带宽利用率假设下的估算，不是实测；论文数字在首次出现处注明出处。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
-| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
-| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
-| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
-| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
-| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
-| FLOPs | floating point operations | 浮点运算次数，算力开销单位 |
-| HBM | high bandwidth memory | GPU 上的高带宽显存 |
-| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
-| SXM | Server PCI Express Module | NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡 |
-| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
-| TFLOPS | tera floating point operations per second | 每秒 10^12 次浮点运算，卡的峰值算力单位 |
-| HBM3 | High Bandwidth Memory 3 | H100 用的第三代高带宽显存 |
-| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
-| PPO | Proximal Policy Optimization | 近端策略优化：用 clip 限制每步更新幅度 |
-| decode | — | 逐 token 生成的阶段，memory-bound |
-| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
-| on-policy | — | 样本由当前策略生成 |
-| SFT | supervised fine-tuning | 监督微调 |
-| DPO | Direct Preference Optimization | 直接偏好优化：离线学偏好对，不需要 rollout |
-| MLA | Multi-head Latent Attention | DeepSeek 的注意力，把 KV 压成一个低秩向量 |
-| LLM | large language model | 大语言模型 |
-| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
-| DeepSeekMath | — | DeepSeek 的数学模型论文，GRPO 出自这里 |
-| RM | reward model | 奖励模型，给回答打分 |
-| bucket | — | 把多个张量打包成一块连续缓冲再传 |
-| EFLOP | exa floating point operations | 10^18 次浮点运算 |
-| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
-| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
-| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
-| TIS | truncated importance sampling | 截断重要性采样：权重超过上限就截到上限 |
-| ZeRO-3 | Zero Redundancy Optimizer stage 3 | DeepSpeed ZeRO 第三阶段：参数也分片 |
-| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
-| GQA | grouped-query attention | 多个 query 头共享一组 KV 头 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
-| micro-batch | — | 一次前向反向处理的那批样本 |
-| FlashAttention | — | 分块计算、不写出注意力矩阵的 attention kernel |
-| offload | — | 把参数或优化器状态挪到 CPU 内存 |
-| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的总线 |
-| CUDA graph | — | 把一串 kernel 录下来整体重放，省掉逐个启动的开销 |
-| TFLOP | tera floating point operations | 10^12 次浮点运算 |
-| memory-bound | — | 瓶颈在显存带宽，算力闲着 |
-| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
-| GEMM | general matrix multiply | 通用矩阵乘，训练算力的主体 |
-| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
-| HybridFlow | — | verl 对应的论文，单控制器加多控制器的混合编程模型 |
-| OpenRLHF | — | 最早基于 Ray + vLLM 的开源 RLHF 框架 |
-| EP | expert parallelism | 专家并行：MoE 的专家分到不同卡 |
-| DP | data parallelism | 数据并行：每份副本处理不同数据 |
-| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
-| CP | context parallelism | 上下文并行：长序列按长度切到多张卡 |
-| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
-| reward | — | 奖励，给 rollout 打的分 |
-| compute-bound | — | 瓶颈在算力 |
-| KL | Kullback–Leibler | KL 散度，衡量两个分布差多远 |
-| logprob | — | token 的对数概率 |
-
-Table: 本文用到的术语与缩写
+文中所有硬件峰值都是**标称值**（H100 SXM bf16 dense 989 TFLOPS、HBM3 3.35 TB/s、80 GB），字节数用十进制单位（1 GB = 10⁹ 字节），KV 按惯例用 KiB / GiB 注明；所有时间都是在明确写出的 MFU 或带宽利用率假设下的估算，不是实测；论文数字在首次出现处注明出处。
 
 ## 一、总览
 
@@ -103,7 +39,7 @@ flowchart TB
 
 ### 1. 一步 GRPO 里有几个作业、要同步几次
 
-在线 RL 后训练（PPO（Proximal Policy Optimization）、GRPO 及其一族）的一步，展开是这样的：
+在线 RL 后训练（PPO、GRPO 及其一族）的一步，展开是这样的：
 
 ```text title="一步 RL：生成 rollout、打分、训练"
  ┌──────────────── 生成 rollout ────────────────┐   ┌──── 打分 ────┐   ┌────── 训练 ──────┐
@@ -119,7 +55,7 @@ flowchart TB
 
 三个作业对 GPU 的用法相反：生成是一个 token 一个 token 的 decode，每步读一遍权重与 KV、算得很少，**受 HBM 带宽限制**；训练是整条序列的大矩阵乘，**受算力限制**；打分要么是 prefill 形态的前向（也受算力限制），要么根本不在 GPU 上。它们对显存的要求也互斥：生成要尽可能大的 KV 池，训练要放下参数、梯度、优化器状态（每参数 16 字节）与激活。两次同步是两道墙：训练要等全部 rollout 完成（严格 on-policy 下），下一步生成要等新权重到位。
 
-预训练里只有第三个作业；SFT（supervised fine-tuning）与 DPO（Direct Preference Optimization）也只有第三个。**在线 RL 是唯一把一个 serving 作业放进训练循环的负载**，本系列全部的系统问题都从这里来。
+预训练里只有第三个作业；SFT 与 DPO 也只有第三个。**在线 RL 是唯一把一个 serving 作业放进训练循环的负载**，本系列全部的系统问题都从这里来。
 
 ### 2. 三本账：FLOP、字节、秒
 
@@ -155,7 +91,7 @@ F_peak BW M      单卡峰值 FLOPS、HBM 带宽、HBM 容量
 η_bw             decode 时 HBM 带宽的有效利用率假设（本篇 0.60）
 ```
 
-四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA（Multi-head Latent Attention）每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《现代 LLM 结构》第四篇](/attention-variants-and-kv-cache.html)）：
+四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA 每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《现代 LLM 结构》第四篇](/attention-variants-and-kv-cache.html)）：
 
 | 模型 | N | N_a | 层 | KV 头 × 头维 | k_kv | 推理侧权重 |
 |---|---|---|---|---|---|---|
@@ -260,7 +196,7 @@ prompt prefill  2 × 8.03e9 × 2.56e5  =  4.1  PFLOP     0.1%
 合计                                     6.80 EFLOP  = 11.9 N_a 每 token
 ```
 
-64 张 H100 的峰值是 $$64 \times 989 \times 10^{12} = 6.33 \times 10^{16}$$ FLOP/s，这 6.8 EFLOP（exa floating point operations）全部按峰值算要 107 秒。第五章会算出实际的墙钟是它的 7 到 8 倍——差距几乎全部来自生成。
+64 张 H100 的峰值是 $$64 \times 989 \times 10^{12} = 6.33 \times 10^{16}$$ FLOP/s，这 6.8 EFLOP 全部按峰值算要 107 秒。第五章会算出实际的墙钟是它的 7 到 8 倍——差距几乎全部来自生成。
 
 ### 3. 前缀缓存的账
 
@@ -268,7 +204,7 @@ prompt prefill  2 × 8.03e9 × 2.56e5  =  4.1  PFLOP     0.1%
 
 ### 4. 旧策略要不要重算
 
-PPO 的重要性比需要 $$\log \pi_{old}$$——采样时策略的对数概率。推理引擎在生成时顺手就能算出它（采样本来就要算 logits），原则上不必再过一遍前向。但多数框架默认在训练器上**重算**（verl（Volcano Engine Reinforcement Learning for LLMs）的 `recompute_log_prob`），原因是**训推不一致**：推理引擎（可能是 FP8 权重、不同的 attention kernel、不同的 reduce 顺序）算出的概率与训练器（bf16、FSDP（Fully Sharded Data Parallel） / Megatron）算出的不完全相同，直接混用会让重要性比在 $$\rho = 1$$ 附近有系统偏差。重算的代价是 $$2N_a T_{all}$$——一步 FLOP 的六分之一，时间上约 8%（第五章）。第五篇会讨论这个偏差本身，以及用推理引擎的 $$\log \pi$$ 做修正而不重算的做法（TIS（truncated importance sampling）一类）。
+PPO 的重要性比需要 $$\log \pi_{old}$$——采样时策略的对数概率。推理引擎在生成时顺手就能算出它（采样本来就要算 logits），原则上不必再过一遍前向。但多数框架默认在训练器上**重算**（verl 的 `recompute_log_prob`），原因是**训推不一致**：推理引擎（可能是 FP8 权重、不同的 attention kernel、不同的 reduce 顺序）算出的概率与训练器（bf16、FSDP / Megatron）算出的不完全相同，直接混用会让重要性比在 $$\rho = 1$$ 附近有系统偏差。重算的代价是 $$2N_a T_{all}$$——一步 FLOP 的六分之一，时间上约 8%（第五章）。第五篇会讨论这个偏差本身，以及用推理引擎的 $$\log \pi$$ 做修正而不重算的做法（TIS 一类）。
 
 ### 5. 与 SFT、预训练的量级对比
 
@@ -290,15 +226,15 @@ PPO 的重要性比需要 $$\log \pi_{old}$$——采样时策略的对数概率
    激活（训练时）             按 micro-batch 的 token 数，可重计算；与预训练同一公式
 ```
 
-①的 16 字节来自[《大规模训练工程》第一篇](/training-state-anatomy-memory-and-mfu.html)；FSDP / ZeRO-3（Zero Redundancy Optimizer stage 3）把它均分到全部训练卡上，64 卡时每卡只有 2 GB——**训练状态在这个规模下不是问题**，问题是 ③ 和 ④。
+①的 16 字节来自[《大规模训练工程》第一篇](/training-state-anatomy-memory-and-mfu.html)；FSDP / ZeRO-3 把它均分到全部训练卡上，64 卡时每卡只有 2 GB——**训练状态在这个规模下不是问题**，问题是 ③ 和 ④。
 
-③ 是推理引擎自己持有的一份权重，与训练器的分片是两份独立的拷贝（布局不同、可能精度不同），同步 ② 就是刷新它。TP（tensor parallelism） = 1 时每张卡上完整一份 16 GB；32B 模型 TP = 2 每卡 33 GB；DeepSeek-V3 FP8 671 GB 分到 32 张卡每卡 21 GB。
+③ 是推理引擎自己持有的一份权重，与训练器的分片是两份独立的拷贝（布局不同、可能精度不同），同步 ② 就是刷新它。TP = 1 时每张卡上完整一份 16 GB；32B 模型 TP = 2 每卡 33 GB；DeepSeek-V3 FP8 671 GB 分到 32 张卡每卡 21 GB。
 
-④ 是大头。每 token 128 KiB 是 Llama-3-8B 的 GQA（grouped-query attention）配置（32 层 × 8 个 KV 头 × 128 维 × K 和 V × 2 字节 = 131072 字节）；一条 $$P + \bar L = 8.7\text{K}$$ 的序列 1.1 GiB；8192 条序列 9.3 TB——**是 64 张卡全部显存（5.1 TB）的近两倍**，还没算权重。任何形态下 rollout 都不可能一次装下全部序列。
+④ 是大头。每 token 128 KiB 是 Llama-3-8B 的 GQA 配置（32 层 × 8 个 KV 头 × 128 维 × K 和 V × 2 字节 = 131072 字节）；一条 $$P + \bar L = 8.7\text{K}$$ 的序列 1.1 GiB；8192 条序列 9.3 TB——**是 64 张卡全部显存（5.1 TB）的近两倍**，还没算权重。任何形态下 rollout 都不可能一次装下全部序列。
 
 ### 2. 分波：一个实例装得下多少序列
 
-连续批处理下，一个推理实例（$$t$$ 张卡）同时在飞的序列不断有完成、有补入，在飞序列的平均长度约为 $$P + \bar L / 2$$。可用于 KV 的显存是容量减去权重副本、再减去 CUDA（Compute Unified Device Architecture） context / NCCL（NVIDIA Collective Communications Library） / 碎片（本篇按 10%）：
+连续批处理下，一个推理实例（$$t$$ 张卡）同时在飞的序列不断有完成、有补入，在飞序列的平均长度约为 $$P + \bar L / 2$$。可用于 KV 的显存是容量减去权重副本、再减去 CUDA context / NCCL / 碎片（本篇按 10%）：
 
 $$c = \left\lfloor \frac{t \cdot M (1 - 10\%) - \text{权重副本}}{(P + \bar L/2) \cdot k_{kv}} \right\rfloor$$
 
@@ -308,7 +244,7 @@ $$c = \left\lfloor \frac{t \cdot M (1 - 10\%) - \text{权重副本}}{(P + \bar L
 
 ### 3. 共置形态下的显存冲突
 
-把 ① ② ③ ④ 放在同一组卡上：训练时需要 ① + ② + 激活，生成时需要 ③ + ④。8B 场景每卡训练侧只要几 GB 加激活，推理侧要 16 GB 权重加尽量大的 KV 池——**两者加起来其实放得下**，但 KV 池要"尽量大"，训练的激活（一个 8K 序列的 micro-batch，FlashAttention 下每层约 $$34 \cdot s \cdot h$$ 字节，32 层 36 GB，重计算后几 GB）也要空间；32B 以上或 PPO（两套 16N）就真的放不下。于是共置形态在每段之间**切换显存归属**：生成前把训练状态 offload 到 CPU、释放激活、把 KV 池建满；训练前反过来。切换搬的字节数是每卡的 ① + ②，8B 场景 2.3 GB、PCIe（Peripheral Component Interconnect Express）往返不到 1 秒；32B 场景 9 GB，几秒；DeepSeek-V3 规格 47 GB，接近 4 秒——与步时间相比都小，但它还带着 CUDA graph 重捕获、KV 池重分配、prefix cache 失效这些隐性代价，第三篇专门讨论。
+把 ① ② ③ ④ 放在同一组卡上：训练时需要 ① + ② + 激活，生成时需要 ③ + ④。8B 场景每卡训练侧只要几 GB 加激活，推理侧要 16 GB 权重加尽量大的 KV 池——**两者加起来其实放得下**，但 KV 池要"尽量大"，训练的激活（一个 8K 序列的 micro-batch，FlashAttention 下每层约 $$34 \cdot s \cdot h$$ 字节，32 层 36 GB，重计算后几 GB）也要空间；32B 以上或 PPO（两套 16N）就真的放不下。于是共置形态在每段之间**切换显存归属**：生成前把训练状态 offload 到 CPU、释放激活、把 KV 池建满；训练前反过来。切换搬的字节数是每卡的 ① + ②，8B 场景 2.3 GB、PCIe 往返不到 1 秒；32B 场景 9 GB，几秒；DeepSeek-V3 规格 47 GB，接近 4 秒——与步时间相比都小，但它还带着 CUDA graph 重捕获、KV 池重分配、prefix cache 失效这些隐性代价，第三篇专门讨论。
 
 ### 4. 分离形态下的显存
 
@@ -318,7 +254,7 @@ rollout 与训练在不同的卡上，各自的显存只放自己的东西：推
 
 ### 1. decode 的时间模型
 
-decode 每一步对每条在飞的序列生成一个 token，这一步要把**全部权重读一遍**（$$2N_a$$ 字节，MoE 是被路由到的专家）、把**每条序列的 KV 读一遍**（$$c \times (P + \bar L/2) \times k_{kv}$$），而算的只有 $$2N_a \times c$$ FLOP。以 8B、$$c = 92$$ 为例：读 16 GB 权重加 $$92 \times 4596 \times 128 \text{ KiB} = 55.4$$ GB 的 KV，共 71.5 GB；算 $$2 \times 8 \times 10^9 \times 92 = 1.5 \times 10^{12}$$ FLOP。H100 读 71.5 GB 要 21 毫秒（3.35 TB/s），算 1.5 TFLOP（tera floating point operations）要 1.5 毫秒——**相差 14 倍，decode 是纯 memory-bound**，与推理服务里的结论相同（[《大模型推理系统揭秘》第一篇](/why-llm-serving-is-hard.html)）。
+decode 每一步对每条在飞的序列生成一个 token，这一步要把**全部权重读一遍**（$$2N_a$$ 字节，MoE 是被路由到的专家）、把**每条序列的 KV 读一遍**（$$c \times (P + \bar L/2) \times k_{kv}$$），而算的只有 $$2N_a \times c$$ FLOP。以 8B、$$c = 92$$ 为例：读 16 GB 权重加 $$92 \times 4596 \times 128 \text{ KiB} = 55.4$$ GB 的 KV，共 71.5 GB；算 $$2 \times 8 \times 10^9 \times 92 = 1.5 \times 10^{12}$$ FLOP。H100 读 71.5 GB 要 21 毫秒（3.35 TB/s），算 1.5 TFLOP 要 1.5 毫秒——**相差 14 倍，decode 是纯 memory-bound**，与推理服务里的结论相同（[《大模型推理系统揭秘》第一篇](/why-llm-serving-is-hard.html)）。
 
 于是一个 decode 步的时间：
 
@@ -336,7 +272,7 @@ $$t_{step} = \frac{\text{权重副本} + c \cdot (P + \bar L/2) \cdot k_{kv}}{t 
 
 ### 3. 前向与训练
 
-三个前向与训练是算力受限的常规负载，时间 = FLOP ÷（卡数 × 峰值 × MFU）。prefill 形态的前向 MFU 取 0.5（整条序列一次算、大 GEMM（general matrix multiply））；训练取 0.4（[《大规模训练工程》第四篇](/thousand-gpu-configuration-and-mfu-tuning.html)的水平；RL 的训练 batch 是变长序列打包，MFU 比预训练略低）。8B 推理场景：参考 + 旧策略前向 $$2.28 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.5) = 72$$ 秒；训练 $$3.43 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.4) = 136$$ 秒。
+三个前向与训练是算力受限的常规负载，时间 = FLOP ÷（卡数 × 峰值 × MFU）。prefill 形态的前向 MFU 取 0.5（整条序列一次算、大 GEMM）；训练取 0.4（[《大规模训练工程》第四篇](/thousand-gpu-configuration-and-mfu-tuning.html)的水平；RL 的训练 batch 是变长序列打包，MFU 比预训练略低）。8B 推理场景：参考 + 旧策略前向 $$2.28 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.5) = 72$$ 秒；训练 $$3.43 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.4) = 136$$ 秒。
 
 ### 4. 两次同步
 
@@ -402,7 +338,7 @@ FLOP 一侧几乎没有杠杆：12N 里能省的只有旧策略重算的 2N。
 
 Table: 生成、前向与训练三个作业的特征对照
 
-三行最关键：**瓶颈不同**（一个吃带宽一个吃算力——同一张卡同一时刻只能被一种用法用满）、**显存主体不同**（KV 池要尽量大 vs 16N 要放下——两者争同一块显存）、**并行配置不同**（推理引擎的 TP / EP（expert parallelism）度按延迟与显存定，训练器的按 16N 与通信定——两边的权重分片布局不一样，所以同步 ② 不是简单的拷贝）。
+三行最关键：**瓶颈不同**（一个吃带宽一个吃算力——同一张卡同一时刻只能被一种用法用满）、**显存主体不同**（KV 池要尽量大 vs 16N 要放下——两者争同一块显存）、**并行配置不同**（推理引擎的 TP / EP 度按延迟与显存定，训练器的按 16N 与通信定——两边的权重分片布局不一样，所以同步 ② 不是简单的拷贝）。
 
 ### 2. 两次同步搬什么
 
@@ -607,7 +543,7 @@ decode 步   t_step = (权重副本 + c (P + L̄/2) k_kv) / (t · BW · η_bw)  
 
 ### 3. 本篇涉及的算法侧结论
 
-本篇只用了[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)的三个结论：GRPO 一步的采样结构（$$B$$、$$G$$、组内归一化）、需要参考模型与旧策略的对数概率、$$\mu = 1$$ 是常见配方。方法本身（目标函数、优势、clip、KL（Kullback–Leibler）估计）见那个系列的第三、五、六篇。
+本篇只用了[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)的三个结论：GRPO 一步的采样结构（$$B$$、$$G$$、组内归一化）、需要参考模型与旧策略的对数概率、$$\mu = 1$$ 是常见配方。方法本身（目标函数、优势、clip、KL 估计）见那个系列的第三、五、六篇。
 
 ### 4. 下一篇
 
@@ -660,5 +596,5 @@ decode 步   t_step = (权重副本 + c (P + L̄/2) k_kv) / (t · BW · η_bw)  
    </details>
 
 [^q0]: 生成 $$B \times G \times \bar L = 512 \times 16 \times 8\text{K} = 6700$$ 万 token；KV 按 8B 的 GQA 每 token 128 KiB、每条序列 prompt + 回答约 10K，全部在飞的 KV 是几十 TiB——64 张 H100 的 KV 池只有几 TiB，所以 rollout 必须**分波**：单实例并发 $$c = \lfloor(0.9tM - \text{权重副本}) / ((P + \bar L/2) k_{kv})\rfloor$$，几百条一波、十几波。详见[第四章](#四字节账四份显存与放不下的-kv)。
-[^q1]: FLOP 账每 token 约 $$12N_a$$——生成 $$2N_a$$、三个前向（旧策略重算、参考、RM（reward model））各 $$2N_a$$、训练 $$6N_a$$，一步 6.8 EFLOP（[第三章](#三flop-账12n-从哪来)）；但时间不按 FLOP 分：decode 每步把整块 HBM 读一遍约 36 ms、与序列长度无关，长思维链下 decode MFU 只有个位数，生成还有长尾（$$L_{max} - \bar L$$ 步，602 秒里 196 秒是长尾）；结果 810 秒 × 64 卡的一步里**生成 74%、训练 17%、前向 9%**（[第五章](#五秒的账为什么生成占四分之三)）。
+[^q1]: FLOP 账每 token 约 $$12N_a$$——生成 $$2N_a$$、三个前向（旧策略重算、参考、RM）各 $$2N_a$$、训练 $$6N_a$$，一步 6.8 EFLOP（[第三章](#三flop-账12n-从哪来)）；但时间不按 FLOP 分：decode 每步把整块 HBM 读一遍约 36 ms、与序列长度无关，长思维链下 decode MFU 只有个位数，生成还有长尾（$$L_{max} - \bar L$$ 步，602 秒里 196 秒是长尾）；结果 810 秒 × 64 卡的一步里**生成 74%、训练 17%、前向 9%**（[第五章](#五秒的账为什么生成占四分之三)）。
 [^q2]: 全步 MFU = $$\sum T_i \eta_i / \sum T_i$$，生成段 MFU 个位数拖累全局：8B 推理场景上限约 **13%**，对话场景（回答短）29%；回答越长越极端。后面每一篇解决的就是实际值与这个上限的差：生成时训练器不闲着（共置 / 异步）、砍长尾、提高 decode 带宽效率——FLOP 一侧没有杠杆。账是动态的：回答长度随训练变长，配比不能一次定死。详见[第五章](#五秒的账为什么生成占四分之三)、[第七章](#七放大器长思维链agent-与-moe)。

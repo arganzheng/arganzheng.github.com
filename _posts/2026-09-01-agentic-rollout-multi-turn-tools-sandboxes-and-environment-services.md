@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 前五篇的 rollout 是一件事：推理引擎批量生成。Agent 训练里它变成了一个分布式系统：模型生成一段，解析出工具调用，某个容器里跑一次测试（几十秒），结果追加进上下文，再生成——重复二十轮；同一时刻几千条这样的轨迹在跑，每条占着一个有状态的沙箱；reward 不是一个规则函数，是"测试通过了几个"。500 个代码任务 × $$G = 8$$ × 20 轮是 **8 万次容器执行**，每次 30 秒就是 **670 个 CPU·小时**——与模型侧这一步的十几个 GPU·小时按价格算是同一量级；要在 30 分钟内跑完，需要 **1300 到 1800 个并发沙箱**，取决于沙箱能否在两轮之间释放。
 
-GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。答案不太好看：decode 大约 500 秒，其余时间在等环境；同一时刻在生成的请求只有几百条、摊到每张卡几十条，decode 的带宽利用率比单轮 RL（reinforcement learning）还低；而 **prefill 可能比 decode 更贵**——一条轨迹二十轮、上下文涨到 40K，如果每轮都把整个上下文重新 prefill，8B 模型这一步的 prefill 是 26 EFLOP（exa floating point operations）、1600 秒，与整个窗口一样长；有完美的前缀缓存它是 160 秒。两者之间差十倍，决定因素是**几千条轨迹的 KV（key-value）有多少能在两轮之间留在显存里**——而按第一篇的账，留不下多少。
+GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。答案不太好看：decode 大约 500 秒，其余时间在等环境；同一时刻在生成的请求只有几百条、摊到每张卡几十条，decode 的带宽利用率比单轮 RL 还低；而 **prefill 可能比 decode 更贵**——一条轨迹二十轮、上下文涨到 40K，如果每轮都把整个上下文重新 prefill，8B 模型这一步的 prefill 是 26 EFLOP、1600 秒，与整个窗口一样长；有完美的前缀缓存它是 160 秒。两者之间差十倍，决定因素是**几千条轨迹的 KV 有多少能在两轮之间留在显存里**——而按第一篇的账，留不下多少。
 
 这一篇讨论 rollout 变成"模型与环境交替"之后系统的变化：agent loop 的结构与 token 连续性问题；推理引擎侧的前缀缓存、KV 驻留与粘性路由；沙箱集群——容器的启动、状态、并发、隔离，以及它与 GPU 集群的配比；环境与 reward 的服务化（把 Claude Code、mini-SWE-agent 一类现成的 harness 直接接进 RL）；环境耗时方差带来的长尾与调度；最后把环境的账加进前五篇的 GPU 账。它是第五篇异步的最强动机：环境耗时的方差比生成长度的方差大一个量级，同步形态在这里基本不可用。
 
@@ -18,58 +18,7 @@ GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。
 
 > **500 个代码任务 × $$G = 8$$ × 20 轮，每轮跑一次几十秒的测试。一步 rollout 要多少次容器执行、多少 CPU·小时、并发多少个沙箱才能在 30 分钟内完成？[^q0] GPU 这一侧在这 30 分钟里做了什么？[^q1]**
 
-版本：verl（Volcano Engine Reinforcement Learning for LLMs） v0.9.0（`verl/experimental/agent_loop/`、`verl/trainer/ppo/v1/agent_loop_tq.py`、`docs/advance/agent_loop.rst`、`reward_loop.rst`、uni-agent）、vLLM v0.27.1 的前缀缓存与 OpenAI 兼容接口。算法侧（Agent RL 的 mask、奖励、轨迹级优势）在[《后训练》第六篇](/agentic-rl-tool-use-environments-and-trajectories.html)，本篇只用它的结论：轨迹是样本，环境 token 不进 loss。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
-| reward | — | 奖励，给 rollout 打的分 |
-| decode | — | 逐 token 生成的阶段，memory-bound |
-| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
-| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
-| EFLOP | exa floating point operations | 10^18 次浮点运算 |
-| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
-| agent loop | — | verl 里驱动多轮生成与工具调用的循环 |
-| harness | — | 驱动 Agent 与环境交互的外层程序 |
-| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
-| uni-agent | — | verl 的 Agent 网关，统一管理多轮会话 |
-| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
-| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
-| RM | reward model | 奖励模型，给回答打分 |
-| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
-| GLM | General Language Model | 智谱的大模型系列 |
-| Ray | — | 分布式计算框架，verl 用它创建和调度各个 worker |
-| actor | — | 被训练的策略模型 |
-| LLM | large language model | 大语言模型 |
-| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
-| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
-| LRU | least recently used | 最近最少使用：先淘汰最久没用的 |
-| offload | — | 把参数或优化器状态挪到 CPU 内存 |
-| LMCache | — | 把 KV cache 存到 CPU / 磁盘再复用的缓存层 |
-| Mooncake | — | Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重 |
-| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的总线 |
-| compute-bound | — | 瓶颈在算力 |
-| abort | — | 中止进行中的生成请求 |
-| NIXL | NVIDIA Inference Xfer Library | NVIDIA 面向推理的点对点数据传输库 |
-| MLA | Multi-head Latent Attention | DeepSeek 的注意力，把 KV 压成一个低秩向量 |
-| logprob | — | token 的对数概率 |
-| OpenHands | — | 开源的代码 Agent 平台 |
-| CI | continuous integration | 持续集成，每次提交自动跑测试 |
-| SWE-bench | — | 用真实 GitHub issue 测代码修复的 benchmark |
-| HPA | Horizontal Pod Autoscaler | Kubernetes 按指标自动增减副本数 |
-| SFT | supervised fine-tuning | 监督微调 |
-| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
-| AReaL | — | 蚂蚁与清华开源的完全异步 RL 训练系统 |
-| replay buffer | — | 存放已生成样本、供训练取用的缓冲区 |
-| staleness | — | 生成样本的策略比当前策略落后几个版本 |
-| TransferQueue | — | verl 的样本传输队列，数据不经单控制器 |
-| VLM | vision-language model | 视觉语言模型 |
-| checkpoint | — | 保存下来的模型权重与训练状态 |
-| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
-
-Table: 本文用到的术语与缩写
+版本：verl v0.9.0（`verl/experimental/agent_loop/`、`verl/trainer/ppo/v1/agent_loop_tq.py`、`docs/advance/agent_loop.rst`、`reward_loop.rst`、uni-agent）、vLLM v0.27.1 的前缀缓存与 OpenAI 兼容接口。算法侧（Agent RL 的 mask、奖励、轨迹级优势）在[《后训练》第六篇](/agentic-rl-tool-use-environments-and-trajectories.html)，本篇只用它的结论：轨迹是样本，环境 token 不进 loss。
 
 ## 一、总览
 
@@ -156,21 +105,21 @@ Table: 本文的章节安排
 reward：最后一次测试通过的比例 / 是否全部通过 → 0 或 1（或分数）
 ```
 
-轨迹是**一条样本**：`prompt_ids`（首轮的 prompt）、`response_ids`（之后全部 token，模型生成的与环境返回的交错）、`response_mask`（1 = 模型生成、0 = 环境返回）。训练时 loss 只算 mask = 1 的位置，但前向与反向要过全部位置——第一篇算过，每个有效训练 token 的代价是单轮的约 5 倍。GRPO（Group Relative Policy Optimization）的组是同一任务的 $$G$$ 条轨迹，优势按组内归一化，与单轮相同。
+轨迹是**一条样本**：`prompt_ids`（首轮的 prompt）、`response_ids`（之后全部 token，模型生成的与环境返回的交错）、`response_mask`（1 = 模型生成、0 = 环境返回）。训练时 loss 只算 mask = 1 的位置，但前向与反向要过全部位置——第一篇算过，每个有效训练 token 的代价是单轮的约 5 倍。GRPO 的组是同一任务的 $$G$$ 条轨迹，优势按组内归一化，与单轮相同。
 
 ### 2. token 连续性
 
 一个不显眼但反复出问题的细节：**环境返回的是文本，模型消费的是 token**。把工具输出用 chat template 包装成一条 `tool` 消息、再 tokenize 追加进上下文，与"模型在生成时看到的 token 序列"必须一致，否则 $$\log \pi_{old}$$ 对不上位置——训练时的 token 序列与采样时的不是同一个序列。三个具体的坑：
 
 - **重新 tokenize 不幂等**：把已生成的 token 解码成文本、拼上工具输出、再整体 tokenize，边界处的 token 可能合并或拆分（`"...}\n"` 与 `"<|im_end|>"` 之间），得到与原来不同的 id 序列。正确做法是**只 tokenize 新增部分、直接拼接 id**，绝不整体重编。
-- **chat template 的轮边界**：Qwen、GLM（General Language Model）、MiniMax 各家的模板在 assistant 输出与 tool 消息之间插入的特殊 token 不同，有的还要在 assistant 段末尾补 `<|im_end|>\n`；模板写错一个换行，训练分布就带上一个系统偏移。verl 0.9 的 **Continuous Token** 机制（`continuous_token_wiring`）就是把这层做成可复用的 builder，按模型家族处理边界，默认关闭、需要显式打开。
+- **chat template 的轮边界**：Qwen、GLM、MiniMax 各家的模板在 assistant 输出与 tool 消息之间插入的特殊 token 不同，有的还要在 assistant 段末尾补 `<|im_end|>\n`；模板写错一个换行，训练分布就带上一个系统偏移。verl 0.9 的 **Continuous Token** 机制（`continuous_token_wiring`）就是把这层做成可复用的 builder，按模型家族处理边界，默认关闭、需要显式打开。
 - **思考内容的处理**：推理模型的 `<think>` 段在多轮里是保留在上下文还是丢弃（Qwen3 的模板默认只保留最后一轮的思考），决定了上下文长度与训练时看到的序列——要与采样时一致。
 
 这些问题在单轮 RL 里不存在（一次生成、无需拼接），在 Agent RL 里是第五篇"训推不一致"的另一个来源：不是数值上的不一致，是**序列本身不一致**。
 
 ### 3. 每条轨迹一个协程
 
-verl 的实现形状（`docs/advance/agent_loop.rst`）：`AgentLoopManager` 把一个 batch 的 prompt 切成块发给若干 `AgentLoopWorker`（Ray actor，CPU 进程）；每个 worker 为每条轨迹起一个 `AgentLoopBase.run()` **协程**，协程里 `await llm_client.generate(...)`、`await tool.execute(...)`，几千条轨迹是几千个协程在几十个 worker 进程上并发。用户只实现 `run()`——"给一个 prompt，怎样跑到底"——工具、环境、反思、多 agent 全是它内部的事；框架负责 LLM（large language model）服务的负载均衡与样本的收集。
+verl 的实现形状（`docs/advance/agent_loop.rst`）：`AgentLoopManager` 把一个 batch 的 prompt 切成块发给若干 `AgentLoopWorker`（Ray actor，CPU 进程）；每个 worker 为每条轨迹起一个 `AgentLoopBase.run()` **协程**，协程里 `await llm_client.generate(...)`、`await tool.execute(...)`，几千条轨迹是几千个协程在几十个 worker 进程上并发。用户只实现 `run()`——"给一个 prompt，怎样跑到底"——工具、环境、反思、多 agent 全是它内部的事；框架负责 LLM 服务的负载均衡与样本的收集。
 
 这个结构决定了 agent loop worker 是 CPU 侧的**协调者**而不是执行者：它不跑测试，它调沙箱服务；它不做推理，它调 LLM 服务。它的瓶颈是协程数与 Python 的异步调度——几千条轨迹、每条每轮几次 await，单个 worker 进程扛几百条是常见上限，所以 `num_workers` 要按并发轨迹数配。
 
@@ -180,11 +129,11 @@ verl 的实现形状（`docs/advance/agent_loop.rst`）：`AgentLoopManager` 把
 
 第 $$i$$ 轮的上下文 = 前 $$i - 1$$ 轮的全部 + 本轮新增。没有前缀缓存，每轮 prefill 整个上下文：一条轨迹的总 prefill token 是 $$\sum_i C_i \approx$$ 轮数 × 平均上下文 = $$20 \times 20\text{K} = 400\text{K}$$；有前缀缓存（前 $$i - 1$$ 轮的 KV 还在），只 prefill 新增：总量 = 最终上下文 $$40\text{K}$$。**十倍**。
 
-第一篇说过单轮 RL 里前缀缓存"省显存不省 FLOP（floating point operation）"，Agent RL 里它是 FLOP 的决定因素：4000 条轨迹 × 400K = 1.6B token 的 prefill = 26 EFLOP（8B），32 卡 MFU（model FLOPs utilization） 0.5 下 1600 秒；线性时 160 秒。
+第一篇说过单轮 RL 里前缀缓存"省显存不省 FLOP"，Agent RL 里它是 FLOP 的决定因素：4000 条轨迹 × 400K = 1.6B token 的 prefill = 26 EFLOP（8B），32 卡 MFU 0.5 下 1600 秒；线性时 160 秒。
 
 ### 2. KV 驻留：缓存能命中多少
 
-前缀缓存命中的前提是**KV 块还在显存里**。一条 40K 的轨迹 5 GB KV（8B、128 KiB/token），4000 条在飞轨迹 20 TB；32 张卡按共置 0.85 或独占 0.9 的 KV 池 1.6–1.8 TB，**只够 350 条轨迹的完整上下文**。而每条轨迹在两轮之间有 30 秒在等环境，这 30 秒里它的 KV 块占着显存不产生任何 token——vLLM 的前缀缓存是 LRU（least recently used）的，等待期间新请求进来就把它逐出了。
+前缀缓存命中的前提是**KV 块还在显存里**。一条 40K 的轨迹 5 GB KV（8B、128 KiB/token），4000 条在飞轨迹 20 TB；32 张卡按共置 0.85 或独占 0.9 的 KV 池 1.6–1.8 TB，**只够 350 条轨迹的完整上下文**。而每条轨迹在两轮之间有 30 秒在等环境，这 30 秒里它的 KV 块占着显存不产生任何 token——vLLM 的前缀缓存是 LRU 的，等待期间新请求进来就把它逐出了。
 
 粗估命中率：一张卡的 KV 池 50 GB，同一时刻挂在它上面的轨迹 125 条（4000 / 32），每条平均上下文 20K = 2.5 GB，要全部驻留需要 310 GB——**六倍于池子**。稳态下大约六分之一的轨迹能命中上一轮的 KV，其余五分之六重新 prefill：prefill 总量约 $$160\text{M} + \frac{5}{6} \times 1.44\text{B} \approx 1.36\text{B}$$ token，约 1400 秒。也就是说**默认配置下 Agent RL 的 prefill 接近"没有前缀缓存"的账**。
 
@@ -207,11 +156,11 @@ Table: 改善 KV 驻留的四个方向与代价
 
 - 负载不均：实例的负载由"落在它上面的轨迹在哪一阶段"决定，等环境的轨迹不占算力但占 KV；实例间的并发差异可达几倍。
 - 与部分 rollout 的冲突：权重同步时 abort 后重提，若路由到别的实例，前缀缓存全丢；verl 的动态调度里 `enable_rebalance` 会清掉粘性缓存、让重提的请求重新分配——那是主动放弃缓存换负载均衡。
-- 实例故障：一个实例挂了，它上面几百条轨迹的缓存全丢，重提到别处全部重 prefill——异构弹性 rollout（第四篇 NIXL（NVIDIA Inference Xfer Library）那条路）的代价之一。
+- 实例故障：一个实例挂了，它上面几百条轨迹的缓存全丢，重提到别处全部重 prefill——异构弹性 rollout（第四篇 NIXL 那条路）的代价之一。
 
 ### 4. 低并发的 decode
 
-同一时刻只有约四分之一的轨迹在生成（10 秒生成 / 40 秒一轮），32 张卡上 1000 条并发请求、每卡 31 条。回到第一篇的 decode 模型：每步读 16 GB 权重 + 31 × 20K × 128 KiB ≈ 80 GB 的 KV，共 96 GB / 2 TB/s ≈ 48 毫秒，出 31 个 token → **每卡 650 token/s**，是单轮 RL（2600）的四分之一。KV 读取占了每步的 80%——长上下文让 Agent RL 的 decode 是"KV 带宽受限"而不是"权重带宽受限"。MLA（Multi-head Latent Attention）或 KV 量化在这里的收益比单轮 RL 大得多。
+同一时刻只有约四分之一的轨迹在生成（10 秒生成 / 40 秒一轮），32 张卡上 1000 条并发请求、每卡 31 条。回到第一篇的 decode 模型：每步读 16 GB 权重 + 31 × 20K × 128 KiB ≈ 80 GB 的 KV，共 96 GB / 2 TB/s ≈ 48 毫秒，出 31 个 token → **每卡 650 token/s**，是单轮 RL（2600）的四分之一。KV 读取占了每步的 80%——长上下文让 Agent RL 的 decode 是"KV 带宽受限"而不是"权重带宽受限"。MLA 或 KV 量化在这里的收益比单轮 RL 大得多。
 
 ### 5. 接口形态
 
@@ -241,7 +190,7 @@ Table: 一次工具调用（在容器里跑一条命令）各环节的时间
 
 ### 2. 隔离与安全
 
-RL 训练里跑的是**模型自己写的代码**，且训练目标是让它拿到高 reward——模型会找到任何能让测试通过的路径，包括改测试文件、mock 掉断言、读环境变量里的答案、访问网络查现成解。沙箱的隔离要求因此高于普通 CI（continuous integration）：
+RL 训练里跑的是**模型自己写的代码**，且训练目标是让它拿到高 reward——模型会找到任何能让测试通过的路径，包括改测试文件、mock 掉断言、读环境变量里的答案、访问网络查现成解。沙箱的隔离要求因此高于普通 CI：
 
 - 文件系统：测试文件只读、或 reward 计算用一份模型碰不到的副本；
 - 网络：默认断网，需要的依赖预装进镜像；
@@ -264,7 +213,7 @@ reward hacking 在算法侧是奖励设计问题，在系统侧是**沙箱的边
 
 Table: 各类任务的环境耗时、轮数与环境 : 模型配比
 
-沙箱并发数成了**第三个配比变量**：rollout 卡数、训练卡数、沙箱数三者要让"生成、环境、训练"三段的吞吐匹配。沙箱不够，GPU 上的轨迹卡在"等沙箱分配"；沙箱太多，CPU 集群空转。它比 GPU 配比好调——CPU 机器可以按分钟弹性伸缩，Kubernetes 的 HPA（Horizontal Pod Autoscaler）按排队深度扩容是现成的。
+沙箱并发数成了**第三个配比变量**：rollout 卡数、训练卡数、沙箱数三者要让"生成、环境、训练"三段的吞吐匹配。沙箱不够，GPU 上的轨迹卡在"等沙箱分配"；沙箱太多，CPU 集群空转。它比 GPU 配比好调——CPU 机器可以按分钟弹性伸缩，Kubernetes 的 HPA 按排队深度扩容是现成的。
 
 ### 4. 镜像与冷启动
 
@@ -277,7 +226,7 @@ Table: 各类任务的环境耗时、轮数与环境 : 模型配比
 agent loop 需要环境，训练器需要 reward，推理引擎需要都不知道。把环境（沙箱）与 reward 做成独立服务、agent loop 通过 HTTP / gRPC 调用，三个理由：
 
 - **独立扩缩与故障域**：沙箱集群挂一台机器不影响 GPU 任务；GPU 任务重启不用重建沙箱池。
-- **复用**：同一个环境服务给 RL 训练、评测、SFT（supervised fine-tuning）数据生成用；沙箱平台是公司级基础设施，不是某个训练任务的一部分。
+- **复用**：同一个环境服务给 RL 训练、评测、SFT 数据生成用；沙箱平台是公司级基础设施，不是某个训练任务的一部分。
 - **接现成的 agent**：服务化的另一面是**模型也是服务**——推理引擎以 OpenAI / Anthropic 兼容接口暴露，任何现成的 harness 都能连上来。
 
 ### 2. 黑盒 agent 与网关
@@ -302,7 +251,7 @@ slime 的 `slime/agent` 模块、AReaL 的 `RolloutWorkflow`（`arun_episode`）
 
 Table: 三种 reward，一条通路
 
-verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三种做成同一个接口：轨迹完成 → 分块发给 reward worker 并行算 → 结果写回样本。生成式 RM（reward model）的推理实例由 `reward.reward_model.enable_resource_pool` 决定是独立池还是共置——`separate_async` 模式**要求独立池**，因为 standalone rollout 实例从不暂停、没有空闲显存给 RM 用（第二篇 `PPOTrainerSeparateAsync.__init__` 里的断言）。
+verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三种做成同一个接口：轨迹完成 → 分块发给 reward worker 并行算 → 结果写回样本。生成式 RM 的推理实例由 `reward.reward_model.enable_resource_pool` 决定是独立池还是共置——`separate_async` 模式**要求独立池**，因为 standalone rollout 实例从不暂停、没有空闲显存给 RM 用（第二篇 `PPOTrainerSeparateAsync.__init__` 里的断言）。
 
 生成式 RM 是第四个 GPU 负载：它也是 decode（评判要生成理由）或 prefill（打分只要一次前向），也有自己的权重（可能是另一个模型，不需要同步；也可能就是策略自己——self-reward，那就要同步）。规模上它常与 rollout 同量级（每条轨迹评一次、输入是整条轨迹 40K token），在 GPU 配比里要单独算一列。
 
@@ -419,7 +368,7 @@ Table: Agent rollout 各组件在 verl 源码中的落点
 
 ### 3. 多模态
 
-VLM（vision-language model）的 Agent（GUI 操作、网页浏览）在这条路上多两样：环境返回的是**图像**（截图），进上下文前要过 vision encoder（推理引擎的 `reset_mm_cache` / `reset_encoder_cache` 在权重同步后也要清）；图像 token 多（一张截图几百到上千 token），上下文涨得更快、KV 驻留更差。系统形态不变，账更重。
+VLM 的 Agent（GUI 操作、网页浏览）在这条路上多两样：环境返回的是**图像**（截图），进上下文前要过 vision encoder（推理引擎的 `reset_mm_cache` / `reset_encoder_cache` 在权重同步后也要清）；图像 token 多（一张截图几百到上千 token），上下文涨得更快、KV 驻留更差。系统形态不变，账更重。
 
 ## 九、本文小结
 
@@ -448,7 +397,7 @@ VLM（vision-language model）的 Agent（GUI 操作、网页浏览）在这条�
 
 前六篇把机制讲完了：账、形态、显存切换、权重同步、异步、环境。每一个机制在 verl 里都有实现，但到现在为止只是"落点"——一个文件名、一个函数名。下一篇从 `main_ppo` 的入口开始，按"一个配置文件怎样变成一组 Ray worker、一步训练怎样在它们之间流动"的顺序把这些落点串成一条线：单控制器、worker 组与分发装饰器、资源池与共置、rollout server、checkpoint engine、replay buffer、agent loop；末尾用一节看 slime（少一层抽象）与 AReaL（异步优先）在这条线的哪几段做了不同的选择：
 
-> **一个 bf16（bfloat16）参数从优化器更新完成，到推理引擎用它生成下一个 token，在 verl 里经过哪些函数、哪些进程、哪条链路？把这条链追清楚，前六篇的机制就全部落到了代码上；再问 slime 和 AReaL 在这条链的哪一段做了不同的选择，就知道哪些是必然、哪些是取舍。**
+> **一个 bf16 参数从优化器更新完成，到推理引擎用它生成下一个 token，在 verl 里经过哪些函数、哪些进程、哪条链路？把这条链追清楚，前六篇的机制就全部落到了代码上；再问 slime 和 AReaL 在这条链的哪一段做了不同的选择，就知道哪些是必然、哪些是取舍。**
 
 下一篇：verl 源码导读——从一个 GRPO 配置追到每个 worker。
 

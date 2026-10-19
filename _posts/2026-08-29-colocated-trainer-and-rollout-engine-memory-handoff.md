@@ -8,82 +8,17 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一个 32B 的模型在 8 张 H100 上做共置的 GRPO（Group Relative Policy Optimization）。训练时每张卡上要有 66 GB 的训练状态（16 字节 / 参数均分到 8 卡）加 8 GB 的参考模型；生成时每张卡上要有 8 GB 的推理权重副本（TP（tensor parallelism） = 8）加尽量大的 KV（key-value）池。两样东西加起来 150 GB，卡只有 80 GB——所以每一步里显存要**换两次主人**：生成前训练状态搬到 CPU、推理引擎的权重与 KV 池挂回 GPU；训练前反过来。按 PCIe（Peripheral Component Interconnect Express）的带宽算，一步两次切换搬 130 GB 左右、约 6 秒；步时间 5 分钟时是 2%。
+一个 32B 的模型在 8 张 H100 上做共置的 GRPO。训练时每张卡上要有 66 GB 的训练状态（16 字节 / 参数均分到 8 卡）加 8 GB 的参考模型；生成时每张卡上要有 8 GB 的推理权重副本（TP = 8）加尽量大的 KV 池。两样东西加起来 150 GB，卡只有 80 GB——所以每一步里显存要**换两次主人**：生成前训练状态搬到 CPU、推理引擎的权重与 KV 池挂回 GPU；训练前反过来。按 PCIe 的带宽算，一步两次切换搬 130 GB 左右、约 6 秒；步时间 5 分钟时是 2%。
 
-2% 不值得写一篇。值得写的是这 6 秒之外的东西：推理引擎的 KV 池释放再建回来，里面的 prefix cache 全部作废；CUDA graph 捕获的是显存地址，地址变了图就废了——vLLM 的 sleep mode 用 CUDA（Compute Unified Device Architecture）虚拟内存 API 把物理页摘下来而**保留虚拟地址**，正是为了不重捕获；训练器的 PyTorch caching allocator 与推理引擎的 `CuMemAllocator` 在同一块 HBM（high bandwidth memory）上交替，一方保留着没释放的段另一方就挂不回来，所以切换前后要 `empty_cache`、要开关 `expandable_segments`；vLLM 启动时按 `gpu_memory_utilization` 定下的 KV 池大小是一次性的，共置下这个数字通常只有 0.5，**推理引擎在共置形态下只拿到半张卡的 KV 池，decode 吞吐比独占一张卡低 10–30%**——这才是共置真正的税，而它不出现在"切换耗时"这个指标里。
+2% 不值得写一篇。值得写的是这 6 秒之外的东西：推理引擎的 KV 池释放再建回来，里面的 prefix cache 全部作废；CUDA graph 捕获的是显存地址，地址变了图就废了——vLLM 的 sleep mode 用 CUDA 虚拟内存 API 把物理页摘下来而**保留虚拟地址**，正是为了不重捕获；训练器的 PyTorch caching allocator 与推理引擎的 `CuMemAllocator` 在同一块 HBM 上交替，一方保留着没释放的段另一方就挂不回来，所以切换前后要 `empty_cache`、要开关 `expandable_segments`；vLLM 启动时按 `gpu_memory_utilization` 定下的 KV 池大小是一次性的，共置下这个数字通常只有 0.5，**推理引擎在共置形态下只拿到半张卡的 KV 池，decode 吞吐比独占一张卡低 10–30%**——这才是共置真正的税，而它不出现在"切换耗时"这个指标里。
 
-这一篇把一次切换拆成每个动作：谁释放什么、走哪条链路、要几秒、留下什么隐性代价；然后看 vLLM 的 sleep / wake_up 与 `CuMemAllocator`、SGLang 的 `torch_memory_saver`、FSDP（Fully Sharded Data Parallel）与 Megatron 的 offload 路径各是怎样实现"让渡"的；再看 verl（Volcano Engine Reinforcement Learning for LLMs）的 hybrid worker——`ActorRolloutRefWorker`，一个进程里同时持有训练器、推理引擎与参考模型——怎样把这些动作排成序；最后回答共置的适用边界：模型多大、回答多长时该换分离。
+这一篇把一次切换拆成每个动作：谁释放什么、走哪条链路、要几秒、留下什么隐性代价；然后看 vLLM 的 sleep / wake_up 与 `CuMemAllocator`、SGLang 的 `torch_memory_saver`、FSDP 与 Megatron 的 offload 路径各是怎样实现"让渡"的；再看 verl 的 hybrid worker——`ActorRolloutRefWorker`，一个进程里同时持有训练器、推理引擎与参考模型——怎样把这些动作排成序；最后回答共置的适用边界：模型多大、回答多长时该换分离。
 
 本篇的核心问题：
 
 > **一个 32B 模型在 8 卡共置。每步开始生成前要把 16 字节/参数的训练状态搬走、把 KV 池建起来，训练前再反过来。每个动作搬多少字节、走哪条链路、要几秒？[^q0] 步时间 5 分钟时这是 2% 还是 20%？[^q1]**
 
-版本：vLLM v0.27.1（`vllm/device_allocator/cumem.py`、`vllm/v1/worker/gpu_worker.py`）、verl v0.9.0（`verl/workers/engine_workers.py`、`verl/workers/rollout/vllm_rollout/`）、PyTorch 2.13 的 FSDP2。硬件按 H100 SXM：80 GB HBM3（High Bandwidth Memory 3）、NVLink 节点内 450 GB/s 单向、PCIe Gen5 x16 到 CPU 的实测 pinned 拷贝按 25 GB/s 算（标称 64 GB/s）。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| H100 | — | NVIDIA Hopper 架构训练卡，本系列默认的硬件 |
-| GRPO | Group Relative Policy Optimization | 组内回答互相比较算优势的 PPO 变体，不需要 critic |
-| TP | tensor parallelism | 张量并行：一层的矩阵切到多张卡 |
-| KV | key-value | 注意力的键值；KV cache 是推理时缓存的键值，随序列变长 |
-| PCIe | Peripheral Component Interconnect Express | CPU 与 GPU 之间的总线 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| CUDA graph | — | 把一串 kernel 录下来整体重放，省掉逐个启动的开销 |
-| vLLM | — | 开源 LLM 推理引擎，PagedAttention 出自它 |
-| sleep mode | — | vLLM 释放权重与 KV cache 显存、之后再唤醒的模式 |
-| HBM | high bandwidth memory | GPU 上的高带宽显存 |
-| decode | — | 逐 token 生成的阶段，memory-bound |
-| SGLang | — | 开源 LLM 推理引擎，verl 的另一个推理后端 |
-| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分 |
-| Megatron | — | NVIDIA 的大模型训练框架，TP / PP / EP 齐全 |
-| offload | — | 把参数或优化器状态挪到 CPU 内存 |
-| verl | Volcano Engine Reinforcement Learning for LLMs | 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象 |
-| FSDP2 | — | PyTorch 第二代 FSDP，每个参数用 DTensor 分片 |
-| SXM | Server PCI Express Module | NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡 |
-| HBM3 | High Bandwidth Memory 3 | H100 用的第三代高带宽显存 |
-| NVLink | — | NVIDIA 机内 GPU 之间的高速互联 |
-| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
-| all-gather | — | 每张卡把各自的分片收齐，得到完整张量 |
-| IPC | inter-process communication | 进程间通信；CUDA IPC 让别的进程直接映射这块显存 |
-| BF16 | bfloat16 | 16 位 brain float，训练与推理的默认精度 |
-| micro-batch | — | 一次前向反向处理的那批样本 |
-| LoRA | Low-Rank Adaptation | 只训练低秩增量矩阵的参数高效微调 |
-| MTP | multi-token prediction | 多 token 预测；推理时可当投机解码的草稿头 |
-| RL | reinforcement learning | 强化学习；本系列指 LLM 的在线 RL 后训练 |
-| NPU | neural processing unit | 神经网络处理器，这里指昇腾等非 NVIDIA 加速卡 |
-| RoPE | rotary position embedding | 旋转位置编码 |
-| FP8 | 8-bit floating point | 8 位浮点，rollout 侧常用的低精度格式 |
-| slime | — | 智谱的 RL 框架，只绑 Megatron + SGLang |
-| FSDP1 | — | PyTorch 第一代 FSDP，把参数拼成扁平大张量再切 |
-| DTensor | distributed tensor | PyTorch 的分布式张量，带着自己的分片布局 |
-| H2D | host to device | 主机内存拷到显存 |
-| D2H | device to host | 显存拷回主机内存 |
-| actor | — | 被训练的策略模型 |
-| MFU | model FLOPs utilization | 模型 FLOP 利用率：有效算力占峰值的比例 |
-| checkpoint | — | 保存下来的模型权重与训练状态 |
-| NUMA | non-uniform memory access | 非一致内存访问：内存离哪颗 CPU 近，访问就快 |
-| UPI | Ultra Path Interconnect | Intel 多路 CPU 之间的互联 |
-| PP | pipeline parallelism | 流水线并行：按层切到多张卡 |
-| DP | data parallelism | 数据并行：每份副本处理不同数据 |
-| bucket | — | 把多个张量打包成一块连续缓冲再传 |
-| EngineCore | — | vLLM v1 里跑调度与前向的核心进程 |
-| OOM | out of memory | 显存不够，分配失败 |
-| rollout | — | 用当前策略生成回答（轨迹）的那一步 |
-| FLOP | floating point operation | 一次浮点运算；文中算力账按 FLOP 记 |
-| prefill | — | 一次算完整段 prompt 的阶段，compute-bound |
-| PFLOP | peta floating point operations | 10^15 次浮点运算 |
-| ZMQ | ZeroMQ | 轻量消息库，常用来在进程间传控制消息 |
-| ACK | acknowledgement | 确认消息 |
-| HF | Hugging Face | 模型托管平台；HF 格式指 transformers 的权重命名 |
-| QKV | query, key, value | 注意力的三个投影，常合并成一个矩阵 |
-| MoE | mixture of experts | 混合专家：每个 token 只激活一部分专家 |
-| EP | expert parallelism | 专家并行：MoE 的专家分到不同卡 |
-| off-policy | — | 样本不是由当前策略生成的 |
-| RDMA | remote direct memory access | 远程直接内存访问，跨机传输不经过 CPU |
-
-Table: 本文用到的术语与缩写
+版本：vLLM v0.27.1（`vllm/device_allocator/cumem.py`、`vllm/v1/worker/gpu_worker.py`）、verl v0.9.0（`verl/workers/engine_workers.py`、`verl/workers/rollout/vllm_rollout/`）、PyTorch 2.13 的 FSDP2。硬件按 H100 SXM：80 GB HBM3、NVLink 节点内 450 GB/s 单向、PCIe Gen5 x16 到 CPU 的实测 pinned 拷贝按 25 GB/s 算（标称 64 GB/s）。
 
 ## 一、总览
 
@@ -112,7 +47,7 @@ Table: 本文用到的术语与缩写
 
 真正的账在别处：
 
-- **KV 池只有半张卡**：vLLM 按 `gpu_memory_utilization`（verl 共置默认 0.5）在启动时一次性划定 KV 块数，之后 sleep / wake 只是同一批块的摘下挂回。8B 场景 KV 池从 56 GB 缩到 20 GB，并发从 92 降到 33，每卡 decode 吞吐从 2600 降到 1900 token/s——**生成时间多四分之一**，远超切换的秒数。开了训练侧的 param / optimizer offload 后可以把它提到 0.7–0.85，但要给训练侧的常驻部分（CUDA context、NCCL（NVIDIA Collective Communications Library）缓冲、CUDA graph 池、碎片）留出余量。
+- **KV 池只有半张卡**：vLLM 按 `gpu_memory_utilization`（verl 共置默认 0.5）在启动时一次性划定 KV 块数，之后 sleep / wake 只是同一批块的摘下挂回。8B 场景 KV 池从 56 GB 缩到 20 GB，并发从 92 降到 33，每卡 decode 吞吐从 2600 降到 1900 token/s——**生成时间多四分之一**，远超切换的秒数。开了训练侧的 param / optimizer offload 后可以把它提到 0.7–0.85，但要给训练侧的常驻部分（CUDA context、NCCL 缓冲、CUDA graph 池、碎片）留出余量。
 - **常驻的东西**：CUDA graph 的显存池不能 offload（verl 配置里明说了这一点，给了 `cudagraph_capture_sizes` 让你缩小它），两套 NCCL 通信器（训练器的、推理引擎的）各有缓冲，两个 allocator 各自保留的段——加起来几 GB 到十几 GB，两种形态都要让出。
 - **主机内存**：FSDP 的 offload 与 vLLM level 1 的 sleep 都要 pinned 主机内存——8 卡 32B 每卡 65 GB 训练状态就是 520 GB pinned，一台机器 1–2 TB 的内存被吃掉一半；level 2 的 sleep 不留 CPU 副本正是为省这一块。
 
@@ -199,10 +134,10 @@ Table: gpu_memory_utilization 对 KV 池、并发与生成时间的影响（8B�
 vLLM 的 `LLM.sleep(level)` / `wake_up(tags)`（v1 引擎里落在 `EngineCore.sleep` → `Worker.sleep`）：
 
 - **level 0**：只暂停调度器（请求照收不处理），显存不动；—— 换权重前"停一下"用
-- **level 1**：权重拷到 CPU（pinned），KV 池丢弃；—— 权重不变、只让 KV 的场景（LoRA（Low-Rank Adaptation）、MTP（multi-token prediction）草稿模型）
-- **level 2**：权重与 KV 都丢弃，只保留 model.named_buffers() 的 CPU 副本；—— 权重马上要被新的覆盖：RL（reinforcement learning）共置的默认
+- **level 1**：权重拷到 CPU（pinned），KV 池丢弃；—— 权重不变、只让 KV 的场景（LoRA、MTP 草稿模型）
+- **level 2**：权重与 KV 都丢弃，只保留 model.named_buffers() 的 CPU 副本；—— 权重马上要被新的覆盖：RL 共置的默认
 
-verl 的 hybrid 模式默认 **level 2**（`_sleep_hybrid()`）：新权重反正要从训练器来，level 1 的 CPU 副本是白搬 8 GB、白占 8 GB pinned 内存。只有三种情况退回 level 1——LoRA 只更新 adapter、base 权重不动；MTP 的草稿模型由 vLLM 自己初始化、权重同步覆盖不到它，level 2 丢了就没了；以及 NPU（neural processing unit）上不支持 level 2。
+verl 的 hybrid 模式默认 **level 2**（`_sleep_hybrid()`）：新权重反正要从训练器来，level 1 的 CPU 副本是白搬 8 GB、白占 8 GB pinned 内存。只有三种情况退回 level 1——LoRA 只更新 adapter、base 权重不动；MTP 的草稿模型由 vLLM 自己初始化、权重同步覆盖不到它，level 2 丢了就没了；以及 NPU 上不支持 level 2。
 
 ### 2. `CuMemAllocator`：物理页摘下、虚拟地址不动
 
@@ -237,7 +172,7 @@ def wake_up(self, tags):
 
 ### 3. 唤醒后要补的两件事
 
-`Worker.wake_up` 在 `allocator.wake_up` 之后做两件事：把 level 2 前保存的 `named_buffers()`（RoPE（rotary position embedding）的 cos/sin 表、归一化层的 running 统计一类不属于 `state_dict` 权重同步的缓冲）拷回去；若 KV 用 fp8（8-bit floating point），`post_kv_cache_wake_up()` 把 KV 块**清零**并把 `k_scale / v_scale` 重置为 1——新映射的物理页内容是随机的，fp8 的 scale 若留在 0 会让整个 KV 变成零。这两处是"丢弃再重建"的代价：**任何不经权重同步的状态都要显式恢复**，漏一个就是难查的静默错误（第八篇会回到"权重之外的权重"）。
+`Worker.wake_up` 在 `allocator.wake_up` 之后做两件事：把 level 2 前保存的 `named_buffers()`（RoPE 的 cos/sin 表、归一化层的 running 统计一类不属于 `state_dict` 权重同步的缓冲）拷回去；若 KV 用 fp8，`post_kv_cache_wake_up()` 把 KV 块**清零**并把 `k_scale / v_scale` 重置为 1——新映射的物理页内容是随机的，fp8 的 scale 若留在 0 会让整个 KV 变成零。这两处是"丢弃再重建"的代价：**任何不经权重同步的状态都要显式恢复**，漏一个就是难查的静默错误（第八篇会回到"权重之外的权重"）。
 
 ### 4. SGLang：`torch_memory_saver`
 
@@ -249,21 +184,21 @@ SGLang 走同一条路，实现方式不同：`torch_memory_saver` 是一个 `LD
 
 训练器让出的是 ①–④：参数分片、梯度、优化器状态、参考模型。verl 的 FSDP 引擎（`verl/workers/engine/fsdp/`）提供三对函数：
 
-- **offload_fsdp_model_to_cpu / load_fsdp_model_to_gpu**：bf16（bfloat16）参数分片（FSDP1 flat_param；FSDP2 逐 DTensor（distributed tensor））
+- **offload_fsdp_model_to_cpu / load_fsdp_model_to_gpu**：bf16 参数分片（FSDP1 flat_param；FSDP2 逐 DTensor）
 - **offload_fsdp_optimizer / load_fsdp_optimizer**：fp32 主参数 + Adam 状态
 - **offload_fsdp_grad / load_fsdp_grad**：梯度（一般不搬：optimizer step 后直接释放）
 
 对应配置 `actor.fsdp_config.param_offload` / `optimizer_offload`（默认 `false`；共置的大模型配方几乎都开）。`TrainingWorker.to(device, model, optimizer, grad)` 是统一入口，控制器在每个阶段前后调它：
 
-- **ref 前向前**：ref.to("cuda")；8 GB H2D（host to device）
-- **ref 前向后**：ref.to("cpu")；8 GB D2H（device to host）
+- **ref 前向前**：ref.to("cuda")；8 GB H2D
+- **ref 前向后**：ref.to("cpu")；8 GB D2H
 - **old_log_prob 前**：actor.to("cuda", model=True, optimizer=False)；8 GB
 - **update_actor 前**：actor.to("cuda", optimizer=True)；49 GB H2D
 - **update_actor 后**：actor.to("cpu")；57 GB D2H
 
 优化器状态**只在 `update_actor` 期间在卡上**——这是把 32B 塞进 8 卡的关键：前向阶段（old_log_prob、ref）只需要 bf16 参数与激活，49 GB 的优化器状态可以留在 CPU。代价是每步多一对 49 GB 的往返（4 秒），以及 pinned 内存。
 
-FSDP2 的 `CPUOffloadPolicy` 是另一条路：由 FSDP 自己在每次 all-gather 前从 CPU 取、用完就丢，参数常驻 CPU。它把"搬"摊进了训练的每一层，每层的 all-gather 前多一次 H2D；对共置的好处是训练器在 GPU 上的常驻几乎为零，代价是训练 MFU（model FLOPs utilization）掉几个点。verl 对它做了兼容（`_uses_fsdp2_cpu_offload_policy`），但默认走显式 offload。
+FSDP2 的 `CPUOffloadPolicy` 是另一条路：由 FSDP 自己在每次 all-gather 前从 CPU 取、用完就丢，参数常驻 CPU。它把"搬"摊进了训练的每一层，每层的 all-gather 前多一次 H2D；对共置的好处是训练器在 GPU 上的常驻几乎为零，代价是训练 MFU 掉几个点。verl 对它做了兼容（`_uses_fsdp2_cpu_offload_policy`），但默认走显式 offload。
 
 ### 2. pinned 主机内存
 
@@ -277,11 +212,11 @@ D2H / H2D 要达到 25 GB/s 必须走 pinned 内存，pageable 内存只有几 G
 
 Table: 8 卡 32B 共置一台机器的 pinned 内存账
 
-一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA（non-uniform memory access）不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 UPI（Ultra Path Interconnect））。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
+一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA 不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 UPI）。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
 
 ### 3. Megatron 一侧
 
-Megatron 的训练状态按 TP / PP（pipeline parallelism） / DP（data parallelism）切分，分布式优化器（`use_distributed_optimizer`）把 fp32 主参数与 Adam 状态按 DP 均分。verl 的 Megatron 引擎有对应的 `offload_megatron_model_to_cpu` / `offload_megatron_optimizer` / `offload_megatron_copy_params`，多了一样要搬的东西：分布式优化器持有的**参数的 fp32 副本**（`copy_params`）。字节数与 FSDP 相同（都是 16N 均分），搬运方式同为 PCIe。差别在并行布局：Megatron 一侧是 TP × PP 的分片，推理引擎一侧是 TP（可能不同度）× DP 的分片，权重同步的布局映射复杂得多——第四篇。
+Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_distributed_optimizer`）把 fp32 主参数与 Adam 状态按 DP 均分。verl 的 Megatron 引擎有对应的 `offload_megatron_model_to_cpu` / `offload_megatron_optimizer` / `offload_megatron_copy_params`，多了一样要搬的东西：分布式优化器持有的**参数的 fp32 副本**（`copy_params`）。字节数与 FSDP 相同（都是 16N 均分），搬运方式同为 PCIe。差别在并行布局：Megatron 一侧是 TP × PP 的分片，推理引擎一侧是 TP（可能不同度）× DP 的分片，权重同步的布局映射复杂得多——第四篇。
 
 ### 4. 谁先谁后
 
@@ -291,7 +226,7 @@ Megatron 的训练状态按 TP / PP（pipeline parallelism） / DP（data parall
 - **2  训练器**：优化器状态 D2H（49 GB）           ← 此时卡上还有 bf16 参数、ref、推理引擎的常驻部分
 - **3  训练器**：aggressive_empty_cache             ← 把 caching allocator 保留的段真正还给驱动
 - **4  推理引擎**：wake_up(tags=["weights"])       ← 8 GB 的权重区域挂回（空的）
-- **5  训练器**：all-gather 参数 → IPC（inter-process communication） → 推理引擎写入   ← 卡上同时有 bf16 分片 8 GB + 推理权重 8 GB + 一个 bucket
+- **5  训练器**：all-gather 参数 → IPC → 推理引擎写入   ← 卡上同时有 bf16 分片 8 GB + 推理权重 8 GB + 一个 bucket
 - **6  训练器**：bf16 参数 D2H（8 GB）
 - **7  推理引擎**：wake_up(tags=["kv_cache"])      ← 最后挂 KV 池，因为它要"尽量大"
 - **8  推理引擎**：reset_prefix_cache
@@ -405,8 +340,8 @@ vLLM 在启动时按 `cudagraph_capture_sizes`（默认从 1 到 `max_num_seqs` 
 
 权重换了，KV 里的内容全部作废，`reset_prefix_cache()` 是必须的。它的代价在两处：
 
-- **同一 prompt 的 $$G$$ 条回答共享 prompt 的 KV**——这是 GRPO 里 prefix cache 的主要用处（上一篇算过它省显存不省 FLOP（floating point operation））。一步之内不受影响，因为 reset 只在步边界。
-- **部分 rollout**（`colocate_async` 模式）：被中断的序列在新权重下续接时，已生成的前半段必须**重新 prefill**——它的 KV 是旧权重算的，不能用。一条 8K 长的序列被中断，续接时先付 8K token 的 prefill（$$2N \times 8\text{K}$$）；一步里有几百条被中断就是几个 PFLOP（peta floating point operations），不大，但它是部分 rollout 的固有开销，第五篇再算。
+- **同一 prompt 的 $$G$$ 条回答共享 prompt 的 KV**——这是 GRPO 里 prefix cache 的主要用处（上一篇算过它省显存不省 FLOP）。一步之内不受影响，因为 reset 只在步边界。
+- **部分 rollout**（`colocate_async` 模式）：被中断的序列在新权重下续接时，已生成的前半段必须**重新 prefill**——它的 KV 是旧权重算的，不能用。一条 8K 长的序列被中断，续接时先付 8K token 的 prefill（$$2N \times 8\text{K}$$）；一步里有几百条被中断就是几个 PFLOP，不大，但它是部分 rollout 的固有开销，第五篇再算。
 
 ### 4. 两个 allocator、一块 HBM
 
@@ -438,7 +373,7 @@ Table: 隐性代价的合计
 共置下训练器与推理引擎在同一台机器、（server 模式下）不同进程但同一张卡。新权重不走网络，走两步：
 
 - **训练器侧 all-gather**：FSDP 的参数是分片的 DTensor，`get_per_tensor_param()` 返回一个生成器，逐参数 `.full_tensor()`——每个参数在 8 卡间 all-gather 成完整张量。全模型 66 GB 逐个流过每张卡（每卡接收其中 7/8），NVLink 450 GB/s 下约 0.15 秒的通信；生成器是懒的，同一时刻卡上只有一个参数的完整张量。
-- **CUDA IPC 分桶**：完整张量拷进一个固定大小的 bucket（`update_weights_bucket_megabytes`，默认 512 MB），bucket 的 CUDA IPC handle 经 ZMQ（ZeroMQ）发给同一张卡上的 vLLM worker 进程；worker 用 `rebuild_ipc` 打开 handle、按 `bucket_meta` 里的 offset / shape / dtype 切出每个张量、调 `model.load_weights()` 写入自己的 TP 分片；回 ACK（acknowledgement），训练器填下一个 bucket。
+- **CUDA IPC 分桶**：完整张量拷进一个固定大小的 bucket（`update_weights_bucket_megabytes`，默认 512 MB），bucket 的 CUDA IPC handle 经 ZMQ 发给同一张卡上的 vLLM worker 进程；worker 用 `rebuild_ipc` 打开 handle、按 `bucket_meta` 里的 offset / shape / dtype 切出每个张量、调 `model.load_weights()` 写入自己的 TP 分片；回 ACK，训练器填下一个 bucket。
 
 ```text title="进程内权重同步：训练器与 vLLM worker"
 训练器进程                                   vLLM worker 进程（同一张卡）
@@ -453,11 +388,11 @@ for name, param in get_per_tensor_param():
 
 ### 2. 为什么不直接共享
 
-训练器的分片与推理引擎的分片布局不同（FSDP 按参数的第 0 维切成 8 份，vLLM TP = 8 按注意力头 / 列切），dtype 可能不同（训练 bf16 权重、推理可能 FP8），参数名不同（HF（Hugging Face）命名 vs 融合的 QKV（query, key, value））。所以中间必须有一次"完整张量"的形态——all-gather 到完整、再由接收方切出自己的分片。第四篇把这层布局映射与跨机的传输方式展开。
+训练器的分片与推理引擎的分片布局不同（FSDP 按参数的第 0 维切成 8 份，vLLM TP = 8 按注意力头 / 列切），dtype 可能不同（训练 bf16 权重、推理可能 FP8），参数名不同（HF 命名 vs 融合的 QKV）。所以中间必须有一次"完整张量"的形态——all-gather 到完整、再由接收方切出自己的分片。第四篇把这层布局映射与跨机的传输方式展开。
 
 ### 3. 共置下同步的代价
 
-8B 场景全模型 16 GB，all-gather + IPC 约 0.3 秒；32B 约 1 秒；DeepSeek-V3 规格 1.34 TB bf16 要几十秒——这时 all-gather 本身成了瓶颈（每卡接收 1.3 TB 的 31/32），MoE（mixture of experts）的专家权重要先按 EP（expert parallelism）布局 gather 再重切，第四篇专门讨论。共置的"同步在卡内"这个优点，在几百 B 的 MoE 上打了折扣。
+8B 场景全模型 16 GB，all-gather + IPC 约 0.3 秒；32B 约 1 秒；DeepSeek-V3 规格 1.34 TB bf16 要几十秒——这时 all-gather 本身成了瓶颈（每卡接收 1.3 TB 的 31/32），MoE 的专家权重要先按 EP 布局 gather 再重切，第四篇专门讨论。共置的"同步在卡内"这个优点，在几百 B 的 MoE 上打了折扣。
 
 ## 八、适用边界
 
@@ -522,7 +457,7 @@ Table: 共置形态的速查表
 
 ### 3. 下一篇
 
-本篇的权重同步是最简单的情形：同一张卡、同一种 dtype、FSDP 到 TP 只要"all-gather 成完整再切"。分离形态下训练器与推理引擎在不同机器，训练侧可能是 Megatron 的 TP × PP × EP、推理侧是 vLLM 的 TP × EP（度不同）、还要在线量化成 FP8；每步 16 GB 到 1.3 TB 的字节要走 NCCL 广播、RDMA（remote direct memory access）点对点或增量传输。下一篇把"从训练分片到推理分片"这一步的**布局映射**与**传输方式**拆开算：
+本篇的权重同步是最简单的情形：同一张卡、同一种 dtype、FSDP 到 TP 只要"all-gather 成完整再切"。分离形态下训练器与推理引擎在不同机器，训练侧可能是 Megatron 的 TP × PP × EP、推理侧是 vLLM 的 TP × EP（度不同）、还要在线量化成 FP8；每步 16 GB 到 1.3 TB 的字节要走 NCCL 广播、RDMA 点对点或增量传输。下一篇把"从训练分片到推理分片"这一步的**布局映射**与**传输方式**拆开算：
 
 > **训练器是 Megatron TP=4、PP=2、EP=8 的 671B MoE，推理引擎是 vLLM TP=8、EP=4 的 FP8 副本，两边在不同机器。一次同步要做哪几步映射、传多少字节、走哪条链路、至少几秒？增量同步能省多少？**
 
