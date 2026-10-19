@@ -24,7 +24,7 @@ catalog: true
 系列的组织原则：**每一篇都以"这个组件会出错"为前提**。场景选边界内的、形态让人在合适的位置、信任校准到与实际能力一致、不确定性诚实呈现、指标量真实价值——五篇是同一个前提的五个推论。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="product-and-experience" %}
 
