@@ -3020,6 +3020,44 @@ footer .copyright a,
   text-decoration: none;
   outline: none;
 }
+.post-container .series-box .sb-complete {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid #d8dee4;
+  border-radius: 4px;
+  background: #f2f5f7;
+}
+.post-container .series-box .sb-complete[hidden] {
+  display: none;
+}
+.post-container .series-box .sb-complete.is-new {
+  animation: sb-complete-highlight 1.8s ease-out;
+}
+.post-container .series-box .sb-complete-title {
+  margin: 0;
+  color: #24292f;
+  font-weight: 600;
+}
+.post-container .series-box .sb-complete-next {
+  margin: 4px 0 0;
+  color: #6e7781;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+@keyframes sb-complete-highlight {
+  from {
+    box-shadow: 0 0 0 3px rgba(0, 120, 143, 0.38);
+  }
+  to {
+    box-shadow: 0 0 0 0 rgba(0, 120, 143, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-container .series-box .sb-complete.is-new {
+    animation: none;
+  }
+}
 .post-container .series-box .sb-maps {
   margin-top: 0;
 }
@@ -3060,6 +3098,9 @@ footer .copyright a,
   }
   .post-container .series-box .sb-nav a.sb-map-name {
     flex-basis: 100%;
+  }
+  .post-container .series-box .sb-complete-next {
+    overflow-wrap: anywhere;
   }
 }
 .st-level,
@@ -10237,6 +10278,19 @@ html[data-theme="dark"] .post-container .series-box .sb-overview a {
 html[data-theme="dark"] .post-container .series-box .sb-nav a {
   color: #4cb7cb;
 }
+html[data-theme="dark"] .post-container .series-box .sb-complete {
+  border-top-color: #33363c;
+  background-color: #1f2125;
+}
+html[data-theme="dark"] .post-container .series-box .sb-complete .sb-complete-title {
+  color: #eceef1;
+}
+html[data-theme="dark"] .post-container .series-box .sb-complete .sb-complete-next {
+  color: #969ba4;
+}
+html[data-theme="dark"] .post-container .series-box .sb-complete .sb-complete-next a {
+  color: #4cb7cb;
+}
 html[data-theme="dark"] .series-tree .st-map {
   border-color: #33363c;
 }
@@ -11777,6 +11831,19 @@ html[data-theme="sepia"] .post-container .series-box .sb-overview a,
 html[data-theme="sepia"] .side-series h5 a,
 html[data-theme="sepia"] .series-tree .st-map > summary {
   color: #2b2318;
+}
+html[data-theme="sepia"] .post-container .series-box .sb-complete {
+  border-top-color: #dccfb2;
+  background-color: #efe4cb;
+}
+html[data-theme="sepia"] .post-container .series-box .sb-complete .sb-complete-title {
+  color: #2b2318;
+}
+html[data-theme="sepia"] .post-container .series-box .sb-complete .sb-complete-next {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .post-container .series-box .sb-complete .sb-complete-next a {
+  color: #286090;
 }
 html[data-theme="sepia"] .post-container .series-box .sb-nav a,
 html[data-theme="sepia"] .post-container .series-box .sb-list a,

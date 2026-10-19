@@ -45,5 +45,25 @@
     {%- if series_next %}<span>下一篇：<a href="{{ series_next.url | prepend: site.baseurl }}">{{ series_next.title | split: '）：' | last }}</a></span>{% elsif sb_next_series %}<span>下一个系列：{% include roadmap-series-link.html s=sb_next_series %}</span>{% endif -%}
   </p>
   {%- endif %}
+  {%- if include.bottom %}
+  {%- assign sb_complete_next_series = nil -%}
+  {%- if sb_map and sb_map.next -%}
+    {%- assign sb_complete_next_series = site.data.series[sb_map.next] -%}
+  {%- endif -%}
+  {%- assign sb_complete_next_posts = '' | split: ',' -%}
+  {%- if sb_complete_next_series -%}
+    {%- assign sb_complete_next_posts = sb_complete_next_series.posts -%}
+  {%- endif -%}
+  {%- assign sb_complete_next_count = sb_complete_next_posts | size -%}
+  {%- assign sb_complete_first_post = sb_complete_next_posts | first -%}
+  <div class="sb-complete" hidden data-name="{{ series_meta.name | escape }}" data-status="{{ series_meta.status | escape }}">
+    <p class="sb-complete-title"></p>
+    {%- if sb_complete_next_series and sb_complete_next_count > 0 %}
+    <p class="sb-complete-next">下一个系列：<a href="{{ sb_complete_first_post.url | prepend: site.baseurl }}">{{ sb_complete_next_series.name }}</a>{% if sb_complete_next_series.level %} <span class="sb-level l{{ sb_complete_next_series.level }}">{% if sb_complete_next_series.level == 1 %}入门{% elsif sb_complete_next_series.level == 2 %}进阶{% elsif sb_complete_next_series.level == 3 %}深入{% endif %}</span>{% endif %} · {{ sb_complete_next_series.count }} 篇，约 {{ sb_complete_next_series.hours }} 小时</p>
+    {%- else %}
+    <p class="sb-complete-next">去 <a href="{{ '/series.html' | prepend: site.baseurl }}">Series</a> 挑下一个系列</p>
+    {%- endif %}
+  </div>
+  {%- endif %}
 </div>
 {%- endif -%}

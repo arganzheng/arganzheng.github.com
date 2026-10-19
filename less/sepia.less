@@ -301,6 +301,12 @@ html[data-theme="sepia"] {
 	.post-container .series-box .sb-title,
 	.post-container .series-box .sb-overview a,
 	.side-series h5 a, .series-tree .st-map > summary { color: @sp-heading; }
+	.post-container .series-box .sb-complete {
+		border-top-color: @sp-border;
+		background-color: @sp-surface;
+		.sb-complete-title { color: @sp-heading; }
+		.sb-complete-next { color: @sp-muted; a { color: @sp-link; } }
+	}
 	.post-container .series-box .sb-nav a,
 	.post-container .series-box .sb-list a,
 	.series-tree .st-posts a, .series-tree .st-item > summary { color: @sp-text; }
