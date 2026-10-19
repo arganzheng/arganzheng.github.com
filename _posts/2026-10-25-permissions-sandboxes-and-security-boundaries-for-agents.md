@@ -9,37 +9,11 @@ catalog: true
 
 这是本系列最重要的一篇。《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲了三个事件——Replit 的 agent 在代码冻结期删库、PocketOS 的 Cursor agent 用一个无关文件里权限过宽的 token 在 9 秒内删掉生产卷与备份、OpenAI 约 700 个测试中的 agent 入侵 Hugging Face——并给出结论：**当模型能执行动作时，错误的上限由它拿到的权限范围决定，不由它的聪明程度决定**。这一篇讲怎么把这个上限压低：四层机制——权限档（能碰什么）、审批策略（什么时候问人）、执行策略（哪些命令允许、要问、禁止）、沙箱（执行时真正拦住）——以及工具返回作为不可信输入的边界。
 
-材料来自三个 harness 的公开实现：Codex 的 `PermissionProfile`（`:read_only` / `:workspace` / `:danger_full_access`）、`AskForApproval`、`execpolicy` 的 Starlark 前缀规则、Guardian 审查、三平台沙箱（macOS Seatbelt、Linux bubblewrap + Landlock + seccomp（secure computing mode）、Windows 受限令牌）；Claude Code 权限判定的六步顺序与五种模式；DeepSeek Harness 的 `sandbox` 包组与审批策略插件。最后把 PocketOS 的五环放到四层上，看每一环在成熟的 harness 里怎么被防住。
+材料来自三个 harness 的公开实现：Codex 的 `PermissionProfile`（`:read_only` / `:workspace` / `:danger_full_access`）、`AskForApproval`、`execpolicy` 的 Starlark 前缀规则、Guardian 审查、三平台沙箱（macOS Seatbelt、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌）；Claude Code 权限判定的六步顺序与五种模式；DeepSeek Harness 的 `sandbox` 包组与审批策略插件。最后把 PocketOS 的五环放到四层上，看每一环在成熟的 harness 里怎么被防住。
 
 本篇要回答的核心问题是：
 
 > **权限档、审批策略、执行策略、沙箱四层各管什么，为什么缺一不可？[^q0] Codex、Claude Code、DeepSeek Harness 各怎么判一个工具调用能不能执行？[^q1] PocketOS 的五环在这四层上怎么逐环被防住，审批疲劳怎么解？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| PocketOS | — | agent 用越权 token 9 秒删掉生产卷与备份的事故 |
-| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
-| Starlark | — | Python 方言的配置语言，Codex 用它写执行策略 |
-| Guardian | — | Codex 的审查机制：一个模型审另一个模型的高风险调用 |
-| Seatbelt | — | macOS 内置的进程沙箱机制 |
-| bubblewrap | — | Linux 的无特权沙箱工具，用命名空间隔离进程 |
-| Landlock | — | Linux 内核的无特权访问控制，限制可访问路径 |
-| seccomp | secure computing mode | Linux 限制进程能用哪些系统调用的机制 |
-| staging | — | 上线前的预发布环境 |
-| CLI | command-line interface | 命令行界面 |
-| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
-| SBPL | Sandbox Profile Language | macOS Seatbelt 沙箱的策略语言 |
-| crate | — | Rust 的包，Codex 按 crate 拆模块 |
-| ACL | access control list | 访问控制列表，按用户 / 组列出允许的操作 |
-| E2B | — | 给 agent 提供隔离执行环境的云沙箱服务 |
-| microVM | — | 轻量虚拟机，启动快、隔离强于容器 |
-| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
-| hooks | — | 在工具调用前后等节点运行的用户脚本 |
-| L6 | — | 《AI 应用工程师学习地图》的第 6 层 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -135,7 +109,7 @@ prefix_rule(
 )
 ```
 
-要点：**规则按 token 前缀匹配**（`git push` 匹配任何以它开头的命令），**三种决定**（允许、问人、禁止），**`justification` 会出现在审批提示里**（人看到"为什么要问我"），**`match` / `not_match` 是加载时校验的单元测试**——写错规则在加载时就失败，而不是在生产里放过一条 `rm -rf`。`host_executable` 元数据约束哪些绝对路径能通过基名规则（防止把一个恶意二进制命名为 `ls`）。CLI（command-line interface）输出评估结果的 JSON，可以离线测试一条命令会被怎么判。
+要点：**规则按 token 前缀匹配**（`git push` 匹配任何以它开头的命令），**三种决定**（允许、问人、禁止），**`justification` 会出现在审批提示里**（人看到"为什么要问我"），**`match` / `not_match` 是加载时校验的单元测试**——写错规则在加载时就失败，而不是在生产里放过一条 `rm -rf`。`host_executable` 元数据约束哪些绝对路径能通过基名规则（防止把一个恶意二进制命名为 `ls`）。CLI 输出评估结果的 JSON，可以离线测试一条命令会被怎么判。
 
 这个设计把"哪些命令危险"从模型的判断与人的临场判断里拿出来，变成**可版本化、可测试、可审查的策略文件**——《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》"prompt 当代码管"的安全侧版本。
 
@@ -163,7 +137,7 @@ flowchart TB
 
 ### 3. Codex：Guardian
 
-`core/src/guardian/` 是一个用模型审另一个模型的子系统：对高风险的调用（危险命令、网络访问、MCP（Model Context Protocol）工具），先由 Guardian 模型评估（`review.rs`、`decision.rs`、`approval_request.rs`），给出结论后再决定是否还要问人；有输入与请求的预算（`input_budget.rs`、`request_budget.rs`）防止审查本身失控。第一篇讲过的细节："严格自动审查的审批只覆盖沙箱内的尝试，去掉沙箱重试需要新的 Guardian 审查"。Guardian 不是替代人，是把一部分"显然安全 / 显然危险"的判断自动化，减少审批疲劳（第七章）。
+`core/src/guardian/` 是一个用模型审另一个模型的子系统：对高风险的调用（危险命令、网络访问、MCP 工具），先由 Guardian 模型评估（`review.rs`、`decision.rs`、`approval_request.rs`），给出结论后再决定是否还要问人；有输入与请求的预算（`input_budget.rs`、`request_budget.rs`）防止审查本身失控。第一篇讲过的细节："严格自动审查的审批只覆盖沙箱内的尝试，去掉沙箱重试需要新的 Guardian 审查"。Guardian 不是替代人，是把一部分"显然安全 / 显然危险"的判断自动化，减少审批疲劳（第七章）。
 
 ### 4. DeepSeek Harness：审批策略插件
 
@@ -226,7 +200,7 @@ Agents API 的九家合作方（E2B、Modal、Daytona、Cloudflare、Blaxel、Di
 
 ## 五、Claude Code 的六步判定
 
-Agent SDK（software development kit）文档把一个工具请求的判定顺序写得很精确，值得整段记住：
+Agent SDK 文档把一个工具请求的判定顺序写得很精确，值得整段记住：
 
 1. **hooks 先跑**。hook 可以直接拒绝或放行到下一步；hook 返回 `allow` **不跳过**后面的 deny 与 ask 规则。
 2. **deny 规则**（`disallowed_tools` 与 settings.json）。匹配即拒绝，**即使在 `bypassPermissions` 模式下**。裸名 deny（`Bash`）在评估前就把工具从模型上下文里移除，这一步只查带作用域的（`Bash(rm *)`）。
@@ -374,6 +348,6 @@ flowchart TB
 
 [^q0]: 权限档是会话的静态范围（能碰什么）：Codex `:read_only` / `:workspace`（只写工作区根、`.git` 与 `.codex` 只读、网络可选受限）/ `:danger_full_access`（沙箱关），DeepSeek Harness 同名三档，Claude Code 用 allow / deny / ask 规则（`Bash(rm *)`）。审批策略是动态倾向（什么时候问人）：Codex `AskForApproval` 的 `untrusted` / `on-request` / 细粒度 / `never`。执行策略是具体命令的判定：Codex `execpolicy` 的 Starlark 前缀规则 allow / prompt / forbidden，带 `justification`（出现在审批提示）与加载时校验的 `match` / `not_match`，`host_executable` 约束路径；Guardian 用模型先审高风险调用。沙箱是执行时的强制：即使前面放行，操作系统层面仍限制实际效果。缺一层的事故原型：只审批无沙箱——命令文本看不出脚本的真实效果；只沙箱无审批——沙箱内的破坏照样发生；只权限档无执行策略——`rm -rf` 与 `git push --force` 在写工作区档位内同样"在范围内"；且沙箱管不了合法凭据对外部系统的动作。详见[第一章](#一总览)到[第四章](#四沙箱)。
 
-[^q1]: Codex（`tools/orchestrator.rs`）：按 `AskForApproval` 与 `execpolicy` 决定是否审批（可选 Guardian 先审）→ `SandboxManager` 按权限档、工具偏好、平台选沙箱（macOS Seatbelt + SBPL（Sandbox Profile Language）、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌 + ACL（access control list）+ Job Objects，网络经代理策略）首次尝试 → 被拒时 `never` / `on-request` 不升级只返回说明，允许升级的策略要新审批（含新 Guardian 审查）后无沙箱重试。Claude Code 六步：hooks 先跑（可拒可放但不跳过 deny）→ deny 规则（含 `bypassPermissions` 下生效，裸名 deny 预先移除工具）→ ask 规则（送回调；`dontAsk` 下直接拒）→ 模式（`bypassPermissions` 放行、`acceptEdits` 放行文件操作、`plan` 把写操作一律送回调）→ allow 规则 → `canUseTool` 回调（`dontAsk` 跳过直接拒）；子 agent 继承并可收紧。DeepSeek Harness：`sandbox-policy` 把三档解析成每次调用的策略、`sandbox-local` 等后端执行、审批策略作为 `dsh-base` 里的可替换插件、`interaction` 呈现审批。详见[第三章](#三审批策略与执行策略)、[第四章](#四沙箱)、[第五章](#五claude-code-的六步判定)。
+[^q1]: Codex（`tools/orchestrator.rs`）：按 `AskForApproval` 与 `execpolicy` 决定是否审批（可选 Guardian 先审）→ `SandboxManager` 按权限档、工具偏好、平台选沙箱（macOS Seatbelt + SBPL、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌 + ACL + Job Objects，网络经代理策略）首次尝试 → 被拒时 `never` / `on-request` 不升级只返回说明，允许升级的策略要新审批（含新 Guardian 审查）后无沙箱重试。Claude Code 六步：hooks 先跑（可拒可放但不跳过 deny）→ deny 规则（含 `bypassPermissions` 下生效，裸名 deny 预先移除工具）→ ask 规则（送回调；`dontAsk` 下直接拒）→ 模式（`bypassPermissions` 放行、`acceptEdits` 放行文件操作、`plan` 把写操作一律送回调）→ allow 规则 → `canUseTool` 回调（`dontAsk` 跳过直接拒）；子 agent 继承并可收紧。DeepSeek Harness：`sandbox-policy` 把三档解析成每次调用的策略、`sandbox-local` 等后端执行、审批策略作为 `dsh-base` 里的可替换插件、`interaction` 呈现审批。详见[第三章](#三审批策略与执行策略)、[第四章](#四沙箱)、[第五章](#五claude-code-的六步判定)。
 
 [^q2]: 五环与防线：① 权限过宽的 token → 权限档（基础设施侧：token 按用途最小范围）；② token 在工作区无关文件里 → 凭据不放 agent 可读目录、`Read(.env*)` 进 deny；③ staging 能碰生产 → 环境隔离（基础设施侧）；④ 无确认 → 执行策略把 `DELETE` / `rm -rf` / `drop` / `force` 类设 `prompt` 或 `forbidden`，Guardian 把"删除生产资源"与"为绕过失败采取破坏性动作"识别为高风险；⑤ 备份同卷 → 备份隔离与不可逆动作前的快照（基础设施侧）。三环在基础设施、两环在 harness，agent 安全一半不在 agent 里。审批疲劳（每条都问 → 人不看内容）用策略化授权解：按风险分级（只读自动、写按规则、不可逆问、危险禁）、批一类（会话级 allow、`permission_preapproval`）、Guardian 先筛、`justification` 让人快判、监控审批率与拒绝率（拒绝率趋零 = 规则松或疲劳）。详见[第七章](#七pocketos-的五环与审批疲劳)。

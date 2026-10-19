@@ -15,34 +15,6 @@ agent 的核心机制不复杂：模型看上下文，决定调用什么工具�
 
 > **agent 循环的最小形态是什么，它在哪些地方会失控？[^q0] Codex 与 DeepSeek Harness 的循环各分几层、每层管什么？[^q1] 什么任务该用循环、什么任务该用工作流？[^q2]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
-| effort | — | 推理模型的思考力度档位，越高越慢越贵 |
-| L2 / L6 | — | 《AI 应用工程师学习地图》的第 2、6 层 |
-| TTFT | time to first token | 从发出请求到收到第一个 token 的时间 |
-| PocketOS | — | agent 用越权 token 9 秒删掉生产卷与备份的事故 |
-| CLI | command-line interface | 命令行界面 |
-| crate | — | Rust 的包，Codex 按 crate 拆模块 |
-| TUI | terminal user interface | 在终端里画出来的交互界面 |
-| JSON-RPC | JSON remote procedure call | 用 JSON 编码请求与响应的远程过程调用协议 |
-| Guardian | — | Codex 的审查机制：一个模型审另一个模型的高风险调用 |
-| Seatbelt | — | macOS 内置的进程沙箱机制 |
-| bubblewrap | — | Linux 的无特权沙箱工具，用命名空间隔离进程 |
-| Landlock | — | Linux 内核的无特权访问控制，限制可访问路径 |
-| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
-| Cordis | — | DeepSeek Harness 的插件框架，组件都是插件 |
-| append-only | — | 只追加、不改写已有记录 |
-| rollout | — | Codex 存会话事件的记录文件 |
-| resume / fork / replay | — | 续跑 / 从某一步分叉 / 按记录重放 |
-| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
-| Code Mode | — | Cloudflare 的方案：让模型写代码调用 MCP 工具 |
-| trace | — | 一次任务每一步输入输出与决策的完整记录 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ### 1. 最小循环
@@ -95,7 +67,7 @@ L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加
 
 ### 2. 调模型
 
-一次 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的调用：流式、带工具定义、带 effort（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）。失控点：没有超时（一次调用挂住整个循环）；重试策略不区分错误类型（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；每步都用最高 effort（成本与 TTFT（time to first token），《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的按步选档）。
+一次 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的调用：流式、带工具定义、带 effort（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）。失控点：没有超时（一次调用挂住整个循环）；重试策略不区分错误类型（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；每步都用最高 effort（成本与 TTFT，《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的按步选档）。
 
 ### 3. 解析输出
 
@@ -152,11 +124,11 @@ flowchart LR
 
 ## 三、Codex 的三层循环
 
-Codex CLI（command-line interface）的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` 是重心——agent 循环状态机、配置、模型客户端、沙箱管理器都在里面。循环分三层：
+Codex CLI 的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` 是重心——agent 循环状态机、配置、模型客户端、沙箱管理器都在里面。循环分三层：
 
 ### 1. `submission_loop`：会话的生命周期
 
-最外层的无限循环，从提交通道接收 `Op`（用户输入、审批决定、中断、关闭……）并分发。它活到会话结束（`Op::Shutdown`）。客户端面（TUI（terminal user interface）、`exec` 无头模式、`app-server` 的 JSON-RPC（JSON remote procedure call）/ WebSocket 服务）与运行循环的会话之间是一对**操作 / 事件通道**：客户端发操作、会话推事件（`SessionConfigured`、`ExecApprovalRequest`、流式增量……）。这个设计让同一个核心服务多种 UI——第六篇会讲它与 DeepSeek Harness 的 profile 机制的对应。
+最外层的无限循环，从提交通道接收 `Op`（用户输入、审批决定、中断、关闭……）并分发。它活到会话结束（`Op::Shutdown`）。客户端面（TUI、`exec` 无头模式、`app-server` 的 JSON-RPC / WebSocket 服务）与运行循环的会话之间是一对**操作 / 事件通道**：客户端发操作、会话推事件（`SessionConfigured`、`ExecApprovalRequest`、流式增量……）。这个设计让同一个核心服务多种 UI——第六篇会讲它与 DeepSeek Harness 的 profile 机制的对应。
 
 ### 2. turn loop：一次用户输入触发
 
@@ -170,7 +142,7 @@ Codex CLI（command-line interface）的 `codex-rs` 是一个几十个 crate 的
 2. **首次尝试，在选定的沙箱下**：`SandboxManager` 按权限档、工具的沙箱偏好、平台、是否有托管网络选初始沙箱（Seatbelt / bubblewrap + Landlock / Windows）。
 3. **成功则返回**；**被沙箱拒绝**则看策略：`never` 与 `on-request` 下不会去掉沙箱重试，只返回一条保留原始输出的简洁拒绝说明；允许升级的策略下请求（新的）审批后**第二次尝试**不带沙箱——"严格自动审查的审批只覆盖沙箱内的尝试，去掉沙箱重试需要新的 Guardian 审查"。
 
-工具本身经 `tools/registry.rs` 注册、`tools/router.rs` 路由、`tools/parallel.rs` 并行；处理器在 `tools/handlers/`（shell、`apply_patch`、`plan`、`request_user_input`、`tool_search`、`multi_agents`、MCP（Model Context Protocol）、`view_image`……）。这一层是"权限范围是错误上限"原则的代码形态：任何工具调用都要先过审批再过沙箱，沙箱拒绝不自动升级。
+工具本身经 `tools/registry.rs` 注册、`tools/router.rs` 路由、`tools/parallel.rs` 并行；处理器在 `tools/handlers/`（shell、`apply_patch`、`plan`、`request_user_input`、`tool_search`、`multi_agents`、MCP、`view_image`……）。这一层是"权限范围是错误上限"原则的代码形态：任何工具调用都要先过审批再过沙箱，沙箱拒绝不自动升级。
 
 ```mermaid
 %% 图：Codex 的三层循环——最外层 submission_loop 活到会话结束，经操作 / 事件通道连 TUI / exec / app-server；每个用户输入触发一个 turn loop：组装 prompt、调 Responses API、处理输出项直到模型不再返回工具调用，边界处压缩；每个工具调用走编排器：审批 → 选沙箱首次尝试 → 沙箱拒绝时按策略决定是否审批后无沙箱重试
@@ -249,7 +221,7 @@ flowchart TB
     class INV n
 ```
 
-循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK（software development kit）暴露，模型写一个 TypeScript 程序组合多步——第二篇）、Minimal（只留 shell 与文件编辑器，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
+循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露，模型写一个 TypeScript 程序组合多步——第二篇）、Minimal（只留 shell 与文件编辑器，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
 
 ## 五、工作流还是 agent
 

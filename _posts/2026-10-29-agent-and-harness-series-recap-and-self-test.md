@@ -31,65 +31,6 @@ flowchart TB
 
 ```
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
-| OpenHarness | — | 港大 HKUDS 的开源 harness 实现，Python |
-| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
-| durable execution | — | 每步结果持久化、崩溃后能从断点续跑的执行模型 |
-| A2A | Agent2Agent | 不同厂商的 agent 之间互相委派任务的协议 |
-| handoff | — | 把对话控制权整个交给另一个 agent |
-| PTC | programmatic tool calling | 模型写程序调多个工具，只把结果送回上下文 |
-| AAIF | Agentic AI Foundation | Linux 基金会下治理 MCP 等项目的基金会 |
-| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
-| DCR | Dynamic Client Registration | OAuth 客户端运行时自动注册（RFC 7591） |
-| CIMD | Client ID Metadata Document | 用一个 URL 上的元数据文档代替客户端注册 |
-| tool search | — | 工具定义按需检索加载，不一次塞进上下文 |
-| resume / fork / replay | — | 续跑 / 从某一步分叉 / 按记录重放 |
-| worker | — | 执行子任务的 agent（或执行 workflow 的进程） |
-| L1 / L2 / L3 / L5 / L6 / L7 | — | 《AI 应用工程师学习地图》的第 1、2、3、5、6、7 层 |
-| subagent | — | 主 agent 起的子 agent，独立上下文，只回传摘要 |
-| agent teams | — | Claude Code 的实验功能：多个 agent 互相通信协作 |
-| PocketOS | — | agent 用越权 token 9 秒删掉生产卷与备份的事故 |
-| Starlark | — | Python 方言的配置语言，Codex 用它写执行策略 |
-| Guardian | — | Codex 的审查机制：一个模型审另一个模型的高风险调用 |
-| TS | TypeScript | TypeScript 的简写 |
-| orchestrator-workers | — | 主 agent 拆任务、分给 worker、再汇总结果 |
-| trace | — | 一次任务每一步输入输出与决策的完整记录 |
-| Terminal-Bench | — | 测 agent 在终端里完成任务的基准 |
-| append-only | — | 只追加、不改写已有记录 |
-| GPT-5.6 | — | OpenAI 的模型，Responses 里有 PTC 与 ultra 模式 |
-| ZDR | zero data retention | 零数据保留：供应商不存请求与响应数据 |
-| Code Mode | — | Cloudflare 的方案：让模型写代码调用 MCP 工具 |
-| RPC | remote procedure call | 远程过程调用 |
-| LangGraph | — | LangChain 的 agent 编排框架，带 checkpoint |
-| Temporal | — | 开源的 durable execution 平台 |
-| checkpoint | — | 某一步之后的状态快照，崩溃后从这里续跑 |
-| activity / signal | — | Temporal 里可重试的一步执行 / 从外部送进工作流的事件 |
-| Seatbelt | — | macOS 内置的进程沙箱机制 |
-| Landlock | — | Linux 内核的无特权访问控制，限制可访问路径 |
-| bubblewrap | — | Linux 的无特权沙箱工具，用命名空间隔离进程 |
-| ultra | — | GPT-5.6 的多 agent 并行模式 |
-| SAE | Society of Automotive Engineers | 国际汽车工程师学会，自动驾驶 0–5 级出自它 |
-| elicitation | — | MCP server 经 client 向用户要确认或参数 |
-| judge | — | 用模型给轨迹或输出打分的评审 |
-| Streamable HTTP | — | MCP 的远程传输：普通 HTTP，响应可流式返回 |
-| ACP | Agent Client Protocol | 客户端驱动外部 agent 的协议，如拉起 Claude Code |
-| rollout | — | Codex 存会话事件的记录文件 |
-| PR | pull request | 代码合并请求 |
-| GraphRAG | — | 先建知识图谱再检索的 RAG（检索增强生成）方法 |
-| HF | Hugging Face | 模型与数据集托管平台 |
-| Cordis | — | DeepSeek Harness 的插件框架，组件都是插件 |
-| p50 / p95 | — | 中位数 / 第 95 百分位，用来看长尾 |
-| fallback | — | 主路径失败时退回的备用路径 |
-| OpenTelemetry | — | 开源的 trace / 指标 / 日志采集标准 |
-| GenAI | generative AI | 生成式 AI；OpenTelemetry 为它定了语义约定 |
-| RL | reinforcement learning | 强化学习 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**循环之外的一切都是 harness；权限范围是错误的上限；能自动验证到什么程度就能自主到什么程度**。
@@ -132,13 +73,13 @@ Table: 本文的章节安排
 
 ### 2. 第二篇：工具与 MCP
 
-**结论**：工具四个来源模型眼里相同。MCP（Model Context Protocol）2026-07-28：无状态核心（去 `initialize` 与会话 id、协商进每请求）、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP、企业授权）、授权加固（`iss`、`resource`、DCR → CIMD）、弃用政策；AAIF（Agentic AI Foundation）治理。描述从模型视角写、政策放系统提示、结果也是契约。tool search 换预算与选择准确率、付按需定义不可缓存。PTC（programmatic tool calling；Anthropic、OpenAI GPT-5.6 ZDR（zero data retention）兼容、Cloudflare Code Mode、DeepSeek Harness Code 模式 / `ptc-runtime`、Codex `code-mode`）让中间结果不进上下文，付沙箱、可观测、编码能力、审批粒度。
+**结论**：工具四个来源模型眼里相同。MCP 2026-07-28：无状态核心（去 `initialize` 与会话 id、协商进每请求）、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP、企业授权）、授权加固（`iss`、`resource`、DCR → CIMD）、弃用政策；AAIF 治理。描述从模型视角写、政策放系统提示、结果也是契约。tool search 换预算与选择准确率、付按需定义不可缓存。PTC（Anthropic、OpenAI GPT-5.6 ZDR 兼容、Cloudflare Code Mode、DeepSeek Harness Code 模式 / `ptc-runtime`、Codex `code-mode`）让中间结果不进上下文，付沙箱、可观测、编码能力、审批粒度。
 
-**常见误解**：MCP 是 RPC（remote procedure call）协议加会话；tool search 一定提高命中率；PTC 可以做默认。
+**常见误解**：MCP 是 RPC 协议加会话；tool search 一定提高命中率；PTC 可以做默认。
 
 ### 3. 第三篇：运行时
 
-**结论**：第三种服务形态的九行对比表；事件溯源日志解决持久化、任意步重放、分叉——"模型可见 ⟺ 已记录"、resume / fork / replay 同一流、格式有版本；Codex `rollout` / `thread-store` 是兼容面。durable execution 把确定性重放换成重放记录的输出；LangGraph checkpoint / `interrupt`、Temporal activity / signal、或自实现最小集。挂起释放 worker、等待会话数是容量；事件流从日志推前端；中断在步骤边界；按会话隔离。三种交付：Agents API（托管、九家沙箱、无额外费、绑 OpenAI、日志在供应商）、SDK（software development kit）、自托管。
+**结论**：第三种服务形态的九行对比表；事件溯源日志解决持久化、任意步重放、分叉——"模型可见 ⟺ 已记录"、resume / fork / replay 同一流、格式有版本；Codex `rollout` / `thread-store` 是兼容面。durable execution 把确定性重放换成重放记录的输出；LangGraph checkpoint / `interrupt`、Temporal activity / signal、或自实现最小集。挂起释放 worker、等待会话数是容量；事件流从日志推前端；中断在步骤边界；按会话隔离。三种交付：Agents API（托管、九家沙箱、无额外费、绑 OpenAI、日志在供应商）、SDK、自托管。
 
 **常见误解**：Web 框架能直接跑 agent；服务端状态省钱；托管运行时能换模型。
 
@@ -162,13 +103,13 @@ Table: 本文的章节安排
 
 ### 7. 第七篇：多 agent
 
-**结论**：三个理由与更便宜的替代；orchestrator-workers（Anthropic 研究系统的经验、15 倍）、handoff（Agents SDK、上下文传法）、层级（ultra、限深度）、agent teams（有依赖时）；A2A（Agent2Agent）管 agent、MCP 管工具，组织内不需要 A2A；成本来源、组合的失败、树状 trace、三层评测。
+**结论**：三个理由与更便宜的替代；orchestrator-workers（Anthropic 研究系统的经验、15 倍）、handoff（Agents SDK、上下文传法）、层级（ultra、限深度）、agent teams（有依赖时）；A2A 管 agent、MCP 管工具，组织内不需要 A2A；成本来源、组合的失败、树状 trace、三层评测。
 
 **常见误解**：多 agent 更聪明；并行 agent 能共享缓存；A2A 现在就要用。
 
 ### 8. 第八篇：记忆与人
 
-**结论**：记忆三层，跨会话记忆是检索——写的判据、模型 vs 运行时驱动、进半静态层设上限、遗忘四策略、带来源；四个实现的表。六级每级换的验证；判据"能自动验证到什么程度就能自主到什么程度"；SAE（Society of Automotive Engineers）分级同构。风险五级与问人的挂起点（`request_user_input`、elicitation）。后台 agent 交付可审阅中间物、面板、自动降级。本体把验证前移到结构，让业务 agent 从 2 级到 4–5 级；小本体起步。
+**结论**：记忆三层，跨会话记忆是检索——写的判据、模型 vs 运行时驱动、进半静态层设上限、遗忘四策略、带来源；四个实现的表。六级每级换的验证；判据"能自动验证到什么程度就能自主到什么程度"；SAE 分级同构。风险五级与问人的挂起点（`request_user_input`、elicitation）。后台 agent 交付可审阅中间物、面板、自动降级。本体把验证前移到结构，让业务 agent 从 2 级到 4–5 级；小本体起步。
 
 **常见误解**：记忆越多越好；直接发送 = 6 级；业务 agent 只能停在逐个确认。
 
@@ -345,7 +286,7 @@ Table: 常见误区与正确说法
 6. 判断：DeepSeek Harness 的 `subagent` 包组只能拉起 dsh 自己的子 agent。
 
    <details markdown="1"><summary>答案</summary>
-   错。七种后端里有 `subagent-claude-code` 与 `subagent-codex`，能把另两家 harness 作为子 agent 拉起，以及 ACP（Agent Client Protocol）与 SDK 后端。
+   错。七种后端里有 `subagent-claude-code` 与 `subagent-codex`，能把另两家 harness 作为子 agent 拉起，以及 ACP 与 SDK 后端。
    </details>
 
 7. 计算：常驻层 20K，每步工具返回 6K、输出 400，200K 窗口预留 35K。不卸载约第几步触发压缩？`spill` 后每步返回 1K 呢？
@@ -395,7 +336,7 @@ Table: 常见误区与正确说法
 4. 为什么"能自动验证到什么程度就能自主到什么程度"同时解释了 coding agent 最先成熟、业务 agent 停在 2–3 级、自动驾驶花十几年？本体在这条判据里的位置是什么？
 
    <details markdown="1"><summary>答案</summary>
-   代码有测试、lint、类型检查——自动验证循环让 agent 几十步自主并能走到后台 PR（pull request，5–6 级）。业务动作没有测试、错误直接影响客户——验证只能靠人，停在逐个确认。自动驾驶不可逆且验证成本极高——每升一级 SAE 要重建验证体系（仿真、影子模式），所以花十几年。本体把业务动作的验证前移到结构（类型、规则、权限、提案）——不是事后跑测试而是事前约束，让业务 agent 有了"部分自动验证"，能到 4–5 级。
+   代码有测试、lint、类型检查——自动验证循环让 agent 几十步自主并能走到后台 PR（5–6 级）。业务动作没有测试、错误直接影响客户——验证只能靠人，停在逐个确认。自动驾驶不可逆且验证成本极高——每升一级 SAE 要重建验证体系（仿真、影子模式），所以花十几年。本体把业务动作的验证前移到结构（类型、规则、权限、提案）——不是事后跑测试而是事前约束，让业务 agent 有了"部分自动验证"，能到 4–5 级。
    </details>
 
 5. 把本系列九篇对应到 L1 的七条失效模式与 L2、L3 的关键结论：每篇主要防哪条、用了前面哪些层的东西。
@@ -410,7 +351,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 模型之外的一切：循环、工具协议、运行时与会话日志、上下文管理、权限与沙箱、子 agent、记忆、人机分工、评测；模型只决定下一步与读结果；(2) 同一模型、不同 harness，agent 能力差一个量级——DeepSeek 与 OpenAI 都以此为发布理由；(3) 2026 年的三个事件：Agents API（9 月 10 日，托管 Codex 的 harness）、DeepSeek Harness（8 月 13 日，一切皆插件）、Claude Agent SDK；(4) 事故（Replit、PocketOS、OpenAI–HF（Hugging Face））说明缺哪一格会怎样；(5) 三种交付形态。
+   **答案要点**：(1) 模型之外的一切：循环、工具协议、运行时与会话日志、上下文管理、权限与沙箱、子 agent、记忆、人机分工、评测；模型只决定下一步与读结果；(2) 同一模型、不同 harness，agent 能力差一个量级——DeepSeek 与 OpenAI 都以此为发布理由；(3) 2026 年的三个事件：Agents API（9 月 10 日，托管 Codex 的 harness）、DeepSeek Harness（8 月 13 日，一切皆插件）、Claude Agent SDK；(4) 事故（Replit、PocketOS、OpenAI–HF）说明缺哪一格会怎样；(5) 三种交付形态。
    **追问方向**：harness 与框架（LangChain）的区别（运行时、权限、沙箱、日志的完整性）；从每家学什么。
    **好答案与一般答案的区别**：一般答案说"agent 框架"；好答案列出组件、说出"权限范围是错误上限"与"验证决定自主"两条原则、举出三个 harness 的具体机制。
 
@@ -502,11 +443,11 @@ Table: 掌握程度的判据
 
 本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第四层。
 
-- **L5 评测、可观测与可追溯**：本系列第九篇的轨迹评测、trace、录制回放、在线 judge 在 L5 展开为方法论——评测集怎么建与运营、judge 怎么校准、trace 的结构与 OpenTelemetry GenAI（generative AI）语义约定、失败分类学、物理世界的仿真。
+- **L5 评测、可观测与可追溯**：本系列第九篇的轨迹评测、trace、录制回放、在线 judge 在 L5 展开为方法论——评测集怎么建与运营、judge 怎么校准、trace 的结构与 OpenTelemetry GenAI 语义约定、失败分类学、物理世界的仿真。
 - **L6 生产化与运营**：prompt injection 的完整分层防御（本系列第五篇的"工具返回不可信"是它的输入）、网关、成本预算、发布与回滚、治理与审计。
 - **L7 产品与体验**：agent 的步骤怎么呈现给用户、审批的交互设计、后台 agent 的产品形态、信任的建立与校准。
 
-前置：[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（检索作为工具、本体）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)；agent 能力的训练在算法地图 L5，RL（reinforcement learning）的 rollout 基础设施在 Infra 地图 10。
+前置：[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（检索作为工具、本体）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)；agent 能力的训练在算法地图 L5，RL 的 rollout 基础设施在 Infra 地图 10。
 
 ## 七、延伸阅读
 

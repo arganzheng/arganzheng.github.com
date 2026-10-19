@@ -7,49 +7,13 @@ tags: [AI, LLM, AI-Application, Agent, Harness, Durable Execution]
 catalog: true
 ---
 
-后端工程师熟悉两种服务：传统应用服务（毫秒级、确定性、无状态或状态在数据库）与模型 serving（秒级、一个请求进一串 token 出、状态是请求内的 KV（key–value）cache）。agent 运行时是第三种：一次"调用"分钟到小时、几十次模型调用与工具执行交替、控制流由模型决定、可能挂起几小时等人批准、每一步都要能在崩溃后续上。直接用 Web 框架写 agent 的团队会在两件事上撞墙——"用户关了页面、任务还在跑"与"服务重启、任务从头开始"。这一篇讲第三种服务形态的核心数据结构与三种交付方式。
+后端工程师熟悉两种服务：传统应用服务（毫秒级、确定性、无状态或状态在数据库）与模型 serving（秒级、一个请求进一串 token 出、状态是请求内的 KV cache）。agent 运行时是第三种：一次"调用"分钟到小时、几十次模型调用与工具执行交替、控制流由模型决定、可能挂起几小时等人批准、每一步都要能在崩溃后续上。直接用 Web 框架写 agent 的团队会在两件事上撞墙——"用户关了页面、任务还在跑"与"服务重启、任务从头开始"。这一篇讲第三种服务形态的核心数据结构与三种交付方式。
 
-核心数据结构是**事件溯源的会话日志**：把模型看到的一切、做的一切按顺序追加到一个不可变的日志里，状态从日志派生。DeepSeek Harness 把它写成不变量"模型可见 ⟺ 已记录"，resume、fork、replay 在同一个事件流上操作；Codex 的 `rollout` 与 `thread-store` 是同一思想的 Rust 实现；LangGraph 的 checkpoint 与 Temporal 一类 durable execution 引擎是它在工作流领域的老前辈。交付方式有三种：托管运行时（OpenAI Agents API，2026-09-10 公测）、库（Agents SDK（software development kit）/ Agent SDK）、自托管 harness（DeepSeek Harness）——第六篇比较，这一篇讲它们共同要解决的问题。
+核心数据结构是**事件溯源的会话日志**：把模型看到的一切、做的一切按顺序追加到一个不可变的日志里，状态从日志派生。DeepSeek Harness 把它写成不变量"模型可见 ⟺ 已记录"，resume、fork、replay 在同一个事件流上操作；Codex 的 `rollout` 与 `thread-store` 是同一思想的 Rust 实现；LangGraph 的 checkpoint 与 Temporal 一类 durable execution 引擎是它在工作流领域的老前辈。交付方式有三种：托管运行时（OpenAI Agents API，2026-09-10 公测）、库（Agents SDK / Agent SDK）、自托管 harness（DeepSeek Harness）——第六篇比较，这一篇讲它们共同要解决的问题。
 
 本篇要回答的核心问题是：
 
 > **为什么 agent 运行时是一种新的服务形态，它与传统服务、模型 serving 差在哪？[^q0] 事件溯源的会话日志解决什么，"模型可见 ⟺ 已记录"意味着什么？[^q1] durable execution 是什么，托管运行时与自托管各换了什么？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| serving | — | 把模型部署成在线推理服务 |
-| KV | key–value | 推理时缓存的注意力键值，即 KV cache |
-| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
-| LangGraph | — | LangChain 的 agent 编排框架，带 checkpoint |
-| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
-| resume / fork / replay | — | 续跑 / 从某一步分叉 / 按记录重放 |
-| checkpoint | — | 某一步之后的状态快照，崩溃后从这里续跑 |
-| durable execution | — | 每步结果持久化、崩溃后能从断点续跑的执行模型 |
-| Temporal | — | 开源的 durable execution 平台 |
-| Agents API | — | OpenAI 托管 harness 与运行时的 agent 服务 |
-| OOM | out of memory | 内存耗尽 |
-| append-only | — | 只追加、不改写已有记录 |
-| JSONL | JSON Lines | 每行一个 JSON 对象的文本格式，适合只追加写 |
-| rollout | — | Codex 存会话事件的记录文件 |
-| CLI | command-line interface | 命令行界面 |
-| crate | — | Rust 的包，Codex 按 crate 拆模块 |
-| L5 / L6 | — | 《AI 应用工程师学习地图》的第 5、6 层 |
-| activity / signal | — | Temporal 里可重试的一步执行 / 从外部送进工作流的事件 |
-| worker | — | 执行子任务的 agent（或执行 workflow 的进程） |
-| fsync | — | 把文件缓冲强制刷到磁盘的系统调用 |
-| webhook | — | 事件发生时由对方回调你给的 URL |
-| CI | continuous integration | 持续集成：提交后自动构建、跑测试 |
-| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
-| JSON-RPC | JSON remote procedure call | 用 JSON 编码请求与响应的远程过程调用协议 |
-| TUI | terminal user interface | 在终端里画出来的交互界面 |
-| IDE | integrated development environment | 集成开发环境，如 VS Code |
-| E2B | — | 给 agent 提供隔离执行环境的云沙箱服务 |
-| VPC | virtual private cloud | 云上隔离出来的私有网络 |
-| PTC | programmatic tool calling | 模型写程序调多个工具，只把结果送回上下文 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -104,11 +68,11 @@ DeepSeek Harness 把这做成了架构的中心。`packages/core/session` 拥有
 
 > **模型可见 ⟺ 已记录**：任何进入模型请求的东西都必须能从会话日志重建；一个新的模型可见输入需要一个会话事件。
 
-含义：不存在"偷偷塞进上下文"的东西——系统提示、思考、工具调用与结果、子 agent 调度、每一次上下文注入（压缩摘要、卸载的定位符、记忆）都是事件。产品侧的 Trajectory 视图按来源检视每条记录；**resume、fork、search、replay 在同一个事件流上操作**——不需要为每个功能设计单独的存储。`session` 包组还有：JSONL（JSON Lines）存储（默认）、检查点（保护请求、工具副作用、已完成的步骤）、投影包（从日志派生客户端要的值）、标题包、遥测包。会话格式有版本（`SESSION_FORMAT_VERSION`），事件类型默认"读时必须认识"——不认识的类型拒绝加载，除非事件标了 `ignorable: true`——这是日志作为长期资产的纪律：格式变了要迁移，不能静默丢事件。
+含义：不存在"偷偷塞进上下文"的东西——系统提示、思考、工具调用与结果、子 agent 调度、每一次上下文注入（压缩摘要、卸载的定位符、记忆）都是事件。产品侧的 Trajectory 视图按来源检视每条记录；**resume、fork、search、replay 在同一个事件流上操作**——不需要为每个功能设计单独的存储。`session` 包组还有：JSONL 存储（默认）、检查点（保护请求、工具副作用、已完成的步骤）、投影包（从日志派生客户端要的值）、标题包、遥测包。会话格式有版本（`SESSION_FORMAT_VERSION`），事件类型默认"读时必须认识"——不认识的类型拒绝加载，除非事件标了 `ignorable: true`——这是日志作为长期资产的纪律：格式变了要迁移，不能静默丢事件。
 
 ### 3. Codex：rollout 与 thread-store
 
-Codex 的会话对象持有历史，`rollout` crate 负责把每一步写成 rollout 记录（持久化），`thread-store` 管理线程（会话）的存储与查找，`message-history` 与 `history` crate 处理历史的呈现；"从已有 rollout 恢复会话"是仓库规范里列出的外部兼容面之一（"resuming sessions from existing rollouts"），与 app-server API、CLI（command-line interface）参数并列——说明日志格式被当作契约。远程压缩（`compact_remote_v2`）在日志里也是一条记录（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》：加密 blob 作为 `compaction` item）。
+Codex 的会话对象持有历史，`rollout` crate 负责把每一步写成 rollout 记录（持久化），`thread-store` 管理线程（会话）的存储与查找，`message-history` 与 `history` crate 处理历史的呈现；"从已有 rollout 恢复会话"是仓库规范里列出的外部兼容面之一（"resuming sessions from existing rollouts"），与 app-server API、CLI 参数并列——说明日志格式被当作契约。远程压缩（`compact_remote_v2`）在日志里也是一条记录（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》：加密 blob 作为 `compaction` item）。
 
 ### 4. 日志里要有什么
 
@@ -200,11 +164,11 @@ stateDiagram-v2
 
 ### 2. 等外部事件
 
-同一机制服务于等待长任务（一个 CI（continuous integration）跑 20 分钟）、等 webhook（付款回调）、等定时器（"明天再检查一次"——DeepSeek Harness 的 `schedule` 包）。MCP（Model Context Protocol）2026-07-28 的 Tasks 扩展在协议层支持这种"提交后轮询、持久句柄"的长操作（第二篇）。
+同一机制服务于等待长任务（一个 CI 跑 20 分钟）、等 webhook（付款回调）、等定时器（"明天再检查一次"——DeepSeek Harness 的 `schedule` 包）。MCP 2026-07-28 的 Tasks 扩展在协议层支持这种"提交后轮询、持久句柄"的长操作（第二篇）。
 
 ### 3. 事件流推前端
 
-用户要看到 agent 在做什么：每一步的文本增量、工具调用、结果摘要、审批请求、进度。运行时把日志事件（或它的投影）流式推到客户端——Codex 的 app-server 是 JSON-RPC（JSON remote procedure call）/ WebSocket 服务，TUI（terminal user interface）、IDE 插件、Web 都是它的客户端，会话通过操作 / 事件通道与客户端通信（第一篇）；DeepSeek Harness 的 `web` / `sdk` / `acp` profile 是同一核心的不同面（第六篇）。前端断开不影响任务（任务在运行时里，不在连接里）；重连后从日志补齐——这就是"用户关了页面任务还在跑"的正确形态。
+用户要看到 agent 在做什么：每一步的文本增量、工具调用、结果摘要、审批请求、进度。运行时把日志事件（或它的投影）流式推到客户端——Codex 的 app-server 是 JSON-RPC / WebSocket 服务，TUI、IDE 插件、Web 都是它的客户端，会话通过操作 / 事件通道与客户端通信（第一篇）；DeepSeek Harness 的 `web` / `sdk` / `acp` profile 是同一核心的不同面（第六篇）。前端断开不影响任务（任务在运行时里，不在连接里）；重连后从日志补齐——这就是"用户关了页面任务还在跑"的正确形态。
 
 ```mermaid
 %% 图：任务在运行时里，不在连接里——Web 框架直接跑 agent 时任务随 HTTP 连接消失、重启从头；运行时形态下任务在 worker + 日志里，前端只是日志事件流的一个订阅者，断开不影响任务，重连后从日志补齐；Codex 的 app-server、DeepSeek Harness 的 web / sdk / acp profile 都是同一核心的不同面
@@ -239,7 +203,7 @@ flowchart LR
 
 ### 1. 托管运行时：OpenAI Agents API
 
-2026-09-10 公测。OpenAI 的说法："有用的 agent 需要强大的 harness 管上下文、高效用工具、协调子 agent，还需要能让它们可靠运行几天的基础设施——有文件、能跑代码、能存中间结果的环境"，Agents API 把"驱动 Codex 与 ChatGPT for Work 的同一 harness 与基础设施"以 API 交付。分工是：**OpenAI 托管并维护 harness**（会话状态、编排、上下文压缩、恢复、tool search、程序化工具调用、并行子 agent），**你选计算环境**（OpenAI 托管沙箱、自己的基础设施、或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel 九家合作方——覆盖全托管、VPC（virtual private cloud）、不同的 CPU / GPU / 内存配置）；连 MCP server、自定义函数、内置工具；无额外费用，只收模型、工具、容器用量。一位早期用户说"把 harness 与沙箱分开后，失败的 agent 响应减少了 86%"；另一些报告 4 倍延迟降低、60% 每任务成本降低。
+2026-09-10 公测。OpenAI 的说法："有用的 agent 需要强大的 harness 管上下文、高效用工具、协调子 agent，还需要能让它们可靠运行几天的基础设施——有文件、能跑代码、能存中间结果的环境"，Agents API 把"驱动 Codex 与 ChatGPT for Work 的同一 harness 与基础设施"以 API 交付。分工是：**OpenAI 托管并维护 harness**（会话状态、编排、上下文压缩、恢复、tool search、程序化工具调用、并行子 agent），**你选计算环境**（OpenAI 托管沙箱、自己的基础设施、或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel 九家合作方——覆盖全托管、VPC、不同的 CPU / GPU / 内存配置）；连 MCP server、自定义函数、内置工具；无额外费用，只收模型、工具、容器用量。一位早期用户说"把 harness 与沙箱分开后，失败的 agent 响应减少了 86%"；另一些报告 4 倍延迟降低、60% 每任务成本降低。
 
 它换到：零运行时基础设施、供应商维护的 harness 迭代、上线一次 API 调用。它付出：**绑定 OpenAI 的模型**（harness 与模型是一体交付的）、会话日志在 OpenAI 侧（可观测与合规按它的能力）、harness 的行为不可替换（压缩策略、权限判定用它的）。
 
@@ -342,4 +306,4 @@ flowchart LR
 
 [^q1]: 事件溯源把模型看到与做的一切按顺序追加为不可变事件，状态从事件派生——落盘即持久化、任意步可重放到那一步看到的上下文、任意步可分叉。DeepSeek Harness 以此为架构中心：`session` 的 append-only `SessionEvent` 日志是唯一事实来源，`agent-loop` 每步从日志派生历史；不变量"模型可见 ⟺ 已记录"——任何进模型请求的东西必须能从日志重建、新的模型可见输入需要一个会话事件——排除了偷偷塞上下文，让 resume / fork / search / replay 共用一个事件流，Trajectory 视图按来源检视；会话格式有版本，不认识的事件类型拒绝加载（除标 `ignorable`）。Codex 的 `rollout` / `thread-store` 是 Rust 实现，"从 rollout 恢复会话"是外部兼容面。日志要记：用户输入、模型输出（含思考块、usage）、工具执行（含卸载定位符）、审批、上下文操作、子 agent、系统版本、卫士触发。详见[第二章](#二事件溯源的会话日志)。
 
-[^q2]: durable execution 是工作流引擎的概念：每步的输入 / 输出 / 决定持久化，崩溃后从最后持久化点继续，等外部事件不占进程；agent 借用它时把"确定性重放"换成"重放记录的模型输出不重跑"。实现：LangGraph 的每步 checkpoint 与 `interrupt`；Temporal 一类（模型调用与工具是 activity、审批是 signal、定时器做超时降级）；或自己的最小集（日志落盘、启动时重建并从未完成步继续、幂等 id、挂起释放 worker、调度器分发会话）。三种交付：OpenAI Agents API（2026-09-10 公测）托管 harness——会话、编排、压缩、恢复、tool search、PTC（programmatic tool calling）、子 agent 在 OpenAI 侧，你选沙箱（托管或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel），无额外费用，换到零运行时工程、付出绑 OpenAI 模型与日志在供应商侧；SDK（Agents SDK / Claude Agent SDK / LangGraph）控制权在你但运行时自己搭；自托管 harness（DeepSeek Harness）全部可换、多模型、日志在自己处、代价是运维与跟进破坏性变更。详见[第三章](#三durable-execution)、[第五章](#五三种交付形态)。
+[^q2]: durable execution 是工作流引擎的概念：每步的输入 / 输出 / 决定持久化，崩溃后从最后持久化点继续，等外部事件不占进程；agent 借用它时把"确定性重放"换成"重放记录的模型输出不重跑"。实现：LangGraph 的每步 checkpoint 与 `interrupt`；Temporal 一类（模型调用与工具是 activity、审批是 signal、定时器做超时降级）；或自己的最小集（日志落盘、启动时重建并从未完成步继续、幂等 id、挂起释放 worker、调度器分发会话）。三种交付：OpenAI Agents API（2026-09-10 公测）托管 harness——会话、编排、压缩、恢复、tool search、PTC、子 agent 在 OpenAI 侧，你选沙箱（托管或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel），无额外费用，换到零运行时工程、付出绑 OpenAI 模型与日志在供应商侧；SDK（Agents SDK / Claude Agent SDK / LangGraph）控制权在你但运行时自己搭；自托管 harness（DeepSeek Harness）全部可换、多模型、日志在自己处、代价是运维与跟进破坏性变更。详见[第三章](#三durable-execution)、[第五章](#五三种交付形态)。

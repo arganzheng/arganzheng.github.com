@@ -7,56 +7,13 @@ tags: [AI, LLM, AI-Application, Agent, Harness, Coding Agent, Codex, DeepSeek]
 catalog: true
 ---
 
-前五篇把 harness 拆成了组件：循环、工具协议、运行时、上下文管理、权限与沙箱。这一篇把四个真实的 harness 放在同一张表上——**OpenAI Codex**（`codex-rs`，Rust，开源，Agents API 的底座）、**DeepSeek Harness**（`dsh`，TypeScript，2026 年 8 月 13 日 v0.1 开发者预览，MIT，"一切都是插件"）、**Claude Code**（TypeScript，产品闭源、Agent SDK（software development kit）与文件系统约定开放）、**OpenHarness**（HKUDS，Python，2026 年 4 月起，MIT，一万五千多星）——看它们在十二个维度上各怎么选、为什么。然后是三种交付形态的取舍：托管（Agents API）、库（Agents SDK / Agent SDK）、自托管 harness。
+前五篇把 harness 拆成了组件：循环、工具协议、运行时、上下文管理、权限与沙箱。这一篇把四个真实的 harness 放在同一张表上——**OpenAI Codex**（`codex-rs`，Rust，开源，Agents API 的底座）、**DeepSeek Harness**（`dsh`，TypeScript，2026 年 8 月 13 日 v0.1 开发者预览，MIT，"一切都是插件"）、**Claude Code**（TypeScript，产品闭源、Agent SDK 与文件系统约定开放）、**OpenHarness**（HKUDS，Python，2026 年 4 月起，MIT，一万五千多星）——看它们在十二个维度上各怎么选、为什么。然后是三种交付形态的取舍：托管（Agents API）、库（Agents SDK / Agent SDK）、自托管 harness。
 
 对照的依据是 2026 年 9 月中旬的源码快照与文档（总纲的版本基线）。两个开源 harness 都在快速迭代，模块名会变，机制层面的结论比路径稳定。这一篇不评"谁最好"——四个项目的目标不同（一个是产品底座、一个是可组合的研究平台、一个是闭源产品加 SDK、一个是轻量研究实现）——评的是每个选择换到了什么、付出了什么，以及从每家该学什么。
 
 本篇要回答的核心问题是：
 
 > **四个 harness 在架构、循环、工具、上下文、权限、沙箱、会话、子 agent、扩展、UI、模型耦合、基准十二个维度上各怎么选？[^q0] 这些选择背后的取舍是什么？[^q1] Agents API、SDK、自托管 harness 三种交付形态怎么选，从每家该学什么？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| SDK | software development kit | 软件开发工具包，这里指写 agent 的库 |
-| OpenHarness | — | 港大 HKUDS 的开源 harness 实现，Python |
-| HKUDS | — | 香港大学数据智能实验室的 GitHub 组织 |
-| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
-| Agents API | — | OpenAI 托管 harness 与运行时的 agent 服务 |
-| TS | TypeScript | TypeScript 的简写 |
-| Cordis | — | DeepSeek Harness 的插件框架，组件都是插件 |
-| crate | — | Rust 的包，Codex 按 crate 拆模块 |
-| hooks | — | 在工具调用前后等节点运行的用户脚本 |
-| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
-| LSP | Language Server Protocol | 编辑器与语言服务器之间的协议，MCP 借鉴了它 |
-| AGENTS.md / CLAUDE.md | — | 放在项目里、每次会话自动读进上下文的说明文件 |
-| Starlark | — | Python 方言的配置语言，Codex 用它写执行策略 |
-| Guardian | — | Codex 的审查机制：一个模型审另一个模型的高风险调用 |
-| CLI | command-line interface | 命令行界面 |
-| Seatbelt | — | macOS 内置的进程沙箱机制 |
-| Landlock | — | Linux 内核的无特权访问控制，限制可访问路径 |
-| bubblewrap | — | Linux 的无特权沙箱工具，用命名空间隔离进程 |
-| seccomp | secure computing mode | Linux 限制进程能用哪些系统调用的机制 |
-| JSONL | JSON Lines | 每行一个 JSON 对象的文本格式，适合只追加写 |
-| rollout | — | Codex 存会话事件的记录文件 |
-| resume / fork / replay | — | 续跑 / 从某一步分叉 / 按记录重放 |
-| ACP | Agent Client Protocol | 客户端驱动外部 agent 的协议，如拉起 Claude Code |
-| subagent | — | 主 agent 起的子 agent，独立上下文，只回传摘要 |
-| agent teams | — | Claude Code 的实验功能：多个 agent 互相通信协作 |
-| TUI | terminal user interface | 在终端里画出来的交互界面 |
-| JSON-RPC | JSON remote procedure call | 用 JSON 编码请求与响应的远程过程调用协议 |
-| IDE | integrated development environment | 集成开发环境，如 VS Code |
-| SWE-bench | — | 用 GitHub 真实 issue 测 coding agent 的基准 |
-| E2E | end-to-end | 端到端测试 |
-| SBPL | Sandbox Profile Language | macOS Seatbelt 沙箱的策略语言 |
-| ACL | access control list | 访问控制列表，按用户 / 组列出允许的操作 |
-| SKILL.md | — | 技能包的说明文件，用到时才加载 |
-| PTC | programmatic tool calling | 模型写程序调多个工具，只把结果送回上下文 |
-| Code Mode | — | Cloudflare 的方案：让模型写代码调用 MCP 工具 |
-| LangGraph | — | LangChain 的 agent 编排框架，带 checkpoint |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -100,7 +57,7 @@ Table: 四个 harness 的十二维对照
 
 ### 1. 语言与架构：单核 vs 插件树 vs SDK
 
-**Codex** 选 Rust 与一个大工作区：性能、单二进制分发、三平台沙箱的系统编程都受益；代价是 `core` 膨胀——仓库规范里专门写了"抵制往 `codex-core` 加代码"、"考虑新建 crate"，说明这是他们在对抗的重力。**DeepSeek Harness** 选"一切皆插件"：没有特权核心，模型适配器、工具、会话、沙箱、审批、压缩、循环都是 Cordis 插件，从 `cordis.yml` 组合；profile（命名的组合）叠 bundle（配置行 + 代码）叠 patch（用户覆盖）。换到的是极致的可替换性——换一个沙箱后端、卸掉一个卫士、加一个模式都不改源码；付出的是学习曲线（要懂 Cordis 的服务 / 事件 / 效果模型）与"预稳定 API，每个消费者都要更新"的迭代成本。**Claude Code** 把产品闭源、把基座以 SDK 开放：用户拿到同一套循环、权限、hooks、子 agent，但不能改内部；换到产品迭代速度与一致性，付出可审计性。**OpenHarness** 选 Python 与轻量：面向研究者与个人 agent（ohmo），复用别家的订阅与 CLI（command-line interface）作为底层。
+**Codex** 选 Rust 与一个大工作区：性能、单二进制分发、三平台沙箱的系统编程都受益；代价是 `core` 膨胀——仓库规范里专门写了"抵制往 `codex-core` 加代码"、"考虑新建 crate"，说明这是他们在对抗的重力。**DeepSeek Harness** 选"一切皆插件"：没有特权核心，模型适配器、工具、会话、沙箱、审批、压缩、循环都是 Cordis 插件，从 `cordis.yml` 组合；profile（命名的组合）叠 bundle（配置行 + 代码）叠 patch（用户覆盖）。换到的是极致的可替换性——换一个沙箱后端、卸掉一个卫士、加一个模式都不改源码；付出的是学习曲线（要懂 Cordis 的服务 / 事件 / 效果模型）与"预稳定 API，每个消费者都要更新"的迭代成本。**Claude Code** 把产品闭源、把基座以 SDK 开放：用户拿到同一套循环、权限、hooks、子 agent，但不能改内部；换到产品迭代速度与一致性，付出可审计性。**OpenHarness** 选 Python 与轻量：面向研究者与个人 agent（ohmo），复用别家的订阅与 CLI 作为底层。
 
 ```mermaid
 %% 图：三种架构形状——Codex 是一个大工作区里的单核 core（循环、配置、模型客户端、沙箱管理器都在里面，规范要「抵制往 core 加代码」）；DeepSeek Harness 没有特权核心，循环、工具、沙箱、审批、压缩都是 Cordis 插件，从 profile → bundle → patch 三层配置组合；Claude Code 产品闭源、把同一基座以 Agent SDK 开放，hooks 是开口
@@ -137,7 +94,7 @@ flowchart LR
 
 ### 3. 工具：注册 → 路由 → 并行 → 处理器
 
-两个开源 harness 的工具层结构几乎同构：一个注册表、一个路由 / 分发、并行执行、每个工具一个处理器 / 插件。差别在**注册的作用域**（DeepSeek Harness 的 `scope` 原语让工具按 agent 作用域注册——子 agent 可以有不同的工具集）与**MCP（Model Context Protocol）的位置**（Codex 用独立的 `codex-mcp` / `rmcp-client` crate 并让 `mcp_connection_manager` 集中处理工具与调用的变更；DeepSeek Harness 的 `mcp` 是一个包组）。Claude Code 的 MCP 工具 schema 默认延迟加载（第二篇的 tool search）。
+两个开源 harness 的工具层结构几乎同构：一个注册表、一个路由 / 分发、并行执行、每个工具一个处理器 / 插件。差别在**注册的作用域**（DeepSeek Harness 的 `scope` 原语让工具按 agent 作用域注册——子 agent 可以有不同的工具集）与**MCP 的位置**（Codex 用独立的 `codex-mcp` / `rmcp-client` crate 并让 `mcp_connection_manager` 集中处理工具与调用的变更；DeepSeek Harness 的 `mcp` 是一个包组）。Claude Code 的 MCP 工具 schema 默认延迟加载（第二篇的 tool search）。
 
 ### 4. 上下文：加密 blob vs 可读事件
 
@@ -149,7 +106,7 @@ Codex 的 `execpolicy` 是四家里唯一的**专用策略语言**（Starlark、
 
 ### 6. 沙箱：原生三平台 vs 接缝 vs 依赖环境
 
-Codex 在四家里对沙箱投入最重：三个平台各一套原生实现（Seatbelt 的 SBPL（Sandbox Profile Language）文件、bubblewrap + Landlock + seccomp（secure computing mode）、Windows 受限令牌 + ACL + Job Objects）加网络代理——因为它是本地 CLI，沙箱是它唯一的强制层。DeepSeek Harness 把沙箱做成接缝加本地后端，可以换容器 / 云沙箱。Claude Code 本地的限制较轻，重的隔离交给云端产品。选择反映了各自的部署假设：本地 CLI 必须自己做沙箱，服务端产品可以靠基础设施。
+Codex 在四家里对沙箱投入最重：三个平台各一套原生实现（Seatbelt 的 SBPL 文件、bubblewrap + Landlock + seccomp、Windows 受限令牌 + ACL + Job Objects）加网络代理——因为它是本地 CLI，沙箱是它唯一的强制层。DeepSeek Harness 把沙箱做成接缝加本地后端，可以换容器 / 云沙箱。Claude Code 本地的限制较轻，重的隔离交给云端产品。选择反映了各自的部署假设：本地 CLI 必须自己做沙箱，服务端产品可以靠基础设施。
 
 ```mermaid
 %% 图：五个主轴上四家的位置——状态在对象（Codex、Claude Code）还是在日志（DeepSeek Harness）；压缩摘要加密（Codex）还是可读（DeepSeek Harness、Claude Code）；权限用策略语言（Codex execpolicy）、规则 + 模式（Claude Code）还是插件（DeepSeek Harness）；沙箱原生三平台（Codex）、接缝（DeepSeek Harness）还是靠环境（Claude Code）；模型耦合一家（Codex、Claude Code）还是多家（DeepSeek Harness、OpenHarness）
@@ -189,7 +146,7 @@ Codex 的 `multi_agents`（含 v2）与 `agent-roles` 是内建的子 agent 机�
 
 ### 9. 扩展模型：四种模式
 
-DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——第二篇的 PTC（programmatic tool calling））、Minimal（只留 shell 与文件编辑器）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
+DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——第二篇的 PTC）、Minimal（只留 shell 与文件编辑器）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
 
 ```mermaid
 %% 图：DeepSeek Harness 的四种模式是同一组插件的四种组合——Standard 装全部工具；Code 把工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步（PTC）；Minimal 只留 shell 与文件编辑器，为公平比较模型；Creator 能检视运行时、在内存里测插件、组合出新模式；卸掉 guard 卫士或换沙箱后端都不改源码
@@ -208,7 +165,7 @@ flowchart TB
 
 ### 10. UI 面：一个核心多个面
 
-四家都是"一个核心、多个面"：Codex 的 TUI（terminal user interface）/ exec / app-server（JSON-RPC（JSON remote procedure call）让 IDE 与桌面端复用同一会话）、DeepSeek Harness 的 web / headless / sdk / acp 四个 profile、Claude Code 的 CLI / IDE / SDK / web、OpenHarness 的 CLI / Web 前端 / 即时通讯。第三篇讲的"任务在运行时里不在连接里"是这个设计的前提。
+四家都是"一个核心、多个面"：Codex 的 TUI / exec / app-server（JSON-RPC 让 IDE 与桌面端复用同一会话）、DeepSeek Harness 的 web / headless / sdk / acp 四个 profile、Claude Code 的 CLI / IDE / SDK / web、OpenHarness 的 CLI / Web 前端 / 即时通讯。第三篇讲的"任务在运行时里不在连接里"是这个设计的前提。
 
 ### 11. 模型耦合：一家 vs 多家
 
@@ -301,7 +258,7 @@ Table: 从每家 harness 学什么
    能带走：工具（MCP server、自定义函数）、技能（SKILL.md）、项目指令（AGENTS.md）、评测集与 prompt。带不走：Agents API 侧的会话历史（含服务端压缩的加密状态）、它的权限判定与压缩行为、对 OpenAI 模型特性（reasoning item、PTC 形态）的依赖。原型期降低成本：自己保留一份可读的会话记录（每步的输入输出与决策）、工具与技能按开放标准写、prompt 与评测集版本化、不依赖服务端状态做业务逻辑。详见[第三章](#三三种交付形态)、[第四章](#四从每家学什么)。
    </details>
 
-[^q0]: 见第一章的十二维表。要点：Codex——Rust 工作区、`core` 为重心、三层循环、`tools/registry → router → parallel → handlers`、`compact*` 含服务端加密、`PermissionProfile` + `AskForApproval` + `execpolicy` + Guardian、三平台原生沙箱 + 网络代理、`rollout` / `thread-store`、`multi_agents` / `agent-roles`、plugins / hooks / skills / MCP、TUI / exec / app-server、Responses 耦合。DeepSeek Harness——TypeScript、一切皆插件（Cordis，profile / bundle / patch）、日志驱动循环、作用域注册表 + 守卫管线、`compaction` 五包 + `spill` + `plan` / `todo` / `goal`、三档 + 审批插件 + `guard`、`sandbox` 接缝、事件溯源 JSONL（JSON Lines）+ 检查点、七种子 agent 后端（含 Claude Code / Codex）、四种模式、web / headless / sdk / acp、多供应商、Minimal 基准模式。Claude Code——TypeScript 闭源 + Agent SDK、`query()` 封装、内置工具 + MCP + skills、auto-compact 83.5%、六步权限判定 + 五模式 + hooks、本地轻沙箱 + 云端、subagent vs agent teams、文件系统约定、Claude 专用。OpenHarness——Python、轻量、工具 / 技能 / 记忆 / 多 agent、ohmo 接即时通讯、复用底层 CLI 订阅。详见[第一章](#一总览)。
+[^q0]: 见第一章的十二维表。要点：Codex——Rust 工作区、`core` 为重心、三层循环、`tools/registry → router → parallel → handlers`、`compact*` 含服务端加密、`PermissionProfile` + `AskForApproval` + `execpolicy` + Guardian、三平台原生沙箱 + 网络代理、`rollout` / `thread-store`、`multi_agents` / `agent-roles`、plugins / hooks / skills / MCP、TUI / exec / app-server、Responses 耦合。DeepSeek Harness——TypeScript、一切皆插件（Cordis，profile / bundle / patch）、日志驱动循环、作用域注册表 + 守卫管线、`compaction` 五包 + `spill` + `plan` / `todo` / `goal`、三档 + 审批插件 + `guard`、`sandbox` 接缝、事件溯源 JSONL + 检查点、七种子 agent 后端（含 Claude Code / Codex）、四种模式、web / headless / sdk / acp、多供应商、Minimal 基准模式。Claude Code——TypeScript 闭源 + Agent SDK、`query()` 封装、内置工具 + MCP + skills、auto-compact 83.5%、六步权限判定 + 五模式 + hooks、本地轻沙箱 + 云端、subagent vs agent teams、文件系统约定、Claude 专用。OpenHarness——Python、轻量、工具 / 技能 / 记忆 / 多 agent、ohmo 接即时通讯、复用底层 CLI 订阅。详见[第一章](#一总览)。
 
 [^q1]: 主轴与取舍：架构——单核（性能、单二进制；`core` 膨胀要靠纪律对抗）vs 插件树（极致可替换；学习曲线与预稳定迭代成本）vs 闭源 + SDK（迭代速度；不可审计）vs 轻量复用。循环——状态在对象（自然）vs 在日志（resume / fork / replay 一致、"模型可见 ⟺ 已记录"；每步经日志的性能成本）。上下文——加密 blob（保留内部状态；不可读、绑供应商）vs 可读事件（可审计可迁移；只留写出的）。权限——策略语言 + 模型审查（可版本化可测试，企业级）vs 规则 + 模式 + hooks（精确的覆盖顺序）vs 插件（最灵活，强度看组合）。沙箱——原生三平台（本地 CLI 唯一的强制层）vs 接缝可换后端 vs 依赖环境。会话——兼容面 vs 有版本的不变量。子 agent——内建 vs 七种后端（互操作）。模型耦合——深（推理状态、服务端压缩、PTC 的紧密集成）vs 浅（不锁定、多模型评测）。详见[第二章](#二逐维度的取舍)。
 

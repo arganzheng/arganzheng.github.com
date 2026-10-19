@@ -9,34 +9,11 @@ catalog: true
 
 两个看起来不相关的话题放在一篇里，因为它们回答同一个问题：**agent 在一次会话之外靠什么工作**。记忆让它跨会话记住用户的偏好、项目的约定、上次失败的原因；人机分工决定它在多大程度上可以不问人就行动。两者都是"自主性"的组成部分——记得越多、越少问人，agent 越自主；而自主性的每一级都要用验证来换。
 
-记忆的部分讲：记忆是一种特殊的检索（L3），会话内记忆就是上下文，跨会话记忆要存、要取、要忘；实现有 Anthropic 的 memory tool（模型自己驱动的文件式记忆）、Claude Code 的自动记忆（上限 200 行 / 25 KB）、Codex 的 `memories` crate、DeepSeek Harness 的 `goal` / `schedule`。人机分工的部分把地图里那张六级表展开——单步问答 → 短循环 → 长循环 → 策略化授权 → 后台异步 → 无人在环——每升一级把哪类验证从人手里交给系统；审批粒度按风险分级；agent 主动问人的协议（`request_user_input`、MCP（Model Context Protocol）的 elicitation）；后台 agent 的监控形态；以及业务侧的 harness——本体驱动的业务 agent 怎样用结构替代"没有的测试"。
+记忆的部分讲：记忆是一种特殊的检索（L3），会话内记忆就是上下文，跨会话记忆要存、要取、要忘；实现有 Anthropic 的 memory tool（模型自己驱动的文件式记忆）、Claude Code 的自动记忆（上限 200 行 / 25 KB）、Codex 的 `memories` crate、DeepSeek Harness 的 `goal` / `schedule`。人机分工的部分把地图里那张六级表展开——单步问答 → 短循环 → 长循环 → 策略化授权 → 后台异步 → 无人在环——每升一级把哪类验证从人手里交给系统；审批粒度按风险分级；agent 主动问人的协议（`request_user_input`、MCP 的 elicitation）；后台 agent 的监控形态；以及业务侧的 harness——本体驱动的业务 agent 怎样用结构替代"没有的测试"。
 
 本篇要回答的核心问题是：
 
 > **记忆怎么写、怎么取、怎么忘，四个实现各怎么做？[^q0] 人从环内退到环上、环外的六级各需要什么验证，审批粒度怎么定？[^q1] 业务动作没有测试可跑，本体驱动的业务 agent 怎么验证？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| L2 / L3 / L4 / L5 | — | 《AI 应用工程师学习地图》的第 2、3、4、5 层 |
-| MCP | Model Context Protocol | 模型客户端连接工具服务器的开放协议 |
-| harness | — | 模型之外的循环、工具、权限、沙箱、会话等运行设施 |
-| elicitation | — | MCP server 经 client 向用户要确认或参数 |
-| crate | — | Rust 的包，Codex 按 crate 拆模块 |
-| AGENTS.md / CLAUDE.md | — | 放在项目里、每次会话自动读进上下文的说明文件 |
-| Guardian | — | Codex 的审查机制：一个模型审另一个模型的高风险调用 |
-| on-the-loop | — | 人在环上：不逐步批准，只监控、随时可介入 |
-| PR | pull request | 代码合并请求 |
-| trace | — | 一次任务每一步输入输出与决策的完整记录 |
-| CI | continuous integration | 持续集成：提交后自动构建、跑测试 |
-| SAE | Society of Automotive Engineers | 国际汽车工程师学会，自动驾驶 0–5 级出自它 |
-| DDL | data definition language | 建表、删表这类改数据库结构的语句 |
-| PocketOS | — | agent 用越权 token 9 秒删掉生产卷与备份的事故 |
-| AIP | Artificial Intelligence Platform | Palantir 的 AI 平台，agent 在本体上做动作 |
-| GraphRAG | — | 先建知识图谱再检索的 RAG（检索增强生成）方法 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -150,15 +127,15 @@ Table: 记忆的四个实现
 
 ### 3. 从 4 到 5：人退到环上
 
-agent 在后台跑（提 PR（pull request）、生成报告草稿、批量处理），人不看过程、看**结果与面板**：任务完成率、成本、卫士触发次数、审批请求（异步处理）、异常告警；抽检轨迹（L5）。这一级要求：异步交付的形态（结果是一个可审阅的产物——PR、草稿、提案——而不是直接生效的变更）、完整的 trace、告警。Codex 的 `cloud-tasks`、Claude Code 的后台 agent、Agents API 的"跑几天的 agent"都是这一级的形态。
+agent 在后台跑（提 PR、生成报告草稿、批量处理），人不看过程、看**结果与面板**：任务完成率、成本、卫士触发次数、审批请求（异步处理）、异常告警；抽检轨迹（L5）。这一级要求：异步交付的形态（结果是一个可审阅的产物——PR、草稿、提案——而不是直接生效的变更）、完整的 trace、告警。Codex 的 `cloud-tasks`、Claude Code 的后台 agent、Agents API 的"跑几天的 agent"都是这一级的形态。
 
 ### 4. 从 5 到 6：无人在环，但有退路
 
-只在**可自动验证 + 可回滚**的动作上：改代码提 PR 由 CI（continuous integration）验证、可 revert；数据分析生成报告可重跑；不能自动验证（给客户发合同）或不可逆（删数据）的动作永远停在环内或环上。这一级的运行要求：持续的轨迹评测与回归（模型升级、prompt 改动后重跑——《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、L5）、异常自动降级回环内（卫士触发、评测掉分、成本异常时自动切回需要审批的模式）。
+只在**可自动验证 + 可回滚**的动作上：改代码提 PR 由 CI 验证、可 revert；数据分析生成报告可重跑；不能自动验证（给客户发合同）或不可逆（删数据）的动作永远停在环内或环上。这一级的运行要求：持续的轨迹评测与回归（模型升级、prompt 改动后重跑——《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、L5）、异常自动降级回环内（卫士触发、评测掉分、成本异常时自动切回需要审批的模式）。
 
 ### 5. 一条判据
 
-**能自动验证到什么程度，就能自主到什么程度**。代码有测试 → coding agent 能到 5–6 级；业务动作没有测试 → 停在 2–3 级，除非把验证前移到结构（第七章）；不可逆且验证成本极高（驾驶、电网控制）→ 验证要做成一门独立工程（仿真——地图 L5 的物理世界一节）。自动驾驶的 SAE（Society of Automotive Engineers）分级是同一条路径最严格的版本：L2 人在环内、L3 人在环上、L4 / L5 人在环外，每升一级对应验证体系的一次量级跳跃，不是模型换了一代。
+**能自动验证到什么程度，就能自主到什么程度**。代码有测试 → coding agent 能到 5–6 级；业务动作没有测试 → 停在 2–3 级，除非把验证前移到结构（第七章）；不可逆且验证成本极高（驾驶、电网控制）→ 验证要做成一门独立工程（仿真——地图 L5 的物理世界一节）。自动驾驶的 SAE 分级是同一条路径最严格的版本：L2 人在环内、L3 人在环上、L4 / L5 人在环外，每升一级对应验证体系的一次量级跳跃，不是模型换了一代。
 
 ```mermaid
 %% 图：人参与的六级，每升一级把一类验证从人交给系统——2 → 3 靠测试 / lint 的自动验证循环让审批变粗；3 → 4 人写执行策略、运行时执行；4 → 5 人退到环上看结果与面板，产物是可审阅的 PR / 草稿；5 → 6 只在可自动验证 + 可回滚的动作上，异常自动降级；能自动验证到什么程度就能自主到什么程度
@@ -246,7 +223,7 @@ coding agent 能自主到 5–6 级，因为代码有测试。业务 agent（改
 
 ### 2. 把验证前移到结构
 
-《[检索与知识接入（06）：结构化知识——SQL、本体与 GraphRAG](/structured-knowledge-sql-ontology-and-graphrag.html)》讲了本体是什么；这里讲它作为 harness 怎样替代测试。Palantir Foundry 的 Ontology 加 AIP（Artificial Intelligence Platform）的模式：agent 不碰数据库表与裸 API，只能在本体上工作——
+《[检索与知识接入（06）：结构化知识——SQL、本体与 GraphRAG](/structured-knowledge-sql-ontology-and-graphrag.html)》讲了本体是什么；这里讲它作为 harness 怎样替代测试。Palantir Foundry 的 Ontology 加 AIP 的模式：agent 不碰数据库表与裸 API，只能在本体上工作——
 
 | harness 组件 | 本体驱动的做法 | 对应 coding agent 的 |
 |---|---|---|
