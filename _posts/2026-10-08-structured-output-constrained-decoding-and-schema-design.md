@@ -15,26 +15,6 @@ catalog: true
 
 > **约束解码是怎样实现的，为什么能给出硬保证，为什么 strict 模式对 schema 有限制？[^q0] schema 该怎么设计才不损害推理、不把拒答伪装成答案？[^q1] 解析层要处理哪些 schema 保证不了的失败？[^q2]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| strict 模式 | — | API 按 schema 做约束解码、保证输出符合 schema 的开关 |
-| logits | — | 模型给每个候选 token 打的未归一化分数 |
-| Outlines / XGrammar / llguidance | — | 三个约束解码库，把 schema 编译成自动机 |
-| LLM | large language model | 大语言模型 |
-| JSON schema | — | 描述 JSON 字段、类型和取值约束的规范 |
-| FSM | finite-state machine | 有限状态机，每个状态对应一组允许的 token |
-| CFG | context-free grammar | 上下文无关文法，能表达递归的嵌套结构 |
-| tokenizer | — | 把文本切成 token 的组件，各模型不同 |
-| vLLM / SGLang | — | 两个开源的大模型推理引擎 |
-| enum | — | 枚举：字段只能取列表里的值 |
-| Pydantic / zod | — | Python / TypeScript 的数据校验库 |
-| instructor | — | 用 Pydantic 校验并带错误重试的结构化输出库 |
-| L1–L7 | layer 1–7 | 《AI 应用工程师学习地图》的七层，本系列是 L2 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ### 1. 保证的边界
