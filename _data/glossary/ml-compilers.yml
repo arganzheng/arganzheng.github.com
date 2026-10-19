@@ -1,0 +1,319 @@
+---
+- term: CRTP
+  full: curiously recurring template pattern
+  desc: C++ 派生类把自己当模板参数传给基类的写法
+- term: CuTe
+  full: "—"
+  desc: CUTLASS 3 的 layout / 张量抽象库
+- term: CUTLASS
+  full: CUDA Templates for Linear Algebra Subroutines
+  desc: NVIDIA 的 C++ GEMM 模板库
+- term: MetaSchedule
+  full: "—"
+  desc: TVM 三代自动调优框架
+- term: TIR
+  full: TensorIR
+  desc: TVM 的低层张量程序 IR
+- term: TE
+  full: Tensor Expression
+  desc: TVM 的张量表达式与调度接口
+- term: MFMA
+  full: matrix fused multiply-add
+  desc: AMD CDNA 的矩阵指令
+- term: CTA
+  full: cooperative thread array
+  desc: CUDA 里的线程块
+- term: mbarrier
+  full: "—"
+  desc: shared memory 里的异步屏障对象，跟踪到达和完成
+- term: GEMM
+  full: general matrix multiply
+  desc: 通用矩阵乘
+- term: TF32
+  full: TensorFloat-32
+  desc: Ampere 起 Tensor Core 用的 19 位浮点格式
+- term: TMEM
+  full: Tensor Memory
+  desc: Blackwell 上 Tensor Core 专用的片上存储
+- term: FP8
+  full: 8-bit floating point
+  desc: 8 位浮点格式（E4M3 / E5M2）
+- term: BF16
+  full: bfloat16
+  desc: 8 位指数、7 位尾数的 16 位浮点格式
+- term: CSE
+  full: common subexpression elimination
+  desc: 公共子表达式消除
+- term: PDLL
+  full: PDL Language
+  desc: MLIR 写 pattern 的专用语言
+- term: DRR
+  full: Declarative Rewrite Rules
+  desc: 用 TableGen 写 rewrite pattern 的方式
+- term: canonicalize
+  full: "—"
+  desc: 把 IR 化成规范形式的通用 pass
+- term: TableGen
+  full: "—"
+  desc: LLVM 的声明式记录语言，用来生成 C++
+- term: CDNA
+  full: "—（AMD 的计算向架构，C 指 Compute）"
+  desc: AMD 数据中心 GPU 的架构
+- term: GCN
+  full: Graphics Core Next
+  desc: AMD 较早的 GPU 架构与 ISA
+- term: AMDGPU
+  full: "—"
+  desc: LLVM 里 AMD GPU 的后端
+- term: SASS
+  full: "—（NVIDIA 未给出官方全称）"
+  desc: NVIDIA GPU 真正执行的机器指令
+- term: ISA
+  full: instruction set architecture
+  desc: 指令集架构
+- term: SelectionDAG
+  full: "—"
+  desc: LLVM 的两套指令选择框架
+- term: Glow
+  full: "—"
+  desc: Facebook 的神经网络编译器
+- term: Halide
+  full: "—"
+  desc: 图像处理 DSL，首创算法与调度分离
+- term: HLO
+  full: High Level Operations
+  desc: XLA 的高层算子 IR
+- term: AOT
+  full: ahead-of-time
+  desc: 运行前提前编译
+- term: lattice
+  full: "—"
+  desc: 数据流分析里值的格，迭代到不动点
+- term: CFG
+  full: control-flow graph
+  desc: 控制流图：基本块与跳转边构成的图
+- term: TMA
+  full: Tensor Memory Accelerator
+  desc: Hopper 起的异步张量搬运单元
+- term: AST
+  full: abstract syntax tree
+  desc: 抽象语法树：源码解析后的树形结构
+- term: ODS
+  full: Operation Definition Specification
+  desc: MLIR 用 TableGen 声明 Op 的机制
+- term: ptxas
+  full: "—"
+  desc: NVIDIA 把 PTX 编成 SASS 的汇编器
+- term: NVPTX
+  full: "—"
+  desc: LLVM 里生成 PTX 的 NVIDIA 后端
+- term: lowering
+  full: "—"
+  desc: 把 IR 下降到更低一层抽象
+- term: spill
+  full: "—"
+  desc: 寄存器不够时把值存到 local memory
+- term: ML
+  full: machine learning
+  desc: 机器学习
+- term: Sea of Nodes
+  full: "—"
+  desc: HotSpot C2 和 Graal 用的图状 IR
+- term: JIT
+  full: just-in-time compilation
+  desc: 运行时即时编译
+- term: C1
+  full: client compiler / server compiler
+  desc: HotSpot 的两级 JIT 编译器
+- term: C2
+  full: client compiler / server compiler
+  desc: HotSpot 的两级 JIT 编译器
+- term: warp specialization
+  full: "—"
+  desc: 让不同 warp 分别负责搬数和计算
+- term: GF(2)
+  full: Galois field of two elements
+  desc: 只有 0、1 的有限域，加法是异或
+- term: Linear Layout
+  full: "—"
+  desc: Triton 3.x 把 layout 统一成位向量上的线性映射
+- term: FileCheck
+  full: "—"
+  desc: LLVM 的测试驱动与输出匹配工具
+- term: StableHLO
+  full: "—"
+  desc: XLA 的 HLO 算子集的稳定版 MLIR 方言
+- term: IREE
+  full: Intermediate Representation Execution Environment
+  desc: 基于 MLIR 的端到端 ML 编译与运行时
+- term: epilogue
+  full: "—"
+  desc: kernel 主循环之后写回结果的那一段
+- term: Graal
+  full: "—"
+  desc: 用 Java 写的 JIT 编译器，IR 是 Sea of Nodes
+- term: XLA
+  full: Accelerated Linear Algebra
+  desc: Google 的 ML 编译器，TensorFlow / JAX 在用
+- term: dialect
+  full: "—"
+  desc: MLIR 里一组 Op、类型、属性的命名空间
+- term: wgmma
+  full: warpgroup MMA
+  desc: Hopper 上以 4 个 warp 为单位的异步 MMA
+- term: MMA
+  full: matrix multiply-accumulate
+  desc: 矩阵乘加，Tensor Core 指令的统称
+- term: contiguity
+  full: "—"
+  desc: AxisInfo 推出的「连续多少个元素地址相邻」
+- term: layout
+  full: "—"
+  desc: 张量元素怎样分到寄存器、线程、warp 上
+- term: cubin
+  full: CUDA binary
+  desc: GPU 上直接加载执行的二进制文件
+- term: PTX
+  full: Parallel Thread Execution
+  desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
+- term: IR
+  full: intermediate representation
+  desc: 中间表示：编译器各阶段之间传递的程序形式
+- term: LLVM
+  full: "—（最初是 Low Level Virtual Machine，现已不作缩写）"
+  desc: 通用编译器基础设施，CPU / GPU 后端共用
+- term: TTGIR
+  full: TritonGPU IR
+  desc: 带 layout 的 Triton GPU 方言
+- term: TTIR
+  full: Triton IR
+  desc: Triton 最上层的 MLIR 方言，还没有 layout
+- term: Inductor
+  full: "—"
+  desc: torch.compile 的后端，生成 Triton 代码
+- term: AOTAutograd
+  full: ahead-of-time Autograd
+  desc: torch.compile 里提前生成反向图的那一步
+- term: pass
+  full: "—"
+  desc: 编译器里一次完整的分析或变换，按顺序排成流水线
+- term: TVM
+  full: "—"
+  desc: Apache 的深度学习编译器，靠调度语言和自动调优
+- term: MLIR
+  full: Multi-Level Intermediate Representation
+  desc: LLVM 社区的多层 IR 框架，可以自定义方言
+- term: SSA
+  full: static single assignment
+  desc: 静态单赋值：每个值只被赋值一次
+- term: nvcc
+  full: "—"
+  desc: NVIDIA 的 CUDA C++ 编译器
+- term: warp
+  full: "—"
+  desc: GPU 上齐步执行的一组线程（NVIDIA 32 个）
+- term: lane
+  full: "—"
+  desc: warp 内的一个线程位置
+- term: AMD
+  full: "—"
+  desc: GPU 厂商，其线程编排与 NVIDIA 不同
+- term: fragment
+  full: "—"
+  desc: MMA 指令要求的、分散在各 lane 寄存器里的操作数块
+- term: LL
+  full: linear layout
+  desc: 把所有 layout 统一成 GF(2) 线性映射的表示
+- term: XOR
+  full: exclusive or
+  desc: 异或
+- term: swizzle
+  full: "—"
+  desc: 按位 XOR 重排地址，用来避开 bank conflict
+- term: FMA
+  full: fused multiply-add
+  desc: 融合乘加指令，不走 Tensor Core 的路径
+- term: hoist
+  full: "—"
+  desc: 把操作从循环 / 分支里提到更前面执行
+- term: Ampere
+  full: "—"
+  desc: NVIDIA GPU 连续三代架构
+- term: Hopper
+  full: "—"
+  desc: NVIDIA GPU 连续三代架构
+- term: Blackwell
+  full: "—"
+  desc: NVIDIA GPU 连续三代架构
+- term: lit
+  full: "—"
+  desc: LLVM 的文件级回归测试工具
+- term: bf16
+  full: bfloat16
+  desc: 16 位 / 半精度 / 单精度浮点
+- term: f16
+  full: bfloat16 / float16 / float32
+  desc: 16 位 / 半精度 / 单精度浮点
+- term: f32
+  full: bfloat16 / float16 / float32
+  desc: 16 位 / 半精度 / 单精度浮点
+- term: compute capability
+  full: "—"
+  desc: NVIDIA GPU 的代际版本号（80 = Ampere、90 = Hopper）
+- term: F64
+  full: float64
+  desc: 双精度浮点
+- term: AxisInfo
+  full: "—"
+  desc: Triton 分析每个张量连续性 / 整除性的 pass
+- term: Gluon
+  full: "—"
+  desc: Triton 里直接指定 layout 的低层编程方言
+- term: FlashAttention
+  full: "—"
+  desc: 分块算 attention、中间结果不落 shared memory 的算法
+- term: tensor descriptor
+  full: "—"
+  desc: 记录 tile 形状 / stride / swizzle 的描述符，TMA 用它取数
+- term: prologue / epilogue
+  full: "—"
+  desc: 流水化循环的前面预填段 / 末尾收尾段
+- term: tcgen05
+  full: "—"
+  desc: Blackwell 的第五代 Tensor Core 指令族
+- term: modulo scheduling
+  full: "—"
+  desc: 把循环切成 stage、让多次迭代交错执行的经典调度
+- term: DFS
+  full: depth-first search
+  desc: 深度优先搜索
+- term: commit group
+  full: "—"
+  desc: "`cp.async` 的分组提交单位，按组等待完成"
+- term: WAR
+  full: write after read
+  desc: 写后读冒险：读还没完就被写覆盖
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台
+- term: SM
+  full: streaming multiprocessor
+  desc: GPU 上执行线程块的计算单元
+- term: MoE
+  full: mixture of experts
+  desc: 混合专家：每个 token 只走少数几个专家
+- term: scratch
+  full: "—"
+  desc: convert_layout 等操作临时借用的 shared memory 缓冲
+- term: barrier
+  full: "—"
+  desc: 线程块内的同步点（`bar.sync`）
+- term: RAW
+  full: read after write
+  desc: 读后写冒险：写还没落就被读
+- term: A100
+  full: NVIDIA Ampere GPU
+  desc: 2020 年的数据中心卡，shared memory 上限 163 KB
+- term: WAW
+  full: write after write
+  desc: 写后写冒险：两次写的次序不能错

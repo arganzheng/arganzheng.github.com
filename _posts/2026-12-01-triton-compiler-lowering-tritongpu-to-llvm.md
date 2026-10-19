@@ -7,50 +7,17 @@ tags: [Compiler, MLIR, LLVM, Triton, GPU, CUDA, AI-Infra]
 catalog: true
 ---
 
-TTGIR（TritonGPU IR） 是一种"每个 op 作用在整个 tile 上"的 IR（intermediate representation）：`tt.load` 加载一个 `[128, 32]` 的张量，`tt.dot` 乘两个矩阵，`tt.reduce` 规约一整行。LLVM IR 是"每个线程执行标量 / 短向量指令"的 IR。中间这一步——**把 tile 级的 op 变成每个线程的指令序列**——是 Triton 编译器里代码量最大的部分（`lib/Conversion/TritonGPUToLLVM/` 与 `third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/` 合计两万多行），也是前面所有 layout 决定最终"兑现"的地方：layout 说线程 t 的寄存器 r 持有 `T[i, j]`，这一步就要算出 `i`、`j` 是什么、`T[i, j]` 的地址是什么、该发哪条指令。
+TTGIR 是一种"每个 op 作用在整个 tile 上"的 IR：`tt.load` 加载一个 `[128, 32]` 的张量，`tt.dot` 乘两个矩阵，`tt.reduce` 规约一整行。LLVM IR 是"每个线程执行标量 / 短向量指令"的 IR。中间这一步——**把 tile 级的 op 变成每个线程的指令序列**——是 Triton 编译器里代码量最大的部分（`lib/Conversion/TritonGPUToLLVM/` 与 `third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/` 合计两万多行），也是前面所有 layout 决定最终"兑现"的地方：layout 说线程 t 的寄存器 r 持有 `T[i, j]`，这一步就要算出 `i`、`j` 是什么、`T[i, j]` 的地址是什么、该发哪条指令。
 
 这一篇讲这次下降的机制：类型怎样变（一个张量变成一个 struct），Linear Layout 怎样在编译期展开成地址算术，几个关键 op（`load` / `store`、`reduce`、`dot`、`convert_layout`、`local_load`）各自变成什么，以及两个不属于任何 op 却决定正确性的分析：`AllocateSharedMemory` 给每个 shared memory 缓冲分偏移，`Membar` 决定在哪插 `bar.sync`。
 
 总纲对这一篇提出的核心问题是：
 
-> **TTGIR 里没有一处写 `bar.sync`，生成的 PTX（Parallel Thread Execution） 里却有十几个。每一个是哪个分析、根据什么信息插进去的？[^q0] 一个 `tt.reduce` 沿 axis=1 规约 `[128, 64]` 的张量，下降后哪一部分是寄存器内加法、哪一部分是 `shfl.sync`、哪一部分要经过 shared memory——这由什么决定？[^q1]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| TTGIR | TritonGPU IR | 带 layout 的 Triton GPU 方言 |
-| IR | intermediate representation | 中间表示：编译器各阶段之间传递的程序形式 |
-| LLVM | —（最初是 Low Level Virtual Machine，现已不作缩写） | 通用编译器基础设施，CPU / GPU 后端共用 |
-| PTX | Parallel Thread Execution | NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译 |
-| MLIR | Multi-Level Intermediate Representation | LLVM 社区的多层 IR 框架，可自定义方言 |
-| scratch | — | convert_layout 等操作临时借用的 shared memory 缓冲 |
-| barrier | — | 线程块内的同步点（`bar.sync`） |
-| XOR | exclusive or | 异或 |
-| RAW | read after write | 读后写冒险：写还没落就被读 |
-| WAR | write after read | 写后读冒险：读还没完就被写覆盖 |
-| SSA | static single assignment | 静态单赋值：每个变量只被赋值一次 |
-| LL | linear layout | 把所有 layout 统一成 GF(2) 线性映射的表示 |
-| AMD | — | GPU 厂商，对应指令与 NVIDIA 不同 |
-| MMA | matrix multiply-accumulate | 矩阵乘加，Tensor Core 指令的统称 |
-| AxisInfo | — | Triton 分析每个张量连续性 / 整除性的 pass |
-| epilogue | — | 主循环算完之后写回结果的收尾代码 |
-| SM | streaming multiprocessor | GPU 上执行线程块的计算单元 |
-| A100 | NVIDIA Ampere GPU | 2020 年的数据中心卡，shared memory 上限 163 KB |
-| WAW | write after write | 写后写冒险：两次写的次序不能错 |
-| TMA | Tensor Memory Accelerator | Hopper 起的异步张量搬运硬件单元 |
-| GF(2) | Galois field of two elements | 只有 0、1 的有限域，加法是异或 |
-| CuTe | — | CUTLASS 3 的 layout / 张量抽象库 |
-| NVPTX | — | LLVM 里生成 PTX 的 NVIDIA 后端 |
-| TTIR | Triton IR | Triton 最上层的 MLIR 方言，还没有 layout |
-| ISA | instruction set architecture | 指令集架构 |
-| hsaco | — | AMD GPU 的 code object 可执行文件 |
-
-Table: 本文用到的术语与缩写
+> **TTGIR 里没有一处写 `bar.sync`，生成的 PTX 里却有十几个。每一个是哪个分析、根据什么信息插进去的？[^q0] 一个 `tt.reduce` 沿 axis=1 规约 `[128, 64]` 的张量，下降后哪一部分是寄存器内加法、哪一部分是 `shfl.sync`、哪一部分要经过 shared memory——这由什么决定？[^q1]**
 
 ## 一、总览
 
-本文按 `make_llir` 的 pass 顺序展开：先是准备（`scf → cf`、`AllocateSharedMemory`），然后是主体 `TritonGPUToLLVM`——它的类型转换、公共机制（Linear Layout 的展开、PTX 拼装）、逐 op 的 pattern——其中 `Membar` 分析在主体开头运行；最后是几步收尾。产物是 LLVM 方言的 MLIR（Multi-Level Intermediate Representation），交给第二篇讲过的 `translateModuleToLLVMIR` 与 `-O3`。
+本文按 `make_llir` 的 pass 顺序展开：先是准备（`scf → cf`、`AllocateSharedMemory`），然后是主体 `TritonGPUToLLVM`——它的类型转换、公共机制（Linear Layout 的展开、PTX 拼装）、逐 op 的 pattern——其中 `Membar` 分析在主体开头运行；最后是几步收尾。产物是 LLVM 方言的 MLIR，交给第二篇讲过的 `translateModuleToLLVMIR` 与 `-O3`。
 
 ```mermaid
 %% 图：make_llir 的 pass 顺序：scf → cf、AllocateSharedMemory 等准备，TritonGPUToLLVM 主体（Membar 分析 + Dialect Conversion），再几步收尾
@@ -142,7 +109,7 @@ attributes #0 = { nounwind "nvvm.reqntid"="128" }
 
 ### 1. `emitIndices`：把 layout 变成地址算术
 
-每个 pattern 都要回答"本线程的第 r 个元素是张量的哪个下标"。`emitIndices(loc, rewriter, target, layout, type, withCTAOffset)` 返回一个 `[elemsPerThread × rank]` 的 `Value` 矩阵——每个元素每一维一个 SSA（static single assignment） 值。实现是 `applyLinearLayout`：
+每个 pattern 都要回答"本线程的第 r 个元素是张量的哪个下标"。`emitIndices(loc, rewriter, target, layout, type, withCTAOffset)` 返回一个 `[elemsPerThread × rank]` 的 `Value` 矩阵——每个元素每一维一个 SSA 值。实现是 `applyLinearLayout`：
 
 ```cpp title="applyLinearLayout"
 // 输入：layout 的 LL、以及 (register = 常量 r, lane = %tid & 31, warp = %tid >> 5, block = %ctaid)
@@ -186,7 +153,7 @@ Value ret = ptxBuilder.launch(rewriter, loc, retTy);                  // → llv
 
 ### 3. `TargetInfo`
 
-通用 pattern（`lib/Conversion/TritonGPUToLLVM/`）通过 `TargetInfoBase` 接口访问目标特有的东西：`shuffleXor / shuffleUp / shuffleIdx`（NVIDIA 发 `shfl.sync`，AMD 发 `ds_bpermute`）、`barrier()`、`loadShared / storeShared`（带谓词的 shared memory 访问）、`getAddressSpace`、`programId`、`printf` 的实现、warp 内规约的加速指令（NVIDIA 的 `redux.sync`）。`ReduceOpToLLVM`、`ConvertLayoutOpToLLVM`、`MemoryOpToLLVM` 是两个后端共用的，`LoadStoreOpToLLVM`、`DotOpToLLVM` 各自一份——因为访存指令与 MMA（matrix multiply-accumulate） 指令差别太大。
+通用 pattern（`lib/Conversion/TritonGPUToLLVM/`）通过 `TargetInfoBase` 接口访问目标特有的东西：`shuffleXor / shuffleUp / shuffleIdx`（NVIDIA 发 `shfl.sync`，AMD 发 `ds_bpermute`）、`barrier()`、`loadShared / storeShared`（带谓词的 shared memory 访问）、`getAddressSpace`、`programId`、`printf` 的实现、warp 内规约的加速指令（NVIDIA 的 `redux.sync`）。`ReduceOpToLLVM`、`ConvertLayoutOpToLLVM`、`MemoryOpToLLVM` 是两个后端共用的，`LoadStoreOpToLLVM`、`DotOpToLLVM` 各自一份——因为访存指令与 MMA 指令差别太大。
 
 ## 四、`load` / `store`
 
@@ -269,7 +236,7 @@ flowchart LR
     r1 --> r2 --> r3
 ```
 
-`ReduceOpHelper` 从 LL（linear layout） 算出：`getIntraWarpSizeWithUniqueData`（lane 位里有几位管规约维）、`getInterWarpSizeWithUniqueData`（warp 位里有几位）、需要的 scratch 大小（跨 warp 部分结果的数量 × 元素大小）。回答核心问题第二问：**三级各自的规模由规约维在 layout 里落在哪些输入位决定**——第七篇 §四.3 的基向量表直接给出答案。
+`ReduceOpHelper` 从 LL 算出：`getIntraWarpSizeWithUniqueData`（lane 位里有几位管规约维）、`getInterWarpSizeWithUniqueData`（warp 位里有几位）、需要的 scratch 大小（跨 warp 部分结果的数量 × 元素大小）。回答核心问题第二问：**三级各自的规模由规约维在 layout 里落在哪些输入位决定**——第七篇 §四.3 的基向量表直接给出答案。
 
 ### 2. 实测：`rowsum_kernel`
 
@@ -338,7 +305,7 @@ Table: convert_layout 的三条下降路径
 
 ### 1. 问题
 
-TTGIR 里 shared memory 的使用者有两类：**显式**的 `ttg.local_alloc`（流水线缓冲、mbarrier）和**隐式**的 scratch（`convert_layout` 的中间缓冲、跨 warp `reduce` 的部分结果、`atomic` 的广播、`scan`、`histogram`……——每种 op 通过 `getScratchValueSize` 报告自己要多少）。它们的总和可能远超 SM（streaming multiprocessor） 的 shared memory（A100 每 block 最多 163 KB，但用得多 occupancy 就低），而**它们的生命期不重叠**：流水线缓冲在循环里活，epilogue 的 `convert_layout` scratch 在循环之后活。`AllocateSharedMemory` 做的是**寄存器分配的 shared memory 版本**：算活跃区间，不重叠的复用同一段地址。
+TTGIR 里 shared memory 的使用者有两类：**显式**的 `ttg.local_alloc`（流水线缓冲、mbarrier）和**隐式**的 scratch（`convert_layout` 的中间缓冲、跨 warp `reduce` 的部分结果、`atomic` 的广播、`scan`、`histogram`……——每种 op 通过 `getScratchValueSize` 报告自己要多少）。它们的总和可能远超 SM 的 shared memory（A100 每 block 最多 163 KB，但用得多 occupancy 就低），而**它们的生命期不重叠**：流水线缓冲在循环里活，epilogue 的 `convert_layout` scratch 在循环之后活。`AllocateSharedMemory` 做的是**寄存器分配的 shared memory 版本**：算活跃区间，不重叠的复用同一段地址。
 
 ### 2. 算法
 
@@ -459,7 +426,7 @@ Table: matmul 里 10 个 barrier 的来源
    扫描：store A（记写 A）；store B（记写 B）；load A——与记录里的写 A 相交（RAW）→ **在 load A 之前插 barrier #1**，清空记录，记读 A；store A——与读 A 相交（WAR）→ **在 store A 之前插 barrier #2**，清空，记写 A；load B——记录里只有写 A，A、B 偏移不同、不相交 → 不插。共 2 个。若 A、B 被分配到同一偏移（生命期不重叠时才会），则 load B 与写 A 相交，会多插一个——这就是复用地址的正确性保证。
    </details>
 
-4. 为什么 `cp.async.wait.group` 之后还需要 `bar.sync`？TMA（Tensor Memory Accelerator） 的 `wait_barrier`（mbarrier）之后呢？
+4. 为什么 `cp.async.wait.group` 之后还需要 `bar.sync`？TMA 的 `wait_barrier`（mbarrier）之后呢？
 
    <details markdown="1"><summary>答案</summary>
    `cp.async.wait.group N` 只保证**执行它的线程**自己发出的 `cp.async` 组完成——128 个线程各自搬了 16 字节，每个线程只知道自己那份到了；接下来的 `ldmatrix` 要读整个 tile（别的线程搬的部分），所以需要 `bar.sync` 让所有线程的等待都完成且写入对所有人可见。`Membar` 用 `MemWaitOpTrait` 规则统一处理。mbarrier 不同：TMA 是**一个**引擎搬整个 tile，完成时按事务字节数到达 mbarrier；`wait_barrier` 是每个线程都执行的自旋等待，phase 翻转对所有线程同时可见，且 mbarrier 到达带有 release 语义、等待带 acquire——不需要额外的 `bar.sync`。`Membar` 对 `wait_barrier` 同样按 `MemWaitOpTrait` 处理，但 `hasSyncPointBeforeMemoryEffect` 与 `canSkipBarSync` 会省掉冗余的。
@@ -473,7 +440,7 @@ Table: matmul 里 10 个 barrier 的来源
 
 ## 下一篇
 
-LLVM 方言的 MLIR 经 `translateModuleToLLVMIR` 变成 LLVM IR、过 `-O3`、由 NVPTX 后端变成 PTX、由 `ptxas` 变成 cubin——第二篇已讲过这三步的机制。下一篇讲剩下的部分：Triton 编译流水线在 Python 侧的**组织**——`compile()` 的阶段循环、缓存 key 的每一个成分、`.json` 元数据里每个字段的来源与用途、生成的 C launcher 怎样把 Python 参数变成 `cuLaunchKernel`、`CompiledKernel` 的加载与 `n_regs / n_spills`；`TRITON_KERNEL_OVERRIDE` 与 `TRITON_KERNEL_DUMP`；然后把 AMD 后端（`third_party/amd`）的流水线并排放在旁边：同一个 TTIR（Triton IR）、不同的 layout（`#mfma`）、不同的 pass 列表、`llc` 直出 ISA（instruction set architecture） 与 `hsaco`。
+LLVM 方言的 MLIR 经 `translateModuleToLLVMIR` 变成 LLVM IR、过 `-O3`、由 NVPTX 后端变成 PTX、由 `ptxas` 变成 cubin——第二篇已讲过这三步的机制。下一篇讲剩下的部分：Triton 编译流水线在 Python 侧的**组织**——`compile()` 的阶段循环、缓存 key 的每一个成分、`.json` 元数据里每个字段的来源与用途、生成的 C launcher 怎样把 Python 参数变成 `cuLaunchKernel`、`CompiledKernel` 的加载与 `n_regs / n_spills`；`TRITON_KERNEL_OVERRIDE` 与 `TRITON_KERNEL_DUMP`；然后把 AMD 后端（`third_party/amd`）的流水线并排放在旁边：同一个 TTIR、不同的 layout（`#mfma`）、不同的 pass 列表、`llc` 直出 ISA 与 `hsaco`。
 
 [^q0]: 全部由 **`Membar` 分析**（`lib/Analysis/Membar.cpp`，在 `TritonGPUToLLVM` pass 开头运行）插入，依据两样信息：`AllocateSharedMemory` 给每个缓冲 / scratch 的 `[offset, offset + size)` 区间，和每个 op 通过 `MemoryEffectsOpInterface` 报告的对 shared memory 的读 / 写。算法沿程序顺序（虚拟块上的不动点，`scf.for` 末尾状态流回开头）维护"自上一个 barrier 以来读过、写过哪些区间"，新 op 的访问与之 RAW（先写后读）、WAR（先读后写）或 WAW 相交就在它之前插 `gpu.barrier`（→ `bar.sync 0`）；带 `MemWaitOpTrait` 的 op（`async_wait`、`wait_barrier`）之后必插——因为 `cp.async.wait.group` 只保证本线程自己的拷贝完成，其他线程搬的部分要 barrier 才可见。matmul 的 10 个：每个 `async_wait` 后一个（prologue、循环体两处、收尾），循环体里 `cp.async` 覆盖上一轮 `ldmatrix` 读过的缓冲之前（WAR），epilogue `convert_layout` 的 scratch 与流水线缓冲**同地址**（`AllocateSharedMemory` 复用）故写前 WAR、写读之间 RAW。详见[第八章](#八allocatesharedmemory)与[第九章](#九membar)。
 

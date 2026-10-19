@@ -7,43 +7,13 @@ tags: [Compiler, MLIR, Triton, GPU, AI-Infra]
 catalog: true
 ---
 
-上一篇结束时，matmul kernel 的 TTGIR（TritonGPU IR） 里有 **23 个** `ttg.convert_layout`。它们来自两个各自为政的决定：`ConvertTritonToTritonGPU` 给每个张量一个默认 layout、给 `expand_dims` 与 `tt.dot` 的操作数各插一次转换；Coalesce 给每个 load / store 一个访存友好的 layout、在前后各插一次转换。每个 pass 只保证自己的 op 拿到想要的 layout，用 `convert_layout` 与外界隔离。而每个 `convert_layout` 都可能是一次 shared memory 往返加两个 barrier。
+上一篇结束时，matmul kernel 的 TTGIR 里有 **23 个** `ttg.convert_layout`。它们来自两个各自为政的决定：`ConvertTritonToTritonGPU` 给每个张量一个默认 layout、给 `expand_dims` 与 `tt.dot` 的操作数各插一次转换；Coalesce 给每个 load / store 一个访存友好的 layout、在前后各插一次转换。每个 pass 只保证自己的 op 拿到想要的 layout，用 `convert_layout` 与外界隔离。而每个 `convert_layout` 都可能是一次 shared memory 往返加两个 barrier。
 
 这一篇讲把它们收拾干净的几个 pass。`RemoveLayoutConversions` 把 23 个消到 3 个；`AccelerateMatmul` 把 `tt.dot` 的累加器换成 Tensor Core 的 `#mma` layout、操作数换成 `#dot_op`，顺手又加回 4 个；`RemoveLayoutConversions` 再跑一次，回到 3 个；流水化之后（下一篇）剩 1 个——在 epilogue，`#mma → #blocked`，写回之前。这一个消不掉，本篇要说清为什么。
 
 总纲对这一篇提出的核心问题是：
 
 > **Coalesce 之后，一个 matmul kernel 的 TTGIR 里有二十多个 `convert_layout`；`RemoveLayoutConversions` 跑完还剩几个，最终只有一个在 epilogue。为什么那一个消不掉——它的两端各被什么"锚"住了？[^q0] 如果 kernel 的输出也是 `tl.dot` 的输入（例如 attention 的 P·V），它就能消掉，为什么？[^q1]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| TTGIR | TritonGPU IR | 带 layout 的 Triton GPU 方言 |
-| epilogue | — | 主循环算完之后写回结果的收尾代码 |
-| IR | intermediate representation | 中间表示：编译器各阶段之间传递的程序形式 |
-| hoist | — | 把操作从循环 / 分支里提到更前面执行 |
-| MMA | matrix multiply-accumulate | 矩阵乘加，Tensor Core 指令的统称 |
-| Ampere / Hopper / Blackwell | — | NVIDIA GPU 连续三代架构 |
-| lit | — | LLVM 的文件级回归测试工具 |
-| def-use | definition–use | 一个值从定义点到所有使用点的链 |
-| TMA | Tensor Memory Accelerator | Hopper 起的异步张量搬运硬件单元 |
-| TMEM | Tensor Memory | Blackwell 上 Tensor Core 专用的片上存储 |
-| fragment | — | MMA 指令要求的、分散在各 lane 寄存器里的操作数块 |
-| bf16 / f16 / f32 | bfloat16 / float16 / float32 | 16 位 / 半精度 / 单精度浮点 |
-| compute capability | — | NVIDIA GPU 的代际版本号（80 = Ampere、90 = Hopper） |
-| wgmma | warpgroup MMA | Hopper 上以 4 个 warp 为单位的异步 MMA |
-| MLIR | Multi-Level Intermediate Representation | LLVM 社区的多层 IR 框架，可自定义方言 |
-| FP8 | 8-bit floating point | 8 位浮点（E4M3 / E5M2） |
-| FMA | fused multiply-add | 融合乘加指令，不走 Tensor Core 的路径 |
-| F64 | float64 | 双精度浮点 |
-| TF32 | TensorFloat-32 | Ampere 起 Tensor Core 用的 19 位有效浮点格式 |
-| AxisInfo | — | Triton 分析每个张量连续性 / 整除性的 pass |
-| Gluon | — | Triton 里直接指定 layout 的低层编程方言 |
-| LLVM | —（最初是 Low Level Virtual Machine，现已不作缩写） | 通用编译器基础设施，CPU / GPU 后端共用 |
-| FlashAttention | — | 分块算 attention、中间结果不落 shared memory 的算法 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -228,9 +198,9 @@ Table: 三种 hoist
 
 Table: 各 compute capability 的 MMA 版本偏好
 
-不合法时发一条 MLIR（Multi-Level Intermediate Representation） remark：`MMA version 3 acceleration not applied due to unsupported shapes or data types`——用 `triton-opt` 跑 `--tritongpu-accelerate-matmul` 时能看到，是"为什么我的 kernel 没走 wgmma"的第一手诊断。`supportMMA` 检查的是：M、N、K 是 `instrShape` 的倍数、dtype 在硬件支持的组合里（v3 不支持某些 FP8（8-bit floating point） 组合、不支持 K 太小等）。
+不合法时发一条 MLIR remark：`MMA version 3 acceleration not applied due to unsupported shapes or data types`——用 `triton-opt` 跑 `--tritongpu-accelerate-matmul` 时能看到，是"为什么我的 kernel 没走 wgmma"的第一手诊断。`supportMMA` 检查的是：M、N、K 是 `instrShape` 的倍数、dtype 在硬件支持的组合里（v3 不支持某些 FP8 组合、不支持 K 太小等）。
 
-`BlockedToMMA::matchAndRewrite` 开头还有两条门槛：compute capability < 80 直接退回 FMA（fused multiply-add） 路径（v1 已弃用）；F64 只在 80 / 90 / 100–119 上用 Tensor Core。
+`BlockedToMMA::matchAndRewrite` 开头还有两条门槛：compute capability < 80 直接退回 FMA 路径（v1 已弃用）；F64 只在 80 / 90 / 100–119 上用 Tensor Core。
 
 ### 2. `warpsPerCTA`：4 个 warp 怎么分 M 和 N
 
@@ -260,7 +230,7 @@ int minBitwidth = std::min(computeOrigBitWidth(a), computeOrigBitWidth(b));
 a = convertDotOperandForMMA(a, 0, minBitwidth, newRetType, rewriter);   // kWidth 由 bitwidth 推出
 ```
 
-`kWidth = 32 / bitwidth`：bf16 / f16 → 2，FP8 → 4，TF32（TensorFloat-32） → 1。含义是**每个线程沿 K 维连续持有几个元素**——`mma.sync.m16n8k16` 的 A fragment 每个 32 位寄存器装两个 bf16，就是 `kWidth = 2`。`computeOrigBitWidth` 追溯操作数的**原始**位宽（穿过 `convert_layout` 和 `ext` 类型转换）：如果 A 是从 FP8 load 再 `to(bf16)` 得到的，用 4 而不是 2——让 load 出来的 FP8 数据以每线程 4 个连续的形式进入 `#dot_op`，类型转换在 `#dot_op` 布局下做，省一次重排。
+`kWidth = 32 / bitwidth`：bf16 / f16 → 2，FP8 → 4，TF32 → 1。含义是**每个线程沿 K 维连续持有几个元素**——`mma.sync.m16n8k16` 的 A fragment 每个 32 位寄存器装两个 bf16，就是 `kWidth = 2`。`computeOrigBitWidth` 追溯操作数的**原始**位宽（穿过 `convert_layout` 和 `ext` 类型转换）：如果 A 是从 FP8 load 再 `to(bf16)` 得到的，用 4 而不是 2——让 load 出来的 FP8 数据以每线程 4 个连续的形式进入 `#dot_op`，类型转换在 `#dot_op` 布局下做，省一次重排。
 
 ### 4. 两条改写路径
 
@@ -375,9 +345,9 @@ Table: warpsPerCTA = [2, 2] 时 P·V 转换的开销
 
 ## 六、本文小结
 
-1. `RemoveLayoutConversions` 是两阶段算法：从锚点（昂贵的 load / store、`dot`、atomic、TMA（Tensor Memory Accelerator）、TMEM（Tensor Memory））前向传播 layout，冲突时访存 op 保 `#blocked`、其他偏 `#mma`，按支配顺序重写；对剩下的转换做后向重物化——把源的计算切片在目标 layout 下重算，代价模型比较转换字节数与重算成本（只在切片内使用的 op 免费，load 与 reduce 昂贵）；再做三种 hoist（转换提到 `ext` / `broadcast` 之前、进条件分支、向 `#dot_op` 上推）；最后清理死 iter_args 与恒等转换。
+1. `RemoveLayoutConversions` 是两阶段算法：从锚点（昂贵的 load / store、`dot`、atomic、TMA、TMEM）前向传播 layout，冲突时访存 op 保 `#blocked`、其他偏 `#mma`，按支配顺序重写；对剩下的转换做后向重物化——把源的计算切片在目标 layout 下重算，代价模型比较转换字节数与重算成本（只在切片内使用的 op 免费，load 与 reduce 昂贵）；再做三种 hoist（转换提到 `ext` / `broadcast` 之前、进条件分支、向 `#dot_op` 上推）；最后清理死 iter_args 与恒等转换。
 2. 本例：23 → 3（第一次）；`AccelerateMatmul` 的"前后隔离"加到 7；第二次回到 3——两个 `dot` 操作数、一个 epilogue。
-3. `AccelerateMatmul` 按架构偏好列表选 MMA（matrix multiply-accumulate） 版本（Ampere 2、Hopper 3 退 2、Blackwell 5 退 2、消费级 Blackwell 2），不合法时发 remark；`warpsPerCTA` 按 M / N 方向指令重复次数平衡、偏向 M，链式 dot 全放 M；`kWidth = 32 / 原始位宽`；Ampere 路径操作数进寄存器 `#dot_op`，Hopper 路径 B（与来自 load 的 A）进 shared memory 的 `#nvmma_shared` 并换成 `warp_group_dot`。
+3. `AccelerateMatmul` 按架构偏好列表选 MMA 版本（Ampere 2、Hopper 3 退 2、Blackwell 5 退 2、消费级 Blackwell 2），不合法时发 remark；`warpsPerCTA` 按 M / N 方向指令重复次数平衡、偏向 M，链式 dot 全放 M；`kWidth = 32 / 原始位宽`；Ampere 路径操作数进寄存器 `#dot_op`，Hopper 路径 B（与来自 load 的 A）进 shared memory 的 `#nvmma_shared` 并换成 `warp_group_dot`。
 4. `OptimizeDotOperands` 把转置 / reshape 折进 shared memory 的布局或 `memdesc` 视图；`OptimizeThreadLocality` 为"循环内的行归约"选 3D layout 让规约维落在寄存器里。
 5. epilogue 的 `#mma → #blocked` 消不掉：两端分别被 `dot`（硬件 fragment）和 `store`（合并访存）锚住，`dot` 不可重物化，冲突消解让 `truncf` 留在 `#mma`；hoist 让它搬 bf16 而非 f32。`ttg.shared = 32768` 就是它的 scratch。
 6. attention 的 `P` 从 `#mma` 到 `#dot_op<{parent = #mma, kWidth = 2}>` 在 `warpsPerCTA = [4, 1]` 下是纯寄存器重排（C 与 A fragment 的 lane 位相同），`[2, 2]` 下要过 shared memory——所以 `warpsPerTileV2` 对链式 dot 把 warp 全放在 M 上。
