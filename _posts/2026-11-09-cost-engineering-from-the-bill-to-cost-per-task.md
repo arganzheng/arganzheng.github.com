@@ -9,34 +9,11 @@ catalog: true
 
 事故先说：月底账单比上月多三倍。没人知道是哪个功能——十二个服务共用一个 key（第一篇的事故）；追了两天发现一个新上线的 agent 功能在 5% 的任务里跑到 40 步、每步带着 100K 的上下文，那 5% 的任务花了账单的 60%。这就是 AI 应用成本的结构：**长尾任务占大头、成本随改动跳变、没有归因就没有优化**。
 
-《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》给了成本公式与价目；这一篇讲它在生产里的运营：归因、预算与降级、九种省钱手段与各自的量级、按任务看分布、单位经济学、FinOps（financial operations）的节奏。
+《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》给了成本公式与价目；这一篇讲它在生产里的运营：归因、预算与降级、九种省钱手段与各自的量级、按任务看分布、单位经济学、FinOps 的节奏。
 
 本篇要回答的核心问题是：
 
 > **成本怎么归因到租户 / 功能 / 版本，预算与降级怎么设？[^q0] 九种省钱手段各省多少、有什么代价？[^q1] 每任务成本怎么看分布，单位经济学怎么算，FinOps 的节奏是什么？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| FinOps | financial operations | 云成本的归因、预算与优化的日常运营 |
-| p50 / p95 / p99 | 50th / 95th / 99th percentile | 中位数、95 分位、99 分位 |
-| judge | — | 给输出打分的模型，即 LLM-as-judge |
-| web search / code interpreter / file search | — | 供应商服务端按次计费的内置工具 |
-| effort | — | 推理模型的思考档位参数 |
-| fallback | — | 主模型失败时改走的备用模型或供应商 |
-| L5 / L7 | — | 应用工程师学习地图的第 5 层评测、第 7 层产品呈现 |
-| k | — | 每条评测样本重复跑的次数 |
-| RPM | requests per minute | 每分钟请求数的限额 |
-| kill switch | — | 出事时一键关掉某个 AI 功能的开关 |
-| runbook | — | 某类事故发生时按步骤处置的手册 |
-| prompt caching | — | 供应商缓存相同的前缀，重复部分更便宜更快 |
-| Batch / Flex | — | 供应商的异步批处理与低价慢速层级 |
-| PTC | programmatic tool calling | 让模型写代码一次调多个工具，把多轮变一轮 |
-| MCP | Model Context Protocol | 模型调用外部工具与数据的开放协议 |
-| COGS | cost of goods sold | 销货成本，算毛利时从收入里减掉的那部分 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -61,7 +38,7 @@ $$
 
 《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的公式加上生产里的三项：**工具费**（服务端工具按次计——web search、code interpreter、file search）、**judge**（《[评测、可观测与可追溯（02）：评分——规则、LLM-as-judge 与人](/scoring-rules-llm-as-a-judge-and-humans.html)》：在线抽样与门禁）、**检索**（embedding、向量库、rerank——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的五项）。三个事实决定运营方式：
 
-- **长尾占大头**：agent 的 p95（95th percentile）任务是 p50（50th percentile）的 5–10 倍成本；5% 的任务花一半的钱。
+- **长尾占大头**：agent 的 p95 任务是 p50 的 5–10 倍成本；5% 的任务花一半的钱。
 - **随改动跳变**：换 effort、改 prompt、加工具、换模型，成本变化以倍计——每次改动是一次成本发布（第六篇）。
 - **输入侧为主**：agent 的输入输出比约 100 : 1（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》），缓存与瘦身作用在输入侧。
 
@@ -202,7 +179,7 @@ flowchart TB
 
 ### 1. 分布
 
-每任务成本的 p50 / p95 / p99（99th percentile）与最大值，按功能。agent 的 p95 常是 p50 的 5–10 倍；看**长尾任务的画像**（多少步、多大上下文、哪些工具、是否重复调用）——多数长尾是可修的（卫士没触发、卸载没做、模型在换词重试——《[工具、Agent 与 harness（01）：最小 agent 循环的解剖——从 40 行到生产级](/anatomy-of-the-agent-loop.html)》、《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》）。
+每任务成本的 p50 / p95 / p99 与最大值，按功能。agent 的 p95 常是 p50 的 5–10 倍；看**长尾任务的画像**（多少步、多大上下文、哪些工具、是否重复调用）——多数长尾是可修的（卫士没触发、卸载没做、模型在换词重试——《[工具、Agent 与 harness（01）：最小 agent 循环的解剖——从 40 行到生产级](/anatomy-of-the-agent-loop.html)》、《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》）。
 
 ### 2. 成本门禁
 
@@ -233,7 +210,7 @@ xychart-beta
 
 ### 2. 毛利与趋势
 
-SaaS 里 AI 功能的成本是 COGS（cost of goods sold）：毛利 = 收入 − 模型成本 − 检索 / 工具 / judge 成本；定价（按席位、按用量、按任务）要覆盖 p95 而不是 p50 的用户；模型每年降价（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的趋势）让同一功能的毛利随时间改善，但使用量增长与更贵的能力（agent、推理）会吃掉它——两条线都画。
+SaaS 里 AI 功能的成本是 COGS：毛利 = 收入 − 模型成本 − 检索 / 工具 / judge 成本；定价（按席位、按用量、按任务）要覆盖 p95 而不是 p50 的用户；模型每年降价（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的趋势）让同一功能的毛利随时间改善，但使用量增长与更贵的能力（agent、推理）会吃掉它——两条线都画。
 
 ### 3. 决策
 
@@ -266,7 +243,7 @@ Table: FinOps 的节奏
 - 成本结构：五项 + 工具费 + judge + 检索；长尾占大头（p95 是 p50 的 5–10 倍）、随改动跳变、输入侧为主。
 - 归因：租户 / 功能 / prompt 版本 / 模型 / 会话 / 环境 / 路径标签，usage × 带日期的价目表进账本，按功能 / 租户 / 版本三视图，评测与灰度成本单列。
 - 预算：日月美元上限，80 / 95 / 100% 三档；降级梯子六级（降模型 → 关增强 → 限流 → 收紧 agent 预算 → kill switch → 非模型路径）；每小时异常检测自动归因。
-- 九种手段与量级：级联 50–80%、路由 30–60%、缓存输入 50–90%、Batch 50%、Flex 20–50%、prompt 瘦身 10–40%、输出瘦身 20–60%、上下文预算 30–70%、effort 选档 30–70%、卫士砍长尾、PTC（programmatic tool calling） 50–90%；每项量质量与成本；先免费的再要评测的最后微调。
+- 九种手段与量级：级联 50–80%、路由 30–60%、缓存输入 50–90%、Batch 50%、Flex 20–50%、prompt 瘦身 10–40%、输出瘦身 20–60%、上下文预算 30–70%、effort 选档 30–70%、卫士砍长尾、PTC 50–90%；每项量质量与成本；先免费的再要评测的最后微调。
 - 按任务看 p50 / p95 / p99，长尾画像多可修；成本门禁；成本进四指标面板。
 - 单位经济学：每任务成本 vs 价值，毛利与趋势两条线，三类决策（做不做、用什么模型、怎么定价覆盖 p95 用户）。
 - FinOps 节奏：小时异常、天账本、周报表、月对账与单位经济、季重议。

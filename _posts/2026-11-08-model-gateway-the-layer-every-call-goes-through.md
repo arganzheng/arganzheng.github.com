@@ -15,34 +15,6 @@ catalog: true
 
 > **网关做哪七件事，各解决什么事故？[^q0] LiteLLM、OpenRouter、Cloudflare AI Gateway 一类各是什么定位、怎么选？[^q1] 什么时候自建，网关的边界在哪？[^q2]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| fallback | — | 主模型失败时改走的备用模型或供应商 |
-| LiteLLM | — | 开源、可自托管的模型网关，代理与 SDK 两种形态 |
-| OpenRouter | — | 托管的多模型市场，一个 key 调多家模型 |
-| Cloudflare AI Gateway | — | Cloudflare 在边缘提供的托管模型网关 |
-| vLLM | — | 开源的大模型推理服务框架 |
-| prompt caching | — | 供应商缓存相同的前缀，重复部分更便宜更快 |
-| PII | personally identifiable information | 能识别到个人的信息，如姓名、手机号 |
-| span | — | trace 里的一段，网关的一次模型调用记一个 |
-| OpenTelemetry GenAI | — | OpenTelemetry 给模型调用定的 trace 字段约定 |
-| PocketOS | — | Cursor agent 用权限过宽的 token 删光生产卷与备份的事故 |
-| RPM / TPM | requests per minute / tokens per minute | 每分钟请求数 / 每分钟 token 数的限额 |
-| TTL | time to live | 缓存条目多久后过期 |
-| thinking block / reasoning item / thought signature | — | 三家 API 各自携带推理状态的方式 |
-| Portkey / Helicone | — | 以可观测为主的托管模型网关 |
-| Bedrock / Vertex / Foundry | — | AWS、Google Cloud、Azure 的托管模型平台 |
-| IAM | identity and access management | 云上的身份与权限管理 |
-| OTel | OpenTelemetry | 开源的 trace / 指标 / 日志标准 |
-| Envoy / Kong | — | 常用的开源代理与 API 网关 |
-| Vault | — | HashiCorp 的密钥管理系统 |
-| L2 / L3 / L4 | — | 应用工程师学习地图的第 2–4 层：上下文、检索、agent |
-| TTFT | time to first token | 从发出请求到收到第一个输出 token 的时间 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ### 1. 七项职责
@@ -112,11 +84,11 @@ flowchart TB
 
 ### 3. 限流与配额
 
-三个维度：**RPM（requests per minute） / TPM（tokens per minute）**（供应商给的总配额，网关按租户 / 功能分配，防止一个功能打爆整体——《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的令牌桶集中到这里）、**美元预算**（按租户 / 功能的日 / 月上限，接近告警、超过降级——第二篇）、**并发**（agent 的长会话占连接）。发前数 token（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）在网关做一次即可。
+三个维度：**RPM / TPM**（供应商给的总配额，网关按租户 / 功能分配，防止一个功能打爆整体——《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的令牌桶集中到这里）、**美元预算**（按租户 / 功能的日 / 月上限，接近告警、超过降级——第二篇）、**并发**（agent 的长会话占连接）。发前数 token（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）在网关做一次即可。
 
 ### 4. 缓存
 
-两种要分清。**精确缓存**（同样的请求体返回同样的响应）：对幂等的、非确定性可接受的查询有效（分类、抽取同一文档），对对话与 agent 无效（每步不同）；TTL（time to live）要短、按租户隔离。**语义缓存**（相似的问题返回缓存的答案）：风险大——"相似"不等于"同答案"（"退货要多久"与"退款要多久"），只在 FAQ 类且能容忍的场景用，并让用户能刷新。**供应商侧的 prompt caching**（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）是第三件事：网关不做，但要**不破坏**它——网关不能改请求体的顺序、不能注入动态内容到前缀、要透传 `prompt_cache_key` 与断点标记。
+两种要分清。**精确缓存**（同样的请求体返回同样的响应）：对幂等的、非确定性可接受的查询有效（分类、抽取同一文档），对对话与 agent 无效（每步不同）；TTL 要短、按租户隔离。**语义缓存**（相似的问题返回缓存的答案）：风险大——"相似"不等于"同答案"（"退货要多久"与"退款要多久"），只在 FAQ 类且能容忍的场景用，并让用户能刷新。**供应商侧的 prompt caching**（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）是第三件事：网关不做，但要**不破坏**它——网关不能改请求体的顺序、不能注入动态内容到前缀、要透传 `prompt_cache_key` 与断点标记。
 
 ```mermaid
 %% 图：三种「缓存」要分清——精确缓存：请求体逐字节相同才返回缓存响应，对幂等查询有效、对对话无效；语义缓存：「退货要多久」与「退款要多久」向量相近却是两条不同政策，默认关、只在声明可缓存的 FAQ 上开；供应商侧 prompt caching 是第三件事，网关不做，但不能改前缀、要透传 prompt_cache_key 与断点标记
@@ -148,7 +120,7 @@ flowchart TB
 
 ### 6. 日志与脱敏
 
-网关是 trace 的天然出口（《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》）：每次调用一个 span，含完整请求响应（或引用）、usage、延迟分段、路由决定、fallback 事件。**脱敏在这里做**：PII（personally identifiable information）识别与替换、凭据抹除——应用不必各自实现。采样与保留期按 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》。
+网关是 trace 的天然出口（《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》）：每次调用一个 span，含完整请求响应（或引用）、usage、延迟分段、路由决定、fallback 事件。**脱敏在这里做**：PII 识别与替换、凭据抹除——应用不必各自实现。采样与保留期按 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》。
 
 ### 7. 供应商抽象
 
@@ -167,7 +139,7 @@ flowchart TB
 
 Table: 网关选项与定位
 
-判据：**自托管**（数据不出域的要求）、**延迟**（多一跳几十毫秒；边缘网关就近）、**供应商覆盖**（含本地模型与自托管推理）、**归因粒度**（能否按你的标签维度出账）、**与 trace 的集成**（OTel（OpenTelemetry）输出）、**对供应商专属特性的透传**（推理状态、缓存断点、Batch）、**成本**（托管网关按请求或用量收费）。
+判据：**自托管**（数据不出域的要求）、**延迟**（多一跳几十毫秒；边缘网关就近）、**供应商覆盖**（含本地模型与自托管推理）、**归因粒度**（能否按你的标签维度出账）、**与 trace 的集成**（OTel 输出）、**对供应商专属特性的透传**（推理状态、缓存断点、Batch）、**成本**（托管网关按请求或用量收费）。
 
 ## 四、自建
 
@@ -263,7 +235,7 @@ flowchart TB
 2. 网关为了统一日志格式，在每个请求的 system 开头注入了 `[request_id: …]`。会发生什么？
 
    <details markdown="1"><summary>答案</summary>
-   前缀每次不同，供应商侧的 prompt caching 全部失效（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》），输入成本涨十倍、TTFT（time to first token）变长。网关不能改请求体前缀；request_id 放请求头或响应侧的 span 属性。详见[第五章](#五网关的边界)。
+   前缀每次不同，供应商侧的 prompt caching 全部失效（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》），输入成本涨十倍、TTFT 变长。网关不能改请求体前缀；request_id 放请求头或响应侧的 span 属性。详见[第五章](#五网关的边界)。
    </details>
 
 3. 网关配置了跨供应商 fallback，一个多轮推理任务在第 8 轮被切到另一家后质量骤降。原因？网关该怎么改？
@@ -286,6 +258,6 @@ flowchart TB
 
 [^q0]: 认证与密钥——应用拿网关凭据（按服务 / 租户 / 功能发放、可吊销、带范围），供应商 key 只在网关，解决 key 散落泄露与轮换要改多处；路由与 fallback——逻辑模型名映射到供应商与快照，fallback 链按方向性（重试 → 同家族降档 → 跨供应商仅对无状态请求 → 非模型路径），熔断与半开，解决供应商锁死与故障无退路；限流与配额——RPM / TPM / 美元 / 并发按租户与功能分配，解决一个功能打爆整体与账单失控；缓存——精确缓存对幂等查询、语义缓存慎用、不破坏供应商侧 prompt caching（不改前缀、透传标记）；成本归因——每次调用带租户 / 功能 / prompt 版本 / 模型 / 会话标签，usage 按价目表进账本，解决不知道钱花在哪；日志与脱敏——统一 trace 出口，PII 与凭据在此抹除；供应商抽象——统一公分母（对话 + 工具调用），推理状态、工具方言、缓存断点是边界。详见[第二章](#二七项职责)。
 
-[^q1]: LiteLLM：开源、自托管、代理或 SDK、百余供应商、路由 / fallback / 预算 / 密钥 / 日志、OpenAI 兼容——想自托管与多供应商。OpenRouter：托管多模型市场，一个 key 几百模型按用量计费——快速实验、不管供应商账户。Cloudflare AI Gateway：边缘托管接自己的 key，缓存限流日志分析 fallback——已用 Cloudflare、要边缘。Portkey / Helicone：网关 + 可观测为主（Helicone 改 base URL 即接入）。云网关（Bedrock / Vertex / Foundry）：云内多模型 + IAM（identity and access management）与合规。自建：完全可控。判据：自托管与数据不出域、延迟（多一跳，边缘就近）、供应商覆盖（含本地与自托管推理）、归因粒度、OTel 集成、对推理状态 / 缓存断点 / Batch 等专属特性的透传、托管费用。详见[第三章](#三选项与定位)。
+[^q1]: LiteLLM：开源、自托管、代理或 SDK、百余供应商、路由 / fallback / 预算 / 密钥 / 日志、OpenAI 兼容——想自托管与多供应商。OpenRouter：托管多模型市场，一个 key 几百模型按用量计费——快速实验、不管供应商账户。Cloudflare AI Gateway：边缘托管接自己的 key，缓存限流日志分析 fallback——已用 Cloudflare、要边缘。Portkey / Helicone：网关 + 可观测为主（Helicone 改 base URL 即接入）。云网关（Bedrock / Vertex / Foundry）：云内多模型 + IAM 与合规。自建：完全可控。判据：自托管与数据不出域、延迟（多一跳，边缘就近）、供应商覆盖（含本地与自托管推理）、归因粒度、OTel 集成、对推理状态 / 缓存断点 / Batch 等专属特性的透传、托管费用。详见[第三章](#三选项与定位)。
 
 [^q2]: 自建的理由：合规要求流量不经第三方、路由逻辑特殊（按租户合同、按内容分类）、规模大到托管费用可观、已有 Envoy / Kong 可扩展。最小集：反向代理 + 凭据映射表 + 逻辑模型名路由表（fallback 与熔断）+ 令牌桶 + 美元账本 + OTel span 输出含脱敏 + 密钥库；两三周写、难在运维（单点高可用、扩容、key 安全）；常见混合是薄自建层做合规相关（凭据、归因、脱敏、trace）+ 自托管 LiteLLM 做路由与适配。边界：不做业务逻辑（prompt 组装、检索、上下文管理在应用层）、不改请求体（不重排、不注入前缀、不改工具定义——毁缓存）、不替应用决定 fallback 语义（跨供应商丢推理状态，应用声明）、不默认语义缓存、必须高可用；运行时与四层权限在网关之上，托管 Agents API 时网关只是前面一跳。详见[第四章](#四自建)、[第五章](#五网关的边界)。
