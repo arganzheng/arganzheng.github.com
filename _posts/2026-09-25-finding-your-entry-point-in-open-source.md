@@ -8,9 +8,9 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一个很典型的第一次贡献是这样开始的：打开 PyTorch 的 issue 列表，按 `good first issue` 过滤，看到 #191394 "[Elastic] FileStore rendezvous leaks the mkstemp file descriptor"——`_create_file_store()` 调了 `tempfile.mkstemp()` 却没有关掉返回的文件描述符。问题描述清楚、附了代码链接、改动显然只有几行。花一个晚上搭好环境、复现、修掉、补一个回归测试，第二天开 PR（pull request）。然后发现，截至 2026-09-07 查询，这个 issue 下已经挂着 **5 个 open 的 PR**（#194259、#194623、#195137、#195711、#196096），最早的一个 8 月 20 日就开了；issue 评论区里还有同一个账号在同一天用同一段模板留了三次"I'd like to take this one"。你的是第六个。
+一个很典型的第一次贡献是这样开始的：打开 PyTorch 的 issue 列表，按 `good first issue` 过滤，看到 #191394 "[Elastic] FileStore rendezvous leaks the mkstemp file descriptor"——`_create_file_store()` 调了 `tempfile.mkstemp()` 却没有关掉返回的文件描述符。问题描述清楚、附了代码链接、改动显然只有几行。花一个晚上搭好环境、复现、修掉、补一个回归测试，第二天开 PR。然后发现，截至 2026-09-07 查询，这个 issue 下已经挂着 **5 个 open 的 PR**（#194259、#194623、#195137、#195711、#196096），最早的一个 8 月 20 日就开了；issue 评论区里还有同一个账号在同一天用同一段模板留了三次"I'd like to take this one"。你的是第六个。
 
-第二种开始方式是反过来的：不看 issue，直接做自己觉得有用的东西。一个工程师给 vLLM 写了一个新的 KV cache（key–value cache）传输路径，一千多行，测试齐全，性能数据漂亮。PR 开出来两天后收到一句话：这个规模的架构改动需要先有一个 `[RFC]` issue 讨论设计。`docs/contributing/README.md` 的 "Notes for Large Changes" 一节写得很明白，只是他没读到。
+第二种开始方式是反过来的：不看 issue，直接做自己觉得有用的东西。一个工程师给 vLLM 写了一个新的 KV cache 传输路径，一千多行，测试齐全，性能数据漂亮。PR 开出来两天后收到一句话：这个规模的架构改动需要先有一个 `[RFC]` issue 讨论设计。`docs/contributing/README.md` 的 "Notes for Large Changes" 一节写得很明白，只是他没读到。
 
 第三种更隐蔽。有人在 PyTorch 上看到一处 docstring 里的拼写错误，顺手改了提 PR。PR 模板里有一个专门的 "Documentation or Typo Fix" 模板，看起来是被欢迎的。但 vLLM 的 `AGENTS.md` 把"single typo"列为明确不接受的 "low-value busywork"，PyTorch 的 `CONTRIBUTING.md` 说"comments, issues or PRs ... low quality or consistently overly verbose"会让你以后的贡献"not be accepted anymore"。两个项目都在 2026 年针对 AI 生成的琐碎 PR 收紧了规则：vLLM 甚至有一个叫 `closed-as-slop` 的标签，截至查询已经打在 97 个被关闭的 PR 上。
 
@@ -18,64 +18,7 @@ updated: 2026-09-14
 
 > **一个项目每天新增几十个 issue、几十个 PR。maintainer 最希望有人来做的是哪一类工作？[^q0] 你怎么判断自己选的题不会在一周后被关闭？[^q1]**
 
-版本锚点：PyTorch v2.14.0（2026-09-02 发布）与 vLLM v0.28.0（2026-08-26 发布）的源码树；GitHub 上的标签、issue、PR 状态用 `gh` CLI（command-line interface）于 **2026-09-07** 查询，文中一律标注。issue 和 PR 是活的，到本文发布时其中一些很可能已经关闭或合入——这恰恰是本篇要教的东西：切入点必须在动手前的那一刻重新核对。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| good first issue | — | 标给新人的简单 issue 标签 |
-| PR | pull request | 向上游提交的一组改动，review 后合入 |
-| KV | key–value | 推理时缓存的注意力键值（KV cache） |
-| RFC | request for comments | 大改动动手前公开征求意见的设计文档 |
-| docstring | — | 写在函数开头的说明文字 |
-| maintainer | — | 有权限 review 和合入代码的项目维护者 |
-| CLI | command-line interface | 命令行界面，这里指 GitHub 的 gh 命令 |
-| B200 | — | NVIDIA Blackwell 架构的数据中心 GPU |
-| actionable | — | PyTorch 标签：可以直接发 PR，有人愿意 review |
-| CI | continuous integration | 持续集成，每次提交自动构建、跑测试 |
-| oncall | — | 轮值处理问题的值班队列 |
-| OSS | open source software | 开源软件 |
-| mergify | — | 按规则自动打标签、提示 rebase 的合入机器人 |
-| LOC | lines of code | 代码行数 |
-| CC | carbon copy | 抄送；RFC 模板里列出要通知的人 |
-| HUD | heads-up display | PyTorch 的 CI 状态看板 |
-| flaky test | — | 时过时不过、结果不稳定的测试 |
-| cherry-pick | — | 把一个 commit 单独挑到另一条分支上 |
-| triage | — | 给 issue 分类、打标签、指派负责人 |
-| MPS | Metal Performance Shaders | 苹果 GPU 的计算后端 |
-| ROI | return on investment | 投入产出比 |
-| ROCm | Radeon Open Compute | AMD 的 GPU 软件栈 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| CRCR | Cross-Repository CI Relay | 把 PyTorch 的 CI 事件转发给下游后端仓库的机制 |
-| GDS | GPUDirect Storage | GPU 显存和存储之间直接传数据的 NVIDIA 技术 |
-| XPU | — | Intel GPU 在 PyTorch / vLLM 里的设备名 |
-| PD | prefill / decode | PD 分离：prefill 和 decode 放到不同实例上跑 |
-| HMA | hybrid memory allocator | vLLM 给混合注意力模型分配 KV cache 的机制 |
-| BC | backward compatibility | 向后兼容；BC-breaking 指破坏旧用法的改动 |
-| SAC | selective activation checkpointing | 只重算部分激活来省显存的 checkpoint 策略 |
-| bisect | — | git bisect，二分查找引入问题的 commit |
-| LM | language model | 语言模型；LM Eval 指 lm-eval 评测 |
-| PCP | prefill context parallel | 把一条长 prompt 的 prefill 切到多张卡上 |
-| DP | data parallel | 数据并行：多份模型副本各处理一部分请求 |
-| EP | expert parallel | 专家并行：把 MoE 的专家分到不同卡上 |
-| SIGSEGV | segmentation violation signal | 段错误信号，进程非法访问内存时收到 |
-| AWQ | Activation-aware Weight Quantization | 按激活大小保护关键权重的低比特量化方法 |
-| GEMM | general matrix multiply | 通用矩阵乘，推理里最重的算子 |
-| RTX | — | NVIDIA 消费级显卡系列 |
-| TorchBench | — | PyTorch 的模型级性能测试集 |
-| HF | Hugging Face | 模型托管平台，这里指它的 transformers 模型集 |
-| TIMM | PyTorch Image Models | 常用视觉模型库 |
-| RNN | recurrent neural network | 循环神经网络 |
-| SGD | stochastic gradient descent | 随机梯度下降优化器 |
-| OpInfo | — | PyTorch 测试里每个算子的元数据登记 |
-| E2E | end-to-end | 端到端 |
-| AOT | ahead-of-time | 提前编译；这里指 torch.compile 的 AOT 缓存 |
-| TRTLLM | TensorRT-LLM | NVIDIA 的 LLM 推理引擎 |
-| MNNVL | multi-node NVLink | 跨节点的 NVLink 高速互联 |
-| AR | all-reduce | 各卡数据求和后再分发回每张卡的集合通信 |
-
-Table: 本文用到的术语与缩写
+版本锚点：PyTorch v2.14.0（2026-09-02 发布）与 vLLM v0.28.0（2026-08-26 发布）的源码树；GitHub 上的标签、issue、PR 状态用 `gh` CLI 于 **2026-09-07** 查询，文中一律标注。issue 和 PR 是活的，到本文发布时其中一些很可能已经关闭或合入——这恰恰是本篇要教的东西：切入点必须在动手前的那一刻重新核对。
 
 ## 一、总览
 
@@ -114,8 +57,8 @@ Table: 选题的四类失败方式
 与项目无关的通用做法只有一条主线：**maintainer 已经用标签、模板、看板、政策文件把"我们想要什么"写出来了，选题就是去读它们，然后在动手前核对一次没有人在做**。展开为五步：
 
 1. **读"想要什么"**：标签体系（哪些标签表示"欢迎外部 PR"）、Job Board / 看板、roadmap 与 tracker issue
-2. **读"不要什么"**：CONTRIBUTING / AI_POLICY / AGENTS.md 里的否定句：不要 typo PR、不要没 RFC（request for comments）的大改、不要没 actionable 的 PR
-3. **找信号源**：除 issue 以外的四个来源：RFC、CI（continuous integration）失败看板、性能回归报告、文档/类型/测试缺口
+2. **读"不要什么"**：CONTRIBUTING / AI_POLICY / AGENTS.md 里的否定句：不要 typo PR、不要没 RFC 的大改、不要没 actionable 的 PR
+3. **找信号源**：除 issue 以外的四个来源：RFC、CI 失败看板、性能回归报告、文档/类型/测试缺口
 4. **查重**：gh issue view --comments；gh pr list --search；看 assignee；看最近一条评论的日期
 5. **估规模并决定是否先讨论**：几行 / 几十行 / 几百行；要不要硬件；maintainer 有没有说过"我会 review 什么样的 PR"
 
@@ -233,7 +176,7 @@ PR 上的很多标签不是人打的。`.github/labeler.yml` 按**改动的文�
 - test/distributed/checkpoint/**
 ```
 
-三类标签混在一个文件里：`module:`（归属）、`ciflow/`（触发 CI，例如改了 `aten/src/ATen/native/mps/**` 自动跑 MPS（Metal Performance Shaders）任务）、`release notes:`（归类）。对选题的用处是反向的：**你想做某个子系统，看 `labeler.yml` 里那个 `module:` 对应哪些目录，就知道改动会落在哪、会自动通知谁、会跑哪组 CI**。
+三类标签混在一个文件里：`module:`（归属）、`ciflow/`（触发 CI，例如改了 `aten/src/ATen/native/mps/**` 自动跑 MPS 任务）、`release notes:`（归类）。对选题的用处是反向的：**你想做某个子系统，看 `labeler.yml` 里那个 `module:` 对应哪些目录，就知道改动会落在哪、会自动通知谁、会跑哪组 CI**。
 
 `.github/label_to_label.yml` 做的是**标签推导标签**，对 issue 和 PR 都生效，60 行，全文结构如下：
 
@@ -297,7 +240,7 @@ wiki 的 "The Ultimate Guide to PyTorch Contributions"（`CONTRIBUTING.md` 与�
 - **needs research**：等任何人提供"这个 bug 是真的 / 这个 feature 有价值"的证据；等 maintainer 决定要不要做
 - **needs design**：等任何人提出设计；等 maintainer 认可设计
 - **actionable**：issue 里的信息足够任何人写出一个好 PR；打这个标签的 maintainer 愿意 review 对应的改动
-- **not planned**：有效但 ROI（return on investment）太低
+- **not planned**：有效但 ROI 太低
 
 对贡献者最有用的一句是 `actionable` 的第二个条件：**打标的 maintainer 已经承诺会 review**。这就是为什么 `actionable` 是"预测一周后不会被关"的最强信号——它不只是"可以做"，而是"有人等着收"。
 
@@ -386,7 +329,7 @@ label-tpu  label-tpu-remove  label-tool-calling  label-bug  label-kv-connector
 
 `label-new-model` 的条件是 `and`：既改了 `vllm/model_executor/models/` 下的文件，又改了 `registry.py`——只有真正注册了新模型的 PR 才会被打标，改现有模型的不会。`assign reviewer for tensorizer changes` 和 `assign reviewer for modelopt changes` 两条则告诉你：改这两块代码，reviewer 是谁已经写在配置里了。
 
-issue 侧的自动打标在 `.github/workflows/issue_autolabel.yml`，按 issue 标题和正文里的关键词打 `rocm`、`cpu`、`kimi`、`k3`、`quantization`、`intel-gpu`。`rocm` 的关键词包括 "composable kernel"、"rccl"、"migraphx"、"hipgraph"，子串包括 "VLLM_ROCM_"、"aiter"、"hip-"、"gfx"、"cdna"；`cpu` 的关键词是 "CPU Backend"、"x86"、"ARM"、"Apple Silicon"、"IBM Z"。这意味着：**如果你想做 ROCm（Radeon Open Compute）方向，`label:rocm` 过滤出来的 issue 是关键词匹配的结果，会有误报，但不会漏掉标题里写了 gfx 型号的**。
+issue 侧的自动打标在 `.github/workflows/issue_autolabel.yml`，按 issue 标题和正文里的关键词打 `rocm`、`cpu`、`kimi`、`k3`、`quantization`、`intel-gpu`。`rocm` 的关键词包括 "composable kernel"、"rccl"、"migraphx"、"hipgraph"，子串包括 "VLLM_ROCM_"、"aiter"、"hip-"、"gfx"、"cdna"；`cpu` 的关键词是 "CPU Backend"、"x86"、"ARM"、"Apple Silicon"、"IBM Z"。这意味着：**如果你想做 ROCm 方向，`label:rocm` 过滤出来的 issue 是关键词匹配的结果，会有误报，但不会漏掉标题里写了 gfx 型号的**。
 
 ### 6. 用标签读一个 issue
 
@@ -433,7 +376,7 @@ Step 3  Implement            RFC PR 被接受后合入 pytorch/rfcs；实现 PR 
 
 第一段是一个被忽视的切入点：**已接受但没人实现的 RFC**。每个接受的 RFC 都有一个主仓的 tracking issue，可以直接问。第二段是一个反向信号：`shelved` 的 RFC 不要去做。
 
-`gh pr list --repo pytorch/rfcs --state open`（2026-09-07）有 8 个 open PR，从 #93（2026-04-14）到 #106（2026-09-02）；最近合入的有 #104 "CUDA update policy"（2026-08-20）、#102 "Refine L3 promotion criteria for downstream repositories"（2026-08-25）。可以看到 2026 年的 RFC 主题偏向流程与外部后端（CRCR（Cross-Repository CI Relay）、out-of-tree CI），而不是新算子——新算子级别的改动走 feature-request issue 就够了。
+`gh pr list --repo pytorch/rfcs --state open`（2026-09-07）有 8 个 open PR，从 #93（2026-04-14）到 #106（2026-09-02）；最近合入的有 #104 "CUDA update policy"（2026-08-20）、#102 "Refine L3 promotion criteria for downstream repositories"（2026-08-25）。可以看到 2026 年的 RFC 主题偏向流程与外部后端（CRCR、out-of-tree CI），而不是新算子——新算子级别的改动走 feature-request issue 就够了。
 
 ### 2. vLLM：[RFC] issue 模板与 rfc-required
 
@@ -521,7 +464,7 @@ Submitting a PR                  描述里写 Closes #12345；给 PR 加 ci-fail
 
 ### 2. PyTorch：HUD、DISABLED issue 与 skipped 标签
 
-PyTorch 的 CI 状态看板是 HUD（heads-up display，`hud.pytorch.org`）。`CONTRIBUTING.md` 的 "CI failure tips" 一节：
+PyTorch 的 CI 状态看板是 HUD（`hud.pytorch.org`）。`CONTRIBUTING.md` 的 "CI failure tips" 一节：
 
 > Fairly often, a CI failure might be unrelated to your changes. You can confirm by going to our HUD and seeing if the CI job is failing upstream already. In this case, you can usually ignore the failure.
 
@@ -581,7 +524,7 @@ Table: vLLM 性能 issue 模板的字段
 
 PyTorch 没有专门的性能 issue 模板，性能问题用 `bug-report.yml`（或 torch.compile 相关的 `pt2-bug-report.yml`，自动标签 `oncall: pt2`）提，靠标签区分：`module: performance`（"Issues related to performance, either of kernel code or framework glue"）、`module: regression`（"It used to work, and now it doesn't"，156 open）、`topic: performance`（PR 侧）。
 
-`benchmarks/` 目录按子系统组织，v2.14.0 有二十多个子目录：`dynamo/`（TorchBench / HF（Hugging Face）/ TIMM（PyTorch Image Models）三套模型的 compile 性能，也是 nightly 性能 dashboard 的来源）、`operator_benchmark/`、`instruction_counts/`、`fastrnns/`、`functional_autograd_benchmark/`、`distributed/`、`inductor_backends/`、`transformer/`、`gpt_fast/`、`sparse/`、`nested/`、`profiler_benchmark/`、`serialization/`、`static_runtime/`、`tensorexpr/`、`fuser/`、`framework_overhead_benchmark/`、`overrides_benchmark/`、`record_function_benchmark/`、`strict_numerics/`、`inference/`、`diffusion/`。`benchmarks/README.md` 的 "Benchmark List" 只给了其中五个的链接（Fast RNNs、Dynamo、Functional autograd、Instruction counts、Operator），其余要进子目录自己看。`labeler.yml` 把 `benchmarks/dynamo/**` 归到 `module: dynamo` 和 `ciflow/inductor`——改这个目录会触发 inductor CI。
+`benchmarks/` 目录按子系统组织，v2.14.0 有二十多个子目录：`dynamo/`（TorchBench / HF / TIMM 三套模型的 compile 性能，也是 nightly 性能 dashboard 的来源）、`operator_benchmark/`、`instruction_counts/`、`fastrnns/`、`functional_autograd_benchmark/`、`distributed/`、`inductor_backends/`、`transformer/`、`gpt_fast/`、`sparse/`、`nested/`、`profiler_benchmark/`、`serialization/`、`static_runtime/`、`tensorexpr/`、`fuser/`、`framework_overhead_benchmark/`、`overrides_benchmark/`、`record_function_benchmark/`、`strict_numerics/`、`inference/`、`diffusion/`。`benchmarks/README.md` 的 "Benchmark List" 只给了其中五个的链接（Fast RNNs、Dynamo、Functional autograd、Instruction counts、Operator），其余要进子目录自己看。`labeler.yml` 把 `benchmarks/dynamo/**` 归到 `module: dynamo` 和 `ciflow/inductor`——改这个目录会触发 inductor CI。
 
 PyTorch 的回归还有第二条路：**release 周期内的 cherry-pick**。`RELEASE.md` 的 "Cherry Picking Fixes" 一节：
 
@@ -597,7 +540,7 @@ PyTorch 的回归还有第二条路：**release 周期内的 cherry-pick**。`RE
 
 - **版本对**：好的版本 tag / commit 与坏的版本 tag / commit（不是"最近变慢了"）
 - **复现脚本**：能独立运行；vLLM 优先用 vllm bench 或 benchmarks/ 下的脚本，PyTorch 优先用 benchmarks/ 下已有的套件
-- **硬件**：GPU 型号、驱动、CUDA（Compute Unified Device Architecture）/ROCm 版本；vLLM 模板的环境字段就是 collect_env.py 的输出
+- **硬件**：GPU 型号、驱动、CUDA/ROCm 版本；vLLM 模板的环境字段就是 collect_env.py 的输出
 - **数字**：前后对比，同一台机器同一脚本；至少三次取中位数
 - **范围**：只在某个 shape / dtype / 并发下出现，还是普遍
 
@@ -683,7 +626,7 @@ vLLM 的 `docs/contributing/deprecation_policy.md` 把废弃一个功能写成�
 
 这条流水线的每一步都是一个小而明确的 PR：给一个即将废弃的参数加带版本号的警告；到了下一个版本把它改成默认关闭并加逃生开关；再下一个版本删掉。第一步和第三步几乎是机械的，第二步需要判断哪些用户会受影响。`rg "deprecated" vllm/ --type py` 能找到所有在途的废弃项，对照 `RELEASE.md` 的版本号就能知道哪些到期了。
 
-PyTorch 侧对应的是 `topic: deprecation` 标签和 PR 模板的 "BC-breaking?" 一栏——废弃在 PyTorch 是 BC（backward compatibility）问题，走 RFC 或至少在 issue 里由 maintainer 确认。
+PyTorch 侧对应的是 `topic: deprecation` 标签和 PR 模板的 "BC-breaking?" 一栏——废弃在 PyTorch 是 BC 问题，走 RFC 或至少在 issue 里由 maintainer 确认。
 
 ### 3. 把 issue 里的复现整理成测试
 
@@ -702,7 +645,7 @@ vLLM #50128 "[Performance] Measure Transformers backend startup time vs native"�
 > Compare time-to-ready across a few runs and a couple of model sizes. Warm vs cold HF cache matters, so control for it.
 > If there is no meaningful difference, say so and close this issue.
 
-它明确说"测出来没差别也算完成"。评论区的走向也很典型：2026-08-18 两位贡献者分别在 RTX 3050（4 GB）上做了测量并 profile，定位到 `RMSNormFuser.fuse()` 和 AOT（ahead-of-time）缓存两处；同日 maintainer 说"Thank you both for the investigation"，自己开 PR #52766 处理棘手的 `RMSNormFuser`，把 AOT 缓存留给贡献者（PR #53295，2026-08-21 open）。**一块 4 GB 的笔记本显卡完成了一个 `help wanted` issue 的第一步**——测量、profile、写清楚。
+它明确说"测出来没差别也算完成"。评论区的走向也很典型：2026-08-18 两位贡献者分别在 RTX 3050（4 GB）上做了测量并 profile，定位到 `RMSNormFuser.fuse()` 和 AOT 缓存两处；同日 maintainer 说"Thank you both for the investigation"，自己开 PR #52766 处理棘手的 `RMSNormFuser`，把 AOT 缓存留给贡献者（PR #53295，2026-08-21 open）。**一块 4 GB 的笔记本显卡完成了一个 `help wanted` issue 的第一步**——测量、profile、写清楚。
 
 这一类工作的共同点是：产出不是 diff，而是**信息**——一个确认的复现、一组数字、一个 bisect 结果、一份"哪些切片还没人覆盖"的盘点。它们不会出现在 release note 里，但它们是 maintainer 最缺的东西，而且几乎不可能撞车。
 
@@ -929,7 +872,7 @@ Table: 本篇涉及的文件位置
 
    <details markdown="1"><summary>答案</summary>
 
-   vLLM：> 500 行的架构改动，无 RFC 不 review，模板 `750-RFC.yml` 的 Motivation / Proposed Change / Feedback Period（至少一周）/ CC List（carbon copy list）；PyTorch：大改动去 pytorch/rfcs 仓库，模板九章 + Resolution，draft → commenting → 主仓 issue。已接受未实现的 RFC 是现成的入口。
+   vLLM：> 500 行的架构改动，无 RFC 不 review，模板 `750-RFC.yml` 的 Motivation / Proposed Change / Feedback Period（至少一周）/ CC List；PyTorch：大改动去 pytorch/rfcs 仓库，模板九章 + Resolution，draft → commenting → 主仓 issue。已接受未实现的 RFC 是现成的入口。
 
    </details>
 

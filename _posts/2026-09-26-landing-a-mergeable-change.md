@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一个 PR（pull request）在 vLLM 里开了十天。作者修了一个真实的 bug，本地测试全绿，描述写了两屏，还顺手把同一目录下三个文件的 import 排了序。十天里发生的事是：DCO（Developer Certificate of Origin）check 红了（有一个 commit 忘了 `-s`）；`pre-commit` 没跑（新贡献者的 PR 默认不跑，需要 `verified` 或 `ready` 标签）；Buildkite 一个任务也没起（`/ci run` 要有写权限的 reviewer 来敲）；mergify 打上了 `needs-rebase`（main 已经往前走了两百个 commit）；标题没有 `[Bugfix]` 前缀，没人被分派。reviewer 最终打开它时，看到的是一个 diff 里混着无关的 import 重排、描述里找不到"怎么测的"、CI（continuous integration）一片灰色的 PR。他留了一句"could you split the unrelated changes out and add a test plan?"，然后去看下一个。
+一个 PR 在 vLLM 里开了十天。作者修了一个真实的 bug，本地测试全绿，描述写了两屏，还顺手把同一目录下三个文件的 import 排了序。十天里发生的事是：DCO check 红了（有一个 commit 忘了 `-s`）；`pre-commit` 没跑（新贡献者的 PR 默认不跑，需要 `verified` 或 `ready` 标签）；Buildkite 一个任务也没起（`/ci run` 要有写权限的 reviewer 来敲）；mergify 打上了 `needs-rebase`（main 已经往前走了两百个 commit）；标题没有 `[Bugfix]` 前缀，没人被分派。reviewer 最终打开它时，看到的是一个 diff 里混着无关的 import 重排、描述里找不到"怎么测的"、CI 一片灰色的 PR。他留了一句"could you split the unrelated changes out and add a test plan?"，然后去看下一个。
 
 同一周在 PyTorch 那边，另一个 PR 被 `pr-sanity-checks` 直接拦下：2 300 行，超过了 `.github/scripts/pr-sanity-check.sh` 里写死的 2 000 行上限。作者把它拆成三个 PR 重新提交，但没有用 `ghstack`，三个 PR 互相依赖却各自独立，第一个合入前后两个就一直红着。合入之后 `@pytorchbot merge` 又拒绝了：缺 `release notes:` 标签。
 
@@ -21,52 +21,6 @@ updated: 2026-09-14
 每一条规则都可以还原成这个问题的一个侧面：最小 diff 是让他十分钟读得完；测试是替他回答"这个改动对不对"；benchmark 是替他回答"值不值"；描述是替他回答"为什么这样改、有没有别的改法"；绿色的 CI 是替他回答"会不会弄坏别的东西"。规则会变，这个视角不变。
 
 版本锚点：PyTorch **v2.14.0**、vLLM **v0.28.0**，引用的文件路径、章节标题、字段名、命令均以这两个检出为准，格式为"仓库 路径 的 字段/章节"。GitHub 上的动态信息（标签是否存在）用 `gh` 查询，注明"截至 2026-09 查询"。本篇不展开任何一层的技术原理，也不重复 git 与 GitHub 的基本操作。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| PR | pull request | 向上游提交的一组改动，review 后合入 |
-| DCO | Developer Certificate of Origin | 开发者原创声明，每个 commit 带 Signed-off-by |
-| CI | continuous integration | 持续集成，每次提交自动构建、跑测试 |
-| pre-commit | — | 每次 git commit 前自动跑检查的框架 |
-| Buildkite | — | vLLM 用的 CI 平台 |
-| mergify | — | 按规则打标签、提示 rebase 的合入机器人 |
-| diff | — | 改动前后的逐行差异 |
-| ghstack | — | PyTorch 的堆叠 PR 工具，一个 commit 一个 PR |
-| lintrunner | — | PyTorch 的本地 lint 统一入口 |
-| maintainer | — | 有权限 review 和合入代码的项目维护者 |
-| RFC | request for comments | 大改动动手前公开征求意见的设计文档 |
-| CLA | Contributor License Agreement | 贡献者许可协议，签一次即授权项目使用你的代码 |
-| EasyCLA | — | Linux Foundation 的 CLA 签署服务，PyTorch 用它 |
-| HUD | heads-up display | PyTorch 的 CI 状态看板 |
-| triage | — | 给 issue 分类、打标签、指派负责人 |
-| IDE | integrated development environment | 集成开发环境 |
-| kernel | — | 在 GPU 上执行的一个计算函数 |
-| dtype | — | 张量的数据类型，如 float32 |
-| trailer | — | commit message 末尾「键: 值」格式的行 |
-| LOC | lines of code | 代码行数 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| BC | backward compatibility | 向后兼容；BC-breaking 指破坏旧用法的改动 |
-| flaky test | — | 时过时不过、结果不稳定的测试 |
-| MPS | Metal Performance Shaders | 苹果 GPU 的计算后端 |
-| XPU | — | Intel GPU 在 PyTorch 里的设备名 |
-| OpInfo | — | PyTorch 测试里每个算子的元数据登记 |
-| docstring | — | 写在函数开头的说明文字 |
-| fixture | — | pytest 里给测试准备环境的可复用函数 |
-| ONNX | Open Neural Network Exchange | 跨框架的模型交换格式 |
-| CLI | command-line interface | 命令行界面 |
-| LLM | large language model | 大语言模型 |
-| ROCm | Radeon Open Compute | AMD 的 GPU 软件栈 |
-| ATen | A Tensor Library | PyTorch 的 C++ 张量与算子库 |
-| NPU | neural processing unit | 神经网络专用处理器，这里指昇腾 |
-| OSS | open source software | 开源软件 |
-| squash merge | — | 把 PR 的多个 commit 压成一个再合入 |
-| PTAL | please take a look | 「请再看一眼」，催 review 的常用语 |
-| ETA | estimated time of arrival | 预计完成时间 |
-| autograd | — | PyTorch 的自动求导系统 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -171,7 +125,7 @@ Table: 本文的章节安排
 一个可以用一句话说清目的的改动。判断标准不是行数，而是 reviewer 能否对 diff 里的**每一行**都回答"这一行为什么变了"，并且答案都指向同一句话。以下三种情况都违反这条：
 
 - **顺手重构**：修 bug 时把旁边的函数抽了出来。reviewer 现在要同时验证 bug 修对了、重构没改语义，工作量翻倍，而且一旦要 revert，两件事一起没了；
-- **顺手格式化**：IDE（integrated development environment）保存时把整个文件重排了 import 或调整了空行。diff 里 80% 是噪音，真正的改动被淹没；
+- **顺手格式化**：IDE 保存时把整个文件重排了 import 或调整了空行。diff 里 80% 是噪音，真正的改动被淹没；
 - **顺手扩大范围**："既然改了这个 kernel，就把另外两个 dtype 也支持了吧"。每个新 dtype 都需要新测试、新 benchmark，每一项都是 reviewer 要多问的问题。
 
 反过来，"一件事"可以很大——一个新的 attention backend 也是一件事——但那时应该拆成一叠相互依赖、各自可合入的小 PR。
@@ -207,7 +161,7 @@ vLLM 没有 CI 层面的行数上限，但 `docs/contributing/README.md` 的 "No
 
 > Please keep the changes as concise as possible. For major architectural changes (>500 LOC excluding kernel/data/config/test), we would expect a GitHub issue (RFC) discussing the technical design and justification. Otherwise, we will tag it with `rfc-required` and might not go through the PR.
 
-注意排除项：kernel、数据、配置、测试不计入 500 行。一个 800 行的 CUDA（Compute Unified Device Architecture）kernel 加 300 行测试不需要 RFC（request for comments）；一个 600 行的调度器重构需要。（顺带一提：截至 2026-09 用 `gh api repos/vllm-project/vllm/labels/rfc-required` 查询，这个标签在仓库的标签列表里并不存在，`action-required` 也不存在——文档里写的标签名与实际标签可能已经漂移，以当前仓库为准。）
+注意排除项：kernel、数据、配置、测试不计入 500 行。一个 800 行的 CUDA kernel 加 300 行测试不需要 RFC；一个 600 行的调度器重构需要。（顺带一提：截至 2026-09 用 `gh api repos/vllm-project/vllm/labels/rfc-required` 查询，这个标签在仓库的标签列表里并不存在，`action-required` 也不存在——文档里写的标签名与实际标签可能已经漂移，以当前仓库为准。）
 
 vLLM 没有 ghstack。拆分大改动的做法是**顺序开 PR**：先开第 1 层，等它合入，再基于新的 main 开第 2 层。这意味着一叠 PR 的总周期等于各层周期之和，所以每层要尽量独立、尽量小。另一个约束来自 "Pull Request Limits and Escalation" 一节：没有写权限的贡献者最多同时开 6 个 PR（"The current cap is 6 open PRs"）。一叠 8 层的改动得分两批。
 
@@ -247,7 +201,7 @@ if __name__ == "__main__":
 - "For tests over multiple inputs, use the `@parametrize` decorator."
 - "For any test that checks numerics of the on-device implementation, use `instantiate_device_type_tests` to write device-generic tests."
 
-`instantiate_device_type_tests` 在 `torch/testing/_internal/common_device_type.py`，同文件还有 `dtypes`、`dtypesIfCUDA`、`onlyCUDA`、`ops`（配合 `torch/testing/_internal/opinfo/core.py` 的 `OpInfo`）。写成设备无关的测试意味着同一个测试会在 CPU、CUDA、MPS（Metal Performance Shaders）、XPU 等所有 CI 覆盖的设备上生成一份，这是 PyTorch 保证"一个算子在所有后端行为一致"的机制。
+`instantiate_device_type_tests` 在 `torch/testing/_internal/common_device_type.py`，同文件还有 `dtypes`、`dtypesIfCUDA`、`onlyCUDA`、`ops`（配合 `torch/testing/_internal/opinfo/core.py` 的 `OpInfo`）。写成设备无关的测试意味着同一个测试会在 CPU、CUDA、MPS、XPU 等所有 CI 覆盖的设备上生成一份，这是 PyTorch 保证"一个算子在所有后端行为一致"的机制。
 
 `.lintrunner.toml` 里有一个 linter 叫 `TEST_HAS_MAIN`，检查 `test/` 下的文件是否有 `if __name__ == "__main__": run_tests()` 的入口——没有的话 lint 就会红。这是"测试规范"被写进工具链的一个例子。
 
@@ -314,7 +268,7 @@ PyTorch 的要求写在 PR 模板里。`.github/PULL_REQUEST_TEMPLATE/fix_issue.
 
 vLLM 把 benchmark 分成两层。kernel 层在 `benchmarks/kernels/`，检出里有 66 个文件，命名就是 `benchmark_<kernel>.py`：`benchmark_paged_attention.py`、`benchmark_rmsnorm.py`、`benchmark_moe.py`、`benchmark_fp8_gemm.py`、`benchmark_reshape_and_cache_flash.py` 等。改一个 kernel，先看这个目录有没有对应的脚本；有就直接跑，没有就照着写一个放进去——`AGENTS.md` 明确说 kernel 性能脚本应该放在这里而不是 `tests/`。
 
-端到端层是 `vllm bench` 子命令。这里有一个版本变化要说清楚：`benchmarks/benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 三个文件在 v0.28.0 检出里**仍然存在，但只是弃用桩**——运行它会打印 "DEPRECATED: This script has been moved to the vLLM CLI. Please use the following command instead: vllm bench serve" 然后 `sys.exit(1)`。实现已经搬到 `vllm/benchmarks/`（`serve.py`、`throughput.py`、`latency.py`、`startup.py`、`sweep/`、`mm_processor.py`），CLI（command-line interface）入口在 `vllm/entrypoints/cli/benchmark/`（同名文件）。所以 v0.28.0 的正确命令是：
+端到端层是 `vllm bench` 子命令。这里有一个版本变化要说清楚：`benchmarks/benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 三个文件在 v0.28.0 检出里**仍然存在，但只是弃用桩**——运行它会打印 "DEPRECATED: This script has been moved to the vLLM CLI. Please use the following command instead: vllm bench serve" 然后 `sys.exit(1)`。实现已经搬到 `vllm/benchmarks/`（`serve.py`、`throughput.py`、`latency.py`、`startup.py`、`sweep/`、`mm_processor.py`），CLI 入口在 `vllm/entrypoints/cli/benchmark/`（同名文件）。所以 v0.28.0 的正确命令是：
 
 ```bash title="vllm bench 的四个子命令"
 # vllm 已安装的环境
@@ -662,7 +616,7 @@ CI 红了，第一件事不是看日志，而是问：**main 上这个任务现�
 
 > Fairly often, a CI failure might be unrelated to your changes. You can confirm by going to our HUD and seeing if the CI job is failing upstream already. In this case, you can usually ignore the failure.
 
-HUD（heads-up display，hud.pytorch.org）按 commit 显示 main 上每个 job 的状态，也能看某个 PR 的所有 job；红色的 job 如果在 main 的最近几个 commit 上也红，就是 main 的问题。命令行上用 `gh pr checks <PR> --json name,state,workflow,link,bucket,completedAt` 拉全量状态（根目录 `AGENTS.md` 推荐的写法），再用 `gh run view <run-id> --log-failed` 只看失败步骤的日志。
+HUD（hud.pytorch.org）按 commit 显示 main 上每个 job 的状态，也能看某个 PR 的所有 job；红色的 job 如果在 main 的最近几个 commit 上也红，就是 main 的问题。命令行上用 `gh pr checks <PR> --json name,state,workflow,link,bucket,completedAt` 拉全量状态（根目录 `AGENTS.md` 推荐的写法），再用 `gh run view <run-id> --log-failed` 只看失败步骤的日志。
 
 同节的子节 "Which commit is used in CI?" 解释了一个容易困惑的细节：PR 的 CI 通常跑在 PR 的 head commit（B）上，但 **workflow 文件本身**取自 PR 与 main 的合并结果（C）。所以如果 main 上改了 workflow，你的 PR 会用新的 workflow 跑旧的代码；文中也注明 `ghstack` 的 PR 不受此影响（"they would not automatically ingest the updates from default branch"）。当日志里出现你没见过的 job 名或步骤，先想到这一点。
 
@@ -1183,7 +1137,7 @@ AI            PyTorch AI_POLICY.md：标注并包裹 AI 内容 + 人的评注；
 - **benchmark**：模板 checklist；benchmarks/ 按子系统；benchmarks/kernels/ + vllm bench 子命令
 - **lint**：lintrunner 61 项，spin 包装，手动跑；pre-commit ~35 项，commit 时自动跑
 - **描述**：三模板，元数据化（Fixes #、标签）；一模板，正文化（Purpose / Test Plan / Test Result）+ 标题前缀
-- **签名**：CLA（Contributor License Agreement）一次；DCO 每 commit
+- **签名**：CLA 一次；DCO 每 commit
 - **CI**：推送即跑，分层；ciflow 标签加跑；默认不跑；/ci run 按需；source_file_dependencies 按文件
 - **日志**：HUD；Buildkite 公开日志 + Dashboard + 脚本
 - **review**：4 个工作日可催；2–3 天状态，7 天可催

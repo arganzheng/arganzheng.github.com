@@ -1,0 +1,265 @@
+---
+- term: triage
+  full: "—"
+  desc: 给 issue 分类、打标签、指派负责人
+- term: flaky test
+  full: "—"
+  desc: 时过时不过、结果不稳定的测试
+- term: HUD
+  full: heads-up display
+  desc: PyTorch 的 CI 状态看板
+- term: CC
+  full: carbon copy
+  desc: 抄送；RFC 模板里列出要通知的人
+- term: OpInfo
+  full: "—"
+  desc: PyTorch 测试里每个算子的元数据登记
+- term: clangd
+  full: "—"
+  desc: C++ 语言服务器，提供跨文件跳转
+- term: CLI
+  full: command-line interface
+  desc: 命令行界面
+- term: NCCL
+  full: NVIDIA Collective Communications Library
+  desc: 多 GPU 之间做集合通信的库
+- term: ghstack
+  full: "—"
+  desc: PyTorch 的堆叠 PR 工具，一个 commit 一个 PR
+- term: mergify
+  full: "—"
+  desc: 自动 rebase、打标签的合入机器人
+- term: Buildkite
+  full: "—"
+  desc: vLLM 用的 CI 平台
+- term: DCO
+  full: Developer Certificate of Origin
+  desc: 开发者原创声明，每个 commit 带 Signed-off-by
+- term: CLA
+  full: Contributor License Agreement
+  desc: 贡献者许可协议，签一次即授权项目使用你的代码
+- term: lint
+  full: "—"
+  desc: 静态检查代码风格和常见错误
+- term: lintrunner
+  full: "—"
+  desc: PyTorch 的本地 lint 统一入口
+- term: maintainer
+  full: "—"
+  desc: 有权限 review 和合入代码的项目维护者
+- term: RFC
+  full: Request for Comments
+  desc: 大改动动手前公开征求意见的设计文档
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台
+- term: kernel
+  full: "—"
+  desc: 在 GPU 上执行的一个计算函数
+- term: IDE
+  full: integrated development environment
+  desc: 集成开发环境，提供跳转、补全
+- term: ATen
+  full: A Tensor Library
+  desc: PyTorch 的 C++ 张量与算子库
+- term: torchgen
+  full: "—"
+  desc: PyTorch 的代码生成器，从 yaml 生成绑定与头文件
+- term: autograd
+  full: automatic differentiation
+  desc: PyTorch 的自动求导系统
+- term: dtype
+  full: data type
+  desc: 张量的数据类型，如 float32、complex128
+- term: KV
+  full: key–value
+  desc: 推理时缓存的注意力键值（KV cache）
+- term: MoE
+  full: mixture of experts
+  desc: 混合专家：每个 token 只走部分专家网络
+- term: ABI
+  full: application binary interface
+  desc: 二进制接口，编译产物之间的调用约定
+- term: MPS
+  full: Metal Performance Shaders
+  desc: 苹果 GPU 的计算后端
+- term: XPU
+  full: "—"
+  desc: Intel GPU 在 PyTorch 里的设备名
+- term: ROCm
+  full: Radeon Open Compute
+  desc: AMD 的 GPU 软件栈
+- term: editable install
+  full: "—"
+  desc: pip install -e，改了 Python 源码不用重装
+- term: docstring
+  full: "—"
+  desc: 写在函数开头的说明文字
+- term: AD
+  full: automatic differentiation
+  desc: 自动微分；forward AD 指前向模式
+- term: fixture
+  full: "—"
+  desc: pytest 里给测试准备环境的可复用函数
+- term: trailer
+  full: "—"
+  desc: 'commit message 末尾「键: 值」格式的行'
+- term: squash merge
+  full: "—"
+  desc: 把 PR 的多个 commit 压成一个再合入
+- term: DP
+  full: data parallelism
+  desc: 数据并行：多份模型副本各处理一部分请求
+- term: RC
+  full: release candidate
+  desc: 正式发布前的候选版本
+- term: good first issue
+  full: "—"
+  desc: 标给新人的简单 issue 标签
+- term: B200
+  full: "—"
+  desc: NVIDIA Blackwell 架构的数据中心 GPU
+- term: actionable
+  full: "—"
+  desc: PyTorch 标签：可以直接发 PR，有人愿意 review
+- term: oncall
+  full: "—"
+  desc: 轮值处理问题的值班队列
+- term: OSS
+  full: open source software
+  desc: 开源软件
+- term: LOC
+  full: lines of code
+  desc: 代码行数
+- term: ROI
+  full: return on investment
+  desc: 投入产出比
+- term: CRCR
+  full: Cross-Repository CI Relay
+  desc: 把 PyTorch 的 CI 事件转发给下游后端仓库的机制
+- term: GDS
+  full: GPUDirect Storage
+  desc: GPU 显存和存储之间直接传数据的 NVIDIA 技术
+- term: PD
+  full: prefill–decode
+  desc: PD 分离：prefill 和 decode 放到不同实例上跑
+- term: HMA
+  full: hybrid memory allocator
+  desc: vLLM 给混合注意力模型分配 KV cache 的机制
+- term: BC
+  full: backward compatibility
+  desc: 向后兼容；BC-breaking 指破坏旧用法的改动
+- term: bisect
+  full: "—"
+  desc: git bisect，二分查找引入问题的 commit
+- term: LM
+  full: language model
+  desc: 语言模型；LM Eval 指 lm-eval 评测
+- term: PCP
+  full: prefill context parallel
+  desc: 把一条长 prompt 的 prefill 切到多张卡上
+- term: EP
+  full: expert parallelism
+  desc: 专家并行：把 MoE 的专家分到不同卡上
+- term: SIGSEGV
+  full: segmentation violation signal
+  desc: 段错误信号，进程非法访问内存时收到
+- term: AWQ
+  full: Activation-aware Weight Quantization
+  desc: 按激活大小保护关键权重的低比特量化方法
+- term: GEMM
+  full: general matrix multiply
+  desc: 通用矩阵乘，推理里最重的算子
+- term: RTX
+  full: "—"
+  desc: NVIDIA 消费级显卡系列
+- term: TorchBench
+  full: "—"
+  desc: PyTorch 的模型级性能测试集
+- term: HF
+  full: Hugging Face
+  desc: 模型托管平台，这里指它的 transformers 模型集
+- term: TIMM
+  full: PyTorch Image Models
+  desc: 常用视觉模型库
+- term: SGD
+  full: stochastic gradient descent
+  desc: 随机梯度下降优化器
+- term: E2E
+  full: end-to-end
+  desc: 端到端
+- term: AOT
+  full: ahead-of-time
+  desc: 提前编译；这里指 torch.compile 的 AOT 缓存
+- term: TRTLLM
+  full: TensorRT-LLM
+  desc: NVIDIA 的 LLM 推理引擎
+- term: MNNVL
+  full: multi-node NVLink
+  desc: 跨节点的 NVLink 高速互联
+- term: AR
+  full: all-reduce
+  desc: 各卡数据求和后再分发回每张卡的集合通信
+- term: EasyCLA
+  full: "—"
+  desc: Linux Foundation 的 CLA 签署服务，PyTorch 用它
+- term: ONNX
+  full: Open Neural Network Exchange
+  desc: 跨框架的模型交换格式
+- term: NPU
+  full: neural processing unit
+  desc: 神经网络专用处理器，这里指昇腾
+- term: PTAL
+  full: please take a look
+  desc: "「请再看一眼」，催 review 的常用语"
+- term: ETA
+  full: estimated time of arrival
+  desc: 预计完成时间
+- term: FSDP
+  full: Fully Sharded Data Parallel
+  desc: 把参数、梯度、优化器状态分片到各卡的数据并行
+- term: H100
+  full: "—"
+  desc: NVIDIA Hopper 架构的数据中心 GPU
+- term: UTC
+  full: Coordinated Universal Time
+  desc: 协调世界时，文中时间都按它记
+- term: LU
+  full: lower–upper
+  desc: LU 分解：把矩阵拆成下三角 L 和上三角 U
+- term: Blackwell
+  full: "—"
+  desc: NVIDIA 新一代 GPU 架构，RTX 5090 和 B200 都属于它
+- term: OOM
+  full: out of memory
+  desc: 显存不够，分配失败
+- term: PP
+  full: pipeline parallelism
+  desc: 流水线并行：模型按层切到不同卡上
+- term: cuSOLVER
+  full: "—"
+  desc: NVIDIA 的 GPU 线性代数求解库
+- term: cuBLAS
+  full: "—"
+  desc: NVIDIA 的 GPU 矩阵运算库
+- term: RTX 6000 Ada
+  full: "—"
+  desc: NVIDIA Ada 架构的专业工作站显卡
+- term: QR
+  full: QR decomposition
+  desc: QR 分解：把矩阵拆成正交阵 Q 和上三角阵 R
+- term: LSTSQ
+  full: least squares
+  desc: 最小二乘求解，对应 torch.linalg.lstsq
+- term: FP64
+  full: 64-bit floating point
+  desc: 双精度浮点
+- term: H200
+  full: "—"
+  desc: NVIDIA Hopper 架构的数据中心 GPU
+- term: MI250
+  full: "—"
+  desc: AMD Instinct 系列数据中心 GPU
+- term: MI300
+  full: "—"
+  desc: AMD Instinct 系列数据中心 GPU
