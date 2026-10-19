@@ -8,6 +8,7 @@
     var key = 'readpos:' + location.pathname;
     var endSelector = '.post-license, .pager, .backlinks, .related-posts, .comment';
     var start = 0, end = 0, bar, pill, frame = 0, saveTimer = 0, savedAt = 0, pillTimer = 0, pillStartY = 0;
+    var lastActivity = Date.now(), pendingActive = 0;
     function y() { return window.pageYOffset || document.documentElement.scrollTop || 0; }
     function absTop(el) { return el.getBoundingClientRect().top + y(); }
     function measure() {
@@ -18,6 +19,12 @@
     function fraction() {
         var span = end - start;
         return span > 0 ? Math.max(0, Math.min(1, (y() + innerHeight * .3 - start) / span)) : 0;
+    }
+    function emitReading() {
+        document.dispatchEvent(new CustomEvent('blog:reading', {
+            detail: { path: location.pathname, p: fraction(), active: pendingActive }
+        }));
+        pendingActive = 0;
     }
     function update() {
         frame = 0; measure();
@@ -52,6 +59,7 @@
     function save() {
         saveTimer = 0; savedAt = Date.now();
         var p = fraction();
+        emitReading();
         try {
             if (p > .95) { localStorage.removeItem(key); prune(); return; }
             if (p < .05) return;
@@ -102,9 +110,18 @@
             queueUpdate(); queueSave();
             if (pill && Math.abs(y() - pillStartY) > 600) dismiss();
         }, { passive: true });
+        ['scroll', 'wheel', 'keydown', 'touchstart', 'pointermove'].forEach(function (type) {
+            window.addEventListener(type, function () { lastActivity = Date.now(); }, { passive: true });
+        });
         window.addEventListener('resize', queueUpdate);
         window.addEventListener('pagehide', save);
         document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') save(); });
+        window.setInterval(function () {
+            if (document.visibilityState === 'visible' && Date.now() - lastActivity < 120000) {
+                pendingActive += 5000;
+                emitReading();
+            }
+        }, 5000);
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();

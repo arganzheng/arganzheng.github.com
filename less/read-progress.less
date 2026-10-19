@@ -18,6 +18,14 @@ html.private-post .post-actions .pa-read { display: none !important; }
 	font-size: 11px;
 	white-space: nowrap;
 }
+.sb-list li.is-partial:not(.is-read) > a::after,
+.sb-list li.is-partial:not(.is-read) > span::after,
+.st-posts li.is-partial:not(.is-read) > a::after {
+	content: " " attr(data-rp-pct) "%";
+	color: #8290a0;
+	font-size: 11px;
+	white-space: nowrap;
+}
 .sb-read, .st-read, .rp-badge {
 	color: #718c75;
 	font-size: 12px;
@@ -35,10 +43,15 @@ html.private-post .post-actions .pa-read { display: none !important; }
 	font-weight: 500;
 	white-space: nowrap;
 }
+.rp-marker.is-partial { color: #8290a0; }
 .life-card h2 .rp-marker {
 	padding: 2px 5px;
 	border-radius: 4px;
 	background: rgba(255, 255, 255, 0.18);
 	color: #e1f1e3;
 	font-size: 10px;
+}
+.life-card h2 .rp-marker.is-partial {
+	background: rgba(255, 255, 255, 0.18);
+	color: #d5e0ec;
 }
