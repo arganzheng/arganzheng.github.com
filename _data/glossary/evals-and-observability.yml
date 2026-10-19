@@ -1,13 +1,7 @@
 ---
-- term: promptfoo
-  full: "—"
-  desc: 开源的 prompt 与模型评测框架
 - term: pp
   full: percentage point
   desc: 百分点
-- term: NVIDIA Cosmos
-  full: "—"
-  desc: NVIDIA 的世界模型平台，生成场景与传感器数据
 - term: CARLA
   full: Car Learning to Act
   desc: 开源的自动驾驶仿真器
@@ -23,21 +17,6 @@
 - term: TTFT
   full: time to first token
   desc: 从发请求到收到第一个 token 的时间
-- term: F1
-  full: "—"
-  desc: 精确率与召回率的调和平均（F1 score）
-- term: pairwise
-  full: "—"
-  desc: 两两比较打分 / 单条独立打分
-- term: pointwise
-  full: "—"
-  desc: 两两比较打分 / 单条独立打分
-- term: rubric
-  full: "—"
-  desc: 评分细则：每一档分数对应什么表现
-- term: SDK
-  full: software development kit
-  desc: 工具厂商提供的接入库
 - term: APM
   full: application performance monitoring
   desc: 应用性能监控：请求、耗时、错误率面板
@@ -47,216 +26,48 @@
 - term: HIL
   full: hardware-in-the-loop
   desc: 硬件在环：真硬件接仿真环境测试
-- term: bad case
-  full: "—"
-  desc: 线上出错、值得收进评测集的具体用例
-- term: OpenInference
-  full: "—"
-  desc: Arize 维护的 LLM trace 约定，与 OTel 对齐
-- term: Arize Phoenix
-  full: "—"
-  desc: Arize 的开源 trace 与评测工具
-- term: LangSmith
-  full: "—"
-  desc: LLM 应用的 trace 与评测工具
-- term: Braintrust
-  full: "—"
-  desc: LLM 应用的 trace 与评测工具
-- term: Helicone
-  full: "—"
-  desc: LLM 应用的 trace 与评测工具
 - term: OTel
   full: OpenTelemetry
   desc: OpenTelemetry 的简称
-- term: Development
-  full: "—"
-  desc: OTel 约定的成熟度等级；Development 随时可能改
-- term: Stable
-  full: "—"
-  desc: OTel 约定的成熟度等级；Development 随时可能改
-- term: effort
-  full: "—"
-  desc: 推理强度参数，控制模型想多久
-- term: usage
-  full: "—"
-  desc: 接口返回的 token 用量
-- term: span
-  full: "—"
-  desc: trace 里的一个节点，对应一次模型或工具调用
 - term: A/B
   full: A/B testing
   desc: 分流对照实验：两组流量各用一个版本比指标
-- term: harness
-  full: "—"
-  desc: 包在模型外面的运行框架：循环、工具、权限
-- term: faithfulness
-  full: "—"
-  desc: 回答里的说法是否都有检索内容支撑
-- term: substantial
-  full: "—"
-  desc: kappa 分级里 0.61–0.80 一档，算「高度一致」
-- term: LangChain
-  full: "—"
-  desc: 常用的 LLM 应用开发框架，也发了 agent 调查报告
-- term: fallback
-  full: "—"
-  desc: 主路径失败时退到的备用方案
-- term: guardrails
-  full: "—"
-  desc: 运行时对输入输出做的检查与拦截
 - term: GenAI
   full: generative AI
   desc: 生成式 AI；OTel 用它命名大模型相关的约定
-- term: OpenTelemetry
-  full: "—"
-  desc: 开源的可观测标准，规定 trace、指标、日志的格式
-- term: trace
-  full: "—"
-  desc: 一次请求从头到尾的调用记录，由 span 组成
 - term: RAG
   full: retrieval-augmented generation
   desc: 检索增强生成：先检索资料再让模型回答
-- term: judge
-  full: LLM-as-a-judge
-  desc: 给输出打分的模型，即 LLM-as-judge
-- term: L3
-  full: "—"
-  desc: 学习地图的第三层（检索）与第六层（生产化）
-- term: L6
-  full: "—"
-  desc: 学习地图的第三层（检索）与第六层（生产化）
 - term: kappa
   full: Cohen's kappa
   desc: 校正了机遇一致之后的标注一致性系数
-- term: McNemar
-  full: McNemar's test
-  desc: 检验同一批用例前后两次判定差异的统计检验
-- term: jury
-  full: "—"
-  desc: 多个 judge 投票给出判定
-- term: answer relevance
-  full: "—"
-  desc: 回答是否切中问题
-- term: context precision
-  full: "—"
-  desc: 检索结果里相关块是否排在前面
-- term: rerank
-  full: "—"
-  desc: 用更强的模型对初检结果重新排序
 - term: p50 / p95
   full: 50th / 95th percentile
   desc: 第 50 / 95 百分位，看中位数和长尾
-- term: L4
-  full: "—"
-  desc: 学习地图的第三层（检索）、第四层（agent）、第六层（生产化）
 - term: ROUGE
   full: Recall-Oriented Understudy for Gisting Evaluation
   desc: 按与参考文本的词重叠给摘要打分
-- term: strict
-  full: "—"
-  desc: 结构化输出的严格模式，按 schema 约束解码
 - term: MMLU
   full: Massive Multitask Language Understanding
   desc: 57 个学科的多选题知识基准
 - term: BEIR
   full: Benchmarking IR
   desc: 跨多个领域的零样本检索评测基准
-- term: embedding
-  full: "—"
-  desc: 把文本变成向量，检索时按向量相似度找块
-- term: promptfoo / Braintrust / Langfuse
-  full: "—"
-  desc: 可以接进 CI 跑评测的工具
-- term: tokenizer
-  full: "—"
-  desc: 把文本切成 token 的分词器，换了它 token 数会变
-- term: changelog
-  full: "—"
-  desc: 供应商发布的变更记录
 - term: RRF
   full: reciprocal rank fusion
   desc: 按排名倒数合并两路检索结果
-- term: blob
-  full: "—"
-  desc: 压缩时存到外部的大块原文，trace 里只留引用
-- term: handoff
-  full: "—"
-  desc: 一个 agent 把任务交给另一个 agent
 - term: A2A
   full: Agent2Agent
   desc: Google 提出的 agent 之间互相调用的协议
-- term: Datadog / Honeycomb / New Relic
-  full: "—"
-  desc: 通用可观测与 APM 平台，带 LLM 模块
-- term: Collector
-  full: "—"
-  desc: OTel 的采集服务，收数据、做映射、转发后端
-- term: LangChain / LangGraph
-  full: "—"
-  desc: LLM 应用开发框架 / 它的 agent 编排库
-- term: playground
-  full: "—"
-  desc: 在界面上直接改 prompt 试跑的调试页
-- term: ClickHouse
-  full: "—"
-  desc: 列式数据库 / 开源监控面板
-- term: Grafana
-  full: "—"
-  desc: 列式数据库 / 开源监控面板
-- term: durable execution
-  full: "—"
-  desc: 进程崩了也能从断点接着跑的执行方式
 - term: PII
   full: personally identifiable information
   desc: 能识别到具体个人的信息
-- term: schema
-  full: "—"
-  desc: 约束输出结构的格式定义
-- term: fixture
-  full: "—"
-  desc: 单元测试里固定的输入数据
-- term: DeepSeek Harness
-  full: "—"
-  desc: DeepSeek 的 agent 运行框架
-- term: tool search
-  full: "—"
-  desc: 工具多时让模型先搜再加载工具定义
-- term: recall
-  full: "—"
-  desc: 召回率：该找到的找到了多少
-- term: prompt caching
-  full: "—"
-  desc: 供应商缓存相同的 prompt 前缀，省钱省时间
-- term: Starlark
-  full: "—"
-  desc: Python 方言的配置语言，这里写执行策略
-- term: turn
-  full: "—"
-  desc: 多轮对话里的一轮
-- term: Langfuse
-  full: "—"
-  desc: 开源的 trace、prompt 管理与评测工具
-- term: logprobs
-  full: "—"
-  desc: 模型给每个输出 token 的对数概率
-- term: item
-  full: "—"
-  desc: 接口返回的一段上下文条目，如加密的压缩块
 - term: DDL
   full: data definition language
   desc: 建表、改表、删表这类改结构的 SQL
-- term: Guardian
-  full: "—"
-  desc: 审批时可选的审查模型，替人先看一遍高风险动作
 - term: SAE
   full: Society of Automotive Engineers
   desc: 国际汽车工程师学会，定了自动驾驶 0–5 级
-- term: EchoLeak
-  full: "—"
-  desc: 2025 年披露的一起 AI 助手数据外泄漏洞
 - term: EU AI Act
   full: Artificial Intelligence Act
   desc: 欧盟《人工智能法》
-- term: prompt injection
-  full: "—"
-  desc: 在输入或工具返回里藏指令，诱导模型越界

@@ -22,7 +22,7 @@ catalog: true
 系列的组织原则：**评测是测试，可观测是日志，可追溯是调试**——三者对应传统软件工程里三件成熟的事，只是对象从确定性代码变成了概率性组件。每篇都说清"传统做法在哪里失效、要换成什么"。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="evals-and-observability" %}
 
