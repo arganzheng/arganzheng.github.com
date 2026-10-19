@@ -42,7 +42,7 @@ Table: 同一环节 PyTorch 与 vLLM 的做法
 第四篇会选取两个已经合入的真实 PR，各自从 issue 到合入完整走一遍，把前三篇讲的方法落到具体的 diff、CI 日志和 review 对话上。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="contributing-to-ai-infra-open-source" %}
 
