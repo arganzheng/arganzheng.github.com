@@ -2,117 +2,48 @@
 - term: ACL
   full: access control list
   desc: 访问控制列表：记录谁能看这份文档
-- term: guardrails
-  full: "—"
-  desc: 生成前后的规则检查与拦截
 - term: RAGAS
   full: Retrieval Augmented Generation Assessment
   desc: RAG 评测框架，定义了一组常用指标
-- term: LightRAG
-  full: "—"
-  desc: 开源的轻量 GraphRAG 变体
 - term: AIP
   full: Artificial Intelligence Platform
   desc: Palantir 建在本体之上的 AI 平台
-- term: Spider
-  full: "—"
-  desc: text-to-SQL 基准；2.0 是企业级版本
-- term: Spider 2.0
-  full: "—"
-  desc: text-to-SQL 基准；2.0 是企业级版本
-- term: L4
-  full: "—"
-  desc: 应用地图第四层：工具、Agent 与运行时
 - term: HyDE
   full: Hypothetical Document Embeddings
   desc: 先让模型写一段假想答案，再用它去检索
-- term: BGE-reranker
-  full: "—"
-  desc: 常用的 rerank 模型
-- term: Qdrant
-  full: "—"
-  desc: 常见的向量库与支持向量的检索引擎
-- term: Milvus
-  full: "—"
-  desc: 常见的向量库与支持向量的检索引擎
-- term: Elasticsearch
-  full: "—"
-  desc: 常见的向量库与支持向量的检索引擎
-- term: OpenSearch
-  full: "—"
-  desc: 常见的向量库与支持向量的检索引擎
 - term: Matryoshka
   full: Matryoshka Representation Learning
   desc: 套娃式向量：只取前几维也能用
-- term: prompt caching
-  full: "—"
-  desc: 缓存重复的 prompt 前缀，降低成本与延迟
-- term: LlamaParse
-  full: "—"
-  desc: 按页收费的托管文档解析服务
 - term: MIT
   full: MIT License
   desc: 宽松的开源许可证
-- term: PyMuPDF4LLM
-  full: "—"
-  desc: 直接读 PDF 文本层的规则抽取库
-- term: turbopuffer
-  full: "—"
-  desc: 基于对象存储的托管向量库，Cursor 用它存索引
 - term: LSP
   full: Language Server Protocol
   desc: 编辑器和语言服务之间的协议，能查定义与引用
-- term: ripgrep
-  full: "—"
-  desc: 更快的 grep 实现，命令名是 rg
 - term: ANN
   full: approximate nearest neighbor
   desc: 近似最近邻搜索，用一点精度换速度
-- term: L5
-  full: "—"
-  desc: 应用地图第五层：评测、可观测与可追溯；「算法地图 L5」指后训练
 - term: RAFT
   full: Retrieval-Augmented Fine-Tuning
   desc: 用带干扰文档的检索结果做微调，让模型更会用检索
 - term: SFT
   full: supervised fine-tuning
   desc: 有监督微调：用（输入，期望输出）对训练模型
-- term: schema
-  full: "—"
-  desc: 数据的结构定义：表、字段、类型
 - term: A/B
   full: A/B testing
   desc: 把流量分成两组、对比两个版本的实验
-- term: late chunking
-  full: "—"
-  desc: 先整篇过 embedding 模型，再按块切出向量
 - term: ColBERT
   full: Contextualized Late Interaction over BERT
   desc: 按 token 存多向量、查询时晚交互的检索模型
 - term: MMTEB
   full: Massive Multilingual Text Embedding Benchmark
   desc: MTEB 的多语言扩展版
-- term: SDK
-  full: software development kit
-  desc: 软件开发工具包；Agent SDK 是 Anthropic 的 agent 开发库
 - term: nDCG
   full: normalized discounted cumulative gain
   desc: 按位置打折、能用分级相关性的排序指标
 - term: MRR
   full: mean reciprocal rank
   desc: 第一个相关结果排名倒数的平均值
-- term: LazyGraphRAG
-  full: "—"
-  desc: GraphRAG 的低成本版，把工作推到查询时
-- term: harness
-  full: "—"
-  desc: 包住模型、限定它能做什么的运行框架
-- term: file search
-  full: "—"
-  desc: 供应商内置的托管检索：上传文件，自动建索引，模型调用
-- term: query
-  full: "—"
-  desc: 用户的查询
 - term: RRF
   full: reciprocal rank fusion
   desc: 倒数排名融合：只按排名合并多路结果
@@ -125,123 +56,30 @@
 - term: MTEB
   full: Massive Text Embedding Benchmark
   desc: 文本 embedding 模型的综合榜单
-- term: contextual retrieval
-  full: "—"
-  desc: 给每个块前置一段模型写的上下文说明，再建索引
-- term: OmniDocBench
-  full: "—"
-  desc: 文档解析基准，覆盖多类文档与版面
 - term: OCR
   full: optical character recognition
   desc: 光学字符识别，把图片里的字读出来
-- term: PaddleOCR-VL
-  full: "—"
-  desc: 用视觉语言模型读文档的 OCR 模型
-- term: Docling / Marker / MinerU
-  full: "—"
-  desc: 开源的布局模型解析器：先检测版面，再抽文字和表格
-- term: agentic
-  full: "—"
-  desc: 由模型自己决定查什么、查几轮的做法
-- term: GraphRAG
-  full: "—"
-  desc: 微软的图检索：抽实体关系建图，再做社区摘要
-- term: Foundry
-  full: "—"
-  desc: Palantir 的数据平台和建在上面的企业本体
-- term: rerank
-  full: "—"
-  desc: 对召回的候选重新精排打分
-- term: Gemini Embedding
-  full: "—"
-  desc: 2026 年主要的 embedding 模型候选
-- term: Voyage
-  full: "—"
-  desc: 2026 年主要的 embedding 模型候选
-- term: coding agent
-  full: "—"
-  desc: 能读写代码、跑命令的编程 agent
-- term: embedding
-  full: "—"
-  desc: 把文本变成向量，意思相近的文本向量也相近
-- term: Merkle 树
-  full: Merkle tree
-  desc: 逐层哈希的树，用来快速找出哪些文件变了
-- term: Cursor / Windsurf
-  full: "—"
-  desc: 为代码库建向量索引的编程工具
-- term: Claude Code / Codex / Cline / Cody
-  full: "—"
-  desc: 不建索引、让模型实时 grep 的编程 agent
 - term: BM25
   full: Best Matching 25
   desc: 按词频和文档长度打分的经典关键词检索算法
-- term: grep / glob
-  full: "—"
-  desc: grep 按内容搜文本，glob 按通配符找文件
 - term: RAG
   full: retrieval-augmented generation
   desc: 检索增强生成：先检索相关内容放进上下文，再让模型回答
-- term: agent
-  full: "—"
-  desc: 能自己调工具、多步完成任务的模型程序
-- term: L2
-  full: "—"
-  desc: 应用地图第二层：Prompt 与上下文工程
-- term: L1
-  full: "—"
-  desc: 应用地图第一层：模型作为组件
-- term: SKILL.md
-  full: "—"
-  desc: agent 技能的说明文件：步骤、清单、模板、脚本
 - term: FAQ
   full: frequently asked questions
   desc: 常见问题列表
 - term: KA
   full: key account
   desc: 大客户，公司内部对重点客户的叫法
-- term: system
-  full: system prompt
-  desc: 系统提示，放角色、规则这类半静态内容的那一层
 - term: LoRA
   full: Low-Rank Adaptation
   desc: 只训练低秩增量矩阵的轻量微调方法
-- term: L6
-  full: "—"
-  desc: 应用地图第六层：生产化与运营
 - term: B2B
   full: business-to-business
   desc: 面向企业客户的业务
-- term: Elasticsearch / Lucene
-  full: "—"
-  desc: 开源全文检索引擎，Lucene 是它底层的库
-- term: CLI
-  full: command-line interface
-  desc: 命令行界面；Codex CLI 是 OpenAI 的命令行 agent
-- term: Palantir Ontology
-  full: "—"
-  desc: Palantir 的企业本体平台，第六篇细讲
-- term: monorepo
-  full: "—"
-  desc: 很多项目放在同一个代码仓库里
-- term: join
-  full: "—"
-  desc: SQL 里按键把两张表连起来
-- term: OlmoOCR
-  full: "—"
-  desc: 用视觉语言模型读文档的 OCR 模型
 - term: Apache 2.0
   full: Apache License 2.0
   desc: 允许商用的宽松开源许可证
-- term: Reducto
-  full: "—"
-  desc: 按页收费的托管文档解析服务
-- term: pdfplumber
-  full: "—"
-  desc: 直接读 PDF 文本层的规则抽取库
-- term: MarkItDown
-  full: "—"
-  desc: 直接读 PDF 文本层的规则抽取库
 - term: DOM
   full: Document Object Model
   desc: 网页的树状结构
@@ -251,42 +89,12 @@
 - term: VLM
   full: vision-language model
   desc: 能看图的语言模型，这里用来读文档图像
-- term: L7
-  full: "—"
-  desc: 应用地图第七层：产品与体验
-- term: Voyage-3-large
-  full: "—"
-  desc: 2026 年主要的 embedding 模型候选
-- term: Cohere Embed v4
-  full: "—"
-  desc: 2026 年主要的 embedding 模型候选
-- term: Qwen3-Reranker
-  full: "—"
-  desc: 常用的 rerank 模型
 - term: int8
   full: 8-bit integer
   desc: 8 位整数，用来压缩向量
-- term: judge
-  full: LLM-as-a-judge
-  desc: 给结果打分的模型，即 LLM-as-judge
 - term: PQ / SQ
   full: product quantization / scalar quantization
   desc: 乘积量化 / 标量量化，压缩向量省内存
-- term: DiskANN
-  full: "—"
-  desc: 微软的磁盘驻留向量索引，适合亿级
-- term: pgvector
-  full: "—"
-  desc: PostgreSQL 的向量检索扩展
-- term: Elasticsearch / OpenSearch
-  full: "—"
-  desc: 全文检索引擎，也支持向量
-- term: Qdrant / Milvus / Weaviate
-  full: "—"
-  desc: 专用的向量数据库
-- term: LanceDB
-  full: "—"
-  desc: 基于对象存储的低成本向量库
 - term: QPS
   full: queries per second
   desc: 每秒查询数
@@ -296,36 +104,12 @@
 - term: SaaS
   full: software as a service
   desc: 软件即服务，这里指多租户的在线产品
-- term: agentic retrieval
-  full: "—"
-  desc: 把检索做成 agent 的工具，由模型决定查什么、查几轮
-- term: trace
-  full: "—"
-  desc: 记录每一步输入、输出和决策的调用轨迹
 - term: p50 / p95
   full: 50th / 95th percentile
   desc: 延迟的中位数与 95 分位
-- term: OpenAI Responses
-  full: "—"
-  desc: OpenAI 的新一代对话 API，内置 file search
-- term: SQL
-  full: Structured Query Language
-  desc: 查询关系数据库的语言
-- term: dbt
-  full: data build tool
-  desc: 用 SQL 管数据转换的工具，带 semantic layer
-- term: semantic layer
-  full: "—"
-  desc: 语义层：在表之上定义指标、维度的业务层
-- term: Cube
-  full: "—"
-  desc: 开源的语义层产品
 - term: BI
   full: business intelligence
   desc: 商业智能：报表与指标分析
-- term: EXPLAIN
-  full: "—"
-  desc: SQL 查看执行计划的命令，可估算成本
 - term: ERP
   full: enterprise resource planning
   desc: 企业资源计划系统
@@ -335,42 +119,6 @@
 - term: MES
   full: manufacturing execution system
   desc: 制造执行系统，管车间生产
-- term: Leiden
-  full: "—"
-  desc: 一种社区检测（图聚类）算法
-- term: NLP
-  full: natural language processing
-  desc: 自然语言处理
-- term: Cohere
-  full: "—"
-  desc: 常用的 rerank 模型
-- term: webhook
-  full: "—"
-  desc: 源系统有变更时主动回调通知
-- term: bad case
-  full: "—"
-  desc: 答错的样例，用来补充评测集
-- term: durable execution
-  full: "—"
-  desc: 长任务中断后能从断点继续执行的运行时
-- term: prompt injection
-  full: "—"
-  desc: 在输入里藏指令，诱导模型越权
 - term: DPO
   full: Direct Preference Optimization
   desc: 直接用偏好对训练模型的对齐方法
-- term: faithfulness
-  full: "—"
-  desc: 回答是否都有上下文里的内容支撑
-- term: answer relevance
-  full: "—"
-  desc: 回答是否切题
-- term: context precision
-  full: "—"
-  desc: 进上下文的块里相关的比例
-- term: hit rate
-  full: "—"
-  desc: 至少命中一个相关块的查询比例
-- term: NoLiMa
-  full: "—"
-  desc: 测「问法与原文没有字面重合」时长上下文能力的基准
