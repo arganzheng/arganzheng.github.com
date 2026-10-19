@@ -113,6 +113,22 @@
     '<button type="button" class="rs-reset">恢复默认</button>';
   document.body.appendChild(panel);
 
+  var helpCard = document.createElement('div');
+  helpCard.className = 'rs-keys-help';
+  helpCard.setAttribute('role', 'dialog');
+  helpCard.setAttribute('aria-label', '键盘快捷键');
+  helpCard.hidden = true;
+  helpCard.innerHTML =
+    '<h2>键盘快捷键</h2>' +
+    '<div class="rs-key-row"><span><kbd>j</kbd> / <kbd>k</kbd></span><span>向下 / 向上滚动</span></div>' +
+    '<div class="rs-key-row"><span><kbd>d</kbd> / <kbd>u</kbd></span><span>向下 / 向上半屏</span></div>' +
+    '<div class="rs-key-row"><span><kbd>gg</kbd> / <kbd>G</kbd></span><span>回到开头 / 跳到结尾</span></div>' +
+    '<div class="rs-key-row"><span><kbd>h</kbd> / <kbd>l</kbd></span><span>上一节 / 下一节</span></div>' +
+    '<div class="rs-key-row"><span><kbd>空格</kbd> / <kbd>Shift</kbd>+<kbd>空格</kbd></span><span>整屏翻页</span></div>' +
+    '<div class="rs-key-row"><span><kbd>?</kbd></span><span>显示 / 隐藏本帮助</span></div>' +
+    '<div class="rs-key-row"><span><kbd>Esc</kbd></span><span>退出专注</span></div>';
+  document.body.appendChild(helpCard);
+
   var focusControls = document.createElement('div');
   focusControls.className = 'rs-focus-controls';
   focusControls.hidden = true;
@@ -133,6 +149,7 @@
   exitButton.className = 'rs-focus-exit';
   exitButton.textContent = '退出专注 · Esc';
   exitButton.setAttribute('aria-label', '退出专注');
+  exitButton.setAttribute('title', '退出专注（Esc）· 按 ? 查看快捷键');
   focusControls.appendChild(exitButton);
   document.body.appendChild(focusControls);
 
@@ -155,7 +172,9 @@
       button.setAttribute('aria-pressed', String(button.getAttribute('data-rs-value') === selected(button.getAttribute('data-rs-setting'))));
     }
     if (focusTrigger) focusTrigger.setAttribute('aria-pressed', String(selected('focus') === 'on'));
-    focusControls.hidden = selected('focus') !== 'on';
+    var focusOn = selected('focus') === 'on';
+    focusControls.hidden = !focusOn;
+    if (!focusOn) helpCard.hidden = true;
     if (selected('focus') !== 'on' && activeTrigger === settingsButton && !panel.hidden) close(false);
     var theme = root.getAttribute('data-theme') || 'light';
     var paperButtons = panel.querySelectorAll('[data-rs-paper]');
@@ -199,6 +218,7 @@
 
   function openPanel(anchor) {
     activeTrigger = anchor;
+    helpCard.hidden = true;
     panel.hidden = false;
     activeTrigger.setAttribute('aria-expanded', 'true');
     positionPanel();
@@ -283,13 +303,17 @@
     return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
   }
 
-  function overlayOpen() {
+  function otherOverlayOpen() {
     if (document.querySelector('.mm-overlay, .diagram-zoom.open, .search-overlay.search-active')) return true;
     var overlays = document.querySelectorAll('.annotation-panel, .annotation-comments');
     for (var i = 0; i < overlays.length; i++) {
       if (visible(overlays[i])) return true;
     }
     return false;
+  }
+
+  function overlayOpen() {
+    return !!document.querySelector('.rs-keys-help:not([hidden])') || otherOverlayOpen();
   }
 
   function isEditing(element) {
@@ -315,13 +339,90 @@
   }, true);
 
   document.addEventListener('keydown', function (event) {
-    if (!canReenterFullscreen() || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!canReenterFullscreen() || event.metaKey || event.ctrlKey || event.altKey ||
+        event.defaultPrevented || event.isComposing) return;
     if (event.key !== ' ' && event.key !== 'PageDown' && event.key !== 'PageUp' &&
         event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End' &&
-        event.code !== 'Space') return;
+        event.key !== 'j' && event.key !== 'k' && event.key !== 'd' && event.key !== 'u' &&
+        event.key !== 'G' && event.key !== 'h' && event.key !== 'l' && event.code !== 'Space') return;
     if (isEditing(document.activeElement)) return;
     enterFullscreen();
   }, true);
+
+  var pendingG = 0;
+  document.addEventListener('keydown', function (event) {
+    var isG = event.key === 'g';
+    if (!isG) pendingG = 0;
+    if (selected('focus') !== 'on') {
+      pendingG = 0;
+      return;
+    }
+
+    var isHelpKey = event.key === '?';
+    var isEscape = event.key === 'Escape' || event.key === 'Esc';
+    if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented || event.isComposing ||
+        (event.shiftKey && event.key !== 'G' && !isHelpKey) || isEditing(document.activeElement) || !panel.hidden) {
+      if (isG) pendingG = 0;
+      return;
+    }
+    if (overlayOpen() && !(isHelpKey && !otherOverlayOpen())) return;
+
+    if (isHelpKey) {
+      event.preventDefault();
+      helpCard.hidden = !helpCard.hidden;
+      return;
+    }
+    if (isEscape) return;
+
+    var behavior = event.repeat || (window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches) ? 'auto' : 'smooth';
+    var delta;
+    if (event.key === 'j' || event.key === 'k') {
+      var lineHeight = parseFloat(window.getComputedStyle(article).lineHeight);
+      delta = lineHeight > 0 && isFinite(lineHeight) ? lineHeight * 3 : 80;
+      if (event.key === 'k') delta = -delta;
+      window.scrollBy({ top: delta, behavior: behavior });
+    } else if (event.key === 'd' || event.key === 'u') {
+      delta = window.innerHeight / 2;
+      if (event.key === 'u') delta = -delta;
+      window.scrollBy({ top: delta, behavior: behavior });
+    } else if (event.key === 'g') {
+      if (event.repeat) {
+        pendingG = 0;
+        return;
+      }
+      var now = Date.now();
+      if (pendingG && now - pendingG <= 1000) {
+        pendingG = 0;
+        window.scrollTo({ top: 0, behavior: behavior });
+      } else {
+        pendingG = now;
+      }
+    } else if (event.key === 'G') {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: behavior });
+    } else if (event.key === 'h' || event.key === 'l') {
+      var headings = article.querySelectorAll('h2, h3');
+      var target = null;
+      for (var i = 0; i < headings.length; i++) {
+        if (!headings[i].getClientRects().length) continue;
+        var headingTop = headings[i].getBoundingClientRect().top;
+        if (event.key === 'l' && headingTop > 24) {
+          target = headings[i];
+          break;
+        }
+        if (event.key === 'h' && headingTop < -8) target = headings[i];
+      }
+      if (target) {
+        window.scrollTo({
+          top: window.scrollY + target.getBoundingClientRect().top - 16,
+          behavior: behavior
+        });
+      }
+    } else {
+      return;
+    }
+    event.preventDefault();
+  });
 
   var escapeOverlayWasOpen = false;
   document.addEventListener('keydown', function (event) {
@@ -329,10 +430,17 @@
   }, true);
 
   document.addEventListener('click', function (event) {
+    if (!helpCard.hidden && !helpCard.contains(event.target)) helpCard.hidden = true;
+  });
+  document.addEventListener('click', function (event) {
     if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target) &&
         !settingsButton.contains(event.target)) close(true);
   });
   document.addEventListener('keydown', function (event) {
+    if (!helpCard.hidden && (event.key === 'Escape' || event.key === 'Esc')) {
+      helpCard.hidden = true;
+      event.preventDefault();
+    }
     if (!panel.hidden && (event.key === 'Escape' || event.key === 'Esc')) {
       event.preventDefault();
       close(true);
