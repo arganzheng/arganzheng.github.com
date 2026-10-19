@@ -10,7 +10,7 @@ updated: 2026-09-14
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-上一篇的全景图里已经出现了一个关键事实：KV Cache 不再是一整块连续显存，而是按 Block 动态分配和回收的资源（PagedAttention），不同请求因此可以灵活共享 GPU 显存——它的管理细节留到第五篇。有了"显存可以按块调配"这个前提，一个更直接的问题就浮上来了：
+第三篇的全景图把几个核心问题放在一张图里。我先从调度开始：这一轮 GPU 给谁用，每个请求推进多少 token？KV Cache 会随生成 token 增长，Scheduler 按 block 申请空间；详细管理留到第五篇。
 
 > **GPU 这一轮到底给谁用？[^q0] 每个请求这一轮应该推进多少？[^q1]**
 
@@ -114,66 +114,9 @@ Table: 本文的章节安排
 
 如果采用固定 Batch：
 
-```text title='Static Batching：三个请求按步推进'
-Step 1：
+![Static Batching 中 A、B、C 的完成时间，以及 B、C 结束后 D 仍在等待](/img/in-post/scheduler-static-continuous-batching.svg)
 
-A  ████████████
-B  ██████
-C  ████
-
-Step 2：
-
-A  ████████████
-B  ██████
-C  ████
-
-...
-
-Step 4：
-
-A  ████████████
-B  ██████
-C  ████
-              ↑
-          B、C 已经完成
-
-...
-
-Step 12：
-
-A  ████████████
-B  idle
-C  idle
-```
-
-问题很明显：
-
-> **请求 B、C 已经完成，但 Batch 仍然要等请求 A。**
-
-GPU 的部分计算资源因此被浪费。
-
-更严重的是，新来的 Request D 即使已经排队，也无法及时加入当前 Batch：
-
-```text title='B、C 完成后仍要等 A'
-A ──────────────────────────────►
-B ───────────► done
-
-C ────────► done
-
-D ────────► waiting...
-```
-
-于是系统形成：
-
-```text title='GPU 资源释放了但 Batch 没结束'
-GPU
-│
-├── 已完成请求释放资源
-│
-├── Batch 仍然没有结束
-│
-└── 新请求无法及时进入
-```
+B、C 的 GPU 槽位空出来后，Batch 仍要等 A 到 Step 12 才结束。新请求 D 即使已经排队，也不能及时进入。
 
 ### 2. Continuous Batching
 
@@ -190,23 +133,7 @@ LLM 的生成过程天然是迭代式的：
 
 这就是 Continuous Batching。
 
-```text title='Continuous Batching：每轮迭代重组 Batch'
-                 Continuous Batching
-
-Iter 1:   [A] [B] [C]
-
-Iter 2:   [A] [B] [C]
-
-Iter 3:   [A] [B] [C] → A 完成
-
-Iter 4:        [B] [C] [D]   ← D 加入
-
-Iter 5:        [B] [C] [D] [E]  ← E 加入
-
-Iter 6:        [B] [D] [E]      ← C 完成
-
-...
-```
+![静态 Batch 的空转与 Continuous Batching 的逐步重组：4 个 slot、12 个 step](/img/in-post/why-llm-serving-is-hard-static-vs-continuous-batching.svg)
 
 与 Static Batching 相比：
 

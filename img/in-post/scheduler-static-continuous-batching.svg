@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="820" viewBox="0 0 760 820" role="img" aria-labelledby="title desc">
+  <title id="title">Static 与 Continuous Batching：请求完成和重新入队</title>
+  <desc id="desc">固定 batch 中 A、B、C 分别生成 12、6、4 个 token，B 和 C 结束后 D 仍等待 A；Continuous Batching 每轮重新组成请求集合。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .label { font-size: 13px; font-weight: 600; }
+      .small { font-size: 12px; }
+      .axis { font-size: 11px; fill: #526579; }
+      .step { stroke: #fff; stroke-width: 2; }
+      .run-a { fill: #4e79a7; }
+      .run-b { fill: #59a14f; }
+      .idle { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 6; }
+    </style>
+  </defs>
+  <rect width="760" height="820" fill="#fff"/>
+  <text x="380" y="34" text-anchor="middle" class="title">Static 与 Continuous Batching：请求完成和重新入队</text>
+
+  <rect x="24" y="52" width="712" height="300" class="frame"/>
+  <text x="44" y="80" class="head">Static Batching · 固定 Batch 生命周期</text>
+  <text x="44" y="103" class="small">A = 12 tokens　 B = 6 tokens　 C = 4 tokens</text>
+  <g class="axis" text-anchor="middle">
+    <text x="204" y="125">1</text><text x="236" y="125">2</text><text x="268" y="125">3</text><text x="300" y="125">4</text>
+    <text x="332" y="125">5</text><text x="364" y="125">6</text><text x="396" y="125">7</text><text x="428" y="125">8</text>
+    <text x="460" y="125">9</text><text x="492" y="125">10</text><text x="524" y="125">11</text><text x="556" y="125">12</text>
+  </g>
+  <text x="44" y="151" class="label">Step</text>
+  <g>
+    <text x="44" y="178" class="label">A</text>
+    <rect x="188" y="160" width="384" height="24" rx="5" class="run-a"/>
+    <text x="380" y="177" text-anchor="middle" class="small" fill="#fff">运行 12 steps</text>
+
+    <text x="44" y="216" class="label">B</text>
+    <rect x="188" y="198" width="192" height="24" rx="5" class="run-b"/>
+    <rect x="380" y="198" width="192" height="24" class="idle"/>
+    <text x="284" y="215" text-anchor="middle" class="small" fill="#fff">运行 6 steps</text>
+    <text x="476" y="215" text-anchor="middle" class="small">idle</text>
+
+    <text x="44" y="254" class="label">C</text>
+    <rect x="188" y="236" width="128" height="24" rx="5" class="run-b"/>
+    <rect x="316" y="236" width="256" height="24" class="idle"/>
+    <text x="252" y="253" text-anchor="middle" class="small" fill="#fff">运行 4 steps</text>
+    <text x="444" y="253" text-anchor="middle" class="small">idle</text>
+
+    <text x="44" y="292" class="label">D</text>
+    <rect x="188" y="274" width="384" height="24" rx="5" class="waiting"/>
+    <text x="380" y="291" text-anchor="middle" class="small">waiting… 直到 Step 12 的 Batch 结束</text>
+  </g>
+  <text x="44" y="329" class="small">Step 4：B、C 已完成，GPU 槽位空出；但 Batch 仍等 A，D 不能加入。</text>
+
+  <rect x="24" y="370" width="712" height="414" class="frame"/>
+  <text x="44" y="399" class="head">Continuous Batching · 每轮重新组成 Batch</text>
+  <text x="44" y="421" class="small">下面的 Iteration 示例只画请求进出，不对应上方的 token 长度。</text>
+
+  <g class="label" text-anchor="start">
+    <text x="48" y="462">Iter 1</text>
+    <text x="48" y="512">Iter 2</text>
+    <text x="48" y="562">Iter 3</text>
+    <text x="48" y="612">Iter 4</text>
+    <text x="48" y="662">Iter 5</text>
+    <text x="48" y="712">Iter 6</text>
+  </g>
+  <g class="small">
+    <rect x="124" y="442" width="70" height="30" class="request"/><text x="159" y="462" text-anchor="middle">A</text>
+    <rect x="201" y="442" width="70" height="30" class="request"/><text x="236" y="462" text-anchor="middle">B</text>
+    <rect x="278" y="442" width="70" height="30" class="request"/><text x="313" y="462" text-anchor="middle">C</text>
+
+    <rect x="124" y="492" width="70" height="30" class="request"/><text x="159" y="512" text-anchor="middle">A</text>
+    <rect x="201" y="492" width="70" height="30" class="request"/><text x="236" y="512" text-anchor="middle">B</text>
+    <rect x="278" y="492" width="70" height="30" class="request"/><text x="313" y="512" text-anchor="middle">C</text>
+
+    <rect x="124" y="542" width="70" height="30" class="request"/><text x="159" y="562" text-anchor="middle">A</text>
+    <rect x="201" y="542" width="70" height="30" class="request"/><text x="236" y="562" text-anchor="middle">B</text>
+    <rect x="278" y="542" width="70" height="30" class="request"/><text x="313" y="562" text-anchor="middle">C</text>
+    <text x="370" y="562">→ A 完成</text>
+
+    <rect x="201" y="592" width="70" height="30" class="request"/><text x="236" y="612" text-anchor="middle">B</text>
+    <rect x="278" y="592" width="70" height="30" class="request"/><text x="313" y="612" text-anchor="middle">C</text>
+    <rect x="355" y="592" width="70" height="30" class="request"/><text x="390" y="612" text-anchor="middle">D</text>
+    <text x="447" y="612">← D 加入</text>
+
+    <rect x="201" y="642" width="70" height="30" class="request"/><text x="236" y="662" text-anchor="middle">B</text>
+    <rect x="278" y="642" width="70" height="30" class="request"/><text x="313" y="662" text-anchor="middle">C</text>
+    <rect x="355" y="642" width="70" height="30" class="request"/><text x="390" y="662" text-anchor="middle">D</text>
+    <rect x="432" y="642" width="70" height="30" class="request"/><text x="467" y="662" text-anchor="middle">E</text>
+    <text x="524" y="662">← E 加入</text>
+
+    <rect x="201" y="692" width="70" height="30" class="request"/><text x="236" y="712" text-anchor="middle">B</text>
+    <rect x="355" y="692" width="70" height="30" class="request"/><text x="390" y="712" text-anchor="middle">D</text>
+    <rect x="432" y="692" width="70" height="30" class="request"/><text x="467" y="712" text-anchor="middle">E</text>
+    <text x="524" y="712">← C 完成</text>
+  </g>
+  <text x="44" y="758" class="small">请求完成即可退出；等待请求可以在下一轮进入空出的槽位。</text>
+</svg>
