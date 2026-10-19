@@ -10505,7 +10505,7 @@ html[data-theme="dark"] #archive .archive-view-button,
 html[data-theme="dark"] #archive .archive-clear-filters,
 html[data-theme="dark"] #archive .archive-inline-tag,
 html[data-theme="dark"] #archive .archive-selects select,
-html[data-theme="dark"] #archive .archive-multi-box,
+html[data-theme="dark"] #archive .archive-multi-toggle,
 html[data-theme="dark"] #archive .archive-multi-search,
 html[data-theme="dark"] #archive .archive-multi-clear {
   border-color: #33363c;
@@ -10527,6 +10527,9 @@ html[data-theme="dark"] #archive .archive-multi-chip-remove:hover {
 html[data-theme="dark"] #archive .archive-multi-chip-remove:focus-visible {
   outline-color: #4cb7cb;
 }
+html[data-theme="dark"] #archive .archive-active-group-label {
+  color: #969ba4;
+}
 html[data-theme="dark"] #archive .archive-goto-clear:hover,
 html[data-theme="dark"] #archive .archive-chip:hover,
 html[data-theme="dark"] #archive .archive-view-button:hover,
@@ -10536,18 +10539,18 @@ html[data-theme="dark"] #archive .archive-multi-clear:hover {
   border-color: #4cb7cb;
   color: #4cb7cb;
 }
-html[data-theme="dark"] #archive .archive-multi-box.is-active {
+html[data-theme="dark"] #archive .archive-multi-toggle.is-active {
   border-color: #4cb7cb;
   color: #4cb7cb;
 }
-html[data-theme="dark"] #archive .archive-multi-box:hover {
+html[data-theme="dark"] #archive .archive-multi-toggle:hover {
   border-color: #969ba4;
 }
-html[data-theme="dark"] #archive .archive-multi-box.is-active:hover {
+html[data-theme="dark"] #archive .archive-multi-toggle.is-active:hover {
   border-color: #4cb7cb;
   color: #4cb7cb;
 }
-html[data-theme="dark"] #archive .archive-multi-box:focus-within,
+html[data-theme="dark"] #archive .archive-multi-toggle:focus,
 html[data-theme="dark"] #archive .archive-multi-search:focus {
   border-color: #4cb7cb;
   box-shadow: none;
@@ -10599,7 +10602,7 @@ html[data-theme="dark"] #archive .archive-goto-option.active {
   background-color: #282b30;
 }
 html[data-theme="dark"] #archive .archive-selects select,
-html[data-theme="dark"] #archive .archive-multi-box {
+html[data-theme="dark"] #archive .archive-multi-toggle {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa4b2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 html[data-theme="dark"] #archive .archive-selects select:hover {
@@ -11613,7 +11616,7 @@ html[data-theme="sepia"] #archive .archive-card,
 html[data-theme="sepia"] #archive .archive-table,
 html[data-theme="sepia"] #archive .archive-goto-file input,
 html[data-theme="sepia"] #archive .archive-selects select,
-html[data-theme="sepia"] #archive .archive-multi-box,
+html[data-theme="sepia"] #archive .archive-multi-toggle,
 html[data-theme="sepia"] #archive .archive-multi-panel,
 html[data-theme="sepia"] #archive .archive-multi-search {
   border-color: #dccfb2;
@@ -11629,6 +11632,9 @@ html[data-theme="sepia"] #archive .archive-multi-chip-remove:hover {
 }
 html[data-theme="sepia"] #archive .archive-multi-chip-remove:focus-visible {
   outline-color: #286090;
+}
+html[data-theme="sepia"] #archive .archive-active-group-label {
+  color: #7a6c58;
 }
 html[data-theme="sepia"] #archive .archive-table th {
   border-color: #dccfb2;
@@ -11660,15 +11666,15 @@ html[data-theme="sepia"] #archive .archive-multi-clear:hover {
   border-color: #286090;
   color: #286090;
 }
-html[data-theme="sepia"] #archive .archive-multi-box:hover {
-  border-color: #7a6c58;
-}
-html[data-theme="sepia"] #archive .archive-multi-box.is-active,
-html[data-theme="sepia"] #archive .archive-multi-box.is-active:hover {
+html[data-theme="sepia"] #archive .archive-multi-toggle.is-active,
+html[data-theme="sepia"] #archive .archive-multi-toggle.is-active:hover {
   border-color: #286090;
   color: #286090;
 }
-html[data-theme="sepia"] #archive .archive-multi-box:focus-within,
+html[data-theme="sepia"] #archive .archive-multi-toggle:hover {
+  border-color: #7a6c58;
+}
+html[data-theme="sepia"] #archive .archive-multi-toggle:focus,
 html[data-theme="sepia"] #archive .archive-multi-search:focus {
   border-color: #286090;
   box-shadow: 0 0 0 3px rgba(40, 96, 144, 0.15);
