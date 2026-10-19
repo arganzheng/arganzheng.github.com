@@ -38,7 +38,7 @@
   full: "Identity Preference Optimization"
   desc: "DPO 的变体，防止确定性偏好下过拟合"
 - term: "judge"
-  full: "—"
+  full: "LLM-as-a-judge"
   desc: "用来给回答打分的模型或规则器（LLM-as-a-judge）"
 - term: "KL"
   full: "Kullback–Leibler divergence"

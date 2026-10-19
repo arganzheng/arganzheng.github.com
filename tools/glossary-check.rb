@@ -8,8 +8,14 @@
 #     and link URLs stripped; same [A-Za-z0-9_-] boundary on both sides)
 #   - a missing full or desc
 #
-# Warns only when the same term has a different `full` across series files.
+# Fails when the same term has a different `full` across series files,
+# except HOMONYMS — terms that genuinely expand differently per series
+# (CFG: context-free grammar / control-flow graph / classifier-free
+# guidance; AR: all-reduce / autoregressive; ORM: outcome reward model /
+# object-relational mapping; A2A: Agent2Agent / all-to-all; TLS: thread-local storage / Transport Layer Security).
 require 'yaml'
+
+HOMONYMS = %w[CFG AR ORM A2A TLS].freeze
 
 ROOT = File.expand_path('..', __dir__)
 BOUND = '[A-Za-z0-9_-]'
@@ -59,7 +65,7 @@ Dir.glob(File.join(ROOT, '_data', 'glossary', '*.yml')).sort.each do |file|
 
     prev = fulls[term]
     full = e['full'].to_s
-    failures << "'#{term}' has full '#{prev.keys.first}' in #{prev.values.first} but '#{full}' in #{key}" if !prev.empty? && !prev.key?(full)
+    failures << "'#{term}' has full '#{prev.keys.first}' in #{prev.values.first} but '#{full}' in #{key}" if !prev.empty? && !prev.key?(full) && !HOMONYMS.include?(term)
     prev[full] ||= key
   end
 end

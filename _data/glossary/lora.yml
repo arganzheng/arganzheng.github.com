@@ -152,7 +152,7 @@
   full: "—"
   desc: "一层的输入维度，决定 Kaiming 初始化的幅度"
 - term: "lm_head"
-  full: "—"
+  full: "language modeling head"
   desc: "输出层，把 hidden 映射成词表 logits"
 - term: "AdaLoRA"
   full: "Adaptive LoRA"
