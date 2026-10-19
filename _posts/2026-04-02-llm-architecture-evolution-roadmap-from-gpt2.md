@@ -14,6 +14,10 @@ comments_path: /transformer-anatomy-and-parameter-count.html
 
 本系列从 GPT-2 出发，回答现代 LLM 的结构改了什么、为什么改、代价是什么。先读真实配置、建立路线图和参数量基线，再以算量与访存为共同坐标，逐篇展开位置编码、Attention、长上下文、MoE、MTP、投机解码、多模态和数值格式。
 
+## 术语与缩写
+
+{% include glossary-table.html series="modern-llm-architecture" %}
+
 ## 为什么写这个系列？
 
 ### 演进沿着几个方向走，每一处都是对某个具体问题的回答
