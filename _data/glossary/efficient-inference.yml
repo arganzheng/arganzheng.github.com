@@ -1,99 +1,82 @@
-- term: "AWQ"
-  full: "Activation-aware Weight Quantization"
-  desc: "按激活大小保护重要通道的权重量化方法"
-- term: "BF16"
-  full: "bfloat16"
-  desc: "16 位浮点，指数位与 fp32 一样、尾数只有 7 位"
-- term: "EAGLE"
+---
+- term: AWQ
+  full: Activation-aware Weight Quantization
+  desc: 按激活大小保护重要通道的权重量化方法
+- term: BF16
+  full: bfloat16
+  desc: 16 位浮点，指数位与 fp32 一样、尾数只有 7 位
+- term: EAGLE
   full: "—"
-  desc: "在特征层外推草稿的投机解码方法，接受率比 Medusa 高"
-- term: "FP16"
-  full: "16-bit floating point"
-  desc: "半精度浮点，推理默认权重格式之一"
-- term: "FP8"
-  full: "8-bit floating point"
-  desc: "8 bit 浮点格式，常用于推理量化"
-- term: "GEMM"
-  full: "general matrix multiply"
-  desc: "通用矩阵乘，prefill 时线性层的主算子"
-- term: "GQA"
-  full: "grouped-query attention"
-  desc: "多个 q 头共用一组 k、v 头，KV cache 更小"
-- term: "GPTQ"
+  desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
+- term: FP16
+  full: 16-bit floating point
+  desc: 半精度浮点，推理默认权重格式之一
+- term: FP8
+  full: 8-bit floating point
+  desc: 8 bit 浮点格式，常用于推理量化
+- term: GEMM
+  full: general matrix multiply
+  desc: 通用矩阵乘，prefill 时线性层的主算子
+- term: GQA
+  full: grouped-query attention
+  desc: 多个 q 头共用一组 k、v 头，KV cache 更小
+- term: GPTQ
   full: "—"
-  desc: "逐层用二阶信息补偿误差的训练后权重量化方法"
-- term: "GSM8K"
-  full: "Grade School Math 8K"
-  desc: "小学数学文字题 benchmark，8.5K 题"
-- term: "H2O"
-  full: "Heavy-Hitter Oracle"
-  desc: "按累计注意力分数保留「重击球」token 的 KV 淘汰策略"
-- term: "Hadamard"
+  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
+- term: GSM8K
+  full: Grade School Math 8K
+  desc: 小学数学文字题 benchmark，8.5K 题
+- term: H2O
+  full: Heavy-Hitter Oracle
+  desc: 按累计注意力分数保留「重击球」token 的 KV 淘汰策略
+- term: INT4
+  full: 4-bit integer
+  desc: 均匀 16 格的 4 bit 整数量化
+- term: INT8
+  full: 8-bit integer
+  desc: 8 bit 整数量化，精度损失最小的低比特档
+- term: KIVI
   full: "—"
-  desc: "哈达玛变换：把激活里的异常通道摊平、让量化误差均匀"
-- term: "INT4"
-  full: "4-bit integer"
-  desc: "均匀 16 格的 4 bit 整数量化"
-- term: "INT8"
-  full: "8-bit integer"
-  desc: "8 bit 整数量化，精度损失最小的低比特档"
-- term: "KIVI"
+  desc: KV cache 量化方法：key 按通道、value 按 token 量化
+- term: KL
+  full: Kullback–Leibler divergence
+  desc: 衡量两个分布差多少；评估量化损失时用它
+- term: MLA
+  full: multi-head latent attention
+  desc: 把 KV 压成低秩隐向量的 attention，DeepSeek 用它
+- term: MMLU
+  full: Massive Multitask Language Understanding
+  desc: 57 学科多选题 benchmark，量化前后对比常用它
+- term: MTP
+  full: multi-token prediction
+  desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
+- term: OBS
+  full: Optimal Brain Surgeon
+  desc: 用二阶信息补偿剪枝误差的经典方法，GPTQ 的思想源头
+- term: PTQ
+  full: post-training quantization
+  desc: 训练后量化：不再回训，只校准缩放
+- term: QAT
+  full: quantization-aware training
+  desc: 量化感知训练：训练时就模拟低比特，部署不再掉点
+- term: RTN
+  full: round-to-nearest
+  desc: 最近取整量化：最直接、误差也最裸的量化方式
+- term: SFT
+  full: supervised fine-tuning
+  desc: 监督微调：用标注回答训模型
+- term: STE
+  full: straight-through estimator
+  desc: 直通估计器：前向用量化值、反传当恒等映射
+- term: TV
+  full: total variation
+  desc: 总变差距离；投机解码的接受率 = 1 − TV
+- term: W4A16
   full: "—"
-  desc: "KV cache 量化方法：key 按通道、value 按 token 量化"
-- term: "KL"
-  full: "Kullback–Leibler divergence"
-  desc: "衡量两个分布差多少；评估量化损失时用它"
-- term: "KV"
-  full: "key–value"
-  desc: "attention 里被查的键与取值的值；KV cache 是它的缓存"
-- term: "Medusa"
+  desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
+- term: W4A4
   full: "—"
-  desc: "给模型加多个并行解码头、一次猜多个 token 的投机方法"
-- term: "Minitron"
+  desc: 权重、激活都 4 bit 的量化档，收益最大、最难保精度
+- term: W8A8
   full: "—"
-  desc: "NVIDIA 的「剪枝 + 蒸馏回训」小模型流水线"
-- term: "MLA"
-  full: "multi-head latent attention"
-  desc: "把 KV 压成低秩隐向量的 attention，DeepSeek 用它"
-- term: "MMLU"
-  full: "Massive Multitask Language Understanding"
-  desc: "57 学科多选题 benchmark，量化前后对比常用它"
-- term: "MTP"
-  full: "multi-token prediction"
-  desc: "一次预测多个 token 的模块，训练出的头可投给投机解码"
-- term: "OBS"
-  full: "Optimal Brain Surgeon"
-  desc: "用二阶信息补偿剪枝误差的经典方法，GPTQ 的思想源头"
-- term: "PTQ"
-  full: "post-training quantization"
-  desc: "训练后量化：不再回训，只校准缩放"
-- term: "QAT"
-  full: "quantization-aware training"
-  desc: "量化感知训练：训练时就模拟低比特，部署不再掉点"
-- term: "RTN"
-  full: "round-to-nearest"
-  desc: "最近取整量化：最直接、误差也最裸的量化方式"
-- term: "SFT"
-  full: "supervised fine-tuning"
-  desc: "监督微调：用标注回答训模型"
-- term: "SmoothQuant"
-  full: "—"
-  desc: "把激活的异常值折进权重的量化方法，让两边都好量化"
-- term: "SnapKV"
-  full: "—"
-  desc: "用 prompt 尾部的注意力分布选保留哪些 KV 的淘汰方法"
-- term: "STE"
-  full: "straight-through estimator"
-  desc: "直通估计器：前向用量化值、反传当恒等映射"
-- term: "TV"
-  full: "total variation"
-  desc: "总变差距离；投机解码的接受率 = 1 − TV"
-- term: "W4A16"
-  full: "—"
-  desc: "权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置"
-- term: "W4A4"
-  full: "—"
-  desc: "权重、激活都 4 bit 的量化档，收益最大、最难保精度"
-- term: "W8A8"
-  full: "—"
-  desc: "权重、激活都 8 bit 的量化档"
+  desc: 权重、激活都 8 bit 的量化档
