@@ -74,7 +74,7 @@ mindmap
 
 延迟维度的五个指标其实是同一条请求时间线上的不同区间，先把它们放到一张图里，后面的定义就不容易混（`t0` 客户端发出请求，`t1` 服务端开始执行，`t2` 首 token 到达客户端，`t3..tN` 后续每个输出 token 到达客户端，共 N 个输出 token）：
 
-![一次请求的时间线：Queueing、TTFT、ITL、TPOT 与 E2E](/img/in-post/how-to-measure-llm-serving-request-timeline.svg)
+![t0–tN 虚线刻度贯穿每一行的请求时间线：Queueing、Prefill、TTFT、连续 ITL、TPOT 与 E2E](/img/in-post/how-to-measure-llm-serving-request-timeline.svg)
 
 几个容易看错的地方：TTFT 从 `t0` 而不是 `t1` 起算，所以它包含排队、首 token 采样和网络传输，不等于 Prefill；ITL 是 `t2` 之后每一段间隔各自的值，有 N−1 个样本，所以能算分位数；TPOT 是这 N−1 段的平均值，一个请求只有一个数，它和 ITL 的均值相等，但抹掉了抖动；E2E 覆盖整条线。
 
