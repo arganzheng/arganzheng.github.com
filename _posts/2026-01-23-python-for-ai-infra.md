@@ -44,7 +44,7 @@ Table: Python 系列七篇的主题与解决的问题
 前六篇解决"写对"，第七篇解决"交付"。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="python-for-ai-infra" %}
 
