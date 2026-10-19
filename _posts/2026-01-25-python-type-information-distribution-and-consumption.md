@@ -11,7 +11,7 @@ updated: 2026-09-21
 
 [上篇](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
 
-- **分发**：我写的注解怎么随包发给别人？没有源码注解的库（`torch._C` 这类 C 扩展）怎么提供类型信息？——`.pyi` 存根、typeshed、`types-*`、`py.typed` / PEP 561（PEP 即 Python Enhancement Proposal）；
+- **分发**：我写的注解怎么随包发给别人？没有源码注解的库（`torch._C` 这类 C 扩展）怎么提供类型信息？——`.pyi` 存根、typeshed、`types-*`、`py.typed` / PEP 561；
 - **消费**：谁在读注解、什么时候读、读到之后做什么？——静态一侧是 mypy / pyright 在开发时推理与检查；动态一侧是 `get_type_hints()`、`@dataclass` 的代码生成、Pydantic 的元类、beartype 的运行时校验。
 
 本篇围绕的核心问题是：
@@ -19,31 +19,6 @@ updated: 2026-09-21
 > **一条 `x: Tensor | None` 从写下到起作用，经过了哪些环节？静态检查器和运行时框架读到的是同一份信息吗，各自能做什么、不能做什么？[^q0]**
 
 理解了"框架怎么读注解"，[下篇](/python-data-contract-design-dataclass-pydantic-and-settings.html)讨论"**用**这些框架怎么设计数据结构"时，dataclass 与 Pydantic 就不再是两个黑盒，而是同一份注解的两种消费方式。
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| typeshed | — | 标准库和常用第三方库的官方类型存根集合 |
-| PEP | Python Enhancement Proposal | Python 的改进提案，PEP 561 规定了类型信息怎么随包分发 |
-| mypy / pyright | — | 两个主流静态类型检查器，不运行代码就报类型错误 |
-| Pydantic | — | 按类型注解做运行时校验的数据模型库 |
-| beartype | — | 运行时读注解、在调用时检查参数类型的库 |
-| inline 类型 | — | 库在自己源码里直接写的类型注解 |
-| Pylance | — | VS Code 的 Python 插件，后端是 pyright |
-| CI | continuous integration | 持续集成，在提交时自动跑类型检查 |
-| PyPI | Python Package Index | 官方的 Python 包仓库，types-* 存根包也发在这里 |
-| wheel | — | 预构建的分发包（.whl），安装时不需要再编译 |
-| sdist | source distribution | 源码分发包，安装时在本地构建 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| PR | pull request | 代码合并请求，CI 可以只检查它改动的文件 |
-| ORM | object-relational mapping | 对象关系映射，SQLAlchemy 的声明式模型需要 mypy 插件 |
-| RPC | remote procedure call | 远程过程调用，序列化后类型信息会丢失 |
-| MRO | method resolution order | 方法解析顺序，get_type_hints 沿它合并父类注解 |
-| AST | abstract syntax tree | 抽象语法树，Lombok 在编译期改的就是它 |
-| typeguard | — | 另一个运行时类型检查库，用导入钩子插入检查 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -193,7 +168,7 @@ mypy 和 pyright 都**内置了 typeshed**，所以你用标准库时不需要�
 
 **types-* 独立存根包**
 
-对于 typeshed 不覆盖的第三方库，社区通过 PyPI（Python Package Index）发布独立的存根包，命名规则为 `types-<package>`：
+对于 typeshed 不覆盖的第三方库，社区通过 PyPI 发布独立的存根包，命名规则为 `types-<package>`：
 
 ```bash title="安装 types-* 独立存根包"
 pip install types-requests     # requests 的类型存根
@@ -286,7 +261,7 @@ mypackage = ["py.typed", "*.pyi"]
 
 这一步很容易漏——`py.typed` 在源码目录里存在，但如果没配 `package-data`，构建 wheel 时不会被打进去，下游依然看不到类型信息。
 
-> `pyproject.toml` 的完整配置、wheel 与 sdist（source distribution）的区别、带 C/CUDA（Compute Unified Device Architecture）扩展的包如何构建与发布，见[《Python 项目工程化与生产交付》](/python-engineering-and-production-delivery.html)的"打包与分发"一章。
+> `pyproject.toml` 的完整配置、wheel 与 sdist 的区别、带 C/CUDA 扩展的包如何构建与发布，见[《Python 项目工程化与生产交付》](/python-engineering-and-production-delivery.html)的"打包与分发"一章。
 
 ## 三、类型信息消费层（上）：静态分析与推理
 
@@ -331,7 +306,7 @@ pyright src/
 
 Table: mypy 与 pyright 对比
 
-两者都广泛使用。如果用 VS Code 开发，pyright 通过 Pylance 自动工作；CI（continuous integration）中 mypy 更常见。很多项目**同时**配置两者——本地开发用 pyright 获得即时反馈，CI 用 mypy 做门禁。
+两者都广泛使用。如果用 VS Code 开发，pyright 通过 Pylance 自动工作；CI 中 mypy 更常见。很多项目**同时**配置两者——本地开发用 pyright 获得即时反馈，CI 用 mypy 做门禁。
 
 **类型推断**
 
@@ -708,7 +683,7 @@ print(User.__pydantic_core_schema__ is not None)   # True
 
 Table: @dataclass 与 Pydantic BaseModel 消费注解的两条路线
 
-对应 Java：`@dataclass` 类似 Lombok——编译期往类里塞方法，注解只是生成指令；Pydantic 类似 Hibernate Validator——真正解析注解的语义并在运行时执行校验。差别是 Lombok 在编译期改 AST（abstract syntax tree），`@dataclass` 在运行时 `exec` 字符串。
+对应 Java：`@dataclass` 类似 Lombok——编译期往类里塞方法，注解只是生成指令；Pydantic 类似 Hibernate Validator——真正解析注解的语义并在运行时执行校验。差别是 Lombok 在编译期改 AST，`@dataclass` 在运行时 `exec` 字符串。
 
 > **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」。
 

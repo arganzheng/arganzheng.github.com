@@ -7,36 +7,6 @@ catalog: true
 ---
 
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台，真正吃算力的部分在这一层 |
-| Pydantic | — | 按类型注解做运行时校验的数据模型库 |
-| GIL | Global Interpreter Lock | 全局解释器锁，同一时刻只有一个线程执行 Python 字节码 |
-| worker | — | 推理服务里独立处理请求的进程，每个各占一份模型 |
-| AST | abstract syntax tree | 抽象语法树，源码解析后的树形结构 |
-| vLLM | — | 开源的大模型推理引擎，本系列常引它的源码 |
-| TGI | Text Generation Inference | Hugging Face 的大模型推理服务 |
-| ABC | abstract base class | 抽象基类，要求子类显式继承并实现抽象方法 |
-| entry point | — | 包在元数据里声明的插件入口，安装后可被发现 |
-| MRO | method resolution order | 方法解析顺序，决定 super() 和属性查找走哪个父类 |
-| editable 安装 | — | pip install -e，把源码目录直接挂进环境 |
-| typeshed | — | 标准库和第三方库的类型存根集合 |
-| PEP | Python Enhancement Proposal | Python 的改进提案，语言和生态规范都以它为准 |
-| OOM | out of memory | 内存或显存耗尽，进程被杀或报错 |
-| pymalloc | — | CPython 给小对象用的内存分配器 |
-| RSS | resident set size | 进程实际占用的物理内存 |
-| fixture | — | pytest 里提供测试前置资源的函数 |
-| CI | continuous integration | 持续集成，每次提交自动跑检查和测试 |
-| CoC | convention over configuration | 约定优于配置，Maven 用统一目录结构省掉配置 |
-| wheel | — | Python 的预编译分发包格式（.whl） |
-| KV Cache | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
-| ABI | application binary interface | 二进制接口，决定编译好的扩展能否直接加载 |
-| GC | garbage collection | 垃圾回收，这里指回收循环引用的分代回收器 |
-
-Table: 本文用到的术语与缩写
-
 ## 内容简介
 
 《Python 在 AI-Infra：从语言机制到生产交付》是一组共七讲、九篇的系列文章（第一讲拆成上下两篇、第二讲拆成上中下三篇，其余各一篇），面向有后端工程经验（尤其是 Java 背景）、准备转向 AI-Infra 方向的工程师，系统梳理这个方向真正需要的 Python 能力：语言核心机制、类型系统与数据契约、并发与异步、反射与元编程、内存管理、测试与调试、以及工程化交付。
@@ -47,7 +17,7 @@ Table: 本文用到的术语与缩写
 
 > **在 AI-Infra 系统里，Python 并不承担最重的计算，那它到底承担什么？为此需要掌握它的哪些机制？[^q0]**
 
-答案是：真正吃算力的部分由 CUDA（Compute Unified Device Architecture）、C++、通信库和专用推理引擎完成，Python 承担的是**组织、调度、扩展、观测和交付**——它是整个系统的**控制平面和胶水层**。
+答案是：真正吃算力的部分由 CUDA、C++、通信库和专用推理引擎完成，Python 承担的是**组织、调度、扩展、观测和交付**——它是整个系统的**控制平面和胶水层**。
 
 这个定位决定了需要掌握的东西：不是"怎么写出更短的代码"，而是**语法背后是哪些机制在起作用、类型如何被表达和强制、任务如何协作、系统如何扩展、内存如何被占用与回收、正确性如何保障、制品如何交付**。
 
@@ -69,10 +39,14 @@ Table: 本文用到的术语与缩写
 
 Table: Python 系列七篇的主题与解决的问题
 
-这条链条是有顺序依赖的：不理解 `import` 的副作用，就看不懂插件注册（一 → 四）；不理解类型注解如何被运行时消费，就说不清 Pydantic 的校验从哪来（二 → 七的配置管理）；不理解 GIL（Global Interpreter Lock，全局解释器锁），就判断不了推理服务该起几个 worker（三 → 七的部署）。
+这条链条是有顺序依赖的：不理解 `import` 的副作用，就看不懂插件注册（一 → 四）；不理解类型注解如何被运行时消费，就说不清 Pydantic 的校验从哪来（二 → 七的配置管理）；不理解 GIL，就判断不了推理服务该起几个 worker（三 → 七的部署）。
 
 前六篇解决"写对"，第七篇解决"交付"。
 
+
+## 术语与缩写
+
+{% include glossary-table.html series="python-for-ai-infra" %}
 
 ## 为什么写这个系列？
 
@@ -101,7 +75,7 @@ Table: Python 系列七篇的主题与解决的问题
 
 ### 这个系列的取法
 
-**以 Java 为参照系。** 每个特性都会说明：它解决什么问题、怎么用、**Java 中对应什么**、在真实 AI-Infra 项目里长什么样。这种对照不是为了比较优劣，而是因为**已有的知识是最好的脚手架**——知道 `Protocol` 对应"不需要 implements 的 interface"，比单独记住它的语法有效得多。同时也会指出**对照失效的地方**：`@dataclass` 不是 Lombok（一个运行时 `exec`，一个编译期改 AST（abstract syntax tree）），`X | None` 不是 `Optional<T>`（一个纯注解，一个运行时包装对象）。
+**以 Java 为参照系。** 每个特性都会说明：它解决什么问题、怎么用、**Java 中对应什么**、在真实 AI-Infra 项目里长什么样。这种对照不是为了比较优劣，而是因为**已有的知识是最好的脚手架**——知道 `Protocol` 对应"不需要 implements 的 interface"，比单独记住它的语法有效得多。同时也会指出**对照失效的地方**：`@dataclass` 不是 Lombok（一个运行时 `exec`，一个编译期改 AST），`X | None` 不是 `Optional<T>`（一个纯注解，一个运行时包装对象）。
 
 **代码取自真实项目。** 例子尽量来自 PyTorch、vLLM、FastAPI、Pydantic、httpx、SQLAlchemy 的源码，而不是造出来的 `Foo`/`Bar`。目标是读完之后能读懂这些项目，而不是只能通过练习题。
 
@@ -126,9 +100,9 @@ Table: Python 系列七篇的主题与解决的问题
 
 ### 想读懂推理框架源码的开发者
 
-适合准备阅读或贡献 vLLM、TGI（Text Generation Inference）、Ray Serve、PyTorch 这类项目的开发者。
+适合准备阅读或贡献 vLLM、TGI、Ray Serve、PyTorch 这类项目的开发者。
 
-这些项目大量使用 Python 的高级特性：`Protocol` 和 ABC（abstract base class，抽象基类）定义后端抽象、`ParamSpec` 保留装饰器签名、元类做模型注册、entry points 做插件发现、`TypedDict` 描述状态字典、`contextvars` 传递请求上下文。不熟悉这些机制时，源码会显得像天书——不是逻辑复杂，而是**语言特性不认识**。
+这些项目大量使用 Python 的高级特性：`Protocol` 和 ABC 定义后端抽象、`ParamSpec` 保留装饰器签名、元类做模型注册、entry points 做插件发现、`TypedDict` 描述状态字典、`contextvars` 传递请求上下文。不熟悉这些机制时，源码会显得像天书——不是逻辑复杂，而是**语言特性不认识**。
 
 ### 算法与模型工程师
 
@@ -167,7 +141,7 @@ Table: 五种常见写法背后的可替换机制
 
 第二篇讨论 Python 的类型系统与数据契约。核心洞察是：与 Java 把类型声明、编译检查、`.class` 携带类型、运行时反射合为一体不同，**Python 把"提供类型信息"和"消费类型信息"拆成了两层**。
 
-1. **提供层**：注解语法、typing、typing_extensions .pyi 存根、typeshed、types-*、py.typed / PEP 561（PEP 即 Python Enhancement Proposal）
+1. **提供层**：注解语法、typing、typing_extensions .pyi 存根、typeshed、types-*、py.typed / PEP 561
 2. **消费层**：静态：mypy、pyright（开发时检查）动态：isinstance、get_type_hints、@dataclass、Pydantic、beartype（运行时读取）
 3. **数据契约**：@dataclass、BaseModel、TypedDict 序列化、JSON Schema、BaseSettings
 
@@ -211,9 +185,9 @@ Table: 五种常见写法背后的可替换机制
 
 ### 5. 内存如何优化：分配机制、对象开销与泄漏定位
 
-第五篇讨论内存。AI-Infra 的内存问题有其特殊性：它同时涉及 Python 对象、大块张量、CPU 与 GPU 两套地址空间，而且增长往往是缓慢的，直到 OOM（out of memory）才暴露。
+第五篇讨论内存。AI-Infra 的内存问题有其特殊性：它同时涉及 Python 对象、大块张量、CPU 与 GPU 两套地址空间，而且增长往往是缓慢的，直到 OOM 才暴露。
 
-这一篇先建立机制层面的理解——引用计数、循环垃圾回收的分代策略、pymalloc 的分配器结构。这些机制解释了一类反直觉的现象：**为什么对象已经不可达、`gc.collect()` 也执行了，进程的 RSS（resident set size）却没有下降**。答案在于 Python 的内存归还是分层的：对象归还给 pymalloc 的内存池，内存池未必归还给操作系统。
+这一篇先建立机制层面的理解——引用计数、循环垃圾回收的分代策略、pymalloc 的分配器结构。这些机制解释了一类反直觉的现象：**为什么对象已经不可达、`gc.collect()` 也执行了，进程的 RSS 却没有下降**。答案在于 Python 的内存归还是分层的：对象归还给 pymalloc 的内存池，内存池未必归还给操作系统。
 
 在此基础上讨论具体的开销来源：
 
@@ -280,8 +254,8 @@ Table: 依赖与交付：Java 与 Python 的落差
 
 **关于时效性**：语言机制部分（前六篇）相对稳定。**第七篇是最容易过期的**——`uv` 仍在快速演进，PyTorch 的 CUDA 索引和版本矩阵每个大版本都在变。阅读时请以官方文档核对具体命令和版本号；但分层的思路、抽象依赖与锁定依赖的分工、把平台相关的重依赖交给基础镜像这些判断，应该会比具体工具活得更久。
 
-**关于 AI-Infra 系统本身**：本系列讲的是 Python 这门语言在 AI-Infra 中的用法，不是训练框架或推理系统的架构。张量计算如何执行、调度器如何组 batch、KV Cache（key–value cache）如何管理、多卡如何协同，这些属于系统层的话题，本系列只在需要时借用它们的源码作为语言特性的例子，不展开原理。
+**关于 AI-Infra 系统本身**：本系列讲的是 Python 这门语言在 AI-Infra 中的用法，不是训练框架或推理系统的架构。张量计算如何执行、调度器如何组 batch、KV Cache 如何管理、多卡如何协同，这些属于系统层的话题，本系列只在需要时借用它们的源码作为语言特性的例子，不展开原理。
 
 **配套代码**：写文章时用来验证各个结论的小脚本（目前是第一篇的语言机制与第三篇的并发部分）在 [ai-learning-labs/python-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra)，只依赖标准库，`python3 xxx.py` 直接运行。
 
-[^q0]: Python 承担的是**组织、调度、扩展、观测和交付**——控制平面和胶水层：真正吃算力的部分由 CUDA、C++、通信库与推理引擎完成。因此要掌握的不是写更短的代码，而是七条链条上的机制：代码怎么运转（对象模型、属性查找、特殊方法、描述符、生成器）→ 怎么写得健壮（类型信息、数据契约）→ 怎么协作（并发：线程 / GIL / asyncio / 多进程）→ 怎么扩展（C 扩展、pybind11、ABI（application binary interface））→ 内存怎么占用与回收（引用计数、GC（garbage collection）、Tensor 生命周期）→ 怎么确保没问题、出了问题怎么定位（测试、可观测、调试）→ 怎么交付（打包、依赖、环境）。系列的篇目就按这条链排列。
+[^q0]: Python 承担的是**组织、调度、扩展、观测和交付**——控制平面和胶水层：真正吃算力的部分由 CUDA、C++、通信库与推理引擎完成。因此要掌握的不是写更短的代码，而是七条链条上的机制：代码怎么运转（对象模型、属性查找、特殊方法、描述符、生成器）→ 怎么写得健壮（类型信息、数据契约）→ 怎么协作（并发：线程 / GIL / asyncio / 多进程）→ 怎么扩展（C 扩展、pybind11、ABI）→ 内存怎么占用与回收（引用计数、GC、Tensor 生命周期）→ 怎么确保没问题、出了问题怎么定位（测试、可观测、调试）→ 怎么交付（打包、依赖、环境）。系列的篇目就按这条链排列。

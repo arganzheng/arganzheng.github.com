@@ -27,36 +27,6 @@ Python 常被认为是一门"简单易学"的语言。但在深度学习框架�
 
 > **一段 Python 代码从文本变成正在运行的帧，名称在帧里怎么解析，模块怎么被找到并执行，异常又怎么沿着帧传播？[^q0]**
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| hook | — | 挂在调用前后的回调，`nn.Module` 前向时会依次执行 |
-| worker | — | 推理或训练里独立干活的进程，异常没处理好会带病继续跑 |
-| vLLM | — | 开源的大模型推理引擎，本系列常引它的源码 |
-| code object | — | 编译产物：字节码加常量表、名字表，缓存在 .pyc 里 |
-| frame | — | 执行帧，一次函数调用的局部变量与执行位置 |
-| LEGB | Local, Enclosing, Global, Built-in | 名称查找的四层顺序，编译期就决定了走哪一层 |
-| finder / loader | — | 导入系统的两步：finder 找到模块，loader 执行它 |
-| cell | — | 闭包里装自由变量的格子，内外层函数共享它 |
-| editable 安装 | — | pip install -e，源码目录直接挂进环境，改了即生效 |
-| src 布局 | — | 把包放在 src/ 子目录下，避免未安装时被误导入 |
-| JVM | Java Virtual Machine | Java 虚拟机，加载 .class 并解释或即时编译 |
-| CPython | — | 官方的 C 语言 Python 实现，本文行为都以它为准 |
-| JIT | just-in-time compilation | 运行时把热点字节码编译成机器码 |
-| free variable | — | 自由变量：函数里用到、却定义在外层函数的名字 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台，`import torch` 时可能触发初始化 |
-| PEP | Python Enhancement Proposal | Python 的改进提案，PEP 420 定义了命名空间包 |
-| setuptools | — | 最常用的 Python 打包构建工具 |
-| venv | virtual environment | 标准库自带的虚拟环境，隔离一套解释器和依赖 |
-| libtorch | — | PyTorch 的 C++ 核心动态库，体积数百 MB |
-| Triton | — | OpenAI 的 GPU kernel 编程语言与编译器 |
-| rank | — | 分布式训练里每个进程的编号 |
-| MRO | method resolution order | 方法解析顺序，属性查找按它遍历父类 |
-| GC | garbage collection | 垃圾回收，这里指回收循环引用的分代回收器 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ```mermaid
@@ -181,7 +151,7 @@ Python 没有 `javac` 那样一个单独的编译步骤，但编译确实发生�
 
 Table: Python 编译的触发时机与产物
 
-所以说"运行时编译"是指：编译发生在**进程运行期间、第一次用到某个模块时**，而不是在一个独立的构建阶段；单位是**整个模块**——一个函数里的语法错误会让整个文件编译失败，于是 `import` 报 `SyntaxError`，哪怕那个函数从未被调用。编译的产物里，每个函数体、类体、生成器体各自是一个嵌套的 code object；`def` 语句执行时只是把已经编译好的 code object 包成函数对象（§2），不再编译。与 Java 对照：`javac` 在构建期把每个类编成 `.class`，JVM（Java Virtual Machine）启动后按需加载并**再次**即时编译成机器码；Python 只有前一半（源码 → 字节码）且发生在运行期，字节码之后就是解释执行。
+所以说"运行时编译"是指：编译发生在**进程运行期间、第一次用到某个模块时**，而不是在一个独立的构建阶段；单位是**整个模块**——一个函数里的语法错误会让整个文件编译失败，于是 `import` 报 `SyntaxError`，哪怕那个函数从未被调用。编译的产物里，每个函数体、类体、生成器体各自是一个嵌套的 code object；`def` 语句执行时只是把已经编译好的 code object 包成函数对象（§2），不再编译。与 Java 对照：`javac` 在构建期把每个类编成 `.class`，JVM 启动后按需加载并**再次**即时编译成机器码；Python 只有前一半（源码 → 字节码）且发生在运行期，字节码之后就是解释执行。
 
 用 `dis` 可以看到函数的字节码：
 
@@ -350,7 +320,7 @@ print(p == q, p is q)                         # True False  —— 运行时各�
 
 ### 5. 与 Java 的对照
 
-Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样是引用，`==` 比较引用、`equals()` 比较值，`.class` 文件里的字节码也需要 JVM 解释或 JIT（just-in-time compilation，即时编译）执行。真正的差异在两处：
+Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样是引用，`==` 比较引用、`equals()` 比较值，`.class` 文件里的字节码也需要 JVM 解释或 JIT 执行。真正的差异在两处：
 
 | | Python | Java |
 | :--- | :--- | :--- |
@@ -369,7 +339,7 @@ Table: 执行模型与对象模型：Python 与 Java 的差异
 
 ### 1. LEGB 是编译期规则
 
-名称查找的四层通常叫 LEGB（Local, Enclosing, Global, Built-in）：Local（当前函数）→ Enclosing（外层函数）→ Global（模块）→ Builtins。
+名称查找的四层通常叫 LEGB：Local（当前函数）→ Enclosing（外层函数）→ Global（模块）→ Builtins。
 
 ```python title='LEGB 三层嵌套的例子：global、enclosing、inner'
 value = "global"
@@ -531,7 +501,7 @@ print(json.decoder.__package__)   # json
 
 `mypackage/__init__.py` 是包被导入时执行的模块体。它有两个合理用途：把内部模块的公共对象提升到包级（`from .model import Model`），以及用 `__all__` 声明 `from mypackage import *` 的导出集合。`__all__` 只影响 `import *`、文档和静态分析工具，不是访问控制。
 
-`__init__.py` 里不应放重逻辑。导入包就会执行它，一个 `import mypackage.utils` 会先跑完 `mypackage/__init__.py`——如果那里面 `import torch`、检查 CUDA（Compute Unified Device Architecture）、建立连接，所有导入方都要付这个代价，并且更容易形成循环导入（§7）。没有 `__init__.py` 的目录是**命名空间包**（PEP 420（PEP 即 Python Enhancement Proposal）），能被导入，但缺少一个明确的初始化入口；后面 §4 会看到 PyTorch 自己的一个报错正是命名空间包造成的。
+`__init__.py` 里不应放重逻辑。导入包就会执行它，一个 `import mypackage.utils` 会先跑完 `mypackage/__init__.py`——如果那里面 `import torch`、检查 CUDA、建立连接，所有导入方都要付这个代价，并且更容易形成循环导入（§7）。没有 `__init__.py` 的目录是**命名空间包**（PEP 420），能被导入，但缺少一个明确的初始化入口；后面 §4 会看到 PyTorch 自己的一个报错正是命名空间包造成的。
 
 ### 2. `import` 语句的执行过程
 
@@ -580,7 +550,7 @@ for finder in sys.meta_path:
     print(finder)
 ```
 
-在一个装了 setuptools 的 venv（virtual environment）里：
+在一个装了 setuptools 的 venv 里：
 
 ```text title='一个装了 setuptools 的 venv 里的四个 meta_path finder'
 <_distutils_hack.DistutilsMetaFinder object at 0x...>
@@ -1038,4 +1008,4 @@ Table: 开头两行代码背后的机制
 
    </details>
 
-[^q0]: 分四个阶段看。**被加载**：`import` 是运行时动作——`PathFinder` 沿 `sys.path` 找到模块，`.py` 编译成字节码后执行顶层代码，`.so` 由 `ExtensionFileLoader` `dlopen` 并调用 `PyInit_*`；装饰器注册、类创建这些副作用就发生在这一步，所以「注册表为什么是空的」几乎总是导入问题（[第二章](#二执行模型源码如何变成正在运行的代码)、[第四章](#四模块与导入系统代码如何被加载)）。**创建对象**：`Runner(model)` 走 `type.__call__` → `__new__` → `__init__`，之后每次 `obj.attr` 按「数据描述符 → 实例 `__dict__` → 类 MRO（method resolution order，方法解析顺序）上的非数据描述符 / 类属性 → `__getattr__`」查找，`nn.Module` 的 `__setattr__` / `__getattr__` 就插在这条链上（[下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)、[下篇第三章](/python-object-model-protocols-decorators-and-generators.html#三对象协议语法背后的特殊方法)）。**执行任务**：`model(x)` 查类型上的 `__call__`，经过 hooks 再到 `forward`；`for` 用迭代协议，生成器是挂起在 `yield` 处的帧；装饰器在定义时执行一次、返回一个替代对象（[下篇第三章](/python-object-model-protocols-decorators-and-generators.html#三对象协议语法背后的特殊方法)至[下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)）。**释放资源**：`with` 展开为 `__enter__` / `__exit__`，异常沿帧链向外传播、途经每个 `__exit__` 与 `finally`；对象在引用计数归零时立即释放，循环引用交给 GC（[下篇第六章](/python-object-model-protocols-decorators-and-generators.html#六上下文管理器把资源生命周期交给协议)、[第五章](#五异常处理与失败传播)）。[下篇第七章](/python-object-model-protocols-decorators-and-generators.html#七一个推理组件的完整运行时追踪)把这四步在一个推理组件上从头追了一遍。
+[^q0]: 分四个阶段看。**被加载**：`import` 是运行时动作——`PathFinder` 沿 `sys.path` 找到模块，`.py` 编译成字节码后执行顶层代码，`.so` 由 `ExtensionFileLoader` `dlopen` 并调用 `PyInit_*`；装饰器注册、类创建这些副作用就发生在这一步，所以「注册表为什么是空的」几乎总是导入问题（[第二章](#二执行模型源码如何变成正在运行的代码)、[第四章](#四模块与导入系统代码如何被加载)）。**创建对象**：`Runner(model)` 走 `type.__call__` → `__new__` → `__init__`，之后每次 `obj.attr` 按「数据描述符 → 实例 `__dict__` → 类 MRO 上的非数据描述符 / 类属性 → `__getattr__`」查找，`nn.Module` 的 `__setattr__` / `__getattr__` 就插在这条链上（[下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)、[下篇第三章](/python-object-model-protocols-decorators-and-generators.html#三对象协议语法背后的特殊方法)）。**执行任务**：`model(x)` 查类型上的 `__call__`，经过 hooks 再到 `forward`；`for` 用迭代协议，生成器是挂起在 `yield` 处的帧；装饰器在定义时执行一次、返回一个替代对象（[下篇第三章](/python-object-model-protocols-decorators-and-generators.html#三对象协议语法背后的特殊方法)至[下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)）。**释放资源**：`with` 展开为 `__enter__` / `__exit__`，异常沿帧链向外传播、途经每个 `__exit__` 与 `finally`；对象在引用计数归零时立即释放，循环引用交给 GC（[下篇第六章](/python-object-model-protocols-decorators-and-generators.html#六上下文管理器把资源生命周期交给协议)、[第五章](#五异常处理与失败传播)）。[下篇第七章](/python-object-model-protocols-decorators-and-generators.html#七一个推理组件的完整运行时追踪)把这四步在一个推理组件上从头追了一遍。

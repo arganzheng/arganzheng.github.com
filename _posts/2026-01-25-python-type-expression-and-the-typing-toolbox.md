@@ -24,36 +24,6 @@ Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 �
 
 本篇是上篇：**类型表达**。`typing` 模块的每个工具都会说明它解决什么问题、怎么用、Java 中对应什么、在 AI Infra 真实项目中长什么样。
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| vLLM | — | 开源的大模型推理引擎，本系列常引它的源码 |
-| FastAPI | — | 基于类型注解做参数解析与校验的 Web 框架 |
-| mypy / pyright | — | 两个主流静态类型检查器，不运行代码就报类型错误 |
-| Pydantic | — | 按类型注解做运行时校验的数据模型库 |
-| stub | — | 存根文件（.pyi），只放类型声明不放实现 |
-| typeshed | — | 标准库和第三方库的官方类型存根集合 |
-| PEP | Python Enhancement Proposal | Python 的改进提案，typing 的每个新特性都对应一个 PEP |
-| CI | continuous integration | 持续集成，在提交时自动跑类型检查与测试 |
-| beartype | — | 运行时读注解、在调用时检查参数类型的库 |
-| OpenAPI | — | 描述 HTTP 接口的规范，FastAPI 从类型生成它 |
-| sealed interface | — | Java 17 起的密封接口，限定哪些类能实现它 |
-| ORM | object-relational mapping | 对象关系映射，把数据库表映射成类 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台，这里是一个后端取值 |
-| ROCm | Radeon Open Compute | AMD 的 GPU 计算平台，对应 CUDA |
-| TPU | tensor processing unit | Google 的张量计算芯片 |
-| keyword-only | — | 只能按名字传、不能按位置传的参数 |
-| LLM | large language model | 大语言模型 |
-| ABC | abstract base class | 抽象基类，要求子类显式继承 |
-| HF | Hugging Face | Hugging Face，模型 config 与权重的事实标准来源 |
-| SPI | Service Provider Interface | Java 的插件发现机制，用 ServiceLoader 加载实现类 |
-| DTO | data transfer object | 只装数据、在层与层之间传递的对象 |
-| AMP | automatic mixed precision | 自动混合精度，前向用低精度算、关键处保留 FP32 |
-| JIT | just-in-time compilation | 即时编译，这里指 TorchScript 的编译产物 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ```mermaid
@@ -1038,7 +1008,7 @@ def configure(cls: Meta) -> None:     # 只接受元类为 Meta 的类
 
 **版本说明**
 
-`typing.Type[C]` 从 Python 3.9 起被内置的 `type[C]` 取代（PEP 585（PEP 即 Python Enhancement Proposal）），新代码一律用小写。这和 `List` → `list`、`Dict` → `dict` 是同一次演进。
+`typing.Type[C]` 从 Python 3.9 起被内置的 `type[C]` 取代（PEP 585），新代码一律用小写。这和 `List` → `list`、`Dict` → `dict` 是同一次演进。
 
 **真实项目中的 `type[C]`**
 
@@ -1076,7 +1046,7 @@ class BaseModel:
     def model_validate(cls, obj: Any, *, strict: bool | None = None) -> Self: ...
 ```
 
-这几个例子体现了同一个模式：**框架把"用户提供的类"当作数据存起来，在运行时按需实例化**。这正是 Python 插件化架构的骨架——注册表的值类型永远是 `type[SomeBase]`，而不是 `SomeBase`。Java 里对应的是 Spring 的 `BeanDefinition` 持有 `Class<?>`、或 SPI（Service Provider Interface）的 `ServiceLoader<S>`。
+这几个例子体现了同一个模式：**框架把"用户提供的类"当作数据存起来，在运行时按需实例化**。这正是 Python 插件化架构的骨架——注册表的值类型永远是 `type[SomeBase]`，而不是 `SomeBase`。Java 里对应的是 Spring 的 `BeanDefinition` 持有 `Class<?>`、或 SPI 的 `ServiceLoader<S>`。
 
 ### 8. ABC 与 Protocol：接口的两种方式
 
@@ -1303,7 +1273,7 @@ movie: MovieRecord = {
 bad: MovieRecord = {"title": "X"}  # 缺少 year 和 rating
 ```
 
-对应 Java：Java 通常用 DTO（data transfer object） / record 代替，很少直接使用 `Map<String, Object>`。
+对应 Java：Java 通常用 DTO / record 代替，很少直接使用 `Map<String, Object>`。
 
 **可选字段**
 

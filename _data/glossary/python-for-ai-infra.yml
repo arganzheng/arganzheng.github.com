@@ -1,0 +1,202 @@
+---
+- term: GC
+  full: garbage collection
+  desc: 垃圾回收，这里指回收循环引用的分代回收器
+- term: ABI
+  full: application binary interface
+  desc: 二进制接口，决定编译好的扩展能否直接加载
+- term: KV Cache
+  full: key–value cache
+  desc: 推理时缓存的注意力键值，随序列长度增长
+- term: wheel
+  full: "—"
+  desc: Python 的预编译分发包格式（.whl）
+- term: fixture
+  full: "—"
+  desc: pytest 里提供测试前置资源的函数
+- term: RSS
+  full: resident set size
+  desc: 进程实际占用的物理内存
+- term: pymalloc
+  full: "—"
+  desc: CPython 给小对象用的内存分配器
+- term: OOM
+  full: out of memory
+  desc: 内存或显存耗尽，进程被杀或报错
+- term: PEP
+  full: Python Enhancement Proposal
+  desc: Python 的改进提案，语言和生态规范都以它为准
+- term: typeshed
+  full: "—"
+  desc: 标准库和第三方库的类型存根集合
+- term: editable 安装
+  full: "—"
+  desc: pip install -e，把源码目录直接挂进环境
+- term: MRO
+  full: method resolution order
+  desc: 方法解析顺序，决定 super() 和属性查找走哪个父类
+- term: ABC
+  full: abstract base class
+  desc: 抽象基类，要求子类显式继承并实现抽象方法
+- term: TGI
+  full: Text Generation Inference
+  desc: Hugging Face 的大模型推理服务
+- term: vLLM
+  full: "—"
+  desc: 开源的大模型推理引擎，本系列常引它的源码
+- term: AST
+  full: abstract syntax tree
+  desc: 抽象语法树，源码解析后的树形结构
+- term: worker
+  full: "—"
+  desc: 推理服务里独立处理请求的进程，每个各占一份模型
+- term: GIL
+  full: global interpreter lock
+  desc: 全局解释器锁，同一时刻只有一个线程执行 Python 字节码
+- term: Pydantic
+  full: "—"
+  desc: 按类型注解做运行时校验的数据模型库
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台，真正吃算力的部分在这一层
+- term: hook
+  full: "—"
+  desc: 挂在调用前后的回调，`nn.Module` 前向时会依次执行
+- term: code object
+  full: "—"
+  desc: 编译产物：字节码加常量表、名字表，缓存在 .pyc 里
+- term: frame
+  full: "—"
+  desc: 执行帧，一次函数调用的局部变量与执行位置
+- term: LEGB
+  full: Local, Enclosing, Global, Built-in
+  desc: 名称查找的四层顺序，编译期就决定了走哪一层
+- term: finder
+  full: "—"
+  desc: 导入系统的两步：finder 找到模块，loader 执行它
+- term: loader
+  full: "—"
+  desc: 导入系统的两步：finder 找到模块，loader 执行它
+- term: cell
+  full: "—"
+  desc: 闭包里装自由变量的格子，内外层函数共享它
+- term: src 布局
+  full: "—"
+  desc: 把包放在 src/ 子目录下，避免未安装时被误导入
+- term: JVM
+  full: Java Virtual Machine
+  desc: Java 虚拟机，加载 .class 并解释或即时编译
+- term: CPython
+  full: "—"
+  desc: 官方的 C 语言 Python 实现，本文行为都以它为准
+- term: JIT
+  full: just-in-time compilation
+  desc: 运行时把热点字节码编译成机器码
+- term: free variable
+  full: "—"
+  desc: 自由变量：函数里用到、却定义在外层函数的名字
+- term: setuptools
+  full: "—"
+  desc: 最常用的 Python 打包构建工具
+- term: venv
+  full: virtual environment
+  desc: 标准库自带的虚拟环境，隔离一套解释器和依赖
+- term: libtorch
+  full: "—"
+  desc: PyTorch 的 C++ 核心动态库，体积数百 MB
+- term: Triton
+  full: "—"
+  desc: OpenAI 的 GPU kernel 编程语言与编译器
+- term: rank
+  full: "—"
+  desc: 分布式训练里每个进程的编号
+- term: Mixin
+  full: "—"
+  desc: 只提供日志、指标这类横向能力的小类，放在基类列表前面
+- term: ORM
+  full: object-relational mapping
+  desc: 对象关系映射，把数据库表映射成类，常用元类实现
+- term: C3 线性化
+  full: "—"
+  desc: 多继承时计算 MRO 的算法，子类先于父类、保持声明顺序
+- term: slot
+  full: "—"
+  desc: 类型对象上给每个特殊方法留的槽位，运算时直接取
+- term: epoch
+  full: "—"
+  desc: 把整个数据集完整过一遍
+- term: AOP
+  full: aspect-oriented programming
+  desc: 面向切面编程，Java 靠动态代理在调用路径上插逻辑
+- term: CUDA OOM
+  full: CUDA out of memory
+  desc: 显存耗尽时 PyTorch 抛出的错误
+- term: JDK
+  full: Java Development Kit
+  desc: Java 开发工具包，这里指它自带的动态代理
+- term: CGLIB
+  full: Code Generation Library
+  desc: 运行时生成子类做代理的 Java 字节码库
+- term: Loom
+  full: "—"
+  desc: Project Loom，Java 的虚拟线程项目，Continuation 是其内部 API
+- term: mypy
+  full: "—"
+  desc: 静态类型检查器，开发时给 dataclass 内部传递做保证
+- term: Bean Validation
+  full: "—"
+  desc: Java 的校验规范（JSR 380），用注解声明约束
+- term: OpenAPI
+  full: "—"
+  desc: 描述 HTTP 接口的规范，FastAPI 从模型自动生成
+- term: KV cache
+  full: key–value cache
+  desc: 推理时缓存的注意力键值，随序列长度增长
+- term: FastAPI
+  full: "—"
+  desc: 以 Pydantic 为核心、按类型注解解析请求的 Web 框架
+- term: Swagger
+  full: "—"
+  desc: Java 生态里从注解生成接口文档的工具
+- term: DeepSpeed
+  full: "—"
+  desc: 微软的分布式训练库，并行策略写在配置文件里
+- term: DTO
+  full: data transfer object
+  desc: 只装数据、在层与层之间传递的对象
+- term: mypy / pyright
+  full: "—"
+  desc: 两个主流静态类型检查器，不运行代码就报类型错误
+- term: stub
+  full: "—"
+  desc: 存根文件（.pyi），只放类型声明不放实现
+- term: beartype
+  full: "—"
+  desc: 运行时读注解、在调用时检查参数类型的库
+- term: sealed interface
+  full: "—"
+  desc: Java 17 起的密封接口，限定哪些类能实现它
+- term: ROCm
+  full: Radeon Open Compute
+  desc: AMD 的 GPU 计算平台，对应 CUDA
+- term: SPI
+  full: Service Provider Interface
+  desc: Java 的插件发现机制，用 ServiceLoader 加载实现类
+- term: inline 类型
+  full: "—"
+  desc: 库在自己源码里直接写的类型注解
+- term: Pylance
+  full: "—"
+  desc: VS Code 的 Python 插件，后端是 pyright
+- term: PyPI
+  full: Python Package Index
+  desc: 官方的 Python 包仓库，types-* 存根包也发在这里
+- term: sdist
+  full: source distribution
+  desc: 源码分发包，安装时在本地构建
+- term: RPC
+  full: remote procedure call
+  desc: 远程过程调用，序列化后类型信息会丢失
+- term: typeguard
+  full: "—"
+  desc: 另一个运行时类型检查库，用导入钩子插入检查

@@ -25,31 +25,6 @@ updated: 2026-09-21
 
 答案分四层：类由 `type` 创建，`obj.attr` 是一个固定算法（描述符协议是它的可编程点）；`runner(batch)`、`for`、`with`、`[]` 这些语法查的是类型上的特殊方法；装饰器用上篇的闭包加本篇的描述符改写调用路径；生成器让上篇的帧挂起而不销毁。
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| code object | — | 编译产物：字节码加常量表、名字表 |
-| LEGB | Local, Enclosing, Global, Built-in | 名称查找的四层顺序，上篇第三章讲过 |
-| hook | — | 挂在调用前后的回调，`nn.Module` 前向时会依次执行 |
-| MRO | method resolution order | 方法解析顺序，属性查找和 super() 都沿它走 |
-| Mixin | — | 只提供日志、指标这类横向能力的小类，放在基类列表前面 |
-| ORM | object-relational mapping | 对象关系映射，把数据库表映射成类，常用元类实现 |
-| PEP | Python Enhancement Proposal | Python 的改进提案，PEP 562 定义了模块级 __getattr__ |
-| C3 线性化 | — | 多继承时计算 MRO 的算法，子类先于父类、保持声明顺序 |
-| CPython | — | 官方的 C 语言 Python 实现 |
-| slot | — | 类型对象上给每个特殊方法留的槽位，运算时直接取 |
-| epoch | — | 把整个数据集完整过一遍 |
-| worker | — | DataLoader 里并行加载数据的子进程 |
-| AOP | aspect-oriented programming | 面向切面编程，Java 靠动态代理在调用路径上插逻辑 |
-| CUDA OOM | CUDA out of memory | 显存耗尽时 PyTorch 抛出的错误 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| JDK | Java Development Kit | Java 开发工具包，这里指它自带的动态代理 |
-| CGLIB | Code Generation Library | 运行时生成子类做代理的 Java 字节码库 |
-| Loom | — | Project Loom，Java 的虚拟线程项目，Continuation 是其内部 API |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览
 
 ### 1. 例子与依赖关系
@@ -154,7 +129,7 @@ print(type(Runner.__dict__["run"]))       # <class 'function'>       类里存�
 Runner = type("Runner", (object,), {"run": lambda self, batch: batch})
 ```
 
-两个事实值得记住：**类的 `__dict__` 里存的方法就是普通函数对象**（后面 §5 解释它如何变成"方法"）；**类由 `type` 创建**，所以替换 `type` 为自定义元类就能干预类的创建——`nn.Module` 没有用元类，但许多 ORM（object-relational mapping）、配置框架和 `abc.ABC` 用了。元类的用法在本系列第四篇展开，这里只需知道它是 `class` 语句的第 2 步。
+两个事实值得记住：**类的 `__dict__` 里存的方法就是普通函数对象**（后面 §5 解释它如何变成"方法"）；**类由 `type` 创建**，所以替换 `type` 为自定义元类就能干预类的创建——`nn.Module` 没有用元类，但许多 ORM、配置框架和 `abc.ABC` 用了。元类的用法在本系列第四篇展开，这里只需知道它是 `class` 语句的第 2 步。
 
 ### 2. 实例属性与类属性
 
@@ -269,7 +244,7 @@ config = Config(32, "cuda")
 config.batch_size = "big"                    # TypeError: batch_size expects int, got str
 ```
 
-描述符必须放在类上才生效——算法第 ① 步只查类的 MRO（method resolution order，方法解析顺序），实例字典里的对象即便有 `__get__` 也不会被调用。
+描述符必须放在类上才生效——算法第 ① 步只查类的 MRO，实例字典里的对象即便有 `__get__` 也不会被调用。
 
 `__slots__` 是描述符的一个内建应用：`class S: __slots__ = ("a",)` 会让 `type` 为每个槽位在类上创建一个 `member_descriptor`（数据描述符），直接读写实例的固定内存偏移，实例因此不再需要 `__dict__`。第五篇讨论内存时会回到它。
 
@@ -457,7 +432,7 @@ def __getattr__(self, name):
 
 于是 `self.linear = nn.Linear(4, 4)` 被 `__setattr__` 截获，写进 `_modules`；之后 `self.linear` 走 §3 的算法在类和实例字典都找不到，落到 `__getattr__`，从 `_modules` 取回。这就是 `parameters()`、`state_dict()`、`.to(device)` 能够递归遍历所有子模块的原因——它们只需遍历三个字典，而不需要扫描 `__dict__` 猜哪些属性是模块。代价是每次访问子模块都多走一次失败查找加一次 Python 级函数调用，所以在热路径上 PyTorch 自己也会先把 `self.linear` 取到局部变量。
 
-模块级也有同样的钩子（PEP 562（PEP 即 Python Enhancement Proposal））：在模块顶层定义 `__getattr__(name)`，访问不存在的模块属性时会被调用。`torch/__init__.py` 用它做两件事——对已废弃的名字发出 `DeprecationWarning` 后返回替代品，以及对少数子模块做惰性导入（第一次访问时才 `importlib.import_module`）。
+模块级也有同样的钩子（PEP 562）：在模块顶层定义 `__getattr__(name)`，访问不存在的模块属性时会被调用。`torch/__init__.py` 用它做两件事——对已废弃的名字发出 `DeprecationWarning` 后返回替代品，以及对少数子模块做惰性导入（第一次访问时才 `importlib.import_module`）。
 
 ### 7. 对象创建：`__new__`、`__init__` 与 `type.__call__`
 
@@ -672,7 +647,7 @@ print(User.__hash__)     # None
 
 Java 的做法是**接口**：想被 `for-each` 遍历就实现 `Iterable<T>`，想能 `try-with-resources` 就实现 `AutoCloseable`，`equals`/`hashCode` 契约与 Python 完全一致（`HashMap` 同样依赖它）。Python 的特殊方法是**协议**：不需要声明实现了什么，只要方法存在、签名对得上，语法就生效。
 
-差异带来两点后果：Python 里"这个对象能不能 `for`"无法从类型声明得知，只能看有没有 `__iter__`（第二篇的 `Protocol` 就是为了给这类协议补上静态描述）；Java 没有对应 `__call__` 的机制，"可调用对象"要么是函数式接口的实例、要么是显式的 `.apply()`/`.call()`，`model(x)` 这种写法不存在，`nn.Module` 那种"在调用路径上插 hook"只能靠动态代理或 AOP（aspect-oriented programming，面向切面编程）实现。
+差异带来两点后果：Python 里"这个对象能不能 `for`"无法从类型声明得知，只能看有没有 `__iter__`（第二篇的 `Protocol` 就是为了给这类协议补上静态描述）；Java 没有对应 `__call__` 的机制，"可调用对象"要么是函数式接口的实例、要么是显式的 `.apply()`/`.call()`，`model(x)` 这种写法不存在，`nn.Module` 那种"在调用路径上插 hook"只能靠动态代理或 AOP 实现。
 
 ## 四、装饰器：用闭包和描述符改写调用路径
 
@@ -770,7 +745,7 @@ retry(max_attempts)  →  decorator(func)  →  wrapper(*args, **kwargs)
    配置层                 装饰层                运行层
 ```
 
-`max_attempts` 和 `exceptions` 经由两层闭包到达 `wrapper`。重试装饰器应只捕获明确可重试的异常，让其余异常原样传播——`except Exception` 会把断言失败、类型错误和 CUDA OOM（CUDA out of memory，显存耗尽）一起重试。
+`max_attempts` 和 `exceptions` 经由两层闭包到达 `wrapper`。重试装饰器应只捕获明确可重试的异常，让其余异常原样传播——`except Exception` 会把断言失败、类型错误和 CUDA OOM 一起重试。
 
 ### 5. 装饰类：注册表
 
@@ -826,7 +801,7 @@ def async_log_call(func):
 
 ### 8. 与 Java 的对照
 
-Java 的注解（`@Transactional`、`@Retryable`）只是**元数据**，本身不改变任何行为；行为来自框架在运行时扫描注解、生成代理对象（Spring AOP 的 JDK（Java Development Kit）动态代理或 CGLIB（Code Generation Library）子类）并拦截调用。Python 的装饰器则是**普通函数调用**，在定义处直接替换掉目标对象，没有框架也能工作。
+Java 的注解（`@Transactional`、`@Retryable`）只是**元数据**，本身不改变任何行为；行为来自框架在运行时扫描注解、生成代理对象（Spring AOP 的 JDK 动态代理或 CGLIB 子类）并拦截调用。Python 的装饰器则是**普通函数调用**，在定义处直接替换掉目标对象，没有框架也能工作。
 
 后果是双向的：Python 装饰器透明得多——`grep` 就能找到它做了什么，调试时能直接进 `wrapper`；但它也没有 Java 代理的"边界"——Spring 的自调用不经过代理是常见坑，Python 里则是 §6 的描述符顺序和 §7 的同步/异步区分。两边共同的原则是：被包装的调用路径必须能被开发者看到。
 
@@ -946,7 +921,7 @@ del r                     #   close file   —— 引用计数归零时，生成
 
 ### 5. 与 Java 的对照
 
-Java 的 `Iterator`/`Stream` 也是惰性的，但它们是**对象**，"暂停"靠的是对象字段记录状态，每一步的状态机要自己写；Python 的生成器把状态机交给帧，一个 `yield` 就完成了。Java 没有对应 `yield` 的语言机制（Loom（Project Loom，Java 的虚拟线程项目）的 `Continuation` 是内部 API），流式响应通常靠回调或 `Flow.Publisher`。另一方面，Java 的 `Stream` 有明确的"终止操作"边界，而 Python 的生成器随时可能被半途丢弃，所以 §4 的清理问题在 Java 中要少得多。
+Java 的 `Iterator`/`Stream` 也是惰性的，但它们是**对象**，"暂停"靠的是对象字段记录状态，每一步的状态机要自己写；Python 的生成器把状态机交给帧，一个 `yield` 就完成了。Java 没有对应 `yield` 的语言机制（Loom 的 `Continuation` 是内部 API），流式响应通常靠回调或 `Flow.Publisher`。另一方面，Java 的 `Stream` 有明确的"终止操作"边界，而 Python 的生成器随时可能被半途丢弃，所以 §4 的清理问题在 Java 中要少得多。
 
 ## 六、上下文管理器：把资源生命周期交给协议
 
