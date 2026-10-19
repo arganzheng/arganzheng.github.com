@@ -1,0 +1,280 @@
+---
+- term: RC
+  full: release candidate
+  desc: 发布候选版
+- term: BC / FC
+  full: backward / forward compatibility
+  desc: 向后 / 向前兼容：新旧版本互相能用
+- term: codegen
+  full: code generation
+  desc: 由脚本按描述文件自动生成源码
+- term: PrivateUse1
+  full: "—"
+  desc: 留给第三方硬件后端的保留 dispatch key
+- term: decode
+  full: "—"
+  desc: 推理的两阶段：一次处理整段提示 / 逐 token 生成
+- term: KV
+  full: key–value
+  desc: 推理时缓存的注意力键值，随序列长度增长
+- term: Tensor Core
+  full: "—"
+  desc: NVIDIA GPU 上专做矩阵乘的计算单元
+- term: RAII
+  full: resource acquisition is initialization
+  desc: C++ 用对象生命周期管理资源的惯用法
+- term: GIL
+  full: global interpreter lock
+  desc: CPython 的全局解释器锁，同一时刻只有一个线程跑字节码
+- term: CPython
+  full: "—"
+  desc: Python 的官方 C 语言实现
+- term: AMP
+  full: automatic mixed precision
+  desc: 自动混合精度：部分算子用低精度跑
+- term: OpInfo
+  full: "—"
+  desc: PyTorch 测试里描述单个算子的条目，驱动批量测试
+- term: EP
+  full: expert parallelism
+  desc: 专家并行：MoE 的不同专家放在不同卡
+- term: CP
+  full: context parallelism
+  desc: 上下文并行：沿序列维切分长序列
+- term: 1F1B
+  full: one forward, one backward
+  desc: 流水线里前向、反向交替的调度方式
+- term: GPipe
+  full: "—"
+  desc: Google 提出的流水线并行方案
+- term: PP
+  full: pipeline parallelism
+  desc: 流水线并行：按层切模型，micro-batch 流过各段
+- term: TP
+  full: tensor parallelism
+  desc: 张量并行：把一个层的权重切到多张卡
+- term: HSDP
+  full: Hybrid Sharded Data Parallel
+  desc: 机内分片、机间复制的 FSDP 变体
+- term: DTensor
+  full: distributed tensor
+  desc: 带分片 / 复制布局描述的分布式 Tensor
+- term: FSDP2
+  full: "—"
+  desc: FSDP 的第二版，基于 DTensor 按参数分片
+- term: ZeRO
+  full: Zero Redundancy Optimizer
+  desc: 把优化器状态、梯度、参数分片，去掉数据并行的冗余
+- term: P2P
+  full: peer-to-peer
+  desc: 两个进程之间的点对点收发
+- term: NCCL
+  full: NVIDIA Collective Communications Library
+  desc: NVIDIA 的 GPU 集合通信库
+- term: SPMD
+  full: single program, multiple data
+  desc: 每个进程跑同一份程序、处理不同数据
+- term: TF32
+  full: TensorFloat-32
+  desc: Ampere 起 Tensor Core 用的 19 位精度矩阵乘格式
+- term: BF16
+  full: bfloat16
+  desc: 8 位指数的 16 位浮点，范围同 FP32
+- term: FP16
+  full: 16-bit floating point
+  desc: 半精度浮点，5 位指数、10 位尾数
+- term: FLOPs
+  full: floating-point operations
+  desc: 浮点运算次数，衡量计算量
+- term: guard
+  full: "—"
+  desc: 编译结果能否复用的前提条件检查
+- term: TorchInductor
+  full: "—"
+  desc: torch.compile 的默认后端，生成融合后的 kernel
+- term: AOTAutograd
+  full: ahead-of-time Autograd
+  desc: 编译前提前把前向、反向图都生成出来
+- term: TorchDynamo
+  full: "—"
+  desc: torch.compile 的前端，从 Python 字节码捕获计算图
+- term: FX
+  full: "—"
+  desc: PyTorch 的图表示和图变换工具（torch.fx）
+- term: ABI
+  full: application binary interface
+  desc: 编译后的二进制之间的调用约定
+- term: JAX
+  full: "—"
+  desc: Google 的函数式数值计算与深度学习框架
+- term: ATen
+  full: A Tensor Library
+  desc: PyTorch 的 C++ 张量与算子库
+- term: eager mode
+  full: "—"
+  desc: 逐个算子立即执行的默认模式
+- term: OOM
+  full: out of memory
+  desc: 显存不够，分配失败
+- term: metadata
+  full: "—"
+  desc: 描述 Tensor 怎么解释数据的信息：形状、步幅、类型等
+- term: Triton
+  full: "—"
+  desc: OpenAI 的 GPU kernel 编程语言和编译器
+- term: DeepSpeed
+  full: "—"
+  desc: 微软的分布式训练库，ZeRO 出自这里
+- term: dtype
+  full: data type
+  desc: Tensor 元素的数据类型，如 float32、int64
+- term: graph break
+  full: "—"
+  desc: torch.compile 遇到捕获不了的代码，把图断开
+- term: DataLoader
+  full: "—"
+  desc: PyTorch 的数据加载器，多进程读数据、组 batch
+- term: FSDP
+  full: Fully Sharded Data Parallel
+  desc: 把参数、梯度、优化器状态分片到各卡的数据并行
+- term: DDP
+  full: Distributed Data Parallel
+  desc: 数据并行：每卡一份模型，反向时同步梯度
+- term: kernel
+  full: "—"
+  desc: 在 CPU / GPU 上真正执行一个算子的函数
+- term: Dispatcher
+  full: "—"
+  desc: 按设备和运行时上下文给算子挑实现的分发器
+- term: Autograd
+  full: automatic differentiation
+  desc: PyTorch 的自动求导引擎
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台和运行时
+- term: Meta
+  full: "—"
+  desc: 只推导形状、类型，不存真实数据的设备 / 实现
+- term: view
+  full: "—"
+  desc: 和原 Tensor 共享存储、只换解释方式的 Tensor
+- term: cuBLAS / cuDNN
+  full: CUDA Basic Linear Algebra Subroutines / CUDA Deep Neural Network library
+  desc: NVIDIA 的矩阵运算库 / 深度学习算子库
+- term: ROCm
+  full: Radeon Open Compute
+  desc: AMD 的 GPU 计算平台，对应 NVIDIA 的 CUDA
+- term: MPS
+  full: Metal Performance Shaders
+  desc: 苹果芯片上的 GPU 后端
+- term: XPU
+  full: "—"
+  desc: PyTorch 里 Intel GPU 的设备类型
+- term: XLA
+  full: Accelerated Linear Algebra
+  desc: Google 的线性代数编译器，TensorFlow / JAX 用它编译
+- term: MXNet
+  full: "—"
+  desc: Apache 的深度学习框架，命令式与符号图混合
+- term: OneFlow
+  full: "—"
+  desc: 一流科技的深度学习框架，主打分布式
+- term: TorchScript
+  full: "—"
+  desc: PyTorch 早期的静态图方案，现处维护模式
+- term: stream
+  full: "—"
+  desc: GPU 上按提交顺序执行任务的队列
+- term: H2D / D2H
+  full: host to device / device to host
+  desc: 主机内存到显存 / 显存回主机内存的拷贝
+- term: Gloo
+  full: "—"
+  desc: Meta 开源的集合通信库，主要用于 CPU
+- term: AOP
+  full: aspect-oriented programming
+  desc: 面向切面编程：在原逻辑外围织入横切逻辑
+- term: c10d
+  full: "—"
+  desc: PyTorch 分布式通信层：进程组与通信后端
+- term: AOTInductor
+  full: "—"
+  desc: 把 Inductor 编译结果打包成可部署产物的路径
+- term: DispatchKey
+  full: "—"
+  desc: Dispatcher 用来区分后端和功能层的键
+- term: CUTLASS
+  full: CUDA Templates for Linear Algebra Subroutines
+  desc: NVIDIA 的 C++ 矩阵乘模板库
+- term: OpenMP
+  full: Open Multi-Processing
+  desc: C/C++ 共享内存多线程并行的编译指令标准
+- term: autocast
+  full: "—"
+  desc: 自动混合精度里按算子切换低精度的机制
+- term: GEMM
+  full: general matrix multiply
+  desc: 通用矩阵乘，深度学习里最主要的计算
+- term: MPI
+  full: Message Passing Interface
+  desc: 高性能计算里的进程间通信标准
+- term: FlashAttention
+  full: "—"
+  desc: 分块计算、不落地注意力矩阵的融合注意力 kernel
+- term: contiguous
+  full: "—"
+  desc: 元素在内存里按行优先紧密排列
+- term: Storage
+  full: "—"
+  desc: Tensor 底下真正存放数据的那段一维内存
+- term: dtype promotion
+  full: "—"
+  desc: 不同 dtype 参与运算时自动提升到公共类型
+- term: H2D
+  full: host to device
+  desc: 主机内存拷到显存
+- term: Meta device
+  full: "—"
+  desc: 只推导形状、类型，不存真实数据的设备
+- term: caching allocator
+  full: "—"
+  desc: PyTorch 缓存已释放显存块以便复用的分配器
+- term: workspace
+  full: "—"
+  desc: 算子临时申请的中间缓冲区
+- term: NCHW
+  full: "—"
+  desc: 两种图像 Tensor 维度顺序：通道在前 / 通道在后
+- term: NHWC
+  full: "—"
+  desc: 两种图像 Tensor 维度顺序：通道在前 / 通道在后
+- term: memory format
+  full: "—"
+  desc: 同一形状下的维度存放顺序，如 channels_last
+- term: FP32
+  full: 32-bit floating point
+  desc: 单精度浮点，深度学习的默认精度
+- term: ulp
+  full: unit in the last place
+  desc: 浮点数最低位一格代表的数值间隔
+- term: pinned memory
+  full: "—"
+  desc: 锁页主机内存，GPU 能直接用 DMA 读取
+- term: PCIe
+  full: Peripheral Component Interconnect Express
+  desc: CPU 与 GPU 之间的主板总线
+- term: NVLink
+  full: "—"
+  desc: NVIDIA GPU 之间的高速直连
+- term: checkpoint
+  full: "—"
+  desc: 保存到磁盘的模型参数和训练状态
+- term: JVM
+  full: Java Virtual Machine
+  desc: Java 虚拟机
+- term: GC
+  full: garbage collection
+  desc: 垃圾回收：自动释放不再可达的对象
+- term: DMA
+  full: direct memory access
+  desc: 不经 CPU、由设备直接搬运内存

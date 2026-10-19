@@ -26,8 +26,8 @@ z = torch.add(x, y)
 2. Python Binding
 3. Operator Schema
 4. Dispatcher
-5. ATen（A Tensor library） Operator
-6. CPU / CUDA（Compute Unified Device Architecture） / Meta Kernel
+5. ATen Operator
+6. CPU / CUDA / Meta Kernel
 7. 底层数学库与硬件
 
 如果这条链路只停留在“PyTorch 会自动处理”，那么遇到下面的问题时就只能依赖试错：
@@ -38,61 +38,7 @@ z = torch.add(x, y)
 - 为什么模型在 eager mode 下运行正常，`torch.compile()` 后却出现 graph break？[^q4]
 - 为什么 GPU 利用率很低，却找不到明显的 Python 瓶颈？[^q5]
 - 为什么增加 GPU 数量后，训练速度没有线性提升？[^q6]
-- 为什么一个看似简单的 C++ 扩展会遇到 ABI（application binary interface）、stride、dtype（data type） 或生命周期问题？[^q7]
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| ATen | A Tensor library | PyTorch 的 C++ 张量与算子库 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台和运行时 |
-| Meta | — | 只推导形状、类型，不存真实数据的设备 / 实现 |
-| kernel | — | 在设备上真正执行一个算子的函数 |
-| view | — | 和原 Tensor 共享存储、只换解释方式的 Tensor |
-| eager mode | — | 逐个算子立即执行的默认模式 |
-| graph break | — | torch.compile 遇到捕获不了的代码，把图断开 |
-| ABI | application binary interface | 编译后的二进制之间的调用约定 |
-| stride | — | 每个维度前进一步，在内存里要跳过几个元素 |
-| dtype | data type | Tensor 元素的数据类型，如 float32、int64 |
-| cuBLAS / cuDNN | CUDA Basic Linear Algebra Subroutines / CUDA Deep Neural Network library | NVIDIA 的矩阵运算库 / 深度学习算子库 |
-| ROCm | — | AMD 的 GPU 计算平台，对应 NVIDIA 的 CUDA |
-| MPS | Metal Performance Shaders | 苹果芯片上的 GPU 后端 |
-| XPU | — | PyTorch 里 Intel GPU 的设备类型 |
-| FX | — | PyTorch 的图表示和图变换工具（torch.fx） |
-| XLA | Accelerated Linear Algebra | Google 的线性代数编译器，TensorFlow / JAX 用它编译 |
-| JAX | — | Google 的函数式数值计算与深度学习框架 |
-| MXNet | — | Apache 的深度学习框架，命令式与符号图混合 |
-| OneFlow | — | 一流科技的深度学习框架，主打分布式 |
-| TorchScript | — | PyTorch 早期的静态图方案，现处维护模式 |
-| TorchDynamo | — | torch.compile 的前端，从 Python 字节码捕获计算图 |
-| AOTAutograd | ahead-of-time Autograd | 编译前提前把前向、反向图都生成出来 |
-| TorchInductor | — | torch.compile 的默认后端，生成融合后的 kernel |
-| Triton | — | OpenAI 的 GPU kernel 编程语言和编译器 |
-| DataLoader | — | PyTorch 的数据加载器，多进程读数据、组 batch |
-| guard | — | 编译结果能否复用的前提条件检查 |
-| stream | — | GPU 上按提交顺序执行任务的队列 |
-| H2D / D2H | host to device / device to host | 主机内存到显存 / 显存回主机内存的拷贝 |
-| NCCL | NVIDIA Collective Communications Library | NVIDIA 的 GPU 集合通信库 |
-| Gloo | — | Meta 开源的集合通信库，主要用于 CPU |
-| AOP | aspect-oriented programming | 面向切面编程：在原逻辑外围织入横切逻辑 |
-| c10d | — | PyTorch 分布式通信层：进程组与通信后端 |
-| AOTInductor | — | 把 Inductor 编译结果打包成可部署产物的路径 |
-| DispatchKey | — | Dispatcher 用来区分后端和功能层的键 |
-| CUTLASS | CUDA Templates for Linear Algebra Subroutines | NVIDIA 的 C++ 矩阵乘模板库 |
-| OpenMP | Open Multi-Processing | C/C++ 共享内存多线程并行的编译指令标准 |
-| DDP | DistributedDataParallel | 数据并行：每卡一份模型，反向时同步梯度 |
-| FSDP | Fully Sharded Data Parallel | 把参数、梯度、优化器状态分片到各卡的数据并行 |
-| DTensor | distributed tensor | 带分片 / 复制布局描述的分布式 Tensor |
-| CI | continuous integration | 持续集成：每次提交自动跑构建和测试 |
-| KV | key–value cache | 推理时缓存的注意力键值，随序列长度增长 |
-| autocast | — | 自动混合精度里按算子切换低精度的机制 |
-| PrivateUse1 | — | 留给第三方硬件后端的保留 dispatch key |
-| GEMM | general matrix multiply | 通用矩阵乘，深度学习里最主要的计算 |
-| codegen | code generation | 由脚本按描述文件自动生成源码 |
-| MPI | Message Passing Interface | 高性能计算里的进程间通信标准 |
-| FlashAttention | — | 分块计算、不落地注意力矩阵的融合注意力 kernel |
-
-Table: 本文用到的术语与缩写
+- 为什么一个看似简单的 C++ 扩展会遇到 ABI、stride、dtype 或生命周期问题？[^q7]
 
 ## 一、总览：一张全局地图
 
@@ -290,7 +236,7 @@ CUDA 是 NVIDIA GPU 的编程平台和软件生态，PyTorch 则是可以使用 
 - CPU；
 - 基于 CUDA 的 NVIDIA GPU；
 - 基于 ROCm 的 AMD GPU；
-- MPS（Metal Performance Shaders）、XPU 等其他设备后端。
+- MPS、XPU 等其他设备后端。
 
 这里的“CUDA 后端”“ROCm 后端”是面向硬件平台的概括，并不意味着它们与 PyTorch 的设备类型名称严格一一对应。例如，ROCm 版本的 PyTorch 通常也使用 `torch.cuda` 接口和 `"cuda"` 设备标识。
 
@@ -497,7 +443,7 @@ Eager Mode 灵活，但也存在明显成本：
 - **FX**：提供图捕获、图表示和图变换工具；
 - **functorch**：探索可组合的自动微分、向量化等函数变换；
 - **TorchDynamo**：通过 Python 字节码层面的机制捕获可编译计算区域；
-- **AOTAutograd**（ahead-of-time Autograd）：为编译流程生成前向与反向计算图；
+- **AOTAutograd**：为编译流程生成前向与反向计算图；
 - **TorchInductor**：对计算图进行优化并生成后端代码；
 - **Triton**：为 GPU Kernel 编写与代码生成提供支持，是 TorchInductor 在 GPU 上的重要技术基础。
 
@@ -711,7 +657,7 @@ Table: 算子分发运行时的组成
 - **内存管理**：为 Tensor 存储和计算临时空间提供分配、缓存与释放机制。
 - **Stream 与 Event**：在支持这些机制的后端中组织任务顺序，并表达执行依赖。
 - **同步机制**：协调主机与设备、不同执行流之间的必要等待。
-- **进程组与通信后端**：通过 NCCL（NVIDIA Collective Communications Library）、Gloo 等设施支持集合通信和点对点通信。
+- **进程组与通信后端**：通过 NCCL、Gloo 等设施支持集合通信和点对点通信。
 
 这些设施不是算子调用结束前才进入的“最后一站”，而是贯穿计算过程的支撑条件。Tensor 存储依赖内存管理，设备计算依赖执行与同步设施，分布式任务依赖通信基础设施。
 
@@ -901,7 +847,7 @@ Dispatcher 不直接完成加法，而是依据 Tensor 携带的分发键和线�
 
 在本章选定的主线上，可以用**两轮查表**理解 Autograd 包装与 CUDA 后端之间的协作：先选中 Autograd 处理者，再由它通过 Redispatch 调用 CUDA 后端；后端调用返回后，Autograd 包装层为输出关联梯度历史。
 
-为什么要**先**选 Autograd 而不是直接算加法：反向传播需要知道"这个输出是由哪个运算、从哪些输入算出来的"（第三篇的 `grad_fn`），这个记录必须在算子执行的**外围**完成——真正做加法的 CUDA kernel 只管算数，不知道也不该知道梯度的事。所以 Autograd 的角色像 Java 里 AOP（aspect-oriented programming） 的 around advice：它包在真正实现的外面，进去之前记下输入、放行给后端算、出来之后给结果挂上 `grad_fn`。如果先算加法再想起来记图，输入已经可能被后续操作改掉，图就不完整了；`torch.no_grad()` 做的就是把这一层跳过：它不改 Tensor 的 key，而是在线程局部的 exclude 集里排除 Autograd，第一轮查表直接落到 CUDA（第五篇讲 include / exclude 的机制）——少了记图这一层，也就少了它的开销。
+为什么要**先**选 Autograd 而不是直接算加法：反向传播需要知道"这个输出是由哪个运算、从哪些输入算出来的"（第三篇的 `grad_fn`），这个记录必须在算子执行的**外围**完成——真正做加法的 CUDA kernel 只管算数，不知道也不该知道梯度的事。所以 Autograd 的角色像 Java 里 AOP 的 around advice：它包在真正实现的外面，进去之前记下输入、放行给后端算、出来之后给结果挂上 `grad_fn`。如果先算加法再想起来记图，输入已经可能被后续操作改掉，图就不完整了；`torch.no_grad()` 做的就是把这一层跳过：它不改 Tensor 的 key，而是在线程局部的 exclude 集里排除 Autograd，第一轮查表直接落到 CUDA（第五篇讲 include / exclude 的机制）——少了记图这一层，也就少了它的开销。
 
 ```mermaid
 flowchart TB
@@ -1057,7 +1003,7 @@ Table: PyTorch 源码目录与库的分层
 
 - **Python 绑定**：把 C++ 的 Tensor 和函数暴露成 Python 对象。`torch.add` 在 Python 侧是一个由 Codegen 生成的绑定函数，负责解析参数、把 Python 对象转成 `at::Tensor`，再调用 ATen；
 - **Autograd 引擎**（`autograd/`）：反向传播的执行器，以及为每个算子生成的反向节点（第三篇）；
-- **c10d**（`distributed/`）：进程组、NCCL / Gloo 后端、DDP（DistributedDataParallel） 的 Reducer（第九篇）；
+- **c10d**（`distributed/`）：进程组、NCCL / Gloo 后端、DDP 的 Reducer（第九篇）；
 - **Profiler**（`profiler/`）：与 Kineto 集成，采集 CPU 和 CUDA 时间线（第八篇）；
 - **TorchScript**（`jit/`）：上一代编译路径，C++ 实现，2.x 已进入维护模式，本系列不讨论；
 - **Dynamo 与 Inductor 的少量 C++ 部分**：帧求值 hook（`dynamo/`）和 AOTInductor 运行时（`inductor/`）。
@@ -1114,7 +1060,7 @@ c10（读作 "C-ten"，名字是 Caffe2 与 ATen 的双关）是所有层共同�
 
 Table: 组件、源码位置与系列篇章的对照
 
-**本系列有意不覆盖的部分**：TorchScript / `torch.jit`（维护模式）；量化、稀疏 Tensor、复数等专门的 Tensor 子系统；`torch.func`（`vmap`、函数式变换）；MPS、XPU 等非 CUDA 后端的实现细节；`torch.export` 与 AOTInductor 只在第七篇作为编译栈的另一个出口简要提及。模型 Serving、请求调度和 KV（key–value） Cache 属于推理系统层，不在本系列范围。
+**本系列有意不覆盖的部分**：TorchScript / `torch.jit`（维护模式）；量化、稀疏 Tensor、复数等专门的 Tensor 子系统；`torch.func`（`vmap`、函数式变换）；MPS、XPU 等非 CUDA 后端的实现细节；`torch.export` 与 AOTInductor 只在第七篇作为编译栈的另一个出口简要提及。模型 Serving、请求调度和 KV Cache 属于推理系统层，不在本系列范围。
 
 ## 八、PyTorch 工程中最重要的几个边界
 
@@ -1300,10 +1246,10 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 [^q3]: `model(x)` 调的是 `nn.Module.__call__`，它在 `forward` 前后执行 forward pre-hooks / forward hooks、处理 backward hooks 的注册，并做一些状态检查；直接调 `forward` 绕过了这一层，hooks 不触发。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在第四篇。
 [^q4]: Dynamo 在字节码层符号求值，只能把「能用 Tensor 元数据决定」的代码编进图；依赖 Tensor 具体值的分支（`if x.sum() > 0`）、不支持的 Python 特性、`.item()` 这类强制同步的调用都会切开图（graph break），前后各编一段、中间回到 eager。eager 下这些代码毫无问题，所以只有编译时才暴露。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)、[第八章](#八pytorch-工程中最重要的几个边界)，展开在第七篇。
 [^q5]: GPU 是异步执行的：CPU 只负责发 kernel，如果每个 kernel 很小、发得又慢（launch-bound）或 CPU 在等 `.item()` / `nonzero` 这类同步点（sync-bound），GPU 大部分时间在空等——但 Python profiler 看到的每个函数都不慢。要用 `torch.profiler` 看时间线上 CPU 与 GPU 两侧谁在空闲。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第八篇。
-[^q6]: 多卡多了通信：DDP 每步 all-reduce 梯度、FSDP（Fully Sharded Data Parallel） 每层 all-gather 参数与 reduce-scatter 梯度，这些通信只有与计算重叠才不占额外时间；再加上数据加载、每卡 batch 变小导致 GEMM（general matrix multiply） 效率下降、慢卡拖住 collective，加速比自然低于卡数。详见[第八章](#八pytorch-工程中最重要的几个边界)，展开在第九篇。
+[^q6]: 多卡多了通信：DDP 每步 all-reduce 梯度、FSDP 每层 all-gather 参数与 reduce-scatter 梯度，这些通信只有与计算重叠才不占额外时间；再加上数据加载、每卡 batch 变小导致 GEMM 效率下降、慢卡拖住 collective，加速比自然低于卡数。详见[第八章](#八pytorch-工程中最重要的几个边界)，展开在第九篇。
 [^q7]: 因为扩展跨过了[第八章](#八pytorch-工程中最重要的几个边界)说的几条边界：Python / C++ 之间的 ABI 与引用计数、Tensor 的逻辑形状与物理布局（stride）、dtype 的类型提升、以及谁持有内存多久（生命周期）。原生算子由 Codegen 与 Dispatcher 统一处理这些，自定义算子要自己补齐。展开在第六篇。
 [^q8]: 数据用 **Tensor** 及其运算接口（形状、步幅、dtype、设备）；模型用 **`nn.Module`**（参数、缓冲区、子模块、`forward`、hooks）；求导用 **Autograd 接口**（`requires_grad`、`backward()`、`torch.autograd.grad()`、`torch.autograd.Function`）；参数更新用 **`torch.optim`**（`Optimizer.step()`、参数组、`lr_scheduler`）；数据加载用 **`Dataset` / `DataLoader`**（采样、批处理、多进程预取）。这些接口共同构成用户层的编程抽象，正文此节逐个列出它们的职责。
 [^q9]: PyTorch 2.x 的编译栈：**TorchDynamo** 分析 Python 字节码、在可捕获区域提取 FX 计算图并建立守卫（guard）；**AOTAutograd** 把前向图与自动生成的反向图一起捕获、做函数化（去除原地操作）与分解到核心算子集；**Inductor** 对图做融合、布局与调度决策，生成 Triton（GPU）或 C++ / OpenMP（CPU）kernel；**FX** 是这些组件之间的图中间表示；**TorchScript / `torch.export`** 用于导出与部署。它们让框架看到一段计算的整体，而不是逐个处理算子。
-[^q10]: 契约由 **Operator Schema** 定义——算子名、重载、参数与返回值、别名与修改标注（写在 `native_functions.yaml`，由 codegen（code generation） 生成 C++ / Python 绑定与 `OperatorHandle`）；关联到处理者靠 **Dispatcher**：每个算子一张以 DispatchKey 为索引的内核表，kernel 通过 `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 注册到某个 key（CPU、CUDA、Autograd、Functionalize、Python 等）；调用时从输入 Tensor 的 DispatchKeySet 与线程局部的包含 / 排除集合算出最高优先级 key、取对应 kernel，kernel 可以处理完再 `redispatch` 到下一个 key——这就是「适合当前输入与上下文」的选择机制。
-[^q11]: 三块基础设施：**设备与内存管理**（`c10` 的设备上下文与 `Allocator`——CUDA 的 CachingAllocator 以 block 池缓存显存、按 stream 记录以避免过早复用，Tensor 的 Storage 就从这里分配与释放）；**Stream 与 Event**（组织设备任务的执行顺序与依赖，kernel 启动是异步的，跨 stream 同步靠 Event 记录与等待）；**通信后端**（`torch.distributed` 的 ProcessGroup 抽象之下是 NCCL / Gloo / MPI（Message Passing Interface），集合通信在专用 stream 上发起，与计算 stream 用 Event 建立依赖）。正文此节列出各自的职责。
+[^q10]: 契约由 **Operator Schema** 定义——算子名、重载、参数与返回值、别名与修改标注（写在 `native_functions.yaml`，由 codegen 生成 C++ / Python 绑定与 `OperatorHandle`）；关联到处理者靠 **Dispatcher**：每个算子一张以 DispatchKey 为索引的内核表，kernel 通过 `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 注册到某个 key（CPU、CUDA、Autograd、Functionalize、Python 等）；调用时从输入 Tensor 的 DispatchKeySet 与线程局部的包含 / 排除集合算出最高优先级 key、取对应 kernel，kernel 可以处理完再 `redispatch` 到下一个 key——这就是「适合当前输入与上下文」的选择机制。
+[^q11]: 三块基础设施：**设备与内存管理**（`c10` 的设备上下文与 `Allocator`——CUDA 的 CachingAllocator 以 block 池缓存显存、按 stream 记录以避免过早复用，Tensor 的 Storage 就从这里分配与释放）；**Stream 与 Event**（组织设备任务的执行顺序与依赖，kernel 启动是异步的，跨 stream 同步靠 Event 记录与等待）；**通信后端**（`torch.distributed` 的 ProcessGroup 抽象之下是 NCCL / Gloo / MPI，集合通信在专用 stream 上发起，与计算 stream 用 Event 建立依赖）。正文此节列出各自的职责。
 [^q12]: 四类：**PyTorch 原生 kernel**（ATen 的 CPU 实现——`TensorIterator` + 向量化循环——与 CUDA 实现）；**编译系统生成的 kernel**（Inductor 产出的 Triton / C++ 代码，融合多个算子）；**外部计算库**（cuBLAS / cuBLASLt 的 GEMM、cuDNN 的卷积与注意力、oneDNN、FlashAttention 一类的第三方 kernel）；**用户自定义算子 / 扩展**（C++ / CUDA 扩展、`torch.library` 注册的 Python 算子、Triton 自定义 kernel）。Dispatcher 决定一次调用最终落到哪一类。
