@@ -35,7 +35,10 @@ permalink: /archive/
   <div class="archive-control-row archive-selects">
     <div class="archive-filter-field archive-multi" data-filter="year">
       <span class="archive-filter-label" id="archive-year-label">年份</span>
-      <button type="button" class="archive-multi-toggle" id="archive-year-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-year-label archive-year-filter" aria-controls="archive-year-panel"><span class="archive-multi-value">全部</span></button>
+      <div class="archive-multi-box">
+        <button type="button" class="archive-multi-toggle" id="archive-year-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-year-label archive-year-filter" aria-controls="archive-year-panel"><span class="archive-multi-value">全部</span></button>
+        <ul class="archive-multi-chips" aria-label="已选年份" hidden></ul>
+      </div>
       <div class="archive-multi-panel" id="archive-year-panel" hidden>
         <ul class="archive-multi-options" role="group" aria-label="年份"></ul>
         <p class="archive-multi-none" hidden>没有匹配的年份</p>
@@ -44,7 +47,10 @@ permalink: /archive/
     </div>
     <div class="archive-filter-field archive-multi" data-filter="series">
       <span class="archive-filter-label" id="archive-series-label">系列</span>
-      <button type="button" class="archive-multi-toggle" id="archive-series-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-series-label archive-series-filter" aria-controls="archive-series-panel"><span class="archive-multi-value">全部</span></button>
+      <div class="archive-multi-box">
+        <button type="button" class="archive-multi-toggle" id="archive-series-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-series-label archive-series-filter" aria-controls="archive-series-panel"><span class="archive-multi-value">全部</span></button>
+        <ul class="archive-multi-chips" aria-label="已选系列" hidden></ul>
+      </div>
       <div class="archive-multi-panel" id="archive-series-panel" hidden>
         <input type="search" class="archive-multi-search" placeholder="筛选系列" aria-label="筛选系列">
         <ul class="archive-multi-options" role="group" aria-label="系列"></ul>
@@ -54,7 +60,10 @@ permalink: /archive/
     </div>
     <div class="archive-filter-field archive-multi" data-filter="tag">
       <span class="archive-filter-label" id="archive-tag-label">标签</span>
-      <button type="button" class="archive-multi-toggle" id="archive-tag-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-tag-label archive-tag-filter" aria-controls="archive-tag-panel"><span class="archive-multi-value">全部</span></button>
+      <div class="archive-multi-box">
+        <button type="button" class="archive-multi-toggle" id="archive-tag-filter" aria-haspopup="true" aria-expanded="false" aria-labelledby="archive-tag-label archive-tag-filter" aria-controls="archive-tag-panel"><span class="archive-multi-value">全部</span></button>
+        <ul class="archive-multi-chips" aria-label="已选标签" hidden></ul>
+      </div>
       <div class="archive-multi-panel" id="archive-tag-panel" hidden>
         <input type="search" class="archive-multi-search" placeholder="筛选标签" aria-label="筛选标签">
         <ul class="archive-multi-options" role="group" aria-label="标签"></ul>
@@ -279,11 +288,12 @@ permalink: /archive/
     display: grid;
     grid-template-columns: .8fr 1.4fr 1.2fr .9fr;
     gap: 10px 16px;
+    align-items: start;
   }
   #archive .archive-filter-field {
     position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     min-width: 0;
     margin: 0;
@@ -295,10 +305,10 @@ permalink: /archive/
     color: #57606a;
     font-size: 13px;
     font-weight: 600;
+    line-height: 32px;
     white-space: nowrap;
   }
-  #archive .archive-selects select,
-  #archive .archive-multi-toggle {
+  #archive .archive-selects select {
     flex: 1 1 auto;
     width: 100%;
     min-width: 0;
@@ -324,10 +334,51 @@ permalink: /archive/
     box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
     outline: none;
   }
+  #archive .archive-multi-box {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    height: auto;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 3px 28px 3px 4px;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2357606a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 6px;
+    color: #24292f;
+    font-size: 13px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
   #archive .archive-multi-toggle {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
     display: flex;
     align-items: center;
+    margin: 0;
+    padding: 0 28px 0 10px;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 30px;
     text-align: left;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
   }
   #archive .archive-multi-value {
     display: block;
@@ -337,15 +388,86 @@ permalink: /archive/
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  #archive .archive-multi-toggle:hover { border-color: #8c959f; }
-  #archive .archive-multi-toggle:focus {
+  #archive .archive-multi-box.has-selection .archive-multi-value {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  #archive .archive-multi-box:hover { border-color: #8c959f; }
+  #archive .archive-multi-box:focus-within {
     border-color: #0969da;
     box-shadow: 0 0 0 3px rgba(9, 105, 218, .15);
     outline: none;
   }
-  #archive .archive-multi-toggle.is-active {
+  #archive .archive-multi-box.is-active {
     border-color: #00788f;
     color: #00788f;
+  }
+  #archive .archive-multi-chips {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    pointer-events: none;
+  }
+  #archive .archive-multi-chips[hidden] { display: none !important; }
+  #archive .archive-multi-chip {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 100%;
+    min-width: 0;
+    height: 20px;
+    box-sizing: border-box;
+    padding: 0 2px 0 7px;
+    border-radius: 4px;
+    background: #e6f3f5;
+    color: #00788f;
+    font-size: 12px;
+    line-height: 20px;
+    pointer-events: none;
+  }
+  #archive .archive-multi-chip-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #archive .archive-multi-chip-remove {
+    display: inline-flex;
+    flex: 0 0 16px;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  #archive .archive-multi-chip-remove:hover { background: rgba(0, 0, 0, .08); }
+  #archive .archive-multi-chip-remove:focus-visible {
+    outline: 2px solid #0969da;
+    outline-offset: 1px;
   }
   #archive .archive-filter-field.is-open { z-index: 31; }
   #archive .archive-multi-panel {
@@ -956,6 +1078,8 @@ permalink: /archive/
     function buildMultiFilter(definition) {
       var field = controls.querySelector('[data-filter="' + definition.name + '"]');
       var toggle = field.querySelector('.archive-multi-toggle');
+      var box = field.querySelector('.archive-multi-box');
+      var chips = field.querySelector('.archive-multi-chips');
       var panel = field.querySelector('.archive-multi-panel');
       var list = field.querySelector('.archive-multi-options');
       var search = field.querySelector('.archive-multi-search');
@@ -997,6 +1121,27 @@ permalink: /archive/
         checkboxes.push({ input: checkbox, option: option, item: item });
       });
 
+      chips.addEventListener('click', function (event) {
+        var removeButton = event.target.closest('.archive-multi-chip-remove');
+        if (!removeButton) return;
+        event.preventDefault();
+        event.stopPropagation();
+        var selected = state[definition.key].slice();
+        var removedIndex = selected.indexOf(removeButton.dataset.value);
+        if (removedIndex === -1) return;
+        var focusValue = selected[removedIndex + 1] || selected[removedIndex - 1];
+        state[definition.key] = selected.filter(function (value) {
+          return value !== removeButton.dataset.value;
+        });
+        render();
+        updateUrl();
+        var nextButton = focusValue && Array.prototype.find.call(
+          chips.querySelectorAll('.archive-multi-chip-remove'),
+          function (button) { return button.dataset.value === focusValue; }
+        );
+        (nextButton || toggle).focus();
+      });
+
       if (search) {
         search.addEventListener('input', function () {
           var query = search.value.trim().toLowerCase();
@@ -1030,6 +1175,8 @@ permalink: /archive/
       return {
         field: field,
         toggle: toggle,
+        box: box,
+        chips: chips,
         panel: panel,
         value: value,
         checkboxes: checkboxes,
@@ -1335,12 +1482,29 @@ permalink: /archive/
         });
         var fullText = selectedNames.length ? selectedNames.join('、') : '全部';
         filter.toggle.title = fullText;
-        filter.value.textContent = fullText;
-        if (selectedNames.length > 1 && filter.value.clientWidth > 0 &&
-            filter.value.scrollWidth > filter.value.clientWidth) {
-          filter.value.textContent = selectedNames.length + ' 项';
-        }
-        filter.toggle.classList.toggle('is-active', selected.length > 0);
+        filter.value.textContent = selectedNames.length ? '已选：' + fullText : '全部';
+        filter.box.classList.toggle('has-selection', selected.length > 0);
+        filter.box.classList.toggle('is-active', selected.length > 0);
+        filter.chips.hidden = selectedNames.length === 0;
+        while (filter.chips.firstChild) filter.chips.removeChild(filter.chips.firstChild);
+        filter.definition.options.forEach(function (option) {
+          if (selected.indexOf(option.value) === -1) return;
+          var chip = document.createElement('li');
+          chip.className = 'archive-multi-chip';
+          chip.title = option.name;
+          var name = document.createElement('span');
+          name.className = 'archive-multi-chip-name';
+          name.textContent = option.name;
+          var removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'archive-multi-chip-remove';
+          removeButton.setAttribute('aria-label', '取消选择 ' + option.name);
+          removeButton.dataset.value = option.value;
+          removeButton.textContent = '×';
+          chip.appendChild(name);
+          chip.appendChild(removeButton);
+          filter.chips.appendChild(chip);
+        });
       });
       sortFilter.value = state.sort;
       document.getElementById('archive-result-count').textContent = '共 ' + filtered.length + ' 篇';

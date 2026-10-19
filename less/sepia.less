@@ -302,12 +302,18 @@ html[data-theme="sepia"] {
 
 	#archive .archive-controls, #archive .archive-goto-results,
 	#archive .archive-card, #archive .archive-table, #archive .archive-goto-file input,
-	#archive .archive-selects select, #archive .archive-multi-toggle,
+	#archive .archive-selects select, #archive .archive-multi-box,
 	#archive .archive-multi-panel, #archive .archive-multi-search {
 		border-color: @sp-border;
 		background-color: @sp-surface;
 		color: @sp-text;
 	}
+	#archive .archive-multi-chip {
+		background-color: fade(@sp-link, 14%);
+		color: @sp-link;
+	}
+	#archive .archive-multi-chip-remove:hover { background-color: fade(@sp-link, 22%); }
+	#archive .archive-multi-chip-remove:focus-visible { outline-color: @sp-link; }
 	#archive .archive-table th { border-color: @sp-border; background-color: @sp-surface-2; color: @sp-heading; }
 	#archive .archive-table td, #archive .archive-table-scroll { border-color: @sp-border; }
 	#archive .archive-table tbody tr:hover { background-color: @sp-surface-2; }
@@ -321,10 +327,10 @@ html[data-theme="sepia"] {
 	#archive .archive-chip:hover, #archive .archive-view-button:hover,
 	#archive .archive-clear-filters:hover, #archive .archive-inline-tag:hover,
 	#archive .archive-multi-clear:hover { border-color: @sp-link; color: @sp-link; }
-	#archive .archive-multi-toggle.is-active,
-	#archive .archive-multi-toggle.is-active:hover { border-color: @sp-link; color: @sp-link; }
-	#archive .archive-multi-toggle:hover { border-color: @sp-muted; }
-	#archive .archive-multi-toggle:focus, #archive .archive-multi-search:focus {
+	#archive .archive-multi-box:hover { border-color: @sp-muted; }
+	#archive .archive-multi-box.is-active,
+	#archive .archive-multi-box.is-active:hover { border-color: @sp-link; color: @sp-link; }
+	#archive .archive-multi-box:focus-within, #archive .archive-multi-search:focus {
 		border-color: @sp-link;
 		box-shadow: 0 0 0 3px fade(@sp-link, 15%);
 	}
