@@ -57,7 +57,7 @@ CPU / GPU / 加速器
 这个系列的重点不是记住更多 API，而是建立从上层模型代码一直追踪到硬件执行的能力。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="deep-dive-into-pytorch" %}
 
