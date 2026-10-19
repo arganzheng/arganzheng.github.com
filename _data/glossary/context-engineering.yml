@@ -1,175 +1,31 @@
 ---
-- term: NoLiMa
-  full: "—"
-  desc: 长上下文基准，问题与答案没有字面重合
-- term: Lost in the Middle
-  full: "—"
-  desc: 发现模型对窗口中间的信息利用最差的研究
-- term: tool search
-  full: "—"
-  desc: 工具定义不常驻，用到时再检索加载
-- term: logits
-  full: "—"
-  desc: 模型给每个候选 token 打的未归一化分数
 - term: TTL
   full: time to live
   desc: 缓存条目的存活时间，过期就失效
-- term: Pydantic
-  full: "—"
-  desc: Python / TypeScript 的校验库与带重试的结构化输出库
-- term: zod
-  full: "—"
-  desc: Python / TypeScript 的校验库与带重试的结构化输出库
-- term: SGLang
-  full: "—"
-  desc: 开源推理引擎，与 vLLM 并列
-- term: prompt injection
-  full: "—"
-  desc: 混进上下文的文字冒充指令，劫持模型行为
-- term: effort
-  full: "—"
-  desc: 推理模型思考量的档位参数
 - term: MCP
   full: Model Context Protocol
   desc: 给模型接工具和数据源的开放协议
-- term: Context Rot
-  full: "—"
-  desc: Chroma 的研究：输入越长模型表现越不均匀地退化
 - term: TTFT
   full: time to first token
   desc: 首 token 延迟，从发请求到收到第一个 token
-- term: CLAUDE.md
-  full: "—"
-  desc: Claude Code 启动时读入的项目说明文件
 - term: CoT
   full: chain-of-thought
   desc: 让模型先写出推理步骤再回答
-- term: agentic retrieval
-  full: "—"
-  desc: 让 agent 自己决定查什么、查几次
-- term: AGENTS.md / SKILL.md
-  full: "—"
-  desc: 项目的常驻指令文件 / 按需加载的技能说明
 - term: A/B
   full: A/B testing
   desc: 把流量随机分给两个版本，比较指标
-- term: compaction
-  full: "—"
-  desc: 用一次模型调用把历史摘要成一段
-- term: context editing
-  full: "—"
-  desc: Anthropic API 按策略清掉旧工具返回的功能
-- term: vLLM
-  full: "—"
-  desc: 开源的大模型推理引擎
-- term: Outlines
-  full: "—"
-  desc: 三个约束解码库，把 schema 编译成自动机
-- term: XGrammar
-  full: "—"
-  desc: 三个约束解码库，把 schema 编译成自动机
-- term: llguidance
-  full: "—"
-  desc: 三个约束解码库，把 schema 编译成自动机
-- term: context engineering
-  full: "—"
-  desc: 决定模型每一步看到哪些 token 的工程
-- term: PostToolUse hook
-  full: "—"
-  desc: Claude Code 每次工具调用后触发的钩子
-- term: SKILL.md
-  full: "—"
-  desc: Agent Skills 的技能文件，只有描述常驻
-- term: progressive disclosure
-  full: "—"
-  desc: 渐进披露：常驻一行描述，用到再加载全文
-- term: prefill
-  full: "—"
-  desc: 模型一次读完全部输入、建好 KV 的阶段
-- term: RULER
-  full: "—"
-  desc: 长上下文基准，测模型的真实可用长度
-- term: agentic eagerness
-  full: "—"
-  desc: 模型自主行动的积极程度，GPT-5 指南的说法
-- term: tool preamble
-  full: "—"
-  desc: 调工具前先说一句计划，之后说一句进展
-- term: adaptive thinking
-  full: "—"
-  desc: Claude 5 系列由模型自己决定想多少的思考模式
-- term: metaprompting
-  full: "—"
-  desc: 让模型自己诊断并改写 prompt
 - term: RAG
   full: retrieval-augmented generation
   desc: 先检索资料，再让模型据此回答
-- term: strict 模式
-  full: "—"
-  desc: API 按 schema 做约束解码、保证输出符合 schema 的开关
-- term: JSON schema
-  full: "—"
-  desc: 描述 JSON 字段、类型和取值约束的规范
 - term: FSM
   full: finite-state machine
   desc: 有限状态机，每个状态对应一组允许的 token
 - term: CFG
   full: context-free grammar
   desc: 上下文无关文法，能表达递归的嵌套结构
-- term: tokenizer
-  full: "—"
-  desc: 把文本切成 token 的组件，各模型不同
-- term: enum
-  full: "—"
-  desc: 枚举：字段只能取列表里的值
-- term: Pydantic / zod
-  full: "—"
-  desc: Python / TypeScript 的数据校验库
-- term: memory tool
-  full: "—"
-  desc: Anthropic API 让模型读写持久记忆的工具
 - term: AES
   full: Advanced Encryption Standard
   desc: 对称加密标准，Codex 用它加密压缩结果
 - term: JSONL
   full: JSON Lines
   desc: 每行一个 JSON 对象的文本格式
-- term: recitation
-  full: "—"
-  desc: 复述：每步把目标和进度重写到上下文末尾
-- term: prompt cache
-  full: "—"
-  desc: 供应商缓存请求前缀，命中部分按折扣计费
-- term: eagerness / tool preamble
-  full: "—"
-  desc: GPT-5 指南里的主动性档位 / 调工具前后各说一句
-- term: Langfuse
-  full: "—"
-  desc: 开源的 prompt 管理平台，版本加可移动标签
-- term: rerank
-  full: "—"
-  desc: 对检索出的候选再精排一次
-- term: GraphRAG
-  full: "—"
-  desc: 先从语料建知识图谱、再在图上检索的 RAG
-- term: harness
-  full: "—"
-  desc: 包在模型调用外面的 agent 运行时框架
-- term: judge
-  full: LLM-as-a-judge
-  desc: 给模型输出打分的评测模型
-- term: AGENTS.md
-  full: "—"
-  desc: 放在仓库里给 coding agent 读的项目指令文件
-- term: Agent Skills
-  full: "—"
-  desc: 按需加载的技能说明文件及其开放标准
-- term: Prompts 对象
-  full: "—"
-  desc: OpenAI 控制台托管的 prompt 配置，代码按 id 引用
-- term: promptfoo
-  full: "—"
-  desc: 开源的 prompt 评测工具，可接进 CI
-- term: Assistants API
-  full: "—"
-  desc: OpenAI 旧的有状态 API，2026-08-26 关闭

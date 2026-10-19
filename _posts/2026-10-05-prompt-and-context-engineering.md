@@ -22,7 +22,7 @@ catalog: true
 系列的组织原则：**每一项上下文策略都是在 L1 的失效模式与账之间做交换**。压缩用一次推理的成本换有效上下文；缓存用前缀的稳定性换 90% 的输入折价；结构化输出用 schema 的约束换解析的确定性；few-shot 用 token 换遵循率。六篇的每一篇都把新引入的手段记回 L1 的两张表。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="context-engineering" %}
 
