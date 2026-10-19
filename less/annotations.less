@@ -1032,6 +1032,26 @@ html.ap-capturing {
 }
 
 // ---- figures: caption + feedback handle on images / Mermaid diagrams (js/figures.js)
+.post-container .post-figure.fig-flash > .fig-media,
+.post-container img.fig-flash {
+	--fig-flash-color: rgba(0, 120, 143, .88);
+	--fig-flash-glow: rgba(0, 120, 143, .18);
+	outline: 3px solid var(--fig-flash-color);
+	outline-offset: 4px;
+	box-shadow: 0 0 0 7px var(--fig-flash-glow);
+	animation: figure-search-flash 2.5s ease-out both;
+}
+@keyframes figure-search-flash {
+	from {
+		outline-color: var(--fig-flash-color);
+		box-shadow: 0 0 0 0 var(--fig-flash-glow);
+	}
+	to {
+		outline-color: transparent;
+		box-shadow: 0 0 0 13px transparent;
+	}
+}
+
 .post-container {
 	figure.post-figure {
 		position: relative;
