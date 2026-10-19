@@ -257,3 +257,15 @@
 - term: TPS
   full: tokens per second
   desc: 每秒处理的 token 数，吞吐指标
+- term: DPO
+  full: Direct Preference Optimization
+  desc: 直接偏好优化，不训奖励模型、直接用偏好对训策略
+- term: Adam
+  full: adaptive moment estimation
+  desc: 按梯度一阶、二阶矩自适应步长的优化器
+- term: lr
+  full: learning rate
+  desc: 学习率，每步梯度更新走的步长
+- term: HBM
+  full: high bandwidth memory
+  desc: GPU 上的高带宽显存

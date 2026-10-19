@@ -47,9 +47,6 @@
 - term: TTFT
   full: time to first token
   desc: 从发出请求到收到第一个输出 token 的时间
-- term: EU AI Act
-  full: Artificial Intelligence Act
-  desc: 欧盟人工智能法案，Regulation (EU) 2024/1689
 - term: OWASP
   full: Open Worldwide Application Security Project
   desc: 发布应用安全十大风险清单的开源组织

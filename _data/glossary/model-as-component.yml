@@ -59,12 +59,6 @@
 - term: RSS
   full: resident set size
   desc: 进程实际占用的物理内存
-- term: Matryoshka
-  full: Matryoshka Representation Learning
-  desc: 套娃式向量：只取前几维也能用
-- term: MIT
-  full: MIT License
-  desc: 宽松的开源许可证
 - term: MTEB
   full: Massive Text Embedding Benchmark
   desc: 文本 embedding 模型的综合榜单

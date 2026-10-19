@@ -11,12 +11,6 @@
 - term: HyDE
   full: Hypothetical Document Embeddings
   desc: 先让模型写一段假想答案，再用它去检索
-- term: Matryoshka
-  full: Matryoshka Representation Learning
-  desc: 套娃式向量：只取前几维也能用
-- term: MIT
-  full: MIT License
-  desc: 宽松的开源许可证
 - term: LSP
   full: Language Server Protocol
   desc: 编辑器和语言服务之间的协议，能查定义与引用
@@ -77,9 +71,6 @@
 - term: B2B
   full: business-to-business
   desc: 面向企业客户的业务
-- term: Apache 2.0
-  full: Apache License 2.0
-  desc: 允许商用的宽松开源许可证
 - term: DOM
   full: Document Object Model
   desc: 网页的树状结构

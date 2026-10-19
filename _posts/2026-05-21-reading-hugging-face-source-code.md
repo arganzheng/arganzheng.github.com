@@ -38,7 +38,7 @@ Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`s
 
 Table: 系列四段与各篇覆盖的源码
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="hf-source-reading" %}
 
