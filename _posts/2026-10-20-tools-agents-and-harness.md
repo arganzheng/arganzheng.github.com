@@ -22,7 +22,7 @@ catalog: true
 系列的组织原则：**harness 的每一个组件都是对 L1 某条失效模式的防线**。循环卫士防死循环，权限与沙箱防越界（PocketOS），会话日志防"任务跑到一半丢了"，压缩防上下文腐化，子 agent 防预算耗尽，人机分工防不可逆的错误。九篇的每一篇都标出它防的是哪一条、代价是什么。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="agent-and-harness" %}
 
