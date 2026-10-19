@@ -203,6 +203,8 @@ Pages has `https_enforced` on.
 
 - Reading position (`js/reading-position.js`) adds a progress bar and a
   per-post continue-reading prompt; it requires `.post-length` and skips Moments.
+- Series posts get `series_minutes` from tag-stripped content; the bottom
+  `.sb-remaining` line shows unread count and estimated time from `blogRead`.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
   the early head script applies them before styles load. Focus is entered from

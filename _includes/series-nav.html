@@ -24,12 +24,13 @@
     {%- endif %}
     <ol class="sb-list">
       {%- for p in series_posts %}
-      <li data-url="{{ p.url }}"{% if p.url == page.url %} class="is-current"{% endif %}>
+      <li data-url="{{ p.url }}" data-minutes="{{ p.series_minutes }}"{% if p.url == page.url %} class="is-current"{% endif %}>
         {%- if p.url == page.url %}<span>{{ p.title | split: '）：' | last }}</span>{% else %}<a href="{{ p.url | prepend: site.baseurl }}">{{ p.title | split: '）：' | last }}</a>{% endif -%}
       </li>
       {%- endfor %}
     </ol>
   </details>
+  {%- if include.bottom %}<p class="sb-remaining" hidden></p>{% endif -%}
   {%- comment %} also in the bottom box, although the pager below repeats it: the two boxes look alike {% endcomment -%}
   {%- comment %} first part: the map's previous series; finished series' last part (the recap): the next one {% endcomment -%}
   {%- assign sb_prev_series = nil -%}

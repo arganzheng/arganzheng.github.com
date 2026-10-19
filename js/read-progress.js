@@ -110,6 +110,71 @@
     });
   }
 
+  function renderRemaining(state) {
+    Array.prototype.forEach.call(document.querySelectorAll('.series-toc .sb-remaining'), function (line) {
+      var box = line.closest('.series-box');
+      var list = box && box.querySelector('.sb-list');
+      var items = list ? Array.prototype.slice.call(list.querySelectorAll('li[data-url]')) : [];
+      if (!items.length) {
+        line.hidden = true;
+        return;
+      }
+
+      var unread = items.filter(function (item) {
+        return !hasRead(state, item.getAttribute('data-url'));
+      });
+      var minutes = unread.reduce(function (total, item) {
+        var value = parseInt(item.getAttribute('data-minutes'), 10);
+        return total + (isFinite(value) && value > 0 ? value : 0);
+      }, 0);
+      var time = minutes < 60 ? '约 ' + minutes + ' 分钟' :
+        '约 ' + (minutes / 60).toFixed(1).replace(/\.0$/, '') + ' 小时';
+      var currentIndex = -1;
+      items.some(function (item, index) {
+        if (item.classList.contains('is-current')) {
+          currentIndex = index;
+          return true;
+        }
+        return false;
+      });
+      var current = currentIndex >= 0 ? items[currentIndex] : null;
+      var currentRead = !!(current && hasRead(state, current.getAttribute('data-url')));
+
+      line.textContent = '';
+      if (!unread.length) {
+        line.textContent = '这个系列 ' + items.length + ' 篇都读完了';
+      } else if (!currentRead) {
+        line.textContent = '这个系列还剩 ' + unread.length + ' 篇没读（含本篇），' + time;
+      } else {
+        var message = '本篇已读完 · 这个系列还剩 ' + unread.length + ' 篇，' + time;
+        var next = items[currentIndex + 1];
+        if (!next || hasRead(state, next.getAttribute('data-url'))) {
+          var target = null;
+          for (var i = currentIndex + 1; i < items.length; i++) {
+            if (!hasRead(state, items[i].getAttribute('data-url'))) {
+              target = items[i];
+              break;
+            }
+          }
+          if (!target) target = unread[0];
+          var targetLink = target && target.querySelector('a[href]');
+          if (targetLink) {
+            line.appendChild(document.createTextNode(message + ' · 还没读：'));
+            var link = document.createElement('a');
+            link.setAttribute('href', targetLink.getAttribute('href'));
+            link.textContent = targetLink.textContent;
+            line.appendChild(link);
+          } else {
+            line.textContent = message;
+          }
+        } else {
+          line.textContent = message;
+        }
+      }
+      line.hidden = !line.textContent;
+    });
+  }
+
   function markerFor(element, read) {
     var marker = Array.prototype.filter.call(element.children, function (child) {
       return child.classList && child.classList.contains('rp-marker');
@@ -178,6 +243,7 @@
     var state = readAll();
     renderToggles(state);
     renderSeries(state);
+    renderRemaining(state);
     renderLists(state);
     renderRoadmaps(state);
   }
