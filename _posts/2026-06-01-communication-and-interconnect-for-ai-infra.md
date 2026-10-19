@@ -8,105 +8,6 @@ updated: 2026-06-27
 ---
 
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| NCCL | NVIDIA Collective Communications Library | NVIDIA 的集合通信库，多卡通信的事实标准 |
-| RDMA | remote direct memory access | 网卡直接读写远端内存，绕开对端 CPU 和内核 |
-| all_reduce / all_gather / reduce_scatter | — | 三种最常用的集合通信：全归约、全收集、归约后分片 |
-| PCIe | Peripheral Component Interconnect Express | 主板上连接 GPU、网卡和 CPU 的总线 |
-| NVLink | — | NVIDIA 的 GPU 间高速直连链路 |
-| InfiniBand | — | HPC 和 AI 集群常用的无损 RDMA 网络 |
-| busbw / algbw | bus bandwidth / algorithm bandwidth | nccl-tests 报的两个带宽：校正后的链路带宽与 S/T |
-| nccl-tests | — | NVIDIA 官方的 NCCL 性能测试程序 |
-| channel | — | NCCL 把一次集合通信切成的并行子任务，各占一个 block |
-| ring / tree | — | NCCL 的两种基本算法：环形接力与树形归约 |
-| NVSwitch | — | 节点内把多张 GPU 的 NVLink 全互连起来的交换芯片 |
-| NIC | network interface card | 网卡 |
-| proxy | — | NCCL 在 CPU 上替 GPU 驱动网络收发的线程 |
-| GPUDirect | — | NVIDIA 让网卡、存储等直接访问显存的一组技术 |
-| prefill / decode | — | 推理的两个阶段：一次处理整段输入 / 逐 token 生成 |
-| MoE | mixture of experts | 混合专家模型，每个 token 只激活少数专家 |
-| all_to_all | — | 每张卡给其他每张卡各发一份不同的数据 |
-| FSDP | Fully Sharded Data Parallel | PyTorch 的全分片数据并行 |
-| ZeRO | Zero Redundancy Optimizer | DeepSpeed 的分片优化器，去掉各卡上的冗余状态 |
-| PD | prefill–decode | PD 分离：prefill 与 decode 放到不同节点上跑 |
-| KV | key–value | KV cache，推理时缓存的注意力键值 |
-| RoCE | RDMA over Converged Ethernet | 在以太网上承载 RDMA |
-| bucket | — | 把多个小梯度攒成一块再通信的合并单位 |
-| NUMA | non-uniform memory access | 多路 CPU 下内存与设备按插槽分组，跨组更慢 |
-| root complex | — | CPU 一侧的 PCIe 根节点，下挂 switch 和设备 |
-| straggler | — | 拖慢所有人的那张慢卡 |
-| CUDA | Compute Unified Device Architecture | NVIDIA 的 GPU 编程平台 |
-| vLLM | — | 开源大模型推理引擎 |
-| watchdog | — | ProcessGroupNCCL 里检测通信超时的后台线程 |
-| IB | InfiniBand | InfiniBand 的简称 |
-| HPC | high-performance computing | 高性能计算 |
-| verbs | — | RDMA 的底层编程接口（libibverbs） |
-| DDP | DistributedDataParallel | PyTorch 的数据并行封装 |
-| SHARP | Scalable Hierarchical Aggregation and Reduction Protocol | 在交换机里做归约的技术 |
-| DeepEP | — | DeepSeek 开源的 MoE 专家并行通信库 |
-| ECN | Explicit Congestion Notification | 交换机在包上打拥塞标记，让发送端降速 |
-| PFC | Priority Flow Control | 按优先级暂停发送，让以太网不丢包 |
-| Megatron-LM | — | NVIDIA 的大模型训练框架 |
-| NIXL | NVIDIA Inference Xfer Library | NVIDIA 的推理数据传输库，用来搬 KV cache |
-| UCX | Unified Communication X | 统一封装 RDMA、共享内存等传输的通信框架 |
-| dispatch / combine | — | MoE 里把 token 发给专家 / 把结果收回来 |
-| IBGDA | InfiniBand GPUDirect Async | GPU 自己往网卡提交 RDMA 请求，不经 CPU |
-| rank | — | 分布式任务里一个进程（通常一张卡）的编号 |
-| TP | tensor parallelism | 张量并行，把一层的矩阵切到多张卡上 |
-| P2P | peer-to-peer | 设备之间直接互访，不经主机内存 |
-| HDR / NDR | High Data Rate / Next Data Rate | InfiniBand 的两代速率：200 / 400 Gb/s |
-| NV# / PIX / PXB / PHB / NODE / SYS | — | nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远 |
-| rail-optimized | — | 各机同号网卡接同一组交换机的组网方式 |
-| TCP | Transmission Control Protocol | 传输控制协议，经内核协议栈 |
-| RC / UC / UD | reliable connection / unreliable connection / unreliable datagram | QP 的三种传输类型 |
-| QP / QPN | queue pair / queue pair number | RDMA 的收发队列对及其编号 |
-| LID / GID | local identifier / global identifier | InfiniBand 子网内地址 / 跨子网（RoCE 必用）地址 |
-| DCQCN | Data Center Quantized Congestion Notification | RoCE 常用的基于 ECN 的拥塞控制算法 |
-| MR | memory region | 注册给网卡、可被 RDMA 访问的一段内存 |
-| DMA | direct memory access | 设备不经 CPU 直接读写内存 |
-| DMA-BUF | — | Linux 内核在设备间共享缓冲区的机制 |
-| GDRCopy | — | 基于 GPUDirect RDMA 的低延迟显存拷贝库 |
-| NVMe | Non-Volatile Memory Express | 走 PCIe 的固态盘接口协议 |
-| NVML | NVIDIA Management Library | 查询 GPU 状态与拓扑的管理库 |
-| SHM | shared memory | 经主机共享内存传数据的 NCCL transport |
-| CollNet | — | NCCL 借助网络内归约（如 SHARP）的算法 |
-| NVLS | NVLink SHARP | 借助 NVSwitch 在交换芯片里归约 |
-| communicator | — | NCCL 里一组 rank 的通信上下文 |
-| PAT | Parallel Aggregated Trees | NCCL 为大规模 all_gather / reduce_scatter 加的算法 |
-| LL / LL128 | low latency / low latency 128 | NCCL 的两种低延迟协议，用 flag 代替内存屏障 |
-| TCPStore | — | PyTorch 基于 TCP 的键值存储，用于 rendezvous |
-| SM | streaming multiprocessor | GPU 的计算单元，通信 kernel 也要占用 |
-| UCC | Unified Collective Communication | UCX 之上的集合通信库，可作 PyTorch 后端 |
-| PyNccl | — | vLLM 用 ctypes 直接调 NCCL 的封装 |
-| GEMM | general matrix multiply | 通用矩阵乘 |
-| GDR | GPUDirect RDMA | 网卡直接读写显存的 RDMA |
-| NaN | not a number | 浮点运算出现的非法值 |
-| IPC | inter-process communication | 进程间通信，这里指跨进程共享显存 |
-| ROCm | — | AMD 的 GPU 软件栈 |
-| PP | pipeline parallelism | 流水线并行，按层切到不同卡上 |
-| DP | data parallelism | 数据并行，每张卡一份完整模型 |
-| FlashInfer | — | 推理用 kernel 库，也带 all-reduce 实现 |
-| EP | expert parallelism | 专家并行，把 MoE 的专家分到不同卡上 |
-| AG / A2A | all-gather / all-to-all | Megatron dispatcher 名字里的两种通信 |
-| NVSHMEM | NVIDIA OpenSHMEM | NVIDIA 的 GPU 版 OpenSHMEM，提供跨卡对称堆 |
-| PXN | PCI × NVLink | 先经 NVLink 转到同号卡、再走它的网卡 |
-| FP8 | 8-bit floating point | 8 位浮点数 |
-| IBRC | InfiniBand Reliable Connection | NVSHMEM 经 CPU proxy 走 RC 的传输方式 |
-| WQE | work queue element | 提交给网卡的一个工作请求 |
-| doorbell | — | 通知网卡「有新请求」的寄存器写 |
-| GIN | GPU-Initiated Networking | NCCL 2.28 加入的由 GPU 发起网络通信的接口 |
-| GDAKI | GPUDirect Async Kernel-Initiated | kernel 直接驱动网卡的 GPUDirect 方式 |
-| MoRI | Modular RDMA Interface | AMD 的 MoE 通信库 |
-| EPLB | Expert Parallelism Load Balancer | DeepSeek 的专家负载均衡，复制热门专家 |
-| PCI | Peripheral Component Interconnect | PCIe 的前身，Linux 里仍沿用这个名字 |
-| NVL72 | — | 72 张 GPU 在一个 NVLink 域里的机柜 |
-| RCCL | ROCm Communication Collectives Library | AMD 平台上与 NCCL API 一致的通信库 |
-
-Table: 本文用到的术语与缩写
-
 ## 内容简介
 
 《通信与互联：从 NCCL 到 RDMA》是一组共八篇的系列文章，面向已经跑过多卡训练或多卡推理、准备向下进入通信层的工程师，系统讲解 GPU 之间的数据是怎么流动的：经过哪些硬件链路、由哪些软件层驱动、每一层的代价是什么、出问题时到哪里去看。
@@ -120,10 +21,10 @@ Table: 本文用到的术语与缩写
 这个系列把这条路径展开。一次跨节点的 all_reduce，数据至少经过下面这些层，每一层都有自己的带宽、延迟和失败方式：
 
 1. **dist.all_reduce(t)**：Python，进入 ProcessGroupNCCL
-2. **ncclAllReduce(...)**：NCCL（NVIDIA Collective Communications Library） host 侧：选算法、选协议、切 channel、入队
+2. **ncclAllReduce(...)**：NCCL host 侧：选算法、选协议、切 channel、入队
 3. **ncclDevKernel_AllReduce_***：NCCL 设备侧：每个 channel 一个 block，按 ring/tree 收发
 4. **NVLink / NVSwitch**：节点内：GPU 直接读写对端显存
-5. PCIe（Peripheral Component Interconnect Express） → NIC（network interface card） → InfiniBand 节点间：proxy 线程驱动 RDMA，GPUDirect 绕开主机内存
+5. PCIe → NIC → InfiniBand 节点间：proxy 线程驱动 RDMA，GPUDirect 绕开主机内存
 6. 对端 NIC → PCIe → GPU 再走一遍反向的路
 
 带宽和延迟是这条路径上两种不同的账。一个 512 MB 的梯度 all_reduce，时间几乎全部花在数据搬运上，看的是链路带宽和算法的带宽效率；一个 decode 阶段几十 KB 的张量并行 all_reduce，时间几乎全部花在同步、握手和 kernel 启动上，带宽多少无关紧要。同一个 API，同一套 NCCL，两种完全不同的瓶颈——分不清这两种账，就分不清什么时候该换算法、什么时候该换硬件、什么时候什么都不用换。
@@ -131,13 +32,17 @@ Table: 本文用到的术语与缩写
 系列贯穿的方法是：**先用代价模型算出理论时间，再用 nccl-tests 和 profiler 测出实际时间，再用拓扑、算法和协议解释差距，再动手缩小差距**。
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="communication-and-interconnect" %}
+
 ## 为什么写这个系列？
 
 ### 单卡之外的一切都建立在通信之上
 
-模型一旦放不进一张卡，通信就成了主线而不是配角。数据并行需要 all_reduce 或 reduce_scatter + all_gather 同步梯度；张量并行每一层前向都要一次 all_reduce；流水线并行靠 send/recv 传激活；MoE（mixture of experts） 靠 all_to_all 分发 token；FSDP（Fully Sharded Data Parallel） 和 ZeRO（Zero Redundancy Optimizer） 每一步都要把分片的参数 all_gather 回来。推理侧同样：张量并行的每一层都有 all_reduce，PD（prefill–decode） 分离要把 KV（key–value） cache 从 prefill 节点搬到 decode 节点。
+模型一旦放不进一张卡，通信就成了主线而不是配角。数据并行需要 all_reduce 或 reduce_scatter + all_gather 同步梯度；张量并行每一层前向都要一次 all_reduce；流水线并行靠 send/recv 传激活；MoE 靠 all_to_all 分发 token；FSDP 和 ZeRO 每一步都要把分片的参数 all_gather 回来。推理侧同样：张量并行的每一层都有 all_reduce，PD 分离要把 KV cache 从 prefill 节点搬到 decode 节点。
 
-这些通信的**模式**各不相同——消息大小从几十 KB 到几 GB，参与者从 2 张卡到几千张卡，有的在关键路径上、有的可以和计算重叠——但它们的**底座**是同一套：NCCL、NVLink、PCIe、InfiniBand 或 RoCE（RDMA over Converged Ethernet）、RDMA（remote direct memory access）。这一层自成体系，值得独立于训练和推理来学。
+这些通信的**模式**各不相同——消息大小从几十 KB 到几 GB，参与者从 2 张卡到几千张卡，有的在关键路径上、有的可以和计算重叠——但它们的**底座**是同一套：NCCL、NVLink、PCIe、InfiniBand 或 RoCE、RDMA。这一层自成体系，值得独立于训练和推理来学。
 
 ### "通信占了 40%"之后呢？
 
@@ -146,7 +51,7 @@ Table: 本文用到的术语与缩写
 - 消息太小，每次通信的固定开销（延迟）占主导，应该合并（bucket）或换协议；
 - 消息够大，但算法带宽效率低，比如在 NVSwitch 机器上跑了不该跑的 Ring；
 - 拓扑没有被正确识别，NCCL 走了 PCIe 而不是 NVLink，或者走了主机内存而不是 GPUDirect；
-- 网卡与 GPU 不在同一个 PCIe switch 或 NUMA（non-uniform memory access） 节点下，跨了 CPU 的 root complex；
+- 网卡与 GPU 不在同一个 PCIe switch 或 NUMA 节点下，跨了 CPU 的 root complex；
 - 通信本身很快，但没有和计算重叠，或者重叠被一次不必要的同步打断；
 - 某一张卡慢（straggler），所有人都在等它。
 
@@ -154,15 +59,15 @@ Table: 本文用到的术语与缩写
 
 ### NCCL 几乎是黑盒，但它不该是
 
-NCCL 是所有 NVIDIA GPU 上分布式训练和推理的事实标准，它的行为由几十个环境变量控制，源码约几万行 C++ 和 CUDA（Compute Unified Device Architecture）。大多数人对它的了解止于 `NCCL_DEBUG=INFO` 和几条"据说有用"的环境变量。但它的核心机制并不神秘：拓扑探测、图搜索、算法与协议的选择、channel 的切分、proxy 线程与网络插件——每一个都能在源码里找到对应的文件，都能用日志和 nccl-tests 验证。
+NCCL 是所有 NVIDIA GPU 上分布式训练和推理的事实标准，它的行为由几十个环境变量控制，源码约几万行 C++ 和 CUDA。大多数人对它的了解止于 `NCCL_DEBUG=INFO` 和几条"据说有用"的环境变量。但它的核心机制并不神秘：拓扑探测、图搜索、算法与协议的选择、channel 的切分、proxy 线程与网络插件——每一个都能在源码里找到对应的文件，都能用日志和 nccl-tests 验证。
 
-读懂 NCCL 的价值不只是调参。它是理解一切上层通信设计的参照：PyTorch 的 ProcessGroupNCCL 为什么要有 watchdog 线程，vLLM 为什么要绕开 NCCL 自己写 all-reduce，为什么 NVLink 机器上的 all_reduce 几乎不受消息大小影响而 IB（InfiniBand） 上不是——答案都在 NCCL 的设计取舍里。
+读懂 NCCL 的价值不只是调参。它是理解一切上层通信设计的参照：PyTorch 的 ProcessGroupNCCL 为什么要有 watchdog 线程，vLLM 为什么要绕开 NCCL 自己写 all-reduce，为什么 NVLink 机器上的 all_reduce 几乎不受消息大小影响而 IB 上不是——答案都在 NCCL 的设计取舍里。
 
 ### 现有材料的断层
 
 - **NCCL 官方文档**覆盖了 API 和环境变量，但不讲机制，也不讲为什么；
-- **RDMA / InfiniBand 的教材**面向 HPC（high-performance computing） 与存储网络，不讲 GPU，也不讲 NCCL 如何使用 verbs；
-- **PyTorch 分布式文档**讲怎么用 DDP（DistributedDataParallel） 和 FSDP，把通信当作已经工作的黑盒；
+- **RDMA / InfiniBand 的教材**面向 HPC 与存储网络，不讲 GPU，也不讲 NCCL 如何使用 verbs；
+- **PyTorch 分布式文档**讲怎么用 DDP 和 FSDP，把通信当作已经工作的黑盒；
 - **论文**（ring all-reduce、double binary tree、NVLink SHARP）给出了算法和硬件的原理，但没有人把它们串成从 API 到链路的一条线；
 - **博客与调优帖子**分享环境变量组合，往往缺少"为什么这样设置"以及"什么时候不该这样设置"。
 
@@ -181,7 +86,7 @@ NCCL 是所有 NVIDIA GPU 上分布式训练和推理的事实标准，它的行
 
 ### 负责 GPU 集群网络与调度的平台工程师
 
-你需要决定网卡怎么配、GPU 与 NIC 的亲和怎么绑、RoCE 网络要不要开 PFC（Priority Flow Control） 和 ECN（Explicit Congestion Notification）、一个任务的 8 张卡放在哪台机器上有区别吗。这些决定的依据全部在本系列的第二、三、六篇里。
+你需要决定网卡怎么配、GPU 与 NIC 的亲和怎么绑、RoCE 网络要不要开 PFC 和 ECN、一个任务的 8 张卡放在哪台机器上有区别吗。这些决定的依据全部在本系列的第二、三、六篇里。
 
 ### 准备读或改 NCCL、PyTorch c10d、vLLM 通信层源码的开发者
 
@@ -240,7 +145,7 @@ $$
 - tree all-reduce：延迟 $$O(\log n)$$，朴素二叉树的带宽只有一半，double binary tree 如何用两棵互补的树把带宽补回来；
 - algbw 与 busbw：nccl-tests 报告的两个带宽，前者是 $$S/T$$，后者对 all_reduce 乘上 $$2(n-1)/n$$ 校正为"链路实际承载的流量"，为什么只有 busbw 才能和硬件带宽直接比较；
 - 分层与多级：节点内快、节点间慢时，两级算法的代价怎么算；
-- 消息大小的谱：从 decode 阶段几十 KB 的 TP（tensor parallelism） all_reduce，到几百 MB 的梯度 bucket，到几 GB 的 KV cache 传输，各落在 α-β 模型的哪一段。
+- 消息大小的谱：从 decode 阶段几十 KB 的 TP all_reduce，到几百 MB 的梯度 bucket，到几 GB 的 KV cache 传输，各落在 α-β 模型的哪一段。
 
 核心问题是：
 
@@ -254,9 +159,9 @@ $$
 
 这一篇会覆盖：
 
-- PCIe：lane、代际与带宽——x16 的理论单向带宽 PCIe 3.0 约 16 GB/s、4.0 约 32 GB/s、5.0 约 64 GB/s（实测通常 80–90%）；root complex、PCIe switch、P2P（peer-to-peer） 事务；为什么跨 root complex 的 P2P 可能慢甚至不可用；
+- PCIe：lane、代际与带宽——x16 的理论单向带宽 PCIe 3.0 约 16 GB/s、4.0 约 32 GB/s、5.0 约 64 GB/s（实测通常 80–90%）；root complex、PCIe switch、P2P 事务；为什么跨 root complex 的 P2P 可能慢甚至不可用；
 - NVLink 与 NVSwitch：每代 NVLink 的链路数与每 GPU 总带宽——A100 第三代 12 链路合计 600 GB/s、H100 第四代 18 链路合计 900 GB/s、Blackwell 第五代 1.8 TB/s（均为双向合计，单向减半）；NVSwitch 让节点内任意两卡全带宽互通；NVLink 上的 all_reduce 为什么几乎不受消息大小影响；
-- 网卡与网络：InfiniBand 的代际与端口速率——HDR（High Data Rate） 200 Gb/s（约 25 GB/s）、NDR（Next Data Rate） 400 Gb/s（约 50 GB/s）；RoCE v2 在以太网上承载 RDMA，需要 PFC / ECN 保证无损；一台 8 卡 H100 服务器通常配 8 张 400 Gb/s 网卡，每卡一张，为什么是这个比例；
+- 网卡与网络：InfiniBand 的代际与端口速率——HDR 200 Gb/s（约 25 GB/s）、NDR 400 Gb/s（约 50 GB/s）；RoCE v2 在以太网上承载 RDMA，需要 PFC / ECN 保证无损；一台 8 卡 H100 服务器通常配 8 张 400 Gb/s 网卡，每卡一张，为什么是这个比例；
 - 拓扑的读法：`nvidia-smi topo -m` 输出的矩阵与 `NV#` / `PIX` / `PXB` / `PHB` / `NODE` / `SYS` 六个等级各自的含义；`lspci -tv` 看 PCIe 树；`nvidia-smi topo -mp` 看 GPU 与 NIC 的亲和；
 - NUMA 与亲和性：CPU socket、内存节点、PCIe 设备的归属；进程绑核（`numactl`）为什么会影响通信性能；NCCL 如何读取并使用亲和信息，`NCCL_IGNORE_CPU_AFFINITY` 在什么情况下需要；
 - 主机内存在路径上的位置：pinned memory、staging buffer，什么时候数据必须经过主机内存，什么时候可以绕过；
@@ -275,13 +180,13 @@ $$
 
 这一篇会覆盖：
 
-- 为什么需要 RDMA：内核旁路（kernel bypass）、零拷贝、CPU 卸载；TCP（Transmission Control Protocol） 路径与 RDMA 路径的对比；
+- 为什么需要 RDMA：内核旁路（kernel bypass）、零拷贝、CPU 卸载；TCP 路径与 RDMA 路径的对比；
 - verbs 编程模型：device、Protection Domain、Memory Region 注册（`ibv_reg_mr`）、Queue Pair（RC / UC / UD）、Completion Queue、Work Request 与 Work Completion；
 - 两类操作：单边的 RDMA WRITE / READ（对端 CPU 不参与）与双边的 SEND / RECV；NCCL 为什么主要用 RDMA WRITE；
 - 连接建立：QP 状态机、需要交换的信息（QPN、LID / GID、rkey、地址），带外交换用 TCP 还是 `rdma_cm`；
 - InfiniBand 与 RoCE v2 的差别：链路层、寻址（LID vs GID）、拥塞控制（信用机制 vs PFC + ECN / DCQCN）；RoCE 上 `NCCL_IB_GID_INDEX` 为什么经常需要手工指定；
 - 内存注册的代价：pin 页、建立地址翻译，为什么注册慢、注册多少、注册缓存（MR cache）为什么存在；
-- GPUDirect RDMA：让网卡 DMA（direct memory access） 直接访问显存，需要 `nvidia-peermem` 内核模块（或 DMA-BUF 路径）；PCIe 拓扑对它的限制——GPU 和 NIC 在同一 PCIe switch 下最优，跨 root complex 可能不可用或很慢；
+- GPUDirect RDMA：让网卡 DMA 直接访问显存，需要 `nvidia-peermem` 内核模块（或 DMA-BUF 路径）；PCIe 拓扑对它的限制——GPU 和 NIC 在同一 PCIe switch 下最优，跨 root complex 可能不可用或很慢；
 - GDRCopy：用 CPU 直接读写显存映射的小数据，NCCL 用它降低小消息延迟；
 - GPUDirect 家族的其余成员：GPUDirect P2P（节点内 GPU 互访）、GPUDirect Storage（NVMe 直读显存）；
 - 诊断工具：`ibstat`、`ibv_devinfo`、`show_gids`、`rdma link`、`ib_write_bw` 加 `--use_cuda` 测 GPUDirect 路径；`lsmod | grep peermem`。
@@ -313,9 +218,9 @@ ncclAllReduce
 这一篇会覆盖：
 
 - 初始化：`ncclGetUniqueId` 与 bootstrap（TCP，`NCCL_SOCKET_IFNAME` 控制走哪张网卡）、`ncclCommInitRank`、每个 rank 如何得知其他 rank 的位置；
-- 拓扑探测：从 `/sys` 和 NVML（NVIDIA Management Library） 读出 GPU、NIC、PCIe switch、CPU 的树（`src/graph/xml.cc`、`topo.cc`），计算两两之间的路径与带宽（`paths.cc`）；`NCCL_TOPO_DUMP_FILE` 把它导出来看；
+- 拓扑探测：从 `/sys` 和 NVML 读出 GPU、NIC、PCIe switch、CPU 的树（`src/graph/xml.cc`、`topo.cc`），计算两两之间的路径与带宽（`paths.cc`）；`NCCL_TOPO_DUMP_FILE` 把它导出来看；
 - 图搜索：在拓扑上搜索 ring 和 tree（`search.cc`、`rings.cc`、`trees.cc`），目标是最大化带宽；`NCCL_GRAPH_DUMP_FILE`；
-- transport 选择：P2P（NVLink / PCIe 直接访问对端显存）、SHM（经主机共享内存）、NET（IB / Socket），以及 CollNet 和 NVLS（NVLink SHARP）；`NCCL_P2P_LEVEL`、`NCCL_NET_GDR_LEVEL` 用与 `nvidia-smi topo` 相同的等级词（`LOC` / `NVL` / `PIX` / `PXB` / `PHB` / `SYS`）控制某种路径最多能跨多远；
+- transport 选择：P2P（NVLink / PCIe 直接访问对端显存）、SHM（经主机共享内存）、NET（IB / Socket），以及 CollNet 和 NVLS；`NCCL_P2P_LEVEL`、`NCCL_NET_GDR_LEVEL` 用与 `nvidia-smi topo` 相同的等级词（`LOC` / `NVL` / `PIX` / `PXB` / `PHB` / `SYS`）控制某种路径最多能跨多远；
 - channel：一个 communicator 有多个 channel，每个 channel 是一条独立的 ring 或 tree、对应 kernel 的一个 block、拥有自己的 buffer 和连接；channel 数决定并行度，`NCCL_MIN_NCHANNELS` / `NCCL_MAX_NCHANNELS`；
 - 算法：Ring、Tree、CollNet（借助 IB SHARP 在网络中归约）、NVLS（借助 NVSwitch 归约，Hopper 起）、PAT（大规模 all_gather / reduce_scatter）；`NCCL_ALGO` 覆盖自动选择；
 - 协议：Simple（数据与 flag 分离、需要内存屏障、带宽最高、延迟最高）、LL（8 字节数据搭 8 字节 flag、一次 16 字节原子写、无需屏障、带宽效率 50%、延迟最低）、LL128（128 字节里 120 字节数据、效率约 94%、依赖 NVLink 的写顺序保证）；`NCCL_PROTO`；
@@ -340,18 +245,18 @@ ncclAllReduce
 - ProcessGroupNCCL 的对象模型：每个 device 一个 `ncclComm`，每个 collective 返回一个 `WorkNCCL`，`Work` 上记录了起止 CUDA event；communicator 的懒创建与 `ncclCommInitRankConfig` 的非阻塞初始化；
 - stream 语义：`async_op=True` 时 NCCL 操作在 ProcessGroupNCCL 自己的内部 stream 上执行，与当前计算 stream 通过 event 建立依赖（PyTorch 2.12 里 `async_op=False` 则直接在当前 stream 上发起，不返回 `Work`）；`work.wait()` 是 stream 级等待，不阻塞 CPU；什么时候才真的阻塞 CPU；
 - 输入 tensor 的生命周期：为什么需要 `recordStream` 或 `TORCH_NCCL_AVOID_RECORD_STREAMS` 的替代方案，Caching Allocator 与跨 stream 使用的冲突；
-- `async_op=True` 与重叠：通信 kernel 与计算 kernel 在不同 stream 上并发的条件——SM（streaming multiprocessor） 资源、`NCCL_NTHREADS`、`TORCH_NCCL_HIGH_PRIORITY`；重叠被打断的常见原因（隐式同步、`.item()`、显存分配触发的 `cudaFree`）；
+- `async_op=True` 与重叠：通信 kernel 与计算 kernel 在不同 stream 上并发的条件——SM 资源、`NCCL_NTHREADS`、`TORCH_NCCL_HIGH_PRIORITY`；重叠被打断的常见原因（隐式同步、`.item()`、显存分配触发的 `cudaFree`）；
 - 合并（coalescing）：`all_reduce_coalesced`、`_coalescing_manager`、DDP 的 bucket 为什么能把延迟主导的小消息变成带宽主导的大消息；
 - 函数式集合通信：`torch.distributed._functional_collectives` 让通信成为可编译的算子，`wait_tensor` 的语义，`torch.compile` 如何对通信做重排；
 - 错误处理与超时：`TORCH_NCCL_ASYNC_ERROR_HANDLING`、`TORCH_NCCL_BLOCKING_WAIT`、watchdog 线程如何检测 timeout、检测到之后做什么（abort communicator、抛异常、`ncclCommAbort`）；heartbeat monitor（`TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC`）监视 watchdog 自己；
-- 与 NCCL 之外后端的对照：Gloo（CPU）、UCC（Unified Collective Communication）、以及 vLLM 用 ctypes 直接调用 NCCL 的 PyNccl 为什么绕开 ProcessGroupNCCL；
+- 与 NCCL 之外后端的对照：Gloo（CPU）、UCC、以及 vLLM 用 ctypes 直接调用 NCCL 的 PyNccl 为什么绕开 ProcessGroupNCCL；
 - 对称内存（`torch/csrc/distributed/c10d/symm_mem/`）：让 GPU 直接读写对端显存的低延迟通信原语，它和 NCCL 的关系。
 
 核心问题是：
 
 > **`work = dist.all_reduce(t, async_op=True)` 返回时，通信开始了吗？`work.wait()` 返回时，通信完成了吗？在此期间修改 `t` 会发生什么？**
 
-实践：写一个 micro-benchmark，在两条 stream 上让一个 GEMM（general matrix multiply） 与一个 all_reduce 重叠，用 `torch.profiler` 的 trace 验证重叠是否真的发生；逐一引入 `.item()`、显存碎片、不当的 `wait()` 位置，观察重叠如何消失。
+实践：写一个 micro-benchmark，在两条 stream 上让一个 GEMM 与一个 all_reduce 重叠，用 `torch.profiler` 的 trace 验证重叠是否真的发生；逐一引入 `.item()`、显存碎片、不当的 `wait()` 位置，观察重叠如何消失。
 
 ### 6. nccl-tests、调优与排障：从带宽曲线到 hang
 
@@ -367,10 +272,10 @@ ncclAllReduce
 - hang 的分类：集合通信参数不一致（某个 rank 的 tensor 大小或 dtype 不同）、调用顺序不一致（某个 rank 多发或少发了一次集合通信）、send/recv 没有配对、两个 communicator 交叉等待、一个 rank 崩溃而其他 rank 在等、网络真的断了；
 - 排查工具：`py-spy dump` 看每个 rank 的 Python 栈、`gdb -p` 看 C++ 栈、`cuda-gdb` 看 kernel 是否在自旋；PyTorch 的 Flight Recorder（`TORCH_NCCL_TRACE_BUFFER_SIZE`、`TORCH_NCCL_DUMP_ON_TIMEOUT`，PyTorch 2.12 默认开启，dump 到 `~/.cache/torch/comm_lib_trace_rank_<rank>`；`torch/distributed/flight_recorder/fr_trace.py` 分析工具）把所有 rank 最近的集合通信记录汇总对齐，直接指出哪个 rank 在哪一次操作上掉了队；`TORCH_NCCL_DESYNC_DEBUG`；
 - timeout 的语义：`init_process_group(timeout=...)` 到底约束什么、为什么 checkpoint 保存或数据加载卡住会表现为 NCCL timeout；
-- 正确性问题：结果不一致（浮点归约顺序、`NCCL_ALGO` 不同导致数值不同）、NaN（not a number） 的来源与 `TORCH_NCCL_NAN_CHECK`、多 communicator 与多 stream 下的数据竞争；
+- 正确性问题：结果不一致（浮点归约顺序、`NCCL_ALGO` 不同导致数值不同）、NaN 的来源与 `TORCH_NCCL_NAN_CHECK`、多 communicator 与多 stream 下的数据竞争；
 - 一棵决策树：从现象（慢 / hang / 错）到检查项到处理方式，大致是这个形状：
 
-- **慢    大消息 busbw 低      → 路径：topo -m 等级 · NCCL_DEBUG 里的 transport · GDR（GPUDirect RDMA） 是否生效 · channel 数**
+- **慢    大消息 busbw 低      → 路径：topo -m 等级 · NCCL_DEBUG 里的 transport · GDR 是否生效 · channel 数**
   - 小消息延迟高 → 协议与算法 · 跨 NUMA · proxy 线程被抢占 · 框架侧没有合并
   - 多机远差于单机 → 网卡亲和 · NCCL_IB_HCA · 是否回落到 Socket · RoCE 的 PFC/ECN
 - **hang  所有 rank 停在同一处 → 网络或某个 rank 崩溃：看 dmesg · ibstat · 进程是否还在**
@@ -393,7 +298,7 @@ ncclAllReduce
 
 - decode 阶段 TP all_reduce 的账：batch 小、hidden 维度固定，每层一次 all_reduce 只有几十到几百 KB，按第一篇的模型这是纯延迟主导；NCCL 在这个区间的固定开销（kernel 启动、proxy、协议握手）有多大；
 - custom all-reduce：vLLM 的 `csrc/custom_all_reduce.cuh` 用 CUDA IPC（`cudaIpcGetMemHandle` / `cudaIpcOpenMemHandle`）让每张卡直接读写对端显存，one-shot（`cross_device_reduce_1stage`：每张卡读所有人的数据自己归约）与 two-shot（`cross_device_reduce_2stage`：先 reduce_scatter 再 all_gather）两种 kernel 各适合什么消息大小；用 flag 做跨卡同步而不用 NCCL；为什么只在节点内、NVLink 全互联、消息小于一个阈值时启用；
-- 后端的选择链：`vllm/distributed/device_communicators/cuda_communicator.py` 里 all_reduce 的调度顺序——NCCL 对称内存（需显式开启）、quick reduce（ROCm）、FlashInfer（需显式开启）、custom all-reduce、torch 对称内存（NVLS 多播）、最后回落到 PyNccl；`vllm/distributed/parallel_state.py` 的 `GroupCoordinator` 如何管理 TP / PP（pipeline parallelism） / DP（data parallelism） 组；
+- 后端的选择链：`vllm/distributed/device_communicators/cuda_communicator.py` 里 all_reduce 的调度顺序——NCCL 对称内存（需显式开启）、quick reduce（ROCm）、FlashInfer（需显式开启）、custom all-reduce、torch 对称内存（NVLS 多播）、最后回落到 PyNccl；`vllm/distributed/parallel_state.py` 的 `GroupCoordinator` 如何管理 TP / PP / DP 组；
 - PyNccl：`pynccl_wrapper.py` 用 ctypes 直接加载 `libnccl.so`（`VLLM_NCCL_SO_PATH`）调用 NCCL，为什么推理引擎不直接用 ProcessGroupNCCL——stream 控制、CUDA Graph 捕获、避免 watchdog；
 - CUDA Graph 与通信：all_reduce 被捕获进 graph 需要满足什么条件，custom all-reduce 的 `register_graph_buffers` 在做什么；
 - 对称内存与 NVLS 在推理上的应用：PyTorch 的 symmetric memory、NCCL 的 NVLS，与 custom all-reduce 各自的适用区间；
@@ -410,17 +315,17 @@ ncclAllReduce
 
 ### 8. MoE 的通信：all-to-all、DeepEP 与 GPU 发起的通信
 
-第八篇是系列的末篇，处理训练和推理共有的、也是最重的一种通信：MoE 的专家并行。一层 MoE 的每个 token 由 router 选出 top-k 个专家，专家分布在 EP（expert parallelism） 组的所有 rank 上，token 要被 dispatch 到持有那些专家的 rank、算完再 combine 回来——两次 all_to_all 形状的通信，但每个 rank 发给每个对端的字节数由路由结果决定、每步不同，发到对端还要按专家重排，decode 时每条流只有几 KB 而流的条数是 $$n(n-1)$$。它把第一篇留下的 all_to_all 一句话、第三篇没展开的 GPUDirect Async、第四篇"GPU 不能提交 RDMA 请求所以要 proxy"三条线收在一起。
+第八篇是系列的末篇，处理训练和推理共有的、也是最重的一种通信：MoE 的专家并行。一层 MoE 的每个 token 由 router 选出 top-k 个专家，专家分布在 EP 组的所有 rank 上，token 要被 dispatch 到持有那些专家的 rank、算完再 combine 回来——两次 all_to_all 形状的通信，但每个 rank 发给每个对端的字节数由路由结果决定、每步不同，发到对端还要按专家重排，decode 时每条流只有几 KB 而流的条数是 $$n(n-1)$$。它把第一篇留下的 all_to_all 一句话、第三篇没展开的 GPUDirect Async、第四篇"GPU 不能提交 RDMA 请求所以要 proxy"三条线收在一起。
 
 这一篇会覆盖：
 
 - MoE 的通信形态：路由 → dispatch → 专家计算 → combine；与第一篇 α-β 模型对接——每 token top-k × hidden × dtype 字节、跨节点比例 $$1 - 1/N$$、平坦 all_to_all 一轮 $$n-1$$ 条并发流、按节点去重后网卡上每 token 只走"目标节点数"份；prefill（几百 MB、网卡带宽的账）与 decode（几 MB 切成上千条小消息、发起速率的账）两种形态；EP 与 TP / DP 叠加时通信怎样相加；
 - NCCL 路径：2.28.9 的 `ncclAlltoAll`（只有等长版本）在 `src/enqueue.cc` 的 `taskAppend` 里展开成 $$n$$ 对 send/recv、由 `ncclP2pSchedule` 轮转调度、跨节点每条消息经 proxy 线程发起；PyTorch `all_to_all_single` 与 `input_split_sizes` / `output_split_sizes` 的语义，等长走 `ncclAlltoAll`、变长走 send/recv group；为什么变长 split 要先做一次 counts 交换加一次 host 同步（两次 α、不可捕获进 CUDA Graph），以及这在 decode 上为什么不够用；
 - Megatron-LM 的三种 token dispatcher（`megatron/core/transformer/moe/token_dispatcher.py`）：`MoEAllGatherTokenDispatcher`（all_gather 全部 token，字节数与 k 无关，小 EP 可用）、`MoEAlltoAllTokenDispatcher`（A2A(EP) + AG(TP)，`cuda_sync_point` 决定何时同步）、`MoEFlexTokenDispatcher` + `_DeepepManager`（`fused_a2a.py` 封装 DeepEP，TP × EP 当一个平坦组）；
-- DeepEP：`Buffer` 的两块对称显存——NVLink buffer 用 CUDA IPC 指针表、RDMA buffer 用 NVSHMEM（NVIDIA OpenSHMEM） 对称堆；normal kernel 的三步（`get_dispatch_layout` → `notify_dispatch` → `dispatch`，CPU 等一个 pinned 计数器）、每两个 SM 一个 channel 的 head / tail 队列、internode 五种 warp 角色——跨节点 token 先 RDMA 到对端同号 GPU 再 NVLink 转发（与第四篇 PXN、第二篇 rail-optimized 网络是同一件事）；low-latency kernel 的 worst-case 接收槽位、计数随数据原子加、send / recv 两阶段与 `return_recv_hook`（RDMA 在没有 kernel 运行时进行）、kernel 内 FP8（8-bit floating point） 转换；
-- GPU 发起的通信：`ibgda_device.cuh` 里 warp 自己写 WQE（work queue element）、更新 doorbell record、写映射进 GPU 地址空间的网卡 doorbell；它拿掉的是 proxy 的通知延迟、CPU 软件路径与串行化，留下的是硬件的 α；IBRC（InfiniBand Reliable Connection） / proxy 与 IBGDA（InfiniBand GPUDirect Async） 的对照、与第三篇 GPUDirect RDMA 和第四篇 NCCL proxy 的对照表；NCCL 2.28.9 自己的设备端 API 与 GIN（`src/include/nccl_device/`、GDAKI 后端）；
+- DeepEP：`Buffer` 的两块对称显存——NVLink buffer 用 CUDA IPC 指针表、RDMA buffer 用 NVSHMEM 对称堆；normal kernel 的三步（`get_dispatch_layout` → `notify_dispatch` → `dispatch`，CPU 等一个 pinned 计数器）、每两个 SM 一个 channel 的 head / tail 队列、internode 五种 warp 角色——跨节点 token 先 RDMA 到对端同号 GPU 再 NVLink 转发（与第四篇 PXN、第二篇 rail-optimized 网络是同一件事）；low-latency kernel 的 worst-case 接收槽位、计数随数据原子加、send / recv 两阶段与 `return_recv_hook`（RDMA 在没有 kernel 运行时进行）、kernel 内 FP8 转换；
+- GPU 发起的通信：`ibgda_device.cuh` 里 warp 自己写 WQE、更新 doorbell record、写映射进 GPU 地址空间的网卡 doorbell；它拿掉的是 proxy 的通知延迟、CPU 软件路径与串行化，留下的是硬件的 α；IBRC / proxy 与 IBGDA 的对照、与第三篇 GPUDirect RDMA 和第四篇 NCCL proxy 的对照表；NCCL 2.28.9 自己的设备端 API 与 GIN（`src/include/nccl_device/`、GDAKI 后端）；
 - 对称内存的一般化：PyTorch 2.12 NVSHMEM 后端的 `all_to_all_vdev` / `all_to_all_vdev_2d`——splits 在设备端、一个 kernel 交换 counts、用 get 拉数据，是"GPU 发起的变长 all_to_all"作为 torch 算子的形态；
-- vLLM 的 all2all 后端：`--all2all-backend`（`allgather_reducescatter` 默认、`deepep_high_throughput`、`deepep_low_latency`、`nixl_ep`、FlashInfer、MoRI）、`all2all.py` 各 manager 的 `dispatch` / `combine`、`prepare_finalize/deepep_*.py` 对 DeepEP 的调用、EP = DP × TP 的组合与 `use_sequence_parallel_moe`、与第七篇 custom all-reduce 的分工、EPLB（Expert Parallelism Load Balancer）；
+- vLLM 的 all2all 后端：`--all2all-backend`（`allgather_reducescatter` 默认、`deepep_high_throughput`、`deepep_low_latency`、`nixl_ep`、FlashInfer、MoRI）、`all2all.py` 各 manager 的 `dispatch` / `combine`、`prepare_finalize/deepep_*.py` 对 DeepEP 的调用、EP = DP × TP 的组合与 `use_sequence_parallel_moe`、与第七篇 custom all-reduce 的分工、EPLB；
 - 排障与调优：专家热点如何体现为通信时间（最慢的 rank 决定完成时间；DeepEP 的 `*_wait_recv_cost_stats` 按来源 rank 分列等待时间）、DeepEP 的 SM 数与 `Config` 表、QP 数与本地专家数的关系、`NVSHMEM_IB_ENABLE_IBGDA` 等只在源码与 README 里能查到的环境变量、prefill / decode / hang 三张清单。
 
 核心问题是：
@@ -484,7 +389,7 @@ Table: comm-probe 逐篇生长的工具
 - 理解 CUDA 的基本执行模型：kernel、stream、event、host 与 device 内存、异步执行与同步的含义；
 - 能读 C 和 C++：NCCL 是 C++ 与 CUDA，RDMA 的 verbs 接口是 C；不要求写过大型 C++ 项目；
 - 能读 Python：PyTorch 与 vLLM 的通信层 Python 部分是源码阅读对象；
-- Linux 基础：`/sys`、PCI（Peripheral Component Interconnect） 设备、内核模块、NUMA 的基本概念；
+- Linux 基础：`/sys`、PCI 设备、内核模块、NUMA 的基本概念；
 - 硬件访问：至少一台多卡机器（理想是 8 卡 NVLink / NVSwitch 服务器）；第三、六、八篇的多机部分需要两台以上带 InfiniBand 或 RoCE 网卡的机器（第八篇的 DeepEP 还要求网卡支持 IBGDA），没有条件时以阅读和单机实验为主，正文会标注哪些实验需要多机。
 
 不要求：
@@ -501,7 +406,7 @@ Table: comm-probe 逐篇生长的工具
 
 ### 关于替代硬件
 
-本系列以 NVIDIA GPU 为主线。AMD 平台上 RCCL（ROCm Communication Collectives Library） 的 API 与 NCCL 一致、Infinity Fabric 对应 NVLink，vLLM 的 quick reduce（`csrc/quickreduce/`）是它的 custom all-reduce 对应物；正文在相关位置提及差异，但不展开。国产加速器及其通信库不在范围内。
+本系列以 NVIDIA GPU 为主线。AMD 平台上 RCCL 的 API 与 NCCL 一致、Infinity Fabric 对应 NVLink，vLLM 的 quick reduce（`csrc/quickreduce/`）是它的 custom all-reduce 对应物；正文在相关位置提及差异，但不展开。国产加速器及其通信库不在范围内。
 
 
 ## 章节目录
