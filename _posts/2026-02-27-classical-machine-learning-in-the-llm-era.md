@@ -7,88 +7,15 @@ catalog: true
 ---
 
 
-## 缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| LLM | large language model | 大语言模型，本系列所有「重现」落脚的地方 |
-| SVM | support vector machine | 支持向量机，找最大间隔分界面的分类器 |
-| NLP | natural language processing | 自然语言处理 |
-| RL | reinforcement learning | 强化学习，这里指用奖励模型打分来训 LLM |
-| epoch | — | 把训练集完整过一遍叫一个 epoch |
-| benchmark | — | 公开评测集，用来给模型打分排名 |
-| judge | — | 用来给回答打分的模型（LLM-as-a-judge） |
-| reward hacking | — | 策略钻奖励模型的空子，分数涨了、质量没涨 |
-| RLHF | reinforcement learning from human feedback | 基于人类反馈的强化学习 |
-| KL | Kullback–Leibler divergence | KL 散度，衡量两个分布差多远；RLHF 用它拉住策略 |
-| SFT | supervised fine-tuning | 监督微调，用指令数据训练模型 |
-| self-consistency | — | 同一题多次采样、按多数票取答案 |
-| model soup | — | 把几个微调模型的权重直接平均 |
-| weight decay | — | 每步把权重往 0 拉一点，等价于 L2 正则 |
-| softmax | — | 把一组分数变成和为 1 的概率 |
-| embedding | — | 把词、句子或文档表示成一个稠密向量 |
-| KNN | k-nearest neighbors | k 近邻，按最近的 k 个训练样本投票 |
-| PCA | principal component analysis | 主成分分析，找方差最大的投影方向 |
-| MinHash | — | 用多个哈希的最小值估计两个集合的 Jaccard 相似度 |
-| LSH | locality-sensitive hashing | 局部敏感哈希，让相似文档大概率落进同一桶 |
-| AUC | area under the ROC curve | ROC 曲线下面积，和阈值无关的排序质量 |
-| Cohen's κ | — | 扣掉随机一致之后的标注一致率 |
-| MMLU | Massive Multitask Language Understanding | 57 个学科的多选题 benchmark |
-| RMSE | root mean squared error | 均方根误差，回归误差的常用指标 |
-| TF-IDF | term frequency–inverse document frequency | 按词频和稀有度给词加权的文本特征 |
-| UCI | University of California, Irvine | UCI 机器学习数据集仓库 |
-| SMS | short message service | 手机短信；SMS Spam 是 UCI 的垃圾短信数据集 |
-| MNIST | Modified National Institute of Standards and Technology database | 手写数字数据集 |
-| RFM | recency, frequency, monetary | 按最近消费、频次、金额给客户分群 |
-| LDA | linear discriminant analysis | 线性判别分析，经典的线性分类方法 |
-| ESL | The Elements of Statistical Learning | Hastie 等人的统计学习教材 |
-| CS229 | — | 斯坦福的机器学习课程 |
-| ML | machine learning | 机器学习；Hands-On ML 是 Géron 的实践书 |
-| hinge loss | — | SVM 的损失：间隔够了就不再罚 |
-| RBF | radial basis function | 径向基函数，SVM 最常用的核 |
-| bagging | — | 有放回抽样训多个模型再平均，随机森林的基础 |
-| DBSCAN | density-based spatial clustering of applications with noise | 按密度聚类，能标出噪声点 |
-| SVD | singular value decomposition | 奇异值分解，PCA 和低秩近似的计算工具 |
-| t-SNE | t-distributed stochastic neighbor embedding | 保局部邻域的非线性降维，常用来画二维图 |
-| UMAP | uniform manifold approximation and projection | 和 t-SNE 类似的非线性降维，更快 |
-| FineWeb / FineWeb-Edu | — | Hugging Face 的开源预训练语料及其教育质量子集 |
-| CV | cross-validation | 交叉验证，轮流拿一折当验证集 |
-| GD | gradient descent | 梯度下降 |
-| SGD | stochastic gradient descent | 随机梯度下降，每步只用一小批样本 |
-| logit | — | 过 sigmoid / softmax 之前的原始分数 |
-| XOR | exclusive or | 异或；线性模型分不开的经典反例 |
-| XGBoost / LightGBM / CatBoost | — | 三个主流的梯度提升库 |
-| boosting | — | 一棵接一棵地拟合前面的残差，梯度提升的思路 |
-| RF | random forest | 随机森林 |
-| MLP | multi-layer perceptron | 多层感知机，最简单的神经网络 |
-| GBDT | gradient boosting decision tree | 梯度提升决策树 |
-| ARI | adjusted Rand index | 调整兰德指数，衡量聚类和真实标签的吻合度 |
-| LoRA | low-rank adaptation | 低秩适配，只训一个低秩增量矩阵 |
-| shingle | — | 把文本切成的连续 n 个词片段 |
-| ROC | receiver operating characteristic | 扫阈值时真阳性率对假阳性率的曲线 |
-| ECE | expected calibration error | 期望校准误差，置信度和真实准确率的差 |
-| Platt / isotonic | — | 两种校准方法：拟合 sigmoid / 拟合单调函数 |
-| bootstrap | — | 有放回重抽样，估计指标的置信区间 |
-| McNemar | — | McNemar 检验，比较两个模型在同一批题上的对错 |
-| NB | naive Bayes | 朴素贝叶斯，假设特征条件独立的概率分类器 |
-| DCLM | DataComp for Language Models | 一个开源的预训练数据集与数据处理基准 |
-| BLAS | Basic Linear Algebra Subprograms | 底层线性代数库接口 |
-| RAG | retrieval-augmented generation | 检索增强生成，先检索再让模型回答 |
-| QR | — | QR 分解：正交矩阵乘上三角矩阵 |
-| AdamW | Adam with decoupled weight decay | 把 weight decay 从梯度里拆出来的 Adam |
-| PR | precision–recall | 精确率–召回率曲线 |
-
-Table: 本文用到的术语与缩写
-
 ## 内容简介
 
-《LLM 时代的经典机器学习：只讲它在哪里重现》是一组共十篇正文的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L2 层（机器学习基础）。它面向读完 [L0 数学](/math-for-ai-algorithm-engineers.html)与 [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)、准备进入深度学习与 LLM（large language model，大语言模型）的读者，讲的是**经典机器学习里那些在大模型时代仍然每天在用的概念——它们是什么、在 LLM 工作里以什么形态重现、以及一个能算出来的数字**。每个概念都从一个具体的小例子讲起、配一张图、给出十几行能跑的核心代码、再对到 LLM 上——假设读者没有学过任何机器学习。
+《LLM 时代的经典机器学习：只讲它在哪里重现》是一组共十篇正文的系列文章，对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L2 层（机器学习基础）。它面向读完 [L0 数学](/math-for-ai-algorithm-engineers.html)与 [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)、准备进入深度学习与 LLM 的读者，讲的是**经典机器学习里那些在大模型时代仍然每天在用的概念——它们是什么、在 LLM 工作里以什么形态重现、以及一个能算出来的数字**。每个概念都从一个具体的小例子讲起、配一张图、给出十几行能跑的核心代码、再对到 LLM 上——假设读者没有学过任何机器学习。
 
 它回答的问题是：
 
 > **LLM 工作里的哪些问题其实是经典机器学习的老问题？它们的经典解法在 LLM 上还成立吗？[^q0]**
 
-"经典机器学习"——线性模型、SVM（support vector machine，支持向量机）、决策树、K-Means、交叉验证——在大模型时代最常被跳过。理由听起来成立：今天没有人用 SVM 做 NLP（natural language processing）了，Transformer 也不需要特征工程。但跳过它的人会在 L5 遇到一组熟悉的麻烦：奖励模型训了两个 epoch 之后 RL（reinforcement learning，强化学习）开始"钻空子"；benchmark 上涨了 5 个点结果发现测试题在训练数据里；judge 模型给长回答打高分；数据过滤器把某一类文本全滤掉了。这些问题在经典机器学习里各有一个名字——过拟合、测试集泄漏、评估偏差、分类器的类别不平衡——并且有一套成熟的处理方法。
+"经典机器学习"——线性模型、SVM、决策树、K-Means、交叉验证——在大模型时代最常被跳过。理由听起来成立：今天没有人用 SVM 做 NLP 了，Transformer 也不需要特征工程。但跳过它的人会在 L5 遇到一组熟悉的麻烦：奖励模型训了两个 epoch 之后 RL 开始"钻空子"；benchmark 上涨了 5 个点结果发现测试题在训练数据里；judge 模型给长回答打高分；数据过滤器把某一类文本全滤掉了。这些问题在经典机器学习里各有一个名字——过拟合、测试集泄漏、评估偏差、分类器的类别不平衡——并且有一套成熟的处理方法。
 
 所以这一层的价值不在"模型"而在**方法论**。本系列不按教科书的顺序复述算法，而是反过来：把 LLM 工作里实际出现的经典机器学习列出来，每一处从概念本身讲起（假设读者没学过），说明它在 LLM 上的重现、要懂到什么程度、以及一个用 scikit-learn 几十行就能跑出来的数字。
 
@@ -146,7 +73,7 @@ Table: 各篇的真实数据案例
 
 ### 方法论比模型活得久
 
-SVM 与 LDA（linear discriminant analysis，线性判别分析）退场了，但"测试集只能看一次"、"参数远多于样本时会过拟合"、"准确率在类别不平衡时会骗人"、"两个模型的差异要看置信区间"没有退场——它们在 LLM 上以更大的规模重现，而且因为规模大，犯错的代价也更大：一次污染的评测能误导一个团队几个月，一个过拟合的奖励模型能让几千 GPU 小时的 RL 白跑。
+SVM 与 LDA 退场了，但"测试集只能看一次"、"参数远多于样本时会过拟合"、"准确率在类别不平衡时会骗人"、"两个模型的差异要看置信区间"没有退场——它们在 LLM 上以更大的规模重现，而且因为规模大，犯错的代价也更大：一次污染的评测能误导一个团队几个月，一个过拟合的奖励模型能让几千 GPU 小时的 RL 白跑。
 
 ### 现有材料的断层
 
@@ -165,7 +92,7 @@ SVM 与 LDA（linear discriminant analysis，线性判别分析）退场了，�
 
 ### 直接从 LLM 入门、跳过了经典部分的工程师
 
-你在做 SFT（supervised fine-tuning，监督微调） / RLHF（reinforcement learning from human feedback） / 评测，遇到过 reward hacking、benchmark 分数不可信、judge 偏好长回答。本系列告诉你这些问题的经典名字与经典解法——叫出名字，解法就在手边。
+你在做 SFT / RLHF / 评测，遇到过 reward hacking、benchmark 分数不可信、judge 偏好长回答。本系列告诉你这些问题的经典名字与经典解法——叫出名字，解法就在手边。
 
 ### 做数据工程的人
 
@@ -173,7 +100,7 @@ SVM 与 LDA（linear discriminant analysis，线性判别分析）退场了，�
 
 ### 要做评测、要读实验结果的人
 
-第十篇讲评估的全部工具：混淆矩阵、阈值权衡、AUC（area under the ROC curve）、校准、Cohen's κ、置信区间、配对检验、多重比较——以及每一个在 LLM 评测里的陷阱。
+第十篇讲评估的全部工具：混淆矩阵、阈值权衡、AUC、校准、Cohen's κ、置信区间、配对检验、多重比较——以及每一个在 LLM 评测里的陷阱。
 
 
 ## 系列的整体主线
@@ -195,7 +122,7 @@ SVM 与 LDA（linear discriminant analysis，线性判别分析）退场了，�
 
 Table: 十篇的主题与内容
 
-监督学习按输出分两大类——**回归**（预测一个连续值：房价 320 万、这条回答得 7.3 分）与**分类**（预测一个类别：是 / 不是垃圾邮件、这道题答对 / 答错）。两类各有一篇打底：第二篇的线性回归是回归的原型——"特征加权求和"直接当预测值；第三篇的逻辑回归虽然名字里有"回归"，做的是**分类**——它把同样的加权和再过一个 sigmoid 函数（把任意实数压到 0～1 之间的 S 形曲线，第三篇第二章画它）变成"属于正类的概率"。这里先记住这一对区别就够，两篇会各自从零讲起。回归这一侧只讲线性回归不是遗漏：树模型、梯度提升、KNN（k-nearest neighbors，k 近邻）都同时有回归版本（第六篇的梯度提升就是在回归问题上手写的），而 LLM 时代真正常用的回归问题——奖励模型打分、scaling law 拟合——用的正是线性模型与它的变体。
+监督学习按输出分两大类——**回归**（预测一个连续值：房价 320 万、这条回答得 7.3 分）与**分类**（预测一个类别：是 / 不是垃圾邮件、这道题答对 / 答错）。两类各有一篇打底：第二篇的线性回归是回归的原型——"特征加权求和"直接当预测值；第三篇的逻辑回归虽然名字里有"回归"，做的是**分类**——它把同样的加权和再过一个 sigmoid 函数（把任意实数压到 0～1 之间的 S 形曲线，第三篇第二章画它）变成"属于正类的概率"。这里先记住这一对区别就够，两篇会各自从零讲起。回归这一侧只讲线性回归不是遗漏：树模型、梯度提升、KNN 都同时有回归版本（第六篇的梯度提升就是在回归问题上手写的），而 LLM 时代真正常用的回归问题——奖励模型打分、scaling law 拟合——用的正是线性模型与它的变体。
 
 第一篇是**方法论的底座**：什么是泛化、为什么会过拟合、误差从哪来。第二到六篇是**监督学习**：从线性模型到三个基础分类器、SVM，再到树的集成，以及它们在 LLM 数据管线与奖励模型里的位置。第七到九篇是**无监督学习**：不需要标签的三件事——聚类、降维、去重。第十篇是**评估**：一切结论是否成立的最后一道关。
 
@@ -228,7 +155,7 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 这一篇会覆盖：
 
 - 学习的定义：从有限样本推断没见过的样本；`fit` 到底在做什么（三行最小二乘）；
-- 训练 / 验证 / 测试三份数据各干什么；随机切、分层切、按时间切、按组切——近重复样本随机切时 CV（cross-validation，交叉验证）分数虚高 40%；
+- 训练 / 验证 / 测试三份数据各干什么；随机切、分层切、按时间切、按组切——近重复样本随机切时 CV 分数虚高 40%；
 - 过拟合与欠拟合：30 个点拟合正弦，三种容量的拟合图、训练 / 验证误差随次数的曲线；学习曲线——数据到 100 个点，15 次多项式与 4 次一样好；
 - 测试集泄漏：在测试集上选超参数偏乐观多少（200 次重复的直方图）；**benchmark 污染**与"反复调参"；n-gram 污染检测的 10 行代码，抓得住原文、抓不住改写；
 - 偏差-方差分解：公式逐项解释、100 个模型的预测带图；集成只降方差；
@@ -241,7 +168,7 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 
 ### 2. 线性回归：最小二乘、梯度下降与 Ridge / Lasso
 
-第二篇讲最简单的模型，它是后面一切的原型，也是唯一能把闭式解、GD（gradient descent）、SGD（stochastic gradient descent）放在一起对答案的地方。
+第二篇讲最简单的模型，它是后面一切的原型，也是唯一能把闭式解、GD、SGD 放在一起对答案的地方。
 
 这一篇会覆盖：
 
@@ -284,7 +211,7 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 - 七个分类器的成绩表与月牙数据上的决策边界九宫格；
 - 朴素贝叶斯：贝叶斯公式的手算例子、"朴素"假设、高斯版每类每特征一条正态曲线、15 行实现；冗余特征为什么让它变差（去掉后反超逻辑回归）；
 - KNN：4 行实现；$$k$$ 是偏差-方差的旋钮（1 / 15 / 150 的边界）；**维度灾难**——1000 维时最近与最远只差 10%；它在 LLM 里就是**检索**；
-- 多项式朴素贝叶斯手算：计数、拉普拉斯平滑、log 域累加（101 个词直接连乘下溢为 0）；复制一列与 XOR（exclusive or）两个反例；KNN 六个点的缩放、三种距离与平票规则，200 列噪声特征 0.945 → 0.660；
+- 多项式朴素贝叶斯手算：计数、拉普拉斯平滑、log 域累加（101 个词直接连乘下溢为 0）；复制一列与 XOR 两个反例；KNN 六个点的缩放、三种距离与平票规则，200 列噪声特征 0.945 → 0.660；
 - 决策树：第一刀怎么选（Gini 扫描图）、25 行实现、一棵深度 2 的树、深度 vs 过拟合——深度不限训练 100% 测试 0.83；库算法扫全部相邻中点而非 19 个分位点；递归生长、停止条件与代价复杂度剪枝（337 叶 → 49 叶）；斜边界反例。
 
 核心问题是：
@@ -319,12 +246,12 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 - 梯度提升：一步一步拟合残差的八张图；残差 = 负梯度——**在函数空间里做梯度下降**；15 行手写与 scikit-learn 同量级；
 - 调参：学习率 × 棵数（1.0 第 24 棵到顶后下滑）；XGBoost / LightGBM / CatBoost 各改了什么；
 - 方差公式 $$\rho\sigma^2 + (1-\rho)\sigma^2/B$$ 的推导与实测；袋外估计在群组 / 时间漂移下失效；二分类 boosting 累加的是 logit（牛顿叶子值）；早停的轮数来自验证集而不是测试集；"树越多越好"的条件与代价（100 → 3000 棵 −0.001、×26 时间）；
-- 特征重要性（6/30 占 91%）；表格数据上 RF（random forest） 0.919 vs 不调参的 MLP（multi-layer perceptron） 0.905；
+- 特征重要性（6/30 占 91%）；表格数据上 RF 0.919 vs 不调参的 MLP 0.905；
 - **算力账**：给 15T token 打分，8B 模型是训练算力的 1/3、线性模型 0.004% → 两级做法；fastText = 词袋 + 线性分类器；小分类器带回来的老问题。
 
 核心问题是：
 
-> **很多棵都过拟合的树平均起来为什么反而不过拟合？梯度提升为什么叫"梯度"？预训练数据过滤为什么用 fastText 与 GBDT（gradient boosting decision tree）而不是 LLM？[^q5]**
+> **很多棵都过拟合的树平均起来为什么反而不过拟合？梯度提升为什么叫"梯度"？预训练数据过滤为什么用 fastText 与 GBDT 而不是 LLM？[^q5]**
 
 ### 7. 聚类：K-Means、DBSCAN 与「这批语料里有什么」
 
@@ -335,7 +262,7 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 - K-Means 的迭代过程（四帧图）、12 行实现与 scikit-learn 同数（inertia 7281）；为什么有限步内收敛、为什么只到局部最优；
 - $$k$$ 怎么选：肘部法与轮廓系数（两者不一致时按业务定）；
 - 初始化：随机 50 次里 1/3 停在差解、最差是最优的两倍；k-means++；
-- DBSCAN（density-based spatial clustering of applications with noise）：核心点 / 边界点 / 噪声；两个月牙 K-Means ARI（adjusted Rand index） 0.26 vs DBSCAN 1.00；$$\varepsilon$$ 的代价；
+- DBSCAN：核心点 / 边界点 / 噪声；两个月牙 K-Means ARI 0.26 vs DBSCAN 1.00；$$\varepsilon$$ 的代价；
 - 层次聚类与树状图；
 - **真实语料**：78 句过 Qwen2.5-0.5B 得句向量 → K-Means → 每簇抽两条人读：$$k = 7$$ 主题全对、模板页自成一簇；按簇配比、找垃圾簇、SFT 保多样性——探索，不是预测。
 
@@ -349,11 +276,11 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 
 这一篇会覆盖：
 
-- PCA（principal component analysis，主成分分析）的几何：投影后方差最大的方向（三联图）；四行手写（中心化 → SVD）与 scikit-learn 差 $$10^{-13}$$；
+- PCA 的几何：投影后方差最大的方向（三联图）；四行手写（中心化 → SVD）与 scikit-learn 差 $$10^{-13}$$；
 - 解释方差：手写数字 64 维里 29 维解释 95%；用前 $$k$$ 维重建一张图；
-- 三个名字一件事：协方差特征分解 = 数据矩阵 SVD（singular value decomposition） = PCA，数字全同；
-- 低秩：一个真实权重矩阵的奇异值谱 vs 随机矩阵；LoRA（low-rank adaptation）的低秩假设是关于 $$\Delta W$$ 的；
-- PCA vs t-SNE（t-distributed stochastic neighbor embedding）的二维图（KNN 0.60 vs 0.98）；二维图能信什么、不能信什么；
+- 三个名字一件事：协方差特征分解 = 数据矩阵 SVD = PCA，数字全同；
+- 低秩：一个真实权重矩阵的奇异值谱 vs 随机矩阵；LoRA 的低秩假设是关于 $$\Delta W$$ 的；
+- PCA vs t-SNE 的二维图（KNN 0.60 vs 0.98）；二维图能信什么、不能信什么；
 - **各向异性**：78 句真实句向量任意两句余弦均值 0.79、第一主成分占 26%；减均值后同主题 / 不同主题差距从 0.14 拉到 0.64；对检索的影响。
 
 核心问题是：
@@ -368,7 +295,7 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 
 - Jaccard：n-gram 集合的交并比；
 - MinHash：一个能手算的例子（3/6）、一行证明、20 行实现；$$k$$ 个签名的估计标准差 $$\sqrt{J(1-J)/k}$$——实测与理论逐点吻合；
-- LSH（locality-sensitive hashing，局部敏感哈希）：分组分桶（图与代码）；S 曲线 $$1 - (1 - s^r)^b$$；FineWeb 的 $$b = 14, r = 8$$ 在 0.685 过 50%——"Jaccard 大于约 0.7 视为重复"的来源；
+- LSH：分组分桶（图与代码）；S 曲线 $$1 - (1 - s^r)^b$$；FineWeb 的 $$b = 14, r = 8$$ 在 0.685 过 50%——"Jaccard 大于约 0.7 视为重复"的来源；
 - 一个能手跟踪的小例子：六段文本从 shingle、真随机排列签名、分 band 到删除清单；理论公式 vs 实际 hash 族的候选概率；候选召回率 ≠ 去重阈值 ≠ 保留策略，连通分量 vs 贪心；
 - 2000 段文本：200 万对 → 267 个候选；按 Jaccard 分区间的实测召回贴着理论 S 曲线（$$J \ge 0.7$$ 找到 89%，LSH 按概率召回、不保证不漏）；
 - **三层去重**：精确 hash → MinHash（模板页 Jaccard 0.70）→ embedding 语义去重（同义句余弦 0.46 vs 无关 −0.20）。
@@ -384,11 +311,11 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 这一篇会覆盖：
 
 - 混淆矩阵与精确率 / 召回率 / F1 / AUC：12 行手写与 scikit-learn 全同；AUC 的概率含义实测 0.9721；
-- 阈值扫描曲线与 ROC（receiver operating characteristic）；要求召回 95% 时精确率掉到 90%；
+- 阈值扫描曲线与 ROC；要求召回 95% 时精确率掉到 90%；
 - 类别不平衡：正例 3% 时"全判负"95.6%；
-- 校准：可靠性图与 ECE（expected calibration error）；一个过度自信的模型 AUC 不变、ECE 0.069，Platt / isotonic 校准后 0.019；RLHF 后的置信度；
+- 校准：可靠性图与 ECE；一个过度自信的模型 AUC 不变、ECE 0.069，Platt / isotonic 校准后 0.019；RLHF 后的置信度；
 - judge：Cohen's κ 手算——永远选 A 的 judge 一致率 92%、κ = 0；位置偏差怎么量（对换顺序差 21 个点）、怎么消；
-- 一个分数稳不稳：交叉验证；标准误——MMLU（Massive Multitask Language Understanding） ±0.8、100 题私有集 ±9；bootstrap；
+- 一个分数稳不稳：交叉验证；标准误——MMLU ±0.8、100 题私有集 ±9；bootstrap；
 - 并列分数算半对；校准映射只在同分布下成立；CV 各折不是独立重复实验；相关样本按来源重抽（簇 bootstrap）；一条完整流程：定阈值 → 校准 → 留出评估 → 成对比较，每一步用哪份数据；
 - 两个模型比：独立 $$z = 1.38$$ vs 配对 McNemar $$z = 3.13$$；多重比较——20 个 benchmark 期望领先 10 ± 2.2。
 
@@ -450,7 +377,7 @@ Table: 各篇平行的阅读线
 
 - scikit-learn 1.x 的接口；数据全部是它自带的小数据集（乳腺癌 569 条、手写数字 1797 条）或合成数据（`make_classification` 等）；第七、八篇的句向量与权重谱用本地缓存的 Qwen2.5-0.5B（CPU 可跑）；
 - 引用的真实数字：FineWeb 的去重参数（$$b = 14, r = 8$$）与 FineWeb-Edu 的分数阈值、Llama-3-8B 的参数量、Chinchilla 的 $$D / N \approx 20$$；
-- 各篇深化的小节（手算、反例、实现层对照）与配套子实验在 2026 年 10 月补入，新输出追加在 `expected/` 对应文件末尾、旧记录原样保留；少数病态问题（高次多项式、近奇异设计矩阵）的数字随 BLAS（Basic Linear Algebra Subprograms） / 平台会变，正文已逐处说明；
+- 各篇深化的小节（手算、反例、实现层对照）与配套子实验在 2026 年 10 月补入，新输出追加在 `expected/` 对应文件末尾、旧记录原样保留；少数病态问题（高次多项式、近奇异设计矩阵）的数字随 BLAS / 平台会变，正文已逐处说明；
 - 论文引用以第一作者与年份标注。
 
 
@@ -495,10 +422,10 @@ Table: 读完经典机器学习系列后应能回答的问题
 3. **用对解法**：知道经典解法（更多数据、正则化、早停、集成、配对检验）在 LLM 上各对应什么。
 
 [^q0]: 至少这些：奖励模型训两个 epoch 后 RL 开始钻空子 = **过拟合**；benchmark 涨 5 个点结果测试题在训练数据里 = **测试集泄漏**；judge 给长回答打高分 = **评估偏差**；数据过滤器把某类文本全滤掉 = 分类器的**类别不平衡 / 阈值**问题；weight decay = Ridge；attention = 核回归；奖励模型 = 逻辑回归作用在分差上；embedding 各向异性 = 降维前要中心化；去重阈值 = MinHash 的 S 曲线。经典解法基本仍成立——更多数据、正则化（RLHF 的 KL 项）、早停、集成、去污染、校准、分层抽样——变的是规模与成本：不能对 8B 的奖励模型做 10 折交叉验证，所以更依赖小规模消融与置信区间。
-[^q1]: `lstsq` 解的是正规方程 $$X^\top X w = X^\top y$$，即最小二乘的闭式解 $$w = (X^\top X)^{-1}X^\top y$$（数值上用 SVD / QR 而不是求逆）。梯度下降的步数由条件数决定：特征尺度差异大 → $$X^\top X$$ 的最大 / 最小特征值比大 → 沿平坦方向要走几百步；学习率超过 $$2/\lambda_{\max}$$ 就沿最陡方向振荡发散，所以要标准化特征、或用自适应步长。`weight_decay=0.1` 就是 Ridge：对 $$L_2$$ 正则 $$\lambda\lVert w\rVert^2$$ 求导得到每步让 $$w$$ 乘 $$(1-\eta\lambda)$$ 的「衰减」，闭式解变成 $$(X^\top X + \lambda I)^{-1}X^\top y$$；AdamW（Adam with decoupled weight decay）把这一项从梯度里拿出来单独作用于参数，与在 loss 里加 $$L_2$$ 在 Adam 下不等价。
+[^q1]: `lstsq` 解的是正规方程 $$X^\top X w = X^\top y$$，即最小二乘的闭式解 $$w = (X^\top X)^{-1}X^\top y$$（数值上用 SVD / QR 而不是求逆）。梯度下降的步数由条件数决定：特征尺度差异大 → $$X^\top X$$ 的最大 / 最小特征值比大 → 沿平坦方向要走几百步；学习率超过 $$2/\lambda_{\max}$$ 就沿最陡方向振荡发散，所以要标准化特征、或用自适应步长。`weight_decay=0.1` 就是 Ridge：对 $$L_2$$ 正则 $$\lambda\lVert w\rVert^2$$ 求导得到每步让 $$w$$ 乘 $$(1-\eta\lambda)$$ 的「衰减」，闭式解变成 $$(X^\top X + \lambda I)^{-1}X^\top y$$；AdamW 把这一项从梯度里拿出来单独作用于参数，与在 loss 里加 $$L_2$$ 在 Adam 下不等价。
 [^q2]: 把线性输出过一个 sigmoid $$\sigma(z)=1/(1+e^{-z})$$ 压到 $$(0,1)$$，并把 loss 从平方误差换成对数损失（伯努利的负对数似然），这就是逻辑回归。奖励模型就是它：Bradley-Terry 假设 $$P(y_w \succ y_l)=\sigma(r(y_w)-r(y_l))$$，pairwise loss $$-\log\sigma(r_w - r_l)$$ 正是逻辑回归的 loss 作用在**分差**上，特征提取器换成了 8B 参数的 Transformer。准确率到 80% 就上不去，是因为它贴着标注一致率的上限走：人与人的偏好一致率本身只有 70–80%，标签里的噪声不可学，第三篇把标注噪声从小调到大，模型准确率始终跟着一致率走。
-[^q3]: 朴素在条件独立假设：给定类别，假设各特征（词）互相独立，于是 $$p(x\mid c)=\prod_i p(x_i\mid c)$$，参数只需数词频——假设明显不真（词之间强相关），但分类结果常常仍对，因为只要排序对就行。不训练的分类器 KNN（看最近的 $$k$$ 个邻居投票）在 LLM 工作里到处都是，因为 embedding 检索、few-shot 示例选择、去重判定、RAG（retrieval-augmented generation）的 top-k 本质上都是 KNN——它的全部成本在推理时的距离计算与索引。决策树一定过拟合是因为它可以一直分裂直到每个叶子只剩一个样本、训练误差为零——深度不限的树是零偏差高方差模型，所以要剪枝、限深，或者用第六篇的集成把方差平均掉。
+[^q3]: 朴素在条件独立假设：给定类别，假设各特征（词）互相独立，于是 $$p(x\mid c)=\prod_i p(x_i\mid c)$$，参数只需数词频——假设明显不真（词之间强相关），但分类结果常常仍对，因为只要排序对就行。不训练的分类器 KNN（看最近的 $$k$$ 个邻居投票）在 LLM 工作里到处都是，因为 embedding 检索、few-shot 示例选择、去重判定、RAG 的 top-k 本质上都是 KNN——它的全部成本在推理时的距离计算与索引。决策树一定过拟合是因为它可以一直分裂直到每个叶子只剩一个样本、训练误差为零——深度不限的树是零偏差高方差模型，所以要剪枝、限深，或者用第六篇的集成把方差平均掉。
 [^q4]: 因为在所有能分开训练集的直线里，离两类最近样本都最远的那条（最大间隔）对扰动最不敏感，泛化误差的上界只依赖间隔而不依赖维度——这是统计学习理论给出的理由；间隔只由少数支持向量决定。核技巧：SVM 的解只用到样本间的内积 $$\langle x_i, x_j\rangle$$，把它换成核函数 $$K(x_i,x_j)$$ 就等价于在一个（可能无限维的）特征空间里画直线，而从不显式计算那个空间的坐标——计算量仍是 $$O(n^2)$$ 个核值。attention 与核回归的关系：Nadaraya-Watson 核回归 $$\hat y(q)=\sum_i \frac{K(q,k_i)}{\sum_j K(q,k_j)} v_i$$，取 $$K=\exp(q^\top k/\sqrt d)$$ 就是 softmax attention——attention 是以 query 为中心、用指数核加权的核回归。
 [^q5]: 单棵深树是低偏差、高方差；对 $$B$$ 棵在不同 bootstrap 样本与随机特征子集上训出的树取平均，偏差不变、方差按 $$\rho\sigma^2 + (1-\rho)\sigma^2/B$$ 下降（树之间相关性 $$\rho$$ 越低降得越多）——这就是随机森林不过拟合的原因。梯度提升叫「梯度」是因为每棵新树拟合的是当前 loss 对预测值的负梯度（平方损失下就是残差），整个过程是在函数空间里做梯度下降。预训练数据过滤用 fastText 与 GBDT 而不是 LLM，是算力账：要给 240T token 的网页打分，fastText 每秒几十万文档、GBDT 在几十个统计特征上同样便宜，而一个 LLM 过一遍 240T token 的成本与预训练本身同量级；LLM 只用来给几十万条样本打标签，再训小分类器去过滤全量。
-[^q6]: PCA 求的是中心化数据协方差矩阵 $$X^\top X/n$$ 的特征向量；对 $$X=U\Sigma V^\top$$ 做 SVD，$$X^\top X = V\Sigma^2 V^\top$$，所以右奇异向量 $$V$$ 就是主成分、奇异值平方正比于方差——SVD 直接给出 PCA 且数值更稳。4096 维 embedding 「看」靠降维到二维（PCA 看全局方差方向，t-SNE / UMAP 看局部邻域）；二维图上的距离**不能**直接信——t-SNE / UMAP（uniform manifold approximation and projection）只保局部邻域、簇间距离与簇大小没有意义，PCA 的两个分量通常只解释百分之几的方差。任意两句话余弦都在 0.7 以上是 embedding 的**各向异性**：所有向量挤在一个窄锥里、共享一个大的公共分量，所以要先减均值 / 白化（或用对比学习训练的模型），再比余弦才有区分度。
-[^q7]: 不一定能：准确率在类别不平衡下没有信息——若 95% 的输入本来就安全，全判「安全」也有 95%；要看召回（漏放了多少有害）、精确率（误拦了多少正常）、ROC / PR（precision–recall）曲线与阈值，以及每类错误的代价。judge 与人 80% 一致率够不够，取决于人与人之间的一致率——若人际一致率也是 80%，judge 已经到了上限；若人际 95% 则 judge 偏差显著，还要看 Cohen's $$\kappa$$ 而不是原始一致率，并检查偏差是否系统性（偏长、偏自家模型）。「20 个 benchmark 领先 12 个」不算赢：在零假设下（两模型等价）20 次里领先 12 次的概率约 25%（二项检验 $$p\approx 0.25$$），且每个 benchmark 的差距要先过自身的置信区间。
+[^q6]: PCA 求的是中心化数据协方差矩阵 $$X^\top X/n$$ 的特征向量；对 $$X=U\Sigma V^\top$$ 做 SVD，$$X^\top X = V\Sigma^2 V^\top$$，所以右奇异向量 $$V$$ 就是主成分、奇异值平方正比于方差——SVD 直接给出 PCA 且数值更稳。4096 维 embedding 「看」靠降维到二维（PCA 看全局方差方向，t-SNE / UMAP 看局部邻域）；二维图上的距离**不能**直接信——t-SNE / UMAP 只保局部邻域、簇间距离与簇大小没有意义，PCA 的两个分量通常只解释百分之几的方差。任意两句话余弦都在 0.7 以上是 embedding 的**各向异性**：所有向量挤在一个窄锥里、共享一个大的公共分量，所以要先减均值 / 白化（或用对比学习训练的模型），再比余弦才有区分度。
+[^q7]: 不一定能：准确率在类别不平衡下没有信息——若 95% 的输入本来就安全，全判「安全」也有 95%；要看召回（漏放了多少有害）、精确率（误拦了多少正常）、ROC / PR 曲线与阈值，以及每类错误的代价。judge 与人 80% 一致率够不够，取决于人与人之间的一致率——若人际一致率也是 80%，judge 已经到了上限；若人际 95% 则 judge 偏差显著，还要看 Cohen's $$\kappa$$ 而不是原始一致率，并检查偏差是否系统性（偏长、偏自家模型）。「20 个 benchmark 领先 12 个」不算赢：在零假设下（两模型等价）20 次里领先 12 次的概率约 25%（二项检验 $$p\approx 0.25$$），且每个 benchmark 的差距要先过自身的置信区间。
