@@ -16,7 +16,7 @@ comments_path: /transformer-and-llm-for-infra-engineers.html
 
 Transformer 的结构图里每个部件为什么在那里？训练与推理的一次前向分别做什么？一个最小 GPT 如何从公式落到代码，再从随机权重训练成会续写的模型？四篇文章沿着同一条代码线回答这些问题。
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="transformer-and-llm" %}
 
