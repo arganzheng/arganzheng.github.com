@@ -1,19 +1,10 @@
 ---
-- term: judge
-  full: LLM-as-a-judge
-  desc: 打分用的模型，即 LLM-as-judge
 - term: CSAM
   full: child sexual abuse material
   desc: 儿童性虐待材料
-- term: PocketOS
-  full: "—"
-  desc: Cursor agent 用权限过宽的 token 删光生产卷与备份的事故
 - term: RCE
   full: remote code execution
   desc: 远程代码执行
-- term: effort
-  full: "—"
-  desc: 推理模型的思考档位参数
 - term: PII
   full: personally identifiable information
   desc: 能识别到个人的信息，如姓名、手机号
@@ -23,39 +14,15 @@
 - term: SRE
   full: site reliability engineering
   desc: 负责线上可靠性的工程实践与岗位
-- term: bad case
-  full: "—"
-  desc: 答错或体验差的具体样本
 - term: SLO
   full: service level objective
   desc: 服务水平目标，如 p95 延迟、可用性、质量
-- term: runbook
-  full: "—"
-  desc: 某类事故发生时按步骤处置的手册
-- term: kill switch
-  full: "—"
-  desc: 出事时一键关掉某个 AI 功能的开关
-- term: deployer
-  full: "—"
-  desc: AI Act 里把 AI 系统用起来的一方，即应用方
-- term: Annex I
-  full: "—"
-  desc: AI Act 附件：I 是受产品法规约束的产品，III 是高风险用途
-- term: Annex III
-  full: "—"
-  desc: AI Act 附件：I 是受产品法规约束的产品，III 是高风险用途
 - term: GPAI
   full: general-purpose AI
   desc: AI Act 里的通用模型，有单独的义务
 - term: ZDR
   full: zero data retention
   desc: 供应商不保存请求与响应内容的选项
-- term: typosquat
-  full: "—"
-  desc: 用拼写相近的名字冒充正牌包或 server
-- term: rug pull
-  full: "—"
-  desc: 工具先正常、获批后再换成恶意内容
 - term: CVE
   full: Common Vulnerabilities and Exposures
   desc: 公开漏洞的统一编号
@@ -68,132 +35,42 @@
 - term: PTC
   full: programmatic tool calling
   desc: 让模型写代码一次调多个工具，把多轮变一轮
-- term: prefill
-  full: "—"
-  desc: 模型读完整个输入、算出第一个 token 之前的阶段
 - term: FinOps
   full: financial operations
   desc: 云成本的归因、预算与优化的日常运营
 - term: p50 / p95
   full: 50th / 95th percentile
   desc: 延迟或成本的中位数与 95 分位
-- term: Batch / Flex
-  full: "—"
-  desc: 供应商的异步批处理与低价慢速层级
-- term: Portkey
-  full: "—"
-  desc: 常见的模型网关产品，开源自托管或托管服务
-- term: Helicone
-  full: "—"
-  desc: 常见的模型网关产品，开源自托管或托管服务
-- term: fallback
-  full: "—"
-  desc: 主模型失败时改走的备用模型或供应商
 - term: OTA
   full: over-the-air
   desc: 通过网络远程给设备推软件更新
 - term: TTFT
   full: time to first token
   desc: 从发出请求到收到第一个输出 token 的时间
-- term: Digital Omnibus
-  full: "—"
-  desc: 推迟 AI Act 高风险义务的欧盟一揽子修订法规
 - term: EU AI Act
   full: Artificial Intelligence Act
   desc: 欧盟人工智能法案，Regulation (EU) 2024/1689
-- term: prompt injection
-  full: "—"
-  desc: 把指令藏进模型会读到的数据里，让模型照做
 - term: OWASP
   full: Open Worldwide Application Security Project
   desc: 发布应用安全十大风险清单的开源组织
 - term: CVSS
   full: Common Vulnerability Scoring System
   desc: 漏洞严重度评分，满分 10
-- term: MCPoison
-  full: "—"
-  desc: Cursor 被注入后改写自身配置的三组漏洞
-- term: CurXecute
-  full: "—"
-  desc: Cursor 被注入后改写自身配置的三组漏洞
-- term: DuneSlide
-  full: "—"
-  desc: Cursor 被注入后改写自身配置的三组漏洞
 - term: MCP
   full: Model Context Protocol
   desc: 模型调用外部工具与数据的开放协议
-- term: EchoLeak
-  full: "—"
-  desc: Microsoft 365 Copilot 的零点击 prompt injection 漏洞
-- term: LiteLLM
-  full: "—"
-  desc: 开源、可自托管的模型网关，代理与 SDK 两种形态
-- term: OpenRouter
-  full: "—"
-  desc: 托管的多模型市场，一个 key 调多家模型
-- term: Cloudflare AI Gateway
-  full: "—"
-  desc: Cloudflare 在边缘提供的托管模型网关
-- term: prompt caching
-  full: "—"
-  desc: 供应商缓存相同的前缀，重复部分更便宜更快
-- term: span
-  full: "—"
-  desc: trace 里的一段，网关的一次模型调用记一个
-- term: OpenTelemetry GenAI
-  full: "—"
-  desc: OpenTelemetry 给模型调用定的 trace 字段约定
 - term: TTL
   full: time to live
   desc: 缓存条目多久后过期
-- term: thinking block / reasoning item / thought signature
-  full: "—"
-  desc: 三家 API 各自携带推理状态的方式
-- term: Portkey / Helicone
-  full: "—"
-  desc: 以可观测为主的托管模型网关
-- term: Bedrock / Vertex / Foundry
-  full: "—"
-  desc: AWS、Google Cloud、Azure 的托管模型平台
 - term: IAM
   full: identity and access management
   desc: 云上的身份与权限管理
 - term: OTel
   full: OpenTelemetry
   desc: 开源的 trace / 指标 / 日志标准
-- term: Envoy / Kong
-  full: "—"
-  desc: 常用的开源代理与 API 网关
-- term: Vault
-  full: "—"
-  desc: HashiCorp 的密钥管理系统
-- term: L2
-  full: "—"
-  desc: 应用工程师学习地图的第 2–4 层：上下文、检索、agent
-- term: L3
-  full: "—"
-  desc: 应用工程师学习地图的第 2–4 层：上下文、检索、agent
-- term: L4
-  full: "—"
-  desc: 应用工程师学习地图的第 2–4 层：上下文、检索、agent
 - term: p50 / p95 / p99
   full: 50th / 95th / 99th percentile
   desc: 中位数、95 分位、99 分位
-- term: web search
-  full: "—"
-  desc: 供应商服务端按次计费的内置工具
-- term: code interpreter
-  full: "—"
-  desc: 供应商服务端按次计费的内置工具
-- term: file search
-  full: "—"
-  desc: 供应商服务端按次计费的内置工具
-- term: L5
-  full: "—"
-  desc: 应用工程师学习地图的第 5 层评测、第 7 层产品呈现
-- term: k
-  full: "—"
-  desc: 每条评测样本重复跑的次数
 - term: RPM
   full: requests per minute
   desc: 每分钟请求数的限额
@@ -203,9 +80,3 @@
 - term: RAG
   full: retrieval-augmented generation
   desc: 先检索资料、再让模型据此回答
-- term: rerank
-  full: "—"
-  desc: 用更贵的模型给召回的候选重新打分排序
-- term: L7
-  full: "—"
-  desc: 应用工程师学习地图的第 7 层：产品与呈现
