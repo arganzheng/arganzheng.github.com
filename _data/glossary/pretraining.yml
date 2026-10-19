@@ -1,84 +1,37 @@
-- term: "AdamW"
-  full: "Adam with decoupled weight decay"
-  desc: "带解耦权重衰减的 Adam，预训练的默认优化器"
-- term: "BPE"
-  full: "byte-pair encoding"
-  desc: "字节对编码：反复合并最常见的相邻 pair 得到词表"
-- term: "C4"
-  full: "Colossal Clean Crawled Corpus"
-  desc: "T5 用的 Common Crawl 清洗版语料，早期默认配方"
-- term: "Chinchilla"
+---
+- term: AdamW
+  full: Adam with decoupled weight decay
+  desc: 带解耦权重衰减的 Adam，预训练的默认优化器
+- term: BPE
+  full: byte-pair encoding
+  desc: 字节对编码：反复合并最常见的相邻 pair 得到词表
+- term: C4
+  full: Colossal Clean Crawled Corpus
+  desc: T5 用的 Common Crawl 清洗版语料，早期默认配方
+- term: DCLM
+  full: DataComp for Language Models
+  desc: 开源数据配比实验基准与语料，验证「数据过滤比模型选择更值钱」
+- term: FLOPs
+  full: floating-point operations
+  desc: 浮点运算次数，预训练预算的计量单位
+- term: FP32
+  full: 32-bit floating point
+  desc: 单精度浮点，混精训练里权重与 master 副本的格式
+- term: LSH
+  full: locality-sensitive hashing
+  desc: 局部敏感哈希，让相似的文本落进同一个桶
+- term: MFU
+  full: model FLOPs utilization
+  desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
+- term: MoE
+  full: mixture of experts
+  desc: 混合专家：每层多个 FFN 专家、路由只激活其中几个
+- term: WARC
+  full: Web ARChive
+  desc: Common Crawl 的存档文件格式，数据流水线从它开始
+- term: WSD
+  full: warmup–stable–decay
+  desc: 预热—平稳—衰减三段式学习率调度，DeepSeek V3 用它
+- term: WET
   full: "—"
-  desc: "DeepMind 的 scaling law 论文与模型：参数、token 应按 1:20 配比"
-- term: "Common Crawl"
-  full: "—"
-  desc: "公开网页快照语料库，多数预训练语料的源头"
-- term: "DCLM"
-  full: "DataComp for Language Models"
-  desc: "开源数据配比实验基准与语料，验证「数据过滤比模型选择更值钱」"
-- term: "DeepSeek"
-  full: "—"
-  desc: "DeepSeek 系列模型；本系列多次引它的 V3 配方"
-- term: "FineWeb"
-  full: "—"
-  desc: "Hugging Face 发布的大规模网页预训练语料"
-- term: "FLOPs"
-  full: "floating-point operations"
-  desc: "浮点运算次数，预训练预算的计量单位"
-- term: "FP32"
-  full: "32-bit floating point"
-  desc: "单精度浮点，混精训练里权重与 master 副本的格式"
-- term: "Gemma"
-  full: "—"
-  desc: "Google 的开源模型系列"
-- term: "Gopher"
-  full: "—"
-  desc: "DeepMind 的 280B 模型，Chinchilla 论文的对照组"
-- term: "H100"
-  full: "—"
-  desc: "NVIDIA 的 Hopper 架构训练卡，算力账按它算"
-- term: "Jaccard"
-  full: "—"
-  desc: "Jaccard 相似度：交集除以并集，去重用它"
-- term: "Kaplan"
-  full: "—"
-  desc: "Kaplan 等 2020 的 scaling law 论文，Chinchilla 之前的版本"
-- term: "KV"
-  full: "key–value"
-  desc: "attention 里被查的键与取值的值"
-- term: "LSH"
-  full: "locality-sensitive hashing"
-  desc: "局部敏感哈希，让相似的文本落进同一个桶"
-- term: "MFU"
-  full: "model FLOPs utilization"
-  desc: "模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度"
-- term: "MinHash"
-  full: "—"
-  desc: "用哈希签名估计集合相似度的近似去重方法"
-- term: "MoE"
-  full: "mixture of experts"
-  desc: "混合专家：每层多个 FFN 专家、路由只激活其中几个"
-- term: "OLMo"
-  full: "—"
-  desc: "AI2 的全开源模型：权重、数据、训练配方全公开"
-- term: "Qwen"
-  full: "—"
-  desc: "阿里的开源模型系列，配方常被本系列引用"
-- term: "scaling law"
-  full: "—"
-  desc: "loss 随参数量、数据量、算力按幂律变化的经验规律"
-- term: "tokenizer"
-  full: "—"
-  desc: "把文本切成 token、给出 ID 的组件"
-- term: "WARC"
-  full: "Web ARChive"
-  desc: "Common Crawl 的存档文件格式，数据流水线从它开始"
-- term: "warmup"
-  full: "—"
-  desc: "学习率先从 0 升到峰值的预热段"
-- term: "WSD"
-  full: "warmup–stable–decay"
-  desc: "预热—平稳—衰减三段式学习率调度，DeepSeek V3 用它"
-- term: "WET"
-  full: "—"
-  desc: "WET 格式：Common Crawl 里已抽出的纯文本版本"
+  desc: WET 格式：Common Crawl 里已抽出的纯文本版本
