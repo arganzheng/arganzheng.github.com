@@ -1,0 +1,331 @@
+---
+- term: p50 / p95
+  full: 50th / 95th percentile
+  desc: 中位数 / 第 95 百分位，用来看长尾
+- term: staging
+  full: "—"
+  desc: 上线前的预发布环境
+- term: trace
+  full: "—"
+  desc: 一次任务每一步输入输出与决策的完整记录
+- term: durable execution
+  full: "—"
+  desc: 每步结果持久化、崩溃后能从断点续跑的执行模型
+- term: checkpoint
+  full: "—"
+  desc: 某一步之后的状态快照，崩溃后从这里续跑
+- term: serving
+  full: "—"
+  desc: 把模型部署成在线推理服务
+- term: tool search
+  full: "—"
+  desc: 工具定义按需检索加载，不一次塞进上下文
+- term: PocketOS
+  full: "—"
+  desc: agent 用越权 token 9 秒删掉生产卷与备份的事故
+- term: MCP
+  full: Model Context Protocol
+  desc: 模型客户端连接工具服务器的开放协议
+- term: SDK
+  full: software development kit
+  desc: 软件开发工具包，这里指写 agent 的库
+- term: Agents API
+  full: "—"
+  desc: OpenAI 托管 harness 与运行时的 agent 服务
+- term: harness
+  full: "—"
+  desc: 模型之外的循环、工具、权限、沙箱、会话等运行设施
+- term: effort
+  full: "—"
+  desc: 推理模型的思考力度档位，越高越慢越贵
+- term: TTFT
+  full: time to first token
+  desc: 从发出请求到收到第一个 token 的时间
+- term: ZDR
+  full: zero data retention
+  desc: 零数据保留：供应商不存请求与响应数据
+- term: KV
+  full: key–value
+  desc: 推理时缓存的注意力键值，即 KV cache
+- term: webhook
+  full: "—"
+  desc: 事件发生时由对方回调你给的 URL
+- term: judge
+  full: LLM-as-a-judge
+  desc: 用模型给轨迹或输出打分的评审
+- term: fallback
+  full: "—"
+  desc: 主路径失败时退回的备用路径
+- term: RL
+  full: reinforcement learning
+  desc: 强化学习
+- term: H100
+  full: "—"
+  desc: NVIDIA 的 Hopper 架构训练卡，显存账本按它算
+- term: Infra
+  full: infrastructure
+  desc: 训练与推理的底层系统：框架、算子、集群
+- term: kernel
+  full: "—"
+  desc: 在 GPU 上执行的一个函数，通常对应一个算子
+- term: seed
+  full: "—"
+  desc: 随机数种子，换 seed 相当于换一次运气
+- term: SQL
+  full: Structured Query Language
+  desc: 关系数据库的查询语言，GROUP BY 就是分组聚合
+- term: batch
+  full: "—"
+  desc: 一次梯度更新用到的那一小批样本
+- term: benchmark
+  full: "—"
+  desc: 公开评测集，用来给模型打分排名
+- term: GSM8K
+  full: Grade School Math 8K
+  desc: 约 8.5K 道小学数学应用题的 benchmark
+- term: MMLU
+  full: Massive Multitask Language Understanding
+  desc: 57 个学科的多选题 benchmark
+- term: RLHF
+  full: reinforcement learning from human feedback
+  desc: 基于人类反馈的强化学习
+- term: TCP
+  full: Transmission Control Protocol
+  desc: 传输控制协议，经内核协议栈
+- term: vLLM
+  full: "—"
+  desc: 开源大模型推理引擎
+- term: MoE
+  full: mixture of experts
+  desc: 混合专家模型，每个 token 只激活少数专家
+- term: prefill
+  full: "—"
+  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
+- term: decode
+  full: "—"
+  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
+- term: NoLiMa
+  full: "—"
+  desc: 长上下文基准，问题与答案没有字面重合
+- term: Lost in the Middle
+  full: "—"
+  desc: 发现模型对窗口中间的信息利用最差的研究
+- term: TTL
+  full: time to live
+  desc: 缓存条目的存活时间，过期就失效
+- term: Pydantic
+  full: "—"
+  desc: Python / TypeScript 的校验库与带重试的结构化输出库
+- term: zod
+  full: "—"
+  desc: Python / TypeScript 的校验库与带重试的结构化输出库
+- term: prompt injection
+  full: "—"
+  desc: 混进上下文的文字冒充指令，劫持模型行为
+- term: Context Rot
+  full: "—"
+  desc: Chroma 的研究：输入越长模型表现越不均匀地退化
+- term: agentic retrieval
+  full: "—"
+  desc: 让 agent 自己决定查什么、查几次
+- term: compaction
+  full: "—"
+  desc: 用一次模型调用把历史摘要成一段
+- term: RULER
+  full: "—"
+  desc: 长上下文基准，测模型的真实可用长度
+- term: adaptive thinking
+  full: "—"
+  desc: Claude 5 系列由模型自己决定想多少的思考模式
+- term: RAG
+  full: retrieval-augmented generation
+  desc: 先检索资料，再让模型据此回答
+- term: strict 模式
+  full: "—"
+  desc: API 按 schema 做约束解码、保证输出符合 schema 的开关
+- term: JSON schema
+  full: "—"
+  desc: 描述 JSON 字段、类型和取值约束的规范
+- term: tokenizer
+  full: "—"
+  desc: 把文本切成 token 的组件，各模型不同
+- term: Pydantic / zod
+  full: "—"
+  desc: Python / TypeScript 的数据校验库
+- term: prompt cache
+  full: "—"
+  desc: 供应商缓存请求前缀，命中部分按折扣计费
+- term: rerank
+  full: "—"
+  desc: 对检索出的候选再精排一次
+- term: Assistants API
+  full: "—"
+  desc: OpenAI 旧的有状态 API，2026-08-26 关闭
+- term: UTC
+  full: Coordinated Universal Time
+  desc: 协调世界时，文中时间都按它记
+- term: Meta
+  full: "—"
+  desc: 只推导形状、类型，不存真实数据的设备 / 实现
+- term: embedding
+  full: "—"
+  desc: 把离散对象（token、词）查表变成向量的表示
+- term: KV cache
+  full: key–value cache
+  desc: 推理时缓存每层算过的 k、v，新 token 只算自己的
+- term: SLA
+  full: service level agreement
+  desc: 服务等级约定，这里指处理时限
+- term: MRR
+  full: mean reciprocal rank
+  desc: 第一个相关结果排名倒数的平均
+- term: bad case
+  full: "—"
+  desc: 线上出错、值得收进评测集的具体用例
+- term: faithfulness
+  full: "—"
+  desc: 回答里的说法是否都有检索内容支撑
+- term: guardrails
+  full: "—"
+  desc: 运行时对输入输出做的检查与拦截
+- term: strict
+  full: "—"
+  desc: 结构化输出的严格模式，按 schema 约束解码
+- term: changelog
+  full: "—"
+  desc: 供应商发布的变更记录
+- term: schema
+  full: "—"
+  desc: 约束输出结构的格式定义
+- term: recall
+  full: "—"
+  desc: 召回率：该找到的找到了多少
+- term: prompt caching
+  full: "—"
+  desc: 供应商缓存相同的 prompt 前缀，省钱省时间
+- term: top-k
+  full: "—"
+  desc: 只保留分数最高的 k 个 token
+- term: SSE
+  full: Server-Sent Events
+  desc: HTTP 上服务端单向推送的流式协议
+- term: pass
+  full: "—"
+  desc: 编译器里一次完整的分析或变换，按顺序排成流水线
+- term: Arena
+  full: "—"
+  desc: Chatbot Arena：真人两两投票排的模型榜
+- term: Bradley-Terry
+  full: "—"
+  desc: 成对偏好的概率模型，RM 与 DPO 的底层形式
+- term: LiveCodeBench
+  full: "—"
+  desc: 按时间滚动的代码评测集，防污染
+- term: DeepSeek
+  full: "—"
+  desc: DeepSeek 系列模型；本系列多次引它的 V3 配方
+- term: Qwen
+  full: "—"
+  desc: 阿里的开源模型系列，配方常被本系列引用
+- term: UI
+  full: user interface
+  desc: 用户界面；生成式 UI 指模型出结构化数据、前端渲染
+- term: SLO
+  full: service level objective
+  desc: 服务等级目标，如可用率、延迟的承诺值
+- term: Cursor
+  full: "—"
+  desc: AI 代码编辑器，补全、对话、agent、后台 agent 并存
+- term: RPM / TPM
+  full: requests per minute / tokens per minute
+  desc: 每分钟请求数 / 每分钟 token 数的限额
+- term: SRE
+  full: site reliability engineering
+  desc: 负责线上可靠性的工程实践与岗位
+- term: Batch / Flex
+  full: "—"
+  desc: 供应商的异步批处理与低价慢速层级
+- term: OpenRouter
+  full: "—"
+  desc: 托管的多模型市场，一个 key 调多家模型
+- term: thinking block / reasoning item / thought signature
+  full: "—"
+  desc: 三家 API 各自携带推理状态的方式
+- term: RPM
+  full: requests per minute
+  desc: 每分钟请求数的限额
+- term: RSS
+  full: resident set size
+  desc: 进程实际占用的物理内存
+- term: Matryoshka
+  full: Matryoshka Representation Learning
+  desc: 套娃式向量：只取前几维也能用
+- term: MIT
+  full: MIT License
+  desc: 宽松的开源许可证
+- term: MTEB
+  full: Massive Text Embedding Benchmark
+  desc: 文本 embedding 模型的综合榜单
+- term: agentic
+  full: "—"
+  desc: 由模型自己决定查什么、查几轮的做法
+- term: Foundry
+  full: "—"
+  desc: Palantir 的数据平台和建在上面的企业本体
+- term: Voyage
+  full: "—"
+  desc: 2026 年主要的 embedding 模型候选
+- term: coding agent
+  full: "—"
+  desc: 能读写代码、跑命令的编程 agent
+- term: FAQ
+  full: frequently asked questions
+  desc: 常见问题列表
+- term: Qwen3-Reranker
+  full: "—"
+  desc: 常用的 rerank 模型
+- term: QPS
+  full: queries per second
+  desc: 每秒查询数
+- term: SaaS
+  full: software as a service
+  desc: 软件即服务，这里指多租户的在线产品
+- term: OpenAI Responses
+  full: "—"
+  desc: OpenAI 的新一代对话 API，内置 file search
+- term: Cohere
+  full: "—"
+  desc: 常用的 rerank 模型
+- term: HBM
+  full: high bandwidth memory
+  desc: GPU 上的高带宽显存
+- term: GPT-2
+  full: Generative Pre-trained Transformer
+  desc: OpenAI 的 decoder-only 模型系列，GPT-2 small 是本文蓝本
+- term: block
+  full: "—"
+  desc: 一层 Transformer：attention 与 FFN 两个子层加残差
+- term: Llama
+  full: Large Language Model Meta AI
+  desc: Meta 的开源模型系列，本文多处拿它对照
+- term: NeurIPS
+  full: Conference on Neural Information Processing Systems
+  desc: 机器学习顶级会议
+- term: TPOT
+  full: time per output token
+  desc: 每个输出 token 的耗时，decode 延迟指标
+- term: NIAH
+  full: needle in a haystack
+  desc: 大海捞针测试：在长上下文里藏一句看找不找得到
+- term: GPQA
+  full: Graduate-Level Google-Proof Q&A
+  desc: 研究生级别的防搜索问答 benchmark
+- term: BGE
+  full: BAAI General Embedding
+  desc: 智源的 embedding 模型系列
+- term: TLS
+  full: Transport Layer Security
+  desc: 传输层加密协议，HTTPS 用它
+- term: GA
+  full: general availability
+  desc: 正式发布、不再限量的版本状态
