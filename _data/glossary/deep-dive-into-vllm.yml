@@ -14,9 +14,6 @@
 - term: OOM
   full: out of memory
   desc: 内存耗尽
-- term: P0
-  full: priority 0
-  desc: 最高优先级
 - term: E2E
   full: end-to-end
   desc: 端到端测试
@@ -27,9 +24,6 @@
   full: bfloat16
   desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
   aliases: [BF16]
-- term: dtype
-  full: data type
-  desc: 数组元素的类型，如 float32、bfloat16
 - term: FLOPs
   full: floating-point operations
   desc: 浮点运算次数，算力的计量单位
@@ -44,12 +38,6 @@
 - term: GiB
   full: gibibyte
   desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
-- term: Infra
-  full: infrastructure
-  desc: 训练与推理的底层系统：框架、算子、集群
-- term: LayerNorm
-  full: layer normalization
-  desc: 层归一化，每个 token 沿 hidden 维自己归一化
 - term: LoRA
   full: Low-Rank Adaptation
   desc: 冻结原权重、只训低秩矩阵的微调方法
@@ -245,9 +233,6 @@
 - term: SSE
   full: Server-Sent Events
   desc: HTTP 上服务端单向推送的流式协议
-- term: UTF-8
-  full: Unicode Transformation Format, 8-bit
-  desc: 变长字节编码，一个汉字通常占 3 字节
 - term: QA
   full: question answering
   desc: 问答；抽取式 QA 从原文里划出答案
@@ -257,9 +242,6 @@
 - term: BGMV
   full: Batched Gather Matrix-Vector multiplication
   desc: 每个请求取自己的 adapter 做矩阵–向量乘的 kernel
-- term: QK
-  full: "—"
-  desc: query 与 key，attention 里算相似度的两个投影
 - term: IR
   full: intermediate representation
   desc: 中间表示：编译器各阶段之间传递的程序形式
@@ -302,9 +284,6 @@
 - term: LRU
   full: least recently used
   desc: 最近最少使用：先淘汰最久没用的
-- term: Q / K / V
-  full: query / key / value
-  desc: attention 里的查询、键、值三组向量
 - term: SRAM
   full: static random-access memory
   desc: GPU 片上的小而快的存储
