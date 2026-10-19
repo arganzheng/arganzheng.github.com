@@ -28,62 +28,6 @@ flowchart TB
 
 ```
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| judge | — | 给输出打分的评审模型 |
-| trace | — | 一次请求从头到尾的调用记录，由 span 组成 |
-| OpenTelemetry | — | 开源的可观测标准，规定 trace、指标、日志的格式 |
-| guardrails | — | 运行时在请求路径上拦坏输入、坏输出的检查 |
-| CI | continuous integration | 持续集成：每次提交自动跑检查，这里跑评测 |
-| A/B | — | 分流对照实验：两组流量各用一个版本比指标 |
-| span | — | trace 里的一个节点，对应一次模型或工具调用 |
-| OTel | OpenTelemetry | OpenTelemetry 的简称 |
-| GenAI | generative AI | 生成式 AI；OTel 用它命名大模型相关的约定 |
-| bad case | — | 线上出错、值得收进评测集的具体用例 |
-| hold-out | — | 留出集：不参与迭代、门禁以它为准 |
-| kappa | Cohen's kappa | 扣除随机一致之后的一致性系数 |
-| pp | percentage points | 百分点 |
-| RAG | retrieval-augmented generation | 检索增强生成：先检索资料再让模型回答 |
-| pass@k / pass^k | — | k 次里至少一次成功 / k 次全部成功 |
-| Development / Stable | — | OTel 约定的成熟度等级；Development 随时可能改 |
-| fallback | — | 主路径失败时退到的备用方案 |
-| sim-to-real | — | 仿真里的表现迁移到真实世界时的差距 |
-| SIL | software-in-the-loop | 软件在环：真实软件接仿真环境测试 |
-| HIL | hardware-in-the-loop | 硬件在环：真实硬件接仿真环境测试 |
-| pairwise / pointwise | — | 两两比较打分 / 单条独立打分 |
-| rubric | — | 评分细则：每一档分数对应什么表现 |
-| schema | — | 约束输出结构的格式定义 |
-| OpenInference | — | Arize 维护的 LLM trace 约定，与 OTel 对齐 |
-| Langfuse | — | 开源的 trace、prompt 管理与评测工具 |
-| SLA | service level agreement | 服务等级约定，这里指每类失败多久内要处理 |
-| logprobs | — | 模型给每个输出 token 的对数概率 |
-| LLM-as-judge | — | 用一个大模型按标准给另一个模型的输出打分 |
-| recall / recall@5 | — | 召回率 / 前 5 个结果里找到了多少该找的 |
-| LangChain | — | LLM 应用开发框架，也发行业调查报告 |
-| LLM | large language model | 大语言模型 |
-| faithfulness | — | 回答是否忠于检索到的资料 |
-| tokenizer | — | 把文本切成 token 的分词器，换了它 token 数会变 |
-| item | — | 接口返回的一段上下文条目，如加密的压缩块 |
-| L1–L7 | — | 《AI 应用工程师学习地图》的七层编号，本系列是 L5 |
-| DDL | data definition language | 建表、改表、删表这类改结构的 SQL |
-| Guardian | — | 审批时可选的审查模型，替人先看一遍高风险动作 |
-| SAE | Society of Automotive Engineers | 国际汽车工程师学会，定了自动驾驶 0–5 级 |
-| TTFT | time to first token | 从发请求到收到第一个 token 的时间 |
-| changelog | — | 供应商发布的变更记录 |
-| usage | — | 接口返回的 token 用量 |
-| effort | — | 推理强度参数，控制模型想多久 |
-| fixture | — | 单元测试里固定的输入数据 |
-| recorded-session replay | — | 录下的会话不调模型直接重放 |
-| EchoLeak | — | 2025 年披露的一起 AI 助手数据外泄漏洞 |
-| EU AI Act | — | 欧盟《人工智能法》 |
-| MMLU | Massive Multitask Language Understanding | 覆盖几十个学科的选择题基准 |
-| Collector | — | OTel 的采集服务，收数据、做映射、转发后端 |
-| prompt injection | — | 在输入或工具返回里藏指令，诱导模型越界 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**没有评测集的改动是猜测；judge 是仪器要先被测量；不可复现就录下来**。
@@ -128,31 +72,31 @@ Table: 本文的章节安排
 
 ### 3. 第三篇：评什么
 
-**结论**：矩阵；形式指标单列（格式、schema、拒答两半、出口使用）；RAG（retrieval-augmented generation）三个数字、agent 六维回顾；多轮以会话为单位（任务完成、策略遵循、轮数、澄清、状态保持、恢复），模拟器三种且要校准；安全五项与红队集；横切——分布（pass@k / pass^k）、分层、成本延迟并列；基准只缩范围。
+**结论**：矩阵；形式指标单列（格式、schema、拒答两半、出口使用）；RAG 三个数字、agent 六维回顾；多轮以会话为单位（任务完成、策略遵循、轮数、澄清、状态保持、恢复），模拟器三种且要校准；安全五项与红队集；横切——分布（pass@k / pass^k）、分层、成本延迟并列；基准只缩范围。
 
 **常见误解**：准确率涨就上线；轮平均分代表会话质量；pass@5 代表生产可靠性。
 
 ### 4. 第四篇：门禁与在线
 
-**结论**：触发清单含 judge / rubric；判据七项；噪声阈值从方差算；CI（continuous integration）形态与记录；静默升级用钉快照 + 探针集 + 通知 + 生产突变对齐；影子（零风险双成本）→ 灰度（1–5%、缓存冷启动、样本量）→ 回滚（确认依赖）；A/B 一因素固定分组；在线信号三类带 trace id；在线 judge 另校准；不一致四原因；季度相关性；短期信在线长期修离线。
+**结论**：触发清单含 judge / rubric；判据七项；噪声阈值从方差算；CI 形态与记录；静默升级用钉快照 + 探针集 + 通知 + 生产突变对齐；影子（零风险双成本）→ 灰度（1–5%、缓存冷启动、样本量）→ 回滚（确认依赖）；A/B 一因素固定分组；在线信号三类带 trace id；在线 judge 另校准；不一致四原因；季度相关性；短期信在线长期修离线。
 
 **常见误解**：改 rubric 后直接比旧分；无部署就不会变；A/B 同时变两个因素。
 
 ### 5. 第五篇：trace
 
-**结论**：三级树与每种 span 的字段；OTel（OpenTelemetry）GenAI（generative AI）约定的内容与 2026 现状（独立仓库、全 Development、改名、`invoke_agent` 拆分、扩展到 agent 循环、OpenInference 对齐、Langfuse v3）；用法五条；工具六家按四判据选；自建最小集；trace 是会话日志的投影；敏感数据六措施；采样三档；成本分层。
+**结论**：三级树与每种 span 的字段；OTel GenAI 约定的内容与 2026 现状（独立仓库、全 Development、改名、`invoke_agent` 拆分、扩展到 agent 循环、OpenInference 对齐、Langfuse v3）；用法五条；工具六家按四判据选；自建最小集；trace 是会话日志的投影；敏感数据六措施；采样三档；成本分层。
 
 **常见误解**：只记前 500 字；自造 `gen_ai.*` 属性；全量存内容。
 
 ### 6. 第六篇：可追溯
 
-**结论**：录制回放（录完整输出 + 输入哈希，不匹配报警，非模型改动零成本回归，分叉点重跑）；决策点日志九项；失败分类十一类含"技术对产品错"，judge 可预打类；版本 diff 同轴与配置即代码；反馈带 trace id 进队列（owner、SLA（service level agreement）、去重、状态）每周补评测集闭环；事后分析五段产出用例 / 分类 / 探针 / 告警。
+**结论**：录制回放（录完整输出 + 输入哈希，不匹配报警，非模型改动零成本回归，分叉点重跑）；决策点日志九项；失败分类十一类含"技术对产品错"，judge 可预打类；版本 diff 同轴与配置即代码；反馈带 trace id 进队列（owner、SLA、去重、状态）每周补评测集闭环；事后分析五段产出用例 / 分类 / 探针 / 告警。
 
 **常见误解**：回放静默用旧输出；反馈没有 trace id；事后分析只写"加了一句 prompt"。
 
 ### 7. 第七篇：运行时与物理
 
-**结论**：两条防线闭环；guardrails 输入 / 输出侧表，同步只放高风险；置信度不可靠用出口 / logprobs / 自一致性；幻觉检测六手段原则是有依据；fallback 四级；物理世界不能在生产试；仿真六层组合；闭环才测决策；sim-to-real 手段；长尾放大与覆盖率度量；影子、SIL（software-in-the-loop）/ HIL（hardware-in-the-loop）；同构表八行。
+**结论**：两条防线闭环；guardrails 输入 / 输出侧表，同步只放高风险；置信度不可靠用出口 / logprobs / 自一致性；幻觉检测六手段原则是有依据；fallback 四级；物理世界不能在生产试；仿真六层组合；闭环才测决策；sim-to-real 手段；长尾放大与覆盖率度量；影子、SIL / HIL；同构表八行。
 
 **常见误解**：让模型自评置信度；日志回放能测决策；仿真通过率等于真实。
 
@@ -305,7 +249,7 @@ Table: 常见误区与正确说法
    $$p = (0.7 - 0.25) / (0.9 - 0.25) = 0.45 / 0.65 \approx 0.69$$。验算：$$0.69 \times 0.9 + 0.31 \times 0.25 \approx 0.70$$。几乎无偏移。
    </details>
 
-3. 判断：研究显示 LLM（large language model）judge 最大的一类偏差是位置偏差。
+3. 判断：研究显示 LLM judge 最大的一类偏差是位置偏差。
 
    <details markdown="1"><summary>答案</summary>
    错。风格偏差（偏爱 markdown 外观，0.10–0.76）最大，位置 ≤ 0.04（部分生产 judge >0.10）。
@@ -376,13 +320,13 @@ Table: 常见误区与正确说法
 4. 一个后台 agent 直接执行数据库变更。设计运行时防线与评测的组合，说明哪些同步、哪些异步、哪些在评测里。
 
    <details markdown="1"><summary>答案</summary>
-   评测（上线前）：轨迹六维含安全（越权尝试）、鲁棒性（注入用例）、红队集；闭环环境快照；录制回放做非模型回归。运行时同步（高风险路径）：L4 四层——执行策略把 DDL（data definition language）/ DELETE 设 `prompt` 或 `forbidden`、沙箱、Guardian；输出侧业务校验（影响行数上限）；变更先生成提案由人审（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的中间物）。运行时异步：judge 抽样评轨迹合理性、卫士触发进队列。所有拦截事件带 trace id 进 bad case 队列，回灌评测集；面板看越权尝试与拒绝率。
+   评测（上线前）：轨迹六维含安全（越权尝试）、鲁棒性（注入用例）、红队集；闭环环境快照；录制回放做非模型回归。运行时同步（高风险路径）：L4 四层——执行策略把 DDL / DELETE 设 `prompt` 或 `forbidden`、沙箱、Guardian；输出侧业务校验（影响行数上限）；变更先生成提案由人审（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的中间物）。运行时异步：judge 抽样评轨迹合理性、卫士触发进队列。所有拦截事件带 trace id 进 bad case 队列，回灌评测集；面板看越权尝试与拒绝率。
    </details>
 
 5. 用同构表把一个数字 agent 团队的评测体系映射到自动驾驶的验证体系，并指出数字团队最缺、物理团队最缺的各一项。
 
    <details markdown="1"><summary>答案</summary>
-   映射：容器快照评测环境 ↔ 场景仿真；录制回放 ↔ 日志回放；红队集与变换扩增 ↔ 长尾场景放大；离线—在线相关性 ↔ sim-to-real；评测集类型覆盖 ↔ 场景库覆盖率；影子 ↔ 影子；六级人机分工 ↔ SAE（Society of Automotive Engineers）；事后分析回灌 ↔ 事故场景回灌。数字团队最缺**覆盖率度量**（主动定义维度、追踪新类比例）；物理团队可借**bad case 队列与失败分类的运营**（owner、SLA、去重、闭环）。
+   映射：容器快照评测环境 ↔ 场景仿真；录制回放 ↔ 日志回放；红队集与变换扩增 ↔ 长尾场景放大；离线—在线相关性 ↔ sim-to-real；评测集类型覆盖 ↔ 场景库覆盖率；影子 ↔ 影子；六级人机分工 ↔ SAE；事后分析回灌 ↔ 事故场景回灌。数字团队最缺**覆盖率度量**（主动定义维度、追踪新类比例）；物理团队可借**bad case 队列与失败分类的运营**（owner、SLA、去重、闭环）。
    </details>
 
 ### C. 面试题（7 题）
@@ -401,7 +345,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 能用但要先测量——它是仪器；(2) 四类偏差与 2026 年的数字（风格最大、冗长异质、一致但有偏、kappa 虚高 33–41 pp（percentage points）、排名跨基准移 14 位）；(3) 八步协议：校准集双标 κ ≥ 0.6 → judge 与人 κ ≥ 0.61 → 交换顺序 → 长度匹配 → 格式对照 → 遮蔽来源 + 跨家族 → 敏感度 / 特异度反推 → rubric 固定抽检；(4) 门禁用 pointwise + 校正通过率，对比用 pairwise + 交换；(5) 选 judge 看 kappa 与成本，中档 + 去偏胜前沿便宜 15×；钉版本、重校触发条件。
+   **答案要点**：(1) 能用但要先测量——它是仪器；(2) 四类偏差与 2026 年的数字（风格最大、冗长异质、一致但有偏、kappa 虚高 33–41 pp、排名跨基准移 14 位）；(3) 八步协议：校准集双标 κ ≥ 0.6 → judge 与人 κ ≥ 0.61 → 交换顺序 → 长度匹配 → 格式对照 → 遮蔽来源 + 跨家族 → 敏感度 / 特异度反推 → rubric 固定抽检；(4) 门禁用 pointwise + 校正通过率，对比用 pairwise + 交换；(5) 选 judge 看 kappa 与成本，中档 + 去偏胜前沿便宜 15×；钉版本、重校触发条件。
    **追问方向**：pairwise 为什么更脆（干扰翻转 35% vs 9%）；judge 在线怎么校准。
    **好答案与一般答案的区别**：一般答案说"有偏差要人工抽检"；好答案给出偏差的种类与量级、报 kappa 不报一致率、完整的校准协议与门禁用法。
 
@@ -411,7 +355,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 现象：无部署而格式率、输出长度、成本、分数变了；(2) 检测：钉带日期的快照而非浮动别名；探针集（几十条敏感用例）每日跑作模型指纹（分数、格式率、长度、token、TTFT（time to first token））漂移告警；订阅 changelog 与弃用通知；版本 diff 时间线上"无本地变更"的突变；(3) 应对：全量评测确认范围、切旧快照或 fallback、记为外部发布、通知供应商；(4) 这是评测集要定期重跑而不只在改动时跑的理由。
+   **答案要点**：(1) 现象：无部署而格式率、输出长度、成本、分数变了；(2) 检测：钉带日期的快照而非浮动别名；探针集（几十条敏感用例）每日跑作模型指纹（分数、格式率、长度、token、TTFT）漂移告警；订阅 changelog 与弃用通知；版本 diff 时间线上"无本地变更"的突变；(3) 应对：全量评测确认范围、切旧快照或 fallback、记为外部发布、通知供应商；(4) 这是评测集要定期重跑而不只在改动时跑的理由。
    **追问方向**：DeepSeek 路由到 V4.1 Flash 的例子；fallback 的方向性。
    **好答案与一般答案的区别**：一般答案说"看监控"；好答案给出探针集这个具体机制、钉快照、版本 diff 对齐、以及应对流程。
 
@@ -481,7 +425,7 @@ Table: 掌握程度的判据
 
 本系列有意不展开的内容，以及它们在哪个系列里：
 
-- **不讲模型能力的基准测试方法论**：MMLU（Massive Multitask Language Understanding）一类的学术基准设计属于算法地图；本系列只讲应用自己的评测集与公开基准的使用边界。
+- **不讲模型能力的基准测试方法论**：MMLU 一类的学术基准设计属于算法地图；本系列只讲应用自己的评测集与公开基准的使用边界。
 - **不讲可观测的通用基础设施**：OTel Collector、存储后端、采样器的运维属于平台工程；本系列只讲 GenAI 专属的 span 与约定。
 - **不讲安全防御的全体系**：prompt injection 的分层防御属于 L6；本系列只讲它的评测（红队集）与运行时拦截的位置。
 - **不讲仿真器的实现**：渲染、物理引擎、传感器模型属于机器人 / 自动驾驶的专业领域；本系列只讲仿真在验证体系里的层次与它与数字 agent 评测的同构。
