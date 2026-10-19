@@ -7,7 +7,7 @@ catalog: true
 ---
 
 
-## 术语与缩写
+## 缩写
 
 | 缩写 | 全称 | 一句话解释 |
 |---|---|---|
@@ -107,7 +107,7 @@ Table: 本文用到的术语与缩写
 Table: 工具箱系列覆盖的六层工具
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="algorithm-tooling" %}
 
