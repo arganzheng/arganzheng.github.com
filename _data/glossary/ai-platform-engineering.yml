@@ -1,0 +1,481 @@
+---
+- term: JSONL
+  full: JSON Lines
+  desc: 每行一个 JSON 对象的文本格式，适合只追加写
+- term: staging
+  full: "—"
+  desc: 上线前的预发布环境
+- term: trace
+  full: "—"
+  desc: 一次任务每一步输入输出与决策的完整记录
+- term: checkpoint
+  full: "—"
+  desc: 某一步之后的状态快照，崩溃后从这里续跑
+- term: rollout
+  full: "—"
+  desc: 一次采样生成：给一组 prompt 跑完整前向
+- term: serving
+  full: "—"
+  desc: 把模型部署成在线推理服务
+- term: SDK
+  full: software development kit
+  desc: 软件开发工具包，这里指写 agent 的库
+- term: TTFT
+  full: time to first token
+  desc: 从发出请求到收到第一个 token 的时间
+- term: RPC
+  full: remote procedure call
+  desc: 远程过程调用
+- term: gRPC
+  full: gRPC Remote Procedure Calls
+  desc: Google 开源的 RPC 框架，用 Protobuf 编码
+- term: KV
+  full: key–value
+  desc: 推理时缓存的注意力键值，即 KV cache
+- term: OOM
+  full: out of memory
+  desc: 内存耗尽
+- term: worker
+  full: "—"
+  desc: 执行子任务的 agent（或执行 workflow 的进程）
+- term: webhook
+  full: "—"
+  desc: 事件发生时由对方回调你给的 URL
+- term: judge
+  full: LLM-as-a-judge
+  desc: 用模型给轨迹或输出打分的评审
+- term: HF
+  full: Hugging Face
+  desc: 模型与数据集托管平台
+- term: fallback
+  full: "—"
+  desc: 主路径失败时退回的备用路径
+- term: OpenTelemetry
+  full: "—"
+  desc: 开源的 trace / 指标 / 日志采集标准
+- term: RL
+  full: reinforcement learning
+  desc: 强化学习
+- term: bf16
+  full: bfloat16
+  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
+- term: CUDA
+  full: Compute Unified Device Architecture
+  desc: NVIDIA 的 GPU 编程平台，conda 能连它的运行库一起装
+- term: DDP
+  full: Distributed Data Parallel
+  desc: 数据并行：每卡一份完整模型，梯度做 all-reduce
+- term: FlashAttention
+  full: "—"
+  desc: 分块计算、不显式构造 T×T 矩阵的 attention kernel
+- term: FSDP
+  full: Fully Sharded Data Parallel
+  desc: 把参数、梯度、优化器状态切到各卡的数据并行
+- term: GiB
+  full: gibibyte
+  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
+- term: H100
+  full: "—"
+  desc: NVIDIA 的 Hopper 架构训练卡，显存账本按它算
+- term: head
+  full: "—"
+  desc: 多头 attention 里的一个头，各用 d/h 维算一份
+- term: hook
+  full: "—"
+  desc: 挂在 forward 前后、被自动调用的回调函数
+- term: Infra
+  full: infrastructure
+  desc: 训练与推理的底层系统：框架、算子、集群
+- term: kernel
+  full: "—"
+  desc: 在 GPU 上执行的一个函数，通常对应一个算子
+- term: LoRA
+  full: Low-Rank Adaptation
+  desc: 冻结原权重、只训低秩矩阵的微调方法
+- term: tokenize
+  full: "—"
+  desc: 把文本切成 token 的预处理步骤
+- term: batch
+  full: "—"
+  desc: 一次梯度更新用到的那一小批样本
+- term: epoch
+  full: "—"
+  desc: 把训练集完整过一遍叫一个 epoch
+- term: OOB
+  full: out-of-bag
+  desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
+- term: XGBoost
+  full: eXtreme Gradient Boosting
+  desc: 工业界最常用的 GBDT 实现
+- term: NVL72
+  full: "—"
+  desc: 72 张 GPU 在一个 NVLink 域里的机柜
+- term: PCI
+  full: Peripheral Component Interconnect
+  desc: PCIe 的前身，Linux 里仍沿用这个名字
+- term: FP8
+  full: 8-bit floating point
+  desc: 8 位浮点数
+- term: EP
+  full: expert parallelism
+  desc: 专家并行，把 MoE 的专家分到不同卡上
+- term: DP
+  full: data parallelism
+  desc: 数据并行，每张卡一份完整模型
+- term: PP
+  full: pipeline parallelism
+  desc: 流水线并行，按层切到不同卡上
+- term: IPC
+  full: inter-process communication
+  desc: 进程间通信，这里指跨进程共享显存
+- term: GDR
+  full: GPUDirect RDMA
+  desc: 网卡直接读写显存的 RDMA
+- term: SM
+  full: streaming multiprocessor
+  desc: GPU 的计算单元，通信 kernel 也要占用
+- term: NVML
+  full: NVIDIA Management Library
+  desc: 查询 GPU 状态与拓扑的管理库
+- term: NVMe
+  full: Non-Volatile Memory Express
+  desc: 走 PCIe 的固态盘接口协议
+- term: GDRCopy
+  full: "—"
+  desc: 基于 GPUDirect RDMA 的低延迟显存拷贝库
+- term: GID
+  full: local identifier / global identifier
+  desc: InfiniBand 子网内地址 / 跨子网（RoCE 必用）地址
+- term: TCP
+  full: Transmission Control Protocol
+  desc: 传输控制协议，经内核协议栈
+- term: P2P
+  full: peer-to-peer
+  desc: 设备之间直接互访，不经主机内存
+- term: TP
+  full: tensor parallelism
+  desc: 张量并行，把一层的矩阵切到多张卡上
+- term: rank
+  full: "—"
+  desc: 分布式任务里一个进程（通常一张卡）的编号
+- term: NIXL
+  full: NVIDIA Inference Xfer Library
+  desc: NVIDIA 的推理数据传输库，用来搬 KV cache
+- term: verbs
+  full: "—"
+  desc: RDMA 的底层编程接口（libibverbs）
+- term: HPC
+  full: high-performance computing
+  desc: 高性能计算
+- term: IB
+  full: InfiniBand
+  desc: InfiniBand 的简称
+- term: watchdog
+  full: "—"
+  desc: ProcessGroupNCCL 里检测通信超时的后台线程
+- term: vLLM
+  full: "—"
+  desc: 开源大模型推理引擎
+- term: straggler
+  full: "—"
+  desc: 拖慢所有人的那张慢卡
+- term: root complex
+  full: "—"
+  desc: CPU 一侧的 PCIe 根节点，下挂 switch 和设备
+- term: NUMA
+  full: non-uniform memory access
+  desc: 多路 CPU 下内存与设备按插槽分组，跨组更慢
+- term: RoCE
+  full: RDMA over Converged Ethernet
+  desc: 在以太网上承载 RDMA
+- term: PD
+  full: prefill–decode
+  desc: PD 分离：prefill 与 decode 放到不同节点上跑
+- term: ZeRO
+  full: Zero Redundancy Optimizer
+  desc: DeepSpeed 的分片优化器，去掉各卡上的冗余状态
+- term: MoE
+  full: mixture of experts
+  desc: 混合专家模型，每个 token 只激活少数专家
+- term: prefill
+  full: "—"
+  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
+- term: decode
+  full: "—"
+  desc: 推理的两个阶段：一次处理整段输入 / 逐 token 生成
+- term: GPUDirect
+  full: "—"
+  desc: NVIDIA 让网卡、存储等直接访问显存的一组技术
+- term: proxy
+  full: "—"
+  desc: NCCL 在 CPU 上替 GPU 驱动网络收发的线程
+- term: NIC
+  full: network interface card
+  desc: 网卡
+- term: channel
+  full: "—"
+  desc: NCCL 把一次集合通信切成的并行子任务，各占一个 block
+- term: busbw
+  full: bus bandwidth / algorithm bandwidth
+  desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
+- term: InfiniBand
+  full: "—"
+  desc: HPC 和 AI 集群常用的无损 RDMA 网络
+- term: NVLink
+  full: "—"
+  desc: NVIDIA 的 GPU 间高速直连链路
+- term: PCIe
+  full: Peripheral Component Interconnect Express
+  desc: 主板上连接 GPU、网卡和 CPU 的总线
+- term: all_reduce
+  full: "—"
+  desc: 三种最常用的集合通信：全归约、全收集、归约后分片
+- term: RDMA
+  full: remote direct memory access
+  desc: 网卡直接读写远端内存，绕开对端 CPU 和内核
+- term: NCCL
+  full: NVIDIA Collective Communications Library
+  desc: NVIDIA 的集合通信库，多卡通信的事实标准
+- term: TTL
+  full: time to live
+  desc: 缓存条目的存活时间，过期就失效
+- term: SGLang
+  full: "—"
+  desc: 开源推理引擎，与 vLLM 并列
+- term: A/B
+  full: A/B testing
+  desc: 把流量随机分给两个版本，比较指标
+- term: RAG
+  full: retrieval-augmented generation
+  desc: 先检索资料，再让模型据此回答
+- term: tokenizer
+  full: "—"
+  desc: 把文本切成 token 的组件，各模型不同
+- term: rerank
+  full: "—"
+  desc: 对检索出的候选再精排一次
+- term: ABI
+  full: application binary interface
+  desc: 二进制接口，编译产物之间的调用约定
+- term: MPS
+  full: Metal Performance Shaders
+  desc: 苹果 GPU 的计算后端
+- term: B200
+  full: "—"
+  desc: NVIDIA Blackwell 架构的数据中心 GPU
+- term: GDS
+  full: GPUDirect Storage
+  desc: GPU 显存和存储之间直接传数据的 NVIDIA 技术
+- term: RTX
+  full: "—"
+  desc: NVIDIA 消费级显卡系列
+- term: ONNX
+  full: Open Neural Network Exchange
+  desc: 跨框架的模型交换格式
+- term: H200
+  full: "—"
+  desc: NVIDIA Hopper 架构的数据中心 GPU
+- term: BF16
+  full: bfloat16
+  desc: 8 位指数的 16 位浮点，范围同 FP32
+- term: FP16
+  full: 16-bit floating point
+  desc: 半精度浮点，5 位指数、10 位尾数
+- term: metadata
+  full: "—"
+  desc: 描述 Tensor 怎么解释数据的信息：形状、步幅、类型等
+- term: Triton
+  full: "—"
+  desc: OpenAI 的 GPU kernel 编程语言和编译器
+- term: stream
+  full: "—"
+  desc: GPU 上按提交顺序执行任务的队列
+- term: c10d
+  full: "—"
+  desc: PyTorch 分布式通信层：进程组与通信后端
+- term: MPI
+  full: Message Passing Interface
+  desc: 高性能计算里的进程间通信标准
+- term: Storage
+  full: "—"
+  desc: Tensor 底下真正存放数据的那段一维内存
+- term: H2D
+  full: host to device
+  desc: 主机内存拷到显存
+- term: FP32
+  full: 32-bit floating point
+  desc: 单精度浮点，深度学习的默认精度
+- term: pinned memory
+  full: "—"
+  desc: 锁页主机内存，GPU 能直接用 DMA 读取
+- term: GC
+  full: garbage collection
+  desc: 垃圾回收：自动释放不再可达的对象
+- term: Adam
+  full: adaptive moment estimation
+  desc: 按梯度一阶、二阶矩自适应步长的优化器
+- term: KV cache
+  full: key–value cache
+  desc: 推理时缓存每层算过的 k、v，新 token 只算自己的
+- term: INT4
+  full: 4-bit integer
+  desc: 均匀 16 格的 4 bit 整数量化
+- term: INT8
+  full: 8-bit integer
+  desc: 8 bit 整数量化，精度损失最小的低比特档
+- term: SLA
+  full: service level agreement
+  desc: 服务等级约定，这里指处理时限
+- term: OTel
+  full: OpenTelemetry
+  desc: OpenTelemetry 的简称
+- term: span
+  full: "—"
+  desc: trace 里的一个节点，对应一次模型或工具调用
+- term: changelog
+  full: "—"
+  desc: 供应商发布的变更记录
+- term: Collector
+  full: "—"
+  desc: OTel 的采集服务，收数据、做映射、转发后端
+- term: Grafana
+  full: "—"
+  desc: 列式数据库 / 开源监控面板
+- term: schema
+  full: "—"
+  desc: 约束输出结构的格式定义
+- term: turn
+  full: "—"
+  desc: 多轮对话里的一轮
+- term: safetensors
+  full: "—"
+  desc: HF 的权重格式：JSON 头 + 原始字节，可 mmap
+- term: mmap
+  full: memory map
+  desc: 把文件映射进内存，读到哪页才从磁盘加载哪页
+- term: CUDA graph
+  full: "—"
+  desc: 把一串 kernel 录成图一次提交，省 CPU 发射开销
+- term: SSE
+  full: Server-Sent Events
+  desc: HTTP 上服务端单向推送的流式协议
+- term: actor
+  full: "—"
+  desc: RL 里被训练、负责生成回答的策略模型
+- term: adapter
+  full: "—"
+  desc: 挂在冻结基座上的一小组可训参数，这里就是 LoRA 的 A、B
+- term: Adapter
+  full: "—"
+  desc: Houlsby 等 2019 的方法：每层串联插一个瓶颈小网络
+- term: TensorRT-LLM
+  full: "—"
+  desc: NVIDIA 的 LLM 推理框架
+- term: SASS
+  full: "—（NVIDIA 未给出官方全称）"
+  desc: NVIDIA GPU 真正执行的机器指令
+- term: ISA
+  full: instruction set architecture
+  desc: 指令集架构
+- term: JIT
+  full: just-in-time compilation
+  desc: 运行时即时编译
+- term: PTX
+  full: Parallel Thread Execution
+  desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
+- term: warp
+  full: "—"
+  desc: GPU 上齐步执行的一组线程（NVIDIA 32 个）
+- term: AMD
+  full: "—"
+  desc: GPU 厂商，其线程编排与 NVIDIA 不同
+- term: Ampere
+  full: "—"
+  desc: NVIDIA GPU 连续三代架构
+- term: A100
+  full: NVIDIA Ampere GPU
+  desc: 2020 年的数据中心卡，shared memory 上限 163 KB
+- term: connector
+  full: "—"
+  desc: 编码器与 LLM 之间的转接头：映射维度、可选压缩 token
+- term: patch
+  full: "—"
+  desc: 图像被切成的小方块，一个 patch 变成一个向量
+- term: MFU
+  full: model FLOPs utilization
+  desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
+- term: SLO
+  full: service level objective
+  desc: 服务等级目标，如可用率、延迟的承诺值
+- term: RPM / TPM
+  full: requests per minute / tokens per minute
+  desc: 每分钟请求数 / 每分钟 token 数的限额
+- term: FinOps
+  full: financial operations
+  desc: 云成本的归因、预算与优化的日常运营
+- term: RPM
+  full: requests per minute
+  desc: 每分钟请求数的限额
+- term: wheel
+  full: "—"
+  desc: Python 的预编译分发包格式（.whl）
+- term: PyPI
+  full: Python Package Index
+  desc: 官方的 Python 包仓库，types-* 存根包也发在这里
+- term: agentic
+  full: "—"
+  desc: 由模型自己决定查什么、查几轮的做法
+- term: QPS
+  full: queries per second
+  desc: 每秒查询数
+- term: Mooncake
+  full: "—"
+  desc: Kimi 开源的传输引擎，基于 RDMA 搬 KV 与权重
+- term: Ray
+  full: "—"
+  desc: 分布式计算框架，verl 用它创建和调度各个 worker
+- term: HBM
+  full: high bandwidth memory
+  desc: GPU 上的高带宽显存
+- term: D2H
+  full: device to host
+  desc: 显存拷回主机内存
+- term: ZMQ
+  full: ZeroMQ
+  desc: 轻量消息库，常用来在进程间传控制消息
+- term: LRU
+  full: least recently used
+  desc: 最近最少使用：先淘汰最久没用的
+- term: HPA
+  full: Horizontal Pod Autoscaler
+  desc: Kubernetes 按指标自动增减副本数
+- term: RNG
+  full: random number generator
+  desc: 随机数生成器
+- term: block
+  full: "—"
+  desc: 一层 Transformer：attention 与 FFN 两个子层加残差
+- term: MIG
+  full: multi-instance GPU
+  desc: 把一张 GPU 切成多个互相隔离的实例
+- term: DRA
+  full: dynamic resource allocation
+  desc: K8s 的设备资源分配机制
+- term: DCGM
+  full: Data Center GPU Manager
+  desc: NVIDIA 的 GPU 监控套件
+- term: CRD
+  full: custom resource definition
+  desc: K8s 的自定义资源类型，调度器靠它扩展
+- term: KEDA
+  full: Kubernetes Event-driven Autoscaling
+  desc: 按事件源扩缩容的 K8s 组件
+- term: EPP
+  full: EndPoint Picker
+  desc: 推理网关里挑后端实例的组件
+- term: K8s
+  full: Kubernetes
+  desc: 容器编排系统，平台层的底座
+- term: GPU Operator
+  full: "—"
+  desc: NVIDIA 的 K8s 组件，自动装驱动和设备插件
