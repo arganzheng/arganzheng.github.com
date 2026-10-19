@@ -1,153 +1,124 @@
-- term: "AnyRes"
-  full: "any resolution"
-  desc: "LLaVA-NeXT 的切 tile 方案：选网格 + 全图缩略图"
-- term: "AR"
-  full: "autoregressive"
-  desc: "自回归：按顺序逐个生成，文本与离散化图像都能用"
-- term: "ARO"
-  full: "attribute, relation, order"
-  desc: "测属性绑定与词序敏感性的 benchmark"
-- term: "BLIP-2"
-  full: "bootstrapped language-image pre-training"
-  desc: "Salesforce 的 VLM，connector 是 Q-Former"
-- term: "CapPa"
+---
+- term: AnyRes
+  full: any resolution
+  desc: LLaVA-NeXT 的切 tile 方案：选网格 + 全图缩略图
+- term: AR
+  full: autoregressive
+  desc: 自回归：按顺序逐个生成，文本与离散化图像都能用
+- term: ARO
+  full: attribute, relation, order
+  desc: 测属性绑定与词序敏感性的 benchmark
+- term: BLIP-2
+  full: bootstrapped language-image pre-training
+  desc: Salesforce 的 VLM，connector 是 Q-Former
+- term: CFG
+  full: classifier-free guidance
+  desc: 无分类器引导：有条件的输出减去无条件的输出，控制贴合度
+- term: CLIP
+  full: Contrastive Language–Image Pre-training
+  desc: OpenAI 的图文对比模型，用「图文是否配对」训练
+- term: DDIM
+  full: denoising diffusion implicit model
+  desc: 把采样改成非马尔可夫的扩散采样器，可以跳步
+- term: DDPM
+  full: denoising diffusion probabilistic model
+  desc: 去噪扩散概率模型：逐步加噪再学逐步去噪的生成框架
+- term: DINO
+  full: self-distillation with no labels
+  desc: 自蒸馏自监督方法；DINOv2 是其放大版
+- term: DiT
+  full: diffusion transformer
+  desc: 用 Transformer 替代 U-Net 的扩散骨干
+- term: DPO
+  full: Direct Preference Optimization
+  desc: 直接偏好优化；图像生成里也有对应做法
+- term: EMA
+  full: exponential moving average
+  desc: 滑动平均，教师模型取学生参数的移动平均
+- term: FFN
+  full: feed-forward network
+  desc: Transformer 每层里的前馈网络子层
+- term: FID
+  full: Fréchet inception distance
+  desc: 用 Inception 特征比较生成分布与真实分布的指标
+- term: FLOPs
+  full: floating-point operations
+  desc: 浮点运算次数，算力开销单位
+- term: GELU
+  full: Gaussian error linear unit
+  desc: MLP 里常用的一种平滑激活函数
+- term: iBOT
+  full: image BERT pre-training with online tokenizer
+  desc: 自蒸馏 + patch 级掩码目标的自监督方法
+- term: InfoNCE
   full: "—"
-  desc: "用 caption 生成（或并行预测）目标训练视觉编码器的方法"
-- term: "CFG"
-  full: "classifier-free guidance"
-  desc: "无分类器引导：有条件的输出减去无条件的输出，控制贴合度"
-- term: "CLIP"
-  full: "Contrastive Language–Image Pre-training"
-  desc: "OpenAI 的图文对比模型，用「图文是否配对」训练"
-- term: "connector"
-  full: "—"
-  desc: "编码器与 LLM 之间的转接头：映射维度、可选压缩 token"
-- term: "DDIM"
-  full: "denoising diffusion implicit model"
-  desc: "把采样改成非马尔可夫的扩散采样器，可以跳步"
-- term: "DDPM"
-  full: "denoising diffusion probabilistic model"
-  desc: "去噪扩散概率模型：逐步加噪再学逐步去噪的生成框架"
-- term: "DINO"
-  full: "self-distillation with no labels"
-  desc: "自蒸馏自监督方法；DINOv2 是其放大版"
-- term: "DiT"
-  full: "diffusion transformer"
-  desc: "用 Transformer 替代 U-Net 的扩散骨干"
-- term: "DPO"
-  full: "Direct Preference Optimization"
-  desc: "直接偏好优化；图像生成里也有对应做法"
-- term: "EMA"
-  full: "exponential moving average"
-  desc: "滑动平均，教师模型取学生参数的移动平均"
-- term: "FFN"
-  full: "feed-forward network"
-  desc: "Transformer 每层里的前馈网络子层"
-- term: "FID"
-  full: "Fréchet inception distance"
-  desc: "用 Inception 特征比较生成分布与真实分布的指标"
-- term: "FLOPs"
-  full: "floating-point operations"
-  desc: "浮点运算次数，算力开销单位"
-- term: "GELU"
-  full: "Gaussian error linear unit"
-  desc: "MLP 里常用的一种平滑激活函数"
-- term: "iBOT"
-  full: "image BERT pre-training with online tokenizer"
-  desc: "自蒸馏 + patch 级掩码目标的自监督方法"
-- term: "InfoNCE"
-  full: "—"
-  desc: "对比学习损失：把正确配对当 B 选 1 的分类题"
-- term: "KV"
-  full: "key–value"
-  desc: "推理时缓存的注意力键值，随序列长度增长"
-- term: "LLaVA"
-  full: "large language and vision assistant"
-  desc: "早期主流 VLM，connector 是线性层 / MLP"
-- term: "MAE"
-  full: "masked autoencoder"
-  desc: "遮住大部分 patch 重建像素的自监督编码器"
-- term: "MIM"
-  full: "masked image modeling"
-  desc: "掩码图像建模：遮住一部分、重建被遮住的"
-- term: "MLP"
-  full: "multi-layer perceptron"
-  desc: "多层感知机，VLM 里常当 connector"
-- term: "M-RoPE"
-  full: "multimodal RoPE"
-  desc: "Qwen2-VL 的三维（时间/高/宽）位置编码"
-- term: "MSE"
-  full: "mean squared error"
-  desc: "均方误差，扩散与重建任务的默认损失"
-- term: "NaFlex"
-  full: "native flexible resolution"
-  desc: "SigLIP 2 的原生宽高比、可变分辨率变体"
-- term: "NFNet"
-  full: "normalizer-free network"
-  desc: "Flamingo 用的无归一化 CNN 编码器"
-- term: "OCR"
-  full: "optical character recognition"
-  desc: "光学字符识别，读出图里的文字"
-- term: "ODE"
-  full: "ordinary differential equation"
-  desc: "常微分方程；flow matching / 确定性采样把它当生成路径"
-- term: "packing"
-  full: "—"
-  desc: "把多条样本拼成一个序列用 mask 隔开的 batch 技巧"
-- term: "pan & scan"
-  full: "—"
-  desc: "Gemma 3 对大图再切块浏览的补偿手段"
-- term: "patch"
-  full: "—"
-  desc: "图像被切成的小方块，一个 patch 变成一个向量"
-- term: "PCA"
-  full: "principal component analysis"
-  desc: "主成分分析，把高维特征压到两三维看结构"
-- term: "Perceiver"
-  full: "—"
-  desc: "DeepMind 的「固定 query 抽特征」结构，Flamingo 采用"
-- term: "pixel shuffle"
-  full: "—"
-  desc: "space-to-depth 重排：k×k 邻域拼成一个 token"
-- term: "Q-Former"
-  full: "querying Transformer"
-  desc: "BLIP-2 的 connector：K 个可学习 query 做 cross-attention"
-- term: "resampler"
-  full: "—"
-  desc: "Perceiver 式 connector：固定个数的 query 抽出固定 token 数"
-- term: "RoPE"
-  full: "rotary position embedding"
-  desc: "旋转位置编码，按位置旋转向量，任意分辨率无需插值"
-- term: "RVQ"
-  full: "residual vector quantization"
-  desc: "残差向量量化：分层码本逼近连续向量，音频 codec 用它"
-- term: "SFT"
-  full: "supervised fine-tuning"
-  desc: "监督微调，用指令数据训练模型"
-- term: "SigLIP"
-  full: "Sigmoid Loss for Language-Image Pre-training"
-  desc: "CLIP 的 sigmoid 损失版，对 batch 大小不敏感"
-- term: "TTS"
-  full: "text-to-speech"
-  desc: "语音合成；全双工模型把它和听（ASR）放进同一个网络"
-- term: "VAE"
-  full: "variational autoencoder"
-  desc: "变分自编码器：latent diffusion 的像素↔隐空间变换"
-- term: "ViT"
-  full: "Vision Transformer"
-  desc: "把图像切成 patch、每块变成一个向量送进 Transformer 的编码器"
-- term: "VLM"
-  full: "vision-language model"
-  desc: "能看图回答问题的语言模型"
-- term: "VQ"
-  full: "vector quantization"
-  desc: "向量量化：把连续向量换成码本里最近的离散码字"
-- term: "VSR"
-  full: "visual spatial reasoning"
-  desc: "测空间关系（左/右/上/下）的 benchmark"
-- term: "Whisper"
-  full: "—"
-  desc: "OpenAI 的语音识别模型，常被引用作音频编码器"
-- term: "WIT"
-  full: "WebImageText"
-  desc: "OpenAI 抓的 4 亿图文对数据集"
+  desc: 对比学习损失：把正确配对当 B 选 1 的分类题
+- term: LLaVA
+  full: large language and vision assistant
+  desc: 早期主流 VLM，connector 是线性层 / MLP
+- term: MAE
+  full: masked autoencoder
+  desc: 遮住大部分 patch 重建像素的自监督编码器
+- term: MIM
+  full: masked image modeling
+  desc: 掩码图像建模：遮住一部分、重建被遮住的
+- term: MLP
+  full: multi-layer perceptron
+  desc: 多层感知机，VLM 里常当 connector
+- term: M-RoPE
+  full: multimodal RoPE
+  desc: Qwen2-VL 的三维（时间/高/宽）位置编码
+- term: MSE
+  full: mean squared error
+  desc: 均方误差，扩散与重建任务的默认损失
+- term: NaFlex
+  full: native flexible resolution
+  desc: SigLIP 2 的原生宽高比、可变分辨率变体
+- term: NFNet
+  full: normalizer-free network
+  desc: Flamingo 用的无归一化 CNN 编码器
+- term: OCR
+  full: optical character recognition
+  desc: 光学字符识别，读出图里的文字
+- term: ODE
+  full: ordinary differential equation
+  desc: 常微分方程；flow matching / 确定性采样把它当生成路径
+- term: PCA
+  full: principal component analysis
+  desc: 主成分分析，把高维特征压到两三维看结构
+- term: Q-Former
+  full: querying Transformer
+  desc: BLIP-2 的 connector：K 个可学习 query 做 cross-attention
+- term: RoPE
+  full: rotary position embedding
+  desc: 旋转位置编码，按位置旋转向量，任意分辨率无需插值
+- term: RVQ
+  full: residual vector quantization
+  desc: 残差向量量化：分层码本逼近连续向量，音频 codec 用它
+- term: SFT
+  full: supervised fine-tuning
+  desc: 监督微调，用指令数据训练模型
+- term: SigLIP
+  full: Sigmoid Loss for Language-Image Pre-training
+  desc: CLIP 的 sigmoid 损失版，对 batch 大小不敏感
+- term: TTS
+  full: text-to-speech
+  desc: 语音合成；全双工模型把它和听（ASR）放进同一个网络
+- term: VAE
+  full: variational autoencoder
+  desc: 变分自编码器：latent diffusion 的像素↔隐空间变换
+- term: ViT
+  full: Vision Transformer
+  desc: 把图像切成 patch、每块变成一个向量送进 Transformer 的编码器
+- term: VLM
+  full: vision-language model
+  desc: 能看图回答问题的语言模型
+- term: VQ
+  full: vector quantization
+  desc: 向量量化：把连续向量换成码本里最近的离散码字
+- term: VSR
+  full: visual spatial reasoning
+  desc: 测空间关系（左/右/上/下）的 benchmark
+- term: WIT
+  full: WebImageText
+  desc: OpenAI 抓的 4 亿图文对数据集
