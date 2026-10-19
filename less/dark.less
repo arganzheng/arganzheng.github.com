@@ -884,6 +884,19 @@ html[data-theme="dark"] #dash-schedule {
 	.dash-schedule-post .dash-brief-link:hover { color: @dk-link; border-color: @dk-link; }
 	.dash-schedule-post.is-flashing { animation-name: dash-schedule-flash-dark; }
 }
+html[data-theme="dark"] #dash-funnel {
+	.dash-funnel-item { border-color: @dk-border; background: @dk-surface; color: @dk-text; }
+	.dash-funnel-item > summary { color: @dk-heading; }
+	.dash-funnel-item[open] > summary, .dash-funnel-row { border-color: @dk-border; }
+	.dash-funnel-title { color: @dk-text; &:hover { color: @dk-link; } }
+	.dash-funnel-index, .dash-funnel-change, .dash-funnel-views { color: @dk-muted; }
+	.dash-funnel-recap { background: @dk-surface-2; color: @dk-muted; }
+	.dash-funnel-bar { background: @dk-border; > i { background: @dk-link; } }
+	.dash-funnel-row.is-drop {
+		.dash-funnel-bar > i { background: #d29922; }
+		.dash-funnel-change { color: #f0c674; }
+	}
+}
 @keyframes dash-schedule-flash-dark {
 	0%, 35% { background-color: #3b3525; }
 	100% { background-color: transparent; }

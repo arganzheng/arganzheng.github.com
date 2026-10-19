@@ -112,6 +112,91 @@
       });
     }).catch(function (err) { tbody.innerHTML = '<tr><td colspan="8" class="dash-muted">加载失败：' + h(err.message) + '</td></tr>'; });
   }
+  // ---- 系列漏斗 (/stats/top)
+  var funnelRows = [], funnelExpanded = false, FUNNEL_TOP = 8;
+  function renderFunnel() {
+    var host = document.querySelector('#dash-funnel .dash-list');
+    if (!host) return;
+    var rows = funnelExpanded ? funnelRows : funnelRows.slice(0, FUNNEL_TOP);
+    host.innerHTML = rows.map(function (series) {
+      var name = series.name || series.key;
+      var summary = h(name) + ' · ' + series.posts.length + ' 篇 · 首篇 ' + fmt(series.first) +
+        ' → 末篇 ' + fmt(series.last) + '（' + Math.round(series.last / series.first * 100) + '%）';
+      if (series.biggest) summary += ' · 流失最多：第 ' + (series.biggest.index + 1) + ' 篇（−' + series.biggest.percent + '%）';
+      var steps = series.posts.map(function (post, index) {
+        var views = series.postViews[index], previous = index ? series.postViews[index - 1] : 0;
+        var change = index && previous ? Math.round((views / previous - 1) * 100) : null;
+        var changeText = change == null ? '—' : (change > 0 ? '+' + change : change < 0 ? '−' + Math.abs(change) : '0') + '%';
+        var width = Math.max(0, Math.min(100, views / series.first * 100));
+        var isDrop = series.biggest && series.biggest.index === index;
+        return '<li class="dash-funnel-row' + (isDrop ? ' is-drop' : '') + '">' +
+          '<span class="dash-funnel-index">' + (index + 1) + '</span>' +
+          '<span class="dash-funnel-title-wrap"><a class="dash-funnel-title" href="' + h(post.path) + '" title="' + h(titleOf(post.path)) + '">' + h(post.subtitle || titleOf(post.path)) + '</a>' +
+          (post.recap ? '<span class="dash-funnel-recap">自测</span>' : '') + '</span>' +
+          '<span class="dash-funnel-bar" role="img" aria-label="阅读 ' + fmt(views) + ' / ' + fmt(series.first) + '"><i style="width:' + width + '%"></i></span>' +
+          '<span class="dash-funnel-views">' + fmt(views) + '</span>' +
+          '<span class="dash-funnel-change">' + changeText + '</span></li>';
+      }).join('');
+      return '<details class="dash-funnel-item"><summary>' + summary + '</summary><ol class="dash-funnel-steps">' + steps + '</ol></details>';
+    }).join('') + (funnelRows.length > FUNNEL_TOP
+      ? '<p class="dash-funnel-expand"><a href="#" class="dash-toggle">' + (funnelExpanded ? '只看 TOP ' + FUNNEL_TOP : '展开全部 ' + funnelRows.length + ' 个系列') + '</a></p>'
+      : '');
+    var toggle = host.querySelector('.dash-toggle');
+    if (toggle) toggle.addEventListener('click', function (event) {
+      event.preventDefault();
+      funnelExpanded = !funnelExpanded;
+      renderFunnel();
+    });
+  }
+  function loadFunnel() {
+    var host = document.querySelector('#dash-funnel .dash-list');
+    if (!host) return;
+    getJson(api + '/stats/top?limit=500').then(function (data) {
+      var views = Object.create(null);
+      (data.rows || []).forEach(function (row) {
+        views[row.path] = Math.max(0, Number(row.views) || 0);
+      });
+      funnelRows = (window.DASH_SERIES || []).map(function (series) {
+        var posts = (series.posts || []).map(function (post) {
+          return { path: post[0], subtitle: post[1], recap: !!post[2] };
+        });
+        if (posts.length < 2) return null;
+        var first = views[posts[0].path] || 0;
+        if (!first) return null;
+        var postViews = posts.map(function (post) { return views[post.path] || 0; });
+        var lastIndex = posts.length - 1;
+        for (var i = posts.length - 1; i >= 0; i--) {
+          if (!posts[i].recap) { lastIndex = i; break; }
+        }
+        var biggest = null;
+        for (var step = 1; step < postViews.length; step++) {
+          var previous = postViews[step - 1];
+          if (previous < 20) continue;
+          var drop = 1 - postViews[step] / previous;
+          var percent = Math.round(drop * 100);
+          if (drop > 0 && percent > 0 && (!biggest || drop > biggest.drop)) {
+            biggest = { index: step, drop: drop, percent: percent };
+          }
+        }
+        return {
+          key: series.key,
+          name: series.name,
+          posts: posts,
+          first: first,
+          last: postViews[lastIndex],
+          postViews: postViews,
+          biggest: biggest
+        };
+      }).filter(function (series) { return !!series; });
+      funnelRows.sort(function (a, b) { return b.first - a.first || String(a.name || a.key).localeCompare(String(b.name || b.key)); });
+      if (!funnelRows.length) {
+        host.innerHTML = '<p class="dash-muted">还没有阅读量足够的系列。</p>';
+        return;
+      }
+      renderFunnel();
+    }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
+  }
+  loadFunnel();
   // ---- 值得翻新的老文章: views × log(age) for tech posts whose date / updated is >= 3 years old
   var meta = window.DASH_META || {}, REFRESH_YEARS = 3, REFRESH_TOP = 15;
   var srcBase = 'https://github.com/' + repo + '/edit/master/';

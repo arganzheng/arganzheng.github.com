@@ -6956,6 +6956,127 @@ html:not(.author-ok) #dash-schedule {
     flex-basis: 100%;
   }
 }
+/* ---- series funnel (author dashboard) */
+#dash-funnel .dash-funnel-item {
+  margin: 0 0 7px;
+  border: 1px solid #eaeef2;
+  border-radius: 6px;
+  background: #fff;
+}
+#dash-funnel .dash-funnel-item > summary {
+  overflow: hidden;
+  padding: 8px 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+#dash-funnel .dash-funnel-item[open] > summary {
+  border-bottom: 1px solid #eaeef2;
+}
+#dash-funnel .dash-funnel-steps {
+  margin: 0;
+  padding: 0 10px;
+  list-style: none;
+}
+#dash-funnel .dash-funnel-row {
+  display: grid;
+  grid-template-columns: 2em minmax(0, 1fr) minmax(90px, 0.8fr) 4em 4em;
+  grid-template-areas: "index title bar views change";
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #eaeef2;
+  font-size: 13px;
+}
+#dash-funnel .dash-funnel-row:last-child {
+  border-bottom: 0;
+}
+#dash-funnel .dash-funnel-index {
+  grid-area: index;
+  color: #59636e;
+  text-align: right;
+}
+#dash-funnel .dash-funnel-title-wrap {
+  display: flex;
+  grid-area: title;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+#dash-funnel .dash-funnel-title {
+  min-width: 0;
+  overflow: hidden;
+  color: #24292f;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  white-space: nowrap;
+}
+#dash-funnel .dash-funnel-title:hover {
+  color: #00788f;
+}
+#dash-funnel .dash-funnel-recap {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #f6f8fa;
+  color: #59636e;
+  font-size: 11px;
+  line-height: 17px;
+}
+#dash-funnel .dash-funnel-bar {
+  display: block;
+  grid-area: bar;
+  overflow: hidden;
+  height: 7px;
+  border-radius: 5px;
+  background: #eaeef2;
+}
+#dash-funnel .dash-funnel-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #00788f;
+}
+#dash-funnel .dash-funnel-views {
+  grid-area: views;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#dash-funnel .dash-funnel-change {
+  grid-area: change;
+  color: #59636e;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#dash-funnel .dash-funnel-row.is-drop .dash-funnel-bar > i {
+  background: #a15c00;
+}
+#dash-funnel .dash-funnel-row.is-drop .dash-funnel-change {
+  color: #8a4b00;
+  font-weight: 600;
+}
+#dash-funnel .dash-funnel-expand {
+  margin: 10px 0 0;
+  text-align: right;
+  font-size: 13px;
+}
+@media (max-width: 767px) {
+  #dash-funnel .dash-funnel-row {
+    grid-template-columns: 2em minmax(0, 1fr) 4em;
+    grid-template-areas: "index title change" ". bar views";
+    gap: 5px 8px;
+  }
+  #dash-funnel .dash-funnel-title-wrap {
+    flex-wrap: wrap;
+  }
+  #dash-funnel .dash-funnel-title {
+    flex: 1 1 auto;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
 .deck-studio {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
@@ -11199,6 +11320,45 @@ html[data-theme="dark"] #dash-schedule .dash-schedule-post .dash-brief-link:hove
 html[data-theme="dark"] #dash-schedule .dash-schedule-post.is-flashing {
   animation-name: dash-schedule-flash-dark;
 }
+html[data-theme="dark"] #dash-funnel .dash-funnel-item {
+  border-color: #33363c;
+  background: #1f2125;
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-item > summary {
+  color: #eceef1;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-item[open] > summary,
+html[data-theme="dark"] #dash-funnel .dash-funnel-row {
+  border-color: #33363c;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-title {
+  color: #d3d5d9;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-title:hover {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-index,
+html[data-theme="dark"] #dash-funnel .dash-funnel-change,
+html[data-theme="dark"] #dash-funnel .dash-funnel-views {
+  color: #969ba4;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-recap {
+  background: #282b30;
+  color: #969ba4;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-bar {
+  background: #33363c;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-bar > i {
+  background: #4cb7cb;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-row.is-drop .dash-funnel-bar > i {
+  background: #d29922;
+}
+html[data-theme="dark"] #dash-funnel .dash-funnel-row.is-drop .dash-funnel-change {
+  color: #f0c674;
+}
 @keyframes dash-schedule-flash-dark {
   0%,
   35% {
@@ -12001,6 +12161,45 @@ html[data-theme="sepia"] .dash .dash-search {
   border-color: #dccfb2;
   background-color: #e7dabd;
   color: #3b3124;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-item {
+  border-color: #dccfb2;
+  background: #efe4cb;
+  color: #3b3124;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-item > summary {
+  color: #3b3124;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-item[open] > summary,
+html[data-theme="sepia"] #dash-funnel .dash-funnel-row {
+  border-color: #dccfb2;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-title {
+  color: #3b3124;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-title:hover {
+  color: #286090;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-index,
+html[data-theme="sepia"] #dash-funnel .dash-funnel-change,
+html[data-theme="sepia"] #dash-funnel .dash-funnel-views {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-recap {
+  background: #e7dabd;
+  color: #7a6c58;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-bar {
+  background: #dccfb2;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-bar > i {
+  background: #286090;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-row.is-drop .dash-funnel-bar > i {
+  background: #a87500;
+}
+html[data-theme="sepia"] #dash-funnel .dash-funnel-row.is-drop .dash-funnel-change {
+  color: #805814;
 }
 html[data-theme="sepia"] footer {
   background-color: transparent;

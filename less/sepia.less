@@ -396,6 +396,19 @@ html[data-theme="sepia"] {
 	.dash .dash-hint, .dash .dash-muted, .dash .dash-comment a { color: @sp-muted; }
 	.dash input, .dash select, .dash textarea,
 	.dash .dash-filter, .dash .dash-search { border-color: @sp-border; background-color: @sp-surface-2; color: @sp-text; }
+	#dash-funnel {
+		.dash-funnel-item { border-color: @sp-border; background: @sp-surface; color: @sp-text; }
+		.dash-funnel-item > summary { color: @sp-text; }
+		.dash-funnel-item[open] > summary, .dash-funnel-row { border-color: @sp-border; }
+		.dash-funnel-title { color: @sp-text; &:hover { color: @sp-link; } }
+		.dash-funnel-index, .dash-funnel-change, .dash-funnel-views { color: @sp-muted; }
+		.dash-funnel-recap { background: @sp-surface-2; color: @sp-muted; }
+		.dash-funnel-bar { background: @sp-border; > i { background: @sp-link; } }
+		.dash-funnel-row.is-drop {
+			.dash-funnel-bar > i { background: #a87500; }
+			.dash-funnel-change { color: #805814; }
+		}
+	}
 
 	footer { background-color: transparent; color: @sp-muted; }
 	footer .copyright, footer .list-inline a { color: @sp-muted; }

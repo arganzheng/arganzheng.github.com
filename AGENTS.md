@@ -250,7 +250,10 @@ Pages has `https_enforced` on.
   joined with `window.DASH_META` — per-post `[date, updated, source path,
   category]` emitted at build time; tech posts whose `updated`/date is >= 3
   years old, ranked by views × log(age), with 简报 + GitHub 编辑 links; a post
-  leaves the list once `updated:` is set), and 待修订的文章 above the 修订简报
+  leaves the list once `updated:` is set); `#dash-funnel` uses build-time
+  `window.DASH_SERIES` (published, non-private posts in date order) and
+  `GET /stats/top?limit=500` for a rough per-series view funnel; its cumulative
+  counts include readers who land mid-series. The dashboard also lists 待修订的文章 above the 修订简报
   picker (worker `GET /feedback` with no path = every post's D1 rows in one
   call, joined with the open `划线评论` / `待修订` issues; a post is listed only
   when it has an open issue — Discussion comments are not fetched for the list,
