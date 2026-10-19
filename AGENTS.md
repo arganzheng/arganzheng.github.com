@@ -323,7 +323,8 @@ Pages has `https_enforced` on.
   `_plugins/search_index.rb` at `:site, :post_render`): `/search/meta.json`
   (one `[url, title, date, tags]` per post, 68 KB), `/search/idx/<0..255>.json`
   (inverted index, key → id deltas, ~8 KB gzipped each) and
-  `/search/doc/<slug>.txt` (plain text per post). Keys: ASCII words
+  `/search/doc/<slug>.txt` (body text, then `\u001e<basename>\u001f<image text>`
+  records); image result links use `#img=<basename>` (`js/figures.js`). Keys: ASCII words
   `[a-z0-9_]+` (whole-word, = JS `\b`), `~part` for the `_`-separated parts of
   identifiers, every CJK char and every CJK bigram. The client ANDs a term's
   keys, fetches only those buckets, ranks by title hits (+20 whole query, +6
