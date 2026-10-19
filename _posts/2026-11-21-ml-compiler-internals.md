@@ -31,7 +31,7 @@ Table: 黑盒视角与打开黑盒的对照
 要做到这一点，需要先补上通用编译器的机制：IR、SSA、数据流分析、pattern rewrite、dialect conversion、LLVM 后端。它们不是 Triton 特有的，而是 Triton、TVM、XLA、Inductor 乃至 Java 的 C2 / Graal 共同的语言。系列前四篇讲这套语言，中间七篇用它读 Triton 编译器的源码，第十二篇用它对照 TVM 的另一条路，第十三篇讲编译器开发者的日常工作方式。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="ml-compilers" %}
 
