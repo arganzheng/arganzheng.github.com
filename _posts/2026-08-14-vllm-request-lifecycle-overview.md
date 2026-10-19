@@ -174,35 +174,27 @@ graph TB
 
 ## 三、进程视图：谁在什么进程里，如何交互
 
-静态拓扑按模块划分。默认的在线 `vllm serve` + `AsyncMPClient` + `MultiprocExecutor` 部署里，这些模块落在三类进程中。API Server 处理协议和文本；`EngineCoreProc` 管请求状态和调度；每个 `WorkerProc` rank 执行模型。
+静态拓扑图画模块之间的调用；这张图把它们放回默认部署的进程和线程里。API Server 处理协议和文本，`EngineCoreProc` 管请求状态和调度，每个 `WorkerProc` rank 执行模型。
 
 ![vLLM V1 默认多进程部署：API Server、EngineCoreProc 与 WorkerProc 的线程和 IPC](/img/in-post/vllm-request-lifecycle-process-view.svg)
 
 ### 1. API Server：处理协议与文本
 
-API Server 用 FastAPI 提供 OpenAI 兼容接口，通常由 uvicorn/uvloop 运行。`AsyncLLM` 在这个进程中创建 `InputProcessor`、`OutputProcessor` 和 `AsyncMPClient`（`vllm/entrypoints/openai/api_server.py`、`vllm/v1/engine/async_llm.py`）。
-
-`InputProcessor` 把输入整理成 `EngineCoreRequest`；`OutputProcessor` 接收 `EngineCoreOutputs`，增量 detokenize 并整理成 `RequestOutput`。异步输出处理由 asyncio task 驱动。默认多进程路径下，这个进程不持有模型权重，也不运行 GPU forward；调度循环在 `EngineCoreProc`。
+FastAPI 的 OpenAI route 调用同进程里的 `AsyncLLM`。`InputProcessor` 产出 `EngineCoreRequest`；`OutputProcessor` 把 `EngineCoreOutputs` 增量 detokenize 成 `RequestOutput`，输出循环由 asyncio task 驱动（`vllm/entrypoints/openai/api_server.py`、`vllm/v1/engine/async_llm.py`）。
 
 ### 2. EngineCoreProc：持有调度状态
 
-`EngineCoreProc` 是运行 `EngineCore` 的独立进程。它初始化 `Executor`、GPU KV cache 配置和 `Scheduler`；`Scheduler` 内部持有 `KVCacheManager`，负责请求状态、块分配与释放（`vllm/v1/engine/core.py`、`vllm/v1/core/sched/scheduler.py`）。
-
-主线程运行 `run_busy_loop()`。每轮先由 `Scheduler.schedule()` 生成 `SchedulerOutput`，再调用 `Executor.execute_model()`，最后用 `Scheduler.update_from_output()` 更新请求。EngineCore 保存请求的权威状态，但不运行 HTTP、tokenizer 或 detokenizer；默认多进程执行器下，实际的模型 forward 和 GPU KV 张量在 Worker 侧。
-
-输入、输出 socket I/O 与主循环分开。输入线程 `process_input_sockets()` 用 `MsgpackDecoder` 解出请求，放进内部 queue；输出线程 `process_output_sockets()` 从 queue 取 `EngineCoreOutputs`，用 `MsgpackEncoder` 序列化后发送。主线程因此不需要在调度步骤里做 socket 序列化（`vllm/v1/engine/core.py`）。
+`EngineCoreProc` 运行 `EngineCore`：输入、输出 socket I/O 各有线程，主线程循环调度与更新。`Scheduler` 持有权威 `Request` 状态和 `KVCacheManager` 元数据；默认 `MultiprocExecutor` 下，GPU forward 留在 Worker 侧（`vllm/v1/engine/core.py`、`vllm/v1/core/sched/scheduler.py`）。
 
 ### 3. WorkerProc：一个模型并行 rank
 
-`MultiprocExecutor` 为每个模型并行 rank 启动 `WorkerProc`。普通 TP×PP 部署的 rank 数是 TP 与 PP 的乘积；启用其他并行维度时以配置里的 `world_size` 为准。每个进程初始化一个 `Worker`；GPU Worker 再创建 `GPUModelRunner`，加载本 rank 的权重分片，并在 GPU 上读写 KV cache（`vllm/v1/executor/multiproc_executor.py`、`vllm/v1/worker/gpu_worker.py`、`vllm/v1/worker/gpu_model_runner.py`）。
-
-`WorkerProc.worker_busy_loop()` 在进程主线程等待执行命令，再调用 Worker 的方法。它不处理 HTTP，也不拥有 Scheduler 中的权威 `Request` 状态。TP 的 all-reduce / all-gather 和 PP 的 rank 间传递发生在 Worker 进程之间，由 PyTorch distributed / device communicator 执行；GPU 上使用 NCCL-backed collective 时，激活也不经过 EngineCore（`vllm/distributed/communication_op.py`、`vllm/distributed/parallel_state.py`、`vllm/distributed/device_communicators/pynccl.py`、`vllm/v1/worker/gpu_worker.py`）。
+`MultiprocExecutor` 为每个模型并行 rank 启动 `WorkerProc`。每个进程初始化 `Worker` 和 `GPUModelRunner`，加载本 rank 的权重分片，并在 GPU 上读写 KV cache；TP/PP 通信由 Worker ranks 直接完成，不经过 EngineCore（`vllm/v1/executor/multiproc_executor.py`、`vllm/v1/worker/gpu_worker.py`、`vllm/v1/worker/gpu_model_runner.py`、`vllm/distributed/communication_op.py`、`vllm/distributed/parallel_state.py`、`vllm/distributed/device_communicators/pynccl.py`）。
 
 ### 4. 两道边界上传什么
 
-API Server 到 EngineCore 的控制通道使用 ZMQ 和 msgpack。`AsyncMPClient` 发送 `ADD`（`EngineCoreRequest`）、`ABORT` 和 `UTILITY` 请求；EngineCore 的输入线程解码后放入内部 queue。返回方向由输出线程发送 `EngineCoreOutputs`。这个通道传请求、token ids 和元数据，不传模型 forward 的激活张量（`vllm/v1/engine/core_client.py`、`vllm/v1/engine/core.py`）。
+![API Server、EngineCoreProc 与 WorkerProc 之间的 IPC 边界和消息内容](/img/in-post/vllm-request-lifecycle-process-boundaries.svg)
 
-EngineCore 到 Worker 的执行控制由 `MessageQueue` 广播 `SchedulerOutput`。单机 `MultiprocExecutor` 使用共享内存队列；多机时会使用远端队列传输。Worker 通过 response queue 返回 `ModelRunnerOutput`；`execute_model()` 默认只等待 `output_rank` 的结果，其他 rank 不重复回传。Worker 之间的 TP/PP collective 则走各自的分布式通信组，不经过 EngineCore（`vllm/v1/executor/multiproc_executor.py`、`vllm/distributed/device_communicators/shm_broadcast.py`）。
+API 边界传 `EngineCoreRequest` 与 `EngineCoreOutputs`；执行边界传 `SchedulerOutput` 与 `ModelRunnerOutput`。模型 forward 的 activations 不经 EngineCore；TP/PP activations 在 Worker ranks 之间传递（`vllm/v1/engine/core_client.py`、`vllm/v1/engine/core.py`、`vllm/v1/executor/multiproc_executor.py`、`vllm/distributed/device_communicators/shm_broadcast.py`）。
 
 ### 5. 启动顺序与就绪握手
 
@@ -342,64 +334,7 @@ sequenceDiagram
 
 ## 五、数据流：Token 如何穿过整个 Serving 栈
 
-```text title='一个 token 穿过 Serving 栈的数据流'
-  ┌──────┐     ┌─────────┐     ┌────────┐     ┌───────────┐
-  │Client│────▶│API Server│────▶│AsyncLLM│────▶│EngineCore │
-  └──────┘     └─────────┘     └────────┘     └─────┬─────┘
-  "Hello,       HTTP JSON       add_request     EngineCoreReq
-   tell me                      (text)          (token_ids)
-   a joke"                         │
-                              Tokenizer
-                          [15496, 11, 2425,
-                           757, 257, 9707]
-                                                     │
-                                              ┌──────▼──────┐
-                                              │  Scheduler   │
-                                              │  schedule()  │
-                                              └──────┬──────┘
-                                              SchedulerOutput
-                                              (scheduled_new_reqs[NewRequestData:
-                                                 prompt_token_ids, block_ids, ...],
-                                               scheduled_cached_reqs[new_block_ids],
-                                               num_scheduled_tokens{req_id: n},
-                                               finished_req_ids, ...)
-                                                     │
-                                              ┌──────▼──────┐
-                                              │  Executor    │
-                                              │  → Worker    │
-                                              └──────┬──────┘
-                                                     │
-                                              ┌──────▼──────┐
-                                              │GPUModelRunner│
-                                              │_prepare_inputs│
-                                              └──────┬──────┘
-                                              input_ids, positions,
-                                              block_table, slot_mapping
-                                                     │
-                                              ┌──────▼──────┐
-                                              │   GPU       │
-                                              │  Forward    │
-                                              │  Pass       │
-                                              └──────┬──────┘
-                                              logits [vocab_size]
-                                                     │
-                                              ┌──────▼──────┐
-                                              │  Sampling   │
-                                              │ (top-p/top-k│
-                                              │  /temp)     │
-                                              └──────┬──────┘
-                                              sampled_token_id
-                                                     │
-                                              ┌──────▼──────┐
-                                              │Detokenizer  │
-                                              │ → "Sure"    │
-                                              └──────┬──────┘
-                                                     │
-  ┌──────┐     ┌─────────┐                    ┌──────▼──────┐
-  │Client│◀────│SSE Stream│◀───────────────────│  Response   │
-  └──────┘     └─────────┘                    └─────────────┘
-  "Sure, here's a joke..."
-```
+![Client 请求经过 tokenize、调度、GPU 前向与 detokenize 后经 SSE 返回的完整数据流](/img/in-post/vllm-request-lifecycle-token-data-flow.svg)
 
 上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
 

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="650" viewBox="0 0 760 650" role="img" aria-labelledby="title desc">
+  <title id="title">两道 IPC 边界：消息、执行订单与激活张量</title>
+  <desc id="desc">API Server 和 EngineCore 之间的 ZMQ 消息，以及 EngineCore 和 Worker 之间的 MessageQueue 消息；模型 forward activations 不跨这两道边界。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#40566f"/></marker>
+    <marker id="green" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#2b7a78"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { stroke-width: 1.6; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+    </style>
+  </defs>
+  <rect width="760" height="650" fill="#fff"/>
+  <text x="380" y="34" text-anchor="middle" class="title">两道边界上传什么，什么留在进程内</text>
+
+  <rect x="28" y="54" width="704" height="226" class="frame" fill="#eef5ff" stroke="#5880b4"/>
+  <text x="50" y="82" class="head">边界一 · API Server ↔ EngineCoreProc</text>
+  <rect x="48" y="96" width="160" height="40" class="card"/>
+  <text x="128" y="122" text-anchor="middle" class="body">API Server</text>
+  <rect x="552" y="96" width="160" height="40" class="card"/>
+  <text x="632" y="122" text-anchor="middle" class="body">EngineCoreProc</text>
+  <line x1="210" y1="158" x2="545" y2="158" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="378" y="151" text-anchor="middle" class="small">ZMQ / msgpack · API → EngineCore</text>
+  <text x="378" y="180" text-anchor="middle" class="body">ADD · EngineCoreRequest　 ABORT · request_ids　 UTILITY · method / args</text>
+  <line x1="545" y1="211" x2="210" y2="211" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="378" y="205" text-anchor="middle" class="small">EngineCore → API · ZMQ / msgpack</text>
+  <text x="378" y="235" text-anchor="middle" class="body">EngineCoreOutputs · token ids / finish_reason</text>
+  <text x="378" y="260" text-anchor="middle" class="small">这里不传模型 forward 的 activations</text>
+
+  <rect x="28" y="296" width="704" height="351" class="frame" fill="#eff9f4" stroke="#4b9477"/>
+  <text x="50" y="324" class="head">边界二 · EngineCoreProc ↔ WorkerProc ranks</text>
+  <rect x="48" y="340" width="160" height="40" class="card"/>
+  <text x="128" y="366" text-anchor="middle" class="body">EngineCoreProc</text>
+  <rect x="552" y="340" width="160" height="40" class="card"/>
+  <text x="632" y="366" text-anchor="middle" class="body">WorkerProc × N</text>
+  <line x1="210" y1="405" x2="545" y2="405" stroke="#2b7a78" stroke-width="2" marker-end="url(#green)"/>
+  <text x="378" y="398" text-anchor="middle" class="small">同机共享内存 MessageQueue · 广播</text>
+  <text x="378" y="428" text-anchor="middle" class="body">SchedulerOutput：new / cached requests · token budget · block ids</text>
+  <line x1="545" y1="459" x2="210" y2="459" stroke="#2b7a78" stroke-width="2" marker-end="url(#green)"/>
+  <text x="378" y="453" text-anchor="middle" class="small">response queue · 仅 output_rank 回传</text>
+  <text x="378" y="483" text-anchor="middle" class="body">ModelRunnerOutput · sampled token ids</text>
+  <rect x="82" y="509" width="596" height="66" class="card"/>
+  <text x="380" y="535" text-anchor="middle" class="body">Worker rank ↔ Worker rank · TP / PP collectives</text>
+  <text x="380" y="558" text-anchor="middle" class="small">NCCL / PyTorch distributed；激活在 ranks 间传递，不经过 EngineCore</text>
+  <text x="380" y="600" text-anchor="middle" class="small">边界上交换控制消息和结果；模型 forward activations 不经 EngineCore 中转。</text>
+  <text x="380" y="638" text-anchor="middle" class="small">跨机时 worker 控制队列用远程传输；共享内存只适用于同机 worker。</text>
+</svg>

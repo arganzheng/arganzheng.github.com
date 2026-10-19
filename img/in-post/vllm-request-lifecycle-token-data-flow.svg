@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1210" viewBox="0 0 760 1210" role="img" aria-labelledby="title desc">
+  <title id="title">一个 token 穿过 Serving 栈的数据流</title>
+  <desc id="desc">请求文本经 tokenize、调度和 GPU 前向生成 token id，再经 detokenize 和 SSE 返回客户端。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#62758a"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 21px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .card { fill: #f5f8fc; stroke: #a9bacb; stroke-width: 1.4; rx: 10; }
+      .api { fill: #eef5ff; stroke: #5880b4; }
+      .core { fill: #fff6e9; stroke: #c6873d; }
+      .worker { fill: #eff9f4; stroke: #4b9477; }
+      .arrow { stroke: #62758a; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="760" height="1210" fill="#fff"/>
+  <text x="380" y="34" text-anchor="middle" class="title">一个 token 穿过 Serving 栈的数据流</text>
+
+  <rect x="36" y="56" width="688" height="104" class="card api"/>
+  <text x="60" y="82" class="head">Client → API Server → AsyncLLM</text>
+  <text x="60" y="108" class="body">"Hello, tell me a joke" · HTTP JSON · add_request(text)</text>
+  <text x="60" y="136" class="small">InputProcessor / Tokenizer 在 API Server 进程中处理文本</text>
+  <line x1="380" y1="160" x2="380" y2="184" class="arrow"/>
+
+  <rect x="36" y="188" width="688" height="96" class="card api"/>
+  <text x="60" y="216" class="head">Tokenizer → token ids → EngineCore</text>
+  <text x="60" y="242" class="body">[15496, 11, 2425, 757, 257, 9707]</text>
+  <text x="60" y="267" class="small">EngineCoreReq (token_ids) · ZMQ / msgpack</text>
+  <line x1="380" y1="284" x2="380" y2="308" class="arrow"/>
+
+  <rect x="36" y="312" width="688" height="176" class="card core"/>
+  <text x="60" y="340" class="head">EngineCoreProc · Scheduler.schedule()</text>
+  <text x="60" y="369" class="body">SchedulerOutput</text>
+  <text x="60" y="394" class="small">scheduled_new_reqs[NewRequestData: prompt_token_ids, block_ids, ...]</text>
+  <text x="60" y="417" class="small">scheduled_cached_reqs[new_block_ids] · num_scheduled_tokens{req_id: n}</text>
+  <text x="60" y="440" class="small">finished_req_ids, ...</text>
+  <text x="60" y="469" class="small">MessageQueue 广播 SchedulerOutput；执行订单携带本轮请求与 block 布局</text>
+  <line x1="380" y1="488" x2="380" y2="512" class="arrow"/>
+
+  <rect x="36" y="516" width="688" height="122" class="card worker"/>
+  <text x="60" y="544" class="head">Executor → Worker → GPUModelRunner._prepare_inputs()</text>
+  <text x="60" y="573" class="body">input_ids · positions · block_table · slot_mapping</text>
+  <text x="60" y="608" class="small">Worker 使用本 rank 的模型权重分片与 GPU KV cache tensors</text>
+  <line x1="380" y1="638" x2="380" y2="662" class="arrow"/>
+
+  <rect x="36" y="666" width="688" height="90" class="card worker"/>
+  <text x="60" y="696" class="head">GPU · Forward Pass</text>
+  <text x="60" y="728" class="body">logits [vocab_size]</text>
+  <line x1="380" y1="756" x2="380" y2="780" class="arrow"/>
+
+  <rect x="36" y="784" width="688" height="94" class="card worker"/>
+  <text x="60" y="814" class="head">Sampling</text>
+  <text x="60" y="842" class="body">(top-p / top-k / temp) → sampled_token_id</text>
+  <line x1="380" y1="878" x2="380" y2="902" class="arrow"/>
+
+  <rect x="36" y="906" width="688" height="122" class="card core"/>
+  <text x="60" y="934" class="head">Worker → EngineCore → AsyncLLM</text>
+  <text x="60" y="963" class="body">ModelRunnerOutput · response queue · output_rank only</text>
+  <text x="60" y="991" class="small">EngineCoreOutputs 经 ZMQ 返回；仍然只有 token ids，没有文本</text>
+  <line x1="380" y1="1028" x2="380" y2="1052" class="arrow"/>
+
+  <rect x="36" y="1056" width="688" height="118" class="card api"/>
+  <text x="60" y="1084" class="head">OutputProcessor · Detokenizer → "Sure" → Response</text>
+  <text x="60" y="1113" class="body">SSE Stream → Client</text>
+  <text x="60" y="1148" class="small">"Sure, here's a joke..."</text>
+</svg>
