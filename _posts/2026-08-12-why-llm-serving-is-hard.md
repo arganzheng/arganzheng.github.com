@@ -63,21 +63,7 @@ Table: 本文的章节安排
 
 LLM Serving 则不同。一个请求通常要经历：
 
-```text title='一个 LLM 请求要经历的步骤'
-请求进入
-  ↓
-Prompt Processing / Prefill
-  ↓
-生成第一个 Token
-  ↓
-Decode Step 1
-  ↓
-Decode Step 2
-  ↓
-Decode Step ...
-  ↓
-EOS 或达到长度上限
-```
+![一个 LLM 请求从进入、Prefill 到 Decode 结束的流程](/img/in-post/why-llm-serving-is-hard-request-flow.svg)
 
 它的输入和输出都具有动态性：
 
@@ -203,11 +189,7 @@ LLM Serving 中：
 - 请求完成时间不确定；
 - 每轮活跃请求集合不确定。
 
-因此，系统需要持续调度，而不是只在请求到达时进行一次 Batch 组装。下面用 4 个槽位、12 个 step 的时间线对比两种做法（`P` = Prefill，`D` = Decode 一步，`E` = 生成 EOS 的那一步，`.` = 槽位空转）：
-
-![静态 Batch 的空转：最长请求决定整批结束](/img/in-post/why-llm-serving-is-hard-static-vs-continuous-batching.svg)
-
-静态 Batch 里，R3 在 step 3 就结束了，但它的槽位要空转到 step 12 才能让给排队的 R5；输出长度越不均匀，浪费越大。Continuous Batching 把调度粒度从“一批请求”降到“一个 step”，任何一步结束都可以有请求离开、有请求进入，槽位始终有事可做。代价是同一个 step 里会混着新请求的 Prefill 和老请求的 Decode（如 step 6 的 slot1 与 slot2），一个长 Prompt 的 Prefill 会拖慢同批所有 Decode 的这一步——这正是第三章说的资源竞争，也是 Chunked Prefill 和 Token Budget 要解决的问题。
+不同请求会在不同时间到达，也会在不同时间结束。Batch 因此需要在每个 step 重新组成，具体调度方式见[第四篇](/scheduler-batch-and-fairness.html)。
 
 ### 2. 变化二：从无状态推理变成带状态推理
 
