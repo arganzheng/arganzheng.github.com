@@ -74,16 +74,7 @@ mindmap
 
 延迟维度的五个指标其实是同一条请求时间线上的不同区间，先把它们放到一张图里，后面的定义就不容易混（`t0` 客户端发出请求，`t1` 服务端开始执行，`t2` 首 token 到达客户端，`t3..tN` 后续每个输出 token 到达客户端，共 N 个输出 token）：
 
-```text title='一次请求的时间线：Queueing、TTFT、ITL'
-时间 ────────────────────────────────────────────────────────────────▶
-   t0            t1            t2      t3      t4      t5   ...     tN
-   │             │             │       │       │       │            │
-   ├── Queueing ─┼── Prefill ──┤       │       │       │            │
-   ├─────────── TTFT ──────────┤       │       │       │            │
-   │                           ├─ITL1──┼─ITL2──┼─ITL3──┼─── ... ────┤
-   │                           ├─── TPOT = (E2E - TTFT)/(N - 1) ────┤
-   ├───────────────────────── E2E Latency ──────────────────────────┤
-```
+![一次请求的时间线：Queueing、TTFT、ITL、TPOT 与 E2E](/img/in-post/how-to-measure-llm-serving-request-timeline.svg)
 
 几个容易看错的地方：TTFT 从 `t0` 而不是 `t1` 起算，所以它包含排队、首 token 采样和网络传输，不等于 Prefill；ITL 是 `t2` 之后每一段间隔各自的值，有 N−1 个样本，所以能算分位数；TPOT 是这 N−1 段的平均值，一个请求只有一个数，它和 ITL 的均值相等，但抹掉了抖动；E2E 覆盖整条线。
 
@@ -91,16 +82,16 @@ mindmap
 
 | 维度 | 指标 | 定义 | 主要反映 | 常见影响因素 | 使用注意 |
 |---|---|---|---|---|---|
-| **延迟** | **TTFT**<br>Time To First Token | 请求到达至收到第一个输出 Token 的时间 | 首次响应速度 | 排队、Prompt 长度、Prefill、Prefix Cache、首 Token 生成 | 不等于 Prefill 时间，还包括排队和传输 |
-| **延迟** | **TPOT**<br>Time Per Output Token | Decode 阶段平均生成一个输出 Token 的时间：`(E2E − TTFT) / (输出 Token 数 − 1)` | 平均生成速度 | Decode Batch、KV Cache 长度、显存带宽、Attention Kernel、量化 | vLLM 的 `vllm bench serve` 明确**不含首 Token**（报告栏标注 `excl. 1st token`）；对比其他工具时需确认口径 |
-| **延迟** | **ITL**<br>Inter-Token Latency | 相邻两个输出 Token 到达客户端的时间间隔 | 流式输出的连续性和稳定性 | 调度抖动、Batch 变化、抢占、网络传输 | 应重点观察 P95/P99，而不只是平均值 |
+| **延迟** | **TTFT**（Time To First Token） | 请求到达至收到第一个输出 Token 的时间 | 首次响应速度 | 排队、Prompt 长度、Prefill、Prefix Cache、首 Token 生成 | 不等于 Prefill 时间，还包括排队和传输 |
+| **延迟** | **TPOT**（Time Per Output Token） | Decode 阶段平均生成一个输出 Token 的时间：`(E2E − TTFT) / (输出 Token 数 − 1)` | 平均生成速度 | Decode Batch、KV Cache 长度、显存带宽、Attention Kernel、量化 | vLLM 的 `vllm bench serve` 明确**不含首 Token**（报告栏标注 `excl. 1st token`）；对比其他工具时需确认口径 |
+| **延迟** | **ITL**（Inter-Token Latency） | 相邻两个输出 Token 到达客户端的时间间隔 | 流式输出的连续性和稳定性 | 调度抖动、Batch 变化、抢占、网络传输 | 应重点观察 P95/P99，而不只是平均值 |
 | **延迟** | **E2E Latency** | 从请求发送至完整结果返回的总时间 | 完整请求体验 | 排队、Prefill、Decode、输出长度、网络 | 长输出场景下通常受 Decode 主导 |
 | **延迟** | **Queueing Time** | 请求到达至开始执行前的等待时间 | 系统拥塞程度 | 并发量、Batch 容量、Admission Control、KV Cache 空间 | 高并发时可能成为 TTFT 的主要部分 |
 | **吞吐** | **Output Tokens/s** | 单位时间生成的输出 Token 数 | Decode 吞吐 | Batch Size、显存带宽、Kernel、并行度 | 适合衡量在线生成能力 |
 | **吞吐** | **Total Tokens/s** | 单位时间处理的输入与输出 Token 总数 | 端到端 Token 处理能力 | Prompt 长度、输出长度、Prefill 和 Decode 效率 | 必须说明是否包含输入 Token |
 | **吞吐** | **Requests/s** | 单位时间完成的请求数 | 业务请求处理能力 | 请求长度、并发度、服务策略 | 不能脱离输入输出长度单独比较 |
 | **吞吐** | **Goodput** | 单位时间内满足 SLO 的**请求数**（req/s） | 满足服务质量后的有效吞吐 | 吞吐、尾延迟、调度、Admission Control | vLLM 的实现是 `request_goodput = 达标请求数 / 时长`，SLO 只能对 `ttft`、`tpot`、`e2el` 三项设阈值（`--goodput ttft:200 tpot:50`）；有些论文按 Token 计 Goodput，注意区分 |
-| **资源效率** | **MFU**<br>Model FLOPs Utilization | 实际模型 FLOPs/s 与理论峰值 FLOPs/s 的比值 | 计算单元利用效率 | GEMM 规模、算子融合、Kernel 调度 | Decode 可能受显存带宽限制，MFU 低不一定代表低效 |
+| **资源效率** | **MFU**（Model FLOPs Utilization） | 实际模型 FLOPs/s 与理论峰值 FLOPs/s 的比值 | 计算单元利用效率 | GEMM 规模、算子融合、Kernel 调度 | Decode 可能受显存带宽限制，MFU 低不一定代表低效 |
 | **资源效率** | **GPU 利用率** | GPU 活跃时间占比 | GPU 是否持续工作 | 计算、访存、通信、调度和 Kernel Launch | 需要结合 HBM 带宽和 Tokens/s 判断 |
 | **资源效率** | **显存利用率** | 已使用显存与可用显存的比例 | 并发和上下文容量 | 权重、KV Cache、激活、通信 Buffer、运行时开销 | 显存不仅决定模型能否加载，也决定并发度 |
 | **资源效率** | **Cost per Token** | 处理一个 Token 的综合成本 | 经济效率 | GPU 成本、吞吐、利用率、量化、SLO | 应明确按输入、输出还是有效 Token 计算 |

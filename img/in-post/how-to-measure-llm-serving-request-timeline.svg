@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="320" viewBox="0 0 760 320" role="img" aria-labelledby="title desc">
+  <title id="title">一次请求的时间线：Queueing、TTFT、ITL</title>
+  <desc id="desc">从 t0 到 tN 的请求时间线，标出 Queueing、Prefill、TTFT、ITL、TPOT 和 E2E。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#62758a"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #334155; }
+      .title { font-size: 20px; font-weight: 700; fill: #243447; }
+      .tick { stroke: #8494a7; stroke-width: 1.3; }
+      .span { stroke: #4d7599; stroke-width: 2; }
+      .span-soft { stroke: #7195b5; stroke-width: 2; }
+      .label { font-size: 14px; font-weight: 600; }
+      .time { font-size: 13px; font-weight: 600; }
+      .small { font-size: 12px; }
+    </style>
+  </defs>
+  <rect width="760" height="320" fill="#fff"/>
+  <text x="380" y="30" text-anchor="middle" class="title">一次请求的时间线：Queueing、TTFT、ITL</text>
+  <text x="50" y="66" class="label">时间</text>
+  <line x1="92" y1="62" x2="710" y2="62" stroke="#62758a" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <g class="tick">
+    <line x1="102" y1="70" x2="102" y2="82"/>
+    <line x1="245" y1="70" x2="245" y2="82"/>
+    <line x1="388" y1="70" x2="388" y2="82"/>
+    <line x1="443" y1="70" x2="443" y2="82"/>
+    <line x1="498" y1="70" x2="498" y2="82"/>
+    <line x1="553" y1="70" x2="553" y2="82"/>
+    <line x1="665" y1="70" x2="665" y2="82"/>
+  </g>
+  <g class="time" text-anchor="middle">
+    <text x="102" y="99">t0</text>
+    <text x="245" y="99">t1</text>
+    <text x="388" y="99">t2</text>
+    <text x="443" y="99">t3</text>
+    <text x="498" y="99">t4</text>
+    <text x="553" y="99">t5</text>
+    <text x="665" y="99">tN</text>
+  </g>
+  <g>
+    <line x1="102" y1="122" x2="245" y2="122" class="span"/>
+    <line x1="102" y1="116" x2="102" y2="128" class="span"/>
+    <line x1="245" y1="116" x2="245" y2="128" class="span"/>
+    <text x="173.5" y="116" text-anchor="middle" class="label">Queueing</text>
+
+    <line x1="245" y1="150" x2="388" y2="150" class="span"/>
+    <line x1="245" y1="144" x2="245" y2="156" class="span"/>
+    <line x1="388" y1="144" x2="388" y2="156" class="span"/>
+    <text x="316.5" y="144" text-anchor="middle" class="label">Prefill</text>
+
+    <line x1="102" y1="178" x2="388" y2="178" class="span-soft"/>
+    <line x1="102" y1="172" x2="102" y2="184" class="span-soft"/>
+    <line x1="388" y1="172" x2="388" y2="184" class="span-soft"/>
+    <text x="245" y="172" text-anchor="middle" class="label">TTFT</text>
+
+    <line x1="388" y1="207" x2="443" y2="207" class="span"/>
+    <line x1="443" y1="207" x2="498" y2="207" class="span"/>
+    <line x1="498" y1="207" x2="553" y2="207" class="span"/>
+    <line x1="553" y1="207" x2="665" y2="207" class="span"/>
+    <text x="415.5" y="201" text-anchor="middle" class="small">ITL1</text>
+    <text x="470.5" y="201" text-anchor="middle" class="small">ITL2</text>
+    <text x="525.5" y="201" text-anchor="middle" class="small">ITL3</text>
+    <text x="609" y="201" text-anchor="middle" class="small">…</text>
+    <text x="665" y="224" text-anchor="middle" class="small">后续 ITL，直到 tN</text>
+
+    <line x1="388" y1="244" x2="665" y2="244" class="span-soft"/>
+    <line x1="388" y1="238" x2="388" y2="250" class="span-soft"/>
+    <line x1="665" y1="238" x2="665" y2="250" class="span-soft"/>
+    <text x="526.5" y="238" text-anchor="middle" class="label">TPOT = (E2E - TTFT)/(N - 1)</text>
+
+    <line x1="102" y1="278" x2="665" y2="278" class="span"/>
+    <line x1="102" y1="272" x2="102" y2="284" class="span"/>
+    <line x1="665" y1="272" x2="665" y2="284" class="span"/>
+    <text x="383.5" y="272" text-anchor="middle" class="label">E2E Latency</text>
+  </g>
+</svg>
