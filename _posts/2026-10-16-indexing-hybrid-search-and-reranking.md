@@ -7,60 +7,13 @@ tags: [AI, LLM, AI-Application, RAG, Embedding, Vector Database]
 catalog: true
 ---
 
-上一篇把文档变成了带元数据的块。这一篇讲怎么把块存起来、怎么找回来：选哪个 embedding 模型、用什么索引结构、放在哪个向量库、怎么把 BM25（Best Matching 25）与向量的结果合起来、为什么 rerank 是整条流水线上性价比最高的一步、以及权限过滤为什么必须发生在这一步。
+上一篇把文档变成了带元数据的块。这一篇讲怎么把块存起来、怎么找回来：选哪个 embedding 模型、用什么索引结构、放在哪个向量库、怎么把 BM25 与向量的结果合起来、为什么 rerank 是整条流水线上性价比最高的一步、以及权限过滤为什么必须发生在这一步。
 
-这一层的选型与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的模型选型同构：榜单（MTEB，Massive Text Embedding Benchmark）只能缩范围，决定要在自己的查询集上做；并且它有一个模型选型没有的隐藏成本——**换 embedding 模型意味着全量重建索引**。2026 年的候选很多（Qwen3-Embedding 登顶 MMTEB（Massive Multilingual Text Embedding Benchmark）、Gemini Embedding、Voyage-3-large、Cohere Embed v4 支持 128K 与多模态、OpenAI text-embedding-3），而 MTEB 本身被指出用二元相关性抹平了模型之间的差异。选对模型之后，混合检索与 rerank 带来的提升常常比换模型大。
+这一层的选型与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的模型选型同构：榜单（MTEB）只能缩范围，决定要在自己的查询集上做；并且它有一个模型选型没有的隐藏成本——**换 embedding 模型意味着全量重建索引**。2026 年的候选很多（Qwen3-Embedding 登顶 MMTEB、Gemini Embedding、Voyage-3-large、Cohere Embed v4 支持 128K 与多模态、OpenAI text-embedding-3），而 MTEB 本身被指出用二元相关性抹平了模型之间的差异。选对模型之后，混合检索与 rerank 带来的提升常常比换模型大。
 
 本篇要回答的核心问题是：
 
-> **embedding 模型怎么选、MTEB 为什么不能直接用？[^q0] 向量索引与向量库怎么选，混合检索与 RRF（Reciprocal Rank Fusion）是什么，rerank 为什么性价比最高？[^q1] 权限为什么必须在检索时过滤，增量更新与删除怎么做？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| embedding | — | 把文本变成向量，意思相近的文本向量也相近 |
-| BM25 | Best Matching 25 | 按词频和文档长度打分的经典关键词检索算法 |
-| rerank | — | 对召回的候选重新精排打分 |
-| MTEB | Massive Text Embedding Benchmark | 文本 embedding 模型的综合榜单 |
-| Qwen3-Embedding / Gemini Embedding / Voyage-3-large / Cohere Embed v4 / text-embedding-3 | — | 2026 年主要的 embedding 模型候选 |
-| MMTEB | Massive Multilingual Text Embedding Benchmark | MTEB 的多语言扩展版 |
-| RRF | Reciprocal Rank Fusion | 倒数排名融合：只按排名合并多路结果 |
-| prompt | — | 发给模型的提示词与上下文 |
-| cross-encoder | — | 把查询和文档拼在一起过模型打分，rerank 用它 |
-| ANN | approximate nearest neighbor | 近似最近邻搜索，用一点精度换速度 |
-| Apache 2.0 | Apache License 2.0 | 允许商用的宽松开源许可证 |
-| Cohere Rerank / Qwen3-Reranker / BGE-reranker | — | 常用的 rerank 模型 |
-| XOR-Retrieve | — | 跨语言检索基准 |
-| token | — | 模型处理文本的基本单位 |
-| Matryoshka | Matryoshka Representation Learning | 套娃式向量：只取前几维也能用 |
-| int8 | 8-bit integer | 8 位整数，用来压缩向量 |
-| BGE-M3 | BAAI General Embedding M3 | 同时输出稠密、稀疏、多向量的开源 embedding 模型 |
-| nDCG | normalized discounted cumulative gain | 按位置打折、能用分级相关性的排序指标 |
-| judge | — | 给结果打分的模型，即 LLM-as-judge |
-| recall@k | — | 前 k 个结果里找回了多少相关块 |
-| MRR | mean reciprocal rank | 第一个相关结果排名倒数的平均值 |
-| HNSW | Hierarchical Navigable Small World | 分层的近邻图索引，多数向量库的默认结构 |
-| IVF | inverted file index | 先聚类、只搜最近几个簇的向量索引 |
-| PQ / SQ | product quantization / scalar quantization | 乘积量化 / 标量量化，压缩向量省内存 |
-| DiskANN | — | 微软的磁盘驻留向量索引，适合亿级 |
-| L2 | — | 应用地图第二层：Prompt 与上下文工程 |
-| L1 | — | 应用地图第一层：模型作为组件 |
-| top-k | — | 按分数取前 k 个结果 |
-| pgvector | — | PostgreSQL 的向量检索扩展 |
-| Elasticsearch / OpenSearch | — | 全文检索引擎，也支持向量 |
-| Qdrant / Milvus / Weaviate | — | 专用的向量数据库 |
-| turbopuffer / LanceDB | — | 基于对象存储的低成本向量库 |
-| QPS | queries per second | 每秒查询数 |
-| contextual retrieval | — | 给每个块前置一段模型写的上下文说明，再建索引 |
-| SPLADE | SParse Lexical AnD Expansion model | 学出词权重的稀疏检索模型 |
-| ColBERT | Contextualized Late Interaction over BERT | 按 token 存多向量、查询时晚交互的检索模型 |
-| agentic | — | 由模型自己决定查什么、查几轮的做法 |
-| ACL | access control list | 访问控制列表：记录谁能看这份文档 |
-| SaaS | software as a service | 软件即服务，这里指多租户的在线产品 |
-| A/B | A/B testing | 把流量分成两组、对比两个版本的实验 |
-
-Table: 本文用到的术语与缩写
+> **embedding 模型怎么选、MTEB 为什么不能直接用？[^q0] 向量索引与向量库怎么选，混合检索与 RRF 是什么，rerank 为什么性价比最高？[^q1] 权限为什么必须在检索时过滤，增量更新与删除怎么做？[^q2]**
 
 ## 一、总览
 
@@ -119,7 +72,7 @@ Table: embedding 模型候选
 与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》讲的 Arena 同一类问题：
 
 - **版本不可比**：MTEB 与 MMTEB、Multilingual v1 与 v2 的任务集不同，跨版本的分数不能横比。
-- **二元相关性**：MTEB 的检索数据集多用"相关 / 不相关"二值标注，nDCG（normalized discounted cumulative gain）这类指标在二值标签下退化——分不清"完美答案"与"勉强相关"。ZeroEntropy 2026 年用三个 judge 对 28 个 MTEB 检索数据集重标分级相关性，重评 16 个 embedding 模型与 7 个 rerank 模型，排名明显变化。
+- **二元相关性**：MTEB 的检索数据集多用"相关 / 不相关"二值标注，nDCG 这类指标在二值标签下退化——分不清"完美答案"与"勉强相关"。ZeroEntropy 2026 年用三个 judge 对 28 个 MTEB 检索数据集重标分级相关性，重评 16 个 embedding 模型与 7 个 rerank 模型，排名明显变化。
 - **聚合分数掩盖任务方差**：一个模型在分类上强、在检索上弱，平均分看不出来；你只关心检索。
 - **领域与语言**：中文法律文书、内部代码、医疗记录不在榜单的分布里。
 
@@ -141,7 +94,7 @@ Table: 选 embedding 模型的判据
 
 ### 4. 怎么评
 
-从真实查询里采 50–200 条，人工标注每条的相关块（第七篇的检索评测集），对候选模型算 recall@5 / @20 与 MRR（mean reciprocal rank）。多数团队会发现：三个候选的差距小于"加 BM25 混合"或"加 rerank"带来的提升——**模型选型不是这一层的主要杠杆**。
+从真实查询里采 50–200 条，人工标注每条的相关块（第七篇的检索评测集），对候选模型算 recall@5 / @20 与 MRR。多数团队会发现：三个候选的差距小于"加 BM25 混合"或"加 rerank"带来的提升——**模型选型不是这一层的主要杠杆**。
 
 ```mermaid
 %% 图：这一层各个杠杆的量级（示意，以纯 embedding 的 recall@5 = 70 为基线）——换一个榜单更高的 embedding 模型通常只动 2–3 个点；加 BM25 混合与 RRF 动 6–8 个点；加 rerank 再动 8–10 个点；把 embedding 选型当主要杠杆是这一层最常见的用力方向错误
@@ -157,7 +110,7 @@ xychart-beta
 
 ### 1. 索引结构
 
-精确最近邻在百万向量上太慢，用近似（ANN，approximate nearest neighbor）：
+精确最近邻在百万向量上太慢，用近似（ANN）：
 
 | 结构 | 原理 | 适合 | 代价 |
 |---|---|---|---|
@@ -168,7 +121,7 @@ xychart-beta
 
 Table: ANN 索引结构对照
 
-多数应用在百万块以下，HNSW（Hierarchical Navigable Small World）加标量量化足够；亿级才需要 IVF（inverted file index）与磁盘方案。**带过滤的搜索**是一个专门的问题：先过滤再搜（候选少时准但慢）还是先搜再过滤（快但可能过滤后不够 k 个）——向量库对此有各自的实现（过滤下推到图遍历），选库时要测你的过滤选择性下的召回。
+多数应用在百万块以下，HNSW 加标量量化足够；亿级才需要 IVF 与磁盘方案。**带过滤的搜索**是一个专门的问题：先过滤再搜（候选少时准但慢）还是先搜再过滤（快但可能过滤后不够 k 个）——向量库对此有各自的实现（过滤下推到图遍历），选库时要测你的过滤选择性下的召回。
 
 ```mermaid
 %% 图：HNSW 的多层图与贪心导航——上层稀疏、下层稠密，查询从顶层一个入口点开始，每层贪心走到离查询最近的节点再下一层，到底层做局部精搜；百万向量几次跳转就能到，代价是整张图驻留内存、构建慢
@@ -198,7 +151,7 @@ flowchart TB
 
 Table: 向量库选项
 
-原则：**数据量小时用你已有的数据库**。pgvector 在百万级以下完全够用，且把块、元数据、权限、事务放在一个系统里比跨系统同步简单得多。到了千万级、或需要复杂过滤与高 QPS（queries per second），再上专用库。
+原则：**数据量小时用你已有的数据库**。pgvector 在百万级以下完全够用，且把块、元数据、权限、事务放在一个系统里比跨系统同步简单得多。到了千万级、或需要复杂过滤与高 QPS，再上专用库。
 
 ## 四、混合检索
 
@@ -242,7 +195,7 @@ flowchart LR
 
 ### 3. 三路
 
-BGE-M3 一类模型同时输出稠密向量、稀疏（学习到的词权重，类似 SPLADE（SParse Lexical AnD Expansion model））与多向量（ColBERT（Contextualized Late Interaction over BERT）式）；三路 RRF 在多语言语料上常再提一截。代价是索引与查询成本三倍。
+BGE-M3 一类模型同时输出稠密向量、稀疏（学习到的词权重，类似 SPLADE）与多向量（ColBERT 式）；三路 RRF 在多语言语料上常再提一截。代价是索引与查询成本三倍。
 
 ## 五、rerank
 
@@ -287,7 +240,7 @@ Cohere Rerank、Voyage rerank、Qwen3-Reranker（开放，0.6B / 4B / 8B）、BG
 
 ### 1. 在哪一步
 
-在**两路召回时**：查询带用户的权限（用户 id、组、角色，或可见的 ACL（access control list）id 集合），向量索引与倒排索引都只在该用户可见的块里搜。不是 RRF 之后、不是 rerank 之后、更不是生成之后（第三篇第六章讲过为什么）。
+在**两路召回时**：查询带用户的权限（用户 id、组、角色，或可见的 ACL id 集合），向量索引与倒排索引都只在该用户可见的块里搜。不是 RRF 之后、不是 rerank 之后、更不是生成之后（第三篇第六章讲过为什么）。
 
 ### 2. 实现
 
@@ -298,7 +251,7 @@ Cohere Rerank、Voyage rerank、Qwen3-Reranker（开放，0.6B / 4B / 8B）、BG
 
 ### 3. 多租户
 
-多租户 SaaS（software as a service）的租户隔离是权限过滤的极端形式：要么每租户独立索引（隔离强、成本高），要么共享索引 + 租户 id 过滤（要确保过滤不可绕过）。多数向量库对此有专门的分区 / 命名空间机制。
+多租户 SaaS 的租户隔离是权限过滤的极端形式：要么每租户独立索引（隔离强、成本高），要么共享索引 + 租户 id 过滤（要确保过滤不可绕过）。多数向量库对此有专门的分区 / 命名空间机制。
 
 ## 七、更新、删除与重建
 

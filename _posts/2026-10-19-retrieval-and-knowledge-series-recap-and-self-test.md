@@ -28,84 +28,6 @@ flowchart TB
 
 ```
 
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| rerank | — | 对召回的候选重新精排打分 |
-| agentic | — | 由模型自己决定查什么、查几轮的做法 |
-| GraphRAG | — | 微软的图检索：抽实体关系建图，再做社区摘要 |
-| prompt | — | 发给模型的提示词与上下文 |
-| few-shot | — | 在 prompt 里放几个示例，让模型照着做 |
-| schema | — | 数据的结构定义：表、字段、类型 |
-| RAFT | Retrieval-Augmented Fine-Tuning | 用带干扰文档的检索结果做微调，让模型更会用检索 |
-| grep / glob | — | grep 按内容搜文本，glob 按通配符找文件 |
-| coding agent | — | 能读写代码、跑命令的编程 agent |
-| agent | — | 能自己调工具、多步完成任务的模型程序 |
-| Claude Code / Codex / Cline / Cody | — | 不建索引、让模型实时 grep 的编程 agent |
-| Cursor / Windsurf | — | 为代码库建向量索引的编程工具 |
-| Merkle 树 | Merkle tree | 逐层哈希的树，用来快速找出哪些文件变了 |
-| turbopuffer | — | 基于对象存储的托管向量库，Cursor 用它存索引 |
-| embedding | — | 把文本变成向量，意思相近的文本向量也相近 |
-| VLM | vision-language model | 能看图的语言模型，这里用来读文档图像 |
-| contextual retrieval | — | 给每个块前置一段模型写的上下文说明，再建索引 |
-| OmniDocBench | — | 文档解析基准，覆盖多类文档与版面 |
-| Mistral OCR / PaddleOCR-VL / DeepSeek-OCR | — | 用视觉语言模型读文档的 OCR 模型 |
-| OCR | optical character recognition | 光学字符识别，把图片里的字读出来 |
-| token | — | 模型处理文本的基本单位 |
-| MTEB | Massive Text Embedding Benchmark | 文本 embedding 模型的综合榜单 |
-| HNSW | Hierarchical Navigable Small World | 分层的近邻图索引，多数向量库的默认结构 |
-| BM25 | Best Matching 25 | 按词频和文档长度打分的经典关键词检索算法 |
-| RRF | Reciprocal Rank Fusion | 倒数排名融合：只按排名合并多路结果 |
-| top-k | — | 按分数取前 k 个结果，如 top-20 |
-| HyDE | Hypothetical Document Embeddings | 先让模型写一段假想答案，再用它去检索 |
-| file search | — | 供应商内置的托管检索：上传文件，自动建索引，模型调用 |
-| text-to-SQL | — | 让模型把自然语言问题翻成 SQL 查询 |
-| harness | — | 包住模型、限定它能做什么的运行框架 |
-| LazyGraphRAG | — | GraphRAG 的低成本版，把工作推到查询时 |
-| Spider / Spider 2.0 | — | text-to-SQL 基准；2.0 是企业级版本 |
-| trace | — | 记录每一步输入、输出和决策的调用轨迹 |
-| recall@k | — | 前 k 个结果里找回了多少相关块 |
-| judge | — | 给结果打分的那个模型 |
-| SFT | supervised fine-tuning | 有监督微调：用（输入，期望输出）对训练模型 |
-| RAG | retrieval-augmented generation | 检索增强生成：先检索相关内容放进上下文，再让模型回答 |
-| Docling / Marker / MinerU | — | 开源的布局模型解析器：先检测版面，再抽文字和表格 |
-| late chunking | — | 先整篇过 embedding 模型，再按块切出向量 |
-| ACL | access control list | 访问控制列表：记录谁能看这份文档 |
-| BGE-M3 | BAAI General Embedding M3 | 同时输出稠密、稀疏、多向量的开源 embedding 模型 |
-| Matryoshka | Matryoshka Representation Learning | 套娃式向量：只取前几维也能用 |
-| p50 / p95 | 50th / 95th percentile | 延迟的中位数与 95 分位 |
-| Leiden | — | 一种社区检测（图聚类）算法 |
-| map-reduce | — | 先分头处理、再汇总结果的做法 |
-| MRR | mean reciprocal rank | 第一个相关结果排名倒数的平均值 |
-| nDCG | normalized discounted cumulative gain | 按位置打折、能用分级相关性的排序指标 |
-| faithfulness / answer relevance / context precision | — | 生成侧指标：有没有依据、切不切题、上下文准不准 |
-| hold-out | — | 不参与迭代、只做最终检验的那部分数据 |
-| CI | continuous integration | 持续集成：每次变更自动跑测试 |
-| A/B | A/B testing | 把流量分成两组、对比两个版本的实验 |
-| cross-encoder | — | 把查询和文档拼在一起过模型打分，rerank 用它 |
-| LSP | Language Server Protocol | 编辑器和语言服务之间的协议，能查定义与引用 |
-| Qwen3-Reranker / Cohere / Voyage | — | 常用的 rerank 模型 |
-| prompt caching | — | 缓存重复的 prompt 前缀，降低成本与延迟 |
-| L2 | — | 应用地图第二层：Prompt 与上下文工程 |
-| L4 | — | 应用地图第四层：工具、Agent 与运行时 |
-| BI | business intelligence | 商业智能：报表与指标分析 |
-| L1 | — | 应用地图第一层：模型作为组件 |
-| webhook | — | 源系统有变更时主动回调通知 |
-| ColBERT | Contextualized Late Interaction over BERT | 按 token 存多向量、查询时晚交互的检索模型 |
-| L5 | — | 应用地图第五层：评测、可观测与可追溯；「算法地图 L5」指后训练 |
-| bad case | — | 答错的样例，用来补充评测集 |
-| durable execution | — | 长任务中断后能从断点继续执行的运行时 |
-| LLM-as-judge | — | 用大模型代替人工给结果打分 |
-| LLM | large language model | 大语言模型 |
-| L6 | — | 应用地图第六层：生产化与运营 |
-| prompt injection | — | 在输入里藏指令，诱导模型越权 |
-| LoRA | low-rank adaptation | 只训练低秩增量矩阵的轻量微调方法 |
-| DPO | direct preference optimization | 直接用偏好对训练模型的对齐方法 |
-| MMTEB | Massive Multilingual Text Embedding Benchmark | MTEB 的多语言扩展版 |
-
-Table: 本文用到的术语与缩写
-
 ## 一、总览：系列回答的问题与主线
 
 系列的一句话主张是：**事实进上下文、行为进权重；检索有三类按前提选、失败大多在检索之前；检索与生成分开评**。
@@ -140,7 +62,7 @@ Table: 本文的章节安排
 
 **核心问题**：为什么微调不是灌知识的工具？哪些知识进哪里？默认顺序与代价？
 
-**结论**：四个技术原因（不可靠、遗忘、不可引用、不可更新与过滤）加微软的对比实验；微调擅长行为（风格、格式、术语、工具调用模式）。决策表六行：会变的事实 → 检索 / 工具；结构化数据 → SQL / API / 本体；非结构化文档 → 检索；术语 → few-shot 再微调；流程 → 示例 + 工具再 SFT（supervised fine-tuning）；海量领域语料 → 继续预训练 + 检索。默认顺序每步代价上一个量级，每步要在评测集上证明前一步不够；微调的正确位置是末端的行为优化（RAFT（Retrieval-Augmented Fine-Tuning）、微调 embedding / rerank）。
+**结论**：四个技术原因（不可靠、遗忘、不可引用、不可更新与过滤）加微软的对比实验；微调擅长行为（风格、格式、术语、工具调用模式）。决策表六行：会变的事实 → 检索 / 工具；结构化数据 → SQL / API / 本体；非结构化文档 → 检索；术语 → few-shot 再微调；流程 → 示例 + 工具再 SFT；海量领域语料 → 继续预训练 + 检索。默认顺序每步代价上一个量级，每步要在评测集上证明前一步不够；微调的正确位置是末端的行为优化（RAFT、微调 embedding / rerank）。
 
 **必记**：事实进上下文、行为进权重；四问；多数应用停在第三步。
 
@@ -154,23 +76,23 @@ Table: 本文的章节安排
 
 **必记**：三类表；Anthropic 的判断句；读写比；关系查询单走结构化。
 
-**常见误解**："RAG（retrieval-augmented generation）已死 / 永生"；用向量搜函数名；用 grep 搜企业制度。
+**常见误解**："RAG 已死 / 永生"；用向量搜函数名；用 grep 搜企业制度。
 
 ### 3. 第三篇：解析与分块
 
 **核心问题**：解析三个梯级？三个静默失败？分块、contextual retrieval、元数据？
 
-**结论**：规则抽取（毫秒、免费）→ 布局模型（Docling / Marker / MinerU，本地）→ VLM（vision-language model；Mistral OCR 4、PaddleOCR-VL——小而专胜前沿通用）；先低后高按文档路由。三个静默失败与检测方法。分块按结构、表格不切断、200–800 token、父子块。结构路径前缀（免费）→ contextual retrieval（−49% / −67%，用缓存控成本）→ late chunking。元数据七项，权限必填且与源 ACL（access control list）同步。
+**结论**：规则抽取（毫秒、免费）→ 布局模型（Docling / Marker / MinerU，本地）→ VLM（Mistral OCR 4、PaddleOCR-VL——小而专胜前沿通用）；先低后高按文档路由。三个静默失败与检测方法。分块按结构、表格不切断、200–800 token、父子块。结构路径前缀（免费）→ contextual retrieval（−49% / −67%，用缓存控成本）→ late chunking。元数据七项，权限必填且与源 ACL 同步。
 
 **必记**：三梯级表；96.34 / 92.91 / 86.59；\$4 / 千页；三个失败的检测；权限进元数据以便检索时过滤。
 
-**常见误解**：调 OCR（optical character recognition）API 是默认；固定长度切一切；生成后过滤权限。
+**常见误解**：调 OCR API 是默认；固定长度切一切；生成后过滤权限。
 
 ### 4. 第四篇：索引、混合与 rerank
 
-**核心问题**：embedding 怎么选？索引与库？混合与 RRF（Reciprocal Rank Fusion）？rerank？权限？更新？
+**核心问题**：embedding 怎么选？索引与库？混合与 RRF？rerank？权限？更新？
 
-**结论**：候选表（Qwen3 / Gemini / Voyage / Cohere / OpenAI / BGE-M3）；MTEB（Massive Text Embedding Benchmark）版本不可比、二元相关性、聚合分、领域——缩范围，查询集决定；判据加上下文长度、Matryoshka、多模态、版本稳定性（换模型 = 全量重建）。HNSW（Hierarchical Navigable Small World） + 量化到百万级，先用现有数据库；混合 + RRF（$$k = 60$$）不调权重；rerank 只精排 top-20、性价比最高、让 k 从 10 降到 5。权限在两路召回时过滤、过滤下推、与源同步。更新：内容哈希 id、软删除重建窗口、换模型双写切换。
+**结论**：候选表（Qwen3 / Gemini / Voyage / Cohere / OpenAI / BGE-M3）；MTEB 版本不可比、二元相关性、聚合分、领域——缩范围，查询集决定；判据加上下文长度、Matryoshka、多模态、版本稳定性（换模型 = 全量重建）。HNSW + 量化到百万级，先用现有数据库；混合 + RRF（$$k = 60$$）不调权重；rerank 只精排 top-20、性价比最高、让 k 从 10 降到 5。权限在两路召回时过滤、过滤下推、与源同步。更新：内容哈希 id、软删除重建窗口、换模型双写切换。
 
 **必记**：路径图；RRF 公式；三步消融（混合、rerank、换模型）的收益顺序；重建的三个触发。
 
@@ -180,9 +102,9 @@ Table: 本文的章节安排
 
 **核心问题**：两种形态各适合什么？改进手段？agentic 的要求？内置 file search？
 
-**结论**：对比表；渐进路（改写、HyDE（Hypothetical Document Embeddings）、多查询与拆分、元数据路由、自检一轮）；agentic 换到召回压力低、多跳、类型可选，付成本延迟不定、上下文增长、工具描述、循环控制、可预测性低；检索工具的七要素；内置 file search 是服务端工具的取舍；决策三问，最常见是级联。
+**结论**：对比表；渐进路（改写、HyDE、多查询与拆分、元数据路由、自检一轮）；agentic 换到召回压力低、多跳、类型可选，付成本延迟不定、上下文增长、工具描述、循环控制、可预测性低；检索工具的七要素；内置 file search 是服务端工具的取舍；决策三问，最常见是级联。
 
-**必记**：p95（95th percentile）是 p50（median）的 5–10 倍；摘要 + 引用；步数上限；级联。
+**必记**：p95 是 p50 的 5–10 倍；摘要 + 引用；步数上限；级联。
 
 **常见误解**：全量 agentic；工具返回全文；内置 file search 有细粒度权限。
 
@@ -200,7 +122,7 @@ Table: 本文的章节安排
 
 **核心问题**：分清两种病？评测集？在线信号？运营？权限泄漏？
 
-**结论**：两段评测图；检索侧 recall@k 分层、MRR（mean reciprocal rank）、nDCG（normalized discounted cumulative gain，分级）、消融；生成侧 faithfulness、answer relevance、context precision、引用与拒答正确率，固定检索评生成，三个数字定位；judge 一致率 ≥ 85%。评测集真实采样 50–100 起、每周补、hold-out、版本化。在线信号八项带 trace。运营：新鲜度、重建预算、五项成本、三种漂移。权限泄漏：Slack AI、Copilot；"不该看到"查询集进 CI（continuous integration）、ACL 延迟、注入测试、审计日志、上线前审计源权限。
+**结论**：两段评测图；检索侧 recall@k 分层、MRR、nDCG（分级）、消融；生成侧 faithfulness、answer relevance、context precision、引用与拒答正确率，固定检索评生成，三个数字定位；judge 一致率 ≥ 85%。评测集真实采样 50–100 起、每周补、hold-out、版本化。在线信号八项带 trace。运营：新鲜度、重建预算、五项成本、三种漂移。权限泄漏：Slack AI、Copilot；"不该看到"查询集进 CI、ACL 延迟、注入测试、审计日志、上线前审计源权限。
 
 **必记**：三个数字；合成问题高估 recall；检索放大权限错误。
 
@@ -344,10 +266,10 @@ Table: 常见误区与正确说法
 2. 判断：Claude Code 的代码搜索工具里没有向量检索。
 
    <details markdown="1"><summary>答案</summary>
-   对（就公开的工具列表而言：Glob、Grep、LSP（Language Server Protocol））。团队公开说从向量库起步后放弃；Anthropic 建议从 agentic 搜索开始。
+   对（就公开的工具列表而言：Glob、Grep、LSP）。团队公开说从向量库起步后放弃；Anthropic 建议从 agentic 搜索开始。
    </details>
 
-3. 计算：RRF（$$k = 60$$），文档 A 向量路第 2、BM25（Best Matching 25）路第 4；文档 B 只在向量路第 1。谁高？
+3. 计算：RRF（$$k = 60$$），文档 A 向量路第 2、BM25 路第 4；文档 B 只在向量路第 1。谁高？
 
    <details markdown="1"><summary>答案</summary>
    A：$$1/62 + 1/64 \approx 0.01613 + 0.01563 = 0.03176$$；B：$$1/61 \approx 0.01639$$。A 高——两路都出现胜过一路第一。
@@ -418,7 +340,7 @@ Table: 常见误区与正确说法
 4. 一个 text-to-SQL 数据分析 agent 在演示数据库上 90% 正确，接入真实数仓后 25%。用第六篇诊断，用第五、七篇设计验证与评测。
 
    <details markdown="1"><summary>答案</summary>
-   诊断：真实数仓的列名不可读、业务规则隐含在报表 SQL 里、多表关系未声明、同名异义——模型不知道该查什么，这与 Spider 2.0 上前沿模型只有两成一致。改：建语义层（最常查的 50 个指标 / 维度 / 实体 / 关系），模型对语义层生成查询，权限在语义层；概念多时先检索相关概念再组合（第五篇的检索找对象）。验证：生成的查询过语法 / 只读 / 成本 / 超时四道门，结果回模型自检（L4 工具循环）。评测：从真实 BI（business intelligence）查询采（问题，正确 SQL 或结果）50–100 条，按执行结果匹配率评，分"找对概念"与"组合正确"两层；在线看零结果率、超时率、用户修改查询的比例。
+   诊断：真实数仓的列名不可读、业务规则隐含在报表 SQL 里、多表关系未声明、同名异义——模型不知道该查什么，这与 Spider 2.0 上前沿模型只有两成一致。改：建语义层（最常查的 50 个指标 / 维度 / 实体 / 关系），模型对语义层生成查询，权限在语义层；概念多时先检索相关概念再组合（第五篇的检索找对象）。验证：生成的查询过语法 / 只读 / 成本 / 超时四道门，结果回模型自检（L4 工具循环）。评测：从真实 BI 查询采（问题，正确 SQL 或结果）50–100 条，按执行结果匹配率评，分"找对概念"与"组合正确"两层；在线看零结果率、超时率、用户修改查询的比例。
    </details>
 
 5. 把本系列七篇与 L1 的七条失效模式、L2 的六篇对应起来：检索主要对付哪几条失效？检索结果作为上下文的一层受 L2 哪几篇约束？
@@ -526,7 +448,7 @@ Table: 掌握程度的判据
 
 本系列有意不展开的内容，以及它们在哪个系列里：
 
-- **不讲微调的方法**：SFT / LoRA（low-rank adaptation） / DPO（direct preference optimization） / 继续预训练属于算法地图 L5；本系列只讲何时该微调与它不能做什么。
+- **不讲微调的方法**：SFT / LoRA / DPO / 继续预训练属于算法地图 L5；本系列只讲何时该微调与它不能做什么。
 - **不讲 embedding 模型怎么训**：对比学习属于算法地图；本系列只讲怎么选、怎么评。
 - **不讲向量检索的算力与部署**：属于 Infra 地图；本系列只讲索引结构的选择依据。
 - **不讲 agent 循环本身**：agentic retrieval 里的循环控制、工具运行时、权限模型属于 L4；本系列只讲检索作为工具的设计要求。
@@ -535,6 +457,6 @@ Table: 掌握程度的判据
 
 [^q0]: 面对一份私域知识：它该进上下文还是进权重，微调能不能解决（第一篇）；该用 grep、向量还是 SQL，coding 场景要不要建索引，读写比怎么算（第二篇）；这批 PDF 用哪个梯级解析、三个静默失败怎么检测、块按什么切、要不要 contextual 前缀、权限怎么进元数据（第三篇）；用哪个 embedding、要不要混合与 rerank、权限在哪一步过滤、换模型怎么重建（第四篇）；固定流水线还是 agentic，改写 / HyDE / 多查询 / 路由 / 自检各解决什么，检索工具怎么设计（第五篇）；业务库建语义层、本体还是图，text-to-SQL 为什么两成（第六篇）；答错了是没找到还是找到了没说对，三个数字怎么定位，在线看什么，权限泄漏怎么测（第七篇）。详见[第一章](#一总览系列回答的问题与主线)。
 
-[^q1]: 数字：*Fine-Tuning or Retrieval?* 检索显著优于微调；PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59；Mistral OCR 4 每千页 \$4、170 语言；Anthropic contextual retrieval −49% / 加 rerank −67%；块 200–800 token、重叠 10–20%；Qwen3-Embedding-8B MMTEB（Massive Multilingual Text Embedding Benchmark） 70.58、Gemini Embedding 68.32、Gemini 输入 2K vs Cohere v4 128K；RRF $$k = 60$$；top-50 → RRF → top-20 → rerank → top-5；Spider 2.0 两成左右；GraphRAG 索引贵几十到几百倍；p95 是 p50 的 5–10 倍；评测集 50–100 条起；judge 一致率 ≥ 85%。结论：事实进上下文行为进权重；四问；词法三前提；过期税看读写比；点不是边；先低后高的梯级；三个静默失败；权限进元数据召回时过滤；换 embedding 全量重建双写切换；级联；语义层；本体是 harness；建图先数问题；分开评三个数字；不该看到查询集。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: 数字：*Fine-Tuning or Retrieval?* 检索显著优于微调；PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59；Mistral OCR 4 每千页 \$4、170 语言；Anthropic contextual retrieval −49% / 加 rerank −67%；块 200–800 token、重叠 10–20%；Qwen3-Embedding-8B MMTEB 70.58、Gemini Embedding 68.32、Gemini 输入 2K vs Cohere v4 128K；RRF $$k = 60$$；top-50 → RRF → top-20 → rerank → top-5；Spider 2.0 两成左右；GraphRAG 索引贵几十到几百倍；p95 是 p50 的 5–10 倍；评测集 50–100 条起；judge 一致率 ≥ 85%。结论：事实进上下文行为进权重；四问；词法三前提；过期税看读写比；点不是边；先低后高的梯级；三个静默失败；权限进元数据召回时过滤；换 embedding 全量重建双写切换；级联；语义层；本体是 harness；建图先数问题；分开评三个数字；不该看到查询集。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 
 [^q2]: 用第五章 D 节的三级判据：读过——能说出几条口诀；掌握——能对知识源分类选路、对语料判前提选类型、设计含梯级路由与权限元数据的入库流水线、建评测集做消融读三个数字、设计检索工具与级联、为业务库写语义层并判断本体 / 图；能教人——能解释过期税与读写比、点 vs 边、RRF 与 rerank 的机制、contextual retrieval 与 late chunking 的差异、GraphRAG 的成本来源与 LazyGraphRAG 的改动、用两个公开事件说明检索放大权限错误。通关：A 组 8 题以上（误差 5% 内）、B 组 4 题以上完整推理链、C 组每题三个要点加一个追问。详见[第五章](#五通关自测)。
