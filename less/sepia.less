@@ -409,3 +409,13 @@ html[data-theme="sepia"] {
 	.post-container .callout-caution { border-left-color: @callout-caution; background-color: mix(@sp-surface, @callout-caution, 92%); }
 	.post-container .callout-title { color: inherit; }
 }
+
+html[data-theme="sepia"] .search-overlay-results .search-result-figure {
+	background: fade(@sp-link, 14%);
+	color: @sp-link;
+}
+html[data-theme="sepia"] .post-container .post-figure.fig-flash > .fig-media,
+html[data-theme="sepia"] .post-container img.fig-flash {
+	--fig-flash-color: fade(@sp-link, 88%);
+	--fig-flash-glow: fade(@sp-link, 18%);
+}

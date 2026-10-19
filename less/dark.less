@@ -888,3 +888,22 @@ html[data-theme="dark"] #dash-schedule {
 	0%, 35% { background-color: #3b3525; }
 	100% { background-color: transparent; }
 }
+
+html[data-theme="dark"] .search-overlay-results .search-result-figure {
+	background: fade(@dk-link, 18%);
+	color: @dk-link;
+}
+html[data-theme="dark"] {
+	.search-overlay { background-color: @dk-bg; color: @dk-text; }
+	.search-overlay-close, #search-overlay-input,
+	.search-overlay-results .search-result-item h3 a { color: @dk-heading; }
+	#search-overlay-input::placeholder, .search-overlay-stats,
+	.search-overlay-results .search-result-meta { color: @dk-muted; }
+	.search-overlay-results .search-result-item { border-color: @dk-border; }
+	.search-overlay-results .search-result-item p { color: @dk-text; }
+}
+html[data-theme="dark"] .post-container .post-figure.fig-flash > .fig-media,
+html[data-theme="dark"] .post-container img.fig-flash {
+	--fig-flash-color: fade(@dk-link, 88%);
+	--fig-flash-glow: fade(@dk-link, 20%);
+}

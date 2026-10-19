@@ -29,7 +29,7 @@ updated: 2026-09-30
 
 Table: 系列三段的范围
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="lora" %}
 

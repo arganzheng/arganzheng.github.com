@@ -17,6 +17,17 @@ require 'yaml'
 
 HOMONYMS = %w[CFG AR ORM A2A TLS].freeze
 
+# Abbreviations too well-known to need a gloss; a file must not contain them.
+WELL_KNOWN = %w[
+  AI ML LLM GPT GPU CPU TPU API SDK CLI IDE UI UX OS I/O IO
+  RAM SSD HTTP HTTPS URL JSON YAML SQL HTML CSS JS PDF CSV ID
+  PR CI CD AMD NVIDIA KV NLP CV RL CUDA UTF-8 XOR
+].map(&:upcase).freeze
+
+# Files the WELL_KNOWN rule already applies to; the rest still carry
+# well-known terms until the abbrev-only rollout reaches them.
+ABBREV_ONLY_FILES = %w[deep-dive-into-vllm lora deep-learning-foundations].freeze
+
 ROOT = File.expand_path('..', __dir__)
 BOUND = '[A-Za-z0-9_-]'
 
@@ -58,6 +69,7 @@ Dir.glob(File.join(ROOT, '_data', 'glossary', '*.yml')).sort.each do |file|
     seen[term] = true
     failures << "#{key}.yml '#{term}': missing full" if e['full'].to_s.strip.empty?
     failures << "#{key}.yml '#{term}': missing desc" if e['desc'].to_s.strip.empty?
+    failures << "#{key}.yml '#{term}': well-known abbreviation, remove it" if ABBREV_ONLY_FILES.include?(key) && WELL_KNOWN.include?(term.to_s.upcase.sub(/ CACHE\z/, ''))
 
     patterns = ([term] + Array(e['aliases'])).map { |t| term_re(t) }
     found = bodies[key].any? { |body| patterns.any? { |re| body =~ re } }

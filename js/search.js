@@ -1,7 +1,7 @@
 // Site search client. The index is built by _plugins/search_index.rb:
 //   <base>/meta.json      one [url, title, date, tags] per post (id = index)
 //   <base>/idx/<n>.json   inverted index bucket n: key -> posting list (id deltas)
-//   <base>/doc/<slug>.txt plain text of one post
+//   <base>/doc/<slug>.txt body text, then image records: \u001e<basename>\u001f<text>
 // A query fetches only the buckets its keys hash into (a few KB each) and the
 // text of the posts it is about to show; nothing is downloaded up front except
 // meta.json. Matching semantics are those of the old all-in-memory version:
@@ -132,8 +132,21 @@
     return score;
   }
 
-  function fullMatch(item, text, ctx) {
-    var haystack = item._title + " " + text.toLowerCase();
+  function parseDoc(text) {
+    var parts = (text || "").split("\u001e");
+    var images = [];
+    for (var i = 1; i < parts.length; i += 1) {
+      var separator = parts[i].indexOf("\u001f");
+      if (separator < 0) continue;
+      var name = parts[i].slice(0, separator);
+      if (name) images.push({ name: name, text: parts[i].slice(separator + 1) });
+    }
+    return { body: parts[0], images: images };
+  }
+
+  function fullMatch(item, doc, ctx) {
+    var imageText = doc.images.map(function(image) { return image.text; }).join(" ");
+    var haystack = item._title + " " + doc.body.toLowerCase() + " " + imageText.toLowerCase();
     for (var i = 0; i < ctx.terms.length; i += 1) if (!fieldHits(haystack, ctx, i)) return false;
     return true;
   }
@@ -250,13 +263,29 @@
         if (seq !== state.seq) return;
         var node = listNode.querySelector('[data-id="' + item.id + '"]');
         if (!node) return;
-        if (!fullMatch(item, text, ctx)) {
+        var doc = parseDoc(text);
+        if (!fullMatch(item, doc, ctx)) {
           node.remove();
           state.dropped += 1;
           statsNode.innerHTML = statsLine();
           return;
         }
-        node.querySelector(".search-result-snippet").innerHTML = highlightText(makeSnippet(text, ctx), ctx);
+        var bodyHasMatch = ctx.snippetMatchers.some(function(matcher) { return matcher.test(doc.body); });
+        var matchingImage = null;
+        if (!bodyHasMatch) {
+          for (var i = 0; i < doc.images.length && !matchingImage; i += 1) {
+            if (ctx.snippetMatchers.some(function(matcher) { return matcher.test(doc.images[i].text); })) {
+              matchingImage = doc.images[i];
+            }
+          }
+        }
+        var snippet = highlightText(makeSnippet(doc.body, ctx), ctx);
+        if (matchingImage) {
+          node.querySelector("h3 a").setAttribute("href", item.url + "#img=" + encodeURIComponent(matchingImage.name));
+          snippet = '<span class="search-result-figure">图片</span> ' +
+            highlightText(makeSnippet(matchingImage.text, ctx), ctx);
+        }
+        node.querySelector(".search-result-snippet").innerHTML = snippet;
       }).catch(function() {
         if (seq !== state.seq) return;
         var node = listNode.querySelector('[data-id="' + item.id + '"] .search-result-snippet');

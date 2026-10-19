@@ -6,7 +6,7 @@
 # any other output):
 #   meta.json        [[url, title, "YYYY-MM-DD", [tags…]], …]   one entry per post, id = index
 #   idx/<0..N-1>.json {key: [id deltas…]}                         inverted index, keys hashed into N buckets
-#   doc/<slug>.txt   plain text of one post (title not included)
+#   doc/<slug>.txt   body text, then image records: \u001e<basename>\u001f<text>
 #   preview.json     {url: [title, date, summary, series_name]}   compact post hover previews
 #
 # Keys are what the client can derive from a query without a tokenizer, so the
@@ -28,6 +28,8 @@ module SearchIndex
   CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/
   CJK_RUN = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]+/
   BLOCK_TAG = %r{</?(?:p|div|li|ul|ol|h[1-6]|pre|br|hr|tr|td|th|table|thead|tbody|blockquote|section|figure|figcaption|dt|dd|details|summary)\b[^>]*>}i
+  IMAGE_TAG = /<img\b(?:"[^"]*"|'[^']*'|[^'">])*?>/im
+  SVG_NOISE = /\A[\d\s.,:%+\-−×eE()]*\z/
 
   # Rendered HTML -> searchable plain text. Block tags become a space, inline
   # tags vanish (so `分布式<strong>锁</strong>` still contains `分布式锁`).
@@ -40,6 +42,59 @@ module SearchIndex
       .gsub(/<[^>]*>/m, '')
       .gsub('&nbsp;', ' ')
     CGI.unescapeHTML(t).gsub(/\s+/, ' ').strip
+  end
+
+  def self.image_attribute(tag, name)
+    match = tag.match(/(?:\A|\s)#{Regexp.escape(name)}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i)
+    match && match.captures.compact.first
+  end
+
+  def self.local_svg_path(src, site)
+    path = CGI.unescapeHTML(src.to_s).split(/[?#]/, 2).first
+    baseurl = site.baseurl.to_s.sub(%r{/$}, '')
+    if !baseurl.empty? && (path == baseurl || path.start_with?("#{baseurl}/"))
+      path = path.delete_prefix(baseurl)
+    end
+    return unless path.start_with?('/') && File.extname(path).downcase == '.svg'
+
+    source = File.expand_path(site.source)
+    file = File.expand_path(path.delete_prefix('/'), source)
+    file if file.start_with?("#{source}/") && File.file?(file)
+  end
+
+  def self.svg_text_of(path)
+    source = File.read(path, encoding: 'UTF-8')
+      .gsub(%r{<(style|script)\b[^>]*>.*?</\1\s*>}mi, ' ')
+    source.scan(%r{<(text|title|desc)\b[^>]*>(.*?)</\1\s*>}mi).filter_map do |name, inner|
+      text = CGI.unescapeHTML(inner.gsub(/<[^>]*>/, '')).gsub(/\s+/, ' ').strip
+      next if text.empty? || (name.downcase == 'text' && SVG_NOISE.match?(text))
+
+      text
+    end.join(' ')
+  rescue StandardError
+    ''
+  end
+
+  def self.images_of(html, site, svg_cache)
+    seen = {}
+    html.to_s.scan(IMAGE_TAG).each_with_object([]) do |tag, images|
+      src = image_attribute(tag, 'src')
+      next if src.nil?
+
+      src = CGI.unescapeHTML(src).strip
+      next if src.empty? || seen[src]
+
+      seen[src] = true
+      path = src.split(/[?#]/, 2).first
+      name = path.split('/').last.to_s
+      next if name.empty?
+
+      parts = [CGI.unescapeHTML(image_attribute(tag, 'alt').to_s)]
+      svg_path = local_svg_path(src, site)
+      parts << (svg_cache[svg_path] ||= svg_text_of(svg_path)) if svg_path
+      text = parts.join(' ').gsub(/[\u0000-\u001f]/, ' ').gsub(/\s+/, ' ').strip
+      images << { name: name, text: text } unless text.empty?
+    end
   end
 
   def self.keys_of(text)
@@ -77,14 +132,17 @@ Jekyll::Hooks.register :site, :post_render do |site|
   preview = {}
   postings = Hash.new { |h, k| h[k] = [] }
   pages = []
+  svg_cache = {}
 
   posts.each_with_index do |post, id|
     url = File.join(site.baseurl.to_s, post.url)
     title = post.data['title'].to_s
     text = SearchIndex.text_of(post.content)
+    images = SearchIndex.images_of(post.content, site, svg_cache)
     meta << [url, title, post.date.strftime('%Y-%m-%d'), Array(post.data['tags']).map(&:to_s)]
-    SearchIndex.keys_of("#{title} #{text}").each { |k| postings[k] << id }
-    pages << SearchIndex.page(site, '/search/doc', "#{File.basename(post.url, '.html')}.txt", text)
+    SearchIndex.keys_of("#{title} #{text} #{images.map { |image| image[:text] }.join(' ')}").each { |k| postings[k] << id }
+    doc = text + images.map { |image| "\u001e#{image[:name]}\u001f#{image[:text]}" }.join
+    pages << SearchIndex.page(site, '/search/doc', "#{File.basename(post.url, '.html')}.txt", doc)
     summary = post.data['subtitle'].to_s.strip
     summary = post.data['description'].to_s.strip if summary.empty?
     summary = "#{text.chars.first(80).join}…" if summary.empty?
