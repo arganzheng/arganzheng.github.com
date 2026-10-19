@@ -1,117 +1,73 @@
-- term: "AIME"
-  full: "American Invitational Mathematics Examination"
-  desc: "美国数学邀请赛；推理模型评测常用的难题集"
-- term: "Arena"
+---
+- term: AIME
+  full: American Invitational Mathematics Examination
+  desc: 美国数学邀请赛；推理模型评测常用的难题集
+- term: BoN
+  full: best-of-n
+  desc: 同一 prompt 采 n 个回答、用 RM 挑最好的那个
+- term: DAPO
+  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  desc: GRPO 的改进：clip-higher、过滤全对/全错组等
+- term: DPO
+  full: Direct Preference Optimization
+  desc: 不训奖励模型、直接从偏好数据推 loss 的偏好训练方法
+- term: GAE
+  full: generalized advantage estimation
+  desc: 广义优势估计：在偏差与方差间折中的优势算法
+- term: GRPO
+  full: Group Relative Policy Optimization
+  desc: 用组内均值替代价值模型的策略梯度方法
+- term: GSM8K
+  full: Grade School Math 8K
+  desc: 小学数学文字题 benchmark，8.5K 题
+- term: IPO
+  full: Identity Preference Optimization
+  desc: DPO 的变体，防止确定性偏好下过拟合
+- term: KL
+  full: Kullback–Leibler divergence
+  desc: 衡量两个分布差多少；RL 里约束策略别离参考太远
+- term: KTO
+  full: Kahneman–Tversky Optimization
+  desc: 只要单样本好坏标签、不要成对偏好的方法
+- term: LoRA
+  full: Low-Rank Adaptation
+  desc: 冻结主干、只训低秩增量的微调方法
+- term: MMLU
+  full: Massive Multitask Language Understanding
+  desc: 57 学科的多选题 benchmark
+- term: NLL
+  full: negative log-likelihood
+  desc: 负对数似然，SFT 实际优化的 loss
+- term: ORM
+  full: outcome reward model
+  desc: 只看最终答案对错的奖励模型
+- term: ORPO
+  full: Odds Ratio Preference Optimization
+  desc: 把偏好项并入 SFT loss、不用参考模型的方法
+- term: PPO
+  full: Proximal Policy Optimization
+  desc: 带裁剪目标、防步子过大的策略梯度方法
+- term: PRM
+  full: process reward model
+  desc: 过程奖励模型：逐步给推导打分的 RM
+- term: REINFORCE
   full: "—"
-  desc: "Chatbot Arena：真人两两投票排的模型榜"
-- term: "baseline"
-  full: "—"
-  desc: "基线：组内均值那一项，减掉它降低方差"
-- term: "BoN"
-  full: "best-of-n"
-  desc: "同一 prompt 采 n 个回答、用 RM 挑最好的那个"
-- term: "Bradley-Terry"
-  full: "—"
-  desc: "成对偏好的概率模型，RM 与 DPO 的底层形式"
-- term: "chat template"
-  full: "—"
-  desc: "把多轮对话拼成模型输入串的模板"
-- term: "DAPO"
-  full: "Decoupled Clip and Dynamic sAmpling Policy Optimization"
-  desc: "GRPO 的改进：clip-higher、过滤全对/全错组等"
-- term: "DPO"
-  full: "Direct Preference Optimization"
-  desc: "不训奖励模型、直接从偏好数据推 loss 的偏好训练方法"
-- term: "GAE"
-  full: "generalized advantage estimation"
-  desc: "广义优势估计：在偏差与方差间折中的优势算法"
-- term: "GRPO"
-  full: "Group Relative Policy Optimization"
-  desc: "用组内均值替代价值模型的策略梯度方法"
-- term: "GSM8K"
-  full: "Grade School Math 8K"
-  desc: "小学数学文字题 benchmark，8.5K 题"
-- term: "InstructGPT"
-  full: "—"
-  desc: "OpenAI 的 RLHF 论文与模型，三件套配方的出处"
-- term: "IPO"
-  full: "Identity Preference Optimization"
-  desc: "DPO 的变体，防止确定性偏好下过拟合"
-- term: "judge"
-  full: "LLM-as-a-judge"
-  desc: "用来给回答打分的模型或规则器（LLM-as-a-judge）"
-- term: "KL"
-  full: "Kullback–Leibler divergence"
-  desc: "衡量两个分布差多少；RL 里约束策略别离参考太远"
-- term: "KTO"
-  full: "Kahneman–Tversky Optimization"
-  desc: "只要单样本好坏标签、不要成对偏好的方法"
-- term: "LiveCodeBench"
-  full: "—"
-  desc: "按时间滚动的代码评测集，防污染"
-- term: "LoRA"
-  full: "Low-Rank Adaptation"
-  desc: "冻结主干、只训低秩增量的微调方法"
-- term: "loss mask"
-  full: "—"
-  desc: "把 prompt 部分标 −100、只对回答部分算 loss"
-- term: "MMLU"
-  full: "Massive Multitask Language Understanding"
-  desc: "57 学科的多选题 benchmark"
-- term: "NLL"
-  full: "negative log-likelihood"
-  desc: "负对数似然，SFT 实际优化的 loss"
-- term: "off-policy"
-  full: "—"
-  desc: "训练数据不是当前策略采的；需要重要性比校正"
-- term: "on-policy"
-  full: "—"
-  desc: "训练数据就是当前策略采的；PPO/GRPO 默认如此"
-- term: "ORM"
-  full: "outcome reward model"
-  desc: "只看最终答案对错的奖励模型"
-- term: "ORPO"
-  full: "Odds Ratio Preference Optimization"
-  desc: "把偏好项并入 SFT loss、不用参考模型的方法"
-- term: "packing"
-  full: "—"
-  desc: "把多条短样本拼进一条序列，省掉 padding"
-- term: "PPO"
-  full: "Proximal Policy Optimization"
-  desc: "带裁剪目标、防步子过大的策略梯度方法"
-- term: "PRM"
-  full: "process reward model"
-  desc: "过程奖励模型：逐步给推导打分的 RM"
-- term: "REINFORCE"
-  full: "—"
-  desc: "最早的策略梯度算法，用 score function 估计梯度"
-- term: "reward hacking"
-  full: "—"
-  desc: "策略钻奖励模型的空子，分数涨了、质量没涨"
-- term: "RL"
-  full: "reinforcement learning"
-  desc: "强化学习，用奖励信号优化策略"
-- term: "RLHF"
-  full: "reinforcement learning from human feedback"
-  desc: "用人类反馈的奖励做强化学习微调"
-- term: "RLOO"
-  full: "REINFORCE Leave-One-Out"
-  desc: "用组内留一均值做 baseline 的 REINFORCE"
-- term: "RLVR"
-  full: "RL with verifiable rewards"
-  desc: "用可验证奖励（数学答案、代码测试）做的强化学习"
-- term: "RM"
-  full: "reward model"
-  desc: "奖励模型，给回答打分的小模型"
-- term: "rollout"
-  full: "—"
-  desc: "用当前策略生成回答的阶段"
-- term: "SFT"
-  full: "supervised fine-tuning"
-  desc: "用标注答案做监督微调"
-- term: "SWE-bench"
-  full: "—"
-  desc: "真实 GitHub issue 修复的代码 agent benchmark"
-- term: "verl"
-  full: "Volcano Engine Reinforcement Learning"
-  desc: "字节开源的 LLM 强化学习训练框架"
+  desc: 最早的策略梯度算法，用 score function 估计梯度
+- term: RLHF
+  full: reinforcement learning from human feedback
+  desc: 用人类反馈的奖励做强化学习微调
+- term: RLOO
+  full: REINFORCE Leave-One-Out
+  desc: 用组内留一均值做 baseline 的 REINFORCE
+- term: RLVR
+  full: RL with verifiable rewards
+  desc: 用可验证奖励（数学答案、代码测试）做的强化学习
+- term: RM
+  full: reward model
+  desc: 奖励模型，给回答打分的小模型
+- term: SFT
+  full: supervised fine-tuning
+  desc: 用标注答案做监督微调
+- term: verl
+  full: Volcano Engine Reinforcement Learning
+  desc: 字节开源的 LLM 强化学习训练框架

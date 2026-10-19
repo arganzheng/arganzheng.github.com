@@ -54,7 +54,7 @@ Table: 后训练方法按「奖励、参考、价值模型」三件套排开
 Table: 后训练流水线的五段与对应篇目
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="post-training" %}
 
