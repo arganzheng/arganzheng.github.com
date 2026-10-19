@@ -1,69 +1,149 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1210" viewBox="0 0 760 1210" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1360" viewBox="0 0 760 1360" role="img" aria-labelledby="title desc">
   <title id="title">一个 token 穿过 Serving 栈的数据流</title>
-  <desc id="desc">请求文本经 tokenize、调度和 GPU 前向生成 token id，再经 detokenize 和 SSE 返回客户端。</desc>
+  <desc id="desc">U 形往返：请求从 Client 经 API Server、AsyncLLM 和 EngineCore 到 Scheduler 与 Worker；采样结果再从右向左经过 EngineCore、OutputProcessor、Detokenizer 和 SSE 返回客户端。三个进程区域使用与进程图相同的颜色。</desc>
   <defs>
-    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#62758a"/></marker>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#526579"/>
+    </marker>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
-      .title { font-size: 21px; font-weight: 700; }
-      .head { font-size: 16px; font-weight: 700; }
-      .body { font-size: 14px; }
-      .small { font-size: 12px; }
-      .card { fill: #f5f8fc; stroke: #a9bacb; stroke-width: 1.4; rx: 10; }
-      .api { fill: #eef5ff; stroke: #5880b4; }
-      .core { fill: #fff6e9; stroke: #c6873d; }
-      .worker { fill: #eff9f4; stroke: #4b9477; }
-      .arrow { stroke: #62758a; stroke-width: 2; marker-end: url(#arrow); }
+      .title { font-size: 19px; font-weight: 700; }
+      .process { font-size: 14px; font-weight: 700; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .edge { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+      .band-api { fill: #eef5ff; stroke: #5880b4; }
+      .band-core { fill: #fff6e9; stroke: #c6873d; }
+      .band-worker { fill: #eff9f4; stroke: #4b9477; }
+      .node { fill: #fff; stroke-width: 1.7; rx: 8; }
+      .node-api { stroke: #5880b4; }
+      .node-core { stroke: #c6873d; }
+      .node-worker { stroke: #4b9477; }
+      .node-client { stroke: #98a8b8; }
+      .arrow { fill: none; stroke: #526579; stroke-width: 1.8; marker-end: url(#arrow); }
+      .guide { fill: none; stroke: #526579; stroke-width: 1.8; }
     </style>
   </defs>
-  <rect width="760" height="1210" fill="#fff"/>
+  <rect width="760" height="1360" fill="#fff"/>
   <text x="380" y="34" text-anchor="middle" class="title">一个 token 穿过 Serving 栈的数据流</text>
 
-  <rect x="36" y="56" width="688" height="104" class="card api"/>
-  <text x="60" y="82" class="head">Client → API Server → AsyncLLM</text>
-  <text x="60" y="108" class="body">"Hello, tell me a joke" · HTTP JSON · add_request(text)</text>
-  <text x="60" y="136" class="small">InputProcessor / Tokenizer 在 API Server 进程中处理文本</text>
-  <line x1="380" y1="160" x2="380" y2="184" class="arrow"/>
+  <rect x="112" y="72" width="288" height="1268" rx="12" class="band-api"/>
+  <rect x="408" y="72" width="157" height="1268" rx="12" class="band-core"/>
+  <rect x="574" y="270" width="171" height="1070" rx="12" class="band-worker"/>
+  <text x="256" y="98" text-anchor="middle" class="process">API Server process</text>
+  <text x="486" y="98" text-anchor="middle" class="process">EngineCoreProc</text>
+  <text x="659" y="296" text-anchor="middle" class="process">WorkerProc</text>
 
-  <rect x="36" y="188" width="688" height="96" class="card api"/>
-  <text x="60" y="216" class="head">Tokenizer → token ids → EngineCore</text>
-  <text x="60" y="242" class="body">[15496, 11, 2425, 757, 257, 9707]</text>
-  <text x="60" y="267" class="small">EngineCoreReq (token_ids) · ZMQ / msgpack</text>
-  <line x1="380" y1="284" x2="380" y2="308" class="arrow"/>
+  <rect x="14" y="124" width="90" height="74" rx="8" class="node node-client"/>
+  <text x="59" y="153" text-anchor="middle" class="head">Client</text>
+  <text x="59" y="176" text-anchor="middle" class="body">request</text>
 
-  <rect x="36" y="312" width="688" height="176" class="card core"/>
-  <text x="60" y="340" class="head">EngineCoreProc · Scheduler.schedule()</text>
-  <text x="60" y="369" class="body">SchedulerOutput</text>
-  <text x="60" y="394" class="small">scheduled_new_reqs[NewRequestData: prompt_token_ids, block_ids, ...]</text>
-  <text x="60" y="417" class="small">scheduled_cached_reqs[new_block_ids] · num_scheduled_tokens{req_id: n}</text>
-  <text x="60" y="440" class="small">finished_req_ids, ...</text>
-  <text x="60" y="469" class="small">MessageQueue 广播 SchedulerOutput；执行订单携带本轮请求与 block 布局</text>
-  <line x1="380" y1="488" x2="380" y2="512" class="arrow"/>
+  <rect x="125" y="124" width="120" height="74" class="node node-api"/>
+  <text x="185" y="153" text-anchor="middle" class="head">API Server</text>
+  <text x="185" y="176" text-anchor="middle" class="body">OpenAI route</text>
 
-  <rect x="36" y="516" width="688" height="122" class="card worker"/>
-  <text x="60" y="544" class="head">Executor → Worker → GPUModelRunner._prepare_inputs()</text>
-  <text x="60" y="573" class="body">input_ids · positions · block_table · slot_mapping</text>
-  <text x="60" y="608" class="small">Worker 使用本 rank 的模型权重分片与 GPU KV cache tensors</text>
-  <line x1="380" y1="638" x2="380" y2="662" class="arrow"/>
+  <rect x="265" y="124" width="125" height="74" class="node node-api"/>
+  <text x="327.5" y="151" text-anchor="middle" class="head">AsyncLLM</text>
+  <text x="327.5" y="173" text-anchor="middle" class="body">InputProcessor /</text>
+  <text x="327.5" y="190" text-anchor="middle" class="body">Tokenizer</text>
 
-  <rect x="36" y="666" width="688" height="90" class="card worker"/>
-  <text x="60" y="696" class="head">GPU · Forward Pass</text>
-  <text x="60" y="728" class="body">logits [vocab_size]</text>
-  <line x1="380" y1="756" x2="380" y2="780" class="arrow"/>
+  <rect x="420" y="124" width="133" height="74" class="node node-core"/>
+  <text x="486.5" y="153" text-anchor="middle" class="head">EngineCore</text>
+  <text x="486.5" y="176" text-anchor="middle" class="body">request intake</text>
 
-  <rect x="36" y="784" width="688" height="94" class="card worker"/>
-  <text x="60" y="814" class="head">Sampling</text>
-  <text x="60" y="842" class="body">(top-p / top-k / temp) → sampled_token_id</text>
-  <line x1="380" y1="878" x2="380" y2="902" class="arrow"/>
+  <path d="M104 161 H125" class="arrow"/>
+  <path d="M245 161 H265" class="arrow"/>
+  <path d="M390 161 H420" class="arrow"/>
+  <g text-anchor="middle" class="edge">
+    <text x="114" y="222">HTTP JSON</text>
+    <text x="114" y="240">"Hello, tell me a joke"</text>
+    <text x="255" y="276">add_request(text)</text>
+    <text x="405" y="222">EngineCoreRequest(</text>
+    <text x="405" y="240">token_ids [15496, 11, 2425,</text>
+    <text x="405" y="258">757, 257, 9707])</text>
+  </g>
 
-  <rect x="36" y="906" width="688" height="122" class="card core"/>
-  <text x="60" y="934" class="head">Worker → EngineCore → AsyncLLM</text>
-  <text x="60" y="963" class="body">ModelRunnerOutput · response queue · output_rank only</text>
-  <text x="60" y="991" class="small">EngineCoreOutputs 经 ZMQ 返回；仍然只有 token ids，没有文本</text>
-  <line x1="380" y1="1028" x2="380" y2="1052" class="arrow"/>
+  <path d="M553 161 H563 V308 H486 V326" class="arrow"/>
+  <rect x="420" y="326" width="133" height="68" class="node node-core"/>
+  <text x="486.5" y="354" text-anchor="middle" class="head">Scheduler</text>
+  <text x="486.5" y="377" text-anchor="middle" class="edge">schedule()</text>
 
-  <rect x="36" y="1056" width="688" height="118" class="card api"/>
-  <text x="60" y="1084" class="head">OutputProcessor · Detokenizer → "Sure" → Response</text>
-  <text x="60" y="1113" class="body">SSE Stream → Client</text>
-  <text x="60" y="1148" class="small">"Sure, here's a joke..."</text>
+  <path d="M553 360 H558 V600 H550" class="arrow"/>
+  <g class="edge">
+    <text x="260" y="428">SchedulerOutput</text>
+    <text x="260" y="446">scheduled_new_reqs[NewRequestData:</text>
+    <text x="260" y="464">  prompt_token_ids, block_ids, …]</text>
+    <text x="260" y="482">scheduled_cached_reqs[new_block_ids]</text>
+    <text x="260" y="500">num_scheduled_tokens{req_id: n}</text>
+    <text x="260" y="518">finished_req_ids, …</text>
+  </g>
+  <rect x="420" y="570" width="130" height="62" class="node node-core"/>
+  <text x="485" y="596" text-anchor="middle" class="head">Executor</text>
+  <text x="485" y="618" text-anchor="middle" class="body">MultiprocExecutor</text>
+
+  <path d="M550 600 L592 710" class="arrow"/>
+  <text x="670" y="655" text-anchor="middle" class="edge">MessageQueue</text>
+  <text x="670" y="673" text-anchor="middle" class="edge">broadcast</text>
+  <rect x="584" y="680" width="153" height="66" class="node node-worker"/>
+  <text x="660.5" y="709" text-anchor="middle" class="head">Worker</text>
+  <text x="660.5" y="731" text-anchor="middle" class="body">one rank</text>
+
+  <path d="M660.5 746 V764" class="guide"/>
+  <g text-anchor="middle" class="edge">
+    <text x="660.5" y="784">input_ids, positions</text>
+    <text x="660.5" y="802">block_table, slot_mapping</text>
+  </g>
+  <path d="M660.5 820 V830" class="arrow"/>
+  <rect x="584" y="830" width="153" height="70" class="node node-worker"/>
+  <text x="660.5" y="858" text-anchor="middle" class="head">GPUModelRunner</text>
+  <text x="660.5" y="881" text-anchor="middle" class="edge">_prepare_inputs()</text>
+
+  <path d="M660.5 900 V944" class="arrow"/>
+  <rect x="584" y="944" width="153" height="62" class="node node-worker"/>
+  <text x="660.5" y="981" text-anchor="middle" class="head">GPU Forward Pass</text>
+
+  <path d="M660.5 1006 V1020" class="guide"/>
+  <text x="660.5" y="1040" text-anchor="middle" class="edge">logits [vocab_size]</text>
+  <path d="M660.5 1046 V1058" class="arrow"/>
+  <rect x="584" y="1058" width="153" height="62" class="node node-worker"/>
+  <text x="660.5" y="1082" text-anchor="middle" class="head">Sampling</text>
+  <text x="660.5" y="1101" text-anchor="middle" class="body">top-p / top-k</text>
+  <text x="660.5" y="1117" text-anchor="middle" class="body">temp</text>
+
+  <path d="M660.5 1120 V1178" class="arrow"/>
+  <text x="650" y="1151" text-anchor="end" class="edge">sampled_token_id</text>
+
+  <rect x="14" y="1178" width="95" height="72" class="node node-client"/>
+  <text x="61.5" y="1205" text-anchor="middle" class="head">Client</text>
+  <text x="61.5" y="1226" text-anchor="middle" class="body">"Sure, here's</text>
+  <text x="61.5" y="1243" text-anchor="middle" class="body">a joke…"</text>
+
+  <rect x="122" y="1178" width="95" height="72" class="node node-api"/>
+  <text x="169.5" y="1219" text-anchor="middle" class="head">SSE Stream</text>
+
+  <rect x="238" y="1178" width="162" height="72" class="node node-api"/>
+  <text x="319" y="1202" text-anchor="middle" class="head">AsyncLLM</text>
+  <text x="319" y="1222" text-anchor="middle" class="body">OutputProcessor</text>
+  <text x="319" y="1240" text-anchor="middle" class="body">Detokenizer</text>
+
+  <rect x="420" y="1178" width="133" height="72" class="node node-core"/>
+  <text x="486.5" y="1205" text-anchor="middle" class="head">EngineCore</text>
+  <text x="486.5" y="1226" text-anchor="middle" class="body">update output</text>
+
+  <rect x="584" y="1178" width="153" height="72" class="node node-worker"/>
+  <text x="660.5" y="1205" text-anchor="middle" class="head">response queue</text>
+  <text x="660.5" y="1226" text-anchor="middle" class="body">Worker output</text>
+
+  <path d="M584 1214 H553" class="arrow"/>
+  <path d="M420 1214 H400" class="arrow"/>
+  <path d="M238 1214 H217" class="arrow"/>
+  <path d="M122 1214 H109" class="arrow"/>
+  <g text-anchor="middle" class="edge">
+    <text x="572" y="1280">ModelRunnerOutput</text>
+    <text x="572" y="1298">response queue · output_rank</text>
+    <text x="409" y="1316">EngineCoreOutputs</text>
+    <text x="409" y="1334">token ids only · ZMQ</text>
+    <text x="228" y="1280">"Sure"</text>
+    <text x="114" y="1280">SSE Stream</text>
+  </g>
 </svg>

@@ -334,9 +334,9 @@ sequenceDiagram
 
 ## 五、数据流：Token 如何穿过整个 Serving 栈
 
-![Client 请求经过 tokenize、调度、GPU 前向与 detokenize 后经 SSE 返回的完整数据流](/img/in-post/vllm-request-lifecycle-token-data-flow.svg)
+![U 形往返的数据流：请求经 API Server、EngineCore 和 Worker 到 GPU，再经 EngineCore、OutputProcessor 与 SSE 返回 Client](/img/in-post/vllm-request-lifecycle-token-data-flow.svg)
 
-上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
+Detokenizer 在 API Server 进程的 `OutputProcessor` 中；旧 ASCII 把它画在 GPU 列，这里按进程边界重排。上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
 
 | 对象 | 定义位置 | 所在进程 | 生存期 | 它是什么 |
 |---|---|---|---|---|
