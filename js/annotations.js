@@ -928,6 +928,7 @@
     var el = document.createElement('div');
     var mine = !c.deleted && viewer && c.author && viewer.login === c.author.login;
     if (c.deleted) onReply = null;
+    var canReply = !!onReply && !(c.archived || (parent && parent.archived));
     el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '') + (c.archived ? ' is-archived' : '');
     el.setAttribute('data-comment-id', c.id);
     el.innerHTML =
@@ -941,7 +942,7 @@
           (c.archived ? '<span class="ap-resolved-badge is-archived" title="GitHub 上的评论已折叠"><i class="fa fa-check-circle"></i> 已解决</span>' : c.resolved ? '<span class="ap-resolved-badge" title="' + (c.issue ? 'Issue 已关闭：作者已处理' : '作者已修正原文') + '"><i class="fa fa-check-circle"></i> 已修正</span>' : '') +
           '<span class="ap-meta-actions">' +
             (c.deleted ? '' : voteHtml(c)) +
-            (onReply && !c.archived ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
+            (canReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
             (mine ? '<button type="button" class="ap-edit-btn" title="编辑"><i class="fa fa-pencil"></i> 编辑</button>' +
                     '<button type="button" class="ap-delete-btn" title="删除"><i class="fa fa-regular fa-trash-can"></i> 删除</button>' : '') +
             '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看 / 编辑"><i class="fa fa-brands fa-github"></i></a>' +
@@ -960,7 +961,7 @@
         if (a && location.hash === a.getAttribute('href')) { e.preventDefault(); focusFromHash(); }
       });
     }
-    if (onReply && !c.archived) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
+    if (canReply) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
     if (!c.deleted) bindVote(el.querySelector('.ap-vote'), c);
     if (mine) {
       el.querySelector('.ap-edit-btn').addEventListener('click', function () { startEdit(el, c, isReply, parent); });
