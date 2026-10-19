@@ -38,7 +38,7 @@ catalog: true
 系列以 **Kubernetes 上的 NVIDIA GPU 集群**为主线，因为这是当前开源生态最活跃、组件最齐全的组合。Slurm 和 Ray 作为同位替代品在调度篇中对比，不单独展开。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="ai-platform-engineering" %}
 
