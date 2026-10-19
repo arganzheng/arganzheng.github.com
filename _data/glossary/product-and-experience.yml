@@ -1,0 +1,175 @@
+---
+- term: pp
+  full: percentage point
+  desc: 百分点
+- term: bad case
+  full: "—"
+  desc: 出错的样本，进队列后补进评测集
+- term: trace id
+  full: "—"
+  desc: 一次会话或任务的追踪编号，反馈靠它接回日志
+- term: Realtime API
+  full: "—"
+  desc: 低延迟语音实时交互的模型接口
+- term: MCP Apps
+  full: Model Context Protocol Apps
+  desc: MCP 的扩展，让工具返回可交互的界面
+- term: CRM
+  full: customer relationship management
+  desc: 客户关系管理系统
+- term: IDE
+  full: integrated development environment
+  desc: 集成开发环境，写代码的编辑器
+- term: PocketOS
+  full: "—"
+  desc: agent 9 秒删掉生产库的事故，开发者没看它要执行什么
+- term: Codex CLI
+  full: "—"
+  desc: OpenAI 在本机终端里跑的编码 agent
+- term: AskHR
+  full: "—"
+  desc: IBM 的 AI HR 助手，接管常规问答与请假审批
+- term: A/B
+  full: A/B testing
+  desc: A/B 测试：用户随机分组，对比两个版本
+- term: CSAT
+  full: customer satisfaction score
+  desc: 客户满意度评分
+- term: UI
+  full: user interface
+  desc: 用户界面；生成式 UI 指模型出结构化数据、前端渲染
+- term: justification
+  full: "—"
+  desc: 审批请求里附带的理由：为什么要做这一步
+- term: DeepSeek Harness Trajectory
+  full: "—"
+  desc: DeepSeek Harness 里按来源检视 agent 每步记录的视图
+- term: onboarding
+  full: "—"
+  desc: 新用户上手引导，用来说清 AI 擅长和不擅长什么
+- term: Composer
+  full: "—"
+  desc: AI 代码编辑器；Composer 是它的编辑器内 agent
+- term: Codex cloud
+  full: "—"
+  desc: 提任务、走开、回来审 PR 的后台 coding agent 产品
+- term: Claude Code on the web
+  full: "—"
+  desc: 提任务、走开、回来审 PR 的后台 coding agent 产品
+- term: GitHub Copilot
+  full: "—"
+  desc: GitHub 的 AI 编码助手，建议接受率长期约三成
+- term: agent
+  full: "—"
+  desc: AI 主导多步执行、人监督或审结果的形态
+- term: copilot
+  full: "—"
+  desc: 人主导、AI 给建议、人逐条接受的形态
+- term: demo
+  full: "—"
+  desc: 精选输入下跑通的演示，离产品还差长尾
+- term: BCG
+  full: Boston Consulting Group
+  desc: 波士顿咨询，和哈佛合做了 758 名顾问的实验
+- term: jagged frontier
+  full: "—"
+  desc: 锯齿状边界：AI 能力在相邻任务之间忽强忽弱
+- term: RAG
+  full: retrieval-augmented generation
+  desc: 检索增强生成：先检索资料，再让模型据此回答
+- term: rerank
+  full: "—"
+  desc: 检索之后对候选重新排序的一步
+- term: Tab 补全
+  full: "—"
+  desc: 编辑器里灰字提示、按 Tab 接受的代码补全
+- term: harness
+  full: "—"
+  desc: 模型外面那层运行框架：工具、权限、上下文、循环
+- term: L1–L4
+  full: "—"
+  desc: 应用地图第 1–4 层：模型、上下文、检索、agent 与 harness
+- term: SLO
+  full: service level objective
+  desc: 服务等级目标，如可用率、延迟的承诺值
+- term: Claude Code
+  full: "—"
+  desc: Anthropic 的编码 agent：终端版同步，web 版在后台跑
+- term: Windsurf
+  full: "—"
+  desc: 另一款带 agent 的 AI 代码编辑器
+- term: Devin
+  full: "—"
+  desc: Cognition 的后台 coding agent，交付 PR
+- term: Agents API
+  full: "—"
+  desc: OpenAI 托管长任务 agent 的接口
+- term: subagent
+  full: "—"
+  desc: 主 agent 派出去做子任务、上下文独立的 agent
+- term: agent teams
+  full: "—"
+  desc: Claude Code 里多个 agent 分工协作的模式
+- term: judge
+  full: LLM-as-a-judge
+  desc: 用模型给输出打分的自动评测，在线跑在真实流量上
+- term: L3
+  full: "—"
+  desc: 应用地图第三层：检索与知识接入
+- term: schema
+  full: "—"
+  desc: 结构化输出的字段定义，拒答出口也写在里面
+- term: TTFT
+  full: time to first token
+  desc: 从发出请求到第一个 token 出来的时间
+- term: DeepSeek Harness
+  full: "—"
+  desc: 开源 coding agent 框架；Trajectory 是它检视每步记录的视图
+- term: IM
+  full: instant messaging
+  desc: 即时通讯工具，如 Slack、飞书
+- term: Copilot
+  full: "—"
+  desc: GitHub 的 AI 编码助手，嵌在 IDE 里
+- term: OpenHarness
+  full: "—"
+  desc: 开源 agent 框架；ohmo 是它接 IM 的个人 agent
+- term: ohmo
+  full: "—"
+  desc: 开源 agent 框架；ohmo 是它接 IM 的个人 agent
+- term: Cursor
+  full: "—"
+  desc: AI 代码编辑器，补全、对话、agent、后台 agent 并存
+- term: p50 / p95
+  full: 50th / 95th percentile
+  desc: 中位数 / 95 分位，看典型值和尾部
+- term: L5
+  full: "—"
+  desc: 应用地图第五、六层：评测与可观测、生产化与运营
+- term: L6
+  full: "—"
+  desc: 应用地图第五、六层：评测与可观测、生产化与运营
+- term: NPS
+  full: Net Promoter Score
+  desc: 净推荐值：愿不愿意推荐给别人
+- term: ROI
+  full: return on investment
+  desc: 投资回报率
+- term: Trajectory
+  full: "—"
+  desc: DeepSeek Harness 里分层检视 agent 步骤的视图
+- term: PTC
+  full: programmatic tool calling
+  desc: 程序化工具调用：模型写一段程序批量调工具
+- term: RL
+  full: reinforcement learning
+  desc: 强化学习，后训练的一部分
+- term: Infra
+  full: infrastructure
+  desc: 基础设施，这里指训练与推理的底层系统
+- term: serving
+  full: "—"
+  desc: 把模型部署上线、提供推理服务
+- term: PMF
+  full: product–market fit
+  desc: 产品与市场契合

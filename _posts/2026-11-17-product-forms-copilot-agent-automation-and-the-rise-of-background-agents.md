@@ -7,39 +7,13 @@ tags: [AI, LLM, AI-Application, Product, Agent, Copilot]
 catalog: true
 ---
 
-同一个能力可以做成不同的形态：一个代码模型可以是 Tab 补全（人写、AI 提示下一行）、对话框（人问、AI 答、人复制粘贴）、编辑器内的 agent（AI 改多个文件、人看 diff 接受）、后台 agent（人提任务、走开、回来审 PR（pull request））。2021 年只有第一种，2026 年四种并存，且 coding 领域的重心已经移到最后一种。形态决定了**人在哪一步看结果**——这是第一篇"组件会出错"前提下最重要的产品决策。
+同一个能力可以做成不同的形态：一个代码模型可以是 Tab 补全（人写、AI 提示下一行）、对话框（人问、AI 答、人复制粘贴）、编辑器内的 agent（AI 改多个文件、人看 diff 接受）、后台 agent（人提任务、走开、回来审 PR）。2021 年只有第一种，2026 年四种并存，且 coding 领域的重心已经移到最后一种。形态决定了**人在哪一步看结果**——这是第一篇"组件会出错"前提下最重要的产品决策。
 
 这一篇讲 copilot → agent → 自动化的梯子与它和 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级人机分工的对应，2024–2026 年形态演进的四步与后台 agent 成为主流的四个原因，按任务选形态的决策表，以及同一产品里多形态并存。
 
 本篇要回答的核心问题是：
 
 > **copilot、agent、自动化三种形态各是什么，与六级人机分工怎么对应？[^q0] 形态怎么演进的，后台 agent 为什么成了主流？[^q1] 按任务怎么选形态，多形态怎么并存？[^q2]**
-
-## 术语与缩写
-
-| 缩写 | 全称 | 一句话解释 |
-|---|---|---|
-| Tab 补全 | — | 编辑器里灰字提示、按 Tab 接受的代码补全 |
-| agent | — | AI 主导多步执行、人监督或审结果的形态 |
-| diff | — | 改动前后的差异视图，可以逐处核对、接受 |
-| PR | pull request | 代码合并请求，带 diff、评论和 CI，是后台 agent 的交付物 |
-| copilot | — | 人主导、AI 给建议、人逐条接受的形态 |
-| harness | — | 模型外面那层运行框架：工具、权限、上下文、循环 |
-| L1–L4 | — | 应用地图第 1–4 层：模型、上下文、检索、agent 与 harness |
-| CI | continuous integration | 持续集成，PR 上自动跑的构建与测试 |
-| SLO | service level objective | 服务等级目标，如可用率、延迟的承诺值 |
-| GitHub Copilot | — | GitHub 的 AI 编码助手，2021 年从补全起步 |
-| Cursor / Composer | — | AI 代码编辑器；Composer 是它的编辑器内 agent |
-| Claude Code | — | Anthropic 的编码 agent：终端版同步，web 版在后台跑 |
-| Codex CLI / Codex cloud | — | OpenAI 的编码 agent：CLI 在本机终端跑，cloud 在云端后台跑 |
-| Windsurf | — | 另一款带 agent 的 AI 代码编辑器 |
-| Devin | — | Cognition 的后台 coding agent，交付 PR |
-| Agents API | — | OpenAI 托管长任务 agent 的接口 |
-| SWE-bench Verified | — | 修真实 GitHub issue 的编码评测，Verified 是人工核过的子集 |
-| subagent | — | 主 agent 派出去做子任务、上下文独立的 agent |
-| agent teams | — | Claude Code 里多个 agent 分工协作的模式 |
-
-Table: 本文用到的术语与缩写
 
 ## 一、总览
 
@@ -84,11 +58,11 @@ AI 接一个任务、执行多步（读、改、跑、修）、人在关键步�
 
 ### 3. agent（后台）
 
-人提任务、走开、AI 独立跑完、交付一个可审阅的中间物（PR、草稿、报告、提案）、人回来审阅、接受 / 修改 / 拒绝。设计要点：**交付物是天然的审阅落点**（PR 有 diff、评论、CI（continuous integration）；草稿有编辑器；提案有审批流）、**任务描述要够（agent 不能中途问太多人——问了人不在）**、**进度与完成通知**、**多任务并行的面板**（用户同时开几个）、**失败要清楚交付**（部分结果 + 阻塞原因——《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）、**成本可见**（一个任务花了多少）。它的边界：任务要能独立完成或能在缺信息时合理假设并说明；交付物要能被审阅（一个 5,000 行的 PR 没人审）。
+人提任务、走开、AI 独立跑完、交付一个可审阅的中间物（PR、草稿、报告、提案）、人回来审阅、接受 / 修改 / 拒绝。设计要点：**交付物是天然的审阅落点**（PR 有 diff、评论、CI；草稿有编辑器；提案有审批流）、**任务描述要够（agent 不能中途问太多人——问了人不在）**、**进度与完成通知**、**多任务并行的面板**（用户同时开几个）、**失败要清楚交付**（部分结果 + 阻塞原因——《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）、**成本可见**（一个任务花了多少）。它的边界：任务要能独立完成或能在缺信息时合理假设并说明；交付物要能被审阅（一个 5,000 行的 PR 没人审）。
 
 ### 4. 自动化
 
-AI 执行并直接生效，人看面板、抽检、处理告警。设计要点：**只在可自动验证 + 可回滚的任务上**（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》第六级的前提）、**面板与告警**（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》、《[生产化与运营（06）：发布工程——开关、钉版本、runbook 与 SLO](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)》的 SLO（service level objective））、**自动降级回环内**的退路、**审计链**（《[生产化与运营（05）：治理与合规——审计、保留、AI Act 与内容标识](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)》）。它的边界：不可逆、不能自动验证的任务永远不到这一级——"直接发给客户的报告"不是自动化的候选（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》自测 3）。
+AI 执行并直接生效，人看面板、抽检、处理告警。设计要点：**只在可自动验证 + 可回滚的任务上**（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》第六级的前提）、**面板与告警**（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》、《[生产化与运营（06）：发布工程——开关、钉版本、runbook 与 SLO](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)》的 SLO）、**自动降级回环内**的退路、**审计链**（《[生产化与运营（05）：治理与合规——审计、保留、AI Act 与内容标识](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)》）。它的边界：不可逆、不能自动验证的任务永远不到这一级——"直接发给客户的报告"不是自动化的候选（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》自测 3）。
 
 ```mermaid
 %% 图：同一个「修一个 bug」任务在四种形态下人在哪、看什么——copilot：人写每一行，AI 逐行建议，人接受 / 修改 / 拒绝；同步 agent：AI 读改跑修几十步，人在关键步审批、结束看 diff；后台 agent：人提任务走开，AI 交付一个 PR，人回来审 diff、CI、评论；自动化：AI 直接合并，人看面板与告警，异常自动降级
