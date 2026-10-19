@@ -267,7 +267,7 @@ Scheduler 在 Token Budget 与 KV Cache 的双重约束下，每一轮动态决�
 
 ### 3. 调度的单位是 token，不是 request
 
-第一篇的时间线对比（静态 batch 27 / 48 vs continuous batching 48 / 48）指出问题；第四篇给出完整模型：每步先 running 后 waiting，每个请求只决定"这一轮推进多少 token"，prefill 与 decode 只是取值不同，Continuous Batching、Chunked Prefill、Mixed Batch、投机解码是同一模型的四种取值。第二篇的 token budget 旋钮解释了 TTFT 与 TPOT 之间的权衡。
+第四篇的空转图把问题量化：静态 Batch 的 48 个槽位只有 27 个有效，Continuous Batching 可以用满 48 个。同一篇再给出完整模型：每步先 running 后 waiting，每个请求只决定"这一轮推进多少 token"，prefill 与 decode 只是取值不同，Continuous Batching、Chunked Prefill、Mixed Batch、投机解码是同一模型的四种取值。第二篇的 token budget 旋钮解释了 TTFT 与 TPOT 之间的权衡。
 
 第七篇把取值推广到 `1 + K`："纯 decode batch"的定义随之变成每请求 `1 + K` 个 token，预算截断 draft 会让 batch 掉出 FULL 图；第十一篇给出这个模型的第一个例外——一张图必须整体编码，encoder 预算不够就把 `num_new_tokens` 截到图之前——以及 `max_loras` 这个新的准入约束。第九篇在 D 侧多了一个等待远端 KV 的状态，请求就绪后才进入可调度集合。第十四篇在源码注释里找到这句话的原文：没有严格的 prefill / decode 阶段，每请求追赶 `num_tokens_with_spec`。
 
