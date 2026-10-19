@@ -36,6 +36,10 @@ Table: 系列覆盖的 kernel 类型
 系列使用两种写法：CUDA C++ 和 Triton。前者是 PyTorch ATen、vLLM `csrc/`、FlashAttention、CUTLASS 的语言；后者是 `torch.compile` 生成代码和 vLLM 中大量融合算子的语言。两者会在同一组 kernel 上并行推进、互相对照。
 
 
+## 术语与缩写
+
+{% include glossary-table.html series="gpu-kernel-engineering" %}
+
 ## 为什么写这个系列？
 
 ### AI-Infra 项目里最有价值的贡献落在 kernel 层
