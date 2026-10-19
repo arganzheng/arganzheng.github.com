@@ -1,232 +1,118 @@
-- term: "AdamW"
-  full: "Adam with decoupled weight decay"
-  desc: "把 weight decay 从梯度里拆出来的 Adam"
-- term: "ARI"
-  full: "adjusted Rand index"
-  desc: "调整兰德指数，聚类结果与真实标签的一致程度，修正了随机一致"
-- term: "AUC"
-  full: "area under the curve"
-  desc: "ROC 曲线下面积，阈值无关的排序质量指标"
-- term: "bagging"
+---
+- term: AdamW
+  full: Adam with decoupled weight decay
+  desc: 把 weight decay 从梯度里拆出来的 Adam
+- term: ARI
+  full: adjusted Rand index
+  desc: 调整兰德指数，聚类结果与真实标签的一致程度，修正了随机一致
+- term: AUC
+  full: area under the curve
+  desc: ROC 曲线下面积，阈值无关的排序质量指标
+- term: BLAS
+  full: Basic Linear Algebra Subprograms
+  desc: 底层线性代数库接口
+- term: DBSCAN
+  full: Density-Based Spatial Clustering of Applications with Noise
+  desc: 按密度聚类：核心是找密集连通块，噪声点不算类
+- term: DPO
+  full: Direct Preference Optimization
+  desc: 直接偏好优化，不训奖励模型、直接用偏好对训策略
+- term: ECE
+  full: expected calibration error
+  desc: 期望校准误差，预测概率和实际频率的差
+- term: FICO
+  full: Fair Isaac Corporation
+  desc: 美国信用评分公司，FICO 分是逻辑回归的经典应用
+- term: GBDT
+  full: gradient-boosted decision tree
+  desc: 梯度提升树：串行加树、每棵拟合残差
+- term: GD
+  full: gradient descent
+  desc: 梯度下降，沿负梯度一步步走
+- term: GSM8K
+  full: Grade School Math 8K
+  desc: 约 8.5K 道小学数学应用题的 benchmark
+- term: KNN
+  full: k-nearest neighbors
+  desc: k 近邻，按最近的 k 个样本预测
+- term: LAPACK
+  full: Linear Algebra PACKage
+  desc: 建在 BLAS 上的矩阵分解与解方程库
+- term: Lasso
+  full: least absolute shrinkage and selection operator
+  desc: 在损失里加权重绝对值和，会把系数压成 0
+- term: LoRA
+  full: Low-Rank Adaptation
+  desc: 低秩适配，只训一个低秩增量矩阵
+- term: LSH
+  full: locality-sensitive hashing
+  desc: 局部敏感哈希，让相似的文本落进同一个桶
+- term: MMLU
+  full: Massive Multitask Language Understanding
+  desc: 57 个学科的多选题 benchmark
+- term: MNIST
   full: "—"
-  desc: "有放回抽样训多个模型再平均"
-- term: "batch"
-  full: "—"
-  desc: "一次梯度更新用到的那一小批样本"
-- term: "BatchNorm / LayerNorm"
-  full: "—"
-  desc: "深度网络里按批 / 按层做标准化的归一化层"
-- term: "benchmark"
-  full: "—"
-  desc: "公开评测集，用来给模型打分排名"
-- term: "BLAS"
-  full: "Basic Linear Algebra Subprograms"
-  desc: "底层线性代数库接口"
-- term: "checkpoint"
-  full: "—"
-  desc: "训练过程中保存下来的一份模型权重"
-- term: "condition number"
-  full: "—"
-  desc: "条件数，最大与最小奇异值之比，决定数值是否稳定"
-- term: "coordinate descent"
-  full: "—"
-  desc: "坐标下降，每次只更新一个系数，Lasso 的常用解法"
-- term: "CV"
-  full: "cross-validation"
-  desc: "交叉验证，轮流拿一折当验证集"
-- term: "DBSCAN"
-  full: "Density-Based Spatial Clustering of Applications with Noise"
-  desc: "按密度聚类：核心是找密集连通块，噪声点不算类"
-- term: "DPO"
-  full: "Direct Preference Optimization"
-  desc: "直接偏好优化，不训奖励模型、直接用偏好对训策略"
-- term: "dropout"
-  full: "—"
-  desc: "训练时随机把一部分神经元置零的正则化"
-- term: "ECE"
-  full: "expected calibration error"
-  desc: "期望校准误差，预测概率和实际频率的差"
-- term: "epoch"
-  full: "—"
-  desc: "把训练集完整过一遍叫一个 epoch"
-- term: "F1"
-  full: "—"
-  desc: "精确率与召回率的调和平均，类别不平衡时比 accuracy 可靠"
-- term: "fastText"
-  full: "—"
-  desc: "Facebook 的轻量文本分类 / 词向量库"
-- term: "FICO"
-  full: "Fair Isaac Corporation"
-  desc: "美国信用评分公司，FICO 分是逻辑回归的经典应用"
-- term: "GBDT"
-  full: "gradient-boosted decision tree"
-  desc: "梯度提升树：串行加树、每棵拟合残差"
-- term: "GD"
-  full: "gradient descent"
-  desc: "梯度下降，沿负梯度一步步走"
-- term: "Gini"
-  full: "—"
-  desc: "基尼不纯度，决策树选划分的一种准则"
-- term: "GSM8K"
-  full: "Grade School Math 8K"
-  desc: "约 8.5K 道小学数学应用题的 benchmark"
-- term: "hidden state"
-  full: "—"
-  desc: "Transformer 某一层输出的向量"
-- term: "Jaccard"
-  full: "—"
-  desc: "Jaccard 相似度：交集大小除以并集大小，去重常用它"
-- term: "judge"
-  full: "LLM-as-a-judge"
-  desc: "用来给回答打分的模型（LLM-as-a-judge）"
-- term: "KL"
-  full: "Kullback–Leibler divergence"
-  desc: "KL 散度；RLHF 里用它拉住策略别离参考模型太远"
-- term: "K-Means"
-  full: "—"
-  desc: "K 均值聚类：交替更新归属与质心"
-- term: "KNN"
-  full: "k-nearest neighbors"
-  desc: "k 近邻，按最近的 k 个样本预测"
-- term: "LAPACK"
-  full: "Linear Algebra PACKage"
-  desc: "建在 BLAS 上的矩阵分解与解方程库"
-- term: "Lasso"
-  full: "least absolute shrinkage and selection operator"
-  desc: "在损失里加权重绝对值和，会把系数压成 0"
-- term: "logit"
-  full: "—"
-  desc: "过 sigmoid / softmax 之前的原始分数"
-- term: "log-sum-exp"
-  full: "—"
-  desc: "先减最大值再求 log∑exp，避免溢出的数值技巧"
-- term: "LoRA"
-  full: "Low-Rank Adaptation"
-  desc: "低秩适配，只训一个低秩增量矩阵"
-- term: "LSH"
-  full: "locality-sensitive hashing"
-  desc: "局部敏感哈希，让相似的文本落进同一个桶"
-- term: "McNemar"
-  full: "McNemar's test"
-  desc: "McNemar 检验：用两模型对同一批样本的对错差异做显著性检验"
-- term: "MinHash"
-  full: "—"
-  desc: "用哈希签名估计集合相似度的近似方法"
-- term: "MMLU"
-  full: "Massive Multitask Language Understanding"
-  desc: "57 个学科的多选题 benchmark"
-- term: "MNIST"
-  full: "—"
-  desc: "手写数字数据集，经典机器学习的入门 benchmark"
-- term: "model soup"
-  full: "—"
-  desc: "把几个微调模型的权重直接平均"
-- term: "MSE"
-  full: "mean squared error"
-  desc: "均方误差，预测值减真实值的平方再平均"
-- term: "NaN"
-  full: "not a number"
-  desc: "浮点里的缺失值标记"
-- term: "n-gram"
-  full: "—"
-  desc: "连续 n 个词（或字符）组成的片段"
-- term: "normal equation"
-  full: "—"
-  desc: "正规方程，最小二乘的闭式解满足的方程"
-- term: "one-hot"
-  full: "—"
-  desc: "只有一位是 1 的向量"
-- term: "OOB"
-  full: "out-of-bag"
-  desc: "袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用"
-- term: "pairwise loss"
-  full: "—"
-  desc: "拿一对回答比较打分的损失（Bradley–Terry 形式）"
-- term: "PCA"
-  full: "principal component analysis"
-  desc: "主成分分析，一种线性降维"
-- term: "Platt"
-  full: "—"
-  desc: "Platt scaling：给分类器输出套一个 sigmoid 把它校准成概率"
-- term: "RBF"
-  full: "radial basis function"
-  desc: "径向基核：相似度随距离指数衰减的核函数"
-- term: "reward hacking"
-  full: "—"
-  desc: "策略钻奖励模型的空子，分数涨了、质量没涨"
-- term: "Ridge"
-  full: "—"
-  desc: "岭回归：在损失里加权重平方和的惩罚"
-- term: "RL"
-  full: "reinforcement learning"
-  desc: "强化学习，这里指用奖励模型打分来训 LLM"
-- term: "RLHF"
-  full: "reinforcement learning from human feedback"
-  desc: "基于人类反馈的强化学习"
-- term: "RM"
-  full: "reward model"
-  desc: "奖励模型，给回答打分的分类器"
-- term: "RMSE"
-  full: "root mean squared error"
-  desc: "均方根误差，和目标同单位"
-- term: "ROC"
-  full: "receiver operating characteristic"
-  desc: "随阈值变化的 TPR-FPR 曲线，线下面积即 AUC"
-- term: "seed"
-  full: "—"
-  desc: "随机数种子，决定初始化和数据顺序"
-- term: "self-consistency"
-  full: "—"
-  desc: "同一题多次采样、按多数票取答案"
-- term: "SFT"
-  full: "supervised fine-tuning"
-  desc: "监督微调，用指令数据训练模型"
-- term: "SGD"
-  full: "stochastic gradient descent"
-  desc: "随机梯度下降，每步只用一小批样本"
-- term: "sigmoid"
-  full: "—"
-  desc: "把任意实数压到 0 到 1 之间的 S 形函数"
-- term: "SMS"
-  full: "short message service"
-  desc: "手机短信；SMS Spam Collection 是垃圾短信数据集"
-- term: "softmax"
-  full: "—"
-  desc: "把一组分数变成和为 1 的概率，sigmoid 的多类版"
-- term: "soft thresholding"
-  full: "—"
-  desc: "软阈值：绝对值小于阈值的直接置 0，其余往 0 收"
-- term: "spam / ham"
-  full: "—"
-  aliases: ["spam", "ham"]
-  desc: "垃圾短信 / 正常短信"
-- term: "SVD"
-  full: "singular value decomposition"
-  desc: "奇异值分解，lstsq 求解时用的分解"
-- term: "SVM"
-  full: "support vector machine"
-  desc: "支持向量机"
-- term: "TF-IDF"
-  full: "term frequency–inverse document frequency"
-  desc: "按词频和稀有度给词加权的文本特征"
-- term: "t-SNE"
-  full: "t-distributed stochastic neighbor embedding"
-  desc: "把高维点压到二维、保住近邻关系的可视化降维"
-- term: "UCI"
-  full: "University of California, Irvine"
-  desc: "UCI 机器学习数据集仓库"
-- term: "UMAP"
-  full: "Uniform Manifold Approximation and Projection"
-  desc: "另一类保邻域结构的降维，比 t-SNE 快、保全局结构更好"
-- term: "VC"
-  full: "Vapnik–Chervonenkis"
-  desc: "VC 维，衡量一类模型能拟合多复杂的划分"
-- term: "weight decay"
-  full: "—"
-  desc: "每步把权重往 0 拉一点，等价于 L2 正则"
-- term: "XGBoost"
-  full: "eXtreme Gradient Boosting"
-  desc: "工业界最常用的 GBDT 实现"
-- term: "XOR"
-  full: "exclusive or"
-  desc: "异或；线性边界分不开的经典反例"
+  desc: 手写数字数据集，经典机器学习的入门 benchmark
+- term: MSE
+  full: mean squared error
+  desc: 均方误差，预测值减真实值的平方再平均
+- term: NaN
+  full: not a number
+  desc: 浮点里的缺失值标记
+- term: OOB
+  full: out-of-bag
+  desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
+- term: PCA
+  full: principal component analysis
+  desc: 主成分分析，一种线性降维
+- term: RBF
+  full: radial basis function
+  desc: 径向基核：相似度随距离指数衰减的核函数
+- term: RLHF
+  full: reinforcement learning from human feedback
+  desc: 基于人类反馈的强化学习
+- term: RM
+  full: reward model
+  desc: 奖励模型，给回答打分的分类器
+- term: RMSE
+  full: root mean squared error
+  desc: 均方根误差，和目标同单位
+- term: ROC
+  full: receiver operating characteristic
+  desc: 随阈值变化的 TPR-FPR 曲线，线下面积即 AUC
+- term: SFT
+  full: supervised fine-tuning
+  desc: 监督微调，用指令数据训练模型
+- term: SGD
+  full: stochastic gradient descent
+  desc: 随机梯度下降，每步只用一小批样本
+- term: SMS
+  full: short message service
+  desc: 手机短信；SMS Spam Collection 是垃圾短信数据集
+- term: KL
+  full: Kullback–Leibler divergence
+  desc: KL 散度；RLHF 里用它拉住策略别离参考模型太远
+- term: SVD
+  full: singular value decomposition
+  desc: 奇异值分解，lstsq 求解时用的分解
+- term: SVM
+  full: support vector machine
+  desc: 支持向量机
+- term: TF-IDF
+  full: term frequency–inverse document frequency
+  desc: 按词频和稀有度给词加权的文本特征
+- term: t-SNE
+  full: t-distributed stochastic neighbor embedding
+  desc: 把高维点压到二维、保住近邻关系的可视化降维
+- term: UCI
+  full: University of California, Irvine
+  desc: UCI 机器学习数据集仓库
+- term: UMAP
+  full: Uniform Manifold Approximation and Projection
+  desc: 另一类保邻域结构的降维，比 t-SNE 快、保全局结构更好
+- term: VC
+  full: Vapnik–Chervonenkis
+  desc: VC 维，衡量一类模型能拟合多复杂的划分
+- term: XGBoost
+  full: eXtreme Gradient Boosting
+  desc: 工业界最常用的 GBDT 实现

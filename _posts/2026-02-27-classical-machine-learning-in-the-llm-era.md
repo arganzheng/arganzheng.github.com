@@ -7,7 +7,7 @@ catalog: true
 ---
 
 
-## 术语与缩写
+## 缩写
 
 | 缩写 | 全称 | 一句话解释 |
 |---|---|---|
@@ -138,7 +138,7 @@ Table: 各篇的真实数据案例
 案例的数据全部公开、自动下载（openml / UCI / Hugging Face），脚本在 `classical-ml/case_*.py`，CPU 上几秒到几分钟。
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="classical-ml" %}
 
