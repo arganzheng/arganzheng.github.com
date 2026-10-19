@@ -42,8 +42,8 @@
   full: all-gather / all-to-all
   desc: Megatron dispatcher 名字里的两种通信
 - term: A2A
-  full: all-gather / all-to-all
-  desc: Megatron dispatcher 名字里的两种通信
+  full: all-to-all
+  desc: 每张卡给其他每张卡各发一份不同的数据，MoE 分发与回收 token 用它
 - term: EP
   full: expert parallelism
   desc: 专家并行，把 MoE 的专家分到不同卡上

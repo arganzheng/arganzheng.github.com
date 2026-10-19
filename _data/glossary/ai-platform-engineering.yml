@@ -471,7 +471,7 @@
   full: Kubernetes Event-driven Autoscaling
   desc: 按事件源扩缩容的 K8s 组件
 - term: EPP
-  full: EndPoint Picker
+  full: Endpoint Picker
   desc: 推理网关里挑后端实例的组件
 - term: K8s
   full: Kubernetes
