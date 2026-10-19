@@ -732,6 +732,63 @@ html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-reso
 html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-resolved:hover {
 	text-decoration-color: #1a7f37;
 }
+html[data-theme="dark"] .post-container mark.annotation-hl.is-archived,
+html[data-theme="dark"] .post-container .katex.has-note.is-archived {
+	border-bottom: 1.5px dashed #9aa4ad;
+}
+html[data-theme="dark"] .post-container mark.annotation-hl.is-archived:hover,
+html[data-theme="dark"] .post-container .katex.has-note.is-archived:hover {
+	border-bottom-color: #b8c1c9;
+	background-color: rgba(154, 164, 173, 0.14);
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-archived,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-archived {
+	text-decoration-color: #9aa4ad;
+	text-decoration-style: dashed;
+	text-decoration-thickness: 1.5px;
+}
+html[data-theme="dark"] .post-container .mermaid svg tspan.annotation-hl.is-archived:hover,
+html[data-theme="dark"] .diagram-zoom svg tspan.annotation-hl.is-archived:hover {
+	text-decoration-color: #b8c1c9;
+}
+html[data-theme="dark"] .post-container .annotation-marker.is-archived {
+	color: #b8c1c9;
+	background: #30363d;
+	border-color: #6e7681;
+}
+html[data-theme="dark"] .post-container .annotation-marker.is-archived:hover {
+	color: #151b23;
+	background: #b8c1c9;
+	border-color: #b8c1c9;
+}
+html[data-theme="dark"] .post-container .annotation-comments .ac-archived-toggle {
+	color: #b8c1c9;
+	border-color: #6e7681;
+	background: transparent;
+}
+html[data-theme="dark"] .post-container .annotation-comments .ac-archived-toggle:hover {
+	color: #d2f4ff;
+	border-color: #8bd0e0;
+	background: #24343a;
+}
+html[data-theme="dark"] .post-container .annotation-comments .ac-group.is-archived {
+	background: #20252b;
+}
+html[data-theme="dark"] .post-container .annotation-panel .ap-comment.is-archived > .ap-comment-main > .ap-comment-body,
+html[data-theme="dark"] .post-container .annotation-comments .ap-comment.is-archived > .ap-comment-main > .ap-comment-body,
+html[data-theme="dark"] .post-container .annotation-panel .ap-resolved-badge.is-archived,
+html[data-theme="dark"] .post-container .annotation-comments .ap-resolved-badge.is-archived {
+	color: #b8c1c9;
+}
+html[data-theme="dark"] .post-container .annotation-panel .ap-resolved-badge.is-archived,
+html[data-theme="dark"] .post-container .annotation-comments .ap-resolved-badge.is-archived {
+	background: #30363d;
+	border-color: #6e7681;
+}
+html[data-theme="dark"] .post-container .ap-archived-quote {
+	border-left-color: #6e7681;
+	color: #b8c1c9;
+}
 html[data-theme="dark"] .favorites-toolbar {
 	border-color: @dk-border;
 	background-color: @dk-surface;

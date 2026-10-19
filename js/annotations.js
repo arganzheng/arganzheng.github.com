@@ -76,6 +76,7 @@
   var GITHUB_GRAPHQL = 'https://api.github.com/graphql';
   var GITHUB_MARKDOWN = 'https://api.github.com/markdown';
   var SESSION_KEY = 'giscus-session';
+  var SHOW_ARCHIVED_KEY = 'annotations:showArchived';
   var CONTEXT_CHARS = 32;
   // Footnote bodies are indexed (a note can be about a footnote); only the
   // `[1]` superscripts and the `↩` back links are not. A KaTeX formula is
@@ -103,7 +104,9 @@
   var viewer = null;
   var toolbar = null;
   var panel = null;          // the single in-flow panel (thread or editor)
-  var panelState = null;     // { kind:'thread'|'editor', ids, selector, offsets, join }
+  var panelState = null;     // { kind:'thread'|'editor'|'archived-section', ids, selector, offsets, join }
+  var renderedOwner = null;
+  var renderedArchived = null;
   var toast = null;
   var selectionTimer = null;
 
@@ -516,8 +519,10 @@
     });
     var markers = container.querySelectorAll('.annotation-marker');
     for (var i = 0; i < markers.length; i++) markers[i].parentNode.removeChild(markers[i]);
+    var sectionMarkers = container.querySelectorAll('.annotation-archived-section');
+    for (var sm = 0; sm < sectionMarkers.length; sm++) sectionMarkers[sm].parentNode.removeChild(sectionMarkers[sm]);
     unwrap('mark.annotation-hl, tspan.annotation-hl');
-    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note', 'has-issue', 'is-resolved'); });
+    Array.prototype.forEach.call(container.querySelectorAll('.post-figcaption.has-note, .code-header.has-note'), function (c) { c.classList.remove('has-note', 'has-issue', 'is-resolved', 'is-archived'); });
     Array.prototype.forEach.call(container.querySelectorAll('.katex.has-note'), function (k) { k.className = 'katex'; });
     buildIndex();
 
@@ -538,24 +543,25 @@
     });
     wrapPieces(items, 'annotation-hl').forEach(function (mark) {
       bindMark(mark);
-      var issue = false, fixable = false, resolved = true;
+      var issue = false, fixable = false, resolved = true, archived = true;
       mark.getAttribute('data-annotation-ids').split(' ').forEach(function (id) {
         var an = findAnnotation(id), r = null;
-        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; fixable = true; if (!an.resolved) resolved = false; if (an.issue && !an.resolved) issue = true; }
+        if (an) { an.marks.push(mark); r = reactions[annotHash(an.selector.exact)]; fixable = true; if (!an.resolved) resolved = false; if (!an.archived) archived = false; if (an.issue && !an.resolved) issue = true; }
         else if (id.indexOf('r:') === 0 && reactions[id.slice(2)]) { r = reactions[id.slice(2)]; r.marks.push(mark); }
       });
       if (issue) mark.classList.add('has-issue'); // an open GitHub Issue hangs on this passage
       if (fixable && resolved) mark.classList.add('is-resolved'); // the author fixed every note here
+      if (fixable && archived) mark.classList.add('is-archived'); // every visible note was folded on GitHub
       // a note on a figure's caption / a code block's header title (js/figures.js) outlines the whole figure / block
-      var cap = mark.closest('.post-figcaption, .code-header'); if (cap) cap.classList.add('has-note');
+      var cap = mark.closest('.post-figcaption, .code-header'); if (cap) { cap.classList.add('has-note'); if (mark.classList.contains('has-issue')) cap.classList.add('has-issue'); if (mark.classList.contains('is-resolved')) cap.classList.add('is-resolved'); if (mark.classList.contains('is-archived')) cap.classList.add('is-archived'); }
       // a note on a formula: the mark is in the hidden TeX source, so the visible .katex carries the classes
       var host = markHost(mark);
-      if (host !== mark) { host.classList.add('has-note'); ['has-issue', 'is-resolved', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
+      if (host !== mark) { host.classList.add('has-note'); ['has-issue', 'is-resolved', 'is-archived', 'is-multi'].forEach(function (c) { if (mark.classList.contains(c)) host.classList.add(c); }); }
       var diagram = mark.closest('.mermaid');
       var caption = diagram && diagram.nextElementSibling;
       if (caption && caption.classList.contains('post-figcaption')) {
         caption.classList.add('has-note');
-        ['has-issue', 'is-resolved'].forEach(function (c) { if (mark.classList.contains(c)) caption.classList.add(c); });
+        ['has-issue', 'is-resolved', 'is-archived'].forEach(function (c) { if (mark.classList.contains(c)) caption.classList.add(c); });
       }
     });
     annotations.forEach(function (a) {
@@ -575,6 +581,7 @@
     buildIndex();
     renderOrphans(orphans);
     if (panelState && panelState.kind === 'thread') refreshThreadPanel();
+    if (panelState && panelState.kind === 'archived-section') refreshArchivedSectionPanel();
   }
 
   // Every underlined passage: `{ key, ids, list, hash, exact, reaction, marks }` —
@@ -619,6 +626,10 @@
     var live = p.list.filter(function (a) { return !a.deleted; });
     return live.length > 0 && live.every(function (a) { return a.resolved; });
   }
+  function passageArchived(p) {
+    var live = p.list.filter(function (a) { return !a.deleted; });
+    return live.length > 0 && live.every(function (a) { return a.archived; });
+  }
 
   // Notes here that were also filed as a GitHub Issue and are still open.
   function passageIssues(p) { return p.list.filter(function (a) { return !a.deleted && a.issue && !a.resolved; }).length; }
@@ -629,7 +640,7 @@
     return null;
   }
   function markerClass(p) {
-    return 'annotation-marker' + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '');
+    return 'annotation-marker' + (passageIssues(p) ? ' has-issue' : '') + (passageResolved(p) ? ' is-resolved' : '') + (passageArchived(p) ? ' is-archived' : '');
   }
 
   // One marker per passage: ✓ fixed · ⚑ issue · 💬 comments · 👍 up.
@@ -642,6 +653,7 @@
   }
   function markerTitle(p) {
     var r = p.reaction, parts = [], n = commentCount(p);
+    if (passageArchived(p)) return '已解决（已折叠）· ' + n + ' 条评论，点击查看';
     if (passageResolved(p)) parts.push('作者已修正');
     if (passageIssues(p)) parts.push(passageIssues(p) + ' 个待处理的 Issue');
     if (n) parts.push(n + ' 条评论');
@@ -916,7 +928,7 @@
     var el = document.createElement('div');
     var mine = !c.deleted && viewer && c.author && viewer.login === c.author.login;
     if (c.deleted) onReply = null;
-    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '');
+    el.className = 'ap-comment' + (isReply ? ' is-reply' : '') + (c.issue ? ' has-issue' : '') + (c.deleted ? ' is-deleted' : '') + (c.resolved ? ' is-resolved' : '') + (c.archived ? ' is-archived' : '');
     el.setAttribute('data-comment-id', c.id);
     el.innerHTML =
       '<a class="ap-avatar" href="' + escapeAttr(c.author.url) + '" target="_blank" rel="noopener noreferrer" aria-label="' + escapeAttr(c.author.login) + '"><img src="' + escapeAttr(c.author.avatarUrl) + '" alt=""></a>' +
@@ -926,10 +938,10 @@
           '<time datetime="' + escapeAttr(c.createdAt) + '" title="' + escapeAttr(new Date(c.createdAt).toLocaleString()) + '">' + relativeTime(c.createdAt) + '</time>' +
           (c.lastEditedAt ? '<span class="ap-edited" title="' + escapeAttr(new Date(c.lastEditedAt).toLocaleString()) + '">已编辑</span>' : '') +
           (c.issue ? '<a class="ap-issue-badge" href="' + escapeAttr(c.issue.url) + '" target="_blank" rel="noopener noreferrer" title="' + (c.resolved ? '对应的 GitHub Issue 已关闭' : '已同时提交为 GitHub Issue') + '"><i class="fa fa-flag"></i> Issue' + (c.issue.number ? ' #' + c.issue.number : '') + '</a>' : '') +
-          (c.resolved ? '<span class="ap-resolved-badge" title="' + (c.issue ? 'Issue 已关闭：作者已处理' : '作者已修正原文') + '"><i class="fa fa-check-circle"></i> 已修正</span>' : '') +
+          (c.archived ? '<span class="ap-resolved-badge is-archived" title="GitHub 上的评论已折叠"><i class="fa fa-check-circle"></i> 已解决</span>' : c.resolved ? '<span class="ap-resolved-badge" title="' + (c.issue ? 'Issue 已关闭：作者已处理' : '作者已修正原文') + '"><i class="fa fa-check-circle"></i> 已修正</span>' : '') +
           '<span class="ap-meta-actions">' +
             (c.deleted ? '' : voteHtml(c)) +
-            (onReply ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
+            (onReply && !c.archived ? '<button type="button" class="ap-reply-btn"><i class="fa fa-reply"></i> 回复</button>' : '') +
             (mine ? '<button type="button" class="ap-edit-btn" title="编辑"><i class="fa fa-pencil"></i> 编辑</button>' +
                     '<button type="button" class="ap-delete-btn" title="删除"><i class="fa fa-regular fa-trash-can"></i> 删除</button>' : '') +
             '<a class="ap-github" href="' + escapeAttr(c.url) + '" target="_blank" rel="noopener noreferrer" title="在 GitHub 上查看 / 编辑"><i class="fa fa-brands fa-github"></i></a>' +
@@ -948,7 +960,7 @@
         if (a && location.hash === a.getAttribute('href')) { e.preventDefault(); focusFromHash(); }
       });
     }
-    if (onReply) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
+    if (onReply && !c.archived) el.querySelector('.ap-reply-btn').addEventListener('click', onReply);
     if (!c.deleted) bindVote(el.querySelector('.ap-vote'), c);
     if (mine) {
       el.querySelector('.ap-edit-btn').addEventListener('click', function () { startEdit(el, c, isReply, parent); });
@@ -1073,7 +1085,7 @@
     }
     comments.forEach(function (c) {
       var group = document.createElement('div');
-      group.className = 'ac-group';
+      group.className = 'ac-group' + (c.archived ? ' is-archived' : '');
       group.appendChild(commentEl(c, c.bodyHTML, false, function () { openInlineReply(c, c.author.login, group); }, null));
       c.replies.forEach(function (r) {
         group.appendChild(commentEl(r, r.bodyHTML, true, function () { openInlineReply(c, r.author.login, group); }, c));
@@ -1126,11 +1138,19 @@
   function renderLikeBar() {
     if (!commentsHost) return;
     var head = commentsHost.querySelector('.ac-head');
-    var total = comments.reduce(function (n, c) { return n + (c.deleted ? 0 : 1) + c.replies.length; }, 0);
+    var total = comments.reduce(function (n, c) { return n + (c.archived ? 0 : (c.deleted ? 0 : 1) + c.replies.length); }, 0);
+    var archivedCount = allComments.filter(function (c) { return c.archived; }).length;
     head.innerHTML =
       '<span class="ac-count">' + (loadError ? '<i class="fa fa-exclamation-circle"></i> 评论加载失败：' + escapeHtml(loadError.message)
         : !loaded ? '正在加载评论…' : '<i class="fa fa-regular fa-comment"></i> ' + total + ' 条评论') + '</span>' +
+      (isOwner() && archivedCount ? '<button type="button" class="ac-archived-toggle" title="只有你能看到：在原文位置显示已折叠（已解决）的评论">' + (showArchived() ? '隐藏已解决' : '显示已解决（' + archivedCount + '）') + '</button>' : '') +
       (discussion && discussion.url ? '<a class="ac-github" href="' + escapeAttr(discussion.url) + '" target="_blank" rel="noopener noreferrer" title="这个讨论串在 GitHub Discussions 上"><i class="fa fa-brands fa-github"></i> GitHub</a>' : '');
+    var archivedToggle = head.querySelector('.ac-archived-toggle');
+    if (archivedToggle) archivedToggle.addEventListener('click', function () {
+      try { localStorage.setItem(SHOW_ARCHIVED_KEY, showArchived() ? '0' : '1'); } catch (e) { /* ignore */ }
+      if (!showArchived() && panelState && panelState.kind === 'archived-section') closePanel();
+      syncViews();
+    });
     // Header meta badges (`.post-stats`) are painted by js/share.js; hand it
     // what we know (views once the worker answered, comment count once loaded).
     var stats = {};
@@ -3068,6 +3088,8 @@
     markResolved();
     comments = visibleComments();
     annotations = comments.filter(function (c) { return c.selector; });
+    renderedOwner = isOwner();
+    renderedArchived = showArchived();
     applyHighlights();
     renderCommentSection();
   }
@@ -3080,12 +3102,22 @@
   function isAuthorNote(c) {
     return c.owner || !!(cfg.author && c.author && c.author.login && c.author.login.toLowerCase() === cfg.author.toLowerCase());
   }
+  function showArchived() {
+    if (!isOwner()) return false;
+    try { return localStorage.getItem(SHOW_ARCHIVED_KEY) === '1'; } catch (e) { return false; }
+  }
   function visibleComments() {
-    return isOwner() ? allComments : allComments.filter(function (c) { return !isAuthorNote(c); });
+    var owner = isOwner(), archived = showArchived();
+    return allComments.filter(function (c) {
+      if (!owner && isAuthorNote(c)) return false;
+      return !c.archived || archived;
+    });
   }
   // After the viewer changed (login / logout): re-sync when that changes what is visible.
   function refilterComments() {
-    if (visibleComments().length === comments.length) return false;
+    var next = visibleComments(), owner = isOwner(), archived = showArchived();
+    if (owner === renderedOwner && archived === renderedArchived && next.length === comments.length &&
+        next.every(function (c, i) { return comments[i] && comments[i].id === c.id; })) return false;
     syncViews();
     if (panelState && panelState.kind === 'thread') refreshThreadPanel();
     return true;
@@ -3105,7 +3137,7 @@
   // highlighted in the article. Deleted-but-with-replies comments are kept as
   // placeholders (GitHub soft-deletes those) so their replies stay readable.
   function parseComment(c) {
-    if (!c || c.isMinimized) return null;
+    if (!c) return null;
     var replies = parseReplies(c.replies);
     if (c.deletedAt && !replies.length) return null;
     var rec = {
@@ -3120,7 +3152,7 @@
       replyCount: (c.replies && (c.replies.totalCount !== undefined ? c.replies.totalCount : c.replies.length)) || c.replyCount || 0,
       replies: replies,
       bodyHTML: c.deletedAt ? '' : (c.bodyHTML || ''),
-      selector: null, noteHTML: null, issue: null, resolved: false
+      selector: null, noteHTML: null, issue: null, archived: !!c.isMinimized, resolved: false
     };
     if (!rec.deleted) parseBodyHeader(rec);
     return rec;
@@ -3134,6 +3166,7 @@
   function markResolved() {
     allComments.forEach(function (c) {
       if (c.deleted) { c.resolved = false; return; }
+      if (c.archived) { c.resolved = true; return; }
       if (c.issue && c.issue.number) { c.resolved = !!closedIssues[c.issue.number]; return; }
       c.resolved = (c.votes && c.votes.hooray > 0) || c.replies.some(function (r) {
         return r.owner && RESOLVED_RE.test(r.bodyHTML.replace(/<[^>]+>/g, ''));
@@ -4101,27 +4134,127 @@
     return frag;
   }
 
+  var archivedSectionGroups = {};
+
+  function archivedSectionButton(section, list) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'annotation-marker is-archived annotation-archived-section';
+    button.setAttribute('data-section', section);
+    button.title = '查看这组原文已改的评论';
+    button.innerHTML = '<i class="fa fa-check"></i> ' + list.length + ' 条已解决（原文已改）';
+    button.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openArchivedSection(section, button);
+    });
+    return button;
+  }
+
+  function openArchivedSection(section, button) {
+    if (panelState && panelState.kind === 'archived-section' && panelState.section === section) { closePanel(); return; }
+    if (!archivedSectionGroups[section] || !archivedSectionGroups[section].length) return;
+    panelState = { kind: 'archived-section', section: section };
+    ensurePanel();
+    panel.className = 'annotation-panel is-thread is-archived-section';
+    renderArchivedSectionPanel();
+    mountPanel(button);
+  }
+
+  function refreshArchivedSectionPanel() {
+    if (!panelState || panelState.kind !== 'archived-section') return;
+    if (!archivedSectionGroups[panelState.section] || !archivedSectionGroups[panelState.section].length) { closePanel(); return; }
+    renderArchivedSectionPanel();
+    if (!panel.parentNode) {
+      var buttons = container.querySelectorAll('.annotation-archived-section'), button = null;
+      for (var i = 0; i < buttons.length; i++) if (buttons[i].getAttribute('data-section') === panelState.section) { button = buttons[i]; break; }
+      if (button) mountPanel(button);
+    }
+  }
+
+  function renderArchivedSectionPanel() {
+    var section = panelState && panelState.section, list = archivedSectionGroups[section] || [];
+    if (!list.length) { closePanel(); return; }
+    panel.innerHTML =
+      '<div class="ap-head"><span class="ap-quote">§ ' + escapeHtml(section || '原文已改') + ' · ' + list.length + ' 条已解决</span>' +
+        '<button type="button" class="ap-close" title="收起">×</button></div>' +
+      '<div class="ap-thread"></div>';
+    panel.querySelector('.ap-close').addEventListener('click', closePanel);
+    var thread = panel.querySelector('.ap-thread');
+    list.forEach(function (c) {
+      var item = document.createElement('div');
+      item.className = 'ap-archived-item';
+      item.innerHTML = '<blockquote class="ap-archived-quote">' + escapeHtml(c.selector.exact) + '</blockquote>';
+      item.appendChild(commentEl(c, c.noteHTML || c.bodyHTML, false, null, null));
+      (c.replies || []).forEach(function (r) { item.appendChild(commentEl(r, r.bodyHTML, true, null, c)); });
+      var link = document.createElement('a');
+      link.className = 'ac-github';
+      link.href = c.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      link.innerHTML = '<i class="fa fa-brands fa-github"></i> 在 GitHub 上查看';
+      item.appendChild(link);
+      thread.appendChild(item);
+    });
+  }
+
   function renderOrphans(orphans) {
     var old = cfg.section.querySelector('.annotation-orphans');
     if (old) old.parentNode.removeChild(old);
-    if (!orphans.length) return;
-    var box = document.createElement('p');
-    box.className = 'annotation-orphans';
+    var oldFallback = cfg.section.querySelector('.annotation-archived-fallback');
+    if (oldFallback) oldFallback.parentNode.removeChild(oldFallback);
+    archivedSectionGroups = {};
+    var regular = orphans.filter(function (o) { return !o.archived; });
+    var archived = orphans.filter(function (o) { return o.archived; });
+    var box = null;
+    if (regular.length) {
+      box = document.createElement('p');
+      box.className = 'annotation-orphans';
     // An anchor that no longer matches usually means the passage was rewritten —
     // often *because of* the note. Show what it was about, not just who wrote it.
-    box.innerHTML = '<i class="fa fa-unlink"></i> ' + orphans.length + ' 条划线评论对应的原文已修改（评论仍在 GitHub 上）：';
-    for (var i = 0; i < orphans.length; i++) {
-      var o = orphans[i], q = o.selector.exact;
-      var a = document.createElement('a');
-      a.href = o.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-      a.textContent = '「' + (q.length > 24 ? q.slice(0, 24) + '…' : q) + '」';
-      a.title = q + '\n— @' + o.author.login + (o.selector.section ? '，原位于「' + o.selector.section + '」' : '');
-      box.appendChild(a);
-      box.appendChild(document.createTextNode(' @' + o.author.login));
-      if (i < orphans.length - 1) box.appendChild(document.createTextNode('、'));
+      box.innerHTML = '<i class="fa fa-unlink"></i> ' + regular.length + ' 条划线评论对应的原文已修改（评论仍在 GitHub 上）：';
+      for (var i = 0; i < regular.length; i++) {
+        var o = regular[i], q = o.selector.exact;
+        var a = document.createElement('a');
+        a.href = o.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = '「' + (q.length > 24 ? q.slice(0, 24) + '…' : q) + '」';
+        a.title = q + '\n— @' + o.author.login + (o.selector.section ? '，原位于「' + o.selector.section + '」' : '');
+        box.appendChild(a);
+        box.appendChild(document.createTextNode(' @' + o.author.login));
+        if (i < regular.length - 1) box.appendChild(document.createTextNode('、'));
+      }
     }
-    var hint = cfg.section.querySelector('.comment-hint');
-    (hint || cfg.section).insertAdjacentElement(hint ? 'afterend' : 'afterbegin', box);
+    var heads = container.querySelectorAll('h2, h3'), fallback = [];
+    archived.forEach(function (o) {
+      var section = o.selector.section || '', group = archivedSectionGroups[section] || (archivedSectionGroups[section] = []);
+      group.push(o);
+    });
+    Object.keys(archivedSectionGroups).forEach(function (section) {
+      var group = archivedSectionGroups[section], heading = null;
+      if (section) for (var h = 0; h < heads.length; h++) {
+        if (headingText(heads[h]).slice(0, SECTION_MAX) === section) { heading = heads[h]; break; }
+      }
+      if (heading) heading.appendChild(archivedSectionButton(section, group));
+      else fallback = fallback.concat(group);
+    });
+    if (box || fallback.length) {
+      var hint = cfg.section.querySelector('.comment-hint');
+      if (box) (hint || cfg.section).insertAdjacentElement(hint ? 'afterend' : 'afterbegin', box);
+      if (fallback.length) {
+        var fallbackBox = document.createElement('p');
+        fallbackBox.className = 'annotation-archived-fallback';
+        fallbackBox.innerHTML = '<i class="fa fa-unlink"></i> ' + fallback.length + ' 条已解决的评论原文已改：';
+        for (var f = 0; f < fallback.length; f++) {
+          var archivedComment = fallback[f], quote = archivedComment.selector.exact;
+          var link = document.createElement('a');
+          link.href = archivedComment.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+          link.textContent = '「' + (quote.length > 24 ? quote.slice(0, 24) + '…' : quote) + '」';
+          link.title = quote;
+          fallbackBox.appendChild(link);
+          if (f < fallback.length - 1) fallbackBox.appendChild(document.createTextNode('、'));
+        }
+        if (box) box.insertAdjacentElement('afterend', fallbackBox);
+        else (hint || cfg.section).insertAdjacentElement(hint ? 'afterend' : 'afterbegin', fallbackBox);
+      }
+    }
   }
 
   function copyText(text) {
@@ -4187,6 +4320,7 @@
     parseVotes: parseVotes,
     openThread: openThread,
     closePanel: closePanel,
+    showArchived: showArchived,
     logout: logout,
     list: function () { return annotations; },
     comments: function () { return comments; },
