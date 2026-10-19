@@ -217,7 +217,10 @@ Pages has `https_enforced` on.
   `documentElement` when supported (Esc is locked via Keyboard Lock in Chrome);
   leaving fullscreen also exits focus mode, and the focus column is capped at
   1800px. After reload or navigation restores focus, the first plain click or
-  scroll key re-enters fullscreen.
+  scroll key re-enters fullscreen. In focus mode, `j` / `k`, `d` / `u`, `gg` /
+  `G`, and `h` / `l` navigate, while `?` opens the shortcut card; keys are
+  ignored in editable fields, the settings panel, or other overlays, and
+  modifier shortcuts and composed input are left alone.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
   `less/callouts.less` defines their styles.
