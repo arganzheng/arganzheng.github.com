@@ -26,6 +26,51 @@
 	line-height: 1.4;
 }
 .reading-settings-panel[hidden] { display: none; }
+.rs-keys-help {
+	position: fixed;
+	z-index: 1210;
+	top: 50%;
+	left: 50%;
+	width: min(420px, calc(100vw - 24px));
+	max-height: calc(100vh - 32px);
+	overflow-y: auto;
+	box-sizing: border-box;
+	padding: 20px;
+	transform: translate(-50%, -50%);
+	border: 1px solid #d0d7de;
+	border-radius: 10px;
+	background: #fff;
+	color: #24292f;
+	box-shadow: 0 8px 28px rgba(27, 31, 35, .18);
+	font-family: @rs-sans-stack;
+	font-size: 14px;
+	line-height: 1.4;
+}
+.rs-keys-help[hidden] { display: none; }
+.rs-keys-help h2 {
+	margin: 0 0 12px;
+	color: inherit;
+	font: 600 18px/1.35 @rs-sans-stack;
+}
+.rs-key-row {
+	display: grid;
+	grid-template-columns: minmax(150px, .9fr) minmax(0, 1.1fr);
+	gap: 12px;
+	align-items: center;
+	padding: 8px 0;
+	border-top: 1px solid #eaeef2;
+}
+.rs-key-row > :first-child { white-space: nowrap; }
+.rs-keys-help kbd {
+	display: inline-block;
+	padding: 2px 6px;
+	border: 1px solid #d0d7de;
+	border-radius: 5px;
+	background: #f6f8fa;
+	color: inherit;
+	font: 500 12px/1.4 ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+}
+
 .rs-setting-row {
 	display: grid;
 	grid-template-columns: 38px minmax(0, 1fr);
@@ -247,6 +292,7 @@ html.rs-focus-page[data-rs-focus="on"] .rs-focus-controls button:focus-visible {
 	.nav-focus-mode,
 	.rs-focus-controls,
 	.reading-settings-panel { display: none !important; }
+	.rs-keys-help { display: none !important; }
 }
 
 @media screen {
