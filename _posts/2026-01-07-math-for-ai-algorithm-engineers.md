@@ -35,7 +35,7 @@ updated: 2026-09-30
 Table: 数学系列覆盖的四个分支与对应篇目
 
 
-## 术语与缩写
+## 缩写
 
 {% include glossary-table.html series="math-for-ai" %}
 
