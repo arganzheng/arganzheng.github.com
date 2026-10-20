@@ -3404,6 +3404,14 @@ html.private-post .post-actions .pa-read {
   font-size: 11px;
   white-space: nowrap;
 }
+.sb-list li.is-partial:not(.is-read) > a::after,
+.sb-list li.is-partial:not(.is-read) > span::after,
+.st-posts li.is-partial:not(.is-read) > a::after {
+  content: " " attr(data-rp-pct) "%";
+  color: #8290a0;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .sb-read,
 .st-read,
 .rp-badge {
@@ -3431,12 +3439,19 @@ html.private-post .post-actions .pa-read {
   font-weight: 500;
   white-space: nowrap;
 }
+.rp-marker.is-partial {
+  color: #8290a0;
+}
 .life-card h2 .rp-marker {
   padding: 2px 5px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.18);
   color: #e1f1e3;
   font-size: 10px;
+}
+.life-card h2 .rp-marker.is-partial {
+  background: rgba(255, 255, 255, 0.18);
+  color: #d5e0ec;
 }
 div.side-catalog .catalog-header h5 {
   margin-right: auto;
@@ -11010,6 +11025,15 @@ html[data-theme="dark"] .life-card h2 .rp-marker {
   background: rgba(0, 0, 0, 0.22);
   color: #c8e8cd;
 }
+html[data-theme="dark"] .sb-list li.is-partial:not(.is-read) > a::after,
+html[data-theme="dark"] .sb-list li.is-partial:not(.is-read) > span::after,
+html[data-theme="dark"] .st-posts li.is-partial:not(.is-read) > a::after,
+html[data-theme="dark"] .rp-marker.is-partial {
+  color: #a9b8c8;
+}
+html[data-theme="dark"] .life-card h2 .rp-marker.is-partial {
+  color: #d5e0ec;
+}
 html[data-theme="dark"] .series-view-toggle,
 html[data-theme="dark"] .mm-tabs {
   background: #1f2125;
@@ -12077,6 +12101,16 @@ html[data-theme="sepia"] .post-container .post-figure.fig-flash > .fig-media,
 html[data-theme="sepia"] .post-container img.fig-flash {
   --fig-flash-color: rgba(40, 96, 144, 0.88);
   --fig-flash-glow: rgba(40, 96, 144, 0.18);
+}
+html[data-theme="sepia"] .sb-list li.is-partial:not(.is-read) > a::after,
+html[data-theme="sepia"] .sb-list li.is-partial:not(.is-read) > span::after,
+html[data-theme="sepia"] .st-posts li.is-partial:not(.is-read) > a::after,
+html[data-theme="sepia"] .rp-marker.is-partial {
+  color: #7f8992;
+}
+html[data-theme="sepia"] .life-card h2 .rp-marker.is-partial {
+  background: rgba(255, 255, 255, 0.18);
+  color: #d5e0ec;
 }
 /* Per-article offline copies */
 .post-actions .pa-offline {

@@ -334,9 +334,35 @@ sequenceDiagram
 
 ## 五、数据流：Token 如何穿过整个 Serving 栈
 
-![U 形往返的数据流：请求经 API Server、EngineCore 和 Worker 到 GPU，再经 EngineCore、OutputProcessor 与 SSE 返回 Client](/img/in-post/vllm-request-lifecycle-token-data-flow.svg)
+```mermaid
+%% 图：一个 token 穿过 Serving 栈的数据流：去程把文本变成 token ids 送到 GPU，回程只带 token ids，到 API Server 才变回文本
+sequenceDiagram
+    participant C as Client
+    box rgb(232,241,252) API Server 进程
+    participant A as API Server / AsyncLLM
+    end
+    box rgb(253,243,228) EngineCoreProc
+    participant E as EngineCore / Scheduler
+    participant X as Executor
+    end
+    box rgb(232,246,238) WorkerProc × N
+    participant W as Worker / GPUModelRunner
+    end
+    C->>A: HTTP JSON: "Hello, tell me a joke"
+    Note over A: add_request(text)<br/>InputProcessor / Tokenizer<br/>[15496, 11, 2425, 757, 257, 9707]
+    A->>E: EngineCoreRequest(token_ids)，ZMQ / msgpack
+    Note over E: Scheduler.schedule()
+    E->>X: SchedulerOutput
+    Note over X,W: scheduled_new_reqs[NewRequestData: prompt_token_ids, block_ids, …]<br/>scheduled_cached_reqs[new_block_ids]<br/>num_scheduled_tokens{req_id: n}<br/>finished_req_ids, …
+    X->>W: MessageQueue 广播 SchedulerOutput
+    Note over W: GPUModelRunner._prepare_inputs()<br/>→ input_ids, positions, block_table, slot_mapping<br/>GPU Forward Pass → logits [vocab_size]<br/>Sampling（top-p / top-k / temp）→ sampled_token_id
+    W-->>E: ModelRunnerOutput（response queue，只有 output_rank 回传）
+    E-->>A: EngineCoreOutputs（只有 token ids，ZMQ）
+    Note over A: OutputProcessor / Detokenizer → "Sure"
+    A-->>C: SSE Stream: "Sure, here's a joke…"
+```
 
-Detokenizer 在 API Server 进程的 `OutputProcessor` 中；旧 ASCII 把它画在 GPU 列，这里按进程边界重排。上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
+注意 Detokenizer 不在 GPU 那一侧，而是在 API Server 进程的 `OutputProcessor` 里：EngineCore 回传的只有 token ids，文本是到这里才拼出来的。上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
 
 | 对象 | 定义位置 | 所在进程 | 生存期 | 它是什么 |
 |---|---|---|---|---|
