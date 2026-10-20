@@ -3,6 +3,7 @@
 
   var KEY = 'blogRead';
   var PROGRESS_KEY = 'blogReadProgress';
+  var completeStates = new WeakMap();
 
   function normalizeUrl(value) {
     if (!value) return '';
@@ -134,9 +135,9 @@
     if (!isFinite(minutes) || minutes < 1) minutes = 1;
     var readTime = Math.max(20000, minutes * 60000 * 0.3);
     if (!isRead(path) && entry.u !== 1 && entry.p >= 0.9 && entry.a >= readTime) {
-      setRead(path, true);
       var button = document.querySelector('.post-actions .pa-read');
       if (button) showToast(button, '读完了，已自动标记为已读');
+      setRead(path, true);
       return;
     }
     if (Math.floor(entry.p * 10) * 10 !== oldPct) notify();
@@ -283,6 +284,63 @@
     });
   }
 
+  function renderComplete(state) {
+    Array.prototype.forEach.call(document.querySelectorAll('.series-toc .sb-complete'), function (card) {
+      var box = card.closest('.series-toc');
+      if (!box) return;
+      var items = Array.prototype.slice.call(box.querySelectorAll('.sb-list li[data-url]'));
+      var complete = items.length > 0 && items.every(function (item) {
+        return hasRead(state, item.getAttribute('data-url'));
+      });
+      var previous = completeStates.has(card) ? completeStates.get(card) : null;
+      var title = card.querySelector('.sb-complete-title');
+      var remaining = box.querySelector('.sb-remaining');
+
+      card.hidden = !complete;
+      if (!complete) {
+        if (title) title.textContent = '';
+        if (remaining && remaining.textContent.trim()) remaining.hidden = false;
+        completeStates.set(card, false);
+        return;
+      }
+
+      var timestamps = [];
+      items.forEach(function (item) {
+        var path = normalizeUrl(item.getAttribute('data-url'));
+        var timestamp = path ? Number(state[path]) : NaN;
+        if (isFinite(timestamp) && timestamp > 0) timestamps.push(timestamp);
+      });
+      var duration = '';
+      if (timestamps.length) {
+        var earliest = Math.min.apply(Math, timestamps);
+        var latest = Math.max.apply(Math, timestamps);
+        var span = latest - earliest;
+        duration = span < 86400000 ? '，前后不到一天' : '，前后用了 ' + Math.ceil(span / 86400000) + ' 天';
+      }
+      var name = card.getAttribute('data-name') || '';
+      var count = items.length;
+      var message = card.getAttribute('data-status') === '完结'
+        ? '《' + name + '》全部 ' + count + ' 篇都读完了'
+        : '《' + name + '》目前的 ' + count + ' 篇都读完了，后面的还在写';
+      if (title) title.textContent = message + duration;
+      if (remaining) remaining.hidden = true;
+
+      if (previous === false) {
+        if (card._sbCompleteTimer) clearTimeout(card._sbCompleteTimer);
+        card.classList.remove('is-new');
+        void card.offsetWidth;
+        card.classList.add('is-new');
+        card._sbCompleteTimer = setTimeout(function () {
+          card.classList.remove('is-new');
+          card._sbCompleteTimer = null;
+        }, 1800);
+        var button = document.querySelector('.pa-read');
+        if (button) showToast(button, '整个系列读完了');
+      }
+      completeStates.set(card, true);
+    });
+  }
+
   function markerFor(element, read, pct) {
     var marker = Array.prototype.filter.call(element.children, function (child) {
       return child.classList && child.classList.contains('rp-marker');
@@ -355,6 +413,7 @@
     renderToggles(state);
     renderSeries(state, progress);
     renderRemaining(state);
+    renderComplete(state);
     renderLists(state, progress);
     renderRoadmaps(state);
   }
@@ -366,8 +425,8 @@
     if (!path) return;
     var read = !isRead(path);
     setManualOptOut(path, !read);
-    setRead(path, read);
     showToast(button, read ? '已标记为已读' : '已取消已读');
+    setRead(path, read);
   });
 
   document.addEventListener('blog:read-progress', renderAll);

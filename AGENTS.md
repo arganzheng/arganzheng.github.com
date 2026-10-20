@@ -217,6 +217,8 @@ Pages has `https_enforced` on.
 - Home / Series continuation (`js/continue-series.js`) reads the public-only
   `/series-map.json`; `blogContinueDismiss` stores dismissed series and
   `sessionStorage["blogResume"]` resumes a selected `readpos:` target directly.
+- `.sb-complete` in the bottom series box announces when every member is read;
+  it links to the next learning-map series, or `/series.html` when there is none.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
   the early head script applies them before styles load. Focus is entered from

@@ -142,6 +142,30 @@
 			&:hover, &:focus { background: #eceff2; text-decoration: none; outline: none; }
 		}
 	}
+	.sb-complete {
+		margin-top: 10px;
+		padding: 8px 10px;
+		border-top: 1px solid #d8dee4;
+		border-radius: 4px;
+		background: #f2f5f7;
+		&[hidden] { display: none; }
+		&.is-new { animation: sb-complete-highlight 1.8s ease-out; }
+	}
+	.sb-complete-title { margin: 0; color: #24292f; font-weight: 600; }
+	.sb-complete-next {
+		margin: 4px 0 0;
+		color: #6e7781;
+		font-size: 13px;
+		line-height: 1.5;
+		overflow-wrap: anywhere;
+	}
+}
+@keyframes sb-complete-highlight {
+	from { box-shadow: 0 0 0 3px fade(@brand-primary, 38%); }
+	to { box-shadow: 0 0 0 0 fade(@brand-primary, 0%); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.post-container .series-box .sb-complete.is-new { animation: none; }
 }
 // series-box extras for the learning map (roadmap-box.html on overviews, the 学习地图 line in series-nav.html)
 .post-container .series-box {
@@ -154,6 +178,7 @@
 @media (max-width: 767px) {
 	.post-container .series-box .sb-list { columns: 1; }
 	.post-container .series-box .sb-nav a.sb-map-name { flex-basis: 100%; }
+	.post-container .series-box .sb-complete-next { overflow-wrap: anywhere; }
 }
 
 .st-level, .sb-level {
