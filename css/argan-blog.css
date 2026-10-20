@@ -2999,6 +2999,18 @@ footer .copyright a,
 .post-container .series-box .sb-list a {
   color: #57606a;
 }
+.post-container .series-box .sb-remaining {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8b949e;
+  overflow-wrap: anywhere;
+}
+.post-container .series-box .sb-remaining a {
+  color: #00788f;
+  font-weight: 600;
+}
 .post-container .series-box .sb-nav {
   display: flex;
   flex-wrap: wrap;
@@ -10252,6 +10264,12 @@ html[data-theme="dark"] .post-container .series-box .sb-overview a {
 html[data-theme="dark"] .post-container .series-box .sb-nav a {
   color: #4cb7cb;
 }
+html[data-theme="dark"] .post-container .series-box .sb-remaining {
+  color: #969ba4;
+}
+html[data-theme="dark"] .post-container .series-box .sb-remaining a {
+  color: #4cb7cb;
+}
 html[data-theme="dark"] .series-tree .st-map {
   border-color: #33363c;
 }
@@ -11807,6 +11825,12 @@ html[data-theme="sepia"] .post-container .series-box .sb-list a,
 html[data-theme="sepia"] .series-tree .st-posts a,
 html[data-theme="sepia"] .series-tree .st-item > summary {
   color: #3b3124;
+}
+html[data-theme="sepia"] .post-container .series-box .sb-remaining {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .post-container .series-box .sb-remaining a {
+  color: #286090;
 }
 html[data-theme="sepia"] .post-container .series-box .sb-soon,
 html[data-theme="sepia"] .side-series ol .sb-soon {

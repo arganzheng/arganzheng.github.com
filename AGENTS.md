@@ -212,6 +212,8 @@ Pages has `https_enforced` on.
   `p >= 0.9` once `a >= max(20000, minutes * 60000 * 0.3)`; `minutes` comes
   from `.post-length[data-minutes]` and defaults to 1. Partial markers begin at
   10%; keep `blogRead` and `BlogReadProgress.isRead` unchanged for mindmap.
+- Series posts get `series_minutes` from tag-stripped content; the bottom
+  `.sb-remaining` line shows unread count and estimated time from `blogRead`.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
   the early head script applies them before styles load. Focus is entered from

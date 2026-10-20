@@ -83,6 +83,11 @@ module SeriesPages
 
       series.each do |key, meta|
         posts = site.posts.docs.select { |p| p.data['series'] == key }.sort_by(&:date)
+        posts.each do |p|
+          body = p.content.to_s.gsub(/<[^>]+>/, ' ')
+          chars = body.scan(CJK).size + body.scan(/[A-Za-z0-9_]+/).size
+          p.data['series_minutes'] = [(chars / CHARS_PER_MINUTE.to_f).ceil, 1].max
+        end
         overview = by_url[meta['overview']]
         meta['key'] = key
         meta['url'] = "/series.html##{key}"
