@@ -5,7 +5,9 @@ description: "stay hungry, stay foolish"
 
 {% comment %} Pinned posts (front matter `pinned: true`) lead the first page and are skipped in the normal flow. {% endcomment %}
 {% assign pinned = site.posts | where: "pinned", true %}
-{% if paginator.page == 1 %}{% for post in pinned %}
+{% if paginator.page == 1 %}
+<div class="continue-series" data-base="{{ site.baseurl }}" hidden></div>
+{% for post in pinned %}
 <div class="post-preview is-pinned">
     <a href="{{ post.url | prepend: site.baseurl }}">
         <h2 class="post-title"><span class="post-pin" title="置顶"><i class="fa fa-thumb-tack"></i> 置顶</span>{{ post.title }}</h2>

@@ -10,6 +10,7 @@ in the other map's card, unnumbered. Data: site.data.series_index
 the in-post series quote / TOC opens the tree at that series (js below).
 {%- endcomment -%}
 {%- assign idx = site.data.series_index -%}
+<div class="continue-series" data-base="{{ site.baseurl }}" hidden></div>
 <div class="series-tree">
 {%- for r in idx.roadmaps %}
   <details class="st-map" id="{{ r.key }}" open>

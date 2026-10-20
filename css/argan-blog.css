@@ -2864,6 +2864,57 @@ footer .copyright a,
 .post-history a:hover {
   text-decoration: underline;
 }
+.continue-series {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 0 18px;
+  padding: 8px 12px;
+  border: 1px solid #d8dee4;
+  border-left: 3px solid #00788f;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.continue-series .continue-series-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #00788f;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.continue-series .continue-series-link:hover {
+  text-decoration: underline;
+}
+.continue-series .continue-series-dismiss {
+  flex: none;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: #8b949e;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.continue-series .continue-series-dismiss:hover,
+.continue-series .continue-series-dismiss:focus {
+  color: #00788f;
+}
+.continue-series[hidden] {
+  display: none;
+}
+@media (max-width: 767px) {
+  .continue-series {
+    align-items: flex-start;
+  }
+  .continue-series .continue-series-link {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
 .post-container .series-box {
   margin: 0 0 1.6em;
   padding: 10px 16px;
@@ -10270,6 +10321,21 @@ html[data-theme="dark"] .post-container .series-box .sb-remaining {
 html[data-theme="dark"] .post-container .series-box .sb-remaining a {
   color: #4cb7cb;
 }
+html[data-theme="dark"] .continue-series {
+  border-color: #33363c;
+  border-left-color: #4cb7cb;
+  background: #1f2125;
+}
+html[data-theme="dark"] .continue-series .continue-series-link {
+  color: #4cb7cb;
+}
+html[data-theme="dark"] .continue-series .continue-series-dismiss {
+  color: #969ba4;
+}
+html[data-theme="dark"] .continue-series .continue-series-dismiss:hover,
+html[data-theme="dark"] .continue-series .continue-series-dismiss:focus {
+  color: #4cb7cb;
+}
 html[data-theme="dark"] .series-tree .st-map {
   border-color: #33363c;
 }
@@ -11819,6 +11885,21 @@ html[data-theme="sepia"] .post-container .series-box .sb-overview a,
 html[data-theme="sepia"] .side-series h5 a,
 html[data-theme="sepia"] .series-tree .st-map > summary {
   color: #2b2318;
+}
+html[data-theme="sepia"] .continue-series {
+  border-color: #dccfb2;
+  border-left-color: #286090;
+  background: #efe4cb;
+}
+html[data-theme="sepia"] .continue-series .continue-series-link {
+  color: #286090;
+}
+html[data-theme="sepia"] .continue-series .continue-series-dismiss {
+  color: #7a6c58;
+}
+html[data-theme="sepia"] .continue-series .continue-series-dismiss:hover,
+html[data-theme="sepia"] .continue-series .continue-series-dismiss:focus {
+  color: #286090;
 }
 html[data-theme="sepia"] .post-container .series-box .sb-nav a,
 html[data-theme="sepia"] .post-container .series-box .sb-list a,

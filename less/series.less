@@ -26,6 +26,48 @@
 	.is-current > span { color: @brand-primary; font-weight: 600; background: @current-bg; border-left-color: @brand-primary; }
 }
 
+.continue-series {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	margin: 0 0 18px;
+	padding: 8px 12px;
+	border: 1px solid #d8dee4;
+	border-left: 3px solid @brand-primary;
+	border-radius: 6px;
+	background: #f6f8fa;
+	font-size: 14px;
+	line-height: 1.5;
+	.continue-series-link {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		color: @brand-primary;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		&:hover { text-decoration: underline; }
+	}
+	.continue-series-dismiss {
+		flex: none;
+		padding: 0 3px;
+		border: 0;
+		background: transparent;
+		color: #8b949e;
+		font-size: 18px;
+		line-height: 1;
+		cursor: pointer;
+		&:hover, &:focus { color: @brand-primary; }
+	}
+	&[hidden] { display: none; }
+}
+@media (max-width: 767px) {
+	.continue-series {
+		align-items: flex-start;
+		.continue-series-link { white-space: normal; overflow-wrap: anywhere; }
+	}
+}
+
 // top-of-post box: 「系列 《…》 第 N / X 篇  目录 ▸」 folding open into the parts, then 上一篇 / 下一篇
 .post-container .series-box {
 	margin: 0 0 1.6em;

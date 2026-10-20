@@ -301,6 +301,13 @@ html[data-theme="sepia"] {
 	.post-container .series-box .sb-title,
 	.post-container .series-box .sb-overview a,
 	.side-series h5 a, .series-tree .st-map > summary { color: @sp-heading; }
+	.continue-series {
+		border-color: @sp-border;
+		border-left-color: @sp-link;
+		background: @sp-surface;
+		.continue-series-link { color: @sp-link; }
+		.continue-series-dismiss { color: @sp-muted; &:hover, &:focus { color: @sp-link; } }
+	}
 	.post-container .series-box .sb-nav a,
 	.post-container .series-box .sb-list a,
 	.series-tree .st-posts a, .series-tree .st-item > summary { color: @sp-text; }
