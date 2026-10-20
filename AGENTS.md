@@ -203,6 +203,15 @@ Pages has `https_enforced` on.
 
 - Reading position (`js/reading-position.js`) adds a progress bar and a
   per-post continue-reading prompt; it requires `.post-length` and skips Moments.
+- Reading progress (`js/read-progress.js`) listens for `blog:reading` detail
+  `{path, p, active}` and stores normalized paths in
+  `localStorage["blogReadProgress"]` as `{p, a, t, u?}` (`p` is the max fraction
+  rounded to two decimals, `a` is active milliseconds, `t` is the update time,
+  and `u: 1` means the reader manually unmarked the post). It tracks only pages
+  with `.post-actions .pa-read` outside `.private-post`, and auto-marks at
+  `p >= 0.9` once `a >= max(20000, minutes * 60000 * 0.3)`; `minutes` comes
+  from `.post-length[data-minutes]` and defaults to 1. Partial markers begin at
+  10%; keep `blogRead` and `BlogReadProgress.isRead` unchanged for mindmap.
 - Reading settings (`js/reading-settings.js`, `_includes/head.html`) persist
   size, width, font, and focus choices in `localStorage["reading-settings"]`;
   the early head script applies them before styles load. Focus is entered from
