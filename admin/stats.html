@@ -44,6 +44,12 @@ noindex: true
     </table>
   </section>
 
+  <section class="dash-section" id="dash-funnel">
+    <h3>系列漏斗 <small class="dash-muted">每篇累计阅读，看读者在哪一篇走掉</small></h3>
+    <p class="dash-hint">阅读数是累计页面浏览次数，也包括从搜索等入口直接落到系列中间篇的读者，所以这里只是粗略漏斗，不是逐个读者的阅读路径。</p>
+    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+  </section>
+
   <section class="dash-section" id="dash-refresh">
     <h3>值得翻新的老文章 <small class="dash-muted">阅读多 × 年头久 × 没更新过</small></h3>
     <p class="dash-hint">写于（或最后更新于）三年以上、仍在被读的文章，按「阅读 × log(年龄)」排序——读者还在来，内容却可能过时了。改完在 front matter 写上 <code>updated:</code>，它就从这里消失，文章顶部的「本文写于 N 年前」提示也会重算。</p>
@@ -88,6 +94,20 @@ window.DASH_META = {
 {% endfor %}  "": null
 };
 window.DASH_SCHEDULE = {{ site.data.writing_schedule | jsonify }};
+{% assign dash_series_index = 0 %}
+window.DASH_SERIES = [
+{% for pair in site.data.series %}
+{% assign dash_series_key = pair[0] %}
+{% assign dash_series_meta = pair[1] %}
+{% assign dash_series_posts = site.posts | where: "series", dash_series_key | sort: "date" | where_exp: "post", "post.visibility != 'private'" %}
+{% if dash_series_posts.size > 0 %}
+{% assign dash_series_index = dash_series_index | plus: 1 %}
+{% if dash_series_index > 1 %},{% endif %}
+  {"key": {{ dash_series_key | jsonify }}, "name": {{ dash_series_meta.name | jsonify }}, "status": {{ dash_series_meta.status | jsonify }}, "posts": [
+{% for p in dash_series_posts %}    [{{ p.comments_path | default: p.url | jsonify }}, {{ p.title | split: '）：' | last | jsonify }}, {% if p.url contains "-series-recap-and-self-test" %}true{% else %}false{% endif %}]{% unless forloop.last %},{% endunless %}
+{% endfor %}  ]}
+{% endif %}
+{% endfor %}];
 // posts only, newest first — the 修订简报 picker (data path = comments_path when set, live URL)
 window.DASH_POSTS = [
 {% for p in site.posts %}  [{{ p.comments_path | default: p.url | jsonify }}, {{ p.title | jsonify }}, {{ p.url | jsonify }}]{% unless forloop.last %},{% endunless %}
