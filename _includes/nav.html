@@ -2,7 +2,7 @@
 {%- comment -%} .navbar-custom = transparent with white links, for layouts with a hero image behind
 it; post and moments pages start on a white background, so they take the light bar instead
 (theme-overrides.less `nav.navbar-default:not(.navbar-custom)`) {%- endcomment %}
-<nav class="navbar navbar-default navbar-fixed-top {% unless page.layout == "post" or page.layout == "moments" %} navbar-custom {% endunless %}" >
+<nav class="navbar navbar-default navbar-fixed-top {% unless page.layout == "post" or page.layout == "moments" %} navbar-custom {% endunless %}{% if page.layout == 'dashboard' %} navbar-dashboard{% endif %}" >
     <div class="container-fluid">
         <!-- Brand and toggle get grouped for better mobile display -->
         <div class="navbar-header page-scroll">

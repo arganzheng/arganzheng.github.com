@@ -455,3 +455,56 @@ html[data-theme="sepia"] .life-card h2 .rp-marker.is-partial {
 	background: rgba(255, 255, 255, 0.18);
 	color: #d5e0ec;
 }
+html[data-theme="sepia"] {
+	.navbar-custom.navbar-dashboard,
+	.navbar-custom.navbar-dashboard.is-fixed,
+	.navbar-custom.navbar-dashboard.is-visible {
+		border-color: @sp-border;
+		background: fade(@sp-bg, 97%);
+	}
+	.navbar-custom.navbar-dashboard .navbar-brand,
+	.navbar-custom.navbar-dashboard .nav > li > a { color: @sp-text; }
+	.navbar-custom.navbar-dashboard .navbar-brand:hover,
+	.navbar-custom.navbar-dashboard .nav > li > a:hover { color: @sp-link; }
+	.navbar-custom.navbar-dashboard .navbar-toggle .icon-bar { background-color: @sp-text; }
+	.dash-page-head h1 { color: @sp-heading; }
+	.dash .dash-kpi,
+	.dash .dash-section {
+		border-color: @sp-border;
+		background: @sp-surface;
+		color: @sp-text;
+	}
+	.dash .dash-kpi:hover,
+	.dash .dash-kpi:focus { border-color: @sp-link; }
+	.dash .dash-kpi > span,
+	.dash .dash-kpi small,
+	.dash .dash-group-title,
+	.dash .dash-muted,
+	.dash .dash-quote-meta,
+	.dash .dash-trend-sum,
+	.dash .dash-table th { color: @sp-muted; }
+	.dash .dash-section h3,
+	.dash .dash-quote { color: @sp-heading; }
+	.dash .dash-kpi.is-ok strong { color: #24713c; }
+	.dash .dash-kpi.is-warn strong { color: #b42318; }
+	.dash .dash-gnav {
+		border-color: @sp-border;
+		background: fade(@sp-bg, 97%);
+	}
+	.dash .dash-gnav a { color: @sp-muted; }
+	.dash .dash-gnav a:hover,
+	.dash .dash-gnav a.is-active { background: @sp-surface-2; color: @sp-link; }
+	.dash .dash-help-text { background: @sp-surface-2; color: @sp-text; }
+	.dash .dash-help { border-color: @sp-border; color: @sp-muted; }
+	.dash .dash-help:hover,
+	.dash .dash-help[aria-expanded="true"] { border-color: @sp-link; color: @sp-link; }
+	.dash .dash-segments { border-color: @sp-border; background: @sp-surface-2; }
+	.dash .dash-segments a { color: @sp-muted; }
+	.dash .dash-segments a.is-active {
+		background: @sp-bg;
+		color: @sp-heading;
+		box-shadow: 0 1px 2px fade(@sp-text, 14%);
+	}
+	.dash .dash-empty-ok { color: #24713c; }
+	.dash .dash-tag { border-color: @sp-border; background: @sp-surface-2; color: @sp-muted; }
+}
