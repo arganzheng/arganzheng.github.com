@@ -1843,6 +1843,10 @@ div.side-catalog.filtering .catalog-body li.active > a {
 .post-container .inline-tip:hover::after {
   opacity: 1;
 }
+.post-container .inline-tip.glossary-term::after {
+  content: "\f02d";
+  /* Font Awesome fa-book (solid) */
+}
 .post-container sup.has-popup-footnote {
   cursor: pointer;
 }
