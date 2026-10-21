@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="752" height="258" viewBox="4 62 752 258" role="img" aria-labelledby="title desc">
+  <title id="title">一轮 Mixed Batch 的组成</title>
+  <desc id="desc">同一轮 Mixed Batch 可以并列包含长 Prompt Prefill、Chunked Prefill、普通 Decode、Speculative Decode 和新 Request Admission。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#arrow); }
+      .used { fill: #4e79a7; stroke: #fff; stroke-width: 2; }
+      .free { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect x="4" y="62" width="752" height="258" fill="#fff"/>
+  <g data-card="same-iteration"><rect class="frame" x="20" y="78" width="720" height="226" rx="12"/><text x="380" y="112" text-anchor="middle" class="head">同一轮 GPU forward</text></g>
+  <g data-card="long-prefill"><rect class="card" x="40" y="154" width="128" height="126"/><text x="104" y="195" text-anchor="middle" class="small">长 Prompt</text><text x="104" y="220" text-anchor="middle" class="small">Prefill</text></g>
+  <g data-card="chunked"><rect class="card" x="178" y="154" width="128" height="126"/><text x="242" y="195" text-anchor="middle" class="small">Chunked</text><text x="242" y="220" text-anchor="middle" class="small">Prefill</text></g>
+  <g data-card="decode"><rect class="card" x="316" y="154" width="128" height="126"/><text x="380" y="195" text-anchor="middle" class="small">普通</text><text x="380" y="220" text-anchor="middle" class="small">Decode</text></g>
+  <g data-card="spec"><rect class="card" x="454" y="154" width="128" height="126"/><text x="518" y="195" text-anchor="middle" class="small">Speculative</text><text x="518" y="220" text-anchor="middle" class="small">Decode</text></g>
+  <g data-card="admission"><rect class="card" x="592" y="154" width="128" height="126"/><text x="656" y="195" text-anchor="middle" class="small">新 Request</text><text x="656" y="220" text-anchor="middle" class="small">Admission</text></g>
+</svg>

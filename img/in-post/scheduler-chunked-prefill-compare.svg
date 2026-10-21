@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470" role="img" aria-labelledby="title desc">
+  <title id="title">有无 Chunked Prefill 的对比</title>
+  <desc id="desc">没有 Chunked Prefill 时 A 的 32K Prefill 独占一轮，B、C 的 Decode 排在后面；有 Chunked Prefill 时每轮算 A 的一个 Chunk，并和 B、C 的 Decode 同轮执行。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="470" fill="#fff"/>
+  <text x="40" y="30" text-anchor="start" class="head">没有 Chunked Prefill</text>
+  <rect class="seg-a" x="40" y="48" width="480" height="50"/>
+  <text x="280" y="79" text-anchor="middle" class="bold">A · 32K Prefill（一轮长时间占用 GPU）</text>
+  <rect class="seg-b" x="520" y="48" width="100" height="50"/>
+  <text x="570" y="79" text-anchor="middle" class="small">B · Decode</text>
+  <rect class="seg-b" x="620" y="48" width="100" height="50"/>
+  <text x="670" y="79" text-anchor="middle" class="small">C · Decode</text>
+  <line x1="40" y1="116" x2="720" y2="116" class="axis"/>
+  <text x="40" y="136" text-anchor="start" class="small">时间</text>
+  <text x="40" y="186" text-anchor="start" class="head">有 Chunked Prefill</text>
+  <text x="40" y="232" text-anchor="start" class="small">Iter 1</text>
+  <rect class="seg-a" x="110" y="204" width="370" height="44"/>
+  <text x="295" y="232" text-anchor="middle" class="bold">A · Chunk 1</text>
+  <rect class="seg-b" x="480" y="204" width="120" height="44"/>
+  <text x="540" y="232" text-anchor="middle" class="small">B · Decode</text>
+  <rect class="seg-b" x="600" y="204" width="120" height="44"/>
+  <text x="660" y="232" text-anchor="middle" class="small">C · Decode</text>
+  <text x="40" y="290" text-anchor="start" class="small">Iter 2</text>
+  <rect class="seg-a" x="110" y="262" width="370" height="44"/>
+  <text x="295" y="290" text-anchor="middle" class="bold">A · Chunk 2</text>
+  <rect class="seg-b" x="480" y="262" width="120" height="44"/>
+  <text x="540" y="290" text-anchor="middle" class="small">B · Decode</text>
+  <rect class="seg-b" x="600" y="262" width="120" height="44"/>
+  <text x="660" y="290" text-anchor="middle" class="small">C · Decode</text>
+  <text x="40" y="348" text-anchor="start" class="small">Iter 3</text>
+  <rect class="seg-a" x="110" y="320" width="370" height="44"/>
+  <text x="295" y="348" text-anchor="middle" class="bold">A · Chunk 3</text>
+  <rect class="seg-b" x="480" y="320" width="120" height="44"/>
+  <text x="540" y="348" text-anchor="middle" class="small">B · Decode</text>
+  <rect class="seg-b" x="600" y="320" width="120" height="44"/>
+  <text x="660" y="348" text-anchor="middle" class="small">C · Decode</text>
+  <text x="40" y="406" text-anchor="start" class="small">Iter 4</text>
+  <rect class="seg-a" x="110" y="378" width="370" height="44"/>
+  <text x="295" y="406" text-anchor="middle" class="bold">A · Chunk 4</text>
+  <rect class="seg-b" x="480" y="378" width="120" height="44"/>
+  <text x="540" y="406" text-anchor="middle" class="small">B · Decode</text>
+  <rect class="seg-b" x="600" y="378" width="120" height="44"/>
+  <text x="660" y="406" text-anchor="middle" class="small">C · Decode</text>
+  <text x="415" y="454" text-anchor="middle" class="head">…</text>
+</svg>

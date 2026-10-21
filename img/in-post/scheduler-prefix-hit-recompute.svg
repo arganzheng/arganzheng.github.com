@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="208" viewBox="0 0 760 208" role="img" aria-labelledby="title desc">
+  <title id="title">Prefix Cache 命中降低重算成本</title>
+  <desc id="desc">同一条 Prompt：没有 Prefix Cache 时全部重算；有 Prefix Cache 时命中的前缀直接复用，只重算后面一段。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="208" fill="#fff"/>
+  <text x="190" y="28" text-anchor="start" class="small">被抢占的 Request 恢复时，整条 Prompt 要重新 Prefill：</text>
+  <text x="30" y="78" text-anchor="start" class="body">没有 Prefix Cache</text>
+  <rect class="seg-a" x="190" y="48" width="530" height="50"/>
+  <text x="455" y="79" text-anchor="middle" class="body">整条 Prompt 全部重算</text>
+  <text x="30" y="164" text-anchor="start" class="body">有 Prefix Cache</text>
+  <rect class="seg-free" x="190" y="134" width="330" height="50"/>
+  <text x="355" y="165" text-anchor="middle" class="body">前缀命中，直接复用</text>
+  <rect class="seg-a" x="520" y="134" width="200" height="50"/>
+  <text x="620" y="165" text-anchor="middle" class="body">只重算这一段</text>
+</svg>

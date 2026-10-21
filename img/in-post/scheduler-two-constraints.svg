@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="744" height="382" viewBox="8 66 744 382" role="img" aria-labelledby="title desc">
+  <title id="title">Scheduler 的两类约束：计算资源与内存资源</title>
+  <desc id="desc">Scheduler 同时受 Compute Resource 的 Token Budget 和 Memory Resource 的 KV Cache Blocks 约束。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#arrow); }
+      .used { fill: #4e79a7; stroke: #fff; stroke-width: 2; }
+      .free { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect x="8" y="66" width="744" height="382" fill="#fff"/>
+  <g data-card="scheduler"><rect class="card" x="284" y="82" width="192" height="62"/><text x="380" y="121" text-anchor="middle" class="head">Scheduler</text></g>
+  <path d="M380 144 V180 H190 M380 180 H570" fill="none" stroke="#40566f" stroke-width="2"/>
+  <line x1="190" y1="180" x2="190" y2="220" class="arrow"/>
+  <line x1="570" y1="180" x2="570" y2="220" class="arrow"/>
+  <g data-card="compute"><rect class="compute" x="24" y="220" width="332" height="92"/><text x="190" y="255" text-anchor="middle" class="head">Compute Resource</text><text x="190" y="285" text-anchor="middle" class="body">Token Budget</text></g>
+  <g data-card="memory"><rect class="memory" x="404" y="220" width="332" height="92"/><text x="570" y="255" text-anchor="middle" class="head">Memory Resource</text><text x="570" y="285" text-anchor="middle" class="body">KV Cache Blocks</text></g>
+  <line x1="190" y1="312" x2="190" y2="358" class="arrow"/>
+  <line x1="570" y1="312" x2="570" y2="358" class="arrow"/>
+  <g data-card="compute-answer"><rect class="card" x="24" y="358" width="332" height="74"/><text x="190" y="402" text-anchor="middle" class="body">本轮最多算多少 token</text></g>
+  <g data-card="memory-answer"><rect class="card" x="404" y="358" width="332" height="74"/><text x="570" y="402" text-anchor="middle" class="body">能否容纳这些 token</text></g>
+</svg>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="744" height="744" viewBox="8 60 744 744" role="img" aria-labelledby="title desc">
+  <title id="title">vLLM 的请求流：Waiting、Running、Preempted</title>
+  <desc id="desc">Incoming Requests 进入 Waiting Queue，由 Scheduler 同时考虑 Token Budget 和 KV Cache，形成 SchedulerOutput 并交给 ModelRunner 和 GPU。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#arrow); }
+      .used { fill: #4e79a7; stroke: #fff; stroke-width: 2; }
+      .free { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect x="8" y="60" width="744" height="744" fill="#fff"/>
+  <g data-card="incoming"><rect class="card" x="270" y="76" width="220" height="52"/><text x="380" y="109" text-anchor="middle" class="body">Incoming Requests</text></g>
+  <line x1="380" y1="132" x2="380" y2="150" class="arrow"/>
+  <g data-card="waiting"><rect class="waiting" x="270" y="158" width="220" height="52"/><text x="380" y="191" text-anchor="middle" class="body">Waiting Queue</text></g>
+  <line x1="380" y1="214" x2="380" y2="232" class="arrow"/>
+  <g data-card="scheduler"><rect class="compute" x="270" y="240" width="220" height="58"/><text x="380" y="277" text-anchor="middle" class="head">Scheduler</text></g>
+  <path d="M380 298 V326 H190 M380 326 H570" fill="none" stroke="#40566f" stroke-width="2"/>
+  <line x1="190" y1="326" x2="190" y2="356" class="arrow"/>
+  <line x1="570" y1="326" x2="570" y2="356" class="arrow"/>
+  <g data-card="budget"><rect class="compute" x="24" y="356" width="332" height="84"/><text x="190" y="389" text-anchor="middle" class="head">Token Budget</text><text x="190" y="416" text-anchor="middle" class="small">计算资源约束</text></g>
+  <g data-card="kv-cache"><rect class="memory" x="404" y="356" width="332" height="84"/><text x="570" y="389" text-anchor="middle" class="head">KV Cache</text><text x="570" y="416" text-anchor="middle" class="small">内存约束</text></g>
+  <path d="M190 440 V466 H380 M570 440 V466 H380" fill="none" stroke="#40566f" stroke-width="2"/>
+  <line x1="380" y1="466" x2="380" y2="492" class="arrow"/>
+  <g data-card="result"><rect class="card" x="260" y="492" width="240" height="54"/><text x="380" y="526" text-anchor="middle" class="body">本轮调度结果</text></g>
+  <line x1="380" y1="550" x2="380" y2="568" class="arrow"/>
+  <g data-card="scheduler-output"><rect class="card" x="260" y="576" width="240" height="54"/><text x="380" y="610" text-anchor="middle" class="head">SchedulerOutput</text></g>
+  <line x1="380" y1="634" x2="380" y2="652" class="arrow"/>
+  <g data-card="model-runner"><rect class="request" x="260" y="660" width="240" height="54"/><text x="380" y="694" text-anchor="middle" class="body">ModelRunner</text></g>
+  <line x1="380" y1="714" x2="380" y2="734" class="arrow"/>
+  <g data-card="gpu"><rect class="compute" x="260" y="734" width="240" height="54"/><text x="380" y="768" text-anchor="middle" class="body">GPU</text></g>
+</svg>

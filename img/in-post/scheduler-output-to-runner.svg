@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="604" viewBox="0 0 760 604" role="img" aria-labelledby="title desc">
+  <title id="title">SchedulerOutput 装了什么，执行层拿它做什么</title>
+  <desc id="desc">SchedulerOutput 只是一份“这一轮算什么”的清单；GPUModelRunner 用它更新常驻的 InputBatch，拼出本轮扁平输入和 slot_mapping，构造 attention metadata，然后做一次 forward。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="604" fill="#fff"/>
+  <g data-card="1"><rect class="compute" x="120" y="16" width="520" height="160"/><text x="380.0" y="41" text-anchor="middle" class="head">SchedulerOutput</text><text x="380.0" y="65" text-anchor="middle" class="mono">num_scheduled_tokens = {A: 256, B: 1, C: 5}</text><text x="380.0" y="89" text-anchor="middle" class="mono">total_num_scheduled_tokens = 262</text><text x="380.0" y="113" text-anchor="middle" class="mono">scheduled_new_reqs / scheduled_cached_reqs（new_block_ids）</text><text x="380.0" y="137" text-anchor="middle" class="mono">scheduled_spec_decode_tokens = {C: 4 个候选}</text><text x="380.0" y="161" text-anchor="middle" class="mono">finished_req_ids</text></g>
+  <line x1="380" y1="176" x2="380" y2="216" class="arrow"/>
+  <rect class="frame" x="24" y="216" width="712" height="372"/>
+  <text x="380" y="242" text-anchor="middle" class="head">GPUModelRunner.execute_model()</text>
+  <g data-card="1"><rect class="card" x="44" y="262" width="400" height="64"/><text x="244.0" y="288" text-anchor="middle" class="bold">1  _update_states()</text><text x="244.0" y="310" text-anchor="middle" class="small">按 SchedulerOutput 更新常驻的 InputBatch</text></g>
+  <line x1="244" y1="326" x2="244" y2="342" class="arrow"/>
+  <g data-card="1"><rect class="card" x="44" y="342" width="400" height="64"/><text x="244.0" y="368" text-anchor="middle" class="bold">2  _prepare_inputs()</text><text x="244.0" y="390" text-anchor="middle" class="small">拼扁平的 input_ids / positions 等，算 slot_mapping</text></g>
+  <line x1="244" y1="406" x2="244" y2="422" class="arrow"/>
+  <g data-card="1"><rect class="card" x="44" y="422" width="400" height="64"/><text x="244.0" y="448" text-anchor="middle" class="bold">3  _build_attention_metadata()</text><text x="244.0" y="470" text-anchor="middle" class="small">打包成 attention backend 需要的 metadata</text></g>
+  <line x1="244" y1="486" x2="244" y2="502" class="arrow"/>
+  <g data-card="1"><rect class="memory" x="44" y="502" width="400" height="64"/><text x="244.0" y="539" text-anchor="middle" class="bold">一次 forward → logits → sample</text></g>
+  <g data-card="1"><rect class="memory" x="480" y="262" width="236" height="144"/><text x="598.0" y="291" text-anchor="middle" class="bold">InputBatch（常驻）</text><text x="598.0" y="315" text-anchor="middle" class="mono">req_ids</text><text x="598.0" y="339" text-anchor="middle" class="mono">token_ids_cpu</text><text x="598.0" y="363" text-anchor="middle" class="mono">num_computed_tokens_cpu</text><text x="598.0" y="387" text-anchor="middle" class="mono">block_table（含 slot_mapping）</text></g>
+  <line x1="444" y1="286" x2="480" y2="286" class="arrow"/>
+  <text x="462" y="278" text-anchor="middle" class="small">更新</text>
+  <line x1="480" y1="382" x2="444" y2="382" class="arrow"/>
+  <text x="462" y="400" text-anchor="middle" class="small">读取</text>
+  <g data-card="1"><rect class="card" x="480" y="414" width="236" height="80"/><text x="598.0" y="439" text-anchor="middle" class="bold">attention metadata</text><text x="598.0" y="459" text-anchor="middle" class="small">query_start_loc · seq_lens</text><text x="598.0" y="479" text-anchor="middle" class="small">block_table · slot_mapping</text></g>
+  <line x1="444" y1="454" x2="480" y2="454" class="arrow"/>
+  <text x="462" y="446" text-anchor="middle" class="small">构造</text>
+  <path d="M598 494 V534 H444" class="arrow"/>
+</svg>

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="716" height="430" viewBox="22 60 716 430" role="img" aria-labelledby="title desc">
+  <title id="title">Scheduler 的全貌：Token Budget、KV Cache、Mixed Batch</title>
+  <desc id="desc">Scheduler 按 Token Budget 为 A、B、C 分配 256、1、5 个 token，分别形成 Prefill、Decode 和 Spec Decode，再汇合为 Mixed Batch。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#arrow); }
+      .used { fill: #4e79a7; stroke: #fff; stroke-width: 2; }
+      .free { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect x="22" y="60" width="716" height="430" fill="#fff"/>
+  <g data-card="scheduler"><rect class="card" x="280" y="76" width="200" height="54"/><text x="380" y="110" text-anchor="middle" class="head">Scheduler</text></g>
+  <line x1="380" y1="134" x2="380" y2="154" class="arrow"/>
+  <g data-card="budget"><rect class="compute" x="240" y="162" width="280" height="54"/><text x="380" y="196" text-anchor="middle" class="head">Token Budget</text></g>
+  <path d="M380 216 V244 H136 M380 244 H624" fill="none" stroke="#40566f" stroke-width="2"/>
+  <line x1="136" y1="244" x2="136" y2="274" class="arrow"/>
+  <line x1="380" y1="244" x2="380" y2="274" class="arrow"/>
+  <line x1="624" y1="244" x2="624" y2="274" class="arrow"/>
+  <g data-card="a"><rect class="request" x="38" y="274" width="196" height="72"/><text x="136" y="304" text-anchor="middle" class="body">Request A · 256</text><text x="136" y="330" text-anchor="middle" class="small">Prefill</text></g>
+  <g data-card="b"><rect class="request" x="282" y="274" width="196" height="72"/><text x="380" y="304" text-anchor="middle" class="body">Request B · 1</text><text x="380" y="330" text-anchor="middle" class="small">Decode</text></g>
+  <g data-card="c"><rect class="request" x="526" y="274" width="196" height="72"/><text x="624" y="304" text-anchor="middle" class="body">Request C · 5</text><text x="624" y="330" text-anchor="middle" class="small">Spec Decode</text></g>
+  <path d="M136 346 V382 H380 M380 346 V382 M624 346 V382 H380" fill="none" stroke="#40566f" stroke-width="2"/>
+  <line x1="380" y1="382" x2="380" y2="412" class="arrow"/>
+  <g data-card="mixed"><rect class="memory" x="240" y="412" width="280" height="62"/><text x="380" y="451" text-anchor="middle" class="head">Mixed Batch</text></g>
+</svg>

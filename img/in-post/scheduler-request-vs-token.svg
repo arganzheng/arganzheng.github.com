@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="160" viewBox="0 0 760 160" role="img" aria-labelledby="title desc">
+  <title id="title">Scheduler 调度 Request、分配 Token</title>
+  <desc id="desc">Scheduler 先决定调度哪些 Request，再决定每个 Request 这一轮分配多少 token（num_new_tokens）。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="160" fill="#fff"/>
+  <g data-card="1"><rect class="compute" x="30" y="70" width="140" height="56"/><text x="100.0" y="103" text-anchor="middle" class="bold">Scheduler</text></g>
+  <text x="230" y="56" text-anchor="middle" class="small">调度哪些</text>
+  <text x="230" y="74" text-anchor="middle" class="small">Request？</text>
+  <line x1="170" y1="98" x2="290" y2="98" class="arrow"/>
+  <g data-card="1"><rect class="request" x="290" y="50" width="160" height="96"/><text x="370.0" y="81" text-anchor="middle" class="body">Request A</text><text x="370.0" y="103" text-anchor="middle" class="body">Request B</text><text x="370.0" y="125" text-anchor="middle" class="body">Request C</text></g>
+  <text x="520" y="56" text-anchor="middle" class="small">每个 Request</text>
+  <text x="520" y="74" text-anchor="middle" class="small">分配多少 token？</text>
+  <line x1="450" y1="98" x2="590" y2="98" class="arrow"/>
+  <g data-card="1"><rect class="memory" x="590" y="70" width="150" height="56"/><text x="665.0" y="103" text-anchor="middle" class="mono">num_new_tokens</text></g>
+</svg>

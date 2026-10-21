@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="364" height="372" viewBox="198 60 364 372" role="img" aria-labelledby="title desc">
+  <title id="title">预算够但还要分到 KV Cache</title>
+  <desc id="desc">Token Budget 足够仍需分配 KV Cache；如果 KV Cache Block 不够，就无法继续接纳或需要抢占。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#arrow); }
+      .used { fill: #4e79a7; stroke: #fff; stroke-width: 2; }
+      .free { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect x="198" y="60" width="364" height="372" fill="#fff"/>
+  <g data-card="budget"><rect class="compute" x="250" y="76" width="260" height="58"/><text x="380" y="112" text-anchor="middle" class="body">Token Budget 足够</text></g>
+  <line x1="380" y1="134" x2="380" y2="170" class="arrow"/>
+  <g data-card="allocate"><rect class="card" x="250" y="170" width="260" height="58"/><text x="380" y="206" text-anchor="middle" class="body">需要分配 KV Cache</text></g>
+  <line x1="380" y1="228" x2="380" y2="264" class="arrow"/>
+  <g data-card="blocks"><rect class="memory" x="250" y="264" width="260" height="58"/><text x="380" y="300" text-anchor="middle" class="body">KV Cache Block 不够</text></g>
+  <line x1="380" y1="322" x2="380" y2="358" class="arrow"/>
+  <g data-card="cannot"><rect class="waiting" x="214" y="358" width="332" height="58"/><text x="380" y="394" text-anchor="middle" class="body">无法继续接纳 / 需要抢占</text></g>
+</svg>

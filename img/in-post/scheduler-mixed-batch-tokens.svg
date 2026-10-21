@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="276" viewBox="0 0 760 276" role="img" aria-labelledby="title desc">
+  <title id="title">一轮 Mixed Batch 的 token 构成</title>
+  <desc id="desc">A 的 256 个 prefill token、B 的 1 个 decode token、C 的 5 个 spec decode token 拼成一条 262 个 token 的序列，一次 forward 算完。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="276" fill="#fff"/>
+  <text x="60" y="24" text-anchor="start" class="mono">SchedulerOutput.num_scheduled_tokens = {A: 256, B: 1, C: 5}</text>
+  <text x="270" y="60" text-anchor="middle" class="bold">Req A · 256 token</text>
+  <text x="270" y="78" text-anchor="middle" class="small">长 Prefill 的一个 chunk（已算 256，再算 256）</text>
+  <text x="510" y="60" text-anchor="middle" class="bold">Req B · 1</text>
+  <text x="510" y="78" text-anchor="middle" class="small">普通 Decode</text>
+  <text x="610" y="60" text-anchor="middle" class="bold">Req C · 5 = 1 + 4</text>
+  <text x="610" y="78" text-anchor="middle" class="small">Spec Decode 候选</text>
+  <rect class="seg-a" x="60" y="92" width="420" height="50"/>
+  <text x="270" y="123" text-anchor="middle" class="mono">A₀ … A₂₅₅</text>
+  <rect class="seg-b" x="480" y="92" width="60" height="50"/>
+  <text x="510" y="123" text-anchor="middle" class="mono">B₀</text>
+  <rect class="seg-b" x="540" y="92" width="140" height="50"/>
+  <text x="610" y="123" text-anchor="middle" class="mono">C₀ C₁ C₂ C₃ C₄</text>
+  <line x1="60" y1="142" x2="60" y2="156" class="line"/>
+  <text x="60" y="172" text-anchor="middle" class="mono">0</text>
+  <line x1="480" y1="142" x2="480" y2="156" class="line"/>
+  <text x="480" y="172" text-anchor="middle" class="mono">256</text>
+  <line x1="540" y1="142" x2="540" y2="156" class="line"/>
+  <text x="540" y="172" text-anchor="middle" class="mono">257</text>
+  <line x1="680" y1="142" x2="680" y2="156" class="line"/>
+  <text x="680" y="172" text-anchor="middle" class="mono">262</text>
+  <text x="60" y="204" text-anchor="start" class="small">query_start_loc = [0, 256, 257, 262]，total_num_scheduled_tokens = 262（宽度仅示意）</text>
+  <text x="60" y="230" text-anchor="start" class="small">slot_mapping：这 262 个 token 各自要写到 KV Cache 的哪个 slot</text>
+  <text x="60" y="256" text-anchor="start" class="small">一次 forward；attention 按 query_start_loc / seq_lens 区分每段属于谁、看多长的上下文</text>
+</svg>

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="310" viewBox="0 0 760 310" role="img" aria-labelledby="title desc">
+  <title id="title">长 Prefill 阻塞其他请求的 Decode</title>
+  <desc id="desc">A 的 32K Prompt Prefill 长时间占用 GPU，B、C、D 的 Decode 只能等它算完。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="310" fill="#fff"/>
+  <text x="150" y="28" text-anchor="start" class="small">GPU 时间</text>
+  <line x1="214" y1="24" x2="740" y2="24" class="axis"/>
+  <text x="40" y="88" text-anchor="start" class="bold">A · Prefill</text>
+  <rect class="seg-a" x="150" y="60" width="410" height="46"/>
+  <text x="355" y="89" text-anchor="middle" class="bold">32K Prompt（Long Prefill）</text>
+  <text x="40" y="152" text-anchor="start" class="body">B · Decode</text>
+  <rect class="seg-wait" x="150" y="124" width="410" height="46"/>
+  <text x="355" y="152" text-anchor="middle" class="small">等待（被 A 的 Prefill 阻塞）</text>
+  <rect class="seg-b" x="560" y="124" width="80" height="46"/>
+  <text x="600" y="152" text-anchor="middle" class="small">Decode</text>
+  <text x="40" y="214" text-anchor="start" class="body">C · Decode</text>
+  <rect class="seg-wait" x="150" y="186" width="410" height="46"/>
+  <text x="355" y="214" text-anchor="middle" class="small">等待（被 A 的 Prefill 阻塞）</text>
+  <rect class="seg-b" x="560" y="186" width="80" height="46"/>
+  <text x="600" y="214" text-anchor="middle" class="small">Decode</text>
+  <text x="40" y="276" text-anchor="start" class="body">D · Decode</text>
+  <rect class="seg-wait" x="150" y="248" width="410" height="46"/>
+  <text x="355" y="276" text-anchor="middle" class="small">等待（被 A 的 Prefill 阻塞）</text>
+  <rect class="seg-b" x="560" y="248" width="80" height="46"/>
+  <text x="600" y="276" text-anchor="middle" class="small">Decode</text>
+</svg>

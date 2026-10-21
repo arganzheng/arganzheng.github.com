@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="330" height="544" viewBox="234 56 330 544" role="img" aria-labelledby="title desc">
+  <title id="title">从 remaining_tokens 到 num_new_tokens 的判断链</title>
+  <desc id="desc">Scheduler 计算 remaining_tokens，与 Token Budget 比较后得到 num_new_tokens，分配 KV 槽位、消耗预算，再处理下一个 Request。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .title { font-size: 20px; font-weight: 700; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#arrow); }
+      .used { fill: #4e79a7; stroke: #fff; stroke-width: 2; }
+      .free { fill: #e8edf2; stroke: #fff; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect x="234" y="56" width="330" height="544" fill="#fff"/>
+  <g data-card="remaining"><rect class="card" x="250" y="72" width="260" height="58"/><text x="380" y="108" text-anchor="middle" class="head">remaining_tokens</text></g>
+  <line x1="380" y1="130" x2="380" y2="166" class="arrow"/>
+  <g data-card="compare"><rect class="compute" x="250" y="166" width="260" height="58"/><text x="380" y="202" text-anchor="middle" class="body">与 Token Budget 比较</text></g>
+  <line x1="380" y1="224" x2="380" y2="260" class="arrow"/>
+  <g data-card="newtokens"><rect class="card" x="250" y="260" width="260" height="58"/><text x="380" y="296" text-anchor="middle" class="head">num_new_tokens</text></g>
+  <line x1="380" y1="318" x2="380" y2="354" class="arrow"/>
+  <g data-card="slots"><rect class="memory" x="250" y="354" width="260" height="58"/><text x="380" y="390" text-anchor="middle" class="head">allocate_slots()</text></g>
+  <line x1="380" y1="412" x2="380" y2="448" class="arrow"/>
+  <g data-card="consume"><rect class="compute" x="250" y="448" width="260" height="58"/><text x="380" y="484" text-anchor="middle" class="body">消耗 Token Budget</text></g>
+  <line x1="380" y1="506" x2="380" y2="542" class="arrow"/>
+  <g data-card="next"><rect class="request" x="250" y="542" width="260" height="42"/><text x="380" y="569" text-anchor="middle" class="body">下一个 Request</text></g>
+  <path d="M510 563 H548 V101 H510" fill="none" class="arrow"/>
+</svg>

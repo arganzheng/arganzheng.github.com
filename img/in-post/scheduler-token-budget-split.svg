@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="366" viewBox="0 0 760 366" role="img" aria-labelledby="title desc">
+  <title id="title">Token Budget 在请求间分配的示意</title>
+  <desc id="desc">512 个 Token Budget 分配给 Request A 400、B 1、C 1 后，剩余 110。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="366" fill="#fff"/>
+  <g data-card="1"><rect class="compute" x="262" y="16" width="236" height="72"/><text x="380.0" y="44" text-anchor="middle" class="body">Token Budget</text><text x="380.0" y="70" text-anchor="middle" class="head">512</text></g>
+  <path d="M380 88 V118 H136 M380 118 V118 M380 118 H624" class="line"/>
+  <line x1="136" y1="118" x2="136" y2="156" class="arrow"/>
+  <line x1="380" y1="118" x2="380" y2="156" class="arrow"/>
+  <line x1="624" y1="118" x2="624" y2="156" class="arrow"/>
+  <g data-card="1"><rect class="request" x="52" y="156" width="168" height="72"/><text x="136.0" y="184" text-anchor="middle" class="body">Req A</text><text x="136.0" y="210" text-anchor="middle" class="head">400</text></g>
+  <g data-card="1"><rect class="request" x="296" y="156" width="168" height="72"/><text x="380.0" y="184" text-anchor="middle" class="body">Req B</text><text x="380.0" y="210" text-anchor="middle" class="head">1</text></g>
+  <g data-card="1"><rect class="request" x="540" y="156" width="168" height="72"/><text x="624.0" y="184" text-anchor="middle" class="body">Req C</text><text x="624.0" y="210" text-anchor="middle" class="head">1</text></g>
+  <path d="M136 228 V258 H624 M380 228 V258" class="line"/>
+  <line x1="380" y1="258" x2="380" y2="290" class="arrow"/>
+  <g data-card="1"><rect class="memory" x="266" y="290" width="228" height="56"/><text x="380.0" y="323" text-anchor="middle" class="head">剩余 110</text></g>
+</svg>

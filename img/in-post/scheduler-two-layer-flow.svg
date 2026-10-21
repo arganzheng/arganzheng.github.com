@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="556" viewBox="0 0 760 556" role="img" aria-labelledby="title desc">
+  <title id="title">Token Budget 与 KV Cache 两层约束的全貌</title>
+  <desc id="desc">先按 Token Budget 算出 num_new_tokens，再用 allocate_slots() 检查 KV Cache：足够就执行，不足就等待或抢占。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="556" fill="#fff"/>
+  <rect class="frame" x="24" y="16" width="712" height="150"/>
+  <text x="380" y="42" text-anchor="middle" class="head">Compute</text>
+  <g data-card="1"><rect class="card" x="34" y="66" width="220" height="70"/><text x="144.0" y="95" text-anchor="middle" class="bold">Token Budget</text><text x="144.0" y="117" text-anchor="middle" class="small">max_num_scheduled_tokens</text></g>
+  <line x1="254" y1="101" x2="296" y2="101" class="arrow"/>
+  <g data-card="1"><rect class="card" x="296" y="66" width="190" height="70"/><text x="391.0" y="106" text-anchor="middle" class="body">Request token demand</text></g>
+  <line x1="486" y1="101" x2="532" y2="101" class="arrow"/>
+  <g data-card="1"><rect class="card" x="532" y="66" width="190" height="70"/><text x="627.0" y="106" text-anchor="middle" class="mono">num_new_tokens</text></g>
+  <rect class="frame" x="24" y="206" width="712" height="334"/>
+  <text x="380" y="232" text-anchor="middle" class="head">Memory</text>
+  <line x1="627" y1="136" x2="627" y2="286" class="arrow"/>
+  <text x="612" y="191" text-anchor="end" class="small">通过计算约束后，检查内存是否可用</text>
+  <g data-card="1"><rect class="card" x="527" y="286" width="200" height="56"/><text x="627.0" y="319" text-anchor="middle" class="mono">allocate_slots()</text></g>
+  <line x1="527" y1="314" x2="433" y2="314" class="arrow"/>
+  <g data-card="1"><rect class="card" x="233" y="286" width="200" height="56"/><text x="333.0" y="319" text-anchor="middle" class="body">KV Cache</text></g>
+  <path d="M333 342 V400 H190 M333 400 H480" class="line"/>
+  <line x1="190" y1="400" x2="190" y2="450" class="arrow"/>
+  <line x1="480" y1="400" x2="480" y2="450" class="arrow"/>
+  <g data-card="1"><rect class="request" x="70" y="450" width="240" height="64"/><text x="190.0" y="476" text-anchor="middle" class="body">足够</text><text x="190.0" y="498" text-anchor="middle" class="small">执行</text></g>
+  <g data-card="1"><rect class="waiting" x="360" y="450" width="240" height="64"/><text x="480.0" y="476" text-anchor="middle" class="body">不足</text><text x="480.0" y="498" text-anchor="middle" class="small">等待 / 抢占</text></g>
+</svg>

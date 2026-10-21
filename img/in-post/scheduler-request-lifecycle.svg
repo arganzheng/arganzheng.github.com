@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="812" viewBox="0 0 760 812" role="img" aria-labelledby="title desc">
+  <title id="title">一个 Request 的生命周期</title>
+  <desc id="desc">Request 到达后进入 Waiting，通过 Admission Control 进入 Running，每轮由 Scheduler.schedule() 分配 token 并在 GPU 执行，更新 num_computed_tokens；未完成则进入下一轮，完成则释放 KV Cache。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="812" fill="#fff"/>
+  <g data-card="1"><rect class="card" x="280" y="16" width="200" height="48"/><text x="380.0" y="45" text-anchor="middle" class="body">Request 到达</text></g>
+  <line x1="380" y1="64" x2="380" y2="84" class="arrow"/>
+  <g data-card="1"><rect class="waiting" x="280" y="84" width="200" height="48"/><text x="380.0" y="113" text-anchor="middle" class="body">Waiting</text></g>
+  <line x1="380" y1="132" x2="380" y2="152" class="arrow"/>
+  <g data-card="1"><rect class="compute" x="250" y="152" width="260" height="68"/><text x="380.0" y="180" text-anchor="middle" class="head">Admission Control</text><text x="380.0" y="202" text-anchor="middle" class="small">检查 KV Cache</text></g>
+  <line x1="250" y1="186" x2="166" y2="186" class="arrow"/>
+  <g data-card="1"><rect class="waiting" x="24" y="160" width="142" height="68"/><text x="95.0" y="188" text-anchor="middle" class="small">KV Cache 不足</text><text x="95.0" y="210" text-anchor="middle" class="small">回 Waiting</text></g>
+  <path d="M95 160 V108 H280" class="arrow"/>
+  <line x1="380" y1="220" x2="380" y2="240" class="arrow"/>
+  <g data-card="1"><rect class="request" x="280" y="240" width="200" height="48"/><text x="380.0" y="269" text-anchor="middle" class="head">Running</text></g>
+  <line x1="380" y1="288" x2="380" y2="308" class="arrow"/>
+  <g data-card="1"><rect class="compute" x="180" y="308" width="400" height="150"/><text x="380.0" y="340" text-anchor="middle" class="head">Scheduler.schedule()</text><text x="380.0" y="364" text-anchor="middle" class="body">计算 remaining tokens</text><text x="380.0" y="388" text-anchor="middle" class="body">分配 Token Budget</text><text x="380.0" y="412" text-anchor="middle" class="body">allocate_slots()</text><text x="380.0" y="436" text-anchor="middle" class="body">生成 SchedulerOutput</text></g>
+  <line x1="380" y1="458" x2="380" y2="478" class="arrow"/>
+  <g data-card="1"><rect class="memory" x="180" y="478" width="400" height="126"/><text x="380.0" y="520" text-anchor="middle" class="head">GPU 执行</text><text x="380.0" y="546" text-anchor="middle" class="body">Prefill / Chunked Prefill</text><text x="380.0" y="572" text-anchor="middle" class="body">Decode / Speculative Decode</text></g>
+  <line x1="380" y1="604" x2="380" y2="624" class="arrow"/>
+  <g data-card="1"><rect class="card" x="225" y="624" width="310" height="52"/><text x="380.0" y="655" text-anchor="middle" class="mono">num_computed_tokens 更新</text></g>
+  <path d="M380 676 V700 H160 M380 700 H600" class="line"/>
+  <line x1="160" y1="700" x2="160" y2="728" class="arrow"/>
+  <line x1="600" y1="700" x2="600" y2="728" class="arrow"/>
+  <g data-card="1"><rect class="memory" x="34" y="728" width="252" height="64"/><text x="160.0" y="754" text-anchor="middle" class="body">完成</text><text x="160.0" y="776" text-anchor="middle" class="small">释放 KV Cache</text></g>
+  <g data-card="1"><rect class="request" x="474" y="728" width="252" height="64"/><text x="600.0" y="754" text-anchor="middle" class="body">未完成</text><text x="600.0" y="776" text-anchor="middle" class="small">进入下一轮</text></g>
+  <path d="M726 760 H744 V383 H580" class="arrow"/>
+</svg>
