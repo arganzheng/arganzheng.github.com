@@ -280,7 +280,9 @@ Pages has `https_enforced` on.
   counts; `js/writing-schedule.js` exports Node-testable Beijing-date,
   collision, gap and grouping helpers. `sitemap: false`, `noindex: true`
   (`head.html` emits the robots meta for `page.noindex`). Its styles are
-  `less/dashboard.less` (`.dash*`).
+  `less/dashboard.less` (`.dash*`). The standalone `_layouts/dashboard.html`
+  groups the one-page dashboard into 流量、内容、读者反馈、写作, with six KPIs
+  and sticky group navigation; the writing group remains author-only.
 - `index.html`: posts with `pinned: true` lead page 1 (badge `.post-pin`) and
   are skipped in the paginated flow. Sidebar (`_layouts/page.html`): HOT TAGS
   is `_includes/tag-cloud.html` (`min=site.featured-condition-size`); `/tags/`

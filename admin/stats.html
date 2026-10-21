@@ -1,5 +1,5 @@
 ---
-layout: page
+layout: dashboard
 title: Dashboard
 description: "作者视角：阅读趋势、写作排期、文章榜、读者反馈与待处理的 Issue"
 permalink: /admin/stats.html
@@ -19,65 +19,105 @@ noindex: true
      data-repo="{{ site.giscus.repo }}"
      data-category-id="{{ site.giscus.category_id }}"
      data-site-url="{{ site.url }}{{ site.baseurl }}">
+  <div class="dash-kpis" aria-label="关键指标">
+    <a class="dash-kpi" href="#dash-trend" data-kpi="views30"><span>30 天阅读</span><strong>…</strong></a>
+    <a class="dash-kpi" href="#dash-trend" data-kpi="daily30"><span>日均</span><strong>…</strong></a>
+    <a class="dash-kpi" href="#dash-comments" data-kpi="comments"><span>未处理评论</span><strong>…</strong><small class="dash-kpi-note" hidden></small></a>
+    <a class="dash-kpi" href="#dash-issues" data-kpi="queue"><span>待修订</span><strong>…</strong><small class="dash-kpi-note" hidden></small></a>
+    <a class="dash-kpi" href="#dash-issues" data-kpi="errata"><span>读者报错</span><strong>…</strong><small class="dash-kpi-note" hidden></small></a>
+    <a class="dash-kpi" href="#dash-issues" data-kpi="deadlinks"><span>死链</span><strong>…</strong><small class="dash-kpi-note" hidden></small></a>
+  </div>
 
-  <section class="dash-section" id="dash-trend">
-    <h3>阅读趋势 <small><a href="#" data-days="7">7 天</a> · <a href="#" data-days="30" class="is-active">30 天</a> · <a href="#" data-days="90">90 天</a></small></h3>
-    <p class="dash-hint">按北京时间每天合计；一个浏览器一篇一天计一次，本地预览不计。<span class="dash-trend-sum"></span></p>
-    <div class="dash-bars"><p class="dash-muted">加载中…</p></div>
-    <div class="dash-trend-top"></div>
+  <nav class="dash-gnav" aria-label="Dashboard 分组">
+    <a href="#dash-g-traffic" class="is-active">流量</a>
+    <a href="#dash-g-content">内容</a>
+    <a href="#dash-g-feedback">读者反馈</a>
+    <a href="#dash-g-writing">写作</a>
+  </nav>
+
+  <section class="dash-group" id="dash-g-traffic" aria-labelledby="dash-g-traffic-title">
+    <h2 class="dash-group-title" id="dash-g-traffic-title">流量</h2>
+    <div class="dash-grid dash-grid-traffic">
+      <section class="dash-section" id="dash-trend">
+        <h3><span>阅读趋势</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-trend">?</button>
+          <span class="dash-segments"><a href="#" data-days="7">7 天</a><a href="#" data-days="30" class="is-active">30 天</a><a href="#" data-days="90">90 天</a></span></h3>
+        <div class="dash-help-text" id="dash-help-trend" hidden><p class="dash-hint">按北京时间每天合计；一个浏览器一篇一天计一次，本地预览不计。</p></div>
+        <div class="dash-bars"><p class="dash-muted">加载中…</p></div>
+        <p class="dash-trend-sum dash-muted" aria-live="polite"></p>
+      </section>
+      <section class="dash-section" id="dash-trend-top">
+        <h3>这段时间读得最多</h3>
+        <div class="dash-trend-top"></div>
+      </section>
+    </div>
   </section>
 
-  <section class="dash-section" id="dash-schedule" aria-labelledby="dash-schedule-title">
-    <h3 id="dash-schedule-title">写作排期</h3>
-    <p class="dash-hint dash-schedule-summary" aria-live="polite">加载中…</p>
-    <p class="dash-muted dash-schedule-empty" hidden>没有排期中的文章</p>
-    <div class="dash-schedule-calendar"></div>
-    <div class="dash-schedule-legend" aria-label="日历图例"></div>
-    <div class="dash-schedule-groups"></div>
+  <section class="dash-group" id="dash-g-content" aria-labelledby="dash-g-content-title">
+    <h2 class="dash-group-title" id="dash-g-content-title">内容</h2>
+    <section class="dash-section" id="dash-posts">
+      <h3><span>文章榜</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-posts">?</button></h3>
+      <div class="dash-help-text" id="dash-help-posts" hidden><p class="dash-hint dash-sort-hint">点表头排序。</p></div>
+      <div class="dash-table-wrap"><table class="dash-table dash-posts">
+        <thead><tr><th>#</th><th>文章</th><th class="num is-sortable is-active" data-sort="views">阅读</th><th class="num is-sortable" data-sort="up">有用</th><th class="num is-sortable" data-sort="rate" title="有用 ÷ 阅读">有用率</th><th class="num is-sortable" data-sort="shares">分享</th><th class="num is-sortable" data-sort="comments">评论</th><th class="is-sortable" data-sort="recent">最近</th></tr></thead>
+        <tbody><tr><td colspan="8" class="dash-muted">加载中…</td></tr></tbody>
+      </table></div>
+    </section>
+    <div class="dash-grid dash-grid-equal">
+      <section class="dash-section" id="dash-funnel">
+        <h3><span>系列漏斗</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-funnel">?</button></h3>
+        <div class="dash-help-text" id="dash-help-funnel" hidden><p class="dash-hint">阅读数是累计页面浏览次数，也包括从搜索等入口直接落到系列中间篇的读者，所以这里只是粗略漏斗，不是逐个读者的阅读路径。</p></div>
+        <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+      </section>
+      <section class="dash-section" id="dash-refresh">
+        <h3><span>值得翻新的老文章</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-refresh">?</button></h3>
+        <div class="dash-help-text" id="dash-help-refresh" hidden><p class="dash-hint">写于（或最后更新于）三年以上、仍在被读的文章，按「阅读 × log(年龄)」排序——读者还在来，内容却可能过时了。改完在 front matter 写上 <code>updated:</code>，它就从这里消失，文章顶部的「本文写于 N 年前」提示也会重算。</p></div>
+        <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+      </section>
+    </div>
   </section>
 
-  <section class="dash-section" id="dash-posts">
-    <h3>文章榜 <small class="dash-sort-hint">点表头排序</small></h3>
-    <table class="dash-table dash-posts">
-      <thead><tr><th>#</th><th>文章</th><th class="num is-sortable is-active" data-sort="views">阅读</th><th class="num is-sortable" data-sort="up">有用</th><th class="num is-sortable" data-sort="rate" title="有用 ÷ 阅读">有用率</th><th class="num is-sortable" data-sort="shares">分享</th><th class="num is-sortable" data-sort="comments">评论</th><th class="is-sortable" data-sort="recent">最近</th></tr></thead>
-      <tbody><tr><td colspan="8" class="dash-muted">加载中…</td></tr></tbody>
-    </table>
+  <section class="dash-group" id="dash-g-feedback" aria-labelledby="dash-g-feedback-title">
+    <h2 class="dash-group-title" id="dash-g-feedback-title">读者反馈</h2>
+    <div class="dash-grid dash-grid-feedback">
+      <section class="dash-section" id="dash-passages">
+        <h3><span>读者划出来的句子</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-passages">?</button>
+          <span class="dash-segments"><a href="#" data-kind="up" class="is-active">点赞最多</a><a href="#" data-kind="share">分享最多</a></span></h3>
+        <div class="dash-help-text" id="dash-help-passages" hidden><p class="dash-hint">读者选中一段话点「点赞」或完成分享（匿名，不用登录）。点句子直达原文并展开讨论。</p></div>
+        <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+      </section>
+      <div class="dash-stack">
+        <section class="dash-section" id="dash-issues">
+          <h3>待处理</h3>
+          <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+        </section>
+        <section class="dash-section" id="dash-comments">
+          <h3><span>最近评论</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-comments">?</button>
+            <span class="dash-segments"><a href="#" data-mode="open" class="is-active">未处理</a><a href="#" data-mode="all">全部</a></span><span class="dash-auth"></span></h3>
+          <div class="dash-help-text" id="dash-help-comments" hidden><p class="dash-hint">「未处理」= GitHub 上还没被折叠（minimize）的划线评论；改好回帖后点「已处理」把它折叠成 resolved，文章页和这里都不再显示，GitHub 上可撤销。</p></div>
+          <div class="dash-list"><p class="dash-muted">需要 GitHub 登录（和评论框同一个登录）。</p></div>
+        </section>
+      </div>
+    </div>
+    <section class="dash-section" id="dash-brief">
+      <h3><span>修订简报</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-brief">?</button>
+        <select class="dash-brief-pick"><option value="">选一篇文章…</option></select></h3>
+      <div class="dash-help-text" id="dash-help-brief" hidden><p class="dash-hint">把一篇文章收到的点赞、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。每周一 <code>feedback-queue</code> Action 也用同一套逻辑跑全站，反馈够多的文章自动开一个「待修订」Issue（见上方「待处理」）。</p></div>
+      <div class="dash-brief-queue"><p class="dash-muted">加载中…</p></div>
+      <div class="dash-brief-body"><p class="dash-muted">还没有选文章。</p></div>
+    </section>
   </section>
 
-  <section class="dash-section" id="dash-funnel">
-    <h3>系列漏斗 <small class="dash-muted">每篇累计阅读，看读者在哪一篇走掉</small></h3>
-    <p class="dash-hint">阅读数是累计页面浏览次数，也包括从搜索等入口直接落到系列中间篇的读者，所以这里只是粗略漏斗，不是逐个读者的阅读路径。</p>
-    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
-  </section>
-
-  <section class="dash-section" id="dash-refresh">
-    <h3>值得翻新的老文章 <small class="dash-muted">阅读多 × 年头久 × 没更新过</small></h3>
-    <p class="dash-hint">写于（或最后更新于）三年以上、仍在被读的文章，按「阅读 × log(年龄)」排序——读者还在来，内容却可能过时了。改完在 front matter 写上 <code>updated:</code>，它就从这里消失，文章顶部的「本文写于 N 年前」提示也会重算。</p>
-    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
-  </section>
-
-  <section class="dash-section" id="dash-brief">
-    <h3>修订简报 <small><select class="dash-brief-pick"><option value="">选一篇文章…</option></select></small></h3>
-    <p class="dash-hint">把一篇文章收到的点赞、划线评论、修改建议、Issue 状态汇总成一份 Markdown，按关注度排好序，末尾附给 AI 的修订指令。文章榜每行的「简报」也到这里；链接形如 <code>#brief=/slug.html</code>。每周一 <code>feedback-queue</code> Action 也用同一套逻辑跑全站，反馈够多的文章自动开一个「待修订」Issue（见下方「待处理」）。</p>
-    <div class="dash-brief-queue"><p class="dash-muted">加载中…</p></div>
-    <div class="dash-brief-body"><p class="dash-muted">还没有选文章。</p></div>
-  </section>
-
-  <section class="dash-section" id="dash-passages">
-    <h3>读者划出来的句子 <small><a href="#" data-kind="up" class="is-active">点赞最多</a> · <a href="#" data-kind="share">分享最多</a></small></h3>
-    <p class="dash-hint">读者选中一段话点「点赞」或完成分享（匿名，不用登录）。点句子直达原文并展开讨论。</p>
-    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
-  </section>
-
-  <section class="dash-section" id="dash-comments">
-    <h3>最近评论 <small><a href="#" data-mode="open" class="is-active">未处理</a> · <a href="#" data-mode="all">全部</a> · <span class="dash-auth"></span></small></h3>
-    <p class="dash-hint">「未处理」= GitHub 上还没被折叠（minimize）的划线评论；改好回帖后点「已处理」把它折叠成 resolved，文章页和这里都不再显示，GitHub 上可撤销。</p>
-    <div class="dash-list"><p class="dash-muted">需要 GitHub 登录（和评论框同一个登录）。</p></div>
-  </section>
-
-  <section class="dash-section" id="dash-issues">
-    <h3>待处理</h3>
-    <div class="dash-list"><p class="dash-muted">加载中…</p></div>
+  <section class="dash-group" id="dash-g-writing" aria-labelledby="dash-g-writing-title">
+    <h2 class="dash-group-title" id="dash-g-writing-title">写作</h2>
+    <section class="dash-section" id="dash-schedule" aria-labelledby="dash-schedule-title">
+      <h3 id="dash-schedule-title"><span>写作排期</span><button type="button" class="dash-help" aria-expanded="false" aria-controls="dash-help-schedule">?</button></h3>
+      <div class="dash-help-text" id="dash-help-schedule" hidden><p class="dash-hint">只在作者登录状态显示。</p></div>
+      <p class="dash-hint dash-schedule-summary" aria-live="polite">加载中…</p>
+      <p class="dash-muted dash-schedule-empty" hidden>没有排期中的文章</p>
+      <div class="dash-schedule-calendar"></div>
+      <div class="dash-schedule-legend" aria-label="日历图例"></div>
+      <div class="dash-schedule-groups"></div>
+    </section>
   </section>
 </div>
 

@@ -41,10 +41,63 @@
   function getJson(url) { return fetch(url).then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); }); }
   function activate(links, el) { Array.prototype.forEach.call(links, function (x) { x.classList.remove('is-active'); }); el.classList.add('is-active'); }
   function fmt(n) { return n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + ' 万' : String(n); }
+  function setKpi(key, value, kind) {
+    var card = document.querySelector('.dash-kpi[data-kpi="' + key + '"]');
+    if (!card) return;
+    var number = card.querySelector('strong'), note = card.querySelector('.dash-kpi-note');
+    var count = kind === 'count', failed = value == null;
+    number.textContent = failed ? '—' : String(value);
+    card.classList.toggle('is-ok', count && !failed && Number(value) === 0);
+    card.classList.toggle('is-warn', count && !failed && Number(value) > 0);
+    card.classList.toggle('is-error', failed);
+    if (note) {
+      note.hidden = !(count && !failed && Number(value) === 0);
+      note.textContent = note.hidden ? '' : '✓';
+    }
+  }
+  function initDashboardControls() {
+    Array.prototype.forEach.call(root.querySelectorAll('.dash-help'), function (button) {
+      var text = document.getElementById(button.getAttribute('aria-controls'));
+      if (!text) return;
+      button.addEventListener('click', function () {
+        var open = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', String(!open));
+        text.hidden = open;
+      });
+    });
+    var links = root.querySelectorAll('.dash-gnav a'), groups = root.querySelectorAll('.dash-group');
+    function markGroup(id) {
+      Array.prototype.forEach.call(links, function (link) {
+        var active = link.getAttribute('href') === '#' + id;
+        link.classList.toggle('is-active', active);
+        if (active) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+    }
+    if ('IntersectionObserver' in window) {
+      var observer = new IntersectionObserver(function (entries) {
+        var visible = entries.filter(function (entry) { return entry.isIntersecting; });
+        if (visible.length) {
+          visible.sort(function (a, b) { return a.boundingClientRect.top - b.boundingClientRect.top; });
+          markGroup(visible[0].target.id);
+        }
+      }, { rootMargin: '-100px 0px -68% 0px', threshold: 0 });
+      Array.prototype.forEach.call(groups, function (group) { observer.observe(group); });
+    }
+    var nav = document.querySelector('.navbar-custom');
+    function updateNavOffset() {
+      var visible = nav && nav.classList.contains('is-fixed') && nav.classList.contains('is-visible');
+      root.style.setProperty('--dash-nav-offset', visible ? Math.ceil(nav.getBoundingClientRect().height) + 'px' : '0px');
+    }
+    window.addEventListener('scroll', updateNavOffset, { passive: true });
+    if (nav && 'MutationObserver' in window) new MutationObserver(updateNavOffset).observe(nav, { attributes: true, attributeFilter: ['class'] });
+    updateNavOffset();
+  }
+  initDashboardControls();
 
   // ---- 阅读趋势 (views_daily)
   function loadTrend(days) {
-    var bars = document.querySelector('#dash-trend .dash-bars'), top = document.querySelector('#dash-trend .dash-trend-top'), sum = document.querySelector('#dash-trend .dash-trend-sum');
+    var bars = document.querySelector('#dash-trend .dash-bars'), top = document.querySelector('#dash-trend-top .dash-trend-top'), sum = document.querySelector('#dash-trend .dash-trend-sum');
     getJson(api + '/views/daily?days=' + days).then(function (data) {
       var byDay = {};
       (data.days || []).forEach(function (d) { byDay[d.day] = d.views; });
@@ -54,6 +107,10 @@
       var max = Math.max.apply(null, list.map(function (d) { return d.views; }).concat([1]));
       var total = list.reduce(function (n, d) { return n + d.views; }, 0);
       sum.textContent = '这 ' + days + ' 天合计 ' + fmt(total) + ' 次，日均 ' + Math.round(total / days) + '。';
+      if (days === 30) {
+        setKpi('views30', fmt(total));
+        setKpi('daily30', fmt(Math.round(total / 30)));
+      }
       bars.innerHTML = list.map(function (d) {
         var hgt = Math.max(d.views ? 2 : 0, Math.round(d.views / max * 100));
         return '<span class="dash-bar" title="' + d.day + '：' + d.views + ' 次"><i style="height:' + hgt + '%"></i></span>';
@@ -62,7 +119,13 @@
       top.innerHTML = paths.length ? '<h4>这段时间读得最多</h4><ol class="dash-top">' + paths.map(function (p) {
         return '<li><a href="' + h(p.path) + '">' + h(titleOf(p.path)) + '</a> <span class="dash-muted">' + fmt(p.views) + '</span></li>';
       }).join('') + '</ol>' : '';
-    }).catch(function (err) { bars.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
+    }).catch(function (err) {
+      bars.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>';
+      if (days === 30) {
+        setKpi('views30', null);
+        setKpi('daily30', null);
+      }
+    });
   }
   var trendLinks = document.querySelectorAll('#dash-trend [data-days]');
   Array.prototype.forEach.call(trendLinks, function (a) {
@@ -120,9 +183,12 @@
     var rows = funnelExpanded ? funnelRows : funnelRows.slice(0, FUNNEL_TOP);
     host.innerHTML = rows.map(function (series) {
       var name = series.name || series.key;
-      var summary = h(name) + ' · ' + series.posts.length + ' 篇 · 首篇 ' + fmt(series.first) +
-        ' → 末篇 ' + fmt(series.last) + '（' + Math.round(series.last / series.first * 100) + '%）';
-      if (series.biggest) summary += ' · 流失最多：第 ' + (series.biggest.index + 1) + ' 篇（−' + series.biggest.percent + '%）';
+      var summaryStats = '首篇 ' + fmt(series.first) + ' → 末篇 ' + fmt(series.last) +
+        '（' + Math.round(series.last / series.first * 100) + '%）';
+      if (series.biggest) summaryStats += ' · 流失最多：第 ' + (series.biggest.index + 1) + ' 篇（−' + series.biggest.percent + '%）';
+      var summary = '<span class="dash-funnel-summary-title"><span class="dash-funnel-summary-name">' + h(name) +
+        '</span><span class="dash-funnel-summary-count">' + h(series.posts.length) + ' 篇</span></span>' +
+        '<span class="dash-funnel-summary-stats">' + h(summaryStats) + '</span>';
       var steps = series.posts.map(function (post, index) {
         var views = series.postViews[index], previous = index ? series.postViews[index - 1] : 0;
         var change = index && previous ? Math.round((views / previous - 1) * 100) : null;
@@ -372,22 +438,42 @@
   loadPosts();
 
   // ---- 读者划出来的句子 (/reactions/top)
+  var passageRows = [], passageKind = 'up', passagesExpanded = false, PASSAGES_TOP = 10;
+  function renderPassages(host) {
+    var rows = passageRows, kind = passageKind;
+    if (!rows.length) {
+      host.innerHTML = '<p class="dash-muted">还没有人' + ({ up: '点赞', share: '分享' }[kind] || '点赞') + '。</p>';
+      return;
+    }
+    var shown = passagesExpanded ? rows : rows.slice(0, PASSAGES_TOP);
+    host.innerHTML = '<ol class="dash-quotes">' + shown.map(function (r) {
+      var ch = isChapter(r), quote = ch ? r.quote.slice(FB.CHAPTER_PREFIX.length) : r.quote;
+      return '<li><a class="dash-quote" title="' + h(quote) + '" href="' + h(r.path) + (ch ? '' : '#annot-' + h(r.hash)) + '">' + h(quote) + '</a>' +
+        '<div class="dash-quote-meta">' + (ch ? '<span class="dash-tag">章节</span> · ' : '') + '<a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a>' +
+        (r.section && !ch ? ' <span class="dash-muted">› ' + h(r.section) + '</span>' : '') + ' · ' +
+        (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + (ch ? ' 点赞' : '') + '</span> ' : '') +
+        (r.share ? '<span><i class="fa fa-share-alt"></i> ' + r.share + '</span> ' : '') +
+        (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') +
+        '</div></li>';
+    }).join('') + '</ol>' +
+      (rows.length > PASSAGES_TOP ? '<p class="dash-passage-toggle"><a href="#" class="dash-toggle">' + (passagesExpanded ? '收起' : '展开全部 ' + rows.length + ' 条') + '</a></p>' : '');
+  }
   function loadPassages(kind) {
     var host = document.querySelector('#dash-passages .dash-list');
     getJson(api + '/reactions/top?kind=' + kind + '&limit=30').then(function (data) {
-      var rows = data.rows || [];
-      if (!rows.length) { host.innerHTML = '<p class="dash-muted">还没有人' + ({ up: '点赞', share: '分享' }[kind] || '点赞') + '。</p>'; return; }
-      host.innerHTML = '<ol class="dash-quotes">' + rows.map(function (r, i) {
-        var ch = isChapter(r);
-        return '<li>' + (ch ? '<span class="dash-tag">章节</span> ' : '') + '<a class="dash-quote" href="' + h(r.path) + (ch ? '' : '#annot-' + h(r.hash)) + '">' + h(ch ? r.quote.slice(FB.CHAPTER_PREFIX.length) : r.quote) + '</a>' +
-          '<div class="dash-quote-meta"><a href="' + h(r.path) + '">' + h(titleOf(r.path)) + '</a>' + (r.section && !ch ? ' <span class="dash-muted">› ' + h(r.section) + '</span>' : '') + ' · ' +
-          (r.up ? '<span><i class="fa fa-thumbs-up"></i> ' + r.up + (ch ? ' 点赞' : '') + '</span> ' : '') +
-          (r.share ? '<span><i class="fa fa-share-alt"></i> ' + r.share + '</span> ' : '') +
-          (r.updated_at ? '<span class="dash-muted">· ' + ago(r.updated_at) + '</span>' : '') +
-          '</div></li>';
-      }).join('') + '</ol>';
+      passageRows = data.rows || [];
+      passageKind = kind;
+      passagesExpanded = false;
+      renderPassages(host);
     }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
   }
+  document.querySelector('#dash-passages .dash-list').addEventListener('click', function (e) {
+    var toggle = e.target.closest('.dash-toggle');
+    if (!toggle) return;
+    e.preventDefault();
+    passagesExpanded = !passagesExpanded;
+    renderPassages(e.currentTarget);
+  });
   var kindLinks = document.querySelectorAll('#dash-passages [data-kind]');
   Array.prototype.forEach.call(kindLinks, function (a) {
     a.addEventListener('click', function (e) { e.preventDefault(); activate(kindLinks, a); loadPassages(a.getAttribute('data-kind')); });
@@ -446,10 +532,13 @@
   briefFromHash();
 
   // open issues by label, public REST, fetched once and shared by 待修订的文章 and 待处理
-  var openIssuesCache = {};
+  var openIssuesCache = {}, openIssueErrors = {};
   function openIssues(label) {
     if (!openIssuesCache[label]) openIssuesCache[label] = fetch('https://api.github.com/repos/' + repo + '/issues?state=open&per_page=30&labels=' + encodeURIComponent(label))
-      .then(function (r) { return r.ok ? r.json() : []; }).then(function (list) { return list.filter(function (is) { return !is.pull_request; }); }).catch(function () { return []; });
+      .then(function (r) {
+        if (!r.ok) { openIssueErrors[label] = true; return []; }
+        return r.json();
+      }).then(function (list) { return list.filter(function (is) { return !is.pull_request; }); }).catch(function () { openIssueErrors[label] = true; return []; });
     return openIssuesCache[label];
   }
   function queueIssuePath(is) { var m = /<!-- feedback-queue: (\S+) -->/.exec(is.body || ''); return m ? m[1] : ''; }
@@ -478,7 +567,7 @@
         rows.push({ path: path, issues: issues, queued: queued[path], views: post.views || 0, score: issues.length + (queued[path] ? 1 : 0) });
       });
       rows.sort(function (a, b) { return b.score - a.score || b.views - a.views; });
-      if (!rows.length) { host.innerHTML = '<p class="dash-muted">目前没有带着未处理反馈的文章。</p>'; return; }
+      if (!rows.length) { host.innerHTML = '<p class="dash-muted">没有待修订的文章。</p>'; return; }
       host.innerHTML = '<h4>待修订的文章 <span class="dash-count">' + rows.length + '</span> <small class="dash-muted">有未关闭的划线评论 Issue 或已开「待修订」Issue</small></h4>' +
         '<ol class="dash-top dash-queue">' + rows.slice(0, QUEUE_TOP).map(function (r) {
           var m = meta[r.path], bits = [];
@@ -498,6 +587,15 @@
     Promise.all([openIssues('待修订'), openIssues('划线评论'), openIssues('dead-links')])
       .then(function (res) {
         var queue = res[0], errata = res[1], links = res[2];
+        setKpi('queue', openIssueErrors['待修订'] ? null : queue.length, 'count');
+        setKpi('errata', openIssueErrors['划线评论'] ? null : errata.length, 'count');
+        setKpi('deadlinks', openIssueErrors['dead-links'] ? null : links.length, 'count');
+        if (!queue.length && !errata.length && !links.length) {
+          host.innerHTML = Object.keys(openIssueErrors).length
+            ? '<p class="dash-muted">Issue 状态暂时无法读取。</p>'
+            : '<p class="dash-empty-ok">✓ 都清了 · 待修订 0 · 读者报错 0 · 死链 0</p>';
+          return;
+        }
         // 待修订: one issue per post, opened by the weekly feedback-queue Action; its body is the brief
         var html = '<h4>待修订的文章 <span class="dash-count">' + queue.length + '</span> <a class="dash-more" target="_blank" rel="noopener" href="https://github.com/' + repo + '/issues?q=is%3Aissue+is%3Aopen+label%3A%E5%BE%85%E4%BF%AE%E8%AE%A2">全部 ↗</a></h4>';
         html += queue.length ? '<ul>' + queue.map(function (is) {
@@ -513,7 +611,12 @@
           return '<li><a target="_blank" rel="noopener" href="' + h(is.html_url) + '">#' + is.number + ' ' + h(is.title) + '</a> <span class="dash-muted">更新于 ' + ago(is.updated_at) + '</span></li>';
         }).join('') + '</ul>' : '<p class="dash-muted">没有。</p>';
         host.innerHTML = html;
-      }).catch(function (err) { host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>'; });
+      }).catch(function (err) {
+        host.innerHTML = '<p class="dash-muted">加载失败：' + h(err.message) + '</p>';
+        setKpi('queue', null, 'count');
+        setKpi('errata', null, 'count');
+        setKpi('deadlinks', null, 'count');
+      });
   }
   loadIssues();
 
@@ -562,6 +665,10 @@
 
   function renderComments() {
     if (!threads) return;
+    var openTotal = threads.reduce(function (n, d) {
+      return n + d.recent.nodes.filter(function (c) { return !c.isMinimized; }).length;
+    }, 0);
+    setKpi('comments', openTotal, 'count');
     var shown = threads.map(function (d) {
       var open = d.recent.nodes.filter(function (c) { return !c.isMinimized; });
       return { d: d, comments: mode === 'open' ? open : d.recent.nodes.slice(), open: open.length };
@@ -602,15 +709,21 @@
 
   function loadComments() {
     if (!session()) {
-      authEl.innerHTML = '<a href="#" class="dash-login">登录 GitHub</a>';
-      authEl.querySelector('.dash-login').addEventListener('click', function (e) { e.preventDefault(); login(); });
+      var commentKpi = document.querySelector('.dash-kpi[data-kpi="comments"] .dash-kpi-note');
+      setKpi('comments', null);
+      if (commentKpi) { commentKpi.textContent = '登录后显示'; commentKpi.hidden = false; }
+      authEl.textContent = '';
+      listEl.innerHTML = '<p class="dash-login-line dash-muted">需要 GitHub 登录查看评论 <a href="#" class="dash-login">登录 GitHub</a></p>';
+      listEl.querySelector('.dash-login').addEventListener('click', function (e) { e.preventDefault(); login(); });
       return;
     }
-    authEl.textContent = '加载中…';
+    setKpi('comments', '…');
+    authEl.textContent = '';
     var parts = repo.split('/');
     gql(QUERY, { owner: parts[0], name: parts[1], cat: categoryId })
       .then(function (data) { threads = data.repository.discussions.nodes; renderComments(); })
       .catch(function (err) {
+        setKpi('comments', null);
         authEl.innerHTML = '<a href="#" class="dash-login">重新登录</a>';
         authEl.querySelector('.dash-login').addEventListener('click', function (e) { e.preventDefault(); try { localStorage.removeItem(SESSION_KEY); } catch (x) { /* ignore */ } login(); });
         listEl.innerHTML = '<p class="dash-muted">' + h(err.message) + '</p>';
