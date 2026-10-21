@@ -52,16 +52,7 @@ Table: 本文的章节安排
 
 在 PagedAttention 出现之前，每个请求的 KV Cache 必须在 GPU 显存中预分配一段**连续内存**，其长度等于模型支持的最大序列长度。这造成了两类碎片：
 
-``` title="按 max_len 预留连续空间造成的两类碎片"
-GPU HBM (80 GB)，每个请求按 max_len=2048 预留连续空间
-┌──────────────────────────────────────────────────────────┐
-│ Req A  ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│        ↑实际用 500      ↑ 内部碎片：1548 tokens 的空间白占 │
-│ Req B  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│ ░░░░░░ 剩余空间凑不出一整段连续的 2048 → Req C 进不来 ░░░  │
-│        （外部碎片：总量其实够，但不连续）                  │
-└──────────────────────────────────────────────────────────┘
-```
+![按 max_len 预留连续空间造成的两类碎片](/img/in-post/kv-cache-memory-core-fragmentation.svg)
 
 | 碎片类型 | 成因 | 后果 |
 |---|---|---|
@@ -120,19 +111,9 @@ kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
 
 ### 3. 源码解密：核心数据结构关系
 
-```mermaid
-%% 图：KV Cache 核心数据结构关系：Request → KVCacheBlocks → KVCacheBlock → GPU HBM 上的 kv_cache[block_id]
-graph TD
-    R["<b>Request</b>（逻辑层，不碰显存）<br/>request_id / prompt_token_ids / output_token_ids<br/>num_computed_tokens / block_hashes / status"]
-    R -->|"1:N，经 KVCacheManager"| KB
-    KB["<b>KVCacheBlocks</b><br/>blocks: tuple[Sequence[KVCacheBlock], …]<br/>外层 = KV Cache Group，内层 = 该 Group 的物理块序列"]
-    KB --> B
-    B["<b>KVCacheBlock</b>（物理块元数据）<br/>block_id / ref_cnt / block_hash<br/>prev_free_block ⇄ next_free_block（FreeBlockQueue 双向链表）"]
-    B -->|"block_id 索引"| H
-    H[("<b>GPU HBM</b><br/>kv_cache[block_id]<br/>[block_size, num_kv_heads, head_dim]")]
-```
+![KV Cache 核心数据结构关系](/img/in-post/kv-cache-memory-core-core-data-structures.svg)
 
-顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；KVCacheBlock 才是物理块的元数据，它同时挂在 Request 的 blocks 列表和 BlockPool 的 free/cached 列表里；block_id 最终索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
+顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；它通过 KVCacheManager 对应一个 KVCacheBlocks，里面按 KV Cache Group 存着物理块序列；block_id 直接当下标索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。每个 KVCacheBlock 还带着 ref_cnt、block_hash 和一对前后指针：块被持有时（ref_cnt > 0）只挂在请求的块序列里；ref_cnt 归零后靠这对指针串进 FreeBlockQueue 这条双向链表，等着被重新分配或被 Prefix Cache 命中。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
 
 > **回到我们的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
 >
@@ -175,48 +156,33 @@ class BlockPool:
 
 用一个 6 块的小池子把这四个动作（`get_new_blocks` / `free_blocks` / 驱逐 / `touch`）在链表上走一遍，就能看清"空闲"和"缓存"是怎么共享同一条队列的：
 
-```text title="6 块小池子上的 free_block_queue 演变"
-free_block_queue：只放 ref_cnt==0 的块。head = 最先被分走；tail = 最近释放
-[n*] 表示该块仍挂着 block_hash（可被 Prefix Cache 命中）
-
-T0  启动，6 块全空闲
-    head → [0][1][2][3][4][5] ← tail
-
-T1  Req A get_new_blocks(3)：从 head 依次 popleft
-    head → [3][4][5] ← tail            A 持有 0,1,2（ref_cnt=1）
-
-T2  Req A 完成，free_blocks(reversed(blocks))
-    块 0,1 写满、带 hash → append 到 tail（按块序反向：1 先入，0 后入）
-    块 2 未写满、无 hash → prepend 到 head（最先被淘汰）
-    head → [2][3][4][5][1*][0*] ← tail
-                          ↑  ↑ 序列末尾的块排在前缀块之前 → 先被淘汰
-
-T3  Req C get_new_blocks(5)：popleft 2,3,4,5 和 1*
-    分到 1* 时 _maybe_evict_cached_block 摘掉它的 hash —— 这就是"驱逐"
-    head → [0*] ← tail                 C 持有 2,3,4,5,1（ref_cnt=1）
-
-T4  Req B 到来，前缀与 A 相同：
-    块 0 hash 命中 → touch()：从链表摘出，ref_cnt 0→1（续命，无需重算）
-    块 1 hash 已被摘 → 未命中 → 需 get_new_blocks(1)，但链表已空 → 等待
-    head → (空) ← tail                 B 持有 0
-```
+![6 块小池子上的 free_block_queue 演变](/img/in-post/kv-cache-memory-core-free-block-queue.svg)
 
 T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**反序**交给 `free_blocks()` 的，于是同一个请求里越靠后的块越靠近 head、越先被淘汰，而前缀块尽量留到最后——这和 Prefix Cache "命中总是从前缀开始"的访问模式是配套的。
 
 块分配的布局（引自 `allocate_slots()` 注释）：
 
-``` title="allocate_slots() 的块布局"
-  |<──── computed ────>|<─ new_computed ─>|<─ external ─>|<── new ──>|<─ lookahead ─>|
-                                                          |<── to be computed ──────>|
-                                          |<────────── to be allocated ──────>|
-                                          |<────────── to be cached ──────────>|
+![allocate_slots() 的块布局](/img/in-post/kv-cache-memory-core-allocate-slots-layout.svg)
 
-  computed:      之前已缓存在 KV Cache 中的 tokens（Prefix Cache 命中）
-  new_computed:  本轮新计算但已完成的 tokens
-  external:      从远端传输的 KV 块（PD 分离场景）
-  new:           需要本轮计算的新 tokens
-  lookahead:     为 Speculative Decoding 预留的额外 tokens
-```
+- `computed`：之前已缓存在 KV Cache 中的 tokens（Prefix Cache 命中）
+- `new_computed`：本轮新计算但已完成的 tokens
+- `external`：从远端传输的 KV 块（PD 分离场景）
+- `new`：需要本轮计算的新 tokens
+- `lookahead`：为 Speculative Decoding 预留的额外 tokens
+
+这五段不会同时出现。还是用贯穿全文的例子（2000 token 的 system prompt + 50 token 用户输入，`block_size = 16`），看几种常见场景下各段分别是多少：
+
+![allocate_slots() 的五种常见场景](/img/in-post/kv-cache-memory-core-allocate-slots-scenarios.svg)
+
+| 场景 | 非零的段 | 本轮要算 | 本轮要分配 | 说明 |
+|---|---|---|---|---|
+| 1 首个请求，前缀无命中 | `new` = 2050 | 2050 | 129 块 | 所有 token 都是新的，`computed` 为 0 |
+| 2 第二个请求，前缀命中 125 块 | `new_computed` = 2000，`new` = 50 | 50 | 4 块 | 125 块复用，`ref_cnt++`；它们算 `new_computed` 而不是 `computed`，因为是本轮刚查出来的命中 |
+| 3 长 Prompt 的第二个 chunk | `computed` = 2048，`new` = 2048 | 2048 | 128 块 | 上一轮算完的 2048 已经在请求自己的块里，这才是 `computed` |
+| 4 Decode + 投机解码（K=3） | `computed` = 2050+t，`new` = 1，`lookahead` = 3 | 1 + 3 个候选 | 最多 1 块 | 候选 token 要先占 slot 才能验证，所以预留 `lookahead` |
+| 5 PD 分离的 Decode 实例首轮 | `external` = 2049，`new` = 1 | 1 | 129 块 | KV 由 Prefill 实例传来，最后一个 token 由 Decode 端自己算以产生 logits |
+
+Table: allocate_slots() 五种场景下各段的取值
 
 这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
 
@@ -235,7 +201,12 @@ T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**
 
 Table: Prefill 与 Decode 阶段的 KV 写入方式
 
-**② 读取**——Attention Kernel 不认识"请求"，只认 Block Table：
+**② 读取**——kernel 拿到的只有 Block Table 和 HBM 上的 `kv_cache`，没有"请求"这个概念。这带来两个直接后果：
+
+- 读多少由上下文长度决定。一个 2050 token 的请求要遍历 129 个块，每块取出 16 个 token 的 K/V；Decode 每多一个 token，要读的块数最多加 1，所以 Decode 的显存读取量随上下文线性增长，这是 Decode 受带宽限制的直接来源。
+- 写和读走两套索引。写入用 `slot_mapping`（token → 物理 slot，每轮由执行层算好），读取用 `block_table`（请求 → 物理块列表）。kernel 不要求块连续，也不关心相邻的块属于谁，所以不同请求的块可以在同一次 forward 里混着读——这是 Continuous Batching 能把 Prefill 和 Decode 塞进一个 batch 的前提。
+
+读取的过程用伪代码写出来是：
 
 ``` title="Attention kernel 通过 Block Table 读 KV"
 Block Table:  req_42 → [PB_7, PB_13, PB_21]
@@ -361,16 +332,7 @@ KV Cache 的大小与 KV head 数量成正比。Grouped-Query Attention (GQA) �
 
 Table: MHA、GQA 与 MQA 的 KV 大小
 
-``` title="MHA / GQA / MQA 的 Q 与 K/V 头对应"
-MHA   Q: [1][2][3][4][5][6][7][8]
-      K: [1][2][3][4][5][6][7][8]      ← 一个 Q 配一个 K/V
-
-GQA   Q: [1][2][3][4][5][6][7][8]
-      K: [ G1  ][ G2  ][ G3  ][ G4 ]   ← 每 2 个 Q 共享一份
-
-MQA   Q: [1][2][3][4][5][6][7][8]
-      K: [        K1            ]      ← 全部 Q 共享一份
-```
+![MHA / GQA / MQA 的 Q 与 K/V 头对应](/img/in-post/kv-cache-memory-core-mha-gqa-mqa-heads.svg)
 
 代价是表达能力：K/V head 越少，KV Cache 越小，但模型区分不同注意力模式的自由度也越低。GQA 是目前公认的甜点区——这也是为什么 Llama 3 全系都用 GQA。
 
@@ -412,7 +374,7 @@ graph LR
     KV -.->|读取/复用| KV2
 ```
 
-但朴素做法有个致命问题：**每一步 Decode 都要把全部历史 token 的 latent 解压回全维 K/V**，那省下的显存又变成了带宽开销。真正的关键优化叫 **"吸收"（Absorbing）**——把解压矩阵 `W_uk` 预先融合进 `W_q`，于是可以**直接在 latent 空间做 Attention，完全不解压**。这一手的工程细节留到第 7.4.1 节展开。
+但朴素做法有个致命问题：**每一步 Decode 都要把全部历史 token 的 latent 解压回全维 K/V**，那省下的显存又变成了带宽开销。真正的关键优化叫 **"吸收"（Absorbing）**——把解压矩阵 `W_uk` 预先融合进 `W_q`，于是可以**直接在 latent 空间做 Attention，完全不解压**。原理是矩阵乘法的结合律：注意力分数 $$q^\top k = (W_q h_t)^\top (W_{uk} c_s) = h_t^\top (W_q^\top W_{uk})\, c_s$$，所以把 $$W_q^\top W_{uk}$$ 预先乘成一个矩阵，query 直接投影到 latent 维度，和缓存里的 $$c_s$$ 做点积；V 侧同理，把 $$W_{uv}$$ 并进输出投影 $$W_o$$。这样 Decode 时读的和算的都是 576 维的 latent，不再还原 K、V（见 [DeepSeek-V2 论文](https://arxiv.org/abs/2405.04434) 2.1.2 节）。
 
 压缩效果：相比同规模 MHA 可缩减一个数量级以上；相比 Llama 式 GQA-8（4 KB/token/layer）约缩减 3~4x。
 

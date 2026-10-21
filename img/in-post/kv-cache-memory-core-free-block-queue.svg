@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 653" width="760" height="653" role="img" aria-labelledby="t d">
+  <title id="t">6 块小池子上的 free_block_queue 演变</title>
+  <desc id="d">T0 到 T4 五个时刻 free_block_queue 的内容：get_new_blocks 从 head 弹出、free_blocks 按有无 hash 分别追加到 tail 或插到 head、分配时顺手摘 hash 即驱逐、Prefix Cache 命中时 touch 把块从链表摘出。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="40" y="22" text-anchor="start" class="small">free_block_queue 只放 ref_cnt==0 的块。head = 最先被分走，tail = 最近释放</text><text x="40" y="42" text-anchor="start" class="small">橙底 n* = 仍挂着 block_hash，可被 Prefix Cache 命中</text><text x="40" y="80" text-anchor="start" class="head">T0</text><text x="80" y="80" text-anchor="start" class="body">启动，6 块全空闲</text><text x="142" y="128" text-anchor="end" class="small">head →</text><rect class="seg-freefrag" x="150" y="105" width="44" height="36"/><text x="172.0" y="128.0" text-anchor="middle" class="body">0</text><rect class="seg-freefrag" x="194" y="105" width="44" height="36"/><text x="216.0" y="128.0" text-anchor="middle" class="body">1</text><rect class="seg-freefrag" x="238" y="105" width="44" height="36"/><text x="260.0" y="128.0" text-anchor="middle" class="body">2</text><rect class="seg-freefrag" x="282" y="105" width="44" height="36"/><text x="304.0" y="128.0" text-anchor="middle" class="body">3</text><rect class="seg-freefrag" x="326" y="105" width="44" height="36"/><text x="348.0" y="128.0" text-anchor="middle" class="body">4</text><rect class="seg-freefrag" x="370" y="105" width="44" height="36"/><text x="392.0" y="128.0" text-anchor="middle" class="body">5</text><text x="422" y="128" text-anchor="start" class="small">← tail</text><text x="40" y="177" text-anchor="start" class="head">T1</text><text x="80" y="177" text-anchor="start" class="body">Req A get_new_blocks(3)：从 head 依次 popleft</text><text x="142" y="225" text-anchor="end" class="small">head →</text><rect class="seg-freefrag" x="150" y="202" width="44" height="36"/><text x="172.0" y="225.0" text-anchor="middle" class="body">3</text><rect class="seg-freefrag" x="194" y="202" width="44" height="36"/><text x="216.0" y="225.0" text-anchor="middle" class="body">4</text><rect class="seg-freefrag" x="238" y="202" width="44" height="36"/><text x="260.0" y="225.0" text-anchor="middle" class="body">5</text><text x="290" y="225" text-anchor="start" class="small">← tail</text><text x="352" y="225" text-anchor="start" class="small">A 持有 0,1,2（ref_cnt=1）</text><text x="40" y="274" text-anchor="start" class="head">T2</text><text x="80" y="274" text-anchor="start" class="body">Req A 完成，free_blocks(reversed(blocks))：写满带 hash 的 1、0 依次 append 到 tail，</text><text x="80" y="293" text-anchor="start" class="body">未写满的 2 prepend 到 head</text><text x="142" y="341" text-anchor="end" class="small">head →</text><rect class="seg-freefrag" x="150" y="318" width="44" height="36"/><text x="172.0" y="341.0" text-anchor="middle" class="body">2</text><rect class="seg-freefrag" x="194" y="318" width="44" height="36"/><text x="216.0" y="341.0" text-anchor="middle" class="body">3</text><rect class="seg-freefrag" x="238" y="318" width="44" height="36"/><text x="260.0" y="341.0" text-anchor="middle" class="body">4</text><rect class="seg-freefrag" x="282" y="318" width="44" height="36"/><text x="304.0" y="341.0" text-anchor="middle" class="body">5</text><rect class="seg-hash" x="326" y="318" width="44" height="36"/><text x="348.0" y="341.0" text-anchor="middle" class="body">1*</text><rect class="seg-hash" x="370" y="318" width="44" height="36"/><text x="392.0" y="341.0" text-anchor="middle" class="body">0*</text><text x="422" y="341" text-anchor="start" class="small">← tail</text><text x="370" y="372" text-anchor="middle" class="small">↑ 序列末尾的块排在前缀块之前 → 先被淘汰</text><text x="40" y="418" text-anchor="start" class="head">T3</text><text x="80" y="418" text-anchor="start" class="body">Req C get_new_blocks(5)：popleft 2,3,4,5,1*；分到 1* 时 _maybe_evict_cached_block 摘掉它的 hash，</text><text x="80" y="437" text-anchor="start" class="body">这就是“驱逐”</text><text x="142" y="485" text-anchor="end" class="small">head →</text><rect class="seg-hash" x="150" y="462" width="44" height="36"/><text x="172.0" y="485.0" text-anchor="middle" class="body">0*</text><text x="202" y="485" text-anchor="start" class="small">← tail</text><text x="264" y="485" text-anchor="start" class="small">C 持有 2,3,4,5,1（ref_cnt=1）</text><text x="40" y="534" text-anchor="start" class="head">T4</text><text x="80" y="534" text-anchor="start" class="body">Req B 到来，前缀与 A 相同：块 0 hash 命中 → touch() 从链表摘出，</text><text x="80" y="553" text-anchor="start" class="body">ref_cnt 0→1；块 1 hash 已被摘 → 未命中 → get_new_blocks(1)，</text><text x="80" y="572" text-anchor="start" class="body">但链表已空 → 等待</text><text x="142" y="620" text-anchor="end" class="small">head →</text><text x="154" y="620" text-anchor="start" class="small">（空）</text><text x="214" y="620" text-anchor="start" class="small">← tail</text><text x="276" y="620" text-anchor="start" class="small">B 持有 0</text>
+</svg>
