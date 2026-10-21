@@ -183,9 +183,12 @@
     var rows = funnelExpanded ? funnelRows : funnelRows.slice(0, FUNNEL_TOP);
     host.innerHTML = rows.map(function (series) {
       var name = series.name || series.key;
-      var summary = h(name) + ' · ' + series.posts.length + ' 篇 · 首篇 ' + fmt(series.first) +
-        ' → 末篇 ' + fmt(series.last) + '（' + Math.round(series.last / series.first * 100) + '%）';
-      if (series.biggest) summary += ' · 流失最多：第 ' + (series.biggest.index + 1) + ' 篇（−' + series.biggest.percent + '%）';
+      var summaryStats = '首篇 ' + fmt(series.first) + ' → 末篇 ' + fmt(series.last) +
+        '（' + Math.round(series.last / series.first * 100) + '%）';
+      if (series.biggest) summaryStats += ' · 流失最多：第 ' + (series.biggest.index + 1) + ' 篇（−' + series.biggest.percent + '%）';
+      var summary = '<span class="dash-funnel-summary-title"><span class="dash-funnel-summary-name">' + h(name) +
+        '</span><span class="dash-funnel-summary-count">' + h(series.posts.length) + ' 篇</span></span>' +
+        '<span class="dash-funnel-summary-stats">' + h(summaryStats) + '</span>';
       var steps = series.posts.map(function (post, index) {
         var views = series.postViews[index], previous = index ? series.postViews[index - 1] : 0;
         var change = index && previous ? Math.round((views / previous - 1) * 100) : null;

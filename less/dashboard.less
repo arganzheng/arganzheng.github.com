@@ -840,12 +840,37 @@ html:not(.author-ok) #dash-schedule {
   background: #fff;
 }
 #dash-funnel .dash-funnel-item > summary {
-  overflow: hidden;
   padding: 8px 10px;
   font-weight: 600;
+  cursor: pointer;
+}
+#dash-funnel .dash-funnel-summary-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+#dash-funnel .dash-funnel-summary-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+}
+#dash-funnel .dash-funnel-summary-count {
+  flex: 0 0 auto;
+  color: #59636e;
+  font-size: 12px;
+  font-weight: normal;
+}
+#dash-funnel .dash-funnel-summary-stats {
+  display: block;
+  margin-top: 3px;
+  color: #59636e;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 #dash-funnel .dash-funnel-item[open] > summary {
   border-bottom: 1px solid #eaeef2;

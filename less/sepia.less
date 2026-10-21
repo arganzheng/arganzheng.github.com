@@ -413,6 +413,7 @@ html[data-theme="sepia"] {
 	#dash-funnel {
 		.dash-funnel-item { border-color: @sp-border; background: @sp-surface; color: @sp-text; }
 		.dash-funnel-item > summary { color: @sp-text; }
+		.dash-funnel-summary-count, .dash-funnel-summary-stats { color: @sp-muted; }
 		.dash-funnel-item[open] > summary, .dash-funnel-row { border-color: @sp-border; }
 		.dash-funnel-title { color: @sp-text; &:hover { color: @sp-link; } }
 		.dash-funnel-index, .dash-funnel-change, .dash-funnel-views { color: @sp-muted; }
@@ -505,6 +506,12 @@ html[data-theme="sepia"] {
 		color: @sp-heading;
 		box-shadow: 0 1px 2px fade(@sp-text, 14%);
 	}
+	.dash .dash-brief-pick {
+		border-color: @sp-border;
+		background: @sp-surface;
+		color: @sp-text;
+	}
+	.dash .dash-brief-pick option { background: @sp-surface; color: @sp-text; }
 	.dash .dash-empty-ok { color: #24713c; }
 	.dash .dash-tag { border-color: @sp-border; background: @sp-surface-2; color: @sp-muted; }
 }
