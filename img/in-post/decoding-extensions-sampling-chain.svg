@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 372" width="760" height="372" role="img" aria-labelledby="t d">
+  <title id="t">从 hidden_states 到采样的最后一步</title>
+  <desc id="d">hidden_states 只取每个请求最后一个位置，经 lm_head 得到 logits，Sampler 按 SamplingMetadata 采样出 token，装进 ModelRunnerOutput 交给 Scheduler.update_from_output()。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<rect class="card" x="50.0" y="16" width="460" height="44"/><text x="280.0" y="43" text-anchor="middle" class="mono">hidden_states [num_tokens, hidden]</text><line x1="280" y1="60" x2="280" y2="90" class="arrow"/><text x="290" y="80.0" text-anchor="start" class="small">只取每个请求最后一个位置（logits_indices）</text><rect class="compute" x="50.0" y="90" width="460" height="44"/><text x="280.0" y="117" text-anchor="middle" class="mono">lm_head → logits [num_reqs, vocab]</text><line x1="280" y1="134" x2="280" y2="164" class="arrow"/><rect class="compute" x="50.0" y="164" width="460" height="44"/><text x="280.0" y="191" text-anchor="middle" class="mono">Sampler(logits, SamplingMetadata)</text><line x1="280" y1="208" x2="280" y2="238" class="arrow"/><rect class="card" x="50.0" y="238" width="460" height="44"/><text x="280.0" y="265" text-anchor="middle" class="mono">sampled_token_ids [num_reqs, 1]</text><line x1="280" y1="282" x2="280" y2="312" class="arrow"/><rect class="memory" x="50.0" y="312" width="460" height="44"/><text x="280.0" y="339" text-anchor="middle" class="mono">ModelRunnerOutput → Scheduler.update_from_output()</text><text x="520" y="109" text-anchor="start" class="small">← TP 下由 LogitsProcessor 层</text><text x="520" y="125" text-anchor="start" class="small">   gather 到一张卡</text>
+</svg>

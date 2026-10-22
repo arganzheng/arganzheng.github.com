@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 424" width="760" height="424" role="img" aria-labelledby="t d">
+  <title id="t">GPU worker 与 CPU 调度器的两条时间线</title>
+  <desc id="d">CPU 调度器按代码顺序 schedule → 发 RPC 1 → 填 bitmask → 等 future → 发 RPC 2；GPU worker 收到 RPC 1 跑 forward，收到 RPC 2 施加掩码并采样。上图填 bitmask 比 forward 短，被完全遮住；下图填 bitmask 比 forward 长，GPU 在 idle 段空转等 RPC 2。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="40" y="24" text-anchor="start" class="bold">正常：填 bitmask 比 forward 短，被 forward 完全遮住，GPU 不等</text><text x="40" y="42" text-anchor="start" class="small">时间</text><line x1="80" y1="38" x2="740" y2="38" class="axis"/><path class="brk" d="M230 80 V74 H400 V80"/><text x="315.0" y="68" text-anchor="middle" class="small">逐请求 fill_bitmask，与 forward 重叠</text><text x="40" y="106" text-anchor="start" class="bold">CPU 调度器</text><rect class="seg-freefrag" x="160" y="82" width="70" height="36"/><text x="195.0" y="105.0" text-anchor="middle" class="small">schedule()</text><rect class="seg-b" x="230" y="82" width="170" height="36"/><text x="315.0" y="105.0" text-anchor="middle" class="small">get_grammar_bitmask()</text><rect class="seg-freefrag" x="400" y="82" width="150" height="36"/><text x="475.0" y="105.0" text-anchor="middle" class="small">等 future.result()</text><rect class="seg-freefrag" x="550" y="82" width="190" height="36"/><text x="645.0" y="105.0" text-anchor="middle" class="small">等采样结果</text><text x="40" y="186" text-anchor="start" class="bold">GPU worker</text><rect class="seg-a" x="230" y="162" width="320" height="36"/><text x="390.0" y="185.0" text-anchor="middle" class="small">execute_model()：forward</text><rect class="seg-a" x="550" y="162" width="190" height="36"/><text x="645.0" y="185.0" text-anchor="middle" class="small">sample_tokens()：掩码→采样</text><path d="M230 118 V162" class="arrow"/><text x="236" y="144.0" text-anchor="start" class="small">RPC 1：execute_model(non_block)，拿到 future</text><path d="M550 118 V162" class="arrow"/><text x="556" y="144.0" text-anchor="start" class="small">RPC 2（带 grammar_output）</text><text x="40" y="236" text-anchor="start" class="bold">异常：请求多 / K 大 / 每步只有几 ms，填 bitmask 比 forward 长，GPU 空转</text><text x="40" y="254" text-anchor="start" class="small">时间</text><line x1="80" y1="250" x2="740" y2="250" class="axis"/><path class="brk" d="M230 292 V286 H550 V292"/><text x="390.0" y="280" text-anchor="middle" class="small">fill_bitmask 超出 forward 的部分 = GPU 空转，fill_bitmask_parallel_threshold 为此而设</text><text x="40" y="318" text-anchor="start" class="bold">CPU 调度器</text><rect class="seg-freefrag" x="160" y="294" width="70" height="36"/><text x="195.0" y="317.0" text-anchor="middle" class="small">schedule()</text><rect class="seg-b" x="230" y="294" width="320" height="36"/><text x="390.0" y="317.0" text-anchor="middle" class="small">get_grammar_bitmask()</text><rect class="seg-freefrag" x="550" y="294" width="190" height="36"/><text x="645.0" y="317.0" text-anchor="middle" class="small">等采样结果</text><text x="40" y="398" text-anchor="start" class="bold">GPU worker</text><rect class="seg-a" x="230" y="374" width="200" height="36"/><text x="330.0" y="397.0" text-anchor="middle" class="small">execute_model()：forward</text><rect class="seg-wait" x="430" y="374" width="120" height="36"/><text x="490.0" y="397.0" text-anchor="middle" class="small">idle，等 RPC 2</text><rect class="seg-a" x="550" y="374" width="190" height="36"/><text x="645.0" y="397.0" text-anchor="middle" class="small">sample_tokens()：掩码→采样</text><path d="M230 330 V374" class="arrow"/><text x="236" y="356.0" text-anchor="start" class="small">RPC 1：execute_model(non_block)，拿到 future</text><path d="M550 330 V374" class="arrow"/><text x="556" y="356.0" text-anchor="start" class="small">RPC 2（带 grammar_output）</text>
+</svg>

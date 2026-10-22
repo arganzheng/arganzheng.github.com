@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 656" width="760" height="656" role="img" aria-labelledby="t d">
+  <title id="t">一步之内的顺序：投机 + 结构化 + penalties</title>
+  <desc id="d">一条时间轴上 CPU 调度器与 GPU worker 两行。CPU：① schedule → 发 RPC 1 → ② 沿 draft 填 bitmask（与 GPU forward 同时）→ 等 future → 发 RPC 2 → 等采样结果 → ④ update_from_output → 回到 ① 进入下一步。GPU：forward → ③ sample_tokens（掩码、拒绝采样、propose draft）→ 返回 ModelRunnerOutput。下方按 ①②③④ 用有序列表列出每个阶段的子步骤。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="24" y="18" text-anchor="start" class="small">时间</text><line x1="110" y1="14" x2="745" y2="14" class="axis"/><text x="24" y="110" text-anchor="start" class="bold">CPU 调度器</text><rect class="seg-freefrag" x="110" y="86" width="92" height="36"/><text x="156.0" y="109.0" text-anchor="middle" class="small">① schedule()</text><rect class="seg-b" x="202" y="86" width="170" height="36"/><text x="287.0" y="109.0" text-anchor="middle" class="small">② get_grammar_bitmask()</text><rect class="seg-freefrag" x="372" y="86" width="80" height="36"/><text x="412.0" y="109.0" text-anchor="middle" class="small">等 future</text><rect class="seg-freefrag" x="452" y="86" width="120" height="36"/><text x="512.0" y="109.0" text-anchor="middle" class="small">等采样结果</text><rect class="seg-freefrag" x="572" y="86" width="170" height="36"/><text x="657.0" y="109.0" text-anchor="middle" class="small">④ update_from_output()</text><text x="24" y="190" text-anchor="start" class="bold">GPU worker</text><rect class="seg-a" x="202" y="166" width="250" height="36"/><text x="327.0" y="189.0" text-anchor="middle" class="small">execute_model()：forward</text><rect class="seg-a" x="452" y="166" width="120" height="36"/><text x="512.0" y="189.0" text-anchor="middle" class="small">③ sample_tokens()</text><rect class="seg-wait" x="572" y="166" width="170" height="36"/><text x="657.0" y="189.0" text-anchor="middle" class="small">空闲，等下一步 RPC 1</text><path d="M202 122 V166" class="arrow"/><text x="208" y="148.0" text-anchor="start" class="small">RPC 1</text><path d="M452 122 V166" class="arrow"/><text x="458" y="148.0" text-anchor="start" class="small">RPC 2</text><path d="M572 166 V122" class="arrow"/><text x="578" y="148.0" text-anchor="start" class="small">返回 ModelRunnerOutput</text><path d="M657.0 86 V46 H156.0 V83" class="arrow"/><text x="406.5" y="40" text-anchor="middle" class="small">下一步</text><path class="brk" d="M202 84 V78 H372 V84"/><text x="287.0" y="72" text-anchor="middle" class="small">与 GPU forward 同时进行</text><text x="24" y="242" text-anchor="start" class="bold">① Scheduler.schedule()  — CPU</text><text x="40" y="261" text-anchor="start" class="small">1. num_new_tokens = 1 + K，预算不够则截断 K</text><text x="40" y="278" text-anchor="start" class="small">2. allocate_slots(..., num_lookahead_tokens=K)，为 draft 预留槽位</text><text x="40" y="295" text-anchor="start" class="small">3. 只调度 grammar 已就绪的结构化请求</text><text x="40" y="312" text-anchor="start" class="small">4. 发 RPC 1：execute_model(non_block)，拿到 future，不等 GPU</text><text x="24" y="337" text-anchor="start" class="bold">② Scheduler.get_grammar_bitmask()  — CPU，GPU 同时在 forward</text><text x="40" y="356" text-anchor="start" class="small">1. 对每个请求沿 draft 推进 FSM，fill_bitmask ×(1+K)，再 rollback(K)</text><text x="40" y="373" text-anchor="start" class="small">2. → GrammarOutput(request_ids, bitmask)</text><text x="40" y="390" text-anchor="start" class="small">3. GPU 这边 forward 算 num_reqs × (1+K) 个位置的 logits</text><text x="40" y="407" text-anchor="start" class="small">4. future.result() 等 forward 结束，发 RPC 2：sample_tokens(grammar_output)</text><text x="24" y="432" text-anchor="start" class="bold">③ GPUModelRunner.sample_tokens()  — GPU</text><text x="40" y="451" text-anchor="start" class="small">1. apply_grammar_bitmask(logits)：非法 token → -inf</text><text x="40" y="468" text-anchor="start" class="small">2. RejectionSampler：bonus 行 / target 行各走一条处理器链</text><text x="40" y="485" text-anchor="start" class="small">3. rejection_sample → [batch, K+1]，拒绝位填 -1</text><text x="40" y="502" text-anchor="start" class="small">4. propose_draft_token_ids()：产出下一步 draft</text><text x="40" y="519" text-anchor="start" class="small">5. 返回 ModelRunnerOutput(sampled_token_ids + draft)</text><text x="24" y="544" text-anchor="start" class="bold">④ Scheduler.update_from_output()  — CPU</text><text x="40" y="563" text-anchor="start" class="small">1. num_computed_tokens -= num_rejected（KV 回滚）</text><text x="40" y="580" text-anchor="start" class="small">2. SpecDecodingStats.observe_draft()</text><text x="40" y="597" text-anchor="start" class="small">3. grammar.accept_tokens(new_tokens)：FSM 真正推进</text><text x="40" y="614" text-anchor="start" class="small">4. grammar.validate_tokens(draft)：过滤下一步 draft</text><text x="40" y="631" text-anchor="start" class="small">5. 回到 ① schedule()，进入下一步</text>
+</svg>

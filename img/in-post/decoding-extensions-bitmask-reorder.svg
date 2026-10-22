@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 364" width="760" height="364" role="img" aria-labelledby="t d">
+  <title id="t">三请求 batch 的 bitmask 重排</title>
+  <desc id="d">调度器按自己的顺序给 C、B 两个结构化请求填 4 行 bitmask；worker 新建一张按 logits 行序、初值全 -1 的 sorted_bitmask，把左表的行拷到对应位置，再用 out_indices 一次性施加掩码。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="40" y="22" text-anchor="start" class="bold">调度器侧 GrammarOutput.grammar_bitmask</text><text x="40" y="40" text-anchor="start" class="small">np.ndarray [4, 4008] int32</text><text x="40" y="56" text-anchor="start" class="small">行序 = structured_output_request_ids = [C, B]</text><text x="40" y="72" text-anchor="start" class="small">每行 4008 × int32 = 16 KB</text><text x="380" y="22" text-anchor="start" class="bold">worker 侧 sorted_bitmask</text><text x="380" y="40" text-anchor="start" class="small">pinned tensor [6, 4008]，初值全 -1</text><text x="380" y="56" text-anchor="start" class="small">行序 = logits 行序，req_ids = [A, B, C]</text><text x="380" y="72" text-anchor="start" class="small">每请求占 1 + num_drafts 行</text><text x="60" y="106" text-anchor="middle" class="small">row</text><text x="150" y="106" text-anchor="middle" class="small">内容</text><rect class="seg-freefrag" x="40" y="112" width="40" height="28"/><rect class="seg-c" x="80" y="112" width="140" height="28"/><text x="60" y="131" text-anchor="middle" class="mono">0</text><text x="150" y="131" text-anchor="middle" class="mono">C: pos 0</text><rect class="seg-freefrag" x="40" y="140" width="40" height="28"/><rect class="seg-c" x="80" y="140" width="140" height="28"/><text x="60" y="159" text-anchor="middle" class="mono">1</text><text x="150" y="159" text-anchor="middle" class="mono">C: pos 1</text><rect class="seg-freefrag" x="40" y="168" width="40" height="28"/><rect class="seg-c" x="80" y="168" width="140" height="28"/><text x="60" y="187" text-anchor="middle" class="mono">2</text><text x="150" y="187" text-anchor="middle" class="mono">C: bonus</text><rect class="seg-freefrag" x="40" y="196" width="40" height="28"/><rect class="seg-b" x="80" y="196" width="140" height="28"/><text x="60" y="215" text-anchor="middle" class="mono">3</text><text x="150" y="215" text-anchor="middle" class="mono">B: pos 0</text><text x="400" y="106" text-anchor="middle" class="small">row</text><text x="490" y="106" text-anchor="middle" class="small">logits 行</text><text x="640" y="106" text-anchor="middle" class="small">内容</text><rect class="seg-freefrag" x="380" y="112" width="40" height="28"/><rect class="seg-freefrag" x="420" y="112" width="140" height="28"/><rect class="seg-freefrag" x="560" y="112" width="160" height="28"/><text x="400" y="131" text-anchor="middle" class="mono">0</text><text x="490" y="131" text-anchor="middle" class="mono">A: pos 0</text><text x="640" y="131" text-anchor="middle" class="small">全 -1（不约束）</text><rect class="seg-freefrag" x="380" y="140" width="40" height="28"/><rect class="seg-freefrag" x="420" y="140" width="140" height="28"/><rect class="seg-freefrag" x="560" y="140" width="160" height="28"/><text x="400" y="159" text-anchor="middle" class="mono">1</text><text x="490" y="159" text-anchor="middle" class="mono">A: bonus</text><text x="640" y="159" text-anchor="middle" class="small">全 -1（不约束）</text><rect class="seg-freefrag" x="380" y="168" width="40" height="28"/><rect class="seg-b" x="420" y="168" width="140" height="28"/><rect class="seg-b" x="560" y="168" width="160" height="28"/><text x="400" y="187" text-anchor="middle" class="mono">2</text><text x="490" y="187" text-anchor="middle" class="mono">B: pos 0</text><text x="640" y="187" text-anchor="middle" class="small">= 左表 row 3</text><rect class="seg-freefrag" x="380" y="196" width="40" height="28"/><rect class="seg-c" x="420" y="196" width="140" height="28"/><rect class="seg-c" x="560" y="196" width="160" height="28"/><text x="400" y="215" text-anchor="middle" class="mono">3</text><text x="490" y="215" text-anchor="middle" class="mono">C: pos 0</text><text x="640" y="215" text-anchor="middle" class="small">= 左表 row 0</text><rect class="seg-freefrag" x="380" y="224" width="40" height="28"/><rect class="seg-c" x="420" y="224" width="140" height="28"/><rect class="seg-c" x="560" y="224" width="160" height="28"/><text x="400" y="243" text-anchor="middle" class="mono">4</text><text x="490" y="243" text-anchor="middle" class="mono">C: pos 1</text><text x="640" y="243" text-anchor="middle" class="small">= 左表 row 1</text><rect class="seg-freefrag" x="380" y="252" width="40" height="28"/><rect class="seg-c" x="420" y="252" width="140" height="28"/><rect class="seg-c" x="560" y="252" width="160" height="28"/><text x="400" y="271" text-anchor="middle" class="mono">5</text><text x="490" y="271" text-anchor="middle" class="mono">C: bonus</text><text x="640" y="271" text-anchor="middle" class="small">= 左表 row 2</text><path d="M220 210.0 C 300 210.0, 300 182.0, 380 182.0" class="arrow"/><path d="M220 126.0 C 300 126.0, 300 210.0, 380 210.0" class="arrow"/><path d="M220 154.0 C 300 154.0, 300 238.0, 380 238.0" class="arrow"/><path d="M220 182.0 C 300 182.0, 300 266.0, 380 266.0" class="arrow"/><text x="380" y="308" text-anchor="start" class="mono">out_indices = [3, 4, 5, 2]（按 [C, B] 顺序追加）</text><text x="380" y="328" text-anchor="start" class="mono">xgr.apply_token_bitmask_inplace(</text><text x="380" y="348" text-anchor="start" class="mono">    logits, sorted_bitmask, indices=out_indices)</text>
+</svg>

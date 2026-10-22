@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 396.0" width="760" height="396.0" role="img" aria-labelledby="t d">
+  <title id="t">FSM 状态与掩码行的对应（K=3）</title>
+  <desc id="d">grammar_bitmask() 沿 draft 把 FSM 从 S0 推进到 S3，每推进一步填一行 bitmask，填完 rollback 回 S0；真正的状态推进要等 update_from_output 用实际接受的 token 再做一次。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="195.0" y="24.0" text-anchor="middle" class="bold">FSM 状态 / 当前允许什么</text><text x="385.0" y="24.0" text-anchor="middle" class="bold">grammar_bitmask() 的动作</text><text x="606.0" y="24.0" text-anchor="middle" class="bold">bitmask（4 行 × 4008 int32）</text><rect class="seg-freefrag" x="470" y="34.0" width="40" height="30"/><rect class="seg-freefrag" x="510" y="34.0" width="232" height="30"/><text x="490" y="54.0" text-anchor="middle" class="small">row</text><text x="626.0" y="54.0" text-anchor="middle" class="small">允许的 token（bit = 1）</text><rect class="compute" x="90" y="78" width="210" height="44"/><text x="195.0" y="96" text-anchor="middle" class="mono">S0  刚输出 {"n":</text><text x="195.0" y="114" text-anchor="middle" class="small">允许：数字 token</text><rect class="seg-freefrag" x="470" y="64.0" width="40" height="72"/><rect class="seg-c" x="510" y="64.0" width="232" height="72"/><text x="490" y="105.0" text-anchor="middle" class="mono">0</text><text x="626.0" y="105.0" text-anchor="middle" class="small">数字类 token = 1，其余 = 0</text><line x1="300" y1="100.0" x2="470" y2="100.0" class="arrow"/><text x="385.0" y="93.0" text-anchor="middle" class="small">fill_bitmask(row 0)</text><line x1="195.0" y1="122" x2="195.0" y2="150" class="arrow"/><text x="187.0" y="141.0" text-anchor="end" class="small">accept_tokens([4])</text><text x="203.0" y="141.0" text-anchor="start" class="small">假设 d1 被接受</text><rect class="compute" x="90" y="150" width="210" height="44"/><text x="195.0" y="168" text-anchor="middle" class="mono">S1  已输出 {"n":4</text><text x="195.0" y="186" text-anchor="middle" class="small">允许：数字 / }</text><rect class="seg-freefrag" x="470" y="136.0" width="40" height="72"/><rect class="seg-c" x="510" y="136.0" width="232" height="72"/><text x="490" y="177.0" text-anchor="middle" class="mono">1</text><text x="626.0" y="177.0" text-anchor="middle" class="small">数字类 + "}" = 1，其余 = 0</text><line x1="300" y1="172.0" x2="470" y2="172.0" class="arrow"/><text x="385.0" y="165.0" text-anchor="middle" class="small">fill_bitmask(row 1)</text><line x1="195.0" y1="194" x2="195.0" y2="222" class="arrow"/><text x="187.0" y="213.0" text-anchor="end" class="small">accept_tokens([2])</text><text x="203.0" y="213.0" text-anchor="start" class="small">假设 d2 被接受</text><rect class="compute" x="90" y="222" width="210" height="44"/><text x="195.0" y="240" text-anchor="middle" class="mono">S2  已输出 {"n":42</text><text x="195.0" y="258" text-anchor="middle" class="small">允许：数字 / }</text><rect class="seg-freefrag" x="470" y="208.0" width="40" height="72"/><rect class="seg-c" x="510" y="208.0" width="232" height="72"/><text x="490" y="249.0" text-anchor="middle" class="mono">2</text><text x="626.0" y="249.0" text-anchor="middle" class="small">数字类 + "}" = 1，其余 = 0</text><line x1="300" y1="244.0" x2="470" y2="244.0" class="arrow"/><text x="385.0" y="237.0" text-anchor="middle" class="small">fill_bitmask(row 2)</text><line x1="195.0" y1="266" x2="195.0" y2="294" class="arrow"/><text x="187.0" y="285.0" text-anchor="end" class="small">accept_tokens([}])</text><text x="203.0" y="285.0" text-anchor="start" class="small">假设 d3 被接受</text><rect class="compute" x="90" y="294" width="210" height="44"/><text x="195.0" y="312" text-anchor="middle" class="mono">S3  已输出 {"n":42}  已终止</text><text x="195.0" y="330" text-anchor="middle" class="small">允许：EOS</text><rect class="seg-freefrag" x="470" y="280.0" width="40" height="72"/><rect class="seg-b" x="510" y="280.0" width="232" height="72"/><text x="490" y="321.0" text-anchor="middle" class="mono">3</text><text x="626.0" y="321.0" text-anchor="middle" class="small">只有 EOS = 1，其余 = 0（bonus 行）</text><line x1="300" y1="316.0" x2="470" y2="316.0" class="arrow"/><text x="385.0" y="309.0" text-anchor="middle" class="small">fill_bitmask(row 3)</text><path d="M90 316.0 H64 V100.0 H86" class="arrow"/><text x="60" y="208.0" text-anchor="middle" transform="rotate(-90 60 208.0)" class="small">rollback(3)</text><text x="40" y="382.0" text-anchor="start" class="small">rollback(3) 三步全部撤销，回到 S0；真正的推进在 update_from_output 里，按实际接受的 token 再 accept_tokens 一次</text>
+</svg>
