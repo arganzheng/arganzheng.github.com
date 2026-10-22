@@ -77,58 +77,30 @@ Table: 本文的章节安排
 
 下图画的正是这种队列被抽干、算力不饱和的最坏情形（Launch-Bound 状态）——注意它不是常态，而是 Decode 小 kernel 场景下才会退化成的样子：
 
-``` title="无 CUDA Graph：Decode 阶段的 Launch-Bound 气泡"
-┌───────────────── 无 CUDA Graph: Decode 阶段的 Launch-Bound 气泡 ──────────────────┐
-│                                                                                   │
-│  CPU (Host Thread):                                                               │
-│  ───[Launch K1]───[Launch K2]───[Launch K3]───[Launch K4]─── ... (全力发射)        │
-│        4μs           4μs           4μs           4μs                              │
-│         │             │             │             │                               │
-│         ▼ (命令入队)  ▼             ▼             ▼                               │
-│  GPU (Hardware):                                                                  │
-│  ───[ Kernel 1 ]─[气泡]─[ Kernel 2 ]─[气泡]─[ Kernel 3 ]─[气泡]─ ...              │
-│        1.5μs      2.5μs    1.5μs      2.5μs    1.5μs      2.5μs                   │
-│                                                                                   │
-│  【现象剖析】：                                                                   │
-│  1. 时刻 0，CPU 开始提交 K1。                                                      │
-│  2. 时刻 4，CPU 提交完 K1 并「立刻」开始提交 K2。同一时间，GPU 拿到 K1 开始执行。          │
-│  3. 时刻 5.5，GPU 仅用 1.5μs 就把 K1 算完了！此时 GPU 检查队列，发现 K2 还没提交完。      │
-│  4. 结果：GPU 只能被迫原地熄火，陷入 2.5μs 的「空闲气泡」，直到时刻 8 CPU 提交完 K2。      │
-│                                                                                   │
-│  【开销占比】：                                                                   │
-│  若一步包含 400 个小 Kernel，CPU 耗时 = 400 × 4μs = 1600μs (总发射耗时)               │
-│  因为 GPU 速度快于 CPU，整个流水线被 CPU 强行拉长。最终总耗时将由 CPU 侧决定：             │
-│  总执行时间 ≈ 1600μs。其中 GPU 真正干活 600μs (37.5%)，卡死在气泡中 1000μs     (62.5%)。│
-└───────────────────────────────────────────────────────────────────────────────────┘
+![无 CUDA Graph：Decode 阶段的 Launch-Bound 气泡](/img/in-post/gpu-execution-kernels-and-graphs-launch-bound-bubbles.svg)
 
-```
+把时间线拆开看：
+
+1. 时刻 0，CPU 开始提交 K1，花了 4μs。
+2. 时刻 4，CPU 提交完 K1，立刻开始提交 K2；同一时间 GPU 拿到 K1 开始执行。
+3. 时刻 5.5，GPU 只用 1.5μs 就把 K1 算完了，去队列里找 K2，发现 K2 要到时刻 7 才提交完，只能空转 1.5μs。
+4. 时刻 7 到 9 GPU 算 K2；K3 的提交更慢，要到时刻 12 才完成，GPU 又空转 3μs。
+
+每个 kernel 的提交时间和执行时间都不一样，但只要"提交比执行慢"，GPU 算完一个就得等下一个。按平均值算开销：一步如果有 400 个这样的小 kernel，提交平均 4μs、执行平均 1.5μs，CPU 提交总耗时 ≈ 400 × 4μs = 1600μs。GPU 比 CPU 快，整条流水线被 CPU 拉长，总时间就由 CPU 决定，约 1600μs；其中 GPU 真正干活约 600μs（37.5%），卡在气泡里约 1000μs（62.5%）。
 
 ### 2. CUDA Graph：静态执行图捕获与重放
 
 为了消灭上述图中高达 62.5% 的恐怖气泡，CUDA Graph 改变了游戏规则。它在模型初始化或第一轮时将一系列 Kernel Launch 录制成一个"计算图"，之后用一次 Launch 重放整个图：
 
-``` title="CUDA Graph：一次 Launch 重放整个 Decode 步"
-┌───────── CUDA Graph: 一次 Launch 重放整个 Decode 步 ─────────────────┐
-│                                                                       │
-│  Capture 阶段 (启动时一次性完成):                                       │
-│  ─[record start]─[kernel₁]─[kernel₂]─...─[kernelₙ]─[record end]─   │
-│  → 得到 CUDAGraph 对象, 记录了全部 kernel 及其参数地址                  │
-│                                                                       │
-│  Replay 阶段 (每步推理):                                               │
-│  CPU: ──[replay: 1次launch, ~10μs]────────────────────────────────   │
-│  GPU: ──[kernel₁][kernel₂][kernel₃]...[kernelₙ]──  (无 gap!)         │
-│         连续执行，kernel 之间无 launch 等待                             │
-│                                                                       │
-│  总执行 = 10μs(1次launch) + ~8000μs(compute) = 8010μs               │
-│  vs 上面完全暴露时的 10000μs → 上界省 20%                              │
-│  实测通常在 5%~15%（部分提交开销本来就被隐藏了）                        │
-│                                                                       │
-│  约束:                                                                 │
-│  · 图中 kernel 的形状必须固定 → 需要对不同 Batch Size 预捕获           │
-│  · 内存地址必须固定 → 通过 placeholder tensor 复用                     │
-│  · 不支持动态控制流 → Decode (固定模式) 适用, Prefill (可变) 不适用     │
-└───────────────────────────────────────────────────────────────────────┘
-```
+![CUDA Graph：一次 Launch 重放整个 Decode 步](/img/in-post/gpu-execution-kernels-and-graphs-cuda-graph-replay.svg)
+
+算一笔账：总执行 = 10μs（1 次 launch）+ 约 8000μs（compute）= 8010μs；对比提交开销完全暴露时的 10000μs，上界能省 20%。实测通常在 5%~15%，因为一部分提交开销本来就被隐藏了。
+
+代价是三条约束：
+
+- 图里 kernel 的形状必须固定，所以要对不同 Batch Size 分别预捕获；
+- 内存地址必须固定，靠 placeholder tensor 复用；
+- 不支持动态控制流，所以 Decode（固定模式）适用，Prefill（可变）不适用。
 
 捕获与重放在默认的 `GPUModelRunner` 路径下由 `CUDAGraphWrapper`（`vllm/compilation/cuda_graph.py`）负责，"这一步用哪种模式、哪个 batch size 的图"由 `CudagraphDispatcher`（`vllm/v1/cudagraph_dispatcher.py`）在每次 forward 前决定；V2 Model Runner（`vllm/v1/worker/gpu/`）则用 `CudaGraphManager`（`cudagraph_utils.py`）承担同样职责。"用哪种模式"由配置枚举 `CUDAGraphMode`（`vllm/config/compilation.py`）描述：
 
@@ -146,25 +118,25 @@ class CUDAGraphMode(enum.Enum):
 
 "按 batch size 分桶提前录好"具体是怎么做的？图里 kernel 的形状是固定的，所以不可能给每一个可能的 batch 大小都录一张图；vLLM 的做法是只在一组离散的 `cudagraph_capture_sizes` 上录图，运行时把实际 batch **向上 pad** 到最近的桶：
 
-```text title="cudagraph_capture_sizes 的分桶与 pad"
-cudagraph_capture_sizes（默认生成规则，vllm/config/compilation.py）：
-  [1, 2, 4] + range(8, 256, 8) + range(256, max+1, 16)
-  max = max_cudagraph_capture_size，默认 min(max_num_seqs × 2, 512)
-
-启动时：每个 size 各录一张图（decode 的 FULL 图按 num_reqs = size 录）
-  size:  1   2   4   8   16   24   32  ...  248  256  272  ...  512
-  图:   G1  G2  G4  G8  G16  G24  G32 ...  G248 G256 G272 ...  G512
-
-运行时：CudagraphDispatcher._bs_to_padded_graph_size[num_tokens]
-  实际 decode batch        pad 到   replay    白算的行
-  ────────────────────    ──────   ──────    ────────
-    3 个请求                  4      G4        1 / 4
-    5 个请求                  8      G8        3 / 8
-    9 个请求                 16     G16        7 / 16
-   17 个请求                 24     G24        7 / 24
-  200 个请求                200    G200        0
-  600 个请求（> max 512）   不 pad   eager     ——（dispatch 返回 NONE）
+```python title="cudagraph_capture_sizes 的默认生成规则"
+# vllm/config/compilation.py
+cudagraph_capture_sizes = [1, 2, 4] + list(range(8, 256, 8)) + list(range(256, max_size + 1, 16))
+# max_size = max_cudagraph_capture_size，默认 min(max_num_seqs * 2, 512)
 ```
+
+本质上这是一张字典：启动时按 key 把图录好存进去，运行时拼出同样的 key 查表、replay。分两步看。
+
+**启动时录图。** key 是 `BatchDescriptor(num_tokens, num_reqs, uniform, has_lora, num_active_loras)`。`CudagraphDispatcher.initialize_cudagraph_keys()` 对每个 capture size 生成 key：默认的 `FULL_AND_PIECEWISE` 下每个 size 两个——一个 FULL 给纯 decode batch（`uniform=True`，`num_reqs = size / (1 + 投机 token 数)`），一个 PIECEWISE 给混合 batch（`num_reqs=None`，任意请求数都能用）；开了 LoRA 再按 `num_active_loras` 的取值翻倍。然后对每个 key 跑一次捕获，`CUDAGraphWrapper` 把图存进 `concrete_cudagraph_entries: dict[BatchDescriptor, CUDAGraphEntry]`。PIECEWISE 的"一张"其实是一组：模型按 attention 切成若干段，每段一个 wrapper、各录一张，replay 时逐段重放。
+
+**运行时查表。** 每一步 `CudagraphDispatcher.dispatch(num_tokens, uniform_decode, ...)`：
+
+1. `num_tokens` 超过 `max_cudagraph_capture_size` 直接返回 NONE，走 eager；
+2. 否则用 `_bs_to_padded_graph_size[num_tokens]` 把 batch 向上取到最近的桶，比如 5 → 8；
+3. 用 pad 后的 size、这一步是否纯 decode、LoRA 情况拼出 `BatchDescriptor`；
+4. 先在 FULL 的 key 里找，没有再把 `num_reqs` 抹掉到 PIECEWISE 里找，都没有就 NONE；
+5. 命中就取出图 `replay()`，pad 多出来的行白算一遍。
+
+![cudagraph_capture_sizes 的分桶、录图与 dispatch](/img/in-post/gpu-execution-kernels-and-graphs-cudagraph-buckets.svg)
 
 被 pad 出来的行喂的是占位 token，算完直接丢弃；换来的是任意 batch 大小都能命中一张已录好的图。桶在 8 以上按 8 步进、256 以上按 16 步进，正是因为 batch 越大，多算几行的相对开销越可以忽略；而 1、2、4 单独成桶，是因为小 batch 下 pad 一行就是 25%~100% 的浪费。`dispatch()` 最终返回的 `BatchDescriptor(num_tokens, num_reqs, uniform)` 就是查图用的 key——decode batch 带 `uniform=True` 去查 FULL 图，查不到就退化为去掉 `num_reqs` 和 `uniform` 的宽松 key 查 PIECEWISE 图，再查不到才走 eager。
 
@@ -240,45 +212,17 @@ Attention 算子的硬件执行效率高度依赖于工作负载（Workload）�
 FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过**分块计算（Tiling）**和 **Online Softmax**，让 N×N 的中间矩阵**根本不必在 HBM 里出现**。注意它优化的是**访存**，计算量（FLOPs）一分没少。
 
 
-``` title="Standard Attention 与 FlashAttention 的对照"
-┌──────────────── Standard Attention vs FlashAttention ─────────────────┐
-│                                                                       │
-│  Standard Attention:                                                  │
-│                                                                       │
-│  Q[N,d] × K[N,d]ᵀ → S[N,N]     ← O(N²) 存储, 写入 HBM                  │
-│        → softmax(S) → P[N,N]    ← O(N²) 存储, 读写 HBM                 │
-│        → P × V[N,d] → O[N,d]    ← O(N²) 读取 HBM                       │
-│                                                                       │
-│  总 HBM 访问: O(N² + N·d)                                             │
-│  瓶颈: N > 几千时, S 和 P 矩阵占满显存                                   │
-│                                                                       │
-│  ────────────────────────────────────────────────────────────────     │
-│                                                                       │
-│  FlashAttention (Tiling + Online Softmax):                            │
-│                                                                       │
-│  将 Q, K, V 分成 Bq × Bk 的小块:                                        │
-│                                                                       │
-│  ┌──────┐                                                             │
-│  │ SRAM │ ← 只在片上缓存 (192 KB, A100)                                 │
-│  │      │                                                             │
-│  │ Q_tile [Bq, d]  ← 从 HBM 加载一次                                   │
-│  │ K_tile [Bk, d]  ← 分块加载                                          │
-│  │ V_tile [Bk, d]  ← 分块加载                                          │
-│  │ S_tile [Bq, Bk] ← 在 SRAM 中计算, 不写回 HBM!                        │
-│  │ O_acc  [Bq, d]  ← 在线累加                                          │
-│  │ m, l   [Bq]     ← softmax 统计量 (max, sum)                         │
-│  └──────┘                                                             │
-│                                                                       │
-│  for each K_tile, V_tile:                                             │
-│    S_tile = Q_tile @ K_tileᵀ                (SRAM 内计算)              │
-│    m_new = max(m_old, rowmax(S_tile))       (Online max)              │
-│    P_tile = exp(S_tile - m_new)             (SRAM 内计算)              │
-│    l_new = exp(m_old - m_new) * l_old + rowsum(P_tile)                │
-│    O_acc = rescale(O_acc) + P_tile @ V_tile (Online 累加)              │
-│                                                                       │
-│  总 HBM 访问: O(N²d²/M)（`M`为可用SRAM大小） ← 相比 O(N²) 大幅降低!        ｜                  │
-│  无需存储 N×N 矩阵, 序列长度不再受显存限制                                 │
-└───────────────────────────────────────────────────────────────────────┘
+![Standard Attention 与 FlashAttention 的对照](/img/in-post/gpu-execution-kernels-and-graphs-standard-vs-flash.svg)
+
+FlashAttention 内层循环做的事（完整推导见下面第 ③ 小节）：
+
+```python title="FlashAttention 内层循环"
+for each K_tile, V_tile:
+    S_tile = Q_tile @ K_tileᵀ                 # SRAM 内计算
+    m_new  = max(m_old, rowmax(S_tile))       # Online max
+    P_tile = exp(S_tile - m_new)              # SRAM 内计算
+    l_new  = exp(m_old - m_new) * l_old + rowsum(P_tile)
+    O_acc  = rescale(O_acc) + P_tile @ V_tile # Online 累加
 ```
 
 **说明：**
@@ -291,17 +235,9 @@ FlashAttention 是现代 LLM 推理的基石算子。它的核心思想是通过
 
 Standard Attention的问题在于它把两个 N×N 的大矩阵实实在在地写进了 HBM：
 
-``` title="Standard Attention 的三次 HBM 读写"
-Q[N,d] × K[N,d]^T  ->  S[N,N]                # O(N²) **写入** HBM
-S[N,N]             ->  softmax  ->  P[N,N]   # O(N²) **读 + 写** HBM 
-P[N,N] × V[N,d]    ->  O[N,d]                # O(N²) **读取** HBM
+![Standard Attention 的三次 HBM 读写](/img/in-post/gpu-execution-kernels-and-graphs-standard-attention-hbm.svg)
 
-HBM 中的代价：
-- S：要写回一次
-- S：softmax 前要再读一次
-- P：要写回一次
-- P：乘 V 前要再读一次
-```
+三步各自的代价：`Q·Kᵀ` 算出的 S 要写回 HBM 一次；softmax 要把 S 读回来，再把 P 写回去；`P·V` 又要把 P 读一次，最后把 O 写回去。O 只有 N×d，写一次就完了，真正要命的是 S、P 这两个 N×N。
 
 总 HBM 访问 **O(N·d + N²)**，其中 N² 项的系数是 4（S 写、S 读、P 写、P 读）。更要命的是显存：N 到几千时，S、P 两个矩阵就能把显存占满。
 
@@ -315,22 +251,7 @@ HBM 中的代价：
 
 FlashAttention 把 Q/K/V 切成 `Bq × Bk` 的小块，让中间结果**只在片上 SRAM 里出现，从不落回 HBM**（A100 每个 SM 的 L1/shared 合计 192 KB，可作 shared memory 的约 164 KB）：
 
-``` title="FlashAttention 的 Tiling：只在 SRAM 里出现"
-Q 被切成 Q_tile
-K、V 被切成 K_tile / V_tile
-
-             ┌──────── SRAM / Shared Memory ──────────┐
-HBM -> Q_tile ┤                                        ├-> 输出 (O_acc)
-HBM -> K_tile ┤  S_tile = Q_tile @ K_tile^T           ├
-HBM -> V_tile ┤  Online Softmax(S_tile):              ├
-              ┤     维护m, l运行时统计量，O_acc在线累加   ├
-              └───────────────────────────────────────┘
-              
-说明：
-- 每次只处理一小块 Q/K/V
-- S_tile 只在片上临时存在，不写回 HBM
-- 这样可以把大矩阵的“中间停留”从显存中拿掉
-```
+![FlashAttention 的 Tiling：只在 SRAM 里出现](/img/in-post/gpu-execution-kernels-and-graphs-flash-tiling.svg)
 
 | 驻留在 SRAM 的东西 | 形状 | 说明 |
 |---|---|---|
@@ -355,7 +276,7 @@ softmax 看起来需要先知道一整行的最大值和总和，才能归一化
 当新块到来时，如果发现最大值变了，就把历史结果按比例重新缩放，再把新块的贡献加进去。
 这样就能保证：**分块计算的结果，和一次性算完整 softmax 的结果严格等价。**
 
-``` title="Online Softmax 的循环"
+```python title="Online Softmax 的循环"
 m, l, O_acc = -inf, 0, 0
 for each K_tile, V_tile:                               # 沿 KV 方向循环
     S_tile = Q_tile @ K_tileᵀ                          # SRAM 内，不写回
@@ -610,11 +531,7 @@ Table: 混合精度组合的显存、延迟与质量
 
 Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 token，但需要完整读取模型权重和 KV Cache。GPU 算力的绝大部分处于闲置状态（低 arithmetic intensity）。
 
-``` title="传统 Decode 的逐 token 串行"
-传统 Decode：
-  Step 1 → token₁ → Step 2 → token₂ → Step 3 → token₃ → …
-  每一步都要：读完整模型权重 + 读全部历史 KV，却只算出 1 个 token
-```
+![传统 Decode 的逐 token 串行](/img/in-post/gpu-execution-kernels-and-graphs-sequential-decode.svg)
 
 算力利用率在小 batch 下可以低到个位数百分比——绝大部分时间在等 HBM。（batch 增大后同一份权重被多个请求摊薄，利用率会显著回升，这正是 Continuous Batching 有效的根本原因；但**单个请求的延迟**并不会因此变好，这才是投机解码要解决的问题。）
 
@@ -745,39 +662,22 @@ $$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(
 
 不同 Speculative Decoding 方法的核心区别，主要在于**“候选 token 如何生成”**。它们整体都遵循类似的流程：
 
-```text title="Speculative Decoding 的通用流程"
-Candidate Generation
-        │
-        ▼
-[d₁, d₂, d₃, ...]
-        │
-        ▼
-Target Model Verification
-        │
-   ┌────┴────┐
-   ▼         ▼
- Accept     Reject
-```
+![Speculative Decoding 的通用流程](/img/in-post/gpu-execution-kernels-and-graphs-spec-decode-flow.svg)
 
 因此在 vLLM 中，这些不同的候选生成机制被统一抽象为 **Proposer（候选生成器）**，实现在 `vllm/v1/spec_decode/` 下。不同 Proposer 负责产生 speculative decoding 所需的候选 token，而后续的 Target 验证、接受/拒绝以及 KV Cache 更新等流程则可以复用统一的 speculative decoding 基础设施。
 
 但在看表之前要先做一个分类上的澄清，因为下表把六种方法平铺在一起，容易掩盖一件事：**它们并不都是"推理技巧"。**
 
-``` title="六种方法的分类：推理侧还是模型侧"
-Speculative Decoding（一种推理时的加速框架）
-│
-├── 纯推理侧，不碰模型：
-│   ├── 独立 Draft Model      —— 另找一个小模型
-│   ├── N-gram               —— 从 prompt 里抄
-│   └── Suffix Decoding      —— 从后缀树里抄
-│
-├── 需要额外训练一个"头"：
-│   ├── EAGLE                —— 训一个特征级 draft 头
-│   └── Medusa               —— 训若干并行 LM 头
-│
-└── 模型自带（Model-native）：
-    └── MTP                  —— 预训练阶段就已经有了
-```
+| 类别 | 方法 | 怎么产生候选 |
+|---|---|---|
+| 纯推理侧，不碰模型 | 独立 Draft Model | 另找一个小模型 |
+| | N-gram | 从 prompt 里抄 |
+| | Suffix Decoding | 从后缀树里抄 |
+| 需要额外训练一个"头" | EAGLE | 训一个特征级 draft 头 |
+| | Medusa | 训若干并行 LM 头 |
+| 模型自带（Model-native） | MTP | 预训练阶段就已经有了 |
+
+Table: 六种 speculative decoding 方法的分类：推理侧还是模型侧
 
 
 其中，**MTP 和其他方法尤其值得区分**。
@@ -820,23 +720,7 @@ EAGLE 的核心思想是：
 
 可以粗略理解为：
 
-```text title="EAGLE：复用 target 的 hidden feature"
-                 Target Model
-                      │
-                      ▼
-               Hidden Feature
-                      │
-                      ▼
-                ┌───────────┐
-                │ EAGLE     │
-                │ Draft Head│
-                └─────┬─────┘
-                      │
-                  d₁ → d₂ → d₃ → ...
-                      │
-                      ▼
-              Target Verification
-```
+![EAGLE：复用 target 的 hidden feature](/img/in-post/gpu-execution-kernels-and-graphs-eagle.svg)
 
 因此 EAGLE 与 Draft Model 的最大区别是：
 
@@ -851,25 +735,7 @@ EAGLE 并不是一个可以对任意模型直接通用的插件。EAGLE Head 需
 
 Medusa 的思路与 EAGLE 类似，也是在 Target Model 上增加额外的预测组件，但它采用的是**多 Head**设计。
 
-```text title="Medusa：多个 head 同时预测"
-                     Target Model
-                          │
-                          ▼
-                     Hidden State
-                          │
-          ┌───────────────┼───────────────┐
-          ▼               ▼               ▼
-      Medusa Head 1   Medusa Head 2   Medusa Head 3
-          │               │               │
-          ▼               ▼               ▼
-      candidates       candidates       candidates
-          └───────────────┼───────────────┘
-                          ▼
-                   Candidate Tree
-                          │
-                          ▼
-                  Target Verification
-```
+![Medusa：多个 head 同时预测](/img/in-post/gpu-execution-kernels-and-graphs-medusa.svg)
 
 每个 Head 负责预测不同未来位置的 token，并可以产生多个候选。多个 Head 的结果进一步组织成 **Candidate Tree**，然后 Target Model 利用 Tree Attention 等机制一次验证多条候选路径。
 
@@ -887,28 +753,7 @@ MTP 与前面的 EAGLE / Medusa 最大的区别在于：
 
 可以理解为：
 
-```text title="MTP：训练阶段就具备的多 token 预测"
-                  Target Model
-                       │
-                       ▼
-                Hidden Features
-                       │
-                       ▼
-                ┌─────────────┐
-                │ MTP Layer 1 │
-                └──────┬──────┘
-                       │
-                       ▼
-                ┌─────────────┐
-                │ MTP Layer 2 │
-                └──────┬──────┘
-                       │
-                       ▼
-                 Future Tokens
-                       │
-                       ▼
-               Target Verification
-```
+![MTP：训练阶段就具备的多 token 预测](/img/in-post/gpu-execution-kernels-and-graphs-mtp.svg)
 
 因此，从部署形态上看：
 
@@ -936,25 +781,7 @@ MTP 与前面的 EAGLE / Medusa 最大的区别在于：
 
 如果从一个非常直观的工程视角来看（注意：这只是**工程上的理解框架，而不是严格的算法演进顺序**），可以把这些方法理解成 Target Model 的 speculative 能力逐渐与模型本身融合：
 
-```text title='从"外挂程度"看四种方法'
-Draft Model
-    │
-    │ 另找一个小模型来猜
-    ▼
-EAGLE
-    │
-    │ 利用 Target Feature + 轻量 Draft Component
-    ▼
-Medusa
-    │
-    │ 多个 Head 产生未来 token 候选
-    ▼
-MTP
-    │
-    │ 模型原生学习预测多个未来 token
-    ▼
-Model-native Speculation
-```
+![从“外挂程度”看四种方法](/img/in-post/gpu-execution-kernels-and-graphs-speculation-spectrum.svg)
 
 它们虽然实现方式不同，但最终都在解决同一个问题：
 

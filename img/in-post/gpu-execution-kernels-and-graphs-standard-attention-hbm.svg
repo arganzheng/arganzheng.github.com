@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 274" width="760" height="274" role="img" aria-labelledby="t d">
+  <title id="t">Standard Attention 的三次 HBM 读写</title>
+  <desc id="d">Q[N,d]×K[N,d]ᵀ 得到的 S[N,N] 写入 HBM，softmax 把它读出来再把 P[N,N] 写回去，P×V 再读一次 P，最后 O[N,d] 写回 HBM：两个 N×N 矩阵各经历一写一读，O 只写一次。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<rect class="card" x="40" y="30" width="180" height="40"/><text x="130.0" y="55.0" text-anchor="middle" class="mono">Q[N,d] × K[N,d]ᵀ</text><rect class="card" x="260" y="30" width="160" height="40"/><text x="340.0" y="55.0" text-anchor="middle" class="mono">softmax(S[N,N])</text><rect class="card" x="460" y="30" width="160" height="40"/><text x="540.0" y="55.0" text-anchor="middle" class="mono">P[N,N] × V[N,d]</text><line x1="220" y1="50" x2="260" y2="50" class="arrow"/><line x1="420" y1="50" x2="460" y2="50" class="arrow"/><line x1="620" y1="50" x2="650" y2="50" class="arrow"/><text x="240" y="42" text-anchor="middle" class="mono">S</text><text x="440" y="42" text-anchor="middle" class="mono">P</text><rect class="card" x="650" y="30" width="90" height="40"/><text x="695.0" y="55.0" text-anchor="middle" class="mono">O[N,d]</text><rect class="seg-reserved" x="40" y="150" width="700" height="40"/><text x="390.0" y="175.0" text-anchor="middle" class="body">HBM（显存）</text><rect class="seg-c" x="165" y="96" width="110" height="40"/><text x="220.0" y="121.0" text-anchor="middle" class="mono">S [N,N]</text><path d="M190 70 V96" class="arrow"/><text x="181" y="88" text-anchor="end" class="small">写 S</text><path d="M250 96 V70" class="arrow"/><text x="259" y="88" text-anchor="start" class="small">读 S</text><path d="M220 136 V150" class="line"/><rect class="seg-c" x="365" y="96" width="110" height="40"/><text x="420.0" y="121.0" text-anchor="middle" class="mono">P [N,N]</text><path d="M390 70 V96" class="arrow"/><text x="381" y="88" text-anchor="end" class="small">写 P</text><path d="M450 96 V70" class="arrow"/><text x="459" y="88" text-anchor="start" class="small">读 P</text><path d="M420 136 V150" class="line"/><text x="220" y="208" text-anchor="middle" class="small">O(N²)：写 1 次、读 1 次</text><text x="420" y="208" text-anchor="middle" class="small">O(N²)：写 1 次、读 1 次</text><path d="M695 70 V150" class="arrow"/><text x="704" y="112" text-anchor="start" class="small">写 O</text><text x="695" y="208" text-anchor="middle" class="small">O(N·d)：写 1 次</text><text x="40" y="240" text-anchor="start" class="small">S、P 都是 N×N：各写回一次、再读出一次，共 4 次 O(N²) 的 HBM 访问，而且两个矩阵要同时占着显存</text><text x="40" y="260" text-anchor="start" class="small">O 只有 N×d，写一次就完了</text>
+</svg>

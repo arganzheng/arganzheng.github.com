@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 412" width="760" height="412" role="img" aria-labelledby="t d">
+  <title id="t">Standard Attention 与 FlashAttention 的对照</title>
+  <desc id="d">Standard Attention 的 S[N,N]、P[N,N] 都要写入 HBM 再读出，总访存 O(N²+N·d)；FlashAttention 把 Q、K、V 切成小块加载到 SRAM，S_tile、m、l、O_acc 都留在片上，循环结束才把 O[N,d] 写回，总访存 O(N²d²/M)。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="40" y="24" text-anchor="start" class="head">Standard Attention：两个 N×N 中间矩阵都要经过 HBM</text><rect class="card" x="40" y="40" width="140" height="36"/><text x="110.0" y="63.0" text-anchor="middle" class="mono">Q[N,d]×K[N,d]ᵀ</text><line x1="180" y1="58" x2="200" y2="58" class="arrow"/><rect class="seg-c" x="200" y="40" width="78" height="36"/><text x="239.0" y="63.0" text-anchor="middle" class="mono">S[N,N]</text><line x1="278" y1="58" x2="298" y2="58" class="arrow"/><rect class="card" x="298" y="40" width="84" height="36"/><text x="340.0" y="63.0" text-anchor="middle" class="mono">softmax</text><line x1="382" y1="58" x2="402" y2="58" class="arrow"/><rect class="seg-c" x="402" y="40" width="78" height="36"/><text x="441.0" y="63.0" text-anchor="middle" class="mono">P[N,N]</text><line x1="480" y1="58" x2="500" y2="58" class="arrow"/><rect class="card" x="500" y="40" width="140" height="36"/><text x="570.0" y="63.0" text-anchor="middle" class="mono">P[N,N]×V[N,d]</text><line x1="640" y1="58" x2="660" y2="58" class="arrow"/><rect class="card" x="660" y="40" width="76" height="36"/><text x="698.0" y="63.0" text-anchor="middle" class="mono">O[N,d]</text><text x="239.0" y="96" text-anchor="middle" class="small">写入 HBM 再读出</text><text x="239.0" y="112" text-anchor="middle" class="small">O(N²)</text><text x="441.0" y="96" text-anchor="middle" class="small">写入 HBM 再读出</text><text x="441.0" y="112" text-anchor="middle" class="small">O(N²)</text><text x="40" y="142" text-anchor="start" class="small">总 HBM 访问 O(N² + N·d)；N 到几千时，S、P 两个矩阵就把显存占满</text><line x1="40" y1="162" x2="720" y2="162" class="line" stroke-dasharray="4 4"/><text x="40" y="190" text-anchor="start" class="head">FlashAttention（Tiling + Online Softmax）：Q、K、V 切成 Bq×Bk 小块，中间结果只在 SRAM</text><rect x="40" y="206" width="150" height="160" fill="none" stroke="#40566f" stroke-width="1.6"/><text x="115" y="228" text-anchor="middle" class="bold">HBM</text><rect class="seg-b" x="60" y="242" width="110" height="30"/><text x="115.0" y="262.0" text-anchor="middle" class="mono">Q [N,d]</text><line x1="190" y1="257" x2="300" y2="257" class="arrow"/><text x="245" y="250" text-anchor="middle" class="small">Q_tile 加载一次</text><rect class="seg-b" x="60" y="282" width="110" height="30"/><text x="115.0" y="302.0" text-anchor="middle" class="mono">K [N,d]</text><line x1="190" y1="297" x2="300" y2="297" class="arrow"/><text x="245" y="290" text-anchor="middle" class="small">K_tile 每轮加载</text><rect class="seg-b" x="60" y="322" width="110" height="30"/><text x="115.0" y="342.0" text-anchor="middle" class="mono">V [N,d]</text><line x1="190" y1="337" x2="300" y2="337" class="arrow"/><text x="245" y="330" text-anchor="middle" class="small">V_tile 每轮加载</text><rect x="300" y="206" width="340" height="160" fill="none" stroke="#40566f" stroke-width="1.6"/><text x="470" y="228" text-anchor="middle" class="bold">SRAM（A100 每 SM 约 192 KB）</text><text x="312" y="258" text-anchor="start" class="mono">S_tile [Bq,Bk] = Q_tile @ K_tileᵀ</text><text x="312" y="276" text-anchor="start" class="small">算完就用，不写回 HBM</text><text x="312" y="302" text-anchor="start" class="mono">m, l [Bq]</text><text x="400" y="302" text-anchor="start" class="small">行最大值、指数和，随块滚动更新</text><text x="312" y="328" text-anchor="start" class="mono">O_acc [Bq,d] += P_tile @ V_tile</text><text x="312" y="346" text-anchor="start" class="small">按新的 m 重缩放后累加</text><line x1="640" y1="286" x2="666" y2="286" class="arrow"/><rect class="seg-b" x="666" y="269" width="74" height="34"/><text x="703.0" y="291.0" text-anchor="middle" class="mono">O [N,d]</text><text x="703" y="324" text-anchor="middle" class="small">循环结束</text><text x="703" y="340" text-anchor="middle" class="small">才写回 HBM</text><text x="40" y="396" text-anchor="start" class="small">总 HBM 访问 O(N²d²/M)，M 为 SRAM 大小；不存 N×N 矩阵，序列长度不再受显存限制</text>
+</svg>

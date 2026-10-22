@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 270" width="760" height="270" role="img" aria-labelledby="t d">
+  <title id="t">CUDA Graph：一次 Launch 重放整个 Decode 步</title>
+  <desc id="d">启动时把一步 Decode 的全部 kernel 录成一张 CUDAGraph；之后每步 CPU 只发一次 launch，GPU 连续执行所有 kernel，没有气泡。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="40" y="24" text-anchor="start" class="bold">Capture（启动时一次性完成）</text><rect class="seg-c" x="40" y="34" width="96" height="34"/><text x="88.0" y="56.0" text-anchor="middle" class="small">record start</text><rect class="seg-a" x="136" y="34" width="80" height="34"/><text x="176.0" y="56.0" text-anchor="middle" class="small">kernel₁</text><rect class="seg-a" x="216" y="34" width="80" height="34"/><text x="256.0" y="56.0" text-anchor="middle" class="small">kernel₂</text><rect class="seg-a" x="296" y="34" width="50" height="34"/><text x="321.0" y="56.0" text-anchor="middle" class="small">…</text><rect class="seg-a" x="346" y="34" width="80" height="34"/><text x="386.0" y="56.0" text-anchor="middle" class="small">kernelₙ</text><rect class="seg-c" x="426" y="34" width="96" height="34"/><text x="474.0" y="56.0" text-anchor="middle" class="small">record end</text><line x1="526" y1="51" x2="562" y2="51" class="arrow"/><rect class="card" x="562" y="34" width="196" height="34"/><text x="660.0" y="56" text-anchor="middle" class="small">CUDAGraph 对象</text><text x="40" y="92" text-anchor="start" class="small">记录全部 kernel 及其参数地址</text><text x="40" y="132" text-anchor="start" class="bold">Replay（每步推理）</text><text x="40" y="166" text-anchor="start" class="body">CPU</text><rect class="seg-c" x="140" y="146" width="96" height="34"/><text x="188.0" y="168.0" text-anchor="middle" class="small">1 次 launch</text><text x="244" y="166" text-anchor="start" class="small">~10μs</text><text x="40" y="220" text-anchor="start" class="body">GPU</text><rect class="seg-a" x="140" y="200" width="100" height="34"/><text x="190.0" y="222.0" text-anchor="middle" class="small">kernel₁</text><rect class="seg-a" x="240" y="200" width="100" height="34"/><text x="290.0" y="222.0" text-anchor="middle" class="small">kernel₂</text><rect class="seg-a" x="340" y="200" width="100" height="34"/><text x="390.0" y="222.0" text-anchor="middle" class="small">kernel₃</text><rect class="seg-a" x="440" y="200" width="50" height="34"/><text x="465.0" y="222.0" text-anchor="middle" class="small">…</text><rect class="seg-a" x="490" y="200" width="100" height="34"/><text x="540.0" y="222.0" text-anchor="middle" class="small">kernelₙ</text><path d="M148 180 V200" class="arrow"/><text x="140" y="256" text-anchor="start" class="small">kernel 连续执行，中间没有 launch 等待</text>
+</svg>

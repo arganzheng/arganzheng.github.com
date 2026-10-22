@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 256" width="760" height="256" role="img" aria-labelledby="t d">
+  <title id="t">无 CUDA Graph：Decode 阶段的 Launch-Bound 气泡</title>
+  <desc id="d">CPU 提交一个 kernel 要 3–5μs，GPU 1–2μs 就算完一个，算完只能空等到下一个 kernel 提交完成，中间全是气泡。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="40" y="30" text-anchor="start" class="bold">CPU（Host 线程）</text><rect class="seg-c" x="140" y="40" width="144" height="36"/><text x="212.0" y="63.0" text-anchor="middle" class="small">Launch K1 4μs</text><rect class="seg-c" x="284" y="40" width="108" height="36"/><text x="338.0" y="63.0" text-anchor="middle" class="small">Launch K2 3μs</text><rect class="seg-c" x="392" y="40" width="180" height="36"/><text x="482.0" y="63.0" text-anchor="middle" class="small">Launch K3 5μs</text><rect class="seg-c" x="572" y="40" width="90.0" height="36"/><text x="617.0" y="63.0" text-anchor="middle" class="small">K4 …</text><text x="40" y="138" text-anchor="start" class="bold">GPU（硬件）</text><rect class="seg-a" x="284" y="148" width="54.0" height="36"/><text x="311.0" y="171.0" text-anchor="middle" class="small">K1</text><text x="311.0" y="202" text-anchor="middle" class="small">1.5μs</text><rect class="seg-wait" x="338.0" y="148" width="54.0" height="36"/><text x="365.0" y="171.0" text-anchor="middle" class="small">气泡</text><text x="365.0" y="202" text-anchor="middle" class="small">1.5μs</text><path d="M284 76 V148" class="arrow"/><text x="290" y="106" text-anchor="start" class="small">Kₙ 提交完 → GPU 才能开始算 Kₙ</text><rect class="seg-a" x="392" y="148" width="72" height="36"/><text x="428.0" y="171.0" text-anchor="middle" class="small">K2</text><text x="428.0" y="202" text-anchor="middle" class="small">2μs</text><rect class="seg-wait" x="464" y="148" width="108" height="36"/><text x="518.0" y="171.0" text-anchor="middle" class="small">气泡</text><text x="518.0" y="202" text-anchor="middle" class="small">3μs</text><path d="M392 76 V148" class="arrow"/><rect class="seg-a" x="572" y="148" width="36" height="36"/><text x="590.0" y="171.0" text-anchor="middle" class="small">K3</text><text x="590.0" y="202" text-anchor="middle" class="small">1μs</text><path d="M572 76 V148" class="arrow"/><line x1="140" y1="222" x2="680" y2="222" class="axis"/><line x1="140" y1="218" x2="140" y2="226" class="line"/><text x="140" y="242" text-anchor="middle" class="small">0μs</text><line x1="284" y1="218" x2="284" y2="226" class="line"/><text x="284" y="242" text-anchor="middle" class="small">4μs</text><line x1="392" y1="218" x2="392" y2="226" class="line"/><text x="392" y="242" text-anchor="middle" class="small">7μs</text><line x1="572" y1="218" x2="572" y2="226" class="line"/><text x="572" y="242" text-anchor="middle" class="small">12μs</text><text x="684" y="246" text-anchor="start" class="small">时间</text>
+</svg>

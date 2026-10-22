@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 412" width="760" height="412" role="img" aria-labelledby="t d">
+  <title id="t">从“外挂程度”看四种方法</title>
+  <desc id="d">从独立 Draft Model 到 EAGLE、Medusa，再到 MTP，speculative 能力逐渐从外挂组件融入模型本身。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<rect class="card" x="170.0" y="16" width="260" height="44"/><text x="300.0" y="43" text-anchor="middle" class="bold">Draft Model</text><line x1="300" y1="60" x2="300" y2="100" class="arrow"/><text x="310" y="85.0" text-anchor="start" class="small">另找一个小模型来猜</text><rect class="card" x="170.0" y="100" width="260" height="44"/><text x="300.0" y="127" text-anchor="middle" class="bold">EAGLE</text><line x1="300" y1="144" x2="300" y2="184" class="arrow"/><text x="310" y="169.0" text-anchor="start" class="small">利用 Target Feature + 轻量 Draft Component</text><rect class="card" x="170.0" y="184" width="260" height="44"/><text x="300.0" y="211" text-anchor="middle" class="bold">Medusa</text><line x1="300" y1="228" x2="300" y2="268" class="arrow"/><text x="310" y="253.0" text-anchor="start" class="small">多个 Head 产生未来 token 候选</text><rect class="card" x="170.0" y="268" width="260" height="44"/><text x="300.0" y="295" text-anchor="middle" class="bold">MTP</text><line x1="300" y1="312" x2="300" y2="352" class="arrow"/><text x="310" y="337.0" text-anchor="start" class="small">模型原生学习预测多个未来 token</text><rect class="compute" x="170.0" y="352" width="260" height="44"/><text x="300.0" y="379" text-anchor="middle" class="bold">Model-native Speculation</text>
+</svg>

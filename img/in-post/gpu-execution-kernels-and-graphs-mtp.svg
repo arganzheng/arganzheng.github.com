@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 426" width="760" height="426" role="img" aria-labelledby="t d">
+  <title id="t">MTP：训练阶段就具备的多 token 预测</title>
+  <desc id="d">模型自带的 MTP Layer 依次从 hidden features 预测未来 token，再由 Target 验证。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<rect class="compute" x="240.0" y="16" width="280" height="44"/><text x="380.0" y="43" text-anchor="middle" class="bold">Target Model</text><line x1="380" y1="60" x2="380" y2="86" class="arrow"/><rect class="card" x="240.0" y="86" width="280" height="44"/><text x="380.0" y="113" text-anchor="middle" class="body">Hidden Features</text><line x1="380" y1="130" x2="380" y2="156" class="arrow"/><rect class="memory" x="240.0" y="156" width="280" height="44"/><text x="380.0" y="183" text-anchor="middle" class="bold">MTP Layer 1</text><line x1="380" y1="200" x2="380" y2="226" class="arrow"/><rect class="memory" x="240.0" y="226" width="280" height="44"/><text x="380.0" y="253" text-anchor="middle" class="bold">MTP Layer 2</text><line x1="380" y1="270" x2="380" y2="296" class="arrow"/><rect class="card" x="240.0" y="296" width="280" height="44"/><text x="380.0" y="323" text-anchor="middle" class="body">Future Tokens</text><line x1="380" y1="340" x2="380" y2="366" class="arrow"/><rect class="compute" x="240.0" y="366" width="280" height="44"/><text x="380.0" y="393" text-anchor="middle" class="bold">Target Verification</text>
+</svg>
