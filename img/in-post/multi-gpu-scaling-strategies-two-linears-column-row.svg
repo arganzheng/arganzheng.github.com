@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="760" height="420" role="img" aria-labelledby="t d">
+  <title id="t">Linear 1 列切、Linear 2 行切（TP=4）</title>
+  <desc id="d">W₁ 按列切成 4 段，每张卡算出 Y 的一段 Yᵢ；W₂ 按行切成 4 段，Yᵢ 正好只乘 W₂ᵢ，得到部分和 Zᵢ；最后 All-Reduce 把 4 个部分和加成 Z。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<text x="227.5" y="24" text-anchor="middle" class="bold">GPU 0</text>
+<text x="352.5" y="24" text-anchor="middle" class="bold">GPU 1</text>
+<text x="477.5" y="24" text-anchor="middle" class="bold">GPU 2</text>
+<text x="602.5" y="24" text-anchor="middle" class="bold">GPU 3</text>
+<text x="30" y="60" text-anchor="start" class="bold">Linear 1</text>
+<text x="30" y="78" text-anchor="start" class="small">W₁ 按列切</text>
+<rect class="seg-a" x="108" y="50" width="9" height="36" stroke-width="0.8"/>
+<rect class="seg-b" x="117" y="50" width="9" height="36" stroke-width="0.8"/>
+<rect class="seg-c" x="126" y="50" width="9" height="36" stroke-width="0.8"/>
+<rect class="seg-d" x="135" y="50" width="9" height="36" stroke-width="0.8"/>
+<rect class="seg-a" x="165" y="44" width="125" height="40"/>
+<text x="227.5" y="69" text-anchor="middle" class="math">W₁₀</text>
+<line x1="227.5" y1="84" x2="227.5" y2="114" class="arrow"/>
+<rect class="seg-b" x="290" y="44" width="125" height="40"/>
+<text x="352.5" y="69" text-anchor="middle" class="math">W₁₁</text>
+<line x1="352.5" y1="84" x2="352.5" y2="114" class="arrow"/>
+<rect class="seg-c" x="415" y="44" width="125" height="40"/>
+<text x="477.5" y="69" text-anchor="middle" class="math">W₁₂</text>
+<line x1="477.5" y1="84" x2="477.5" y2="114" class="arrow"/>
+<rect class="seg-d" x="540" y="44" width="125" height="40"/>
+<text x="602.5" y="69" text-anchor="middle" class="math">W₁₃</text>
+<line x1="602.5" y1="84" x2="602.5" y2="114" class="arrow"/>
+<text x="30" y="130" text-anchor="start" class="small">Y = [Y₀|Y₁|Y₂|Y₃]</text>
+<text x="30" y="148" text-anchor="start" class="small">每卡一段</text>
+<rect class="seg-c" x="165" y="114" width="125" height="36"/>
+<text x="227.5" y="137" text-anchor="middle" class="math">Y₀</text>
+<line x1="227.5" y1="150" x2="227.5" y2="180" class="arrow"/>
+<rect class="seg-c" x="290" y="114" width="125" height="36"/>
+<text x="352.5" y="137" text-anchor="middle" class="math">Y₁</text>
+<line x1="352.5" y1="150" x2="352.5" y2="180" class="arrow"/>
+<rect class="seg-c" x="415" y="114" width="125" height="36"/>
+<text x="477.5" y="137" text-anchor="middle" class="math">Y₂</text>
+<line x1="477.5" y1="150" x2="477.5" y2="180" class="arrow"/>
+<rect class="seg-c" x="540" y="114" width="125" height="36"/>
+<text x="602.5" y="137" text-anchor="middle" class="math">Y₃</text>
+<line x1="602.5" y1="150" x2="602.5" y2="180" class="arrow"/>
+<text x="30" y="196" text-anchor="start" class="bold">Linear 2</text>
+<text x="30" y="214" text-anchor="start" class="small">W₂ 按行切</text>
+<rect class="seg-a" x="108" y="182" width="36" height="9" stroke-width="0.8"/>
+<rect class="seg-b" x="108" y="191" width="36" height="9" stroke-width="0.8"/>
+<rect class="seg-c" x="108" y="200" width="36" height="9" stroke-width="0.8"/>
+<rect class="seg-d" x="108" y="209" width="36" height="9" stroke-width="0.8"/>
+<rect class="seg-a" x="165" y="180" width="125" height="40"/>
+<text x="227.5" y="205" text-anchor="middle" class="math">W₂₀</text>
+<line x1="227.5" y1="220" x2="227.5" y2="250" class="arrow"/>
+<rect class="seg-b" x="290" y="180" width="125" height="40"/>
+<text x="352.5" y="205" text-anchor="middle" class="math">W₂₁</text>
+<line x1="352.5" y1="220" x2="352.5" y2="250" class="arrow"/>
+<rect class="seg-c" x="415" y="180" width="125" height="40"/>
+<text x="477.5" y="205" text-anchor="middle" class="math">W₂₂</text>
+<line x1="477.5" y1="220" x2="477.5" y2="250" class="arrow"/>
+<rect class="seg-d" x="540" y="180" width="125" height="40"/>
+<text x="602.5" y="205" text-anchor="middle" class="math">W₂₃</text>
+<line x1="602.5" y1="220" x2="602.5" y2="250" class="arrow"/>
+<text x="30" y="272" text-anchor="start" class="small">部分和</text>
+<rect class="card" x="175" y="250" width="105" height="34"/>
+<text x="227.5" y="272.0" text-anchor="middle" class="math">Z₀ = Y₀ W₂₀</text>
+<rect class="card" x="300" y="250" width="105" height="34"/>
+<text x="352.5" y="272.0" text-anchor="middle" class="math">Z₁ = Y₁ W₂₁</text>
+<rect class="card" x="425" y="250" width="105" height="34"/>
+<text x="477.5" y="272.0" text-anchor="middle" class="math">Z₂ = Y₂ W₂₂</text>
+<rect class="card" x="550" y="250" width="105" height="34"/>
+<text x="602.5" y="272.0" text-anchor="middle" class="math">Z₃ = Y₃ W₂₃</text>
+<path d="M227.5,284 V300 H415" class="line"/>
+<path d="M352.5,284 V300 H415" class="line"/>
+<path d="M477.5,284 V300 H415" class="line"/>
+<path d="M602.5,284 V300 H415" class="line"/>
+<line x1="415" y1="300" x2="415" y2="316" class="arrow"/>
+<rect class="comm" x="285" y="316" width="260" height="36"/>
+<text x="415.0" y="339.0" text-anchor="middle" class="bold">All-Reduce</text>
+<line x1="415" y1="352" x2="415" y2="376" class="arrow"/>
+<rect class="card" x="285" y="376" width="260" height="34"/>
+<text x="415.0" y="398.0" text-anchor="middle" class="math">Z = Z₀ + Z₁ + Z₂ + Z₃</text>
+</svg>

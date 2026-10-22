@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 230" width="760" height="230" role="img" aria-labelledby="t d">
+  <title id="t">PP 的流水线气泡：Fill、Steady、Drain（3 stage × 4 microbatch）</title>
+  <desc id="d">3 个 stage 处理 4 个 microbatch。开头两个时刻后面的 stage 没有输入（启动气泡），中间两个时刻三个 stage 都在算，最后两个时刻前面的 stage 已经做完却要等后面的（结束气泡）。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<path d="M94,34 V26 H302 V34" class="brk"/>
+<text x="198.0" y="20" text-anchor="middle" class="bold">Fill</text>
+<path d="M310,34 V26 H518 V34" class="brk"/>
+<text x="414.0" y="20" text-anchor="middle" class="bold">Steady</text>
+<path d="M526,34 V26 H734 V34" class="brk"/>
+<text x="630.0" y="20" text-anchor="middle" class="bold">Drain</text>
+<text x="144.0" y="50" text-anchor="middle" class="mono">t0</text>
+<text x="252.0" y="50" text-anchor="middle" class="mono">t1</text>
+<text x="360.0" y="50" text-anchor="middle" class="mono">t2</text>
+<text x="468.0" y="50" text-anchor="middle" class="mono">t3</text>
+<text x="576.0" y="50" text-anchor="middle" class="mono">t4</text>
+<text x="684.0" y="50" text-anchor="middle" class="mono">t5</text>
+<text x="20" y="82.0" text-anchor="start" class="body">Stage 0</text>
+<rect class="seg-a" x="90" y="56" width="108" height="42"/>
+<text x="144.0" y="82.0" text-anchor="middle" class="mono">F(M1)</text>
+<rect class="seg-b" x="198" y="56" width="108" height="42"/>
+<text x="252.0" y="82.0" text-anchor="middle" class="mono">F(M2)</text>
+<rect class="seg-c" x="306" y="56" width="108" height="42"/>
+<text x="360.0" y="82.0" text-anchor="middle" class="mono">F(M3)</text>
+<rect class="seg-d" x="414" y="56" width="108" height="42"/>
+<text x="468.0" y="82.0" text-anchor="middle" class="mono">F(M4)</text>
+<rect class="seg-free" x="524" y="58" width="104" height="38"/>
+<text x="576.0" y="82.0" text-anchor="middle" class="mute">已完成</text>
+<rect class="seg-free" x="632" y="58" width="104" height="38"/>
+<text x="684.0" y="82.0" text-anchor="middle" class="mute">已完成</text>
+<text x="20" y="124.0" text-anchor="start" class="body">Stage 1</text>
+<rect class="seg-wait" x="92" y="100" width="104" height="38"/>
+<text x="144.0" y="124.0" text-anchor="middle" class="mute">空闲，等 M1</text>
+<rect class="seg-a" x="198" y="98" width="108" height="42"/>
+<text x="252.0" y="124.0" text-anchor="middle" class="mono">F(M1)</text>
+<rect class="seg-b" x="306" y="98" width="108" height="42"/>
+<text x="360.0" y="124.0" text-anchor="middle" class="mono">F(M2)</text>
+<rect class="seg-c" x="414" y="98" width="108" height="42"/>
+<text x="468.0" y="124.0" text-anchor="middle" class="mono">F(M3)</text>
+<rect class="seg-d" x="522" y="98" width="108" height="42"/>
+<text x="576.0" y="124.0" text-anchor="middle" class="mono">F(M4)</text>
+<rect class="seg-free" x="632" y="100" width="104" height="38"/>
+<text x="684.0" y="124.0" text-anchor="middle" class="mute">已完成</text>
+<text x="20" y="166.0" text-anchor="start" class="body">Stage 2</text>
+<rect class="seg-wait" x="92" y="142" width="104" height="38"/>
+<text x="144.0" y="166.0" text-anchor="middle" class="mute">空闲，等 M1</text>
+<rect class="seg-wait" x="200" y="142" width="104" height="38"/>
+<text x="252.0" y="166.0" text-anchor="middle" class="mute">空闲，等 M1</text>
+<rect class="seg-a" x="306" y="140" width="108" height="42"/>
+<text x="360.0" y="166.0" text-anchor="middle" class="mono">F(M1)</text>
+<rect class="seg-b" x="414" y="140" width="108" height="42"/>
+<text x="468.0" y="166.0" text-anchor="middle" class="mono">F(M2)</text>
+<rect class="seg-c" x="522" y="140" width="108" height="42"/>
+<text x="576.0" y="166.0" text-anchor="middle" class="mono">F(M3)</text>
+<rect class="seg-d" x="630" y="140" width="108" height="42"/>
+<text x="684.0" y="166.0" text-anchor="middle" class="mono">F(M4)</text>
+<line x1="90" y1="200" x2="738" y2="200" class="axis"/>
+<text x="744" y="205" text-anchor="start" class="mute">时间</text>
+<text x="20" y="228" text-anchor="start" class="mute">虚线格子就是气泡：这张卡在这个时刻没有活干。</text>
+</svg>

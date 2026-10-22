@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 296" width="760" height="296" role="img" aria-labelledby="t d">
+  <title id="t">各 GPU 部分和的 All-Reduce</title>
+  <desc id="d">GPU 0–3 各自用手里的 Yᵢ 乘 W₂ᵢ，得到部分和 Zᵢ；4 个部分和经 All-Reduce 相加，每张卡都拿到完整的 Z。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<text x="140.0" y="24" text-anchor="middle" class="bold">GPU 0</text>
+<rect class="gpu" x="75.0" y="38" width="130" height="34"/>
+<text x="140.0" y="60.0" text-anchor="middle" class="math">Y₀ × W₂₀</text>
+<line x1="140.0" y1="72" x2="140.0" y2="98" class="arrow"/>
+<rect class="seg-a" x="100.0" y="98" width="80" height="34"/>
+<text x="140.0" y="120" text-anchor="middle" class="math">Z₀</text>
+<text x="300.0" y="24" text-anchor="middle" class="bold">GPU 1</text>
+<rect class="gpu" x="235.0" y="38" width="130" height="34"/>
+<text x="300.0" y="60.0" text-anchor="middle" class="math">Y₁ × W₂₁</text>
+<line x1="300.0" y1="72" x2="300.0" y2="98" class="arrow"/>
+<rect class="seg-b" x="260.0" y="98" width="80" height="34"/>
+<text x="300.0" y="120" text-anchor="middle" class="math">Z₁</text>
+<text x="460.0" y="24" text-anchor="middle" class="bold">GPU 2</text>
+<rect class="gpu" x="395.0" y="38" width="130" height="34"/>
+<text x="460.0" y="60.0" text-anchor="middle" class="math">Y₂ × W₂₂</text>
+<line x1="460.0" y1="72" x2="460.0" y2="98" class="arrow"/>
+<rect class="seg-c" x="420.0" y="98" width="80" height="34"/>
+<text x="460.0" y="120" text-anchor="middle" class="math">Z₂</text>
+<text x="620.0" y="24" text-anchor="middle" class="bold">GPU 3</text>
+<rect class="gpu" x="555.0" y="38" width="130" height="34"/>
+<text x="620.0" y="60.0" text-anchor="middle" class="math">Y₃ × W₂₃</text>
+<line x1="620.0" y1="72" x2="620.0" y2="98" class="arrow"/>
+<rect class="seg-d" x="580.0" y="98" width="80" height="34"/>
+<text x="620.0" y="120" text-anchor="middle" class="math">Z₃</text>
+<text x="20" y="120" text-anchor="start" class="mute">部分和</text>
+<path d="M140.0,132 V170 H380" class="line"/>
+<path d="M300.0,132 V170 H380" class="line"/>
+<path d="M460.0,132 V170 H380" class="line"/>
+<path d="M620.0,132 V170 H380" class="line"/>
+<line x1="380" y1="170" x2="380" y2="192" class="arrow"/>
+<rect class="comm" x="240" y="192" width="280" height="36"/>
+<text x="380.0" y="215.0" text-anchor="middle" class="bold">All-Reduce</text>
+<line x1="380" y1="228" x2="380" y2="252" class="arrow"/>
+<rect class="card" x="240" y="252" width="280" height="34"/>
+<text x="380.0" y="274.0" text-anchor="middle" class="math">Z = Z₀ + Z₁ + Z₂ + Z₃</text>
+</svg>

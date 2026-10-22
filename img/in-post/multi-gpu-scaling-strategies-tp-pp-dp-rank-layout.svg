@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340" role="img" aria-labelledby="t d">
+  <title id="t">TP=2 × PP=2 × DP=2 在两台 4 卡机器上的 rank 布局</title>
+  <desc id="d">8 张 GPU、两台机器各 4 卡。rank = dp×4 + pp×2 + tp，TP 在最内层。Node 0 是 DP 副本 0（rank 0–3），Node 1 是副本 1（rank 4–7）；每机内 PP stage 0 占 GPU 0/1、stage 1 占 GPU 2/3；同一行的两张卡组成 TP 组，用 NVLink 做 All-Reduce；上下两张卡之间是 PP 的 send/recv；两个副本之间不传递激活。TP 组：[0,1] [2,3] [4,5] [6,7]；PP 组：[0,2] [1,3] [4,6] [5,7]；DP 组：[0,4] [1,5] [2,6] [3,7]；EP 组（若开 EP）：[0,1,4,5] [2,3,6,7]。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<text x="20" y="22" text-anchor="start" class="mono">rank = dp×4 + pp×2 + tp（TP 最内层）</text>
+<text x="20" y="118" text-anchor="start" class="small">PP stage 0</text>
+<text x="20" y="134" text-anchor="start" class="mute">Layers 0–39</text>
+<text x="20" y="198" text-anchor="start" class="small">PP stage 1</text>
+<text x="20" y="214" text-anchor="start" class="mute">Layers 40–79</text>
+<rect class="frame" x="110" y="50" width="270" height="196"/>
+<text x="245" y="72" text-anchor="middle" class="bold">Node 0：DP rank 0（副本 0）</text>
+<text x="195" y="92" text-anchor="middle" class="mute">TP rank 0</text>
+<text x="295" y="92" text-anchor="middle" class="mute">TP rank 1</text>
+<rect class="gpu" x="153" y="104" width="84" height="40"/>
+<text x="195.0" y="120.0" text-anchor="middle" class="body">rank 0</text>
+<text x="195.0" y="138.0" text-anchor="middle" class="small">GPU 0</text>
+<rect class="gpu" x="253" y="104" width="84" height="40"/>
+<text x="295.0" y="120.0" text-anchor="middle" class="body">rank 1</text>
+<text x="295.0" y="138.0" text-anchor="middle" class="small">GPU 1</text>
+<line x1="237" y1="124" x2="253" y2="124" class="dbl"/>
+<line x1="237" y1="124" x2="253" y2="124" class="dbl-in"/>
+<rect class="gpu" x="153" y="184" width="84" height="40"/>
+<text x="195.0" y="200.0" text-anchor="middle" class="body">rank 2</text>
+<text x="195.0" y="218.0" text-anchor="middle" class="small">GPU 2</text>
+<rect class="gpu" x="253" y="184" width="84" height="40"/>
+<text x="295.0" y="200.0" text-anchor="middle" class="body">rank 3</text>
+<text x="295.0" y="218.0" text-anchor="middle" class="small">GPU 3</text>
+<line x1="237" y1="204" x2="253" y2="204" class="dbl"/>
+<line x1="237" y1="204" x2="253" y2="204" class="dbl-in"/>
+<line x1="195" y1="144" x2="195" y2="184" class="arrow"/>
+<line x1="295" y1="144" x2="295" y2="184" class="arrow"/>
+<text x="245" y="168" text-anchor="middle" class="mute">send/recv</text>
+<rect class="frame" x="470" y="50" width="270" height="196"/>
+<text x="605" y="72" text-anchor="middle" class="bold">Node 1：DP rank 1（副本 1）</text>
+<text x="555" y="92" text-anchor="middle" class="mute">TP rank 0</text>
+<text x="655" y="92" text-anchor="middle" class="mute">TP rank 1</text>
+<rect class="gpu" x="513" y="104" width="84" height="40"/>
+<text x="555.0" y="120.0" text-anchor="middle" class="body">rank 4</text>
+<text x="555.0" y="138.0" text-anchor="middle" class="small">GPU 0</text>
+<rect class="gpu" x="613" y="104" width="84" height="40"/>
+<text x="655.0" y="120.0" text-anchor="middle" class="body">rank 5</text>
+<text x="655.0" y="138.0" text-anchor="middle" class="small">GPU 1</text>
+<line x1="597" y1="124" x2="613" y2="124" class="dbl"/>
+<line x1="597" y1="124" x2="613" y2="124" class="dbl-in"/>
+<rect class="gpu" x="513" y="184" width="84" height="40"/>
+<text x="555.0" y="200.0" text-anchor="middle" class="body">rank 6</text>
+<text x="555.0" y="218.0" text-anchor="middle" class="small">GPU 2</text>
+<rect class="gpu" x="613" y="184" width="84" height="40"/>
+<text x="655.0" y="200.0" text-anchor="middle" class="body">rank 7</text>
+<text x="655.0" y="218.0" text-anchor="middle" class="small">GPU 3</text>
+<line x1="597" y1="204" x2="613" y2="204" class="dbl"/>
+<line x1="597" y1="204" x2="613" y2="204" class="dbl-in"/>
+<line x1="555" y1="144" x2="555" y2="184" class="arrow"/>
+<line x1="655" y1="144" x2="655" y2="184" class="arrow"/>
+<text x="605" y="168" text-anchor="middle" class="mute">send/recv</text>
+<text x="425" y="142" text-anchor="middle" class="mute">两个副本之间</text>
+<text x="425" y="160" text-anchor="middle" class="mute">不传递激活</text>
+<line x1="110" y1="272" x2="150" y2="272" class="dbl"/>
+<line x1="110" y1="272" x2="150" y2="272" class="dbl-in"/>
+<text x="158" y="277" text-anchor="start" class="mute">TP 组 All-Reduce（NVLink）</text>
+<line x1="360" y1="262" x2="360" y2="282" class="arrow"/>
+<text x="372" y="277" text-anchor="start" class="mute">PP 组 P2P send/recv</text>
+<text x="110" y="308" text-anchor="start" class="mono">TP 组：[0,1] [2,3] [4,5] [6,7]</text>
+<text x="430" y="308" text-anchor="start" class="mono">PP 组：[0,2] [1,3] [4,6] [5,7]</text>
+<text x="110" y="330" text-anchor="start" class="mono">DP 组：[0,4] [1,5] [2,6] [3,7]</text>
+<text x="430" y="330" text-anchor="start" class="mono">EP 组（若开 EP）：[0,1,4,5] [2,3,6,7]</text>
+</svg>

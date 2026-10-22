@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 236" width="760" height="236" role="img" aria-labelledby="t d">
+  <title id="t">同机 NVLink 与跨机网络的拓扑</title>
+  <desc id="d">每台机器里 4 张 GPU 之间用 NVLink 两两直连（双线）；两台机器之间只有一条 InfiniBand / RoCE 网络链路，带宽低、延迟高。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<rect class="frame" x="20" y="30" width="250" height="170"/>
+<text x="32" y="52" text-anchor="start" class="bold">Node 0</text>
+<line x1="80" y1="80" x2="210" y2="80" class="dbl"/>
+<line x1="80" y1="80" x2="210" y2="80" class="dbl-in"/>
+<line x1="80" y1="160" x2="210" y2="160" class="dbl"/>
+<line x1="80" y1="160" x2="210" y2="160" class="dbl-in"/>
+<line x1="80" y1="80" x2="80" y2="160" class="dbl"/>
+<line x1="80" y1="80" x2="80" y2="160" class="dbl-in"/>
+<line x1="210" y1="80" x2="210" y2="160" class="dbl"/>
+<line x1="210" y1="80" x2="210" y2="160" class="dbl-in"/>
+<line x1="80" y1="80" x2="210" y2="160" class="dbl"/>
+<line x1="80" y1="80" x2="210" y2="160" class="dbl-in"/>
+<line x1="210" y1="80" x2="80" y2="160" class="dbl"/>
+<line x1="210" y1="80" x2="80" y2="160" class="dbl-in"/>
+<rect class="gpu" x="46" y="65" width="68" height="30"/>
+<text x="80.0" y="85.0" text-anchor="middle" class="small">GPU 0</text>
+<rect class="gpu" x="176" y="65" width="68" height="30"/>
+<text x="210.0" y="85.0" text-anchor="middle" class="small">GPU 1</text>
+<rect class="gpu" x="46" y="145" width="68" height="30"/>
+<text x="80.0" y="165.0" text-anchor="middle" class="small">GPU 2</text>
+<rect class="gpu" x="176" y="145" width="68" height="30"/>
+<text x="210.0" y="165.0" text-anchor="middle" class="small">GPU 3</text>
+<rect class="frame" x="490" y="30" width="250" height="170"/>
+<text x="502" y="52" text-anchor="start" class="bold">Node 1</text>
+<line x1="550" y1="80" x2="680" y2="80" class="dbl"/>
+<line x1="550" y1="80" x2="680" y2="80" class="dbl-in"/>
+<line x1="550" y1="160" x2="680" y2="160" class="dbl"/>
+<line x1="550" y1="160" x2="680" y2="160" class="dbl-in"/>
+<line x1="550" y1="80" x2="550" y2="160" class="dbl"/>
+<line x1="550" y1="80" x2="550" y2="160" class="dbl-in"/>
+<line x1="680" y1="80" x2="680" y2="160" class="dbl"/>
+<line x1="680" y1="80" x2="680" y2="160" class="dbl-in"/>
+<line x1="550" y1="80" x2="680" y2="160" class="dbl"/>
+<line x1="550" y1="80" x2="680" y2="160" class="dbl-in"/>
+<line x1="680" y1="80" x2="550" y2="160" class="dbl"/>
+<line x1="680" y1="80" x2="550" y2="160" class="dbl-in"/>
+<rect class="gpu" x="516" y="65" width="68" height="30"/>
+<text x="550.0" y="85.0" text-anchor="middle" class="small">GPU 0</text>
+<rect class="gpu" x="646" y="65" width="68" height="30"/>
+<text x="680.0" y="85.0" text-anchor="middle" class="small">GPU 1</text>
+<rect class="gpu" x="516" y="145" width="68" height="30"/>
+<text x="550.0" y="165.0" text-anchor="middle" class="small">GPU 2</text>
+<rect class="gpu" x="646" y="145" width="68" height="30"/>
+<text x="680.0" y="165.0" text-anchor="middle" class="small">GPU 3</text>
+<line x1="270" y1="115" x2="490" y2="115" class="line"/>
+<text x="380" y="106" text-anchor="middle" class="small">InfiniBand / RoCE</text>
+<text x="380" y="134" text-anchor="middle" class="mute">跨机网络</text>
+<line x1="60" y1="218" x2="100" y2="218" class="dbl"/>
+<line x1="60" y1="218" x2="100" y2="218" class="dbl-in"/>
+<text x="108" y="223" text-anchor="start" class="mute">NVLink（同机）</text>
+</svg>

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 312" width="400" height="312" role="img" aria-labelledby="t d">
+  <title id="t">W₁ 按列切成 4 份</title>
+  <desc id="d">8×8 的 W₁ 按列切成 4 个 8×2 的列块 W₁₀–W₁₃，分别放在 GPU 0–3 上。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<text x="200" y="26" text-anchor="middle" class="head">W₁（8 × 8）</text>
+<rect class="seg-a" x="104" y="42" width="48" height="192"/>
+<rect class="seg-b" x="152" y="42" width="48" height="192"/>
+<rect class="seg-c" x="200" y="42" width="48" height="192"/>
+<rect class="seg-d" x="248" y="42" width="48" height="192"/>
+<line x1="104" y1="66" x2="296" y2="66" stroke="#fff" stroke-width="1"/>
+<line x1="104" y1="90" x2="296" y2="90" stroke="#fff" stroke-width="1"/>
+<line x1="104" y1="114" x2="296" y2="114" stroke="#fff" stroke-width="1"/>
+<line x1="104" y1="138" x2="296" y2="138" stroke="#fff" stroke-width="1"/>
+<line x1="104" y1="162" x2="296" y2="162" stroke="#fff" stroke-width="1"/>
+<line x1="104" y1="186" x2="296" y2="186" stroke="#fff" stroke-width="1"/>
+<line x1="104" y1="210" x2="296" y2="210" stroke="#fff" stroke-width="1"/>
+<line x1="128" y1="42" x2="128" y2="234" stroke="#fff" stroke-width="1"/>
+<line x1="152" y1="42" x2="152" y2="234" stroke="#fff" stroke-width="1"/>
+<line x1="176" y1="42" x2="176" y2="234" stroke="#fff" stroke-width="1"/>
+<line x1="200" y1="42" x2="200" y2="234" stroke="#fff" stroke-width="1"/>
+<line x1="224" y1="42" x2="224" y2="234" stroke="#fff" stroke-width="1"/>
+<line x1="248" y1="42" x2="248" y2="234" stroke="#fff" stroke-width="1"/>
+<line x1="272" y1="42" x2="272" y2="234" stroke="#fff" stroke-width="1"/>
+<rect class="" x="104" y="42" width="48" height="192" fill="none" stroke="#40566f" stroke-width="1.4"/>
+<rect class="" x="152" y="42" width="48" height="192" fill="none" stroke="#40566f" stroke-width="1.4"/>
+<rect class="" x="200" y="42" width="48" height="192" fill="none" stroke="#40566f" stroke-width="1.4"/>
+<rect class="" x="248" y="42" width="48" height="192" fill="none" stroke="#40566f" stroke-width="1.4"/>
+<text x="128" y="256" text-anchor="middle" class="math">W₁₀</text>
+<text x="128" y="274" text-anchor="middle" class="small">8 × 2</text>
+<text x="128" y="294" text-anchor="middle" class="bold">GPU 0</text>
+<text x="176" y="256" text-anchor="middle" class="math">W₁₁</text>
+<text x="176" y="274" text-anchor="middle" class="small">8 × 2</text>
+<text x="176" y="294" text-anchor="middle" class="bold">GPU 1</text>
+<text x="224" y="256" text-anchor="middle" class="math">W₁₂</text>
+<text x="224" y="274" text-anchor="middle" class="small">8 × 2</text>
+<text x="224" y="294" text-anchor="middle" class="bold">GPU 2</text>
+<text x="272" y="256" text-anchor="middle" class="math">W₁₃</text>
+<text x="272" y="274" text-anchor="middle" class="small">8 × 2</text>
+<text x="272" y="294" text-anchor="middle" class="bold">GPU 3</text>
+</svg>

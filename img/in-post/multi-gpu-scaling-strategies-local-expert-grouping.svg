@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 232" width="560" height="232" role="img" aria-labelledby="t d">
+  <title id="t">GPU 0 本地分组的数据流</title>
+  <desc id="d">GPU 0 收到 t₀、t₃、t₆、t₇、t₈ 五个 Token，按目标 Expert 分成三组：Expert 3 拿 t₀、t₃，Expert 8 拿 t₆，Expert 12 拿 t₇、t₈，然后一起进本地 Expert 计算。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<rect class="gpu" x="130" y="16" width="300" height="50"/>
+<text x="280.0" y="37.0" text-anchor="middle" class="body">GPU 0 收到的 Token</text>
+<text x="280.0" y="55.0" text-anchor="middle" class="mono">t₀、t₃、t₆、t₇、t₈</text>
+<line x1="280" y1="66" x2="280" y2="98" class="arrow"/>
+<text x="290" y="86" text-anchor="start" class="small">按 Expert ID 分组</text>
+<rect class="seg-a" x="115.0" y="98" width="110" height="50"/>
+<text x="170.0" y="118" text-anchor="middle" class="small">Expert 3</text>
+<text x="170.0" y="138" text-anchor="middle" class="mono">t₀、t₃</text>
+<rect class="seg-b" x="225.0" y="98" width="110" height="50"/>
+<text x="280.0" y="118" text-anchor="middle" class="small">Expert 8</text>
+<text x="280.0" y="138" text-anchor="middle" class="mono">t₆</text>
+<rect class="seg-c" x="335.0" y="98" width="110" height="50"/>
+<text x="390.0" y="118" text-anchor="middle" class="small">Expert 12</text>
+<text x="390.0" y="138" text-anchor="middle" class="mono">t₇、t₈</text>
+<path d="M170.0,148 V164 H280" class="line"/>
+<path d="M280.0,148 V164 H280" class="line"/>
+<path d="M390.0,148 V164 H280" class="line"/>
+<line x1="280" y1="164" x2="280" y2="180" class="arrow"/>
+<rect class="card" x="190" y="180" width="180" height="36"/>
+<text x="280.0" y="203.0" text-anchor="middle" class="body">本地 Expert 计算</text>
+</svg>

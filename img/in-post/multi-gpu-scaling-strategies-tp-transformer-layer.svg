@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 570" width="760" height="570" role="img" aria-labelledby="t d">
+  <title id="t">TP=4 下的 Transformer Layer</title>
+  <desc id="d">Attention 和 MLP 各走一遍同样的套路：先 Column TP 的投影（Q/K/V 或 Gate/Up），4 张卡各自本地算 Attention 或激活，再 Row TP 的投影（O 或 Down），每张卡得到一个部分和，最后 All-Reduce 相加。每层两次 All-Reduce。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<rect class="frame" x="10" y="15" width="345" height="540"/>
+<text x="22" y="36" text-anchor="start" class="head">Attention</text>
+<rect class="card" x="137" y="40" width="90" height="28"/>
+<text x="182.0" y="59.0" text-anchor="middle" class="body">Input X</text>
+<path d="M182,68 V84 H72.0 V100" class="arrow"/>
+<path d="M182,68 V84 H182.0 V100" class="arrow"/>
+<path d="M182,68 V84 H292.0 V100" class="arrow"/>
+<rect class="gpu" x="21.0" y="100" width="102" height="58"/>
+<text x="72.0" y="116.0" text-anchor="middle" class="small">Q Projection</text>
+<text x="72.0" y="134.0" text-anchor="middle" class="small">Column TP</text>
+<text x="72.0" y="152.0" text-anchor="middle" class="mono">Q₀ Q₁ Q₂ Q₃</text>
+<rect class="gpu" x="131.0" y="100" width="102" height="58"/>
+<text x="182.0" y="116.0" text-anchor="middle" class="small">K Projection</text>
+<text x="182.0" y="134.0" text-anchor="middle" class="small">Column TP</text>
+<text x="182.0" y="152.0" text-anchor="middle" class="mono">K₀ K₁ K₂ K₃</text>
+<rect class="gpu" x="241.0" y="100" width="102" height="58"/>
+<text x="292.0" y="116.0" text-anchor="middle" class="small">V Projection</text>
+<text x="292.0" y="134.0" text-anchor="middle" class="small">Column TP</text>
+<text x="292.0" y="152.0" text-anchor="middle" class="mono">V₀ V₁ V₂ V₃</text>
+<path d="M72.0,158 V174 H182" class="line"/>
+<path d="M182.0,158 V174 H182" class="line"/>
+<path d="M292.0,158 V174 H182" class="line"/>
+<line x1="182" y1="174" x2="182" y2="190" class="arrow"/>
+<rect class="card" x="27" y="190" width="310" height="64"/>
+<text x="182.0" y="209.0" text-anchor="middle" class="small">Attention Compute</text>
+<text x="182.0" y="227.0" text-anchor="middle" class="math">GPU 本地计算：Attnᵢ = softmax(Qᵢ Kᵢᵀ / √d) Vᵢ</text>
+<text x="182.0" y="245.0" text-anchor="middle" class="small">4 张卡各自只算自己的 Head，不通信</text>
+<line x1="182" y1="254" x2="182" y2="276" class="arrow"/>
+<rect class="gpu" x="102" y="276" width="160" height="44"/>
+<text x="182.0" y="294.0" text-anchor="middle" class="small">O Projection</text>
+<text x="182.0" y="312.0" text-anchor="middle" class="small">Row TP</text>
+<path d="M182,320 V336 H59 V352" class="arrow"/>
+<path d="M182,320 V336 H141 V352" class="arrow"/>
+<path d="M182,320 V336 H223 V352" class="arrow"/>
+<path d="M182,320 V336 H305 V352" class="arrow"/>
+<rect class="card" x="19" y="352" width="80" height="58"/>
+<text x="59.0" y="368.0" text-anchor="middle" class="small">GPU 0</text>
+<text x="59.0" y="386.0" text-anchor="middle" class="math">Attn₀ O₀</text>
+<text x="59.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<rect class="card" x="101" y="352" width="80" height="58"/>
+<text x="141.0" y="368.0" text-anchor="middle" class="small">GPU 1</text>
+<text x="141.0" y="386.0" text-anchor="middle" class="math">Attn₁ O₁</text>
+<text x="141.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<rect class="card" x="183" y="352" width="80" height="58"/>
+<text x="223.0" y="368.0" text-anchor="middle" class="small">GPU 2</text>
+<text x="223.0" y="386.0" text-anchor="middle" class="math">Attn₂ O₂</text>
+<text x="223.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<rect class="card" x="265" y="352" width="80" height="58"/>
+<text x="305.0" y="368.0" text-anchor="middle" class="small">GPU 3</text>
+<text x="305.0" y="386.0" text-anchor="middle" class="math">Attn₃ O₃</text>
+<text x="305.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<path d="M59,410 V426 H182" class="line"/>
+<path d="M141,410 V426 H182" class="line"/>
+<path d="M223,410 V426 H182" class="line"/>
+<path d="M305,410 V426 H182" class="line"/>
+<line x1="182" y1="426" x2="182" y2="442" class="arrow"/>
+<rect class="comm" x="122" y="442" width="120" height="32"/>
+<text x="182.0" y="463.0" text-anchor="middle" class="bold">All-Reduce</text>
+<line x1="182" y1="474" x2="182" y2="500" class="arrow"/>
+<rect class="card" x="122" y="500" width="120" height="32"/>
+<text x="182.0" y="521.0" text-anchor="middle" class="body">Attention Out</text>
+<rect class="frame" x="405" y="15" width="345" height="540"/>
+<text x="417" y="36" text-anchor="start" class="head">MLP</text>
+<rect class="card" x="533" y="40" width="90" height="28"/>
+<text x="578.0" y="59.0" text-anchor="middle" class="body">Input</text>
+<path d="M578,68 V84 H523.0 V100" class="arrow"/>
+<path d="M578,68 V84 H633.0 V100" class="arrow"/>
+<rect class="gpu" x="472.0" y="100" width="102" height="58"/>
+<text x="523.0" y="116.0" text-anchor="middle" class="small">Gate Projection</text>
+<text x="523.0" y="134.0" text-anchor="middle" class="small">Column TP</text>
+<text x="523.0" y="152.0" text-anchor="middle" class="mono">Gate₀ … Gate₃</text>
+<rect class="gpu" x="582.0" y="100" width="102" height="58"/>
+<text x="633.0" y="116.0" text-anchor="middle" class="small">Up Projection</text>
+<text x="633.0" y="134.0" text-anchor="middle" class="small">Column TP</text>
+<text x="633.0" y="152.0" text-anchor="middle" class="mono">Up₀ … Up₃</text>
+<path d="M523.0,158 V174 H578" class="line"/>
+<path d="M633.0,158 V174 H578" class="line"/>
+<line x1="578" y1="174" x2="578" y2="190" class="arrow"/>
+<rect class="card" x="423" y="190" width="310" height="64"/>
+<text x="578.0" y="209.0" text-anchor="middle" class="small">Activation</text>
+<text x="578.0" y="227.0" text-anchor="middle" class="math">GPU 本地计算：Actᵢ = SiLU(Gateᵢ) ⊙ Upᵢ</text>
+<text x="578.0" y="245.0" text-anchor="middle" class="small">4 张卡各自只算自己的中间维度，不通信</text>
+<line x1="578" y1="254" x2="578" y2="276" class="arrow"/>
+<rect class="gpu" x="498" y="276" width="160" height="44"/>
+<text x="578.0" y="294.0" text-anchor="middle" class="small">Down Projection</text>
+<text x="578.0" y="312.0" text-anchor="middle" class="small">Row TP</text>
+<path d="M578,320 V336 H455 V352" class="arrow"/>
+<path d="M578,320 V336 H537 V352" class="arrow"/>
+<path d="M578,320 V336 H619 V352" class="arrow"/>
+<path d="M578,320 V336 H701 V352" class="arrow"/>
+<rect class="card" x="415" y="352" width="80" height="58"/>
+<text x="455.0" y="368.0" text-anchor="middle" class="small">GPU 0</text>
+<text x="455.0" y="386.0" text-anchor="middle" class="math">Act₀ Down₀</text>
+<text x="455.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<rect class="card" x="497" y="352" width="80" height="58"/>
+<text x="537.0" y="368.0" text-anchor="middle" class="small">GPU 1</text>
+<text x="537.0" y="386.0" text-anchor="middle" class="math">Act₁ Down₁</text>
+<text x="537.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<rect class="card" x="579" y="352" width="80" height="58"/>
+<text x="619.0" y="368.0" text-anchor="middle" class="small">GPU 2</text>
+<text x="619.0" y="386.0" text-anchor="middle" class="math">Act₂ Down₂</text>
+<text x="619.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<rect class="card" x="661" y="352" width="80" height="58"/>
+<text x="701.0" y="368.0" text-anchor="middle" class="small">GPU 3</text>
+<text x="701.0" y="386.0" text-anchor="middle" class="math">Act₃ Down₃</text>
+<text x="701.0" y="404.0" text-anchor="middle" class="small">部分和</text>
+<path d="M455,410 V426 H578" class="line"/>
+<path d="M537,410 V426 H578" class="line"/>
+<path d="M619,410 V426 H578" class="line"/>
+<path d="M701,410 V426 H578" class="line"/>
+<line x1="578" y1="426" x2="578" y2="442" class="arrow"/>
+<rect class="comm" x="518" y="442" width="120" height="32"/>
+<text x="578.0" y="463.0" text-anchor="middle" class="bold">All-Reduce</text>
+<line x1="578" y1="474" x2="578" y2="500" class="arrow"/>
+<rect class="card" x="518" y="500" width="120" height="32"/>
+<text x="578.0" y="521.0" text-anchor="middle" class="body">MLP Out</text>
+<path d="M242,516 H380 V54 H533" class="arrow"/>
+</svg>

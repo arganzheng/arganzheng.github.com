@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 386" width="760" height="386" role="img" aria-labelledby="t d">
+  <title id="t">Column Parallel 与 Row Parallel 的切法</title>
+  <desc id="d">上排：W 按列切到 4 张卡，每张卡算出输出 Y 的一段 Yᵢ，不需要通信。Yᵢ 直接留在本卡，进入下排：W 按行切，每张卡用自己的 Yᵢ 算出一个部分和 Zᵢ，最后 All-Reduce 相加得到 Z。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<text x="20" y="62" text-anchor="start" class="bold">Column Parallel</text>
+<text x="20" y="82" text-anchor="start" class="small">QKV、Gate / Up</text>
+<text x="20" y="102" text-anchor="start" class="small">W 按列切</text>
+<rect class="gpu" x="170" y="26" width="135" height="104"/>
+<text x="237.5" y="48" text-anchor="middle" class="body">GPU 0</text>
+<text x="237.5" y="76" text-anchor="middle" class="mono">W[:, 0:d]</text>
+<line x1="237.5" y1="84" x2="237.5" y2="100" class="arrow"/>
+<text x="237.5" y="118" text-anchor="middle" class="mono">Y₀ = X @ W₀</text>
+<line x1="237.5" y1="130" x2="237.5" y2="186" class="arrow"/>
+<text x="245.5" y="162" text-anchor="start" class="small">Y₀</text>
+<rect class="gpu" x="320" y="26" width="135" height="104"/>
+<text x="387.5" y="48" text-anchor="middle" class="body">GPU 1</text>
+<text x="387.5" y="76" text-anchor="middle" class="mono">W[:, d:2d]</text>
+<line x1="387.5" y1="84" x2="387.5" y2="100" class="arrow"/>
+<text x="387.5" y="118" text-anchor="middle" class="mono">Y₁ = X @ W₁</text>
+<line x1="387.5" y1="130" x2="387.5" y2="186" class="arrow"/>
+<text x="395.5" y="162" text-anchor="start" class="small">Y₁</text>
+<rect class="gpu" x="470" y="26" width="135" height="104"/>
+<text x="537.5" y="48" text-anchor="middle" class="body">GPU 2</text>
+<text x="537.5" y="76" text-anchor="middle" class="mono">W[:, 2d:3d]</text>
+<line x1="537.5" y1="84" x2="537.5" y2="100" class="arrow"/>
+<text x="537.5" y="118" text-anchor="middle" class="mono">Y₂ = X @ W₂</text>
+<line x1="537.5" y1="130" x2="537.5" y2="186" class="arrow"/>
+<text x="545.5" y="162" text-anchor="start" class="small">Y₂</text>
+<rect class="gpu" x="620" y="26" width="135" height="104"/>
+<text x="687.5" y="48" text-anchor="middle" class="body">GPU 3</text>
+<text x="687.5" y="76" text-anchor="middle" class="mono">W[:, 3d:4d]</text>
+<line x1="687.5" y1="84" x2="687.5" y2="100" class="arrow"/>
+<text x="687.5" y="118" text-anchor="middle" class="mono">Y₃ = X @ W₃</text>
+<line x1="687.5" y1="130" x2="687.5" y2="186" class="arrow"/>
+<text x="695.5" y="162" text-anchor="start" class="small">Y₃</text>
+<text x="20" y="162" text-anchor="start" class="small">Yᵢ 留在本卡，不通信</text>
+<text x="20" y="222" text-anchor="start" class="bold">Row Parallel</text>
+<text x="20" y="242" text-anchor="start" class="small">O Proj.、Down</text>
+<text x="20" y="262" text-anchor="start" class="small">W 按行切</text>
+<rect class="gpu" x="170" y="186" width="135" height="104"/>
+<text x="237.5" y="208" text-anchor="middle" class="body">GPU 0</text>
+<text x="237.5" y="236" text-anchor="middle" class="mono">W[0:d, :]</text>
+<line x1="237.5" y1="244" x2="237.5" y2="260" class="arrow"/>
+<text x="237.5" y="278" text-anchor="middle" class="mono">Z₀ = Y₀ @ W₀</text>
+<line x1="237.5" y1="290" x2="237.5" y2="320" class="arrow"/>
+<rect class="gpu" x="320" y="186" width="135" height="104"/>
+<text x="387.5" y="208" text-anchor="middle" class="body">GPU 1</text>
+<text x="387.5" y="236" text-anchor="middle" class="mono">W[d:2d, :]</text>
+<line x1="387.5" y1="244" x2="387.5" y2="260" class="arrow"/>
+<text x="387.5" y="278" text-anchor="middle" class="mono">Z₁ = Y₁ @ W₁</text>
+<line x1="387.5" y1="290" x2="387.5" y2="320" class="arrow"/>
+<rect class="gpu" x="470" y="186" width="135" height="104"/>
+<text x="537.5" y="208" text-anchor="middle" class="body">GPU 2</text>
+<text x="537.5" y="236" text-anchor="middle" class="mono">W[2d:3d, :]</text>
+<line x1="537.5" y1="244" x2="537.5" y2="260" class="arrow"/>
+<text x="537.5" y="278" text-anchor="middle" class="mono">Z₂ = Y₂ @ W₂</text>
+<line x1="537.5" y1="290" x2="537.5" y2="320" class="arrow"/>
+<rect class="gpu" x="620" y="186" width="135" height="104"/>
+<text x="687.5" y="208" text-anchor="middle" class="body">GPU 3</text>
+<text x="687.5" y="236" text-anchor="middle" class="mono">W[3d:4d, :]</text>
+<line x1="687.5" y1="244" x2="687.5" y2="260" class="arrow"/>
+<text x="687.5" y="278" text-anchor="middle" class="mono">Z₃ = Y₃ @ W₃</text>
+<line x1="687.5" y1="290" x2="687.5" y2="320" class="arrow"/>
+<rect class="comm" x="170" y="320" width="585" height="40"/>
+<text x="462.5" y="345.0" text-anchor="middle" class="bold">All-Reduce：Z = Z₀ + Z₁ + Z₂ + Z₃</text>
+</svg>

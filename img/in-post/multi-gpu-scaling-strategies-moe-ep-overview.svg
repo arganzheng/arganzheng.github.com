@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 392" width="760" height="392" role="img" aria-labelledby="t d">
+  <title id="t">MoE + EP 执行过程全图（2 张 GPU）</title>
+  <desc id="d">GPU 0 和 GPU 1 各自对输入 Token 做 Router，经 All-to-All Dispatch 把 Token 交换到 Expert 所在的卡，各自算本地 Expert，再经 All-to-All Combine 把结果送回原卡做 Top-K 加权求和。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .math { font-size: 14px; }
+      .mute { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .gpu { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .req { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .comm { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-o { fill: #fde9cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #f9d5cf; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .arrow-light { stroke: #b7c3cf; stroke-width: 1.2; fill: none; marker-end: url(#arrow-light); }
+      .arrow-hi { stroke: #c0392b; stroke-width: 2; fill: none; marker-end: url(#arrow-hi); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .dbl { stroke: #5880b4; stroke-width: 4; fill: none; }
+      .dbl-in { stroke: #fff; stroke-width: 1.4; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<text x="200" y="22" text-anchor="middle" class="head">GPU 0</text>
+<text x="560" y="22" text-anchor="middle" class="head">GPU 1</text>
+<rect class="card" x="70.0" y="34" width="260" height="54"/>
+<text x="200.0" y="57.0" text-anchor="middle" class="body">输入 Token：t₀, t₁, t₂</text>
+<text x="200.0" y="75.0" text-anchor="middle" class="mono">Router：t₀ → E3, E17</text>
+<line x1="200" y1="88" x2="200" y2="118" class="arrow"/>
+<rect class="card" x="430.0" y="34" width="260" height="54"/>
+<text x="560.0" y="57.0" text-anchor="middle" class="body">输入 Token：t₃, t₄, t₅</text>
+<text x="560.0" y="75.0" text-anchor="middle" class="mono">Router：t₃ → E5, E20</text>
+<line x1="560" y1="88" x2="560" y2="118" class="arrow"/>
+<rect class="comm" x="70" y="118" width="620" height="36"/>
+<text x="380.0" y="141.0" text-anchor="middle" class="bold">All-to-All Dispatch</text>
+<line x1="200" y1="154" x2="200" y2="184" class="arrow"/>
+<rect class="gpu" x="70.0" y="184" width="260" height="54"/>
+<text x="200.0" y="207.0" text-anchor="middle" class="body">本地 Expert 计算：E0 ~ E15</text>
+<text x="200.0" y="225.0" text-anchor="middle" class="mono">t₀ → E3</text>
+<line x1="200" y1="238" x2="200" y2="268" class="arrow"/>
+<line x1="560" y1="154" x2="560" y2="184" class="arrow"/>
+<rect class="gpu" x="430.0" y="184" width="260" height="54"/>
+<text x="560.0" y="207.0" text-anchor="middle" class="body">本地 Expert 计算：E16 ~ E31</text>
+<text x="560.0" y="225.0" text-anchor="middle" class="mono">t₀ → E17</text>
+<line x1="560" y1="238" x2="560" y2="268" class="arrow"/>
+<rect class="comm" x="70" y="268" width="620" height="36"/>
+<text x="380.0" y="291.0" text-anchor="middle" class="bold">All-to-All Combine</text>
+<line x1="200" y1="304" x2="200" y2="334" class="arrow"/>
+<rect class="card" x="70.0" y="334" width="260" height="44"/>
+<text x="200.0" y="352.0" text-anchor="middle" class="body">聚合结果</text>
+<text x="200.0" y="370.0" text-anchor="middle" class="small">Top-K 加权求和</text>
+<line x1="560" y1="304" x2="560" y2="334" class="arrow"/>
+<rect class="card" x="430.0" y="334" width="260" height="44"/>
+<text x="560.0" y="352.0" text-anchor="middle" class="body">聚合结果</text>
+<text x="560.0" y="370.0" text-anchor="middle" class="small">Top-K 加权求和</text>
+</svg>
