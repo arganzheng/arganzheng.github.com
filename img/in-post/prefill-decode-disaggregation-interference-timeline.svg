@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 538" width="760" height="538" role="img" aria-labelledby="t d">
+  <title id="t">三种做法在同一时间轴上的干扰位置</title>
+  <desc id="d">共置把长 Prompt 的干扰集中成已有请求的一次 ITL 尖峰；Chunked Prefill 把它摊到每一步，但新请求的首 token 要等多步；PD 分离让 D 的时间线不被打断，新请求的 TTFT 多出交接与就绪等待两段。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-s" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-hold { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrow2 { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); marker-start: url(#arrow-s); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .grid { stroke: #dde4ec; stroke-width: 1; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="538" fill="#fff"/>
+<line x1="150" y1="22" x2="720" y2="22" class="axis"/>
+<text x="150" y="14" text-anchor="start" class="small">时间 →（步长只示意先后，不等长）</text>
+<text x="40" y="40" text-anchor="start" class="head">共置（整段 Prefill 进入混合 batch）</text>
+<text x="40" y="76" text-anchor="start" class="small">GPU</text>
+<rect class="seg-b" x="150" y="54" width="57" height="34"/>
+<text x="178.5" y="75.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="207" y="54" width="57" height="34"/>
+<text x="235.5" y="75.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="264" y="54" width="57" height="34"/>
+<text x="292.5" y="75.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-a" x="321" y="54" width="228" height="34"/>
+<text x="435" y="75.55" text-anchor="middle" class="small">d + 长 Prompt Prefill（一步）</text>
+<rect class="seg-b" x="549" y="54" width="57" height="34"/>
+<text x="577.5" y="75.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="606" y="54" width="57" height="34"/>
+<text x="634.5" y="75.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="663" y="54" width="57" height="34"/>
+<text x="691.5" y="75.55" text-anchor="middle" class="small">d</text>
+<text x="40" y="116" text-anchor="start" class="small">已有请求 ITL</text>
+<text x="178.5" y="116" text-anchor="middle" class="body">·</text>
+<text x="235.5" y="116" text-anchor="middle" class="body">·</text>
+<text x="292.5" y="116" text-anchor="middle" class="body">·</text>
+<text x="577.5" y="116" text-anchor="middle" class="body">·</text>
+<text x="634.5" y="116" text-anchor="middle" class="body">·</text>
+<text x="691.5" y="116" text-anchor="middle" class="body">·</text>
+<line x1="321" y1="114" x2="549" y2="114" class="thin"/>
+<line x1="321" y1="109" x2="321" y2="119" class="thin"/>
+<line x1="549" y1="109" x2="549" y2="119" class="thin"/>
+<text x="435" y="107" text-anchor="middle" class="small">一次长尖峰</text>
+<text x="40" y="160" text-anchor="start" class="small">新请求 TTFT</text>
+<line x1="150" y1="156" x2="321" y2="156" class="thin"/>
+<line x1="150" y1="151" x2="150" y2="161" class="thin"/>
+<line x1="321" y1="151" x2="321" y2="161" class="thin"/>
+<text x="235.5" y="149" text-anchor="middle" class="small">排队</text>
+<line x1="321" y1="156" x2="549" y2="156" class="thin"/>
+<line x1="321" y1="151" x2="321" y2="161" class="thin"/>
+<line x1="549" y1="151" x2="549" y2="161" class="thin"/>
+<text x="435" y="149" text-anchor="middle" class="small">一步算完</text>
+<text x="555" y="160" text-anchor="start" class="bold">首 token</text>
+<text x="40" y="200" text-anchor="start" class="head">共置 + Chunked Prefill</text>
+<text x="40" y="236" text-anchor="start" class="small">GPU</text>
+<rect class="seg-a" x="150" y="214" width="85.5" height="34"/>
+<text x="192.75" y="235.55" text-anchor="middle" class="small">d + c1</text>
+<rect class="seg-a" x="235.5" y="214" width="85.5" height="34"/>
+<text x="278.25" y="235.55" text-anchor="middle" class="small">d + c2</text>
+<rect class="seg-a" x="321" y="214" width="85.5" height="34"/>
+<text x="363.75" y="235.55" text-anchor="middle" class="small">d + c3</text>
+<rect class="seg-a" x="406.5" y="214" width="85.5" height="34"/>
+<text x="449.25" y="235.55" text-anchor="middle" class="small">d + c4</text>
+<rect class="seg-b" x="492" y="214" width="57" height="34"/>
+<text x="520.5" y="235.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="549" y="214" width="57" height="34"/>
+<text x="577.5" y="235.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="606" y="214" width="57" height="34"/>
+<text x="634.5" y="235.55" text-anchor="middle" class="small">d</text>
+<text x="40" y="276" text-anchor="start" class="small">已有请求 ITL</text>
+<path d="M192.75 278 V266" class="arrow"/>
+<path d="M278.25 278 V266" class="arrow"/>
+<path d="M363.75 278 V266" class="arrow"/>
+<path d="M449.25 278 V266" class="arrow"/>
+<text x="500" y="276" text-anchor="start" class="small">每步都略变长，没有大尖峰</text>
+<text x="40" y="320" text-anchor="start" class="small">新请求 TTFT</text>
+<line x1="150" y1="316" x2="492" y2="316" class="thin"/>
+<line x1="150" y1="311" x2="150" y2="321" class="thin"/>
+<line x1="492" y1="311" x2="492" y2="321" class="thin"/>
+<text x="321" y="309" text-anchor="middle" class="small">分 4 步才算完</text>
+<text x="498" y="320" text-anchor="start" class="bold">首 token</text>
+<text x="40" y="360" text-anchor="start" class="head">PD 分离</text>
+<text x="40" y="396" text-anchor="start" class="small">P 实例</text>
+<rect class="seg-a" x="150" y="374" width="228" height="34"/>
+<text x="264" y="395.55" text-anchor="middle" class="small">长 Prompt Prefill</text>
+<rect class="seg-c" x="378" y="374" width="57" height="34"/>
+<text x="406.5" y="395.55" text-anchor="middle" class="small">交接</text>
+<rect class="seg-hold" x="435" y="374" width="114" height="34"/>
+<text x="492" y="395.55" text-anchor="middle" class="small">源块保留至确认</text>
+<text x="40" y="442" text-anchor="start" class="small">D 实例</text>
+<rect class="seg-b" x="150" y="420" width="57" height="34"/>
+<text x="178.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="207" y="420" width="57" height="34"/>
+<text x="235.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="264" y="420" width="57" height="34"/>
+<text x="292.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="321" y="420" width="57" height="34"/>
+<text x="349.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="378" y="420" width="57" height="34"/>
+<text x="406.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="435" y="420" width="57" height="34"/>
+<text x="463.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="492" y="420" width="57" height="34"/>
+<text x="520.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="549" y="420" width="57" height="34"/>
+<text x="577.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="606" y="420" width="57" height="34"/>
+<text x="634.5" y="441.55" text-anchor="middle" class="small">d</text>
+<rect class="seg-b" x="663" y="420" width="57" height="34"/>
+<text x="691.5" y="441.55" text-anchor="middle" class="small">d</text>
+<text x="40" y="482" text-anchor="start" class="small">已有请求 ITL</text>
+<text x="178.5" y="482" text-anchor="middle" class="body">·</text>
+<text x="235.5" y="482" text-anchor="middle" class="body">·</text>
+<text x="292.5" y="482" text-anchor="middle" class="body">·</text>
+<text x="349.5" y="482" text-anchor="middle" class="body">·</text>
+<text x="406.5" y="482" text-anchor="middle" class="body">·</text>
+<text x="463.5" y="482" text-anchor="middle" class="body">·</text>
+<text x="500" y="482" text-anchor="start" class="small">只受 D 内部因素影响</text>
+<text x="40" y="526" text-anchor="start" class="small">新请求 TTFT</text>
+<line x1="150" y1="522" x2="378" y2="522" class="thin"/>
+<line x1="150" y1="517" x2="150" y2="527" class="thin"/>
+<line x1="378" y1="517" x2="378" y2="527" class="thin"/>
+<text x="264" y="515" text-anchor="middle" class="small">P 计算</text>
+<line x1="378" y1="522" x2="435" y2="522" class="thin"/>
+<line x1="378" y1="517" x2="378" y2="527" class="thin"/>
+<line x1="435" y1="517" x2="435" y2="527" class="thin"/>
+<text x="406.5" y="515" text-anchor="middle" class="small">交接</text>
+<line x1="435" y1="522" x2="492" y2="522" class="thin"/>
+<line x1="435" y1="517" x2="435" y2="527" class="thin"/>
+<line x1="492" y1="517" x2="492" y2="527" class="thin"/>
+<text x="463.5" y="515" text-anchor="middle" class="small">就绪等待</text>
+<text x="498" y="526" text-anchor="start" class="bold">首 token</text>
+</svg>

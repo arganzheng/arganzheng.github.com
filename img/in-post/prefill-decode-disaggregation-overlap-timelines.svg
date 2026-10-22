@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 368" width="760" height="368" role="img" aria-labelledby="t d">
+  <title id="t">跨请求重叠与同请求重叠的时间线</title>
+  <desc id="d">跨请求重叠：A 的 KV 在传时，D 的 GPU 跑 B、C 的 decode，A 就绪后才运行，GPU 不空等但 A 仍承担交接延迟。同请求重叠：P 每算完一层就发一层，P 全部算完后只剩最后一层的传输尾部。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow-s" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-hold { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrow2 { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); marker-start: url(#arrow-s); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .grid { stroke: #dde4ec; stroke-width: 1; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="368" fill="#fff"/>
+<text x="40" y="24" text-anchor="start" class="head">跨请求重叠</text>
+<text x="40" y="62" text-anchor="start" class="small">A 的 KV</text>
+<rect class="seg-c" x="150" y="40" width="330" height="34"/>
+<text x="315" y="61.55" text-anchor="middle" class="small">传输中</text>
+<text x="40" y="126" text-anchor="start" class="small">D 的 GPU</text>
+<rect class="seg-b" x="150" y="104" width="110" height="34"/>
+<text x="205" y="125.55" text-anchor="middle" class="small">B decode</text>
+<rect class="seg-b" x="260" y="104" width="110" height="34"/>
+<text x="315" y="125.55" text-anchor="middle" class="small">C decode</text>
+<rect class="seg-b" x="370" y="104" width="110" height="34"/>
+<text x="425" y="125.55" text-anchor="middle" class="small">B decode</text>
+<rect class="seg-a" x="480" y="104" width="110" height="34"/>
+<text x="535" y="125.55" text-anchor="middle" class="small">A decode</text>
+<path d="M480 74 V104" class="arrow"/>
+<text x="488" y="94" text-anchor="start" class="small">A 就绪后才可运行</text>
+<line x1="150" y1="152" x2="720" y2="152" class="axis"/>
+<text x="40" y="192" text-anchor="start" class="head">同请求重叠（P 侧发送流水）</text>
+<text x="40" y="230" text-anchor="start" class="small">P 计算</text>
+<rect class="seg-a" x="150" y="208" width="110" height="34"/>
+<text x="205" y="229.55" text-anchor="middle" class="small">算 L0</text>
+<rect class="seg-a" x="260" y="208" width="110" height="34"/>
+<text x="315" y="229.55" text-anchor="middle" class="small">算 L1</text>
+<rect class="seg-a" x="370" y="208" width="110" height="34"/>
+<text x="425" y="229.55" text-anchor="middle" class="small">算 L2</text>
+<text x="40" y="294" text-anchor="start" class="small">KV 传输</text>
+<rect class="seg-c" x="260" y="272" width="110" height="34"/>
+<text x="315" y="293.55" text-anchor="middle" class="small">发 L0</text>
+<path d="M260 242 V272" class="arrow"/>
+<rect class="seg-c" x="370" y="272" width="110" height="34"/>
+<text x="425" y="293.55" text-anchor="middle" class="small">发 L1</text>
+<path d="M370 242 V272" class="arrow"/>
+<rect class="seg-c" x="480" y="272" width="110" height="34"/>
+<text x="535" y="293.55" text-anchor="middle" class="small">发 L2</text>
+<path d="M480 242 V272" class="arrow"/>
+<line x1="480" y1="200" x2="480" y2="314" class="thin"/>
+<text x="486" y="196" text-anchor="start" class="small">P 全部算完</text>
+<line x1="480" y1="324" x2="590" y2="324" class="thin"/>
+<line x1="480" y1="319" x2="480" y2="329" class="thin"/>
+<line x1="590" y1="319" x2="590" y2="329" class="thin"/>
+<text x="535" y="342" text-anchor="middle" class="small">剩余的传输尾部</text>
+<line x1="150" y1="360" x2="720" y2="360" class="axis"/>
+</svg>
