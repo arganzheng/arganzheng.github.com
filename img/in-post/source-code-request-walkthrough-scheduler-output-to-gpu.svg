@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 568" width="760" height="568" role="img" aria-labelledby="t d">
+  <title id="t">SchedulerOutput → GPU 输入的映射</title>
+  <desc id="d">纵向三段：上方是 Scheduler 交出的 SchedulerOutput 及其主要字段；中间是 Worker 进程里 GPUModelRunner.execute_model() 的四步翻译（_update_states 维护 InputBatch、_prepare_inputs 拼 input_ids 并算 slot_mapping、_build_attention_metadata、_determine_batch_execution_and_padding 选 CUDA Graph 还是 eager）；下方是 GPU：向下箭头标给 GPU 的 input_ids、positions、attn_metadata，向上箭头标从 GPU 拿回的 hidden_states → logits → sampled_token_ids。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .dom-req { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .dom-sched { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .dom-mem { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .dom-model { fill: #f5eef7; stroke: #9a6fb0; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+    </style>
+  </defs>
+<text x="40" y="27" text-anchor="start" class="bold">Scheduler 交出来的：SchedulerOutput（vllm/v1/core/sched/output.py）</text>
+<rect class="card" x="40" y="38" width="680" height="104"/>
+<text x="54" y="58" text-anchor="start" class="mono">scheduled_new_reqs: list[NewRequestData]</text>
+<text x="706" y="58" text-anchor="end" class="small">← 首次调度：prompt_token_ids、block_ids</text>
+<text x="54" y="76" text-anchor="start" class="mono">scheduled_cached_reqs: CachedRequestData</text>
+<text x="706" y="76" text-anchor="end" class="small">← 继续执行：new_block_ids</text>
+<text x="54" y="94" text-anchor="start" class="mono">num_scheduled_tokens: dict[req_id, int]</text>
+<text x="706" y="94" text-anchor="end" class="small">← 每个请求本轮推进多少 token</text>
+<text x="54" y="112" text-anchor="start" class="mono">finished_req_ids / preempted_req_ids</text>
+<text x="706" y="112" text-anchor="end" class="small">← 状态通知</text>
+<text x="54" y="130" text-anchor="start" class="mono">scheduled_spec_decode_tokens, …</text>
+<text x="706" y="130" text-anchor="end" class="small">← spec decode / KV connector 执行提示</text>
+<path d="M380.0 142 V176" class="arrow"/>
+<text x="390.0" y="164.0" text-anchor="start" class="small">共享内存 MessageQueue → Worker 进程</text>
+<text x="40" y="191" text-anchor="start" class="bold">Worker 翻译：GPUModelRunner.execute_model()（vllm/v1/worker/gpu_model_runner.py）</text>
+<rect class="card" x="40" y="202" width="680" height="254"/>
+<text x="54" y="222" text-anchor="start" class="mono">1. _update_states()：按 SchedulerOutput 增删请求、追加 block_ids，维护 InputBatch</text>
+<text x="74" y="240" text-anchor="start" class="small">· Req A（已缓存 256、新推 256）→ 本轮 256 个 token</text>
+<text x="74" y="258" text-anchor="start" class="small">· Req B（decode）→ 1 个</text>
+<text x="74" y="276" text-anchor="start" class="small">· Req C（spec decode）→ 1 + N 个</text>
+<text x="54" y="302" text-anchor="start" class="mono">2. _prepare_inputs()：扁平成一条 input_ids / positions，Triton 算 slot_mapping</text>
+<text x="74" y="320" text-anchor="start" class="small">· token → (block_id, offset)：新块从头写，旧块追加到尾部</text>
+<text x="74" y="338" text-anchor="start" class="small">· prefix cache 命中的那段已计入 num_computed_tokens，不在本轮 token 里</text>
+<text x="54" y="364" text-anchor="start" class="mono">3. _build_attention_metadata()：告诉 kernel 每个请求能读哪些块</text>
+<text x="74" y="382" text-anchor="start" class="small">· block_table_tensor、slot_mapping、query_start_loc、seq_lens、max_query_len</text>
+<text x="54" y="408" text-anchor="start" class="mono">4. _determine_batch_execution_and_padding()：选执行模式</text>
+<text x="74" y="426" text-anchor="start" class="small">· 纯 decode 且尺寸在捕获列表内 → 整张图 replay（FULL）</text>
+<text x="74" y="444" text-anchor="start" class="small">· 含 prefill / 超出尺寸 → PIECEWISE 或 eager</text>
+<path d="M80 456 V520" class="arrow"/>
+<text x="90" y="480" text-anchor="start" class="small">给 GPU：input_ids, positions, attn_metadata（经 forward_context）</text>
+<path d="M680 520 V456" class="arrow"/>
+<text x="670" y="504" text-anchor="end" class="small">从 GPU：hidden_states → logits → sampled_token_ids</text>
+<rect class="seg-a" x="40" y="520" width="680" height="36"/>
+<text x="380.0" y="543" text-anchor="middle" class="body">GPU：model(input_ids, positions) → Attention kernel → sampler</text>
+</svg>

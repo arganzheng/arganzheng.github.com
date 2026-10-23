@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 442" width="760" height="442" role="img" aria-labelledby="t d">
+  <title id="t">单次 Decode 迭代：Python 控制面与 GPU 数据面</title>
+  <desc id="d">上半部分：单步内 Python 控制面先 schedule、prepare，再把 batch 提交给 GPU，GPU 跑 model forward 与 sample 后把 token 返回 CPU，Python 开销约占 1%。下半部分：开启 Batch Queue 流水线后，GPU 在算第 N 步时 CPU 已在调度、准备第 N+1 步，Python 延迟被摊薄甚至完全隐藏。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .dom-req { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .dom-sched { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .dom-mem { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .dom-model { fill: #f5eef7; stroke: #9a6fb0; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+    </style>
+  </defs>
+<text x="24" y="20" text-anchor="start" class="bold">单次 Decode 迭代（色块宽度不按比例）</text>
+<text x="24" y="38" text-anchor="start" class="small">时间</text>
+<path d="M136 34 H745" class="axis"/>
+<text x="24" y="71.0" text-anchor="start" class="bold">Python 控制面</text>
+<text x="24" y="151.0" text-anchor="start" class="bold">GPU 数据面</text>
+<rect class="seg-b" x="136" y="48" width="150" height="36"/>
+<text x="211.0" y="71.0" text-anchor="middle" class="small">① schedule ~0.05 ms</text>
+<rect class="seg-b" x="286" y="48" width="150" height="36"/>
+<text x="361.0" y="71.0" text-anchor="middle" class="small">② prepare ~0.1 ms</text>
+<rect class="seg-wait" x="436" y="48" width="309" height="36"/>
+<text x="590.5" y="71.0" text-anchor="middle" class="small">等 GPU 返回 token</text>
+<rect class="seg-a" x="436" y="128" width="184" height="36"/>
+<text x="528.0" y="151.0" text-anchor="middle" class="small">③ model forward ~15 ms</text>
+<rect class="seg-a" x="620" y="128" width="125" height="36"/>
+<text x="682.5" y="151.0" text-anchor="middle" class="small">④ sample ~0.05 ms</text>
+<path d="M436 84 V128" class="arrow"/>
+<text x="442" y="110" text-anchor="start" class="small">提交 batch</text>
+<path d="M745 128 V84" class="arrow"/>
+<text x="739" y="110" text-anchor="end" class="small">返回 sampled_token_ids</text>
+<text x="136" y="188" text-anchor="start" class="small">Python 开销占比 ≈ (0.05 + 0.1) ms / 15 ms ≈ 1%</text>
+<text x="24" y="228" text-anchor="start" class="bold">流水线化后（Batch Queue）</text>
+<text x="24" y="246" text-anchor="start" class="small">时间</text>
+<path d="M136 242 H745" class="axis"/>
+<text x="24" y="279.0" text-anchor="start" class="bold">Python 控制面</text>
+<text x="24" y="359.0" text-anchor="start" class="bold">GPU 数据面</text>
+<rect class="seg-b" x="136" y="256" width="74" height="36"/>
+<text x="173.0" y="279.0" text-anchor="middle" class="small">sched N</text>
+<rect class="seg-b" x="210" y="256" width="74" height="36"/>
+<text x="247.0" y="279.0" text-anchor="middle" class="small">prep N</text>
+<rect class="seg-b" x="284" y="256" width="86" height="36"/>
+<text x="327.0" y="279.0" text-anchor="middle" class="small">sched N+1</text>
+<rect class="seg-b" x="370" y="256" width="86" height="36"/>
+<text x="413.0" y="279.0" text-anchor="middle" class="small">prep N+1</text>
+<rect class="seg-b" x="456" y="256" width="86" height="36"/>
+<text x="499.0" y="279.0" text-anchor="middle" class="small">sched N+2</text>
+<rect class="seg-b" x="542" y="256" width="86" height="36"/>
+<text x="585.0" y="279.0" text-anchor="middle" class="small">prep N+2</text>
+<rect class="seg-wait" x="628" y="256" width="117" height="36"/>
+<text x="686.5" y="279.0" text-anchor="middle" class="small">…</text>
+<rect class="seg-a" x="284" y="336" width="172" height="36"/>
+<text x="370.0" y="359.0" text-anchor="middle" class="small">forward N</text>
+<rect class="seg-a" x="456" y="336" width="172" height="36"/>
+<text x="542.0" y="359.0" text-anchor="middle" class="small">forward N+1</text>
+<rect class="seg-a" x="628" y="336" width="117" height="36"/>
+<text x="686.5" y="359.0" text-anchor="middle" class="small">forward N+2 …</text>
+<path d="M284 292 V336" class="arrow"/>
+<path d="M456 292 V336" class="arrow"/>
+<path d="M628 292 V336" class="arrow"/>
+<text x="290" y="318" text-anchor="start" class="small">提交 N</text>
+<text x="462" y="318" text-anchor="start" class="small">提交 N+1</text>
+<text x="634" y="318" text-anchor="start" class="small">提交 N+2</text>
+<path d="M284 380 V386 H456 V380" class="brk"/>
+<text x="370.0" y="404" text-anchor="middle" class="small">GPU 在算 N 的同时，CPU 已在准备 N+1</text>
+<text x="136" y="430" text-anchor="start" class="small">→ 只要 forward 远长于 sched + prep，Python 延迟就被摊薄甚至完全隐藏</text>
+</svg>

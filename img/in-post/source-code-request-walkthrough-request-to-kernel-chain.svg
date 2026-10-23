@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 954" width="760" height="954" role="img" aria-labelledby="t d">
+  <title id="t">从 HTTP 请求到 GPU kernel 的时间顺序链</title>
+  <desc id="d">三个横向进程分区从上到下：API Server 进程（HTTP 请求 → create_chat_completion → AsyncLLM.add_request 分词）、EngineCore 进程（EngineCore.add_request → Scheduler.schedule）、Worker 进程（Executor/Worker.execute_model → GPUModelRunner._prepare_inputs → model forward → Attention kernel → CUDA Graph replay → Sampling）。左列自上而下是 ①–⑩ 的去路，右列自下而上是 ⑪ 的回路：ModelRunnerOutput 经共享内存回 EngineCore 的 update_from_output，EngineCoreOutputs 经 ZMQ 回 API Server detokenize 后 SSE 流式返回。进程边界 ③、⑤ 与 Python→CUDA 边界 ⑦ 标在对应箭头上。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .dom-req { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .dom-sched { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .dom-mem { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .dom-model { fill: #f5eef7; stroke: #9a6fb0; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+    </style>
+  </defs>
+<rect class="proc-a" x="20" y="12" width="720" height="226"/>
+<text x="32" y="32" text-anchor="start" class="bold">进程 A · API Server（FastAPI + AsyncLLM）</text>
+<rect class="card" x="32" y="46" width="420" height="34"/>
+<text x="242.0" y="69" text-anchor="middle" class="small">HTTP Request（"Hello"）</text>
+<path d="M242.0 80 V110" class="arrow"/>
+<text x="252.0" y="100.0" text-anchor="start" class="small">① Python（FastAPI 路由）</text>
+<rect class="card" x="32" y="110" width="420" height="34"/>
+<text x="242.0" y="133" text-anchor="middle" class="mono">api_server → create_chat_completion()</text>
+<path d="M242.0 144 V174" class="arrow"/>
+<text x="252.0" y="164.0" text-anchor="start" class="small">② Python（async）</text>
+<rect class="card" x="32" y="174" width="420" height="52"/>
+<text x="242.0" y="197" text-anchor="middle" class="mono">AsyncLLM.add_request() → InputProcessor</text>
+<text x="242.0" y="215" text-anchor="middle" class="mono">tokenize → [15496, 11, …] → EngineCoreRequest</text>
+<rect class="card" x="484" y="174" width="254" height="52"/>
+<text x="611.0" y="197" text-anchor="middle" class="mono">OutputProcessor detokenize</text>
+<text x="611.0" y="215" text-anchor="middle" class="small">→ "Sure" → SSE Stream → Client</text>
+<rect class="proc-b" x="20" y="268" width="720" height="144"/>
+<path d="M242.0 226 V268" class="arrow"/>
+<text x="252.0" y="252.0" text-anchor="start" class="bold">③ 进程边界：ZMQ + msgspec</text>
+<text x="32" y="288" text-anchor="start" class="bold">进程 B · EngineCoreProc（busy loop：step()）</text>
+<rect class="card" x="32" y="302" width="420" height="34"/>
+<text x="242.0" y="325" text-anchor="middle" class="mono">EngineCore.add_request() → Scheduler.add_request()</text>
+<path d="M242.0 336 V366" class="arrow"/>
+<text x="252.0" y="356.0" text-anchor="start" class="small">④ Python（调度算法）</text>
+<rect class="card" x="32" y="366" width="420" height="34"/>
+<text x="242.0" y="389" text-anchor="middle" class="mono">Scheduler.schedule() → SchedulerOutput</text>
+<rect class="card" x="484" y="348" width="254" height="52"/>
+<text x="611.0" y="371" text-anchor="middle" class="mono">Scheduler.update_from_output()</text>
+<text x="611.0" y="389" text-anchor="middle" class="small">追加 token，判停止条件</text>
+<rect class="proc-c" x="20" y="442" width="720" height="508"/>
+<path d="M242.0 400 V442" class="arrow"/>
+<text x="252.0" y="426.0" text-anchor="start" class="bold">⑤ 进程边界：共享内存 MessageQueue</text>
+<text x="32" y="462" text-anchor="start" class="bold">进程 C · WorkerProc（每个 TP / PP rank 一个）</text>
+<rect class="card" x="32" y="476" width="420" height="34"/>
+<text x="242.0" y="499" text-anchor="middle" class="mono">Executor.execute_model() → Worker.execute_model()</text>
+<path d="M242.0 510 V540" class="arrow"/>
+<text x="252.0" y="530.0" text-anchor="start" class="small">⑥ Python（张量准备）</text>
+<rect class="card" x="32" y="540" width="420" height="52"/>
+<text x="242.0" y="563" text-anchor="middle" class="mono">GPUModelRunner.execute_model() → _prepare_inputs()</text>
+<text x="242.0" y="581" text-anchor="middle" class="small">拼 input_ids、positions，填 block_table，算 slot_mapping</text>
+<path d="M242.0 592 V622" class="arrow"/>
+<text x="252.0" y="612.0" text-anchor="start" class="bold">⑦ Python → CUDA 边界（PyTorch dispatch）</text>
+<rect class="compute" x="32" y="622" width="420" height="52"/>
+<text x="242.0" y="645" text-anchor="middle" class="mono">model(input_ids, positions)</text>
+<text x="242.0" y="663" text-anchor="middle" class="small">每层：RMSNorm → QKV → RoPE → Attention → O_proj → MLP</text>
+<path d="M242.0 674 V704" class="arrow"/>
+<text x="252.0" y="694.0" text-anchor="start" class="small">⑧ CUDA kernel launch（C++ runtime）</text>
+<rect class="compute" x="32" y="704" width="420" height="70"/>
+<text x="242.0" y="727" text-anchor="middle" class="small">Attention Backend（FlashAttention / FlashInfer）</text>
+<text x="242.0" y="745" text-anchor="middle" class="mono">flash_attn_varlen_func()</text>
+<text x="242.0" y="763" text-anchor="middle" class="mono">或 BatchDecodeWithPagedKVCacheWrapper.run()</text>
+<path d="M242.0 774 V804" class="arrow"/>
+<text x="252.0" y="794.0" text-anchor="start" class="small">⑨ CUDA Graph（可选：纯 decode 且形状命中桶）</text>
+<rect class="compute" x="32" y="804" width="420" height="52"/>
+<text x="242.0" y="827" text-anchor="middle" class="mono">cudagraph_dispatcher.dispatch() → CUDAGraphWrapper</text>
+<text x="242.0" y="845" text-anchor="middle" class="small">预捕获的整张图一次 replay，代替逐 kernel launch</text>
+<path d="M242.0 856 V886" class="arrow"/>
+<text x="252.0" y="876.0" text-anchor="start" class="small">⑩ GPU → CPU</text>
+<rect class="card" x="32" y="886" width="420" height="52"/>
+<text x="242.0" y="909" text-anchor="middle" class="mono">Sampling：logits → sampled_token_ids</text>
+<text x="242.0" y="927" text-anchor="middle" class="small">GPU tensor → CPU list，打包 ModelRunnerOutput</text>
+<path d="M452 912.0 H611.0 V400" class="arrow"/>
+<text x="601.0" y="652.0" text-anchor="end" class="bold">⑪ ModelRunnerOutput</text>
+<text x="601.0" y="670.0" text-anchor="end" class="small">经 MessageQueue 回传</text>
+<path d="M611.0 348 V226" class="arrow"/>
+<text x="601.0" y="283.0" text-anchor="end" class="small">EngineCoreOutputs</text>
+<text x="601.0" y="301.0" text-anchor="end" class="small">经 ZMQ 回传</text>
+</svg>

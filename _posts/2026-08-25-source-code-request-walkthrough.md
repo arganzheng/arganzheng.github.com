@@ -24,7 +24,7 @@ updated: 2026-10-01
 
 ### 1. 从边界到调用链
 
-本篇沿一条自上而下的路径把源码串起来：先看 vLLM V1 最外层的一道边界——Python 控制面与 C++/CUDA 数据面的分离，以及 Python 如何调用 C++；再给源码里的每个核心对象定位到请求域、调度域、显存域、模型域四个域之一；然后进入控制流的关键——请求状态机与 `Scheduler.schedule()` 的调度决策；接着看谁都没细讲的翻译层，`SchedulerOutput` 如何在 `ModelRunner.prepare_inputs()` 里变成 `slot_mapping`、`block_table` 等 GPU 张量；最后把从 HTTP 请求到 GPU Kernel 的完整调用链排成一张表，并附上一张各环节耗时量级的表。结尾回到系列开头那个请求，把各篇的账合起来复盘一遍。
+本篇沿一条自上而下的路径把源码串起来：先看 vLLM V1 最外层的一道边界——Python 控制面与 C++/CUDA 数据面的分离，以及 Python 如何调用 C++；再给源码里的每个核心对象定位到请求域、调度域、显存域、模型域四个域之一；然后进入控制流的关键——请求状态机与 `Scheduler.schedule()` 的调度决策；接着看谁都没细讲的翻译层，`SchedulerOutput` 如何在 `GPUModelRunner._prepare_inputs()` 里变成 `slot_mapping`、`block_table` 等 GPU 张量；最后把从 HTTP 请求到 GPU Kernel 的完整调用链排成一张表，并附上一张各环节耗时量级的表。结尾回到系列开头那个请求，把各篇的账合起来复盘一遍。
 
 ### 2. 本文的章节安排
 
@@ -76,18 +76,16 @@ Table: 控制面与数据面的对比
 **说明** 为什么控制面开销可被摊薄？
 这里用数字解释说明一下。下图以一个较大模型的 decode 步（forward 约 15 ms 量级，例如 70B 级别多卡部署）为例——第七章那张 7B 单卡的表里 decode 是 8–12 ms，量级不同但结论一致：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。
 
-``` title="单次 Decode 迭代：Python 控制面与 GPU 数据面"
-单次 Decode 迭代
-  Python 控制面  ──[schedule ~0.05ms][prepare ~0.1ms]
-  GPU 数据面     ────────────────────────────[model forward ~15ms][sample ~0.05ms]
-                 → Python 开销占比 0.15ms / 15ms ≈ 1%
+![单次 Decode 迭代：Python 控制面与 GPU 数据面](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg)
 
-流水线化后（Batch Queue）
-  CPU  ──[sched N][prep N]──[sched N+1][prep N+1]──
-  GPU  ──────────────────[forward N]──────────[forward N+1]──
-                          ↑ GPU 在算 N 的同时，CPU 已在准备 N+1
-                          → Python 延迟被摊薄甚至完全隐藏
-```
+四个阶段对应的源码位置：
+
+1. **schedule（CPU）**：`Scheduler.schedule()` 从 running / waiting 里按 token 预算分配本步额度，产出 `SchedulerOutput`。
+2. **prepare（CPU）**：`GPUModelRunner._update_states()` 按 `SchedulerOutput` 增删 `InputBatch` 的行，`_prepare_inputs()` 拼 `input_ids` / `positions`、H2D 拷贝、算 `slot_mapping`。
+3. **model forward（GPU）**：逐层 launch kernel，纯 decode 时整张 CUDA Graph 一次 replay。
+4. **sample（GPU → CPU）**：采样 kernel 出 `sampled_token_ids`，D2H 到 CPU，打包成 `ModelRunnerOutput` 回 Scheduler。
+
+~0.05 ms、~0.1 ms 这些数字是估算，不是源码里的常量；量级和第七章那张表一致。
 
 Python/C++语言核心分工原则：
 
@@ -125,55 +123,7 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 
 这四个域和第一篇的四问是对应的：请求域是四问的输入，调度域是第一问的产物，显存域是第二问的产物，模型域是第三问的战场。
 
-``` title="核心数据对象全景图：四个域"
-┌─────────────────────────────────────────────────────────────────────┐
-│                      核心数据对象全景图                               │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌──────────────────── 请求域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  EngineCoreRequest  ──→  Request                    │            │
-│  │  (IPC 传输对象)         (调度器内部对象)              │            │
-│  │    · request_id          · status (状态机)           │            │
-│  │    · prompt (text)       · prompt_token_ids          │            │
-│  │    · sampling_params     · output_token_ids          │            │
-│  │    · lora_request        · num_computed_tokens       │            │
-│  │                          · block_hashes              │            │
-│  │                          · spec_token_ids            │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                     │
-│  ┌──────────────────── 调度域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  SchedulerOutput           ModelRunnerOutput         │            │
-│  │  (调度决策)                (模型执行结果)             │            │
-│  │    · scheduled_requests     · req_ids                │            │
-│  │    · num_scheduled_tokens   · sampled_token_ids      │            │
-│  │    · finished_req_ids       · logprobs_tensors       │            │
-│  │    · preempted_req_ids      · draft_tokens           │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                     │
-│  ┌──────────────────── 显存域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  KVCacheBlock              Block Table               │            │
-│  │  (物理块元数据)            (虚拟→物理映射)            │            │
-│  │    · block_id               · req → [block_ids]      │            │
-│  │    · ref_cnt                                         │            │
-│  │    · block_hash                                      │            │
-│  │                                                      │            │
-│  │  KV Cache Tensor (GPU HBM)                           │            │
-│  │    · shape: [num_blocks, block_size, num_heads, d]   │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                                                                     │
-│  ┌──────────────────── 模型域 ────────────────────────┐             │
-│  │                                                     │            │
-│  │  Model Weights (参数)   Activations (激活)           │            │
-│  │    · Linear.weight        · hidden_states            │            │
-│  │    · LayerNorm.weight     · Q, K, V tensors          │            │
-│  │                           · attention_output         │            │
-│  │                           · logits                   │            │
-│  └─────────────────────────────────────────────────────┘            │
-└─────────────────────────────────────────────────────────────────────┘
-```
+![核心数据对象全景图：四个域](/img/in-post/source-code-request-walkthrough-four-domains.svg)
 
 两条边界值得留意：
 
@@ -282,102 +232,51 @@ class RequestStatus(enum.IntEnum):
 
 在 vLLM V1 中，`Scheduler.schedule()` 的核心不是把系统硬切成 Prefill 阶段和 Decode 阶段，而是在每一轮迭代里分配统一的 token 预算。源码注释明确指出：调度器内部没有严格的 "decoding phase" 或 "prefill phase"；每个请求维护 `num_computed_tokens`，调度器尝试让它追赶 `num_tokens_with_spec`。
 
-``` title="Scheduler.schedule() 的核心问题：输入与输出"
-┌─────────────────────────────────────────────────────────────────┐
-│                  Scheduler.schedule() 核心问题                    │
-├─────────────────────────────────────────────────────────────────┤
-│  输入: 当前 running / waiting 请求、KV Cache 状态、token budget     │
-│                                                                 │
-│  对每个可推进请求，计算本轮可以新增多少 token:                      │
-│  · 新请求可能推进一段 prompt tokens                                │
-│  · 已运行请求通常推进下一个 decode token                            │
-│  · spec decode / MTP 可能需要额外 lookahead tokens                 │
-│  · 长 prompt 可能被 long_prefill_token_threshold 截断              │
-│                                                                 │
-│  同时满足:                                                        │
-│  · max_num_batched_tokens / max_num_scheduled_tokens              │
-│  · max_num_seqs                                                   │
-│  · KV Cache 可用块数                                               │
-│  · encoder / multimodal / structured output 等附加约束             │
-│                                                                 │
-│  输出: SchedulerOutput                                            │
-│  · 本轮调度的请求与 token 数                                        │
-│  · block table / slot mapping 相关更新                             │
-│  · preemption、KV transfer、spec decode 等执行提示                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+`schedule()` 每一轮要回答的问题可以压成四条：
+
+1. **输入**：`waiting` / `running` 两个队列、`KVCacheManager` 里的空闲块和 prefix cache、本轮的 `token_budget`（初值就是 `max_num_scheduled_tokens`）。
+2. **对每个可推进的请求，算本轮新增多少 token**：
+   - 新请求推进一段 prompt tokens
+   - 已运行的请求通常推进下一个 decode token
+   - 开了 spec decode / MTP 时，再加 `num_lookahead_tokens` 个草稿 token
+   - 长 prompt 会被 `long_prefill_token_threshold` 截短
+3. **约束**：`max_num_scheduled_tokens`（即 `max_num_batched_tokens`）、`max_num_running_reqs`（即 `max_num_seqs`）、`allocate_slots()` 能否拿到足够的块，以及 encoder cache、structured output 这类附加条件。
+4. **输出**：一个 `SchedulerOutput`——本轮调度的请求、每个请求的 token 数、新分配的块号、抢占 / 完成的请求集合，以及 spec decode、KV connector 等执行提示。字段见第五章。
 
 这里可以和第一篇的结论对上了：Prefill / Decode 的区分在**性能分析**层面依然成立（第一篇「Prefill 与 Decode」一章），但在 **Scheduler 的实现**层面它们被统一到"本轮给这个请求推进多少 token"这一个模型里——这正是第四篇反复强调的那句话在源码里的样子。
 
 ## 五、翻译层：SchedulerOutput 如何变成 GPU 张量
 
-第四篇的调度决策和第六篇的 GPU 执行之间，隔着一层谁都没细讲的翻译：调度器交出来的是"哪个请求本轮推进多少 token"，而 kernel 要的是"这个 token 的 KV 写到哪个 slot、这个请求能读哪些块"。做这件翻译的是 `ModelRunner.prepare_inputs()`。
+第四篇的调度决策和第六篇的 GPU 执行之间，隔着一层谁都没细讲的翻译：调度器交出来的是"哪个请求本轮推进多少 token"，而 kernel 要的是"这个 token 的 KV 写到哪个 slot、这个请求能读哪些块"。做这件翻译的是 `GPUModelRunner.execute_model()` 的前半段：`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()` 三个函数，再加一次执行模式选择。先看全貌，下面两张表再展开：
+
+![SchedulerOutput → GPU 输入的映射](/img/in-post/source-code-request-walkthrough-scheduler-output-to-gpu.svg)
 
 **Scheduler 交出来的东西**（`SchedulerOutput`）：
 
-| 字段 | 内容 | 含义 |
+| 字段 | 类型 | 含义 |
 |---|---|---|
-| `scheduled_new_reqs` | `{req_id: num_tokens}` | 首次调度的请求 |
-| `scheduled_running_reqs` | `{req_id: num_tokens}` | 继续执行的请求 |
-| `req_to_new_blocks` | `{req_id: [(block_id, n)]}` | 本轮的块分配 |
-| `finished_req_ids` / `preempted_req_ids` | — | 状态通知 |
+| `scheduled_new_reqs` | `list[NewRequestData]` | 首次调度的请求：带 `prompt_token_ids`、`sampling_params`、`block_ids`、`num_computed_tokens` |
+| `scheduled_cached_reqs` | `CachedRequestData` | 继续执行（或从抢占恢复）的请求，按列存：`req_ids`、`new_block_ids`、`num_computed_tokens` |
+| `num_scheduled_tokens` | `dict[str, int]` | 每个请求本轮推进多少 token；`total_num_scheduled_tokens` 是总和 |
+| `scheduled_spec_decode_tokens` | `dict[str, list[int]]` | 本轮要验证的草稿 token |
+| `finished_req_ids` / `preempted_req_ids` | `set[str]` | 状态通知，Worker 据此删 `InputBatch` 的行 |
 
 Table: SchedulerOutput 的字段
 
-**`ModelRunner.prepare_inputs()` 把它翻译成 GPU 数据结构**，四步：
+**Worker 把它翻译成 GPU 数据结构**，四步：
 
-| 步骤 | 做什么 | 细节 |
-|---|---|---|
-| ① `InputBatch` 构造 | 按 scheduled tokens 扁平化成一条 token_id 序列 | Req A（已缓存 256、新推 256）→ 追加 256 个<br/>Req B（decode）→ 追加 1 个<br/>Req C（spec decode）→ 追加 1+N 个 |
-| ② `slot_mapping` 构造 | 每个 token → `(block_id, offset)` | 新块从头写<br/>已有块追加到尾部<br/>**Prefix Cache 命中的 token 不写，直接复用** |
-| ③ attention metadata | 告诉 kernel 每个请求能读哪些块 | `block_table`（per req）、`query_lens` / `kv_lens` / `is_prompt` / spec flags |
-| ④ 执行模式选择 | 决定走 Graph 还是 Eager | 纯 decode 且 size 匹配 → CUDA Graph replay；含 prefill / mixed / size 不匹配 → Eager |
+| 步骤 | 函数 | 做什么 | 细节 |
+|---|---|---|---|
+| ① 同步 `InputBatch` | `_update_states()` | 按 `SchedulerOutput` 删掉完成 / 抢占的行、加新请求、追加新块号、更新 `num_computed_tokens`；`InputBatch` 跨步常驻，只做增量 | Req A（已缓存 256、新推 256）→ 本轮 256 个 token<br/>Req B（decode）→ 1 个<br/>Req C（spec decode）→ 1+N 个 |
+| ② 拼输入与 `slot_mapping` | `_prepare_inputs()` | numpy 把各请求本轮的 token 扁平成一条 `input_ids` / `positions`，经 pinned buffer 异步 H2D；`block_table.compute_slot_mapping()` 用 Triton kernel 由 block table 算出每个 token 的 slot | 新块从头写<br/>已有块追加到尾部<br/>**Prefix Cache 命中的那段已计入 `num_computed_tokens`，根本不在本轮 token 里** |
+| ③ attention metadata | `_build_attention_metadata()` | 告诉 kernel 每个请求能读哪些块 | `block_table_tensor`、`slot_mapping`、`query_start_loc`、`seq_lens`、`max_query_len`；V1 没有 `is_prompt`，prefill 和 decode 只是 query 长度不同 |
+| ④ 执行模式选择 | `_determine_batch_execution_and_padding()` → `cudagraph_dispatcher.dispatch()` | 决定 FULL / PIECEWISE CUDA Graph 还是 eager，并把 batch pad 到捕获过的尺寸 | 纯 decode 且尺寸在捕获列表内 → 整张图 replay<br/>含 prefill / 超出尺寸 → piecewise graph 或 eager |
 
-Table: prepare_inputs 的四步翻译
+Table: SchedulerOutput 到 GPU 输入的四步翻译
 
-最终**给 GPU 的**是 `input_ids, positions, attn_metadata`，**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
+最终**给 GPU 的**是 `input_ids`、`positions`（直接传给 `model()`）和 attention metadata（经 `forward_context` 交给各层 Attention），**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
 
-大致流程如下所示：
-
-``` title="SchedulerOutput → ModelRunner 的映射"
-┌─────── SchedulerOutput → ModelRunner 映射 ───────────────────────────┐
-│                                                                      │
-│  Scheduler 输出:                                                     │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │ scheduled_new_reqs:      {req_id: num_tokens}       ← 首次调度    │ │
-│  │ scheduled_running_reqs:  {req_id: num_tokens}       ← 继续执行    │ │
-│  │ req_to_new_blocks:       {req_id: [(block_id, n)]}  ← 块分配      │ │
-│  │ finished_req_ids, preempted_req_ids, ...            ← 状态通知    │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                              │                                        │
-│                              ▼                                        │
-│  ModelRunner.prepare_inputs():                                        │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │ 1. InputBatch 构造: 根据 scheduled tokens 扁平化为 token_id 序列  │ │
-│  │    · Req A (已缓存 256, 新推 256) → 追加 256 个 token_ids         │ │
-│  │    · Req B (decode) → 追加 1 个 token_id                          │ │
-│  │    · Req C (spec decode) → 追加 1 + N 个 token_ids                │ │
-│  │                                                                  │ │
-│  │ 2. slot_mapping 构造: token → (block_id, offset)                 │ │
-│  │    · 新分配的块 → 从头写入                                         │ │
-│  │    · 已存在块 → 追加到尾部                                         │ │
-│  │    · Prefix Cache 命中的 token → 不写入, 直接复用                   │ │
-│  │                                                                  │ │
-│  │ 3. attention metadata 构造:                                       │ │
-│  │    · block_table (per req): 虚拟块 → 物理块的映射                  │ │
-│  │    · query_lens / kv_lens / is_prompt / spec_decode flags         │ │
-│  │                                                                  │ │
-│  │ 4. CUDA Graph / Eager 模式选择:                                   │ │
-│  │    · Pure decode + size matched → CUDA Graph replay               │ │
-│  │    · 含 prefill / mixed / size mismatch → Eager 模式              │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                      │
-│  给 GPU: input_ids, positions, attn_metadata                          │
-│  从 GPU: hidden_states → logits → sampled_token_ids                   │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-图中 SchedulerOutput 到 GPU 计算中间隔着一层的 `ModelRunner.prepare_inputs`。这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块。CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
+SchedulerOutput 和 GPU 计算之间隔着的这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块。CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
 
 现在可以回头看这一层为什么必须存在：`slot_mapping` 是第五篇分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块），而"走 Graph 还是 Eager"则是第六篇 CUDA Graph 那个约束的落地位置（图里的形状必须固定）。**三个字段，三篇的设计约束。**
 
@@ -428,72 +327,21 @@ sequenceDiagram
 
 把前面所有环节串成一条链，可以清楚看到三道边界——两道进程边界（③ ZMQ、⑤ 共享内存队列）和一道 Python → CUDA 边界（⑦）——落在哪几个位置：
 
-``` title="从 HTTP 请求到 GPU kernel 的时间顺序链"
-  HTTP Request ("Hello")
-       │
-       │ ①  Python (FastAPI)
-       ▼
-  api_server.py: create_chat_completion()
-       │
-       │ ②  Python (async)
-       ▼
-  AsyncLLM.add_request() → Tokenizer → [15496, 11, ...]
-       │
-       │ ③  Python (IPC: ZMQ + msgspec)
-       ▼
-  EngineCore.add_request() → Scheduler.add_request()
-       │
-       │ ④  Python (调度算法)
-       ▼
-  Scheduler.schedule() → SchedulerOutput
-       │
-       │ ⑤  进程边界 (共享内存 MessageQueue)
-       ▼
-  Executor.execute_model() → Worker.execute_model()
-       │
-       │ ⑥  Python (张量准备)
-       ▼
-  ModelRunner._execute_model()
-    → prepare_inputs(): 构建 input_ids, positions, block_table 张量
-       │
-       │ ⑦  Python → CUDA 边界 (PyTorch dispatch)
-       ▼
-  model.forward(input_ids, positions, kv_caches, attn_metadata)
-    → 每层: RMSNorm → QKV → RoPE → Attention → O_proj → MLP
-       │
-       │ ⑧  CUDA Kernel Launch (C++ runtime)
-       ▼
-  Attention Backend (FlashAttention / FlashInfer)
-    → flash_attn_varlen_func() 或 flashinfer.decode()
-       │
-       │ ⑨  CUDA Graph (可选: Decode 阶段)
-       ▼
-  cudagraph_manager.run_fullgraph(batch_desc)
-    → 预捕获的完整执行图一次性重放
-       │
-       │ ⑩  GPU → CPU
-       ▼
-  Sampling: logits → sampled_token_ids (GPU tensor → CPU list)
-       │
-       │ ⑪  Python (输出处理)
-       ▼
-  ModelRunnerOutput → Scheduler.update_from_output()
-    → Detokenizer → "Sure" → SSE Stream → Client
-```
+![从 HTTP 请求到 GPU kernel 的时间顺序链](/img/in-post/source-code-request-walkthrough-request-to-kernel-chain.svg)
 
 | # | 层 | 调用 | 语言 / 边界 |
 |---|---|---|---|
-| ① | HTTP 入口 | `api_server.py: create_chat_completion()` | Python（FastAPI） |
-| ② | 异步引擎 | `AsyncLLM.add_request()` → Tokenizer → `[15496, 11, …]` | Python（async） |
+| ① | HTTP 入口 | `chat_completion/api_router.py: create_chat_completion()` | Python（FastAPI） |
+| ② | 异步引擎 | `AsyncLLM.add_request()` → `InputProcessor.process_inputs()` tokenize → `[15496, 11, …]` → `EngineCoreRequest` | Python（async） |
 | ③ | 进程边界 | `EngineCore.add_request()` → `Scheduler.add_request()` | **Python IPC：ZMQ + msgspec** |
 | ④ | 调度 | `Scheduler.schedule()` → `SchedulerOutput` | Python（调度算法） |
 | ⑤ | 执行分发 | `Executor.execute_model()` → `Worker.execute_model()` | **进程边界：共享内存 `MessageQueue`（`rpc_broadcast_mq`）** |
-| ⑥ | 张量准备 | `ModelRunner._execute_model()` → `prepare_inputs()`：构建 `input_ids`、`positions`、`block_table` | Python |
-| ⑦ | 模型前向 | `model.forward(...)`；每层 RMSNorm → QKV → RoPE → Attention → O_proj → MLP | **Python → CUDA 边界（PyTorch dispatch）** |
-| ⑧ | Attention kernel | Attention Backend → `flash_attn_varlen_func()` 或 `flashinfer.decode()` | **CUDA Kernel Launch（C++ runtime）** |
-| ⑨ | 图重放（可选） | `cudagraph_manager.run_fullgraph(batch_desc)`：预捕获的完整图一次性重放 | CUDA Graph，仅 Decode |
+| ⑥ | 张量准备 | `GPUModelRunner.execute_model()` → `_update_states()` / `_prepare_inputs()`：拼 `input_ids`、`positions`，填 `block_table`，算 `slot_mapping` | Python |
+| ⑦ | 模型前向 | `model(input_ids, positions)`，KV cache 和 attention metadata 经 `forward_context` 传入；每层 RMSNorm → QKV → RoPE → Attention → O_proj → MLP | **Python → CUDA 边界（PyTorch dispatch）** |
+| ⑧ | Attention kernel | Attention Backend → `flash_attn_varlen_func()` 或 `BatchDecodeWithPagedKVCacheWrapper.run()` | **CUDA Kernel Launch（C++ runtime）** |
+| ⑨ | 图重放（可选） | `cudagraph_dispatcher.dispatch()` 选模式 → `CUDAGraphWrapper` 一次 replay 预捕获的整张图 | CUDA Graph，纯 decode 且尺寸命中捕获列表 |
 | ⑩ | 取回结果 | Sampling：`logits` → `sampled_token_ids`（GPU tensor → CPU list） | **GPU → CPU** |
-| ⑪ | 输出处理 | `ModelRunnerOutput` → `Scheduler.update_from_output()` → Detokenizer → SSE Stream → Client | Python |
+| ⑪ | 输出处理 | `ModelRunnerOutput` → `Scheduler.update_from_output()` → `OutputProcessor` detokenize → SSE Stream → Client | Python |
 
 Table: 从请求到 GPU kernel 的完整调用链
 

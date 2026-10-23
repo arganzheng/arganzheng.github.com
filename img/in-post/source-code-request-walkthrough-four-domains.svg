@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 879" width="700" height="879" role="img" aria-labelledby="t d">
+  <title id="t">核心数据对象全景图：四个域</title>
+  <desc id="d">四个直角容器从上到下：请求域（EngineCoreRequest 经 ZMQ 翻译成 Request）、调度域（SchedulerOutput 与 ModelRunnerOutput）、显存域（KVCacheBlock、Block Table、GPU HBM 上的 KV Cache 张量）、模型域（模型权重与激活）。每个对象卡片内列出 v0.27.1 源码里的主要字段。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .dom-req { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .dom-sched { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .dom-mem { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .dom-model { fill: #f5eef7; stroke: #9a6fb0; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+    </style>
+  </defs>
+<rect class="dom-req" x="20" y="12" width="660" height="205"/>
+<text x="32" y="33" text-anchor="start" class="bold">请求域</text>
+<rect class="card" x="36" y="46" width="290" height="159"/>
+<text x="48" y="66" text-anchor="start" class="monob">EngineCoreRequest</text>
+<text x="48" y="84" text-anchor="start" class="small">IPC 传输对象（msgspec 可序列化）</text>
+<text x="60" y="106" text-anchor="start" class="mono">· request_id</text>
+<text x="60" y="123" text-anchor="start" class="mono">· prompt_token_ids</text>
+<text x="60" y="140" text-anchor="start" class="mono">· sampling_params</text>
+<text x="60" y="157" text-anchor="start" class="mono">· lora_request</text>
+<text x="60" y="174" text-anchor="start" class="mono">· arrival_time</text>
+<text x="60" y="191" text-anchor="start" class="mono">· priority</text>
+<rect class="card" x="374" y="46" width="290" height="159"/>
+<text x="386" y="66" text-anchor="start" class="monob">Request</text>
+<text x="386" y="84" text-anchor="start" class="small">调度器内部的活对象</text>
+<text x="398" y="106" text-anchor="start" class="mono">· status（状态机）</text>
+<text x="398" y="123" text-anchor="start" class="mono">· prompt_token_ids</text>
+<text x="398" y="140" text-anchor="start" class="mono">· output_token_ids</text>
+<text x="398" y="157" text-anchor="start" class="mono">· num_computed_tokens</text>
+<text x="398" y="174" text-anchor="start" class="mono">· block_hashes</text>
+<text x="398" y="191" text-anchor="start" class="mono">· spec_token_ids</text>
+<path d="M326 125.5 H374" class="arrow"/>
+<text x="350.0" y="117.5" text-anchor="middle" class="small">ZMQ</text>
+<text x="350.0" y="143.5" text-anchor="middle" class="small">跨进程</text>
+<rect class="dom-sched" x="20" y="229" width="660" height="188"/>
+<text x="32" y="250" text-anchor="start" class="bold">调度域</text>
+<rect class="card" x="36" y="263" width="290" height="142"/>
+<text x="48" y="283" text-anchor="start" class="monob">SchedulerOutput</text>
+<text x="48" y="301" text-anchor="start" class="small">本步调度决策</text>
+<text x="60" y="323" text-anchor="start" class="mono">· scheduled_new_reqs</text>
+<text x="60" y="340" text-anchor="start" class="mono">· scheduled_cached_reqs</text>
+<text x="60" y="357" text-anchor="start" class="mono">· num_scheduled_tokens</text>
+<text x="60" y="374" text-anchor="start" class="mono">· finished_req_ids</text>
+<text x="60" y="391" text-anchor="start" class="mono">· preempted_req_ids</text>
+<rect class="card" x="374" y="263" width="290" height="142"/>
+<text x="386" y="283" text-anchor="start" class="monob">ModelRunnerOutput</text>
+<text x="386" y="301" text-anchor="start" class="small">本步模型执行结果</text>
+<text x="398" y="323" text-anchor="start" class="mono">· req_ids</text>
+<text x="398" y="340" text-anchor="start" class="mono">· req_id_to_index</text>
+<text x="398" y="357" text-anchor="start" class="mono">· sampled_token_ids</text>
+<text x="398" y="374" text-anchor="start" class="mono">· logprobs</text>
+<text x="398" y="391" text-anchor="start" class="mono">· prompt_logprobs_dict</text>
+<rect class="dom-mem" x="20" y="429" width="660" height="255"/>
+<text x="32" y="450" text-anchor="start" class="bold">显存域</text>
+<rect class="card" x="36" y="463" width="290" height="108"/>
+<text x="48" y="483" text-anchor="start" class="monob">KVCacheBlock</text>
+<text x="48" y="501" text-anchor="start" class="small">物理块元数据（只在调度进程）</text>
+<text x="60" y="523" text-anchor="start" class="mono">· block_id</text>
+<text x="60" y="540" text-anchor="start" class="mono">· ref_cnt</text>
+<text x="60" y="557" text-anchor="start" class="mono">· block_hash</text>
+<rect class="card" x="374" y="463" width="290" height="108"/>
+<text x="386" y="483" text-anchor="start" class="monob">BlockTable</text>
+<text x="386" y="501" text-anchor="start" class="small">虚拟 → 物理映射（Worker 进程）</text>
+<text x="398" y="523" text-anchor="start" class="mono">· block_table[row, j] = block_id</text>
+<text x="398" y="540" text-anchor="start" class="mono">· slot_mapping[token]</text>
+<text x="398" y="557" text-anchor="start" class="mono">· num_blocks_per_row</text>
+<rect class="card" x="36" y="581" width="628" height="91"/>
+<text x="48" y="601" text-anchor="start" class="monob">KV Cache Tensor</text>
+<text x="48" y="619" text-anchor="start" class="small">GPU HBM，唯一跨请求共享的对象；FlashAttention / FlashInfer 后端把 K、V 打包在最后一维</text>
+<text x="60" y="641" text-anchor="start" class="mono">· shape = [num_blocks, num_kv_heads, block_size, 2 × head_size]</text>
+<text x="60" y="658" text-anchor="start" class="mono">· kv_cache[block_id] 就是一个物理块</text>
+<rect class="dom-model" x="20" y="696" width="660" height="171"/>
+<text x="32" y="717" text-anchor="start" class="bold">模型域</text>
+<rect class="card" x="36" y="730" width="290" height="125"/>
+<text x="48" y="750" text-anchor="start" class="monob">Model Weights</text>
+<text x="48" y="768" text-anchor="start" class="small">参数，常驻 GPU</text>
+<text x="60" y="790" text-anchor="start" class="mono">· Linear.weight</text>
+<text x="60" y="807" text-anchor="start" class="mono">· RMSNorm.weight</text>
+<text x="60" y="824" text-anchor="start" class="mono">· Embedding.weight</text>
+<rect class="card" x="374" y="730" width="290" height="125"/>
+<text x="386" y="750" text-anchor="start" class="monob">Activations</text>
+<text x="386" y="768" text-anchor="start" class="small">激活，前向中生成与销毁</text>
+<text x="398" y="790" text-anchor="start" class="mono">· hidden_states</text>
+<text x="398" y="807" text-anchor="start" class="mono">· Q, K, V tensors</text>
+<text x="398" y="824" text-anchor="start" class="mono">· attention_output</text>
+<text x="398" y="841" text-anchor="start" class="mono">· logits</text>
+</svg>
