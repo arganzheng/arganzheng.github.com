@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" role="img" aria-labelledby="t d">
+  <title id="t">Llama-3-8B TP=2：rank r 上两个融合参数的行布局</title>
+  <desc id="d">两个纵向堆叠的矩形。上：qkv_proj.weight [3072, 4096]，从上到下 q shard（行 0–2048，16 头 × 128，来自 q_proj.weight[2048r : 2048r+2048)，shard_rank = tp_rank）、k shard（2048–2560，4 头 × 128，来自 k_proj.weight[512r : 512r+512)，shard_rank = tp_rank // num_kv_head_replicas）、v shard（2560–3072）。下：gate_up_proj.weight [14336, 4096]，shard 0 gate（0–7168，来自 gate_proj.weight[7168r : 7168r+7168)）、shard 1 up（7168–14336，来自 up_proj.weight 同样的行）。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="140" y="24" text-anchor="end" class="small">行偏移</text><text x="150" y="24" text-anchor="start" class="bold">rank r 的 qkv_proj.weight  [3072, 4096]（output_dim=0，按行拼接，三段不等长）</text><rect class="seg-a" x="150" y="38" width="230" height="88"/><text x="265.0" y="87.0" text-anchor="middle" class="mono">"q" shard   16 头 × 128</text><text x="140" y="43" text-anchor="end" class="mono">0</text><text x="390" y="43" text-anchor="start" class="mono">← q_proj.weight[2048r : 2048r+2048)</text><text x="390" y="60" text-anchor="start" class="small">shard_rank = tp_rank</text><rect class="seg-b" x="150" y="126" width="230" height="40"/><text x="265.0" y="151.0" text-anchor="middle" class="mono">"k" shard    4 头 × 128</text><text x="140" y="131" text-anchor="end" class="mono">2048</text><text x="390" y="137" text-anchor="start" class="mono">← k_proj.weight[ 512r :  512r+512)</text><text x="390" y="154" text-anchor="start" class="small">shard_rank = tp_rank // num_kv_head_replicas</text><rect class="seg-b" x="150" y="166" width="230" height="40"/><text x="265.0" y="191.0" text-anchor="middle" class="mono">"v" shard    4 头 × 128</text><text x="140" y="171" text-anchor="end" class="mono">2560</text><text x="390" y="177" text-anchor="start" class="mono">← v_proj.weight[ 512r :  512r+512)</text><text x="390" y="194" text-anchor="start" class="small">shard_rank = tp_rank // num_kv_head_replicas</text><text x="140" y="211" text-anchor="end" class="mono">3072</text><text x="150" y="250" text-anchor="start" class="bold">rank r 的 gate_up_proj.weight  [14336, 4096]（intermediate 14336 / 2）</text><rect class="seg-c" x="150" y="264" width="230" height="50"/><text x="265.0" y="294.0" text-anchor="middle" class="mono">shard 0  (gate)</text><text x="140" y="269" text-anchor="end" class="mono">0</text><text x="390" y="269" text-anchor="start" class="mono">← gate_proj.weight[7168r : 7168r+7168)</text><rect class="seg-c" x="150" y="314" width="230" height="50"/><text x="265.0" y="344.0" text-anchor="middle" class="mono">shard 1  (up)</text><text x="140" y="319" text-anchor="end" class="mono">7168</text><text x="390" y="319" text-anchor="start" class="mono">← up_proj.weight[7168r : 7168r+7168)</text><text x="140" y="369" text-anchor="end" class="mono">14336</text>
+</svg>

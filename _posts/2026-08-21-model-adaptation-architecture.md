@@ -287,13 +287,7 @@ flowchart TB
 
 > 不同模型如何接入统一运行时，同时避免被一棵庞大的继承树束缚？[^q3]
 
-vLLM 的模型抽象更接近：
-
-```text title="vLLM 的模型抽象：nn.Module + 能力协议"
-PyTorch nn.Module
-        +
-能力协议（Protocol / capability contract）
-```
+vLLM 的模型抽象更接近两样东西的叠加：PyTorch `nn.Module`，加上能力协议（Protocol / capability contract）。
 
 底层要求模型具备 `torch.nn.Module` 的基础能力，包括：
 
@@ -393,34 +387,21 @@ vLLM 将模型初始化和权重装配集中到 loader 相关抽象中。概念�
 
 前两类转换在 vLLM 里是同一条规则完成的，可以用 Llama 的 attention 和 MLP 权重看清楚。`vllm/model_executor/models/llama.py` 中 `LlamaModel.hf_to_vllm_mapper` 的 `orig_to_new_stacked` 把 HF 的三个独立投影映射到一个融合层 `QKVParallelLinear`，并给每个来源打上 `shard_id`；`gate_proj/up_proj` 同理映射到 `MergedColumnParallelLinear`，`shard_id` 是整数下标。`shard_id` 再由融合层的 `weight_loader` 翻译成融合参数里的行偏移和本 rank 应取的 HF 行区间：
 
-```text title="Llama-3-8B TP=2：HF 权重到 vLLM 融合层的映射"
-Llama-3-8B, TP=2：hidden=4096, 32 Q 头 / 8 KV 头, head_dim=128
-每个 rank：num_heads=16, num_kv_heads=4, num_kv_head_replicas=1
+以 Llama-3-8B、TP=2 为例：hidden=4096，32 个 Q 头 / 8 个 KV 头，head_dim=128；每个 rank 拿到 num_heads=16、num_kv_heads=4、num_kv_head_replicas=1。mapper 把五个 HF 权重改名并挂上 shard_id：
 
-HF key (无 model.layers.N.)    HF shape       → vLLM 参数              shard_id
-self_attn.q_proj.weight       [4096, 4096]   → self_attn.qkv_proj.weight   "q"
-self_attn.k_proj.weight       [1024, 4096]   → self_attn.qkv_proj.weight   "k"
-self_attn.v_proj.weight       [1024, 4096]   → self_attn.qkv_proj.weight   "v"
-mlp.gate_proj.weight          [14336, 4096]  → mlp.gate_up_proj.weight      0
-mlp.up_proj.weight            [14336, 4096]  → mlp.gate_up_proj.weight      1
+| HF key | HF shape | → vLLM 参数 | shard_id |
+|---|---|---|---|
+| `self_attn.q_proj.weight` | [4096, 4096] | `self_attn.qkv_proj.weight` | `"q"` |
+| `self_attn.k_proj.weight` | [1024, 4096] | `self_attn.qkv_proj.weight` | `"k"` |
+| `self_attn.v_proj.weight` | [1024, 4096] | `self_attn.qkv_proj.weight` | `"v"` |
+| `mlp.gate_proj.weight` | [14336, 4096] | `mlp.gate_up_proj.weight` | `0` |
+| `mlp.up_proj.weight` | [14336, 4096] | `mlp.gate_up_proj.weight` | `1` |
 
-rank r 的 qkv_proj.weight  [3072, 4096]  (output_dim=0, 按行拼接, 非等比)
- 行偏移
-    0 ┌───────────────────────────┐ ← q_proj.weight[2048r : 2048r+2048)
-      │ "q" shard   16 头 x 128   │   shard_rank = tp_rank
- 2048 ├───────────────────────────┤ ← k_proj.weight[ 512r :  512r+512)
-      │ "k" shard    4 头 x 128   │   shard_rank = tp_rank // replicas
- 2560 ├───────────────────────────┤ ← v_proj.weight[ 512r :  512r+512)
-      │ "v" shard    4 头 x 128   │
- 3072 └───────────────────────────┘
+Table: Llama-3-8B：HF 权重到 vLLM 融合层的映射（HF key 省去 `model.layers.N.` 前缀）
 
-rank r 的 gate_up_proj.weight  [14336, 4096]  (intermediate 14336 / 2)
-    0 ┌───────────────────────────┐ ← gate_proj.weight[7168r : 7168r+7168)
-      │ shard 0  (gate)           │
- 7168 ├───────────────────────────┤ ← up_proj.weight[7168r : 7168r+7168)
-      │ shard 1  (up)             │
-14336 └───────────────────────────┘
-```
+每个 rank 上，融合参数沿 output_dim=0 按行拼接，每段从对应 HF 权重里切自己那一片：
+
+![Llama-3-8B TP=2：rank r 上两个融合参数的行布局](/img/in-post/model-adaptation-fused-weight-layout.svg)
 
 偏移由 `QKVParallelLinear.weight_loader` 按 `q → 0`、`k → num_heads*head_size`、`v → (num_heads+num_kv_heads)*head_size` 计算；`MergedColumnParallelLinear.weight_loader` 则用 `sum(output_sizes[:shard_id])`。注意 k/v 的行区间用 `shard_rank = tp_rank // num_kv_head_replicas` 而不是 `tp_rank`：当 `tp_size > num_kv_heads` 时（例如 8 个 KV 头跑 TP=16），多个 rank 会复制同一个 KV 头，这就是 GQA 在 TP 下的权重复制发生的位置。
 
@@ -1343,19 +1324,7 @@ Table: decoder-only 顶层模型类需提供的成员
 - EOS 和停止条件正常；
 - 请求完成后显存和运行时状态可以释放。
 
-这一阶段尤其需要关注 Prefill 和 Decode 之间的状态衔接。对于同一个序列，可以比较：
-
-```text title="一次性 Prefill 的 logits"
-一次性 Prefill 得到的 logits
-```
-
-与：
-
-```text title="分段 Prefill / Decode 的 logits"
-分段 Prefill / Decode 得到的对应 logits
-```
-
-如果二者存在非预期差异，通常应优先检查：
+这一阶段尤其需要关注 Prefill 和 Decode 之间的状态衔接。对于同一个序列，可以比较一次性 Prefill 得到的 logits，和分段 Prefill / Decode 得到的对应 logits。如果二者存在非预期差异，通常应优先检查：
 
 - position 计算；
 - attention mask；
@@ -1391,15 +1360,13 @@ Table: decoder-only 顶层模型类需提供的成员
 
 因此，Attention Metadata 并不是调度器直接产生的原始结果，而是由 ModelRunner 根据以下信息构造：
 
-```text title="Attention Metadata 的构造来源"
-SchedulerOutput
-  + 当前输入 token 布局
-  + KV Cache / state 状态
-  + Attention 类型
-  + Backend 能力
-  ↓
-Attention Metadata
-```
+- `SchedulerOutput`；
+- 当前输入 token 布局；
+- KV Cache / state 状态；
+- Attention 类型；
+- Backend 能力。
+
+这几样合在一起，才构造出 Attention Metadata。
 
 新模型接入时，应重点确认以下问题。
 
@@ -1761,36 +1728,30 @@ Table: 不同场景的性能主要指标
 
 综合上述步骤，一个新模型的推荐接入顺序如下：
 
-1. 1. 分析模型差异
-2. 2. 确定复用、局部改造或全新实现
-3. 3. 实现模型结构
-4. 4. 实现权重映射与装配
-5. 5. 通过参数和数值检查
-6. 6. 打通单卡、单请求 Prefill
-7. 7. 打通单卡 Decode 和多轮执行
-8. 8. 接入 KV Cache 和 Attention Metadata
-9. 9. 注册 ModelConfig / ModelRegistry
-10. 10. 验证动态 Batch 和请求生命周期
-11. 11. 扩展 Tensor Parallel 等并行能力
-12. 12. 接入量化和其他高级能力
-13. 13. Profiling 并进行选择性特化
-14. 14. 完成正确性、性能和分布式验收
+1. 分析模型差异
+2. 确定复用、局部改造或全新实现
+3. 实现模型结构
+4. 实现权重映射与装配
+5. 通过参数和数值检查
+6. 打通单卡、单请求 Prefill
+7. 打通单卡 Decode 和多轮执行
+8. 接入 KV Cache 和 Attention Metadata
+9. 注册 ModelConfig / ModelRegistry
+10. 验证动态 Batch 和请求生命周期
+11. 扩展 Tensor Parallel 等并行能力
+12. 接入量化和其他高级能力
+13. Profiling 并进行选择性特化
+14. 完成正确性、性能和分布式验收
 
 可以将发布门槛概括为：
 
-- **模型能够被正确识别**
-  - 且
-- **权重能够完整装配**
-  - 且
-- **单卡 Prefill / Decode 数值正确**
-  - 且
-- **KV Cache 和请求生命周期稳定**
-  - 且
-- **目标并行配置下输出正确**
-  - 且
-- **性能达到预期**
-  - 且
-- **故障和资源回收行为可控**
+- 模型能够被正确识别，且
+- 权重能够完整装配，且
+- 单卡 Prefill / Decode 数值正确，且
+- KV Cache 和请求生命周期稳定，且
+- 目标并行配置下输出正确，且
+- 性能达到预期，且
+- 故障和资源回收行为可控。
 
 最终，一个新模型是否真正“接入完成”，不能只看模型类是否已经注册，也不能只看单次请求是否能够生成文本。完整接入应当同时满足：
 
@@ -1854,18 +1815,9 @@ DeepSeek 系列模型的接入，并不是简单地增加一个模型类、补�
 
 Multi-head Latent Attention，简称 MLA，最直接的目标是降低 KV Cache 的存储与访存开销。传统多头注意力通常需要为每个 Token 保存规模较大的 Key 和 Value 状态，而 MLA 则通过低秩表示压缩历史上下文，使缓存中的信息维度显著降低。
 
-在概念上，传统 KV Cache 可以抽象为：
+在概念上，传统 KV Cache 为每个 token 保存展开后的 K 和 V，MLA 更接近于保存某种低秩潜变量：
 
-```text title="传统 KV Cache 的形状"
-K_cache: [batch, sequence_length, num_heads, head_dim]
-V_cache: [batch, sequence_length, num_heads, head_dim]
-```
-
-而 MLA 更接近于保存某种低秩潜变量：
-
-```text title="MLA 的 latent cache 形状"
-latent_cache: [batch, sequence_length, latent_dim]
-```
+![传统 KV Cache 与 MLA latent cache](/img/in-post/model-adaptation-kv-vs-latent.svg)
 
 在实际实现中，缓存内容、解码方式以及位置编码相关状态可能比上述形式更加复杂。因此，MLA 的关键变化并不只是“把缓存张量变小”，而是改变了缓存的语义：
 
@@ -2254,15 +2206,13 @@ DeepSeek 对 vLLM 的影响，可以概括为三次协议扩展：
 
 可以将模型适配归纳为三层：
 
-```text title="模型层、运行时层与算子层"
-┌────────────────────────────┐
-│ 模型层：结构、权重、配置     │
-├────────────────────────────┤
-│ 运行时层：调度、Cache、并行  │
-├────────────────────────────┤
-│ 算子层：Kernel、量化、通信   │
-└────────────────────────────┘
-```
+| 层 | 关注点 |
+|---|---|
+| 模型层 | 结构、权重、配置 |
+| 运行时层 | 调度、Cache、并行 |
+| 算子层 | Kernel、量化、通信 |
+
+Table: 模型层、运行时层与算子层
 
 不同类型的模型创新，会触及不同层次：
 
