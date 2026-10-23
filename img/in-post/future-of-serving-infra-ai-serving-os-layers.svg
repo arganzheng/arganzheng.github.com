@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 320" width="760" height="320" role="img" aria-labelledby="t d">
+  <title id="t">AI Serving Operating System 的分层</title>
+  <desc id="d">自上而下七层：Agent / Application Layer，Request &amp; Workflow Layer，Global Scheduler / SLO，Inference State Plane，Serving Plan Compiler，执行层（Prefill Pool、Decode Pool、Tools 并列），GPU / CPU / Memory / Network / SSD。右侧是每层的中文名与职责。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .layer { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .layer-state { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .layer-exec { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .layer-hw { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<rect class="layer" x="110" y="20" width="400" height="40"/>
+<text x="310.0" y="45.0" text-anchor="middle" class="body">Agent / Application Layer</text>
+<text x="526" y="45.0" text-anchor="start" class="body">应用与 Agent 层</text>
+<rect class="layer" x="110" y="60" width="400" height="40"/>
+<text x="310.0" y="85.0" text-anchor="middle" class="body">Request &amp; Workflow Layer</text>
+<text x="526" y="85.0" text-anchor="start" class="body">工作流层</text>
+<rect class="layer" x="110" y="100" width="400" height="40"/>
+<text x="310.0" y="125.0" text-anchor="middle" class="body">Global Scheduler / SLO</text>
+<text x="526" y="125.0" text-anchor="start" class="body">全局调度层</text>
+<rect class="layer-state" x="110" y="140" width="400" height="40"/>
+<text x="310.0" y="165.0" text-anchor="middle" class="body">Inference State Plane</text>
+<text x="526" y="165.0" text-anchor="start" class="body">状态平面</text>
+<rect class="layer" x="110" y="180" width="400" height="40"/>
+<text x="310.0" y="205.0" text-anchor="middle" class="body">Serving Plan Compiler</text>
+<text x="526" y="205.0" text-anchor="start" class="body">编译层</text>
+<rect class="layer-exec" x="110" y="220" width="160" height="40"/>
+<text x="190.0" y="245.0" text-anchor="middle" class="body">Prefill Pool</text>
+<rect class="layer-exec" x="270" y="220" width="160" height="40"/>
+<text x="350.0" y="245.0" text-anchor="middle" class="body">Decode Pool</text>
+<rect class="layer-exec" x="430" y="220" width="80" height="40"/>
+<text x="470.0" y="245.0" text-anchor="middle" class="body">Tools</text>
+<text x="526" y="245.0" text-anchor="start" class="body">执行层</text>
+<rect class="layer-hw" x="110" y="260" width="400" height="40"/>
+<text x="310.0" y="285.0" text-anchor="middle" class="body">GPU / CPU / Memory / Network / SSD</text>
+<text x="526" y="285.0" text-anchor="start" class="body">资源层</text>
+</svg>

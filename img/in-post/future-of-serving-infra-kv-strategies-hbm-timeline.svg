@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 230" width="760" height="230" role="img" aria-labelledby="t d">
+  <title id="t">三种 KV 处理策略下 HBM 占用随时间的变化</title>
+  <desc id="d">同一个请求经历 Prefill、Decode、工具调用等待、继续 Decode 四段。A 常驻：等待期间 KV 一直占着 HBM，其他请求排队。B Offload：等待开始时换出到 DRAM/SSD，HBM 空出给其他请求，恢复前换入。C 丢弃重算：释放 HBM 只留会话文本，恢复时先重新 Prefill 再 Decode。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .layer { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .layer-state { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .layer-exec { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .layer-hw { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<line x1="118" y1="18" x2="710" y2="18" class="axis"/>
+<text x="716" y="23" text-anchor="start" class="small">时间</text>
+<text x="161.0" y="42" text-anchor="middle" class="small">Prefill</text>
+<text x="247.0" y="42" text-anchor="middle" class="small">Decode</text>
+<text x="430.0" y="42" text-anchor="middle" class="small">工具调用等待（秒 ~ 分钟级）</text>
+<text x="640.0" y="42" text-anchor="middle" class="small">Decode（续）</text>
+<text x="20" y="80.0" text-anchor="start" class="bold">A 常驻</text>
+<rect class="seg-a" x="118" y="52" width="86" height="46"/>
+<text x="161.0" y="80.0" text-anchor="middle" class="small">HBM</text>
+<rect class="seg-a" x="204" y="52" width="86" height="46"/>
+<text x="247.0" y="80.0" text-anchor="middle" class="small">HBM</text>
+<rect class="seg-a" x="290" y="52" width="280" height="46"/>
+<text x="430.0" y="72.0" text-anchor="middle" class="small">HBM 持续占用</text>
+<text x="430.0" y="90.0" text-anchor="middle" class="small">其他请求排队</text>
+<rect class="seg-a" x="570" y="52" width="140" height="46"/>
+<text x="640.0" y="80.0" text-anchor="middle" class="small">HBM</text>
+<text x="20" y="126.0" text-anchor="start" class="bold">B Offload</text>
+<rect class="seg-a" x="118" y="98" width="86" height="46"/>
+<text x="161.0" y="126.0" text-anchor="middle" class="small">HBM</text>
+<rect class="seg-a" x="204" y="98" width="86" height="46"/>
+<text x="247.0" y="126.0" text-anchor="middle" class="small">HBM</text>
+<rect class="seg-wait" x="290" y="98" width="280" height="46"/>
+<text x="430.0" y="118.0" text-anchor="middle" class="small">换出 → DRAM / SSD ······ 换入 →</text>
+<text x="430.0" y="136.0" text-anchor="middle" class="small">HBM 空出，可服务其他请求</text>
+<rect class="seg-a" x="570" y="98" width="140" height="46"/>
+<text x="640.0" y="126.0" text-anchor="middle" class="small">HBM</text>
+<text x="20" y="172.0" text-anchor="start" class="bold">C 丢弃重算</text>
+<rect class="seg-a" x="118" y="144" width="86" height="46"/>
+<text x="161.0" y="172.0" text-anchor="middle" class="small">HBM</text>
+<rect class="seg-a" x="204" y="144" width="86" height="46"/>
+<text x="247.0" y="172.0" text-anchor="middle" class="small">HBM</text>
+<rect class="seg-wait" x="290" y="144" width="280" height="46"/>
+<text x="430.0" y="164.0" text-anchor="middle" class="small">释放 HBM</text>
+<text x="430.0" y="182.0" text-anchor="middle" class="small">仅保留会话文本</text>
+<rect class="seg-used" x="570" y="144" width="64" height="46"/>
+<text x="602.0" y="172.0" text-anchor="middle" class="small" fill="#fff" style="fill:#fff">Prefill′</text>
+<rect class="seg-a" x="634" y="144" width="76" height="46"/>
+<text x="672.0" y="172.0" text-anchor="middle" class="small">Decode</text>
+<rect class="seg-a" x="118" y="201" width="22" height="14"/>
+<text x="148" y="212" text-anchor="start" class="small">这个请求的 KV 占着 HBM</text>
+<rect class="seg-wait" x="308" y="201" width="22" height="14"/>
+<text x="338" y="212" text-anchor="start" class="small">HBM 空出</text>
+<rect class="seg-used" x="418" y="201" width="22" height="14"/>
+<text x="448" y="212" text-anchor="start" class="small">重新 Prefill（多付一次算力与 TTFT）</text>
+</svg>

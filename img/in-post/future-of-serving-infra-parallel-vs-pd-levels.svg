@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 336" width="760" height="336" role="img" aria-labelledby="t d">
+  <title id="t">自动化并行与 PD 容量均衡的层次</title>
+  <desc id="d">外层是集群层的 PD 容量编排，决定 Prefill Worker × N 与 Decode Worker × M 的比例；每个 Worker 内部由自动化并行规划决定 TP/PP/DP/EP/CP、GPU 映射与通信计划，图中以 4 个 GPU 格子表示一个 Worker。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .layer { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .layer-state { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .layer-exec { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .layer-hw { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<rect class="frame" x="20" y="20" width="720" height="296"/>
+<text x="40" y="46" text-anchor="start" class="bold">集群层：PD 容量编排</text>
+<text x="40" y="66" text-anchor="start" class="small">决定 Prefill 与 Decode 各部署多少个 Worker（N 与 M 的比例）</text>
+<rect class="compute" x="40" y="78" width="340" height="218"/>
+<text x="210.0" y="104" text-anchor="middle" class="bold">Prefill Worker × N</text>
+<rect class="card" x="56" y="118" width="308" height="162"/>
+<text x="210.0" y="142" text-anchor="middle" class="bold">Worker 内部：自动化并行规划</text>
+<rect class="seg-a" x="80.0" y="158" width="56" height="56"/>
+<text x="108.0" y="191.0" text-anchor="middle" class="small">GPU 0</text>
+<rect class="seg-a" x="148.0" y="158" width="56" height="56"/>
+<text x="176.0" y="191.0" text-anchor="middle" class="small">GPU 1</text>
+<rect class="seg-a" x="216.0" y="158" width="56" height="56"/>
+<text x="244.0" y="191.0" text-anchor="middle" class="small">GPU 2</text>
+<rect class="seg-a" x="284.0" y="158" width="56" height="56"/>
+<text x="312.0" y="191.0" text-anchor="middle" class="small">GPU 3</text>
+<text x="210.0" y="240" text-anchor="middle" class="small">TP / PP / DP / EP / CP</text>
+<text x="210.0" y="262" text-anchor="middle" class="small">GPU 映射 · 通信计划</text>
+<rect class="memory" x="380" y="78" width="340" height="218"/>
+<text x="550.0" y="104" text-anchor="middle" class="bold">Decode Worker × M</text>
+<rect class="card" x="396" y="118" width="308" height="162"/>
+<text x="550.0" y="142" text-anchor="middle" class="bold">Worker 内部：自动化并行规划</text>
+<rect class="seg-a" x="420.0" y="158" width="56" height="56"/>
+<text x="448.0" y="191.0" text-anchor="middle" class="small">GPU 0</text>
+<rect class="seg-a" x="488.0" y="158" width="56" height="56"/>
+<text x="516.0" y="191.0" text-anchor="middle" class="small">GPU 1</text>
+<rect class="seg-a" x="556.0" y="158" width="56" height="56"/>
+<text x="584.0" y="191.0" text-anchor="middle" class="small">GPU 2</text>
+<rect class="seg-a" x="624.0" y="158" width="56" height="56"/>
+<text x="652.0" y="191.0" text-anchor="middle" class="small">GPU 3</text>
+<text x="550.0" y="240" text-anchor="middle" class="small">TP / PP / DP / EP / CP</text>
+<text x="550.0" y="262" text-anchor="middle" class="small">GPU 映射 · 通信计划</text>
+</svg>
