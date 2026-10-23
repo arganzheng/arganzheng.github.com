@@ -1340,6 +1340,41 @@ How it is built (`_plugins/moments.rb`):
   looking at* (「三种并行方式的通信量对比」), not a sentence, not the section
   heading repeated, no trailing period; the number is never hand-written (it
   is generated and would change when a figure / table is inserted).
+- **Figures are Mermaid or SVG, not ASCII art.** ASCII boxes-and-arrows
+  are allowed only when they genuinely say it better than a drawing — a
+  call-stack tree whose indentation *is* the information, a one-line
+  `A → B → C` that belongs in the sentence. Everything else in a ` ```text `
+  block (timelines, memory layouts, state machines, data-flow boxes) is
+  drawn; the whole vLLM series (04–14) and RL 01 were converted in 2026-10,
+  one post per commit, after the user reviewed every figure in a preview.
+  What those rounds settled:
+  - Mermaid for plain flow / structure; hand-written SVG
+    (`img/in-post/<post-prefix>-<name>.svg`, ≤ 760 px wide, `role="img"` +
+    `<title>`/`<desc>`, inline CSS, generator scripts kept *outside* the
+    repo) when geometry carries meaning (time axes, slot layouts, a table
+    aligned row-by-row to a state machine). Render with headless Chrome and
+    look at the PNG before showing it — no text may cross a box or the
+    canvas edge.
+  - A one-to-one mapping, an enumeration, or a 3-row 「层 | 关注点」 box
+    diagram is a Markdown table (`Table:` caption *after* the table), not a
+    figure.
+  - Time-ordered interaction between components: **one time axis**, one
+    row per component (CPU scheduler above, GPU worker below), colour blocks
+    per segment, cross-row calls as vertical arrows landing exactly on block
+    boundaries, a loop-back arrow for 「下一步」, sub-steps as an ordered
+    list *under* the figure (never stacked inside the blocks). UML sequence
+    diagrams and swimlanes were rejected — activation sub-steps read as
+    self-calls.
+  - Rectangles for time segments, resources, matrices, HBM/KV blocks and
+    containers; rounded cards only for structural nodes; row / axis labels
+    are plain text, not boxes. Arrows start and end on element edges and run
+    straight. A table inside an SVG is one continuous grid with shared
+    borders, not a stack of one-row boxes. Explanations sit beside the
+    element they describe or go into the body text — no floating note boxes.
+  - Keep the original figure's position and every fact in it; pseudo-code
+    or arithmetic that lived in the ASCII block moves to a code block or
+    list right under the new figure. Say why whenever the content (not just
+    the form) of a figure changed.
 - **Version/date rule:** a post may only cite software versions (and facts about
   them) released *before* the post's front-matter date. Check tag dates with
   `git log -1 --format=%cs <tag>` before pinning a version; pin an explicit tag
