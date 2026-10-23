@@ -708,22 +708,7 @@ Table: 一轮 512 预算里 Prefill、Decode、Speculative 共存
 
 更准确的理解是：
 
-```text title='Mixed Batch 是同一份预算下的统一分配'
-                 Scheduler
-                     │
-                     ▼
-              Token Budget
-                     │
-          ┌──────────┼──────────┐
-          ▼          ▼          ▼
-        Req A      Req B      Req C
-          │          │          │
-       256 token    1 token    5 token
-          │          │          │
-          └──────────┼──────────┘
-                     ▼
-                SchedulerOutput
-```
+![Mixed Batch 是同一份预算下的统一分配](/img/in-post/scheduler-mixed-batch-one-budget.svg)
 
 也就是说：
 
