@@ -436,25 +436,9 @@ class CudaPlatform(Platform):
 
 LoRA、量化、内存管理以及平台特有的执行组件，也可能走类似的直接派发路径。
 
-因此，系统级的真实关系不是：
+因此，系统级的真实关系不是一条单链 `Platform → Attention Backend → 所有 Kernel`，而是 `current_platform` 的多路派发：
 
-```text title="不是单链：Platform → Attention Backend → Kernel"
-Platform → Attention Backend → 所有 Kernel
-```
-
-而是：
-
-```text title="current_platform 的多路派发"
-                         ┌─ Attention Backend Selector
-                         │
-current_platform ────────┼─ Kernel Import
-                         │
-                         ├─ Device Communicator
-                         │
-                         ├─ Worker / Device Runtime
-                         │
-                         └─ Platform Configuration
-```
+![current_platform 的多路派发](/img/in-post/hardware-abstraction-platform-dispatch.svg)
 
 把这几条路径落到 v0.27.1 的内置后端和 OOT 插件上，每个扩展点分别由谁实现，可以对照下表（Worker 类名来自各平台 `check_and_update_config()` 对 `parallel_config.worker_cls == "auto"` 的填充，Attention 一列只列该平台 `get_attn_backend_cls()` 最常返回的几种）：
 
@@ -779,19 +763,13 @@ vLLM 的 KV Cache 管理器通常应该保持平台无关。它负责的是逻�
 
 例如，一个算子即使功能正确，但每次执行都触发设备同步，也可能严重拖慢 token 生成速度。
 
-因此，算子适配需要同时验证：
+因此，算子适配需要同时验证五件事：
 
-```text title="算子适配要验证的三项"
-数值正确性
-    +
-形状正确性
-    +
-设备放置正确性
-    +
-异步执行正确性
-    +
-性能可接受
-```
+- 数值正确；
+- 形状正确；
+- 设备放置正确；
+- 异步执行正确；
+- 性能可接受。
 
 ### 6. 量化支持
 
