@@ -100,9 +100,30 @@
         return (cell.innerText || cell.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
+    // Cells merged at build time (`^^`, _plugins/table_rowspan.rb) carry
+    // rowspan; repeat their text on the rows they span so TSV / Markdown
+    // columns stay aligned.
     function tableRows(table) {
+        var pending = [];
         return Array.prototype.map.call(table.querySelectorAll('tr'), function (row) {
-            return Array.prototype.map.call(row.children, tableCellText);
+            var out = [], col = 0;
+            Array.prototype.forEach.call(row.children, function (cell) {
+                while (pending[col] && pending[col].left > 0) {
+                    out.push(pending[col].text);
+                    pending[col].left -= 1;
+                    col += 1;
+                }
+                var text = tableCellText(cell), span = parseInt(cell.getAttribute('rowspan'), 10) || 1;
+                out.push(text);
+                if (span > 1) pending[col] = { text: text, left: span - 1 };
+                col += 1;
+            });
+            while (pending[col] && pending[col].left > 0) {
+                out.push(pending[col].text);
+                pending[col].left -= 1;
+                col += 1;
+            }
+            return out;
         }).filter(function (row) { return row.length; });
     }
 
