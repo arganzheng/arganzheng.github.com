@@ -36,19 +36,7 @@ updated: 2026-09-20
 
 ### 2. 两条线为什么是一条
 
-```text title='稳定性线与数据线在"那个 batch"处交汇'
-          稳定性线                                     数据线
-   ┌────────────────────┐                     ┌────────────────────────┐
-   │ 现象：loss / grad   │                     │ 离线 tokenize → .bin/.idx│
-   │       norm 跳升     │                     │ 混合 → shuffle → 打包    │
-   │ 成因：LR / bf16 /   │  "那个 batch 里     │ 采样器 → DataLoader     │
-   │  logit / 坏数据 /   │◀── 有什么？" ──────▶│ → 消费位置进 checkpoint  │
-   │  优化器状态         │                     │                        │
-   │ 预防：clip / warmup │  "回退 + 跳过"      │ 精确恢复：位置 / 不重不漏│
-   │  / z-loss / QK-norm │──── 需要 ─────────▶│  / 多 rank 一致          │
-   │ 处理：回退 + 跳过   │                     │ 流式加载 / 预取 / MFU    │
-   └────────────────────┘                     └────────────────────────┘
-```
+![稳定性线与数据线在"那个 batch"处交汇](/img/in-post/training-stability-and-data-pipeline-stability-data-crossing.svg)
 
 两条线在两处相交。第一处是**归因**：排除了学习率和精度之后，剩下的嫌疑人就是数据，而要把嫌疑落实，必须能拿到"第 137,000 步各 rank 各拿了哪些样本"——这要求数据管线的每一步都是确定性的、可回放的。第二处是**处理**：跳过 batch 是通过改数据加载器的位置实现的，而不是改模型；这要求数据加载器的位置是 checkpoint 的一部分，并且能被人为地往前拨。
 
@@ -65,25 +53,18 @@ updated: 2026-09-20
 
 ### 4. 三框架在"稳定性与数据"面上的对照
 
-```text title="三框架在稳定性与数据面上的对照"
-项目                Megatron Core 0.18.0                              DeepSpeed 0.19.2                          torchtitan v0.3.0
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-全局梯度范数        optimizer/clip_grads.py get_grad_norm_fp32：       zero/stage_1_and_2.py scaled_global_norm →   distributed/utils.py clip_grad_norm_：
-                    先在 DP（若 FSDP）再在 grad_stats_parallel_group   get_grad_norm_direct（每参数组）→           get_total_norm 得 DTensor(_NormPartial) →
-                    上 all-reduce；分布式优化器时该组 = 整个 world     unscale_and_clip_grads                      full_tensor() 归约 → PP 组再 all-reduce
-loss scale          fp16：DynamicGradScaler（hysteresis/backoff）；    fp16：overflow → skipped_steps += 1；         无 fp16 路径；bf16 无 scale
-                    bf16 无 scale                                     bf16_optimizer 无 scale
-异常检测            RerunStateMachine：check_for_nan_in_loss_and_grad  has_overflow / _has_inf_or_nan → 跳步        trainer.py：global_avg_loss 非有限则 raise
-                    / check_for_spiky_loss / check_for_large_grads
-跳过 batch          --iterations-to-skip；--result-rejected-tracker-   无内建；用户改 sampler                       无内建；用 dataloader state_dict 手工拨
-                    filename 自动生成
-数据格式            .bin/.idx（IndexedDataset）；tools/preprocess_data  data_pipeline/data_sampling/indexed_dataset   HF datasets（streaming=True）在线 tokenize
-混合                BlendedDataset + build_blending_indices            无（用户侧）                                  hf_datasets/interleaved.py InterleavedDataset
-打包                GPTDataset 连续流 + reset_attention_mask；          无                                            positions==0 标文档边界 → FlexAttention 文档
-                    SFTDataset cu_seqlens → PackedSeqParams(thd)                                                     mask / varlen cu_seqlens
-数据位置进 ckpt     args.consumed_train_samples（+ skipped）           仅 curriculum 下保存 data_sampler.state_dict  ParallelAwareDataloader(StatefulDataLoader)
-                    → MegatronPretrainingSampler 从该位置续              （含 consumed_samples、np RNG）              .state_dict() 按 dp_rank 存进 DCP
-```
+| 项目 | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
+|---|---|---|---|
+| 全局梯度范数 | `optimizer/clip_grads.py` `get_grad_norm_fp32`：先在 DP（若 FSDP）再在 grad_stats_parallel_group 上 all-reduce；分布式优化器时该组 = 整个 world | `zero/stage_1_and_2.py` `scaled_global_norm` → `get_grad_norm_direct`（每参数组）→ `unscale_and_clip_grads` | `distributed/utils.py` `clip_grad_norm_`：`get_total_norm` 得 DTensor(`_NormPartial`) → `full_tensor()` 归约 → PP 组再 all-reduce |
+| loss scale | fp16：DynamicGradScaler（hysteresis/backoff）；bf16 无 scale | fp16：overflow → `skipped_steps += 1`；bf16_optimizer 无 scale | 无 fp16 路径；bf16 无 scale |
+| 异常检测 | RerunStateMachine：`check_for_nan_in_loss_and_grad` / `check_for_spiky_loss` / `check_for_large_grads` | `has_overflow` / `_has_inf_or_nan` → 跳步 | `trainer.py`：global_avg_loss 非有限则 raise |
+| 跳过 batch | `--iterations-to-skip`；`--result-rejected-tracker-filename` 自动生成 | 无内建；用户改 sampler | 无内建；用 dataloader state_dict 手工拨 |
+| 数据格式 | .bin/.idx（IndexedDataset）；`tools/preprocess_data` | `data_pipeline/data_sampling/indexed_dataset` | HF datasets（`streaming=True`）在线 tokenize |
+| 混合 | BlendedDataset + `build_blending_indices` | 无（用户侧） | `hf_datasets/interleaved.py` InterleavedDataset |
+| 打包 | GPTDataset 连续流 + `reset_attention_mask`；SFTDataset `cu_seqlens` → PackedSeqParams(thd) | 无 | `positions==0` 标文档边界 → FlexAttention 文档 mask / varlen `cu_seqlens` |
+| 数据位置进 ckpt | `args.consumed_train_samples`（+ skipped）→ MegatronPretrainingSampler 从该位置续 | 仅 curriculum 下保存 `data_sampler.state_dict`（含 consumed_samples、np RNG） | ParallelAwareDataloader(StatefulDataLoader).state_dict() 按 dp_rank 存进 DCP |
+
+Table: 三框架在稳定性与数据面上的对照
 
 ### 5. 本文的章节安排
 
@@ -259,15 +240,13 @@ weight decay 对 1-D 参数（LayerNorm 的 gain、bias）与 embedding 的作�
 
 把第二章第 3 节的四处 bf16 风险反过来写，就是一份检查表：
 
-```text title="精度纪律检查表"
-□ 主参数 fp32（不用 precision-aware optimizer 把它压低，除非有对比实验）
-□ Adam 一阶矩、二阶矩 fp32
-□ 梯度累积与 DP reduce 在 fp32（Megatron --accumulate-allreduce-grads-in-fp32；FSDP2 reduce_dtype=fp32）
-□ 注意力 softmax fp32（attention_softmax_in_fp32；或 fused attention 内部 fp32 累加）
-□ logits → 交叉熵 fp32
-□ RMSNorm / LayerNorm 的方差计算 fp32（融合 kernel 通常已保证）
-□ FP8 只在 GEMM 输入上，首尾层保持 bf16（第七篇）
-```
+- 主参数 fp32（不用 precision-aware optimizer 把它压低，除非有对比实验）
+- Adam 一阶矩、二阶矩 fp32
+- 梯度累积与 DP reduce 在 fp32（Megatron `--accumulate-allreduce-grads-in-fp32`；FSDP2 `reduce_dtype=fp32`）
+- 注意力 softmax fp32（`attention_softmax_in_fp32`；或 fused attention 内部 fp32 累加）
+- logits → 交叉熵 fp32
+- RMSNorm / LayerNorm 的方差计算 fp32（融合 kernel 通常已保证）
+- FP8 只在 GEMM 输入上，首尾层保持 bf16（第七篇）
 
 每一项都对应显存或带宽的代价，这就是为什么它们都是"可关的"；也是为什么第七篇说 FP8 这类数值配置变更的前后基准必须含 loss 曲线。
 
@@ -283,11 +262,9 @@ PaLM 论文 Training Instability 一节的原话大意是：遇到 spike 时，�
 
 这个动作看起来简单，拆开是三个操作：
 
-```text title="PaLM 的做法拆成三个操作"
-1. 回退   加载第 (T − k) 步的 checkpoint，k ≈ 100                         → 依赖第八篇：checkpoint 密度与精确恢复
-2. 跳过   让数据加载器从第 (T − k + n) 步的位置开始，n ≈ 200–500          → 依赖本篇第七章：数据位置可精确设置
-3. 继续   其余一切（LR 调度、RNG、优化器状态）从 T − k 的状态自然演进       → 依赖 checkpoint 完整
-```
+1. **回退**：加载第 $$(T - k)$$ 步的 checkpoint，$$k \approx 100$$ → 依赖第八篇：checkpoint 密度与精确恢复
+2. **跳过**：让数据加载器从第 $$(T - k + n)$$ 步的位置开始，$$n \approx 200\text{–}500$$ → 依赖本篇第七章：数据位置可精确设置
+3. **继续**：其余一切（LR 调度、RNG、优化器状态）从 $$T - k$$ 的状态自然演进 → 依赖 checkpoint 完整
 
 第 2 步是关键。它要求数据加载器的"位置"是一个**可以被人为设置的整数**（消费过的样本数），而且给定这个整数，每个 DP rank 拿到的样本是确定的。Megatron 的设计恰好满足：位置就是 `args.consumed_train_samples`，采样器按它从头数。HF streaming 这类"迭代器状态"式的加载器就做不到——它能恢复到保存时的位置，但不能跳到任意位置，"跳过 n 个 batch"只能靠真的迭代 n 个 batch 并丢弃（torchtitan 的路径，见第七章）。
 
@@ -408,16 +385,16 @@ flowchart TB
 
 ### 1. 离线 tokenize 还是在线
 
-```text title="离线 tokenize 与在线 tokenize 的对照"
-                离线（预处理成 token id 的二进制文件）              在线（训练时从文本 tokenize）
-────────────────────────────────────────────────────────────────────────────────────────────────────────
-CPU              一次性成本；训练时 DataLoader 几乎不占 CPU           每步都要 tokenize，几千 token/s/核，大词表 BPE 更慢；worker 数与 NCCL proxy 线程争 CPU
-存储             token id 通常 2–4 字节/token，比文本小              原始文本，大 2–4 倍
-可复现           token 序列固定；tokenizer 版本变化必须重新预处理     tokenizer 库版本 / 正则实现的差异会改变 token 序列
-灵活性           改 tokenizer、改 EOD 策略要重跑预处理                随时换
-随机访问         .idx 给出每个文档的字节偏移，O(1) 取任意文档          迭代器式，只能顺序读
-适用             预训练（数据固定、跑几周、要精确回放）               实验、SFT、数据频繁变化
-```
+| 维度 | 离线（预处理成 token id 的二进制文件） | 在线（训练时从文本 tokenize） |
+|---|---|---|
+| CPU | 一次性成本；训练时 DataLoader 几乎不占 CPU | 每步都要 tokenize，几千 token/s/核，大词表 BPE 更慢；worker 数与 NCCL proxy 线程争 CPU |
+| 存储 | token id 通常 2–4 字节/token，比文本小 | 原始文本，大 2–4 倍 |
+| 可复现 | token 序列固定；tokenizer 版本变化必须重新预处理 | tokenizer 库版本 / 正则实现的差异会改变 token 序列 |
+| 灵活性 | 改 tokenizer、改 EOD 策略要重跑预处理 | 随时换 |
+| 随机访问 | .idx 给出每个文档的字节偏移，O(1) 取任意文档 | 迭代器式，只能顺序读 |
+| 适用 | 预训练（数据固定、跑几周、要精确回放） | 实验、SFT、数据频繁变化 |
+
+Table: 离线 tokenize 与在线 tokenize 的对照
 
 千卡预训练几乎都是离线。Megatron 的 `tools/preprocess_data.py`：输入 JSONL，`--json-keys` 指定字段，`--tokenizer-type` 与 `--workers` 并行 tokenize，`--append-eod` 在每个文档末尾加 EOD token，`--partitions` 把大文件切成多份并行处理后由 `IndexedDatasetBuilder.add_index()` 合并；`tools/merge_datasets.py` 合并多个已有的 .bin/.idx。torchtitan 是在线的：`torchtitan/hf_datasets/text_datasets.py` 的 `HuggingFaceTextDataset.__iter__()` 对每个样本调 `tokenizer.encode()`。它的 `c4` 配置用 `load_dataset(..., streaming=True)` 直接从 Hub 流式读——这是研究与验证配置的选择，不是千卡预训练的。
 
@@ -425,18 +402,19 @@ CPU              一次性成本；训练时 DataLoader 几乎不占 CPU        
 
 `megatron/core/datasets/indexed_dataset.py` 定义了格式。`.bin` 是所有文档的 token id 首尾相接的裸字节；`.idx` 由 `_IndexWriter.write(sequence_lengths, sequence_modes, document_indices)` 写出：
 
-```text title=".idx 文件的布局"
-.idx 布局（小端）
-  9 字节 magic  "MMIDIDX\x00\x00"        _INDEX_HEADER
-  u64           版本 = 1
-  u8            dtype 代码                DType.code_from_dtype：1 u8 · 2 i8 · 3 i16 · 4 i32 · 5 i64 · 6 f32 · 7 f64 · 8 u16
-  u64           sequence_count            序列（文档）数
-  u64           document_count            文档边界数
-  i32[seq]      sequence_lengths          每个序列的 token 数
-  i64[seq]      sequence_pointers         每个序列在 .bin 里的字节偏移（_sequence_pointers 由长度累加得出）
-  i64[doc]      document_indices          文档边界（多模态时一个文档含多个序列；文本时 = 0..seq）
-  i8[seq]       sequence_modes            可选，多模态才有
-```
+| 字段 | 类型 / 大小 | 含义 |
+|---|---|---|
+| magic | 9 字节 `"MMIDIDX\x00\x00"` | `_INDEX_HEADER` |
+| version | u64 | 版本 = 1 |
+| dtype 代码 | u8 | `DType.code_from_dtype`：1 u8 · 2 i8 · 3 i16 · 4 i32 · 5 i64 · 6 f32 · 7 f64 · 8 u16 |
+| sequence_count | u64 | 序列（文档）数 |
+| document_count | u64 | 文档边界数 |
+| sequence_lengths | i32[seq] | 每个序列的 token 数 |
+| sequence_pointers | i64[seq] | 每个序列在 .bin 里的字节偏移（`_sequence_pointers` 由长度累加得出） |
+| document_indices | i64[doc] | 文档边界（多模态时一个文档含多个序列；文本时 = 0..seq） |
+| sequence_modes | i8[seq] | 可选，多模态才有 |
+
+Table: .idx 文件的布局（小端，按文件顺序）
 
 `DType.optimal_dtype(vocab_size)`：词表 ≤ 65500 用 `uint16`（2 字节/token），否则 `int32`（4 字节）——Llama 3 的 128256 词表落在 int32，这是 `preprocess_data.py` 里 `IndexedDatasetBuilder(bin_path, dtype=DType.optimal_dtype(tokenizer.vocab_size))` 自动决定的。`GPTDatasetConfig.__post_init__` 用同一规则算出 `token_dtype_code`（4 或 8），供 `--per-dataset-sequences-path` 的快速路径使用。
 
@@ -458,28 +436,7 @@ Table: GPTDataset 的三个索引数组
 
 三次查表把一个样本号一路映射到 `.bin` 里的字节区间，中间不复制任何 token（下图取 $$s = 8$$，一个样本是 9 个 token，跨了两个文档）：
 
-```text title="GPTDataset.__getitem__：三次查表，零拷贝"
-GPTDataset.__getitem__(idx)：三次查表，零拷贝
-
- idx = 5
-   │  shuffle_index（seed 决定的随机排列）
-   ▼
- shuffle_index[5] = 2                       ← 文档流上的第 2 个样本
-   │  sample_index（(num_samples+1) × 2，helpers.cpp build_sample_idx）
-   ▼
- sample_index[2] = (doc_pos 1, offset 2)    ← 起点
- sample_index[3] = (doc_pos 2, offset 3)    ← 终点（含）
-   │  document_index（每个 epoch 一份文档 id 的随机排列）
-   ▼
- doc_pos:          0      1      2      3
- document_index: [  7  |  12  |  3   |  9  | ... ]
-                          │      │
-   │  IndexedDataset.get(doc, offset, length)：sequence_pointers[doc] 定位
-   ▼
- .bin  ┆ doc 12: t0 t1 [t2 t3 t4 t5 EOD] ┆ doc 3: [u0 u1 u2 u3] EOD ┆ doc 9 ...
-                       └──── 5 个 ────┘         └── 4 个 ──┘
- 样本 2 = t2 t3 t4 t5 EOD u0 u1 u2 u3      （跨文档；EOD 是唯一的边界标记）
-```
+![GPTDataset.__getitem__(idx)：三次查表，零拷贝](/img/in-post/training-stability-and-data-pipeline-getitem-three-lookups.svg)
 
 第四章的"反查坏 batch"就是把这条链倒着走：`consumed_train_samples` 加 rank 的切片位置给出 `idx`，三次查表后拿到文档 id，去 `.bin` 里看那几个文档是什么。
 
@@ -505,29 +462,12 @@ torchtitan 的对应物是 `torchtitan/hf_datasets/interleaved.py` 的 `Interlea
 
 用上一节那个跨文档的样本（取其前 $$s = 8$$ 个 token 作输入）画出两种设置下的 attention mask 与 position ids，以及同一布局在显式打包与 torchtitan 里的编码：
 
-```text title="两种设置下的 attention mask 与 position ids"
-行 = query，列 = key；x 可见，. 屏蔽
+![两种设置下的 attention mask 与 position ids](/img/in-post/training-stability-and-data-pipeline-attention-mask-position-ids.svg)
 
-           默认：跨文档因果                    --reset-attention-mask
-   key   t2 t3 t4 t5 EOD u0 u1 u2           t2 t3 t4 t5 EOD u0 u1 u2
-   t2     x  .  .  .  .   .  .  .            x  .  .  .  .   .  .  .
-   t3     x  x  .  .  .   .  .  .            x  x  .  .  .   .  .  .
-   t4     x  x  x  .  .   .  .  .            x  x  x  .  .   .  .  .
-   t5     x  x  x  x  .   .  .  .            x  x  x  x  .   .  .  .
-   EOD    x  x  x  x  x   .  .  .            x  x  x  x  x   .  .  .
-   u0     x  x  x  x  x   x  .  .            .  .  .  .  .   x  .  .
-   u1     x  x  x  x  x   x  x  .            .  .  .  .  .   x  x  .
-   u2     x  x  x  x  x   x  x  x            .  .  .  .  .   x  x  x
-   pos    0  1  2  3  4   5  6  7            0  1  2  3  4   0  1  2
-          （position_ids 连续）            （--reset-position-ids 每文档归零）
+同一布局在另外两种编码里：
 
- 同一布局的显式打包（thd，micro_batch_size = 1）：
-   cu_seqlens = [0, 5, 8]
-   段 0 = 位置 [0,5)，doc 12 的尾；段 1 = 位置 [5,8)，doc 3 的头
- torchtitan 的编码：
-   positions = [0,1,2,3,4,0,1,2]
-   positions == 0 处即段起点，cumsum 得文档 id → FlexAttention 块对角 mask
-```
+- 显式打包（thd，`micro_batch_size = 1`）：`cu_seqlens = [0, 5, 8]`；段 0 = 位置 `[0,5)`，doc 12 的尾；段 1 = 位置 `[5,8)`，doc 3 的头。
+- torchtitan：`positions = [0,1,2,3,4,0,1,2]`；`positions == 0` 处即段起点，cumsum 得文档 id → FlexAttention 块对角 mask。
 
 右侧的块对角 mask 就是 `reset_attention_mask` 的效果：`u0` 之后的 token 看不到 EOD 及其之前的任何 token；左侧默认设置下 `u0` 能看到整段 doc 12，模型要自己学会"EOD 之前的内容与我无关"。
 
@@ -575,20 +515,15 @@ Table: 数据流可恢复的三条要求
 
 Megatron 的方案是最简单也最健壮的：**数据位置 = 训练已消费的样本数**，一个整数。把它画在样本号的数轴上，三条要求、跳过、换 DP 都是对这一个数的操作：
 
-```text title="Megatron 的数据位置：样本号数轴上的一个整数"
-样本号全序（shuffle 后固定；d = 4 个 DP rank，mbs = 2，B = d × mbs = 8）
+![Megatron 的数据位置：样本号数轴上的一个整数](/img/in-post/training-stability-and-data-pipeline-data-position-number-line.svg)
 
-          ...已消费 T 步...│←─── step T+1 的 global batch ────→│←─ T+2 ─...
- 样本号                T·B │ +0  +1 │ +2  +3 │ +4  +5 │ +6  +7 │ +8  +9 ...
- DP 切片                   │ rank 0 │ rank 1 │ rank 2 │ rank 3 │ rank 0 ...
-                             ▲                                   ▲
-       checkpoint@T 只记一个整数：                        worker 已预取到这里
-       consumed_train_samples = T·B                       （kill 时随进程消失）
+| 操作 | 对这个整数做什么 | 结果 |
+|---|---|---|
+| 恢复 | sampler = `range(T·B, total)` 重新数 | 第一个 batch 仍是 +0..+7 → 满足 ① ② |
+| 跳过 n | `consumed_train_samples += n·B`（`dummy_train_step` 逐个消费） | 位置变成 (T+n)·B |
+| 换 DP | d = 8、mbs = 1 时切法变成 8 片各 1 个 | 样本全序不变，仍从 T·B 续 |
 
- 恢复    sampler = range(T·B, total) 重新数 → 第一个 batch 仍是 +0..+7  → ① ②
- 跳过 n  consumed_train_samples += n·B（dummy_train_step 逐个消费）→ (T+n)·B
- 换 DP   d = 8、mbs = 1 时切法变成 8 片各 1 个，样本全序不变 → 仍从 T·B 续
-```
+Table: 恢复、跳过、换 DP 都是对同一个整数的操作
 
 - **保存**：`args.consumed_train_samples`（以及 `skipped_train_samples`、`consumed_valid_samples`）是 `args` 的字段，`checkpointing.py` 的 `generate_state_dict()` 把整个 `args` 存进 `state_dict['args']`；`iteration` 单独存 `state_dict['iteration']`。**不保存 DataLoader 或 sampler 的任何对象状态**（`maybe_save_dataloader_state()` 只对 Megatron Energon 多模态加载器生效，源码注释明确说内建的文本加载器"creates index files upfront"，不需要保存）。
 - **恢复**：`load_checkpoint()` 从 `checkpoint_args` 读回 `consumed_train_samples`、`skipped_train_samples`、`consumed_valid_samples`，`update_num_microbatches(consumed_samples=...)` 让 batch 渐增的状态也对齐。`build_train_valid_test_data_loaders()` → `build_pretraining_data_loader(dataset, consumed_samples)`（`megatron/training/datasets/data_samplers.py`）→ `MegatronPretrainingSampler(total_samples, consumed_samples, micro_batch_size, data_parallel_rank, data_parallel_size)`。它的 `__iter__()` 就是 `for idx in range(self.consumed_samples, self.total_samples)`：每凑满 `micro_batch_size × data_parallel_size` 个连续的样本号，切出 `[dp_rank × mbs, (dp_rank + 1) × mbs)` 那一片给本 rank。位置、切分、顺序全部由这个整数与 DP 配置决定；`GPTDataset.__getitem__` 对同一个样本号在任何 rank、任何时刻返回同一批 token（第六章第 3 节的确定性索引）。
@@ -613,16 +548,14 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 
 三种方案放在一起，得到一份"可恢复数据加载器"的检查表，自己写加载器或评估第三方加载器时逐条对：
 
-```text title="可恢复数据加载器的检查表"
-□ 位置的定义是"训练已消费的样本数"，而不是"dataset 已产出的样本数"（预取中的 batch 不算已消费）
-□ 位置随 checkpoint 一起保存，且在同一个 step 边界上（步末计数、步末存盘）
-□ 给定位置，每个 DP rank 拿到的样本可以离线推算出来（用于反查坏 batch）；这要求 shuffle 由 seed 决定、索引可缓存
-□ 位置可以被人为设置到任意值（跳过 batch 只是加一个数），而不只是"恢复到保存时的位置"
-□ 改变 DP 大小后仍能从同一位置继续（样本全序与 rank 分配解耦）—— Megatron 可以、torchtitan 不可以、StreamingDataset 可以
-□ 多 epoch 时每个 epoch 的 shuffle 独立且可重放（Megatron 预拼多 epoch 索引；torchtitan shuffle(seed=42+epoch)）
-□ 跨样本边界的残余 token buffer 也在状态里（torchtitan 的 inputs/labels/positions_buffer；Megatron 没有残余——样本边界是硬的）
-□ 数据集本身有版本标识（Megatron 的 unique_description_hash / 数据文件的校验和），恢复时能发现数据被换过
-```
+- 位置的定义是"训练已消费的样本数"，而不是"dataset 已产出的样本数"（预取中的 batch 不算已消费）
+- 位置随 checkpoint 一起保存，且在同一个 step 边界上（步末计数、步末存盘）
+- 给定位置，每个 DP rank 拿到的样本可以离线推算出来（用于反查坏 batch）；这要求 shuffle 由 seed 决定、索引可缓存
+- 位置可以被人为设置到任意值（跳过 batch 只是加一个数），而不只是"恢复到保存时的位置"
+- 改变 DP 大小后仍能从同一位置继续（样本全序与 rank 分配解耦）——Megatron 可以、torchtitan 不可以、StreamingDataset 可以
+- 多 epoch 时每个 epoch 的 shuffle 独立且可重放（Megatron 预拼多 epoch 索引；torchtitan `shuffle(seed=42+epoch)`）
+- 跨样本边界的残余 token buffer 也在状态里（torchtitan 的 inputs/labels/positions_buffer；Megatron 没有残余——样本边界是硬的）
+- 数据集本身有版本标识（Megatron 的 `unique_description_hash` / 数据文件的校验和），恢复时能发现数据被换过
 
 ### 6. 数据等待与 MFU：谁在等谁
 
@@ -646,22 +579,16 @@ torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_i
 
 ### 1. 要点回顾
 
-```text title="要点回顾"
-三种形态     瞬时（坏 batch / bf16 偶发）· 可恢复（LR / 优化器状态）· 发散（logit 增长 / 精度链断裂）
-五种成因     LR：param norm 增速变快 · bf16：无前兆单步跳 · logit：max logit 单调升过 ~100 · 坏数据：可复现 · 优化器状态：grad norm 低平台后放大
-预防         全局范数裁剪（Megatron clip_grads.py 三函数；去重 shared/TP-duplicate；分布式优化器在 world 上归约；torchtitan _NormPartial + PP all-reduce）
-             warmup（scheduler 进 ckpt）· QK-LayerNorm（qk_layernorm / qk_clip）· z-loss（Megatron 只有 MoE 路由的）· WD 例外（默认仅 1-D 与 bias）· 精度纪律七项 · fp16 loss scale
-处理         PaLM：回退 ~100 步 + 跳过 200–500 batch；前提：ckpt 密度、数据可回放、能定位起点
-             Megatron：--iterations-to-skip → dummy_train_step；consumed 与 skipped 同步加；--result-rejected-tracker-filename + check_for_spiky_loss 自动生成
-             代价约 250–300 步/次，20 次 < 1%——便宜的是处置，贵的是信号与基础设施
-信号         loss avg/max · grad norm（clip 前）· param norm · LR · loss scale · skipped iters · num_zeros · max attention logit · consumed samples · data_loading%
-             每步记、记原始值、随 ckpt 留档、按 rank 可查
-存储         离线 tokenize → .bin/.idx（_IndexWriter 布局；optimal_dtype u16/i32）；GPTDataset 三索引由 seed 确定、缓存带配置哈希、rank 0 构建
-混合         BlendedDataset 贪心 build_blending_indices（确定性）· surplus 0.5% · 多阶段 --phase-transition-iterations 每阶段从零计数、边界处存盘退出
-打包         隐式（连续流 + reset_attention_mask/position_ids）· 显式（cu_seqlens → PackedSeqParams thd，mbs=1）· torchtitan 用 positions==0 编码边界
-恢复         Megatron：位置 = consumed_train_samples 整数，sampler 从该处数，可换 DP；torchtitan：StatefulDataLoader 迭代器状态按 dp_rank 存，不可换 DP；DeepSpeed：仅课程学习有状态
-等待         GPU 等数据 vs 数据等 GPU：profiler 空隙 ∩ __next__、torchtitan data_loading(%)、队列深度；几乎总是并发问题不是带宽问题
-```
+- **三种形态**：瞬时（坏 batch / bf16 偶发）· 可恢复（LR / 优化器状态）· 发散（logit 增长 / 精度链断裂）
+- **五种成因**：LR：param norm 增速变快 · bf16：无前兆单步跳 · logit：max logit 单调升过 ~100 · 坏数据：可复现 · 优化器状态：grad norm 低平台后放大
+- **预防**：全局范数裁剪（Megatron `clip_grads.py` 三函数；去重 shared/TP-duplicate；分布式优化器在 world 上归约；torchtitan `_NormPartial` + PP all-reduce）· warmup（scheduler 进 ckpt）· QK-LayerNorm（`qk_layernorm` / `qk_clip`）· z-loss（Megatron 只有 MoE 路由的）· WD 例外（默认仅 1-D 与 bias）· 精度纪律七项 · fp16 loss scale
+- **处理**：PaLM：回退 ~100 步 + 跳过 200–500 batch；前提：ckpt 密度、数据可回放、能定位起点。Megatron：`--iterations-to-skip` → `dummy_train_step`；consumed 与 skipped 同步加；`--result-rejected-tracker-filename` + `check_for_spiky_loss` 自动生成。代价约 250–300 步/次，20 次 < 1%——便宜的是处置，贵的是信号与基础设施
+- **信号**：loss avg/max · grad norm（clip 前）· param norm · LR · loss scale · skipped iters · num_zeros · max attention logit · consumed samples · data_loading%；每步记、记原始值、随 ckpt 留档、按 rank 可查
+- **存储**：离线 tokenize → .bin/.idx（`_IndexWriter` 布局；`optimal_dtype` u16/i32）；GPTDataset 三索引由 seed 确定、缓存带配置哈希、rank 0 构建
+- **混合**：BlendedDataset 贪心 `build_blending_indices`（确定性）· surplus 0.5% · 多阶段 `--phase-transition-iterations` 每阶段从零计数、边界处存盘退出
+- **打包**：隐式（连续流 + `reset_attention_mask/position_ids`）· 显式（`cu_seqlens` → PackedSeqParams thd，mbs=1）· torchtitan 用 `positions==0` 编码边界
+- **恢复**：Megatron：位置 = `consumed_train_samples` 整数，sampler 从该处数，可换 DP；torchtitan：StatefulDataLoader 迭代器状态按 dp_rank 存，不可换 DP；DeepSpeed：仅课程学习有状态
+- **等待**：GPU 等数据 vs 数据等 GPU：profiler 空隙 ∩ `__next__`、torchtitan data_loading(%)、队列深度；几乎总是并发问题不是带宽问题
 
 ### 2. 本篇涉及的源码位置
 

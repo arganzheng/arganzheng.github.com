@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 292" width="760" height="292" role="img" aria-labelledby="t d">
+  <title id="t">稳定性线与数据线在“那个 batch”处交汇</title>
+  <desc id="d">上下两行共用一条数轴：轴上方标训练步（checkpoint T、step 137,000），轴下方标样本号（T·B、137,000·B），训练步 t 对应样本号 [t·B, (t+1)·B)。上行是稳定性线：loss 曲线在 step 137,000 处从 2.1 跳到 4.8，虚线是跳过那个 batch 后的另一条轨迹。下行是数据线：样本号条带，已消费 / 回退后作废 / 那个 batch（r0–r3 四个 rank 各拿到的样本）/ 之后的样本。“那个 batch”是一条贯穿上下两行的竖向高亮带。① 归因：从 spike 顶点垂直落到那个 batch——排除 LR 与精度后嫌疑是数据，要回答第 137,000 步各 rank 拿了哪些样本，管线每一步必须确定性、可回放。② 处理：条带下方一条箭头从 T·B 跨过那个 batch 落到之后的样本——回退到 checkpoint T 再把加载器位置往前拨，改的是数据位置不是模型，所以位置必须在 checkpoint 里且能人为往前拨。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrow2 { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .div { stroke: #243447; stroke-width: 2; fill: none; }
+      .tri { fill: #40566f; }
+      .band { fill: #fff5e6; }
+      .curve { stroke: #c0392b; stroke-width: 2; fill: none; stroke-linejoin: round; }
+      .curve-dot { stroke: #c0392b; stroke-width: 2; fill: none; stroke-dasharray: 2 4; }
+      .curve-alt { stroke: #4b9477; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+      .ckpt { stroke: #9aa8b6; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+      .halo { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+    </style>
+  </defs>
+<rect class="band" x="370" y="14" width="80" height="210"/>
+<text x="410.0" y="28" text-anchor="middle" class="smallb">那个 batch</text>
+<line x1="240" y1="36" x2="240" y2="224" class="ckpt"/>
+<text x="84" y="80" text-anchor="end" class="head">稳定性线</text>
+<text x="84" y="213.0" text-anchor="end" class="head">数据线</text>
+<path d="M96 100 L180 103 L240 104 L300 105 L370 106 L395 100 L410.0 46" class="curve"/>
+<path d="M410.0 46 L450 54" class="curve-dot"/>
+<path d="M370 106 L450 107 L744 112" class="curve-alt"/>
+<text x="398.0" y="50" text-anchor="end" class="small">loss 2.1 → 4.8</text>
+<text x="744" y="128" text-anchor="end" class="small">跳过那个 batch 后的另一条轨迹</text>
+<line x1="410.0" y1="52" x2="410.0" y2="190" class="arrow"/>
+<text x="462" y="62" text-anchor="start" class="small">① 归因：排除 LR 与精度后，嫌疑是数据</text>
+<text x="462" y="80" text-anchor="start" class="small">第 137,000 步各 rank 各拿了哪些样本？</text>
+<text x="462" y="98" text-anchor="start" class="small">→ 管线每一步确定性、可回放</text>
+<line x1="96" y1="160" x2="744" y2="160" class="arrow"/>
+<line x1="240" y1="155" x2="240" y2="165" class="line"/>
+<line x1="410.0" y1="155" x2="410.0" y2="165" class="line"/>
+<text x="84" y="165" text-anchor="end" class="small">step / 样本号</text>
+<text x="240" y="150" text-anchor="middle" class="small halo">checkpoint T</text>
+<text x="410.0" y="150" text-anchor="middle" class="small halo">step 137,000</text>
+<text x="240" y="178" text-anchor="middle" class="mono halo">T·B</text>
+<text x="410.0" y="178" text-anchor="middle" class="mono halo">137,000·B</text>
+<text x="724" y="150" text-anchor="end" class="small">step</text>
+<text x="724" y="178" text-anchor="end" class="small">样本号 = step·B</text>
+<rect class="seg-dim" x="96" y="190" width="144" height="34"/>
+<text x="168.0" y="212" text-anchor="middle" class="small">已消费</text>
+<rect class="seg-free" x="240" y="190" width="130" height="34"/>
+<text x="305.0" y="212" text-anchor="middle" class="small">回退后作废</text>
+<rect class="seg-b" x="370.0" y="190" width="20.0" height="34"/>
+<text x="380.0" y="212" text-anchor="middle" class="mono">r0</text>
+<rect class="seg-b" x="390.0" y="190" width="20.0" height="34"/>
+<text x="400.0" y="212" text-anchor="middle" class="mono">r1</text>
+<rect class="seg-b" x="410.0" y="190" width="20.0" height="34"/>
+<text x="420.0" y="212" text-anchor="middle" class="mono">r2</text>
+<rect class="seg-b" x="430.0" y="190" width="20.0" height="34"/>
+<text x="440.0" y="212" text-anchor="middle" class="mono">r3</text>
+<rect class="seg-free" x="450" y="190" width="294" height="34"/>
+<text x="597.0" y="212" text-anchor="middle" class="small">之后的样本</text>
+<path d="M240 224 V240 H450 V226" class="arrow"/>
+<text x="96" y="264" text-anchor="start" class="small">② 处理：回退到 checkpoint T，再把加载器位置从 T·B 往前拨过那个 batch</text>
+<text x="96" y="282" text-anchor="start" class="small">改的是数据位置，不是模型 → 位置必须在 checkpoint 里，且能被人为往前拨</text>
+</svg>

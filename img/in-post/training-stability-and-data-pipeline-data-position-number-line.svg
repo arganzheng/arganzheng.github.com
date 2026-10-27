@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 186" width="760" height="186" role="img" aria-labelledby="t d">
+  <title id="t">Megatron 的数据位置：样本号数轴上的一个整数</title>
+  <desc id="d">样本号全序（shuffle 后固定；d = 4 个 DP rank，mbs = 2，B = d × mbs = 8）画成一条数轴：左端是已消费 T 步，T·B 处是 step T+1 的 global batch 起点，8 个样本号 +0 到 +7 按两个一组切给 rank 0 到 rank 3，右边 +8 +9 … 是 T+2 步。两个三角标注：T·B 处“checkpoint@T 只记一个整数：consumed_train_samples = T·B”；+9 之后“worker 已预取到这里（kill 时随进程消失）”。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrow2 { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .div { stroke: #243447; stroke-width: 2; fill: none; }
+      .tri { fill: #40566f; }
+      .band { fill: #fff5e6; }
+      .curve { stroke: #c0392b; stroke-width: 2; fill: none; stroke-linejoin: round; }
+      .curve-dot { stroke: #c0392b; stroke-width: 2; fill: none; stroke-dasharray: 2 4; }
+      .curve-alt { stroke: #4b9477; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+      .ckpt { stroke: #9aa8b6; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+      .halo { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+    </style>
+  </defs>
+<text x="16" y="22" text-anchor="start" class="small">样本号全序（shuffle 后固定；d = 4 个 DP rank，mbs = 2，B = d × mbs = 8）</text>
+<text x="131.0" y="42" text-anchor="middle" class="small">…已消费 T 步…</text>
+<line x1="178" y1="60" x2="542" y2="60" class="arrow2"/>
+<text x="360.0" y="42" text-anchor="middle" class="small">step T+1 的 global batch</text>
+<text x="644.0" y="42" text-anchor="middle" class="small">T+2 …</text>
+<line x1="546" y1="60" x2="742" y2="60" class="arrow"/>
+<line x1="86" y1="60" x2="174" y2="60" class="thin"/>
+<text x="78" y="88" text-anchor="end" class="small">样本号</text>
+<rect class="seg-dim" x="86" y="70" width="90" height="26"/>
+<text x="170" y="88" text-anchor="end" class="mono">T·B</text>
+<rect class="seg-free" x="176" y="70" width="46" height="26"/>
+<text x="199.0" y="88" text-anchor="middle" class="mono">+0</text>
+<rect class="seg-free" x="222" y="70" width="46" height="26"/>
+<text x="245.0" y="88" text-anchor="middle" class="mono">+1</text>
+<rect class="seg-free" x="268" y="70" width="46" height="26"/>
+<text x="291.0" y="88" text-anchor="middle" class="mono">+2</text>
+<rect class="seg-free" x="314" y="70" width="46" height="26"/>
+<text x="337.0" y="88" text-anchor="middle" class="mono">+3</text>
+<rect class="seg-free" x="360" y="70" width="46" height="26"/>
+<text x="383.0" y="88" text-anchor="middle" class="mono">+4</text>
+<rect class="seg-free" x="406" y="70" width="46" height="26"/>
+<text x="429.0" y="88" text-anchor="middle" class="mono">+5</text>
+<rect class="seg-free" x="452" y="70" width="46" height="26"/>
+<text x="475.0" y="88" text-anchor="middle" class="mono">+6</text>
+<rect class="seg-free" x="498" y="70" width="46" height="26"/>
+<text x="521.0" y="88" text-anchor="middle" class="mono">+7</text>
+<rect class="seg-free" x="544" y="70" width="46" height="26"/>
+<text x="567.0" y="88" text-anchor="middle" class="mono">+8</text>
+<rect class="seg-free" x="590" y="70" width="46" height="26"/>
+<text x="613.0" y="88" text-anchor="middle" class="mono">+9</text>
+<rect class="seg-dim" x="636" y="70" width="108" height="26"/>
+<text x="690.0" y="88" text-anchor="middle" class="mono">…</text>
+<text x="78" y="114" text-anchor="end" class="small">DP 切片</text>
+<rect class="seg-a" x="176" y="96" width="92" height="26"/>
+<text x="222" y="114" text-anchor="middle" class="mono">rank 0</text>
+<rect class="seg-b" x="268" y="96" width="92" height="26"/>
+<text x="314" y="114" text-anchor="middle" class="mono">rank 1</text>
+<rect class="seg-hash" x="360" y="96" width="92" height="26"/>
+<text x="406" y="114" text-anchor="middle" class="mono">rank 2</text>
+<rect class="seg-d" x="452" y="96" width="92" height="26"/>
+<text x="498" y="114" text-anchor="middle" class="mono">rank 3</text>
+<rect class="seg-a" x="544" y="96" width="92" height="26"/>
+<text x="590" y="114" text-anchor="middle" class="mono">rank 0</text>
+<rect class="seg-dim" x="636" y="96" width="108" height="26"/>
+<text x="690.0" y="114" text-anchor="middle" class="mono">…</text>
+<polygon class="tri" points="176,126 170,136 182,136"/>
+<polygon class="tri" points="636,126 630,136 642,136"/>
+<text x="176" y="154" text-anchor="start" class="small">checkpoint@T 只记一个整数：</text>
+<text x="176" y="174" text-anchor="start" class="mono">consumed_train_samples = T·B</text>
+<text x="636" y="154" text-anchor="middle" class="small">worker 已预取到这里</text>
+<text x="636" y="174" text-anchor="middle" class="small">（kill 时随进程消失）</text>
+</svg>

@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 362" width="760" height="362" role="img" aria-labelledby="t d">
+  <title id="t">两种设置下的 attention mask 与 position ids</title>
+  <desc id="d">两个 8×8 矩阵并排，行是 query，列是 key，行列都是 t2 t3 t4 t5 EOD u0 u1 u2；蓝色格子可见，白色屏蔽。左图“默认：跨文档因果”是完整的下三角，u0 到 u2 能看到 doc 12 的全部 token，position_ids 连续 0 到 7。右图 --reset-attention-mask 是块对角：u0 之后的 token 只能看到 u0 起的 token；--reset-position-ids 让每个文档归零，pos 为 0 1 2 3 4 0 1 2。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrow2 { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .div { stroke: #243447; stroke-width: 2; fill: none; }
+      .tri { fill: #40566f; }
+      .band { fill: #fff5e6; }
+      .curve { stroke: #c0392b; stroke-width: 2; fill: none; stroke-linejoin: round; }
+      .curve-dot { stroke: #c0392b; stroke-width: 2; fill: none; stroke-dasharray: 2 4; }
+      .curve-alt { stroke: #4b9477; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+      .ckpt { stroke: #9aa8b6; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+      .halo { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+    </style>
+  </defs>
+<text x="16" y="22" text-anchor="start" class="small">行 = query，列 = key；蓝色可见，白色屏蔽</text>
+<text x="180.0" y="52" text-anchor="middle" class="bold">默认：跨文档因果</text>
+<text x="564.0" y="52" text-anchor="middle" class="monob">--reset-attention-mask</text>
+<text x="66" y="78" text-anchor="end" class="small">key</text>
+<text x="89.0" y="78" text-anchor="middle" class="mono">t2</text>
+<text x="115.0" y="78" text-anchor="middle" class="mono">t3</text>
+<text x="141.0" y="78" text-anchor="middle" class="mono">t4</text>
+<text x="167.0" y="78" text-anchor="middle" class="mono">t5</text>
+<text x="193.0" y="78" text-anchor="middle" class="mono">EOD</text>
+<text x="219.0" y="78" text-anchor="middle" class="mono">u0</text>
+<text x="245.0" y="78" text-anchor="middle" class="mono">u1</text>
+<text x="271.0" y="78" text-anchor="middle" class="mono">u2</text>
+<text x="66" y="104" text-anchor="end" class="mono">t2</text>
+<rect class="seg-a" x="76" y="86" width="26" height="26"/>
+<rect class="seg-free" x="102" y="86" width="26" height="26"/>
+<rect class="seg-free" x="128" y="86" width="26" height="26"/>
+<rect class="seg-free" x="154" y="86" width="26" height="26"/>
+<rect class="seg-free" x="180" y="86" width="26" height="26"/>
+<rect class="seg-free" x="206" y="86" width="26" height="26"/>
+<rect class="seg-free" x="232" y="86" width="26" height="26"/>
+<rect class="seg-free" x="258" y="86" width="26" height="26"/>
+<text x="66" y="130" text-anchor="end" class="mono">t3</text>
+<rect class="seg-a" x="76" y="112" width="26" height="26"/>
+<rect class="seg-a" x="102" y="112" width="26" height="26"/>
+<rect class="seg-free" x="128" y="112" width="26" height="26"/>
+<rect class="seg-free" x="154" y="112" width="26" height="26"/>
+<rect class="seg-free" x="180" y="112" width="26" height="26"/>
+<rect class="seg-free" x="206" y="112" width="26" height="26"/>
+<rect class="seg-free" x="232" y="112" width="26" height="26"/>
+<rect class="seg-free" x="258" y="112" width="26" height="26"/>
+<text x="66" y="156" text-anchor="end" class="mono">t4</text>
+<rect class="seg-a" x="76" y="138" width="26" height="26"/>
+<rect class="seg-a" x="102" y="138" width="26" height="26"/>
+<rect class="seg-a" x="128" y="138" width="26" height="26"/>
+<rect class="seg-free" x="154" y="138" width="26" height="26"/>
+<rect class="seg-free" x="180" y="138" width="26" height="26"/>
+<rect class="seg-free" x="206" y="138" width="26" height="26"/>
+<rect class="seg-free" x="232" y="138" width="26" height="26"/>
+<rect class="seg-free" x="258" y="138" width="26" height="26"/>
+<text x="66" y="182" text-anchor="end" class="mono">t5</text>
+<rect class="seg-a" x="76" y="164" width="26" height="26"/>
+<rect class="seg-a" x="102" y="164" width="26" height="26"/>
+<rect class="seg-a" x="128" y="164" width="26" height="26"/>
+<rect class="seg-a" x="154" y="164" width="26" height="26"/>
+<rect class="seg-free" x="180" y="164" width="26" height="26"/>
+<rect class="seg-free" x="206" y="164" width="26" height="26"/>
+<rect class="seg-free" x="232" y="164" width="26" height="26"/>
+<rect class="seg-free" x="258" y="164" width="26" height="26"/>
+<text x="66" y="208" text-anchor="end" class="mono">EOD</text>
+<rect class="seg-a" x="76" y="190" width="26" height="26"/>
+<rect class="seg-a" x="102" y="190" width="26" height="26"/>
+<rect class="seg-a" x="128" y="190" width="26" height="26"/>
+<rect class="seg-a" x="154" y="190" width="26" height="26"/>
+<rect class="seg-a" x="180" y="190" width="26" height="26"/>
+<rect class="seg-free" x="206" y="190" width="26" height="26"/>
+<rect class="seg-free" x="232" y="190" width="26" height="26"/>
+<rect class="seg-free" x="258" y="190" width="26" height="26"/>
+<text x="66" y="234" text-anchor="end" class="mono">u0</text>
+<rect class="seg-a" x="76" y="216" width="26" height="26"/>
+<rect class="seg-a" x="102" y="216" width="26" height="26"/>
+<rect class="seg-a" x="128" y="216" width="26" height="26"/>
+<rect class="seg-a" x="154" y="216" width="26" height="26"/>
+<rect class="seg-a" x="180" y="216" width="26" height="26"/>
+<rect class="seg-a" x="206" y="216" width="26" height="26"/>
+<rect class="seg-free" x="232" y="216" width="26" height="26"/>
+<rect class="seg-free" x="258" y="216" width="26" height="26"/>
+<text x="66" y="260" text-anchor="end" class="mono">u1</text>
+<rect class="seg-a" x="76" y="242" width="26" height="26"/>
+<rect class="seg-a" x="102" y="242" width="26" height="26"/>
+<rect class="seg-a" x="128" y="242" width="26" height="26"/>
+<rect class="seg-a" x="154" y="242" width="26" height="26"/>
+<rect class="seg-a" x="180" y="242" width="26" height="26"/>
+<rect class="seg-a" x="206" y="242" width="26" height="26"/>
+<rect class="seg-a" x="232" y="242" width="26" height="26"/>
+<rect class="seg-free" x="258" y="242" width="26" height="26"/>
+<text x="66" y="286" text-anchor="end" class="mono">u2</text>
+<rect class="seg-a" x="76" y="268" width="26" height="26"/>
+<rect class="seg-a" x="102" y="268" width="26" height="26"/>
+<rect class="seg-a" x="128" y="268" width="26" height="26"/>
+<rect class="seg-a" x="154" y="268" width="26" height="26"/>
+<rect class="seg-a" x="180" y="268" width="26" height="26"/>
+<rect class="seg-a" x="206" y="268" width="26" height="26"/>
+<rect class="seg-a" x="232" y="268" width="26" height="26"/>
+<rect class="seg-a" x="258" y="268" width="26" height="26"/>
+<line x1="206" y1="86" x2="206" y2="294" class="div"/>
+<line x1="76" y1="216" x2="284" y2="216" class="div"/>
+<text x="66" y="320" text-anchor="end" class="mono">pos</text>
+<rect class="seg-c" x="76" y="302" width="26" height="26"/>
+<text x="89.0" y="320" text-anchor="middle" class="mono">0</text>
+<rect class="seg-c" x="102" y="302" width="26" height="26"/>
+<text x="115.0" y="320" text-anchor="middle" class="mono">1</text>
+<rect class="seg-c" x="128" y="302" width="26" height="26"/>
+<text x="141.0" y="320" text-anchor="middle" class="mono">2</text>
+<rect class="seg-c" x="154" y="302" width="26" height="26"/>
+<text x="167.0" y="320" text-anchor="middle" class="mono">3</text>
+<rect class="seg-c" x="180" y="302" width="26" height="26"/>
+<text x="193.0" y="320" text-anchor="middle" class="mono">4</text>
+<rect class="seg-c" x="206" y="302" width="26" height="26"/>
+<text x="219.0" y="320" text-anchor="middle" class="mono">5</text>
+<rect class="seg-c" x="232" y="302" width="26" height="26"/>
+<text x="245.0" y="320" text-anchor="middle" class="mono">6</text>
+<rect class="seg-c" x="258" y="302" width="26" height="26"/>
+<text x="271.0" y="320" text-anchor="middle" class="mono">7</text>
+<text x="180.0" y="350" text-anchor="middle" class="small">（position_ids 连续）</text>
+<text x="450" y="78" text-anchor="end" class="small">key</text>
+<text x="473.0" y="78" text-anchor="middle" class="mono">t2</text>
+<text x="499.0" y="78" text-anchor="middle" class="mono">t3</text>
+<text x="525.0" y="78" text-anchor="middle" class="mono">t4</text>
+<text x="551.0" y="78" text-anchor="middle" class="mono">t5</text>
+<text x="577.0" y="78" text-anchor="middle" class="mono">EOD</text>
+<text x="603.0" y="78" text-anchor="middle" class="mono">u0</text>
+<text x="629.0" y="78" text-anchor="middle" class="mono">u1</text>
+<text x="655.0" y="78" text-anchor="middle" class="mono">u2</text>
+<text x="450" y="104" text-anchor="end" class="mono">t2</text>
+<rect class="seg-a" x="460" y="86" width="26" height="26"/>
+<rect class="seg-free" x="486" y="86" width="26" height="26"/>
+<rect class="seg-free" x="512" y="86" width="26" height="26"/>
+<rect class="seg-free" x="538" y="86" width="26" height="26"/>
+<rect class="seg-free" x="564" y="86" width="26" height="26"/>
+<rect class="seg-free" x="590" y="86" width="26" height="26"/>
+<rect class="seg-free" x="616" y="86" width="26" height="26"/>
+<rect class="seg-free" x="642" y="86" width="26" height="26"/>
+<text x="450" y="130" text-anchor="end" class="mono">t3</text>
+<rect class="seg-a" x="460" y="112" width="26" height="26"/>
+<rect class="seg-a" x="486" y="112" width="26" height="26"/>
+<rect class="seg-free" x="512" y="112" width="26" height="26"/>
+<rect class="seg-free" x="538" y="112" width="26" height="26"/>
+<rect class="seg-free" x="564" y="112" width="26" height="26"/>
+<rect class="seg-free" x="590" y="112" width="26" height="26"/>
+<rect class="seg-free" x="616" y="112" width="26" height="26"/>
+<rect class="seg-free" x="642" y="112" width="26" height="26"/>
+<text x="450" y="156" text-anchor="end" class="mono">t4</text>
+<rect class="seg-a" x="460" y="138" width="26" height="26"/>
+<rect class="seg-a" x="486" y="138" width="26" height="26"/>
+<rect class="seg-a" x="512" y="138" width="26" height="26"/>
+<rect class="seg-free" x="538" y="138" width="26" height="26"/>
+<rect class="seg-free" x="564" y="138" width="26" height="26"/>
+<rect class="seg-free" x="590" y="138" width="26" height="26"/>
+<rect class="seg-free" x="616" y="138" width="26" height="26"/>
+<rect class="seg-free" x="642" y="138" width="26" height="26"/>
+<text x="450" y="182" text-anchor="end" class="mono">t5</text>
+<rect class="seg-a" x="460" y="164" width="26" height="26"/>
+<rect class="seg-a" x="486" y="164" width="26" height="26"/>
+<rect class="seg-a" x="512" y="164" width="26" height="26"/>
+<rect class="seg-a" x="538" y="164" width="26" height="26"/>
+<rect class="seg-free" x="564" y="164" width="26" height="26"/>
+<rect class="seg-free" x="590" y="164" width="26" height="26"/>
+<rect class="seg-free" x="616" y="164" width="26" height="26"/>
+<rect class="seg-free" x="642" y="164" width="26" height="26"/>
+<text x="450" y="208" text-anchor="end" class="mono">EOD</text>
+<rect class="seg-a" x="460" y="190" width="26" height="26"/>
+<rect class="seg-a" x="486" y="190" width="26" height="26"/>
+<rect class="seg-a" x="512" y="190" width="26" height="26"/>
+<rect class="seg-a" x="538" y="190" width="26" height="26"/>
+<rect class="seg-a" x="564" y="190" width="26" height="26"/>
+<rect class="seg-free" x="590" y="190" width="26" height="26"/>
+<rect class="seg-free" x="616" y="190" width="26" height="26"/>
+<rect class="seg-free" x="642" y="190" width="26" height="26"/>
+<text x="450" y="234" text-anchor="end" class="mono">u0</text>
+<rect class="seg-free" x="460" y="216" width="26" height="26"/>
+<rect class="seg-free" x="486" y="216" width="26" height="26"/>
+<rect class="seg-free" x="512" y="216" width="26" height="26"/>
+<rect class="seg-free" x="538" y="216" width="26" height="26"/>
+<rect class="seg-free" x="564" y="216" width="26" height="26"/>
+<rect class="seg-a" x="590" y="216" width="26" height="26"/>
+<rect class="seg-free" x="616" y="216" width="26" height="26"/>
+<rect class="seg-free" x="642" y="216" width="26" height="26"/>
+<text x="450" y="260" text-anchor="end" class="mono">u1</text>
+<rect class="seg-free" x="460" y="242" width="26" height="26"/>
+<rect class="seg-free" x="486" y="242" width="26" height="26"/>
+<rect class="seg-free" x="512" y="242" width="26" height="26"/>
+<rect class="seg-free" x="538" y="242" width="26" height="26"/>
+<rect class="seg-free" x="564" y="242" width="26" height="26"/>
+<rect class="seg-a" x="590" y="242" width="26" height="26"/>
+<rect class="seg-a" x="616" y="242" width="26" height="26"/>
+<rect class="seg-free" x="642" y="242" width="26" height="26"/>
+<text x="450" y="286" text-anchor="end" class="mono">u2</text>
+<rect class="seg-free" x="460" y="268" width="26" height="26"/>
+<rect class="seg-free" x="486" y="268" width="26" height="26"/>
+<rect class="seg-free" x="512" y="268" width="26" height="26"/>
+<rect class="seg-free" x="538" y="268" width="26" height="26"/>
+<rect class="seg-free" x="564" y="268" width="26" height="26"/>
+<rect class="seg-a" x="590" y="268" width="26" height="26"/>
+<rect class="seg-a" x="616" y="268" width="26" height="26"/>
+<rect class="seg-a" x="642" y="268" width="26" height="26"/>
+<line x1="590" y1="86" x2="590" y2="294" class="div"/>
+<line x1="460" y1="216" x2="668" y2="216" class="div"/>
+<text x="450" y="320" text-anchor="end" class="mono">pos</text>
+<rect class="seg-c" x="460" y="302" width="26" height="26"/>
+<text x="473.0" y="320" text-anchor="middle" class="mono">0</text>
+<rect class="seg-c" x="486" y="302" width="26" height="26"/>
+<text x="499.0" y="320" text-anchor="middle" class="mono">1</text>
+<rect class="seg-c" x="512" y="302" width="26" height="26"/>
+<text x="525.0" y="320" text-anchor="middle" class="mono">2</text>
+<rect class="seg-c" x="538" y="302" width="26" height="26"/>
+<text x="551.0" y="320" text-anchor="middle" class="mono">3</text>
+<rect class="seg-c" x="564" y="302" width="26" height="26"/>
+<text x="577.0" y="320" text-anchor="middle" class="mono">4</text>
+<rect class="seg-c" x="590" y="302" width="26" height="26"/>
+<text x="603.0" y="320" text-anchor="middle" class="mono">0</text>
+<rect class="seg-c" x="616" y="302" width="26" height="26"/>
+<text x="629.0" y="320" text-anchor="middle" class="mono">1</text>
+<rect class="seg-c" x="642" y="302" width="26" height="26"/>
+<text x="655.0" y="320" text-anchor="middle" class="mono">2</text>
+<text x="564.0" y="350" text-anchor="middle" class="small">（--reset-position-ids 每文档归零）</text>
+</svg>

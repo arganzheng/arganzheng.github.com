@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 438" width="760" height="438" role="img" aria-labelledby="t d">
+  <title id="t">GPTDataset.__getitem__：三次查表，零拷贝</title>
+  <desc id="d">竖向链条：idx = 5 → 经 shuffle_index（seed 决定的随机排列）得 shuffle_index[5] = 2，即文档流上的第 2 个样本 → 经 sample_index（(num_samples+1) × 2，helpers.cpp build_sample_idx）得起点 sample_index[2] = (doc_pos 1, offset 2) 与终点 sample_index[3] = (doc_pos 2, offset 3)（含）→ document_index（每个 epoch 一份文档 id 的随机排列）数组 [7, 12, 3, 9, …]，doc_pos 1、2 对应 doc 12、doc 3 → IndexedDataset.get(doc, offset, length) 用 sequence_pointers[doc] 定位到 .bin 字节流：doc 12 的 t0 t1 [t2 t3 t4 t5 EOD]（5 个）、doc 3 的 [u0 u1 u2 u3] EOD（4 个）、doc 9 …。样本 2 = t2 t3 t4 t5 EOD u0 u1 u2 u3，跨文档，EOD 是唯一的边界标记。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrow2 { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .div { stroke: #243447; stroke-width: 2; fill: none; }
+      .tri { fill: #40566f; }
+      .band { fill: #fff5e6; }
+      .curve { stroke: #c0392b; stroke-width: 2; fill: none; stroke-linejoin: round; }
+      .curve-dot { stroke: #c0392b; stroke-width: 2; fill: none; stroke-dasharray: 2 4; }
+      .curve-alt { stroke: #4b9477; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+      .ckpt { stroke: #9aa8b6; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+      .halo { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+    </style>
+  </defs>
+<rect class="card" x="24" y="16" width="80.42000000000002" height="30"/>
+<text x="36" y="40" text-anchor="start" class="mono">idx = 5</text>
+<line x1="60" y1="46" x2="60" y2="86" class="arrow"/>
+<text x="74" y="71" text-anchor="start" class="small">shuffle_index（seed 决定的随机排列）</text>
+<rect class="card" x="24" y="86" width="185.20000000000002" height="30"/>
+<text x="36" y="110" text-anchor="start" class="mono">shuffle_index[5] = 2</text>
+<text x="221.20000000000002" y="110" text-anchor="start" class="small">文档流上的第 2 个样本</text>
+<line x1="60" y1="116" x2="60" y2="156" class="arrow"/>
+<text x="74" y="141" text-anchor="start" class="small">sample_index（(num_samples+1) × 2，helpers.cpp build_sample_idx）</text>
+<rect class="card" x="24" y="156" width="338.34000000000003" height="50"/>
+<text x="36" y="180" text-anchor="start" class="mono">sample_index[2] = (doc_pos 1, offset 2)</text>
+<text x="374.34000000000003" y="180" text-anchor="start" class="small">起点</text>
+<text x="36" y="200" text-anchor="start" class="mono">sample_index[3] = (doc_pos 2, offset 3)</text>
+<text x="374.34000000000003" y="200" text-anchor="start" class="small">终点（含）</text>
+<line x1="60" y1="206" x2="60" y2="246" class="arrow"/>
+<text x="74" y="231" text-anchor="start" class="small">document_index（每个 epoch 一份文档 id 的随机排列）</text>
+<text x="48.0" y="260" text-anchor="middle" class="small">0</text>
+<text x="96.0" y="260" text-anchor="middle" class="small">1</text>
+<text x="144.0" y="260" text-anchor="middle" class="small">2</text>
+<text x="192.0" y="260" text-anchor="middle" class="small">3</text>
+<text x="240.0" y="260" text-anchor="middle" class="small"></text>
+<text x="276" y="260" text-anchor="start" class="small">doc_pos</text>
+<rect class="seg-free" x="24" y="268" width="48" height="26"/>
+<text x="48.0" y="286" text-anchor="middle" class="mono">7</text>
+<rect class="seg-a" x="72" y="268" width="48" height="26"/>
+<text x="96.0" y="286" text-anchor="middle" class="mono">12</text>
+<rect class="seg-a" x="120" y="268" width="48" height="26"/>
+<text x="144.0" y="286" text-anchor="middle" class="mono">3</text>
+<rect class="seg-free" x="168" y="268" width="48" height="26"/>
+<text x="192.0" y="286" text-anchor="middle" class="mono">9</text>
+<rect class="seg-dim" x="216" y="268" width="48" height="26"/>
+<text x="240.0" y="286" text-anchor="middle" class="mono">…</text>
+<text x="276" y="286" text-anchor="start" class="mono">document_index</text>
+<path d="M96.0 294 V308 H60" class="line"/>
+<line x1="60" y1="294" x2="60" y2="342" class="arrow"/>
+<path d="M144.0 294 V308 H320.0 V342" class="arrow"/>
+<text x="74" y="328" text-anchor="start" class="small halo">IndexedDataset.get(doc, offset, length)：sequence_pointers[doc] 定位</text>
+<rect class="seg-a" x="24" y="342" width="60" height="26"/>
+<text x="54.0" y="360" text-anchor="middle" class="mono">doc 12</text>
+<rect class="seg-free" x="84" y="342" width="30" height="26"/>
+<text x="99.0" y="360" text-anchor="middle" class="mono">t0</text>
+<rect class="seg-free" x="114" y="342" width="30" height="26"/>
+<text x="129.0" y="360" text-anchor="middle" class="mono">t1</text>
+<rect class="seg-b" x="144" y="342" width="30" height="26"/>
+<text x="159.0" y="360" text-anchor="middle" class="mono">t2</text>
+<rect class="seg-b" x="174" y="342" width="30" height="26"/>
+<text x="189.0" y="360" text-anchor="middle" class="mono">t3</text>
+<rect class="seg-b" x="204" y="342" width="30" height="26"/>
+<text x="219.0" y="360" text-anchor="middle" class="mono">t4</text>
+<rect class="seg-b" x="234" y="342" width="30" height="26"/>
+<text x="249.0" y="360" text-anchor="middle" class="mono">t5</text>
+<rect class="seg-b" x="264" y="342" width="30" height="26"/>
+<text x="279.0" y="360" text-anchor="middle" class="mono">EOD</text>
+<rect class="div" x="144" y="342" width="150" height="26"/>
+<rect class="seg-a" x="294" y="342" width="52" height="26"/>
+<text x="320.0" y="360" text-anchor="middle" class="mono">doc 3</text>
+<rect class="seg-b" x="346" y="342" width="30" height="26"/>
+<text x="361.0" y="360" text-anchor="middle" class="mono">u0</text>
+<rect class="seg-b" x="376" y="342" width="30" height="26"/>
+<text x="391.0" y="360" text-anchor="middle" class="mono">u1</text>
+<rect class="seg-b" x="406" y="342" width="30" height="26"/>
+<text x="421.0" y="360" text-anchor="middle" class="mono">u2</text>
+<rect class="seg-b" x="436" y="342" width="30" height="26"/>
+<text x="451.0" y="360" text-anchor="middle" class="mono">u3</text>
+<rect class="seg-free" x="466" y="342" width="30" height="26"/>
+<text x="481.0" y="360" text-anchor="middle" class="mono">EOD</text>
+<rect class="div" x="346" y="342" width="120" height="26"/>
+<rect class="seg-dim" x="496" y="342" width="74" height="26"/>
+<text x="533.0" y="360" text-anchor="middle" class="mono">doc 9 …</text>
+<text x="582" y="360" text-anchor="start" class="mono">.bin</text>
+<path d="M144 374 V382 H294 V374" class="thin"/>
+<text x="219.0" y="398" text-anchor="middle" class="small">5 个</text>
+<path d="M346 374 V382 H466 V374" class="thin"/>
+<text x="406.0" y="398" text-anchor="middle" class="small">4 个</text>
+<text x="24" y="422" text-anchor="start" class="monob">样本 2 = t2 t3 t4 t5 EOD u0 u1 u2 u3</text>
+<text x="314.04" y="422" text-anchor="start" class="small">（跨文档；EOD 是唯一的边界标记）</text>
+</svg>
