@@ -29,11 +29,11 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 
 我用 Llama 3.2 1B 的模型形状算一遍每卡的量。这里是 train-ledger 的配置形状：层数 $$L=16$$、隐藏宽度 $$h=2048$$、FFN 宽度 $$f=8192$$、查询头数 $$n_q=32$$、K/V 头数 $$n_{kv}=8$$、每头宽度 $$d_h=64$$、词表大小 $$v=128256$$；其中 $$n_qd_h=h$$，embedding 和输出层不共享参数。这个练习配置的参数总量因此约 1.50B，不等于模型名里的 1B。
 
-每层的 Q、K、V、O 权重数是 $$2h^2+2h(n_{kv}d_h)$$；SwiGLU 的 gate、up、down 三个矩阵是 $$3hf$$。加上两组 RMSNorm 权重，每层共 60,821,504 个参数。这个矩阵计数沿用 02 的 TP 切分图：列切 / 行切改变每卡持有的矩阵块，不改变全模型的参数总数。
+每层的 Q、K、V、O 权重数是 $$2h^2+2h(n_{kv}d_h)$$；SwiGLU 的 gate、up、down 三个矩阵是 $$3hf$$。加上两组 RMSNorm 权重，每层共 60,821,504 个参数。02 的 TP 切分图能把这些矩阵的切法画出来：列切 / 行切改变每卡持有的矩阵块，不改变全模型的参数总数。
 
 - 16 层共 973,144,064 个参数；输入 embedding 和输出层各有 $$vh=262,668,288$$ 个参数，总计约 1,498,482,688。
 - PP=2 后，每个 stage 约有 749.2M 个参数；TP=2 再把矩阵分成两份，每卡约 374.6M 个参数。
-- bf16 参数占 2 字节、fp32 梯度占 4 字节。令 $$N_d=2$$ 表示 DP 副本数；每个 DP 副本只保存一半 fp32 主参数和 Adam 的 $$m,v$$，这三项共 $$12/N_d=6$$ 字节 / 参数。常驻量约为 $$2+4+12/N_d=12$$ 字节 / 每个 TP 本地参数，约 4.50 GB（4.19 GiB）/ 卡。字节数沿用 01《大模型训练的显存账本》的参数状态口径。
+- bf16 参数占 2 字节、fp32 梯度占 4 字节。令 $$N_d=2$$ 表示 DP 副本数；每个 DP 副本只保存一半 fp32 主参数和 Adam 的 $$m,v$$，这三项共 $$12/N_d=6$$ 字节 / 参数。常驻量约为 $$2+4+12/N_d=12$$ 字节 / 每个 TP 本地参数，约 4.50 GB（4.19 GiB）/ 卡。字节口径与 01《大模型训练的显存账本》一致：bf16 参数 + fp32 梯度 + fp32 主参数和 Adam 的 m、v。
 
 一个 step 可以按六步读：
 
@@ -44,7 +44,7 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 5. 每个 DP rank 用自己的一半梯度更新对应的 fp32 主参数与 Adam 状态。
 6. 更新后的 bf16 参数分片 all-gather 回来，下一轮前向按 bucket 等待参数就绪。
 
-**来龙去脉、对象之间怎么连接、再到源码，后面按这个顺序展开。** 03 只读 Megatron；三框架的异同和取舍放在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
+后面先讲 Megatron 是怎么一步步长成这样的，再讲这几个对象怎么连起来，最后读源码。03 只读 Megatron；三框架的异同和取舍放在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
 
 ## 二、来龙去脉
 
@@ -60,7 +60,7 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 | 2024 | NVIDIA，Megatron Core v0.5 | MoE 专家参数和 token 路由需要额外并行维度 | [v0.5 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.5.0)记录 MoE 和 EP；NVIDIA [172B 模型说明](https://developer.nvidia.com/blog/developing-a-172b-llm-with-strong-japanese-capabilities-using-nvidia-megatron-lm/)也列出 context parallel | EP 能与 TP、DP、SP、PP 组合；CP 支持长上下文 | dense 和 expert 参数走不同进程组 |
 | 2026 | NVIDIA，Megatron Core 0.18.0 | 仅切优化器状态不足以覆盖模型状态都要分片的用法 | [0.18.0 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.18.0)的源码包含 [`megatron/core/distributed/fsdp/`](https://github.com/NVIDIA/Megatron-LM/tree/core_v0.18.0/megatron/core/distributed/fsdp/) | Megatron-FSDP 与 DDP 并列，支持更完整的状态分片 | FSDP、TP、PP 各自的限制与组合仍需按配置核对 |
 
-这张表里能看到方向的变化：最初 Megatron 解决的是一层怎么切；随后它把流水、数据副本、优化器状态和专家并行也纳入同一套工程。第二章的矩阵图和第五章的进程组，是读懂这些变化的两个入口。
+这张表里能看到方向的变化：最初 Megatron 解决的是一层怎么切；随后它把流水、数据副本、优化器状态和专家并行也纳入同一套工程。
 
 ## 三、核心抽象
 
@@ -77,7 +77,7 @@ Megatron Core 的对象可以按从模型到调度的顺序读。F2 画出了依
 
 ## 四、最小任务怎么跑起来
 
-训练账本里的入口在 `runs/megatron/run.sh`。8 张卡按 TP=2、PP=2、DP=2 排布，打开 sequence parallel 和 ZeRO-1 分布式优化器。模型形状沿用第一章的数字。
+训练账本里的入口在 `runs/megatron/run.sh`。8 张卡按 TP=2、PP=2、DP=2 排布，打开 sequence parallel 和 ZeRO-1 分布式优化器。模型形状用第一章算过的那组数字。
 
 ```bash title="runs/megatron/run.sh"
 #!/bin/bash
@@ -249,8 +249,6 @@ Megatron 的 `distributed/distributed_data_parallel.py` 的 `DistributedDataPara
 
 - `_build_gbuf_range_map()` 把每个 bucket 的 `[0, numel)` 均分成 `dp_size` 段，本 rank 负责第 `dp_rank` 段。这一段的边界不对齐参数边界——一个参数可能一半在本 rank、一半在邻居。`_build_model_gbuf_param_range_map()` 算出每个参数落在本 rank 段里的那一部分（`Range` 对象）。
 - `_build_model_and_main_param_groups()` 据此建五组张量：`model_float16_groups`（原 bf16 参数）、`shard_float16_groups`（bf16 参数在本 rank 段内的视图 `model_param.detach().view(-1)[start:end]`）、`shard_fp32_from_float16_groups`（**fp32 主参数**：`model_param.float().view(-1)[start:end]` 得到的独立 fp32 拷贝，只有本 rank 负责的那一段）、以及 fp32 参数的对应两组。内部优化器（Adam）的 `param_groups` 被替换成 `shard_fp32_from_float16_groups`——它只看到 $$1/N_d$$ 的 fp32 分片，一阶矩、二阶矩自然也只有 $$1/N_d$$。
-
-一个 step 的优化器部分：
 
 DistributedOptimizer 一个 step 的优化器部分，按先后是四步：
 
