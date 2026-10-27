@@ -58,7 +58,12 @@ Table: Megatron-LM、DeepSpeed、torchtitan 的架构差异
 
 ### 3. 共同底座：PyTorch 分布式
 
-三个框架都建在 `torch.distributed` 上，但用到的层次不同：
+三个框架都建在 `torch.distributed` 上，但用到的层次不同。表里两个名字先说清楚：
+
+- **DeviceMesh** 是一张给 rank 编号的 n 维网格，每一维有个名字。比如 16 张卡写成 `init_device_mesh("cuda", (2, 8), mesh_dim_names=("dp", "tp"))`，之后 `mesh["tp"]` 就给出每张卡自己的 TP 组——不用再为每个维度手写 `new_group` 枚举 rank。
+- **DTensor** 是一个张量加上它所在的 mesh、加上每一维的摆放方式（placement：`Shard(d)` 沿该维切开 / `Replicate()` 各卡一份 / `Partial()` 各卡一个待归约的部分和）。每张卡只存自己那块本地分片，但张量自己知道全局形状；换摆放方式时（`redistribute`）它自动发对应的集合通信：`Partial → Replicate` 是一次 all-reduce，`Shard → Replicate` 是一次 all-gather。
+
+02《并行策略全景》实际在用的就是这两个对象：[FSDP2 一节讲 per-parameter DTensor](/parallelism-strategies-which-state-to-shard.html#5-fsdp1-与-fsdp2flatparameter-与-per-parameter-dtensor)，[TP / SP 一节](/parallelism-strategies-which-state-to-shard.html#三张量并行与序列并行)的并行组在 torchtitan 里就是 mesh 的一维。
 
 | torch.distributed 层次 | Megatron | DeepSpeed | torchtitan |
 |---|---|---|---|
