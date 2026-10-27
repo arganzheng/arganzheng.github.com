@@ -39,7 +39,7 @@ Q 33.798642 370.021751 33.798642 374.562888
 L 33.798642 412.784131 
 Q 33.798642 417.325269 40.182316 417.325269 
 z
-" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #444444; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#pea5ce75676)" style="fill: #ffffff; stroke: #444444; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 40.182316 354.884625 
@@ -52,7 +52,7 @@ Q 33.798642 307.581107 33.798642 312.122245
 L 33.798642 350.343487 
 Q 33.798642 354.884625 40.182316 354.884625 
 z
-" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #3b6fb6; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#pea5ce75676)" style="fill: #ffffff; stroke: #3b6fb6; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 40.182316 292.443981 
@@ -65,7 +65,7 @@ Q 33.798642 245.140464 33.798642 249.681601
 L 33.798642 287.902844 
 Q 33.798642 292.443981 40.182316 292.443981 
 z
-" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #e0812c; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#pea5ce75676)" style="fill: #ffffff; stroke: #e0812c; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 40.182316 230.003338 
@@ -78,7 +78,7 @@ Q 33.798642 182.69982 33.798642 187.240958
 L 33.798642 225.4622 
 Q 33.798642 230.003338 40.182316 230.003338 
 z
-" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #4a9a5b; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#pea5ce75676)" style="fill: #ffffff; stroke: #4a9a5b; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
     <path d="M 40.182316 167.562694 
@@ -91,7 +91,7 @@ Q 33.798642 120.259176 33.798642 124.800314
 L 33.798642 163.021557 
 Q 33.798642 167.562694 40.182316 167.562694 
 z
-" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #7b5ea7; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#pea5ce75676)" style="fill: #ffffff; stroke: #7b5ea7; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
     <path d="M 40.182316 105.122051 
@@ -104,7 +104,7 @@ Q 33.798642 57.818533 33.798642 62.359671
 L 33.798642 100.580913 
 Q 33.798642 105.122051 40.182316 105.122051 
 z
-" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #c94c4c; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#pea5ce75676)" style="fill: #ffffff; stroke: #c94c4c; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- parallel_state（模块级全局变量 + RankGenerator） -->
@@ -7943,7 +7943,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="ped189a62bb">
+  <clipPath id="pea5ce75676">
    <rect x="7.2" y="23.76" width="531.972841" height="423.83952"/>
   </clipPath>
  </defs>
