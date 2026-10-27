@@ -44,26 +44,7 @@ updated: 2026-09-14
 
 填这些空缺的组件自下而上分四层，每一层对应一个"谁把什么放进容器"的问题：
 
-```text title="平台机制全局图：四层"
-                    ┌──────────────────────────────────────────────────────────────┐
-  Pod spec          │ resources.limits: nvidia.com/gpu: 2           ← device plugin 路径    │
-                    │ resourceClaims: [{resourceClaimTemplateName}] ← DRA 路径（1.34 GA）    │
-                    └──────────────────────────────────────────────────────────────┘
-                         │ 调度：计数（NodeResourcesFit）或按属性算（DynamicResources 插件）
-                         ▼
-  kubelet           device manager（pkg/kubelet/cm/devicemanager）：ListAndWatch 记数、Allocate 取注入指令
-                    DRA manager（pkg/kubelet/cm/dra）：NodePrepareResources 取 CDI 设备名
-                         │ 注入指令：环境变量 NVIDIA_VISIBLE_DEVICES=GPU-uuid,... 或 CDI 设备 nvidia.com/gpu=0
-                         ▼
-  容器运行时         containerd / CRI-O → nvidia-container-runtime（OCI runtime 包装）
-  + Container Toolkit    legacy：prestart hook → nvidia-container-cli configure，挂 libcuda.so、/dev/nvidia*
-                         cdi / jit-cdi：按 CDI spec 改 OCI spec（v1.20.0 默认 auto → jit-cdi）
-                         │
-                         ▼
-  宿主机            nvidia.ko / nvidia-uvm.ko + libcuda.so.<ver> + nvidia-smi   ← 节点管理员或 GPU Operator 驱动容器
-                    GPU Feature Discovery → 节点标签 nvidia.com/gpu.product / gpu.memory / cuda.driver.major …
-                    GPU Operator（ClusterPolicy）：把驱动容器、Toolkit、device plugin、GFD、DCGM Exporter、MIG Manager 装成一套
-```
+![平台机制全局图：四层](/img/in-post/gpu-in-containers-platform-four-layers.svg)
 
 镜像是这张图的第五个参与者：它带 CUDA Runtime 和上层库，不带驱动；它的体积决定 Pod 从 `Scheduled` 到 `Running` 的时间。
 
@@ -87,18 +68,7 @@ Table: 本文的章节安排
 
 ### 1. 四层栈：哪层在宿主机、哪层在容器
 
-```text title="四层栈：哪层在宿主机、哪层在容器"
-                 ┌───────────────────────────────────────────────────────────────────┐
-   容器内         │ 第 4 层  库          libcudnn.so.9  libnccl.so.2  libcublas.so.12  libnvrtc.so.12          │
-   （镜像 /       │                      来源：pip wheel（nvidia-cudnn-cu12 …）或 nvidia/cuda:*-runtime 层         │
-    pip wheel）   │ 第 3 层  CUDA Runtime libcudart.so.12（或静态链进 libtorch_cuda.so）                          │
-                 │                      来源：nvidia-cuda-runtime-cu12 wheel / nvidia/cuda:*-runtime；版本 = torch.version.cuda │
-                 ├─ ─ ─ ─ ─ ─ ─ ─ ─ 注入边界：Container Toolkit 把下面两层"挂"进容器 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┤
-   宿主机         │ 第 2 层  用户态驱动   libcuda.so.580.x  libnvidia-ml.so.580.x  libnvidia-ptxjitcompiler.so.580.x  │
-   （驱动包）     │                      nvidia-smi；版本 = nvidia-smi 左上角的 Driver Version                       │
-                 │ 第 1 层  内核态驱动   nvidia.ko  nvidia-uvm.ko  nvidia-modeset.ko  → /dev/nvidia0 … /dev/nvidiactl /dev/nvidia-uvm │
-                 └───────────────────────────────────────────────────────────────────┘
-```
+![四层栈：哪层在宿主机、哪层在容器](/img/in-post/gpu-in-containers-four-layer-stack.svg)
 
 边界划在第 2 层和第 3 层之间，原因有三个：
 
@@ -350,17 +320,19 @@ sequenceDiagram
 
 NVIDIA k8s-device-plugin v0.20.0 的入口在 `cmd/nvidia-device-plugin/main.go`，配置结构 `api/config/v1/config.go` 的 `Config`（`version` / `flags` / `resources` / `sharing` / `imex`），可以由命令行、环境变量或 `--config-file` 指定的 ConfigMap 提供。与本篇相关的字段（`api/config/v1/flags.go`）：
 
-```text title="device plugin 的相关 flags"
-flags.migStrategy                 none | single | mixed         MIG 设备怎么上报（第四篇展开）；默认 none
-flags.failOnInitError             默认 true                      节点没驱动时插件直接退出而不是空转
-flags.nvidiaDriverRoot            "/" 或 "/run/nvidia/driver"    驱动在宿主机的根，GPU Operator 驱动容器用后者
-flags.plugin.deviceListStrategy   envvar | volume-mounts | cdi-annotations | cdi-cri（可多选）  Allocate 用什么方式传设备列表；默认 envvar
-flags.plugin.deviceIDStrategy     uuid | index                   NVIDIA_VISIBLE_DEVICES 里放 UUID 还是索引；默认 uuid
-flags.plugin.passDeviceSpecs      默认 false                     Allocate 是否直接返回 /dev/nvidia* 的 DeviceSpec
-flags.plugin.sharedDevicesAllocationPolicy  distributed | packed  共享/MIG 设备的偏好分配策略
-sharing.timeSlicing / sharing.mps                                把一张卡上报为 N 个副本（第四篇）
-resources.gpus[] / resources.mig[]                               按型号模式改资源名（如 nvidia.com/a100 与 nvidia.com/h100 分开上报）
-```
+| 字段 | 取值 / 默认 | 作用 |
+|---|---|---|
+| `flags.migStrategy` | `none` \| `single` \| `mixed` | MIG 设备怎么上报（第四篇展开）；默认 `none` |
+| `flags.failOnInitError` | 默认 `true` | 节点没驱动时插件直接退出而不是空转 |
+| `flags.nvidiaDriverRoot` | `"/"` 或 `"/run/nvidia/driver"` | 驱动在宿主机的根，GPU Operator 驱动容器用后者 |
+| `flags.plugin.deviceListStrategy` | `envvar` \| `volume-mounts` \| `cdi-annotations` \| `cdi-cri`（可多选） | `Allocate` 用什么方式传设备列表；默认 `envvar` |
+| `flags.plugin.deviceIDStrategy` | `uuid` \| `index` | `NVIDIA_VISIBLE_DEVICES` 里放 UUID 还是索引；默认 `uuid` |
+| `flags.plugin.passDeviceSpecs` | 默认 `false` | `Allocate` 是否直接返回 `/dev/nvidia*` 的 `DeviceSpec` |
+| `flags.plugin.sharedDevicesAllocationPolicy` | `distributed` \| `packed` | 共享/MIG 设备的偏好分配策略 |
+| `sharing.timeSlicing` / `sharing.mps` |  | 把一张卡上报为 N 个副本（第四篇） |
+| `resources.gpus[]` / `resources.mig[]` |  | 按型号模式改资源名（如 `nvidia.com/a100` 与 `nvidia.com/h100` 分开上报） |
+
+Table: device plugin 的相关 flags
 
 资源名的前缀 `nvidia.com` 定义在 `api/config/v1/consts.go` 的 `ResourceNamePrefix`，默认资源 `nvidia.com/gpu`。`internal/rm/nvml_manager.go` 的 `NewNVMLResourceManagers` 用 NVML 枚举设备，按 `migStrategy` 与 `sharing` 配置生成一个或多个 `ResourceManager`，每个对应一个资源名；`internal/plugin/server.go` 为每个资源起一个 `nvidiaDevicePlugin`，`Register` 时声明 `GetPreferredAllocationAvailable: true`，`ListAndWatch` 首次发送全部设备，之后在健康状态变化时重发。
 
@@ -383,12 +355,13 @@ resources.gpus[] / resources.mig[]                               按型号模式
 
 于是上一篇 Pending 事件的三种读法：
 
-```text title="Pending 事件的三种读法"
-0/3 nodes are available: 3 Insufficient nvidia.com/gpu          没有节点上报过这个资源（插件没装、没注册、failOnInitError 退出）
-                                                                  或 allocatable 都被占满 / 被健康检查扣光。看 kubectl describe node 的 Capacity vs Allocatable
-0/3 nodes are available: 1 Insufficient nvidia.com/gpu, 2 ...    资源存在但数量不够；配合 kubectl get pods -A -o wide 看谁占着
-Pod Running 但容器内 nvidia-smi 报 No devices were found          分配成功、注入失败：Toolkit 没装 / RuntimeClass 没指到 nvidia / NVIDIA_VISIBLE_DEVICES 被 Pod 自己覆盖
-```
+| 事件 | 原因与排查 |
+|---|---|
+| `0/3 nodes are available: 3 Insufficient nvidia.com/gpu` | 没有节点上报过这个资源（插件没装、没注册、`failOnInitError` 退出）<br/>或 `allocatable` 都被占满 / 被健康检查扣光。看 `kubectl describe node` 的 `Capacity` vs `Allocatable` |
+| `0/3 nodes are available: 1 Insufficient nvidia.com/gpu, 2 ...` | 资源存在但数量不够；配合 `kubectl get pods -A -o wide` 看谁占着 |
+| Pod `Running` 但容器内 `nvidia-smi` 报 `No devices were found` | 分配成功、注入失败：Toolkit 没装 / `RuntimeClass` 没指到 `nvidia` / `NVIDIA_VISIBLE_DEVICES` 被 Pod 自己覆盖 |
+
+Table: Pending 事件的三种读法
 
 ### 5. 三个局限
 
@@ -406,23 +379,24 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 
 前两章的组件——驱动、Toolkit、device plugin——再加上节点标签、监控和 MIG 管理，每个都是一个 DaemonSet，每个都要和节点的内核、发行版、容器运行时对上。GPU Operator 把它们收进一个 CRD：`nvidia.com/v1` 的 `ClusterPolicy`（集群单例，名字固定 `cluster-policy`），类型在 `api/nvidia/v1/clusterpolicy_types.go` 的 `ClusterPolicySpec`。与本篇相关的字段：
 
-```text title="ClusterPolicySpec 的相关字段"
-operator        OperatorSpec              runtimeClass（默认 "nvidia"）、initContainer；defaultRuntime（docker | crio | containerd）已废弃，运行时由 Operator 自动探测
-daemonsets      DaemonsetsSpec            所有 operand DaemonSet 的公共 tolerations / priorityClassName / updateStrategy
-driver          DriverSpec                enabled；repository/image/version（默认 nvcr.io/nvidia/driver:595.91.07）；kernelModuleType（auto | open | proprietary）；
-                                          usePrecompiled；useNvidiaDriverCRD（用 NVIDIADriver CRD 按节点组管理多版本驱动）；rdma；upgradePolicy
-toolkit         ToolkitSpec               enabled；container-toolkit 镜像（默认 v1.20.0）；env（如 CONTAINERD_CONFIG）
-devicePlugin    DevicePluginSpec          enabled；k8s-device-plugin 镜像（默认 v0.20.0）；config（DevicePluginConfig：ConfigMap 名与默认项，内容即第四章的 Config）；mps
-gfd             GPUFeatureDiscoverySpec   enabled；GFD 与 device plugin 同一镜像
-dcgmExporter    DCGMExporterSpec          enabled；dcgm-exporter 镜像（默认 4.6.0-4.8.3）；serviceMonitor（第八篇）
-dcgm            DCGMSpec                  独立 nv-hostengine，默认关闭（exporter 内嵌）
-mig             MIGSpec                   strategy：none | single | mixed，同时喂给 GFD 与 device plugin
-migManager      MIGManagerSpec            enabled；k8s-mig-manager 镜像（默认 v0.15.0）；config（MIGPartedConfigSpec）——第四篇
-cdi             CDIConfigSpec             enabled（默认 true）：Toolkit 配成 CDI 模式、device plugin 用 CDI 注解
-validator       ValidatorSpec             operator-validator：在每个节点上依次验证 driver / toolkit / cuda / plugin 是否就绪
-hostPaths       HostPathsSpec             rootFS（默认 /）、driverInstallDir（默认 /run/nvidia/driver）、kubeletRootDir
-nodeStatusExporter, gds, gdrcopy, sandboxWorkloads, vgpuManager, kataManager, ccManager …   本篇不涉及
-```
+| 字段 | 类型 | 内容 |
+|---|---|---|
+| `operator` | `OperatorSpec` | `runtimeClass`（默认 `"nvidia"`）、`initContainer`；`defaultRuntime`（`docker` \| `crio` \| `containerd`）已废弃，运行时由 Operator 自动探测 |
+| `daemonsets` | `DaemonsetsSpec` | 所有 operand DaemonSet 的公共 `tolerations` / `priorityClassName` / `updateStrategy` |
+| `driver` | `DriverSpec` | `enabled`；`repository`/`image`/`version`（默认 `nvcr.io/nvidia/driver:595.91.07`）；`kernelModuleType`（`auto` \| `open` \| `proprietary`）；<br/>`usePrecompiled`；`useNvidiaDriverCRD`（用 NVIDIADriver CRD 按节点组管理多版本驱动）；`rdma`；`upgradePolicy` |
+| `toolkit` | `ToolkitSpec` | `enabled`；`container-toolkit` 镜像（默认 v1.20.0）；`env`（如 `CONTAINERD_CONFIG`） |
+| `devicePlugin` | `DevicePluginSpec` | `enabled`；`k8s-device-plugin` 镜像（默认 v0.20.0）；`config`（`DevicePluginConfig`：ConfigMap 名与默认项，内容即第四章的 `Config`）；`mps` |
+| `gfd` | `GPUFeatureDiscoverySpec` | `enabled`；GFD 与 device plugin 同一镜像 |
+| `dcgmExporter` | `DCGMExporterSpec` | `enabled`；`dcgm-exporter` 镜像（默认 4.6.0-4.8.3）；`serviceMonitor`（第八篇） |
+| `dcgm` | `DCGMSpec` | 独立 `nv-hostengine`，默认关闭（exporter 内嵌） |
+| `mig` | `MIGSpec` | `strategy`：`none` \| `single` \| `mixed`，同时喂给 GFD 与 device plugin |
+| `migManager` | `MIGManagerSpec` | `enabled`；`k8s-mig-manager` 镜像（默认 v0.15.0）；`config`（`MIGPartedConfigSpec`）——第四篇 |
+| `cdi` | `CDIConfigSpec` | `enabled`（默认 `true`）：Toolkit 配成 CDI 模式、device plugin 用 CDI 注解 |
+| `validator` | `ValidatorSpec` | `operator-validator`：在每个节点上依次验证 `driver` / `toolkit` / `cuda` / `plugin` 是否就绪 |
+| `hostPaths` | `HostPathsSpec` | `rootFS`（默认 `/`）、`driverInstallDir`（默认 `/run/nvidia/driver`）、`kubeletRootDir` |
+| `nodeStatusExporter`, `gds`, `gdrcopy`, `sandboxWorkloads`, `vgpuManager`, `kataManager`, `ccManager` … |  | 本篇不涉及 |
+
+Table: ClusterPolicySpec 的相关字段
 
 Operator 的 reconcile（`controllers/`）按固定顺序推进各组件的 DaemonSet，每一步等上一步的 validator 通过：驱动容器就绪 → Toolkit 配置好 containerd 并重启它 → device plugin 注册 → GFD 打标签 → DCGM Exporter。任何一步失败，ClusterPolicy 的 `status.state` 停在 `notReady`，`kubectl get clusterpolicy` 一眼可见。
 
@@ -436,17 +410,22 @@ Operator 的 reconcile（`controllers/`）按固定顺序推进各组件的 Daem
 
 **第三组：GFD 的属性标签。** GPU Feature Discovery（k8s-device-plugin 仓库 `cmd/gpu-feature-discovery`，标签生成在 `internal/lm/`）用 NVML 读每张卡的属性写成节点标签。`internal/lm/resource.go` 的 `baseLabeler` 与 `NewGPUResourceLabeler` 生成，键名是 `<资源名>.<后缀>`：
 
-```text title="GFD 生成的节点标签"
-nvidia.com/gpu.product              NVIDIA-H100-80GB-HBM3（型号，空格替换为 -；共享时后缀 -SHARED）
-nvidia.com/gpu.count                8
-nvidia.com/gpu.memory               81559（MiB）
-nvidia.com/gpu.family               hopper          nvidia.com/gpu.compute.major / .minor    9 / 0
-nvidia.com/gpu.replicas             1（时间片副本数）  nvidia.com/gpu.sharing-strategy          none | time-slicing | mps
-nvidia.com/cuda.driver.major/.minor/.rev      580 / 65 / 06      （internal/lm/nvml.go；另有 cuda.driver-version.* 全称版）
-nvidia.com/cuda.runtime.major/.minor          13 / 0             （驱动原生支持的 CUDA 上限，与 nvidia-smi 右上角一致）
-nvidia.com/mig.capable  nvidia.com/mig.strategy  nvidia.com/mps.capable  nvidia.com/gpu.mode
-nvidia.com/gpu.machine              机型（internal/lm/machine-type.go）   nvidia.com/gfd.timestamp   本次标签时间
-```
+| 标签 | 示例值 | 说明 |
+|---|---|---|
+| `nvidia.com/gpu.product` | `NVIDIA-H100-80GB-HBM3` | 型号，空格替换为 `-`；共享时后缀 `-SHARED` |
+| `nvidia.com/gpu.count` | `8` |  |
+| `nvidia.com/gpu.memory` | `81559` | MiB |
+| `nvidia.com/gpu.family` | `hopper` |  |
+| `nvidia.com/gpu.compute.major` / `.minor` | `9` / `0` |  |
+| `nvidia.com/gpu.replicas` | `1` | 时间片副本数 |
+| `nvidia.com/gpu.sharing-strategy` | `none` \| `time-slicing` \| `mps` |  |
+| `nvidia.com/cuda.driver.major/.minor/.rev` | `580` / `65` / `06` | `internal/lm/nvml.go`；另有 `cuda.driver-version.*` 全称版 |
+| `nvidia.com/cuda.runtime.major/.minor` | `13` / `0` | 驱动原生支持的 CUDA 上限，与 `nvidia-smi` 右上角一致 |
+| `nvidia.com/mig.capable`<br/>`nvidia.com/mig.strategy`<br/>`nvidia.com/mps.capable`<br/>`nvidia.com/gpu.mode` |  |  |
+| `nvidia.com/gpu.machine` |  | 机型（`internal/lm/machine-type.go`） |
+| `nvidia.com/gfd.timestamp` |  | 本次标签时间 |
+
+Table: GFD 生成的节点标签
 
 MIG 策略为 `mixed` 时资源名变成 `nvidia.com/mig-1g.5gb` 之类，标签前缀随之变为 `nvidia.com/mig-1g.5gb.product` 等（`internal/lm/mig-strategy.go`）。
 
@@ -495,19 +474,14 @@ GPU Operator 用 Helm 安装，chart 的 `values.yaml`（`deployments/gpu-operat
 
 Dynamic Resource Allocation 在 Kubernetes 1.34 把 `resource.k8s.io/v1` 升为 GA（`staging/src/k8s.io/api/resource/v1/types.go`，各类型标注 `introduced=1.34`）。它用四个对象替换"扩展资源整数"：
 
-```text title="DRA 的四个对象"
-ResourceSlice          驱动发布   "我这个节点/池里有哪些设备，每个设备有什么属性和容量"
-                       spec.driver（如 gpu.nvidia.com）、spec.pool、spec.nodeName / nodeSelector / allNodes、
-                       spec.devices[]：name、attributes{}（DeviceAttribute：int / bool / string / version 之一）、capacity{}（DeviceCapacity：Quantity）
-                       可选：sharedCounters / consumesCounters（可分区设备）、taints、allowMultipleAllocations（可共享设备）
-DeviceClass            管理员定义 "一类设备"：spec.selectors[].cel.expression 预筛选（如"驱动是 gpu.nvidia.com 且 type 是 gpu"）、
-                       spec.config[] 给驱动的默认参数；spec.extendedResourceName 让传统 nvidia.com/gpu 请求映射到这个类（v1.37 GA）
-ResourceClaim          用户申请   spec.devices.requests[]：每个请求 exactly{deviceClassName, selectors[], allocationMode（ExactCount | All）, count, capacity}
-                       或 firstAvailable[]（按优先顺序列出多个子请求，取第一个能满足的）；
-                       spec.devices.constraints[]：matchAttribute（多设备的某属性必须相同，如同一 NVLink 域）/ distinctAttribute；
-                       status.allocation.devices.results[]：driver / pool / device，即分到了哪张卡；status.reservedFor：哪个 Pod 在用
-ResourceClaimTemplate  Pod 模板   spec.spec 是一个 ResourceClaimSpec；Pod 引用模板时，每个 Pod 实例自动生成一个 ResourceClaim，Pod 删除时随之删除
-```
+| 对象 | 谁创建 | 关键字段 |
+|---|---|---|
+| `ResourceSlice` | 驱动发布 | "我这个节点/池里有哪些设备，每个设备有什么属性和容量"<br/>`spec.driver`（如 `gpu.nvidia.com`）、`spec.pool`、`spec.nodeName` / `nodeSelector` / `allNodes`、<br/>`spec.devices[]`：`name`、`attributes{}`（`DeviceAttribute`：`int` / `bool` / `string` / `version` 之一）、`capacity{}`（`DeviceCapacity`：`Quantity`）<br/>可选：`sharedCounters` / `consumesCounters`（可分区设备）、`taints`、`allowMultipleAllocations`（可共享设备） |
+| `DeviceClass` | 管理员定义 | "一类设备"：`spec.selectors[].cel.expression` 预筛选（如"驱动是 `gpu.nvidia.com` 且 `type` 是 `gpu`"）、<br/>`spec.config[]` 给驱动的默认参数；`spec.extendedResourceName` 让传统 `nvidia.com/gpu` 请求映射到这个类（v1.37 GA） |
+| `ResourceClaim` | 用户申请 | `spec.devices.requests[]`：每个请求 `exactly`{`deviceClassName`, `selectors[]`, `allocationMode`（`ExactCount` \| `All`）, `count`, `capacity`}<br/>或 `firstAvailable[]`（按优先顺序列出多个子请求，取第一个能满足的）；<br/>`spec.devices.constraints[]`：`matchAttribute`（多设备的某属性必须相同，如同一 NVLink 域）/ `distinctAttribute`；<br/>`status.allocation.devices.results[]`：`driver` / `pool` / `device`，即分到了哪张卡；`status.reservedFor`：哪个 Pod 在用 |
+| `ResourceClaimTemplate` | Pod 模板 | `spec.spec` 是一个 `ResourceClaimSpec`；Pod 引用模板时，每个 Pod 实例自动生成一个 `ResourceClaim`，Pod 删除时随之删除 |
+
+Table: DRA 的四个对象
 
 Pod 侧的接法是两处：`spec.resourceClaims[]` 声明（`name` + `resourceClaimName` 或 `resourceClaimTemplateName`），`containers[].resources.claims[]` 引用其中的 `name`——kubelet 的 `pkg/kubelet/cm/dra/manager.go` 的 `Manager.GetResources` 正是遍历 `container.Resources.Claims` 找到该容器要注入的设备。
 
@@ -635,14 +609,13 @@ NVIDIA 的 DRA driver（`k8s-dra-driver-gpu`）在 GPU Operator v26.7.0 里的�
 
 Docker Hub 上的 `nvidia/cuda:<cuda 版本>-<变体>-<发行版>` 是绝大多数 GPU 镜像的基底，三种变体是三个包含关系递增的层（体积为量级，以具体 tag 为准）：
 
-```text title="nvidia/cuda 的三种变体"
-base      ~100–300 MB    最小 CUDA 环境：libcudart 等 runtime 核心库、cuda-compat 包、NVIDIA_REQUIRE_CUDA / NVIDIA_DRIVER_CAPABILITIES 环境变量
-                         够跑一个静态链接了 cudart 的二进制；不够跑 PyTorch
-runtime   ~1.5–3 GB      + 全部 CUDA 数学库（cuBLAS、cuFFT、cuSPARSE、cuRAND、cuSOLVER、NPP、nvJPEG）+ NCCL；-cudnn 后缀再加 cuDNN
-                         够跑已编译好的框架；不能编译 CUDA 代码
-devel     ~5–8 GB        + nvcc、头文件、静态库、Nsight 工具链
-                         编译 CUDA 扩展（flash-attention、自定义 kernel、从源码装 vLLM）需要它
-```
+| 变体 | 体积 | 内容 | 够跑什么 |
+|---|---|---|---|
+| `base` | ~100–300 MB | 最小 CUDA 环境：`libcudart` 等 runtime 核心库、`cuda-compat` 包、`NVIDIA_REQUIRE_CUDA` / `NVIDIA_DRIVER_CAPABILITIES` 环境变量 | 够跑一个静态链接了 `cudart` 的二进制；不够跑 PyTorch |
+| `runtime` | ~1.5–3 GB | + 全部 CUDA 数学库（cuBLAS、cuFFT、cuSPARSE、cuRAND、cuSOLVER、NPP、nvJPEG）+ NCCL；`-cudnn` 后缀再加 cuDNN | 够跑已编译好的框架；不能编译 CUDA 代码 |
+| `devel` | ~5–8 GB | + `nvcc`、头文件、静态库、Nsight 工具链 | 编译 CUDA 扩展（flash-attention、自定义 kernel、从源码装 vLLM）需要它 |
+
+Table: nvidia/cuda 的三种变体
 
 注意第二章的结论：**三种变体都不含 `libcuda.so`**。`base` 层带的 `cuda-compat` 包是那份"新版用户态驱动"，只在 forward compat 条件下由 Toolkit 启用。
 
@@ -736,26 +709,31 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 1. 要点回顾
 
-```text title="要点回顾：四层栈与三条规则"
-四层栈            内核驱动 / 用户态驱动库（宿主机，同版本）｜CUDA Runtime / 库（容器，随镜像或 wheel）；注入边界由 Container Toolkit 执行
-                  nvidia-smi 的 CUDA Version 是驱动上限（第 2 层）；torch.version.cuda 是 Toolkit 版本（第 3 层）；两者不同是常态
-三条规则          向后兼容：新驱动跑旧 Toolkit，无条件
-                  minor version：同大版本内旧驱动跑新 Toolkit；基线 11.x ≥ 450.80.02、12.x ≥ 525.60.13、13.x ≥ 580.65.06；PTX JIT 与新驱动 API 除外（222 / 36）
-                  forward：跨大版本需 cuda-compat 包，仅数据中心 GPU 与受支持驱动分支；容器里靠 Toolkit 的 cuda-compat-mode 生效
-核心问题          580 + CUDA 13.1 常规：能跑（规则二）；调 13.1 新 API：那一处 36；570 + 13.x：只有数据中心 GPU + compat 包能跑，否则 unsatisfied condition 或 35
-Toolkit           legacy：prestart hook → nvidia-container-cli configure，读 NVIDIA_VISIBLE_DEVICES / DRIVER_CAPABILITIES / REQUIRE_CUDA
-                  CDI：nvidia-ctk cdi generate 生成 nvidia.com/gpu=<idx|uuid> 声明，运行时原生注入；v1.20.0 默认 auto → jit-cdi
-device plugin     v1beta1：Register / GetDevicePluginOptions / ListAndWatch / GetPreferredAllocation / Allocate / PreStartContainer
-                  NVIDIA 插件按 NVML 上报 nvidia.com/gpu，Allocate 按 deviceListStrategy 返回 envvar / volume-mounts / cdi-annotations / cdi-cri
-                  三个局限：只计数、无属性、不跨 Pod 共享；节点内 NVLink 偏好只是建议
-GPU Operator      ClusterPolicy（nvidia.com/v1）：driver / toolkit / devicePlugin / gfd / dcgmExporter / migManager / cdi / hostPaths
-                  标签三来源：NFD pci-10de.present → Operator 的 gpu.present 与 gpu.deploy.* → GFD 的 gpu.product / gpu.memory / cuda.driver.major …
-DRA               resource.k8s.io/v1：ResourceSlice（驱动发布属性与容量）/ DeviceClass（预筛）/ ResourceClaim（请求 + CEL + constraints）/ ResourceClaimTemplate
-                  调度器做分配（DynamicResources 插件），kubelet 经 NodePrepareResources 拿 CDI 设备名
-                  v1.37：核心与 ExtendedResource、DeviceTaints、DeviceStatus GA；共享与分区 Beta/Alpha；NVIDIA driver 在 GPU Operator v26.7.0 为实验性 GPUCluster 路径
-镜像              nvidia/cuda base / runtime / devel 均不含 libcuda.so；PyTorch / vLLM 镜像 3–12 GB，绝大部分是 CUDA 库
-                  多阶段构建 devel → base；10 GB 冷拉 2–3 分钟起；统一基底、预热、P2P、按需加载四层对策
-```
+- **四层栈**
+  - 内核驱动 / 用户态驱动库（宿主机，同版本）｜CUDA Runtime / 库（容器，随镜像或 wheel）；注入边界由 Container Toolkit 执行
+  - `nvidia-smi` 的 CUDA Version 是驱动上限（第 2 层）；`torch.version.cuda` 是 Toolkit 版本（第 3 层）；两者不同是常态
+- **三条规则**
+  - 向后兼容：新驱动跑旧 Toolkit，无条件
+  - minor version：同大版本内旧驱动跑新 Toolkit；基线 11.x ≥ 450.80.02、12.x ≥ 525.60.13、13.x ≥ 580.65.06；PTX JIT 与新驱动 API 除外（222 / 36）
+  - forward：跨大版本需 `cuda-compat` 包，仅数据中心 GPU 与受支持驱动分支；容器里靠 Toolkit 的 `cuda-compat-mode` 生效
+- **核心问题**：580 + CUDA 13.1 常规：能跑（规则二）；调 13.1 新 API：那一处 36；570 + 13.x：只有数据中心 GPU + compat 包能跑，否则 `unsatisfied condition` 或 35
+- **Toolkit**
+  - legacy：prestart hook → `nvidia-container-cli configure`，读 `NVIDIA_VISIBLE_DEVICES` / `DRIVER_CAPABILITIES` / `REQUIRE_CUDA`
+  - CDI：`nvidia-ctk cdi generate` 生成 `nvidia.com/gpu=<idx|uuid>` 声明，运行时原生注入；v1.20.0 默认 `auto` → `jit-cdi`
+- **device plugin**
+  - v1beta1：`Register` / `GetDevicePluginOptions` / `ListAndWatch` / `GetPreferredAllocation` / `Allocate` / `PreStartContainer`
+  - NVIDIA 插件按 NVML 上报 `nvidia.com/gpu`，`Allocate` 按 `deviceListStrategy` 返回 `envvar` / `volume-mounts` / `cdi-annotations` / `cdi-cri`
+  - 三个局限：只计数、无属性、不跨 Pod 共享；节点内 NVLink 偏好只是建议
+- **GPU Operator**
+  - ClusterPolicy（`nvidia.com/v1`）：`driver` / `toolkit` / `devicePlugin` / `gfd` / `dcgmExporter` / `migManager` / `cdi` / `hostPaths`
+  - 标签三来源：NFD `pci-10de.present` → Operator 的 `gpu.present` 与 `gpu.deploy.*` → GFD 的 `gpu.product` / `gpu.memory` / `cuda.driver.major` …
+- **DRA**
+  - `resource.k8s.io/v1`：ResourceSlice（驱动发布属性与容量）/ DeviceClass（预筛）/ ResourceClaim（请求 + CEL + constraints）/ ResourceClaimTemplate
+  - 调度器做分配（DynamicResources 插件），kubelet 经 `NodePrepareResources` 拿 CDI 设备名
+  - v1.37：核心与 ExtendedResource、DeviceTaints、DeviceStatus GA；共享与分区 Beta/Alpha；NVIDIA driver 在 GPU Operator v26.7.0 为实验性 GPUCluster 路径
+- **镜像**
+  - `nvidia/cuda` base / runtime / devel 均不含 `libcuda.so`；PyTorch / vLLM 镜像 3–12 GB，绝大部分是 CUDA 库
+  - 多阶段构建 devel → base；10 GB 冷拉 2–3 分钟起；统一基底、预热、P2P、按需加载四层对策
 
 ### 2. 本篇涉及的源码与 CRD 位置
 
