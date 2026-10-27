@@ -877,7 +877,11 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     JS (CSS `caption-side: bottom` while it is still native); HTML tables can
     write `<caption>` directly. `figures.js` then moves the caption's nodes
     into the `.fig-title` under the table (it also accepts the raw `Table:`
-    paragraph on pages the plugin does not process). Feedback handle: titled →
+    paragraph on pages the plugin does not process). **Merged cells**: a body
+    cell that is only `^^` (MultiMarkdown) is merged into the cell above it —
+    `_plugins/table_rowspan.rb` (same hook) drops the cell and puts `rowspan`
+    on the one above; `^^` under a header row stays text, `` `^^` `` in code is
+    not a mark; tests in `tools/table_rowspan.test.rb`. Feedback handle: titled →
     selects the title (the passage, stable while the title is); untitled →
     the `<thead>` row (「表 N」 renumbers), a header-less table → the whole
     table. `.table-caption` is in `BLOCK_SELECTOR` and `blockFor` redirects a
