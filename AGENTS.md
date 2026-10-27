@@ -1379,6 +1379,23 @@ How it is built (`_plugins/moments.rb`):
     or arithmetic that lived in the ASCII block moves to a code block or
     list right under the new figure. Say why whenever the content (not just
     the form) of a figure changed.
+  - Geometry checks the large-training round (series 7, 2026-10) added:
+    compute the canvas height from the last element plus a margin, never a
+    hand-tuned constant (a 4-panel figure lost its bottom panel and the
+    caption overlapped it); split any title line longer than ~2/3 of the
+    canvas into two lines — readers' macOS fonts run wider than the Linux
+    render. Text in a segment is centred in *that* segment. When a figure
+    overlays one partition on another (rank shard boundaries over parameter
+    boundaries), take segment widths proportional to the original's cell
+    counts, draw the overlay lines in their own colour at exactly the x of
+    the boundary they mark, and label them.
+  - ASCII tables converted by script break identifiers (`all-gather`,
+    `ProcessTopology`) and shift cells; re-read every converted row column
+    by column against the original before showing it.
+  - Several agents push to master in parallel. If a rebase conflicts inside
+    a converted block (e.g. a series renumbering changed 「第 N 篇」 in the
+    old ASCII), keep the converted version, apply the new numbering, and
+    check the post's 「第 N 篇」 set equals origin/master's before pushing.
 - **Version/date rule:** a post may only cite software versions (and facts about
   them) released *before* the post's front-matter date. Check tag dates with
   `git log -1 --format=%cs <tag>` before pinning a version; pin an explicit tag
