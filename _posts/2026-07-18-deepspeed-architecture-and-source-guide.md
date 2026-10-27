@@ -8,7 +8,8 @@ catalog: true
 date: 2026-07-18 14:00:00
 ---
 
-> **NOTE** 本文源码引用以 DeepSpeed v0.19.2、PyTorch 2.13.0 为准。
+> [!NOTE]
+> 本文源码引用以 DeepSpeed v0.19.2、PyTorch 2.13.0 为准。
 
 
 
