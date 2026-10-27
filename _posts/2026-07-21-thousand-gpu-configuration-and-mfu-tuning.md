@@ -75,46 +75,7 @@ Table: 千卡配置的自由度与约束
 
 ### 3. 决策流程
 
-```text title="并行配置的决策流程"
-                    模型规格 (N, L, h, a, s)   集群规格 (卡数, 节点内卡数, 每卡显存, NVLink/网卡带宽)
-                                        │
-                                        ▼
-              ┌─ 第一步：TP ────────────────────────────────────────────────────────┐
-              │  上限 = NVLink 域大小（8）；下限 = 让 N/(t·p) 的静态状态能放下         │
-              │  TP 通信量 ∝ sbh/层，只在 NVLink 上可接受；能用 8 就用 8，否则 4          │
-              │  开 SP（序列并行），激活除以 t                                          │
-              └────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-              ┌─ 第二步：PP ────────────────────────────────────────────────────────┐
-              │  目标：N/(t·p) 的参数 + 梯度 + 优化器分片 + 在途激活 ≤ 显存预算            │
-              │  p 越大显存越松、气泡越大；每加一倍 p，m 要同倍增才保持气泡率              │
-              │  优先用交错调度（v 个虚拟 stage）降气泡，而不是加 m                       │
-              └────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-              ┌─ 第三步：DP ────────────────────────────────────────────────────────┐
-              │  d = 卡数 / (t·p·c)；m = B / (d·b)                                     │
-              │  选 ZeRO-1（分布式优化器）还是 ZeRO-3/FSDP：看每卡每 step 的 token 数      │
-              │  每卡 token 少、m 多 → FSDP 的 3N×m 通信压不住，选 PP + ZeRO-1            │
-              └────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-              ┌─ 第四步：CP ────────────────────────────────────────────────────────┐
-              │  仅当 s 大到单卡（TP 后）一层的激活或注意力放不下时启用                    │
-              │  s = 8192 不需要；s ≥ 32K 开始需要；c 占用的卡从 d 里扣                   │
-              └────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-              micro-batch b：显存允许下尽量大，但 m = B/(d·b) 要 ≥ 4p 才能压住气泡；通常 b = 1 或 2
-              重计算：先不开；放不下时按"选择性 → 按层 N → 全量"的顺序加
-                                        │
-                                        ▼
-              用账本算出：每卡显存、每 step 各类通信量与时间、气泡率、理论 step 时间 → 两三个候选
-                                        │
-                                        ▼
-              各候选跑 100 step 基准 → profiler → 七项损失拆解（第六章）→ 定版并进版本控制
-```
+![并行配置的决策流程](/img/in-post/thousand-gpu-configuration-parallel-config-decision-flow.svg)
 
 ### 4. 三框架在"配置面"上的对照
 
@@ -170,13 +131,13 @@ Table: 本文的章节安排
 
 $$t=8$$ 后，PP 决定每卡的参数份额 $$N/(8p)$$ 和在途激活。三个候选：
 
-```text title="PP 的三个候选：每卡参数与激活"
-候选            每卡参数     bf16 参数  fp32 梯度   优化器分片(ZeRO-1)   静态合计   每 stage 层数   在途 micro-batch   激活(×1.2)    logits+开销   总计
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-C  TP8/PP1/DP128  8.8 B     17.6 GB   35.3 GB    8.8B×12/128 = 0.8 GB   53.7 GB    80             1（梯度累积）      27 GB         8 GB          ~89 GB  ✗
-B  TP8/PP2/DP64   4.4 B      8.8 GB   17.6 GB    4.4B×12/64  = 0.8 GB   27.3 GB    40             2                 27 GB         8 GB          ~62 GB  ✓
-A  TP8/PP4/DP32   2.2 B      4.4 GB    8.8 GB    2.2B×12/32  = 0.8 GB   14.0 GB    20             4                 27 GB         8 GB          ~49 GB  ✓
-```
+| 候选 | 每卡参数 | bf16 参数 | fp32 梯度 | 优化器分片 (ZeRO-1) | 静态合计 | 每 stage 层数 | 在途 micro-batch | 激活 (×1.2) | logits + 开销 | 总计 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C TP8/PP1/DP128 | 8.8 B | 17.6 GB | 35.3 GB | 8.8B×12/128 = 0.8 GB | 53.7 GB | 80 | 1（梯度累积） | 27 GB | 8 GB | ~89 GB ✗ |
+| B TP8/PP2/DP64 | 4.4 B | 8.8 GB | 17.6 GB | 4.4B×12/64 = 0.8 GB | 27.3 GB | 40 | 2 | 27 GB | 8 GB | ~62 GB ✓ |
+| A TP8/PP4/DP32 | 2.2 B | 4.4 GB | 8.8 GB | 2.2B×12/32 = 0.8 GB | 14.0 GB | 20 | 4 | 27 GB | 8 GB | ~49 GB ✓ |
+
+Table: PP 的三个候选：每卡参数与激活
 
 在途激活：1F1B 调度下第一个 stage 最多同时持有 $$p$$ 个 micro-batch 的激活，所以三个候选的激活都是"每 stage 层数 × 在途数 × 285 MB"= 80 × 285 MB ≈ 22.8 GB，乘 1.2 余量得 27 GB——**PP 不减少激活总量，只是把它和参数一起分到更多卡上**；真正减少激活的是 micro-batch、SP、CP 和重计算。"logits+开销"包括最后一个 stage 的 logits（$$s \times V \times 6 / t \approx 0.8\text{ GB}$$，bf16 一份 fp32 一份）、CUDA context、多个 communicator 的 NCCL buffer、分配器碎片，按 8 GB 预留。
 
@@ -188,28 +149,14 @@ $$d = 1024 / (8p)$$：候选 A 是 32，B 是 64。每条流水线每 step 处�
 
 三个维度落到 128 个节点上是什么样子，用候选 A 画出来（Megatron `initialize_model_parallel()` 默认 `order="tp-cp-ep-dp-pp"`，TP 变化最快、PP 最慢；torchtitan 的 DeviceMesh 维度顺序 `pp, dp, cp, tp` 结果相同）：
 
-```text title="候选 A 在 128 个节点上的 rank 排布"
-候选 A：TP8 / PP4 / DP32   rank = tp + 8·dp + 256·pp   节点 n = dp + 32·pp
-                                         （节点 n 放 rank 8n...8n+7）
+![候选 A 在 128 个节点上的 rank 排布](/img/in-post/thousand-gpu-configuration-candidate-a-rank-layout.svg)
 
-              dp=0       dp=1       dp=2     ...     dp=31
-            ┌──────────┬──────────┬──────────┬─────┬──────────┐
- pp=0       │ 节点 0   │ 节点 1   │ 节点 2   │ ... │ 节点 31  │ rank   0– 255
- (stage 0)  │ rank 0–7 │ rank 8–15│ 16–23    │     │ 248–255  │
-            ├──────────┼──────────┼──────────┼─────┼──────────┤
- pp=1       │ 节点 32  │ 节点 33  │ 节点 34  │ ... │ 节点 63  │ rank 256– 511
-            ├──────────┼──────────┼──────────┼─────┼──────────┤
- pp=2       │ 节点 64  │ 节点 65  │ 节点 66  │ ... │ 节点 95  │ rank 512– 767
-            ├──────────┼──────────┼──────────┼─────┼──────────┤
- pp=3       │ 节点 96  │ 节点 97  │ 节点 98  │ ... │ 节点 127 │ rank 768–1023
-            └──────────┴──────────┴──────────┴─────┴──────────┘
+读这张网格：
 
- 一个格子 = 一个 TP 组：节点内 8 卡，走 NVSwitch（0.94 GB/层/micro-batch）
- 一列     = 一条流水线：节点 k → 32+k → 64+k → 96+k，p2p 走节点间网卡
- 一行同号 GPU = 一个 DP 组：32 个节点的第 i 张卡，reduce-scatter/all-gather
-             走节点间网卡；共 8×4 = 32 个 DP 组，每组 32 个 rank
- v=4 交错时 stage 0 持有层 1–5 / 21–25 / 41–45 / 61–65，其余 stage 类推
-```
+- 一个格子 = 一个 TP 组：节点内 8 卡，走 NVSwitch（0.94 GB/层/micro-batch）。
+- 一列 = 一条流水线：节点 k → 32+k → 64+k → 96+k，p2p 走节点间网卡。
+- 一行同号 GPU = 一个 DP 组：32 个节点的第 i 张卡，reduce-scatter / all-gather 走节点间网卡；共 8×4 = 32 个 DP 组，每组 32 个 rank。
+- v=4 交错时 stage 0 持有层 1–5 / 21–25 / 41–45 / 61–65，其余 stage 类推。
 
 这张图解释了后面所有通信量为什么落在哪条链路上：TP 的 300 GB/step 全部在格子内的 NVSwitch 上；PP 的 p2p 只在纵向相邻两格之间；DP 的 8.8 GB/step 横跨一行的 32 个节点，且 32 个 DP 组同时在跑，每张网卡都被自己那一组占用。
 
@@ -225,27 +172,27 @@ $$s = 8192$$、TP8 + SP 之后一层的激活 285 MB，注意力用 FlashAttenti
 
 ### 6. 推导表
 
-```text title="候选 A 与候选 B 的推导表"
-项目                        候选 A                          候选 B                          备注
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-TP / PP / DP / CP           8 / 4 / 32 / 1                  8 / 2 / 64 / 1                  t·p·d = 1024
-虚拟 stage v                4（每 chunk 5 层）               4（每 chunk 10 层）              交错 1F1B
-micro-batch b               1                               1                               b=2 时 A 的激活到 54 GB，总计 ~76 GB，太紧
-每流水线序列数 B/d          16                              8
-梯度累积步 m                16                              8                               m = B/(d·b)
-气泡率 (p-1)/(m·v)          4.7%                            3.1%
-每卡静态状态                14.0 GB                         27.3 GB                         ZeRO-1，fp32 梯度累积
-每卡激活（不重计算）        27 GB                           27 GB                           285 MB × 80 层-micro-batch × 1.2
-每卡激活（选择性重计算）    ≈ 27 GB                         ≈ 27 GB                         FlashAttention 下 core_attn 已无 s² 项，几乎不省
-每卡激活（全量重计算）      80 × 16.8 MB × 1.2 ≈ 1.6 GB     同                              只存每层输入 sbh·2/t
-每卡总显存（不重计算）      ~49 GB                          ~62 GB                          含 8 GB logits/开销
-DP 通信 / step / 卡         8.8 GB → 0.18 s                 17.6 GB → 0.35 s                50 GB/s 网卡；可重叠
-TP 通信 / step / 卡         0.94 GB × 20 层 × 16 = 300 GB    0.94 GB × 40 层 × 8 = 300 GB    NVLink 450 GB/s → 0.67 s；须与 GEMM 重叠
-PP p2p / step / 卡          16 × 2 × 16.8 MB × v = 2.1 GB    8 × 2 × 16.8 MB × v = 0.5 GB    量小，延迟敏感
-理论计算时间 / step         2.0 s                           2.0 s                           2.02e18 / 1024 / 989e12
-预期 step 时间              4.4–4.9 s                       4.3–4.8 s                       见下节
-预期 MFU 区间               40–45%                          41–46%                          设计目标 42%
-```
+| 项目 | 候选 A | 候选 B | 备注 |
+|---|---|---|---|
+| TP / PP / DP / CP | 8 / 4 / 32 / 1 | 8 / 2 / 64 / 1 | t·p·d = 1024 |
+| 虚拟 stage v | 4（每 chunk 5 层） | 4（每 chunk 10 层） | 交错 1F1B |
+| micro-batch b | 1 | 1 | b=2 时 A 的激活到 54 GB，总计 ~76 GB，太紧 |
+| 每流水线序列数 B/d | 16 | 8 |  |
+| 梯度累积步 m | 16 | 8 | m = B/(d·b) |
+| 气泡率 (p-1)/(m·v) | 4.7% | 3.1% |  |
+| 每卡静态状态 | 14.0 GB | 27.3 GB | ZeRO-1，fp32 梯度累积 |
+| 每卡激活（不重计算） | 27 GB | 27 GB | 285 MB × 80 层-micro-batch × 1.2 |
+| 每卡激活（选择性重计算） | ≈ 27 GB | ≈ 27 GB | FlashAttention 下 core_attn 已无 s² 项，几乎不省 |
+| 每卡激活（全量重计算） | 80 × 16.8 MB × 1.2 ≈ 1.6 GB | 同 | 只存每层输入 sbh·2/t |
+| 每卡总显存（不重计算） | ~49 GB | ~62 GB | 含 8 GB logits/开销 |
+| DP 通信 / step / 卡 | 8.8 GB → 0.18 s | 17.6 GB → 0.35 s | 50 GB/s 网卡；可重叠 |
+| TP 通信 / step / 卡 | 0.94 GB × 20 层 × 16 = 300 GB | 0.94 GB × 40 层 × 8 = 300 GB | NVLink 450 GB/s → 0.67 s；须与 GEMM 重叠 |
+| PP p2p / step / 卡 | 16 × 2 × 16.8 MB × v = 2.1 GB | 8 × 2 × 16.8 MB × v = 0.5 GB | 量小，延迟敏感 |
+| 理论计算时间 / step | 2.0 s | 2.0 s | 2.02e18 / 1024 / 989e12 |
+| 预期 step 时间 | 4.4–4.9 s | 4.3–4.8 s | 见下节 |
+| 预期 MFU 区间 | 40–45% | 41–46% | 设计目标 42% |
+
+Table: 候选 A 与候选 B 的推导表
 
 A 与 B 的差别在于把显存换成了 DP 通信：B 每卡多 13 GB 静态状态、DP 通信翻倍、气泡略低。两者都是合理的起点。本篇后文以 A 为主线，因为它的显存余量允许后续加 CP 或把 $$s$$ 拉长而不必重新设计。
 
@@ -253,18 +200,18 @@ A 与 B 的差别在于把显存换成了 DP 通信：B 每卡多 13 GB 静态�
 
 "预期 step 时间"一行不是拍的，是按第六章的七项各给一个正常范围加出来的：
 
-```text title="预期 step 时间的七项加法"
-项                          正常范围（占理论计算时间 2.0 s 的倍数或绝对值）        候选 A 的预期
-──────────────────────────────────────────────────────────────────────────────────────────────────
-kernel 效率                 GEMM 达峰 70–75%，非 GEMM kernel 再占 15–20%   → 计算实际耗时 ≈ 2.0 / 0.62 ≈ 3.2 s
-PP 气泡                     气泡率 × 前后向时间                              3.2 × 4.7% ≈ 0.15 s
-未重叠通信                  TP 未盖住部分 0.2–0.4 s；DP 尾部 0.05–0.1 s     ≈ 0.3–0.5 s
-重计算                      不开为 0；选择性 +3–5%；全量 +30–35%           0
-数据等待                    应为 0；预取够深时 < 0.05 s                      ≈ 0
-CPU 发射开销                每 step 0.1–0.3 s（b=1 时 kernel 小而多）        ≈ 0.2 s
-straggler                   健康集群 < 2%                                    ≈ 0.1 s
-合计                                                                         ≈ 4.0–4.4 s → MFU 45–50%（乐观），取 40–45% 为预期区间
-```
+| 项 | 正常范围（占理论计算时间 2.0 s 的倍数或绝对值） | 候选 A 的预期 |
+|---|---|---|
+| kernel 效率 | GEMM 达峰 70–75%，非 GEMM kernel 再占 15–20% | → 计算实际耗时 ≈ 2.0 / 0.62 ≈ 3.2 s |
+| PP 气泡 | 气泡率 × 前后向时间 | 3.2 × 4.7% ≈ 0.15 s |
+| 未重叠通信 | TP 未盖住部分 0.2–0.4 s；DP 尾部 0.05–0.1 s | ≈ 0.3–0.5 s |
+| 重计算 | 不开为 0；选择性 +3–5%；全量 +30–35% | 0 |
+| 数据等待 | 应为 0；预取够深时 < 0.05 s | ≈ 0 |
+| CPU 发射开销 | 每 step 0.1–0.3 s（b=1 时 kernel 小而多） | ≈ 0.2 s |
+| straggler | 健康集群 < 2% | ≈ 0.1 s |
+| 合计 |  | ≈ 4.0–4.4 s → MFU 45–50%（乐观），取 40–45% 为预期区间 |
+
+Table: 预期 step 时间的七项加法
 
 这张预算表的作用不是给出精确数字，而是给出**每一项的正常范围**——第六章拿实测去对照它，超出范围的那几项就是要改的。Llama 3 论文在 8K–16K 张 H100 上报告 38–43%，Megatron-LM 论文在 A100 上报告 52%；1024 卡 70B dense 做到 42% 是合理目标，做不到 35% 说明有明确的问题。
 
@@ -304,14 +251,13 @@ Table: micro-batch 大小对气泡与显存的影响
 
 ### 1. 三种策略与代价
 
-```text title="三种重计算策略与代价"
-策略           存什么                                  省多少激活                       多算多少
-────────────────────────────────────────────────────────────────────────────────────────────────────────
-全量 (full)    每层（或每 N 层）的输入 sbh·2/t          每层 285 MB → 16.8 MB（约 94%）   反向前重做整层前向：+1 次前向 ≈ +33% FLOP，MFU 不计、HFU 计
-选择性         存 GEMM 的输入输出，重算注意力 softmax   论文设定下约 60%；FlashAttention   只重算注意力的非 GEMM 部分：+3–5%
-(selective)    等便宜的部分（Korthikanti et al. 2022）  下 s² 项已不存在，几乎不省
-按层 N         前 N 层全量重计算，其余不重计算            N/L_stage × 94%                   N/L_stage × 33%
-```
+| 策略 | 存什么 | 省多少激活 | 多算多少 |
+|---|---|---|---|
+| 全量 (full) | 每层（或每 N 层）的输入 sbh·2/t | 每层 285 MB → 16.8 MB（约 94%） | 反向前重做整层前向：+1 次前向 ≈ +33% FLOP，MFU 不计、HFU 计 |
+| 选择性 (selective) | 存 GEMM 的输入输出，重算注意力 softmax 等便宜的部分（Korthikanti et al. 2022） | 论文设定下约 60%；FlashAttention 下 s² 项已不存在，几乎不省 | 只重算注意力的非 GEMM 部分：+3–5% |
+| 按层 N | 前 N 层全量重计算，其余不重计算 | N/L_stage × 94% | N/L_stage × 33% |
+
+Table: 三种重计算策略与代价
 
 选择性重计算的论点是：注意力的 softmax、dropout、分数矩阵占激活的大头（$$5as/h$$ 项）但算力占比小，重算它们几乎不花时间。这个论点在 FlashAttention 普及后要重新审视：FlashAttention 本身就不存分数矩阵，反向时在 kernel 内重算，所以"重算注意力"的收益已经被 kernel 拿走了，选择性重计算剩下的收益很小。Megatron 0.18.0 的 `recompute_modules` 默认仍是 `["core_attn"]`，在 TE fused attention 下开它的收益要用 `torch.cuda.memory_stats` 实测确认，否则只是多花了 3–5% 算力。
 
@@ -321,17 +267,17 @@ Table: micro-batch 大小对气泡与显存的影响
 
 0.18.0 把重计算配置放在 `megatron/core/transformer/transformer_config.py` 的 `TransformerConfig` 里，CLI 参数由 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory` 从 dataclass 字段自动生成（字段名下划线换连字符），所以 `arguments.py` 里只看得到几个手写的兼容项：
 
-```text title="Megatron 重计算的参数族"
-字段 / CLI                                       含义
-─────────────────────────────────────────────────────────────────────────────────────────────────────
-recompute_granularity  --recompute-granularity    None / 'selective' / 'full'
-recompute_method       --recompute-method         'uniform'（每 recompute_num_layers 层为一组重算）/ 'block'（每 stage 只重算前 N 层）
-recompute_num_layers   --recompute-num-layers     uniform 时每组层数；block 时每 stage 重算的层数；selective 时必须为 None
-recompute_modules      --recompute-modules        selective 时重算哪些子模块：core_attn / moe_act / layernorm / mla_up_proj / mlp / moe / shared_experts
-distribute_saved_activations --distribute-saved-activations   把保存的激活沿 TP 组切分（与 SP 互斥）
---recompute-activations                          arguments.py 里的快捷方式，等价于 --recompute-granularity selective
---checkpoint-activations                         已废弃，arguments.py 会报错并提示改用上面两个
-```
+| 字段 / CLI | 含义 |
+|---|---|
+| recompute_granularity --recompute-granularity | None / 'selective' / 'full' |
+| recompute_method --recompute-method | 'uniform'（每 recompute_num_layers 层为一组重算）/ 'block'（每 stage 只重算前 N 层） |
+| recompute_num_layers --recompute-num-layers | uniform 时每组层数；block 时每 stage 重算的层数；selective 时必须为 None |
+| recompute_modules --recompute-modules | selective 时重算哪些子模块：core_attn / moe_act / layernorm / mla_up_proj / mlp / moe / shared_experts |
+| distribute_saved_activations --distribute-saved-activations | 把保存的激活沿 TP 组切分（与 SP 互斥） |
+| --recompute-activations | arguments.py 里的快捷方式，等价于 --recompute-granularity selective |
+| --checkpoint-activations | 已废弃，arguments.py 会报错并提示改用上面两个 |
+
+Table: Megatron 重计算的参数族
 
 `transformer_config.py` 的 `__post_init__` 做了全部合法性检查：`full` 必须配 `recompute_method` 与 `recompute_num_layers`；`selective` 不能带 `recompute_num_layers`；`recompute_modules` 里 `moe_act` 要求 grouped GEMM。实现入口在 `megatron/core/transformer/transformer_block.py` 的 `TransformerBlock`，它调用 `megatron/core/recompute.py` 的 `checkpointed_forward()`，底层是 `megatron/core/tensor_parallel/random.py` 的 `checkpoint()`（`CheckpointFunction`，负责保存并恢复 TP 的 RNG 状态，这是 Megatron 不直接用 `torch.utils.checkpoint` 的原因），或在 TE 可用时用 TE 的 checkpoint。
 
@@ -363,16 +309,7 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 
 有一个陷阱：梯度累积期间不能 reduce。$$m$$ 个 micro-batch 只有最后一个的反向该触发通信，前 $$m-1$$ 个要关掉——Megatron 在 `schedules.py` 里通过 `no_sync_func` / `disable_grad_sync()` / `enable_grad_sync()` 做这件事；FSDP2 是 `set_requires_gradient_sync(False)`（`torch/distributed/fsdp/_fully_shard/_fully_shard.py` 的 `FSDPModule`），并可用 `set_reshard_after_backward(False)` 让累积期间不重新分片参数、省掉下一次 all-gather。**重叠只在最后一个 micro-batch 的反向里发生**，所以 DP 通信能藏起来的上限是"一次反向的时间"，$$m$$ 越大这个上限相对越宽松。把一个 step 的两条 stream 摆在同一根时间轴上（以 4 个 bucket 为例）：
 
-```text title="一个 step 内计算与通信两条 stream 的时间轴"
-时间 ──────────────────────────────────────────────────────────────────────────►
-      micro-batch 1..m-1 micro-batch m（最后一个）   等    opt 下一 step
-     ┌──────────────────┬──┬──────┬─────┬─────┬─────┬─────┬───┬─────────┬──────┐
-计算 │F1B1..F(m-1)B(m-1)│Fm│L80-61│60-41│40-21│L20-1│ 空  │opt│F1' L1-20│L21-..│
-通信 │ no_sync 不发梯度 │  │      │RS b3│RS b2│RS b1│RS b0│   │AG b0    │AG b1 │
-     └──────────────────┴──┴──────┴─────┴─────┴─────┴─────┴───┴─────────┴──────┘
-                                   ▲ 层80-61 就位    ▲ 尾部    ▲ AG 盖住
-                                     发 bucket 3       暴露      下一步前向
-```
+![一个 step 内计算与通信两条 stream 的时间轴](/img/in-post/thousand-gpu-configuration-compute-comm-two-streams-timeline.svg)
 
 RS = reduce-scatter 梯度，AG = all-gather 更新后的参数；bucket 按反向顺序编号（b3 是最后几层，最先算完）。图里能看出三件事：前 $$m-1$$ 个 micro-batch 通信流是空的；最后一个 bucket（b0，最前面几层）算完时反向已经结束，它的 reduce-scatter 没有计算可以盖，是必然暴露的尾部（第六章第 3 节预算里的"DP 尾部 0.05–0.1 s"）；all-gather 要等优化器更新完，所以它盖住的是**下一个 step** 的前向，前向从第 1 层开始算、b0 恰好也是第 1 层附近的参数，顺序天然匹配。
 
@@ -487,19 +424,18 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 
 候选 A 设计目标 42%（4.75 s/step），假设跑出来 32%（6.2 s/step），多出 1.45 s。下面是一张**构造的**拆解表——数字是按第 1 节的测法从一份假想的 trace 里读出来的，用来演示七项如何加起来正好是 10 个点；它不是任何一次真实测量：
 
-```text title="缺的 10 个 MFU 点的拆解表（构造）"
-项              预算（第二章第 7 节）    "实测"     超出      折成 MFU 点   现象与归因                                          处置
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-1 PP 气泡        0.15 s                  0.23 s     +0.08     ~0.5          首尾 stage 各多算 embedding / lm_head+loss，其余 stage 等   首尾 stage 少放 1 层
-2 未重叠通信     0.4 s                   0.8 s      +0.4      ~3            --overlap-grad-reduce / --overlap-param-gather 没开，DP 全暴露；  开两个 overlap；开 tp_comm_overlap
-                                                                            tp_comm_overlap 没开，TP 独占接近 0.67 s 上界
-3 重计算         0                       0.13 s     +0.13     ~1            示例配置带着 --recompute-granularity selective，TE fused attention 下白算   关掉；用 memory_stats 确认放得下
-4 数据等待       0                       0.05 s     +0.05     ~0.5          在线 tokenize，2 个 worker                             离线 tokenize；worker 数 ≥ 4；pin_memory
-5 kernel 效率    3.2 s                   3.4 s      +0.2      ~1.5          --no-bias-swiglu-fusion / --no-rope-fusion 被示例脚本带进来；词表未 pad  去掉两个 no-fusion；--make-vocab-size-divisible-by 128
-6 CPU 发射开销   0.2 s                   0.45 s     +0.25     ~1.5          b=1、无 CUDA Graph、每 step 数千个小 kernel               cuda_graph_impl=local；或 b=2 配 v 更大
-7 straggler      0.1 s                   0.45 s     +0.35     ~2            节点 37 一张卡持续降频，所有 DP reduce-scatter 等它         隔离该节点（第九篇）；开训前跑 gpu_sniff_test
-合计             4.75 s → 42%            6.2 s → 32%  +1.45   ~10
-```
+| 项 | 预算（第二章第 7 节） | "实测" | 超出 | 折成 MFU 点 | 现象与归因 | 处置 |
+|---|---|---|---|---|---|---|
+| 1 PP 气泡 | 0.15 s | 0.23 s | +0.08 | ~0.5 | 首尾 stage 各多算 embedding / lm_head+loss，其余 stage 等 | 首尾 stage 少放 1 层 |
+| 2 未重叠通信 | 0.4 s | 0.8 s | +0.4 | ~3 | --overlap-grad-reduce / --overlap-param-gather 没开，DP 全暴露；<br/>tp_comm_overlap 没开，TP 独占接近 0.67 s 上界 | 开两个 overlap；开 tp_comm_overlap |
+| 3 重计算 | 0 | 0.13 s | +0.13 | ~1 | 示例配置带着 --recompute-granularity selective，TE fused attention 下白算 | 关掉；用 memory_stats 确认放得下 |
+| 4 数据等待 | 0 | 0.05 s | +0.05 | ~0.5 | 在线 tokenize，2 个 worker | 离线 tokenize；worker 数 ≥ 4；pin_memory |
+| 5 kernel 效率 | 3.2 s | 3.4 s | +0.2 | ~1.5 | --no-bias-swiglu-fusion / --no-rope-fusion 被示例脚本带进来；词表未 pad | 去掉两个 no-fusion；--make-vocab-size-divisible-by 128 |
+| 6 CPU 发射开销 | 0.2 s | 0.45 s | +0.25 | ~1.5 | b=1、无 CUDA Graph、每 step 数千个小 kernel | cuda_graph_impl=local；或 b=2 配 v 更大 |
+| 7 straggler | 0.1 s | 0.45 s | +0.35 | ~2 | 节点 37 一张卡持续降频，所有 DP reduce-scatter 等它 | 隔离该节点（第九篇）；开训前跑 gpu_sniff_test |
+| 合计 | 4.75 s → 42% | 6.2 s → 32% | +1.45 | ~10 |  |  |
+
+Table: 缺的 10 个 MFU 点的拆解表（构造）
 
 "折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠第九篇的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归第十篇。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
 
@@ -545,20 +481,14 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 
 ### 1. 要点回顾
 
-```text title="要点回顾"
-推导顺序     TP（NVLink 域 8，开 SP）→ PP（放下 N/(t·p) + 在途激活，交错调度压气泡）→ DP（用满卡；每卡 token 少选 ZeRO-1 不选 FSDP）→ CP（s ≥ 32K）
-70B/1024 卡  候选 A：TP8/PP4(v=4)/DP32，b=1，m=16，气泡 4.7%，每卡 ~49 GB 不重计算；候选 B：TP8/PP2(v=4)/DP64，m=8，~62 GB
-             FSDP128 版每 step 每卡 ~175 GB 节点间通信、3.5 s，压不住 —— 每卡 4096 token 太少
-             理论 2.0 s/step；目标 42% ≈ 4.75 s ≈ 88 万 token/s
-三个 batch   B = d·b·m；B 是算法参数；PP 下 m 既是 micro-batch 数也是梯度累积步；b 小 GEMM 差、b 大气泡大，通常 1 或 2
-重计算       全量 +33% FLOP 省 94% 激活；选择性在 FlashAttention 下几乎不省；按层 N 是"差一点"时最经济；先确认放不下再开
-重叠         DP 靠 bucket 与反向重叠、all-gather 与下一前向重叠，只在最后一个 micro-batch 发生；TP 靠分块流水（TE userbuffers / async TP），须开 SP；
-             PP 靠 isend/irecv；失败五因：没开 / bucket 太大 / 多余同步 / SM 争抢 / CPU 发得晚
-七项拆解     气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项
-             缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（第十篇）
-FP8/融合/编译 FP8 只快 GEMM，step 时间降 20–25%；融合是无风险基线；per-block compile 顺序 TP → AC → compile → FSDP；CUDA Graph 只治 CPU 开销
-纪律         配置进 git、启动时打印全部参数；改一个变量、前后各 100 step 基准 + trace；变更表
-```
+- **推导顺序**：TP（NVLink 域 8，开 SP）→ PP（放下 N/(t·p) + 在途激活，交错调度压气泡）→ DP（用满卡；每卡 token 少选 ZeRO-1 不选 FSDP）→ CP（s ≥ 32K）。
+- **70B / 1024 卡**：候选 A：TP8/PP4(v=4)/DP32，b=1，m=16，气泡 4.7%，每卡 ~49 GB 不重计算；候选 B：TP8/PP2(v=4)/DP64，m=8，~62 GB。FSDP128 版每 step 每卡 ~175 GB 节点间通信、3.5 s，压不住——每卡 4096 token 太少。理论 2.0 s/step；目标 42% ≈ 4.75 s ≈ 88 万 token/s。
+- **三个 batch**：B = d·b·m；B 是算法参数；PP 下 m 既是 micro-batch 数也是梯度累积步；b 小 GEMM 差、b 大气泡大，通常 1 或 2。
+- **重计算**：全量 +33% FLOP 省 94% 激活；选择性在 FlashAttention 下几乎不省；按层 N 是「差一点」时最经济；先确认放不下再开。
+- **重叠**：DP 靠 bucket 与反向重叠、all-gather 与下一前向重叠，只在最后一个 micro-batch 发生；TP 靠分块流水（TE userbuffers / async TP），须开 SP；PP 靠 isend/irecv；失败五因：没开 / bucket 太大 / 多余同步 / SM 争抢 / CPU 发得晚。
+- **七项拆解**：气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项。缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（第十篇）。
+- **FP8 / 融合 / 编译**：FP8 只快 GEMM，step 时间降 20–25%；融合是无风险基线；per-block compile 顺序 TP → AC → compile → FSDP；CUDA Graph 只治 CPU 开销。
+- **纪律**：配置进 git、启动时打印全部参数；改一个变量、前后各 100 step 基准 + trace；变更表。
 
 ### 2. 本篇涉及的源码位置
 

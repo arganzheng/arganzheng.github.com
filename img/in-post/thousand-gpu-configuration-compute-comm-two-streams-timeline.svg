@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 176" width="760" height="176" role="img" aria-labelledby="t d">
+  <title id="t">一个 step 内计算与通信两条 stream 的时间轴</title>
+  <desc id="d">上行计算流：前 m-1 个 micro-batch 在 no_sync 下不发梯度；最后一个 micro-batch 反向按层从 80 到 1，每凑齐一个 bucket 通信流就发一次 reduce-scatter（b3→b0）；最后一个 bucket 的 RS 暴露在尾部；optimizer 之后 all-gather 与下一 step 的前向重叠。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="16" y="22" text-anchor="start" class="small">时间</text><line x1="58" y1="18" x2="690" y2="18" class="arrow"/><text x="133.0" y="44" text-anchor="middle" class="small">micro-batch 1…m-1</text><text x="333.0" y="44" text-anchor="middle" class="small">micro-batch m（最后一个）</text><text x="480.0" y="44" text-anchor="middle" class="small">等</text><text x="522.0" y="44" text-anchor="middle" class="small">opt</text><text x="616.0" y="44" text-anchor="middle" class="small">下一 step</text><text x="16" y="79.0" text-anchor="start" class="bold">计算</text><rect class="seg-a" x="58" y="54" width="150" height="40"/><text x="133.0" y="79.0" text-anchor="middle" class="mono">F1B1…F(m-1)B(m-1)</text><rect class="seg-a" x="208" y="54" width="34" height="40"/><text x="225.0" y="79.0" text-anchor="middle" class="mono">Fm</text><rect class="seg-a" x="242" y="54" width="60" height="40"/><text x="272.0" y="79.0" text-anchor="middle" class="mono">L80–61</text><rect class="seg-a" x="302" y="54" width="52" height="40"/><text x="328.0" y="79.0" text-anchor="middle" class="mono">60–41</text><rect class="seg-a" x="354" y="54" width="52" height="40"/><text x="380.0" y="79.0" text-anchor="middle" class="mono">40–21</text><rect class="seg-a" x="406" y="54" width="52" height="40"/><text x="432.0" y="79.0" text-anchor="middle" class="mono">L20–1</text><rect class="seg-wait" x="458" y="54" width="44" height="40"/><text x="480.0" y="79.0" text-anchor="middle" class="mono">空</text><rect class="seg-c" x="502" y="54" width="40" height="40"/><text x="522.0" y="79.0" text-anchor="middle" class="mono">opt</text><rect class="seg-a" x="542" y="54" width="84" height="40"/><text x="584.0" y="79.0" text-anchor="middle" class="mono">F1' L1–20</text><rect class="seg-a" x="626" y="54" width="64" height="40"/><text x="658.0" y="79.0" text-anchor="middle" class="mono">L21–…</text><text x="16" y="119.0" text-anchor="start" class="bold">通信</text><rect class="seg-free" x="58" y="94" width="150" height="40"/><text x="133.0" y="119.0" text-anchor="middle" class="small">no_sync 不发梯度</text><rect class="seg-free" x="208" y="94" width="34" height="40"/><rect class="seg-free" x="242" y="94" width="60" height="40"/><rect class="seg-b" x="302" y="94" width="52" height="40"/><text x="328.0" y="119.0" text-anchor="middle" class="mono">RS b3</text><rect class="seg-b" x="354" y="94" width="52" height="40"/><text x="380.0" y="119.0" text-anchor="middle" class="mono">RS b2</text><rect class="seg-b" x="406" y="94" width="52" height="40"/><text x="432.0" y="119.0" text-anchor="middle" class="mono">RS b1</text><rect class="seg-b" x="458" y="94" width="44" height="40"/><text x="480.0" y="119.0" text-anchor="middle" class="mono">RS b0</text><rect class="seg-free" x="502" y="94" width="40" height="40"/><rect class="seg-kv" x="542" y="94" width="84" height="40"/><text x="584.0" y="119.0" text-anchor="middle" class="mono">AG b0</text><rect class="seg-kv" x="626" y="94" width="64" height="40"/><text x="658.0" y="119.0" text-anchor="middle" class="mono">AG b1</text><text x="302" y="152" text-anchor="start" class="small">▲ 层 80–61 就位</text><text x="314" y="168" text-anchor="start" class="small">发 bucket 3</text><text x="458" y="152" text-anchor="start" class="small">▲ 尾部</text><text x="470" y="168" text-anchor="start" class="small">暴露</text><text x="542" y="152" text-anchor="start" class="small">▲ AG 盖住</text><text x="554" y="168" text-anchor="start" class="small">下一步前向</text>
+</svg>

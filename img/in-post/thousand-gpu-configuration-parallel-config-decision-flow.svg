@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 713" width="760" height="713" role="img" aria-labelledby="t d">
+  <title id="t">并行配置的决策流程</title>
+  <desc id="d">从模型规格与集群规格出发，依次定 TP、PP、DP、CP，再定 micro-batch 与重计算，用账本算出两三个候选，最后跑基准定版。每一步的框里是该步的上下限、通信代价与取舍规则。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="380" y="20" text-anchor="middle" class="body">输入：模型规格 (N, L, h, a, s)　＋　集群规格（卡数、节点内卡数、每卡显存、NVLink / 网卡带宽）</text><line x1="380" y1="28" x2="380" y2="36" class="arrow"/><rect class="card" x="35.0" y="36" width="690" height="93"/><text x="49.0" y="58" text-anchor="start" class="bold">第一步：TP</text><text x="49.0" y="82" text-anchor="start" class="small">上限 = NVLink 域大小（8）；下限 = 让 N/(t·p) 的静态状态能放下</text><text x="49.0" y="101" text-anchor="start" class="small">TP 通信量 ∝ sbh / 层，只在 NVLink 上可接受；能用 8 就用 8，否则 4</text><text x="49.0" y="120" text-anchor="start" class="small">开 SP（序列并行），激活除以 t</text><line x1="380" y1="129" x2="380" y2="151" class="arrow"/><rect class="card" x="35.0" y="151" width="690" height="93"/><text x="49.0" y="173" text-anchor="start" class="bold">第二步：PP</text><text x="49.0" y="197" text-anchor="start" class="small">目标：N/(t·p) 的参数 + 梯度 + 优化器分片 + 在途激活 ≤ 显存预算</text><text x="49.0" y="216" text-anchor="start" class="small">p 越大显存越松、气泡越大；每加一倍 p，m 要同倍增才保持气泡率</text><text x="49.0" y="235" text-anchor="start" class="small">优先用交错调度（v 个虚拟 stage）降气泡，而不是加 m</text><line x1="380" y1="244" x2="380" y2="266" class="arrow"/><rect class="card" x="35.0" y="266" width="690" height="93"/><text x="49.0" y="288" text-anchor="start" class="bold">第三步：DP</text><text x="49.0" y="312" text-anchor="start" class="small">d = 卡数 / (t·p·c)；m = B / (d·b)</text><text x="49.0" y="331" text-anchor="start" class="small">选 ZeRO-1（分布式优化器）还是 ZeRO-3 / FSDP：看每卡每 step 的 token 数</text><text x="49.0" y="350" text-anchor="start" class="small">每卡 token 少、m 多 → FSDP 的 3N×m 通信压不住，选 PP + ZeRO-1</text><line x1="380" y1="359" x2="380" y2="381" class="arrow"/><rect class="card" x="35.0" y="381" width="690" height="74"/><text x="49.0" y="403" text-anchor="start" class="bold">第四步：CP</text><text x="49.0" y="427" text-anchor="start" class="small">仅当 s 大到单卡（TP 后）一层的激活或注意力放不下时启用</text><text x="49.0" y="446" text-anchor="start" class="small">s = 8192 不需要；s ≥ 32K 开始需要；c 占用的卡从 d 里扣</text><line x1="380" y1="455" x2="380" y2="477" class="arrow"/><rect class="frame" x="35.0" y="477" width="690" height="74"/><text x="49.0" y="499" text-anchor="start" class="bold">micro-batch 与重计算</text><text x="49.0" y="523" text-anchor="start" class="small">micro-batch b：显存允许下尽量大，但 m = B/(d·b) 要 ≥ 4p 才能压住气泡；通常 b = 1 或 2</text><text x="49.0" y="542" text-anchor="start" class="small">重计算：先不开；放不下时按「选择性 → 按层 N → 全量」的顺序加</text><line x1="380" y1="551" x2="380" y2="573" class="arrow"/><rect class="frame" x="35.0" y="573" width="690" height="55"/><text x="49.0" y="595" text-anchor="start" class="bold">算账</text><text x="49.0" y="619" text-anchor="start" class="small">用账本算出：每卡显存、每 step 各类通信量与时间、气泡率、理论 step 时间 → 两三个候选</text><line x1="380" y1="628" x2="380" y2="650" class="arrow"/><rect class="frame" x="35.0" y="650" width="690" height="55"/><text x="49.0" y="672" text-anchor="start" class="bold">跑基准</text><text x="49.0" y="696" text-anchor="start" class="small">各候选跑 100 step 基准 → profiler → 七项损失拆解（第六章）→ 定版并进版本控制</text>
+</svg>

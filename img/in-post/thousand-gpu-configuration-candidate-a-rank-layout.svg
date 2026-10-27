@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 280" width="760" height="280" role="img" aria-labelledby="t d">
+  <title id="t">候选 A 在 128 个节点上的 rank 排布</title>
+  <desc id="d">4 行（pp=0…3）× 32 列（dp=0…31）的节点网格，每格一个节点、8 个连续 rank；一格是一个 TP 组，一列是一条流水线，一行同号 GPU 是一个 DP 组。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .request { fill: #e9f4ee; stroke: #70a582; stroke-width: 1.2; rx: 8; }
+      .compute { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; rx: 8; }
+      .memory { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; rx: 8; }
+      .waiting { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; rx: 8; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+    .seg-used { fill: #5880b4; stroke: #40566f; stroke-width: 1.2; }
+      .seg-reserved { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-freefrag { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hash { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-kv { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+<text x="380" y="20" text-anchor="middle" class="small">候选 A：TP8 / PP4 / DP32　rank = tp + 8·dp + 256·pp　节点 n = dp + 32·pp（节点 n 放 rank 8n…8n+7）</text><text x="146.0" y="48" text-anchor="middle" class="small">dp=0</text><text x="258.0" y="48" text-anchor="middle" class="small">dp=1</text><text x="370.0" y="48" text-anchor="middle" class="small">dp=2</text><text x="482.0" y="48" text-anchor="middle" class="small">…</text><text x="594.0" y="48" text-anchor="middle" class="small">dp=31</text><text x="80" y="84.0" text-anchor="end" class="bold">pp=0</text><text x="80" y="98.0" text-anchor="end" class="small">(stage 0)</text><rect class="seg-free" x="90" y="56" width="112" height="46"/><text x="146.0" y="75" text-anchor="middle" class="small">节点 0</text><text x="146.0" y="92" text-anchor="middle" class="mono">rank 0–7</text><rect class="seg-free" x="202" y="56" width="112" height="46"/><text x="258.0" y="75" text-anchor="middle" class="small">节点 1</text><text x="258.0" y="92" text-anchor="middle" class="mono">rank 8–15</text><rect class="seg-free" x="314" y="56" width="112" height="46"/><text x="370.0" y="75" text-anchor="middle" class="small">节点 2</text><text x="370.0" y="92" text-anchor="middle" class="mono">rank 16–23</text><rect class="seg-free" x="426" y="56" width="112" height="46"/><text x="482.0" y="84.0" text-anchor="middle" class="mono">…</text><rect class="seg-free" x="538" y="56" width="112" height="46"/><text x="594.0" y="75" text-anchor="middle" class="small">节点 31</text><text x="594.0" y="92" text-anchor="middle" class="mono">rank 248–255</text><text x="662" y="84.0" text-anchor="start" class="mono">rank 0–255</text><text x="80" y="130.0" text-anchor="end" class="bold">pp=1</text><rect class="seg-free" x="90" y="102" width="112" height="46"/><text x="146.0" y="121" text-anchor="middle" class="small">节点 32</text><text x="146.0" y="138" text-anchor="middle" class="mono">rank 256–263</text><rect class="seg-free" x="202" y="102" width="112" height="46"/><text x="258.0" y="121" text-anchor="middle" class="small">节点 33</text><text x="258.0" y="138" text-anchor="middle" class="mono">rank 264–271</text><rect class="seg-free" x="314" y="102" width="112" height="46"/><text x="370.0" y="121" text-anchor="middle" class="small">节点 34</text><text x="370.0" y="138" text-anchor="middle" class="mono">rank 272–279</text><rect class="seg-free" x="426" y="102" width="112" height="46"/><text x="482.0" y="130.0" text-anchor="middle" class="mono">…</text><rect class="seg-free" x="538" y="102" width="112" height="46"/><text x="594.0" y="121" text-anchor="middle" class="small">节点 63</text><text x="594.0" y="138" text-anchor="middle" class="mono">rank 504–511</text><text x="662" y="130.0" text-anchor="start" class="mono">rank 256–511</text><text x="80" y="176.0" text-anchor="end" class="bold">pp=2</text><rect class="seg-free" x="90" y="148" width="112" height="46"/><text x="146.0" y="167" text-anchor="middle" class="small">节点 64</text><text x="146.0" y="184" text-anchor="middle" class="mono">rank 512–519</text><rect class="seg-free" x="202" y="148" width="112" height="46"/><text x="258.0" y="167" text-anchor="middle" class="small">节点 65</text><text x="258.0" y="184" text-anchor="middle" class="mono">rank 520–527</text><rect class="seg-free" x="314" y="148" width="112" height="46"/><text x="370.0" y="167" text-anchor="middle" class="small">节点 66</text><text x="370.0" y="184" text-anchor="middle" class="mono">rank 528–535</text><rect class="seg-free" x="426" y="148" width="112" height="46"/><text x="482.0" y="176.0" text-anchor="middle" class="mono">…</text><rect class="seg-free" x="538" y="148" width="112" height="46"/><text x="594.0" y="167" text-anchor="middle" class="small">节点 95</text><text x="594.0" y="184" text-anchor="middle" class="mono">rank 760–767</text><text x="662" y="176.0" text-anchor="start" class="mono">rank 512–767</text><text x="80" y="222.0" text-anchor="end" class="bold">pp=3</text><rect class="seg-free" x="90" y="194" width="112" height="46"/><text x="146.0" y="213" text-anchor="middle" class="small">节点 96</text><text x="146.0" y="230" text-anchor="middle" class="mono">rank 768–775</text><rect class="seg-free" x="202" y="194" width="112" height="46"/><text x="258.0" y="213" text-anchor="middle" class="small">节点 97</text><text x="258.0" y="230" text-anchor="middle" class="mono">rank 776–783</text><rect class="seg-free" x="314" y="194" width="112" height="46"/><text x="370.0" y="213" text-anchor="middle" class="small">节点 98</text><text x="370.0" y="230" text-anchor="middle" class="mono">rank 784–791</text><rect class="seg-free" x="426" y="194" width="112" height="46"/><text x="482.0" y="222.0" text-anchor="middle" class="mono">…</text><rect class="seg-free" x="538" y="194" width="112" height="46"/><text x="594.0" y="213" text-anchor="middle" class="small">节点 127</text><text x="594.0" y="230" text-anchor="middle" class="mono">rank 1016–1023</text><text x="662" y="222.0" text-anchor="start" class="mono">rank 768–1023</text><path class="brk" d="M202 248 V254 H314 V248"/><text x="258.0" y="271" text-anchor="middle" class="small"></text><text x="258.0" y="270" text-anchor="middle" class="small">一列 = 一条流水线（p2p 走节点间网卡）</text><text x="594.0" y="270" text-anchor="middle" class="small">一格 = 一个 TP 组（节点内 8 卡）</text>
+</svg>
