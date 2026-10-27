@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 912" width="760" height="912" role="img" aria-labelledby="t d">
+  <title id="t">DCP 的对象模型图</title>
+  <desc id="d">自上而下：用户侧 dict[str, Stateful | Tensor | DTensor | Any] 经 _stateful_to_state_dict() 进入保存区（state_dict_saver.py）：① SavePlanner.create_local_plan 产出 SavePlan[WriteItem]，② reduce_scatter 到 coordinator，③ write_data 调 StorageWriter 写文件并回调 SavePlanner.resolve_data 取张量，④ all_reduce 后 finish(metadata) 写出 Metadata（state_dict_metadata 与 storage_data）；磁盘上是 __i_k.distcp + .metadata；加载区（state_dict_loader.py）：StorageReader.read_metadata 读回 Metadata 交给 LoadPlanner，LoadPlanner.create_local_plan 用 resharding.py / planner_helpers.create_read_items_for_chunk_list() 算出 LoadPlan[ReadItem] 交给 StorageReader.read_data，read_data 按 ReadItem 读、narrow、copy_，回调 resolve_tensor / commit_tensor；异步区：staging.py 的 AsyncStager 协议与 DefaultStager / BlockingAsyncStager / _ReplicationStager，_async_executor.py 的 _AsyncCheckpointExecutor 与线程 / 进程两种实现。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<rect class="card" x="130" y="14" width="500" height="54"/>
+<text x="380" y="36" text-anchor="middle" class="monob">dict[str, Stateful | Tensor | DTensor | Any]</text>
+<text x="380" y="56" text-anchor="middle" class="small">← get_model_state_dict / get_optimizer_state_dict（state_dict.py）</text>
+<text x="122" y="26" text-anchor="end" class="bold">用户侧</text>
+<path d="M380.0 68 V108" class="arrow"/>
+<text x="388" y="94" text-anchor="start" class="mono">_stateful_to_state_dict()</text>
+<rect class="frame" x="20" y="108" width="720" height="340"/>
+<rect class="card" x="36" y="138" width="180" height="176"/>
+<text x="46" y="160" text-anchor="start" class="monob">SavePlanner</text>
+<text x="46" y="178" text-anchor="start" class="mono12">planner.py /</text>
+<text x="46" y="192" text-anchor="start" class="mono12">default_planner.py</text>
+<text x="46" y="217" text-anchor="start" class="mono12">create_local_plan →</text>
+<text x="46" y="269" text-anchor="start" class="mono12">resolve_data ←</text>
+<text x="46" y="287" text-anchor="start" class="small">（存储层回调，</text>
+<text x="46" y="305" text-anchor="start" class="small">取真正的张量）</text>
+<rect class="card" x="456" y="138" width="268" height="176"/>
+<text x="466" y="160" text-anchor="start" class="monob">StorageWriter</text>
+<text x="466" y="178" text-anchor="start" class="mono12">storage.py / filesystem.py</text>
+<text x="466" y="208" text-anchor="start" class="mono12">prepare_local_plan /</text>
+<text x="466" y="226" text-anchor="start" class="mono12">prepare_global_plan</text>
+<text x="466" y="269" text-anchor="start" class="mono12">write_data → WriteResult</text>
+<text x="466" y="302" text-anchor="start" class="mono12">finish(metadata) → .metadata</text>
+<rect class="seg-c" x="232" y="198" width="208" height="30"/>
+<text x="336" y="218" text-anchor="middle" class="mono12">① SavePlan[WriteItem]</text>
+<path d="M216 213.0 H232" class="arrow"/>
+<rect class="seg-c" x="232" y="250" width="208" height="30"/>
+<text x="336" y="270" text-anchor="middle" class="mono12">③ write_data</text>
+<path d="M336.0 228 V250" class="arrow"/>
+<text x="342" y="245" text-anchor="start" class="mono12">② reduce_scatter</text>
+<path d="M440 265.0 H456" class="arrow"/>
+<path d="M232 265.0 H216" class="arrow"/>
+<path d="M336.0 280 V358" class="arrow"/>
+<text x="342" y="304" text-anchor="start" class="mono12">④ all_reduce</text>
+<rect class="card" x="36" y="358" width="688" height="76"/>
+<text x="46" y="380" text-anchor="start" class="monob">Metadata</text>
+<text x="126" y="380" text-anchor="start" class="mono12">metadata.py</text>
+<text x="46" y="402" text-anchor="start" class="mono12">state_dict_metadata: fqn → TensorStorageMetadata{size, chunks[ChunkStorageMetadata]}</text>
+<text x="46" y="422" text-anchor="start" class="mono12">storage_data: MetadataIndex → 文件 / 偏移</text>
+<text x="32" y="128" text-anchor="start" class="bold">保存</text>
+<text x="68" y="128" text-anchor="start" class="mono12">state_dict_saver.py</text>
+<path d="M380.0 448 V474" class="arrow"/>
+<rect class="disk" x="230" y="474" width="300" height="30"/>
+<text x="380" y="494" text-anchor="middle" class="mono">磁盘：__i_k.distcp + .metadata</text>
+<path d="M380.0 504 V530" class="arrow"/>
+<rect class="frame" x="20" y="530" width="720" height="208"/>
+<rect class="card" x="36" y="560" width="270" height="164"/>
+<text x="46" y="582" text-anchor="start" class="monob">LoadPlanner</text>
+<text x="46" y="600" text-anchor="start" class="mono12">default_planner.py</text>
+<text x="46" y="660" text-anchor="start" class="mono12">create_local_plan →</text>
+<text x="46" y="676" text-anchor="start" class="mono12">resharding.py /</text>
+<text x="46" y="690" text-anchor="start" class="mono12">planner_helpers.</text>
+<text x="46" y="704" text-anchor="start" class="mono12">create_read_items_for_chunk_list()</text>
+<text x="46" y="624" text-anchor="start" class="small">← 收 Metadata（set_up_planner）</text>
+<rect class="card" x="498" y="560" width="226" height="164"/>
+<text x="508" y="582" text-anchor="start" class="monob">StorageReader</text>
+<text x="508" y="600" text-anchor="start" class="mono12">storage.py / filesystem.py</text>
+<text x="508" y="624" text-anchor="start" class="mono12">← read_metadata()</text>
+<text x="508" y="660" text-anchor="start" class="mono12">read_data(plan, planner)</text>
+<text x="508" y="678" text-anchor="start" class="small">按 ReadItem 读、narrow、copy_</text>
+<rect class="seg-c" x="322" y="607" width="160" height="26"/>
+<text x="402" y="625" text-anchor="middle" class="mono12">Metadata</text>
+<path d="M498 620 H482" class="arrow"/>
+<path d="M322 620 H306" class="arrow"/>
+<rect class="seg-c" x="322" y="643" width="160" height="26"/>
+<text x="402" y="661" text-anchor="middle" class="mono12">LoadPlan[ReadItem]</text>
+<path d="M306 656 H322" class="arrow"/>
+<path d="M482 656 H498" class="arrow"/>
+<path d="M498 710 H306" class="arrow"/>
+<text x="402" y="688" text-anchor="middle" class="mono12">resolve_tensor /</text>
+<text x="402" y="703" text-anchor="middle" class="mono12">commit_tensor</text>
+<text x="32" y="550" text-anchor="start" class="bold">加载</text>
+<text x="68" y="550" text-anchor="start" class="mono12">state_dict_loader.py</text>
+<rect class="frame" x="20" y="754" width="720" height="146"/>
+<text x="32" y="774" text-anchor="start" class="bold">异步</text>
+<rect class="card" x="36" y="784" width="688" height="46"/>
+<text x="46" y="802" text-anchor="start" class="monob">staging.py</text>
+<text x="196" y="802" text-anchor="start" class="mono12">AsyncStager 协议 → DefaultStager(StagingOptions) /</text>
+<text x="196" y="820" text-anchor="start" class="mono12">BlockingAsyncStager / _ReplicationStager</text>
+<rect class="card" x="36" y="838" width="688" height="46"/>
+<text x="46" y="856" text-anchor="start" class="monob">_async_executor.py</text>
+<text x="196" y="856" text-anchor="start" class="mono12">_AsyncCheckpointExecutor → _ThreadBasedAsyncCheckpointExecutor /</text>
+<text x="196" y="874" text-anchor="start" class="mono12">_ProcessBasedAsyncCheckpointExecutor</text>
+</svg>

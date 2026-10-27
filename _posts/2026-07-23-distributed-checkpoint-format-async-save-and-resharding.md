@@ -47,47 +47,24 @@ Table: 本篇用到的记账符号
 
 保存与加载各是一条流水线，两条线在磁盘上的目录里汇合：
 
-```text title="保存与加载的两条流水线"
-保存                                                                    加载
-─────────────────────────────────────────────────                     ─────────────────────────────────────────────────
-训练状态（每 rank 持有自己的分片）                                       新的训练状态（可能是另一套 TP/PP/DP）
-   │  state_dict()：参数、优化器、调度器、数据位置、RNG、步数               │  state_dict()：只要 key 与全局形状，内容待填
-   ▼                                                                     ▼
-staging：GPU → 主机内存（可选、异步保存必需）                              读 .metadata：每个张量的全局形状 + 所有分片位置
-   │                                                                     │
-   ▼                                                                     ▼
-plan：每 rank 列出"我要写什么"，汇总去重成全局计划                        plan：我的每个本地分片 ∩ 磁盘上的哪些分片 → ReadItem 列表
-   │                                                                     │
-   ▼                                                                     ▼
-write：每 rank 写自己的文件；coordinator 写 .metadata                     read：按 ReadItem 只读交集部分，narrow 后 copy_ 到本地张量
-   │                                                                     │
-   ▼                                                                     ▼
-目录：__0_0.distcp … __N_0.distcp  .metadata（提交标记）                  set_state_dict()：装回模型与优化器
-```
+![保存与加载的两条流水线](/img/in-post/distributed-checkpoint-save-load-pipelines.svg)
 
 三个观察决定了后面所有的设计：第一，磁盘上的内容是"全局张量的一组分片"而不是"某个 rank 的内存映像"，这样加载时的分片布局可以与保存时不同；第二，`.metadata` 是最后写的，它的出现等价于"这个 checkpoint 完整"，因此写它必须是原子的；第三，保存路径上只有 staging 那一步必须由训练进程在 GPU 空闲时做，其余全部可以挪到后台线程或进程——这就是异步保存。
 
 ### 3. 三框架在 checkpoint 上的对照
 
-```text title="三框架在 checkpoint 上的对照"
-                     Megatron Core 0.18.0                          DeepSpeed 0.19.2                        torchtitan v0.3.0
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-分片抽象             ShardedTensor / ShardedObject                 无；每 rank 的 state_dict 直接 torch.save    DTensor（FSDP2 / TP 原生）
-                     （megatron/core/dist_checkpointing/mapping.py）
-磁盘格式             torch_dist（DCP 文件 + common.pt +            mp_rank_XX_model_states.pt +               DCP：step-N/__i_0.distcp + .metadata
-                     metadata.json）；也可 torch / torch_dcp /      zero_pp_rank_X_mp_rank_XX_optim_states.pt   （可导出 HF safetensors）
-                     fsdp_dtensor
-底层写入             DCP FileSystemWriter 的子类                   CheckpointEngine：Torch / Fast /            DCP FileSystemWriter
-                     FileSystemWriterAsync                         Decoupled / Nebula / DataStates
-异步保存             --async-save；nvrx 或 mcore 策略；            writer.decoupled = true（独立进程）           checkpoint.async_mode = async /
-                     可持久后台 worker                                                                         async_with_pinned_mem
-写入去重 / 并行      FullyParallelSaveStrategyWrapper 在 DP        data_parallel = replica/socket/machine       DCP DefaultSavePlanner 去重
-                     副本间分摊写入
-重分片               模型：任意 TP/PP/DP；优化器按 sharding_type   ZeRO 文件绑定 DP 度；换配置需先转             任意 DP / TP（DTensor 决定）；PP 需
-                     （dp_reshardable / fully_reshardable）         universal checkpoint（ds_to_universal.py）    切分点一致
-本地 / 多级存储      non_persistent_ckpt_type = local +            无内置                                       无内置（keep_latest_k 清理）
-                     replication（借 nvidia-resiliency-ext）
-```
+{: style="overflow-wrap:anywhere"}
+| | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
+|---|---|---|---|
+| <span style="white-space:nowrap">分片抽象</span> | `ShardedTensor` / `ShardedObject`（`megatron/core/` `dist_checkpointing/` `mapping.py`） | 无；每 rank 的 state_dict 直接 `torch.save` | DTensor（FSDP2 / TP 原生） |
+| <span style="white-space:nowrap">磁盘格式</span> | `torch_dist`（DCP 文件 + `common.pt` + `metadata.json`）；也可 `torch` / `torch_dcp` / `fsdp_dtensor` | `mp_rank_XX_model_states.pt` + `zero_pp_rank_X_` `mp_rank_XX_optim_states.pt` | DCP：`step-N/__i_0.distcp` + `.metadata`（可导出 HF safetensors） |
+| <span style="white-space:nowrap">底层写入</span> | DCP `FileSystemWriter` 的子类 `FileSystemWriterAsync` | CheckpointEngine：Torch / Fast / Decoupled / Nebula / DataStates | DCP `FileSystemWriter` |
+| <span style="white-space:nowrap">异步保存</span> | `--async-save`；nvrx 或 mcore 策略；可持久后台 worker | `writer.decoupled = true`（独立进程） | `checkpoint.async_mode = async / async_with_pinned_mem` |
+| <span style="white-space:nowrap">写入去重 / 并行</span> | `FullyParallelSaveStrategyWrapper` 在 DP 副本间分摊写入 | `data_parallel = replica/socket/machine` | DCP `DefaultSavePlanner` 去重 |
+| <span style="white-space:nowrap">重分片</span> | 模型：任意 TP/PP/DP；优化器按 `sharding_type`（`dp_reshardable` / `fully_reshardable`） | ZeRO 文件绑定 DP 度；换配置需先转 universal checkpoint（`ds_to_universal.py`） | 任意 DP / TP（DTensor 决定）；PP 需切分点一致 |
+| <span style="white-space:nowrap">本地 / 多级存储</span> | `non_persistent_ckpt_type = local` + replication（借 nvidia-resiliency-ext） | 无内置 | 无内置（`keep_latest_k` 清理） |
+
+Table: 三框架在 checkpoint 上的对照
 
 DeepSpeed 这一列后文只在第八章展开一节：它的 checkpoint 是"每 rank 一份 `torch.save`"的传统模式，重分片依赖离线转换，这与 DCP 的"磁盘上是全局张量"是两种哲学，对照着看正好说明分片 checkpoint 解决了什么。
 
@@ -114,21 +91,16 @@ Table: 本文的章节安排
 
 "精确恢复"的定义是：从 checkpoint 重启后，第 $$k+1$$ 步及之后每一步的 loss 与不中断的那次训练逐位相同（同一硬件、确定性 kernel 下），或至少在数值噪声范围内相同。要做到这一点，下面六样东西一样都不能少：
 
-```text title="精确恢复必需的六类内容"
-内容                 每参数字节        为什么必需                                      缺了会怎样
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-模型参数             2（bf16）或 4      前向的输入                                      没有模型
-优化器状态           8（Adam m, v）     Adam 的更新量 = lr · m / (sqrt(v) + ε)，m、v 是     从零开始的 m、v 会让前几百步的更新量偏大，
-+ fp32 主参数        + 4               历史梯度的指数平均；fp32 主参数是 bf16 参数        loss 明显上翘；bf16 参数上直接累加小更新会被
-                                        无法表示的小更新的累积处                          舍掉，训练"停滞"
-学习率调度器         —（几个标量）      当前 lr、warmup 进度、衰减阶段                      lr 从 warmup 起点重来，等价于一次大 lr 冲击
-数据加载器位置       —（几 KB 到 MB）   下一个要读的 sample 是谁；shuffle 的 epoch 与       重复看一遍已训过的数据（过拟合）或跳过一段
-                                        offset                                            （欠训练），且不可复现
-RNG 状态             —（每 rank 几 KB） dropout mask、数据 shuffle、MoE 的随机路由；        loss 曲线在重启处出现一个小台阶；跨 TP 的
-                                        Megatron 还有 TP 组内的 CUDA RNG tracker            dropout 不一致会直接算错
-迭代计数与累计量     —（几个标量）      step、已见 token 数、累计 FLOP；决定调度器与        退出条件错；日志与曲线断裂
-                                        数据位置的重建
-```
+| 内容 | 每参数字节 | 为什么必需 | 缺了会怎样 |
+|---|---|---|---|
+| 模型参数 | 2（bf16）或 4 | 前向的输入 | 没有模型 |
+| 优化器状态 + fp32 主参数 | 8（Adam m, v）+ 4 | Adam 的更新量 = lr · m / (sqrt(v) + ε)，m、v 是历史梯度的指数平均<br/>fp32 主参数是 bf16 参数无法表示的小更新的累积处 | 从零开始的 m、v 会让前几百步的更新量偏大，loss 明显上翘<br/>bf16 参数上直接累加小更新会被舍掉，训练"停滞" |
+| 学习率调度器 | —（几个标量） | 当前 lr、warmup 进度、衰减阶段 | lr 从 warmup 起点重来，等价于一次大 lr 冲击 |
+| 数据加载器位置 | —（几 KB 到 MB） | 下一个要读的 sample 是谁；shuffle 的 epoch 与 offset | 重复看一遍已训过的数据（过拟合）或跳过一段（欠训练），且不可复现 |
+| RNG 状态 | —（每 rank 几 KB） | dropout mask、数据 shuffle、MoE 的随机路由<br/>Megatron 还有 TP 组内的 CUDA RNG tracker | loss 曲线在重启处出现一个小台阶<br/>跨 TP 的 dropout 不一致会直接算错 |
+| 迭代计数与累计量 | —（几个标量） | step、已见 token 数、累计 FLOP；决定调度器与数据位置的重建 | 退出条件错；日志与曲线断裂 |
+
+Table: 精确恢复必需的六类内容
 
 前两行是字节的大头：Adam 的两个矩加 fp32 主参数是参数本身的 6 倍（若参数按 bf16 算）。后四行几乎不占空间，但缺了任何一样都不再是"精确恢复"，只是"从一个不错的初始化重新开始"。总纲里说"优化器状态是参数的两到三倍"，就是 12 字节比 2 到 4 字节。
 
@@ -184,16 +156,30 @@ Table: rank-0 汇总的三个瓶颈
 
 分片 checkpoint 在磁盘上不是一个文件而是一个目录。三个框架的目录长得不一样，但结构一致——数据文件按写入者分、元数据集中：
 
-```text title="三种 checkpoint 目录的结构"
-DCP / torchtitan（step-1000/）                Megatron torch_dist（iter_0001000/）             DeepSpeed ZeRO（global_step1000/）
-────────────────────────────────────          ─────────────────────────────────────           ──────────────────────────────────────────
-__0_0.distcp        rank 0 写的数据            __0_0.distcp … __N_0.distcp   同 DCP           mp_rank_00_model_states.pt     每个 TP/PP 位置一份
-__1_0.distcp        rank 1 写的数据            .metadata                     同 DCP           mp_rank_01_model_states.pt     模型参数（bf16）
-…                                             common.pt        非分片对象：args、iteration、  zero_pp_rank_0_mp_rank_00_optim_states.pt
-__N_0.distcp                                                   调度器状态等（rank 0 写）        zero_pp_rank_1_mp_rank_00_optim_states.pt
-.metadata           全局元数据：每个 key 的     metadata.json    格式后端与版本                 …                              每个 DP rank 一份 ZeRO 分片
-                    全局形状 + 所有块的位置     ../latest_checkpointed_iteration.txt            ../latest                      指向最新 tag
+```text title="DCP / torchtitan：step-1000/"
+__0_0.distcp        rank 0 写的数据
+__1_0.distcp        rank 1 写的数据
+…
+__N_0.distcp
+.metadata           全局元数据：每个 key 的全局形状 + 所有块的位置
                     + 每块在哪个文件的哪个偏移
+```
+
+```text title="Megatron torch_dist：iter_0001000/"
+__0_0.distcp … __N_0.distcp           同 DCP
+.metadata                             同 DCP
+common.pt                             非分片对象：args、iteration、调度器状态等（rank 0 写）
+metadata.json                         格式后端与版本
+../latest_checkpointed_iteration.txt
+```
+
+```text title="DeepSpeed ZeRO：global_step1000/"
+mp_rank_00_model_states.pt                   每个 TP/PP 位置一份：模型参数（bf16）
+mp_rank_01_model_states.pt
+zero_pp_rank_0_mp_rank_00_optim_states.pt    每个 DP rank 一份 ZeRO 分片
+zero_pp_rank_1_mp_rank_00_optim_states.pt
+…
+../latest                                    指向最新 tag
 ```
 
 DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程（`FileSystemWriter(thread_count=k)` 时每 rank 产出 k 个文件）。Megatron 的 `torch_dist` 格式**就是** DCP 的目录再加两个文件；这是两者互通的物理基础，第七章展开。DeepSpeed 的文件名把 `mp_rank`（TP×PP 位置）和 `zero_pp_rank`（DP 位置）编进去了——文件与并行布局一一对应，这正是它换布局要先转换的原因。
@@ -204,28 +190,9 @@ DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程
 
 `torch/distributed/checkpoint/state_dict_saver.py` 的 `save()` 最终调 `_save_state_dict()`，结构是两次集合通信包着四个局部函数：
 
-```text title="_save_state_dict 的四步：每个 rank 与 coordinator"
-每个 rank                                         coordinator（默认 rank 0）
-──────────────────────────────────────────────    ───────────────────────────────────────────────────────
-local_step()
-  planner.set_up_planner(state_dict, storage_meta, is_coordinator)
-  storage_writer.set_up_storage_writer(...)
-  local_plan = planner.create_local_plan()         ← 列出本 rank 的 WriteItem
-  local_plan = storage_writer.prepare_local_plan()  ← FileSystemWriter 在这里 mkdir、检查是否覆盖
-        │
-        └──── distW.reduce_scatter("plan", local_step, global_step) ────►  global_step(all_local_plans)
-                                                                            planner.create_global_plan()   ← 去重 + 生成 Metadata
-                                                                            storage_writer.prepare_global_plan()  ← 给每个 plan 分配文件前缀 __i_
-        ◄─────────────── 每个 rank 收回自己的 central_plan ──────────────────┘
-write_data()
-  final_plan = planner.finish_plan(central_plan)
-  storage_writer.write_data(final_plan, planner)   ← 真正的 I/O；返回 Future[list[WriteResult]]
-        │
-        └──── distW.all_reduce("write", write_data, finish_checkpoint) ──►  finish_checkpoint(all_results)
-                                                                            storage_writer.finish(metadata, results)  ← 写 .metadata
-```
+![_save_state_dict 的四步：每个 rank 与 coordinator](/img/in-post/distributed-checkpoint-save-state-dict-four-steps.svg)
 
-`_DistWrapper` 的 `reduce_scatter` 是"gather 到 coordinator、处理、scatter 回去"，`all_reduce` 是"gather、处理、broadcast 结果"，都走 `process_group` 参数指定的进程组——异步保存时这个组必须是 gloo 的，因为它在后台线程里跑，不能碰 NCCL。`use_collectives=False` 时跳过全部通信，每个 rank 写自己的 `__{rank}.metadata`，这是 2.13 里标注为实验性的"无协调保存"。
+图里两次跨列的通信是 `_DistWrapper` 的方法：`distW.reduce_scatter("plan", local_step, global_step)` 是"gather 到 coordinator、处理、scatter 回去"，`distW.all_reduce("write", write_data, finish_checkpoint)` 是"gather、处理、broadcast 结果"，都走 `process_group` 参数指定的进程组——异步保存时这个组必须是 gloo 的，因为它在后台线程里跑，不能碰 NCCL。`use_collectives=False` 时跳过全部通信，每个 rank 写自己的 `__{rank}.metadata`，这是 2.13 里标注为实验性的"无协调保存"。
 
 ### 2. Planner：谁写什么
 
@@ -310,35 +277,7 @@ class AppState(Stateful):
 
 ### 6. 对象模型图
 
-```text title="DCP 的对象模型图"
-                       ┌──────────────── 用户侧 ────────────────┐
-                       │ dict[str, Stateful | Tensor | DTensor | Any]│
-                       │  ← get_model_state_dict / get_optimizer_state_dict（state_dict.py）
-                       └───────────────────┬───────────────────┘
-                                           │ _stateful_to_state_dict()
-             ┌─────────────────────────────┼─────────────────────────────┐
-             │                             ▼                             │
-   保存      │   SavePlanner ──create_local_plan──► SavePlan[WriteItem]   │   StorageWriter
- (state_dict_saver.py)  (planner.py /          │ reduce_scatter          │   (storage.py / filesystem.py)
-             │    default_planner.py)         ▼                          │     prepare_local_plan / prepare_global_plan
-             │      resolve_data ◄──────── write_data ──────────────────►│     write_data → WriteResult
-             │                              │ all_reduce                 │     finish(metadata) → .metadata
-             │                              ▼                            │
-             │                         Metadata（metadata.py）            │
-             │                          state_dict_metadata: fqn → TensorStorageMetadata{size, chunks[ChunkStorageMetadata]}
-             │                          storage_data: MetadataIndex → 文件/偏移
-             └─────────────────────────────┬─────────────────────────────┘
-                                           │ 磁盘：__i_k.distcp + .metadata
-             ┌─────────────────────────────┼─────────────────────────────┐
-   加载      │   LoadPlanner ──create_local_plan──► LoadPlan[ReadItem]    │   StorageReader
- (state_dict_loader.py)  (default_planner.py)    ▲                       │     read_metadata() → Metadata
-             │      resharding.py /              │                        │     read_data(plan, planner)：按 ReadItem 读、narrow、copy_
-             │      planner_helpers.create_read_items_for_chunk_list()    │
-             │      resolve_tensor / commit_tensor ◄──────────────────────┘
-             └─────────────────────────────────────────────────────────────┘
-   异步      staging.py：AsyncStager 协议 → DefaultStager(StagingOptions) / BlockingAsyncStager / _ReplicationStager
-             _async_executor.py：_AsyncCheckpointExecutor → _ThreadBasedAsyncCheckpointExecutor / _ProcessBasedAsyncCheckpointExecutor
-```
+![DCP 的对象模型图](/img/in-post/distributed-checkpoint-dcp-object-model.svg)
 
 ## 五、重分片加载
 
@@ -355,34 +294,18 @@ class AppState(Stateful):
 - `_check_shard_metadata_pair_overlap(shard1, shard2)`：每一维上，若一块的起点 ≥ 另一块的终点则不相交；所有维都相交才算相交（矩形相交的标准判定）。
 - `_shards_get_overlap_region_wrt_saved_tensor(saved_shard, current_shard)`：对每一维返回 `(dim, 在已存块内的偏移, 在本地块内的偏移, 长度)`——长度是两段的 `min(终点) - max(起点)`，偏移是各自起点到 `max(起点)` 的距离。
 
-一个数字例子。上一节那个 `[4096, 4096]` 的权重在 TP=2 下存成两块 `[0:2048]`、`[2048:4096]`。现在换成 FSDP 在 6 个 rank 上按第 0 维切——4096 除不尽 6，DTensor 的分片是 683、683、683、683、683、681。把两侧的块沿第 0 维并排画出来，重分片就是左右两列的区间求交：
+一个数字例子。上一节那个 `[4096, 4096]` 的权重在 TP=2 下存成两块 `[0:2048]`、`[2048:4096]`。现在换成 FSDP 在 5 个 rank 上按第 0 维切——4096 除不尽 5，DTensor 的分片是 820、820、820、820、816。把两侧的块沿第 0 维并排画出来，重分片就是左右两列的区间求交：
 
-```text title="重分片：磁盘块与加载侧本地块的区间求交"
-行号   磁盘上的块（TP=2 保存）             加载侧的本地块（FSDP 6 rank）
-   0 ┌───────────────────────────┐    ┌──────────────────────┐
-     │ chunk 0                   │    │ rank 0  [0, 683)     │
-     │ offsets=[0,0]             │    ├──────────────────────┤
-     │ sizes=[2048,4096]         │    │ rank 1  [683, 1366)  │
-     │ → __0_0.distcp            │    ├──────────────────────┤
-     │                           │    │ rank 2  [1366, 2049) │ ← 跨过 2048
-2048 ├───────────────────────────┤    │ ┄┄┄┄┄┄┄┄ 2048 ┄┄┄┄┄┄ │
-     │ chunk 1                   │    ├──────────────────────┤
-     │ offsets=[2048,0]          │    │ rank 3  [2049, 2732) │
-     │ sizes=[2048,4096]         │    ├──────────────────────┤
-     │ → __1_0.distcp            │    │ rank 4  [2732, 3415) │
-     │                           │    ├──────────────────────┤
-4096 └───────────────────────────┘    │ rank 5  [3415, 4096) │
-                                      └──────────────────────┘
-```
+![重分片：磁盘块与加载侧本地块的区间求交](/img/in-post/distributed-checkpoint-resharding-interval-intersection.svg)
 
-rank 0、1、3、4、5 的本地块各自完全落在一个磁盘块里，一个 `ReadItem` 就够；rank 2 的本地块是 `offsets=[1366, 0], sizes=[683, 4096]`，它跨过了 2048 这条线：
+rank 0、1、3、4 的本地块各自完全落在一个磁盘块里，一个 `ReadItem` 就够；rank 2 的本地块是 `offsets=[1640, 0], sizes=[820, 4096]`，它跨过了 2048 这条线：
 
 ```text title="rank 2 的本地块与两个磁盘块的交集"
-与已存块 0 [0:2048]    ：min(2048, 2049) - max(0, 1366) = 682   → ReadItem(storage_offsets=[1366, 0], dest_offsets=[0, 0],   lengths=[682, 4096])
-与已存块 1 [2048:4096] ：min(4096, 2049) - max(2048, 1366) = 1  → ReadItem(storage_offsets=[0, 0],    dest_offsets=[682, 0], lengths=[1, 4096])
+与已存块 0 [0:2048]    ：min(2048, 2460) - max(0, 1640) = 408    → ReadItem(storage_offsets=[1640, 0], dest_offsets=[0, 0],   lengths=[408, 4096])
+与已存块 1 [2048:4096] ：min(4096, 2460) - max(2048, 1640) = 412 → ReadItem(storage_offsets=[0, 0],    dest_offsets=[408, 0], lengths=[412, 4096])
 ```
 
-rank 2 发两个读请求，从 `__0_0.distcp` 读 682 行、从 `__1_0.distcp` 读 1 行，拼进自己的 683 行。整个过程没有任何 rank 间通信——每个 rank 只读文件，读的是自己那部分。TP=2 → TP=4 更简单：TP rank 1 的本地块 `[1024:2048]` 完全落在已存块 0 里，一个 `ReadItem`，`storage_offsets=[1024, 0]`。
+rank 2 发两个读请求，从 `__0_0.distcp` 读 408 行、从 `__1_0.distcp` 读 412 行，拼进自己的 820 行。整个过程没有任何 rank 间通信——每个 rank 只读文件，读的是自己那部分。TP=2 → TP=4 更简单：TP rank 1 的本地块 `[1024:2048]` 完全落在已存块 0 里，一个 `ReadItem`，`storage_offsets=[1024, 0]`。
 
 ### 3. 能重分片与不能重分片的边界
 
@@ -428,13 +351,7 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 
 同步保存的时间线是：训练停 → GPU→主机拷贝 → plan 通信 → 写文件 → fsync → 写 `.metadata` → 训练继续，δ 是全部。异步保存把它切成三段：
 
-```text title="异步保存的三段时间线"
-                 训练 step k     │ staging │  训练 step k+1   step k+2  …                    │ 训练 step k+n
-GPU / 主 stream  ────────────────┤ 阻塞 δ  ├──────────────────────────────────────────────────┤
-                                 │ GPU→pinned host 拷贝（几百 MB ~ 十几 GB，PCIe 速度）
-后台线程 / 进程                  └────────►│ plan（gloo 集合通信）→ 写 __i_k.distcp → fsync → .metadata │ future 完成
-                                            ↑ 与训练重叠；争抢 CPU、内存带宽、网卡（若 PFS 走以太网）
-```
+![异步保存的三段时间线](/img/in-post/distributed-checkpoint-async-save-three-segments.svg)
 
 δ 从"全部写入时间"变成"staging 时间"，后者只由 PCIe 带宽与要拷的字节数决定。每卡 350 MB（405B/16K 卡）或 1 GB（70B/1024 卡）在标称 64 GB/s 的 PCIe 5.0 上是几十毫秒；即便按实际的 25–30 GB/s 算也在 0.1 s 以内。写入本身在后台进行，只要它在下一次保存开始前完成即可。
 
@@ -538,38 +455,21 @@ Megatron 早于 DTensor 建立了自己的分片描述。`megatron/core/dist_che
 
 `megatron/core/optimizer/distrib_optimizer.py` 的 `DistributedOptimizer.sharded_state_dict()` 按 `metadata['distrib_optim_sharding_type']` 分派到四种实现，这是 Megatron checkpoint 里最能体现"格式决定可重分片性"的地方：
 
-```text title="DistributedOptimizer 的四种分片"
-sharding_type               实现                                   磁盘表达                                  可重分片性         代价
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-dp_reshardable（默认）      sharded_param_state_dp_reshardable     每个 bucket 的连续缓冲切片，ShardedTensor    只能变 DP 度        零通信、零拷贝
-                                                                   带 flattened_range
-fully_reshardable           sharded_param_state_fully_reshardable  每个参数的 fp32 主副本与两个矩按模型张量的     TP/PP/EP/DP 任意    保存时要把连续缓冲按参数切开、
-（--dist-ckpt-optim-fully-                                          分片描述存（与模型参数同坐标）                                  加载时合回；额外内存与时间
- reshardable）
-fully_sharded_model_space   sharded_param_state_fs_model_space     同上的旧实现                              同上               标注将废弃
-dp_zero_gather_scatter      sharded_param_state_dp_zero            DP rank 0 gather 全部后写                  只能变 DP 度        通信量大；标注将废弃
-```
+| sharding_type → 实现函数 | 磁盘表达 | 可重分片性 | 代价 |
+|---|---|---|---|
+| `dp_reshardable`（默认）→ `sharded_param_state_dp_reshardable` | 每个 bucket 的连续缓冲切片，`ShardedTensor` 带 `flattened_range` | 只能变 DP 度 | 零通信、零拷贝 |
+| `fully_reshardable`（`--dist-ckpt-optim-fully-reshardable`）→ `sharded_param_state_fully_reshardable` | 每个参数的 fp32 主副本与两个矩按模型张量的分片描述存（与模型参数同坐标） | TP/PP/EP/DP 任意 | 保存时要把连续缓冲按参数切开、加载时合回；额外内存与时间 |
+| `fully_sharded_model_space` → `sharded_param_state_fs_model_space` | 同上的旧实现 | 同上 | 标注将废弃 |
+| `dp_zero_gather_scatter` → `sharded_param_state_dp_zero` | DP rank 0 gather 全部后写 | 只能变 DP 度 | 通信量大；标注将废弃 |
+
+Table: DistributedOptimizer 的四种分片
 
 两种格式在磁盘上"一块"指什么，画出来最清楚——同一个 bucket，`dp_reshardable` 按字节等分给 DP rank，`fully_reshardable` 按参数边界切：
 
-```text title="dp_reshardable 与 fully_reshardable 在 bucket 上的切法"
-DistributedOptimizer 的一个 bucket（DP=4）：参数按顺序拍平进一段连续 fp32 缓冲
+![dp_reshardable 与 fully_reshardable 在 bucket 上的切法](/img/in-post/distributed-checkpoint-optimizer-bucket-sharding.svg)
 
- 参数       p0 (wq)         p1 (wk)        p2 (wv)          p3 (wo)
-        ┌───────────────┬───────────┬─────────────────┬─────────────┐
-        │ 16 单位       │ 12 单位   │ 18 单位         │ 14 单位     │
-        └───────────────┴───────────┴─────────────────┴─────────────┘
- DP 切分 ├──────────────┼──────────────┼──────────────┼──────────────┤
-          rank 0         rank 1         rank 2         rank 3
-          [0, 15)        [15, 30)       [30, 45)       [45, 60)
-
-dp_reshardable    磁盘上一块 = "bucket b 的字节 [15, 30)"
-                  （ShardedTensor + flattened_range），切分线落在 p0、p2 内部；
-                  TP 变 → 参数大小与排列变 → 字节区间不再对应任何东西
-fully_reshardable 磁盘上一块 = "p1 的 exp_avg 的第 j 块"（与模型参数同全局坐标）
-                  保存时把 rank 持有的字节区间按参数边界切开、还原成参数形状；
-                  加载时反向——多一次切拼，换来 TP/PP/EP/DP 任意变
-```
+- `dp_reshardable`：磁盘上一块 = "bucket b 的字节 [15, 30)"（`ShardedTensor` + `flattened_range`），切分线落在 p0、p2 内部；TP 变 → 参数大小与排列变 → 字节区间不再对应任何东西。
+- `fully_reshardable`：磁盘上一块 = "p1 的 exp_avg 的第 j 块"（与模型参数同全局坐标）。保存时把 rank 持有的字节区间按参数边界切开、还原成参数形状；加载时反向——多一次切拼，换来 TP/PP/EP/DP 任意变。
 
 默认的 `dp_reshardable` 之所以只能变 DP，是因为 bucket 的边界与切分依赖 `DistributedOptimizer` 内部的参数排列——同一个模型在 TP=4 与 TP=8 下 bucket 里的字节顺序不同。想换 TP/PP 加载，保存时就得用 `fully_reshardable`。`distrib_optim_fully_reshardable_mem_efficient` 是它的省内存变体（gloo 通信、单 rank 写）。`--no-ckpt-fully-parallel-save` 会让 `dp_reshardable` 格式连 DP 都不能变（`CheckpointConfig.fully_parallel_save` 的文档说明如此）。
 
@@ -577,27 +477,26 @@ fully_reshardable 磁盘上一块 = "p1 的 exp_avg 的第 j 块"（与模型参
 
 Megatron 0.18.0 的 CLI 参数由 dataclass 生成（第七篇讲过 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory`：字段名下划线换连字符）。checkpoint 相关字段在 `megatron/training/config/training_config.py` 的 `CheckpointConfig`，对应的 CLI：
 
-```text title="CheckpointConfig 的字段与 CLI"
-字段（CLI）                                         含义
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-save / load / save_interval（--save-interval）       目录与持久 checkpoint 间隔
-ckpt_format（--ckpt-format）                          torch | torch_dist（默认）| torch_dcp | fsdp_dtensor
-async_save（--async-save）                            异步保存；只支持 torch_dist
-async_strategy（--async-strategy）                    nvrx（默认）| mcore
-use_persistent_ckpt_worker                            常驻后台 worker；async_ckpt_cpu_priority / async_ckpt_io_priority 调它的 nice 与 ionice
-async_ckpt_use_cpu_shm                                先拷到 CPU 共享内存再交给 worker（避开 CUDA IPC）
-fully_parallel_save（--no-ckpt-fully-parallel-save 关）  DP 组内分摊写入；fully_parallel_load（--ckpt-fully-parallel-load）
-ckpt_assume_constant_structure                        结构不变 → 缓存计划与全局元数据
-dist_ckpt_optim_fully_reshardable                     分布式优化器用 fully_reshardable 格式
-dist_ckpt_strictness                                  加载时 key 不匹配的处理（StrictHandling）
-ckpt_load_validate_sharding_integrity                 加载时校验每块恰被一个 main replica 访问
-non_persistent_save_interval / non_persistent_ckpt_type（global | local | in_memory）/
-non_persistent_local_ckpt_dir / non_persistent_local_ckpt_algo（fully_parallel | atomic）   第九章的本地 checkpoint
-replication / replication_jump / replication_factor   本地 checkpoint 的跨节点副本（借 nvidia-resiliency-ext）
-verify_integrity                                      保存时对文件做哈希清单、加载时校验
-use_checkpoint_args / use_mp_args_from_checkpoint_args   从 checkpoint 里恢复模型 / 并行参数
-no_load_optim / no_load_rng / finetune                 部分加载
-```
+| 字段（CLI） | 含义 |
+|---|---|
+| `save` / `load` / `save_interval`（`--save-interval`） | 目录与持久 checkpoint 间隔 |
+| `ckpt_format`（`--ckpt-format`） | `torch` \| `torch_dist`（默认）\| `torch_dcp` \| `fsdp_dtensor` |
+| `async_save`（`--async-save`） | 异步保存；只支持 `torch_dist` |
+| `async_strategy`（`--async-strategy`） | `nvrx`（默认）\| `mcore` |
+| `use_persistent_ckpt_worker` | 常驻后台 worker；`async_ckpt_cpu_priority` / `async_ckpt_io_priority` 调它的 nice 与 ionice |
+| `async_ckpt_use_cpu_shm` | 先拷到 CPU 共享内存再交给 worker（避开 CUDA IPC） |
+| `fully_parallel_save`（`--no-ckpt-fully-parallel-save` 关） | DP 组内分摊写入；`fully_parallel_load`（`--ckpt-fully-parallel-load`） |
+| `ckpt_assume_constant_structure` | 结构不变 → 缓存计划与全局元数据 |
+| `dist_ckpt_optim_fully_reshardable` | 分布式优化器用 `fully_reshardable` 格式 |
+| `dist_ckpt_strictness` | 加载时 key 不匹配的处理（`StrictHandling`） |
+| `ckpt_load_validate_sharding_integrity` | 加载时校验每块恰被一个 main replica 访问 |
+| `non_persistent_save_interval` / `non_persistent_ckpt_type`（`global` \| `local` \| `in_memory`）/ `non_persistent_local_ckpt_dir` / `non_persistent_local_ckpt_algo`（`fully_parallel` \| `atomic`） | 第九章的本地 checkpoint |
+| `replication` / `replication_jump` / `replication_factor` | 本地 checkpoint 的跨节点副本（借 nvidia-resiliency-ext） |
+| `verify_integrity` | 保存时对文件做哈希清单、加载时校验 |
+| `use_checkpoint_args` / `use_mp_args_from_checkpoint_args` | 从 checkpoint 里恢复模型 / 并行参数 |
+| `no_load_optim` / `no_load_rng` / `finetune` | 部分加载 |
+
+Table: CheckpointConfig 的字段与 CLI
 
 `megatron/training/checkpointing.py` 的 `save_checkpoint()` 是把这些串起来的地方：`generate_state_dict()` 组 dict → 按 `ckpt_format` 选路径（`torch_dist` 走 `dist_checkpointing.save()`，可传 `async_sharded_save=True` 得到 `AsyncRequest`）→ `--async-save` 时 `schedule_async_save()`，finalize 回调里写 `latest_checkpointed_iteration.txt`（`get_checkpoint_tracker_filename()`）——这个文件是 Megatron 的"提交标记"，晚于全部数据文件写，加载时 `read_metadata()` 读它决定加载哪个 iteration。`load_checkpoint()` 先 `_load_base_checkpoint()` 按 `_get_checkpoint_format()` 判断目录格式（`auto_detect_ckpt_format`），`torch_dist` 时先加载 `common.pt` 拿 `args`、再 `generate_state_dict()` 造出带 `ShardedTensor` 的"空"模板（`is_loading=True`）、交给 `dist_checkpointing.load()` 填充。`fix_query_key_value_ordering()` 处理 `checkpoint_version` < 2.0 的 QKV 布局——这是版本兼容在代码里的形状。
 
@@ -646,19 +545,11 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 - **一级：本地 NVMe（或内存）**：每 N₁ 步一次；每 rank 写自己的分片到本机；秒级；不持久（节点坏了就没了）
 - **二级：PFS / 对象存储**：每 N₂ ≫ N₁ 步一次；持久；恢复时从这里读
 
-一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。以 8 个节点、J=2、F=3 为例，副本的放置与恢复路径是：
+一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。以 8 个节点、J=2、F=3 为例，副本的放置是：
 
-```text title="本地 checkpoint 的副本放置（8 节点，J=2，F=3）"
-本地 checkpoint 的副本放置（8 节点，replication_jump J=2，replication_factor F=3）
+![本地 checkpoint 的副本放置（8 节点，replication_jump J=2，replication_factor F=3）](/img/in-post/distributed-checkpoint-local-checkpoint-replica-placement.svg)
 
-节点        0     1     2     3     4     5     6     7
-本地分片   S0    S1    S2    S3    S4    S5    S6    S7   ← 每 N₁ 步写本机 NVMe
-副本 +J    S6    S7    S0    S1    S2    S3    S4    S5   ← 走 NCCL / RDMA 推过来
-副本 +2J   S4    S5    S6    S7    S0    S1    S2    S3
-
-节点 3 故障 → 替代节点上线 → 从节点 5（+J）或节点 7（+2J）拉回 S3；
-其余节点从本机 NVMe 读自己的 S_n。整个恢复不碰 PFS。
-```
+恢复路径：节点 3 故障 → 替代节点上线 → 从节点 5（+J）或节点 7（+2J）拉回 S3；其余节点从本机 NVMe 读自己的 S_n。整个恢复不碰 PFS。
 
 DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（第九篇）。
 
@@ -684,15 +575,15 @@ $$
 
 Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 419 \approx 3.09$$ 小时。用第十章的 `ledger/checkpoint_interval.py` 算几个 δ：
 
-```text title="代入 Llama 3：几个 δ 下的 τ_opt 与浪费"
-δ                          τ_opt       最小浪费    每次故障期望损失    每天保存次数   对应的实现
-────────────────────────────────────────────────────────────────────────────────────────────────────────────
-600 s（同步、单写入者量级）   61 min      32.8%       40 min             24            第三章第 2 节的 rank-0 汇总
-120 s（同步、分片写、慢 PFS） 27 min      14.7%       16 min             53            dcp.save 到聚合带宽不足的存储
- 60 s（同步、分片写）         19 min      10.4%       11 min             75            dcp.save 到 100 GB/s 量级的 PFS
- 10 s（异步、阻塞 staging）    8 min       4.2%        4 min            183            async_save，默认 stager（不 pin、同步拷贝）
-  2 s（异步、pinned + 重叠）   3.5 min     1.9%        2 min            409            async_with_pinned_mem；staging 与前向反向重叠
-```
+| δ | τ_opt | 最小浪费 | 每次故障期望损失 | 每天保存次数 | 对应的实现 |
+|---|---|---|---|---|---|
+| 600 s（同步、单写入者量级） | 61 min | 32.8% | 40 min | 24 | 第三章第 2 节的 rank-0 汇总 |
+| 120 s（同步、分片写、慢 PFS） | 27 min | 14.7% | 16 min | 53 | `dcp.save` 到聚合带宽不足的存储 |
+| 60 s（同步、分片写） | 19 min | 10.4% | 11 min | 75 | `dcp.save` 到 100 GB/s 量级的 PFS |
+| 10 s（异步、阻塞 staging） | 8 min | 4.2% | 4 min | 183 | `async_save`，默认 stager（不 pin、同步拷贝） |
+| 2 s（异步、pinned + 重叠） | 3.5 min | 1.9% | 2 min | 409 | `async_with_pinned_mem`；staging 与前向反向重叠 |
+
+Table: 代入 Llama 3：几个 δ 下的 τ_opt 与浪费
 
 三个读法。第一，同步保存在 3 小时 MTBF 下**无论如何调间隔**都要浪费 10% 以上，这是"异步保存为什么是必需的"的定量回答——Llama 3 论文报告的 >90% 有效训练时间，在同步保存下算不出来。第二，异步保存把最优间隔压到几分钟，此时约束变成第六章第 5 节的"后台写入时间 < 间隔"：5.7 TB 在 3.5 分钟内写完需要 27 GB/s 的聚合带宽，PFS 做得到；每天 400 次、每次 5.7 TB 是 2.3 PB/天的写入量，**保留策略**必须跟上（下一节）。第三，δ 之外还有 R——检测、重启、加载——第九篇会看到它在 Llama 3 的规模上是分钟级，与 δ 同量级甚至更大，所以把 δ 压到秒级之后，下一个要压的是 R。
 
@@ -708,99 +599,84 @@ Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 
 
 ### 1. 要点回顾
 
-```text title="要点回顾"
-内容           参数 + 优化器（m, v, fp32 主参数 = 参数的 6 倍）+ 调度器 + 数据位置 + RNG + 步数（+ 配置）；缺一样就不是精确恢复
-               优化器状态必须按参数 FQN 重编址（get_optimizer_state_dict / get_flat_optim_state_dict / make_sharded_optimizer_tensor）
-字节           训练态 16 B/参数，落盘 14（Megatron）或 12（FSDP2）；405B → 5.7 TB；与并行配置无关
-单文件         rank-0 汇总撞三堵墙：主机内存放不下、单网卡 114 s、单写入者 19–95 min → δ 十分钟量级 → 浪费 1/3
-分片写         每卡 350 MB（405B/16K）；由 PFS 聚合带宽决定，秒级；DP 副本去重；计划阶段的集合通信要缓存
-DCP            save = local_step → reduce_scatter → write_data → all_reduce；Planner 决定谁写什么、Storage 写文件、Metadata 记全局形状与块坐标
-               .metadata 最后原子写入 = 提交标记；磁盘上没有 rank / TP / PP，只有全局坐标
-重分片         load 时每个本地块 ∩ 磁盘块 → ReadItem；resharding.py 逐维算交集，planner_helpers 扫描线；零通信
-               条件：同 FQN、同全局形状、块带全局坐标；PP 变需展平 key；Megatron 分布式优化器需 fully_reshardable；DeepSpeed 需 universal
-异步           δ 从写入时间变 staging 时间；DefaultStager 四个开关（默认全 False）；线程受 GIL、进程要 /dev/shm
-               staging 内存 = 每卡唯一字节 ×（1–2）：8B/8 卡是每卡 12 GB，千卡反而轻；等 staging 放在 optimizer.step 前
-Megatron       ShardedTensor 手写全局坐标；torch_dist = DCP 文件 + common.pt + metadata.json；FullyParallelSave 分摊写；nvrx / mcore 异步
-DeepSpeed      CheckpointEngine（Torch / Fast / Decoupled）；ZeRO 文件绑 DP 度；ds_to_universal 离线合并成全局再切
-torchtitan     CheckpointManager 包 dcp.async_save；async_with_pinned_mem = PROCESS executor + 全 True 的 StagingOptions；gloo 组；keep_latest_k
-Young          τ_opt = sqrt(2δM)，最小浪费 sqrt(2δ/M)；M ≈ 3.1 h 时 δ = 10 min → 33%，δ = 2 s → 1.9%；异步不是优化是必需
-多级           本地 NVMe + 邻居副本（replication_jump）秒级、PFS 持久；校验靠提交标记 + fsync + 加载验证；保留三层；版本三层
-```
+- **内容**：参数 + 优化器（m, v, fp32 主参数 = 参数的 6 倍）+ 调度器 + 数据位置 + RNG + 步数（+ 配置）；缺一样就不是精确恢复。优化器状态必须按参数 FQN 重编址（`get_optimizer_state_dict` / `get_flat_optim_state_dict` / `make_sharded_optimizer_tensor`）。
+- **字节**：训练态 16 B/参数，落盘 14（Megatron）或 12（FSDP2）；405B → 5.7 TB；与并行配置无关。
+- **单文件**：rank-0 汇总撞三堵墙：主机内存放不下、单网卡 114 s、单写入者 19–95 min → δ 十分钟量级 → 浪费 1/3。
+- **分片写**：每卡 350 MB（405B/16K）；由 PFS 聚合带宽决定，秒级；DP 副本去重；计划阶段的集合通信要缓存。
+- **DCP**：save = `local_step` → `reduce_scatter` → `write_data` → `all_reduce`；Planner 决定谁写什么、Storage 写文件、Metadata 记全局形状与块坐标。`.metadata` 最后原子写入 = 提交标记；磁盘上没有 rank / TP / PP，只有全局坐标。
+- **重分片**：load 时每个本地块 ∩ 磁盘块 → `ReadItem`；`resharding.py` 逐维算交集，`planner_helpers` 扫描线；零通信。条件：同 FQN、同全局形状、块带全局坐标；PP 变需展平 key；Megatron 分布式优化器需 `fully_reshardable`；DeepSpeed 需 universal。
+- **异步**：δ 从写入时间变 staging 时间；`DefaultStager` 四个开关（默认全 False）；线程受 GIL、进程要 `/dev/shm`。staging 内存 = 每卡唯一字节 ×（1–2）：8B/8 卡是每卡 12 GB，千卡反而轻；等 staging 放在 `optimizer.step` 前。
+- **Megatron**：`ShardedTensor` 手写全局坐标；`torch_dist` = DCP 文件 + `common.pt` + `metadata.json`；FullyParallelSave 分摊写；nvrx / mcore 异步。
+- **DeepSpeed**：CheckpointEngine（Torch / Fast / Decoupled）；ZeRO 文件绑 DP 度；`ds_to_universal` 离线合并成全局再切。
+- **torchtitan**：`CheckpointManager` 包 `dcp.async_save`；`async_with_pinned_mem` = PROCESS executor + 全 True 的 `StagingOptions`；gloo 组；`keep_latest_k`。
+- **Young**：τ_opt = sqrt(2δM)，最小浪费 sqrt(2δ/M)；M ≈ 3.1 h 时 δ = 10 min → 33%，δ = 2 s → 1.9%；异步不是优化是必需。
+- **多级**：本地 NVMe + 邻居副本（`replication_jump`）秒级、PFS 持久；校验靠提交标记 + fsync + 加载验证；保留三层；版本三层。
 
 ### 2. 本篇涉及的源码位置
 
-```text title="本篇涉及的源码位置"
-项目                  路径                                                        关键符号 / 内容
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-PyTorch v2.13.0       torch/distributed/checkpoint/state_dict_saver.py            save / async_save / _save_state_dict；AsyncCheckpointerType；AsyncSaveResponse；
-                                                                                  _stateful_to_state_dict；local_step / global_step / write_data / finish_checkpoint
-                      torch/distributed/checkpoint/state_dict_loader.py           load；local_step / global_step / read_data
-                      torch/distributed/checkpoint/planner.py                     SavePlanner / LoadPlanner；SavePlan / LoadPlan；WriteItem / ReadItem；WriteItemType / TensorWriteData
-                      torch/distributed/checkpoint/default_planner.py             DefaultSavePlanner（flatten、dedup、enable_plan_caching）/ DefaultLoadPlanner（allow_partial_load）；
-                                                                                  _EmptyStateDictLoadPlanner；create_default_local_save_plan / create_default_local_load_plan；_validate_global_plan
-                      torch/distributed/checkpoint/_dedup_save_plans.py           dedup_save_plans
-                      torch/distributed/checkpoint/planner_helpers.py             create_read_items_for_chunk_list（扫描线）；_create_write_items_for_dtensor；_create_chunk_from_dtensor
-                      torch/distributed/checkpoint/resharding.py                  _check_shard_metadata_pair_overlap；_shards_get_overlap_region_wrt_saved_tensor
-                      torch/distributed/checkpoint/storage.py                     StorageWriter / StorageReader；WriteResult
-                      torch/distributed/checkpoint/filesystem.py                  FileSystemWriter（继承 _FileSystemWriter + BlockingAsyncStager）/ FileSystemReader；
-                                                                                  thread_count / single_file_per_rank / sync_files / per_thread_copy_ahead / cache_staged_state_dict；
-                                                                                  _split_by_size_and_type；_write_files_from_queue；finish 的 .metadata 原子写；DEFAULT_SUFFIX；CURRENT_DCP_VERSION；SerializationFormat
-                      torch/distributed/checkpoint/metadata.py                    Metadata / TensorStorageMetadata / ChunkStorageMetadata / BytesStorageMetadata / TensorProperties /
-                                                                                  MetadataIndex / StorageMeta
-                      torch/distributed/checkpoint/staging.py                     AsyncStager；StagingOptions；DefaultStager；BlockingAsyncStager；_ReplicationStager
-                      torch/distributed/checkpoint/_state_dict_stager.py          StateDictStager（按 storage 缓存的 pinned / shared CPU 副本）
-                      torch/distributed/checkpoint/_async_executor.py             _AsyncCheckpointExecutor
-                      torch/distributed/checkpoint/_async_thread_executor.py      _ThreadBasedAsyncCheckpointExecutor；save_wrapper
-                      torch/distributed/checkpoint/_async_process_executor.py     _ProcessBasedAsyncCheckpointExecutor；_AsyncCheckpointProcess；_ProcessGroupInitInfo
-                      torch/distributed/checkpoint/state_dict.py                  StateDictOptions；get_model_state_dict / get_optimizer_state_dict / get_state_dict；
-                                                                                  set_model_state_dict / set_optimizer_state_dict / set_state_dict；_init_optim_state
-                      torch/distributed/checkpoint/stateful.py                    Stateful
-                      torch/distributed/checkpoint/hf_storage.py                  HuggingFaceStorageWriter / HuggingFaceStorageReader
-                      torch/distributed/checkpoint/format_utils.py                dcp_to_torch_save / torch_save_to_dcp；BroadcastingTorchSaveReader
-                      torch/distributed/checkpoint/_pg_transport.py               PGTransport（进程组直传 state_dict，内部 API）
-Megatron Core         megatron/core/dist_checkpointing/mapping.py                 ShardedTensor（from_rank_offsets、replica_id、flattened_range）/ ShardedObject / ShardedTensorFactory /
-0.18.0                                                                            LocalNonpersistentObject；is_main_replica
-                      megatron/core/dist_checkpointing/serialization.py           save / load / load_common_state_dict / load_tensors_metadata / load_sharded_metadata
-                      megatron/core/dist_checkpointing/core.py                    CheckpointingConfig；metadata.json
-                      megatron/core/dist_checkpointing/strategies/common.py       common.pt 的读写
-                      megatron/core/dist_checkpointing/strategies/base.py         SaveShardedStrategy / LoadShardedStrategy / AsyncSaveShardedStrategy；get_default_strategy
-                      megatron/core/dist_checkpointing/strategies/torch.py        TorchDistSaveShardedStrategy / TorchDistLoadShardedStrategy；MCoreSavePlanner / MCoreLoadPlanner；
-                                                                                  mcore_to_pyt_state_dict；get_async_strategy
-                      megatron/core/dist_checkpointing/strategies/filesystem_async.py   FileSystemWriterAsync
-                      megatron/core/dist_checkpointing/strategies/fully_parallel.py     FullyParallelSaveStrategyWrapper / FullyParallelLoadStrategyWrapper；
-                                                                                  distribute_main_replicas_with_precomputed_distribution
-                      megatron/core/dist_checkpointing/strategies/async_utils.py  AsyncRequest；TemporalAsyncCaller / PersistentAsyncCaller；AsyncCallsQueue；_set_process_qos；_disable_gc
-                      megatron/core/dist_checkpointing/strategies/state_dict_saver.py   save_state_dict_async_plan / save_state_dict_async_finalize；verify_global_md_reuse
-                      megatron/core/dist_checkpointing/strategies/nvrx.py         has_nvrx_async_support；make_nvrx_async_request
-                      megatron/core/dist_checkpointing/optimizer.py               get_param_id_to_sharded_param_map；make_sharded_optimizer_tensor；optim_state_to_sharding_state
-                      megatron/core/dist_checkpointing/validation.py              StrictHandling；validate_sharding_integrity；save_integrity_manifest / verify_integrity_manifest
-                      megatron/core/optimizer/distrib_optimizer.py                DistributedOptimizer.sharded_state_dict；sharded_param_state_dp_reshardable / _fully_reshardable /
-                                                                                  _fs_model_space / _dp_zero
-                      megatron/training/checkpointing.py                          save_checkpoint / load_checkpoint / generate_state_dict / get_rng_state / _load_base_checkpoint /
-                                                                                  _get_checkpoint_format / get_checkpoint_tracker_filename / read_metadata / check_checkpoint_args /
-                                                                                  fix_query_key_value_ordering / maybe_save_dataloader_state / cleanup_old_non_persistent_checkpoint
-                      megatron/training/async_utils.py                            schedule_async_save / maybe_finalize_async_save / init_persistent_async_worker
-                      megatron/training/config/training_config.py                 CheckpointConfig（ckpt_format / async_save / async_strategy / fully_parallel_save / …）
-                      megatron/training/argument_utils.py                         ArgumentGroupFactory：字段 → CLI
-                      megatron/training/training.py                               LocalCheckpointManager / CliqueReplicationStrategy 的接入（nvidia-resiliency-ext）
-DeepSpeed 0.19.2      deepspeed/runtime/checkpoint_engine/checkpoint_engine.py    CheckpointEngine；CheckpointCommitInfo
-                      deepspeed/runtime/checkpoint_engine/utils.py                create_checkpoint_engine
-                      deepspeed/runtime/checkpoint_engine/{torch,fast,decoupled,nebula,datastates}_checkpoint_engine.py   五种实现
-                      deepspeed/runtime/model_checkpointing/constants.py          CHECKPOINT_FORMAT（writer 的 JSON 字段）；CheckpointWriterType；CheckpointDataParallel
-                      deepspeed/runtime/engine.py                                 save_checkpoint / load_checkpoint / _get_ckpt_name / _get_zero_ckpt_name / load_universal_checkpoint
-                      deepspeed/checkpoint/ds_to_universal.py                     extract_zero_shards / merge_tp_slices / merge_zero3_slices / dump_param_fragment
-                      deepspeed/checkpoint/universal_checkpoint.py                load_hp_checkpoint_state；enable_universal_checkpoint
-                      deepspeed/checkpoint/{deepspeed_checkpoint,zero_checkpoint,reshape_meg_2d}.py   DeepSpeedCheckpoint / ZeROCheckpoint / 重排规则
-torchtitan v0.3.0     torchtitan/components/checkpointer/base.py                  BaseCheckpointManager（Config：interval / keep_latest_k / exclude_from_loading …）；ModelWrapper；purge_thread
-                      torchtitan/components/checkpointer/dcp.py                   CheckpointManager（Config.async_mode）；AsyncMode；dcp_save / dcp_load / _save / _load /
-                                                                                  _maybe_wait_for_staging / _wait_for_saving / _purge_stale_checkpoints / _create_checkpoint_id
-                      torchtitan/components/checkpointer/torch_checkpointing.py   TorchCheckpointingManager（另一实现）
-                      torchtitan/components/checkpoint.py                         兼容性重导出
-                      torchtitan/components/optimizer/optimizer.py                OptimizersContainer.state_dict / load_state_dict
-                      torchtitan/components/optimizer/utils.py                    init_optim_state / get_flat_optim_state_dict / load_flat_optim_state_dict
-                      torchtitan/components/dataloader.py                         ParallelAwareDataloader（StatefulDataLoader）
-                      torchtitan/trainer.py                                       Trainer 实现 Stateful（step / ntokens_seen）；train_step 里 maybe_wait_for_staging 的位置；train 里 save
-```
+| 路径 | 关键符号 / 内容 |
+|---|---|
+| **PyTorch v2.13.0** | |
+| `torch/distributed/` `checkpoint/` `state_dict_saver.py` | save / async_save / _save_state_dict；AsyncCheckpointerType；AsyncSaveResponse； _stateful_to_state_dict；local_step / global_step / write_data / finish_checkpoint |
+| `torch/distributed/` `checkpoint/` `state_dict_loader.py` | load；local_step / global_step / read_data |
+| `torch/distributed/` `checkpoint/planner.py` | SavePlanner / LoadPlanner；SavePlan / LoadPlan；WriteItem / ReadItem；WriteItemType / TensorWriteData |
+| `torch/distributed/` `checkpoint/` `default_planner.py` | DefaultSavePlanner（flatten、dedup、enable_plan_caching）/ DefaultLoadPlanner（allow_partial_load）； _EmptyStateDictLoadPlanner；create_default_local_save_plan / create_default_local_load_plan；_validate_global_plan |
+| `torch/distributed/` `checkpoint/` `_dedup_save_plans.py` | dedup_save_plans |
+| `torch/distributed/` `checkpoint/` `planner_helpers.py` | create_read_items_for_chunk_list（扫描线）；_create_write_items_for_dtensor；_create_chunk_from_dtensor |
+| `torch/distributed/` `checkpoint/` `resharding.py` | _check_shard_metadata_pair_overlap；_shards_get_overlap_region_wrt_saved_tensor |
+| `torch/distributed/` `checkpoint/storage.py` | StorageWriter / StorageReader；WriteResult |
+| `torch/distributed/` `checkpoint/` `filesystem.py` | FileSystemWriter（继承 _FileSystemWriter + BlockingAsyncStager）/ FileSystemReader； thread_count / single_file_per_rank / sync_files / per_thread_copy_ahead / cache_staged_state_dict； _split_by_size_and_type；_write_files_from_queue；finish 的 .metadata 原子写；DEFAULT_SUFFIX；CURRENT_DCP_VERSION；SerializationFormat |
+| `torch/distributed/` `checkpoint/metadata.py` | Metadata / TensorStorageMetadata / ChunkStorageMetadata / BytesStorageMetadata / TensorProperties / MetadataIndex / StorageMeta |
+| `torch/distributed/` `checkpoint/staging.py` | AsyncStager；StagingOptions；DefaultStager；BlockingAsyncStager；_ReplicationStager |
+| `torch/distributed/` `checkpoint/` `_state_dict_stager.py` | StateDictStager（按 storage 缓存的 pinned / shared CPU 副本） |
+| `torch/distributed/` `checkpoint/` `_async_executor.py` | _AsyncCheckpointExecutor |
+| `torch/distributed/` `checkpoint/` `_async_thread_executor.py` | _ThreadBasedAsyncCheckpointExecutor；save_wrapper |
+| `torch/distributed/` `checkpoint/` `_async_process_executor.py` | _ProcessBasedAsyncCheckpointExecutor；_AsyncCheckpointProcess；_ProcessGroupInitInfo |
+| `torch/distributed/` `checkpoint/` `state_dict.py` | StateDictOptions；get_model_state_dict / get_optimizer_state_dict / get_state_dict； set_model_state_dict / set_optimizer_state_dict / set_state_dict；_init_optim_state |
+| `torch/distributed/` `checkpoint/stateful.py` | Stateful |
+| `torch/distributed/` `checkpoint/` `hf_storage.py` | HuggingFaceStorageWriter / HuggingFaceStorageReader |
+| `torch/distributed/` `checkpoint/` `format_utils.py` | dcp_to_torch_save / torch_save_to_dcp；BroadcastingTorchSaveReader |
+| `torch/distributed/` `checkpoint/` `_pg_transport.py` | PGTransport（进程组直传 state_dict，内部 API） |
+| **Megatron Core 0.18.0** | |
+| `megatron/core/` `dist_checkpointing/` `mapping.py` | ShardedTensor（from_rank_offsets、replica_id、flattened_range）/ ShardedObject / ShardedTensorFactory / LocalNonpersistentObject；is_main_replica |
+| `megatron/core/` `dist_checkpointing/` `serialization.py` | save / load / load_common_state_dict / load_tensors_metadata / load_sharded_metadata |
+| `megatron/core/` `dist_checkpointing/` `core.py` | CheckpointingConfig；metadata.json |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `common.py` | common.pt 的读写 |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `base.py` | SaveShardedStrategy / LoadShardedStrategy / AsyncSaveShardedStrategy；get_default_strategy |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `torch.py` | TorchDistSaveShardedStrategy / TorchDistLoadShardedStrategy；MCoreSavePlanner / MCoreLoadPlanner； mcore_to_pyt_state_dict；get_async_strategy |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `filesystem_async.py` | FileSystemWriterAsync |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `fully_parallel.py` | FullyParallelSaveStrategyWrapper / FullyParallelLoadStrategyWrapper； distribute_main_replicas_with_precomputed_distribution |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `async_utils.py` | AsyncRequest；TemporalAsyncCaller / PersistentAsyncCaller；AsyncCallsQueue；_set_process_qos；_disable_gc |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `state_dict_saver.py` | save_state_dict_async_plan / save_state_dict_async_finalize；verify_global_md_reuse |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `nvrx.py` | has_nvrx_async_support；make_nvrx_async_request |
+| `megatron/core/` `dist_checkpointing/` `optimizer.py` | get_param_id_to_sharded_param_map；make_sharded_optimizer_tensor；optim_state_to_sharding_state |
+| `megatron/core/` `dist_checkpointing/` `validation.py` | StrictHandling；validate_sharding_integrity；save_integrity_manifest / verify_integrity_manifest |
+| `megatron/core/` `optimizer/` `distrib_optimizer.py` | DistributedOptimizer.sharded_state_dict；sharded_param_state_dp_reshardable / _fully_reshardable / _fs_model_space / _dp_zero |
+| `megatron/training/` `checkpointing.py` | save_checkpoint / load_checkpoint / generate_state_dict / get_rng_state / _load_base_checkpoint / _get_checkpoint_format / get_checkpoint_tracker_filename / read_metadata / check_checkpoint_args / fix_query_key_value_ordering / maybe_save_dataloader_state / cleanup_old_non_persistent_checkpoint |
+| `megatron/training/` `async_utils.py` | schedule_async_save / maybe_finalize_async_save / init_persistent_async_worker |
+| `megatron/training/` `config/` `training_config.py` | CheckpointConfig（ckpt_format / async_save / async_strategy / fully_parallel_save / …） |
+| `megatron/training/` `argument_utils.py` | ArgumentGroupFactory：字段 → CLI |
+| `megatron/training/` `training.py` | LocalCheckpointManager / CliqueReplicationStrategy 的接入（nvidia-resiliency-ext） |
+| **DeepSpeed 0.19.2** | |
+| `deepspeed/runtime/` `checkpoint_engine/` `checkpoint_engine.py` | CheckpointEngine；CheckpointCommitInfo |
+| `deepspeed/runtime/` `checkpoint_engine/` `utils.py` | create_checkpoint_engine |
+| `deepspeed/runtime/` `checkpoint_engine/` `*_checkpoint_engine.py` | torch / fast / decoupled / nebula / datastates 五种实现 |
+| `deepspeed/runtime/` `model_checkpointing/` `constants.py` | CHECKPOINT_FORMAT（writer 的 JSON 字段）；CheckpointWriterType；CheckpointDataParallel |
+| `deepspeed/runtime/` `engine.py` | save_checkpoint / load_checkpoint / _get_ckpt_name / _get_zero_ckpt_name / load_universal_checkpoint |
+| `deepspeed/checkpoint/` `ds_to_universal.py` | extract_zero_shards / merge_tp_slices / merge_zero3_slices / dump_param_fragment |
+| `deepspeed/checkpoint/` `universal_checkpoint.py` | load_hp_checkpoint_state；enable_universal_checkpoint |
+| `deepspeed/checkpoint/` `deepspeed_checkpoint.py` / `zero_checkpoint.py` / `reshape_meg_2d.py` | DeepSpeedCheckpoint / ZeROCheckpoint / 重排规则 |
+| **torchtitan v0.3.0** | |
+| `torchtitan/components/` `checkpointer/base.py` | BaseCheckpointManager（Config：interval / keep_latest_k / exclude_from_loading …）；ModelWrapper；purge_thread |
+| `torchtitan/components/` `checkpointer/dcp.py` | CheckpointManager（Config.async_mode）；AsyncMode；dcp_save / dcp_load / _save / _load / _maybe_wait_for_staging / _wait_for_saving / _purge_stale_checkpoints / _create_checkpoint_id |
+| `torchtitan/components/` `checkpointer/` `torch_checkpointing.py` | TorchCheckpointingManager（另一实现） |
+| `torchtitan/components/` `checkpoint.py` | 兼容性重导出 |
+| `torchtitan/components/` `optimizer/` `optimizer.py` | OptimizersContainer.state_dict / load_state_dict |
+| `torchtitan/components/` `optimizer/utils.py` | init_optim_state / get_flat_optim_state_dict / load_flat_optim_state_dict |
+| `torchtitan/components/` `dataloader.py` | ParallelAwareDataloader（StatefulDataLoader） |
+| `torchtitan/trainer.py` | Trainer 实现 Stateful（step / ntokens_seen）；train_step 里 maybe_wait_for_staging 的位置；train 里 save |
+
+Table: 本篇涉及的源码位置
 
 ### 3. train-ledger 本篇增量：`ckpt/` 与 `ledger/checkpoint_interval.py`
 

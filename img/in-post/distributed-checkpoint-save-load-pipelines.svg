@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 410" width="760" height="410" role="img" aria-labelledby="t d">
+  <title id="t">保存与加载的两条流水线</title>
+  <desc id="d">左列保存：训练状态 → staging（GPU 到主机内存）→ plan（每 rank 列出要写什么并汇总去重）→ write（每 rank 写自己的文件，coordinator 写 .metadata）→ 目录；右列加载：新的训练状态 → 读 .metadata → plan（本地分片与磁盘分片求交得到 ReadItem）→ read（只读交集，narrow 后 copy_）→ set_state_dict()。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<text x="20" y="22" text-anchor="start" class="head">保存</text>
+<rect class="proc-c" x="20" y="40" width="350" height="30"/>
+<text x="195" y="62" text-anchor="middle" class="small">训练状态（每 rank 持有自己的分片）</text>
+<path d="M50 70 V122" class="arrow"/>
+<text x="60" y="90" text-anchor="start" class="small">state_dict()：参数、优化器、调度器、</text>
+<text x="60" y="107" text-anchor="start" class="small">数据位置、RNG、步数</text>
+<rect class="proc-c" x="20" y="122" width="350" height="48"/>
+<text x="195" y="144" text-anchor="middle" class="small">staging：GPU → 主机内存</text>
+<text x="195" y="162" text-anchor="middle" class="small">（可选、异步保存必需）</text>
+<path d="M50 170 V198" class="arrow"/>
+<rect class="proc-c" x="20" y="198" width="350" height="48"/>
+<text x="195" y="220" text-anchor="middle" class="small">plan：每 rank 列出“我要写什么”，</text>
+<text x="195" y="238" text-anchor="middle" class="small">汇总去重成全局计划</text>
+<path d="M50 246 V274" class="arrow"/>
+<rect class="proc-c" x="20" y="274" width="350" height="48"/>
+<text x="195" y="296" text-anchor="middle" class="small">write：每 rank 写自己的文件；</text>
+<text x="195" y="314" text-anchor="middle" class="small">coordinator 写 .metadata</text>
+<path d="M50 322 V350" class="arrow"/>
+<rect class="proc-c" x="20" y="350" width="350" height="48"/>
+<text x="195" y="372" text-anchor="middle" class="small">目录：__0_0.distcp … __N_0.distcp</text>
+<text x="195" y="390" text-anchor="middle" class="small">.metadata（提交标记）</text>
+<text x="390" y="22" text-anchor="start" class="head">加载</text>
+<rect class="proc-a" x="390" y="40" width="350" height="30"/>
+<text x="565" y="62" text-anchor="middle" class="small">新的训练状态（可能是另一套 TP/PP/DP）</text>
+<path d="M420 70 V122" class="arrow"/>
+<text x="430" y="90" text-anchor="start" class="small">state_dict()：只要 key 与全局形状，</text>
+<text x="430" y="107" text-anchor="start" class="small">内容待填</text>
+<rect class="proc-a" x="390" y="122" width="350" height="48"/>
+<text x="565" y="144" text-anchor="middle" class="small">读 .metadata：每个张量的全局形状</text>
+<text x="565" y="162" text-anchor="middle" class="small">+ 所有分片位置</text>
+<path d="M420 170 V198" class="arrow"/>
+<rect class="proc-a" x="390" y="198" width="350" height="48"/>
+<text x="565" y="220" text-anchor="middle" class="small">plan：我的每个本地分片 ∩ 磁盘上的</text>
+<text x="565" y="238" text-anchor="middle" class="small">哪些分片 → ReadItem 列表</text>
+<path d="M420 246 V274" class="arrow"/>
+<rect class="proc-a" x="390" y="274" width="350" height="48"/>
+<text x="565" y="296" text-anchor="middle" class="small">read：按 ReadItem 只读交集部分，</text>
+<text x="565" y="314" text-anchor="middle" class="small">narrow 后 copy_ 到本地张量</text>
+<path d="M420 322 V350" class="arrow"/>
+<rect class="proc-a" x="390" y="350" width="350" height="48"/>
+<text x="565" y="372" text-anchor="middle" class="small">set_state_dict()：装回模型与优化器</text>
+</svg>

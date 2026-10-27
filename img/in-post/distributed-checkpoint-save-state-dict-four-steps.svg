@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 709" width="760" height="709" role="img" aria-labelledby="t d">
+  <title id="t">_save_state_dict 的四步：每个 rank 与 coordinator</title>
+  <desc id="d">两条泳道的时序图。左列每个 rank：① local_step() 建本地计划，经 reduce_scatter("plan") 交给 coordinator；右列 coordinator：② global_step() 去重并生成 Metadata，把 central_plan 发回每个 rank；每个 rank：③ write_data() 写文件，经 all_reduce("write") 把 WriteResult 交给 coordinator；coordinator：④ finish_checkpoint() 写 .metadata。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<rect class="frame" x="20" y="8" width="340" height="693"/>
+<text x="190" y="34" text-anchor="middle" class="head">每个 rank</text>
+<rect class="frame" x="400" y="8" width="340" height="693"/>
+<text x="570" y="34" text-anchor="middle" class="head">coordinator（默认 rank 0）</text>
+<line x1="190" y1="46" x2="190" y2="701" class="sep"/>
+<line x1="570" y1="46" x2="570" y2="701" class="sep"/>
+<rect class="seg-a" x="30" y="60" width="320" height="170"/>
+<text x="40" y="83" text-anchor="start" class="monob">① local_step()</text>
+<text x="40" y="103" text-anchor="start" class="mono12">planner.set_up_planner(state_dict,</text>
+<text x="40" y="120" text-anchor="start" class="mono12">    storage_meta, is_coordinator)</text>
+<text x="40" y="137" text-anchor="start" class="mono12">storage_writer.set_up_storage_writer(...)</text>
+<text x="40" y="154" text-anchor="start" class="mono12">local_plan = planner.create_local_plan()</text>
+<text x="40" y="171" text-anchor="start" class="small">→ 列出本 rank 的 WriteItem</text>
+<text x="40" y="188" text-anchor="start" class="mono12">local_plan = storage_writer</text>
+<text x="40" y="205" text-anchor="start" class="mono12">             .prepare_local_plan()</text>
+<text x="40" y="222" text-anchor="start" class="small">→ FileSystemWriter 在这里 mkdir、检查是否覆盖</text>
+<path d="M190 230 V259 H570 V288" class="arrow"/>
+<text x="380" y="252" text-anchor="middle" class="mono">reduce_scatter("plan")</text>
+<text x="380" y="276" text-anchor="middle" class="small">所有 rank 的 local_plan → coordinator</text>
+<rect class="seg-b" x="410" y="288" width="320" height="102"/>
+<text x="420" y="311" text-anchor="start" class="monob">② global_step(all_local_plans)</text>
+<text x="420" y="331" text-anchor="start" class="mono12">planner.create_global_plan()</text>
+<text x="420" y="348" text-anchor="start" class="small">→ 去重 + 生成 Metadata</text>
+<text x="420" y="365" text-anchor="start" class="mono12">storage_writer.prepare_global_plan()</text>
+<text x="420" y="382" text-anchor="start" class="small">→ 给每个 plan 分配文件前缀 __i_</text>
+<path d="M570 390 V419 H190 V448" class="arrow"/>
+<text x="380" y="412" text-anchor="middle" class="mono">central_plan</text>
+<text x="380" y="436" text-anchor="middle" class="small">每个 rank 收回自己的计划</text>
+<rect class="seg-a" x="30" y="448" width="320" height="119"/>
+<text x="40" y="471" text-anchor="start" class="monob">③ write_data()</text>
+<text x="40" y="491" text-anchor="start" class="mono12">final_plan =</text>
+<text x="40" y="508" text-anchor="start" class="mono12">    planner.finish_plan(central_plan)</text>
+<text x="40" y="525" text-anchor="start" class="mono12">storage_writer.write_data(</text>
+<text x="40" y="542" text-anchor="start" class="mono12">    final_plan, planner)</text>
+<text x="40" y="559" text-anchor="start" class="small">→ 真正的 I/O，返回 Future[list[WriteResult]]</text>
+<path d="M190 567 V596 H570 V625" class="arrow"/>
+<text x="380" y="589" text-anchor="middle" class="mono">all_reduce("write")</text>
+<text x="380" y="613" text-anchor="middle" class="small">所有 rank 的 list[WriteResult] → coordinator</text>
+<rect class="seg-b" x="410" y="625" width="320" height="68"/>
+<text x="420" y="648" text-anchor="start" class="monob">④ finish_checkpoint(all_results)</text>
+<text x="420" y="668" text-anchor="start" class="mono12">storage_writer.finish(metadata, results)</text>
+<text x="420" y="685" text-anchor="start" class="small">→ 写 .metadata</text>
+</svg>

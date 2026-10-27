@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 244" width="760" height="244" role="img" aria-labelledby="t d">
+  <title id="t">本地 checkpoint 的副本放置（8 节点，J=2，F=3）</title>
+  <desc id="d">8 个节点一排，每个节点下面三格：本地分片 S0 到 S7（每 N₁ 步写本机 NVMe）；副本 +J 一行是 S6 S7 S0 S1 S2 S3 S4 S5；副本 +2J 一行是 S4 S5 S6 S7 S0 S1 S2 S3，副本走 NCCL / RDMA 从源节点推过来。S3 的三份高亮：节点 3 本地、节点 5 的 +J 格、节点 7 的 +2J 格，两条弧线从节点 3 指向节点 5 与节点 7。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<rect class="card" x="100" y="70" width="66" height="26"/>
+<text x="133" y="88" text-anchor="middle" class="bold">节点 0</text>
+<rect class="seg-a" x="100" y="102" width="66" height="28"/>
+<text x="133" y="121" text-anchor="middle" class="mono">S0</text>
+<rect class="seg-b" x="100" y="130" width="66" height="28"/>
+<text x="133" y="149" text-anchor="middle" class="mono">S6</text>
+<rect class="seg-c" x="100" y="158" width="66" height="28"/>
+<text x="133" y="177" text-anchor="middle" class="mono">S4</text>
+<rect class="card" x="178" y="70" width="66" height="26"/>
+<text x="211" y="88" text-anchor="middle" class="bold">节点 1</text>
+<rect class="seg-a" x="178" y="102" width="66" height="28"/>
+<text x="211" y="121" text-anchor="middle" class="mono">S1</text>
+<rect class="seg-b" x="178" y="130" width="66" height="28"/>
+<text x="211" y="149" text-anchor="middle" class="mono">S7</text>
+<rect class="seg-c" x="178" y="158" width="66" height="28"/>
+<text x="211" y="177" text-anchor="middle" class="mono">S5</text>
+<rect class="card" x="256" y="70" width="66" height="26"/>
+<text x="289" y="88" text-anchor="middle" class="bold">节点 2</text>
+<rect class="seg-a" x="256" y="102" width="66" height="28"/>
+<text x="289" y="121" text-anchor="middle" class="mono">S2</text>
+<rect class="seg-b" x="256" y="130" width="66" height="28"/>
+<text x="289" y="149" text-anchor="middle" class="mono">S0</text>
+<rect class="seg-c" x="256" y="158" width="66" height="28"/>
+<text x="289" y="177" text-anchor="middle" class="mono">S6</text>
+<rect class="card" x="334" y="70" width="66" height="26"/>
+<text x="367" y="88" text-anchor="middle" class="bold">节点 3</text>
+<rect class="seg-hi" x="334" y="102" width="66" height="28"/>
+<text x="367" y="121" text-anchor="middle" class="monob">S3</text>
+<rect class="seg-b" x="334" y="130" width="66" height="28"/>
+<text x="367" y="149" text-anchor="middle" class="mono">S1</text>
+<rect class="seg-c" x="334" y="158" width="66" height="28"/>
+<text x="367" y="177" text-anchor="middle" class="mono">S7</text>
+<rect class="card" x="412" y="70" width="66" height="26"/>
+<text x="445" y="88" text-anchor="middle" class="bold">节点 4</text>
+<rect class="seg-a" x="412" y="102" width="66" height="28"/>
+<text x="445" y="121" text-anchor="middle" class="mono">S4</text>
+<rect class="seg-b" x="412" y="130" width="66" height="28"/>
+<text x="445" y="149" text-anchor="middle" class="mono">S2</text>
+<rect class="seg-c" x="412" y="158" width="66" height="28"/>
+<text x="445" y="177" text-anchor="middle" class="mono">S0</text>
+<rect class="card" x="490" y="70" width="66" height="26"/>
+<text x="523" y="88" text-anchor="middle" class="bold">节点 5</text>
+<rect class="seg-a" x="490" y="102" width="66" height="28"/>
+<text x="523" y="121" text-anchor="middle" class="mono">S5</text>
+<rect class="seg-hi" x="490" y="130" width="66" height="28"/>
+<text x="523" y="149" text-anchor="middle" class="monob">S3</text>
+<rect class="seg-c" x="490" y="158" width="66" height="28"/>
+<text x="523" y="177" text-anchor="middle" class="mono">S1</text>
+<rect class="card" x="568" y="70" width="66" height="26"/>
+<text x="601" y="88" text-anchor="middle" class="bold">节点 6</text>
+<rect class="seg-a" x="568" y="102" width="66" height="28"/>
+<text x="601" y="121" text-anchor="middle" class="mono">S6</text>
+<rect class="seg-b" x="568" y="130" width="66" height="28"/>
+<text x="601" y="149" text-anchor="middle" class="mono">S4</text>
+<rect class="seg-c" x="568" y="158" width="66" height="28"/>
+<text x="601" y="177" text-anchor="middle" class="mono">S2</text>
+<rect class="card" x="646" y="70" width="66" height="26"/>
+<text x="679" y="88" text-anchor="middle" class="bold">节点 7</text>
+<rect class="seg-a" x="646" y="102" width="66" height="28"/>
+<text x="679" y="121" text-anchor="middle" class="mono">S7</text>
+<rect class="seg-b" x="646" y="130" width="66" height="28"/>
+<text x="679" y="149" text-anchor="middle" class="mono">S5</text>
+<rect class="seg-hi" x="646" y="158" width="66" height="28"/>
+<text x="679" y="177" text-anchor="middle" class="monob">S3</text>
+<text x="20" y="121" text-anchor="start" class="bold">本地分片</text>
+<text x="20" y="149" text-anchor="start" class="bold">副本 +J</text>
+<text x="20" y="177" text-anchor="start" class="bold">副本 +2J</text>
+<path d="M367 70 Q445 18 523 70" class="arrow"/>
+<text x="451" y="48" text-anchor="start" class="small">S3 +J</text>
+<path d="M367 70 Q523 -30 679 70" class="arrow"/>
+<text x="529" y="24" text-anchor="start" class="small">S3 +2J</text>
+<text x="20" y="212" text-anchor="start" class="small">本地分片：每 N₁ 步写本机 NVMe；副本走 NCCL / RDMA 从源节点推过来。</text>
+<text x="20" y="230" text-anchor="start" class="small">节点 i 的 +J 格放 S(i−2)、+2J 格放 S(i−4)，按 8 取模环绕（节点 0 的副本来自 6、4）。</text>
+</svg>

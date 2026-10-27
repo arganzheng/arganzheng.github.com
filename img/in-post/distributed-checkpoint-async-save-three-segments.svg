@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 262" width="760" height="262" role="img" aria-labelledby="t d">
+  <title id="t">异步保存的三段时间线</title>
+  <desc id="d">两行时间轴。GPU / 主 stream：训练 step k，然后 staging 阻塞 δ（GPU 到 pinned host 拷贝，几百 MB 到十几 GB，PCIe 速度），然后训练 step k+1、k+2 …… 直到 step k+n。后台线程 / 进程：staging 结束后接手，plan（gloo 集合通信）→ 写 __i_k.distcp → fsync → .metadata，与训练重叠，争抢 CPU、内存带宽、网卡（若 PFS 走以太网）；写完 .metadata 时 future 完成，正好在 step k+n 开始处。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<text x="20" y="77" text-anchor="start" class="bold">GPU /</text>
+<text x="20" y="94" text-anchor="start" class="bold">主 stream</text>
+<text x="20" y="165" text-anchor="start" class="bold">后台线程</text>
+<text x="20" y="182" text-anchor="start" class="bold">/ 进程</text>
+<rect class="seg-a" x="100" y="62" width="90" height="36"/>
+<text x="145" y="85" text-anchor="middle" class="small">训练 step k</text>
+<rect class="seg-wait" x="190" y="62" width="105" height="36"/>
+<text x="242.5" y="85" text-anchor="middle" class="small">staging 阻塞 δ</text>
+<rect class="seg-a" x="295" y="62" width="125" height="36"/>
+<text x="357.5" y="85" text-anchor="middle" class="small">step k+1</text>
+<rect class="seg-a" x="420" y="62" width="125" height="36"/>
+<text x="482.5" y="85" text-anchor="middle" class="small">step k+2</text>
+<rect class="seg-a" x="545" y="62" width="112" height="36"/>
+<text x="601" y="85" text-anchor="middle" class="small">…</text>
+<rect class="seg-a" x="657" y="62" width="95" height="36"/>
+<text x="704.5" y="85" text-anchor="middle" class="small">step k+n</text>
+<text x="190" y="52" text-anchor="start" class="small">GPU→pinned host 拷贝（几百 MB ~ 十几 GB，PCIe 速度）</text>
+<rect class="seg-b" x="295" y="150" width="124" height="36"/>
+<text x="357" y="173" text-anchor="middle" class="mono12">plan（gloo 通信）</text>
+<rect class="seg-b" x="419" y="150" width="112" height="36"/>
+<text x="475" y="173" text-anchor="middle" class="mono12">写 __i_k.distcp</text>
+<rect class="seg-b" x="531" y="150" width="52" height="36"/>
+<text x="557" y="173" text-anchor="middle" class="mono12">fsync</text>
+<rect class="seg-b" x="583" y="150" width="74" height="36"/>
+<text x="620" y="173" text-anchor="middle" class="mono12">.metadata</text>
+<path d="M295 98 V150" class="arrow"/>
+<line x1="657" y1="98" x2="657" y2="194" class="sep"/>
+<text x="657" y="208" text-anchor="middle" class="small">future 完成</text>
+<text x="295" y="228" text-anchor="start" class="small">↑ 与训练重叠；争抢 CPU、内存带宽、网卡（若 PFS 走以太网）</text>
+<text x="20" y="254" text-anchor="start" class="small">时间</text>
+<path d="M100 250 H756" class="axis"/>
+</svg>

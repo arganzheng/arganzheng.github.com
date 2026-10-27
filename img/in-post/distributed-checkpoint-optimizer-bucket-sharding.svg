@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 312" width="760" height="312" role="img" aria-labelledby="t d">
+  <title id="t">dp_reshardable 与 fully_reshardable 在 bucket 上的切法</title>
+  <desc id="d">一段 60 单位的连续 fp32 缓冲，依次放 p0 (wq) 16 单位、p1 (wk) 12 单位、p2 (wv) 18 单位、p3 (wo) 14 单位，参数边界在 0、16、28、46、60。dp_reshardable 按字节等分给 DP=4 个 rank：rank 0 [0, 15)、rank 1 [15, 30)、rank 2 [30, 45)、rank 3 [45, 60)，切分线 15、30、45 落在 p0 与 p2 内部；磁盘上一块是 bucket b 的字节 [15, 30)（ShardedTensor + flattened_range）。fully_reshardable 按参数边界切：磁盘上一块是 p1 的 exp_avg 的第 j 块，与模型参数同全局坐标。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<text x="20" y="22" text-anchor="start" class="body">DistributedOptimizer 的一个 bucket（DP=4）：参数按顺序拍平进一段连续 fp32 缓冲</text>
+<text x="20" y="83" text-anchor="start" class="bold">参数</text>
+<text x="236" y="54" text-anchor="middle" class="mono">p0 (wq)</text>
+<rect class="seg-a" x="160" y="62" width="152" height="32"/>
+<text x="236" y="83" text-anchor="middle" class="small">16 单位</text>
+<text x="369" y="54" text-anchor="middle" class="mono">p1 (wk)</text>
+<rect class="seg-b" x="312" y="62" width="114" height="32"/>
+<text x="369" y="83" text-anchor="middle" class="small">12 单位</text>
+<text x="511.5" y="54" text-anchor="middle" class="mono">p2 (wv)</text>
+<rect class="seg-c" x="426" y="62" width="171" height="32"/>
+<text x="511.5" y="83" text-anchor="middle" class="small">18 单位</text>
+<text x="663.5" y="54" text-anchor="middle" class="mono">p3 (wo)</text>
+<rect class="seg-d" x="597" y="62" width="133" height="32"/>
+<text x="663.5" y="83" text-anchor="middle" class="small">14 单位</text>
+<line x1="160" y1="94" x2="160" y2="99" class="thin"/>
+<text x="160" y="111" text-anchor="middle" class="mono12">0</text>
+<line x1="312" y1="94" x2="312" y2="99" class="thin"/>
+<text x="312" y="111" text-anchor="middle" class="mono12">16</text>
+<line x1="426" y1="94" x2="426" y2="99" class="thin"/>
+<text x="426" y="111" text-anchor="middle" class="mono12">28</text>
+<line x1="597" y1="94" x2="597" y2="99" class="thin"/>
+<text x="597" y="111" text-anchor="middle" class="mono12">46</text>
+<line x1="730" y1="94" x2="730" y2="99" class="thin"/>
+<text x="730" y="111" text-anchor="middle" class="mono12">60</text>
+<text x="20" y="148" text-anchor="start" class="monob">dp_reshardable</text>
+<text x="20" y="164" text-anchor="start" class="small">DP=4 按字节等分</text>
+<rect class="seg-free" x="160" y="134" width="142.5" height="32"/>
+<text x="231.25" y="155" text-anchor="middle" class="mono12">rank 0  [0, 15)</text>
+<rect class="seg-hi" x="302.5" y="134" width="142.5" height="32"/>
+<text x="373.75" y="155" text-anchor="middle" class="mono12">rank 1  [15, 30)</text>
+<rect class="seg-free" x="445" y="134" width="142.5" height="32"/>
+<text x="516.25" y="155" text-anchor="middle" class="mono12">rank 2  [30, 45)</text>
+<rect class="seg-free" x="587.5" y="134" width="142.5" height="32"/>
+<text x="658.75" y="155" text-anchor="middle" class="mono12">rank 3  [45, 60)</text>
+<line x1="302.5" y1="62" x2="302.5" y2="166" class="cut"/>
+<line x1="445" y1="62" x2="445" y2="166" class="cut"/>
+<line x1="587.5" y1="62" x2="587.5" y2="166" class="cut"/>
+<text x="302.5" y="186" text-anchor="start" class="small">↑ 磁盘上一块 = “bucket b 的字节 [15, 30)”</text>
+<text x="302.5" y="204" text-anchor="start" class="small">（ShardedTensor + flattened_range）</text>
+<text x="302.5" y="222" text-anchor="start" class="small">切分线 15、30、45 落在 p0、p2 内部，不对应任何参数边界</text>
+<text x="20" y="260" text-anchor="start" class="monob">fully_reshardable</text>
+<text x="20" y="276" text-anchor="start" class="small">按参数边界切</text>
+<rect class="seg-free" x="160" y="246" width="152" height="32"/>
+<text x="236" y="267" text-anchor="middle" class="mono12">p0 (wq)  [0, 16)</text>
+<rect class="seg-hi" x="312" y="246" width="114" height="32"/>
+<text x="369" y="267" text-anchor="middle" class="mono12">p1 (wk)  [16, 28)</text>
+<rect class="seg-free" x="426" y="246" width="171" height="32"/>
+<text x="511.5" y="267" text-anchor="middle" class="mono12">p2 (wv)  [28, 46)</text>
+<rect class="seg-free" x="597" y="246" width="133" height="32"/>
+<text x="663.5" y="267" text-anchor="middle" class="mono12">p3 (wo)  [46, 60)</text>
+<text x="312" y="298" text-anchor="start" class="small">↑ 磁盘上一块 = “p1 的 exp_avg 的第 j 块”（与模型参数同全局坐标）</text>
+</svg>
