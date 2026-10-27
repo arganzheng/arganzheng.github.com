@@ -32,7 +32,7 @@ Table: Megatron Core 的核心抽象
 
 ## 二、最小任务：runs/megatron
 
-train-ledger 里的练手配置是 8 卡 TP 2 × PP 2 × DP 2、分布式优化器（ZeRO-1）、SP，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#七本文小结)，这里只留 Megatron 这份配置本身（`runs/megatron/run.sh`，参数名以 0.18.0 `arguments.py` 与 `training/config/` 为准）：
+train-ledger 里的练手配置是 8 卡 TP 2 × PP 2 × DP 2、分布式优化器（ZeRO-1）、SP，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五本文小结)，这里只留 Megatron 这份配置本身（`runs/megatron/run.sh`，参数名以 0.18.0 `arguments.py` 与 `training/config/` 为准）：
 
 
 ```bash title="runs/megatron/run.sh"
@@ -71,7 +71,7 @@ torchrun --nproc_per_node 8 pretrain_gpt.py \
 
 ![RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2](/img/in-post/megatron-deepspeed-torchtitan-rank-generator-mask.svg)
 
-同一张 8 卡网格，token 里出现的维度"变化"、其余"固定"，一次枚举就得到一组进程组；第 3 节 torchtitan 的 `DeviceMesh` 视图 `("pp", "dp_shard", "tp")` 给出的正是同一张网格，只是"哪些卡在一组"改由 mesh 的索引语义回答。
+同一张 8 卡网格，token 里出现的维度"变化"、其余"固定"，一次枚举就得到一组进程组；[05 的进程组](/torchtitan-architecture-and-source-guide.html#三进程组paralleldims-与-devicemesh)里的 `DeviceMesh` 视图 `("pp", "dp_shard", "tp")` 给出的正是同一张网格，只是"哪些卡在一组"改由 mesh 的索引语义回答。
 
 `initialize_model_parallel()` 里有两个 `RankGenerator`：`decoder_rank_generator`（tp/cp/dp/pp，ep 固定为 1）和 `expert_decoder_rank_generator`（tp/ep/dp/pp，cp 固定为 1）。这是因为 EP 与 CP 在 Megatron 里被视为互斥的维度（`RankGenerator.__init__` 有 `ep == 1 or cp == 1` 的断言）：专家层的 DP 组 `expt-dp` 大小是 $$N_d N_c / N_e$$，与非专家层的 `dp-cp` 组不同。两套生成器分别为 dense 部分和 MoE 部分建组，而 PP 组必须一致（函数里有对应断言）。
 
@@ -87,7 +87,7 @@ torchrun --nproc_per_node 8 pretrain_gpt.py \
 
 ```text title="Megatron Core 目录地图"
 megatron/core/
-  parallel_state.py                    进程组（第二章）
+  parallel_state.py                    进程组（第三章）
   model_parallel_config.py             ModelParallelConfig：各并行度、sequence_parallel、overlap_p2p_comm、*_sync_func 回调
   tensor_parallel/
     layers.py                          ColumnParallelLinear、RowParallelLinear、VocabParallelEmbedding、LinearWithGradAccumulationAndAsyncCommunication

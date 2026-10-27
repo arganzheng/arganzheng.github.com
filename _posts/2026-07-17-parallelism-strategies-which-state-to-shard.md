@@ -73,7 +73,7 @@ Table: 六种并行各切哪种状态
 
 同一套切法在推理侧也用（vLLM 的 TP / PP / EP / DP），但账完全不同，因为**推理只有两种状态**——权重与 KV cache——没有梯度、没有优化器状态、没有为反向保存的激活。把两边放在一张表里对照，能看清每种并行在训练里多出来的那部分是什么：
 
-| 策略 | 训练侧切什么、代价是什么（本篇） | 推理侧切什么、代价是什么（[vLLM 系列第八篇](/multi-gpu-scaling-strategies.html)） | 差别的来源 |
+| 策略 | 训练侧切什么、代价是什么（本篇） | 推理侧切什么、代价是什么（[vLLM 系列第十一篇](/multi-gpu-scaling-strategies.html)） | 差别的来源 |
 |---|---|---|---|
 | DP | 复制模型，切数据；每 step 梯度 all-reduce $$2N$$，可与反向重叠 | 复制模型，各副本独立服务不同请求，**副本之间不通信**（只有调度器分发请求） | 推理没有梯度要归约，DP 退化成"多开几个实例" |
 | ZeRO / FSDP | 切优化器状态 / 梯度 / 参数，前向前 all-gather 参数 | **不存在**——没有优化器状态和梯度可切；权重放不下时用 TP / PP | ZeRO 切的三种状态推理侧有两种根本没有 |
@@ -205,7 +205,7 @@ FSDP 是 ZeRO-3 在 PyTorch 里的原生实现，有两代。
 
 **FSDP1**（`torch/distributed/fsdp/fully_sharded_data_parallel.py` 的 `FullyShardedDataParallel`）把一个 wrap 单元（通常是一个 Transformer 层）内的所有参数**拍平拼接**成一个一维的 `FlatParameter`（`torch/distributed/fsdp/_flat_param.py`，管理它的是 `FlatParamHandle`），再把这个大一维张量均匀切成 $$N_d$$ 段。好处是每层只有一次 all-gather 和一次 reduce-scatter，通信效率最高；坏处是原始参数的形状、dtype、`requires_grad` 都被抹掉了——同一个 `FlatParameter` 里的参数必须同 dtype、要一起冻结或一起训练，和 TP 组合时要专门适配，checkpoint 里的分片也是"一维大张量的第 $$k$$ 段"，不对应任何一个具体参数。`torch/distributed/fsdp/api.py` 的 `ShardingStrategy` 枚举把 ZeRO 三级映射为 `FULL_SHARD`（ZeRO-3）、`SHARD_GRAD_OP`（ZeRO-2）、`NO_SHARD`（DDP），另有 `HYBRID_SHARD`（见下节）。
 
-**FSDP2**（`torch/distributed/fsdp/_fully_shard/` 下的 `fully_shard()`）放弃了拍平：每个参数**各自**沿第 0 维切成 $$N_d$$ 份，切开后的分片是一个 `DTensor`（placement 为 `Shard(0)`）。一次 `fully_shard(module)` 调用把该 module 的参数编成一个通信组 `FSDPParamGroup`（`_fsdp_param_group.py`），组内每个参数对应一个 `FSDPParam`（`_fsdp_param.py`，维护 sharded / unsharded 两种状态的切换）。前向前 `FSDPParamGroup.unshard()` 把组内所有参数的分片拷进一个连续 buffer 做**一次** all-gather（`_fsdp_collectives.py` 的 `foreach_all_gather`），拷出后各参数恢复原形状；前向后 `reshard()` 释放；反向后 `post_backward()` 把梯度拷进连续 buffer 做一次 reduce-scatter（`foreach_reduce`）。所以通信次数与 FSDP1 相同，但参数的身份保留了：不同参数可以不同 dtype、可以单独冻结、每个参数的分片是一个自描述的 DTensor——这让 FSDP2 能与 TP 的 DTensor 自然组合（一个参数同时有 `Shard(0)` 的 FSDP 维和 `Shard(1)` 的 TP 维），checkpoint 也能按参数名重分片（第五篇）。`_fsdp_api.py` 的 `MixedPrecisionPolicy` 决定 all-gather 出来的参数用什么 dtype 计算、reduce-scatter 用什么 dtype 归约；`reshard_after_forward` 参数就是第 3 节里 $$3N$$ 与 $$2N$$ 之间的开关，它还可以是一个整数——前向后不是完全释放而是重分片到一个更小的组（例如节点内 8 卡），让反向的 all-gather 只在节点内做。
+**FSDP2**（`torch/distributed/fsdp/_fully_shard/` 下的 `fully_shard()`）放弃了拍平：每个参数**各自**沿第 0 维切成 $$N_d$$ 份，切开后的分片是一个 `DTensor`（placement 为 `Shard(0)`）。一次 `fully_shard(module)` 调用把该 module 的参数编成一个通信组 `FSDPParamGroup`（`_fsdp_param_group.py`），组内每个参数对应一个 `FSDPParam`（`_fsdp_param.py`，维护 sharded / unsharded 两种状态的切换）。前向前 `FSDPParamGroup.unshard()` 把组内所有参数的分片拷进一个连续 buffer 做**一次** all-gather（`_fsdp_collectives.py` 的 `foreach_all_gather`），拷出后各参数恢复原形状；前向后 `reshard()` 释放；反向后 `post_backward()` 把梯度拷进连续 buffer 做一次 reduce-scatter（`foreach_reduce`）。所以通信次数与 FSDP1 相同，但参数的身份保留了：不同参数可以不同 dtype、可以单独冻结、每个参数的分片是一个自描述的 DTensor——这让 FSDP2 能与 TP 的 DTensor 自然组合（一个参数同时有 `Shard(0)` 的 FSDP 维和 `Shard(1)` 的 TP 维），checkpoint 也能按参数名重分片（第八篇）。`_fsdp_api.py` 的 `MixedPrecisionPolicy` 决定 all-gather 出来的参数用什么 dtype 计算、reduce-scatter 用什么 dtype 归约；`reshard_after_forward` 参数就是第 3 节里 $$3N$$ 与 $$2N$$ 之间的开关，它还可以是一个整数——前向后不是完全释放而是重分片到一个更小的组（例如节点内 8 卡），让反向的 all-gather 只在节点内做。
 
 两代的显存与通信量相同，差别在**可组合性**：FSDP2 是 torchtitan 与 PyTorch 原生 TP/PP/CP 组合的基础，下一篇的对照会反复用到。
 
@@ -794,7 +794,7 @@ Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Tabl
 
 Table: Llama 3 405B 的状态放置
 
-最后一行说明了两件事：常驻状态只有 13 GB，80 GB 显存的大头是**在途激活**；以及为什么 405B 需要选择性重计算或更小的 $$v$$ 才能把激活压进 80 GB（第四篇）。
+最后一行说明了两件事：常驻状态只有 13 GB，80 GB 显存的大头是**在途激活**；以及为什么 405B 需要选择性重计算或更小的 $$v$$ 才能把激活压进 80 GB（第七篇）。
 
 **通信量**（global batch 16M token → 每 step 2048 个序列，每个 DP 副本 16 个，$$b = 1$$ 则 $$m = 16$$；6N 算力 $$3.9 \times 10^{22}$$ FLOP，16384 × 989 TFLOPS 标称 × 41% MFU 下 step 约 5.9 s）：
 
@@ -821,7 +821,7 @@ Table: Llama 3 405B 长上下文档的通信量
 
 CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再被 TP 切 8 份，每卡每块 K/V 只有 4 MB，16 倍的序列长度只多了 47 GB 的**可重叠**跨节点通信。这正是"CP 放在 TP 之外、PP 之内"的实例——它跨节点，但通信量和形态都比 DP 温和。
 
-气泡一行则解释了为什么 405B 的 PP = 16 不是灾难：$$m = 16$$、$$v = 1$$ 的气泡是 48%，与论文报告的 38–43% MFU 不相容，所以实际调度里 stage 必须再切（interleaved，$$v > 1$$）或 $$m$$ 更大；论文第 3.3 节也确实描述了对流水线调度的修改。这是下一篇比较两种 1F1B 实现、第四篇讨论 micro-batch 与 $$v$$ 取值的起点。
+气泡一行则解释了为什么 405B 的 PP = 16 不是灾难：$$m = 16$$、$$v = 1$$ 的气泡是 48%，与论文报告的 38–43% MFU 不相容，所以实际调度里 stage 必须再切（interleaved，$$v > 1$$）或 $$m$$ 更大；论文第 3.3 节也确实描述了对流水线调度的修改。这是下一篇比较两种 1F1B 实现、第七篇讨论 micro-batch 与 $$v$$ 取值的起点。
 
 ### 4. 三框架对照
 
@@ -1155,7 +1155,7 @@ if __name__ == "__main__":
         report(llama3_70b(), cfg)
 ```
 
-几点实现说明。通信量按第一章的口径计算：`coll_bytes` 返回每卡**发出**的字节数，all-reduce 用 $$2(n-1)/n$$、其余三个集合原语用 $$(n-1)/n$$。TP 的 all-gather + reduce-scatter 对与一次 all-reduce 等价，所以 SP 打开时只是把同一份量拆成两行记。CP 的 K/V 块用 `kv_heads`（GQA）并除以 TP；`ModelSpec` 若没有 `kv_heads` 字段则退化为 MHA。DP 一段用的是本卡的 $$N_{\text{local}}$$——TP/PP 切了之后 DP 组内交换的只是本卡那一份；`grad_replicas` 是 $$N_d \times N_c$$，因为 CP 各卡持有同一份参数。HSDP 通过 `hsdp_shard` 打开，多出一行组间 all-reduce。气泡率返回的是占总时间的份额 $$\frac{(p-1)/v}{m + (p-1)/v}$$。这里的激活估算只给一层、一个 micro-batch 的数，在途 micro-batch 数与重计算策略是第四篇的内容。
+几点实现说明。通信量按第一章的口径计算：`coll_bytes` 返回每卡**发出**的字节数，all-reduce 用 $$2(n-1)/n$$、其余三个集合原语用 $$(n-1)/n$$。TP 的 all-gather + reduce-scatter 对与一次 all-reduce 等价，所以 SP 打开时只是把同一份量拆成两行记。CP 的 K/V 块用 `kv_heads`（GQA）并除以 TP；`ModelSpec` 若没有 `kv_heads` 字段则退化为 MHA。DP 一段用的是本卡的 $$N_{\text{local}}$$——TP/PP 切了之后 DP 组内交换的只是本卡那一份；`grad_replicas` 是 $$N_d \times N_c$$，因为 CP 各卡持有同一份参数。HSDP 通过 `hsdp_shard` 打开，多出一行组间 all-reduce。气泡率返回的是占总时间的份额 $$\frac{(p-1)/v}{m + (p-1)/v}$$。这里的激活估算只给一层、一个 micro-batch 的数，在途 micro-batch 数与重计算策略是第七篇的内容。
 
 运行输出（`python -m ledger.parallel`，`ledger/model.py` 里的 `llama3_405b()` / `llama3_70b()` 是第一篇定义的模型规格，`kv_heads=8`；字节数为二进制单位）：
 
@@ -1218,9 +1218,9 @@ llama3-70b: tp=1 cp=1 pp=1 dp=1024 ep=1 zero=3 sp=True mb=1 m=1 -> 1024 GPUs
   total per GPU per step:   391.94 GB  (nvlink     0.00 B, ib   391.94 GB)
 ```
 
-每一组都对应正文的一处。前两组是第七章第 3 节的 Llama 3 两档配置，TP 的 220 GB、DP 的 12.6 GB、PP 的 1 GB、CP 的 47 GB（二进制 44.3 GiB）、48% 与 32% 的气泡都从这里来。第三组是"如果 405B 只用 FSDP"：常驻状态只有 377 MB，但一层激活 4.25 GB × 126 层根本放不下，而且每卡每 step 要在 IB 上搬 2.2 TB——$$3N$$ 的通信作用在**整个模型**上，而 TP × PP = 128 把它缩到了 1/128；这就是为什么 ZeRO-3 不能替代模型并行去训 405B。后三组是 70B 在 1024 卡上的三种放置：TP 8 / PP 8 与 TP 8 / PP 4 的 NVLink 流量一样（TP 通信只与总层数和 micro-batch 数有关），差别在 PP 的气泡（18% 对 8.6%，后者用了 $$v = 2$$）和每卡显存（4.9 GB 对 9.0 GB）；纯 HSDP（分片组 64 卡）常驻 16.4 GB 放得下，但 IB 上 392 GB 的通信是前两者的 40–80 倍——它能否被反向藏住，取决于第四篇要测的重叠效率。
+每一组都对应正文的一处。前两组是第七章第 3 节的 Llama 3 两档配置，TP 的 220 GB、DP 的 12.6 GB、PP 的 1 GB、CP 的 47 GB（二进制 44.3 GiB）、48% 与 32% 的气泡都从这里来。第三组是"如果 405B 只用 FSDP"：常驻状态只有 377 MB，但一层激活 4.25 GB × 126 层根本放不下，而且每卡每 step 要在 IB 上搬 2.2 TB——$$3N$$ 的通信作用在**整个模型**上，而 TP × PP = 128 把它缩到了 1/128；这就是为什么 ZeRO-3 不能替代模型并行去训 405B。后三组是 70B 在 1024 卡上的三种放置：TP 8 / PP 8 与 TP 8 / PP 4 的 NVLink 流量一样（TP 通信只与总层数和 micro-batch 数有关），差别在 PP 的气泡（18% 对 8.6%，后者用了 $$v = 2$$）和每卡显存（4.9 GB 对 9.0 GB）；纯 HSDP（分片组 64 卡）常驻 16.4 GB 放得下，但 IB 上 392 GB 的通信是前两者的 40–80 倍——它能否被反向藏住，取决于第七篇要测的重叠效率。
 
-这个脚本给出的是**每卡显存与通信量**，还没有时间。把通信量换成时间需要链路带宽与重叠效率，把气泡率换成 MFU 需要 micro-batch 大小与重计算策略——这些是第四篇的内容。而在此之前，先要看清三个框架各自是怎么把本篇的每一行变成代码的。
+这个脚本给出的是**每卡显存与通信量**，还没有时间。把通信量换成时间需要链路带宽与重叠效率，把气泡率换成 MFU 需要 micro-batch 大小与重计算策略——这些是第七篇的内容。而在此之前，先要看清三个框架各自是怎么把本篇的每一行变成代码的。
 
 > **一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？**
 

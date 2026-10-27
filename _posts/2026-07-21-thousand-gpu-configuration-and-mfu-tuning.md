@@ -1,7 +1,7 @@
 ---
 layout: post
 series: large-scale-training
-title: "大规模训练工程（04）：千卡配置实战——并行搭配、micro-batch、激活重计算与 MFU 调优"
+title: "大规模训练工程（07）：千卡配置实战——并行搭配、micro-batch、激活重计算与 MFU 调优"
 subtitle: "Configuring a Thousand-GPU Job: Parallelism, Micro-batch, Recompute and MFU"
 tags: [Megatron, torchtitan, Distributed Training, MFU, AI, AI-Infra]
 catalog: true
@@ -294,7 +294,7 @@ Table: micro-batch 大小对气泡与显存的影响
 
 所以 PP 下 $$b$$ 几乎总是 1 或 2，而"用更大的 micro-batch 提高 GEMM 效率"这条路在 PP 下是被气泡堵死的：要 GEMM 效率就得减小 $$p$$（候选 B）或不用 PP（FSDP，但通信压不住）。这是三个约束互相牵制最直接的例子。
 
-序列打包（第七篇）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
+序列打包（第十篇）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
 
 ### 3. batch 渐增
 
@@ -467,7 +467,7 @@ flowchart TB
 
 ### 5. 数据等待
 
-两个 `ProfilerStep` 之间、优化器 kernel 结束到下一个 step 第一个 kernel 开始的空隙，且 CPU 线程正处在 DataLoader 的 `__next__`（trace 里是 `enumerate(DataLoader)#_MultiProcessingDataLoaderIter.__next__` 一类的 op），就是数据等待。健康状态下这个空隙应当接近零：DataLoader 有 worker 进程预取，GPU 算这个 step 时下一个 batch 早已就位。出现等待的原因几乎都在 CPU 侧：worker 数不够、在线 tokenize、对象存储的流式读取抖动、`pin_memory` 没开、CPU 被 NCCL proxy 线程和 worker 争抢。第七篇讨论数据管线；本篇只需要知道怎么把它从 MFU 账里分离出来——它和 CPU 发射开销都是"GPU 全空"，区别只在 CPU 线程当时在做什么。
+两个 `ProfilerStep` 之间、优化器 kernel 结束到下一个 step 第一个 kernel 开始的空隙，且 CPU 线程正处在 DataLoader 的 `__next__`（trace 里是 `enumerate(DataLoader)#_MultiProcessingDataLoaderIter.__next__` 一类的 op），就是数据等待。健康状态下这个空隙应当接近零：DataLoader 有 worker 进程预取，GPU 算这个 step 时下一个 batch 早已就位。出现等待的原因几乎都在 CPU 侧：worker 数不够、在线 tokenize、对象存储的流式读取抖动、`pin_memory` 没开、CPU 被 NCCL proxy 线程和 worker 争抢。第十篇讨论数据管线；本篇只需要知道怎么把它从 MFU 账里分离出来——它和 CPU 发射开销都是"GPU 全空"，区别只在 CPU 线程当时在做什么。
 
 ### 6. kernel 效率与 GEMM 形状
 
@@ -481,7 +481,7 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 
 ### 8. straggler
 
-同步训练里最慢的 rank 决定每一次集合通信何时完成。单个 rank 的 trace 上它表现为集合通信 kernel 的时长远超字节数除以带宽——多出来的是在等别人。确认要靠多 rank 的 trace（Megatron 的 `--profile-ranks` 一次采几个不同节点的 rank）：各 rank 计算 kernel 的总时长若相差超过 2–3%，就有 straggler；最慢的那个 rank 的通信时长反而最短（它是被等的那个）。成因在第六篇展开（降频、HBM 纠错、PCIe 降速、网络链路差、数据不均衡），本篇只需把它从通信项里分出来：**通信项是"带宽不够或没重叠"，straggler 项是"有人来晚了"**，两者在时间线上都是通信 kernel 变长，靠跨 rank 对比才能区分。
+同步训练里最慢的 rank 决定每一次集合通信何时完成。单个 rank 的 trace 上它表现为集合通信 kernel 的时长远超字节数除以带宽——多出来的是在等别人。确认要靠多 rank 的 trace（Megatron 的 `--profile-ranks` 一次采几个不同节点的 rank）：各 rank 计算 kernel 的总时长若相差超过 2–3%，就有 straggler；最慢的那个 rank 的通信时长反而最短（它是被等的那个）。成因在第九篇展开（降频、HBM 纠错、PCIe 降速、网络链路差、数据不均衡），本篇只需把它从通信项里分出来：**通信项是"带宽不够或没重叠"，straggler 项是"有人来晚了"**，两者在时间线上都是通信 kernel 变长，靠跨 rank 对比才能区分。
 
 ### 9. 回答核心问题：缺的 10 个点去了哪里
 
@@ -497,11 +497,11 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 4 数据等待       0                       0.05 s     +0.05     ~0.5          在线 tokenize，2 个 worker                             离线 tokenize；worker 数 ≥ 4；pin_memory
 5 kernel 效率    3.2 s                   3.4 s      +0.2      ~1.5          --no-bias-swiglu-fusion / --no-rope-fusion 被示例脚本带进来；词表未 pad  去掉两个 no-fusion；--make-vocab-size-divisible-by 128
 6 CPU 发射开销   0.2 s                   0.45 s     +0.25     ~1.5          b=1、无 CUDA Graph、每 step 数千个小 kernel               cuda_graph_impl=local；或 b=2 配 v 更大
-7 straggler      0.1 s                   0.45 s     +0.35     ~2            节点 37 一张卡持续降频，所有 DP reduce-scatter 等它         隔离该节点（第六篇）；开训前跑 gpu_sniff_test
+7 straggler      0.1 s                   0.45 s     +0.35     ~2            节点 37 一张卡持续降频，所有 DP reduce-scatter 等它         隔离该节点（第九篇）；开训前跑 gpu_sniff_test
 合计             4.75 s → 42%            6.2 s → 32%  +1.45   ~10
 ```
 
-"折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠第六篇的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归第七篇。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
+"折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠第九篇的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归第十篇。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
 
 ## 七、融合、低精度与 torch.compile
 
@@ -539,7 +539,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 
 **每次改动前后各跑一段基准**。基准是同一份数据、同一个 seed、至少 100 个稳态 step（跳过 warmup 和 batch 渐增期），记录 step 时间的中位数与 p95、token/s、MFU、`max_memory_allocated`、loss 曲线，加一份 profiler trace 存档。只改一个变量。MFU 变化小于 1 个点视为噪声——千卡任务的 step 时间本身有 1–2% 的抖动。
 
-**变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。第八篇的值班手册会引用这张表；第六篇的故障复盘也会。
+**变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。第十一篇的值班手册会引用这张表；第九篇的故障复盘也会。
 
 ## 九、本文小结
 
@@ -555,7 +555,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 重叠         DP 靠 bucket 与反向重叠、all-gather 与下一前向重叠，只在最后一个 micro-batch 发生；TP 靠分块流水（TE userbuffers / async TP），须开 SP；
              PP 靠 isend/irecv；失败五因：没开 / bucket 太大 / 多余同步 / SM 争抢 / CPU 发得晚
 七项拆解     气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项
-             缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（第七篇）
+             缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（第十篇）
 FP8/融合/编译 FP8 只快 GEMM，step 时间降 20–25%；融合是无风险基线；per-block compile 顺序 TP → AC → compile → FSDP；CUDA Graph 只治 CPU 开销
 纪律         配置进 git、启动时打印全部参数；改一个变量、前后各 100 step 基准 + trace；变更表
 ```

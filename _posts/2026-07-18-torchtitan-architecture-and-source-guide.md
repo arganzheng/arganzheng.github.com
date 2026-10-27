@@ -32,7 +32,7 @@ Table: torchtitan 的核心抽象
 
 ## 二、最小任务：runs/titan
 
-train-ledger 里的练手配置是 FSDP 4 × TP 2，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#七本文小结)，这里只留 torchtitan 这份配置——v0.3.0 的一次运行就是一个返回 `Trainer.Config` 的 Python 函数（`runs/titan/ledger_llama3_1b.py`）：
+train-ledger 里的练手配置是 FSDP 4 × TP 2，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五本文小结)，这里只留 torchtitan 这份配置——v0.3.0 的一次运行就是一个返回 `Trainer.Config` 的 Python 函数（`runs/titan/ledger_llama3_1b.py`）：
 
 
 ```python title="runs/titan/ledger_llama3_1b.py"
@@ -109,7 +109,7 @@ Table: torchtitan 的几个 DeviceMesh 及其用途
 
 与 Megatron 对比，这里没有任何全局变量、没有手写的 rank 枚举：rank 排布由 `_unflatten` 的维度顺序决定（PP 最外、TP 最内，与 Megatron 的 `"tp-cp-ep-dp-pp"` 一致），"哪些卡在同一组"这个问题被 DeviceMesh 的索引语义回答。第二篇提到的 HSDP 在这里就是 `dp_replicate > 1`：`fully_shard` 收到的 `DataParallelMeshDims(shard="dp_shard", replicate="dp_replicate")`（`torch/distributed/fsdp/_fully_shard/_fsdp_api.py`）告诉它在哪一维分片、哪一维复制。
 
-v0.3.0 多了一个 `spmd_backend` 字段（`"partial_dtensor" | "full_dtensor" | "spmd_types"`，默认 `"spmd_types"`），它决定 `build_mesh()` 额外建哪些视图、以及第五章要讲的 TP 走哪条路径。三条路径对进程组的组织没有影响，本篇按默认值读。
+v0.3.0 多了一个 `spmd_backend` 字段（`"partial_dtensor" | "full_dtensor" | "spmd_types"`，默认 `"spmd_types"`），它决定 `build_mesh()` 额外建哪些视图、以及第四章要讲的 TP 走哪条路径。三条路径对进程组的组织没有影响，本篇按默认值读。
 
 
 ## 四、源码导读：用原生原语组合
@@ -160,7 +160,7 @@ torchtitan 的架构最好的说明书是 `trainer.py` 里 `Trainer.__init__` �
 ```text title="Trainer.__init__ 的执行顺序"
 Trainer.__init__(config: Trainer.Config)
   init_distributed()                             dist_utils.init_distributed(config.comm) → ParallelDims.from_config(config.parallelism, world_size)
-                                                 → parallel_dims.build_mesh()（第二章）
+                                                 → parallel_dims.build_mesh()（第三章）
   set_determinism()
   model_config.build()  在 torch.device("meta") 下   模型只有形状，没有内存；dtype = training.dtype（默认 float32）
   metrics_processor = config.metrics.build()
@@ -235,9 +235,9 @@ flowchart TB
 
 ### 5. PP 与 CP
 
-**PP**（`distributed/pipeline_parallel.py`）。`pipeline_llm()` 是 `ModelSpec.pipelining_fn`：`_get_pipeline_metadata()` 算出每个 PP rank 负责哪些 stage（`_get_pp_rank_to_stage_indices_mapping()`，支持 looped / V 形分配）、`_generate_llm_fqn_per_model_part()` 算出每个 stage 包含哪些 module（按 `pipeline_parallel_layers_per_stage` 或 `module_fqns_per_model_part`，首末 stage 可少几层以平衡 embedding / lm_head），`_pipeline_module_split()` 对每个 stage `copy.deepcopy` 整个模型再 `_split_module()` 删掉不属于它的 module，包成 `torch.distributed.pipelining.PipelineStage`；然后对每个 model part 调 `parallelize_fn`（TP、FSDP 都在 stage 内部再做一次）；最后 `_build_pipeline_schedule()` 用 `get_schedule_class(parallelism.pipeline_parallel_schedule)` 取调度类（`"1F1B"`、`"Interleaved1F1B"`、`"ZBVZeroBubble"` 等），`n_microbatches = local_batch_size / pipeline_parallel_microbatch_size`，`scale_grads=False`（梯度缩放由 loss 里的 token 数处理）。`pipeline_parallel_schedule_csv` 非空时用 `_PipelineScheduleRuntime` 加载一张自定义动作表。训练时 `Trainer.pp_forward_backward_step()` 调 `pp_schedule.step(arg_mbs, kwarg_mbs, target_mbs, losses)`——第六章对照两种 1F1B 时展开。
+**PP**（`distributed/pipeline_parallel.py`）。`pipeline_llm()` 是 `ModelSpec.pipelining_fn`：`_get_pipeline_metadata()` 算出每个 PP rank 负责哪些 stage（`_get_pp_rank_to_stage_indices_mapping()`，支持 looped / V 形分配）、`_generate_llm_fqn_per_model_part()` 算出每个 stage 包含哪些 module（按 `pipeline_parallel_layers_per_stage` 或 `module_fqns_per_model_part`，首末 stage 可少几层以平衡 embedding / lm_head），`_pipeline_module_split()` 对每个 stage `copy.deepcopy` 整个模型再 `_split_module()` 删掉不属于它的 module，包成 `torch.distributed.pipelining.PipelineStage`；然后对每个 model part 调 `parallelize_fn`（TP、FSDP 都在 stage 内部再做一次）；最后 `_build_pipeline_schedule()` 用 `get_schedule_class(parallelism.pipeline_parallel_schedule)` 取调度类（`"1F1B"`、`"Interleaved1F1B"`、`"ZBVZeroBubble"` 等），`n_microbatches = local_batch_size / pipeline_parallel_microbatch_size`，`scale_grads=False`（梯度缩放由 loss 里的 token 数处理）。`pipeline_parallel_schedule_csv` 非空时用 `_PipelineScheduleRuntime` 加载一张自定义动作表。训练时 `Trainer.pp_forward_backward_step()` 调 `pp_schedule.step(arg_mbs, kwarg_mbs, target_mbs, losses)`——第五章展开。
 
-**CP**（`distributed/context_parallel/api.py`）。`apply_cp_to_forward()` 在 `partial_dtensor` 后端下把每层的 `inner_attention` 替换成 PyTorch 实验 API `torch.distributed.tensor.experimental._context_parallel` 的 ring attention（第二篇讲过）；`prepare_context_parallel_input()` 在 `Trainer.post_dataloading_process()` 里按 `context_parallel_load_balancer`（默认 `"headtail"`）把输入序列切成本 rank 的份。默认后端下 CP 由 `decoder_sharding.py` 的 `set_gqa_inner_attention_local_map()` 用 `LocalMapConfig` 描述。CP 对参数没有影响——第二章说过 torchtitan 把 `cp` 并入 FSDP 的 shard 维，梯度归约自动覆盖。
+**CP**（`distributed/context_parallel/api.py`）。`apply_cp_to_forward()` 在 `partial_dtensor` 后端下把每层的 `inner_attention` 替换成 PyTorch 实验 API `torch.distributed.tensor.experimental._context_parallel` 的 ring attention（第二篇讲过）；`prepare_context_parallel_input()` 在 `Trainer.post_dataloading_process()` 里按 `context_parallel_load_balancer`（默认 `"headtail"`）把输入序列切成本 rank 的份。默认后端下 CP 由 `decoder_sharding.py` 的 `set_gqa_inner_attention_local_map()` 用 `LocalMapConfig` 描述。CP 对参数没有影响——第三章说过 torchtitan 把 `cp` 并入 FSDP 的 shard 维，梯度归约自动覆盖。
 
 ### 6. 一个 bf16 参数的一生：torchtitan
 

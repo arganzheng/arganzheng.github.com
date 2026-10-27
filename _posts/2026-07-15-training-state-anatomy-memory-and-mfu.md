@@ -70,7 +70,7 @@ Table: 字节的账与 FLOP 的账
 | $$N_c$$、$$N_e$$ | 上下文 / 专家并行度 | 本篇全部为 1 |
 | $$m$$ | 每个 DP 副本每 step 的 micro-batch 数 | 即梯度累积步数 |
 | $$B$$ | global batch，以 token 计 | $$B = s \cdot b \cdot m \cdot N_d$$ |
-| $$\delta$$ | 一次 checkpoint 的开销时间 | 第五篇 |
+| $$\delta$$ | 一次 checkpoint 的开销时间 | 第八篇 |
 | $$M$$ | 集群的平均故障间隔 MTBF | 第五、六篇 |
 
 Table: 全系列的记账符号
@@ -205,7 +205,7 @@ def num_bytes_per_parameter(data_parallel_size):
 
 Table: 三档模型的常驻状态
 
-三个结论。第一，**8B 在一张 80 GB 的卡上也放不下**——128 GB 的常驻状态，还没算激活；"单卡训 8B"只能靠 ZeRO/FSDP 把它切到至少两张卡，或者把优化器状态 offload 到 CPU。第二，70B 的 1.13 TB 是 14 张 H100 的显存总和，即便切得毫无浪费也至少要 15 张卡起步。第三，405B 的 6.49 TB 就是第五篇要写的 checkpoint 的大小量级——checkpoint 里存参数与优化器状态（bf16 参数其实可以从 fp32 主参数恢复，所以严格说是 $$12N$$ 到 $$14N$$），一次要落盘 5–6 TB。
+三个结论。第一，**8B 在一张 80 GB 的卡上也放不下**——128 GB 的常驻状态，还没算激活；"单卡训 8B"只能靠 ZeRO/FSDP 把它切到至少两张卡，或者把优化器状态 offload 到 CPU。第二，70B 的 1.13 TB 是 14 张 H100 的显存总和，即便切得毫无浪费也至少要 15 张卡起步。第三，405B 的 6.49 TB 就是第八篇要写的 checkpoint 的大小量级——checkpoint 里存参数与优化器状态（bf16 参数其实可以从 fp32 主参数恢复，所以严格说是 $$12N$$ 到 $$14N$$），一次要落盘 5–6 TB。
 
 这张表是第二篇的起点：所有并行策略都在回答"这几 TB 放到哪里"。
 
@@ -296,7 +296,7 @@ Table: 三档模型在 s = 8192 下的激活
 
 最后一列加上了 logits：输出层的 $$[s, V]$$ 张量在 bf16 是 $$2sV$$，交叉熵通常再在 fp32 上留一份 $$4sV$$，$$V = 128256$$ 时一条序列是 6.3 GB——它不随 $$L$$ 增长，但比一层的激活还大，是流水线并行最后一个 stage 显存偏高的原因之一，也是各框架都有"融合交叉熵 / 分块 logits"的原因。
 
-把这张表与第三章的表放在一起看：**70B 的激活（$$b = 1$$，182 GB）与它的 bf16 梯度（141 GB）是同一量级**，而 8B 的激活（36 GB）已经是它 bf16 参数（16 GB）的两倍。激活不是小数目；它随 micro-batch 线性增长，$$b = 4$$ 时 70B 就是 730 GB。这就是为什么第二篇的 TP/SP/CP 要切它、第四篇要用重计算换它。
+把这张表与第三章的表放在一起看：**70B 的激活（$$b = 1$$，182 GB）与它的 bf16 梯度（141 GB）是同一量级**，而 8B 的激活（36 GB）已经是它 bf16 参数（16 GB）的两倍。激活不是小数目；它随 micro-batch 线性增长，$$b = 4$$ 时 70B 就是 730 GB。这就是为什么第二篇的 TP/SP/CP 要切它、第七篇要用重计算换它。
 
 ### 4. Megatron 源码：18 + 4f/h 与 10 + 24/t
 
@@ -324,7 +324,7 @@ per_layer_memory = args.seq_length * args.micro_batch_size * args.hidden_size * 
 
 ### 5. 重计算的位置
 
-激活是四种状态里唯一**可以用算力换回来**的：不保留，反向时重新算一遍前向。全量重计算把每层激活降到只留层输入（$$2sbh$$），代价是多一次前向、约 33% 的额外 FLOP；选择性重计算只重算注意力分数部分（FlashAttention 已内建）；按层重计算只对若干层做全量重计算（Megatron 的 `recompute_granularity` / `recompute_method` / `recompute_num_layers`，见 `megatron/core/transformer/transformer_config.py` 的 `TransformerConfig`）。它对显存账与算力账的双重影响是第四篇的主题，本篇只需记住：**重计算改变的是激活那一层，也改变第七章 MFU 与 HFU 的差**。
+激活是四种状态里唯一**可以用算力换回来**的：不保留，反向时重新算一遍前向。全量重计算把每层激活降到只留层输入（$$2sbh$$），代价是多一次前向、约 33% 的额外 FLOP；选择性重计算只重算注意力分数部分（FlashAttention 已内建）；按层重计算只对若干层做全量重计算（Megatron 的 `recompute_granularity` / `recompute_method` / `recompute_num_layers`，见 `megatron/core/transformer/transformer_config.py` 的 `TransformerConfig`）。它对显存账与算力账的双重影响是第七篇的主题，本篇只需记住：**重计算改变的是激活那一层，也改变第七章 MFU 与 HFU 的差**。
 
 ## 五、显存之外：为什么 80 GB 只有 70 多 GB 可用
 
@@ -387,7 +387,7 @@ reserved 与 allocated 的差有两个来源。一是**缓存**：反向释放�
 
 Table: 一张 H100 的显存预算
 
-这就是"80 GB 的卡实际只有 70 多 GB 可用"的来源。它不是一个固定的数——组多、碎片重、workspace 大的配置只剩 65 GiB，精心调过的配置能到 75 GiB。第四篇的配置推导里，每卡显存预算一律按 70 GiB 起算，留出的部分就是这一章。
+这就是"80 GB 的卡实际只有 70 多 GB 可用"的来源。它不是一个固定的数——组多、碎片重、workspace 大的配置只剩 65 GiB，精心调过的配置能到 75 GiB。第七篇的配置推导里，每卡显存预算一律按 70 GiB 起算，留出的部分就是这一章。
 
 ### 5. 对账的工具
 
@@ -495,7 +495,7 @@ $$
 T_{\text{step}} \ge \frac{4.19 \times 10^6 \times 4.49 \times 10^{11}}{1024 \times 9.89 \times 10^{14}} = 1.86\ \text{s}
 $$
 
-40% MFU 下是 4.65 s。15T token 的预训练要 $$15 \times 10^{12} / 4.19 \times 10^6 = 3.6 \times 10^6$$ 个 step，每个 4.65 s，1024 卡上约 193 天；换成 8192 卡是 24 天。这是第四篇配置推导的目标函数——每一个 MFU 百分点在这个尺度上值几天。
+40% MFU 下是 4.65 s。15T token 的预训练要 $$15 \times 10^{12} / 4.19 \times 10^6 = 3.6 \times 10^6$$ 个 step，每个 4.65 s，1024 卡上约 193 天；换成 8192 卡是 24 天。这是第七篇配置推导的目标函数——每一个 MFU 百分点在这个尺度上值几天。
 
 ## 七、MFU 与 HFU
 
@@ -583,7 +583,7 @@ Table: 选择性重计算下的额外 FLOP
 
 Table: 公开报告的 MFU 参考水平
 
-从这几个数得到本系列反复使用的判断标准：**千卡 H100 上 dense 模型做到 40% 以上是好成绩；做不到 30% 说明有明确的问题**（气泡、通信未重叠、重计算过度、数据等待、straggler 之一或几个）。第四篇的任务就是把 41% 与 30% 之间的差逐项归因。
+从这几个数得到本系列反复使用的判断标准：**千卡 H100 上 dense 模型做到 40% 以上是好成绩；做不到 30% 说明有明确的问题**（气泡、通信未重叠、重计算过度、数据等待、straggler 之一或几个）。第七篇的任务就是把 41% 与 30% 之间的差逐项归因。
 
 一个附带的观察：Llama 3 的 405B 从 8K 卡到 16K 卡 MFU 只掉了 2 个点（43% → 41%），说明 DP 的通信在 16K 卡上仍然基本被反向藏住了——这是第二篇"DP 通信量与 $$N_d$$ 无关"的一个实证。
 
@@ -597,7 +597,7 @@ throughput = num_floating_point_operations(args, batch_size, ...) / (
 )
 ```
 
-分子是第六章的模型 FLOP（不含重计算），所以这个数除以峰值就是 MFU：430 TFLOP/s/GPU 在 H100 上是 43%。`compute_throughputs_and_append_to_progress_log()` 另外维护整个任务从启动以来的累计吞吐（`Job throughput` 与 `Cumulative throughput`），把 checkpoint、重启、故障的时间都摊进去——这是第六篇"有效训练时间"的一个原始数据源。
+分子是第六章的模型 FLOP（不含重计算），所以这个数除以峰值就是 MFU：430 TFLOP/s/GPU 在 H100 上是 43%。`compute_throughputs_and_append_to_progress_log()` 另外维护整个任务从启动以来的累计吞吐（`Job throughput` 与 `Cumulative throughput`），把 checkpoint、重启、故障的时间都摊进去——这是第九篇"有效训练时间"的一个原始数据源。
 
 ## 八、本文小结
 

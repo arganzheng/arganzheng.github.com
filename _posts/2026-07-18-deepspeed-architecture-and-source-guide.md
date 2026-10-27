@@ -32,7 +32,7 @@ Table: DeepSpeed 的核心抽象
 
 ## 二、最小任务：runs/deepspeed
 
-train-ledger 里的练手配置是 ZeRO-3、DP 8，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#七本文小结)，这里只留 DeepSpeed 这份配置（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
+train-ledger 里的练手配置是 ZeRO-3、DP 8，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五本文小结)，这里只留 DeepSpeed 这份配置（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
 
 
 ```json title="runs/deepspeed/ds_config.json"
@@ -128,7 +128,7 @@ deepspeed/
       schedule.py                      TrainSchedule 等 PipeSchedule；PipeInstruction 子类
       topology.py                      ProcessTopology、PipelineParallelGrid
       p2p.py                           send / recv
-  utils/groups.py                      进程组（第二章）
+  utils/groups.py                      进程组（第三章）
   comm/comm.py                         deepspeed.comm：对 torch.distributed 的封装，可换后端
 ```
 
@@ -306,7 +306,7 @@ JSON 配置是 DeepSpeed 易用性的来源，也是它的代价所在。`runtim
 
 ## 五、前向前 all-gather：Stage 3 的代码位置
 
-同一个"前向前把分片参数拼回来"的动作，Stage 3 的实现分在四个文件里——分片（`partition_parameters.py`）、hook（`parameter_offload.py`）、协调（`partitioned_param_coordinator.py`）、梯度与 step（`stage3.py`），本篇 [第四章](#四源码导读按优化器状态切) 已逐个读过。它与 FSDP1、FSDP2 的逐项并排在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#六对照阅读)。
+同一个"前向前把分片参数拼回来"的动作，Stage 3 的实现分在四个文件里——分片（`partition_parameters.py`）、hook（`parameter_offload.py`）、协调（`partitioned_param_coordinator.py`）、梯度与 step（`stage3.py`），本篇 [第四章](#四源码导读按优化器状态切) 已逐个读过。它与 FSDP1、FSDP2 的逐项并排在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#三对照阅读)。
 
 ## 六、本文小结
 

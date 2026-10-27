@@ -255,7 +255,7 @@ $$t_{step} = \frac{\text{权重副本} + c \cdot (P + \bar L/2) \cdot k_{kv}}{t 
 
 ### 3. 前向与训练
 
-三个前向与训练是算力受限的常规负载，时间 = FLOP ÷（卡数 × 峰值 × MFU）。prefill 形态的前向 MFU 取 0.5（整条序列一次算、大 GEMM）；训练取 0.4（[《大规模训练工程》第四篇](/thousand-gpu-configuration-and-mfu-tuning.html)的水平；RL 的训练 batch 是变长序列打包，MFU 比预训练略低）。8B 推理场景：参考 + 旧策略前向 $$2.28 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.5) = 72$$ 秒；训练 $$3.43 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.4) = 136$$ 秒。
+三个前向与训练是算力受限的常规负载，时间 = FLOP ÷（卡数 × 峰值 × MFU）。prefill 形态的前向 MFU 取 0.5（整条序列一次算、大 GEMM）；训练取 0.4（[《大规模训练工程》第七篇](/thousand-gpu-configuration-and-mfu-tuning.html)的水平；RL 的训练 batch 是变长序列打包，MFU 比预训练略低）。8B 推理场景：参考 + 旧策略前向 $$2.28 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.5) = 72$$ 秒；训练 $$3.43 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.4) = 136$$ 秒。
 
 ### 4. 两次同步
 

@@ -1,7 +1,7 @@
 ---
 layout: slides
 title: "大规模训练工程：从并行策略到容错恢复"
-subtitle: "系列精华 · 八篇正文每篇一页，围绕四种状态：算账、切分、落盘、重建、稳数值、看指标"
+subtitle: "系列精华 · 十一篇正文每篇一页，围绕四种状态：算账、切分、落盘、重建、稳数值、看指标"
 permalink: /slides/large-scale-training.html
 series: large-scale-training
 date: 2026-07-29 23:30:00 +0800
@@ -34,7 +34,7 @@ transition: slide
 
 ---
 
-## 八篇怎么连起来
+## 十一篇怎么连起来
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -104,9 +104,51 @@ flowchart TB
 
 ---
 
-## 03 · 三个框架：同一个 bf16 参数存在哪
+## 03 · Megatron-LM：bf16 参数常驻完整
 
-**结论**：Megatron **常驻完整 bf16**（buffer 视图）、DeepSpeed Stage 3 常驻 **1/N_d 碎片**、torchtitan **不常驻 bf16**（fp32 分片 unshard 出来）；通信量相同，**表示与可组合性不同**。
+**结论**：一个 DP 副本内的全部 bf16 参数拍进 `_ParamAndGradBuffer` 的连续内存、**从不释放**；`DistributedOptimizer` 按字节区间切优化器状态与 fp32 主参数。
+
+- 每参数常驻 2 + 4 + 12/N_d；通信 RS + AG = 2N，两处都与计算重叠
+- 进程组：`RankGenerator(order="tp-cp-ep-dp-pp")` 填全局变量
+- 1F1B 是过程式三段循环，`P2PCommunicator` 合并收发
+
+<aside class="notes" markdown="1">
+原文 /megatron-lm-architecture-and-source-guide.html。
+</aside>
+
+---
+
+## 04 · DeepSpeed：参数是空壳，碎片是常态
+
+**结论**：Stage 3 下 bf16 参数常驻 **1/N_d 碎片**（`ds_tensor`），`param.data` 一个 step 换四次身份；fp32 主参数是扁平分区。
+
+- 每参数常驻 (16 或 18)/N_d + 临时层；通信 AG + AG + RS = 3N
+- `zero.Init` 从构造起就只有分片；hook + trace 预取把通信藏进计算
+- 「ZeRO-3 参数在显存里」——只有 1/N_d 在，hook 外拿到的是空张量
+
+<aside class="notes" markdown="1">
+原文 /deepspeed-architecture-and-source-guide.html。
+</aside>
+
+---
+
+## 05 · torchtitan：fp32 分片既是参数也是主参数
+
+**结论**：bf16 **不常驻**——`fully_shard` 让参数成为 `Shard(0)` fp32 DTensor，unshard 出临时 bf16；fp32 分片本身就是主参数。
+
+- 每参数常驻 16/N_d + 临时 bf16；通信 3N（不 reshard 则 2N）
+- `ShardingConfig` 声明 TP；`Schedule1F1B` 是动作表
+- 「torchtitan 常驻一份 bf16 参数」——bf16 只在几十毫秒里存在
+
+<aside class="notes" markdown="1">
+原文 /torchtitan-architecture-and-source-guide.html。
+</aside>
+
+---
+
+## 06 · 三个框架对比：通信量相同，表示决定一切
+
+**结论**：三者通信量相同（2N 或 3N），差别在分片的**表示**——`ds_tensor` 灵活但私有、`FlatParameter` 高效但抹掉身份、`DTensor` 自描述可组合。
 
 | 框架 | 每参数常驻 | 每 step 通信 | 进程组 |
 |---|---|---|---|
@@ -114,8 +156,8 @@ flowchart TB
 | DeepSpeed 0.19 Stage 3 | (16 或 18)/N_d + 临时层 | AG + AG + RS = 3N | mpu 委托 |
 | torchtitan v0.3（FSDP2） | 16/N_d + 临时层 | 3N | `DeviceMesh` + DTensor |
 
-- 「FSDP2 比 FSDP1 通信少所以快」——次数与量相同；差别是每参数 DTensor 能与 TP、DCP、compile 组合
-- 「torchtitan 常驻一份 bf16 参数」——bf16 只在一层前向、反向的几十毫秒里存在
+- 选型：千卡 MFU → Megatron；零侵入放大 → DeepSpeed；新组合并行 → torchtitan
+- 「FSDP2 比 FSDP1 通信少所以快」——次数与量相同；差别是可组合性
 
 <aside class="notes" markdown="1">
 原文 /megatron-deepspeed-torchtitan-architecture-and-source-guide.html。
@@ -123,7 +165,7 @@ flowchart TB
 
 ---
 
-## 04 · 千卡配置实战：70B、1024 张 H100，先算
+## 07 · 千卡配置实战：70B、1024 张 H100，先算
 
 **结论**：推导顺序 **TP → PP → DP → CP**；每卡 token 少时选 **PP + ZeRO-1 不选 FSDP**（FSDP128 每卡每 step 175 GB 节点间通信、3.5 s 盖不住）；MFU 损失拆成七项各自标价，先修配置错误。
 
@@ -144,7 +186,7 @@ flowchart TB
 
 ---
 
-## 05 · 分布式 checkpoint：磁盘上是「全局张量的一组分片」
+## 08 · 分布式 checkpoint：磁盘上是「全局张量的一组分片」
 
 **结论**：不是某个 rank 的内存映像，所以能**零通信重分片**；落盘每参数 14 或 12 字节、**与并行配置无关**；异步保存把 δ 从写入时间变成 staging 时间——**不是优化是必需**。
 
@@ -166,7 +208,7 @@ $$
 
 ---
 
-## 06 · 容错与弹性：故障是常态，有效时间是五项公式
+## 09 · 容错与弹性：故障是常态，有效时间是五项公式
 
 **结论**：$$M = M_{gpu}/N$$——16K 卡 54 天 **419 次意外中断**、M ≈ 3.1 h；缩短顺序：**先 δ（异步保存），再 $$T_d$$（hang 检测），再 $$T_r$$（重启），$$T_l$$ 最后**。
 
@@ -190,7 +232,7 @@ $$
 
 ---
 
-## 07 · 稳定性与数据管线：五种成因各有信号指纹
+## 10 · 稳定性与数据管线：五种成因各有信号指纹
 
 **结论**：第 137,000 步 loss 2.1 → 4.8——三种形态（瞬时 / 可恢复 / 发散）× 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态），靠**事前记录的原始值**归因；处理是**回退 + 跳过**，前提是 checkpoint 密度与数据管线确定性。
 
@@ -212,7 +254,7 @@ $$
 
 ---
 
-## 08 · 可观测与运维：「step 是否前进」是 hang 唯一可靠的信号
+## 11 · 可观测与运维：「step 是否前进」是 hang 唯一可靠的信号
 
 **结论**：三层指标（任务 / 进程 / 硬件）、**按 rank 看、以 step 为时钟**；GPU 利用率 100% 时照样可能在 hang（NCCL kernel 自旋）；Flight Recorder 指出哪个 rank 缺席哪次集合通信。
 
@@ -232,7 +274,7 @@ $$
 
 ---
 
-## 四种状态在八篇里
+## 四种状态在十一篇里
 
 | 状态 | 01 多少 | 02–04 放哪 | 05 落盘 | 06 重建 | 07 数值 | 08 指标 |
 |---|---|---|---|---|---|---|
@@ -267,7 +309,7 @@ $$
 
 ---
 
-## 八个出口
+## 十一个出口
 
 | 篇 | 一个公式 / 一个数 |
 |---|---|

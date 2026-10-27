@@ -1,7 +1,7 @@
 ---
 layout: post
 series: large-scale-training
-title: "大规模训练工程（05）：分布式 checkpoint——格式、异步保存与重分片恢复"
+title: "大规模训练工程（08）：分布式 checkpoint——格式、异步保存与重分片恢复"
 subtitle: "Distributed Checkpoint: Format, Async Save and Resharding"
 tags: [PyTorch, Megatron, DeepSpeed, torchtitan, Checkpoint, Distributed Training, AI, AI-Infra]
 catalog: true
@@ -138,7 +138,7 @@ RNG 状态             —（每 rank 几 KB） dropout mask、数据 shuffle、
 
 三个框架把这六样东西装进一个 dict 的方式不同，但 key 的种类是一样的：
 
-Megatron 的 `generate_state_dict()`（`megatron/training/checkpointing.py`）产出 `args`、`checkpoint_version`（当前是 3.0）、`iteration`、`model`（PP 多个虚拟 stage 时是 `model0`、`model1`…）、`optimizer`、`opt_param_scheduler`、`rng_state`，可选 `rerun_state_machine`（第六篇的 SDC 检测状态）与 `num_floating_point_operations_so_far`。`--ckpt-format torch_dist` 时 `model` 与 `optimizer` 来自 `sharded_state_dict()`，值是 `ShardedTensor`；其他格式来自普通 `state_dict()`。RNG 由 `get_rng_state()` 收集 Python、NumPy、torch CPU、CUDA 四个生成器加 TP 组的 `CudaRNGStatesTracker`，在 `torch_dist` 格式下包成一个按 `(pp_rank, tp_rank)` 分片的 `ShardedObject`——RNG 状态是"按 TP/PP 位置存、DP 内相同"的东西，这个分片形状精确表达了它的语义。数据加载器位置走单独的文件（`maybe_save_dataloader_state()`），因为它按 DP rank 分片、与模型无关。
+Megatron 的 `generate_state_dict()`（`megatron/training/checkpointing.py`）产出 `args`、`checkpoint_version`（当前是 3.0）、`iteration`、`model`（PP 多个虚拟 stage 时是 `model0`、`model1`…）、`optimizer`、`opt_param_scheduler`、`rng_state`，可选 `rerun_state_machine`（第九篇的 SDC 检测状态）与 `num_floating_point_operations_so_far`。`--ckpt-format torch_dist` 时 `model` 与 `optimizer` 来自 `sharded_state_dict()`，值是 `ShardedTensor`；其他格式来自普通 `state_dict()`。RNG 由 `get_rng_state()` 收集 Python、NumPy、torch CPU、CUDA 四个生成器加 TP 组的 `CudaRNGStatesTracker`，在 `torch_dist` 格式下包成一个按 `(pp_rank, tp_rank)` 分片的 `ShardedObject`——RNG 状态是"按 TP/PP 位置存、DP 内相同"的东西，这个分片形状精确表达了它的语义。数据加载器位置走单独的文件（`maybe_save_dataloader_state()`），因为它按 DP rank 分片、与模型无关。
 
 torchtitan 的 `CheckpointManager`（`torchtitan/components/checkpointer/dcp.py`）把 `states` 字典交给 DCP：`model` 是 `ModelWrapper`、`optimizer` 是 `OptimizersContainer`、`lr_scheduler` 是 `LRSchedulersContainer`、`dataloader` 是 `ParallelAwareDataloader`（基于 `torchdata` 的 `StatefulDataLoader`），另有 `train_state`——`Trainer` 类自身实现了 `Stateful` 协议，`state_dict()` 返回 `step` 与 `ntokens_seen`。这些对象全部实现 `torch.distributed.checkpoint.stateful.Stateful`，DCP 在 `_stateful_to_state_dict()` 里逐个调用它们的 `state_dict()`。
 
@@ -418,9 +418,9 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 
 假设原配置 16 节点 128 卡、TP=8、PP=1、FSDP=16。坏了一个节点、只剩 15 个，能不能直接加载？
 
-分两层看。**checkpoint 层**：可以。FSDP 从 16 变 15，每个参数的 DTensor 分片从 16 块变 15 块，`create_read_items_for_chunk_list()` 为每个新块算出与旧块的交集——大多数新块跨两个旧块，各发两个读请求；优化器状态跟随参数，同样处理；`train_state`、`lr_scheduler` 是标量，任何 rank 都能读。**训练层**：global batch 是 $$d \times b \times m$$，DP 从 16 变 15 时要么 $$m$$ 或 $$b$$ 跟着变（Megatron 会因 global batch 不能被 $$d \times b$$ 整除而报错），要么接受 global batch 变成原来的 15/16 并相应改 lr。torchtitan 从 `TrainingConfig.global_batch_size` 与 `local_batch_size` 重算 `gradient_accumulation_steps`：原来 global batch 512 条序列 = $$16 \times 4 \times 8$$，DP 变 15 后 $$512 / (15 \times 4)$$ 不整除，同样报错。所以答案是：**DCP 层面直接加载没有问题，需要人为决定的是训练配方在 15/16 规模下怎么办**——这是第六篇弹性训练（torchft 的副本组模型允许 DP 副本数动态变化）的起点。
+分两层看。**checkpoint 层**：可以。FSDP 从 16 变 15，每个参数的 DTensor 分片从 16 块变 15 块，`create_read_items_for_chunk_list()` 为每个新块算出与旧块的交集——大多数新块跨两个旧块，各发两个读请求；优化器状态跟随参数，同样处理；`train_state`、`lr_scheduler` 是标量，任何 rank 都能读。**训练层**：global batch 是 $$d \times b \times m$$，DP 从 16 变 15 时要么 $$m$$ 或 $$b$$ 跟着变（Megatron 会因 global batch 不能被 $$d \times b$$ 整除而报错），要么接受 global batch 变成原来的 15/16 并相应改 lr。torchtitan 从 `TrainingConfig.global_batch_size` 与 `local_batch_size` 重算 `gradient_accumulation_steps`：原来 global batch 512 条序列 = $$16 \times 4 \times 8$$，DP 变 15 后 $$512 / (15 \times 4)$$ 不整除，同样报错。所以答案是：**DCP 层面直接加载没有问题，需要人为决定的是训练配方在 15/16 规模下怎么办**——这是第九篇弹性训练（torchft 的副本组模型允许 DP 副本数动态变化）的起点。
 
-数据加载器是另一个坑：`StatefulDataLoader` 的状态按 DP rank 存，16 份状态装到 15 个 rank 里没有自然的映射。Megatron 的 dataloader 状态文件也是按 DP rank 分的。实践中的做法是记录**全局已消费的 sample 数**，重启时用它重建每个 rank 的起点，而不是恢复每个 rank 的私有迭代器状态——第七篇讲。
+数据加载器是另一个坑：`StatefulDataLoader` 的状态按 DP rank 存，16 份状态装到 15 个 rank 里没有自然的映射。Megatron 的 dataloader 状态文件也是按 DP rank 分的。实践中的做法是记录**全局已消费的 sample 数**，重启时用它重建每个 rank 的起点，而不是恢复每个 rank 的私有迭代器状态——第十篇讲。
 
 ## 六、异步保存
 
@@ -455,7 +455,7 @@ GPU / 主 stream  ────────────────┤ 阻塞 δ 
 
 ### 3. 线程还是进程
 
-`_async_thread_executor.py` 的 `_ThreadBasedAsyncCheckpointExecutor` 在一个单 worker 的 `ThreadPoolExecutor` 里调 `save()`。简单，但线程受 GIL 约束：plan 阶段的 pickle、`torch.save` 的序列化都持 GIL，与训练循环的 Python 部分争抢。训练循环若是 CPU 发射受限的（第四篇的第七项损失），后台保存会直接拉长 step 时间。
+`_async_thread_executor.py` 的 `_ThreadBasedAsyncCheckpointExecutor` 在一个单 worker 的 `ThreadPoolExecutor` 里调 `save()`。简单，但线程受 GIL 约束：plan 阶段的 pickle、`torch.save` 的序列化都持 GIL，与训练循环的 Python 部分争抢。训练循环若是 CPU 发射受限的（第七篇的第七项损失），后台保存会直接拉长 step 时间。
 
 `_async_process_executor.py` 的 `_ProcessBasedAsyncCheckpointExecutor` 用 `multiprocessing` 的 `spawn` 起一个常驻的 `_AsyncCheckpointProcess`，子进程用 `_ProcessGroupInitInfo` 里的信息自己初始化一个 gloo 进程组（所以所有 rank 的子进程组成了一个平行的"checkpoint 世界"），通过 `Pipe` 接收保存请求；staged dict 必须在共享内存里（`use_shared_memory=True`），子进程直接读，不再拷贝。GIL 问题消失，代价是多一个进程、一套进程组、以及 `/dev/shm` 的容量——容器默认的 64 MB shm 显然不够，得挂大。torchtitan 的 `async_with_pinned_mem` 模式就是 `PROCESS` executor + 四个 `True` 的 `StagingOptions`。
 
@@ -575,7 +575,7 @@ fully_reshardable 磁盘上一块 = "p1 的 exp_avg 的第 j 块"（与模型参
 
 ### 4. `CheckpointConfig` 与参数族
 
-Megatron 0.18.0 的 CLI 参数由 dataclass 生成（第四篇讲过 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory`：字段名下划线换连字符）。checkpoint 相关字段在 `megatron/training/config/training_config.py` 的 `CheckpointConfig`，对应的 CLI：
+Megatron 0.18.0 的 CLI 参数由 dataclass 生成（第七篇讲过 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory`：字段名下划线换连字符）。checkpoint 相关字段在 `megatron/training/config/training_config.py` 的 `CheckpointConfig`，对应的 CLI：
 
 ```text title="CheckpointConfig 的字段与 CLI"
 字段（CLI）                                         含义
@@ -660,13 +660,13 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 其余节点从本机 NVMe 读自己的 S_n。整个恢复不碰 PFS。
 ```
 
-DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（第六篇）。
+DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（第九篇）。
 
 多级存储改变了 Young 公式里的两个量：一级 checkpoint 的 δ 更小（本地写），所以 τ₁ 可以更短；二级只需要保证"节点整批丢失"这种低频事件下的恢复，τ₂ 可以按更低的故障率算。
 
 ### 2. Young 公式的推导
 
-设 checkpoint 间隔 τ、每次开销 δ、故障服从均值为 M 的指数分布（M ≫ τ）。每个周期的长度是 τ + δ，其中有用工作 τ。故障发生时，从上一个 checkpoint 到故障点的工作作废，故障均匀落在周期内，期望作废 τ/2（严格说还要加重启与加载时间 R，第六篇把 R 放进有效训练时间公式，这里先忽略）。单位时间的浪费由两项组成：
+设 checkpoint 间隔 τ、每次开销 δ、故障服从均值为 M 的指数分布（M ≫ τ）。每个周期的长度是 τ + δ，其中有用工作 τ。故障发生时，从上一个 checkpoint 到故障点的工作作废，故障均匀落在周期内，期望作废 τ/2（严格说还要加重启与加载时间 R，第九篇把 R 放进有效训练时间公式，这里先忽略）。单位时间的浪费由两项组成：
 
 $$
 f(\tau) = \frac{\delta}{\tau} + \frac{\tau}{2M}
@@ -694,13 +694,13 @@ Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 
   2 s（异步、pinned + 重叠）   3.5 min     1.9%        2 min            409            async_with_pinned_mem；staging 与前向反向重叠
 ```
 
-三个读法。第一，同步保存在 3 小时 MTBF 下**无论如何调间隔**都要浪费 10% 以上，这是"异步保存为什么是必需的"的定量回答——Llama 3 论文报告的 >90% 有效训练时间，在同步保存下算不出来。第二，异步保存把最优间隔压到几分钟，此时约束变成第六章第 5 节的"后台写入时间 < 间隔"：5.7 TB 在 3.5 分钟内写完需要 27 GB/s 的聚合带宽，PFS 做得到；每天 400 次、每次 5.7 TB 是 2.3 PB/天的写入量，**保留策略**必须跟上（下一节）。第三，δ 之外还有 R——检测、重启、加载——第六篇会看到它在 Llama 3 的规模上是分钟级，与 δ 同量级甚至更大，所以把 δ 压到秒级之后，下一个要压的是 R。
+三个读法。第一，同步保存在 3 小时 MTBF 下**无论如何调间隔**都要浪费 10% 以上，这是"异步保存为什么是必需的"的定量回答——Llama 3 论文报告的 >90% 有效训练时间，在同步保存下算不出来。第二，异步保存把最优间隔压到几分钟，此时约束变成第六章第 5 节的"后台写入时间 < 间隔"：5.7 TB 在 3.5 分钟内写完需要 27 GB/s 的聚合带宽，PFS 做得到；每天 400 次、每次 5.7 TB 是 2.3 PB/天的写入量，**保留策略**必须跟上（下一节）。第三，δ 之外还有 R——检测、重启、加载——第九篇会看到它在 Llama 3 的规模上是分钟级，与 δ 同量级甚至更大，所以把 δ 压到秒级之后，下一个要压的是 R。
 
 ### 4. 校验、保留与版本兼容
 
 **校验**。一个 checkpoint 目录"完整"的判据是提交标记的存在：DCP 的 `.metadata`（fsync 后原子 rename）、Megatron 的 `latest_checkpointed_iteration.txt`（异步保存的 finalize 回调里写）、DeepSpeed 的 `latest`（`commit()` 里写）。三者都要求**数据文件全部 fsync 之后才写标记**——`FileSystemWriter(sync_files=True)` 默认如此，关掉它保存会快但崩溃时可能留下"标记在、数据不全"的目录。内容级校验：Megatron 的 `verify_integrity=True` 在保存时 `save_integrity_manifest()` 对每个文件算哈希、加载时 `verify_integrity_manifest()` 比对（`dist_checkpointing/validation.py`）；`ckpt_load_validate_sharding_integrity` 检查每块恰好被一个 main replica 访问。最可靠的校验是**加载一次**：写完后在另一组进程里 `dcp.load` 到 `_EmptyStateDictLoadPlanner`（`default_planner.py`，从 metadata 重建空 state_dict 再填充）并比对若干张量的 checksum——练手项目的 `reshard_check.py` 顺带做这件事。
 
-**保留**。每 3.5 分钟 5.7 TB 不能全留。常见策略是三层：最近 k 个（torchtitan 的 `keep_latest_k`，后台线程删）；每 N 小时留一个（供 loss spike 回退——第七篇 PaLM 的做法要回退到 spike 前约 100 步）；里程碑永久保留（每 1000 亿 token 之类）。Megatron 的 `cleanup_old_non_persistent_checkpoint()` 只管一级本地 checkpoint 的清理（`leave_ckpt_num`），二级由外部脚本管。删除本身要异步——`_async_delete_checkpoint_impl()`、torchtitan 的 `purge_thread` 都是为此。
+**保留**。每 3.5 分钟 5.7 TB 不能全留。常见策略是三层：最近 k 个（torchtitan 的 `keep_latest_k`，后台线程删）；每 N 小时留一个（供 loss spike 回退——第十篇 PaLM 的做法要回退到 spike 前约 100 步）；里程碑永久保留（每 1000 亿 token 之类）。Megatron 的 `cleanup_old_non_persistent_checkpoint()` 只管一级本地 checkpoint 的清理（`leave_ckpt_num`），二级由外部脚本管。删除本身要异步——`_async_delete_checkpoint_impl()`、torchtitan 的 `purge_thread` 都是为此。
 
 **版本兼容**。三个层次：格式版本（DCP `Metadata.version` "1.0.0"、`_version.py` 里对 2.3 以前展平方式的兼容判断；Megatron `metadata.json` 的 `sharded_backend` 与 `sharded_backend_version`）、内容版本（Megatron `checkpoint_version` 3.0，`fix_query_key_value_ordering()` 兼容 < 2.0 的 QKV 交错布局）、框架版本（`args` 存进 checkpoint，`check_checkpoint_args()` 比对）。实践原则是：checkpoint 目录里必须能找到写它的框架 commit 与配置；升级框架前先用新版本加载旧 checkpoint 跑 10 步比对 loss。`DefaultLoadPlanner(allow_partial_load=True)` 与 Megatron 的 `dist_ckpt_strictness=log_unexpected` 是处理"新版本多了一个 buffer"这类小差异的开关。
 
@@ -897,7 +897,7 @@ Llama 3 集群 MTBF ≈ 3.09 h
 1024 卡、单卡 MTBF 2 年：集群 MTBF 17.1 h
 ```
 
-第六篇的 `ledger/availability.py` 会 import 这里的 `CheckpointPlan`，把检测、重启、加载时间 R 加进去得到完整的有效训练时间。
+第九篇的 `ledger/availability.py` 会 import 这里的 `CheckpointPlan`，把检测、重启、加载时间 R 加进去得到完整的有效训练时间。
 
 **`ckpt/async_dcp.py`** 在单节点 8 卡上测第六章的两个数：`async_save` 返回前的阻塞时间（≈ staging）与 `future.result()` 的总时间，以及保存期间与平时的 step 时间差。模型故意用小的（几亿参数），让现象而不是 I/O 绝对量成为主角：
 
@@ -1077,7 +1077,7 @@ if __name__ == "__main__":
     main()
 ```
 
-`--tp 1`、`--tp 2`、`--tp 4` 三次运行打印的 `loss_on_fixed_batch` 应在 bf16 噪声内相同（TP 改变 GEMM 的归约顺序，最后几位会不同），`mismatched` 应为空；`--nproc_per_node 6 --tp 1` 走的是第五章第 2 节那种"一个本地块跨两个磁盘块"的路径。想看 `ReadItem` 长什么样，给 `dcp.load` 传一个继承 `DefaultLoadPlanner`、在 `create_local_plan()` 里打印 `plan.items` 的 planner 即可。做完这两步，读者手上有：一个能量化"异步保存到底省了多少、代价在哪"的脚本，和一个能证明"换布局加载后模型没变"的脚本——第六篇的 chaos 演练（kill 一个 rank 后用少一个节点的配置重启）直接复用它们。
+`--tp 1`、`--tp 2`、`--tp 4` 三次运行打印的 `loss_on_fixed_batch` 应在 bf16 噪声内相同（TP 改变 GEMM 的归约顺序，最后几位会不同），`mismatched` 应为空；`--nproc_per_node 6 --tp 1` 走的是第五章第 2 节那种"一个本地块跨两个磁盘块"的路径。想看 `ReadItem` 长什么样，给 `dcp.load` 传一个继承 `DefaultLoadPlanner`、在 `create_local_plan()` 里打印 `plan.items` 的 planner 即可。做完这两步，读者手上有：一个能量化"异步保存到底省了多少、代价在哪"的脚本，和一个能证明"换布局加载后模型没变"的脚本——第九篇的 chaos 演练（kill 一个 rank 后用少一个节点的配置重启）直接复用它们。
 
 checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 Young 公式里的 M 是给定的，δ 之外的 R——从故障发生到训练恢复的检测、重启、加载时间——本篇一直放在括号里。下一篇把它们拿出来：一千张卡平均几小时坏一张，每次从发现到恢复要多久，哪一段最该缩短。
 
