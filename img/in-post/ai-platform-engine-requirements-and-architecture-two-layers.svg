@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 540" width="760" height="540" role="img" aria-labelledby="t d">
+  <title id="t">平台机制全局图：资源层与交付层</title>
+  <desc id="d">请求自上而下进入交付层（模型网关、Serving、可观测，分别在第七、六、八篇），交付层向下得到一组能接流量的 Pod 或一组已就位的训练 Pod；资源层（任务表达、调度、切分、网络存储、设备，分别在第三、三、四、五、二篇）建立在裸节点之上；节点池旁注同位替代：Slurm（Slinky slurm-operator v1.2.2）与 Ray。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .cellh { fill: #eef2f6; stroke: #c5d0dc; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .ta { fill: #2f5f9e; }
+      .tb { fill: #a8641a; }
+    </style>
+  </defs>
+<text x="378" y="24" text-anchor="middle" class="small">请求（OpenAI 兼容协议）</text>
+<path d="M378.0 32 V58" class="arrow"/>
+<rect class="cellh" x="84" y="58" width="86" height="50"/>
+<text x="127" y="87.4" text-anchor="middle" class="bold">模型网关</text>
+<rect class="cell" x="170" y="58" width="502" height="50"/>
+<text x="182" y="78" text-anchor="start" class="small">Gateway API Inference Extension v1.6.0（InferencePool）</text>
+<text x="182" y="96" text-anchor="start" class="small">+ EPP（llm-d-router v0.10.0）</text>
+<text x="684" y="88" text-anchor="start" class="small">第七篇</text>
+<rect class="cellh" x="84" y="108" width="86" height="32"/>
+<text x="127" y="128.4" text-anchor="middle" class="bold">Serving</text>
+<rect class="cell" x="170" y="108" width="502" height="32"/>
+<text x="182" y="128" text-anchor="start" class="small">KServe v0.20.0 · llm-d v0.9.0 · LeaderWorkerSet v0.10.0 · KEDA v2.20.2</text>
+<text x="684" y="129" text-anchor="start" class="small">第六篇</text>
+<rect class="cellh" x="84" y="140" width="86" height="32"/>
+<text x="127" y="160.4" text-anchor="middle" class="bold">可观测</text>
+<rect class="cell" x="170" y="140" width="502" height="32"/>
+<text x="182" y="160" text-anchor="start" class="small">DCGM Exporter 4.6.0-4.8.3 · vllm:* 指标 · OpenCost v1.121.1</text>
+<text x="684" y="161" text-anchor="start" class="small">第八篇</text>
+<text x="16" y="120" text-anchor="start" class="bold">交付层</text>
+<path d="M378.0 172 V216" class="arrow"/>
+<text x="390" y="199" text-anchor="start" class="small">一组能接流量的 Pod  /  一组已就位的训练 Pod</text>
+<rect class="cellh" x="84" y="216" width="86" height="50"/>
+<text x="127" y="245.4" text-anchor="middle" class="bold">任务表达</text>
+<rect class="cell" x="170" y="216" width="502" height="50"/>
+<text x="182" y="236" text-anchor="start" class="small">Kubeflow Trainer v2.3.0（TrainJob）</text>
+<text x="182" y="254" text-anchor="start" class="small">· KubeRay v1.7.0（RayJob / RayService）</text>
+<text x="684" y="246" text-anchor="start" class="small">第三篇</text>
+<rect class="cellh" x="84" y="266" width="86" height="32"/>
+<text x="127" y="286.4" text-anchor="middle" class="bold">调度</text>
+<rect class="cell" x="170" y="266" width="502" height="32"/>
+<text x="182" y="286" text-anchor="start" class="small">Kueue v0.19.2（配额闸门）· Volcano v1.15.2（批调度器）</text>
+<text x="684" y="287" text-anchor="start" class="small">第三篇</text>
+<rect class="cellh" x="84" y="298" width="86" height="50"/>
+<text x="127" y="327.4" text-anchor="middle" class="bold">切分</text>
+<rect class="cell" x="170" y="298" width="502" height="50"/>
+<text x="182" y="318" text-anchor="start" class="small">MIG（GPU Operator MIG Manager）· 时间片 / MPS（device plugin）</text>
+<text x="182" y="336" text-anchor="start" class="small">· HAMi v2.10.0</text>
+<text x="684" y="328" text-anchor="start" class="small">第四篇</text>
+<rect class="cellh" x="84" y="348" width="86" height="50"/>
+<text x="127" y="377.4" text-anchor="middle" class="bold">网络存储</text>
+<rect class="cell" x="170" y="348" width="502" height="50"/>
+<text x="182" y="368" text-anchor="start" class="small">Network Operator v26.7.0 · Multus v4.3.0</text>
+<text x="182" y="386" text-anchor="start" class="small">· RDMA shared dev plugin v1.5.4 · CSI</text>
+<text x="684" y="378" text-anchor="start" class="small">第五篇</text>
+<rect class="cellh" x="84" y="398" width="86" height="50"/>
+<text x="127" y="427.4" text-anchor="middle" class="bold">设备</text>
+<rect class="cell" x="170" y="398" width="502" height="50"/>
+<text x="182" y="418" text-anchor="start" class="small">GPU Operator v26.7.0 · k8s-device-plugin v0.20.0</text>
+<text x="182" y="436" text-anchor="start" class="small">· DRA（Kubernetes v1.37.0）</text>
+<text x="684" y="428" text-anchor="start" class="small">第二篇</text>
+<text x="16" y="337" text-anchor="start" class="bold">资源层</text>
+<path d="M378.0 448 V492" class="arrow"/>
+<text x="390" y="475" text-anchor="start" class="small">裸节点：驱动、GPU、网卡、本地盘</text>
+<rect class="proc-c" x="323" y="492" width="110" height="34"/>
+<text x="378" y="513.4" text-anchor="middle" class="bold">节点池</text>
+<text x="457" y="505" text-anchor="start" class="small">同位替代：</text>
+<text x="457" y="523" text-anchor="start" class="small">Slurm（Slinky slurm-operator v1.2.2）· Ray</text>
+</svg>

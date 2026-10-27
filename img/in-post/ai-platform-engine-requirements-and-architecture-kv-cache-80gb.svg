@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 184" width="760" height="184" role="img" aria-labelledby="t d">
+  <title id="t">80 GB 卡上权重与 KV cache 的分配</title>
+  <desc id="d">80 GB 卡，--gpu-memory-utilization=0.92，引擎预留 73.6 GB，其余留给 CUDA context 等。7B bf16：权重 14 GB，KV cache 约 60 GB，其余空闲；30B bf16：权重 60 GB，KV 约 14 GB，其余空闲。横轴 0 到 80 GB。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .cellh { fill: #eef2f6; stroke: #c5d0dc; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .ta { fill: #2f5f9e; }
+      .tb { fill: #a8641a; }
+    </style>
+  </defs>
+<text x="14" y="24" text-anchor="start" class="small">80 GB 卡，--gpu-memory-utilization=0.92 → 引擎预留 73.6 GB，其余留给 CUDA context 等</text>
+<text x="14" y="69" text-anchor="start" class="bold">7B bf16</text>
+<rect class="seg-a" x="96" y="44" width="110.6" height="40"/>
+<text x="151.3" y="68.05" text-anchor="middle" class="small">权重 14GB</text>
+<rect class="seg-b" x="206.6" y="44" width="470.84" height="40"/>
+<text x="442.02" y="68.05" text-anchor="middle" class="small">KV cache ~60 GB</text>
+<rect class="seg-free" x="677.44" y="44" width="50.56" height="40"/>
+<text x="702.72" y="68.05" text-anchor="middle" class="small">空闲</text>
+<text x="14" y="121" text-anchor="start" class="bold">30B bf16</text>
+<rect class="seg-a" x="96" y="96" width="474" height="40"/>
+<text x="333" y="120.05" text-anchor="middle" class="small">权重 60 GB</text>
+<rect class="seg-b" x="570" y="96" width="107.44" height="40"/>
+<text x="623.72" y="120.05" text-anchor="middle" class="small">KV ~14 GB</text>
+<rect class="seg-free" x="677.44" y="96" width="50.56" height="40"/>
+<text x="702.72" y="120.05" text-anchor="middle" class="small">空闲</text>
+<path d="M96.0 152 H728.0" class="tick"/>
+<path d="M96.0 152 V157" class="tick"/>
+<text x="96" y="172" text-anchor="middle" class="small">0</text>
+<path d="M175.0 152 V157" class="tick"/>
+<text x="175" y="172" text-anchor="middle" class="small">10</text>
+<path d="M254.0 152 V157" class="tick"/>
+<text x="254" y="172" text-anchor="middle" class="small">20</text>
+<path d="M333.0 152 V157" class="tick"/>
+<text x="333" y="172" text-anchor="middle" class="small">30</text>
+<path d="M412.0 152 V157" class="tick"/>
+<text x="412" y="172" text-anchor="middle" class="small">40</text>
+<path d="M491.0 152 V157" class="tick"/>
+<text x="491" y="172" text-anchor="middle" class="small">50</text>
+<path d="M570.0 152 V157" class="tick"/>
+<text x="570" y="172" text-anchor="middle" class="small">60</text>
+<path d="M649.0 152 V157" class="tick"/>
+<text x="649" y="172" text-anchor="middle" class="small">70</text>
+<path d="M728.0 152 V157" class="tick"/>
+<text x="728" y="172" text-anchor="middle" class="small">80 GB</text>
+</svg>

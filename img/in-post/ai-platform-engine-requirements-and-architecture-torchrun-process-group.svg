@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 390" width="760" height="390" role="img" aria-labelledby="t d">
+  <title id="t">torchrun 在 4 个节点上起的进程组</title>
+  <desc id="d">4 个节点各运行一个 torchrun agent，每个 agent 起 8 个 worker：节点 0 为 RANK 0–7，节点 1 为 RANK 8–15，节点 2 为 RANK 16–23，节点 3 为 RANK 24–31，worker 的 GPU 编号在本节点内为 0–7；四个 agent 都连到同一个 rendezvous：--rdzv-backend=c10d --rdzv-endpoint=&lt;节点 0 地址&gt;:29400 --rdzv-id=&lt;任务 ID&gt;。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .cellh { fill: #eef2f6; stroke: #c5d0dc; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .ta { fill: #2f5f9e; }
+      .tb { fill: #a8641a; }
+    </style>
+  </defs>
+<rect class="frame" x="14" y="14" width="176" height="268"/>
+<text x="102" y="35" text-anchor="middle" class="bold">节点 0</text>
+<rect class="proc-c" x="24" y="46" width="156" height="28"/>
+<text x="102" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
+<path d="M32 74 V250" class="line"/>
+<path d="M32 106 H40" class="line"/>
+<rect class="proc-a" x="40" y="86" width="142" height="40"/>
+<text x="111" y="101.05" text-anchor="middle" class="small">worker RANK 0</text>
+<text x="111" y="119.05" text-anchor="middle" class="small">GPU 0</text>
+<path d="M32 154 H40" class="line"/>
+<rect class="proc-a" x="40" y="134" width="142" height="40"/>
+<text x="111" y="149.05" text-anchor="middle" class="small">worker RANK 1</text>
+<text x="111" y="167.05" text-anchor="middle" class="small">GPU 1</text>
+<path d="M32 202 H44" class="line"/>
+<text x="52" y="207" text-anchor="start" class="small">…</text>
+<path d="M32 250 H40" class="line"/>
+<rect class="proc-a" x="40" y="230" width="142" height="40"/>
+<text x="111" y="245.05" text-anchor="middle" class="small">worker RANK 7</text>
+<text x="111" y="263.05" text-anchor="middle" class="small">GPU 7</text>
+<rect class="frame" x="199" y="14" width="176" height="268"/>
+<text x="287" y="35" text-anchor="middle" class="bold">节点 1</text>
+<rect class="proc-c" x="209" y="46" width="156" height="28"/>
+<text x="287" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
+<path d="M217 74 V250" class="line"/>
+<path d="M217 106 H225" class="line"/>
+<rect class="proc-a" x="225" y="86" width="142" height="40"/>
+<text x="296" y="101.05" text-anchor="middle" class="small">worker RANK 8</text>
+<text x="296" y="119.05" text-anchor="middle" class="small">GPU 0</text>
+<path d="M217 154 H225" class="line"/>
+<rect class="proc-a" x="225" y="134" width="142" height="40"/>
+<text x="296" y="149.05" text-anchor="middle" class="small">worker RANK 9</text>
+<text x="296" y="167.05" text-anchor="middle" class="small">GPU 1</text>
+<path d="M217 202 H229" class="line"/>
+<text x="237" y="207" text-anchor="start" class="small">…</text>
+<path d="M217 250 H225" class="line"/>
+<rect class="proc-a" x="225" y="230" width="142" height="40"/>
+<text x="296" y="245.05" text-anchor="middle" class="small">worker RANK 15</text>
+<text x="296" y="263.05" text-anchor="middle" class="small">GPU 7</text>
+<rect class="frame" x="384" y="14" width="176" height="268"/>
+<text x="472" y="35" text-anchor="middle" class="bold">节点 2</text>
+<rect class="proc-c" x="394" y="46" width="156" height="28"/>
+<text x="472" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
+<path d="M402 74 V250" class="line"/>
+<path d="M402 106 H410" class="line"/>
+<rect class="proc-a" x="410" y="86" width="142" height="40"/>
+<text x="481" y="101.05" text-anchor="middle" class="small">worker RANK 16</text>
+<text x="481" y="119.05" text-anchor="middle" class="small">GPU 0</text>
+<path d="M402 154 H414" class="line"/>
+<text x="422" y="159" text-anchor="start" class="small">…</text>
+<path d="M402 250 H410" class="line"/>
+<rect class="proc-a" x="410" y="230" width="142" height="40"/>
+<text x="481" y="245.05" text-anchor="middle" class="small">worker RANK 23</text>
+<text x="481" y="263.05" text-anchor="middle" class="small">GPU 7</text>
+<rect class="frame" x="569" y="14" width="176" height="268"/>
+<text x="657" y="35" text-anchor="middle" class="bold">节点 3</text>
+<rect class="proc-c" x="579" y="46" width="156" height="28"/>
+<text x="657" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
+<path d="M587 74 V250" class="line"/>
+<path d="M587 106 H595" class="line"/>
+<rect class="proc-a" x="595" y="86" width="142" height="40"/>
+<text x="666" y="101.05" text-anchor="middle" class="small">worker RANK 24</text>
+<text x="666" y="119.05" text-anchor="middle" class="small">GPU 0</text>
+<path d="M587 154 H599" class="line"/>
+<text x="607" y="159" text-anchor="start" class="small">…</text>
+<path d="M587 250 H595" class="line"/>
+<rect class="proc-a" x="595" y="230" width="142" height="40"/>
+<text x="666" y="245.05" text-anchor="middle" class="small">worker RANK 31</text>
+<text x="666" y="263.05" text-anchor="middle" class="small">GPU 7</text>
+<rect class="proc-b" x="40" y="326" width="680" height="50"/>
+<text x="380" y="346" text-anchor="middle" class="bold">rendezvous</text>
+<text x="380" y="365" text-anchor="middle" class="mono">--rdzv-backend=c10d --rdzv-endpoint=&lt;节点 0 地址&gt;:29400 --rdzv-id=&lt;任务 ID&gt;</text>
+<path d="M102.0 282 V326" class="arrow"/>
+<path d="M287.0 282 V326" class="arrow"/>
+<path d="M472.0 282 V326" class="arrow"/>
+<path d="M657.0 282 V326" class="arrow"/>
+</svg>

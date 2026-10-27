@@ -47,14 +47,14 @@ updated: 2026-09-14
 
 Kubernetes 的核心对象——Pod、Deployment、Service、Job——建立在四个假设上：工作负载是**单 Pod 独立**的、资源是**可细分可压缩**的 CPU 与内存、网络是**一张 overlay 网卡**、服务的负载信号是**CPU 利用率**。AI 负载逐条违背这四个假设，于是有了四类空缺：
 
-```text title="K8s 的四个假设与 AI 负载的四类空缺"
-假设                          AI 负载的现实                          空缺
-────────────────────────────  ────────────────────────────────────  ──────────────────────────────
-Pod 之间独立，逐个调度          训练是 W 个 Pod 强耦合，缺一不可         gang scheduling、队列与配额、拓扑
-资源是 CPU / 内存，可细分       GPU 是整数个、有型号、有拓扑、不能超卖    设备发现与属性、共享与切分
-一张 overlay 网卡              NCCL 需要直接打开 RDMA 设备             第二张网卡、RDMA 设备直通
-Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差百倍       多 Pod 副本、引擎指标扩缩容、状态感知路由
-```
+| 假设 | AI 负载的现实 | 空缺 |
+| --- | --- | --- |
+| Pod 之间独立，逐个调度 | 训练是 W 个 Pod 强耦合，缺一不可 | gang scheduling、队列与配额、拓扑 |
+| 资源是 CPU / 内存，可细分 | GPU 是整数个、有型号、有拓扑、不能超卖 | 设备发现与属性、共享与切分 |
+| 一张 overlay 网卡 | NCCL 需要直接打开 RDMA 设备 | 第二张网卡、RDMA 设备直通 |
+| Service 轮询 + HPA 看 CPU | 副本状态在引擎内部；请求长短差百倍 | 多 Pod 副本、引擎指标扩缩容、状态感知路由 |
+
+Table: K8s 的四个假设与 AI 负载的四类空缺
 
 第五章逐条说明这些空缺在原生对象上具体表现为什么，哪些只是"缺个插件"，哪些是模型层面的缺失。
 
@@ -62,27 +62,7 @@ Service 轮询 + HPA 看 CPU      副本状态在引擎内部；请求长短差�
 
 填这些空缺的组件，按"引擎之下"与"引擎之侧"分成两层。资源层的输入是裸节点与引擎的资源请求，输出是一组配好 GPU、网络、存储、能互相找到的 Pod；交付层的输入是这些 Pod，输出是一个有地址、有 SLA、有配额、有账单的服务。
 
-```text title="平台机制全局图：资源层与交付层"
-                           请求（OpenAI 兼容协议）
-                                  │
-交付层   ┌────────────────────────▼────────────────────────────────────────────────────────┐
-         │ 模型网关   Gateway API Inference Extension v1.6.0（InferencePool）+ EPP（llm-d-router v0.10.0）│  第七篇
-         │ Serving   KServe v0.20.0 · llm-d v0.9.0 · LeaderWorkerSet v0.10.0 · KEDA v2.20.2           │  第六篇
-         │ 可观测    DCGM Exporter 4.6.0-4.8.3 · vllm:* 指标 · OpenCost v1.121.1                        │  第八篇
-         └────────────────────────┬────────────────────────────────────────────────────────┘
-                                  │  一组能接流量的 Pod  /  一组已就位的训练 Pod
-资源层   ┌────────────────────────▼────────────────────────────────────────────────────────┐
-         │ 任务表达   Kubeflow Trainer v2.3.0（TrainJob）· KubeRay v1.7.0（RayJob / RayService）         │  第三篇
-         │ 调度      Kueue v0.19.2（配额闸门）· Volcano v1.15.2（批调度器）                               │  第三篇
-         │ 切分      MIG（GPU Operator MIG Manager）· 时间片 / MPS（device plugin）· HAMi v2.10.0          │  第四篇
-         │ 网络存储   Network Operator v26.7.0 · Multus v4.3.0 · RDMA shared dev plugin v1.5.4 · CSI     │  第五篇
-         │ 设备      GPU Operator v26.7.0 · k8s-device-plugin v0.20.0 · DRA（Kubernetes v1.37.0）        │  第二篇
-         └────────────────────────┬────────────────────────────────────────────────────────┘
-                                  │  裸节点：驱动、GPU、网卡、本地盘
-                            ┌─────▼─────┐
-                            │  节点池    │      同位替代：Slurm（Slinky slurm-operator v1.2.2）· Ray
-                            └───────────┘
-```
+![平台机制全局图：资源层与交付层](/img/in-post/ai-platform-engine-requirements-and-architecture-two-layers.svg)
 
 第六章展开这张图：每一层的输入输出、组件为什么落在这一层、Slurm 与 Ray 为什么是"同位替代"而不是"另一层"。
 
@@ -108,16 +88,7 @@ Table: 本文的章节安排
 
 一个多机训练任务在平台眼里是**一组进程**。以 PyTorch 为例，每台机器上运行一个 `torchrun`（PyTorch 2.13.0 的 `torch/distributed/run.py`），它是一个 agent：本机起 `--nproc-per-node` 个 worker 进程，各绑一张卡，然后盯着它们。`--nnodes` 台机器上的 agent 通过 rendezvous 相互发现，共同构成一个大小为 $$W = \text{nnodes} \times \text{nproc\_per\_node}$$ 的进程组。
 
-```text title="torchrun 在 4 个节点上起的进程组"
-节点 0                        节点 1                        节点 2                        节点 3
-torchrun (agent)              torchrun (agent)              torchrun (agent)              torchrun (agent)
- ├─ worker RANK 0  GPU 0       ├─ worker RANK 8  GPU 0       ├─ worker RANK 16 GPU 0       ├─ worker RANK 24 GPU 0
- ├─ worker RANK 1  GPU 1       ├─ worker RANK 9  GPU 1       ├─ ...                         ├─ ...
- ├─ ...                        ├─ ...                        │                              │
- └─ worker RANK 7  GPU 7       └─ worker RANK 15 GPU 7       └─ worker RANK 23 GPU 7       └─ worker RANK 31 GPU 7
-                                            ▲
-                          rendezvous：--rdzv-backend=c10d --rdzv-endpoint=<节点 0 地址>:29400 --rdzv-id=<任务 ID>
-```
+![torchrun 在 4 个节点上起的进程组](/img/in-post/ai-platform-engine-requirements-and-architecture-torchrun-process-group.svg)
 
 `run.py` 的模块文档把这个结构定义为三层：`Worker` 是训练进程，`LocalWorkerGroup` 是一台机器上的 worker 集合，`WorkerGroup` 是全部节点 worker 的并集。平台需要理解的只有一件事：**这 $$W$$ 个进程在逻辑上是一个不可分的整体**，它们的编号由 rendezvous 统一分配，它们的通信拓扑在起来的那一刻就固定了。
 
@@ -190,12 +161,7 @@ flowchart TB
 
 最后是时间维度。训练任务是**有限时长的批处理**：提交、排队、被调度、运行数小时到数周、结束或失败、释放全部资源。它的运行时间由数据量和算力决定，与外部请求无关；它在排队时不占资源，在运行时独占资源，中间没有"部分运行"的状态（弹性训练是例外，但改变 $$W$$ 要重新 rendezvous，是重启而非平滑扩缩）。
 
-```text title="训练任务的生命周期"
-提交 ──▶ 排队（等配额 / 等资源凑齐）──▶ 全员调度 ──▶ rendezvous ──▶ 运行 ──▶ 完成 / 失败 ──▶ 释放全部 GPU
-                                                      │                  │
-                                                      │                  └─ 每 T 分钟写一次 checkpoint
-                                                      └─ 任一 Pod 失败 → 整组重启 → 从 checkpoint 恢复
-```
+![训练任务的生命周期](/img/in-post/ai-platform-engine-requirements-and-architecture-training-lifecycle.svg)
 
 这个生命周期对平台的含义是：**排队是正常状态**，需要队列、配额和公平性；**运行中被打断的代价可量化**——上次 checkpoint 之后的所有算力白费——所以抢占策略要知道这个代价；**结束后资源整体归还**，适合按任务而非按时间切片记账。
 
@@ -205,13 +171,13 @@ flowchart TB
 
 推理服务的基本单位是**副本**（replica）：一个能独立服务完整请求的引擎实例。副本的物理形态取决于模型放不放得进一张卡：
 
-```text title="一个副本的三种形态"
-形态                     模型规模（bf16 权重）     K8s 对象          备注
-──────────────────────  ──────────────────────  ───────────────  ─────────────────────────────────────
-一个进程，一张卡          ≲ 60 GB（7B–30B）         Pod × 1           最简单；一张 80 GB 卡放权重 + KV cache
-一个进程，一节点多卡       60 GB–600 GB（70B–405B）  Pod × 1，多 GPU    TP 在节点内走 NVLink；--tensor-parallel-size=N
-多个 Pod，一个副本        单节点放不下                Pod × M（一组）    TP / PP 跨节点；M 个 Pod 是一个整体，缺一不可
-```
+| 形态 | 模型规模（bf16 权重） | K8s 对象 | 备注 |
+| --- | --- | --- | --- |
+| 一个进程，一张卡 | ≲ 60 GB（7B–30B） | Pod × 1 | 最简单；一张 80 GB 卡放权重 + KV cache |
+| 一个进程，一节点多卡 | 60 GB–600 GB（70B–405B） | Pod × 1，多 GPU | TP 在节点内走 NVLink；`--tensor-parallel-size=N` |
+| 多个 Pod，一个副本 | 单节点放不下 | Pod × M（一组） | TP / PP 跨节点；M 个 Pod 是一个整体，缺一不可 |
+
+Table: 一个副本的三种形态
 
 第三种形态与训练任务的形状一样：一组 Pod 强耦合、同时起、同时停、有 leader 有 worker。但它是**长驻服务**而不是批处理，需要滚动升级、按组重启、按组扩缩。Deployment 的副本是单 Pod，StatefulSet 的序号是单 Pod——原生对象里没有"多 Pod 一个副本"的概念，这是 LeaderWorkerSet 存在的原因（第六篇）。
 
@@ -231,17 +197,7 @@ flowchart TB
 
 同一张 80 GB 卡上，权重占多少直接决定 KV cache 剩多少：
 
-```text title="80 GB 卡上权重与 KV cache 的分配"
-80 GB 卡，--gpu-memory-utilization=0.92 → 引擎预留 73.6 GB，其余留给 CUDA context 等
-
-7B bf16   ┌───────────┬────────────────────────────────────────────────┬─────┐
-          │ 权重 14GB │                KV cache ~60 GB                 │ 空闲│
-          └───────────┴────────────────────────────────────────────────┴─────┘
-30B bf16  ┌────────────────────────────────────────────────┬───────────┬─────┐
-          │                   权重 60 GB                   │ KV ~14 GB │ 空闲│
-          └────────────────────────────────────────────────┴───────────┴─────┘
-           0       10      20      30      40      50      60      70      80 GB
-```
+![80 GB 卡上权重与 KV cache 的分配](/img/in-post/ai-platform-engine-requirements-and-architecture-kv-cache-80gb.svg)
 
 KV cache 决定同时能服务多少 token；两张图的 KV 段差 4 倍多，意味着同样并发下 30B 的副本数要多几倍。这带来三条平台约束：
 
@@ -253,15 +209,15 @@ KV cache 决定同时能服务多少 token；两张图的 KV 段差 4 倍多，�
 
 一个 Web 服务的副本扩容以秒计：调度、拉一个几百 MB 的镜像、进程起来、就绪探针通过。推理副本的扩容多了一个主项：**把几十到几百 GB 的权重从存储读进显存**。
 
-```text title="扩容一个推理副本的耗时分解"
-阶段                       典型耗时              取决于
-────────────────────────  ──────────────────  ────────────────────────────────────
-调度 + 等 GPU 空出           秒到分钟             有没有空卡；要不要等节点扩容（云上加节点是分钟级）
-拉镜像                     分钟级（10 GB 级镜像）  镜像大小；节点有没有缓存；registry 带宽
-加载权重到显存              分钟级（70B ≈ 140 GB） 存储读带宽（对象存储 / PFS / 本地 NVMe）；节点网卡
-引擎初始化（profiling、图捕获）几十秒到分钟          模型与引擎配置
-预热                       几十秒               第一批请求触发的编译、缓存
-```
+| 阶段 | 典型耗时 | 取决于 |
+| --- | --- | --- |
+| 调度 + 等 GPU 空出 | 秒到分钟 | 有没有空卡；要不要等节点扩容（云上加节点是分钟级） |
+| 拉镜像 | 分钟级（10 GB 级镜像） | 镜像大小；节点有没有缓存；registry 带宽 |
+| 加载权重到显存 | 分钟级（70B ≈ 140 GB） | 存储读带宽（对象存储 / PFS / 本地 NVMe）；节点网卡 |
+| 引擎初始化（profiling、图捕获） | 几十秒到分钟 | 模型与引擎配置 |
+| 预热 | 几十秒 | 第一批请求触发的编译、缓存 |
+
+Table: 扩容一个推理副本的耗时分解
 
 一个 70B 模型的副本从"决定扩容"到"能接流量"以分钟计，常见的数字是 5–10 分钟。这有两个后果。第一，**扩缩容必须提前触发**：等队列已经排起来再扩，新副本就绪时高峰已经过了；这要求预测式或阈值很低的扩容策略（第六篇）。第二，**缩容到零很贵**：省下的是空闲时的 GPU 费用，付出的是下一个请求要等几分钟。就绪探针要等到权重加载与预热完成才能返回成功，否则请求会被路由到一个还在加载的副本上。
 
@@ -290,11 +246,7 @@ Table: vLLM 与扩缩容和路由直接相关的 Prometheus 指标
 
 与训练相反，推理服务是**长驻**的：它的运行时间由业务决定，负载随时间波动，副本数随负载变化，版本要在不停服的情况下更新。
 
-```text title="推理服务的生命周期"
-部署 ──▶ 副本就绪（加载权重）──▶ 接流量 ──▶ 随负载扩缩 ──▶ 滚动升级（新旧版本并存）──▶ ... ──▶ 下线
-                                        │
-                                        └─ 低谷时缩到最少副本或零；高峰前提前扩容
-```
+![推理服务的生命周期](/img/in-post/ai-platform-engine-requirements-and-architecture-inference-lifecycle.svg)
 
 它对平台的含义：**没有"结束"**，成本是持续的，空闲副本的费用与忙时一样；**扩缩是常态**，每一次扩容都是一次几分钟的冷启动；**升级是有状态的**——一个副本在处理流式请求时被终止，用户看到的是回复中断，所以替换副本要等在途请求完成。
 
@@ -304,21 +256,21 @@ Table: vLLM 与扩缩容和路由直接相关的 Prometheus 指标
 
 把第二、三章的需求并排放：
 
-```text title="训练任务与推理服务的对照表"
-维度              训练任务                                  推理服务
-───────────────  ────────────────────────────────────────  ────────────────────────────────────────
-资源粒度          整卡，整节点，越多越好                        整卡或一部分卡；小模型只要一张卡的几分之一
-调度单位          W 个 Pod 一组，全员到齐才开始                 每个副本独立就绪；多 Pod 副本时组内 gang
-拓扑              极度敏感：节点内 NVLink、节点间同机柜           TP 在节点内敏感；副本之间无关，越分散越好（容灾）
-时长              有限：小时到周                                无限：长驻
-资源变化          运行中不变（改 W 要重启）                       副本数随负载分钟级变化
-被打断的代价       丢上次 checkpoint 之后的进度                   丢在途请求；一个副本重启是分钟级冷启动
-负载信号          无（跑满就是目标）                              引擎内部的队列长度与 KV cache 使用率
-网络              节点间 RDMA 带宽是瓶颈                         节点间流量小；南北向的请求流量与流式长连接
-存储              周期性突发写 + 持续随机读                       启动时一次性大块顺序读（权重）
-排队              正常状态，可以等几小时                          不能等：排队直接是用户看到的 TTFT
-成本视角          按任务：卡数 × 时长                           按服务：副本数 × 时长，折算到每百万 token
-```
+| 维度 | 训练任务 | 推理服务 |
+| --- | --- | --- |
+| 资源粒度 | 整卡，整节点，越多越好 | 整卡或一部分卡；小模型只要一张卡的几分之一 |
+| 调度单位 | W 个 Pod 一组，全员到齐才开始 | 每个副本独立就绪；多 Pod 副本时组内 gang |
+| 拓扑 | 极度敏感：节点内 NVLink、节点间同机柜 | TP 在节点内敏感；副本之间无关，越分散越好（容灾） |
+| 时长 | 有限：小时到周 | 无限：长驻 |
+| 资源变化 | 运行中不变（改 W 要重启） | 副本数随负载分钟级变化 |
+| 被打断的代价 | 丢上次 checkpoint 之后的进度 | 丢在途请求；一个副本重启是分钟级冷启动 |
+| 负载信号 | 无（跑满就是目标） | 引擎内部的队列长度与 KV cache 使用率 |
+| 网络 | 节点间 RDMA 带宽是瓶颈 | 节点间流量小；南北向的请求流量与流式长连接 |
+| 存储 | 周期性突发写 + 持续随机读 | 启动时一次性大块顺序读（权重） |
+| 排队 | 正常状态，可以等几小时 | 不能等：排队直接是用户看到的 TTFT |
+| 成本视角 | 按任务：卡数 × 时长 | 按服务：副本数 × 时长，折算到每百万 token |
+
+Table: 训练任务与推理服务的对照表
 
 ### 2. 三对矛盾
 
@@ -348,20 +300,9 @@ Filter 阶段对 GPU 的判断在 `pkg/scheduler/framework/plugins/noderesources
 
 这个模型对训练任务的后果是：32 个 Pod 逐个调度，前 30 个成功、后 2 个 Pending，前 30 个占着 240 张卡等待；另一个任务的 Pod 恰好拿走了剩下的卡，两个任务都凑不齐、都不释放——死锁。用一个更小的池把这个状态画出来：
 
-```text title="逐 Pod 调度导致的死锁：48 卡池"
-池：6 台 8 卡节点 = 48 张卡；任务 A、B 同时提交，各要 4 个 Pod × 8 卡
+![逐 Pod 调度导致的死锁：48 卡池](/img/in-post/ai-platform-engine-requirements-and-architecture-per-pod-deadlock.svg)
 
-          节点1   节点2   节点3   节点4   节点5   节点6
-调度顺序   A-0     B-0     A-1     B-1     A-2     B-2      ← 逐 Pod 交替绑定
-           ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
-           │A 8卡│ │B 8卡│ │A 8卡│ │B 8卡│ │A 8卡│ │B 8卡│   48 张卡全部被占
-           └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘
-Pending    A-3 等第 4 个节点                B-3 等第 4 个节点
-
-A 的 24 张卡在 rendezvous 里等 A-3，B 的 24 张卡在等 B-3；
-两边都不释放、都凑不齐 → 死锁。
-gang 调度的做法：凑不齐 4 个节点，就一个 Pod 也不绑定。
-```
+A 的 24 张卡在 rendezvous 里等 A-3，B 的 24 张卡在等 B-3；两边都不释放、都凑不齐 → 死锁。gang 调度的做法：凑不齐 4 个节点，就一个 Pod 也不绑定。
 
 原生的缓解手段只有 `PriorityClass` 与抢占，但抢占也是按单 Pod 决定的。**gang scheduling 必须由一个知道"组"的调度器或准入控制器实现**，这是第三篇。
 
@@ -397,13 +338,13 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 
 汇总起来，原生 Kubernetes 在 AI 负载面前有三种性质的空缺：
 
-```text title="原生 Kubernetes 的三种空缺"
-性质            表现                                                    填法
-─────────────  ──────────────────────────────────────────────────────  ─────────────────────────────
-缺一个插件      GPU 不被识别（Insufficient nvidia.com/gpu）；RDMA 设备不在容器里    device plugin / Operator，机制不变
-缺一个概念      "一组 Pod"（gang、多 Pod 副本）；"设备的属性"；"配额与队列"          新 CRD + 控制器，或调度器扩展；改变对象模型
-缺一个信号      扩缩容看不到引擎队列；路由看不到副本状态；成本看不到 token           指标管线 + 扩展点（KEDA、EPP、OpenCost）
-```
+| 性质 | 表现 | 填法 |
+| --- | --- | --- |
+| 缺一个插件 | GPU 不被识别（Insufficient `nvidia.com/gpu`）；RDMA 设备不在容器里 | device plugin / Operator，机制不变 |
+| 缺一个概念 | "一组 Pod"（gang、多 Pod 副本）；"设备的属性"；"配额与队列" | 新 CRD + 控制器，或调度器扩展；改变对象模型 |
+| 缺一个信号 | 扩缩容看不到引擎队列；路由看不到副本状态；成本看不到 token | 指标管线 + 扩展点（KEDA、EPP、OpenCost） |
+
+Table: 原生 Kubernetes 的三种空缺
 
 第一类装上就好，第二类要改用新的对象来表达工作负载，第三类要把引擎与平台之间的信息通道建起来。后面七篇大致按这个难度递进。
 
@@ -477,33 +418,33 @@ sequenceDiagram
 
 把总览里的图展开成表，每个组件标注它填的是第五章哪类空缺、解决第二、三章哪条需求：
 
-```text title="组件全景图按层落位"
-层        组件（版本）                                   填的空缺                    解决的需求                          篇
-────────  ──────────────────────────────────────────  ─────────────────────────  ────────────────────────────────  ──
-设备      NVIDIA GPU Operator v26.7.0                  缺插件：驱动、Toolkit、插件      容器看到 GPU；节点标签有型号           2
-          k8s-device-plugin v0.20.0                    缺插件：GPU 作为资源            整数个 GPU 可请求                    2
-          DRA（Kubernetes v1.37.0，resource.k8s.io/v1） 缺概念：设备属性              按显存 / 型号 / 拓扑选卡               2
-          NVIDIA Container Toolkit v1.20.0             缺插件：设备注入容器            容器内有 /dev/nvidia* 与 libcuda      2
-调度      Kueue v0.19.2                                缺概念：队列、配额、gang 准入     全员到齐才开始；团队配额与借用          3
-          Volcano v1.15.2                              缺概念：批调度器                gang、公平分享、拓扑                  3
-          Kubeflow Trainer v2.3.0                      缺概念：训练任务对象            RANK / MASTER_ADDR 注入；整组重启       3
-          KubeRay v1.7.0                               缺概念：Ray 集群对象            Ray 任务与服务的表达                  3、6
-切分      MIG（GPU Operator MIG Manager）               缺概念：一张卡的一部分           小模型共卡，硬件隔离                  4
-          时间片 / MPS（device plugin sharing）          缺概念：一张卡的一部分           开发环境共卡，无 / 弱隔离              4
-          HAMi v2.10.0                                 缺概念：按显存与算力比例请求       小模型共卡，软件隔离                  4
-网络存储   NVIDIA Network Operator v26.7.0              缺插件：RDMA 驱动栈             节点间 RDMA                        5
-          Multus CNI v4.3.0                            缺概念：第二张网卡              RDMA 网卡进 Pod                     5
-          k8s-rdma-shared-dev-plugin v1.5.4            缺插件：RDMA 设备作为资源         /dev/infiniband 进容器              5
-          CSI（PFS / 对象存储 / 缓存层）                  缺规划：突发写与并发读带宽        checkpoint 写、数据集读、权重分发       5
-Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一副本            跨节点 TP / PP 副本；PD 分离            6
-          KServe v0.20.0                               缺概念：推理服务对象            InferenceService / LLMInferenceService  6
-          llm-d v0.9.0                                 缺概念：LLM Serving 栈          PD 分离、KV 感知路由的整体方案          6、7
-          KEDA v2.20.2                                 缺信号：按引擎指标扩缩            vllm:num_requests_waiting 驱动扩容    6
-网关      Gateway API Inference Extension v1.6.0        缺概念：InferencePool           副本不可互换的后端集合                 7
-          llm-d-router v0.10.0（EPP）                   缺信号：按副本状态选后端          KV cache / 队列 / LoRA 感知路由        7
-可观测     DCGM Exporter 4.6.0-4.8.3                    缺信号：硬件指标                分配率 vs 使用率                    8
-          OpenCost v1.121.1                            缺信号：成本分摊                每团队、每模型、每百万 token 的成本      8
-```
+| 层 | 组件（版本） | 填的空缺 | 解决的需求 | 篇 |
+| --- | --- | --- | --- | --- |
+| 设备 | NVIDIA GPU Operator v26.7.0 | 缺插件：驱动、Toolkit、插件 | 容器看到 GPU；节点标签有型号 | 2 |
+| ^^ | k8s-device-plugin v0.20.0 | 缺插件：GPU 作为资源 | 整数个 GPU 可请求 | 2 |
+| ^^ | DRA（Kubernetes v1.37.0，`resource.k8s.io/v1`） | 缺概念：设备属性 | 按显存 / 型号 / 拓扑选卡 | 2 |
+| ^^ | NVIDIA Container Toolkit v1.20.0 | 缺插件：设备注入容器 | 容器内有 `/dev/nvidia*` 与 libcuda | 2 |
+| 调度 | Kueue v0.19.2 | 缺概念：队列、配额、gang 准入 | 全员到齐才开始；团队配额与借用 | 3 |
+| ^^ | Volcano v1.15.2 | 缺概念：批调度器 | gang、公平分享、拓扑 | 3 |
+| ^^ | Kubeflow Trainer v2.3.0 | 缺概念：训练任务对象 | `RANK` / `MASTER_ADDR` 注入；整组重启 | 3 |
+| ^^ | KubeRay v1.7.0 | 缺概念：Ray 集群对象 | Ray 任务与服务的表达 | 3、6 |
+| 切分 | MIG（GPU Operator MIG Manager） | 缺概念：一张卡的一部分 | 小模型共卡，硬件隔离 | 4 |
+| ^^ | 时间片 / MPS（device plugin sharing） | 缺概念：一张卡的一部分 | 开发环境共卡，无 / 弱隔离 | 4 |
+| ^^ | HAMi v2.10.0 | 缺概念：按显存与算力比例请求 | 小模型共卡，软件隔离 | 4 |
+| 网络存储 | NVIDIA Network Operator v26.7.0 | 缺插件：RDMA 驱动栈 | 节点间 RDMA | 5 |
+| ^^ | Multus CNI v4.3.0 | 缺概念：第二张网卡 | RDMA 网卡进 Pod | 5 |
+| ^^ | k8s-rdma-shared-dev-plugin v1.5.4 | 缺插件：RDMA 设备作为资源 | `/dev/infiniband` 进容器 | 5 |
+| ^^ | CSI（PFS / 对象存储 / 缓存层） | 缺规划：突发写与并发读带宽 | checkpoint 写、数据集读、权重分发 | 5 |
+| Serving | LeaderWorkerSet v0.10.0 | 缺概念：多 Pod 一副本 | 跨节点 TP / PP 副本；PD 分离 | 6 |
+| ^^ | KServe v0.20.0 | 缺概念：推理服务对象 | InferenceService / LLMInferenceService | 6 |
+| ^^ | llm-d v0.9.0 | 缺概念：LLM Serving 栈 | PD 分离、KV 感知路由的整体方案 | 6、7 |
+| ^^ | KEDA v2.20.2 | 缺信号：按引擎指标扩缩 | `vllm:num_requests_waiting` 驱动扩容 | 6 |
+| 网关 | Gateway API Inference Extension v1.6.0 | 缺概念：InferencePool | 副本不可互换的后端集合 | 7 |
+| ^^ | llm-d-router v0.10.0（EPP） | 缺信号：按副本状态选后端 | KV cache / 队列 / LoRA 感知路由 | 7 |
+| 可观测 | DCGM Exporter 4.6.0-4.8.3 | 缺信号：硬件指标 | 分配率 vs 使用率 | 8 |
+| ^^ | OpenCost v1.121.1 | 缺信号：成本分摊 | 每团队、每模型、每百万 token 的成本 | 8 |
+
+Table: 组件全景图按层落位
 
 这张表是全系列的"机制线"。每一篇会把它所在的行展开成一章。
 
@@ -523,25 +464,25 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 设定：一个 70B 级模型的预训练，4 台 8 卡节点，节点内 TP=8、节点间 DP=4；每 30 分钟写一次 checkpoint；所属团队配额 32 卡，另一团队配额也是 32 卡，共用一个 64 卡池。
 
-```text title="训练任务的需求与原生 K8s 能否满足"
-#   需求                                                   原生 Kubernetes 能否满足                                          补缺篇
-──  ───────────────────────────────────────────────────  ──────────────────────────────────────────────────────────────  ─────
-1   4 个 Pod，每个恰好 8 张卡，全在一个节点上                 部分：resources.limits 能表达 8，但 nvidia.com/gpu 要先由插件上报    2
-2   32 张卡型号一致（都是 H100，不能混 A100）                部分：靠 nodeSelector 按节点标签选；标签要 GFD 打；设备本身无属性      2
-3   8 张卡之间 NVLink 全连接（整节点独占即可保证）             是（整节点独占时）；非整节点时插件不保证给出拓扑最优的 8 张             2、4
-4   4 个 Pod 同时调度，凑不齐就一个也不占                     否：kube-scheduler 逐 Pod 调度，会出现 30/32 占着等                3
-5   4 个节点在同一机柜 / 同一 spine 下                       否：podAffinity 不能表达"任意一个同域"，也不为整组回退               3
-6   团队配额 32 卡；对方空闲时可借用、对方要用时归还              否：ResourceQuota 是硬上限，没有队列、借用与归还                   3
-7   Pod 与 RANK 的稳定映射；MASTER_ADDR 在 worker 起来前可解析   是：Indexed Job + headless Service；但需要控制器注入变量           3
-8   任一 Pod 失败，整组重建并从 checkpoint 恢复               否：Job 的 backoffLimit 是单 Pod 语义，没有组级重启                 3
-9   被抢占时优先抢刚写完 checkpoint 的任务                    否：PriorityClass 抢占是单 Pod、不知道 checkpoint                  3
-10  节点间 RDMA；NCCL 不回退到 TCP                          否：CNI 只给一张 veth；/dev/infiniband 不在容器里                    5
-11  checkpoint 突发写：1 TB 级在 1 分钟内落盘                接口是（PVC）；带宽否：K8s 不做存储容量规划                          5
-12  数据集持续随机读，32 个 rank 并发                        接口是（PVC）；性能取决于存储                                       5
-13  任务结束整体释放 32 张卡                                 是：Job 完成即释放                                                —
-14  任务级 GPU 利用率、每 rank 的 step 时间、排队时长          否：需要 DCGM + 按任务聚合的指标管线                                8
-15  成本按任务分摊到团队                                     否：需要成本模型与 label 分摊                                       8
-```
+| # | 需求 | 原生 Kubernetes 能否满足 | 补缺篇 |
+| --- | --- | --- | --- |
+| 1 | 4 个 Pod，每个恰好 8 张卡，全在一个节点上 | 部分：`resources.limits` 能表达 8，但 `nvidia.com/gpu` 要先由插件上报 | 2 |
+| 2 | 32 张卡型号一致（都是 H100，不能混 A100） | 部分：靠 `nodeSelector` 按节点标签选；标签要 GFD 打；设备本身无属性 | 2 |
+| 3 | 8 张卡之间 NVLink 全连接（整节点独占即可保证） | 是（整节点独占时）；非整节点时插件不保证给出拓扑最优的 8 张 | 2、4 |
+| 4 | 4 个 Pod 同时调度，凑不齐就一个也不占 | 否：`kube-scheduler` 逐 Pod 调度，会出现 30/32 占着等 | 3 |
+| 5 | 4 个节点在同一机柜 / 同一 spine 下 | 否：`podAffinity` 不能表达"任意一个同域"，也不为整组回退 | 3 |
+| 6 | 团队配额 32 卡；对方空闲时可借用、对方要用时归还 | 否：`ResourceQuota` 是硬上限，没有队列、借用与归还 | 3 |
+| 7 | Pod 与 RANK 的稳定映射；`MASTER_ADDR` 在 worker 起来前可解析 | 是：Indexed Job + headless Service；但需要控制器注入变量 | 3 |
+| 8 | 任一 Pod 失败，整组重建并从 checkpoint 恢复 | 否：Job 的 `backoffLimit` 是单 Pod 语义，没有组级重启 | 3 |
+| 9 | 被抢占时优先抢刚写完 checkpoint 的任务 | 否：`PriorityClass` 抢占是单 Pod、不知道 checkpoint | 3 |
+| 10 | 节点间 RDMA；NCCL 不回退到 TCP | 否：CNI 只给一张 veth；`/dev/infiniband` 不在容器里 | 5 |
+| 11 | checkpoint 突发写：1 TB 级在 1 分钟内落盘 | 接口是（PVC）；带宽否：K8s 不做存储容量规划 | 5 |
+| 12 | 数据集持续随机读，32 个 rank 并发 | 接口是（PVC）；性能取决于存储 | 5 |
+| 13 | 任务结束整体释放 32 张卡 | 是：Job 完成即释放 | — |
+| 14 | 任务级 GPU 利用率、每 rank 的 step 时间、排队时长 | 否：需要 DCGM + 按任务聚合的指标管线 | 8 |
+| 15 | 成本按任务分摊到团队 | 否：需要成本模型与 label 分摊 | 8 |
+
+Table: 训练任务的需求与原生 K8s 能否满足
 
 15 条里原生完全满足的只有第 13 条。第 1、2、3、7、11、12 条是"接口有、能力缺"——Kubernetes 提供了字段，但字段背后的东西（设备上报、节点标签、存储带宽）要平台补。其余 8 条是模型层面的缺失，集中在调度（4–9）与网络（10）。
 
@@ -549,25 +490,25 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 设定：一个 30B 级模型，bf16 权重约 60 GB，TP=2 放在两张 80 GB 卡上；白天 6 个副本、夜间 1 个；同一模型名下要灰度一个 FP8 版本；两个租户各有 TPM 配额。
 
-```text title="推理服务的需求与原生 K8s 能否满足"
-#   需求                                                   原生 Kubernetes 能否满足                                          补缺篇
-──  ───────────────────────────────────────────────────  ──────────────────────────────────────────────────────────────  ─────
-1   每副本一个 Pod、2 张卡、同节点、最好 NVLink 相连            部分：2 张卡能请求；是否 NVLink 相连取决于插件的分配策略               2、4
-2   显存独占：这 2 张卡上不能有别的进程                       是（整卡分配时）；一旦切分共享，隔离由切分方案决定                     4
-3   小流量时段该模型用不满 2 张 80 GB 卡，想让别人用剩余部分     否：device plugin 不能把一张卡的一部分给别人                        4
-4   副本数按 vllm:num_requests_waiting 扩缩                 否：HPA 默认只看 CPU / 内存；自定义指标要自建管线                    6
-5   高峰前提前扩容（一个副本就绪要 5 分钟以上）                 否：HPA 是反应式的；需要预测或低阈值策略                             6
-6   夜间缩到 1 甚至 0，且第一个请求能接受几分钟冷启动            部分：缩到 1 可以；缩到 0 HPA 不支持                               6
-7   就绪探针等到权重加载与预热完成                             是：readinessProbe 打引擎的 /health                                6
-8   扩容时 6 个 Pod 并发读同一份 60 GB 权重                    接口是；带宽否                                                    5
-9   滚动升级时等在途流式请求完成再终止旧副本                    部分：terminationGracePeriodSeconds + preStop；引擎要配合 drain      6
-10  请求不轮询：按每副本的 KV cache 使用率与队列长度选副本        否：Service 是轮询 / 随机；不知道副本状态                           7
-11  同前缀请求去同一副本（prefix cache 命中）                  否：Service 无会话亲和到内容                                       7
-12  按请求体的 model 字段路由到对应模型的副本集合                否：HTTPRoute 按路径 / header 路由，不解析 body                    7
-13  BF16 与 FP8 两个版本按 9:1 分流，按 header 定向            部分：HTTPRoute 权重与 header 匹配可做；后端仍要能区分版本            7
-14  租户 A 每分钟 100 万 token、租户 B 30 万；超了排队而非拒绝    否：没有 token 计数，没有租户概念，没有排队                          7
-15  TTFT / TPOT 分位数、goodput、每百万 token 成本            否：需要引擎指标 + 网关计数 + 成本模型                              8
-```
+| # | 需求 | 原生 Kubernetes 能否满足 | 补缺篇 |
+| --- | --- | --- | --- |
+| 1 | 每副本一个 Pod、2 张卡、同节点、最好 NVLink 相连 | 部分：2 张卡能请求；是否 NVLink 相连取决于插件的分配策略 | 2、4 |
+| 2 | 显存独占：这 2 张卡上不能有别的进程 | 是（整卡分配时）；一旦切分共享，隔离由切分方案决定 | 4 |
+| 3 | 小流量时段该模型用不满 2 张 80 GB 卡，想让别人用剩余部分 | 否：device plugin 不能把一张卡的一部分给别人 | 4 |
+| 4 | 副本数按 `vllm:num_requests_waiting` 扩缩 | 否：HPA 默认只看 CPU / 内存；自定义指标要自建管线 | 6 |
+| 5 | 高峰前提前扩容（一个副本就绪要 5 分钟以上） | 否：HPA 是反应式的；需要预测或低阈值策略 | 6 |
+| 6 | 夜间缩到 1 甚至 0，且第一个请求能接受几分钟冷启动 | 部分：缩到 1 可以；缩到 0 HPA 不支持 | 6 |
+| 7 | 就绪探针等到权重加载与预热完成 | 是：`readinessProbe` 打引擎的 `/health` | 6 |
+| 8 | 扩容时 6 个 Pod 并发读同一份 60 GB 权重 | 接口是；带宽否 | 5 |
+| 9 | 滚动升级时等在途流式请求完成再终止旧副本 | 部分：`terminationGracePeriodSeconds` + `preStop`；引擎要配合 drain | 6 |
+| 10 | 请求不轮询：按每副本的 KV cache 使用率与队列长度选副本 | 否：Service 是轮询 / 随机；不知道副本状态 | 7 |
+| 11 | 同前缀请求去同一副本（prefix cache 命中） | 否：Service 无会话亲和到内容 | 7 |
+| 12 | 按请求体的 model 字段路由到对应模型的副本集合 | 否：HTTPRoute 按路径 / header 路由，不解析 body | 7 |
+| 13 | BF16 与 FP8 两个版本按 9:1 分流，按 header 定向 | 部分：HTTPRoute 权重与 header 匹配可做；后端仍要能区分版本 | 7 |
+| 14 | 租户 A 每分钟 100 万 token、租户 B 30 万；超了排队而非拒绝 | 否：没有 token 计数，没有租户概念，没有排队 | 7 |
+| 15 | TTFT / TPOT 分位数、goodput、每百万 token 成本 | 否：需要引擎指标 + 网关计数 + 成本模型 | 8 |
+
+Table: 推理服务的需求与原生 K8s 能否满足
 
 15 条里原生满足的是第 2（整卡时）、第 7 两条，"接口有、能力缺"的是第 1、6、8、9、13 条，其余 8 条是模型层面的缺失，集中在扩缩容（4–6）与路由（10–14）。
 
@@ -575,15 +516,15 @@ Serving   LeaderWorkerSet v0.10.0                      缺概念：多 Pod 一�
 
 两张表合起来，原生 Kubernetes **模型层面**满足不了的需求可以归为五组，每组对应一篇：
 
-```text title="原生满足不了的五组需求"
-组                                  训练表          推理表          机制                                  篇
-──────────────────────────────────  ─────────────  ─────────────  ───────────────────────────────────  ──
-GPU 是不透明整数：无属性、无拓扑、不可分   1、2、3         1、3           device plugin 上报 + GFD 标签；DRA；切分   2、4
-没有"一组 Pod"：无 gang、无组级重启      4、7、8         —              Kueue / Volcano；TrainJob；LWS        3、6
-没有队列、配额借用、拓扑与抢占策略         5、6、9         —              ClusterQueue / cohort / TAS；PodGroup  3
-一张网卡；存储只有接口没有规划            10、11、12      8              Multus + RDMA plugin；CSI 与存储选型     5
-交付信号缺失：扩缩容、路由、租户、成本      14、15         4–6、10–15      KEDA；InferencePool + EPP；DCGM + OpenCost  6、7、8
-```
+| 组 | 训练表 | 推理表 | 机制 | 篇 |
+| --- | --- | --- | --- | --- |
+| GPU 是不透明整数：无属性、无拓扑、不可分 | 1、2、3 | 1、3 | device plugin 上报 + GFD 标签；DRA；切分 | 2、4 |
+| 没有"一组 Pod"：无 gang、无组级重启 | 4、7、8 | — | Kueue / Volcano；TrainJob；LWS | 3、6 |
+| 没有队列、配额借用、拓扑与抢占策略 | 5、6、9 | — | ClusterQueue / cohort / TAS；PodGroup | 3 |
+| 一张网卡；存储只有接口没有规划 | 10、11、12 | 8 | Multus + RDMA plugin；CSI 与存储选型 | 5 |
+| 交付信号缺失：扩缩容、路由、租户、成本 | 14、15 | 4–6、10–15 | KEDA；InferencePool + EPP；DCGM + OpenCost | 6、7、8 |
+
+Table: 原生满足不了的五组需求
 
 值得注意的是训练与推理的空缺**几乎不重叠**：训练卡在调度与网络，推理卡在扩缩容与路由。只有"GPU 是不透明整数"是两者共同的空缺——这也是为什么第二篇是两条阅读路径共同的第一站。
 
@@ -593,31 +534,31 @@ GPU 是不透明整数：无属性、无拓扑、不可分   1、2、3         1
 
 后续七篇会反复使用下面这些词，各篇的总览会复述用到的部分：
 
-```text title="全系列术语表"
-术语                    含义                                                                        首次展开
-──────────────────────  ────────────────────────────────────────────────────────────────────────  ────────
-gang（gang scheduling）  一组 Pod 要么全部调度要么全部不调度；Volcano PodGroup 的 minMember、Kueue 的 Workload 准入   第三篇
-cohort                  Kueue 中一组 ClusterQueue 的集合，成员之间可以借用彼此的空闲配额（ClusterQueueSpec.CohortName） 第三篇
-ResourceFlavor          Kueue 中资源的"口味"：一组节点标签与污点对应一种硬件（如 H100 与 A100 各一个 flavor）           第三篇
-Workload                Kueue 为每个被管理的 Job 创建的准入对象，记录它要多少配额、被哪个 ClusterQueue 准入            第三篇
-TAS                     Kueue 的 Topology-Aware Scheduling：Topology CRD（v1beta1）定义层级，Workload 按层级紧凑放置    第三篇
-PodGroup / Queue        Volcano 的调度单位与队列；Queue 有 capability / deserved / guarantee 三个配额语义             第三篇
-TrainJob                Kubeflow Trainer 的训练任务对象，引用 TrainingRuntime，底层生成 JobSet                     第三篇
-MIG profile             一张 GPU 切成的硬件分区规格，如 1g.5gb、3g.20gb；device plugin 上报为 nvidia.com/mig-1g.5gb    第四篇
-时间片 / MPS             device plugin 的 sharing 配置：一张卡上报为 N 个副本；时间片无隔离，MPS 合并 CUDA context      第四篇
-HAMi                    软件层 GPU 切分：nvidia.com/gpumem、nvidia.com/gpucores 表达显存与算力比例                   第四篇
-GPUDirect RDMA          网卡直接读写 GPU 显存，NCCL 跨节点通信不经过主机内存                                        第五篇
-NetworkAttachmentDefinition  Multus 的 CRD，定义 Pod 可以额外挂的一张网卡                                       第五篇
-LeaderWorkerSet（LWS）   一个 leader 加 N 个 worker 作为一个副本单元的 Kubernetes 对象；多节点推理的标准表达            第六篇
-PD 分离                  prefill 与 decode 跑在不同的 Pod 组里，中间传 KV cache；两组独立扩缩                        第六篇
-InferencePool           Gateway API Inference Extension 的 CRD：一组同模型同硬件的 Pod，替代 Service 作为路由后端     第七篇
-EPP（Endpoint Picker）   Envoy ext_proc 外部处理器，按每个副本的队列、KV cache、LoRA 状态选目标 Pod；llm-d-router 实现   第七篇
-InferenceObjective      表达请求优先级的扩展 API（llm-d-router apix/v1alpha2）                                      第七篇
-TTFT / TPOT             首 token 延迟（排队 + prefill）/ 每输出 token 时间（decode 每步）；vllm:time_to_first_token_seconds、vllm:inter_token_latency_seconds  第三章
-goodput                 单位时间内满足 SLO（TTFT 与 TPOT 都在阈值内）的请求或 token 数；与吞吐的差是"跑了但没用"的部分     第八篇
-分配率 / 使用率           分配率：被 Pod 请求占用的 GPU 比例；使用率：DCGM_FI_PROF_SM_ACTIVE 这类真实负载；差距是平台改进空间  第八篇
-DCGM_FI_DEV_GPU_UTIL     "有 kernel 在跑"的时间比例，不是算力利用率；与 SM_ACTIVE 的区别是第八篇的起点                  第八篇
-```
+| 术语 | 含义 | 首次展开 |
+| --- | --- | --- |
+| gang（gang scheduling） | 一组 Pod 要么全部调度要么全部不调度；Volcano PodGroup 的 minMember、Kueue 的 Workload 准入 | 第三篇 |
+| cohort | Kueue 中一组 ClusterQueue 的集合，成员之间可以借用彼此的空闲配额（`ClusterQueueSpec.CohortName`） | 第三篇 |
+| ResourceFlavor | Kueue 中资源的"口味"：一组节点标签与污点对应一种硬件（如 H100 与 A100 各一个 flavor） | 第三篇 |
+| Workload | Kueue 为每个被管理的 Job 创建的准入对象，记录它要多少配额、被哪个 ClusterQueue 准入 | 第三篇 |
+| TAS | Kueue 的 Topology-Aware Scheduling：Topology CRD（v1beta1）定义层级，Workload 按层级紧凑放置 | 第三篇 |
+| PodGroup / Queue | Volcano 的调度单位与队列；Queue 有 capability / deserved / guarantee 三个配额语义 | 第三篇 |
+| TrainJob | Kubeflow Trainer 的训练任务对象，引用 TrainingRuntime，底层生成 JobSet | 第三篇 |
+| MIG profile | 一张 GPU 切成的硬件分区规格，如 1g.5gb、3g.20gb；device plugin 上报为 `nvidia.com/mig-1g.5gb` | 第四篇 |
+| 时间片 / MPS | device plugin 的 sharing 配置：一张卡上报为 N 个副本；时间片无隔离，MPS 合并 CUDA context | 第四篇 |
+| HAMi | 软件层 GPU 切分：`nvidia.com/gpumem`、`nvidia.com/gpucores` 表达显存与算力比例 | 第四篇 |
+| GPUDirect RDMA | 网卡直接读写 GPU 显存，NCCL 跨节点通信不经过主机内存 | 第五篇 |
+| NetworkAttachmentDefinition | Multus 的 CRD，定义 Pod 可以额外挂的一张网卡 | 第五篇 |
+| LeaderWorkerSet（LWS） | 一个 leader 加 N 个 worker 作为一个副本单元的 Kubernetes 对象；多节点推理的标准表达 | 第六篇 |
+| PD 分离 | prefill 与 decode 跑在不同的 Pod 组里，中间传 KV cache；两组独立扩缩 | 第六篇 |
+| InferencePool | Gateway API Inference Extension 的 CRD：一组同模型同硬件的 Pod，替代 Service 作为路由后端 | 第七篇 |
+| EPP（Endpoint Picker） | Envoy ext_proc 外部处理器，按每个副本的队列、KV cache、LoRA 状态选目标 Pod；llm-d-router 实现 | 第七篇 |
+| InferenceObjective | 表达请求优先级的扩展 API（llm-d-router `apix/v1alpha2`） | 第七篇 |
+| TTFT / TPOT | 首 token 延迟（排队 + prefill）/ 每输出 token 时间（decode 每步）；`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds` | 第三章 |
+| goodput | 单位时间内满足 SLO（TTFT 与 TPOT 都在阈值内）的请求或 token 数；与吞吐的差是"跑了但没用"的部分 | 第八篇 |
+| 分配率 / 使用率 | 分配率：被 Pod 请求占用的 GPU 比例；使用率：`DCGM_FI_PROF_SM_ACTIVE` 这类真实负载；差距是平台改进空间 | 第八篇 |
+| `DCGM_FI_DEV_GPU_UTIL` | "有 kernel 在跑"的时间比例，不是算力利用率；与 SM_ACTIVE 的区别是第八篇的起点 | 第八篇 |
+
+Table: 全系列术语表
 
 ## 九、代价与边界
 
@@ -625,22 +566,22 @@ DCGM_FI_DEV_GPU_UTIL     "有 kernel 在跑"的时间比例，不是算力利用
 
 全系列每篇都会有这样一张四栏表，本篇给的是全局版，后面各篇展开各自的行：
 
-```text title="引擎需求 → K8s 空缺 → 平台机制 → 代价"
-引擎需求                    K8s 空缺                    平台机制                              代价
-─────────────────────────  ─────────────────────────  ───────────────────────────────────  ─────────────────────────────────────
-容器看到 GPU，版本匹配        GPU 不被识别                 GPU Operator + device plugin / DRA     驱动、Toolkit、插件、CUDA 四层版本契约；每层一个升级窗口
-W 个 Pod 全员到齐            逐 Pod 调度                  Kueue 准入 / Volcano 批调度             排队时间换无死锁；两套调度器的对象模型要学一套
-同机柜、同 NVLink 域          调度器不知拓扑               TAS / 拓扑插件 + 节点标签               等更久换更快；标签来源与准确性成为新依赖
-团队配额、空闲借用            ResourceQuota 是硬上限        ClusterQueue / cohort / Queue          借来的资源可能被收回（抢占）；配额策略本身要运维
-小模型共卡                  一卡只能给一个容器             MIG / 时间片 / MPS / HAMi              隔离与利用率的取舍；改配置要清空整卡；NCCL 不能跨 MIG
-NCCL 走 RDMA                一张 veth 网卡               Multus + RDMA plugin + Network Operator  多一套网络配置与驱动栈；回退到 TCP 不报错、难发现
-checkpoint 突发写            PVC 无带宽语义               PFS / 对象存储 + 缓存层                  按峰值带宽买存储；缓存一致性
-多 Pod 一副本                Deployment 是单 Pod          LeaderWorkerSet / JobSet                滚动升级以组为单位，一次替换 M 个 Pod
-按引擎指标扩缩               HPA 看 CPU                  KEDA + Prometheus                       指标管线的延迟叠加在冷启动上；阈值调参
-不轮询、感知 KV cache         Service 轮询                 InferencePool + EPP                     多一跳 ext_proc；EPP 自身要高可用；抓指标有开销
-按 token 限流与计费          没有租户与 token 概念          网关的配额与计量                          预扣与结算的复杂性；流式断开的计费争议
-分配率与使用率的差距          没有 GPU 指标                DCGM + vllm:* + OpenCost                 高基数指标的存储成本；分摊规则的争议
-```
+| 引擎需求 | K8s 空缺 | 平台机制 | 代价 |
+| --- | --- | --- | --- |
+| 容器看到 GPU，版本匹配 | GPU 不被识别 | GPU Operator + device plugin / DRA | 驱动、Toolkit、插件、CUDA 四层版本契约；每层一个升级窗口 |
+| W 个 Pod 全员到齐 | 逐 Pod 调度 | Kueue 准入 / Volcano 批调度 | 排队时间换无死锁；两套调度器的对象模型要学一套 |
+| 同机柜、同 NVLink 域 | 调度器不知拓扑 | TAS / 拓扑插件 + 节点标签 | 等更久换更快；标签来源与准确性成为新依赖 |
+| 团队配额、空闲借用 | ResourceQuota 是硬上限 | ClusterQueue / cohort / Queue | 借来的资源可能被收回（抢占）；配额策略本身要运维 |
+| 小模型共卡 | 一卡只能给一个容器 | MIG / 时间片 / MPS / HAMi | 隔离与利用率的取舍；改配置要清空整卡；NCCL 不能跨 MIG |
+| NCCL 走 RDMA | 一张 veth 网卡 | Multus + RDMA plugin + Network Operator | 多一套网络配置与驱动栈；回退到 TCP 不报错、难发现 |
+| checkpoint 突发写 | PVC 无带宽语义 | PFS / 对象存储 + 缓存层 | 按峰值带宽买存储；缓存一致性 |
+| 多 Pod 一副本 | Deployment 是单 Pod | LeaderWorkerSet / JobSet | 滚动升级以组为单位，一次替换 M 个 Pod |
+| 按引擎指标扩缩 | HPA 看 CPU | KEDA + Prometheus | 指标管线的延迟叠加在冷启动上；阈值调参 |
+| 不轮询、感知 KV cache | Service 轮询 | InferencePool + EPP | 多一跳 ext_proc；EPP 自身要高可用；抓指标有开销 |
+| 按 token 限流与计费 | 没有租户与 token 概念 | 网关的配额与计量 | 预扣与结算的复杂性；流式断开的计费争议 |
+| 分配率与使用率的差距 | 没有 GPU 指标 | DCGM + `vllm:*` + OpenCost | 高基数指标的存储成本；分摊规则的争议 |
+
+Table: 引擎需求 → K8s 空缺 → 平台机制 → 代价
 
 ### 2. 每叠一层的代价
 

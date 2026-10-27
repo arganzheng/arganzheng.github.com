@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 186" width="760" height="186" role="img" aria-labelledby="t d">
+  <title id="t">逐 Pod 调度导致的死锁：48 卡池</title>
+  <desc id="d">池：6 台 8 卡节点 = 48 张卡；任务 A、B 同时提交，各要 4 个 Pod × 8 卡。调度顺序 A-0、B-0、A-1、B-1、A-2、B-2 逐 Pod 交替绑定到节点1 至节点6，48 张卡全部被占；A-3 与 B-3 都在 Pending，等第 4 个节点。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .cellh { fill: #eef2f6; stroke: #c5d0dc; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .ta { fill: #2f5f9e; }
+      .tb { fill: #a8641a; }
+    </style>
+  </defs>
+<text x="14" y="24" text-anchor="start" class="small">池：6 台 8 卡节点 = 48 张卡；任务 A、B 同时提交，各要 4 个 Pod × 8 卡</text>
+<text x="136" y="58" text-anchor="middle" class="bold">节点1</text>
+<text x="224" y="58" text-anchor="middle" class="bold">节点2</text>
+<text x="312" y="58" text-anchor="middle" class="bold">节点3</text>
+<text x="400" y="58" text-anchor="middle" class="bold">节点4</text>
+<text x="488" y="58" text-anchor="middle" class="bold">节点5</text>
+<text x="576" y="58" text-anchor="middle" class="bold">节点6</text>
+<text x="14" y="86" text-anchor="start" class="bold">调度顺序</text>
+<text x="136" y="86" text-anchor="middle" class="small ta">A-0</text>
+<rect class="proc-c" x="96" y="98" width="80" height="40"/>
+<text x="136" y="122.05" text-anchor="middle" class="small">A 8卡</text>
+<text x="224" y="86" text-anchor="middle" class="small tb">B-0</text>
+<rect class="proc-b" x="184" y="98" width="80" height="40"/>
+<text x="224" y="122.05" text-anchor="middle" class="small">B 8卡</text>
+<text x="312" y="86" text-anchor="middle" class="small ta">A-1</text>
+<rect class="proc-c" x="272" y="98" width="80" height="40"/>
+<text x="312" y="122.05" text-anchor="middle" class="small">A 8卡</text>
+<text x="400" y="86" text-anchor="middle" class="small tb">B-1</text>
+<rect class="proc-b" x="360" y="98" width="80" height="40"/>
+<text x="400" y="122.05" text-anchor="middle" class="small">B 8卡</text>
+<text x="488" y="86" text-anchor="middle" class="small ta">A-2</text>
+<rect class="proc-c" x="448" y="98" width="80" height="40"/>
+<text x="488" y="122.05" text-anchor="middle" class="small">A 8卡</text>
+<text x="576" y="86" text-anchor="middle" class="small tb">B-2</text>
+<rect class="proc-b" x="536" y="98" width="80" height="40"/>
+<text x="576" y="122.05" text-anchor="middle" class="small">B 8卡</text>
+<text x="632" y="86" text-anchor="start" class="small">← 逐 Pod 交替绑定</text>
+<text x="632" y="123" text-anchor="start" class="small">48 张卡全部被占</text>
+<text x="14" y="170" text-anchor="start" class="bold">Pending</text>
+<text x="224" y="170" text-anchor="middle" class="small ta">A-3 等第 4 个节点</text>
+<text x="488" y="170" text-anchor="middle" class="small tb">B-3 等第 4 个节点</text>
+</svg>

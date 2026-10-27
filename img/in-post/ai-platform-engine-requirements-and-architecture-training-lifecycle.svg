@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 130" width="760" height="130" role="img" aria-labelledby="t d">
+  <title id="t">训练任务的生命周期</title>
+  <desc id="d">提交 → 排队（等配额 / 等资源凑齐）→ 全员调度 → rendezvous → 运行 → 完成 / 失败 → 释放全部 GPU；运行期间每 T 分钟写一次 checkpoint；rendezvous 处的分支：任一 Pod 失败 → 整组重启 → 从 checkpoint 恢复。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .cellh { fill: #eef2f6; stroke: #c5d0dc; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .ta { fill: #2f5f9e; }
+      .tb { fill: #a8641a; }
+    </style>
+  </defs>
+<rect class="proc-c" x="14" y="14" width="42" height="46"/>
+<text x="35" y="41.05" text-anchor="middle" class="small">提交</text>
+<rect class="proc-c" x="81.2467" y="14" width="160.04" height="46"/>
+<text x="161.267" y="32.05" text-anchor="middle" class="small">排队</text>
+<text x="161.267" y="50.05" text-anchor="middle" class="small">（等配额 / 等资源凑齐）</text>
+<rect class="proc-c" x="266.533" y="14" width="68" height="46"/>
+<text x="300.533" y="41.05" text-anchor="middle" class="small">全员调度</text>
+<rect class="proc-c" x="359.78" y="14" width="88.8" height="46"/>
+<text x="404.18" y="41.05" text-anchor="middle" class="small">rendezvous</text>
+<rect class="proc-c" x="473.827" y="14" width="42" height="46"/>
+<text x="494.827" y="41.05" text-anchor="middle" class="small">运行</text>
+<rect class="proc-c" x="541.073" y="14" width="82.04" height="46"/>
+<text x="582.093" y="41.05" text-anchor="middle" class="small">完成 / 失败</text>
+<rect class="proc-c" x="648.36" y="14" width="97.64" height="46"/>
+<text x="697.18" y="41.05" text-anchor="middle" class="small">释放全部 GPU</text>
+<path d="M56 37.0 H81.24666666666667" class="arrow"/>
+<path d="M241.28666666666666 37.0 H266.5333333333333" class="arrow"/>
+<path d="M334.5333333333333 37.0 H359.78" class="arrow"/>
+<path d="M448.58 37.0 H473.82666666666665" class="arrow"/>
+<path d="M515.8266666666666 37.0 H541.0733333333333" class="arrow"/>
+<path d="M623.1133333333332 37.0 H648.3599999999999" class="arrow"/>
+<path d="M494.82666666666665 60 V86 H506.82666666666665" class="line"/>
+<text x="512.827" y="91" text-anchor="start" class="small">每 T 分钟写一次 checkpoint</text>
+<path d="M404.17999999999995 60 V112 H416.17999999999995" class="line"/>
+<text x="422.18" y="117" text-anchor="start" class="small">任一 Pod 失败 → 整组重启 → 从 checkpoint 恢复</text>
+</svg>

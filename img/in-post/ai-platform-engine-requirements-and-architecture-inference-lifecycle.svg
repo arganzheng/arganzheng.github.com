@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 104" width="760" height="104" role="img" aria-labelledby="t d">
+  <title id="t">推理服务的生命周期</title>
+  <desc id="d">部署 → 副本就绪（加载权重）→ 接流量 → 随负载扩缩 → 滚动升级（新旧版本并存）→ … → 下线；随负载扩缩处的分支：低谷时缩到最少副本或零；高峰前提前扩容。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .cellh { fill: #eef2f6; stroke: #c5d0dc; stroke-width: 1.2; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; fill: none; }
+      .ta { fill: #2f5f9e; }
+      .tb { fill: #a8641a; }
+    </style>
+  </defs>
+<rect class="proc-c" x="14" y="14" width="42" height="46"/>
+<text x="35" y="41.05" text-anchor="middle" class="small">部署</text>
+<rect class="proc-c" x="102" y="14" width="94" height="46"/>
+<text x="149" y="32.05" text-anchor="middle" class="small">副本就绪</text>
+<text x="149" y="50.05" text-anchor="middle" class="small">（加载权重）</text>
+<rect class="proc-c" x="242" y="14" width="55" height="46"/>
+<text x="269.5" y="41.05" text-anchor="middle" class="small">接流量</text>
+<rect class="proc-c" x="343" y="14" width="81" height="46"/>
+<text x="383.5" y="41.05" text-anchor="middle" class="small">随负载扩缩</text>
+<rect class="proc-c" x="470" y="14" width="120" height="46"/>
+<text x="530" y="32.05" text-anchor="middle" class="small">滚动升级</text>
+<text x="530" y="50.05" text-anchor="middle" class="small">（新旧版本并存）</text>
+<text x="647" y="42" text-anchor="middle" class="small">…</text>
+<rect class="proc-c" x="704" y="14" width="42" height="46"/>
+<text x="725" y="41.05" text-anchor="middle" class="small">下线</text>
+<path d="M56 37.0 H102.0" class="arrow"/>
+<path d="M196.0 37.0 H242.0" class="arrow"/>
+<path d="M297.0 37.0 H343.0" class="arrow"/>
+<path d="M424.0 37.0 H470.0" class="arrow"/>
+<path d="M590.0 37.0 H636.0" class="arrow"/>
+<path d="M658.0 37.0 H704.0" class="arrow"/>
+<path d="M383.5 60 V86 H395.5" class="line"/>
+<text x="401.5" y="91" text-anchor="start" class="small">低谷时缩到最少副本或零；高峰前提前扩容</text>
+</svg>
