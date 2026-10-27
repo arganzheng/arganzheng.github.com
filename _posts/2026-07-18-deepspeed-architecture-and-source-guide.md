@@ -60,8 +60,8 @@ DeepSpeed 是微软开源的训练框架，底座是 ZeRO：它沿着优化器�
 | 2021 | Rajbhandari 等 | 连 CPU 内存也不够装的状态 | [ZeRO-Infinity 论文](https://arxiv.org/abs/2104.07857)把 offload 扩到 NVMe，参数可放在磁盘上 | 论文称单节点可微调万亿级模型、512 卡 25 PFLOP/s | NVMe 带宽限制实用场景 |
 | 2022 | Rajbhandari 等 | MoE 专家数多、单卡装不下，推理也慢 | [DeepSpeed-MoE 论文](https://arxiv.org/abs/2201.05596)：专家并行 + MoE 专用推理 | 论文报 MoE 推理最高快 7.3 倍 | 多了一套专家进程组要配置 |
 | 2023 | 微软 | ZeRO-3 每层两次 all-gather 通信量大 | [ZeRO++ 论文](https://arxiv.org/abs/2306.10209)：量化通信 + hpZ 节点内二级参数分区 | 论文报 ZeRO-3 通信量明显下降 | 多一个二级分片副本和一组配置项 |
-| 2023 | Jacobs、Tanaka 等 | 长序列下 TP 沿隐藏维切不再适用 | [DeepSpeed-Ulysses 论文](https://arxiv.org/abs/2309.14509)：序列并行，attention 时用 all-to-all 换回完整序列的头分片 | 论文报可训超长序列、通信随序列长近似不变 | 与 ZeRO、TP 的组合要另外配置 |
-| 2023 | DeepSpeed 团队 | 推理侧每张卡还要手工配 TP | [AutoTP](https://github.com/deepspeedai/DeepSpeed/tree/v0.19.2/deepspeed/module_inject)（`module_inject/auto_tp.py`）：给定模型结构自动推 TP 切分 | 推理时免手写切分配置 | 只覆盖推理，训练仍要显式并行配置 |
+| 2023 | Jacobs、Tanaka 等 | 已有的序列并行方案通信量随序列长增长 | [DeepSpeed-Ulysses 论文](https://arxiv.org/abs/2309.14509)：attention 时用 all-to-all 换回完整序列的头分片，序列长与设备数同比增大时单卡通信量保持不变 | 论文报可训超长序列，通信近似不随序列长膨胀 | 与 ZeRO、TP 的组合要另外配置 |
+| 2023-02 | DeepSpeed 团队 | 推理侧每张卡还要手工配 TP injection policy | [AutoTP 推理教程](https://www.deepspeed.ai/tutorials/automatic-tensor-parallelism/)：不给 policy 时按模型结构自动推 TP 切分 | 推理时免手写切分配置；2025 起同一机制扩展到训练（[AutoTP 训练](https://github.com/deepspeedai/DeepSpeed/tree/master/blogs/huggingface-tp)，deepspeed ≥0.16.4） | 训练侧官方先集成 ZeRO-1/2，与 ZeRO-3 的组合当时在路线图上 |
 
 这张表里能看到方向的变化：先沿优化器轴逐级切状态，再把状态搬出 GPU、搬到 NVMe；随后通信本身变成要省的对象，长序列和推理也各自有了专门的并行切法。
 
@@ -80,7 +80,7 @@ DeepSpeed 的对象按从下到上的依赖关系读。F2 把六层叠起来：�
 
 ## 四、最小任务：runs/deepspeed
 
-train-ledger 里的练手配置是 ZeRO-3、DP 8，模型形状沿用 03 的 Llama 3.2 1B。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五本文小结)，这里只留 DeepSpeed 这份配置（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
+train-ledger 里的练手配置是 ZeRO-3、DP 8，模型形状沿用 03 的 Llama 3.2 1B。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)，这里只留 DeepSpeed 这份配置（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
 
 ```json title="runs/deepspeed/ds_config.json"
 {
@@ -115,7 +115,7 @@ JSON 键分四组看：
 - **批次**：`train_micro_batch_size_per_gpu` × `gradient_accumulation_steps` × DP 数推出 `train_batch_size`（这里 1 × 2 × 8 = 16），`train_batch_size` 本身省略不写。
 - **精度与优化器**：`bf16.enabled` 决定模型 dtype，也连带决定默认的梯度累积 dtype（第一章的账）；`optimizer` 段建 AdamW，`gradient_clipping` 在 step 里做裁剪。
 - **ZeRO 阈值**：`stage3_prefetch_bucket_size` 控制每次顺带预取的参数量，对应 F5 里「同时活着的完整参数」；`stage3_param_persistence_threshold` 决定多小的参数在 forward/backward 期间保持完整（`ds_persist`，见第六章第 4、5 节）；`stage3_max_live_parameters`、`stage3_max_reuse_distance` 分别封顶在途完整参数和「很快又用的参数不释放」的距离；`reduce_bucket_size` 是梯度 IPG bucket 的大小（第六章第 3 节）；`sub_group_size` 把参数切成 sub-group，每个 sub-group 一对 bf16 / fp32 扁平分区（第六章第 4 节）。
-- **记录**：`wall_clock_breakdown` 与 `flops_profiler` 打印耗时与 FLOPs，对照第五章的通信账。
+- **记录**：`wall_clock_breakdown` 与 `flops_profiler` 打印耗时与 FLOPs，对照第一章的每卡字节账与第六章第 5 节的通信过程。
 
 `train_ds.py` 的骨架：
 
@@ -259,7 +259,7 @@ flowchart TB
 
 **问题**：Stage 1/2 不切参数本身，参数在每张卡上仍是整份——怎么让「优化器状态切 1/N_d」又不破坏参数的完整地址？
 
-**直觉**：把一个 param group 里所有参数先拍平成一段连续内存，每段切成 $$N_d$$ 份，每个 rank 拿自己那份的 fp32 拷贝去更新；参数的 `.data` 仍是扁平张量里的视图，更新后 all-gather 拼回整段。F3 用三个参数 A（5 个元素）、B（4 个）、C（2 个）走一遍：总数 11，pad 到 12，DP=4 时每段 3 个元素——分片边界落在参数内部，rank 1 那段一半在 A、一半跨到 B 的边。
+**直觉**：把一个 param group 里所有参数先拍平成一段连续内存，每段切成 $$N_d$$ 份，每个 rank 拿自己那份的 fp32 拷贝去更新；参数的 `.data` 仍是扁平张量里的视图，更新后 all-gather 拼回整段。F3 用三个参数 A（5 个元素）、B（4 个）、C（2 个）走一遍：总数 11，pad 到 12，DP=4 时每段 3 个元素——分片边界落在参数内部，rank 1 那段前两个元素是 A3、A4，第三个是 B0。
 
 ![F3：param group 拍平拼接成 bit16_groups_flat，pad 到 N_d 倍数后切成 N_d 段，每个 rank 克隆自己那段的 fp32 副本](/img/in-post/deepspeed-f3-flat-partition.svg)
 
