@@ -129,24 +129,7 @@ Table: 本文的章节安排
 
 排布由 `RankGenerator` 类完成。它接收各维度大小与 `order` 字符串，`get_ranks(token)` 对一个形如 `"tp"`、`"dp-cp"`、`"tp-ep-pp"` 的 token 调用 `generate_masked_orthogonal_rank_groups()`：把世界大小按 `order` 拆成一个多维网格，token 里出现的维度是"变化的"、其余维度是"固定的"，枚举固定维度的每一种取值，就得到一个进程组的 rank 列表。所以 `"tp-cp-ep-dp-pp"` 的含义是 TP 变化最快（相邻 rank、同节点）、PP 变化最慢——第二篇解释过这来自"TP 不可重叠必须 NVLink、PP 通信最少可放最远"。用本篇练手项目的 8 卡配置（TP 2 × PP 2 × DP 2）把"掩码"这件事画出来：
 
-```text title="RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2"
-world_size = 8，order = "tp-cp-ep-dp-pp"，TP 2 × DP 2 × PP 2（cp = ep = 1）
-rank = tp + 2·dp + 4·pp        tp 变化最快（相邻卡），pp 最慢
-
-                 dp=0            dp=1
-              tp=0   tp=1     tp=0   tp=1
-  pp=0     +------+------+  +------+------+
-           |   0  |   1  |  |   2  |   3  |
-           +------+------+  +------+------+
-  pp=1     +------+------+  +------+------+
-           |   4  |   5  |  |   6  |   7  |
-           +------+------+  +------+------+
-
-get_ranks("tp")     变 tp，固定 dp,pp  -> {0,1} {2,3} {4,5} {6,7}
-get_ranks("dp")     变 dp，固定 tp,pp  -> {0,2} {1,3} {4,6} {5,7}
-get_ranks("pp")     变 pp，固定 tp,dp  -> {0,4} {1,5} {2,6} {3,7}
-get_ranks("tp-dp")  变 tp,dp，固定 pp  -> {0,1,2,3} {4,5,6,7}
-```
+![RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2](/img/in-post/megatron-deepspeed-torchtitan-rank-generator-mask.svg)
 
 同一张 8 卡网格，token 里出现的维度"变化"、其余"固定"，一次枚举就得到一组进程组；第 3 节 torchtitan 的 `DeviceMesh` 视图 `("pp", "dp_shard", "tp")` 给出的正是同一张网格，只是"哪些卡在一组"改由 mesh 的索引语义回答。
 
@@ -187,20 +170,20 @@ v0.3.0 多了一个 `spmd_backend` 字段（`"partial_dtensor" | "full_dtensor" 
 
 ### 4. 对照表
 
-```text title="三框架进程组管理的对照表"
-                    Megatron Core 0.18.0                 DeepSpeed 0.19.2                     torchtitan v0.3.0
-────────────────    ──────────────────────────────────   ──────────────────────────────────   ─────────────────────────────────
-数据结构            模块级全局变量 + get_*_group()          模块级 mpu 委托 + 字典                ParallelDims 持有的 DeviceMesh 视图
-rank 排布           RankGenerator(order="tp-cp-ep-dp-pp")  外部 mpu 决定；pipe 用 ProcessTopology   _unflatten 的维度顺序 (pp, dp_replicate, dp_shard, cp, tp)
-DP 组               dp / dp-cp / expt-dp / intra-inter 两层   world 克隆 或 mpu.get_data_parallel_group()   dp_shard / dp_replicate / loss（batch×cp）
-TP 组               tp；expert-tp 可与 dense-tp 不同        mpu 或 autoTP 的 mesh                 tp
-PP 组               pp + embedding / position-embedding 组   PipelineParallelGrid                  pp（stage 之间由 PipelineStage 自己 send/recv）
-CP 组               cp；梯度在 dp-cp 上归约                  sequence-parallel 组（Ulysses）        cp；fully_shard 把 dp_shard×cp 合成 shard 维
-EP 组               ep / tp-ep / tp-ep-pp / expt-dp          ep 与 expt-dp，按 ep_size 命名          ep / efsdp
-ZeRO/FSDP 分片组     intra_distributed_optimizer_instance    dp（Stage 3 另有 hpZ 二级组）           dp_shard（+cp）
-gloo 孪生            每组一个                                 —                                    —
-显式传递             pg_collection 可选                       mpu 参数                              parallel_dims 到处传
-```
+|   | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
+|---|---|---|---|
+| 数据结构 | 模块级全局变量 + get_*_group() | 模块级 mpu 委托 + 字典 | ParallelDims 持有的 DeviceMesh 视图 |
+| rank 排布 | RankGenerator(order="tp-cp-ep-dp-pp") | 外部 mpu 决定；pipe 用 ProcessTopology | _unflatten 的维度顺序 (pp, dp_replicate, dp_shard, cp, tp) |
+| DP 组 | dp / dp-cp / expt-dp / intra-inter 两层 | world 克隆 或 mpu.get_data_parallel_group() | dp_shard / dp_replicate / loss（batch×cp） |
+| TP 组 | tp；expert-tp 可与 dense-tp 不同 | mpu 或 autoTP 的 mesh | tp |
+| PP 组 | pp + embedding / position-embedding 组 | PipelineParallelGrid | pp（stage 之间由 PipelineStage 自己 send/recv） |
+| CP 组 | cp；梯度在 dp-cp 上归约 | sequence-parallel 组（Ulysses） | cp；fully_shard 把 dp_shard×cp 合成 shard 维 |
+| EP 组 | ep / tp-ep / tp-ep-pp / expt-dp | ep 与 expt-dp，按 ep_size 命名 | ep / efsdp |
+| ZeRO/FSDP 分片组 | intra_distributed_optimizer_instance | dp（Stage 3 另有 hpZ 二级组） | dp_shard（+cp） |
+| gloo 孪生 | 每组一个 | — | — |
+| 显式传递 | pg_collection 可选 | mpu 参数 | parallel_dims 到处传 |
+
+Table: 三框架进程组管理的对照表
 
 三者都把 TP 放在最内、PP 放在最外，都把 CP 视为"切数据、复制参数"的维度并入梯度归约组（Megatron 的 `dp-cp`、torchtitan 的 `loss` 与 FSDP 的 `dp_shard×cp`）。差别是历史层次：Megatron 是全局单例正在向对象化过渡，DeepSpeed 把模型并行的进程组交给外部，torchtitan 从一开始就是 mesh。
 
@@ -252,29 +235,14 @@ Megatron 的 `distributed/distributed_data_parallel.py` 的 `DistributedDataPara
 
 把这两段内存、bucket 与 DP 分片画在一起（下一节的分布式优化器就是在这张图上按字节区间切）：
 
-```text title="_ParamAndGradBuffer：param_data、grad_data 与 bucket"
-一个 _ParamAndGradBuffer：同一 (param_dtype, grad_dtype) 组的全部参数，
-按反向顺序排列（最后一层在最前）；dp_size = 4
+![_ParamAndGradBuffer：param_data、grad_data 与 bucket](/img/in-post/megatron-deepspeed-torchtitan-param-and-grad-buffer.svg)
 
-             |<------------ bucket 0 ----------->|<---- bucket 1 --->|
-param_data   +------------+----+------------+----+---------+----+---+
-(bf16)       |    W_L     |b_L |   W_L-1    |pad |  W_L-2  |... |pad|
-             +------------+----+------------+----+---------+----+---+
-grad_data    +------------+----+------------+----+---------+----+---+
-(fp32)       |    dW_L    |db_L|   dW_L-1   |pad |  dW_L-2 |... |pad|
-             +------------+----+------------+----+---------+----+---+
-shard_buffer +--------+--------+--------+--------+----+----+----+----+
-(per bucket, | rank0  | rank1  | rank2  | rank3  | r0 | r1 | r2 | r3 |
- dp_size=4)  +--------+--------+--------+--------+----+----+----+----+
+图里三条内存条的关系：
 
-param.data      = param_data[a:b] 的视图
-param.main_grad = grad_data[a:b] 的视图（同一偏移，两段独立内存）
-分片边界 ≠ 参数边界：W_L 前 8 个元素归 rank0、后 4 个归 rank1，
-  DistributedOptimizer 只为本 rank 段建 fp32 主参数与 m、v
-反向：bucket 内梯度全部就位 -> reduce-scatter(grad_data[bucket])，
-  本 rank 段即归约结果
-step：fp32 主参数分片 -> param_data[本 rank 段]（转 bf16）-> all-gather 拼回完整
-```
+- `param.data` = `param_data[a:b]` 的视图；`param.main_grad` = `grad_data[a:b]` 的视图（同一偏移，两段独立内存）。
+- 分片边界 ≠ 参数边界：W_L 前 8 个元素归 rank0、后 4 个归 rank1，DistributedOptimizer 只为本 rank 段建 fp32 主参数与 m、v。
+- 反向：bucket 内梯度全部就位 → reduce-scatter(`grad_data[bucket]`)，本 rank 段即归约结果。
+- step：fp32 主参数分片 → `param_data[本 rank 段]`（转 bf16）→ all-gather 拼回完整。
 
 前几个 micro-batch 的反向不触发通信：`no_sync()` 上下文（由调度函数通过 `config.no_sync_func` 调用）把 `is_last_microbatch` 置 False，hook 只累加不发送。这就是第二篇说的"梯度 bucket 与反向计算重叠"的实现。
 
@@ -289,13 +257,12 @@ step：fp32 主参数分片 -> param_data[本 rank 段]（转 bf16）-> all-gath
 
 一个 step 的优化器部分：
 
-```text title="DistributedOptimizer 一个 step 的优化器部分"
-_copy_model_grads_to_main_grads()     grad_data 里本 rank 那一段（reduce-scatter 的结果，fp32）→ 主参数分片的 .grad
-inner optimizer.step()                 Adam 更新 fp32 主参数分片与 m、v
-_copy_main_params_to_model_params()    fp32 主参数分片 → param_data 里本 rank 那一段（转 bf16）
-step_with_ready_grads()                → start_param_sync_for_bucket_group_subset() → 每个 bucket group 的 start_param_sync()
-                                       all-gather bucket 的 param_data：各 rank 的 1/N_d 段拼成完整 bf16 参数
-```
+DistributedOptimizer 一个 step 的优化器部分，按先后是四步：
+
+1. `_copy_model_grads_to_main_grads()`：grad_data 里本 rank 那一段（reduce-scatter 的结果，fp32）→ 主参数分片的 `.grad`。
+2. inner `optimizer.step()`：Adam 更新 fp32 主参数分片与 m、v。
+3. `_copy_main_params_to_model_params()`：fp32 主参数分片 → param_data 里本 rank 那一段（转 bf16）。
+4. `step_with_ready_grads()` → `start_param_sync_for_bucket_group_subset()` → 每个 bucket group 的 `start_param_sync()`：all-gather bucket 的 param_data，各 rank 的 1/N_d 段拼成完整 bf16 参数。
 
 `start_param_sync()`（`_ParamAndGradBucketGroup`）在 `overlap_param_gather=True` 时异步发起：第一个 bucket group 的 all-gather 在 `optimizer.zero_grad()` 里发出，之后每个 bucket group 的 all-gather 在前一个完成时接力发出，而**等待**发生在前向的 pre-hook 里——`DistributedDataParallel._make_forward_pre_hook()` 在一个 module 前向前对它的每个参数调用 `finish_param_sync()`，只等这个参数所在 bucket 的 all-gather。于是下一 step 的前向可以边算边收：算第一层时后面几层的参数还在路上。
 
@@ -305,24 +272,17 @@ step_with_ready_grads()                → start_param_sync_for_bucket_group_sub
 
 把上面三节串起来，以一个 `ColumnParallelLinear.weight` 为例（`--bf16 --use-distributed-optimizer --overlap-grad-reduce --overlap-param-gather`，TP 组内它是 $$1/N_t$$ 的分片，下面只看 DP 维）：
 
-```text title="一个 bf16 参数的一生：Megatron"
-时刻                    事件                                                      在哪里
-─────────────────────   ──────────────────────────────────────────────────────    ────────────────────────────────────────────
-初始化                  weight.data ← param_data[a:b] 视图（bf16，完整）              _ParamAndGradBuffer.__init__
-                        weight.main_grad ← grad_data[a:b] 视图（fp32，完整，置零）
-                        主参数分片 ← weight.float()[本 rank 段]（fp32，1/N_d）          DistributedOptimizer._build_model_and_main_param_groups
-step i 前向 pre-hook    等 weight 所在 bucket 的 all-gather 完成（step i-1 发出的）     DDP._make_forward_pre_hook → finish_param_sync
-前向 / 反向 × m 次      GEMM 读 weight（bf16，完整，全程不释放）
-                        每次反向：dW 累加进 main_grad（fp32）；param.grad 立即丢弃        LinearWithGradAccumulationAndAsyncCommunication / _make_backward_post_hook
-最后一个 micro-batch    bucket 内梯度全部就位 → reduce-scatter grad_data                _ParamAndGradBucketGroup.start_grad_sync（异步）
-                        本 rank 得到 grad_data[本 rank 段] 的归约结果
-finalize_model_grads    embedding 等跨 PP / 非 TP 参数的额外 all-reduce                 distributed/finalize_model_grads.py
-optimizer.step          grad_data[本 rank 段] → 主参数分片.grad                        _copy_model_grads_to_main_grads
-                        Adam 更新主参数分片、m、v（全部 fp32，1/N_d）
-                        主参数分片 → param_data[本 rank 段]（转 bf16）                   _copy_main_params_to_model_params
-                        发起 param_data 的 all-gather（异步，逐 bucket 接力）             step_with_ready_grads → start_param_sync
-step i+1 前向 pre-hook  等 all-gather 完成 → weight 又是完整、更新后的 bf16
-```
+| 时刻 | 事件 | 在哪里 |
+|---|---|---|
+| 初始化 | weight.data ← param_data[a:b] 视图（bf16，完整）<br/>weight.main_grad ← grad_data[a:b] 视图（fp32，完整，置零）<br/>主参数分片 ← weight.float()[本 rank 段]（fp32，1/N_d） | _ParamAndGradBuffer.__init__<br/>DistributedOptimizer._build_model_and_main_param_groups |
+| step i 前向 pre-hook | 等 weight 所在 bucket 的 all-gather 完成（step i-1 发出的） | DDP._make_forward_pre_hook → finish_param_sync |
+| 前向 / 反向 × m 次 | GEMM 读 weight（bf16，完整，全程不释放）<br/>每次反向：dW 累加进 main_grad（fp32）；param.grad 立即丢弃 | LinearWithGradAccumulationAndAsyncCommunication / _make_backward_post_hook |
+| 最后一个 micro-batch | bucket 内梯度全部就位 → reduce-scatter grad_data<br/>本 rank 得到 grad_data[本 rank 段] 的归约结果 | _ParamAndGradBucketGroup.start_grad_sync（异步） |
+| finalize_model_grads | embedding 等跨 PP / 非 TP 参数的额外 all-reduce | distributed/finalize_model_grads.py |
+| optimizer.step | grad_data[本 rank 段] → 主参数分片.grad<br/>Adam 更新主参数分片、m、v（全部 fp32，1/N_d）<br/>主参数分片 → param_data[本 rank 段]（转 bf16）<br/>发起 param_data 的 all-gather（异步，逐 bucket 接力） | _copy_model_grads_to_main_grads<br/>_copy_main_params_to_model_params<br/>step_with_ready_grads → start_param_sync |
+| step i+1 前向 pre-hook | 等 all-gather 完成 → weight 又是完整、更新后的 bf16 |  |
+
+Table: 一个 bf16 参数的一生：Megatron
 
 **常驻**：bf16 参数 $$2N_{\text{local}}$$（完整）、fp32 梯度 $$4N_{\text{local}}$$（完整）、fp32 主参数 + m + v $$12N_{\text{local}}/N_d$$。**通信**：每 step 一次 reduce-scatter（fp32 梯度，与反向重叠）+ 一次 all-gather（bf16 参数，与下一 step 前向重叠）——正是第二篇 ZeRO-1 的 $$2N$$。**从不释放**：bf16 参数与 fp32 梯度 buffer 在整个训练期间常驻，这是 Megatron 显存最"稳"（碎片最少）但也最"贵"的地方。
 
@@ -546,26 +506,20 @@ sequenceDiagram
 
 以一个 Transformer 层的 `nn.Linear.weight` 为例（`bf16.enabled=true`，`zero_optimization.stage=3`，不 offload）：
 
-```text title="一个 bf16 参数的一生：DeepSpeed Stage 3"
-时刻                    事件                                                          在哪里
-─────────────────────   ──────────────────────────────────────────────────────────    ─────────────────────────────────────────
-zero.Init 内构造        weight 完整构造 → _convert_to_deepspeed_param → _partition       partition_parameters.py Init._post_init_method
-                        weight.ds_tensor ← 本 rank 的 1/N_d 一维碎片（bf16）；weight.data ← 空张量
-优化器构造              fp16_partitioned_groups_flat[g] ← sub-group 内各 ds_tensor 拼接      stage3.py _create_fp16_partitions_with_defragmentation
-                        fp32_partitioned_groups_flat[g] ← 其 fp32 拷贝（1/N_d）              _create_fp32_partitions
-step i，该层前向前       _pre_forward_module_hook → fetch_sub_module                      parameter_offload.py / partitioned_param_coordinator.py
-                        all_gather_coalesced：N_d 个碎片 → weight.data（bf16，完整）；同时预取后面几层
-该层前向                GEMM 读 weight（完整）
-该层前向后              _post_forward_module_hook → release_sub_module → weight.partition()    weight.data 又是空张量
-该层反向前              _pre_backward_module_hook → fetch_sub_module（再 all-gather 一次）
-该层反向                dW 生成 → 梯度 hook → 进 IPG bucket → reduce-scatter                 stage3.py reduce_partition_and_remove_grads / __avg_scatter_grads
-                        本 rank 得到 dW[本 rank 段] → 写进 fp32 分区的 .grad；weight.grad = None
-该层反向后              _post_backward_module_hook → release → weight.partition()
-engine.step             对每个 sub-group：Adam 更新 fp32 分区（1/N_d）                       stage3.py step → _optimizer_step
-                        fp32 分区 → fp16_partitioned_groups_flat（即各 ds_tensor，bf16）        _reassign_or_swap_out_partitioned_parameters
-                        不 all-gather（除 ds_persist 的小参数）                              _post_step
-step i+1，该层前向前     再 fetch_sub_module → all-gather                                  回到上面
-```
+| 时刻 | 事件 | 在哪里 |
+|---|---|---|
+| zero.Init 内构造 | weight 完整构造 → _convert_to_deepspeed_param → _partition<br/>weight.ds_tensor ← 本 rank 的 1/N_d 一维碎片（bf16）；weight.data ← 空张量 | partition_parameters.py Init._post_init_method |
+| 优化器构造 | fp16_partitioned_groups_flat[g] ← sub-group 内各 ds_tensor 拼接<br/>fp32_partitioned_groups_flat[g] ← 其 fp32 拷贝（1/N_d） | stage3.py _create_fp16_partitions_with_defragmentation<br/>_create_fp32_partitions |
+| step i，该层前向前 | _pre_forward_module_hook → fetch_sub_module<br/>all_gather_coalesced：N_d 个碎片 → weight.data（bf16，完整）；同时预取后面几层 | parameter_offload.py / partitioned_param_coordinator.py |
+| 该层前向 | GEMM 读 weight（完整） |  |
+| 该层前向后 | _post_forward_module_hook → release_sub_module → weight.partition() | weight.data 又是空张量 |
+| 该层反向前 | _pre_backward_module_hook → fetch_sub_module（再 all-gather 一次） |  |
+| 该层反向 | dW 生成 → 梯度 hook → 进 IPG bucket → reduce-scatter<br/>本 rank 得到 dW[本 rank 段] → 写进 fp32 分区的 .grad；weight.grad = None | stage3.py reduce_partition_and_remove_grads / __avg_scatter_grads |
+| 该层反向后 | _post_backward_module_hook → release → weight.partition() |  |
+| engine.step | 对每个 sub-group：Adam 更新 fp32 分区（1/N_d）<br/>fp32 分区 → fp16_partitioned_groups_flat（即各 ds_tensor，bf16）<br/>不 all-gather（除 ds_persist 的小参数） | stage3.py step → _optimizer_step<br/>_reassign_or_swap_out_partitioned_parameters<br/>_post_step |
+| step i+1，该层前向前 | 再 fetch_sub_module → all-gather | 回到上面 |
+
+Table: 一个 bf16 参数的一生：DeepSpeed Stage 3
 
 **常驻**：bf16 碎片 $$2N/N_d$$、fp32 主参数 + m + v $$12N/N_d$$、梯度分区 $$2N/N_d$$（bf16 累加）或 $$4N/N_d$$——合计 $$16N/N_d$$ 或 $$18N/N_d$$。**临时**：正在前向 / 反向的那几层的完整 bf16 参数（预取深度决定有几层）。**通信**：每层前向一次 all-gather、反向一次 all-gather、一次 reduce-scatter，合计 $$3N$$。
 
@@ -730,25 +684,21 @@ flowchart TB
 
 以一个 Transformer 层里 `feed_forward.w1.weight` 为例（`dp_shard = 8`，`tp = 1`，`training.dtype = float32`，`mixed_precision_param = bfloat16`，`fsdp_reshard_after_forward = "default"`，无 PP）：
 
-```text title="一个 bf16 参数的一生：torchtitan"
-时刻                    事件                                                          在哪里
-─────────────────────   ──────────────────────────────────────────────────────────    ─────────────────────────────────────────
-meta 构造               weight 是 meta 张量（fp32，完整形状，无内存）                        Trainer.__init__ 的 torch.device("meta")
-parallelize_llama       fully_shard(block) → FSDPParam._init_sharded_param              torch/distributed/fsdp/_fully_shard/_fsdp_param.py
-                        weight ← DTensor(Shard(0))，本地 1/8 行，fp32，仍是 meta
-to_empty + init_weights weight 的本地分片分配显存并初始化（fp32，1/8）                       trainer.py
-优化器构造              AdamW 的 param 就是这个 fp32 分片；m、v 按它的形状分配                  components/optimizer/optimizer.py OptimizersContainer
-step i，该层前向前       FSDPState._pre_forward → FSDPParamGroup.unshard                   _fsdp_state.py / _fsdp_param_group.py
-                        foreach_all_gather：8 个 fp32 分片各自转 bf16 → 一次 all-gather         _fsdp_collectives.py
-                        wait_for_unshard → to_unsharded：block.feed_forward.w1.weight ← 完整 bf16
-该层前向                GEMM 读 bf16 完整 weight
-该层前向后              _post_forward → reshard → to_sharded：bf16 释放，weight 又是 fp32 分片
-该层反向前              pre_backward → unshard（同上，再一次 all-gather；由 _backward_prefetch 提前发出）
-该层反向                dW（bf16 完整）→ post_backward → foreach_reduce：reduce-scatter，fp32 归约
-                        分片.grad ← DTensor(Shard(0))，fp32，1/8；完整 bf16 weight 与 dW 释放
-optimizers.step         AdamW 在 fp32 分片上更新（局部逐元素，不需要通信）                    torch.optim.AdamW
-step i+1，该层前向前     再 unshard：从更新后的 fp32 分片 all-gather 出新的 bf16
-```
+| 时刻 | 事件 | 在哪里 |
+|---|---|---|
+| meta 构造 | weight 是 meta 张量（fp32，完整形状，无内存） | Trainer.__init__ 的 torch.device("meta") |
+| parallelize_llama | fully_shard(block) → FSDPParam._init_sharded_param<br/>weight ← DTensor(Shard(0))，本地 1/8 行，fp32，仍是 meta | torch/distributed/fsdp/_fully_shard/_fsdp_param.py |
+| to_empty + init_weights | weight 的本地分片分配显存并初始化（fp32，1/8） | trainer.py |
+| 优化器构造 | AdamW 的 param 就是这个 fp32 分片；m、v 按它的形状分配 | components/optimizer/optimizer.py OptimizersContainer |
+| step i，该层前向前 | FSDPState._pre_forward → FSDPParamGroup.unshard<br/>foreach_all_gather：8 个 fp32 分片各自转 bf16 → 一次 all-gather<br/>wait_for_unshard → to_unsharded：block.feed_forward.w1.weight ← 完整 bf16 | _fsdp_state.py / _fsdp_param_group.py<br/>_fsdp_collectives.py |
+| 该层前向 | GEMM 读 bf16 完整 weight |  |
+| 该层前向后 | _post_forward → reshard → to_sharded：bf16 释放，weight 又是 fp32 分片 |  |
+| 该层反向前 | pre_backward → unshard（同上，再一次 all-gather；由 _backward_prefetch 提前发出） |  |
+| 该层反向 | dW（bf16 完整）→ post_backward → foreach_reduce：reduce-scatter，fp32 归约<br/>分片.grad ← DTensor(Shard(0))，fp32，1/8；完整 bf16 weight 与 dW 释放 |  |
+| optimizers.step | AdamW 在 fp32 分片上更新（局部逐元素，不需要通信） | torch.optim.AdamW |
+| step i+1，该层前向前 | 再 unshard：从更新后的 fp32 分片 all-gather 出新的 bf16 |  |
+
+Table: 一个 bf16 参数的一生：torchtitan
 
 **常驻**：fp32 分片 $$4N/N_d$$、fp32 梯度分片 $$4N/N_d$$、m + v $$8N/N_d$$——合计 $$16N/N_d$$，**没有独立的 bf16 参数和 fp32 主参数两份**。**临时**：正在算的层（及被预取的下一层）的完整 bf16 参数与 bf16 梯度。**通信**：与 DeepSpeed Stage 3 相同的 $$3N$$（前向 all-gather、反向 all-gather、reduce-scatter），PP 下 `reshard_after_forward=False` 时 $$2N$$。
 
@@ -782,20 +732,20 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 
 把三、四、五章的三张时序压成一张表，只看一个 DP 组内的一个参数：
 
-```text title="三条时序并排：一个 DP 组内的一个参数"
-                          Megatron（DDP + 分布式优化器）      DeepSpeed Stage 3                    torchtitan（FSDP2）
-────────────────────────  ────────────────────────────────  ──────────────────────────────────  ──────────────────────────────────
-bf16 参数常驻形态          完整；param_data buffer 的视图        1/N_d 碎片 ds_tensor；param.data 为空     无；常驻的是 fp32 Shard(0) DTensor
-bf16 参数何时完整          始终                                该层前向 / 反向期间（hook 取回）         该层前向 / 反向期间（unshard）
-何时释放                  从不                                该层前向后 / 反向后（partition）          该层前向后 / 反向后（reshard）
-fp32 主参数在哪            优化器私有的 1/N_d 拷贝               扁平 fp32 分区（可 CPU）                 就是那个 fp32 分片
-梯度形态                  fp32 完整 main_grad（buffer 视图）     bucket 后 reduce-scatter → 1/N_d 分区     bf16 临时 → reduce-scatter → fp32 1/N_d 分片
-优化器何时碰它             step：拷 grad → 更新 → 拷回 bf16 段    step：每个 sub-group 更新 → 拷回 ds_tensor   step：直接更新 fp32 分片
-更新后 all-gather          step 内发起，下一 step 前向 pre-hook 等   不做（persist 参数除外）；下一 step 前向取回   不做；下一 step 前向 unshard
-每 step 通信              RS(N) + AG(N) = 2N                 AG + AG + RS = 3N                    AG + AG + RS = 3N（不 reshard 则 2N）
-每参数常驻字节            2 + 4 + 12/N_d                      (2 + 2 或 4 + 12)/N_d                16/N_d
-param.data 身份           固定                                一个 step 内换四次                       一个 step 内换四次（但 DTensor 自描述）
-```
+|   | Megatron（DDP + 分布式优化器） | DeepSpeed Stage 3 | torchtitan（FSDP2） |
+|---|---|---|---|
+| bf16 参数常驻形态 | 完整；param_data buffer 的视图 | 1/N_d 碎片 ds_tensor；param.data 为空 | 无；常驻的是 fp32 Shard(0) DTensor |
+| bf16 参数何时完整 | 始终 | 该层前向 / 反向期间（hook 取回） | 该层前向 / 反向期间（unshard） |
+| 何时释放 | 从不 | 该层前向后 / 反向后（partition） | 该层前向后 / 反向后（reshard） |
+| fp32 主参数在哪 | 优化器私有的 1/N_d 拷贝 | 扁平 fp32 分区（可 CPU） | 就是那个 fp32 分片 |
+| 梯度形态 | fp32 完整 main_grad（buffer 视图） | bucket 后 reduce-scatter → 1/N_d 分区 | bf16 临时 → reduce-scatter → fp32 1/N_d 分片 |
+| 优化器何时碰它 | step：拷 grad → 更新 → 拷回 bf16 段 | step：每个 sub-group 更新 → 拷回 ds_tensor | step：直接更新 fp32 分片 |
+| 更新后 all-gather | step 内发起，下一 step 前向 pre-hook 等 | 不做（persist 参数除外）；下一 step 前向取回 | 不做；下一 step 前向 unshard |
+| 每 step 通信 | RS(N) + AG(N) = 2N | AG + AG + RS = 3N | AG + AG + RS = 3N（不 reshard 则 2N） |
+| 每参数常驻字节 | 2 + 4 + 12/N_d | (2 + 2 或 4 + 12)/N_d | 16/N_d |
+| param.data 身份 | 固定 | 一个 step 内换四次 | 一个 step 内换四次（但 DTensor 自描述） |
+
+Table: 三条时序并排：一个 DP 组内的一个参数
 
 最后两行解释了三个框架的"手感"。Megatron 的显存曲线是一条直线（常驻大、临时少），profile 里通信是两大块（reduce-scatter 跟着反向、all-gather 跟着下一步前向）；DeepSpeed 与 torchtitan 的显存曲线是锯齿（常驻小、每层一个峰），通信是每层三小块。Megatron 的 `param.data` 可以随便读——checkpoint、日志、调试都直接看；DeepSpeed 的要用 `GatheredParameters`；torchtitan 的是 DTensor，`full_tensor()` 或 `to_local()` 二选一，但它知道自己是什么。
 
@@ -803,23 +753,20 @@ param.data 身份           固定                                一个 step �
 
 第二篇提出的对照题：同一个"前向前把分片参数拼回来"，三种实现。现在可以逐项回答。
 
-```text title="前向前 all-gather 分片参数：Stage 3 vs FSDP1 vs FSDP2"
-                     DeepSpeed Stage 3                         FSDP1（FlatParameter）                       FSDP2（fully_shard）
-───────────────────  ────────────────────────────────────────  ──────────────────────────────────────────  ──────────────────────────────────────────
-分片单位              每个参数各自切成 1/N_d（ds_tensor）           一个 wrap 单元的所有参数拍平成一个 FlatParameter 再切   每个参数各自沿第 0 维切（FSDPParam），组成 FSDPParamGroup
-触发点                每个子 module 的 forward pre-hook            wrap 单元的 forward pre-hook                  fully_shard 单元的 forward pre-hook
-                     parameter_offload.py _pre_forward_module_hook  _runtime_utils.py _pre_forward → _pre_forward_unshard  _fsdp_state.py _pre_forward → FSDPParamGroup.pre_forward
-all-gather 调用       fetch_sub_module → all_gather_coalesced      _unshard → FlatParamHandle.unshard → _all_gather_flat_param   unshard → foreach_all_gather（拷进连续 buffer、一次 all_gather_into_tensor）
-                     一个 module 的多个参数拼成一次通信              一次通信（本来就是一个张量）                   一次通信
-完整参数如何出现       param.data 指向拼好的张量                     _use_unsharded_flat_param → _use_unsharded_views：原参数变成 FlatParameter 的视图   foreach_all_gather_copy_out → FSDPParam.to_unsharded：各参数恢复原形状
-dtype 转换            all-gather 前 get_allgather_dtype             MixedPrecision：拷进低精度 FlatParameter 再 gather   all_gather_inputs 按 mp_policy.param_dtype 转
-预取                  trace 驱动（stage3_prefetch_bucket_size）      forward_prefetch / backward_prefetch（_prefetch_handle）   set_modules_to_forward_prefetch / _backward_prefetch（默认按前向逆序）
-前向后释放             release_sub_module → partition               _post_forward_reshard → FlatParamHandle.reshard      post_forward → reshard → to_sharded
-                     除 ds_persist                                 除 reshard_after_forward=False                  除 reshard_after_forward=False；可重分片到更小组（SHARDED_POST_FORWARD）
-分片的类型             普通 Tensor + ds_* 属性                        FlatParameter（nn.Parameter 子类）+ 元数据        DTensor(Shard(0))
-参数身份               保留（每参数一个 ds_tensor）                    抹掉（同一 dtype、同时冻结、checkpoint 是一维段）    保留（每参数一个 DTensor）
-与 TP 组合            要靠外部框架                                  需专门适配                                     天然（二维 DTensor）
-```
+|   | DeepSpeed Stage 3 | FSDP1（FlatParameter） | FSDP2（fully_shard） |
+|---|---|---|---|
+| 分片单位 | 每个参数各自切成 1/N_d（ds_tensor） | 一个 wrap 单元的所有参数拍平成一个 FlatParameter 再切 | 每个参数各自沿第 0 维切（FSDPParam），组成 FSDPParamGroup |
+| 触发点 | 每个子 module 的 forward pre-hook<br/>parameter_offload.py _pre_forward_module_hook | wrap 单元的 forward pre-hook<br/>_runtime_utils.py _pre_forward → _pre_forward_unshard | fully_shard 单元的 forward pre-hook<br/>_fsdp_state.py _pre_forward → FSDPParamGroup.pre_forward |
+| all-gather 调用 | fetch_sub_module → all_gather_coalesced<br/>一个 module 的多个参数拼成一次通信 | _unshard → FlatParamHandle.unshard → _all_gather_flat_param<br/>一次通信（本来就是一个张量） | unshard → foreach_all_gather（拷进连续 buffer、一次 all_gather_into_tensor）<br/>一次通信 |
+| 完整参数如何出现 | param.data 指向拼好的张量 | _use_unsharded_flat_param → _use_unsharded_views：原参数变成 FlatParameter 的视图 | foreach_all_gather_copy_out → FSDPParam.to_unsharded：各参数恢复原形状 |
+| dtype 转换 | all-gather 前 get_allgather_dtype | MixedPrecision：拷进低精度 FlatParameter 再 gather | all_gather_inputs 按 mp_policy.param_dtype 转 |
+| 预取 | trace 驱动（stage3_prefetch_bucket_size） | forward_prefetch / backward_prefetch（_prefetch_handle） | set_modules_to_forward_prefetch / _backward_prefetch（默认按前向逆序） |
+| 前向后释放 | release_sub_module → partition<br/>除 ds_persist | _post_forward_reshard → FlatParamHandle.reshard<br/>除 reshard_after_forward=False | post_forward → reshard → to_sharded<br/>除 reshard_after_forward=False；可重分片到更小组（SHARDED_POST_FORWARD） |
+| 分片的类型 | 普通 Tensor + ds_* 属性 | FlatParameter（nn.Parameter 子类）+ 元数据 | DTensor(Shard(0)) |
+| 参数身份 | 保留（每参数一个 ds_tensor） | 抹掉（同一 dtype、同时冻结、checkpoint 是一维段） | 保留（每参数一个 DTensor） |
+| 与 TP 组合 | 要靠外部框架 | 需专门适配 | 天然（二维 DTensor） |
+
+Table: 前向前 all-gather 分片参数：Stage 3 vs FSDP1 vs FSDP2
 
 三者的通信量相同（都是每单元一次 all-gather），差别在**分片的表示**决定了什么能做、什么不能做。Stage 3 的 `ds_tensor` 是最灵活的（每参数独立，可以 offload、可以量化、可以 hpZ 二级分片），但它是 DeepSpeed 私有的约定，PyTorch 的其他组件（DCP、TP、`torch.compile`）都不认识 `ds_*` 属性。FSDP1 的 `FlatParameter` 通信效率最高、实现最简单，但抹掉了参数身份，是它被 FSDP2 取代的原因。FSDP2 的 `DTensor` 是三者中唯一"自描述"的：分片知道自己在哪个 mesh 的哪一维、全局形状多大，所以 DCP 能按参数名重分片（第五篇）、TP 能在另一维再切、`clip_grad_norm_` 能正确算范数——第二篇说的"可组合性质变"就在这里。
 
@@ -870,21 +817,20 @@ Table: 1F1B 在三个框架里的写法
 
 ### 4. 取舍表
 
-```text title="三框架取舍表"
-                  Megatron Core 0.18.0                          DeepSpeed 0.19.2                             torchtitan v0.3.0
-────────────────  ────────────────────────────────────────────  ───────────────────────────────────────────  ────────────────────────────────────────────
-强项              极致性能：TE / FP8、手写重叠、MoE 全套            对模型零侵入；ZeRO-3 + offload 让小集群训大模型   可读、可组合；PyTorch 原生功能的参考实现
-模型代码约束       必须用 megatron/core/transformer 的层写；         任意 nn.Module；PP 要改写成 LayerSpec 列表        用它的 Module 协议 + ShardingConfig；层是普通 PyTorch
-                  外部模型需转换
-DP 系覆盖         ZeRO-1（分布式优化器）+ Megatron-FSDP（ZeRO-1/2/3）  ZeRO-1/2/3、offload、hpZ、MiCS                FSDP2（ZeRO-3）、HSDP；无 ZeRO-1/2
-模型并行覆盖       TP+SP、PP（1F1B / interleaved）、CP、EP 全套      依赖外部 mpu 的 TP；自带 PP；Ulysses CP；EP       TP+SP、PP（pipelining 全部调度）、CP（实验 API）、EP
-配置              几百个 argparse flag，validate_args 做约束检查      JSON，约束隐式                               Python 函数返回 Trainer.Config，类型检查
-调试              param.data 随时可读；buffer 布局要懂               参数常为空张量；GatheredParameters；日志靠 see_memory_usage   DTensor 自描述；但通信藏在 hook 里
-checkpoint        dist_checkpointing（ShardedTensor）+ torch_dist / fsdp_dtensor 格式   ZeRO checkpoint 按 rank；universal checkpoint 转换   DCP（DTensor 原生重分片）
-可观测            timers、log_memory_to_tensorboard、straggler 检测   wall_clock_breakdown、flops_profiler           MetricsProcessor、DeviceMemoryMonitor、Profiler、Flight Recorder 配置
-代码量与耦合       大；DDP ↔ 优化器 ↔ 调度通过回调耦合                 大；engine ↔ ZeRO 优化器强耦合                 小；耦合在 PyTorch 侧
-适合              千卡 dense / MoE 预训练，追求 MFU                 已有训练脚本要放大；显存不够；小集群              新项目、研究、需要改并行策略的场景
-```
+|   | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
+|---|---|---|---|
+| 强项 | 极致性能：TE / FP8、手写重叠、MoE 全套 | 对模型零侵入；ZeRO-3 + offload 让小集群训大模型 | 可读、可组合；PyTorch 原生功能的参考实现 |
+| 模型代码约束 | 必须用 megatron/core/transformer 的层写；<br/>外部模型需转换 | 任意 nn.Module；PP 要改写成 LayerSpec 列表 | 用它的 Module 协议 + ShardingConfig；层是普通 PyTorch |
+| DP 系覆盖 | ZeRO-1（分布式优化器）+ Megatron-FSDP（ZeRO-1/2/3） | ZeRO-1/2/3、offload、hpZ、MiCS | FSDP2（ZeRO-3）、HSDP；无 ZeRO-1/2 |
+| 模型并行覆盖 | TP+SP、PP（1F1B / interleaved）、CP、EP 全套 | 依赖外部 mpu 的 TP；自带 PP；Ulysses CP；EP | TP+SP、PP（pipelining 全部调度）、CP（实验 API）、EP |
+| 配置 | 几百个 argparse flag，validate_args 做约束检查 | JSON，约束隐式 | Python 函数返回 Trainer.Config，类型检查 |
+| 调试 | param.data 随时可读；buffer 布局要懂 | 参数常为空张量；GatheredParameters；日志靠 see_memory_usage | DTensor 自描述；但通信藏在 hook 里 |
+| checkpoint | dist_checkpointing（ShardedTensor）+ torch_dist / fsdp_dtensor 格式 | ZeRO checkpoint 按 rank；universal checkpoint 转换 | DCP（DTensor 原生重分片） |
+| 可观测 | timers、log_memory_to_tensorboard、straggler 检测 | wall_clock_breakdown、flops_profiler | MetricsProcessor、DeviceMemoryMonitor、Profiler、Flight Recorder 配置 |
+| 代码量与耦合 | 大；DDP ↔ 优化器 ↔ 调度通过回调耦合 | 大；engine ↔ ZeRO 优化器强耦合 | 小；耦合在 PyTorch 侧 |
+| 适合 | 千卡 dense / MoE 预训练，追求 MFU | 已有训练脚本要放大；显存不够；小集群 | 新项目、研究、需要改并行策略的场景 |
+
+Table: 三框架取舍表
 
 三者对同一格子的选择差异，多数可以从"从哪种状态出发"解释。Megatron 从模型结构出发，所以要求模型用它的层写、并行的每一步都手写、能做到最紧的重叠；DeepSpeed 从优化器状态出发，所以只需要接管优化器和 hook、对模型零侵入、但"参数不在"成为常态；torchtitan 从参数的表示出发，所以一切并行都是 placement 的变换、代码最少、但依赖 PyTorch 侧的实现是否到位。Megatron 引入 FSDP、DeepSpeed 引入 DeviceMesh、torchtitan 引入 `ShardingConfig`——三者都在向"分片是数据的属性而不是框架的秘密"靠拢。
 
@@ -954,13 +900,13 @@ train-ledger/
 
 **预期（先算再跑）**。用第二篇的 `ledger.parallel.report()` 对三个配置各算一遍，常驻状态（不含激活与临时 all-gather）大致是：
 
-```text title="三个配置的常驻状态预期"
-配置                         N_local    参数（常驻）    梯度（常驻）    优化器状态             常驻合计   每 step DP 系通信（每卡发出）                    其余
-Megatron TP2 PP2 DP2 ZeRO-1   375M     bf16 0.75 GB   fp32 1.5 GB    12 × 375M / 2 = 2.25 GB  ≈ 4.5 GB  RS(fp32 梯度 1.5 GB) + AG(bf16 参数 0.75 GB)，     TP ≈ 8.6 GB NVLink
-                                                                                                        N_d = 2 各发一半 → ≈ 1.1 GB                    PP ≈ 0.27 GB
-DeepSpeed ZeRO-3 DP8          1.5B     bf16 0.38 GB   bf16 0.38 GB   12 × 1.5B / 8 = 2.25 GB  ≈ 3.0 GB  AG(3 GB) + AG(3 GB) + RS(3 GB)，7/8 → ≈ 7.9 GB    —
-torchtitan FSDP4 TP2          750M     fp32 0.75 GB   fp32 0.75 GB    8 × 750M / 4 = 1.5 GB   ≈ 3.0 GB  AG(bf16 1.5 GB) × 2 + RS(fp32 3 GB)，3/4 → ≈ 4.5 GB  TP ≈ 4.3 GB NVLink
-```
+| 配置 | N_local | 参数（常驻） | 梯度（常驻） | 优化器状态 | 常驻合计 | 每 step DP 系通信（每卡发出） | 其余 |
+|---|---|---|---|---|---|---|---|
+| Megatron TP2 PP2 DP2 ZeRO-1 | 375M | bf16 0.75 GB | fp32 1.5 GB | 12 × 375M / 2 = 2.25 GB | ≈ 4.5 GB | RS(fp32 梯度 1.5 GB) + AG(bf16 参数 0.75 GB)，N_d = 2 各发一半 → ≈ 1.1 GB | TP ≈ 8.6 GB NVLink<br/>PP ≈ 0.27 GB |
+| DeepSpeed ZeRO-3 DP8 | 1.5B | bf16 0.38 GB | bf16 0.38 GB | 12 × 1.5B / 8 = 2.25 GB | ≈ 3.0 GB | AG(3 GB) + AG(3 GB) + RS(3 GB)，7/8 → ≈ 7.9 GB | — |
+| torchtitan FSDP4 TP2 | 750M | fp32 0.75 GB | fp32 0.75 GB | 8 × 750M / 4 = 1.5 GB | ≈ 3.0 GB | AG(bf16 1.5 GB) × 2 + RS(fp32 3 GB)，3/4 → ≈ 4.5 GB | TP ≈ 4.3 GB NVLink |
+
+Table: 三个配置的常驻状态预期
 
 （Megatron 的 TP 通信按 $$m = 8$$、每 stage 8 层、SP 下每层 all-gather + reduce-scatter 各两次算；torchtitan 无 PP，一次前向就是 `local_batch_size = 2` 的整批，TP 通信按 16 层算。）跑出来的 `allocated_bytes.all.peak` 会比常驻合计大很多——差额是激活、临时 all-gather 的完整层、NCCL buffer 与 allocator 碎片，本篇只要求**常驻部分对得上**（用 step 之间的 `allocated_bytes.all.current` 读，此时激活已释放），激活与峰值的对账留给第四篇。
 
