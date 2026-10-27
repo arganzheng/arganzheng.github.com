@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 445" width="760" height="445" role="img" aria-labelledby="t d">
+  <title id="t">Kueue 路线与 Volcano 路线的位置</title>
+  <desc id="d">用户提交 TrainJob / vcjob / RayJob / Job 后分成两条路线。左：Kueue 路线（准入控制）——Job 被 webhook 置为 suspend=true，jobframework 生成 Workload(podSets)，LocalQueue → ClusterQueue(ResourceFlavor 配额)，cohort 内借用 / 抢占 / 公平共享，可选的 AdmissionCheck（ProvisioningRequest 扩容）和 TAS（按 Topology 层级选域，生成 nodeSelector），admitted → suspend=false → Pod 被创建，再由 kube-scheduler 逐 Pod 绑定节点。右：Volcano 路线（替换调度器）——Job controller 创建 PodGroup(minMember)，PodGroup 进入 Queue，volcano-scheduler 每个周期开一个 Session：actions enqueue → allocate →（preempt, reclaim, backfill），plugins gang / priority / drf / capacity / binpack / …，gang：minMember 不齐则整组不 Commit，network-topology-aware：按 HyperNode tier 选域；这条路线里绑定节点的是 volcano-scheduler，它替换了 kube-scheduler。两条路线最后都是 Pod 起来 → torchrun rendezvous（headless Service 的稳定 DNS 名）。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #8a9bb0; stroke-width: 1.2; }
+      .col-k { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .col-v { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .inner { fill: #fff; stroke: #4b9477; stroke-width: 1; }
+      .job { fill: #7fa6d9; stroke: #40566f; stroke-width: 1; }
+      .other { fill: #b9c2cc; stroke: #40566f; stroke-width: 1; }
+      .free { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .seg-a { fill: #fde8c8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-x { fill: #eceff2; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .tick { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .tickk { stroke: #9aa8b6; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+<rect id="top" class="card" x="200" y="14" width="360" height="34"/>
+<text x="380" y="36" text-anchor="middle" class="body" data-in="top">用户提交 TrainJob / vcjob / RayJob / Job</text>
+<line class="line" x1="380" y1="48" x2="380" y2="62"/>
+<line class="line" x1="187" y1="62" x2="562" y2="62"/>
+<path class="arrow" d="M187,62 V82"/>
+<path class="arrow" d="M562,62 V82"/>
+<rect id="ck" class="col-k" x="13" y="82" width="348" height="215"/>
+<rect id="cv" class="col-v" x="377" y="82" width="370" height="215"/>
+<text x="27" y="106" text-anchor="start" class="bold" data-in="ck">Kueue 路线（准入控制）</text>
+<text x="391" y="106" text-anchor="start" class="bold" data-in="cv">Volcano 路线（替换调度器）</text>
+<text x="27" y="134" text-anchor="start" class="small" data-in="ck">Job 被 webhook 置为 suspend=true</text>
+<text x="27" y="155" text-anchor="start" class="small" data-in="ck">jobframework 生成 Workload(podSets)</text>
+<text x="27" y="176" text-anchor="start" class="small" data-in="ck">LocalQueue → ClusterQueue(ResourceFlavor 配额)</text>
+<text x="27" y="197" text-anchor="start" class="small" data-in="ck">cohort 内借用 / 抢占 / 公平共享</text>
+<text x="27" y="218" text-anchor="start" class="small" data-in="ck">[AdmissionCheck: ProvisioningRequest 扩容]</text>
+<text x="27" y="239" text-anchor="start" class="small" data-in="ck">[TAS: 按 Topology 层级选域，生成 nodeSelector]</text>
+<text x="27" y="268" text-anchor="start" class="smallb" data-in="ck">admitted → suspend=false → Pod 被创建</text>
+<text x="391" y="134" text-anchor="start" class="small" data-in="cv">Job controller 创建 PodGroup(minMember)</text>
+<text x="391" y="155" text-anchor="start" class="small" data-in="cv">PodGroup 进入 Queue</text>
+<text x="391" y="176" text-anchor="start" class="small" data-in="cv">volcano-scheduler 每个周期开一个 Session：</text>
+<text x="407" y="197" text-anchor="start" class="small" data-in="cv">actions: enqueue → allocate →</text>
+<text x="421" y="218" text-anchor="start" class="small" data-in="cv">(preempt, reclaim, backfill)</text>
+<text x="407" y="239" text-anchor="start" class="small" data-in="cv">plugins: gang / priority / drf / capacity / binpack / …</text>
+<text x="407" y="260" text-anchor="start" class="small" data-in="cv">gang: minMember 不齐则整组不 Commit</text>
+<text x="407" y="281" text-anchor="start" class="small" data-in="cv">network-topology-aware: 按 HyperNode tier 选域</text>
+<path class="arrow" d="M187,297 V323"/>
+<path class="arrow" d="M562,297 V323"/>
+<rect id="kube" class="card" x="97" y="323" width="180" height="48"/>
+<text x="187" y="343" text-anchor="middle" class="bold" data-in="kube">kube-scheduler</text>
+<text x="187" y="362" text-anchor="middle" class="small" data-in="kube">逐 Pod 绑定节点</text>
+<rect id="vs" class="card" x="442" y="323" width="240" height="48"/>
+<text x="562" y="343" text-anchor="middle" class="bold" data-in="vs">volcano-scheduler</text>
+<text x="562" y="362" text-anchor="middle" class="small" data-in="vs">绑定节点（替换 kube-scheduler）</text>
+<path class="arrow" d="M187,371 V397"/>
+<path class="arrow" d="M562,371 V397"/>
+<rect id="pod" class="card" x="145" y="397" width="470" height="34"/>
+<text x="380" y="419" text-anchor="middle" class="body" data-in="pod">Pod 起来 → torchrun rendezvous（headless Service 的稳定 DNS 名）</text>
+</svg>

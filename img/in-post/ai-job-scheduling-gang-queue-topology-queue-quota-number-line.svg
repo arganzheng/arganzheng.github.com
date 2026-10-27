@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 185" width="760" height="185" role="img" aria-labelledby="t d">
+  <title id="t">队列 A 的用量数轴：guarantee / deserved / capability</title>
+  <desc id="d">队列 A 的 GPU 用量画成数轴，0、8、16、32 四个刻度。0–8 是保底（guarantee=8，Kueue 对应 nominalQuota-lendingLimit），8–16 是应得但可借出（deserved=16，Kueue 对应 nominalQuota），16–32 是借来的（capability=32，Kueue 对应 nominalQuota+borrowingLimit），超过 32 被 enqueue 拒绝。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #8a9bb0; stroke-width: 1.2; }
+      .col-k { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .col-v { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .inner { fill: #fff; stroke: #4b9477; stroke-width: 1; }
+      .job { fill: #7fa6d9; stroke: #40566f; stroke-width: 1; }
+      .other { fill: #b9c2cc; stroke: #40566f; stroke-width: 1; }
+      .free { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .seg-a { fill: #fde8c8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-x { fill: #eceff2; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .tick { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .tickk { stroke: #9aa8b6; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+<text x="16" y="22" text-anchor="start" class="small">队列 A 的 GPU 用量 →</text>
+<text x="40" y="48" text-anchor="middle" class="mono">0</text>
+<line class="tick" x1="40" y1="52" x2="40" y2="58"/>
+<text x="200" y="48" text-anchor="middle" class="mono">8</text>
+<line class="tick" x1="200" y1="52" x2="200" y2="58"/>
+<text x="360" y="48" text-anchor="middle" class="mono">16</text>
+<line class="tick" x1="360" y1="52" x2="360" y2="58"/>
+<text x="680" y="48" text-anchor="middle" class="mono">32</text>
+<line class="tick" x1="680" y1="52" x2="680" y2="58"/>
+<rect id="sa" class="seg-a" x="40" y="58" width="160" height="34"/>
+<text x="120" y="80" text-anchor="middle" class="body" data-in="sa">保底</text>
+<rect id="sb" class="seg-b" x="200" y="58" width="160" height="34"/>
+<text x="280" y="80" text-anchor="middle" class="body" data-in="sb">应得但可借出</text>
+<rect id="sc" class="seg-c" x="360" y="58" width="320" height="34"/>
+<text x="520" y="80" text-anchor="middle" class="body" data-in="sc">借来的</text>
+<rect id="sx" class="seg-x" x="680" y="58" width="64" height="34"/>
+<text x="712" y="80" text-anchor="middle" class="body" data-in="sx">&gt; 32</text>
+<line class="tick" x1="200" y1="92" x2="200" y2="102"/>
+<line class="tick" x1="360" y1="92" x2="360" y2="102"/>
+<line class="tick" x1="680" y1="92" x2="680" y2="102"/>
+<text x="16" y="120" text-anchor="start" class="small">Volcano</text>
+<text x="200" y="120" text-anchor="middle" class="mono">guarantee=8</text>
+<text x="360" y="120" text-anchor="middle" class="mono">deserved=16</text>
+<text x="680" y="120" text-anchor="middle" class="mono">capability=32</text>
+<text x="16" y="148" text-anchor="start" class="small">Kueue 对应</text>
+<text x="200" y="148" text-anchor="middle" class="mono">nominalQuota</text>
+<text x="200" y="166" text-anchor="middle" class="mono">-lendingLimit</text>
+<text x="360" y="148" text-anchor="middle" class="mono">nominalQuota</text>
+<text x="680" y="148" text-anchor="middle" class="mono">nominalQuota</text>
+<text x="680" y="166" text-anchor="middle" class="mono">+borrowingLimit</text>
+</svg>

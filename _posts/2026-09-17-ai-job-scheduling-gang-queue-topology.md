@@ -57,26 +57,7 @@ kube-scheduler 的调度单元是 Pod。它从队列里取出一个 Pod，跑一
 
 两条路线的位置画在同一张图上：
 
-```text title="Kueue 路线与 Volcano 路线的位置"
-                  用户提交 TrainJob / vcjob / RayJob / Job
-                                 │
-       ┌─────────────────────────┴─────────────────────────┐
-       │ Kueue 路线（准入控制）                              │ Volcano 路线（替换调度器）
-       │                                                   │
-  Job 被 webhook 置为 suspend=true                     Job controller 创建 PodGroup(minMember)
-  jobframework 生成 Workload(podSets)                  PodGroup 进入 Queue
-  LocalQueue → ClusterQueue(ResourceFlavor 配额)        volcano-scheduler 每个周期开一个 Session：
-  cohort 内借用 / 抢占 / 公平共享                         actions: enqueue → allocate → (preempt, reclaim, backfill)
-  [AdmissionCheck: ProvisioningRequest 扩容]            plugins: gang / priority / drf / capacity / binpack / …
-  [TAS: 按 Topology 层级选域，生成 nodeSelector]          gang: minMember 不齐则整组不 Commit
-       │                                                   │  network-topology-aware: 按 HyperNode tier 选域
-  admitted → suspend=false → Pod 被创建                    │
-       │                                                   │
-       └──────────────► kube-scheduler ◄───────────────────┘   （Volcano 路线里 kube-scheduler 被替换为 volcano）
-                       逐 Pod 绑定节点
-                                 │
-                       Pod 起来 → torchrun rendezvous（headless Service 的稳定 DNS 名）
-```
+![Kueue 路线与 Volcano 路线的位置](/img/in-post/ai-job-scheduling-gang-queue-topology-two-routes.svg)
 
 Kueue 不碰 Pod 的节点选择，它只决定"这个任务现在能不能开始"；决定了之后把 Job 的 `suspend` 翻成 `false`，Pod 被创建出来，交给 kube-scheduler（或任何别的调度器）逐个绑定。Volcano 自己就是调度器：它把一组 Pod 当作一个 Job 整体做 allocate，凑不齐 `minMember` 就不提交任何一个绑定。两者的差别不在功能多少，而在**介入的时机**：Kueue 在 Pod 存在之前，Volcano 在 Pod 存在之后。
 
@@ -123,23 +104,7 @@ Table: 本文的章节安排
 
 把 t3 时刻的节点占用摊开看，再对照 gang 调度在同一时刻会做什么，差别一目了然——不在于"放了几个 Pod"，而在于**那 4 台空机器最终归谁**：
 
-```text title="逐 Pod 调度与 gang 调度在 t3 时刻的对照"
-逐 Pod 调度，t3 时刻（■ 其他任务  J 任务 J 的 Pod  · 空闲）
-        GPU: 0 1 2 3 4 5 6 7
-node-A       J J J J J J J J   Pod-0 已绑定，等 rendezvous，利用率 0%
-node-B       J J J J J J J J   Pod-1
-node-C       J J J J J J J J   Pod-2
-node-D       J J J J J J J J   Pod-3
-node-E..H    ■ ■ ■ ■ ■ ■ · ·   各剩 2 张，放不下 8 卡的 Pod
-node-I..L    ■ ■ ■ ■ ■ ■ ■ ■   满
-Pod-4 … Pod-31 → Pending（Insufficient nvidia.com/gpu）；32 卡被占，0 卡在算
-
-gang 调度，同一时刻
-node-A..D    · · · · · · · ·   模拟分配只放得下 4/32 个 Pod → Discard，不绑定
-node-E..H    ■ ■ ■ ■ ■ ■ · ·   4 台空机器留给放得下的任务（如 1 个 8 卡 Pod）
-node-I..L    ■ ■ ■ ■ ■ ■ ■ ■
-J 整体 Pending，PodGroup 上写明 "4/32 tasks in gang unschedulable"
-```
+![逐 Pod 调度与 gang 调度在 t3 时刻的对照](/img/in-post/ai-job-scheduling-gang-queue-topology-t3-per-pod-vs-gang.svg)
 
 如果情况更糟一点——两个 32 卡任务 J1、J2 同时提交，各抢到了 2 台空机器——那么两个任务各占 16 张卡，谁也凑不齐，谁也不会退让，这就是经典的资源死锁。集群分配率显示 100%，有效利用率是 0。
 
@@ -228,16 +193,17 @@ tiers:
 
 action 是"做什么"，`volcano pkg/scheduler/actions/` 下每个目录一个：
 
-```text title="Volcano 的 action 列表"
-enqueue      把 PodGroup 从 Pending 变成 Inqueue：问 plugin 的 JobEnqueueable（配额上放不放得下 minResources）
-allocate     核心：按 QueueOrderFn 选队列 → JobOrderFn 选 Job → TaskOrderFn 选 task → PredicateFn 过滤节点 → NodeOrderFn 打分
-             为一个 Job 的所有 task 在 Statement 里模拟分配，JobReady 才 Commit，否则 Discard
-preempt      同队列内，高优先级的饥饿 Job 抢占低优先级 Job 的 task（JobStarving / Preemptable 回调）
-reclaim      跨队列，把借出去的资源收回来：受害者队列必须 reclaimable，且它超出了 deserved
-backfill     把没有资源请求（BestEffort）的 task 塞进剩余空隙
-gangpreempt / gangreclaim   v1.15 新增：以整个 Job 为受害者单位的抢占/回收，解决下面要说的"gang 不能被部分驱逐"
-shuffle      周期性重排已运行的 task（配合 rescheduling 插件）
-```
+| action | 做什么 |
+|---|---|
+| `enqueue` | 把 PodGroup 从 Pending 变成 Inqueue：问 plugin 的 `JobEnqueueable`（配额上放不放得下 `minResources`） |
+| `allocate` | 核心：按 `QueueOrderFn` 选队列 → `JobOrderFn` 选 Job → `TaskOrderFn` 选 task → `PredicateFn` 过滤节点 → `NodeOrderFn` 打分<br/>为一个 Job 的所有 task 在 `Statement` 里模拟分配，`JobReady` 才 `Commit`，否则 `Discard` |
+| `preempt` | 同队列内，高优先级的饥饿 Job 抢占低优先级 Job 的 task（`JobStarving` / `Preemptable` 回调） |
+| `reclaim` | 跨队列，把借出去的资源收回来：受害者队列必须 `reclaimable`，且它超出了 `deserved` |
+| `backfill` | 把没有资源请求（BestEffort）的 task 塞进剩余空隙 |
+| `gangpreempt` / `gangreclaim` | v1.15 新增：以整个 Job 为受害者单位的抢占/回收，解决下面要说的"gang 不能被部分驱逐" |
+| `shuffle` | 周期性重排已运行的 task（配合 rescheduling 插件） |
+
+Table: Volcano 的 action 列表
 
 plugin 是"按什么规则"，`volcano pkg/scheduler/plugins/` 下每个目录一个，通过在 `OnSessionOpen` 里向 Session 注册回调来参与决定。tiers 是优先级层：第一层的 plugin 先表态，有明确结论就不再问第二层。
 
@@ -303,21 +269,16 @@ Table: gangPlugin 注册的六类回调
 
 把队列 A 的用量画成一条数轴，三个字段就是三条刻度线，每一段的"归属"不同（Kueue 的对应字段一并标出，第四章会展开）：
 
-```text title="队列 A 的用量数轴：guarantee / deserved / capability"
-队列 A 的 GPU 用量 →
- 0        8                16                             32
- ├────────┼────────────────┼───────────────────────────────┤
- │ 保底   │ 应得但可借出   │ 借来的                        │
- │        │                │                               │
-    guarantee=8      deserved=16              capability=32
+![队列 A 的用量数轴：guarantee / deserved / capability](/img/in-post/ai-job-scheduling-gang-queue-topology-queue-quota-number-line.svg)
 
- 0–8    A 空闲时也不借给别人；B 最多能用到 96-8
- 8–16   A 没用时 B 可以借走；A 要用时 reclaim 把它收回（B 是受害者）
- 16–32  A 从别人那里借来的；别人要用时 reclaim 从 A 手里收回（A 是受害者）
- >32    enqueue 拒绝：minResources 超过 realCapability，PodGroup 停在 Pending
+| 区间 | 含义 |
+|---|---|
+| 0–8 | A 空闲时也不借给别人；B 最多能用到 96-8 |
+| 8–16 | A 没用时 B 可以借走；A 要用时 `reclaim` 把它收回（B 是受害者） |
+| 16–32 | A 从别人那里借来的；别人要用时 `reclaim` 从 A 手里收回（A 是受害者） |
+| >32 | `enqueue` 拒绝：`minResources` 超过 `realCapability`，PodGroup 停在 Pending |
 
- Kueue 对应：nominalQuota-lendingLimit │ nominalQuota │ nominalQuota+borrowingLimit
-```
+Table: 队列 A 用量各区间的归属
 
 这三个字段由 `capacity` 插件解释（`volcano pkg/scheduler/plugins/capacity/capacity.go` 的 `buildQueueAttrs`：读 `Spec.Deserved`、`Spec.Capability`、`Spec.Guarantee.Resource`，算出 `realCapability = (总资源 - 所有队列 guarantee 之和) + 本队列 guarantee`，再和 `capability` 取小）。`capacity` 是 v1.9 之后推荐的插件；默认配置里的 `proportion` 是它的前身，按 `weight` 比例算 deserved 而不是让管理员按资源类型写数字——异构集群（A100 和 H100 混跑）里 weight 一个数字无法表达"A100 上 1:3、H100 上 1:1"，这是 `capacity` 出现的原因（设计文档开头就是这个例子）。两者不能同时启用。
 
@@ -364,15 +325,15 @@ sequenceDiagram
 
 ### 2. 五个对象
 
-```text title="Kueue 的五个对象"
-Workload          一次准入请求。spec.podSets[]（每个 podSet 一个 PodTemplate + count）、queueName、priorityClassRef
-                  status.admission（分到哪个 ClusterQueue、每个 podSet 用了哪个 flavor）、conditions（QuotaReserved / Admitted / Finished / Evicted）
-LocalQueue        命名空间级。spec.clusterQueue 指向一个 ClusterQueue。用户只看得到它
-ClusterQueue      集群级。spec.resourceGroups[].flavors[].resources[]{name, nominalQuota, borrowingLimit, lendingLimit}
-                  spec.cohortName、queueingStrategy、preemption、admissionChecksStrategy、fairSharing、stopPolicy
-ResourceFlavor    "一种资源"：spec.nodeLabels（准入后写成 nodeSelector）、nodeTaints、tolerations、topologyName
-Cohort            可选的显式对象：spec.parentName（层级）、resourceGroups（cohort 自己也能持有配额）、fairSharing
-```
+| 对象 | 是什么 | 字段 |
+|---|---|---|
+| `Workload` | 一次准入请求 | `spec.podSets[]`（每个 podSet 一个 PodTemplate + count）、`queueName`、`priorityClassRef`<br/>`status.admission`（分到哪个 ClusterQueue、每个 podSet 用了哪个 flavor）、`conditions`（QuotaReserved / Admitted / Finished / Evicted） |
+| `LocalQueue` | 命名空间级，用户只看得到它 | `spec.clusterQueue` 指向一个 ClusterQueue |
+| `ClusterQueue` | 集群级 | `spec.resourceGroups[].flavors[].resources[]{name, nominalQuota, borrowingLimit, lendingLimit}`<br/>`spec.cohortName`、`queueingStrategy`、`preemption`、`admissionChecksStrategy`、`fairSharing`、`stopPolicy` |
+| `ResourceFlavor` | "一种资源" | `spec.nodeLabels`（准入后写成 nodeSelector）、`nodeTaints`、`tolerations`、`topologyName` |
+| `Cohort` | 可选的显式对象 | `spec.parentName`（层级）、`resourceGroups`（cohort 自己也能持有配额）、`fairSharing` |
+
+Table: Kueue 的五个对象
 
 全部在 `kueue apis/kueue/v1beta2/` 下对应的 `*_types.go`。几个字段值得逐个解释。
 
@@ -392,14 +353,13 @@ Workload 的 `status.conditions` 里有一串 reason 常量（`workload_types.go
 
 `ClusterQueuePreemption`（`clusterqueue_types.go`）有三个独立的开关，对应三种场景：
 
-```text title="ClusterQueuePreemption 的三个开关"
-withinClusterQueue      同一个 ClusterQueue 内，待准入的 Workload 放不进 nominalQuota 时能否抢占已准入的低优先级 Workload
-                        Never（默认）/ LowerPriority / LowerOrNewerEqualPriority
-reclaimWithinCohort     待准入的 Workload 在自己的 nominalQuota 之内，但配额被 cohort 里别的 ClusterQueue 借走了——能否抢回来
-                        Never（默认）/ LowerPriority / Any（不看优先级，是我的就抢回来）
-borrowWithinCohort      待准入的 Workload 需要借用才能放下，能否为此抢占 cohort 里别的 ClusterQueue 的低优先级 Workload
-                        policy: Never（默认）/ LowerPriority；maxPriorityThreshold 限制受害者的优先级上限
-```
+| 开关 | 场景 | 取值 |
+|---|---|---|
+| `withinClusterQueue` | 同一个 ClusterQueue 内，待准入的 Workload 放不进 nominalQuota 时能否抢占已准入的低优先级 Workload | `Never`（默认）/ `LowerPriority` / `LowerOrNewerEqualPriority` |
+| `reclaimWithinCohort` | 待准入的 Workload 在自己的 nominalQuota 之内，但配额被 cohort 里别的 ClusterQueue 借走了——能否抢回来 | `Never`（默认）/ `LowerPriority` / `Any`（不看优先级，是我的就抢回来） |
+| `borrowWithinCohort` | 待准入的 Workload 需要借用才能放下，能否为此抢占 cohort 里别的 ClusterQueue 的低优先级 Workload | `policy`: `Never`（默认）/ `LowerPriority`；`maxPriorityThreshold` 限制受害者的优先级上限 |
+
+Table: ClusterQueuePreemption 的三个开关
 
 三个开关分别管三种"放不下"的情形，判断顺序可以画成一棵决策树——先看待准入的 Workload 加上本队列已用量是否超出 `nominalQuota`，再看放不下的原因是别人借走了还是自己就不够：
 
@@ -482,32 +442,9 @@ Table: Volcano v1.15.2 与 Kueue v0.19.2 对比
 
 后者就是 Topology-Aware Scheduling。它的输入是节点上的一组层级标签，输出是把一组 Pod 约束到某个标签值上。
 
-同一个 8 节点任务的两种落法，对照网络的层级看，差别在 all_reduce 要跨几跳、和多少别的任务分享链路：
+同一个 8 节点任务的三种落法，对照网络的层级看，差别在 all_reduce 要跨几跳、和多少别的任务分享链路：
 
-```text title="同一个 8 节点任务的两种落法"
-                     ┌─────────┐
-                     │  spine  │   block（tier 2，跨 leaf 3 跳）
-                     └──┬───┬──┘
-              ┌─────────┘   └─────────┐
-         ┌────┴────┐             ┌────┴────┐
-         │ leaf-1  │ rack r1     │ leaf-2  │ rack r2  （tier 1，同 leaf 1 跳）
-         └────┬────┘             └────┬────┘
-        n1 n2 … n8（8 台）      n9 n10 … n16（8 台）
-        每台 8 卡，机内 NVLink（tier 0）
-
-放法 A：podset-required-topology: rack（Volcano hard, highestTierAllowed=1）
-  r1: [J][J][J][J][J][J][J][J]     r2: [·][·][·][·][·][·][·][·]
-  任意两 Pod 之间 1 跳（同 leaf），all_reduce 带宽 = leaf 上行不参与
-  代价：要等 r1 或 r2 有 8 台整机同时空出来
-
-放法 B：无拓扑约束（或 preferred 退到 block）
-  r1: [J][J][J][·][■][■][■][■]     r2: [J][J][J][J][J][■][■][■]
-  半数流量跨 spine 3 跳，与 ■ 任务共享 leaf 上行；step time 可能翻倍，无报错
-
-放法 C：碎片化（binpack 关闭时最常见）
-  r1: [J][■][J][■][J][■][J][■]     r2: [■][J][■][J][■][J][■][J]
-  每台机器都被拆散：J 只拿到部分卡，下一个 8 卡/整机任务永远等不到整机
-```
+![同一个 8 节点任务的三种落法](/img/in-post/ai-job-scheduling-gang-queue-topology-three-placements.svg)
 
 三种放法在 `kubectl get pods -o wide` 里看起来都是 `Running`，差别只体现在 step time 和后续任务的等待时间上——这正是拓扑感知"慢得很隐蔽"的原因，也是为什么平台要在指标里暴露"任务实际落在第几层"。
 
@@ -593,15 +530,14 @@ Volcano 则直接用 `PodGroupSpec.PriorityClassName` / `JobSpec.PriorityClassNa
 
 ### 3. 一组可用的默认值
 
-```text title="一组可用的默认值：Kueue 与 Volcano"
-Kueue     生产队列 preemption.withinClusterQueue: LowerPriority，reclaimWithinCohort: Any，borrowWithinCohort.policy: Never
-          （自己的 nominal 一定能拿回来；借来的随时可能被收回；不为借用去抢别人）
-          研发/实验队列 lendingLimit 设为全部（nominal 全可借），生产队列 lendingLimit 设小甚至 0
-          WorkloadPriorityClass 分 3～4 档；同档 StrictFIFO 防饥饿
-Volcano   生产 Queue guarantee = deserved（不借出）；实验 Queue guarantee 0、capability 放大、reclaimable: true
-          actions 加 reclaim（跨队列回收）；是否加 preempt / gangpreempt 视是否接受任务级抢占
-两边      terminationGracePeriodSeconds ≥ 一次 checkpoint 写入时间 + 余量；训练脚本处理 SIGTERM
-```
+- **Kueue**
+  - 生产队列 `preemption.withinClusterQueue: LowerPriority`，`reclaimWithinCohort: Any`，`borrowWithinCohort.policy: Never`（自己的 nominal 一定能拿回来；借来的随时可能被收回；不为借用去抢别人）
+  - 研发/实验队列 `lendingLimit` 设为全部（nominal 全可借），生产队列 `lendingLimit` 设小甚至 0
+  - `WorkloadPriorityClass` 分 3～4 档；同档 `StrictFIFO` 防饥饿
+- **Volcano**
+  - 生产 Queue `guarantee` = `deserved`（不借出）；实验 Queue `guarantee` 0、`capability` 放大、`reclaimable: true`
+  - actions 加 `reclaim`（跨队列回收）；是否加 `preempt` / `gangpreempt` 视是否接受任务级抢占
+- **两边**：`terminationGracePeriodSeconds` ≥ 一次 checkpoint 写入时间 + 余量；训练脚本处理 SIGTERM
 
 ## 八、训练任务的 K8s 表达：Kubeflow Trainer
 
@@ -609,12 +545,13 @@ Volcano   生产 Queue guarantee = deserved（不借出）；实验 Queue guaran
 
 Kubeflow Trainer v2 用三个 CRD（`trainer pkg/apis/trainer/v1alpha1/`）把"一个 `torchrun` 命令"变成 K8s 对象：
 
-```text title="Kubeflow Trainer v2 的三个 CRD"
-ClusterTrainingRuntime  集群级模板（平台管理员写）：spec.mlPolicy（numNodes、torch/mpi/...）、spec.podGroupPolicy、spec.template（一个 JobSetSpec）
-TrainingRuntime         同上，命名空间级
-TrainJob                用户写：spec.runtimeRef（指向上面二者之一）、spec.trainer（image/command/args/env/numNodes/numProcPerNode/resourcesPerNode）
-                        spec.initializer（dataset/model 的 storageUri）、spec.suspend、spec.managedBy、spec.runtimePatches
-```
+| CRD | 谁写 / 级别 | 字段 |
+|---|---|---|
+| `ClusterTrainingRuntime` | 平台管理员写，集群级模板 | `spec.mlPolicy`（numNodes、torch/mpi/...）、`spec.podGroupPolicy`、`spec.template`（一个 JobSetSpec） |
+| `TrainingRuntime` | 同上，命名空间级 | 同上 |
+| `TrainJob` | 用户写 | `spec.runtimeRef`（指向上面二者之一）、`spec.trainer`（image/command/args/env/numNodes/numProcPerNode/resourcesPerNode）<br/>`spec.initializer`（dataset/model 的 storageUri）、`spec.suspend`、`spec.managedBy`、`spec.runtimePatches` |
+
+Table: Kubeflow Trainer v2 的三个 CRD
 
 `TrainingRuntimeSpec.Template` 的类型是 `JobSetTemplateSpec`，其 `Spec` 就是 JobSet 的 `jobsetv1alpha2.JobSetSpec`（`trainingruntime_types.go`）——Trainer 不自己管 Pod，而是把 runtime 模板 + TrainJob 的覆盖渲染成一个 JobSet，由 JobSet controller 创建 `batch/v1` Job、再由 Job 创建 Pod。`trainer manifests/base/runtimes/torch_distributed.yaml` 是随发行版安装的 `torch-distributed` runtime：一个名为 `node` 的 replicatedJob，Pod 模板带 `trainer.kubeflow.org/trainjob-ancestor-step: trainer` 标签（`trainer pkg/constants/constants.go` 的 `LabelTrainJobAncestor`），容器名也是 `node`。
 
@@ -707,26 +644,14 @@ KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kub
 
 两个团队 A、B，各 16 卡配额，集群共 32 卡。A 提交一个 32 卡任务 J，此时 B 空闲。J 的三种可能结局——借到 B 的 16 卡跑起来（借用）、等 B 有任务时被收回（抢占/回收）、或一直等到 A 自己有 32 卡（等待，即永远不跑）——在三个系统里分别由什么配置决定：
 
-```text title="借用、抢占、等待在三个系统里的配置"
-                Volcano v1.15.2（capacity 插件）              Kueue v0.19.2                                       Slurm
-借用：J 能否用 B 的 16 卡
-                Queue A: deserved 16, capability ≥ 32         CQ A: nominalQuota 16, borrowingLimit ≥ 16（或 null）  A、B 在同一 partition，各自 association 的
-                Queue B: deserved 16（reclaimable 默认 true）   CQ B: nominalQuota 16, lendingLimit ≥ 16（或 null）    GrpTRES=gres/gpu=16 → J 超出 A 的 GrpTRES，
-                enqueue: minResources(32) ≤ A 的 realCapability  两者 cohortName 相同                                永远 Pending（AssocGrpGRES）。要允许借用，
-                → Inqueue；allocate 用到 B 的空闲 → J 运行      调度周期：A 的 nominal 16 + 从 B 借 16 → admitted      须不设 GrpTRES 而只靠 fairshare 排序，或
-                                                                                                                    用 QOS 的 GrpTRES 做软限（MaxTRESPerJob 仍是硬的）
-不借：J 永远等   Queue A: capability 16（或 B: guarantee 16）    CQ A: borrowingLimit 0 或 B: lendingLimit 0，或不设 cohortName  GrpTRES=gres/gpu=16（默认行为）
-                J 停在 Pending，PodGroup Unschedulable          Workload 停在 Pending，reason ExceedsMaxQuota（32 > 16 + 0）  squeue 显示 AssocGrpGRES
-回收：B 提交任务时 J 会怎样
-                actions 含 reclaim：B 的 Job 饥饿 → 在 A 超出   B 的 Workload 在自己 nominal 内但配额被 A 借走 →        PreemptType=preempt/qos，B 的 QOS 可抢 A 的 QOS：
-                deserved 的部分选受害者；但 gang 插件不允许     CQ B preemption.reclaimWithinCohort: LowerPriority     J 被 REQUEUE（回队列重排）或 SUSPEND（挂起）；
-                把 J 打到 minMember 以下 → task 级 reclaim      或 Any → 选 J 为受害者（Evicted: InCohortReclamation） GraceTime 给 J 存 checkpoint 的时间。
-                找不到受害者，J 继续跑、B 等                     → J 整个被 suspend、Pod 删除、回队列；B 的任务准入      不配抢占则 B 等 J 跑完
-                用 gangreclaim action（allowWholeBundle）→      J 之后要么等 A 有 32 卡（不可能），要么 B 空了再借       
-                整个 J 被驱逐，B 的任务上；J 回 Pending
-不回收：B 也等   不加 reclaim / gangreclaim；或 Queue A         CQ B preemption.reclaimWithinCohort: Never（默认）       不配 PreemptType
-                reclaimable: false                              B 的 Workload 停在 WaitingForQuota 直到 J 结束
-```
+| | Volcano v1.15.2（capacity 插件） | Kueue v0.19.2 | Slurm |
+|---|---|---|---|
+| **借用**：J 能否用 B 的 16 卡 | Queue A: deserved 16, capability ≥ 32<br/>Queue B: deserved 16（reclaimable 默认 true）<br/>enqueue: minResources(32) ≤ A 的 realCapability → Inqueue；allocate 用到 B 的空闲 → J 运行 | CQ A: nominalQuota 16, borrowingLimit ≥ 16（或 null）<br/>CQ B: nominalQuota 16, lendingLimit ≥ 16（或 null）<br/>两者 cohortName 相同<br/>调度周期：A 的 nominal 16 + 从 B 借 16 → admitted | A、B 在同一 partition，各自 association 的 GrpTRES=gres/gpu=16 → J 超出 A 的 GrpTRES，永远 Pending（AssocGrpGRES）<br/>要允许借用，须不设 GrpTRES 而只靠 fairshare 排序，或用 QOS 的 GrpTRES 做软限（MaxTRESPerJob 仍是硬的） |
+| **不借**：J 永远等 | Queue A: capability 16（或 B: guarantee 16）<br/>J 停在 Pending，PodGroup Unschedulable | CQ A: borrowingLimit 0 或 B: lendingLimit 0，或不设 cohortName<br/>Workload 停在 Pending，reason ExceedsMaxQuota（32 > 16 + 0） | GrpTRES=gres/gpu=16（默认行为）<br/>squeue 显示 AssocGrpGRES |
+| **回收**：B 提交任务时 J 会怎样 | actions 含 reclaim：B 的 Job 饥饿 → 在 A 超出 deserved 的部分选受害者；但 gang 插件不允许把 J 打到 minMember 以下 → task 级 reclaim 找不到受害者，J 继续跑、B 等<br/>用 gangreclaim action（allowWholeBundle）→ 整个 J 被驱逐，B 的任务上；J 回 Pending | B 的 Workload 在自己 nominal 内但配额被 A 借走 → CQ B preemption.reclaimWithinCohort: LowerPriority 或 Any → 选 J 为受害者（Evicted: InCohortReclamation）→ J 整个被 suspend、Pod 删除、回队列；B 的任务准入<br/>J 之后要么等 A 有 32 卡（不可能），要么 B 空了再借 | PreemptType=preempt/qos，B 的 QOS 可抢 A 的 QOS：J 被 REQUEUE（回队列重排）或 SUSPEND（挂起）；GraceTime 给 J 存 checkpoint 的时间<br/>不配抢占则 B 等 J 跑完 |
+| **不回收**：B 也等 | 不加 reclaim / gangreclaim；或 Queue A reclaimable: false | CQ B preemption.reclaimWithinCohort: Never（默认）<br/>B 的 Workload 停在 WaitingForQuota 直到 J 结束 | 不配 PreemptType |
+
+Table: 借用、抢占、等待在三个系统里的配置
 
 三点观察：
 
@@ -740,20 +665,21 @@ KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kub
 
 ### 1. 机制线上的这一段
 
-```text title="机制线上的这一段：调度"
-引擎需求                         K8s 空缺                              平台机制                                      代价
-一组进程同时起（all-or-nothing） 逐 Pod 调度，无"组"的概念              Volcano PodGroup.minMember + allocate 的模拟/提交  等待时间：大任务要凑齐才能开始，集群空转等它
-                                 （v1.37 WAS 的 PodGroup 为 beta）      Kueue Workload.podSets + suspend 准入             Kueue 只保证配额，不保证节点放得下（需 TAS / waitForPodsReady）
-多团队共用、保底可借可收         ResourceQuota 是命名空间硬上限，无排队  Volcano Queue capability/deserved/guarantee + reclaim  借出的资源收回等于抢占，被抢者丢 checkpoint 间隔的进度
-                                                                         Kueue ClusterQueue nominal/borrowing/lendingLimit + cohort  两套优先级（Pod 级 / Workload 级）要对齐
-                                                                         Volcano 默认不 reclaim；Kueue 默认不 reclaimWithinCohort  默认值下"借了不还"
-同机 8 卡、同 rack 32 卡         node affinity 只能指定值，不能"同一个" Volcano HyperNode + network-topology-aware         等待更久：满足拓扑的域比满足数量的节点少得多
-                                                                         Kueue Topology + TAS 注解 → 精确 nodeSelector      Kueue 要跟踪全部 Pod/节点，内存与延迟上升；标签必须正确
-抢占要以任务为单位、留存盘时间   PriorityClass 抢占是 Pod 级的           Volcano gang 插件禁止打到 minMember 以下；gangpreempt  task 级抢占形同禁用；整任务抢占代价大
-                                                                         Kueue Workload 级抢占 + WorkloadPriorityClass       Pod PriorityClass 仍可绕过 Kueue 在节点上抢占
-云上节点不够时先扩容再启动       Cluster Autoscaler 按 Pending Pod 逐个扩  Kueue AdmissionCheck + ProvisioningRequest          多一次往返：扩容完成前 Workload 占着配额不跑
-torchrun 需要稳定的 rendezvous   Pod IP 不稳定                          JobSet headless Service + hostname/subdomain；Trainer 注入 PET_*  一个 TrainJob 多一个 Service 与一组 DNS 记录
-```
+| 引擎需求 | K8s 空缺 | 平台机制 | 代价 |
+|---|---|---|---|
+| 一组进程同时起（all-or-nothing） | 逐 Pod 调度，无"组"的概念（v1.37 WAS 的 PodGroup 为 beta） | Volcano PodGroup.minMember + allocate 的模拟/提交 | 等待时间：大任务要凑齐才能开始，集群空转等它 |
+| ^^ | ^^ | Kueue Workload.podSets + suspend 准入 | Kueue 只保证配额，不保证节点放得下（需 TAS / waitForPodsReady） |
+| 多团队共用、保底可借可收 | ResourceQuota 是命名空间硬上限，无排队 | Volcano Queue capability/deserved/guarantee + reclaim | 借出的资源收回等于抢占，被抢者丢 checkpoint 间隔的进度 |
+| ^^ | ^^ | Kueue ClusterQueue nominal/borrowing/lendingLimit + cohort | 两套优先级（Pod 级 / Workload 级）要对齐 |
+| ^^ | ^^ | Volcano 默认不 reclaim；Kueue 默认不 reclaimWithinCohort | 默认值下"借了不还" |
+| 同机 8 卡、同 rack 32 卡 | node affinity 只能指定值，不能"同一个" | Volcano HyperNode + network-topology-aware | 等待更久：满足拓扑的域比满足数量的节点少得多 |
+| ^^ | ^^ | Kueue Topology + TAS 注解 → 精确 nodeSelector | Kueue 要跟踪全部 Pod/节点，内存与延迟上升；标签必须正确 |
+| 抢占要以任务为单位、留存盘时间 | PriorityClass 抢占是 Pod 级的 | Volcano gang 插件禁止打到 minMember 以下；gangpreempt | task 级抢占形同禁用；整任务抢占代价大 |
+| ^^ | ^^ | Kueue Workload 级抢占 + WorkloadPriorityClass | Pod PriorityClass 仍可绕过 Kueue 在节点上抢占 |
+| 云上节点不够时先扩容再启动 | Cluster Autoscaler 按 Pending Pod 逐个扩 | Kueue AdmissionCheck + ProvisioningRequest | 多一次往返：扩容完成前 Workload 占着配额不跑 |
+| torchrun 需要稳定的 rendezvous | Pod IP 不稳定 | JobSet headless Service + hostname/subdomain；Trainer 注入 `PET_*` | 一个 TrainJob 多一个 Service 与一组 DNS 记录 |
+
+Table: 机制线上的这一段：调度
 
 ### 2. 每个机制引入的新问题
 
@@ -1112,30 +1038,34 @@ Running
 
 ### 1. 要点回顾
 
-```text title="要点回顾：死锁、gang、Volcano、Kueue"
-死锁          kube-scheduler 逐 Pod 决定；32 卡任务凑不齐 → 已起的 Pod 空转等 rendezvous 超时 → 重建 → 活锁；两个大任务互相卡死
-gang          一组 Pod 要么 ≥ minMember 个同时调度，要么都不；必须在调度器/准入层做，应用重试无效；K8s v1.37 的 WAS（scheduling.k8s.io/v1beta1 PodGroup）是原生雏形
-Volcano       Job → PodGroup(minMember) → Queue；周期 Session，actions enqueue/allocate/preempt/reclaim/backfill + tiers of plugins
-              allocate 在 Statement 上模拟全部 task，JobReady 才 Commit；gang 插件禁止把 Job 抢到 minMember 以下（→ gangpreempt/gangreclaim）
-Queue 配额    guarantee ≤ deserved ≤ capability：保底 / 可借可收 / 上限；capacity 插件解释，reclaim action 执行回收；reclaimable 默认 true
-Kueue         不换调度器，webhook 置 suspend=true；Workload(podSets) → LocalQueue → ClusterQueue(ResourceFlavor 配额) → admitted → unsuspend
-              cohort 借用：nominalQuota / borrowingLimit / lendingLimit；抢占三开关 withinClusterQueue / reclaimWithinCohort / borrowWithinCohort
-              AdmissionCheck + ProvisioningRequest 先扩容再准入；waitForPodsReady 做时间维度的 all-or-nothing
-哲学          Volcano 在 Pod 之后做节点级 gang；Kueue 在 Pod 之前做配额级 gang；TAS 让 Kueue 也做节点级放置
-拓扑          Kueue Topology(levels[].nodeLabel) + ResourceFlavor.topologyName + podset-required/preferred/unconstrained-topology 注解
-              Volcano HyperNode(tier, members) + PodGroup.networkTopology(hard/soft, highestTierAllowed) + network-topology-aware 插件
-              标签来自云厂商 / GFD 的 nvidia.com/gpu.clique / UFM 发现 / 手工；没有正确标签拓扑感知等于零
-抢占          代价 = N_gpu × (距上次 checkpoint 时间 + 重启时间)；以整任务为单位；grace period 覆盖一次 checkpoint；优先级只在 Workload 层表达
-Trainer       TrainJob(numNodes, resourcesPerNode) + (Cluster)TrainingRuntime(mlPolicy.torch, podGroupPolicy, JobSetSpec) → JobSet
-              torch 插件注入 PET_NNODES/NPROC_PER_NODE/NODE_RANK/MASTER_ADDR/MASTER_PORT；MASTER_ADDR = <job>-node-0-0.<job>（headless Service）
-              podGroupPolicy.volcano → PodGroup；kueue.x-k8s.io/queue-name → Kueue 经 runtimePatches 写 nodeSelector 再 unsuspend
-Slurm         partition / association GrpTRES / QOS 抢占 / GRES / --exclusive / topology.conf / backfill（靠 --time）；K8s 生态缺时限估计故无真 backfill
-              Slinky slurm-operator：Controller/NodeSet/LoginSet/Accounting/RestApi/Token 在 K8s 里跑 Slurm；slurm-bridge 让 Slurm 当 K8s 调度器
-Ray           placement group 在 Ray 内做 gang；KubeRay RayCluster/RayJob 管 Pod；两层调度、两层扩缩容；--batch-scheduler=volcano 生成 PodGroup
-核心问题      借用：Volcano capability>deserved / Kueue borrowingLimit+lendingLimit / Slurm 默认 GrpTRES 不借
-              回收：Volcano reclaim（gang 保护→gangreclaim）/ Kueue reclaimWithinCohort / Slurm PreemptType=preempt/qos
-              默认值：Volcano 借了不还、Kueue 借了不还、Slurm 不借
-```
+- **死锁**：kube-scheduler 逐 Pod 决定；32 卡任务凑不齐 → 已起的 Pod 空转等 rendezvous 超时 → 重建 → 活锁；两个大任务互相卡死
+- **gang**：一组 Pod 要么 ≥ minMember 个同时调度，要么都不；必须在调度器/准入层做，应用重试无效；K8s v1.37 的 WAS（`scheduling.k8s.io/v1beta1` PodGroup）是原生雏形
+- **Volcano**
+  - Job → PodGroup(minMember) → Queue；周期 Session，actions enqueue/allocate/preempt/reclaim/backfill + tiers of plugins
+  - allocate 在 Statement 上模拟全部 task，JobReady 才 Commit；gang 插件禁止把 Job 抢到 minMember 以下（→ gangpreempt/gangreclaim）
+- **Queue 配额**：guarantee ≤ deserved ≤ capability：保底 / 可借可收 / 上限；capacity 插件解释，reclaim action 执行回收；reclaimable 默认 true
+- **Kueue**
+  - 不换调度器，webhook 置 suspend=true；Workload(podSets) → LocalQueue → ClusterQueue(ResourceFlavor 配额) → admitted → unsuspend
+  - cohort 借用：nominalQuota / borrowingLimit / lendingLimit；抢占三开关 withinClusterQueue / reclaimWithinCohort / borrowWithinCohort
+  - AdmissionCheck + ProvisioningRequest 先扩容再准入；waitForPodsReady 做时间维度的 all-or-nothing
+- **哲学**：Volcano 在 Pod 之后做节点级 gang；Kueue 在 Pod 之前做配额级 gang；TAS 让 Kueue 也做节点级放置
+- **拓扑**
+  - Kueue `Topology(levels[].nodeLabel)` + `ResourceFlavor.topologyName` + `podset-required/preferred/unconstrained-topology` 注解
+  - Volcano `HyperNode(tier, members)` + `PodGroup.networkTopology(hard/soft, highestTierAllowed)` + network-topology-aware 插件
+  - 标签来自云厂商 / GFD 的 `nvidia.com/gpu.clique` / UFM 发现 / 手工；没有正确标签拓扑感知等于零
+- **抢占**：代价 = `N_gpu` × (距上次 checkpoint 时间 + 重启时间)；以整任务为单位；grace period 覆盖一次 checkpoint；优先级只在 Workload 层表达
+- **Trainer**
+  - TrainJob(numNodes, resourcesPerNode) + (Cluster)TrainingRuntime(mlPolicy.torch, podGroupPolicy, JobSetSpec) → JobSet
+  - torch 插件注入 `PET_NNODES/NPROC_PER_NODE/NODE_RANK/MASTER_ADDR/MASTER_PORT`；`MASTER_ADDR = <job>-node-0-0.<job>`（headless Service）
+  - `podGroupPolicy.volcano` → PodGroup；`kueue.x-k8s.io/queue-name` → Kueue 经 runtimePatches 写 nodeSelector 再 unsuspend
+- **Slurm**
+  - partition / association GrpTRES / QOS 抢占 / GRES / `--exclusive` / `topology.conf` / backfill（靠 `--time`）；K8s 生态缺时限估计故无真 backfill
+  - Slinky slurm-operator：Controller/NodeSet/LoginSet/Accounting/RestApi/Token 在 K8s 里跑 Slurm；slurm-bridge 让 Slurm 当 K8s 调度器
+- **Ray**：placement group 在 Ray 内做 gang；KubeRay RayCluster/RayJob 管 Pod；两层调度、两层扩缩容；`--batch-scheduler=volcano` 生成 PodGroup
+- **核心问题**
+  - 借用：Volcano capability>deserved / Kueue borrowingLimit+lendingLimit / Slurm 默认 GrpTRES 不借
+  - 回收：Volcano reclaim（gang 保护→gangreclaim）/ Kueue reclaimWithinCohort / Slurm PreemptType=preempt/qos
+  - 默认值：Volcano 借了不还、Kueue 借了不还、Slurm 不借
 
 ### 2. 代价与边界
 

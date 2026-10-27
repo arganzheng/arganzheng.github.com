@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 491" width="760" height="491" role="img" aria-labelledby="t d">
+  <title id="t">同一个 8 节点任务的三种落法</title>
+  <desc id="d">网络层级：spine（block，tier 2，跨 leaf 3 跳）下接 leaf-1（rack r1）和 leaf-2（rack r2）（tier 1，同 leaf 1 跳）；r1 有 n1…n8，r2 有 n9…n16，每台 8 卡，机内 NVLink（tier 0）。放法 A：podset-required-topology: rack（Volcano hard, highestTierAllowed=1），J 占满 r1、r2 全空；任意两 Pod 之间 1 跳，代价是要等 r1 或 r2 有 8 台整机同时空出来。放法 B：无拓扑约束（或 preferred 退到 block），J 在 r1 占 3 台、r2 占 5 台，半数流量跨 spine 3 跳，与其他任务共享 leaf 上行，step time 可能翻倍，无报错。放法 C：碎片化（binpack 关闭时最常见），每台机器一半卡给 J、一半给其他任务，下一个 8 卡/整机任务永远等不到整机。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #8a9bb0; stroke-width: 1.2; }
+      .col-k { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .col-v { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .inner { fill: #fff; stroke: #4b9477; stroke-width: 1; }
+      .job { fill: #7fa6d9; stroke: #40566f; stroke-width: 1; }
+      .other { fill: #b9c2cc; stroke: #40566f; stroke-width: 1; }
+      .free { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .seg-a { fill: #fde8c8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-x { fill: #eceff2; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .tick { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .tickk { stroke: #9aa8b6; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+<rect class="job" x="16" y="18" width="14" height="14"/>
+<text x="36" y="30" text-anchor="start" class="small">任务 J</text>
+<rect class="other" x="110" y="18" width="14" height="14"/>
+<text x="130" y="30" text-anchor="start" class="small">其他任务</text>
+<rect class="free" x="210" y="18" width="14" height="14"/>
+<text x="230" y="30" text-anchor="start" class="small">空闲</text>
+<rect id="spine" class="card" x="308" y="14" width="100" height="30"/>
+<text x="358" y="34" text-anchor="middle" class="mono" data-in="spine">spine</text>
+<text x="416" y="34" text-anchor="start" class="small">block（tier 2，跨 leaf 3 跳）</text>
+<line class="line" x1="358" y1="44" x2="358" y2="58"/>
+<line class="line" x1="188" y1="58" x2="528" y2="58"/>
+<line class="line" x1="188" y1="58" x2="188" y2="72"/>
+<line class="line" x1="528" y1="58" x2="528" y2="72"/>
+<rect id="l1" class="card" x="146" y="72" width="84" height="30"/>
+<text x="188" y="92" text-anchor="middle" class="mono" data-in="l1">leaf-1</text>
+<rect id="l2" class="card" x="486" y="72" width="84" height="30"/>
+<text x="528" y="92" text-anchor="middle" class="mono" data-in="l2">leaf-2</text>
+<text x="238" y="85" text-anchor="start" class="small">rack r1</text>
+<text x="578" y="85" text-anchor="start" class="small">rack r2</text>
+<text x="578" y="102" text-anchor="start" class="small">（tier 1，同 leaf 1 跳）</text>
+<line class="line" x1="188" y1="102" x2="188" y2="116"/>
+<line class="line" x1="62" y1="116" x2="314" y2="116"/>
+<line class="line" x1="62" y1="116" x2="62" y2="126"/>
+<rect id="n1" class="free" x="44" y="126" width="36" height="26"/>
+<text x="62" y="144" text-anchor="middle" class="mono" data-in="n1">n1</text>
+<line class="line" x1="98" y1="116" x2="98" y2="126"/>
+<rect id="n2" class="free" x="80" y="126" width="36" height="26"/>
+<text x="98" y="144" text-anchor="middle" class="mono" data-in="n2">n2</text>
+<line class="line" x1="134" y1="116" x2="134" y2="126"/>
+<rect id="n3" class="free" x="116" y="126" width="36" height="26"/>
+<text x="134" y="144" text-anchor="middle" class="mono" data-in="n3">n3</text>
+<line class="line" x1="170" y1="116" x2="170" y2="126"/>
+<rect id="n4" class="free" x="152" y="126" width="36" height="26"/>
+<text x="170" y="144" text-anchor="middle" class="mono" data-in="n4">n4</text>
+<line class="line" x1="206" y1="116" x2="206" y2="126"/>
+<rect id="n5" class="free" x="188" y="126" width="36" height="26"/>
+<text x="206" y="144" text-anchor="middle" class="mono" data-in="n5">n5</text>
+<line class="line" x1="242" y1="116" x2="242" y2="126"/>
+<rect id="n6" class="free" x="224" y="126" width="36" height="26"/>
+<text x="242" y="144" text-anchor="middle" class="mono" data-in="n6">n6</text>
+<line class="line" x1="278" y1="116" x2="278" y2="126"/>
+<rect id="n7" class="free" x="260" y="126" width="36" height="26"/>
+<text x="278" y="144" text-anchor="middle" class="mono" data-in="n7">n7</text>
+<line class="line" x1="314" y1="116" x2="314" y2="126"/>
+<rect id="n8" class="free" x="296" y="126" width="36" height="26"/>
+<text x="314" y="144" text-anchor="middle" class="mono" data-in="n8">n8</text>
+<line class="line" x1="528" y1="102" x2="528" y2="116"/>
+<line class="line" x1="402" y1="116" x2="654" y2="116"/>
+<line class="line" x1="402" y1="116" x2="402" y2="126"/>
+<rect id="n9" class="free" x="384" y="126" width="36" height="26"/>
+<text x="402" y="144" text-anchor="middle" class="mono" data-in="n9">n9</text>
+<line class="line" x1="438" y1="116" x2="438" y2="126"/>
+<rect id="n10" class="free" x="420" y="126" width="36" height="26"/>
+<text x="438" y="144" text-anchor="middle" class="mono" data-in="n10">n10</text>
+<line class="line" x1="474" y1="116" x2="474" y2="126"/>
+<rect id="n11" class="free" x="456" y="126" width="36" height="26"/>
+<text x="474" y="144" text-anchor="middle" class="mono" data-in="n11">n11</text>
+<line class="line" x1="510" y1="116" x2="510" y2="126"/>
+<rect id="n12" class="free" x="492" y="126" width="36" height="26"/>
+<text x="510" y="144" text-anchor="middle" class="mono" data-in="n12">n12</text>
+<line class="line" x1="546" y1="116" x2="546" y2="126"/>
+<rect id="n13" class="free" x="528" y="126" width="36" height="26"/>
+<text x="546" y="144" text-anchor="middle" class="mono" data-in="n13">n13</text>
+<line class="line" x1="582" y1="116" x2="582" y2="126"/>
+<rect id="n14" class="free" x="564" y="126" width="36" height="26"/>
+<text x="582" y="144" text-anchor="middle" class="mono" data-in="n14">n14</text>
+<line class="line" x1="618" y1="116" x2="618" y2="126"/>
+<rect id="n15" class="free" x="600" y="126" width="36" height="26"/>
+<text x="618" y="144" text-anchor="middle" class="mono" data-in="n15">n15</text>
+<line class="line" x1="654" y1="116" x2="654" y2="126"/>
+<rect id="n16" class="free" x="636" y="126" width="36" height="26"/>
+<text x="654" y="144" text-anchor="middle" class="mono" data-in="n16">n16</text>
+<text x="44" y="174" text-anchor="start" class="small">每台 8 卡，机内 NVLink（tier 0）</text>
+<text x="16" y="206" text-anchor="start" class="smallb">放法 A：podset-required-topology: rack（Volcano hard, highestTierAllowed=1）</text>
+<text x="38" y="236" text-anchor="end" class="mono">r1</text>
+<rect class="job" x="44" y="218" width="36" height="26"/>
+<rect class="job" x="80" y="218" width="36" height="26"/>
+<rect class="job" x="116" y="218" width="36" height="26"/>
+<rect class="job" x="152" y="218" width="36" height="26"/>
+<rect class="job" x="188" y="218" width="36" height="26"/>
+<rect class="job" x="224" y="218" width="36" height="26"/>
+<rect class="job" x="260" y="218" width="36" height="26"/>
+<rect class="job" x="296" y="218" width="36" height="26"/>
+<text x="378" y="236" text-anchor="end" class="mono">r2</text>
+<rect class="free" x="384" y="218" width="36" height="26"/>
+<rect class="free" x="420" y="218" width="36" height="26"/>
+<rect class="free" x="456" y="218" width="36" height="26"/>
+<rect class="free" x="492" y="218" width="36" height="26"/>
+<rect class="free" x="528" y="218" width="36" height="26"/>
+<rect class="free" x="564" y="218" width="36" height="26"/>
+<rect class="free" x="600" y="218" width="36" height="26"/>
+<rect class="free" x="636" y="218" width="36" height="26"/>
+<text x="44" y="264" text-anchor="start" class="small">任意两 Pod 之间 1 跳（同 leaf），all_reduce 带宽 = leaf 上行不参与</text>
+<text x="44" y="284" text-anchor="start" class="small">代价：要等 r1 或 r2 有 8 台整机同时空出来</text>
+<text x="16" y="320" text-anchor="start" class="smallb">放法 B：无拓扑约束（或 preferred 退到 block）</text>
+<text x="38" y="350" text-anchor="end" class="mono">r1</text>
+<rect class="job" x="44" y="332" width="36" height="26"/>
+<rect class="job" x="80" y="332" width="36" height="26"/>
+<rect class="job" x="116" y="332" width="36" height="26"/>
+<rect class="free" x="152" y="332" width="36" height="26"/>
+<rect class="other" x="188" y="332" width="36" height="26"/>
+<rect class="other" x="224" y="332" width="36" height="26"/>
+<rect class="other" x="260" y="332" width="36" height="26"/>
+<rect class="other" x="296" y="332" width="36" height="26"/>
+<text x="378" y="350" text-anchor="end" class="mono">r2</text>
+<rect class="job" x="384" y="332" width="36" height="26"/>
+<rect class="job" x="420" y="332" width="36" height="26"/>
+<rect class="job" x="456" y="332" width="36" height="26"/>
+<rect class="job" x="492" y="332" width="36" height="26"/>
+<rect class="job" x="528" y="332" width="36" height="26"/>
+<rect class="other" x="564" y="332" width="36" height="26"/>
+<rect class="other" x="600" y="332" width="36" height="26"/>
+<rect class="other" x="636" y="332" width="36" height="26"/>
+<text x="44" y="378" text-anchor="start" class="small">半数流量跨 spine 3 跳，与其他任务共享 leaf 上行；step time 可能翻倍，无报错</text>
+<text x="16" y="414" text-anchor="start" class="smallb">放法 C：碎片化（binpack 关闭时最常见）</text>
+<text x="38" y="444" text-anchor="end" class="mono">r1</text>
+<rect class="job" x="44" y="426" width="18" height="26"/>
+<rect class="other" x="62" y="426" width="18" height="26"/>
+<rect class="job" x="80" y="426" width="18" height="26"/>
+<rect class="other" x="98" y="426" width="18" height="26"/>
+<rect class="job" x="116" y="426" width="18" height="26"/>
+<rect class="other" x="134" y="426" width="18" height="26"/>
+<rect class="job" x="152" y="426" width="18" height="26"/>
+<rect class="other" x="170" y="426" width="18" height="26"/>
+<rect class="job" x="188" y="426" width="18" height="26"/>
+<rect class="other" x="206" y="426" width="18" height="26"/>
+<rect class="job" x="224" y="426" width="18" height="26"/>
+<rect class="other" x="242" y="426" width="18" height="26"/>
+<rect class="job" x="260" y="426" width="18" height="26"/>
+<rect class="other" x="278" y="426" width="18" height="26"/>
+<rect class="job" x="296" y="426" width="18" height="26"/>
+<rect class="other" x="314" y="426" width="18" height="26"/>
+<text x="378" y="444" text-anchor="end" class="mono">r2</text>
+<rect class="job" x="384" y="426" width="18" height="26"/>
+<rect class="other" x="402" y="426" width="18" height="26"/>
+<rect class="job" x="420" y="426" width="18" height="26"/>
+<rect class="other" x="438" y="426" width="18" height="26"/>
+<rect class="job" x="456" y="426" width="18" height="26"/>
+<rect class="other" x="474" y="426" width="18" height="26"/>
+<rect class="job" x="492" y="426" width="18" height="26"/>
+<rect class="other" x="510" y="426" width="18" height="26"/>
+<rect class="job" x="528" y="426" width="18" height="26"/>
+<rect class="other" x="546" y="426" width="18" height="26"/>
+<rect class="job" x="564" y="426" width="18" height="26"/>
+<rect class="other" x="582" y="426" width="18" height="26"/>
+<rect class="job" x="600" y="426" width="18" height="26"/>
+<rect class="other" x="618" y="426" width="18" height="26"/>
+<rect class="job" x="636" y="426" width="18" height="26"/>
+<rect class="other" x="654" y="426" width="18" height="26"/>
+<text x="44" y="472" text-anchor="start" class="small">每台机器都被拆散：J 只拿到部分卡，下一个 8 卡/整机任务永远等不到整机</text>
+</svg>

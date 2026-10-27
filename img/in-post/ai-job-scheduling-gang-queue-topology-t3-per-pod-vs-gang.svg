@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 399" width="760" height="399" role="img" aria-labelledby="t d">
+  <title id="t">逐 Pod 调度与 gang 调度在 t3 时刻的对照</title>
+  <desc id="d">上半：逐 Pod 调度，t3 时刻。node-A 到 node-D 的 8 张 GPU 都被任务 J 的 Pod 占满（Pod-0 到 Pod-3 已绑定，等 rendezvous，利用率 0%）；node-E..H 6 张被其他任务占用、各剩 2 张，放不下 8 卡的 Pod；node-I..L 满。Pod-4 … Pod-31 → Pending（Insufficient nvidia.com/gpu）；32 卡被占，0 卡在算。下半：gang 调度，同一时刻。node-A..D 全部空闲：模拟分配只放得下 4/32 个 Pod → Discard，不绑定；4 台空机器留给放得下的任务（如 1 个 8 卡 Pod）；node-E..H、node-I..L 不变。J 整体 Pending，PodGroup 上写明 "4/32 tasks in gang unschedulable"。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #8a9bb0; stroke-width: 1.2; }
+      .col-k { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .col-v { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .inner { fill: #fff; stroke: #4b9477; stroke-width: 1; }
+      .job { fill: #7fa6d9; stroke: #40566f; stroke-width: 1; }
+      .other { fill: #b9c2cc; stroke: #40566f; stroke-width: 1; }
+      .free { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .seg-a { fill: #fde8c8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-x { fill: #eceff2; stroke: #9aa8b6; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.8; fill: none; }
+      .tick { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .tickk { stroke: #9aa8b6; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+<text x="16" y="24" text-anchor="start" class="head">逐 Pod 调度，t3 时刻</text>
+<rect class="job" x="400" y="12" width="14" height="14"/>
+<text x="420" y="24" text-anchor="start" class="small">任务 J 的 Pod</text>
+<rect class="other" x="584" y="12" width="14" height="14"/>
+<text x="604" y="24" text-anchor="start" class="small">其他任务</text>
+<rect class="free" x="678" y="12" width="14" height="14"/>
+<text x="698" y="24" text-anchor="start" class="small">空闲</text>
+<text x="16" y="52" text-anchor="start" class="mono">GPU</text>
+<text x="138" y="52" text-anchor="middle" class="mono">0</text>
+<text x="166" y="52" text-anchor="middle" class="mono">1</text>
+<text x="194" y="52" text-anchor="middle" class="mono">2</text>
+<text x="222" y="52" text-anchor="middle" class="mono">3</text>
+<text x="250" y="52" text-anchor="middle" class="mono">4</text>
+<text x="278" y="52" text-anchor="middle" class="mono">5</text>
+<text x="306" y="52" text-anchor="middle" class="mono">6</text>
+<text x="334" y="52" text-anchor="middle" class="mono">7</text>
+<text x="16" y="77" text-anchor="start" class="mono">node-A</text>
+<rect class="job" x="124" y="60" width="28" height="24"/>
+<rect class="job" x="152" y="60" width="28" height="24"/>
+<rect class="job" x="180" y="60" width="28" height="24"/>
+<rect class="job" x="208" y="60" width="28" height="24"/>
+<rect class="job" x="236" y="60" width="28" height="24"/>
+<rect class="job" x="264" y="60" width="28" height="24"/>
+<rect class="job" x="292" y="60" width="28" height="24"/>
+<rect class="job" x="320" y="60" width="28" height="24"/>
+<text x="362" y="77" text-anchor="start" class="small">Pod-0 已绑定，等 rendezvous，利用率 0%</text>
+<text x="16" y="101" text-anchor="start" class="mono">node-B</text>
+<rect class="job" x="124" y="84" width="28" height="24"/>
+<rect class="job" x="152" y="84" width="28" height="24"/>
+<rect class="job" x="180" y="84" width="28" height="24"/>
+<rect class="job" x="208" y="84" width="28" height="24"/>
+<rect class="job" x="236" y="84" width="28" height="24"/>
+<rect class="job" x="264" y="84" width="28" height="24"/>
+<rect class="job" x="292" y="84" width="28" height="24"/>
+<rect class="job" x="320" y="84" width="28" height="24"/>
+<text x="362" y="101" text-anchor="start" class="small">Pod-1</text>
+<text x="16" y="125" text-anchor="start" class="mono">node-C</text>
+<rect class="job" x="124" y="108" width="28" height="24"/>
+<rect class="job" x="152" y="108" width="28" height="24"/>
+<rect class="job" x="180" y="108" width="28" height="24"/>
+<rect class="job" x="208" y="108" width="28" height="24"/>
+<rect class="job" x="236" y="108" width="28" height="24"/>
+<rect class="job" x="264" y="108" width="28" height="24"/>
+<rect class="job" x="292" y="108" width="28" height="24"/>
+<rect class="job" x="320" y="108" width="28" height="24"/>
+<text x="362" y="125" text-anchor="start" class="small">Pod-2</text>
+<text x="16" y="149" text-anchor="start" class="mono">node-D</text>
+<rect class="job" x="124" y="132" width="28" height="24"/>
+<rect class="job" x="152" y="132" width="28" height="24"/>
+<rect class="job" x="180" y="132" width="28" height="24"/>
+<rect class="job" x="208" y="132" width="28" height="24"/>
+<rect class="job" x="236" y="132" width="28" height="24"/>
+<rect class="job" x="264" y="132" width="28" height="24"/>
+<rect class="job" x="292" y="132" width="28" height="24"/>
+<rect class="job" x="320" y="132" width="28" height="24"/>
+<text x="362" y="149" text-anchor="start" class="small">Pod-3</text>
+<text x="16" y="173" text-anchor="start" class="mono">node-E..H</text>
+<rect class="other" x="124" y="156" width="28" height="24"/>
+<rect class="other" x="152" y="156" width="28" height="24"/>
+<rect class="other" x="180" y="156" width="28" height="24"/>
+<rect class="other" x="208" y="156" width="28" height="24"/>
+<rect class="other" x="236" y="156" width="28" height="24"/>
+<rect class="other" x="264" y="156" width="28" height="24"/>
+<rect class="free" x="292" y="156" width="28" height="24"/>
+<rect class="free" x="320" y="156" width="28" height="24"/>
+<text x="362" y="173" text-anchor="start" class="small">各剩 2 张，放不下 8 卡的 Pod</text>
+<text x="16" y="197" text-anchor="start" class="mono">node-I..L</text>
+<rect class="other" x="124" y="180" width="28" height="24"/>
+<rect class="other" x="152" y="180" width="28" height="24"/>
+<rect class="other" x="180" y="180" width="28" height="24"/>
+<rect class="other" x="208" y="180" width="28" height="24"/>
+<rect class="other" x="236" y="180" width="28" height="24"/>
+<rect class="other" x="264" y="180" width="28" height="24"/>
+<rect class="other" x="292" y="180" width="28" height="24"/>
+<rect class="other" x="320" y="180" width="28" height="24"/>
+<text x="362" y="197" text-anchor="start" class="small">满</text>
+<text x="16" y="228" text-anchor="start" class="small">Pod-4 … Pod-31 → Pending（Insufficient nvidia.com/gpu）；32 卡被占，0 卡在算</text>
+<text x="16" y="270" text-anchor="start" class="head">gang 调度，同一时刻</text>
+<text x="16" y="301" text-anchor="start" class="mono">node-A..D</text>
+<rect class="free" x="124" y="284" width="28" height="24"/>
+<rect class="free" x="152" y="284" width="28" height="24"/>
+<rect class="free" x="180" y="284" width="28" height="24"/>
+<rect class="free" x="208" y="284" width="28" height="24"/>
+<rect class="free" x="236" y="284" width="28" height="24"/>
+<rect class="free" x="264" y="284" width="28" height="24"/>
+<rect class="free" x="292" y="284" width="28" height="24"/>
+<rect class="free" x="320" y="284" width="28" height="24"/>
+<text x="362" y="301" text-anchor="start" class="small">模拟分配只放得下 4/32 个 Pod → Discard，不绑定</text>
+<text x="16" y="325" text-anchor="start" class="mono">node-E..H</text>
+<rect class="other" x="124" y="308" width="28" height="24"/>
+<rect class="other" x="152" y="308" width="28" height="24"/>
+<rect class="other" x="180" y="308" width="28" height="24"/>
+<rect class="other" x="208" y="308" width="28" height="24"/>
+<rect class="other" x="236" y="308" width="28" height="24"/>
+<rect class="other" x="264" y="308" width="28" height="24"/>
+<rect class="free" x="292" y="308" width="28" height="24"/>
+<rect class="free" x="320" y="308" width="28" height="24"/>
+<text x="362" y="325" text-anchor="start" class="small">4 台空机器留给放得下的任务（如 1 个 8 卡 Pod）</text>
+<text x="16" y="349" text-anchor="start" class="mono">node-I..L</text>
+<rect class="other" x="124" y="332" width="28" height="24"/>
+<rect class="other" x="152" y="332" width="28" height="24"/>
+<rect class="other" x="180" y="332" width="28" height="24"/>
+<rect class="other" x="208" y="332" width="28" height="24"/>
+<rect class="other" x="236" y="332" width="28" height="24"/>
+<rect class="other" x="264" y="332" width="28" height="24"/>
+<rect class="other" x="292" y="332" width="28" height="24"/>
+<rect class="other" x="320" y="332" width="28" height="24"/>
+<text x="16" y="380" text-anchor="start" class="small">J 整体 Pending，PodGroup 上写明 "4/32 tasks in gang unschedulable"</text>
+</svg>
