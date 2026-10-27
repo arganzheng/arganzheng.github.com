@@ -23,9 +23,9 @@ DeepSpeed 是微软开源的训练框架，底座是 ZeRO：它沿着优化器�
 
 先看 train-ledger 的 8 卡配置：ZeRO-3、DP=8，模型形状沿用 03 的 Llama 3.2 1B（$$L=16$$、$$h=2048$$、$$f=8192$$、$$v=128256$$，总计约 1,498,482,688 个参数）。F1 画的是每卡常驻什么，以及算到某一层 k 时完整参数从哪里来。
 
-![F1：8 卡 ZeRO-3（DP=8）：每卡常驻 1/8 的 ds_tensor、梯度分区和 fp32 主参数 + m + v；算某一层时先 all-gather 出完整权重，用完即释放](/img/in-post/deepspeed-f1-8-gpus-zero3.svg)
+![F1：上排是 W_k 的 8 个常驻分片；下排是前向 pre-hook all-gather 后，每卡临时持有的完整 bf16 W_k](/img/in-post/deepspeed-f1-8-gpus-zero3.svg)
 
-每张卡的常驻分成三份，每份都是全量的 $$1/N_d$$，$$N_d=8$$。正在计算的那一层不一样：8 份 `ds_tensor` 先 all-gather 成完整的 bf16 权重，GEMM 读完就释放——完整参数只在用的那一刻存在。
+上排每个 rank 的色条是同一个权重 $$W_k$$ 的 1/8 切片；下面三行分别是 bf16 `ds_tensor`、bf16 梯度分区、fp32 主参数与 Adam 的 $$m,v$$，每份也各占 1/8。前向 pre-hook 把 8 片拼成完整 $$W_k$$，所以下排 8 张卡暂时都有一整份 bf16 权重；算完即 release，回到上排状态。
 
 这 8 张卡上的一个 step 可以按六步读：
 
@@ -295,9 +295,9 @@ rank0: b:  param.data=(0,), ds_tensor=(1,)，参数原形状=(2,)，numel=2
 
 `PartitionedParameterCoordinator` 里有两个提高效率的机制。**trace**：第一个 step 记录 module 的执行顺序（`record_module()`），之后按这个顺序**预取**——`fetch_sub_module()` 在取回当前 module 的参数时，顺带发起后面几个 module 的 all-gather（总量由 `stage3_prefetch_bucket_size` 控制），`stage3_max_live_parameters` 限制同时活着的完整参数总数、`stage3_max_reuse_distance` 决定「很快又要用」的参数不释放。**coalesced all-gather**：`all_gather_coalesced()`（`partition_parameters.py` 里的 `_all_gather_coalesced()`）把一个 module 的多个参数拼成一次 `all_gather_into_tensor` 调用，返回 `AllGatherCoalescedHandle`，`wait()` 时再拆回各参数。
 
-预取换的是显存。toy 的 `memory` 子实验在每个 hook 事件后记录活着的完整参数字节数：不预取时峰值是一层的 48 B，预取一层时峰值是两层的 88 B——锯齿就是 gather → compute → release 的循环，F5 画的是两组输出：
+预取换的是显存。toy 的 `memory` 子实验在每个 hook 事件后记录活着的完整参数字节数：不预取时峰值是一层的 48 B，预取一层时峰值是两层的 88 B。F5 用 toy 事件序列画出锯齿形状，再把每个 live layer 按真实 bf16 层大小 121.6 MB 缩放；图上是模型量级，不是 toy 的 48 / 88 B。原始 toy 数字仍列在下面。
 
-![F5：toy 记录的完整参数驻留字节随 hook 事件的锯齿；prefetch=1 时峰值从一层涨到两层](/img/in-post/deepspeed-f5-live-params-sawtooth.svg)
+![F5：按 toy hook 事件绘制的完整参数驻留曲线，并以真实一层 bf16 权重 121.6 MB 缩放；预取一层时峰值升至两层](/img/in-post/deepspeed-f5-live-params-sawtooth.svg)
 
 ```text title="python 04_deepspeed_toys.py memory（prefetch_depth=1 节选）"
 forward gather layer0     live_full_parameter_bytes=48
