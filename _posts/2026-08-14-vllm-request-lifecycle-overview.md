@@ -237,13 +237,13 @@ EngineCore 收到请求后，主线程调度并广播这一轮的 `SchedulerOutp
 
 ## 五、部署/物理视图：进程怎样落到 GPU 和节点上
 
-进程视图说了有哪几类进程；这张视图把它们落到硬件上：API Server 和 EngineCoreProc 是纯 CPU 进程，WorkerProc 一个 rank 占一张（或一份）GPU。几个典型配置：
+进程视图说了有哪几类进程；这张视图把它们落到硬件上：API Server 和 EngineCoreProc 是纯 CPU 进程，执行侧每个模型并行 rank 占一张（或一份）GPU。几个典型配置：
 
 | 部署 | 进程 | 落位 |
 |---|---|---|
-| 单卡 | 1 × API Server、1 × EngineCoreProc、1 × WorkerProc（`MultiprocExecutor`） | 1 台节点，WorkerProc 占 1 张 GPU |
+| 单卡 | 1 × API Server、1 × EngineCoreProc（`UniProcExecutor`，Worker 在 EngineCore 进程内，没有 WorkerProc） | 1 台节点，EngineCoreProc 占 1 张 GPU |
 | 单机 TP=4 | 1 × API Server、1 × EngineCoreProc、4 × WorkerProc | 1 台节点，4 个 WorkerProc 各占 1 张 GPU，组内集合通信 |
-| 多机 TP×PP | 1 × API Server、1 × EngineCoreProc、world_size 个 `RayWorkerProc` | `RayExecutorV2` / `RayDistributedExecutor` 把 Worker rank 放到多个节点，rank 间 TP/PP collective 跨机 |
+| 多机 TP×PP | 1 × API Server、1 × EngineCoreProc、world_size 个 WorkerProc | 默认 `MultiprocExecutor` 配合 `--nnodes`，每台节点起自己的 WorkerProc；`--distributed-executor-backend ray` 时用 `RayExecutorV2` / `RayDistributedExecutor`（`RayWorkerProc`），rank 间 TP/PP collective 跨机 |
 | DP=2 | 1 × API Server、2 × EngineCoreProc（rank 0 可能再带 `DPCoordinator`）、每 rank 各自一组 WorkerProc | 两个 EngineCore rank 各管自己的 Scheduler 与 Executor，共用一个 API 入口 |
 | 多 API Server | `--api-server-count > 1`，N × API Server 子进程 | 只增加前端进程，模型侧 rank 数不变；P/D 分离部署则把 prefill 与 decode 拆到不同 EngineCore 实例、连 KV 传输层 |
 
