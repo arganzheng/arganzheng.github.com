@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 582" width="760" height="582" role="img" aria-labelledby="t d">
+  <title id="t">四件运维基本功和三层指标</title>
+  <desc id="d">一条自上而下的主线串起四个同样式的底色框：① 看得见：三层指标（谁能采、谁来看）——任务层 loss、grad norm、lr、token/s、MFU、step 时间、抖动，训练循环自己算，一个任务一份；进程层每 rank 计算/等待时间、显存峰值与碎片、数据队列、CPU，训练进程或旁路采集器采，每个 rank 一份；硬件层温度、功耗、频率、XID、ECC、行重映射、网卡错包重传，DCGM 守护进程从驱动读，一张卡一份。指标写入一张两格的白卡：TensorBoard / W&amp;B（曲线，按 step）与 Prometheus（时序，按时间与 rank）。往下 ② 叫得醒：告警规则（第五章），建在 Prometheus 时序上，step 计数停住即 page。③ 查得出：看不见的 hang 与变慢——hang 用 Flight Recorder dump → fr_trace 找哪个 rank 缺席哪次集合通信，py-spy dump 全部 rank 看 Python 栈，TORCH_DISTRIBUTED_DEBUG；变慢用 profiler 时间线对比、少数 rank 上的 Nsight、硬件层指标对照。④ 有章法：开训检查清单、值班手册、复盘模板、成本换算决定优先级。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .band { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .band-alt { fill: #eef3f8; }
+      .func { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.6; rx: 12; }
+      .divider { stroke: #c5d0dc; stroke-width: 1.2; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .dim { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .seg-D { fill: #f9d5d3; } .seg-F { fill: #fde0b8; } .seg-H { fill: #fff0a8; }
+      .seg-R { fill: #dbe8fb; } .seg-L { fill: #dff1e6; } .seg-C { fill: #e8e0f5; }
+    </style>
+  </defs>
+<rect x="20" y="8" width="720" height="172" class="func"/>
+<text x="380" y="30" text-anchor="middle" class="head">① 看得见：三层指标（谁能采、谁来看）</text>
+<text x="44" y="58" text-anchor="start" class="bold">任务层</text>
+<text x="118" y="58" text-anchor="start" class="body">loss · grad norm · lr · token/s · MFU · step 时间 · 抖动</text>
+<text x="118" y="76" text-anchor="start" class="muted">训练循环自己算 · 一个任务一份</text>
+<text x="44" y="100" text-anchor="start" class="bold">进程层</text>
+<text x="118" y="100" text-anchor="start" class="body">每 rank 计算/等待时间 · 显存峰值与碎片 · 数据队列 · CPU</text>
+<text x="118" y="118" text-anchor="start" class="muted">训练进程或旁路采集器采 · 每个 rank 一份</text>
+<text x="44" y="142" text-anchor="start" class="bold">硬件层</text>
+<text x="118" y="142" text-anchor="start" class="body">温度 · 功耗 · 频率 · XID · ECC · 行重映射 · 网卡错包重传</text>
+<text x="118" y="160" text-anchor="start" class="muted">DCGM 守护进程从驱动读 · 一张卡一份</text>
+<line x1="380" y1="180" x2="380" y2="220" class="arrow"/>
+<text x="388" y="205" text-anchor="start" class="small">写入</text>
+<rect x="40" y="220" width="680" height="34" class="card"/>
+<line x1="380" y1="220" x2="380" y2="254" class="divider"/>
+<text x="210.0" y="242" text-anchor="middle" class="body">TensorBoard / W&amp;B（曲线，按 step）</text>
+<text x="550.0" y="242" text-anchor="middle" class="body">Prometheus（时序，按时间与 rank）</text>
+<line x1="380" y1="254" x2="380" y2="282" class="arrow"/>
+<rect x="20" y="282" width="720" height="60" class="func"/>
+<text x="380" y="304" text-anchor="middle" class="head">② 叫得醒</text>
+<text x="380" y="328" text-anchor="middle" class="body">告警规则（第五章）：建在 Prometheus 时序上，step 计数停住即 page</text>
+<line x1="380" y1="342" x2="380" y2="370" class="arrow"/>
+<rect x="20" y="370" width="720" height="112" class="func"/>
+<text x="380" y="392" text-anchor="middle" class="head">③ 查得出：看不见的 hang 与变慢</text>
+<text x="44" y="420" text-anchor="start" class="bold">hang</text>
+<text x="118" y="420" text-anchor="start" class="body">Flight Recorder dump → fr_trace → 哪个 rank 缺席哪次集合通信</text>
+<text x="118" y="444" text-anchor="start" class="body">py-spy dump 全部 rank → Python 栈；TORCH_DISTRIBUTED_DEBUG</text>
+<text x="44" y="468" text-anchor="start" class="bold">变慢</text>
+<text x="118" y="468" text-anchor="start" class="body">profiler 时间线对比 · 少数 rank 上的 Nsight · 硬件层指标对照</text>
+<line x1="380" y1="482" x2="380" y2="510" class="arrow"/>
+<rect x="20" y="510" width="720" height="64" class="func"/>
+<text x="380" y="532" text-anchor="middle" class="head">④ 有章法</text>
+<text x="380" y="558" text-anchor="middle" class="body">开训检查清单 · 值班手册 · 复盘模板 · 成本换算决定优先级</text>
+
+</svg>

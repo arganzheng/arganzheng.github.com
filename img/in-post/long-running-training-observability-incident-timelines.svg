@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 240" width="760" height="240" role="img" aria-labelledby="t d">
+  <title id="t">有无告警与 runbook 的两条事故时间线</title>
+  <desc id="d">同一条分钟时间轴上两条色块条，六段：D 检测、F dump 等待、H 人工决策、R 重启与 rendezvous、L 加载、C 回退重算。无告警、无 runbook（靠 NCCL 10 min 超时发现；从原则推导命令）：10、2、30+、8、7、24 分钟，共约 81 分钟。有告警、有 runbook（step 停 100 s 即 page；照手册执行）：2、2、9、8、7、24 分钟，共 52 分钟。两条相差约 30 分钟，× 1024 卡约 512 GPU 小时。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .band { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; }
+      .band-alt { fill: #eef3f8; }
+      .func { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.6; rx: 12; }
+      .divider { stroke: #c5d0dc; stroke-width: 1.2; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; rx: 12; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .dim { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .dash { stroke: #7a8b9c; stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .tick { stroke: #7a8b9c; stroke-width: 1.2; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .seg-D { fill: #f9d5d3; } .seg-F { fill: #fde0b8; } .seg-H { fill: #fff0a8; }
+      .seg-R { fill: #dbe8fb; } .seg-L { fill: #dff1e6; } .seg-C { fill: #e8e0f5; }
+    </style>
+  </defs>
+<rect x="36" y="8" width="16" height="16" class="seg seg-D"/>
+<text x="58" y="21" text-anchor="start" class="small">D 检测</text>
+<rect x="110" y="8" width="16" height="16" class="seg seg-F"/>
+<text x="132" y="21" text-anchor="start" class="small">F dump 等待</text>
+<rect x="224" y="8" width="16" height="16" class="seg seg-H"/>
+<text x="246" y="21" text-anchor="start" class="small">H 人工决策</text>
+<rect x="324" y="8" width="16" height="16" class="seg seg-R"/>
+<text x="346" y="21" text-anchor="start" class="small">R 重启与 rendezvous</text>
+<rect x="496" y="8" width="16" height="16" class="seg seg-L"/>
+<text x="518" y="21" text-anchor="start" class="small">L 加载</text>
+<rect x="570" y="8" width="16" height="16" class="seg seg-C"/>
+<text x="592" y="21" text-anchor="start" class="small">C 回退重算</text>
+<text x="36" y="52" text-anchor="start" class="body">无告警、无 runbook（靠 NCCL 10 min 超时发现；从原则推导命令）</text>
+<rect x="36" y="62" width="84.0" height="28" class="seg seg-D"/>
+<text x="78.0" y="81" text-anchor="middle" class="bold">D</text>
+<text x="78.0" y="106" text-anchor="middle" class="small">10</text>
+<rect x="120.0" y="62" width="16.8" height="28" class="seg seg-F"/>
+<text x="128.4" y="81" text-anchor="middle" class="bold">F</text>
+<text x="128.4" y="106" text-anchor="middle" class="small">2</text>
+<rect x="136.8" y="62" width="252.0" height="28" class="seg seg-H"/>
+<text x="262.8" y="81" text-anchor="middle" class="bold">H</text>
+<text x="262.8" y="106" text-anchor="middle" class="small">30+</text>
+<rect x="388.8" y="62" width="67.2" height="28" class="seg seg-R"/>
+<text x="422.4" y="81" text-anchor="middle" class="bold">R</text>
+<text x="422.4" y="106" text-anchor="middle" class="small">8</text>
+<rect x="456.0" y="62" width="58.8" height="28" class="seg seg-L"/>
+<text x="485.4" y="81" text-anchor="middle" class="bold">L</text>
+<text x="485.4" y="106" text-anchor="middle" class="small">7</text>
+<rect x="514.8" y="62" width="201.6" height="28" class="seg seg-C"/>
+<text x="615.6" y="81" text-anchor="middle" class="bold">C</text>
+<text x="615.6" y="106" text-anchor="middle" class="small">24</text>
+<text x="36" y="132" text-anchor="start" class="body">有告警、有 runbook（step 停 100 s 即 page；照手册执行）</text>
+<rect x="36" y="142" width="16.8" height="28" class="seg seg-D"/>
+<text x="44.4" y="161" text-anchor="middle" class="bold">D</text>
+<text x="44.4" y="186" text-anchor="middle" class="small">2</text>
+<rect x="52.8" y="142" width="16.8" height="28" class="seg seg-F"/>
+<text x="61.2" y="161" text-anchor="middle" class="bold">F</text>
+<text x="61.2" y="186" text-anchor="middle" class="small">2</text>
+<rect x="69.6" y="142" width="75.6" height="28" class="seg seg-H"/>
+<text x="107.4" y="161" text-anchor="middle" class="bold">H</text>
+<text x="107.4" y="186" text-anchor="middle" class="small">9</text>
+<rect x="145.2" y="142" width="67.2" height="28" class="seg seg-R"/>
+<text x="178.8" y="161" text-anchor="middle" class="bold">R</text>
+<text x="178.8" y="186" text-anchor="middle" class="small">8</text>
+<rect x="212.4" y="142" width="58.8" height="28" class="seg seg-L"/>
+<text x="241.8" y="161" text-anchor="middle" class="bold">L</text>
+<text x="241.8" y="186" text-anchor="middle" class="small">7</text>
+<rect x="271.2" y="142" width="201.6" height="28" class="seg seg-C"/>
+<text x="372.0" y="161" text-anchor="middle" class="bold">C</text>
+<text x="372.0" y="186" text-anchor="middle" class="small">24</text>
+<line x1="716.4" y1="90" x2="716.4" y2="170" class="dash"/>
+<line x1="480.8" y1="156" x2="708.4" y2="156" class="dim"/>
+<text x="594.6" y="132" text-anchor="middle" class="small">差 ≈ 30 min × 1024 卡 ≈ 512 GPU 小时</text>
+<line x1="36" y1="210" x2="756.4" y2="210" class="axis"/>
+<line x1="36.0" y1="206" x2="36.0" y2="214" class="tick"/>
+<text x="36.0" y="230" text-anchor="middle" class="small">0</text>
+<line x1="120.0" y1="206" x2="120.0" y2="214" class="tick"/>
+<text x="120.0" y="230" text-anchor="middle" class="small">10</text>
+<line x1="204.0" y1="206" x2="204.0" y2="214" class="tick"/>
+<text x="204.0" y="230" text-anchor="middle" class="small">20</text>
+<line x1="288.0" y1="206" x2="288.0" y2="214" class="tick"/>
+<text x="288.0" y="230" text-anchor="middle" class="small">30</text>
+<line x1="372.0" y1="206" x2="372.0" y2="214" class="tick"/>
+<text x="372.0" y="230" text-anchor="middle" class="small">40</text>
+<line x1="456.0" y1="206" x2="456.0" y2="214" class="tick"/>
+<text x="456.0" y="230" text-anchor="middle" class="small">50</text>
+<line x1="540.0" y1="206" x2="540.0" y2="214" class="tick"/>
+<text x="540.0" y="230" text-anchor="middle" class="small">60</text>
+<line x1="624.0" y1="206" x2="624.0" y2="214" class="tick"/>
+<text x="624.0" y="230" text-anchor="middle" class="small">70</text>
+<line x1="708.0" y1="206" x2="708.0" y2="214" class="tick"/>
+<text x="708.0" y="230" text-anchor="middle" class="small">80</text>
+<text x="756.4" y="230" text-anchor="end" class="small">分钟</text>
+
+</svg>

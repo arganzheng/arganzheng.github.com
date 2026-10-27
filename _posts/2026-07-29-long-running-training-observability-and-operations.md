@@ -30,15 +30,16 @@ updated: 2026-09-20
 
 前文的符号与结论，本篇只用下面这些，在此复述以求自治：
 
-```text title="本篇用到的前文结论"
-MFU            观测吞吐 × 每 token FLOP / (卡数 × 标称峰值)，来自 PaLM 论文的定义；不计激活重计算的 FLOP
-               H100 SXM bf16 dense 标称 989 TFLOPS；1024 卡 70B dense 的设计目标 42%（第七篇候选 A：4.75 s/step）
-七项 MFU 损失   PP 气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler（第七篇）
-三类故障        显式（崩溃 / XID / NCCL 报错）· 隐式（hang / 变慢）· 静默（SDC / 坏数据）（第九篇）
-δ  M  τ        一次 checkpoint 的开销 · 平均故障间隔 · checkpoint 间隔；Young 公式 τ_opt ≈ √(2δM)（第八篇）
-有效训练时间    有用训练时间 / 总时间；每次故障的代价 = 检测 + 重启 + 加载 + 回退重算（第九篇）
-数值信号        loss · grad norm · params norm · lr · loss scale · 跳过的迭代数 · num_zeros_in_grad · 注意力 logit 最大值（第十篇）
-```
+| 概念 | 本篇沿用的结论 |
+|---|---|
+| MFU | 观测吞吐 × 每 token FLOP / (卡数 × 标称峰值)，来自 PaLM 论文的定义；不计激活重计算的 FLOP<br/>H100 SXM bf16 dense 标称 989 TFLOPS；1024 卡 70B dense 的设计目标 42%（第七篇候选 A：4.75 s/step） |
+| 七项 MFU 损失 | PP 气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler（第七篇） |
+| 三类故障 | 显式（崩溃 / XID / NCCL 报错）· 隐式（hang / 变慢）· 静默（SDC / 坏数据）（第九篇） |
+| δ、M、τ | 一次 checkpoint 的开销 · 平均故障间隔 · checkpoint 间隔；Young 公式 τ_opt ≈ √(2δM)（第八篇） |
+| 有效训练时间 | 有用训练时间 / 总时间；每次故障的代价 = 检测 + 重启 + 加载 + 回退重算（第九篇） |
+| 数值信号 | loss · grad norm · params norm · lr · loss scale · 跳过的迭代数 · num_zeros_in_grad · 注意力 logit 最大值（第十篇） |
+
+Table: 本篇用到的前文结论
 
 checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训练时间公式里唯一完全由监控决定的一项**。一个 hang 如果靠 NCCL 的 10 分钟默认超时才被发现，1024 张卡就空转 10 分钟；如果靠"step 计数 90 秒没动"的告警发现，就是 90 秒。两者相差的 8 分半钟，乘以每三小时一次的故障频率，就是 4–5 个百分点的有效训练时间。
 
@@ -46,53 +47,36 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 
 一个在线服务有四件运维基本功：看得见（metrics / logs / traces）、叫得醒（alerting）、查得出（debugging）、有章法（runbook / postmortem）。训练任务与在线服务的差别只在于：它是一个进程组而不是一群独立进程，所以"一个 rank 的问题是全体的问题"；它有一个内在的进度量（step）而不是请求量；它的故障后果是回退到上一个 checkpoint 而不是丢几个请求。这三个差别决定了本篇与通用运维手册不同的地方——**按 rank 看、以 step 为时钟、以 checkpoint 为恢复点**。
 
-```text title="三层指标：看得见与看不见"
-                 ┌──────────────────────── 看得见 ────────────────────────┐
-                 │  任务层   loss · grad norm · lr · token/s · MFU · step 时间 · 抖动     │
-                 │  进程层   每 rank 计算/等待时间 · 显存峰值与碎片 · 数据队列 · CPU       │
-                 │  硬件层   温度 · 功耗 · 频率 · XID · ECC · 行重映射 · 网卡错包重传      │
-                 └───────────────┬────────────────────────────────────────┘
-                                 │ 写入
-              TensorBoard / W&B（曲线，按 step）        Prometheus（时序，按时间与 rank）
-                                 │                                │
-                                 │                          告警规则（第五章）
-                                 │                                │
-                 ┌───────────────┴─────────── 查得出 ─────────────┴────────┐
-                 │  hang     Flight Recorder dump → fr_trace → 哪个 rank 缺席哪次集合通信   │
-                 │           py-spy dump 全部 rank → Python 栈；TORCH_DISTRIBUTED_DEBUG   │
-                 │  变慢     profiler 时间线对比 · 少数 rank 上的 Nsight · 硬件层指标对照   │
-                 └───────────────────────── 有章法 ──────────────────────────┘
-                     开训检查清单 · 值班手册 · 复盘模板 · 成本换算决定优先级
-```
+![四件运维基本功和三层指标](/img/in-post/long-running-training-observability-three-layers.svg)
 
 ### 3. 三层指标表
 
 三层的划分标准是**谁能采、谁来看**。任务层由训练循环自己算，一个任务一份；进程层每个 rank 一份，由训练进程或旁路的采集器采；硬件层与训练进程无关，由 DCGM 这类守护进程从驱动读，一张卡一份。
 
-```text title="三层指标表"
-层     指标                              采集点                                          正常形态 / 异常形态
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-任务   loss（全局平均 / 全局最大）         训练循环；跨 DP 归约后由一个 rank 写出           平滑下降；spike、NaN、平台（第十篇）
-       grad norm · params norm · lr      优化器 step 后                                   grad norm 缓慢下降且抖动稳定；持续上升 = 前兆
-       loss scale · 跳过 / NaN 迭代数     fp16 时；Megatron 的 skipped / nan iterations   为 0；连续非 0 = 数值问题
-       token/s · TFLOPS/GPU · MFU        用 6N + 12Lhs 与 step 时间算                      平直；缓慢下滑 = 性能回归；阶跃 = straggler / 降频
-       step 时间及其 p50 / p95 / 抖动     每 step 计时，最好每 rank                         抖动 1–2%；p95/p50 > 1.2 = 有 rank 在拖
-       step 计数是否前进                  最近一次 step 完成的时间戳                        持续前进；停止 = hang（唯一可靠的 hang 信号）
-       checkpoint 保存时长与成功/失败      checkpoint 组件                                  δ 稳定；失败 = 立即告警
-       数据加载等待 · 消费到的样本位置     dataloader                                        等待 ≈ 0；位置单调
-进程   每 rank 前向 / 反向 / 优化器时间    Megatron Timers（all 模式）· torchtitan 结构化日志  各 rank 一致；一个 rank 持续偏长 = straggler
-       每 rank 通信等待时间               集合通信 kernel 时长 − 理论传输时间               健康集群 < 2% step 时间
-       显存 allocated / reserved 峰值      torch.cuda.memory_stats                          稳定；reserved 持续上涨 = 碎片；num_alloc_retries > 0 = 快 OOM
-       inactive_split_bytes（碎片）        同上                                              稳定；上涨 = 碎片化
-       CPU 利用率 · dataloader 队列深度    进程或 node exporter                              队列满；空 = 数据跟不上
-       进程存活 · 最后一次日志时间戳        torchrun 日志目录                                 每 rank 都在写
-硬件   温度 · 功耗 · SM 时钟 · 降频原因    DCGM_FI_DEV_GPU_TEMP / POWER_USAGE / SM_CLOCK      SM 时钟贴近最大值；掉到 1.3 GHz 以下 = 降频
-       XID 错误                           DCGM_FI_DEV_XID_ERRORS · dmesg                   0；出现即隔离节点（第九篇）
-       ECC 单比特 / 双比特 · 行重映射      DCGM_FI_DEV_ECC_SBE/DBE_VOL_TOTAL · ROW_REMAP_*   SBE 缓慢增长可接受；DBE / 重映射待处理 = 换卡
-       NVLink / PCIe 错误与重放           DCGM_FI_DEV_NVLINK_*_ERROR_COUNT · PCIE_REPLAY     不增长；增长 = 链路问题 → straggler 的常见根因
-       网卡错包 · 重传 · 链路降速          IB 计数器（perfquery / rdma statistics）          不增长
-       Tensor core 活跃度                 DCGM_FI_PROF_PIPE_TENSOR_ACTIVE                   与 MFU 同趋势；某卡显著低 = 该卡有问题
-```
+| 层 | 指标 | 采集点 | 正常形态 / 异常形态 |
+|---|---|---|---|
+| 任务 | loss（全局平均 / 全局最大） | 训练循环；跨 DP 归约后由一个 rank 写出 | 平滑下降；spike、NaN、平台（第十篇） |
+| ^^ | grad norm · params norm · lr | 优化器 step 后 | grad norm 缓慢下降且抖动稳定；持续上升 = 前兆 |
+| ^^ | loss scale · 跳过 / NaN 迭代数 | fp16 时；Megatron 的 skipped / nan iterations | 为 0；连续非 0 = 数值问题 |
+| ^^ | token/s · TFLOPS/GPU · MFU | 用 6N + 12Lhs 与 step 时间算 | 平直；缓慢下滑 = 性能回归；阶跃 = straggler / 降频 |
+| ^^ | step 时间及其 p50 / p95 / 抖动 | 每 step 计时，最好每 rank | 抖动 1–2%；p95/p50 > 1.2 = 有 rank 在拖 |
+| ^^ | step 计数是否前进 | 最近一次 step 完成的时间戳 | 持续前进；停止 = hang（唯一可靠的 hang 信号） |
+| ^^ | checkpoint 保存时长与成功/失败 | checkpoint 组件 | δ 稳定；失败 = 立即告警 |
+| ^^ | 数据加载等待 · 消费到的样本位置 | dataloader | 等待 ≈ 0；位置单调 |
+| 进程 | 每 rank 前向 / 反向 / 优化器时间 | Megatron Timers（all 模式）· torchtitan 结构化日志 | 各 rank 一致；一个 rank 持续偏长 = straggler |
+| ^^ | 每 rank 通信等待时间 | 集合通信 kernel 时长 − 理论传输时间 | 健康集群 < 2% step 时间 |
+| ^^ | 显存 allocated / reserved 峰值 | `torch.cuda.memory_stats` | 稳定；reserved 持续上涨 = 碎片；num_alloc_retries > 0 = 快 OOM |
+| ^^ | inactive_split_bytes（碎片） | 同上 | 稳定；上涨 = 碎片化 |
+| ^^ | CPU 利用率 · dataloader 队列深度 | 进程或 node exporter | 队列满；空 = 数据跟不上 |
+| ^^ | 进程存活 · 最后一次日志时间戳 | torchrun 日志目录 | 每 rank 都在写 |
+| 硬件 | 温度 · 功耗 · SM 时钟 · 降频原因 | DCGM_FI_DEV_GPU_TEMP / POWER_USAGE / SM_CLOCK | SM 时钟贴近最大值；掉到 1.3 GHz 以下 = 降频 |
+| ^^ | XID 错误 | DCGM_FI_DEV_XID_ERRORS · dmesg | 0；出现即隔离节点（第九篇） |
+| ^^ | ECC 单比特 / 双比特 · 行重映射 | DCGM_FI_DEV_ECC_SBE/DBE_VOL_TOTAL · ROW_REMAP_* | SBE 缓慢增长可接受；DBE / 重映射待处理 = 换卡 |
+| ^^ | NVLink / PCIe 错误与重放 | DCGM_FI_DEV_NVLINK_*_ERROR_COUNT · PCIE_REPLAY | 不增长；增长 = 链路问题 → straggler 的常见根因 |
+| ^^ | 网卡错包 · 重传 · 链路降速 | IB 计数器（perfquery / rdma statistics） | 不增长 |
+| ^^ | Tensor core 活跃度 | DCGM_FI_PROF_PIPE_TENSOR_ACTIVE | 与 MFU 同趋势；某卡显著低 = 该卡有问题 |
+
+Table: 三层指标表
 
 表里有一行值得单独说：**"step 计数是否前进"是 hang 唯一可靠的信号**。GPU 利用率在 hang 时通常是 100%（NCCL kernel 在自旋等对端），功耗正常，进程活着，日志还在打 warning。只有"最近一次 step 完成的时间戳距现在多久"这个量能区分"在跑"和"卡住"。它必须由训练循环写出，并由一个独立于训练进程的东西（Prometheus 抓取、或一个 watchdog 脚本）读取——训练进程自己卡住时不会报告自己卡住了。
 
@@ -275,23 +259,23 @@ Flight Recorder 解决的正是第二个问题：在每个 rank 上持续记录�
 
 实现在 `torch/csrc/distributed/c10d/FlightRecorder.hpp` 与 `FlightRecorder.cpp`（模板实现在 `FlightRecorderDetail.hpp`，CUDA 事件的特化在 `FlightRecorderCuda.cpp`）。`FlightRecorder<EventType>` 是进程内单例（`get()`），核心是一个大小为 `max_entries_` 的环形数组 `entries_`，元素是 `Entry`：
 
-```text title="Flight Recorder 的 Entry 字段与 dump 键"
-Entry 字段（FlightRecorder.hpp）              dump 出来的键                    含义
-────────────────────────────────────────────────────────────────────────────────────────────────────────────
-id_ / reset_epoch_                          record_id                        环形缓冲里的序号
-pg_id_ / pg_name_                           pg_id / process_group            进程组的 uid 与 (name, desc)；desc 由 init_process_group 的 group_desc 给
-collective_seq_id_ / p2p_seq_id_ / op_id_   collective_seq_id / p2p_seq_id / op_id   集合通信序号（每个 kernel launch +1）/ p2p 序号 / 逻辑 op 序号（coalesced 组内每 op +1）
-profiling_name_                             profiling_name                  "nccl:all_reduce"、"nccl:_allgather_base" 一类的名字
-traceback_                                  frames                          发起时的 Python 栈（C++ 栈需 TORCH_FR_CPP_STACK）
-start_ / end_                               state                           两个 CUDA event；查询后得 scheduled / started / completed
-time_created_                               time_created_ns                 入队时间
-time_discovered_started_ / _completed_      time_discovered_started_ns / _completed_ns   watchdog 线程发现 kernel 开始 / 结束的时间（晚于实际）
-timeout_ms_                                 timeout_ms                      该 work 的超时
-isP2P_                                      is_p2p
-input_dims_ / input_dtypes_ / output_*      input_sizes / input_dtypes / output_sizes / output_dtypes   张量形状与类型——尺寸不匹配靠它抓
-duration_                                   duration_ms                     完成后的 kernel 时长（需 TORCH_NCCL_ENABLE_TIMING）
-retired_                                    retired                         已从 watchdog 的 work 列表移除；retired 但未 completed = 超时了
-```
+| Entry 字段（FlightRecorder.hpp） | dump 出来的键 | 含义 |
+|---|---|---|
+| `id_` / `reset_epoch_` | `record_id` | 环形缓冲里的序号 |
+| `pg_id_` / `pg_name_` | `pg_id` / `process_group` | 进程组的 uid 与 (name, desc)；desc 由 init_process_group 的 group_desc 给 |
+| `collective_seq_id_` / `p2p_seq_id_` / `op_id_` | `collective_seq_id` / `p2p_seq_id` / `op_id` | 集合通信序号（每个 kernel launch +1）/ p2p 序号 / 逻辑 op 序号（coalesced 组内每 op +1） |
+| `profiling_name_` | `profiling_name` | "nccl:all_reduce"、"nccl:_allgather_base" 一类的名字 |
+| `traceback_` | `frames` | 发起时的 Python 栈（C++ 栈需 TORCH_FR_CPP_STACK） |
+| `start_` / `end_` | `state` | 两个 CUDA event；查询后得 scheduled / started / completed |
+| `time_created_` | `time_created_ns` | 入队时间 |
+| `time_discovered_started_` / `_completed_` | `time_discovered_started_ns` / `_completed_ns` | watchdog 线程发现 kernel 开始 / 结束的时间（晚于实际） |
+| `timeout_ms_` | `timeout_ms` | 该 work 的超时 |
+| `isP2P_` | `is_p2p` |  |
+| `input_dims_` / `input_dtypes_` / `output_*` | `input_sizes` / `input_dtypes` / `output_sizes` / `output_dtypes` | 张量形状与类型——尺寸不匹配靠它抓 |
+| `duration_` | `duration_ms` | 完成后的 kernel 时长（需 TORCH_NCCL_ENABLE_TIMING） |
+| `retired_` | `retired` | 已从 watchdog 的 work 列表移除；retired 但未 completed = 超时了 |
+
+Table: Flight Recorder 的 Entry 字段与 dump 键
 
 `record()` 在 `ProcessGroupNCCL` 每次发起集合通信或 p2p 时被调用，`update_state()` 由 watchdog 线程在轮询时调用（查询两个 CUDA event 得出 `scheduled` / `started` / `completed`），`retire_id()` 在 work 完成时把 event 指针清掉并可选计算时长。`dump()` 产出 pickle，`dump_json()` 产出 JSON（不含栈，太大）；两者都带 `version`（`FlightRecorder.hpp` 里 `version_val` 为 "2.10"）、`pg_config`（每个进程组的 rank 列表，由 `record_pg_ranks()` 记录）、`pg_status`（每个进程组最后入队 / 开始 / 完成的序号）与 `entries`。
 
@@ -405,27 +389,24 @@ trace_dir                 每 rank 一个文件的目录，文件名 <prefix><ra
 
 匹配算法（`build_collectives()`）是贪心的：从第一个 rank 的第一条记录出发，在同一进程组的其他 rank 里找同一 `collective_seq_id` 的记录，逐个用 `types.py` 的 `Op.match()` 比较——操作类型、输入输出尺寸、dtype、状态——得到一个 `MatchState`：
 
-```text title="MatchState 的取值与典型根因"
-MatchState（types.py）              含义                                             典型根因
-────────────────────────────────────────────────────────────────────────────────────────────────────────────
-FULLY_MATCHED                       全部一致
-COLLECTIVE_TYPE_MISMATCH            同一序号上操作不同（一边 all_reduce 一边 broadcast）  rank 相关的控制流走了不同分支
-SIZE_OR_SYNTAX_MISMATCH             尺寸不一致，或 p2p 的 src/dst 对不上                  变长 batch 没有 pad；PP 收发配对错
-COLLECTIVE_DTYPE_MISMATCH           dtype 不一致                                       混精度路径不一致
-COLLECTIVE_STATE_MISMATCH           一边 completed 一边 scheduled                        对端没到；或该 rank 的 kernel 没被调度
-UNDECIDED                           需要看全部 rank 才能判断（all_to_all 的尺寸）
-```
+| MatchState（types.py） | 含义 | 典型根因 |
+|---|---|---|
+| `FULLY_MATCHED` | 全部一致 |  |
+| `COLLECTIVE_TYPE_MISMATCH` | 同一序号上操作不同（一边 all_reduce 一边 broadcast） | rank 相关的控制流走了不同分支 |
+| `SIZE_OR_SYNTAX_MISMATCH` | 尺寸不一致，或 p2p 的 src/dst 对不上 | 变长 batch 没有 pad；PP 收发配对错 |
+| `COLLECTIVE_DTYPE_MISMATCH` | dtype 不一致 | 混精度路径不一致 |
+| `COLLECTIVE_STATE_MISMATCH` | 一边 completed 一边 scheduled | 对端没到；或该 rank 的 kernel 没被调度 |
+| `UNDECIDED` | 需要看全部 rank 才能判断（all_to_all 的尺寸） |  |
+
+Table: MatchState 的取值与典型根因
 
 匹配失败时 `utils.py` 的 `error_analysis()` 分四种情况报告，每种都通过 `EntryState.log()` 打出同一组字段——序号、`record_id`、进程组、集合通信名、输入输出尺寸、world size、期望的 rank 集合、状态、栈：
 
-```text title="error_analysis() 的四种报告"
-case 1  "Not all ranks joining collective, sequence number: N"  + "missing ranks: {…}"      ← 有 rank 根本没发起这次通信
-case 2  all_to_all 的尺寸检查："Input/output mismatch in the collective sequence number: N"
-case 3  全部匹配，无输出
-case 4  "Collective sequence number: N has errors" + "error msg: Culprit rank R; Error type: SIZE_OR_SYNTAX_MISMATCH"  ← 有 rank 发了不一样的东西
-默认    缺 dump："We cannot decide what's wrong with this collective entry because we missed FR dumps from ranks (…)"
-        或 "No errors found for this collective entry, There could be some other reasons why we see collective timeout."
-```
+1. case 1：`Not all ranks joining collective, sequence number: N` + `missing ranks: {…}`——有 rank 根本没发起这次通信。
+2. case 2：all_to_all 的尺寸检查：`Input/output mismatch in the collective sequence number: N`。
+3. case 3：全部匹配，无输出。
+4. case 4：`Collective sequence number: N has errors` + `error msg: Culprit rank R; Error type: SIZE_OR_SYNTAX_MISMATCH`——有 rank 发了不一样的东西。
+5. 默认（缺 dump）：`We cannot decide what's wrong with this collective entry because we missed FR dumps from ranks (…)`；或 `No errors found for this collective entry, There could be some other reasons why we see collective timeout.`
 
 最后一条要认真对待：**FR 只能发现"通信层面的不一致"**。如果所有 rank 都正确地发起了同一次 all-reduce、尺寸一致、但它就是不完成，FR 会告诉你"没有错误"——那是 NCCL 或硬件的问题（网卡挂了、某张卡的 kernel 没被调度、GPU 掉了），要转向 dmesg、XID 与 NCCL 自己的调试输出。FR 的定位能力止步于"哪个 rank 在哪次通信上做了什么"。
 
@@ -484,14 +465,14 @@ all_reduce(input_sizes=[[1]], state=scheduled)
 
 把 8 个 rank 的环形缓冲按 `collective_seq_id` 对齐，分析器看到的就是下面这张表——"第一个不一致的列"就是答案，之后 rank 5 的每条记录都会与其他 rank 错开一格：
 
-```text title="8 个 rank 的环形缓冲按 seq 对齐"
-seq    rank 0,1,2,3,4,6,7          rank 5                  匹配结果
-─────  ──────────────────────────  ──────────────────────  ───────────────────
-2889   _allgather_base  completed  _allgather_base compl.  FULLY_MATCHED
-2890   _reduce_scatter  completed  _reduce_scatter compl.  FULLY_MATCHED
-2891 ► _allgather_base  scheduled  all_reduce [1]  sched.  case 1: missing {5}
-2892   （未发起，阻塞在 2891）      （未发起，等 7 rank）     —
-```
+| seq | rank 0,1,2,3,4,6,7 | rank 5 | 匹配结果 |
+|---|---|---|---|
+| 2889 | `_allgather_base` completed | `_allgather_base` completed | FULLY_MATCHED |
+| 2890 | `_reduce_scatter` completed | `_reduce_scatter` completed | FULLY_MATCHED |
+| **2891** | **`_allgather_base` scheduled** | **`all_reduce` [1] scheduled** | **case 1: missing {5}** |
+| 2892 | （未发起，阻塞在 2891） | （未发起，等 7 rank） | — |
+
+Table: 8 个 rank 的环形缓冲按 seq 对齐
 
 如果第二步的输出是 "Collective sequence number: 2891 has errors ... Culprit rank 5; Error type: SIZE_OR_SYNTAX_MISMATCH"，说明 rank 5 发了同类型但尺寸不同的张量——变长序列没有 pad 到一致、或某个 rank 的 micro-batch 数不同；如果是 "No errors found"，转第 5 节末尾的硬件路径。
 
@@ -513,20 +494,20 @@ done
 
 ### 8. 常见成因
 
-```text title="hang 的常见成因、FR 表现与修法"
-成因                                     FR 的表现                                              修法
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-rank 相关的条件分支里有集合通信            case 1 missing ranks，或 COLLECTIVE_TYPE_MISMATCH        集合通信放在分支外；要传的标志先本地算、再无条件 all_reduce
-某 rank 的 dataloader 耗尽 / 抛异常        该 rank 停在上一步末尾，其他 rank 停在本步第一次通信       每个 rank 的样本数一致（drop_last / 定长 epoch）；耗尽时 all_reduce 一个"结束"标志
-变长输入没有 pad                          SIZE_OR_SYNTAX_MISMATCH，culprit 是尺寸不同的 rank         pad 到一致；或先 all_gather 尺寸
-PP 的 send/recv 配对错                    p2p 记录里 src/dst 对不上；一边 scheduled 一边没有         调度表检查；用 batch_isend_irecv 成组
-不同 rank 上的 micro-batch 数不同          rank 间同一 step 内集合通信次数不同 → 序号错位            m 由 global batch 统一算，不由本地数据量算
-一个 rank 在 .item() 或 print(tensor) 上等  FR 无异常（通信都完成了）；py-spy 停在 .item()             找出并去掉训练循环里的同步点
-NCCL 初始化卡住                           FR 里没有记录（还没开始）；py-spy 在 ncclCommInitRank      TCPStore 可达性、NCCL_SOCKET_IFNAME、防火墙、网卡状态
-硬件：某卡 kernel 不调度 / 网卡掉          FR "No errors found"；dmesg 有 XID；DCGM 有 DBE/掉卡      隔离节点，重启（第九篇）
-GIL 死锁 / 日志锁                         FR 无异常；py-spy 多个线程互相等锁                        换日志 handler；避免在 hook 里打日志
-watchdog 自己卡死                         "watchdog got stuck for 480 seconds"，monitor 线程 abort   通常是 CUDA API hang，按硬件路径处理
-```
+| 成因 | FR 的表现 | 修法 |
+|---|---|---|
+| rank 相关的条件分支里有集合通信 | case 1 missing ranks，或 COLLECTIVE_TYPE_MISMATCH | 集合通信放在分支外；要传的标志先本地算、再无条件 all_reduce |
+| 某 rank 的 dataloader 耗尽 / 抛异常 | 该 rank 停在上一步末尾，其他 rank 停在本步第一次通信 | 每个 rank 的样本数一致（drop_last / 定长 epoch）；耗尽时 all_reduce 一个"结束"标志 |
+| 变长输入没有 pad | SIZE_OR_SYNTAX_MISMATCH，culprit 是尺寸不同的 rank | pad 到一致；或先 all_gather 尺寸 |
+| PP 的 send/recv 配对错 | p2p 记录里 src/dst 对不上；一边 scheduled 一边没有 | 调度表检查；用 batch_isend_irecv 成组 |
+| 不同 rank 上的 micro-batch 数不同 | rank 间同一 step 内集合通信次数不同 → 序号错位 | m 由 global batch 统一算，不由本地数据量算 |
+| 一个 rank 在 `.item()` 或 `print(tensor)` 上等 | FR 无异常（通信都完成了）；py-spy 停在 `.item()` | 找出并去掉训练循环里的同步点 |
+| NCCL 初始化卡住 | FR 里没有记录（还没开始）；py-spy 在 ncclCommInitRank | TCPStore 可达性、NCCL_SOCKET_IFNAME、防火墙、网卡状态 |
+| 硬件：某卡 kernel 不调度 / 网卡掉 | FR "No errors found"；dmesg 有 XID；DCGM 有 DBE/掉卡 | 隔离节点，重启（第九篇） |
+| GIL 死锁 / 日志锁 | FR 无异常；py-spy 多个线程互相等锁 | 换日志 handler；避免在 hook 里打日志 |
+| watchdog 自己卡死 | "watchdog got stuck for 480 seconds"，monitor 线程 abort | 通常是 CUDA API hang，按硬件路径处理 |
+
+Table: hang 的常见成因、FR 表现与修法
 
 前五条是**代码问题**，8 卡上开 `TORCH_DISTRIBUTED_DEBUG=DETAIL` 就能抓到；后四条是**环境问题**，只能靠 FR 排除掉代码问题后转向硬件层指标。把本章的工具按"先看什么、结果指向哪里"串起来，就是值班时从 step 停止到归因的决策树（第六章的 runbook 是它的命令版）：
 
@@ -563,18 +544,14 @@ flowchart TB
 
 hang 是阶跃，性能回归是斜坡：跑了三天，step 时间从 4.75 秒涨到 5.3 秒，MFU 从 42% 滑到 37%，没有任何报错。第七篇的七项拆解针对的是"一开始就不到预期"，本章针对"开始达标、后来变差"。四个嫌疑按出现频率：
 
-```text title="step 时间慢慢变长的四个嫌疑"
-嫌疑            机制                                                    证据（哪个指标）                                    处置
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-显存碎片        Caching Allocator 的块被切碎，大分配找不到连续块 → cudaFree +   inactive_split_bytes 持续上涨；num_alloc_retries > 0；    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True；
-                cudaMalloc 反复（每次是设备同步）→ step 时间上涨             num_device_alloc / num_device_free 稳态下仍增长            固定形状；避免每 step 变化的临时大张量
-日志过多        每 step 打几十行、或某个 warning 被触发几千次 → 主线程在      stdout 字节数 / step 上涨；py-spy 栈频繁在 logging；        限流 warning；warning 只在 rank 0；日志 handler 异步
-                写 stdout（经常是同步的管道）                                data_loading(%) 不变但 end_to_end 涨
-数据加载队列    数据源变慢（对象存储限流、某个 shard 大文件、在线 tokenize      data_loading(s) 与 data_loading(%) 上涨；GPU 有空隙          预取深度；worker 数；离线 tokenize（第十篇）
-                遇到长文档）→ GPU 等数据
-温度降频        机房温度 / 某节点风扇 / 某卡散热片 → SM 时钟从 1.98 GHz 掉到    DCGM_FI_DEV_SM_CLOCK 下降；CLOCK_THROTTLE_REASONS 温度位；   隔离节点（straggler，第九篇）；报机房
-                1.3 GHz → 该卡成为 straggler → 全体等它                     GPU_TEMP 上升；该 rank 的 fwd_bwd 时间偏长
-```
+| 嫌疑 | 机制 | 证据（哪个指标） | 处置 |
+|---|---|---|---|
+| 显存碎片 | Caching Allocator 的块被切碎，大分配找不到连续块 → cudaFree + cudaMalloc 反复（每次是设备同步）→ step 时间上涨 | inactive_split_bytes 持续上涨<br/>num_alloc_retries > 0<br/>num_device_alloc / num_device_free 稳态下仍增长 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`<br/>固定形状<br/>避免每 step 变化的临时大张量 |
+| 日志过多 | 每 step 打几十行、或某个 warning 被触发几千次 → 主线程在写 stdout（经常是同步的管道） | stdout 字节数 / step 上涨<br/>py-spy 栈频繁在 logging<br/>data_loading(%) 不变但 end_to_end 涨 | 限流 warning<br/>warning 只在 rank 0<br/>日志 handler 异步 |
+| 数据加载队列 | 数据源变慢（对象存储限流、某个 shard 大文件、在线 tokenize 遇到长文档）→ GPU 等数据 | data_loading(s) 与 data_loading(%) 上涨<br/>GPU 有空隙 | 预取深度<br/>worker 数<br/>离线 tokenize（第十篇） |
+| 温度降频 | 机房温度 / 某节点风扇 / 某卡散热片 → SM 时钟从 1.98 GHz 掉到 1.3 GHz → 该卡成为 straggler → 全体等它 | DCGM_FI_DEV_SM_CLOCK 下降<br/>CLOCK_THROTTLE_REASONS 温度位<br/>GPU_TEMP 上升<br/>该 rank 的 fwd_bwd 时间偏长 | 隔离节点（straggler，第九篇）<br/>报机房 |
+
+Table: step 时间慢慢变长的四个嫌疑
 
 还有两个不那么常见的：**checkpoint 变慢**（存储后端负载上升，异步保存的 staging 拷贝拖慢了 step；看 checkpoint 保存时长指标）和**主机内存泄漏**（某个 Python 对象每 step 增长，RSS 上涨到 swap；看进程 RSS）。
 
@@ -584,18 +561,18 @@ hang 是阶跃，性能回归是斜坡：跑了三天，step 时间从 4.75 秒�
 
 回归的证据是"现在"与"以前"的差，所以要有"以前"的 trace。第七篇的配置纪律要求每次基准存一份 profiler trace，本章用它：用 `mfu_breakdown.py`（第七篇）把新旧两份 trace 各拆成七项，做差——哪一项涨了，就是回归所在。
 
-```text title="新旧两份 trace 的七项拆解对比"
-项                 基准（第 100 步）   现在（第 51,300 步）   差         结论
-──────────────────────────────────────────────────────────────────────────────────────
-compute_s          3.21 s            3.24 s              +0.03      kernel 本身没变慢（排除降频：降频会让所有 kernel 变长）
-1 bubble           0.15 s            0.16 s              +0.01
-2 comm_exposed     0.38 s            0.39 s              +0.01
-3 recompute        0                 0                   0
-4 data_wait        0.01 s            0.02 s              +0.01
-5 kernel_eff       1.21 s            1.24 s              +0.03
-6 cpu_launch       0.22 s            0.71 s              +0.49      ← GPU 空、CPU 忙、不在 DataLoader：分配器重试 / 日志 / Python 侧变慢
-7 straggler        0.08 s            0.09 s              +0.01
-```
+| 项 | 基准（第 100 步） | 现在（第 51,300 步） | 差 | 结论 |
+|---|---|---|---|---|
+| compute_s | 3.21 s | 3.24 s | +0.03 | kernel 本身没变慢（排除降频：降频会让所有 kernel 变长） |
+| 1 bubble | 0.15 s | 0.16 s | +0.01 |  |
+| 2 comm_exposed | 0.38 s | 0.39 s | +0.01 |  |
+| 3 recompute | 0 | 0 | 0 |  |
+| 4 data_wait | 0.01 s | 0.02 s | +0.01 |  |
+| 5 kernel_eff | 1.21 s | 1.24 s | +0.03 |  |
+| **6 cpu_launch** | **0.22 s** | **0.71 s** | **+0.49** | **GPU 空、CPU 忙、不在 DataLoader：分配器重试 / 日志 / Python 侧变慢** |
+| 7 straggler | 0.08 s | 0.09 s | +0.01 |  |
+
+Table: 新旧两份 trace 的七项拆解对比
 
 `cpu_launch` 涨 0.5 秒而 `compute_s` 不变，把范围缩到"CPU 侧在 step 内多做了什么"——配合 `num_alloc_retries` 的上涨，就是碎片。若是 `compute_s` 整体涨、且只在某些 rank 上涨，是降频或硬件；若是 `data_wait` 涨，是数据；若是 `comm_exposed` 涨而 `compute_s` 不变，是网络。这张差分表把四个嫌疑对应到四个不同的桶，这是它比看单一 MFU 数字有用的地方。
 
@@ -753,23 +730,23 @@ flowchart TB
 
 一个千卡任务开训前的检查，每一项对应本系列的一篇，每一项都有一个"通过标准"：
 
-```text title="开训前的检查清单"
-项                                  做什么                                                        通过标准                                   出处
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-□ 硬件自检                          每张卡跑 gpu_sniff_test 类的自检：显存读写、GEMM 达峰、NVLink 带宽    达峰率 > 95% 且节点内一致；无 XID              第九篇
-□ 节点间带宽                        每对相邻节点的 all-reduce / all-gather 带宽（当作黑盒测）             与标称网卡带宽差 < 15%；无异常慢的节点          第二篇（通信量）
-□ 时钟与降频                        满载 5 分钟，读 DCGM_FI_DEV_SM_CLOCK 与 THROTTLE_REASONS               全部卡贴近最大时钟，无温度/功耗墙              本篇
-□ 显存账对账                        用 ledger 算出的每卡显存 vs 小规模 dry-run 的 allocated peak           实测在计算值 ±10% 内；reserved 留 10% 余量     第一、二、三篇
-□ MFU 基准                          100 步稳态，记录 step 时间 p50/p95、MFU、trace 一份                   MFU 在预期区间；p95/p50 < 1.15                 第七篇
-□ checkpoint 保存与恢复演练          存一次、kill 全部进程、从 checkpoint 恢复、比对 loss 与数据位置        loss 精确衔接；数据顺序一致；保存时长 δ 已记录   第五、七篇
-□ 换配置加载                        用不同 DP/TP 加载同一 checkpoint                                       成功且 loss 一致                               第八篇
-□ 故障注入                          kill 一个 rank；人为拖慢一个 rank；篡改一个梯度                        自动重启成功；straggler 被检测；SDC 被检测      第九篇
-□ Flight Recorder                   TORCH_FR_DUMP_TEMP_FILE 指向持久且可收集的路径；跑一次 hang 演练      所有 rank 的 dump 都能收到；fr_trace 指出正确 rank  本篇
-□ 指标与告警                        Prometheus 抓到每个 rank 的 train_*、每张卡的 DCGM_*；测试 page 通路   人为停止 step 计数 → 2 分钟内收到 page          本篇
-□ 日志                              torchrun --log-dir 落盘；rank → host/GPU 映射表已生成                 每 rank 一个文件；能从 rank 号查到物理卡        本篇
-□ 配置留痕                          启动脚本、环境变量、镜像 tag、框架 commit 进 git；启动时打印全部参数   变更表有条目                                   第七篇
-□ 值班                              runbook 已更新；值班表已排；page 通路已测                                                                              本篇
-```
+| 项 | 做什么 | 通过标准 | 出处 |
+|---|---|---|---|
+| 硬件自检 | 每张卡跑 gpu_sniff_test 类的自检：显存读写、GEMM 达峰、NVLink 带宽 | 达峰率 > 95% 且节点内一致<br/>无 XID | 第九篇 |
+| 节点间带宽 | 每对相邻节点的 all-reduce / all-gather 带宽（当作黑盒测） | 与标称网卡带宽差 < 15%<br/>无异常慢的节点 | 第二篇（通信量） |
+| 时钟与降频 | 满载 5 分钟，读 DCGM_FI_DEV_SM_CLOCK 与 THROTTLE_REASONS | 全部卡贴近最大时钟，无温度/功耗墙 | 本篇 |
+| 显存账对账 | 用 ledger 算出的每卡显存 vs 小规模 dry-run 的 allocated peak | 实测在计算值 ±10% 内<br/>reserved 留 10% 余量 | 第一、二、三篇 |
+| MFU 基准 | 100 步稳态，记录 step 时间 p50/p95、MFU、trace 一份 | MFU 在预期区间<br/>p95/p50 < 1.15 | 第七篇 |
+| checkpoint 保存与恢复演练 | 存一次、kill 全部进程、从 checkpoint 恢复、比对 loss 与数据位置 | loss 精确衔接<br/>数据顺序一致<br/>保存时长 δ 已记录 | 第五、七篇 |
+| 换配置加载 | 用不同 DP/TP 加载同一 checkpoint | 成功且 loss 一致 | 第八篇 |
+| 故障注入 | kill 一个 rank；人为拖慢一个 rank；篡改一个梯度 | 自动重启成功<br/>straggler 被检测<br/>SDC 被检测 | 第九篇 |
+| Flight Recorder | TORCH_FR_DUMP_TEMP_FILE 指向持久且可收集的路径；跑一次 hang 演练 | 所有 rank 的 dump 都能收到<br/>fr_trace 指出正确 rank | 本篇 |
+| 指标与告警 | Prometheus 抓到每个 rank 的 train_*、每张卡的 DCGM_*；测试 page 通路 | 人为停止 step 计数 → 2 分钟内收到 page | 本篇 |
+| 日志 | torchrun --log-dir 落盘；rank → host/GPU 映射表已生成 | 每 rank 一个文件<br/>能从 rank 号查到物理卡 | 本篇 |
+| 配置留痕 | 启动脚本、环境变量、镜像 tag、框架 commit 进 git；启动时打印全部参数 | 变更表有条目 | 第七篇 |
+| 值班 | runbook 已更新；值班表已排；page 通路已测 |  | 本篇 |
+
+Table: 开训前的检查清单
 
 其中"Flight Recorder 演练"与"指标与告警"两项最常被跳过，也最常在第一次事故时暴露：dump 写到了容器的 `/root/.cache` 里随进程消失；或者告警规则写好了但 Prometheus 从来没抓到过 `train_*` 指标。**开训前故意制造一次 hang、故意让 step 停一次**，是验证这两项的唯一办法。
 
@@ -853,35 +830,23 @@ $$
 
 **一次 hang**：从停止到 step 时间恢复基准，第六章复盘那个例子是 67 分钟（含回退重算），约 1,143 GPU 小时、2,860 美元。其中 43 分钟的停机可以拆成：检测 100 秒（有告警）或 10 分钟（只靠 NCCL 默认超时）、dump 与等待 1–2 分钟、人工决策 9 分钟（有 runbook）或 30 分钟以上（没有）、重启与 rendezvous 8 分钟、加载 7 分钟、回退重算 24 分钟。**告警与 runbook 两项合起来省下的时间（约 30 分钟 = 512 GPU 小时 = 1,280 美元）每次事故都在发生**——以每三小时一次的频率，一天 8 次，一个月就是 30 万美元。这就是本篇讨论的东西的价格。把两种情形的时间线并排（每格约 2 分钟），省下的正是最前面和中间那两段——检测靠告警、决策靠 runbook，其余四段（dump、重启、加载、回退重算）与监控无关：
 
-```text title="有无告警与 runbook 的两条事故时间线"
-每格 ≈ 2 分钟    D 检测    F dump 等待    H 人工决策
-                 R 重启与 rendezvous    L 加载    C 回退重算
+![有无告警与 runbook 的两条事故时间线](/img/in-post/long-running-training-observability-incident-timelines.svg)
 
-无告警、无 runbook（靠 NCCL 10 min 超时发现；从原则推导命令）
-  DDDDD F HHHHHHHHHHHHHHH RRRR LLLL CCCCCCCCCCCC
-  10    2  30+             8    7    24                          （分钟）
-
-有告警、有 runbook（step 停 100 s 即 page；照手册执行）
-  D F HHHHH RRRR LLLL CCCCCCCCCCCC
-  2 2 9     8    7    24                                         （分钟）
-
-差 ≈ 13 格 ≈ 30 min × 1024 卡 ≈ 512 GPU 小时 ≈ 1,280 美元/次
-每 3 h 一次 → 一天 8 次 → ≈ 30 万美元/月
-```
+两条相差约 30 分钟 × 1024 卡 ≈ 512 GPU 小时 ≈ 1,280 美元/次；每 3 h 一次，一天 8 次，≈ 30 万美元/月。
 
 **checkpoint 间隔**：第八篇的 Young 公式给出 $$\tau_{opt} \approx \sqrt{2\delta M}$$。$$\delta = 45$$ 秒（异步保存对 step 的实际干扰）、$$M = 3$$ 小时时 $$\tau_{opt} \approx 16$$ 分钟；间隔从 24 分钟缩到 16 分钟，平均回退重算从 12 分钟降到 8 分钟，每次故障省 4 分钟 × 1024 卡 = 68 GPU 小时，一天 8 次就是 550 GPU 小时，约 1,400 美元/天——而代价是每天多存 30 次 checkpoint 的存储与 I/O。
 
 把这些数字放在一起，就有了优先级：
 
-```text title="三项优化的投入与月度收益"
-优化项                            一次性投入                  月度收益（1024 卡、每 3 h 一次故障的假设下）
-──────────────────────────────────────────────────────────────────────────────────────────────────────
-step 停止告警 + hang runbook       2–3 人日                   ≈ 30 万美元（每次事故省 ~30 min）
-XID → 自动排除节点 + 自动重启      1–2 周（与调度器集成）       每次事故再省 5–10 min → ≈ 5–10 万美元
-checkpoint 间隔按 Young 公式调整   1 天                        ≈ 4 万美元
-修 1 个 MFU 点                     视原因，1 天到数周           ≈ 4.4 万美元
-Flight Recorder 路径与演练         半天                        不直接省钱，但把"无法归因"的 hang 从数小时缩到十分钟
-```
+| 优化项 | 一次性投入 | 月度收益（1024 卡、每 3 h 一次故障的假设下） |
+|---|---|---|
+| step 停止告警 + hang runbook | 2–3 人日 | ≈ 30 万美元（每次事故省 ~30 min） |
+| XID → 自动排除节点 + 自动重启 | 1–2 周（与调度器集成） | 每次事故再省 5–10 min → ≈ 5–10 万美元 |
+| checkpoint 间隔按 Young 公式调整 | 1 天 | ≈ 4 万美元 |
+| 修 1 个 MFU 点 | 视原因，1 天到数周 | ≈ 4.4 万美元 |
+| Flight Recorder 路径与演练 | 半天 | 不直接省钱，但把"无法归因"的 hang 从数小时缩到十分钟 |
+
+Table: 三项优化的投入与月度收益
 
 数字是假设下的估算，比例是可靠的：**可观测与运维的投入回收期以天计**，而它们常常是训练团队最后才做的事。
 
@@ -889,82 +854,62 @@ Flight Recorder 路径与演练         半天                        不直接�
 
 ### 1. 要点回顾
 
-```text title="要点回顾"
-三层指标      任务层（loss · grad norm · lr · token/s · MFU · step 时间与抖动 · step 是否前进）一份；
-              进程层（每 rank 阶段时间 · 通信等待 · memory_stats · 数据队列）每 rank 一份；
-              硬件层（温度 · 功耗 · 时钟 · XID · ECC · 行重映射 · 链路错误）每卡一份；"step 是否前进"是 hang 唯一可靠信号
-采集          Megatron：Timers（max/minmax/all，minmax 是 straggler 第一道探测）· training_log() · StragglerDetector；
-              torchtitan：MetricsProcessor.log()（mfu = flops/token × tps / get_peak_flops()，FP8 时为 N/A）· 每 rank JSONL 的 structured_logger · gantt_generator；
-              memory_stats 的 inactive_split_bytes / num_alloc_retries 看碎片；DCGM 的 DEV_* / PROF_* 看硬件
-分工          TB/W&B 按 step 看曲线；Prometheus 按时间与 rank 告警；训练进程写 JSONL、sidecar 暴露，避免千个抓取目标
-每 rank       torchrun --log-dir/--redirects/--tee/--local-ranks-filter；c10d 日志的 [PG ID x Rank z] 前缀；rank → host/GPU 映射表
-Flight Recorder  2.13.0 默认开（TORCH_FR_BUFFER_SIZE=2000，TORCH_NCCL_DUMP_ON_TIMEOUT=true，ENABLE_MONITORING=true）；
-              要做的是把 TORCH_FR_DUMP_TEMP_FILE 指到可收集的路径、缓冲加大到 2 万、ASYNC_ERROR_HANDLING 保持 3；
-              链路：watchdog 超时 → broadcastDumpSignal（TCPStore）→ 各 rank monitor 线程 dumpDebuggingInfo → DebugInfoWriter；
-              手动：TORCH_NCCL_DEBUG_INFO_PIPE_FILE 命名管道 / _dump_nccl_trace()；分析：torchfrtrace → missing ranks / Culprit rank
-FR 的边界     只能发现通信层面的不一致；"No errors found" → 转硬件路径（dmesg XID、DCGM、IB 计数器）
-py-spy        py-spy dump --pid --native，只读无副作用；多数 rank 停在 wait、少数停在别处 → 少数是嫌疑人
-DEBUG=DETAIL  ProcessGroupWrapper 在发起前校验类型与形状；只用于 8 卡复现，不上生产
-性能回归      四个嫌疑各一个决定性指标：inactive_split_bytes / stdout 字节数 / data_loading(%) / SM_CLOCK；两份 trace 用 mfu_breakdown 做差
-告警          page：step 停止 · NaN · 连续重启失败 · checkpoint 失败 · 有效训练时间跌破 · MFU 掉 15% · XID/DBE；其余 record；按 job 聚合、抑制成串
-流程          开训清单 13 项（FR 演练与 page 通路测试最常被跳过）；runbook 症状 → 五分钟检查 → 处置 → 升级；复盘写检测时间与恢复分解
-成本          假设 2.5 $/卡时：1024 卡一天 6.1 万美元；1 MFU 点 ≈ 30 天任务的 0.7 天；告警 + runbook 每次事故省 ~30 min ≈ 512 GPU 小时
-```
+- **三层指标**：任务层（loss · grad norm · lr · token/s · MFU · step 时间与抖动 · step 是否前进）一份；进程层（每 rank 阶段时间 · 通信等待 · memory_stats · 数据队列）每 rank 一份；硬件层（温度 · 功耗 · 时钟 · XID · ECC · 行重映射 · 链路错误）每卡一份。"step 是否前进"是 hang 唯一可靠信号。
+- **采集**：Megatron 是 Timers（max/minmax/all，minmax 是 straggler 第一道探测）· `training_log()` · StragglerDetector；torchtitan 是 `MetricsProcessor.log()`（mfu = flops/token × tps / `get_peak_flops()`，FP8 时为 N/A）· 每 rank JSONL 的 structured_logger · gantt_generator；memory_stats 的 inactive_split_bytes / num_alloc_retries 看碎片；DCGM 的 DEV_* / PROF_* 看硬件。
+- **分工**：TB/W&B 按 step 看曲线；Prometheus 按时间与 rank 告警；训练进程写 JSONL、sidecar 暴露，避免千个抓取目标。
+- **每 rank**：torchrun --log-dir/--redirects/--tee/--local-ranks-filter；c10d 日志的 `[PG ID x Rank z]` 前缀；rank → host/GPU 映射表。
+- **Flight Recorder**：2.13.0 默认开（TORCH_FR_BUFFER_SIZE=2000，TORCH_NCCL_DUMP_ON_TIMEOUT=true，ENABLE_MONITORING=true）；要做的是把 TORCH_FR_DUMP_TEMP_FILE 指到可收集的路径、缓冲加大到 2 万、ASYNC_ERROR_HANDLING 保持 3。链路：watchdog 超时 → broadcastDumpSignal（TCPStore）→ 各 rank monitor 线程 dumpDebuggingInfo → DebugInfoWriter。手动：TORCH_NCCL_DEBUG_INFO_PIPE_FILE 命名管道 / `_dump_nccl_trace()`；分析：torchfrtrace → missing ranks / Culprit rank。
+- **FR 的边界**：只能发现通信层面的不一致；"No errors found" → 转硬件路径（dmesg XID、DCGM、IB 计数器）。
+- **py-spy**：`py-spy dump --pid --native`，只读无副作用；多数 rank 停在 wait、少数停在别处 → 少数是嫌疑人。
+- **DEBUG=DETAIL**：ProcessGroupWrapper 在发起前校验类型与形状；只用于 8 卡复现，不上生产。
+- **性能回归**：四个嫌疑各一个决定性指标：inactive_split_bytes / stdout 字节数 / data_loading(%) / SM_CLOCK；两份 trace 用 mfu_breakdown 做差。
+- **告警**：page：step 停止 · NaN · 连续重启失败 · checkpoint 失败 · 有效训练时间跌破 · MFU 掉 15% · XID/DBE；其余 record；按 job 聚合、抑制成串。
+- **流程**：开训清单 13 项（FR 演练与 page 通路测试最常被跳过）；runbook 症状 → 五分钟检查 → 处置 → 升级；复盘写检测时间与恢复分解。
+- **成本**：假设 2.5 $/卡时：1024 卡一天 6.1 万美元；1 MFU 点 ≈ 30 天任务的 0.7 天；告警 + runbook 每次事故省 ~30 min ≈ 512 GPU 小时。
 
 ### 2. 本篇涉及的源码位置
 
-```text title="本篇涉及的源码位置"
-项目              路径                                                        关键符号 / 内容
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-PyTorch v2.13.0   torch/csrc/distributed/c10d/FlightRecorder.hpp              FlightRecorder<EventType>：Entry（各字段）· record / update_state / retire_id / dump / dump_json ·
-                                                                               getCollectiveTrace / getPgConfig / getPgStatus；DebugInfoWriter：write / getWriter / registerWriter；
-                                                                               version_val "2.10"；TORCH_INCLUDE_STACK_TRACE / TORCH_INCLUDE_ONLY_ACTIVE；dump_fr_trace / dump_fr_trace_json
-                  torch/csrc/distributed/c10d/FlightRecorder.cpp              DebugInfoWriter::getWriter 的默认路径（$XDG_CACHE_HOME|$HOME/.cache/torch/comm_lib_trace_rank_）；
-                                                                               TORCH_FR_DUMP_TEMP_FILE / TORCH_NCCL_DEBUG_INFO_TEMP_FILE / TORCH_FR_DUMP_DYNAMIC_FILE_NAME
-                  torch/csrc/distributed/c10d/FlightRecorderDetail.hpp · FlightRecorderCuda.cpp   模板实现；CUDA event 特化
-                  torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp            环境变量定义：TORCH_NCCL_DUMP_ON_TIMEOUT / ENABLE_MONITORING / HEARTBEAT_TIMEOUT_SEC / TRACE_BUFFER_SIZE /
-                                                                               WAIT_TIMEOUT_DUMP_MILSEC / COORD_CHECK_MILSEC / PROPAGATE_ERROR / DESYNC_DEBUG / ASYNC_ERROR_HANDLING /
-                                                                               ENABLE_TIMING / LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN；DumpPipe；ErrorHandlingMode；kProcessGroupNCCLDefaultTimeout（10 min）；
-                                                                               HeartbeatMonitor · Watchdog · DesyncDebugger
-                  torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp            构造函数读 traceBufferSize_ / debugInfoPipeFile_；HeartbeatMonitor 构造函数的默认值；HeartbeatMonitor::runLoop；
-                                                                               Watchdog::runLoop 的超时分支；broadcastDumpSignal；dumpDebuggingInfo；getNCCLWatchdogTimeoutErrorMsg
-                  torch/csrc/distributed/c10d/init.cpp                        _dump_nccl_trace / _dump_nccl_trace_json 的 Python 绑定
-                  torch/csrc/distributed/c10d/debug.cpp · debug.h             TORCH_DISTRIBUTED_DEBUG 解析；DebugLevel
-                  torch/csrc/distributed/c10d/ProcessGroupWrapper.hpp/.cpp    DETAIL 下的发起前校验
-                  torch/distributed/distributed_c10d.py                       DETAIL 时包装 ProcessGroupWrapper
-                  torch/distributed/flight_recorder/fr_trace.py               main（torchfrtrace 入口，setup.py console_scripts）
-                  torch/distributed/flight_recorder/components/config_manager.py   JobConfig：全部命令行参数
-                  torch/distributed/flight_recorder/components/loader.py      read_dir / read_dump / _determine_prefix
-                  torch/distributed/flight_recorder/components/builder.py     build_db / build_groups_memberships / build_collectives / transform_ft
-                  torch/distributed/flight_recorder/components/types.py       MatchState / MatchInfo / Op.match / EntryState.log / Database / Collective / NCCLCall / Group / Membership
-                  torch/distributed/flight_recorder/components/utils.py       error_analysis（四种情况）· just_print_entries · align_trace_from_beginning · check_no_missing_dump_files · check_version
-                  torch/cuda/memory.py                                        memory_stats（各键的文档）· reset_peak_memory_stats · _record_memory_history · _snapshot · _dump_snapshot · memory_summary
-                  torch/distributed/run.py                                    --log-dir / --redirects / --tee / --local-ranks-filter
-Megatron Core     megatron/core/timers.py                                     TimerBase / DummyTimer / Timer / Timers：__call__ · _get_elapsed_time_all_ranks · _get_global_min_max_time · log · write
-0.18.0            megatron/training/training.py                               training_log（timers_to_log 两级 · elapsed time per iteration · throughput per GPU · memory_stats 四项 · print_rank_last）；
-                                                                               train_step 返回 grad_norm / num_zeros_in_grad；stimer（StragglerDetector 单例）· stimer.report
-                  megatron/training/config/training_config.py                 log_interval · timing_log_level · timing_log_option · log_throughput · log_timers_to_tensorboard · log_memory_to_tensorboard ·
-                                                                               log_memory_interval · log_params_norm · log_num_zeros_in_grad · log_max_attention_logit · log_energy
-                  megatron/training/config/common_config.py                   record_memory_history
-                  megatron/training/config/resilience_config.py               StragglerDetectionConfig：log_straggler · straggler_ctrlr_port · straggler_minmax_count · disable_straggler_on_startup
-                  megatron/core/utils.py                                      StragglerDetector（configure / report）
-                  megatron/training/utils/common_utils.py                     report_memory · print_rank_last
-                  megatron/training/ft_integration.py                         RankMonitorClient 的接入（心跳，第九篇）
-torchtitan v0.3.0 torchtitan/components/metrics.py                            DeviceMemoryMonitor.get_peak_stats · BaseLogger / TensorBoardLogger / WandBLogger / LoggerContainer ·
-                                                                               _get_metrics_rank · MetricsProcessor（Config：log_freq / enable_tensorboard / enable_wandb / save_for_all_ranks；log；log_validation）
-                  torchtitan/tools/utils.py                                   get_peak_flops（按设备名查标称峰值；lspci 区分 SXM/PCIe/NVL）
-                  torchtitan/trainer.py                                       ntokens_since_last_log / data_loading_times 的累加；dist_sum / dist_max 归约 loss；isfinite 检查；sl.log_trace_span 埋点
-                  torchtitan/observability/structured_logger/structured_logging.py   init_structured_logger · log_trace_span · log_trace_instant · log_trace_scalar · LogType · event_extra · TraceEventsOnlyFilter
-                  torchtitan/observability/structured_logger/step_state.py    set_step · add_step_tag · get_step
-                  torchtitan/observability/structured_logger/jsonl_handler.py TraceJsonlFormatter · TraceJsonlHandler（文件名格式）· register_jsonl_handler；TITAN_STRUCT_LOGGER_HANDLERS
-                  torchtitan/observability/structured_logger/gantt_generator.py   generate_gantt_trace（JSONL → Chrome trace）
-                  torchtitan/distributed/utils.py                             init_distributed：强制 TORCH_NCCL_ASYNC_ERROR_HANDLING=3；按 CommConfig 设 TORCH_FR_BUFFER_SIZE / TORCH_NCCL_DUMP_ON_TIMEOUT / TORCH_FR_DUMP_TEMP_FILE
-                  torchtitan/config/configs.py                                CommConfig：init_timeout_seconds（300）· train_timeout_seconds（100）· trace_buf_size（20000）· save_traces_folder · save_traces_file_prefix；
-                                                                               DebugConfig.enable_structured_logging
-                  torchtitan/tools/profiler.py                                Profiler.Config（第七篇）
-DeepSpeed 0.19.2  deepspeed/utils/timer.py · deepspeed/monitor/ · deepspeed/profiling/flops_profiler/   SynchronizedWallClockTimer · ThroughputTimer；tensorboard/wandb/comet/csv monitor；flops profiler
-工具              torchfrtrace · py-spy dump · nsys profile --capture-range=cudaProfilerApi · dcgm-exporter · perfquery · Prometheus / Alertmanager / Grafana
-```
+| 项目 | 路径 | 关键符号 / 内容 |
+|---|---|---|
+| PyTorch v2.13.0 | `torch/csrc/distributed/c10d/FlightRecorder.hpp` | `FlightRecorder<EventType>`：Entry（各字段）· record / update_state / retire_id / dump / dump_json · getCollectiveTrace / getPgConfig / getPgStatus<br/>DebugInfoWriter：write / getWriter / registerWriter<br/>version_val "2.10"；TORCH_INCLUDE_STACK_TRACE / TORCH_INCLUDE_ONLY_ACTIVE；dump_fr_trace / dump_fr_trace_json |
+|  | `torch/csrc/distributed/c10d/FlightRecorder.cpp` | DebugInfoWriter::getWriter 的默认路径（`$XDG_CACHE_HOME\|$HOME/.cache/torch/comm_lib_trace_rank_`）<br/>TORCH_FR_DUMP_TEMP_FILE / TORCH_NCCL_DEBUG_INFO_TEMP_FILE / TORCH_FR_DUMP_DYNAMIC_FILE_NAME |
+|  | `torch/csrc/distributed/c10d/FlightRecorderDetail.hpp` · `FlightRecorderCuda.cpp` | 模板实现；CUDA event 特化 |
+|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | 环境变量定义：TORCH_NCCL_DUMP_ON_TIMEOUT / ENABLE_MONITORING / HEARTBEAT_TIMEOUT_SEC / TRACE_BUFFER_SIZE / WAIT_TIMEOUT_DUMP_MILSEC / COORD_CHECK_MILSEC / PROPAGATE_ERROR / DESYNC_DEBUG / ASYNC_ERROR_HANDLING / ENABLE_TIMING / LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN<br/>DumpPipe；ErrorHandlingMode；kProcessGroupNCCLDefaultTimeout（10 min）<br/>HeartbeatMonitor · Watchdog · DesyncDebugger |
+|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | 构造函数读 traceBufferSize_ / debugInfoPipeFile_<br/>HeartbeatMonitor 构造函数的默认值；HeartbeatMonitor::runLoop<br/>Watchdog::runLoop 的超时分支；broadcastDumpSignal；dumpDebuggingInfo；getNCCLWatchdogTimeoutErrorMsg |
+|  | `torch/csrc/distributed/c10d/init.cpp` | `_dump_nccl_trace` / `_dump_nccl_trace_json` 的 Python 绑定 |
+|  | `torch/csrc/distributed/c10d/debug.cpp` · `debug.h` | TORCH_DISTRIBUTED_DEBUG 解析；DebugLevel |
+|  | `torch/csrc/distributed/c10d/ProcessGroupWrapper.hpp/.cpp` | DETAIL 下的发起前校验 |
+|  | `torch/distributed/distributed_c10d.py` | DETAIL 时包装 ProcessGroupWrapper |
+|  | `torch/distributed/flight_recorder/fr_trace.py` | main（torchfrtrace 入口，setup.py console_scripts） |
+|  | `torch/distributed/flight_recorder/components/config_manager.py` | JobConfig：全部命令行参数 |
+|  | `torch/distributed/flight_recorder/components/loader.py` | read_dir / read_dump / _determine_prefix |
+|  | `torch/distributed/flight_recorder/components/builder.py` | build_db / build_groups_memberships / build_collectives / transform_ft |
+|  | `torch/distributed/flight_recorder/components/types.py` | MatchState / MatchInfo / Op.match / EntryState.log / Database / Collective / NCCLCall / Group / Membership |
+|  | `torch/distributed/flight_recorder/components/utils.py` | error_analysis（四种情况）· just_print_entries · align_trace_from_beginning · check_no_missing_dump_files · check_version |
+|  | `torch/cuda/memory.py` | memory_stats（各键的文档）· reset_peak_memory_stats · _record_memory_history · _snapshot · _dump_snapshot · memory_summary |
+|  | `torch/distributed/run.py` | --log-dir / --redirects / --tee / --local-ranks-filter |
+| Megatron Core 0.18.0 | `megatron/core/timers.py` | TimerBase / DummyTimer / Timer / Timers：__call__ · _get_elapsed_time_all_ranks · _get_global_min_max_time · log · write |
+|  | `megatron/training/training.py` | training_log（timers_to_log 两级 · elapsed time per iteration · throughput per GPU · memory_stats 四项 · print_rank_last）<br/>train_step 返回 grad_norm / num_zeros_in_grad；stimer（StragglerDetector 单例）· stimer.report |
+|  | `megatron/training/config/training_config.py` | log_interval · timing_log_level · timing_log_option · log_throughput · log_timers_to_tensorboard · log_memory_to_tensorboard · log_memory_interval · log_params_norm · log_num_zeros_in_grad · log_max_attention_logit · log_energy |
+|  | `megatron/training/config/common_config.py` | record_memory_history |
+|  | `megatron/training/config/resilience_config.py` | StragglerDetectionConfig：log_straggler · straggler_ctrlr_port · straggler_minmax_count · disable_straggler_on_startup |
+|  | `megatron/core/utils.py` | StragglerDetector（configure / report） |
+|  | `megatron/training/utils/common_utils.py` | report_memory · print_rank_last |
+|  | `megatron/training/ft_integration.py` | RankMonitorClient 的接入（心跳，第九篇） |
+| torchtitan v0.3.0 | `torchtitan/components/metrics.py` | DeviceMemoryMonitor.get_peak_stats · BaseLogger / TensorBoardLogger / WandBLogger / LoggerContainer · _get_metrics_rank · MetricsProcessor（Config：log_freq / enable_tensorboard / enable_wandb / save_for_all_ranks；log；log_validation） |
+|  | `torchtitan/tools/utils.py` | get_peak_flops（按设备名查标称峰值；lspci 区分 SXM/PCIe/NVL） |
+|  | `torchtitan/trainer.py` | ntokens_since_last_log / data_loading_times 的累加；dist_sum / dist_max 归约 loss；isfinite 检查；sl.log_trace_span 埋点 |
+|  | `torchtitan/observability/structured_logger/structured_logging.py` | init_structured_logger · log_trace_span · log_trace_instant · log_trace_scalar · LogType · event_extra · TraceEventsOnlyFilter |
+|  | `torchtitan/observability/structured_logger/step_state.py` | set_step · add_step_tag · get_step |
+|  | `torchtitan/observability/structured_logger/jsonl_handler.py` | TraceJsonlFormatter · TraceJsonlHandler（文件名格式）· register_jsonl_handler；TITAN_STRUCT_LOGGER_HANDLERS |
+|  | `torchtitan/observability/structured_logger/gantt_generator.py` | generate_gantt_trace（JSONL → Chrome trace） |
+|  | `torchtitan/distributed/utils.py` | init_distributed：强制 TORCH_NCCL_ASYNC_ERROR_HANDLING=3；按 CommConfig 设 TORCH_FR_BUFFER_SIZE / TORCH_NCCL_DUMP_ON_TIMEOUT / TORCH_FR_DUMP_TEMP_FILE |
+|  | `torchtitan/config/configs.py` | CommConfig：init_timeout_seconds（300）· train_timeout_seconds（100）· trace_buf_size（20000）· save_traces_folder · save_traces_file_prefix<br/>DebugConfig.enable_structured_logging |
+|  | `torchtitan/tools/profiler.py` | Profiler.Config（第七篇） |
+| DeepSpeed 0.19.2 | `deepspeed/utils/timer.py` · `deepspeed/monitor/` · `deepspeed/profiling/flops_profiler/` | SynchronizedWallClockTimer · ThroughputTimer；tensorboard/wandb/comet/csv monitor；flops profiler |
+| 工具 |  | torchfrtrace · py-spy dump · nsys profile --capture-range=cudaProfilerApi · dcgm-exporter · perfquery · Prometheus / Alertmanager / Grafana |
+
+Table: 本篇涉及的源码位置
 
 ### 3. train-ledger 本篇增量：`dash/`、`runbook.md` 与 hang 演练
 
