@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="656.39952pt" height="382.79952pt" viewBox="0 0 656.39952 382.79952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="685.19952pt" height="411.59952pt" viewBox="0 0 685.19952 411.59952" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -20,121 +20,121 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 382.79952 
-L 656.39952 382.79952 
-L 656.39952 0 
+   <path d="M 0 411.59952 
+L 685.19952 411.59952 
+L 685.19952 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
-    <path d="M 26.953831 155.115761 
-L 132.513368 155.115761 
-Q 139.921055 155.115761 139.921055 152.039244 
-L 139.921055 68.460516 
-Q 139.921055 65.383999 132.513368 65.383999 
-L 26.953831 65.383999 
-Q 19.546145 65.383999 19.546145 68.460516 
-L 19.546145 152.039244 
-Q 19.546145 155.115761 26.953831 155.115761 
+    <path d="M 27.839985 161.519826 
+L 144.584902 161.519826 
+Q 152.324896 161.519826 152.324896 158.20783 
+L 152.324896 62.711951 
+Q 152.324896 59.399955 144.584902 59.399955 
+L 27.839985 59.399955 
+Q 20.099991 59.399955 20.099991 62.711951 
+L 20.099991 158.20783 
+Q 20.099991 161.519826 27.839985 161.519826 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
-    <path d="M 175.107567 155.115761 
-L 280.667103 155.115761 
-Q 288.07479 155.115761 288.07479 152.039244 
-L 288.07479 68.460516 
-Q 288.07479 65.383999 280.667103 65.383999 
-L 175.107567 65.383999 
-Q 167.69988 65.383999 167.69988 68.460516 
-L 167.69988 152.039244 
-Q 167.69988 155.115761 175.107567 155.115761 
+    <path d="M 185.864872 161.519826 
+L 302.609789 161.519826 
+Q 310.349783 161.519826 310.349783 158.20783 
+L 310.349783 62.711951 
+Q 310.349783 59.399955 302.609789 59.399955 
+L 185.864872 59.399955 
+Q 178.124878 59.399955 178.124878 62.711951 
+L 178.124878 158.20783 
+Q 178.124878 161.519826 185.864872 161.519826 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
-    <path d="M 26.953831 267.921405 
-L 132.513368 267.921405 
-Q 139.921055 267.921405 139.921055 264.844888 
-L 139.921055 181.26616 
-Q 139.921055 178.189643 132.513368 178.189643 
-L 26.953831 178.189643 
-Q 19.546145 178.189643 19.546145 181.26616 
-L 19.546145 264.844888 
-Q 19.546145 267.921405 26.953831 267.921405 
+    <path d="M 27.839985 288.479666 
+L 144.584902 288.479666 
+Q 152.324896 288.479666 152.324896 285.16767 
+L 152.324896 189.671791 
+Q 152.324896 186.359795 144.584902 186.359795 
+L 27.839985 186.359795 
+Q 20.099991 186.359795 20.099991 189.671791 
+L 20.099991 285.16767 
+Q 20.099991 288.479666 27.839985 288.479666 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
-    <path d="M 175.107567 267.921405 
-L 280.667103 267.921405 
-Q 288.07479 267.921405 288.07479 264.844888 
-L 288.07479 181.26616 
-Q 288.07479 178.189643 280.667103 178.189643 
-L 175.107567 178.189643 
-Q 167.69988 178.189643 167.69988 181.26616 
-L 167.69988 264.844888 
-Q 167.69988 267.921405 175.107567 267.921405 
+    <path d="M 185.864872 288.479666 
+L 302.609789 288.479666 
+Q 310.349783 288.479666 310.349783 285.16767 
+L 310.349783 189.671791 
+Q 310.349783 186.359795 302.609789 186.359795 
+L 185.864872 186.359795 
+Q 178.124878 186.359795 178.124878 189.671791 
+L 178.124878 285.16767 
+Q 178.124878 288.479666 185.864872 288.479666 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
-    <path d="M 354.126664 155.115761 
-L 459.6862 155.115761 
-Q 467.093887 155.115761 467.093887 152.039244 
-L 467.093887 68.460516 
-Q 467.093887 65.383999 459.6862 65.383999 
-L 354.126664 65.383999 
-Q 346.718977 65.383999 346.718977 68.460516 
-L 346.718977 152.039244 
-Q 346.718977 155.115761 354.126664 155.115761 
+    <path d="M 376.139736 161.519826 
+L 492.884652 161.519826 
+Q 500.624647 161.519826 500.624647 158.20783 
+L 500.624647 62.711951 
+Q 500.624647 59.399955 492.884652 59.399955 
+L 376.139736 59.399955 
+Q 368.399742 59.399955 368.399742 62.711951 
+L 368.399742 158.20783 
+Q 368.399742 161.519826 376.139736 161.519826 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
-    <path d="M 502.280399 155.115761 
-L 607.839936 155.115761 
-Q 615.247622 155.115761 615.247622 152.039244 
-L 615.247622 68.460516 
-Q 615.247622 65.383999 607.839936 65.383999 
-L 502.280399 65.383999 
-Q 494.872712 65.383999 494.872712 68.460516 
-L 494.872712 152.039244 
-Q 494.872712 155.115761 502.280399 155.115761 
+    <path d="M 534.164623 161.519826 
+L 650.909539 161.519826 
+Q 658.649534 161.519826 658.649534 158.20783 
+L 658.649534 62.711951 
+Q 658.649534 59.399955 650.909539 59.399955 
+L 534.164623 59.399955 
+Q 526.424628 59.399955 526.424628 62.711951 
+L 526.424628 158.20783 
+Q 526.424628 161.519826 534.164623 161.519826 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_8">
-    <path d="M 354.126664 267.921405 
-L 459.6862 267.921405 
-Q 467.093887 267.921405 467.093887 264.844888 
-L 467.093887 181.26616 
-Q 467.093887 178.189643 459.6862 178.189643 
-L 354.126664 178.189643 
-Q 346.718977 178.189643 346.718977 181.26616 
-L 346.718977 264.844888 
-Q 346.718977 267.921405 354.126664 267.921405 
+    <path d="M 376.139736 288.479666 
+L 492.884652 288.479666 
+Q 500.624647 288.479666 500.624647 285.16767 
+L 500.624647 189.671791 
+Q 500.624647 186.359795 492.884652 186.359795 
+L 376.139736 186.359795 
+Q 368.399742 186.359795 368.399742 189.671791 
+L 368.399742 285.16767 
+Q 368.399742 288.479666 376.139736 288.479666 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_9">
-    <path d="M 502.280399 267.921405 
-L 607.839936 267.921405 
-Q 615.247622 267.921405 615.247622 264.844888 
-L 615.247622 181.26616 
-Q 615.247622 178.189643 607.839936 178.189643 
-L 502.280399 178.189643 
-Q 494.872712 178.189643 494.872712 181.26616 
-L 494.872712 264.844888 
-Q 494.872712 267.921405 502.280399 267.921405 
+    <path d="M 534.164623 288.479666 
+L 650.909539 288.479666 
+Q 658.649534 288.479666 658.649534 285.16767 
+L 658.649534 189.671791 
+Q 658.649534 186.359795 650.909539 186.359795 
+L 534.164623 186.359795 
+Q 526.424628 186.359795 526.424628 189.671791 
+L 526.424628 285.16767 
+Q 526.424628 288.479666 534.164623 288.479666 
 z
-" clip-path="url(#p34402f2a97)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p5dcee543a4)" style="fill: #f7f9fc; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- GPU 0  tp0 dp0 pp0 -->
-    <g transform="translate(35.380475 79.059057) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(34.856193 75.779939) scale(0.11 -0.11)">
      <defs>
       <path id="STHeitiSC-Medium-29" d="M 5325 2675 
 Q 5306 1536 4662 902 
@@ -320,7 +320,7 @@ z
    </g>
    <g id="text_2">
     <!-- layers 0–7 + embedding -->
-    <g transform="translate(30.880514 107.650498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(25.864514 107.452392) scale(0.105 -0.105)">
      <defs>
       <path id="STHeitiSC-Medium-4e" d="M 902 384 
 L 378 384 
@@ -614,7 +614,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-49" transform="translate(1082.1875 0)"/>
     </g>
     <!-- 矩阵左半（tp0） -->
-    <g transform="translate(47.539186 116.405498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(46.442873 118.267392) scale(0.105 -0.105)">
      <defs>
       <path id="STHeitiSC-Medium-11aa" d="M 4531 3206 
 Q 4781 3206 4960 3209 
@@ -997,7 +997,7 @@ z
    </g>
    <g id="text_3">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(22.316725 133.091291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(21.618459 134.789852) scale(0.09 -0.09)">
      <defs>
       <path id="STHeitiSC-Medium-48" d="M 1933 4557 
 Q 1626 4685 1453 4685 
@@ -1814,7 +1814,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(46.316725 141.331291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(48.618459 144.059852) scale(0.09 -0.09)">
      <defs>
       <path id="STHeitiSC-Medium-15" d="M 2554 3021 
 Q 2931 2835 3139 2508 
@@ -2378,7 +2378,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(34.404225 149.571291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(35.216897 153.329852) scale(0.09 -0.09)">
      <defs>
       <path id="STHeitiSC-Medium-1c2" d="M 3130 4218 
 Q 3021 4461 2915 4640 
@@ -2479,7 +2479,7 @@ z
    </g>
    <g id="text_4">
     <!-- GPU 1  tp1 dp0 pp0 -->
-    <g transform="translate(183.53421 79.059057) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(192.88108 75.779939) scale(0.11 -0.11)">
      <use xlink:href="#STHeitiSC-Medium-29"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(87.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-37" transform="translate(146.40625 0)"/>
@@ -2502,7 +2502,7 @@ z
    </g>
    <g id="text_5">
     <!-- layers 0–7 + embedding -->
-    <g transform="translate(179.034249 107.650498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(183.889401 107.452392) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-4e"/>
      <use xlink:href="#STHeitiSC-Medium-43" transform="translate(20 0)"/>
      <use xlink:href="#STHeitiSC-Medium-5b" transform="translate(88.296875 0)"/>
@@ -2527,7 +2527,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-49" transform="translate(1082.1875 0)"/>
     </g>
     <!-- 矩阵右半（tp1） -->
-    <g transform="translate(195.692921 116.405498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(204.46776 118.267392) scale(0.105 -0.105)">
      <defs>
       <path id="STHeitiSC-Medium-7a3" d="M 4621 1837 
 L 2387 1837 
@@ -2603,7 +2603,7 @@ z
    </g>
    <g id="text_6">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(170.47046 133.091291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(179.643346 134.789852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -2623,7 +2623,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(194.47046 141.331291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(206.643346 144.059852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -2637,7 +2637,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(182.55796 149.571291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(193.241784 153.329852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -2659,7 +2659,7 @@ z
    </g>
    <g id="text_7">
     <!-- GPU 4  tp0 dp0 pp1 -->
-    <g transform="translate(35.380475 191.864701) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(34.856193 202.739779) scale(0.11 -0.11)">
      <defs>
       <path id="STHeitiSC-Medium-16" d="M 3418 1453 
 L 2861 1453 
@@ -2702,7 +2702,7 @@ z
    </g>
    <g id="text_8">
     <!-- layers 8–15 + 输出层 -->
-    <g transform="translate(40.310865 220.456142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(37.513772 234.412232) scale(0.105 -0.105)">
      <defs>
       <path id="STHeitiSC-Medium-1a" d="M 2547 2950 
 Q 3373 2522 3373 1747 
@@ -3141,7 +3141,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-69d" transform="translate(827.59375 0)"/>
     </g>
     <!-- 矩阵左半（tp0） -->
-    <g transform="translate(47.539186 229.211142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(46.442873 245.227232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-11aa"/>
      <use xlink:href="#STHeitiSC-Medium-92b" transform="translate(100 0)"/>
      <use xlink:href="#STHeitiSC-Medium-6bd" transform="translate(200 0)"/>
@@ -3155,7 +3155,7 @@ z
    </g>
    <g id="text_9">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(22.316725 245.896935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(21.618459 261.749692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -3175,7 +3175,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(46.316725 254.136935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(48.618459 271.019692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3189,7 +3189,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(34.404225 262.376935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(35.216897 280.289692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3211,7 +3211,7 @@ z
    </g>
    <g id="text_10">
     <!-- GPU 5  tp1 dp0 pp1 -->
-    <g transform="translate(183.53421 191.864701) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(192.88108 202.739779) scale(0.11 -0.11)">
      <use xlink:href="#STHeitiSC-Medium-29"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(87.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-37" transform="translate(146.40625 0)"/>
@@ -3234,7 +3234,7 @@ z
    </g>
    <g id="text_11">
     <!-- layers 8–15 + 输出层 -->
-    <g transform="translate(188.464601 220.456142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(195.538659 234.412232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-4e"/>
      <use xlink:href="#STHeitiSC-Medium-43" transform="translate(20 0)"/>
      <use xlink:href="#STHeitiSC-Medium-5b" transform="translate(88.296875 0)"/>
@@ -3254,7 +3254,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-69d" transform="translate(827.59375 0)"/>
     </g>
     <!-- 矩阵右半（tp1） -->
-    <g transform="translate(195.692921 229.211142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(204.46776 245.227232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-11aa"/>
      <use xlink:href="#STHeitiSC-Medium-92b" transform="translate(100 0)"/>
      <use xlink:href="#STHeitiSC-Medium-7a3" transform="translate(200 0)"/>
@@ -3268,7 +3268,7 @@ z
    </g>
    <g id="text_12">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(170.47046 245.896935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(179.643346 261.749692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -3288,7 +3288,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(194.47046 254.136935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(206.643346 271.019692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3302,7 +3302,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(182.55796 262.376935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(193.241784 280.289692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3324,7 +3324,7 @@ z
    </g>
    <g id="text_13">
     <!-- GPU 2  tp0 dp1 pp0 -->
-    <g transform="translate(362.553307 79.059057) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(383.155944 75.779939) scale(0.11 -0.11)">
      <use xlink:href="#STHeitiSC-Medium-29"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(87.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-37" transform="translate(146.40625 0)"/>
@@ -3347,7 +3347,7 @@ z
    </g>
    <g id="text_14">
     <!-- layers 0–7 + embedding -->
-    <g transform="translate(358.053346 107.650498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(374.164265 107.452392) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-4e"/>
      <use xlink:href="#STHeitiSC-Medium-43" transform="translate(20 0)"/>
      <use xlink:href="#STHeitiSC-Medium-5b" transform="translate(88.296875 0)"/>
@@ -3372,7 +3372,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-49" transform="translate(1082.1875 0)"/>
     </g>
     <!-- 矩阵左半（tp0） -->
-    <g transform="translate(374.712018 116.405498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(394.742624 118.267392) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-11aa"/>
      <use xlink:href="#STHeitiSC-Medium-92b" transform="translate(100 0)"/>
      <use xlink:href="#STHeitiSC-Medium-6bd" transform="translate(200 0)"/>
@@ -3386,7 +3386,7 @@ z
    </g>
    <g id="text_15">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(349.489557 133.091291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(369.91821 134.789852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -3406,7 +3406,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(373.489557 141.331291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(396.91821 144.059852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3420,7 +3420,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(361.577057 149.571291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(383.516647 153.329852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3442,7 +3442,7 @@ z
    </g>
    <g id="text_16">
     <!-- GPU 3  tp1 dp1 pp0 -->
-    <g transform="translate(510.707042 79.059057) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(541.180831 75.779939) scale(0.11 -0.11)">
      <use xlink:href="#STHeitiSC-Medium-29"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(87.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-37" transform="translate(146.40625 0)"/>
@@ -3465,7 +3465,7 @@ z
    </g>
    <g id="text_17">
     <!-- layers 0–7 + embedding -->
-    <g transform="translate(506.207081 107.650498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(532.189151 107.452392) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-4e"/>
      <use xlink:href="#STHeitiSC-Medium-43" transform="translate(20 0)"/>
      <use xlink:href="#STHeitiSC-Medium-5b" transform="translate(88.296875 0)"/>
@@ -3490,7 +3490,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-49" transform="translate(1082.1875 0)"/>
     </g>
     <!-- 矩阵右半（tp1） -->
-    <g transform="translate(522.865753 116.405498) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(552.767511 118.267392) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-11aa"/>
      <use xlink:href="#STHeitiSC-Medium-92b" transform="translate(100 0)"/>
      <use xlink:href="#STHeitiSC-Medium-7a3" transform="translate(200 0)"/>
@@ -3504,7 +3504,7 @@ z
    </g>
    <g id="text_18">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(497.643292 133.091291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(527.943097 134.789852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -3524,7 +3524,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(521.643292 141.331291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(554.943097 144.059852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3538,7 +3538,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(509.730792 149.571291) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(541.541534 153.329852) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3560,7 +3560,7 @@ z
    </g>
    <g id="text_19">
     <!-- GPU 6  tp0 dp1 pp1 -->
-    <g transform="translate(362.553307 191.864701) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(383.155944 202.739779) scale(0.11 -0.11)">
      <use xlink:href="#STHeitiSC-Medium-29"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(87.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-37" transform="translate(146.40625 0)"/>
@@ -3583,7 +3583,7 @@ z
    </g>
    <g id="text_20">
     <!-- layers 8–15 + 输出层 -->
-    <g transform="translate(367.483698 220.456142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(385.813522 234.412232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-4e"/>
      <use xlink:href="#STHeitiSC-Medium-43" transform="translate(20 0)"/>
      <use xlink:href="#STHeitiSC-Medium-5b" transform="translate(88.296875 0)"/>
@@ -3603,7 +3603,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-69d" transform="translate(827.59375 0)"/>
     </g>
     <!-- 矩阵左半（tp0） -->
-    <g transform="translate(374.712018 229.211142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(394.742624 245.227232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-11aa"/>
      <use xlink:href="#STHeitiSC-Medium-92b" transform="translate(100 0)"/>
      <use xlink:href="#STHeitiSC-Medium-6bd" transform="translate(200 0)"/>
@@ -3617,7 +3617,7 @@ z
    </g>
    <g id="text_21">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(349.489557 245.896935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(369.91821 261.749692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -3637,7 +3637,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(373.489557 254.136935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(396.91821 271.019692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3651,7 +3651,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(361.577057 262.376935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(383.516647 280.289692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3673,7 +3673,7 @@ z
    </g>
    <g id="text_22">
     <!-- GPU 7  tp1 dp1 pp1 -->
-    <g transform="translate(510.707042 191.864701) scale(0.095 -0.095)">
+    <g style="fill: #222222" transform="translate(541.180831 202.739779) scale(0.11 -0.11)">
      <use xlink:href="#STHeitiSC-Medium-29"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(87.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-37" transform="translate(146.40625 0)"/>
@@ -3696,7 +3696,7 @@ z
    </g>
    <g id="text_23">
     <!-- layers 8–15 + 输出层 -->
-    <g transform="translate(515.637433 220.456142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(543.838409 234.412232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-4e"/>
      <use xlink:href="#STHeitiSC-Medium-43" transform="translate(20 0)"/>
      <use xlink:href="#STHeitiSC-Medium-5b" transform="translate(88.296875 0)"/>
@@ -3716,7 +3716,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-69d" transform="translate(827.59375 0)"/>
     </g>
     <!-- 矩阵右半（tp1） -->
-    <g transform="translate(522.865753 229.211142) scale(0.085 -0.085)">
+    <g style="fill: #222222" transform="translate(552.767511 245.227232) scale(0.105 -0.105)">
      <use xlink:href="#STHeitiSC-Medium-11aa"/>
      <use xlink:href="#STHeitiSC-Medium-92b" transform="translate(100 0)"/>
      <use xlink:href="#STHeitiSC-Medium-7a3" transform="translate(200 0)"/>
@@ -3730,7 +3730,7 @@ z
    </g>
    <g id="text_24">
     <!-- bf16 参数：本卡这一半（常驻） -->
-    <g style="fill: #555555" transform="translate(497.643292 245.896935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(527.943097 261.749692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-44"/>
      <use xlink:href="#STHeitiSC-Medium-48" transform="translate(68.203125 0)"/>
      <use xlink:href="#STHeitiSC-Medium-13" transform="translate(99.609375 0)"/>
@@ -3750,7 +3750,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(1335.421875 0)"/>
     </g>
     <!-- fp32 梯度（完整） -->
-    <g style="fill: #555555" transform="translate(521.643292 254.136935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(554.943097 271.019692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3764,7 +3764,7 @@ z
      <use xlink:href="#STHeitiSC-Medium-bedc" transform="translate(735.421875 0)"/>
     </g>
     <!-- fp32 主参+m+v（×1/2） -->
-    <g style="fill: #555555" transform="translate(509.730792 262.376935) scale(0.08 -0.08)">
+    <g style="fill: #333333" transform="translate(541.541534 280.289692) scale(0.09 -0.09)">
      <use xlink:href="#STHeitiSC-Medium-48"/>
      <use xlink:href="#STHeitiSC-Medium-52" transform="translate(31.40625 0)"/>
      <use xlink:href="#STHeitiSC-Medium-15" transform="translate(99.609375 0)"/>
@@ -3785,21 +3785,21 @@ z
     </g>
    </g>
    <g id="patch_10">
-    <path d="M 143.483583 110.24988 
-Q 153.809884 110.24988 164.136185 110.24988 
+    <path d="M 155.89002 110.45989 
+Q 165.223954 110.45989 174.557888 110.45989 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 147.083583 112.04988 
-L 143.483583 110.24988 
-L 147.083583 108.44988 
+    <path d="M 160.29002 112.65989 
+L 155.89002 110.45989 
+L 160.29002 108.25989 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 160.536185 108.44988 
-L 164.136185 110.24988 
-L 160.536185 112.04988 
+    <path d="M 170.157888 108.25989 
+L 174.557888 110.45989 
+L 170.157888 112.65989 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_25">
     <!-- TP -->
-    <g style="fill: #3b6fb6" transform="translate(149.4841 102.558586) scale(0.085 -0.085)">
+    <g style="fill: #3b6fb6" transform="translate(160.135043 101.627902) scale(0.1 -0.1)">
      <defs>
       <path id="STHeitiSC-Medium-36" d="M 2669 4531 
 L 1645 4531 
@@ -3818,81 +3818,81 @@ z
     </g>
    </g>
    <g id="patch_11">
-    <path d="M 143.483583 223.055524 
-Q 153.809884 223.055524 164.136185 223.055524 
+    <path d="M 155.89002 237.41973 
+Q 165.223954 237.41973 174.557888 237.41973 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 147.083583 224.855524 
-L 143.483583 223.055524 
-L 147.083583 221.255524 
+    <path d="M 160.29002 239.61973 
+L 155.89002 237.41973 
+L 160.29002 235.21973 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 160.536185 221.255524 
-L 164.136185 223.055524 
-L 160.536185 224.855524 
+    <path d="M 170.157888 235.21973 
+L 174.557888 237.41973 
+L 170.157888 239.61973 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_26">
     <!-- TP -->
-    <g style="fill: #3b6fb6" transform="translate(149.4841 215.36423) scale(0.085 -0.085)">
+    <g style="fill: #3b6fb6" transform="translate(160.135043 228.587742) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-36"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(42.59375 0)"/>
     </g>
    </g>
    <g id="patch_12">
-    <path d="M 470.656416 110.24988 
-Q 480.982717 110.24988 491.309017 110.24988 
+    <path d="M 504.189771 110.45989 
+Q 513.523705 110.45989 522.857639 110.45989 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 474.256416 112.04988 
-L 470.656416 110.24988 
-L 474.256416 108.44988 
+    <path d="M 508.589771 112.65989 
+L 504.189771 110.45989 
+L 508.589771 108.25989 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 487.709017 108.44988 
-L 491.309017 110.24988 
-L 487.709017 112.04988 
+    <path d="M 518.457639 108.25989 
+L 522.857639 110.45989 
+L 518.457639 112.65989 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_27">
     <!-- TP -->
-    <g style="fill: #3b6fb6" transform="translate(476.656932 102.558586) scale(0.085 -0.085)">
+    <g style="fill: #3b6fb6" transform="translate(508.434794 101.627902) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-36"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(42.59375 0)"/>
     </g>
    </g>
    <g id="patch_13">
-    <path d="M 470.656416 223.055524 
-Q 480.982717 223.055524 491.309017 223.055524 
+    <path d="M 504.189771 237.41973 
+Q 513.523705 237.41973 522.857639 237.41973 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 474.256416 224.855524 
-L 470.656416 223.055524 
-L 474.256416 221.255524 
+    <path d="M 508.589771 239.61973 
+L 504.189771 237.41973 
+L 508.589771 235.21973 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 487.709017 221.255524 
-L 491.309017 223.055524 
-L 487.709017 224.855524 
+    <path d="M 518.457639 235.21973 
+L 522.857639 237.41973 
+L 518.457639 239.61973 
 " style="fill: none; stroke: #3b6fb6; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_28">
     <!-- TP -->
-    <g style="fill: #3b6fb6" transform="translate(476.656932 215.36423) scale(0.085 -0.085)">
+    <g style="fill: #3b6fb6" transform="translate(508.434794 228.587742) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-36"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(42.59375 0)"/>
     </g>
    </g>
    <g id="patch_14">
-    <path d="M 82.926382 61.749166 
-Q 243.319946 -17.570219 403.71351 61.749098 
+    <path d="M 89.403687 55.60813 
+Q 260.361623 -28.99304 431.319557 55.607446 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 86.951265 61.766819 
-L 82.926382 61.749166 
-L 85.355434 58.539851 
+    <path d="M 94.322995 55.628379 
+L 89.403687 55.60813 
+L 92.37147 51.684833 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 401.284457 58.539783 
-L 403.71351 61.749098 
-L 399.688626 61.766751 
+    <path d="M 428.351761 51.684158 
+L 431.319557 55.607446 
+L 426.400249 55.62771 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_29">
     <!-- DP -->
-    <g style="fill: #e0812c" transform="translate(237.641617 46.155764) scale(0.085 -0.085)">
+    <g style="fill: #e0812c" transform="translate(253.68185 38.699981) scale(0.1 -0.1)">
      <defs>
       <path id="STHeitiSC-Medium-26" d="M 512 5069 
 L 1510 5069 
@@ -3926,148 +3926,148 @@ z
     </g>
    </g>
    <g id="patch_15">
-    <path d="M 231.080117 61.749166 
-Q 391.473681 -17.570219 551.867245 61.749098 
+    <path d="M 247.428574 55.60813 
+Q 418.38651 -28.99304 589.344444 55.607446 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 235.105001 61.766819 
-L 231.080117 61.749166 
-L 233.509169 58.539851 
+    <path d="M 252.347881 55.628379 
+L 247.428574 55.60813 
+L 250.396357 51.684833 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 549.438192 58.539783 
-L 551.867245 61.749098 
-L 547.842362 61.766751 
+    <path d="M 586.376647 51.684158 
+L 589.344444 55.607446 
+L 584.425136 55.62771 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_30">
     <!-- DP -->
-    <g style="fill: #e0812c" transform="translate(385.795353 46.155764) scale(0.085 -0.085)">
+    <g style="fill: #e0812c" transform="translate(411.706737 38.699981) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-26"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(74.40625 0)"/>
     </g>
    </g>
    <g id="patch_16">
-    <path d="M 82.926382 271.556238 
-Q 243.319946 350.875623 403.71351 271.556306 
+    <path d="M 89.403687 292.27149 
+Q 260.361623 376.872661 431.319557 292.272175 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 85.355434 274.765553 
-L 82.926382 271.556238 
-L 86.951265 271.538585 
+    <path d="M 92.37147 296.194788 
+L 89.403687 292.27149 
+L 94.322995 292.251242 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 399.688626 271.538653 
-L 403.71351 271.556306 
-L 401.284457 274.765621 
+    <path d="M 426.400249 292.251911 
+L 431.319557 292.272175 
+L 428.351761 296.195463 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_31">
     <!-- DP -->
-    <g style="fill: #e0812c" transform="translate(237.641617 289.713405) scale(0.085 -0.085)">
+    <g style="fill: #e0812c" transform="translate(253.68185 311.939637) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-26"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(74.40625 0)"/>
     </g>
    </g>
    <g id="patch_17">
-    <path d="M 231.080117 271.556238 
-Q 391.473681 350.875623 551.867245 271.556306 
+    <path d="M 247.428574 292.27149 
+Q 418.38651 376.872661 589.344444 292.272175 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 233.509169 274.765553 
-L 231.080117 271.556238 
-L 235.105001 271.538585 
+    <path d="M 250.396357 296.194788 
+L 247.428574 292.27149 
+L 252.347881 292.251242 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 547.842362 271.538653 
-L 551.867245 271.556306 
-L 549.438192 274.765621 
+    <path d="M 584.425136 292.251911 
+L 589.344444 292.272175 
+L 586.376647 296.195463 
 " style="fill: none; stroke: #e0812c; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_32">
     <!-- DP -->
-    <g style="fill: #e0812c" transform="translate(385.795353 289.713405) scale(0.085 -0.085)">
+    <g style="fill: #e0812c" transform="translate(411.706737 311.939637) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-26"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(74.40625 0)"/>
     </g>
    </g>
    <g id="patch_18">
-    <path d="M 79.7336 158.683637 
-Q 79.7336 166.654726 79.7336 174.625816 
+    <path d="M 86.212443 165.083308 
+Q 86.212443 173.939323 86.212443 182.795338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 77.9336 162.283637 
-L 79.7336 158.683637 
-L 81.5336 162.283637 
+    <path d="M 84.012443 169.483308 
+L 86.212443 165.083308 
+L 88.412443 169.483308 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 81.5336 171.025816 
-L 79.7336 174.625816 
-L 77.9336 171.025816 
+    <path d="M 88.412443 178.395338 
+L 86.212443 182.795338 
+L 84.012443 178.395338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_33">
     <!-- PP -->
-    <g style="fill: #4a9a5b" transform="translate(87.141286 169.712702) scale(0.085 -0.085)">
+    <g style="fill: #4a9a5b" transform="translate(93.952438 177.53981) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-32"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(59.203125 0)"/>
     </g>
    </g>
    <g id="patch_19">
-    <path d="M 227.887335 158.683637 
-Q 227.887335 166.654726 227.887335 174.625816 
+    <path d="M 244.23733 165.083308 
+Q 244.23733 173.939323 244.23733 182.795338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 226.087335 162.283637 
-L 227.887335 158.683637 
-L 229.687335 162.283637 
+    <path d="M 242.03733 169.483308 
+L 244.23733 165.083308 
+L 246.43733 169.483308 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 229.687335 171.025816 
-L 227.887335 174.625816 
-L 226.087335 171.025816 
+    <path d="M 246.43733 178.395338 
+L 244.23733 182.795338 
+L 242.03733 178.395338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_34">
     <!-- PP -->
-    <g style="fill: #4a9a5b" transform="translate(235.295022 169.712702) scale(0.085 -0.085)">
+    <g style="fill: #4a9a5b" transform="translate(251.977325 177.53981) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-32"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(59.203125 0)"/>
     </g>
    </g>
    <g id="patch_20">
-    <path d="M 406.906432 158.683637 
-Q 406.906432 166.654726 406.906432 174.625816 
+    <path d="M 434.512194 165.083308 
+Q 434.512194 173.939323 434.512194 182.795338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 405.106432 162.283637 
-L 406.906432 158.683637 
-L 408.706432 162.283637 
+    <path d="M 432.312194 169.483308 
+L 434.512194 165.083308 
+L 436.712194 169.483308 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 408.706432 171.025816 
-L 406.906432 174.625816 
-L 405.106432 171.025816 
+    <path d="M 436.712194 178.395338 
+L 434.512194 182.795338 
+L 432.312194 178.395338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_35">
     <!-- PP -->
-    <g style="fill: #4a9a5b" transform="translate(414.314119 169.712702) scale(0.085 -0.085)">
+    <g style="fill: #4a9a5b" transform="translate(442.252189 177.53981) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-32"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(59.203125 0)"/>
     </g>
    </g>
    <g id="patch_21">
-    <path d="M 555.060167 158.683637 
-Q 555.060167 166.654726 555.060167 174.625816 
+    <path d="M 592.537081 165.083308 
+Q 592.537081 173.939323 592.537081 182.795338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 553.260167 162.283637 
-L 555.060167 158.683637 
-L 556.860167 162.283637 
+    <path d="M 590.337081 169.483308 
+L 592.537081 165.083308 
+L 594.737081 169.483308 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
-    <path d="M 556.860167 171.025816 
-L 555.060167 174.625816 
-L 553.260167 171.025816 
+    <path d="M 594.737081 178.395338 
+L 592.537081 182.795338 
+L 590.337081 178.395338 
 " style="fill: none; stroke: #4a9a5b; stroke-width: 1.4; stroke-linecap: round"/>
    </g>
    <g id="text_36">
     <!-- PP -->
-    <g style="fill: #4a9a5b" transform="translate(562.467854 169.712702) scale(0.085 -0.085)">
+    <g style="fill: #4a9a5b" transform="translate(600.277076 177.53981) scale(0.1 -0.1)">
      <use xlink:href="#STHeitiSC-Medium-32"/>
      <use xlink:href="#STHeitiSC-Medium-32" transform="translate(59.203125 0)"/>
     </g>
    </g>
    <g id="text_37">
     <!-- TP = 相邻两个 rank（同节点）　DP = 同一 stage 同一 TP 位的两张卡　PP = 同一 DP 副本同一 TP 位的两个 stage -->
-    <g style="fill: #444444" transform="translate(114.467924 337.14305) scale(0.085 -0.085)">
+    <g style="fill: #333333" transform="translate(91.150541 362.999572) scale(0.1 -0.1)">
      <defs>
       <path id="STHeitiSC-Medium-1f" d="M 3565 3475 
 L 314 3475 
@@ -5158,7 +5158,7 @@ z
    </g>
    <g id="text_38">
     <!-- TP 组 [0,1] [2,3] [4,5] [6,7]　·　DP 组 [0,2] [1,3] [4,6] [5,7]　·　PP 组 [0,4] [1,5] [2,6] [3,7] -->
-    <g style="fill: #444444" transform="translate(152.536635 357.653168) scale(0.085 -0.085)">
+    <g style="fill: #333333" transform="translate(135.93726 385.079544) scale(0.1 -0.1)">
      <defs>
       <path id="STHeitiSC-Medium-63a" d="M 5549 77 
 Q 5702 83 5849 89 
@@ -5396,7 +5396,7 @@ z
    </g>
    <g id="text_39">
     <!-- train-ledger 配置：8 卡 TP2 × PP2 × DP2（Llama-3.2-1B 形状，16 层） -->
-    <g transform="translate(166.510697 15.8) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(148.572885 17.52) scale(0.12 -0.12)">
      <defs>
       <path id="STHeitiSC-Medium-f" d="M 1965 2067 
 L 160 2067 
@@ -5970,8 +5970,8 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p34402f2a97">
-   <rect x="7.2" y="21.8" width="641.99952" height="353.79952"/>
+  <clipPath id="p5dcee543a4">
+   <rect x="7.2" y="23.52" width="670.79952" height="380.87952"/>
   </clipPath>
  </defs>
 </svg>

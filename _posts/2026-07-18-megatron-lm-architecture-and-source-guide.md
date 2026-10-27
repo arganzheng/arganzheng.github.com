@@ -27,15 +27,7 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 
 这张图的 8 张卡按 `rank = tp + 2 × dp + 4 × pp` 排号。横向相邻的是 TP 组，两个 stage 里各有两份 DP 副本；上下两排通过 PP 传激活。02《并行策略全景》解释了这些维度为什么这样组合，本文第五章会把 rank 列表算出来。
 
-我用 Llama 3.2 1B 的模型形状算一遍每卡的量。这里是 train-ledger 的配置形状：层数 $$L=16$$、隐藏宽度 $$h=2048$$、FFN 宽度 $$f=8192$$、查询头数 $$n_q=32$$、K/V 头数 $$n_{kv}=8$$、每头宽度 $$d_h=64$$、词表大小 $$v=128256$$；其中 $$n_qd_h=h$$，embedding 和输出层不共享参数。这个练习配置的参数总量因此约 1.50B，不等于模型名里的 1B。
-
-每层的 Q、K、V、O 权重数是 $$2h^2+2h(n_{kv}d_h)$$；SwiGLU 的 gate、up、down 三个矩阵是 $$3hf$$。加上两组 RMSNorm 权重，每层共 60,821,504 个参数。02 的 TP 切分图能把这些矩阵的切法画出来：列切 / 行切改变每卡持有的矩阵块，不改变全模型的参数总数。
-
-- 16 层共 973,144,064 个参数；输入 embedding 和输出层各有 $$vh=262,668,288$$ 个参数，总计约 1,498,482,688。
-- PP=2 后，每个 stage 约有 749.2M 个参数；TP=2 再把矩阵分成两份，每卡约 374.6M 个参数。
-- bf16 参数占 2 字节、fp32 梯度占 4 字节。令 $$N_d=2$$ 表示 DP 副本数；每个 DP 副本只保存一半 fp32 主参数和 Adam 的 $$m,v$$，这三项共 $$12/N_d=6$$ 字节 / 参数。常驻量约为 $$2+4+12/N_d=12$$ 字节 / 每个 TP 本地参数，约 4.50 GB（4.19 GiB）/ 卡。字节口径与 01《大模型训练的显存账本》一致：bf16 参数 + fp32 梯度 + fp32 主参数和 Adam 的 m、v。
-
-一个 step 可以按六步读：
+这 8 张卡上的一个 step 可以按六步读：
 
 1. 每个 DP 副本收到 8 个 micro-batch；每个 micro-batch 是 1 条样本。
 2. PP=2 的 stage 0 计算前向，把激活发给 stage 1；1F1B 调度见第七章。
@@ -44,11 +36,19 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 5. 每个 DP rank 用自己的一半梯度更新对应的 fp32 主参数与 Adam 状态。
 6. 更新后的 bf16 参数分片 all-gather 回来，下一轮前向按 bucket 等待参数就绪。
 
+第三步里「每卡只拿一半」具体是多少，按 Llama 3.2 1B 的形状算：train-ledger 的配置是层数 $$L=16$$、隐藏宽度 $$h=2048$$、FFN 宽度 $$f=8192$$、查询头数 $$n_q=32$$、K/V 头数 $$n_{kv}=8$$、每头宽度 $$d_h=64$$、词表大小 $$v=128256$$；其中 $$n_qd_h=h$$，embedding 和输出层不共享参数。这个练习配置的参数总量因此约 1.50B，不等于模型名里的 1B。
+
+每层的 Q、K、V、O 权重数是 $$2h^2+2h(n_{kv}d_h)$$；SwiGLU 的 gate、up、down 三个矩阵是 $$3hf$$。加上两组 RMSNorm 权重，每层共 60,821,504 个参数。02 的 TP 切分图能把这些矩阵的切法画出来：列切 / 行切改变每卡持有的矩阵块，不改变全模型的参数总数。
+
+- 16 层共 973,144,064 个参数；输入 embedding 和输出层各有 $$vh=262,668,288$$ 个参数，总计约 1,498,482,688。
+- PP=2 后，每个 stage 约有 749.2M 个参数；TP=2 再把矩阵分成两份，每卡约 374.6M 个参数。
+- bf16 参数占 2 字节、fp32 梯度占 4 字节。令 $$N_d=2$$ 表示 DP 副本数；每个 DP 副本只保存一半 fp32 主参数和 Adam 的 $$m,v$$，这三项共 $$12/N_d=6$$ 字节 / 参数。常驻量约为 $$2+4+12/N_d=12$$ 字节 / 每个 TP 本地参数，约 4.50 GB（4.19 GiB）/ 卡。字节口径与 01《大模型训练的显存账本》一致：bf16 参数 + fp32 梯度 + fp32 主参数和 Adam 的 m、v。
+
 后面先讲 Megatron 是怎么一步步长成这样的，再讲这几个对象怎么连起来，最后读源码。03 只读 Megatron；三框架的异同和取舍放在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
 
 ## 二、来龙去脉
 
-我把 Megatron 几次重要变化放在一张表里。年份和论文按原文、NVIDIA 的 release note / 技术博客核过。
+下表按时间列出 Megatron 的几次重要变化。年份和论文按原文、NVIDIA 的 release note / 技术博客核过。
 
 | 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留的问题 |
 |---|---|---|---|---|---|
@@ -56,15 +56,15 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 | 2021 | NVIDIA 的 Deepak Narayanan 等 | TP 还不足以把超大模型扩到更多 GPU，PP 有气泡 | [Efficient Large-Scale Language Model Training on GPU Clusters](https://arxiv.org/abs/2104.04473)组合 pipeline / tensor / data parallelism，并给出 interleaved 1F1B 与分布式优化器 | 1T 参数模型在 3072 张 GPU 上达到 502 PFLOP/s，约 52% 峰值 | 并行维度变多，组网和调度更难理解 |
 | 2022 | NVIDIA 的 Korthikanti 等 | 长序列下激活内存高，直接重算代价大 | [Reducing Activation Recomputation in Large Transformer Models](https://arxiv.org/abs/2205.05198)提出 sequence parallel 与 selective recomputation | 激活内存降低约 5 倍；相对全量重算，额外计算开销减少约 90%；530B 模型 MFU 为 54.2% | 仍要为不同并行维度配置进程组 |
 | 2023 | NVIDIA | 训练框架里的并行原语不易单独复用 | Megatron Core 从 Megatron-LM 中拆出为可组合的库；NVIDIA 仓库的 [Core 0.4.0 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.4.0)展示了独立的 Core 版本线 | TP、PP、通信、优化器等能力能以 Core API 组合 | 可选项增多，配置入口也更多 |
-| 2024 | NVIDIA，Megatron Core v0.6 | DP 梯度归约与每卡保留完整优化器状态的开销 | [NVIDIA 技术博客](https://developer.nvidia.com/blog/train-generative-ai-models-more-efficiently-with-new-nvidia-megatron-core-functionalities/)介绍 distributed optimizer：reduce-scatter 梯度、分片更新，再 all-gather 参数，并与反向 / 前向重叠 | 降低优化器状态占用；大 DP 下可用 bucket 重叠通信 | 参数与梯度 buffer 的切分边界不一定与参数边界对齐 |
 | 2024 | NVIDIA，Megatron Core v0.5 | MoE 专家参数和 token 路由需要额外并行维度 | [v0.5 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.5.0)记录 MoE 和 EP；NVIDIA [172B 模型说明](https://developer.nvidia.com/blog/developing-a-172b-llm-with-strong-japanese-capabilities-using-nvidia-megatron-lm/)也列出 context parallel | EP 能与 TP、DP、SP、PP 组合；CP 支持长上下文 | dense 和 expert 参数走不同进程组 |
+| 2024 | NVIDIA，Megatron Core v0.6 | DP 梯度归约与每卡保留完整优化器状态的开销 | [NVIDIA 技术博客](https://developer.nvidia.com/blog/train-generative-ai-models-more-efficiently-with-new-nvidia-megatron-core-functionalities/)介绍 distributed optimizer：reduce-scatter 梯度、分片更新，再 all-gather 参数，并与反向 / 前向重叠 | 降低优化器状态占用；大 DP 下可用 bucket 重叠通信 | 参数与梯度 buffer 的切分边界不一定与参数边界对齐 |
 | 2026 | NVIDIA，Megatron Core 0.18.0 | 仅切优化器状态不足以覆盖模型状态都要分片的用法 | [0.18.0 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.18.0)的源码包含 [`megatron/core/distributed/fsdp/`](https://github.com/NVIDIA/Megatron-LM/tree/core_v0.18.0/megatron/core/distributed/fsdp/) | Megatron-FSDP 与 DDP 并列，支持更完整的状态分片 | FSDP、TP、PP 各自的限制与组合仍需按配置核对 |
 
 这张表里能看到方向的变化：最初 Megatron 解决的是一层怎么切；随后它把流水、数据副本、优化器状态和专家并行也纳入同一套工程。
 
 ## 三、核心抽象
 
-Megatron Core 的对象可以按从模型到调度的顺序读。F2 画出了依赖关系；下面逐项说明每个对象管什么。
+Megatron Core 的对象可以按从下到上的依赖关系读。F2 把六个对象叠成一层一层：最下面是 `parallel_state`，所有对象都向它要进程组；往上是模型层的 TP 模块、DDP 和它的参数 / 梯度 buffer、`DistributedOptimizer`；最上面是驱动训练的 `schedules.py`。箭头一律指向上方，含义是「上层调用 / 依赖下层」。下面逐项说明每个对象管什么。
 
 ![F2：Megatron Core 六个核心抽象的依赖关系](/img/in-post/megatron-f2-abstractions.svg)
 
@@ -101,7 +101,7 @@ torchrun --nproc_per_node 8 pretrain_gpt.py \
   --distributed-timeout-minutes 30
 ```
 
-脚本参数我分三组看：
+脚本参数分三组看：
 
 - **模型形状**：`--num-layers`、`--hidden-size`、`--ffn-hidden-size`、注意力头数与 K/V 头数，决定每层矩阵尺寸；`--swiglu`、RMSNorm、RoPE 和无 bias 指定模型结构。
 - **并行与批次**：TP=2、PP=2、`--sequence-parallel`；`--use-distributed-optimizer` 打开 ZeRO-1，两个 `--overlap-*` 让梯度 reduce-scatter / 参数 all-gather 与计算重叠。`--global-batch-size 16`、micro-batch=1、DP=2 决定每个 DP 副本每 step 有 8 个 micro-batch。
@@ -128,7 +128,7 @@ PP: [[0, 4], [1, 5], [2, 6], [3, 7]]
 
 ![RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2](/img/in-post/megatron-deepspeed-torchtitan-rank-generator-mask.svg)
 
-源码入口是 `megatron/core/parallel_state.py` 的 `initialize_model_parallel()`、`RankGenerator` 和 `generate_masked_orthogonal_rank_groups()`。我把 rank 次序、EP / CP 两套生成器、SHARP 的建组顺序，以及 `ProcessGroupCollection` 放在下面展开。
+源码入口是 `megatron/core/parallel_state.py` 的 `initialize_model_parallel()`、`RankGenerator` 和 `generate_masked_orthogonal_rank_groups()`。rank 次序、EP / CP 两套生成器、SHARP 的建组顺序，以及 `ProcessGroupCollection` 在下面展开。
 
 <details markdown="1"><summary>源码细节：RankGenerator 怎样建组</summary>
 
@@ -151,7 +151,7 @@ PP: [[0, 4], [1, 5], [2, 6], [3, 7]]
 
 ## 六、源码导读
 
-我从模型层、buffer、优化器再走到训练循环。目录地图先给出每个对象所在的位置。
+导读从模型层、buffer、优化器再走到训练循环。目录地图先给出每个对象所在的位置。
 
 ### 1. 目录地图
 
