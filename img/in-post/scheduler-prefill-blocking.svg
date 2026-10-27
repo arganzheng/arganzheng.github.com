@@ -27,8 +27,8 @@
     </style>
   </defs>
   <rect x="0" y="0" width="760" height="310" fill="#fff"/>
-  <text x="150" y="28" text-anchor="start" class="small">GPU 时间</text>
-  <line x1="214" y1="24" x2="740" y2="24" class="axis"/>
+  <text x="40" y="28" text-anchor="start" class="small">GPU 时间</text>
+  <line x1="150" y1="24" x2="740" y2="24" class="axis"/>
   <text x="40" y="88" text-anchor="start" class="bold">A · Prefill</text>
   <rect class="seg-a" x="150" y="60" width="410" height="46"/>
   <text x="355" y="89" text-anchor="middle" class="bold">32K Prompt（Long Prefill）</text>

@@ -27,8 +27,7 @@
     </style>
   </defs>
   <rect x="0" y="0" width="760" height="330" fill="#fff"/>
-  <rect class="frame" x="130" y="16" width="500" height="112"/>
-  <text x="380" y="42" text-anchor="middle" class="head">Batch</text>
+  <text x="380" y="42" text-anchor="middle" class="head">一个 Batch</text>
   <rect class="seg-b" x="155" y="60" width="150" height="48"/>
   <text x="230" y="89" text-anchor="middle" class="body">Request A</text>
   <rect class="seg-b" x="305" y="60" width="150" height="48"/>
