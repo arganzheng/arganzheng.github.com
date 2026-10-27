@@ -91,7 +91,7 @@ Table: 本文的章节安排
 
 ## 二、进程组对照：谁和谁通信
 
-并行策略落到代码里的第一件事是进程组：每张卡属于哪一个 TP 组、哪一个 DP 组、哪一个 PP 组。三个框架用三种方式回答——Megatron 的 `parallel_state` 是一张由模块级全局变量组成的注册表，`RankGenerator` 按 `order` 枚举 rank 填进去；DeepSpeed 的 `groups.py` 是委托优先，`mpu` 在就转发给外部，不在就克隆整个世界，外加 MoE、hpZ、pipe 各建各的；torchtitan 的 `ParallelDims` 持有几张 `DeviceMesh` 视图，`build_mesh()` 把一维 world mesh `_unflatten` 成按名索引的多维网格。三个实现分别在 [03 进程组](/megatron-lm-architecture-and-source-guide.html#五进程组)、[04 进程组](/deepspeed-architecture-and-source-guide.html#三进程组groupspy-的委托与自建)、[05 进程组](/torchtitan-architecture-and-source-guide.html#三进程组paralleldims-与-devicemesh)。
+并行策略落到代码里的第一件事是进程组：每张卡属于哪一个 TP 组、哪一个 DP 组、哪一个 PP 组。三个框架用三种方式回答——Megatron 的 `parallel_state` 是一张由模块级全局变量组成的注册表，`RankGenerator` 按 `order` 枚举 rank 填进去；DeepSpeed 的 `groups.py` 是委托优先，`mpu` 在就转发给外部，不在就克隆整个世界，外加 MoE、hpZ、pipe 各建各的；torchtitan 的 `ParallelDims` 持有几张 `DeviceMesh` 视图，`build_mesh()` 把一维 world mesh `_unflatten` 成按名索引的多维网格。三个实现分别在 [03 进程组](/megatron-lm-architecture-and-source-guide.html#五进程组)、[04 进程组](/deepspeed-architecture-and-source-guide.html#五进程组groupspy-的委托与自建)、[05 进程组](/torchtitan-architecture-and-source-guide.html#三进程组paralleldims-与-devicemesh)。
 
 
 |   | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
@@ -115,7 +115,7 @@ Table: 三框架进程组管理的对照表
 
 ### 1. 三条时序并排
 
-把三个框架里一个 DP 组内的一个参数的时序压成一张表（各自的逐时刻展开在 [03](/megatron-lm-architecture-and-source-guide.html#六源码导读)、[04](/deepspeed-architecture-and-source-guide.html#四源码导读按优化器状态切)、[05](/torchtitan-architecture-and-source-guide.html#四源码导读用原生原语组合) 的"一个 bf16 参数的一生"）：
+把三个框架里一个 DP 组内的一个参数的时序压成一张表（各自的逐时刻展开在 [03](/megatron-lm-architecture-and-source-guide.html#六源码导读)、[04](/deepspeed-architecture-and-source-guide.html#六源码导读按优化器状态切)、[05](/torchtitan-architecture-and-source-guide.html#四源码导读用原生原语组合) 的"一个 bf16 参数的一生"）：
 
 
 |   | Megatron（DDP + 分布式优化器） | DeepSpeed Stage 3 | torchtitan（FSDP2） |
@@ -226,7 +226,7 @@ Table: 三框架取舍表
 
 ### 2. 本篇涉及的源码位置
 
-各框架的完整源码位置表在 [03](/megatron-lm-architecture-and-source-guide.html#八本文小结)、[04](/deepspeed-architecture-and-source-guide.html#六本文小结)、[05](/torchtitan-architecture-and-source-guide.html#六本文小结) 的小结尾，本篇不再重复。
+各框架的完整源码位置表在 [03](/megatron-lm-architecture-and-source-guide.html#八本文小结)、[04](/deepspeed-architecture-and-source-guide.html#七本文小结)、[05](/torchtitan-architecture-and-source-guide.html#六本文小结) 的小结尾，本篇不再重复。
 
 ### 3. train-ledger 三框架对账
 
