@@ -11,15 +11,20 @@ date: 2026-07-18 14:00:00
 > **NOTE** 本文源码引用以 DeepSpeed v0.19.2、PyTorch 2.13.0 为准。
 
 
-DeepSpeed 是微软开源的训练框架，底座是 ZeRO 论文（Rajbhandari 等，ZeRO: Memory Optimizations Toward Training Trillion Parameter Models，arXiv 1910.02054，2019）：显存里最贵的是优化器状态、梯度、参数这三份常驻，那就逐级把它们切到 $$N_d$$ 份。它的另一个卖点是零侵入——模型不需要用它的层写，任意一个 `nn.Module` 包进 engine 就能用 ZeRO，小集群训大模型是它最常见的场景。
 
 上一篇（[02《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)）给了 ZeRO-1/2/3 的字节账与通信账。本篇沿同一条 bf16 参数的生命线进 DeepSpeed 0.19.2 的源码：Stage 3 里 `param.data` 只是一个壳，完整的 bf16 参数在用到前由 hook all-gather 出来、用完立即打碎，常驻的是每参数 $$1/N_d$$ 的 `ds_tensor` 碎片和扁平 fp32 分区。三个框架并排的对照在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 DeepSpeed。
 
 > **一个 bf16 参数在 DeepSpeed Stage 3 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0]**
 
-### 1. 核心抽象
+## 一、来龙去脉与核心抽象
 
-|| 名字 | 是什么 | 管哪种状态 |
+### 1. 来龙去脉
+
+DeepSpeed 是微软开源的训练框架，底座是 ZeRO 论文（Rajbhandari 等，ZeRO: Memory Optimizations Toward Training Trillion Parameter Models，arXiv 1910.02054，2019）：显存里最贵的是优化器状态、梯度、参数这三份常驻，那就逐级把它们切到 $$N_d$$ 份。它的另一个卖点是零侵入——模型不需要用它的层写，任意一个 `nn.Module` 包进 engine 就能用 ZeRO，小集群训大模型是它最常见的场景。
+
+### 2. 核心抽象
+
+| 名字 | 是什么 | 管哪种状态 |
 |---|---|---|
 | `DeepSpeedEngine` | nn.Module 包装类：forward / backward / step | 训练循环、梯度累积边界 |
 | `DeepSpeedZeroOptimizer(_Stage3)` | 优化器包装类：分片 + hook + 全部通信 | 梯度与参数的分片、通信 |
@@ -107,6 +112,8 @@ def main():
 
 ## 四、源码导读：按优化器状态切
 
+
+### 1. 目录地图
 
 ```text title="DeepSpeed 目录地图"
 deepspeed/

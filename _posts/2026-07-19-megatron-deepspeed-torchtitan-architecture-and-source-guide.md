@@ -136,6 +136,8 @@ Table: 三条时序并排：一个 DP 组内的一个参数
 最后两行解释了三个框架的"手感"。Megatron 的显存曲线是一条直线（常驻大、临时少），profile 里通信是两大块（reduce-scatter 跟着反向、all-gather 跟着下一步前向）；DeepSpeed 与 torchtitan 的显存曲线是锯齿（常驻小、每层一个峰），通信是每层三小块。Megatron 的 `param.data` 可以随便读——checkpoint、日志、调试都直接看；DeepSpeed 的要用 `GatheredParameters`；torchtitan 的是 DTensor，`full_tensor()` 或 `to_local()` 二选一，但它知道自己是什么。
 
 
+### 2. 前向前 all-gather 分片参数：Stage 3 vs FSDP1 vs FSDP2
+
 第二篇提出的对照题：同一个"前向前把分片参数拼回来"，三种实现。现在可以逐项回答。
 
 |   | DeepSpeed Stage 3 | FSDP1（FlatParameter） | FSDP2（fully_shard） |

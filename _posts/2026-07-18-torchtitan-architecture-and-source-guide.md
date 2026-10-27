@@ -8,18 +8,24 @@ catalog: true
 date: 2026-07-18 18:00:00
 ---
 
-> **NOTE** 本文源码引用以 torchtitan v0.3.0、PyTorch 2.13.0 为准。
+> [!NOTE]
+> 本文源码引用以 torchtitan v0.3.0、PyTorch 2.13.0 为准。
 
 
-torchtitan 是 PyTorch 团队自己的参考实现（torchtitan: One-stop PyTorch native solution for production ready LLM pre-training，arXiv 2410.06511，2024）：它回答的不是"怎么切模型"，而是"用 PyTorch 原生原语——DeviceMesh、DTensor、fully_shard、pipelining——把并行组合起来，代码能短到什么程度"。它出现在 DeviceMesh 和 DTensor 之后，所以它的读法和前两个框架不同：它是这些原生 API 的参考用法，读它等于读 PyTorch 官方认为多维并行应该怎么组合。
 
 上一篇（[02《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)）给的是公式；本篇沿同一条 bf16 参数的生命线进 torchtitan v0.3.0 与 PyTorch 2.13.0 的源码：常驻的不是 bf16 参数而是 fp32 的 `Shard(0)` DTensor 分片，bf16 只在每层前向、反向的几十毫秒里存在，通信全部藏在 FSDP 的 hook 和 DTensor 的 `redistribute` 里。三个框架并排的对照在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 torchtitan。
 
 > **一个 bf16 参数在 torchtitan 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0]**
 
-### 1. 核心抽象
+## 一、来龙去脉与核心抽象
 
-|| 名字 | 是什么 | 管哪种状态 |
+### 1. 来龙去脉
+
+torchtitan 是 PyTorch 团队自己的参考实现（torchtitan: One-stop PyTorch native solution for production ready LLM pre-training，arXiv 2410.06511，2024）：它回答的不是"怎么切模型"，而是"用 PyTorch 原生原语——DeviceMesh、DTensor、fully_shard、pipelining——把并行组合起来，代码能短到什么程度"。它出现在 DeviceMesh 和 DTensor 之后，所以它的读法和前两个框架不同：它是这些原生 API 的参考用法，读它等于读 PyTorch 官方认为多维并行应该怎么组合。
+
+### 2. 核心抽象
+
+| 名字 | 是什么 | 管哪种状态 |
 |---|---|---|
 | `Trainer` / `Trainer.Config` | 训练器与配置树根：一次运行就是一个返回 Config 的 Python 函数 | 装配顺序、全部配置 |
 | `ParallelDims` / `DeviceMesh` | 并行度 dataclass 与 n 维 rank 网格 | 全部进程组 |
@@ -114,6 +120,8 @@ v0.3.0 多了一个 `spmd_backend` 字段（`"partial_dtensor" | "full_dtensor" 
 
 ## 四、源码导读：用原生原语组合
 
+
+### 1. 目录地图
 
 ```text title="torchtitan 目录地图"
 torchtitan/

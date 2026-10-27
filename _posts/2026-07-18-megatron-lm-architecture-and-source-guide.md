@@ -8,18 +8,24 @@ catalog: true
 date: 2026-07-18 10:00:00
 ---
 
-> **NOTE** 本文源码引用以 Megatron Core core_v0.18.0、PyTorch 2.13.0 为准。
+> [!NOTE]
+> 本文源码引用以 Megatron Core core_v0.18.0、PyTorch 2.13.0 为准。
 
 
-Megatron-LM 是 NVIDIA 的应用深度学习研究团队写的训练框架，同名论文（Shoeybi 等，Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism，arXiv 1909.08053，2019）回答的问题是：单层大到放不进一张卡时，怎样把矩阵切开、又让每张卡的通信尽量落在 NVLink 上。后来它把 PP、DP、CP、EP 与 Megatron Core 的 buffer 与分布式优化器一路加进来，成为千卡级 dense / MoE 预训练里最常见的选择。
 
 上一篇（[02《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)）给的是公式：每参数 16 字节、ZeRO-1 的 2N 通信、TP/PP/DP 的组合代价。本篇沿同一条 bf16 参数的生命线往下走，进 Megatron Core 0.18.0 的源码：那段 bf16 参数在显存里是一段连续 buffer 的视图，fp32 主参数是优化器按字节区间切出的私有拷贝，梯度在另一段连续 buffer 里走 reduce-scatter。三个框架并排的对照在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 Megatron。
 
 > **一个 bf16 参数在 Megatron 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0]**
 
-### 1. 核心抽象
+## 一、来龙去脉与核心抽象
 
-|| 名字 | 是什么 | 管哪种状态 |
+### 1. 来龙去脉
+
+Megatron-LM 是 NVIDIA 的应用深度学习研究团队写的训练框架，同名论文（Shoeybi 等，Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism，arXiv 1909.08053，2019）回答的问题是：单层大到放不进一张卡时，怎样把矩阵切开、又让每张卡的通信尽量落在 NVLink 上。后来它把 PP、DP、CP、EP 与 Megatron Core 的 buffer 与分布式优化器一路加进来，成为千卡级 dense / MoE 预训练里最常见的选择。
+
+### 2. 核心抽象
+
+| 名字 | 是什么 | 管哪种状态 |
 |---|---|---|
 | `_ParamAndGradBuffer` | 两段连续内存：param_data + grad_data，参数与梯度都是其中的视图 | bf16 参数、fp32 梯度 |
 | `_ParamAndGradBucket(Group)` | buffer 的切片，通信的单位 | 梯度 reduce-scatter / 参数 all-gather 的时机 |
