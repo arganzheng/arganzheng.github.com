@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="556.064521pt" height="267.59952pt" viewBox="0 0 556.064521 267.59952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.59898pt" height="267.59952pt" viewBox="0 0 555.59898 267.59952" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -21,127 +21,127 @@
  <g id="figure_1">
   <g id="patch_1">
    <path d="M 0 267.59952 
-L 556.064521 267.59952 
-L 556.064521 0 
+L 555.59898 267.59952 
+L 555.59898 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
-    <path d="M 51.088843 86.617372 
-L 548.864521 86.617372 
-L 548.864521 20.062507 
-L 51.088843 20.062507 
+    <path d="M 51.078877 86.617373 
+L 548.39898 86.617373 
+L 548.39898 20.062508 
+L 51.078877 20.062508 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #f4f7fb; stroke: #cccccc; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #f4f7fb; stroke: #cccccc; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
-    <path d="M 51.088843 164.264715 
-L 548.864521 164.264715 
-L 548.864521 97.70985 
-L 51.088843 97.70985 
+    <path d="M 51.078877 164.264715 
+L 548.39898 164.264715 
+L 548.39898 97.70985 
+L 51.078877 97.70985 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #fdf7ef; stroke: #cccccc; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #fdf7ef; stroke: #cccccc; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
-    <path d="M 51.088843 238.214565 
-L 548.864521 238.214565 
-L 548.864521 171.6597 
-L 51.088843 171.6597 
+    <path d="M 51.078877 238.214565 
+L 548.39898 238.214565 
+L 548.39898 171.6597 
+L 51.078877 171.6597 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #f5f5f5; stroke: #cccccc; stroke-width: 0.6; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #f5f5f5; stroke: #cccccc; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
-    <path d="M 59.799917 79.222387 
-L 344.154273 79.222387 
-Q 345.087603 79.222387 345.087603 77.003892 
-L 345.087603 35.591976 
-Q 345.087603 33.37348 344.154273 33.37348 
-L 59.799917 33.37348 
-Q 58.866588 33.37348 58.866588 35.591976 
-L 58.866588 77.003892 
-Q 58.866588 79.222387 59.799917 79.222387 
+    <path d="M 59.781979 79.222387 
+L 343.876088 79.222387 
+Q 344.808563 79.222387 344.808563 77.003892 
+L 344.808563 35.591976 
+Q 344.808563 33.37348 343.876088 33.37348 
+L 59.781979 33.37348 
+Q 58.849504 33.37348 58.849504 35.591976 
+L 58.849504 77.003892 
+Q 58.849504 79.222387 59.781979 79.222387 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #3b6fb6; fill-opacity: 0.133333; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #3b6fb6; fill-opacity: 0.133333; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
-    <path d="M 353.798677 79.222387 
-L 432.820566 79.222387 
-Q 433.753895 79.222387 433.753895 77.003892 
-L 433.753895 35.591976 
-Q 433.753895 33.37348 432.820566 33.37348 
-L 353.798677 33.37348 
-Q 352.865348 33.37348 352.865348 35.591976 
-L 352.865348 77.003892 
-Q 352.865348 79.222387 353.798677 79.222387 
+    <path d="M 353.511665 79.222387 
+L 432.461231 79.222387 
+Q 433.393706 79.222387 433.393706 77.003892 
+L 433.393706 35.591976 
+Q 433.393706 33.37348 432.461231 33.37348 
+L 353.511665 33.37348 
+Q 352.57919 33.37348 352.57919 35.591976 
+L 352.57919 77.003892 
+Q 352.57919 79.222387 353.511665 79.222387 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #eeeeee; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #eeeeee; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
-    <path d="M 440.909421 79.222387 
-L 538.597898 79.222387 
-Q 539.531227 79.222387 539.531227 77.003892 
-L 539.531227 35.591976 
-Q 539.531227 33.37348 538.597898 33.37348 
-L 440.909421 33.37348 
-Q 439.976091 33.37348 439.976091 35.591976 
-L 439.976091 77.003892 
-Q 439.976091 79.222387 440.909421 79.222387 
+    <path d="M 440.542683 79.222387 
+L 538.141753 79.222387 
+Q 539.074228 79.222387 539.074228 77.003892 
+L 539.074228 35.591976 
+Q 539.074228 33.37348 538.141753 33.37348 
+L 440.542683 33.37348 
+Q 439.610208 33.37348 439.610208 35.591976 
+L 439.610208 77.003892 
+Q 439.610208 79.222387 440.542683 79.222387 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #7b5ea7; fill-opacity: 0.133333; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #7b5ea7; fill-opacity: 0.133333; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_8">
-    <path d="M 300.910011 156.86973 
-L 423.487272 156.86973 
-Q 424.420602 156.86973 424.420602 154.651234 
-L 424.420602 113.239318 
-Q 424.420602 111.020823 423.487272 111.020823 
-L 300.910011 111.020823 
-Q 299.976682 111.020823 299.976682 113.239318 
-L 299.976682 154.651234 
-Q 299.976682 156.86973 300.910011 156.86973 
+    <path d="M 300.671404 156.86973 
+L 423.136479 156.86973 
+Q 424.068954 156.86973 424.068954 154.651235 
+L 424.068954 99.928346 
+Q 424.068954 97.70985 423.136479 97.70985 
+L 300.671404 97.70985 
+Q 299.738929 97.70985 299.738929 99.928346 
+L 299.738929 154.651235 
+Q 299.738929 156.86973 300.671404 156.86973 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #e0812c; fill-opacity: 0.2; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #e0812c; fill-opacity: 0.2; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_9">
-    <path d="M 434.687225 156.86973 
-L 541.708996 156.86973 
-Q 542.642325 156.86973 542.642325 154.651234 
-L 542.642325 113.239318 
-Q 542.642325 111.020823 541.708996 111.020823 
-L 434.687225 111.020823 
-Q 433.753895 111.020823 433.753895 113.239318 
-L 433.753895 154.651234 
-Q 433.753895 156.86973 434.687225 156.86973 
+    <path d="M 434.326182 156.86973 
+L 541.250004 156.86973 
+Q 542.182479 156.86973 542.182479 154.651235 
+L 542.182479 99.928346 
+Q 542.182479 97.70985 541.250004 97.70985 
+L 434.326182 97.70985 
+Q 433.393706 97.70985 433.393706 99.928346 
+L 433.393706 154.651235 
+Q 433.393706 156.86973 434.326182 156.86973 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #4a9a5b; fill-opacity: 0.2; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #4a9a5b; fill-opacity: 0.2; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_10">
-    <path d="M 69.133211 156.86973 
-L 188.599374 156.86973 
-Q 189.532703 156.86973 189.532703 154.651234 
-L 189.532703 113.239318 
-Q 189.532703 111.020823 188.599374 111.020823 
-L 69.133211 111.020823 
-Q 68.199882 111.020823 68.199882 113.239318 
-L 68.199882 154.651234 
-Q 68.199882 156.86973 69.133211 156.86973 
+    <path d="M 69.106731 156.86973 
+L 188.463556 156.86973 
+Q 189.396031 156.86973 189.396031 154.651235 
+L 189.396031 99.928346 
+Q 189.396031 97.70985 188.463556 97.70985 
+L 69.106731 97.70985 
+Q 68.174256 97.70985 68.174256 99.928346 
+L 68.174256 154.651235 
+Q 68.174256 156.86973 69.106731 156.86973 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #4a9a5b; fill-opacity: 0.2; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #4a9a5b; fill-opacity: 0.2; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_11">
-    <path d="M 59.799917 230.81958 
-L 537.042349 230.81958 
-Q 537.975678 230.81958 537.975678 228.601084 
-L 537.975678 187.189168 
-Q 537.975678 184.970673 537.042349 184.970673 
-L 59.799917 184.970673 
-Q 58.866588 184.970673 58.866588 187.189168 
-L 58.866588 228.601084 
-Q 58.866588 230.81958 59.799917 230.81958 
+    <path d="M 56.673728 230.81958 
+L 542.804129 230.81958 
+Q 543.736604 230.81958 543.736604 228.601085 
+L 543.736604 187.189169 
+Q 543.736604 184.970673 542.804129 184.970673 
+L 56.673728 184.970673 
+Q 55.741253 184.970673 55.741253 187.189169 
+L 55.741253 228.601085 
+Q 55.741253 230.81958 56.673728 230.81958 
 z
-" clip-path="url(#pc662f6d8e2)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p1636a15b35)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- 计算流 -->
@@ -382,7 +382,7 @@ z
    </g>
    <g id="text_2">
     <!-- 通信流 -->
-    <g style="fill: #222222" transform="translate(7.2 135.167282) scale(0.11 -0.11)">
+    <g style="fill: #222222" transform="translate(7.2 135.167283) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-e59" d="M 1645 2266 
 C 1645 2611 1651 2765 1670 2963 
@@ -561,7 +561,7 @@ z
    </g>
    <g id="text_3">
     <!-- 常驻 -->
-    <g style="fill: #222222" transform="translate(18.2 209.117132) scale(0.11 -0.11)">
+    <g style="fill: #222222" transform="translate(18.2 209.117133) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-4c8" d="M 3514 4512 
 L 3514 4902 
@@ -729,7 +729,7 @@ z
    </g>
    <g id="text_4">
     <!-- 8 个 micro-batch 的前向 + 反向 -->
-    <g style="fill: #222222" transform="translate(127.24897 52.152622) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(127.100908 52.152622) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-19" d="M 2752 2586 
 C 3322 2694 3680 3142 3680 3738 
@@ -1253,7 +1253,7 @@ z
      <use xlink:href="#HiraginoSansGB-W3-f5f" transform="translate(1394.5625 0)"/>
     </g>
     <!-- （dW 直接累加进 main_grad，不通信） -->
-    <g style="fill: #222222" transform="translate(109.614595 67.152622) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(109.466533 67.152622) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-10d" d="M 6157 -518 
 C 5619 26 5408 314 5184 806 
@@ -2018,7 +2018,7 @@ z
    </g>
    <g id="text_5">
     <!-- finalize -->
-    <g style="fill: #222222" transform="translate(376.29009 52.152622) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(375.966917 52.152622) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-47" d="M 915 3078 
 L 915 762 
@@ -2115,7 +2115,7 @@ z
      <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(281.59375 0)"/>
     </g>
     <!-- model_grads -->
-    <g style="fill: #222222" transform="translate(361.551028 67.152622) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(361.227854 67.152622) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-54" d="M 269 973 
 C 333 710 378 602 474 467 
@@ -2159,7 +2159,7 @@ z
    </g>
    <g id="text_6">
     <!-- optimizer.step -->
-    <g style="fill: #222222" transform="translate(454.798972 52.032309) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(454.38753 52.032309) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-51" d="M 1018 -1306 
 C 986 -1069 973 -883 973 -582 
@@ -2208,112 +2208,9 @@ z
      <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(575.59375 0)"/>
      <use xlink:href="#HiraginoSansGB-W3-51" transform="translate(634.390625 0)"/>
     </g>
-    <!-- （只动本 rank 1/2 段） -->
-    <g style="fill: #222222" transform="translate(434.828659 67.872934) scale(0.1 -0.1)">
+    <!-- 本 rank 的 1/2 段 -->
+    <g style="fill: #222222" transform="translate(447.752374 67.872934) scale(0.1 -0.1)">
      <defs>
-      <path id="HiraginoSansGB-W3-11ba" d="M 1126 2534 
-C 1126 2227 1120 2099 1094 1914 
-C 1350 1939 1485 1946 1786 1946 
-L 4614 1946 
-C 4909 1946 5043 1939 5306 1914 
-C 5280 2093 5274 2195 5274 2496 
-L 5274 4410 
-C 5274 4704 5280 4813 5306 4992 
-C 5056 4966 4902 4960 4563 4960 
-L 1792 4960 
-C 1472 4960 1357 4966 1094 4992 
-C 1120 4800 1126 4634 1126 4390 
-L 1126 2534 
-z
-M 4851 4570 
-L 4851 2336 
-L 1542 2336 
-L 1542 4570 
-L 4851 4570 
-z
-M 3808 1338 
-C 4666 570 4973 256 5504 -384 
-L 5830 -70 
-C 5331 480 5139 659 4122 1587 
-L 3808 1338 
-z
-M 2163 1594 
-C 1882 1152 1696 941 1325 608 
-C 1024 346 787 179 358 -58 
-C 563 -198 602 -230 730 -378 
-C 1107 -134 1325 26 1600 269 
-C 1997 627 2227 896 2573 1402 
-L 2163 1594 
-z
-" transform="scale(0.015625)"/>
-      <path id="HiraginoSansGB-W3-5ee" d="M 2726 2950 
-C 2976 2950 3085 2944 3264 2918 
-L 3264 3354 
-C 3117 3328 2982 3322 2714 3322 
-L 877 3322 
-C 608 3322 467 3328 320 3354 
-L 320 2918 
-C 493 2944 614 2950 864 2950 
-L 1344 2950 
-C 1235 2330 1005 1594 736 960 
-C 640 774 595 736 416 678 
-L 550 275 
-C 602 288 614 294 685 307 
-C 704 314 730 320 755 326 
-C 896 358 896 358 1024 384 
-C 1818 550 2227 634 2259 640 
-C 2323 653 2502 698 2810 774 
-C 2854 627 2886 499 2906 397 
-L 3302 538 
-C 3066 1286 2886 1766 2611 2362 
-L 2259 2240 
-C 2477 1773 2509 1696 2701 1139 
-C 2125 986 1658 883 1094 800 
-C 1235 1133 1382 1517 1485 1843 
-C 1568 2125 1747 2784 1779 2950 
-L 2726 2950 
-z
-M 4691 3904 
-C 4691 3930 4691 3936 4691 3968 
-C 4698 4147 4698 4435 4704 4806 
-C 4704 5037 4710 5165 4736 5306 
-L 4269 5306 
-C 4294 5133 4301 5005 4301 4672 
-C 4301 4480 4301 4467 4294 3904 
-L 3827 3904 
-C 3514 3904 3373 3910 3238 3936 
-L 3238 3494 
-C 3386 3520 3546 3533 3827 3533 
-L 4275 3533 
-C 4224 2726 4166 2291 4058 1837 
-C 3840 992 3475 403 2816 -160 
-C 2976 -269 3040 -333 3155 -474 
-C 3494 -147 3642 19 3827 301 
-C 4077 666 4269 1094 4403 1549 
-C 4550 2080 4608 2509 4672 3533 
-L 5504 3533 
-C 5478 1760 5427 1037 5280 397 
-C 5216 90 5165 32 4941 32 
-C 4755 32 4544 58 4230 122 
-C 4275 -32 4294 -141 4301 -301 
-C 4563 -333 4774 -346 4998 -346 
-C 5466 -346 5594 -205 5709 442 
-C 5811 1024 5875 1869 5901 3091 
-C 5920 3770 5920 3770 5939 3930 
-C 5773 3910 5626 3904 5338 3904 
-L 4691 3904 
-z
-M 602 4467 
-C 762 4493 890 4499 1133 4499 
-L 2554 4499 
-C 2784 4499 2906 4493 3066 4467 
-L 3066 4896 
-C 2899 4870 2790 4864 2541 4864 
-L 1133 4864 
-C 883 4864 762 4870 602 4896 
-L 602 4467 
-z
-" transform="scale(0.015625)"/>
       <path id="HiraginoSansGB-W3-427" d="M 2938 4186 
 L 1146 4186 
 C 864 4186 678 4198 442 4230 
@@ -2509,27 +2406,25 @@ L 6125 3520
 z
 " transform="scale(0.015625)"/>
      </defs>
-     <use xlink:href="#HiraginoSansGB-W3-10d"/>
-     <use xlink:href="#HiraginoSansGB-W3-11ba" transform="translate(100 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-5ee" transform="translate(200 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-427" transform="translate(300 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(400 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(433.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(476.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-4f" transform="translate(533.796875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-4c" transform="translate(595.59375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(653.09375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-12" transform="translate(686.390625 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-10" transform="translate(752.09375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-13" transform="translate(799.5 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(865.203125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-60d" transform="translate(898.5 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-10e" transform="translate(998.5 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-427"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(100 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(133.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(176.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-4f" transform="translate(233.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-4c" transform="translate(295.59375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(353.09375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-5a5" transform="translate(386.390625 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(486.390625 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-12" transform="translate(519.6875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-10" transform="translate(585.390625 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-13" transform="translate(632.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(698.5 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-60d" transform="translate(731.796875 0)"/>
     </g>
    </g>
    <g id="text_7">
-    <!-- reduce-scatter grad_data -->
-    <g style="fill: #222222" transform="translate(299.140829 129.799964) scale(0.1 -0.1)">
+    <!-- reduce-scatter -->
+    <g style="fill: #222222" transform="translate(325.414879 115.644478) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-56" d="M 2970 38 
 L 3501 38 
@@ -2569,19 +2464,21 @@ z
      <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(588.78125 0)"/>
      <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(627.984375 0)"/>
      <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(686.78125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(729.78125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-48" transform="translate(763.078125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(827.171875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(870.171875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-45" transform="translate(927.671875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-40" transform="translate(992.265625 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-45" transform="translate(1042.359375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(1106.953125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(1164.453125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(1203.65625 0)"/>
+    </g>
+    <!-- grad_data -->
+    <g style="fill: #222222" transform="translate(337.000035 130.644478) scale(0.1 -0.1)">
+     <use xlink:href="#HiraginoSansGB-W3-48"/>
+     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(64.09375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(107.09375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-45" transform="translate(164.59375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-40" transform="translate(229.1875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-45" transform="translate(279.28125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(343.875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(401.375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(440.578125 0)"/>
     </g>
     <!-- （与末尾反向重叠） -->
-    <g style="fill: #222222" transform="translate(317.198642 145.690589) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(316.903942 146.535103) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-10d0" d="M 1837 4429 
 C 1907 5210 1907 5210 1933 5363 
@@ -2950,8 +2847,8 @@ z
     </g>
    </g>
    <g id="text_8">
-    <!-- all-gather param_data -->
-    <g style="fill: #222222" transform="translate(434.098892 129.799964) scale(0.1 -0.1)">
+    <!-- all-gather -->
+    <g style="fill: #222222" transform="translate(464.588093 115.224165) scale(0.1 -0.1)">
      <use xlink:href="#HiraginoSansGB-W3-42"/>
      <use xlink:href="#HiraginoSansGB-W3-4d" transform="translate(57.5 0)"/>
      <use xlink:href="#HiraginoSansGB-W3-4d" transform="translate(80.703125 0)"/>
@@ -2962,20 +2859,22 @@ z
      <use xlink:href="#HiraginoSansGB-W3-49" transform="translate(300.5 0)"/>
      <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(362.203125 0)"/>
      <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(421 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(464 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-51" transform="translate(497.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(562 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(619.5 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(662.5 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-4e" transform="translate(720 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-40" transform="translate(813.09375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-45" transform="translate(863.1875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(927.78125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(985.28125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(1024.484375 0)"/>
+    </g>
+    <!-- param_data -->
+    <g style="fill: #222222" transform="translate(458.553718 131.11479) scale(0.1 -0.1)">
+     <use xlink:href="#HiraginoSansGB-W3-51"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(64.703125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(122.203125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(165.203125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-4e" transform="translate(222.703125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-40" transform="translate(315.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-45" transform="translate(365.890625 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(430.484375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(487.984375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(527.1875 0)"/>
     </g>
     <!-- （发出，不等） -->
-    <g style="fill: #222222" transform="translate(453.19811 145.690589) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(452.788093 146.955415) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-63f" d="M 5069 2925 
 C 4934 2899 4781 2893 4499 2893 
@@ -3169,8 +3068,21 @@ z
     </g>
    </g>
    <g id="text_9">
-    <!-- all-gather（上一 step 发出） -->
-    <g style="fill: #222222" transform="translate(61.516293 129.379651) scale(0.1 -0.1)">
+    <!-- all-gather -->
+    <g style="fill: #222222" transform="translate(105.585143 114.803853) scale(0.1 -0.1)">
+     <use xlink:href="#HiraginoSansGB-W3-42"/>
+     <use xlink:href="#HiraginoSansGB-W3-4d" transform="translate(57.5 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-4d" transform="translate(80.703125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-e" transform="translate(103.90625 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-48" transform="translate(139.703125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(203.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(261.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-49" transform="translate(300.5 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(362.203125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(421 0)"/>
+    </g>
+    <!-- （上一 step 发出） -->
+    <g style="fill: #222222" transform="translate(84.635143 130.694478) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-d08" d="M 3290 3251 
 L 3290 4563 
@@ -3207,89 +3119,22 @@ L 6016 2771
 z
 " transform="scale(0.015625)"/>
      </defs>
-     <use xlink:href="#HiraginoSansGB-W3-42"/>
-     <use xlink:href="#HiraginoSansGB-W3-4d" transform="translate(57.5 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-4d" transform="translate(80.703125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-e" transform="translate(103.90625 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-48" transform="translate(139.703125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-42" transform="translate(203.796875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(261.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-49" transform="translate(300.5 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(362.203125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(421 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-10d" transform="translate(464 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-d08" transform="translate(564 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1042" transform="translate(664 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(764 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-54" transform="translate(797.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(851 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(890.203125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-51" transform="translate(949 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(1013.703125 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-63f" transform="translate(1047 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-51b" transform="translate(1147 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-10e" transform="translate(1247 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-10d"/>
+     <use xlink:href="#HiraginoSansGB-W3-d08" transform="translate(100 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1042" transform="translate(200 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(300 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-54" transform="translate(333.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-55" transform="translate(387 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(426.203125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-51" transform="translate(485 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(549.703125 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-63f" transform="translate(583 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-51b" transform="translate(683 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-10e" transform="translate(783 0)"/>
     </g>
-    <!-- 在前向 pre-hook 里等 -->
-    <g style="fill: #222222" transform="translate(78.211605 145.270277) scale(0.1 -0.1)">
+    <!-- 前向 pre-hook 里等 -->
+    <g style="fill: #222222" transform="translate(83.130456 146.535103) scale(0.1 -0.1)">
      <defs>
-      <path id="HiraginoSansGB-W3-111d" d="M 2758 4416 
-C 2816 4544 2938 4838 3002 4992 
-C 3059 5152 3085 5210 3123 5280 
-L 2650 5376 
-C 2611 5126 2515 4832 2330 4416 
-L 1139 4416 
-C 800 4416 595 4429 435 4454 
-L 435 4006 
-C 608 4026 819 4038 1139 4038 
-L 2150 4038 
-C 1926 3610 1843 3482 1619 3168 
-L 1267 3168 
-C 1286 3040 1293 2931 1299 2758 
-C 973 2374 710 2131 269 1792 
-C 410 1683 493 1600 576 1466 
-C 896 1734 1011 1850 1299 2170 
-L 1299 218 
-C 1299 -90 1286 -275 1261 -442 
-L 1747 -442 
-C 1722 -262 1709 -64 1709 218 
-L 1709 2656 
-C 1984 3008 2368 3616 2579 4038 
-L 5331 4038 
-C 5638 4038 5856 4026 6029 4006 
-L 6029 4454 
-C 5869 4429 5664 4416 5331 4416 
-L 2758 4416 
-z
-M 4102 2400 
-L 4102 2938 
-C 4102 3302 4115 3482 4141 3622 
-L 3642 3622 
-C 3667 3469 3680 3290 3680 2944 
-L 3680 2400 
-L 2822 2400 
-C 2515 2400 2362 2413 2208 2438 
-L 2208 2010 
-C 2381 2029 2547 2035 2822 2035 
-L 3680 2035 
-L 3680 224 
-L 2592 224 
-C 2336 224 2144 237 1952 256 
-L 1952 -186 
-C 2138 -160 2336 -147 2592 -147 
-L 5370 -147 
-C 5594 -147 5766 -160 6010 -186 
-L 6010 256 
-C 5856 230 5690 224 5376 224 
-L 4102 224 
-L 4102 2035 
-L 5107 2035 
-C 5376 2035 5542 2029 5715 2010 
-L 5715 2438 
-C 5562 2413 5408 2400 5107 2400 
-L 4102 2400 
-z
-" transform="scale(0.015625)"/>
       <path id="HiraginoSansGB-W3-9da" d="M 3366 2202 
 L 4685 2202 
 C 5062 2202 5242 2195 5421 2163 
@@ -3354,26 +3199,25 @@ L 3366 2560
 z
 " transform="scale(0.015625)"/>
      </defs>
-     <use xlink:href="#HiraginoSansGB-W3-111d"/>
-     <use xlink:href="#HiraginoSansGB-W3-c2d" transform="translate(100 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-f5f" transform="translate(200 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(300 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-51" transform="translate(333.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(398 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(441 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-e" transform="translate(499.796875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-49" transform="translate(535.59375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-50" transform="translate(597.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-50" transform="translate(659.796875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-4c" transform="translate(722.296875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(779.796875 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-9da" transform="translate(813.09375 0)"/>
-     <use xlink:href="#HiraginoSansGB-W3-5a9" transform="translate(913.09375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-c2d"/>
+     <use xlink:href="#HiraginoSansGB-W3-f5f" transform="translate(100 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(200 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-51" transform="translate(233.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-53" transform="translate(298 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-46" transform="translate(341 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-e" transform="translate(399.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-49" transform="translate(435.59375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-50" transform="translate(497.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-50" transform="translate(559.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-4c" transform="translate(622.296875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-1" transform="translate(679.796875 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-9da" transform="translate(713.09375 0)"/>
+     <use xlink:href="#HiraginoSansGB-W3-5a9" transform="translate(813.09375 0)"/>
     </g>
    </g>
    <g id="text_10">
     <!-- bf16 参数（完整）· fp32 梯度 buffer（完整）· fp32 主参数 + m + v（1/2）——整个训练期不释放 -->
-    <g style="fill: #222222" transform="translate(62.651602 211.274814) scale(0.1 -0.1)">
+    <g style="fill: #222222" transform="translate(63.969397 211.274814) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-17" d="M 3725 4006 
 C 3539 4390 3411 4563 3187 4723 
@@ -4493,17 +4337,17 @@ z
     </g>
    </g>
    <g id="patch_12">
-    <path d="M 177.088311 106.060983 
-Q 177.088311 96.230798 177.088311 87.518646 
+    <path d="M 176.963028 94.232799 
+Q 176.963028 88.466421 176.963028 83.818077 
 " style="fill: none; stroke: #666666; stroke-linecap: round"/>
-    <path d="M 174.888311 91.918646 
-L 177.088311 87.518646 
-L 179.288311 91.918646 
+    <path d="M 174.763028 88.218077 
+L 176.963028 83.818077 
+L 179.163028 88.218077 
 " style="fill: none; stroke: #666666; stroke-linecap: round"/>
    </g>
    <g id="text_11">
     <!-- 前向 pre-hook 等它完成 -->
-    <g style="fill: #333333" transform="translate(181.754958 99.61054) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(181.625404 92.955054) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-df1" d="M 2010 1600 
 C 3206 1901 4102 2253 4941 2746 
@@ -4623,17 +4467,17 @@ z
     </g>
    </g>
    <g id="patch_13">
-    <path d="M 338.865407 86.400723 
-Q 338.865407 96.230908 338.865407 104.94306 
+    <path d="M 338.592062 82.699439 
+Q 338.592062 88.465817 338.592062 93.11416 
 " style="fill: none; stroke: #666666; stroke-linecap: round"/>
-    <path d="M 341.065407 100.54306 
-L 338.865407 104.94306 
-L 336.665407 100.54306 
+    <path d="M 340.792062 88.71416 
+L 338.592062 93.11416 
+L 336.392062 88.71416 
 " style="fill: none; stroke: #666666; stroke-linecap: round"/>
    </g>
    <g id="text_12">
     <!-- 最后一个 micro-batch -->
-    <g style="fill: #333333" transform="translate(343.532054 92.530853) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(343.254438 85.875367) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-124b" d="M 3059 2528 
 L 5504 2528 
@@ -4791,7 +4635,7 @@ z
      <use xlink:href="#HiraginoSansGB-W3-49" transform="translate(968.375 0)"/>
     </g>
     <!-- 反向触发 -->
-    <g style="fill: #333333" transform="translate(343.532054 107.530853) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(343.254438 100.875367) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-528" d="M 2138 3693 
 C 2221 3814 2349 4045 2451 4243 
@@ -4915,17 +4759,17 @@ z
     </g>
    </g>
    <g id="patch_14">
-    <path d="M 489.753659 86.400723 
-Q 489.753659 96.230908 489.753659 104.94306 
+    <path d="M 489.342218 82.699439 
+Q 489.342218 88.465817 489.342218 93.11416 
 " style="fill: none; stroke: #666666; stroke-linecap: round"/>
-    <path d="M 491.953659 100.54306 
-L 489.753659 104.94306 
-L 487.553659 100.54306 
+    <path d="M 491.542218 88.71416 
+L 489.342218 93.11416 
+L 487.142218 88.71416 
 " style="fill: none; stroke: #666666; stroke-linecap: round"/>
    </g>
    <g id="text_13">
     <!-- step 发起 -->
-    <g style="fill: #333333" transform="translate(494.420306 99.61054) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(494.004594 92.955054) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-c0f" d="M 2106 1568 
 L 2624 1568 
@@ -5019,7 +4863,7 @@ z
    </g>
    <g id="text_14">
     <!-- 一个 DP rank 的一个 step：两次 DP 通信都与计算重叠（ZeRO-1 的 2N） -->
-    <g style="fill: #222222" transform="translate(95.437619 17.76) scale(0.12 -0.12)">
+    <g style="fill: #222222" transform="translate(95.199866 17.76) scale(0.12 -0.12)">
      <defs>
       <path id="HiraginoSansGB-W3-25" d="M 544 781 
 C 544 461 531 269 493 19 
@@ -5572,8 +5416,8 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pc662f6d8e2">
-   <rect x="51.088843" y="23.76" width="497.775678" height="236.63952"/>
+  <clipPath id="p1636a15b35">
+   <rect x="51.078877" y="23.76" width="497.320103" height="236.63952"/>
   </clipPath>
  </defs>
 </svg>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.599089pt" height="454.79952pt" viewBox="0 0 555.599089 454.79952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.59952pt" height="454.79952pt" viewBox="0 0 555.59952 454.79952" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -21,94 +21,94 @@
  <g id="figure_1">
   <g id="patch_1">
    <path d="M 0 454.79952 
-L 555.599089 454.79952 
-L 555.599089 0 
+L 555.59952 454.79952 
+L 555.59952 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
-    <path d="M 40.182289 417.325269 
-L 506.19012 417.325269 
-Q 512.573789 417.325269 512.573789 412.784131 
-L 512.573789 374.562888 
-Q 512.573789 370.021751 506.19012 370.021751 
-L 40.182289 370.021751 
-Q 33.79862 370.021751 33.79862 374.562888 
-L 33.79862 412.784131 
-Q 33.79862 417.325269 40.182289 417.325269 
+    <path d="M 40.182316 417.325269 
+L 506.190525 417.325269 
+Q 512.574199 417.325269 512.574199 412.784131 
+L 512.574199 374.562888 
+Q 512.574199 370.021751 506.190525 370.021751 
+L 40.182316 370.021751 
+Q 33.798642 370.021751 33.798642 374.562888 
+L 33.798642 412.784131 
+Q 33.798642 417.325269 40.182316 417.325269 
 z
-" clip-path="url(#p22d0026c74)" style="fill: #ffffff; stroke: #444444; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #444444; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
-    <path d="M 40.182289 354.884625 
-L 506.19012 354.884625 
-Q 512.573789 354.884625 512.573789 350.343487 
-L 512.573789 312.122245 
-Q 512.573789 307.581107 506.19012 307.581107 
-L 40.182289 307.581107 
-Q 33.79862 307.581107 33.79862 312.122245 
-L 33.79862 350.343487 
-Q 33.79862 354.884625 40.182289 354.884625 
+    <path d="M 40.182316 354.884625 
+L 506.190525 354.884625 
+Q 512.574199 354.884625 512.574199 350.343487 
+L 512.574199 312.122245 
+Q 512.574199 307.581107 506.190525 307.581107 
+L 40.182316 307.581107 
+Q 33.798642 307.581107 33.798642 312.122245 
+L 33.798642 350.343487 
+Q 33.798642 354.884625 40.182316 354.884625 
 z
-" clip-path="url(#p22d0026c74)" style="fill: #ffffff; stroke: #3b6fb6; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #3b6fb6; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
-    <path d="M 40.182289 292.443981 
-L 506.19012 292.443981 
-Q 512.573789 292.443981 512.573789 287.902844 
-L 512.573789 249.681601 
-Q 512.573789 245.140464 506.19012 245.140464 
-L 40.182289 245.140464 
-Q 33.79862 245.140464 33.79862 249.681601 
-L 33.79862 287.902844 
-Q 33.79862 292.443981 40.182289 292.443981 
+    <path d="M 40.182316 292.443981 
+L 506.190525 292.443981 
+Q 512.574199 292.443981 512.574199 287.902844 
+L 512.574199 249.681601 
+Q 512.574199 245.140464 506.190525 245.140464 
+L 40.182316 245.140464 
+Q 33.798642 245.140464 33.798642 249.681601 
+L 33.798642 287.902844 
+Q 33.798642 292.443981 40.182316 292.443981 
 z
-" clip-path="url(#p22d0026c74)" style="fill: #ffffff; stroke: #e0812c; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #e0812c; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
-    <path d="M 40.182289 230.003338 
-L 506.19012 230.003338 
-Q 512.573789 230.003338 512.573789 225.4622 
-L 512.573789 187.240958 
-Q 512.573789 182.69982 506.19012 182.69982 
-L 40.182289 182.69982 
-Q 33.79862 182.69982 33.79862 187.240958 
-L 33.79862 225.4622 
-Q 33.79862 230.003338 40.182289 230.003338 
+    <path d="M 40.182316 230.003338 
+L 506.190525 230.003338 
+Q 512.574199 230.003338 512.574199 225.4622 
+L 512.574199 187.240958 
+Q 512.574199 182.69982 506.190525 182.69982 
+L 40.182316 182.69982 
+Q 33.798642 182.69982 33.798642 187.240958 
+L 33.798642 225.4622 
+Q 33.798642 230.003338 40.182316 230.003338 
 z
-" clip-path="url(#p22d0026c74)" style="fill: #ffffff; stroke: #4a9a5b; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #4a9a5b; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
-    <path d="M 40.182289 167.562694 
-L 506.19012 167.562694 
-Q 512.573789 167.562694 512.573789 163.021557 
-L 512.573789 124.800314 
-Q 512.573789 120.259176 506.19012 120.259176 
-L 40.182289 120.259176 
-Q 33.79862 120.259176 33.79862 124.800314 
-L 33.79862 163.021557 
-Q 33.79862 167.562694 40.182289 167.562694 
+    <path d="M 40.182316 167.562694 
+L 506.190525 167.562694 
+Q 512.574199 167.562694 512.574199 163.021557 
+L 512.574199 124.800314 
+Q 512.574199 120.259176 506.190525 120.259176 
+L 40.182316 120.259176 
+Q 33.798642 120.259176 33.798642 124.800314 
+L 33.798642 163.021557 
+Q 33.798642 167.562694 40.182316 167.562694 
 z
-" clip-path="url(#p22d0026c74)" style="fill: #ffffff; stroke: #7b5ea7; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #7b5ea7; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
-    <path d="M 40.182289 105.122051 
-L 506.19012 105.122051 
-Q 512.573789 105.122051 512.573789 100.580913 
-L 512.573789 62.359671 
-Q 512.573789 57.818533 506.19012 57.818533 
-L 40.182289 57.818533 
-Q 33.79862 57.818533 33.79862 62.359671 
-L 33.79862 100.580913 
-Q 33.79862 105.122051 40.182289 105.122051 
+    <path d="M 40.182316 105.122051 
+L 506.190525 105.122051 
+Q 512.574199 105.122051 512.574199 100.580913 
+L 512.574199 62.359671 
+Q 512.574199 57.818533 506.190525 57.818533 
+L 40.182316 57.818533 
+Q 33.798642 57.818533 33.798642 62.359671 
+L 33.798642 100.580913 
+Q 33.798642 105.122051 40.182316 105.122051 
 z
-" clip-path="url(#p22d0026c74)" style="fill: #ffffff; stroke: #c94c4c; stroke-width: 1.3; stroke-linejoin: miter"/>
+" clip-path="url(#ped189a62bb)" style="fill: #ffffff; stroke: #c94c4c; stroke-width: 1.3; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- parallel_state（模块级全局变量 + RankGenerator） -->
-    <g style="fill: #444444" transform="translate(47.097931 388.481776) scale(0.11 -0.11)">
+    <g style="fill: #444444" transform="translate(47.097963 388.481776) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-51" d="M 1248 3597 
 L 397 3597 
@@ -1003,7 +1003,7 @@ z
    </g>
    <g id="text_2">
     <!-- 给上面每一层提供进程组：TP / DP / PP / … -->
-    <g style="fill: #333333" transform="translate(47.097931 407.356543) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(47.097963 407.356543) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-6f3" d="M 4122 5414 
 C 3917 4941 3718 4614 3437 4269 
@@ -1849,7 +1849,7 @@ z
    </g>
    <g id="text_3">
     <!-- tensor_parallel：ColumnParallel / RowParallel / mappings -->
-    <g style="fill: #3b6fb6" transform="translate(47.097931 326.035977) scale(0.11 -0.11)">
+    <g style="fill: #3b6fb6" transform="translate(47.097963 326.035977) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-11f" d="M 1101 3597 
 L 1101 2662 
@@ -2112,7 +2112,7 @@ z
    </g>
    <g id="text_4">
     <!-- 模型由切开的层搭成；通信是手写的 autograd.Function -->
-    <g style="fill: #333333" transform="translate(47.097931 344.615899) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(47.097963 344.615899) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-b06" d="M 5472 966 
 C 5741 966 5901 954 6093 928 
@@ -3315,7 +3315,7 @@ z
    </g>
    <g id="text_5">
     <!-- _ParamAndGradBuffer + Bucket(Group) -->
-    <g style="fill: #e0812c" transform="translate(47.097931 263.600489) scale(0.11 -0.11)">
+    <g style="fill: #e0812c" transform="translate(47.097963 263.600489) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-22" d="M 5101 -77 
 C 5011 90 4934 269 4774 678 
@@ -3510,7 +3510,7 @@ z
    </g>
    <g id="text_6">
     <!-- 两段连续内存；参数与 main_grad 是视图；通信单位是 bucket -->
-    <g style="fill: #333333" transform="translate(47.097931 282.175256) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(47.097963 282.175256) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-a06" d="M 3232 1683 
 C 2989 2202 2854 2464 2554 2989 
@@ -4553,7 +4553,7 @@ z
    </g>
    <g id="text_7">
     <!-- DistributedDataParallel -->
-    <g style="fill: #4a9a5b" transform="translate(47.097931 201.638518) scale(0.11 -0.11)">
+    <g style="fill: #4a9a5b" transform="translate(47.097963 201.638518) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-25" d="M 506 749 
 C 506 365 493 166 454 -96 
@@ -4632,7 +4632,7 @@ z
    </g>
    <g id="text_8">
     <!-- 包装模型，注册 hook：梯度就绪发 reduce-scatter、前向等 all-gather -->
-    <g style="fill: #333333" transform="translate(47.097931 219.734612) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(47.097963 219.734612) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-407" d="M 1952 4627 
 C 2003 4723 2074 4890 2138 5043 
@@ -5659,7 +5659,7 @@ z
    </g>
    <g id="text_9">
     <!-- DistributedOptimizer -->
-    <g style="fill: #7b5ea7" transform="translate(47.097931 138.719202) scale(0.11 -0.11)">
+    <g style="fill: #7b5ea7" transform="translate(47.097963 138.719202) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-30" d="M 2669 5120 
 C 1990 5120 1459 4915 1018 4480 
@@ -5730,7 +5730,7 @@ z
    </g>
    <g id="text_10">
     <!-- 按 buffer 字节区间切 fp32 主参数与 m、v（ZeRO-1） -->
-    <g style="fill: #333333" transform="translate(47.097931 157.318969) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(47.097963 157.318969) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-3bf" d="M 5965 -38 
 C 5370 346 4902 614 4461 845 
@@ -6337,7 +6337,7 @@ z
    </g>
    <g id="text_11">
     <!-- schedules.py + P2PCommunicator -->
-    <g style="fill: #c94c4c" transform="translate(47.097931 76.273402) scale(0.11 -0.11)">
+    <g style="fill: #c94c4c" transform="translate(47.097963 76.273402) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-49" d="M 403 5018 
 C 435 4762 448 4563 448 4179 
@@ -6447,7 +6447,7 @@ z
    </g>
    <g id="text_12">
     <!-- 驱动前向 / 反向时序；只通过 config 回调碰 DDP -->
-    <g style="fill: #333333" transform="translate(47.097931 94.853325) scale(0.1 -0.1)">
+    <g style="fill: #333333" transform="translate(47.097963 94.853325) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-c7a" d="M 1773 2355 
 L 1056 2355 
@@ -7097,17 +7097,17 @@ z
     </g>
    </g>
    <g id="patch_8">
-    <path d="M 528.532961 392.616341 
-Q 528.532961 235.678268 528.532961 80.081836 
+    <path d="M 528.533384 392.616341 
+Q 528.533384 235.678268 528.533384 80.081836 
 " style="fill: none; stroke: #888888; stroke-width: 1.2; stroke-linecap: round"/>
-    <path d="M 526.332961 84.481836 
-L 528.532961 80.081836 
-L 530.732961 84.481836 
+    <path d="M 526.333384 84.481836 
+L 528.533384 80.081836 
+L 530.733384 84.481836 
 " style="fill: none; stroke: #888888; stroke-width: 1.2; stroke-linecap: round"/>
    </g>
    <g id="text_13">
     <!-- 上层调用 / 依赖下层 -->
-    <g style="fill: #555555" transform="translate(546.908464 281.37976) rotate(-90) scale(0.1 -0.1)">
+    <g style="fill: #555555" transform="translate(546.908895 281.37976) rotate(-90) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W3-10a8" d="M 3040 1651 
 L 3040 442 
@@ -7373,7 +7373,7 @@ z
    </g>
    <g id="text_14">
     <!-- Megatron Core 的六个核心抽象：上面是训练调度，下面是进程组 -->
-    <g style="fill: #222222" transform="translate(93.913705 17.76) scale(0.12 -0.12)">
+    <g style="fill: #222222" transform="translate(93.91392 17.76) scale(0.12 -0.12)">
      <defs>
       <path id="HiraginoSansGB-W3-2e" d="M 2554 710 
 C 2682 422 2758 205 2790 38 
@@ -7943,8 +7943,8 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p22d0026c74">
-   <rect x="7.2" y="23.76" width="531.972409" height="423.83952"/>
+  <clipPath id="ped189a62bb">
+   <rect x="7.2" y="23.76" width="531.972841" height="423.83952"/>
   </clipPath>
  </defs>
 </svg>
