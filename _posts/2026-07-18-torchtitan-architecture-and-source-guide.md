@@ -305,7 +305,7 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 
 
 
-Megatron 的过程式写法在 [03《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html#五1f1bmegatron-的过程式写法)，三种写法的并排在 06。
+Megatron 的过程式写法在 [03《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html#七1f1bmegatron-的过程式写法)，三种写法的并排在 06。
 
 ## 六、本文小结
 

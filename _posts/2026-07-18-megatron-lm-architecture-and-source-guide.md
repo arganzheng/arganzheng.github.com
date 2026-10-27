@@ -17,29 +17,67 @@ date: 2026-07-18 10:00:00
 
 > **一个 bf16 参数在 Megatron 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0]**
 
-## 一、来龙去脉与核心抽象
+## 一、总览
 
-### 1. 来龙去脉
+Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显眼的做法是顺着模型结构切：层内用 TP，层间用 PP，副本之间用 DP。再加上 sequence parallel 和 distributed optimizer，单卡装不下的模型也能训练。
 
-Megatron-LM 是 NVIDIA 的应用深度学习研究团队写的训练框架，同名论文（Shoeybi 等，Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism，arXiv 1909.08053，2019）回答的问题是：单层大到放不进一张卡时，怎样把矩阵切开、又让每张卡的通信尽量落在 NVLink 上。后来它把 PP、DP、CP、EP 与 Megatron Core 的 buffer 与分布式优化器一路加进来，成为千卡级 dense / MoE 预训练里最常见的选择。
+先看 8 张卡如何分工。每个 stage 有 8 层；TP 把每层的矩阵切成两半，DP 再复制一份。stage 0 带输入 embedding，stage 1 带输出层。F1 画的是每张卡负责的那一块，以及 TP、DP、PP 三种组分别连哪些卡。
 
-### 2. 核心抽象
+![F1：8 张 GPU 上的 TP、DP、PP 进程组与每卡持有的模型分片](/img/in-post/megatron-f1-8-gpus.svg)
 
-| 名字 | 是什么 | 管哪种状态 |
-|---|---|---|
-| `_ParamAndGradBuffer` | 两段连续内存：param_data + grad_data，参数与梯度都是其中的视图 | bf16 参数、fp32 梯度 |
-| `_ParamAndGradBucket(Group)` | buffer 的切片，通信的单位 | 梯度 reduce-scatter / 参数 all-gather 的时机 |
-| `DistributedDataParallel` | 模块包装类，注册前向 / 反向 hook 驱动 buffer 的通信 | 梯度归约、参数同步的调度 |
-| `DistributedOptimizer` | 按 buffer 字节区间切 fp32 主参数与 m、v | 优化器状态（ZeRO-1） |
-| `parallel_state` | 模块级全局变量 + RankGenerator | 全部进程组 |
-| `schedules.py` | PP 调度函数，经 config 回调与 DDP 交互 | PP 的收发时序 |
+这张图的 8 张卡按 `rank = tp + 2 × dp + 4 × pp` 排号。横向相邻的是 TP 组，两个 stage 里各有两份 DP 副本；上下两排通过 PP 传激活。02《并行策略全景》解释了这些维度为什么这样组合，本文第五章会把 rank 列表算出来。
 
-Table: Megatron Core 的核心抽象
+我用 Llama 3.2 1B 的模型形状算一遍每卡的量。这里是 train-ledger 的配置形状：层数 $$L=16$$、隐藏宽度 $$h=2048$$、FFN 宽度 $$f=8192$$、查询头数 $$n_q=32$$、K/V 头数 $$n_{kv}=8$$、每头宽度 $$d_h=64$$、词表大小 $$v=128256$$；其中 $$n_qd_h=h$$，embedding 和输出层不共享参数。这个练习配置的参数总量因此约 1.50B，不等于模型名里的 1B。
 
-## 二、最小任务：runs/megatron
+每层的 Q、K、V、O 权重数是 $$2h^2+2h(n_{kv}d_h)$$；SwiGLU 的 gate、up、down 三个矩阵是 $$3hf$$。加上两组 RMSNorm 权重，每层共 60,821,504 个参数。这个矩阵计数沿用 02 的 TP 切分图：列切 / 行切改变每卡持有的矩阵块，不改变全模型的参数总数。
 
-train-ledger 里的练手配置是 8 卡 TP 2 × PP 2 × DP 2、分布式优化器（ZeRO-1）、SP，模型取 Llama 3.2 1B 的形状（16 层、h = 2048、32 头 / 8 个 K/V 头、FFN 8192、词表 128256、s = 8192）。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五本文小结)，这里只留 Megatron 这份配置本身（`runs/megatron/run.sh`，参数名以 0.18.0 `arguments.py` 与 `training/config/` 为准）：
+- 16 层共 973,144,064 个参数；输入 embedding 和输出层各有 $$vh=262,668,288$$ 个参数，总计约 1,498,482,688。
+- PP=2 后，每个 stage 约有 749.2M 个参数；TP=2 再把矩阵分成两份，每卡约 374.6M 个参数。
+- bf16 参数占 2 字节、fp32 梯度占 4 字节。令 $$N_d=2$$ 表示 DP 副本数；每个 DP 副本只保存一半 fp32 主参数和 Adam 的 $$m,v$$，这三项共 $$12/N_d=6$$ 字节 / 参数。常驻量约为 $$2+4+12/N_d=12$$ 字节 / 每个 TP 本地参数，约 4.50 GB（4.19 GiB）/ 卡。字节数沿用 01《大模型训练的显存账本》的参数状态口径。
 
+一个 step 可以按六步读：
+
+1. 每个 DP 副本收到 8 个 micro-batch；每个 micro-batch 是 1 条样本。
+2. PP=2 的 stage 0 计算前向，把激活发给 stage 1；1F1B 调度见第七章。
+3. TP 组在层内做矩阵乘法与必要的集合通信；每卡只拿该层矩阵的一半。
+4. 反向时，梯度写进 fp32 `main_grad`；DP 梯度在最后一个 micro-batch 的反向逐 bucket 做 reduce-scatter。
+5. 每个 DP rank 用自己的一半梯度更新对应的 fp32 主参数与 Adam 状态。
+6. 更新后的 bf16 参数分片 all-gather 回来，下一轮前向按 bucket 等待参数就绪。
+
+**来龙去脉、对象之间怎么连接、再到源码，后面按这个顺序展开。** 03 只读 Megatron；三框架的异同和取舍放在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
+
+## 二、来龙去脉
+
+我把 Megatron 几次重要变化放在一张表里。年份和论文按原文、NVIDIA 的 release note / 技术博客核过。
+
+| 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留的问题 |
+|---|---|---|---|---|---|
+| 2019 | NVIDIA 的 Mohammad Shoeybi 等 | Transformer 层太宽，单卡显存放不下 | [Megatron-LM 论文](https://arxiv.org/abs/1909.08053)把注意力和 MLP 的矩阵沿层内维度切开，通信仍用 PyTorch 原生操作 | 论文展示 8.3B 参数模型在 512 张 GPU 上训练 | 单层切开后要处理跨层流水和副本扩展 |
+| 2021 | NVIDIA 的 Deepak Narayanan 等 | TP 还不足以把超大模型扩到更多 GPU，PP 有气泡 | [Efficient Large-Scale Language Model Training on GPU Clusters](https://arxiv.org/abs/2104.04473)组合 pipeline / tensor / data parallelism，并给出 interleaved 1F1B 与分布式优化器 | 1T 参数模型在 3072 张 GPU 上达到 502 PFLOP/s，约 52% 峰值 | 并行维度变多，组网和调度更难理解 |
+| 2022 | NVIDIA 的 Korthikanti 等 | 长序列下激活内存高，直接重算代价大 | [Reducing Activation Recomputation in Large Transformer Models](https://arxiv.org/abs/2205.05198)提出 sequence parallel 与 selective recomputation | 激活内存降低约 5 倍；相对全量重算，额外计算开销减少约 90%；530B 模型 MFU 为 54.2% | 仍要为不同并行维度配置进程组 |
+| 2023 | NVIDIA | 训练框架里的并行原语不易单独复用 | Megatron Core 从 Megatron-LM 中拆出为可组合的库；NVIDIA 仓库的 [Core 0.4.0 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.4.0)展示了独立的 Core 版本线 | TP、PP、通信、优化器等能力能以 Core API 组合 | 可选项增多，配置入口也更多 |
+| 2024 | NVIDIA，Megatron Core v0.6 | DP 梯度归约与每卡保留完整优化器状态的开销 | [NVIDIA 技术博客](https://developer.nvidia.com/blog/train-generative-ai-models-more-efficiently-with-new-nvidia-megatron-core-functionalities/)介绍 distributed optimizer：reduce-scatter 梯度、分片更新，再 all-gather 参数，并与反向 / 前向重叠 | 降低优化器状态占用；大 DP 下可用 bucket 重叠通信 | 参数与梯度 buffer 的切分边界不一定与参数边界对齐 |
+| 2024 | NVIDIA，Megatron Core v0.5 | MoE 专家参数和 token 路由需要额外并行维度 | [v0.5 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.5.0)记录 MoE 和 EP；NVIDIA [172B 模型说明](https://developer.nvidia.com/blog/developing-a-172b-llm-with-strong-japanese-capabilities-using-nvidia-megatron-lm/)也列出 context parallel | EP 能与 TP、DP、SP、PP 组合；CP 支持长上下文 | dense 和 expert 参数走不同进程组 |
+| 2026 | NVIDIA，Megatron Core 0.18.0 | 仅切优化器状态不足以覆盖模型状态都要分片的用法 | [0.18.0 release](https://github.com/NVIDIA/Megatron-LM/releases/tag/core_v0.18.0)的源码包含 [`megatron/core/distributed/fsdp/`](https://github.com/NVIDIA/Megatron-LM/tree/core_v0.18.0/megatron/core/distributed/fsdp/) | Megatron-FSDP 与 DDP 并列，支持更完整的状态分片 | FSDP、TP、PP 各自的限制与组合仍需按配置核对 |
+
+这张表里能看到方向的变化：最初 Megatron 解决的是一层怎么切；随后它把流水、数据副本、优化器状态和专家并行也纳入同一套工程。第二章的矩阵图和第五章的进程组，是读懂这些变化的两个入口。
+
+## 三、核心抽象
+
+Megatron Core 的对象可以按从模型到调度的顺序读。F2 画出了依赖关系；下面逐项说明每个对象管什么。
+
+![F2：Megatron Core 六个核心抽象的依赖关系](/img/in-post/megatron-f2-abstractions.svg)
+
+- `parallel_state` 提供各个 TP / DP / PP / EP / CP 组，详见第五章。
+- `tensor_parallel` 把 Transformer 线性层切开，详见第六章第 2 节。
+- `_ParamAndGradBuffer` / `_ParamAndGradBucketGroup` 管连续内存与通信 bucket，详见第六章第 3 节。
+- `DistributedDataParallel` 建这些 buffer、注册 hooks 并驱动梯度归约，详见第六章第 3 节。
+- `DistributedOptimizer` 按 buffer 区间分配 fp32 主参数与 Adam 状态，详见第六章第 4 节。
+- `schedules.py` 按 micro-batch 调用前向、反向与 DDP 回调，详见第六章第 6 节和第七章。
+
+## 四、最小任务怎么跑起来
+
+训练账本里的入口在 `runs/megatron/run.sh`。8 张卡按 TP=2、PP=2、DP=2 排布，打开 sequence parallel 和 ZeRO-1 分布式优化器。模型形状沿用第一章的数字。
 
 ```bash title="runs/megatron/run.sh"
 #!/bin/bash
@@ -63,37 +101,63 @@ torchrun --nproc_per_node 8 pretrain_gpt.py \
   --distributed-timeout-minutes 30
 ```
 
-`--global-batch-size 16` 与 `--micro-batch-size 1`、DP 2 意味着每个 DP 副本每 step 8 个 micro-batch（$$m = 8$$，PP 2 的气泡 $$1/(8+1) = 11\%$$）。`--log-memory-to-tensorboard` 让 `training_log()` 每步写 `mem-reserved-bytes`、`mem-allocated-bytes`、`mem-max-allocated-bytes`；`--use-pytorch-profiler` 让 `train()` 在第 20–22 步用 `torch.profiler.profile` 记录，trace 写到 tensorboard 目录。要用 `--use-megatron-fsdp --data-parallel-sharding-strategy optim_grads_params` 换成 ZeRO-3 对比，只需去掉 PP 并改 `--ckpt-format fsdp_dtensor`。
+脚本参数我分三组看：
+
+- **模型形状**：`--num-layers`、`--hidden-size`、`--ffn-hidden-size`、注意力头数与 K/V 头数，决定每层矩阵尺寸；`--swiglu`、RMSNorm、RoPE 和无 bias 指定模型结构。
+- **并行与批次**：TP=2、PP=2、`--sequence-parallel`；`--use-distributed-optimizer` 打开 ZeRO-1，两个 `--overlap-*` 让梯度 reduce-scatter / 参数 all-gather 与计算重叠。`--global-batch-size 16`、micro-batch=1、DP=2 决定每个 DP 副本每 step 有 8 个 micro-batch。
+- **精度、优化器和记录**：bf16、学习率、Adam beta、梯度裁剪和 weight decay 控制训练；mock data 和 NullTokenizer 让示例不依赖语料；profiler 与 TensorBoard 记录 step 和显存。
+
+令 $$p$$ 表示 PP stage 数、$$m$$ 表示每个 DP 副本每 step 的 micro-batch 数。这里 PP=2、每 step 有 $$m=8$$ 个 micro-batch。气泡占比按 pipeline 的 $$ (p-1)/(m+p-1) $$ 计算；这里 $$p=2$$，所以是 $$1/(8+1)=11\%$$。这个近似式和气泡推导见 02《并行策略全景》的流水线并行一节。
+
+`--log-memory-to-tensorboard` 让 `training_log()` 每步写 `mem-reserved-bytes`、`mem-allocated-bytes`、`mem-max-allocated-bytes`；`--use-pytorch-profiler` 让 `train()` 在第 20–22 步用 `torch.profiler.profile` 记录，trace 写到 tensorboard 目录。要用 `--use-megatron-fsdp --data-parallel-sharding-strategy optim_grads_params` 换成 ZeRO-3 对比，只需去掉 PP 并改 `--ckpt-format fsdp_dtensor`。
 
 
-## 三、进程组：parallel_state 的 RankGenerator
-
-并行策略落到代码里的第一件事是进程组：每张卡属于哪一个 TP 组、哪一个 DP 组、哪一个 PP 组。Megatron 用一张全局注册表回答，产出物是一组 `ProcessGroup`。
 
 
-`megatron/core/parallel_state.py` 是一个由模块级全局变量组成的注册表：`_TENSOR_MODEL_PARALLEL_GROUP`、`_DATA_PARALLEL_GROUP`、`_DATA_PARALLEL_GROUP_WITH_CP` 等几十个变量，各配一个 `get_*_group()` 读取函数。填这些变量的是 `initialize_model_parallel()`，它的签名里有 TP、PP、VP、CP、EP 各维度的大小，以及决定 rank 排布的 `order`，默认 `"tp-cp-ep-dp-pp"`。
+## 五、进程组
 
-排布由 `RankGenerator` 类完成。它接收各维度大小与 `order` 字符串，`get_ranks(token)` 对一个形如 `"tp"`、`"dp-cp"`、`"tp-ep-pp"` 的 token 调用 `generate_masked_orthogonal_rank_groups()`：把世界大小按 `order` 拆成一个多维网格，token 里出现的维度是"变化的"、其余维度是"固定的"，枚举固定维度的每一种取值，就得到一个进程组的 rank 列表。所以 `"tp-cp-ep-dp-pp"` 的含义是 TP 变化最快（相邻 rank、同节点）、PP 变化最慢——第二篇解释过这来自"TP 不可重叠必须 NVLink、PP 通信最少可放最远"。用本篇练手项目的 8 卡配置（TP 2 × PP 2 × DP 2）把"掩码"这件事画出来：
+TP、DP、PP 是三种不同的组。同一张卡会同时属于三个组；真正的 rank 列表由并行度与 rank 顺序一起决定。先看玩具里的 8 卡例子：
+
+```text title="groups toy：world=8, TP=2, DP=2, PP=2"
+TP: [[0, 1], [2, 3], [4, 5], [6, 7]]
+DP: [[0, 2], [1, 3], [4, 6], [5, 7]]
+PP: [[0, 4], [1, 5], [2, 6], [3, 7]]
+```
+
+这正是第五章 F1 的三类连线。`groups` 子命令把 Megatron Core 0.18.0 的 `generate_masked_orthogonal_rank_groups()` 翻译成小段纯 Python；同一结果也可从本文已有的 rank-generator 图看出来：
 
 ![RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2](/img/in-post/megatron-deepspeed-torchtitan-rank-generator-mask.svg)
 
+源码入口是 `megatron/core/parallel_state.py` 的 `initialize_model_parallel()`、`RankGenerator` 和 `generate_masked_orthogonal_rank_groups()`。我把 rank 次序、EP / CP 两套生成器、SHARP 的建组顺序，以及 `ProcessGroupCollection` 放在下面展开。
+
+<details markdown="1"><summary>源码细节：RankGenerator 怎样建组</summary>
+
+`megatron/core/parallel_state.py` 是一个由模块级全局变量组成的注册表：`_TENSOR_MODEL_PARALLEL_GROUP`、`_DATA_PARALLEL_GROUP`、`_DATA_PARALLEL_GROUP_WITH_CP` 等几十个变量，各配一个 `get_*_group()` 读取函数。填这些变量的是 `initialize_model_parallel()`，它的签名里有 TP、PP、VP、CP、EP 各维度的大小，以及决定 rank 排布的 `order`，默认 `"tp-cp-ep-dp-pp"`。
+
+排布由 `RankGenerator` 类完成。它接收各维度大小与 `order` 字符串，`get_ranks(token)` 对一个形如 `"tp"`、`"dp-cp"`、`"tp-ep-pp"` 的 token 调用 `generate_masked_orthogonal_rank_groups()`：把世界大小按 `order` 拆成一个多维网格，token 里出现的维度是"变化的"、其余维度是"固定的"，枚举固定维度的每一种取值，就得到一个进程组的 rank 列表。所以 `"tp-cp-ep-dp-pp"` 的含义是 TP 变化最快（相邻 rank、同节点）、PP 变化最慢——第二篇解释过这来自"TP 不可重叠必须 NVLink、PP 通信最少可放最远"。
+
 同一张 8 卡网格，token 里出现的维度"变化"、其余"固定"，一次枚举就得到一组进程组；[05 的进程组](/torchtitan-architecture-and-source-guide.html#三进程组paralleldims-与-devicemesh)里的 `DeviceMesh` 视图 `("pp", "dp_shard", "tp")` 给出的正是同一张网格，只是"哪些卡在一组"改由 mesh 的索引语义回答。
 
-`initialize_model_parallel()` 里有两个 `RankGenerator`：`decoder_rank_generator`（tp/cp/dp/pp，ep 固定为 1）和 `expert_decoder_rank_generator`（tp/ep/dp/pp，cp 固定为 1）。这是因为 EP 与 CP 在 Megatron 里被视为互斥的维度（`RankGenerator.__init__` 有 `ep == 1 or cp == 1` 的断言）：专家层的 DP 组 `expt-dp` 大小是 $$N_d N_c / N_e$$，与非专家层的 `dp-cp` 组不同。两套生成器分别为 dense 部分和 MoE 部分建组，而 PP 组必须一致（函数里有对应断言）。
+这里 $$N_d$$、$$N_c$$、$$N_e$$ 分别表示 DP、CP、EP 的并行度。`initialize_model_parallel()` 里有两个 `RankGenerator`：`decoder_rank_generator`（tp/cp/dp/pp，ep 固定为 1）和 `expert_decoder_rank_generator`（tp/ep/dp/pp，cp 固定为 1）。这是因为 EP 与 CP 在 Megatron 里被视为互斥的维度（`RankGenerator.__init__` 有 `ep == 1 or cp == 1` 的断言）：专家层的 DP 组 `expt-dp` 大小是 $$N_d N_c / N_e$$，与非专家层的 `dp-cp` 组不同。两套生成器分别为 dense 部分和 MoE 部分建组，而 PP 组必须一致（函数里有对应断言）。
 
 建组的顺序有讲究：`dp-cp` 组最先建，注释说明是为了 SHARP（`sharp_enabled_group="dp"` 时设置 `NCCL_COLLNET_ENABLE`，只有最先创建的通信器能用交换机内归约）。每个 NCCL 组还有一个 gloo 孪生（`create_gloo_process_groups=True` 时），供 CPU 侧的集合操作（如分布式优化器保存 checkpoint 时的 gather）使用。`num_distributed_optimizer_instances > 1` 时再切出 `intra_distributed_optimizer_instance` 与 `inter_distributed_optimizer_instance` 两层——这是 Megatron 版的 HSDP：优化器状态只在 intra 组内分片，inter 组之间做 all-reduce。
 
 0.18.0 里还有一条新路径：`process_groups_config.py` 的 `ProcessGroupCollection` 把这些进程组打包成一个对象，`DistributedDataParallel`、`_ParamAndGradBuffer`、调度函数都接受可选的 `pg_collection` 参数，不传则退回 `parallel_state` 的全局变量；`hyper_comm_grid.py` 的 `HyperCommGrid` 则是一个不依赖全局状态的多维网格实现。这是在往"进程组是显式传递的对象而不是全局单例"的方向走——也就是 DeviceMesh 的方向。
 
 
-## 四、源码导读：按模型结构切
 
+
+</details>
+
+## 六、源码导读
+
+我从模型层、buffer、优化器再走到训练循环。目录地图先给出每个对象所在的位置。
 
 ### 1. 目录地图
 
 ```text title="Megatron Core 目录地图"
 megatron/core/
-  parallel_state.py                    进程组（第三章）
+  parallel_state.py                    进程组（第五章）
   model_parallel_config.py             ModelParallelConfig：各并行度、sequence_parallel、overlap_p2p_comm、*_sync_func 回调
   tensor_parallel/
     layers.py                          ColumnParallelLinear、RowParallelLinear、VocabParallelEmbedding、LinearWithGradAccumulationAndAsyncCommunication
@@ -106,7 +170,7 @@ megatron/core/
     param_and_grad_buffer.py           _ParamAndGradBuffer、_ParamAndGradBucket、_ParamAndGradBucketGroup
     distributed_data_parallel_config.py  DistributedDataParallelConfig：overlap_grad_reduce、overlap_param_gather、bucket_size、grad_reduce_in_fp32 …
     finalize_model_grads.py            finalize_model_grads：embedding / 非 TP 参数的跨组归约
-    fsdp/                              Megatron-FSDP（第 7 节）
+    fsdp/                              Megatron-FSDP（第 7 小节）
   optimizer/
     optimizer.py                       MixedPrecisionOptimizer、Float16OptimizerWithFloat16Params、ChainedOptimizer
     distrib_optimizer.py               DistributedOptimizer
@@ -116,15 +180,39 @@ megatron/training/
   arguments.py                         parse_args、validate_args；大量参数由 training/config/ 下的 dataclass 生成
 ```
 
+
+
 ### 2. TP 层与 mappings：通信是手写的
 
-第二篇已经讲过 `tensor_parallel/layers.py` 的 `ColumnParallelLinear`（权重按输出维切、`gather_output` 控制是否 all-gather 输出）与 `RowParallelLinear`（权重按输入维切、`input_is_parallel` 表示输入已分布、输出 all-reduce 或 reduce-scatter），以及 `mappings.py` 里每种通信作为一个 `autograd.Function` 出现、前向与反向互为共轭。这里补两点与"参数的一生"有关的细节。
+**问题**：矩阵切成 TP 分片后，梯度如何还原为完整模型需要的形状？
+
+**直觉**：Megatron 把列切、行切和它们的反向通信写成 `autograd.Function`。02《并行策略全景》的[列切 / 行切图](/parallelism-strategies-which-state-to-shard.html#三张量并行与序列并行)和 [f / g 共轭图](/parallelism-strategies-which-state-to-shard.html#三张量并行与序列并行)先把矩阵形状画出来。这里看参数如何带着切分信息进入优化器。
+
+
+这里 $$N_t$$ 表示 TP 组的卡数；列切、行切和矩阵形状的推导见 02《并行策略全景》。`tensor_parallel/layers.py` 的 `ColumnParallelLinear`（权重按输出维切、`gather_output` 控制是否 all-gather 输出）与 `RowParallelLinear`（权重按输入维切、`input_is_parallel` 表示输入已分布、输出 all-reduce 或 reduce-scatter），以及 `mappings.py` 里每种通信作为一个 `autograd.Function` 出现、前向与反向互为共轭。这里补两点与"参数的一生"有关的细节。
 
 第一，TP 分片的参数是**普通的 `nn.Parameter`**，形状就是切开后的形状（`ColumnParallelLinear.weight` 是 `[out/N_t, in]`），只是多了几个属性：`set_tensor_model_parallel_attributes()` 在参数上标 `tensor_model_parallel=True`、`partition_dim`、`partition_stride`。checkpoint、优化器、梯度裁剪靠这些属性知道哪些参数是切开的（裁剪时只算一次）、哪些是 TP 组内复制的（LayerNorm、bias 等，`param_is_not_tensor_parallel_duplicate()` 判断）。这和 DTensor 用 placement 携带同样信息形成对照。
 
 第二，`LinearWithGradAccumulationAndAsyncCommunication` 这个 `autograd.Function` 的名字点出了 Megatron 的两个优化：**梯度累积融合**（`gradient_accumulation_fusion`，权重梯度直接累加进一个外部 fp32 buffer `weight.main_grad`，而不是先生成 `weight.grad` 再加）和**异步通信**（反向里对输入的梯度 all-reduce 与对权重的梯度 GEMM 重叠）。`main_grad` 这个属性是下一节 DDP 与 buffer 的接口：它是 `_ParamAndGradBuffer` 里一段 fp32 内存的视图。
 
+
+
 ### 3. DDP 与 ParamAndGradBuffer：两段连续内存
+
+**问题**：一张卡的梯度算完后，什么时候通信？参数、梯度和 bucket 怎么对齐？
+
+**直觉**：参数和梯度各自放在连续 buffer 里，每个模型参数只是对应 buffer 的一个 view。反向顺序排列让梯度先从 buffer 头部就位；bucket 满了再通信。
+
+玩具 `buffer` 子命令用 2 个 CPU rank、gloo 和同一组小矩阵演示这个过程：
+
+```text title="buffer toy：view、梯度累加与单进程对照"
+numel=22 pad=0
+WL: [0, 12), W2: [12, 16), W1: [16, 22)；视图共享 param_data
+分片边界=11：WL 元素 0..10 归 rank0，元素 11 归 rank1
+两个 micro-batch 的 dW 累加到 main_grad → reduce-scatter → Adam 分片更新 → all-gather
+并行版与单进程 Adam 对照：WL / W2 / W1 最大差值都小于 0.01
+```
+
 
 Megatron 的 `distributed/distributed_data_parallel.py` 的 `DistributedDataParallel` 与 PyTorch 自带的 DDP 同名但不是同一个东西。它的构造函数做的事是：
 
@@ -148,7 +236,14 @@ Megatron 的 `distributed/distributed_data_parallel.py` 的 `DistributedDataPara
 
 `param_data` 与 `grad_data` 是两段独立的内存。`_ParamAndGradBuffer.__init__` 里有一个例外：参数是 MXFP8 张量且用分布式优化器时，二者共享同一段 `shared_buffer`（fp32 梯度时 `param_data` 是它前半段的 bf16 视图）——优化器步骤后 all-gather 更新的参数时复用已经归约完、不再需要的梯度 buffer。bf16 训练走的是两段独立内存的常规路径。
 
+
+
 ### 4. DistributedOptimizer：ZeRO-1 的 Megatron 写法
+
+**问题**：每个 DP rank 都保存 fp32 主参数、m、v，会重复占用很多显存。
+
+**直觉**：先对 bucket 梯度 reduce-scatter，每个 rank 只更新自己的连续区间；再把更新后的 bf16 参数 all-gather 回来。分片边界可能切过一个参数，所以不一定是“一个 rank 负责一个参数”。
+
 
 `optimizer/distrib_optimizer.py` 的 `DistributedOptimizer` 继承 `MixedPrecisionOptimizer`，是 `--use-distributed-optimizer` 打开时的优化器。它的分片单位不是参数而是 **buffer 的字节区间**：
 
@@ -168,9 +263,27 @@ DistributedOptimizer 一个 step 的优化器部分，按先后是四步：
 
 这里 fp32 主参数与 bf16 参数是**两份内存**：主参数分片是优化器私有的 fp32 拷贝，占 $$4N_{\text{local}}/N_d$$；bf16 参数是模型的、完整的、每张 DP 卡一份，占 $$2N_{\text{local}}$$。
 
+
+
+玩具运行给出每个分片的通信和参数对照；相同 toy 也比较完整的单进程 Adam 更新：
+
+```text title="buffer toy 的验证结果"
+rank0 拿到 grad_data[0:11]（reduce-scatter）
+rank0 Adam 更新了 fp32 主参数分片（11 个元素）
+rank0 all-gather 后 param_data sum=-4.6088
+两步 Adam + reduce-scatter/all-gather 与单进程一致: True
+```
+
 ### 5. 一个 bf16 参数的一生：Megatron
 
-把上面三节串起来，以一个 `ColumnParallelLinear.weight` 为例（`--bf16 --use-distributed-optimizer --overlap-grad-reduce --overlap-param-gather`，TP 组内它是 $$1/N_t$$ 的分片，下面只看 DP 维）：
+**问题**：一个模型参数从初始化到下一步前向，分别在哪些内存里？
+
+**直觉**：F3 把计算、通信和常驻状态分开画。bf16 参数不释放；梯度写入 fp32 buffer；主参数和 Adam 状态只保存 DP 的一份分片。
+
+![F3：一个 bf16 参数的计算、通信和常驻状态三条泳道](/img/in-post/megatron-f3-step-swimlane.svg)
+
+
+这里 $$N_{local}$$ 表示单个 TP rank 在一个 PP stage 内持有的参数数。把上面三节串起来，以一个 `ColumnParallelLinear.weight` 为例（`--bf16 --use-distributed-optimizer --overlap-grad-reduce --overlap-param-gather`，TP 组内它是 $$1/N_t$$ 的分片，下面只看 DP 维）：
 
 | 时刻 | 事件 | 在哪里 |
 |---|---|---|
@@ -186,7 +299,20 @@ Table: 一个 bf16 参数的一生：Megatron
 
 **常驻**：bf16 参数 $$2N_{\text{local}}$$（完整）、fp32 梯度 $$4N_{\text{local}}$$（完整）、fp32 主参数 + m + v $$12N_{\text{local}}/N_d$$。**通信**：每 step 一次 reduce-scatter（fp32 梯度，与反向重叠）+ 一次 all-gather（bf16 参数，与下一 step 前向重叠）——正是第二篇 ZeRO-1 的 $$2N$$。**从不释放**：bf16 参数与 fp32 梯度 buffer 在整个训练期间常驻，这是 Megatron 显存最"稳"（碎片最少）但也最"贵"的地方。
 
+
+
 ### 6. 训练循环：pretrain → train → train_step
+
+**问题**：训练脚本怎样把调度函数、DDP hooks 和 optimizer.step 接起来？
+
+**直觉**：`pretrain()` 建模型与优化器；`train()` 设回调；每个 `train_step()` 先清梯度、执行调度、更新参数，再调度学习率。
+
+训练循环里这三个阶段的职责可以这样记：
+
+- `pretrain()`：初始化并行组、模型、优化器、数据迭代器。
+- `train()`：把 DDP 的同步回调交给调度函数，循环调用 `train_step()`。
+- `train_step()`：完成一个 global batch 的前后向、优化器更新和日志。
+
 
 `megatron/training/training.py` 是 Megatron 的训练入口。骨架：
 
@@ -212,7 +338,7 @@ pretrain()
       post_training_step_callbacks() / checkpoint_and_decide_exit()
 ```
 
-三点值得注意。第一，`train_step()` 被 `rerun_state_machine.should_run_forward_backward()` 的 while 循环包着——这是第六篇要讲的 SDC 检测机制的入口，正常情况下只跑一次。第二，调度函数不知道 DDP 的存在，它通过 `config` 上的四个回调（`no_sync_func`、`grad_sync_func`、`param_sync_func`、`finalize_model_grads_func`）与 DDP 交互，所以 `schedules.py` 能在没有 DDP 的场合（推理、测试）复用。第三，`training_log()` 在 `--log-memory-to-tensorboard` 时直接读 `torch.cuda.memory_stats()` 的 `reserved_bytes.all.current`、`allocated_bytes.all.current`、`allocated_bytes.all.peak` 写 TensorBoard——本篇练手项目的 `probe_memory.py` 读的是同一组键。
+三点值得注意。第一，`train_step()` 被 `rerun_state_machine.should_run_forward_backward()` 的 while 循环包着——这是第十二篇要讲的 SDC 检测机制的入口，正常情况下只跑一次。第二，调度函数不知道 DDP 的存在，它通过 `config` 上的四个回调（`no_sync_func`、`grad_sync_func`、`param_sync_func`、`finalize_model_grads_func`）与 DDP 交互，所以 `schedules.py` 能在没有 DDP 的场合（推理、测试）复用。第三，`training_log()` 在 `--log-memory-to-tensorboard` 时直接读 `torch.cuda.memory_stats()` 的 `reserved_bytes.all.current`、`allocated_bytes.all.current`、`allocated_bytes.all.peak` 写 TensorBoard——本篇练手项目的 `probe_memory.py` 读的是同一组键。
 
 把第二点画成时序，重点看两处异步：reduce-scatter 在最后一个 micro-batch 的反向里发出、在 `finalize_model_grads` 里等；all-gather 在 `optimizer.step()` 里发出、在**下一个** step 的前向 pre-hook 里等。调度函数与 DDP 之间没有直接引用，只有四个回调和两个 hook：
 
@@ -247,17 +373,27 @@ sequenceDiagram
     DDP-)NC: all-gather param_data（异步，下一 step 的 pre-hook 才等）
 ```
 
+
+
 ### 7. Megatron-FSDP：趋势
+
+**问题**：Megatron 的 ZeRO-1 路径会不会是唯一的数据并行选择？
+
+**直觉**：0.18.0 里有 Megatron 自己的 FSDP 实现，也能接 PyTorch FSDP2。两条路径的并行限制不同，配置前要看清楚适用范围。
+
 
 `megatron/core/distributed/fsdp/` 是 0.18.0 里 Megatron 自己的 FSDP 实现，`--use-megatron-fsdp` 打开。`fsdp/src/megatron_fsdp/fully_shard.py` 的 `ShardingStrategy` 枚举把四级写得很直白：`NO_SHARD`、`OPTIM`（ZeRO-1）、`OPTIM_GRADS`（ZeRO-2）、`OPTIM_GRADS_PARAMS`（ZeRO-3），由 `--data-parallel-sharding-strategy` 选；`megatron_fsdp.py` 的 `MegatronFSDP` 是模块包装类，`mcore_fsdp_adapter.py` 的 `FullyShardedDataParallel` 把它接进 Megatron 的 `_BaseDataParallel` 接口，与 `DistributedDataParallel` 平级。它保留了 Megatron 的 buffer 思路（`fsdp/src/megatron_fsdp/param_and_grad_buffer.py`）但把参数也切了，并且用 DTensor 表达分片（`uneven_dtensor.py`），checkpoint 格式 `--ckpt-format fsdp_dtensor`。`DistributedOptimizer.step_with_ready_grads()` 里有一个 `use_megatron_fsdp` 分支，调用 `model_chunk.start_param_sync()` 提前 all-gather 主参数。
 
 另一条路径 `--use-torch-fsdp2`（`distributed/torch_fully_sharded_data_parallel.py`）直接用 PyTorch 的 `fully_shard`，但 `arguments.py` 里列了一串不兼容项：不支持 PP、EP、分布式优化器、梯度累积融合。两条路径合起来说明一件事：Megatron 长期"只做 ZeRO-1，其余靠 TP/PP"的立场在松动——当模型能用 FSDP 放下时，FSDP 比 PP 少一个气泡问题、比 TP 少一个 NVLink 约束，Megatron 也需要这个选项。这与 torchtitan 从 FSDP2 出发是同一个方向的两端。
 
 
-## 五、1F1B：Megatron 的过程式写法
 
-同一个 1F1B 调度（第二篇第五章），Megatron 把它写死在代码里。
 
+## 七、1F1B：Megatron 的过程式写法
+
+PP=2、8 个 micro-batch 时，stage 0 先 warmup 一个前向，再交替做前向 / 反向，最后 cooldown 一个反向。stage 1 没有 warmup。F4 按玩具 `schedule_1f1b()` 生成每个 stage 的事件顺序，再按前后向依赖排到全局时钟；灰色格子表示该拍这个 stage 等待。
+
+![F4：PP=2、8 个 micro-batch 的 1F1B 全局时间轴](/img/in-post/megatron-f4-1f1b-schedule.svg)
 
 **Megatron：过程式**。`megatron/core/pipeline_parallel/schedules.py` 的 `forward_backward_pipelining_without_interleaving()` 是一个几百行的函数，三段循环直接对应 1F1B 的三个阶段：
 
@@ -285,11 +421,13 @@ cooldown: for i in range(num_warmup_microbatches):
 
 
 
-PyTorch 的 `Schedule1F1B` 是同构的另一套写法，在 [05《torchtitan》](/torchtitan-architecture-and-source-guide.html)；三种写法的并排在 06。
 
-## 六、本文小结
 
-一个 bf16 参数在 Megatron 里的一生：常驻完整，是 `_ParamAndGradBuffer` 连续内存里的一段视图，从不被释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer。每 step 两次 DP 通信、合计 $$2N$$，都与计算重叠——这就是第二篇 ZeRO-1 在代码里的落点。
+## 八、本文小结
+
+Megatron 把模型结构、进程组和训练时序连成一套实现：TP 切层内矩阵，PP 切层，DP 处理副本间的数据；`_ParamAndGradBuffer` 把参数和梯度放进连续内存，DistributedOptimizer 按 buffer 区间切主参数与 Adam 状态。本文的 8 卡 toy 验证了 rank 列表、梯度 reduce-scatter / 参数 all-gather 和 1F1B 顺序。
+
+三框架的机制对照、取舍表和 train-ledger 对账在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)。
 
 本篇涉及的源码位置（Megatron Core 0.18.0，另见各节目录地图）：
 
@@ -309,9 +447,9 @@ PyTorch 的 `Schedule1F1B` 是同构的另一套写法，在 [05《torchtitan》
 
 
 
-Table: 本篇涉及的源码位置
 
-## 七、自测
+
+## 九、自测
 
 1. Megatron 的分布式优化器每 step 做哪两次通信？哪一次能重叠、与什么重叠？
 
@@ -337,5 +475,20 @@ Table: 本篇涉及的源码位置
 
    </details>
 
+4. `groups` toy 中，rank 3 属于哪个 TP、DP、PP 组？为什么这三个组不同？
 
-[^q0]: bf16 参数常驻完整，是 `_ParamAndGradBuffer` 连续内存里的一个视图，从不被释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$——主副本在按字节区间分到的那张卡上，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer（[第四章](#四源码导读按模型结构切)）。
+   <details markdown="1"><summary>答案</summary>
+
+   rank 3 属于 TP `[2, 3]`、DP `[1, 3]`、PP `[3, 7]`。它在三个并行维度的坐标分别是 TP=1、DP=1、PP=0；固定其他坐标、只改变目标维度，就得到对应 rank 组。
+
+   </details>
+
+5. buffer toy 的分片边界是元素 11。`WL` 有 12 个元素，rank0 与 rank1 各负责哪些？为什么它能说明分片单位不是参数？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `WL` 的元素 0–10 在 rank0，元素 11 在 rank1。边界落在同一个参数内部，DistributedOptimizer 按 buffer 区间分片，不按参数对象分片。
+
+   </details>
+
+[^q0]: bf16 参数常驻完整，是 `_ParamAndGradBuffer` 连续内存里的一个视图，从不被释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把优化器状态与 fp32 主参数切成 $$1/N_d$$——主副本在按字节区间分到的那张卡上，每卡只更新自己那段，然后 all-gather 更新后的 bf16 参数回 buffer（[第六章](#六源码导读)）。
