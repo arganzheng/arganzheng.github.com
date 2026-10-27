@@ -226,7 +226,7 @@ Table: 三框架取舍表
 
 ### 2. 本篇涉及的源码位置
 
-各框架的完整源码位置表在 [03](/megatron-lm-architecture-and-source-guide.html#八本文小结)、[04](/deepspeed-architecture-and-source-guide.html#八本文小结)、[05](/torchtitan-architecture-and-source-guide.html#八本文小结) 的小结尾，本篇不再重复。
+各框架的完整源码位置表在 [03](/megatron-lm-architecture-and-source-guide.html#八本文小结)、[04](/deepspeed-architecture-and-source-guide.html#六本文小结)、[05](/torchtitan-architecture-and-source-guide.html#六本文小结) 的小结尾，本篇不再重复。
 
 ### 3. train-ledger 三框架对账
 
