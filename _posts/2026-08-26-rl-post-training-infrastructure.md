@@ -292,18 +292,20 @@ Table: 各篇末尾「实践」对应的动手内容
 
 与它平行的源码阅读线：
 
-```text title="与实践线平行的源码阅读线"
-第一篇    verl  verl/trainer/ppo/ 的一步控制流（只看阶段划分）
-第二篇    verl  verl/trainer/ppo/v1/ 三种 trainer 模式 · verl/single_controller/ · Ray 资源池
-第三篇    vLLM  vllm/device_allocator/cumem.py · sleep / wake_up 路径；SGLang  torch_memory_saver
-          verl  verl/workers/ 的 hybrid engine 与 sleep / wake_up 调用点
-第四篇    verl  checkpoint engine（NCCL / NIXL / delta_sharded）· 权重名映射；Megatron-Bridge
-          vLLM  collective_rpc 与 load_weights 路径
-第五篇    verl  replay buffer 与 staleness 策略 · 流式 dataloader · 异步 checkpoint 恢复
-第六篇    verl  agent loop · continuous token · uni-agent 网关
-第七篇    verl  main_ppo 入口 · single_controller/ · workers/ · trainer/ppo/v1/；对照 slime 的三段通路与 AReaL 的 rollout controller
-第八篇    verl  off-policy 与 MoE 负载指标 · 异步 checkpoint 恢复；vLLM  确定性推理
-```
+| 篇 | 项目 | 源码位置与看点 |
+|---|---|---|
+| 第一篇 | verl | `verl/trainer/ppo/` 的一步控制流（只看阶段划分） |
+| 第二篇 | verl | `verl/trainer/ppo/v1/` 三种 trainer 模式 · `verl/single_controller/` · Ray 资源池 |
+| 第三篇 | vLLM | `vllm/device_allocator/cumem.py` · sleep / wake_up 路径；SGLang `torch_memory_saver` |
+| 第三篇 | verl | `verl/workers/` 的 hybrid engine 与 sleep / wake_up 调用点 |
+| 第四篇 | verl | checkpoint engine（NCCL / NIXL / delta_sharded）· 权重名映射；Megatron-Bridge |
+| 第四篇 | vLLM | collective_rpc 与 load_weights 路径 |
+| 第五篇 | verl | replay buffer 与 staleness 策略 · 流式 dataloader · 异步 checkpoint 恢复 |
+| 第六篇 | verl | agent loop · continuous token · uni-agent 网关 |
+| 第七篇 | verl | main_ppo 入口 · `verl/single_controller/` · `verl/workers/` · `verl/trainer/ppo/v1/`；对照 slime 的三段通路与 AReaL 的 rollout controller |
+| 第八篇 | verl | off-policy 与 MoE 负载指标 · 异步 checkpoint 恢复；vLLM 确定性推理 |
+
+Table: 与实践线平行的源码阅读线
 
 
 ## 前置要求与说明
