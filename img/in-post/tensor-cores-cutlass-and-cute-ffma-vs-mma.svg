@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" role="img" aria-labelledby="t d">
+<title id="t">FFMA 与 mma.sync 的一条指令</title>
+<desc id="d">左：FFMA，32 个 lane 各做 1 次乘加，共 32 次乘加 64 FLOP。右：mma.sync.m16n8k16，32 个 lane 协作做 D[16×8] = A[16×16]·B[16×8] + C[16×8]，按比例画出 A 16×16（256 个 BF16）、B 16×8（128 BF16）、D 16×8（128 FP32），共 2048 次乘加 4096 FLOP，是 FFMA 的 64 倍。</desc>
+<style>text{font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker></defs>
+<rect width="760" height="300" fill="#fff"/>
+<text x="20.0" y="24.0" font-size="14" text-anchor="start" fill="#111">一个 warp 的一条指令：</text>
+<text x="20.0" y="56.0" font-size="14" text-anchor="start" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">FFMA</text>
+<text x="20.0" y="80.0" font-size="13" text-anchor="start" fill="#111">32 个 lane 各做 1 次 d = a*b + c</text>
+<text x="300.0" y="56.0" font-size="14" text-anchor="start" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">mma.sync.m16n8k16</text>
+<text x="300.0" y="80.0" font-size="13" text-anchor="start" fill="#111">32 个 lane 协作做 D[16×8] = A[16×16] · B[16×8] + C[16×8]</text>
+<line x1="282.0" y1="40.0" x2="282.0" y2="284.0" stroke="#999" stroke-width="1"/>
+<text x="20.0" y="150.0" font-size="13" text-anchor="start" fill="#111">lane：</text>
+<rect x="20.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="27.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="34.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="41.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="48.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="55.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="62.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="69.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="76.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="83.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="90.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="97.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="104.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="111.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="118.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="125.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="132.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="139.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="146.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="153.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="160.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="167.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="174.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="181.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="188.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="195.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="202.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="209.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="216.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="223.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="230.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<rect x="237.0" y="162.0" width="6.0" height="14.0" fill="#5b8fc7" stroke="#2e6da4" stroke-width="0.6"/>
+<text x="23.0" y="194.0" font-size="12" text-anchor="middle" fill="#111">0</text>
+<text x="240.0" y="194.0" font-size="12" text-anchor="middle" fill="#111">31</text>
+<text x="20.0" y="280.0" font-size="13" text-anchor="start" fill="#111">= 32 次乘加 = 64 FLOP</text>
+<!-- matrices -->
+<rect x="300" y="118" width="144" height="144" fill="#dde9f7"/>
+<line x1="300.0" y1="127.0" x2="444.0" y2="127.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="136.0" x2="444.0" y2="136.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="145.0" x2="444.0" y2="145.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="154.0" x2="444.0" y2="154.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="163.0" x2="444.0" y2="163.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="172.0" x2="444.0" y2="172.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="181.0" x2="444.0" y2="181.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="190.0" x2="444.0" y2="190.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="199.0" x2="444.0" y2="199.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="208.0" x2="444.0" y2="208.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="217.0" x2="444.0" y2="217.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="226.0" x2="444.0" y2="226.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="235.0" x2="444.0" y2="235.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="244.0" x2="444.0" y2="244.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="300.0" y1="253.0" x2="444.0" y2="253.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="309.0" y1="118.0" x2="309.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="318.0" y1="118.0" x2="318.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="327.0" y1="118.0" x2="327.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="336.0" y1="118.0" x2="336.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="345.0" y1="118.0" x2="345.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="354.0" y1="118.0" x2="354.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="363.0" y1="118.0" x2="363.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="372.0" y1="118.0" x2="372.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="381.0" y1="118.0" x2="381.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="390.0" y1="118.0" x2="390.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="399.0" y1="118.0" x2="399.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="408.0" y1="118.0" x2="408.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="417.0" y1="118.0" x2="417.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="426.0" y1="118.0" x2="426.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="435.0" y1="118.0" x2="435.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<rect x="300.0" y="118.0" width="144.0" height="144.0" fill="none" stroke="#2e6da4" stroke-width="1.5"/>
+<text x="372.0" y="194.3" font-size="12" text-anchor="middle" fill="#111">256 个 BF16</text>
+<text x="372.0" y="110.0" font-size="12" text-anchor="middle" fill="#111">A (16×16)</text>
+<text x="459.0" y="195.0" font-size="18" text-anchor="middle" fill="#111">·</text>
+<rect x="474" y="118" width="72" height="144" fill="#fdf1d6"/>
+<line x1="474.0" y1="127.0" x2="546.0" y2="127.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="136.0" x2="546.0" y2="136.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="145.0" x2="546.0" y2="145.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="154.0" x2="546.0" y2="154.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="163.0" x2="546.0" y2="163.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="172.0" x2="546.0" y2="172.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="181.0" x2="546.0" y2="181.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="190.0" x2="546.0" y2="190.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="199.0" x2="546.0" y2="199.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="208.0" x2="546.0" y2="208.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="217.0" x2="546.0" y2="217.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="226.0" x2="546.0" y2="226.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="235.0" x2="546.0" y2="235.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="244.0" x2="546.0" y2="244.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="253.0" x2="546.0" y2="253.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="483.0" y1="118.0" x2="483.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="492.0" y1="118.0" x2="492.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="501.0" y1="118.0" x2="501.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="510.0" y1="118.0" x2="510.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="519.0" y1="118.0" x2="519.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="528.0" y1="118.0" x2="528.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="537.0" y1="118.0" x2="537.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<rect x="474.0" y="118.0" width="72.0" height="144.0" fill="none" stroke="#b9770e" stroke-width="1.5"/>
+<text x="510.0" y="194.3" font-size="12" text-anchor="middle" fill="#111">128 BF16</text>
+<text x="510.0" y="110.0" font-size="12" text-anchor="middle" fill="#111">B (16×8)</text>
+<text x="561.0" y="195.0" font-size="16" text-anchor="middle" fill="#111">=</text>
+<rect x="576" y="118" width="72" height="144" fill="#dff5e1"/>
+<line x1="576.0" y1="127.0" x2="648.0" y2="127.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="136.0" x2="648.0" y2="136.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="145.0" x2="648.0" y2="145.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="154.0" x2="648.0" y2="154.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="163.0" x2="648.0" y2="163.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="172.0" x2="648.0" y2="172.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="181.0" x2="648.0" y2="181.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="190.0" x2="648.0" y2="190.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="199.0" x2="648.0" y2="199.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="208.0" x2="648.0" y2="208.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="217.0" x2="648.0" y2="217.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="226.0" x2="648.0" y2="226.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="235.0" x2="648.0" y2="235.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="244.0" x2="648.0" y2="244.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="576.0" y1="253.0" x2="648.0" y2="253.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="585.0" y1="118.0" x2="585.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="594.0" y1="118.0" x2="594.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="603.0" y1="118.0" x2="603.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="612.0" y1="118.0" x2="612.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="621.0" y1="118.0" x2="621.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="630.0" y1="118.0" x2="630.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="639.0" y1="118.0" x2="639.0" y2="262.0" stroke="#c9d3df" stroke-width="0.5"/>
+<rect x="576.0" y="118.0" width="72.0" height="144.0" fill="none" stroke="#1e8449" stroke-width="1.5"/>
+<text x="612.0" y="194.3" font-size="12" text-anchor="middle" fill="#111">128 FP32</text>
+<text x="612.0" y="110.0" font-size="12" text-anchor="middle" fill="#111">D (16×8)</text>
+<text x="300.0" y="280.0" font-size="13" text-anchor="start" fill="#111">= 16·8·16 = 2048 次乘加 = 4096 FLOP（64 倍）</text>
+</svg>

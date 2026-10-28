@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="316" viewBox="0 0 760 316" role="img" aria-labelledby="t d">
+<title id="t">warp specialization 的时序：producer 发 TMA，consumer 做 wgmma</title>
+<desc id="d">一条时间轴，四行：Producer warp、stage 0（full0/empty0）、stage 1（full1/empty1）、Consumer warpgroup。Producer 先后对 stage 0、1 发 TMA（①②），然后阻塞在 wait empty[0]（③）。full[0] 翻转后 consumer 对 stage 0 发 wgmma（④⑤），full[1] 翻转后对 stage 1 发 wgmma、wait_group 1（⑥⑦），然后 arrive empty[0]（⑧），empty[0] 翻转唤醒 producer（⑨），producer 对 stage 0 发 tile 2 的 TMA（⑩）。</desc>
+<style>text{font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker></defs>
+<rect width="760" height="316" fill="#fff"/>
+<text x="20.0" y="55.0" font-size="13" text-anchor="start" fill="#111">Producer warp</text>
+<text x="20.0" y="71.0" font-size="12" text-anchor="start" fill="#111">1 个线程发 TMA</text>
+<text x="20.0" y="115.0" font-size="13" text-anchor="start" fill="#111">stage 0</text>
+<text x="20.0" y="131.0" font-size="12" text-anchor="start" fill="#111">full0 / empty0</text>
+<text x="20.0" y="175.0" font-size="13" text-anchor="start" fill="#111">stage 1</text>
+<text x="20.0" y="191.0" font-size="12" text-anchor="start" fill="#111">full1 / empty1</text>
+<text x="20.0" y="235.0" font-size="13" text-anchor="start" fill="#111">Consumer WG</text>
+<text x="20.0" y="251.0" font-size="12" text-anchor="start" fill="#111">wgmma</text>
+<rect x="150.0" y="40.0" width="48.0" height="36.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="174.0" y="62.3" font-size="12" text-anchor="middle" fill="#111">TMA t0</text>
+<rect x="198.0" y="40.0" width="48.0" height="36.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="222.0" y="62.3" font-size="12" text-anchor="middle" fill="#111">TMA t1</text>
+<rect x="246.0" y="40.0" width="288.0" height="36.0" fill="#eeeeee" stroke="#888" stroke-width="1"/>
+<text x="390.0" y="62.3" font-size="12" text-anchor="middle" fill="#111">③ wait empty[0]（阻塞）</text>
+<rect x="534.0" y="40.0" width="48.0" height="36.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="558.0" y="62.3" font-size="12" text-anchor="middle" fill="#111">TMA t2</text>
+<rect x="198.0" y="100.0" width="144.0" height="36.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="294.0" y="122.3" font-size="12" text-anchor="middle" fill="#111">TMA 写 t0</text>
+<rect x="342.0" y="100.0" width="192.0" height="36.0" fill="#dff5e1" stroke="#1e8449" stroke-width="1"/>
+<text x="438.0" y="122.3" font-size="12" text-anchor="middle" fill="#111">tile 0 供 wgmma 读</text>
+<rect x="534.0" y="100.0" width="48.0" height="36.0" fill="#fff" stroke="#888" stroke-width="1"/>
+<text x="558.0" y="122.3" font-size="12" text-anchor="middle" fill="#111">可覆盖</text>
+<rect x="582.0" y="100.0" width="96.0" height="36.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="630.0" y="122.3" font-size="12" text-anchor="middle" fill="#111">TMA 写 t2</text>
+<rect x="246.0" y="160.0" width="192.0" height="36.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="294.0" y="182.3" font-size="12" text-anchor="middle" fill="#111">TMA 写 t1</text>
+<rect x="438.0" y="160.0" width="288.0" height="36.0" fill="#dff5e1" stroke="#1e8449" stroke-width="1"/>
+<text x="630.0" y="182.3" font-size="12" text-anchor="middle" fill="#111">tile 1 供 wgmma 读（在飞）</text>
+<rect x="150.0" y="220.0" width="192.0" height="36.0" fill="#eeeeee" stroke="#888" stroke-width="1"/>
+<text x="246.0" y="242.3" font-size="12" text-anchor="middle" fill="#111">等 full[0]</text>
+<rect x="342.0" y="220.0" width="96.0" height="36.0" fill="#dde9f7" stroke="#2e6da4" stroke-width="1"/>
+<text x="390.0" y="242.3" font-size="12" text-anchor="middle" fill="#111">⑤ wgmma s0</text>
+<rect x="438.0" y="220.0" width="96.0" height="36.0" fill="#dde9f7" stroke="#2e6da4" stroke-width="1"/>
+<text x="486.0" y="242.3" font-size="12" text-anchor="middle" fill="#111">⑦ wgmma s1</text>
+<rect x="534.0" y="220.0" width="144.0" height="36.0" fill="#eeeeee" stroke="#888" stroke-width="1"/>
+<text x="606.0" y="242.3" font-size="12" text-anchor="middle" fill="#111">等 full[0]（tile 2）</text>
+<rect x="678.0" y="220.0" width="48.0" height="36.0" fill="#dde9f7" stroke="#2e6da4" stroke-width="1"/>
+<text x="702.0" y="242.3" font-size="12" text-anchor="middle" fill="#111">…</text>
+<line x1="198" y1="76" x2="198" y2="100" stroke="#fff" stroke-width="5"/>
+<line x1="198.0" y1="76.0" x2="198.0" y2="100.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="203.0" y="92.0" font-size="13" text-anchor="start" fill="#111">①</text>
+<line x1="246" y1="76" x2="246" y2="160" stroke="#fff" stroke-width="5"/>
+<line x1="246.0" y1="76.0" x2="246.0" y2="160.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="251.0" y="92.0" font-size="13" text-anchor="start" fill="#111">②</text>
+<line x1="342" y1="136" x2="342" y2="220" stroke="#fff" stroke-width="5"/>
+<line x1="342.0" y1="136.0" x2="342.0" y2="220.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="347.0" y="152.0" font-size="13" text-anchor="start" fill="#111">④</text>
+<line x1="438" y1="196" x2="438" y2="220" stroke="#fff" stroke-width="5"/>
+<line x1="438.0" y1="196.0" x2="438.0" y2="220.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="443.0" y="212.0" font-size="13" text-anchor="start" fill="#111">⑥</text>
+<line x1="534" y1="220" x2="534" y2="136" stroke="#fff" stroke-width="5"/>
+<line x1="534.0" y1="220.0" x2="534.0" y2="136.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="539.0" y="152.0" font-size="13" text-anchor="start" fill="#111">⑧</text>
+<line x1="534" y1="100" x2="534" y2="76" stroke="#fff" stroke-width="5"/>
+<line x1="534.0" y1="100.0" x2="534.0" y2="76.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="539.0" y="92.0" font-size="13" text-anchor="start" fill="#111">⑨</text>
+<line x1="582" y1="76" x2="582" y2="100" stroke="#fff" stroke-width="5"/>
+<line x1="582.0" y1="76.0" x2="582.0" y2="100.0" stroke="#111" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="587.0" y="92.0" font-size="13" text-anchor="start" fill="#111">⑩</text>
+<line x1="150.0" y1="278.0" x2="732.0" y2="278.0" stroke="#111" stroke-width="1.2" marker-end="url(#ah)"/>
+<text x="720.0" y="296.0" font-size="12" text-anchor="end" fill="#111">时间</text>
+</svg>

@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="432" viewBox="0 0 760 432" role="img" aria-labelledby="t d">
+<title id="t">ldmatrix.x4 装一个 16×16 A 子块</title>
+<desc id="d">16×16 的 A 子块（一行 16 个 BF16 = 32 B）分成四个 8×8 象限：左上矩阵 #0 → r0 = a0，左下矩阵 #1 → r1 = a1，右上矩阵 #2 → r2 = a2，右下矩阵 #3 → r3 = a3。每行起点的三角标出谁给地址：lane 0-7 给行 0-7 列 0，lane 8-15 给行 8-15 列 0，lane 16-23 给行 0-7 列 8，lane 24-31 给行 8-15 列 8。</desc>
+<style>text{font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker></defs>
+<rect width="760" height="432" fill="#fff"/>
+<text x="20.0" y="22.0" font-size="14" text-anchor="start" fill="#111">ldmatrix.x4 装一个 16×16 的 A 子块</text>
+<text x="20.0" y="42.0" font-size="13" text-anchor="start" fill="#111">（shared memory 里行主序，一行 = 16 个 BF16 = 32 B）</text>
+<text x="314.0" y="72.0" font-size="12" text-anchor="middle" fill="#111">列 0-7 (16 B)</text>
+<text x="442.0" y="72.0" font-size="12" text-anchor="middle" fill="#111">列 8-15 (16 B)</text>
+<line x1="250.0" y1="98.0" x2="506.0" y2="98.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="266.0" y1="82.0" x2="266.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="114.0" x2="506.0" y2="114.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="282.0" y1="82.0" x2="282.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="130.0" x2="506.0" y2="130.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="298.0" y1="82.0" x2="298.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="146.0" x2="506.0" y2="146.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="314.0" y1="82.0" x2="314.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="162.0" x2="506.0" y2="162.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="330.0" y1="82.0" x2="330.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="178.0" x2="506.0" y2="178.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="346.0" y1="82.0" x2="346.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="194.0" x2="506.0" y2="194.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="362.0" y1="82.0" x2="362.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="210.0" x2="506.0" y2="210.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="378.0" y1="82.0" x2="378.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="226.0" x2="506.0" y2="226.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="394.0" y1="82.0" x2="394.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="242.0" x2="506.0" y2="242.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="410.0" y1="82.0" x2="410.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="258.0" x2="506.0" y2="258.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="426.0" y1="82.0" x2="426.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="274.0" x2="506.0" y2="274.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="442.0" y1="82.0" x2="442.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="290.0" x2="506.0" y2="290.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="458.0" y1="82.0" x2="458.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="306.0" x2="506.0" y2="306.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="474.0" y1="82.0" x2="474.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="250.0" y1="322.0" x2="506.0" y2="322.0" stroke="#c9d3df" stroke-width="0.5"/>
+<line x1="490.0" y1="82.0" x2="490.0" y2="338.0" stroke="#c9d3df" stroke-width="0.5"/>
+<rect x="250" y="82" width="128" height="128" fill="#dde9f7" opacity="0.7"/>
+<text x="314.0" y="142.0" font-size="13" text-anchor="middle" fill="#111">矩阵 #0 → r0</text>
+<text x="314.0" y="162.0" font-size="13" text-anchor="middle" fill="#111">= a0</text>
+<rect x="378" y="82" width="128" height="128" fill="#fdf1d6" opacity="0.7"/>
+<text x="442.0" y="142.0" font-size="13" text-anchor="middle" fill="#111">矩阵 #2 → r2</text>
+<text x="442.0" y="162.0" font-size="13" text-anchor="middle" fill="#111">= a2</text>
+<rect x="250" y="210" width="128" height="128" fill="#dff5e1" opacity="0.7"/>
+<text x="314.0" y="270.0" font-size="13" text-anchor="middle" fill="#111">矩阵 #1 → r1</text>
+<text x="314.0" y="290.0" font-size="13" text-anchor="middle" fill="#111">= a1</text>
+<rect x="378" y="210" width="128" height="128" fill="#fde2e2" opacity="0.7"/>
+<text x="442.0" y="270.0" font-size="13" text-anchor="middle" fill="#111">矩阵 #3 → r3</text>
+<text x="442.0" y="290.0" font-size="13" text-anchor="middle" fill="#111">= a3</text>
+<line x1="250.0" y1="210.0" x2="506.0" y2="210.0" stroke="#111" stroke-width="1.5"/>
+<line x1="378.0" y1="82.0" x2="378.0" y2="338.0" stroke="#111" stroke-width="1.5"/>
+<rect x="250.0" y="82.0" width="256.0" height="256.0" fill="none" stroke="#111" stroke-width="1.5"/>
+<text x="232.0" y="150.0" font-size="12" text-anchor="end" fill="#111">行 0-7</text>
+<text x="232.0" y="278.0" font-size="12" text-anchor="end" fill="#111">行 8-15</text>
+<path d="M241,86.0 L250,90.0 L241,94.0 z" fill="#c0392b"/>
+<path d="M241,102.0 L250,106.0 L241,110.0 z" fill="#c0392b"/>
+<path d="M241,118.0 L250,122.0 L241,126.0 z" fill="#c0392b"/>
+<path d="M241,134.0 L250,138.0 L241,142.0 z" fill="#c0392b"/>
+<path d="M241,150.0 L250,154.0 L241,158.0 z" fill="#c0392b"/>
+<path d="M241,166.0 L250,170.0 L241,174.0 z" fill="#c0392b"/>
+<path d="M241,182.0 L250,186.0 L241,190.0 z" fill="#c0392b"/>
+<path d="M241,198.0 L250,202.0 L241,206.0 z" fill="#c0392b"/>
+<path d="M241,214.0 L250,218.0 L241,222.0 z" fill="#7d3c98"/>
+<path d="M241,230.0 L250,234.0 L241,238.0 z" fill="#7d3c98"/>
+<path d="M241,246.0 L250,250.0 L241,254.0 z" fill="#7d3c98"/>
+<path d="M241,262.0 L250,266.0 L241,270.0 z" fill="#7d3c98"/>
+<path d="M241,278.0 L250,282.0 L241,286.0 z" fill="#7d3c98"/>
+<path d="M241,294.0 L250,298.0 L241,302.0 z" fill="#7d3c98"/>
+<path d="M241,310.0 L250,314.0 L241,318.0 z" fill="#7d3c98"/>
+<path d="M241,326.0 L250,330.0 L241,334.0 z" fill="#7d3c98"/>
+<path d="M378,86.0 L387,90.0 L378,94.0 z" fill="#d35400"/>
+<path d="M378,102.0 L387,106.0 L378,110.0 z" fill="#d35400"/>
+<path d="M378,118.0 L387,122.0 L378,126.0 z" fill="#d35400"/>
+<path d="M378,134.0 L387,138.0 L378,142.0 z" fill="#d35400"/>
+<path d="M378,150.0 L387,154.0 L378,158.0 z" fill="#d35400"/>
+<path d="M378,166.0 L387,170.0 L378,174.0 z" fill="#d35400"/>
+<path d="M378,182.0 L387,186.0 L378,190.0 z" fill="#d35400"/>
+<path d="M378,198.0 L387,202.0 L378,206.0 z" fill="#d35400"/>
+<path d="M378,214.0 L387,218.0 L378,222.0 z" fill="#117a65"/>
+<path d="M378,230.0 L387,234.0 L378,238.0 z" fill="#117a65"/>
+<path d="M378,246.0 L387,250.0 L378,254.0 z" fill="#117a65"/>
+<path d="M378,262.0 L387,266.0 L378,270.0 z" fill="#117a65"/>
+<path d="M378,278.0 L387,282.0 L378,286.0 z" fill="#117a65"/>
+<path d="M378,294.0 L387,298.0 L378,302.0 z" fill="#117a65"/>
+<path d="M378,310.0 L387,314.0 L378,318.0 z" fill="#117a65"/>
+<path d="M378,326.0 L387,330.0 L378,334.0 z" fill="#117a65"/>
+<path d="M520,125 L529,129 L520,133 z" fill="#c0392b"/>
+<text x="534.0" y="134.0" font-size="12" text-anchor="start" fill="#c0392b">lane 0-7 各给一行的地址（列 0）</text>
+<path d="M520,149 L529,153 L520,157 z" fill="#d35400"/>
+<text x="534.0" y="158.0" font-size="12" text-anchor="start" fill="#d35400">lane 16-23 各给一行的地址（列 8）</text>
+<path d="M520,253 L529,257 L520,261 z" fill="#7d3c98"/>
+<text x="534.0" y="262.0" font-size="12" text-anchor="start" fill="#7d3c98">lane 8-15 各给一行的地址（列 0）</text>
+<path d="M520,277 L529,281 L520,285 z" fill="#117a65"/>
+<text x="534.0" y="286.0" font-size="12" text-anchor="start" fill="#117a65">lane 24-31 各给一行的地址（列 8）</text>
+<text x="20.0" y="368.0" font-size="13" text-anchor="start" fill="#111">lane 提供地址：row = lane % 16，col = 8 × (lane / 16)</text>
+<text x="20.0" y="390.0" font-size="13" text-anchor="start" fill="#111">lane 收到数据：每个 8×8 矩阵里第 lane/4 行、第 (lane%4)×2, +1 列 —— 恰好是 mma 要的布局</text>
+<text x="20.0" y="412.0" font-size="13" text-anchor="start" fill="#111">32 个 lane 各出 1 个地址、各收 4 个寄存器，一条指令装满整个 fragment</text>
+</svg>

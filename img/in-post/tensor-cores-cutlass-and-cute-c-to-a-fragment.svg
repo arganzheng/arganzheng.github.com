@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="346" viewBox="0 0 760 346" role="img" aria-labelledby="t d">
+<title id="t">两个 n8 输出 tile 拼成下一条 mma 的 A fragment</title>
+<desc id="d">左：上一条 mma 的两个 16×8 FP32 输出 tile 并排成 16×16，tile 0 的 c0 c1（行 0–7）、c2 c3（行 8–15），tile 1 的 c0&#x27; c1&#x27;、c2&#x27; c3&#x27;。经 cvt f32→bf16x2 变成右边下一条 mma 的 16×16 A fragment：tile0.{c0,c1}→a0，tile0.{c2,c3}→a1，tile1.{c0,c1}→a2，tile1.{c2,c3}→a3。两边 lane 都拿 (g, 2t..2t+1)，位置相同，全程在寄存器里。</desc>
+<style>text{font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker></defs>
+<rect width="760" height="346" fill="#fff"/>
+<text x="70.0" y="24.0" font-size="13" text-anchor="start" fill="#111">上一条 mma 的两个 n8 输出 tile（FP32）</text>
+<text x="458.0" y="24.0" font-size="13" text-anchor="start" fill="#111">下一条 mma 的 A fragment（BF16）</text>
+<text x="118.0" y="46.0" font-size="12" text-anchor="middle" fill="#111">tile 0 (16×8)</text>
+<text x="214.0" y="46.0" font-size="12" text-anchor="middle" fill="#111">tile 1 (16×8)</text>
+<text x="554.0" y="46.0" font-size="12" text-anchor="middle" fill="#111">16×16</text>
+<rect x="70.0" y="58.0" width="96.0" height="96.0" fill="#dde9f7" stroke="#2e6da4" stroke-width="1"/>
+<text x="118.0" y="94.3" font-size="12" text-anchor="middle" fill="#111">c0 c1</text>
+<text x="118.0" y="110.3" font-size="12" text-anchor="middle" fill="#111">(quad g)</text>
+<text x="118.0" y="126.3" font-size="12" text-anchor="middle" fill="#111">FP32 ×2</text>
+<rect x="166.0" y="58.0" width="96.0" height="96.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="214.0" y="102.3" font-size="12" text-anchor="middle" fill="#111">c0&#x27; c1&#x27;</text>
+<text x="214.0" y="118.3" font-size="12" text-anchor="middle" fill="#111">FP32 ×2</text>
+<rect x="70.0" y="154.0" width="96.0" height="96.0" fill="#dff5e1" stroke="#1e8449" stroke-width="1"/>
+<text x="118.0" y="206.3" font-size="12" text-anchor="middle" fill="#111">c2 c3</text>
+<rect x="166.0" y="154.0" width="96.0" height="96.0" fill="#fde2e2" stroke="#c0392b" stroke-width="1"/>
+<text x="214.0" y="206.3" font-size="12" text-anchor="middle" fill="#111">c2&#x27; c3&#x27;</text>
+<rect x="458.0" y="58.0" width="96.0" height="96.0" fill="#dde9f7" stroke="#2e6da4" stroke-width="1"/>
+<text x="506.0" y="111.0" font-size="14" text-anchor="middle" fill="#111">a0</text>
+<rect x="554.0" y="58.0" width="96.0" height="96.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1"/>
+<text x="602.0" y="111.0" font-size="14" text-anchor="middle" fill="#111">a2</text>
+<rect x="458.0" y="154.0" width="96.0" height="96.0" fill="#dff5e1" stroke="#1e8449" stroke-width="1"/>
+<text x="506.0" y="207.0" font-size="14" text-anchor="middle" fill="#111">a1</text>
+<rect x="554.0" y="154.0" width="96.0" height="96.0" fill="#fde2e2" stroke="#c0392b" stroke-width="1"/>
+<text x="602.0" y="207.0" font-size="14" text-anchor="middle" fill="#111">a3</text>
+<rect x="70.0" y="58.0" width="192.0" height="192.0" fill="none" stroke="#111" stroke-width="2"/>
+<rect x="458.0" y="58.0" width="192.0" height="192.0" fill="none" stroke="#111" stroke-width="2"/>
+<text x="62.0" y="102.0" font-size="12" text-anchor="end" fill="#111">行</text>
+<text x="62.0" y="118.0" font-size="12" text-anchor="end" fill="#111">0-7</text>
+<text x="62.0" y="198.0" font-size="12" text-anchor="end" fill="#111">行</text>
+<text x="62.0" y="214.0" font-size="12" text-anchor="end" fill="#111">8-15</text>
+<text x="658.0" y="110.0" font-size="12" text-anchor="start" fill="#111">行 0-7</text>
+<text x="658.0" y="206.0" font-size="12" text-anchor="start" fill="#111">行 8-15</text>
+<line x1="264.0" y1="154.0" x2="456.0" y2="154.0" stroke="#111" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="360.0" y="128.0" font-size="12" text-anchor="middle" fill="#111">cvt f32 →</text>
+<text x="360.0" y="144.0" font-size="12" text-anchor="middle" fill="#111">bf16x2</text>
+<text x="166.0" y="272.0" font-size="12" text-anchor="middle" fill="#111">lane 拿 (g, 2t..2t+1)</text>
+<text x="554.0" y="272.0" font-size="12" text-anchor="middle" fill="#111">lane 拿 (g, 2t..2t+1) —— 同一个位置！</text>
+<text x="70.0" y="304.0" font-size="13" text-anchor="start" fill="#111">tile0.{c0,c1} → a0　　tile0.{c2,c3} → a1</text>
+<text x="70.0" y="326.0" font-size="13" text-anchor="start" fill="#111">tile1.{c0,c1} → a2　　tile1.{c2,c3} → a3　　全程在寄存器里，不经过 shared memory</text>
+</svg>

@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="314" viewBox="0 0 760 314" role="img" aria-labelledby="t d">
+<title id="t">B fragment（16×8）各元素所在的 lane 与寄存器</title>
+<desc id="d">8 行 × 8 列的网格，行是相邻两个 k，列是 n，一格是同一列 n、相邻两行 k 的 2 个 BF16。列 n 由 quad n 持有，行 k=2t..2t+1 由 lane 4n+t 的 b0 持有，k=2t+8..2t+9 由 b1 持有。</desc>
+<style>text{font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker></defs>
+<rect width="760" height="314" fill="#fff"/>
+<text x="20.0" y="24.0" font-size="14" text-anchor="start" fill="#111">B（16 × 8 BF16，K × N）</text>
+<text x="168.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=0</text>
+<text x="244.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=1</text>
+<text x="320.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=2</text>
+<text x="396.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=3</text>
+<text x="472.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=4</text>
+<text x="548.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=5</text>
+<text x="624.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=6</text>
+<text x="700.0" y="50.0" font-size="12" text-anchor="middle" fill="#111">n=7</text>
+<text x="120.0" y="50.0" font-size="12" text-anchor="end" fill="#111">列</text>
+<text x="20.0" y="77.0" font-size="12" text-anchor="start" fill="#111">行 k=0-1</text>
+<rect x="130.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T0.b0</text>
+<rect x="206.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T4.b0</text>
+<rect x="282.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T8.b0</text>
+<rect x="358.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T12.b0</text>
+<rect x="434.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T16.b0</text>
+<rect x="510.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T20.b0</text>
+<rect x="586.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T24.b0</text>
+<rect x="662.0" y="60.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="77.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T28.b0</text>
+<text x="20.0" y="103.0" font-size="12" text-anchor="start" fill="#111">行 k=2-3</text>
+<rect x="130.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T1.b0</text>
+<rect x="206.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T5.b0</text>
+<rect x="282.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T9.b0</text>
+<rect x="358.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T13.b0</text>
+<rect x="434.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T17.b0</text>
+<rect x="510.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T21.b0</text>
+<rect x="586.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T25.b0</text>
+<rect x="662.0" y="86.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="103.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T29.b0</text>
+<text x="20.0" y="129.0" font-size="12" text-anchor="start" fill="#111">行 k=4-5</text>
+<rect x="130.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T2.b0</text>
+<rect x="206.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T6.b0</text>
+<rect x="282.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T10.b0</text>
+<rect x="358.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T14.b0</text>
+<rect x="434.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T18.b0</text>
+<rect x="510.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T22.b0</text>
+<rect x="586.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T26.b0</text>
+<rect x="662.0" y="112.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="129.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T30.b0</text>
+<text x="20.0" y="155.0" font-size="12" text-anchor="start" fill="#111">行 k=6-7</text>
+<rect x="130.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T3.b0</text>
+<rect x="206.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T7.b0</text>
+<rect x="282.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T11.b0</text>
+<rect x="358.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T15.b0</text>
+<rect x="434.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T19.b0</text>
+<rect x="510.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T23.b0</text>
+<rect x="586.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T27.b0</text>
+<rect x="662.0" y="138.0" width="76.0" height="26.0" fill="#dde9f7" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="155.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T31.b0</text>
+<text x="20.0" y="181.0" font-size="12" text-anchor="start" fill="#111">行 k=8-9</text>
+<rect x="130.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T0.b1</text>
+<rect x="206.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T4.b1</text>
+<rect x="282.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T8.b1</text>
+<rect x="358.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T12.b1</text>
+<rect x="434.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T16.b1</text>
+<rect x="510.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T20.b1</text>
+<rect x="586.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T24.b1</text>
+<rect x="662.0" y="164.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="181.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T28.b1</text>
+<text x="20.0" y="207.0" font-size="12" text-anchor="start" fill="#111">行 k=10-11</text>
+<rect x="130.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T1.b1</text>
+<rect x="206.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T5.b1</text>
+<rect x="282.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T9.b1</text>
+<rect x="358.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T13.b1</text>
+<rect x="434.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T17.b1</text>
+<rect x="510.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T21.b1</text>
+<rect x="586.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T25.b1</text>
+<rect x="662.0" y="190.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="207.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T29.b1</text>
+<text x="20.0" y="233.0" font-size="12" text-anchor="start" fill="#111">行 k=12-13</text>
+<rect x="130.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T2.b1</text>
+<rect x="206.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T6.b1</text>
+<rect x="282.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T10.b1</text>
+<rect x="358.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T14.b1</text>
+<rect x="434.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T18.b1</text>
+<rect x="510.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T22.b1</text>
+<rect x="586.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T26.b1</text>
+<rect x="662.0" y="216.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="233.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T30.b1</text>
+<text x="20.0" y="259.0" font-size="12" text-anchor="start" fill="#111">行 k=14-15</text>
+<rect x="130.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="168.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T3.b1</text>
+<rect x="206.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="244.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T7.b1</text>
+<rect x="282.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="320.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T11.b1</text>
+<rect x="358.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="396.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T15.b1</text>
+<rect x="434.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="472.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T19.b1</text>
+<rect x="510.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="548.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T23.b1</text>
+<rect x="586.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="624.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T27.b1</text>
+<rect x="662.0" y="242.0" width="76.0" height="26.0" fill="#dff5e1" stroke="#8a97a8" stroke-width="0.6"/>
+<text x="700.0" y="259.3" font-size="12" text-anchor="middle" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">T31.b1</text>
+<line x1="130.0" y1="164.0" x2="738.0" y2="164.0" stroke="#111" stroke-width="2"/>
+<rect x="130.0" y="60.0" width="608.0" height="208.0" fill="none" stroke="#111" stroke-width="1.5"/>
+<text x="20.0" y="294.0" font-size="13" text-anchor="start" fill="#111">一格是同一列 n、相邻两行 k 的 2 个 BF16；上半 8 行是 b0，下半 8 行是 b1</text>
+</svg>

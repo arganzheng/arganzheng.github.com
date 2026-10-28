@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="728" viewBox="0 0 760 728" role="img" aria-labelledby="t d">
+<title id="t">local_tile 与 local_partition 三步划分图示</title>
+<desc id="d">① 128×128 的 tile 按 (64,32) zipped_divide 成 2×4 个 warp tile，w5 高亮，结果 ((_64,_32),(_2,_4)):((_1,_128),(_64,_4096))，前半是 warp tile 内坐标，后半是第几个 warp。② local_tile(T,(64,32),(1,2)) 取出 warp 5 的 64×32 子块，layout (_64,_32):(_1,_128)，起始偏移 8256。③ local_partition 按 8×4 线程网格交错划分，lane 3 = 线程坐标 (3,0)，拿行 3、11、…、59 与列 0、4、…、28 交叉处的 8×8 个元素，layout (_8,_8):(_8,_512)。</desc>
+<style>text{font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker></defs>
+<rect width="760" height="728" fill="#fff"/>
+<rect x="20.0" y="20.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="40.0" y="64.3" font-size="12" text-anchor="middle" fill="#111">w0</text>
+<rect x="20.0" y="100.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="40.0" y="144.3" font-size="12" text-anchor="middle" fill="#111">w1</text>
+<rect x="60.0" y="20.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="80.0" y="64.3" font-size="12" text-anchor="middle" fill="#111">w2</text>
+<rect x="60.0" y="100.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="80.0" y="144.3" font-size="12" text-anchor="middle" fill="#111">w3</text>
+<rect x="100.0" y="20.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="120.0" y="64.3" font-size="12" text-anchor="middle" fill="#111">w4</text>
+<rect x="100.0" y="100.0" width="40.0" height="80.0" fill="#fdf1d6" stroke="#111" stroke-width="1"/>
+<text x="120.0" y="144.3" font-size="12" text-anchor="middle" fill="#111">w5</text>
+<rect x="140.0" y="20.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="160.0" y="64.3" font-size="12" text-anchor="middle" fill="#111">w6</text>
+<rect x="140.0" y="100.0" width="40.0" height="80.0" fill="#fff" stroke="#111" stroke-width="1"/>
+<text x="160.0" y="144.3" font-size="12" text-anchor="middle" fill="#111">w7</text>
+<rect x="20.0" y="20.0" width="160.0" height="160.0" fill="none" stroke="#111" stroke-width="2"/>
+<text x="100.0" y="198.0" font-size="12" text-anchor="middle" fill="#111">128×128</text>
+<text x="220.0" y="40.0" font-size="13" text-anchor="start" fill="#111">① tile 128×128，layout (_128,_128):(_1,_128)</text>
+<text x="220.0" y="66.0" font-size="13" text-anchor="start" fill="#111">zipped_divide(tile, (64,32)) →</text>
+<text x="220.0" y="92.0" font-size="13" text-anchor="start" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">(<tspan fill="#1f5fa0">(_64,_32)</tspan>,<tspan fill="#b35900">(_2,_4)</tspan>) : (<tspan fill="#1f5fa0">(_1,_128)</tspan>,<tspan fill="#b35900">(_64,_4096)</tspan>)</text>
+<text x="220.0" y="118.0" font-size="12" text-anchor="start" fill="#1f5fa0">蓝：warp tile 内坐标</text>
+<text x="370.0" y="118.0" font-size="12" text-anchor="start" fill="#b35900">橙：第几个 warp</text>
+<rect x="60.0" y="236.0" width="80.0" height="160.0" fill="#fdf1d6" stroke="#b9770e" stroke-width="1.5"/>
+<circle cx="61.5" cy="237.5" r="3" fill="#c0392b"/>
+<text x="100.0" y="228.0" font-size="12" text-anchor="middle" fill="#111">32 列</text>
+<text x="52.0" y="320.0" font-size="12" text-anchor="end" fill="#111">64 行</text>
+<text x="220.0" y="252.0" font-size="13" text-anchor="start" fill="#111">② local_tile(T, (64,32), (1,2)) → warp 5 的 64×32 子块</text>
+<text x="220.0" y="276.0" font-size="13" text-anchor="start" fill="#111" font-family="'SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace">layout (_64,_32):(_1,_128)</text>
+<text x="220.0" y="300.0" font-size="13" text-anchor="start" fill="#111">起始偏移（左上角红点）= 1·64 + 2·32·128 = 8256</text>
+<text x="220.0" y="324.0" font-size="13" text-anchor="start" fill="#111">（切块：相邻元素给同一个 warp）</text>
+<rect x="60.0" y="456.0" width="128.0" height="256.0" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="60.0" y1="488.0" x2="188.0" y2="488.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="60.0" y1="520.0" x2="188.0" y2="520.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="60.0" y1="552.0" x2="188.0" y2="552.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="60.0" y1="584.0" x2="188.0" y2="584.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="60.0" y1="616.0" x2="188.0" y2="616.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="60.0" y1="648.0" x2="188.0" y2="648.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="60.0" y1="680.0" x2="188.0" y2="680.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="76.0" y1="456.0" x2="76.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="92.0" y1="456.0" x2="92.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="108.0" y1="456.0" x2="108.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="124.0" y1="456.0" x2="124.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="140.0" y1="456.0" x2="140.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="156.0" y1="456.0" x2="156.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<line x1="172.0" y1="456.0" x2="172.0" y2="712.0" stroke="#c9d3df" stroke-width="0.8"/>
+<rect x="60.0" y="456.0" width="16.0" height="32.0" fill="none" stroke="#7d3c98" stroke-width="1.5"/>
+<circle cx="62.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="470.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="474.0" font-size="11" text-anchor="end" fill="#111">3</text>
+<circle cx="62.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="502.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="506.0" font-size="11" text-anchor="end" fill="#111">11</text>
+<circle cx="62.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="534.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="538.0" font-size="11" text-anchor="end" fill="#111">19</text>
+<circle cx="62.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="566.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="570.0" font-size="11" text-anchor="end" fill="#111">27</text>
+<circle cx="62.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="598.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="602.0" font-size="11" text-anchor="end" fill="#111">35</text>
+<circle cx="62.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="630.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="634.0" font-size="11" text-anchor="end" fill="#111">43</text>
+<circle cx="62.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="662.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="666.0" font-size="11" text-anchor="end" fill="#111">51</text>
+<circle cx="62.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="78.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="94.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="110.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="126.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="142.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="158.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<circle cx="174.0" cy="694.0" r="2.6" fill="#c0392b"/>
+<text x="54.0" y="698.0" font-size="11" text-anchor="end" fill="#111">59</text>
+<text x="62.0" y="450.0" font-size="11" text-anchor="middle" fill="#111">0</text>
+<text x="94.0" y="450.0" font-size="11" text-anchor="middle" fill="#111">8</text>
+<text x="126.0" y="450.0" font-size="11" text-anchor="middle" fill="#111">16</text>
+<text x="158.0" y="450.0" font-size="11" text-anchor="middle" fill="#111">24</text>
+<text x="28.0" y="450.0" font-size="11" text-anchor="start" fill="#111">列</text>
+<text x="28.0" y="470.0" font-size="11" text-anchor="start" fill="#111">行</text>
+<text x="220.0" y="472.0" font-size="13" text-anchor="start" fill="#111">③ local_partition(wT, 8×4 线程网格, lane 3)</text>
+<text x="220.0" y="496.0" font-size="13" text-anchor="start" fill="#111">→ lane 3 = 线程坐标 (3, 0)，每隔 8 行、每隔 4 列取一个（红点）</text>
+<text x="220.0" y="520.0" font-size="13" text-anchor="start" fill="#111">→ 8×8 个元素，layout (_8,_8):(_8,_512)</text>
+<text x="220.0" y="544.0" font-size="13" text-anchor="start" fill="#111">stride 8 = 隔 8 行，512 = 隔 4 列 × 128</text>
+<text x="220.0" y="568.0" font-size="13" text-anchor="start" fill="#111">（交错：相隔 stride 的元素给同一个线程）</text>
+<text x="220.0" y="600.0" font-size="12" text-anchor="start" fill="#111">紫框是一个 8×4 线程网格，网格按它平铺；浅线是平铺边界</text>
+</svg>
