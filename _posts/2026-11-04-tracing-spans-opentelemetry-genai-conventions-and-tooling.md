@@ -21,10 +21,10 @@ catalog: true
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-%% 图：trace 的三级树：会话 → 步 → 模型调用 / 工具调用 / 检索 span
+%% 图：trace 的三级树：会话 → 任务 / 轮次 → 模型调用 / 工具调用 / 检索 span
 flowchart TB
-    T["trace = 一次会话 / 一个任务<br/>trace_id · 用户 · prompt 版本 · 模型快照 · 总成本"]
-    T --> S1["span：第 1 步"] & S2["span：第 2 步"] & S3["span：第 k 步"]
+    T["会话 span（session）= 一条 trace 的根<br/>trace_id · 用户 · prompt 版本 · 模型快照 · 总成本"]
+    T --> S1["任务 / 轮次 span：第 1 轮"] & S2["任务 / 轮次 span：第 2 轮"] & S3["任务 / 轮次 span：第 k 轮"]
     S2 --> M["模型调用 span<br/>完整输入（或可重建的引用）、输出、<br/>usage 五项、effort、TTFT、stop_reason"]
     S2 --> TO["工具调用 span<br/>名称、参数、结果引用、耗时、<br/>沙箱决定、审批人与时间"]
     S2 --> RT["检索 span<br/>改写前后的查询、过滤条件、两路候选、<br/>RRF / rerank 排序、最终块 id"]
