@@ -53,6 +53,7 @@ flowchart TB
 
 ```
 
+上面这张带着具体角色（接待、退款、经理、组长），handoff 画成一条链：A 交给 B，B 再交给人或 agent C。下面这张只画形状：handoff 里 A 按情况交给 B 或者 C，层级里每一层都要综合下一层的结果。
 
 ![三种多 agent 模式：orchestrator-workers、handoff、层级](/img/in-post/multi-agent-orchestration-three-patterns.svg)
 
