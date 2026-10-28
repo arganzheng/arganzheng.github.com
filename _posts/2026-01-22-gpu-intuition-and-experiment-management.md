@@ -63,25 +63,6 @@ $$
 
 算术强度高于 295 的操作受算力限制，低于的受带宽限制。这就是 **roofline 模型**的全部内容：一条水平线（算力上限）和一条斜线（带宽 × 强度），操作的性能被压在两条线下面。画出来（两轴都是对数坐标，H100 的数字）：
 
-```text title='H100 的 roofline：算力上限、带宽斜线与 decode / prefill 的位置'
-可达性能
-(TFLOP/s)
-  989 ┤                                 ┌──────────────────────────  算力上限 989 TFLOPS
-      │                               ／ ▲                 ▲
-      │                             ／   │ decode B=512    │ prefill / 训练
-      │                           ／     │ (compute-bound) │ 强度 ≈ 数千
-  100 ┤                         ／
-      │                       ／  ▲ decode B=128
-      │                     ／    │ (memory-bound：性能 = 3.35 TB/s × 强度)
-   10 ┤                   ／
-      │                 ／
-      │               ／  斜线 = 带宽 × 算术强度
-    1 ┤             ／
-      │           ／ ▲ decode B=1：强度 1，性能 ≈ 3.35 TFLOP/s = 峰值的 0.3%
-      └───────────┴──────────┴──────────┴──────────┴─────────► 算术强度 (FLOP/字节)
-                  1          10         100   ridge≈295   1000
-```
-
 ![H100 的 Roofline：斜线是带宽 × 强度，横线是 989 TFLOPS；decode 落在左边的 memory-bound 区，prefill 与训练落在右边](/img/in-post/gpu-intuition-roofline-h100.svg)
 
 一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)把整个模型逐层放到这张图上；Infra 06 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**我改的这个结构把瓶颈往哪边推了**。
