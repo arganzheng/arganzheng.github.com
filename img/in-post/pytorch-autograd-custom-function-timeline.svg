@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 392" width="760" height="392" role="img" aria-labelledby="t d">
+  <title id="t">自定义 Function 的时间线：forward 由 apply 立即执行，backward 由引擎回调，ctx 在两者之间传状态</title>
+  <desc id="d">横轴是时间，五行：调用方、forward、engine、backward、ctx。① 调用方 Square.apply(x) 立即执行 forward；② forward 里 save_for_backward(x)，x 挂在反向节点上，ctx 行从此持有 saved x；③ forward 返回 y = x*x，y.grad_fn = SquareBackward，forward 结束，图已建好；④ 调用方 y.backward() 进入 engine；⑤ engine 回调 backward(ctx, dL/dy)；⑥ backward 读 saved_tensors；⑦ 拿到 (x,)；⑧ backward 返回 dL/dy * 2x；⑨ engine 随即 release_variables()，节点释放它的 saved tensors，ctx 行结束；⑩ engine 执行 AccumulateGrad，x.grad += …，随后 y.backward() 返回。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .lab { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12.5px; }
+      .num { font-size: 11px; font-weight: 700; fill: #fff; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .k-c { fill: #fde0b8; } .k-f { fill: #cfeccf; } .k-e { fill: #cfe2f3; } .k-b { fill: #e4dcf5; } .k-x { fill: #fff3c4; }
+      .arr { stroke: #40566f; stroke-width: 1.5; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #b42318; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .marklab { font-size: 13px; font-weight: 700; fill: #b42318; }
+      .lane { stroke: #e3e8ee; stroke-width: 1; }
+      .dot { fill: #40566f; }
+    </style>
+  </defs>
+  <line class="lane" x1="100" y1="60.0" x2="740" y2="60.0"/>
+  <text class="lab" x="12" y="65.0">调用方</text>
+  <line class="lane" x1="100" y1="124.0" x2="740" y2="124.0"/>
+  <text class="lab" x="12" y="129.0">forward</text>
+  <line class="lane" x1="100" y1="188.0" x2="740" y2="188.0"/>
+  <text class="lab" x="12" y="193.0">engine</text>
+  <line class="lane" x1="100" y1="252.0" x2="740" y2="252.0"/>
+  <text class="lab" x="12" y="257.0">backward</text>
+  <line class="lane" x1="100" y1="316.0" x2="740" y2="316.0"/>
+  <text class="lab" x="12" y="321.0">ctx</text>
+  <line class="mark" x1="320" y1="26" x2="320" y2="332"/>
+  <text class="marklab" x="320" y="18" text-anchor="middle">forward 结束，图已建好</text>
+  <rect class="seg k-c" x="100" y="44" width="190" height="32"/>
+  <text class="mono" x="195.0" y="64.5" text-anchor="middle">Square.apply(x)</text>
+  <rect class="seg k-c" x="350" y="44" width="380" height="32"/>
+  <text class="mono" x="540.0" y="64.5" text-anchor="middle">y.backward()</text>
+  <rect class="seg k-f" x="100" y="108" width="190" height="32"/>
+  <text class="mono" x="195.0" y="128.5" text-anchor="middle">forward：y = x*x</text>
+  <rect class="seg k-e" x="350" y="172" width="380" height="32"/>
+  <text class="body" x="540.0" y="192.5" text-anchor="middle">执行反向图</text>
+  <rect class="seg k-b" x="390" y="236" width="190" height="32"/>
+  <text class="mono" x="485.0" y="256.5" text-anchor="middle">backward(ctx, dL/dy)</text>
+  <rect class="seg k-x" x="170" y="300" width="430" height="32"/>
+  <text class="mono" x="385.0" y="320.5" text-anchor="middle">saved: x（x 挂在反向节点上）</text>
+  <line class="arr" x1="100" y1="76" x2="100" y2="108"/>
+  <circle class="dot" cx="113" cy="92.0" r="8.5"/>
+  <text class="num" x="113" y="96.0" text-anchor="middle">1</text>
+  <line class="arr" x1="170" y1="140" x2="170" y2="300"/>
+  <circle class="dot" cx="183" cy="156.0" r="8.5"/>
+  <text class="num" x="183" y="160.0" text-anchor="middle">2</text>
+  <line class="arr" x1="290" y1="108" x2="290" y2="76"/>
+  <circle class="dot" cx="277" cy="92.0" r="8.5"/>
+  <text class="num" x="277" y="96.0" text-anchor="middle">3</text>
+  <line class="arr" x1="350" y1="76" x2="350" y2="172"/>
+  <circle class="dot" cx="363" cy="92.0" r="8.5"/>
+  <text class="num" x="363" y="96.0" text-anchor="middle">4</text>
+  <line class="arr" x1="390" y1="204" x2="390" y2="236"/>
+  <circle class="dot" cx="403" cy="220.0" r="8.5"/>
+  <text class="num" x="403" y="224.0" text-anchor="middle">5</text>
+  <line class="arr" x1="450" y1="268" x2="450" y2="300"/>
+  <circle class="dot" cx="463" cy="284.0" r="8.5"/>
+  <text class="num" x="463" y="288.0" text-anchor="middle">6</text>
+  <line class="arr" x1="490" y1="300" x2="490" y2="268"/>
+  <circle class="dot" cx="503" cy="284.0" r="8.5"/>
+  <text class="num" x="503" y="288.0" text-anchor="middle">7</text>
+  <line class="arr" x1="580" y1="236" x2="580" y2="204"/>
+  <circle class="dot" cx="567" cy="220.0" r="8.5"/>
+  <text class="num" x="567" y="224.0" text-anchor="middle">8</text>
+  <line class="arr" x1="600" y1="204" x2="600" y2="300"/>
+  <circle class="dot" cx="613" cy="284.0" r="8.5"/>
+  <text class="num" x="613" y="288.0" text-anchor="middle">9</text>
+  <line class="arr" x1="660" y1="172" x2="660" y2="76"/>
+  <circle class="dot" cx="673" cy="92.0" r="8.5"/>
+  <text class="num" x="673" y="96.0" text-anchor="middle">10</text>
+  <line class="arr" x1="100" y1="360" x2="744" y2="360"/>
+  <text class="muted" x="744" y="380" text-anchor="end">时间</text>
+</svg>

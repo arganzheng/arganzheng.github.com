@@ -150,11 +150,14 @@ loss = z.sum()
 
 其 forward 关系可以简单表示为：
 
-```text title='它的 forward 关系图'
-x ─────┐
-       * → y ───┐
-x ─────┘        + → z → sum → loss
-                3 ───┘
+```mermaid
+%% 图：它的 forward 关系图：x 同时是 * 的两个操作数，y 加常数 3 得到 z，z 求和得到 loss
+flowchart LR
+    x["x"] --> mul(("*"))
+    x --> mul
+    mul --> y["y"] --> add(("+"))
+    c3["3"] --> add
+    add --> z["z"] --> sum(("sum")) --> loss["loss"]
 ```
 
 图中的节点可以表示：
@@ -645,12 +648,7 @@ print(y.requires_grad)  # True
 print(z.requires_grad)  # False
 ```
 
-`detach()` 返回一个不再沿原计算图传播梯度的 Tensor。它通常与原 Tensor 共享底层数据，因此：
-
-- **detach**
-  - → 改变 Autograd 关系
-  - → 不等于 clone
-  - → 不等于数据复制
+`detach()` 返回一个不再沿原计算图传播梯度的 Tensor。它通常与原 Tensor 共享底层数据，所以 detach 改变的是 Autograd 关系，它不等于 clone，也不等于数据复制。
 
 如果需要既切断梯度又创建独立数据，可以使用：
 
@@ -775,38 +773,22 @@ print(x.grad)  # tensor(6.)
 - 上游梯度：grad_output = dLoss/dy
 - 输入梯度：dLoss/dx = grad_output × 2x
 
-`forward` 和 `backward` 并不是被同一段代码先后调用的：`forward` 由 `Square.apply()` 立即执行，`backward` 则要等到 `y.backward()` 时由 Autograd 引擎回调，两者之间靠 `ctx` 传递状态：
+`forward` 和 `backward` 并不是被同一段代码先后调用的：`forward` 由 `Square.apply()` 立即执行，`backward` 则要等到 `y.backward()` 时由 Autograd 引擎回调，两者之间靠 `ctx` 传递状态。下图横轴是时间，每个角色一行，竖箭头是跨角色的调用或返回，编号对应图下的步骤：
 
-```mermaid
-%% 图：自定义 Function 的时序：forward 由 apply 立即执行，backward 由引擎回调，ctx 在两者之间传状态
-sequenceDiagram
-    participant C as 调用方
-    participant F as forward
-    participant X as ctx
-    participant E as engine
-    participant B as backward
+![自定义 Function 的时间线：forward 由 apply 立即执行，backward 由引擎回调，ctx 在两者之间传状态](/img/in-post/pytorch-autograd-custom-function-timeline.svg)
 
-    C->>F: Square.apply(x)
-    activate F
-    F->>X: save_for_backward(x)
-    Note over X: x 挂在反向节点上
-    F-->>C: y = x*x<br/>y.grad_fn = SquareBackward
-    deactivate F
+1. 调用方 `Square.apply(x)`，`forward` 立即执行；
+2. `forward` 里 `ctx.save_for_backward(x)`，x 挂在反向节点上；
+3. `forward` 返回 `y = x*x`，`y.grad_fn = SquareBackward`。到这里 forward 结束，图已建好；
+4. 调用方 `y.backward()`，进入 engine；
+5. engine 回调 `backward(ctx, dL/dy)`；
+6. `backward` 读 `ctx.saved_tensors`；
+7. 拿到 `(x,)`；
+8. `backward` 返回 `dL/dy * 2x`；
+9. 没有 `retain_graph=True` 时，engine 在这个节点返回后马上调 `release_variables()`，节点释放它的 saved tensors（节点对象本身还在，`y.grad_fn` 仍指着它）；
+10. engine 再执行下一个节点 `AccumulateGrad`：`x.grad += …`，然后 `y.backward()` 返回。
 
-    Note over C,E: forward 结束，图已建好
-
-    C->>E: y.backward()
-    activate E
-    E->>B: backward(ctx, dL/dy)
-    activate B
-    B->>X: saved_tensors
-    X-->>B: (x,)
-    B-->>E: dL/dy * 2x
-    deactivate B
-    E->>C: x.grad += …<br/>(AccumulateGrad)
-    Note over X,E: 节点释放<br/>saved tensors 随之释放
-    deactivate E
-```
+第 9 步在第 10 步之前：saved tensors 是节点一返回就释放的，不用等梯度写进 `x.grad`（PyTorch 2.10 `torch/csrc/autograd/engine.cpp` 的 `evaluate_function`：`call_function` 之后紧接着 `fn.release_variables()`，然后才把输出交给下一个节点）。
 
 ### 3. `ctx.save_for_backward()`
 
@@ -1256,14 +1238,7 @@ Autograd 的核心任务，是把数学上的链式法则变成一次沿动态�
 
 ### 5. Mini-Autograd 的核心
 
-```text title='Mini-Autograd 的五个要素'
-父节点
-    + 局部导数
-    + 拓扑排序
-    + 逆序遍历
-    + 梯度累积
-    = 自动求导的核心骨架
-```
+父节点 + 局部导数 + 拓扑排序 + 逆序遍历 + 梯度累积 = 自动求导的核心骨架。
 
 ### 6. 本篇涉及的源码位置
 
