@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="220" viewBox="0 0 640 220" role="img" aria-labelledby="gd-t gd-d">
+<title id="gd-t">rank × 块网格：完整块从对角线铺满</title>
+<desc id="gd-d">四个 4×4 网格分别是第 3、4、5、6 步后的状态，行是 rank 0–3，列是块 0–3；绿色为已持有完整归约结果的块，深绿为这一步新收到的块。</desc>
+<style>
+text { font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; fill: #111; font-weight: 500; }
+.s { font-size: 12px; }
+.b { font-weight: 700; }
+.mono { font-family: 'SFMono-Regular', Menlo, Consolas, monospace; }
+.red { fill: #c0392b; }
+.gray { fill: #444; }
+.box { fill: #eef3fb; stroke: #4a6fa5; stroke-width: 1.2; }
+.ok { fill: #d4edda; stroke: #2e7d32; stroke-width: 1.4; }
+.plain { fill: #fff; stroke: #555; stroke-width: 1; }
+.arr { stroke: #333; stroke-width: 1.4; fill: none; }
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#333"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,1 L1,5 L10,9 z" fill="#333"/></marker></defs>
+<rect width="640" height="220" fill="#ffffff"/>
+<text x="120.0" y="18.0" text-anchor="middle" class="b">第 3 步后</text>
+<text x="81.0" y="46.0" text-anchor="middle" class="s">0</text>
+<text x="107.0" y="46.0" text-anchor="middle" class="s">1</text>
+<text x="133.0" y="46.0" text-anchor="middle" class="s">2</text>
+<text x="159.0" y="46.0" text-anchor="middle" class="s">3</text>
+<rect x="68.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="94.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="120.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="146.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="68.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="94.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="120.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="146.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="68.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="94.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="120.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="146.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="68.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="94.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="120.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="146.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="271.3" y="18.0" text-anchor="middle" class="b">第 4 步后</text>
+<text x="232.3" y="46.0" text-anchor="middle" class="s">0</text>
+<text x="258.3" y="46.0" text-anchor="middle" class="s">1</text>
+<text x="284.3" y="46.0" text-anchor="middle" class="s">2</text>
+<text x="310.3" y="46.0" text-anchor="middle" class="s">3</text>
+<rect x="219.3" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="245.3" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="271.3" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="297.3" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="219.3" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="245.3" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="271.3" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="297.3" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="219.3" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="245.3" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="271.3" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="297.3" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="219.3" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="245.3" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="271.3" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="297.3" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<text x="422.7" y="18.0" text-anchor="middle" class="b">第 5 步后</text>
+<text x="383.7" y="46.0" text-anchor="middle" class="s">0</text>
+<text x="409.7" y="46.0" text-anchor="middle" class="s">1</text>
+<text x="435.7" y="46.0" text-anchor="middle" class="s">2</text>
+<text x="461.7" y="46.0" text-anchor="middle" class="s">3</text>
+<rect x="370.7" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="396.7" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="422.7" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="448.7" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="370.7" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="396.7" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="422.7" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="448.7" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="370.7" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="396.7" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="422.7" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="448.7" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="370.7" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="396.7" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<rect x="422.7" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="448.7" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="574.0" y="18.0" text-anchor="middle" class="b">第 6 步后</text>
+<text x="535.0" y="46.0" text-anchor="middle" class="s">0</text>
+<text x="561.0" y="46.0" text-anchor="middle" class="s">1</text>
+<text x="587.0" y="46.0" text-anchor="middle" class="s">2</text>
+<text x="613.0" y="46.0" text-anchor="middle" class="s">3</text>
+<rect x="522.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="548.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="574.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="600.0" y="54.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="522.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="548.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="574.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="600.0" y="80.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="522.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="548.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="574.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="600.0" y="106.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="522.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="548.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<rect x="574.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<rect x="600.0" y="132.0" width="26.0" height="26.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="60.0" y="46.0" text-anchor="end" class="s">块</text>
+<text x="60.0" y="72.0" text-anchor="end" class="s">rank 0</text>
+<text x="60.0" y="98.0" text-anchor="end" class="s">rank 1</text>
+<text x="60.0" y="124.0" text-anchor="end" class="s">rank 2</text>
+<text x="60.0" y="150.0" text-anchor="end" class="s">rank 3</text>
+<rect x="107.6" y="174.0" width="18.0" height="14.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="131.6" y="186.0" text-anchor="start">已持有完整归约结果的块</text>
+<rect x="308.0" y="174.0" width="18.0" height="14.0" rx="0" class="" style="fill:#2e7d32;stroke:#555;stroke-width:1"/>
+<text x="332.0" y="186.0" text-anchor="start">这一步新收到的块</text>
+<rect x="466.3" y="174.0" width="18.0" height="14.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="490.3" y="186.0" text-anchor="start">未完整</text>
+<text x="320.0" y="208.0" text-anchor="middle">每步每 rank 新增 1 块，共 n-1 = 3 步</text>
+</svg>

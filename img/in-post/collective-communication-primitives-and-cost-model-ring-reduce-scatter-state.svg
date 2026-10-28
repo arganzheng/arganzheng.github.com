@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="202" viewBox="0 0 640 202" role="img" aria-labelledby="st-t st-d">
+<title id="st-t">第 3 步结束时 16 块的完整状态：阶梯与对角线</title>
+<desc id="st-d">reduce_scatter 完成时 4 个 rank × 4 块的部分和；底色越深累加的 rank 越多，每列从 1 到 4 份呈阶梯，✓ 为含全部 4 个 rank 贡献的块。</desc>
+<style>
+text { font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; fill: #111; font-weight: 500; }
+.s { font-size: 12px; }
+.b { font-weight: 700; }
+.mono { font-family: 'SFMono-Regular', Menlo, Consolas, monospace; }
+.red { fill: #c0392b; }
+.gray { fill: #444; }
+.box { fill: #eef3fb; stroke: #4a6fa5; stroke-width: 1.2; }
+.ok { fill: #d4edda; stroke: #2e7d32; stroke-width: 1.4; }
+.plain { fill: #fff; stroke: #555; stroke-width: 1; }
+.arr { stroke: #333; stroke-width: 1.4; fill: none; }
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#333"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,1 L1,5 L10,9 z" fill="#333"/></marker></defs>
+<rect width="640" height="202" fill="#ffffff"/>
+<text x="178.0" y="24.0" text-anchor="middle" class="b">块 0</text>
+<text x="296.0" y="24.0" text-anchor="middle" class="b">块 1</text>
+<text x="414.0" y="24.0" text-anchor="middle" class="b">块 2</text>
+<text x="532.0" y="24.0" text-anchor="middle" class="b">块 3</text>
+<text x="107.0" y="55.0" text-anchor="end" class="b">rank 0</text>
+<rect x="119.0" y="34.0" width="118.0" height="32.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="178.0" y="55.0" text-anchor="middle">{0}</text>
+<rect x="237.0" y="34.0" width="118.0" height="32.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="296.0" y="55.0" text-anchor="middle" class="b">{1,2,3,0} ✓</text>
+<rect x="355.0" y="34.0" width="118.0" height="32.0" rx="0" class="" style="fill:#bcd3ee;stroke:#555;stroke-width:1"/>
+<text x="414.0" y="55.0" text-anchor="middle">{2,3,0}</text>
+<rect x="473.0" y="34.0" width="118.0" height="32.0" rx="0" class="" style="fill:#e3ecf7;stroke:#555;stroke-width:1"/>
+<text x="532.0" y="55.0" text-anchor="middle">{3,0}</text>
+<text x="107.0" y="87.0" text-anchor="end" class="b">rank 1</text>
+<rect x="119.0" y="66.0" width="118.0" height="32.0" rx="0" class="" style="fill:#e3ecf7;stroke:#555;stroke-width:1"/>
+<text x="178.0" y="87.0" text-anchor="middle">{0,1}</text>
+<rect x="237.0" y="66.0" width="118.0" height="32.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="296.0" y="87.0" text-anchor="middle">{1}</text>
+<rect x="355.0" y="66.0" width="118.0" height="32.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="414.0" y="87.0" text-anchor="middle" class="b">{2,3,0,1} ✓</text>
+<rect x="473.0" y="66.0" width="118.0" height="32.0" rx="0" class="" style="fill:#bcd3ee;stroke:#555;stroke-width:1"/>
+<text x="532.0" y="87.0" text-anchor="middle">{3,0,1}</text>
+<text x="107.0" y="119.0" text-anchor="end" class="b">rank 2</text>
+<rect x="119.0" y="98.0" width="118.0" height="32.0" rx="0" class="" style="fill:#bcd3ee;stroke:#555;stroke-width:1"/>
+<text x="178.0" y="119.0" text-anchor="middle">{0,1,2}</text>
+<rect x="237.0" y="98.0" width="118.0" height="32.0" rx="0" class="" style="fill:#e3ecf7;stroke:#555;stroke-width:1"/>
+<text x="296.0" y="119.0" text-anchor="middle">{1,2}</text>
+<rect x="355.0" y="98.0" width="118.0" height="32.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="414.0" y="119.0" text-anchor="middle">{2}</text>
+<rect x="473.0" y="98.0" width="118.0" height="32.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="532.0" y="119.0" text-anchor="middle" class="b">{3,0,1,2} ✓</text>
+<text x="107.0" y="151.0" text-anchor="end" class="b">rank 3</text>
+<rect x="119.0" y="130.0" width="118.0" height="32.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="178.0" y="151.0" text-anchor="middle" class="b">{0,1,2,3} ✓</text>
+<rect x="237.0" y="130.0" width="118.0" height="32.0" rx="0" class="" style="fill:#bcd3ee;stroke:#555;stroke-width:1"/>
+<text x="296.0" y="151.0" text-anchor="middle">{1,2,3}</text>
+<rect x="355.0" y="130.0" width="118.0" height="32.0" rx="0" class="" style="fill:#e3ecf7;stroke:#555;stroke-width:1"/>
+<text x="414.0" y="151.0" text-anchor="middle">{2,3}</text>
+<rect x="473.0" y="130.0" width="118.0" height="32.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="532.0" y="151.0" text-anchor="middle">{3}</text>
+<rect x="115.8" y="176.0" width="18.0" height="14.0" rx="0" class="" style="fill:#ffffff;stroke:#555;stroke-width:1"/>
+<text x="139.8" y="188.0" text-anchor="start">1 个 rank 的贡献</text>
+<rect x="264.4" y="176.0" width="18.0" height="14.0" rx="0" class="" style="fill:#e3ecf7;stroke:#555;stroke-width:1"/>
+<text x="288.4" y="188.0" text-anchor="start">2 个</text>
+<rect x="335.4" y="176.0" width="18.0" height="14.0" rx="0" class="" style="fill:#bcd3ee;stroke:#555;stroke-width:1"/>
+<text x="359.4" y="188.0" text-anchor="start">3 个</text>
+<rect x="406.4" y="176.0" width="18.0" height="14.0" rx="0" class="" style="fill:#b7e1bf;stroke:#555;stroke-width:1"/>
+<text x="430.4" y="188.0" text-anchor="start">4 个（✓ 完整）</text>
+</svg>

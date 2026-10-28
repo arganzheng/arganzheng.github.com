@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="250" viewBox="0 0 560 250" role="img" aria-labelledby="bt-t bt-d">
+<title id="bt-t">NCCL 的二叉树形状：rank 0 为根，奇数 rank 全是叶子</title>
+<desc id="bt-d">n = 8 时 ncclGetBtree 的树：r0 为根、只有一个孩子 r4；r4 的孩子是 r2、r6；r2 的孩子是 r1、r3；r6 的孩子是 r5、r7。右侧箭头标出 reduce 向上 3 步、broadcast 向下 3 步。</desc>
+<style>
+text { font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; fill: #111; font-weight: 500; }
+.s { font-size: 12px; }
+.b { font-weight: 700; }
+.mono { font-family: 'SFMono-Regular', Menlo, Consolas, monospace; }
+.red { fill: #c0392b; }
+.gray { fill: #444; }
+.box { fill: #eef3fb; stroke: #4a6fa5; stroke-width: 1.2; }
+.ok { fill: #d4edda; stroke: #2e7d32; stroke-width: 1.4; }
+.plain { fill: #fff; stroke: #555; stroke-width: 1; }
+.arr { stroke: #333; stroke-width: 1.4; fill: none; }
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#333"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,1 L1,5 L10,9 z" fill="#333"/></marker></defs>
+<rect width="560" height="250" fill="#ffffff"/>
+<line x1="170.0" y1="37.0" x2="170.0" y2="67.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M83.3,149.0 V164.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M40.0,164.0 H126.7" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M40.0,164.0 V179.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M126.7,164.0 V179.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M170.0,93.0 V108.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M83.3,108.0 H256.7" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M83.3,108.0 V123.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M256.7,108.0 V123.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M256.7,149.0 V164.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M213.3,164.0 H300.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M213.3,164.0 V179.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<path d="M300.0,164.0 V179.0" class="arr" style="stroke:#333;stroke-width:1.4"/>
+<rect x="17.0" y="179.0" width="46.0" height="26.0" rx="6" class="" style="fill:#ffffff;stroke:#555;stroke-width:1.4"/>
+<text x="40.0" y="197.0" text-anchor="middle" class="b">r1</text>
+<rect x="103.7" y="179.0" width="46.0" height="26.0" rx="6" class="" style="fill:#ffffff;stroke:#555;stroke-width:1.4"/>
+<text x="126.7" y="197.0" text-anchor="middle" class="b">r3</text>
+<rect x="190.3" y="179.0" width="46.0" height="26.0" rx="6" class="" style="fill:#ffffff;stroke:#555;stroke-width:1.4"/>
+<text x="213.3" y="197.0" text-anchor="middle" class="b">r5</text>
+<rect x="277.0" y="179.0" width="46.0" height="26.0" rx="6" class="" style="fill:#ffffff;stroke:#555;stroke-width:1.4"/>
+<text x="300.0" y="197.0" text-anchor="middle" class="b">r7</text>
+<rect x="60.3" y="123.0" width="46.0" height="26.0" rx="6" class="" style="fill:#dbe7f6;stroke:#1f5fa8;stroke-width:1.4"/>
+<text x="83.3" y="141.0" text-anchor="middle" class="b">r2</text>
+<rect x="233.7" y="123.0" width="46.0" height="26.0" rx="6" class="" style="fill:#dbe7f6;stroke:#1f5fa8;stroke-width:1.4"/>
+<text x="256.7" y="141.0" text-anchor="middle" class="b">r6</text>
+<rect x="147.0" y="67.0" width="46.0" height="26.0" rx="6" class="" style="fill:#dbe7f6;stroke:#1f5fa8;stroke-width:1.4"/>
+<text x="170.0" y="85.0" text-anchor="middle" class="b">r4</text>
+<rect x="147.0" y="11.0" width="46.0" height="26.0" rx="6" class="" style="fill:#dbe7f6;stroke:#1f5fa8;stroke-width:1.4"/>
+<text x="170.0" y="29.0" text-anchor="middle" class="b">r0</text>
+<line x1="360.0" y1="192.0" x2="360.0" y2="24.0" class="arr" marker-end="url(#ah)"/>
+<line x1="400.0" y1="24.0" x2="400.0" y2="192.0" class="arr" marker-end="url(#ah)"/>
+<text x="354.0" y="100.0" text-anchor="end" class="s">reduce</text>
+<text x="354.0" y="116.0" text-anchor="end" class="s">叶 → 根</text>
+<text x="406.0" y="100.0" text-anchor="start" class="s">broadcast</text>
+<text x="406.0" y="116.0" text-anchor="start" class="s">根 → 叶</text>
+<text x="380.0" y="216.0" text-anchor="middle" class="s">各 3 步</text>
+<rect x="40.0" y="224.0" width="18.0" height="14.0" rx="3" class="" style="fill:#dbe7f6;stroke:#1f5fa8;stroke-width:1.2"/>
+<text x="64.0" y="236.0" text-anchor="start">内部节点</text>
+<rect x="144.2" y="224.0" width="18.0" height="14.0" rx="3" class="" style="fill:#ffffff;stroke:#555;stroke-width:1.2"/>
+<text x="168.2" y="236.0" text-anchor="start">叶子（奇数 rank）</text>
+</svg>

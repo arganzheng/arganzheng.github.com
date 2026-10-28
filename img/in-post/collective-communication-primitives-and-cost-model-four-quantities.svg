@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="286" viewBox="0 0 760 286" role="img" aria-labelledby="q4-t q4-d">
+<title id="q4-t">四个量：n、S 由上层决定，α、β 由底层决定</title>
+<desc id="q4-d">n、S 经算法变成步数和每步字节数，与 α、β 一起代入 T = 步数 × α + 每 rank 搬运字节数 / β；前一项是延迟的账，后一项是带宽的账。</desc>
+<style>
+text { font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; fill: #111; font-weight: 500; }
+.s { font-size: 12px; }
+.b { font-weight: 700; }
+.mono { font-family: 'SFMono-Regular', Menlo, Consolas, monospace; }
+.red { fill: #c0392b; }
+.gray { fill: #444; }
+.box { fill: #eef3fb; stroke: #4a6fa5; stroke-width: 1.2; }
+.ok { fill: #d4edda; stroke: #2e7d32; stroke-width: 1.4; }
+.plain { fill: #fff; stroke: #555; stroke-width: 1; }
+.arr { stroke: #333; stroke-width: 1.4; fill: none; }
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#333"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,1 L1,5 L10,9 z" fill="#333"/></marker></defs>
+<rect width="760" height="286" fill="#ffffff"/>
+<rect x="46.9" y="16.0" width="234.9" height="78.0" rx="0" class="box"/>
+<text x="60.9" y="38.0" text-anchor="start" class="b">上层决定</text>
+<text x="60.9" y="60.0" text-anchor="start">n　参与者数（DP/TP/EP 的度）</text>
+<text x="60.9" y="80.0" text-anchor="start">S　字节数（张量大小 × dtype）</text>
+<rect x="321.8" y="16.0" width="391.4" height="78.0" rx="0" class="box"/>
+<text x="335.8" y="38.0" text-anchor="start" class="b">底层决定</text>
+<text x="335.8" y="60.0" text-anchor="start">α　每一步的固定开销：握手、kernel 启动、proxy 响应</text>
+<text x="335.8" y="80.0" text-anchor="start">β　链路每秒能搬多少字节：NVLink / PCIe / IB 的单向速率</text>
+<rect x="46.9" y="128.0" width="334.5" height="34.0" rx="0" class="box"/>
+<text x="60.9" y="150.0" text-anchor="start">算法：把 (n, S) 变成“走几步、每步搬多少字节”</text>
+<line x1="164.3" y1="94.0" x2="164.3" y2="128.0" class="arr" marker-end="url(#ah)"/>
+<rect x="46.9" y="196.0" width="666.3" height="74.0" rx="0" class="box"/>
+<text x="241.2" y="222.0" style="font-size:15px"><tspan x="241.2">T = </tspan><tspan x="267.2">步数 × α</tspan><tspan x="333.2">  +  </tspan><tspan x="356.7">每 rank 搬运字节数 / β</tspan></text>
+<path d="M267.2,230 v5 H333.2 v-5" class="arr" style="stroke:#c0392b"/>
+<text x="300.2" y="254.0" text-anchor="middle" class="red">延迟的账</text>
+<path d="M356.7,230 v5 H518.8 v-5" class="arr" style="stroke:#c0392b"/>
+<text x="437.7" y="254.0" text-anchor="middle" class="red">带宽的账</text>
+<line x1="164.3" y1="162.0" x2="164.3" y2="196.0" class="arr" marker-end="url(#ah)"/>
+<line x1="517.4" y1="94.0" x2="517.4" y2="196.0" class="arr" marker-end="url(#ah)"/>
+</svg>

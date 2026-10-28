@@ -28,21 +28,7 @@ updated: 2026-09-14
 
 任何一次集合通信都可以用四个量描述：参与者数 $$n$$、数据量 $$S$$（字节）、每步固定开销 $$\alpha$$（秒）、链路带宽 $$\beta$$（字节/秒）。前两个由上层决定——多少张卡、多大的张量；后两个由硬件和软件栈决定——什么链路、什么协议、多少层软件参与一次握手。这一篇的任务是给出从这四个量到时间 $$T$$ 的函数：
 
-```text title='四个量：n、S 由上层决定，α、β 由底层决定'
-上层决定                            底层决定
-─────────────────────────           ────────────────────────────────
-n   参与者数（DP/TP/EP 的度）        α   每一步的固定开销：握手、kernel 启动、proxy 响应
-S   字节数（张量大小 × dtype）        β   链路每秒能搬多少字节：NVLink / PCIe / IB 的单向速率
-        │                                       │
-        └──────────────┬────────────────────────┘
-                       ▼
-            算法：把 (n, S) 变成"走几步、每步搬多少字节"
-                       │
-                       ▼
-            T = 步数 × α  +  每 rank 搬运字节数 / β
-                 ─────────     ───────────────────
-                 延迟的账          带宽的账
-```
+![四个量：n、S 由上层决定，α、β 由底层决定。n、S 经算法变成“走几步、每步搬多少字节”，再和 α、β 一起代入 T = 步数 × α + 每 rank 搬运字节数 / β，前一项是延迟的账，后一项是带宽的账](/img/in-post/collective-communication-primitives-and-cost-model-four-quantities.svg)
 
 算法是中间那一层：ring 把 all_reduce 变成 $$2(n-1)$$ 步、每步 $$S/n$$ 字节；tree 把它变成 $$2\log_2 n$$ 步、每步更大的块。同一个 $$(n, S, \alpha, \beta)$$，不同算法给出不同的 $$T$$，而且两本账上的优劣往往相反——这是后面第五、六章的主题。
 
@@ -50,20 +36,9 @@ S   字节数（张量大小 × dtype）        β   链路每秒能搬多少字
 
 把 $$T$$ 换算成带宽（$$S/T$$ 的某个归一化，第七章讲 algbw 与 busbw 的区别）、以 $$S$$ 为横轴画出来，就是 nccl-tests 输出的那条曲线，它的形状对整个系列都重要：
 
-```text title='busbw 随消息大小的曲线：延迟主导、拐点、平台'
-busbw
-  ▲
-  │                                ┌─────────────────── 平台：由 β 与算法带宽效率决定
-  │                          ╭─────╯                    （带宽的账）
-  │                     ╭────╯
-  │                ╭────╯
-  │           ╭────╯       ← 拐点附近：S* ≈ 步数 × α × β / 效率
-  │      ╭────╯              （两本账相当）
-  │ ╭────╯
-  │─╯   ← 小消息端：T ≈ 步数 × α，与 S 无关；busbw 随 S 线性上升
-  └──────────────────────────────────────────────────────▶ S（对数轴）
-   8 KB     128 KB      2 MB       32 MB      512 MB
-```
+![busbw 随消息大小的曲线：延迟主导、拐点、平台。8 卡 IB ring all_reduce 的理论 busbw，双对数坐标，左端斜率 1 上升，拐点 S* = nαβ ≈ 2 MB，右端趋于 β = 25 GB/s](/img/in-post/collective-communication-primitives-and-cost-model-busbw-curve.svg)
+
+图里的曲线按第五章的参数算（8 卡 IB ring，α = 10 µs、β = 25 GB/s），busbw = S / (nα + S/β)。
 
 左端的斜坡是延迟主导：时间几乎不随 $$S$$ 变，所以带宽随 $$S$$ 线性增长；右端的平台是带宽主导：时间随 $$S$$ 线性增长，带宽饱和在链路速率乘以算法效率。拐点的位置由 $$\alpha$$、$$\beta$$、步数共同决定，对 8 卡 IB 上的 ring all_reduce 大约在 MB 量级（第五章算）。第六章会讲这条曲线的每种异常形状对应哪一层的问题，本篇先把它"应该长什么样"算出来。
 
@@ -89,39 +64,30 @@ Table: 本文的章节安排
 
 集合通信（collective）是一组进程（rank）**同时参与**、语义上一次完成的数据交换。与点对点 send/recv 的区别在于：每个 rank 调用同一个函数，参数里没有"发给谁"，数据的流向由原语的定义决定。下面用 $$n = 4$$、每个 rank 持有一段数据的方式给出八个原语的语义。记 rank $$i$$ 的输入为 $$x_i$$，$$\oplus$$ 为归约算子（sum、max、min、prod、avg 之一）。
 
-```text title='八个原语的语义（n = 4）'
-broadcast（root = 0）                 reduce（root = 0）
-  r0: x0     →  r0: x0                 r0: x0     →  r0: x0⊕x1⊕x2⊕x3
-  r1: -      →  r1: x0                 r1: x1     →  r1: -
-  r2: -      →  r2: x0                 r2: x2     →  r2: -
-  r3: -      →  r3: x0                 r3: x3     →  r3: -
+| 原语 | | r0 | r1 | r2 | r3 |
+|---|---|---|---|---|---|
+| broadcast（root = 0） | <span style="white-space:nowrap">输入</span> | x0 | - | - | - |
+| ^^ | <span style="white-space:nowrap">输出</span> | x0 | x0 | x0 | x0 |
+| reduce（root = 0） | <span style="white-space:nowrap">输入</span> | x0 | x1 | x2 | x3 |
+| ^^ | <span style="white-space:nowrap">输出</span> | x0 ⊕ x1 ⊕ x2 ⊕ x3 | - | - | - |
+| all_reduce | <span style="white-space:nowrap">输入</span> | x0 | x1 | x2 | x3 |
+| ^^ | <span style="white-space:nowrap">输出</span> | x0 ⊕ x1 ⊕ x2 ⊕ x3 | x0 ⊕ x1 ⊕ x2 ⊕ x3 | x0 ⊕ x1 ⊕ x2 ⊕ x3 | x0 ⊕ x1 ⊕ x2 ⊕ x3 |
+| all_gather | <span style="white-space:nowrap">输入</span> | x0 | x1 | x2 | x3 |
+| ^^ | <span style="white-space:nowrap">输出</span> | [x0 x1 x2 x3] | [x0 x1 x2 x3] | [x0 x1 x2 x3] | [x0 x1 x2 x3] |
+| reduce_scatter | <span style="white-space:nowrap">输入</span> | x0[0] x0[1] x0[2] x0[3] | x1[0] x1[1] x1[2] x1[3] | x2[0] x2[1] x2[2] x2[3] | x3[0] x3[1] x3[2] x3[3] |
+| ^^ | <span style="white-space:nowrap">输出</span> | x0[0] ⊕ x1[0] ⊕ x2[0] ⊕ x3[0] | x0[1] ⊕ x1[1] ⊕ x2[1] ⊕ x3[1] | x0[2] ⊕ x1[2] ⊕ x2[2] ⊕ x3[2] | x0[3] ⊕ x1[3] ⊕ x2[3] ⊕ x3[3] |
+| all_to_all | <span style="white-space:nowrap">输入</span> | x0[0] x0[1] x0[2] x0[3] | x1[0] x1[1] x1[2] x1[3] | x2[0] x2[1] x2[2] x2[3] | x3[0] x3[1] x3[2] x3[3] |
+| ^^ | <span style="white-space:nowrap">输出</span> | x0[0] x1[0] x2[0] x3[0] | x0[1] x1[1] x2[1] x3[1] | x0[2] x1[2] x2[2] x3[2] | x0[3] x1[3] x2[3] x3[3] |
+| scatter（root = 0） | <span style="white-space:nowrap">输入</span> | x[0] x[1] x[2] x[3] | - | - | - |
+| ^^ | <span style="white-space:nowrap">输出</span> | x[0] | x[1] | x[2] | x[3] |
+| gather（root = 0） | <span style="white-space:nowrap">输入</span> | x0 | x1 | x2 | x3 |
+| ^^ | <span style="white-space:nowrap">输出</span> | [x0 x1 x2 x3] | - | - | - |
 
-all_reduce                            all_gather
-  r0: x0     →  r0: x0⊕x1⊕x2⊕x3        r0: x0     →  r0: [x0 x1 x2 x3]
-  r1: x1     →  r1: x0⊕x1⊕x2⊕x3        r1: x1     →  r1: [x0 x1 x2 x3]
-  r2: x2     →  r2: x0⊕x1⊕x2⊕x3        r2: x2     →  r2: [x0 x1 x2 x3]
-  r3: x3     →  r3: x0⊕x1⊕x2⊕x3        r3: x3     →  r3: [x0 x1 x2 x3]
+Table: 八个原语的语义（n = 4）
 
-reduce_scatter（每个 x_i 切成 4 块 x_i[0..3]）
-  r0: x0[0] x0[1] x0[2] x0[3]   →  r0: x0[0]⊕x1[0]⊕x2[0]⊕x3[0]
-  r1: x1[0] x1[1] x1[2] x1[3]   →  r1: x0[1]⊕x1[1]⊕x2[1]⊕x3[1]
-  r2: x2[0] x2[1] x2[2] x2[3]   →  r2: x0[2]⊕x1[2]⊕x2[2]⊕x3[2]
-  r3: x3[0] x3[1] x3[2] x3[3]   →  r3: x0[3]⊕x1[3]⊕x2[3]⊕x3[3]
-
-all_to_all（第 i 个 rank 的第 j 块发给第 j 个 rank，等于矩阵转置）
-  r0: x0[0] x0[1] x0[2] x0[3]   →  r0: x0[0] x1[0] x2[0] x3[0]
-  r1: x1[0] x1[1] x1[2] x1[3]   →  r1: x0[1] x1[1] x2[1] x3[1]
-  r2: x2[0] x2[1] x2[2] x2[3]   →  r2: x0[2] x1[2] x2[2] x3[2]
-  r3: x3[0] x3[1] x3[2] x3[3]   →  r3: x0[3] x1[3] x2[3] x3[3]
-
-scatter（root = 0）                   gather（root = 0）
-  r0: x[0] x[1] x[2] x[3] → r0: x[0]    r0: x0  →  r0: [x0 x1 x2 x3]
-                            r1: x[1]    r1: x1  →  r1: -
-                            r2: x[2]    r2: x2  →  r2: -
-                            r3: x[3]    r3: x3  →  r3: -
-
-send / recv                            点对点：一个 rank 发、一个 rank 收，必须配对
-```
+- reduce_scatter 和 all_to_all 的输入里，每个 $$x_i$$ 切成 4 块 $$x_i[0..3]$$。
+- all_to_all：第 i 个 rank 的第 j 块发给第 j 个 rank，等于矩阵转置。
+- send / recv：点对点，一个 rank 发、一个 rank 收，必须配对。
 
 几点约定后面会反复用到。**S 指什么**：对 broadcast、reduce、all_reduce，$$S$$ 是每个 rank 的 buffer 大小，也是最终结果的大小；对 all_gather，$$S$$ 指拼接后的总大小（每 rank 输入 $$S/n$$）；对 reduce_scatter，$$S$$ 指输入总大小（每 rank 输出 $$S/n$$）；对 all_to_all，$$S$$ 是每 rank 的输入总量（也等于输出总量）。这与 nccl-tests 打印的 `size` 列一致，第七章核对源码时会看到它是怎么算的。**归约的顺序**：$$\oplus$$ 在浮点上不满足结合律，不同算法、不同 rank 数会给出比特级不同的结果，这是第六篇"结果不稳定"一类问题的来源，此处只需记住 all_reduce 不保证各 rank 结果的比特一致性——NCCL 实际上保证了（所有 rank 收到同一份归约结果），但不同次运行、不同算法之间不保证。
 
@@ -141,9 +107,13 @@ send / recv                            点对点：一个 rank 发、一个 rank
 
 第二组关系是**对偶**：把一个原语的数据流反过来、把"复制"换成"归约"，就得到另一个：
 
-- **broadcast**：⟷；reduce；一对多复制；⟷；多对一归约
-- **scatter**：⟷；gather；一对多分发；⟷；多对一收集
-- **all_gather**：⟷；reduce_scatter；多对多复制；⟷；多对多归约
+| 原语 | 对偶原语 | 数据流 |
+|---|---|---|
+| broadcast | reduce | 一对多复制 ⟷ 多对一归约 |
+| scatter | gather | 一对多分发 ⟷ 多对一收集 |
+| all_gather | reduce_scatter | 多对多复制 ⟷ 多对多归约 |
+
+Table: 三组对偶原语
 
 对偶的意义是实现上的：一个 all_gather 算法把箭头反过来、在接收端加一个 $$\oplus$$ 就是 reduce_scatter 算法，两者的步数和字节数完全一样。所以后面分析 ring 的 reduce_scatter 阶段时，all_gather 阶段的代价可以直接复用。
 
@@ -158,16 +128,16 @@ send / recv                            点对点：一个 rank 发、一个 rank
 - all_reduce：可以证明（Patarasuk 与 Yuan 2009 年的结果）任何 all_reduce 算法每个 rank 至少收发 $$\frac{2(n-1)}{n}S$$——直觉上就是 reduce_scatter 与 all_gather 的下界相加，两者缺一不可；
 - all_to_all：每个 rank 要发出 $$\frac{n-1}{n}S$$（留一块给自己）、接收同样多，下界 $$\frac{n-1}{n}S$$。
 
-```text title='每个原语每 rank 接收字节数的下界'
-原语              每 rank 接收字节数下界      备注
-──────────────    ───────────────────────    ───────────────────────────────
-broadcast         S                          非 root 都要拿到全部
-reduce            S                          流水化后中间节点各收 S
-all_reduce        2(n-1)/n · S               → 2S（n 大时），reduce_scatter + all_gather
-all_gather        (n-1)/n · S                → S
-reduce_scatter    (n-1)/n · S                → S
-all_to_all        (n-1)/n · S                → S；但是 n-1 个不同的目标
-```
+| 原语 | 每 rank 接收字节数下界 | 备注 |
+|---|---|---|
+| broadcast | S | 非 root 都要拿到全部 |
+| reduce | S | 流水化后中间节点各收 S |
+| all_reduce | 2(n-1)/n · S | → 2S（n 大时），reduce_scatter + all_gather |
+| all_gather | (n-1)/n · S | → S |
+| reduce_scatter | (n-1)/n · S | → S |
+| all_to_all | (n-1)/n · S | → S；但是 n-1 个不同的目标 |
+
+Table: 每个原语每 rank 接收字节数的下界
 
 这张表就是第七章 busbw 系数的来源：nccl-tests 把测得的 $$S/T$$ 乘上这一列的系数，得到"链路实际承载的流量速率"，它才能和链路带宽比。
 
@@ -179,21 +149,16 @@ all_to_all        (n-1)/n · S                → S；但是 n-1 个不同的目
 
 并行策略本身不在本系列范围内，这里只把每一种策略**产生的通信**当作输入记下来：用哪个原语、消息多大、几个参与者、在不在关键路径上。以一个 7B 参数、hidden 4096、32 层、bf16 的 dense 模型和一个 MoE 模型为例，数字取量级。
 
-```text title='五种并行策略产生的通信：原语、消息大小、参与者、关键路径'
-策略      原语                     每次消息大小（量级）                   参与者 n           关键路径
-──────    ────────────────────     ──────────────────────────────────    ─────────────    ──────────────
-DP        all_reduce（梯度）         DDP 按 bucket 发，默认 25 MiB 一桶      DP 度：8 ~ 数千    反向中可重叠
-                                   （kDefaultBucketBytesCap）
-                                   整体梯度 7B × 2 B = 14 GB（fp32 28 GB）
-FSDP      all_gather（参数）         一层参数：~200 M × 2 B ≈ 400 MB         分片组：8 ~ 数百    前向/反向都在，可预取重叠
-          reduce_scatter（梯度）     同上                                                    反向中重叠
-TP        all_reduce（激活）         tokens × hidden × 2 B：                TP 度：2 ~ 8       每层 2 次，几乎无法重叠
-                                   4096 tokens × 4096 × 2 B = 32 MB
-PP        send / recv（激活）        micro-batch × seq × hidden × 2 B：      2（点对点）        阶段之间，靠 1F1B 调度隐藏
-                                   1 × 4096 × 4096 × 2 B = 32 MB
-MoE / EP  all_to_all（token）        tokens × top-k × hidden × 2 B 分散到    EP 度：8 ~ 64      每层 2 次（分发 + 收回）
-                                   n 个目标
-```
+| 策略 | 原语 | 每次消息大小（量级） | 参与者 n | 关键路径 |
+|---|---|---|---|---|
+| DP | all_reduce（梯度） | DDP 按 bucket 发，默认 25 MiB 一桶（`kDefaultBucketBytesCap`）<br/>整体梯度 7B × 2 B = 14 GB（fp32 28 GB） | DP 度：8 ~ 数千 | 反向中可重叠 |
+| FSDP | all_gather（参数） | 一层参数：~200 M × 2 B ≈ 400 MB | 分片组：8 ~ 数百 | 前向/反向都在，可预取重叠 |
+| ^^ | reduce_scatter（梯度） | ^^ | ^^ | 反向中重叠 |
+| TP | all_reduce（激活） | tokens × hidden × 2 B：4096 tokens × 4096 × 2 B = 32 MB | TP 度：2 ~ 8 | 每层 2 次，几乎无法重叠 |
+| PP | send / recv（激活） | micro-batch × seq × hidden × 2 B：1 × 4096 × 4096 × 2 B = 32 MB | 2（点对点） | 阶段之间，靠 1F1B 调度隐藏 |
+| MoE / EP | all_to_all（token） | tokens × top-k × hidden × 2 B，分散到 n 个目标 | EP 度：8 ~ 64 | 每层 2 次（分发 + 收回） |
+
+Table: 五种并行策略产生的通信：原语、消息大小、参与者、关键路径
 
 几个值得注意的量。**DP 的 all_reduce 是带宽账的典型**：25 MiB 的桶、总量十几 GB，反向传播一边算一边发，通信时间能否被计算掩盖取决于带宽而不是延迟。`kDefaultBucketBytesCap = 25 * 1024 * 1024` 定义在 PyTorch 的 `torch/csrc/distributed/c10d/reducer.hpp`（以 PyTorch 2.12 为准），第一个桶更小（`kDefaultFirstBucketBytes` 为 1 MiB），目的是让反向刚开始就有东西可发。
 
@@ -215,15 +180,9 @@ MoE / EP  all_to_all（token）        tokens × top-k × hidden × 2 B 分散�
 
 把上面所有消息放到一条对数轴上：
 
-```text title='训练与推理的消息大小放到一条对数轴上'
-  64 KB     128 KB    512 KB      2 MB        25 MiB     32 MB     400 MB      1.3 GB     14 GB
-   │          │         │          │            │          │          │           │          │
-   │  decode TP all_reduce（batch 8 ~ 32）       │  DDP bucket │  TP/PP 激活（prefill/训练）  │
-   │◄─────────────────────────►│                │◄──────────►│◄────────►│ FSDP 一层 │ KV cache │ 全部梯度
-   │                           │                                                    （P2P）    （分桶发）
-   │◄──── 延迟主导 ──────────►│◄── 拐点区 ──►│◄──────────────── 带宽主导 ─────────────────────►
-   （8 卡 IB ring 的拐点约 2 MB，第五章算；NVLink 上拐点向右移，见第九章）
-```
+![训练与推理的消息大小放到一条对数轴上：decode TP all_reduce 128–512 KB，DDP bucket 25 MiB，TP/PP 激活 32 MB，FSDP 一层 400 MB，KV cache 1.3 GB，全部梯度 14 GB；下方是 8 卡 IB ring 的延迟主导、拐点区、带宽主导三段](/img/in-post/collective-communication-primitives-and-cost-model-message-size-spectrum.svg)
+
+8 卡 IB ring 的拐点约 2 MB（第五章算），NVLink 上拐点向右移（第九章）。三段按第九章第 3 节的延迟占比划分：超过 80% 算延迟主导，低于 20% 算带宽主导，对 ring 就是 $$S^*/4 \approx 512$$ KB 和 $$4S^* \approx 8$$ MB 两个分界。
 
 三个量级、三种账。第九章会把每一段的对策列出来：延迟主导的段合并消息或换算法与协议，带宽主导的段看链路与算法效率，拐点区两本账都要算。
 
@@ -239,15 +198,20 @@ $$
 
 $$\alpha$$（秒）是与消息大小无关的固定开销，$$\beta$$（字节/秒）是稳态下每秒能搬多少字节。这两个参数的物理含义在 GPU 通信里各自摊开是这样的：
 
-```text title='α 与 β 各自包含什么'
-α 里面有什么                                    β 里面有什么
-──────────────────────────────────────         ──────────────────────────────────────
-kernel 启动、参数下发                             链路的物理速率（NVLink 一条链路、IB 一个端口）
-两端的握手：接收方准备好了没有（flag / credit）      链路的协议效率（PCIe 包头、IB 报文头、NCCL 协议的 flag 开销）
-线缆与交换机上的传播时延（每跳几百 ns ~ µs）          实际能同时用上几条链路（channel 数）
-跨机时 CPU proxy 线程发现请求、提交 RDMA 的响应时间   端到端最慢的一段（PCIe → NIC → 网络 → NIC → PCIe 的最小值）
-接收方轮询到完成标志的时间
-```
+**α 里面有什么**：
+
+- kernel 启动、参数下发
+- 两端的握手：接收方准备好了没有（flag / credit）
+- 线缆与交换机上的传播时延（每跳几百 ns ~ µs）
+- 跨机时 CPU proxy 线程发现请求、提交 RDMA 的响应时间
+- 接收方轮询到完成标志的时间
+
+**β 里面有什么**：
+
+- 链路的物理速率（NVLink 一条链路、IB 一个端口）
+- 链路的协议效率（PCIe 包头、IB 报文头、NCCL 协议的 flag 开销）
+- 实际能同时用上几条链路（channel 数）
+- 端到端最慢的一段（PCIe → NIC → 网络 → NIC → PCIe 的最小值）
 
 模型说的是：一条链路在 $$S \to 0$$ 时时间趋于 $$\alpha$$，在 $$S \to \infty$$ 时带宽趋于 $$\beta$$。它对单条消息是一个相当好的近似，实测的 $$T(S)$$ 曲线通常就是一条直线加一个截距。
 
@@ -261,15 +225,14 @@ $$
 
 小于 $$S^*$$ 的消息，时间的一半以上是 α；大于 $$S^*$$ 的消息，时间的一半以上是 $$S/\beta$$。这个数只依赖链路，与算法无关，是判断"这条链路上多大的消息才算大"的标尺。几种链路的典型量级（**数量级估计，非实测**；α 取的是一次 NCCL 步骤级的端到端固定开销，不是裸链路的传播时延）：
 
-```text title='几种链路的 β、α 与拐点 S*（量级估计）'
-链路                     β（单向）        α（每步，典型量级）    S* = αβ
-──────────────────       ────────────    ───────────────────    ────────────
-NVLink（节点内，NVSwitch）  ~200 GB/s      ~3 µs                  ~600 KB
-                          （8 卡 ring 每 rank 通常能用到的量级；标称 H100 单向 450 GB/s）
-PCIe 4.0 x16              32 GB/s         ~5 µs                  ~160 KB
-InfiniBand HDR            25 GB/s         5 ~ 20 µs               125 KB ~ 500 KB
-InfiniBand NDR            50 GB/s         5 ~ 20 µs               250 KB ~ 1 MB
-```
+| 链路 | β（单向） | α（每步，典型量级） | S\* = αβ |
+|---|---|---|---|
+| NVLink（节点内，NVSwitch） | ~200 GB/s（8 卡 ring 每 rank 通常能用到的量级；标称 H100 单向 450 GB/s） | ~3 µs | ~600 KB |
+| PCIe 4.0 x16 | 32 GB/s | ~5 µs | ~160 KB |
+| InfiniBand HDR | 25 GB/s | 5 ~ 20 µs | 125 KB ~ 500 KB |
+| InfiniBand NDR | 50 GB/s | 5 ~ 20 µs | 250 KB ~ 1 MB |
+
+Table: 几种链路的 β、α 与拐点 S\*（量级估计）
 
 有一个反直觉的地方值得先说：**链路越快，拐点越大**。NDR 的 α 与 HDR 差不多（延迟主要来自软件与握手，不是线速），但 β 翻倍，所以同样一条 256 KB 的消息在 HDR 上是带宽主导、在 NDR 上接近拐点。换更快的网卡对小消息帮助不大，这就是原因。
 
@@ -307,50 +270,25 @@ ring 的思想是把 rank 0 的活分给所有人：数据切成 $$n$$ 块，每
 
 把 rank 排成环，rank $$r$$ 只向 rank $$(r+1) \bmod n$$ 发送、只从 rank $$(r-1) \bmod n$$ 接收。每个 rank 的数据切成 $$n$$ 块，记 rank $$r$$ 的第 $$k$$ 块为 $$c_k^{(r)}$$。以 $$n = 4$$ 为例，初始状态：
 
-```text title='ring reduce_scatter 初始状态：4 个 rank 各 4 块'
-          块 0        块 1        块 2        块 3
-rank 0    c0(0)       c1(0)       c2(0)       c3(0)
-rank 1    c0(1)       c1(1)       c2(1)       c3(1)
-rank 2    c0(2)       c1(2)       c2(2)       c3(2)
-rank 3    c0(3)       c1(3)       c2(3)       c3(3)
-```
+| | 块 0 | 块 1 | 块 2 | 块 3 |
+|---|---|---|---|---|
+| rank 0 | $$c_0^{(0)}$$ | $$c_1^{(0)}$$ | $$c_2^{(0)}$$ | $$c_3^{(0)}$$ |
+| rank 1 | $$c_0^{(1)}$$ | $$c_1^{(1)}$$ | $$c_2^{(1)}$$ | $$c_3^{(1)}$$ |
+| rank 2 | $$c_0^{(2)}$$ | $$c_1^{(2)}$$ | $$c_2^{(2)}$$ | $$c_3^{(2)}$$ |
+| rank 3 | $$c_0^{(3)}$$ | $$c_1^{(3)}$$ | $$c_2^{(3)}$$ | $$c_3^{(3)}$$ |
+
+Table: ring reduce_scatter 初始状态：4 个 rank 各 4 块
 
 规则：第 $$s$$ 步（$$s = 1, \dots, n-1$$）rank $$r$$ 把自己手上第 $$(r - s + 1) \bmod n$$ 块的**当前部分和**发给下游，同时从上游收到第 $$(r - s) \bmod n$$ 块的部分和，加到自己那块上。用 `{0,1}` 表示"已累加了 rank 0 和 rank 1 的贡献"：
 
-```text title='reduce_scatter 第 1、2 步：部分和沿环传递'
-第 1 步   r0 → r1 发块 0    r1 → r2 发块 1    r2 → r3 发块 2    r3 → r0 发块 3
-          rank 0:  块 3 = {3,0}
-          rank 1:  块 0 = {0,1}
-          rank 2:  块 1 = {1,2}
-          rank 3:  块 2 = {2,3}
-
-第 2 步   r0 → r1 发块 3{3,0}   r1 → r2 发块 0{0,1}   r2 → r3 发块 1{1,2}   r3 → r0 发块 2{2,3}
-          rank 0:  块 2 = {2,3,0}
-          rank 1:  块 3 = {3,0,1}
-          rank 2:  块 0 = {0,1,2}
-          rank 3:  块 1 = {1,2,3}
-
-第 3 步   r0 → r1 发块 2{2,3,0}   r1 → r2 发块 3{3,0,1}   r2 → r3 发块 0{0,1,2}   r3 → r0 发块 1{1,2,3}
-          rank 0:  块 1 = {1,2,3,0}   ← 完整
-          rank 1:  块 2 = {2,3,0,1}   ← 完整
-          rank 2:  块 3 = {3,0,1,2}   ← 完整
-          rank 3:  块 0 = {0,1,2,3}   ← 完整
-```
+![reduce_scatter 第 1–3 步：部分和沿环传递。箭头上是发给下游的块和它的部分和，方框里是收到后更新的那一块；第 3 步后每个 rank 各有一块完整](/img/in-post/collective-communication-primitives-and-cost-model-ring-reduce-scatter-steps.svg)
 
 上面每步只列了发生变化的那一块。把第 3 步结束时 4 个 rank 手上全部 16 块的状态摊开看，能看出 ring 的流水线结构——每一列（同一块）在 4 个 rank 上恰好是 1、2、3、4 份贡献的"阶梯"，完整的那份落在对角线上：
 
-```text title='第 3 步结束时 16 块的完整状态：阶梯与对角线'
-第 3 步结束（reduce_scatter 完成）时的完整状态；✓ = 已含全部 4 个 rank 的贡献
+![第 3 步结束时 16 块的完整状态：阶梯与对角线。底色越深累加的 rank 越多，✓ 为已含全部 4 个 rank 贡献的块](/img/in-post/collective-communication-primitives-and-cost-model-ring-reduce-scatter-state.svg)
 
-          块 0           块 1           块 2           块 3
-rank 0    {0}            {1,2,3,0} ✓    {2,3,0}        {3,0}
-rank 1    {0,1}          {1}            {2,3,0,1} ✓    {3,0,1}
-rank 2    {0,1,2}        {1,2}          {2}            {3,0,1,2} ✓
-rank 3    {0,1,2,3} ✓    {1,2,3}        {2,3}          {3}
-
-每列：4 份部分和分别累加了 1/2/3/4 个 rank 的贡献
-每行：只有对角线上的 ✓ 块进入 all_gather 阶段，其余 3 块是早已发出的旧部分和
-```
+- 每列：4 份部分和分别累加了 1/2/3/4 个 rank 的贡献
+- 每行：只有对角线上的 ✓ 块进入 all_gather 阶段，其余 3 块是早已发出的旧部分和
 
 $$n - 1 = 3$$ 步之后，每个 rank 手上恰好有一块是完整归约结果：rank $$r$$ 持有第 $$(r+1) \bmod n$$ 块。这就是 reduce_scatter 的语义（块的归属是轮转的，不影响后续）。每一步每个 rank 发出一块 $$S/n$$ 字节、收进一块 $$S/n$$ 字节，两个方向同时进行。代价：
 
@@ -362,32 +300,11 @@ $$
 
 接下来的 $$n-1$$ 步，每个 rank 把手上刚完成的那块沿环传下去，收到的完整块直接覆盖本地对应位置（不再归约），再把它继续传给下游：
 
-```text title='all_gather 第 4、5、6 步：完整块沿环覆盖'
-第 4 步   r0 → r1 发块 1    r1 → r2 发块 2    r2 → r3 发块 3    r3 → r0 发块 0
-          rank 0:  块 0、块 1 完整
-          rank 1:  块 1、块 2 完整
-          rank 2:  块 2、块 3 完整
-          rank 3:  块 3、块 0 完整
-
-第 5 步   r0 → r1 发块 0    r1 → r2 发块 1    r2 → r3 发块 2    r3 → r0 发块 3
-          每个 rank 有 3 块完整
-
-第 6 步   r0 → r1 发块 3    r1 → r2 发块 0    r2 → r3 发块 1    r3 → r0 发块 2
-          每个 rank 有 4 块完整   ← all_reduce 完成
-```
+![all_gather 第 4–6 步：完整块沿环覆盖。箭头上是发给下游的完整块，方框里是这一步结束时持有的完整块，第 6 步 all_reduce 完成](/img/in-post/collective-communication-primitives-and-cost-model-ring-all-gather-steps.svg)
 
 用 rank × 块 的网格看这三步，完整块（#）从 reduce_scatter 留下的对角线开始，每步沿环向下游多铺一格，直到铺满：
 
-```text title='rank × 块网格：完整块从对角线铺满'
-                第 3 步后      第 4 步后      第 5 步后      第 6 步后
-      块         0 1 2 3        0 1 2 3        0 1 2 3        0 1 2 3
-rank 0           . # . .        # # . .        # # . #        # # # #
-rank 1           . . # .        . # # .        # # # .        # # # #
-rank 2           . . . #        . . # #        . # # #        # # # #
-rank 3           # . . .        # . . #        # . # #        # # # #
-
-#  = 已持有完整归约结果的块      每步每 rank 新增 1 块，共 n-1 = 3 步
-```
+![rank × 块网格：完整块从对角线铺满。第 3、4、5、6 步后的状态，深绿为这一步新收到的块](/img/in-post/collective-communication-primitives-and-cost-model-ring-all-gather-grid.svg)
 
 步数与字节数与 reduce_scatter 阶段完全相同（第二章说的对偶关系）：
 
@@ -466,15 +383,11 @@ $$
 
 ring 的延迟随 $$n$$ 线性增长，因为环上每一步只能把信息往前传一格。要在 $$O(\log n)$$ 步内让每个 rank 拿到所有人的贡献，需要每一步让"知道的人"翻倍——这就是树。用第二章的第二条组合等式：all_reduce = reduce + broadcast。reduce 阶段数据沿二叉树向根归约，broadcast 阶段结果从根向叶广播。以 $$n = 8$$、一棵深度为 3 的二叉树为例：
 
-```text title='NCCL 的二叉树形状：rank 0 为根，奇数 rank 全是叶子'
-              r0                 reduce：叶 → 根，3 步；每个内部节点收两个孩子的数据、加上自己、发给父亲
-              │                  broadcast：根 → 叶，3 步；每个内部节点收父亲的结果、转发给两个孩子
-              r4
-           ┌──┴──┐               （这是 NCCL 实际使用的形状：rank 0 为根、只有一个孩子，
-          r2     r6                其余节点按编号二进制里最低位 1 的位置决定层级；奇数 rank 全是叶子）
-        ┌─┴─┐  ┌─┴─┐
-       r1   r3 r5   r7
-```
+![NCCL 的二叉树形状：rank 0 为根，奇数 rank 全是叶子。r0 → r4 → r2、r6，r2 → r1、r3，r6 → r5、r7](/img/in-post/collective-communication-primitives-and-cost-model-nccl-btree.svg)
+
+- reduce：叶 → 根，3 步；每个内部节点收两个孩子的数据、加上自己、发给父亲
+- broadcast：根 → 叶，3 步；每个内部节点收父亲的结果、转发给两个孩子
+- 这是 NCCL 实际使用的形状：rank 0 为根、只有一个孩子，其余节点按编号二进制里最低位 1 的位置决定层级；奇数 rank 全是叶子
 
 步数 $$2\lceil\log_2 n\rceil$$：8 卡 6 步（对 14 步），1024 卡 20 步（对 2046 步）。1024 卡、α = 10 µs 时延迟项从 20 ms 降到 200 µs，差 100 倍。这是 tree 存在的全部理由。
 
@@ -494,29 +407,18 @@ $$
 
 补救的办法是 2019 年 NCCL 2.4 引入的 double binary tree：建**两棵**树，第二棵的结构使得**第一棵里的叶子在第二棵里是内部节点、反之亦然**；数据切成两半，各走一棵树。
 
-```text title='double binary tree：两棵互补的树各处理一半数据'
-树 A（处理前半数据 S/2）                树 B（处理后半数据 S/2；编号平移一位）
-        r0                                      r1
-        │                                       │
-        r4                                      r5
-     ┌──┴──┐                                 ┌──┴──┐
-    r2     r6            ← 内部节点          r3     r7           ← 内部节点
-  ┌─┴─┐  ┌─┴─┐                             ┌─┴─┐  ┌─┴─┐
-  r1  r3 r5  r7          ← 叶子             r2  r4 r6  r0         ← 叶子
+![double binary tree：两棵互补的树各处理一半数据。树 A 是 ncclGetBtree，树 B 是它的镜像（r → 7 − r），A 的内部节点在 B 里全是叶子，反之亦然](/img/in-post/collective-communication-primitives-and-cost-model-double-binary-tree.svg)
 
-  A 的内部节点 {0,2,4,6} 在 B 里全是叶子；A 的叶子 {1,3,5,7} 在 B 里全是内部节点
-```
-
-（$$n$$ 为偶数时 NCCL 的第二棵树就是第一棵树把 rank 编号平移一位得到的，奇数时用镜像；见 NCCL 2.28.9 `src/graph/trees.cc` 里的 `ncclGetBtree` 与 `ncclGetDtree`，第四篇展开。）
+（$$n$$ 为偶数时 NCCL 的第二棵树是第一棵树的镜像，rank $$r$$ 换成 $$n-1-r$$；奇数时把 rank 编号平移一位；见 NCCL 2.28.9 `src/graph/trees.cc` 里的 `ncclGetBtree` 与 `ncclGetDtree`，第四篇展开。）
 
 现在算每个 rank 的链路负载。对树 A 来说 rank 3 是叶子，reduce 阶段入向 0、出向 $$S/2$$；对树 B 它是内部节点，入向 $$2 \times S/2 = S$$、出向 $$S/2$$。两棵树同时进行，rank 3 在 reduce 阶段的入向总量是 $$S$$、出向 $$S$$。反过来 rank 2 在 A 里是内部节点、在 B 里是叶子，账目一样。broadcast 阶段对称，也是入向 $$S$$、出向 $$S$$。每个 rank 都如此（两个根只有一个孩子，负载更轻，不构成瓶颈）。把单棵树和两棵树的每个方向的负载并排列出来，就能看到"补回一半"是怎么发生的：
 
 | 阶段 | 方向 | 单棵树：叶子 | 单棵树：内部节点 | 双树：任一 rank（一棵里是叶、另一棵里是内部） |
 |---|---|---|---|---|
 | reduce | 入向 | 0 | **2S** ← 瓶颈 | 0 + 2·(S/2) = S |
-| reduce | 出向 | S | S | S/2 + S/2 = S |
+| ^^ | 出向 | S | S | S/2 + S/2 = S |
 | broadcast | 入向 | S | S | S/2 + S/2 = S |
-| broadcast | 出向 | 0 | **2S** ← 瓶颈 | 0 + 2·(S/2) = S |
+| ^^ | 出向 | 0 | **2S** ← 瓶颈 | 0 + 2·(S/2) = S |
 | 合计（瓶颈方向） | | | 2S + 2S = **4S** | S + S = **2S** |
 
 Table: 单棵树与双树下各 rank 的链路负载
@@ -531,23 +433,24 @@ $$
 
 ### 4. Ring vs Tree：两本账对照
 
-```text title='Ring 与 Double Binary Tree 的两本账对照'
-                     Ring                                  Double Binary Tree
-──────────────────   ─────────────────────────────────    ─────────────────────────────────
-步数（延迟账）         2(n-1)                                2 ⌈log₂ n⌉
-每 rank 字节数         2(n-1)/n · S                          ≈ 2S（两棵树各 S/2，进出各 S）
-（带宽账）             n=8: 1.75 S    n=1024: 1.998 S         与 n 无关
-带宽效率              最优（等于下界）                         接近最优，比 ring 差 n/(n-1)
-                                                            NCCL 调优模型另乘 0.92 经验系数
-实现复杂度            每 rank 一进一出、一条流水线              每 rank 两棵树、多组连接
-适合的区间            大消息、小规模；节点内                    小消息、大规模；跨节点
+| | Ring | Double Binary Tree |
+|---|---|---|
+| 步数（延迟账） | 2(n-1) | 2 ⌈log₂ n⌉ |
+| 每 rank 字节数（带宽账） | 2(n-1)/n · S（n=8: 1.75 S，n=1024: 1.998 S） | ≈ 2S（两棵树各 S/2，进出各 S），与 n 无关 |
+| 带宽效率 | 最优（等于下界） | 接近最优，比 ring 差 n/(n-1)；NCCL 调优模型另乘 0.92 经验系数 |
+| 实现复杂度 | 每 rank 一进一出、一条流水线 | 每 rank 两棵树、多组连接 |
+| 适合的区间 | 大消息、小规模；节点内 | 小消息、大规模；跨节点 |
 
-数字（α = 10 µs，β = 25 GB/s；非实测）
-  n=8,    S=1 GB     140 µs + 70 ms   ≈ 70.1 ms             60 µs + 80 ms   ≈ 80.1 ms      ring 胜
-  n=8,    S=64 KB    140 µs + 4.6 µs  ≈ 145 µs              60 µs + 5.2 µs  ≈ 65 µs        tree 胜
-  n=1024, S=1 GB     20.5 ms + 80 ms  ≈ 100 ms              200 µs + 80 ms  ≈ 80.2 ms      tree 胜
-  n=1024, S=64 KB    20.5 ms + 5 µs   ≈ 20.5 ms             200 µs + 5 µs   ≈ 205 µs       tree 胜 100 倍
-```
+Table: Ring 与 Double Binary Tree 的两本账对照
+
+| n | S | Ring | Double Binary Tree | 结论 |
+|---|---|---|---|---|
+| 8 | 1 GB | 140 µs + 70 ms ≈ 70.1 ms | 60 µs + 80 ms ≈ 80.1 ms | ring 胜 |
+| ^^ | 64 KB | 140 µs + 4.6 µs ≈ 145 µs | 60 µs + 5.2 µs ≈ 65 µs | tree 胜 |
+| 1024 | 1 GB | 20.5 ms + 80 ms ≈ 100 ms | 200 µs + 80 ms ≈ 80.2 ms | tree 胜 |
+| ^^ | 64 KB | 20.5 ms + 5 µs ≈ 20.5 ms | 200 µs + 5 µs ≈ 205 µs | tree 胜 100 倍 |
+
+Table: Ring 与 Double Binary Tree 的算例（α = 10 µs，β = 25 GB/s；非实测）
 
 结论：8 卡以内、消息大，ring 赢一点；规模一大或消息一小，tree 赢很多。ring 的唯一优势是带宽账上那个 $$\frac{n-1}{n}$$，$$n = 8$$ 时值 12.5%，$$n = 64$$ 时只剩 1.6%。所以实际系统里 tree 是跨节点的默认，ring 是节点内的默认——NCCL 的选择大致就是这样，只是它还有 NVLS、CollNet 等更多选项，第四篇讲。
 
@@ -621,16 +524,16 @@ double factor = 1;
 
 ### 2. 各原语的系数表
 
-```text title='各原语的 busbw / algbw 系数表'
-原语              nccl-tests 里的 S                busbw / algbw       n=8 时     n→∞
-──────────────    ─────────────────────────────    ─────────────────   ────────   ─────
-all_reduce        每 rank 的 buffer                2(n-1)/n            1.75       2
-all_gather        n 份拼接后的总量                  (n-1)/n             0.875      1
-reduce_scatter    输入总量（n × 每 rank 输出）        (n-1)/n             0.875      1
-all_to_all        每 rank 输入总量                  (n-1)/n             0.875      1
-broadcast         buffer 大小                      1                   1          1
-reduce            buffer 大小                      1                   1          1
-```
+| 原语 | nccl-tests 里的 S | busbw / algbw | n=8 时 | n→∞ |
+|---|---|---|---|---|
+| all_reduce | 每 rank 的 buffer | 2(n-1)/n | 1.75 | 2 |
+| all_gather | n 份拼接后的总量 | (n-1)/n | 0.875 | 1 |
+| reduce_scatter | 输入总量（n × 每 rank 输出） | (n-1)/n | 0.875 | 1 |
+| all_to_all | 每 rank 输入总量 | (n-1)/n | 0.875 | 1 |
+| broadcast | buffer 大小 | 1 | 1 | 1 |
+| reduce | buffer 大小 | 1 | 1 | 1 |
+
+Table: 各原语的 busbw / algbw 系数表
 
 系数就是第二章"每 rank 至少接收多少字节"那一列除以 $$S$$。它假设的是**带宽最优算法**下每个 rank 的链路流量；用其他算法（比如朴素树）实际流量会更多，但 busbw 仍按这个系数算——所以 busbw 是"等效 ring 流量"的口径，不是链路的实测流量。
 
@@ -681,27 +584,12 @@ algbw 一列随 $$n$$ 从 25 掉到 10，busbw 一列在 25 附近不动。（10
 $$N$$ 个节点、每节点 $$p$$ 张卡（$$n = Np$$）。节点内参数 $$(\alpha_i, \beta_i)$$，节点间 $$(\alpha_e, \beta_e)$$。三步：
 
 - **第 1 步**：节点内 reduce_scatter；p 个 rank 的 ring，S 字节；→ 每张卡持有 S/p 的节点内归约结果
-- **第 2 步**：节点间 all_reduce；每张卡与其他节点上同一位置的卡；→ p 个并行的 N-rank ring，各 S/p 字节 组成一个 N-rank 的环，走自己的网卡
+- **第 2 步**：节点间 all_reduce；每张卡与其他节点上同一位置的卡组成一个 N-rank 的环，走自己的网卡；→ p 个并行的 N-rank ring，各 S/p 字节
 - **第 3 步**：节点内 all_gather；p 个 rank 的 ring，S 字节；→ 每张卡拿到完整结果
 
 把 $$N = 4$$ 个节点、每节点 $$p = 8$$ 张卡排成 4 × 8 的网格（行 = 节点，列 = 卡在节点内的位置），三步分别是"横着走"和"竖着走"：
 
-```text title='两级 all_reduce 的三步：节点内 ring、节点间 ring、节点内 ring'
-            卡0    卡1    卡2    卡3    卡4    卡5    卡6    卡7
-          ┌──────┬──────┬──────┬──────┬──────┬──────┬──────┬──────┐
-节点 0    │◀─── 第 1 步 / 第 3 步：节点内 8-rank ring，NVLink ───▶│
-          ├──────┼──────┼──────┼──────┼──────┼──────┼──────┼──────┤
-节点 1    │◀──────────────── 节点内 ring，S 字节 ────────────────▶│
-          ├──────┼──────┼──────┼──────┼──────┼──────┼──────┼──────┤
-节点 2    │◀──────────────── 节点内 ring，S 字节 ────────────────▶│
-          ├──────┼──────┼──────┼──────┼──────┼──────┼──────┼──────┤
-节点 3    │◀──────────────── 节点内 ring，S 字节 ────────────────▶│
-          └──┬───┴──┬───┴──┬───┴──┬───┴──┬───┴──┬───┴──┬───┴──┬───┘
-             ▲      ▲      ▲      ▲      ▲      ▲      ▲      ▲
-             ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
-          第 2 步：每一列 4 张卡组成一个 4-rank ring，各搬 S/8，
-                   走该列各卡自己的网卡（IB）；8 条 ring 同时进行
-```
+![两级 all_reduce 的三步：节点内 ring、节点间 ring、节点内 ring。上：第 1、3 步每个节点内 8 张卡一个 8-rank ring（NVLink，S 字节）；下：第 2 步每一列 4 张卡一个 4-rank ring（各搬 S/8，走各自的网卡），8 条 ring 同时进行](/img/in-post/collective-communication-primitives-and-cost-model-two-level-all-reduce.svg)
 
 第 1 步之后第 $$j$$ 列的卡持有的是本节点第 $$j$$ 块（$$S/p$$）的节点内归约结果，所以第 2 步只需要**同一列**的 4 张卡之间做 all_reduce；4 个节点各 8 张网卡，每张网卡恰好服务一列。
 
@@ -746,23 +634,22 @@ $$
 
 回到第三章那条对数轴，现在可以给每一段填上两本账的比例。以 8 卡为单位，两种链路（IB HDR：α = 10 µs、β = 25 GB/s；NVLink：α = 3 µs、β = 200 GB/s；均为典型量级、非实测），ring all_reduce：
 
-```text title='64 KB 到 25 MiB：IB 与 NVLink 8 卡的时间与延迟占比'
-消息            场景                        IB HDR 8 卡                    NVLink 8 卡
-                                           T          延迟占比            T          延迟占比
-─────────────   ───────────────────────    ─────────  ────────           ─────────  ────────
-64 KB           decode TP，batch 4         145 µs     97%                43 µs      98%
-128 KB          decode TP，batch 8         149 µs     94%                43 µs      97%
-512 KB          decode TP，batch 32        176 µs     80%                47 µs      90%
-2 MB            ring 拐点（IB）             287 µs     49%                60 µs      70%
-25 MiB          DDP 一个 bucket             1.98 ms    7%                 271 µs     15%
-32 MB           prefill / 训练 TP 激活      2.5 ms     6%                 336 µs     13%
-400 MB          FSDP 一层 all_gather        （用 (n-1)/n 系数）14 ms      1.8 ms
-1 GB            大梯度 / KV cache 量级      70 ms      0.2%               8.8 ms     0.5%
-```
+| 消息 | 场景 | IB HDR 8 卡 T | IB 延迟占比 | NVLink 8 卡 T | NVLink 延迟占比 |
+|---|---|---|---|---|---|
+| 64 KB | decode TP，batch 4 | 145 µs | 97% | 43 µs | 99% |
+| 128 KB | decode TP，batch 8 | 149 µs | 94% | 43 µs | 97% |
+| 512 KB | decode TP，batch 32 | 177 µs | 79% | 47 µs | 90% |
+| 2 MB | ring 拐点（IB） | 287 µs | 49% | 60 µs | 70% |
+| 25 MiB | DDP 一个 bucket | 1.98 ms | 7% | 271 µs | 15% |
+| 32 MB | prefill / 训练 TP 激活 | 2.5 ms | 6% | 336 µs | 13% |
+| <span style="white-space:nowrap">400 MB</span> | FSDP 一层 all_gather（用 (n-1)/n 系数） | 14 ms | 0.5% | 1.8 ms | 1.2% |
+| 1 GB | 大梯度 / KV cache 量级 | 70 ms | 0.2% | 8.8 ms | 0.5% |
+
+Table: 64 KB 到 1 GB：IB 与 NVLink 8 卡的时间与延迟占比
 
 三个区间的性质：
 
-- **几十到几百 KB（decode TP）**：两种链路上都是 90% 以上的延迟。换更快的链路几乎无效；有效的是减少步数（tree、one-shot 的 custom all-reduce）、降低每步的 α（LL 协议、绕开 kernel 启动与 proxy）、或减少通信次数。第七篇的 custom all-reduce 把 8 卡 128 KB 从 NCCL 的几十 µs 降到十几 µs，省的全是 α。
+- **几十到几百 KB（decode TP）**：IB 上 79%–97%、NVLink 上 90% 以上的时间是延迟。换更快的链路几乎无效；有效的是减少步数（tree、one-shot 的 custom all-reduce）、降低每步的 α（LL 协议、绕开 kernel 启动与 proxy）、或减少通信次数。第七篇的 custom all-reduce 把 8 卡 128 KB 从 NCCL 的几十 µs 降到十几 µs，省的全是 α。
 - **几 MB 到几十 MB（DDP bucket、TP/PP 激活）**：IB 上处于拐点附近到带宽主导之间，两本账都要看；NVLink 上已经是带宽主导。DDP 把桶设成 25 MiB 而不是 1 MB，就是为了把梯度同步从拐点左边推到右边——8 卡 IB 上 25 个 1 MiB 的消息要 $$25 \times (140 + 73)\ \mu\text{s} \approx 5.3$$ ms，一个 25 MiB 的消息只要 1.98 ms。
 - **几百 MB 到 GB（FSDP 大层、KV cache、整体梯度）**：纯带宽主导。看的是链路速率、算法效率、能否用上所有网卡、GDR 是否生效、能否与计算重叠。α 估错一个量级对结果没有影响。
 
@@ -809,46 +696,48 @@ $$
 
 ### 2. 公式速查
 
-```text title='α-β 模型与各算法的公式速查'
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-α-β 模型
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-单条消息            T = α + S/β                          拐点 S* = αβ
-集合通信通式         T = 步数 × α + 每 rank 字节数 / β      β 为单向；全双工下收发不互抢
+| | 公式 | 说明 |
+|---|---|---|
+| 单条消息 | T = α + S/β | 拐点 S\* = αβ |
+| 集合通信通式 | T = 步数 × α + 每 rank 字节数 / β | β 为单向；全双工下收发不互抢 |
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-算法                 步数（延迟账）          每 rank 字节数（带宽账）         拐点
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ring all_reduce      2(n-1)                 2(n-1)/n · S  → 2S             S* = nαβ
-ring all_gather      n-1                    (n-1)/n · S   → S              S* = nαβ
-ring reduce_scatter  n-1                    (n-1)/n · S   → S              S* = nαβ
-朴素二叉树 all_reduce 2⌈log₂n⌉               4S（瓶颈链路）
-double binary tree   2⌈log₂n⌉               2S
-两级 ring（N 节点×p）  2(p-1) 内 + 2(N-1) 外   2(p-1)/p · S / β_i + 2(N-1)/N · (S/p) / β_e
-朴素 reduce+bcast    2                      (n-1)S 进 + (n-1)S 出（root）
+Table: α-β 模型
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-nccl-tests 的两个带宽（GB/s = 10^9 B/s）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-algbw = S / T
-busbw = algbw × 系数     all_reduce 2(n-1)/n    all_gather / reduce_scatter / all_to_all (n-1)/n
-                         broadcast / reduce 1
-S 的口径                 all_gather 为拼接后总量；reduce_scatter 为输入总量；其余为每 rank buffer
+| 算法 | 步数（延迟账） | 每 rank 字节数（带宽账） | 拐点 |
+|---|---|---|---|
+| ring all_reduce | 2(n-1) | 2(n-1)/n · S → 2S | S\* = nαβ |
+| ring all_gather | n-1 | (n-1)/n · S → S | ^^ |
+| ring reduce_scatter | n-1 | (n-1)/n · S → S | ^^ |
+| 朴素二叉树 all_reduce | 2⌈log₂n⌉ | 4S（瓶颈链路） | |
+| double binary tree | 2⌈log₂n⌉ | 2S | |
+| 两级 ring（N 节点 × p） | 2(p-1) 内 + 2(N-1) 外 | 2(p-1)/p · S / β<sub>i</sub> + 2(N-1)/N · (S/p) / β<sub>e</sub> | |
+| 朴素 reduce + bcast | 2 | (n-1)S 进 + (n-1)S 出（root） | |
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-典型量级（非实测；单向）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-β     IB HDR 25 GB/s · IB NDR 50 GB/s · PCIe 4.0 x16 32 GB/s · NVLink 8 卡 ring 每 rank ~200 GB/s
-α     IB 上一步 5–20 µs · NVLink 上一步 2–5 µs
-8 卡  IB ring 拐点 ~2 MB · NVLink ring 拐点 ~5 MB
-从曲线反推   α ≈ T_min / 步数 ；  β ≈ busbw 平台 / 协议效率 ；  α ≈ 拐点 S / (nβ)
+Table: 各算法的步数、字节数与拐点
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-核心问题（n=8, β=25 GB/s, α=10 µs）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1 GB     140 µs + 70 ms  ≈ 70.1 ms     algbw 14.3 · busbw 24.9 GB/s     带宽主导，对 β 敏感
-64 KB    140 µs + 4.6 µs ≈ 145 µs      algbw 0.45 · busbw 0.79 GB/s     延迟主导，对 α 与步数敏感
-```
+| | 定义 |
+|---|---|
+| algbw | S / T |
+| busbw | algbw × 系数：all_reduce 2(n-1)/n；all_gather / reduce_scatter / all_to_all (n-1)/n；broadcast / reduce 1 |
+| S 的口径 | all_gather 为拼接后总量；reduce_scatter 为输入总量；其余为每 rank buffer |
+
+Table: nccl-tests 的两个带宽（GB/s = 10⁹ B/s）
+
+| | 典型值 |
+|---|---|
+| β | IB HDR 25 GB/s · IB NDR 50 GB/s · PCIe 4.0 x16 32 GB/s · NVLink 8 卡 ring 每 rank ~200 GB/s |
+| α | IB 上一步 5–20 µs · NVLink 上一步 2–5 µs |
+| 8 卡 | IB ring 拐点 ~2 MB · NVLink ring 拐点 ~5 MB |
+| 从曲线反推 | α ≈ T<sub>min</sub> / 步数；β ≈ busbw 平台 / 协议效率；α ≈ 拐点 S / (nβ) |
+
+Table: 典型量级（非实测；单向）
+
+| S | T | algbw / busbw | 结论 |
+|---|---|---|---|
+| 1 GB | 140 µs + 70 ms ≈ 70.1 ms | algbw 14.3 · busbw 24.9 GB/s | 带宽主导，对 β 敏感 |
+| 64 KB | 140 µs + 4.6 µs ≈ 145 µs | algbw 0.45 · busbw 0.79 GB/s | 延迟主导，对 α 与步数敏感 |
+
+Table: 核心问题（n=8，β=25 GB/s，α=10 µs）
 
 ### 3. 本篇涉及的源码与工具位置
 

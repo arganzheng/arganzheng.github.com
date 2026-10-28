@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="506" viewBox="0 0 760 506" role="img" aria-labelledby="tl-t tl-d">
+<title id="tl-t">两级 all_reduce 的三步：节点内 ring、节点间 ring、节点内 ring</title>
+<desc id="tl-d">4 个节点 × 8 张卡。上图：第 1 步和第 3 步每个节点内 8 张卡组成 8-rank ring，走 NVLink，搬 S 字节。下图：第 2 步每一列 4 张卡组成 4-rank ring，各搬 S/8，走各自的网卡，8 条 ring 同时进行。</desc>
+<style>
+text { font-family: -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; fill: #111; font-weight: 500; }
+.s { font-size: 12px; }
+.b { font-weight: 700; }
+.mono { font-family: 'SFMono-Regular', Menlo, Consolas, monospace; }
+.red { fill: #c0392b; }
+.gray { fill: #444; }
+.box { fill: #eef3fb; stroke: #4a6fa5; stroke-width: 1.2; }
+.ok { fill: #d4edda; stroke: #2e7d32; stroke-width: 1.4; }
+.plain { fill: #fff; stroke: #555; stroke-width: 1; }
+.arr { stroke: #333; stroke-width: 1.4; fill: none; }
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#333"/></marker><marker id="ahs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,1 L1,5 L10,9 z" fill="#333"/></marker></defs>
+<rect width="760" height="506" fill="#ffffff"/>
+<text x="16.0" y="20.0" text-anchor="start" class="b">第 1 步 / 第 3 步：节点内 8-rank ring，NVLink，S 字节</text>
+<text x="102.0" y="40.0" text-anchor="middle" class="s">卡0</text>
+<text x="182.0" y="40.0" text-anchor="middle" class="s">卡1</text>
+<text x="262.0" y="40.0" text-anchor="middle" class="s">卡2</text>
+<text x="342.0" y="40.0" text-anchor="middle" class="s">卡3</text>
+<text x="422.0" y="40.0" text-anchor="middle" class="s">卡4</text>
+<text x="502.0" y="40.0" text-anchor="middle" class="s">卡5</text>
+<text x="582.0" y="40.0" text-anchor="middle" class="s">卡6</text>
+<text x="662.0" y="40.0" text-anchor="middle" class="s">卡7</text>
+<text x="64.0" y="68.0" text-anchor="end">节点 0</text>
+<rect x="76.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="50.0" width="52.0" height="26.0" rx="0" class="box"/>
+<line x1="128.0" y1="63.0" x2="156.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<line x1="208.0" y1="63.0" x2="236.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<line x1="288.0" y1="63.0" x2="316.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<line x1="368.0" y1="63.0" x2="396.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<line x1="448.0" y1="63.0" x2="476.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<line x1="528.0" y1="63.0" x2="556.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<line x1="608.0" y1="63.0" x2="636.0" y2="63.0" class="arr" marker-end="url(#ah)"/>
+<path d="M662.0,76 V88 H102.0 V76" class="arr" marker-end="url(#ah)"/>
+<text x="64.0" y="120.0" text-anchor="end">节点 1</text>
+<rect x="76.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="102.0" width="52.0" height="26.0" rx="0" class="box"/>
+<line x1="128.0" y1="115.0" x2="156.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<line x1="208.0" y1="115.0" x2="236.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<line x1="288.0" y1="115.0" x2="316.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<line x1="368.0" y1="115.0" x2="396.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<line x1="448.0" y1="115.0" x2="476.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<line x1="528.0" y1="115.0" x2="556.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<line x1="608.0" y1="115.0" x2="636.0" y2="115.0" class="arr" marker-end="url(#ah)"/>
+<path d="M662.0,128 V140 H102.0 V128" class="arr" marker-end="url(#ah)"/>
+<text x="64.0" y="172.0" text-anchor="end">节点 2</text>
+<rect x="76.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="154.0" width="52.0" height="26.0" rx="0" class="box"/>
+<line x1="128.0" y1="167.0" x2="156.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<line x1="208.0" y1="167.0" x2="236.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<line x1="288.0" y1="167.0" x2="316.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<line x1="368.0" y1="167.0" x2="396.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<line x1="448.0" y1="167.0" x2="476.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<line x1="528.0" y1="167.0" x2="556.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<line x1="608.0" y1="167.0" x2="636.0" y2="167.0" class="arr" marker-end="url(#ah)"/>
+<path d="M662.0,180 V192 H102.0 V180" class="arr" marker-end="url(#ah)"/>
+<text x="64.0" y="224.0" text-anchor="end">节点 3</text>
+<rect x="76.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="206.0" width="52.0" height="26.0" rx="0" class="box"/>
+<line x1="128.0" y1="219.0" x2="156.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<line x1="208.0" y1="219.0" x2="236.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<line x1="288.0" y1="219.0" x2="316.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<line x1="368.0" y1="219.0" x2="396.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<line x1="448.0" y1="219.0" x2="476.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<line x1="528.0" y1="219.0" x2="556.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<line x1="608.0" y1="219.0" x2="636.0" y2="219.0" class="arr" marker-end="url(#ah)"/>
+<path d="M662.0,232 V244 H102.0 V232" class="arr" marker-end="url(#ah)"/>
+<text x="16.0" y="280.0" text-anchor="start" class="b">第 2 步：每一列 4 张卡组成一个 4-rank ring，各搬 S/8，</text>
+<text x="72.8" y="298.0" text-anchor="start" class="b">走该列各卡自己的网卡（IB）；8 条 ring 同时进行</text>
+<text x="102.0" y="318.0" text-anchor="middle" class="s">卡0</text>
+<text x="182.0" y="318.0" text-anchor="middle" class="s">卡1</text>
+<text x="262.0" y="318.0" text-anchor="middle" class="s">卡2</text>
+<text x="342.0" y="318.0" text-anchor="middle" class="s">卡3</text>
+<text x="422.0" y="318.0" text-anchor="middle" class="s">卡4</text>
+<text x="502.0" y="318.0" text-anchor="middle" class="s">卡5</text>
+<text x="582.0" y="318.0" text-anchor="middle" class="s">卡6</text>
+<text x="662.0" y="318.0" text-anchor="middle" class="s">卡7</text>
+<text x="64.0" y="346.0" text-anchor="end">节点 0</text>
+<rect x="76.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="328.0" width="52.0" height="26.0" rx="0" class="box"/>
+<text x="64.0" y="392.0" text-anchor="end">节点 1</text>
+<rect x="76.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="374.0" width="52.0" height="26.0" rx="0" class="box"/>
+<text x="64.0" y="438.0" text-anchor="end">节点 2</text>
+<rect x="76.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="420.0" width="52.0" height="26.0" rx="0" class="box"/>
+<text x="64.0" y="484.0" text-anchor="end">节点 3</text>
+<rect x="76.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="156.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="236.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="316.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="396.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="476.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="556.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<rect x="636.0" y="466.0" width="52.0" height="26.0" rx="0" class="box"/>
+<line x1="102.0" y1="354.0" x2="102.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="102.0" y1="400.0" x2="102.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="102.0" y1="446.0" x2="102.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M128.0,479.0 H140.0 V341.0 H128.0" class="arr" marker-end="url(#ah)"/>
+<line x1="182.0" y1="354.0" x2="182.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="182.0" y1="400.0" x2="182.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="182.0" y1="446.0" x2="182.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M208.0,479.0 H220.0 V341.0 H208.0" class="arr" marker-end="url(#ah)"/>
+<line x1="262.0" y1="354.0" x2="262.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="262.0" y1="400.0" x2="262.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="262.0" y1="446.0" x2="262.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M288.0,479.0 H300.0 V341.0 H288.0" class="arr" marker-end="url(#ah)"/>
+<line x1="342.0" y1="354.0" x2="342.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="342.0" y1="400.0" x2="342.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="342.0" y1="446.0" x2="342.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M368.0,479.0 H380.0 V341.0 H368.0" class="arr" marker-end="url(#ah)"/>
+<line x1="422.0" y1="354.0" x2="422.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="422.0" y1="400.0" x2="422.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="422.0" y1="446.0" x2="422.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M448.0,479.0 H460.0 V341.0 H448.0" class="arr" marker-end="url(#ah)"/>
+<line x1="502.0" y1="354.0" x2="502.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="502.0" y1="400.0" x2="502.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="502.0" y1="446.0" x2="502.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M528.0,479.0 H540.0 V341.0 H528.0" class="arr" marker-end="url(#ah)"/>
+<line x1="582.0" y1="354.0" x2="582.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="582.0" y1="400.0" x2="582.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="582.0" y1="446.0" x2="582.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M608.0,479.0 H620.0 V341.0 H608.0" class="arr" marker-end="url(#ah)"/>
+<line x1="662.0" y1="354.0" x2="662.0" y2="374.0" class="arr" marker-end="url(#ah)"/>
+<line x1="662.0" y1="400.0" x2="662.0" y2="420.0" class="arr" marker-end="url(#ah)"/>
+<line x1="662.0" y1="446.0" x2="662.0" y2="466.0" class="arr" marker-end="url(#ah)"/>
+<path d="M688.0,479.0 H700.0 V341.0 H688.0" class="arr" marker-end="url(#ah)"/>
+</svg>
