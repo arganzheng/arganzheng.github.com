@@ -181,7 +181,7 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 | 管理配置 | Hydra / OmegaConf，或 `dataclass` + YAML | 所有超参数进配置文件，命令行只覆盖个别项；配置随 run 一起记录 |
 | 代码版本 | git | 每次实验记录 commit hash；有未提交改动时记录 diff 或拒绝启动 |
 | 数据版本 | 数据文件的 hash 或 `datasets` 的 revision | 数据变了就是另一个实验 |
-| 环境 | `pip freeze` / 锁文件、CUDA 与驱动版本、容器镜像 | 随 run 记录 |
+| 环境 | `pip freeze` / 锁文件、CUDA 与驱动版本、容器镜像、GPU 型号与卡数 | 随 run 记录 |
 | 随机性 | `seed` 参数 + `torch.manual_seed` 等 | 多 seed 报均值与方差；知道有些 kernel 本身不确定 |
 | 产物 | checkpoint、评测输出、生成样本 | 命名含 run id；评测输出保存到能做第二篇那种错误分析的粒度 |
 
@@ -249,4 +249,4 @@ seed 1:      3.378334 → 与 seed 0 差 0.1404，这就是'单个数字不算�
    </details>
 
 [^q0]: 能。GPU 有算力与带宽两个上限，比值 ridge $$\approx 295$$ FLOP/字节（H100）。decode 每生成一个 token 要读全部权重、每个权重只做 2 次运算，算术强度约 1，远低于 ridge——memory-bound，batch = 1 时 16 GB 权重 / 3.35 TB/s $$\approx 4.8$$ ms 是下限；batch 加大到 128 时间几乎不变、吞吐涨 128 倍，这就是「batch 大才快」。训练与 prefill 是 compute-bound，慢通常是 MFU 低——通信、数据加载、小算子、等待。OOM 从四块显存里找：权重、梯度与优化器状态、激活、KV cache。详见[第二](#二两个上限)至[四章](#四显存的四块)。
-[^q1]: 能，记七项——代码版本、配置、数据版本、环境、seed、硬件、结果——放进一次 `log()`，三个月后按它重跑。详见[第六章](#六实验管理)。
+[^q1]: 能，记七项——run id、commit、配置文件、数据版本、seed、环境、指标——写进一个 JSON，三个月后按它重跑。详见[第六章](#六实验管理)。
