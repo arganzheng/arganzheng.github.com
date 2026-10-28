@@ -44,63 +44,24 @@ flowchart TB
 
 ### 1. 提供层、消费层与数据契约：三篇的地图
 
-```text title='类型信息的三层地图：提供层、消费层与数据契约'
-                   类型信息提供层
-┌──────────────────────────────────────────────┐
-│ 类型表达                                      │
-│ ├── Python 内建注解语法                       │
-│ ├── 内建泛型：list[str]、dict[str, int]       │
-│ ├── typing                                    │
-│ └── typing_extensions                         │
-│                                               │
-│ 类型载体与分发                                 │
-│ ├── inline types：.py                         │
-│ ├── stub：.pyi                                │
-│ ├── typeshed                                  │
-│ ├── types-*                                   │
-│ └── py.typed / PEP 561                        │
-└──────────────────────────────────────────────┘
-                       │
-                       │ 读取、解释、推理、执行
-                       ▼
-                   类型信息消费层
-┌──────────────────────────────────────────────┐
-│ 静态消费                                      │
-│ ├── mypy                                      │
-│ ├── Pyright / Pylance                         │
-│ ├── IDE、CI                                   │
-│ └── 类型推断、收窄、兼容性检查                 │
-│                                               │
-│ 动态消费                                      │
-│ ├── isinstance / issubclass                   │
-│ ├── get_type_hints / __annotations__          │
-│ ├── @dataclass（读注解生成代码）               │
-│ ├── Pydantic（元类 + pydantic-core）           │
-│ ├── beartype                                  │
-│ └── Annotated 元数据解析                      │
-└──────────────────────────────────────────────┘
-                       │
-                       │ 用消费层的能力构建
-                       ▼
-                 工程落地：数据契约
-┌──────────────────────────────────────────────┐
-│ 数据建模                                      │
-│ ├── @dataclass：内部数据传递                  │
-│ ├── Pydantic BaseModel：边界校验              │
-│ └── TypedDict：字典形状约束                   │
-│                                               │
-│ 契约的输入输出                                 │
-│ ├── 序列化 / 反序列化                         │
-│ ├── JSON Schema / OpenAPI 生成                │
-│ └── BaseSettings：配置即契约                  │
-└──────────────────────────────────────────────┘
-```
+| 层 | 部分 | 内容 |
+|---|---|---|
+| 类型信息提供层 | 类型表达 | Python 内建注解语法<br/>内建泛型：`list[str]`、`dict[str, int]`<br/>`typing`<br/>`typing_extensions` |
+| ^^ | 类型载体与分发 | inline types：`.py`<br/>stub：`.pyi`<br/>`typeshed`<br/>`types-*`<br/>`py.typed` / PEP 561 |
+| 类型信息消费层 | 静态消费 | mypy<br/>Pyright / Pylance<br/>IDE、CI<br/>类型推断、收窄、兼容性检查 |
+| ^^ | 动态消费 | `isinstance` / `issubclass`<br/>`get_type_hints` / `__annotations__`<br/>`@dataclass`（读注解生成代码）<br/>Pydantic（元类 + pydantic-core）<br/>beartype<br/>`Annotated` 元数据解析 |
+| 工程落地：数据契约 | 数据建模 | `@dataclass`：内部数据传递<br/>Pydantic `BaseModel`：边界校验<br/>`TypedDict`：字典形状约束 |
+| ^^ | 契约的输入输出 | 序列化 / 反序列化<br/>JSON Schema / OpenAPI 生成<br/>`BaseSettings`：配置即契约 |
+
+Table: 类型信息的三层地图：提供层、消费层与数据契约
+
+消费层对提供层的类型信息做读取、解释、推理、执行；数据契约用消费层的能力构建。
 
 - **提供层**解决"类型信息从哪里来"——包括如何用语法表达类型意图（`typing` 模块的各种工具），以及如何把类型信息分发给消费方（`.pyi` 存根、`py.typed` 标记等）。
 - **消费层**解决"类型信息被谁使用"——静态分析工具（mypy、pyright）在开发时检查类型正确性，动态工具（Pydantic、beartype）在运行时读取注解并据此生成代码或执行校验。
 - **数据契约**解决"用这些能力构建什么"——把类型注解落到具体的数据结构上：请求体、配置项、模型元数据。这是 AI Infra 中类型系统最主要的落地形式。
 
-Java 把前两件事合为一体：类型写在源码里，编译器既是提供者也是消费者，`.class` 文件既是载体也是运行时反射的依据。Python 则把提供和消费拆开，各层可以单独使用，也可以组合使用。本篇只讲图里最上面那格——**类型表达**。
+Java 把前两件事合为一体：类型写在源码里，编译器既是提供者也是消费者，`.class` 文件既是载体也是运行时反射的依据。Python 则把提供和消费拆开，各层可以单独使用，也可以组合使用。本篇只讲表里的第一部分——**类型表达**。
 
 ### 2. 本文的章节安排
 
