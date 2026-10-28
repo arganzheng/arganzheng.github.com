@@ -1169,7 +1169,7 @@ Table: 四个运行时机制小结
 - **前端**：`if` 用 FakeTensor 的 shape 特化掉。
   - 图里只剩 `matmul → add → relu`，Guard 记下 `size[0] == 128`。
 - **中端**：降到 `aten.mm` / `aten.add` / `aten.relu`。
-  - 反向图是 `threshold_backward → mm × 2 → sum`；整体包成一个 `grad_fn`。
+  - `threshold_backward` 的结果分别送给两次 `mm` 和一次 `sum`；整体包成一个 `grad_fn`。
 - **后端**：`mm` 交给 cuBLAS，`add + relu` 融合成一个 Triton Kernel。
   - 中间 Buffer 原地复用，shape 烧成常量。
 - **运行时**：第二次同 shape 命中。
