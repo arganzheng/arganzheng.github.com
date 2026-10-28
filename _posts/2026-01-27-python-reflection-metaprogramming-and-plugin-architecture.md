@@ -120,13 +120,15 @@ Python 源码里的类和函数是静态存在的，但 AI-Infra 的实际行为
 
 这些问题的答案在写代码时都不知道。所以系统必须建立一层从**名字**到**实现**的映射：
 
-```text title="名字到实现的映射：字符串、路由到类与函数"
-"onnx"                       -> ONNXModelLoader
-"tensorrt"                   -> TensorRTModelLoader
-"redis"                      -> RedisCache
-"model-v2"                   -> handle_model_v2
-("POST", "/v1/chat/completions") -> chat_completion
-```
+| 名字（key） | 实现 |
+|------|------|
+| `"onnx"` | `ONNXModelLoader` |
+| `"tensorrt"` | `TensorRTModelLoader` |
+| `"redis"` | `RedisCache` |
+| `"model-v2"` | `handle_model_v2` |
+| `("POST", "/v1/chat/completions")` | `chat_completion` |
+
+Table: 名字到实现的映射：字符串、路由到类与函数
 
 这层映射就是后面两个应用场景的共同骨架——插件化和路由分发的区别，只在于 key 的空间不同：一个是插件名，一个是 `(method, path)`。
 
