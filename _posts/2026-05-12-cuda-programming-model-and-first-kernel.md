@@ -230,18 +230,12 @@ $$
 
 `x` 是变化最快的维度。几个例子：
 
-```text title="block 形状到 warp 的切分示例"
-block (256)        warp k = 线程 32k … 32k+31，共 8 个 warp
+![block 形状到 warp 的切分示例](/img/in-post/2026-05-12-cuda-programming-model-and-first-kernel-block-to-warp.svg)
 
-block (32, 8)      linear = x + 32y → 每一行 y 恰好是一个 warp，共 8 个 warp
-                   warp 0 = (0..31, 0)，warp 1 = (0..31, 1)，…
-
-block (16, 16)     linear = x + 16y → 每两行合成一个 warp，共 8 个 warp
-                   warp 0 = (0..15, 0) ∪ (0..15, 1)
-                   warp 1 = (0..15, 2) ∪ (0..15, 3)，…
-
-block (8, 8)       linear = x + 8y → 64 线程 = 2 个 warp，每个 warp 覆盖 4 行
-```
+- `block (256)`：`warp k = 线程 32k … 32k+31`，共 8 个 warp。
+- `block (32, 8)`：`linear = x + 32y` → 每一行 y 恰好是一个 warp，共 8 个 warp；`warp 0 = (0..31, 0)`，`warp 1 = (0..31, 1)`，…
+- `block (16, 16)`：`linear = x + 16y` → 每两行合成一个 warp，共 8 个 warp；`warp 0 = (0..15, 0) ∪ (0..15, 1)`，`warp 1 = (0..15, 2) ∪ (0..15, 3)`，…
+- `block (8, 8)`：`linear = x + 8y` → 64 线程 = 2 个 warp，每个 warp 覆盖 4 行。
 
 这个划分决定了"哪 32 个线程会同时发出访存请求"，进而决定访存能否合并、shared memory 会不会 bank conflict——第三、四篇的核心。二维 block 里如果把行方向放在 `y`、列方向放在 `x`，那么 (16, 16) 的 block 里一个 warp 会跨两行；对行主序矩阵，这意味着一个 warp 的 32 个访问落在两段各 64 字节的连续地址上，而不是一段 128 字节。是好是坏取决于具体 kernel，但必须先知道这件事在发生。
 
@@ -331,16 +325,7 @@ CUDA_CHECK(cudaStreamDestroy(stream));
 
 三种情形放在一条时间线上：
 
-```text title="同一 stream 与多 stream 的时间线"
-                 时间 ──────────────────────────────────────────────────────→
-同一 stream      ▓▓ k1 ▓▓▓▓ k2 ▓▓▓ memcpy ▓▓ k3 ▓▓          严格按提交顺序，一个接一个
-
-stream A         ▓▓ k1 ▓▓▓▓▓▓▓ k3 ▓▓▓▓
-stream B              ▓▓▓ k2 ▓▓▓  ▓▓ k4 ▓▓                  无顺序保证，可并发（只要 SM 资源够）
-
-默认 stream 0    ▓▓ k1 ▓▓  ·······等 B 完成······  ▓ k3 ▓  legacy 默认 stream 与其他 stream 互相等待，
-stream B                  ▓▓▓ k2 ▓▓▓                       把并发变回串行
-```
+![同一 stream 与多 stream 的时间线](/img/in-post/2026-05-12-cuda-programming-model-and-first-kernel-stream-timelines.svg)
 
 在 PyTorch 扩展里，永远用 `at::cuda::getCurrentCUDAStream()` 拿当前 stream 再传给 launch，否则你的 kernel 会跑在默认 stream 上，与 PyTorch 自己的 stream 之间失去顺序保证（或者因默认 stream 的全局同步语义拖慢一切）。
 
@@ -362,13 +347,7 @@ float ms = 0.f;
 CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));   // 毫秒，分辨率约 0.5 µs
 ```
 
-```text title="event 计时的 GPU 时间戳与 CPU 等待"
-stream 上的顺序     [ record start ]──[ kernel 1.6 ms ]──[ record stop ]
-GPU 时间戳                ↑ t_start                          ↑ t_stop
-                          └──────── cudaEventElapsedTime ────┘   = t_stop − t_start，与 CPU 何时来问无关
-
-CPU                 launch…launch…record…   cudaEventSynchronize(stop) 阻塞 …… 返回 → 读 ms
-```
+![event 计时的 GPU 时间戳与 CPU 等待](/img/in-post/2026-05-12-cuda-programming-model-and-first-kernel-event-timing.svg)
 
 `cudaEventElapsedTime` 测的是 GPU 上两个标记之间的时间，不受 CPU 何时调用 `cudaEventSynchronize` 影响；它也**不完全等于** kernel 的执行时间——两个 event 之间 GPU 若因为 host 还没把下一个 kernel 提交上来而空转，这段空档也计在里面。小 kernel 或 host 慢时要么先把一串 kernel 排进队列再计时，要么用 profiler 看 kernel 的实际占用。这是 kernel 计时的标准做法；PyTorch 的 `torch.cuda.Event` 是它的封装。
 
@@ -447,13 +426,19 @@ launch 之后的习惯写法是 `CUDA_CHECK(cudaGetLastError());`。PyTorch 里�
 
 nvcc 不是一个编译器，而是一个驱动程序。它把一个 `.cu` 文件拆成两部分：
 
-```text title="nvcc 把 .cu 拆成 host 与 device 两路"
-.cu ──┬── host 代码   ──→ 交给宿主 C++ 编译器（gcc/clang/MSVC）→ 目标文件
-      │                    三尖括号被改写成 cudaLaunchKernel 调用
-      │
-      └── device 代码 ──→ 前端（基于 LLVM）→ PTX（虚拟 ISA，文本）
-                              → ptxas → SASS（真实机器码，cubin）
-                              → 打包成 fatbin，嵌入 host 目标文件
+```mermaid
+%% 图：nvcc 把 .cu 拆成 host 与 device 两路
+flowchart LR
+    CU[".cu"] --> HOST["host 代码<br/>三尖括号改写成 cudaLaunchKernel 调用"]
+    HOST --> COMPILER["宿主 C++ 编译器<br/>(gcc / clang / MSVC)"]
+    COMPILER --> OBJECT["目标文件"]
+    CU --> DEVICE["device 代码"]
+    DEVICE --> FRONTEND["前端（基于 LLVM）"]
+    FRONTEND --> PTX["PTX（虚拟 ISA，文本）"]
+    PTX --> PTXAS["ptxas"]
+    PTXAS --> SASS["SASS（真实机器码，cubin）"]
+    SASS --> FATBIN["打包成 fatbin"]
+    FATBIN -- 嵌入 --> OBJECT
 ```
 
 **PTX** 是一种与具体 GPU 无关的虚拟指令集，类似汇编语言的文本；**SASS** 是某一代 GPU 的真实机器码。同一段 PTX 可以被汇编成不同代 GPU 的 SASS。运行时，driver 从可执行文件里嵌入的 fatbin 中挑出与当前 GPU 匹配的那份 SASS 加载；如果没有匹配的 SASS 但有 PTX，就即时编译（JIT）。
@@ -566,14 +551,16 @@ if (threadIdx.x % 2 == 0) {
 }
 ```
 
-```text title="分支发散下各阶段的 active mask"
-                 active mask（lane 31 … lane 0）              有效 lane
-if 之前          11111111 11111111 11111111 11111111          32/32
-执行 f 的所有指令  01010101 01010101 01010101 01010101          16/32   ← 奇数 lane 旁观，但占用发射槽位
-执行 g 的所有指令  10101010 10101010 10101010 10101010          16/32   ← 偶数 lane 旁观
-会合之后          11111111 11111111 11111111 11111111          32/32
-                                                 总时间 = T(f) + T(g)
-```
+| 阶段 | active mask（lane 31 … lane 0） | 有效 lane | 说明 |
+| --- | --- | ---: | --- |
+| if 之前 | `11111111 11111111 11111111 11111111` | 32/32 | |
+| 执行 f 的所有指令 | `01010101 01010101 01010101 01010101` | 16/32 | 奇数 lane 旁观，但占用发射槽位 |
+| 执行 g 的所有指令 | `10101010 10101010 10101010 10101010` | 16/32 | 偶数 lane 旁观 |
+| 会合之后 | `11111111 11111111 11111111 11111111` | 32/32 | |
+
+Table: 分支发散下各阶段的 active mask
+
+总时间 = T(f) + T(g)。
 
 warp 不能一半执行 `f`、一半执行 `g`；它会**两路都走**：先以 mask = 偶数 lane 执行 `f` 的所有指令，再以 mask = 奇数 lane 执行 `g` 的所有指令，最后在 `if` 之后重新会合（reconverge）。执行时间是两路之和，而每一路只有一半的 lane 在做有用功——等效吞吐减半。嵌套 `if` 或 `switch` 的分支数越多，损失越大；极端情况是 32 路各不相同，吞吐降为 1/32。
 
@@ -652,11 +639,9 @@ A100 有 40 MB L2。如果 benchmark 的工作集小于 40 MB（比如 $$n = 2^{
 
 一次计时迭代在 stream 上的布置：
 
-```text title="一次计时迭代在 stream 上的布置"
-stream   [ memsetAsync 128 MB：逐出 L2 ]──[ record start ]──[ kernel ]──[ record stop ]──（下一次迭代…）
-                    不计时                       └──────── 计入 ms ────────┘
-重复 N 次，取中位数；之前先跑几次 warmup（触发 JIT / 模块加载、让频率爬上来）
-```
+![一次计时迭代在 stream 上的布置](/img/in-post/2026-05-12-cuda-programming-model-and-first-kernel-timing-iteration.svg)
+
+重复 N 次，取中位数；之前先跑几次 warmup（触发 JIT / 模块加载、让频率爬上来；源码默认 `N = iters = 100`、`warmup = 10`）。
 
 本篇 $$n = 2^{28}$$ 的工作集是 3 GiB，远大于 L2，flush 与否差别不大；但脚手架要通用到第十篇的所有 kernel，其中很多（RMSNorm 一行 16 KiB、decode 阶段的小 GEMM）工作集都在 L2 以内，flush 是必需的。`triton.testing.do_bench` 默认也做同样的事。
 
@@ -944,51 +929,53 @@ if __name__ == "__main__":
 
 ### 2. 速查表
 
-```text title="launch 配置与 API 速查表"
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-launch 配置速查
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-全局索引（1D）        i = blockIdx.x * blockDim.x + threadIdx.x      （乘法用 size_t）
-全局索引（2D）        row = blockIdx.y*blockDim.y + threadIdx.y；col 用 x
-block 大小            32 的倍数；常用 128–256；上限 1024
-grid 大小             (n + block - 1) / block；x 维上限 2^31 - 1
-warp 划分             linear = x + y*bdx + z*bdx*bdy；warp = linear / 32
-每 SM 上限（A100）    2048 线程 / 64 warp / 32 block / 65536 寄存器 / 164 KB shared
-block 数 ≤ SM 数时    大部分 SM 空闲 → 带宽上不去
+| 项 | 值 |
+| --- | --- |
+| 全局索引（1D） | `i = blockIdx.x * blockDim.x + threadIdx.x`（乘法用 `size_t`） |
+| 全局索引（2D） | `row = blockIdx.y*blockDim.y + threadIdx.y`；`col` 用 `x` |
+| `block` 大小 | 32 的倍数；常用 128–256；上限 1024 |
+| `grid` 大小 | `(n + block - 1) / block`；`x` 维上限 `2^31 - 1` |
+| `warp` 划分 | `linear = x + y*bdx + z*bdx*bdy`；`warp = linear / 32` |
+| 每 SM 上限（A100） | 2048 线程 / 64 warp / 32 block / 65536 寄存器 / 164 KB shared |
+| `block` 数 ≤ SM 数时 | 大部分 SM 空闲 → 带宽上不去 |
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-编译选项速查
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--arch=sm_80                            = compute_80 PTX + sm_80 SASS
--gencode arch=compute_80,code=sm_80    只有 SASS，不能 JIT 到更新架构
--gencode arch=compute_90,code=compute_90   只有 PTX，靠 JIT
-多个 -gencode                          fatbin，多份 SASS + 一份最高 PTX 兜底
--lineinfo                              源码行号映射，不影响优化，常开
--G                                     关闭优化，仅单步调试
---ptxas-options=-v                     打印 registers / spill / smem / stack
--O3                                    host 与 device 侧优化
-SASS 兼容                              同大版本向前（sm_80 → sm_86/89），跨大版本不行
-PTX 兼容                               向前 JIT 到任意更新架构
+Table: launch 配置速查
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-benchmark 脚手架要点          bench(fn, warmup=10, iters=100, flush_l2=True) → 中位数 ms
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-计时                  cudaEventRecord / ElapsedTime；Python 用 torch.cuda.Event
-warmup                ≥ 10 次：上下文、模块加载、JIT、升频
-统计                  中位数（噪声单边）；报告分布更好
-L2 flush              每次迭代前 cudaMemsetAsync 一块 128 MB 缓冲（≥ 2 × 40 MB L2）
-错误                  warmup 后 cudaGetLastError + 同步；每次 EventSynchronize 也是同步点
-stream                PyTorch 扩展里用 at::cuda::getCurrentCUDAStream()
+| 项 | 值 |
+| --- | --- |
+| `-arch=sm_80` | `compute_80` PTX + `sm_80` SASS |
+| `-gencode arch=compute_80,code=sm_80` | 只有 SASS，不能 JIT 到更新架构 |
+| `-gencode arch=compute_90,code=compute_90` | 只有 PTX，靠 JIT |
+| 多个 `-gencode` | fatbin，多份 SASS + 一份最高 PTX 兜底 |
+| `-lineinfo` | 源码行号映射，不影响优化，常开 |
+| `-G` | 关闭优化，仅单步调试 |
+| `--ptxas-options=-v` | 打印 registers / spill / smem / stack |
+| `-O3` | host 与 device 侧优化 |
+| SASS 兼容 | 同大版本向前（`sm_80` → `sm_86/89`），跨大版本不行 |
+| PTX 兼容 | 向前 JIT 到任意更新架构 |
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-vector add 数字（A100，n = 2^28）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FP32  流量 3 GiB      理论下界 ≈ 1.6 ms @ 2.0 TB/s     常见实测区间 1.7–2.0 ms
-BF16  流量 1.5 GiB    理论下界 ≈ 0.8 ms                常见实测区间 0.85–1.0 ms
-FLOPs                 0.27 GFLOP → 14 µs @ 19.5 TFLOPS   与访存差两个数量级
-可达带宽              标称的 85–92%（DRAM refresh、turnaround、协议开销）
-差距来源              可达带宽 > 每线程工作量太小 > launch/尾部 > SM 填充
-```
+Table: 编译选项速查
+
+| 项 | 值 |
+| --- | --- |
+| 计时 | `cudaEventRecord` / `ElapsedTime`；Python 用 `torch.cuda.Event` |
+| warmup | ≥ 10 次：上下文、模块加载、JIT、升频 |
+| 统计 | 中位数（噪声单边）；报告分布更好 |
+| L2 flush | 每次迭代前 `cudaMemsetAsync` 一块 128 MB 缓冲（≥ 2 × 40 MB L2） |
+| 错误 | warmup 后 `cudaGetLastError` + 同步；每次 `EventSynchronize` 也是同步点 |
+| stream | PyTorch 扩展里用 `at::cuda::getCurrentCUDAStream()` |
+
+Table: benchmark 脚手架要点：`bench(fn, warmup=10, iters=100, flush_l2=True)` → 中位数 ms
+
+| 项 | 数值 | 说明 |
+| --- | --- | --- |
+| FP32 流量 | 3 GiB | 理论下界 ≈ 1.6 ms @ 2.0 TB/s；常见实测区间 1.7–2.0 ms |
+| BF16 流量 | 1.5 GiB | 理论下界 ≈ 0.8 ms；常见实测区间 0.85–1.0 ms |
+| FLOPs | 0.27 GFLOP → 14 µs @ 19.5 TFLOPS | 与访存差两个数量级 |
+| 可达带宽 | 标称的 85–92% | DRAM refresh、turnaround、协议开销 |
+| 差距来源 | 可达带宽 > 每线程工作量太小 > launch/尾部 > SM 填充 | |
+
+Table: vector add 数字（A100，`n = 2^28`）
 
 ## 十一、自测
 

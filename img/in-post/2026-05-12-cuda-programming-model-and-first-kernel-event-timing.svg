@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 266" width="760" height="266" role="img" aria-labelledby="title desc">
+  <title id="title">event 计时的 GPU 时间戳与 CPU 等待</title>
+  <desc id="desc">stream 上的顺序是 record start、kernel 1.6 ms、record stop。两个窄事件标记分别对应 t_start 与 t_stop；cudaEventElapsedTime 是这两个 GPU 时间戳之差，与 CPU 何时来问无关。CPU 依次 record(start)、launch、record(stop)，然后在 cudaEventSynchronize(stop) 阻塞直到 stop 标记，随后返回并读取 ms。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#f1f3f6"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#c5d0dc" stroke-width="2"/>
+    </pattern>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+.head { font-size: 15px; font-weight: 700; }
+.body { font-size: 14px; }
+.small { font-size: 13px; }
+.tick { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; fill: #40566f; }
+.axis { stroke: #40566f; stroke-width: 1.5; fill: none; }
+.grid { stroke: #e3e9ef; stroke-width: 1; fill: none; }
+.guide { stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; }
+.arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+.frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.3; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: url(#hatch); stroke: #9aa8b6; stroke-width: 1.2; }
+
+.event-marker { stroke: #40566f; stroke-width: 2; }
+</style>
+  </defs>
+  <rect x="0" y="0" width="760" height="266" fill="#fff"/>
+<text class="head" x="24" y="55.0" dominant-baseline="central">stream 上的顺序</text>
+<rect x="300" y="34" width="302" height="42" class="gpu"/>
+<text class="small" x="292" y="55.0" text-anchor="end" dominant-baseline="central">record start</text>
+<text class="small" x="451.0" y="55.0" text-anchor="middle" dominant-baseline="central">kernel 1.6 ms</text>
+<text class="small" x="610" y="55.0" dominant-baseline="central">record stop</text>
+<line x1="300" y1="30" x2="300" y2="80" class="event-marker"/>
+<line x1="602" y1="30" x2="602" y2="80" class="event-marker"/>
+<text class="head" x="24" y="110" dominant-baseline="central">GPU 时间戳</text>
+<line x1="300" y1="108" x2="300" y2="80" class="arrow"/>
+<text class="small" x="308" y="110" dominant-baseline="central">t_start</text>
+<line x1="602" y1="108" x2="602" y2="80" class="arrow"/>
+<text class="small" x="610" y="110" dominant-baseline="central">t_stop</text>
+<line x1="300" y1="132" x2="602" y2="132" class="axis"/>
+<line x1="300" y1="132" x2="300" y2="139" class="axis"/>
+<line x1="602" y1="132" x2="602" y2="139" class="axis"/>
+<text class="small" x="451.0" y="156" text-anchor="middle" dominant-baseline="central">cudaEventElapsedTime = t_stop − t_start，与 CPU 何时来问无关</text>
+<text class="head" x="24" y="218.0" dominant-baseline="central">CPU</text>
+<rect x="140" y="188" width="250" height="60" class="cpu"/>
+<text class="small" x="265.0" y="218.0" text-anchor="middle" dominant-baseline="central">record(start) · launch · record(stop)</text>
+<line x1="390" y1="218.0" x2="402" y2="218.0" class="arrow"/>
+<rect x="402" y="188" width="200" height="60" class="idle"/>
+<text class="small" x="502.0" y="210.0" text-anchor="middle" dominant-baseline="central">cudaEventSynchronize(stop)</text>
+<text class="small" x="502.0" y="226.0" text-anchor="middle" dominant-baseline="central">阻塞</text>
+<line x1="602" y1="218.0" x2="612" y2="218.0" class="arrow"/>
+<rect x="612" y="188" width="48" height="60" class="cpu"/>
+<text class="small" x="636.0" y="218.0" text-anchor="middle" dominant-baseline="central">返回</text>
+<line x1="660" y1="218.0" x2="668" y2="218.0" class="arrow"/>
+<rect x="668" y="188" width="72" height="60" class="cpu"/>
+<text class="small" x="704.0" y="218.0" text-anchor="middle" dominant-baseline="central">读 ms</text>
+</svg>

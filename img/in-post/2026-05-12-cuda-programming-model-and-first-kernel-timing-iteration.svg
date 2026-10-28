@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 189" width="760" height="189" role="img" aria-labelledby="title desc">
+  <title id="title">一次计时迭代在 stream 上的布置</title>
+  <desc id="desc">stream 上依次是 flush_l2 的 cudaMemsetAsync 128 MB、record start、kernel 和 record stop，随后有一段 stream 空闲再进入下一次迭代。flush_l2 不计入计时；CPU 在 stop 后通过 cudaEventSynchronize(stop) 同步、读取 ms，再提交下一轮 flush_l2。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#f1f3f6"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#c5d0dc" stroke-width="2"/>
+    </pattern>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+.head { font-size: 15px; font-weight: 700; }
+.body { font-size: 14px; }
+.small { font-size: 13px; }
+.tick { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; fill: #40566f; }
+.axis { stroke: #40566f; stroke-width: 1.5; fill: none; }
+.grid { stroke: #e3e9ef; stroke-width: 1; fill: none; }
+.guide { stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; }
+.arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+.frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.3; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: url(#hatch); stroke: #9aa8b6; stroke-width: 1.2; }
+
+.next { fill: #f8fafc; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 6 4; }
+.event-marker { stroke: #40566f; stroke-width: 2; }
+</style>
+  </defs>
+  <rect x="0" y="0" width="760" height="189" fill="#fff"/>
+<text class="head" x="24" y="68.0" dominant-baseline="central">stream</text>
+<rect x="130" y="42" width="244" height="52" class="cpu"/>
+<text class="small" x="252.0" y="60.0" text-anchor="middle" dominant-baseline="central">flush_l2：cudaMemsetAsync 128 MB</text>
+<text class="small" x="252.0" y="76.0" text-anchor="middle" dominant-baseline="central">逐出 L2</text>
+<rect x="374" y="42" width="130" height="52" class="gpu"/>
+<text class="small" x="439.0" y="68.0" text-anchor="middle" dominant-baseline="central">kernel</text>
+<rect x="644" y="42" width="100" height="52" class="next"/>
+<text class="small" x="694.0" y="68.0" text-anchor="middle" dominant-baseline="central">下一次迭代…</text>
+<text class="small" x="374" y="24" text-anchor="middle" dominant-baseline="central">record start</text>
+<line x1="374" y1="38" x2="374" y2="98" class="event-marker"/>
+<text class="small" x="504" y="24" text-anchor="middle" dominant-baseline="central">record stop</text>
+<line x1="504" y1="38" x2="504" y2="98" class="event-marker"/>
+<line x1="130" y1="106" x2="374" y2="106" class="axis"/>
+<line x1="130" y1="100" x2="130" y2="112" class="axis"/>
+<line x1="374" y1="100" x2="374" y2="112" class="axis"/>
+<text class="small" x="252.0" y="127" text-anchor="middle" dominant-baseline="central">不计时</text>
+<line x1="374" y1="106" x2="504" y2="106" class="axis"/>
+<line x1="374" y1="100" x2="374" y2="112" class="axis"/>
+<line x1="504" y1="100" x2="504" y2="112" class="axis"/>
+<text class="small" x="439.0" y="127" text-anchor="middle" dominant-baseline="central">计入 ms</text>
+<line x1="504" y1="106" x2="644" y2="106" class="axis"/>
+<line x1="504" y1="100" x2="504" y2="112" class="axis"/>
+<line x1="644" y1="100" x2="644" y2="112" class="axis"/>
+<text class="small" x="574.0" y="127" text-anchor="middle" dominant-baseline="central">stream 空闲</text>
+<text class="small" x="574.0" y="149" text-anchor="middle" dominant-baseline="central">CPU：cudaEventSynchronize(stop)</text>
+<text class="small" x="574.0" y="165" text-anchor="middle" dominant-baseline="central">→ 读 ms → 下一轮 flush_l2</text>
+</svg>
