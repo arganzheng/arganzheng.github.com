@@ -25,15 +25,17 @@ catalog: true
 
 这个系列采用的组织方式就是这条因果链：**每一篇先说引擎提出了什么要求，再说平台用什么机制满足，再说这个机制的代价和边界**。
 
-```text title="系列的组织：资源层与交付层"
-资源层    容器里的 GPU    → 驱动 / CUDA 兼容矩阵、device plugin、DRA、镜像
-          任务调度        → gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray
-          GPU 切分        → MIG、时间片、MPS、HAMi：隔离与利用率的取舍
-          网络与存储      → RDMA 在 K8s 里的配置、并行文件系统与对象存储、checkpoint I/O
-交付层    Serving 平台    → KServe / Triton / Ray Serve / llm-d，LLM 服务的形态与扩缩容
-          模型网关        → 路由、多租户、配额与限流
-          可观测与成本    → 从 DCGM 到引擎指标，从利用率到账单
-```
+| 层 | 篇 | 内容 |
+|---|---|---|
+| 资源层 | 容器里的 GPU | 驱动 / CUDA 兼容矩阵、device plugin、DRA、镜像 |
+| ^^ | 任务调度 | gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray |
+| ^^ | GPU 切分 | MIG、时间片、MPS、HAMi：隔离与利用率的取舍 |
+| ^^ | 网络与存储 | RDMA 在 K8s 里的配置、并行文件系统与对象存储、checkpoint I/O |
+| 交付层 | Serving 平台 | KServe / Triton / Ray Serve / llm-d，LLM 服务的形态与扩缩容 |
+| ^^ | 模型网关 | 路由、多租户、配额与限流 |
+| ^^ | 可观测与成本 | 从 DCGM 到引擎指标，从利用率到账单 |
+
+Table: 系列的组织：资源层与交付层
 
 系列以 **Kubernetes 上的 NVIDIA GPU 集群**为主线，因为这是当前开源生态最活跃、组件最齐全的组合。Slurm 和 Ray 作为同位替代品在调度篇中对比，不单独展开。
 
@@ -319,15 +321,17 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 与它平行的源码与文档阅读线。平台层的"源码"更多是 CRD 定义、Operator 的 reconcile 逻辑和官方设计文档：
 
-```text title="与实践线平行的源码与文档阅读线"
-第二篇    k8s-device-plugin  cmd/nvidia-device-plugin · api/config/v1；kubernetes  KEP-4381（DRA structured parameters）
-第三篇    kueue  apis/kueue/v1beta2 · pkg/scheduler；volcano  pkg/scheduler/plugins/gang；trainer  pkg/runtime
-第四篇    k8s-device-plugin  internal/rm（MIG 与 sharing 的资源上报）；HAMi  pkg/scheduler · libvgpu 的拦截点
-第五篇    network-operator  NicClusterPolicy CRD；k8s-rdma-shared-dev-plugin；nccl-tests；PyTorch torch/distributed/checkpoint
-第六篇    kserve  pkg/apis/serving/v1alpha1/llm_inference_service_types.go；lws  api/leaderworkerset/v1；llm-d 架构文档
-第七篇    gateway-api-inference-extension  api/v1（InferencePool）· pkg/epp（Endpoint Picker 的调度插件）
-第八篇    dcgm-exporter 的默认指标表；vLLM  docs/design/metrics.md；OpenCost 的 GPU 计费逻辑
-```
+| 篇 | 源码与文档 |
+|---|---|
+| 第二篇 | k8s-device-plugin `cmd/nvidia-device-plugin` · `api/config/v1`；kubernetes KEP-4381（DRA structured parameters） |
+| 第三篇 | kueue `apis/kueue/v1beta2` · `pkg/scheduler`；volcano `pkg/scheduler/plugins/gang`；trainer `pkg/runtime` |
+| 第四篇 | k8s-device-plugin `internal/rm`（MIG 与 sharing 的资源上报）；HAMi `pkg/scheduler` · libvgpu 的拦截点 |
+| 第五篇 | network-operator NicClusterPolicy CRD；k8s-rdma-shared-dev-plugin；nccl-tests；PyTorch `torch/distributed/checkpoint` |
+| 第六篇 | kserve `pkg/apis/serving/v1alpha1/llm_inference_service_types.go`；lws `api/leaderworkerset/v1`；llm-d 架构文档 |
+| 第七篇 | gateway-api-inference-extension `api/v1`（InferencePool）· `pkg/epp`（Endpoint Picker 的调度插件） |
+| 第八篇 | dcgm-exporter 的默认指标表；vLLM `docs/design/metrics.md`；OpenCost 的 GPU 计费逻辑 |
+
+Table: 与实践线平行的源码与文档阅读线
 
 
 ## 前置要求与说明
