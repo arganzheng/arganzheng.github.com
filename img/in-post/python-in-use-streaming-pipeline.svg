@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 240" width="760" height="240" role="img" aria-labelledby="t d">
+  <title id="t">流水线里同一时刻只有一条记录在流动</title>
+  <desc id="d">读、过滤、去重、统计的生成器流水线。上一行是逐条流过的五步：读文件、json.loads、过滤、去重、Counter，读文件到 json.loads 的箭头上是一行文本，json.loads 到过滤的箭头上是一个 dict，每个箭头上同一时刻只有一条记录。读文件和 json.loads 属于 iter_jsonl(path)，过滤和去重属于 clean(records)，Counter 计数在 for 循环体里。下一行是常驻内存的对象：去重下面的 seen 哈希集合，Counter 下面的 by_source 和 lengths 两个 Counter。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bodys { font-size: 13px; }
+      .small { font-size: 13px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .stage { fill: #eaf1f8; stroke: #40566f; stroke-width: 1.2; }
+      .mem { fill: #fdf3e1; stroke: #b07a2a; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .br { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380.0" y="26" class="head" text-anchor="middle">流水线里同一时刻只有一条记录在流动</text>
+  <path class="br" d="M98.0,70 L98.0,64 L338.0,64 L338.0,70"/>
+  <text x="218.0" y="56" class="mono" text-anchor="middle">iter_jsonl(path)</text>
+  <path class="br" d="M402.0,70 L402.0,64 L586.0,64 L586.0,70"/>
+  <text x="494.0" y="56" class="mono" text-anchor="middle">clean(records)</text>
+  <path class="br" d="M650.0,70 L650.0,64 L750.0,64 L750.0,70"/>
+  <text x="700.0" y="56" text-anchor="middle"><tspan class="mono">for</tspan><tspan class="small"> 循环体</tspan></text>
+  <text x="14" y="107" class="bold">一次一条</text>
+  <rect class="stage" x="98.0" y="82" width="72" height="40"/>
+  <text x="134.0" y="107" class="body" text-anchor="middle">读文件</text>
+  <rect class="stage" x="234.0" y="82" width="104" height="40"/>
+  <text x="286.0" y="107" class="mono" text-anchor="middle">json.loads</text>
+  <rect class="stage" x="402.0" y="82" width="60" height="40"/>
+  <text x="432.0" y="107" class="body" text-anchor="middle">过滤</text>
+  <rect class="stage" x="526.0" y="82" width="60" height="40"/>
+  <text x="556.0" y="107" class="body" text-anchor="middle">去重</text>
+  <rect class="stage" x="650.0" y="82" width="100" height="40"/>
+  <text x="700.0" y="107" class="mono" text-anchor="middle">Counter</text>
+  <line class="ln" x1="170.0" y1="102.0" x2="234.0" y2="102.0" marker-end="url(#ar)"/>
+  <text x="202.0" y="95.0" class="bodys" text-anchor="middle">行</text>
+  <line class="ln" x1="338.0" y1="102.0" x2="402.0" y2="102.0" marker-end="url(#ar)"/>
+  <text x="370.0" y="95.0" class="monos" text-anchor="middle">dict</text>
+  <line class="ln" x1="462.0" y1="102.0" x2="526.0" y2="102.0" marker-end="url(#ar)"/>
+  <line class="ln" x1="586.0" y1="102.0" x2="650.0" y2="102.0" marker-end="url(#ar)"/>
+  <text x="14" y="173" class="bold">常驻内存</text>
+  <rect class="mem" x="491.0" y="152" width="130" height="32"/>
+  <text x="556.0" y="173" text-anchor="middle"><tspan class="mono">seen</tspan><tspan class="body">：哈希集合</tspan></text>
+  <rect class="mem" x="650.0" y="152" width="100" height="32"/>
+  <text x="700.0" y="173" class="mono" text-anchor="middle">by_source</text>
+  <rect class="mem" x="650.0" y="192" width="100" height="32"/>
+  <text x="700.0" y="213" class="mono" text-anchor="middle">lengths</text>
+</svg>

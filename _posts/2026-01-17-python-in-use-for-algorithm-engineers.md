@@ -138,10 +138,9 @@ for r in clean(iter_jsonl(path)):                                # 读 → 过�
     lengths[min(len(r["text"].split()) // 10 * 10, 50)] += 1
 ```
 
-```text title='流水线里同一时刻只有一条记录在流动'
-读文件 ──行──▶ json.loads ──dict──▶ 过滤 ──▶ 去重 ──▶ Counter
-          每个箭头上同一时刻只有一条记录；内存里常驻的只有 seen 和两个 Counter
-```
+![流水线里同一时刻只有一条记录在流动](/img/in-post/python-in-use-streaming-pipeline.svg)
+
+每个箭头上同一时刻只有一条记录；内存里常驻的只有 `seen` 和两个 `Counter`（`by_source`、`lengths`）。
 
 ```text title='10 万条语料过滤去重后的统计结果'
 过滤 + 去重后保留 92,867 / 100,000 条; 按来源: {'book': 30964, 'code': 31155, 'web': 30748}
