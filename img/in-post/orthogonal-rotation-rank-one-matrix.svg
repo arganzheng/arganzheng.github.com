@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="238" viewBox="0 0 390 238" role="img" aria-labelledby="orthogonal-rotation-rank-one-matrix-t orthogonal-rotation-rank-one-matrix-d">
+<title id="orthogonal-rotation-rank-one-matrix-t">秩为 1 的 3×3 矩阵：三行只有一个方向</title>
+<desc id="orthogonal-rotation-rank-one-matrix-d">矩阵 (1,2,3; 2,4,6; 3,6,9)：第 2 行是第 1 行的 2 倍，第 3 行是第 1 行的 3 倍，三行只有一个方向，秩 = 1。</desc>
+<style>
+text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;fill:#111;}
+.t{font-size:14px;font-weight:600;}
+.lb{font-size:13px;font-weight:600;}
+.n{font-size:16px;font-weight:500;}
+.s{font-size:13px;font-weight:500;}
+.op{font-size:18px;}
+</style>
+<rect width="390" height="238" fill="#fff"/>
+<text class="t" x="40" y="24">秩为 1 的 3×3 矩阵：三行只有一个方向</text>
+<rect x="40" y="48" width="138" height="46" fill="#e3eefa"/>
+<text class="n" x="63.0" y="77.0" text-anchor="middle">1</text>
+<text class="n" x="109.0" y="77.0" text-anchor="middle">2</text>
+<text class="n" x="155.0" y="77.0" text-anchor="middle">3</text>
+<rect x="40" y="94" width="138" height="46" fill="#fff"/>
+<text class="n" x="63.0" y="123.0" text-anchor="middle">2</text>
+<text class="n" x="109.0" y="123.0" text-anchor="middle">4</text>
+<text class="n" x="155.0" y="123.0" text-anchor="middle">6</text>
+<rect x="40" y="140" width="138" height="46" fill="#fff"/>
+<text class="n" x="63.0" y="169.0" text-anchor="middle">3</text>
+<text class="n" x="109.0" y="169.0" text-anchor="middle">6</text>
+<text class="n" x="155.0" y="169.0" text-anchor="middle">9</text>
+<line x1="40" y1="48" x2="178" y2="48" stroke="#1f6fb2" stroke-width="1.6"/>
+<line x1="40" y1="48" x2="40" y2="186" stroke="#1f6fb2" stroke-width="1.6"/>
+<line x1="40" y1="94" x2="178" y2="94" stroke="#1f6fb2" stroke-width="1"/>
+<line x1="86" y1="48" x2="86" y2="186" stroke="#1f6fb2" stroke-width="1"/>
+<line x1="40" y1="140" x2="178" y2="140" stroke="#1f6fb2" stroke-width="1"/>
+<line x1="132" y1="48" x2="132" y2="186" stroke="#1f6fb2" stroke-width="1"/>
+<line x1="40" y1="186" x2="178" y2="186" stroke="#1f6fb2" stroke-width="1.6"/>
+<line x1="178" y1="48" x2="178" y2="186" stroke="#1f6fb2" stroke-width="1.6"/>
+<text class="s" x="198" y="76.0">第 1 行</text>
+<text class="s" x="198" y="122.0">第 2 行是第 1 行的 2 倍</text>
+<text class="s" x="198" y="168.0">第 3 行是第 1 行的 3 倍</text>
+<text class="s" x="198" y="216" font-weight="600">→ 三行只有一个方向，秩 = 1</text>
+</svg>

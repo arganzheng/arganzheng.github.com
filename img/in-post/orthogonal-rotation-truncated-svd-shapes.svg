@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="292" viewBox="0 0 760 292" role="img" aria-labelledby="orthogonal-rotation-truncated-svd-shapes-t orthogonal-rotation-truncated-svd-shapes-d">
+<title id="orthogonal-rotation-truncated-svd-shapes-t">截断 SVD：只留前 r 个奇异值后的形状与参数量</title>
+<desc id="orthogonal-rotation-truncated-svd-shapes-d">只留前 r 个奇异值（r ≪ n）：W [m×n] ≈ W_r = U_r [m×r] · Σ_r [r×r] · V_rᵀ [r×n]；参数量 m·n → m·r + r + r·n ≈ r(m+n)。</desc>
+<style>
+text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;fill:#111;}
+.t{font-size:14px;font-weight:600;}
+.lb{font-size:13px;font-weight:600;}
+.n{font-size:16px;font-weight:500;}
+.s{font-size:13px;font-weight:500;}
+.op{font-size:18px;}
+</style>
+<rect width="760" height="292" fill="#fff"/>
+<text class="t" x="30" y="26">只留前 r 个奇异值（r ≪ n）：W ≈ W<tspan baseline-shift="-28%" font-size="0.72em">r</tspan> = U<tspan baseline-shift="-28%" font-size="0.72em">r</tspan> Σ<tspan baseline-shift="-28%" font-size="0.72em">r</tspan> V<tspan baseline-shift="-28%" font-size="0.72em">r</tspan>ᵀ</text>
+<rect x="100" y="74" width="120" height="160" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.6"/>
+<text class="lb" x="160.0" y="64" text-anchor="middle">W  [m × n]</text>
+<rect x="290" y="74" width="22" height="160" fill="#fff" stroke="#1f6fb2" stroke-width="1.6"/>
+<text class="lb" x="301.0" y="64" text-anchor="middle">U<tspan baseline-shift="-28%" font-size="0.72em">r</tspan>  [m × r]</text>
+<rect x="410" y="74" width="22" height="22" fill="#fff" stroke="#c98a00" stroke-width="1.6"/>
+<text class="lb" x="421.0" y="64" text-anchor="middle">Σ<tspan baseline-shift="-28%" font-size="0.72em">r</tspan>  [r × r]</text>
+<rect x="500" y="74" width="120" height="22" fill="#fff" stroke="#c0392b" stroke-width="1.6"/>
+<text class="lb" x="560.0" y="64" text-anchor="middle">V<tspan baseline-shift="-28%" font-size="0.72em">r</tspan>ᵀ  [r × n]</text>
+<line x1="413" y1="77" x2="429" y2="93" stroke="#c98a00" stroke-width="1.6" stroke-dasharray="3 2"/>
+<text class="op" x="255.0" y="160.0" text-anchor="middle">≈</text>
+<text class="op" x="361.0" y="91.0" text-anchor="middle">·</text>
+<text class="op" x="466.0" y="91.0" text-anchor="middle">·</text>
+<text class="lb" x="30" y="270">参数量</text>
+<text class="s" x="160.0" y="270" text-anchor="middle">m·n</text>
+<text class="s" x="301.0" y="270" text-anchor="middle">m·r</text>
+<text class="s" x="421.0" y="270" text-anchor="middle">r</text>
+<text class="s" x="560.0" y="270" text-anchor="middle">r·n</text>
+<text class="s" x="255.0" y="270" text-anchor="middle">→</text>
+<text class="s" x="361.0" y="270" text-anchor="middle">+</text>
+<text class="s" x="466.0" y="270" text-anchor="middle">+</text>
+<text class="s" x="640" y="270">≈  r (m + n)</text>
+</svg>
