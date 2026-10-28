@@ -280,5 +280,5 @@ Jekyll::Hooks.register :documents, :post_convert do |doc|
   overview = doc.site.data.dig('series', key, 'overview').to_s
   converted = Glossary.process(doc.content.dup, entries, overview)
   doc.content = converted
-  doc.output = Glossary.process(doc.output.to_s.empty? ? converted : doc.output.to_s.dup, entries, overview)
+  doc.output = doc.output.to_s.empty? ? converted : Glossary.process(doc.output.to_s.dup, entries, overview)
 end
