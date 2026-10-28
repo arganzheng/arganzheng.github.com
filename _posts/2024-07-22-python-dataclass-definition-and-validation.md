@@ -339,7 +339,7 @@ print(RawUser.__annotations__)
 标准库的 @dataclass 实际上是一个装饰器。当它包裹一个类时，它会执行以下操作：
 
 1. 读取该类的 `__annotations__` 字典。
-2. 在内存中动态拼接一段形如 def `__init__`(self, id, name): self.id = id ... 的 Python 代码字符串。
+2. 在内存中动态拼接一段形如 `def __init__(self, id, name): self.id = id ...` 的 Python 代码字符串。
 3. 使用内置的 exec() 函数将这段字符串编译为真正的 Python 函数对象，并注入到你的类中（将其绑定为 `__init__`）。
 
 其本质是在类定义完成后，通过外挂装饰器动态地往类里塞入方法。
