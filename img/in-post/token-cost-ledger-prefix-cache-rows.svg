@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 322" width="760" height="322" role="img" aria-labelledby="t d">
+  <title id="t">每轮输入的构成：命中与写入</title>
+  <desc id="d">轮次 k 的输入构成（客户端状态，历史只追加）。绿色块命中缓存按 0.1× 计，橙色块未缓存并写入按 1.25× 计。k=1：S、u1 全部写入；k=2：S、u1 命中，a1、u2 写入；k=3：S 到 u2 命中，a2、u3 写入；……；k=N：前缀全部命中，最后两块 a(N−1)、uN 写入。修改的例子：k=4 时删掉第 2 轮（u2、a2），S、u1、a1 仍命中，从改动处 u3 起全部变成未缓存 + 写入。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .name { font-size: 14px; font-weight: 700; }
+      .desc { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+      .rowlab { font-size: 13px; font-weight: 700; }
+      .hit { fill: #dff3e3; stroke: #4d9a5c; stroke-width: 1.2; }
+      .wr { fill: #fde8c8; stroke: #c98a00; stroke-width: 1.2; }
+      .rule { stroke: #c8d0da; stroke-width: 1; }
+      .cut { stroke: #c0392b; stroke-width: 2.5; }
+      .cutlab { font-size: 13px; font-weight: 700; fill: #c0392b; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="322" fill="#ffffff"/>
+  <text class="name" x="20" y="22">轮次 k 的输入构成（客户端状态，历史只追加）</text>
+  <rect class="hit" x="420" y="41" width="12" height="12"/>
+  <text class="name" x="438" y="52">命中（0.1×）</text>
+  <rect class="wr" x="570" y="41" width="12" height="12"/>
+  <text class="name" x="588" y="52">写入（1.25×）</text>
+  <line class="rule" x1="20" y1="60" x2="740" y2="60"/>
+  <text class="mono rowlab" x="20" y="85">k=1</text>
+  <rect class="wr" x="70" y="68" width="120" height="24"/>
+  <text class="mono" x="130.0" y="85" text-anchor="middle">S</text>
+  <rect class="wr" x="193" y="68" width="38" height="24"/>
+  <text class="mono" x="212.0" y="85" text-anchor="middle">u1</text>
+  <text class="desc" x="420" y="85">—</text>
+  <text class="desc" x="570" y="85">全部写入：S, u1</text>
+  <text class="mono rowlab" x="20" y="119">k=2</text>
+  <rect class="hit" x="70" y="102" width="120" height="24"/>
+  <text class="mono" x="130.0" y="119" text-anchor="middle">S</text>
+  <rect class="hit" x="193" y="102" width="38" height="24"/>
+  <text class="mono" x="212.0" y="119" text-anchor="middle">u1</text>
+  <rect class="wr" x="234" y="102" width="38" height="24"/>
+  <text class="mono" x="253.0" y="119" text-anchor="middle">a1</text>
+  <rect class="wr" x="275" y="102" width="38" height="24"/>
+  <text class="mono" x="294.0" y="119" text-anchor="middle">u2</text>
+  <text class="desc" x="420" y="119">S, u1</text>
+  <text class="desc" x="570" y="119">a1, u2</text>
+  <text class="mono rowlab" x="20" y="153">k=3</text>
+  <rect class="hit" x="70" y="136" width="120" height="24"/>
+  <text class="mono" x="130.0" y="153" text-anchor="middle">S</text>
+  <rect class="hit" x="193" y="136" width="38" height="24"/>
+  <text class="mono" x="212.0" y="153" text-anchor="middle">u1</text>
+  <rect class="hit" x="234" y="136" width="38" height="24"/>
+  <text class="mono" x="253.0" y="153" text-anchor="middle">a1</text>
+  <rect class="hit" x="275" y="136" width="38" height="24"/>
+  <text class="mono" x="294.0" y="153" text-anchor="middle">u2</text>
+  <rect class="wr" x="316" y="136" width="38" height="24"/>
+  <text class="mono" x="335.0" y="153" text-anchor="middle">a2</text>
+  <rect class="wr" x="357" y="136" width="38" height="24"/>
+  <text class="mono" x="376.0" y="153" text-anchor="middle">u3</text>
+  <text class="desc" x="420" y="153">S … u2</text>
+  <text class="desc" x="570" y="153">a2, u3</text>
+  <text class="desc rowlab" x="24" y="182">…</text>
+  <text class="mono rowlab" x="20" y="209">k=N</text>
+  <rect class="hit" x="70" y="192" width="120" height="24"/>
+  <text class="mono" x="130.0" y="209" text-anchor="middle">S</text>
+  <rect class="hit" x="193" y="192" width="38" height="24"/>
+  <text class="mono" x="212.0" y="209" text-anchor="middle">u1</text>
+  <rect class="hit" x="234" y="192" width="38" height="24"/>
+  <text class="mono" x="253.0" y="209" text-anchor="middle">a1</text>
+  <text class="desc" x="287" y="209" text-anchor="middle">…</text>
+  <rect class="wr" x="302" y="192" width="56" height="24"/>
+  <text class="mono" x="330.0" y="209" text-anchor="middle">a(N−1)</text>
+  <rect class="wr" x="361" y="192" width="38" height="24"/>
+  <text class="mono" x="380.0" y="209" text-anchor="middle">uN</text>
+  <text class="desc" x="420" y="209">前缀全部命中</text>
+  <text class="desc" x="570" y="209">最后两块：a(N−1), uN</text>
+  <line class="rule" x1="20" y1="230" x2="740" y2="230"/>
+  <text class="desc" x="20" y="252">一处修改的例子：k=4 时删掉第 2 轮（u2, a2）</text>
+  <text class="mono rowlab" x="20" y="281">k=4</text>
+  <rect class="hit" x="70" y="264" width="120" height="24"/>
+  <text class="mono" x="130.0" y="281" text-anchor="middle">S</text>
+  <rect class="hit" x="193" y="264" width="38" height="24"/>
+  <text class="mono" x="212.0" y="281" text-anchor="middle">u1</text>
+  <rect class="hit" x="234" y="264" width="38" height="24"/>
+  <text class="mono" x="253.0" y="281" text-anchor="middle">a1</text>
+  <rect class="wr" x="275" y="264" width="38" height="24"/>
+  <text class="mono" x="294.0" y="281" text-anchor="middle">u3</text>
+  <rect class="wr" x="316" y="264" width="38" height="24"/>
+  <text class="mono" x="335.0" y="281" text-anchor="middle">a3</text>
+  <rect class="wr" x="357" y="264" width="38" height="24"/>
+  <text class="mono" x="376.0" y="281" text-anchor="middle">u4</text>
+  <line class="cut" x1="273.5" y1="258" x2="273.5" y2="294"/>
+  <text class="cutlab" x="273.5" y="310" text-anchor="middle">改动处</text>
+  <text class="desc" x="420" y="281">S, u1, a1</text>
+  <text class="desc" x="570" y="281">u3 起全部未缓存 + 写入</text>
+</svg>
