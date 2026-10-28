@@ -24,16 +24,19 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 ### 1. 生命周期
 
-以一个典型改动为例——给某个 CUDA Kernel 换一种更快的实现。它从写下到进入用户的训练作业，要经过：
+以一个典型改动为例——给某个 CUDA Kernel 换一种更快的实现。它从写下到进入用户的训练作业，要依次过七关：
 
-1. 写下改动
-2. ① 本地构建能跑        改一个 .cu 文件后多久能重新编译、加载、跑通一个测试？          → 第二章
-3. ② 结果正确            新 Kernel 与旧实现、与 CPU、与 fp64 参考、与 compile 后一致吗？ → 第三章
-4. ③ 没有变慢            它快了，有没有让别的 shape 慢？CPU 侧开销有没有变化？          → 第四章
-5. ④ 审查与 CI 合入       谁有权批准？几十万个测试怎么在两小时内跑完？红了怎么办？      → 第五章
-6. ⑤ 随版本发布          进 nightly 还是等下个小版本？编成多少个 wheel？                → 第六章
-7. ⑥ 用户升级不坏        用户的代码、C++ 扩展、保存的 checkpoint 在新版本上还能用吗？   → 第七章
-8. ⑦ 使用者跟随演进       用户侧：什么时候升级、怎么升级、升级坏了怎么回退？            → 第八章
+| 关卡 | 要回答的问题 | 章节 |
+|---|---|---|
+| ① 本地构建能跑 | 改一个 .cu 文件后多久能重新编译、加载、跑通一个测试？ | 第二章 |
+| ② 结果正确 | 新 Kernel 与旧实现、与 CPU、与 fp64 参考、与 compile 后一致吗？ | 第三章 |
+| ③ 没有变慢 | 它快了，有没有让别的 shape 慢？CPU 侧开销有没有变化？ | 第四章 |
+| ④ 审查与 CI 合入 | 谁有权批准？几十万个测试怎么在两小时内跑完？红了怎么办？ | 第五章 |
+| ⑤ 随版本发布 | 进 nightly 还是等下个小版本？编成多少个 wheel？ | 第六章 |
+| ⑥ 用户升级不坏 | 用户的代码、C++ 扩展、保存的 checkpoint 在新版本上还能用吗？ | 第七章 |
+| ⑦ 使用者跟随演进 | 用户侧：什么时候升级、怎么升级、升级坏了怎么回退？ | 第八章 |
+
+Table: 一次改动从写下到进入用户训练作业的七个关卡
 
 前六关是框架维护者的视角，第七关是使用者的视角。两者对 AI-Infra 工程师都重要：读源码、给 PyTorch 提 PR、维护树外后端时是前者；升级集群、维护自己的 C++ 扩展、保证 checkpoint 可加载时是后者。
 
@@ -127,20 +130,20 @@ Table: 本文的章节安排
 
 ### 2. 构建流程与 Codegen 的位置
 
-1. python setup.py develop（或 pip install -e . --no-build-isolation）
-2. tools/build_pytorch_libs.py：整理环境变量 → 调用 CMake configure
-3. CMake 生成 build.ninja；其中包含一条 custom command：运行 torchgen
-4. torchgen 读 native_functions.yaml、derivatives.yaml、tags.yaml → 生成
-5. build/aten/src/ATen/*.cpp（算子注册、at:: API、RegisterCPU.cpp / RegisterCUDA.cpp）
-6. torch/csrc/autograd/generated/*（VariableType：Autograd 包装、反向 Function 类）
-7. torch/csrc/autograd/generated/python_*_functions.cpp（Python 绑定）
-8. torch/_C/_VariableFunctions.pyi（类型桩）
-9. Ninja 编译上万个 .cpp / .cu → 链接成共享库
-10. libc10.so          libc10_cuda.so
-11. libtorch_cpu.so    libtorch_cuda.so      libtorch.so（伞形库）
-12. libtorch_python.so   Python 绑定层
-13. torch/_C.cpython-*.so  很薄的入口模块，动态链接到 libtorch_python.so（C++ 系列第一篇拆过这层）
-14. develop 模式下 Python 源码原地使用；只有 C++ 改动需要重新构建
+1. `python setup.py develop`（或 `pip install -e . --no-build-isolation`）
+2. `tools/build_pytorch_libs.py`：整理环境变量 → 调用 CMake configure
+3. CMake 生成 `build.ninja`；其中包含一条 custom command：运行 torchgen
+4. torchgen 读 `native_functions.yaml`、`derivatives.yaml`、`tags.yaml` → 生成
+   - `build/aten/src/ATen/*.cpp`（算子注册、`at::` API、`RegisterCPU.cpp` / `RegisterCUDA.cpp`）
+   - `torch/csrc/autograd/generated/*`（VariableType：Autograd 包装、反向 Function 类）
+   - `torch/csrc/autograd/generated/python_*_functions.cpp`（Python 绑定）
+   - `torch/_C/_VariableFunctions.pyi`（类型桩）
+5. Ninja 编译上万个 .cpp / .cu → 链接成共享库
+   - `libc10.so`、`libc10_cuda.so`
+   - `libtorch_cpu.so`、`libtorch_cuda.so`、`libtorch.so`（伞形库）
+   - `libtorch_python.so`：Python 绑定层
+   - `torch/_C.cpython-*.so`：很薄的入口模块，动态链接到 `libtorch_python.so`（C++ 系列第一篇拆过这层）
+6. develop 模式下 Python 源码原地使用；只有 C++ 改动需要重新构建
 
 第五篇讲了 Codegen **生成什么**；这里的重点是它**何时运行**——它是构建的一步，`native_functions.yaml` 改一行，会触发大量生成文件重新编译。这就是为什么改一个算子的 Schema 比改它的实现要慢得多，也是第七章 §3 中"Schema 是契约、轻易不动"的工程侧理由。
 
@@ -681,19 +684,23 @@ CI 里的 `test/forward_backward_compatibility/check_forward_backward_compatibil
 `torch.save` 的文件是一个 zip 包：
 
 ```text title="torch.save 产物的 zip 结构"
-model.pt（zip 包）
-├── data.pkl      pickle 序列化的对象图（不含 Tensor 数据本身）
-│                 OrderedDict（state_dict）
-│                 ├── "bn.weight" → Tensor 引用：
-│                 │     ("storage", FloatStorage, key="0", "cpu", numel=64)
-│                 ├── "bn.bias"   → ("storage", FloatStorage, key="1", ...)
-│                 ├── ...
-│                 └── _metadata["bn"]["version"] = 2   ← nn.Module._version
-├── data/0        storage key "0" 的原始字节（bn.weight）
-├── data/1        storage key "1" 的原始字节（bn.bias）
-├── data/...
-├── version       zip 容器的格式版本号
-└── byteorder     "little" / "big"，跨字节序机器加载时用
+model.pt（zip 包，所有记录都在顶层目录 model/ 下，目录名取自文件名）
+└── model/
+    ├── data.pkl      pickle 序列化的对象图（不含 Tensor 数据本身）
+    │                 OrderedDict（state_dict）
+    │                 ├── "bn.weight" → Tensor 引用：
+    │                 │     ("storage", FloatStorage, key="0", "cpu", numel=64)
+    │                 ├── "bn.bias"   → ("storage", FloatStorage, key="1", ...)
+    │                 ├── ...
+    │                 └── _metadata["bn"]["version"] = 2   ← nn.Module._version
+    ├── data/0        storage key "0" 的原始字节（bn.weight）
+    ├── data/1        storage key "1" 的原始字节（bn.bias）
+    ├── data/...
+    ├── version       zip 容器的格式版本号
+    ├── byteorder     "little" / "big"，跨字节序机器加载时用
+    ├── .format_version          "1"：storage 按 key 的数值顺序写入
+    ├── .storage_alignment       "64"：data/<key> 在 zip 里按 64 字节对齐
+    └── .data/serialization_id   这次保存的唯一 id
 ```
 
 `data.pkl` 里只有对象图和 Tensor 的"引用"，真正的字节在 `data/<key>` 里，因此 `mmap=True` 才能按需读取；`_metadata` 挂在 `state_dict` 上，每个子模块前缀一条，`version` 就来自下面要说的 `_version`。
