@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 752 205" width="752" height="205" role="img" aria-labelledby="t d">
+  <title id="t">#slice 从父 layout 去掉一维</title>
+  <desc id="d">父 layout：16 个线程排成 4×4，行 0 是线程 0 1 2 3，行 1 是 4 5 6 7，行 2 是 8 9 10 11，行 3 是 12 13 14 15。dim = 0 压掉行，结果是长度 4 的一维张量，元素 0 到 3 分别由 {0,4,8,12}、{1,5,9,13}、{2,6,10,14}、{3,7,11,15} 共同持有。dim = 1 压掉列，元素 0 到 3 分别由 {0,1,2,3}、{4,5,6,7}、{8,9,10,11}、{12,13,14,15} 共同持有。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .cell { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .frame { fill: none; stroke: #40566f; stroke-width: 1.6; }
+      .thick { stroke: #40566f; stroke-width: 2.4; }
+      .arrow { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#40566f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="752" height="205" fill="#fff"/>
+  <text class="head" x="20" y="26">父 layout（16 个线程排成 4×4）</text>
+  <text class="small" x="134" y="52" text-anchor="middle">列 0–3</text>
+  <text class="small" x="46" y="82" text-anchor="end">行 0</text>
+  <rect class="cell" x="54" y="62" width="40" height="30"/>
+  <text class="mono" x="74.0" y="82" text-anchor="middle">0</text>
+  <rect class="cell" x="94" y="62" width="40" height="30"/>
+  <text class="mono" x="114.0" y="82" text-anchor="middle">1</text>
+  <rect class="cell" x="134" y="62" width="40" height="30"/>
+  <text class="mono" x="154.0" y="82" text-anchor="middle">2</text>
+  <rect class="cell" x="174" y="62" width="40" height="30"/>
+  <text class="mono" x="194.0" y="82" text-anchor="middle">3</text>
+  <text class="small" x="46" y="112" text-anchor="end">行 1</text>
+  <rect class="cell" x="54" y="92" width="40" height="30"/>
+  <text class="mono" x="74.0" y="112" text-anchor="middle">4</text>
+  <rect class="cell" x="94" y="92" width="40" height="30"/>
+  <text class="mono" x="114.0" y="112" text-anchor="middle">5</text>
+  <rect class="cell" x="134" y="92" width="40" height="30"/>
+  <text class="mono" x="154.0" y="112" text-anchor="middle">6</text>
+  <rect class="cell" x="174" y="92" width="40" height="30"/>
+  <text class="mono" x="194.0" y="112" text-anchor="middle">7</text>
+  <text class="small" x="46" y="142" text-anchor="end">行 2</text>
+  <rect class="cell" x="54" y="122" width="40" height="30"/>
+  <text class="mono" x="74.0" y="142" text-anchor="middle">8</text>
+  <rect class="cell" x="94" y="122" width="40" height="30"/>
+  <text class="mono" x="114.0" y="142" text-anchor="middle">9</text>
+  <rect class="cell" x="134" y="122" width="40" height="30"/>
+  <text class="mono" x="154.0" y="142" text-anchor="middle">10</text>
+  <rect class="cell" x="174" y="122" width="40" height="30"/>
+  <text class="mono" x="194.0" y="142" text-anchor="middle">11</text>
+  <text class="small" x="46" y="172" text-anchor="end">行 3</text>
+  <rect class="cell" x="54" y="152" width="40" height="30"/>
+  <text class="mono" x="74.0" y="172" text-anchor="middle">12</text>
+  <rect class="cell" x="94" y="152" width="40" height="30"/>
+  <text class="mono" x="114.0" y="172" text-anchor="middle">13</text>
+  <rect class="cell" x="134" y="152" width="40" height="30"/>
+  <text class="mono" x="154.0" y="172" text-anchor="middle">14</text>
+  <rect class="cell" x="174" y="152" width="40" height="30"/>
+  <text class="mono" x="194.0" y="172" text-anchor="middle">15</text>
+  <rect class="frame" x="54" y="62" width="160" height="120"/>
+  <text class="small" x="284" y="56">dim = 0 压掉行：结果 [4]，元素 j 由第 j 列的 4 个线程共同持有</text>
+  <rect class="cell" x="284" y="66" width="112" height="30"/>
+  <text class="monos" x="340.0" y="86" text-anchor="middle">{0,4,8,12}</text>
+  <text class="small" x="340.0" y="111" text-anchor="middle">元素 0</text>
+  <rect class="cell" x="396" y="66" width="112" height="30"/>
+  <text class="monos" x="452.0" y="86" text-anchor="middle">{1,5,9,13}</text>
+  <text class="small" x="452.0" y="111" text-anchor="middle">元素 1</text>
+  <rect class="cell" x="508" y="66" width="112" height="30"/>
+  <text class="monos" x="564.0" y="86" text-anchor="middle">{2,6,10,14}</text>
+  <text class="small" x="564.0" y="111" text-anchor="middle">元素 2</text>
+  <rect class="cell" x="620" y="66" width="112" height="30"/>
+  <text class="monos" x="676.0" y="86" text-anchor="middle">{3,7,11,15}</text>
+  <text class="small" x="676.0" y="111" text-anchor="middle">元素 3</text>
+  <rect class="frame" x="284" y="66" width="448" height="30"/>
+  <line class="arrow" x1="214" y1="81.0" x2="282" y2="81.0"/>
+  <text class="small" x="284" y="130">dim = 1 压掉列：结果 [4]，元素 i 由第 i 行的 4 个线程共同持有</text>
+  <rect class="cell" x="284" y="140" width="112" height="30"/>
+  <text class="monos" x="340.0" y="160" text-anchor="middle">{0,1,2,3}</text>
+  <text class="small" x="340.0" y="185" text-anchor="middle">元素 0</text>
+  <rect class="cell" x="396" y="140" width="112" height="30"/>
+  <text class="monos" x="452.0" y="160" text-anchor="middle">{4,5,6,7}</text>
+  <text class="small" x="452.0" y="185" text-anchor="middle">元素 1</text>
+  <rect class="cell" x="508" y="140" width="112" height="30"/>
+  <text class="monos" x="564.0" y="160" text-anchor="middle">{8,9,10,11}</text>
+  <text class="small" x="564.0" y="185" text-anchor="middle">元素 2</text>
+  <rect class="cell" x="620" y="140" width="112" height="30"/>
+  <text class="monos" x="676.0" y="160" text-anchor="middle">{12,13,14,15}</text>
+  <text class="small" x="676.0" y="185" text-anchor="middle">元素 3</text>
+  <rect class="frame" x="284" y="140" width="448" height="30"/>
+  <line class="arrow" x1="214" y1="155.0" x2="282" y2="155.0"/>
+</svg>

@@ -145,13 +145,7 @@ Linear Layout 用一个词统一这两种情况：layout 是**非单射**的（�
 
 `tt.reduce`（沿 dim 规约）的结果比输入少一维。它的 layout 是什么？Triton 不另选一个，而是**从父 layout 去掉那一维**：`#slice<{dim = 1, parent = P}>` 作用在 `[128]` 上，等价于把 P 作用在 `[128, ?]` 上再把第 1 维压掉——原来一行里的所有线程现在持有**同一个**元素（复制）。`TritonGPUAttrDefs.td` 里的例子：
 
-```text title="#slice 从父 layout 去掉一维"
-父 layout（16 个线程排成 4×4）：      dim = 0 压掉行：              dim = 1 压掉列：
-[ 0  1  2  3 ]                     [{0,4,8,12} {1,5,9,13}      [{0,1,2,3} {4,5,6,7}
-[ 4  5  6  7 ]          →           {2,6,10,14} {3,7,11,15}]     {8,9,10,11} {12,13,14,15}]
-[ 8  9 10 11 ]
-[12 13 14 15 ]
-```
+![#slice 从父 layout 去掉一维](/img/in-post/triton-compiler-layouts-slice.svg)
 
 压掉第 0 维后，一列上的 4 个线程 `{0, 4, 8, 12}` 共同持有结果的第 0 个元素。为什么这样设计：**规约的 lowering 需要知道输入的哪些线程要合并到一起**——`#slice` 把这个信息直接编码在结果类型里；反过来 `tt.expand_dims` 的输入 layout 就是结果的 `#slice`（TTGIR 里 `make_range` 的结果类型是 `tensor<128xi32, #ttg.slice<{dim = 1, parent = #blocked}>>`，因为它接着要 `expand_dims {axis = 1}` 变成 `[128, 1]` 的 `#blocked`）。
 
@@ -163,15 +157,7 @@ Linear Layout 用一个词统一这两种情况：layout 是**非单射**的（�
 
 Tensor Core 指令的**输出**在寄存器里的固定布局。`versionMajor = 2` 是 Ampere 的 `mma.sync`（1 是 Volta，3 是 Hopper 的 `wgmma`，5 是 Blackwell 的 `tcgen05`），`instrShape = [16, 8]` 是一条 `mma.m16n8k16` 的 C 矩阵形状，`warpsPerCTA = [2, 2]` 是 4 个 warp 在 M × N 上的排布。一个 warp 的一条 `m16n8` 指令输出的 `[16, 8]` f32 累加器，在 32 个 lane 上的分布：
 
-```text title="m16n8 累加器在 32 个 lane 上的分布"
-[[ T0:0,  T0:1,  T1:0,  T1:1,  T2:0,  T2:1,  T3:0,  T3:1]      ← 行 0：lane 0..3 各持 2 个相邻列
-[  T4:0,  T4:1,  T5:0,  T5:1,  T6:0,  T6:1,  T7:0,  T7:1]      ← 行 1：lane 4..7
-...
-[ T28:0, T28:1, T29:0, T29:1, T30:0, T30:1, T31:0, T31:1]      ← 行 7：lane 28..31
-[  T0:2,  T0:3,  T1:2,  T1:3,  T2:2,  T2:3,  T3:2,  T3:3]      ← 行 8：又回到 lane 0..3，寄存器 2、3
-...
-[ T28:2, T28:3, T29:2, T29:3, T30:2, T30:3, T31:2, T31:3]]     ← 行 15
-```
+![m16n8 累加器在 32 个 lane 上的分布](/img/in-post/triton-compiler-layouts-mma-m16n8-acc.svg)
 
 lane t 持有 `(t / 4, (t % 4) × 2 + {0, 1})` 和 `(t / 4 + 8, …)`——这是 PTX ISA 手册里 `mma.m16n8k16` 的 C fragment 图，**硬件规定的**，编译器无法选择。`#nvidia_mma` 就是把硬件规定写成一个 layout 属性，让它能与别的 layout 做同样的运算（转换、比较）。更大的张量按 `warpsPerCTA` 与重复次数铺：`[128, 128]` 在 `warpsPerCTA = [2, 2]` 下每个 warp 负责 `[64, 64]`，是 4 × 8 = 32 条 `m16n8` 的输出，每线程 32 × 4 = 128 个 f32 寄存器——第二篇说的"累加器是最大的寄存器消耗者"的具体数字。
 
@@ -426,12 +412,7 @@ Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后�
 
 张量在 shared memory 里时，layout 描述的是**下标 → 字节偏移**（LL 里输入维叫 `offset`）。行优先直接放会有 bank conflict：`ldmatrix` 读一个 8 × 8 的子块时，8 行的同一列落在同一个 bank。解决是 **XOR swizzle**：第 r 行的元素以 `vec` 个为一组，组号与 `(r / perPhase) % maxPhase` 做 XOR 后再放。`TritonGPUAttrDefs.td` 里的例子（`vec = 1, perPhase = 1, maxPhase = 4`）：
 
-```text title="XOR swizzle 的例子"
-[ 0,  1,  2,  3]   // 行 0：XOR 0
-[ 5,  4,  7,  6]   // 行 1：XOR 1
-[10, 11,  8,  9]   // 行 2：XOR 2
-[15, 14, 13, 12]   // 行 3：XOR 3
-```
+![XOR swizzle 的例子](/img/in-post/triton-compiler-layouts-xor-swizzle.svg)
 
 `perPhase = 2` 让每两行用同一个 XOR 值，`maxPhase` 限制 XOR 值的范围。这三个参数是编译器按 `mma` 操作数的读取模式**算**出来的（`ldmatrix` 每次读 8 行 × 16 字节：`vec = 8` 个 bf16 = 16 字节一组、`perPhase = 2`（128 字节一行时两行占一个 bank 周期）、`maxPhase = 4`）。§四.2 那个 `(t, w) → (t, w ⊕ t)` 的例子说明了它为什么是线性的——XOR 就是 GF(2) 的加法。
 

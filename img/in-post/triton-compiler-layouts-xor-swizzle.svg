@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 334 238" width="334" height="238" role="img" aria-labelledby="t d">
+  <title id="t">XOR swizzle 的例子</title>
+  <desc id="d">#ttg.swizzled_shared&lt;{vec=1, perPhase=1, maxPhase=4, order=[1,0]}&gt;，4×4 张量元素 0 到 15。行 r 的元素 c 放到位置 c XOR r。行 0 XOR 0：0 1 2 3；行 1 XOR 1：5 4 7 6；行 2 XOR 2：10 11 8 9；行 3 XOR 3：15 14 13 12。按原列着色，同一原列的 4 个元素落在 4 个不同位置。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .cell { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .frame { fill: none; stroke: #40566f; stroke-width: 1.6; }
+      .thick { stroke: #40566f; stroke-width: 2.4; }
+      .arrow { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#40566f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="334" height="238" fill="#fff"/>
+  <text class="small" x="158" y="24" text-anchor="middle">shared memory 里每行的位置</text>
+  <text class="small" x="89.0" y="42" text-anchor="middle">0</text>
+  <text class="small" x="135.0" y="42" text-anchor="middle">1</text>
+  <text class="small" x="181.0" y="42" text-anchor="middle">2</text>
+  <text class="small" x="227.0" y="42" text-anchor="middle">3</text>
+  <text class="small" x="58" y="70" text-anchor="end">行 0</text>
+  <rect class="cell" x="66" y="50" width="46" height="30" style="fill:#cfe0f7"/>
+  <text class="mono" x="89.0" y="70" text-anchor="middle">0</text>
+  <rect class="cell" x="112" y="50" width="46" height="30" style="fill:#f9d9b0"/>
+  <text class="mono" x="135.0" y="70" text-anchor="middle">1</text>
+  <rect class="cell" x="158" y="50" width="46" height="30" style="fill:#cdebd3"/>
+  <text class="mono" x="181.0" y="70" text-anchor="middle">2</text>
+  <rect class="cell" x="204" y="50" width="46" height="30" style="fill:#ead4ef"/>
+  <text class="mono" x="227.0" y="70" text-anchor="middle">3</text>
+  <text class="small" x="264" y="70">XOR 0</text>
+  <text class="small" x="58" y="100" text-anchor="end">行 1</text>
+  <rect class="cell" x="66" y="80" width="46" height="30" style="fill:#f9d9b0"/>
+  <text class="mono" x="89.0" y="100" text-anchor="middle">5</text>
+  <rect class="cell" x="112" y="80" width="46" height="30" style="fill:#cfe0f7"/>
+  <text class="mono" x="135.0" y="100" text-anchor="middle">4</text>
+  <rect class="cell" x="158" y="80" width="46" height="30" style="fill:#ead4ef"/>
+  <text class="mono" x="181.0" y="100" text-anchor="middle">7</text>
+  <rect class="cell" x="204" y="80" width="46" height="30" style="fill:#cdebd3"/>
+  <text class="mono" x="227.0" y="100" text-anchor="middle">6</text>
+  <text class="small" x="264" y="100">XOR 1</text>
+  <text class="small" x="58" y="130" text-anchor="end">行 2</text>
+  <rect class="cell" x="66" y="110" width="46" height="30" style="fill:#cdebd3"/>
+  <text class="mono" x="89.0" y="130" text-anchor="middle">10</text>
+  <rect class="cell" x="112" y="110" width="46" height="30" style="fill:#ead4ef"/>
+  <text class="mono" x="135.0" y="130" text-anchor="middle">11</text>
+  <rect class="cell" x="158" y="110" width="46" height="30" style="fill:#cfe0f7"/>
+  <text class="mono" x="181.0" y="130" text-anchor="middle">8</text>
+  <rect class="cell" x="204" y="110" width="46" height="30" style="fill:#f9d9b0"/>
+  <text class="mono" x="227.0" y="130" text-anchor="middle">9</text>
+  <text class="small" x="264" y="130">XOR 2</text>
+  <text class="small" x="58" y="160" text-anchor="end">行 3</text>
+  <rect class="cell" x="66" y="140" width="46" height="30" style="fill:#ead4ef"/>
+  <text class="mono" x="89.0" y="160" text-anchor="middle">15</text>
+  <rect class="cell" x="112" y="140" width="46" height="30" style="fill:#cdebd3"/>
+  <text class="mono" x="135.0" y="160" text-anchor="middle">14</text>
+  <rect class="cell" x="158" y="140" width="46" height="30" style="fill:#f9d9b0"/>
+  <text class="mono" x="181.0" y="160" text-anchor="middle">13</text>
+  <rect class="cell" x="204" y="140" width="46" height="30" style="fill:#cfe0f7"/>
+  <text class="mono" x="227.0" y="160" text-anchor="middle">12</text>
+  <text class="small" x="264" y="160">XOR 3</text>
+  <rect class="frame" x="66" y="50" width="184" height="120"/>
+  <text class="small" x="20" y="196">格内是元素编号（行优先 r×4+c）</text>
+  <text class="small" x="20" y="218">颜色 = 元素原来的列 c：</text>
+  <rect class="cell" x="160" y="206" width="16" height="14" style="fill:#cfe0f7"/>
+  <text class="small" x="180" y="218">0</text>
+  <rect class="cell" x="198" y="206" width="16" height="14" style="fill:#f9d9b0"/>
+  <text class="small" x="218" y="218">1</text>
+  <rect class="cell" x="236" y="206" width="16" height="14" style="fill:#cdebd3"/>
+  <text class="small" x="256" y="218">2</text>
+  <rect class="cell" x="274" y="206" width="16" height="14" style="fill:#ead4ef"/>
+  <text class="small" x="294" y="218">3</text>
+</svg>
