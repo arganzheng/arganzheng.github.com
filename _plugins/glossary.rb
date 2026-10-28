@@ -214,7 +214,8 @@ module Glossary
       while j < n
         cand_gt = html.index('>', j)
         break if cand_gt.nil? # unterminated: not a tag
-        qp = html.index(/["']/, j)
+        off = html.byteslice(j, cand_gt - j).index(/["']/)
+        qp = off && j + off
         if qp.nil? || qp > cand_gt
           gt = cand_gt
           break
@@ -238,7 +239,7 @@ module Glossary
         stack.slice!(i..) if i
       elsif html[gt - 1] != '/' &&
             (BLOCKED =~ name ||
-             ((tip = html.index('inline-tip', name_end)) && tip < gt &&
+             (html.byteslice(name_end, gt - name_end).include?('inline-tip') &&
               html[name_end...gt] =~ /class\s*=\s*["'][^"']*inline-tip/))
         stack.push(name)
       end
@@ -280,5 +281,5 @@ Jekyll::Hooks.register :documents, :post_convert do |doc|
   overview = doc.site.data.dig('series', key, 'overview').to_s
   converted = Glossary.process(doc.content.dup, entries, overview)
   doc.content = converted
-  doc.output = doc.output.to_s.empty? ? converted : Glossary.process(doc.output.to_s.dup, entries, overview)
+  doc.output = converted
 end
