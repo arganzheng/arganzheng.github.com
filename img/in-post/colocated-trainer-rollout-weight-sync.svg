@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 252" width="760" height="252" role="img" aria-labelledby="t d" font-family="'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif">
+<title id="t">进程内权重同步：训练器与 vLLM worker</title>
+<desc id="d">一条时间轴，上行是训练器进程，下行是同一张卡上的 vLLM worker 进程。训练器先分配 bucket 并经 ZMQ 发一次 CUDA IPC handle，worker 用 rebuild_ipc 映射后回 ACK；之后每一轮训练器逐参数 full_tensor() 装桶，装满发 bucket_meta，worker 按 meta 切出张量 load_weights 后回 ACK，训练器再装下一个 bucket，直到 is_last。图不按比例。</desc>
+<style>
+.lbl{font-size:14px;fill:#222;font-weight:600}
+.sub{font-size:12px;fill:#555}
+.blk{stroke-width:1.2}
+.tr{fill:#dbe8f7;stroke:#3b6ea8}
+.vw{fill:#fbe3cc;stroke:#c0702a}
+.wait{fill:#fff;stroke:#999;stroke-dasharray:4 3}
+.bt{font-size:13px;fill:#222}
+.wt{font-size:12px;fill:#777}
+.mono{font-family:'DejaVu Sans Mono',Menlo,Consolas,monospace}
+.arr{stroke:#333;stroke-width:1.4;fill:none}
+.al{font-size:12px;fill:#333}
+.axis{stroke:#888;stroke-width:1.2}
+.ax{font-size:12px;fill:#777}
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker></defs>
+
+<line class="axis" x1="130" y1="30" x2="740" y2="30" marker-end="url(#ag)"/>
+<text class="ax" x="130" y="22">时间（不按比例）</text>
+<text class="lbl" x="20" y="111">训练器进程</text>
+<text class="lbl" x="20" y="203">vLLM worker</text>
+<text class="sub" x="20" y="221">（同一张卡）</text>
+<rect class="blk tr" x="130" y="84" width="120" height="44"/>
+<text class="bt" x="140" y="111">① 分配 bucket</text>
+<rect class="blk wait" x="250" y="84" width="120" height="44"/>
+<text class="wt" x="260" y="111">等 ACK</text>
+<rect class="blk tr" x="370" y="84" width="210" height="44"/>
+<text class="bt" x="380" y="111">③ <tspan class="mono">full_tensor()</tspan> → 装桶</text>
+<rect class="blk wait" x="580" y="84" width="140" height="44"/>
+<text class="wt" x="590" y="111">等 ACK</text>
+<rect class="blk wait" x="130" y="184" width="120" height="44"/>
+<text class="wt" x="140" y="211">等 handle</text>
+<rect class="blk vw" x="250" y="184" width="120" height="44"/>
+<text class="bt" x="260" y="211">② <tspan class="mono">rebuild_ipc</tspan></text>
+<rect class="blk wait" x="370" y="184" width="210" height="44"/>
+<text class="wt" x="380" y="211">等 <tspan class="mono">bucket_meta</tspan></text>
+<rect class="blk vw" x="580" y="184" width="140" height="44"/>
+<text class="bt" x="590" y="211">④ <tspan class="mono">load_weights</tspan></text>
+<line class="arr" x1="250" y1="128" x2="250" y2="184" marker-end="url(#ah)"/>
+<text class="al" x="244" y="160" text-anchor="end">IPC handle（只发一次）</text>
+<line class="arr" x1="370" y1="184" x2="370" y2="128" marker-end="url(#ah)"/>
+<text class="al" x="376" y="160">ACK</text>
+<line class="arr" x1="580" y1="128" x2="580" y2="184" marker-end="url(#ah)"/>
+<text class="al" x="574" y="160" text-anchor="end"><tspan class="mono">bucket_meta</tspan></text>
+<line class="arr" x1="720" y1="184" x2="720" y2="128" marker-end="url(#ah)"/>
+<text class="al" x="726" y="160">ACK</text>
+<path class="arr" d="M720,84 V56 H475 V84" marker-end="url(#ah)"/>
+<text class="al" x="597" y="50" text-anchor="middle">⑤ 下一个 bucket，直到 <tspan class="mono">is_last=True</tspan></text>
+</svg>

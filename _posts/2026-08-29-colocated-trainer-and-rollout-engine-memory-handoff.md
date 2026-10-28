@@ -26,22 +26,20 @@ updated: 2026-09-14
 
 32B（Qwen3-32B 规格，32.8B 参数）、8 卡共置、FSDP 训练、vLLM TP = 8 推理，一步里显存的两次换手：
 
-```text title="32B 共置一步里显存的两次换手"
-                                 每卡搬运字节        链路                 时间        隐性代价
-训练 → 生成
-  ① 优化器状态 + fp32 主参数 → CPU   49 GB            PCIe D2H            2.0 s      需要 49 GB pinned 主机内存 / 卡
-  ② bf16 参数分片 → CPU              8 GB             PCIe D2H            0.3 s      （梯度直接释放，不搬）
-  ③ 参考模型 → CPU                   8 GB             PCIe D2H            0.3 s
-  ④ 推理权重区域挂回 + 接收新权重      8 GB 写入         NVLink all-gather    ~1 s       全模型 66 GB 流过每张卡
-     （sleep level 2：不从 CPU 恢复，直接同步新权重）                      + CUDA IPC 拷贝
-  ⑤ KV 池挂回                        ~30 GB 映射       cuMemMap（无拷贝）    ~0.1 s     prefix cache 清空；fp8 KV 要清零
-生成 → 训练
-  ⑥ 推理引擎 sleep(level=2)          0（丢弃）         cuMemUnmap           ~0.1 s     虚拟地址保留，CUDA graph 不重捕获
-  ⑦ bf16 参数分片 → GPU               8 GB             PCIe H2D            0.3 s
-  ⑧ 优化器状态 + 主参数 → GPU          49 GB            PCIe H2D            2.0 s      只在 update_actor 前载入
-  ⑨ 参考模型 → GPU                    8 GB             PCIe H2D            0.3 s      只在 ref 前向时载入
-合计                                约 130 GB         主要是 PCIe          约 6.5 s
-```
+| 换手 | 步骤 | 每卡搬运字节 | 链路 | 时间 | 隐性代价 |
+|---|---|---|---|---|---|
+| 训练 → 生成 | ① 优化器状态 + fp32 主参数 → CPU | 49 GB | PCIe D2H | 2.0 s | 需要 49 GB pinned 主机内存 / 卡 |
+| ^^ | ② 推理权重区域挂回 + 接收新权重（sleep level 2：不从 CPU 恢复，直接同步新权重） | 8 GB 写入 | NVLink all-gather + CUDA IPC 拷贝 | ~1 s | 全模型 66 GB 流过每张卡 |
+| ^^ | ③ bf16 参数分片 → CPU | 8 GB | PCIe D2H | 0.3 s | （梯度直接释放，不搬） |
+| ^^ | ④ KV 池挂回 | ~30 GB 映射 | cuMemMap（无拷贝） | ~0.1 s | prefix cache 清空；fp8 KV 要清零 |
+| 生成 → 训练 | ⑤ 推理引擎 sleep(level=2) | 0（丢弃） | cuMemUnmap | ~0.1 s | 虚拟地址保留，CUDA graph 不重捕获 |
+| ^^ | ⑥ bf16 参数分片 → GPU | 8 GB | PCIe H2D | 0.3 s | |
+| ^^ | ⑦ 参考模型 → GPU | 8 GB | PCIe H2D | 0.3 s | 只在 ref 前向时载入 |
+| ^^ | ⑧ 参考模型 → CPU | 8 GB | PCIe D2H | 0.3 s | ref 前向一完就搬走 |
+| ^^ | ⑨ 优化器状态 + 主参数 → GPU | 49 GB | PCIe H2D | 2.0 s | 只在 update_actor 前载入 |
+| 合计 | | 约 130 GB | 主要是 PCIe | 约 6.5 s | |
+
+Table: 32B 共置一步里显存的两次换手（每组内按执行顺序）
 
 步时间 5 分钟时约 2%；8B 模型 2.3 GB / 卡、0.2 秒，可忽略；DeepSeek-V3 规格 256 卡每卡 47 GB、约 4 秒，对几十分钟的步也可忽略。**纯搬运时间几乎从来不是放弃共置的理由。**
 
@@ -222,14 +220,14 @@ Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_dist
 
 一张 80 GB 的卡上，训练 → 生成的顺序不能错：
 
-- **1  训练器**：optimizer step 完成 → 释放梯度、激活
-- **2  训练器**：优化器状态 D2H（49 GB）           ← 此时卡上还有 bf16 参数、ref、推理引擎的常驻部分
-- **3  训练器**：aggressive_empty_cache             ← 把 caching allocator 保留的段真正还给驱动
-- **4  推理引擎**：wake_up(tags=["weights"])       ← 8 GB 的权重区域挂回（空的）
-- **5  训练器**：all-gather 参数 → IPC → 推理引擎写入   ← 卡上同时有 bf16 分片 8 GB + 推理权重 8 GB + 一个 bucket
-- **6  训练器**：bf16 参数 D2H（8 GB）
-- **7  推理引擎**：wake_up(tags=["kv_cache"])      ← 最后挂 KV 池，因为它要"尽量大"
-- **8  推理引擎**：reset_prefix_cache
+1. **训练器**：optimizer step 完成 → 释放梯度、激活
+2. **训练器**：优化器状态 D2H（49 GB）——此时卡上还有 bf16 参数、推理引擎的常驻部分（ref 在 ref 前向后就已搬回 CPU）
+3. **训练器**：aggressive_empty_cache——把 caching allocator 保留的段真正还给驱动
+4. **推理引擎**：wake_up(tags=["weights"])——8 GB 的权重区域挂回（空的）
+5. **训练器**：all-gather 参数 → IPC → 推理引擎写入——卡上同时有 bf16 分片 8 GB + 推理权重 8 GB + 一个 bucket
+6. **训练器**：bf16 参数 D2H（8 GB）
+7. **推理引擎**：wake_up(tags=["kv_cache"])——最后挂 KV 池，因为它要"尽量大"
+8. **推理引擎**：reset_prefix_cache
 
 第 4–6 步的顺序决定峰值：先挂权重区域再同步、同步完再 offload 训练器的 bf16 参数、最后才挂 KV 池——KV 池是最大的一块，必须等其他都让出来。这正是 verl `ActorRolloutRefWorker.update_weights()` 的顺序（第五章）。
 
@@ -237,15 +235,16 @@ Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_dist
 
 ### 1. `ActorRolloutRefWorker`
 
-共置形态在 verl 里的具体形状是一个 worker 类同时持有三样东西：
+共置形态在 verl 里的具体形状是一个 worker 类同时持有三样东西——训练器、参考模型、推理引擎，外加一个管权重同步的 checkpoint engine：
 
-```text title="ActorRolloutRefWorker 持有的三样东西"
-ActorRolloutRefWorker
-├── self.actor      TrainingWorker（FSDP / Megatron 引擎 + 优化器）
-├── self.ref        TrainingWorker（同一引擎，只前向；LoRA 时与 actor 共用 base）
-├── self.rollout    vLLMRollout / SGLangRollout —— 推理引擎的句柄（server 模式下是对独立 server 进程的引用）
-└── self.checkpoint_engine   naive（进程内）
-```
+| 成员 | 类型 | 说明 |
+|---|---|---|
+| `self.actor` | `TrainingWorker` | FSDP / Megatron 引擎 + 优化器 |
+| `self.ref` | `TrainingWorker` | 同一引擎，只前向；LoRA 时与 actor 共用 base |
+| `self.rollout` | `ServerAdapter`（vLLM / SGLang 各一个） | 推理引擎的句柄（server 模式下是对独立 server 进程的引用） |
+| `self.checkpoint_engine` | naive（进程内） | 共置默认后端；naive 时 `update_weights()` 直接走进程内同步 |
+
+Table: ActorRolloutRefWorker 持有的成员
 
 `sync` 模式下（`trainer_sync.py`）控制器在两个钩子调它：样本取够后 `sleep_replicas()`，训练完 `update_weights()`。后者展开就是第四章第 4 节的序列（`engine_workers.py`，节选）：
 
@@ -277,27 +276,24 @@ async def update_weights(self, global_steps=None, mode="auto"):
 
 把第二章的字节与本章的顺序合起来，32B、8 卡、一步（`sync` 模式）：
 
-```mermaid
-%% 图：共置一步的显存时间线：推理引擎 sleep 让出显存，训练器搬入参数与优化器状态做更新，再唤醒引擎同步权重
-sequenceDiagram
-    participant T as 训练器（FSDP）
-    participant R as 推理引擎（vLLM）
-    participant H as 主机内存（pinned）
-    Note over R: 生成中：权重 8 GB + KV 池 30 GB 在卡上
-    R->>R: 长尾结束 → sleep(level=2)：unmap 权重 + KV（~0.1 s）
-    H->>T: 参数分片 H2D 8 GB（0.3 s）
-    T->>T: old_log_prob 前向（bf16 参数 + 激活）
-    H->>T: ref 分片 H2D 8 GB → ref 前向 → D2H（0.6 s）
-    H->>T: 优化器状态 H2D 49 GB（2.0 s）
-    T->>T: update_actor：前向 + 反向 + step
-    T->>H: 优化器状态 D2H 49 GB（2.0 s）
-    T->>T: empty_cache；expandable_segments off
-    R->>R: wake_up(["weights"])：cuMemMap 8 GB 空区域
-    T->>R: 逐参数 all-gather（NVLink）→ IPC bucket → load_weights（~1 s）
-    T->>H: 参数分片 D2H 8 GB（0.3 s）
-    R->>R: wake_up(["kv_cache"])：cuMemMap 30 GB；reset_prefix_cache
-    Note over R: 下一步生成开始
-```
+| 顺序 | 谁 | 做什么 | 字节 / 时间 |
+|---|---|---|---|
+| 1 | 推理引擎 | 生成中：权重 8 GB + KV 池 30 GB 在卡上 | |
+| 2 | 推理引擎 | 长尾结束 → `sleep(level=2)`：unmap 权重 + KV | ~0.1 s |
+| 3 | 主机 → 训练器 | 参数分片 H2D | 8 GB，0.3 s |
+| 4 | 训练器 | `old_log_prob` 前向（bf16 参数 + 激活） | |
+| 5 | 主机 ⇄ 训练器 | ref 分片 H2D → ref 前向 → D2H | 8 GB 往返，0.6 s |
+| 6 | 主机 → 训练器 | 优化器状态 H2D | 49 GB，2.0 s |
+| 7 | 训练器 | `update_actor`：前向 + 反向 + step | |
+| 8 | 训练器 → 主机 | 优化器状态 D2H | 49 GB，2.0 s |
+| 9 | 训练器 | `empty_cache`；`expandable_segments` off | |
+| 10 | 推理引擎 | `wake_up(["weights"])`：cuMemMap 8 GB 空区域 | |
+| 11 | 训练器 → 推理引擎 | 逐参数 all-gather（NVLink）→ IPC bucket → `load_weights` | ~1 s |
+| 12 | 训练器 → 主机 | 参数分片 D2H | 8 GB，0.3 s |
+| 13 | 推理引擎 | `wake_up(["kv_cache"])`：cuMemMap 30 GB；`reset_prefix_cache` | |
+| 14 | 推理引擎 | 下一步生成开始 | |
+
+Table: 共置一步的显存时间线：推理引擎 sleep 让出显存，训练器搬入参数与优化器状态做更新，再唤醒引擎同步权重
 
 搬运合计约 6.5 秒，其中 4 秒是优化器状态的一对往返。三个可以省的地方：
 
@@ -375,14 +371,13 @@ Table: 隐性代价的合计
 - **训练器侧 all-gather**：FSDP 的参数是分片的 DTensor，`get_per_tensor_param()` 返回一个生成器，逐参数 `.full_tensor()`——每个参数在 8 卡间 all-gather 成完整张量。全模型 66 GB 逐个流过每张卡（每卡接收其中 7/8），NVLink 450 GB/s 下约 0.15 秒的通信；生成器是懒的，同一时刻卡上只有一个参数的完整张量。
 - **CUDA IPC 分桶**：完整张量拷进一个固定大小的 bucket（`update_weights_bucket_megabytes`，默认 512 MB），bucket 的 CUDA IPC handle 经 ZMQ 发给同一张卡上的 vLLM worker 进程；worker 用 `rebuild_ipc` 打开 handle、按 `bucket_meta` 里的 offset / shape / dtype 切出每个张量、调 `model.load_weights()` 写入自己的 TP 分片；回 ACK，训练器填下一个 bucket。
 
-```text title="进程内权重同步：训练器与 vLLM worker"
-训练器进程                                   vLLM worker 进程（同一张卡）
-for name, param in get_per_tensor_param():
-    full = param.full_tensor()   ← NVLink all-gather
-    bucket[offset:] = full       ← 装桶
-    满了 → ZMQ 发 IPC handle + meta  ────────→   rebuild_ipc(handle) → 逐张量 load_weights（取 TP 分片）
-    ← ACK                        ←────────────
-```
+![进程内权重同步：训练器与 vLLM worker](/img/in-post/colocated-trainer-rollout-weight-sync.svg)
+
+1. 训练器在卡上分配一块 bucket，把它的 CUDA IPC handle 经 ZMQ 发给同卡的 vLLM worker——只在开始时发一次。
+2. worker `rebuild_ipc(handle)` 把这块显存映射进自己的进程，回 ACK。
+3. 训练器 `for name, param in get_per_tensor_param()`：`full = param.full_tensor()`（NVLink all-gather），`bucket[offset:] = full` 装桶；下一个参数装不下了，就 `synchronize()`，经 ZMQ 发 `bucket_meta`（每个张量的 name / shape / dtype / offset）。
+4. worker 按 meta 从映射的 bucket 里切出张量，逐张量 `load_weights`（取自己的 TP 分片），回 ACK。
+5. 训练器收到 ACK，从 offset 0 装下一个 bucket；最后一桶带 `is_last=True`。
 
 66 GB 经 512 MB 的桶是 130 轮往返，每轮的 IPC 打开与拷贝在同卡内几乎是显存带宽速度，整体约 1 秒。峰值显存是**两个 bucket**（发送侧一个、接收侧映射一个）加一个完整参数——与模型大小无关，这是分桶的意义。
 
