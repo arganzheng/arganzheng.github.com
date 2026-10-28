@@ -61,17 +61,7 @@ Table: 常见数值格式的位分配、范围与相对精度
 
 把位布局画出来（S = 符号，E = 指数位，M = 尾数位）：
 
-```text title="FP32 / BF16 / FP16 / E4M3 / E5M2 的位布局"
-  FP32   [S][E E E E E E E E][M M M M M M M M M M M M M M M M M M M M M M M]   1 + 8 + 23
-  BF16   [S][E E E E E E E E][M M M M M M M]                                 1 + 8 + 7   ← FP32 砍掉低 16 位
-  FP16   [S][E E E E E][M M M M M M M M M M]                                 1 + 5 + 10  ← 指数少 3 位，65504 溢出
-  E4M3   [S][E E E E][M M M]                                                 1 + 4 + 3   ← 最大 448，无 inf
-  E5M2   [S][E E E E E][M M]                                                 1 + 5 + 2   ← FP16 砍掉低 8 位
-  INT8   [S][I I I I I I I]                                                  范围由外部 scale 决定
-  INT4   [S][I I I]  或  [U U U U] + zero point                              16 个电平
-
-  指数位 → 动态范围（BF16 与 FP32 相同）    尾数位 → 相对精度（BF16 0.8%，E4M3 12.5%）
-```
+![FP32 / BF16 / FP16 / E4M3 / E5M2 的位布局](/img/in-post/quantization-and-fused-kernels-bit-layouts.svg)
 
 几个要点：
 
@@ -139,25 +129,7 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 }
 ```
 
-```text title="一个 uint32 里 8 个 INT4 的位排布"
-  一个 uint32 q 装 8 个 INT4，每格 4 bit（哪个逻辑权重放哪一格由 repack 决定）:
-   bit 31   28   24   20   16   12    8    4    0
-      [ e7 ][ e6 ][ e5 ][ e4 ][ e3 ][ e2 ][ e1 ][ e0 ]
-      └──── 高半字（16 bit）────┘└──── 低半字（16 bit）────┘
-  这一次调用解出 e0, e4（低 4 bit）与 e1, e5（bit 4..7）；e2/e3/e6/e7 由调用方 q >> 8 后再调一次
-
-  lo = lop3(q, LO=0x000f000f, EX=0x64006400)  ── 取每个半字的低 4 bit，或上 FP16 的 1024 编码:
-      半字 = 0 1 1 0 0 1 [0 0 0 0 0 0 q0 q0 q0 q0]
-             S  E(=25→2^10)      M（低 4 bit = q0）          → FP16 值 = 1024 + q0
-      两个半字并排就是一个 half2: {1024+q4, 1024+q0}
-      __hsub2(lo, 0x6408 = 1032)  →  {q4 − 8, q0 − 8}         一条指令完成"减 1024 + 减零点 8"
-
-  hi = lop3(q, HI=0x00f000f0, EX=0x64006400)  ── 取 bit 4..7，它落在尾数第 4..7 位:
-      半字 = 0 1 1 0 0 1 [0 0 q1 q1 q1 q1 0 0 0 0]              → FP16 值 = 1024 + 16·q1
-      __hfma2(hi, 0x2c00 = 1/16, 0xd480 = −72)  →  (1024 + 16q1)/16 − 72 = q1 − 8
-
-  4 个元素、4 条指令（2 lop3 + 1 hsub2 + 1 hfma2），全程没有 int→float 的 cvt
-```
+![一个 uint32 里 8 个 INT4 的位排布](/img/in-post/quantization-and-fused-kernels-int4-unpack.svg)
 
 逐行看：`lo` 取每个 16 位半字的低 4 位（第 0、4 个元素），或上 `0x6400` 得到 $$1024 + q$$；`SUB = 0x6408` 是 FP16 的 $$1032 = 1024 + 8$$，一次 `__hsub2` 同时完成"减 1024"和"减零点 8"。`hi` 取 bit 4 到 7（第 1、5 个元素），它们在尾数里的位置高了 4 位，表示的值是 $$1024 + 16q$$；`MUL = 0x2c00` 是 FP16 的 $$1/16$$，`ADD = 0xd480` 是 $$-72 = -(1024/16 + 8)$$，一次 `__hfma2` 完成 $$(1024 + 16q)/16 - 72 = q - 8$$。**四个元素、四条指令**（两条 `lop3`、一条 `hsub2`、一条 `hfma2`，均摊每元素一条），再乘 scale 是每两个元素一条 `hmul2`。BF16 版本同理，只是"magic"常数换成 `0x4300`（BF16 的 128，尾数 7 位，最低位权重 1）。这一招只用整数逻辑与 FP16 算术，比逐元素的 `cvt` + 减法 + 乘法（每元素 3 到 4 条）快得多，且不占用 Tensor Core。
 
@@ -169,15 +141,16 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 
 W4A16 的含义是：权重（W）4 位，激活（A）16 位，Tensor Core 做的仍然是 BF16/FP16 的 `mma`。所以 kernel 的主循环比第六篇的 BF16 GEMM 多了一段：
 
-```text title="BF16 GEMM 与 W4A16 GEMM 主循环对照"
-BF16 GEMM 主循环                  W4A16 GEMM 主循环
-cp.async A tile -> smem            cp.async A tile -> smem
-cp.async B tile (BF16) -> smem     cp.async B tile (INT4, 字节数 /4) -> smem
-ldmatrix A, B -> 寄存器 fragment   ldmatrix A -> fragment; ld.shared B (uint32 打包)
-                                   寄存器内 dequant：lop3 + hsub2/hfma2 -> BF16 fragment
-                                   乘 group scale（每 128 个 k 换一次）
-mma.sync                           mma.sync
-```
+| BF16 GEMM 主循环 | W4A16 GEMM 主循环 |
+|---|---|
+| `cp.async` A tile → smem | `cp.async` A tile → smem |
+| `cp.async` B tile（BF16）→ smem | `cp.async` B tile（INT4，字节数 /4）→ smem |
+| `ldmatrix` A、B → 寄存器 fragment | `ldmatrix` A → fragment；`ld.shared` B（uint32 打包） |
+| — | 寄存器内 dequant：`lop3` + `hsub2`/`hfma2` → BF16 fragment |
+| — | 乘 group scale（每 128 个 k 换一次） |
+| `mma.sync` | `mma.sync` |
+
+Table: BF16 GEMM 与 W4A16 GEMM 主循环对照
 
 权重的元数据：per-group scale 是 `[K/g, N]` 的 FP16/BF16 矩阵（$$g = 128$$ 时每 128 个权重多 2 字节，即 0.125 bit/权重），可选的 per-group zero point 是 `[K/g, N/8]` 的 INT4 打包（再加 0.03 bit/权重）。所以 W4 g128 实际约 **4.15 bit/权重**，是 BF16 的 26%。
 
@@ -265,28 +238,11 @@ __global__ void Marlin(
 
 把注释里这个 3×3 tile、5 个 block 的例子展开——哪个 block 算哪些 tile、哪些 slice 需要跨 block 归约：
 
-```text title="3×3 tile、5 个 block 的 stripe 分配"
-  B 矩阵切成 3 个列 slice × 3 个 K 块 = 9 个 tile，5 个 block 按列优先各领一条
-  stripe（9 / 5 → 前 4 个 block 各 2 个 tile，最后一个 1 个）
+![3×3 tile、5 个 block 的 stripe 分配](/img/in-post/quantization-and-fused-kernels-marlin-stripe.svg)
 
-              slice 0     slice 1     slice 2
-            ┌───────────┬───────────┬───────────┐
-   K 块 0   │  block 0  │  block 1  │  block 3  │
-            ├───────────┼───────────┼───────────┤
-   K 块 1   │  block 0  │  block 2  │  block 3  │
-            ├───────────┼───────────┼───────────┤
-   K 块 2   │  block 1  │  block 2  │  block 4  │
-            └───────────┴───────────┴───────────┘
-
-  同一 slice 的部分和落在两个 block 里 → 用 locks[slice] 做 global reduce:
-    slice 0 = block 0 (K 块 0,1) + block 1 (K 块 2)
-    slice 1 = block 1 (K 块 0)   + block 2 (K 块 1,2)
-    slice 2 = block 3 (K 块 0,1) + block 4 (K 块 2)
-  block 1 横跨两个 slice: 先写出 slice 0 的部分和，再开始 slice 1
-
-  对比: "一个 slice 一个 block" 只有 3 个 block 有活干（5 个 SM 空 2 个）;
-        "一个 tile 一个 block" 有 9 个 block，但每个 slice 都要 3 路全局归约。
-```
+- 同一 slice 的部分和落在两个 block 里，用 `locks[slice]` 做 global reduce：slice 0 = block 0（K 块 0、1）+ block 1（K 块 2）；slice 1 = block 1（K 块 0）+ block 2（K 块 1、2）；slice 2 = block 3（K 块 0、1）+ block 4（K 块 2）。
+- block 1 横跨两个 slice：先写出 slice 0 的部分和，再开始 slice 1。
+- 对比：「一个 slice 一个 block」只有 3 个 block 有活干（5 个 SM 空 2 个）；「一个 tile 一个 block」有 9 个 block，但每个 slice 都要 3 路全局归约。
 
 主循环是一个双层展开的流水：外层 `pipe` 遍历 stage，内层 `k` 遍历一个 stage 内的 `mma` 步；每步先把下一步的 B 打包数据、scale、zero point 从 shared 取到寄存器（`fetch_to_registers`），在倒数第二步发起下一个 stage 的 `cp.async`（`fetch_to_shared`），然后调用 `matmul(k, pipe)`——在那里面完成 `dequant_data` → `scale` → `mma`。同一份文件 `marlin.cu` 的 host 侧为小 batch 与大 batch 各准备了一组 `(thread_k, thread_n, num_threads)` 配置（如 `{128, 128, 256}` 与 `{64, 256, 256}`），并把 M 按 64 行一段切开重复调用。
 
@@ -298,27 +254,23 @@ Machete 是 Hopper 上的 Marlin 继任者：基于 CUTLASS 3.x 的 mixed-input 
 
 ### 5. `csrc/quantization/` 目录导读
 
-```text title="csrc/quantization/ 目录导读"
-目录 / 文件                                   内容
-marlin/                                     Marlin W4A16 / W8A16（marlin_template.h 主体，dequant.h 反量化，
-                                            gptq_marlin_repack.cu / awq_marlin_repack.cu 权重重排，
-                                            marlin_int4_fp8_preprocess.cu W4A8-FP8 预处理）
-gptq/                                       exllama 系 GPTQ 参考 kernel（q_gemm.cu，qdq_{2,3,4,8}.cuh）
-awq/                                        llm-awq 参考 kernel（gemm_kernels.cu，dequantize.cuh）
-gptq_allspark/                              W8A16（allspark_qgemm_w8a16.cu）
-machete/                                    Hopper CUTLASS 3.x mixed-input GEMM（prepack + mainloop + 生成脚本）
-gguf/                                       llama.cpp 的 GGUF 量化格式（Q4_0/Q4_K/... mmvq.cuh 为 GEMV，mmq.cuh 为 GEMM）
-w8a8/fp8/                                   FP8 量化 kernel：common.cu（static / dynamic per-token scaled_fp8_quant），
-                                            nvidia/quant_utils.cuh（__nv_cvt 封装）
-w8a8/int8/                                  INT8 量化：scaled_quant.cu（含非对称 azp）
-w8a8/cutlass/                               v0.20.0 里只剩 Epilogues.md；CUTLASS scaled_mm 实现移到
-                                            csrc/libtorch_stable/quantization/w8a8/cutlass/{c2x, c3x, moe}/
-fused_kernels/                              fused_layernorm_dynamic_per_token_quant.cu（RMSNorm + 动态量化），
-                                            fused_silu_mul_block_quant.cu（SiLU-mul + 分块量化）
-hadamard/                                   hadacore：Hadamard 变换（旋转量化方案 QuaRot / SpinQuant 用）
-activation_kernels.cu                       量化版激活（如 silu_and_mul 直接输出 FP8/NVFP4）
-utils.cuh                                   quant_type_max_v（E4M3 为 448、INT8 为 127）、min_scaling_factor
-```
+| 目录 / 文件 | 内容 |
+|---|---|
+| `marlin/` | Marlin W4A16 / W8A16<br/>`marlin_template.h` 主体，`dequant.h` 反量化<br/>`gptq_marlin_repack.cu` / `awq_marlin_repack.cu` 权重重排<br/>`marlin_int4_fp8_preprocess.cu` W4A8-FP8 预处理 |
+| `gptq/` | exllama 系 GPTQ 参考 kernel（`q_gemm.cu`，`qdq_{2,3,4,8}.cuh`） |
+| `awq/` | llm-awq 参考 kernel（`gemm_kernels.cu`，`dequantize.cuh`） |
+| `gptq_allspark/` | W8A16（`allspark_qgemm_w8a16.cu`） |
+| `machete/` | Hopper CUTLASS 3.x mixed-input GEMM（prepack + mainloop + 生成脚本） |
+| `gguf/` | llama.cpp 的 GGUF 量化格式（Q4_0/Q4_K/…；`mmvq.cuh` 为 GEMV，`mmq.cuh` 为 GEMM） |
+| `w8a8/fp8/` | FP8 量化 kernel<br/>`common.cu`：static / dynamic per-token `scaled_fp8_quant`<br/>`nvidia/quant_utils.cuh`：`__nv_cvt` 封装 |
+| `w8a8/int8/` | INT8 量化：`scaled_quant.cu`（含非对称 azp） |
+| `w8a8/cutlass/` | v0.20.0 里只剩 `Epilogues.md`；CUTLASS scaled_mm 实现移到<br/>`csrc/libtorch_stable/quantization/w8a8/cutlass/{c2x, c3x, moe}/` |
+| `fused_kernels/` | `fused_layernorm_dynamic_per_token_quant.cu`（RMSNorm + 动态量化）<br/>`fused_silu_mul_block_quant.cu`（SiLU-mul + 分块量化） |
+| `hadamard/` | hadacore：Hadamard 变换（旋转量化方案 QuaRot / SpinQuant 用） |
+| `activation_kernels.cu` | 量化版激活（如 `silu_and_mul` 直接输出 FP8/NVFP4） |
+| `utils.cuh` | `quant_type_max_v`（E4M3 为 448、INT8 为 127）、`min_scaling_factor` |
+
+Table: `csrc/quantization/` 目录导读
 
 （`csrc/cutlass_extensions/epilogue/scaled_mm_epilogues_c3x.hpp` 是 FP8/INT8 GEMM 的 epilogue 定义，下一节用到。）
 
@@ -347,21 +299,9 @@ $$
 - **per-token**（激活按行）：$$s_a$$ 是长度 $$M$$ 的向量，每个 token 一个 scale——这是动态量化的自然粒度，因为一个 token 的激活是一次 reduction 就能拿到 absmax 的单位；
 - **per-channel**（权重按列）：$$s_b$$ 是长度 $$N$$ 的向量，每个输出通道一个 scale，离线算好。
 
-```text title="per-tensor / per-token / per-channel / per-block scale 的位置"
-  D = s_a · s_b · (A_q · B_q)     哪些 scale 能提到求和号外面，看它是否依赖 k
+![per-tensor / per-token / per-channel / per-block scale 的位置](/img/in-post/quantization-and-fused-kernels-scale-granularity.svg)
 
-  per-tensor            per-token (A 按行)      per-channel (B 按列)     per-block 128×128 (B) + 1×128 (A)
-  A: ┌────────┐ s_a     A: ┌────────┐ s_a[0]    B: ┌──┬──┬──┬──┐         B:  k→ ┌────┬────┬────┐
-     │        │            ├────────┤ s_a[1]       │  │  │  │  │            ┌────┼ s₀₀│ s₀₁│ s₀₂│
-     │        │            ├────────┤ s_a[2]       │  │  │  │  │         k  │    ├────┼────┼────┤
-     └────────┘            └────────┘ ...          └──┴──┴──┴──┘         ↓  │    │ s₁₀│ s₁₁│ s₁₂│
-  B: ┌────────┐ s_b        每行一个                 s_b[0] [1] [2] [3]        └────┴────┴────┴────┘
-     └────────┘                                    每列一个                  scale 随 k 块变化！
-  ────────────────────────────────────────────────────────────────────────────────────────────────
-  epilogue 乘一次          epilogue 按行广播乘        epilogue 按列广播乘       不能放 epilogue：
-  主循环纯 FP8 mma         主循环纯 FP8 mma          主循环纯 FP8 mma          每 128 个 k 把部分和 × s 再累加
-                                                                            （顺带把 wgmma 有限精度累加 promote 到 FP32）
-```
+per-block 的 scale 进了主循环，还顺带解决一件事：每 128 个 k 乘一次 scale 时，正好把 wgmma 有限精度的累加 promote 到 FP32。
 
 CUTLASS 3.x 用 Epilogue Visitor Tree（EVT）表达这件事。vLLM 的定义：
 
@@ -489,13 +429,14 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel_strided(
 
 **算字节**。在 decoder layer 里，动态量化紧跟在 RMSNorm 之后（attention 与 FFN 的输入都是 norm 的输出）。设一行 $$d$$ 个 BF16 元素、$$T$$ 行：
 
-```text title="RMSNorm 与动态量化分开 / 融合的字节数"
-                       读                          写                       合计 / 元素
-分开：RMSNorm           x (2B)                      xn (2B)                  4 B
-      + 动态量化         xn (2B)                     x_fp8 (1B) + scale        3 B
-                                                                            7 B
-融合：norm + quant      x (2B)                      x_fp8 (1B) + scale        3 B
-```
+| 方式 | 步骤 | 读 | 写 | 合计 / 元素 |
+|---|---|---|---|---|
+| 分开 | RMSNorm | x（2 B） | xn（2 B） | 4 B |
+| ^^ | 动态量化 | xn（2 B） | x_fp8（1 B）+ scale | 3 B |
+| ^^ | 两步合计 | | | **7 B** |
+| 融合 | norm + quant | x（2 B） | x_fp8（1 B）+ scale | **3 B** |
+
+Table: RMSNorm 与动态量化分开 / 融合的字节数
 
 融合节省 4/7 的流量，并且不需要物化 BF16 的中间张量。vLLM 的 `csrc/quantization/fused_kernels/fused_layernorm_dynamic_per_token_quant.cu` 就是这个融合，结构是三段：`compute_rms`（sum of squares 归约）→ `compute_dynamic_per_token_scales`（对**归一化后**的值 $$\text{bf16}(x \cdot \text{rms}) \cdot w$$ 做 absmax 归约，注意先转一次 BF16 再乘 $$w$$，让 scale 与非融合路径逐位一致）→ `norm_and_quant`（第三遍读 $$x$$，归一化、除 scale、`cvt`、写 FP8）。三遍读的后两遍在 L1/L2 里，HBM 流量还是上表的 3 B/元素。它还带 `has_residual` 模板参数，把 residual add 也吸进来（见下一章）。
 
@@ -594,13 +535,14 @@ __device__ __forceinline__ T silu_kernel(const T& x) {
 
 Pre-norm Transformer 的每个子层是 $$h \leftarrow h + f(\text{norm}(h))$$，两个子层之间的模式是"上一个子层的输出加到残差流、再 norm 给下一个子层"。分开与融合的字节数（$$d$$ 个 BF16 一行）：
 
-```text title="residual add 与 RMSNorm 分开 / 融合的字节数"
-                    读                      写                       合计 / 元素
-分开：add           x, residual (4B)        residual (2B)            6 B
-      RMSNorm       residual (2B)           out (2B)                 4 B
-                                                                     10 B
-融合                x, residual (4B)        residual, out (4B)       8 B
-```
+| 方式 | 步骤 | 读 | 写 | 合计 / 元素 |
+|---|---|---|---|---|
+| 分开 | add | x, residual（4 B） | residual（2 B） | 6 B |
+| ^^ | RMSNorm | residual（2 B） | out（2 B） | 4 B |
+| ^^ | 两步合计 | | | **10 B** |
+| 融合 | add + RMSNorm | x, residual（4 B） | residual, out（4 B） | **8 B** |
+
+Table: residual add 与 RMSNorm 分开 / 融合的字节数
 
 融合只省 20%，但更重要的是省了一次 kernel launch 和一次 $$T \times d$$ 的中间张量物化。vLLM 的 `fused_add_rms_norm_kernel`（`csrc/layernorm_kernels.cu`）签名是 `(input, residual, weight, epsilon)`，**就地**：`residual = input + residual`，`input = norm(residual) * weight`——两个输出都写回输入缓冲区，所以调用者不需要分配任何新张量。宽度 8 的 BF16/FP16 特化版每线程一次搬 16 字节：
 
@@ -656,26 +598,9 @@ $$\cos$$ 与 $$\sin$$ 与输入无关，预先算成 `cos_sin_cache[max_position
 - **NEOX 风格**（GPT-NeoX、Llama、Qwen 等）：第 $$j$$ 个平面是 $$(x[j], x[j + d/2])$$——前半段与后半段配对，就是 HuggingFace 代码里的 `rotate_half`；
 - **GPT-J 风格**（GPT-J、ChatGLM 等，也叫 interleaved）：第 $$j$$ 个平面是 $$(x[2j], x[2j+1])$$——相邻两个元素配对。
 
-```text title="NEOX 与 GPT-J 两种 RoPE 配对布局（d = 8）"
-  一个 head 的向量 x[0..d)，d = 8 示意。同色/同编号的两个分量组成一个旋转平面 j，用同一组 (cos θ_j, sin θ_j)
+![NEOX 与 GPT-J 两种 RoPE 配对布局（d = 8）](/img/in-post/quantization-and-fused-kernels-rope-layouts.svg)
 
-  NEOX（rotate_half）:  第 j 个平面 = (x[j], x[j + d/2])
-     x:  [ 0 ][ 1 ][ 2 ][ 3 ][ 0'][ 1'][ 2'][ 3']
-           └────┼────┼────┼────┘    │    │    │        平面 0 = (x[0], x[4])
-                └────┼────┼─────────┘    │    │        平面 1 = (x[1], x[5])
-                     └────┼──────────────┘    │        ...
-                          └───────────────────┘
-     线程 j 读 x[j] 与 x[j+4]：warp 读两段各 32 个连续元素
-
-  GPT-J（interleaved）:  第 j 个平面 = (x[2j], x[2j+1])
-     x:  [ 0 ][ 0'][ 1 ][ 1'][ 2 ][ 2'][ 3 ][ 3']
-           └──┘     └──┘     └──┘     └──┘             平面 0 = (x[0], x[1]) ...
-     线程 j 读相邻的一对：warp 读一段 64 个连续元素
-
-  两种布局旋转的数学完全一样，差别只在 x_index / y_index 怎么算、cos/sin 表怎么查
-```
-
-vLLM 用一个 `IS_NEOX` 模板参数区分，差别只在索引：
+两种布局旋转的数学完全一样。vLLM 用一个 `IS_NEOX` 模板参数区分，差别只在 `x_index` / `y_index` 怎么算、cos/sin 表怎么查：
 
 ```cpp title="apply_token_rotary_embedding：IS_NEOX 决定索引"
 // csrc/pos_encoding_kernels.cu（v0.20.0）
@@ -758,32 +683,7 @@ K cache 的 `[num_blocks, num_heads, head_size/x, block_size, x]` 布局里，$$
 
 把一个 cache block 里一个 KV head 的存放方式画出来（BF16，`head_size = 128`，`block_size = 16`，`x = 8`）：
 
-```text title="一个 cache block 内 K/V 的存放方式"
-  K[t, h, d] 落在 key_cache[blk][h][d / 8][t][d % 8]   每格 = 8 个 BF16 = 16 B
-
-  K cache（一个 blk、一个 h）: [head_size/x = 16 段][block_size = 16][x = 8]
-              段 0        段 1        段 2               段 15
-             d 0..7      d 8..15     d 16..23           d 120..127
-            ┌────────┐  ┌────────┐  ┌────────┐         ┌────────┐
-   token 0  │  16 B  │  │  16 B  │  │  16 B  │   ...   │  16 B  │
-   token 1  │  16 B  │  │  16 B  │  │  16 B  │         │  16 B  │
-    ...     │  ...   │  │  ...   │  │  ...   │         │  ...   │
-   token 15 │  16 B  │  │  16 B  │  │  16 B  │         │  16 B  │
-            └────────┘  └────────┘  └────────┘         └────────┘
-            一段 256 B 连续: 16 个 token 的同一 8 维相邻，读端一个 warp 读一段
-   写入 token t: 16 段各写 16 B，段间 stride 256 B（16 次 16 B 向量写）
-
-  V[t, h, d] 落在 value_cache[blk][h][d][t]            每格 = 1 个 BF16 = 2 B
-
-  V cache（一个 blk、一个 h）: [head_size = 128][block_size = 16]
-             token 0   1    2   ...  15
-   d = 0     [ v ][ v ][ v ] ... [ v ]   ← 一行 32 B 连续: 同一 d 的 16 个 token
-   d = 1     [ v ][ v ][ v ] ... [ v ]      读端沿 token 维做点积、合并读取
-    ...
-   d = 127   [ v ][ v ][ v ] ... [ v ]
-   写入 token t: 128 个元素各写 2 B，stride 32 B（value_dst[i * block_size]）
-   → 分散写，但每 token 只有 4 KiB
-```
+![一个 cache block 内 K/V 的存放方式](/img/in-post/quantization-and-fused-kernels-kv-cache-block.svg)
 
 `reshape_and_cache_flash_kernel` 服务于 FlashAttention / FlashInfer 后端，布局是 `[num_blocks, block_size, num_heads, head_size]`（NHD：一个 token 的所有 head 连续，就是普通的 `[tokens, heads, head_size]` 每 `block_size` 行切一页）或 `[num_blocks, num_heads, block_size, head_size]`（HND）。NHD 下写入是一个 token 整段连续，`vectorize_with_alignment<VEC_SIZE>` 一次 16 字节。两种 kernel 的 `Fp8KVCacheDataType kv_dt` 模板参数与 `k_scale / v_scale` 指针处理 **FP8 KV cache**：`CopyWithScaleOp` 在 `kv_dt != kAuto` 时调用 `fp8::scaled_convert`，把 BF16 除以 scale、饱和、转 E4M3 后写入，读取端（attention kernel）再乘回来。KV cache 用 FP8 之后每 token 从 128 KiB 变成 64 KiB，decode 时读 KV 的时间减半——这与权重量化的逻辑完全一样，都是 memory-bound 侧的字节交易。
 
@@ -844,27 +744,11 @@ router logits 一行只有 $$E$$ 个数（8 到 256），一个 block 一行太�
 
 一个小例子把三个输出的关系摆出来（$$T = 5$$、$$k = 2$$、$$E = 3$$、`block_size = 4`）：
 
-```text title="moe_align_block_size 三个输出的小例子"
-  扁平索引 i = t·k + j
-  topk_ids   t=0: [0,2]   t=1: [1,0]   t=2: [0,1]   t=3: [2,0]   t=4: [0,1]
-  i           0   1        2   3        4   5        6   7        8   9
-  expert      0   2        1   0        0   1        2   0        0   1
+![moe_align_block_size 三个输出的小例子](/img/in-post/quantization-and-fused-kernels-moe-align.svg)
 
-  计数           e0 = 5    e1 = 3    e2 = 2
-  pad 到 4 倍    e0 = 8    e1 = 4    e2 = 4     cumsum = [0, 8, 12, 16]
-                                                num_tokens_post_padded = 16
-
-  sorted_token_ids（pad 位填 numel = 10，GEMM 里被 token_mask 挡掉）
-   位置     0   1   2   3   4   5   6   7 |   8   9  10  11 |  12  13  14  15
-   值       0   3   4   7   8  10  10  10 |   2   5   9  10 |   1   6  10  10
-         └─── tile 0 ───┘└─── tile 1 ───┘  └─── tile 2 ───┘  └─── tile 3 ───┘
-  expert_ids    0               0                 1                 2
-  同一 expert 内的顺序由 atomicAdd 到达顺序决定（不稳定，GEMM 不在乎）
-
-  M-tile m 的 A 行 = sorted_token_ids[4m .. 4m+3] // k（即 token 编号）
-                 B = W[expert_ids[m]]
-  例: tile 1 只有 token 8//2 = 4 一行有效，其余 3 行是 pad；tile 3 读 token 0、3
-```
+- 计数：e0 = 5、e1 = 3、e2 = 2；pad 到 4 的倍数后 e0 = 8、e1 = 4、e2 = 4，`cumsum = [0, 8, 12, 16]`，`num_tokens_post_padded = 16`。
+- 同一 expert 内的顺序由 `atomicAdd` 到达顺序决定（不稳定，GEMM 不在乎）。
+- M-tile $$m$$ 的 A 行 = `sorted_token_ids[4m .. 4m+3] // k`（即 token 编号），B = `W[expert_ids[m]]`。例：tile 1 只有 token 8 // 2 = 4 一行有效，其余 3 行是 pad；tile 3 读 token 0、3。
 
 ```cpp title="_moe_align_block_size：计数、前缀和、填充"
 // csrc/moe/moe_align_sum_kernels.cu（v0.20.0），_moe_align_block_size 核心
@@ -917,41 +801,30 @@ A 的行地址是 `offs_token // top_k`（同一个 token 被 $$k$$ 个 expert �
 
 ### 4. 为什么 grouped GEMM 的效率低
 
-```text title="dense FFN 与 MoE grouped GEMM 的权重摊薄"
-  dense FFN: 一份权重 W 被全部 T 行摊薄            MoE: E 份权重，每份只被 T·k/E 行摊薄，且分布不均
+![dense FFN 与 MoE grouped GEMM 的权重摊薄](/img/in-post/quantization-and-fused-kernels-moe-amortization.svg)
 
-     T 行 ┌──────────┐                            E0 (热门)  ┌────┬────┬────┐  3 个 M-tile
-          │██████████│ × W                                   │████│████│██░░│  ← 最后一个 tile pad 掉一半
-          │██████████│                            E1         ┌────┐
-          │██████████│                                       │█░░░│  ← 1 个 tile，3/4 是 pad
-          │██████████│                            E2 (冷门)  ┌────┐
-          └──────────┘                                       │░░░░│  ← 只有 padding（或 tile 直接跳过）
-     I ≈ T FLOP/byte                              E3         ┌────┬────┐
-                                                             │████│█░░░│
-                                                  ...
-                                                  每个 expert 的 I ≈ T·k/E；pad 行照样喂进 mma（算力白烧）；
-                                                  tile 数不均 → 有的 SM 早早空转（第五篇的 wave quantization 放大版）
-```
+- pad 行照样喂进 `mma`，算力白烧。
+- tile 数不均 → 有的 SM 早早空转，是第五篇 wave quantization 的放大版。
+- 没分到 token 的 expert 不占 M-tile：`CEILDIV(0, 4) = 0`，它在 `cumsum` 里那一段长度为 0。全是 pad 的 tile 只在网格尾部，超出 `num_tokens_post_padded`，`expert_ids` 填 -1，kernel 一进来就 `return`。
 
 每个 expert 的 GEMM 是 $$[M_e, K] \times [K, N]$$，$$M_e$$ 是分到它的 token 数。平均 $$\bar{M}_e = Tk / E$$：DeepSeek-V3 decode batch 128 时 $$128 \times 8 / 256 = 4$$，prefill 4096 token 时也只有 128。用 §3.2 的公式，每个 expert GEMM 的算术强度约为 $$\bar{M}_e$$（BF16）——**每个 expert 的权重只被 $$Tk/E$$ 行摊薄**，而 dense FFN 的权重被全部 $$T$$ 行摊薄。所以同样 $$T$$ 下 MoE 的 FFN 部分比 dense 更靠 Roofline 的 memory-bound 一侧，交叉点要 $$Tk/E > 156$$，即 $$T > 156 E / k \approx 5000$$（DeepSeek-V3）。再加上 padding 浪费（每个 expert 平均浪费 `BLOCK_M/2` 行，$$E = 256$$、`BLOCK_M = 64` 时是 8192 行的空 `mma`）与负载不均（热门 expert 的 tile 多，冷 expert 只有一个 tile），grouped GEMM 达到的 MFU 通常显著低于同规模 dense GEMM。这也是 FP8 与 W4 权重对 MoE 模型收益更大的原因——它们几乎总在 memory-bound 一侧。
 
 ### 5. `csrc/moe/` 目录导读
 
-```text title="csrc/moe/ 目录导读"
-文件                                内容
-topk_softmax_kernels.cu             topkGating：softmax + top-k 选择（FasterTransformer 系）
-grouped_topk_kernels.cu             DeepSeek-V3 的分组 top-k（先选 group 再选 expert）
-topk_softplus_sqrt_kernels.cu       其他 scoring 函数的变体
-moe_align_sum_kernels.cu            moe_align_block_size（计数排序 + padding）、moe_sum、
-                                    batched / small-batch / LoRA 变体
-moe_permute_unpermute_op.cu +       CUB radix sort 排序、expandInputRows（物化 permute）、
-  permute_unpermute_kernels/        finalizeMoeRouting（unpermute + 加权求和）
-moe_wna16.cu                        W4A16 / W8A16 的 MoE GEMM（非 Marlin 路径）
-marlin_moe_wna16/                   Marlin 的 MoE 版本（每个 expert 一组 Marlin stripe）
-mxfp8_moe/                          MXFP8 量化 MoE
-router_gemm.cu、dsv3_router_gemm_*  router 的小 GEMM 特化（[T, d] x [d, E]，E=256 时 N 极小）
-torch_bindings.cpp                  以上算子的 TORCH_LIBRARY 注册（_moe_C）
-```
+| 文件 | 内容 |
+|---|---|
+| `topk_softmax_kernels.cu` | topkGating：softmax + top-k 选择（FasterTransformer 系） |
+| `grouped_topk_kernels.cu` | DeepSeek-V3 的分组 top-k（先选 group 再选 expert） |
+| `topk_softplus_sqrt_kernels.cu` | 其他 scoring 函数的变体 |
+| `moe_align_sum_kernels.cu` | `moe_align_block_size`（计数排序 + padding）、`moe_sum`<br/>batched / small-batch / LoRA 变体 |
+| `moe_permute_unpermute_op.cu` +<br/>`permute_unpermute_kernels/` | CUB radix sort 排序、`expandInputRows`（物化 permute）<br/>`finalizeMoeRouting`（unpermute + 加权求和） |
+| `moe_wna16.cu` | W4A16 / W8A16 的 MoE GEMM（非 Marlin 路径） |
+| `marlin_moe_wna16/` | Marlin 的 MoE 版本（每个 expert 一组 Marlin stripe） |
+| `mxfp8_moe/` | MXFP8 量化 MoE |
+| `router_gemm.cu`、`dsv3_router_gemm_*` | router 的小 GEMM 特化（[T, d] × [d, E]，E = 256 时 N 极小） |
+| `torch_bindings.cpp` | 以上算子的 `TORCH_LIBRARY` 注册（`_moe_C`） |
+
+Table: `csrc/moe/` 目录导读
 
 ## 七、采样 kernel
 
@@ -1258,23 +1131,23 @@ __global__ void w4a16_gemv_kernel(__nv_bfloat16* __restrict__ y,
 
 把本篇的四个 kernel 与前几篇的 GEMM（第六篇 BF16 `mma.sync` GEMM）、attention（第八篇 FlashAttention 前向 / paged decode）按下面的顺序接起来，就是一个 Llama 风格 decoder layer。以 Llama-3-8B（$$d = 4096$$、32 个 q head、8 个 KV head、$$d_{head} = 128$$、$$d_{ff} = 14336$$）、$$T$$ 个 token 为例：
 
-```text title="Llama 风格 decoder layer 的 10 步 kernel 序列"
-步  kernel                       输入 shape                       输出 shape            来源
-1   fused_add_rms_norm           x [T,4096], residual [T,4096]    xn [T,4096]           本篇 §9.1（第 0 层第一次用普通 RMSNorm）
-2   QKV GEMM                     xn [T,4096] x Wqkv [6144,4096]^T qkv [T,6144]          第六篇 BF16 GEMM，或 §9.4 INT4 GEMV（T 小）
-    split                        qkv -> q [T,32,128], k [T,8,128], v [T,8,128]（view，不拷贝）
-3   rope_neox                    positions [T], q, k（就地）        q, k                   本篇 §9.3
-4   reshape_and_cache            k, v, slot_mapping [T]            paged K/V cache        第八篇（写入端本篇 §5.5）
-5   attention                    q, K cache, V cache, block_table  o [T,32,128]          第八篇（prefill: flash；decode: paged）
-6   O GEMM                       o.view(T,4096) x Wo [4096,4096]^T attn_out [T,4096]     第六篇 / §9.4
-7   fused_add_rms_norm           attn_out, residual（就地）          xn2 [T,4096]          本篇 §9.1；residual <- residual + attn_out
-8   gate_up GEMM                 xn2 x Wgu [28672,4096]^T          gu [T,28672]          第六篇 / §9.4
-9   silu_and_mul                 gu [T,28672]                      h [T,14336]           本篇 §9.2
-10  down GEMM                    h x Wd [4096,14336]^T             ffn_out [T,4096]      第六篇 / §9.4
-    -> 下一层的步 1 以 (x = ffn_out, residual) 进入
-```
+| 步 | kernel | 输入 shape | 输出 shape | 来源 |
+|---|---|---|---|---|
+| 1 | `fused_add_rms_norm` | x [T,4096], residual [T,4096] | xn [T,4096] | 本篇 §9.1（第 0 层第一次用普通 RMSNorm） |
+| 2 | QKV GEMM | xn [T,4096] × Wqkv [6144,4096]ᵀ | qkv [T,6144] | 第六篇 BF16 GEMM，或 §9.4 INT4 GEMV（T 小） |
+| ^^ | split | qkv | q [T,32,128], k [T,8,128], v [T,8,128] | view，不拷贝 |
+| 3 | `rope_neox` | positions [T], q, k（就地） | q, k | 本篇 §9.3 |
+| 4 | `reshape_and_cache` | k, v, slot_mapping [T] | paged K/V cache | 第八篇（写入端本篇 §5.5） |
+| 5 | attention | q, K cache, V cache, block_table | o [T,32,128] | 第八篇（prefill: flash；decode: paged） |
+| 6 | O GEMM | o.view(T,4096) × Wo [4096,4096]ᵀ | attn_out [T,4096] | 第六篇 / §9.4 |
+| 7 | `fused_add_rms_norm` | attn_out, residual（就地） | xn2 [T,4096] | 本篇 §9.1；residual ← residual + attn_out |
+| 8 | gate_up GEMM | xn2 × Wgu [28672,4096]ᵀ | gu [T,28672] | 第六篇 / §9.4 |
+| 9 | `silu_and_mul` | gu [T,28672] | h [T,14336] | 本篇 §9.2 |
+| 10 | down GEMM | h × Wd [4096,14336]ᵀ | ffn_out [T,4096] | 第六篇 / §9.4 |
 
-画成数据流，颜色标出每一步是本系列哪一篇的 kernel、以及哪些边界被融合掉了：
+Table: Llama 风格 decoder layer 的 10 步 kernel 序列
+
+第 10 步之后，下一层的第 1 步以 (x = ffn_out, residual) 进入。画成数据流，颜色标出每一步是本系列哪一篇的 kernel、以及哪些边界被融合掉了：
 
 ```mermaid
 %% 图：一个 decoder layer 前向的十次 launch：四个 GEMM、两处 attention 读写端、四个融合的 elementwise / row-wise kernel
@@ -1377,34 +1250,42 @@ def decoder_layer_ref(h, residual, p, pos, cos_sin, n_h=32, n_kv=8, d_head=128):
 
 数字汇总：
 
-```text title="本篇数字汇总：格式、字节数与理论下界"
-格式                     位布局 (S/E/M)   最大值       eps          用途
-FP16                     1/5/10           65504        9.8e-4       激活（旧）、Marlin 反量化目标
-BF16                     1/8/7            3.4e38       7.8e-3       默认激活/权重
-FP8 E4M3 (fn)            1/4/3            448（无 inf） 0.125        W8A8 权重与激活、FP8 KV cache
-FP8 E5M2                 1/5/2            57344        0.25         训练梯度
-INT8                     整数              127          —            W8A8 (Ampere)、KV cache
-INT4                     整数              7 / 0..15    —            W4A16 权重（g=128，约 4.15 bit/权重）
+| 格式 | 位布局（S/E/M） | 最大值 | eps | 用途 |
+|---|---|---|---|---|
+| FP16 | 1/5/10 | 65504 | 9.8e-4 | 激活（旧）、Marlin 反量化目标 |
+| BF16 | 1/8/7 | 3.4e38 | 7.8e-3 | 默认激活/权重 |
+| FP8 E4M3 (fn) | 1/4/3 | 448（无 inf） | 0.125 | W8A8 权重与激活、FP8 KV cache |
+| FP8 E5M2 | 1/5/2 | 57344 | 0.25 | 训练梯度 |
+| INT8 | 整数 | 127 | — | W8A8 (Ampere)、KV cache |
+| INT4 | 整数 | 7 / 0..15 | — | W4A16 权重（g=128，约 4.15 bit/权重） |
 
-Roofline（A100，N=K=4096）        算术强度 I(M)      交叉点 M       decode 下界 (Llama-3-8B)   prefill
-BF16 GEMM                         约 M               约 156         16 GB / 2 TB/s = 8 ms      0.44 ms/GEMM
-INT4 W4A16                        约 4M              约 40          约 4.1 GB -> 约 2 ms        略慢于 BF16
-FP8 W8A8 (H100, ridge 590)        约 2M              约 295         8 GB / 3.35 TB/s = 2.4 ms  FLOPs 时间减半
+Table: 数值格式
 
-融合模式                          分开 (B/元素)      融合 (B/元素)   理论时间 (T=8192, A100)
-residual add + RMSNorm (d=4096)  10                 8              134 us
-RMSNorm + 动态量化 FP8            7                  3              —
-SiLU-and-mul (d_ff=14336)        —                  6              350 us
-RoPE q+k (32+8 heads x 128)      8 (norm+rope)      4              84 us
-reshape_and_cache (每 token/层)   —                  4 KiB 读 + 4 KiB 写
+| Roofline（A100，N=K=4096） | 算术强度 I(M) | 交叉点 M | decode 下界（Llama-3-8B） | prefill |
+|---|---|---|---|---|
+| BF16 GEMM | 约 M | 约 156 | 16 GB / 2 TB/s = 8 ms | 0.44 ms/GEMM |
+| INT4 W4A16 | 约 4M | 约 40 | 约 4.1 GB → 约 2 ms | 略慢于 BF16 |
+| FP8 W8A8（H100，ridge 590） | 约 2M | 约 295 | 8 GB / 3.35 TB/s = 2.4 ms | FLOPs 时间减半 |
 
-vLLM v0.20.0 csrc 导读
-csrc/quantization/{marlin, gptq, awq, machete, gguf, w8a8/{fp8,int8}, fused_kernels, hadamard}/
-csrc/libtorch_stable/quantization/w8a8/cutlass/{c2x, c3x, moe}/   CUTLASS scaled_mm（FP8/INT8，blockwise）
-csrc/cutlass_extensions/epilogue/scaled_mm_epilogues_c3x.hpp      ScaledEpilogue（EVT）
-csrc/activation_kernels.cu · layernorm_kernels.cu · pos_encoding_kernels.cu · fused_qknorm_rope_kernel.cu
-csrc/cache_kernels.cu（reshape_and_cache / _flash）· csrc/moe/ · csrc/sampler.cu · topk.cu
-```
+Table: Roofline 与理论下界
+
+| 融合模式 | 分开（B/元素） | 融合（B/元素） | 理论时间（T=8192，A100） |
+|---|---|---|---|
+| residual add + RMSNorm（d=4096） | 10 | 8 | 134 us |
+| RMSNorm + 动态量化 FP8 | 7 | 3 | — |
+| SiLU-and-mul（d_ff=14336） | — | 6 | 350 us |
+| RoPE q+k（32+8 heads × 128） | 8（norm+rope） | 4 | 84 us |
+| reshape_and_cache（每 token/层） | — | 4 KiB 读 + 4 KiB 写 | — |
+
+Table: 融合模式的字节数
+
+vLLM v0.20.0 csrc 导读：
+
+- `csrc/quantization/{marlin, gptq, awq, machete, gguf, w8a8/{fp8,int8}, fused_kernels, hadamard}/`
+- `csrc/libtorch_stable/quantization/w8a8/cutlass/{c2x, c3x, moe}/`：CUTLASS scaled_mm（FP8/INT8，blockwise）
+- `csrc/cutlass_extensions/epilogue/scaled_mm_epilogues_c3x.hpp`：ScaledEpilogue（EVT）
+- `csrc/activation_kernels.cu`、`layernorm_kernels.cu`、`pos_encoding_kernels.cu`、`fused_qknorm_rope_kernel.cu`
+- `csrc/cache_kernels.cu`（reshape_and_cache / _flash）、`csrc/moe/`、`csrc/sampler.cu`、`topk.cu`
 
 到这里，decoder layer 的 kernel 全集已经凑齐：第三篇的 elementwise、第四篇的 norm 与 softmax、第五六篇的 GEMM、第八篇的 attention、本篇的 RoPE、SiLU-mul、fused norm、INT4 GEMV 与 KV 写入。它们能跑通一个 layer 的前向、能与 PyTorch eager 对照正确性。但"能跑"与"能进 vLLM 主线"之间还有一段距离：怎么用 Nsight Compute 确认离 Roofline 还有多远、怎么写 `opcheck` 通得过的测试、怎么用 `TORCH_LIBRARY` 注册成算子并让 `torch.compile` 认识它、怎么处理多架构编译。这是最后一篇的内容。
 

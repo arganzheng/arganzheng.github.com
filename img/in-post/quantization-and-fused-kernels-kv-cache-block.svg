@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 546" width="760" height="546" role="img" aria-labelledby="t d">
+  <title id="t">一个 cache block 内 K/V 的存放方式（BF16，head_size = 128，block_size = 16，x = 8）</title>
+  <desc id="d">K[t, h, d] 落在 key_cache[blk][h][d/8][t][d%8]，每格 8 个 BF16 共 16 B：head_size 切成 16 段，每段内 16 个 token 相邻，一段 256 B 连续，读端一个 warp 读一段；写入一个 token 是 16 段各写 16 B，段间 stride 256 B。V[t, h, d] 落在 value_cache[blk][h][d][t]，每格 1 个 BF16 共 2 B：同一 d 的 16 个 token 一行 32 B 连续，读端沿 token 维点积、合并读取；写入一个 token 是 128 个元素各写 2 B，stride 32 B，分散写，但每 token 只有 4 KiB。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .mutedmono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { stroke: #6f8399; stroke-width: 1.2; }
+      .thin { stroke: #6f8399; stroke-width: 0.8; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .c-s { fill: #f9d5d3; } .c-e { fill: #fde0b8; } .c-m { fill: #cfe2f3; } .c-i { fill: #cfeccf; }
+      .c-w { fill: #ffffff; } .c-g { fill: #eef1f4; } .c-pad { fill: #e3e7eb; }
+      .b0 { fill: #cfe2f3; } .b1 { fill: #fde0b8; } .b2 { fill: #cfeccf; } .b3 { fill: #e6d7f2; } .b4 { fill: #f9d5d3; }
+    </style>
+  </defs>
+<rect x="0" y="0" width="760" height="546" fill="#ffffff"/>
+<text x="24.0" y="22.0" class="mono">K[t, h, d] 落在 key_cache[blk][h][d / 8][t][d % 8]</text>
+<text x="438.8" y="22.0" class="small">每格 = 8 个 BF16 = 16 B</text>
+<text x="24.0" y="50.0" class="bold">K cache（一个 blk、一个 h）：</text>
+<text x="245.6" y="50.0" class="mono">[head_size/x = 16 段][block_size = 16][x = 8]</text>
+<text x="96.0" y="129.0" text-anchor="end" class="small">token 0</text>
+<text x="96.0" y="153.0" text-anchor="end" class="small">token 1</text>
+<text x="96.0" y="177.0" text-anchor="end" class="small">…</text>
+<text x="96.0" y="201.0" text-anchor="end" class="small">token 15</text>
+<text x="158.0" y="86.0" text-anchor="middle" class="bold">段 0</text>
+<text x="158.0" y="104.0" text-anchor="middle" class="mutedmono">d 0..7</text>
+<rect x="110.0" y="112.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="158.0" y="129.0" text-anchor="middle" class="small">16 B</text>
+<rect x="110.0" y="136.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="158.0" y="153.0" text-anchor="middle" class="small">16 B</text>
+<rect x="110.0" y="160.0" width="96.0" height="24.0" class="c-g cell"/>
+<text x="158.0" y="177.0" text-anchor="middle" class="small">…</text>
+<rect x="110.0" y="184.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="158.0" y="201.0" text-anchor="middle" class="small">16 B</text>
+<text x="268.0" y="86.0" text-anchor="middle" class="bold">段 1</text>
+<text x="268.0" y="104.0" text-anchor="middle" class="mutedmono">d 8..15</text>
+<rect x="220.0" y="112.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="268.0" y="129.0" text-anchor="middle" class="small">16 B</text>
+<rect x="220.0" y="136.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="268.0" y="153.0" text-anchor="middle" class="small">16 B</text>
+<rect x="220.0" y="160.0" width="96.0" height="24.0" class="c-g cell"/>
+<text x="268.0" y="177.0" text-anchor="middle" class="small">…</text>
+<rect x="220.0" y="184.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="268.0" y="201.0" text-anchor="middle" class="small">16 B</text>
+<text x="378.0" y="86.0" text-anchor="middle" class="bold">段 2</text>
+<text x="378.0" y="104.0" text-anchor="middle" class="mutedmono">d 16..23</text>
+<rect x="330.0" y="112.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="378.0" y="129.0" text-anchor="middle" class="small">16 B</text>
+<rect x="330.0" y="136.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="378.0" y="153.0" text-anchor="middle" class="small">16 B</text>
+<rect x="330.0" y="160.0" width="96.0" height="24.0" class="c-g cell"/>
+<text x="378.0" y="177.0" text-anchor="middle" class="small">…</text>
+<rect x="330.0" y="184.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="378.0" y="201.0" text-anchor="middle" class="small">16 B</text>
+<text x="462.0" y="165.0" text-anchor="middle" class="bold">…</text>
+<text x="546.0" y="86.0" text-anchor="middle" class="bold">段 15</text>
+<text x="546.0" y="104.0" text-anchor="middle" class="mutedmono">d 120..127</text>
+<rect x="498.0" y="112.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="546.0" y="129.0" text-anchor="middle" class="small">16 B</text>
+<rect x="498.0" y="136.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="546.0" y="153.0" text-anchor="middle" class="small">16 B</text>
+<rect x="498.0" y="160.0" width="96.0" height="24.0" class="c-g cell"/>
+<text x="546.0" y="177.0" text-anchor="middle" class="small">…</text>
+<rect x="498.0" y="184.0" width="96.0" height="24.0" class="c-m cell"/>
+<text x="546.0" y="201.0" text-anchor="middle" class="small">16 B</text>
+<path d="M114,214 L114,220 L202,220 L202,214" class="line"/>
+<text x="110.0" y="242.0" class="small">一段 256 B 连续：16 个 token 的同一 8 维相邻，读端一个 warp 读一段</text>
+<text x="110.0" y="264.0" class="small">写入 token t：16 段各写 16 B，段间 stride 256 B（16 次 16 B 向量写）</text>
+<line x1="24.0" y1="284.0" x2="736.0" y2="284.0" class="rule"/>
+<text x="24.0" y="312.0" class="mono">V[t, h, d] 落在 value_cache[blk][h][d][t]</text>
+<text x="366.2" y="312.0" class="small">每格 = 1 个 BF16 = 2 B</text>
+<text x="24.0" y="340.0" class="bold">V cache（一个 blk、一个 h）：</text>
+<text x="245.6" y="340.0" class="mono">[head_size = 128][block_size = 16]</text>
+<text x="96.0" y="372.0" text-anchor="end" class="small">token</text>
+<text x="132.0" y="372.0" text-anchor="middle" class="mono">0</text>
+<text x="176.0" y="372.0" text-anchor="middle" class="mono">1</text>
+<text x="220.0" y="372.0" text-anchor="middle" class="mono">2</text>
+<text x="264.0" y="372.0" text-anchor="middle" class="mono">…</text>
+<text x="308.0" y="372.0" text-anchor="middle" class="mono">15</text>
+<text x="96.0" y="397.0" text-anchor="end" class="mono">d = 0</text>
+<rect x="110.0" y="380.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="132.0" y="397.0" text-anchor="middle" class="mono">v</text>
+<rect x="154.0" y="380.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="176.0" y="397.0" text-anchor="middle" class="mono">v</text>
+<rect x="198.0" y="380.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="220.0" y="397.0" text-anchor="middle" class="mono">v</text>
+<rect x="242.0" y="380.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="264.0" y="397.0" text-anchor="middle" class="mono">…</text>
+<rect x="286.0" y="380.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="308.0" y="397.0" text-anchor="middle" class="mono">v</text>
+<text x="96.0" y="421.0" text-anchor="end" class="mono">d = 1</text>
+<rect x="110.0" y="404.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="132.0" y="421.0" text-anchor="middle" class="mono">v</text>
+<rect x="154.0" y="404.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="176.0" y="421.0" text-anchor="middle" class="mono">v</text>
+<rect x="198.0" y="404.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="220.0" y="421.0" text-anchor="middle" class="mono">v</text>
+<rect x="242.0" y="404.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="264.0" y="421.0" text-anchor="middle" class="mono">…</text>
+<rect x="286.0" y="404.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="308.0" y="421.0" text-anchor="middle" class="mono">v</text>
+<text x="96.0" y="445.0" text-anchor="end" class="mono">…</text>
+<rect x="110.0" y="428.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="132.0" y="445.0" text-anchor="middle" class="mono">…</text>
+<rect x="154.0" y="428.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="176.0" y="445.0" text-anchor="middle" class="mono">…</text>
+<rect x="198.0" y="428.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="220.0" y="445.0" text-anchor="middle" class="mono">…</text>
+<rect x="242.0" y="428.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="264.0" y="445.0" text-anchor="middle" class="mono">…</text>
+<rect x="286.0" y="428.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="308.0" y="445.0" text-anchor="middle" class="mono">…</text>
+<text x="96.0" y="469.0" text-anchor="end" class="mono">d = 127</text>
+<rect x="110.0" y="452.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="132.0" y="469.0" text-anchor="middle" class="mono">v</text>
+<rect x="154.0" y="452.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="176.0" y="469.0" text-anchor="middle" class="mono">v</text>
+<rect x="198.0" y="452.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="220.0" y="469.0" text-anchor="middle" class="mono">v</text>
+<rect x="242.0" y="452.0" width="44.0" height="24.0" class="c-g cell"/>
+<text x="264.0" y="469.0" text-anchor="middle" class="mono">…</text>
+<rect x="286.0" y="452.0" width="44.0" height="24.0" class="c-e cell"/>
+<text x="308.0" y="469.0" text-anchor="middle" class="mono">v</text>
+<line x1="360.0" y1="392.0" x2="334.0" y2="392.0" class="arrow"/>
+<text x="368.0" y="397.0" class="small">一行 32 B 连续：同一 d 的 16 个 token</text>
+<text x="368.0" y="421.0" class="small">读端沿 token 维做点积、合并读取</text>
+<text x="110.0" y="504.0" class="small">写入 token t：128 个元素各写 2 B，stride 32 B（value_dst[i * block_size]）</text>
+<text x="110.0" y="526.0" class="small">→ 分散写，但每 token 只有 4 KiB</text>
+</svg>

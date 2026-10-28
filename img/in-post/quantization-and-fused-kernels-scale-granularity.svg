@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 282" width="760" height="282" role="img" aria-labelledby="t d">
+  <title id="t">per-tensor / per-token / per-channel / per-block scale 的位置</title>
+  <desc id="d">D = s_a · s_b · (A_q · B_q)，scale 能否提到求和号外面看它是否依赖 k。per-tensor：A、B 各一个标量，epilogue 乘一次；per-token：A 每行一个 s_a[i]，epilogue 按行广播乘；per-channel：B 每列一个 s_b[j]，epilogue 按列广播乘；这三种主循环都是纯 FP8 mma。per-block：A 每行每 128 个 k 一个 scale（1×128），B 每个 128×128 块一个 scale，scale 随 k 块变化，不能放 epilogue，每 128 个 k 把部分和乘 scale 再累加。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .mutedmono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { stroke: #6f8399; stroke-width: 1.2; }
+      .thin { stroke: #6f8399; stroke-width: 0.8; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .c-s { fill: #f9d5d3; } .c-e { fill: #fde0b8; } .c-m { fill: #cfe2f3; } .c-i { fill: #cfeccf; }
+      .c-w { fill: #ffffff; } .c-g { fill: #eef1f4; } .c-pad { fill: #e3e7eb; }
+      .b0 { fill: #cfe2f3; } .b1 { fill: #fde0b8; } .b2 { fill: #cfeccf; } .b3 { fill: #e6d7f2; } .b4 { fill: #f9d5d3; }
+    </style>
+  </defs>
+<rect x="0" y="0" width="760" height="282" fill="#ffffff"/>
+<text x="24.0" y="24.0" class="mono">D = s_a · s_b · (A_q · B_q)</text>
+<text x="261.6" y="24.0" class="muted">哪些 scale 能提到求和号外面，看它是否依赖 k</text>
+<text x="16.0" y="58.0" class="bold">per-tensor</text>
+<text x="182.0" y="58.0" class="bold">per-token</text>
+<text x="182.0" y="77.0" class="muted">（A 按行）</text>
+<text x="348.0" y="58.0" class="bold">per-channel</text>
+<text x="348.0" y="77.0" class="muted">（B 按列）</text>
+<text x="514.0" y="58.0" class="bold">per-block</text>
+<text x="514.0" y="77.0" class="muted">128×128 (B) + 1×128 (A)</text>
+<text x="16.0" y="132.0" class="monob">A</text>
+<rect x="34.0" y="98.0" width="84.0" height="60.0" class="c-w cell"/>
+<text x="126.0" y="132.0" class="mono">s_a</text>
+<text x="16.0" y="190.0" class="monob">B</text>
+<rect x="34.0" y="174.0" width="84.0" height="24.0" class="c-w cell"/>
+<text x="126.0" y="190.0" class="mono">s_b</text>
+<text x="182.0" y="144.0" class="monob">A</text>
+<rect x="200.0" y="98.0" width="72.0" height="20.0" class="c-m cell"/>
+<text x="280.0" y="113.0" class="monos">s_a[0]</text>
+<rect x="200.0" y="118.0" width="72.0" height="20.0" class="c-m cell"/>
+<text x="280.0" y="133.0" class="monos">s_a[1]</text>
+<rect x="200.0" y="138.0" width="72.0" height="20.0" class="c-m cell"/>
+<text x="280.0" y="153.0" class="monos">s_a[2]</text>
+<rect x="200.0" y="158.0" width="72.0" height="20.0" class="c-w cell"/>
+<text x="280.0" y="173.0" class="monos">…</text>
+<text x="200.0" y="200.0" class="small">每行一个</text>
+<text x="348.0" y="132.0" class="monob">B</text>
+<rect x="370.0" y="98.0" width="30.0" height="60.0" class="c-e cell"/>
+<text x="385.0" y="176.0" text-anchor="middle" class="monos">[0]</text>
+<rect x="400.0" y="98.0" width="30.0" height="60.0" class="c-e cell"/>
+<text x="415.0" y="176.0" text-anchor="middle" class="monos">[1]</text>
+<rect x="430.0" y="98.0" width="30.0" height="60.0" class="c-e cell"/>
+<text x="445.0" y="176.0" text-anchor="middle" class="monos">[2]</text>
+<rect x="460.0" y="98.0" width="30.0" height="60.0" class="c-e cell"/>
+<text x="475.0" y="176.0" text-anchor="middle" class="monos">[3]</text>
+<text x="348.0" y="176.0" class="monos">s_b</text>
+<text x="370.0" y="200.0" class="small">每列一个</text>
+<text x="514.0" y="94.0" class="small">A（k →）</text>
+<rect x="514.0" y="104.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="544.0" y="104.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="574.0" y="104.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="514.0" y="122.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="544.0" y="122.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="574.0" y="122.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="514.0" y="140.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="544.0" y="140.0" width="30.0" height="18.0" class="c-m cell"/>
+<rect x="574.0" y="140.0" width="30.0" height="18.0" class="c-m cell"/>
+<text x="514.0" y="178.0" class="small">A：每行每 128 个 k 一个 s_a</text>
+<text x="614.0" y="94.0" class="small">B（k ↓，n →）</text>
+<rect x="614.0" y="104.0" width="38.0" height="30.0" class="c-e cell"/>
+<text x="631.0" y="123.0" text-anchor="middle" class="mono">s<tspan dy="3" font-size="10">00</tspan></text>
+<rect x="652.0" y="104.0" width="38.0" height="30.0" class="c-e cell"/>
+<text x="669.0" y="123.0" text-anchor="middle" class="mono">s<tspan dy="3" font-size="10">01</tspan></text>
+<rect x="690.0" y="104.0" width="38.0" height="30.0" class="c-e cell"/>
+<text x="707.0" y="123.0" text-anchor="middle" class="mono">s<tspan dy="3" font-size="10">02</tspan></text>
+<rect x="614.0" y="134.0" width="38.0" height="30.0" class="c-e cell"/>
+<text x="631.0" y="153.0" text-anchor="middle" class="mono">s<tspan dy="3" font-size="10">10</tspan></text>
+<rect x="652.0" y="134.0" width="38.0" height="30.0" class="c-e cell"/>
+<text x="669.0" y="153.0" text-anchor="middle" class="mono">s<tspan dy="3" font-size="10">11</tspan></text>
+<rect x="690.0" y="134.0" width="38.0" height="30.0" class="c-e cell"/>
+<text x="707.0" y="153.0" text-anchor="middle" class="mono">s<tspan dy="3" font-size="10">12</tspan></text>
+<text x="514.0" y="198.0" class="small">B：每块一个，scale 随 k 块变化！</text>
+<line x1="10.0" y1="218.0" x2="750.0" y2="218.0" class="rule"/>
+<text x="16.0" y="242.0" class="small">epilogue 乘一次</text>
+<text x="16.0" y="262.0" class="small">主循环纯 FP8 mma</text>
+<text x="182.0" y="242.0" class="small">epilogue 按行广播乘</text>
+<text x="182.0" y="262.0" class="small">主循环纯 FP8 mma</text>
+<text x="348.0" y="242.0" class="small">epilogue 按列广播乘</text>
+<text x="348.0" y="262.0" class="small">主循环纯 FP8 mma</text>
+<text x="514.0" y="242.0" class="small">不能放 epilogue：</text>
+<text x="514.0" y="262.0" class="small">每 128 个 k 把部分和 × s 再累加</text>
+</svg>

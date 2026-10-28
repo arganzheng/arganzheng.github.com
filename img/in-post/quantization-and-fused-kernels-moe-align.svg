@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 324" width="760" height="324" role="img" aria-labelledby="t d">
+  <title id="t">moe_align_block_size 三个输出的小例子（T = 5，k = 2，E = 3，block_size = 4）</title>
+  <desc id="d">上：topk_ids 展开成扁平索引 i = t·k + j，每个 i 按选中的 expert 着色。下：sorted_token_ids 共 16 位，expert 0 占位置 0..7（0, 3, 4, 7, 8 加 3 个 pad），expert 1 占 8..11（2, 5, 9 加 1 个 pad），expert 2 占 12..15（1, 6 加 2 个 pad），pad 位填 numel = 10；每 4 位一个 M-tile，expert_ids = [0, 0, 1, 2]。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .mutedmono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { stroke: #6f8399; stroke-width: 1.2; }
+      .thin { stroke: #6f8399; stroke-width: 0.8; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .c-s { fill: #f9d5d3; } .c-e { fill: #fde0b8; } .c-m { fill: #cfe2f3; } .c-i { fill: #cfeccf; }
+      .c-w { fill: #ffffff; } .c-g { fill: #eef1f4; } .c-pad { fill: #e3e7eb; }
+      .b0 { fill: #cfe2f3; } .b1 { fill: #fde0b8; } .b2 { fill: #cfeccf; } .b3 { fill: #e6d7f2; } .b4 { fill: #f9d5d3; }
+    </style>
+  </defs>
+<rect x="0" y="0" width="760" height="324" fill="#ffffff"/>
+<text x="24.0" y="22.0" class="bold">扁平索引 i = t·k + j</text>
+<text x="118.0" y="54.0" text-anchor="end" class="mono">topk_ids</text>
+<text x="118.0" y="80.0" text-anchor="end" class="mono">i</text>
+<text x="118.0" y="106.0" text-anchor="end" class="mono">expert</text>
+<rect x="130.0" y="36.0" width="104.0" height="26.0" class="c-w cell"/>
+<text x="182.0" y="54.0" text-anchor="middle" class="mono">t=0: [0,2]</text>
+<rect x="130.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="156.0" y="80.0" text-anchor="middle" class="mono">0</text>
+<rect x="130.0" y="88.0" width="52.0" height="26.0" class="b0 cell"/>
+<text x="156.0" y="106.0" text-anchor="middle" class="monob">0</text>
+<rect x="182.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="208.0" y="80.0" text-anchor="middle" class="mono">1</text>
+<rect x="182.0" y="88.0" width="52.0" height="26.0" class="b2 cell"/>
+<text x="208.0" y="106.0" text-anchor="middle" class="monob">2</text>
+<rect x="234.0" y="36.0" width="104.0" height="26.0" class="c-w cell"/>
+<text x="286.0" y="54.0" text-anchor="middle" class="mono">t=1: [1,0]</text>
+<rect x="234.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="260.0" y="80.0" text-anchor="middle" class="mono">2</text>
+<rect x="234.0" y="88.0" width="52.0" height="26.0" class="b1 cell"/>
+<text x="260.0" y="106.0" text-anchor="middle" class="monob">1</text>
+<rect x="286.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="312.0" y="80.0" text-anchor="middle" class="mono">3</text>
+<rect x="286.0" y="88.0" width="52.0" height="26.0" class="b0 cell"/>
+<text x="312.0" y="106.0" text-anchor="middle" class="monob">0</text>
+<rect x="338.0" y="36.0" width="104.0" height="26.0" class="c-w cell"/>
+<text x="390.0" y="54.0" text-anchor="middle" class="mono">t=2: [0,1]</text>
+<rect x="338.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="364.0" y="80.0" text-anchor="middle" class="mono">4</text>
+<rect x="338.0" y="88.0" width="52.0" height="26.0" class="b0 cell"/>
+<text x="364.0" y="106.0" text-anchor="middle" class="monob">0</text>
+<rect x="390.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="416.0" y="80.0" text-anchor="middle" class="mono">5</text>
+<rect x="390.0" y="88.0" width="52.0" height="26.0" class="b1 cell"/>
+<text x="416.0" y="106.0" text-anchor="middle" class="monob">1</text>
+<rect x="442.0" y="36.0" width="104.0" height="26.0" class="c-w cell"/>
+<text x="494.0" y="54.0" text-anchor="middle" class="mono">t=3: [2,0]</text>
+<rect x="442.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="468.0" y="80.0" text-anchor="middle" class="mono">6</text>
+<rect x="442.0" y="88.0" width="52.0" height="26.0" class="b2 cell"/>
+<text x="468.0" y="106.0" text-anchor="middle" class="monob">2</text>
+<rect x="494.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="520.0" y="80.0" text-anchor="middle" class="mono">7</text>
+<rect x="494.0" y="88.0" width="52.0" height="26.0" class="b0 cell"/>
+<text x="520.0" y="106.0" text-anchor="middle" class="monob">0</text>
+<rect x="546.0" y="36.0" width="104.0" height="26.0" class="c-w cell"/>
+<text x="598.0" y="54.0" text-anchor="middle" class="mono">t=4: [0,1]</text>
+<rect x="546.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="572.0" y="80.0" text-anchor="middle" class="mono">8</text>
+<rect x="546.0" y="88.0" width="52.0" height="26.0" class="b0 cell"/>
+<text x="572.0" y="106.0" text-anchor="middle" class="monob">0</text>
+<rect x="598.0" y="62.0" width="52.0" height="26.0" class="c-w cell"/>
+<text x="624.0" y="80.0" text-anchor="middle" class="mono">9</text>
+<rect x="598.0" y="88.0" width="52.0" height="26.0" class="b1 cell"/>
+<text x="624.0" y="106.0" text-anchor="middle" class="monob">1</text>
+<line x1="130.0" y1="36.0" x2="130.0" y2="114.0" class="line"/>
+<line x1="234.0" y1="36.0" x2="234.0" y2="114.0" class="line"/>
+<line x1="338.0" y1="36.0" x2="338.0" y2="114.0" class="line"/>
+<line x1="442.0" y1="36.0" x2="442.0" y2="114.0" class="line"/>
+<line x1="546.0" y1="36.0" x2="546.0" y2="114.0" class="line"/>
+<line x1="650.0" y1="36.0" x2="650.0" y2="114.0" class="line"/>
+<rect x="130.0" y="127.0" width="14.0" height="14.0" class="b0 cell"/>
+<text x="150.0" y="138.0" class="small">expert 0</text>
+<rect x="232.3" y="127.0" width="14.0" height="14.0" class="b1 cell"/>
+<text x="252.3" y="138.0" class="small">expert 1</text>
+<rect x="334.6" y="127.0" width="14.0" height="14.0" class="b2 cell"/>
+<text x="354.6" y="138.0" class="small">expert 2</text>
+<rect x="437.0" y="127.0" width="14.0" height="14.0" class="c-pad cell"/>
+<text x="457.0" y="138.0" class="small">pad（值 = numel = 10）</text>
+<text x="24.0" y="178.0" class="monob">sorted_token_ids</text>
+<text x="172.0" y="178.0" class="small">（pad 位填 numel = 10，GEMM 里被 token_mask 挡掉）</text>
+<text x="118.0" y="206.0" text-anchor="end" class="small">位置</text>
+<text x="118.0" y="230.0" text-anchor="end" class="small">值</text>
+<text x="149.0" y="206.0" text-anchor="middle" class="mutedmono">0</text>
+<rect x="130.0" y="212.0" width="38.0" height="26.0" class="b0 cell"/>
+<text x="149.0" y="230.0" text-anchor="middle" class="mono">0</text>
+<text x="187.0" y="206.0" text-anchor="middle" class="mutedmono">1</text>
+<rect x="168.0" y="212.0" width="38.0" height="26.0" class="b0 cell"/>
+<text x="187.0" y="230.0" text-anchor="middle" class="mono">3</text>
+<text x="225.0" y="206.0" text-anchor="middle" class="mutedmono">2</text>
+<rect x="206.0" y="212.0" width="38.0" height="26.0" class="b0 cell"/>
+<text x="225.0" y="230.0" text-anchor="middle" class="mono">4</text>
+<text x="263.0" y="206.0" text-anchor="middle" class="mutedmono">3</text>
+<rect x="244.0" y="212.0" width="38.0" height="26.0" class="b0 cell"/>
+<text x="263.0" y="230.0" text-anchor="middle" class="mono">7</text>
+<text x="301.0" y="206.0" text-anchor="middle" class="mutedmono">4</text>
+<rect x="282.0" y="212.0" width="38.0" height="26.0" class="b0 cell"/>
+<text x="301.0" y="230.0" text-anchor="middle" class="mono">8</text>
+<text x="339.0" y="206.0" text-anchor="middle" class="mutedmono">5</text>
+<rect x="320.0" y="212.0" width="38.0" height="26.0" class="c-pad cell"/>
+<text x="339.0" y="230.0" text-anchor="middle" class="mono">10</text>
+<text x="377.0" y="206.0" text-anchor="middle" class="mutedmono">6</text>
+<rect x="358.0" y="212.0" width="38.0" height="26.0" class="c-pad cell"/>
+<text x="377.0" y="230.0" text-anchor="middle" class="mono">10</text>
+<text x="415.0" y="206.0" text-anchor="middle" class="mutedmono">7</text>
+<rect x="396.0" y="212.0" width="38.0" height="26.0" class="c-pad cell"/>
+<text x="415.0" y="230.0" text-anchor="middle" class="mono">10</text>
+<text x="453.0" y="206.0" text-anchor="middle" class="mutedmono">8</text>
+<rect x="434.0" y="212.0" width="38.0" height="26.0" class="b1 cell"/>
+<text x="453.0" y="230.0" text-anchor="middle" class="mono">2</text>
+<text x="491.0" y="206.0" text-anchor="middle" class="mutedmono">9</text>
+<rect x="472.0" y="212.0" width="38.0" height="26.0" class="b1 cell"/>
+<text x="491.0" y="230.0" text-anchor="middle" class="mono">5</text>
+<text x="529.0" y="206.0" text-anchor="middle" class="mutedmono">10</text>
+<rect x="510.0" y="212.0" width="38.0" height="26.0" class="b1 cell"/>
+<text x="529.0" y="230.0" text-anchor="middle" class="mono">9</text>
+<text x="567.0" y="206.0" text-anchor="middle" class="mutedmono">11</text>
+<rect x="548.0" y="212.0" width="38.0" height="26.0" class="c-pad cell"/>
+<text x="567.0" y="230.0" text-anchor="middle" class="mono">10</text>
+<text x="605.0" y="206.0" text-anchor="middle" class="mutedmono">12</text>
+<rect x="586.0" y="212.0" width="38.0" height="26.0" class="b2 cell"/>
+<text x="605.0" y="230.0" text-anchor="middle" class="mono">1</text>
+<text x="643.0" y="206.0" text-anchor="middle" class="mutedmono">13</text>
+<rect x="624.0" y="212.0" width="38.0" height="26.0" class="b2 cell"/>
+<text x="643.0" y="230.0" text-anchor="middle" class="mono">6</text>
+<text x="681.0" y="206.0" text-anchor="middle" class="mutedmono">14</text>
+<rect x="662.0" y="212.0" width="38.0" height="26.0" class="c-pad cell"/>
+<text x="681.0" y="230.0" text-anchor="middle" class="mono">10</text>
+<text x="719.0" y="206.0" text-anchor="middle" class="mutedmono">15</text>
+<rect x="700.0" y="212.0" width="38.0" height="26.0" class="c-pad cell"/>
+<text x="719.0" y="230.0" text-anchor="middle" class="mono">10</text>
+<line x1="130.0" y1="212.0" x2="130.0" y2="238.0" class="line"/>
+<line x1="282.0" y1="212.0" x2="282.0" y2="238.0" class="line"/>
+<line x1="434.0" y1="212.0" x2="434.0" y2="238.0" class="line"/>
+<line x1="586.0" y1="212.0" x2="586.0" y2="238.0" class="line"/>
+<line x1="738.0" y1="212.0" x2="738.0" y2="238.0" class="line"/>
+<path d="M134,246 L134,252 L278,252 L278,246" class="line"/>
+<text x="206.0" y="270.0" text-anchor="middle" class="small">tile 0</text>
+<path d="M286,246 L286,252 L430,252 L430,246" class="line"/>
+<text x="358.0" y="270.0" text-anchor="middle" class="small">tile 1</text>
+<path d="M438,246 L438,252 L582,252 L582,246" class="line"/>
+<text x="510.0" y="270.0" text-anchor="middle" class="small">tile 2</text>
+<path d="M590,246 L590,252 L734,252 L734,246" class="line"/>
+<text x="662.0" y="270.0" text-anchor="middle" class="small">tile 3</text>
+<text x="118.0" y="300.0" text-anchor="end" class="mono">expert_ids</text>
+<rect x="130.0" y="282.0" width="152.0" height="26.0" class="b0 cell"/>
+<text x="206.0" y="300.0" text-anchor="middle" class="monob">0</text>
+<rect x="282.0" y="282.0" width="152.0" height="26.0" class="b0 cell"/>
+<text x="358.0" y="300.0" text-anchor="middle" class="monob">0</text>
+<rect x="434.0" y="282.0" width="152.0" height="26.0" class="b1 cell"/>
+<text x="510.0" y="300.0" text-anchor="middle" class="monob">1</text>
+<rect x="586.0" y="282.0" width="152.0" height="26.0" class="b2 cell"/>
+<text x="662.0" y="300.0" text-anchor="middle" class="monob">2</text>
+</svg>

@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 378" width="760" height="378" role="img" aria-labelledby="t d">
+  <title id="t">NEOX 与 GPT-J 两种 RoPE 配对布局（d = 8）</title>
+  <desc id="d">一个 head 的向量 x[0..8)。NEOX（rotate_half）里第 j 个旋转平面是 (x[j], x[j+4])，前半段与后半段配对，线程 j 读 x[j] 与 x[j+4]，warp 读两段各 32 个连续元素。GPT-J（interleaved）里第 j 个平面是 (x[2j], x[2j+1])，相邻两个配对，线程 j 读相邻的一对，warp 读一段 64 个连续元素。同色同编号的两个分量用同一组 cos θ_j、sin θ_j。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .mutedmono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { stroke: #6f8399; stroke-width: 1.2; }
+      .thin { stroke: #6f8399; stroke-width: 0.8; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .c-s { fill: #f9d5d3; } .c-e { fill: #fde0b8; } .c-m { fill: #cfe2f3; } .c-i { fill: #cfeccf; }
+      .c-w { fill: #ffffff; } .c-g { fill: #eef1f4; } .c-pad { fill: #e3e7eb; }
+      .b0 { fill: #cfe2f3; } .b1 { fill: #fde0b8; } .b2 { fill: #cfeccf; } .b3 { fill: #e6d7f2; } .b4 { fill: #f9d5d3; }
+    </style>
+  </defs>
+<rect x="0" y="0" width="760" height="378" fill="#ffffff"/>
+<text x="24.0" y="22.0" class="muted">一个 head 的向量 x[0..d)，d = 8 示意。同色/同编号的两个分量组成一个旋转平面 j，</text>
+<text x="24.0" y="41.0" class="muted">用同一组 (cos θ_j, sin θ_j)</text>
+<text x="24.0" y="76.0" class="bold">NEOX（rotate_half）</text>
+<text x="187.8" y="76.0" class="body">第 j 个平面 = (x[j], x[j + d/2])</text>
+<text x="106.0" y="128.0" text-anchor="end" class="monob">x</text>
+<text x="146.0" y="102.0" text-anchor="middle" class="mutedmono">x[0]</text>
+<rect x="120.0" y="108.0" width="52.0" height="30.0" class="b0 cell"/>
+<text x="146.0" y="128.0" text-anchor="middle" class="monob">0</text>
+<text x="198.0" y="102.0" text-anchor="middle" class="mutedmono">x[1]</text>
+<rect x="172.0" y="108.0" width="52.0" height="30.0" class="b1 cell"/>
+<text x="198.0" y="128.0" text-anchor="middle" class="monob">1</text>
+<text x="250.0" y="102.0" text-anchor="middle" class="mutedmono">x[2]</text>
+<rect x="224.0" y="108.0" width="52.0" height="30.0" class="b2 cell"/>
+<text x="250.0" y="128.0" text-anchor="middle" class="monob">2</text>
+<text x="302.0" y="102.0" text-anchor="middle" class="mutedmono">x[3]</text>
+<rect x="276.0" y="108.0" width="52.0" height="30.0" class="b3 cell"/>
+<text x="302.0" y="128.0" text-anchor="middle" class="monob">3</text>
+<text x="354.0" y="102.0" text-anchor="middle" class="mutedmono">x[4]</text>
+<rect x="328.0" y="108.0" width="52.0" height="30.0" class="b0 cell"/>
+<text x="354.0" y="128.0" text-anchor="middle" class="monob">0'</text>
+<text x="406.0" y="102.0" text-anchor="middle" class="mutedmono">x[5]</text>
+<rect x="380.0" y="108.0" width="52.0" height="30.0" class="b1 cell"/>
+<text x="406.0" y="128.0" text-anchor="middle" class="monob">1'</text>
+<text x="458.0" y="102.0" text-anchor="middle" class="mutedmono">x[6]</text>
+<rect x="432.0" y="108.0" width="52.0" height="30.0" class="b2 cell"/>
+<text x="458.0" y="128.0" text-anchor="middle" class="monob">2'</text>
+<text x="510.0" y="102.0" text-anchor="middle" class="mutedmono">x[7]</text>
+<rect x="484.0" y="108.0" width="52.0" height="30.0" class="b3 cell"/>
+<text x="510.0" y="128.0" text-anchor="middle" class="monob">3'</text>
+<path d="M146.0,138 L146.0,150 L354.0,150 L354.0,138" class="line" style="stroke:#3d7ab8;stroke-width:2"/>
+<text x="560.0" y="122.0" class="mono">平面 0 = (x[0], x[4])</text>
+<path d="M198.0,138 L198.0,162 L406.0,162 L406.0,138" class="line" style="stroke:#d9822b;stroke-width:2"/>
+<text x="560.0" y="139.0" class="mono">平面 1 = (x[1], x[5])</text>
+<path d="M250.0,138 L250.0,174 L458.0,174 L458.0,138" class="line" style="stroke:#3f9b4f;stroke-width:2"/>
+<text x="560.0" y="156.0" class="mono">平面 2 = (x[2], x[6])</text>
+<path d="M302.0,138 L302.0,186 L510.0,186 L510.0,138" class="line" style="stroke:#8a5cb8;stroke-width:2"/>
+<text x="560.0" y="173.0" class="mono">平面 3 = (x[3], x[7])</text>
+<text x="120.0" y="212.0" class="body">线程 j 读 x[j] 与 x[j+4]：warp 读两段各 32 个连续元素</text>
+<text x="24.0" y="256.0" class="bold">GPT-J（interleaved）</text>
+<text x="195.9" y="256.0" class="body">第 j 个平面 = (x[2j], x[2j+1])</text>
+<text x="106.0" y="308.0" text-anchor="end" class="monob">x</text>
+<text x="146.0" y="282.0" text-anchor="middle" class="mutedmono">x[0]</text>
+<rect x="120.0" y="288.0" width="52.0" height="30.0" class="b0 cell"/>
+<text x="146.0" y="308.0" text-anchor="middle" class="monob">0</text>
+<text x="198.0" y="282.0" text-anchor="middle" class="mutedmono">x[1]</text>
+<rect x="172.0" y="288.0" width="52.0" height="30.0" class="b0 cell"/>
+<text x="198.0" y="308.0" text-anchor="middle" class="monob">0'</text>
+<text x="250.0" y="282.0" text-anchor="middle" class="mutedmono">x[2]</text>
+<rect x="224.0" y="288.0" width="52.0" height="30.0" class="b1 cell"/>
+<text x="250.0" y="308.0" text-anchor="middle" class="monob">1</text>
+<text x="302.0" y="282.0" text-anchor="middle" class="mutedmono">x[3]</text>
+<rect x="276.0" y="288.0" width="52.0" height="30.0" class="b1 cell"/>
+<text x="302.0" y="308.0" text-anchor="middle" class="monob">1'</text>
+<text x="354.0" y="282.0" text-anchor="middle" class="mutedmono">x[4]</text>
+<rect x="328.0" y="288.0" width="52.0" height="30.0" class="b2 cell"/>
+<text x="354.0" y="308.0" text-anchor="middle" class="monob">2</text>
+<text x="406.0" y="282.0" text-anchor="middle" class="mutedmono">x[5]</text>
+<rect x="380.0" y="288.0" width="52.0" height="30.0" class="b2 cell"/>
+<text x="406.0" y="308.0" text-anchor="middle" class="monob">2'</text>
+<text x="458.0" y="282.0" text-anchor="middle" class="mutedmono">x[6]</text>
+<rect x="432.0" y="288.0" width="52.0" height="30.0" class="b3 cell"/>
+<text x="458.0" y="308.0" text-anchor="middle" class="monob">3</text>
+<text x="510.0" y="282.0" text-anchor="middle" class="mutedmono">x[7]</text>
+<rect x="484.0" y="288.0" width="52.0" height="30.0" class="b3 cell"/>
+<text x="510.0" y="308.0" text-anchor="middle" class="monob">3'</text>
+<path d="M146.0,318 L146.0,330 L198.0,330 L198.0,318" class="line" style="stroke:#3d7ab8;stroke-width:2"/>
+<path d="M250.0,318 L250.0,330 L302.0,330 L302.0,318" class="line" style="stroke:#d9822b;stroke-width:2"/>
+<path d="M354.0,318 L354.0,330 L406.0,330 L406.0,318" class="line" style="stroke:#3f9b4f;stroke-width:2"/>
+<path d="M458.0,318 L458.0,330 L510.0,330 L510.0,318" class="line" style="stroke:#8a5cb8;stroke-width:2"/>
+<text x="560.0" y="309.0" class="mono">平面 0 = (x[0], x[1]) …</text>
+<text x="120.0" y="358.0" class="body">线程 j 读相邻的一对：warp 读一段 64 个连续元素</text>
+</svg>

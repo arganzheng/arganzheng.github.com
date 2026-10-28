@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 312" width="760" height="312" role="img" aria-labelledby="t d">
+  <title id="t">FP32 / BF16 / FP16 / E4M3 / E5M2 / INT8 / INT4 的位布局</title>
+  <desc id="d">每种格式从最高位（左）画起，每格 1 bit：S 符号位、E 指数位、M 尾数位、I/U 整数位。FP32 是 1+8+23，BF16 是 FP32 砍掉低 16 位的 1+8+7，FP16 是 1+5+10，E4M3 是 1+4+3（最大 448，无 inf），E5M2 是 FP16 砍掉低 8 位的 1+5+2；INT8 与 INT4 的范围由外部 scale 决定。指数位决定动态范围，尾数位决定相对精度。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .mutedmono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { stroke: #6f8399; stroke-width: 1.2; }
+      .thin { stroke: #6f8399; stroke-width: 0.8; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .c-s { fill: #f9d5d3; } .c-e { fill: #fde0b8; } .c-m { fill: #cfe2f3; } .c-i { fill: #cfeccf; }
+      .c-w { fill: #ffffff; } .c-g { fill: #eef1f4; } .c-pad { fill: #e3e7eb; }
+      .b0 { fill: #cfe2f3; } .b1 { fill: #fde0b8; } .b2 { fill: #cfeccf; } .b3 { fill: #e6d7f2; } .b4 { fill: #f9d5d3; }
+    </style>
+  </defs>
+<rect x="0" y="0" width="760" height="312" fill="#ffffff"/>
+<text x="24.0" y="37.0" class="monob">FP32</text>
+<rect x="92.0" y="20.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="37.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="20.0" width="88.0" height="24.0" class="c-e cell"/>
+<line x1="114.0" y1="24.0" x2="114.0" y2="40.0" class="thin"/>
+<line x1="125.0" y1="24.0" x2="125.0" y2="40.0" class="thin"/>
+<line x1="136.0" y1="24.0" x2="136.0" y2="40.0" class="thin"/>
+<line x1="147.0" y1="24.0" x2="147.0" y2="40.0" class="thin"/>
+<line x1="158.0" y1="24.0" x2="158.0" y2="40.0" class="thin"/>
+<line x1="169.0" y1="24.0" x2="169.0" y2="40.0" class="thin"/>
+<line x1="180.0" y1="24.0" x2="180.0" y2="40.0" class="thin"/>
+<text x="147.0" y="37.0" text-anchor="middle" class="bold">E</text>
+<rect x="191.0" y="20.0" width="253.0" height="24.0" class="c-m cell"/>
+<line x1="202.0" y1="24.0" x2="202.0" y2="40.0" class="thin"/>
+<line x1="213.0" y1="24.0" x2="213.0" y2="40.0" class="thin"/>
+<line x1="224.0" y1="24.0" x2="224.0" y2="40.0" class="thin"/>
+<line x1="235.0" y1="24.0" x2="235.0" y2="40.0" class="thin"/>
+<line x1="246.0" y1="24.0" x2="246.0" y2="40.0" class="thin"/>
+<line x1="257.0" y1="24.0" x2="257.0" y2="40.0" class="thin"/>
+<line x1="268.0" y1="24.0" x2="268.0" y2="40.0" class="thin"/>
+<line x1="279.0" y1="24.0" x2="279.0" y2="40.0" class="thin"/>
+<line x1="290.0" y1="24.0" x2="290.0" y2="40.0" class="thin"/>
+<line x1="301.0" y1="24.0" x2="301.0" y2="40.0" class="thin"/>
+<line x1="312.0" y1="24.0" x2="312.0" y2="40.0" class="thin"/>
+<line x1="323.0" y1="24.0" x2="323.0" y2="40.0" class="thin"/>
+<line x1="334.0" y1="24.0" x2="334.0" y2="40.0" class="thin"/>
+<line x1="345.0" y1="24.0" x2="345.0" y2="40.0" class="thin"/>
+<line x1="356.0" y1="24.0" x2="356.0" y2="40.0" class="thin"/>
+<line x1="367.0" y1="24.0" x2="367.0" y2="40.0" class="thin"/>
+<line x1="378.0" y1="24.0" x2="378.0" y2="40.0" class="thin"/>
+<line x1="389.0" y1="24.0" x2="389.0" y2="40.0" class="thin"/>
+<line x1="400.0" y1="24.0" x2="400.0" y2="40.0" class="thin"/>
+<line x1="411.0" y1="24.0" x2="411.0" y2="40.0" class="thin"/>
+<line x1="422.0" y1="24.0" x2="422.0" y2="40.0" class="thin"/>
+<line x1="433.0" y1="24.0" x2="433.0" y2="40.0" class="thin"/>
+<text x="317.5" y="37.0" text-anchor="middle" class="bold">M</text>
+<text x="464.0" y="37.0" class="mono">1 + 8 + 23</text>
+<text x="24.0" y="73.0" class="monob">BF16</text>
+<rect x="92.0" y="56.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="73.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="56.0" width="88.0" height="24.0" class="c-e cell"/>
+<line x1="114.0" y1="60.0" x2="114.0" y2="76.0" class="thin"/>
+<line x1="125.0" y1="60.0" x2="125.0" y2="76.0" class="thin"/>
+<line x1="136.0" y1="60.0" x2="136.0" y2="76.0" class="thin"/>
+<line x1="147.0" y1="60.0" x2="147.0" y2="76.0" class="thin"/>
+<line x1="158.0" y1="60.0" x2="158.0" y2="76.0" class="thin"/>
+<line x1="169.0" y1="60.0" x2="169.0" y2="76.0" class="thin"/>
+<line x1="180.0" y1="60.0" x2="180.0" y2="76.0" class="thin"/>
+<text x="147.0" y="73.0" text-anchor="middle" class="bold">E</text>
+<rect x="191.0" y="56.0" width="77.0" height="24.0" class="c-m cell"/>
+<line x1="202.0" y1="60.0" x2="202.0" y2="76.0" class="thin"/>
+<line x1="213.0" y1="60.0" x2="213.0" y2="76.0" class="thin"/>
+<line x1="224.0" y1="60.0" x2="224.0" y2="76.0" class="thin"/>
+<line x1="235.0" y1="60.0" x2="235.0" y2="76.0" class="thin"/>
+<line x1="246.0" y1="60.0" x2="246.0" y2="76.0" class="thin"/>
+<line x1="257.0" y1="60.0" x2="257.0" y2="76.0" class="thin"/>
+<text x="229.5" y="73.0" text-anchor="middle" class="bold">M</text>
+<text x="464.0" y="73.0" class="mono">1 + 8 + 7</text>
+<text x="556.0" y="73.0" class="small">← FP32 砍掉低 16 位</text>
+<text x="24.0" y="109.0" class="monob">FP16</text>
+<rect x="92.0" y="92.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="109.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="92.0" width="55.0" height="24.0" class="c-e cell"/>
+<line x1="114.0" y1="96.0" x2="114.0" y2="112.0" class="thin"/>
+<line x1="125.0" y1="96.0" x2="125.0" y2="112.0" class="thin"/>
+<line x1="136.0" y1="96.0" x2="136.0" y2="112.0" class="thin"/>
+<line x1="147.0" y1="96.0" x2="147.0" y2="112.0" class="thin"/>
+<text x="130.5" y="109.0" text-anchor="middle" class="bold">E</text>
+<rect x="158.0" y="92.0" width="110.0" height="24.0" class="c-m cell"/>
+<line x1="169.0" y1="96.0" x2="169.0" y2="112.0" class="thin"/>
+<line x1="180.0" y1="96.0" x2="180.0" y2="112.0" class="thin"/>
+<line x1="191.0" y1="96.0" x2="191.0" y2="112.0" class="thin"/>
+<line x1="202.0" y1="96.0" x2="202.0" y2="112.0" class="thin"/>
+<line x1="213.0" y1="96.0" x2="213.0" y2="112.0" class="thin"/>
+<line x1="224.0" y1="96.0" x2="224.0" y2="112.0" class="thin"/>
+<line x1="235.0" y1="96.0" x2="235.0" y2="112.0" class="thin"/>
+<line x1="246.0" y1="96.0" x2="246.0" y2="112.0" class="thin"/>
+<line x1="257.0" y1="96.0" x2="257.0" y2="112.0" class="thin"/>
+<text x="213.0" y="109.0" text-anchor="middle" class="bold">M</text>
+<text x="464.0" y="109.0" class="mono">1 + 5 + 10</text>
+<text x="556.0" y="109.0" class="small">← 指数少 3 位，65504 溢出</text>
+<text x="24.0" y="145.0" class="monob">E4M3</text>
+<rect x="92.0" y="128.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="145.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="128.0" width="44.0" height="24.0" class="c-e cell"/>
+<line x1="114.0" y1="132.0" x2="114.0" y2="148.0" class="thin"/>
+<line x1="125.0" y1="132.0" x2="125.0" y2="148.0" class="thin"/>
+<line x1="136.0" y1="132.0" x2="136.0" y2="148.0" class="thin"/>
+<text x="125.0" y="145.0" text-anchor="middle" class="bold">E</text>
+<rect x="147.0" y="128.0" width="33.0" height="24.0" class="c-m cell"/>
+<line x1="158.0" y1="132.0" x2="158.0" y2="148.0" class="thin"/>
+<line x1="169.0" y1="132.0" x2="169.0" y2="148.0" class="thin"/>
+<text x="163.5" y="145.0" text-anchor="middle" class="bold">M</text>
+<text x="464.0" y="145.0" class="mono">1 + 4 + 3</text>
+<text x="556.0" y="145.0" class="small">← 最大 448，无 inf</text>
+<text x="24.0" y="181.0" class="monob">E5M2</text>
+<rect x="92.0" y="164.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="181.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="164.0" width="55.0" height="24.0" class="c-e cell"/>
+<line x1="114.0" y1="168.0" x2="114.0" y2="184.0" class="thin"/>
+<line x1="125.0" y1="168.0" x2="125.0" y2="184.0" class="thin"/>
+<line x1="136.0" y1="168.0" x2="136.0" y2="184.0" class="thin"/>
+<line x1="147.0" y1="168.0" x2="147.0" y2="184.0" class="thin"/>
+<text x="130.5" y="181.0" text-anchor="middle" class="bold">E</text>
+<rect x="158.0" y="164.0" width="22.0" height="24.0" class="c-m cell"/>
+<line x1="169.0" y1="168.0" x2="169.0" y2="184.0" class="thin"/>
+<text x="169.0" y="181.0" text-anchor="middle" class="bold">M</text>
+<text x="464.0" y="181.0" class="mono">1 + 5 + 2</text>
+<text x="556.0" y="181.0" class="small">← FP16 砍掉低 8 位</text>
+<text x="24.0" y="217.0" class="monob">INT8</text>
+<rect x="92.0" y="200.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="217.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="200.0" width="77.0" height="24.0" class="c-i cell"/>
+<line x1="114.0" y1="204.0" x2="114.0" y2="220.0" class="thin"/>
+<line x1="125.0" y1="204.0" x2="125.0" y2="220.0" class="thin"/>
+<line x1="136.0" y1="204.0" x2="136.0" y2="220.0" class="thin"/>
+<line x1="147.0" y1="204.0" x2="147.0" y2="220.0" class="thin"/>
+<line x1="158.0" y1="204.0" x2="158.0" y2="220.0" class="thin"/>
+<line x1="169.0" y1="204.0" x2="169.0" y2="220.0" class="thin"/>
+<text x="141.5" y="217.0" text-anchor="middle" class="bold">I</text>
+<text x="464.0" y="217.0" class="small">范围由外部 scale 决定</text>
+<text x="24.0" y="253.0" class="monob">INT4</text>
+<rect x="92.0" y="236.0" width="11.0" height="24.0" class="c-s cell"/>
+<text x="97.5" y="253.0" text-anchor="middle" class="bold">S</text>
+<rect x="103.0" y="236.0" width="33.0" height="24.0" class="c-i cell"/>
+<line x1="114.0" y1="240.0" x2="114.0" y2="256.0" class="thin"/>
+<line x1="125.0" y1="240.0" x2="125.0" y2="256.0" class="thin"/>
+<text x="119.5" y="253.0" text-anchor="middle" class="bold">I</text>
+<text x="146.0" y="253.0" class="body">或</text>
+<rect x="170.0" y="236.0" width="44.0" height="24.0" class="c-i cell"/>
+<line x1="181.0" y1="240.0" x2="181.0" y2="256.0" class="thin"/>
+<line x1="192.0" y1="240.0" x2="192.0" y2="256.0" class="thin"/>
+<line x1="203.0" y1="240.0" x2="203.0" y2="256.0" class="thin"/>
+<text x="192.0" y="253.0" text-anchor="middle" class="bold">U</text>
+<text x="222.0" y="253.0" class="mono">+ zero point</text>
+<text x="464.0" y="253.0" class="small">16 个电平</text>
+<rect x="24.0" y="280.0" width="14.0" height="14.0" class="c-e cell"/>
+<text x="46.0" y="292.0" class="small">指数位 → 动态范围（BF16 与 FP32 相同）</text>
+<rect x="330.0" y="280.0" width="14.0" height="14.0" class="c-m cell"/>
+<text x="352.0" y="292.0" class="small">尾数位 → 相对精度（BF16 0.8%，E4M3 12.5%）</text>
+</svg>
