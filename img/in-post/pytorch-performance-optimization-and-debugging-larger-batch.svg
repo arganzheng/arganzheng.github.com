@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="345" viewBox="0 0 760 345" role="img" aria-labelledby="title desc">
+<title id="title">增大 batch 后 GPU 成为长边</title>
+<desc id="desc">CPU 依次用 20 微秒提交 add 和 relu。GPU 从 20 微秒开始执行 add 30 微秒，再执行 relu 25 微秒；后续 CPU 提交与 GPU 执行重叠，GPU 成为长边。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="345" fill="#fff"/>
+<text x="110" y="28" font-size="14" text-anchor="start" fill="#111827">时间 →（µs，按比例）</text>
+<line x1="110" y1="48" x2="720" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="110.0" y1="45" x2="110.0" y2="54" stroke="#64748b" stroke-width="1.5"/>
+<text x="110.0" y="72" font-size="13" text-anchor="middle" fill="#111827">0</text>
+<line x1="260.0" y1="45" x2="260.0" y2="54" stroke="#64748b" stroke-width="1.5"/>
+<text x="260.0" y="72" font-size="13" text-anchor="middle" fill="#111827">20</text>
+<line x1="410.0" y1="45" x2="410.0" y2="54" stroke="#64748b" stroke-width="1.5"/>
+<text x="410.0" y="72" font-size="13" text-anchor="middle" fill="#111827">40</text>
+<line x1="560.0" y1="45" x2="560.0" y2="54" stroke="#64748b" stroke-width="1.5"/>
+<text x="560.0" y="72" font-size="13" text-anchor="middle" fill="#111827">60</text>
+<line x1="710.0" y1="45" x2="710.0" y2="54" stroke="#64748b" stroke-width="1.5"/>
+<text x="710.0" y="72" font-size="13" text-anchor="middle" fill="#111827">80</text>
+<text x="18" y="122" font-size="15" text-anchor="start" fill="#111827">CPU</text>
+<text x="18" y="248" font-size="15" text-anchor="start" fill="#111827">GPU</text>
+<rect x="110.0" y="96" width="150" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="185.0" y="122.0" font-size="14" text-anchor="middle" fill="#111827">提交 add 20 µs</text>
+<rect x="260.0" y="96" width="150" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="335.0" y="122.0" font-size="14" text-anchor="middle" fill="#111827">提交 relu 20 µs</text>
+<rect x="260" y="222" width="225" height="42" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="372.5" y="248.0" font-size="15" text-anchor="middle" fill="#111827">add 30 µs</text>
+<rect x="485" y="222" width="187.5" height="42" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="578.75" y="248.0" font-size="15" text-anchor="middle" fill="#111827">relu 25 µs</text>
+<line x1="260" y1="138" x2="260" y2="222" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="110" y="316" font-size="15" text-anchor="start" fill="#111827">后续 CPU 提交被 GPU 执行隐藏；首次提交仍有启动成本</text>
+</svg>

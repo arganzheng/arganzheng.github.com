@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="549" viewBox="0 0 760 549" role="img" aria-labelledby="title desc">
+<title id="title">20 MiB Segment 的碎片与两种处方</title>
+<desc id="desc">原布局已用 4、空闲 3、已用 5、空闲 3、已用 2、空闲 3 MiB，共 20 MiB，已用 11，空闲 9。普通 Segment 中三个空闲 Block 都不足 5 MiB。若从开始使用 expandable segments，5 MiB 分配可合并尾部 3 MiB 与新映射空间，从偏移 17 开始；大池以 20 MiB 粒度映射，reserved 变为 40 MiB，allocated 为 16，空闲 24。empty_cache 不能归还仍有 used Block 的普通 Segment。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="549" fill="#fff"/>
+<text x="28" y="26" font-size="16" text-anchor="start" fill="#111827">普通 Segment</text>
+<text x="28" y="50" font-size="15" text-anchor="start" fill="#111827">reserved 20 MiB，allocated 11 MiB，空闲 9 MiB</text>
+<rect x="72" y="64" width="64" height="54" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="104.0" y="87" font-size="13" text-anchor="middle" fill="#111827">used</text>
+<text x="104.0" y="107" font-size="14" text-anchor="middle" fill="#111827">4</text>
+<rect x="136" y="64" width="48" height="54" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="160.0" y="87" font-size="13" text-anchor="middle" fill="#111827">free</text>
+<text x="160.0" y="107" font-size="14" text-anchor="middle" fill="#111827">3</text>
+<rect x="184" y="64" width="80" height="54" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="224.0" y="87" font-size="13" text-anchor="middle" fill="#111827">used</text>
+<text x="224.0" y="107" font-size="14" text-anchor="middle" fill="#111827">5</text>
+<rect x="264" y="64" width="48" height="54" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="288.0" y="87" font-size="13" text-anchor="middle" fill="#111827">free</text>
+<text x="288.0" y="107" font-size="14" text-anchor="middle" fill="#111827">3</text>
+<rect x="312" y="64" width="32" height="54" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="328.0" y="87" font-size="13" text-anchor="middle" fill="#111827">u</text>
+<text x="328.0" y="107" font-size="14" text-anchor="middle" fill="#111827">2</text>
+<rect x="344" y="64" width="48" height="54" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="368.0" y="87" font-size="13" text-anchor="middle" fill="#111827">free</text>
+<text x="368.0" y="107" font-size="14" text-anchor="middle" fill="#111827">3</text>
+<text x="72" y="141" font-size="13" text-anchor="middle" fill="#111827">0</text>
+<text x="136" y="141" font-size="13" text-anchor="middle" fill="#111827">4</text>
+<text x="184" y="141" font-size="13" text-anchor="middle" fill="#111827">7</text>
+<text x="264" y="141" font-size="13" text-anchor="middle" fill="#111827">12</text>
+<text x="312" y="141" font-size="13" text-anchor="middle" fill="#111827">15</text>
+<text x="344" y="141" font-size="13" text-anchor="middle" fill="#111827">17</text>
+<text x="392" y="141" font-size="13" text-anchor="middle" fill="#111827">20</text>
+<text x="432" y="88" font-size="15" text-anchor="start" fill="#111827">请求 5 MiB：三块各 3 MiB</text>
+<text x="432" y="116" font-size="15" text-anchor="start" fill="#111827">空闲共 9 MiB，但没有 ≥ 5 MiB</text>
+<text x="28" y="177" font-size="15" text-anchor="start" fill="#111827">普通路径：cudaMalloc 新 Segment；驱动空间不足时可能 OOM</text>
+<text x="28" y="226" font-size="16" text-anchor="start" fill="#111827">对照：从开始启用 expandable_segments:True（大池）</text>
+<rect x="72" y="254" width="64" height="54" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="104.0" y="277" font-size="13" text-anchor="middle" fill="#111827">used</text>
+<text x="104.0" y="297" font-size="14" text-anchor="middle" fill="#111827">4</text>
+<rect x="136" y="254" width="48" height="54" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="160.0" y="277" font-size="13" text-anchor="middle" fill="#111827">free</text>
+<text x="160.0" y="297" font-size="14" text-anchor="middle" fill="#111827">3</text>
+<rect x="184" y="254" width="80" height="54" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="224.0" y="277" font-size="13" text-anchor="middle" fill="#111827">used</text>
+<text x="224.0" y="297" font-size="14" text-anchor="middle" fill="#111827">5</text>
+<rect x="264" y="254" width="48" height="54" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="288.0" y="277" font-size="13" text-anchor="middle" fill="#111827">free</text>
+<text x="288.0" y="297" font-size="14" text-anchor="middle" fill="#111827">3</text>
+<rect x="312" y="254" width="32" height="54" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="328.0" y="277" font-size="13" text-anchor="middle" fill="#111827">u</text>
+<text x="328.0" y="297" font-size="14" text-anchor="middle" fill="#111827">2</text>
+<rect x="344" y="254" width="80" height="54" fill="#ffe2b4" stroke="#52657a" stroke-width="1.2"/>
+<text x="384.0" y="277" font-size="13" text-anchor="middle" fill="#111827">new</text>
+<text x="384.0" y="297" font-size="14" text-anchor="middle" fill="#111827">5</text>
+<rect x="424" y="254" width="288" height="54" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="568.0" y="277" font-size="13" text-anchor="middle" fill="#111827">free</text>
+<text x="568.0" y="297" font-size="14" text-anchor="middle" fill="#111827">18</text>
+<text x="72" y="331" font-size="13" text-anchor="middle" fill="#111827">0</text>
+<text x="136" y="331" font-size="13" text-anchor="middle" fill="#111827">4</text>
+<text x="184" y="331" font-size="13" text-anchor="middle" fill="#111827">7</text>
+<text x="264" y="331" font-size="13" text-anchor="middle" fill="#111827">12</text>
+<text x="312" y="331" font-size="13" text-anchor="middle" fill="#111827">15</text>
+<text x="344" y="331" font-size="13" text-anchor="middle" fill="#111827">17</text>
+<text x="424" y="331" font-size="13" text-anchor="middle" fill="#111827">22</text>
+<text x="712" y="331" font-size="13" text-anchor="middle" fill="#111827">40</text>
+<line x1="392" y1="244" x2="392" y2="352" stroke="#9356a0" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="392" y="377" font-size="14" text-anchor="middle" fill="#71367e">20 MiB 映射边界</text>
+<text x="28" y="414" font-size="15" text-anchor="start" fill="#111827">尾部 3 + 新空间 2 = 连续 5 MiB；新增映射按 20 MiB 粒度取整</text>
+<text x="28" y="444" font-size="15" text-anchor="start" fill="#111827">扩展后：reserved 40 MiB，allocated 16 MiB，空闲 24 MiB</text>
+<text x="28" y="490" font-size="15" text-anchor="start" fill="#111827">empty_cache()：原普通 Segment 仍有 used 块，不能整段归还</text>
+<text x="28" y="520" font-size="15" text-anchor="start" fill="#111827">它不搬动活跃块；expandable Segment 可解映射完整的空闲物理页</text>
+</svg>

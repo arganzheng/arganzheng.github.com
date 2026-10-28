@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="397" viewBox="0 0 760 397" role="img" aria-labelledby="title desc">
+<title id="title">CUDA Event 的 GPU 计时区间</title>
+<desc id="desc">CPU 将 start Event、Kernel A、B、C 和 end Event 依次入队。GPU 在 Ts 和 Te 打点，区间包括 Kernel 执行和等待 CPU 提交造成的空档；CPU 可继续工作，最终同步后读取 elapsed_time。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="397" fill="#fff"/>
+<line x1="150" y1="47" x2="730" y2="47" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="150" y="33" font-size="14" text-anchor="start" fill="#111827">时间 →（示意，非等比例）</text>
+<text x="20" y="108" font-size="15" text-anchor="start" fill="#111827">CPU（Python）</text>
+<rect x="150" y="82" width="65" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="182.5" y="107.0" font-size="14" text-anchor="middle" fill="#111827">start</text>
+<rect x="215" y="82" width="100" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="265.0" y="107.0" font-size="14" text-anchor="middle" fill="#111827">launch A</text>
+<rect x="315" y="82" width="150" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="390.0" y="107.0" font-size="14" text-anchor="middle" fill="#111827">launch B</text>
+<rect x="465" y="82" width="100" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="515.0" y="107.0" font-size="14" text-anchor="middle" fill="#111827">launch C</text>
+<rect x="565" y="82" width="90" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="610.0" y="107.0" font-size="14" text-anchor="middle" fill="#111827">end</text>
+<rect x="655" y="82" width="80" height="40" fill="#fff0cf" stroke="#52657a" stroke-width="1.2"/>
+<text x="695.0" y="107.0" font-size="13" text-anchor="middle" fill="#111827">同步</text>
+<text x="20" y="244" font-size="15" text-anchor="start" fill="#111827">GPU default</text>
+<text x="20" y="266" font-size="15" text-anchor="start" fill="#111827">stream</text>
+<rect x="215" y="218" width="22" height="44" fill="#fff0cf" stroke="#52657a" stroke-width="1.2"/>
+<rect x="315" y="218" width="80" height="44" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="355.0" y="245.0" font-size="15" text-anchor="middle" fill="#111827">A</text>
+<rect x="465" y="218" width="60" height="44" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="495.0" y="245.0" font-size="15" text-anchor="middle" fill="#111827">B</text>
+<rect x="565" y="218" width="90" height="44" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="610.0" y="245.0" font-size="15" text-anchor="middle" fill="#111827">C</text>
+<rect x="655" y="218" width="22" height="44" fill="#fff0cf" stroke="#52657a" stroke-width="1.2"/>
+<line x1="315" y1="122" x2="315" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="465" y1="122" x2="465" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="565" y1="122" x2="565" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="215" y1="122" x2="215" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="655" y1="122" x2="655" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="677" y1="218" x2="677" y2="122" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="245" y="185" font-size="14" text-anchor="start" fill="#111827">start / end 是入队的 Event</text>
+<text x="226" y="286" font-size="14" text-anchor="middle" fill="#111827">Ts</text>
+<text x="666" y="286" font-size="14" text-anchor="middle" fill="#111827">Te</text>
+<text x="425" y="246" font-size="13" text-anchor="middle" fill="#111827">空等</text>
+<line x1="226" y1="308" x2="666" y2="308" stroke="#64748b" stroke-width="1.5"/>
+<text x="445" y="337" font-size="16" text-anchor="middle" fill="#111827">elapsed_time(end) = Te − Ts</text>
+<text x="150" y="368" font-size="15" text-anchor="start" fill="#111827">区间包含 Kernel 与空等 CPU 的间隙，不是纯 Kernel 时间之和</text>
+</svg>

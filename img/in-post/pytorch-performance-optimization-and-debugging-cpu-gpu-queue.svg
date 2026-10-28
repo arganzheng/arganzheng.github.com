@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="309" viewBox="0 0 760 309" role="img" aria-labelledby="title desc">
+<title id="title">CPU 提交与 GPU 执行的两条时间线</title>
+<desc id="desc">CPU 经过 Python 解释、Dispatcher，依次提交 Kernel A、B、C 并立即返回。GPU 在同一 CUDA Stream 中按序执行；竖箭头标出入队位置，时间为示意。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="309" fill="#fff"/>
+<line x1="150" y1="47" x2="730" y2="47" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="150" y="33" font-size="14" text-anchor="start" fill="#111827">时间 →（示意，非等比例）</text>
+<text x="24" y="105" font-size="15" text-anchor="start" fill="#111827">CPU 时间线</text>
+<rect x="150" y="80" width="85" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="192.5" y="105.0" font-size="15" text-anchor="middle" fill="#111827">Python</text>
+<rect x="235" y="80" width="115" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="292.5" y="105.0" font-size="15" text-anchor="middle" fill="#111827">Dispatcher</text>
+<rect x="350" y="80" width="100" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="400.0" y="105.0" font-size="15" text-anchor="middle" fill="#111827">launch A</text>
+<rect x="450" y="80" width="100" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="500.0" y="105.0" font-size="15" text-anchor="middle" fill="#111827">launch B</text>
+<rect x="550" y="80" width="100" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="600.0" y="105.0" font-size="15" text-anchor="middle" fill="#111827">launch C</text>
+<text x="192" y="143" font-size="14" text-anchor="middle" fill="#111827">解释</text>
+<text x="24" y="229" font-size="15" text-anchor="start" fill="#111827">GPU 时间线</text>
+<rect x="450" y="204" width="100" height="40" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="500.0" y="229.0" font-size="14" text-anchor="middle" fill="#111827">Kernel A</text>
+<rect x="550" y="204" width="100" height="40" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="600.0" y="229.0" font-size="14" text-anchor="middle" fill="#111827">Kernel B</text>
+<rect x="650" y="204" width="80" height="40" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="690.0" y="229.0" font-size="14" text-anchor="middle" fill="#111827">Kernel C</text>
+<line x1="450" y1="120" x2="450" y2="204" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="458" y="170" font-size="14" text-anchor="start" fill="#111827">入队</text>
+<line x1="550" y1="120" x2="550" y2="204" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="558" y="170" font-size="14" text-anchor="start" fill="#111827">入队</text>
+<line x1="650" y1="120" x2="650" y2="204" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="658" y="170" font-size="14" text-anchor="start" fill="#111827">入队</text>
+<text x="666" y="106" font-size="18" text-anchor="start" fill="#111827">…</text>
+<text x="734" y="229" font-size="18" text-anchor="start" fill="#111827">…</text>
+<text x="150" y="280" font-size="15" text-anchor="start" fill="#111827">提交后 CPU 立即继续；GPU 在 CUDA Stream 中按序执行</text>
+</svg>

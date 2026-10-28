@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="372" viewBox="0 0 760 372" role="img" aria-labelledby="title desc">
+<title id="title">time.time() 与 synchronize() 的测量边界</title>
+<desc id="desc">t0 到 t1 只覆盖 CPU 提交 A、B、C 的成本。synchronize 阻塞 CPU，直到 GPU 的 A、B、C 全部完成才得到 t2。GPU 可以在 CPU 提交期间开始执行。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="372" fill="#fff"/>
+<line x1="150" y1="47" x2="730" y2="47" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="150" y="33" font-size="14" text-anchor="start" fill="#111827">时间 →（示意，非等比例）</text>
+<text x="18" y="110" font-size="15" text-anchor="start" fill="#111827">CPU（Python）</text>
+<rect x="150" y="85" width="120" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="210.0" y="110.0" font-size="15" text-anchor="middle" fill="#111827">launch A</text>
+<rect x="270" y="85" width="120" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="330.0" y="110.0" font-size="15" text-anchor="middle" fill="#111827">launch B</text>
+<rect x="390" y="85" width="120" height="40" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="450.0" y="110.0" font-size="15" text-anchor="middle" fill="#111827">launch C</text>
+<rect x="510" y="85" width="210" height="40" fill="#fff0cf" stroke="#52657a" stroke-width="1.2"/>
+<text x="615.0" y="110.0" font-size="14" text-anchor="middle" fill="#111827">synchronize：CPU 阻塞</text>
+<text x="18" y="250" font-size="15" text-anchor="start" fill="#111827">GPU default</text>
+<text x="18" y="272" font-size="15" text-anchor="start" fill="#111827">stream</text>
+<rect x="270" y="225" width="120" height="45" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="330.0" y="252.5" font-size="15" text-anchor="middle" fill="#111827">Kernel A</text>
+<rect x="390" y="225" width="120" height="45" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="450.0" y="252.5" font-size="15" text-anchor="middle" fill="#111827">Kernel B</text>
+<rect x="510" y="225" width="210" height="45" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="615.0" y="252.5" font-size="15" text-anchor="middle" fill="#111827">Kernel C</text>
+<line x1="270" y1="125" x2="270" y2="225" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="390" y1="125" x2="390" y2="225" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="510" y1="125" x2="510" y2="225" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="720" y1="225" x2="720" y2="125" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="560" y="185" font-size="14" text-anchor="start" fill="#111827">队列排空后返回</text>
+<line x1="150" y1="51" x2="150" y2="80" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="150" y="72" font-size="14" text-anchor="middle" fill="#111827">t0</text>
+<line x1="510" y1="51" x2="510" y2="80" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="510" y="72" font-size="14" text-anchor="middle" fill="#111827">t1</text>
+<line x1="720" y1="51" x2="720" y2="80" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="720" y="72" font-size="14" text-anchor="middle" fill="#111827">t2</text>
+<text x="150" y="314" font-size="15" text-anchor="start" fill="#111827">t1 − t0 ≈ 三次 launch 的 CPU 开销（几十微秒）</text>
+<text x="150" y="343" font-size="15" text-anchor="start" fill="#111827">t2 − t0 = 端到端墙钟时间（含重叠，不是各项简单相加）</text>
+</svg>

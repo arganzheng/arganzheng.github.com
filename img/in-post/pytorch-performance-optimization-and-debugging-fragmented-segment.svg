@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="315" viewBox="0 0 760 315" role="img" aria-labelledby="title desc">
+<title id="title">空闲总量足够但没有连续 Block</title>
+<desc id="desc">8 MB Segment 中依次为已用 1 MB、空闲 3 MB、已用 1 MB、空闲 3 MB。请求 5 MB 无法放入任一空闲 Block，只能申请新 Segment；若驱动无足够空间则 OOM。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="315" fill="#fff"/>
+<text x="28" y="33" font-size="17" text-anchor="start" fill="#111827">Segment：已用 2 MB，空闲 6 MB</text>
+<rect x="100" y="68" width="70" height="52" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="135.0" y="99.0" font-size="14" text-anchor="middle" fill="#111827">已用 1</text>
+<rect x="170" y="68" width="210" height="52" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="275.0" y="99.0" font-size="14" text-anchor="middle" fill="#111827">空闲 3 MB</text>
+<rect x="380" y="68" width="70" height="52" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="415.0" y="99.0" font-size="14" text-anchor="middle" fill="#111827">已用 1</text>
+<rect x="450" y="68" width="210" height="52" fill="#f3f7fa" stroke="#52657a" stroke-width="1.2"/>
+<text x="555.0" y="99.0" font-size="14" text-anchor="middle" fill="#111827">空闲 3 MB</text>
+<text x="100" y="146" font-size="14" text-anchor="middle" fill="#111827">0</text>
+<text x="170" y="146" font-size="14" text-anchor="middle" fill="#111827">1</text>
+<text x="380" y="146" font-size="14" text-anchor="middle" fill="#111827">4</text>
+<text x="450" y="146" font-size="14" text-anchor="middle" fill="#111827">5</text>
+<text x="660" y="146" font-size="14" text-anchor="middle" fill="#111827">8</text>
+<text x="676" y="146" font-size="14" text-anchor="start" fill="#111827">MB</text>
+<rect x="50" y="196" width="155" height="45" fill="#fff0cf" stroke="#52657a" stroke-width="1.2"/>
+<text x="127.5" y="223.5" font-size="15" text-anchor="middle" fill="#111827">请求 5 MB</text>
+<rect x="270" y="196" width="210" height="45" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="375.0" y="223.5" font-size="15" text-anchor="middle" fill="#111827">cudaMalloc 新 Segment</text>
+<rect x="555" y="196" width="155" height="45" fill="#ffe1da" stroke="#52657a" stroke-width="1.2"/>
+<text x="632.5" y="223.5" font-size="15" text-anchor="middle" fill="#111827">可能 OOM</text>
+<line x1="205" y1="218" x2="270" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="480" y1="218" x2="555" y2="218" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="28" y="286" font-size="15" text-anchor="start" fill="#111827">空闲总量 6 MB，但两块都只有 3 MB，无法满足连续 5 MB</text>
+</svg>

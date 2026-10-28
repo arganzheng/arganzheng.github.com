@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="12">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" role="img" aria-labelledby="title desc" font-family="'Noto Sans CJK SC', 'PingFang SC', Arial, sans-serif" font-size="12">
+  <title id="title">Transformer 案例的 step 时间与峰值显存</title>
+  <desc id="desc">基线到 SDPA 的 step 时间依次为 48.2、118、51、38、29 ms，峰值显存为 3.1、19.6、12.8、11.9、8.4 GB。checkpoint 的 36 ms 与 4.1 GB 用虚线表示，未采用。数字为文章的示意案例。</desc>
   <rect width="760" height="420" fill="#ffffff"/>
   <!-- plot area: x 70..690, y 40..320; left axis ms 0..120 (2.333 px/ms); right axis GB 0..20 (14 px/GB) -->
   <!-- grid -->
@@ -43,7 +45,7 @@
   <!-- bar value labels -->
   <g fill="#2e6da4" font-size="12" text-anchor="middle" font-weight="bold">
     <text x="121.7" y="200">48.2</text>
-    <text x="225" y="80" fill="#ffffff">118</text>
+    <text x="225" y="80">118</text>
     <text x="328.3" y="194">51</text>
     <text x="431.7" y="224">38</text>
     <text x="535" y="245">29</text>

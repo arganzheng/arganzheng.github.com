@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="303" viewBox="0 0 760 303" role="img" aria-labelledby="title desc">
+<title id="title">trace 中 CPU 密集、GPU 稀疏的时间线</title>
+<desc id="desc">CPU 线程连续调用 aten::mm、aten::add_、aten::gelu、aten::mm；GPU Stream 上相应的 mm、add、gelu、mm Kernel 之间有大量空白。此图只表示形态，不表示调用与 Kernel 的精确时间配对。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif;font-weight:500}rect,line,path{shape-rendering:geometricPrecision}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker></defs>
+<rect width="760" height="303" fill="#fff"/>
+<line x1="150" y1="47" x2="730" y2="47" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="150" y="33" font-size="14" text-anchor="start" fill="#111827">时间 →（示意，非等比例）</text>
+<text x="20" y="112" font-size="15" text-anchor="start" fill="#111827">CPU 线程</text>
+<rect x="150" y="86" width="140" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="220.0" y="112.0" font-size="14" text-anchor="middle" fill="#111827">aten::mm</text>
+<rect x="290" y="86" width="140" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="360.0" y="112.0" font-size="14" text-anchor="middle" fill="#111827">aten::add_</text>
+<rect x="430" y="86" width="140" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="500.0" y="112.0" font-size="14" text-anchor="middle" fill="#111827">aten::gelu</text>
+<rect x="570" y="86" width="140" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2"/>
+<text x="640.0" y="112.0" font-size="14" text-anchor="middle" fill="#111827">aten::mm</text>
+<text x="20" y="216" font-size="15" text-anchor="start" fill="#111827">GPU Stream</text>
+<rect x="170" y="190" width="55" height="42" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="197.5" y="216.0" font-size="14" text-anchor="middle" fill="#111827">mm</text>
+<rect x="325" y="190" width="55" height="42" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="352.5" y="216.0" font-size="14" text-anchor="middle" fill="#111827">add</text>
+<rect x="480" y="190" width="55" height="42" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="507.5" y="216.0" font-size="14" text-anchor="middle" fill="#111827">gelu</text>
+<rect x="640" y="190" width="55" height="42" fill="#dcefe3" stroke="#52657a" stroke-width="1.2"/>
+<text x="667.5" y="216.0" font-size="14" text-anchor="middle" fill="#111827">mm</text>
+<text x="720" y="111" font-size="18" text-anchor="start" fill="#111827">…</text>
+<text x="720" y="216" font-size="18" text-anchor="start" fill="#111827">…</text>
+<text x="150" y="274" font-size="15" text-anchor="start" fill="#111827">CPU：密集，几乎无空隙；GPU：稀疏，Kernel 之间大量空白</text>
+</svg>
