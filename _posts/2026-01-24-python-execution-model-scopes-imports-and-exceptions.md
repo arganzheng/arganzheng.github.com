@@ -30,16 +30,22 @@ Python 常被认为是一门"简单易学"的语言。但在深度学习框架�
 ## 一、总览
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 160, "rankSpacing": 35, "curve": "linear"}}}%%
 %% 图：Python 代码怎么跑：源码 → code object → 帧 → 名称解析 / import / 异常传播
 flowchart TB
-    S["源码 .py"] -- "编译（第二章）" --> CO["code object：字节码 + 常量 + 名字表，缓存在 __pycache__/*.pyc"]
-    CO -- "每次调用" --> FR["帧（frame）：这一次执行的局部变量与执行位置；一次调用一个帧，帧连成调用栈"]
-    FR -- "读一个名字（第三章）" --> LEGB["按 Local → Enclosing → Global → Builtins 找；闭包 = 内层函数带走了外层帧的变量格"]
-    FR -- "import torch（第四章）" --> IMP["找到模块（sys.path）→ 执行它的 code object 一次 → 放进 sys.modules 缓存；.so 扩展在这里被 dlopen"]
-    FR -- "出错（第五章）" --> EXC["异常沿帧链向上传播，每一层的 except 有机会接住；没人接住就到解释器顶层打印 traceback"]
-
+    S["源码 .py"] -- "编译（第二章）" --> CO["code object"]
+    CO -- "执行 def" --> FN["函数对象"]
+    FN -- "每次调用" --> FR["执行帧（frame）"]
+    FR -- "读一个名字（第三章）" --> LEGB["名称解析与闭包"]
+    FR -- "import torch（第四章）" --> IMP["模块查找与加载"]
+    FR -- "出错（第五章）" --> EXC["异常传播"]
 ```
+
+- **code object**：字节码、常量、名字表。导入源码模块时可缓存在 `__pycache__/*.pyc`；直接运行脚本不写这个缓存。
+- **执行帧**：这一次执行的局部变量与执行位置。一次普通函数调用一个帧，帧连成调用栈。
+- **名称解析与闭包**：名称按 Local → Enclosing → Global → Builtins 分类；查找位置在编译期决定。闭包通过 cell 保留外层变量，不必保留整个外层帧。
+- **模块查找与加载**：先查 `sys.modules`；未命中时由 finder 查找（路径查找用 `sys.path`，子模块用父包的 `__path__`），创建模块后先放进 `sys.modules`，再执行模块代码。`.so` 扩展也在加载时被 `dlopen`。
+- **异常传播**：异常沿帧链向上传播，每一层的 `except` 有机会接住；没人接住就到解释器顶层打印 traceback。
 
 
 ### 1. 一个贯穿上下两篇的例子
@@ -102,18 +108,26 @@ class Runner:
 
 ### 2. 本篇的主线：从源码到帧
 
-```text title='本篇主线：源码 → code object → 函数对象 → 帧，以及 import 与异常'
-源码 ──编译──► code object ──封装──► 函数/类对象 ──调用──► 执行帧
-                                                          │
-  ▲ 第二章 执行模型                                        │ 第三章 作用域与闭包：帧里的名称怎么解析
-  │                                                       ▼
-import 语句 ──finder/loader──► 模块对象 ──执行顶层代码──► 注册表、类定义生效
-  ▲ 第四章 导入系统                                        │
-                                                          ▼
-                                       异常沿帧链向上传播，途经 finally / __exit__ ──► [下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160, "rankSpacing": 35, "curve": "linear"}}}%%
+%% 图：本篇主线：源码、函数对象与帧，以及 import 与异常
+flowchart TB
+    SRC["源码"] -- "编译" --> CO["code object"]
+    CO -- "执行 def，封装" --> FN["函数对象"]
+    FN -- "调用" --> FR["执行帧"]
+    FR -- "读名字" --> SCOPE["作用域与闭包"]
+    FR -- "执行 import" --> IMP["import 语句"]
+    IMP -- "finder / loader" --> MOD["模块对象"]
+    MOD -- "执行顶层代码" --> EFFECT["注册表、类定义生效"]
+    FR -- "发生异常" --> EXC["沿帧链向上传播"]
 ```
 
-各章之间的依赖是单向的：第三章的闭包依赖第二章的函数对象与帧；第四章的导入以"执行模块顶层代码"收尾，用到第二章的编译单元；[下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)的异常沿第二章的帧链传播。
+- **第二章，执行模型**：源码编译成 code object；执行 `def` 时封装成函数对象，调用函数时创建执行帧。类对象不是把 code object 直接封装起来：要先执行类体，再由元类创建，见[下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)。
+- **第三章，作用域与闭包**：帧里的名称怎么解析。
+- **第四章，导入系统**：finder / loader 找到并加载模块，顶层代码执行后，注册表、类定义才生效。
+- **第五章，异常传播**：异常沿帧链向上传播，途经活动的 `finally` / `__exit__`；若被捕获或抑制，就不再继续向外传播。
+
+各章之间的依赖是单向的：第三章的闭包依赖第二章的函数对象与帧；第四章的导入以"执行模块顶层代码"收尾，用到第二章的编译单元；第五章的异常沿第二章的帧链传播。
 
 ### 3. 本文的章节安排
 
@@ -136,9 +150,7 @@ Python 源码在运行前会先被编译成字节码，解释器执行的是字�
 
 "解释器读一行、执行一行"是入门时的近似，但它解释不了为什么一个函数里的语法错误会让整个模块都无法导入，也解释不了为什么闭包能记住外层变量。实际过程是：
 
-```text title='源码到执行帧的四步：parser、compiler、解释器'
-源代码(.py)  ──parser──►  AST  ──compiler──►  code object（含字节码）  ──解释器──►  在执行帧中运行
-```
+源代码（`.py`）经 parser 生成 AST，再经 compiler 生成 code object（含字节码），最后由解释器在执行帧中运行。
 
 Python 没有 `javac` 那样一个单独的编译步骤，但编译确实发生，而且有明确的触发时机：
 
@@ -505,18 +517,15 @@ print(json.decoder.__package__)   # json
 
 ### 2. `import` 语句的执行过程
 
-`import mypackage.model` 在解释器内部大致经历以下步骤（对应 CPython 标准库 `importlib/_bootstrap.py` 中的 `_find_and_load` → `_find_spec` → `_load_unlocked`）：
+`import mypackage.model` 在解释器内部大致经历以下步骤（对照 [CPython 3.12.0 的 `Lib/importlib/_bootstrap.py`](https://github.com/python/cpython/blob/v3.12.0/Lib/importlib/_bootstrap.py) 中的 `_find_and_load` → `_find_spec` → `_load_unlocked`）：
 
-```text title='import mypackage.model 的七步：缓存、查找、执行、绑定'
-1. 查 sys.modules["mypackage.model"]，命中则直接返回                   —— 缓存
-2. 未命中：先确保父包 "mypackage" 已导入（递归走同一流程）
-3. 依次询问 sys.meta_path 里的每个 finder：find_spec(name, path)
-   第一个返回非 None 的 ModuleSpec 胜出；全部 None → ModuleNotFoundError    —— 查找
-4. spec.loader.create_module(spec) 创建空模块对象，写入 __name__/__spec__/__file__ 等元数据
-5. sys.modules[name] = module                                             —— 注意：在执行之前
-6. spec.loader.exec_module(module)：编译（或读 .pyc）并在 module.__dict__ 中执行顶层代码   —— 执行
-7. 把结果绑定到当前命名空间：import a.b 绑定 a；from a.b import c 绑定 c
-```
+1. **缓存**：查 `sys.modules["mypackage.model"]`，命中且已完成初始化则直接返回。
+2. 未命中：先确保父包 `"mypackage"` 已导入，递归走同一流程。
+3. **查找**：依次询问 `sys.meta_path` 里的每个 finder：`find_spec(name, path)`。第一个返回非 `None` 的 `ModuleSpec` 胜出；全部为 `None` 则抛 `ModuleNotFoundError`。
+4. `module_from_spec(spec)` 调用 `spec.loader.create_module(spec)` 创建模块对象；若返回 `None`，由导入系统创建。随后写入 `__name__`、`__spec__` 等元数据；有文件位置时还会设置 `__file__`。
+5. `sys.modules[name] = module`。注意：在执行之前。
+6. **执行**：`spec.loader.exec_module(module)`。源码模块在这一步编译（或读 `.pyc`），并在 `module.__dict__` 中执行顶层代码。
+7. 把结果绑定到当前命名空间：`import a.b` 绑定 `a`；`from a.b import c` 绑定 `c`。
 
 有三点决定了后面几节的全部内容：
 
@@ -650,14 +659,15 @@ spec.loader.exec_module(module)
 
 `PathFinder` 沿 `sys.path` 找，那么 `sys.path` 里有什么？启动时它按顺序由这几部分拼成：
 
-```text title='sys.path 的五个组成部分'
-sys.path[0]         取决于启动方式（见下）
-PYTHONPATH          环境变量中的目录
-标准库               .../lib/python3.12、python312.zip、lib-dynload
-site-packages       当前解释器或虚拟环境的第三方包目录
-.pth 文件里的行      site 模块处理 site-packages 下的 *.pth：每行一个目录追加到 sys.path，
-                    以 import 开头的行会被直接执行（§3 的 DistutilsMetaFinder 就是这么装进来的）
-```
+| 组成部分 | 内容 |
+| :--- | :--- |
+| `sys.path[0]` | 取决于启动方式（见下） |
+| `PYTHONPATH` | 环境变量中的目录 |
+| 标准库 | `.../lib/python3.12`、`python312.zip`、`lib-dynload` |
+| `site-packages` | 当前解释器或虚拟环境的第三方包目录 |
+| `.pth` 文件里的行 | `site` 模块处理 `site-packages` 下的 `*.pth`：每行一个目录追加到 `sys.path`；<br/>以 `import` 开头的行会被直接执行（§3 的 `DistutilsMetaFinder` 就是这么装进来的） |
+
+Table: sys.path 的五个组成部分
 
 真正制造差异的是 `sys.path[0]`。规则是：
 
@@ -820,10 +830,24 @@ class B: ...
 
 `import a` 而不是 `from a import A` 有时能"绕过去"，因为它只绑定模块对象，属性访问推迟到运行时；`TYPE_CHECKING` 块和函数内的局部导入同理。但这些只是改变了**导入时机**，没有消除模块之间的环。首选解法是调整依赖方向：
 
-```text title='消除环：把接口抽到 protocols 模块'
-原结构：   runner ──► backend ──► runner
-调整后：   runner ──► protocols ◄── backend        protocols 只放接口与数据结构，不依赖实现
+```mermaid
+%%{init: {"flowchart": {"rankSpacing": 35, "curve": "linear"}}}%%
+%% 图：消除循环依赖前后的模块结构
+flowchart TB
+    subgraph BEFORE["原结构"]
+        direction LR
+        R0["runner"] --> B0["backend"]
+        B0 --> R0
+    end
+    subgraph AFTER["调整后"]
+        direction TB
+        R1["runner"] --> P["protocols"]
+        B1["backend"] --> P
+    end
+    BEFORE ~~~ AFTER
 ```
+
+箭头表示模块依赖。`protocols` 只放接口与数据结构，不依赖实现。
 
 如果一个项目需要靠局部导入来"修"循环导入，通常说明模块边界需要重新划分。
 
@@ -957,17 +981,19 @@ Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeExcepti
 
 本篇讲的四种机制，都围绕**帧**这一个东西：
 
-```text title='本篇四种机制围绕帧的小结'
-执行模型      源码在第一次导入时整模块编译成 code object；函数对象 = code + __globals__ + 默认值 + cell；
-              每次调用创建一个帧，帧里放局部变量与指令位置；名称是绑定到对象的标签，不是盒子
-    │
-作用域与闭包   名称的归属在编译期决定（LEGB）；闭包 = 函数对象 + cell；cell 是共享的，所以有延迟绑定
-    │
-导入系统      import 是运行时动作：sys.modules → meta_path finder → loader → 执行顶层代码
-              sys.path[0] 由启动方式决定；editable 安装修改的是查找路径；注册机制的前提是"每个模块只执行一次"
-    │
-异常          沿帧链 f_back 向上传播，每经过一帧记进 __traceback__，途经每个 __exit__ 和 finally；只记录不重抛是反模式
-```
+- **执行模型**
+  - 源码在第一次导入时整模块编译成 code object；函数对象 = code + `__globals__` + 默认值 + cell。
+  - 每次调用创建一个帧，帧里放局部变量与指令位置；名称是绑定到对象的标签，不是盒子。
+- **作用域与闭包**
+  - 名称的归属在编译期决定（LEGB）；闭包 = 函数对象 + cell。
+  - cell 是共享的，所以有延迟绑定。
+- **导入系统**
+  - `import` 是运行时动作：`sys.modules` → `meta_path` finder → loader → 执行顶层代码。
+  - `sys.path[0]` 由启动方式决定；editable 安装修改的是查找路径。
+  - 注册机制的前提是"每个模块只执行一次"，限定同一进程、同一模块名且没有 `reload`，见第四章 §6。
+- **异常**
+  - 沿帧链 `f_back` 向上传播，每经过一帧记进 `__traceback__`，途经活动的 `__exit__` 和 `finally`；若被捕获或抑制，就不再继续向外传播。
+  - 只记录不重抛是反模式。
 
 回到开头那七行里属于本篇的两行：
 
