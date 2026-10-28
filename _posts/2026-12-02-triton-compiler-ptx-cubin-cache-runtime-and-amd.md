@@ -98,16 +98,18 @@ Table: 缓存键的五个成分
 
 `hash` 是 key 的 SHA-256 十六进制；目录名是它的 base32（`~/.triton/cache/7G26FXWXQI5YNQJ3B34UJOLGK57PHFWFBB23QHJBVOCHWJC6TMGA/`），`TRITON_CACHE_DIR` 可以换根目录。本机编译 `add_kernel` 之后：
 
-```text title="缓存目录里的文件"
-__grp__add_kernel.json   ← 组文件：child_paths 列出下面每个文件的绝对路径
-add_kernel.source        ← 前端产出的 TTIR（带 loc）
-add_kernel.ttir          ← make_ttir 之后
-add_kernel.ttgir
-add_kernel.llir
-add_kernel.ptx
-add_kernel.cubin         ← 本机是 0 字节（假 ptxas）；真机上是 ELF
-add_kernel.json          ← 元数据
-```
+| 文件 | 内容 |
+|---|---|
+| `__grp__add_kernel.json` | 组文件：`child_paths` 列出下面每个文件的绝对路径 |
+| `add_kernel.source` | 前端产出的 TTIR（带 loc） |
+| `add_kernel.ttir` | `make_ttir` 之后 |
+| `add_kernel.ttgir` | `make_ttgir` 之后 |
+| `add_kernel.llir` | `make_llir` 之后 |
+| `add_kernel.ptx` | `make_ptx` 之后 |
+| `add_kernel.cubin` | `make_cubin` 之后；本机是 0 字节（假 ptxas），真机上是 ELF |
+| `add_kernel.json` | 元数据 |
+
+Table: 缓存目录里的文件
 
 `TRITON_STORE_BINARY_ONLY=1` 只存 `cubin` / `hsaco` / `json`（生产环境省磁盘）；`TRITON_ALWAYS_COMPILE=1` 忽略命中强制重编（调试用）；`TRITON_CACHE_MANAGER` / `TRITON_REMOTE_CACHE_BACKEND` 可以换成自定义实现（例如把缓存放到共享存储，让多机训练不必各编一遍）。
 
