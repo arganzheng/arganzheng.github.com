@@ -360,13 +360,13 @@ PyTorch 的 RFC 不在主仓库，在 `github.com/pytorch/rfcs`。`gh api repos/
 
 然后是三步：
 
-```text title="PyTorch RFC 的三步"
-Step 1  Create an RFC        fork pytorch/rfcs；复制 RFC-0000-template.md 为 RFC-00xx-your-feature.md；可以只放一个公开 Google Doc 的链接
-Step 2  Get Feedback         PR 标题 RFC-00xx-your-feature.md；先打 draft 标签，准备好后换 commenting 标签；
-                             在 pytorch/pytorch 开一个 issue 链到 RFC PR，由 triage 路由给相关 core contributors；
-                             在 dev-discuss.pytorch.org 的 rfc-chatter 版和 Slack 上扩散；按 CODEOWNERS 找利害相关人
-Step 3  Implement            RFC PR 被接受后合入 pytorch/rfcs；实现 PR 要链回 RFC
-```
+| 步骤 | 操作 |
+|---|---|
+| Step 1：Create an RFC | fork `pytorch/rfcs`；复制 `RFC-0000-template.md` 为 `RFC-00xx-your-feature.md`；可以只放一个公开 Google Doc 的链接 |
+| Step 2：Get Feedback | PR 标题 `RFC-00xx-your-feature.md`；先打 `draft` 标签，准备好后换 `commenting` 标签<br/>在 `pytorch/pytorch` 开一个 issue 链到 RFC PR，由 triage 路由给相关 core contributors<br/>在 `dev-discuss.pytorch.org` 的 `rfc-chatter` 版和 Slack 上扩散；按 `CODEOWNERS` 找利害相关人 |
+| Step 3：Implement | RFC PR 被接受后合入 `pytorch/rfcs`；实现 PR 要链回 RFC |
+
+Table: PyTorch RFC 的三步
 
 `RFC-0000-template.md` 的章节：Summary、Motivation、Proposed Implementation、Metrics、Drawbacks、Alternatives、Prior Art、How we teach this、Unresolved questions，最后是 Resolution（Level of Support、Additional Context、Next Steps、Tracking issue、Exceptions）。README 还有两段对选题有用：
 
@@ -448,15 +448,15 @@ vLLM 把 CI 失败的处理流程完整写在 `docs/contributing/ci/failures.md`
 
 "Help fixing it is always welcome" 是这份文档里对贡献者最直接的邀请。Dashboard 是 GitHub Project 20，列出 main 上当前已知的失败；"Daily Triage" 一节说 maintainer 每天用 Buildkite analytics 的 2-day view 对比它。文档后面几节是可以直接照做的操作手册：
 
-```text title="failures.md 的操作手册"
-Filing a CI Test Failure Issue   用 450-ci-failure.yml；标题格式 [CI Failure]: failing-test-job - regex/matching/failing:test；
-                                 环境字段写 "Still failing on main as of commit abcdef123"；描述里逐条 FAILED failing/test.py:failing_test1
-Logs Wrangling                   .buildkite/scripts/ci-fetch-log.sh --pr <PR>   拉一个 PR 最新 build 的全部失败 job 日志
-                                 .buildkite/scripts/ci-clean-log.sh ci.log      去掉时间戳与 ANSI
-Investigating                    去 Buildkite main 分支 → 二分找到第一个出问题的 build → 写进 issue → 找到可疑 PR 就 ping 作者
-Reproducing                      .buildkite/scripts/rerun-test.sh tests/v1/engine/test_engine_core_client.py::test_kv_cache_events[True-tcp]
-Submitting a PR                  描述里写 Closes #12345；给 PR 加 ci-failure 标签
-```
+| 环节 | 操作 |
+|---|---|
+| Filing a CI Test Failure Issue | 用 `450-ci-failure.yml`；标题格式 `[CI Failure]: failing-test-job - regex/matching/failing:test`<br/>环境字段写 `Still failing on main as of commit abcdef123`；描述里逐条列出 `FAILED failing/test.py:failing_test1` |
+| Logs Wrangling | `.buildkite/scripts/ci-fetch-log.sh --pr <PR>`：拉一个 PR 最新 build 的全部失败 job 日志<br/>`.buildkite/scripts/ci-clean-log.sh ci.log`：去掉时间戳与 ANSI |
+| Investigating | 去 Buildkite main 分支 → 二分找到第一个出问题的 build → 写进 issue → 找到可疑 PR 就 ping 作者 |
+| Reproducing | `.buildkite/scripts/rerun-test.sh tests/v1/engine/test_engine_core_client.py::test_kv_cache_events[True-tcp]` |
+| Submitting a PR | 描述里写 `Closes #12345`；给 PR 加 `ci-failure` 标签 |
+
+Table: failures.md 的操作手册
 
 `450-ci-failure.yml` 模板本身（标题前缀 `[CI Failure]: `，自动标签 `ci-failure`）的字段：`Name of failing test`（input，required，placeholder 是 `path/to/test_file.py::test_name[params]`）、`Basic information`（三个复选框：Flaky test / Can reproduce locally / Caused by external libraries (e.g. bug in `transformers`)）、`🧪 Describe the failing test`（required）、`📝 History of failing test`（required，描述里给了三种定位方法：Buildkite Test Suites、`git bisect`、手动 unblock 可疑 PR 的 Buildkite step）、`CC List.`（描述："Usually, this includes those who worked on the PR that failed the test"）。
 
@@ -614,13 +614,13 @@ vLLM 侧，`AGENTS.md` 的测试原则本身就是选题指南——"what failur
 
 vLLM 的 `docs/contributing/deprecation_policy.md` 把废弃一个功能写成了三阶段流水线，每个阶段跨一个 minor 版本（`Y`）：
 
-```text title="vLLM deprecation 的三阶段"
-1  Deprecated (Still On By Default)   标记废弃；警告里写明移除版本（如 "This will be removed in v0.10.0"）；
-                                      在 help string、日志、API 响应、/metrics、文档、release notes、RFC issue 里同步；
-                                      Python API 用 @typing_extensions.deprecated 装饰器
-2  Deprecated (Off By Default)        默认关闭；可用 CLI flag 或环境变量重新打开；不打开就报错
-3  Removed                            彻底删除；只有走完前两阶段的功能才能删
-```
+| 阶段 | 状态 | 操作 |
+|---|---|---|
+| 1 | Deprecated (Still On By Default) | 标记废弃；警告里写明移除版本（如 "This will be removed in v0.10.0"）<br/>在 help string、日志、API 响应、`/metrics`、文档、release notes、RFC issue 里同步<br/>Python API 用 `@typing_extensions.deprecated` 装饰器 |
+| 2 | Deprecated (Off By Default) | 默认关闭；可用 CLI flag 或环境变量重新打开；不打开就报错 |
+| 3 | Removed | 彻底删除；只有走完前两阶段的功能才能删 |
+
+Table: vLLM deprecation 的三阶段
 
 "Important Guidelines" 三条：No Removals in Patch Releases；Grace Period for Existing Deprecations（政策之前废弃的功能从政策生效时开始计）；Documentation is Critical。
 
@@ -790,28 +790,31 @@ Table: vLLM 的三个候选 issue
 
 ### 1. 要点回顾
 
-```text title="要点回顾：找切入点"
-核心问题      maintainer 最想要的：他们已决定要做、写清了要什么、自己没时间做的事
-              —— PyTorch 的 actionable + "I'd review a PR that ..."；vLLM 的 help wanted + 分步骤正文
-              一周内不被关的预测器：标签状态 · maintainer 最后一条评论 · open PR 数 · 规模与 RFC 门槛 · 硬件 · 项目政策
-标签          PyTorch 682 个分五层前缀 + 一组状态标签（needs reproduction → needs research → needs design → actionable）；
-              labeler.yml 按路径、label_to_label.yml 按标签推导（module: dynamo → oncall: pt2）
-              vLLM 63 个平铺；mergify.yml 按路径/标题打 PR 标签，issue_autolabel.yml 按关键词打 issue 标签；
-              Job Board 四个链接；600-new-model.yml 的 "new model" 与实际标签 new-model 不一致——按标题前缀搜
-RFC           PyTorch：pytorch/rfcs 仓库，模板九章 + Resolution，draft → commenting → 主仓 issue；已接受未实现的 RFC 是入口
-              vLLM：750-RFC.yml 的 Motivation / Proposed Change / Feedback Period（至少一周）/ CC List；>500 LOC 无 RFC 不 review
-CI 失败       vLLM：Project 20 看板 · failures.md 的六节操作手册 · 450-ci-failure.yml · ci-fetch-log.sh / rerun-test.sh
-              PyTorch：HUD · bot 自动开 DISABLED issue（skipped + module: flaky-tests，200 open）· 修好即自动重新启用
-性能回归      vLLM 700-performance-discussion.yml 三段可选；benchmarks/ 主入口已迁 vllm bench，kernel 在 benchmarks/kernels/
-              PyTorch module: regression（156）· benchmarks/ 二十余子目录 · RELEASE.md cherry-pick 的 -c regression
-              报告五要素：版本对 · 复现脚本 · 硬件 · 数字 · 范围
-不要什么      AGENTS.md "No low-value busywork PRs"；README "Ensure significance"；CONTRIBUTING "personally responsible"；
-              AI_POLICY "do not accept contributions created by fully autonomous agents"；vLLM closed-as-slop 97 个
-不起眼但值    补 error_inputs 测试 · deprecation 三阶段 · needs reproduction（535）复现成测试 · 测量（#50128 用 4 GB 卡完成第一步）
-先讨论        PyTorch：短 issue 只说问题 → 等 actionable → PR；三个 PR 模板 = 三种合法起点
-              vLLM：三条 gh 命令 → Fail-closed；认领留言要带核对结果、定位、方案、规模、一个问题
-清单          六个候选放弃三个、备选两个、选定一个（#183036）；good first issue 是最挤的池子
-```
+- **核心问题**
+  - maintainer 最想要的：他们已决定要做、写清了要什么、自己没时间做的事——PyTorch 的 `actionable` + "I'd review a PR that ..."；vLLM 的 `help wanted` + 分步骤正文。
+  - 一周内不被关的预测器：标签状态 · maintainer 最后一条评论 · open PR 数 · 规模与 RFC 门槛 · 硬件 · 项目政策。
+- **标签**
+  - PyTorch 682 个分五层前缀 + 一组状态标签（`needs reproduction` → `needs research` → `needs design` → `actionable`）；`labeler.yml` 按路径、`label_to_label.yml` 按标签推导（`module: dynamo` → `oncall: pt2`）。
+  - vLLM 63 个平铺；`mergify.yml` 按路径/标题打 PR 标签，`issue_autolabel.yml` 按关键词打 issue 标签；Job Board 四个链接；`600-new-model.yml` 的 "new model" 与实际标签 `new-model` 不一致——按标题前缀搜。
+- **RFC**
+  - PyTorch：`pytorch/rfcs` 仓库，模板九章 + Resolution，`draft` → `commenting` → 主仓 issue；已接受未实现的 RFC 是入口。
+  - vLLM：`750-RFC.yml` 的 Motivation / Proposed Change / Feedback Period（至少一周）/ CC List；>500 LOC 的架构改动（不含 kernel/data/config/test）需先开 RFC，否则可能不 review。
+- **CI 失败**
+  - vLLM：Project 20 看板 · `failures.md` 的六节操作手册 · `450-ci-failure.yml` · `ci-fetch-log.sh` / `rerun-test.sh`。
+  - PyTorch：HUD · bot 自动开 `DISABLED` issue（`skipped` + `module: flaky-tests`，200 open）· 修好即自动重新启用。
+- **性能回归**
+  - vLLM `700-performance-discussion.yml` 三段可选；`benchmarks/` 主入口已迁 `vllm bench`，kernel 在 `benchmarks/kernels/`。
+  - PyTorch `module: regression`（156）· `benchmarks/` 二十余子目录 · `RELEASE.md` cherry-pick 的 `-c regression`。
+  - 报告五要素：版本对 · 复现脚本 · 硬件 · 数字 · 范围。
+- **不要什么**
+  - `AGENTS.md` "No low-value busywork PRs"；README "Ensure significance"；CONTRIBUTING "personally responsible"；AI_POLICY "do not accept contributions created by fully autonomous agents"；vLLM `closed-as-slop` 97 个。
+- **不起眼但值**
+  - 补 `error_inputs` 测试 · deprecation 三阶段 · `needs reproduction`（535）复现成测试 · 测量（#50128 用 4 GB 卡完成第一步）。
+- **先讨论**
+  - PyTorch：短 issue 只说问题 → 等 `actionable` → PR；三个 PR 模板 = 三种合法起点。
+  - vLLM：三条 `gh` 命令 → Fail-closed；认领留言要带核对结果、定位、方案、规模、一个问题。
+- **清单**
+  - 六个候选放弃三个、备选两个、选定一个（#183036）；`good first issue` 是最挤的池子。
 
 ### 2. PyTorch 与 vLLM 对照
 
