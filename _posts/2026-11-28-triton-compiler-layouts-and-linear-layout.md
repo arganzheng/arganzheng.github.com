@@ -400,7 +400,7 @@ flowchart TB
 %69 = ttg.convert_layout %68 : tensor<128x128xf32, #blocked8> -> tensor<128x128xf32, #blocked>
 ```
 
-Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后各一个 `convert_layout`），不管别人。于是一个 K 迭代里有 7 个 `convert_layout`：③ 把刚 load 进来的 A 从 coalesced layout 转回默认，%65 又把它转到 `#dot_op`——两次转换，中间那个默认 layout 毫无用处。这是**局部决定的必然结果**：每个 pass 只保证自己的 op 拿到想要的 layout，用 `convert_layout` 与外界隔离。把这些转换消掉、让 layout 沿 def-use 链传播到一致，是下一篇 `RemoveLayoutConversions` 的工作。最终 TTGIR 里循环体只剩两个 `convert_layout`（A、B 从 load 的 `#blocked` 到 `#dot_op`——这两个在 Ampere 上会变成经 shared memory 的 `ldmatrix` 路径，第八篇），累加器直接生在 `#mma` 上。
+Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后各一个 `convert_layout`），不管别人。于是一个 K 迭代里有 8 个 `convert_layout`：A、B 两个 load 各带进来一对（%59 %61、%62 %64），另外 4 个（%65 %66 %67 %69）是 `ConvertTritonToTritonGPU` 给 `tt.dot` 留下的。③ 把刚 load 进来的 A 从 coalesced layout 转回默认，%65 又把它转到 `#dot_op`——两次转换，中间那个默认 layout 毫无用处。这是**局部决定的必然结果**：每个 pass 只保证自己的 op 拿到想要的 layout，用 `convert_layout` 与外界隔离。把这些转换消掉、让 layout 沿 def-use 链传播到一致，是下一篇 `RemoveLayoutConversions` 的工作。最终 TTGIR 里循环体只剩两个 `convert_layout`（A、B 从 load 的 `#blocked` 到 `#dot_op`——这两个在 Ampere 上会变成经 shared memory 的 `ldmatrix` 路径，第八篇），累加器直接生在 `#mma` 上。
 
 ## 七、shared memory 的 layout
 
@@ -466,7 +466,7 @@ Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后�
 
 ## 下一篇
 
-Coalesce 之后，一个 K 迭代里有 7 个 `convert_layout`，`tt.dot` 的累加器还在一个为 FMA 准备的 `#blocked` 上。下一篇讲把这些收拾干净的几个 pass：`RemoveLayoutConversions` 怎样沿 def-use 链前向传播 layout、后向重物化以消掉转换，它的代价模型何时接受重算；`AccelerateMatmul` 怎样按架构选 MMA 版本、把累加器换成 `#mma`、给操作数定 `#dot_op` 的 `kWidth`；`OptimizeDotOperands` 怎样把转置折进 `ldmatrix.trans`；`OptimizeThreadLocality` 怎样让规约多在寄存器里完成——以及为什么最后 epilogue 那一个 `convert_layout` 消不掉。
+Coalesce 之后，一个 K 迭代里有 8 个 `convert_layout`，`tt.dot` 的累加器还在一个为 FMA 准备的 `#blocked` 上。下一篇讲把这些收拾干净的几个 pass：`RemoveLayoutConversions` 怎样沿 def-use 链前向传播 layout、后向重物化以消掉转换，它的代价模型何时接受重算；`AccelerateMatmul` 怎样按架构选 MMA 版本、把累加器换成 `#mma`、给操作数定 `#dot_op` 的 `kWidth`；`OptimizeDotOperands` 怎样把转置折进 `ldmatrix.trans`；`OptimizeThreadLocality` 怎样让规约多在寄存器里完成——以及为什么最后 epilogue 那一个 `convert_layout` 消不掉。
 
 [^q0]: 默认 layout 由 `getDefaultBlockedEncoding` 给出 `sizePerThread = [1, 1]`、`order = [1, 0]`，智能构造在 `[64, 64]`、4 warp 上推出 `threadsPerWarp = [1, 32]`、`warpsPerCTA = [2, 2]`；tile `[2, 64]` 铺满 `[64, 64]` 需要 32 趟，所以寄存器维 5 位。基向量（输出 `(行, 列)`）：`lane` 的 5 位分别是 (0,1) (0,2) (0,4) (0,8) (0,16)——lane 号就是列号的低 5 位；`warp` 位 1 是 (0,32)、位 2 是 (1,0)；`register` 的 5 位是 (2,0) (4,0) (8,0) (16,0) (32,0)——寄存器号是行号的第 1–5 位。共 12 个输入位到 12 个输出位的双射。`triton-tensor-layout` 打出的表核对：行 0 是 T0…T63 的寄存器 0，行 1 是 T64…T127 的寄存器 0，行 2 是 T0…T63 的寄存器 1。详见[第四章 §3](#四linear-layout)。
 
