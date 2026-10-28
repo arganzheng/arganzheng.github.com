@@ -306,7 +306,8 @@ trainer.train()                                             # 二十行加外壳
 
 ### 三个月后能复现：七项记录
 
-- 代码版本（commit）· 数据版本（`revision`）· 配置（`asdict(cfg)` → `config.json`）· 环境（`pip freeze`）· seed · 硬件 · 日志与 checkpoint
+- run id · commit · 配置文件（`asdict(cfg)` → `config.json`）· 数据版本（`revision`）· seed · 环境（`pip freeze`、GPU 型号与卡数）· 指标
+- checkpoint、评测输出这些产物，文件名带上 run id
 - 同 seed 两次完全一致要 `use_deterministic_algorithms`；换个 seed 差 **0.14**——20 步训练里 seed 的影响比很多「方法改进」都大
 - profiler 表怎么读：慢先归到 GEMM、attention、`copy_`、launch 开销或 GPU 空转之一
 
