@@ -666,18 +666,13 @@ torch = { index = "pytorch-cu121" }    # 只有 torch 走这个索引
 
 新人最常见的误解是"CUDA 版本"只有一个。实际有三层，各自的兼容规则不同：
 
-```text title="CUDA 兼容矩阵的三层"
-┌─────────────────────────────────────────────┐
-│ 3. torch wheel（编译时链接的 CUDA runtime）  │  ← pip 装进来的，可多版本共存
-│    torch 2.4.0+cu121                        │
-├─────────────────────────────────────────────┤
-│ 2. CUDA runtime / toolkit                   │  ← 可由 wheel 自带，或来自镜像
-│    libcudart.so, libcublas.so, cuDNN        │
-├─────────────────────────────────────────────┤
-│ 1. NVIDIA driver（内核态）                   │  ← 全机唯一，虚拟环境隔离不了
-│    nvidia-smi 显示的 "CUDA Version"          │
-└─────────────────────────────────────────────┘
-```
+| 层 | 典型内容 | 来源与隔离 |
+|---|---|---|
+| 3. torch wheel（编译时链接的 CUDA runtime） | `torch 2.4.0+cu121` | pip 装进来的，可多版本共存 |
+| 2. CUDA runtime / toolkit | `libcudart.so`、`libcublas.so`、cuDNN | 可由 wheel 自带，或来自镜像 |
+| 1. NVIDIA driver（内核态） | `nvidia-smi` 显示的 "CUDA Version" | 全机唯一，虚拟环境隔离不了 |
+
+Table: CUDA 兼容矩阵的三层（自上而下：上层依赖下层）
 
 核心规则是 **CUDA 的"次要版本兼容性"（minor version compatibility）**：driver 只需要不低于 runtime 的**大版本**要求即可，同一大版本内的次要版本向前兼容。所以：
 
@@ -1037,25 +1032,27 @@ python -m build
 
 wheel 的文件名编码了兼容性信息，这是理解 AI 包分发的关键：
 
-```text title="torch wheel 文件名各段的含义"
-torch-2.4.0+cu121-cp311-cp311-linux_x86_64.whl
-│     │          │     │      │
-│     │          │     │      └── 平台：Linux x86_64
-│     │          │     └───────── ABI：CPython 3.11 ABI
-│     │          └─────────────── Python 版本：CPython 3.11
-│     └────────────────────────── 版本（含本地版本标识）
-└──────────────────────────────── 包名
-```
+以 `torch-2.4.0+cu121-cp311-cp311-linux_x86_64.whl` 为例，按 `-` 切开：
 
-对比一个纯 Python 包：
+| 段 | 取值 | 含义 |
+|---|---|---|
+| 包名 | `torch` | |
+| 版本 | `2.4.0+cu121` | 含本地版本标识 |
+| Python 标签 | `cp311` | Python 版本：CPython 3.11 |
+| ABI 标签 | `cp311` | CPython 3.11 ABI |
+| 平台标签 | `linux_x86_64` | Linux x86_64 |
 
-```text title="纯 Python 包的 py3-none-any wheel 文件名"
-fastapi-0.115.6-py3-none-any.whl
-                │   │    │
-                │   │    └── 任意平台
-                │   └─────── 无 ABI 要求
-                └─────────── 任意 Python 3
-```
+Table: torch wheel 文件名各段的含义
+
+对比一个纯 Python 包 `fastapi-0.115.6-py3-none-any.whl`：
+
+| 段 | 取值 | 含义 |
+|---|---|---|
+| Python 标签 | `py3` | 任意 Python 3 |
+| ABI 标签 | `none` | 无 ABI 要求 |
+| 平台标签 | `any` | 任意平台 |
+
+Table: 纯 Python 包的 py3-none-any wheel 文件名
 
 `py3-none-any` 意味着"一份文件到处能用"。而 `cp311-cp311-linux_x86_64` 意味着**每个 Python 版本 × 每个平台都要单独构建一份**——这就是为什么 PyTorch 的发布矩阵那么大，也是为什么第五章讲的锁文件跨平台问题那么棘手。
 
