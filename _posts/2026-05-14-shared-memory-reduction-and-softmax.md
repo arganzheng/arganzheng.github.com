@@ -176,21 +176,9 @@ __syncthreads();
 
 **第二，sync 是有代价的**。每次 `__syncthreads()` 都让 block 内先到的 warp 空转，等最慢的 warp。一个 1024 线程的 block 有 32 个 warp，某个 warp 因为一次 cache miss 晚到 500 个周期，其他 31 个 warp 就一起浪费 500 个周期。reduction 树每一级都 sync 一次，10 级就是 10 次全 block 等待。后面第四章的优化有一大半是在减少 sync 的次数。
 
-```text title="一次 __syncthreads() 的等待代价（4 个 warp 时间线）"
-一次 __syncthreads() 的代价：block 内 4 个 warp，warp 2 因一次 cache miss 晚到
+![一次 __syncthreads() 的等待代价（4 个 warp 时间线）](/img/in-post/shared-memory-reduction-and-softmax-sync-wait.svg)
 
-时间  ────────────────────────────────────────────────►
-warp 0  ========|............................|  继续
-warp 1  ==========|..........................|  继续
-warp 2  ==================== cache miss =====|  继续
-warp 3  ========|............................|  继续
-                                             ▲
-        = 在干活   . 在栅栏上空等             所有 warp 到齐才放行
-
-浪费的 warp·周期 ≈ Σ(最慢 warp 的到达时间 − 各 warp 自己的到达时间)
-1024 线程 = 32 个 warp，某 warp 晚 500 周期，其余 31 个 warp 各空等 500 周期
-reduction 树每一级一次栅栏：v1/v2 是 10 级 × 32 个 warp 的等待，v6 只剩 1 级
-```
+浪费的 warp·周期 ≈ Σ(最慢 warp 的到达时间 − 各 warp 自己的到达时间)。1024 线程 = 32 个 warp，某 warp 晚 500 周期，其余 31 个 warp 各空等 500 周期。reduction 树每一级一次栅栏：v1/v2 是 10 级 × 32 个 warp 的等待，v6 只剩 1 级。
 
 ### 4. bank conflict：32 个 bank，每个 4 字节
 
@@ -215,18 +203,12 @@ $$
 bank = (t * 32 + k) % 32 = k          ← 所有 32 个线程落在同一个 bank
 ```
 
-```text title="tile[32][32] 各元素所在的 bank"
-tile[32][32]，字地址 = 行·32 + 列，bank = 字地址 % 32  ⇒  同一列的所有元素都在同一个 bank
+![tile[32][32] 各元素所在的 bank](/img/in-post/shared-memory-reduction-and-softmax-bank-32.svg)
 
-            bank 0   bank 1   bank 2   …   bank 31
-行 0        [0][0]   [0][1]   [0][2]   …   [0][31]
-行 1        [1][0]   [1][1]   [1][2]   …   [1][31]
-  ⋮           ⋮        ⋮        ⋮              ⋮
-行 31       [31][0]  [31][1]  [31][2]  …   [31][31]
+字地址 = 行·32 + 列，bank = 字地址 % 32。同一列的所有元素都在同一个 bank。
 
-按行访问 tile[k][t]：warp 的 32 个线程沿一行 → 32 个不同 bank → 1 个周期
-按列访问 tile[t][k]：warp 的 32 个线程沿一列 → 全部落在 bank k → 32 个周期（32-way conflict）
-```
+- 按行访问 `tile[k][t]`：warp 的 32 个线程沿一行 → 32 个不同 bank → 1 个周期。
+- 按列访问 `tile[t][k]`：warp 的 32 个线程沿一列 → 全部落在 bank k → 32 个周期（32-way conflict）。
 
 这是 32-way conflict，一次访问要 32 个周期，等于把 shared memory 带宽砍成 1/32。按行访问 `tile[k][threadIdx.x]` 则地址连续，bank 各不相同，无冲突。所以规则是：**warp 内相邻线程访问的地址在 4 字节粒度上应该连续，或者至少 stride 与 32 互质**。stride 为 2 → 2-way，stride 为 4 → 4-way，stride 为 32 → 32-way；stride 为奇数则无冲突。
 
@@ -242,17 +224,9 @@ __shared__ float tile[32][33];   // 每行多一个字
 // bank = (t * 33 + k) % 32 = (t + k) % 32   ← 32 个线程落在 32 个不同 bank
 ```
 
-```text title="tile[32][33] 各元素所在的 bank"
-tile[32][33]，字地址 = 行·33 + 列，bank = (行 + 列) % 32  ⇒  每往下一行，整行向右错开一个 bank
+![tile[32][33] 各元素所在的 bank](/img/in-post/shared-memory-reduction-and-softmax-bank-33.svg)
 
-            bank 0   bank 1   bank 2   bank 3   …
-行 0        [0][0]   [0][1]   [0][2]   [0][3]   …
-行 1         pad     [1][0]   [1][1]   [1][2]   …
-行 2                  pad     [2][0]   [2][1]   …
-行 3                           pad     [3][0]   …
-
-按列访问 tile[t][0]：行 t 的第 0 列落在 bank t → 32 个不同 bank → 无冲突
-```
+字地址 = 行·33 + 列，bank = (行 + 列) % 32。每往下一行，列 0 向右错开一个 bank；行末的 pad 也落在该行列 0 的 bank，但不参与按列访问。按列访问 `tile[t][0]`：行 t 的第 0 列落在 bank t → 32 个不同 bank → 无冲突。
 
 代价是浪费 1/33 的 shared memory，以及行宽不再是 2 的幂、地址计算多一次乘法。对 32×32 的 tile 这个代价可以忽略。
 
@@ -267,23 +241,13 @@ __device__ __forceinline__ int swz(int r, int c) { return c ^ (r & 31); }
 
 用 8×8 的 tile 演示（实际 32×32 用 `c ^ (r & 31)`），每格写的是"存放在该物理位置的**逻辑列号**"：
 
-```text title="8×8 tile 的 swizzle 布局"
-tile[8][8]，物理列 = 逻辑列 ^ 行号，bank = 物理列（按 8 个 bank 演示）
+![8×8 tile 的 swizzle 布局](/img/in-post/shared-memory-reduction-and-softmax-swizzle.svg)
 
-          物理列  0  1  2  3  4  5  6  7
-行 0（^0）        0  1  2  3  4  5  6  7      不动
-行 1（^1）        1  0  3  2  5  4  7  6      相邻两列互换
-行 2（^2）        2  3  0  1  6  7  4  5
-行 3（^3）        3  2  1  0  7  6  5  4
-行 4（^4）        4  5  6  7  0  1  2  3      前后两半互换
-行 5（^5）        5  4  7  6  1  0  3  2
-行 6（^6）        6  7  4  5  2  3  0  1
-行 7（^7）        7  6  5  4  3  2  1  0
+物理列 = 逻辑列 ^ 行号，bank = 物理列（按 8 个 bank 演示）。每格写的是存放在该物理位置的逻辑列号。
 
-每一行仍是 0..7 的一个排列 → 不浪费空间（对比 padding 每行多 1 格）
-按列读逻辑列 0：找每行的 "0"，它在行 r 落在物理列 r → 8 个线程 8 个不同 bank，无冲突
-按行读行 r：8 个元素仍占满物理列 0..7 → 同样无冲突
-```
+- 每一行仍是 0..7 的一个排列 → 不浪费空间（对比 padding 每行多 1 格）。行 0 不动；行 1 相邻两列互换；行 4 前后两半互换。
+- 按列读逻辑列 0：找每行的「0」，它在行 r 落在物理列 r → 8 个线程 8 个不同 bank，无冲突。
+- 按行读行 r：8 个元素仍占满物理列 0..7 → 同样无冲突。
 
 XOR 是一个置换：对固定的 `r`，`c → c ^ r` 把 0..31 一一映射到 0..31，所以每行的 32 个元素仍然占满 32 个位置，不浪费空间；对固定的 `c`，不同的 `r` 给出不同的物理列，所以按列访问不再冲突。swizzle 是 CUTLASS/CuTe 里 shared memory layout 的标准做法（第六篇会看到 `Swizzle<3,3,3>` 这样的类型），因为 `ldmatrix` 和 Tensor Core 的 fragment 加载要求 16 字节对齐、padding 不好用。
 
@@ -324,16 +288,10 @@ for (int s = blockDim.x / 2; s > 0; s >>= 1) {
 
 两种寻址方式在 8 个元素上的对比（数字是线程 tid，箭头表示谁把谁加到自己身上）：
 
-```text title="v1 与 v2 在 8 个元素上的归约树"
-v1 交错寻址（活跃线程隔开）            v2 顺序寻址（stride 减半）
-sdata  0 1 2 3 4 5 6 7                  sdata  0 1 2 3 4 5 6 7
-s=1    0←1 2←3 4←5 6←7   活跃 tid 0,2,4,6   s=4    0←4 1←5 2←6 3←7   活跃 tid 0,1,2,3
-s=2    0←2     4←6       活跃 tid 0,4       s=2    0←2 1←3           活跃 tid 0,1
-s=4    0←4               活跃 tid 0         s=1    0←1               活跃 tid 0
-       活跃线程是隔开的：同一 warp 内一半旁观（发散）      活跃线程永远是连续的前 s 个：整 warp 活跃或整 warp 空闲
-       访问 sdata[tid]、sdata[tid+s]：活跃 lane 的 bank 互不相同 → 无冲突   访问 sdata[tid]、sdata[tid+s]：连续 → 无冲突
-       （Harris 改写成 sdata[2·s·tid] 的那一版才有 stride 2s 的 bank conflict）
-```
+![v1 与 v2 在 8 个元素上的归约树](/img/in-post/shared-memory-reduction-and-softmax-reduction-trees.svg)
+
+- v1：活跃线程隔开，同一 warp 内一半旁观（第一轮发散）。访问 `sdata[tid]`、`sdata[tid+s]` 时，活跃 lane 的 bank 互不相同 → 无冲突。Harris 改写成 `sdata[2·s·tid]` 的那一版才有 stride 2s 的 bank conflict。
+- v2：活跃线程是连续的前 s 个。`s ≥ 32` 时整 warp 活跃或整 warp 空闲；图里的 8 元素例子仍有 warp 内部分线程活跃。访问 `sdata[tid]`、`sdata[tid+s]` 是连续地址 → 无冲突。
 
 第一轮 `s=512`：前 512 个线程分别加后 512 个。活跃线程永远是连续的前 $$s$$ 个，所以：warp 要么全活跃要么全不活跃（$$s \ge 32$$ 时），没有发散；`sdata[tid]` 和 `sdata[tid+s]` 对连续的 tid 都是连续地址，没有 bank conflict；没有取模。
 
@@ -377,25 +335,22 @@ if (tid < 32) {
 
 `__shfl_down_sync(mask, v, off)` 返回 lane `lane + off` 的 `v`（越界时返回自己的 `v`），mask 为全 1 表示 32 个 lane 全部参与。5 轮之后 lane 0 持有 32 个值的和。shuffle 不经过 shared memory，没有 bank 问题，也不需要 `__syncthreads()`——它本身就是 warp 内的同步点。
 
-用 8 个 lane 演示 `__shfl_down_sync` 的归约树（实际 32 个 lane、`off = 16, 8, 4, 2, 1`），每格是"已累加进该 lane 的原始 lane 集合"：
+用 8 个 lane 演示 `__shfl_down_sync` 的归约树（实际 32 个 lane、`off = 16, 8, 4, 2, 1`），每格是该 lane 当前的数值：
 
-```text title="__shfl_down_sync 归约树（8 个 lane 演示）"
-每步 lane i 读 lane i+off 的值加到自己身上；i+off ≥ 8 的 lane 读回自己，于是 v += v 把自己翻倍
-（用 8 个 lane 演示、宽度 8；表里写的是数值，初值取 lane 编号，总和 = 28）
+每步 lane i 读 lane i+off 的值加到自己身上；i+off ≥ 8 的 lane 读回自己，于是 `v += v` 把自己翻倍。这里用 8 个 lane、宽度 8，初值取 lane 编号，总和 = 28。
 
-lane    0    1    2    3    4    5    6    7
-初值    0    1    2    3    4    5    6    7
-off=4   4    6    8   10    8   10   12   14     lane 4–7 读回自己：翻倍
-off=2  12   16   16   20   20   24   24   28
-off=1  28   32   36   40   44   48   52   56
-        ▲
-        只有 lane 0 是正确的总和 28；其他 lane 的值既不是部分和也不是原值，不能用
-        （所以 v4 里由 tid == 0 写 sdata[0]；要让所有 lane 都拿到总和用下面的 xor 版本）
+| 步骤 | lane 0 | lane 1 | lane 2 | lane 3 | lane 4 | lane 5 | lane 6 | lane 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 初值 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| off=4 | 4 | 6 | 8 | 10 | 8 | 10 | 12 | 14 |
+| off=2 | 12 | 16 | 16 | 20 | 20 | 24 | 24 | 28 |
+| off=1 | **28** | 32 | 36 | 40 | 44 | 48 | 52 | 56 |
 
-对比 v6 用的 __shfl_xor_sync：lane i 与 lane i^off 互换，3 步后 8 个 lane 都持有 0..7
-```
+Table: `__shfl_down_sync` 归约树（8 个 lane 演示）
 
-减少了：5 次 `__syncthreads()`（10 次 → 5 次）、最后 5 级的 shared 读写。
+off=4 时 lane 4–7 读回自己：翻倍。只有 lane 0 是正确的总和 28；其他 lane 的值既不是部分和也不是原值，不能用。所以 v4 里由 `tid == 0` 写 `sdata[0]`；要让所有 lane 都拿到总和用下面的 xor 版本。对比 v6 用的 `__shfl_xor_sync`：lane i 与 lane i^off 互换，3 步后 8 个 lane 都持有 0..7 的和。
+
+减少了：6 次循环内的 `__syncthreads()`（10 次 → 4 次）；最后 5 级不再经过 shared 树，`s = 32` 这一级仍要读一次 shared。
 
 ### 5. v5：每线程处理多个元素（grid-stride 加载）
 
@@ -417,7 +372,7 @@ __syncthreads();
 
 ### 6. v6：两级 shuffle——现代写法
 
-v4 还留着一棵 shared memory 树（1024 → 32 需要 5 级、5 次 sync）。反过来想：先让**每个 warp**用 shuffle 把自己的 32 个值归约成 1 个，32 个 warp 得到 32 个部分和，写进 shared 的 32 个 float，sync 一次，再由第一个 warp 用 shuffle 把这 32 个值归约成 1 个：
+v4 还留着一棵 shared memory 树（1024 → 64 的 4 级各 sync 一次，再读 shared 完成 64 → 32）。反过来想：先让**每个 warp**用 shuffle 把自己的 32 个值归约成 1 个，32 个 warp 得到 32 个部分和，写进 shared 的 32 个 float，sync 一次，再由第一个 warp 用 shuffle 把这 32 个值归约成 1 个：
 
 ```cpp title="v6：warp_reduce_sum 两级 shuffle"
 // v6: two-level warp shuffle — 1 (or 2) __syncthreads() for the whole block
@@ -457,13 +412,14 @@ flowchart TB
 
 `__shfl_xor_sync` 的蝶形交换，以 8 个 lane 为例（实际 32 个 lane 5 步）：
 
-```text title="__shfl_xor_sync 的蝶形交换（8 个 lane）"
-lane      0    1    2    3    4    5    6    7
-初值      a    b    c    d    e    f    g    h
-off=4     a+e  b+f  c+g  d+h  e+a  f+b  g+c  h+d      每个 lane 与 lane^4 交换并相加
-off=2     (a+e)+(c+g) …  每个 lane 与 lane^2 交换
-off=1     全部 8 个 lane 都得到 a+b+…+h                与 lane^1 交换
-```
+| 步骤 | lane 0 | lane 1 | lane 2 | lane 3 | lane 4 | lane 5 | lane 6 | lane 7 | 交换关系 |
+|---|---|---|---|---|---|---|---|---|---|
+| 初值 | a | b | c | d | e | f | g | h | — |
+| off=4 | a+e | b+f | c+g | d+h | e+a | f+b | g+c | h+d | 每个 lane 与 lane^4 交换并相加 |
+| off=2 | (a+e)+(c+g) | … | … | … | … | … | … | … | 每个 lane 与 lane^2 交换 |
+| off=1 | a+b+…+h | a+b+…+h | a+b+…+h | a+b+…+h | a+b+…+h | a+b+…+h | a+b+…+h | a+b+…+h | 与 lane^1 交换 |
+
+Table: `__shfl_xor_sync` 的蝶形交换（8 个 lane）
 
 这里用 `__shfl_xor_sync` 而不是 `__shfl_down_sync`：XOR 版本做的是蝶形交换，5 轮之后**所有 32 个 lane** 都持有总和，而不只是 lane 0。这在需要把结果广播给整个 warp 时省掉一次额外的 shuffle。
 
@@ -474,10 +430,10 @@ off=1     全部 8 个 lane 都得到 a+b+…+h                与 lane^1 交换
 | 版本 | 寻址方式 | sync 次数 | shared 读写 | 主要消除的问题 |
 |---|---|---|---|---|
 | v1 | 交错 + 取模 | 10 | 10 级树 | — |
-| v2 | 顺序 | 10 | 10 级树 | 发散、取模、bank conflict |
-| v3 | v2 + 加载时先加 | 9 | 9 级树 | 一半 block、一级 shared |
-| v4 | v2 树到 32 + shfl | 5 | 5 级树 | 最后 5 级 sync 与 shared |
-| v5 | grid-stride + v4 | 5 | 5 级树（摊薄） | 每 block 固定开销 |
+| v2 | 顺序 | 10 | 10 级树 | 发散、取模（Harris 的改写版另有 bank conflict） |
+| v3 | v2 + 加载时先加 | 10 | 10 级树 | 一半 block、装载时预加 |
+| v4 | v2 树到 32 + shfl | 4 | 4 级树 + s=32 读 shared | 最后 6 次循环 sync、5 级 shared 树 |
+| v5 | grid-stride + v4 | 4 | 4 级树 + s=32 读 shared（摊薄） | 每 block 固定开销 |
 | v6 | warp shfl × 2 | 1 (或 2) | 32 float | 几乎全部 shared 流量与 sync |
 
 Table: 六版对比
@@ -536,20 +492,12 @@ RMSNorm、softmax、LayerNorm 都是**按行归约**：输入是 $$[R, d]$$，�
 
 **一行一个 block**（block-per-row）：block 内 $$T$$ 个线程分担 $$d$$ 个元素，每线程 $$d / T$$ 个，用第四章的 `block_reduce_sum` 汇总。grid 大小 = 行数 $$R$$。需要 shared memory（32 个 float）和至少一次 `__syncthreads()`。
 
-**一行一个 warp**（warp-per-row）：一个 warp 的 32 个 lane 分担一行，每 lane $$d / 32$$ 个元素放在寄存器里，用 5 步 shuffle 汇总。一个 block 装若干个 warp（比如 4 或 8），grid 大小 = $$R / \text{warps\_per\_block}$$。不需要 shared memory，不需要 `__syncthreads()`。
+**一行一个 warp**（warp-per-row）：一个 warp 的 32 个 lane 分担一行，每 lane $$d / 32$$ 个元素放在寄存器里，用 5 步 shuffle 汇总。一个 block 装若干个 warp（比如 4 或 8），grid 大小 = $$\lceil R / \text{warps\_per\_block} \rceil$$。不需要 shared memory，不需要 `__syncthreads()`。
 
-```text title="block-per-row 与 warp-per-row 的线程分配"
-输入 [R, d]                block-per-row                          warp-per-row
-                    ┌──────────────────────────┐          ┌──────────────────────────┐
-行 0  ───────────►  │ block 0：T 个线程分担 d 个 │          │ block 0 ─ warp 0 ──► 行 0  │
-行 1  ───────────►  │ block 1                  │          │         ─ warp 1 ──► 行 1  │
-行 2  ───────────►  │ block 2                  │          │         ─ warp 2 ──► 行 2  │
-行 3  ───────────►  │ block 3                  │          │         ─ warp 3 ──► 行 3  │
-  ⋮                 │  ⋮                       │          │ block 1 ─ warp 0 ──► 行 4  │
-                    └──────────────────────────┘          └──────────────────────────┘
-grid = R 个 block                                          grid = R / warps_per_block
-每线程 d/T 个元素，block_reduce（shared + sync）              每 lane d/32 个元素在寄存器里，5 步 shuffle，零 shared、零 sync
-```
+![block-per-row 与 warp-per-row 的线程分配](/img/in-post/shared-memory-reduction-and-softmax-row-mapping.svg)
+
+- block-per-row：grid = R 个 block。每线程 d/T 个元素，用 `block_reduce`（shared + sync）。
+- warp-per-row：grid = ⌈R / warps_per_block⌉。每 lane d/32 个元素在寄存器里，5 步 shuffle，零 shared、零 sync。
 
 选哪个由 $$d$$ 决定：
 
@@ -557,7 +505,7 @@ grid = R 个 block                                          grid = R / warps_per
 - $$1024 < d \le 4096$$：warp-per-row 还能做，但每 lane 要 128 个寄存器持有数据，加上其他寄存器很可能超过 255 的上限或把 occupancy 压到很低；block-per-row 更稳。
 - $$d > 4096$$：一个 block（256–1024 线程）处理一行，每线程 $$d / T$$ 个元素；如果 $$d$$ 大到寄存器也放不下（词表 logits），要么把行暂存进 shared memory（PyTorch 的 `cunn_SoftMaxForwardSmem`），要么接受第二遍重读 global（有 L2 兜底）。
 
-grid 大小则由行数决定：$$R = \text{batch} \times \text{seq}$$。prefill 时 $$R$$ 是几千到几万，足以填满 108 个 SM；decode 时 $$R = \text{batch}$$，可能只有几十行——这时 block-per-row 只有几十个 block，GPU 大部分 SM 空闲，kernel 是 latency-bound 的，vLLM 的 `rms_norm` 在 `num_tokens < 256` 时把 block 放大到 1024 线程就是为了在行少时让每行的加载并行度更高。
+grid 大小则由行数决定：$$R = \text{batch} \times \text{seq}$$；warp-per-row 时向上取整，不足一个 block 的行留给部分 warp 处理。prefill 时 $$R$$ 是几千到几万，足以填满 108 个 SM；decode 时 $$R = \text{batch}$$，可能只有几十行——这时 block-per-row 只有几十个 block，GPU 大部分 SM 空闲，kernel 是 latency-bound 的，vLLM 的 `rms_norm` 在 `num_tokens < 256` 时把 block 放大到 1024 线程就是为了在行少时让每行的加载并行度更高。
 
 一个补充：**warp-per-row 时行的边界处理更简单**。行是按 warp 分配的，`row >= R` 的判断对整个 warp 一致，可以直接 `return`，不会破坏后面的 shuffle（shuffle 的 mask 是整 warp）。block-per-row 时 block 内不会有"越界行"，越界的是元素，用"贡献 0"处理。
 
@@ -1139,30 +1087,30 @@ BF16 的默认容差 rtol = 1.6e-2 对应约 4 个 BF16 ulp（BF16 存 7 位尾�
 - **LayerNorm/RMSNorm**：均方与方差在 FP32 累加；LayerNorm 用 Welford 避免 $$E[x^2] - E[x]^2$$ 的相消；fused residual + RMSNorm 把读 3 写 2 变成读 2 写 2。
 - **源码**：vLLM `rms_norm_kernel` 是 block-per-row + `cub::BlockReduce` + 16 字节向量化；PyTorch `SoftMax.cu` 按 d ≤ 2048 分派 warp softmax（零 shared）与 block softmax（`BlockReduceSum` 两级 shuffle）；`Reduce.cuh` 加上 global semaphore 构成三级归约。
 
-```text title="本篇汇总：reduction 六版对比"
-reduction 六版对比（1024 线程 block）
-版本  寻址              sync   shared 流量     消除的问题
-v1    交错 + 取模        10     10 级树         —
-v2    顺序               10     10 级树         发散 · 取模 · bank conflict
-v3    加载时先加         9      9 级树          一半 block · 一级 shared
-v4    树到 32 + shfl     5      5 级树          最后 5 级 sync
-v5    grid-stride        5      摊薄            每 block 固定开销
-v6    shfl + 32 float    1–2    128 字节        几乎全部
+1024 线程 block 的 reduction 六版对比。sync 只计归约循环（或 v6 的跨 warp 汇总），不计初次装载后的同步：
 
-bank conflict 速查
-bank(addr) = (addr / 4) mod 32；warp 内 stride s 个字 → gcd(s, 32)-way 冲突
-stride 1 / 奇数 → 无冲突；stride 2 → 2-way；stride 32 → 32-way；同地址 → 广播
-修复：行宽 +1（padding）或 col ^ (row & 31)（swizzle）
+| 版本 | 寻址 | sync | shared 流量 | 消除的问题 |
+|---|---|---:|---|---|
+| v1 | 交错 + 取模 | 10 | 10 级树 | — |
+| v2 | 顺序 | 10 | 10 级树 | 发散 · 取模 |
+| v3 | 加载时先加 | 10 | 10 级树 | 一半 block · 装载时预加 |
+| v4 | 树到 32 + shfl | 4 | 4 级树 + s=32 读 shared | 最后 6 次循环 sync · 5 级 shared 树 |
+| v5 | grid-stride + v4 | 4 | 4 级树 + s=32 读 shared（摊薄） | 每 block 固定开销 |
+| v6 | shfl + 32 float | 1–2 | 128 字节 | 几乎全部 shared 流量与 sync |
 
-online softmax
-单步：m' = max(m, x)；l' = l·e^(m − m') + e^(x − m')
-合并：m = max(ma, mb)；l = la·e^(ma − m) + lb·e^(mb − m)
-safe softmax 阈值：FP16 e^x 溢出于 x > 11.09；BF16/FP32 于 x > 88.7
+Table: 本篇汇总：reduction 六版对比
 
-理论下界（A100，2.0 TB/s）
-RMSNorm / softmax，8192 行 × 4096 BF16：128 MiB → ≈ 67 µs
-常见可达：RMSNorm 80–90% 带宽；warp softmax d ≤ 2048 时 80–90%
-```
+- **bank conflict 速查**
+  - `bank(addr) = (addr / 4) mod 32`；warp 内 stride s 个字 → gcd(s, 32)-way 冲突。
+  - stride 1 / 奇数 → 无冲突；stride 2 → 2-way；stride 32 → 32-way；同地址 → 广播。
+  - 修复：行宽 +1（padding）或 `col ^ (row & 31)`（swizzle）。
+- **online softmax**
+  - 单步：`m' = max(m, x)`；`l' = l·e^(m − m') + e^(x − m')`。
+  - 合并：`m = max(ma, mb)`；`l = la·e^(ma − m) + lb·e^(mb − m)`。
+  - safe softmax 阈值：FP16 $$e^x$$ 溢出于 $$x > 11.09$$；BF16/FP32 于 $$x > 88.7$$。
+- **理论下界（A100，2.0 TB/s）**
+  - RMSNorm / softmax，8192 行 × 4096 BF16：128 MiB → ≈ 67 µs。
+  - 常见可达：RMSNorm 80–90% 带宽；warp softmax d ≤ 2048 时 80–90%。
 
 reduction 是"先算一个整行的标量，再作用回每个元素"。下一篇的 GEMM 是另一种协作：每个输出元素需要一整行和一整列，shared memory 的角色从"汇总 32 个部分和"变成"暂存被 128 个线程重复读取的 tile"，bank conflict 和 padding/swizzle 会从本篇的一段话变成决定性能的主角。
 
