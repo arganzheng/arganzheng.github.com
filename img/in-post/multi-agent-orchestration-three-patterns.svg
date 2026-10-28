@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="750" height="279" viewBox="0 0 750 279" role="img" aria-labelledby="title desc">
-<title id="title">三种多 agent 模式</title><desc id="desc">三个并排的小图。orchestrator-workers：主 agent 分出 worker A、B、C 三路，结果汇到主综合；主 agent 分解、派发、综合。handoff：agent A 把控制权移交给 agent B，或者移交给 agent C；控制权在 agent 间流动。层级：主 agent 委派给三个子 agent，第一个子 agent 再委派给两个子子 agent；树状委派，每层综合下一层。</desc>
+<title id="title">三种多 agent 模式</title><desc id="desc">三个并排的小图。orchestrator-workers：主 agent 分出 worker A、B、C 三路，结果汇到主综合；主 agent 分解、派发、综合。handoff：agent A 把控制权移交给 agent B，或者直接移交给 agent C，B 也可以再交给 C；控制权在 agent 间流动。层级：主 agent 委派给三个子 agent，第一个子 agent 再委派给两个子子 agent；树状委派，每层综合下一层。</desc>
 <style>text{font-family:"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB",sans-serif;font-size:13px;font-weight:600;fill:#111}
 .title{font-size:17px;font-weight:700}.ptitle{font-size:15px;font-weight:700}.cap{font-size:13px;fill:#333}
 .mono{font-family:"Noto Sans Mono CJK SC",ui-monospace,monospace;font-size:12px}
@@ -26,6 +26,7 @@
 <rect x="74.0" y="177.0" width="75" height="30" fill="#fff0d6" class="box"/><text x="81.0" y="196.5">worker C</text>
 <path d="M331.5,112.0 H395.5" class="arrow"/>
 <path d="M299.0,127.0 V192.0 H395.5" class="arrow"/>
+<path d="M428.0,127.0 V177.0" class="arrow"/>
 <text x="307.0" y="161.0" text-anchor="start">（控制权移交）</text>
 <rect x="266.5" y="97.0" width="65" height="30" fill="#e4edfa" class="box"/><text x="273.5" y="116.5">agent A</text>
 <rect x="395.5" y="97.0" width="65" height="30" fill="#fff0d6" class="box"/><text x="402.5" y="116.5">agent B</text>

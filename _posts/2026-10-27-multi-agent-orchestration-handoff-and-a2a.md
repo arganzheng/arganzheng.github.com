@@ -43,6 +43,7 @@ flowchart TB
     subgraph HD["handoff：控制权移交"]
         direction TB
         A1["agent A：接待"] -- "这事该 B 做" --> B1["agent B：退款"] -- "要人工" --> C1["人 / agent C"]
+        A1 -- "这事该 C 做" --> C1
     end
     subgraph HI["层级：经理管小组"]
         direction TB
@@ -53,7 +54,7 @@ flowchart TB
 
 ```
 
-上面这张带着具体角色（接待、退款、经理、组长），handoff 画成一条链：A 交给 B，B 再交给人或 agent C。下面这张只画形状：handoff 里 A 按情况交给 B 或者 C，层级里每一层都要综合下一层的结果。
+上面这张带着具体角色（接待、退款、经理、组长）。下面这张只画形状，层级多画了一层，并标出每一层都要综合下一层的结果。
 
 ![三种多 agent 模式：orchestrator-workers、handoff、层级](/img/in-post/multi-agent-orchestration-three-patterns.svg)
 
