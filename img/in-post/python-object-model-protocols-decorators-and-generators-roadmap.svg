@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 264.0" width="760" height="264.0" role="img" aria-labelledby="t d">
+  <title id="t">本篇主线：类语句 → 类对象 → 实例 → 属性查找，装饰器与生成器改写路径</title>
+  <desc id="d">上一行是对象这条线：类语句经 type 得到类对象，类对象经 __call__ 得到实例，实例经属性查找与描述符得到方法、property。整行由第二章「类与对象模型」讲，__call__ 这一步的指针标着第三章「对象协议：__call__、迭代、__getitem__ …」。第二章往下接下一行：第四章装饰器改写调用路径 → 第五章生成器暂停帧 → 第六章上下文管理器管资源 → 第七章完整追踪。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2d3d; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .bold12 { font-size: 12px; font-weight: 700; }
+      .small { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .mono13 { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .c-obj { fill: #e8f0fd; stroke: #3a7bd5; stroke-width: 1.4; }
+      .c-ch { fill: #fff0c2; stroke: #b08a1e; stroke-width: 1.4; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .pointer { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .tick { fill: #40566f; }
+      .bracket { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+<rect x="40" y="40" width="72" height="36" class="c-obj"/>
+<text x="76.0" y="63" class="bold" text-anchor="middle">类语句</text>
+<line x1="112" y1="58.0" x2="192" y2="58.0" class="arrow"/>
+<text x="152.0" y="50.0" class="small" text-anchor="middle"><tspan class="mono">type</tspan></text>
+<rect x="192" y="40" width="72" height="36" class="c-obj"/>
+<text x="228.0" y="63" class="bold" text-anchor="middle">类对象</text>
+<line x1="264" y1="58.0" x2="394" y2="58.0" class="arrow"/>
+<text x="329.0" y="50.0" class="small" text-anchor="middle"><tspan class="mono">__call__</tspan></text>
+<rect x="394" y="40" width="56" height="36" class="c-obj"/>
+<text x="422.0" y="63" class="bold" text-anchor="middle">实例</text>
+<line x1="450" y1="58.0" x2="574" y2="58.0" class="arrow"/>
+<text x="512.0" y="50.0" class="small" text-anchor="middle">属性查找 / 描述符</text>
+<rect x="574" y="40" width="132" height="36" class="c-obj"/>
+<text x="640.0" y="63" class="bold" text-anchor="middle">方法、<tspan class="mono13">property</tspan></text>
+<path d="M329.0,62.0 l-5,9 h10 z" class="tick"/>
+<line x1="329.0" y1="71.0" x2="329.0" y2="88.0" class="pointer"/>
+<text x="329.0" y="104.0" class="bold12" text-anchor="middle">第三章　对象协议</text>
+<text x="329.0" y="121.0" class="small" text-anchor="middle"><tspan class="mono">__call__</tspan>、迭代、<tspan class="mono">__getitem__</tspan> …</text>
+<path d="M40,142.0 v8 H706 v-8" class="bracket"/>
+<text x="90" y="168.0" class="bold12" text-anchor="start">第二章　类与对象模型</text>
+<line x1="76" y1="150.0" x2="76" y2="194.0" class="arrow"/>
+<rect x="40" y="194.0" width="145" height="50" class="c-ch"/>
+<text x="112.5" y="214.0" class="small" text-anchor="middle">第四章</text>
+<text x="112.5" y="233.0" class="bold" text-anchor="middle">装饰器改写调用路径</text>
+<line x1="185" y1="219.0" x2="248.33333333333334" y2="219.0" class="arrow"/>
+<rect x="248.33333333333334" y="194.0" width="106" height="50" class="c-ch"/>
+<text x="301.33333333333337" y="214.0" class="small" text-anchor="middle">第五章</text>
+<text x="301.33333333333337" y="233.0" class="bold" text-anchor="middle">生成器暂停帧</text>
+<line x1="354.33333333333337" y1="219.0" x2="417.6666666666667" y2="219.0" class="arrow"/>
+<rect x="417.6666666666667" y="194.0" width="145" height="50" class="c-ch"/>
+<text x="490.1666666666667" y="214.0" class="small" text-anchor="middle">第六章</text>
+<text x="490.1666666666667" y="233.0" class="bold" text-anchor="middle">上下文管理器管资源</text>
+<line x1="562.6666666666667" y1="219.0" x2="626.0000000000001" y2="219.0" class="arrow"/>
+<rect x="626.0" y="194.0" width="80" height="50" class="c-ch"/>
+<text x="666.0" y="214.0" class="small" text-anchor="middle">第七章</text>
+<text x="666.0" y="233.0" class="bold" text-anchor="middle">完整追踪</text>
+</svg>

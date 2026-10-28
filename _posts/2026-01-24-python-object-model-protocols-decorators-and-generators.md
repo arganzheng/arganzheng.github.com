@@ -17,7 +17,7 @@ updated: 2026-09-21
 - **@register("cuda")**：装饰器在模块导入时执行，注册表能否填上取决于谁导入了它
 - **self.linear = nn.Linear(4, 4)**：__setattr__ 拦截赋值，把子模块登记到 _modules
 
-这五行分别在第三、三 / 五、六、四、二章展开，第四章会把上下两篇的机制串在一起，逐步追踪开头那个 `Runner` 从导入到异常的完整生命周期。
+这五行分别在第三、三 / 五、六、四、二章展开，第七章会把上下两篇的机制串在一起，逐步追踪开头那个 `Runner` 从导入到异常的完整生命周期。
 
 本篇只回答一个问题：
 
@@ -75,14 +75,9 @@ class Runner:
 
 上篇解释了它被 `import` 时发生了什么（第 1 步）以及异常怎么传播（第 5 步）；本篇解释中间三步：`Runner(model)` 创建实例，`runner(batch)` 触发 `__call__` 并进入 `with`，`runner.stream(batch)` 创建生成器。
 
-```text title='本篇主线：类语句 → 类对象 → 实例 → 属性查找，装饰器与生成器改写路径'
-类语句 ──type──► 类对象 ──__call__──► 实例 ──属性查找/描述符──► 方法、property
-  ▲ [上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) 类与对象模型      ▲ [上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) 对象协议：__call__、迭代、__getitem__ ...
-  │
-装饰器改写调用路径（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载)）→ 生成器暂停帧（第二章）→ 上下文管理器管资源（第三章）→ 完整追踪（第四章）
-```
+![本篇主线：类语句 → 类对象 → 实例 → 属性查找，装饰器与生成器改写路径](/img/in-post/python-object-model-protocols-decorators-and-generators-roadmap.svg)
 
-各章之间的依赖是单向的：[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)的方法绑定、`property` 依赖描述符协议，所以描述符放在[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)内部讲，而不是拖到对象协议之后；[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载)装饰器同时依赖闭包（上篇[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)）和描述符（本篇[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)），因此排在两者之后；第二章生成器建立在上篇[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)的帧之上；第三章 `contextlib` 的实现又建立在第二章的生成器之上。
+各章之间的依赖是单向的：第二章的方法绑定、`property` 依赖描述符协议，所以描述符放在第二章内部讲，而不是拖到对象协议之后；第四章装饰器同时依赖闭包（[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)）和描述符（本篇第二章），因此排在两者之后；第五章生成器建立在[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)的帧之上；第六章 `contextlib` 的实现又建立在第五章的生成器之上。
 
 ### 2. 本文的章节安排
 
@@ -531,7 +526,7 @@ Table: 继承与组合的选择规则
 
 ## 三、对象协议：语法背后的特殊方法
 
-第二章解释了 `obj.attr`。但 `runner(batch)`、`for x in loader`、`batch[0]`、`if tensor:`、`with ctx:` 这些**不是**属性访问的语法，Python 也是交给对象自己决定的——通过一组以双下划线命名的特殊方法。这一章讨论其中最常见的几个；`with` 和 `yield` 分别留给第八、九章。
+第二章解释了 `obj.attr`。但 `runner(batch)`、`for x in loader`、`batch[0]`、`if tensor:`、`with ctx:` 这些**不是**属性访问的语法，Python 也是交给对象自己决定的——通过一组以双下划线命名的特殊方法。这一章讨论其中最常见的几个；`with` 和 `yield` 分别留给第六、五章。
 
 ### 1. 语法到特殊方法的映射，且在类型上查找
 
@@ -740,10 +735,13 @@ def retry(max_attempts, exceptions=(TimeoutError,)):
     return decorator
 ```
 
-```text title='retry 的三层：配置层、装饰层、运行层'
-retry(max_attempts)  →  decorator(func)  →  wrapper(*args, **kwargs)
-   配置层                 装饰层                运行层
-```
+| 层 | 函数 | 返回 |
+|---|---|---|
+| 配置层 | `retry(max_attempts)` | `decorator` |
+| 装饰层 | `decorator(func)` | `wrapper` |
+| 运行层 | `wrapper(*args, **kwargs)` | `func` 的结果 |
+
+Table: retry 的三层：配置层、装饰层、运行层
 
 `max_attempts` 和 `exceptions` 经由两层闭包到达 `wrapper`。重试装饰器应只捕获明确可重试的异常，让其余异常原样传播——`except Exception` 会把断言失败、类型错误和 CUDA OOM 一起重试。
 
@@ -1135,13 +1133,13 @@ class Runner:
 
 | 阶段 | 机制 | 章节 |
 | :--- | :--- | :--- |
-| 导入 | finder/loader、`sys.modules`、顶层代码执行、装饰器注册 | 四、七 |
-| 创建 | `type.__call__`、`__new__`/`__init__`、`__setattr__` | 五 |
-| 调用 | `__call__` 槽位、方法绑定、属性查找、`with` | 五、六、九 |
-| 流式 | 生成器帧挂起、`yield from`、迭代协议 | 六、八 |
-| 异常 | 沿帧传播、`__exit__` 参与、异常链与重抛 | 九、十 |
+| 导入 | finder/loader、`sys.modules`、顶层代码执行、装饰器注册 | 上篇四、四 |
+| 创建 | `type.__call__`、`__new__`/`__init__`、`__setattr__` | 二 |
+| 调用 | `__call__` 槽位、方法绑定、属性查找、`with` | 二、三、六 |
+| 流式 | 生成器帧挂起、`yield from`、迭代协议 | 三、五 |
+| 异常 | 沿帧传播、`__exit__` 参与、异常链与重抛 | 六、上篇五 |
 
-Table: 五个异常阶段对应的机制
+Table: 五个阶段对应的机制
 
 ### 6. 从追踪到工程建议
 
@@ -1160,18 +1158,15 @@ Table: 五个异常阶段对应的机制
 
 本篇讲的五种机制，都围绕**对象**：
 
-```text title='本篇五种机制围绕对象的小结'
-类与对象模型   类由 type 创建；obj.attr 是一个固定算法：数据描述符 → 实例字典 → 非数据描述符 → __getattr__
-              方法、classmethod、staticmethod、property 都只是描述符的 __get__ 返回值不同
-    │
-对象协议      语法交给类型上的特殊方法；特殊方法跳过实例字典
-    │
-装饰器        定义时执行一次的函数调用；靠闭包记参数，靠描述符协议对方法透明
-    │
-生成器        帧被挂起而非销毁；资源随生成器存活；break 不等于 close
-    │
-上下文管理器   __enter__/__exit__ 绑定到代码块；@contextmanager 把异常 throw 进 yield
-```
+| 机制 | 要点 |
+|---|---|
+| <span style="white-space:nowrap">类与对象模型</span> | 类由 `type` 创建；`obj.attr` 是一个固定算法：数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`<br/>方法、`classmethod`、`staticmethod`、`property` 都只是描述符的 `__get__` 返回值不同 |
+| 对象协议 | 语法交给类型上的特殊方法；特殊方法跳过实例字典 |
+| 装饰器 | 定义时执行一次的函数调用；靠闭包记参数，靠描述符协议对方法透明 |
+| 生成器 | 帧被挂起而非销毁；资源随生成器存活；`break` 不等于 `close` |
+| <span style="white-space:nowrap">上下文管理器</span> | `__enter__` / `__exit__` 绑定到代码块；`@contextmanager` 把异常 `throw` 进 `yield` |
+
+Table: 本篇五种机制围绕对象的小结
 
 回到开头那五行代码，现在每一行都有了答案：
 
