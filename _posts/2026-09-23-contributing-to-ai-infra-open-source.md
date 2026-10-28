@@ -103,13 +103,16 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 3. 第三篇：做出一个能被合入的改动 —— diff、测试、benchmark、PR、CI、review
 4. 第四篇：两个真实 PR 的完整走读 —— PyTorch 一个，vLLM 一个
 
-三条交织的线索：
+三条交织的线索，按篇排开：
 
-```text title="三条交织的线索"
-方法线：有目标的阅读 → 有依据的选题 → 可验证的改动 → 完整流程的复盘
-工具线：ripgrep/clangd/git log → gh CLI/标签/项目看板 → lintrunner/pre-commit/CI 配置 → PR 页面与 CI 日志
-项目线：PyTorch 与 vLLM 各自的目录、文档、标签、CI、review 规则，逐篇对照
-```
+| 篇 | 方法线 | 工具线 | 项目线 |
+|---|---|---|---|
+| <span style="white-space:nowrap">第一篇</span> | <span style="white-space:nowrap">有目标的阅读</span> | ripgrep / clangd / git log | PyTorch 与 vLLM 各自的目录、文档、标签、CI、review 规则，逐篇对照 |
+| <span style="white-space:nowrap">第二篇</span> | <span style="white-space:nowrap">有依据的选题</span> | gh CLI / 标签 / 项目看板 | ^^ |
+| <span style="white-space:nowrap">第三篇</span> | <span style="white-space:nowrap">可验证的改动</span> | lintrunner / pre-commit / CI 配置 | ^^ |
+| <span style="white-space:nowrap">第四篇</span> | <span style="white-space:nowrap">完整流程的复盘</span> | PR 页面与 CI 日志 | ^^ |
+
+Table: 三条交织的线索
 
 前三篇每篇都同时用 PyTorch 和 vLLM 做例子，把两个项目在同一环节的做法并排放在一起；第四篇把三篇讲的东西在两个真实 PR 上串起来。每一篇都有同样的四段结构：
 
