@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 524" width="660" height="524" role="img" aria-labelledby="t d">
+  <title id="t">传统工具调用与程序化工具调用的对照</title>
+  <desc id="d">上半部分“传统”：模型调工具 A，结果 A 进上下文；模型再调工具 B，结果 B 进上下文；模型调工具 C，结果 C 进上下文，之后模型给答案。上下文一栏依次累积结果 A、B、C。下半部分“PTC”：模型写程序 { a = A(); b = B(filter(a)); return top10(b) }，程序在沙箱里运行，A、B 在程序内被调用，结果留在程序里；只有 top10 进上下文，然后模型给答案。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .model { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .tool { fill: #fff7e0; stroke: #c98a00; stroke-width: 1.2; }
+      .prog { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .sandbox { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .ctxh { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .ctx { fill: #fdecea; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #c5d0dc; stroke-width: 1; stroke-dasharray: 4 4; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="660" height="524" fill="#fff"/>
+  <text class="head" x="20" y="26" text-anchor="start">传统</text>
+  <rect class="ctxh" x="380" y="40" width="120" height="28"/>
+  <text class="bold" x="440.0" y="59" text-anchor="middle">上下文</text>
+  <rect class="ctx" x="380" y="68" width="120" height="48"/>
+  <text class="body" x="440.0" y="97" text-anchor="middle">结果 A</text>
+  <rect class="model" x="20" y="75.0" width="80" height="34"/>
+  <text class="body" x="60.0" y="97" text-anchor="middle">模型</text>
+  <rect class="tool" x="185" y="75.0" width="110" height="34"/>
+  <text class="body" x="240.0" y="97" text-anchor="middle">工具 A</text>
+  <line class="arrow" x1="100" y1="92" x2="185" y2="92"/>
+  <line class="arrow" x1="295" y1="92" x2="380" y2="92"/>
+  <rect class="ctx" x="380" y="116" width="120" height="48"/>
+  <text class="body" x="440.0" y="145" text-anchor="middle">结果 B</text>
+  <rect class="model" x="20" y="123.0" width="80" height="34"/>
+  <text class="body" x="60.0" y="145" text-anchor="middle">模型</text>
+  <rect class="tool" x="185" y="123.0" width="110" height="34"/>
+  <text class="body" x="240.0" y="145" text-anchor="middle">工具 B</text>
+  <line class="arrow" x1="100" y1="140" x2="185" y2="140"/>
+  <line class="arrow" x1="295" y1="140" x2="380" y2="140"/>
+  <rect class="ctx" x="380" y="164" width="120" height="48"/>
+  <text class="body" x="440.0" y="193" text-anchor="middle">结果 C</text>
+  <rect class="model" x="20" y="171.0" width="80" height="34"/>
+  <text class="body" x="60.0" y="193" text-anchor="middle">模型</text>
+  <rect class="tool" x="185" y="171.0" width="110" height="34"/>
+  <text class="body" x="240.0" y="193" text-anchor="middle">工具 C</text>
+  <line class="arrow" x1="100" y1="188" x2="185" y2="188"/>
+  <line class="arrow" x1="295" y1="188" x2="380" y2="188"/>
+  <rect class="model" x="540" y="171.0" width="100" height="34"/>
+  <text class="body" x="590.0" y="193" text-anchor="middle">模型给答案</text>
+  <line class="arrow" x1="500" y1="188" x2="540" y2="188"/>
+  <line class="sep" x1="20" y1="232" x2="640" y2="232"/>
+  <text class="head" x="20" y="262" text-anchor="start">PTC</text>
+  <rect class="prog" x="140" y="280" width="200" height="82"/>
+  <text class="bold" x="152" y="300" text-anchor="start">写程序</text>
+  <text class="mono" x="152" y="321" text-anchor="start">{ a = A();</text>
+  <text class="mono" x="152" y="337" text-anchor="start">&#160;&#160;b = B(filter(a));</text>
+  <text class="mono" x="152" y="353" text-anchor="start">&#160;&#160;return top10(b) }</text>
+  <rect class="model" x="20" y="304.0" width="80" height="34"/>
+  <text class="body" x="60.0" y="326.0" text-anchor="middle">模型</text>
+  <line class="arrow" x1="100" y1="321.0" x2="140" y2="321.0"/>
+  <line class="arrow" x1="240.0" y1="362" x2="240.0" y2="392"/>
+  <rect class="sandbox" x="140" y="392" width="200" height="112"/>
+  <text class="bold" x="152" y="412" text-anchor="start">沙箱运行</text>
+  <rect class="tool" x="153.33333333333334" y="424" width="80" height="30"/>
+  <text class="body" x="193.33333333333334" y="444" text-anchor="middle">工具 A</text>
+  <rect class="tool" x="246.66666666666669" y="424" width="80" height="30"/>
+  <text class="body" x="286.6666666666667" y="444" text-anchor="middle">工具 B</text>
+  <text class="small" x="152" y="476" text-anchor="start">A、B 在程序内被调用，</text>
+  <text class="small" x="152" y="493" text-anchor="start">结果留在程序里</text>
+  <rect class="ctxh" x="380" y="396.0" width="120" height="28"/>
+  <text class="bold" x="440.0" y="415.0" text-anchor="middle">上下文</text>
+  <rect class="ctx" x="380" y="424.0" width="120" height="48"/>
+  <text class="body" x="440.0" y="453.0" text-anchor="middle">只有 top10</text>
+  <line class="arrow" x1="340" y1="448.0" x2="380" y2="448.0"/>
+  <rect class="model" x="540" y="431.0" width="100" height="34"/>
+  <text class="body" x="590.0" y="453.0" text-anchor="middle">模型给答案</text>
+  <line class="arrow" x1="500" y1="448.0" x2="540" y2="448.0"/>
+</svg>
