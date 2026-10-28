@@ -355,17 +355,14 @@ print(RawUser.__annotations__)
 
 ### 4. dataclass vs Pydantic 选择指南
 
-```text
-外部数据（HTTP/JSON/配置文件）
-    └─ 需要解析和校验 ──→ Pydantic BaseModel
+| 数据 | 需求 | 选用 |
+|---|---|---|
+| 外部数据（HTTP/JSON/配置文件） | 需要解析和校验 | Pydantic `BaseModel` |
+| 内部数据传递 | 需要不可变 | `@dataclass(frozen=True)` / `NamedTuple` |
+| ^^ | 需要可变状态 | `@dataclass` |
+| 字典形状标注 | 只约束类型检查，不改变运行时 | `TypedDict` |
 
-内部数据传递
-    └─ 需要不可变 ──→ @dataclass(frozen=True) / NamedTuple
-    └─ 需要可变状态 ──→ @dataclass
-
-字典形状标注
-    └─ 只约束类型检查，不改变运行时 ──→ TypedDict
-```
+Table: 按数据来源和需求选数据模型
 
 **边界用 Pydantic 校验一次，内部传递 dataclass 对象。**
 
