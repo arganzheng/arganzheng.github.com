@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 348" width="700" height="348" role="img" aria-labelledby="t d">
+  <title id="t">sglang serve 的进程结构</title>
+  <desc id="d">HTTP server 主进程经 ZMQ 把 Req 发给 rank 0 的 worker 进程，rank 0 的 Scheduler 合批后用 broadcast_pyobj 在 SP / CFG / TP 组内把请求广播给 rank 1 到 N−1 的 worker 进程；每个 worker 进程里都有一个 Scheduler 和一个持有 ComposedPipelineBase 的 GPUWorker；结果 OutputBatch 由 rank 0 经 ZMQ 回给 HTTP 进程。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; }
+      .ttl { font-size: 14px; font-weight: 700; }
+      .ttl2 { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .cmd { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .lbl { font-size: 12px; fill: #333; }
+      .note { font-size: 12px; fill: #444; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="20" y="28" class="cmd">sglang serve --model-path black-forest-labs/FLUX.1-dev --port 30010</text>
+  <rect x="20" y="50" width="262" height="112" fill="#f3f5f8" stroke="#7d8a99" stroke-width="1.3"/>
+  <text x="34" y="76" class="ttl">HTTP server 进程（主进程）</text>
+  <text x="34" y="102" class="mono">http_server.py：FastAPI</text>
+  <text x="34" y="122" class="mono">openai/image_api.py：/generations</text>
+  <text x="34" y="142" class="mono">Req → AsyncSchedulerClient</text>
+  <rect x="400" y="50" width="262" height="112" fill="#eef6ff" stroke="#5b8fd6" stroke-width="1.3"/>
+  <text x="414" y="76" class="ttl">worker 进程 rank 0</text>
+  <text x="414" y="102" class="mono">Scheduler：ZMQ ROUTER 收请求</text>
+  <text x="414" y="122" class="mono">BatchAdmissionController：合批</text>
+  <text x="414" y="142" class="mono">GPUWorker：ComposedPipelineBase</text>
+  <rect x="408" y="240" width="262" height="92" fill="#eef6ff" stroke="#5b8fd6" stroke-width="1.3"/>
+  <rect x="404" y="236" width="262" height="92" fill="#eef6ff" stroke="#5b8fd6" stroke-width="1.3"/>
+  <rect x="400" y="232" width="262" height="92" fill="#eef6ff" stroke="#5b8fd6" stroke-width="1.3"/>
+  <text x="414" y="258" class="ttl">worker 进程 rank 1 … N−1</text>
+  <text x="414" y="284" class="mono">Scheduler：不收 ZMQ</text>
+  <text x="414" y="304" class="mono">GPUWorker：ComposedPipelineBase</text>
+  <line x1="282" y1="88" x2="400" y2="88" class="ln" marker-end="url(#ar)"/>
+  <text x="341.0" y="80" class="lbl" text-anchor="middle">ZMQ：Req</text>
+  <line x1="400" y1="132" x2="282" y2="132" class="ln" marker-end="url(#ar)"/>
+  <text x="341.0" y="150" class="lbl" text-anchor="middle">ZMQ：OutputBatch</text>
+  <line x1="531.0" y1="162" x2="531.0" y2="232" class="ln" marker-end="url(#ar)"/>
+  <text x="541.0" y="192" class="mono">broadcast_pyobj</text>
+  <text x="541.0" y="210" class="lbl">SP / CFG / TP 组内</text>
+  <text x="20" y="196" class="note">N = --num-gpus，每张卡一个 worker 进程</text>
+  <text x="20" y="214" class="note">（launch_server → run_scheduler_process）</text>
+</svg>
