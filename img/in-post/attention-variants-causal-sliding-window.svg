@@ -1,0 +1,436 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 386" width="760" height="386" role="img" aria-labelledby="t d">
+  <title id="t">因果掩码与 sliding window 在 score 矩阵上的形状</title>
+  <desc id="d">左：因果掩码，s = 12，块大小 4，位置 t 只计算 j ≤ t；按 4 × 4 分块后，上三角 3 块整块跳过，对角 3 块半算，下三角 3 块全算，约 s²/2。右：sliding window，w = 4，位置 t 只计算 t − 3 ≤ j ≤ t，每行最多 w 个，O(s·w)，cache 只需保留最近 w 个 token。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .skip { fill: #e6e9ee; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #c3ccd6; stroke-width: 1; fill: none; }
+      .blk { stroke: #40566f; stroke-width: 2; fill: none; }
+      .dot { fill: #8a97a6; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="386" fill="#fff"/>
+  <text class="bb" x="196.0" y="24" text-anchor="middle">因果掩码（s = 12，块大小 4）</text>
+  <text class="s" x="196.0" y="46" text-anchor="middle">行 t = query 位置，列 j = 0 … 11 = key 位置</text>
+  <text class="ms" x="56" y="68" text-anchor="end">t↓</text>
+  <text class="ms" x="75.0" y="68" text-anchor="middle">0</text>
+  <text class="ms" x="97.0" y="68" text-anchor="middle">1</text>
+  <text class="ms" x="119.0" y="68" text-anchor="middle">2</text>
+  <text class="ms" x="141.0" y="68" text-anchor="middle">3</text>
+  <text class="ms" x="163.0" y="68" text-anchor="middle">4</text>
+  <text class="ms" x="185.0" y="68" text-anchor="middle">5</text>
+  <text class="ms" x="207.0" y="68" text-anchor="middle">6</text>
+  <text class="ms" x="229.0" y="68" text-anchor="middle">7</text>
+  <text class="ms" x="251.0" y="68" text-anchor="middle">8</text>
+  <text class="ms" x="273.0" y="68" text-anchor="middle">9</text>
+  <text class="ms" x="295.0" y="68" text-anchor="middle">10</text>
+  <text class="ms" x="317.0" y="68" text-anchor="middle">11</text>
+  <rect class="skip" x="152" y="76" width="88" height="88"/>
+  <rect class="skip" x="240" y="76" width="88" height="88"/>
+  <rect class="skip" x="240" y="164" width="88" height="88"/>
+  <text class="ms" x="56" y="91" text-anchor="end">0</text>
+  <rect class="dblue" x="66" y="78" width="18" height="18"/>
+  <circle class="dot" cx="97.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="119.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="141.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="163.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="185.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="207.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="229.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="87.0" r="1.8"/>
+  <text class="ms" x="56" y="113" text-anchor="end">1</text>
+  <rect class="dblue" x="66" y="100" width="18" height="18"/>
+  <rect class="dblue" x="88" y="100" width="18" height="18"/>
+  <circle class="dot" cx="119.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="141.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="163.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="185.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="207.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="229.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="109.0" r="1.8"/>
+  <text class="ms" x="56" y="135" text-anchor="end">2</text>
+  <rect class="dblue" x="66" y="122" width="18" height="18"/>
+  <rect class="dblue" x="88" y="122" width="18" height="18"/>
+  <rect class="dblue" x="110" y="122" width="18" height="18"/>
+  <circle class="dot" cx="141.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="163.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="185.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="207.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="229.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="131.0" r="1.8"/>
+  <text class="ms" x="56" y="157" text-anchor="end">3</text>
+  <rect class="dblue" x="66" y="144" width="18" height="18"/>
+  <rect class="dblue" x="88" y="144" width="18" height="18"/>
+  <rect class="dblue" x="110" y="144" width="18" height="18"/>
+  <rect class="dblue" x="132" y="144" width="18" height="18"/>
+  <circle class="dot" cx="163.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="185.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="207.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="229.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="153.0" r="1.8"/>
+  <text class="ms" x="56" y="179" text-anchor="end">4</text>
+  <rect class="dblue" x="66" y="166" width="18" height="18"/>
+  <rect class="dblue" x="88" y="166" width="18" height="18"/>
+  <rect class="dblue" x="110" y="166" width="18" height="18"/>
+  <rect class="dblue" x="132" y="166" width="18" height="18"/>
+  <rect class="dblue" x="154" y="166" width="18" height="18"/>
+  <circle class="dot" cx="185.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="207.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="229.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="175.0" r="1.8"/>
+  <text class="ms" x="56" y="201" text-anchor="end">5</text>
+  <rect class="dblue" x="66" y="188" width="18" height="18"/>
+  <rect class="dblue" x="88" y="188" width="18" height="18"/>
+  <rect class="dblue" x="110" y="188" width="18" height="18"/>
+  <rect class="dblue" x="132" y="188" width="18" height="18"/>
+  <rect class="dblue" x="154" y="188" width="18" height="18"/>
+  <rect class="dblue" x="176" y="188" width="18" height="18"/>
+  <circle class="dot" cx="207.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="229.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="197.0" r="1.8"/>
+  <text class="ms" x="56" y="223" text-anchor="end">6</text>
+  <rect class="dblue" x="66" y="210" width="18" height="18"/>
+  <rect class="dblue" x="88" y="210" width="18" height="18"/>
+  <rect class="dblue" x="110" y="210" width="18" height="18"/>
+  <rect class="dblue" x="132" y="210" width="18" height="18"/>
+  <rect class="dblue" x="154" y="210" width="18" height="18"/>
+  <rect class="dblue" x="176" y="210" width="18" height="18"/>
+  <rect class="dblue" x="198" y="210" width="18" height="18"/>
+  <circle class="dot" cx="229.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="251.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="219.0" r="1.8"/>
+  <text class="ms" x="56" y="245" text-anchor="end">7</text>
+  <rect class="dblue" x="66" y="232" width="18" height="18"/>
+  <rect class="dblue" x="88" y="232" width="18" height="18"/>
+  <rect class="dblue" x="110" y="232" width="18" height="18"/>
+  <rect class="dblue" x="132" y="232" width="18" height="18"/>
+  <rect class="dblue" x="154" y="232" width="18" height="18"/>
+  <rect class="dblue" x="176" y="232" width="18" height="18"/>
+  <rect class="dblue" x="198" y="232" width="18" height="18"/>
+  <rect class="dblue" x="220" y="232" width="18" height="18"/>
+  <circle class="dot" cx="251.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="273.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="241.0" r="1.8"/>
+  <text class="ms" x="56" y="267" text-anchor="end">8</text>
+  <rect class="dblue" x="66" y="254" width="18" height="18"/>
+  <rect class="dblue" x="88" y="254" width="18" height="18"/>
+  <rect class="dblue" x="110" y="254" width="18" height="18"/>
+  <rect class="dblue" x="132" y="254" width="18" height="18"/>
+  <rect class="dblue" x="154" y="254" width="18" height="18"/>
+  <rect class="dblue" x="176" y="254" width="18" height="18"/>
+  <rect class="dblue" x="198" y="254" width="18" height="18"/>
+  <rect class="dblue" x="220" y="254" width="18" height="18"/>
+  <rect class="dblue" x="242" y="254" width="18" height="18"/>
+  <circle class="dot" cx="273.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="295.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="263.0" r="1.8"/>
+  <text class="ms" x="56" y="289" text-anchor="end">9</text>
+  <rect class="dblue" x="66" y="276" width="18" height="18"/>
+  <rect class="dblue" x="88" y="276" width="18" height="18"/>
+  <rect class="dblue" x="110" y="276" width="18" height="18"/>
+  <rect class="dblue" x="132" y="276" width="18" height="18"/>
+  <rect class="dblue" x="154" y="276" width="18" height="18"/>
+  <rect class="dblue" x="176" y="276" width="18" height="18"/>
+  <rect class="dblue" x="198" y="276" width="18" height="18"/>
+  <rect class="dblue" x="220" y="276" width="18" height="18"/>
+  <rect class="dblue" x="242" y="276" width="18" height="18"/>
+  <rect class="dblue" x="264" y="276" width="18" height="18"/>
+  <circle class="dot" cx="295.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="317.0" cy="285.0" r="1.8"/>
+  <text class="ms" x="56" y="311" text-anchor="end">10</text>
+  <rect class="dblue" x="66" y="298" width="18" height="18"/>
+  <rect class="dblue" x="88" y="298" width="18" height="18"/>
+  <rect class="dblue" x="110" y="298" width="18" height="18"/>
+  <rect class="dblue" x="132" y="298" width="18" height="18"/>
+  <rect class="dblue" x="154" y="298" width="18" height="18"/>
+  <rect class="dblue" x="176" y="298" width="18" height="18"/>
+  <rect class="dblue" x="198" y="298" width="18" height="18"/>
+  <rect class="dblue" x="220" y="298" width="18" height="18"/>
+  <rect class="dblue" x="242" y="298" width="18" height="18"/>
+  <rect class="dblue" x="264" y="298" width="18" height="18"/>
+  <rect class="dblue" x="286" y="298" width="18" height="18"/>
+  <circle class="dot" cx="317.0" cy="307.0" r="1.8"/>
+  <text class="ms" x="56" y="333" text-anchor="end">11</text>
+  <rect class="dblue" x="66" y="320" width="18" height="18"/>
+  <rect class="dblue" x="88" y="320" width="18" height="18"/>
+  <rect class="dblue" x="110" y="320" width="18" height="18"/>
+  <rect class="dblue" x="132" y="320" width="18" height="18"/>
+  <rect class="dblue" x="154" y="320" width="18" height="18"/>
+  <rect class="dblue" x="176" y="320" width="18" height="18"/>
+  <rect class="dblue" x="198" y="320" width="18" height="18"/>
+  <rect class="dblue" x="220" y="320" width="18" height="18"/>
+  <rect class="dblue" x="242" y="320" width="18" height="18"/>
+  <rect class="dblue" x="264" y="320" width="18" height="18"/>
+  <rect class="dblue" x="286" y="320" width="18" height="18"/>
+  <rect class="dblue" x="308" y="320" width="18" height="18"/>
+  <line class="thin" x1="64" y1="76" x2="64" y2="340"/>
+  <line class="thin" x1="64" y1="76" x2="328" y2="76"/>
+  <line class="thin" x1="86" y1="76" x2="86" y2="340"/>
+  <line class="thin" x1="64" y1="98" x2="328" y2="98"/>
+  <line class="thin" x1="108" y1="76" x2="108" y2="340"/>
+  <line class="thin" x1="64" y1="120" x2="328" y2="120"/>
+  <line class="thin" x1="130" y1="76" x2="130" y2="340"/>
+  <line class="thin" x1="64" y1="142" x2="328" y2="142"/>
+  <line class="thin" x1="152" y1="76" x2="152" y2="340"/>
+  <line class="thin" x1="64" y1="164" x2="328" y2="164"/>
+  <line class="thin" x1="174" y1="76" x2="174" y2="340"/>
+  <line class="thin" x1="64" y1="186" x2="328" y2="186"/>
+  <line class="thin" x1="196" y1="76" x2="196" y2="340"/>
+  <line class="thin" x1="64" y1="208" x2="328" y2="208"/>
+  <line class="thin" x1="218" y1="76" x2="218" y2="340"/>
+  <line class="thin" x1="64" y1="230" x2="328" y2="230"/>
+  <line class="thin" x1="240" y1="76" x2="240" y2="340"/>
+  <line class="thin" x1="64" y1="252" x2="328" y2="252"/>
+  <line class="thin" x1="262" y1="76" x2="262" y2="340"/>
+  <line class="thin" x1="64" y1="274" x2="328" y2="274"/>
+  <line class="thin" x1="284" y1="76" x2="284" y2="340"/>
+  <line class="thin" x1="64" y1="296" x2="328" y2="296"/>
+  <line class="thin" x1="306" y1="76" x2="306" y2="340"/>
+  <line class="thin" x1="64" y1="318" x2="328" y2="318"/>
+  <line class="thin" x1="328" y1="76" x2="328" y2="340"/>
+  <line class="thin" x1="64" y1="340" x2="328" y2="340"/>
+  <line class="blk" x1="152" y1="76" x2="152" y2="340"/>
+  <line class="blk" x1="64" y1="164" x2="328" y2="164"/>
+  <line class="blk" x1="240" y1="76" x2="240" y2="340"/>
+  <line class="blk" x1="64" y1="252" x2="328" y2="252"/>
+  <rect x="64" y="76" width="264" height="264" fill="none" stroke="#40566f" stroke-width="1.4"/>
+  <text class="bb" x="588.0" y="24" text-anchor="middle">sliding window（w = 4）</text>
+  <text class="s" x="588.0" y="46" text-anchor="middle">行 t = query 位置，列 j = 0 … 11 = key 位置</text>
+  <text class="ms" x="448" y="68" text-anchor="end">t↓</text>
+  <text class="ms" x="467.0" y="68" text-anchor="middle">0</text>
+  <text class="ms" x="489.0" y="68" text-anchor="middle">1</text>
+  <text class="ms" x="511.0" y="68" text-anchor="middle">2</text>
+  <text class="ms" x="533.0" y="68" text-anchor="middle">3</text>
+  <text class="ms" x="555.0" y="68" text-anchor="middle">4</text>
+  <text class="ms" x="577.0" y="68" text-anchor="middle">5</text>
+  <text class="ms" x="599.0" y="68" text-anchor="middle">6</text>
+  <text class="ms" x="621.0" y="68" text-anchor="middle">7</text>
+  <text class="ms" x="643.0" y="68" text-anchor="middle">8</text>
+  <text class="ms" x="665.0" y="68" text-anchor="middle">9</text>
+  <text class="ms" x="687.0" y="68" text-anchor="middle">10</text>
+  <text class="ms" x="709.0" y="68" text-anchor="middle">11</text>
+  <text class="ms" x="448" y="91" text-anchor="end">0</text>
+  <rect class="dblue" x="458" y="78" width="18" height="18"/>
+  <circle class="dot" cx="489.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="87.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="87.0" r="1.8"/>
+  <text class="ms" x="448" y="113" text-anchor="end">1</text>
+  <rect class="dblue" x="458" y="100" width="18" height="18"/>
+  <rect class="dblue" x="480" y="100" width="18" height="18"/>
+  <circle class="dot" cx="511.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="109.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="109.0" r="1.8"/>
+  <text class="ms" x="448" y="135" text-anchor="end">2</text>
+  <rect class="dblue" x="458" y="122" width="18" height="18"/>
+  <rect class="dblue" x="480" y="122" width="18" height="18"/>
+  <rect class="dblue" x="502" y="122" width="18" height="18"/>
+  <circle class="dot" cx="533.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="131.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="131.0" r="1.8"/>
+  <text class="ms" x="448" y="157" text-anchor="end">3</text>
+  <rect class="dblue" x="458" y="144" width="18" height="18"/>
+  <rect class="dblue" x="480" y="144" width="18" height="18"/>
+  <rect class="dblue" x="502" y="144" width="18" height="18"/>
+  <rect class="dblue" x="524" y="144" width="18" height="18"/>
+  <circle class="dot" cx="555.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="153.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="153.0" r="1.8"/>
+  <text class="ms" x="448" y="179" text-anchor="end">4</text>
+  <circle class="dot" cx="467.0" cy="175.0" r="1.8"/>
+  <rect class="dblue" x="480" y="166" width="18" height="18"/>
+  <rect class="dblue" x="502" y="166" width="18" height="18"/>
+  <rect class="dblue" x="524" y="166" width="18" height="18"/>
+  <rect class="dblue" x="546" y="166" width="18" height="18"/>
+  <circle class="dot" cx="577.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="175.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="175.0" r="1.8"/>
+  <text class="ms" x="448" y="201" text-anchor="end">5</text>
+  <circle class="dot" cx="467.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="197.0" r="1.8"/>
+  <rect class="dblue" x="502" y="188" width="18" height="18"/>
+  <rect class="dblue" x="524" y="188" width="18" height="18"/>
+  <rect class="dblue" x="546" y="188" width="18" height="18"/>
+  <rect class="dblue" x="568" y="188" width="18" height="18"/>
+  <circle class="dot" cx="599.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="197.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="197.0" r="1.8"/>
+  <text class="ms" x="448" y="223" text-anchor="end">6</text>
+  <circle class="dot" cx="467.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="219.0" r="1.8"/>
+  <rect class="dblue" x="524" y="210" width="18" height="18"/>
+  <rect class="dblue" x="546" y="210" width="18" height="18"/>
+  <rect class="dblue" x="568" y="210" width="18" height="18"/>
+  <rect class="dblue" x="590" y="210" width="18" height="18"/>
+  <circle class="dot" cx="621.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="643.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="219.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="219.0" r="1.8"/>
+  <text class="ms" x="448" y="245" text-anchor="end">7</text>
+  <circle class="dot" cx="467.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="241.0" r="1.8"/>
+  <rect class="dblue" x="546" y="232" width="18" height="18"/>
+  <rect class="dblue" x="568" y="232" width="18" height="18"/>
+  <rect class="dblue" x="590" y="232" width="18" height="18"/>
+  <rect class="dblue" x="612" y="232" width="18" height="18"/>
+  <circle class="dot" cx="643.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="665.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="241.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="241.0" r="1.8"/>
+  <text class="ms" x="448" y="267" text-anchor="end">8</text>
+  <circle class="dot" cx="467.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="263.0" r="1.8"/>
+  <rect class="dblue" x="568" y="254" width="18" height="18"/>
+  <rect class="dblue" x="590" y="254" width="18" height="18"/>
+  <rect class="dblue" x="612" y="254" width="18" height="18"/>
+  <rect class="dblue" x="634" y="254" width="18" height="18"/>
+  <circle class="dot" cx="665.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="687.0" cy="263.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="263.0" r="1.8"/>
+  <text class="ms" x="448" y="289" text-anchor="end">9</text>
+  <circle class="dot" cx="467.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="285.0" r="1.8"/>
+  <rect class="dblue" x="590" y="276" width="18" height="18"/>
+  <rect class="dblue" x="612" y="276" width="18" height="18"/>
+  <rect class="dblue" x="634" y="276" width="18" height="18"/>
+  <rect class="dblue" x="656" y="276" width="18" height="18"/>
+  <circle class="dot" cx="687.0" cy="285.0" r="1.8"/>
+  <circle class="dot" cx="709.0" cy="285.0" r="1.8"/>
+  <text class="ms" x="448" y="311" text-anchor="end">10</text>
+  <circle class="dot" cx="467.0" cy="307.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="307.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="307.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="307.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="307.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="307.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="307.0" r="1.8"/>
+  <rect class="dblue" x="612" y="298" width="18" height="18"/>
+  <rect class="dblue" x="634" y="298" width="18" height="18"/>
+  <rect class="dblue" x="656" y="298" width="18" height="18"/>
+  <rect class="dblue" x="678" y="298" width="18" height="18"/>
+  <circle class="dot" cx="709.0" cy="307.0" r="1.8"/>
+  <text class="ms" x="448" y="333" text-anchor="end">11</text>
+  <circle class="dot" cx="467.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="489.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="511.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="533.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="555.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="577.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="599.0" cy="329.0" r="1.8"/>
+  <circle class="dot" cx="621.0" cy="329.0" r="1.8"/>
+  <rect class="dblue" x="634" y="320" width="18" height="18"/>
+  <rect class="dblue" x="656" y="320" width="18" height="18"/>
+  <rect class="dblue" x="678" y="320" width="18" height="18"/>
+  <rect class="dblue" x="700" y="320" width="18" height="18"/>
+  <line class="thin" x1="456" y1="76" x2="456" y2="340"/>
+  <line class="thin" x1="456" y1="76" x2="720" y2="76"/>
+  <line class="thin" x1="478" y1="76" x2="478" y2="340"/>
+  <line class="thin" x1="456" y1="98" x2="720" y2="98"/>
+  <line class="thin" x1="500" y1="76" x2="500" y2="340"/>
+  <line class="thin" x1="456" y1="120" x2="720" y2="120"/>
+  <line class="thin" x1="522" y1="76" x2="522" y2="340"/>
+  <line class="thin" x1="456" y1="142" x2="720" y2="142"/>
+  <line class="thin" x1="544" y1="76" x2="544" y2="340"/>
+  <line class="thin" x1="456" y1="164" x2="720" y2="164"/>
+  <line class="thin" x1="566" y1="76" x2="566" y2="340"/>
+  <line class="thin" x1="456" y1="186" x2="720" y2="186"/>
+  <line class="thin" x1="588" y1="76" x2="588" y2="340"/>
+  <line class="thin" x1="456" y1="208" x2="720" y2="208"/>
+  <line class="thin" x1="610" y1="76" x2="610" y2="340"/>
+  <line class="thin" x1="456" y1="230" x2="720" y2="230"/>
+  <line class="thin" x1="632" y1="76" x2="632" y2="340"/>
+  <line class="thin" x1="456" y1="252" x2="720" y2="252"/>
+  <line class="thin" x1="654" y1="76" x2="654" y2="340"/>
+  <line class="thin" x1="456" y1="274" x2="720" y2="274"/>
+  <line class="thin" x1="676" y1="76" x2="676" y2="340"/>
+  <line class="thin" x1="456" y1="296" x2="720" y2="296"/>
+  <line class="thin" x1="698" y1="76" x2="698" y2="340"/>
+  <line class="thin" x1="456" y1="318" x2="720" y2="318"/>
+  <line class="thin" x1="720" y1="76" x2="720" y2="340"/>
+  <line class="thin" x1="456" y1="340" x2="720" y2="340"/>
+  <rect x="456" y="76" width="264" height="264" fill="none" stroke="#40566f" stroke-width="1.4"/>
+  <rect class="dblue" x="64" y="357" width="16" height="16"/>
+  <text class="s" x="88" y="370">计算</text>
+  <circle class="dot" cx="152" cy="365" r="1.8"/>
+  <text class="s" x="164" y="370">掩掉（不算）</text>
+  <rect class="skip" x="270" y="357" width="16" height="16"/>
+  <text class="s" x="294" y="370">整块跳过的块（粗线为 4 × 4 块边界）</text>
+</svg>

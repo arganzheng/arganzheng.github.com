@@ -62,16 +62,17 @@ $$
 
 自回归生成第 $$t$$ 个 token 时，它的 query 要与前面全部 $$t$$ 个位置的 key 做点积，再对 $$t$$ 个 value 加权求和。这 $$t$$ 个位置的 $$K$$、$$V$$ 在生成第 $$t-1$$ 个 token 时已经算过一遍，而且**数值完全不变**（causal 模型里，前面的 token 看不到后面的 token）。把 decode 的前几步排开看，cache 每步只追加一行，但每步都要被整份读一遍：
 
-```text title="decode 前几步的 KV cache 追加与读取"
-步    本步新算     KV cache（每层，只追加、不修改）        读取    score 行
-t=1   q1 k1 v1     [k1 v1]                                1 行    q1·k1
-t=2   q2 k2 v2     [k1 v1][k2 v2]                         2 行    q2·[k1 k2]
-t=3   q3 k3 v3     [k1 v1][k2 v2][k3 v3]                  3 行    q3·[k1 k2 k3]
-t=4   q4 k4 v4     [k1 v1][k2 v2][k3 v3][k4 v4]           4 行    q4·[k1 … k4]
- ⋮                  ↑ 算过一次就不再变化（causal）         O(t)
+| 步 | 本步新算 | KV cache（每层，只追加、不修改） | 读取 | score 行 |
+|---|---|---|---|---|
+| t=1 | `q1 k1 v1` | `[k1 v1]` | 1 行 | `q1·k1` |
+| t=2 | `q2 k2 v2` | `[k1 v1][k2 v2]` | 2 行 | `q2·[k1 k2]` |
+| t=3 | `q3 k3 v3` | `[k1 v1][k2 v2][k3 v3]` | 3 行 | `q3·[k1 k2 k3]` |
+| t=4 | `q4 k4 v4` | `[k1 v1][k2 v2][k3 v3][k4 v4]` | 4 行 | `q4·[k1 … k4]` |
+| ⋮ |  | 算过一次就不再变化（causal） | O(t) |  |
 
-不缓存的 t=4：x1..x4 全部重算 → q、k、v 各 4 行，score 4×4，单步 O(t²)
-```
+Table: decode 前几步的 KV cache 追加与读取
+
+不缓存的话，t=4 这一步要把 x1..x4 全部重算：q、k、v 各 4 行，score 4×4，单步 O(t²)。
 
 如果不缓存，生成第 $$t$$ 个 token 时就得把前 $$t$$ 个 token 重新做一次完整前向：
 
@@ -142,24 +143,7 @@ Grouped-Query Attention（Ainslie 等 2023）取中间值：把 $$n_h$$ 个 quer
 
 $$g = 1$$ 是 MHA，$$g = n_h$$ 是 MQA。四种结构的差别，就是 query head 到 KV head 的映射方式不同（以 $$n_h = 8$$ 为例；MLA 放在第四章展开，这里先看它在这张图里的位置）：
 
-```text title="MHA / GQA / MQA / MLA 的 query 到 KV head 映射"
-                 q0   q1   q2   q3   q4   q5   q6   q7     每层每 token 缓存
-MHA  (n_kv=8)    │    │    │    │    │    │    │    │
-                 kv0  kv1  kv2  kv3  kv4  kv5  kv6  kv7    8 × 2 × d_head
-
-GQA  (n_kv=2)    │    │    │    │    │    │    │    │
-  g = 4          └────┴─┬──┴────┘    └────┴─┬──┴────┘
-                       kv0                 kv1         2 × 2 × d_head
-
-MQA  (n_kv=1)    │    │    │    │    │    │    │    │
-                 └────┴────┴────┴──┬─┴────┴────┴────┘
-                                  kv0                  1 × 2 × d_head
-
-MLA              │    │    │    │    │    │    │    │
-                 W_UK,h / W_UV,h：每个 head 各自的升维矩阵（是权重，不缓存）
-                 └────┴────┴────┴──┬─┴────┴────┴────┘
-                       c^KV (d_c) + k^R (d_h^R)        d_c + d_h^R
-```
+![MHA / GQA / MQA / MLA 的 query 到 KV head 映射](/img/in-post/attention-variants-q-to-kv-mapping.svg)
 
 Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇（第一篇）算出的每层 attention 41.94M，已经包含了这一节省。
 
@@ -227,20 +211,7 @@ $$n_{kv}$$ 还悄悄决定了另一件事：tensor parallel 的切分粒度。at
 
 TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了，只能**复制**：两张卡持有同一个 KV 头的副本，各算 4 个 query head：
 
-```text title="Llama-3-70B 在 TP=8 与 TP=16 下的 KV head 分配"
-Llama-3-70B：n_h = 64，n_kv = 8，320 KiB/token
-
-TP = 8    卡0        卡1        卡2        …   卡7
-query     q0..q7     q8..q15    q16..q23       q56..q63
-KV head   kv0        kv1        kv2            kv7
-          每卡 40 KiB/token，8 卡合计 320 KiB（恰好均分）
-
-TP = 16   卡0     卡1     卡2     卡3     …   卡14    卡15
-query     q0..3   q4..7   q8..11  q12..15     q56..59 q60..63
-KV head   kv0     kv0     kv1     kv1         kv7     kv7
-          └──复制───┘     └──复制───┘             └──复制───┘
-          每卡仍 40 KiB/token，16 卡合计 640 KiB（TP/n_kv = 2 倍）
-```
+![Llama-3-70B 在 TP=8 与 TP=16 下的 KV head 分配](/img/in-post/attention-variants-tp-kv-heads.svg)
 
 此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（每卡处理不同的请求），这个选择直接来自本节的算术。
 
@@ -547,32 +518,14 @@ $$
 
 两种 mask 在 score 矩阵上的形状，以及分块实现能跳过哪些块：
 
-```text title="因果掩码与 sliding window 在 score 矩阵上的形状"
-因果掩码（s = 12，块大小 4）          sliding window（w = 4）
-t↓  j = 0 … 11 →                      t↓  j = 0 … 11 →
-0    ■ · · · │ · · · · │ · · · ·      0    ■ · · · · · · · · · · ·
-1    ■ ■ · · │ · · · · │ · · · ·      1    ■ ■ · · · · · · · · · ·
-2    ■ ■ ■ · │ · · · · │ · · · ·      2    ■ ■ ■ · · · · · · · · ·
-3    ■ ■ ■ ■ │ · · · · │ · · · ·      3    ■ ■ ■ ■ · · · · · · · ·
-     ────────┼─────────┼─────────
-4    ■ ■ ■ ■ │ ■ · · · │ · · · ·      4    · ■ ■ ■ ■ · · · · · · ·
-5    ■ ■ ■ ■ │ ■ ■ · · │ · · · ·      5    · · ■ ■ ■ ■ · · · · · ·
-6    ■ ■ ■ ■ │ ■ ■ ■ · │ · · · ·      6    · · · ■ ■ ■ ■ · · · · ·
-7    ■ ■ ■ ■ │ ■ ■ ■ ■ │ · · · ·      7    · · · · ■ ■ ■ ■ · · · ·
-     ────────┼─────────┼─────────
-8    ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ · · ·      8    · · · · · ■ ■ ■ ■ · · ·
-9    ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ ■ · ·      9    · · · · · · ■ ■ ■ ■ · ·
-10   ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ ■ ■ ·      10   · · · · · · · ■ ■ ■ ■ ·
-11   ■ ■ ■ ■ │ ■ ■ ■ ■ │ ■ ■ ■ ■      11   · · · · · · · · ■ ■ ■ ■
+![因果掩码与 sliding window 在 score 矩阵上的形状](/img/in-post/attention-variants-causal-sliding-window.svg)
 
-■ 计算   · 掩掉（不算）
-因果：上三角 3 块整块跳过、对角 3 块半算、下三角 3 块全算 → ≈ s²/2
-sliding window：每行最多 w 个 ■ → O(s·w)，cache 只需保留最近 w 个 token
-```
+- 因果：上三角 3 块整块跳过、对角 3 块半算、下三角 3 块全算，合计约 $$s^2/2$$；
+- sliding window：每行最多 $$w$$ 个要算，$$O(s \cdot w)$$，cache 只需保留最近 $$w$$ 个 token。
 
 第二篇的 prefill 数字会用到这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
 
-上图的滑窗掩码把每行的可见位置限制到最近 $$w$$ 个；要真正减少 FLOPs，kernel 必须跳过窗口外的块，而不只是填负无穷。窗口截断的质量代价、缓存驱逐、全局 / 局部交错和 attention sink 统一放在[《现代 LLM 结构（04）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。
+上图的滑窗掩码把每行的可见位置限制到最近 $$w$$ 个；要真正减少 FLOPs，kernel 必须跳过窗口外的块，而不只是填负无穷。窗口截断的质量代价、缓存驱逐、全局 / 局部交错和 attention sink 统一放在[《现代 LLM 结构（05）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。
 
 ## 六、KV cache 的工程变量
 

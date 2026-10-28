@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 570" width="760" height="570" role="img" aria-labelledby="t d">
+  <title id="t">MHA / GQA / MQA / MLA 的 query 到 KV head 映射（n_h = 8）</title>
+  <desc id="d">以 8 个 query head 为例。MHA：q0 到 q7 各自对应 kv0 到 kv7，每层每 token 缓存 8 × 2 × d_head。GQA（n_kv = 2，g = 4）：q0–q3 共享 kv0，q4–q7 共享 kv1，缓存 2 × 2 × d_head。MQA（n_kv = 1）：8 个 query head 共享 kv0，缓存 1 × 2 × d_head。MLA：每个 head 经自己的升维矩阵 W_UK,h / W_UV,h（权重，不缓存）连到同一个 c^KV（d_c 维），再加所有 head 共用的 k^R（d_h^R 维），缓存 d_c + d_h^R。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .skip { fill: #e6e9ee; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #c3ccd6; stroke-width: 1; fill: none; }
+      .blk { stroke: #40566f; stroke-width: 2; fill: none; }
+      .dot { fill: #8a97a6; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="570" fill="#fff"/>
+  <text class="bb" x="610" y="26">每层每 token 缓存</text>
+  <rect class="blue" x="178" y="44" width="42" height="24"/>
+  <text class="m" x="199.0" y="61" text-anchor="middle">q0</text>
+  <rect class="blue" x="232" y="44" width="42" height="24"/>
+  <text class="m" x="253.0" y="61" text-anchor="middle">q1</text>
+  <rect class="blue" x="286" y="44" width="42" height="24"/>
+  <text class="m" x="307.0" y="61" text-anchor="middle">q2</text>
+  <rect class="blue" x="340" y="44" width="42" height="24"/>
+  <text class="m" x="361.0" y="61" text-anchor="middle">q3</text>
+  <rect class="blue" x="394" y="44" width="42" height="24"/>
+  <text class="m" x="415.0" y="61" text-anchor="middle">q4</text>
+  <rect class="blue" x="448" y="44" width="42" height="24"/>
+  <text class="m" x="469.0" y="61" text-anchor="middle">q5</text>
+  <rect class="blue" x="502" y="44" width="42" height="24"/>
+  <text class="m" x="523.0" y="61" text-anchor="middle">q6</text>
+  <rect class="blue" x="556" y="44" width="42" height="24"/>
+  <text class="m" x="577.0" y="61" text-anchor="middle">q7</text>
+  <line class="ln" x1="199.0" y1="68" x2="199.0" y2="98"/>
+  <rect class="orange" x="178" y="98" width="42" height="26"/>
+  <text class="m" x="199.0" y="116" text-anchor="middle">kv0</text>
+  <line class="ln" x1="253.0" y1="68" x2="253.0" y2="98"/>
+  <rect class="orange" x="232" y="98" width="42" height="26"/>
+  <text class="m" x="253.0" y="116" text-anchor="middle">kv1</text>
+  <line class="ln" x1="307.0" y1="68" x2="307.0" y2="98"/>
+  <rect class="orange" x="286" y="98" width="42" height="26"/>
+  <text class="m" x="307.0" y="116" text-anchor="middle">kv2</text>
+  <line class="ln" x1="361.0" y1="68" x2="361.0" y2="98"/>
+  <rect class="orange" x="340" y="98" width="42" height="26"/>
+  <text class="m" x="361.0" y="116" text-anchor="middle">kv3</text>
+  <line class="ln" x1="415.0" y1="68" x2="415.0" y2="98"/>
+  <rect class="orange" x="394" y="98" width="42" height="26"/>
+  <text class="m" x="415.0" y="116" text-anchor="middle">kv4</text>
+  <line class="ln" x1="469.0" y1="68" x2="469.0" y2="98"/>
+  <rect class="orange" x="448" y="98" width="42" height="26"/>
+  <text class="m" x="469.0" y="116" text-anchor="middle">kv5</text>
+  <line class="ln" x1="523.0" y1="68" x2="523.0" y2="98"/>
+  <rect class="orange" x="502" y="98" width="42" height="26"/>
+  <text class="m" x="523.0" y="116" text-anchor="middle">kv6</text>
+  <line class="ln" x1="577.0" y1="68" x2="577.0" y2="98"/>
+  <rect class="orange" x="556" y="98" width="42" height="26"/>
+  <text class="m" x="577.0" y="116" text-anchor="middle">kv7</text>
+  <text class="b" x="20" y="89.0">MHA（n<tspan dy="4" font-size="75%">kv</tspan><tspan dy="-4">=8）</tspan></text>
+  <text class="b" x="610" y="116">8 × 2 × d<tspan dy="4" font-size="75%">head</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="178" y="154" width="42" height="24"/>
+  <text class="m" x="199.0" y="171" text-anchor="middle">q0</text>
+  <rect class="blue" x="232" y="154" width="42" height="24"/>
+  <text class="m" x="253.0" y="171" text-anchor="middle">q1</text>
+  <rect class="blue" x="286" y="154" width="42" height="24"/>
+  <text class="m" x="307.0" y="171" text-anchor="middle">q2</text>
+  <rect class="blue" x="340" y="154" width="42" height="24"/>
+  <text class="m" x="361.0" y="171" text-anchor="middle">q3</text>
+  <rect class="blue" x="394" y="154" width="42" height="24"/>
+  <text class="m" x="415.0" y="171" text-anchor="middle">q4</text>
+  <rect class="blue" x="448" y="154" width="42" height="24"/>
+  <text class="m" x="469.0" y="171" text-anchor="middle">q5</text>
+  <rect class="blue" x="502" y="154" width="42" height="24"/>
+  <text class="m" x="523.0" y="171" text-anchor="middle">q6</text>
+  <rect class="blue" x="556" y="154" width="42" height="24"/>
+  <text class="m" x="577.0" y="171" text-anchor="middle">q7</text>
+  <line class="ln" x1="199.0" y1="178" x2="199.0" y2="196"/>
+  <line class="ln" x1="253.0" y1="178" x2="253.0" y2="196"/>
+  <line class="ln" x1="307.0" y1="178" x2="307.0" y2="196"/>
+  <line class="ln" x1="361.0" y1="178" x2="361.0" y2="196"/>
+  <line class="ln" x1="199.0" y1="196" x2="361.0" y2="196"/>
+  <line class="ln" x1="280.0" y1="196" x2="280.0" y2="214"/>
+  <rect class="orange" x="253.0" y="214" width="54" height="26"/>
+  <text class="m" x="280.0" y="232" text-anchor="middle">kv0</text>
+  <line class="ln" x1="415.0" y1="178" x2="415.0" y2="196"/>
+  <line class="ln" x1="469.0" y1="178" x2="469.0" y2="196"/>
+  <line class="ln" x1="523.0" y1="178" x2="523.0" y2="196"/>
+  <line class="ln" x1="577.0" y1="178" x2="577.0" y2="196"/>
+  <line class="ln" x1="415.0" y1="196" x2="577.0" y2="196"/>
+  <line class="ln" x1="496.0" y1="196" x2="496.0" y2="214"/>
+  <rect class="orange" x="469.0" y="214" width="54" height="26"/>
+  <text class="m" x="496.0" y="232" text-anchor="middle">kv1</text>
+  <text class="b" x="20" y="194.0">GQA（n<tspan dy="4" font-size="75%">kv</tspan><tspan dy="-4">=2）</tspan></text>
+  <text class="b" x="20" y="214.0">g = 4</text>
+  <text class="b" x="610" y="232">2 × 2 × d<tspan dy="4" font-size="75%">head</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="178" y="270" width="42" height="24"/>
+  <text class="m" x="199.0" y="287" text-anchor="middle">q0</text>
+  <rect class="blue" x="232" y="270" width="42" height="24"/>
+  <text class="m" x="253.0" y="287" text-anchor="middle">q1</text>
+  <rect class="blue" x="286" y="270" width="42" height="24"/>
+  <text class="m" x="307.0" y="287" text-anchor="middle">q2</text>
+  <rect class="blue" x="340" y="270" width="42" height="24"/>
+  <text class="m" x="361.0" y="287" text-anchor="middle">q3</text>
+  <rect class="blue" x="394" y="270" width="42" height="24"/>
+  <text class="m" x="415.0" y="287" text-anchor="middle">q4</text>
+  <rect class="blue" x="448" y="270" width="42" height="24"/>
+  <text class="m" x="469.0" y="287" text-anchor="middle">q5</text>
+  <rect class="blue" x="502" y="270" width="42" height="24"/>
+  <text class="m" x="523.0" y="287" text-anchor="middle">q6</text>
+  <rect class="blue" x="556" y="270" width="42" height="24"/>
+  <text class="m" x="577.0" y="287" text-anchor="middle">q7</text>
+  <line class="ln" x1="199.0" y1="294" x2="199.0" y2="312"/>
+  <line class="ln" x1="253.0" y1="294" x2="253.0" y2="312"/>
+  <line class="ln" x1="307.0" y1="294" x2="307.0" y2="312"/>
+  <line class="ln" x1="361.0" y1="294" x2="361.0" y2="312"/>
+  <line class="ln" x1="415.0" y1="294" x2="415.0" y2="312"/>
+  <line class="ln" x1="469.0" y1="294" x2="469.0" y2="312"/>
+  <line class="ln" x1="523.0" y1="294" x2="523.0" y2="312"/>
+  <line class="ln" x1="577.0" y1="294" x2="577.0" y2="312"/>
+  <line class="ln" x1="199.0" y1="312" x2="577.0" y2="312"/>
+  <line class="ln" x1="388.0" y1="312" x2="388.0" y2="330"/>
+  <rect class="orange" x="361.0" y="330" width="54" height="26"/>
+  <text class="m" x="388.0" y="348" text-anchor="middle">kv0</text>
+  <text class="b" x="20" y="318.0">MQA（n<tspan dy="4" font-size="75%">kv</tspan><tspan dy="-4">=1）</tspan></text>
+  <text class="b" x="610" y="348">1 × 2 × d<tspan dy="4" font-size="75%">head</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="178" y="386" width="42" height="24"/>
+  <text class="m" x="199.0" y="403" text-anchor="middle">q0</text>
+  <rect class="blue" x="232" y="386" width="42" height="24"/>
+  <text class="m" x="253.0" y="403" text-anchor="middle">q1</text>
+  <rect class="blue" x="286" y="386" width="42" height="24"/>
+  <text class="m" x="307.0" y="403" text-anchor="middle">q2</text>
+  <rect class="blue" x="340" y="386" width="42" height="24"/>
+  <text class="m" x="361.0" y="403" text-anchor="middle">q3</text>
+  <rect class="blue" x="394" y="386" width="42" height="24"/>
+  <text class="m" x="415.0" y="403" text-anchor="middle">q4</text>
+  <rect class="blue" x="448" y="386" width="42" height="24"/>
+  <text class="m" x="469.0" y="403" text-anchor="middle">q5</text>
+  <rect class="blue" x="502" y="386" width="42" height="24"/>
+  <text class="m" x="523.0" y="403" text-anchor="middle">q6</text>
+  <rect class="blue" x="556" y="386" width="42" height="24"/>
+  <text class="m" x="577.0" y="403" text-anchor="middle">q7</text>
+  <line class="ln" x1="199.0" y1="410" x2="199.0" y2="422"/>
+  <rect class="purple" x="178" y="422" width="42" height="22"/>
+  <text class="b" x="199.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">0</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="253.0" y1="410" x2="253.0" y2="422"/>
+  <rect class="purple" x="232" y="422" width="42" height="22"/>
+  <text class="b" x="253.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">1</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="307.0" y1="410" x2="307.0" y2="422"/>
+  <rect class="purple" x="286" y="422" width="42" height="22"/>
+  <text class="b" x="307.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">2</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="361.0" y1="410" x2="361.0" y2="422"/>
+  <rect class="purple" x="340" y="422" width="42" height="22"/>
+  <text class="b" x="361.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">3</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="415.0" y1="410" x2="415.0" y2="422"/>
+  <rect class="purple" x="394" y="422" width="42" height="22"/>
+  <text class="b" x="415.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">4</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="469.0" y1="410" x2="469.0" y2="422"/>
+  <rect class="purple" x="448" y="422" width="42" height="22"/>
+  <text class="b" x="469.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">5</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="523.0" y1="410" x2="523.0" y2="422"/>
+  <rect class="purple" x="502" y="422" width="42" height="22"/>
+  <text class="b" x="523.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">6</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="577.0" y1="410" x2="577.0" y2="422"/>
+  <rect class="purple" x="556" y="422" width="42" height="22"/>
+  <text class="b" x="577.0" y="438" text-anchor="middle">W<tspan dy="4" font-size="75%">7</tspan><tspan dy="-4">​</tspan></text>
+  <line class="ln" x1="199.0" y1="444" x2="199.0" y2="458"/>
+  <line class="ln" x1="253.0" y1="444" x2="253.0" y2="458"/>
+  <line class="ln" x1="307.0" y1="444" x2="307.0" y2="458"/>
+  <line class="ln" x1="361.0" y1="444" x2="361.0" y2="458"/>
+  <line class="ln" x1="415.0" y1="444" x2="415.0" y2="458"/>
+  <line class="ln" x1="469.0" y1="444" x2="469.0" y2="458"/>
+  <line class="ln" x1="523.0" y1="444" x2="523.0" y2="458"/>
+  <line class="ln" x1="577.0" y1="444" x2="577.0" y2="458"/>
+  <line class="ln" x1="199.0" y1="458" x2="577.0" y2="458"/>
+  <line class="ln" x1="388.0" y1="458" x2="388.0" y2="474"/>
+  <rect class="orange" x="270.0" y="474" width="236" height="28"/>
+  <text class="b" x="388.0" y="493" text-anchor="middle">c<tspan dy="-6" font-size="75%">KV</tspan><tspan dy="6"> (d</tspan><tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">) + k</tspan><tspan dy="-6" font-size="75%">R</tspan><tspan dy="6"> (d</tspan><tspan dy="4" font-size="75%">h</tspan><tspan dy="-10" font-size="75%">R</tspan><tspan dy="6">)</tspan></text>
+  <text class="b" x="20" y="449.0">MLA</text>
+  <text class="b" x="610" y="493">d<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4"> + d</tspan><tspan dy="4" font-size="75%">h</tspan><tspan dy="-10" font-size="75%">R</tspan><tspan dy="6">​</tspan></text>
+  <rect class="orange" x="20" y="520" width="16" height="14"/>
+  <text class="s" x="44" y="532">进 KV cache 的量</text>
+  <rect class="purple" x="190" y="520" width="16" height="14"/>
+  <text class="s" x="214" y="532">W<tspan dy="4" font-size="75%">0</tspan><tspan dy="-4"> … W</tspan><tspan dy="4" font-size="75%">7</tspan><tspan dy="-4">：W</tspan><tspan dy="4" font-size="75%">UK,h</tspan><tspan dy="-4"> / W</tspan><tspan dy="4" font-size="75%">UV,h</tspan><tspan dy="-4">，每个 head 各自的升维矩阵（是权重，不缓存）</tspan></text>
+  <text class="s" x="214" y="554">升维只作用在 c<tspan dy="-6" font-size="75%">KV</tspan><tspan dy="6"> 上；k</tspan><tspan dy="-6" font-size="75%">R</tspan><tspan dy="6"> 不升维，各 head 直接共用同一份</tspan></text>
+</svg>
