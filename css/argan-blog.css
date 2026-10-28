@@ -245,6 +245,9 @@ select.sel-lang {
 .table td {
   border: 1px solid #eee !important;
 }
+.table > tbody > tr > td[rowspan] {
+  vertical-align: middle;
+}
 hr.small {
   max-width: 100px;
   margin: 15px auto;

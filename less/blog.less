@@ -98,6 +98,10 @@ select{
 .table th, .table td{
 	border: 1px solid #eee !important;
 }
+// merged cells from _plugins/table_rowspan.rb
+.table > tbody > tr > td[rowspan] {
+	vertical-align: middle;
+}
 
 hr.small {
 	max-width: 100px;
