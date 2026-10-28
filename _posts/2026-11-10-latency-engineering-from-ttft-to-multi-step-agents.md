@@ -36,11 +36,9 @@ flowchart TB
 ```
 
 
-```text title="一次请求的延迟分解"
-用户发出 ──→ 网关 ──→ 应用侧准备 ──→ 模型：TTFT ──→ 模型：输出 ──→ 后处理 ──→ 用户看到
-             ~50 ms    检索 · 上下文    网络 + 排队 + prefill   token 数 × 每 token    解析 · 校验
-                       组装 · 工具       （《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》三段）        时间（流式可见）      渲染
-```
+![一次请求的延迟分解](/img/in-post/latency-engineering-request-breakdown.svg)
+
+从左到右是一次请求的先后，格子宽度不代表耗时。TTFT 这一格拆成网络、排队、prefill 三段。《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》里 TTFT 的三段是排队、prefill、思考，这里多算了到供应商的网络；用推理模型时，prefill 后面还有一段思考。
 
 | 段 | 决定因素 | 典型量级 | 手段 |
 |---|---|---|---|

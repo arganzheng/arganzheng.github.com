@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 204" width="760" height="204" role="img" aria-labelledby="t d">
+  <title id="t">一次请求的延迟分解</title>
+  <desc id="d">从用户发出到用户看到，按时间先后五段：网关（约 50 ms）；应用侧准备（检索、上下文组装、工具）；模型：TTFT（网络、排队、prefill 三段）；模型：输出（token 数 × 每 token 时间，流式可见）；后处理（解析、校验、渲染）。格子宽度不代表耗时。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .name { font-size: 14px; font-weight: 700; }
+      .desc { font-size: 13px; }
+      .box { stroke: #40566f; stroke-width: 1.2; }
+      .axis { stroke: #40566f; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+      .tick { stroke: #40566f; stroke-width: 1.5; }
+    </style>
+  </defs>
+  <rect width="760" height="204" fill="#fff"/>
+  <rect class="box" x="34.0" y="20" width="80" height="38" fill="#eef3f8"/>
+  <text class="name" x="74.0" y="39.0" text-anchor="middle" dominant-baseline="central">网关</text>
+  <rect class="box" x="34.0" y="58" width="80" height="78" fill="#fff"/>
+  <text class="desc" x="74.0" y="97.0" text-anchor="middle" dominant-baseline="central">~50 ms</text>
+  <rect class="box" x="114.0" y="20" width="112" height="38" fill="#dff1e6"/>
+  <text class="name" x="170.0" y="39.0" text-anchor="middle" dominant-baseline="central">应用侧准备</text>
+  <rect class="box" x="114.0" y="58" width="112" height="78" fill="#fff"/>
+  <text class="desc" x="170.0" y="77.0" text-anchor="middle" dominant-baseline="central">检索</text>
+  <text class="desc" x="170.0" y="97.0" text-anchor="middle" dominant-baseline="central">上下文组装</text>
+  <text class="desc" x="170.0" y="117.0" text-anchor="middle" dominant-baseline="central">工具</text>
+  <rect class="box" x="226.0" y="20" width="228" height="38" fill="#dbe8fb"/>
+  <text class="name" x="340.0" y="39.0" text-anchor="middle" dominant-baseline="central">模型：TTFT</text>
+  <rect class="box" x="226.0" y="58" width="72" height="78" fill="#fff"/>
+  <text class="desc" x="262.0" y="97.0" text-anchor="middle" dominant-baseline="central">网络</text>
+  <rect class="box" x="298.0" y="58" width="72" height="78" fill="#fff"/>
+  <text class="desc" x="334.0" y="97.0" text-anchor="middle" dominant-baseline="central">排队</text>
+  <rect class="box" x="370.0" y="58" width="84" height="78" fill="#fff"/>
+  <text class="desc" x="412.0" y="97.0" text-anchor="middle" dominant-baseline="central">prefill</text>
+  <rect class="box" x="454.0" y="20" width="172" height="38" fill="#fde0b8"/>
+  <text class="name" x="540.0" y="39.0" text-anchor="middle" dominant-baseline="central">模型：输出</text>
+  <rect class="box" x="454.0" y="58" width="172" height="78" fill="#fff"/>
+  <text class="desc" x="540.0" y="87.0" text-anchor="middle" dominant-baseline="central">token 数 × 每 token 时间</text>
+  <text class="desc" x="540.0" y="107.0" text-anchor="middle" dominant-baseline="central">（流式可见）</text>
+  <rect class="box" x="626.0" y="20" width="100" height="38" fill="#e8e0f5"/>
+  <text class="name" x="676.0" y="39.0" text-anchor="middle" dominant-baseline="central">后处理</text>
+  <rect class="box" x="626.0" y="58" width="100" height="78" fill="#fff"/>
+  <text class="desc" x="676.0" y="77.0" text-anchor="middle" dominant-baseline="central">解析</text>
+  <text class="desc" x="676.0" y="97.0" text-anchor="middle" dominant-baseline="central">校验</text>
+  <text class="desc" x="676.0" y="117.0" text-anchor="middle" dominant-baseline="central">渲染</text>
+  <line class="axis" x1="34.0" y1="158" x2="740.0" y2="158"/>
+  <line class="tick" x1="34.0" y1="152" x2="34.0" y2="164"/>
+  <text class="desc" x="34.0" y="178.0" text-anchor="middle" dominant-baseline="central">用户发出</text>
+  <line class="tick" x1="726.0" y1="152" x2="726.0" y2="164"/>
+  <text class="desc" x="726.0" y="178.0" text-anchor="middle" dominant-baseline="central">用户看到</text>
+</svg>
