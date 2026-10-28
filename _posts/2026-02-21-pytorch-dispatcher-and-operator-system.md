@@ -35,10 +35,10 @@ z = x + y
 
 同一个加法语义，可能需要对应不同的底层实现：
 
-- CPU Tensor + CPU Tensor：→ CPU Kernel
-- CUDA Tensor + CUDA Tensor：→ CUDA Kernel
-- 需要 Autograd 的 Tensor 运算：→ 先记录反向关系，再进入设备 Kernel
-- Meta Tensor：→ 只推断 shape、dtype 等元数据
+- CPU Tensor + CPU Tensor → CPU Kernel
+- CUDA Tensor + CUDA Tensor → CUDA Kernel
+- 需要 Autograd 的 Tensor 运算 → 先记录反向关系，再进入设备 Kernel
+- Meta Tensor → 只推断 shape、dtype 等元数据
 
 如果每种组合都由 Python 代码手动判断，系统会迅速变成大量条件分支。算子系统的作用，就是把**统一的算子语义**与**具体的执行后端**解耦。
 
@@ -142,25 +142,18 @@ Table: native_functions.yaml 一个条目的三个字段
 
 把这条声明逐段拆开，可以看到每一段各自决定了系统的哪一部分：
 
-```text title='逐段拆开 add.Tensor 的声明：Schema、variants、dispatch'
-- func: add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
-        └───┬────┘ └────────────────────┬─────────────────────┘     └─┬──┘
-            │                           │                             └─ 返回值
-            │                           └─ 参数：名称 / 类型 / 默认值
-            └─ 算子名.overload 名
-  ◄── Schema：决定 Python / C++ 入口的函数签名，是所有实现共同遵守的契约
+| 部分 | 片段 | 含义 | 决定什么 |
+|---|---|---|---|
+| Schema（`func`） | `add.Tensor` | 算子名.overload 名 | Python / C++ 入口的函数签名，是所有实现共同遵守的契约 |
+| ^^ | `(Tensor self, Tensor other, *, Scalar alpha=1)` | 参数：名称 / 类型 / 默认值 | ^^ |
+| ^^ | `-> Tensor` | 返回值 | ^^ |
+| `variants` | `function` | 函数：`torch.add(x, y)` | 入口层生成什么 |
+| ^^ | `method` | 方法：`Tensor.add`，即 `x.add(y)` | ^^ |
+| `dispatch` | `CPU, CUDA: add` | CPU / CUDA 槽位 ← `at::native::add` | Operator Table 中 `add.Tensor` 一行哪些槽位由谁填 |
+| ^^ | `Meta: add_meta` | Meta 槽位 ← `at::native::add_meta` | ^^ |
+| ^^ | （不写） | Autograd 槽位由 Codegen 另行生成 | ^^ |
 
-  variants: function, method    ◄── 决定入口层生成什么：
-            └──┬───┘  └─┬──┘        function → torch.add(x, y)
-               │        └─ 方法     method   → Tensor.add，即 x.add(y)
-               └─ 函数
-
-  dispatch:                     ◄── 决定 Operator Table 中 add.Tensor 一行
-    CPU, CUDA: add                  哪些槽位由谁填：
-    Meta: add_meta                  CPU / CUDA 槽位 ← at::native::add
-                                    Meta 槽位       ← at::native::add_meta
-                                    (Autograd 槽位由 Codegen 另行生成)
-```
+Table: 逐段拆开 add.Tensor 的声明：Schema、variants、dispatch
 
 ### 3. 自定义算子：`torch.library`
 
@@ -500,8 +493,7 @@ at::Tensor z = at::add(x, y);
 
 因此 `at::add` 不是实现。第四章的 `at::native::add` 才是实现。前者是入口，位于 Dispatcher 之前；后者是被注册的函数，位于 Dispatcher 之后。名字相近，位置相反。
 
-1. at::add(x, y)              入口：调用 Dispatcher（Dispatcher）
-2. at::native::add(x, y)      实现：被 Dispatcher 调用
+调用顺序是 `at::add(x, y)`（入口：调用 Dispatcher）→ Dispatcher → `at::native::add(x, y)`（实现：被 Dispatcher 调用）。
 
 ## 七、运行态（2）：分发
 
@@ -515,15 +507,16 @@ Dispatcher 收集所有输入 Tensor 的 DispatchKey，并合并当前线程的�
 
 一个容易想当然的地方：**`requires_grad` 不在 KeySet 里**。任何普通（dense）Tensor 的 KeySet 都自带 Autograd Key——`torch.zeros(3)` 的 KeySet 是 `{AutogradCPU, ADInplaceOrView, CPU}`，与它是否 `requires_grad` 无关；`requires_grad` 存在 Tensor 的 AutogradMeta 里，是 Autograd Kernel 进去之后才读的字段。同样，`torch.no_grad()` **不改 KeySet**：它只翻转线程局部的 GradMode 标志（`c10/core/GradMode.cpp` 就 12 行），Autograd Kernel 仍会被命中，只是在里面看到 GradMode 关闭就不记录 `grad_fn`、直接再分发。真正把 Autograd Key 从集合里剔掉的是 `torch.inference_mode()`（`InferenceMode.h`：把 autograd 一族 Key 加入 TLS excluded）——这也是它比 `no_grad` 更快、产物不能再进入 autograd 的原因。
 
-```text title='no_grad 与 inference_mode 下 DispatchKeySet 的合并结果'
-x: CUDA Tensor, requires_grad=True   → {AutogradCUDA, ADInplaceOrView, CUDA}
-y: CUDA Tensor, requires_grad=False  → {AutogradCUDA, ADInplaceOrView, CUDA}   ← 一样
-TLS: 普通状态 / no_grad             → excluded 为空（no_grad 只改 GradMode 标志）
-TLS: inference_mode                  → excluded 含 Autograd*、ADInplaceOrView
-    ↓ 合并
-普通 / no_grad：  DispatchKeySet = {AutogradCUDA, ADInplaceOrView, CUDA} → 最高优先级 AutogradCUDA
-inference_mode：  DispatchKeySet = {CUDA}                                → 直接 CUDA
-```
+| 来源 | 情形 | KeySet / TLS |
+|---|---|---|
+| 输入 | `x`：CUDA Tensor，`requires_grad=True` | `{AutogradCUDA, ADInplaceOrView, CUDA}` |
+| ^^ | `y`：CUDA Tensor，`requires_grad=False` | `{AutogradCUDA, ADInplaceOrView, CUDA}`，和 `x` 一样 |
+| TLS | 普通状态 / `no_grad` | excluded 里没有 Autograd（`no_grad` 只改 GradMode 标志） |
+| ^^ | `inference_mode` | excluded 加入 Autograd 一族；ADInplaceOrView 不进 excluded，只从 included 里拿掉 |
+| 合并结果 | 普通 / `no_grad` | `{AutogradCUDA, ADInplaceOrView, CUDA}` → 最高优先级 AutogradCUDA |
+| ^^ | `inference_mode` | `{CUDA}` → 直接 CUDA（输入自带的 ADInplaceOrView 在 `add` 上是 fallthrough，查表前被掩掉） |
+
+Table: no_grad 与 inference_mode 下 DispatchKeySet 的合并结果
 
 这一步的合并是位运算：各输入的 KeySet 做 OR，再叠加线程局部（TLS）的 include 集合、减去 exclude 集合，最后取最高优先级的 Key：
 
@@ -570,40 +563,23 @@ flowchart TB
 
 包装 Key 的优先级高于后端 Key。以 Autograd 为例：
 
-1. DispatchKeySet = {AutogradCUDA, CUDA}（取 AutogradCUDA）
+1. DispatchKeySet = {AutogradCUDA, CUDA}，取 AutogradCUDA；
 2. Autograd 包装实现（Codegen 生成）：
-3. 检查 requires_grad，记录 AddBackward0，保存反向所需的值
-4. 从 KeySet 中去掉 Autograd，再次调用 Dispatcher（取 CUDA）
-5. 后端实现 at::native::add
+   - 检查 requires_grad，记录 AddBackward0，保存反向所需的值；
+   - 从 KeySet 中去掉 Autograd，再次调用 Dispatcher；
+3. 取 CUDA，进入后端实现 at::native::add。
 
 按时间顺序看，一次 `add` 调用会两次经过 Dispatcher：
 
-```mermaid
-%% 图：一次 add 调用两次经过 Dispatcher：先命中 AutogradCUDA 包装，去掉 Autograd 后再分发到 CUDA kernel
-sequenceDiagram
-    participant C as 调用方 at::add
-    participant D as Dispatcher
-    participant A as AutogradCUDA 包装
-    participant K as CUDA kernel
-    C->>D: add.Tensor(x, y)
-    Note over D: KeySet = AutogradCUDA + CUDA，取最高优先级 AutogradCUDA
-    D->>A: 第一次分发
-    activate A
-    Note over A: 检查 requires_grad，创建 AddBackward0，保存反向所需的值
-    Note over A: AutoDispatchBelowAutograd：TLS excluded 加入 Autograd
-    A->>D: 再次调用 add.Tensor(x, y)
-    Note over D: KeySet 去掉 Autograd 后只剩 CUDA
-    D->>K: 第二次分发
-    activate K
-    Note over K: at::native::add → TensorIterator → launch CUDA Kernel
-    K-->>D: 结果 Tensor
-    deactivate K
-    D-->>A: 结果 Tensor
-    Note over A: 给结果挂上 grad_fn = AddBackward0
-    A-->>D: 结果 Tensor(带 grad_fn)
-    deactivate A
-    D-->>C: 返回 z
-```
+![一次 add 调用两次经过 Dispatcher：先命中 AutogradCUDA 包装，去掉 Autograd 后再分发到 CUDA kernel](/img/in-post/pytorch-dispatcher-add-two-dispatches.svg)
+
+1. Dispatcher：KeySet = AutogradCUDA + CUDA，取最高优先级 AutogradCUDA，第一次分发到 Autograd 包装。
+2. AutogradCUDA 包装：检查 requires_grad，创建 AddBackward0，保存反向所需的值；`AutoDispatchBelowADInplaceOrView` 把 Autograd 和 ADInplaceOrView 加入 TLS excluded，再次调用 `add.Tensor(x, y)`。
+3. Dispatcher：KeySet 去掉 Autograd 后只剩 CUDA，第二次分发到 CUDA kernel。
+4. CUDA kernel：`at::native::add` → TensorIterator → launch CUDA Kernel，返回结果 Tensor。
+5. Autograd 包装给结果挂上 `grad_fn = AddBackward0`，返回 z（带 grad_fn）。
+
+两条返回箭头都沿调用栈经过 Dispatcher 原路返回，图里直接画到接收方。
 
 这就是“Autograd Kernel 与设备 Kernel 是什么关系”的答案：Autograd 是注册在包装 Key 上的一层实现，通过**再次分发**串联到后端实现。Functionalize、Python Dispatch、Vmap 都是同样的机制。
 
@@ -629,22 +605,18 @@ z = x + y
 
 广播后 `y` 的元数据变为 `shape=(2,3) stride=(0,1)`，于是每个输出位置读到的 `x` / `y` 存储偏移如下：
 
-```text title='广播后每个输出位置读到的 x / y 存储偏移'
-x: shape=(2,3) stride=(3,1)          y: shape=(3) stride=(1)
-                                     broadcast → shape=(2,3) stride=(0,1)
+- `x`：`shape=(2,3) stride=(3,1)`
+- `y`：`shape=(3) stride=(1)`，broadcast → `shape=(2,3) stride=(0,1)`
+- `offset(i,j) = i*stride[0] + j*stride[1]`
 
-offset(i,j) = i*stride[0] + j*stride[1]
+| | j=0 | j=1 | j=2 | x 偏移 | y 偏移 |
+|---|---|---|---|---|---|
+| i=0 | `x@0` `y@0` | `x@1` `y@1` | `x@2` `y@2` | `0*3+j` | `0*0+j` |
+| i=1 | `x@3` `y@0` | `x@4` `y@1` | `x@5` `y@2` | `1*3+j` | `1*0+j` |
 
-             j=0          j=1          j=2
-        ┌────────────┬────────────┬────────────┐
-  i=0   │ x@0  y@0   │ x@1  y@1   │ x@2  y@2   │   x: 0*3+j   y: 0*0+j
-        ├────────────┼────────────┼────────────┤
-  i=1   │ x@3  y@0   │ x@4  y@1   │ x@5  y@2   │   x: 1*3+j   y: 1*0+j
-        └────────────┴────────────┴────────────┘
-                ▲
-                └─ 第二行 x 的偏移继续 +3，y 的偏移回到 0/1/2：
-                   stride 0 让 y 的 3 个元素被重复读取，没有任何复制
-```
+Table: 广播后每个输出位置读到的 x / y 存储偏移
+
+第二行 `x` 的偏移继续 +3，`y` 的偏移回到 0/1/2：stride 0 让 `y` 的 3 个元素被重复读取，没有任何复制。
 
 对非连续输入（如 `x.transpose(0, 1) + 1`），TensorIterator 直接按任意 stride 遍历，不强制 `contiguous()`。何时复制、何时直接遍历，是第八篇性能分析的话题之一。
 
@@ -676,14 +648,15 @@ Meta 实现只推断输出元数据并构造一个无数据的 Tensor。不进�
 
 ### 1. 开发者在构建时做了什么
 
-1. 定义    native_functions.yaml：add.Tensor(...) -> Tensor，variants: function, method
-2. derivatives.yaml：self: grad, other: maybe_multiply(grad, alpha)
-3. 注册    dispatch: CPU, CUDA: add；Meta: add_meta
-4. → Codegen 生成 TORCH_LIBRARY_IMPL，填入 Operator Table
-5. → Codegen 根据 derivatives.yaml 生成 Autograd 包装，填入 Autograd Key
-6. 实现    aten/src/ATen/native/：at::native::add
-7. 内部使用 TensorIterator，调用 CPU / CUDA 逐元素 Kernel
-8. Codegen 另生成 Python Binding 与 at::add 入口
+1. **定义**
+   - `native_functions.yaml`：`add.Tensor(...) -> Tensor`，`variants: function, method`
+   - `derivatives.yaml`：`self: grad, other: maybe_multiply(grad, alpha)`
+2. **注册**：`dispatch: CPU, CUDA: add；Meta: add_meta`
+   - → Codegen 生成 `TORCH_LIBRARY_IMPL`，填入 Operator Table
+   - → Codegen 根据 `derivatives.yaml` 生成 Autograd 包装，填入 Autograd Key
+3. **实现**：`aten/src/ATen/native/`：`at::native::add`
+   - 内部使用 TensorIterator，调用 CPU / CUDA 逐元素 Kernel
+4. Codegen 另生成 Python Binding 与 `at::add` 入口
 
 ### 2. 用户调用时发生了什么
 
@@ -693,14 +666,14 @@ y = torch.randn(2, 3, device="cuda")
 z = torch.add(x, y)
 ```
 
-1. 入口    torch.add → Python Binding 解析参数 → at::add(x, y)
-2. 分发    查 Operator Table 取 Schema，校验参数
-3. DispatchKeySet = {AutogradCUDA, CUDA}
-4. 取 AutogradCUDA → Autograd 包装：记录 AddBackward0，去掉 Autograd Key，再次分发
-5. 取 CUDA → at::native::add
-6. 执行    TensorIterator 对齐 shape / dtype / stride，划分迭代空间
-7. launch CUDA Kernel：逐元素 a + alpha * b
-8. 构造结果 Tensor，挂上 grad_fn
+1. **入口**：`torch.add` → Python Binding 解析参数 → `at::add(x, y)`
+2. **分发**：查 Operator Table 取 Schema，校验参数
+   - DispatchKeySet = {AutogradCUDA, CUDA}
+   - 取 AutogradCUDA → Autograd 包装：记录 AddBackward0，去掉 Autograd Key，再次分发
+   - 取 CUDA → `at::native::add`
+3. **执行**：TensorIterator 对齐 shape / dtype / stride，划分迭代空间
+   - launch CUDA Kernel：逐元素 `a + alpha * b`
+   - 构造结果 Tensor，挂上 `grad_fn`
 
 ```mermaid
 %% 图：用户调用时的路径：torch.add → Binding → at::add → Dispatcher → Autograd 包装 → 再次分发 → TensorIterator → CUDA Kernel
@@ -754,10 +727,10 @@ Java 重载依据编译期参数类型；虚方法分发依据**单个**对象�
 
 ### 4. Dispatcher 是控制平面，不是计算本身
 
-- Dispatcher：→ 决定调用谁
-- 实现 / Kernel → 真正计算数值
-- Autograd：→ 注册在包装 Key 上的一层实现
-- Compiler：→ 可能在调用前后重写计算路径（第七篇）
+- **Dispatcher**：决定调用谁
+- **实现 / Kernel**：真正计算数值
+- **Autograd**：注册在包装 Key 上的一层实现
+- **Compiler**：可能在调用前后重写计算路径（第七篇）
 
 Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profiler 区分 Python 开销、分发开销、Kernel 开销和同步开销。
 

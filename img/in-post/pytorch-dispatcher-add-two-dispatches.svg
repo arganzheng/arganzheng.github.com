@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" width="760" height="300" role="img" aria-labelledby="t d">
+<title id="t">一次 add 调用两次经过 Dispatcher</title>
+<desc id="d">一条时间轴，四行：调用方 at::add、Dispatcher、AutogradCUDA 包装、CUDA kernel。at::add 调用 add.Tensor(x, y) 进入 Dispatcher；① Dispatcher 取最高优先级 AutogradCUDA，第一次分发到 Autograd 包装；② 包装创建 AddBackward0 后再次调用 add.Tensor；③ Dispatcher 只剩 CUDA，第二次分发到 CUDA kernel；④ CUDA kernel 计算并返回结果 Tensor；⑤ 包装挂上 grad_fn，返回带 grad_fn 的 z 给调用方。虚线表示调用尚未返回、栈帧仍在。</desc>
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#243447}
+.row{font-size:13px;font-weight:600}.blk{font-size:12px}.lab{font-size:11px;fill:#40566f}.note{font-size:11px;fill:#6b7b8c}
+.arr{stroke:#40566f;stroke-width:1.4;fill:none}.ret{stroke:#40566f;stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+.wait{stroke:#9aa7b4;stroke-width:1.2;stroke-dasharray:5 4}</style></defs>
+<text class="row" x="10" y="60">调用方</text>
+<text class="row" x="10" y="120">Dispatcher</text>
+<text class="row" x="10" y="172">AutogradCUDA</text><text class="row" x="10" y="188">包装</text>
+<text class="row" x="10" y="240">CUDA kernel</text>
+<line class="wait" x1="180" y1="55.0" x2="715" y2="55.0"/>
+<line class="wait" x1="440" y1="175.0" x2="620" y2="175.0"/>
+<rect x="120" y="40" width="60" height="30" fill="#eceff1" stroke="#607d8b" stroke-width="1.2"/>
+<text class="blk" x="150.0" y="59.5" text-anchor="middle">at::add</text>
+<rect x="180" y="100" width="130" height="30" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.2"/>
+<text class="blk" x="245.0" y="119.5" text-anchor="middle">① 取 AutogradCUDA</text>
+<rect x="310" y="160" width="130" height="30" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.2"/>
+<text class="blk" x="375.0" y="179.5" text-anchor="middle">② 建 AddBackward0</text>
+<rect x="440" y="100" width="80" height="30" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.2"/>
+<text class="blk" x="480.0" y="119.5" text-anchor="middle">③ 只剩 CUDA</text>
+<rect x="520" y="220" width="100" height="30" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.2"/>
+<text class="blk" x="570.0" y="239.5" text-anchor="middle">④ CUDA kernel</text>
+<rect x="620" y="160" width="95" height="30" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.2"/>
+<text class="blk" x="667.5" y="179.5" text-anchor="middle">⑤ 挂 grad_fn</text>
+<rect x="715" y="40" width="35" height="30" fill="#eceff1" stroke="#607d8b" stroke-width="1.2"/>
+<text class="blk" x="732.5" y="59.5" text-anchor="middle">z</text>
+<line class="arr" x1="180" y1="70" x2="180" y2="100" marker-end="url(#ar)"/>
+<text class="lab" x="186" y="89">add.Tensor(x, y)</text>
+<line class="arr" x1="310" y1="130" x2="310" y2="160" marker-end="url(#ar)"/>
+<text class="lab" x="316" y="149">第一次分发</text>
+<line class="arr" x1="440" y1="160" x2="440" y2="130" marker-end="url(#ar)"/>
+<text class="lab" x="446" y="149">再次调用</text>
+<line class="arr" x1="520" y1="130" x2="520" y2="220" marker-end="url(#ar)"/>
+<text class="lab" x="526" y="209">第二次分发</text>
+<line class="ret" x1="620" y1="220" x2="620" y2="190" marker-end="url(#ar)"/>
+<text class="lab" x="626" y="209">结果 Tensor</text>
+<line class="ret" x1="715" y1="160" x2="715" y2="70" marker-end="url(#ar)"/>
+<text class="lab" x="709" y="149" text-anchor="end">z（带 grad_fn）</text>
+<line class="arr" x1="120" y1="268" x2="750" y2="268" marker-end="url(#ar)"/>
+<text class="note" x="750" y="286" text-anchor="end">时间</text>
+<text class="note" x="120" y="286">实线箭头：调用；虚线箭头：返回；横向虚线：调用还没返回，栈帧仍在</text>
+</svg>
