@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 682 714" width="682" height="714" role="img" aria-labelledby="t d">
+  <title id="t">类型信息的三层地图：提供层、消费层与数据契约</title>
+  <desc id="d">三层自上而下。类型信息提供层：类型表达（Python 内建注解语法；内建泛型 list[str]、dict[str, int]；typing；typing_extensions）、类型载体与分发（inline types .py；stub .pyi；typeshed；types-*；py.typed / PEP 561）。向下箭头“读取、解释、推理、执行”指向类型信息消费层：静态消费（mypy；Pyright / Pylance；IDE、CI；类型推断、收窄、兼容性检查）、动态消费（isinstance / issubclass；get_type_hints / __annotations__；@dataclass 读注解生成代码；Pydantic 元类 + pydantic-core；beartype；Annotated 元数据解析）。向下箭头“用消费层的能力构建”指向工程落地：数据契约（本篇）：数据建模（@dataclass 内部数据传递；Pydantic BaseModel 边界校验；TypedDict 字典形状约束）、契约的输入输出（序列化 / 反序列化；JSON Schema / OpenAPI 生成；BaseSettings 配置即契约）。</desc>
+  <defs>
+    <marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L10,5 L0,10 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #1f2d3d; }
+      .head { font-size: 16px; font-weight: 700; }
+      .gt { font-size: 14px; font-weight: 700; }
+      .it { font-size: 13.5px; font-weight: 500; }
+      .lab { font-size: 13.5px; font-weight: 500; fill: #40566f; }
+      .dot { fill: #40566f; }
+      .prov { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .cons { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .cont { fill: #fff5e6; stroke: #c98a00; stroke-width: 1.2; }
+      .grp { fill: #fff; stroke: #9aa8b6; stroke-width: 1; }
+      .arrow { stroke: #40566f; stroke-width: 2; marker-end: url(#ah); }
+    </style>
+  </defs>
+  <rect class="prov" x="20" y="16" width="642" height="204"/>
+  <text class="head" x="36" y="43">类型信息提供层</text>
+  <rect class="grp" x="36" y="56" width="295" height="148"/>
+  <text class="gt" x="50" y="80">类型表达</text>
+  <circle class="dot" cx="54" cy="97.5" r="2.2"/>
+  <text class="it" x="64" y="102">Python 内建注解语法</text>
+  <circle class="dot" cx="54" cy="119.5" r="2.2"/>
+  <text class="it" x="64" y="124">内建泛型：list[str]、dict[str, int]</text>
+  <circle class="dot" cx="54" cy="141.5" r="2.2"/>
+  <text class="it" x="64" y="146">typing</text>
+  <circle class="dot" cx="54" cy="163.5" r="2.2"/>
+  <text class="it" x="64" y="168">typing_extensions</text>
+  <rect class="grp" x="351" y="56" width="295" height="148"/>
+  <text class="gt" x="365" y="80">类型载体与分发</text>
+  <circle class="dot" cx="369" cy="97.5" r="2.2"/>
+  <text class="it" x="379" y="102">inline types：.py</text>
+  <circle class="dot" cx="369" cy="119.5" r="2.2"/>
+  <text class="it" x="379" y="124">stub：.pyi</text>
+  <circle class="dot" cx="369" cy="141.5" r="2.2"/>
+  <text class="it" x="379" y="146">typeshed</text>
+  <circle class="dot" cx="369" cy="163.5" r="2.2"/>
+  <text class="it" x="379" y="168">types-*</text>
+  <circle class="dot" cx="369" cy="185.5" r="2.2"/>
+  <text class="it" x="379" y="190">py.typed / PEP 561</text>
+  <line class="arrow" x1="341.0" y1="220" x2="341.0" y2="266"/>
+  <text class="lab" x="353.0" y="248">读取、解释、推理、执行</text>
+  <rect class="cons" x="20" y="266" width="642" height="226"/>
+  <text class="head" x="36" y="293">类型信息消费层</text>
+  <rect class="grp" x="36" y="306" width="295" height="170"/>
+  <text class="gt" x="50" y="330">静态消费</text>
+  <circle class="dot" cx="54" cy="347.5" r="2.2"/>
+  <text class="it" x="64" y="352">mypy</text>
+  <circle class="dot" cx="54" cy="369.5" r="2.2"/>
+  <text class="it" x="64" y="374">Pyright / Pylance</text>
+  <circle class="dot" cx="54" cy="391.5" r="2.2"/>
+  <text class="it" x="64" y="396">IDE、CI</text>
+  <circle class="dot" cx="54" cy="413.5" r="2.2"/>
+  <text class="it" x="64" y="418">类型推断、收窄、兼容性检查</text>
+  <rect class="grp" x="351" y="306" width="295" height="170"/>
+  <text class="gt" x="365" y="330">动态消费</text>
+  <circle class="dot" cx="369" cy="347.5" r="2.2"/>
+  <text class="it" x="379" y="352">isinstance / issubclass</text>
+  <circle class="dot" cx="369" cy="369.5" r="2.2"/>
+  <text class="it" x="379" y="374">get_type_hints / __annotations__</text>
+  <circle class="dot" cx="369" cy="391.5" r="2.2"/>
+  <text class="it" x="379" y="396">@dataclass（读注解生成代码）</text>
+  <circle class="dot" cx="369" cy="413.5" r="2.2"/>
+  <text class="it" x="379" y="418">Pydantic（元类 + pydantic-core）</text>
+  <circle class="dot" cx="369" cy="435.5" r="2.2"/>
+  <text class="it" x="379" y="440">beartype</text>
+  <circle class="dot" cx="369" cy="457.5" r="2.2"/>
+  <text class="it" x="379" y="462">Annotated 元数据解析</text>
+  <line class="arrow" x1="341.0" y1="492" x2="341.0" y2="538"/>
+  <text class="lab" x="353.0" y="520">用消费层的能力构建</text>
+  <rect class="cont" x="20" y="538" width="642" height="160"/>
+  <text class="head" x="36" y="565">工程落地：数据契约（本篇）</text>
+  <rect class="grp" x="36" y="578" width="295" height="104"/>
+  <text class="gt" x="50" y="602">数据建模</text>
+  <circle class="dot" cx="54" cy="619.5" r="2.2"/>
+  <text class="it" x="64" y="624">@dataclass：内部数据传递</text>
+  <circle class="dot" cx="54" cy="641.5" r="2.2"/>
+  <text class="it" x="64" y="646">Pydantic BaseModel：边界校验</text>
+  <circle class="dot" cx="54" cy="663.5" r="2.2"/>
+  <text class="it" x="64" y="668">TypedDict：字典形状约束</text>
+  <rect class="grp" x="351" y="578" width="295" height="104"/>
+  <text class="gt" x="365" y="602">契约的输入输出</text>
+  <circle class="dot" cx="369" cy="619.5" r="2.2"/>
+  <text class="it" x="379" y="624">序列化 / 反序列化</text>
+  <circle class="dot" cx="369" cy="641.5" r="2.2"/>
+  <text class="it" x="379" y="646">JSON Schema / OpenAPI 生成</text>
+  <circle class="dot" cx="369" cy="663.5" r="2.2"/>
+  <text class="it" x="379" y="668">BaseSettings：配置即契约</text>
+</svg>

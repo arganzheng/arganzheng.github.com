@@ -23,57 +23,7 @@ updated: 2026-09-21
 
 ### 1. 在三篇地图上的位置
 
-```text title='类型信息的三层地图：提供层、消费层与数据契约'
-                   类型信息提供层
-┌──────────────────────────────────────────────┐
-│ 类型表达                                      │
-│ ├── Python 内建注解语法                       │
-│ ├── 内建泛型：list[str]、dict[str, int]       │
-│ ├── typing                                    │
-│ └── typing_extensions                         │
-│                                               │
-│ 类型载体与分发                                 │
-│ ├── inline types：.py                         │
-│ ├── stub：.pyi                                │
-│ ├── typeshed                                  │
-│ ├── types-*                                   │
-│ └── py.typed / PEP 561                        │
-└──────────────────────────────────────────────┘
-                       │
-                       │ 读取、解释、推理、执行
-                       ▼
-                   类型信息消费层
-┌──────────────────────────────────────────────┐
-│ 静态消费                                      │
-│ ├── mypy                                      │
-│ ├── Pyright / Pylance                         │
-│ ├── IDE、CI                                   │
-│ └── 类型推断、收窄、兼容性检查                 │
-│                                               │
-│ 动态消费                                      │
-│ ├── isinstance / issubclass                   │
-│ ├── get_type_hints / __annotations__          │
-│ ├── @dataclass（读注解生成代码）               │
-│ ├── Pydantic（元类 + pydantic-core）           │
-│ ├── beartype                                  │
-│ └── Annotated 元数据解析                      │
-└──────────────────────────────────────────────┘
-                       │
-                       │ 用消费层的能力构建
-                       ▼
-                 工程落地：数据契约
-┌──────────────────────────────────────────────┐
-│ 数据建模                                      │
-│ ├── @dataclass：内部数据传递                  │
-│ ├── Pydantic BaseModel：边界校验              │
-│ └── TypedDict：字典形状约束                   │
-│                                               │
-│ 契约的输入输出                                 │
-│ ├── 序列化 / 反序列化                         │
-│ ├── JSON Schema / OpenAPI 生成                │
-│ └── BaseSettings：配置即契约                  │
-└──────────────────────────────────────────────┘
-```
+![类型信息的三层地图：提供层（类型表达、类型载体与分发）经“读取、解释、推理、执行”到消费层（静态消费、动态消费），再“用消费层的能力构建”工程落地的数据契约（数据建模、契约的输入输出）](/img/in-post/python-data-contract-design-type-info-layers.svg)
 
 本篇讲图里最下面那格。它**使用**前两格的能力，但组织轴不同：前两格沿着"类型信息如何流动"，这一格沿着"程序的数据结构如何设计"。
 
@@ -638,38 +588,28 @@ vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）
 ## 三、附录：选型决策树与 Java 数据契约对照
 ### 1. 类型工具选择决策树
 
-```text title='类型工具选择决策树'
-需要定义数据结构？
-├── 数据来自外部（API/JSON/YAML/用户输入）？ → Pydantic BaseModel
-├── 数据来自环境变量 / .env？ → Pydantic BaseSettings
-├── 数据本身就是 dict，只想约束形状？ → TypedDict
-└── 内部传递？
-    ├── 需要不可变 → @dataclass(frozen=True) / NamedTuple
-    ├── 实例数量极大 → @dataclass(slots=True)
-    └── 其他 → @dataclass
-│
-需要定义接口？
-├── 你控制实现类的代码？
-│   ├── 是 → ABC（抽象基类）
-│   └── 否 → Protocol
-│
-需要约束参数值？
-├── 几个固定字符串？ → Literal
-├── 枚举类型 + 穷尽检查？ → Enum + assert_never
-└── 数值范围/格式？ → Annotated + Pydantic Field
-│
-需要泛型？
-├── 简单的"输入输出类型一致"？ → TypeVar
-├── 自定义泛型容器？ → Generic[T]
-└── 装饰器保留签名？ → ParamSpec
-│
-函数有多种调用方式？ → @overload
-│
-需要运行时类型检查？
-├── 数据建模 + 校验 → Pydantic
-├── 函数级防御 → beartype
-└── 简单分支判断 → isinstance
-```
+| 问题 | 条件 | 选用 |
+|---|---|---|
+| 需要定义数据结构？ | 数据来自外部（API/JSON/YAML/用户输入） | Pydantic `BaseModel` |
+| ^^ | 数据来自环境变量 / `.env` | Pydantic `BaseSettings` |
+| ^^ | 数据本身就是 dict，只想约束形状 | `TypedDict` |
+| ^^ | 内部传递，需要不可变 | `@dataclass(frozen=True)` / `NamedTuple` |
+| ^^ | 内部传递，实例数量极大 | `@dataclass(slots=True)` |
+| ^^ | 内部传递，其他 | `@dataclass` |
+| 需要定义接口？ | 你控制实现类的代码 | ABC（抽象基类） |
+| ^^ | 你不控制实现类的代码 | `Protocol` |
+| 需要约束参数值？ | 几个固定字符串 | `Literal` |
+| ^^ | 枚举类型 + 穷尽检查 | `Enum` + `assert_never` |
+| ^^ | 数值范围 / 格式 | `Annotated` + Pydantic `Field` |
+| 需要泛型？ | 简单的"输入输出类型一致" | `TypeVar` |
+| ^^ | 自定义泛型容器 | `Generic[T]` |
+| ^^ | 装饰器保留签名 | `ParamSpec` |
+| 函数有多种调用方式？ | — | `@overload` |
+| 需要运行时类型检查？ | 数据建模 + 校验 | Pydantic |
+| ^^ | 函数级防御 | beartype |
+| ^^ | 简单分支判断 | `isinstance` |
+
+Table: 类型工具选择决策树
 
 ### 2. Java 与 Python 数据契约对照
 
