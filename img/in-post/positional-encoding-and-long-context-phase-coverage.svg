@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="300" viewBox="0 0 740 300" role="img" aria-labelledby="t d">
+<title id="t">训练 8K 与推理 32K 各维度对扫过的相位</title>
+<desc id="d">base 10000、d_head 128。每条尺子是 0° 到 360°，每格 15°。蓝色是训练 8K 时扫过的相位，橙色是推理 32K 时新扫到、训练中从未见过的相位。i=48 训练即转 1.30 圈；i=52、56 训练只到 264°、148°，推理转过 2.9、1.65 圈；i=63 训练到 54°，推理到 217°。</desc>
+<style>text{font-family:-apple-system, 'Helvetica Neue', Arial, 'PingFang SC', 'Noto Sans CJK SC', sans-serif;font-size:12px;fill:#222} .c{text-anchor:middle;fill:#555} .g{fill:#666}</style>
+<rect width="740" height="300" fill="#fff"/>
+<rect x="196" y="10" width="12" height="12" fill="#0072B2"/><text x="214" y="21">训练中见过的相位</text>
+<rect x="346" y="10" width="12" height="12" fill="#E69F00"/><text x="364" y="21">推理时新出现的相位（从未见过）</text>
+<text class="c" x="196.0" y="48">0°</text>
+<text class="c" x="277.0" y="48">90°</text>
+<text class="c" x="358.0" y="48">180°</text>
+<text class="c" x="439.0" y="48">270°</text>
+<text class="c" x="520.0" y="48">360°</text>
+<text x="20" y="48" class="g">维度对</text><text x="120" y="48" class="g">场景</text>
+<text x="20" y="74">i = 48</text><text x="20" y="98" class="g">λ = 6283</text>
+<text x="120" y="74">训练 8K</text>
+<rect x="196" y="63" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="63" width="324.0" height="14" fill="#0072B2"/>
+<line x1="209.5" y1="63" x2="209.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="63" x2="223.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="63" x2="236.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="63" x2="250.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="63" x2="263.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="63" x2="277.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="63" x2="290.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="63" x2="304.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="63" x2="317.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="63" x2="331.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="63" x2="344.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="63" x2="358.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="63" x2="371.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="63" x2="385.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="63" x2="398.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="63" x2="412.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="63" x2="425.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="63" x2="439.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="63" x2="452.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="63" x2="466.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="63" x2="479.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="63" x2="493.0" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="63" x2="506.5" y2="77" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="63" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="74">1.30 圈，全相位见过</text>
+<text x="120" y="98">推理 32K</text>
+<rect x="196" y="87" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="87" width="324.0" height="14" fill="#0072B2"/>
+<line x1="209.5" y1="87" x2="209.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="87" x2="223.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="87" x2="236.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="87" x2="250.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="87" x2="263.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="87" x2="277.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="87" x2="290.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="87" x2="304.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="87" x2="317.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="87" x2="331.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="87" x2="344.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="87" x2="358.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="87" x2="371.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="87" x2="385.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="87" x2="398.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="87" x2="412.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="87" x2="425.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="87" x2="439.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="87" x2="452.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="87" x2="466.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="87" x2="479.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="87" x2="493.0" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="87" x2="506.5" y2="101" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="87" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="98">5.2 圈，没有新相位</text>
+<text x="20" y="134">i = 52</text><text x="20" y="158" class="g">λ = 11174</text>
+<text x="120" y="134">训练 8K</text>
+<rect x="196" y="123" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="123" width="237.6" height="14" fill="#0072B2"/>
+<line x1="209.5" y1="123" x2="209.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="123" x2="223.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="123" x2="236.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="123" x2="250.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="123" x2="263.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="123" x2="277.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="123" x2="290.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="123" x2="304.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="123" x2="317.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="123" x2="331.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="123" x2="344.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="123" x2="358.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="123" x2="371.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="123" x2="385.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="123" x2="398.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="123" x2="412.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="123" x2="425.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="123" x2="439.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="123" x2="452.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="123" x2="466.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="123" x2="479.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="123" x2="493.0" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="123" x2="506.5" y2="137" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="123" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="134">264°</text>
+<text x="120" y="158">推理 32K</text>
+<rect x="196" y="147" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="147" width="237.6" height="14" fill="#0072B2"/>
+<rect x="433.6" y="147" width="86.4" height="14" fill="#E69F00"/>
+<line x1="209.5" y1="147" x2="209.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="147" x2="223.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="147" x2="236.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="147" x2="250.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="147" x2="263.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="147" x2="277.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="147" x2="290.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="147" x2="304.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="147" x2="317.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="147" x2="331.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="147" x2="344.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="147" x2="358.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="147" x2="371.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="147" x2="385.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="147" x2="398.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="147" x2="412.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="147" x2="425.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="147" x2="439.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="147" x2="452.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="147" x2="466.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="147" x2="479.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="147" x2="493.0" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="147" x2="506.5" y2="161" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="147" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="158">2.9 圈 → 96° 从未见过</text>
+<text x="20" y="194">i = 56</text><text x="20" y="218" class="g">λ = 19869</text>
+<text x="120" y="194">训练 8K</text>
+<rect x="196" y="183" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="183" width="133.20000000000002" height="14" fill="#0072B2"/>
+<line x1="209.5" y1="183" x2="209.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="183" x2="223.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="183" x2="236.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="183" x2="250.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="183" x2="263.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="183" x2="277.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="183" x2="290.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="183" x2="304.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="183" x2="317.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="183" x2="331.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="183" x2="344.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="183" x2="358.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="183" x2="371.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="183" x2="385.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="183" x2="398.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="183" x2="412.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="183" x2="425.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="183" x2="439.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="183" x2="452.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="183" x2="466.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="183" x2="479.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="183" x2="493.0" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="183" x2="506.5" y2="197" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="183" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="194">148°</text>
+<text x="120" y="218">推理 32K</text>
+<rect x="196" y="207" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="207" width="133.20000000000002" height="14" fill="#0072B2"/>
+<rect x="329.20000000000005" y="207" width="190.8" height="14" fill="#E69F00"/>
+<line x1="209.5" y1="207" x2="209.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="207" x2="223.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="207" x2="236.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="207" x2="250.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="207" x2="263.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="207" x2="277.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="207" x2="290.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="207" x2="304.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="207" x2="317.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="207" x2="331.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="207" x2="344.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="207" x2="358.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="207" x2="371.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="207" x2="385.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="207" x2="398.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="207" x2="412.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="207" x2="425.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="207" x2="439.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="207" x2="452.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="207" x2="466.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="207" x2="479.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="207" x2="493.0" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="207" x2="506.5" y2="221" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="207" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="218">1.65 圈 → 212° 从未见过</text>
+<text x="20" y="254">i = 63</text><text x="20" y="278" class="g">λ = 54410</text>
+<text x="120" y="254">训练 8K</text>
+<rect x="196" y="243" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="243" width="48.6" height="14" fill="#0072B2"/>
+<line x1="209.5" y1="243" x2="209.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="243" x2="223.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="243" x2="236.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="243" x2="250.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="243" x2="263.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="243" x2="277.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="243" x2="290.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="243" x2="304.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="243" x2="317.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="243" x2="331.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="243" x2="344.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="243" x2="358.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="243" x2="371.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="243" x2="385.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="243" x2="398.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="243" x2="412.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="243" x2="425.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="243" x2="439.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="243" x2="452.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="243" x2="466.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="243" x2="479.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="243" x2="493.0" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="243" x2="506.5" y2="257" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="243" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="254">54°</text>
+<text x="120" y="278">推理 32K</text>
+<rect x="196" y="267" width="324.0" height="14" fill="#f3f3f3"/>
+<rect x="196" y="267" width="48.6" height="14" fill="#0072B2"/>
+<rect x="244.6" y="267" width="146.70000000000002" height="14" fill="#E69F00"/>
+<line x1="209.5" y1="267" x2="209.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="223.0" y1="267" x2="223.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="236.5" y1="267" x2="236.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="250.0" y1="267" x2="250.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="263.5" y1="267" x2="263.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="277.0" y1="267" x2="277.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="290.5" y1="267" x2="290.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="304.0" y1="267" x2="304.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="317.5" y1="267" x2="317.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="331.0" y1="267" x2="331.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="344.5" y1="267" x2="344.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="358.0" y1="267" x2="358.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="371.5" y1="267" x2="371.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="385.0" y1="267" x2="385.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="398.5" y1="267" x2="398.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="412.0" y1="267" x2="412.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="425.5" y1="267" x2="425.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="439.0" y1="267" x2="439.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="452.5" y1="267" x2="452.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="466.0" y1="267" x2="466.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="479.5" y1="267" x2="479.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="493.0" y1="267" x2="493.0" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<line x1="506.5" y1="267" x2="506.5" y2="281" stroke="#fff" stroke-opacity="0.7"/>
+<rect x="196" y="267" width="324.0" height="14" fill="none" stroke="#999"/>
+<text x="532.0" y="278">217° → 163° 从未见过</text>
+</svg>
