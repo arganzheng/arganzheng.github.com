@@ -328,7 +328,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 | 第四篇 | k8s-device-plugin `internal/rm`（MIG 与 sharing 的资源上报）；HAMi `pkg/scheduler` · libvgpu 的拦截点 |
 | 第五篇 | network-operator NicClusterPolicy CRD；k8s-rdma-shared-dev-plugin；nccl-tests；PyTorch `torch/distributed/checkpoint` |
 | 第六篇 | kserve `pkg/apis/serving/v1alpha1/llm_inference_service_types.go`；lws `api/leaderworkerset/v1`；llm-d 架构文档 |
-| 第七篇 | gateway-api-inference-extension `api/v1`（InferencePool）· `pkg/epp`（Endpoint Picker 的调度插件） |
+| 第七篇 | gateway-api-inference-extension `api/v1`（InferencePool）；llm-d-router `pkg/epp`（Endpoint Picker 的调度插件） |
 | 第八篇 | dcgm-exporter 的默认指标表；vLLM `docs/design/metrics.md`；OpenCost 的 GPU 计费逻辑 |
 
 Table: 与实践线平行的源码与文档阅读线
