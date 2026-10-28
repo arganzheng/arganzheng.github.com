@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="402" viewBox="0 0 760 402" role="img" aria-labelledby="t d">
+<title id="t">一次训练迭代的状态流：DataLoader、Module、Autograd、Optimizer 在时间轴上的分工</title>
+<desc id="d">① Optimizer.zero_grad 把 Parameter.grad 置为 None；② DataLoader 交出 inputs, targets；③ Module 执行 forward 和 loss，Autograd 同时记录计算图；④ loss.backward 把梯度写入 Parameter.grad；⑤ optimizer.step 原地更新参数，然后进入下一个 batch。</desc>
+<style>
+text{font-family:"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-size:13px;fill:#111;font-weight:500}
+.mono{font-family:"SFMono-Regular",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12px}
+.small{font-size:12px}
+.lab{font-size:13px;font-weight:600}
+.num{font-size:12px;font-weight:600;fill:#555}
+.mod{fill:#e3f2fd;stroke:#1565c0;stroke-width:1.2}
+.op{fill:#f5f5f5;stroke:#757575;stroke-width:1.2}
+.cpu{fill:#fff8e1;stroke:#f9a825;stroke-width:1.2}
+.gpu{fill:#e8f5e9;stroke:#2e7d32;stroke-width:1.2}
+.ag{fill:#f3e5f5;stroke:#7b1fa2;stroke-width:1.2}
+.opt{fill:#fbe9e7;stroke:#d84315;stroke-width:1.2}
+.dash{stroke-dasharray:5 3}
+.ln{stroke:#333;stroke-width:1.3;fill:none}
+.ax{stroke:#888;stroke-width:1;fill:none}
+.grid{stroke:#ccc;stroke-width:1;stroke-dasharray:3 3}
+</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#333"/></marker><marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#888"/></marker></defs>
+<rect width="760" height="402" fill="#fff"/>
+<text x="16" y="73.0" text-anchor="start" dominant-baseline="central" class="lab">DataLoader</text>
+<text x="16" y="149.0" text-anchor="start" dominant-baseline="central" class="lab">Module</text>
+<text x="16" y="225.0" text-anchor="start" dominant-baseline="central" class="lab">Autograd</text>
+<text x="16" y="301.0" text-anchor="start" dominant-baseline="central" class="lab">Optimizer</text>
+<rect x="120" y="284" width="100" height="34" class="opt"/>
+<text x="170.0" y="301.0" text-anchor="middle" dominant-baseline="central" class="mono">zero_grad()</text>
+<rect x="220" y="56" width="100" height="34" class="cpu"/>
+<text x="270.0" y="73.0" text-anchor="middle" dominant-baseline="central" class="mono">next(loader)</text>
+<rect x="320" y="132" width="150" height="34" class="mod"/>
+<text x="395.0" y="149.0" text-anchor="middle" dominant-baseline="central">forward + loss</text>
+<rect x="320" y="208" width="150" height="34" class="ag"/>
+<text x="395.0" y="225.0" text-anchor="middle" dominant-baseline="central">记录计算图</text>
+<rect x="470" y="208" width="130" height="34" class="ag"/>
+<text x="535.0" y="225.0" text-anchor="middle" dominant-baseline="central" class="mono">loss.backward()</text>
+<rect x="600" y="284" width="100" height="34" class="opt"/>
+<text x="650.0" y="301.0" text-anchor="middle" dominant-baseline="central" class="mono">step()</text>
+<text x="170.0" y="36" text-anchor="middle" dominant-baseline="central" class="num">①</text>
+<text x="270.0" y="36" text-anchor="middle" dominant-baseline="central" class="num">②</text>
+<text x="395.0" y="36" text-anchor="middle" dominant-baseline="central" class="num">③</text>
+<text x="535.0" y="36" text-anchor="middle" dominant-baseline="central" class="num">④</text>
+<text x="650.0" y="36" text-anchor="middle" dominant-baseline="central" class="num">⑤</text>
+<circle cx="220" cy="149.0" r="5" fill="#fff" stroke="#1565c0" stroke-width="1.5"/>
+<text x="230" y="149.0" text-anchor="start" dominant-baseline="central" class="small">grad = None</text>
+<circle cx="600" cy="149.0" r="5" fill="#fff" stroke="#1565c0" stroke-width="1.5"/>
+<text x="590" y="149.0" text-anchor="end" dominant-baseline="central" class="small">写入 .grad</text>
+<circle cx="700" cy="149.0" r="5" fill="#fff" stroke="#1565c0" stroke-width="1.5"/>
+<text x="690" y="149.0" text-anchor="end" dominant-baseline="central" class="small">原地更新参数</text>
+<line x1="220" y1="284" x2="220" y2="155.0" class="ln" marker-end="url(#ah)"/>
+<line x1="600" y1="208" x2="600" y2="155.0" class="ln" marker-end="url(#ah)"/>
+<line x1="700" y1="284" x2="700" y2="155.0" class="ln" marker-end="url(#ah)"/>
+<line x1="320" y1="90" x2="320" y2="132" class="ln" marker-end="url(#ah)"/>
+<text x="326" y="111.0" text-anchor="start" dominant-baseline="central" class="mono">inputs, targets</text>
+<path d="M700,301.0 H730 V340 H100 V301.0 H120" class="ln" marker-end="url(#ah)"/>
+<text x="410" y="352" text-anchor="middle" dominant-baseline="central" class="small">下一个 batch</text>
+<line x1="120" y1="380" x2="712" y2="380" class="ax" marker-end="url(#ahg)"/>
+<text x="718" y="380" text-anchor="start" dominant-baseline="central" class="small">时间</text>
+</svg>

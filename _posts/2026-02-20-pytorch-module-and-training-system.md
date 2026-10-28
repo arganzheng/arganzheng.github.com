@@ -233,11 +233,11 @@ for name, parameter in model.named_parameters():
 在 Eager Mode 下，forward 中的每个 Tensor 运算会立即执行；如果开启梯度记录，Autograd 还会为本次调用记录一张动态计算图。这里要区分两张图：
 
 - **Module 树**
-  - → __init__ 中注册的模块、参数和 Buffer
-  - → 主要描述模型有哪些组件
+  - __init__ 中注册的模块、参数和 Buffer
+  - 主要描述模型有哪些组件
 - **Tensor / Autograd 计算图**
-  - → forward 本次执行产生的运算关系
-  - → 主要描述数据如何流过这些组件
+  - forward 本次执行产生的运算关系
+  - 主要描述数据如何流过这些组件
 
 `forward()` 不只是把层按顺序排列，也可以表达分支、跳跃连接和条件路径：
 
@@ -257,11 +257,9 @@ class ResidualBlock(nn.Module):
 
 它的 Module 树只有两个 Linear，但 forward 的数据流包含一条旁路：
 
-```text title='Module 树只有两个 Linear，数据流多一条 residual'
-        ┌──────────── residual ────────────┐
-        │                                  │
-x ─────┴→ fc1 → ReLU → fc2 ────────────── + → output
-```
+![ResidualBlock 的数据流：x 依次经过 fc1（Linear）、torch.relu、fc2（Linear），再与从 x 分出的 residual 相加得到 output](/img/in-post/pytorch-module-residual-dataflow.svg)
+
+蓝框是登记在 Module 树里的两个 `nn.Linear`；`torch.relu` 和最后的 `+` 只是 forward 里直接调用的 Tensor 运算，Module 树里没有它们。
 
 因此，更准确的说法是：
 
@@ -440,8 +438,8 @@ self.counter = 0
 分别属于：
 
 - Parameter → 参数
-- Module：→ 子模块
-- int：→ 普通属性
+- Module → 子模块
+- int → 普通属性
 
 ### 3. `ModuleList`
 
@@ -668,28 +666,24 @@ print(state.keys())
 2. state_dict key
 3. Tensor 状态
 
-把 Module 树和 `state_dict` 并排放在一起看会更直观：左边是嵌套的对象树，右边是按"模块路径 + 属性名"拍平后的 key。Parameter 和持久化 Buffer 都会生成 key，无状态模块（如 ReLU）什么也不产生；下面以一个加了 BatchNorm 的 MLP 为例：
+把 Module 树和 `state_dict` 并排放在一起看会更直观：左边两列是嵌套的对象树（子模块 → 属性），右边是按"模块路径 + 属性名"拍平后的 key。Parameter 和持久化 Buffer 都会生成 key，无状态模块（如 ReLU）什么也不产生；下面以一个加了 BatchNorm 的 MLP 为例：
 
-```text title='Module 树与 state_dict 扁平 key 的对照'
-Module 树（嵌套对象）                      state_dict（扁平 key -> Tensor）
-────────────────────────────────         ──────────────────────────────
-MLP
-├── fc1: Linear
-│   ├── weight       (Parameter) ──────▶ "fc1.weight"
-│   └── bias         (Parameter) ──────▶ "fc1.bias"
-├── act: ReLU                (无状态，不产生任何 key)
-├── bn: BatchNorm1d
-│   ├── weight       (Parameter) ──────▶ "bn.weight"
-│   ├── bias         (Parameter) ──────▶ "bn.bias"
-│   ├── running_mean (Buffer)    ──────▶ "bn.running_mean"
-│   ├── running_var  (Buffer)    ──────▶ "bn.running_var"
-│   └── num_batches_tracked (Buffer) ─▶ "bn.num_batches_tracked"
-└── fc2: Linear
-    ├── weight       (Parameter) ──────▶ "fc2.weight"
-    └── bias         (Parameter) ──────▶ "fc2.bias"
+| MLP 的子模块 | 属性 | 类别 | state_dict key（→ Tensor） |
+|---|---|---|---|
+| `fc1`: Linear | `weight` | Parameter | `"fc1.weight"` |
+| ^^ | `bias` | Parameter | `"fc1.bias"` |
+| `act`: ReLU | — | 无状态 | 不产生任何 key |
+| `bn`: BatchNorm1d | `weight` | Parameter | `"bn.weight"` |
+| ^^ | `bias` | Parameter | `"bn.bias"` |
+| ^^ | `running_mean` | Buffer | `"bn.running_mean"` |
+| ^^ | `running_var` | Buffer | `"bn.running_var"` |
+| ^^ | `num_batches_tracked` | Buffer | `"bn.num_batches_tracked"` |
+| `fc2`: Linear | `weight` | Parameter | `"fc2.weight"` |
+| ^^ | `bias` | Parameter | `"fc2.bias"` |
 
-不包含：类定义 / forward 逻辑 / optimizer 状态 / scheduler / RNG 状态
-```
+Table: Module 树（嵌套对象）与 state_dict（扁平 key → Tensor）的对照
+
+state_dict 里不包含：类定义、forward 逻辑、optimizer 状态、scheduler、RNG 状态。
 
 ### 2. `state_dict` 不是完整模型
 
@@ -767,9 +761,9 @@ torch.save(checkpoint, "checkpoint.pt")
 `state_dict` 可以类比为结构化状态快照，但它不是 Java 序列化整个对象图：
 
 - **state_dict**
-  - → 只保存可训练参数和模型状态
-  - → 依赖代码重新构造 Module
-  - → 通过 key 和 shape 恢复
+  - 只保存可训练参数和模型状态
+  - 依赖代码重新构造 Module
+  - 通过 key 和 shape 恢复
 
 这种设计使得权重状态和模型代码相对解耦，也使得模型结构变更时必须显式处理兼容性。
 
@@ -906,7 +900,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
 二者职责不同：
 
-- Autograd：→ 计算应该往哪个方向变化
+- Autograd → 计算应该往哪个方向变化
 - Optimizer → 决定采用什么更新规则和步长
 
 ### 3. 梯度清零
@@ -1084,15 +1078,7 @@ DataLoader 通常负责：
 
 ### 5. `collate_fn`
 
-默认 collate 可以处理形状一致的样本：
-
-```text title='默认 collate：形状一致的样本堆成 batch'
-样本 1：shape=(3,)
-样本 2：shape=(3,)
-样本 3：shape=(3,)
-    ↓
-Batch：shape=(3, 3)
-```
+默认 collate 可以处理形状一致的样本：样本 1、2、3 的 shape 都是 `(3,)`，堆成一个 shape 为 `(3, 3)` 的 batch。
 
 但变长序列通常需要自定义 padding：
 
@@ -1183,19 +1169,7 @@ flowchart TB
 - 数据复制或序列化；
 - worker 启动时间。
 
-正确的调优方式是测量：
-
-```text title='num_workers 逐档测量'
-num_workers=0
-    ↓
-num_workers=2
-    ↓
-num_workers=4
-    ↓
-num_workers=8
-```
-
-观察：
+正确的调优方式是逐档测量：`num_workers=0` → `2` → `4` → `8`，每一档观察：
 
 - batch 等待时间；
 - GPU 利用率；
@@ -1277,15 +1251,7 @@ inputs = inputs.to("cuda", non_blocking=True)
 
 ### 4. 训练流水线的理想状态
 
-```text title='理想的流水线：CPU 准备下一批，GPU 算当前批'
-CPU Worker 准备 Batch N+1
-              │
-              ▼
-GPU 计算 Batch N
-              │
-              ▼
-CPU Worker 准备 Batch N+2
-```
+![理想的训练流水线：CPU Worker 依次准备 Batch N、N+1、N+2、N+3，GPU 晚一格依次计算 Batch N、N+1、N+2；CPU 准备 N+1 与 GPU 计算 N 在同一时段](/img/in-post/pytorch-module-ideal-pipeline.svg)
 
 目标是让 CPU 数据准备和 GPU 计算尽量重叠，而不是：
 
@@ -1379,24 +1345,13 @@ for epoch in range(10):
 
 ### 3. 一次训练迭代的状态流
 
-```mermaid
-%% 图：一次训练迭代的状态流：DataLoader → Module → Autograd → Optimizer
-sequenceDiagram
-    participant L as DataLoader
-    participant M as Module
-    participant A as Autograd
-    participant O as Optimizer
+![一次训练迭代的状态流：zero_grad 清空 grad，DataLoader 交出 batch，Module 前向时 Autograd 记录计算图，backward 写入 grad，step 原地更新参数](/img/in-post/pytorch-module-train-iteration-timeline.svg)
 
-    L->>M: inputs, targets
-    M->>M: forward(inputs)
-    M->>A: 构建动态计算图
-    A-->>M: outputs
-    M->>A: loss.backward()
-    A-->>O: parameter.grad
-    O->>O: optimizer.step()
-    O-->>M: 更新 Parameter
-    M->>O: zero_grad()
-```
+1. `optimizer.zero_grad(set_to_none=True)`：把每个 Parameter 的 `.grad` 置为 None。
+2. DataLoader 交出 `inputs, targets`。
+3. Module 执行 `forward(inputs)` 并算 loss；Autograd 在前向的同时构建这次的动态计算图，outputs 和 loss 都挂在这张图上。
+4. `loss.backward()`：Autograd 沿图反传，把梯度写进 `Parameter.grad`。
+5. `optimizer.step()`：读每个参数的 `.grad`，原地更新 Parameter，然后进入下一个 batch。
 
 ### 4. 训练循环中的常见顺序错误
 
@@ -1499,40 +1454,16 @@ for inputs, targets in loader:
 
 这三行各自做了什么、和 autocast、Optimizer 之间怎么配合，用一次迭代的时序来看：
 
-```mermaid
-%% 图：GradScaler 的一次迭代：scale 放大 loss，step 内部 unscale 并查溢出，update 自适应 scale
-sequenceDiagram
-    participant T as 训练循环
-    participant AC as autocast
-    participant S as GradScaler
-    participant O as Optimizer
+![GradScaler 的一次迭代：autocast 前向返回 outputs 和 loss，scale 放大 loss，backward，step 内部 unscale 并查溢出、梯度正常才调用 optimizer.step，update 调整 scale](/img/in-post/pytorch-module-gradscaler-timeline.svg)
 
-    T->>AC: with autocast(dtype=float16)
-    activate AC
-    Note over AC: forward 中 matmul 等算子用 FP16 计算<br/>loss 等归约算子保持 FP32
-    AC-->>T: outputs, loss
-    deactivate AC
-
-    T->>S: scaler.scale(loss)
-    S-->>T: loss × scale（scale 初始 65536）
-    T->>T: (loss × scale).backward()
-    Note over T: 梯度被同比例放大<br/>避免 FP16 下小梯度下溢成 0
-
-    T->>S: scaler.step(optimizer)
-    activate S
-    S->>S: unscale_(optimizer)：grad ÷= scale
-    S->>S: 检查所有 grad 是否含 inf / nan
-    alt 梯度正常
-        S->>O: optimizer.step()
-        O-->>S: 参数已更新
-    else 发现 inf / nan
-        Note over S,O: 跳过本步 optimizer.step()<br/>参数保持不变
-    end
-    deactivate S
-
-    T->>S: scaler.update()
-    Note over S: 本步溢出 -> scale ÷= 2<br/>连续 2000 步正常 -> scale ×= 2
-```
+1. `with autocast(dtype=float16)`：forward 中 matmul 等算子用 FP16 计算，loss 等归约算子保持 FP32，返回 outputs、loss。
+2. `scaler.scale(loss)`：返回 loss × scale（scale 初始 65536）。
+3. `(loss × scale).backward()`：梯度被同比例放大，避免 FP16 下小梯度下溢成 0。
+4. `scaler.step(optimizer)`：
+   - 先 `unscale_(optimizer)`：grad ÷= scale，同时检查所有 grad 是否含 inf / nan（同一个 `_amp_foreach_non_finite_check_and_unscale_` 调用里完成）；
+   - 梯度正常：调用 `optimizer.step()`，参数更新；
+   - 发现 inf / nan：跳过本步 `optimizer.step()`，参数保持不变（所以图里 `optimizer.step()` 画成虚线框）。
+5. `scaler.update()`：本步溢出 → scale ÷= 2；连续 2000 步正常 → scale ×= 2。
 
 要点有两个：`scaler.step()` 内部才做 unscale 和溢出检查，所以如果需要在 step 前做梯度裁剪，必须先显式调用 `scaler.unscale_(optimizer)`；`scaler.update()` 让 scale 自适应——溢出就减半、长期稳定就翻倍，这也是它必须在每步 `step()` 之后调用的原因。
 
@@ -1718,17 +1649,14 @@ flowchart TB
 
 ### 1. Module 更像带状态协议的组件树
 
-`nn.Module` 可以近似理解为：
+`nn.Module` 可以近似理解为一棵组件树，加上六种协议：
 
-```text title='nn.Module 的近似：组件树加六种协议'
-组件树
-+ 参数注册
-+ 状态注册
-+ 生命周期切换
-+ 设备迁移
-+ 序列化协议
-+ 调用钩子
-```
+- 参数注册；
+- 状态注册；
+- 生命周期切换；
+- 设备迁移；
+- 序列化协议；
+- 调用钩子。
 
 它不是简单的 Java POJO，也不是只有一个 `forward()` 方法的接口。
 
