@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 317" width="760" height="317" role="img" aria-labelledby="t d">
+  <title id="t">SIMT 与块级张量：block 0 与 program 0</title>
+  <desc id="d">左：CUDA（SIMT）写的是一个线程。block 0 里 t0、t1、t2、t3 … t127 每个线程一份代码，各自指向 x[0]、x[1]、x[2]、x[3] … x[127]；idx 是标量，if (idx&lt;n) 是分支；程序员决定线程 i 拿元素 blockIdx*128 + i。右：Triton（块级张量）写的是一个 block。program 0 一份代码操作整块：offs = [0, 1, 2, ..., 1023]（张量），mask = offs &lt; n（张量），x = tl.load(x_ptr + offs, mask)，mask 是谓词；编译器决定把它分给 128 个线程 × 8 个元素/线程，这个 layout 在源码里看不到。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; fill: #333; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .box { fill: #f4f7fb; stroke: #40566f; stroke-width: 1.2; }
+      .cell { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .line { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#40566f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="317" fill="#fff"/>
+  <text class="head" x="20.0" y="26.0">CUDA（SIMT）：写的是“一个线程”</text>
+  <text class="small" x="20.0" y="48.0">每个线程一份代码；idx 是标量；if (idx&lt;n) 是分支</text>
+  <text class="head" x="400.0" y="26.0">Triton（块级张量）：写的是“一个 block”</text>
+  <text class="small" x="400.0" y="48.0">一份代码操作整块；mask 是谓词</text>
+  <text class="bold" x="20.0" y="80.0">block 0</text>
+  <text class="bold" x="400.0" y="80.0">program 0</text>
+  <rect class="cell" x="20.0" y="92.0" width="54.0" height="28.0" style="fill:#dbe8fb"/>
+  <text class="mono" x="47.0" y="111.0" text-anchor="middle">t0</text>
+  <line class="arrow" x1="47.0" y1="120.0" x2="47.0" y2="150.0"/>
+  <rect class="cell" x="20.0" y="152.0" width="54.0" height="28.0"/>
+  <text class="mono" x="47.0" y="171.0" text-anchor="middle">x[0]</text>
+  <rect class="cell" x="78.0" y="92.0" width="54.0" height="28.0" style="fill:#dbe8fb"/>
+  <text class="mono" x="105.0" y="111.0" text-anchor="middle">t1</text>
+  <line class="arrow" x1="105.0" y1="120.0" x2="105.0" y2="150.0"/>
+  <rect class="cell" x="78.0" y="152.0" width="54.0" height="28.0"/>
+  <text class="mono" x="105.0" y="171.0" text-anchor="middle">x[1]</text>
+  <rect class="cell" x="136.0" y="92.0" width="54.0" height="28.0" style="fill:#dbe8fb"/>
+  <text class="mono" x="163.0" y="111.0" text-anchor="middle">t2</text>
+  <line class="arrow" x1="163.0" y1="120.0" x2="163.0" y2="150.0"/>
+  <rect class="cell" x="136.0" y="152.0" width="54.0" height="28.0"/>
+  <text class="mono" x="163.0" y="171.0" text-anchor="middle">x[2]</text>
+  <rect class="cell" x="194.0" y="92.0" width="54.0" height="28.0" style="fill:#dbe8fb"/>
+  <text class="mono" x="221.0" y="111.0" text-anchor="middle">t3</text>
+  <line class="arrow" x1="221.0" y1="120.0" x2="221.0" y2="150.0"/>
+  <rect class="cell" x="194.0" y="152.0" width="54.0" height="28.0"/>
+  <text class="mono" x="221.0" y="171.0" text-anchor="middle">x[3]</text>
+  <text class="body" x="279.0" y="111.0" text-anchor="middle">…</text>
+  <text class="body" x="279.0" y="171.0" text-anchor="middle">…</text>
+  <rect class="cell" x="310.0" y="92.0" width="54.0" height="28.0" style="fill:#dbe8fb"/>
+  <text class="mono" x="337.0" y="111.0" text-anchor="middle">t127</text>
+  <line class="arrow" x1="337.0" y1="120.0" x2="337.0" y2="150.0"/>
+  <rect class="cell" x="310.0" y="152.0" width="54.0" height="28.0"/>
+  <text class="mono" x="337.0" y="171.0" text-anchor="middle">x[127]</text>
+  <rect class="box" x="400.0" y="92.0" width="340.0" height="88.0"/>
+  <text class="mono" x="412.0" y="118.0">offs = [0, 1, 2, ..., 1023]</text>
+  <text class="small" x="728.0" y="118.0" text-anchor="end">张量</text>
+  <text class="mono" x="412.0" y="142.0">mask = offs &lt; n</text>
+  <text class="small" x="728.0" y="142.0" text-anchor="end">张量</text>
+  <text class="mono" x="412.0" y="166.0">x = tl.load(x_ptr + offs, mask)</text>
+  <line class="arrow" x1="570.0" y1="180.0" x2="570.0" y2="234.0"/>
+  <text class="small" x="580.0" y="213.0">编译器决定</text>
+  <text class="monos" x="450.0" y="249.0" text-anchor="middle">t0</text>
+  <rect class="cell" x="418.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="426.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="434.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="442.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="450.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="458.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="466.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="474.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <text class="monos" x="520.0" y="249.0" text-anchor="middle">t1</text>
+  <rect class="cell" x="488.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="496.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="504.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="512.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="520.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="528.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="536.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="544.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <text class="monos" x="590.0" y="249.0" text-anchor="middle">t2</text>
+  <rect class="cell" x="558.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="566.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="574.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="582.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="590.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="598.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="606.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="614.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <text class="body" x="643.0" y="270.0" text-anchor="middle">…</text>
+  <text class="monos" x="696.0" y="249.0" text-anchor="middle">t127</text>
+  <rect class="cell" x="664.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="672.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="680.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="688.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="696.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="704.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="712.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <rect class="cell" x="720.0" y="254.0" width="8.0" height="22.0" style="fill:#dbe8fb"/>
+  <text class="small" x="570.0" y="296.0" text-anchor="middle">128 个线程 × 8 个元素/线程（layout，源码里看不到）</text>
+  <text class="body" x="20.0" y="270.0">程序员决定：线程 i 拿元素 blockIdx*128 + i</text>
+</svg>

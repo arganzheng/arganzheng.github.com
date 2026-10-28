@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 459" width="760" height="459" role="img" aria-labelledby="t d">
+  <title id="t">sizePerThread=[1,8], threadsPerWarp=[8,4] 在 [128,32] tile 上的铺法</title>
+  <desc id="d">#blocked&lt;{sizePerThread=[1,8], threadsPerWarp=[8,4], warpsPerCTA=[4,1], order=[1,0]}&gt; 作用在 [128, 32] 的 BF16 A tile 上。每格是 1 个线程的 8 个连续 BF16 = 16 B = 一条 128 bit load。列分成 0-7、8-15、16-23、24-31 四段。warp 0 铺行 0-7：行 r 的四段依次是 t(4r) 到 t(4r+3)，行 0 是 t0 t1 t2 t3，行 7 是 t28 t29 t30 t31；warp 0 覆盖 8 行 × 32 列。warp 1 铺行 8-15，warp 2 铺行 16-23，warp 3 铺行 24-31，4 个 warp 一轮铺 32 行；行 32-127 再走 3 轮，每线程共持有 4 × 8 = 32 个元素。同一行的 4 个线程各取连续 16 B，一行 64 B 一次合并访问；行与行之间隔 K × 2 B，warp 0 的一条 load 是 8 段各 64 B。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; fill: #333; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .box { fill: #f4f7fb; stroke: #40566f; stroke-width: 1.2; }
+      .cell { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .line { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#40566f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="459" fill="#fff"/>
+  <text class="monob" x="20.0" y="26.0">#blocked&lt;{sizePerThread=[1,8], threadsPerWarp=[8,4], warpsPerCTA=[4,1], order=[1,0]}&gt;</text>
+  <text class="small" x="20.0" y="48.0">作用在 [128, 32] 的 BF16 A tile 上；每格 = 1 个线程的 8 个连续 BF16 = 16 B = 一条 128 bit load</text>
+  <text class="small" x="20.0" y="86.0">列</text>
+  <text class="monos" x="142.0" y="86.0" text-anchor="middle">0-7</text>
+  <text class="monos" x="226.0" y="86.0" text-anchor="middle">8-15</text>
+  <text class="monos" x="310.0" y="86.0" text-anchor="middle">16-23</text>
+  <text class="monos" x="394.0" y="86.0" text-anchor="middle">24-31</text>
+  <text class="small" x="20.0" y="113.0">行 0</text>
+  <rect class="cell" x="100.0" y="96.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="113.0" text-anchor="middle">t0</text>
+  <rect class="cell" x="184.0" y="96.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="113.0" text-anchor="middle">t1</text>
+  <rect class="cell" x="268.0" y="96.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="113.0" text-anchor="middle">t2</text>
+  <rect class="cell" x="352.0" y="96.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="113.0" text-anchor="middle">t3</text>
+  <text class="small" x="20.0" y="137.0">行 1</text>
+  <rect class="cell" x="100.0" y="120.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="137.0" text-anchor="middle">t4</text>
+  <rect class="cell" x="184.0" y="120.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="137.0" text-anchor="middle">t5</text>
+  <rect class="cell" x="268.0" y="120.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="137.0" text-anchor="middle">t6</text>
+  <rect class="cell" x="352.0" y="120.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="137.0" text-anchor="middle">t7</text>
+  <text class="small" x="20.0" y="161.0">行 2</text>
+  <rect class="cell" x="100.0" y="144.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="161.0" text-anchor="middle">t8</text>
+  <rect class="cell" x="184.0" y="144.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="161.0" text-anchor="middle">t9</text>
+  <rect class="cell" x="268.0" y="144.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="161.0" text-anchor="middle">t10</text>
+  <rect class="cell" x="352.0" y="144.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="161.0" text-anchor="middle">t11</text>
+  <text class="small" x="20.0" y="185.0">行 3</text>
+  <rect class="cell" x="100.0" y="168.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="185.0" text-anchor="middle">t12</text>
+  <rect class="cell" x="184.0" y="168.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="185.0" text-anchor="middle">t13</text>
+  <rect class="cell" x="268.0" y="168.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="185.0" text-anchor="middle">t14</text>
+  <rect class="cell" x="352.0" y="168.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="185.0" text-anchor="middle">t15</text>
+  <text class="small" x="20.0" y="209.0">行 4</text>
+  <rect class="cell" x="100.0" y="192.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="209.0" text-anchor="middle">t16</text>
+  <rect class="cell" x="184.0" y="192.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="209.0" text-anchor="middle">t17</text>
+  <rect class="cell" x="268.0" y="192.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="209.0" text-anchor="middle">t18</text>
+  <rect class="cell" x="352.0" y="192.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="209.0" text-anchor="middle">t19</text>
+  <text class="small" x="20.0" y="233.0">行 5</text>
+  <rect class="cell" x="100.0" y="216.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="233.0" text-anchor="middle">t20</text>
+  <rect class="cell" x="184.0" y="216.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="233.0" text-anchor="middle">t21</text>
+  <rect class="cell" x="268.0" y="216.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="233.0" text-anchor="middle">t22</text>
+  <rect class="cell" x="352.0" y="216.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="233.0" text-anchor="middle">t23</text>
+  <text class="small" x="20.0" y="257.0">行 6</text>
+  <rect class="cell" x="100.0" y="240.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="257.0" text-anchor="middle">t24</text>
+  <rect class="cell" x="184.0" y="240.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="257.0" text-anchor="middle">t25</text>
+  <rect class="cell" x="268.0" y="240.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="257.0" text-anchor="middle">t26</text>
+  <rect class="cell" x="352.0" y="240.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="257.0" text-anchor="middle">t27</text>
+  <text class="small" x="20.0" y="281.0">行 7</text>
+  <rect class="cell" x="100.0" y="264.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="142.0" y="281.0" text-anchor="middle">t28</text>
+  <rect class="cell" x="184.0" y="264.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="226.0" y="281.0" text-anchor="middle">t29</text>
+  <rect class="cell" x="268.0" y="264.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="310.0" y="281.0" text-anchor="middle">t30</text>
+  <rect class="cell" x="352.0" y="264.0" width="84.0" height="24.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="394.0" y="281.0" text-anchor="middle">t31</text>
+  <text class="small" x="20.0" y="308.0">行 8-15</text>
+  <rect class="cell" x="100.0" y="288.0" width="336.0" height="30.0" style="fill:#fde0bf"/>
+  <text class="small" x="268.0" y="308.0" text-anchor="middle">warp 1：同样 8 行 × 4 段，t0-t31</text>
+  <text class="small" x="20.0" y="338.0">行 16-23</text>
+  <rect class="cell" x="100.0" y="318.0" width="336.0" height="30.0" style="fill:#d4efd9"/>
+  <text class="small" x="268.0" y="338.0" text-anchor="middle">warp 2：同样 8 行 × 4 段，t0-t31</text>
+  <text class="small" x="20.0" y="368.0">行 24-31</text>
+  <rect class="cell" x="100.0" y="348.0" width="336.0" height="30.0" style="fill:#e7dcf3"/>
+  <text class="small" x="268.0" y="368.0" text-anchor="middle">warp 3：同样 8 行 × 4 段，t0-t31</text>
+  <text class="small" x="20.0" y="398.0">行 32-127</text>
+  <rect class="cell" x="100.0" y="378.0" width="336.0" height="30.0" style="fill:#f1f3f6;stroke-dasharray:4 3"/>
+  <text class="small" x="268.0" y="398.0" text-anchor="middle">再走 3 轮（每轮 32 行）</text>
+  <path class="line" d="M450,97 h6 V287 h-6"/>
+  <text class="small" x="466.0" y="167.0">warp 0：8 行 × 32 列</text>
+  <text class="small" x="466.0" y="187.0">一行 4 个线程 × 16 B = 64 B 连续</text>
+  <text class="small" x="466.0" y="207.0">行与行隔 K × 2 B，不连续</text>
+  <text class="small" x="466.0" y="227.0">→ 一条 load 是 8 段各 64 B</text>
+  <path class="line" d="M450,289 h6 V377 h-6"/>
+  <text class="small" x="466.0" y="328.0">warp 1-3 沿行方向排开</text>
+  <text class="small" x="466.0" y="348.0">4 个 warp 一轮铺 32 行</text>
+  <text class="body" x="20.0" y="438.0">每线程共持有 4 轮 × 8 = 32 个元素；同一行的 4 个线程各取连续 16 B → 一行 64 B 一次合并访问</text>
+</svg>

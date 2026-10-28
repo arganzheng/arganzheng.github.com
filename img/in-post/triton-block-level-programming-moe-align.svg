@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 321" width="760" height="321" role="img" aria-labelledby="t d">
+  <title id="t">sorted_token_ids 与 expert_ids 的构造示例</title>
+  <desc id="d">例：5 个 token，top_k = 2，3 个 expert，BLOCK_SIZE_M = 4。路由结果 t0→{E0,E2}，t1→{E1,E0}，t2→{E0,E1}，t3→{E2,E1}，t4→{E1,E0}；展平索引 = token*top_k + slot：t0 是 0,1，t1 是 2,3，t2 是 4,5，t3 是 6,7，t4 是 8,9。moe_align_block_size 按 expert 排序，每个 expert 的段尾 pad 到 4 的倍数（pad 值 ≥ num_valid_tokens=10）：sorted_token_ids = [0 3 4 9 | 2 5 7 8 | 1 6 P P]，三段依次属于 E0、E1、E2，P = padding；expert_ids = [0 | 1 | 2]，第 i 个 M-tile 属于哪个 expert，tile 0、tile 1、tile 2 各对应 4 格。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; fill: #333; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .box { fill: #f4f7fb; stroke: #40566f; stroke-width: 1.2; }
+      .cell { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .line { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#40566f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="321" fill="#fff"/>
+  <text class="head" x="20.0" y="26.0">例：5 个 token，top_k = 2，3 个 expert，BLOCK_SIZE_M = 4</text>
+  <text class="small" x="20.0" y="66.0">路由结果</text>
+  <text class="small" x="20.0" y="98.0">展平索引</text>
+  <text class="monos" x="20.0" y="114.0">token*top_k + slot</text>
+  <path class="line" d="M192,70 v-6 H268 v6"/>
+  <text class="monos" x="230.0" y="58.0" text-anchor="middle">t0→{E0,E2}</text>
+  <path class="line" d="M272,70 v-6 H348 v6"/>
+  <text class="monos" x="310.0" y="58.0" text-anchor="middle">t1→{E1,E0}</text>
+  <path class="line" d="M352,70 v-6 H428 v6"/>
+  <text class="monos" x="390.0" y="58.0" text-anchor="middle">t2→{E0,E1}</text>
+  <path class="line" d="M432,70 v-6 H508 v6"/>
+  <text class="monos" x="470.0" y="58.0" text-anchor="middle">t3→{E2,E1}</text>
+  <path class="line" d="M512,70 v-6 H588 v6"/>
+  <text class="monos" x="550.0" y="58.0" text-anchor="middle">t4→{E1,E0}</text>
+  <rect class="cell" x="190.0" y="78.0" width="40.0" height="40.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="210.0" y="95.0" text-anchor="middle">0</text>
+  <text class="monos" x="210.0" y="112.0" text-anchor="middle">E0</text>
+  <rect class="cell" x="230.0" y="78.0" width="40.0" height="40.0" style="fill:#d4efd9"/>
+  <text class="monob" x="250.0" y="95.0" text-anchor="middle">1</text>
+  <text class="monos" x="250.0" y="112.0" text-anchor="middle">E2</text>
+  <rect class="cell" x="270.0" y="78.0" width="40.0" height="40.0" style="fill:#fde0bf"/>
+  <text class="monob" x="290.0" y="95.0" text-anchor="middle">2</text>
+  <text class="monos" x="290.0" y="112.0" text-anchor="middle">E1</text>
+  <rect class="cell" x="310.0" y="78.0" width="40.0" height="40.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="330.0" y="95.0" text-anchor="middle">3</text>
+  <text class="monos" x="330.0" y="112.0" text-anchor="middle">E0</text>
+  <rect class="cell" x="350.0" y="78.0" width="40.0" height="40.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="370.0" y="95.0" text-anchor="middle">4</text>
+  <text class="monos" x="370.0" y="112.0" text-anchor="middle">E0</text>
+  <rect class="cell" x="390.0" y="78.0" width="40.0" height="40.0" style="fill:#fde0bf"/>
+  <text class="monob" x="410.0" y="95.0" text-anchor="middle">5</text>
+  <text class="monos" x="410.0" y="112.0" text-anchor="middle">E1</text>
+  <rect class="cell" x="430.0" y="78.0" width="40.0" height="40.0" style="fill:#d4efd9"/>
+  <text class="monob" x="450.0" y="95.0" text-anchor="middle">6</text>
+  <text class="monos" x="450.0" y="112.0" text-anchor="middle">E2</text>
+  <rect class="cell" x="470.0" y="78.0" width="40.0" height="40.0" style="fill:#fde0bf"/>
+  <text class="monob" x="490.0" y="95.0" text-anchor="middle">7</text>
+  <text class="monos" x="490.0" y="112.0" text-anchor="middle">E1</text>
+  <rect class="cell" x="510.0" y="78.0" width="40.0" height="40.0" style="fill:#fde0bf"/>
+  <text class="monob" x="530.0" y="95.0" text-anchor="middle">8</text>
+  <text class="monos" x="530.0" y="112.0" text-anchor="middle">E1</text>
+  <rect class="cell" x="550.0" y="78.0" width="40.0" height="40.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="570.0" y="95.0" text-anchor="middle">9</text>
+  <text class="monos" x="570.0" y="112.0" text-anchor="middle">E0</text>
+  <line class="arrow" x1="210.0" y1="120.0" x2="210.0" y2="168.0"/>
+  <text class="small" x="222.0" y="140.0">moe_align_block_size：按 expert 排序，</text>
+  <text class="small" x="222.0" y="158.0">每个 expert 的段尾 pad 到 4 的倍数（pad 值 ≥ num_valid_tokens=10）</text>
+  <text class="monos" x="20.0" y="194.0">sorted_token_ids</text>
+  <rect class="cell" x="150.0" y="170.0" width="40.0" height="34.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="170.0" y="192.0" text-anchor="middle">0</text>
+  <rect class="cell" x="190.0" y="170.0" width="40.0" height="34.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="210.0" y="192.0" text-anchor="middle">3</text>
+  <rect class="cell" x="230.0" y="170.0" width="40.0" height="34.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="250.0" y="192.0" text-anchor="middle">4</text>
+  <rect class="cell" x="270.0" y="170.0" width="40.0" height="34.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="290.0" y="192.0" text-anchor="middle">9</text>
+  <rect class="cell" x="310.0" y="170.0" width="40.0" height="34.0" style="fill:#fde0bf"/>
+  <text class="monob" x="330.0" y="192.0" text-anchor="middle">2</text>
+  <rect class="cell" x="350.0" y="170.0" width="40.0" height="34.0" style="fill:#fde0bf"/>
+  <text class="monob" x="370.0" y="192.0" text-anchor="middle">5</text>
+  <rect class="cell" x="390.0" y="170.0" width="40.0" height="34.0" style="fill:#fde0bf"/>
+  <text class="monob" x="410.0" y="192.0" text-anchor="middle">7</text>
+  <rect class="cell" x="430.0" y="170.0" width="40.0" height="34.0" style="fill:#fde0bf"/>
+  <text class="monob" x="450.0" y="192.0" text-anchor="middle">8</text>
+  <rect class="cell" x="470.0" y="170.0" width="40.0" height="34.0" style="fill:#d4efd9"/>
+  <text class="monob" x="490.0" y="192.0" text-anchor="middle">1</text>
+  <rect class="cell" x="510.0" y="170.0" width="40.0" height="34.0" style="fill:#d4efd9"/>
+  <text class="monob" x="530.0" y="192.0" text-anchor="middle">6</text>
+  <rect class="cell" x="550.0" y="170.0" width="40.0" height="34.0" style="fill:#f1f3f6;stroke-dasharray:3 2"/>
+  <text class="monob" x="570.0" y="192.0" text-anchor="middle">P</text>
+  <rect class="cell" x="590.0" y="170.0" width="40.0" height="34.0" style="fill:#f1f3f6;stroke-dasharray:3 2"/>
+  <text class="monob" x="610.0" y="192.0" text-anchor="middle">P</text>
+  <path class="line" d="M152,210 v6 H308 v-6"/>
+  <text class="monos" x="230.0" y="232.0" text-anchor="middle">E0</text>
+  <path class="line" d="M312,210 v6 H468 v-6"/>
+  <text class="monos" x="390.0" y="232.0" text-anchor="middle">E1</text>
+  <path class="line" d="M472,210 v6 H628 v-6"/>
+  <text class="monos" x="550.0" y="232.0" text-anchor="middle">E2</text>
+  <text class="small" x="642.0" y="192.0">P = padding</text>
+  <text class="monos" x="20.0" y="270.0">expert_ids</text>
+  <rect class="cell" x="150.0" y="246.0" width="160.0" height="34.0" style="fill:#cfe0f7"/>
+  <text class="monob" x="230.0" y="268.0" text-anchor="middle">0</text>
+  <text class="monos" x="230.0" y="300.0" text-anchor="middle">tile 0</text>
+  <rect class="cell" x="310.0" y="246.0" width="160.0" height="34.0" style="fill:#fde0bf"/>
+  <text class="monob" x="390.0" y="268.0" text-anchor="middle">1</text>
+  <text class="monos" x="390.0" y="300.0" text-anchor="middle">tile 1</text>
+  <rect class="cell" x="470.0" y="246.0" width="160.0" height="34.0" style="fill:#d4efd9"/>
+  <text class="monob" x="550.0" y="268.0" text-anchor="middle">2</text>
+  <text class="monos" x="550.0" y="300.0" text-anchor="middle">tile 2</text>
+  <text class="small" x="642.0" y="261.0">第 i 个 M-tile</text>
+  <text class="small" x="642.0" y="279.0">属于哪个 expert</text>
+</svg>

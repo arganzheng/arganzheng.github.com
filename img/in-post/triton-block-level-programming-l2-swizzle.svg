@@ -1,0 +1,250 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 471" width="760" height="471" role="img" aria-labelledby="t d">
+  <title id="t">行主序与分组 swizzle 下一波 program 覆盖的 tile</title>
+  <desc id="d">8×8 个 tile，一波 16 个 program，格子里的数字是 pid，涂色的是这一波正在算的 tile。左：行主序 pid_m = pid // 8，一波 16 个 program 覆盖 m=0、1 两整行；需要 A 的行 panel m = 0,1 共 2 个，B 的列 panel n = 0..7 全部 8 个，工作集 10 个 panel。右：分组 G = 4，组内列主序，一波 16 个 program 覆盖 4 行 × 4 列；需要 A 的行 panel m = 0..3 共 4 个，B 的列 panel n = 0..3 共 4 个，工作集 8 个 panel；一般地 G + W/G，G ≈ √W 时最小。放大到 4096³、128 tile、一波 108 program：行主序 4 + 32 = 36 MiB，G=8 时 8 + 14 = 22 MiB（L2 40 MB）。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; fill: #333; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .box { fill: #f4f7fb; stroke: #40566f; stroke-width: 1.2; }
+      .cell { fill: #fff; stroke: #40566f; stroke-width: 1; }
+      .line { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#40566f"/></marker>
+  </defs>
+  <rect x="0" y="0" width="760" height="471" fill="#fff"/>
+  <text class="bold" x="20.0" y="26.0">行主序 pid_m = pid // 8</text>
+  <text class="small" x="20.0" y="46.0">一波 16 个 program 覆盖 2 整行</text>
+  <text class="monos" x="20.0" y="76.0">pid_n →</text>
+  <text class="monos" x="85.0" y="76.0" text-anchor="middle">0</text>
+  <text class="monos" x="115.0" y="76.0" text-anchor="middle">1</text>
+  <text class="monos" x="145.0" y="76.0" text-anchor="middle">2</text>
+  <text class="monos" x="175.0" y="76.0" text-anchor="middle">3</text>
+  <text class="monos" x="205.0" y="76.0" text-anchor="middle">4</text>
+  <text class="monos" x="235.0" y="76.0" text-anchor="middle">5</text>
+  <text class="monos" x="265.0" y="76.0" text-anchor="middle">6</text>
+  <text class="monos" x="295.0" y="76.0" text-anchor="middle">7</text>
+  <rect class="cell" x="70.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="100.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="130.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="160.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="190.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="220.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="250.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="280.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <text class="monos" x="20.0" y="116.0">m=0</text>
+  <rect class="cell" x="58.0" y="96.0" width="6.0" height="30.0" style="fill:#e8892c;stroke:none"/>
+  <rect class="cell" x="70.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="85.0" y="116.0" text-anchor="middle">0</text>
+  <rect class="cell" x="100.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="115.0" y="116.0" text-anchor="middle">1</text>
+  <rect class="cell" x="130.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="145.0" y="116.0" text-anchor="middle">2</text>
+  <rect class="cell" x="160.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="175.0" y="116.0" text-anchor="middle">3</text>
+  <rect class="cell" x="190.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="205.0" y="116.0" text-anchor="middle">4</text>
+  <rect class="cell" x="220.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="235.0" y="116.0" text-anchor="middle">5</text>
+  <rect class="cell" x="250.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="265.0" y="116.0" text-anchor="middle">6</text>
+  <rect class="cell" x="280.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="295.0" y="116.0" text-anchor="middle">7</text>
+  <text class="monos" x="20.0" y="146.0">m=1</text>
+  <rect class="cell" x="58.0" y="126.0" width="6.0" height="30.0" style="fill:#e8892c;stroke:none"/>
+  <rect class="cell" x="70.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="85.0" y="146.0" text-anchor="middle">8</text>
+  <rect class="cell" x="100.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="115.0" y="146.0" text-anchor="middle">9</text>
+  <rect class="cell" x="130.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="145.0" y="146.0" text-anchor="middle">10</text>
+  <rect class="cell" x="160.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="175.0" y="146.0" text-anchor="middle">11</text>
+  <rect class="cell" x="190.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="205.0" y="146.0" text-anchor="middle">12</text>
+  <rect class="cell" x="220.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="235.0" y="146.0" text-anchor="middle">13</text>
+  <rect class="cell" x="250.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="265.0" y="146.0" text-anchor="middle">14</text>
+  <rect class="cell" x="280.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="295.0" y="146.0" text-anchor="middle">15</text>
+  <text class="monos" x="20.0" y="176.0">m=2</text>
+  <rect class="cell" x="70.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="100.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="130.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="160.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="190.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="220.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="250.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="280.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="20.0" y="206.0">m=3</text>
+  <rect class="cell" x="70.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="100.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="130.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="160.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="190.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="220.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="250.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="280.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="20.0" y="236.0">m=4</text>
+  <rect class="cell" x="70.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="100.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="130.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="160.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="190.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="220.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="250.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="280.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="20.0" y="266.0">m=5</text>
+  <rect class="cell" x="70.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="100.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="130.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="160.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="190.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="220.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="250.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="280.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="20.0" y="296.0">m=6</text>
+  <rect class="cell" x="70.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="100.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="130.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="160.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="190.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="220.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="250.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="280.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="20.0" y="326.0">m=7</text>
+  <rect class="cell" x="70.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="100.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="130.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="160.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="190.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="220.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="250.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="280.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="20.0" y="354.0" width="10.0" height="10.0" style="fill:#e8892c;stroke:none"/>
+  <text class="body" x="36.0" y="364.0">需要 A 的行 panel：m = 0,1 → 2 个</text>
+  <rect class="cell" x="20.0" y="376.0" width="10.0" height="10.0" style="fill:#2e9b57;stroke:none"/>
+  <text class="body" x="36.0" y="386.0">需要 B 的列 panel：n = 0..7 全部 → 8 个</text>
+  <text class="body" x="20.0" y="408.0">工作集：10 个 panel</text>
+  <text class="bold" x="400.0" y="26.0">分组 G = 4，组内列主序</text>
+  <text class="small" x="400.0" y="46.0">一波 16 个 program 覆盖 4 行 × 4 列</text>
+  <text class="monos" x="400.0" y="76.0">pid_n →</text>
+  <text class="monos" x="465.0" y="76.0" text-anchor="middle">0</text>
+  <text class="monos" x="495.0" y="76.0" text-anchor="middle">1</text>
+  <text class="monos" x="525.0" y="76.0" text-anchor="middle">2</text>
+  <text class="monos" x="555.0" y="76.0" text-anchor="middle">3</text>
+  <text class="monos" x="585.0" y="76.0" text-anchor="middle">4</text>
+  <text class="monos" x="615.0" y="76.0" text-anchor="middle">5</text>
+  <text class="monos" x="645.0" y="76.0" text-anchor="middle">6</text>
+  <text class="monos" x="675.0" y="76.0" text-anchor="middle">7</text>
+  <rect class="cell" x="450.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="480.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="510.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <rect class="cell" x="540.0" y="84.0" width="30.0" height="6.0" style="fill:#2e9b57;stroke:none"/>
+  <text class="monos" x="400.0" y="116.0">m=0</text>
+  <rect class="cell" x="438.0" y="96.0" width="6.0" height="30.0" style="fill:#e8892c;stroke:none"/>
+  <rect class="cell" x="450.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="465.0" y="116.0" text-anchor="middle">0</text>
+  <rect class="cell" x="480.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="495.0" y="116.0" text-anchor="middle">4</text>
+  <rect class="cell" x="510.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="525.0" y="116.0" text-anchor="middle">8</text>
+  <rect class="cell" x="540.0" y="96.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="555.0" y="116.0" text-anchor="middle">12</text>
+  <rect class="cell" x="570.0" y="96.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="96.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="96.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="96.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="146.0">m=1</text>
+  <rect class="cell" x="438.0" y="126.0" width="6.0" height="30.0" style="fill:#e8892c;stroke:none"/>
+  <rect class="cell" x="450.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="465.0" y="146.0" text-anchor="middle">1</text>
+  <rect class="cell" x="480.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="495.0" y="146.0" text-anchor="middle">5</text>
+  <rect class="cell" x="510.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="525.0" y="146.0" text-anchor="middle">9</text>
+  <rect class="cell" x="540.0" y="126.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="555.0" y="146.0" text-anchor="middle">13</text>
+  <rect class="cell" x="570.0" y="126.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="126.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="126.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="126.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="176.0">m=2</text>
+  <rect class="cell" x="438.0" y="156.0" width="6.0" height="30.0" style="fill:#e8892c;stroke:none"/>
+  <rect class="cell" x="450.0" y="156.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="465.0" y="176.0" text-anchor="middle">2</text>
+  <rect class="cell" x="480.0" y="156.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="495.0" y="176.0" text-anchor="middle">6</text>
+  <rect class="cell" x="510.0" y="156.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="525.0" y="176.0" text-anchor="middle">10</text>
+  <rect class="cell" x="540.0" y="156.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="555.0" y="176.0" text-anchor="middle">14</text>
+  <rect class="cell" x="570.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="156.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="206.0">m=3</text>
+  <rect class="cell" x="438.0" y="186.0" width="6.0" height="30.0" style="fill:#e8892c;stroke:none"/>
+  <rect class="cell" x="450.0" y="186.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="465.0" y="206.0" text-anchor="middle">3</text>
+  <rect class="cell" x="480.0" y="186.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="495.0" y="206.0" text-anchor="middle">7</text>
+  <rect class="cell" x="510.0" y="186.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="525.0" y="206.0" text-anchor="middle">11</text>
+  <rect class="cell" x="540.0" y="186.0" width="30.0" height="30.0" style="fill:#cfe0f7"/>
+  <text class="monos" x="555.0" y="206.0" text-anchor="middle">15</text>
+  <rect class="cell" x="570.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="186.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="236.0">m=4</text>
+  <rect class="cell" x="450.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="480.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="510.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="540.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="570.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="216.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="266.0">m=5</text>
+  <rect class="cell" x="450.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="480.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="510.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="540.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="570.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="246.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="296.0">m=6</text>
+  <rect class="cell" x="450.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="480.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="510.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="540.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="570.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="276.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <text class="monos" x="400.0" y="326.0">m=7</text>
+  <rect class="cell" x="450.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="480.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="510.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="540.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="570.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="600.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="630.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="660.0" y="306.0" width="30.0" height="30.0" style="fill:#fff"/>
+  <rect class="cell" x="400.0" y="354.0" width="10.0" height="10.0" style="fill:#e8892c;stroke:none"/>
+  <text class="body" x="416.0" y="364.0">需要 A 的行 panel：m = 0..3 → 4 个</text>
+  <rect class="cell" x="400.0" y="376.0" width="10.0" height="10.0" style="fill:#2e9b57;stroke:none"/>
+  <text class="body" x="416.0" y="386.0">需要 B 的列 panel：n = 0..3 → 4 个</text>
+  <text class="body" x="400.0" y="408.0">工作集：8 个 panel（一般地 G + W/G，G ≈ √W 时最小）</text>
+  <line class="line" x1="20.0" y1="430.0" x2="740.0" y2="430.0" style="stroke:#c8ced6;stroke-width:1"/>
+  <text class="body" x="20.0" y="450.0">放大到 4096³ / 128 tile / 一波 108 program：行主序 4 + 32 = 36 MiB　vs　G=8：8 + 14 = 22 MiB（L2 40 MB）</text>
+</svg>
