@@ -1396,6 +1396,27 @@ How it is built (`_plugins/moments.rb`):
     a converted block (e.g. a series renumbering changed 「第 N 篇」 in the
     old ASCII), keep the converted version, apply the new numbering, and
     check the post's 「第 N 篇」 set equals origin/master's before pushing.
+  - From the platform-engineering round (series 11, 2026-10):
+    - Correctness beats fidelity: check every figure against the pinned
+      source and the post's own text; when the ASCII original is wrong or
+      vague (lines that don't line up, a 「被替换为 X」 note), redraw it
+      right instead of copying it, and say what changed. A note that says
+      something is replaced / connected is drawn, not written beside it.
+    - Every connector has a visible target box. Two labels on one arrow go
+      one above, one below it. Sibling boxes share one text alignment
+      (left), widths fit their text, multi-column boxes have even gaps.
+    - Multi-line or hierarchical text inside a box becomes a (nested) list
+      under the figure. Annotation lines don't wrap; if one must, indent the
+      continuation to the first character after its label.
+    - Call chains (A → B → C across components) are a box-and-arrow figure,
+      not a table. Placement figures (MIG slices) must also show *why* an
+      excluded placement is illegal — readers ask.
+    - CRD / config field lists → unordered list; 要点回顾 → nested list or a
+      table whose cells hold lists; 源码 / CRD 位置 → table. A repeated
+      first-column value is merged with `^^` (rendered vertically centred).
+    - If a table's title says three but the block has a fourth row, fix the
+      title/text to four rather than dropping the row. Keep original
+      symbols (`…`, `=`) that carry meaning.
 - **Version/date rule:** a post may only cite software versions (and facts about
   them) released *before* the post's front-matter date. Check tag dates with
   `git log -1 --format=%cs <tag>` before pinning a version; pin an explicit tag
