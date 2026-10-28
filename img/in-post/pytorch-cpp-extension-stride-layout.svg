@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="555" viewBox="0 0 740 555" role="img" aria-labelledby="title desc">
+<title id="title">同一逻辑 shape 的两种 stride 与 storage 下标</title>
+<desc id="desc">storage_offset 为零。A 的两行是 s0 s1 s2 与 s3 s4 s5，stride 为 (3,1)。B 是连续 (3,2) Tensor 转置后的 (2,3) 视图，两行是 s0 s2 s4 与 s1 s3 s5，stride 为 (1,2)。</desc>
+<style>
+text { font-family: "Noto Sans CJK SC", sans-serif; fill: #111; font-size: 16px; font-weight: 500; }
+.title { font-size: 20px; font-weight: 700; }
+.head { font-size: 18px; font-weight: 700; }
+.mono { font-family: "DejaVu Sans Mono", monospace; font-size: 15px; }
+.small { font-size: 14px; }
+.tiny { font-size: 13px; }
+.grid { stroke: #334155; stroke-width: 1.4; }
+</style>
+<defs>
+<marker id="call" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" fill="#1d4ed8"/></marker>
+<marker id="ret" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" fill="#b45309"/></marker>
+</defs>
+<rect width="740" height="555" fill="#fff"/>
+<text x="22" y="34" class="title" text-anchor="start">同一逻辑 shape=(2,3)，不同 stride</text>
+<text x="22" y="77" class="head" text-anchor="start">storage：6 个元素</text>
+<text x="22" y="105" class="mono" text-anchor="start">下标 s0..s5</text>
+<rect x="234" y="56" width="468" height="56" fill="#f1f5f9" class="grid"/>
+<line x1="312" y1="56" x2="312" y2="112" stroke="#334155" stroke-width="1.7"/>
+<line x1="390" y1="56" x2="390" y2="112" stroke="#334155" stroke-width="1.7"/>
+<line x1="468" y1="56" x2="468" y2="112" stroke="#334155" stroke-width="1.7"/>
+<line x1="546" y1="56" x2="546" y2="112" stroke="#334155" stroke-width="1.7"/>
+<line x1="624" y1="56" x2="624" y2="112" stroke="#334155" stroke-width="1.7"/>
+<text x="273.0" y="91" class="mono" text-anchor="middle">s0</text>
+<text x="351.0" y="91" class="mono" text-anchor="middle">s1</text>
+<text x="429.0" y="91" class="mono" text-anchor="middle">s2</text>
+<text x="507.0" y="91" class="mono" text-anchor="middle">s3</text>
+<text x="585.0" y="91" class="mono" text-anchor="middle">s4</text>
+<text x="663.0" y="91" class="mono" text-anchor="middle">s5</text>
+<text x="22" y="162" class="head" text-anchor="start">A. contiguous</text>
+<text x="22" y="191" class="mono" text-anchor="start">shape=(2,3)  stride=(3,1)</text>
+<text x="234" y="224" class="mono" text-anchor="start">offset = i*3 + j</text>
+<rect x="234" y="240" width="234" height="88" fill="#dbeafe" class="grid"/>
+<line x1="234" y1="284" x2="468" y2="284" stroke="#334155" stroke-width="1.7"/>
+<line x1="312" y1="240" x2="312" y2="328" stroke="#334155" stroke-width="1.7"/>
+<line x1="390" y1="240" x2="390" y2="328" stroke="#334155" stroke-width="1.7"/>
+<text x="214" y="269" class="" text-anchor="end">行 0</text>
+<text x="273.0" y="269" class="mono" text-anchor="middle">s0</text>
+<text x="351.0" y="269" class="mono" text-anchor="middle">s1</text>
+<text x="429.0" y="269" class="mono" text-anchor="middle">s2</text>
+<text x="214" y="313" class="" text-anchor="end">行 1</text>
+<text x="273.0" y="313" class="mono" text-anchor="middle">s3</text>
+<text x="351.0" y="313" class="mono" text-anchor="middle">s4</text>
+<text x="429.0" y="313" class="mono" text-anchor="middle">s5</text>
+<text x="500" y="271" class="" text-anchor="start">顺序遍历 s0..s5</text>
+<text x="500" y="299" class="" text-anchor="start">与逻辑顺序一致</text>
+<text x="22" y="365" class="head" text-anchor="start">B. x.t()（x 原 shape=(3,2)）</text>
+<text x="22" y="394" class="mono" text-anchor="start">shape=(2,3)  stride=(1,2)</text>
+<text x="234" y="427" class="mono" text-anchor="start">offset = i*1 + j*2</text>
+<rect x="234" y="443" width="234" height="88" fill="#ffedd5" class="grid"/>
+<line x1="234" y1="487" x2="468" y2="487" stroke="#334155" stroke-width="1.7"/>
+<line x1="312" y1="443" x2="312" y2="531" stroke="#334155" stroke-width="1.7"/>
+<line x1="390" y1="443" x2="390" y2="531" stroke="#334155" stroke-width="1.7"/>
+<text x="214" y="472" class="" text-anchor="end">行 0</text>
+<text x="273.0" y="472" class="mono" text-anchor="middle">s0</text>
+<text x="351.0" y="472" class="mono" text-anchor="middle">s2</text>
+<text x="429.0" y="472" class="mono" text-anchor="middle">s4</text>
+<text x="214" y="516" class="" text-anchor="end">行 1</text>
+<text x="273.0" y="516" class="mono" text-anchor="middle">s1</text>
+<text x="351.0" y="516" class="mono" text-anchor="middle">s3</text>
+<text x="429.0" y="516" class="mono" text-anchor="middle">s5</text>
+<text x="500" y="474" class="" text-anchor="start">顺序遍历 s0..s5</text>
+<text x="500" y="502" class="" text-anchor="start">当作连续输出会错位</text>
+</svg>

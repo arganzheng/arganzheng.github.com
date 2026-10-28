@@ -199,10 +199,10 @@ flowchart TB
     D[定义<br/>Schema 字符串] -->|决定实现的签名| I[实现<br/>符合签名的函数]
     D -->|在 Operator Table 建一行| OT[(Operator Table)]
     I -->|注册：填入某个 Key 的槽位| OT
-    OT -->|运行时查表| U[torch.ops.myops.scale_shift]
+    U[torch.ops.myops.scale_shift] -->|运行时查表| OT
 ```
 
-定义决定了实现必须长什么样；注册把实现与定义在某个 Key 下绑定；用户调用时，Dispatcher 从表里取出实现。三步缺一不可，顺序也不能乱——没有定义就不能注册，注册的函数签名必须匹配定义。
+定义决定了实现必须长什么样；注册把实现与定义在某个 Key 下绑定；用户调用时，Dispatcher 从表里取出实现。三步缺一不可，函数签名必须匹配 Schema。例子按定义、注册的顺序写；C++ 底层允许 Schema 与实现的注册先后到达，真正调用前要具备 Schema 和对应实现。
 
 ## 三、两种接入方式：`torch.library` 与 `TORCH_LIBRARY`
 
@@ -314,14 +314,16 @@ Table: TORCH_LIBRARY 宏族与三步的对应
 
 这三个宏展开后都是一个**静态初始化对象**。共享库被加载时，C++ 运行时执行静态初始化，对象的构造函数被调用，构造函数里执行你写的花括号代码块，`m.def` / `m.impl` 把 Schema 和函数指针写入 Operator Table。
 
-```text title='import 触发的静态初始化链：从 .so 加载到 torch.ops 可用'
-Python: import myops._C
-    ↓ 动态链接器加载 .so
-    ↓ 执行静态初始化
-TORCH_LIBRARY(myops, m) { m.def(...) }        → Operator Table 新增一行
-TORCH_LIBRARY_IMPL(myops, CPU, m) { m.impl(...) } → 填入 CPU 槽位
-    ↓
-torch.ops.myops.scale_shift 可用
+```mermaid
+%% 图：import 触发的静态初始化链：从 .so 加载到 torch.ops 可用
+flowchart TB
+    IMP["Python: import myops._C"] --> LOAD["动态链接器加载 .so"]
+    LOAD --> INIT["执行静态初始化"]
+    INIT --> DEF["TORCH_LIBRARY(myops, m)<br/>m.def(...)"]
+    INIT --> IMPL["TORCH_LIBRARY_IMPL(myops, CPU, m)<br/>m.impl(...)"]
+    DEF -->|新增一行| OT[(Operator Table)]
+    IMPL -->|填入 CPU 槽位| OT
+    OT --> USE["torch.ops.myops.scale_shift 可用"]
 ```
 
 这解释了两个现象：为什么 `import` 一个扩展模块之后算子就“凭空出现”了；为什么 `TORCH_LIBRARY` 同一命名空间不能出现两次——第二次静态初始化会尝试重复建表。
@@ -765,29 +767,13 @@ TensorIterator 处理广播、stride 和并行划分，Kernel 只写单元素计
 
 两种选择的差别，用同一个逻辑 shape=(2,3) 的两种 stride 看得最清楚——逻辑格子相同，落在 storage 上的位置却不同：
 
-```text title='同一逻辑 shape 的两种 stride 落在 storage 上的位置'
-storage（6 个元素，下标 s0..s5）
-┌────┬────┬────┬────┬────┬────┐
-│ s0 │ s1 │ s2 │ s3 │ s4 │ s5 │
-└────┴────┴────┴────┴────┴────┘
+![同一逻辑 shape 的两种 stride 与 storage 下标](/img/in-post/pytorch-cpp-extension-stride-layout.svg)
 
-A. contiguous  shape=(2,3) stride=(3,1)   offset = i*3 + j
-   ┌────┬────┬────┐
-   │ s0 │ s1 │ s2 │  行 0 → s0 s1 s2   一维顺序遍历 s0..s5
-   ├────┼────┼────┤                     与逻辑顺序一致
-   │ s3 │ s4 │ s5 │  行 1 → s3 s4 s5
-   └────┴────┴────┘
-
-B. x.t()       shape=(2,3) stride=(1,2)   offset = i*1 + j*2
-   ┌────┬────┬────┐
-   │ s0 │ s2 │ s4 │  行 0 → s0 s2 s4   一维顺序遍历 s0..s5
-   ├────┼────┼────┤                     会把元素错位
-   │ s1 │ s3 │ s5 │  行 1 → s1 s3 s5
-   └────┴────┴────┘
-
-选择 A：x.contiguous() 先把 B 拷贝成 A 的排列，再跑简单的一维 kernel
-选择 B：TensorIterator 直接按 stride=(1,2) 算每个元素地址，不拷贝
-```
+- 图中 `s0..s5` 表示原 storage 的六个位置，`storage_offset=0`。
+- A 是连续的 `(2,3)` Tensor，`stride=(3,1)`。行 0 对应 `s0 s1 s2`，行 1 对应 `s3 s4 s5`，顺序遍历 `s0..s5` 与逻辑顺序一致。
+- B 来自一个连续的 `(3,2)` Tensor `x`，转置 `x.t()` 后才是 `(2,3)`、`stride=(1,2)`。它不是 A 的转置。行 0 对应 `s0 s2 s4`，行 1 对应 `s1 s3 s5`，若把 `s0..s5` 直接当作连续的 `(2,3)` 输出，元素就会错位。
+- 选择 A：对 B 调用 `contiguous()`，按逻辑顺序把原位置 `s0 s2 s4 s1 s3 s5` 的值拷到新 storage；新 stride 是 `(3,1)`，再跑简单的一维 Kernel。改变的是物理排列，不是 B 的逻辑值。
+- 选择 B：TensorIterator 按 `stride=(1,2)` 计算输入地址，不需要先拷贝输入。
 
 `contiguous()` 用一次拷贝换取 Kernel 的简单；TensorIterator 用更复杂的地址计算换取零拷贝。
 
@@ -921,21 +907,23 @@ Table: CUDA Kernel 里区分"我是谁"的三个内建变量
 
 把公式代入一组具体数字：n=1024、每 block 256 线程，正好切成 4 个 block，每个线程的 `idx` 由所在 block 的起点加上自己在 block 内的编号得到：
 
-```text title='n=1024、256 线程：每个 block 与 thread 处理的元素'
+```text title='n=1024 时的 launch 配置与线程下标'
 n = 1024, threads = 256  →  blocks = (1024 + 255) / 256 = 4
 idx = blockIdx.x * blockDim.x + threadIdx.x
-
-┌────────────┬─────────────┬────────────────┬────────────────┐
-│ blockIdx.x │ threadIdx.x │ idx 计算        │ 处理的元素      │
-├────────────┼─────────────┼────────────────┼────────────────┤
-│     0      │ 0 .. 255    │ 0*256 + t      │    0 ..  255   │
-│     1      │ 0 .. 255    │ 1*256 + t      │  256 ..  511   │
-│     2      │ 0 .. 255    │ 2*256 + t      │  512 ..  767   │
-│     3      │ 0 .. 255    │ 3*256 + t      │  768 .. 1023   │
-└────────────┴─────────────┴────────────────┴────────────────┘
-若 n = 1000：blocks 仍为 4，block 3 中 idx 1000..1023 的 24 个线程
-被 if (i < n) 拦住，直接返回。
 ```
+
+这里 `/` 是整数除法，`t = threadIdx.x`。
+
+| `blockIdx.x` | `threadIdx.x` | `idx` 计算 | 处理的元素 |
+|---|---|---|---|
+| 0 | `0 .. 255` | `0*256 + t` | `0 .. 255` |
+| 1 | `0 .. 255` | `1*256 + t` | `256 .. 511` |
+| 2 | `0 .. 255` | `2*256 + t` | `512 .. 767` |
+| 3 | `0 .. 255` | `3*256 + t` | `768 .. 1023` |
+
+Table: n=1024、每 block 256 线程时的元素分配
+
+若 `n = 1000`，`blocks` 仍为 4。block 3 中 `idx=1000..1023` 的 24 个线程被 `if (i < n)` 拦住，直接返回。下面的 Kernel 把同一个下标记作 `i`。
 
 `threads` 取 128 到 1024 之间、32 的倍数（256 是最常见的默认值），`blocks` 由元素总数算出。三维的 `threadIdx.y / .z` 等只是把同一编号空间按多维组织，处理图像等数据时方便，对一维 elementwise Kernel 用不到。
 
@@ -1127,31 +1115,15 @@ TORCH_LIBRARY_IMPL(myops, Autograd, m) {
 
 这段代码最值得看清的是 `forward` 里那次“再入 Dispatcher”的调用路径——同一个算子被 Dispatcher 分发了两次，第二次的 KeySet 少了 Autograd：
 
-```mermaid
-%% 图：C++ 侧 Autograd 注册的时序：forward 里去掉 Autograd Key 再入 Dispatcher，第二次落到 CUDA kernel
-sequenceDiagram
-    participant Py as Python 调用方
-    participant D as Dispatcher
-    participant AG as Autograd 包装
-    participant K as CUDA kernel
-    Py->>D: torch.ops.myops.scale_shift(x, 2.0, 1.0)
-    Note over D: x 的 KeySet 含 AutogradCUDA 和 CUDA<br/>取最高优先级 Autograd
-    D->>AG: 命中 Autograd 槽位 scale_shift_autograd
-    activate AG
-    Note over AG: ScaleShiftFunction::apply<br/>ctx 保存 alpha
-    Note over AG: AutoDispatchBelowADInplaceOrView<br/>从当前线程 KeySet 去掉 Autograd
-    AG->>D: 再次 op.call(x, alpha, beta)（typed handle）
-    Note over D: 剩余 KeySet 只有 CUDA<br/>不会再命中 Autograd，无递归
-    D->>K: 命中 CUDA 槽位 scale_shift_cuda
-    activate K
-    K-->>D: out
-    deactivate K
-    D-->>AG: out
-    Note over AG: 给 out 挂 grad_fn 指向 backward
-    AG-->>D: out（requires_grad=True）
-    deactivate AG
-    D-->>Py: y
-```
+![Autograd 包装再入 Dispatcher 与 CUDA 异步提交的时间顺序](/img/in-post/pytorch-cpp-extension-autograd-redispatch.svg)
+
+这里取 CUDA 输入、`x.requires_grad=True` 且梯度模式开启的情况。时间轴只表示先后，不表示耗时比例。
+
+1. Python 调用 `torch.ops.myops.scale_shift(x, 2.0, 1.0)`。普通 CUDA Tensor 的 KeySet 含 `AutogradCUDA` 和 `CUDA` 等 Key；此处省略无关包装 Key，先命中 Autograd 槽位 `scale_shift_autograd`。
+2. `ScaleShiftFunction::apply` 进入 `forward`，`ctx` 保存 `alpha`。`AutoDispatchBelowADInplaceOrView` 在当前线程排除 Autograd 与 ADInplaceOrView Key，再通过 typed handle 调用 `scale_shift_op().call(x, alpha, beta)`。
+3. Dispatcher 再次查表，命中 CUDA 槽位 `scale_shift_cuda`，不再进入 Autograd，因此不会递归。这里不是说剩余 KeySet 字面上只有一个 `CUDA`。
+4. `scale_shift_cuda` 在当前 stream 上提交 CUDA Kernel，返回 `out`；Dispatcher 把它交回 Autograd 包装。CPU 不等待 GPU 完成，图中 GPU 色块延伸过返回点只表示可能的重叠。
+5. `apply` 为 `out` 挂上指向 backward 的 `grad_fn`，再经 Dispatcher 返回 Python 的 `y`，此时 `requires_grad=True`。
 
 `AutoDispatchBelowADInplaceOrView` 就是第五篇讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `op.call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
 
@@ -1179,27 +1151,30 @@ def _fake(x, alpha, beta):
 
 Table: 完成后的 Operator Table
 
-把这张表按运行态的调用顺序展开，就是一次完整的分发路径：先命中包装 Key，剥掉它之后再按设备落到某个后端槽位；Meta 那条分支不跑真实 Kernel，专供 FakeTensor 与 `torch.compile` 推断 shape：
+把这张表按运行态展开，可以分成真实 Tensor 的后端执行和 Fake / Meta 的元数据推断两条路径。下面省略与本文无关的包装 Key：
 
 ```mermaid
-%% 图：完成后的 Operator Table 按运行态展开：先命中 Autograd 槽位，剥掉后按设备落到 CPU / CUDA / Meta
+%% 图：完成后的 Operator Table：真实 Tensor 的 Autograd 与后端分发、Fake / Meta 的元数据推断
 flowchart TB
     IN["torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
-    KS["计算 DispatchKeySet<br/>device 决定后端 Key<br/>requires_grad 决定是否含 Autograd"]
+    MODE{"真实执行还是元数据推断"}
+    KS["计算有效 DispatchKeySet<br/>Tensor KeySet + 当前线程 TLS 状态"]
     AGS["Autograd 槽位<br/>register_autograd 生成的包装"]
-    STRIP["保存 ctx，去掉 Autograd Key<br/>再次分发"]
-    SEL{"剩余最高 Key"}
+    STRIP["需要梯度时保存 ctx<br/>排除 Autograd Key，再分发"]
+    SEL{"后端槽位"}
     CPUS["CPU 槽位<br/>scale_shift_cpu"]
     CUDAS["CUDA 槽位<br/>scale_shift_cuda"]
-    METAS["Meta 槽位<br/>_fake：只产出 shape / dtype / device"]
-    OUT["返回 out，挂 grad_fn"]
+    METAS["Fake / Meta 实现 _fake<br/>只描述 shape / dtype / device / stride"]
+    OUT["返回 out<br/>梯度模式开启且输入需要梯度时挂 grad_fn"]
     OUT2["FakeTensor / torch.compile 图捕获<br/>不运行真实 Kernel"]
-    IN --> KS
+    IN --> MODE
+    MODE -->|真实 Tensor| KS
+    MODE -->|FakeTensor 或 Meta Tensor| METAS
     KS -->|含 Autograd Key| AGS --> STRIP --> SEL
-    KS -->|requires_grad=False| SEL
+    KS -->|Autograd 被排除，如 inference_mode| SEL
     SEL -->|CPU| CPUS --> OUT
     SEL -->|CUDA| CUDAS --> OUT
-    SEL -->|Meta| METAS --> OUT2
+    METAS --> OUT2
     classDef auto fill:#fde9c9,stroke:#c77d00;
     classDef backend fill:#dbeafe,stroke:#1d4ed8;
     classDef meta fill:#e5e7eb,stroke:#4b5563;
@@ -1207,6 +1182,8 @@ flowchart TB
     class CPUS,CUDAS backend;
     class METAS,OUT2 meta;
 ```
+
+`requires_grad=False` 不等于没有 Autograd Key。普通 Tensor 仍会经过 Autograd 包装；包装内部用梯度模式和输入的 `requires_grad` 判断是否建图，不需要时直接走无梯度分发。FakeTensor 也不是按它的表面 device 选真实 CPU / CUDA Kernel，而是由 Fake 机制转到元数据实现。
 
 这一行现在与原生算子 `add` 的结构相同，用户调用时的分发过程也相同。四个阶段中，用户代码 `torch.ops.myops.scale_shift(x, 2.0, 1.0)` 一行都没有改变。
 
@@ -1341,10 +1318,14 @@ if not torch.__version__.startswith(_BUILT_AGAINST):
 
 ### 1. 与 JNI 的相似之处
 
-```text title='JNI 与 PyTorch 扩展的对应'
-JNI              Java 声明 native 方法 → C 实现 → System.loadLibrary → JNI_OnLoad
-PyTorch 扩展     Schema 定义算子 → C++/CUDA 实现 → import → TORCH_LIBRARY 静态初始化
-```
+| 环节 | JNI | PyTorch 扩展 |
+|---|---|---|
+| 声明 | Java 声明 native 方法 | Schema 定义算子 |
+| 实现 | C 实现 | C++/CUDA 实现 |
+| 加载 | `System.loadLibrary` | `import` |
+| 初始化 | `JNI_OnLoad` | `TORCH_LIBRARY` 静态初始化 |
+
+Table: JNI 与 PyTorch 扩展的对应
 
 版本绑定、ABI 兼容、崩溃不可捕获，这些 JNI 的痛点在 C++ 扩展里同样存在。
 
@@ -1370,30 +1351,28 @@ Table: JNI 与 PyTorch C++ 扩展的关键区别
 
 ### 1. 三个概念
 
-```text title='三步、两种接入方式、四个阶段'
-三步          定义 Schema → 注册到 DispatchKey → 编写实现
-两种接入方式  torch.library（Python）/ TORCH_LIBRARY（C++），操作同一张 Operator Table
-四个阶段      Python → C++ CPU → CUDA → Autograd + Meta，每阶段都是完整三步
-```
+- **三步**：定义 Schema → 注册到 DispatchKey → 编写实现。
+- **两种接入方式**：`torch.library`（Python）/ `TORCH_LIBRARY`（C++），操作同一张 Operator Table。
+- **四个阶段**：Python → C++ CPU → CUDA → Autograd + Meta，每阶段都是完整三步。
 
 ### 2. 自定义算子与原生算子的对应
 
-```text title='自定义算子与原生算子各环节的对应'
-定义      torch.library.define / TORCH_LIBRARY     ← native_functions.yaml
-注册      torch.library.impl / TORCH_LIBRARY_IMPL  ← dispatch 字段 + Codegen 注册代码
-实现      Python / C++ / CUDA 函数                  ← aten/src/ATen/native/
-Autograd  register_autograd / Autograd Key         ← derivatives.yaml + Codegen
-Meta      register_fake / Meta Key                 ← Structured Kernel 的 meta 函数
-```
+| 环节 | 自定义算子 | 原生算子 |
+|---|---|---|
+| 定义 | `torch.library.define` / `TORCH_LIBRARY` | `native_functions.yaml` |
+| 注册 | `torch.library.impl` / `TORCH_LIBRARY_IMPL` | `dispatch` 字段 + Codegen 注册代码 |
+| 实现 | Python / C++ / CUDA 函数 | `aten/src/ATen/native/` |
+| Autograd | `register_autograd` / Autograd Key | `derivatives.yaml` + Codegen |
+| Meta | `register_fake` / Meta Key | Structured Kernel 的 meta 函数 |
+
+Table: 自定义算子与原生算子各环节的对应
 
 ### 3. 构建基础的核心事实
 
-```text title='构建基础的四个核心事实'
-扩展是共享库；import 加载它；静态初始化执行 TORCH_LIBRARY 完成注册
-c10 是基础设施，at 是 Tensor 与算子，torch 是高层封装
-始终通过 torch.utils.cpp_extension 构建，不手写编译命令
-pybind11 暴露普通函数，TORCH_LIBRARY 注册算子；要成为算子必须走后者
-```
+- 扩展是共享库；`import` 加载它；静态初始化执行 `TORCH_LIBRARY` 完成注册。
+- `c10` 是基础设施，`at` 是 Tensor 与算子，`torch` 是高层封装。
+- 始终通过 `torch.utils.cpp_extension` 构建，不手写编译命令。
+- pybind11 暴露普通函数，`TORCH_LIBRARY` 注册算子；要成为算子必须走后者。
 
 ### 4. 实现层必须处理的四件事
 
@@ -1412,10 +1391,10 @@ pybind11 暴露普通函数，TORCH_LIBRARY 注册算子；要成为算子必须
 - Benchmark 证明它比原生组合有价值
 - 构建与 ABI 在目标环境可复现
 
-把这七条按顺序串起来，就是一张核对流程图——前四步对应 Operator Table 的四个槽位，后三步是把它交给别人之前必须过的关：
+把这七条按顺序串起来，就是一张核对流程图——前四步完成 Schema、后端、Autograd 和 Fake / Meta 注册，后三步是把它交给别人之前必须过的关。Schema 是算子的契约，不是 DispatchKey 槽位：
 
 ```mermaid
-%% 图：一个算子完成的七条标准：前四步填满 Operator Table 的槽位，后三步是交付前的校验、benchmark 与 ABI 检查
+%% 图：一个算子完成的七条标准：定义与注册、校验、Benchmark、构建与 ABI 检查
 flowchart TB
     S1["1. Schema 定义<br/>myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>声明 mutates_args / alias"]
     S2["2. 后端实现并注册<br/>CPU / CUDA / Meta 槽位"]
@@ -1438,7 +1417,7 @@ flowchart TB
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇的注册、Autograd 与 Fake 分发按 [PyTorch v2.10.0](https://github.com/pytorch/pytorch/tree/v2.10.0) 核对。源码位置如下（对应第一篇第七章的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

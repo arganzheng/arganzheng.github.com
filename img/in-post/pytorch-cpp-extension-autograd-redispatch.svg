@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="568" viewBox="0 0 740 568" role="img" aria-labelledby="title desc">
+<title id="title">Autograd 包装再入 Dispatcher 与 CUDA 异步提交的时间顺序</title>
+<desc id="desc">Python 调用经 Dispatcher 进入 Autograd，包装排除 Autograd 与 ADInplaceOrView 后再次分发到 CUDA launch。launch 向 GPU 提交 Kernel 后返回 out，Autograd 挂上 grad_fn 后返回 y；CPU 不等待 GPU 完成。蓝箭头表示调用或提交，棕箭头表示返回。</desc>
+<style>
+text { font-family: "Noto Sans CJK SC", sans-serif; fill: #111; font-size: 16px; font-weight: 500; }
+.title { font-size: 20px; font-weight: 700; }
+.head { font-size: 18px; font-weight: 700; }
+.mono { font-family: "DejaVu Sans Mono", monospace; font-size: 15px; }
+.small { font-size: 14px; }
+.tiny { font-size: 13px; }
+.grid { stroke: #334155; stroke-width: 1.4; }
+</style>
+<defs>
+<marker id="call" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" fill="#1d4ed8"/></marker>
+<marker id="ret" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 Z" fill="#b45309"/></marker>
+</defs>
+<rect width="740" height="568" fill="#fff"/>
+<text x="22" y="32" class="title" text-anchor="start">Autograd 再分发与 CUDA 异步提交</text>
+<text x="145" y="63" class="small" text-anchor="start">时间 →（只表示先后，不按耗时比例）</text>
+<line x1="145" y1="75" x2="714" y2="75" stroke="#64748b" stroke-width="1.7"/>
+<text x="125" y="120" class="small" text-anchor="end">Python 调用方</text>
+<line x1="145" y1="115" x2="714" y2="115" stroke="#cbd5e1" stroke-width="1.7"/>
+<text x="125" y="206" class="small" text-anchor="end">Dispatcher</text>
+<line x1="145" y1="201" x2="714" y2="201" stroke="#cbd5e1" stroke-width="1.7"/>
+<text x="125" y="292" class="small" text-anchor="end">Autograd 包装</text>
+<line x1="145" y1="287" x2="714" y2="287" stroke="#cbd5e1" stroke-width="1.7"/>
+<text x="125" y="378" class="small" text-anchor="end">CUDA launch</text>
+<line x1="145" y1="373" x2="714" y2="373" stroke="#cbd5e1" stroke-width="1.7"/>
+<text x="125" y="464" class="small" text-anchor="end">GPU</text>
+<line x1="145" y1="459" x2="714" y2="459" stroke="#cbd5e1" stroke-width="1.7"/>
+<rect x="145" y="94" width="565" height="42" fill="#e2e8f0" class="grid"/>
+<text x="427.5" y="121" class="mono" text-anchor="middle">torch.ops.myops.scale_shift(x, 2.0, 1.0)</text>
+<rect x="145" y="180" width="65" height="42" fill="#dbeafe" class="grid"/>
+<text x="177.5" y="207" class="tiny" text-anchor="middle">① 查表</text>
+<rect x="360" y="180" width="70" height="42" fill="#dbeafe" class="grid"/>
+<text x="395.0" y="207" class="tiny" text-anchor="middle">③ 查表</text>
+<rect x="560" y="180" width="50" height="42" fill="#dbeafe" class="grid"/>
+<text x="585.0" y="207" class="small" text-anchor="middle">out</text>
+<rect x="665" y="180" width="45" height="42" fill="#dbeafe" class="grid"/>
+<text x="687.5" y="207" class="small" text-anchor="middle">y</text>
+<rect x="210" y="266" width="150" height="42" fill="#ffedd5" class="grid"/>
+<text x="285.0" y="293" class="tiny" text-anchor="middle">② apply / forward</text>
+<rect x="610" y="266" width="55" height="42" fill="#ffedd5" class="grid"/>
+<text x="637.5" y="293" class="small" text-anchor="middle">⑤</text>
+<rect x="430" y="352" width="130" height="42" fill="#dcfce7" class="grid"/>
+<text x="495.0" y="379" class="small" text-anchor="middle">④ 提交 Kernel</text>
+<rect x="500" y="438" width="214" height="42" fill="#dcfce7" class="grid"/>
+<text x="607.0" y="465" class="small" text-anchor="middle">Kernel（异步执行）</text>
+<line x1="145" y1="136" x2="145" y2="180" stroke="#1d4ed8" stroke-width="1.7" marker-end="url(#call)"/>
+<line x1="210" y1="222" x2="210" y2="266" stroke="#1d4ed8" stroke-width="1.7" marker-end="url(#call)"/>
+<line x1="360" y1="266" x2="360" y2="222" stroke="#1d4ed8" stroke-width="1.7" marker-end="url(#call)"/>
+<line x1="430" y1="222" x2="430" y2="352" stroke="#1d4ed8" stroke-width="1.7" marker-end="url(#call)"/>
+<line x1="500" y1="394" x2="500" y2="438" stroke="#1d4ed8" stroke-width="1.7" marker-end="url(#call)"/>
+<line x1="560" y1="352" x2="560" y2="222" stroke="#b45309" stroke-width="1.7" marker-end="url(#ret)"/>
+<line x1="610" y1="222" x2="610" y2="266" stroke="#b45309" stroke-width="1.7" marker-end="url(#ret)"/>
+<line x1="665" y1="266" x2="665" y2="222" stroke="#b45309" stroke-width="1.7" marker-end="url(#ret)"/>
+<line x1="710" y1="180" x2="710" y2="136" stroke="#b45309" stroke-width="1.7" marker-end="url(#ret)"/>
+<text x="145" y="516" class="small" text-anchor="start" style="fill:#1d4ed8">蓝色：调用 / 提交</text>
+<text x="370" y="516" class="small" text-anchor="start" style="fill:#b45309">棕色：返回</text>
+<text x="145" y="544" class="small" text-anchor="start">①–⑤ 的函数名、KeySet 与返回值见图下步骤</text>
+</svg>
