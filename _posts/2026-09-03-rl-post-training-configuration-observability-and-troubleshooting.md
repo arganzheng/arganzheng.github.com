@@ -21,8 +21,8 @@ updated: 2026-09-14
 ## 一、总览
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
 %% 图：reward 曲线变平台时先看的四个信号
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
 flowchart TB
     A["凌晨两点：reward 曲线变平台，步时间没变，日志没报错"] --> Q{"先看哪个信号？"}
     Q --> S1["staleness 分布：版本差涨了？→ 回答变长、同步没跟上（第五篇）"]
@@ -38,13 +38,18 @@ flowchart TB
 
 四个原因、四个信号、四个动作，按"最便宜的先看"排序：
 
-```text title="那十分钟：四个原因、四个信号、四个动作"
-看什么                                              两分钟内能确认的                                  若是，做什么
-① reward 按数据源 / 任务池分组的曲线                    某一个池整体掉到 0，其余正常 → 沙箱池挂了            隔离该池（数据过滤），补沙箱；已训的几步回滚到 checkpoint
-② 每个推理实例的 global_steps（版本号）                 有实例落后 → 同步漏了                              对该实例强制全量同步；查 update_weights 超时日志
-③ training/rollout_probs_diff_mean / max              阶跃上升，且与 ② 同时 → 不一致来自版本；与 ② 无关 → 引擎 / 精度变了   前者同 ②；后者查最近的镜像 / 配置变更，开 TIS / MIS
-④ off_policy/evicted_samples_staleness/mean · 回答长度 p50 / p99 · update_weights 耗时   长度涨、同步耗时涨、staleness 均值 > 阈值一半 → staleness    调 parameter_sync_step、换 wait、加 rollout 卡
-```
+| 看什么 | 两分钟内能确认的 | 若是，做什么 |
+|---|---|---|
+| ① reward 按数据源 / 任务池分组的曲线 | 某一个池整体掉到 0，其余正常 → 沙箱池 / 验证服务故障的嫌疑最大 | 隔离该池（数据过滤），补沙箱；必要时把已训的几步回滚到 checkpoint |
+| ② 每个推理实例的 `global_steps`（版本号） | 有实例落后于应到达的同步版本 → 同步漏了 | 对该实例强制全量同步；查 `update_weights` 超时日志 |
+| ③ `rollout_probs_diff_mean` / `rollout_probs_diff_max` | 阶跃上升，且与 ② 同时 → 先查版本<br/>与 ② 无关 → 查引擎 / 精度变化，也查参数是否漏传 | 前者同 ②；后者查最近的镜像 / 配置变更与同步校验，开 TIS / MIS |
+| ④ staleness 分布（自加）<br/>过期淘汰样本的 staleness 均值<br/>回答长度 p50 / p99<br/>`update_weights` 耗时 | 长度涨、同步耗时涨、整体 staleness 均值 > 阈值一半 → 样本变旧<br/>淘汰样本均值只统计 `drop` 策略下因过期而淘汰的样本，不能当整体均值 | 调 `parameter_sync_step`、换 `wait`、加 rollout 卡 |
+
+Table: 那十分钟：四个原因、四个信号、四个动作
+
+③ 的完整指标名是 `training/rollout_probs_diff_mean` / `training/rollout_probs_diff_max`；④ 的过期淘汰样本均值是 `training/off_policy/evicted_samples_staleness/mean`。
+
+② 要和该实例应到达的同步版本比，不是直接和仍在更新的训练器比。版本号正常也不能证明参数完整：第七章④的静默错误还要靠同步校验或固定 prompt 对比排除。④ 的整体分布与淘汰样本指标也要分开看，`wait` 不会产生过期淘汰指标；口径见 verl v0.9.0 的 [`ReplayBuffer._evict_terminal_groups` 与 `ReplayBufferAsync._stale_terminal_keys`](https://github.com/volcengine/verl/blob/v0.9.0/verl/trainer/ppo/v1/replay_buffer.py)。
 
 四条都要在**开训前**接进面板：① 需要 reward 带数据源标签、按源聚合；② 需要每个实例暴露版本号；③ 需要同步形态下就开着 `rollout_probs_diff`（第五篇）；④ 需要 staleness 与长度分布逐步记录。缺任何一条，那十分钟就变成一个小时。
 
@@ -72,7 +77,7 @@ Table: 配置（开训前）与运维（开训后）的分工
 | 七 | 常见故障：信号、原因、排查 |
 | 八 | 那十分钟：决策树 |
 | 九 | 引擎对平台的要求 |
-| 十 | 自测 | 5 道题 |
+| 十 | 自测：5 道题 |
 
 Table: 本文的章节安排
 
@@ -177,17 +182,22 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 
 从 100% 到实际值，8B 推理场景（64 卡、共置同步、810 秒）：
 
-```text title="8B 推理场景的损失瀑布"
-100%   全部卡全程按峰值算
- −64%  decode 是 memory-bound：生成段 602 s 里算力只用 4%             结构性，只能靠更大的 c / 更好的 kernel / MLA / FP8 缩短这段
- −13%  长尾：196 s 里几条序列占着 64 张卡                              第二、五篇：colocate_async / separate_async / 部分 rollout
- −4%   前向 MFU 0.5、训练 MFU 0.4 的损失                                大规模训练系列的调优
- −0.1% 切换 + 同步                                                     第三、四篇：几乎不值得优化
- ≈ 13%  实际（上限）
-        再减：Python / 调度开销、TransferQueue 读写、reward 计算等待、验证（test_freq）、checkpoint 保存 …… 实测常在 8–10%
-```
+这里扣的是**全步 MFU 的百分点**，每项都除以同一个 810 s。生成 602 s = 吞吐部分 406 s + 长尾 196 s；4% 是吞吐部分的 MFU，不是整个生成段的 MFU（第一篇第五章、第二篇第三章）。长尾按近似空转计，避免把它的损失又算进 decode 一次。
 
-同一配置换 `separate_async`（42 : 22）：长尾项归零、两池各自的 MFU 分别是 decode 的 4% 与训练的 40%，加权后 17%。**先砍长尾（一档形态），再看 decode 的 c（gpu_memory_utilization、FP8、TP），最后才是训练 MFU**——与预训练的优化顺序相反。
+| 项 | 全步 MFU 的变化 | 计算口径 | 能动什么 |
+|---|---|---|---|
+| 峰值起点 | 100% | 全部卡全程按峰值算 | — |
+| decode 是 memory-bound | −48.1 个百分点 | `406 × (1 − 0.04) / 810` | 结构性，只能靠更大的 c / 更好的 kernel / MLA / FP8 缩短这段 |
+| 长尾 | −24.2 个百分点 | `196 / 810`：几条序列占着 64 张卡，近似空转 | 第二、五篇：`colocate_async` / `separate_async` / 部分 rollout |
+| 前向与训练未达峰值 | −14.5 个百分点 | `[72 × (1 − 0.5) + 136 × (1 − 0.4)] / 810` | 大规模训练系列的调优 |
+| 切换 + 同步 | 约 −0.1 个百分点 | 第三、四篇的亚秒级开销；810 s 已取整，这里只记量级 | 几乎不值得优化 |
+| 模型估算的上限 | ≈ 13% | `100 − 48.1 − 24.2 − 14.5 − 0.1 ≈ 13.1` | 再减实际运行的开销 |
+
+Table: 8B 推理场景的 MFU 损失分解
+
+再减：Python / 调度开销、TransferQueue 读写、reward 计算等待、验证（`test_freq`）、checkpoint 保存……实测常在 8–10%。
+
+同一配置换 `separate_async`（42 : 22）：长尾等待项归零，用第二篇的 619 s 墙钟重算，`6.80e18 / (64 × 989e12 × 619) ≈ 17%`。训练池还包含 MFU 50% 的前向，不能只拿训练段的 40% 当整池 MFU 来加权。**先砍长尾（一档形态），再看 decode 的 c（gpu_memory_utilization、FP8、TP），最后才是训练 MFU**——与预训练的优化顺序相反。
 
 ### 3. 三个容易高估的地方
 
@@ -365,21 +375,31 @@ Table: RL 系统特有的故障：信号、原因与排查
 
 ## 八、那十分钟
 
-```text title="那十分钟的诊断流程"
-告警：reward 平台，步时间不变，无报错
-│
-├─ 看 reward 按源 ─── 某源 → 0，其余正常？ ── 是 ──► ⑪ 沙箱池 / 验证服务：查该源的环境错误率与容器数 → 隔离该源、补池、必要时回滚到平台前的 checkpoint
-│                                          否
-├─ 看每实例版本 ──── 有实例落后？ ─────────── 是 ──► ⑨ 同步漏了：查该实例 update_weights 日志（超时？校验失败？）→ 强制全量重同步 → 该实例的样本按 staleness 处理
-│                                          否
-├─ 看 probs_diff ─── 阶跃上升？ ────────────── 是 ──► ⑤ 不一致：最近改了引擎版本 / 精度 / 模型（MoE？）？→ 开 TIS / MIS；若同时是 Agent → 检查 template / token 连续性
-│                                          否
-├─ 看 staleness + 长度 + 同步耗时 ── 长度涨、同步耗时涨、staleness 均值升？ ── 是 ──► staleness：parameter_sync_step 减半或换 wait；配比往 rollout 侧挪；看被 drop 的长度分布确认偏置
-│                                          否
-└─ 都不是 ──► 不是系统问题：算法 / 数据 / 学习率 / 课程 —— 交给算法同事，附上以上四项都正常的截图
+```mermaid
+%% 图：那十分钟的诊断流程
+%%{init: {"flowchart": {"curve": "linear", "rankSpacing": 24, "nodeSpacing": 24}}}%%
+flowchart TB
+    A["告警：reward 平台<br/>步时间不变，无报错"] --> R{"看 reward 按源<br/>某源 → 0，其余正常？"}
+    R -->|是| RF["① ⑪ 沙箱池 / 验证服务"]
+    R -->|否| V{"看每实例版本<br/>有实例落后于同步目标？"}
+    V -->|是| VF["② ⑨ 同步漏了"]
+    V -->|否| P{"看 probs_diff<br/>阶跃上升？"}
+    P -->|是| PF["③ ⑤ 训推不一致"]
+    P -->|否| S{"看 staleness / 长度 / 同步耗时<br/>三者都涨？"}
+    S -->|是| SF["④ staleness"]
+    S -->|否| N["⑤ 未命中这四类常见系统故障<br/>转查算法 / 数据 / 学习率 / 课程"]
+    RF ~~~ VF ~~~ PF ~~~ SF
 ```
 
-"都不是"这一枝很重要：**系统侧能给算法侧的最大帮助，是在十分钟内证明"不是系统的问题"**——四项信号正常的截图，比任何猜测都有价值。
+每个分支的动作（⑪、⑨、⑤ 对应第七章故障表）：
+
+1. **沙箱池 / 验证服务**：查该源的环境错误率与容器数。隔离该源、补池，必要时回滚到平台前的 checkpoint。
+2. **同步漏了**：查该实例 `update_weights` 日志——超时？校验失败？强制全量重同步，该实例的样本按 staleness 处理。
+3. **训推不一致**：最近改了引擎版本 / 精度 / 模型（MoE？）？也查权重同步是否漏参数，不只看版本号。开 TIS / MIS；若同时是 Agent，检查 template / token 连续性。
+4. **staleness**：长度涨、同步耗时涨、staleness 均值升时，`parameter_sync_step` 减半或换 `wait`；配比往 rollout 侧挪。看被 `drop` 的长度分布，确认偏置。
+5. **都不是**：交给算法同事继续查算法 / 数据 / 学习率 / 课程，附上以上四项都正常的截图。它们只说明没命中这四类故障，不能排除第七章④那种版本号正常、参数却不完整的静默错误；怀疑同步时，补做参数校验或固定 prompt 对比。
+
+"都不是"这一枝很重要：**十分钟先把排查范围缩小**。四项信号正常的截图比猜测有用，但不是"系统没有问题"的证明。
 
 ## 九、引擎对平台的要求
 
