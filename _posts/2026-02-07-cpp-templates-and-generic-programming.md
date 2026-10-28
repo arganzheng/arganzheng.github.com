@@ -44,14 +44,14 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 %% 图：编译期实例化与运行期分派：模板为每种 scalar_t 生成一份代码，AT_DISPATCH 在入口 switch 一次
 flowchart TB
-    T["模板：kernel<scalar_t>(...)<br/>一份「配方」，T 未定"] -- "编译期实例化" --> F["kernel<float>"] & D["kernel<double>"] & H["kernel<c10::Half>"] & B["kernel<c10::BFloat16>"]
-    RT["运行时：input.scalar_type() == Float"] --> SW["AT_DISPATCH_FLOATING_TYPES 展开成 switch<br/>case Float: 调 kernel<float>；case Double: …"]
+    T["模板：kernel&lt;scalar_t&gt;(...)<br/>一份「配方」，T 未定"] --> I["编译期实例化"]
+    I --> F["kernel&lt;float&gt;"] & D["kernel&lt;double&gt;"] & H["kernel&lt;c10::Half&gt;"] & B["kernel&lt;c10::BFloat16&gt;"]
+    RT["运行时：input.scalar_type() == Float"] --> SW["AT_DISPATCH_FLOATING_TYPES 展开成 switch<br/>case Float: 调 kernel&lt;float&gt;；case Double: …"]
     SW --> F
-    F & D & H & B -. "编译期分派：每种类型一份独立的、无分支的机器码（快，但二进制变大）<br/>运行期分派：只在入口 switch 一次选哪一份（第七章逐层展开这个宏）" .-> X[" "]
-    style X fill:none,stroke:none
-
 ```
 
+- 编译期分派：每种类型一份独立的、无分支的机器码（快，但二进制变大）。
+- 运行期分派：只在入口 `switch` 一次选哪一份（第七章逐层展开这个宏）。
 
 ### 1. 本文的组织方式
 
