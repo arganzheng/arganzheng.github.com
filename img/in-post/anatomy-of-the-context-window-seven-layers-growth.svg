@@ -1,6 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="345" viewBox="0 0 760 345" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="350" viewBox="0 0 760 350" role="img" aria-labelledby="seven-layers-title seven-layers-desc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
+<title id="seven-layers-title">七层上下文在第 1 步与第 30 步的体积</title>
+<desc id="seven-layers-desc">示意对比：常驻层不变，工具返回在第 30 步增长到 87K，约占总量 114K 的四分之三。当前输入仍在末尾；随着历史追加而远离末尾的是原始任务，不是当前输入。</desc>
+<style>text{font-family:'Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif}</style>
 <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
-<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">一次请求里模型看到的七层：第 1 步 vs 第 30 步（单位 K token，示意）</text>
+<text x="380" y="20" fill="#222" font-size="14" text-anchor="middle" font-weight="600">一次请求里模型看到的七层：第 1 步 vs 第 30 步</text>
+<text x="380" y="38" fill="#666" font-size="12" text-anchor="middle">单位 K token，示意</text>
 <rect x="40" y="62" width="12" height="12" fill="#c98a00"/>
 <text x="58" y="72" fill="#333" font-size="11" text-anchor="start" font-weight="normal">① 系统指令</text>
 <rect x="40" y="84" width="12" height="12" fill="#e0a030"/>
@@ -42,9 +46,9 @@
 <text x="500" y="80" fill="#333" font-size="11" text-anchor="start" font-weight="600">30 步后 ⑥ 工具返回占了 3/4：</text>
 <text x="500" y="95" fill="#333" font-size="11" text-anchor="start" font-weight="normal">每步读一个文件 / 跑一条命令，</text>
 <text x="500" y="110" fill="#333" font-size="11" text-anchor="start" font-weight="normal">原始输出都留在了上下文里</text>
-<text x="500" y="146" fill="#333" font-size="11" text-anchor="start" font-weight="600">⑦ 当前任务前面隔着 100K 的历史：</text>
-<text x="500" y="161" fill="#333" font-size="11" text-anchor="start" font-weight="normal">正是「Lost in the Middle」里</text>
-<text x="500" y="176" fill="#333" font-size="11" text-anchor="start" font-weight="normal">最容易被忽略的位置</text>
+<text x="500" y="146" fill="#333" font-size="11" text-anchor="start" font-weight="600">⑦ 当前输入仍在末尾，不在中间</text>
+<text x="500" y="161" fill="#333" font-size="11" text-anchor="start" font-weight="normal">随历史追加而远离末尾的是原始任务</text>
+<text x="500" y="176" fill="#333" font-size="11" text-anchor="start" font-weight="normal">Lost in the Middle 的位置问题见第四章</text>
 <text x="500" y="212" fill="#333" font-size="11" text-anchor="start" font-weight="600">第四篇的顺序由此而来：先不让无关的</text>
 <text x="500" y="227" fill="#333" font-size="11" text-anchor="start" font-weight="normal">进来（隔离）→ 清掉读过的 ⑥（清理）</text>
 <text x="500" y="242" fill="#333" font-size="11" text-anchor="start" font-weight="normal">→ 最后才摘要 ④（压缩，最贵最有损）</text>
