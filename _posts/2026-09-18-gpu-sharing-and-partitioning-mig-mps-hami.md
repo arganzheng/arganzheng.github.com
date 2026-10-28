@@ -46,33 +46,20 @@ Kubernetes 用 device plugin 把 GPU 表达为**整数个扩展资源**：节点
 
 四层共享机制及其在 K8s 上的接线：
 
-```text title="四层共享机制及其在 K8s 上的接线"
-                 隔离弱 ───────────────────────────────────────────▶ 隔离强
+| 层次 | 不隔离 | 时间片 | MPS | MIG |
+|---|---|---|---|---|
+| 机制 | 多进程直接共用 GPU | 驱动层按时间片轮转各进程的 CUDA context | 进程合并到一个 CUDA context，server 统一提交 kernel | 硬件分区：独立 SM、L2 slice、显存与带宽 |
+| 显存隔离 | 无 | 无 | 有上限（pinned mem limit），软限制 | 有（物理隔离） |
+| 算力隔离 | 无 | 轮转，无份额保证 | active thread percentage，软限制 | 有（SM 物理划分） |
+| 故障域 | 整卡 | 整卡 | 有限隔离（Volta+），server 挂则全挂 | 单个 GI |
+| 开销 | 无 | context 切换 | 几乎无 context 切换；server 多一跳 | 无切换开销；SM 与带宽被固定切走 |
+| 配置位置 | Pod 里不声明 GPU（不推荐） | device plugin `sharing.timeSlicing` | device plugin `sharing.mps` + mps-control-daemon | MIG Manager 节点标签 + mig-parted + device plugin `migStrategy` |
+| 硬件要求 | 任意 | 任意 | Volta+（独立地址空间） | A30/A100/H100/H200/B200 等数据中心卡 |
+| K8s 资源 | — | `nvidia.com/gpu` ×N（或 `.shared`） | `nvidia.com/gpu` ×N（或 `.shared`） | `nvidia.com/gpu`（single）<br/>`nvidia.com/mig-3g.20gb`（mixed） |
 
-  层次        不隔离            时间片              MPS                 MIG
-  ─────────────────────────────────────────────────────────────────────────────
-  机制        多进程直接共用     驱动层按时间片轮转    进程合并到一个 CUDA    硬件分区：独立 SM、
-              GPU               各进程的 CUDA context context，server 统一   L2 slice、显存与带宽
-                                                    提交 kernel
-  显存隔离    无                无                   有上限（pinned mem     有（物理隔离）
-                                                    limit），软限制
-  算力隔离    无                轮转，无份额保证      active thread          有（SM 物理划分）
-                                                    percentage，软限制
-  故障域      整卡              整卡                 有限隔离（Volta+），    单个 GI
-                                                    server 挂则全挂
-  开销        无                context 切换         几乎无 context 切换；   无切换开销；SM 与
-                                                    server 多一跳          带宽被固定切走
-  配置位置    Pod 里不声明 GPU  device plugin        device plugin          MIG Manager 节点标签
-              （不推荐）        sharing.timeSlicing  sharing.mps +          + mig-parted + device
-                                                    mps-control-daemon     plugin migStrategy
-  硬件要求    任意              任意                 Volta+（独立地址空间）  A30/A100/H100/H200/
-                                                                          B200 等数据中心卡
-  K8s 资源    —                nvidia.com/gpu ×N    nvidia.com/gpu ×N      nvidia.com/gpu（single）
-                                (或 .shared)        (或 .shared)           nvidia.com/mig-3g.20gb（mixed）
+Table: 四层共享机制及其在 K8s 上的接线（从左到右隔离由弱到强）
 
-  第三方       HAMi：软件拦截（libvgpu.so）在时间片之上加显存与算力配额
-              nvidia.com/gpu + nvidia.com/gpumem + nvidia.com/gpucores；调度器扩展按剩余显存选卡
-```
+第三方方案还有 HAMi：软件拦截（`libvgpu.so`）在时间片之上加显存与算力配额，资源名是 `nvidia.com/gpu` + `nvidia.com/gpumem` + `nvidia.com/gpucores`，调度器扩展按剩余显存选卡。
 
 HAMi 不是第五层，而是**在时间片之上用软件补上显存与算力配额**：它的隔离强度介于时间片与 MPS 之间，但请求模型比两者都细（按 MB 而不是按 1/N），而且不要求节点级统一配置。这四层加 HAMi 构成本篇的全部选项。
 
@@ -165,34 +152,7 @@ MIG 的代价来自"硬"：分区几何是固定的枚举（第三章），改�
 
 把三种机制下两个进程的 kernel 在 SM 上的占用画到同一条时间轴上，"轮转"、"并发"、"分区"的差别就很直观：
 
-```text title="时间片、MPS、MIG 下 kernel 在 SM 上的占用"
-  横轴 = 时间，纵轴 = SM；A / B = 两个进程的 kernel；s = context 切换；. = 空闲
-
-  时间片：同一时刻只有一个 context 在 GPU 上，A、B 轮转，各自独占全部 SM
-  SM 高 ┤AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
-        │AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
-        │AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
-  SM 0  ┤AAAAAAAAsBBBBBBBBsAAAAAAAAsBBBBBBBBsAAAA
-        └────────────────────────────────────────▶ t
-        A 的墙钟 ≈ 单跑的 2 倍 + 切换开销，随 B 负载波动；显存整卡可见、先到先得
-
-  MPS：一个 context，A、B 的 kernel 同时占不同 SM（active thread % 各 50）
-  SM 高 ┤BBBBBBBBBBBBBB........BBBBBBBBBBBBBBBBBB   ← B 的上限 50%
-        │BBBBBBBBBBBBBB........BBBBBBBBBBBBBBBBBB
-        │AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA   ← A 的上限 50%：B 空闲时
-  SM 0  ┤AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA      A 也拿不到上面的 SM
-        └────────────────────────────────────────▶ t
-        无切换；显存按 pinned mem limit 软限制；带宽与 L2 共享；server 崩则全崩
-
-  MIG：两个 GI，各有独立的 SM、L2 slice、显存分区与带宽
-  GI-1  ┤BBBBBB......BBBBBBBBBBBBB......BBBBBBBBB
-  (3g)  │BBBBBB......BBBBBBBBBBBBB......BBBBBBBBB
-  ──────┼────────────────────────────────────────   ← 硬件边界：OOM / Xid 不越过
-  GI-0  │AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-  (3g)  ┤AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        └────────────────────────────────────────▶ t
-        A 的性能与 B 完全无关；B 空闲时它的 SM 与带宽也空着（无超卖）
-```
+![时间片、MPS、MIG 下 kernel 在 SM 上的占用](/img/in-post/gpu-sharing-and-partitioning-mig-mps-hami-sm-occupancy.svg)
 
 ### 5. 四层对照
 
@@ -245,36 +205,7 @@ Table: MIG 的 profile 与合法组合
 
 把 A100 40 GB 的 7 个计算 slice 与 8 个显存 slice 画成一排格子，几个常见几何的占位如下（placement 以 NVIDIA MIG 用户指南为准，此处为示意）：
 
-```text title="A100 40 GB 的 slice 与常见几何占位（示意）"
-  计算 slice（7 个，每个 14 SM）        显存 slice（8 个，每个 5 GB）
-  位置:  0    1    2    3    4    5    6      0   1   2   3   4   5   6   7
-
-  all-1g.5gb（7 个实例）
-       ┌────┬────┬────┬────┬────┬────┬────┐  ┌───┬───┬───┬───┬───┬───┬───┬───┐
-       │ 1g │ 1g │ 1g │ 1g │ 1g │ 1g │ 1g │  │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ - │
-       └────┴────┴────┴────┴────┴────┴────┘  └───┴───┴───┴───┴───┴───┴───┴───┘
-       7 个 1g 实例用掉 7 个显存 slice，第 8 片空着                          ▲
-
-  all-3g.20gb（2 个实例）—— 核心问题的方案一
-       ┌──────────────┬──────────────┬────┐  ┌───────────────┬───────────────┐
-       │   3g.20gb A  │   3g.20gb B  │ .. │  │   A（4 片）   │   B（4 片）   │
-       └──────────────┴──────────────┴────┘  └───────────────┴───────────────┘
-                                        ▲ 第 7 个计算 slice 没有显存可配，浪费
-
-  4g.20gb + 3g.20gb（7 / 8，用满）
-       ┌───────────────────┬──────────────┐  ┌───────────────┬───────────────┐
-       │      4g.20gb      │   3g.20gb    │  │   4 片        │   4 片        │
-       └───────────────────┴──────────────┘  └───────────────┴───────────────┘
-       4g 只能从位置 0 起；3g 有两个合法起点（0 或 4）
-
-  3g.20gb + 2g.10gb + 1g.5gb（6 / 7）
-       ┌──────────────┬─────────┬────┬────┐  ┌───────────────┬───────┬───┬───┐
-       │   3g.20gb    │ 2g.10gb │ 1g │ .. │  │   4 片        │ 2 片  │ 1 │ - │
-       └──────────────┴─────────┴────┴────┘  └───────────────┴───────┴───┴───┘
-
-  碎片：先建 2g.10gb 于位置 4-5，再想放 4g.20gb（只能占 0-3）仍可；
-        但若先建 1g.5gb 于位置 2，4g.20gb 就再也放不下——placement 固定导致的碎片
-```
+![A100 40 GB 的 slice 与常见几何占位（示意）](/img/in-post/gpu-sharing-and-partitioning-mig-mps-hami-mig-geometry.svg)
 
 ### 2. 重新配置为什么要清空 GPU
 
@@ -289,18 +220,7 @@ MIG 的两级操作各有前提（以 NVIDIA MIG 用户指南为准）：
 
 GPU Operator v26.7.0 把 MIG 的生命周期拆给三个组件：
 
-```text title="MIG 生命周期的三个组件"
-  运维改标签                     MIG Manager（DaemonSet）                    device plugin + GFD
-  ────────────                   ────────────────────────                    ───────────────────
-  kubectl label node n1 \    ──▶ 监听 nvidia.com/mig.config 变化         ──▶ migStrategy=single:
-    nvidia.com/mig.config=       读取 mig-parted ConfigMap 里同名配置          所有 GI 统一上报为 nvidia.com/gpu
-    all-3g.20gb                  停掉 GPU 客户端（gpu-clients 列表：           GFD 覆盖 nvidia.com/gpu.product
-                                   dcgm、dcgm-exporter、device plugin…）        为 A100-SXM4-40GB-MIG-3g.20gb
-                                 nvidia-mig-parted apply（必要时先开 MIG 模式）
-                                 重新拉起客户端                            ──▶ migStrategy=mixed:
-                                 写回状态标签（成功 / 失败 / 进行中）             每种 profile 一个资源名
-                                                                                nvidia.com/mig-3g.20gb: 2
-```
+![MIG 生命周期的三个组件](/img/in-post/gpu-sharing-and-partitioning-mig-mps-hami-mig-lifecycle.svg)
 
 各环节对应的源码与配置：
 
@@ -553,25 +473,16 @@ flowchart TB
 
 按显存选卡需要调度器知道每张卡的剩余显存，kube-scheduler 不知道。HAMi 用 **scheduler extender** 补上（`pkg/scheduler`）：
 
-```text title="HAMi scheduler extender 的链路"
-  Pod 提交 ──▶ MutatingWebhook（pkg/scheduler/webhook.go）
-                 检测到 nvidia.com/gpu* 资源 → 改 schedulerName 为 hami-scheduler
-                 （scheduler.forceOverwriteDefaultScheduler=true 时连 default-scheduler 也改）
-           ──▶ kube-scheduler（hami-scheduler Pod 内附带一个，kubeScheduler.enabled）
-                 常规过滤 → 调 extender 的 filter 与 bind
-           ──▶ extender Filter（scheduler.go 的 Scheduler.Filter，路由 routes/route.go 的 PredicateRoute）
-                 从节点注解 hami.io/node-nvidia-register 读每张卡的总显存 / 总算力 / 型号
-                 从已调度 Pod 的注解累加每张卡的已用显存与算力（getNodesUsage）
-                 对每个节点：fitInDevices 逐卡试装 → 通过则打分（calcScore）
-           ──▶ extender Bind（Scheduler.Bind，路由 Bind）
-                 先对节点加锁（hami.io/mutex.lock 注解，nodelock），写 Pod 注解：
-                   hami.io/vgpu-devices-to-allocate、hami.io/vgpu-devices-allocated、
-                   hami.io/vgpu-node、hami.io/bind-phase=allocating
-                 再调 API 绑定
-           ──▶ 节点上 HAMi device plugin 的 Allocate
-                 读 hami.io/vgpu-devices-to-allocate 得知该给哪张卡多少显存 → 注入环境变量与挂载
-                 成功后 bind-phase 置 success，释放节点锁
-```
+![HAMi scheduler extender 的链路](/img/in-post/gpu-sharing-and-partitioning-mig-mps-hami-hami-chain.svg)
+
+1. **MutatingWebhook**（`pkg/scheduler/webhook.go`）：Pod 提交后，检测到 `nvidia.com/gpu*` 资源 → 改 `schedulerName` 为 `hami-scheduler`；`scheduler.forceOverwriteDefaultScheduler=true` 时连 `default-scheduler` 也改。
+2. **kube-scheduler**（hami-scheduler Pod 内附带一个，`kubeScheduler.enabled`）：常规过滤 → 调 extender 的 filter 与 bind。
+3. **extender Filter**（`scheduler.go` 的 `Scheduler.Filter`，路由 `routes/route.go` 的 `PredicateRoute`）：
+   - 从节点注解 `hami.io/node-nvidia-register` 读每张卡的总显存 / 总算力 / 型号
+   - 从已调度 Pod 的注解累加每张卡的已用显存与算力（`getNodesUsage`）
+   - 对每个节点：`fitInDevices` 逐卡试装 → 通过则打分（`calcScore`）
+4. **extender Bind**（`Scheduler.Bind`，路由 `Bind`）：先对节点加锁（`hami.io/mutex.lock` 注解，nodelock），写 Pod 注解 `hami.io/vgpu-devices-to-allocate`、`hami.io/vgpu-devices-allocated`、`hami.io/vgpu-node`、`hami.io/bind-phase=allocating`，再调 API 绑定。
+5. **节点上 HAMi device plugin 的 Allocate**：读 `hami.io/vgpu-devices-to-allocate` 得知该给哪张卡多少显存 → 注入环境变量与挂载；成功后 `bind-phase` 置 `success`，释放节点锁。
 
 打分有两级，各有 `binpack` / `spread` 两种策略（`pkg/util/types.go` 的 `SchedulerPolicyName`）：
 
@@ -633,24 +544,7 @@ Table: 各共享方案的资源份额与两个阶段的延迟
 
 ### 2. 决策树
 
-```text title="切分方案决策树"
-这个负载是训练或需要 NCCL？
-├─ 是 ──▶ 不切分。整卡，且节点池不开 MIG（第三章第 4 节）
-└─ 否 ──▶ 是推理服务还是开发 / notebook / 批处理？
-          ├─ 开发 / notebook / 批处理（对延迟不敏感、互不在乎）
-          │    ──▶ 时间片。sharing.timeSlicing，replicas 按并发人数；
-          │        提醒用户显存不隔离，或叠在 MIG 1g 实例上得到显存隔离
-          └─ 推理服务 ──▶ 硬件支持 MIG（A30/A100/H100/H200/B200）且需要 SLA 隔离？
-                         ├─ 是，且模型大小与 profile 匹配、几何可以按节点池固定
-                         │    ──▶ MIG。GPU Operator MIG Manager 固定几何；
-                         │        mixed 策略让请求显式；多副本同 profile 时 single 也可
-                         ├─ 是，但需要按需分配显存、模型大小参差、几何会频繁变
-                         │    ──▶ HAMi（可选动态 MIG 模式）。接受故障域是整卡
-                         └─ 否（非 MIG 卡，或不需要硬隔离）
-                              ──▶ 同一模型的相同副本共卡？
-                                  ├─ 是 ──▶ MPS（均分即可）或 HAMi
-                                  └─ 否 ──▶ HAMi（按 gpumem 差异化分配）
-```
+![切分方案决策树](/img/in-post/gpu-sharing-and-partitioning-mig-mps-hami-decision-tree.svg)
 
 一条横切的原则：**共享节点池与独占节点池分开**。时间片和 MPS 是节点级配置，MIG 是节点池级规划，HAMi 的 device plugin 与官方插件互斥——这三个事实都指向同一个结论：一台节点只能有一种共享策略，把策略绑在节点池标签上，让调度器（上一篇的 Kueue `ResourceFlavor` 或 Volcano 队列）按池分派。
 

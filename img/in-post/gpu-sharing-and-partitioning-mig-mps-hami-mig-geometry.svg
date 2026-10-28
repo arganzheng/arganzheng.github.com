@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 554" width="760" height="554" role="img" aria-labelledby="t d">
+  <title id="t">A100 40 GB 的 slice 与常见几何占位（示意）</title>
+  <desc id="d">左边一排 7 个计算 slice（每个 14 SM，位置 0–6），右边一排 8 个显存 slice（每个 5 GB，位置 0–7），同色的计算格与显存格属于同一个实例，灰格未使用。all-1g.5gb：7 个 1g 实例，用掉 7 个显存 slice，第 8 片空着。all-3g.20gb（核心问题的方案一）：3g.20gb A 占计算 0–2 与显存 0–3，B 占计算 3–5 与显存 4–7，第 7 个计算 slice 没有显存可配，浪费。4g.20gb + 3g.20gb：7 / 8 用满；4g 只能从位置 0 起，3g 有两个合法起点（0 或 4）。3g.20gb + 2g.10gb + 1g.5gb：用 6 个计算 slice、7 个显存 slice。碎片：先建 2g.10gb 于位置 4-5，再想放 4g.20gb（只能占 0-3）仍可；但若先建 1g.5gb 于位置 2，4g.20gb 就再也放不下——placement 固定导致的碎片：4g.20gb 唯一的合法位置是 0-3，3-6 虽然空着，但 4g 起点只能是 0。</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowred" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a5a6c; }
+      .red { font-size: 13px; fill: #c0392b; }
+      .redb { font-size: 13px; font-weight: 700; fill: #c0392b; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+      .card { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; }
+      .q { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .leaf { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-s { fill: #9aa8b6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .p1 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .p2 { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .p3 { fill: #fff0dc; stroke: #40566f; stroke-width: 1.2; }
+      .p4 { fill: #f2e6f7; stroke: #40566f; stroke-width: 1.2; }
+      .try { fill: none; stroke: #c0392b; stroke-width: 2; stroke-dasharray: 6 4; }
+      .tryok { fill: none; stroke: #4b9477; stroke-width: 2; stroke-dasharray: 6 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrowred { stroke: #c0392b; stroke-width: 1.5; fill: none; marker-end: url(#arrowred); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .hw { stroke: #c0392b; stroke-width: 3; fill: none; }
+      .rule { stroke: #9aa8b6; stroke-width: 1.2; fill: none; }
+    </style>
+  </defs>
+<text x="250" y="22" text-anchor="middle" class="bold">计算 slice（7 个，每个 14 SM）</text>
+<text x="588" y="22" text-anchor="middle" class="bold">显存 slice（8 个，每个 5 GB）</text>
+<text x="20" y="46" text-anchor="start" class="small">位置</text>
+<text x="118" y="46" text-anchor="middle" class="small">0</text>
+<text x="162" y="46" text-anchor="middle" class="small">1</text>
+<text x="206" y="46" text-anchor="middle" class="small">2</text>
+<text x="250" y="46" text-anchor="middle" class="small">3</text>
+<text x="294" y="46" text-anchor="middle" class="small">4</text>
+<text x="338" y="46" text-anchor="middle" class="small">5</text>
+<text x="382" y="46" text-anchor="middle" class="small">6</text>
+<text x="455" y="46" text-anchor="middle" class="small">0</text>
+<text x="493" y="46" text-anchor="middle" class="small">1</text>
+<text x="531" y="46" text-anchor="middle" class="small">2</text>
+<text x="569" y="46" text-anchor="middle" class="small">3</text>
+<text x="607" y="46" text-anchor="middle" class="small">4</text>
+<text x="645" y="46" text-anchor="middle" class="small">5</text>
+<text x="683" y="46" text-anchor="middle" class="small">6</text>
+<text x="721" y="46" text-anchor="middle" class="small">7</text>
+<text x="20" y="72" text-anchor="start" class="smallb">all-1g.5gb（7 个实例）</text>
+<rect class="p1" x="96" y="82" width="44" height="34"/>
+<text x="118" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="140" y="82" width="44" height="34"/>
+<text x="162" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="184" y="82" width="44" height="34"/>
+<text x="206" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="228" y="82" width="44" height="34"/>
+<text x="250" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="272" y="82" width="44" height="34"/>
+<text x="294" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="316" y="82" width="44" height="34"/>
+<text x="338" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="360" y="82" width="44" height="34"/>
+<text x="382" y="104" text-anchor="middle" class="small">1g</text>
+<rect class="p1" x="436" y="82" width="38" height="34"/>
+<text x="455" y="104" text-anchor="middle" class="small">1</text>
+<rect class="p1" x="474" y="82" width="38" height="34"/>
+<text x="493" y="104" text-anchor="middle" class="small">2</text>
+<rect class="p1" x="512" y="82" width="38" height="34"/>
+<text x="531" y="104" text-anchor="middle" class="small">3</text>
+<rect class="p1" x="550" y="82" width="38" height="34"/>
+<text x="569" y="104" text-anchor="middle" class="small">4</text>
+<rect class="p1" x="588" y="82" width="38" height="34"/>
+<text x="607" y="104" text-anchor="middle" class="small">5</text>
+<rect class="p1" x="626" y="82" width="38" height="34"/>
+<text x="645" y="104" text-anchor="middle" class="small">6</text>
+<rect class="p1" x="664" y="82" width="38" height="34"/>
+<text x="683" y="104" text-anchor="middle" class="small">7</text>
+<rect class="seg-dim" x="702" y="82" width="38" height="34"/>
+<line x1="721" y1="140" x2="721" y2="119" class="thin"/>
+<path d="M717 125 L721 118 L725 125" class="thin"/>
+<text x="713" y="138" text-anchor="end" class="note">7 个 1g 实例用掉 7 个显存 slice，第 8 片空着</text>
+<text x="20" y="164" text-anchor="start" class="smallb">all-3g.20gb（2 个实例）—— 核心问题的方案一</text>
+<rect class="p3" x="96" y="174" width="132" height="34"/>
+<text x="162" y="196" text-anchor="middle" class="small">3g.20gb A</text>
+<rect class="p3" x="228" y="174" width="132" height="34"/>
+<text x="294" y="196" text-anchor="middle" class="small">3g.20gb B</text>
+<rect class="seg-dim" x="360" y="174" width="44" height="34"/>
+<rect class="p3" x="436" y="174" width="152" height="34"/>
+<text x="512" y="196" text-anchor="middle" class="small">A（4 片）</text>
+<rect class="p3" x="588" y="174" width="152" height="34"/>
+<text x="664" y="196" text-anchor="middle" class="small">B（4 片）</text>
+<line x1="382" y1="232" x2="382" y2="211" class="thin"/>
+<path d="M378 217 L382 210 L386 217" class="thin"/>
+<text x="374" y="230" text-anchor="end" class="note">第 7 个计算 slice 没有显存可配，浪费</text>
+<text x="20" y="256" text-anchor="start" class="smallb">4g.20gb + 3g.20gb（7 / 8，用满）</text>
+<rect class="p4" x="96" y="266" width="176" height="34"/>
+<text x="184" y="288" text-anchor="middle" class="small">4g.20gb</text>
+<rect class="p3" x="272" y="266" width="132" height="34"/>
+<text x="338" y="288" text-anchor="middle" class="small">3g.20gb</text>
+<rect class="p4" x="436" y="266" width="152" height="34"/>
+<text x="512" y="288" text-anchor="middle" class="small">4 片</text>
+<rect class="p3" x="588" y="266" width="152" height="34"/>
+<text x="664" y="288" text-anchor="middle" class="small">4 片</text>
+<text x="96" y="322" text-anchor="start" class="note">4g 只能从位置 0 起；3g 有两个合法起点（0 或 4）</text>
+<text x="20" y="348" text-anchor="start" class="smallb">3g.20gb + 2g.10gb + 1g.5gb（6 / 7）</text>
+<rect class="p3" x="96" y="358" width="132" height="34"/>
+<text x="162" y="380" text-anchor="middle" class="small">3g.20gb</text>
+<rect class="p2" x="228" y="358" width="88" height="34"/>
+<text x="272" y="380" text-anchor="middle" class="small">2g.10gb</text>
+<rect class="p1" x="316" y="358" width="44" height="34"/>
+<text x="338" y="380" text-anchor="middle" class="small">1g</text>
+<rect class="seg-dim" x="360" y="358" width="44" height="34"/>
+<rect class="p3" x="436" y="358" width="152" height="34"/>
+<text x="512" y="380" text-anchor="middle" class="small">4 片</text>
+<rect class="p2" x="588" y="358" width="76" height="34"/>
+<text x="626" y="380" text-anchor="middle" class="small">2 片</text>
+<rect class="p1" x="664" y="358" width="38" height="34"/>
+<text x="683" y="380" text-anchor="middle" class="small">1</text>
+<rect class="seg-dim" x="702" y="358" width="38" height="34"/>
+<line x1="20" y1="406" x2="740" y2="406" class="rule"/>
+<text x="20" y="428" text-anchor="start" class="smallb">碎片：先建 2g.10gb 于位置 4-5，再想放 4g.20gb（只能占 0-3）仍可</text>
+<rect class="seg-free" x="96" y="438" width="44" height="34"/>
+<rect class="seg-free" x="140" y="438" width="44" height="34"/>
+<rect class="seg-free" x="184" y="438" width="44" height="34"/>
+<rect class="seg-free" x="228" y="438" width="44" height="34"/>
+<rect class="seg-free" x="360" y="438" width="44" height="34"/>
+<rect class="p2" x="272" y="438" width="88" height="34"/>
+<text x="316" y="460" text-anchor="middle" class="small">2g.10gb</text>
+<text x="118" y="460" text-anchor="middle" class="note">0</text>
+<text x="162" y="460" text-anchor="middle" class="note">1</text>
+<text x="206" y="460" text-anchor="middle" class="note">2</text>
+<text x="250" y="460" text-anchor="middle" class="note">3</text>
+<text x="382" y="460" text-anchor="middle" class="note">6</text>
+<rect class="tryok" x="93" y="435" width="182" height="40"/>
+<text x="436" y="460" text-anchor="start" class="small">虚线框 = 4g.20gb 唯一的合法位置 0-3：放得下 ✓</text>
+<text x="20" y="494" text-anchor="start" class="smallb">但若先建 1g.5gb 于位置 2，4g.20gb 就再也放不下——placement 固定导致的碎片</text>
+<rect class="seg-free" x="96" y="504" width="44" height="34"/>
+<rect class="seg-free" x="140" y="504" width="44" height="34"/>
+<rect class="seg-free" x="228" y="504" width="44" height="34"/>
+<rect class="seg-free" x="272" y="504" width="44" height="34"/>
+<rect class="seg-free" x="316" y="504" width="44" height="34"/>
+<rect class="seg-free" x="360" y="504" width="44" height="34"/>
+<rect class="p1" x="184" y="504" width="44" height="34"/>
+<text x="206" y="526" text-anchor="middle" class="small">1g</text>
+<text x="118" y="526" text-anchor="middle" class="note">0</text>
+<text x="162" y="526" text-anchor="middle" class="note">1</text>
+<text x="250" y="526" text-anchor="middle" class="note">3</text>
+<text x="294" y="526" text-anchor="middle" class="note">4</text>
+<text x="338" y="526" text-anchor="middle" class="note">5</text>
+<text x="382" y="526" text-anchor="middle" class="note">6</text>
+<rect class="try" x="93" y="501" width="182" height="40"/>
+<text x="436" y="516" text-anchor="start" class="red">虚线框 = 4g.20gb 唯一的合法位置 0-3：压到 1g ✗</text>
+<text x="436" y="536" text-anchor="start" class="note">3-6 虽然空着，但 4g 起点只能是 0</text>
+</svg>

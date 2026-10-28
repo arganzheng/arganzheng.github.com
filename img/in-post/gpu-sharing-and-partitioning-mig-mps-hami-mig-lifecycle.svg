@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 334" width="760" height="334" role="img" aria-labelledby="t d">
+  <title id="t">MIG 生命周期的三个组件</title>
+  <desc id="d">从左到右三列。运维改标签：kubectl label node n1 nvidia.com/mig.config=all-3g.20gb。MIG Manager（DaemonSet）：监听 nvidia.com/mig.config 变化；读取 mig-parted ConfigMap 里同名配置；停掉 GPU 客户端（gpu-clients 列表：dcgm、dcgm-exporter、device plugin…）；nvidia-mig-parted apply（必要时先开 MIG 模式）；重新拉起客户端；写回状态标签（成功 / 失败 / 进行中）。device plugin + GFD 分两种结果：migStrategy=single 时所有 GI 统一上报为 nvidia.com/gpu，GFD 覆盖 nvidia.com/gpu.product 为 A100-SXM4-40GB-MIG-3g.20gb；migStrategy=mixed 时每种 profile 一个资源名，如 nvidia.com/mig-3g.20gb: 2。</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowred" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a5a6c; }
+      .red { font-size: 13px; fill: #c0392b; }
+      .redb { font-size: 13px; font-weight: 700; fill: #c0392b; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+      .card { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; }
+      .q { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .leaf { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-s { fill: #9aa8b6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .p1 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .p2 { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .p3 { fill: #fff0dc; stroke: #40566f; stroke-width: 1.2; }
+      .p4 { fill: #f2e6f7; stroke: #40566f; stroke-width: 1.2; }
+      .try { fill: none; stroke: #c0392b; stroke-width: 2; stroke-dasharray: 6 4; }
+      .tryok { fill: none; stroke: #4b9477; stroke-width: 2; stroke-dasharray: 6 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrowred { stroke: #c0392b; stroke-width: 1.5; fill: none; marker-end: url(#arrowred); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .hw { stroke: #c0392b; stroke-width: 3; fill: none; }
+      .rule { stroke: #9aa8b6; stroke-width: 1.2; fill: none; }
+    </style>
+  </defs>
+<text x="103" y="22" text-anchor="middle" class="bold">运维改标签</text>
+<line x1="6" y1="32" x2="200" y2="32" class="rule"/>
+<text x="347" y="22" text-anchor="middle" class="bold">MIG Manager（DaemonSet）</text>
+<line x1="220" y1="32" x2="474" y2="32" class="rule"/>
+<text x="624" y="22" text-anchor="middle" class="bold">device plugin + GFD</text>
+<line x1="494" y1="32" x2="754" y2="32" class="rule"/>
+<rect class="card" x="6" y="46" width="194" height="76" rx="6"/>
+<text x="18" y="69" text-anchor="start" class="mono12">kubectl label node n1 \</text>
+<text x="18" y="89" text-anchor="start" class="mono12">  nvidia.com/mig.config=</text>
+<text x="18" y="109" text-anchor="start" class="mono12">  all-3g.20gb</text>
+<rect class="card" x="220" y="46" width="254" height="276" rx="6"/>
+<text x="232" y="69" text-anchor="start" class="small">1.</text>
+<text x="250" y="69" text-anchor="start" class="small">监听 nvidia.com/mig.config 变化</text>
+<text x="232" y="89" text-anchor="start" class="small">2.</text>
+<text x="250" y="89" text-anchor="start" class="small">读取 mig-parted ConfigMap</text>
+<text x="250" y="109" text-anchor="start" class="small">里同名配置</text>
+<text x="232" y="129" text-anchor="start" class="small">3.</text>
+<text x="250" y="129" text-anchor="start" class="small">停掉 GPU 客户端</text>
+<text x="250" y="149" text-anchor="start" class="small">gpu-clients 列表：</text>
+<text x="250" y="169" text-anchor="start" class="note">•</text>
+<text x="264" y="169" text-anchor="start" class="small">dcgm</text>
+<text x="250" y="189" text-anchor="start" class="note">•</text>
+<text x="264" y="189" text-anchor="start" class="small">dcgm-exporter</text>
+<text x="250" y="209" text-anchor="start" class="note">•</text>
+<text x="264" y="209" text-anchor="start" class="small">device plugin…</text>
+<text x="232" y="229" text-anchor="start" class="small">4.</text>
+<text x="250" y="229" text-anchor="start" class="small">nvidia-mig-parted apply</text>
+<text x="250" y="249" text-anchor="start" class="note">•</text>
+<text x="264" y="249" text-anchor="start" class="small">必要时先开 MIG 模式</text>
+<text x="232" y="269" text-anchor="start" class="small">5.</text>
+<text x="250" y="269" text-anchor="start" class="small">重新拉起客户端</text>
+<text x="232" y="289" text-anchor="start" class="small">6.</text>
+<text x="250" y="289" text-anchor="start" class="small">写回状态标签</text>
+<text x="250" y="309" text-anchor="start" class="note">•</text>
+<text x="264" y="309" text-anchor="start" class="small">成功 / 失败 / 进行中</text>
+<rect class="card" x="494" y="46" width="260" height="116" rx="6"/>
+<text x="506" y="69" text-anchor="start" class="smallb">migStrategy=single:</text>
+<text x="508" y="89" text-anchor="start" class="note">•</text>
+<text x="522" y="89" text-anchor="start" class="small">所有 GI 统一上报为</text>
+<text x="522" y="109" text-anchor="start" class="small">nvidia.com/gpu</text>
+<text x="508" y="129" text-anchor="start" class="note">•</text>
+<text x="522" y="129" text-anchor="start" class="small">GFD 覆盖 nvidia.com/gpu.product</text>
+<text x="522" y="149" text-anchor="start" class="small">为 A100-SXM4-40GB-MIG-3g.20gb</text>
+<rect class="card" x="494" y="246" width="260" height="76" rx="6"/>
+<text x="506" y="269" text-anchor="start" class="smallb">migStrategy=mixed:</text>
+<text x="508" y="289" text-anchor="start" class="note">•</text>
+<text x="522" y="289" text-anchor="start" class="small">每种 profile 一个资源名</text>
+<text x="522" y="309" text-anchor="start" class="small">nvidia.com/mig-3g.20gb: 2</text>
+<line x1="200" y1="64" x2="220" y2="64" class="arrow"/>
+<line x1="474" y1="64" x2="494" y2="64" class="arrow"/>
+<line x1="474" y1="284" x2="494" y2="284" class="arrow"/>
+</svg>

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 494" width="760" height="494" role="img" aria-labelledby="t d">
+  <title id="t">时间片、MPS、MIG 下 kernel 在 SM 上的占用</title>
+  <desc id="d">三块面板共用同一种坐标：横轴是时间，纵轴是 SM，A、B 是两个进程的 kernel。时间片：同一时刻只有一个 context 在 GPU 上，A、B 轮转，各自独占全部 SM，中间夹着 context 切换；A 的墙钟约为单跑的 2 倍加切换开销，随 B 负载波动；显存整卡可见、先到先得。MPS：一个 context，A、B 的 kernel 同时占不同 SM（active thread % 各 50），上半是 B 的上限 50%，下半是 A 的上限 50%，B 空闲时 A 也拿不到上面的 SM；无切换；显存按 pinned mem limit 软限制；带宽与 L2 共享；server 崩则全崩。MIG：两个 3g GI，各有独立的 SM、L2 slice、显存分区与带宽，中间是硬件边界，OOM / Xid 不越过；A 的性能与 B 完全无关；B 空闲时它的 SM 与带宽也空着（无超卖）。</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowred" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a5a6c; }
+      .red { font-size: 13px; fill: #c0392b; }
+      .redb { font-size: 13px; font-weight: 700; fill: #c0392b; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .card { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; }
+      .q { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .leaf { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-s { fill: #9aa8b6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .p1 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .p2 { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .p3 { fill: #fff0dc; stroke: #40566f; stroke-width: 1.2; }
+      .p4 { fill: #f2e6f7; stroke: #40566f; stroke-width: 1.2; }
+      .try { fill: none; stroke: #c0392b; stroke-width: 2; stroke-dasharray: 6 4; }
+      .tryok { fill: none; stroke: #4b9477; stroke-width: 2; stroke-dasharray: 6 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrowred { stroke: #c0392b; stroke-width: 1.5; fill: none; marker-end: url(#arrowred); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .hw { stroke: #c0392b; stroke-width: 3; fill: none; }
+      .rule { stroke: #9aa8b6; stroke-width: 1.2; fill: none; }
+    </style>
+  </defs>
+<text x="20" y="22" text-anchor="start" class="small">横轴 = 时间，纵轴 = SM</text>
+<rect class="seg-a" x="200" y="11" width="14" height="14"/>
+<text x="220" y="22" text-anchor="start" class="small">进程 A 的 kernel</text>
+<rect class="seg-b" x="354.8" y="11" width="14" height="14"/>
+<text x="374.8" y="22" text-anchor="start" class="small">进程 B 的 kernel</text>
+<rect class="seg-s" x="509.6" y="11" width="14" height="14"/>
+<text x="529.6" y="22" text-anchor="start" class="small">context 切换</text>
+<rect class="seg-free" x="637.2" y="11" width="14" height="14"/>
+<text x="657.2" y="22" text-anchor="start" class="small">空闲</text>
+<text x="20" y="58" text-anchor="start" class="bold">时间片：同一时刻只有一个 context 在 GPU 上，A、B 轮转，各自独占全部 SM</text>
+<rect class="seg-a" x="84" y="78" width="96" height="72"/>
+<text x="132" y="119" text-anchor="middle" class="small">A</text>
+<rect class="seg-s" x="180" y="78" width="12" height="72"/>
+<rect class="seg-b" x="192" y="78" width="96" height="72"/>
+<text x="240" y="119" text-anchor="middle" class="small">B</text>
+<rect class="seg-s" x="288" y="78" width="12" height="72"/>
+<rect class="seg-a" x="300" y="78" width="96" height="72"/>
+<text x="348" y="119" text-anchor="middle" class="small">A</text>
+<rect class="seg-s" x="396" y="78" width="12" height="72"/>
+<rect class="seg-b" x="408" y="78" width="96" height="72"/>
+<text x="456" y="119" text-anchor="middle" class="small">B</text>
+<rect class="seg-s" x="504" y="78" width="12" height="72"/>
+<rect class="seg-a" x="516" y="78" width="48" height="72"/>
+<text x="540" y="119" text-anchor="middle" class="small">A</text>
+<line x1="84" y1="72" x2="84" y2="150" class="thin"/>
+<line x1="84" y1="150" x2="594" y2="150" class="arrow"/>
+<text x="590" y="170" text-anchor="middle" class="small">t</text>
+<text x="76" y="90" text-anchor="end" class="small">SM 高</text>
+<text x="76" y="148" text-anchor="end" class="small">SM 0</text>
+<text x="84" y="176" text-anchor="start" class="note">A 的墙钟 ≈ 单跑的 2 倍 + 切换开销，随 B 负载波动；显存整卡可见、先到先得</text>
+<text x="20" y="210" text-anchor="start" class="bold">MPS：一个 context，A、B 的 kernel 同时占不同 SM（active thread % 各 50）</text>
+<rect class="seg-b" x="84" y="230" width="168" height="36"/>
+<text x="168" y="253" text-anchor="middle" class="small">B</text>
+<rect class="seg-free" x="252" y="230" width="96" height="36"/>
+<text x="300" y="253" text-anchor="middle" class="small">空闲</text>
+<rect class="seg-b" x="348" y="230" width="216" height="36"/>
+<text x="456" y="253" text-anchor="middle" class="small">B</text>
+<rect class="seg-a" x="84" y="266" width="480" height="36"/>
+<text x="324" y="289" text-anchor="middle" class="small">A</text>
+<line x1="84" y1="224" x2="84" y2="302" class="thin"/>
+<line x1="84" y1="302" x2="594" y2="302" class="arrow"/>
+<text x="590" y="322" text-anchor="middle" class="small">t</text>
+<text x="76" y="242" text-anchor="end" class="small">SM 高</text>
+<text x="76" y="300" text-anchor="end" class="small">SM 0</text>
+<line x1="598" y1="249" x2="570" y2="249" class="arrow"/>
+<text x="604" y="253" text-anchor="start" class="small">B 的上限 50%</text>
+<line x1="598" y1="285" x2="570" y2="285" class="arrow"/>
+<text x="604" y="289" text-anchor="start" class="small">A 的上限 50%：B 空闲时</text>
+<text x="604" y="307" text-anchor="start" class="small">A 也拿不到上面的 SM</text>
+<text x="84" y="328" text-anchor="start" class="note">无切换；显存按 pinned mem limit 软限制；带宽与 L2 共享；server 崩则全崩</text>
+<text x="20" y="362" text-anchor="start" class="bold">MIG：两个 GI，各有独立的 SM、L2 slice、显存分区与带宽</text>
+<rect class="seg-b" x="84" y="382" width="72" height="36"/>
+<text x="120" y="405" text-anchor="middle" class="small">B</text>
+<rect class="seg-free" x="156" y="382" width="72" height="36"/>
+<text x="192" y="405" text-anchor="middle" class="small">空闲</text>
+<rect class="seg-b" x="228" y="382" width="156" height="36"/>
+<text x="306" y="405" text-anchor="middle" class="small">B</text>
+<rect class="seg-free" x="384" y="382" width="72" height="36"/>
+<text x="420" y="405" text-anchor="middle" class="small">空闲</text>
+<rect class="seg-b" x="456" y="382" width="108" height="36"/>
+<text x="510" y="405" text-anchor="middle" class="small">B</text>
+<rect class="seg-a" x="84" y="418" width="480" height="36"/>
+<text x="324" y="441" text-anchor="middle" class="small">A</text>
+<line x1="84" y1="376" x2="84" y2="454" class="thin"/>
+<line x1="84" y1="454" x2="594" y2="454" class="arrow"/>
+<text x="590" y="474" text-anchor="middle" class="small">t</text>
+<text x="76" y="397" text-anchor="end" class="small">GI-1</text>
+<text x="76" y="413" text-anchor="end" class="small">(3g)</text>
+<text x="76" y="433" text-anchor="end" class="small">GI-0</text>
+<text x="76" y="449" text-anchor="end" class="small">(3g)</text>
+<line x1="78" y1="418" x2="570" y2="418" class="hw"/>
+<line x1="598" y1="418" x2="570" y2="418" class="arrowred"/>
+<text x="604" y="422" text-anchor="start" class="red">硬件边界：</text>
+<text x="604" y="440" text-anchor="start" class="red">OOM / Xid 不越过</text>
+<text x="84" y="480" text-anchor="start" class="note">A 的性能与 B 完全无关；B 空闲时它的 SM 与带宽也空着（无超卖）</text>
+</svg>

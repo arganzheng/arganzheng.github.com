@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 398" width="760" height="398" role="img" aria-labelledby="t d">
+  <title id="t">HAMi scheduler extender 的链路</title>
+  <desc id="d">横轴是时间，每个组件一行。Pod 提交后：① MutatingWebhook 改 schedulerName 为 hami-scheduler；② hami-scheduler Pod 内附带的 kube-scheduler 做常规过滤，然后调 extender 的 filter 与 bind；③ extender Filter 逐卡试装并打分；④ extender Bind 先给节点加锁（hami.io/mutex.lock），写 Pod 注解 bind-phase=allocating，再调 API 绑定；⑤ 节点上 HAMi device plugin 的 Allocate 注入环境变量与挂载，成功后 bind-phase 置 success，释放节点锁。底部两行是节点锁与 Pod 的 bind-phase 注解：节点锁从 Bind 开始一直持有到 Allocate 成功。</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowred" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a5a6c; }
+      .n12 { font-size: 12px; fill: #4a5a6c; }
+      .s12 { font-size: 12px; }
+      .lock { fill: #fde9e6; stroke: #c0392b; stroke-width: 1.2; }
+      .okst { fill: #e3f1e8; stroke: #4b9477; stroke-width: 1.2; }
+      .red { font-size: 13px; fill: #c0392b; }
+      .redb { font-size: 13px; font-weight: 700; fill: #c0392b; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+      .card { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; }
+      .q { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .leaf { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-s { fill: #9aa8b6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .p1 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .p2 { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .p3 { fill: #fff0dc; stroke: #40566f; stroke-width: 1.2; }
+      .p4 { fill: #f2e6f7; stroke: #40566f; stroke-width: 1.2; }
+      .try { fill: none; stroke: #c0392b; stroke-width: 2; stroke-dasharray: 6 4; }
+      .tryok { fill: none; stroke: #4b9477; stroke-width: 2; stroke-dasharray: 6 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrowred { stroke: #c0392b; stroke-width: 1.5; fill: none; marker-end: url(#arrowred); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .hw { stroke: #c0392b; stroke-width: 3; fill: none; }
+      .rule { stroke: #9aa8b6; stroke-width: 1.2; fill: none; }
+    </style>
+  </defs>
+<line x1="150" y1="20" x2="752" y2="20" class="arrow"/>
+<text x="150" y="38" text-anchor="start" class="n12">Pod 提交</text>
+<text x="752" y="38" text-anchor="end" class="n12">时间</text>
+<text x="138" y="75" text-anchor="end" class="smallb">MutatingWebhook</text>
+<text x="138" y="141" text-anchor="end" class="smallb">kube-scheduler</text>
+<text x="138" y="207" text-anchor="end" class="smallb">HAMi extender</text>
+<text x="138" y="273" text-anchor="end" class="smallb">节点 device plugin</text>
+<rect class="p1" x="150" y="50" width="120" height="40"/>
+<text x="210" y="67" text-anchor="middle" class="smallb">① 改调度器名</text>
+<text x="210" y="83" text-anchor="middle" class="s12">→ hami-scheduler</text>
+<rect class="p2" x="270" y="116" width="310" height="40"/>
+<text x="315" y="133" text-anchor="middle" class="smallb">② 常规过滤</text>
+<text x="315" y="149" text-anchor="middle" class="s12">再调 extender</text>
+<text x="470" y="141" text-anchor="middle" class="n12">等待 extender 返回</text>
+<rect class="p3" x="360" y="182" width="110" height="40"/>
+<text x="415" y="199" text-anchor="middle" class="smallb">③ Filter</text>
+<text x="415" y="215" text-anchor="middle" class="s12">逐卡试装 + 打分</text>
+<rect class="p3" x="470" y="182" width="110" height="40"/>
+<text x="525" y="199" text-anchor="middle" class="smallb">④ Bind</text>
+<text x="525" y="215" text-anchor="middle" class="s12">加锁 + 写注解</text>
+<rect class="p4" x="580" y="248" width="100" height="40"/>
+<text x="630" y="265" text-anchor="middle" class="smallb">⑤ Allocate</text>
+<text x="630" y="281" text-anchor="middle" class="s12">注入环境变量</text>
+<line x1="270" y1="90" x2="270" y2="116" class="arrow"/>
+<text x="276" y="107" text-anchor="start" class="n12"></text>
+<line x1="360" y1="156" x2="360" y2="182" class="arrow"/>
+<text x="366" y="173" text-anchor="start" class="n12">调 filter</text>
+<line x1="470" y1="156" x2="470" y2="182" class="arrow"/>
+<text x="476" y="173" text-anchor="start" class="n12">调 bind</text>
+<line x1="580" y1="222" x2="580" y2="248" class="arrow"/>
+<text x="586" y="239" text-anchor="start" class="n12">API 绑定后</text>
+<line x1="20" y1="306" x2="752" y2="306" class="rule"/>
+<text x="138" y="339" text-anchor="end" class="smallb">节点锁</text>
+<text x="138" y="377" text-anchor="end" class="smallb">Pod bind-phase</text>
+<rect class="lock" x="470" y="320" width="210" height="28"/>
+<text x="575" y="338" text-anchor="middle" class="s12">hami.io/mutex.lock 持有中</text>
+<text x="686" y="338" text-anchor="start" class="n12">释放</text>
+<rect class="seg-dim" x="470" y="358" width="210" height="28"/>
+<text x="575" y="376" text-anchor="middle" class="s12">allocating</text>
+<rect class="okst" x="680" y="358" width="72" height="28"/>
+<text x="716" y="376" text-anchor="middle" class="s12">success</text>
+</svg>

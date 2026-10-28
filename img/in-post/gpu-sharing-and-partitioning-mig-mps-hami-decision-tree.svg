@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 538" width="760" height="538" role="img" aria-labelledby="t d">
+  <title id="t">切分方案决策树</title>
+  <desc id="d">从上往下依次判断。这个负载是训练或需要 NCCL？是：不切分，整卡，且节点池不开 MIG（第三章第 4 节）。否：是推理服务还是开发 / notebook / 批处理？开发 / notebook / 批处理（对延迟不敏感、互不在乎）：时间片，sharing.timeSlicing，replicas 按并发人数；提醒用户显存不隔离，或叠在 MIG 1g 实例上得到显存隔离。推理服务：硬件支持 MIG（A30/A100/H100/H200/B200）且需要 SLA 隔离？是，且模型大小与 profile 匹配、几何可以按节点池固定：MIG，GPU Operator MIG Manager 固定几何；mixed 策略让请求显式；多副本同 profile 时 single 也可。是，但需要按需分配显存、模型大小参差、几何会频繁变：HAMi（可选动态 MIG 模式），接受故障域是整卡。否（非 MIG 卡，或不需要硬隔离）：同一模型的相同副本共卡？是：MPS（均分即可）或 HAMi；否：HAMi（按 gpumem 差异化分配）。</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowred" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .smallb { font-size: 13px; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a5a6c; }
+      .red { font-size: 13px; fill: #c0392b; }
+      .redb { font-size: 13px; font-weight: 700; fill: #c0392b; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+      .card { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; }
+      .q { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .leaf { fill: #eff9f4; stroke: #4b9477; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-s { fill: #9aa8b6; stroke: #40566f; stroke-width: 1.2; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-dim { fill: #f3f5f7; stroke: #9aa8b6; stroke-width: 1.2; }
+      .p1 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .p2 { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .p3 { fill: #fff0dc; stroke: #40566f; stroke-width: 1.2; }
+      .p4 { fill: #f2e6f7; stroke: #40566f; stroke-width: 1.2; }
+      .try { fill: none; stroke: #c0392b; stroke-width: 2; stroke-dasharray: 6 4; }
+      .tryok { fill: none; stroke: #4b9477; stroke-width: 2; stroke-dasharray: 6 4; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .arrowred { stroke: #c0392b; stroke-width: 1.5; fill: none; marker-end: url(#arrowred); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .hw { stroke: #c0392b; stroke-width: 3; fill: none; }
+      .rule { stroke: #9aa8b6; stroke-width: 1.2; fill: none; }
+    </style>
+  </defs>
+<text x="312" y="25" text-anchor="start" class="note">是</text>
+<rect class="leaf" x="312" y="34" width="440" height="36" rx="6"/>
+<text x="324" y="57" text-anchor="start"><tspan class="smallb">不切分</tspan><tspan class="small">。整卡，且节点池不开 MIG（第三章第 4 节）</tspan></text>
+<rect class="q" x="12" y="34" width="248" height="36" rx="6"/>
+<text x="24" y="57" text-anchor="start" class="bold">这个负载是训练或需要 NCCL？</text>
+<line x1="260" y1="52" x2="312" y2="52" class="arrow"/>
+<text x="312" y="117" text-anchor="start" class="note">开发 / notebook / 批处理（对延迟不敏感、互不在乎）</text>
+<rect class="leaf" x="312" y="126" width="440" height="56" rx="6"/>
+<text x="324" y="149" text-anchor="start"><tspan class="smallb">时间片</tspan><tspan class="small">。sharing.timeSlicing，replicas 按并发人数；</tspan></text>
+<text x="324" y="169" text-anchor="start" class="small">提醒用户显存不隔离，或叠在 MIG 1g 实例上得到显存隔离</text>
+<line x1="136" y1="70" x2="136" y2="126" class="arrow"/>
+<text x="146" y="103" text-anchor="start" class="note">否</text>
+<rect class="q" x="12" y="126" width="248" height="56" rx="6"/>
+<text x="24" y="149" text-anchor="start" class="bold">是推理服务还是</text>
+<text x="24" y="169" text-anchor="start" class="bold">开发 / notebook / 批处理？</text>
+<line x1="260" y1="154" x2="312" y2="154" class="arrow"/>
+<text x="312" y="229" text-anchor="start" class="note">是，且模型大小与 profile 匹配、几何可以按节点池固定</text>
+<rect class="leaf" x="312" y="238" width="440" height="56" rx="6"/>
+<text x="324" y="261" text-anchor="start"><tspan class="smallb">MIG</tspan><tspan class="small">。GPU Operator MIG Manager 固定几何；</tspan></text>
+<text x="324" y="281" text-anchor="start" class="small">mixed 策略让请求显式；多副本同 profile 时 single 也可</text>
+<text x="312" y="319" text-anchor="start" class="note">是，但需要按需分配显存、模型大小参差、几何会频繁变</text>
+<rect class="leaf" x="312" y="328" width="440" height="36" rx="6"/>
+<text x="324" y="351" text-anchor="start"><tspan class="smallb">HAMi（可选动态 MIG 模式）</tspan><tspan class="small">。接受故障域是整卡</tspan></text>
+<line x1="136" y1="182" x2="136" y2="268" class="arrow"/>
+<text x="146" y="230" text-anchor="start" class="note">推理服务</text>
+<rect class="q" x="12" y="268" width="248" height="76" rx="6"/>
+<text x="24" y="291" text-anchor="start" class="bold">硬件支持 MIG</text>
+<text x="24" y="311" text-anchor="start" class="bold">（A30/A100/H100/H200/B200）</text>
+<text x="24" y="331" text-anchor="start" class="bold">且需要 SLA 隔离？</text>
+<line x1="260" y1="306" x2="288" y2="306" class="line"/>
+<line x1="288" y1="266" x2="288" y2="346" class="line"/>
+<line x1="287" y1="266" x2="312" y2="266" class="arrow"/>
+<line x1="287" y1="346" x2="312" y2="346" class="arrow"/>
+<text x="312" y="411" text-anchor="start" class="note">是</text>
+<rect class="leaf" x="312" y="420" width="440" height="36" rx="6"/>
+<text x="324" y="443" text-anchor="start"><tspan class="smallb">MPS（均分即可）或 HAMi</tspan></text>
+<text x="312" y="481" text-anchor="start" class="note">否</text>
+<rect class="leaf" x="312" y="490" width="440" height="36" rx="6"/>
+<text x="324" y="513" text-anchor="start"><tspan class="smallb">HAMi（按 gpumem 差异化分配）</tspan></text>
+<line x1="136" y1="344" x2="136" y2="455" class="arrow"/>
+<text x="146" y="395.5" text-anchor="start" class="note">否（非 MIG 卡，</text>
+<text x="146" y="413.5" text-anchor="start" class="note">或不需要硬隔离）</text>
+<rect class="q" x="12" y="455" width="248" height="36" rx="6"/>
+<text x="24" y="478" text-anchor="start" class="bold">同一模型的相同副本共卡？</text>
+<line x1="260" y1="473" x2="288" y2="473" class="line"/>
+<line x1="288" y1="438" x2="288" y2="508" class="line"/>
+<line x1="287" y1="438" x2="312" y2="438" class="arrow"/>
+<line x1="287" y1="508" x2="312" y2="508" class="arrow"/>
+</svg>
