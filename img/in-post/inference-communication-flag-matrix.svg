@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="310" viewBox="0 0 720 310" role="img" aria-labelledby="flag-matrix-t flag-matrix-d">
+<title id="flag-matrix-t">barrier_at_start 的 flag 矩阵：写一行、读一列</title>
+<desc id="flag-matrix-d">block b、world_size = 4 时 4 个 rank 的 start[b] 槽位排成 4×4 矩阵：行是写入者 rank，列是 Signal 所在的 rank。rank 0 写第 0 行，读第 0 列。</desc>
+<style>text{dominant-baseline:auto}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+<rect x="0" y="0" width="720" height="310" fill="#fff"/>
+<text x="360.0" y="22.0" font-size="14" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">barrier_at_start，block b，world_size = 4，本轮期望值 f</text>
+<text x="360.0" y="46.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">列 = Signal 所在的 rank（读者，本地 load）　行 = 槽位下标 = 写入者 rank</text>
+<rect x="60.0" y="62.0" width="150.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<rect x="210.0" y="62.0" width="118.0" height="30.0" fill="#e8f0fe" stroke="#444" stroke-width="1.2" />
+<text x="269.0" y="82.0" font-size="12.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">rank0.start[b]</text>
+<rect x="328.0" y="62.0" width="118.0" height="30.0" fill="#f6f8fa" stroke="#444" stroke-width="1.2" />
+<text x="387.0" y="82.0" font-size="12.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">rank1.start[b]</text>
+<rect x="446.0" y="62.0" width="118.0" height="30.0" fill="#f6f8fa" stroke="#444" stroke-width="1.2" />
+<text x="505.0" y="82.0" font-size="12.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">rank2.start[b]</text>
+<rect x="564.0" y="62.0" width="118.0" height="30.0" fill="#f6f8fa" stroke="#444" stroke-width="1.2" />
+<text x="623.0" y="82.0" font-size="12.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">rank3.start[b]</text>
+<rect x="60.0" y="92.0" width="150.0" height="30.0" fill="#fff3cd" stroke="#444" stroke-width="1.2" />
+<text x="72.0" y="112.0" font-size="12.5" font-weight="500" fill="#111" text-anchor="start"><tspan font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace'>[0]</tspan><tspan font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif'> ← rank 0 写</tspan></text>
+<rect x="210.0" y="92.0" width="118.0" height="30.0" fill="#c8e6c9" stroke="#444" stroke-width="1.2" />
+<text x="269.0" y="112.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="328.0" y="92.0" width="118.0" height="30.0" fill="#fff3cd" stroke="#444" stroke-width="1.2" />
+<text x="387.0" y="112.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="446.0" y="92.0" width="118.0" height="30.0" fill="#fff3cd" stroke="#444" stroke-width="1.2" />
+<text x="505.0" y="112.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="564.0" y="92.0" width="118.0" height="30.0" fill="#fff3cd" stroke="#444" stroke-width="1.2" />
+<text x="623.0" y="112.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="60.0" y="122.0" width="150.0" height="30.0" fill="#f6f8fa" stroke="#444" stroke-width="1.2" />
+<text x="72.0" y="142.0" font-size="12.5" font-weight="500" fill="#111" text-anchor="start"><tspan font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace'>[1]</tspan><tspan font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif'> ← rank 1 写</tspan></text>
+<rect x="210.0" y="122.0" width="118.0" height="30.0" fill="#e8f0fe" stroke="#444" stroke-width="1.2" />
+<text x="269.0" y="142.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="328.0" y="122.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="387.0" y="142.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="446.0" y="122.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="505.0" y="142.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="564.0" y="122.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="623.0" y="142.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="60.0" y="152.0" width="150.0" height="30.0" fill="#f6f8fa" stroke="#444" stroke-width="1.2" />
+<text x="72.0" y="172.0" font-size="12.5" font-weight="500" fill="#111" text-anchor="start"><tspan font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace'>[2]</tspan><tspan font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif'> ← rank 2 写</tspan></text>
+<rect x="210.0" y="152.0" width="118.0" height="30.0" fill="#e8f0fe" stroke="#444" stroke-width="1.2" />
+<text x="269.0" y="172.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="328.0" y="152.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="387.0" y="172.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="446.0" y="152.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="505.0" y="172.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="564.0" y="152.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="623.0" y="172.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="60.0" y="182.0" width="150.0" height="30.0" fill="#f6f8fa" stroke="#444" stroke-width="1.2" />
+<text x="72.0" y="202.0" font-size="12.5" font-weight="500" fill="#111" text-anchor="start"><tspan font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace'>[3]</tspan><tspan font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif'> ← rank 3 写</tspan></text>
+<rect x="210.0" y="182.0" width="118.0" height="30.0" fill="#e8f0fe" stroke="#444" stroke-width="1.2" />
+<text x="269.0" y="202.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="328.0" y="182.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="387.0" y="202.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="446.0" y="182.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="505.0" y="202.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<rect x="564.0" y="182.0" width="118.0" height="30.0" fill="#fff" stroke="#444" stroke-width="1.2" />
+<text x="623.0" y="202.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">f</text>
+<line x1="269.0" y1="246.0" x2="269.0" y2="214.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="249.0" y="264.0" font-size="12.5" font-weight="500" fill="#111" text-anchor="start"><tspan font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif'>rank 0 的线程 0..3 各自旋读本列一格；4 格全为 f 才过 </tspan><tspan font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace'>__syncthreads</tspan></text>
+<rect x="60.0" y="281.0" width="14.0" height="14.0" fill="#fff3cd" stroke="#444" stroke-width="1.2" />
+<text x="80.0" y="292.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">rank 0 写的一行</text>
+<rect x="210.0" y="281.0" width="14.0" height="14.0" fill="#e8f0fe" stroke="#444" stroke-width="1.2" />
+<text x="230.0" y="292.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">rank 0 读的一列</text>
+<rect x="360.0" y="281.0" width="14.0" height="14.0" fill="#c8e6c9" stroke="#444" stroke-width="1.2" />
+<text x="380.0" y="292.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">两者重合：自己写给自己（本地）</text>
+</svg>

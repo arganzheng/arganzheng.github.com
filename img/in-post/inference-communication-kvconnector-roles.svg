@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="343" viewBox="0 0 760 343" role="img" aria-labelledby="kvconnector-roles-t kvconnector-roles-d">
+<title id="kvconnector-roles-t">KVConnectorBase_V1：scheduler 侧与 worker 侧的方法</title>
+<desc id="kvconnector-roles-d">scheduler 侧六个方法与 worker 侧九个方法分列两边；build_connector_meta 产生 KVConnectorMetadata 交给 bind_connector_metadata，get_finished 的结果经 KVConnectorOutput 交给 update_connector_output。</desc>
+<style>text{dominant-baseline:auto}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+<rect x="0" y="0" width="760" height="343" fill="#fff"/>
+<rect x="12.0" y="48.0" width="252.0" height="200.0" fill="#fff" stroke="#888" stroke-width="1.2" />
+<rect x="390.0" y="48.0" width="360.0" height="281.0" fill="#fff" stroke="#888" stroke-width="1.2" />
+<text x="138.0" y="40.0" font-size="13.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">Scheduler 侧（决定“传什么”）</text>
+<text x="570.0" y="40.0" font-size="13.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">Worker 侧（执行“怎么传”）</text>
+<rect x="24.0" y="62.0" width="228.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="34.0" y="80.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">get_num_new_matched_tokens()</text>
+<rect x="24.0" y="89.0" width="228.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="34.0" y="107.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">update_state_after_alloc()</text>
+<rect x="24.0" y="116.0" width="228.0" height="27.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<text x="34.0" y="134.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">build_connector_meta()</text>
+<rect x="24.0" y="143.0" width="228.0" height="27.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<text x="34.0" y="161.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">update_connector_output()</text>
+<rect x="24.0" y="170.0" width="228.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="34.0" y="188.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">request_finished()</text>
+<rect x="24.0" y="197.0" width="228.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="34.0" y="215.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">take_events()</text>
+<rect x="402.0" y="62.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="62.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="80.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">register_kv_caches()</text>
+<text x="622.0" y="80.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">注册 KV block 池</text>
+<rect x="402.0" y="89.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="89.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="107.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">start_load_kv()</text>
+<text x="622.0" y="107.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">发起本步需要的加载</text>
+<rect x="402.0" y="116.0" width="212.0" height="27.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="116.0" width="124.0" height="27.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="134.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">bind_connector_metadata()</text>
+<text x="622.0" y="134.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start"></text>
+<rect x="402.0" y="143.0" width="212.0" height="27.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="143.0" width="124.0" height="27.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="161.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">get_finished()</text>
+<text x="622.0" y="161.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">轮询完成的传输</text>
+<rect x="402.0" y="170.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="170.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="188.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">wait_for_layer_load()</text>
+<text x="622.0" y="188.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start"></text>
+<rect x="402.0" y="197.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="197.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="215.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">save_kv_layer()</text>
+<text x="622.0" y="215.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start"></text>
+<rect x="402.0" y="224.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="224.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="242.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">wait_for_save()</text>
+<text x="622.0" y="242.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start"></text>
+<rect x="402.0" y="251.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="251.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="269.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">handle_preemptions()</text>
+<text x="622.0" y="269.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start"></text>
+<rect x="402.0" y="278.0" width="212.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="614.0" y="278.0" width="124.0" height="27.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="412.0" y="296.0" font-size="12" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="start">build_connector_worker_meta()</text>
+<text x="622.0" y="296.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">回传 scheduler 侧</text>
+<line x1="252.0" y1="129.5" x2="402.0" y2="129.5" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="327.0" y="123.5" font-size="11.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="middle">KVConnectorMetadata</text>
+<line x1="402.0" y1="156.5" x2="252.0" y2="156.5" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="327.0" y="173.5" font-size="11.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="middle">KVConnectorOutput</text>
+</svg>

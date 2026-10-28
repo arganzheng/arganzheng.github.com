@@ -26,31 +26,7 @@ vLLM 对这两个场景给出了两套完全不同的答案。对前者，它绕
 
 ### 1. 推理里的两条通信路径
 
-```text title="推理里的两条通信路径"
-                     decode step（每层两次，几十～几百 KB，延迟主导）
-   ┌──────────────────────────────────────────────────────────────────────┐
-   │ GPU0 ──┐                                                             │
-   │ GPU1 ──┤  TP all_reduce                                              │
-   │  ...   ├──► CudaCommunicator.all_reduce                              │
-   │ GPU7 ──┘      ├─ NCCL symmetric memory（可选，需 VLLM_USE_NCCL_SYMM_MEM）│
-   │               ├─ quick all-reduce（仅 ROCm）                          │
-   │               ├─ FlashInfer all-reduce（可选）                        │
-   │               ├─ custom all-reduce  ← 本篇主角：IPC + flag + 一个 kernel │
-   │               ├─ torch symmetric memory（multimem / two-shot）        │
-   │               └─ PyNccl（ctypes 直调 libnccl.so）                     │
-   └──────────────────────────────────────────────────────────────────────┘
-
-                     PD 分离（每请求一次，几百 MB～GB，带宽主导）
-   ┌──────────────────────────────────────────────────────────────────────┐
-   │  Prefill 实例（TP=Np）                    Decode 实例（TP=Nd）          │
-   │  KV blocks（显存，已 register_memory）      KV blocks（显存，已注册）    │
-   │        ▲                                        │                    │
-   │        │  单边 RDMA READ（NixlConnector）         │                    │
-   │        └────── NIXL → UCX → verbs / GDR ◄────────┘                    │
-   │                    或 Mooncake Transfer Engine（WRITE）                │
-   │  scheduler 侧：决定传哪些 block、何时可释放     worker 侧：发起与轮询传输 │
-   └──────────────────────────────────────────────────────────────────────┘
-```
+![推理里的两条通信路径：上半部分 decode step 中 GPU0～GPU7 的 TP all_reduce 进入 CudaCommunicator.all_reduce，按顺序尝试六个后端；下半部分 PD 分离中 prefill 实例的 KV blocks 经 NIXL → UCX → verbs / GDR 或 Mooncake Transfer Engine 传到 decode 实例](/img/in-post/inference-communication-two-paths.svg)
 
 上半部分是节点内、GPU 之间、每层都发生的集合通信；下半部分是跨节点、实例之间、每个请求发生一次的点对点搬运。两者共享的只有硬件：NVLink 与 IB/RoCE 网卡。软件栈上，前者最终落到一个 CUDA kernel 直接读写对端显存，后者最终落到网卡的 DMA 引擎直接读写显存，两边都没有 NCCL——这是本篇要解释的第一件事。
 
@@ -87,12 +63,14 @@ $$
 
 以 Llama-3-70B 为例，hidden = 8192，BF16：
 
-```text title="Llama-3-70B 各 batch 下每层 all_reduce 的字节数"
-batch   1    →   8192 × 2 =  16 KB
-batch   8    →   8 × 8192 × 2 = 128 KB        ← 总纲核心问题里的数字
-batch  32    →  512 KB
-batch 128    →    2 MB
-```
+| batch | 每层 all_reduce 字节数 | 备注 |
+|---:|---|---|
+| 1 | 8192 × 2 = 16 KB | |
+| 8 | 8 × 8192 × 2 = 128 KB | 总纲核心问题里的数字 |
+| 32 | 512 KB | |
+| 128 | 2 MB | |
+
+Table: Llama-3-70B 各 batch 下每层 all_reduce 的字节数
 
 80 层 × 2 次 = 每个 decode step 160 次 all_reduce。batch 8 时每步通信总量 20 MB，但这 20 MB 是 160 次 128 KB，不是一次 20 MB——这是全部问题的来源。
 
@@ -112,13 +90,15 @@ $$
 
 NCCL 自己的调优表给出了它对小消息延迟的估计。`src/graph/tuning.cc` 里 `ncclTunerConstantsDefaults` 的 `baseLatencies` 和 `hwLatencies`（单位 µs，NCCL 2.28.9 的默认常数，用于算法选择，非实测）：
 
-- **baseLatencies（一次 collective 的基础开销）**：LL；LL128；Simple
-- **Tree**：6.8；14.0；8.4
-- **Ring**：6.6；14.0；8.4
-- **hwLatencies[NVLINK]（每一步的链路开销）**：LL；LL128；Simple
-- **Tree**：0.6；1.25；4.0
-- **Ring**：0.6；1.9；3.4
-- **NVLS**：-；-；25
+| 常数 | 算法 | LL | LL128 | Simple |
+|---|---|---:|---:|---:|
+| baseLatencies（一次 collective 的基础开销） | Tree | 6.8 | 14.0 | 8.4 |
+| ^^ | Ring | 6.6 | 14.0 | 8.4 |
+| hwLatencies[NVLINK]（每一步的链路开销） | Tree | 0.6 | 1.25 | 4.0 |
+| ^^ | Ring | 0.6 | 1.9 | 3.4 |
+| ^^ | NVLS | - | - | 25 |
+
+Table: NCCL 2.28.9 `ncclTunerConstantsDefaults` 的小消息延迟常数（µs）
 
 同一文件里对单节点 ring 的延迟公式是 `baseLatencies + nsteps × intraLat`，all_reduce 的 `nsteps = 2(n-1)`。8 卡：
 
@@ -143,16 +123,14 @@ Table: 8 卡单节点各算法与协议组合的 all_reduce 延迟估算
 
 把总纲核心问题里的两个数字当作量级：NCCL 路径约 30 µs，custom all-reduce 约 10 µs。差的 20 µs 分布在四处：
 
-```text title="NCCL 路径与 custom all-reduce 的 20 µs 差在哪"
-                              NCCL（Ring + LL，经 ProcessGroupNCCL）    custom all-reduce
-kernel 启动与入队              每次 collective 一次完整 launch 路径       一个普通 CUDA kernel，
-                              + Work / event（数 µs CPU 侧）             与模型其他算子同一 stream 顺序启动
-同步步数                       2(n-1) = 14 步串行，每步一次 flag 握手     one-shot：2 次 barrier（起始、结束）
-                                                                        two-shot：2 次 barrier + 一轮中间缓冲区读写
-数据搬运方式                   每步经 channel buffer 中转，LL 拆成 16 B   直接 ld.global 读对端显存（IPC 映射），
-                              数据 + flag                               16 B 向量化 load，fp32 累加后一次写回
-CUDA Graph                    可捕获，但 launch 路径与 comm 状态有约束     天然可捕获（普通 kernel + 固定地址）
-```
+| | NCCL（Ring + LL，经 ProcessGroupNCCL） | custom all-reduce |
+|---|---|---|
+| kernel 启动与入队 | 每次 collective 一次完整 launch 路径<br/>+ Work / event（数 µs CPU 侧） | 一个普通 CUDA kernel，<br/>与模型其他算子同一 stream 顺序启动 |
+| 同步步数 | 2(n-1) = 14 步串行，每步一次 flag 握手 | one-shot：2 次 barrier（起始、结束）<br/>two-shot：2 次 barrier + 一轮中间缓冲区读写 |
+| 数据搬运方式 | 每步经 channel buffer 中转，LL 拆成 16 B 数据 + flag | 直接 `ld.global` 读对端显存（IPC 映射），<br/>16 B 向量化 load，fp32 累加后一次写回 |
+| CUDA Graph | 可捕获，但 launch 路径与 comm 状态有约束 | 天然可捕获（普通 kernel + 固定地址） |
+
+Table: NCCL 路径与 custom all-reduce 的 20 µs 差在哪
 
 第一项是 host 侧的启动成本；第二项是最大的一块，14 步串行同步换成 2 次 barrier；第三项是访存模式，custom all-reduce 没有中间 buffer，每个线程读 8 个地址各 16 字节就完成了归约。第四项在 vLLM 里是决定性的：decode 阶段几乎全部在 CUDA Graph 里回放，所有 host 侧启动成本都在捕获时付掉，回放时只剩 GPU 上的步数，这时 NCCL 的 14 步和 custom AR 的 2 步之差就是全部差距。
 
@@ -195,28 +173,7 @@ struct __align__(16) RankSignals { Signal* signals[8]; };
 
 把这三组东西放在一张图里看（以 world_size = 4、rank 0 的进程为视角）：每个 rank 拥有一块 meta 与一块 buffer，其他 rank 经 IPC 映射拿到它们在自己地址空间里的指针；`RankData` 的一个槽位就是"同一个逻辑缓冲区在 4 张卡上的 4 个地址"，kernel 拿到它就能直接解引用：
 
-```text title="rank 0 进程里的三组指针（world_size = 4）"
-rank 0 进程里的三组指针（world_size = 4）
-
-  meta_ptrs[i]   → rank i 的 meta 块（rank i cudaMalloc，其余 rank IPC 映射）
-  ┌──────────────────┬──────────────────────────────────────────┐
-  │ Signal           │ tmp buffer（two-shot 的中间结果区）        │
-  │   start[36][8]   │                                          │
-  │   end[36][8]     │               max_size 字节               │
-  │   _flag[36]      │                                          │
-  └──────────────────┴──────────────────────────────────────────┘
-  ◄─ sizeof(Signal) ─►◄─────────────── max_size ────────────────►
-
-  buffer_ptrs[i] → rank i 的预注册输入缓冲区（eager 模式先 memcpy 进来）
-
-  rank_data（本地 8 MB，一排 RankData 槽位；槽位 k = 缓冲区 k 的 4 个地址）
-  槽位 k: ┌─────────┬─────────┬─────────┬─────────┐
-          │ ptrs[0] │ ptrs[1] │ ptrs[2] │ ptrs[3] │ ← kernel 参数 RankData*
-          └────┬────┴────┬────┴────┬────┴────┬────┘
-               │         │         │         │   本地 load   远端 load（NVLink）
-               ▼         ▼         ▼         ▼
-            GPU0 显存  GPU1 显存  GPU2 显存  GPU3 显存
-```
+![rank 0 进程里的三组指针（world_size = 4）：meta_ptrs[i] 指向 rank i 的 meta 块（Signal + max_size 字节的 tmp buffer），buffer_ptrs[i] 指向 rank i 的预注册输入缓冲区，rank_data 槽位 k 的 ptrs[0..3] 分别指向 GPU0～GPU3 显存](/img/in-post/inference-communication-rank-pointers.svg)
 
 ### 2. Signal 与 flag 同步：barrier_at_start 与 barrier_at_end
 
@@ -255,22 +212,10 @@ block 里前 `ngpus` 个线程各负责一个对端：线程 i 把 `flag` 写到
 
 把 4 个 rank 同一个 block 的 `start` 槽位排成矩阵，就能看清这次 flag 交换的形状——每个 rank **写一行、读一列**：
 
-```text title="barrier_at_start 的 flag 矩阵：写一行、读一列"
-barrier_at_start，block b，world_size = 4，本轮期望值 f
-列 = Signal 所在的 rank（读者，本地 load）  行 = 槽位下标 = 写入者 rank
+![barrier_at_start 的 flag 矩阵：block b、world_size = 4，行是写入者 rank，列是 Signal 所在的 rank；rank 0 写第 0 行、读第 0 列](/img/in-post/inference-communication-flag-matrix.svg)
 
-                   rank0.start[b] rank1.start[b] rank2.start[b] rank3.start[b]
-  [0] ← rank 0 写       f              f              f              f
-  [1] ← rank 1 写       f              f              f              f
-  [2] ← rank 2 写       f              f              f              f
-  [3] ← rank 3 写       f              f              f              f
-                        ▲
-        rank 0 的线程 0..3 各自旋读本列一格；4 格全为 f 才过 __syncthreads
-
-  每个 rank：写一行 = 线程 i 向 rank i 做一次远端 store（i = 自己时是本地）
-             读一列 = 线程 i 自旋 volatile load 本地槽位 [i]
-  end[b] 是另一张同形矩阵；_flag[b] 每轮 +1，上一轮残留的 f-1 不会误触发
-```
+- 每个 rank 写一行 = 线程 i 向 rank i 做一次远端 store（i = 自己时是本地）；读一列 = 线程 i 自旋 volatile load 本地槽位 `[i]`。
+- `end[b]` 是另一张同形矩阵；`_flag[b]` 每轮 +1，上一轮残留的 f-1 不会误触发。
 
 第四篇讲过 NCCL 的 LL 协议也是用 flag 免屏障。区别在于：NCCL 的 flag 跟着每 8 字节数据走，是数据通道的一部分；custom all-reduce 的 flag 只在 kernel 开头和结尾各交换一次，数据通道是裸的 `ld.global`。
 
@@ -301,31 +246,7 @@ __global__ void __launch_bounds__(512, 1)
 
 两种 kernel 的数据流放在一起对照（world_size = 4，输入切成 4 段 c0..c3）：
 
-```text title="one-shot 与 two-shot 的数据流对照"
-X_r = rank r 的输入，Σ = 4 个 rank 求和；每行是一个 rank 在该阶段读什么、写什么
-
-one-shot（1stage）：每个 rank 读全部 4 份输入，各自算出完整结果
-   barrier_at_start ────────────────────────────────────────────────────
-   rank 0  读 X_0[c0..c3] X_1[c0..c3] X_2[c0..c3] X_3[c0..c3] → Σ[c0..c3]
-   rank 1  读 X_0[c0..c3] X_1[c0..c3] X_2[c0..c3] X_3[c0..c3] → Σ[c0..c3]
-   rank 2  读 （同上）                                        → Σ[c0..c3]
-   rank 3  读 （同上）                                        → Σ[c0..c3]
-           每 rank 远端读 (n-1)·S，结果直接写本地 result，没有中间缓冲
-   barrier_at_end（final，volatile）──────────────────────────────────
-
-two-shot（2stage）：reduce-scatter 到各自 tmp，再 all-gather
-   barrier_at_start ────────────────────────────────────────────────────
-   阶段 1  rank 0  读 X_0[c0] X_1[c0] X_2[c0] X_3[c0] → Σ[c0] → rank0.tmp
-           rank 1  读 X_0[c1] X_1[c1] X_2[c1] X_3[c1] → Σ[c1] → rank1.tmp
-           rank 2  读 X_*[c2]                          → Σ[c2] → rank2.tmp
-           rank 3  读 X_*[c3]                          → Σ[c3] → rank3.tmp
-           每 rank 远端读 (n-1)/n·S
-   barrier_at_end（非 final，release/acquire：tmp 对所有对端可见）───
-   阶段 2  每个 rank  读 rank0.tmp  rank1.tmp  rank2.tmp  rank3.tmp
-                      =  Σ[c0]      Σ[c1]      Σ[c2]      Σ[c3]  → result
-           每 rank 再远端读 (n-1)/n·S；两阶段同一 tid 处理同一下标
-   barrier_at_end（final）──────────────────────────────────────────────
-```
+![one-shot 与 two-shot 的数据流对照（world_size = 4，输入切成 c0..c3）：one-shot 在两次 barrier 之间每个 rank 读全部 4 份输入算出完整结果；two-shot 阶段 1 每个 rank 只归约自己那一段写进 tmp，barrier_at_end 之后阶段 2 从 4 个 rank 的 tmp 读回拼成 result](/img/in-post/inference-communication-oneshot-twoshot.svg)
 
 两者的选择在 `CustomAllreduce::allreduce`（同文件）的 `REDUCE_CASE` 宏里，可用环境变量 `VLLM_CUSTOM_ALLREDUCE_ALGO`（取值 `1stage` / `oneshot` / `2stage` / `twoshot`）强制：
 
@@ -350,30 +271,19 @@ kernel 只用 36 个 block × 512 线程（`kMaxBlocks = 36`，`defaultBlockLimi
 
 `CustomAllreduce.__init__` 与 `should_custom_ar` 一起决定它是否被使用。逐条列出，因为排障时"custom AR 为什么没生效"就是对着这个清单查：
 
-```text title="custom all-reduce 的启用条件清单"
-条件                                        源码位置 / 日志
-custom op 库可用（ops.meta_size() 不抛异常）    custom_all_reduce.py 模块级 try；否则 "Custom allreduce is disabled
-                                            because of missing custom allreduce library"
-group 是非 NCCL 的 CPU group                assert dist.get_backend(group) != dist.Backend.NCCL
-group 不跨节点                              in_the_same_node_as(group, source_rank=0)；否则 warning "spans across nodes"
-world_size ∈ _SUPPORTED_WORLD_SIZES         [2, 4, 6, 8]；否则 warning "unsupported world size"
-                                            （kernel 侧 REDUCE_CASE 同样只有 2/4/6/8）
-同一节点内 NVLink 全互联                      is_fully_connected：pynvml.nvmlDeviceGetP2PStatus(..., NVML_P2P_CAPS_INDEX_NVLINK)
-                                            对每一对 GPU 都返回 NVML_P2P_STATUS_OK（vllm/platforms/cuda.py）
-                                            world_size > 2 且非全互联 → "not supported on more than two PCIe-only GPUs"
-                                            should_custom_ar 里再查一次：world_size == 2 或 fully_connected 才返回 True
-P2P 实际可用                                 _can_p2p → gpu_p2p_access_check（all_reduce_utils.py）：真的开两个进程
-                                            用 IPC 写一块显存再读回来验证；结果缓存在 VLLM_CACHE_ROOT 下
-                                            gpu_p2p_access_cache_for_*.json；VLLM_SKIP_P2P_CHECK 运行时默认按 1 解析
-                                            （envs.py 里声明的默认值是 False，但 getenv 兜底是 "1"），此时
-                                            只信 torch.cuda.can_device_access_peer；源码注释建议排障时设为 0 做真实探测
-输入字节数 < max_size                        默认 8 MB；启用 torch symm mem 时按 CUSTOM_ALL_REDUCE_MAX_SIZES
-                                            收紧（H100 8 卡 256 KB、4 卡 32 MB；见第四章）
-输入字节数是 16 的倍数、weak contiguous        should_custom_ar
-ParallelConfig.disable_custom_all_reduce     vllm/config/parallel.py；CLI --disable-custom-all-reduce；
-为 False                                    VLLM_BATCH_INVARIANT=1 会强制置 True；平台 use_custom_allreduce() 为 False 或
-                                            nnodes > 1 也会
-```
+| 条件 | 源码位置 / 日志 |
+|---|---|
+| custom op 库可用（`ops.meta_size()` 不抛异常） | `custom_all_reduce.py` 模块级 try；否则 "Custom allreduce is disabled because of missing custom allreduce library" |
+| group 是非 NCCL 的 CPU group | `assert dist.get_backend(group) != dist.Backend.NCCL` |
+| group 不跨节点 | `in_the_same_node_as(group, source_rank=0)`；否则 warning "spans across nodes" |
+| world_size ∈ `_SUPPORTED_WORLD_SIZES` | `[2, 4, 6, 8]`；否则 warning "unsupported world size"<br/>（kernel 侧 `REDUCE_CASE` 同样只有 2/4/6/8） |
+| 同一节点内 NVLink 全互联 | `is_fully_connected`：`pynvml.nvmlDeviceGetP2PStatus(..., NVML_P2P_CAPS_INDEX_NVLINK)` 对每一对 GPU 都返回 `NVML_P2P_STATUS_OK`（`vllm/platforms/cuda.py`）<br/>world_size > 2 且非全互联 → "not supported on more than two PCIe-only GPUs"<br/>`should_custom_ar` 里再查一次：world_size == 2 或 fully_connected 才返回 True |
+| P2P 实际可用 | `_can_p2p` → `gpu_p2p_access_check`（`all_reduce_utils.py`）：真的开两个进程用 IPC 写一块显存再读回来验证；结果缓存在 `VLLM_CACHE_ROOT` 下 `gpu_p2p_access_cache_for_*.json`<br/>`VLLM_SKIP_P2P_CHECK` 运行时默认按 1 解析（`envs.py` 里声明的默认值是 False，但 getenv 兜底是 "1"），此时只信 `torch.cuda.can_device_access_peer`；源码注释建议排障时设为 0 做真实探测 |
+| 输入字节数 < max_size | 默认 8 MB；启用 torch symm mem 时按 `CUSTOM_ALL_REDUCE_MAX_SIZES` 收紧（H100 8 卡 256 KB、4 卡 32 MB；见第四章） |
+| 输入字节数是 16 的倍数、weak contiguous | `should_custom_ar` |
+| `ParallelConfig.disable_custom_all_reduce` 为 False | `vllm/config/parallel.py`；CLI `--disable-custom-all-reduce`<br/>`VLLM_BATCH_INVARIANT=1` 会强制置 True；平台 `use_custom_allreduce()` 为 False 或 nnodes > 1 也会 |
+
+Table: custom all-reduce 的启用条件清单
 
 `is_fully_connected` 要求每一对 GPU 之间都有 NVLink 直连（NVSwitch 机器满足），因为 one-shot 的每个线程要同时读 7 个对端，任何一对走 PCIe 都会拖慢全部。源码注释说明了为什么两卡例外：两张 PCIe 直连的卡上 custom AR 仍然比 NCCL 好，四张以上 PCIe 卡则"提升很小"。
 
@@ -420,17 +330,17 @@ else:
 
 `CudaCommunicator.all_reduce` 是一条 if 链，每个后端有自己的 `should_*` 判断，不满足就落到下一个。**以 v0.23.0 源码为准的精确顺序**：
 
-```text title="CudaCommunicator.all_reduce 的调度顺序"
- 1. NCCL symmetric memory     should_nccl_symm_mem_allreduce(world_size, input_)
-                              → torch.ops.vllm.all_reduce_symmetric_with_copy
-                              需 VLLM_USE_NCCL_SYMM_MEM=1（默认 0）且 world_size ≥ 4
- 2. quick all-reduce          qr_comm.should_quick_allreduce → quick_all_reduce   仅 ROCm MI300 系列
- 3. FlashInfer all-reduce     fi_ar_comm.should_use_fi_ar → all_reduce            需 VLLM_ALLREDUCE_USE_FLASHINFER=1（默认 0）
- 4. vLLM custom all-reduce    ca_comm.should_custom_ar → custom_all_reduce        本篇第三章
- 5. torch symmetric memory    symm_mem_comm.should_use_symm_mem → all_reduce      VLLM_ALLREDUCE_USE_SYMM_MEM（默认 1）
- 6. PyNccl                    pynccl_comm.all_reduce
- 7. torch.distributed         input_.clone() + torch.distributed.all_reduce(group=device_group)  测试兜底
-```
+| 顺序 | 后端 | 判断 → 调用 | 条件 / 备注 |
+|---:|---|---|---|
+| 1 | NCCL symmetric memory | `should_nccl_symm_mem_allreduce(world_size, input_)`<br/>→ `torch.ops.vllm.all_reduce_symmetric_with_copy` | 需 `VLLM_USE_NCCL_SYMM_MEM=1`（默认 0）且 world_size ≥ 4 |
+| 2 | quick all-reduce | `qr_comm.should_quick_allreduce` → `quick_all_reduce` | 仅 ROCm MI300 系列 |
+| 3 | FlashInfer all-reduce | `fi_ar_comm.should_use_fi_ar` → `all_reduce` | 需 `VLLM_ALLREDUCE_USE_FLASHINFER=1`（默认 0） |
+| 4 | vLLM custom all-reduce | `ca_comm.should_custom_ar` → `custom_all_reduce` | 本篇第三章 |
+| 5 | torch symmetric memory | `symm_mem_comm.should_use_symm_mem` → `all_reduce` | `VLLM_ALLREDUCE_USE_SYMM_MEM`（默认 1） |
+| 6 | PyNccl | `pynccl_comm.all_reduce` | |
+| 7 | torch.distributed | `input_.clone()` + `torch.distributed.all_reduce(group=device_group)` | 测试兜底 |
+
+Table: CudaCommunicator.all_reduce 的调度顺序（v0.23.0）
 
 启动时 `_log_all_reduce_backend_selection` 会打一行日志，把这个 group 上实际启用的后端按调度顺序列出：
 
@@ -624,11 +534,12 @@ Table: Llama-3-70B 的 KV cache 账：每 token、每请求与 TP8 时每 rank
 
 传输时间的下界。默认节点每 GPU 一张 400 Gb/s 网卡（单向 50 GB/s）：
 
-```text title="KV 传输时间的下界"
-TP8 → TP8，每 rank 传 160 MiB       160 MiB / 50 GB/s ≈ 3.4 ms（理论）；按 RDMA 通常 90% 效率约 3.7 ms
-                                    8 个 rank 并行走 8 张网卡，请求整体也是 ≈ 3.4 ms
-只有一张网卡承担全部 1.25 GiB          ≈ 27 ms
-```
+| 场景 | 时间 |
+|---|---|
+| TP8 → TP8，每 rank 传 160 MiB | 160 MiB / 50 GB/s ≈ 3.4 ms（理论）；按 RDMA 通常 90% 效率约 3.7 ms<br/>8 个 rank 并行走 8 张网卡，请求整体也是 ≈ 3.4 ms |
+| 只有一张网卡承担全部 1.25 GiB | ≈ 27 ms |
+
+Table: KV 传输时间的下界
 
 对比 prefill 本身：4096 token 的 70B 前向约 $$2 \times 70 \times 10^9 \times 4096 \approx 5.7 \times 10^{14}$$ FLOP，8 卡 H100 BF16 稠密算力 989 TFLOPS/卡（标称），按 50% 利用率约 145 ms。3.4 ms 的传输不到它的 3%；但如果传输被挤到一张网卡、或者没走 GPUDirect 经过了主机内存、或者 GPU 与 NIC 跨了 root complex（第二、三篇），27 ms 甚至更多就会显著吃掉 PD 分离本来要争取的 TTFT 收益。**KV 传输的账是带宽的账，而且是"每 GPU 一张网卡是否都被用上"的账**。
 
@@ -676,33 +587,7 @@ else:
 
 用 8 个 KV head 把三种情况画出来（block 内 head 连续排列，箭头表示"谁读谁的哪一段"）：
 
-```text title="异构 TP 下的 KV head 映射（8 个 KV head）"
-(a) P TP2 → D TP8（decode TP ≥ prefill TP）：多个 D rank 读同一 P rank 的不同段
-      P rank 0 的 block            P rank 1 的 block
-     ┌────┬────┬────┬────┐        ┌────┬────┬────┬────┐
-     │ h0 │ h1 │ h2 │ h3 │        │ h4 │ h5 │ h6 │ h7 │
-     └─┬──┴─┬──┴─┬──┴─┬──┘        └─┬──┴─┬──┴─┬──┴─┬──┘
-       ▼    ▼    ▼    ▼             ▼    ▼    ▼    ▼
-      D0   D1   D2   D3            D4   D5   D6   D7
-     attn_ranks = [tp_rank × 2 // 8]，rank_offset_factor = tp_rank % 4 →段内偏移
-     → 8 个 D rank 用 8 张网卡同时读；P 侧每张网卡的出向带宽被 4 个读者共享
-
-(b) P TP8 → D TP2（prefill TP > decode TP）：一个 D rank 从多个 P rank 拼 head
-     P rank:  0     1     2     3     4     5     6     7
-            ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐
-            │h0│  │h1│  │h2│  │h3│  │h4│  │h5│  │h6│  │h7│
-            └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘  └┬─┘
-             └─────┴─────┴─────┘     └─────┴─────┴─────┘
-                      ▼                        ▼
-                     D0                       D1
-     attn_ranks = [4r, 4r+1, 4r+2, 4r+3]
-
-(c) GQA 去重：只有 4 个 KV head 时 P TP8 相邻两 rank 持同一 head 的副本
-     P rank:  0     1     2     3     4     5     6     7
-             h0    h0    h1    h1    h2    h2    h3    h3
-             ▲           ▲                 ▲           ▲
-     D0 只读 P{0, 2}（np.unique 去重）       D1 只读 P{4, 6}
-```
+![异构 TP 下的 KV head 映射（8 个 KV head）：(a) P TP2 → D TP8，D0～D3 各读 P rank 0 block 的 h0～h3，D4～D7 各读 P rank 1 的 h4～h7；(b) P TP8 → D TP2，D0 从 P rank 0～3 拼 h0～h3，D1 从 P rank 4～7 拼 h4～h7；(c) 只有 4 个 KV head 时，D0 只读 P0、P2，D1 只读 P4、P6](/img/in-post/inference-communication-kv-head-mapping.svg)
 
 `_nixl_handshake` 里 `transfer_topo.handshake_target_ranks(remote_tp_size)` 用同一套逻辑决定要和远端哪几个 rank 握手——只和自己会读的那些 rank 建立连接。
 
@@ -723,15 +608,7 @@ else:
 
 `vllm/distributed/kv_transfer/kv_connector/v1/base.py` 的 `KVConnectorBase_V1` 是所有 KV connector 的基类，构造时带一个 `KVConnectorRole`（`SCHEDULER` 或 `WORKER`）。同一个 connector 类会被实例化两次：一次在 scheduler 进程，一次在每个 worker 进程，两边通过 `KVConnectorMetadata` 单向传递决策。文件头的文档字符串按角色列出了方法：
 
-```text title="KVConnectorBase_V1：scheduler 侧与 worker 侧的方法"
-Scheduler 侧（决定"传什么"）                        Worker 侧（执行"怎么传"）
-  get_num_new_matched_tokens()                       register_kv_caches()         注册 KV block 池
-  update_state_after_alloc()                         start_load_kv()              发起本步需要的加载
-  build_connector_meta()      → KVConnectorMetadata → bind_connector_metadata()
-  update_connector_output()   ← KVConnectorOutput  ← get_finished()              轮询完成的传输
-  request_finished()                                 wait_for_layer_load() / save_kv_layer() / wait_for_save()
-  take_events()                                      handle_preemptions()
-```
+![KVConnectorBase_V1：scheduler 侧与 worker 侧的方法；build_connector_meta 产生的 KVConnectorMetadata 交给 worker 侧 bind_connector_metadata，worker 侧 get_finished 的结果经 KVConnectorOutput 回到 update_connector_output](/img/in-post/inference-communication-kvconnector-roles.svg)
 
 本系列的边界（总纲）明确把"何时搬、搬谁"排除在外，所以 scheduler 侧的方法这里只需要知道一件事：它们的产出是每个请求的 `(本地 block id 列表, 远端 block id 列表, 远端 engine / host / port / tp 信息)`，打包进 `KVConnectorMetadata` 随 `SchedulerOutput` 发到 worker。worker 侧的全部工作是把这些 block id 变成地址、发起传输、轮询完成、报告回去。传输层只存在于 worker 侧。
 
@@ -779,37 +656,25 @@ self._recving_transfers[request_id].append(handle)
 
 把四个阶段按一个请求的生命周期串起来。注意两点：握手只在第一次遇到某个 prefill engine 时发生一次；数据面的 READ 由 decode 侧网卡发起，期间两边的 GPU 都在跑别的请求：
 
-```mermaid
-%% 图：NixlConnector 一个请求的生命周期：首次遇到 prefill engine 时握手一次，数据面的 READ 由 decode 侧网卡发起
-sequenceDiagram
-    participant R as Router / 客户端
-    participant PS as Prefill scheduler
-    participant PW as Prefill worker (GPU+NIC)
-    participant DS as Decode scheduler
-    participant DW as Decode worker (GPU+NIC)
-    Note over PS,DW: 首次遇到该 prefill engine 时的一次性握手（ZMQ 旁路通道）
-    DW->>PS: GET_META_MSG(remote_rank) 到 VLLM_NIXL_SIDE_CHANNEL_HOST/PORT
-    PS-->>DW: NixlAgentMetadata（UCX 地址、KV 基址、block 数与长度、layout）
-    Note over DW: compute_tp_mapping → add_remote_agent → 展开远端描述符
-    R->>PS: 请求 A（kv_producer 侧）
-    PS->>PW: 调度 prefill
-    activate PW
-    PW-->>PS: prefill 完成，KV 留在显存 block 里
-    deactivate PW
-    PS-->>R: 首 token + remote block ids 与 engine 信息
-    R->>DS: 请求 A（kv_consumer 侧，带 kv_transfer_params）
-    DS->>DS: 分配本地 block → build_connector_meta
-    DS->>DW: KVConnectorMetadata（local 与 remote block ids）
-    DW->>PW: make_prepped_xfer READ + transfer：单边 RDMA READ，网卡 DMA 搬数据
-    Note over PW: 被读期间继续跑请求 B 的 prefill
-    Note over DW: 读取期间继续回放其他请求的 decode step
-    DW->>DW: 每步 get_finished → check_xfer_state 轮询
-    DW-->>PW: 传输完成，NIXL 自动发 notif（请求 id 与 world_size）
-    PW->>PS: _get_new_notifs 计数达 world_size → done_sending
-    PS->>PS: request_finished → 释放请求 A 的 block
-    DW->>DS: KVConnectorOutput：请求 A 的 KV 已就位
-    DS->>DW: 请求 A 进入 decode step
-```
+![NixlConnector 一个请求的生命周期：横轴是时间，五行分别是 prefill worker、prefill scheduler、router、decode scheduler、decode worker；1～3 握手，4～7 prefill，8～17 decode 侧发起 READ、轮询、通知 prefill 释放 block、进入 decode](/img/in-post/inference-communication-nixl-request-timeline.svg)
+
+1. 首次遇到该 prefill engine 时的一次性握手（ZMQ 旁路通道）：decode worker 向 `VLLM_NIXL_SIDE_CHANNEL_HOST/PORT` 发 `GET_META_MSG(remote_rank)`。
+2. prefill scheduler 回 `NixlAgentMetadata`（UCX 地址、KV 基址、block 数与长度、layout）。
+3. decode worker：`compute_tp_mapping` → `add_remote_agent` → 展开远端描述符。
+4. router / 客户端把请求 A 发给 prefill scheduler（kv_producer 侧）。
+5. prefill scheduler 调度 prefill。
+6. prefill worker 完成 prefill，KV 留在显存 block 里。
+7. prefill scheduler 向 router 返回首 token + remote block ids 与 engine 信息。
+8. router 把请求 A 发给 decode scheduler（kv_consumer 侧，带 `kv_transfer_params`）。
+9. decode scheduler 分配本地 block → `build_connector_meta`。
+10. decode scheduler 把 `KVConnectorMetadata`（local 与 remote block ids）交给 decode worker。
+11. decode worker `make_prepped_xfer` READ + `transfer`：单边 RDMA READ，网卡 DMA 搬数据。被读期间 prefill worker 继续跑请求 B 的 prefill；读取期间 decode worker 继续回放其他请求的 decode step。
+12. decode worker 每步 `get_finished` → `check_xfer_state` 轮询。
+13. 传输完成，NIXL 自动向 prefill worker 发 notif（请求 id 与 world_size）。
+14. prefill worker `_get_new_notifs` 计数达 world_size → `done_sending`，告诉 prefill scheduler。
+15. prefill scheduler `request_finished` → 释放请求 A 的 block。
+16. decode worker 经 `KVConnectorOutput` 告诉 decode scheduler：请求 A 的 KV 已就位。
+17. decode scheduler 让请求 A 进入 decode step。
 
 ### 3. NIXL 与 UCX
 
@@ -857,50 +722,40 @@ Table: KV 传输各路径与 NCCL 的对照
 
 TP all_reduce 延迟异常——decode 每 token 延迟比预期高、profiler 里通信 kernel 时间长——的排查顺序：
 
-```text title="TP all_reduce 延迟异常的排查顺序"
-1. 启动日志里找 "Using [...] all-reduce backends (in dispatch order) for group 'tp'"
-   期望 8 卡 NVSwitch：['CUSTOM', 'SYMM_MEM', 'PYNCCL']（默认配置）
-   只有 ['PYNCCL']  → custom AR 与 symm mem 都被禁用，查第 2 步
-2. 往上翻 "Custom allreduce is disabled because ..." 的 warning，对照第三章第 4 节的清单：
-   - "unsupported world size"          → TP 不在 {2,4,6,8}
-   - "spans across nodes"              → TP group 跨了节点（另见第 6 步）
-   - "not supported on more than two PCIe-only GPUs" → NVLink 全互联检测失败：nvidia-smi topo -m 看是否全是 NV#
-   - "lacks GPU P2P capability or P2P test failed" → 删掉 VLLM_CACHE_ROOT 下 gpu_p2p_access_cache_for_*.json 重测；
-                                                     容器里检查 IPC namespace（--ipc=host）与 /dev/shm
-   - "missing custom allreduce library" → 安装的 vLLM 没带 custom op（CPU 版或编译不全）
-   "SymmMemCommunicator: ... multicast operations are not supported" → 无 NVSwitch 多播，symm mem 禁用，正常
-3. 确认 --disable-custom-all-reduce 没有被设置；VLLM_BATCH_INVARIANT=1 会隐式关闭它
-4. profiler（torch profiler，vLLM 的 profiler_config 或 LLM.start_profile / stop_profile）里看 kernel 名：
-   cross_device_reduce_1stage / 2stage → custom AR；multimem_all_reduce_kernel → torch symm mem；
-   ncclDevKernel_AllReduce_* → PyNccl
-5. 消息大小是否落在预期区间：batch 大时 128 KB 会变成几 MB，自然切到 symm mem 或 PyNccl，这不是异常
-6. TP 是否跨了节点（多机 TP）：每层两次 all_reduce 走 IB，延迟几十 µs 是正常的，此时该改 PP 而不是调通信
-7. 与 nccl-tests 对照：同一台机器 all_reduce_perf -b 16K -e 4M -g 8 的小消息端延迟（第六篇的读法），
-   PyNccl 的每次 all_reduce 不应明显高于它；custom AR 应明显低于它
-```
+1. 启动日志里找 `Using [...] all-reduce backends (in dispatch order) for group 'tp'`：
+   - 期望 8 卡 NVSwitch：`['CUSTOM', 'SYMM_MEM', 'PYNCCL']`（默认配置）
+   - 只有 `['PYNCCL']` → custom AR 与 symm mem 都被禁用，查第 2 步
+2. 往上翻 `Custom allreduce is disabled because ...` 的 warning，对照第三章第 4 节的清单：
+   - `unsupported world size` → TP 不在 {2,4,6,8}
+   - `spans across nodes` → TP group 跨了节点（另见第 6 步）
+   - `not supported on more than two PCIe-only GPUs` → NVLink 全互联检测失败：`nvidia-smi topo -m` 看是否全是 `NV#`
+   - `lacks GPU P2P capability or P2P test failed` → 删掉 `VLLM_CACHE_ROOT` 下 `gpu_p2p_access_cache_for_*.json` 重测；容器里检查 IPC namespace（`--ipc=host`）与 `/dev/shm`
+   - `missing custom allreduce library` → 安装的 vLLM 没带 custom op（CPU 版或编译不全）
+
+   `SymmMemCommunicator: ... multicast operations are not supported` → 无 NVSwitch 多播，symm mem 禁用，正常。
+3. 确认 `--disable-custom-all-reduce` 没有被设置；`VLLM_BATCH_INVARIANT=1` 会隐式关闭它。
+4. profiler（torch profiler，vLLM 的 `profiler_config` 或 `LLM.start_profile` / `stop_profile`）里看 kernel 名：
+   - `cross_device_reduce_1stage` / `2stage` → custom AR
+   - `multimem_all_reduce_kernel` → torch symm mem
+   - `ncclDevKernel_AllReduce_*` → PyNccl
+5. 消息大小是否落在预期区间：batch 大时 128 KB 会变成几 MB，自然切到 symm mem 或 PyNccl，这不是异常。
+6. TP 是否跨了节点（多机 TP）：每层两次 all_reduce 走 IB，延迟几十 µs 是正常的，此时该改 PP 而不是调通信。
+7. 与 nccl-tests 对照：同一台机器 `all_reduce_perf -b 16K -e 4M -g 8` 的小消息端延迟（第六篇的读法），PyNccl 的每次 all_reduce 不应明显高于它；custom AR 应明显低于它。
 
 ### 2. KV 传输慢：从路径到亲和
 
 KV 传输的症状是 decode 侧 TTFT 高、`vllm:nixl_xfer_time_seconds` 直方图偏大、或日志里 `NixlKVConnectorStats` 的 `Throughput (MB/s)` 远低于网卡带宽。排查顺序：
 
-```text title="KV 传输慢的排查顺序"
-1. 算理论值：每请求字节数（第六章公式）/ 每 rank 网卡单向带宽；Throughput (MB/s) 应达到它的 70–90%
+1. 算理论值：每请求字节数（第六章公式）/ 每 rank 网卡单向带宽；`Throughput (MB/s)` 应达到它的 70–90%。
 2. 走的是哪条路径？
-   - kv_buffer_device 是 cuda 还是 cpu（cpu 多两次 PCIe 拷贝，且 host 缓冲区受 PCIe 带宽限制）
-   - UCX_LOG_LEVEL=info 看 UCX 选了哪个 transport：跨节点期望 rc_mlx5 / dc_mlx5 + GPUDirect；
-     看到 tcp 或 cuda_copy 说明退化了
-   - GPUDirect RDMA 是否可用：lsmod | grep nvidia_peermem（或 DMA-BUF 支持）；ib_write_bw --use_cuda 能否跑通
-     （第三篇的检查）
-3. GPU 与 NIC 亲和：nvidia-smi topo -mp 看每个 GPU 到其网卡是 PIX/PXB 还是 SYS（第二篇）；
-   UCX_NET_DEVICES 限定每个 rank 用离自己最近的网卡，否则 8 个 rank 可能挤到同一张卡上
-4. 内存注册：register_kv_caches 只在启动时做一次，看启动日志 "Registering KV_Caches" 后是否有注册失败或
-   回退；注册显存失败通常意味着 peermem 不可用，UCX 会静默退到 cuda_copy
-5. 描述符数量：block_size 小、层数多时一次传输有数万个 8 KB 描述符，NIC 的每描述符开销开始显现；
-   HND layout 与 enable_cross_layers_blocks 让每个 block 的 K/V 或多层连续，减少描述符数
-6. 与 ib_write_bw 对照：两台机器之间 ib_write_bw -d <hca> --use_cuda=<gpu> -s 8192 -q 4 的带宽是网卡 + GDR
-   这条路径的上限；NIXL 的 Throughput 与它的差距就是软件栈（描述符、线程、握手）的开销
-7. 异构 TP：D TP > P TP 时多个 D rank 读同一个 P rank，P 侧那张网卡的出向带宽被共享；看 P 侧网卡计数器
-```
+   - `kv_buffer_device` 是 cuda 还是 cpu（cpu 多两次 PCIe 拷贝，且 host 缓冲区受 PCIe 带宽限制）
+   - `UCX_LOG_LEVEL=info` 看 UCX 选了哪个 transport：跨节点期望 `rc_mlx5` / `dc_mlx5` + GPUDirect；看到 `tcp` 或 `cuda_copy` 说明退化了
+   - GPUDirect RDMA 是否可用：`lsmod | grep nvidia_peermem`（或 DMA-BUF 支持）；`ib_write_bw --use_cuda` 能否跑通（第三篇的检查）
+3. GPU 与 NIC 亲和：`nvidia-smi topo -mp` 看每个 GPU 到其网卡是 PIX/PXB 还是 SYS（第二篇）；`UCX_NET_DEVICES` 限定每个 rank 用离自己最近的网卡，否则 8 个 rank 可能挤到同一张卡上。
+4. 内存注册：`register_kv_caches` 只在启动时做一次，看启动日志 `Registering KV_Caches` 后是否有注册失败或回退；注册显存失败通常意味着 peermem 不可用，UCX 会静默退到 `cuda_copy`。
+5. 描述符数量：block_size 小、层数多时一次传输有数万个 8 KB 描述符，NIC 的每描述符开销开始显现；HND layout 与 `enable_cross_layers_blocks` 让每个 block 的 K/V 或多层连续，减少描述符数。
+6. 与 ib_write_bw 对照：两台机器之间 `ib_write_bw -d <hca> --use_cuda=<gpu> -s 8192 -q 4` 的带宽是网卡 + GDR 这条路径的上限；NIXL 的 Throughput 与它的差距就是软件栈（描述符、线程、握手）的开销。
+7. 异构 TP：D TP > P TP 时多个 D rank 读同一个 P rank，P 侧那张网卡的出向带宽被共享；看 P 侧网卡计数器。
 
 ### 3. 两条路径共用的检查项
 
@@ -912,29 +767,34 @@ KV 传输的症状是 decode 侧 TTFT 高、`vllm:nixl_xfer_time_seconds` 直方
 
 ### 1. 要点回顾
 
-```text title="要点回顾"
-decode TP all_reduce      S = batch_tokens × hidden × 2 B，batch 8 / hidden 8192 → 128 KB；每步 2 × 层数 次
-                          NVLink 上 S/β < 1 µs，全部时间是 α；优化目标只有一个：压低每次调用的固定开销
-NCCL 的固定开销            调优表模型：Ring+LL 8 卡 ≈ 6.6 + 14 × 0.6 = 15 µs；launch、2(n-1) 步串行握手、LL 协议；
-                          节点内 P2P 数据路径不经 proxy，跨节点每步经 proxy
-custom all-reduce         IPC 映射对端显存 + Signal flag 同步 + 一个 36 block 的 kernel；one-shot 2 次 barrier；
-                          two-shot 2 次 barrier + 中间缓冲区一轮读写；8 卡 < 256 KB 用 one-shot；bit 级一致的累加顺序
-20 µs 省在哪里             launch 路径、14 步 → 2 步、无 channel buffer 中转、天然可捕获进 CUDA Graph；没有"带宽"这一项
-为什么不能用于训练          消息上限 8 MB、只能节点内、地址必须 IPC 注册且固定、中间缓冲区容量有限、无重叠 / 无容错
-后端选择链（v0.23.0）      NCCL symm mem（可选）→ quick reduce（ROCm）→ FlashInfer（可选）→ custom AR
-                          → torch symm mem → PyNccl → torch.distributed；日志 "Using [...] all-reduce backends"
-PyNccl                    ctypes 加载 libnccl.so（VLLM_NCCL_SO_PATH）；stream 由调用者传、无 watchdog、可捕获
-对称内存                   torch symm mem：H100 8 卡 256 KB ～ 64 MB 用 multimem（NVSwitch 多播归约）；
-                          NCCL symm mem：ncclMemAlloc + ncclCommWindowRegister，让 NCCL 自己少付固定开销
-CUDA Graph                捕获期间 RankData 槽位预留、register_graph_buffers 事后交换 IPC 句柄填对端地址
-KV 传输的账                每 token 每层 2 × num_kv_heads × head_dim × dtype；Llama-3-70B 320 KB/token，4096 token
-                          1.25 GiB；TP8 每 rank 160 MiB，400 Gb/s 网卡 ≈ 3.4 ms（理论）
-什么时候传 / 传给谁         vLLM 按请求粒度、decode 侧 READ；按层钩子是空实现；异构 TP 按 KV head 映射（tp_mapping.py）
-为什么不用 NCCL            点对点 + 动态对端 + 无归约 + 与计算解耦 + 按请求隔离失败 → 单边 RDMA READ/WRITE
-KVConnector               scheduler 侧决定 block 列表，worker 侧注册 / 握手 / 传输 / 轮询；传输层只在 worker 侧
-NIXL / UCX / Mooncake     NIXL：register_memory、make_prepped_xfer("READ")、notif；UCX 自动选路（cuda_ipc / rc / tcp）；
-                          Mooncake：batch_transfer_sync_write 推送
-```
+- **decode TP all_reduce**
+  - S = batch_tokens × hidden × 2 B，batch 8 / hidden 8192 → 128 KB；每步 2 × 层数 次
+  - NVLink 上 S/β < 1 µs，全部时间是 α；优化目标只有一个：压低每次调用的固定开销
+- **NCCL 的固定开销**
+  - 调优表模型：Ring+LL 8 卡 ≈ 6.6 + 14 × 0.6 = 15 µs；launch、2(n-1) 步串行握手、LL 协议
+  - 节点内 P2P 数据路径不经 proxy，跨节点每步经 proxy
+- **custom all-reduce**
+  - IPC 映射对端显存 + Signal flag 同步 + 一个 36 block 的 kernel；one-shot 2 次 barrier
+  - two-shot 2 次 barrier + 中间缓冲区一轮读写；8 卡 < 256 KB 用 one-shot；bit 级一致的累加顺序
+- **20 µs 省在哪里**：launch 路径、14 步 → 2 步、无 channel buffer 中转、天然可捕获进 CUDA Graph；没有"带宽"这一项
+- **为什么不能用于训练**：消息上限 8 MB、只能节点内、地址必须 IPC 注册且固定、中间缓冲区容量有限、无重叠 / 无容错
+- **后端选择链（v0.23.0）**
+  - NCCL symm mem（可选）→ quick reduce（ROCm）→ FlashInfer（可选）→ custom AR → torch symm mem → PyNccl → torch.distributed
+  - 日志 `Using [...] all-reduce backends`
+- **PyNccl**：ctypes 加载 libnccl.so（`VLLM_NCCL_SO_PATH`）；stream 由调用者传、无 watchdog、可捕获
+- **对称内存**
+  - torch symm mem：H100 8 卡 256 KB ～ 64 MB 用 multimem（NVSwitch 多播归约）
+  - NCCL symm mem：`ncclMemAlloc` + `ncclCommWindowRegister`，让 NCCL 自己少付固定开销
+- **CUDA Graph**：捕获期间 RankData 槽位预留、`register_graph_buffers` 事后交换 IPC 句柄填对端地址
+- **KV 传输的账**
+  - 每 token 每层 2 × num_kv_heads × head_dim × dtype；Llama-3-70B 320 KB/token，4096 token 1.25 GiB
+  - TP8 每 rank 160 MiB，400 Gb/s 网卡 ≈ 3.4 ms（理论）
+- **什么时候传 / 传给谁**：vLLM 按请求粒度、decode 侧 READ；按层钩子是空实现；异构 TP 按 KV head 映射（`tp_mapping.py`）
+- **为什么不用 NCCL**：点对点 + 动态对端 + 无归约 + 与计算解耦 + 按请求隔离失败 → 单边 RDMA READ/WRITE
+- **KVConnector**：scheduler 侧决定 block 列表，worker 侧注册 / 握手 / 传输 / 轮询；传输层只在 worker 侧
+- **NIXL / UCX / Mooncake**
+  - NIXL：`register_memory`、`make_prepped_xfer("READ")`、notif；UCX 自动选路（cuda_ipc / rc / tcp）
+  - Mooncake：`batch_transfer_sync_write` 推送
 
 ### 2. 排障检查项 / 决策要点
 

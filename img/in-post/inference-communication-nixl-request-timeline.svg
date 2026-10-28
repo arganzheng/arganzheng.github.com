@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="342" viewBox="0 0 760 342" role="img" aria-labelledby="nixl-request-timeline-t nixl-request-timeline-d">
+<title id="nixl-request-timeline-t">NixlConnector 一个请求的生命周期</title>
+<desc id="nixl-request-timeline-d">横轴是时间，五行分别是 prefill worker、prefill scheduler、router、decode scheduler、decode worker。1–3 是首次遇到 prefill engine 时的握手，4–7 是 prefill，8–17 是 decode 侧发起 READ、轮询完成、通知 prefill 释放 block 并进入 decode。</desc>
+<style>text{dominant-baseline:auto}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+<rect x="0" y="0" width="760" height="342" fill="#fff"/>
+<rect x="140.0" y="22.0" width="105.6" height="282.0" fill="#eef2ff" stroke="none" stroke-width="1.2" />
+<text x="192.8" y="40.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="middle">握手（仅首次）</text>
+<rect x="245.6" y="22.0" width="140.8" height="282.0" fill="#fff8e1" stroke="none" stroke-width="1.2" />
+<text x="316.0" y="40.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="middle">prefill</text>
+<rect x="386.4" y="22.0" width="352.0" height="282.0" fill="#e8f5e9" stroke="none" stroke-width="1.2" />
+<text x="562.4" y="40.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="middle">decode 侧拉取 KV</text>
+<rect x="140.0" y="52.0" width="598.4" height="40.0" fill="none" stroke="#999" stroke-width="0.8" />
+<text x="12.0" y="69.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="start">Prefill worker</text>
+<text x="12.0" y="85.0" font-size="11" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">（GPU+NIC）</text>
+<rect x="140.0" y="104.0" width="598.4" height="40.0" fill="none" stroke="#999" stroke-width="0.8" />
+<text x="12.0" y="129.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="start">Prefill scheduler</text>
+<rect x="140.0" y="156.0" width="598.4" height="40.0" fill="none" stroke="#999" stroke-width="0.8" />
+<text x="12.0" y="181.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="start">Router / 客户端</text>
+<rect x="140.0" y="208.0" width="598.4" height="40.0" fill="none" stroke="#999" stroke-width="0.8" />
+<text x="12.0" y="233.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="start">Decode scheduler</text>
+<rect x="140.0" y="260.0" width="598.4" height="40.0" fill="none" stroke="#999" stroke-width="0.8" />
+<text x="12.0" y="277.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="start">Decode worker</text>
+<text x="12.0" y="293.0" font-size="11" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">（GPU+NIC）</text>
+<rect x="298.4" y="83.0" width="35.2" height="6.0" fill="#90a4ae" stroke="none" stroke-width="1.2" />
+<rect x="509.6" y="83.0" width="70.4" height="6.0" fill="#90a4ae" stroke="none" stroke-width="1.2" />
+<rect x="509.6" y="291.0" width="70.4" height="6.0" fill="#90a4ae" stroke="none" stroke-width="1.2" />
+<rect x="145.6" y="265.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="157.6" y="281.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">1</text>
+<rect x="145.6" y="109.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="157.6" y1="265.0" x2="157.6" y2="131.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="180.8" y="109.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="192.8" y="125.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">2</text>
+<rect x="180.8" y="265.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="192.8" y1="131.0" x2="192.8" y2="265.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="216.0" y="265.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="228.0" y="281.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<rect x="251.2" y="161.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="263.2" y="177.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">4</text>
+<rect x="251.2" y="109.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="263.2" y1="161.0" x2="263.2" y2="131.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="286.4" y="109.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="298.4" y="125.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">5</text>
+<rect x="286.4" y="57.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="298.4" y1="109.0" x2="298.4" y2="79.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="321.6" y="57.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="333.6" y="73.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">6</text>
+<rect x="321.6" y="109.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="333.6" y1="79.0" x2="333.6" y2="109.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="356.8" y="109.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="368.8" y="125.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">7</text>
+<rect x="356.8" y="161.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="368.8" y1="131.0" x2="368.8" y2="161.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="392.0" y="161.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="404.0" y="177.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">8</text>
+<rect x="392.0" y="213.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="404.0" y1="183.0" x2="404.0" y2="213.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="427.2" y="213.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="439.2" y="229.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">9</text>
+<rect x="462.4" y="213.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="474.4" y="229.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">10</text>
+<rect x="462.4" y="265.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="474.4" y1="235.0" x2="474.4" y2="265.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="497.6" y="265.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="509.6" y="281.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">11</text>
+<rect x="497.6" y="57.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="509.6" y1="265.0" x2="509.6" y2="79.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="532.8" y="265.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="544.8" y="281.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">12</text>
+<rect x="568.0" y="265.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="580.0" y="281.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">13</text>
+<rect x="568.0" y="57.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="580.0" y1="265.0" x2="580.0" y2="79.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="603.2" y="57.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="615.2" y="73.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">14</text>
+<rect x="603.2" y="109.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="615.2" y1="79.0" x2="615.2" y2="109.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="638.4" y="109.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="650.4" y="125.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">15</text>
+<rect x="673.6" y="265.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="685.6" y="281.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">16</text>
+<rect x="673.6" y="213.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="685.6" y1="265.0" x2="685.6" y2="235.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="708.8" y="213.0" width="24.0" height="22.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1" />
+<text x="720.8" y="229.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#fff" text-anchor="middle">17</text>
+<rect x="708.8" y="265.0" width="24.0" height="22.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1" />
+<line x1="720.8" y1="235.0" x2="720.8" y2="265.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="140.0" y="313.0" width="24.0" height="14.0" fill="#1d4ed8" stroke="#1d4ed8" stroke-width="1.2" />
+<text x="170.0" y="324.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">发起方（编号见图下）</text>
+<rect x="310.0" y="313.0" width="24.0" height="14.0" fill="#bbdefb" stroke="#1d4ed8" stroke-width="1.2" />
+<text x="340.0" y="324.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">接收方</text>
+<rect x="410.0" y="317.0" width="24.0" height="6.0" fill="#90a4ae" stroke="none" stroke-width="1.2" />
+<text x="440.0" y="324.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">持续进行：prefill 计算、RDMA READ 被读 / 读取</text>
+</svg>

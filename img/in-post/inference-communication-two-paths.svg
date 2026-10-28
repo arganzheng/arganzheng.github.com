@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="440" viewBox="0 0 760 440" role="img" aria-labelledby="two-paths-t two-paths-d">
+<title id="two-paths-t">推理里的两条通信路径</title>
+<desc id="two-paths-d">上：decode step 中 GPU0 到 GPU7 的 TP all_reduce 进入 CudaCommunicator.all_reduce，按顺序尝试六个后端。下：PD 分离中 prefill 实例的 KV blocks 经 NIXL、UCX、verbs/GDR 或 Mooncake Transfer Engine 传到 decode 实例。</desc>
+<style>text{dominant-baseline:auto}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+<rect x="0" y="0" width="760" height="440" fill="#fff"/>
+<text x="380.0" y="24.0" font-size="14" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">decode step（每层两次，几十～几百 KB，延迟主导）</text>
+<rect x="12.0" y="36.0" width="736.0" height="188.0" fill="none" stroke="#888" stroke-width="1.2" />
+<rect x="26.0" y="56.0" width="60.0" height="24.0" fill="#e8f0fe" stroke="#1d4ed8" stroke-width="1.2" />
+<text x="56.0" y="73.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="middle">GPU0</text>
+<rect x="26.0" y="90.0" width="60.0" height="24.0" fill="#e8f0fe" stroke="#1d4ed8" stroke-width="1.2" />
+<text x="56.0" y="107.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="middle">GPU1</text>
+<text x="56.0" y="141.0" font-size="13" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">…</text>
+<rect x="26.0" y="158.0" width="60.0" height="24.0" fill="#e8f0fe" stroke="#1d4ed8" stroke-width="1.2" />
+<text x="56.0" y="175.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="middle">GPU7</text>
+<line x1="86.0" y1="68.0" x2="104.0" y2="68.0" stroke="#333" stroke-width="1.4"/>
+<line x1="86.0" y1="102.0" x2="104.0" y2="102.0" stroke="#333" stroke-width="1.4"/>
+<line x1="86.0" y1="170.0" x2="104.0" y2="170.0" stroke="#333" stroke-width="1.4"/>
+<line x1="104.0" y1="68.0" x2="104.0" y2="170.0" stroke="#333" stroke-width="1.4"/>
+<line x1="104.0" y1="119.0" x2="166.0" y2="119.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="135.0" y="111.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">TP</text>
+<text x="135.0" y="137.0" font-size="11.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="500" fill="#111" text-anchor="middle">all_reduce</text>
+<rect x="166.0" y="97.0" width="150.0" height="44.0" fill="#fff" stroke="#333" stroke-width="1.2" rx="6"/>
+<text x="241.0" y="115.0" font-size="12.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">CudaCommunicator</text>
+<text x="241.0" y="133.0" font-size="12.5" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">.all_reduce</text>
+<line x1="316.0" y1="119.0" x2="314.0" y2="119.0" stroke="#333" stroke-width="1.4"/>
+<line x1="314.0" y1="65.0" x2="314.0" y2="195.0" stroke="#333" stroke-width="1.4"/>
+<rect x="330.0" y="52.0" width="168.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="498.0" y="52.0" width="238.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="338.0" y="70.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">NCCL symmetric memory</text>
+<text x="506.0" y="70.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">可选，需 VLLM_USE_NCCL_SYMM_MEM</text>
+<line x1="314.0" y1="65.0" x2="330.0" y2="65.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="330.0" y="78.0" width="168.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="498.0" y="78.0" width="238.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="338.0" y="96.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">quick all-reduce</text>
+<text x="506.0" y="96.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">仅 ROCm</text>
+<line x1="314.0" y1="91.0" x2="330.0" y2="91.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="330.0" y="104.0" width="168.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="498.0" y="104.0" width="238.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="338.0" y="122.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">FlashInfer all-reduce</text>
+<text x="506.0" y="122.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">可选</text>
+<line x1="314.0" y1="117.0" x2="330.0" y2="117.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="330.0" y="130.0" width="168.0" height="26.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<rect x="498.0" y="130.0" width="238.0" height="26.0" fill="#fff3cd" stroke="#555" stroke-width="1.2" />
+<text x="338.0" y="148.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="start">custom all-reduce</text>
+<text x="506.0" y="148.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">本篇主角：IPC + flag + 一个 kernel</text>
+<line x1="314.0" y1="143.0" x2="330.0" y2="143.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="330.0" y="156.0" width="168.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="498.0" y="156.0" width="238.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="338.0" y="174.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">torch symmetric memory</text>
+<text x="506.0" y="174.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">multimem / two-shot</text>
+<line x1="314.0" y1="169.0" x2="330.0" y2="169.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<rect x="330.0" y="182.0" width="168.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<rect x="498.0" y="182.0" width="238.0" height="26.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="338.0" y="200.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">PyNccl</text>
+<text x="506.0" y="200.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="start">ctypes 直调 libnccl.so</text>
+<line x1="314.0" y1="195.0" x2="330.0" y2="195.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="380.0" y="258.0" font-size="14" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">PD 分离（每请求一次，几百 MB～GB，带宽主导）</text>
+<rect x="12.0" y="270.0" width="736.0" height="156.0" fill="none" stroke="#888" stroke-width="1.2" />
+<rect x="28.0" y="286.0" width="208.0" height="96.0" fill="#fff" stroke="#333" stroke-width="1.2" rx="6"/>
+<text x="132.0" y="308.0" font-size="13" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">Prefill 实例（TP=Np）</text>
+<rect x="42.0" y="322.0" width="180.0" height="46.0" fill="#d4edda" stroke="#2e7d32" stroke-width="1.2" />
+<text x="132.0" y="341.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">KV blocks</text>
+<text x="132.0" y="360.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">显存，已 register_memory</text>
+<rect x="524.0" y="286.0" width="208.0" height="96.0" fill="#fff" stroke="#333" stroke-width="1.2" rx="6"/>
+<text x="628.0" y="308.0" font-size="13" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="700" fill="#111" text-anchor="middle">Decode 实例（TP=Nd）</text>
+<rect x="538.0" y="322.0" width="180.0" height="46.0" fill="#d4edda" stroke="#2e7d32" stroke-width="1.2" />
+<text x="628.0" y="341.0" font-size="13" font-family='"SFMono-Regular",Menlo,Consolas,"Noto Sans Mono CJK SC",monospace' font-weight="600" fill="#111" text-anchor="middle">KV blocks</text>
+<text x="628.0" y="360.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">显存，已注册</text>
+<rect x="270.0" y="321.0" width="220.0" height="48.0" fill="#f6f8fa" stroke="#555" stroke-width="1.2" />
+<text x="380.0" y="340.0" font-size="12.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="600" fill="#111" text-anchor="middle">NIXL → UCX → verbs / GDR</text>
+<text x="380.0" y="360.0" font-size="12" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">或 Mooncake Transfer Engine</text>
+<line x1="222.0" y1="345.0" x2="270.0" y2="345.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<line x1="490.0" y1="345.0" x2="538.0" y2="345.0" stroke="#333" stroke-width="1.4" marker-end="url(#ah)"/>
+<text x="380.0" y="311.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">单边 RDMA READ（NixlConnector，decode 侧发起）</text>
+<text x="380.0" y="387.0" font-size="11.5" font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif' font-weight="500" fill="#111" text-anchor="middle">或 WRITE（Mooncake，prefill 侧发起）</text>
+<text x="380.0" y="408.0" font-size="12.5" font-weight="500" fill="#111" text-anchor="middle"><tspan font-family='"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif'>KVConnector 两侧：scheduler 侧决定传哪些 block、何时可释放；worker 侧发起与轮询传输</tspan></text>
+</svg>
