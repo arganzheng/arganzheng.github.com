@@ -8,9 +8,9 @@ catalog: true
 updated: 2026-09-14
 ---
 
-一个 32B 的模型在 8 张 H100 上做共置的 GRPO。训练时每张卡上要有 66 GB 的训练状态（16 字节 / 参数均分到 8 卡）加 8 GB 的参考模型；生成时每张卡上要有 8 GB 的推理权重副本（TP = 8）加尽量大的 KV 池。两样东西加起来 150 GB，卡只有 80 GB——所以每一步里显存要**换两次主人**：生成前训练状态搬到 CPU、推理引擎的权重与 KV 池挂回 GPU；训练前反过来。按 PCIe 的带宽算，一步两次切换搬 130 GB 左右、约 6 秒；步时间 5 分钟时是 2%。
+一个 32B 的模型在 8 张 H100 上做共置的 GRPO。训练时每张卡上要有 66 GB 的训练状态（16 字节 / 参数均分到 8 卡），还要跑参考模型的前向；生成时每张卡上要有 8 GB 的推理权重副本（TP = 8）加尽量大的 KV 池。两样东西加起来 150 GB，卡只有 80 GB——所以每一步里显存要**换两次主人**：生成前训练状态搬到 CPU、推理引擎的权重与 KV 池挂回 GPU；训练前反过来。按 PCIe 的带宽算，一步两次切换搬 146 GB 左右、约 7 秒；步时间 5 分钟时是 2%。
 
-2% 不值得写一篇。值得写的是这 6 秒之外的东西：推理引擎的 KV 池释放再建回来，里面的 prefix cache 全部作废；CUDA graph 捕获的是显存地址，地址变了图就废了——vLLM 的 sleep mode 用 CUDA 虚拟内存 API 把物理页摘下来而**保留虚拟地址**，正是为了不重捕获；训练器的 PyTorch caching allocator 与推理引擎的 `CuMemAllocator` 在同一块 HBM 上交替，一方保留着没释放的段另一方就挂不回来，所以切换前后要 `empty_cache`、要开关 `expandable_segments`；vLLM 启动时按 `gpu_memory_utilization` 定下的 KV 池大小是一次性的，共置下这个数字通常只有 0.5，**推理引擎在共置形态下只拿到半张卡的 KV 池，decode 吞吐比独占一张卡低 10–30%**——这才是共置真正的税，而它不出现在"切换耗时"这个指标里。
+2% 不值得写一篇。值得写的是这 7 秒之外的东西：推理引擎的 KV 池释放再建回来，里面的 prefix cache 全部作废；CUDA graph 捕获的是显存地址，地址变了图就废了——vLLM 的 sleep mode 用 CUDA 虚拟内存 API 把物理页摘下来而**保留虚拟地址**，正是为了不重捕获；训练器的 PyTorch caching allocator 与推理引擎的 `CuMemAllocator` 在同一块 HBM 上交替，一方保留着没释放的段另一方就挂不回来，所以切换前后要 `empty_cache`、要开关 `expandable_segments`；vLLM 启动时按 `gpu_memory_utilization` 定下的 KV 池大小是一次性的，共置下这个数字通常只有 0.5，**推理引擎在共置形态下只拿到半张卡的 KV 池，decode 吞吐比独占一张卡低 10–30%**——这才是共置真正的税，而它不出现在"切换耗时"这个指标里。
 
 这一篇把一次切换拆成每个动作：谁释放什么、走哪条链路、要几秒、留下什么隐性代价；然后看 vLLM 的 sleep / wake_up 与 `CuMemAllocator`、SGLang 的 `torch_memory_saver`、FSDP 与 Megatron 的 offload 路径各是怎样实现"让渡"的；再看 verl 的 hybrid worker——`ActorRolloutRefWorker`，一个进程里同时持有训练器、推理引擎与参考模型——怎样把这些动作排成序；最后回答共置的适用边界：模型多大、回答多长时该换分离。
 
@@ -28,20 +28,19 @@ updated: 2026-09-14
 
 | 换手 | 步骤 | 每卡搬运字节 | 链路 | 时间 | 隐性代价 |
 |---|---|---|---|---|---|
-| 训练 → 生成 | ① 优化器状态 + fp32 主参数 → CPU | 49 GB | PCIe D2H | 2.0 s | 需要 49 GB pinned 主机内存 / 卡 |
-| ^^ | ② 推理权重区域挂回 + 接收新权重（sleep level 2：不从 CPU 恢复，直接同步新权重） | 8 GB 写入 | NVLink all-gather + CUDA IPC 拷贝 | ~1 s | 全模型 66 GB 流过每张卡 |
-| ^^ | ③ bf16 参数分片 → CPU | 8 GB | PCIe D2H | 0.3 s | （梯度直接释放，不搬） |
-| ^^ | ④ KV 池挂回 | ~30 GB 映射 | cuMemMap（无拷贝） | ~0.1 s | prefix cache 清空；fp8 KV 要清零 |
-| 生成 → 训练 | ⑤ 推理引擎 sleep(level=2) | 0（丢弃） | cuMemUnmap | ~0.1 s | 虚拟地址保留，CUDA graph 不重捕获 |
-| ^^ | ⑥ bf16 参数分片 → GPU | 8 GB | PCIe H2D | 0.3 s | |
-| ^^ | ⑦ 参考模型 → GPU | 8 GB | PCIe H2D | 0.3 s | 只在 ref 前向时载入 |
-| ^^ | ⑧ 参考模型 → CPU | 8 GB | PCIe D2H | 0.3 s | ref 前向一完就搬走 |
-| ^^ | ⑨ 优化器状态 + 主参数 → GPU | 49 GB | PCIe H2D | 2.0 s | 只在 update_actor 前载入 |
-| 合计 | | 约 130 GB | 主要是 PCIe | 约 6.5 s | |
+| 训练 → 生成 | ① bf16 参数 + 优化器状态 + fp32 主参数 → CPU | 57 GB | PCIe D2H | 2.3 s | `update_actor` 一结束就搬；需要 57 GB pinned 主机内存 / 卡（梯度直接释放，不搬） |
+| ^^ | ② 推理权重区域挂回 + 接收新权重（sleep level 2：不从 CPU 恢复，直接同步新权重） | 8 GB H2D + 8 GB 写入 | PCIe H2D（参数分片逐个上卡）+ NVLink all-gather + CUDA IPC 拷贝 | ~1.3 s | 全模型 66 GB 流过每张卡 |
+| ^^ | ③ KV 池挂回 | ~30 GB 映射 | cuMemMap（无拷贝） | ~0.1 s | prefix cache 清空；fp8 KV 要清零 |
+| 生成 → 训练 | ④ 推理引擎 sleep(level=2) | 0（丢弃） | cuMemUnmap | ~0.1 s | 虚拟地址保留，CUDA graph 不重捕获 |
+| ^^ | ⑤ bf16 参数分片 → GPU | 8 GB | PCIe H2D | 0.3 s | old_log_prob 前向前载入 |
+| ^^ | ⑥ bf16 参数分片 → CPU | 8 GB | PCIe D2H | 0.3 s | old_log_prob 前向一完就搬回 |
+| ^^ | ⑦ 参考模型逐层 → GPU | 8 GB | PCIe H2D | 0.3 s | 每层用完就丢，不回搬 |
+| ^^ | ⑧ bf16 参数 + 优化器状态 + 主参数 → GPU | 57 GB | PCIe H2D | 2.3 s | 只在 update_actor 前载入 |
+| 合计 | | 约 146 GB | 主要是 PCIe | 约 7 s | |
 
-Table: 32B 共置一步里显存的两次换手（每组内按执行顺序）
+Table: 32B 共置一步里显存的两次换手（verl v0.9.0 默认行为，每组内按执行顺序）
 
-步时间 5 分钟时约 2%；8B 模型 2.3 GB / 卡、0.2 秒，可忽略；DeepSeek-V3 规格 256 卡每卡 47 GB、约 4 秒，对几十分钟的步也可忽略。**纯搬运时间几乎从来不是放弃共置的理由。**
+步时间 5 分钟时约 2%；8B 模型 64 卡每卡 4.5 GB、0.2 秒，可忽略；DeepSeek-V3 规格 256 卡每卡 94 GB、约 4 秒，对几十分钟的步也可忽略。**纯搬运时间几乎从来不是放弃共置的理由。**
 
 真正的账在别处：
 
@@ -89,16 +88,16 @@ Table: 本文的章节安排
 | ① bf16 参数分片 | 8.2 GB | ⑤ 推理权重副本（bf16，TP = 8） | 8.2 GB |
 | ② 梯度分片 | 8.2 GB | ⑥ KV 池 | 尽量大：0.5 × 80 − 8.2 − 激活 ≈ 30 GB |
 | ③ fp32 主参数 + Adam 两个矩 | 49.2 GB | ⑦ 推理激活峰值（profiling 定） | ~2 GB |
-| ④ 参考模型 bf16 分片（只前向） | 8.2 GB | ⑧ CUDA graph 池 | 1–3 GB（常驻） |
+| ④ 参考模型 bf16 分片（只前向） | 8.2 GB（整份放卡上时；verl 默认逐层从 CPU 取） | ⑧ CUDA graph 池 | 1–3 GB（常驻） |
 | 激活（8K micro-batch，重计算后） | 几 GB |  |  |
 | 训练器 NCCL 缓冲、allocator 保留段 | 1–3 GB（常驻） | 推理引擎 NCCL 缓冲 | ~1 GB（常驻） |
 | 小计 | ~78 GB + 激活 | 小计 | ~42 GB（受 0.5 上限） |
 
 Table: 共置形态下一张卡在训练时与生成时各要放下的东西（32B、8 卡、FSDP、vLLM TP = 8）
 
-训练侧的 ①–④ 就已经把 80 GB 用光——**32B 在 8 卡上即便不共置，FSDP 也要 offload 优化器状态**（或者用 Megatron 的分布式优化器加 TP，每卡的状态字节相同但激活更省）。加上推理侧，两侧合计 120 GB 以上，每一步必须换手两次。
+训练侧的 ①–④ 全放卡上就已经把 80 GB 用光——**32B 在 8 卡上即便不共置，FSDP 也要 offload 优化器状态**（或者用 Megatron 的分布式优化器加 TP，每卡的状态字节相同但激活更省）。加上推理侧，两侧合计 120 GB 以上，每一步必须换手两次。
 
-8B 的账要宽松得多：训练侧每卡 16 GB + 2 GB，推理侧 16 GB 权重 + KV 池，两侧**加起来放得下**——但 KV 池想要尽量大，训练的激活也要空间，实际仍然换手，只是搬的少（2.3 GB）。
+8B 的账要宽松得多：训练侧每卡 16 GB + 2 GB，推理侧 16 GB 权重 + KV 池，两侧**加起来放得下**——但 KV 池想要尽量大，训练的激活也要空间，实际仍然换手，只是搬的少（64 卡时每卡每步 4.5 GB）。
 
 ### 2. 常驻的部分
 
@@ -186,17 +185,16 @@ SGLang 走同一条路，实现方式不同：`torch_memory_saver` 是一个 `LD
 - **offload_fsdp_optimizer / load_fsdp_optimizer**：fp32 主参数 + Adam 状态
 - **offload_fsdp_grad / load_fsdp_grad**：梯度（一般不搬：optimizer step 后直接释放）
 
-对应配置 `actor.fsdp_config.param_offload` / `optimizer_offload`（默认 `false`；共置的大模型配方几乎都开）。`TrainingWorker.to(device, model, optimizer, grad)` 是统一入口，控制器在每个阶段前后调它：
+对应配置 `actor.fsdp_config.param_offload` / `optimizer_offload`（默认 `false`；共置的大模型配方几乎都开）。`TrainingWorker.to(device, model, optimizer, grad)` 是统一入口。v0.9.0 里不是控制器调它，是 `train_mode()` / `eval_mode()` 两个上下文进出时自动调（`BaseEngineCtx._context_switch`）；调用方不传 `disable_auto_offload`，每次进出都搬：
 
-- **ref 前向前**：ref.to("cuda")；8 GB H2D
-- **ref 前向后**：ref.to("cpu")；8 GB D2H
-- **old_log_prob 前**：actor.to("cuda", model=True, optimizer=False)；8 GB
-- **update_actor 前**：actor.to("cuda", optimizer=True)；49 GB H2D
-- **update_actor 后**：actor.to("cpu")；57 GB D2H
+- **old_log_prob**：actor 进 `eval_mode` 时参数 H2D 8 GB，出来时 D2H 8 GB
+- **ref 前向**：ref 是 `forward_only`，固定走 FSDP2 `CPUOffloadPolicy`，前向时逐层 H2D，共 8 GB，用完就丢；它的 `to()` 直接返回，不回搬
+- **update_actor**：进 `train_mode` 时参数 + 优化器 H2D 57 GB；出来时先 `zero_grad` 释放梯度，再 D2H 57 GB
+- **update_weights**：参数已经在 CPU。FSDP2 的 `get_per_tensor_param()` 逐参数 `.to(device).full_tensor()`，8 GB 分片逐个 H2D；后面那句 `to("cpu")` 什么也不搬
 
 优化器状态**只在 `update_actor` 期间在卡上**——这是把 32B 塞进 8 卡的关键：前向阶段（old_log_prob、ref）只需要 bf16 参数与激活，49 GB 的优化器状态可以留在 CPU。代价是每步多一对 49 GB 的往返（4 秒），以及 pinned 内存。
 
-FSDP2 的 `CPUOffloadPolicy` 是另一条路：由 FSDP 自己在每次 all-gather 前从 CPU 取、用完就丢，参数常驻 CPU。它把"搬"摊进了训练的每一层，每层的 all-gather 前多一次 H2D；对共置的好处是训练器在 GPU 上的常驻几乎为零，代价是训练 MFU 掉几个点。verl 对它做了兼容（`_uses_fsdp2_cpu_offload_policy`），但默认走显式 offload。
+FSDP2 的 `CPUOffloadPolicy` 是另一条路：由 FSDP 自己在每次 all-gather 前从 CPU 取、用完就丢，参数常驻 CPU。它把"搬"摊进了训练的每一层，每层的 all-gather 前多一次 H2D；对共置的好处是训练器在 GPU 上的常驻几乎为零，代价是训练 MFU 掉几个点。verl 对它做了兼容（`_uses_fsdp2_cpu_offload_policy`）：actor 默认走显式 offload，ref 因为只前向，固定用它（`CPUOffloadPolicy(pin_memory=True)`）。
 
 ### 2. pinned 主机内存
 
@@ -220,16 +218,18 @@ Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_dist
 
 一张 80 GB 的卡上，训练 → 生成的顺序不能错：
 
-1. **训练器**：optimizer step 完成 → 释放梯度、激活
-2. **训练器**：优化器状态 D2H（49 GB）——此时卡上还有 bf16 参数、推理引擎的常驻部分（ref 在 ref 前向后就已搬回 CPU）
+1. **训练器**：optimizer step 完成，退出 `train_mode`——`zero_grad` 释放梯度
+2. **训练器**：同一个退出里 bf16 参数 + 优化器状态 D2H（57 GB）——之后卡上只剩训练器的常驻部分和推理引擎的常驻部分
 3. **训练器**：aggressive_empty_cache——把 caching allocator 保留的段真正还给驱动
 4. **推理引擎**：wake_up(tags=["weights"])——8 GB 的权重区域挂回（空的）
-5. **训练器**：all-gather 参数 → IPC → 推理引擎写入——卡上同时有 bf16 分片 8 GB + 推理权重 8 GB + 一个 bucket
-6. **训练器**：bf16 参数 D2H（8 GB）
+5. **训练器**：参数分片逐个 H2D → all-gather → IPC → 推理引擎写入——卡上同时有推理权重 8 GB + 一个参数的完整张量 + 一个 bucket
+6. **训练器**：`to("cpu")`——参数早在 CPU 上，什么也不搬；再 empty_cache 一次
 7. **推理引擎**：wake_up(tags=["kv_cache"])——最后挂 KV 池，因为它要"尽量大"
 8. **推理引擎**：reset_prefix_cache
 
-第 4–6 步的顺序决定峰值：先挂权重区域再同步、同步完再 offload 训练器的 bf16 参数、最后才挂 KV 池——KV 池是最大的一块，必须等其他都让出来。这正是 verl `ActorRolloutRefWorker.update_weights()` 的顺序（第五章）。
+峰值由第 2、4、7 步的先后决定：训练器先把 57 GB 全部让出，再挂权重区域同步，最后才挂 KV 池——KV 池是最大的一块，必须等其他都让出来。这是 v0.9.0 默认配置下 `update_actor` 加 `ActorRolloutRefWorker.update_weights()` 的顺序（第五章）。
+
+对照：调用方给 `train_mini_batch` 传 `disable_auto_offload=True` 时，`train_mode` 退出不搬，bf16 参数留在卡上。这时是另一个顺序：优化器状态先手动 D2H（49 GB）→ 挂权重区域 → 直接拿卡上的参数 all-gather 同步（不用 H2D）→ `update_weights()` 第 3 步的 `to("cpu")` 才真把 8 GB bf16 参数 D2H → 挂 KV 池。`update_weights()` 里那句 offload 是为这种用法留的。
 
 ## 五、一次切换的时间线：verl 的 hybrid worker
 
@@ -280,36 +280,37 @@ async def update_weights(self, global_steps=None, mode="auto"):
 |---|---|---|---|
 | 1 | 推理引擎 | 生成中：权重 8 GB + KV 池 30 GB 在卡上 | |
 | 2 | 推理引擎 | 长尾结束 → `sleep(level=2)`：unmap 权重 + KV | ~0.1 s |
-| 3 | 主机 → 训练器 | 参数分片 H2D | 8 GB，0.3 s |
+| 3 | 主机 → 训练器 | 进 `eval_mode`：参数分片 H2D | 8 GB，0.3 s |
 | 4 | 训练器 | `old_log_prob` 前向（bf16 参数 + 激活） | |
-| 5 | 主机 ⇄ 训练器 | ref 分片 H2D → ref 前向 → D2H | 8 GB 往返，0.6 s |
-| 6 | 主机 → 训练器 | 优化器状态 H2D | 49 GB，2.0 s |
-| 7 | 训练器 | `update_actor`：前向 + 反向 + step | |
-| 8 | 训练器 → 主机 | 优化器状态 D2H | 49 GB，2.0 s |
-| 9 | 训练器 | `empty_cache`；`expandable_segments` off | |
-| 10 | 推理引擎 | `wake_up(["weights"])`：cuMemMap 8 GB 空区域 | |
-| 11 | 训练器 → 推理引擎 | 逐参数 all-gather（NVLink）→ IPC bucket → `load_weights` | ~1 s |
-| 12 | 训练器 → 主机 | 参数分片 D2H | 8 GB，0.3 s |
-| 13 | 推理引擎 | `wake_up(["kv_cache"])`：cuMemMap 30 GB；`reset_prefix_cache` | |
-| 14 | 推理引擎 | 下一步生成开始 | |
+| 5 | 训练器 → 主机 | 出 `eval_mode`：参数分片 D2H | 8 GB，0.3 s |
+| 6 | 主机 → 训练器 | ref 前向：`CPUOffloadPolicy` 逐层 H2D，用完就丢 | 8 GB，0.3 s |
+| 7 | 主机 → 训练器 | 进 `train_mode`：参数分片 + 优化器状态 H2D | 57 GB，2.3 s |
+| 8 | 训练器 | `update_actor`：前向 + 反向 + step | |
+| 9 | 训练器 → 主机 | 出 `train_mode`：`zero_grad` 释放梯度，参数 + 优化器状态 D2H | 57 GB，2.3 s |
+| 10 | 训练器 | `empty_cache`；`expandable_segments` off | |
+| 11 | 推理引擎 | `wake_up(["weights"])`：cuMemMap 8 GB 空区域 | |
+| 12 | 主机 → 训练器 → 推理引擎 | 逐参数分片 H2D → all-gather（NVLink）→ IPC bucket → `load_weights` | 8 GB H2D，~1.3 s |
+| 13 | 训练器 | `to("cpu")`：参数已在 CPU，不搬；`empty_cache` | |
+| 14 | 推理引擎 | `wake_up(["kv_cache"])`：cuMemMap 30 GB；`reset_prefix_cache` | |
+| 15 | 推理引擎 | 下一步生成开始 | |
 
-Table: 共置一步的显存时间线：推理引擎 sleep 让出显存，训练器搬入参数与优化器状态做更新，再唤醒引擎同步权重
+Table: 共置一步的显存时间线（verl v0.9.0 默认）：推理引擎 sleep 让出显存，训练器搬入参数与优化器状态做更新，再唤醒引擎同步权重
 
-搬运合计约 6.5 秒，其中 4 秒是优化器状态的一对往返。三个可以省的地方：
+搬运合计约 7 秒，其中 4 秒是优化器状态的一对往返。三个可以省的地方：
 
 - **优化器状态不 offload**：如果卡放得下（8B、70B 在 64 卡以上），关掉 `optimizer_offload`，省 4 秒——但 32B 在 8 卡上放不下，没有选择。
-- **ref 与 actor 共用 base**：LoRA 训练时 ref 就是 base 权重，不用单独一份；全参训练下 ref 的 8 GB 往返可以改成常驻（若放得下）或与 old_log_prob 前向合并调度。
+- **ref 与 actor 共用 base**：LoRA 训练时 ref 就是 base 权重，不用单独一份；全参训练下 ref 每步 8 GB 的逐层 H2D 可以改成常驻（若放得下）或与 old_log_prob 前向合并调度。
 - **重叠**：D2H 可以与前一段计算重叠（用独立 stream、非阻塞拷贝），vLLM 的 `wake_up(["weights"])` 可以与优化器状态的 D2H 重叠——verl 目前是顺序执行的，代码里有 TODO。
 
 ### 3. 与步时间的比例
 
 | 场景 | 切换搬运 / 卡 | 时间 | 步时间（同步共置） | 占比 |
 |---|---|---|---|---|
-| 8B 推理，64 卡 | 2.3 GB × 2 | 0.2 s | 810 s | 0.02% |
-| 32B 推理，8 卡，opt offload | 130 GB | 6.5 s | 约 300 s（小 B） | 2% |
+| 8B 推理，64 卡 | 4.5 GB | 0.2 s | 810 s | 0.02% |
+| 32B 推理，8 卡，opt offload | 146 GB | 7 s | 约 300 s（小 B） | 2% |
 | 32B 推理，64 卡，无 opt offload | 16 GB × 2 | 1.3 s | 2400 s | 0.05% |
-| DeepSeek-V3 规格，256 卡 | 47 GB × 2 | 3.8 s | 650 s | 0.6% |
-| 8B 对话，16 卡 | 9 GB × 2 | 0.7 s | 111 s | 0.6% |
+| DeepSeek-V3 规格，256 卡 | 94 GB | 3.8 s | 650 s | 0.6% |
+| 8B 对话，16 卡 | 18 GB | 0.7 s | 111 s | 0.6% |
 
 Table: 各场景的切换搬运量、时间与占步时间的比例
 
@@ -356,7 +357,7 @@ vLLM 在启动时按 `cudagraph_capture_sizes`（默认从 1 到 `max_num_seqs` 
 | prefix cache 重置 | 部分 rollout 的重 prefill | 几个 PFLOP / 步 |
 | 两个 allocator | OOM 风险、empty_cache 的同步 | 每步几百 ms + 排障成本 |
 | pinned 内存 | 主机内存、NUMA | 32B/8 卡 520 GB |
-| 切换搬运 | 墙钟 | 0.2–6.5 s / 步，< 2% |
+| 切换搬运 | 墙钟 | 0.2–7 s / 步，约 2% 以内 |
 
 Table: 隐性代价的合计
 
@@ -429,7 +430,7 @@ Table: 一张决策表
 - 共置形态下一张卡在一步里换两次主人：训练时 16N 均分的训练状态 + 参考模型，生成时推理权重副本 + KV 池；32B/8 卡两侧合计 120 GB 以上，必须换手。
 - 让渡有三种做法：**搬到 CPU**（FSDP / Megatron 的 offload、vLLM sleep level 1 的权重）、**丢弃再重建**（vLLM level 2 的权重、KV 池——新权重反正要来）、**不动**（CUDA graph 池、NCCL 缓冲、CUDA context）。
 - vLLM 的 `CuMemAllocator` 用 CUDA 虚拟内存 API 把物理页摘下而**保留虚拟地址**，所以 CUDA graph、模型对象、KV 块表都不用重建；按标签（`weights` / `kv_cache`）分区让权重与 KV 池能分开唤醒——verl 先挂权重、同步、offload 训练器参数、最后挂 KV 池。SGLang 的 `torch_memory_saver` 同一机制。
-- 切换的搬运时间在任何合理配置下 **< 2%**（32B/8 卡 6.5 秒，其中 4 秒是优化器状态往返），不是共置的真实代价。
+- 切换的搬运时间在任何合理配置下 **< 2%**（32B/8 卡约 7 秒，其中 4 秒是优化器状态往返），不是共置的真实代价。
 - 真实代价是**常驻部分挤掉的 KV 池**：`gpu_memory_utilization` 0.5 让 8B 的生成时间多四分之一；训练侧 offload 干净、CUDA graph 只捕获小 batch，可以开到 0.8–0.85——这是共置最值得调的旋钮。
 - 其余隐性代价：prefix cache 每步重置（部分 rollout 要重 prefill 已生成部分）、两个 allocator 的保留段与 `expandable_segments` 冲突（`aggressive_empty_cache`、开关切换）、pinned 主机内存（32B/8 卡 520 GB）。
 - 共置下权重同步走进程内：逐参数 all-gather → 512 MB bucket → CUDA IPC → 推理 worker 取 TP 分片；峰值两个 bucket，8B 0.3 秒、32B 1 秒、几百 B 的 MoE 几十秒。
@@ -439,12 +440,12 @@ Table: 一张决策表
 
 | 项 | 公式 / 做法 | 本篇的数字 |
 |---|---|---|
-| 切换字节 / 卡 | 训练 → 生成：16N/n（若 optimizer offload；否则 2N/n）+ 2N/n（ref） | 生成 → 训练：同量反向 |
-| 切换时间 | 字节 / 25 GB/s（PCIe pinned） | 8B/64 卡 0.2 s · 32B/8 卡 6.5 s · V3/256 卡 3.8 s |
+| 切换字节 / 卡 | 生成 → 训练：2N/n × 2（old_log_prob 前后）+ 2N/n（ref 逐层）+ 14N/n（若 optimizer offload；否则 2N/n）<br/>训练 → 生成：14N/n（或 2N/n）D2H + 2N/n（同步时逐片 H2D） | 合计 36N/n（optimizer offload；否则 12N/n）：32B/8 卡 146 GB |
+| 切换时间 | 字节 / 25 GB/s（PCIe pinned） | 8B/64 卡 0.2 s · 32B/8 卡 7 s · V3/256 卡 3.8 s |
 | KV 池 | gpu_memory_utilization × M − 推理权重 − 激活峰值 − CUDA graph 池；块数启动时定死 |  |
 | 并发 c | KV 池 / ((P + L̄/2) k_kv) | 0.5 → 0.85 让 8B 生成时间 745 → 610 s |
 | sleep level | 2（权重丢弃，RL 默认）· 1（权重备份到 CPU：LoRA、MTP）· 0（只停调度） |  |
-| wake 顺序 | weights → 同步权重 → offload 训练器参数 → kv_cache → reset_prefix_cache |  |
+| wake 顺序 | 训练器在 update_actor 退出时已全部 offload → weights → 同步权重 → kv_cache → reset_prefix_cache | `disable_auto_offload=True` 时：同步完再 offload 训练器参数 |
 | 同步（共置） | all-gather（NVLink）+ 512 MB bucket × CUDA IPC；峰值 2 bucket | 2N / 卡内带宽 ≈ 8B 0.3 s |
 | pinned 内存 | n_卡 × 每卡 offload 字节 | 32B/8 卡 520 GB |
 
@@ -466,7 +467,7 @@ Table: 共置形态的速查表
 
    <details markdown="1"><summary>答案</summary>
 
-   优化器状态也 offload 时 $$16N/8 = 64$$ GB + 参考模型 8 GB ≈ 72 GB，走 PCIe pinned 约 25 GB/s，约 3 秒；往返 6.5 秒（4 秒是优化器状态），占 300 秒的 2%。
+   优化器状态也 offload 时，`update_actor` 一结束参数 + 优化器状态 $$14N/8 \approx 57$$ GB D2H（梯度直接释放），同步时参数再逐片 H2D 8 GB，走 PCIe pinned 约 25 GB/s，约 2.6 秒，加 NVLink all-gather + IPC 约 1 秒。生成 → 训练还有 old_log_prob 前后各 8 GB、ref 逐层 8 GB、update_actor 前 57 GB。整步约 146 GB、7 秒（4 秒是优化器状态），占 300 秒的 2%。
 
    </details>
 
@@ -502,5 +503,5 @@ Table: 共置形态的速查表
 
    </details>
 
-[^q0]: 32B / 8 卡：训练时每卡持有 $$16N/8 = 64$$ GB 的训练状态加参考模型；生成时要放推理权重副本（TP8 每卡 8 GB）+ KV 池，两侧合计 120 GB 以上，必须换手。训练 → 生成：训练状态 offload 到 CPU pinned 内存（$$16N/n$$，若优化器状态也 offload；否则只搬参数 $$2N/n$$）+ 参考模型 $$2N/n$$，走 PCIe 约 25 GB/s，约 **6.5 秒**（其中 4 秒是优化器状态往返）；生成 → 训练反向同量。让渡的三种做法：搬到 CPU（FSDP / Megatron offload、vLLM sleep level 1 的权重）、丢弃再重建（level 2 的权重、KV 池）、不动（CUDA graph 池、NCCL 缓冲）；vLLM 的 `CuMemAllocator` 摘掉物理页但保留虚拟地址，所以 CUDA graph、模型对象、KV 块表都不用重建。详见[第二](#二显存归属的账)至[五章](#五一次切换的时间线verl-的-hybrid-worker)。
+[^q0]: 32B / 8 卡：训练时每卡持有 $$16N/8 = 64$$ GB 的训练状态加参考模型；生成时要放推理权重副本（TP8 每卡 8 GB）+ KV 池，两侧合计 120 GB 以上，必须换手。训练 → 生成：`update_actor` 一结束，参数和优化器状态一起 offload 到 CPU pinned 内存（$$14N/n$$，梯度直接释放；优化器不 offload 时只有 $$2N/n$$），同步时参数再逐片 H2D $$2N/n$$；生成 → 训练：old_log_prob 前后参数各搬一次 $$2N/n$$、ref 逐层 H2D $$2N/n$$、update_actor 前载入 $$14N/n$$。一步合计 $$36N/n \approx 146$$ GB，走 PCIe 约 25 GB/s，加上同步约 **7 秒**（其中 4 秒是优化器状态往返）。让渡的三种做法：搬到 CPU（FSDP / Megatron offload、vLLM sleep level 1 的权重）、丢弃再重建（level 2 的权重、KV 池）、不动（CUDA graph 池、NCCL 缓冲）；vLLM 的 `CuMemAllocator` 摘掉物理页但保留虚拟地址，所以 CUDA graph、模型对象、KV 块表都不用重建。详见[第二](#二显存归属的账)至[五章](#五一次切换的时间线verl-的-hybrid-worker)。
 [^q1]: 约 **2%**——切换不是共置的真实代价。真实代价是常驻部分挤掉的 KV 池：`gpu_memory_utilization` 0.5 让 8B 的生成时间多四分之一（745 → 610 秒是 0.5 → 0.85 的差）；训练侧 offload 干净、CUDA graph 只捕获小 batch 时可以开到 0.8–0.85，是共置最值得调的旋钮。其余隐性代价：prefix cache 每步重置、两个 allocator 的保留段冲突。详见[第六章](#六隐性代价)、[第八章](#八适用边界)。
