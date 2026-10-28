@@ -57,11 +57,7 @@ Table: 本文的章节安排
 
 Coalesce 之后的循环体（上一篇 §六.2）：
 
-```text title="Coalesce 之后循环体里的多余转换"
-load(#blocked1) 的指针 ← convert ← #blocked1 的指针         ← 为 load 服务
-load 结果 #blocked6 → convert → #blocked1 → convert → #dot_op<parent=#blocked8>   ← 中间的 #blocked1 毫无用处
-累加器 #blocked → convert → #blocked8 → dot → #blocked8 → convert → #blocked      ← 每轮两次
-```
+![Coalesce 之后循环体里的多余转换](/img/in-post/triton-compiler-layout-optimization-coalesce-redundant-converts.svg)
 
 这不是"消掉相邻的一对逆转换"就能解决的：`load` 的结果是 `#blocked6`，`dot` 要 `#dot_op`，两者之间的 `#blocked1` 是默认 layout 留下的痕迹，没有任何 op 真的需要它。要做的是**沿 def-use 链重新决定每个值的 layout**——让 `load` 出来的值直接以 `dot` 需要的 layout 存在，或者让中间所有逐元素运算都跟着某一端的 layout 走。这是一个全局问题，不适合写成局部 pattern（第四篇 §三.2），所以这个 pass 是 1600 行手写的两阶段算法。
 
