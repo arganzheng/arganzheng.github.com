@@ -53,30 +53,7 @@ Table: 模型网关需要什么、原生路径缺什么
 
 整条链路从外到内：
 
-```text title="模型网关链路：从客户端到引擎"
-客户端  POST /v1/chat/completions {"model": "llama-70b", "stream": true, ...}
-   │
-   ▼
-[API 网关 / 认证层]   API key 或 JWT → 租户身份；剥掉客户端自带的 x-llm-d-* 头；注入
-   │                   x-llm-d-inference-fairness-id / x-llm-d-inference-objective；
-   │                   按租户×模型的 RPM / TPM / 并发预扣（本篇第五、六章的设计部分）
-   ▼
-[Gateway API 网关]    Gateway（Istio / agentgateway / Envoy AI Gateway / GKE Gateway …）
-   │                   HTTPRoute：按 header（模型名，由 body-based router 从请求体提出）匹配
-   │                   backendRefs → InferencePool（inference.networking.k8s.io/v1）
-   │                            或按 weight 分到两个 InferencePool（版本灰度）
-   ▼
-[ext_proc → EPP]      Endpoint Picker（llm-d-router）：解析 OpenAI 请求体 → 模型名重写
-   │                   （InferenceModelRewrite）→ 查 InferenceObjective 得优先级 → flow control
-   │                   排队/准入 → 调度 profile：filter → scorer（加权）→ picker → 返回
-   │                   x-gateway-destination-endpoint: <podIP:port>
-   ▼
-[数据面转发]          网关把请求原样（或重写了 model 字段后）发到那个 Pod；流式响应经
-   │                   EPP 的 response 处理路径，从 usage 里读 prompt_tokens / completion_tokens
-   ▼
-[vLLM Pod]            InferencePool.spec.selector 选中的 Pod；/metrics 被 EPP 每 50 ms 抓一次；
-                       可选：ZMQ 发布 KV 事件给 EPP 的精确前缀索引
-```
+![模型网关链路：从客户端到引擎](/img/in-post/model-gateway-request-path.svg)
 
 三层各管一件事：**认证层管"你是谁、还能用多少"**，是本篇的设计讨论部分，因为开源栈里没有一个组件把它做完整；**Gateway API 管"哪个模型、哪个版本"**，用标准的 `HTTPRoute` 匹配和权重；**EPP 管"哪个副本、现在还是等一会"**，这是 LLM 特有的部分，也是本篇源码阅读的主体。
 
@@ -280,12 +257,11 @@ KServe v0.20.0 的对照：`pkg/apis/serving/v1alpha1/llm_inference_service_type
 
 llm-d-router `docs/architecture.md` 把一个请求在 EPP 里的路径分成两段。**Request Control** 每请求跑一次（`pkg/epp/requestcontrol/director.go` 的 `Director.HandleRequest`）：
 
-```text title="Director.HandleRequest 的 Request Control 步骤"
 1. 解析 body（parser 插件：openai-parser / anthropic-parser / vllmhttp-parser），记 IncomingModelName
 2. modelRewriteIfNeeded：按 InferenceModelRewrite 的规则或 x-llm-d-model-name-rewrite 头改写 model → TargetModelName
 3. getInferenceObjective：按 x-llm-d-inference-objective 头查同 namespace 的 InferenceObjective，取 spec.priority（无则 0）
 4. 读 x-llm-d-inference-fairness-id（无则 agent-identity 属性，再无则 "default-flow"）
-5. admissionController.Admit(ctx, reqCtx, priority)  ← flow control 在这里排队或拒绝（可能阻塞）
+5. admissionController.Admit(ctx, reqCtx, priority) ← flow control 在这里排队或拒绝（可能阻塞）
 6. endpointCandidates.Locate：池里当前就绪的 endpoint（可被 x-gateway-destination-endpoint-subset 限定）
 7. Screener 插件：对所有 profile 都生效的强制过滤
 8. DataProducer 插件：为这个请求准备数据（token 数、前缀匹配信息、在途负载…）
@@ -293,7 +269,6 @@ llm-d-router `docs/architecture.md` 把一个请求在 EPP 里的路径分成两
 10. scheduler.Schedule → 一个或多个 scheduling profile
 11. prepareRequest：写 x-gateway-destination-endpoint；PreRequest 插件（PD 分离在这里写 x-prefiller-host-port）
 12. repackage：把可能改写过的 body 序列化回去
-```
 
 **Scheduling** 每个 profile 跑一次（`pkg/epp/scheduling/scheduler_profile.go` 的 `SchedulerProfile.Run`）：filter 链顺序过滤 → 每个 scorer 给每个候选打 0～1 分（`enforceScoreRange` 截断）→ `weightedScorePerEndpoint[endpoint] += score × weight` → picker 选。多个 profile 由 **profile handler** 编排：PD 分离就是 prefill 与 decode 两个 profile。
 
@@ -469,19 +444,19 @@ $$
 
 用上面的配置对 4 个副本算一遍，能看到 filter 与 scorer 各自在哪一步起作用（假设 `prefix-cache-affinity-filter` 没有形成 sticky 子集，或已因 TTFT 惩罚打破亲和；`prefix-cache-scorer` 只按命中比例，忽略 `matchLengthWeight`；`queue-scorer` 在过滤后的候选内按最短 1 / 最长 0 线性）：
 
-```text title="4 个副本的 filter 与 scorer 打分过程"
-请求：8k token 前缀，model=support-v1；权重 prefix 3 / queue 2 / kv 2 / lora 1
+请求是 8k token 前缀，`model=support-v1`；权重 prefix 3 / queue 2 / kv 2 / lora 1。p / q / k / l 是四个 scorer 各自的原始分：
 
-      前缀   等待  KV    LoRA    drop-overloaded      各项原始分        加权
-      命中   队列  使用  状态    (kv>0.9 或 queue>4)  p    q    k    l   总分
-r1    100%   6     0.95  已加载  淘汰（两项都超）      —                  —
-r2     75%   3     0.70  已加载  通过                 0.75 0    0.30 1.0  3.85
-r3      0%   0     0.20  有空位  通过                 0    1.0  0.80 0.8  4.40 *
-r4      0%   1     0.40  已满    通过                 0    0.67 0.60 0    2.53
+| 副本 | 前缀命中 | 等待队列 | KV 使用 | LoRA 状态 | drop-overloaded（kv>0.9 或 queue>4） | p | q | k | l | 加权总分 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| r1 | 100% | 6 | 0.95 | 已加载 | 淘汰（两项都超） | — | — | — | — | — |
+| r2 | 75% | 3 | 0.70 | 已加载 | 通过 | 0.75 | 0 | 0.30 | 1.0 | 3.85 |
+| r3 | 0% | 0 | 0.20 | 有空位 | 通过 | 0 | 1.0 | 0.80 | 0.8 | **4.40** |
+| r4 | 0% | 1 | 0.40 | 已满 | 通过 | 0 | 0.67 | 0.60 | 0 | 2.53 |
 
-r2 = 3×0.75 + 2×0 + 2×0.30 + 1×1.0 = 3.85
-r3 = 3×0    + 2×1.0 + 2×0.80 + 1×0.8 = 4.40   ← max-score-picker 选它
-```
+Table: 4 个副本的 filter 与 scorer 打分过程
+
+- r2 = 3×0.75 + 2×0 + 2×0.30 + 1×1.0 = 3.85
+- r3 = 3×0 + 2×1.0 + 2×0.80 + 1×0.8 = 4.40 ← `max-score-picker` 选它
 
 r1 的前缀全命中、adapter 也已加载，但 KV 0.95 与队列 6 让它在 scorer 之前就被 `drop-overloaded` 淘汰——filter 是硬约束，分数再高也救不回来。剩下三个里 r2 有 75% 命中，却因为队列最长（queue 得 0）、KV 较高而输给完全空闲的 r3：3 分的前缀权重不足以抵消 2 + 2 分的负载差。要让 r2 赢，要么把 `prefix-cache-scorer` 的权重提到 5 以上，要么靠 `prefix-cache-affinity-filter` 在 scorer 之前把候选缩到 {r2}——这正是它存在的意义。
 
@@ -601,23 +576,20 @@ flow control（`pkg/epp/flowcontrol/`，`featureGates: ["flowControl"]` 打开�
 
 这几条规则叠在一起，在一次过载里的表现用一条时间线最清楚。下面假设池已饱和、每个 tick 恰好释放 1 个在途槽位；A 是 `premium-traffic`（band 100），B、C 是 `standard-traffic`（band 0，两个 fairness ID），D 是 `best-effort-traffic`（band -10，`maxRequests` 缩成 2 便于演示）；TTL 缩成 8 tick。记法 `B3` = fairness ID B 有 3 个请求在排队；每行是该 tick 处理完到达与出队后的队列状态：
 
-```text title="flow control 的逐 tick 队列状态"
-tick 到达         band100  band0     band-10  出队  说明
-                  (A)      (B | C)   (D,上限2)
-  0  A2 B3 C1 D3  A2       B3 | C1   D2       —     D 第 3 个进不了 band：
-                                                    429 rejected-saturated
-  1  —            A1       B3 | C1   D2       A
-  2  B1           —        B4 | C1   D2       A     band100 清空前 band0 不动
-  3  —            —        B3 | C1   D2       B     同 band 内 round-robin：先 B
-  4  —            —        B3 | —    D2       C     …再 C；C 空了
-  5  A1           —        B3 | —    D2       A     新到的 A 严格优先，插到 B 前
-  6  —            —        B2 | —    D2       B
-  7  —            —        B1 | —    D2       B
-  8  —            —        —  | —    —        B     D2 等满 8 tick：
-                                                    429 rejected-ttl-expired
-  9  —            —        —  | —    —        —     队列空、饱和解除：
-                                                    新请求直接放行
-```
+| tick | 到达 | band100（A） | band0：B | band0：C | band-10（D，上限 2） | 出队 | 说明 |
+|---|---|---|---|---|---|---|---|
+| 0 | A2 B3 C1 D3 | A2 | B3 | C1 | D2 | — | D 第 3 个进不了 band：429 rejected-saturated |
+| 1 | — | A1 | B3 | C1 | D2 | A | |
+| 2 | B1 | — | B4 | C1 | D2 | A | band100 清空前 band0 不动 |
+| 3 | — | — | B3 | C1 | D2 | B | 同 band 内 round-robin：先 B |
+| 4 | — | — | B3 | — | D2 | C | …再 C；C 空了 |
+| 5 | A1 | — | B3 | — | D2 | A | 新到的 A 严格优先，插到 B 前 |
+| 6 | — | — | B2 | — | D2 | B | |
+| 7 | — | — | B1 | — | D2 | B | |
+| 8 | — | — | — | — | — | B | D2 等满 8 tick：429 rejected-ttl-expired |
+| 9 | — | — | — | — | — | — | 队列空、饱和解除：新请求直接放行 |
+
+Table: flow control 的逐 tick 队列状态
 
 三点从表里直接读出来：**优先级之间是抢占式的**——tick 5 新到的 A 越过已经等了 5 个 tick 的 B；**公平只在 band 内**——B 有 4 个请求、C 只有 1 个，轮转时仍是一人一个，C 不会被 B 的数量淹没；**负 band 在饱和期间几乎拿不到槽位**，所以它的 `maxRequests` 与 TTL 应该小，让 best-effort 请求快速拿到 `rejected-*` 去重试或降级，而不是在队列里占着内存等 60 s。
 
@@ -721,35 +693,31 @@ Table: 三种配额的量纲
 
 外层配额执行器（认证层）在请求进入时不知道最终消耗，只能预扣再结算：
 
-```text title="预扣与结算的两步"
-到达      估算输入 token：tokenizer（精确，有 CPU 成本）或字节数/4（粗，零成本）
-          预扣 = 输入估算 + min(max_completion_tokens 或缺省值, 单请求上限)
-          若 租户.tpm 余量 < 预扣 或 并发 ≥ 上限 或 rpm 超 → 429（网关生成，未进 EPP）
-          否则 扣减 tpm 令牌桶、并发 +1，注入 x-llm-d-* 头，放行
-响应结束  读 usage：prompt_tokens、completion_tokens（、prompt_tokens_details.cached_tokens）
-          实际 = prompt_tokens + completion_tokens
-          退还 预扣 − 实际（可能为负：输入估算偏低时补扣）；并发 −1；写账单事件
-```
+| 阶段 | 做什么 |
+|---|---|
+| 到达 | 估算输入 token：tokenizer（精确，有 CPU 成本）或字节数/4（粗，零成本）<br/>预扣 = 输入估算 + min(`max_completion_tokens` 或缺省值, 单请求上限)<br/>若 租户.tpm 余量 < 预扣 或 并发 ≥ 上限 或 rpm 超 → 429（网关生成，未进 EPP）<br/>否则 扣减 tpm 令牌桶、并发 +1，注入 `x-llm-d-*` 头，放行 |
+| 响应结束 | 读 usage：`prompt_tokens`、`completion_tokens`（、`prompt_tokens_details.cached_tokens`）<br/>实际 = `prompt_tokens` + `completion_tokens`<br/>退还 预扣 − 实际（可能为负：输入估算偏低时补扣）；并发 −1；写账单事件 |
+
+Table: 预扣与结算的两步
 
 把这两步放到一个租户的桶上连续走几个请求，能看到 TPM 余量与并发计数各自在什么时候变化、两种 429 分别由谁触发。取租户 B 在 `llama-70b` 上的规则，桶余量缩到 20,000 便于看清，忽略桶的按分钟补充：
 
-```text title="租户 B 的桶：连续几个请求的余量与并发"
-并发上限 2；预扣 = 输入估算 + min(max_completion_tokens 或缺省 1024, 上限)
+并发上限 2；预扣 = 输入估算 + min(`max_completion_tokens` 或缺省 1024, 上限)。
 
-t  事件                        预扣 / 结算           余量    并发  结果
-0  r1 到达 输入≈3,000 max=1024  −4,024                15,976   1   放行
-1  r2 到达 输入≈6,000 max=4096  −10,096                5,880   2   放行
-2  r3 到达 输入≈500  max=1024   余量够，但并发 2≥2      5,880   2   429（并发）
-3  r1 结束 usage 3,100+210      +4,024 −3,310 = +714   6,594   1   结算，退还
-4  r3 重试                      −1,524                 5,070   2   放行
-5  r2 生成中断开，最后一个 usage +10,096 −7,250         7,916   1   按已生成计
-   = 6,050+1,200                = +2,846
-6  r4 到达 输入≈30,000          需 31,024 > 7,916      7,916   1   429（TPM），
-                                                                   未进 EPP
-7  r3 结束 usage 620+1,024      +1,524 −1,644 = −120   7,796   0   估低，补扣
-```
+| t | 事件 | 预扣 / 结算 | 余量 | 并发 | 结果 |
+|---|---|---|---|---|---|
+| 0 | r1 到达 输入≈3,000 max=1024 | −4,024 | 15,976 | 1 | 放行 |
+| 1 | r2 到达 输入≈6,000 max=4096 | −10,096 | 5,880 | 2 | 放行 |
+| 2 | r3 到达 输入≈500 max=1024 | 余量够，但并发 2≥2 | 5,880 | 2 | 429（并发） |
+| 3 | r1 结束 usage 3,100+210 | +4,024 −3,310 = +714 | 6,594 | 1 | 结算，退还 |
+| 4 | r3 重试 | −1,524 | 5,070 | 2 | 放行 |
+| 5 | r2 生成中断开，最后一个 usage = 6,050+1,200 | +10,096 −7,250 = +2,846 | 7,916 | 1 | 按已生成计 |
+| 6 | r4 到达 输入≈30,000 | 需 31,024 > 7,916 | 7,916 | 1 | 429（TPM），未进 EPP |
+| 7 | r3 结束 usage 620+1,024 | +1,524 −1,644 = −120 | 7,796 | 0 | 估低，补扣 |
 
-t=2 与 t=6 是两种不同的拒绝：前者余量足够但 KV 占用（并发）到顶，后者并发有空但速率额度不够——只限一个维度就会漏掉另一种。t=5 依赖 `continuous_usage_stats`，否则只能按已转发的 chunk 数估 completion；t=7 的补扣说明预扣只是估算，账本以 `usage` 为准。：按 `max_completion_tokens` 全额预扣最安全，但客户端常填一个很大的默认值（4096、8192），会让 TPM 配额看起来瞬间用完；按历史平均输出预扣更平滑，但突发的长输出可以短时超配额。`maxCompletionTokensDefault` 与单请求上限是这个取舍的两个旋钮。
+Table: 租户 B 的桶：连续几个请求的余量与并发
+
+t=2 与 t=6 是两种不同的拒绝：前者余量足够但 KV 占用（并发）到顶，后者并发有空但速率额度不够——只限一个维度就会漏掉另一种。t=5 依赖 `continuous_usage_stats`，否则只能按已转发的 chunk 数估 completion；t=7 的补扣说明预扣只是估算，账本以 `usage` 为准。按 `max_completion_tokens` 全额预扣最安全，但客户端常填一个很大的默认值（4096、8192），会让 TPM 配额看起来瞬间用完；按历史平均输出预扣更平滑，但突发的长输出可以短时超配额。`maxCompletionTokensDefault` 与单请求上限是这个取舍的两个旋钮。
 
 输入 token 的估算精度决定退还量的方差。EPP 自己在这一步有工具：`token-producer` 的 `estimate` 后端不调用 tokenizer，按字符估算；精确分词要调引擎的 `/v1/chat/completions/render` 或内置 tokenizer。外层配额执行器可以复用同样的思路：估算用于预扣，精确值等 `usage`。
 
@@ -971,27 +939,28 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 ### 1. 要点回顾
 
-```text title="要点回顾：模型网关"
-为什么        轮询不看 KV 满不满、不看缓存在哪；64 会话 × 8k 的例子里前缀亲和把 TTFT 从 0.5 s 级降到几十 ms 级
-分工          GIE v1.6.0：InferencePool（api/v1）、InferencePoolImport（apix/v1alpha1）、ext_proc 协议、lwepp、conformance
-              llm-d-router v0.10.0：EPP 实现、EndpointPickerConfig、InferenceObjective / InferenceModelRewrite（llm-d.ai/v1alpha2）
-数据路径      Gateway → HTTPRoute（header 匹配模型名）→ InferencePool → ext_proc → EPP → x-gateway-destination-endpoint → Pod
-InferencePool selector（只有 matchLabels）/ targetPorts（1~8）/ appProtocol / endpointPickerRef{name, port, failureMode=FailClose}
-EPP 流水线    parse → 模型名重写 → InferenceObjective 取 priority → fairness ID → flow control Admit → screener → data producer
-              → admitter → 每 profile：filter → Σ w·clamp(score) → picker → prepareRequest
-插件          prefix-cache-affinity-filter / utilization-filter；prefix-cache-scorer / queue-scorer / kv-cache-utilization-scorer /
-              lora-affinity-scorer / token-load-scorer；max-score-picker；disagg-profile-handler + prefix-based-pd-decider
-前缀两法      approx-prefix-cache-producer（EPP 记账，猜）vs precise-prefix-cache-producer（vLLM --kv-events-config ZMQ 事件，准）
-PD            两个 profile，两个 header（x-gateway-destination-endpoint 给 decode，x-prefiller-host-port 给 sidecar）
-租户          外层：API key / JWT → 剥 x-llm-d-* → 注入 fairness-id / objective；每租户每模型 RPM / TPM / 并发
-              内层：priority 严格优先，同 priority 内 round-robin 公平；无按权重公平；429 带 x-llm-d-request-dropped-reason
-记账          预扣 = 输入估算 + min(max_completion_tokens, 上限)；usage 结算；流式必须强制 include_usage；断开按已生成
-核心问题      能否进：TPM 桶（A 三倍）；先服务谁：priority band → round-robin；哪个副本：与租户无关，看前缀与负载；
-              配额 = token（区分输入/输出/命中）+ 并发 + RPM；GPU 时间只做内部成本
-灰度          池间 HTTPRoute weight / header 定向（打散缓存）；池内 InferenceModelRewrite（LoRA 版本，缓存不受影响）
-多集群        InferencePoolImport alpha、status-only、提案 Draft；尚无稳定 API
-容量          Envoy CPU ∝ req/s；EPP 内存 ∝ 在途 × 输出长度；EPP 空闲 CPU ∝ Pod 数；EPP 单活为主
-```
+- **为什么**：轮询不看 KV 满不满、不看缓存在哪；64 会话 × 8k 的例子里前缀亲和把 TTFT 从 0.5 s 级降到几十 ms 级
+- **分工**：
+  - GIE v1.6.0：InferencePool（api/v1）、InferencePoolImport（apix/v1alpha1）、ext_proc 协议、lwepp、conformance
+  - llm-d-router v0.10.0：EPP 实现、EndpointPickerConfig、InferenceObjective / InferenceModelRewrite（llm-d.ai/v1alpha2）
+- **数据路径**：Gateway → HTTPRoute（header 匹配模型名）→ InferencePool → ext_proc → EPP → x-gateway-destination-endpoint → Pod
+- **InferencePool**：selector（只有 matchLabels）/ targetPorts（1~8）/ appProtocol / `endpointPickerRef{name, port, failureMode=FailClose}`
+- **EPP 流水线**：parse → 模型名重写 → InferenceObjective 取 priority → fairness ID → flow control Admit → screener → data producer → admitter → 每 profile：filter → Σ w·clamp(score) → picker → prepareRequest
+- **插件**：prefix-cache-affinity-filter / utilization-filter；prefix-cache-scorer / queue-scorer / kv-cache-utilization-scorer / lora-affinity-scorer / token-load-scorer；max-score-picker；disagg-profile-handler + prefix-based-pd-decider
+- **前缀两法**：approx-prefix-cache-producer（EPP 记账，猜）vs precise-prefix-cache-producer（vLLM `--kv-events-config` ZMQ 事件，准）
+- **PD**：两个 profile，两个 header（x-gateway-destination-endpoint 给 decode，x-prefiller-host-port 给 sidecar）
+- **租户**：
+  - 外层：API key / JWT → 剥 `x-llm-d-*` → 注入 fairness-id / objective；每租户每模型 RPM / TPM / 并发
+  - 内层：priority 严格优先，同 priority 内 round-robin 公平；无按权重公平；429 带 x-llm-d-request-dropped-reason
+- **记账**：预扣 = 输入估算 + min(`max_completion_tokens`, 上限)；usage 结算；流式必须强制 `include_usage`；断开按已生成
+- **核心问题**：
+  - 能否进：TPM 桶（A 三倍）
+  - 先服务谁：priority band → round-robin
+  - 哪个副本：与租户无关，看前缀与负载
+  - 配额 = token（区分输入/输出/命中）+ 并发 + RPM；GPU 时间只做内部成本
+- **灰度**：池间 HTTPRoute weight / header 定向（打散缓存）；池内 InferenceModelRewrite（LoRA 版本，缓存不受影响）
+- **多集群**：InferencePoolImport alpha、status-only、提案 Draft；尚无稳定 API
+- **容量**：Envoy CPU ∝ req/s；EPP 内存 ∝ 在途 × 输出长度；EPP 空闲 CPU ∝ Pod 数；EPP 单活为主
 
 ### 2. 本篇涉及的源码与 CRD 位置
 

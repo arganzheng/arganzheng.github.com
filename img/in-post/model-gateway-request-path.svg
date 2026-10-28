@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 734" width="760" height="734" role="img" aria-labelledby="t d">
+  <title id="t">模型网关链路：从客户端到引擎</title>
+  <desc id="d">模型网关链路，自上而下六层，箭头是请求的走向：客户端——POST /v1/chat/completions，{&quot;model&quot;: &quot;llama-70b&quot;, &quot;stream&quot;: true, ...}；API 网关 / 认证层——API key 或 JWT → 租户身份，剥掉客户端自带的 x-llm-d-* 头，注入 x-llm-d-inference-fairness-id / x-llm-d-inference-objective，按租户×模型的 RPM / TPM / 并发预扣（本篇第五、六章的设计部分）；Gateway API 网关——Gateway（Istio / agentgateway / Envoy AI Gateway / GKE Gateway …），HTTPRoute：按 header（模型名，由 body-based router 从请求体提出）匹配，backendRefs → InferencePool（inference.networking.k8s.io/v1），或按 weight 分到两个 InferencePool（版本灰度）；ext_proc → EPP——Endpoint Picker（llm-d-router）：解析 OpenAI 请求体，→ 模型名重写（InferenceModelRewrite）→ 查 InferenceObjective 得优先级，→ flow control 排队/准入 → 调度 profile：filter → scorer（加权）→ picker，→ 返回 x-gateway-destination-endpoint: &lt;podIP:port&gt;；数据面转发——网关把请求原样（或重写了 model 字段后）发到那个 Pod，流式响应经 EPP 的 response 处理路径，，从 usage 里读 prompt_tokens / completion_tokens；vLLM Pod——InferencePool.spec.selector 选中的 Pod，/metrics 被 EPP 每 50 ms 抓一次，可选：ZMQ 发布 KV 事件给 EPP 的精确前缀索引</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .name { font-size: 14px; font-weight: 700; }
+      .desc { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .box { stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="760" height="734" fill="#fff"/>
+  <rect class="box" x="20" y="20" width="170" height="64" fill="#eef3f8"/>
+  <text class="name" x="105.0" y="52.0" text-anchor="middle" dominant-baseline="central">客户端</text>
+  <text class="mono" x="212" y="42.0" dominant-baseline="central">POST /v1/chat/completions</text>
+  <text class="mono" x="212" y="62.0" dominant-baseline="central">{&quot;model&quot;: &quot;llama-70b&quot;, &quot;stream&quot;: true, ...}</text>
+  <line class="arrow" x1="105.0" y1="84" x2="105.0" y2="114"/>
+  <rect class="box" x="20" y="114" width="170" height="104" fill="#fde0b8"/>
+  <text class="name" x="105.0" y="166.0" text-anchor="middle" dominant-baseline="central">API 网关 / 认证层</text>
+  <text class="desc" x="212" y="136.0" dominant-baseline="central">API key 或 JWT → 租户身份</text>
+  <text class="desc" x="212" y="156.0" dominant-baseline="central">剥掉客户端自带的 x-llm-d-* 头</text>
+  <text class="desc" x="212" y="176.0" dominant-baseline="central">注入 x-llm-d-inference-fairness-id / x-llm-d-inference-objective</text>
+  <text class="desc" x="212" y="196.0" dominant-baseline="central">按租户×模型的 RPM / TPM / 并发预扣（本篇第五、六章的设计部分）</text>
+  <line class="arrow" x1="105.0" y1="218" x2="105.0" y2="248"/>
+  <rect class="box" x="20" y="248" width="170" height="104" fill="#dbe8fb"/>
+  <text class="name" x="105.0" y="300.0" text-anchor="middle" dominant-baseline="central">Gateway API 网关</text>
+  <text class="desc" x="212" y="270.0" dominant-baseline="central">Gateway（Istio / agentgateway / Envoy AI Gateway / GKE Gateway …）</text>
+  <text class="desc" x="212" y="290.0" dominant-baseline="central">HTTPRoute：按 header（模型名，由 body-based router 从请求体提出）匹配</text>
+  <text class="desc" x="212" y="310.0" dominant-baseline="central">backendRefs → InferencePool（inference.networking.k8s.io/v1）</text>
+  <text class="desc" x="212" y="330.0" dominant-baseline="central">或按 weight 分到两个 InferencePool（版本灰度）</text>
+  <line class="arrow" x1="105.0" y1="352" x2="105.0" y2="382"/>
+  <rect class="box" x="20" y="382" width="170" height="104" fill="#e8e0f5"/>
+  <text class="name" x="105.0" y="434.0" text-anchor="middle" dominant-baseline="central">ext_proc → EPP</text>
+  <text class="desc" x="212" y="404.0" dominant-baseline="central">Endpoint Picker（llm-d-router）：解析 OpenAI 请求体</text>
+  <text class="desc" x="212" y="424.0" dominant-baseline="central">→ 模型名重写（InferenceModelRewrite）→ 查 InferenceObjective 得优先级</text>
+  <text class="desc" x="212" y="444.0" dominant-baseline="central">→ flow control 排队/准入 → 调度 profile：filter → scorer（加权）→ picker</text>
+  <text class="desc" x="212" y="464.0" dominant-baseline="central">→ 返回 x-gateway-destination-endpoint: &lt;podIP:port&gt;</text>
+  <line class="arrow" x1="105.0" y1="486" x2="105.0" y2="516"/>
+  <rect class="box" x="20" y="516" width="170" height="84" fill="#dff1e6"/>
+  <text class="name" x="105.0" y="558.0" text-anchor="middle" dominant-baseline="central">数据面转发</text>
+  <text class="desc" x="212" y="538.0" dominant-baseline="central">网关把请求原样（或重写了 model 字段后）发到那个 Pod</text>
+  <text class="desc" x="212" y="558.0" dominant-baseline="central">流式响应经 EPP 的 response 处理路径，</text>
+  <text class="desc" x="212" y="578.0" dominant-baseline="central">从 usage 里读 prompt_tokens / completion_tokens</text>
+  <line class="arrow" x1="105.0" y1="600" x2="105.0" y2="630"/>
+  <rect class="box" x="20" y="630" width="170" height="84" fill="#f9d5d3"/>
+  <text class="name" x="105.0" y="672.0" text-anchor="middle" dominant-baseline="central">vLLM Pod</text>
+  <text class="desc" x="212" y="652.0" dominant-baseline="central">InferencePool.spec.selector 选中的 Pod</text>
+  <text class="desc" x="212" y="672.0" dominant-baseline="central">/metrics 被 EPP 每 50 ms 抓一次</text>
+  <text class="desc" x="212" y="692.0" dominant-baseline="central">可选：ZMQ 发布 KV 事件给 EPP 的精确前缀索引</text>
+</svg>
