@@ -18,7 +18,7 @@ catalog: true
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 搭工作台 | 构建 Triton 编译器（含 macOS）<br/>三层测试各怎么跑<br/>`triton-opt` 在哪 |
-| 三 | 看 IR | `MLIR_ENABLE_DUMP` 的 148 次 dump<br/>`triton-opt --mlir-print-ir-after-all`<br/>`TRITON_KERNEL_DUMP`<br/>LLVM / PTX 层的对应开关 |
+| 三 | 看 IR | `MLIR_ENABLE_DUMP` 的 72 次 dump<br/>`triton-opt --mlir-print-ir-after-all`<br/>`TRITON_KERNEL_DUMP`<br/>LLVM / PTX 层的对应开关 |
 | 四 | 定位一个错误 | 二分法：从 Python 到 pass<br/>`triton.compile("x.ttgir")`<br/>override<br/>`--run-reproducer`<br/>解释器 |
 | 五 | 写一个 lit 测试 | `RUN` 行、`FileCheck` 与 `expected-remark`<br/>最小化原则<br/>两个真实例子 |
 | 六 | 改编译器 | 加一个 pass 的完整清单<br/>加一条 pattern<br/>改 layout 相关代码时用什么验证<br/>C++ 单元测试 |
@@ -70,7 +70,9 @@ Table: Triton 的三层测试
 MLIR_ENABLE_DUMP=1 TRITON_ALWAYS_COMPILE=1 python my_kernel.py 2> dump.log
 ```
 
-对 `sm_80` 的一个 kernel，`dump.log` 里有 **74 次** `IR Dump Before …`（每个 pass 之前一次；`MLIR_ENABLE_DUMP=<kernel 名>` 只 dump 那个 kernel）。按顺序去掉重复就是 `make_ttir` + `make_ttgir` + `make_llir` 的完整 pass 表，共 70 个。多出来的 4 次是 Inliner 内嵌的 canonicalize（`default-pipeline=canonicalize`）：它对模块里每个 `tt.func` 各 dump 一次，被内联的 helper（比如 `tl.cdiv`）也算，所以这个数随 kernel 变，表里只记一次：
+我拿第五篇那个 BF16 `matmul_kernel` 实测：Triton v3.8.0，第五篇的 `ASTSource` 写法，`sm_80`，`BLOCK_M=BLOCK_N=128`、`BLOCK_K=32`、`num_warps=4`、`num_stages=3`。`dump.log` 里有 **72 次** `IR Dump Before …`，每个 pass 之前一次。另外还有 2 段 `SoftwarePipeliner internal IR Dump After: LowerLoops / ExpandLoops`，是 Pipeline pass 自己打的中间结果，`grep -c "IR Dump"` 会数成 74。
+
+72 次按顺序去掉重复，就是 `make_ttir` + `make_ttgir` + `make_llir` 的完整 pass 表，共 70 个。多出来的 2 次是 Inliner 内嵌的 canonicalize（`default-pipeline=canonicalize`）：它按 `tt.func` 逐个 dump，这个 kernel 上是 `@matmul_kernel` 两次、被内联的 `tl.zeros` helper 一次，表里只记一次。所以这个数随 kernel 变。`MLIR_ENABLE_DUMP=matmul_kernel` 只 dump 这个 kernel，实测 70 次，helper 那次和 `CanonicalizeLLVMIR` 都不在里面：
 
 | 阶段 | 讲解 | 序号 | pass（按执行顺序） |
 |---|---|---|---|
@@ -79,7 +81,7 @@ MLIR_ENABLE_DUMP=1 TRITON_ALWAYS_COMPILE=1 python my_kernel.py 2> dump.log
 | ^^ | <span style="white-space:nowrap">第九篇</span> | <span style="white-space:nowrap">20–49</span> | `TritonNvidiaGPUOptimizeDescriptorEncodingPass` → `TritonLoopAwareCSE` → `TritonGPUFuseNestedLoops` → `CanonicalizerPass` → `TritonLoopInvariantCodeMotion` → `CanonicalizerPass` → `TritonGPUCombineTensorSelectAndIf` → `NVGPUWarpSpecialization` → `TritonGPUAssignLatencies` → `TritonGPUScheduleLoops` → `TritonGPUPipeline` → `CanonicalizerPass` → `TritonLoopAwareCSE` → `TritonGPUPrefetch` → `TritonGPUOptimizeDotOperands` → `CanonicalizerPass` → `TritonGPUCoalesceAsyncCopy` → `TritonNvidiaGPUOptimizeTMemLayoutsPass` → `TritonNvidiaGPUFuseTMEMLoadReducePass` → `TritonGPURemoveLayoutConversions` → `TritonNvidiaGPUInterleaveTMemPass` → `TritonGPUReduceDataDuplication` → `TritonGPUReorderInstructions` → `TritonLoopAwareCSE` → `SymbolDCEPass` → `TritonGPUFenceInsertion` → `TritonNvidiaGPUMMALoweringPass` → `SCCPPass` → `CSEPass` → `CanonicalizerPass` |
 | `make_llir` | <span style="white-space:nowrap">第十篇</span> | <span style="white-space:nowrap">50–70</span> | `TritonGPUCombineTensorSelectAndIf` → `TritonGPUAllocateWarpGroups` → `SCFToControlFlowPass` → `GluonInline` → `AllocateSharedMemoryNv` → `TritonTensorMemoryAllocationPass` → `TritonNvidiaGPUCheckMatmulTwoCTAPass` → `TritonGPUProxyFenceInsertion` → `TritonNvidiaGPUTMemBarrierInsertionPass` → `ConvertTritonGPUToLLVM` → `InitializeWSClusterBarriers` → `CanonicalizeLLVMIR` → `CSEPass` → `ConvertWarpSpecializeToLLVM` → `ReconcileUnrealizedCastsPass` → `ConvertNVGPUToLLVM` → `CanonicalizerPass` → `CSEPass` → `SymbolDCEPass` → `ConvertNVVMToLLVMPass` → `LLVMDIScope` |
 
-Table: dump.log 里的 70 个 pass（sm_80，74 次 dump 按顺序去重）
+Table: dump.log 里的 70 个 pass（matmul_kernel，sm_80，Triton v3.8.0，72 次 dump 按顺序去重）
 
 `MLIR_DUMP_PATH=<dir>` 把每个 pass 的 IR 写成单独文件而不是混在 stderr；`MLIR_ENABLE_TIMING=1` 打每个 pass 的耗时；`MLIR_ENABLE_DIAGNOSTICS=warnings,remarks,stacktraces` 让 `emitRemark` 的信息（"MMA version 3 acceleration not applied…"、"Pipelining load that cannot use vectorized copy…"）显示出来——**默认 remark 是静音的**，很多"为什么编译器没做 X"的答案在这里。
 
@@ -125,7 +127,7 @@ flowchart TB
     s1["② 排除后端：DISABLE_LLVM_OPT=1 结果对了？→ LLVM 优化的锅（罕见，LLVM_IR_ENABLE_DUMP 二分 pass）<br/>disable_ptxas_opt 结果对了？→ ptxas 的锅（报 NVIDIA）"]
     s2["③ 拿到每级 IR：TRITON_KERNEL_DUMP=1 → ~/.triton/dump/&lt;src.hash&gt;/{ttir,ttgir,llir,ptx}"]
     s3["④ 用解释器验证 TTIR 语义：TRITON_INTERPRET=1 python repro.py<br/>解释器直接执行 Python 语义，不经过任何 pass；它也错 → 是用户 kernel 或前端的问题"]
-    s4["⑤ 二分 pass：MLIR_ENABLE_DUMP 拿到 74 份 IR；<br/>取中间某一份 X.ttgir，triton.compile('X.ttgir') 从那里编到底、跑、比对<br/>对 → 错误在 X 之后；错 → 在 X 之前。log2(74) ≈ 7 轮"]
+    s4["⑤ 二分 pass：MLIR_ENABLE_DUMP 拿到 72 份 IR；<br/>取中间某一份 X.ttgir，triton.compile('X.ttgir') 从那里编到底、跑、比对<br/>对 → 错误在 X 之后；错 → 在 X 之前。log2(72) ≈ 6.2，7 轮"]
     s5["⑥ 锁定 pass P：P 之前的 IR 对、之后的错。读两份 IR 的 diff，找出 P 改错的那个 op"]
     s6["⑦ 最小化：删掉 IR 里与该 op 无关的一切（保持 verifier 通过），直到 triton-opt --P 仍复现<br/>通常剩 10–30 行"]
     s7["⑧ 固定成 lit 测试：RUN 行 + CHECK 期望正确的输出；先确认它在当前代码上失败"]
@@ -262,8 +264,8 @@ Triton 每隔几周把 `cmake/llvm-info.json` 的 `llvm_hash` 推进到 LLVM mai
 
 1. Triton 编译器可在 macOS 上构建；预编译 LLVM 自动下载；NVIDIA 工具下载可用 `TRITON_*_PATH` 跳过，假 `ptxas` 让 `compile()` 跑到 PTX；AMD 路径无需任何外部工具。`make triton-opt` 增量 20 秒。
 2. 三层测试：lit（277 个文件、9.5 秒、无 GPU）、gtest（LinearLayout 72 + 转换 112、毫秒）、pytest（GPU，解释器可替代部分）。lit 版本需 < 20。
-3. 看 IR：`MLIR_ENABLE_DUMP` 每 pass 一份（sm_80 一个 kernel 74 份，完整 pass 表在此）、`MLIR_ENABLE_DIAGNOSTICS` 打开被静音的 remark；`triton-opt` 任意 pass 子集 + `--mlir-print-ir-after-all/-failure/-change`；调试构建的 `-debug-only`；LLVM / PTX / ptxas / SASS / AMD 各有开关。
-4. 定位错误：固定复现 → 排除 LLVM / ptxas → dump 每级 IR → 解释器判定编译器还是 kernel → 用 `triton.compile("X.ttgir")` 或 override 二分 74 份 IR（7 轮）→ 锁定 pass、diff → 最小化 → 写 lit 并确认先失败。崩溃用 `--run-reproducer`。
+3. 看 IR：`MLIR_ENABLE_DUMP` 每 pass 一份（sm_80 的 matmul_kernel 72 份、70 个 pass，完整 pass 表在此）、`MLIR_ENABLE_DIAGNOSTICS` 打开被静音的 remark；`triton-opt` 任意 pass 子集 + `--mlir-print-ir-after-all/-failure/-change`；调试构建的 `-debug-only`；LLVM / PTX / ptxas / SASS / AMD 各有开关。
+4. 定位错误：固定复现 → 排除 LLVM / ptxas → dump 每级 IR → 解释器判定编译器还是 kernel → 用 `triton.compile("X.ttgir")` 或 override 二分 72 份 IR（7 轮）→ 锁定 pass、diff → 最小化 → 写 lit 并确认先失败。崩溃用 `--run-reproducer`。
 5. lit 的两种断言：`FileCheck`（`CHECK` / `-LABEL` / `-NOT` / `-NEXT` / `-DAG` / 捕获）与 `-verify-diagnostics` + `expected-remark`（AxisInfo 用；逼你写全每个值）。最小化：从出错 pass 的输入层级起、删无关 op、load 换函数参数、缩 shape、`-split-input-file`。
 6. 加 pass 七步（`Passes.td` → `.cpp` → CMake → `passes.cc` → `compiler.py` → lit → 全量测试）；加 pattern 守 rewriter 纪律、正反用例；layout 改动先过 C++ 单元测试再肉眼核 `triton-tensor-layout`，端到端需 GPU。
 7. 读 PR 倒序：lit diff（行为）→ `.td`（接口）→ C++（实现）→ `compiler.py`（顺序）；CODEOWNERS 定子系统；LLVM bump PR 是学 MLIR API 演化的材料，以 pin 的头文件为准。
@@ -273,7 +275,7 @@ Triton 每隔几周把 `cmake/llvm-info.json` 的 `llvm_hash` 推进到 LLVM mai
 1. `MLIR_ENABLE_DUMP=1` 对一个 Gluon kernel 会 dump 多少个 pass？为什么比 `tl` kernel 少得多？
 
    <details markdown="1"><summary>答案</summary>
-   `make_ttir` 不存在（Gluon 直接生成 TTGIR）；`make_ttgir` 走 `is_gluon` 分支，只有 inliner、canonicalizer、`resolve_auto_encodings`、`allocate_warp_groups` 等几个不改 layout 的 pass（第九篇 §七.3）；`make_llir` 与 `tl` 相同（约 20 个）。总数约 25–30，而 `tl` kernel 74。少的正是 Coalesce、RemoveLayoutConversions、AccelerateMatmul、Pipeline、WarpSpecialization 等全部自动决策 pass。
+   `make_ttir` 不存在（Gluon 直接生成 TTGIR）；`make_ttgir` 走 `is_gluon` 分支，只有 inliner、canonicalizer、`resolve_auto_encodings`、`allocate_warp_groups` 等几个不改 layout 的 pass（第九篇 §七.3）；`make_llir` 与 `tl` 相同（约 20 个）。总数约 25–30，而 `tl` 的 matmul kernel 是 70 个 pass（72 次 dump）。少的正是 Coalesce、RemoveLayoutConversions、AccelerateMatmul、Pipeline、WarpSpecialization 等全部自动决策 pass。
    </details>
 
 2. 你手改了 dump 出来的 `X.ttgir`（删掉一个 `convert_layout`、把两端 layout 改成一致），想验证性能。用哪条路径最快把它跑起来？会在哪一步被拒绝？
