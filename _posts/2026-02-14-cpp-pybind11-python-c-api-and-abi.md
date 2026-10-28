@@ -1738,7 +1738,7 @@ Table: pybind11 直接绑定与 TORCH_LIBRARY 的对比
 
 ### 3. libtorch stable ABI：PyTorch `torch/csrc/stable/` 的现状（vLLM 0.15 尚未使用）
 
-第九、十节会讲，用 `TORCH_LIBRARY` 或 pybind11 写的扩展都直接链接 `libtorch_cpu.so`/`libc10.so` 的 C++ 符号，因此**必须和运行时的 PyTorch 是同一版本、同一编译器、同一 C++ ABI**编出来的。对 vLLM 这种每个版本要钉死一个 PyTorch 版本（v0.15.0 的 `CMakeLists.txt` 里 `set(TORCH_SUPPORTED_VERSION_CUDA "2.9.1")`，版本不等就 `message(WARNING ...)`）、还要为多个 CUDA 版本各发一个 wheel 的项目，这是一个真实的发布成本。
+第十、十一章会讲，用 `TORCH_LIBRARY` 或 pybind11 写的扩展都直接链接 `libtorch_cpu.so`/`libc10.so` 的 C++ 符号，因此**必须和运行时的 PyTorch 是同一版本、同一编译器、同一 C++ ABI**编出来的。对 vLLM 这种每个版本要钉死一个 PyTorch 版本（v0.15.0 的 `CMakeLists.txt` 里 `set(TORCH_SUPPORTED_VERSION_CUDA "2.9.1")`，版本不等就 `message(WARNING ...)`）、还要为多个 CUDA 版本各发一个 wheel 的项目，这是一个真实的发布成本。
 
 PyTorch 2.9 之后开始提供一层 **libtorch stable ABI**，v2.10.0 源码树里在 `torch/csrc/stable/`：
 
@@ -1998,14 +1998,15 @@ CPython 提供了一个受限的 **limited API**（定义 `Py_LIMITED_API` 宏�
 
 也就是说：**用 pybind11 + `torch/csrc/utils/pybind.h` 的 caster（它们在 `libtorch_python.so` 里）就不能是 `abi3`；用 `TORCH_LIBRARY` 才可以。** 这是 9.2 节表格里"无 Python 环境"那一行的另一面。
 
-三层 ABI 叠起来：
+三层 ABI 叠起来，扩展 `.so` 必须同时匹配：
 
-```text title="扩展 .so 要同时匹配的三层 ABI"
-扩展 .so 必须同时匹配
-├── CPython ABI      cp312 / abi3                  ← 由 Python 版本决定
-├── C++ 标准库 ABI    _GLIBCXX_USE_CXX11_ABI、GLIBCXX_3.4.x、libstdc++ vs libc++
-└── PyTorch C++ ABI   torch 版本、编译器大版本、CUDA 版本  ← 下一节
-```
+| 层 | 要匹配的 | 备注 |
+|---|---|---|
+| CPython ABI | `cp312` / `abi3` | 由 Python 版本决定（10.5 节） |
+| C++ 标准库 ABI | `_GLIBCXX_USE_CXX11_ABI`<br/>`GLIBCXX_3.4.x`<br/>libstdc++ vs libc++ | 10.2、10.3 节 |
+| PyTorch C++ ABI | torch 版本<br/>编译器大版本<br/>CUDA 版本 | 第十一章 |
+
+Table: 扩展 .so 要同时匹配的三层 ABI
 
 Java 对照：这三层在 JVM 世界分别对应"class 文件版本号"（`major version 61` = Java 17，一个数字解决）、"没有对应物"（JVM 自带运行时）、"没有对应物"（Java 库之间只有源码级/字节码级兼容问题，没有二进制布局问题）。JNI 库倒是有同样的三层问题，但绝大多数 Java 项目从不写 JNI。
 
@@ -2154,7 +2155,7 @@ def _check_cuda_version(compiler_name: str, compiler_version: TorchVersion) -> N
 
 ### 4. 契约清单
 
-把 9、10 两节合起来，一个 PyTorch C++ 扩展要在目标机器上成功 `import`，需要满足：
+把第十、十一两章合起来，一个 PyTorch C++ 扩展要在目标机器上成功 `import`，需要满足：
 
 | 项 | 谁保证 | 不满足时的现象 |
 |---|---|---|
