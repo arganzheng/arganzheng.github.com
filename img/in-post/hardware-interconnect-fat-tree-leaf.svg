@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 264" width="760" height="264" role="img" aria-labelledby="title desc">
+  <title id="title">两层 fat-tree：leaf 上行 32、下行 64 端口</title>
+  <desc id="desc">spine0 到 spine3 各用 8 条链路接到 leaf0，上行 4 × 8 = 32 端口；leaf0 下行 64 端口，接 8 台机器 × 8 张网卡，即 NIC0 到 NIC63。超额订阅比 64 : 32 = 2 : 1。</desc>
+  <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2d3d; font-size: 13px; font-weight: 500; }
+.b { font-size: 14px; font-weight: 700; }
+.s { font-size: 12px; }
+.m { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+.frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.3; }
+.gpu { fill: #dbe9f6; stroke: #3b6ea5; stroke-width: 1.2; }
+.nic { fill: #e3f2e1; stroke: #4a8a3a; stroke-width: 1.2; }
+.cpu { fill: #fdf1d6; stroke: #b8860b; stroke-width: 1.2; }
+.sw { fill: #f1f1f1; stroke: #777; stroke-width: 1.2; }
+.mem { fill: #efe6f6; stroke: #8e5ea2; stroke-width: 1.2; }
+.net { fill: #fbe9e7; stroke: #c0392b; stroke-width: 1.2; }
+.nvl { stroke: #3b6ea5; stroke-width: 3.5; fill: none; }
+.pcie { stroke: #555; stroke-width: 1.6; fill: none; }
+.upi { stroke: #b8860b; stroke-width: 2; fill: none; }
+.wire { stroke: #c0392b; stroke-width: 1.6; fill: none; }
+.port { fill: #555; }
+  </style>
+  <rect width="760" height="264" fill="#ffffff"/>
+  <rect x="34" y="16" width="100" height="30" class="sw"/>
+  <text x="84.0" y="35.5" text-anchor="middle">spine0</text>
+  <line x1="70" y1="46" x2="70" y2="110" class="wire"/>
+  <line x1="74" y1="46" x2="74" y2="110" class="wire"/>
+  <line x1="78" y1="46" x2="78" y2="110" class="wire"/>
+  <line x1="82" y1="46" x2="82" y2="110" class="wire"/>
+  <line x1="86" y1="46" x2="86" y2="110" class="wire"/>
+  <line x1="90" y1="46" x2="90" y2="110" class="wire"/>
+  <line x1="94" y1="46" x2="94" y2="110" class="wire"/>
+  <line x1="98" y1="46" x2="98" y2="110" class="wire"/>
+  <text x="106" y="83" text-anchor="start" class="s">8 条</text>
+  <rect x="170" y="16" width="100" height="30" class="sw"/>
+  <text x="220.0" y="35.5" text-anchor="middle">spine1</text>
+  <line x1="206" y1="46" x2="206" y2="110" class="wire"/>
+  <line x1="210" y1="46" x2="210" y2="110" class="wire"/>
+  <line x1="214" y1="46" x2="214" y2="110" class="wire"/>
+  <line x1="218" y1="46" x2="218" y2="110" class="wire"/>
+  <line x1="222" y1="46" x2="222" y2="110" class="wire"/>
+  <line x1="226" y1="46" x2="226" y2="110" class="wire"/>
+  <line x1="230" y1="46" x2="230" y2="110" class="wire"/>
+  <line x1="234" y1="46" x2="234" y2="110" class="wire"/>
+  <text x="242" y="83" text-anchor="start" class="s">8 条</text>
+  <rect x="306" y="16" width="100" height="30" class="sw"/>
+  <text x="356.0" y="35.5" text-anchor="middle">spine2</text>
+  <line x1="342" y1="46" x2="342" y2="110" class="wire"/>
+  <line x1="346" y1="46" x2="346" y2="110" class="wire"/>
+  <line x1="350" y1="46" x2="350" y2="110" class="wire"/>
+  <line x1="354" y1="46" x2="354" y2="110" class="wire"/>
+  <line x1="358" y1="46" x2="358" y2="110" class="wire"/>
+  <line x1="362" y1="46" x2="362" y2="110" class="wire"/>
+  <line x1="366" y1="46" x2="366" y2="110" class="wire"/>
+  <line x1="370" y1="46" x2="370" y2="110" class="wire"/>
+  <text x="378" y="83" text-anchor="start" class="s">8 条</text>
+  <rect x="442" y="16" width="100" height="30" class="sw"/>
+  <text x="492.0" y="35.5" text-anchor="middle">spine3</text>
+  <line x1="478" y1="46" x2="478" y2="110" class="wire"/>
+  <line x1="482" y1="46" x2="482" y2="110" class="wire"/>
+  <line x1="486" y1="46" x2="486" y2="110" class="wire"/>
+  <line x1="490" y1="46" x2="490" y2="110" class="wire"/>
+  <line x1="494" y1="46" x2="494" y2="110" class="wire"/>
+  <line x1="498" y1="46" x2="498" y2="110" class="wire"/>
+  <line x1="502" y1="46" x2="502" y2="110" class="wire"/>
+  <line x1="506" y1="46" x2="506" y2="110" class="wire"/>
+  <text x="514" y="83" text-anchor="start" class="s">8 条</text>
+  <text x="580" y="83" text-anchor="start">上行 4 × 8 = 32 端口</text>
+  <rect x="16" y="110" width="544" height="36" class="sw"/>
+  <text x="288.0" y="132.5" text-anchor="middle" class="b">leaf0</text>
+  <line x1="22" y1="146" x2="22" y2="196" class="wire"/>
+  <rect x="19" y="196" width="6" height="6" class="port"/>
+  <line x1="30" y1="146" x2="30" y2="196" class="wire"/>
+  <rect x="27" y="196" width="6" height="6" class="port"/>
+  <line x1="38" y1="146" x2="38" y2="196" class="wire"/>
+  <rect x="35" y="196" width="6" height="6" class="port"/>
+  <line x1="46" y1="146" x2="46" y2="196" class="wire"/>
+  <rect x="43" y="196" width="6" height="6" class="port"/>
+  <line x1="54" y1="146" x2="54" y2="196" class="wire"/>
+  <rect x="51" y="196" width="6" height="6" class="port"/>
+  <line x1="62" y1="146" x2="62" y2="196" class="wire"/>
+  <rect x="59" y="196" width="6" height="6" class="port"/>
+  <line x1="70" y1="146" x2="70" y2="196" class="wire"/>
+  <rect x="67" y="196" width="6" height="6" class="port"/>
+  <line x1="78" y1="146" x2="78" y2="196" class="wire"/>
+  <rect x="75" y="196" width="6" height="6" class="port"/>
+  <path d="M19,228 V234 H81 V228" class="pcie"/>
+  <text x="50" y="252" text-anchor="middle" class="s">机器 0</text>
+  <line x1="90" y1="146" x2="90" y2="196" class="wire"/>
+  <rect x="87" y="196" width="6" height="6" class="port"/>
+  <line x1="98" y1="146" x2="98" y2="196" class="wire"/>
+  <rect x="95" y="196" width="6" height="6" class="port"/>
+  <line x1="106" y1="146" x2="106" y2="196" class="wire"/>
+  <rect x="103" y="196" width="6" height="6" class="port"/>
+  <line x1="114" y1="146" x2="114" y2="196" class="wire"/>
+  <rect x="111" y="196" width="6" height="6" class="port"/>
+  <line x1="122" y1="146" x2="122" y2="196" class="wire"/>
+  <rect x="119" y="196" width="6" height="6" class="port"/>
+  <line x1="130" y1="146" x2="130" y2="196" class="wire"/>
+  <rect x="127" y="196" width="6" height="6" class="port"/>
+  <line x1="138" y1="146" x2="138" y2="196" class="wire"/>
+  <rect x="135" y="196" width="6" height="6" class="port"/>
+  <line x1="146" y1="146" x2="146" y2="196" class="wire"/>
+  <rect x="143" y="196" width="6" height="6" class="port"/>
+  <path d="M87,228 V234 H149 V228" class="pcie"/>
+  <text x="118" y="252" text-anchor="middle" class="s">机器 1</text>
+  <line x1="158" y1="146" x2="158" y2="196" class="wire"/>
+  <rect x="155" y="196" width="6" height="6" class="port"/>
+  <line x1="166" y1="146" x2="166" y2="196" class="wire"/>
+  <rect x="163" y="196" width="6" height="6" class="port"/>
+  <line x1="174" y1="146" x2="174" y2="196" class="wire"/>
+  <rect x="171" y="196" width="6" height="6" class="port"/>
+  <line x1="182" y1="146" x2="182" y2="196" class="wire"/>
+  <rect x="179" y="196" width="6" height="6" class="port"/>
+  <line x1="190" y1="146" x2="190" y2="196" class="wire"/>
+  <rect x="187" y="196" width="6" height="6" class="port"/>
+  <line x1="198" y1="146" x2="198" y2="196" class="wire"/>
+  <rect x="195" y="196" width="6" height="6" class="port"/>
+  <line x1="206" y1="146" x2="206" y2="196" class="wire"/>
+  <rect x="203" y="196" width="6" height="6" class="port"/>
+  <line x1="214" y1="146" x2="214" y2="196" class="wire"/>
+  <rect x="211" y="196" width="6" height="6" class="port"/>
+  <path d="M155,228 V234 H217 V228" class="pcie"/>
+  <text x="186" y="252" text-anchor="middle" class="s">机器 2</text>
+  <line x1="226" y1="146" x2="226" y2="196" class="wire"/>
+  <rect x="223" y="196" width="6" height="6" class="port"/>
+  <line x1="234" y1="146" x2="234" y2="196" class="wire"/>
+  <rect x="231" y="196" width="6" height="6" class="port"/>
+  <line x1="242" y1="146" x2="242" y2="196" class="wire"/>
+  <rect x="239" y="196" width="6" height="6" class="port"/>
+  <line x1="250" y1="146" x2="250" y2="196" class="wire"/>
+  <rect x="247" y="196" width="6" height="6" class="port"/>
+  <line x1="258" y1="146" x2="258" y2="196" class="wire"/>
+  <rect x="255" y="196" width="6" height="6" class="port"/>
+  <line x1="266" y1="146" x2="266" y2="196" class="wire"/>
+  <rect x="263" y="196" width="6" height="6" class="port"/>
+  <line x1="274" y1="146" x2="274" y2="196" class="wire"/>
+  <rect x="271" y="196" width="6" height="6" class="port"/>
+  <line x1="282" y1="146" x2="282" y2="196" class="wire"/>
+  <rect x="279" y="196" width="6" height="6" class="port"/>
+  <path d="M223,228 V234 H285 V228" class="pcie"/>
+  <text x="254" y="252" text-anchor="middle" class="s">机器 3</text>
+  <line x1="294" y1="146" x2="294" y2="196" class="wire"/>
+  <rect x="291" y="196" width="6" height="6" class="port"/>
+  <line x1="302" y1="146" x2="302" y2="196" class="wire"/>
+  <rect x="299" y="196" width="6" height="6" class="port"/>
+  <line x1="310" y1="146" x2="310" y2="196" class="wire"/>
+  <rect x="307" y="196" width="6" height="6" class="port"/>
+  <line x1="318" y1="146" x2="318" y2="196" class="wire"/>
+  <rect x="315" y="196" width="6" height="6" class="port"/>
+  <line x1="326" y1="146" x2="326" y2="196" class="wire"/>
+  <rect x="323" y="196" width="6" height="6" class="port"/>
+  <line x1="334" y1="146" x2="334" y2="196" class="wire"/>
+  <rect x="331" y="196" width="6" height="6" class="port"/>
+  <line x1="342" y1="146" x2="342" y2="196" class="wire"/>
+  <rect x="339" y="196" width="6" height="6" class="port"/>
+  <line x1="350" y1="146" x2="350" y2="196" class="wire"/>
+  <rect x="347" y="196" width="6" height="6" class="port"/>
+  <path d="M291,228 V234 H353 V228" class="pcie"/>
+  <text x="322" y="252" text-anchor="middle" class="s">机器 4</text>
+  <line x1="362" y1="146" x2="362" y2="196" class="wire"/>
+  <rect x="359" y="196" width="6" height="6" class="port"/>
+  <line x1="370" y1="146" x2="370" y2="196" class="wire"/>
+  <rect x="367" y="196" width="6" height="6" class="port"/>
+  <line x1="378" y1="146" x2="378" y2="196" class="wire"/>
+  <rect x="375" y="196" width="6" height="6" class="port"/>
+  <line x1="386" y1="146" x2="386" y2="196" class="wire"/>
+  <rect x="383" y="196" width="6" height="6" class="port"/>
+  <line x1="394" y1="146" x2="394" y2="196" class="wire"/>
+  <rect x="391" y="196" width="6" height="6" class="port"/>
+  <line x1="402" y1="146" x2="402" y2="196" class="wire"/>
+  <rect x="399" y="196" width="6" height="6" class="port"/>
+  <line x1="410" y1="146" x2="410" y2="196" class="wire"/>
+  <rect x="407" y="196" width="6" height="6" class="port"/>
+  <line x1="418" y1="146" x2="418" y2="196" class="wire"/>
+  <rect x="415" y="196" width="6" height="6" class="port"/>
+  <path d="M359,228 V234 H421 V228" class="pcie"/>
+  <text x="390" y="252" text-anchor="middle" class="s">机器 5</text>
+  <line x1="430" y1="146" x2="430" y2="196" class="wire"/>
+  <rect x="427" y="196" width="6" height="6" class="port"/>
+  <line x1="438" y1="146" x2="438" y2="196" class="wire"/>
+  <rect x="435" y="196" width="6" height="6" class="port"/>
+  <line x1="446" y1="146" x2="446" y2="196" class="wire"/>
+  <rect x="443" y="196" width="6" height="6" class="port"/>
+  <line x1="454" y1="146" x2="454" y2="196" class="wire"/>
+  <rect x="451" y="196" width="6" height="6" class="port"/>
+  <line x1="462" y1="146" x2="462" y2="196" class="wire"/>
+  <rect x="459" y="196" width="6" height="6" class="port"/>
+  <line x1="470" y1="146" x2="470" y2="196" class="wire"/>
+  <rect x="467" y="196" width="6" height="6" class="port"/>
+  <line x1="478" y1="146" x2="478" y2="196" class="wire"/>
+  <rect x="475" y="196" width="6" height="6" class="port"/>
+  <line x1="486" y1="146" x2="486" y2="196" class="wire"/>
+  <rect x="483" y="196" width="6" height="6" class="port"/>
+  <path d="M427,228 V234 H489 V228" class="pcie"/>
+  <text x="458" y="252" text-anchor="middle" class="s">机器 6</text>
+  <line x1="498" y1="146" x2="498" y2="196" class="wire"/>
+  <rect x="495" y="196" width="6" height="6" class="port"/>
+  <line x1="506" y1="146" x2="506" y2="196" class="wire"/>
+  <rect x="503" y="196" width="6" height="6" class="port"/>
+  <line x1="514" y1="146" x2="514" y2="196" class="wire"/>
+  <rect x="511" y="196" width="6" height="6" class="port"/>
+  <line x1="522" y1="146" x2="522" y2="196" class="wire"/>
+  <rect x="519" y="196" width="6" height="6" class="port"/>
+  <line x1="530" y1="146" x2="530" y2="196" class="wire"/>
+  <rect x="527" y="196" width="6" height="6" class="port"/>
+  <line x1="538" y1="146" x2="538" y2="196" class="wire"/>
+  <rect x="535" y="196" width="6" height="6" class="port"/>
+  <line x1="546" y1="146" x2="546" y2="196" class="wire"/>
+  <rect x="543" y="196" width="6" height="6" class="port"/>
+  <line x1="554" y1="146" x2="554" y2="196" class="wire"/>
+  <rect x="551" y="196" width="6" height="6" class="port"/>
+  <path d="M495,228 V234 H557 V228" class="pcie"/>
+  <text x="526" y="252" text-anchor="middle" class="s">机器 7</text>
+  <text x="19" y="218" text-anchor="start" class="m">NIC0</text>
+  <text x="557" y="218" text-anchor="end" class="m">NIC63</text>
+  <text x="288" y="218" text-anchor="middle" class="m">……</text>
+  <text x="580" y="168" text-anchor="start">下行 64 端口</text>
+  <text x="580" y="186" text-anchor="start">（8 台机器 × 8 NIC）</text>
+</svg>

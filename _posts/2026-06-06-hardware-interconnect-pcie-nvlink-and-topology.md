@@ -28,26 +28,15 @@ updated: 2026-09-14
 
 把一台 8 卡服务器和它的邻居画成一张图，GPU 到 GPU 的数据只有下面几条路可走：
 
-```text title='节点内与节点间的两类路径：8 卡服务器与邻居'
-                    节点 A                                          节点 B
-  ┌──────────────────────────────────────────┐        ┌────────────────────────┐
-  │  GPU0 ══ NVSwitch ══ GPU1 … GPU7          │        │  GPU0' … GPU7'         │
-  │   ║                    ║                  │        │    ║                   │
-  │ PCIe sw0             PCIe sw3             │        │  PCIe sw              │
-  │  ║    ║               ║    ║              │        │   ║    ║               │
-  │ NIC0 CPU0 ── UPI ── CPU1  NIC7            │        │  NIC0'  CPU            │
-  │  │    │              │     │              │        │   │                    │
-  │  │  DRAM0          DRAM1   │              │        │   │                    │
-  └──┼────────────────────────┼──────────────┘        └───┼────────────────────┘
-     └────────── IB / RoCE 交换网 ───────────────────────────┘
+![节点内与节点间的两类路径：8 卡服务器与邻居](/img/in-post/hardware-interconnect-node-paths.svg)
 
-  节点内 GPU→GPU    ① NVLink，经 NVSwitch（NV#）                   ← 默认路径
-                    ② PCIe P2P，经同一个 PCIe switch（PIX/PXB）
-                    ③ PCIe，经 CPU 的 root complex（PHB/NODE）
-                    ④ PCIe，跨两颗 CPU 之间的 UPI（SYS）
-  节点间 GPU→GPU    ⑤ GPU → PCIe → NIC → 网络 → NIC' → PCIe → GPU'
-                       其中 GPU→NIC 一段本身也分 PIX/PXB/PHB/SYS
-```
+- 节点内 GPU→GPU：
+  - ① NVLink，经 NVSwitch（NV#），默认路径
+  - ② PCIe P2P，经同一个 PCIe switch（PIX/PXB）
+  - ③ PCIe，经 CPU 的 root complex（PHB/NODE）
+  - ④ PCIe，跨两颗 CPU 之间的 UPI（SYS）
+- 节点间 GPU→GPU：
+  - ⑤ GPU → PCIe → NIC → 网络 → NIC' → PCIe → GPU'，其中 GPU→NIC 一段本身也分 PIX/PXB/PHB/SYS
 
 ①～④ 是节点内的四种路径，速率从快到慢；⑤ 是节点间，它的两端各含一段 GPU 到 NIC 的 PCIe 路径，这段路径的等级决定了 GPUDirect RDMA 能不能开、开了之后能跑多快（下一篇的主题）。
 
@@ -121,23 +110,7 @@ PCIe 是一棵树。树根是 **root complex**，集成在 CPU 里，它把 CPU 
 
 一台双路 8 卡服务器上，这棵树通常长这样：
 
-```text title='双路服务器的 PCIe 树：root complex、switch、GPU、NIC'
-CPU0 (NUMA 0)                                   CPU1 (NUMA 1)
- root complex                                    root complex
-  ├─ root port ── PCIe switch 0                   ├─ root port ── PCIe switch 2
-  │                ├─ GPU0                        │                ├─ GPU4
-  │                ├─ GPU1                        │                ├─ GPU5
-  │                ├─ NIC0 (mlx5_0)               │                ├─ NIC4 (mlx5_4)
-  │                └─ NIC1 (mlx5_1)               │                └─ NIC5 (mlx5_5)
-  ├─ root port ── PCIe switch 1                   ├─ root port ── PCIe switch 3
-  │                ├─ GPU2                        │                ├─ GPU6
-  │                ├─ GPU3                        │                ├─ GPU7
-  │                ├─ NIC2                        │                ├─ NIC6
-  │                └─ NIC3                        │                └─ NIC7
-  └─ root port ── NVMe / 管理网卡 …               └─ …
-            │                                              │
-            └────────────── UPI / Infinity Fabric ─────────┘
-```
+![双路服务器的 PCIe 树：root complex、switch、GPU、NIC](/img/in-post/hardware-interconnect-pcie-tree.svg)
 
 每颗 CPU 的 root complex 只有有限的 lane（Sapphire Rapids 每颗 80 条 5.0 lane，EPYC Genoa 每颗 128 条），挂不下 4 张 GPU 加 4 张网卡各 x16，所以中间要加 PCIe switch 做扇出：switch 用一条 x16 上行链路连 CPU，下行提供四条 x16。这意味着同一个 switch 下的四个设备**共享**一条到 CPU 的 x16 上行——但它们彼此之间的流量不需要经过上行链路，这就是 P2P 事务的价值。
 
@@ -357,17 +330,16 @@ RoCE v2（RDMA over Converged Ethernet）把 IB 的传输层原封不动地封�
 
 一台 8 卡 H100 服务器的标准配置是 8 张 ConnectX-7 NDR 400 Gb/s 网卡，每张 GPU 一张，与 GPU 挂在同一个 PCIe switch 下。为什么是这个比例，把每 GPU 的三个单向带宽放在一起看：
 
-```text title='每张 H100 的三条对外链路与整机汇总'
-每张 H100 GPU 的三条对外链路（单向）：
-  NVLink（到本机其他 7 卡）   450 GB/s     ← 节点内
-  PCIe 5.0 x16（到 CPU/NIC）    64 GB/s     ← 出 GPU 的唯一非 NVLink 通道
-  一张 NDR 网卡（到其他节点）   50 GB/s     ← 节点间
+| 范围 | 链路 | 单向带宽 | 说明 |
+|---|---|---|---|
+| 每张 H100 GPU 的三条对外链路 | NVLink（到本机其他 7 卡） | 450 GB/s | 节点内 |
+| ^^ | PCIe 5.0 x16（到 CPU/NIC） | 64 GB/s | 出 GPU 的唯一非 NVLink 通道 |
+| ^^ | 一张 NDR 网卡（到其他节点） | 50 GB/s | 节点间 |
+| 整机（8 卡） | NVLink 总交换容量 | 8 × 450 = 3600 GB/s | |
+| ^^ | 8 张 NDR 网卡 | 8 × 50 = 400 GB/s = 3.2 Tb/s | |
+| ^^ | 比值 | 9 : 1 | |
 
-整机（8 卡）：
-  NVLink 总交换容量（单向）    8 × 450 = 3600 GB/s
-  8 张 NDR 网卡（单向）        8 × 50  =  400 GB/s   =  3.2 Tb/s
-  比值                          9 : 1
-```
+Table: 每张 H100 的三条对外链路与整机汇总
 
 三个观察：
 
@@ -634,22 +606,12 @@ flowchart TB
 
 以一台 2:1 超额订阅的 leaf 为例：
 
-```text title='两层 fat-tree：leaf 上行 32、下行 64 端口'
-        spine0         spine1         spine2         spine3
-           ╲              │              │              ╱
-            ╲ 8 条        │ 8 条         │ 8 条        ╱ 8 条
-             ╲            │              │            ╱
-              ┌───────────┴──────────────┴───────────┐
-              │                 leaf0                │  上行 4 × 8 = 32 端口
-              └─┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬─┘
-                │  │  │  │  │  │  │  │  │  │  │  │    下行 64 端口（8 台机器 × 8 NIC）
-              NIC0 ……………………………………………………………… NIC63
+![两层 fat-tree：leaf 上行 32、下行 64 端口](/img/in-post/hardware-interconnect-fat-tree-leaf.svg)
 
-  超额订阅比 = 下行 64 : 上行 32 = 2 : 1
-  同一 leaf 下两台机器   β = 网卡速率（NDR 50 GB/s）
-  跨 leaf                β = min(网卡速率, 上行总带宽 ÷ 同时跨 leaf 的流数)
-                         64 张网卡同时全部跨 leaf → 每流 ≈ 25 GB/s，打对折
-```
+- 超额订阅比 = 下行 64 : 上行 32 = 2 : 1
+- 同一 leaf 下两台机器：β = 网卡速率（NDR 50 GB/s）
+- 跨 leaf：β = min(网卡速率, 上行总带宽 ÷ 同时跨 leaf 的流数)
+  - 64 张网卡同时全部跨 leaf → 每流 ≈ 25 GB/s，打对折
 
 对代价模型的意义：跨节点 β 不再是一个常数。同一 leaf 下的两台机器之间 β 是网卡速率；跨 leaf 时 β 取网卡速率与"上行带宽 ÷ 同时跨 leaf 的流数"的较小者。一个 512 卡的任务如果被打散在 16 台 leaf 上，它的 all_reduce 几乎每一步都跨 leaf，在 2:1 超额订阅的网络里 β 的有效值可能只有一半。这是"同一个任务换了机器分配就变慢"的常见原因。
 
