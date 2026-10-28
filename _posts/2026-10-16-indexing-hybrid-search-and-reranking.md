@@ -27,22 +27,26 @@ flowchart TB
     Q --> B["BM25 召回<br/>抓精确：型号 / 函数名 / 错误码<br/>取 top-50"]
     P["权限与时间过滤<br/>在召回时就做，不能等到最后"] -.-> A & B
     A & B --> R["RRF 融合<br/>两个排名合成一个（按名次不按分数）"]
-    R --> K["rerank（cross-encoder）<br/>对前 30–50 个逐一精排——整条线上性价比最高的一步"]
+    R --> K["rerank（cross-encoder）<br/>对 RRF 后的 top-20 逐一精排——整条线上性价比最高的一步"]
     K --> O["top-5 进 prompt<br/>最相关的放末尾（位置效应）"]
 
 ```
 
 
-```text title="一次混合检索的路径"
-查询
- ├─ embedding ─→ 向量索引（ANN）─→ top-50   ← 元数据过滤（权限、时间）
- └─ 分词 ──────→ 倒排索引（BM25）─→ top-50   ← 元数据过滤
-          ↓ 两路合并
-       RRF 融合 ─→ top-20
-          ↓
-       rerank（cross-encoder）─→ top-5
-          ↓
-       进入上下文
+```mermaid
+%% 图：一次混合检索的路径：两路各 top-50（召回时就做元数据过滤）→ RRF top-20 → rerank top-5
+flowchart LR
+    Q["查询"] -->|embedding| V
+    Q -->|分词| I
+    subgraph F["元数据过滤（权限、时间）"]
+        direction TB
+        V["向量索引（ANN）"]
+        I["倒排索引（BM25）"]
+    end
+    V -->|top-50| R["两路合并<br/>RRF 融合"]
+    I -->|top-50| R
+    R -->|top-20| K["rerank<br/>（cross-encoder）"]
+    K -->|top-5| C["进入上下文"]
 ```
 
 四段：**两路召回**（向量抓语义、BM25 抓精确）各取几十个候选，**融合**（RRF）合成一个列表，**精排**（rerank）对前几十个逐一打分取前几个，**过滤**在两路召回时就做（权限、时间）。每一段是本文一章。
