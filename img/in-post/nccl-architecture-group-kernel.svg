@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="222" viewBox="0 0 740 222" role="img" aria-labelledby="t d">
+<title id="t">一个 group 里的两个 all_reduce 合成一次 kernel 启动</title>
+<desc id="d">grid = 8 个 block，block i 对应 channel i。work batch 0：8 个 block 各处理 A 的 1/8；work batch 1：只有 block 0、1 各处理 B 的 1/2，block 2 到 7 在 batch 0 后 nextBatchIx == -1 结束。</desc>
+<style>
+text{font-family:'Noto Sans CJK SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;fill:#111;font-weight:500}
+.mono{font-family:'SFMono-Regular',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace}
+.s12{font-size:12px} .s13{font-size:13px} .s14{font-size:14px} .s16{font-size:16px;font-weight:600}
+.mid{text-anchor:middle} .end{text-anchor:end}
+.a{fill:#e3eefb;stroke:#2c5d8a;stroke-width:1.2}.bb{fill:#e3f4e1;stroke:#2e7d32;stroke-width:1.2}.none{fill:#f3f3f3;stroke:#bbb;stroke-width:1.2}.end{stroke:#c62828;stroke-width:3.5}.sub{fill:#333}.sub2{fill:#888}
+</style>
+<rect width="740" height="222" fill="#fff"/>
+<text class="s14" x="20" y="24">ncclKernelPlan（channelMask = 0b1111_1111）⟹ 一次 cuLaunchKernelEx，grid = 8</text>
+<text class="s13 mid mono" x="150.5" y="52">block 0</text>
+<text class="s12 mid mono sub" x="150.5" y="70">ch 0</text>
+<text class="s13 mid mono" x="227.5" y="52">block 1</text>
+<text class="s12 mid mono sub" x="227.5" y="70">ch 1</text>
+<text class="s13 mid mono" x="304.5" y="52">block 2</text>
+<text class="s12 mid mono sub" x="304.5" y="70">ch 2</text>
+<text class="s13 mid mono" x="381.5" y="52">block 3</text>
+<text class="s12 mid mono sub" x="381.5" y="70">ch 3</text>
+<text class="s13 mid mono" x="458.5" y="52">block 4</text>
+<text class="s12 mid mono sub" x="458.5" y="70">ch 4</text>
+<text class="s13 mid mono" x="535.5" y="52">block 5</text>
+<text class="s12 mid mono sub" x="535.5" y="70">ch 5</text>
+<text class="s13 mid mono" x="612.5" y="52">block 6</text>
+<text class="s12 mid mono sub" x="612.5" y="70">ch 6</text>
+<text class="s13 mid mono" x="689.5" y="52">block 7</text>
+<text class="s12 mid mono sub" x="689.5" y="70">ch 7</text>
+<text class="s13 mono" x="20" y="112">work batch 0</text>
+<text class="s13 mono" x="20" y="154">work batch 1</text>
+<rect class="a" x="112" y="86" width="77" height="42"/>
+<text class="s13 mid" x="150.5" y="112">A 的 1/8</text>
+<rect class="bb" x="112" y="128" width="77" height="42"/>
+<text class="s13 mid" x="150.5" y="154">B 的 1/2</text>
+<rect class="a" x="189" y="86" width="77" height="42"/>
+<text class="s13 mid" x="227.5" y="112">A 的 1/8</text>
+<rect class="bb" x="189" y="128" width="77" height="42"/>
+<text class="s13 mid" x="227.5" y="154">B 的 1/2</text>
+<rect class="a" x="266" y="86" width="77" height="42"/>
+<text class="s13 mid" x="304.5" y="112">A 的 1/8</text>
+<rect class="none" x="266" y="128" width="77" height="42"/>
+<text class="s13 mid sub2" x="304.5" y="154">—</text>
+<rect class="a" x="343" y="86" width="77" height="42"/>
+<text class="s13 mid" x="381.5" y="112">A 的 1/8</text>
+<rect class="none" x="343" y="128" width="77" height="42"/>
+<text class="s13 mid sub2" x="381.5" y="154">—</text>
+<rect class="a" x="420" y="86" width="77" height="42"/>
+<text class="s13 mid" x="458.5" y="112">A 的 1/8</text>
+<rect class="none" x="420" y="128" width="77" height="42"/>
+<text class="s13 mid sub2" x="458.5" y="154">—</text>
+<rect class="a" x="497" y="86" width="77" height="42"/>
+<text class="s13 mid" x="535.5" y="112">A 的 1/8</text>
+<rect class="none" x="497" y="128" width="77" height="42"/>
+<text class="s13 mid sub2" x="535.5" y="154">—</text>
+<rect class="a" x="574" y="86" width="77" height="42"/>
+<text class="s13 mid" x="612.5" y="112">A 的 1/8</text>
+<rect class="none" x="574" y="128" width="77" height="42"/>
+<text class="s13 mid sub2" x="612.5" y="154">—</text>
+<rect class="a" x="651" y="86" width="77" height="42"/>
+<text class="s13 mid" x="689.5" y="112">A 的 1/8</text>
+<rect class="none" x="651" y="128" width="77" height="42"/>
+<text class="s13 mid sub2" x="689.5" y="154">—</text>
+<line class="end" x1="115" y1="170" x2="186" y2="170"/>
+<line class="end" x1="192" y1="170" x2="263" y2="170"/>
+<line class="end" x1="269" y1="128" x2="340" y2="128"/>
+<line class="end" x1="346" y1="128" x2="417" y2="128"/>
+<line class="end" x1="423" y1="128" x2="494" y2="128"/>
+<line class="end" x1="500" y1="128" x2="571" y2="128"/>
+<line class="end" x1="577" y1="128" x2="648" y2="128"/>
+<line class="end" x1="654" y1="128" x2="725" y2="128"/>
+<line class="end" x1="112" y1="200" x2="140" y2="200"/><text class="s13" x="148" y="205"><tspan class="mono">nextBatchIx == -1</tspan> → 该 block 结束</text>
+<rect class="a" x="442" y="191" width="22" height="16"/><text class="s13" x="470" y="205">A：Ring + Simple</text>
+<rect class="bb" x="592" y="191" width="22" height="16"/><text class="s13" x="620" y="205">B：Tree + LL</text>
+</svg>

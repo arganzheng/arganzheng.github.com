@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="332" viewBox="0 0 700 332" role="img" aria-labelledby="t d">
+<title id="t">LL 与 LL128 的 line 布局：数据与 flag 怎么排</title>
+<desc id="d">LL 一行 16 字节依次是 data1、flag1、data2、flag2，各 4 字节，数据占一半；LL128 一行 128 字节由 t0 到 t7 八个线程各 16 字节拼成，前 120 字节是 15 个 8 字节数据，t7 的高 8 字节是 flag。</desc>
+<style>
+text{font-family:'Noto Sans CJK SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;fill:#111;font-weight:500}
+.mono{font-family:'SFMono-Regular',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace}
+.s12{font-size:12px} .s13{font-size:13px} .s14{font-size:14px} .s16{font-size:16px;font-weight:600}
+.mid{text-anchor:middle} .end{text-anchor:end}
+.data{fill:#e3eefb;stroke:#2c5d8a;stroke-width:1}.flag{fill:#fdd9ae;stroke:#c26a12;stroke-width:1}.thr{fill:none;stroke:#1b3a57;stroke-width:2.2}
+</style>
+<rect width="700" height="332" fill="#fff"/>
+<text class="s14" x="20" y="24">LL：ncclLLFifoLine，16 B = 一条 st.volatile.global.v4.u32（原子）</text>
+<rect class="data" x="60" y="44" width="84" height="38"/>
+<text class="s13 mid mono" x="102.0" y="68">data1</text>
+<rect class="flag" x="144" y="44" width="84" height="38"/>
+<text class="s13 mid mono" x="186.0" y="68">flag1</text>
+<rect class="data" x="228" y="44" width="84" height="38"/>
+<text class="s13 mid mono" x="270.0" y="68">data2</text>
+<rect class="flag" x="312" y="44" width="84" height="38"/>
+<text class="s13 mid mono" x="354.0" y="68">flag2</text>
+<text class="s12 mid mono" x="60" y="98">0</text>
+<text class="s12 mid mono" x="144" y="98">4</text>
+<text class="s12 mid mono" x="228" y="98">8</text>
+<text class="s12 mid mono" x="312" y="98">12</text>
+<text class="s12 mid mono" x="396" y="98">16</text>
+<text class="s12 mono" x="14" y="98">byte</text>
+<text class="s12 mid" x="102.0" y="116">val 低 32 位</text>
+<text class="s12 mid" x="270.0" y="116">val 高 32 位</text>
+<text class="s13" x="420" y="59">8 B 数据 + 8 B flag → 50%</text>
+<text class="s13" x="420" y="79">flag = <tspan class="mono">NCCL_LL_FLAG(step+1)</tspan></text>
+<text class="s14" x="20" y="170">LL128：一个 128 B line 由一个 warp 里的 8 个线程各持 16 B 拼成</text>
+<text class="s13 mid mono" x="98.0" y="196">t0</text>
+<rect class="data" x="60.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="79.0" y="228">d</text>
+<rect class="data" x="98.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="117.0" y="228">d</text>
+<rect class="thr" x="60" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="174.0" y="196">t1</text>
+<rect class="data" x="136.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="155.0" y="228">d</text>
+<rect class="data" x="174.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="193.0" y="228">d</text>
+<rect class="thr" x="136" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="250.0" y="196">t2</text>
+<rect class="data" x="212.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="231.0" y="228">d</text>
+<rect class="data" x="250.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="269.0" y="228">d</text>
+<rect class="thr" x="212" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="326.0" y="196">t3</text>
+<rect class="data" x="288.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="307.0" y="228">d</text>
+<rect class="data" x="326.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="345.0" y="228">d</text>
+<rect class="thr" x="288" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="402.0" y="196">t4</text>
+<rect class="data" x="364.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="383.0" y="228">d</text>
+<rect class="data" x="402.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="421.0" y="228">d</text>
+<rect class="thr" x="364" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="478.0" y="196">t5</text>
+<rect class="data" x="440.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="459.0" y="228">d</text>
+<rect class="data" x="478.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="497.0" y="228">d</text>
+<rect class="thr" x="440" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="554.0" y="196">t6</text>
+<rect class="data" x="516.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="535.0" y="228">d</text>
+<rect class="data" x="554.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="573.0" y="228">d</text>
+<rect class="thr" x="516" y="204" width="76" height="38"/>
+<text class="s13 mid mono" x="630.0" y="196">t7</text>
+<rect class="data" x="592.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="611.0" y="228">d</text>
+<rect class="flag" x="630.0" y="204" width="38.0" height="38"/>
+<text class="s13 mid" x="649.0" y="228">F</text>
+<rect class="thr" x="592" y="204" width="76" height="38"/>
+<text class="s12 mid mono" x="60" y="258">0</text>
+<text class="s12 mid mono" x="136" y="258">16</text>
+<text class="s12 mid mono" x="212" y="258">32</text>
+<text class="s12 mid mono" x="288" y="258">48</text>
+<text class="s12 mid mono" x="364" y="258">64</text>
+<text class="s12 mid mono" x="440" y="258">80</text>
+<text class="s12 mid mono" x="516" y="258">96</text>
+<text class="s12 mid mono" x="592" y="258">112</text>
+<text class="s12 mid mono" x="630.0" y="258">120</text>
+<text class="s12 mid mono" x="668" y="258">128</text>
+<text class="s12 mono" x="14" y="258">byte</text>
+<text class="s12 mono end" x="52" y="196">线程</text>
+<text class="s13" x="60" y="284">d = 8 B 数据 × 15 = 120 B，F = 8 B flag（flagThread = tid%8 == 7 的高 8 B）→ 120/128 = 93.75%</text>
+<rect class="data" x="60" y="302" width="22" height="16"/><text class="s13" x="88" y="315">数据</text>
+<rect class="flag" x="150" y="302" width="22" height="16"/><text class="s13" x="178" y="315">flag</text>
+<rect class="thr" x="240" y="302" width="22" height="16" style="fill:none"/><text class="s13" x="268" y="315">粗框 = 一个线程的 16 B</text>
+</svg>

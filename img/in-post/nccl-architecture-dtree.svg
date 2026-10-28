@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="368" viewBox="0 0 720 368" role="img" aria-labelledby="t d">
+<title id="t">ncclGetDtree(nNodes = 8)：两棵互补的二叉树</title>
+<desc id="d">树 0 由 ncclGetBtree 建成：0 为根，子 4；4 的子 2、6；2 的子 1、3；6 的子 5、7。树 1 是镜像 r→7−r：7 为根，子 3；3 的子 5、1；5 的子 6、4；1 的子 2、0。树 0 的内部节点 0 4 2 6 在树 1 中都是叶子，反之亦然。</desc>
+<style>
+text{font-family:'Noto Sans CJK SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;fill:#111;font-weight:500}
+.mono{font-family:'SFMono-Regular',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace}
+.s12{font-size:12px} .s13{font-size:13px} .s14{font-size:14px} .s16{font-size:16px;font-weight:600}
+.mid{text-anchor:middle} .end{text-anchor:end}
+.inner{fill:#e3eefb;stroke:#2c5d8a;stroke-width:1.4}.leaf{fill:#fdebd3;stroke:#c26a12;stroke-width:1.4}.edge{stroke:#444;stroke-width:1.4}.sep{stroke:#ccc;stroke-width:1;stroke-dasharray:4 4}
+</style>
+<rect width="720" height="368" fill="#fff"/>
+<text class="s14 mid" x="180" y="24">树 0（ncclGetBtree）</text>
+<text class="s14 mid" x="540" y="24">树 1（偶数节点：镜像 r → 7−r）</text>
+<line class="sep" x1="360" y1="12" x2="360" y2="330"/>
+<line class="edge" x1="180" y1="75.0" x2="180" y2="110.0"/>
+<line class="edge" x1="180" y1="140.0" x2="100" y2="175.0"/>
+<line class="edge" x1="180" y1="140.0" x2="260" y2="175.0"/>
+<line class="edge" x1="100" y1="205.0" x2="60" y2="240.0"/>
+<line class="edge" x1="100" y1="205.0" x2="140" y2="240.0"/>
+<line class="edge" x1="260" y1="205.0" x2="220" y2="240.0"/>
+<line class="edge" x1="260" y1="205.0" x2="300" y2="240.0"/>
+<rect class="inner" x="160.0" y="45.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="180" y="66">0</text>
+<rect class="inner" x="160.0" y="110.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="180" y="131">4</text>
+<rect class="inner" x="80.0" y="175.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="100" y="196">2</text>
+<rect class="inner" x="240.0" y="175.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="260" y="196">6</text>
+<rect class="leaf" x="40.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="60" y="261">1</text>
+<rect class="leaf" x="120.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="140" y="261">3</text>
+<rect class="leaf" x="200.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="220" y="261">5</text>
+<rect class="leaf" x="280.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="300" y="261">7</text>
+<line class="edge" x1="540" y1="75.0" x2="540" y2="110.0"/>
+<line class="edge" x1="540" y1="140.0" x2="460" y2="175.0"/>
+<line class="edge" x1="540" y1="140.0" x2="620" y2="175.0"/>
+<line class="edge" x1="460" y1="205.0" x2="420" y2="240.0"/>
+<line class="edge" x1="460" y1="205.0" x2="500" y2="240.0"/>
+<line class="edge" x1="620" y1="205.0" x2="580" y2="240.0"/>
+<line class="edge" x1="620" y1="205.0" x2="660" y2="240.0"/>
+<rect class="inner" x="520.0" y="45.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="540" y="66">7</text>
+<rect class="inner" x="520.0" y="110.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="540" y="131">3</text>
+<rect class="inner" x="440.0" y="175.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="460" y="196">5</text>
+<rect class="inner" x="600.0" y="175.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="620" y="196">1</text>
+<rect class="leaf" x="400.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="420" y="261">6</text>
+<rect class="leaf" x="480.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="500" y="261">4</text>
+<rect class="leaf" x="560.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="580" y="261">2</text>
+<rect class="leaf" x="640.0" y="240.0" width="40" height="30" rx="6"/>
+<text class="s16 mid" x="660" y="261">0</text>
+<text class="s13 mid" x="180" y="300">内部节点 0 4 2 6（偶数）</text>
+<text class="s13 mid" x="180" y="320">叶子 1 3 5 7（奇数）</text>
+<text class="s13 mid" x="540" y="300">内部节点 7 3 5 1（奇数）</text>
+<text class="s13 mid" x="540" y="320">叶子 6 4 2 0（偶数）</text>
+<rect class="inner" x="230" y="338" width="22" height="16" rx="4"/><text class="s13" x="258" y="351">内部节点</text>
+<rect class="leaf" x="350" y="338" width="22" height="16" rx="4"/><text class="s13" x="378" y="351">叶子</text>
+</svg>

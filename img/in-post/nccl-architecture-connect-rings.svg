@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400" role="img" aria-labelledby="t d">
+<title id="t">connectRings：两节点各 4 卡的局部路径拼成一条全局 ring</title>
+<desc id="d">节点 A 内 rank 0→3→2→1 经 NVLink，rank 1 是 ringSend，经 IB（NET/1）接节点 B 的 ringRecv rank 4；节点 B 内 4→7→6→5，rank 5 是 ringSend，经 IB 接回节点 A 的 ringRecv rank 0。</desc>
+<style>
+text{font-family:'Noto Sans CJK SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;fill:#111;font-weight:500}
+.mono{font-family:'SFMono-Regular',Menlo,Consolas,'Noto Sans Mono CJK SC',monospace}
+.s12{font-size:12px} .s13{font-size:13px} .s14{font-size:14px} .s16{font-size:16px;font-weight:600}
+.mid{text-anchor:middle} .end{text-anchor:end}
+.cont{fill:#f7f9fc;stroke:#8a9bb0;stroke-width:1.2}.gpu{fill:#e3eefb;stroke:#2c5d8a;stroke-width:1.4}.nvl{stroke:#333;stroke-width:1.6}.ib{stroke:#c26a12;stroke-width:2}.ibt{fill:#a4520a}.sub{fill:#333}.tag{fill:#2c5d8a;font-weight:600}
+</style>
+<rect width="660" height="400" fill="#fff"/>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+<defs><marker id="ahib" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c26a12"/></marker></defs>
+<rect class="cont" x="20" y="20" width="624" height="130"/>
+<rect class="cont" x="20" y="250" width="624" height="130"/>
+<text class="s14" x="32" y="44">节点 A</text>
+<text class="s12 sub" x="32" y="62">节点内 NVLink</text>
+<text class="s14" x="32" y="350">节点 B</text>
+<text class="s12 sub" x="32" y="368">节点内 NVLink</text>
+<rect class="gpu" x="120" y="80" width="84" height="48"/><text class="s16 mid" x="162.0" y="102">rank 0</text><text class="s12 mid sub" x="162.0" y="120">GPU0</text>
+<rect class="gpu" x="260" y="80" width="84" height="48"/><text class="s16 mid" x="302.0" y="102">rank 3</text><text class="s12 mid sub" x="302.0" y="120">GPU3</text>
+<rect class="gpu" x="400" y="80" width="84" height="48"/><text class="s16 mid" x="442.0" y="102">rank 2</text><text class="s12 mid sub" x="442.0" y="120">GPU2</text>
+<rect class="gpu" x="540" y="80" width="84" height="48"/><text class="s16 mid" x="582.0" y="102">rank 1</text><text class="s12 mid sub" x="582.0" y="120">GPU1</text>
+<rect class="gpu" x="120" y="282" width="84" height="48"/><text class="s16 mid" x="162.0" y="304">rank 5</text><text class="s12 mid sub" x="162.0" y="322">GPU1</text>
+<rect class="gpu" x="260" y="282" width="84" height="48"/><text class="s16 mid" x="302.0" y="304">rank 6</text><text class="s12 mid sub" x="302.0" y="322">GPU2</text>
+<rect class="gpu" x="400" y="282" width="84" height="48"/><text class="s16 mid" x="442.0" y="304">rank 7</text><text class="s12 mid sub" x="442.0" y="322">GPU3</text>
+<rect class="gpu" x="540" y="282" width="84" height="48"/><text class="s16 mid" x="582.0" y="304">rank 4</text><text class="s12 mid sub" x="582.0" y="322">GPU0</text>
+<line class="nvl" x1="204" y1="104.0" x2="258" y2="104.0" marker-end="url(#ah)"/>
+<line class="nvl" x1="260" y1="306.0" x2="206" y2="306.0" marker-end="url(#ah)"/>
+<line class="nvl" x1="344" y1="104.0" x2="398" y2="104.0" marker-end="url(#ah)"/>
+<line class="nvl" x1="400" y1="306.0" x2="346" y2="306.0" marker-end="url(#ah)"/>
+<line class="nvl" x1="484" y1="104.0" x2="538" y2="104.0" marker-end="url(#ah)"/>
+<line class="nvl" x1="540" y1="306.0" x2="486" y2="306.0" marker-end="url(#ah)"/>
+<text class="s12 mid tag" x="162.0" y="72">ringRecv</text>
+<text class="s12 mid tag" x="582.0" y="72">ringSend</text>
+<text class="s12 mid tag" x="582.0" y="348">ringRecv</text>
+<text class="s12 mid tag" x="162.0" y="348">ringSend</text>
+<line class="ib" x1="582.0" y1="128" x2="582.0" y2="280" marker-end="url(#ahib)"/>
+<line class="ib" x1="162.0" y1="282" x2="162.0" y2="130" marker-end="url(#ahib)"/>
+<text class="s13 ibt end" x="572.0" y="205.0">IB（NET/1）</text>
+<text class="s13 ibt" x="172.0" y="205.0">IB（NET/1）</text>
+</svg>
