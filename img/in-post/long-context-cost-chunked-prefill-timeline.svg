@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 376" width="760" height="376" role="img" aria-labelledby="t d">
+  <title id="t">不分块与 chunked prefill 的时间轴</title>
+  <desc id="d">不分块：128K 请求的 prefill 独占 GPU 约 11 s，期间 decode 请求停顿、没有新 token，之后恢复为每步几十 ms。chunked：每步是一个 2K 的 prefill chunk 加上 decode，decode 请求每步都出 token，步长略增；128K 请求的 TTFT 从 11 s 变成 11 s 加若干 decode 步的开销。</desc>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#111827"/></marker>
+    <style>
+  text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #111827; font-size: 13px; font-weight: 500; }
+  .lab { font-size: 13px; }
+  .head { font-size: 14px; font-weight: 700; }
+  .num { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+  .small { font-size: 12px; }
+  .sink { fill: #ede7f8; stroke: #4b5563; stroke-width: 1.2; }
+  .drop { fill: #e5e7eb; stroke: #4b5563; stroke-width: 1.2; }
+  .win { fill: #dbeafe; stroke: #4b5563; stroke-width: 1.2; }
+  .new { fill: #ffedd5; stroke: #4b5563; stroke-width: 1.2; }
+  .blank { fill: #ffffff; stroke: #4b5563; stroke-width: 1.2; }
+  .br { stroke: #374151; stroke-width: 1.3; fill: none; }
+  .p { fill: #cfe0fb; stroke: #1e3a8a; stroke-width: 1.2; }
+  .d { fill: #fde2c4; stroke: #9a3412; stroke-width: 1.2; }
+  .stall { fill: #f3f4f6; stroke: #6b7280; stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .ok { fill: #e3f3e8; stroke: #2f7d4f; stroke-width: 1.2; }
+  .wait { fill: #ffffff; stroke: #1e3a8a; stroke-width: 1.2; }
+  .axis { stroke: #111827; stroke-width: 1.3; }
+  .mark11 { stroke: #b91c1c; stroke-width: 1.2; stroke-dasharray: 4 3; }
+  .tok { fill: #2f7d4f; }
+</style>
+  </defs>
+  <rect width="760" height="376" fill="#ffffff"/>
+  <line class="axis" x1="132" y1="34" x2="744" y2="34" marker-end="url(#arr)"/>
+  <text class="lab" x="16" y="39">时间</text>
+  <line class="axis" x1="132" y1="29" x2="132" y2="39"/>
+  <text class="num" x="132" y="24" text-anchor="middle">0 s</text>
+  <line class="axis" x1="592" y1="29" x2="592" y2="39"/>
+  <text class="num" x="592" y="24" text-anchor="middle">11 s</text>
+  <text class="head" x="16" y="70">不分块</text>
+  <text class="lab" x="16" y="101.0">GPU</text>
+  <rect class="p" x="132" y="82" width="460" height="28"/>
+  <text class="lab" x="362.0" y="101.0" text-anchor="middle">P：独占 GPU 约 11 s</text>
+  <rect class="d" x="592" y="82" width="26" height="28"/>
+  <text class="num" x="605.0" y="101.0" text-anchor="middle">D</text>
+  <rect class="d" x="618" y="82" width="26" height="28"/>
+  <text class="num" x="631.0" y="101.0" text-anchor="middle">D</text>
+  <rect class="d" x="644" y="82" width="26" height="28"/>
+  <text class="num" x="657.0" y="101.0" text-anchor="middle">D</text>
+  <rect class="d" x="670" y="82" width="26" height="28"/>
+  <text class="num" x="683.0" y="101.0" text-anchor="middle">D</text>
+  <text class="num" x="708" y="101.0" text-anchor="middle">…</text>
+  <text class="lab" x="16" y="141.0">decode 请求</text>
+  <rect class="stall" x="132" y="122" width="460" height="28"/>
+  <text class="lab" x="362.0" y="141.0" text-anchor="middle">停顿 11 s，没有新 token</text>
+  <rect class="ok" x="592" y="122" width="144" height="28"/>
+  <text class="lab" x="664.0" y="141.0" text-anchor="middle">恢复，每步几十 ms</text>
+  <path class="tok" d="M614,115 L622,115 L618,122 Z"/>
+  <path class="tok" d="M640,115 L648,115 L644,122 Z"/>
+  <path class="tok" d="M666,115 L674,115 L670,122 Z"/>
+  <path class="tok" d="M692,115 L700,115 L696,122 Z"/>
+  <text class="head" x="16" y="186">chunked</text>
+  <text class="lab" x="16" y="217.0">GPU</text>
+  <rect class="p" x="132" y="198" width="42" height="28"/>
+  <text class="num" x="153.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="174" y="198" width="12" height="28"/>
+  <rect class="p" x="186" y="198" width="42" height="28"/>
+  <text class="num" x="207.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="228" y="198" width="12" height="28"/>
+  <rect class="p" x="240" y="198" width="42" height="28"/>
+  <text class="num" x="261.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="282" y="198" width="12" height="28"/>
+  <rect class="p" x="294" y="198" width="42" height="28"/>
+  <text class="num" x="315.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="336" y="198" width="12" height="28"/>
+  <text class="num" x="389.0" y="217.0" text-anchor="middle">…</text>
+  <rect class="p" x="430" y="198" width="42" height="28"/>
+  <text class="num" x="451.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="472" y="198" width="12" height="28"/>
+  <rect class="p" x="484" y="198" width="42" height="28"/>
+  <text class="num" x="505.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="526" y="198" width="12" height="28"/>
+  <rect class="p" x="538" y="198" width="42" height="28"/>
+  <text class="num" x="559.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="580" y="198" width="12" height="28"/>
+  <rect class="p" x="592" y="198" width="42" height="28"/>
+  <text class="num" x="613.0" y="217.0" text-anchor="middle">P2K</text>
+  <rect class="d" x="634" y="198" width="12" height="28"/>
+  <rect class="d" x="646" y="198" width="26" height="28"/>
+  <text class="num" x="659.0" y="217.0" text-anchor="middle">D</text>
+  <rect class="d" x="672" y="198" width="26" height="28"/>
+  <text class="num" x="685.0" y="217.0" text-anchor="middle">D</text>
+  <text class="num" x="710" y="217.0" text-anchor="middle">…</text>
+  <text class="lab" x="16" y="257.0">decode 请求</text>
+  <rect class="ok" x="132" y="238" width="604" height="28"/>
+  <text class="lab" x="434.0" y="257.0" text-anchor="middle">每步都出 token，步长略增（batch 里多了一个 compute-bound 的 chunk）</text>
+  <path class="tok" d="M182,231 L190,231 L186,238 Z"/>
+  <path class="tok" d="M236,231 L244,231 L240,238 Z"/>
+  <path class="tok" d="M290,231 L298,231 L294,238 Z"/>
+  <path class="tok" d="M344,231 L352,231 L348,238 Z"/>
+  <path class="tok" d="M480,231 L488,231 L484,238 Z"/>
+  <path class="tok" d="M534,231 L542,231 L538,238 Z"/>
+  <path class="tok" d="M588,231 L596,231 L592,238 Z"/>
+  <path class="tok" d="M642,231 L650,231 L646,238 Z"/>
+  <path class="tok" d="M668,231 L676,231 L672,238 Z"/>
+  <path class="tok" d="M694,231 L702,231 L698,238 Z"/>
+  <text class="lab" x="16" y="297.0">128K 请求</text>
+  <rect class="wait" x="132" y="278" width="514" height="28"/>
+  <text class="lab" x="389.0" y="297.0" text-anchor="middle">TTFT 从 11 s 变成 11 s + 若干 decode 步的开销</text>
+  <line class="mark11" x1="592" y1="40" x2="592" y2="312"/>
+  <rect class="p" x="16" y="326" width="18" height="14"/><text class="small" x="40" y="338">P：128K 请求的 prefill（P2K = 一个 2K token 的 chunk）</text>
+  <rect class="d" x="400" y="326" width="18" height="14"/><text class="small" x="424" y="338">D：已在 decode 的请求各出一个 token</text>
+  <path class="tok" d="M21,352 L29,352 L25,359 Z"/>
+  <text class="small" x="40" y="360">decode 请求在这一步拿到新 token</text>
+  <line class="mark11" x1="400" y1="355" x2="418" y2="355"/><text class="small" x="424" y="360">11 s：不分块时 prefill 结束的时刻</text>
+</svg>

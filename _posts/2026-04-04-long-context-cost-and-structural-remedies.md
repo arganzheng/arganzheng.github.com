@@ -50,14 +50,14 @@ Table: 本文的章节安排
 
 Llama-3-8B 的权重 GEMM 部分每 token $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs（embedding 查表不算 GEMM，lm_head 算）。attention 部分每层 $$4 \times 4096 \times s = 16384\,s$$，32 层 $$0.524 \times 10^6 \cdot s$$ FLOPs：
 
-```text title="attention 算量占比随上下文变化"
-                      Llama-3-8B                       Llama-3-70B
-上下文 s      attention/token   占比           attention/token   占比
-  8192          4.3 GFLOPs      22.2%            21.5 GFLOPs     13.2%
- 32768         17.2 GFLOPs      53.4%            85.9 GFLOPs     37.9%
-131072         68.7 GFLOPs      82.1%           343.6 GFLOPs     70.9%
-权重部分       15.0 GFLOPs                       141 GFLOPs
-```
+| 上下文 s | Llama-3-8B attention/token | Llama-3-8B 占比 | Llama-3-70B attention/token | Llama-3-70B 占比 |
+|---:|---:|---:|---:|---:|
+| 8192 | 4.3 GFLOPs | 22.2% | 21.5 GFLOPs | 13.2% |
+| 32768 | 17.2 GFLOPs | 53.4% | 85.9 GFLOPs | 37.9% |
+| 131072 | 68.7 GFLOPs | 82.1% | 343.6 GFLOPs | 70.9% |
+| 权重部分 | 15.0 GFLOPs | | 141 GFLOPs | |
+
+Table: attention 算量占比随上下文变化
 
 Llama-3-70B 在 128K 下：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是权重 141 GFLOPs 的 2.4 倍。交叉点（attention 等于权重）在 8B 约 28.6K、70B 约 53.8K——超过这个长度，模型每生成一个 token 的主要算量就不再是"跑一遍权重"，而是"看一遍上下文"。
 
@@ -131,12 +131,7 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第三篇第四章的外推问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
 
-```text title="StreamingLLM：cache 槽与 RoPE 位置"
-原始位置   0   1   2   3 | 4 … 9996 | 9997 9998 9999 10000 10001 10002 | 10003
-           └ sink 保留 ┘   └ 已丢弃┘  └─────── 窗口 W=6 ─────────────┘ 新 token
-cache 槽   0   1   2   3               4    5    6     7     8     9
-RoPE 位置  0   1   2   3               4    5    6     7     8     9      10
-```
+![StreamingLLM：cache 槽与 RoPE 位置](/img/in-post/long-context-cost-streamingllm-rope-positions.svg)
 
 新 token 与最早的窗口 token（t9997）之间的相对距离在 RoPE 看来是 $$10 - 4 = 6$$——这一项本来就是 $$10003 - 9997 = 6$$，窗口内的相对距离重编号前后不变；真正被改变的是 sink 与新 token 的距离：原文里是 10003，重编号后是 10。所有相对距离都被控制在 $$W + 4$$ 之内，永远不会超出训练长度。这是 sink + 滑窗特有的处理；普通滑窗（不保留 sink）不需要重编号，用原始位置即可——窗口内的相对差值本来就 $$\le W$$。
 
@@ -153,15 +148,16 @@ RoPE 位置  0   1   2   3               4    5    6     7     8     9      10
 
 以每层每 token 的 KV 字节 $$b$$、模型层数 $$L$$、上下文 $$s$$、窗口 $$W$$、全局层占比 $$1/k$$、稀疏度 $$\rho$$ 表示：
 
-```text title="五种手段的 KV cache 与算量函数"
-手段                    KV cache（每请求）                   attention 算量（每 token）
-full attention          b · L · s                            4 d L · s
-sliding window (W)      b · L · min(s, W)                    4 d L · min(s, W)
-全局/局部交错 (1/k)     b · L · [ s/k + (1 − 1/k) min(s, W) ] 4 d L · [ s/k + (1 − 1/k) min(s, W) ]
-sink + window           b · L · (4 + min(s, W))              4 d L · (4 + min(s, W))
-块稀疏（保留 ρ）        b · L · s（一般不减）                4 d L · s · ρ  + 选择开销
-MLA（DeepSeek-V3）      (d_c + d_h^R) · L · s（系数减 57 倍） 与 full attention 同阶（吸收后 FLOPs 更高）
-```
+| 手段 | KV cache（每请求） | attention 算量（每 token） |
+|---|---|---|
+| full attention | $$b \cdot L \cdot s$$ | $$4dL \cdot s$$ |
+| sliding window ($$W$$) | $$b \cdot L \cdot \min(s, W)$$ | $$4dL \cdot \min(s, W)$$ |
+| 全局/局部交错 ($$1/k$$) | $$b \cdot L \cdot [\, s/k + (1 - 1/k)\min(s, W) \,]$$ | $$4dL \cdot [\, s/k + (1 - 1/k)\min(s, W) \,]$$ |
+| sink + window | $$b \cdot L \cdot (4 + \min(s, W))$$ | $$4dL \cdot (4 + \min(s, W))$$ |
+| 块稀疏（保留 $$\rho$$） | $$b \cdot L \cdot s$$（一般不减） | $$4dL \cdot s \cdot \rho$$ + 选择开销 |
+| MLA（DeepSeek-V3） | $$(d_c + d_h^R) \cdot 2\,\text{B} \cdot L \cdot s$$（系数减 57 倍） | 与 full attention 同阶（吸收后 FLOPs 更高） |
+
+Table: full attention 与五种手段的 KV cache 与算量函数
 
 值得注意的是最后一行：MLA 减的是 KV cache 的**系数**（从 3.81 MiB 到 68.6 KiB），不改变它对 $$s$$ 的线性依赖，也不减少 attention 算量；而滑窗改的是**阶**（从 $$s$$ 到常数），但丢信息。两者正交，可以叠加。
 
@@ -247,15 +243,7 @@ Table: 不同上下文长度下的 Qwen3-Next 状态显存估算
 
 **chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi-Serve，Agrawal 等 2023；vLLM 与 SGLang 默认启用）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。两种调度下同一段时间内 GPU 上发生的事对比如下（P = 128K 请求的 prefill，D = 已在 decode 的请求各出一个 token）：
 
-```text title="不分块与 chunked prefill 的时间轴"
-时间 →      0 s                                     11 s
-不分块      [PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP][D][D][D][D]…
-decode 请求  ←──────── 停顿 11 s，没有新 token ────────→ 恢复，每步几十 ms
-
-chunked     [P2K+D][P2K+D][P2K+D][P2K+D] … [P2K+D][D][D]…
-decode 请求  每步都出 token，步长略增（batch 里多了一个 compute-bound 的 chunk）
-128K 请求    TTFT 从 11 s 变成 11 s + 若干 decode 步的开销
-```
+![不分块与 chunked prefill 的时间轴](/img/in-post/long-context-cost-chunked-prefill-timeline.svg)
 
 **序列并行 / context parallel 的动机。** 当单个请求的 KV cache（70B 的 40 GiB）或激活（128K 时每层的 hidden state 就是 $$131072 \times 8192 \times 2\,\text{B} = 2$$ GiB）放不进一张卡、或 TTFT 要求单请求必须由多卡并行时，就需要把**序列维度**切到多张卡上。TP 切的是 head 维度（第四篇），每张卡仍要处理全部 $$s$$ 个 token；序列并行切的是 token 维度，每张卡处理 $$s/P$$ 个 token，但 attention 需要所有 token 的 K、V——Ring Attention（Liu 等 2023）让 K、V 块在卡之间环形传递，每张卡对每个到达的 K、V 块做一次局部 attention 并用 online softmax 合并。它引入了新的通信项（每层传一遍全部 K、V），是长上下文训练与超长请求推理的标准手段。
 
@@ -385,19 +373,20 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
 
 本篇算出的数字汇总（theoretical，BF16，H100 60% MFU）：
 
-```text title="本篇数字汇总：三个模型的长上下文成本"
-                              Llama-3-8B        Llama-3-70B       DeepSeek-V3
-权重 FLOPs/token              15.0 GFLOPs       141 GFLOPs        74 GFLOPs
-KV bytes/token                128 KiB           320 KiB           68.6 KiB
-KV cache   8K / 32K / 128K    1.0 / 4.0 / 16 GiB  2.5 / 10 / 40 GiB  0.54 / 2.1 / 8.6 GiB
-attention FLOPs/token  8K     4.3 GFLOPs        21.5 GFLOPs       41 GFLOPs
-                       32K    17.2 GFLOPs       85.9 GFLOPs       164 GFLOPs
-                       128K   68.7 GFLOPs       344 GFLOPs        655 GFLOPs
-attention 占比  8K / 32K / 128K  22% / 53% / 82%  13% / 38% / 71%   36% / 69% / 90%
-prefill FLOPs   8K / 32K / 128K  0.14 / 0.77 / 6.5 PF  1.24 / 6.0 / 41 PF   —
-prefill 时间（单卡等效）128K   约 11 s           约 69 s           —
-attention = 权重 的交叉点      约 28.6K          约 53.8K          —
-```
+| 指标 | 上下文 | Llama-3-8B | Llama-3-70B | DeepSeek-V3 |
+|---|---|---|---|---|
+| 权重 FLOPs/token | | 15.0 GFLOPs | 141 GFLOPs | 74 GFLOPs |
+| KV bytes/token | | 128 KiB | 320 KiB | 68.6 KiB |
+| KV cache | 8K / 32K / 128K | 1.0 / 4.0 / 16 GiB | 2.5 / 10 / 40 GiB | 0.54 / 2.1 / 8.6 GiB |
+| attention FLOPs/token | 8K | 4.3 GFLOPs | 21.5 GFLOPs | 41 GFLOPs |
+| ^^ | 32K | 17.2 GFLOPs | 85.9 GFLOPs | 164 GFLOPs |
+| ^^ | 128K | 68.7 GFLOPs | 344 GFLOPs | 655 GFLOPs |
+| attention 占比 | 8K / 32K / 128K | 22% / 53% / 82% | 13% / 38% / 71% | 36% / 69% / 90% |
+| prefill FLOPs | 8K / 32K / 128K | 0.14 / 0.77 / 6.5 PF | 1.24 / 6.0 / 41 PF | — |
+| prefill 时间（单卡等效） | 128K | 约 11 s | 约 69 s | — |
+| attention = 权重 的交叉点 | | 约 28.6K | 约 53.8K | — |
+
+Table: 本篇数字汇总：三个模型的长上下文成本
 
 DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第四篇有讨论；它的 prefill 总量需要第二篇 MoE 的激活参数量才能完整给出。
 
