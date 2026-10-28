@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 371.0" width="760" height="371.0" role="img" aria-labelledby="title desc">
+  <title id="title">四个例子在 A100 Roofline 图上的位置</title>
+  <desc id="desc">双对数坐标的 A100 Roofline 图。横轴为算术强度 I（FLOP/byte），纵轴为可达算力。带宽屋顶 P=I×2.0 TB/s；BF16 Tensor Core 屋顶 312 TFLOPS 从 ridge 156 起；FP32 CUDA Core 屋顶 19.5 TFLOPS 从 ridge≈10 起。elementwise 位于 I≈0.17、0.34 T；RMSNorm 位于 I≈1、2 T；attention decode 位于 I≈4、8 T；GEMM 4096³ 位于 I≈1365、312 T。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#f1f3f6"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#c5d0dc" stroke-width="2"/>
+    </pattern>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+.head { font-size: 15px; font-weight: 700; }
+.body { font-size: 14px; }
+.small { font-size: 13px; }
+.tick { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; fill: #40566f; }
+.axis { stroke: #40566f; stroke-width: 1.5; fill: none; }
+.grid { stroke: #e3e9ef; stroke-width: 1; fill: none; }
+.guide { stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; }
+.arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+.frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.3; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: url(#hatch); stroke: #9aa8b6; stroke-width: 1.2; }
+
+.roof-bf16 { stroke: #245f9a; stroke-width: 3; fill: none; }
+.roof-fp32 { stroke: #a8641a; stroke-width: 2.5; stroke-dasharray: 8 5; fill: none; }
+.bandwidth { stroke: #40566f; stroke-width: 2.5; fill: none; }
+.roof-bf16-label { fill: #245f9a; font-size: 13px; }
+.roof-fp32-label { fill: #a8641a; font-size: 13px; }
+.bandwidth-label { fill: #40566f; font-size: 13px; }
+.point { fill: #fff; stroke: #1e4f7a; stroke-width: 2.5; }
+.special { stroke-dasharray: 3 4; }
+</style>
+  </defs>
+  <rect x="0" y="0" width="760" height="371.0" fill="#fff"/>
+<line x1="92.0" y1="32.0" x2="92.0" y2="272.0" class="axis"/>
+<line x1="92.0" y1="272.0" x2="720.0" y2="272.0" class="axis"/>
+<line x1="92.0" y1="32.0" x2="92.0" y2="272.0" class="grid"/>
+<line x1="92.0" y1="272.0" x2="92.0" y2="277.0" class="axis"/>
+<text class="tick" x="92.0" y="298.0" text-anchor="middle">0.1</text>
+<line x1="217.6" y1="32.0" x2="217.6" y2="272.0" class="grid"/>
+<line x1="217.6" y1="272.0" x2="217.6" y2="277.0" class="axis"/>
+<text class="tick" x="217.6" y="298.0" text-anchor="middle">1</text>
+<line x1="343.2" y1="32.0" x2="343.2" y2="272.0" class="grid"/>
+<line x1="343.2" y1="272.0" x2="343.2" y2="277.0" class="axis"/>
+<text class="tick" x="343.2" y="298.0" text-anchor="middle">10</text>
+<line x1="468.8" y1="32.0" x2="468.8" y2="272.0" class="grid"/>
+<line x1="468.8" y1="272.0" x2="468.8" y2="277.0" class="axis"/>
+<text class="tick" x="468.8" y="298.0" text-anchor="middle">100</text>
+<line x1="594.4" y1="32.0" x2="594.4" y2="272.0" class="grid"/>
+<line x1="594.4" y1="272.0" x2="594.4" y2="277.0" class="axis"/>
+<text class="tick" x="594.4" y="298.0" text-anchor="middle">1000</text>
+<line x1="720.0" y1="32.0" x2="720.0" y2="272.0" class="grid"/>
+<line x1="720.0" y1="272.0" x2="720.0" y2="277.0" class="axis"/>
+<text class="tick" x="720.0" y="298.0" text-anchor="middle">10⁴</text>
+<line x1="92.0" y1="272.0" x2="720.0" y2="272.0" class="grid"/>
+<line x1="87.0" y1="272.0" x2="92.0" y2="272.0" class="axis"/>
+<text class="tick" x="82.0" y="276.0" text-anchor="end">0.1 T</text>
+<line x1="92.0" y1="212.0" x2="720.0" y2="212.0" class="grid"/>
+<line x1="87.0" y1="212.0" x2="92.0" y2="212.0" class="axis"/>
+<text class="tick" x="82.0" y="216.0" text-anchor="end">1 T</text>
+<line x1="92.0" y1="152.0" x2="720.0" y2="152.0" class="grid"/>
+<line x1="87.0" y1="152.0" x2="92.0" y2="152.0" class="axis"/>
+<text class="tick" x="82.0" y="156.0" text-anchor="end">10 T</text>
+<line x1="92.0" y1="92.0" x2="720.0" y2="92.0" class="grid"/>
+<line x1="87.0" y1="92.0" x2="92.0" y2="92.0" class="axis"/>
+<text class="tick" x="82.0" y="96.0" text-anchor="end">100 T</text>
+<line x1="92.0" y1="32.0" x2="720.0" y2="32.0" class="grid"/>
+<line x1="87.0" y1="32.0" x2="92.0" y2="32.0" class="axis"/>
+<text class="tick" x="82.0" y="36.0" text-anchor="end">1000 T</text>
+<line x1="92.0" y1="62.350724358893416" x2="720.0" y2="62.350724358893416" class="grid special"/>
+<line x1="87.0" y1="62.350724358893416" x2="92.0" y2="62.350724358893416" class="axis"/>
+<text class="tick" x="82.0" y="66.35" text-anchor="end">312 T</text>
+<line x1="92.0" y1="134.5979233182489" x2="720.0" y2="134.5979233182489" class="grid special"/>
+<line x1="87.0" y1="134.5979233182489" x2="92.0" y2="134.5979233182489" class="axis"/>
+<text class="tick" x="82.0" y="138.6" text-anchor="end">19.5 T</text>
+<path d="M92.00 253.94 L493.06 62.35" class="bandwidth"/>
+<line x1="493.06" y1="62.35" x2="720.0" y2="62.35" class="roof-bf16"/>
+<line x1="341.82" y1="134.60" x2="720.0" y2="134.60" class="roof-fp32"/>
+<line x1="493.06" y1="62.35" x2="493.06" y2="272.0" class="guide"/>
+<line x1="341.82" y1="134.60" x2="341.82" y2="272.0" class="guide"/>
+<text class="small" x="349.82" y="261" text-anchor="start">ridge≈10</text>
+<text class="small" x="501.06" y="83" text-anchor="start">ridge 156</text>
+<text class="roof-bf16-label" x="710" y="50.35" text-anchor="end">BF16 Tensor Core 屋顶 312 TFLOPS</text>
+<text class="roof-fp32-label" x="710" y="152.6" text-anchor="end">FP32 CUDA Core 屋顶 19.5 TFLOPS</text>
+<text class="bandwidth-label" x="145" y="258" text-anchor="start">带宽屋顶 P = I × 2.0 TB/s</text>
+<text class="small" x="403" y="342.0" text-anchor="middle">算术强度 I（FLOP/byte，log）</text>
+<text class="small" x="23" y="152.0" text-anchor="middle" transform="rotate(-90 23 152)">可达算力（TFLOPS，log）</text>
+<circle cx="120.94" cy="240.11" r="5" class="point"/>
+<text class="small" x="104" y="222" text-anchor="start">elementwise（I≈0.17）</text>
+<circle cx="217.60" cy="193.94" r="5" class="point"/>
+<text class="small" x="154" y="178" text-anchor="start">RMSNorm（I≈1）</text>
+<circle cx="293.22" cy="157.81" r="5" class="point"/>
+<text class="small" x="180" y="138" text-anchor="start">attention decode（I≈4）</text>
+<circle cx="611.37" cy="62.35" r="5" class="point"/>
+<text class="small" x="704" y="112" text-anchor="end">GEMM 4096³（I≈1365）</text>
+</svg>

@@ -570,29 +570,7 @@ $$
 
 四个例子放到一张 Roofline 图上（A100，双对数坐标，示意）：
 
-```text title="四个例子在 A100 Roofline 图上的位置"
-可达算力（log）
-
-1000 T ┤
-       │
- 312 T ┤                          /──────●─────────────   BF16 Tensor Core 屋顶 312 TFLOPS
-       │                        /  ridge 156          GEMM 4096³（I≈1365）
- 100 T ┤                      /
-       │                    /
-       │                  /
-19.5 T ┤                /╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌   FP32 CUDA Core 屋顶 19.5 TFLOPS
-  10 T ┤              ●  attention decode（I≈4）       ridge≈10
-       │            /
-       │          /
-       │        ●  RMSNorm（I≈1）
-   1 T ┤      /
-       │    /
-       │  ●  elementwise（I≈0.17）
-       │/   带宽屋顶 P = I × 2.0 TB/s
- 0.1 T ┤
-       └───────┴───────┴───────┴───────┴───────┴──→ 算术强度 I（FLOP/byte，log）
-       0.1     1       10      100     1000    10⁴
-```
+![四个例子在 A100 Roofline 图上的位置](/img/in-post/2026-05-11-gpu-architecture-and-roofline-four-examples.svg)
 
 三个 memory-bound 的点都落在斜线上，它们的"可达算力"分别只有 0.34、2、8 TFLOPS——不是因为 kernel 写得差，而是这类计算在这块卡上就只能这么快。只有 GEMM 落在水平屋顶上。
 
@@ -747,28 +725,18 @@ flowchart TB
 
 各自看的东西不同：
 
-```text title="CUDA 工具链：各工具看什么"
-工具 / 产物             它是什么                                看什么
-────────────────────────────────────────────────────────────────────────────────────────────
-nvcc                   CUDA 编译器驱动                          -arch=sm_80 选目标；-Xptxas -v 打印每个
-                                                                kernel 的寄存器数、shared/spill 字节数
-PTX                    虚拟 ISA，与具体 GPU 无关的中间表示        nvcc -ptx 生成；看编译器是否发出了想要的
-                                                                指令（ld.global.v4、cp.async、mma.sync、
-                                                                ldmatrix）；Triton 的输出也是 PTX
-SASS                   真实机器码，每代架构不同                   PTX 经 ptxas 汇编而来；寄存器分配、指令调
-                                                                度、是否有 spill（LDL/STL）都只有在这一层
-                                                                才能看到
-cuobjdump -sass        从可执行文件/.cubin 反汇编 SASS            快速查看最终指令序列；-ptx 可同时导出 PTX
-nvdisasm               对 .cubin 反汇编并可输出控制流图            分析分支结构、循环体、指令延迟标注
-nsys (Nsight Systems)  系统级时间线                              kernel 之间的间隙、launch 开销、CPU 与 GPU
-                                                                的重叠、memcpy、多 stream 并发；回答"时间
-                                                                花在哪个 kernel / 哪段等待上"
-ncu (Nsight Compute)   单 kernel 剖析器                          带宽利用率、算力利用率、occupancy、warp
-                                                                stall 原因、L1/L2 命中率、bank conflict、
-                                                                自带 Roofline 图；回答"这个 kernel 为什么慢"
-compute-sanitizer      内存与竞争检查                            越界访问、未初始化读、`__syncthreads()`
-                                                                遗漏导致的竞争
-```
+| 工具 / 产物 | 它是什么 | 看什么 |
+| --- | --- | --- |
+| `nvcc` | CUDA 编译器驱动 | `-arch=sm_80` 选择目标；`-Xptxas -v` 打印每个 kernel 的寄存器数、shared/spill 字节数 |
+| `PTX` | 虚拟 ISA，与具体 GPU 无关的中间表示 | `nvcc -ptx` 生成；检查编译器是否发出了想要的指令（`ld.global.v4`、`cp.async`、`mma.sync`、`ldmatrix`）；Triton 的输出也是 PTX |
+| `SASS` | 真实机器码，每代架构不同 | PTX 经 `ptxas` 汇编而来；寄存器分配、指令调度、是否有 spill（`LDL` / `STL`）都只有在这一层才能看到 |
+| `cuobjdump -sass` | 从可执行文件 / `.cubin` 反汇编 SASS | 快速查看最终指令序列；`-ptx` 可同时导出 PTX |
+| `nvdisasm` | 对 `.cubin` 反汇编并可输出控制流图 | 分析分支结构、循环体、指令延迟标注 |
+| `nsys`（Nsight Systems） | 系统级时间线 | kernel 之间的间隙、launch 开销、CPU 与 GPU 的重叠、`memcpy`、多 stream 并发；回答「时间花在哪个 kernel / 哪段等待上」 |
+| `ncu`（Nsight Compute） | 单 kernel 剖析器 | 带宽利用率、算力利用率、occupancy、warp stall 原因、L1/L2 命中率、bank conflict、自带 Roofline 图；回答「这个 kernel 为什么慢」 |
+| `compute-sanitizer` | 内存与竞争检查 | 越界访问、未初始化读、遗漏 `__syncthreads()` 导致的竞争 |
+
+Table: CUDA 工具链：各工具看什么
 
 看 `-Xptxas -v` 的输出是第二篇写完第一个 kernel 后要做的第一件事，`ncu` 是第十篇的主角。
 
@@ -778,15 +746,7 @@ compute-sanitizer      内存与竞争检查                            越界�
 
 一个训练或推理程序慢，瓶颈可能在很多地方：Python 解释器、框架的 dispatch、kernel launch 的固定开销（每次几微秒）、`cudaStreamSynchronize` 或 `.item()` 造成的等待、多卡通信、数据加载。这些属于**系统层**，在 `nsys` 的时间线上表现为 GPU 空闲的间隙：
 
-```text title="nsys 时间线上的 GPU 空闲间隙（示意）"
-nsys 时间线（示意）
-
-CPU   ████ Python/dispatch ████        launch  ████ .item() 等待 ████████  launch  ██…
-GPU        ░░░░ 空闲 ░░░░  ▓▓▓▓ kernel A ▓▓▓▓  ░░░░░░ 空闲 ░░░░░░  ▓▓ kernel B ▓▓  ░░…
-                           ↑                                        ↑
-                    本系列讨论的范围：                        系统层问题：CUDA Graph、融合减少
-                    色块内部发生了什么                        launch、异步化——不用打开任何 kernel
-```
+![nsys 时间线上的 GPU 空闲间隙](/img/in-post/2026-05-11-gpu-architecture-and-roofline-nsys-idle-gaps.svg)
 
 系统层的解决手段是 CUDA Graph、算子融合减少 launch 次数、异步化、流水线——都不需要打开任何一个 kernel。本系列不讨论它们。
 

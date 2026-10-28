@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" width="760" height="260" role="img" aria-labelledby="title desc">
+  <title id="title">nsys 时间线上的 GPU 空闲间隙</title>
+  <desc id="desc">共享时间轴上的 CPU 与 GPU 两行色块。CPU 的 Python/dispatch、.item() 等待、等待后的 Python 忙碌段和末尾省略段为深色实心忙碌段，两个 launch 是窄竖线标记；.item() 等待在 kernel A 完成时结束。GPU 的第二段空闲从 kernel A 结束持续到 kernel B 开始；空闲段使用浅色斜线，kernel A 和 kernel B 为实心段，末尾省略段延续斜线样式。两支箭头分别指向 kernel A 和第二段 GPU 空闲，说明文字分为两组。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#f1f3f6"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#c5d0dc" stroke-width="2"/>
+    </pattern>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+.head { font-size: 15px; font-weight: 700; }
+.body { font-size: 14px; }
+.small { font-size: 13px; }
+.tick { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; fill: #40566f; }
+.axis { stroke: #40566f; stroke-width: 1.5; fill: none; }
+.grid { stroke: #e3e9ef; stroke-width: 1; fill: none; }
+.guide { stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; }
+.arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+.frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.3; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: url(#hatch); stroke: #9aa8b6; stroke-width: 1.2; }
+
+.time-axis { marker-end: url(#arrow); }
+.cpu-busy { fill: #334e68; stroke: #334e68; stroke-width: 1; }
+.cpu-text { fill: #fff; font-size: 13px; }
+.gpu-kernel { fill: #5d7893; stroke: #40566f; stroke-width: 1.2; }
+.gpu-text { fill: #fff; font-size: 13px; }
+.launch-marker { stroke: #b45309; stroke-width: 2.5; }
+.launch-label { fill: #8a4805; font-size: 13px; font-weight: 600; }
+</style>
+  </defs>
+  <rect x="0" y="0" width="760" height="260" fill="#fff"/>
+<line x1="24" y1="38" x2="744" y2="38" class="axis time-axis"/>
+<text class="small" x="24" y="27" text-anchor="start">时间</text>
+<text class="head" x="24" y="98" text-anchor="start">CPU</text>
+<text class="head" x="24" y="152" text-anchor="start">GPU</text>
+<rect class="cpu-busy" x="64.4" y="76" width="170.0" height="34"/>
+<text class="cpu-text" x="149.4" y="98" text-anchor="middle">Python/dispatch</text>
+<rect class="cpu-busy" x="316.0" y="76" width="102.0" height="34"/>
+<text class="cpu-text" x="367.0" y="98" text-anchor="middle">.item() 等待</text>
+<rect class="cpu-busy" x="418.0" y="76" width="88.4" height="34"/>
+<text class="cpu-text" x="462.2" y="98" text-anchor="middle">Python</text>
+<rect class="cpu-busy" x="574.4" y="76" width="20.4" height="34"/>
+<text class="cpu-text" x="584.5999999999999" y="98" text-anchor="middle">…</text>
+<line x1="288.8" y1="76" x2="288.8" y2="110" class="launch-marker"/>
+<text class="launch-label" x="288.8" y="69" text-anchor="middle">launch</text>
+<line x1="520.0" y1="76" x2="520.0" y2="110" class="launch-marker"/>
+<text class="launch-label" x="520.0" y="69" text-anchor="middle">launch</text>
+<rect class="idle" x="98.4" y="130" width="197.2" height="34"/>
+<text class="small" x="197.0" y="152" text-anchor="middle">空闲</text>
+<rect class="gpu-kernel" x="295.6" y="130" width="122.4" height="34"/>
+<text class="gpu-text" x="356.8" y="152" text-anchor="middle">kernel A</text>
+<rect class="idle" x="418.0" y="130" width="115.6" height="34"/>
+<text class="small" x="475.79999999999995" y="152" text-anchor="middle">空闲</text>
+<rect class="gpu-kernel" x="533.6" y="130" width="95.2" height="34"/>
+<text class="gpu-text" x="581.1999999999999" y="152" text-anchor="middle">kernel B</text>
+<rect class="idle" x="628.8" y="130" width="20.4" height="34"/>
+<text class="small" x="639.0" y="152" text-anchor="middle">…</text>
+<line x1="356.8" y1="184" x2="356.8" y2="164" class="arrow"/>
+<line x1="475.8" y1="184" x2="475.8" y2="164" class="arrow"/>
+<text class="small" x="356.8" y="204" text-anchor="middle">本系列讨论的范围：</text>
+<text class="small" x="356.8" y="220" text-anchor="middle">色块内部发生了什么</text>
+<text class="small" x="475.8" y="204" text-anchor="start">系统层问题：CUDA Graph、</text>
+<text class="small" x="475.8" y="220" text-anchor="start">融合减少 launch、异步化——</text>
+<text class="small" x="475.8" y="236" text-anchor="start">不用打开任何 kernel</text>
+</svg>
