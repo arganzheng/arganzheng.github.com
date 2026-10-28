@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 676" width="760" height="676" role="img" aria-labelledby="t d">
+  <title id="t">平台机制：交付层</title>
+  <desc id="d">请求经网关（第七篇）进入交付层（本篇范围）的 InferencePool / Service。交付层自上而下四层：Serving 控制面（KServe InferenceService / LLMInferenceService，serving.kserve.io；llm-d Router(EPP) + Kustomize recipes，Helm / kustomize；KubeRay RayService，ray.io/v1）生成副本形态（Deployment 单 Pod 副本；LeaderWorkerSet 多 Pod 副本，leaderworkerset.x-k8s.io/v1；DisaggregatedSet P/D 角色 × slices，disaggregatedset.x-k8s.io/v1）；扩缩容（HPA custom / external metrics；KEDA ScaledObject prometheus / cron 触发，keda.sh/v1alpha1）经 scale 子资源作用于副本形态，指标 vllm:num_requests_waiting、vllm:kv_cache_usage_perc、llm_d_epp_* 输入扩缩容；权重加载（storage-initializer s3:// hf://；pvc:// 直挂；oci:// modelcar / image volume）。交付层之下是引擎 Pod：vLLM / Triton / SGLang（资源层供给 GPU、RDMA、存储）。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .head { font-size: 15px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; fill: #333; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #333; }
+      .mono-s { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 11px; fill: #333; }
+      .frame { fill: #f8fafc; stroke: #8a9bb0; stroke-width: 1.4; }
+      .gw { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .layer { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .layer-ctl { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .layer-rep { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .layer-scale { fill: #fff5e6; stroke: #40566f; stroke-width: 1.2; }
+      .layer-w { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .engine { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="196" y="10" width="554" height="588" class="frame"/>
+  <text x="473.0" y="34" class="head" text-anchor="middle">交付层（本篇范围）</text>
+  <rect x="212" y="48" width="522" height="36" class="layer"/>
+  <text x="228" y="71" class="body" text-anchor="start">InferencePool / Service</text>
+  <rect x="54" y="48" width="122" height="36" class="gw"/>
+  <text x="115" y="71" class="body" text-anchor="middle">网关（第七篇）</text>
+  <text x="8" y="71" class="body" text-anchor="start">请求</text>
+  <line x1="40" y1="66" x2="54" y2="66" class="arrow"/>
+  <line x1="176" y1="66" x2="212" y2="66" class="arrow"/>
+  <line x1="234" y1="84" x2="234" y2="110" class="arrow"/>
+  <rect x="212" y="110" width="522" height="98" class="layer-ctl"/>
+  <text x="228" y="132" class="bold" text-anchor="start">Serving 控制面</text>
+  <text x="240" y="154" class="body" text-anchor="start">KServe</text>
+  <text x="310" y="154" class="body" text-anchor="start">InferenceService / LLMInferenceService</text>
+  <text x="718" y="154" class="mono" text-anchor="end">serving.kserve.io</text>
+  <text x="240" y="174" class="body" text-anchor="start">llm-d</text>
+  <text x="310" y="174" class="body" text-anchor="start">Router(EPP) + Kustomize recipes</text>
+  <text x="718" y="174" class="mono" text-anchor="end">Helm / kustomize</text>
+  <text x="240" y="194" class="body" text-anchor="start">KubeRay</text>
+  <text x="310" y="194" class="body" text-anchor="start">RayService</text>
+  <text x="718" y="194" class="mono" text-anchor="end">ray.io/v1</text>
+  <line x1="234" y1="208" x2="234" y2="240" class="arrow"/>
+  <text x="244" y="229.0" class="small" text-anchor="start">生成</text>
+  <rect x="212" y="240" width="522" height="98" class="layer-rep"/>
+  <text x="228" y="262" class="bold" text-anchor="start">副本形态</text>
+  <text x="240" y="284" class="body" text-anchor="start">Deployment（单 Pod 副本）</text>
+  <text x="240" y="304" class="body" text-anchor="start">LeaderWorkerSet（多 Pod 副本）</text>
+  <text x="718" y="304" class="mono" text-anchor="end">leaderworkerset.x-k8s.io/v1</text>
+  <text x="240" y="324" class="body" text-anchor="start">DisaggregatedSet（P/D 角色 × slices）</text>
+  <text x="718" y="324" class="mono" text-anchor="end">disaggregatedset.x-k8s.io/v1</text>
+  <line x1="234" y1="338" x2="234" y2="370" class="arrow"/>
+  <text x="244" y="359.0" class="small" text-anchor="start">scale 子资源</text>
+  <rect x="212" y="370" width="522" height="78" class="layer-scale"/>
+  <text x="228" y="392" class="bold" text-anchor="start">扩缩容</text>
+  <text x="240" y="414" class="body" text-anchor="start">HPA（custom / external metrics）</text>
+  <text x="240" y="434" class="body" text-anchor="start">KEDA ScaledObject（prometheus / cron 触发）</text>
+  <text x="718" y="434" class="mono" text-anchor="end">keda.sh/v1alpha1</text>
+  <line x1="234" y1="484" x2="234" y2="448" class="arrow"/>
+  <text x="244" y="471" class="small" text-anchor="start">指标</text>
+  <text x="276" y="471" class="mono-s" text-anchor="start">vllm:num_requests_waiting · vllm:kv_cache_usage_perc · llm_d_epp_*</text>
+  <rect x="212" y="484" width="522" height="98" class="layer-w"/>
+  <text x="228" y="506" class="bold" text-anchor="start">权重加载</text>
+  <text x="240" y="528" class="body" text-anchor="start">storage-initializer（s3:// hf://）</text>
+  <text x="240" y="548" class="body" text-anchor="start">pvc:// 直挂</text>
+  <text x="240" y="568" class="body" text-anchor="start">oci:// modelcar / image volume</text>
+  <line x1="473.0" y1="598" x2="473.0" y2="628" class="arrow"/>
+  <rect x="223.0" y="628" width="500" height="36" class="engine"/>
+  <text x="473.0" y="651" class="body" text-anchor="middle">引擎 Pod：vLLM / Triton / SGLang（资源层供给 GPU、RDMA、存储）</text>
+</svg>

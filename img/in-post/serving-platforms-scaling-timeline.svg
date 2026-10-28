@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 441" width="760" height="441" role="img" aria-labelledby="t d">
+  <title id="t">三种扩缩方案在同一时间轴上的对照</title>
+  <desc id="d">时刻 19:48、19:57、20:00、20:04、20:20、20:40、…、23:30、23:50、24:00，并发 D 依次为 100、100、100、125、225、350、…、350、150、100。常驻 6：N 全程 6，全天多 16 卡 × 20.5 h = 328 卡时/天。反应式阈值 36：N 为 3、3、3、3（扩容决策）、5（扩容决策）、9（扩容决策）、10、10、9、… 5；D 越过 N × 36 即触发，决策后 9 分钟才就绪，就绪 N 等于 9 分钟前的 ceil(D/36)，余量 56 正好盖住 9 分钟的增长，爬升期不排队，峰值 ceil(350/36) = 10 副本，高峰多 16 卡 × 3.5 h = 56 卡时/天。组合方案 cron 19:48 + running 56 / wait 4：N 为 2（扩容决策）、6、6、6、6、6、6（23:30 缩容开始）、5、… 2；19:48 cron 抬到 6，19:57 就绪（比 D > 128 的 20:04 早 7 分），running 56 在预期高峰内不动（350 / (6 × 56) ≈ 1.04，在 HPA 10% 容忍度内），23:30 地板回 2，15 分钟窗口 + 每 5 分钟缩 1，6 → 2 约 20 分钟，合计 3.2 + 1.3 卡时 = 约 5 卡时/天。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .small { font-size: 13px; fill: #333; }
+      .italic { font-size: 13px; font-style: italic; fill: #333; }
+      .num { font-size: 14px; font-weight: 600; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #333; }
+      .sep { stroke: #d5dde6; stroke-width: 1; }
+      .dcell { fill: #fff; stroke: #8a9bb0; stroke-width: 1; }
+      .n2 { fill: #eef4fc; stroke: #8a9bb0; stroke-width: 1; }
+      .n3 { fill: #e2ecf9; stroke: #8a9bb0; stroke-width: 1; }
+      .n4 { fill: #d6e4f7; stroke: #8a9bb0; stroke-width: 1; }
+      .n5 { fill: #c9dbf3; stroke: #8a9bb0; stroke-width: 1; }
+      .n6 { fill: #bcd2ef; stroke: #8a9bb0; stroke-width: 1; }
+      .n8 { fill: #a3c0e7; stroke: #8a9bb0; stroke-width: 1; }
+      .n9 { fill: #97b7e3; stroke: #8a9bb0; stroke-width: 1; }
+      .n10 { fill: #8aaedf; stroke: #8a9bb0; stroke-width: 1; }
+      .mk-up { fill: #c0392b; }
+      .mk-down { fill: #1e7b4a; }
+    </style>
+  </defs>
+  <text x="12" y="24" class="bold" text-anchor="start">时刻</text>
+  <text x="180.0" y="24" class="mono" text-anchor="middle">19:48</text>
+  <text x="240.0" y="24" class="mono" text-anchor="middle">19:57</text>
+  <text x="300.0" y="24" class="mono" text-anchor="middle">20:00</text>
+  <text x="360.0" y="24" class="mono" text-anchor="middle">20:04</text>
+  <text x="420.0" y="24" class="mono" text-anchor="middle">20:20</text>
+  <text x="480.0" y="24" class="mono" text-anchor="middle">20:40</text>
+  <text x="540.0" y="24" class="mono" text-anchor="middle">…</text>
+  <text x="600.0" y="24" class="mono" text-anchor="middle">23:30</text>
+  <text x="660.0" y="24" class="mono" text-anchor="middle">23:50</text>
+  <text x="720.0" y="24" class="mono" text-anchor="middle">24:00</text>
+  <text x="12" y="56" class="bold" text-anchor="start">D 并发</text>
+  <rect x="150" y="36" width="60" height="30" class="dcell"/>
+  <text x="180.0" y="56" class="num" text-anchor="middle">100</text>
+  <rect x="210" y="36" width="60" height="30" class="dcell"/>
+  <text x="240.0" y="56" class="num" text-anchor="middle">100</text>
+  <rect x="270" y="36" width="60" height="30" class="dcell"/>
+  <text x="300.0" y="56" class="num" text-anchor="middle">100</text>
+  <rect x="330" y="36" width="60" height="30" class="dcell"/>
+  <text x="360.0" y="56" class="num" text-anchor="middle">125</text>
+  <rect x="390" y="36" width="60" height="30" class="dcell"/>
+  <text x="420.0" y="56" class="num" text-anchor="middle">225</text>
+  <rect x="450" y="36" width="60" height="30" class="dcell"/>
+  <text x="480.0" y="56" class="num" text-anchor="middle">350</text>
+  <rect x="510" y="36" width="60" height="30" class="dcell"/>
+  <text x="540.0" y="56" class="num" text-anchor="middle">…</text>
+  <rect x="570" y="36" width="60" height="30" class="dcell"/>
+  <text x="600.0" y="56" class="num" text-anchor="middle">350</text>
+  <rect x="630" y="36" width="60" height="30" class="dcell"/>
+  <text x="660.0" y="56" class="num" text-anchor="middle">150</text>
+  <rect x="690" y="36" width="60" height="30" class="dcell"/>
+  <text x="720.0" y="56" class="num" text-anchor="middle">100</text>
+  <line x1="8" y1="78" x2="752" y2="78" class="sep"/>
+  <text x="12" y="108" class="bold" text-anchor="start">常驻 6</text>
+  <text x="144" y="108" class="italic" text-anchor="end">N =</text>
+  <rect x="150" y="88" width="60" height="30" class="n6"/>
+  <text x="180.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="210" y="88" width="60" height="30" class="n6"/>
+  <text x="240.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="270" y="88" width="60" height="30" class="n6"/>
+  <text x="300.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="330" y="88" width="60" height="30" class="n6"/>
+  <text x="360.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="390" y="88" width="60" height="30" class="n6"/>
+  <text x="420.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="450" y="88" width="60" height="30" class="n6"/>
+  <text x="480.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="510" y="88" width="60" height="30" class="n6"/>
+  <text x="540.0" y="108" class="num" text-anchor="middle">…</text>
+  <rect x="570" y="88" width="60" height="30" class="n6"/>
+  <text x="600.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="630" y="88" width="60" height="30" class="n6"/>
+  <text x="660.0" y="108" class="num" text-anchor="middle">6</text>
+  <rect x="690" y="88" width="60" height="30" class="n6"/>
+  <text x="720.0" y="108" class="num" text-anchor="middle">6</text>
+  <text x="150" y="138" class="small" text-anchor="start">全天多 16 卡 × 20.5 h = 328 卡时/天</text>
+  <line x1="8" y1="156" x2="752" y2="156" class="sep"/>
+  <text x="12" y="186" class="bold" text-anchor="start">反应式</text>
+  <text x="12" y="204" class="small" text-anchor="start">阈值 36</text>
+  <text x="144" y="186" class="italic" text-anchor="end">N =</text>
+  <rect x="150" y="166" width="60" height="30" class="n3"/>
+  <text x="180.0" y="186" class="num" text-anchor="middle">3</text>
+  <rect x="210" y="166" width="60" height="30" class="n3"/>
+  <text x="240.0" y="186" class="num" text-anchor="middle">3</text>
+  <rect x="270" y="166" width="60" height="30" class="n3"/>
+  <text x="300.0" y="186" class="num" text-anchor="middle">3</text>
+  <rect x="330" y="166" width="60" height="30" class="n3"/>
+  <text x="354.0" y="186" class="num" text-anchor="middle">3</text>
+  <path d="M367.0,186 L377.0,186 L372.0,176 Z" class="mk-up"/>
+  <rect x="390" y="166" width="60" height="30" class="n5"/>
+  <text x="414.0" y="186" class="num" text-anchor="middle">5</text>
+  <path d="M427.0,186 L437.0,186 L432.0,176 Z" class="mk-up"/>
+  <rect x="450" y="166" width="60" height="30" class="n9"/>
+  <text x="474.0" y="186" class="num" text-anchor="middle">9</text>
+  <path d="M487.0,186 L497.0,186 L492.0,176 Z" class="mk-up"/>
+  <rect x="510" y="166" width="60" height="30" class="n10"/>
+  <text x="540.0" y="186" class="num" text-anchor="middle">10</text>
+  <rect x="570" y="166" width="60" height="30" class="n10"/>
+  <text x="600.0" y="186" class="num" text-anchor="middle">10</text>
+  <rect x="630" y="166" width="60" height="30" class="n9"/>
+  <text x="660.0" y="186" class="num" text-anchor="middle">9</text>
+  <rect x="690" y="166" width="60" height="30" class="n5"/>
+  <text x="720.0" y="186" class="num" text-anchor="middle">… 5</text>
+  <text x="150" y="216" class="small" text-anchor="start">D 越过 N × 36 即触发，决策后 9 分钟才就绪；就绪 N = 9 分钟前的 ceil(D/36)</text>
+  <text x="150" y="235" class="small" text-anchor="start">→ 余量 56 正好盖住 9 分钟的增长，爬升期不排队；峰值 ceil(350/36) = 10 副本</text>
+  <text x="150" y="254" class="small" text-anchor="start">→ 高峰多 16 卡 × 3.5 h = 56 卡时/天</text>
+  <line x1="8" y1="272" x2="752" y2="272" class="sep"/>
+  <text x="12" y="302" class="bold" text-anchor="start">组合方案</text>
+  <text x="12" y="320" class="small" text-anchor="start">cron 19:48</text>
+  <text x="12" y="338" class="small" text-anchor="start">+ running</text>
+  <text x="12" y="356" class="small" text-anchor="start">56 / wait 4</text>
+  <text x="144" y="302" class="italic" text-anchor="end">N =</text>
+  <rect x="150" y="282" width="60" height="30" class="n2"/>
+  <text x="174.0" y="302" class="num" text-anchor="middle">2</text>
+  <path d="M187.0,302 L197.0,302 L192.0,292 Z" class="mk-up"/>
+  <rect x="210" y="282" width="60" height="30" class="n6"/>
+  <text x="240.0" y="302" class="num" text-anchor="middle">6</text>
+  <rect x="270" y="282" width="60" height="30" class="n6"/>
+  <text x="300.0" y="302" class="num" text-anchor="middle">6</text>
+  <rect x="330" y="282" width="60" height="30" class="n6"/>
+  <text x="360.0" y="302" class="num" text-anchor="middle">6</text>
+  <rect x="390" y="282" width="60" height="30" class="n6"/>
+  <text x="420.0" y="302" class="num" text-anchor="middle">6</text>
+  <rect x="450" y="282" width="60" height="30" class="n6"/>
+  <text x="480.0" y="302" class="num" text-anchor="middle">6</text>
+  <rect x="510" y="282" width="60" height="30" class="n6"/>
+  <text x="540.0" y="302" class="num" text-anchor="middle">…</text>
+  <rect x="570" y="282" width="60" height="30" class="n6"/>
+  <text x="594.0" y="302" class="num" text-anchor="middle">6</text>
+  <path d="M607.0,292 L617.0,292 L612.0,302 Z" class="mk-down"/>
+  <rect x="630" y="282" width="60" height="30" class="n5"/>
+  <text x="660.0" y="302" class="num" text-anchor="middle">5</text>
+  <rect x="690" y="282" width="60" height="30" class="n2"/>
+  <text x="720.0" y="302" class="num" text-anchor="middle">… 2</text>
+  <text x="150" y="332" class="small" text-anchor="start">19:48 cron 抬到 6，19:57 就绪（比 D &gt; 128 的 20:04 早 7 分）</text>
+  <text x="150" y="351" class="small" text-anchor="start">running 56 在预期高峰内不动（350 / (6 × 56) ≈ 1.04，在 HPA 10% 容忍度内）</text>
+  <text x="150" y="370" class="small" text-anchor="start">23:30 地板回 2；15 分钟窗口 + 每 5 分钟缩 1，6 → 2 约 20 分钟</text>
+  <text x="150" y="389" class="small" text-anchor="start">→ 3.2 + 1.3 卡时 = 约 5 卡时/天</text>
+  <line x1="8" y1="407" x2="752" y2="407" class="sep"/>
+  <path d="M151,427 L161,427 L156,417 Z" class="mk-up"/>
+  <text x="168" y="427" class="small" text-anchor="start">扩容决策</text>
+  <path d="M255,417 L265,417 L260,427 Z" class="mk-down"/>
+  <text x="272" y="427" class="small" text-anchor="start">缩容开始</text>
+  <text x="364" y="427" class="small" text-anchor="start">N 是就绪副本数</text>
+</svg>
