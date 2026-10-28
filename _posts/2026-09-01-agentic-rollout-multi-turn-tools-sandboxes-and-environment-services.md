@@ -96,14 +96,17 @@ Table: 本文的章节安排
 
 ### 1. 一条轨迹
 
-```text title="一条 20 轮的轨迹"
-轮 1   prompt（任务描述 + 仓库信息，~2K）→ 模型生成（思考 + 工具调用，~400）→ 解析：run_tests(...) → 沙箱执行 30 s → 输出 ~1600 token 追加
-轮 2   上下文 4K → 生成 ~400 → edit_file(...) → 执行 0.1 s → 追加 ~100
-轮 3   上下文 4.5K → 生成 → run_tests → 30 s → 追加 ~1600
-…
-轮 20  上下文 ~40K → 生成 "任务完成" → 结束
-reward：最后一次测试通过的比例 / 是否全部通过 → 0 或 1（或分数）
-```
+| 轮 | 上下文 | 模型生成 | 解析出的工具调用 | 沙箱执行 | 追加 |
+|---|---|---|---|---|---|
+| 1 | prompt（任务描述 + 仓库信息，~2K） | 思考 + 工具调用，~400 | `run_tests(...)` | 30 s | 输出 ~1600 token |
+| 2 | 4K | ~400 | `edit_file(...)` | 0.1 s | ~100 |
+| 3 | 4.5K | ~400 | `run_tests` | 30 s | ~1600 |
+| … | … | … | … | … | … |
+| 20 | ~40K | "任务完成" | — | — | 结束 |
+
+Table: 一条 20 轮的轨迹
+
+reward 在轨迹结束后算：最后一次测试通过的比例 / 是否全部通过 → 0 或 1（或分数）。
 
 轨迹是**一条样本**：`prompt_ids`（首轮的 prompt）、`response_ids`（之后全部 token，模型生成的与环境返回的交错）、`response_mask`（1 = 模型生成、0 = 环境返回）。训练时 loss 只算 mask = 1 的位置，但前向与反向要过全部位置——第一篇算过，每个有效训练 token 的代价是单轮的约 5 倍。GRPO 的组是同一任务的 $$G$$ 条轨迹，优势按组内归一化，与单轮相同。
 
@@ -301,29 +304,31 @@ agent loop 的调度器同时要满足：**沙箱利用率**（不让容器闲�
 
 第一篇的三本账加一本：
 
-- **环境账（一步）**
-  - **执行次数**：N_exec = B · G · 轮数
-  - CPU 时间 Σ 执行时间 × 每次核数 8 万次 × 30 s × 2 核 = 1300 CPU·h
-  - 沙箱·秒 有状态：B · G · 轨迹墙钟；可释放：Σ 执行时间 3.2 M / 2.4 M 沙箱·s
-  - 所需并发 沙箱·秒 / 目标墙钟 1800 / 1300
-  - **镜像流量**：节点数 × 本步任务镜像的总大小
-- **GPU 账的变化**
-  - decode B · G · 轮数 · 每轮生成 token —— 与单轮同公式，但并发低、KV 长 → 每卡 token/s 降 3–4 倍
-  - **prefill**：线性（全命中）到二次（全重算），由 KV 驻留决定；常接近二次
-  - **训练 token**：B · G · 最终上下文，八成 mask = 0
-  - **生成式 RM**：+ B · G · 最终上下文 的一次前向或一次生成
+| 账 | 项 | 公式 | 本例 / 说明 |
+|---|---|---|---|
+| 环境账（一步） | 执行次数 | N_exec = B · G · 轮数 | |
+| ^^ | CPU 时间 | Σ 执行时间 × 每次核数 | 8 万次 × 30 s × 2 核 = 1300 CPU·h |
+| ^^ | 沙箱·秒 | 有状态：B · G · 轨迹墙钟<br/>可释放：Σ 执行时间 | 3.2 M / 2.4 M 沙箱·s |
+| ^^ | 所需并发 | 沙箱·秒 / 目标墙钟 | 1800 / 1300 |
+| ^^ | 镜像流量 | 节点数 × 本步任务镜像的总大小 | |
+| GPU 账的变化 | decode | B · G · 轮数 · 每轮生成 token | 与单轮同公式，但并发低、KV 长 → 每卡 token/s 降 3–4 倍 |
+| ^^ | prefill | 线性（全命中）到二次（全重算） | 由 KV 驻留决定；常接近二次 |
+| ^^ | 训练 token | B · G · 最终上下文 | 八成 mask = 0 |
+| ^^ | 生成式 RM | + B · G · 最终上下文 的一次前向或一次生成 | |
+
+Table: 环境账与 GPU 账的变化
 
 ### 2. 核心问题的数字
 
-```text title="核心问题的数字"
-                         值                         说明
-容器执行                  80,000 次
-CPU·小时                  667（1 核）/ 1300（2 核）
-并发沙箱（30 分钟）        1800（有状态）/ 1300（可释放）
-GPU（32 卡）在 30 分钟里    decode ~500 s（28%）· prefill 160–1600 s（视 KV 驻留，常在 1000 以上）· 其余等环境
-                         → 同步形态下 GPU 有效利用 < 30%；异步形态下 rollout 卡持续有活，训练卡在另一池
-训练侧                    160 M token 的前向 + 反向 + 参考 + 旧策略 ≈ 12N × 160 M = 15 EFLOP（8B）→ 32 卡 MFU 0.4 约 1200 s
-```
+| 项 | 值 | 说明 |
+|---|---|---|
+| 容器执行 | 80,000 次 | |
+| CPU·小时 | 667 / 1300 | 每次执行 1 核 / 2 核 |
+| 并发沙箱（30 分钟） | 1800 / 1300 | 有状态 / 可释放 |
+| GPU（32 卡）在 30 分钟里 | decode ~500 s（28%）<br/>prefill 160–1600 s<br/>其余等环境 | prefill 视 KV 驻留，常在 1000 以上<br/>→ 同步形态下 GPU 有效利用 < 30%；异步形态下 rollout 卡持续有活，训练卡在另一池 |
+| 训练侧 | 15 EFLOP（8B），约 1200 s | 160 M token 的前向 + 反向 + 参考 + 旧策略 ≈ 12N × 160 M<br/>32 卡 MFU 0.4 |
+
+Table: 核心问题的数字
 
 一个意外的结论：**这一步训练侧的 FLOP（15 EFLOP）比单轮 8B 推理场景（6.8 EFLOP）还多一倍**——因为要过 160M 个 token 的前向 + 反向，虽然只有两成有梯度。Agent RL 不是"生成占 90%"，是"三段都重、外加一个 CPU 集群"。
 
@@ -357,14 +362,23 @@ Table: Agent rollout 各组件在 verl 源码中的落点
 
 ### 2. 一条轨迹在 v1 里的路
 
-1. trainer._add_batch_to_generate → AgentLoopManagerTQ 取 prompt → AgentLoopWorker.run(协程)
-2. 轮 i：llm_client.generate(prompt_ids) → [粘性] AsyncLLMServer → vLLM engine（前缀缓存命中与否）
-3. tool_parser 解析 → tool.execute（沙箱服务 HTTP）→ 追加 token（continuous token builder）
-4. 结束：tool.calc_reward / reward loop → AgentLoopOutput（带每段的版本、logprob）
-5. 写 TransferQueue：{uid}_{session}_{index}，tag status=finished
-6. ReplayBuffer 看到组终态 → trainer 取 batch → 训练
+```mermaid
+%% 图：一条轨迹在 verl v1 里的路：中间的循环是 Agent 特有的部分
+flowchart TB
+    T["trainer._add_batch_to_generate"] --> M["AgentLoopManagerTQ 取 prompt"] --> G
+    subgraph W["AgentLoopWorkerTQ：每条轨迹一个 AgentLoopBase.run() 协程"]
+        direction TB
+        G["轮 i：llm_client.generate(prompt_ids)"] -->|粘性| S["AsyncLLMServer"] --> E["vLLM engine（前缀缓存命中与否）"]
+        E --> P["tool_parser 解析"]
+        P -->|有工具调用| X["tool.execute（沙箱服务 HTTP）"] --> A["追加 token（continuous token builder）"]
+        A -->|下一轮| G
+        P -->|无工具调用 / 到轮数上限| R["结束：tool.calc_reward / reward loop → AgentLoopOutput（带每段的版本、logprob）"]
+        R --> Q["写 TransferQueue：key {uid}_{session}_{index}，tag status=success"]
+    end
+    Q --> F["组内 G 条都结束：组 uid 的 tag 置 status=finished"] --> B["ReplayBuffer 看到组终态"] --> TR["trainer 取 batch → 训练"]
+```
 
-与单轮 RL 唯一不同的是中间那几行——推理引擎、缓冲、训练器都不知道这是 Agent 轨迹。这是 agent loop 抽象的价值：**Agent RL 对基础设施的新要求全部落在 rollout 一侧**，形态（第二篇）、显存（第三篇）、同步（第四篇）、异步（第五篇）的机制原样适用。
+与单轮 RL 唯一不同的是图中间那个循环——推理引擎、缓冲、训练器都不知道这是 Agent 轨迹。这是 agent loop 抽象的价值：**Agent RL 对基础设施的新要求全部落在 rollout 一侧**，形态（第二篇）、显存（第三篇）、同步（第四篇）、异步（第五篇）的机制原样适用。
 
 ### 3. 多模态
 
