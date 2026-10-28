@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="304" viewBox="0 0 740 304" role="img" aria-labelledby="t d">
+<title id="t">FP16 下 10^4 + 1 的逐位对齐</title>
+<desc id="d">10^4 = 1.0011100010 × 2^13，1 = 1.0000000000 × 2^0。对齐到 2^13 后，1 右移 13 位，唯一的有效位落在 10 位尾数窗口外第 3 位（位权 2^0）；精确和的窗口外部分为 001，即 1/8 ulp，小于 1/2 ulp，舍入到最近后结果为 1.0011100010 × 2^13 = 10^4。</desc>
+<style>
+text{font-family:-apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;font-size:13px;fill:#111;font-weight:500}
+.m{font-family:'SFMono-Regular', Menlo, Consolas, 'DejaVu Sans Mono', monospace;font-size:14px}
+.w{font-size:12px;fill:#555}
+.r{fill:#c0392b;font-weight:700}
+.o{fill:#d35400}
+.cell{fill:#fff;stroke:#555;stroke-width:1}
+.out{fill:#f2f2f2;stroke:#555;stroke-width:1}
+</style>
+<rect width="740" height="304" fill="#fff"/>
+<text class="m" x="60" y="30" text-anchor="end">10<tspan baseline-shift="super" font-size="0.72em">4</tspan></text><text class="m" x="68" y="30">= 1.0011100010 × 2<tspan baseline-shift="super" font-size="0.72em">13</tspan></text><text x="250" y="30">（恰好 10 位尾数，FP16 可精确表示）</text>
+<text class="m" x="60" y="54" text-anchor="end">1</text><text class="m" x="68" y="54">= 1.0000000000 × 2<tspan baseline-shift="super" font-size="0.72em">0</tspan></text>
+<text x="20" y="90">对齐到 2<tspan baseline-shift="super" font-size="0.72em">13</tspan> 后相加（橙线右侧为 10 位尾数窗口之外）：</text>
+<text x="326.0" y="118" text-anchor="middle">10 位尾数窗口</text>
+<text x="482.0" y="118" text-anchor="middle">窗口外</text>
+<text class="w" x="182.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">13</tspan></text>
+<text class="w" x="218.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">12</tspan></text>
+<text class="w" x="242.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">11</tspan></text>
+<text class="w" x="266.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">10</tspan></text>
+<text class="w" x="290.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">9</tspan></text>
+<text class="w" x="314.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">8</tspan></text>
+<text class="w" x="338.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">7</tspan></text>
+<text class="w" x="362.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">6</tspan></text>
+<text class="w" x="386.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">5</tspan></text>
+<text class="w" x="410.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">4</tspan></text>
+<text class="w" x="434.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">3</tspan></text>
+<text class="w" x="458.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">2</tspan></text>
+<text class="w" x="482.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">1</tspan></text>
+<text class="w" x="506.0" y="138" text-anchor="middle">2<tspan baseline-shift="super" font-size="0.72em">0</tspan></text>
+<text class="w" x="162" y="138" text-anchor="end">位权</text>
+<text x="158" y="168.0" text-anchor="end">10<tspan baseline-shift="super" font-size="0.72em">4</tspan></text>
+<rect class="cell" x="170" y="148" width="24" height="30"/>
+<text class="m" x="182.0" y="168.0" text-anchor="middle">1</text>
+<text class="m" x="200.0" y="168.0" text-anchor="middle">.</text>
+<rect class="cell" x="206" y="148" width="24" height="30"/>
+<rect class="cell" x="230" y="148" width="24" height="30"/>
+<rect class="cell" x="254" y="148" width="24" height="30"/>
+<rect class="cell" x="278" y="148" width="24" height="30"/>
+<rect class="cell" x="302" y="148" width="24" height="30"/>
+<rect class="cell" x="326" y="148" width="24" height="30"/>
+<rect class="cell" x="350" y="148" width="24" height="30"/>
+<rect class="cell" x="374" y="148" width="24" height="30"/>
+<rect class="cell" x="398" y="148" width="24" height="30"/>
+<rect class="cell" x="422" y="148" width="24" height="30"/>
+<rect class="out" x="446" y="148" width="24" height="30"/>
+<rect class="out" x="470" y="148" width="24" height="30"/>
+<rect class="out" x="494" y="148" width="24" height="30"/>
+<text class="m" x="218.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="242.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="266.0" y="168.0" text-anchor="middle">1</text>
+<text class="m" x="290.0" y="168.0" text-anchor="middle">1</text>
+<text class="m" x="314.0" y="168.0" text-anchor="middle">1</text>
+<text class="m" x="338.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="362.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="386.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="410.0" y="168.0" text-anchor="middle">1</text>
+<text class="m" x="434.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="458.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="482.0" y="168.0" text-anchor="middle">0</text>
+<text class="m" x="506.0" y="168.0" text-anchor="middle">0</text>
+<text x="158" y="198.0" text-anchor="end">+ 1（右移 13 位）</text>
+<rect class="cell" x="170" y="178" width="24" height="30"/>
+<text class="m" x="182.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="200.0" y="198.0" text-anchor="middle">.</text>
+<rect class="cell" x="206" y="178" width="24" height="30"/>
+<rect class="cell" x="230" y="178" width="24" height="30"/>
+<rect class="cell" x="254" y="178" width="24" height="30"/>
+<rect class="cell" x="278" y="178" width="24" height="30"/>
+<rect class="cell" x="302" y="178" width="24" height="30"/>
+<rect class="cell" x="326" y="178" width="24" height="30"/>
+<rect class="cell" x="350" y="178" width="24" height="30"/>
+<rect class="cell" x="374" y="178" width="24" height="30"/>
+<rect class="cell" x="398" y="178" width="24" height="30"/>
+<rect class="cell" x="422" y="178" width="24" height="30"/>
+<rect class="out" x="446" y="178" width="24" height="30"/>
+<rect class="out" x="470" y="178" width="24" height="30"/>
+<rect class="out" x="494" y="178" width="24" height="30"/>
+<text class="m" x="218.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="242.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="266.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="290.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="314.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="338.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="362.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="386.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="410.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="434.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="458.0" y="198.0" text-anchor="middle">0</text>
+<text class="m" x="482.0" y="198.0" text-anchor="middle">0</text>
+<text class="m r" x="506.0" y="198.0" text-anchor="middle">1</text>
+<text x="532" y="198.0">唯一的有效位落在窗口外</text>
+<text x="158" y="228.0" text-anchor="end">精确和</text>
+<rect class="cell" x="170" y="208" width="24" height="30"/>
+<text class="m" x="182.0" y="228.0" text-anchor="middle">1</text>
+<text class="m" x="200.0" y="228.0" text-anchor="middle">.</text>
+<rect class="cell" x="206" y="208" width="24" height="30"/>
+<rect class="cell" x="230" y="208" width="24" height="30"/>
+<rect class="cell" x="254" y="208" width="24" height="30"/>
+<rect class="cell" x="278" y="208" width="24" height="30"/>
+<rect class="cell" x="302" y="208" width="24" height="30"/>
+<rect class="cell" x="326" y="208" width="24" height="30"/>
+<rect class="cell" x="350" y="208" width="24" height="30"/>
+<rect class="cell" x="374" y="208" width="24" height="30"/>
+<rect class="cell" x="398" y="208" width="24" height="30"/>
+<rect class="cell" x="422" y="208" width="24" height="30"/>
+<rect class="out" x="446" y="208" width="24" height="30"/>
+<rect class="out" x="470" y="208" width="24" height="30"/>
+<rect class="out" x="494" y="208" width="24" height="30"/>
+<text class="m" x="218.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="242.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="266.0" y="228.0" text-anchor="middle">1</text>
+<text class="m" x="290.0" y="228.0" text-anchor="middle">1</text>
+<text class="m" x="314.0" y="228.0" text-anchor="middle">1</text>
+<text class="m" x="338.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="362.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="386.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="410.0" y="228.0" text-anchor="middle">1</text>
+<text class="m" x="434.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="458.0" y="228.0" text-anchor="middle">0</text>
+<text class="m" x="482.0" y="228.0" text-anchor="middle">0</text>
+<text class="m r" x="506.0" y="228.0" text-anchor="middle">1</text>
+<text x="532" y="228.0">窗口外 = 1/8 ulp &lt; 1/2 ulp，舍掉</text>
+<text x="158" y="258.0" text-anchor="end">舍入到最近</text>
+<rect class="cell" x="170" y="238" width="24" height="30"/>
+<text class="m" x="182.0" y="258.0" text-anchor="middle">1</text>
+<text class="m" x="200.0" y="258.0" text-anchor="middle">.</text>
+<rect class="cell" x="206" y="238" width="24" height="30"/>
+<rect class="cell" x="230" y="238" width="24" height="30"/>
+<rect class="cell" x="254" y="238" width="24" height="30"/>
+<rect class="cell" x="278" y="238" width="24" height="30"/>
+<rect class="cell" x="302" y="238" width="24" height="30"/>
+<rect class="cell" x="326" y="238" width="24" height="30"/>
+<rect class="cell" x="350" y="238" width="24" height="30"/>
+<rect class="cell" x="374" y="238" width="24" height="30"/>
+<rect class="cell" x="398" y="238" width="24" height="30"/>
+<rect class="cell" x="422" y="238" width="24" height="30"/>
+<rect class="out" x="446" y="238" width="24" height="30"/>
+<rect class="out" x="470" y="238" width="24" height="30"/>
+<rect class="out" x="494" y="238" width="24" height="30"/>
+<text class="m" x="218.0" y="258.0" text-anchor="middle">0</text>
+<text class="m" x="242.0" y="258.0" text-anchor="middle">0</text>
+<text class="m" x="266.0" y="258.0" text-anchor="middle">1</text>
+<text class="m" x="290.0" y="258.0" text-anchor="middle">1</text>
+<text class="m" x="314.0" y="258.0" text-anchor="middle">1</text>
+<text class="m" x="338.0" y="258.0" text-anchor="middle">0</text>
+<text class="m" x="362.0" y="258.0" text-anchor="middle">0</text>
+<text class="m" x="386.0" y="258.0" text-anchor="middle">0</text>
+<text class="m" x="410.0" y="258.0" text-anchor="middle">1</text>
+<text class="m" x="434.0" y="258.0" text-anchor="middle">0</text>
+<text x="532" y="258.0">× 2<tspan baseline-shift="super" font-size="0.72em">13</tspan> = 10<tspan baseline-shift="super" font-size="0.72em">4</tspan></text>
+<line x1="166" y1="208" x2="522" y2="208" stroke="#111" stroke-width="2.5"/>
+<line x1="446" y1="102" x2="446" y2="276" stroke="#e67e22" stroke-width="3"/>
+<text class="o" x="446" y="290" text-anchor="middle">窗口边界（ulp = 2<tspan baseline-shift="super" font-size="0.72em">3</tspan> = 8）</text>
+</svg>
