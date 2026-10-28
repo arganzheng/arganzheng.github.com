@@ -337,7 +337,7 @@ return n
 
 答案似乎是可以的，其实就是多了一个操作而已：先把neo4j的所有labels查询出来，然后针对这些labels进行前面的操作。
 
-Cypher中获取某个节点的labels的函数是：`lables(node)`，但是我们是想获取db中所有的labels，cypher也提供了`db.lables`函数：
+Cypher 中获取某个节点的 labels 的函数是：`labels(node)`，但是我们是想获取 db 中所有的 labels，Cypher 也提供了 `db.labels` procedure：
 
 ```
 neo4j> call db.labels;
@@ -347,9 +347,8 @@ neo4j> call db.labels;
 | "Company" |
 | "Person"  |
 +-----------+
-```
-
 2 rows available after 33 ms, consumed after another 0 ms
+```
 
 
 **NOTES**
@@ -547,7 +546,6 @@ public List<Vertex> getVertices(String...ids) {
 -------
 
 1. [How to find all labels that contain string in neo4j](https://stackoverflow.com/questions/42057252/how-to-find-all-labels-that-contain-string-in-neo4j)
-
 
 
 
