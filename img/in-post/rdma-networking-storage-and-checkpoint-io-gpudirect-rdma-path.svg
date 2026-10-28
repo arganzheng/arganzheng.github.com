@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 207" width="760" height="207" role="img" aria-labelledby="t d">
+  <title id="t">NCCL 想走的路：GPUDirect RDMA</title>
+  <desc id="d">GPU 显存与 RDMA 网卡（HCA）之间是双向 DMA，HCA 发往对端 HCA，对端 HCA 再与对端 GPU 显存双向 DMA。控制面：CPU 上的 NCCL 进程调用户态 verbs 库，经 /dev/infiniband/uverbsN 与内核 ib_uverbs 通信，建 QP、下发工作请求给 HCA；rdma_cm 做连接管理。ibv_reg_mr 把 GPU 显存注册到 HCA，需要 nvidia_peermem 或 DMA-BUF。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #9fb3c8; stroke-width: 1.4; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.2; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .darrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .vline { stroke: #40566f; stroke-width: 1.4; stroke-dasharray: 5 3; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .s-train { fill: #cfeccf; } .s-pause { fill: #f9d5d3; } .s-write { fill: #cfe2f3; }
+      .s-idle { fill: #f3f5f7; } .s-stage { fill: #fde0b8; } .s-host { fill: #fff0a8; }
+    </style>
+  </defs>
+<rect x="39.8" y="112.0" width="85.6" height="36.0" class="box"/>
+<text x="82.6" y="135.0" text-anchor="middle" class="body">GPU 显存</text>
+<line x1="125.4" y1="130" x2="205.4" y2="130" class="darrow"/>
+<text x="165.4" y="122.0" text-anchor="middle" class="mono">DMA</text>
+<rect x="205.4" y="112.0" width="147.2" height="36.0" class="box"/>
+<text x="279.0" y="135.0" text-anchor="middle" class="body">RDMA 网卡（HCA）</text>
+<line x1="352.6" y1="130" x2="432.6" y2="130" class="arrow"/>
+<rect x="432.6" y="112.0" width="85.6" height="36.0" class="box"/>
+<text x="475.4" y="135.0" text-anchor="middle" class="body">对端 HCA</text>
+<line x1="518.2" y1="130" x2="598.2" y2="130" class="darrow"/>
+<text x="558.2" y="122.0" text-anchor="middle" class="mono">DMA</text>
+<rect x="598.2" y="112.0" width="122.0" height="36.0" class="box"/>
+<text x="659.2" y="135.0" text-anchor="middle" class="body">对端 GPU 显存</text>
+<rect x="127.8" y="8.0" width="302.4" height="36.0" class="box"/>
+<text x="279.0" y="31.0" text-anchor="middle" class="body">NCCL 进程（CPU 上，用户态 verbs 库）</text>
+<line x1="279.0" y1="44" x2="279.0" y2="112" class="arrow"/>
+<text x="289.0" y="70.0" text-anchor="start" class="small">经 /dev/infiniband/uverbsN → 内核 ib_uverbs</text>
+<text x="289.0" y="88.0" text-anchor="start" class="small">建 QP、下发工作请求；rdma_cm 做连接管理</text>
+<path d="M63.8,148 V198 H328.6 V148" class="arrow"/>
+<text x="73.8" y="172.0" text-anchor="start" class="small">ibv_reg_mr 注册显存</text>
+<text x="73.8" y="190.0" text-anchor="start" class="small">（需要 nvidia_peermem 或 DMA-BUF）</text>
+</svg>

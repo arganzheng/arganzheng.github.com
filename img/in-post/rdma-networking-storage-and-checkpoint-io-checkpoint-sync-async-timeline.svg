@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 357" width="760" height="357" role="img" aria-labelledby="t d">
+  <title id="t">同步与异步 checkpoint 的时间线</title>
+  <desc id="d">一个 checkpoint 间隔内的两种模式，横轴不按比例。同步 dcp.save：ckpt N 开始后停顿约 60 s，GPU 空转等写完，存储以 16.7 GB/s 写 1 TB，之后训练约 29 min、存储空闲，到 ckpt N+1 再停顿。异步 async_save：ckpt N 开始后只有秒级的 D2H 拷贝（stage），随后训练约 30 min；host 内存里保留每 rank 15.6 GB 的 pinned 副本，upload 完释放；存储在 stage 结束时开始以不低于 0.56 GB/s 后台写 1 TB，之后空闲；upload 必须在 ckpt N+1 前完成，否则积压，要监控这段时长。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrowr" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M8,0 L0,4 L8,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .frame { fill: #f8fafc; stroke: #9fb3c8; stroke-width: 1.4; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.2; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .darrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); marker-start: url(#arrowr); }
+      .rule { stroke: #9fb3c8; stroke-width: 1.2; }
+      .vline { stroke: #40566f; stroke-width: 1.4; stroke-dasharray: 5 3; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .s-train { fill: #cfeccf; } .s-pause { fill: #f9d5d3; } .s-write { fill: #cfe2f3; }
+      .s-idle { fill: #f3f5f7; } .s-stage { fill: #fde0b8; } .s-host { fill: #fff0a8; }
+    </style>
+  </defs>
+<text x="168.0" y="16.0" text-anchor="middle" class="small">ckpt N 开始</text>
+<text x="650.0" y="16.0" text-anchor="middle" class="small">ckpt N+1 开始</text>
+<text x="12.0" y="52.0" text-anchor="start" class="bold">同步 dcp.save</text>
+<line x1="168.0" y1="47" x2="312" y2="47" class="darrow"/>
+<text x="240.0" y="42.0" text-anchor="middle" class="small">停顿 ~60 s</text>
+<text x="12.0" y="80.0" text-anchor="start" class="small">训练 (GPU)</text>
+<rect x="168.0" y="60.0" width="144.0" height="30.0" class="seg s-pause"/>
+<text x="240.0" y="80.0" text-anchor="middle" class="small">GPU 空转，等写完</text>
+<rect x="312.0" y="60.0" width="338.0" height="30.0" class="seg s-train"/>
+<text x="481.0" y="80.0" text-anchor="middle" class="small">训练 ~29 min</text>
+<rect x="650.0" y="60.0" width="90.0" height="30.0" class="seg s-pause"/>
+<text x="695.0" y="80.0" text-anchor="middle" class="small">停顿…</text>
+<text x="12.0" y="118.0" text-anchor="start" class="small">存储写</text>
+<rect x="168.0" y="98.0" width="144.0" height="30.0" class="seg s-write"/>
+<text x="240.0" y="118.0" text-anchor="middle" class="mono">1 TB @ 16.7 GB/s</text>
+<rect x="312.0" y="98.0" width="338.0" height="30.0" class="seg s-idle"/>
+<text x="481.0" y="118.0" text-anchor="middle" class="small">空闲</text>
+<rect x="650.0" y="98.0" width="90.0" height="30.0" class="seg s-write"/>
+<text x="12.0" y="168.0" text-anchor="start" class="bold">异步 async_save</text>
+<line x1="168.0" y1="163" x2="236" y2="163" class="darrow"/>
+<text x="202.0" y="158.0" text-anchor="middle" class="mono">stage</text>
+<text x="12.0" y="196.0" text-anchor="start" class="small">训练 (GPU)</text>
+<rect x="168.0" y="176.0" width="68.0" height="30.0" class="seg s-stage"/>
+<text x="202.0" y="196.0" text-anchor="middle" class="small">D2H 秒级</text>
+<rect x="236.0" y="176.0" width="414.0" height="30.0" class="seg s-train"/>
+<text x="443.0" y="196.0" text-anchor="middle" class="small">训练 ~30 min</text>
+<rect x="650.0" y="176.0" width="90.0" height="30.0" class="seg s-stage"/>
+<text x="695.0" y="196.0" text-anchor="middle" class="small">stage…</text>
+<text x="12.0" y="234.0" text-anchor="start" class="small">host 内存</text>
+<rect x="168.0" y="214.0" width="392.0" height="30.0" class="seg s-host"/>
+<text x="364.0" y="234.0" text-anchor="middle" class="small">15.6 GB/rank pinned 副本 · upload 完释放</text>
+<text x="12.0" y="272.0" text-anchor="start" class="small">存储写</text>
+<rect x="168.0" y="252.0" width="68.0" height="30.0" class="seg s-idle"/>
+<rect x="236.0" y="252.0" width="324.0" height="30.0" class="seg s-write"/>
+<text x="398.0" y="272.0" text-anchor="middle" class="small">1 TB @ ≥0.56 GB/s 后台</text>
+<rect x="560.0" y="252.0" width="90.0" height="30.0" class="seg s-idle"/>
+<text x="605.0" y="272.0" text-anchor="middle" class="small">空闲</text>
+<rect x="650.0" y="252.0" width="90.0" height="30.0" class="seg s-write"/>
+<line x1="236" y1="304" x2="236" y2="284" class="arrow"/>
+<line x1="560" y1="304" x2="560" y2="284" class="arrow"/>
+<text x="236.0" y="322.0" text-anchor="middle" class="small">upload 开始</text>
+<text x="520.0" y="322.0" text-anchor="start" class="small">必须在 ckpt N+1 前完成，</text>
+<text x="520.0" y="340.0" text-anchor="start" class="small">否则积压（监控这段时长）</text>
+<line x1="168" y1="22" x2="168" y2="282" class="vline"/>
+<line x1="650" y1="22" x2="650" y2="282" class="vline"/>
+</svg>
