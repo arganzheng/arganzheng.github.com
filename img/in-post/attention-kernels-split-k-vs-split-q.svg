@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 361" width="760" height="361" role="img" aria-labelledby="t d">
+  <title id="t">FA1 split-K 与 FA2 split-Q 的 warp 分工</title>
+  <desc id="d">左：FA1 让 4 个 warp（w0–w3）各拿 K_j 的 1/4 列，每个 warp 算 S_ij 的一个列切片，覆盖 Q_i 全部行；行 max、行和以及 P̃V 的部分和都横跨 4 个 warp，每个 tile 要 smem 写、__syncthreads、读、归约。右：FA2 让 4 个 warp 各拿 Q_i 的 1/4 行（每 warp 16/32 行），每个 warp 都读一遍 smem 里的 K_j 全部列；每一行完整地在一个 warp 手里，行归约只需 warp 内 shfl，warp 间零通信。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="361" fill="#fff"/>
+  <text class="h" x="20" y="26">FA1："split K"</text>
+  <text class="s" x="20" y="46">4 个 warp 各拿 K<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan> 的 1/4 列</text>
+  <text class="s" x="200.0" y="66" text-anchor="middle">K<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan> 的列</text>
+  <rect class="blue" x="60" y="96" width="70" height="160"/>
+  <text class="m" x="95" y="87" text-anchor="middle">w0</text>
+  <text class="m" x="95" y="121" text-anchor="middle">w0</text>
+  <text class="m" x="95" y="161" text-anchor="middle">w0</text>
+  <text class="m" x="95" y="201" text-anchor="middle">w0</text>
+  <text class="m" x="95" y="241" text-anchor="middle">w0</text>
+  <rect class="green" x="130" y="96" width="70" height="160"/>
+  <text class="m" x="165" y="87" text-anchor="middle">w1</text>
+  <text class="m" x="165" y="121" text-anchor="middle">w1</text>
+  <text class="m" x="165" y="161" text-anchor="middle">w1</text>
+  <text class="m" x="165" y="201" text-anchor="middle">w1</text>
+  <text class="m" x="165" y="241" text-anchor="middle">w1</text>
+  <rect class="orange" x="200" y="96" width="70" height="160"/>
+  <text class="m" x="235" y="87" text-anchor="middle">w2</text>
+  <text class="m" x="235" y="121" text-anchor="middle">w2</text>
+  <text class="m" x="235" y="161" text-anchor="middle">w2</text>
+  <text class="m" x="235" y="201" text-anchor="middle">w2</text>
+  <text class="m" x="235" y="241" text-anchor="middle">w2</text>
+  <rect class="purple" x="270" y="96" width="70" height="160"/>
+  <text class="m" x="305" y="87" text-anchor="middle">w3</text>
+  <text class="m" x="305" y="121" text-anchor="middle">w3</text>
+  <text class="m" x="305" y="161" text-anchor="middle">w3</text>
+  <text class="m" x="305" y="201" text-anchor="middle">w3</text>
+  <text class="m" x="305" y="241" text-anchor="middle">w3</text>
+  <text class="s" x="348" y="181">Q<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="348" y="199">全部行</text>
+  <text class="bb" x="52" y="181.0" text-anchor="end">S<tspan dy="4" font-size="75%">ij</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="20" y="286">行 max / 行和，以及 P̃V 的部分和，</text>
+  <text class="s" x="20" y="307">都横跨 4 个 warp</text>
+  <text class="s" x="20" y="328">→ 每个 tile：smem 写 → __syncthreads</text>
+  <text class="s" x="20" y="349">→ 读 → 归约</text>
+  <text class="h" x="400" y="26">FA2："split Q"</text>
+  <text class="s" x="400" y="46">4 个 warp 各拿 Q<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> 的 1/4 行</text>
+  <text class="s" x="440" y="87">K<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan> 全部列（每个 warp 都读一遍 smem）</text>
+  <rect class="blue" x="440" y="96" width="280" height="40"/>
+  <text class="m" x="580.0" y="121" text-anchor="middle">warp 0 的 16/32 行</text>
+  <rect class="green" x="440" y="136" width="280" height="40"/>
+  <text class="m" x="580.0" y="161" text-anchor="middle">warp 1</text>
+  <rect class="orange" x="440" y="176" width="280" height="40"/>
+  <text class="m" x="580.0" y="201" text-anchor="middle">warp 2</text>
+  <rect class="purple" x="440" y="216" width="280" height="40"/>
+  <text class="m" x="580.0" y="241" text-anchor="middle">warp 3</text>
+  <text class="bb" x="432" y="181.0" text-anchor="end">S<tspan dy="4" font-size="75%">ij</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="400" y="286">每一行完整地在一个 warp 手里</text>
+  <text class="s" x="400" y="307">→ 行归约只需 warp 内 shfl，</text>
+  <text class="s" x="400" y="328">   warp 间零通信</text>
+</svg>

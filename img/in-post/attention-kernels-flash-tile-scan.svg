@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 452" width="760" height="452" role="img" aria-labelledby="t d">
+  <title id="t">一个 block 沿 K/V 块扫过去做了什么</title>
+  <desc id="d">一个 thread block 负责 Q 的第 i 块（B_r 行），常驻的 Q_i（B_r × d）乘以每次取出的一块 K_j^T（d × B_c），得到留在寄存器里的 S_ij（B_r × B_c）；对 S_ij 求行 max 得 m_new、算 P̃ = exp(S − m_new)、求行和得 l̃；连同对应的 V_j 一起更新 block 里的状态 m_i、l_i、O_i：α = exp(m_old − m_new)，O_i ← O_i·α + P̃_ij V_j（第二个 GEMM），l_i ← l_i·α + l̃，m_i ← m_new。j 走完后 O_i / l_i 写回 HBM，S_ij、P̃_ij 从头到尾没有离开寄存器。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="452" fill="#fff"/>
+  <text class="bb" x="20" y="26">一个 thread block 负责 Q 的第 i 块（B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan> 行），沿 K/V 的块 j = 1, 2, 3, … 扫过去：</text>
+  <text class="s" x="160" y="58">K<tspan dy="-6" font-size="75%">T</tspan><tspan dy="6">​</tspan>（d × N）：每次取一块 K<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan>（B<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">​</tspan> 列）</text>
+  <rect class="blue" x="160" y="66" width="60" height="34"/>
+  <text class="bb" x="190" y="88" text-anchor="middle">K<tspan dy="4" font-size="75%">1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="dblue" x="220" y="66" width="60" height="34"/>
+  <text class="bb" x="250" y="88" text-anchor="middle">K<tspan dy="4" font-size="75%">2</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="280" y="66" width="60" height="34"/>
+  <text class="bb" x="310" y="88" text-anchor="middle">K<tspan dy="4" font-size="75%">3</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="340" y="66" width="60" height="34"/>
+  <text class="bb" x="370" y="88" text-anchor="middle">K<tspan dy="4" font-size="75%">4</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="685" y="58" text-anchor="middle">V（N × d）</text>
+  <rect class="green" x="640" y="66" width="90" height="40"/>
+  <text class="bb" x="685" y="91" text-anchor="middle">V<tspan dy="4" font-size="75%">1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="dblue" x="640" y="106" width="90" height="40"/>
+  <text class="bb" x="685" y="131" text-anchor="middle">V<tspan dy="4" font-size="75%">2</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="green" x="640" y="146" width="90" height="40"/>
+  <text class="bb" x="685" y="171" text-anchor="middle">V<tspan dy="4" font-size="75%">3</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="green" x="640" y="186" width="90" height="40"/>
+  <text class="bb" x="685" y="211" text-anchor="middle">V<tspan dy="4" font-size="75%">4</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="626" y="120" text-anchor="end">每次取对应的</text>
+  <text class="s" x="626" y="139" text-anchor="end">V<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan>（B<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">​</tspan> 行）</text>
+  <rect class="orange" x="40" y="150" width="110" height="66"/>
+  <text class="bb" x="95" y="172" text-anchor="middle">Q<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="95" y="191" text-anchor="middle">B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan> × d</text>
+  <text class="s" x="95" y="208" text-anchor="middle">常驻</text>
+  <text class="h" x="170" y="188" text-anchor="middle">×</text>
+  <rect class="dblue" x="190" y="150" width="120" height="66"/>
+  <text class="bb" x="250" y="180" text-anchor="middle">K<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan><tspan dy="-6" font-size="75%">T</tspan><tspan dy="6">​</tspan></text>
+  <text class="s" x="250" y="200" text-anchor="middle">d × B<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">​</tspan></text>
+  <text class="h" x="330" y="188" text-anchor="middle">=</text>
+  <rect class="purple" x="350" y="150" width="140" height="66"/>
+  <text class="bb" x="420" y="172" text-anchor="middle">S<tspan dy="4" font-size="75%">ij</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="420" y="191" text-anchor="middle">B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan> × B<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="420" y="208" text-anchor="middle">（寄存器）</text>
+  <line class="arr" x1="250" y1="100" x2="250" y2="150"/>
+  <line class="arr" x1="420" y1="216" x2="420" y2="300"/>
+  <text class="s" x="432" y="246">行 max → m<tspan dy="4" font-size="75%">new</tspan><tspan dy="-4">​</tspan>；P̃ = exp(S − m<tspan dy="4" font-size="75%">new</tspan><tspan dy="-4">​</tspan>)</text>
+  <text class="s" x="432" y="265">行和 → l̃</text>
+  <line class="arr" x1="685" y1="226" x2="685" y2="300"/>
+  <rect class="orange" x="40" y="300" width="270" height="104"/>
+  <text class="bb" x="56" y="324">block 里的状态</text>
+  <text class="m" x="56" y="348">m<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> [B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan>]</text>
+  <text class="m" x="56" y="370">l<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> [B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan>]</text>
+  <text class="m" x="56" y="392">O<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> [B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan> × d]（未归一化）</text>
+  <rect class="white" x="400" y="300" width="300" height="104"/>
+  <text class="m" x="416" y="324">α = exp(m<tspan dy="4" font-size="75%">old</tspan><tspan dy="-4">​</tspan> − m<tspan dy="4" font-size="75%">new</tspan><tspan dy="-4">​</tspan>)</text>
+  <text class="m" x="416" y="348">O<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> ← O<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan>·α + P̃<tspan dy="4" font-size="75%">ij</tspan><tspan dy="-4">​</tspan> V<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan>（第二个 GEMM）</text>
+  <text class="m" x="416" y="370">l<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> ← l<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan>·α + l̃</text>
+  <text class="m" x="416" y="392">m<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> ← m<tspan dy="4" font-size="75%">new</tspan><tspan dy="-4">​</tspan></text>
+  <line class="arr" x1="400" y1="352" x2="310" y2="352"/>
+  <text class="bb" x="20" y="436">j 走完 → O<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> / l<tspan dy="4" font-size="75%">i</tspan><tspan dy="-4">​</tspan> → 写回 HBM。S<tspan dy="4" font-size="75%">ij</tspan><tspan dy="-4">​</tspan>、P̃<tspan dy="4" font-size="75%">ij</tspan><tspan dy="-4">​</tspan> 从头到尾没有离开寄存器。</text>
+</svg>

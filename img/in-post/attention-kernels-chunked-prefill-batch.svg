@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 376" width="760" height="376" role="img" aria-labelledby="t d">
+  <title id="t">一个 chunked-prefill batch 的 Q 行与可见 key</title>
+  <desc id="d">请求 A 正在 prefill 第二个 chunk：q_len = 4，ctx_len = 8，packed Q 行 a0–a3 分别能看到 key 0–8、0–9、0–10、0–11，其中 0–7 是已在 KV cache 里的前缀，8–11 是本步新 token，seq_len = 12。B 在 decode：q_len = 1，ctx_len = 11，b0 看到 0–10 的前缀和新 token 11，seq_len = 12。C 在 decode：q_len = 1，ctx_len = 5，c0 看到 0–4 的前缀和新 token 5，seq_len = 6。cu_seqlens_q = [0, 4, 5, 6]（Q 共 6 行），seq_lens = [12, 12, 6]。本步新 token 的 K/V 先写入 cache，再被本步读到。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="376" fill="#fff"/>
+  <text class="bb" x="20" y="24">一个 chunked-prefill batch：请求 A 正在 prefill 第二个 chunk，B、C 在 decode</text>
+  <text class="s" x="30" y="62" text-anchor="middle">请求</text>
+  <text class="s" x="82" y="62" text-anchor="middle">q_len</text>
+  <text class="s" x="140" y="62" text-anchor="middle">ctx_len</text>
+  <text class="s" x="218" y="62" text-anchor="middle">Q 行</text>
+  <text class="ms" x="218" y="78" text-anchor="middle">(packed)</text>
+  <text class="s" x="250" y="44">能看到的 key（位置 0 … ctx_len+q）</text>
+  <text class="ms" x="265.0" y="76" text-anchor="middle">0</text>
+  <text class="ms" x="295.0" y="76" text-anchor="middle">1</text>
+  <text class="ms" x="325.0" y="76" text-anchor="middle">2</text>
+  <text class="ms" x="355.0" y="76" text-anchor="middle">3</text>
+  <text class="ms" x="385.0" y="76" text-anchor="middle">4</text>
+  <text class="ms" x="415.0" y="76" text-anchor="middle">5</text>
+  <text class="ms" x="445.0" y="76" text-anchor="middle">6</text>
+  <text class="ms" x="475.0" y="76" text-anchor="middle">7</text>
+  <text class="ms" x="505.0" y="76" text-anchor="middle">8</text>
+  <text class="ms" x="535.0" y="76" text-anchor="middle">9</text>
+  <text class="ms" x="565.0" y="76" text-anchor="middle">10</text>
+  <text class="ms" x="595.0" y="76" text-anchor="middle">11</text>
+  <text class="m" x="218" y="109" text-anchor="middle">a0</text>
+  <rect class="blue" x="250" y="90" width="30" height="28"/>
+  <rect class="blue" x="280" y="90" width="30" height="28"/>
+  <rect class="blue" x="310" y="90" width="30" height="28"/>
+  <rect class="blue" x="340" y="90" width="30" height="28"/>
+  <rect class="blue" x="370" y="90" width="30" height="28"/>
+  <rect class="blue" x="400" y="90" width="30" height="28"/>
+  <rect class="blue" x="430" y="90" width="30" height="28"/>
+  <rect class="blue" x="460" y="90" width="30" height="28"/>
+  <rect class="green" x="490" y="90" width="30" height="28"/>
+  <rect class="white" x="520" y="90" width="30" height="28"/>
+  <rect class="white" x="550" y="90" width="30" height="28"/>
+  <rect class="white" x="580" y="90" width="30" height="28"/>
+  <text class="m" x="218" y="137" text-anchor="middle">a1</text>
+  <rect class="blue" x="250" y="118" width="30" height="28"/>
+  <rect class="blue" x="280" y="118" width="30" height="28"/>
+  <rect class="blue" x="310" y="118" width="30" height="28"/>
+  <rect class="blue" x="340" y="118" width="30" height="28"/>
+  <rect class="blue" x="370" y="118" width="30" height="28"/>
+  <rect class="blue" x="400" y="118" width="30" height="28"/>
+  <rect class="blue" x="430" y="118" width="30" height="28"/>
+  <rect class="blue" x="460" y="118" width="30" height="28"/>
+  <rect class="green" x="490" y="118" width="30" height="28"/>
+  <rect class="green" x="520" y="118" width="30" height="28"/>
+  <rect class="white" x="550" y="118" width="30" height="28"/>
+  <rect class="white" x="580" y="118" width="30" height="28"/>
+  <text class="m" x="218" y="165" text-anchor="middle">a2</text>
+  <rect class="blue" x="250" y="146" width="30" height="28"/>
+  <rect class="blue" x="280" y="146" width="30" height="28"/>
+  <rect class="blue" x="310" y="146" width="30" height="28"/>
+  <rect class="blue" x="340" y="146" width="30" height="28"/>
+  <rect class="blue" x="370" y="146" width="30" height="28"/>
+  <rect class="blue" x="400" y="146" width="30" height="28"/>
+  <rect class="blue" x="430" y="146" width="30" height="28"/>
+  <rect class="blue" x="460" y="146" width="30" height="28"/>
+  <rect class="green" x="490" y="146" width="30" height="28"/>
+  <rect class="green" x="520" y="146" width="30" height="28"/>
+  <rect class="green" x="550" y="146" width="30" height="28"/>
+  <rect class="white" x="580" y="146" width="30" height="28"/>
+  <text class="m" x="218" y="193" text-anchor="middle">a3</text>
+  <rect class="blue" x="250" y="174" width="30" height="28"/>
+  <rect class="blue" x="280" y="174" width="30" height="28"/>
+  <rect class="blue" x="310" y="174" width="30" height="28"/>
+  <rect class="blue" x="340" y="174" width="30" height="28"/>
+  <rect class="blue" x="370" y="174" width="30" height="28"/>
+  <rect class="blue" x="400" y="174" width="30" height="28"/>
+  <rect class="blue" x="430" y="174" width="30" height="28"/>
+  <rect class="blue" x="460" y="174" width="30" height="28"/>
+  <rect class="green" x="490" y="174" width="30" height="28"/>
+  <rect class="green" x="520" y="174" width="30" height="28"/>
+  <rect class="green" x="550" y="174" width="30" height="28"/>
+  <rect class="green" x="580" y="174" width="30" height="28"/>
+  <text class="bb" x="30" y="151.0" text-anchor="middle">A</text>
+  <text class="m" x="82" y="151.0" text-anchor="middle">4</text>
+  <text class="m" x="140" y="151.0" text-anchor="middle">8</text>
+  <text class="m" x="624" y="151.0">seq_len = 12</text>
+  <text class="m" x="218" y="231" text-anchor="middle">b0</text>
+  <rect class="blue" x="250" y="212" width="30" height="28"/>
+  <rect class="blue" x="280" y="212" width="30" height="28"/>
+  <rect class="blue" x="310" y="212" width="30" height="28"/>
+  <rect class="blue" x="340" y="212" width="30" height="28"/>
+  <rect class="blue" x="370" y="212" width="30" height="28"/>
+  <rect class="blue" x="400" y="212" width="30" height="28"/>
+  <rect class="blue" x="430" y="212" width="30" height="28"/>
+  <rect class="blue" x="460" y="212" width="30" height="28"/>
+  <rect class="blue" x="490" y="212" width="30" height="28"/>
+  <rect class="blue" x="520" y="212" width="30" height="28"/>
+  <rect class="blue" x="550" y="212" width="30" height="28"/>
+  <rect class="green" x="580" y="212" width="30" height="28"/>
+  <text class="bb" x="30" y="231.0" text-anchor="middle">B</text>
+  <text class="m" x="82" y="231.0" text-anchor="middle">1</text>
+  <text class="m" x="140" y="231.0" text-anchor="middle">11</text>
+  <text class="m" x="624" y="231.0">seq_len = 12</text>
+  <text class="m" x="218" y="269" text-anchor="middle">c0</text>
+  <rect class="blue" x="250" y="250" width="30" height="28"/>
+  <rect class="blue" x="280" y="250" width="30" height="28"/>
+  <rect class="blue" x="310" y="250" width="30" height="28"/>
+  <rect class="blue" x="340" y="250" width="30" height="28"/>
+  <rect class="blue" x="370" y="250" width="30" height="28"/>
+  <rect class="green" x="400" y="250" width="30" height="28"/>
+  <text class="bb" x="30" y="269.0" text-anchor="middle">C</text>
+  <text class="m" x="82" y="269.0" text-anchor="middle">1</text>
+  <text class="m" x="140" y="269.0" text-anchor="middle">5</text>
+  <text class="m" x="624" y="269.0">seq_len = 6</text>
+  <line class="ln" x1="186" y1="85.0" x2="186" y2="283.0"/>
+  <line class="mark" x1="181" y1="85.0" x2="191" y2="85.0"/>
+  <text class="ms" x="177" y="89.0" text-anchor="end">0</text>
+  <line class="mark" x1="181" y1="207.0" x2="191" y2="207.0"/>
+  <text class="ms" x="177" y="211.0" text-anchor="end">4</text>
+  <line class="mark" x1="181" y1="245.0" x2="191" y2="245.0"/>
+  <text class="ms" x="177" y="249.0" text-anchor="end">5</text>
+  <line class="mark" x1="181" y1="283.0" x2="191" y2="283.0"/>
+  <text class="ms" x="177" y="287.0" text-anchor="end">6</text>
+  <rect class="blue" x="20" y="295" width="16" height="16"/>
+  <text class="s" x="42" y="308">已在 KV cache 里的前缀</text>
+  <rect class="green" x="220" y="295" width="16" height="16"/>
+  <text class="s" x="242" y="308">本步新 token（K/V 先写入 cache，再被本步读到）</text>
+  <rect class="white" x="20" y="319" width="16" height="16"/>
+  <text class="s" x="42" y="332">因果 mask 掉（A 的后续新 token）</text>
+  <line class="mark" x1="300" y1="327" x2="316" y2="327"/>
+  <text class="s" x="322" y="332">cu_seqlens_q 的边界（packed Q 行号）</text>
+  <text class="m" x="20" y="362">cu_seqlens_q = [0, 4, 5, 6]（Q 共 6 行）    seq_lens = [12, 12, 6]（K/V 长度）</text>
+</svg>

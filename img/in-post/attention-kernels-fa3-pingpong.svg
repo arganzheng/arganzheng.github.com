@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 434" width="760" height="434" role="img" aria-labelledby="t d">
+  <title id="t">有无 ping-pong 时 Tensor Core 与 SFU 的忙闲</title>
+  <desc id="d">上：没有 ping-pong 时一个 warpgroup 串行做 GEMM S_j、softmax_j、GEMM PV_j、GEMM S_j+1、softmax_j+1、GEMM PV_j+1，Tensor Core 在 softmax 期间空转，SFU 只在 softmax 时忙。下：两个 consumer warpgroup 错开，每个 warpgroup 先连做 GEMM PV_{j−1} + S_j，再做 softmax_j，然后等另一个 warpgroup 的 GEMM；WG1 做 softmax 时 WG2 在做 GEMM，反之亦然，Tensor Core 几乎不停，SFU 约一半时间忙。producer warpgroup 只管发 TMA、等 barrier，不占图。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="434" fill="#fff"/>
+  <text class="bb" x="20" y="26">没有 ping-pong：一个 warpgroup 串行，Tensor Core 在 softmax 期间空转</text>
+  <text class="s" x="98" y="64" text-anchor="end">WG</text>
+  <rect class="blue" x="110" y="44" width="76" height="30"/>
+  <text class="ms" x="148.0" y="64" text-anchor="middle">GEMM S<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="orange" x="186" y="44" width="76" height="30"/>
+  <text class="ms" x="224.0" y="64" text-anchor="middle">softmax<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="262" y="44" width="76" height="30"/>
+  <text class="ms" x="300.0" y="64" text-anchor="middle">GEMM PV<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="338" y="44" width="76" height="30"/>
+  <text class="ms" x="376.0" y="64" text-anchor="middle">GEMM S<tspan dy="4" font-size="75%">j+1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="orange" x="414" y="44" width="76" height="30"/>
+  <text class="ms" x="452.0" y="64" text-anchor="middle">softmax<tspan dy="4" font-size="75%">j+1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="blue" x="490" y="44" width="76" height="30"/>
+  <text class="ms" x="528.0" y="64" text-anchor="middle">GEMM PV<tspan dy="4" font-size="75%">j+1</tspan><tspan dy="-4">​</tspan></text>
+  <text class="b" x="576" y="64">…</text>
+  <text class="s" x="98" y="104" text-anchor="end">Tensor Core</text>
+  <rect class="dblue" x="110" y="84" width="76" height="30"/>
+  <rect class="dblue" x="262" y="84" width="76" height="30"/>
+  <rect class="dblue" x="338" y="84" width="76" height="30"/>
+  <rect class="dblue" x="490" y="84" width="76" height="30"/>
+  <text class="s" x="98" y="144" text-anchor="end">SFU (exp)</text>
+  <rect class="orange" x="186" y="124" width="76" height="30"/>
+  <rect class="orange" x="414" y="124" width="76" height="30"/>
+  <line class="arr" x1="110" y1="168" x2="725.2" y2="168"/>
+  <text class="s" x="725.2" y="186" text-anchor="end">时间</text>
+  <text class="bb" x="20" y="198">ping-pong：两个 consumer warpgroup 错开，一个做 GEMM 时另一个做 softmax</text>
+  <text class="s" x="98" y="236" text-anchor="end">WG1</text>
+  <rect class="blue" x="110" y="216" width="152" height="30"/>
+  <text class="ms" x="186.0" y="236" text-anchor="middle">GEMM PV<tspan dy="4" font-size="75%">j−1</tspan><tspan dy="-4">​</tspan> + S<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="orange" x="262" y="216" width="76" height="30"/>
+  <text class="ms" x="300.0" y="236" text-anchor="middle">softmax<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="wait" x="338" y="216" width="76" height="30"/>
+  <text class="ms" x="376.0" y="236" text-anchor="middle">等</text>
+  <rect class="blue" x="414" y="216" width="152" height="30"/>
+  <text class="ms" x="490.0" y="236" text-anchor="middle">GEMM PV<tspan dy="4" font-size="75%">j</tspan><tspan dy="-4">​</tspan> + S<tspan dy="4" font-size="75%">j+1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="orange" x="566" y="216" width="76" height="30"/>
+  <text class="ms" x="604.0" y="236" text-anchor="middle">softmax<tspan dy="4" font-size="75%">j+1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="wait" x="642" y="216" width="76" height="30"/>
+  <text class="ms" x="680.0" y="236" text-anchor="middle">等</text>
+  <text class="s" x="98" y="276" text-anchor="end">WG2</text>
+  <rect class="orange" x="110" y="256" width="76" height="30"/>
+  <text class="ms" x="148.0" y="276" text-anchor="middle">softmax<tspan dy="4" font-size="75%">k</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="wait" x="186" y="256" width="76" height="30"/>
+  <text class="ms" x="224.0" y="276" text-anchor="middle">等</text>
+  <rect class="blue" x="262" y="256" width="152" height="30"/>
+  <text class="ms" x="338.0" y="276" text-anchor="middle">GEMM PV<tspan dy="4" font-size="75%">k</tspan><tspan dy="-4">​</tspan> + S<tspan dy="4" font-size="75%">k+1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="orange" x="414" y="256" width="76" height="30"/>
+  <text class="ms" x="452.0" y="276" text-anchor="middle">softmax<tspan dy="4" font-size="75%">k+1</tspan><tspan dy="-4">​</tspan></text>
+  <rect class="wait" x="490" y="256" width="76" height="30"/>
+  <text class="ms" x="528.0" y="276" text-anchor="middle">等</text>
+  <rect class="blue" x="566" y="256" width="152" height="30"/>
+  <text class="ms" x="642.0" y="276" text-anchor="middle">GEMM PV<tspan dy="4" font-size="75%">k+1</tspan><tspan dy="-4">​</tspan> + S<tspan dy="4" font-size="75%">k+2</tspan><tspan dy="-4">​</tspan></text>
+  <text class="s" x="98" y="309" text-anchor="end">Tensor Core</text>
+  <text class="s" x="98" y="325" text-anchor="end">几乎不停</text>
+  <rect class="dblue" x="110" y="296" width="152" height="30"/>
+  <text class="ms" x="186.0" y="316" text-anchor="middle">WG1</text>
+  <rect class="dblue" x="262" y="296" width="152" height="30"/>
+  <text class="ms" x="338.0" y="316" text-anchor="middle">WG2</text>
+  <rect class="dblue" x="414" y="296" width="152" height="30"/>
+  <text class="ms" x="490.0" y="316" text-anchor="middle">WG1</text>
+  <rect class="dblue" x="566" y="296" width="152" height="30"/>
+  <text class="ms" x="642.0" y="316" text-anchor="middle">WG2</text>
+  <text class="s" x="98" y="349" text-anchor="end">SFU (exp)</text>
+  <text class="s" x="98" y="365" text-anchor="end">约一半时间忙</text>
+  <rect class="orange" x="110" y="336" width="76" height="30"/>
+  <text class="ms" x="148.0" y="356" text-anchor="middle">WG2</text>
+  <rect class="orange" x="262" y="336" width="76" height="30"/>
+  <text class="ms" x="300.0" y="356" text-anchor="middle">WG1</text>
+  <rect class="orange" x="414" y="336" width="76" height="30"/>
+  <text class="ms" x="452.0" y="356" text-anchor="middle">WG2</text>
+  <rect class="orange" x="566" y="336" width="76" height="30"/>
+  <text class="ms" x="604.0" y="356" text-anchor="middle">WG1</text>
+  <line class="arr" x1="110" y1="380" x2="725.2" y2="380"/>
+  <text class="s" x="725.2" y="398" text-anchor="end">时间</text>
+  <text class="s" x="20" y="420">（producer warpgroup 在旁边只管发 TMA、等 barrier，不占图）</text>
+</svg>

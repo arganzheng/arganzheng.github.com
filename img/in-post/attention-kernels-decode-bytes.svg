@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 256" width="760" height="256" role="img" aria-labelledby="t d">
+  <title id="t">一步 decode 读的权重字节与 KV 字节</title>
+  <desc id="d">一步 decode 必须从 HBM 读的字节，Llama-3-8B，BF16，A100 2.0 TB/s。权重每步都是 16 GB（约 8 ms）。batch×s = 4k 时 KV 0.5 GB，占 3%；32k 时 KV 4 GB，占 20%；131k 时 KV 16 GB，两者各占一半；262k 时 KV 32 GB，KV 成为主项。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="256" fill="#fff"/>
+  <text class="bb" x="20" y="24">一步 decode 必须从 HBM 读的字节（Llama-3-8B，BF16，A100 2.0 TB/s）</text>
+  <text class="ms" x="118" y="70" text-anchor="end">batch×s = 4k</text>
+  <rect class="blue" x="130" y="50" width="160" height="30"/>
+  <text class="s" x="210" y="70" text-anchor="middle">权重 16 GB（8 ms）</text>
+  <rect class="green" x="290" y="50" width="5.0" height="30"/>
+  <text class="s" x="303.0" y="70">KV 0.5 GB  → KV 占 3%</text>
+  <text class="ms" x="118" y="112" text-anchor="end">batch×s = 32k</text>
+  <rect class="blue" x="130" y="92" width="160" height="30"/>
+  <text class="s" x="210" y="112" text-anchor="middle">权重 16 GB</text>
+  <rect class="green" x="290" y="92" width="40" height="30"/>
+  <text class="s" x="338" y="112">KV 4 GB  → 20%</text>
+  <text class="ms" x="118" y="154" text-anchor="end">batch×s = 131k</text>
+  <rect class="blue" x="130" y="134" width="160" height="30"/>
+  <text class="s" x="210" y="154" text-anchor="middle">权重 16 GB</text>
+  <rect class="green" x="290" y="134" width="160" height="30"/>
+  <text class="s" x="370.0" y="154" text-anchor="middle">KV 16 GB</text>
+  <text class="s" x="460" y="154">→ 各占一半</text>
+  <text class="ms" x="118" y="196" text-anchor="end">batch×s = 262k</text>
+  <rect class="blue" x="130" y="176" width="160" height="30"/>
+  <text class="s" x="210" y="196" text-anchor="middle">权重 16 GB</text>
+  <rect class="green" x="290" y="176" width="320" height="30"/>
+  <text class="s" x="450.0" y="196" text-anchor="middle">KV 32 GB</text>
+  <text class="s" x="620" y="196">→ KV 成为主项</text>
+  <line class="ln" x1="130" y1="222" x2="610" y2="222"/>
+  <line class="ln" x1="130" y1="222" x2="130" y2="229"/>
+  <text class="ms" x="130" y="244" text-anchor="middle">0</text>
+  <line class="ln" x1="140" y1="222" x2="140" y2="226"/>
+  <line class="ln" x1="150" y1="222" x2="150" y2="226"/>
+  <line class="ln" x1="160" y1="222" x2="160" y2="226"/>
+  <line class="ln" x1="170" y1="222" x2="170" y2="226"/>
+  <line class="ln" x1="180" y1="222" x2="180" y2="226"/>
+  <line class="ln" x1="190" y1="222" x2="190" y2="226"/>
+  <line class="ln" x1="200" y1="222" x2="200" y2="226"/>
+  <line class="ln" x1="210" y1="222" x2="210" y2="229"/>
+  <text class="ms" x="210" y="244" text-anchor="middle">8</text>
+  <line class="ln" x1="220" y1="222" x2="220" y2="226"/>
+  <line class="ln" x1="230" y1="222" x2="230" y2="226"/>
+  <line class="ln" x1="240" y1="222" x2="240" y2="226"/>
+  <line class="ln" x1="250" y1="222" x2="250" y2="226"/>
+  <line class="ln" x1="260" y1="222" x2="260" y2="226"/>
+  <line class="ln" x1="270" y1="222" x2="270" y2="226"/>
+  <line class="ln" x1="280" y1="222" x2="280" y2="226"/>
+  <line class="ln" x1="290" y1="222" x2="290" y2="229"/>
+  <text class="ms" x="290" y="244" text-anchor="middle">16</text>
+  <line class="ln" x1="300" y1="222" x2="300" y2="226"/>
+  <line class="ln" x1="310" y1="222" x2="310" y2="226"/>
+  <line class="ln" x1="320" y1="222" x2="320" y2="226"/>
+  <line class="ln" x1="330" y1="222" x2="330" y2="226"/>
+  <line class="ln" x1="340" y1="222" x2="340" y2="226"/>
+  <line class="ln" x1="350" y1="222" x2="350" y2="226"/>
+  <line class="ln" x1="360" y1="222" x2="360" y2="226"/>
+  <line class="ln" x1="370" y1="222" x2="370" y2="229"/>
+  <text class="ms" x="370" y="244" text-anchor="middle">24</text>
+  <line class="ln" x1="380" y1="222" x2="380" y2="226"/>
+  <line class="ln" x1="390" y1="222" x2="390" y2="226"/>
+  <line class="ln" x1="400" y1="222" x2="400" y2="226"/>
+  <line class="ln" x1="410" y1="222" x2="410" y2="226"/>
+  <line class="ln" x1="420" y1="222" x2="420" y2="226"/>
+  <line class="ln" x1="430" y1="222" x2="430" y2="226"/>
+  <line class="ln" x1="440" y1="222" x2="440" y2="226"/>
+  <line class="ln" x1="450" y1="222" x2="450" y2="229"/>
+  <text class="ms" x="450" y="244" text-anchor="middle">32</text>
+  <line class="ln" x1="460" y1="222" x2="460" y2="226"/>
+  <line class="ln" x1="470" y1="222" x2="470" y2="226"/>
+  <line class="ln" x1="480" y1="222" x2="480" y2="226"/>
+  <line class="ln" x1="490" y1="222" x2="490" y2="226"/>
+  <line class="ln" x1="500" y1="222" x2="500" y2="226"/>
+  <line class="ln" x1="510" y1="222" x2="510" y2="226"/>
+  <line class="ln" x1="520" y1="222" x2="520" y2="226"/>
+  <line class="ln" x1="530" y1="222" x2="530" y2="229"/>
+  <text class="ms" x="530" y="244" text-anchor="middle">40</text>
+  <line class="ln" x1="540" y1="222" x2="540" y2="226"/>
+  <line class="ln" x1="550" y1="222" x2="550" y2="226"/>
+  <line class="ln" x1="560" y1="222" x2="560" y2="226"/>
+  <line class="ln" x1="570" y1="222" x2="570" y2="226"/>
+  <line class="ln" x1="580" y1="222" x2="580" y2="226"/>
+  <line class="ln" x1="590" y1="222" x2="590" y2="226"/>
+  <line class="ln" x1="600" y1="222" x2="600" y2="226"/>
+  <line class="ln" x1="610" y1="222" x2="610" y2="229"/>
+  <text class="ms" x="610" y="244" text-anchor="middle">48</text>
+  <text class="s" x="624" y="244">GB（每格 1 GB）</text>
+</svg>

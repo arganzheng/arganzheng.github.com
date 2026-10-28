@@ -1,0 +1,273 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 436" width="760" height="436" role="img" aria-labelledby="t d">
+  <title id="t">分块因果掩码与 sliding window 下的 tile 分类</title>
+  <desc id="d">左：N = 8 块（B_r = B_c）的因果掩码。Q 块 i 对 K 块 j &lt; i 是完整块，无 mask，纯 GEMM + softmax（主循环第一段）；j = i 是对角块，块内逐元素 mask（主循环第二段）；j &gt; i 的右上部分整块跳过，不读 K/V、不算；FLOPs 与 KV 读取都省约一半。右：再加 sliding window（W = 3 块），Q 块 i 的 K 块 i−3 是左边界块，块内 mask 掉 j &lt; i − W + 1；K 块 i−2、i−1 是完整块；K 块 i 是对角块；更左边与右上都整块跳过。每个 Q 块最多跑 W/B_c + 1 = 4 个 tile，成本从 O(N²) 降为 O(N·W)。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="436" fill="#fff"/>
+  <text class="s" x="20" y="24">N = 8 块（B<tspan dy="4" font-size="75%">r</tspan><tspan dy="-4">​</tspan> = B<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">​</tspan>），S 按块划分：</text>
+  <text class="ms" x="66" y="52" text-anchor="end">Q块↓ K块→</text>
+  <text class="ms" x="86.0" y="52" text-anchor="middle">0</text>
+  <text class="ms" x="114.0" y="52" text-anchor="middle">1</text>
+  <text class="ms" x="142.0" y="52" text-anchor="middle">2</text>
+  <text class="ms" x="170.0" y="52" text-anchor="middle">3</text>
+  <text class="ms" x="198.0" y="52" text-anchor="middle">4</text>
+  <text class="ms" x="226.0" y="52" text-anchor="middle">5</text>
+  <text class="ms" x="254.0" y="52" text-anchor="middle">6</text>
+  <text class="ms" x="282.0" y="52" text-anchor="middle">7</text>
+  <text class="ms" x="62" y="81" text-anchor="end">0</text>
+  <rect class="white" x="72" y="62" width="28" height="28"/>
+  <polygon class="blue" points="72,62 72,90 100,90"/>
+  <rect class="white" x="100" y="62" width="28" height="28"/>
+  <rect class="white" x="128" y="62" width="28" height="28"/>
+  <rect class="white" x="156" y="62" width="28" height="28"/>
+  <rect class="white" x="184" y="62" width="28" height="28"/>
+  <rect class="white" x="212" y="62" width="28" height="28"/>
+  <rect class="white" x="240" y="62" width="28" height="28"/>
+  <rect class="white" x="268" y="62" width="28" height="28"/>
+  <text class="ms" x="62" y="109" text-anchor="end">1</text>
+  <rect class="white" x="72" y="90" width="28" height="28"/>
+  <rect class="dblue" x="72" y="90" width="28" height="28"/>
+  <rect class="white" x="100" y="90" width="28" height="28"/>
+  <polygon class="blue" points="100,90 100,118 128,118"/>
+  <rect class="white" x="128" y="90" width="28" height="28"/>
+  <rect class="white" x="156" y="90" width="28" height="28"/>
+  <rect class="white" x="184" y="90" width="28" height="28"/>
+  <rect class="white" x="212" y="90" width="28" height="28"/>
+  <rect class="white" x="240" y="90" width="28" height="28"/>
+  <rect class="white" x="268" y="90" width="28" height="28"/>
+  <text class="ms" x="62" y="137" text-anchor="end">2</text>
+  <rect class="white" x="72" y="118" width="28" height="28"/>
+  <rect class="dblue" x="72" y="118" width="28" height="28"/>
+  <rect class="white" x="100" y="118" width="28" height="28"/>
+  <rect class="dblue" x="100" y="118" width="28" height="28"/>
+  <rect class="white" x="128" y="118" width="28" height="28"/>
+  <polygon class="blue" points="128,118 128,146 156,146"/>
+  <rect class="white" x="156" y="118" width="28" height="28"/>
+  <rect class="white" x="184" y="118" width="28" height="28"/>
+  <rect class="white" x="212" y="118" width="28" height="28"/>
+  <rect class="white" x="240" y="118" width="28" height="28"/>
+  <rect class="white" x="268" y="118" width="28" height="28"/>
+  <text class="ms" x="62" y="165" text-anchor="end">3</text>
+  <rect class="white" x="72" y="146" width="28" height="28"/>
+  <rect class="dblue" x="72" y="146" width="28" height="28"/>
+  <rect class="white" x="100" y="146" width="28" height="28"/>
+  <rect class="dblue" x="100" y="146" width="28" height="28"/>
+  <rect class="white" x="128" y="146" width="28" height="28"/>
+  <rect class="dblue" x="128" y="146" width="28" height="28"/>
+  <rect class="white" x="156" y="146" width="28" height="28"/>
+  <polygon class="blue" points="156,146 156,174 184,174"/>
+  <rect class="white" x="184" y="146" width="28" height="28"/>
+  <rect class="white" x="212" y="146" width="28" height="28"/>
+  <rect class="white" x="240" y="146" width="28" height="28"/>
+  <rect class="white" x="268" y="146" width="28" height="28"/>
+  <text class="ms" x="62" y="193" text-anchor="end">4</text>
+  <rect class="white" x="72" y="174" width="28" height="28"/>
+  <rect class="dblue" x="72" y="174" width="28" height="28"/>
+  <rect class="white" x="100" y="174" width="28" height="28"/>
+  <rect class="dblue" x="100" y="174" width="28" height="28"/>
+  <rect class="white" x="128" y="174" width="28" height="28"/>
+  <rect class="dblue" x="128" y="174" width="28" height="28"/>
+  <rect class="white" x="156" y="174" width="28" height="28"/>
+  <rect class="dblue" x="156" y="174" width="28" height="28"/>
+  <rect class="white" x="184" y="174" width="28" height="28"/>
+  <polygon class="blue" points="184,174 184,202 212,202"/>
+  <rect class="white" x="212" y="174" width="28" height="28"/>
+  <rect class="white" x="240" y="174" width="28" height="28"/>
+  <rect class="white" x="268" y="174" width="28" height="28"/>
+  <text class="ms" x="62" y="221" text-anchor="end">5</text>
+  <rect class="white" x="72" y="202" width="28" height="28"/>
+  <rect class="dblue" x="72" y="202" width="28" height="28"/>
+  <rect class="white" x="100" y="202" width="28" height="28"/>
+  <rect class="dblue" x="100" y="202" width="28" height="28"/>
+  <rect class="white" x="128" y="202" width="28" height="28"/>
+  <rect class="dblue" x="128" y="202" width="28" height="28"/>
+  <rect class="white" x="156" y="202" width="28" height="28"/>
+  <rect class="dblue" x="156" y="202" width="28" height="28"/>
+  <rect class="white" x="184" y="202" width="28" height="28"/>
+  <rect class="dblue" x="184" y="202" width="28" height="28"/>
+  <rect class="white" x="212" y="202" width="28" height="28"/>
+  <polygon class="blue" points="212,202 212,230 240,230"/>
+  <rect class="white" x="240" y="202" width="28" height="28"/>
+  <rect class="white" x="268" y="202" width="28" height="28"/>
+  <text class="ms" x="62" y="249" text-anchor="end">6</text>
+  <rect class="white" x="72" y="230" width="28" height="28"/>
+  <rect class="dblue" x="72" y="230" width="28" height="28"/>
+  <rect class="white" x="100" y="230" width="28" height="28"/>
+  <rect class="dblue" x="100" y="230" width="28" height="28"/>
+  <rect class="white" x="128" y="230" width="28" height="28"/>
+  <rect class="dblue" x="128" y="230" width="28" height="28"/>
+  <rect class="white" x="156" y="230" width="28" height="28"/>
+  <rect class="dblue" x="156" y="230" width="28" height="28"/>
+  <rect class="white" x="184" y="230" width="28" height="28"/>
+  <rect class="dblue" x="184" y="230" width="28" height="28"/>
+  <rect class="white" x="212" y="230" width="28" height="28"/>
+  <rect class="dblue" x="212" y="230" width="28" height="28"/>
+  <rect class="white" x="240" y="230" width="28" height="28"/>
+  <polygon class="blue" points="240,230 240,258 268,258"/>
+  <rect class="white" x="268" y="230" width="28" height="28"/>
+  <text class="ms" x="62" y="277" text-anchor="end">7</text>
+  <rect class="white" x="72" y="258" width="28" height="28"/>
+  <rect class="dblue" x="72" y="258" width="28" height="28"/>
+  <rect class="white" x="100" y="258" width="28" height="28"/>
+  <rect class="dblue" x="100" y="258" width="28" height="28"/>
+  <rect class="white" x="128" y="258" width="28" height="28"/>
+  <rect class="dblue" x="128" y="258" width="28" height="28"/>
+  <rect class="white" x="156" y="258" width="28" height="28"/>
+  <rect class="dblue" x="156" y="258" width="28" height="28"/>
+  <rect class="white" x="184" y="258" width="28" height="28"/>
+  <rect class="dblue" x="184" y="258" width="28" height="28"/>
+  <rect class="white" x="212" y="258" width="28" height="28"/>
+  <rect class="dblue" x="212" y="258" width="28" height="28"/>
+  <rect class="white" x="240" y="258" width="28" height="28"/>
+  <rect class="dblue" x="240" y="258" width="28" height="28"/>
+  <rect class="white" x="268" y="258" width="28" height="28"/>
+  <polygon class="blue" points="268,258 268,286 296,286"/>
+  <text class="s" x="400" y="24">同一张图加 sliding window（W = 3 块）：</text>
+  <text class="ms" x="446" y="52" text-anchor="end">Q块↓ K块→</text>
+  <text class="ms" x="466.0" y="52" text-anchor="middle">0</text>
+  <text class="ms" x="494.0" y="52" text-anchor="middle">1</text>
+  <text class="ms" x="522.0" y="52" text-anchor="middle">2</text>
+  <text class="ms" x="550.0" y="52" text-anchor="middle">3</text>
+  <text class="ms" x="578.0" y="52" text-anchor="middle">4</text>
+  <text class="ms" x="606.0" y="52" text-anchor="middle">5</text>
+  <text class="ms" x="634.0" y="52" text-anchor="middle">6</text>
+  <text class="ms" x="662.0" y="52" text-anchor="middle">7</text>
+  <text class="ms" x="442" y="81" text-anchor="end">0</text>
+  <rect class="white" x="452" y="62" width="28" height="28"/>
+  <polygon class="blue" points="452,62 452,90 480,90"/>
+  <rect class="white" x="480" y="62" width="28" height="28"/>
+  <rect class="white" x="508" y="62" width="28" height="28"/>
+  <rect class="white" x="536" y="62" width="28" height="28"/>
+  <rect class="white" x="564" y="62" width="28" height="28"/>
+  <rect class="white" x="592" y="62" width="28" height="28"/>
+  <rect class="white" x="620" y="62" width="28" height="28"/>
+  <rect class="white" x="648" y="62" width="28" height="28"/>
+  <text class="ms" x="442" y="109" text-anchor="end">1</text>
+  <rect class="white" x="452" y="90" width="28" height="28"/>
+  <rect class="dblue" x="452" y="90" width="28" height="28"/>
+  <rect class="white" x="480" y="90" width="28" height="28"/>
+  <polygon class="blue" points="480,90 480,118 508,118"/>
+  <rect class="white" x="508" y="90" width="28" height="28"/>
+  <rect class="white" x="536" y="90" width="28" height="28"/>
+  <rect class="white" x="564" y="90" width="28" height="28"/>
+  <rect class="white" x="592" y="90" width="28" height="28"/>
+  <rect class="white" x="620" y="90" width="28" height="28"/>
+  <rect class="white" x="648" y="90" width="28" height="28"/>
+  <text class="ms" x="442" y="137" text-anchor="end">2</text>
+  <rect class="white" x="452" y="118" width="28" height="28"/>
+  <rect class="dblue" x="452" y="118" width="28" height="28"/>
+  <rect class="white" x="480" y="118" width="28" height="28"/>
+  <rect class="dblue" x="480" y="118" width="28" height="28"/>
+  <rect class="white" x="508" y="118" width="28" height="28"/>
+  <polygon class="blue" points="508,118 508,146 536,146"/>
+  <rect class="white" x="536" y="118" width="28" height="28"/>
+  <rect class="white" x="564" y="118" width="28" height="28"/>
+  <rect class="white" x="592" y="118" width="28" height="28"/>
+  <rect class="white" x="620" y="118" width="28" height="28"/>
+  <rect class="white" x="648" y="118" width="28" height="28"/>
+  <text class="ms" x="442" y="165" text-anchor="end">3</text>
+  <rect class="white" x="452" y="146" width="28" height="28"/>
+  <polygon class="blue" points="452,146 480,146 480,174"/>
+  <rect class="white" x="480" y="146" width="28" height="28"/>
+  <rect class="dblue" x="480" y="146" width="28" height="28"/>
+  <rect class="white" x="508" y="146" width="28" height="28"/>
+  <rect class="dblue" x="508" y="146" width="28" height="28"/>
+  <rect class="white" x="536" y="146" width="28" height="28"/>
+  <polygon class="blue" points="536,146 536,174 564,174"/>
+  <rect class="white" x="564" y="146" width="28" height="28"/>
+  <rect class="white" x="592" y="146" width="28" height="28"/>
+  <rect class="white" x="620" y="146" width="28" height="28"/>
+  <rect class="white" x="648" y="146" width="28" height="28"/>
+  <text class="ms" x="442" y="193" text-anchor="end">4</text>
+  <rect class="white" x="452" y="174" width="28" height="28"/>
+  <rect class="white" x="480" y="174" width="28" height="28"/>
+  <polygon class="blue" points="480,174 508,174 508,202"/>
+  <rect class="white" x="508" y="174" width="28" height="28"/>
+  <rect class="dblue" x="508" y="174" width="28" height="28"/>
+  <rect class="white" x="536" y="174" width="28" height="28"/>
+  <rect class="dblue" x="536" y="174" width="28" height="28"/>
+  <rect class="white" x="564" y="174" width="28" height="28"/>
+  <polygon class="blue" points="564,174 564,202 592,202"/>
+  <rect class="white" x="592" y="174" width="28" height="28"/>
+  <rect class="white" x="620" y="174" width="28" height="28"/>
+  <rect class="white" x="648" y="174" width="28" height="28"/>
+  <text class="ms" x="442" y="221" text-anchor="end">5</text>
+  <rect class="white" x="452" y="202" width="28" height="28"/>
+  <rect class="white" x="480" y="202" width="28" height="28"/>
+  <rect class="white" x="508" y="202" width="28" height="28"/>
+  <polygon class="blue" points="508,202 536,202 536,230"/>
+  <rect class="white" x="536" y="202" width="28" height="28"/>
+  <rect class="dblue" x="536" y="202" width="28" height="28"/>
+  <rect class="white" x="564" y="202" width="28" height="28"/>
+  <rect class="dblue" x="564" y="202" width="28" height="28"/>
+  <rect class="white" x="592" y="202" width="28" height="28"/>
+  <polygon class="blue" points="592,202 592,230 620,230"/>
+  <rect class="white" x="620" y="202" width="28" height="28"/>
+  <rect class="white" x="648" y="202" width="28" height="28"/>
+  <text class="ms" x="442" y="249" text-anchor="end">6</text>
+  <rect class="white" x="452" y="230" width="28" height="28"/>
+  <rect class="white" x="480" y="230" width="28" height="28"/>
+  <rect class="white" x="508" y="230" width="28" height="28"/>
+  <rect class="white" x="536" y="230" width="28" height="28"/>
+  <polygon class="blue" points="536,230 564,230 564,258"/>
+  <rect class="white" x="564" y="230" width="28" height="28"/>
+  <rect class="dblue" x="564" y="230" width="28" height="28"/>
+  <rect class="white" x="592" y="230" width="28" height="28"/>
+  <rect class="dblue" x="592" y="230" width="28" height="28"/>
+  <rect class="white" x="620" y="230" width="28" height="28"/>
+  <polygon class="blue" points="620,230 620,258 648,258"/>
+  <rect class="white" x="648" y="230" width="28" height="28"/>
+  <text class="ms" x="442" y="277" text-anchor="end">7</text>
+  <rect class="white" x="452" y="258" width="28" height="28"/>
+  <rect class="white" x="480" y="258" width="28" height="28"/>
+  <rect class="white" x="508" y="258" width="28" height="28"/>
+  <rect class="white" x="536" y="258" width="28" height="28"/>
+  <rect class="white" x="564" y="258" width="28" height="28"/>
+  <polygon class="blue" points="564,258 592,258 592,286"/>
+  <rect class="white" x="592" y="258" width="28" height="28"/>
+  <rect class="dblue" x="592" y="258" width="28" height="28"/>
+  <rect class="white" x="620" y="258" width="28" height="28"/>
+  <rect class="dblue" x="620" y="258" width="28" height="28"/>
+  <rect class="white" x="648" y="258" width="28" height="28"/>
+  <polygon class="blue" points="648,258 648,286 676,286"/>
+  <rect class="dblue" x="20" y="299" width="16" height="16"/>
+  <text class="s" x="44" y="312">完整块：无 mask，纯 GEMM + softmax</text>
+  <text class="s" x="44" y="334">（主循环第一段）</text>
+  <rect class="white" x="20" y="343" width="16" height="16"/>
+  <polygon class="blue" points="20,343 20,359 36,359"/>
+  <text class="s" x="44" y="356">对角块：块内逐元素 mask</text>
+  <text class="s" x="44" y="378">（主循环第二段）</text>
+  <rect class="white" x="20" y="387" width="16" height="16"/>
+  <text class="s" x="44" y="400">空白：整块跳过，不读 K/V、不算</text>
+  <text class="s" x="44" y="422">→ FLOPs 与 KV 读取都省约一半</text>
+  <rect class="white" x="400" y="299" width="16" height="16"/>
+  <polygon class="blue" points="400,299 416,299 416,315"/>
+  <text class="s" x="424" y="312">左边界块：块内 mask 掉 j &lt; i − W + 1</text>
+  <text class="s" x="424" y="334">每个 Q 块最多跑 W/B<tspan dy="4" font-size="75%">c</tspan><tspan dy="-4">​</tspan> + 1 = 4 个 tile：</text>
+  <text class="s" x="424" y="356">O(N²) → O(N·W)</text>
+  <text class="s" x="424" y="378">右上仍然整块跳过</text>
+</svg>

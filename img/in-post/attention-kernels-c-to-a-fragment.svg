@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 406" width="760" height="406" role="img" aria-labelledby="t d">
+  <title id="t">C 累加器到 A fragment 的寄存器复用</title>
+  <desc id="d">mma.m16n8k16（BF16 → FP32）里，lane 的 g = lane/4（0..7），t = lane%4。C/D 累加器（16×8 FP32）的每个 n8 片中，lane 持有行 g 的列 2t、2t+1（c0、c1）和行 g+8 的同两列（c2、c3）。相邻两个 n8 片 acc_s[2kk]、acc_s[2kk+1] 并排正好是 A 操作数（16×16 BF16）的一个 k16 片 frag_p[kk]：A 中 lane 持有行 g 的列 2t、2t+1（a0、a1，reg0）和 2t+8、2t+9（a4、a5，reg2），行 g+8 的同样位置（a2、a3，reg1；a6、a7，reg3）。所以 acc_s[2kk] 的 c0c1、c2c3 变成 reg0、reg1，acc_s[2kk+1] 的 c0c1、c2c3 变成 reg2、reg3，只需 FP32 → BF16 pack 成 bf16x2，不经 smem。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="406" fill="#fff"/>
+  <text class="bb" x="20" y="24">mma.m16n8k16（BF16 → FP32）每个 lane 持有的元素：g = lane/4 (0..7)，t = lane%4</text>
+  <rect class="white" x="150" y="74" width="16" height="16"/>
+  <rect class="white" x="166" y="74" width="34" height="16"/>
+  <rect class="white" x="200" y="74" width="34" height="16"/>
+  <rect class="white" x="234" y="74" width="16" height="16"/>
+  <rect class="white" x="250" y="74" width="16" height="16"/>
+  <rect class="white" x="266" y="74" width="34" height="16"/>
+  <rect class="white" x="300" y="74" width="34" height="16"/>
+  <rect class="white" x="334" y="74" width="16" height="16"/>
+  <text class="s" x="142" y="108.0" text-anchor="end">行 g</text>
+  <rect class="white" x="150" y="90" width="16" height="26"/>
+  <rect class="dblue" x="166" y="90" width="34" height="26"/>
+  <text class="ms" x="183.0" y="108.0" text-anchor="middle">c0</text>
+  <rect class="dblue" x="200" y="90" width="34" height="26"/>
+  <text class="ms" x="217.0" y="108.0" text-anchor="middle">c1</text>
+  <rect class="white" x="234" y="90" width="16" height="26"/>
+  <rect class="white" x="250" y="90" width="16" height="26"/>
+  <rect class="orange" x="266" y="90" width="34" height="26"/>
+  <text class="ms" x="283.0" y="108.0" text-anchor="middle">c0</text>
+  <rect class="orange" x="300" y="90" width="34" height="26"/>
+  <text class="ms" x="317.0" y="108.0" text-anchor="middle">c1</text>
+  <rect class="white" x="334" y="90" width="16" height="26"/>
+  <rect class="white" x="150" y="116" width="16" height="16"/>
+  <rect class="white" x="166" y="116" width="34" height="16"/>
+  <rect class="white" x="200" y="116" width="34" height="16"/>
+  <rect class="white" x="234" y="116" width="16" height="16"/>
+  <rect class="white" x="250" y="116" width="16" height="16"/>
+  <rect class="white" x="266" y="116" width="34" height="16"/>
+  <rect class="white" x="300" y="116" width="34" height="16"/>
+  <rect class="white" x="334" y="116" width="16" height="16"/>
+  <text class="s" x="142" y="150.0" text-anchor="end">行 g+8</text>
+  <rect class="white" x="150" y="132" width="16" height="26"/>
+  <rect class="green" x="166" y="132" width="34" height="26"/>
+  <text class="ms" x="183.0" y="150.0" text-anchor="middle">c2</text>
+  <rect class="green" x="200" y="132" width="34" height="26"/>
+  <text class="ms" x="217.0" y="150.0" text-anchor="middle">c3</text>
+  <rect class="white" x="234" y="132" width="16" height="26"/>
+  <rect class="white" x="250" y="132" width="16" height="26"/>
+  <rect class="purple" x="266" y="132" width="34" height="26"/>
+  <text class="ms" x="283.0" y="150.0" text-anchor="middle">c2</text>
+  <rect class="purple" x="300" y="132" width="34" height="26"/>
+  <text class="ms" x="317.0" y="150.0" text-anchor="middle">c3</text>
+  <rect class="white" x="334" y="132" width="16" height="26"/>
+  <rect class="white" x="150" y="158" width="16" height="16"/>
+  <rect class="white" x="166" y="158" width="34" height="16"/>
+  <rect class="white" x="200" y="158" width="34" height="16"/>
+  <rect class="white" x="234" y="158" width="16" height="16"/>
+  <rect class="white" x="250" y="158" width="16" height="16"/>
+  <rect class="white" x="266" y="158" width="34" height="16"/>
+  <rect class="white" x="300" y="158" width="34" height="16"/>
+  <rect class="white" x="334" y="158" width="16" height="16"/>
+  <text class="ms" x="200.0" y="50" text-anchor="middle">acc_s[2kk]</text>
+  <text class="ms" x="183.0" y="68" text-anchor="middle">2t</text>
+  <text class="ms" x="217.0" y="68" text-anchor="middle">2t+1</text>
+  <text class="ms" x="300.0" y="50" text-anchor="middle">acc_s[2kk+1]</text>
+  <text class="ms" x="283.0" y="68" text-anchor="middle">2t</text>
+  <text class="ms" x="317.0" y="68" text-anchor="middle">2t+1</text>
+  <line class="mark" x1="250" y1="70" x2="250" y2="178"/>
+  <text class="s" x="366" y="104">C/D 累加器（16×8 FP32）</text>
+  <text class="s" x="366" y="124">两个相邻的 n8 片</text>
+  <line class="arr" x1="200.0" y1="174" x2="200.0" y2="230"/>
+  <line class="arr" x1="300.0" y1="174" x2="300.0" y2="230"/>
+  <text class="s" x="366" y="192">FP32 → BF16，pack 成 bf16x2</text>
+  <rect class="white" x="150" y="230" width="16" height="16"/>
+  <rect class="white" x="166" y="230" width="34" height="16"/>
+  <rect class="white" x="200" y="230" width="34" height="16"/>
+  <rect class="white" x="234" y="230" width="16" height="16"/>
+  <rect class="white" x="250" y="230" width="16" height="16"/>
+  <rect class="white" x="266" y="230" width="34" height="16"/>
+  <rect class="white" x="300" y="230" width="34" height="16"/>
+  <rect class="white" x="334" y="230" width="16" height="16"/>
+  <text class="s" x="142" y="264.0" text-anchor="end">行 g</text>
+  <rect class="white" x="150" y="246" width="16" height="26"/>
+  <rect class="dblue" x="166" y="246" width="34" height="26"/>
+  <text class="ms" x="183.0" y="264.0" text-anchor="middle">a0</text>
+  <rect class="dblue" x="200" y="246" width="34" height="26"/>
+  <text class="ms" x="217.0" y="264.0" text-anchor="middle">a1</text>
+  <rect class="white" x="234" y="246" width="16" height="26"/>
+  <rect class="white" x="250" y="246" width="16" height="26"/>
+  <rect class="orange" x="266" y="246" width="34" height="26"/>
+  <text class="ms" x="283.0" y="264.0" text-anchor="middle">a4</text>
+  <rect class="orange" x="300" y="246" width="34" height="26"/>
+  <text class="ms" x="317.0" y="264.0" text-anchor="middle">a5</text>
+  <rect class="white" x="334" y="246" width="16" height="26"/>
+  <rect class="white" x="150" y="272" width="16" height="16"/>
+  <rect class="white" x="166" y="272" width="34" height="16"/>
+  <rect class="white" x="200" y="272" width="34" height="16"/>
+  <rect class="white" x="234" y="272" width="16" height="16"/>
+  <rect class="white" x="250" y="272" width="16" height="16"/>
+  <rect class="white" x="266" y="272" width="34" height="16"/>
+  <rect class="white" x="300" y="272" width="34" height="16"/>
+  <rect class="white" x="334" y="272" width="16" height="16"/>
+  <text class="s" x="142" y="306.0" text-anchor="end">行 g+8</text>
+  <rect class="white" x="150" y="288" width="16" height="26"/>
+  <rect class="green" x="166" y="288" width="34" height="26"/>
+  <text class="ms" x="183.0" y="306.0" text-anchor="middle">a2</text>
+  <rect class="green" x="200" y="288" width="34" height="26"/>
+  <text class="ms" x="217.0" y="306.0" text-anchor="middle">a3</text>
+  <rect class="white" x="234" y="288" width="16" height="26"/>
+  <rect class="white" x="250" y="288" width="16" height="26"/>
+  <rect class="purple" x="266" y="288" width="34" height="26"/>
+  <text class="ms" x="283.0" y="306.0" text-anchor="middle">a6</text>
+  <rect class="purple" x="300" y="288" width="34" height="26"/>
+  <text class="ms" x="317.0" y="306.0" text-anchor="middle">a7</text>
+  <rect class="white" x="334" y="288" width="16" height="26"/>
+  <rect class="white" x="150" y="314" width="16" height="16"/>
+  <rect class="white" x="166" y="314" width="34" height="16"/>
+  <rect class="white" x="200" y="314" width="34" height="16"/>
+  <rect class="white" x="234" y="314" width="16" height="16"/>
+  <rect class="white" x="250" y="314" width="16" height="16"/>
+  <rect class="white" x="266" y="314" width="34" height="16"/>
+  <rect class="white" x="300" y="314" width="34" height="16"/>
+  <rect class="white" x="334" y="314" width="16" height="16"/>
+  <line class="mark" x1="250" y1="226" x2="250" y2="334"/>
+  <text class="ms" x="183.0" y="348" text-anchor="middle">2t</text>
+  <text class="ms" x="217.0" y="348" text-anchor="middle">2t+1</text>
+  <text class="ms" x="283.0" y="348" text-anchor="middle">2t+8</text>
+  <text class="ms" x="317.0" y="348" text-anchor="middle">2t+9</text>
+  <text class="s" x="250" y="368" text-anchor="middle">列（= k）</text>
+  <text class="s" x="20" y="392">红线：两个 n8 片的分界，也就是 k16 片的第 8 列</text>
+  <text class="s" x="366" y="214">A 操作数（16×16 BF16）</text>
+  <text class="s" x="366" y="240">一个 k16 片 frag_p[kk]</text>
+  <text class="ms" x="366" y="264">reg0 = (a0, a1)，reg2 = (a4, a5)</text>
+  <text class="ms" x="366" y="306">reg1 = (a2, a3)，reg3 = (a6, a7)</text>
+</svg>

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 204" width="760" height="204" role="img" aria-labelledby="t d">
+  <title id="t">block table：逻辑块到物理块</title>
+  <desc id="d">序列 s 的逻辑 KV 按 token 顺序切成逻辑块：token 0–15 是逻辑块 0，16–31 是逻辑块 1，32–47 是逻辑块 2，48–63 是逻辑块 3；block_table[s] 记录 [0] = 7、[1] = 2、[2] = 5、[3] = 4。物理 KV cache 是所有序列共用的 block 池，每块 16 token：块 7 放 s:0、块 2 放 s:1、块 5 放 s:2、块 4 放 s:3，块 6 空，其余块属于其他序列。序列 s 的 4 个块散落在 7、2、5、4，物理上不连续。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="204" fill="#fff"/>
+  <text class="s" x="20" y="24">序列 s 的逻辑 KV（按 token 顺序）</text>
+  <text class="m" x="250" y="24">block_table[s]</text>
+  <rect class="blue" x="20" y="40" width="170" height="30"/>
+  <text class="s" x="105" y="60" text-anchor="middle">token 0–15 = 逻辑块 0</text>
+  <line class="arr" x1="190" y1="55" x2="250" y2="55"/>
+  <rect class="white" x="250" y="40" width="80" height="30"/>
+  <text class="m" x="290" y="60" text-anchor="middle">[0] = 7</text>
+  <rect class="blue" x="20" y="80" width="170" height="30"/>
+  <text class="s" x="105" y="100" text-anchor="middle">token 16–31 = 逻辑块 1</text>
+  <line class="arr" x1="190" y1="95" x2="250" y2="95"/>
+  <rect class="white" x="250" y="80" width="80" height="30"/>
+  <text class="m" x="290" y="100" text-anchor="middle">[1] = 2</text>
+  <rect class="blue" x="20" y="120" width="170" height="30"/>
+  <text class="s" x="105" y="140" text-anchor="middle">token 32–47 = 逻辑块 2</text>
+  <line class="arr" x1="190" y1="135" x2="250" y2="135"/>
+  <rect class="white" x="250" y="120" width="80" height="30"/>
+  <text class="m" x="290" y="140" text-anchor="middle">[2] = 5</text>
+  <rect class="blue" x="20" y="160" width="170" height="30"/>
+  <text class="s" x="105" y="180" text-anchor="middle">token 48–63 = 逻辑块 3</text>
+  <line class="arr" x1="190" y1="175" x2="250" y2="175"/>
+  <rect class="white" x="250" y="160" width="80" height="30"/>
+  <text class="m" x="290" y="180" text-anchor="middle">[3] = 4</text>
+  <text class="s" x="372" y="24">物理 KV cache</text>
+  <text class="s" x="372" y="42">（所有序列共用的 block 池，每块 16 token）</text>
+  <text class="ms" x="395.0" y="78" text-anchor="middle">0</text>
+  <rect class="gray" x="372" y="86" width="46" height="34"/>
+  <text class="s" x="395.0" y="108" text-anchor="middle">其他</text>
+  <text class="ms" x="441.0" y="78" text-anchor="middle">1</text>
+  <rect class="gray" x="418" y="86" width="46" height="34"/>
+  <text class="s" x="441.0" y="108" text-anchor="middle">其他</text>
+  <text class="ms" x="487.0" y="78" text-anchor="middle">2</text>
+  <rect class="blue" x="464" y="86" width="46" height="34"/>
+  <text class="ms" x="487.0" y="108" text-anchor="middle">s:1</text>
+  <text class="ms" x="533.0" y="78" text-anchor="middle">3</text>
+  <rect class="gray" x="510" y="86" width="46" height="34"/>
+  <text class="s" x="533.0" y="108" text-anchor="middle">其他</text>
+  <text class="ms" x="579.0" y="78" text-anchor="middle">4</text>
+  <rect class="blue" x="556" y="86" width="46" height="34"/>
+  <text class="ms" x="579.0" y="108" text-anchor="middle">s:3</text>
+  <text class="ms" x="625.0" y="78" text-anchor="middle">5</text>
+  <rect class="blue" x="602" y="86" width="46" height="34"/>
+  <text class="ms" x="625.0" y="108" text-anchor="middle">s:2</text>
+  <text class="ms" x="671.0" y="78" text-anchor="middle">6</text>
+  <rect class="white" x="648" y="86" width="46" height="34"/>
+  <text class="s" x="671.0" y="108" text-anchor="middle">空</text>
+  <text class="ms" x="717.0" y="78" text-anchor="middle">7</text>
+  <rect class="blue" x="694" y="86" width="46" height="34"/>
+  <text class="ms" x="717.0" y="108" text-anchor="middle">s:0</text>
+  <text class="ms" x="366" y="78" text-anchor="end">blk</text>
+  <text class="s" x="372" y="144">序列 s 的 4 个块散落在 7、2、5、4，</text>
+  <text class="s" x="372" y="164">物理上不连续</text>
+</svg>

@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 536" width="760" height="536" role="img" aria-labelledby="t d">
+  <title id="t">K cache 一个 (block, kv_head) 内的布局</title>
+  <desc id="d">BF16 时 x = 8（16 B），block_size = 16，head_size = 128，共 16 个 dim 组。实际布局 [head_size/x][block_size][x]（x-major）：每个 dim 组一行，行内 16 个 token 各 16 B 连续，一行 256 B，第 8 个 token 处是 128 B cache line 边界。一个 warp 是 16 个 thread group（每组 2 线程），对应 16 个 token；第 j 轮 group g 读 token g 的 dim 组 j，线程 0 读前 8 B、线程 1 读后 8 B，32 段 8 B 落在同一行，256 B 连续 = 2 条 cache line，完美合并。若按 [block_size][head_size]（token 主序）存，每个 token 一行 256 B，16 个 token 的同一 dim 组相隔 256 B，散在 16 条 cache line 上。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+      .h { font-size: 15px; font-weight: 700; }
+      .b { font-size: 14px; }
+      .bb { font-size: 14px; font-weight: 700; }
+      .s { font-size: 13px; }
+      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
+      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .red { fill: #a3271f; }
+      .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
+      .green { fill: #dcefe2; stroke: #40566f; stroke-width: 1.2; }
+      .orange { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .purple { fill: #e9def5; stroke: #40566f; stroke-width: 1.2; }
+      .gray { fill: #e6e9ee; stroke: #40566f; stroke-width: 1.2; }
+      .white { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: #fff; stroke: #8a97a6; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.2; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .thin { stroke: #8a97a6; stroke-width: 1; fill: none; }
+      .arr { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#ah); }
+      .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="536" fill="#fff"/>
+  <text class="bb" x="20" y="24">K cache 一个 (block, kv_head) 内的布局 [head_size/x][block_size][x]</text>
+  <text class="s" x="20" y="46">BF16：x = 8（16 B），block_size = 16，head_size = 128 → 16 个 dim 组</text>
+  <text class="h" x="20" y="80">实际布局（x-major）：同一 dim 组的 16 个 token 连续</text>
+  <text class="ms" x="167.5" y="102" text-anchor="middle">0</text>
+  <text class="ms" x="202.5" y="102" text-anchor="middle">1</text>
+  <text class="ms" x="237.5" y="102" text-anchor="middle">2</text>
+  <text class="ms" x="272.5" y="102" text-anchor="middle">3</text>
+  <text class="ms" x="307.5" y="102" text-anchor="middle">4</text>
+  <text class="ms" x="342.5" y="102" text-anchor="middle">5</text>
+  <text class="ms" x="377.5" y="102" text-anchor="middle">6</text>
+  <text class="ms" x="412.5" y="102" text-anchor="middle">7</text>
+  <text class="ms" x="447.5" y="102" text-anchor="middle">8</text>
+  <text class="ms" x="482.5" y="102" text-anchor="middle">9</text>
+  <text class="ms" x="517.5" y="102" text-anchor="middle">10</text>
+  <text class="ms" x="552.5" y="102" text-anchor="middle">11</text>
+  <text class="ms" x="587.5" y="102" text-anchor="middle">12</text>
+  <text class="ms" x="622.5" y="102" text-anchor="middle">13</text>
+  <text class="ms" x="657.5" y="102" text-anchor="middle">14</text>
+  <text class="ms" x="692.5" y="102" text-anchor="middle">15</text>
+  <text class="s" x="142" y="102" text-anchor="end">token →</text>
+  <text class="ms" x="142" y="128" text-anchor="end">dim 组 0 (d 0–7)</text>
+  <rect class="dblue" x="150" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="167.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="185" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="202.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="220" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="237.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="255" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="272.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="290" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="307.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="325" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="342.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="360" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="377.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="395" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="412.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="430" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="447.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="465" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="482.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="500" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="517.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="535" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="552.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="570" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="587.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="605" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="622.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="640" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="657.5" y="110" width="17.5" height="26"/>
+  <rect class="dblue" x="675" y="110" width="17.5" height="26"/>
+  <rect class="orange" x="692.5" y="110" width="17.5" height="26"/>
+  <text class="ms" x="142" y="154" text-anchor="end">dim 组 1 (d 8–15)</text>
+  <rect class="white" x="150" y="136" width="35" height="26"/>
+  <rect class="white" x="185" y="136" width="35" height="26"/>
+  <rect class="white" x="220" y="136" width="35" height="26"/>
+  <rect class="white" x="255" y="136" width="35" height="26"/>
+  <rect class="white" x="290" y="136" width="35" height="26"/>
+  <rect class="white" x="325" y="136" width="35" height="26"/>
+  <rect class="white" x="360" y="136" width="35" height="26"/>
+  <rect class="white" x="395" y="136" width="35" height="26"/>
+  <rect class="white" x="430" y="136" width="35" height="26"/>
+  <rect class="white" x="465" y="136" width="35" height="26"/>
+  <rect class="white" x="500" y="136" width="35" height="26"/>
+  <rect class="white" x="535" y="136" width="35" height="26"/>
+  <rect class="white" x="570" y="136" width="35" height="26"/>
+  <rect class="white" x="605" y="136" width="35" height="26"/>
+  <rect class="white" x="640" y="136" width="35" height="26"/>
+  <rect class="white" x="675" y="136" width="35" height="26"/>
+  <text class="ms" x="142" y="180" text-anchor="end">…</text>
+  <text class="b" x="430" y="180" text-anchor="middle">…</text>
+  <text class="ms" x="142" y="206" text-anchor="end">dim 组 15</text>
+  <rect class="white" x="150" y="188" width="35" height="26"/>
+  <rect class="white" x="185" y="188" width="35" height="26"/>
+  <rect class="white" x="220" y="188" width="35" height="26"/>
+  <rect class="white" x="255" y="188" width="35" height="26"/>
+  <rect class="white" x="290" y="188" width="35" height="26"/>
+  <rect class="white" x="325" y="188" width="35" height="26"/>
+  <rect class="white" x="360" y="188" width="35" height="26"/>
+  <rect class="white" x="395" y="188" width="35" height="26"/>
+  <rect class="white" x="430" y="188" width="35" height="26"/>
+  <rect class="white" x="465" y="188" width="35" height="26"/>
+  <rect class="white" x="500" y="188" width="35" height="26"/>
+  <rect class="white" x="535" y="188" width="35" height="26"/>
+  <rect class="white" x="570" y="188" width="35" height="26"/>
+  <rect class="white" x="605" y="188" width="35" height="26"/>
+  <rect class="white" x="640" y="188" width="35" height="26"/>
+  <rect class="white" x="675" y="188" width="35" height="26"/>
+  <line class="mark" x1="430" y1="104" x2="430" y2="142"/>
+  <text class="ms" x="716" y="128">256 B</text>
+  <text class="s" x="430" y="232" text-anchor="middle">↑ 128 B cache line 边界</text>
+  <text class="s" x="20" y="260">一个 warp = 16 个 thread group（每组 2 线程）= 16 个 token。第 j 轮（图中 j = 0）：</text>
+  <text class="s" x="20" y="280">group g 读 token g 的 dim 组 j，线程 0 读前 8 B，线程 1 读后 8 B</text>
+  <text class="s" x="20" y="300">→ 32 段 8 B 落在同一行，256 B 连续 = 2 条 cache line，完美合并</text>
+  <rect class="dblue" x="20" y="312" width="14" height="14"/>
+  <text class="s" x="40" y="324">线程 0 的 8 B</text>
+  <rect class="orange" x="150" y="312" width="14" height="14"/>
+  <text class="s" x="170" y="324">线程 1 的 8 B</text>
+  <text class="h" x="20" y="364">若按 [block_size][head_size]（token 主序）存</text>
+  <text class="ms" x="167.5" y="386" text-anchor="middle">0</text>
+  <text class="ms" x="202.5" y="386" text-anchor="middle">1</text>
+  <text class="ms" x="237.5" y="386" text-anchor="middle">2</text>
+  <text class="ms" x="272.5" y="386" text-anchor="middle">3</text>
+  <text class="ms" x="307.5" y="386" text-anchor="middle">4</text>
+  <text class="ms" x="342.5" y="386" text-anchor="middle">5</text>
+  <text class="ms" x="377.5" y="386" text-anchor="middle">6</text>
+  <text class="ms" x="412.5" y="386" text-anchor="middle">7</text>
+  <text class="ms" x="447.5" y="386" text-anchor="middle">8</text>
+  <text class="ms" x="482.5" y="386" text-anchor="middle">9</text>
+  <text class="ms" x="517.5" y="386" text-anchor="middle">10</text>
+  <text class="ms" x="552.5" y="386" text-anchor="middle">11</text>
+  <text class="ms" x="587.5" y="386" text-anchor="middle">12</text>
+  <text class="ms" x="622.5" y="386" text-anchor="middle">13</text>
+  <text class="ms" x="657.5" y="386" text-anchor="middle">14</text>
+  <text class="ms" x="692.5" y="386" text-anchor="middle">15</text>
+  <text class="s" x="142" y="386" text-anchor="end">dim 组 →</text>
+  <text class="ms" x="142" y="412" text-anchor="end">token 0</text>
+  <rect class="dblue" x="150" y="394" width="17.5" height="26"/>
+  <rect class="orange" x="167.5" y="394" width="17.5" height="26"/>
+  <rect class="white" x="185" y="394" width="35" height="26"/>
+  <rect class="white" x="220" y="394" width="35" height="26"/>
+  <rect class="white" x="255" y="394" width="35" height="26"/>
+  <rect class="white" x="290" y="394" width="35" height="26"/>
+  <rect class="white" x="325" y="394" width="35" height="26"/>
+  <rect class="white" x="360" y="394" width="35" height="26"/>
+  <rect class="white" x="395" y="394" width="35" height="26"/>
+  <rect class="white" x="430" y="394" width="35" height="26"/>
+  <rect class="white" x="465" y="394" width="35" height="26"/>
+  <rect class="white" x="500" y="394" width="35" height="26"/>
+  <rect class="white" x="535" y="394" width="35" height="26"/>
+  <rect class="white" x="570" y="394" width="35" height="26"/>
+  <rect class="white" x="605" y="394" width="35" height="26"/>
+  <rect class="white" x="640" y="394" width="35" height="26"/>
+  <rect class="white" x="675" y="394" width="35" height="26"/>
+  <text class="ms" x="142" y="438" text-anchor="end">token 1</text>
+  <rect class="dblue" x="150" y="420" width="17.5" height="26"/>
+  <rect class="orange" x="167.5" y="420" width="17.5" height="26"/>
+  <rect class="white" x="185" y="420" width="35" height="26"/>
+  <rect class="white" x="220" y="420" width="35" height="26"/>
+  <rect class="white" x="255" y="420" width="35" height="26"/>
+  <rect class="white" x="290" y="420" width="35" height="26"/>
+  <rect class="white" x="325" y="420" width="35" height="26"/>
+  <rect class="white" x="360" y="420" width="35" height="26"/>
+  <rect class="white" x="395" y="420" width="35" height="26"/>
+  <rect class="white" x="430" y="420" width="35" height="26"/>
+  <rect class="white" x="465" y="420" width="35" height="26"/>
+  <rect class="white" x="500" y="420" width="35" height="26"/>
+  <rect class="white" x="535" y="420" width="35" height="26"/>
+  <rect class="white" x="570" y="420" width="35" height="26"/>
+  <rect class="white" x="605" y="420" width="35" height="26"/>
+  <rect class="white" x="640" y="420" width="35" height="26"/>
+  <rect class="white" x="675" y="420" width="35" height="26"/>
+  <text class="ms" x="142" y="464" text-anchor="end">…</text>
+  <text class="b" x="430" y="464" text-anchor="middle">…</text>
+  <text class="ms" x="142" y="490" text-anchor="end">token 15</text>
+  <rect class="dblue" x="150" y="472" width="17.5" height="26"/>
+  <rect class="orange" x="167.5" y="472" width="17.5" height="26"/>
+  <rect class="white" x="185" y="472" width="35" height="26"/>
+  <rect class="white" x="220" y="472" width="35" height="26"/>
+  <rect class="white" x="255" y="472" width="35" height="26"/>
+  <rect class="white" x="290" y="472" width="35" height="26"/>
+  <rect class="white" x="325" y="472" width="35" height="26"/>
+  <rect class="white" x="360" y="472" width="35" height="26"/>
+  <rect class="white" x="395" y="472" width="35" height="26"/>
+  <rect class="white" x="430" y="472" width="35" height="26"/>
+  <rect class="white" x="465" y="472" width="35" height="26"/>
+  <rect class="white" x="500" y="472" width="35" height="26"/>
+  <rect class="white" x="535" y="472" width="35" height="26"/>
+  <rect class="white" x="570" y="472" width="35" height="26"/>
+  <rect class="white" x="605" y="472" width="35" height="26"/>
+  <rect class="white" x="640" y="472" width="35" height="26"/>
+  <rect class="white" x="675" y="472" width="35" height="26"/>
+  <text class="ms" x="716" y="412">256 B</text>
+  <text class="s" x="20" y="522">同样读 16 个 token 的 dim 组 0：相邻两次访问相隔 256 B，散在 16 条 cache line 上</text>
+</svg>
