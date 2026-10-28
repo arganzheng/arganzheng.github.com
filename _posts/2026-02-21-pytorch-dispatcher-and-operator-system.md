@@ -511,36 +511,40 @@ Dispatcher 收集所有输入 Tensor 的 DispatchKey，并合并当前线程的�
 |---|---|---|
 | 输入 | `x`：CUDA Tensor，`requires_grad=True` | `{AutogradCUDA, ADInplaceOrView, CUDA}` |
 | ^^ | `y`：CUDA Tensor，`requires_grad=False` | `{AutogradCUDA, ADInplaceOrView, CUDA}`，和 `x` 一样 |
-| TLS | 普通状态 / `no_grad` | excluded 里没有 Autograd（`no_grad` 只改 GradMode 标志） |
+| TLS | 普通状态 / `no_grad` | included 含 ADInplaceOrView；excluded 里没有 Autograd（`no_grad` 只改 GradMode 标志） |
 | ^^ | `inference_mode` | excluded 加入 Autograd 一族；ADInplaceOrView 不进 excluded，只从 included 里拿掉 |
-| 合并结果 | 普通 / `no_grad` | `{AutogradCUDA, ADInplaceOrView, CUDA}` → 最高优先级 AutogradCUDA |
-| ^^ | `inference_mode` | `{CUDA}` → 直接 CUDA（输入自带的 ADInplaceOrView 在 `add` 上是 fallthrough，查表前被掩掉） |
+| 合并结果 | 普通 / `no_grad` | `{AutogradCUDA, ADInplaceOrView, CUDA}` |
+| ^^ | `inference_mode` | `{ADInplaceOrView, CUDA}`（ADInplaceOrView 是输入 Tensor 自带的） |
+| 掩掉 fallthrough | 普通 / `no_grad` | ADInplaceOrView 在 `add` 上是 fallthrough，去掉后 `{AutogradCUDA, CUDA}` → 最高优先级 AutogradCUDA |
+| ^^ | `inference_mode` | 去掉 ADInplaceOrView 后 `{CUDA}` → 直接 CUDA |
 
 Table: no_grad 与 inference_mode 下 DispatchKeySet 的合并结果
 
-这一步的合并是位运算：各输入的 KeySet 做 OR，再叠加线程局部（TLS）的 include 集合、减去 exclude 集合，最后取最高优先级的 Key：
+这一步的合并是位运算：各输入的 KeySet 做 OR，再叠加线程局部（TLS）的 include 集合、减去 exclude 集合，再掩掉这个算子上注册成 fallthrough 的 Key（`DispatchKeyExtractor.h` 的 `computeDispatchKeySet`），最后取最高优先级的 Key：
 
 ```mermaid
-%% 图：合并 DispatchKeySet：各输入 KeySet 做 OR，叠加 TLS 的 include、减去 exclude
+%% 图：合并 DispatchKeySet：各输入 KeySet 做 OR，叠加 TLS 的 include、减去 exclude，再掩掉 fallthrough Key
 flowchart TB
     TX["x: CUDA Tensor, requires_grad=True<br/>KeySet = #123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
     TY["y: CUDA Tensor, requires_grad=False<br/>KeySet 相同（requires_grad 不在 KeySet 里）"]
-    TLS["线程局部状态 TLS<br/>inference_mode → excluded 加入 Autograd 一族<br/>torch.func / tracing → included 加入相应 Key<br/>（no_grad 不在这里：它只改 GradMode 标志）"]
+    TLS["线程局部状态 TLS<br/>普通状态 → included 含 ADInplaceOrView<br/>inference_mode → excluded 加入 Autograd 一族，included 去掉 ADInplaceOrView<br/>torch.func / tracing → included 加入相应 Key<br/>（no_grad 不在这里：它只改 GradMode 标志）"]
     OR["OR 合并所有输入的 KeySet<br/>#123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
-    MERGE["加上 TLS included，减去 TLS excluded"]
-    KS["本次调用的 DispatchKeySet<br/>普通 / no_grad：#123;AutogradCUDA, ADInplaceOrView, CUDA#125;<br/>inference_mode：#123;CUDA#125;"]
+    MERGE["加上 TLS included，减去 TLS excluded<br/>普通 / no_grad：#123;AutogradCUDA, ADInplaceOrView, CUDA#125;<br/>inference_mode：#123;ADInplaceOrView, CUDA#125;"]
+    MASK["掩掉 add 上的 fallthrough Key<br/>（ADInplaceOrView）"]
+    KS["本次调用的 DispatchKeySet<br/>普通 / no_grad：#123;AutogradCUDA, CUDA#125;<br/>inference_mode：#123;CUDA#125;"]
     TOP["取最高优先级 Key<br/>AutogradCUDA（或 inference_mode 下的 CUDA）"]
     TX --> OR
     TY --> OR
     OR --> MERGE
     TLS --> MERGE
-    MERGE --> KS --> TOP
+    MERGE --> MASK --> KS --> TOP
     classDef input fill:#e3f2fd,stroke:#1565c0;
     classDef ctx fill:#fff3e0,stroke:#ef6c00;
     classDef result fill:#e8f5e9,stroke:#2e7d32;
     class TX,TY input;
     class TLS ctx;
     class KS,TOP result;
+    class MASK ctx;
 ```
 
 如果输入位于不同设备，会在这一步报错，而不是随便选一个 Kernel。
@@ -563,19 +567,19 @@ flowchart TB
 
 包装 Key 的优先级高于后端 Key。以 Autograd 为例：
 
-1. DispatchKeySet = {AutogradCUDA, CUDA}，取 AutogradCUDA；
+1. 合并得 {AutogradCUDA, ADInplaceOrView, CUDA}，掩掉 `add` 上 fallthrough 的 ADInplaceOrView，DispatchKeySet = {AutogradCUDA, CUDA}，取 AutogradCUDA；
 2. Autograd 包装实现（Codegen 生成）：
    - 检查 requires_grad，记录 AddBackward0，保存反向所需的值；
-   - 从 KeySet 中去掉 Autograd，再次调用 Dispatcher；
+   - 用 `ks & after_autograd_keyset` 从 KeySet 中去掉 Autograd，剩 {CUDA}，再次调用 Dispatcher；
 3. 取 CUDA，进入后端实现 at::native::add。
 
 按时间顺序看，一次 `add` 调用会两次经过 Dispatcher：
 
 ![一次 add 调用两次经过 Dispatcher：先命中 AutogradCUDA 包装，去掉 Autograd 后再分发到 CUDA kernel](/img/in-post/pytorch-dispatcher-add-two-dispatches.svg)
 
-1. Dispatcher：KeySet = AutogradCUDA + CUDA，取最高优先级 AutogradCUDA，第一次分发到 Autograd 包装。
-2. AutogradCUDA 包装：检查 requires_grad，创建 AddBackward0，保存反向所需的值；`AutoDispatchBelowADInplaceOrView` 把 Autograd 和 ADInplaceOrView 加入 TLS excluded，再次调用 `add.Tensor(x, y)`。
-3. Dispatcher：KeySet 去掉 Autograd 后只剩 CUDA，第二次分发到 CUDA kernel。
+1. Dispatcher：KeySet = {AutogradCUDA, CUDA}（ADInplaceOrView 已作为 fallthrough 掩掉），取最高优先级 AutogradCUDA，第一次分发到 Autograd 包装。
+2. AutogradCUDA 包装：检查 requires_grad，创建 AddBackward0，保存反向所需的值；用 `ks & after_autograd_keyset` 再次调用 `add.Tensor(x, y)`；同时 `AutoDispatchBelowADInplaceOrView` 把 Autograd 和 ADInplaceOrView 加入 TLS excluded，管的是 kernel 里再嵌套调用的算子。
+3. Dispatcher：KeySet 去掉 Autograd 后只剩 {CUDA}，第二次分发到 CUDA kernel。
 4. CUDA kernel：`at::native::add` → TensorIterator → launch CUDA Kernel，返回结果 Tensor。
 5. Autograd 包装给结果挂上 `grad_fn = AddBackward0`，返回 z（带 grad_fn）。
 
@@ -583,7 +587,7 @@ flowchart TB
 
 这就是“Autograd Kernel 与设备 Kernel 是什么关系”的答案：Autograd 是注册在包装 Key 上的一层实现，通过**再次分发**串联到后端实现。Functionalize、Python Dispatch、Vmap 都是同样的机制。
 
-在 `torch.no_grad()` 中，Autograd 包装层**仍然被命中**——它读到 GradMode 关闭，跳过记录 `grad_fn` 那一步，直接再分发到 CUDA；省的是建图的工作，不是分发的那一跳。要连这一跳也省掉，用 `torch.inference_mode()`：它把 Autograd Key 加入 TLS 的 excluded 集合，DispatchKeySet 直接是 `{CUDA}`。
+在 `torch.no_grad()` 中，Autograd 包装层**仍然被命中**——它读到 GradMode 关闭，跳过记录 `grad_fn` 那一步，直接再分发到 CUDA；省的是建图的工作，不是分发的那一跳。要连这一跳也省掉，用 `torch.inference_mode()`：它把 Autograd Key 加入 TLS 的 excluded 集合，剩下的 ADInplaceOrView 在 `add` 上是 fallthrough，DispatchKeySet 直接是 `{CUDA}`。
 
 ### 5. Dispatcher 不是简单的 if/else
 
@@ -634,7 +638,7 @@ Composite 实现调用子算子，每个子算子都是一次完整的 `at::xxx 
 with torch.device("meta"):
     x = torch.empty(2, 3)
     y = torch.empty(3)
-    z = x + y          # DispatchKeySet = {Meta}
+    z = x + y          # DispatchKeySet = {AutogradMeta, Meta}，最终落到 Meta
 print(z.shape)         # torch.Size([2, 3])
 ```
 
@@ -668,7 +672,7 @@ z = torch.add(x, y)
 
 1. **入口**：`torch.add` → Python Binding 解析参数 → `at::add(x, y)`
 2. **分发**：查 Operator Table 取 Schema，校验参数
-   - DispatchKeySet = {AutogradCUDA, CUDA}
+   - DispatchKeySet = {AutogradCUDA, CUDA}（ADInplaceOrView 是 fallthrough，已掩掉）
    - 取 AutogradCUDA → Autograd 包装：记录 AddBackward0，去掉 Autograd Key，再次分发
    - 取 CUDA → `at::native::add`
 3. **执行**：TensorIterator 对齐 shape / dtype / stride，划分迭代空间
@@ -692,13 +696,15 @@ flowchart TB
 
 | 上下文 | DispatchKeySet | 路径 |
 |---|---|---|
-| CUDA + `no_grad` | `{AutogradCUDA, …, CUDA}` | 仍进 Autograd 包装，读到 GradMode 关闭不记录 `grad_fn`，再分发到 CUDA Kernel |
+| CUDA + `no_grad` | `{AutogradCUDA, CUDA}` | 仍进 Autograd 包装，读到 GradMode 关闭不记录 `grad_fn`，再分发到 CUDA Kernel |
 | CUDA + `inference_mode` | `{CUDA}` | Autograd Key 被 TLS excluded 剔除，直接 `at::native::add` → TensorIterator → CUDA Kernel |
-| CPU，输入都不需梯度 | `{AutogradCPU, …, CPU}` | Autograd 包装发现没有输入 `requires_grad`，不记录，再分发 → TensorIterator → 向量化 CPU Kernel |
-| Meta | `{Meta}` | `add_meta` → 只推断元数据，无 Kernel |
-| 自定义后端未注册 `add` | `{PrivateUse1}` | fallback 或 `NotImplementedError` |
+| CPU，输入都不需梯度 | `{AutogradCPU, CPU}` | Autograd 包装发现没有输入 `requires_grad`，不记录，再分发 → TensorIterator → 向量化 CPU Kernel |
+| Meta | `{AutogradMeta, Meta}` | Autograd 包装不记录，再分发 → `add_meta` → 只推断元数据，无 Kernel |
+| 自定义后端未注册 `add` | `{AutogradPrivateUse1, PrivateUse1}` | Autograd 包装后再分发到 PrivateUse1 → fallback 或 `NotImplementedError` |
 
 Table: 不同上下文下的 DispatchKeySet 与路径
+
+表里写的是掩掉 fallthrough 之后真正用来查表的集合：每个普通 Tensor 自带的 ADInplaceOrView 对 `add` 都是 fallthrough，所以都不出现。
 
 开发态填好的表不变，变化的只是运行态查到的槽位。
 
@@ -834,4 +840,4 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-[^q0]: 是 **Dispatcher**，依据一张按算子组织的注册表（Operator Table）。开发态：`native_functions.yaml` 定义算子的 Schema 与 `dispatch` 字段，实现写在 `ATen/native/`，Codegen 生成注册代码、C++ 入口与 Python 绑定，全部登进 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存 `KernelFunction`（[第二](#二开发态1定义算子)至[五章](#五开发态横向机制codegen)）。运行态：`torch.add(x, y)` → Python 绑定解析参数 → `at::add` → `Dispatcher::call` 从参数 Tensor 的 `DispatchKeySet`（设备、是否需要梯度）加上 TLS 里的 include / exclude 取最高优先级的 key 查表——Autograd 先命中，记录 `grad_fn` 后把自己排除再重新分发，落到 CPU / CUDA 的 kernel；autocast、Functionalize、Python 子类拦截都是这条链上的一个 key（[第六](#六运行态1入口)至[九章](#九串起来add-的完整路径)）。所以一次算子调用实际经过一串按优先级排列的层，每层做完自己的事再交给下一层。
+[^q0]: 是 **Dispatcher**，依据一张按算子组织的注册表（Operator Table）。开发态：`native_functions.yaml` 定义算子的 Schema 与 `dispatch` 字段，实现写在 `ATen/native/`，Codegen 生成注册代码、C++ 入口与 Python 绑定，全部登进 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存 `KernelFunction`（[第二](#二开发态1定义算子)至[五章](#五开发态横向机制codegen)）。运行态：`torch.add(x, y)` → Python 绑定解析参数 → `at::add` → `Dispatcher::call` 从参数 Tensor 的 `DispatchKeySet`（后端 key 加 Autograd、ADInplaceOrView 等功能 key，和 `requires_grad` 无关）加上 TLS 里的 include / exclude、掩掉 fallthrough 后取最高优先级的 key 查表——Autograd 先命中，记录 `grad_fn` 后把自己排除再重新分发，落到 CPU / CUDA 的 kernel；autocast、Functionalize、Python 子类拦截都是这条链上的一个 key（[第六](#六运行态1入口)至[九章](#九串起来add-的完整路径)）。所以一次算子调用实际经过一串按优先级排列的层，每层做完自己的事再交给下一层。
