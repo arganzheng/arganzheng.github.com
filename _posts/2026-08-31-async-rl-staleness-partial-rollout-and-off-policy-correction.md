@@ -8,6 +8,15 @@ catalog: true
 updated: 2026-09-14
 ---
 
+<style>
+.post-container .table-responsive .async-rl-table th,
+.post-container .table-responsive .async-rl-table td { white-space: normal; overflow-wrap: anywhere; }
+.post-container #async-rl-diagnostic { min-width: 640px; }
+.post-container .table-tools-anchor:has(> .async-rl-table) > .table-tools {
+  position: static; width: max-content; margin: 0 0 16px auto; opacity: 1;
+}
+</style>
+
 第二篇的结论是异步把长尾吞掉、把一步的墙钟从 12 分钟压到 5 分钟。代价写得很轻："样本过期"。这一篇把这个代价展开——它其实是三个不同的东西，各有各的机制、各有各的信号，混在一起时 reward 曲线只会告诉你"变缓了"，不会告诉你为什么。
 
 第一个是 **staleness**：训练用第 $$t$$ 步的权重更新，样本由第 $$t - k$$ 步的权重生成，重要性比 $$\pi_\theta / \pi_{old}$$ 偏离 1，PPO 的 clip 开始大量触发；更隐蔽的是，**过期程度与回答长度相关**——长回答生成得慢、更容易过期——所以"丢弃过期样本"这个看似中性的策略会系统性地丢掉长回答，改变训练数据的长度分布。第二个是**训推不一致**：推理引擎（vLLM，可能 FP8，FlashInfer 的 attention，TP 的 all-reduce 顺序）算出的 $$\log \pi$$ 与训练器（FSDP，bf16，FlashAttention）算出的**本来就不同**，哪怕权重逐位相同；这个差在 dense 模型上每 token $$10^{-3}$$ 量级，在 MoE 上因为路由的不连续可以大一个数量级，8K token 的序列级比值会爆——它是一种与异步无关、但在异步里被放大的 off-policy。第三个是**缓冲区的淘汰规则**：DAPO 过滤掉全对 / 全错的组、失败的 rollout 被丢、过期的被 drop——每一条规则都在改变进入训练的样本分布，而它们的效果与前两者纠缠在一起。
@@ -24,35 +33,41 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 230}}}%%
-%% 图：异步拆掉同步的墙之后的三种「样本过期」：staleness、部分 rollout、训推不一致
+%% 图：异步训练的三个 off-policy 来源
 flowchart TB
-    S["同步：所有 rollout 用同一版权重，训练等最长的那条回答"] -- "拆掉墙：生成与训练同时跑" --> A["异步：训练器用「上一版或更早」权重生成的样本"]
-    A --> C1["<b>staleness</b>（第二章）<br/>样本是几版之前的策略生成的？<br/>信号：版本差的分布"]
-    A --> C2["<b>部分 rollout</b>（第三章）<br/>一条回答生成到一半权重换了，<br/>前半段和后半段是两个策略写的"]
-    A --> C3["<b>训推不一致</b>（第五章）<br/>推理引擎的 logprob ≠ 训练器的 logprob<br/>（kernel、精度、采样实现不同）"]
-    C1 & C2 & C3 --> F["reward 曲线只会告诉你「变缓了」——<br/>三个各有各的机制、各有各的信号、各有各的修正（重要性采样、裁剪、丢弃）"]
-
+    S["同步：所有 rollout 用同一版权重<br/>训练等最长的那条回答"] -- "拆掉墙：生成与训练同时跑" --> A["异步：训练器消费上一版<br/>或更早权重生成的样本"]
+    A --> C1["staleness（第二章）"]
+    A --> C2["训推不一致（第五章）"]
+    A --> C3["缓冲淘汰（第六章）"]
+    C1 & C2 & C3 --> F["reward 曲线：斜率变缓"]
 ```
 
+- **staleness**：样本是几版之前的策略生成的？先看版本差的分布。部分 rollout（第三章）让一条回答跨版本续接：生成到一半换了权重，前半段和后半段由不同策略生成；它是控制长回答过期的办法，不是第三个独立来源。
+- **训推不一致**：推理引擎的 logprob ≠ 训练器的 logprob，kernel、精度、采样实现都可能不同；同步形态下也存在。
+- **缓冲淘汰**：DAPO、失败丢弃、过期 drop 改变了进入训练的样本分布。
+
+reward 曲线本身分不出这三个原因。要靠各自的信号，再选重要性采样、裁剪、丢弃等处理。
 
 ### 1. 墙钟降了一半、reward 斜率变缓：先怀疑谁
 
 三个原因、三组信号、三种处理：
 
+{: .async-rl-table}
 | 原因 | 机制 | 事前要记的信号 | 处理 |
 |---|---|---|---|
-| staleness | 样本由 k 步前的权重生成，ρ 偏离 1；drop 策略偏向短回答 | 每条样本 (生成版本, 训练版本)<br/>staleness 分布<br/>被 drop 样本的长度 vs 全体<br/>clip 触发比例 | staleness 上限（drop / wait）<br/>decoupled loss<br/>k 调小、同步调频 |
-| 训推不一致 | 推理引擎与训练器算的 log π 不同（kernel、精度、reduce 顺序、MoE 路由） | 逐 token \ | log π_rollout − log π_train\ | 的均值 / 最大<br/>序列级比值分布<br/>MoE 的专家命中一致率 | 重算 old_log_prob<br/>TIS / MIS<br/>统一精度（FP16）<br/>确定性 |
+| staleness | 样本由 k 步前的权重生成，ρ 偏离 1；drop 策略偏向短回答 | 每条样本 (生成版本, 训练版本)<br/>staleness 分布<br/>被 drop 样本的长度 vs 全体<br/>clip 触发比例 | staleness 上限（drop / wait）<br/>decoupled loss<br/>缩短生成 / 缓冲等待；同步频率另看第七章 |
+| 训推不一致 | 推理引擎与训练器算的 log π 不同（kernel、精度、reduce 顺序、MoE 路由） | 逐 token $$\lvert\log \pi_{rollout} - \log \pi_{train}\rvert$$ 的均值 / 最大<br/>序列级比值分布<br/>MoE 的专家命中一致率 | 重算 old_log_prob<br/>TIS / MIS<br/>统一精度（FP16）<br/>确定性 |
 | 缓冲淘汰 | DAPO 过滤、失败组、过期 drop、补发改变了进入训练的分布 | 每类淘汰的计数<br/>被淘汰组的 reward / 长度分布<br/>缓冲深度<br/>被训练样本的长度分布 vs 生成的 | 调阈值<br/>wait 代替 drop<br/>按 reward 分层监控 |
 
 Table: off-policy 的三个原因、要记的信号与处理
 
-三个原因在 reward 曲线上不可分，在这些信号上可分：staleness 涨、不一致不变、淘汰不变——是 $$k$$ 太大或同步太慢；不一致涨（尤其换了 FP8 或 MoE 后）——与异步无关，同步形态下也会有，只是异步让它更难被发现；淘汰计数涨、被训练样本变短——是规则在筛数据。**没有事前记录，这三者事后无法区分**，因为它们都表现为"重要性比偏离 1 + reward 斜率变缓"。
+三个原因在 reward 曲线上不可分，在这些信号上可分：staleness 涨、不一致不变、淘汰不变——先查生成用时与缓冲等待，再查参数漂移；同一权重下的不一致涨（尤其换了 FP8 或 MoE 后）——同步形态下也会有；淘汰计数涨、被训练样本变短——是规则在筛数据。这里别把样本落后的版本数与第七章的同步频率 $$k$$ 混用：后者越大，同样用时跨越的版本数反而越少。**没有事前记录，这三者事后无法区分**，因为它们都表现为"重要性比偏离 1 + reward 斜率变缓"。
 
 ### 2. off-policy 的三个来源
 
 在线 RL 假设训练的样本来自当前策略。异步系统里有三处偏离：
 
+{: .async-rl-table}
 | 来源 | 偏离的方向 | 大小 | 是否可控 |
 |---|---|---|---|
 | 时间（staleness） | π_old = π_{θ_{t−k}}，与 π_θ 差 k 步更新 | 随 k、学习率、步内更新次数增长 | 可控：k 上限、同步频率 |
@@ -65,6 +80,7 @@ Table: 异步系统里训练样本偏离当前策略的三处来源
 
 ### 3. 本文的章节安排
 
+{: .async-rl-table}
 | 章 | 内容 | 回答的问题 |
 |---|---|---|
 | 二 | staleness | 定义、分布、上限策略，drop 为什么偏向短回答 |
@@ -83,10 +99,11 @@ Table: 本文的章节安排
 
 ### 1. 定义
 
-一条样本的 staleness $$s$$ = 训练它时的策略版本 − 生成它时的策略版本。同步形态 $$s \equiv 0$$；一步流水 $$s \equiv 1$$；流式异步下 $$s$$ 是一个**分布**：样本 $$i$$ 在版本 $$v_i$$ 下开始生成、用时 $$\tau_i$$ 完成、进缓冲、等 $$w_i$$ 被取出训练，期间权重同步了若干次，$$s_i = \lfloor (\tau_i + w_i) / T_{sync} \rfloor$$，$$T_{sync}$$ 是同步间隔（异步下 = $$k$$ 个 mini-batch 的训练时间）。
+一条样本的 staleness $$s$$ = 训练它时的策略版本 − 生成它时的策略版本。同步形态 $$s \equiv 0$$；一步流水 $$s \equiv 1$$；流式异步下 $$s$$ 是一个**分布**：样本 $$i$$ 在版本 $$v_i$$ 下开始生成、用时 $$\tau_i$$ 完成、进缓冲、等 $$w_i$$ 被取出训练，期间权重同步了若干次。按固定同步间隔估算，$$s_i \approx \lfloor (\tau_i + w_i) / T_{sync} \rfloor$$，$$T_{sync}$$ 是同步间隔（约为 $$k$$ 个 mini-batch 的训练时间）。起点未必落在同步边界，实际版本差要用记录的版本号算。
 
 三个框架对"上限"的定义不同：
 
+{: .async-rl-table}
 | 框架 | 配置 | 定义 | 默认 / 建议 |
 |---|---|---|---|
 | verl v1 | trainer.v1.sampler.max_off_policy_threshold | 一条轨迹跨越的版本数上限（int） | 8 |
@@ -101,13 +118,16 @@ verl 的是**按轨迹**的版本跨度、在消费时检查；AReaL 的是**准
 
 $$s_i$$ 里的 $$\tau_i$$ 是生成用时，与回答长度成正比。同步间隔 $$T_{sync}$$ 固定时，**长回答的 staleness 系统性地更大**：
 
-```text title="回答长度与 staleness 的关系"
-8B 推理场景，异步，T_sync ≈ 150 s（k = 1，训练池 22 卡、一个 mini-batch 的训练时间）
-回答长度      生成用时（并发下）    典型 staleness
-2K            ~40 s               0
-8K（均值）     ~150 s              1
-32K（L_max）   ~600 s              4
-```
+8B 推理场景，异步，$$T_{sync} \approx 150\ \mathrm{s}$$（$$k = 1$$，训练池 22 卡、一个 mini-batch 的训练时间）。下表忽略缓冲等待，按上式估算：
+
+{: .async-rl-table}
+| 回答长度 | 生成用时（并发下） | 典型 staleness |
+|---|---:|---:|
+| 2K | ~40 s | 0 |
+| 8K（均值） | ~150 s | 1 |
+| 32K（$$L_{max}$$） | ~600 s | 4 |
+
+Table: 回答长度与 staleness 的关系
 
 于是 `max_off_policy_threshold = 2` 配 `drop` 策略的效果是：**32K 的回答几乎全部被丢**，训练看到的长度分布被截在 16K 左右。这不是随机丢样本，是按长度筛——对推理模型的训练（目标之一就是学会更长的思维链）是直接的偏置。verl 提供 `wait` 策略正是为此：过期的在飞组不丢、阻塞取样直到它完成，代价是训练器等（等的就是长尾——异步的收益又还回去一部分）。
 
@@ -125,12 +145,13 @@ $$s_i$$ 里的 $$\tau_i$$ 是生成用时，与回答长度成正比。同步间
 
 ### 4. 系统要为 staleness 记什么
 
-```text title="系统要为 staleness 记的东西"
-每条轨迹    生成开始时的策略版本 v_start；部分 rollout 下每一段的版本 [v_1, v_2, …]；进缓冲时间；被训练时的版本
-每个 batch  staleness 的均值 / 最大 / 直方图；被 drop 的组数与它们的长度分布；wait 阻塞的时间
-verl 里     ReplayBuffer 在 prompt 的 tag 里存 global_steps；sample() 返回 off_policy 指标：
-            training/off_policy/evicted_samples · evicted_samples_staleness/{mean,max,min}
-```
+- **每条轨迹**：生成开始时的策略版本 `v_start`；部分 rollout 下每一段的版本 `[v_1, v_2, …]`；进缓冲时间；被训练时的版本。
+- **每个 batch**：staleness 的均值 / 最大 / 直方图；被 drop 的组数与它们的长度分布；`wait` 阻塞的时间。
+- **verl 里**：`ReplayBuffer` 在 prompt 的 tag 里存 `global_steps`；`sample()` 返回 `off_policy` 指标：
+  - `training/off_policy/evicted_samples`
+  - `training/off_policy/evicted_samples_staleness/{mean,max,min}`
+
+最后一项只统计**因过期被淘汰的组**，不是训练 batch 的 staleness 分布。verl v0.9.0 的 `ReplayBuffer._evict_terminal_groups` 按 `当前 global_steps − prompt global_steps + 1` 记跨度，比本文的纯版本差多 1；对阈值前先统一口径。
 
 版本号的来源是第四篇末尾的 `set_global_steps`——权重同步成功后推理实例记下版本，agent loop 把它写进每条轨迹的元数据。**版本号错一步，所有 staleness 统计都错一步**。
 
@@ -176,6 +197,7 @@ verl 的 `separate_async` trainer 实现了它，用的手段很直接（`traine
 
 第一篇算过重算旧策略 logprob 是一步 FLOP 的六分之一、时间的 8%。异步下的三个选项：
 
+{: .async-rl-table}
 | 选项 | π_old 来自 | 多付的前向 | 修正了什么 | 没修正什么 |
 |---|---|---|---|---|
 | 重算（verl 默认 recompute_log_prob） | 训练器当前版本前向 | 2N | 训推不一致（π_old 与 π_θ 同一实现） | staleness（π_old 不是采样分布） |
@@ -192,7 +214,8 @@ Table: 异步下 π_old 的三个选项
 
 同一份权重，推理引擎与训练器算出的 $$\log \pi$$ 不同：
 
-| 来源 | 机制 | 量级（每 token |Δ log π|） |
+{: .async-rl-table}
+| 来源 | 机制 | 量级（每 token $$\lvert\Delta\log\pi\rvert$$） |
 |---|---|---|
 | 浮点累加顺序 | TP 的 all-reduce、GEMM 的 tile 顺序、bf16 累加 | 1e-4 – 1e-3 |
 | attention kernel | FlashInfer vs FlashAttention vs Triton；chunked prefill | 1e-3 |
@@ -201,7 +224,7 @@ Table: 异步下 π_old 的三个选项
 | MoE 路由 | top-k 在 bf16 下的并列翻转 → 选中不同专家 → 该 token 的输出完全不同 | 单 token 可到 1 以上；序列里 1–5% 的 token |
 | 序列打包 | 训练侧 packing 后的位置编码、mask 处理 | 实现 bug 级：正确时为 0 |
 
-Table: 来源
+Table: 训推不一致的来源与逐 token logprob 差
 
 前两项是 bf16 的固有噪声、无法消除、也基本无害（均值接近 0）。后三项是系统性偏差：FP8 让 $$\pi_{rollout}$$ 整体偏离；MoE 的路由翻转是**不连续**的——同一个 token 在两边可能走不同的专家，logprob 差不是小扰动而是"另一个分布的样本"。Liu、Li 等 2025 的分析（verl 的 rollout correction 文档引用的 "When Speed Kills Stability" 系列）把这归为"toxic tails"：极少数 token 的比值极端，主导了梯度。另一条线（Qi 等 2025，"Defeating the Training-Inference Mismatch via FP16"）指出 bf16 的 8 位尾数是主要来源，两侧都换 FP16 能把不一致降一个量级——代价是训练侧要处理 FP16 的溢出（loss scaling）。
 
@@ -216,7 +239,7 @@ Table: 来源
 - **TIS**（truncated IS）：$$\min(w_t, C)$$，$$C \approx 2$$；过大的权重截掉，保留小的。verl 的 `rollout_correction.rollout_is=token`、`rollout_is_threshold=2.0`。
 - **MIS / 拒绝采样**（masked IS，verl 叫 `rollout_rs`）：$$w_t$$ 超出区间的 token **直接屏蔽**（梯度为零），而不是截断权重。Liu、Li 等的分析主张拒绝优于截断：截断保留了一个方向错误的梯度，屏蔽把它去掉。verl 支持 token 级与序列级（`seq_mean_k3` 一类按序列的几何均值判断）的拒绝。
 
-系统要求相同：推理侧**每 token 的 logprob 必须返回并存下**（vLLM 的 `logprobs` 参数；注意要的是采样 token 的 logprob、且是温度处理后的），训练侧每次前向算出 $$\log \pi_{train}$$ 后与它逐 token 比较。verl 的调试指标 `training/rollout_probs_diff_{mean,max,std}` 就是这个差；**它应该在同步形态下就一直开着**，作为基线，异步之后才知道涨了多少是异步带来的。
+系统要求相同：推理侧**每 token 的 logprob 必须返回并存下**（vLLM 的 `logprobs` 参数；注意要的是采样 token 的 logprob、且是温度处理后的），训练侧每次前向算出 $$\log \pi_{train}$$ 后与它逐 token 比较。注意 verl v0.9.0 的调试指标 `training/rollout_probs_diff_{mean,max,std}` **不是 logprob 差**：`verl/utils/debug/metrics.py` 的 `calculate_debug_metrics` 先对两份 logprob 取 `exp`，再统计 $$\lvert\pi_{train} - \pi_{rollout}\rvert$$，范围在 0–1。上表的 logprob 差量级不能直接套到它上面，需要另记逐 token 的 $$\lvert\Delta\log\pi\rvert$$。**两种差都应在同步形态下记录基线**；异步时直接比较不同版本还会混入参数漂移，要判断实现不一致，得补一次同权重对照。
 
 ### 4. MoE 的特殊处理
 
@@ -234,6 +257,7 @@ GRPO 的组约束让缓冲以**组**为单位：一个 prompt 的 $$G$$ 条要�
 
 进入训练前有四类筛：
 
+{: .async-rl-table}
 | 筛 | 条件 | sync 模式 | async 模式 | 偏置方向 |
 |---|---|---|---|---|
 | staleness（drop） | 组跨越的版本数 > max_off_policy_threshold | NO-OP | 淘汰 k、补发 k | 偏向短回答（第二章） |
@@ -243,7 +267,7 @@ GRPO 的组约束让缓冲以**组**为单位：一个 prompt 的 $$G$$ 条要�
 
 Table: 淘汰矩阵
 
-每一类淘汰都改变分布，并且**比例会随训练变化**：DAPO 过滤在训练后期（模型变强、全对率升）淘汰得越来越多，等价于有效 batch 缩小、生成负担上升；超时淘汰在回答变长后变多。verl 把四类的计数与被淘汰组的 staleness 都做成指标（`{prefix}/off_policy/evicted_samples`、DAPO 的 `filtered_reward_counts`），第八章的诊断表靠它们。
+每一类淘汰都改变分布，并且**比例会随训练变化**：DAPO 过滤在训练后期（模型变强、全对率升）淘汰得越来越多，能留下有效训练信号的生成样本比例下降、补发负担上升；补发跟得上时，训练 batch 不一定缩小。超时淘汰在回答变长后变多。verl 分别记录过期、DAPO、失败的淘汰计数（`{prefix}/off_policy/evicted_samples`、`{prefix}/filter_groups/evicted_samples`、`{prefix}/rollout_failure/evicted_samples`），另有 DAPO 的 `filtered_reward_counts`；staleness 统计只覆盖过期淘汰组，`wait` 的阻塞时间要另记。第八章的诊断表靠这些信号。
 
 ### 3. 补发与预热
 
@@ -263,6 +287,7 @@ Table: 淘汰矩阵
 
 第四篇算过 rollout 池的空转比例 $$T_{sync} / (k T_{mb} + T_{sync})$$。异步下 $$k$$（`parameter_sync_step`）是 staleness 与效率的直接旋钮：
 
+{: .async-rl-table}
 | k | 同步间隔（32B，T_mb = 60 s） | 典型 staleness（8K 回答） | rollout 空转（同步 15 s） | rollout 空转（增量 6 s） |
 |---|---|---|---|---|
 | 1 | 60 s | 2–3 | 20% | 9% |
@@ -291,36 +316,32 @@ Table: 频率
 
 回到核心问题。同步 → 异步（$$k \le 2$$）后 reward 斜率变缓，按下面的顺序看信号：
 
-```text title="诊断表：同步 → 异步后 reward 变缓"
-第一步：不一致有没有变？（与异步无关的基线）
-   training/rollout_probs_diff_mean / max          异步前后应相同；若涨了 → 检查是否同时换了 FP8 / 引擎版本 / MoE 路由
-   序列级 Σ|Δ log π| 的分布                         长回答的累计差；MoE 看专家命中一致率
-   → 涨了：先修不一致（统一精度、确定性、TIS / MIS），再看异步
+{: .async-rl-table #async-rl-diagnostic}
+| 顺序 | 信号 | 判读与处理 |
+|---|---|---|
+| 第一步：不一致有没有变？<br/>与异步无关的基线 | `training/rollout_probs_diff_{mean,max}`<br/>同时检查 `rollout_probs_diff_valid = 1` | 这是概率差，不是 logprob 差。先做同权重对照；若比同步基线高，检查是否同时换了 FP8 / 引擎版本 / MoE 路由。 |
+| ^^ | 序列级 $$\sum\lvert\Delta\log\pi\rvert$$ 的分布（另记） | 看长回答的累计差；MoE 看专家命中一致率。确认同权重下不一致涨了，先统一精度、确定性或开 TIS / MIS，再看异步。 |
+| 第二步：staleness 的分布与偏置 | 训练样本的 staleness 均值 / 最大 / 直方图（另记）<br/>`evicted_samples_staleness/{mean,max}`（仅过期淘汰组，按前文换算口径） | 训练样本均值 > 2 或最大 > 阈值一半，可先作告警线，具体阈值要用本任务验证。查生成用时、缓冲等待和参数漂移；不要把淘汰组的统计当成训练样本的分布，也不能据此断定同步频率 k 太大。 |
+| ^^ | 被 drop 的组数<br/>被 drop 组的平均长度 vs 全体 | 前者高且后者长：drop 在筛长回答，换 `wait` 或部分 rollout。 |
+| ^^ | 被训练样本的长度分布 vs 生成侧的长度分布 | 两者分离：缓冲在偏置数据，查 drop 或超时。 |
+| ^^ | PPO clip 触发比例<br/>ρ 的分布 | 比同步基线高一倍以上：有效梯度可能在减少；先排除不一致，再结合版本差确认是不是 staleness。 |
+| 第三步：淘汰规则 | DAPO filtered 计数 / 步<br/>失败组计数 / 步 | 随训练上升：过滤损耗、生成负担在涨。补发跟得上时训练 batch 不一定缩小。 |
+| ^^ | 缓冲深度（终态组数）<br/>trainer / rollouter `idle_ratio` | 深度接近 0 且 trainer idle 高：生成跟不上，训练器在等；深度过大：检查等待时间与 staleness 是否同涨。 |
+| ^^ | `require_batches` / 取样顺序 | 看流式下先短后长的周期性。 |
+| 第四步：同步本身 | `update_weights` 耗时<br/>每实例的 `global_steps` | 某实例版本落后：同步漏了；耗时占比 > 10%：考虑增量 / 多源。 |
+| ^^ | 续接的重 prefill token 数 | 同步过频时重 prefill 开销会上升。 |
 
-第二步：staleness 的分布与偏置
-   evicted_samples_staleness/{mean,max}；staleness 直方图     均值 > 2 或最大 > 阈值一半 → k 太大或同步太慢
-   被 drop 的组数 · 被 drop 组的平均长度 vs 全体            前者高且后者长 → drop 在筛长回答 → 换 wait 或部分 rollout
-   被训练样本的长度分布 vs 生成侧的长度分布                两者分离 → 缓冲在偏置数据（drop 或超时）
-   PPO clip 触发比例 · ρ 的分布                             比同步基线高一倍以上 → staleness 在吃梯度
-
-第三步：淘汰规则
-   DAPO filtered 计数 / 步 · 失败组计数 / 步              随训练上升 → 有效 batch 在缩、生成负担在涨
-   缓冲深度（终态组数）· trainer / rollouter idle_ratio     深度接近 0 且 trainer idle 高 → 生成跟不上，训练器在等；深度过大 → staleness 在涨
-   require_batches / 取样顺序                              流式下先短后长的周期性
-
-第四步：同步本身
-   update_weights 耗时 · 每实例的 global_steps            某实例版本落后 → 同步漏了；耗时占比 > 10% → 增量 / 多源
-   续接的重 prefill token 数                              同步过频
-```
+Table: 诊断表：同步 → 异步后 reward 变缓
 
 **没有第一步的基线，后面都没法比**：`rollout_probs_diff` 在同步形态下就要开着。
 
 ### 2. 三个典型模式
 
+{: .async-rl-table}
 | 模式 | 最像的原因 | 确认方式 |
 |---|---|---|
-| reward 斜率缓、clip 比例翻倍、staleness 均值 3+ | staleness | 把 k 减半或阈值收紧，斜率应回来 |
-| reward 斜率缓、probs_diff_max 出现 > 1 的尖峰、MoE | 不一致（路由翻转） | 同步形态下复现同样的尖峰；MIS 屏蔽后恢复 |
+| reward 斜率缓、clip 比例翻倍、staleness 均值 3+ | staleness | 缩短生成 / 缓冲等待，或用 `wait` / 部分 rollout 控制过期；固定其它条件对照 reward 斜率，不把频率 k 减半等同于版本差减半 |
+| reward 斜率缓、另记的逐 token logprob 差出现 > 1 的尖峰、MoE | 不一致（路由翻转） | 同权重的同步形态下复现同样的尖峰，结合专家命中一致率确认；再对照 MIS 屏蔽前后效果。`probs_diff_max` 是概率差，不会 > 1 |
 | reward 斜率缓、训练样本平均长度比生成短 30% | drop 偏置 | 换 wait，长度分布应对齐（训练器会变慢——那是收益的一部分还回去） |
 
 Table: 三个典型模式
@@ -337,10 +358,11 @@ Table: 三个典型模式
 
 ### 1. verl 的落点
 
+{: .async-rl-table}
 | 机制 | 落点 | 配置 |
 |---|---|---|
 | staleness 上限 | ReplayBufferAsync._stale_terminal_keys（drop） | trainer.v1.sampler.max_off_policy_threshold（8） |
-|  | ReplayBufferAsync._has_enough_samples（wait 阻塞） | trainer.v1.sampler.max_off_policy_strategy（drop \| wait） |
+| ^^ | ReplayBufferAsync._has_enough_samples（wait 阻塞） | trainer.v1.sampler.max_off_policy_strategy（drop \| wait） |
 | 部分 rollout | CheckpointEngineManager.update_weights：abort → … → resume；agent loop 续接 | colocate_async / separate_async 内置 |
 | decoupled PPO | PPOTrainerSeparateAsync._compute_old_log_prob：save/restore_model_from_cpu | algorithm.rollout_correction.bypass_mode=false |
 | 不重算 / 用推理侧 logprob | 同上 bypass 分支；actor.use_rollout_log_probs | bypass_mode=true |
@@ -348,7 +370,7 @@ Table: 三个典型模式
 | 不一致监控 | verl/utils/debug/metrics.py | training/rollout_probs_diff_\* |
 | 缓冲淘汰矩阵 | ReplayBuffer._evict_terminal_groups / _dapo_filtered_keys | algorithm.filter_groups.\*；sync_refill_failed_groups |
 | 流式补发 | ReplayBuffer.refill_fn ← trainer._add_prompts_to_generate | data.gen_batch_size；num_warmup_batches |
-| 同步频率 | PPOTrainerSeparateAsync.on_step_end 每 k 次 | trainer.v1.separate_async.parameter_sync_step |
+| 同步频率 | PPOTrainerSeparateAsync.on_step_end：每个训练 step 末同步一次；一个 step 含 k 个 mini-batch | trainer.v1.separate_async.parameter_sync_step |
 | 异步 checkpoint 恢复 | PPOTrainer._reissue_inflight_prompts：恢复时重发 pending / running 的 prompt，保留 finished | — |
 
 Table: 异步机制在 verl 源码中的落点与配置
@@ -384,10 +406,10 @@ slime 的 `train_async.py` 与 `fully_async_rollout.py` 是"一步流水 + 流�
 ### 2. 速查表
 
 - **staleness**：s = 训练版本 − 生成版本 ≈ ⌊(生成用时 + 缓冲等待) / T_sync⌋；长回答 s 更大
-- **上限**：verl max_off_policy_threshold（版本数，8，drop | wait）· AReaL max_head_offpolicyness（准入，2–8）· meituan staleness_threshold（比例，< 1）
+- **上限**：verl max_off_policy_threshold（版本数，8，drop / wait）· AReaL max_head_offpolicyness（准入，2–8）· meituan staleness_threshold（比例，< 1）
 - **部分 rollout**：重 prefill = 2N × Σ 已生成 token（一步 FLOP 的 ~6%）· π_old 逐 token 记录、分段版本
 - **decoupled PPO**：w = π_prox/π_behave（无梯度）× clip(π_θ/π_prox)；3 份 logprob；verl 用 CPU 快照切换实现
-- **不一致**：|Δ log π| dense bf16 1e-3 · FP8 1e-2 · MoE 路由翻转 ≫ · TIS: min(w, 2) · MIS: 越界屏蔽
+- **不一致**：$$\lvert\Delta\log\pi\rvert$$ dense bf16 1e-3 · FP8 1e-2 · MoE 路由翻转 ≫ · TIS: min(w, 2) · MIS: 越界屏蔽
 - **缓冲**：以 GRPO 组为单位；淘汰 = drop / wait · DAPO · failure；补发 refill；预热 num_warmup_batches；先短后长的顺序效应
 - **同步频率**：k = parameter_sync_step；rollout 空转 = T_sync / (k·T_mb + T_sync)
 - **必记信号**：每轨迹：各段版本 · 推理侧 logprob · 完成 / 入队 / 训练时间 · 淘汰原因 · 长度；每 batch：staleness 分布 · probs_diff · clip 比例 · 淘汰计数 · 长度分布
@@ -428,11 +450,11 @@ slime 的 `train_async.py` 与 `fully_async_rollout.py` 是"一步流水 + 流�
 
    </details>
 
-4. `rollout_probs_diff` 在 dense bf16、FP8、MoE 上各是什么量级？哪一档必须修？
+4. 逐 token 的 logprob 差在 dense bf16、FP8、MoE 上各是什么量级？能直接用 `rollout_probs_diff` 读这些量级吗？
 
    <details markdown="1"><summary>答案</summary>
 
-   dense bf16 约 $$10^{-3}$$（浮点顺序，无害）；FP8 $$10^{-2}$$ 起；MoE 路由翻转不连续、单 token 可超过 1——必须修：token 级 TIS（$$\min(w, 2)$$ 截断）或 MIS（越界屏蔽），MoE 另有路由回放（把推理侧的路由决定传给训练侧）。
+   文中给出的 logprob 差量级是 dense bf16 约 $$10^{-3}$$（浮点顺序）、FP8 $$10^{-2}$$ 起，MoE 路由翻转时单 token 可超过 1。后两类要重点检查 TIS（$$\min(w, 2)$$ 截断）、MIS（越界屏蔽）或路由回放。不能直接用 `rollout_probs_diff` 读这些量级：verl v0.9.0 统计的是概率差，范围在 0–1，logprob 差要另记。
 
    </details>
 
@@ -444,5 +466,5 @@ slime 的 `train_async.py` 与 `fully_async_rollout.py` 是"一步流水 + 流�
 
    </details>
 
-[^q0]: reward 曲线上三个原因不可分，事前记录的信号上可分——判读规则：staleness 分布右移 + 被丢样本偏长 → 是 **staleness**，降 $$k$$ 或改 `wait` / 部分 rollout；`rollout_probs_diff` 跳升 → 是**训推不一致**，开 TIS / MIS 或路由回放；淘汰比例变化 + 训练样本分布偏移 → 是**缓冲规则**。修正的系统要求是 logprob 的份数：重算（2 份，修不一致不修 staleness）、不重算（2 份，修 staleness 不修不一致）、decoupled PPO（3 份 behave / prox / θ，两者都修，verl 用 CPU 快照切换实现）。公开消融 $$s \le 2$$–4 配修正基本无损。详见[第二章](#二staleness)、[第四章](#四算法修正的系统要求)、[第五章](#五训推不一致)、[第八章](#八信号与诊断)。
-[^q1]: **staleness**：每个样本的生成版本与训练版本、每个 mini-batch 的 staleness 分布、`drop` / `wait` 的比例与被丢样本的长度分布——$$s \approx \lfloor(\text{生成用时} + \text{缓冲等待}) / T_{sync}\rfloor$$ 与回答长度正相关，所以 `drop` 系统性地丢长回答。**训推不一致**：`rollout_probs_diff`（推理侧与训练侧 logprob 的差）——在同步形态下就开着作基线，切异步后它变大才说明是这个原因；来源有浮点顺序（$$10^{-3}$$，无害）、FP8（$$10^{-2}$$ 起）、MoE 路由翻转（单 token 可到 1 以上）。**缓冲淘汰**：每类淘汰（drop / wait、全对全错过滤、失败丢弃、流式完成顺序）的比例、进入训练的样本长度 / reward 分布与生成侧的对比。详见[第二章](#二staleness)、[第五章](#五训推不一致)、[第六章](#六样本缓冲)、[第八章](#八信号与诊断)。
+[^q0]: reward 曲线上三个原因不可分，事前记录的信号上可分——判读规则：staleness 分布右移 + 被丢样本偏长 → 先查 **staleness**，缩短生成 / 缓冲等待或改 `wait` / 部分 rollout；同权重下的概率差或另记的 logprob 差跳升 → 查**训推不一致**，开 TIS / MIS 或路由回放；淘汰比例变化 + 训练样本分布偏移 → 查**缓冲规则**。修正的系统要求是 logprob 的份数：重算（2 份，修不一致不修 staleness）、不重算（2 份，修 staleness 不修不一致）、decoupled PPO（3 份 behave / prox / θ，两者都修，verl 用 CPU 快照切换实现）。公开消融 $$s \le 2$$–4 配修正基本无损。详见[第二章](#二staleness)、[第四章](#四算法修正的系统要求)、[第五章](#五训推不一致)、[第八章](#八信号与诊断)。
+[^q1]: **staleness**：每个样本的生成版本与训练版本、每个 mini-batch 的 staleness 分布、`drop` / `wait` 的比例与被丢样本的长度分布——$$s \approx \lfloor(\text{生成用时} + \text{缓冲等待}) / T_{sync}\rfloor$$ 与回答长度正相关，所以 `drop` 系统性地丢长回答；`evicted_samples_staleness` 只统计过期淘汰组，且 verl v0.9.0 的跨度口径多 1。**训推不一致**：`rollout_probs_diff` 是概率差，逐 token logprob 差要另记；两者都在同步形态下记基线，异步时用同权重对照排除参数漂移。文中浮点顺序（$$10^{-3}$$）、FP8（$$10^{-2}$$ 起）、MoE 路由翻转（单 token 可到 1 以上）说的是 logprob 差，不是这个概率差指标。**缓冲淘汰**：每类淘汰（drop / wait、全对全错过滤、失败丢弃、流式完成顺序）的比例、进入训练的样本长度 / reward 分布与生成侧的对比。详见[第二章](#二staleness)、[第五章](#五训推不一致)、[第六章](#六样本缓冲)、[第八章](#八信号与诊断)。
