@@ -733,7 +733,7 @@ if BUILD_PYTHON_ONLY:
 
 三类东西进 wheel：`_C.cpython-*.so`（setuptools 作为 `ext_modules` 编出来，自动放在包根目录）、`lib/*.so*`（CMake 装进 `torch/lib/` 的所有动态库，作为 `package_data` 原样打包）、`include/**/*.h` + `share/cmake/**/*.cmake`（让下游能编译和链接扩展）。`BUILD_LIBTORCH_WHL` 和 `BUILD_PYTHON_ONLY` 两个环境变量开关对应"split build"：把 `libtorch.so` 及依赖单独打一个叫 `torch_no_python` 的 wheel（不带 `_C`，`ext_modules = []`），Python 部分打另一个。这也解释了 `c10/CMakeLists.txt` 里的 `BUILD_LIBTORCHLESS` 分支——`BUILD_PYTHON_ONLY` 时 `setup.py` 设 `BUILD_LIBTORCHLESS=ON`，`c10` 不再构建而是 `find_library(C10_LIB c10 PATHS $ENV{LIBTORCH_LIB_PATH})` 找现成的。
 
-这段代码里体现的"库依赖"，就是本文的答案：`site-packages/torch/` 是一个自带 `include/`、`lib/`、`share/cmake/` 的完整 C++ SDK。任何扩展——不管用 `torch.utils.cpp_extension`、vLLM 那样的 CMake，还是第十章手写的 `g++`——找的都是这三个目录。
+这段代码里体现的"库依赖"，就是本文的答案：`site-packages/torch/` 是一个自带 `include/`、`lib/`、`share/cmake/` 的完整 C++ SDK。任何扩展——不管用 `torch.utils.cpp_extension`、vLLM 那样的 CMake，还是[上篇第七章](/cpp-compilation-model-from-cpp-to-shared-object.html#七实践一手写编译命令链接一个-libtorch-程序)手写的 `g++`——找的都是这三个目录。
 
 ### 5. 对照 vLLM 的 `setup.py`
 
@@ -751,20 +751,21 @@ mini-c10/
 ├── minic10/                      # 库：libminic10.so，namespace minic10
 │   ├── core/
 │   │   ├── Version.h             # 本篇：第一个符号
-│   │   └── Version.cpp
+│   │   ├── Version.cpp
+│   │   ├── Allocator.h           # 第 2 篇
+│   │   ├── StorageImpl.h         # 第 2 篇
+│   │   ├── TensorImpl.h          # 第 2 篇
+│   │   ├── Tensor.h              # 第 2 篇
+│   │   ├── ScalarType.h          # 第 3 篇
+│   │   ├── Dispatch.h            # 第 3 篇
+│   │   ├── DispatchKey.h         # 第 4 篇
+│   │   └── GradMode.h            # 第 6 篇
+│   ├── util/
+│   │   ├── intrusive_ptr.h       # 第 2 篇
+│   │   └── ArrayRef.h            # 第 3 篇
 │   ├── macros/Macros.h           # 第 5 篇：MINI_API、MINI_CHECK、...
-│   ├── util/intrusive_ptr.h      # 第 2 篇
-│   ├── util/ArrayRef.h           # 第 3 篇
-│   ├── core/ScalarType.h         # 第 3 篇
-│   ├── core/DispatchKey.h        # 第 4 篇
-│   ├── core/Allocator.h          # 第 2 篇
-│   ├── core/StorageImpl.h        # 第 2 篇
-│   ├── core/TensorImpl.h         # 第 2 篇
-│   ├── core/Tensor.h             # 第 2 篇
-│   ├── core/Dispatch.h           # 第 3 篇
 │   ├── dispatch/                 # 第 4 篇：KernelFunction.h、OperatorEntry.h、Dispatcher.h
 │   ├── library.h                 # 第 5 篇：MINI_LIBRARY 宏
-│   ├── core/GradMode.h           # 第 6 篇
 │   ├── Parallel.h                # 第 6 篇
 │   └── ops/                      # 第 3 篇起：add.cpp、mul.cpp
 ├── examples/
@@ -786,7 +787,7 @@ mini-c10/
 #include <cstdint>
 #include <string>
 
-namespace minic10 {                           // 6 节：所有东西在 minic10:: 下
+namespace minic10 {                           // 第二章：所有东西在 minic10:: 下
 
 constexpr int kVersionMajor = 0;              // [上篇 4.3 节](/cpp-compilation-model-from-cpp-to-shared-object.html)：constexpr 变量隐含 inline，
 constexpr int kVersionMinor = 1;              //         放头文件不违反 ODR
