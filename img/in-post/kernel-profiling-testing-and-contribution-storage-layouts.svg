@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 352" width="760" height="352" role="img" aria-labelledby="t d">
+  <title id="t">make_input 四种布局在 storage 里的样子（rows=2，d=4）</title>
+  <desc id="d">contiguous：8 个格子按行连续，stride=(4,1)。sliced 与 row_strided：16 个格子，第 0 行在 0–3、第 1 行在 8–11，stride 都是 (8,1)。transposed：8 个格子依次是 x00 x10 x01 x11…，stride=(1,2)。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="ahg" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+.h { font-size: 14px; font-weight: 700; }
+.b { font-size: 13px; }
+.s { font-size: 12px; }
+.n { font-size: 12.5px; fill: #333; }
+.m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+.ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 10.5px; }
+.lane { fill: #f3f5f8; stroke: #c9d2dc; stroke-width: 1; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: #fff; stroke: #c9d2dc; stroke-width: 1; }
+.arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#ah); }
+.line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+.axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#ahg); }
+.grid { stroke: #b8c3cf; stroke-width: 1; fill: none; }
+.ref { stroke: #c0392b; stroke-width: 1.6; fill: none; }
+.reft { fill: #c0392b; }
+
+.tri { fill: #1e8449; }
+.st-go { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.st-s { fill: #fbe3c4; stroke: #b8c3cf; stroke-width: 1; }
+.st-r { fill: #fff; stroke: #b8c3cf; stroke-width: 1; }
+.ok { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.no { fill: #f6d5d1; stroke: #b8c3cf; stroke-width: 1; }
+.bar { fill: #9dbbe3; stroke: #40566f; stroke-width: 1.2; }
+.need { fill: #f6d5d1; stroke: #b0473a; stroke-width: 1; }
+.have { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r0 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r1 { fill: #fbe3c4; stroke: #40566f; stroke-width: 1; }
+.nx { fill: #eceff3; stroke: #40566f; stroke-width: 1; }
+</style>
+  </defs>
+  <rect width="760" height="352" fill="#fff"/>
+  <text x="20.0" y="18.0" class="h">x[i][j] 落在 storage 的哪个格子</text>
+  <rect x="20.0" y="30.0" width="18.0" height="18.0" class="r0" />
+  <text x="44.0" y="44.0" class="n">属于 x，第 0 行（r0）</text>
+  <rect x="202.5" y="30.0" width="18.0" height="18.0" class="r1" />
+  <text x="226.5" y="44.0" class="n">属于 x，第 1 行（r1）</text>
+  <rect x="385.0" y="30.0" width="18.0" height="18.0" class="nx" />
+  <text x="394.0" y="44.0" class="h" text-anchor="middle">·</text>
+  <text x="409.0" y="44.0" class="n">storage 里不属于 x 的元素</text>
+  <text x="20.0" y="76.0" class="s">storage 下标</text>
+  <text x="141.0" y="76.0" class="ms" text-anchor="middle">0</text>
+  <text x="163.0" y="76.0" class="ms" text-anchor="middle">1</text>
+  <text x="185.0" y="76.0" class="ms" text-anchor="middle">2</text>
+  <text x="207.0" y="76.0" class="ms" text-anchor="middle">3</text>
+  <text x="229.0" y="76.0" class="ms" text-anchor="middle">4</text>
+  <text x="251.0" y="76.0" class="ms" text-anchor="middle">5</text>
+  <text x="273.0" y="76.0" class="ms" text-anchor="middle">6</text>
+  <text x="295.0" y="76.0" class="ms" text-anchor="middle">7</text>
+  <text x="317.0" y="76.0" class="ms" text-anchor="middle">8</text>
+  <text x="339.0" y="76.0" class="ms" text-anchor="middle">9</text>
+  <text x="361.0" y="76.0" class="ms" text-anchor="middle">10</text>
+  <text x="383.0" y="76.0" class="ms" text-anchor="middle">11</text>
+  <text x="405.0" y="76.0" class="ms" text-anchor="middle">12</text>
+  <text x="427.0" y="76.0" class="ms" text-anchor="middle">13</text>
+  <text x="449.0" y="76.0" class="ms" text-anchor="middle">14</text>
+  <text x="471.0" y="76.0" class="ms" text-anchor="middle">15</text>
+  <text x="20.0" y="102.0" class="m">contiguous</text>
+  <rect x="130.0" y="84.0" width="22.0" height="26.0" class="r0" />
+  <text x="141.0" y="101.0" class="ms" text-anchor="middle">x00</text>
+  <rect x="152.0" y="84.0" width="22.0" height="26.0" class="r0" />
+  <text x="163.0" y="101.0" class="ms" text-anchor="middle">x01</text>
+  <rect x="174.0" y="84.0" width="22.0" height="26.0" class="r0" />
+  <text x="185.0" y="101.0" class="ms" text-anchor="middle">x02</text>
+  <rect x="196.0" y="84.0" width="22.0" height="26.0" class="r0" />
+  <text x="207.0" y="101.0" class="ms" text-anchor="middle">x03</text>
+  <rect x="218.0" y="84.0" width="22.0" height="26.0" class="r1" />
+  <text x="229.0" y="101.0" class="ms" text-anchor="middle">x10</text>
+  <rect x="240.0" y="84.0" width="22.0" height="26.0" class="r1" />
+  <text x="251.0" y="101.0" class="ms" text-anchor="middle">x11</text>
+  <rect x="262.0" y="84.0" width="22.0" height="26.0" class="r1" />
+  <text x="273.0" y="101.0" class="ms" text-anchor="middle">x12</text>
+  <rect x="284.0" y="84.0" width="22.0" height="26.0" class="r1" />
+  <text x="295.0" y="101.0" class="ms" text-anchor="middle">x13</text>
+  <path d="M132,114 L132,119 L216,119 L216,114" class="line"/>
+  <text x="174.0" y="134.0" class="s" text-anchor="middle">r0</text>
+  <path d="M220,114 L220,119 L304,119 L304,114" class="line"/>
+  <text x="262.0" y="134.0" class="s" text-anchor="middle">r1</text>
+  <text x="504.0" y="94.0" class="m">stride=(4,1)</text>
+  <text x="504.0" y="112.0" class="n">连续</text>
+  <text x="504.0" y="130.0" class="n">→ 直接按行读</text>
+  <text x="20.0" y="170.0" class="m">sliced</text>
+  <rect x="130.0" y="152.0" width="22.0" height="26.0" class="r0" />
+  <text x="141.0" y="169.0" class="ms" text-anchor="middle">x00</text>
+  <rect x="152.0" y="152.0" width="22.0" height="26.0" class="r0" />
+  <text x="163.0" y="169.0" class="ms" text-anchor="middle">x01</text>
+  <rect x="174.0" y="152.0" width="22.0" height="26.0" class="r0" />
+  <text x="185.0" y="169.0" class="ms" text-anchor="middle">x02</text>
+  <rect x="196.0" y="152.0" width="22.0" height="26.0" class="r0" />
+  <text x="207.0" y="169.0" class="ms" text-anchor="middle">x03</text>
+  <rect x="218.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="229.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="240.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="251.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="262.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="273.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="284.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="295.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="306.0" y="152.0" width="22.0" height="26.0" class="r1" />
+  <text x="317.0" y="169.0" class="ms" text-anchor="middle">x10</text>
+  <rect x="328.0" y="152.0" width="22.0" height="26.0" class="r1" />
+  <text x="339.0" y="169.0" class="ms" text-anchor="middle">x11</text>
+  <rect x="350.0" y="152.0" width="22.0" height="26.0" class="r1" />
+  <text x="361.0" y="169.0" class="ms" text-anchor="middle">x12</text>
+  <rect x="372.0" y="152.0" width="22.0" height="26.0" class="r1" />
+  <text x="383.0" y="169.0" class="ms" text-anchor="middle">x13</text>
+  <rect x="394.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="405.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="416.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="427.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="438.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="449.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <rect x="460.0" y="152.0" width="22.0" height="26.0" class="nx" />
+  <text x="471.0" y="170.0" class="h" text-anchor="middle">·</text>
+  <path d="M132,182 L132,187 L216,187 L216,182" class="line"/>
+  <text x="174.0" y="202.0" class="s" text-anchor="middle">r0</text>
+  <path d="M308,182 L308,187 L392,187 L392,182" class="line"/>
+  <text x="350.0" y="202.0" class="s" text-anchor="middle">r1</text>
+  <text x="504.0" y="162.0" class="m">stride=(8,1)</text>
+  <text x="504.0" y="180.0" class="n">非连续，但 stride(1)=1</text>
+  <text x="504.0" y="198.0" class="n">→ stride(0)=8 传给 kernel，零拷贝</text>
+  <text x="20.0" y="238.0" class="m">row_strided</text>
+  <rect x="130.0" y="220.0" width="22.0" height="26.0" class="r0" />
+  <text x="141.0" y="237.0" class="ms" text-anchor="middle">x00</text>
+  <rect x="152.0" y="220.0" width="22.0" height="26.0" class="r0" />
+  <text x="163.0" y="237.0" class="ms" text-anchor="middle">x01</text>
+  <rect x="174.0" y="220.0" width="22.0" height="26.0" class="r0" />
+  <text x="185.0" y="237.0" class="ms" text-anchor="middle">x02</text>
+  <rect x="196.0" y="220.0" width="22.0" height="26.0" class="r0" />
+  <text x="207.0" y="237.0" class="ms" text-anchor="middle">x03</text>
+  <rect x="218.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="229.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="240.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="251.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="262.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="273.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="284.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="295.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="306.0" y="220.0" width="22.0" height="26.0" class="r1" />
+  <text x="317.0" y="237.0" class="ms" text-anchor="middle">x10</text>
+  <rect x="328.0" y="220.0" width="22.0" height="26.0" class="r1" />
+  <text x="339.0" y="237.0" class="ms" text-anchor="middle">x11</text>
+  <rect x="350.0" y="220.0" width="22.0" height="26.0" class="r1" />
+  <text x="361.0" y="237.0" class="ms" text-anchor="middle">x12</text>
+  <rect x="372.0" y="220.0" width="22.0" height="26.0" class="r1" />
+  <text x="383.0" y="237.0" class="ms" text-anchor="middle">x13</text>
+  <rect x="394.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="405.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="416.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="427.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="438.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="449.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <rect x="460.0" y="220.0" width="22.0" height="26.0" class="nx" />
+  <text x="471.0" y="238.0" class="h" text-anchor="middle">·</text>
+  <path d="M132,250 L132,255 L216,255 L216,250" class="line"/>
+  <text x="174.0" y="270.0" class="s" text-anchor="middle">r0</text>
+  <path d="M308,250 L308,255 L392,255 L392,250" class="line"/>
+  <text x="350.0" y="270.0" class="s" text-anchor="middle">r1</text>
+  <text x="504.0" y="230.0" class="m">stride=(8,1)</text>
+  <text x="504.0" y="248.0" class="n">与 sliced 的 stride 完全相同</text>
+  <text x="504.0" y="266.0" class="n">→ kernel 无法区分，也不需要区分</text>
+  <text x="20.0" y="306.0" class="m">transposed</text>
+  <rect x="130.0" y="288.0" width="22.0" height="26.0" class="r0" />
+  <text x="141.0" y="305.0" class="ms" text-anchor="middle">x00</text>
+  <rect x="152.0" y="288.0" width="22.0" height="26.0" class="r1" />
+  <text x="163.0" y="305.0" class="ms" text-anchor="middle">x10</text>
+  <rect x="174.0" y="288.0" width="22.0" height="26.0" class="r0" />
+  <text x="185.0" y="305.0" class="ms" text-anchor="middle">x01</text>
+  <rect x="196.0" y="288.0" width="22.0" height="26.0" class="r1" />
+  <text x="207.0" y="305.0" class="ms" text-anchor="middle">x11</text>
+  <rect x="218.0" y="288.0" width="22.0" height="26.0" class="r0" />
+  <text x="229.0" y="305.0" class="ms" text-anchor="middle">x02</text>
+  <rect x="240.0" y="288.0" width="22.0" height="26.0" class="r1" />
+  <text x="251.0" y="305.0" class="ms" text-anchor="middle">x12</text>
+  <rect x="262.0" y="288.0" width="22.0" height="26.0" class="r0" />
+  <text x="273.0" y="305.0" class="ms" text-anchor="middle">x03</text>
+  <rect x="284.0" y="288.0" width="22.0" height="26.0" class="r1" />
+  <text x="295.0" y="305.0" class="ms" text-anchor="middle">x13</text>
+  <text x="504.0" y="298.0" class="m">stride=(1,2)</text>
+  <text x="504.0" y="316.0" class="n">stride(1)≠1：同一行元素不相邻</text>
+  <text x="504.0" y="334.0" class="n">→ host 侧 .contiguous() 拷一份再算</text>
+</svg>

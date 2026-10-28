@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 512" width="760" height="512" role="img" aria-labelledby="t d">
+  <title id="t">prefill 与 decode 形状下 nsys 时间线的 CPU / GPU 行</title>
+  <desc id="d">三段时间线。prefill：CPU 几次很短的 launch 后一直在等，GPU 上 norm、QKV GEMM、RoPE、attn 首尾相接，空隙约为 0。decode eager：每个 dispatch 20–50 µs，kernel 只有 3–5 µs，在 dispatch 结束后才开始，之后 GPU 空转到下一次 dispatch 结束。decode + CUDA graph：一次 replay 后 GPU 上九个 kernel 之间只剩 1–2 µs 的硬件间隙。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="ahg" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+.h { font-size: 14px; font-weight: 700; }
+.b { font-size: 13px; }
+.s { font-size: 12px; }
+.n { font-size: 12.5px; fill: #333; }
+.m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+.ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 10.5px; }
+.lane { fill: #f3f5f8; stroke: #c9d2dc; stroke-width: 1; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: #fff; stroke: #c9d2dc; stroke-width: 1; }
+.arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#ah); }
+.line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+.axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#ahg); }
+.grid { stroke: #b8c3cf; stroke-width: 1; fill: none; }
+.ref { stroke: #c0392b; stroke-width: 1.6; fill: none; }
+.reft { fill: #c0392b; }
+
+.tri { fill: #1e8449; }
+.st-go { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.st-s { fill: #fbe3c4; stroke: #b8c3cf; stroke-width: 1; }
+.st-r { fill: #fff; stroke: #b8c3cf; stroke-width: 1; }
+.ok { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.no { fill: #f6d5d1; stroke: #b8c3cf; stroke-width: 1; }
+.bar { fill: #9dbbe3; stroke: #40566f; stroke-width: 1.2; }
+.need { fill: #f6d5d1; stroke: #b0473a; stroke-width: 1; }
+.have { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r0 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r1 { fill: #fbe3c4; stroke: #40566f; stroke-width: 1; }
+.nx { fill: #eceff3; stroke: #40566f; stroke-width: 1; }
+</style>
+  </defs>
+  <rect width="760" height="512" fill="#fff"/>
+  <text x="24.0" y="20.0" class="h">prefill（M = 8192）</text>
+  <text x="24.0" y="40.0" class="n">kernel 几百 µs，CPU 把 launch 排进队列后就跑到 GPU 前面去了</text>
+  <path d="M70.0,56.0 L740.0,56.0" class="axis"/>
+  <text x="24.0" y="60.0" class="s">时间</text>
+  <rect x="70.0" y="68.0" width="670.0" height="26.0" class="lane" />
+  <rect x="70.0" y="112.0" width="670.0" height="26.0" class="lane" />
+  <text x="24.0" y="86.0" class="b">CPU</text>
+  <text x="24.0" y="130.0" class="b">GPU</text>
+  <rect x="70.0" y="68.0" width="16.0" height="26.0" class="cpu" />
+  <text x="78.0" y="85.0" class="ms" text-anchor="middle">L</text>
+  <rect x="92.0" y="68.0" width="16.0" height="26.0" class="cpu" />
+  <text x="100.0" y="85.0" class="ms" text-anchor="middle">L</text>
+  <rect x="114.0" y="68.0" width="16.0" height="26.0" class="cpu" />
+  <text x="122.0" y="85.0" class="ms" text-anchor="middle">L</text>
+  <rect x="136.0" y="68.0" width="16.0" height="26.0" class="cpu" />
+  <text x="144.0" y="85.0" class="ms" text-anchor="middle">L</text>
+  <text x="166.0" y="86.0" class="n">launch 只占几 µs，CPU 大部分时间在等 GPU</text>
+  <path d="M86.0,94.0 L86.0,112.0" class="arrow"/>
+  <rect x="86.0" y="112.0" width="90.0" height="26.0" class="gpu" />
+  <text x="131.0" y="129.0" class="ms" text-anchor="middle">norm</text>
+  <rect x="176.0" y="112.0" width="230.0" height="26.0" class="gpu" />
+  <text x="291.0" y="129.0" class="ms" text-anchor="middle">QKV GEMM</text>
+  <rect x="406.0" y="112.0" width="90.0" height="26.0" class="gpu" />
+  <text x="451.0" y="129.0" class="ms" text-anchor="middle">RoPE</text>
+  <rect x="496.0" y="112.0" width="180.0" height="26.0" class="gpu" />
+  <text x="586.0" y="129.0" class="ms" text-anchor="middle">attn</text>
+  <path d="M176.0,162.0 L176.0,140.0" class="arrow"/>
+  <text x="184.0" y="162.0" class="n">空隙 ≈ 0：GPU 是瓶颈 → 找离理论下界最远的 kernel，开 ncu</text>
+  <text x="24.0" y="200.0" class="h">decode（M = 1）eager</text>
+  <text x="24.0" y="220.0" class="n">kernel 只有 3–5 µs，每次 Python dispatch 却要 20–50 µs</text>
+  <path d="M70.0,236.0 L740.0,236.0" class="axis"/>
+  <text x="24.0" y="240.0" class="s">时间</text>
+  <rect x="70.0" y="248.0" width="670.0" height="26.0" class="lane" />
+  <rect x="70.0" y="292.0" width="670.0" height="26.0" class="lane" />
+  <text x="24.0" y="266.0" class="b">CPU</text>
+  <text x="24.0" y="310.0" class="b">GPU</text>
+  <rect x="70.0" y="248.0" width="150.0" height="26.0" class="cpu" />
+  <text x="145.0" y="265.0" class="ms" text-anchor="middle">dispatch</text>
+  <rect x="220.0" y="292.0" width="38.0" height="26.0" class="gpu" />
+  <text x="239.0" y="309.0" class="ms" text-anchor="middle">norm</text>
+  <path d="M220.0,274.0 L220.0,292.0" class="arrow"/>
+  <text x="314.0" y="309.0" class="s" text-anchor="middle">空转</text>
+  <rect x="220.0" y="248.0" width="150.0" height="26.0" class="cpu" />
+  <text x="295.0" y="265.0" class="ms" text-anchor="middle">dispatch</text>
+  <rect x="370.0" y="292.0" width="38.0" height="26.0" class="gpu" />
+  <text x="389.0" y="309.0" class="ms" text-anchor="middle">GEMV</text>
+  <path d="M370.0,274.0 L370.0,292.0" class="arrow"/>
+  <text x="464.0" y="309.0" class="s" text-anchor="middle">空转</text>
+  <rect x="370.0" y="248.0" width="150.0" height="26.0" class="cpu" />
+  <text x="445.0" y="265.0" class="ms" text-anchor="middle">dispatch</text>
+  <rect x="520.0" y="292.0" width="38.0" height="26.0" class="gpu" />
+  <text x="539.0" y="309.0" class="ms" text-anchor="middle">RoPE</text>
+  <path d="M520.0,274.0 L520.0,292.0" class="arrow"/>
+  <text x="614.0" y="309.0" class="s" text-anchor="middle">空转</text>
+  <rect x="520.0" y="248.0" width="150.0" height="26.0" class="cpu" />
+  <text x="595.0" y="265.0" class="ms" text-anchor="middle">dispatch</text>
+  <rect x="670.0" y="292.0" width="38.0" height="26.0" class="gpu" />
+  <text x="689.0" y="309.0" class="ms" text-anchor="middle">attn</text>
+  <path d="M670.0,274.0 L670.0,292.0" class="arrow"/>
+  <path d="M314.0,342.0 L314.0,320.0" class="arrow"/>
+  <text x="322.0" y="342.0" class="n">空隙 &gt;&gt; kernel：GPU 大部分时间空转，ncu 帮不上</text>
+  <text x="24.0" y="380.0" class="h">decode + CUDA graph</text>
+  <text x="24.0" y="400.0" class="n">一次 replay 提交整张图，kernel 之间只剩 ~1–2 µs 的硬件间隙</text>
+  <path d="M70.0,416.0 L740.0,416.0" class="axis"/>
+  <text x="24.0" y="420.0" class="s">时间</text>
+  <rect x="70.0" y="428.0" width="670.0" height="26.0" class="lane" />
+  <rect x="70.0" y="472.0" width="670.0" height="26.0" class="lane" />
+  <text x="24.0" y="446.0" class="b">CPU</text>
+  <text x="24.0" y="490.0" class="b">GPU</text>
+  <rect x="70.0" y="428.0" width="70.0" height="26.0" class="cpu" />
+  <text x="105.0" y="445.0" class="ms" text-anchor="middle">replay</text>
+  <path d="M140.0,454.0 L140.0,472.0" class="arrow"/>
+  <rect x="140.0" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="159.6" y="489.0" class="ms" text-anchor="middle">norm</text>
+  <rect x="183.2" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="202.8" y="489.0" class="ms" text-anchor="middle">GEMV</text>
+  <rect x="226.4" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="246.0" y="489.0" class="ms" text-anchor="middle">RoPE</text>
+  <rect x="269.6" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="289.2" y="489.0" class="ms" text-anchor="middle">attn</text>
+  <rect x="312.8" y="472.0" width="51.8" height="26.0" class="gpu" />
+  <text x="338.7" y="489.0" class="ms" text-anchor="middle">o_proj</text>
+  <rect x="368.6" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="388.2" y="489.0" class="ms" text-anchor="middle">norm</text>
+  <rect x="411.8" y="472.0" width="58.1" height="26.0" class="gpu" />
+  <text x="440.8" y="489.0" class="ms" text-anchor="middle">gate/up</text>
+  <rect x="473.9" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="493.5" y="489.0" class="ms" text-anchor="middle">SiLU</text>
+  <rect x="517.1" y="472.0" width="39.2" height="26.0" class="gpu" />
+  <text x="536.7" y="489.0" class="ms" text-anchor="middle">down</text>
+</svg>

@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 264" width="760" height="264" role="img" aria-labelledby="t d">
+  <title id="t">一个调度器手里 4 个 warp 的逐周期 stall</title>
+  <desc id="d">4 个 warp × 12 个周期的网格。warp 0–3 依次在第 1–4 周期发射一条 LDG，然后都在等数据（long scoreboard），第 5–9 周期没有任何 warp 就绪，发射槽空转；第 10–12 周期 warp 0–2 的数据回来，再次发射。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="ahg" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+.h { font-size: 14px; font-weight: 700; }
+.b { font-size: 13px; }
+.s { font-size: 12px; }
+.n { font-size: 12.5px; fill: #333; }
+.m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+.ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 10.5px; }
+.lane { fill: #f3f5f8; stroke: #c9d2dc; stroke-width: 1; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: #fff; stroke: #c9d2dc; stroke-width: 1; }
+.arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#ah); }
+.line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+.axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#ahg); }
+.grid { stroke: #b8c3cf; stroke-width: 1; fill: none; }
+.ref { stroke: #c0392b; stroke-width: 1.6; fill: none; }
+.reft { fill: #c0392b; }
+
+.tri { fill: #1e8449; }
+.st-go { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.st-s { fill: #fbe3c4; stroke: #b8c3cf; stroke-width: 1; }
+.st-r { fill: #fff; stroke: #b8c3cf; stroke-width: 1; }
+.ok { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.no { fill: #f6d5d1; stroke: #b8c3cf; stroke-width: 1; }
+.bar { fill: #9dbbe3; stroke: #40566f; stroke-width: 1.2; }
+.need { fill: #f6d5d1; stroke: #b0473a; stroke-width: 1; }
+.have { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r0 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r1 { fill: #fbe3c4; stroke: #40566f; stroke-width: 1; }
+.nx { fill: #eceff3; stroke: #40566f; stroke-width: 1; }
+</style>
+  </defs>
+  <rect width="760" height="264" fill="#fff"/>
+  <rect x="20.0" y="8.0" width="18.0" height="18.0" class="st-go" />
+  <path d="M24.0,11.0 L35.0,17.0 L24.0,23.0 Z" class="tri"/>
+  <text x="44.0" y="22.0" class="n">被选中发射</text>
+  <rect x="128.5" y="8.0" width="18.0" height="18.0" class="st-s" />
+  <text x="137.5" y="21.5" class="m" text-anchor="middle">S</text>
+  <text x="152.5" y="22.0" class="n">stall 等待</text>
+  <rect x="241.5" y="8.0" width="18.0" height="18.0" class="st-r" />
+  <text x="250.5" y="22.0" class="h" text-anchor="middle">·</text>
+  <text x="265.5" y="22.0" class="n">就绪未选中</text>
+  <text x="20.0" y="61.0" class="b">周期</text>
+  <text x="128.0" y="61.0" class="m" text-anchor="middle">1</text>
+  <text x="164.0" y="61.0" class="m" text-anchor="middle">2</text>
+  <text x="200.0" y="61.0" class="m" text-anchor="middle">3</text>
+  <text x="236.0" y="61.0" class="m" text-anchor="middle">4</text>
+  <text x="272.0" y="61.0" class="m" text-anchor="middle">5</text>
+  <text x="308.0" y="61.0" class="m" text-anchor="middle">6</text>
+  <text x="344.0" y="61.0" class="m" text-anchor="middle">7</text>
+  <text x="380.0" y="61.0" class="m" text-anchor="middle">8</text>
+  <text x="416.0" y="61.0" class="m" text-anchor="middle">9</text>
+  <text x="452.0" y="61.0" class="m" text-anchor="middle">10</text>
+  <text x="488.0" y="61.0" class="m" text-anchor="middle">11</text>
+  <text x="524.0" y="61.0" class="m" text-anchor="middle">12</text>
+  <text x="20.0" y="89.0" class="b">warp 0</text>
+  <rect x="110.0" y="70.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M123.0,78.0 L134.0,84.0 L123.0,90.0 Z" class="tri"/>
+  <rect x="146.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="164.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="182.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="200.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="218.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="236.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="254.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="272.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="290.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="308.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="326.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="344.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="362.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="380.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="398.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="416.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="434.0" y="70.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M447.0,78.0 L458.0,84.0 L447.0,90.0 Z" class="tri"/>
+  <rect x="470.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="488.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <rect x="506.0" y="70.0" width="36.0" height="28.0" class="st-s" />
+  <text x="524.0" y="88.0" class="m" text-anchor="middle">S</text>
+  <text x="20.0" y="117.0" class="b">warp 1</text>
+  <rect x="110.0" y="98.0" width="36.0" height="28.0" class="st-r" />
+  <text x="128.0" y="117.0" class="h" text-anchor="middle">·</text>
+  <rect x="146.0" y="98.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M159.0,106.0 L170.0,112.0 L159.0,118.0 Z" class="tri"/>
+  <rect x="182.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="200.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="218.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="236.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="254.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="272.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="290.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="308.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="326.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="344.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="362.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="380.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="398.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="416.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="434.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="452.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <rect x="470.0" y="98.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M483.0,106.0 L494.0,112.0 L483.0,118.0 Z" class="tri"/>
+  <rect x="506.0" y="98.0" width="36.0" height="28.0" class="st-s" />
+  <text x="524.0" y="116.0" class="m" text-anchor="middle">S</text>
+  <text x="20.0" y="145.0" class="b">warp 2</text>
+  <rect x="110.0" y="126.0" width="36.0" height="28.0" class="st-r" />
+  <text x="128.0" y="145.0" class="h" text-anchor="middle">·</text>
+  <rect x="146.0" y="126.0" width="36.0" height="28.0" class="st-r" />
+  <text x="164.0" y="145.0" class="h" text-anchor="middle">·</text>
+  <rect x="182.0" y="126.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M195.0,134.0 L206.0,140.0 L195.0,146.0 Z" class="tri"/>
+  <rect x="218.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="236.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="254.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="272.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="290.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="308.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="326.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="344.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="362.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="380.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="398.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="416.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="434.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="452.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="470.0" y="126.0" width="36.0" height="28.0" class="st-s" />
+  <text x="488.0" y="144.0" class="m" text-anchor="middle">S</text>
+  <rect x="506.0" y="126.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M519.0,134.0 L530.0,140.0 L519.0,146.0 Z" class="tri"/>
+  <text x="20.0" y="173.0" class="b">warp 3</text>
+  <rect x="110.0" y="154.0" width="36.0" height="28.0" class="st-r" />
+  <text x="128.0" y="173.0" class="h" text-anchor="middle">·</text>
+  <rect x="146.0" y="154.0" width="36.0" height="28.0" class="st-r" />
+  <text x="164.0" y="173.0" class="h" text-anchor="middle">·</text>
+  <rect x="182.0" y="154.0" width="36.0" height="28.0" class="st-r" />
+  <text x="200.0" y="173.0" class="h" text-anchor="middle">·</text>
+  <rect x="218.0" y="154.0" width="36.0" height="28.0" class="st-go" />
+  <path d="M231.0,162.0 L242.0,168.0 L231.0,174.0 Z" class="tri"/>
+  <rect x="254.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="272.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="290.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="308.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="326.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="344.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="362.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="380.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="398.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="416.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="434.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="452.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="470.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="488.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <rect x="506.0" y="154.0" width="36.0" height="28.0" class="st-s" />
+  <text x="524.0" y="172.0" class="m" text-anchor="middle">S</text>
+  <text x="556.0" y="82.0" class="n">LDG 发出后等 ~600 周期</text>
+  <text x="556.0" y="98.0" class="n">数据回来 → long scoreboard</text>
+  <text x="20.0" y="207.0" class="b">发射槽</text>
+  <rect x="110.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="128.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <rect x="146.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="164.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <rect x="182.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="200.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <rect x="218.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="236.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <rect x="254.0" y="188.0" width="36.0" height="28.0" class="no" />
+  <text x="272.0" y="207.0" class="b" text-anchor="middle">✗</text>
+  <rect x="290.0" y="188.0" width="36.0" height="28.0" class="no" />
+  <text x="308.0" y="207.0" class="b" text-anchor="middle">✗</text>
+  <rect x="326.0" y="188.0" width="36.0" height="28.0" class="no" />
+  <text x="344.0" y="207.0" class="b" text-anchor="middle">✗</text>
+  <rect x="362.0" y="188.0" width="36.0" height="28.0" class="no" />
+  <text x="380.0" y="207.0" class="b" text-anchor="middle">✗</text>
+  <rect x="398.0" y="188.0" width="36.0" height="28.0" class="no" />
+  <text x="416.0" y="207.0" class="b" text-anchor="middle">✗</text>
+  <rect x="434.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="452.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <rect x="470.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="488.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <rect x="506.0" y="188.0" width="36.0" height="28.0" class="ok" />
+  <text x="524.0" y="207.0" class="b" text-anchor="middle">✓</text>
+  <path d="M256,222 L256,228 L432,228 L432,222" class="line"/>
+  <text x="344.0" y="246.0" class="n" text-anchor="middle">第 5–9 周期没有任何 warp 就绪：调度器空转</text>
+</svg>

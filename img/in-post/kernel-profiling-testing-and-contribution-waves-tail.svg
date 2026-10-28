@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" width="760" height="500" role="img" aria-labelledby="t d">
+  <title id="t">waves = 0.4、1.2 与 9.5 时驻留 block 比例随时间的变化</title>
+  <desc id="d">108 个 SM × 每 SM 8 block = 一波 864 个 block 槽位。三张图横轴同一比例，一格是一个 block 的时长。waves = 0.4：一格时间里只占 40% 槽位；waves = 1.2：第一格满，第二格只有 20%；waves = 9.5：九格满，最后一格 48%。</desc>
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="ahg" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 500; }
+.h { font-size: 14px; font-weight: 700; }
+.b { font-size: 13px; }
+.s { font-size: 12px; }
+.n { font-size: 12.5px; fill: #333; }
+.m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+.ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 10.5px; }
+.lane { fill: #f3f5f8; stroke: #c9d2dc; stroke-width: 1; }
+.cpu { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.gpu { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: #fff; stroke: #c9d2dc; stroke-width: 1; }
+.arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#ah); }
+.line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+.axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#ahg); }
+.grid { stroke: #b8c3cf; stroke-width: 1; fill: none; }
+.ref { stroke: #c0392b; stroke-width: 1.6; fill: none; }
+.reft { fill: #c0392b; }
+
+.tri { fill: #1e8449; }
+.st-go { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.st-s { fill: #fbe3c4; stroke: #b8c3cf; stroke-width: 1; }
+.st-r { fill: #fff; stroke: #b8c3cf; stroke-width: 1; }
+.ok { fill: #cdebd3; stroke: #b8c3cf; stroke-width: 1; }
+.no { fill: #f6d5d1; stroke: #b8c3cf; stroke-width: 1; }
+.bar { fill: #9dbbe3; stroke: #40566f; stroke-width: 1.2; }
+.need { fill: #f6d5d1; stroke: #b0473a; stroke-width: 1; }
+.have { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r0 { fill: #dbe8fb; stroke: #40566f; stroke-width: 1; }
+.r1 { fill: #fbe3c4; stroke: #40566f; stroke-width: 1; }
+.nx { fill: #eceff3; stroke: #40566f; stroke-width: 1; }
+</style>
+  </defs>
+  <rect width="760" height="500" fill="#fff"/>
+  <text x="20.0" y="18.0" class="b">108 个 SM × 每 SM 8 block = 一波 864 个 block 槽位</text>
+  <text x="20.0" y="38.0" class="n">纵轴 = 驻留 block 占 864 个槽位的比例</text>
+  <text x="20.0" y="56.0" class="n">横轴 = 时间，一格 = 一个 block 的时长（假设 block 耗时相同）</text>
+  <text x="20.0" y="84.0" class="h">waves = 0.4（grid ≈ 346，decode 阶段的小 GEMM）</text>
+  <path d="M90.0,184.0 L90.0,96.0" class="line"/>
+  <path d="M86.0,104.0 L90.0,104.0" class="line"/>
+  <text x="82.0" y="108.0" class="s" text-anchor="end">100%</text>
+  <path d="M86.0,152.0 L90.0,152.0" class="line"/>
+  <text x="82.0" y="156.0" class="s" text-anchor="end">40%</text>
+  <rect x="90.0" y="152.0" width="60.0" height="32.0" class="bar" />
+  <path d="M90.0,184.0 L714.0,184.0" class="axis"/>
+  <path d="M150.0,184.0 L150.0,188.0" class="line"/>
+  <path d="M210.0,184.0 L210.0,188.0" class="line"/>
+  <path d="M270.0,184.0 L270.0,188.0" class="line"/>
+  <path d="M330.0,184.0 L330.0,188.0" class="line"/>
+  <path d="M390.0,184.0 L390.0,188.0" class="line"/>
+  <path d="M450.0,184.0 L450.0,188.0" class="line"/>
+  <path d="M510.0,184.0 L510.0,188.0" class="line"/>
+  <path d="M570.0,184.0 L570.0,188.0" class="line"/>
+  <path d="M630.0,184.0 L630.0,188.0" class="line"/>
+  <path d="M690.0,184.0 L690.0,188.0" class="line"/>
+  <text x="720.0" y="188.0" class="b">t</text>
+  <text x="164.0" y="134.0" class="n">60% 的 block 槽位从头到尾空着：问题在 grid，不在 kernel 体内</text>
+  <text x="20.0" y="220.0" class="h">waves = 1.2（grid ≈ 1037）</text>
+  <path d="M90.0,320.0 L90.0,232.0" class="line"/>
+  <path d="M86.0,240.0 L90.0,240.0" class="line"/>
+  <text x="82.0" y="244.0" class="s" text-anchor="end">100%</text>
+  <path d="M86.0,304.0 L90.0,304.0" class="line"/>
+  <text x="82.0" y="308.0" class="s" text-anchor="end">20%</text>
+  <rect x="90.0" y="240.0" width="60.0" height="80.0" class="bar" />
+  <rect x="150.0" y="304.0" width="60.0" height="16.0" class="bar" />
+  <path d="M90.0,320.0 L714.0,320.0" class="axis"/>
+  <path d="M150.0,320.0 L150.0,324.0" class="line"/>
+  <path d="M210.0,320.0 L210.0,324.0" class="line"/>
+  <path d="M270.0,320.0 L270.0,324.0" class="line"/>
+  <path d="M330.0,320.0 L330.0,324.0" class="line"/>
+  <path d="M390.0,320.0 L390.0,324.0" class="line"/>
+  <path d="M450.0,320.0 L450.0,324.0" class="line"/>
+  <path d="M510.0,320.0 L510.0,324.0" class="line"/>
+  <path d="M570.0,320.0 L570.0,324.0" class="line"/>
+  <path d="M630.0,320.0 L630.0,324.0" class="line"/>
+  <path d="M690.0,320.0 L690.0,324.0" class="line"/>
+  <text x="720.0" y="324.0" class="b">t</text>
+  <text x="224.0" y="270.0" class="n">第二波只有 20% 的 block，却占近一半时间（tail）</text>
+  <text x="224.0" y="288.0" class="n">SOL 是全程平均值，被这一半拉低</text>
+  <text x="20.0" y="356.0" class="h">waves = 9.5（grid = 8192，fused add+RMSNorm）</text>
+  <path d="M90.0,456.0 L90.0,368.0" class="line"/>
+  <path d="M86.0,376.0 L90.0,376.0" class="line"/>
+  <text x="82.0" y="380.0" class="s" text-anchor="end">100%</text>
+  <path d="M86.0,417.6 L90.0,417.6" class="line"/>
+  <text x="82.0" y="421.6" class="s" text-anchor="end">48%</text>
+  <rect x="90.0" y="376.0" width="540.0" height="80.0" class="bar" />
+  <rect x="630.0" y="417.6" width="60.0" height="38.4" class="bar" />
+  <path d="M90.0,456.0 L714.0,456.0" class="axis"/>
+  <path d="M150.0,456.0 L150.0,460.0" class="line"/>
+  <path d="M210.0,456.0 L210.0,460.0" class="line"/>
+  <path d="M270.0,456.0 L270.0,460.0" class="line"/>
+  <path d="M330.0,456.0 L330.0,460.0" class="line"/>
+  <path d="M390.0,456.0 L390.0,460.0" class="line"/>
+  <path d="M450.0,456.0 L450.0,460.0" class="line"/>
+  <path d="M510.0,456.0 L510.0,460.0" class="line"/>
+  <path d="M570.0,456.0 L570.0,460.0" class="line"/>
+  <path d="M630.0,456.0 L630.0,460.0" class="line"/>
+  <path d="M690.0,456.0 L690.0,460.0" class="line"/>
+  <text x="720.0" y="460.0" class="b">t</text>
+  <text x="90.0" y="482.0" class="n">尾巴只占总时长的 1/10：achieved occupancy ≈ theoretical</text>
+</svg>

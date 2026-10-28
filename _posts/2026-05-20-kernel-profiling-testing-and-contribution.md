@@ -172,23 +172,7 @@ nsys stats --report nvtx_kern_sum layer.nsys-rep
 
 同一个 decoder layer 在 prefill 与 decode 两种形状下，nsys 时间线的 CPU 行与 GPU 行长成完全不同的样子——空隙是不是问题，一眼就能看出来：
 
-```text title="prefill 与 decode 形状下 nsys 时间线的 CPU / GPU 行"
-prefill（M = 8192）: kernel 几百 µs，CPU 把 launch 排进队列后就跑到 GPU 前面去了
-时间 →
-CPU  ▌L▌L▌L▌L▌  ……（launch 只占几 µs，CPU 大部分时间在等 GPU）
-GPU  ██ norm ██│████████ QKV GEMM ████████│██ RoPE ██│██████ attn ██████
-               ↑ 空隙 ≈ 0：GPU 是瓶颈 → 找离理论下界最远的 kernel，开 ncu
-
-decode（M = 1）eager: kernel 只有 3–5 µs，每次 Python dispatch 却要 20–50 µs
-时间 →
-CPU  ███ dispatch ███│███ dispatch ███│███ dispatch ███│███ dispatch ███│
-GPU  ▌norm▌··········│▌GEMV▌··········│▌RoPE▌··········│▌attn▌··········│
-                     ↑ 空隙 >> kernel：GPU 大部分时间空转，ncu 帮不上
-
-decode + CUDA graph: 一次 replay 提交整张图，kernel 之间只剩 ~1–2 µs 的硬件间隙
-CPU  ▌replay▌
-GPU  ▌norm▌GEMV▌RoPE▌attn▌o_proj▌norm▌gate/up▌SiLU▌down▌
-```
+![prefill 与 decode 形状下 nsys 时间线的 CPU / GPU 行](/img/in-post/kernel-profiling-testing-and-contribution-nsys-timeline.svg)
 
 多 stream 场景（通信与计算重叠、prefill 与 decode 混排）在 nsys 时间线上表现为多行 kernel 并行；如果期望重叠却看到串行，通常是某个 API 隐式同步了默认 stream。这类问题也只有 nsys 看得到。
 
@@ -254,19 +238,10 @@ ncu-ui rms_full.ncu-rep
 
 ### 4. Warp State Statistics：warp 在等什么
 
-```text title="一个调度器手里 4 个 warp 的逐周期 stall"
-  一个 warp 调度器手里的 4 个 warp，逐周期看它们在干什么（▶ = 被选中发射，S = stall 等待，· = 就绪未选中）:
+![一个调度器手里 4 个 warp 的逐周期 stall](/img/in-post/kernel-profiling-testing-and-contribution-warp-stall-cycles.svg)
 
-  周期:     1   2   3   4   5   6   7   8   9  10  11  12
-  warp 0    ▶   S   S   S   S   S   S   S   S   ▶   S   S      LDG 发出后等 ~600 周期数据回来 → long scoreboard
-  warp 1    ·   ▶   S   S   S   S   S   S   S   S   ▶   S
-  warp 2    ·   ·   ▶   S   S   S   S   S   S   S   S   ▶
-  warp 3    ·   ·   ·   ▶   S   S   S   S   S   S   S   S
-  发射槽:   ✓   ✓   ✓   ✓   ✗   ✗   ✗   ✗   ✗   ✓   ✓   ✓      ← 第 5–9 周期没有任何 warp 就绪：调度器空转
-
-  ncu 统计的是: 每发一条指令，warp 平均 stall 了多少周期，按原因分类（上图全是 long scoreboard）
-  解法只有两个: 更多 warp（occupancy ↑，让 · 更多）或每个 warp 发出更多独立请求再等（ILP ↑，让 S 更短）
-```
+- ncu 统计的是：每发一条指令，warp 平均 stall 了多少周期，按原因分类（上图全是 long scoreboard）。
+- 解法只有两个：更多 warp（occupancy ↑，让 · 更多），或每个 warp 发出更多独立请求再等（ILP ↑，让 S 更短）。
 
 这一节是 latency-bound kernel 的核心。每个 SM 有 4 个 warp 调度器，每个周期各挑一个"就绪"的 warp 发一条指令。一个 warp 不就绪时处于某种 **stall** 状态；ncu 统计每个 warp 平均每发一条指令要 stall 多少周期，并按原因分解。原因的读法：
 
@@ -317,30 +292,9 @@ Table: 三种 kernel 配置的 occupancy 计算
 
 ### 6. Launch Statistics、Compute Workload Analysis 与 Source Counters
 
-**Launch Statistics** 列出 grid/block 尺寸、每线程寄存器、静态/动态 shared、以及 **Waves Per SM**：grid 中的 block 数除以（SM 数 × 每 SM 最大驻留 block 数）。0.4 wave 说明 GPU 一大半 SM 是空的（grid 太小，decode 阶段的 GEMM、小 batch 的 attention 常见）；1.2 wave 说明第一波满、第二波只有 20%，尾巴占了将近一半时间——这时把 tile 减小或 split-K 让 wave 数变成整数附近或远大于 1，往往比任何 kernel 内部的优化更有效。
+**Launch Statistics** 列出 grid/block 尺寸、每线程寄存器、静态/动态 shared、以及 **Waves Per SM**：grid 中的 block 数除以（SM 数 × 每 SM 最大驻留 block 数）。0.4 wave 说明 GPU 一大半的 block 槽位是空的（grid 太小，decode 阶段的 GEMM、小 batch 的 attention 常见）；1.2 wave 说明第一波满、第二波只有 20%，尾巴占了将近一半时间——这时把 tile 减小或 split-K 让 wave 数变成整数附近或远大于 1，往往比任何 kernel 内部的优化更有效。
 
-```text title="waves = 0.4 与 1.2 时忙碌 SM 比例随时间的变化"
-  108 个 SM × 每 SM 8 block = 一波 864 个 block
-  纵轴 = 忙碌 SM 比例，横轴 = 时间（假设 block 耗时相同，一波 = 一个 block 时长）
-
-  waves = 0.4（grid ≈ 346，decode 阶段的小 GEMM）
-  100% ┤
-       │                  60% 的 SM 从头到尾空着：问题在 grid，不在 kernel 体内
-   40% ┤██████████
-       └──────────▶ t
-
-  waves = 1.2（grid ≈ 1037）
-  100% ┤██████████
-       │██████████
-   20% ┤████████████████████     第二波只有 20% 的 block，却占近一半时间（tail）
-       └──────────┴─────────▶ t  SOL 是全程平均值，被这一半拉低
-
-  waves = 9.5（grid = 8192，fused add+RMSNorm）
-  100% ┤████████████████████████████████████████████████████████████████
-   50% ┤                                                                ██
-       └────────────────────────────────────────────────────────────────┴─▶ t
-         尾巴只占 1/10 波：achieved occupancy ≈ theoretical
-```
+![waves = 0.4、1.2 与 9.5 时驻留 block 比例随时间的变化](/img/in-post/kernel-profiling-testing-and-contribution-waves-tail.svg)
 
 **Compute Workload Analysis** 给每个 pipe 的利用率：FMA（浮点乘加）、ALU（整数与逻辑）、**Tensor**（mma/wgmma）、LSU（访存指令发射）、XU（超越函数、类型转换）、FP16 等。对 GEMM 与 attention，`sm__pipe_tensor_cycles_active.avg.pct_of_peak_sustained_active` 是唯一重要的数——它就是 Tensor Core 利用率，cuBLAS 大形状 GEMM 通常在 70–90%。如果 SOL Compute 高但 Tensor pipe 低而 ALU/FMA 高，说明时间花在 Tensor Core 之外：地址计算、fragment 布局转换、softmax 的 exp、类型转换（BF16 到 FP32 再回来）。attention 里 XU pipe 高是典型：每个 $$QK^T$$ 元素一个 `exp`，在 H100 上 MUFU 吞吐（每 SM 每周期 16 次）相对 Tensor Core 已经是瓶颈之一，FlashAttention-3（Shah 等 2024）把 softmax 与 GEMM 在 warpgroup 间交错正是为了掩盖它。
 
@@ -379,18 +333,19 @@ Launch Statistics
 
 这份报告说"没什么可改的"：带宽利用率已经在 80% 上下，stall 集中在 long scoreboard 但 DRAM 已经忙，occupancy 高。剩下 10–20% 的差距来自 DRAM 读写切换、行尾的归约同步与 kernel 启动/收尾，是工程上接受的水平。
 
-把"做对了"和"有问题"两个版本的关键指标并排画出来，会发现 stall 分布几乎一样，差别全在 SOL 与 occupancy：
+把"做对了"和"有问题"两个版本的关键指标并排列出来，会发现 stall 分布几乎一样，差别全在 SOL 与 occupancy：
 
-```text title="做对了与有问题两个版本的 SOL 与 occupancy 对照"
-                        做对了的版本                    有问题的版本
-                        16 B 向量化，256 线程            2 B 标量，128 线程，smem 限 3 block/SM
-  SOL Memory %          ████████████████░░░░ 80         ████████░░░░░░░░░░░░ 40    ← 差别在这
-  SOL Compute %         ███░░░░░░░░░░░░░░░░░ 15         ██░░░░░░░░░░░░░░░░░░ 12
-  Occupancy achieved %  ████████████████░░░░ 80         ███░░░░░░░░░░░░░░░░░ 15    ← 差别在这
-  Sectors / Request     16（理想）                       2（合并了，但每条指令只搬 64 B）
-  long scoreboard %     █████████████░░░░░░░ 65         ██████████████░░░░░░ 70    ← 几乎一样！
-  结论                  memory-bound，到头了             latency-bound，在飞的字节太少
-```
+| 指标 | 做对了的版本 | 有问题的版本 | 差别 |
+|---|---|---|---|
+| 写法 | 16 B 向量化，256 线程 | 2 B 标量，128 线程，smem 限 3 block/SM | |
+| SOL Memory % | 80 | 40 | 差别在这 |
+| SOL Compute % | 15 | 12 | |
+| Occupancy achieved % | 80 | 15 | 差别在这 |
+| Sectors / Request | 16（理想） | 2（合并了，但每条指令只搬 64 B） | |
+| long scoreboard % | 65 | 70 | 几乎一样！ |
+| 结论 | memory-bound，到头了 | latency-bound，在飞的字节太少 | |
+
+Table: 做对了与有问题两个版本的 SOL 与 occupancy 对照
 
 对比一个**有问题**的版本的典型形态：同样的 kernel，如果每线程只做 2 字节标量加载、且一个 block 只有 128 线程、每 SM 驻留 block 数被 shared memory 限制在 3——报告会变成 SOL Memory 35–50%、SOL Compute 10–15%（两者都低：latency-bound）、Sectors/Req 2（合并了但每个请求只搬 64 B，LSU 指令数是向量化版本的 8 倍，LG throttle 上升）、theoretical occupancy 19%、achieved 15%、long scoreboard 70% 以上。这两份报告的 stall 分布几乎一样，结论完全相反——判断依据是 SOL 与 occupancy，而不是 stall 本身。这就是第五章决策树的起点。
 
@@ -466,16 +421,7 @@ flowchart TB
 - 向量化：每线程一次 16 字节，同样多的数据用 1/4 甚至 1/8 的指令数，每条指令带回更多字节；
 - `cp.async` 多级流水（Ampere）或 TMA（Hopper）：让下一个 tile 的加载与当前 tile 的计算重叠，把"等内存"的时间换成"算上一块"的时间。
 
-```text title="SM 跑满带宽需要的在飞字节"
-  一个 SM 要跑满带宽，必须时刻有 ≈ 延迟 × 每 SM 带宽份额 = 600 周期 × 13 B/周期 ≈ 8 KB 在飞
-
-  （每格 = 1 KB）
-  需要在飞                              ████████ 8 KB
-  16 warp × 1 请求 × 512 B              ████████ 8 KB                          ← 刚够；block 切换 / tail 一来就掉下去
-  16 warp × 4 请求 × 512 B（ILP 4）      ████████████████████████████████ 32 KB  ← 4 倍余量
-  8 warp（占用 12.5%）× 8 请求 × 512 B   ████████████████████████████████ 32 KB  ← cuBLAS/CUTLASS 的活法
-  16 warp × 1 请求 × 64 B（标量 BF16）    █ 1 KB                                 ← 带宽最多到 1/8
-```
+![SM 跑满带宽需要的在飞字节](/img/in-post/kernel-profiling-testing-and-contribution-inflight-bytes.svg)
 
 延迟隐藏的账是这样的：DRAM 延迟约 500–800 周期，一个 SM 要把带宽跑满需要"在飞"的字节数 ≈ 延迟 × 每 SM 带宽份额。A100 每 SM 每周期约 2.0 TB/s ÷ 108 ÷ 1.41 GHz ≈ 13 字节，乘 600 周期约 8 KB 在飞。16 个 warp、每 warp 一次 512 字节的请求只有 8 KB——刚刚够，任何一点不均衡就掉下来；每 warp 同时发 4 个请求就是 32 KB，余量充足。这就是为什么低 occupancy 下 ILP 能救回来，也是 cuBLAS/CUTLASS 在 12.5% occupancy 下仍能满带宽的原因。
 
@@ -678,21 +624,7 @@ def test_rms_norm_opcheck(rows, d, layout):
 
 `make_input` 的四种布局在 storage 里长这样（以 `rows=2, d=4` 为例），它决定了第九章 host 包装里走哪条路：
 
-```text title="make_input 四种布局在 storage 里的样子"
-  x[i][j] 落在 storage 的哪个格子（■ = 属于 x，· = storage 里不属于 x 的元素）
-
-  contiguous    ■■■■■■■■             stride=(4,1)  连续
-                └r0─┘└r1─┘                     → 直接按行读
-
-  sliced        ■■■■····■■■■····     stride=(8,1)  非连续，但 stride(1)=1
-                └r0─┘    └r1─┘                 → stride(0)=8 传给 kernel，零拷贝
-
-  row_strided   ■■■■····■■■■····     stride=(8,1)  与 sliced 的 stride 完全相同
-                └r0─┘    └r1─┘                 → kernel 无法区分，也不需要区分
-
-  transposed    ■■■■■■■■             stride=(1,2)  stride(1)≠1：同一行元素不相邻
-                x00 x10 x01 x11 …              → host 侧 .contiguous() 拷一份再算
-```
+![make_input 四种布局在 storage 里的样子](/img/in-post/kernel-profiling-testing-and-contribution-storage-layouts.svg)
 
 运行 `pytest -v test_rms_norm.py`。参数化后第一个测试有 $$4 \times 5 \times 4 = 80$$ 个用例，每个几毫秒；加上边界、dtype 拒绝、大元素数与 opcheck，一分钟以内。这份文件覆盖了第 2 小节清单里除"多架构"之外的所有项——多架构靠在不同机器上跑同一份文件。
 
@@ -1307,21 +1239,21 @@ ncu 各 section 与指标的速查表：
 | section | 关键指标 | 含义 / 判断 |
 |---|---|---|
 | GPU Speed of Light | SOL Memory%、SOL Compute% | Roofline 位置：>80% 到顶；两者 <40–50% 为 latency-bound |
-|  | Roofline chart | 实测强度 vs 理论强度：差距 = 重复读取 |
+| ^^ | Roofline chart | 实测强度 vs 理论强度：差距 = 重复读取 |
 | Memory Workload Analysis | DRAM Throughput、DRAM 总字节 | 与标称带宽、与理论最小字节数比 |
-|  | L1/L2 Hit Rate | 流式 kernel 低正常；GEMM 应高 |
-|  | Sectors/Req | 理想 = 每线程字节数 × 32 / 32；8、32 为未合并 |
-|  | Shared bank conflicts、wavefronts/ideal | 理想 0 / 1.0 |
-|  | Local load/store | 非零 = 寄存器 spill |
+| ^^ | L1/L2 Hit Rate | 流式 kernel 低正常；GEMM 应高 |
+| ^^ | Sectors/Req | 理想 = 每线程字节数 × 32 / 32；8、32 为未合并 |
+| ^^ | Shared bank conflicts、wavefronts/ideal | 理想 0 / 1.0 |
+| ^^ | Local load/store | 非零 = 寄存器 spill |
 | Warp State Statistics | Warp Cycles Per Issued Instruction | 越大越"闲" |
-|  | long scoreboard | 等全局内存；SOL Memory 低时才是问题 |
-|  | short scoreboard / MIO throttle | shared 太多或 bank conflict |
-|  | barrier | 同步太多 |
-|  | LG throttle | 访存指令太碎，向量化 |
-|  | math pipe throttle | 算力饱和 |
-|  | not selected | 并行充足（好事） |
+| ^^ | long scoreboard | 等全局内存；SOL Memory 低时才是问题 |
+| ^^ | short scoreboard / MIO throttle | shared 太多或 bank conflict |
+| ^^ | barrier | 同步太多 |
+| ^^ | LG throttle | 访存指令太碎，向量化 |
+| ^^ | math pipe throttle | 算力饱和 |
+| ^^ | not selected | 并行充足（好事） |
 | Occupancy | Theoretical / Achieved | 限制因素：Block Limit Registers / Shared / Warps |
-|  | Registers Per Thread | >32 开始压 occupancy；128+ 为 GEMM 常态 |
+| ^^ | Registers Per Thread | >32 开始压 occupancy；128+ 为 GEMM 常态 |
 | Launch Statistics | Grid、Block、Waves Per SM | <1 grid 太小；非整数 tail 大 |
 | Compute Workload Analysis | Tensor / FMA / ALU / LSU / XU pipe | Tensor pipe 是 GEMM 的核心指标；XU 高 = exp 瓶颈 |
 | Source Counters | 按 SASS 行的 stall 采样、excessive sectors | 定位到源码行（需 -lineinfo + --import-source yes） |
@@ -1330,29 +1262,28 @@ Table: ncu 各 section 的关键指标与判断
 
 正确性测试清单：
 
-```text title="正确性测试清单"
-[ ] FP32 参考实现（组合算子，慢但显然正确）
-[ ] tolerance 按 dtype：FP32 ~1e-5；BF16 rtol 1.6e-2（归约类 atol 放到 1e-2）；量化与量化参考比
-[ ] 0 行、1 行、非 8/16 对齐宽度（769、5125）、非 2 的幂、> INT32 元素数
-[ ] 所有支持的 dtype 参数化；不支持的 dtype 明确报错
-[ ] 非连续输入：切片、转置、隔行；kernel 处理 / .contiguous() / 明确拒绝，三选一
-[ ] 固定随机种子；原地算子先跑参考再跑 kernel
-[ ] opcheck 在多组 shape/stride 上通过；torch.compile fullgraph=True 不 break
-[ ] 多架构（至少 sm_80 与 sm_90）
-```
+- FP32 参考实现（组合算子，慢但显然正确）
+- tolerance 按 dtype：
+  - FP32 ~1e-5
+  - BF16 rtol 1.6e-2（归约类 atol 放到 1e-2）
+  - 量化与量化参考比
+- 0 行、1 行、非 8/16 对齐宽度（769、5125）、非 2 的幂、> INT32 元素数
+- 所有支持的 dtype 参数化；不支持的 dtype 明确报错
+- 非连续输入：切片、转置、隔行；kernel 处理 / .contiguous() / 明确拒绝，三选一
+- 固定随机种子；原地算子先跑参考再跑 kernel
+- opcheck 在多组 shape/stride 上通过；torch.compile fullgraph=True 不 break
+- 多架构（至少 sm_80 与 sm_90）
 
 kernel PR 清单：
 
-```text title="kernel PR 清单"
-[ ] issue / RFC 先讨论动机、方案与 benchmark 计划
-[ ] 实现 + 测试（tests/kernels/）+ benchmark（benchmarks/kernels/）
-[ ] before/after 表：多 shape、多 GPU、中位数、带宽/算力利用率列
-[ ] 数值有变化时附模型评测（lm_eval）
-[ ] PR 描述：Purpose / Test Plan（可复制的命令）/ Test Result
-[ ] DCO sign-off；AI 辅助声明与 Co-authored-by
-[ ] pre-commit 全部通过；CMakeLists 架构列表与 cuda_archs_loose_intersection 配对
-[ ] 编译时间与二进制体积可接受；没有重复已有 kernel
-```
+- issue / RFC 先讨论动机、方案与 benchmark 计划
+- 实现 + 测试（tests/kernels/）+ benchmark（benchmarks/kernels/）
+- before/after 表：多 shape、多 GPU、中位数、带宽/算力利用率列
+- 数值有变化时附模型评测（lm_eval）
+- PR 描述：Purpose / Test Plan（可复制的命令）/ Test Result
+- DCO sign-off；AI 辅助声明与 Co-authored-by
+- pre-commit 全部通过；CMakeLists 架构列表与 cuda_archs_loose_intersection 配对
+- 编译时间与二进制体积可接受；没有重复已有 kernel
 
 ## 十三、自测
 
