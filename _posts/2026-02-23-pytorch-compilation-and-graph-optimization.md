@@ -36,11 +36,26 @@ compiled_f = torch.compile(f)
 
 第五篇建立的模型是：每个算子独立经过 **入口 → 分发 → 执行**。对 `f` 而言，当 `x` 是 `[128, 32]` 时，Eager 模式下一次前向是：
 
-```text title="Eager 模式下 f 的一次前向：四步各自独立"
-x @ weight          → Python 调用 → Dispatcher → matmul Kernel → 中间 Tensor t1
-t1 + bias           → Python 调用 → Dispatcher → add Kernel    → 中间 Tensor y
-x.shape[0] > 64     → Python 比较，得到 True
-torch.relu(y)       → Python 调用 → Dispatcher → relu Kernel   → 输出
+```mermaid
+%% 图：Eager 模式下 f 的四步前向：三次独立分发与一次 Python 比较
+flowchart TB
+    subgraph MM["① x @ weight"]
+        direction LR
+        MP[Python 调用] --> MD[Dispatcher] --> MK[matmul Kernel] --> MT[中间 Tensor t1]
+    end
+    subgraph ADD["② t1 + bias"]
+        direction LR
+        AP[Python 调用] --> AD[Dispatcher] --> AK[add Kernel] --> AT[中间 Tensor y]
+    end
+    subgraph CMP["③ x.shape#91;0#93; > 64"]
+        direction LR
+        CP[Python 比较] --> CT[True]
+    end
+    subgraph RELU["④ torch.relu(y)"]
+        direction LR
+        RP[Python 调用] --> RD[Dispatcher] --> RK[relu Kernel] --> RT[输出]
+    end
+    MM ~~~ ADD ~~~ CMP ~~~ RELU
 ```
 
 三次 Python 到 C++ 的往返、三次分发、三次 Kernel launch、两个中间 Tensor 的分配与读写。`add` 和 `relu` 都是逐元素操作，各自把 `t1`、`y` 从显存读一遍再写一遍——而它们本可以在一个 Kernel 里对每个元素连续完成。
@@ -80,9 +95,7 @@ Table: torch.compile 的前端、中端、后端
 
 上表的"输入 / 输出"两列里反复出现同一个名字。三段之间传递的是**同一种数据结构**：`torch.fx.Graph`。前端产出它，中端消费并再次产出它，后端消费它。
 
-```text title="三段之间传递的都是 FX Graph"
-Python 字节码 ──前端──▶ FX Graph（torch 级） ──中端──▶ FX Graph（ATen 级）× 2 ──后端──▶ Triton / C++
-```
+这条流水线是：Python 字节码 → 前端 → FX Graph（torch 级）→ 中端 → FX Graph（ATen 级）× 2 → 后端 → Triton / C++。
 
 它是三个组件唯一共享的契约。三个组件由不同团队、在不同时期开发，各自可以替换（`backend` 参数就是在替换中端之后的部分），能拼在一起全靠这一种 IR——就像第五篇里 Operator Table 是开发态与运行态的交汇点，开发者往里填、用户从里查，双方不需要知道彼此。
 
@@ -670,24 +683,14 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 
 把 `call()` 里的 buffer 生命周期画出来，可以看清"内存复用是静态决定的"这句话：三个逻辑中间值（`mm`、`add`、`relu` 的输出）最终只对应一次显存分配。
 
-```text title="call() 里 buffer 的生命周期：三个中间值一次分配"
-时间 →              extern mm        fused add_relu             return
-                    |----------------|--------------------------|------>
-逻辑中间值
-  mm 的输出         #================#  最后一次读：kernel 内 tl.load
-  add 的输出                          .  融合进循环体，只存在于寄存器 tmp2
-  relu 的输出                         #==========================#  返回值
+![call() 里 buffer 的生命周期：三个逻辑值共用一次分配](/img/in-post/pytorch-compilation-and-graph-optimization-buffer-lifetime.svg)
 
-物理 buffer
-  buf0 (128x64)     #================#  del buf0
-  buf1 = buf0                         #==========================#  同一块显存
-                                      ^
-                    mm 输出在此之后不再被读 → relu 输出原地写回（in_out_ptr0）
+1. `extern mm` 把结果写进 `(128, 64)` 的 `buf0`。
+2. `buf1 = buf0; del buf0` 只换了 Python 引用，没有释放显存。后续 Kernel 通过 `in_out_ptr0` 访问同一块存储。
+3. 融合 Kernel 对每个元素先用 `tl.load` 读取 mm 的输出，再算 `add` 得到寄存器里的 `tmp2`，接着算 `relu`，用 `tl.store` 原地写回。该元素的 mm 输出在读取后不再需要。
+4. `return` 返回 `buf1` 引用，不等待 GPU 计算完成。Eager 的 `t1`、`y`、`out` 需要三次分配；这里 `buf0` 只分配一次，`buf1` 只是别名。
 
-Eager：t1、y、out 三次分配       Inductor：buf0 一次分配，buf1 只是别名
-```
-
-这张时间线里 `add` 的输出一行是空的：它没有对应任何显存，只在 Triton Kernel 的寄存器里活了一条指令的时间。这正是融合收益的来源（§6）。
+图里的横轴只表示依赖顺序，不表示耗时；融合 Kernel 内按单个元素展开，不表示线程块之间有同步。`add` 的输出没有对应的显存，只在寄存器中短暂存在。这正是融合收益的来源（§6）。
 
 ### 5. Triton 是什么，为什么选它
 
@@ -695,28 +698,22 @@ Triton 是一种用 Python 语法编写 GPU Kernel 的语言和编译器。与 C
 
 以一个长度 1024 的向量、`BLOCK = 256` 为例，两种模型的分工差别如下：
 
-```text title="CUDA 与 Triton 的分工：1024 元素、BLOCK=256"
-x[0..1023]，BLOCK = 256 → grid = 4 个 program，pid = tl.program_id(0)
+![CUDA 与 Triton 的分工：四个 program 与一个 program 内的线程映射](/img/in-post/pytorch-compilation-and-graph-optimization-program-thread-mapping.svg)
 
-  pid = 0          pid = 1          pid = 2          pid = 3
-  x[0..255]        x[256..511]      x[512..767]      x[768..1023]
-+----------------+----------------+----------------+----------------+
-| offs = 0*256   | offs = 1*256   | offs = 2*256   | offs = 3*256   |
-|  + arange(256) |  + arange(256) |  + arange(256) |  + arange(256) |
-+----------------+----------------+----------------+----------------+
-        |
-        | 一个 program 的 256 个元素，由编译器映射到线程（num_warps = 4）：
-        v
-  warp 0          warp 1          warp 2          warp 3
-  线程 0..31      线程 32..63     线程 64..95     线程 96..127
-  每线程 2 个元素（256 / 128），相邻线程取相邻地址 → 合并成整段访存
+`x[0..1023]` 按 `BLOCK = 256` 划分，`grid = 4`，`pid = tl.program_id(0)`。图中只展开 `pid = 0`：`num_warps = 4`，共 `4 × 32 = 128` 个线程，平均每线程处理 `256 / 128 = 2` 个元素。具体元素落到哪个线程由编译器的 layout 决定；对这里的连续访问，编译器安排合并访存。
 
-CUDA 手写（开发者自己算线程索引、自己保证访存合并）：
-  i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < n) y[i] = f(x[i]);
-Triton（只描述一个块处理哪些元素，线程映射交给编译器）：
-  offs = pid * BLOCK + tl.arange(0, BLOCK);  mask = offs < n
-  tl.store(y + offs, f(tl.load(x + offs, mask)), mask)
+CUDA 手写时，我要自己算线程索引、安排合并访存：
+
+```cuda title="CUDA：手写线程索引"
+i = blockIdx.x * blockDim.x + threadIdx.x;
+if (i < n) y[i] = f(x[i]);
+```
+
+Triton 里只描述一个块处理哪些元素，线程映射交给编译器：
+
+```python title="Triton：描述块内的元素与掩码"
+offs = pid * BLOCK + tl.arange(0, BLOCK);  mask = offs < n
+tl.store(y + offs, f(tl.load(x + offs, mask)), mask)
 ```
 
 §4 那段生成代码里的 `xoffset = tl.program_id(0) * XBLOCK`、`xindex = xoffset + tl.arange(0, XBLOCK)` 正是上图的第一层；线程这一层在源码里完全不出现。
@@ -776,9 +773,7 @@ Table: 运行时的四个机制
 
 Dynamo 遇到无法符号化求值的代码时，不报错，而是**在此处切断图**：
 
-```text title="Graph Break：图被切成两段，中间 Eager 执行"
-图 1（编译）→ 无法捕获的 Python（Eager 执行）→ 图 2（编译）→ …
-```
+执行顺序变成：图 1（编译）→ 无法捕获的 Python（Eager 执行）→ 图 2（编译）→ …。
 
 改写后的字节码依次调用图 1、原始 Python 片段、图 2。用户看不到任何差别，程序正常运行，只是编译收益被切碎了：每张子图单独优化，跨越断点的算子无法融合，每个断点处还有一次 Python 与编译代码之间的切换。
 
@@ -854,16 +849,14 @@ Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64`
 
 默认策略是**自动动态**：
 
-```text title="自动动态：第二次调用把第 0 维标记为符号 s0"
-第一次调用   size=[128, 32]     → 静态编译，所有维度都是常量
-第二次调用   size=[256, 32]     → 第 0 维 Guard 失败
-                                → 重编译，但把第 0 维标记为符号 s0，其他维仍为常量
-                                → 追踪到 if s0 > 64 时，s0 是符号，无法直接判断
-                                → 用当前值 256 决定走 relu 分支，并把 s0 > 64 记为 Guard
-第三次调用   size=[512, 32]     → Guard 检查 s0 > 64：通过，复用
-第四次调用   size=[32, 32]      → Guard 检查 s0 > 64：失败
-                                → 重编译，这次走 tanh 分支，Guard 为 s0 <= 64
-```
+1. 第一次调用，`size=[128, 32]`：静态编译，所有维度都是常量。
+2. 第二次调用，`size=[256, 32]`：第 0 维 Guard 失败。
+   - 重编译，把第 0 维标记为符号 `s0`，其他维仍为常量。
+   - 追踪到 `if s0 > 64` 时，`s0` 是符号，无法直接给出对所有输入都成立的判断。
+   - 用当前值 `256` 决定走 `relu` 分支，并把 `s0 > 64` 记为 Guard。
+3. 第三次调用，`size=[512, 32]`：Guard 检查 `s0 > 64`，通过，复用。
+4. 第四次调用，`size=[32, 32]`：Guard 检查 `s0 > 64`，失败。
+   - 重编译，这次走 `tanh` 分支，Guard 为 `s0 <= 64`。
 
 把这条演化链画成状态机：节点是函数当前积累的编译产物，边是每次调用带来的转移；黄色边表示流水线真正运行，绿色边表示直接复用。注意每次重编译后 Guard 的形态都在变。
 
@@ -882,7 +875,7 @@ flowchart TB
     linkStyle 2,4 stroke:#2e7d32,stroke-width:2px;
 ```
 
-注意第二次编译时 Guard 从 `== 128` 变成了 `> 64`：Dynamo 在符号维度上追踪分支条件时，记录的是**让当前分支成立的最弱约束**，而不是具体值。分支条件本身变成了 Guard。最终这个函数积累了两份编译产物——`relu` 版和 `tanh` 版——由 `s0 > 64` 这条 Guard 决定走哪份，这正是原始 Python 程序里那个 `if` 的语义，只是判断从 Python 解释器移到了 Guard 检查。
+注意第二次编译时 Guard 从 `== 128` 变成了 `> 64`：Dynamo 在符号维度上追踪分支条件时，记录的是**让当前分支成立的约束**，而不是具体值。分支条件本身变成了 Guard。最终这个函数积累了三份编译产物：最初的静态 `relu` 版，以及动态的 `relu`、`tanh` 两版。后两版由 `s0 > 64` 这条分支 Guard 区分；完整 Guard 还包含其他元数据和 shape 约束。这保留了原始 Python 程序里那个 `if` 的语义，只是判断从 Python 解释器移到了 Guard 检查。
 
 也可以显式控制：`torch.compile(f, dynamic=True)` 让所有维度一开始就是符号；`torch._dynamo.mark_dynamic(x, 0)` 标记特定维度；`mark_static` 反之。
 
@@ -1172,15 +1165,18 @@ Table: 四个运行时机制小结
 
 ### 2. `f` 经历了什么
 
-```text title="f 在前端、中端、后端、运行时各经历了什么"
-Python      y = x @ weight + bias; if x.shape[0] > 64: relu(y) else: tanh(y)
-    ↓ 前端    if 用 FakeTensor 的 shape 特化掉，图里只剩 matmul → add → relu；Guard 记下 size[0] == 128
-    ↓ 中端    降到 aten.mm / aten.add / aten.relu，反向图 threshold_backward → mm × 2 → sum；整体包成一个 grad_fn
-    ↓ 后端    mm 交给 cuBLAS，add + relu 融合成一个 Triton Kernel，中间 Buffer 原地复用，shape 烧成常量
-    ↓ 运行时  第二次同 shape 命中；第三次 batch 256 触发动态化，Guard 变成 s0 > 64；第四次 batch 32 走 tanh，第二份产物
-```
+- **Python**：`y = x @ weight + bias`；`if x.shape[0] > 64` 走 `relu(y)`，否则走 `tanh(y)`。
+- **前端**：`if` 用 FakeTensor 的 shape 特化掉。
+  - 图里只剩 `matmul → add → relu`，Guard 记下 `size[0] == 128`。
+- **中端**：降到 `aten.mm` / `aten.add` / `aten.relu`。
+  - 反向图是 `threshold_backward → mm × 2 → sum`；整体包成一个 `grad_fn`。
+- **后端**：`mm` 交给 cuBLAS，`add + relu` 融合成一个 Triton Kernel。
+  - 中间 Buffer 原地复用，shape 烧成常量。
+- **运行时**：第二次同 shape 命中。
+  - 第三次 batch 256 触发动态化，分支 Guard 变成 `s0 > 64`，追加第二份产物。
+  - 第四次 batch 32 走 `tanh`，追加第三份产物。
 
-原始程序里的 `if` 最终变成了运行时的一条 Guard 和两份编译产物。这是理解 `torch.compile` 最重要的一个画面：**它没有把 Python 翻译成 CUDA，它把 Python 里能确定的部分固化进代码，把不能确定的部分变成运行时检查。**
+原始程序里的 `if` 最终由运行时的分支 Guard 区分：最初的静态产物仍然保留，动态的两份产物分别对应 `relu` 和 `tanh`。这是理解 `torch.compile` 最重要的一个画面：**它没有把 Python 翻译成 CUDA，它把 Python 里能确定的部分固化进代码，把不能确定的部分变成运行时检查。**
 
 ### 3. 几个容易混淆的名字
 
