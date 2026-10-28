@@ -845,11 +845,11 @@ class Resource:
 
 CPython 使用名为 pymalloc 的专用分配器来管理小对象（≤ 512 bytes）。它的结构是：
 
-```text title="pymalloc 的 Arena、Pool、Block 三层结构"
-Arena (向 OS 申请；3.10 以前 256 KiB，3.10+ 64 位平台 1 MiB)
-  └── Pool (3.10 以前 4 KiB，3.10+ 16 KiB；按 size class 划分)
-        └── Block (8, 16, 24, ..., 512 bytes)
-```
+![pymalloc 的 Arena、Pool、Block 三层结构](/img/in-post/python-memory-management-and-optimization-pymalloc-layers.svg)
+
+- **Arena**：向 OS 申请，3.10 以前 256 KiB，3.10+ 64 位平台 1 MiB。两种配置都最多切成 64 个 Pool（256 KiB ÷ 4 KiB = 1 MiB ÷ 16 KiB = 64）。
+- **Pool**：3.10 以前 4 KiB，3.10+ 16 KiB；按 size class 划分，一个 Pool 开头是 pool header，后面只切一种大小的 block。图里各 Pool 分到的档位只是示例，橙色是 48 B 这一档，放大的是 Pool 1。
+- **Block**：64 位平台按 16 字节对齐分档，16, 32, 48, …, 512 bytes，共 32 档；32 位平台按 8 字节分档，8, 16, 24, …, 512 bytes。
 
 关键行为：
 

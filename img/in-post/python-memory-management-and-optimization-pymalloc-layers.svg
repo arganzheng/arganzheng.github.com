@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 282" width="720" height="282" role="img" aria-labelledby="t d">
+  <title id="t">pymalloc 的 Arena、Pool、Block 三层结构</title>
+  <desc id="d">三行。第一行是一个 Arena，连续切成 Pool 0 到 Pool 63，每个 Pool 标着它分到的 size class，Pool 1 和 Pool 2 都是 48 B。第二行放大 Pool 1：开头是 pool header，后面是一串同样大小的 48 B block。第三行是 64 位上的 size class 档位：16、32、48、64、80、…、496、512 字节，48 B 那一档高亮。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2d3d; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .small { font-size: 12px; }
+      .muted { font-size: 12px; fill: #46586b; }
+      .frame { fill: #f8fafc; stroke: #9fb3c8; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #9fb3c8; stroke-width: 1.2; }
+      .hcell { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.2; }
+      .hl { fill: #fde0b8; stroke: #b9772a; stroke-width: 1.2; }
+      .zoom { stroke: #7f97b2; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<rect x="130" y="20" width="570" height="56" class="frame"/>
+<rect x="138.0" y="28" width="55.4" height="40" class="cell"/>
+<text x="165.7" y="45.0" class="small" text-anchor="middle">Pool 0</text>
+<text x="165.7" y="61.0" class="small" text-anchor="middle">16 B</text>
+<rect x="193.4" y="28" width="55.4" height="40" class="hl"/>
+<text x="221.1" y="45.0" class="small" text-anchor="middle">Pool 1</text>
+<text x="221.1" y="61.0" class="small" text-anchor="middle">48 B</text>
+<rect x="248.8" y="28" width="55.4" height="40" class="hl"/>
+<text x="276.5" y="45.0" class="small" text-anchor="middle">Pool 2</text>
+<text x="276.5" y="61.0" class="small" text-anchor="middle">48 B</text>
+<rect x="304.2" y="28" width="55.4" height="40" class="cell"/>
+<text x="331.9" y="45.0" class="small" text-anchor="middle">Pool 3</text>
+<text x="331.9" y="61.0" class="small" text-anchor="middle">32 B</text>
+<rect x="359.6" y="28" width="55.4" height="40" class="cell"/>
+<text x="387.3" y="45.0" class="small" text-anchor="middle">Pool 4</text>
+<text x="387.3" y="61.0" class="small" text-anchor="middle">512 B</text>
+<rect x="415.0" y="28" width="55.4" height="40" class="cell"/>
+<text x="442.7" y="45.0" class="small" text-anchor="middle">Pool 5</text>
+<text x="442.7" y="61.0" class="small" text-anchor="middle">16 B</text>
+<rect x="470.4" y="28" width="55.4" height="40" class="cell"/>
+<text x="498.1" y="45.0" class="small" text-anchor="middle">Pool 6</text>
+<text x="498.1" y="61.0" class="small" text-anchor="middle">64 B</text>
+<rect x="525.8" y="28" width="55.4" height="40" class="cell"/>
+<text x="553.5" y="45.0" class="small" text-anchor="middle">Pool 7</text>
+<text x="553.5" y="61.0" class="small" text-anchor="middle">128 B</text>
+<rect x="581.2" y="28" width="55.4" height="40" class="cell"/>
+<text x="608.9" y="53.0" class="body" text-anchor="middle">…</text>
+<rect x="636.6" y="28" width="55.4" height="40" class="cell"/>
+<text x="664.3" y="45.0" class="small" text-anchor="middle">Pool 63</text>
+<text x="664.3" y="61.0" class="small" text-anchor="middle">32 B</text>
+<text x="20.0" y="40.0" class="head" text-anchor="start">Arena</text>
+<text x="20.0" y="58.0" class="muted" text-anchor="start">1 MiB（3.10+）</text>
+<path d="M193.4,68 L130,132" class="zoom"/>
+<path d="M248.8,68 L700,132" class="zoom"/>
+<rect x="130" y="132" width="570" height="56" class="frame"/>
+<rect x="138" y="140" width="96" height="40" class="hcell"/>
+<text x="186.0" y="165.0" class="small" text-anchor="middle">pool header</text>
+<rect x="234.0" y="140" width="45.3" height="40" class="hl"/>
+<text x="256.7" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="279.3" y="140" width="45.3" height="40" class="hl"/>
+<text x="302.0" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="324.7" y="140" width="45.3" height="40" class="hl"/>
+<text x="347.3" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="370.0" y="140" width="45.3" height="40" class="hl"/>
+<text x="392.7" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="415.3" y="140" width="45.3" height="40" class="hl"/>
+<text x="438.0" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="460.7" y="140" width="45.3" height="40" class="hl"/>
+<text x="483.3" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="506.0" y="140" width="45.3" height="40" class="hl"/>
+<text x="528.7" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="551.3" y="140" width="45.3" height="40" class="hl"/>
+<text x="574.0" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="596.7" y="140" width="45.3" height="40" class="hl"/>
+<text x="619.3" y="165.0" class="small" text-anchor="middle">48 B</text>
+<rect x="642.0" y="140" width="50" height="40" class="hl"/>
+<text x="667.0" y="165.0" class="body" text-anchor="middle">…</text>
+<text x="20.0" y="152.0" class="head" text-anchor="start">Pool</text>
+<text x="20.0" y="170.0" class="muted" text-anchor="start">16 KiB（3.10+）</text>
+<rect x="138.0" y="212" width="69.2" height="36" class="cell"/>
+<text x="172.6" y="235.0" class="small" text-anchor="middle">16 B</text>
+<rect x="207.2" y="212" width="69.2" height="36" class="cell"/>
+<text x="241.9" y="235.0" class="small" text-anchor="middle">32 B</text>
+<rect x="276.5" y="212" width="69.2" height="36" class="hl"/>
+<text x="311.1" y="235.0" class="small" text-anchor="middle">48 B</text>
+<rect x="345.8" y="212" width="69.2" height="36" class="cell"/>
+<text x="380.4" y="235.0" class="small" text-anchor="middle">64 B</text>
+<rect x="415.0" y="212" width="69.2" height="36" class="cell"/>
+<text x="449.6" y="235.0" class="small" text-anchor="middle">80 B</text>
+<rect x="484.2" y="212" width="69.2" height="36" class="cell"/>
+<text x="518.9" y="235.0" class="body" text-anchor="middle">…</text>
+<rect x="553.5" y="212" width="69.2" height="36" class="cell"/>
+<text x="588.1" y="235.0" class="small" text-anchor="middle">496 B</text>
+<rect x="622.8" y="212" width="69.2" height="36" class="cell"/>
+<text x="657.4" y="235.0" class="small" text-anchor="middle">512 B</text>
+<text x="20.0" y="222.0" class="head" text-anchor="start">Block</text>
+<text x="20.0" y="240.0" class="muted" text-anchor="start">size class</text>
+<text x="138.0" y="268.0" class="muted" text-anchor="start">64 位按 16 字节分档，共 32 档；32 位平台按 8 字节分档：8, 16, 24, …, 512 B</text>
+</svg>
