@@ -144,11 +144,7 @@ Table: forward KL 与 reverse KL 的行为对比
 
 一个直觉图——注意它的前提：$$p$$ 是双峰的，而 $$q$$ **被限制**只能是单峰的（比如一个高斯）。两种 KL 的"覆盖 / 收窄"之别只在 $$q$$ 的表达能力不够、够不到 $$p$$ 时才出现；$$q$$ 能任意取时，两种 KL 的最优解都是 $$q = p$$，没有差别。
 
-```text title="forward KL 盖住两个峰、reverse KL 挑一个峰"
-forward KL：q 必须盖住两个峰            reverse KL：q 挑一个峰待着
-   p:   ▲       ▲                        p:   ▲       ▲
-   q:  ▁▁▁▁▂▃▅▆▅▃▂▁▁▁▁  （宽、平）         q:  ▁▂▅█▅▂▁▁▁▁▁▁▁▁▁  （窄、尖）
-```
+![forward KL 盖住两个峰、reverse KL 挑一个峰的分行示意](/img/in-post/entropy-cross-entropy-and-kl-direction-separated.svg)
 
 ![双峰 p、单峰 q：forward KL 让 q 摊开盖住两个峰，reverse KL 让 q 挑一个峰待着](/img/in-post/entropy-cross-entropy-and-kl-direction-mode-covering-vs-seeking.svg)
 
@@ -230,14 +226,19 @@ $$
 
 ### 4. 读这个 loss
 
-```text title="DPO loss 的逐项解读：两个隐含奖励之差"
-                    ┌── 隐含奖励 r̂(y_w) ──┐   ┌── 隐含奖励 r̂(y_l) ──┐
-−log σ(  β · log [π_θ(y_w) / π_ref(y_w)]  −  β · log [π_θ(y_l) / π_ref(y_l)]  )
+这里省略共同的条件 $$x$$，把两项各自标出来：
 
-每一项 log[π_θ / π_ref] 是"策略比参考模型多喜欢这个回答多少"
-loss 要求：对好回答的偏好增量 > 对坏回答的偏好增量，差得越多 loss 越小
-β 控制"偏好增量"的尺度——β 大时同样的 loss 需要更小的对数比变化，即更贴近参考模型
-```
+$$
+\mathcal{L}_{\text{DPO}} = -\log\sigma\!\left(
+\underbrace{\beta\log\frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)}}_{\text{隐含奖励 }\hat r(y_w)}
+-
+\underbrace{\beta\log\frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)}}_{\text{隐含奖励 }\hat r(y_l)}
+\right)
+$$
+
+- 每一项 $$\log(\pi_\theta / \pi_{\text{ref}})$$ 是“策略比参考模型多喜欢这个回答多少”。
+- loss 推动好回答的偏好增量大于坏回答的偏好增量。固定 $$\beta > 0$$，两者差得越多，loss 越小。
+- $$\beta$$ 控制“偏好增量”的尺度。在好回答的隐含奖励高于坏回答、且 loss 相同时，$$\beta$$ 越大，需要的对数比之差越小。这与第六章第一节里 $$\beta$$ 越大、最优策略越贴近参考模型的方向一致；但不能仅凭这一点断言实际 DPO 训练后一定更贴近参考模型。
 
 整条推导链——**MLE 模板 → Bradley-Terry → KL 约束的最优策略 → 反解奖励 → 代入消去 $$Z(x)$$ → DPO**——用到的全是本系列列出的概念，没有一步超出最小集。能独立走完它，L5 后训练系列里"DPO 一族"（IPO、KTO、SimPO 等）就只是在改其中某一步的假设：换掉 Bradley-Terry、去掉参考模型、改 $$\sigma$$ 的形状。
 
