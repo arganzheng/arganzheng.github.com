@@ -40,18 +40,14 @@ optimizer.step()
 
 PyTorch 在 AI 系统中的位置可以概括为：
 
-```text title="PyTorch 在 AI 系统中的位置"
-模型与训练代码
-        ↓
-PyTorch 编程模型
-        ↓
-Tensor / Autograd / Module
-        ↓
-Dispatcher / ATen / Kernel
-        ↓
-Compiler / Runtime / Distributed
-        ↓
-CPU / GPU / 加速器
+```mermaid
+%% 图：PyTorch 在 AI 系统中的位置
+flowchart TB
+    A["模型与训练代码"] --> B["PyTorch 编程模型"]
+    B --> C["Tensor / Autograd / Module"]
+    C --> D["Dispatcher / ATen / Kernel"]
+    D --> E["Compiler / Runtime / Distributed"]
+    E --> F["CPU / GPU / 加速器"]
 ```
 
 这个系列的重点不是记住更多 API，而是建立从上层模型代码一直追踪到硬件执行的能力。
@@ -95,28 +91,18 @@ optimizer.step()
 
 PyTorch 的用户入口主要是 Python，但它的执行能力来自多个层次的协作：
 
-```text title="PyTorch 从 Python API 到硬件的层次"
-Python API
-    ↓
-Python Binding
-    ↓
-Operator Schema
-    ↓
-Dispatcher
-    ↓
-ATen
-    ↓
-CPU / CUDA / Meta Kernel
-    ↓
-底层数学库与硬件
+```mermaid
+%% 图：PyTorch 从 Python API 到硬件的层次
+flowchart TB
+    A["Python API"] --> B["Python Binding"]
+    B --> C["Operator Schema"]
+    C --> D["Dispatcher"]
+    D --> E["ATen"]
+    E --> F["CPU / CUDA / Meta Kernel"]
+    F --> G["底层数学库与硬件"]
 ```
 
-因此，理解 PyTorch 不能只看 `torch.nn` 的 Python 代码，也不能直接跳到 CUDA Kernel。需要沿着一条连续的学习路径逐层深入：
-
-```text title="从编程模型到工程治理的学习路径"
-编程模型 → 数据抽象 → 自动求导 → 算子系统 → 扩展机制
-    → 编译执行 → 性能工程 → 分布式运行时 → 工程治理
-```
+因此，理解 PyTorch 不能只看 `torch.nn` 的 Python 代码，也不能直接跳到 CUDA Kernel。需要沿着一条连续的学习路径逐层深入：编程模型 → 数据抽象 → 自动求导 → 算子系统 → 扩展机制 → 编译执行 → 性能工程 → 分布式运行时 → 工程治理。
 
 ## 适合哪些读者？
 
@@ -178,37 +164,26 @@ CPU / CUDA / Meta Kernel
 
 十篇文章按照 PyTorch 的内部抽象逐步展开：
 
-```text title="十篇文章的主线"
-第一篇：建立全局地图
-        ↓
-第二篇：理解 Tensor 如何表示数据
-        ↓
-第三篇：理解 Autograd 如何表示梯度计算
-        ↓
-第四篇：理解 Module 如何组织模型和训练
-        ↓
-第五篇：理解 Dispatcher 如何选择算子实现
-        ↓
-第六篇：理解 Python 如何扩展到 C++ 和 CUDA
-        ↓
-第七篇：理解动态图如何进入编译执行
-        ↓
-第八篇：理解程序为什么快或慢
-        ↓
-第九篇：理解多卡如何通过通信协同
-        ↓
-第十篇：理解一次改动如何经过测试、CI 和发布安全地到达用户
-```
+1. 第一篇：建立全局地图；
+2. 第二篇：理解 Tensor 如何表示数据；
+3. 第三篇：理解 Autograd 如何表示梯度计算；
+4. 第四篇：理解 Module 如何组织模型和训练；
+5. 第五篇：理解 Dispatcher 如何选择算子实现；
+6. 第六篇：理解 Python 如何扩展到 C++ 和 CUDA；
+7. 第七篇：理解动态图如何进入编译执行；
+8. 第八篇：理解程序为什么快或慢；
+9. 第九篇：理解多卡如何通过通信协同；
+10. 第十篇：理解一次改动如何经过测试、CI 和发布安全地到达用户。
 
 可以把这条主线进一步归纳为三条相互交织的线索：
 
-```text title="三条相互交织的线索：抽象线、执行线、工程线"
-抽象线：Tensor → Autograd → Module → Operator → Compiler
+| 线索 | 路径 |
+|---|---|
+| 抽象线 | Tensor → Autograd → Module → Operator → Compiler |
+| 执行线 | Python → C++ → CUDA → Kernel → Hardware |
+| 工程线 | Training → Profiling → Distributed → Testing → Build |
 
-执行线：Python → C++ → CUDA → Kernel → Hardware
-
-工程线：Training → Profiling → Distributed → Testing → Build
-```
+Table: 三条相互交织的线索：抽象线、执行线、工程线
 
 需要说明的是，这条主线按**职责层**推进，而不是按源码目录。PyTorch 的源码按库分层是 `torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator），两种分层并不重合：第二篇讲的 Tensor 元数据在源码上住在最底层的 c10，却是用户最先接触、其余一切所依赖的抽象，所以放在最前面。第一篇会给出一张"组件 → 源码位置 → 职责层 → 展开篇"的对照表；第二到九篇的小结各附一张"本篇涉及的源码位置"表，把该篇讨论的机制落到具体文件；第十篇的仓库地图则给出完整目录。读者可以随时在职责层和源码层两个坐标系之间切换。
 
@@ -261,20 +236,15 @@ Table: 十篇的标题、线索、源码目录与实践落点
 
 本篇会给出一条用于建立心智模型的典型调用路径：
 
-```text title="torch.add 的典型调用路径"
-Python API
-    ↓
-Python Binding
-    ↓
-Operator Schema
-    ↓
-Dispatcher
-    ↓
-ATen Operator
-    ↓
-CPU / CUDA Kernel
-    ↓
-Hardware
+```mermaid
+%% 图：torch.add 的典型调用路径
+flowchart TB
+    A["Python API"] --> B["Python Binding"]
+    B --> C["Operator Schema"]
+    C --> D["Dispatcher"]
+    D --> E["ATen Operator"]
+    E --> F["CPU / CUDA Kernel"]
+    F --> G["Hardware"]
 ```
 
 这是一条概念路径，不意味着所有算子、所有版本都经过完全相同的源码调用栈。后续文章会分别展开其中的关键层次。
@@ -301,15 +271,13 @@ Eager Mode 在全系列中承担一条贯穿主线：第一篇介绍它是什么
 
 可以把一个简化版 Tensor 表示为：
 
-```text title="简化版 Tensor 的组成"
-Tensor
-├── storage
-├── sizes
-├── strides
-├── storage_offset
-├── dtype
-└── device
-```
+- `Tensor`
+  - `storage`
+  - `sizes`
+  - `strides`
+  - `storage_offset`
+  - `dtype`
+  - `device`
 
 这一篇会配套实现一个只支持 CPU 的简化版 Tensor，用来理解：
 
@@ -344,19 +312,12 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 本篇会实现一个 Mini-Autograd：
 
-```text title="Mini-Autograd 的实现步骤"
-加法和乘法
-    ↓
-保存父节点
-    ↓
-保存局部导数
-    ↓
-拓扑排序
-    ↓
-反向传播
-    ↓
-梯度累积
-```
+1. 加法和乘法；
+2. 保存父节点；
+3. 保存局部导数；
+4. 拓扑排序；
+5. 反向传播；
+6. 梯度累积。
 
 核心问题不是“如何调用 `loss.backward()`”，而是：
 
@@ -389,13 +350,11 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 内部会分成几个部分：
 
-```text title="第四篇的内部结构"
-4.1 模型对象与模块树
-4.2 参数、Buffer 与 state_dict
-4.3 Optimizer 与训练循环
-4.4 Dataset、Sampler、DataLoader 与数据搬运
-4.5 混合精度训练入门
-```
+- 4.1 模型对象与模块树
+- 4.2 参数、Buffer 与 state_dict
+- 4.3 Optimizer 与训练循环
+- 4.4 Dataset、Sampler、DataLoader 与数据搬运
+- 4.5 混合精度训练入门
 
 这一篇重点回答：
 
@@ -411,15 +370,7 @@ Java 对照会帮助理解 Module 的层级管理、state_dict 的状态快照�
 
 第五篇是从 PyTorch 使用者走向 PyTorch 源码阅读者的关键一步。
 
-这一篇会以简单的 `add` 算子为入口，分析：
-
-```text title="add 的三个变体"
-add
-add_
-add.out
-```
-
-并讨论：
+这一篇会以简单的 `add` 算子为入口，分析它的三个变体 `add`、`add_`、`add.out`，并讨论：
 
 - Operator Schema；
 - functional、in-place 和 out variant；
@@ -466,27 +417,30 @@ add.out
 
 实践项目分成四个阶段：
 
-```text title="实践项目的四个阶段"
-阶段 1：用 Python 实现一个算子
-阶段 2：用 C++ 实现 CPU 算子
-阶段 3：用 CUDA 实现 GPU 算子
-阶段 4：补充 Autograd、测试和 Benchmark
-```
+1. 阶段 1：用 Python 实现一个算子；
+2. 阶段 2：用 C++ 实现 CPU 算子；
+3. 阶段 3：用 CUDA 实现 GPU 算子；
+4. 阶段 4：补充 Autograd、测试和 Benchmark。
 
 这一篇的重点不是记住一套编译命令，而是理解：
 
-```text title="自定义算子从 Python API 到 Kernel 的路径"
-Python API
-    ↓
-pybind11 / Python Binding
-    ↓
-C++ Tensor
-    ↓
-Tensor metadata
-    ↓
-CPU / CUDA Kernel
-    ↓
-Autograd / Dispatcher
+```mermaid
+%% 图：自定义算子从 Python API 到 Kernel 的路径
+flowchart TB
+    A["Python API"]
+    P["pybind11 / Python Binding"]
+    D["Dispatcher"]
+    G["Autograd"]
+    T["C++ Tensor"]
+    M["Tensor metadata"]
+    K["CPU / CUDA Kernel"]
+
+    A -->|"myops.scale_shift"| P
+    A -->|"torch.ops.myops.scale_shift"| D
+    D --> G
+    G -->|"再分发到 CPU / CUDA"| T
+    P -->|"直接调用，不经过 Dispatcher"| T
+    T --> M --> K
 ```
 
 一个可用的自定义算子不能只在连续的 `float32` Tensor 上运行，还需要认真处理 dtype、device、stride、空 Tensor、生命周期、错误检查和 backward。
@@ -514,20 +468,15 @@ Autograd / Dispatcher
 
 贯穿全文的典型流程是：
 
-```text title="torch.compile 的典型流程"
-Python Model
-    ↓
-TorchDynamo
-    ↓
-FX Graph
-    ↓
-AOTAutograd
-    ↓
-TorchInductor
-    ↓
-Triton / C++ / Library Call
-    ↓
-CPU / GPU
+```mermaid
+%% 图：torch.compile 的典型流程
+flowchart TB
+    A["Python Model"] --> B["TorchDynamo"]
+    B --> C["FX Graph"]
+    C --> D["AOTAutograd"]
+    D --> E["TorchInductor"]
+    E --> F["Triton / C++ / Library Call"]
+    F --> G["CPU / GPU"]
 ```
 
 本篇会用一个刻意简单的函数贯穿全文：
@@ -559,24 +508,19 @@ def f(x, weight, bias):
 
 这一篇的重心是**性能模型**和**测量方法**，优化手段是模型推导出来的结论。它从一个事实出发——CPU 和 GPU 是两条通过队列连接的异步时间线——把性能问题分成两个维度：
 
-```text title="性能问题的两个维度"
-时间维度：五类瓶颈
-  CPU 侧      Python-bound、Launch-bound
-  GPU 侧      Memory-bound、Compute-bound
-  两侧之间    Sync-bound
-
-空间维度：显存
-  真的不够 · 碎片 · 泄漏 · 峰值
-```
+- 时间维度：五类瓶颈
+  - CPU 侧：Python-bound、Launch-bound
+  - GPU 侧：Memory-bound、Compute-bound
+  - 两侧之间：Sync-bound
+- 空间维度：显存
+  - 真的不够、碎片、泄漏、峰值
 
 内部结构为：
 
-```text title="第八篇的内部结构"
-8.1 度量与工具地图：异步执行模型、Benchmark 方法、Profiler 与 Nsight
-8.2 时间维度：五类瓶颈及各自的判断依据与处方
-8.3 空间维度：显存的构成、Caching Allocator、碎片、峰值、泄漏与时空互换
-8.4 完整案例：一个 Transformer block 的训练 step
-```
+- 8.1 度量与工具地图：异步执行模型、Benchmark 方法、Profiler 与 Nsight
+- 8.2 时间维度：五类瓶颈及各自的判断依据与处方
+- 8.3 空间维度：显存的构成、Caching Allocator、碎片、峰值、泄漏与时空互换
+- 8.4 完整案例：一个 Transformer block 的训练 step
 
 这一篇会覆盖：
 
@@ -592,21 +536,13 @@ def f(x, weight, bias):
 
 所有性能结论都遵循同一套流程：
 
-```text title="性能结论遵循的流程"
-建立基线
-    ↓
-设计正确性测试
-    ↓
-采集性能数据
-    ↓
-定位瓶颈
-    ↓
-修改实现
-    ↓
-重新 Benchmark
-    ↓
-确认没有性能回归
-```
+1. 建立基线；
+2. 设计正确性测试；
+3. 采集性能数据；
+4. 定位瓶颈；
+5. 修改实现；
+6. 重新 Benchmark；
+7. 确认没有性能回归。
 
 优化时不仅要说明“快了多少”，还要说明：
 
@@ -622,15 +558,15 @@ def f(x, weight, bias):
 
 > **每种并行策略，都是对训练中的五类状态——数据、参数、梯度、优化器状态、激活值——各自做一个决定：复制还是分片。每个决定对应一种集合通信原语和一个通信时机；所有决定加起来，决定了显存占用和通信量。**
 
-全文分三层：
+全文分三层，上层建在下层之上：
 
-```text title="第九篇的三层结构"
-运行时与工程        torchrun 启动 · 数据切分 · 分布式 Checkpoint · 多机拓扑 · 通信性能分析 · hang 的排查
-        ↑
-并行策略            DDP · ZeRO / FSDP · TP · PP · CP · EP · 多维组合
-        ↑
-通信底座            进程 / Rank / 进程组 · 集合通信原语 · NCCL · α + β 成本模型
-```
+| 层 | 内容 |
+|---|---|
+| 运行时与工程 | torchrun 启动、数据切分、分布式 Checkpoint、多机拓扑、通信性能分析、hang 的排查 |
+| 并行策略 | DDP、ZeRO / FSDP、TP、PP、CP、EP、多维组合 |
+| 通信底座 | 进程 / Rank / 进程组、集合通信原语、NCCL、α + β 成本模型 |
+
+Table: 第九篇的三层结构
 
 这一篇会覆盖：
 
@@ -664,25 +600,19 @@ def f(x, weight, bias):
 
 > **一个框架的工程体系，就是一次改动从写下到进入用户生产环境所经过的全部关卡，以及每个关卡守住什么。**
 
-全文沿着一次改动的生命周期走一遍：
+全文沿着一次改动的生命周期走一遍：从写下改动开始，依次经过七个关卡。
 
-```text title="一次改动的生命周期与关卡"
-写下改动
-   ↓
-① 本地构建能跑        仓库地图 · 构建流程与 Codegen · Debug 构建 · 调试到 C++
-   ↓
-② 结果正确            五种 oracle · OpInfo · 设备与 dtype 泛化 · gradcheck 内部 · 确定性
-   ↓
-③ 没有变慢            微基准与指令数 · TorchBench 与编译器看板 · 噪声与阈值
-   ↓
-④ 审查与 CI 合入       CI 分层 · flaky 的流程化处理 · 审批、MergeBot 与回滚
-   ↓
-⑤ 随版本发布          节奏与 release 分支 · wheel 矩阵与 ABI · 平台支持窗口
-   ↓
-⑥ 用户升级不坏        Python API 弃用周期 · 算子 Schema 的 BC/FC · C++ 稳定子集 · state_dict 版本
-   ↓
-⑦ 使用者跟随演进       版本策略 · 升级 playbook · 兼容矩阵 · nightly 与 RC
-```
+| 关卡 | 涉及的内容 |
+|---|---|
+| ① 本地构建能跑 | 仓库地图、构建流程与 Codegen、Debug 构建、调试到 C++ |
+| ② 结果正确 | 五种 oracle、OpInfo、设备与 dtype 泛化、gradcheck 内部、确定性 |
+| ③ 没有变慢 | 微基准与指令数、TorchBench 与编译器看板、噪声与阈值 |
+| ④ 审查与 CI 合入 | CI 分层、flaky 的流程化处理、审批、MergeBot 与回滚 |
+| ⑤ 随版本发布 | 节奏与 release 分支、wheel 矩阵与 ABI、平台支持窗口 |
+| ⑥ 用户升级不坏 | Python API 弃用周期、算子 Schema 的 BC/FC、C++ 稳定子集、state_dict 版本 |
+| ⑦ 使用者跟随演进 | 版本策略、升级 playbook、兼容矩阵、nightly 与 RC |
+
+Table: 一次改动的生命周期与关卡
 
 前六关是框架维护者的视角，第七关是使用者的视角。七个关卡共同守住三件事：**正确性**（主要由 ②）、**性能**（主要由 ③）、**兼容性**（主要由 ⑥）；构建是一切验证的前提，合入与发布把验证变成强制的、自动的流程。
 
@@ -847,25 +777,15 @@ loss.backward()
 
 一路追问并回答：
 
-```text title="沿着一次调用一路追问的问题链"
-Tensor 如何表示输入？（第二篇）
-    ↓
-Module 如何组织模型？（第四篇）
-    ↓
-Autograd 如何构建计算图？（第三篇）
-    ↓
-Dispatcher 如何选择算子？（第五篇）
-    ↓
-自定义算子如何接入 Dispatcher 与 Autograd？（第六篇）
-    ↓
-Compiler 如何对计算进行变换？（第七篇）
-    ↓
-Profiler 如何告诉我们瓶颈在哪里？（第八篇）
-    ↓
-Distributed Runtime 如何让多卡协同？（第九篇）
-    ↓
-Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
-```
+1. Tensor 如何表示输入？（第二篇）
+2. Module 如何组织模型？（第四篇）
+3. Autograd 如何构建计算图？（第三篇）
+4. Dispatcher 如何选择算子？（第五篇）
+5. 自定义算子如何接入 Dispatcher 与 Autograd？（第六篇）
+6. Compiler 如何对计算进行变换？（第七篇）
+7. Profiler 如何告诉我们瓶颈在哪里？（第八篇）
+8. Distributed Runtime 如何让多卡协同？（第九篇）
+9. Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
 
 最终的目标不是“会用 PyTorch”，而是具备下面三种能力：
 
