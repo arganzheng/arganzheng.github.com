@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="328" viewBox="0 0 740 328" role="img" aria-labelledby="title desc">
+<title id="title">delete heap 前的栈帧与堆</title>
+<desc id="desc">main 的栈帧包含 p、q、hp、heap。p 和 q 各占 16 B；hp 和 heap 各占 8 B。hp 指回栈内 p，heap 指向堆上的 16 B Point。快照在 delete heap 之前。</desc>
+<style>
+text { font-family: "Noto Sans CJK SC", sans-serif; font-size: 15px; font-weight: 600; fill: #111; }
+.mono { font-family: "DejaVu Sans Mono", "Noto Sans CJK SC", monospace; font-size: 14px; white-space: pre; }
+.heading { font-size: 17px; }
+.small { font-size: 13px; }
+.stack { fill: #edf4ff; stroke: #456b9b; stroke-width: 1.5; }
+.heap { fill: #eaf7ef; stroke: #3c7954; stroke-width: 1.5; }
+.control { fill: #fff4df; stroke: #976b24; stroke-width: 1.5; }
+.grid { fill: none; stroke: #456b9b; stroke-width: 1; }
+.control-grid { fill: none; stroke: #976b24; stroke-width: 1; }
+.heap-grid { fill: none; stroke: #3c7954; stroke-width: 1; }
+.arrow { fill: none; stroke: #365b8a; stroke-width: 2; marker-end: url(#arrow); }
+.ctrl-arrow { fill: none; stroke: #93631c; stroke-width: 2; marker-end: url(#ctrl-arrow); }
+</style>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#365b8a"/></marker>
+<marker id="ctrl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#93631c"/></marker>
+</defs>
+<rect width="740" height="328" fill="#fff"/>
+<text x="20" y="36" class="heading">栈（main 的栈帧）</text><rect x="20" y="72" width="420" height="232" class="stack"/><path d="M20 130 H440 M20 188 H440 M20 246 H440" class="grid"/><text x="36" y="107" class="mono">p:    x=1.0  y=2.0  (16 B)</text><text x="36" y="165" class="mono">q:    x=3.0  y=2.0  (16 B)</text><text x="36" y="223" class="mono">hp:   0x16b3fecb0    (8 B)</text><text x="36" y="281" class="mono">heap: 0x104f4dc30    (8 B)</text><text x="534" y="224" class="heading">堆</text><rect x="534" y="246" width="186" height="58" class="heap"/><text x="548" y="271" class="mono">x=5.0  y=6.0</text><text x="548" y="293" class="mono">(16 B)</text><path d="M440 217 H478 V101 H440" class="arrow"/><path d="M440 275 H534" class="arrow"/>
+</svg>

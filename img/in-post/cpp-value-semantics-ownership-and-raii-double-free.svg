@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="276" viewBox="0 0 740 276" role="img" aria-labelledby="title desc">
+<title id="title">浅拷贝后的两个 Buffer 与同一块堆内存</title>
+<desc id="desc">栈上的 a、b 各含 data 和 n=4；两个 data 指向同一块 float[4]，16 B。b 先析构，a 后析构，同一地址被 delete[] 两次。</desc>
+<style>
+text { font-family: "Noto Sans CJK SC", sans-serif; font-size: 15px; font-weight: 600; fill: #111; }
+.mono { font-family: "DejaVu Sans Mono", "Noto Sans CJK SC", monospace; font-size: 14px; white-space: pre; }
+.heading { font-size: 17px; }
+.small { font-size: 13px; }
+.stack { fill: #edf4ff; stroke: #456b9b; stroke-width: 1.5; }
+.heap { fill: #eaf7ef; stroke: #3c7954; stroke-width: 1.5; }
+.control { fill: #fff4df; stroke: #976b24; stroke-width: 1.5; }
+.grid { fill: none; stroke: #456b9b; stroke-width: 1; }
+.control-grid { fill: none; stroke: #976b24; stroke-width: 1; }
+.heap-grid { fill: none; stroke: #3c7954; stroke-width: 1; }
+.arrow { fill: none; stroke: #365b8a; stroke-width: 2; marker-end: url(#arrow); }
+.ctrl-arrow { fill: none; stroke: #93631c; stroke-width: 2; marker-end: url(#ctrl-arrow); }
+</style>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#365b8a"/></marker>
+<marker id="ctrl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#93631c"/></marker>
+</defs>
+<rect width="740" height="276" fill="#fff"/>
+<text x="20" y="36" class="heading">栈</text><text x="535" y="36" class="heading">堆</text><rect x="20" y="72" width="280" height="144" class="stack"/><path d="M20 144 H300" class="grid"/><text x="36" y="103" class="mono">a: data</text><text x="61" y="130" class="mono">n = 4</text><text x="36" y="175" class="mono">b: data</text><text x="61" y="202" class="mono">n = 4</text><rect x="535" y="72" width="185" height="144" class="heap"/><text x="553" y="136" class="mono">float[4]</text><text x="553" y="163" class="mono">(16 B)</text><path d="M300 108 H535" class="arrow"/><path d="M300 180 H535" class="arrow"/><text x="535" y="252" class="small">被 delete[] 两次</text>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="488" viewBox="0 0 740 488" role="img" aria-labelledby="title desc">
+<title id="title">shared_ptr 的对象指针与控制块指针</title>
+<desc id="desc">sp2 位于内层作用域时，sp1、sp2 的 obj ptr 指向同一 Node，ctrl ptr 指向同一控制块。逻辑强引用为 2，显式弱引用为 0；控制块还承载删除器信息。</desc>
+<style>
+text { font-family: "Noto Sans CJK SC", sans-serif; font-size: 15px; font-weight: 600; fill: #111; }
+.mono { font-family: "DejaVu Sans Mono", "Noto Sans CJK SC", monospace; font-size: 14px; white-space: pre; }
+.heading { font-size: 17px; }
+.small { font-size: 13px; }
+.stack { fill: #edf4ff; stroke: #456b9b; stroke-width: 1.5; }
+.heap { fill: #eaf7ef; stroke: #3c7954; stroke-width: 1.5; }
+.control { fill: #fff4df; stroke: #976b24; stroke-width: 1.5; }
+.grid { fill: none; stroke: #456b9b; stroke-width: 1; }
+.control-grid { fill: none; stroke: #976b24; stroke-width: 1; }
+.heap-grid { fill: none; stroke: #3c7954; stroke-width: 1; }
+.arrow { fill: none; stroke: #365b8a; stroke-width: 2; marker-end: url(#arrow); }
+.ctrl-arrow { fill: none; stroke: #93631c; stroke-width: 2; marker-end: url(#ctrl-arrow); }
+</style>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#365b8a"/></marker>
+<marker id="ctrl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#93631c"/></marker>
+</defs>
+<rect width="740" height="488" fill="#fff"/>
+<text x="270" y="30" class="heading">堆：Node</text><rect x="270" y="44" width="200" height="64" class="heap"/><text x="286" y="71" class="heading">Node</text><text x="286" y="96" class="mono">name=…</text><text x="352" y="146" class="heading">栈</text><rect x="40" y="164" width="260" height="96" class="stack"/><rect x="440" y="164" width="260" height="96" class="stack"/><path d="M40 212 H300 M440 212 H700" class="grid"/><text x="56" y="194" class="mono">sp1: obj ptr</text><text x="98" y="242" class="mono">ctrl ptr</text><text x="456" y="194" class="mono">sp2: obj ptr</text><text x="498" y="242" class="mono">ctrl ptr</text><text x="242" y="314" class="heading">堆：控制块（逻辑计数）</text><rect x="270" y="332" width="200" height="132" class="control"/><path d="M270 376 H470 M270 420 H470" class="control-grid"/><text x="286" y="360" class="mono">strong = 2</text><text x="286" y="404" class="mono">weak   = 0</text><text x="286" y="448" class="mono">deleter</text><path d="M170 164 V76 H270" class="arrow"/><path d="M570 164 V76 H470" class="arrow"/><path d="M170 260 V354 H270" class="ctrl-arrow"/><path d="M570 260 V354 H470" class="ctrl-arrow"/>
+</svg>

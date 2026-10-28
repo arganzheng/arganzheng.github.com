@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="300" viewBox="0 0 740 300" role="img" aria-labelledby="title desc">
+<title id="title">shared_ptr 与 c10::intrusive_ptr 的内存布局</title>
+<desc id="desc">64 位平台示意：shared_ptr 用 obj ptr 指向 T，用 ctrl ptr 指向外置控制块，自身 16 字节。c10::intrusive_ptr 只有 target_，自身 8 字节；PyTorch v2.10.0 的计数字段 combined_refcount_ 位于 T 的基类子对象内。省略 vptr 等其他基类字段，不按字节比例。</desc>
+<style>
+text { font-family: "Noto Sans CJK SC", sans-serif; font-size: 15px; font-weight: 600; fill: #111; }
+.mono { font-family: "DejaVu Sans Mono", "Noto Sans CJK SC", monospace; font-size: 14px; white-space: pre; }
+.heading { font-size: 17px; }
+.small { font-size: 13px; }
+.stack { fill: #edf4ff; stroke: #456b9b; stroke-width: 1.5; }
+.heap { fill: #eaf7ef; stroke: #3c7954; stroke-width: 1.5; }
+.control { fill: #fff4df; stroke: #976b24; stroke-width: 1.5; }
+.grid { fill: none; stroke: #456b9b; stroke-width: 1; }
+.control-grid { fill: none; stroke: #976b24; stroke-width: 1; }
+.heap-grid { fill: none; stroke: #3c7954; stroke-width: 1; }
+.arrow { fill: none; stroke: #365b8a; stroke-width: 2; marker-end: url(#arrow); }
+.ctrl-arrow { fill: none; stroke: #93631c; stroke-width: 2; marker-end: url(#ctrl-arrow); }
+</style>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#365b8a"/></marker>
+<marker id="ctrl-arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8 Z" fill="#93631c"/></marker>
+</defs>
+<rect width="740" height="300" fill="#fff"/>
+<text x="20" y="36" class="heading">shared_ptr&lt;T&gt;</text><text x="390" y="36" class="heading">c10::intrusive_ptr&lt;T&gt;</text><rect x="20" y="80" width="120" height="96" class="stack"/><path d="M20 128 H140" class="grid"/><text x="32" y="110" class="mono">obj ptr</text><text x="32" y="158" class="mono">ctrl ptr</text><rect x="215" y="80" width="130" height="48" class="heap"/><text x="231" y="110" class="heading">T</text><rect x="215" y="176" width="130" height="48" class="control"/><text x="231" y="206" class="">控制块</text><path d="M140 104 H215" class="arrow"/><path d="M140 152 H180 V200 H215" class="ctrl-arrow"/><text x="20" y="208" class="">16 字节</text><rect x="390" y="80" width="105" height="48" class="stack"/><text x="402" y="110" class="mono">target_</text><rect x="535" y="80" width="185" height="144" class="heap"/><path d="M535 160 H720" class="heap-grid"/><text x="547" y="112" class="mono">combined_refcount_</text><text x="547" y="140" class="small">（基类计数字段）</text><text x="547" y="199" class="">T 的其他成员</text><path d="M495 104 H535" class="arrow"/><text x="390" y="160" class="">8 字节</text><text x="390" y="276" class="small">PyTorch v2.10.0；省略其他基类字段</text>
+</svg>

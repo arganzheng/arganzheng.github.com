@@ -262,17 +262,11 @@ heap object at 0x104f4dc30, pointer variable itself at 0x16b3fec90
 - `hp` 的**值**等于 `p` 的地址。`hp->x` 就是"顺着 `hp` 找到那个对象，取它的 `x`"，所以是 `p.x` 的 1，不是 `q.x` 的 3。
 - 堆对象的地址（`0x104f...`）与栈上变量的地址（`0x16b3...`）明显在不同的区域。指针变量 `heap` 自己在栈上，它指向的 `Point` 在堆上。`delete heap` 释放的是堆上那 16 字节，`heap` 这个 8 字节的指针变量要等 `main` 返回、栈帧弹出时才消失。
 
-把这幅图画出来（`main` 返回前的瞬间）：
+我把快照取在 `delete heap` **之前**，这时栈和堆上的对象都还活着：
 
-```text title="main 返回前的栈帧与堆的图"
-栈（main 的栈帧）                              堆
-┌──────────────────────────────┐
-│ p:    x=1.0  y=2.0  (16 B)   │◄──┐
-│ q:    x=3.0  y=2.0  (16 B)   │   │
-│ hp:   0x16b3fecb0   (8 B) ───┼───┘         ┌────────────────────┐
-│ heap: 0x104f4dc30   (8 B) ───┼────────────►│ x=5.0  y=6.0 (16 B)│
-└──────────────────────────────┘             └────────────────────┘
-```
+![delete heap 前的栈帧与堆](/img/in-post/cpp-value-semantics-ownership-and-raii-stack-heap.svg)
+
+执行 `delete heap` 后，右边的 `Point` 生命周期结束，内存被释放；栈上的 `heap` 变量还在，但已是悬垂指针，不能再解引用。
 
 本文后面所有关于"拷贝"、"引用"、"所有权"、"析构"的讨论，都可以放回这幅图里检验。
 
@@ -673,15 +667,7 @@ free  0x104c09c00
 
 发生了什么：`Buffer b = a;` 逐成员拷贝，两个对象的 `data` 指向**同一块**堆内存。`main` 结束时 `b` 先析构、`delete[]` 那块内存；然后 `a` 析构、再 `delete[]` 一次同一个地址。这就是 **double free**，C++ 里最经典的内存错误之一。画出来：
 
-```text title="double free 的内存图：a 与 b 指向同一块堆内存"
-栈                                       堆
-┌───────────────────┐
-│ a: data ──────────┼────────┐
-│    n = 4          │        ▼
-│ b: data ──────────┼────► ┌──────────────────┐
-│    n = 4          │      │ float[4] (16 B)  │   <- 被 delete[] 两次
-└───────────────────┘      └──────────────────┘
-```
+![double free 的内存图：a 与 b 指向同一块堆内存](/img/in-post/cpp-value-semantics-ownership-and-raii-double-free.svg)
 
 Java 里没有这个问题：两个引用指向同一对象是常态，GC 只回收一次。C++ 里"两个对象都认为自己拥有同一份资源"就是 bug。修法是**自己写**拷贝构造和拷贝赋值，定义"拷贝一个 `Buffer`"的正确含义——分配一块新内存并复制内容：
 
@@ -1205,21 +1191,9 @@ use_count=1
 
 `shared_ptr` 允许多个所有者，最后一个析构时释放对象。为了做到这一点，它需要一个**引用计数**：有几个 `shared_ptr` 正指着这个对象。这个计数必须放在所有 `shared_ptr` 都能找到的地方——`shared_ptr` 的做法是在堆上分配一个**控制块**（control block），里面放强引用计数、弱引用计数、删除器。每个 `shared_ptr` 对象里存两个指针：一个指向被管理对象，一个指向控制块。
 
-```text title="shared_ptr 的内存图：对象指针加控制块指针"
-栈                                堆
-┌──────────────────────┐
-│ sp1: obj ptr ────────┼───────────────────────┐
-│      ctrl ptr ───────┼─────┐                 │
-│ sp2: obj ptr ────────┼─────┼─────────────────┤
-│      ctrl ptr ───────┼─────┤                 ▼
-└──────────────────────┘     ▼           ┌───────────┐
-                       ┌────────────┐    │  Node     │
-                       │ strong = 2 │    │  name=... │
-                       │ weak   = 0 │    └───────────┘
-                       │ deleter    │
-                       └────────────┘
-                        控制块
-```
+![shared_ptr 的内存图：对象指针加控制块指针](/img/in-post/cpp-value-semantics-ownership-and-raii-shared-ptr.svg)
+
+图取 `sp2` 还在内层作用域时。`strong = 2`、`weak = 0` 是逻辑持有数：两个强引用，没有显式 `weak_ptr`。实现里的原始弱计数未必是 0，例如 [libstdc++ GCC 11.4.0 的 `_Sp_counted_base`](https://github.com/gcc-mirror/gcc/blob/releases/gcc-11.4.0/libstdc%2B%2B-v3/include/bits/shared_ptr_base.h#L121-L224) 在还有强引用时额外保留一个隐式弱引用。
 
 （`make_shared` 会把控制块和对象合并成一次分配、放在相邻位置；`shared_ptr<T>(new T)` 则是两次分配。）这带来几项代价：
 
@@ -1303,13 +1277,12 @@ Java 有 `WeakReference`，语义相近：不阻止 GC 回收，`get()` 可能�
 
 ### 4. 选择规则
 
-```text title="选智能指针的决策树：谁拥有这个对象"
 谁拥有这个对象？
-  ├── 恰好一个所有者，其他人只是借用      → unique_ptr + 裸指针/引用借用
-  ├── 多个所有者，最后一个负责释放        → shared_ptr（或 intrusive_ptr）
-  │     └── 其中某些持有者不想延长寿命    → weak_ptr（或 weak_intrusive_ptr）
-  └── 没人拥有（全局/静态生命周期）        → 裸指针（如 Allocator*）
-```
+
+- 恰好一个所有者，其他人只是借用：`unique_ptr` + 裸指针/引用借用。
+- 多个所有者，最后一个负责释放：`shared_ptr`（或 `intrusive_ptr`）。
+  - 其中某些持有者不想延长寿命：`weak_ptr`（或 `weak_intrusive_ptr`）。
+- 没人拥有（全局/静态生命周期）：裸指针（如 `Allocator*`）。
 
 PyTorch 的选择：`TensorImpl` 用 `unique_ptr` 持有 `AutogradMeta`（独占）；`Tensor` 用 `intrusive_ptr` 持有 `TensorImpl`（共享，但要比 `shared_ptr` 便宜）；`StorageImpl` 用裸指针持有 `Allocator`（不拥有）。
 
@@ -1319,15 +1292,9 @@ PyTorch 的选择：`TensorImpl` 用 `unique_ptr` 持有 `AutogradMeta`（独占
 
 `shared_ptr` 的所有代价都来自一件事：引用计数放在对象**外面**（控制块），所以要多一个指针去找它。如果把计数放在对象**里面**——要求被管理的类继承一个含计数字段的基类——那么智能指针只需要一个指针，从对象指针就能找到计数，从裸指针也能恢复出智能指针：
 
-```text title="shared_ptr 与 intrusive_ptr 的内存布局对比"
-shared_ptr<T>                              intrusive_ptr<T>
-┌──────────┐   ┌───────────┐               ┌──────────┐
-│ obj ptr ─┼──►│  T        │               │ target_ ─┼──►┌───────────────┐
-│ ctrl ptr ┼─┐ └───────────┘               └──────────┘   │ refcount_  (基类部分) │
-└──────────┘ │ ┌───────────┐                8 字节         │ T 的其他成员    │
-  16 字节    └►│ 控制块     │                              └───────────────┘
-               └───────────┘
-```
+![shared_ptr 与 intrusive_ptr 的内存布局对比](/img/in-post/cpp-value-semantics-ownership-and-raii-shared-intrusive-layout.svg)
+
+这里按 64 位平台画指针布局，不按对象的字节比例画。右侧用 PyTorch **v2.10.0** 的真实字段名 `combined_refcount_`：强弱计数放在 `intrusive_ptr_target` 基类子对象里，省略了 vptr 等其他基类字段。下面的玩具实现才把单独的强计数叫作 `refcount_`。
 
 这叫**侵入式**（intrusive）引用计数——"侵入"是指它要求被管理的类型配合（继承一个基类），而 `shared_ptr` 对被管理类型没有任何要求。Boost 的 `boost::intrusive_ptr` 是最早的实现，`c10::intrusive_ptr` 是 PyTorch 自己的版本。`c10/util/intrusive_ptr.h` 开头的注释就是这个意思：
 
@@ -1837,18 +1804,22 @@ Table: TensorBase 开头逐行重读
 ### 2. 持有链全图
 
 ```mermaid
-%% 图：Tensor 的持有链：Tensor → TensorImpl → Storage → StorageImpl → DataPtr → 内存，三种箭头是三种所有权
+%% 图：Tensor 的持有链：共享对象、独占释放上下文与非拥有指针
 flowchart TB
     T["at::Tensor<br/>(值类型，8 字节)"] -->|"intrusive_ptr&lt;TensorImpl&gt; impl_<br/>强引用，可多对一"| TI["TensorImpl<br/>(堆，引用计数)"]
     TI -->|"Storage storage_<br/>(值类型，8 字节)"| S["Storage"]
     S -->|"intrusive_ptr&lt;StorageImpl&gt; storage_impl_<br/>强引用，可多对一"| SI["StorageImpl<br/>(堆，引用计数)"]
     SI -->|"DataPtr data_ptr_<br/>独占"| DP["DataPtr<br/>= UniqueVoidPtr + Device"]
-    DP -->|"unique_ptr&lt;void, DeleterFnPtr&gt; ctx_"| MEM["原始内存 / 显存"]
+    DP -->|"void* data_<br/>访问数据，不负责释放"| MEM["原始内存 / 显存"]
+    DP -->|"unique_ptr&lt;void, DeleterFnPtr&gt; ctx_<br/>独占释放上下文"| CTX["释放上下文<br/>可与 data_ 指向同一地址"]
+    CTX -.->|"deleter(ctx)<br/>释放 / 归还内存"| MEM
     SI -.->|"Allocator* allocator_<br/>非拥有"| A["Allocator<br/>(全局单例)"]
     A -->|"allocate() 返回"| DP
 ```
 
-三种箭头对应第八章的三种所有权：`intrusive_ptr` 是共享所有权（多个 `Tensor` 可以指向一个 `TensorImpl`，多个 `TensorImpl` 可以指向一个 `StorageImpl`——view 就是这样实现的）；`DataPtr` 里的 `unique_ptr` 是独占所有权（一块内存只属于一个 `StorageImpl`）；`Allocator*` 是非拥有。
+这里把 `DataPtr` 内 `UniqueVoidPtr` 的两个指针分开画：`data_` 用于访问数据，`ctx_` 的删除器接收释放上下文。两者可以同址，但不要求相等；具体结构在后文展开。
+
+图里的所有权对应第八章：`intrusive_ptr` 是共享所有权（多个 `Tensor` 可以指向一个 `TensorImpl`，多个 `TensorImpl` 可以指向一个 `StorageImpl`——view 就是这样实现的）；`DataPtr` 里的 `unique_ptr` 独占管理释放上下文，`data_` 和 `Allocator*` 则是非拥有指针。
 
 链上交替出现"值类型的句柄"和"堆上的实体"：`Tensor`（值）→ `TensorImpl`（实体）→ `Storage`（值）→ `StorageImpl`（实体）→ `DataPtr`（值）→ 内存。第五章说的"看特殊成员函数是 `default` 还是 `delete`"在这条链上每一层都成立。
 
