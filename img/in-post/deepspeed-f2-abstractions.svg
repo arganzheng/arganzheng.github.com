@@ -39,7 +39,7 @@ Q 55.623115 308.558955 55.623115 309.36881
 L 55.623115 340.143294 
 Q 55.623115 340.953149 56.477641 340.953149 
 z
-" clip-path="url(#p25f8046720)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p8f6178677e)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 56.477641 293.036737 
@@ -52,7 +52,7 @@ Q 55.623115 260.642543 55.623115 261.452398
 L 55.623115 292.226882 
 Q 55.623115 293.036737 56.477641 293.036737 
 z
-" clip-path="url(#p25f8046720)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p8f6178677e)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 56.477641 245.120325 
@@ -65,7 +65,7 @@ Q 55.623115 212.726131 55.623115 213.535986
 L 55.623115 244.31047 
 Q 55.623115 245.120325 56.477641 245.120325 
 z
-" clip-path="url(#p25f8046720)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p8f6178677e)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 56.477641 197.203913 
@@ -78,7 +78,7 @@ Q 55.623115 164.809719 55.623115 165.619574
 L 55.623115 196.394058 
 Q 55.623115 197.203913 56.477641 197.203913 
 z
-" clip-path="url(#p25f8046720)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p8f6178677e)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
     <path d="M 56.477641 149.287501 
@@ -91,7 +91,7 @@ Q 55.623115 116.893308 55.623115 117.703162
 L 55.623115 148.477647 
 Q 55.623115 149.287501 56.477641 149.287501 
 z
-" clip-path="url(#p25f8046720)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p8f6178677e)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
     <path d="M 56.477641 101.37109 
@@ -104,7 +104,7 @@ Q 55.623115 68.976896 55.623115 69.786751
 L 55.623115 100.561235 
 Q 55.623115 101.37109 56.477641 101.37109 
 z
-" clip-path="url(#p25f8046720)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p8f6178677e)" style="fill: #ffffff; stroke: #444444; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- groups.py / pipe/topology.py / comm：进程组与通信 -->
@@ -4077,7 +4077,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p25f8046720">
+  <clipPath id="p8f6178677e">
    <rect x="7.2" y="23.76" width="541.19952" height="337.43952"/>
   </clipPath>
  </defs>
