@@ -1,11 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="230" viewBox="0 0 760 230" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="248" viewBox="0 0 760 248" role="img" aria-labelledby="t d">
 <title id="t">检索侧与生成侧的两段评测</title>
-<desc id="d">一次问答的流水线：查询 → 检索侧（解析、分块、索引、召回、融合、rerank）→ top-k 块 → 生成侧（prompt、模型、引用）→ 答案。检索侧评 recall@k、MRR、nDCG，评测集是（查询，相关块），病是没找到，药在第三、四篇；生成侧评 faithfulness、answer relevance、context precision / recall、引用正确率、拒答正确率，评测集是（查询，正确块，理想答案），病是找到了没说对，药在 L2、L5。</desc>
+<desc id="d">一次问答的流水线：查询 → 检索侧（解析、分块、索引、召回、融合、rerank）→ top-k 块 → 生成侧（prompt、模型、引用）→ 答案。检索侧评 recall@k、MRR、nDCG，评测集是（查询，相关块），病是没找到，药在第三、四篇；生成侧评 faithfulness、answer relevance、引用正确率、拒答正确率，以及 context precision / recall（这两项要用实际检索到的 top-k 算），评测集是（查询，正确块，理想答案），病是找到了没说对，药在 L2、L5。</desc>
 <style>
 text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; fill: #222; }
 .stage { font-size: 12.5px; }
 .lab { font-size: 12px; font-weight: 600; fill: #555; }
 .val { font-size: 12px; }
+.note { font-size: 11px; fill: #777; }
 .r-title { font-size: 13px; font-weight: 700; fill: #2f62a8; }
 .g-title { font-size: 13px; font-weight: 700; fill: #8a5d00; }
 .r-box { fill: #f6faff; stroke: #5b8fd6; stroke-width: 1.2; }
@@ -20,14 +21,14 @@ text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .arrow { stroke: #555; stroke-width: 1.3; }
 </style>
 <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker></defs>
-<rect width="760" height="230" fill="#fff"/>
+<rect width="760" height="248" fill="#fff"/>
 <rect x="8" y="50" width="44" height="32" class="end"/>
 <text x="30.0" y="70.5" class="stage" text-anchor="middle">查询</text>
 <rect x="350" y="50" width="58" height="32" class="end"/>
 <text x="379.0" y="70.5" class="stage" text-anchor="middle">top-k 块</text>
 <rect x="708" y="50" width="42" height="32" class="end"/>
 <text x="729.0" y="70.5" class="stage" text-anchor="middle">答案</text>
-<rect x="68" y="14" width="266" height="204" class="r-box"/>
+<rect x="68" y="14" width="266" height="222" class="r-box"/>
 <text x="78" y="36" class="r-title" text-anchor="start">检索侧</text>
 <rect x="78" y="50" width="246" height="32" class="r-strip"/>
 <text x="96.8" y="70.5" class="stage" text-anchor="middle">解析</text>
@@ -41,18 +42,18 @@ text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 <text x="247.0" y="70.5" class="stage" text-anchor="middle">融合</text>
 <line x1="265.8" y1="50" x2="265.8" y2="82" class="r-div"/>
 <text x="294.9" y="70.5" class="stage" text-anchor="middle">rerank</text>
-<text x="78" y="127.0" class="lab" text-anchor="start">评</text>
-<text x="130" y="127.0" class="val" text-anchor="start">recall@k · MRR · nDCG</text>
-<line x1="78" y1="151" x2="324" y2="151" class="r-sep"/>
-<text x="78" y="166.0" class="lab" text-anchor="start">评测集</text>
-<text x="130" y="166.0" class="val" text-anchor="start">（查询，相关块）</text>
-<line x1="78" y1="172" x2="324" y2="172" class="r-sep"/>
-<text x="78" y="187.0" class="lab" text-anchor="start">病</text>
-<text x="130" y="187.0" class="val" text-anchor="start">没找到</text>
-<line x1="78" y1="193" x2="324" y2="193" class="r-sep"/>
-<text x="78" y="208.0" class="lab" text-anchor="start">药</text>
-<text x="130" y="208.0" class="val" text-anchor="start">第三、四篇</text>
-<rect x="424" y="14" width="268" height="204" class="g-box"/>
+<text x="78" y="136.0" class="lab" text-anchor="start">评</text>
+<text x="130" y="136.0" class="val" text-anchor="start">recall@k · MRR · nDCG</text>
+<line x1="78" y1="169" x2="324" y2="169" class="r-sep"/>
+<text x="78" y="184.0" class="lab" text-anchor="start">评测集</text>
+<text x="130" y="184.0" class="val" text-anchor="start">（查询，相关块）</text>
+<line x1="78" y1="190" x2="324" y2="190" class="r-sep"/>
+<text x="78" y="205.0" class="lab" text-anchor="start">病</text>
+<text x="130" y="205.0" class="val" text-anchor="start">没找到</text>
+<line x1="78" y1="211" x2="324" y2="211" class="r-sep"/>
+<text x="78" y="226.0" class="lab" text-anchor="start">药</text>
+<text x="130" y="226.0" class="val" text-anchor="start">第三、四篇</text>
+<rect x="424" y="14" width="268" height="222" class="g-box"/>
 <text x="434" y="36" class="g-title" text-anchor="start">生成侧</text>
 <rect x="434" y="50" width="248" height="32" class="g-strip"/>
 <text x="475.3" y="70.5" class="stage" text-anchor="middle">prompt</text>
@@ -60,19 +61,20 @@ text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 <text x="558.0" y="70.5" class="stage" text-anchor="middle">模型</text>
 <line x1="599.3" y1="50" x2="599.3" y2="82" class="g-div"/>
 <text x="640.7" y="70.5" class="stage" text-anchor="middle">引用</text>
-<text x="434" y="127.0" class="lab" text-anchor="start">评</text>
+<text x="434" y="136.0" class="lab" text-anchor="start">评</text>
 <text x="486" y="109.0" class="val" text-anchor="start">faithfulness · answer relevance</text>
-<text x="486" y="127.0" class="val" text-anchor="start">context precision / recall</text>
-<text x="486" y="145.0" class="val" text-anchor="start">引用正确率 · 拒答正确率</text>
-<line x1="434" y1="151" x2="682" y2="151" class="g-sep"/>
-<text x="434" y="166.0" class="lab" text-anchor="start">评测集</text>
-<text x="486" y="166.0" class="val" text-anchor="start">（查询，正确块，理想答案）</text>
-<line x1="434" y1="172" x2="682" y2="172" class="g-sep"/>
-<text x="434" y="187.0" class="lab" text-anchor="start">病</text>
-<text x="486" y="187.0" class="val" text-anchor="start">找到了没说对</text>
-<line x1="434" y1="193" x2="682" y2="193" class="g-sep"/>
-<text x="434" y="208.0" class="lab" text-anchor="start">药</text>
-<text x="486" y="208.0" class="val" text-anchor="start">L2、L5</text>
+<text x="486" y="127.0" class="val" text-anchor="start">引用正确率 · 拒答正确率</text>
+<text x="486" y="145.0" class="val" text-anchor="start">context precision / recall</text>
+<text x="486" y="163.0" class="note" text-anchor="start">↑ 这两项要用实际检索到的 top-k 算</text>
+<line x1="434" y1="169" x2="682" y2="169" class="g-sep"/>
+<text x="434" y="184.0" class="lab" text-anchor="start">评测集</text>
+<text x="486" y="184.0" class="val" text-anchor="start">（查询，正确块，理想答案）</text>
+<line x1="434" y1="190" x2="682" y2="190" class="g-sep"/>
+<text x="434" y="205.0" class="lab" text-anchor="start">病</text>
+<text x="486" y="205.0" class="val" text-anchor="start">找到了没说对</text>
+<line x1="434" y1="211" x2="682" y2="211" class="g-sep"/>
+<text x="434" y="226.0" class="lab" text-anchor="start">药</text>
+<text x="486" y="226.0" class="val" text-anchor="start">L2、L5</text>
 <line x1="52" y1="66.0" x2="68" y2="66.0" class="arrow" marker-end="url(#ar)"/>
 <line x1="334" y1="66.0" x2="350" y2="66.0" class="arrow" marker-end="url(#ar)"/>
 <line x1="408" y1="66.0" x2="424" y2="66.0" class="arrow" marker-end="url(#ar)"/>
