@@ -50,13 +50,7 @@ flowchart TB
 
 可以简单地表示为：
 
-```text title="并发与并行的时间线示意"
-并发：任务 A ──等待──继续
-             任务 B ──等待──继续
-
-并行：任务 A ─────────────
-      任务 B ─────────────
-```
+![并发与并行的时间线示意](/img/in-post/python-concurrency-asynchrony-and-task-collaboration-concurrency-vs-parallelism.svg)
 
 对于 AI-Infra，二者经常组合使用：
 
@@ -268,11 +262,7 @@ with ThreadPoolExecutor(max_workers=16) as executor:
 
 ### 2. 线程间的协作：`queue.Queue` 与背压
 
-线程之间传递工作最常用的结构是生产者—消费者队列。AI-Infra 里一个典型形态是：
-
-```text title="推理服务里的生产者—消费者流水线"
-请求输入 → 预处理 → 排队 → 批处理 → GPU 推理 → 结果返回
-```
+线程之间传递工作最常用的结构是生产者—消费者队列。AI-Infra 里一个典型形态是：请求输入 → 预处理 → 排队 → 批处理 → GPU 推理 → 结果返回。
 
 如果输入速度高于消费速度，队列就会积压。`queue.Queue(maxsize=N)` 是标准库的**有界阻塞队列**，满了 `put()` 就阻塞——这就是最基本的**背压**（backpressure）：让生产者慢下来。
 
@@ -2218,7 +2208,7 @@ Table: 进入 native 层：Python + PyTorch 与 Java + JNI / Panama
 
 一个请求的总延迟可以拆解为：
 
-```text title="一个请求总延迟的五段拆解"
+```text title="一个请求总延迟的七段拆解"
 总延迟 =
     排队时间
   + 预处理时间

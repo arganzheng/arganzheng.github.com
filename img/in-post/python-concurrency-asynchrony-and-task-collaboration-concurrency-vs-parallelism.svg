@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 240" width="680" height="240" role="img" aria-labelledby="t d">
+  <title id="t">并发与并行的时间线示意</title>
+  <desc id="d">同一条时间轴上的两组任务。并发：任务 A 先运行，进入等待后任务 B 开始运行；B 进入等待后 A 继续运行，A 结束后 B 继续运行。任一时刻只有一个任务在运行，两者交替推进。并行：任务 A 与任务 B 从头到尾同时运行。</desc>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f3f5f7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#c9d3de" stroke-width="2"/></pattern>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2a37; font-weight: 500; }
+      .grp { font-size: 15px; font-weight: 700; }
+      .row { font-size: 14px; }
+      .cell { font-size: 13px; }
+      .muted { font-size: 13px; fill: #4a5a6b; }
+      .run { fill: #cfe2f3; stroke: #40566f; stroke-width: 1.2; }
+      .wait { fill: url(#hatch); stroke: #9fb3c8; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .axis { stroke: #40566f; stroke-width: 1.2; }
+    </style>
+  </defs>
+  <rect width="680" height="240" fill="#fff"/>
+    <text class="grp" x="24" y="59.0">并发</text>
+  <text class="grp" x="24" y="159.0">并行</text>
+  <line class="axis" x1="150" y1="208" x2="666" y2="208" marker-end="url(#arr)"/>
+  <text class="muted" x="666" y="230" text-anchor="end">时间</text>
+  <text class="row" x="78" y="39.0">任务 A</text>
+  <rect class="run" x="150" y="20" width="112" height="28"/><text class="cell" x="206.0" y="39.0" text-anchor="middle">运行</text>
+  <rect class="wait" x="262" y="20" width="168" height="28"/><text class="cell" x="346.0" y="39.0" text-anchor="middle">等待</text>
+  <rect class="run" x="430" y="20" width="112" height="28"/><text class="cell" x="486.0" y="39.0" text-anchor="middle">继续</text>
+  <text class="row" x="78" y="79.0">任务 B</text>
+  <rect class="run" x="262" y="60" width="112" height="28"/><text class="cell" x="318.0" y="79.0" text-anchor="middle">运行</text>
+  <rect class="wait" x="374" y="60" width="168" height="28"/><text class="cell" x="458.0" y="79.0" text-anchor="middle">等待</text>
+  <rect class="run" x="542" y="60" width="112" height="28"/><text class="cell" x="598.0" y="79.0" text-anchor="middle">继续</text>
+  <text class="row" x="78" y="139.0">任务 A</text>
+  <rect class="run" x="150" y="120" width="504" height="28"/><text class="cell" x="402.0" y="139.0" text-anchor="middle">运行</text>
+  <text class="row" x="78" y="179.0">任务 B</text>
+  <rect class="run" x="150" y="160" width="504" height="28"/><text class="cell" x="402.0" y="179.0" text-anchor="middle">运行</text>
+</svg>
