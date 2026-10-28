@@ -187,23 +187,9 @@ busbw 是唯一能与硬件带宽直接比较的数字，理由第一篇讲过�
 
 ### 1. 横轴、纵轴、两个平台与拐点
 
-把 `size` 取对数作横轴、`busbw` 作纵轴，一条健康的 all_reduce 曲线是一个 S 形：
+把 `size` 取对数作横轴、`busbw` 也取对数作纵轴，一条健康的 all_reduce 曲线是一个 S 形（下图用 ring 模型和 8×H100 的典型参数画，非实测）：
 
-```text title="健康的 all_reduce busbw 曲线：S 形与拐点"
-busbw
-  ▲
-  │                                            ┌──────────────  带宽平台：≈ β_eff
-  │                                        ┌───┘
-  │                                    ┌───┘
-  │                                ┌───┘  ← 拐点区：α 项与 β 项相当
-  │                            ┌───┘
-  │                        ┌───┘
-  │                    ┌───┘
-  │              ┌─────┘
-  │  ────────────┘  ← 延迟平台：busbw ∝ S，斜率 45°（对数坐标下），高度由 α 决定
-  └────────────────────────────────────────────────────────────▶ size (log)
-     8B    1K    32K   1M    4M   16M   64M  256M  1G   8G
-```
+![健康的 all_reduce busbw 曲线：双对数坐标下左端是 45° 斜线，S_knee = nαβ 处为平台的一半，右端趋于带宽平台 β_eff](/img/in-post/nccl-tests-tuning-and-debugging-hangs-s-curve.svg)
 
 左端 busbw 随 S 线性增长——因为时间几乎不变（被 α 主导），busbw = 常数系数 × S / T。在对数坐标下这是一条 45° 斜线，它的**纵向位置**由 α 决定：同样 1 MB 的消息，α 从 10 µs 变到 20 µs，这段曲线整体下移一半。看小消息端时应该直接看 `time` 列而不是 `busbw` 列：8 字节 all_reduce 的 time 就是这套系统的 α 下限（kernel 启动 + 一轮握手）。
 
@@ -240,19 +226,16 @@ Table: α-β 模型预测的几种场景的拐点
 
 下面是三种典型环境的 all_reduce busbw 曲线应有的样子。数字全部是"通常能达到"的区间，非实测；读者的机器落在区间内即为正常。
 
-```text title="三种典型环境的 all_reduce 参考线"
-环境                          8 B time      1 MB busbw      64 MB busbw       ≥1 GB busbw (平台)     平台对应的硬件上限
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-8×H100 SXM + NVSwitch         10–20 µs      40–80 GB/s      250–400 GB/s      350–480 GB/s           NVLink 900 GB/s 双向合计
-                                                                                                     = 450 GB/s 单向
-8×A100 SXM + NVSwitch         12–25 µs      30–60 GB/s      150–230 GB/s      220–280 GB/s           NVLink 600 GB/s 双向合计
-                                                                                                     = 300 GB/s 单向
-8×GPU 仅 PCIe 4.0（无 NVLink） 20–40 µs      5–10 GB/s       10–20 GB/s        10–25 GB/s             PCIe 4.0 x16 单向 32 GB/s，
-                                                                                                     多卡共享上游、经 CPU 更低
-2 节点 ×8 H100，NDR 每 GPU     25–45 µs      15–25 GB/s      35–45 GB/s        40–48 GB/s             NDR 400 Gb/s = 50 GB/s 单向
-2 节点 ×8 H100，HDR 每 GPU     25–45 µs      10–18 GB/s      18–23 GB/s        20–24 GB/s             HDR 200 Gb/s = 25 GB/s 单向
-2 节点 ×8，每节点只有 1 张 NDR  30–50 µs      3–5 GB/s        5–6 GB/s          5–6.2 GB/s             50 GB/s 被 8 张 GPU 分摊
-```
+| 类型 | 环境 | 8 B time | 1 MB busbw | 64 MB busbw | ≥1 GB busbw（平台） | 平台对应的硬件上限 |
+|---|---|---|---|---|---|---|
+| 节点内 NVSwitch | 8×H100 SXM + NVSwitch | 10–20 µs | 40–80 GB/s | 250–400 GB/s | 350–480 GB/s | NVLink 900 GB/s 双向合计 = 450 GB/s 单向 |
+| ^^ | 8×A100 SXM + NVSwitch | 12–25 µs | 30–60 GB/s | 150–230 GB/s | 220–280 GB/s | NVLink 600 GB/s 双向合计 = 300 GB/s 单向 |
+| 节点内 PCIe | 8×GPU 仅 PCIe 4.0（无 NVLink） | 20–40 µs | 5–10 GB/s | 10–20 GB/s | 10–25 GB/s | PCIe 4.0 x16 单向 32 GB/s，多卡共享上游、经 CPU 更低 |
+| 跨机 | 2 节点 ×8 H100，NDR 每 GPU | 25–45 µs | 15–25 GB/s | 35–45 GB/s | 40–48 GB/s | NDR 400 Gb/s = 50 GB/s 单向 |
+| ^^ | 2 节点 ×8 H100，HDR 每 GPU | 25–45 µs | 10–18 GB/s | 18–23 GB/s | 20–24 GB/s | HDR 200 Gb/s = 25 GB/s 单向 |
+| ^^ | 2 节点 ×8，每节点只有 1 张 NDR | 30–50 µs | 3–5 GB/s | 5–6 GB/s | 5–6.2 GB/s | 50 GB/s 被 8 张 GPU 分摊 |
+
+Table: 三种典型环境的 all_reduce 参考线
 
 三点说明：
 
@@ -266,35 +249,29 @@ nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上�
 
 ### 5. 常见异常形状与原因
 
-```text title="常见异常形状、原因与先查什么"
-形状                                  最可能的原因                                    先查什么
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-大消息平台远低于参考线                 链路没走对（P2P 没走 NVLink、走了 SHM 或 CPU）    NCCL_DEBUG=INFO 里 "via P2P/…" 还是 "via SHM/…"
-（节点内）                            channel 太少                                   "Connected all rings" 附近的 channel 数；TUNING 日志的 channel{Lo..Hi}
-                                      NVLink 链路降级 / 掉线                          nvidia-smi nvlink -s；nvidia-smi topo -m
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-大消息平台远低于参考线                 GDR 没开（数据经 host 内存中转）                  "GPU Direct RDMA Disabled for GPU … (distance N > M)"
-（跨机）                              网卡亲和错：GPU 用了跨 NUMA/跨 PCIe switch 的网卡  "via NET/IB/<dev>" 里的 dev 与 topo -m 对照
-                                      NCCL_IB_HCA 没限定，混入了管理网口或不同链路类型    "NET/IB : Using [0]mlx5_…" 那一行列了哪些设备
-                                      回落到 Socket                                   "Using network Socket" 而不是 "Using network IB"
-                                      RoCE 没配 PFC/ECN，丢包重传                       交换机计数器、ibstat 的 port_rcv_errors
-                                      链路协商在低速率                                 ibstat 的 Rate 字段
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-小消息 time 明显偏高                   协议选错（LL/LL128 被禁用，小消息走了 Simple）     TUNING 日志的 proto；NCCL_PROTO 是否被设置
-（左端整体下移）                       跨 NUMA：进程绑核与 GPU/网卡不在同一 NUMA          numactl -H；进程的 CPU 亲和
-                                      proxy 线程被抢占（CPU 被计算线程占满）             top 看 NCCL proxy 线程；预留 CPU 核
-                                      框架没合并小消息（不是 nccl-tests 的问题）         训练侧 profiler 看通信 kernel 的大小分布
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-中段有凹陷或台阶                       算法/协议切换点选得不好                           NCCL_DEBUG_SUBSYS=TUNING 看切换发生在哪个大小
-                                      channel 数随消息大小变化                          同上，看 channel{Lo..Hi}
-                                      不是问题：Tree→Ring、LL128→Simple 的切换本身      切换处小幅不平滑是正常的
-                                      就有几个百分点的不连续
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-多机远差于 (单机 / 节点数)             以上跨机各项之外：每节点网卡数 < GPU 数              数一下 "NET/IB : Using" 里的设备数
-                                      NCCL_CROSS_NIC 配置与拓扑不匹配                    换 0/1/2 试
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-曲线抖动、in-place 与 out-of-place 差很多  其他任务干扰；GPU 降频；buffer 未对齐         nvidia-smi -q -d CLOCK；-u 参数是否设置
-```
+| 形状 | 最可能的原因 | 先查什么 |
+|---|---|---|
+| 大消息平台远低于参考线（节点内） | 链路没走对（P2P 没走 NVLink、走了 SHM 或 CPU） | `NCCL_DEBUG=INFO` 里 `via P2P/…` 还是 `via SHM/…` |
+| ^^ | channel 太少 | `Connected all rings` 附近的 channel 数；TUNING 日志的 `channel{Lo..Hi}` |
+| ^^ | NVLink 链路降级 / 掉线 | `nvidia-smi nvlink -s`；`nvidia-smi topo -m` |
+| 大消息平台远低于参考线（跨机） | GDR 没开（数据经 host 内存中转） | `GPU Direct RDMA Disabled for GPU … (distance N > M)` |
+| ^^ | 网卡亲和错：GPU 用了跨 NUMA/跨 PCIe switch 的网卡 | `via NET/IB/<dev>` 里的 dev 与 `topo -m` 对照 |
+| ^^ | `NCCL_IB_HCA` 没限定，混入了管理网口或不同链路类型 | `NET/IB : Using [0]mlx5_…` 那一行列了哪些设备 |
+| ^^ | 回落到 Socket | `Using network Socket` 而不是 `Using network IB` |
+| ^^ | RoCE 没配 PFC/ECN，丢包重传 | 交换机计数器、ibstat 的 `port_rcv_errors` |
+| ^^ | 链路协商在低速率 | ibstat 的 Rate 字段 |
+| 小消息 time 明显偏高（左端整体下移） | 协议选错（LL/LL128 被禁用，小消息走了 Simple） | TUNING 日志的 proto；`NCCL_PROTO` 是否被设置 |
+| ^^ | 跨 NUMA：进程绑核与 GPU/网卡不在同一 NUMA | `numactl -H`；进程的 CPU 亲和 |
+| ^^ | proxy 线程被抢占（CPU 被计算线程占满） | top 看 NCCL proxy 线程；预留 CPU 核 |
+| ^^ | 框架没合并小消息（不是 nccl-tests 的问题） | 训练侧 profiler 看通信 kernel 的大小分布 |
+| 中段有凹陷或台阶 | 算法/协议切换点选得不好 | `NCCL_DEBUG_SUBSYS=TUNING` 看切换发生在哪个大小 |
+| ^^ | channel 数随消息大小变化 | 同上，看 `channel{Lo..Hi}` |
+| ^^ | 不是问题：Tree→Ring、LL128→Simple 的切换本身就有几个百分点的不连续 | 切换处小幅不平滑是正常的 |
+| 多机远差于（单机 / 节点数） | 以上跨机各项之外：每节点网卡数 < GPU 数 | 数一下 `NET/IB : Using` 里的设备数 |
+| ^^ | `NCCL_CROSS_NIC` 配置与拓扑不匹配 | 换 0/1/2 试 |
+| 曲线抖动、in-place 与 out-of-place 差很多 | 其他任务干扰；GPU 降频；buffer 未对齐 | `nvidia-smi -q -d CLOCK`；`-u` 参数是否设置 |
+
+Table: 常见异常形状、原因与先查什么
 
 ## 四、调优参数：按作用层分类
 
@@ -374,29 +351,27 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 
 ### 9. 该动、少动、几乎不动
 
-```text title="参数分类：该动、少动、几乎不动"
-类别            参数                                              理由
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-生产环境应显式   NCCL_IB_HCA                                       不设会枚举所有 RDMA 设备，混入慢网卡
-设置的           NCCL_SOCKET_IFNAME                                bootstrap 选错网口是初始化 hang 的第一原因
-                NCCL_IB_GID_INDEX（RoCE v2）                       自动选择不总是对
-                NCCL_IB_TC / NCCL_IB_SL（RoCE 有 PFC/ECN 时）        流量必须落在配了无损的队列里
-                NCCL_DEBUG=WARN（生产）/ INFO（排障）               见第五章
-                NCCL_DEBUG_FILE（多机排障时）                        不然 64 个进程的日志混在一起
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-排障时用来对照   NCCL_ALGO / NCCL_PROTO                            确认某个算法/协议是否是问题源；确认后不要留在生产配置里
-的（跑完就撤）   NCCL_P2P_DISABLE / NCCL_SHM_DISABLE / NCCL_P2P_LEVEL  确认路径选择是否是问题源
-                NCCL_NET_GDR_LEVEL                                确认 GDR 是否是问题源；修法是改亲和不是放宽 level
-                NCCL_MIN/MAX_NCHANNELS                            确认 channel 数是否偏保守；训练里要验证重叠
-                NCCL_CROSS_NIC                                    rail 网络上试 0
-                NCCL_IB_QPS_PER_CONNECTION                        RoCE ECMP 不均时试 2/4
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-几乎永远不该动   NCCL_NTHREADS / NCCL_LL128_NTHREADS               默认值是按拓扑算的
-                NCCL_BUFFSIZE / NCCL_LL_BUFFSIZE                  只有高延迟长链路才需要
-                NCCL_IB_TIMEOUT / NCCL_IB_RETRY_CNT               调大只是把"报错"变成"更久的 hang"
-                NCCL_NVLS_ENABLE / NCCL_COLLNET_ENABLE            让 NCCL 自动判断；设 0 只用于验证它是不是 bug 源
-                NCCL_TOPO_FILE                                    手写拓扑文件只用于虚拟机里探测不到拓扑的情形
-```
+| 类别 | 参数 | 理由 |
+|---|---|---|
+| 生产环境应显式设置的 | `NCCL_IB_HCA` | 不设会枚举所有 RDMA 设备，混入慢网卡 |
+| ^^ | `NCCL_SOCKET_IFNAME` | bootstrap 选错网口是初始化 hang 的第一原因 |
+| ^^ | `NCCL_IB_GID_INDEX`（RoCE v2） | 自动选择不总是对 |
+| ^^ | `NCCL_IB_TC` / `NCCL_IB_SL`（RoCE 有 PFC/ECN 时） | 流量必须落在配了无损的队列里 |
+| ^^ | `NCCL_DEBUG=WARN`（生产）/ `INFO`（排障） | 见第五章 |
+| ^^ | `NCCL_DEBUG_FILE`（多机排障时） | 不然 64 个进程的日志混在一起 |
+| 排障时用来对照的（跑完就撤） | `NCCL_ALGO` / `NCCL_PROTO` | 确认某个算法/协议是否是问题源；确认后不要留在生产配置里 |
+| ^^ | `NCCL_P2P_DISABLE` / `NCCL_SHM_DISABLE` / `NCCL_P2P_LEVEL` | 确认路径选择是否是问题源 |
+| ^^ | `NCCL_NET_GDR_LEVEL` | 确认 GDR 是否是问题源；修法是改亲和不是放宽 level |
+| ^^ | `NCCL_MIN/MAX_NCHANNELS` | 确认 channel 数是否偏保守；训练里要验证重叠 |
+| ^^ | `NCCL_CROSS_NIC` | rail 网络上试 0 |
+| ^^ | `NCCL_IB_QPS_PER_CONNECTION` | RoCE ECMP 不均时试 2/4 |
+| 几乎永远不该动 | `NCCL_NTHREADS` / `NCCL_LL128_NTHREADS` | 默认值是按拓扑算的 |
+| ^^ | `NCCL_BUFFSIZE` / `NCCL_LL_BUFFSIZE` | 只有高延迟长链路才需要 |
+| ^^ | `NCCL_IB_TIMEOUT` / `NCCL_IB_RETRY_CNT` | 调大只是把"报错"变成"更久的 hang" |
+| ^^ | `NCCL_NVLS_ENABLE` / `NCCL_COLLNET_ENABLE` | 让 NCCL 自动判断；设 0 只用于验证它是不是 bug 源 |
+| ^^ | `NCCL_TOPO_FILE` | 手写拓扑文件只用于虚拟机里探测不到拓扑的情形 |
+
+Table: 参数分类：该动、少动、几乎不动
 
 一条总原则：**每个改动都要用 nccl-tests 的前后两条曲线证明**，并且要看整条曲线而不是一个点。把 `NCCL_ALGO=Ring` 写进生产配置的团队，通常是三年前在某台机器上的某个消息大小上看到过 5% 的提升。
 
@@ -459,20 +434,21 @@ NCCL_DEBUG=INFO NCCL_DEBUG_FILE=/shared/logs/nccl.%h.%p.log
 
 拿到一份 `NCCL_DEBUG=INFO` 日志，不要从头读，直接 grep 这八样东西（第四篇的 `nccl_log_reader.py` 做的就是这个）：
 
-```text title="INFO 日志里要找的八行"
-1  NCCL version 2.28.9+cuda12.x                             版本对不对；多机各节点是否一致
-2  NCCL_XXX set by environment to …                          生效的参数就这些，别的都是默认
-3  Bootstrap: Using eth0:10.0.0.1<0>                         bootstrap 网口
-4  NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB … ; OOB eth0  数据网卡列表：数量、链路类型（IB/RoCE）、是否混入了不该有的
-   Using network IB                                          还是 "Using network Socket"？
-5  GPU Direct RDMA Enabled/Disabled for GPU x / HCA y        GDR 是否生效，distance 多少
-6  Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM                 节点内路径：P2P 还是 SHM
-   Channel 00/0 : 7[7] -> 8[0] [send] via NET/IB/0/GDRDMA    跨机路径：哪张网卡、带不带 GDRDMA
-7  Connected all rings, use ring PXN 0 GDR 1                  ring 建好；channel 数看 "Channel NN/…" 的最大编号
-   Connected all trees
-8  （SUBSYS 含 TUNING 时）AllReduce: 33554432 Bytes -> Algo Ring proto Simple channel{Lo..Hi}={0..15}
-                                                             这个大小选了什么；与曲线上的台阶对照
-```
+| # | 日志行 | 看什么 |
+|---|---|---|
+| 1 | `NCCL version 2.28.9+cuda12.x` | 版本对不对；多机各节点是否一致 |
+| 2 | `NCCL_XXX set by environment to …` | 生效的参数就这些，别的都是默认 |
+| 3 | `Bootstrap: Using eth0:10.0.0.1<0>` | bootstrap 网口 |
+| 4 | `NET/IB : Using [0]mlx5_0:1/IB [1]mlx5_1:1/IB … ; OOB eth0` | 数据网卡列表：数量、链路类型（IB/RoCE）、是否混入了不该有的 |
+| ^^ | `Using network IB` | 还是 `Using network Socket`？ |
+| 5 | `GPU Direct RDMA Enabled/Disabled for GPU x / HCA y` | GDR 是否生效，distance 多少 |
+| 6 | `Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM` | 节点内路径：P2P 还是 SHM |
+| ^^ | `Channel 00/0 : 7[7] -> 8[0] [send] via NET/IB/0/GDRDMA` | 跨机路径：哪张网卡、带不带 GDRDMA |
+| 7 | `Connected all rings, use ring PXN 0 GDR 1` | ring 建好；channel 数看 `Channel NN/…` 的最大编号 |
+| ^^ | `Connected all trees` | tree 建好 |
+| 8 | （SUBSYS 含 TUNING 时）`AllReduce: 33554432 Bytes -> Algo Ring proto Simple channel{Lo..Hi}={0..15}` | 这个大小选了什么；与曲线上的台阶对照 |
+
+Table: INFO 日志里要找的八行
 
 前七行都在初始化阶段，第八行在每次调用（只有 rank 0 打）。曲线异常时，几乎总能在这八行里找到与预期不符的一处。
 
@@ -505,30 +481,16 @@ Communicators
 
 ### 2. 六类 hang
 
-```text title="六类 hang：机制与现象特征"
-类别                          机制                                                   现象特征
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-A 集合通信参数不一致           rank 3 传 1 MB+4 KB，其他传 1 MB；NCCL 不校验 count      要么 hang（多数），要么静默完成给出错误结果（少数，
-  （tensor 大小 / dtype 不同）  跨 rank 是否一致，ring 上各 rank 按自己的 count 切块，   取决于协议与切块对齐）；Flight Recorder 报
-                              收发字节数对不上                                        SIZE_OR_SYNTAX_MISMATCH 或 COLLECTIVE_DTYPE_MISMATCH
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-B 调用顺序 / 次数不一致        rank 2 因 if 分支跳过一次 all_reduce（或多做一次）；     各 rank 停在不同的序号上；rank 2 的 collective_seq_id
-                              之后它的第 k 次配的是别人的第 k+1 次                    比别人少 1；若各次大小恰好相同则要到最后一次才 hang
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-C send/recv 不配对             rank 0 send 给 1，rank 1 没有 recv（或 recv 自 2）；     只有涉及的 rank 先停；其他 rank 走到下一次集合通信
-                              流水线并行的 stage 边界最常见                           后被连锁拖住；Flight Recorder 里 is_p2p 条目找不到配对
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-D 两个 communicator 交叉等待   rank A 先在 comm1 上 all_reduce 再在 comm2 上；rank B    经典死锁；各 rank 各自"合法"，只是顺序不同；
-                              顺序反过来；两个 kernel 各占着 SM 等对方                 py-spy 看到不同 rank 停在不同 PG 的调用上
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-E 一个 rank 崩溃 / 被 kill /   rank 17 OOM 退出、被 OOM killer 杀、Python 异常退出但    ps 看进程数少了一个；dmesg 有 Killed process；
-  卡在非通信代码               没触发 abort；或者活着但卡在 dataloader / checkpoint /   py-spy 看它的栈不在 c10d 里；其他所有 rank 停在同一序号
-                              GIL 死锁 / 第三方库的 mutex                              且状态一致
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-F 网络或硬件真的断了           链路 down、网卡 reset、交换机重启、GPU Xid 错误、        NCCL WARN：Got completion from peer … with error /
-                              NVLink 错误                                            Cuda failure / socket closed by remote；dmesg 有 mlx5 / Xid；
-                                                                                    ibstat 的 State 不是 Active；所有 rank 停在同一序号
-```
+| 类别 | 机制 | 现象特征 |
+|---|---|---|
+| A 集合通信参数不一致（tensor 大小 / dtype 不同） | rank 3 传 1 MB+4 KB，其他传 1 MB；NCCL 不校验 count 跨 rank 是否一致，ring 上各 rank 按自己的 count 切块，收发字节数对不上 | 要么 hang（多数），要么静默完成给出错误结果（少数，取决于协议与切块对齐）；Flight Recorder 报 `SIZE_OR_SYNTAX_MISMATCH` 或 `COLLECTIVE_DTYPE_MISMATCH` |
+| B 调用顺序 / 次数不一致 | rank 2 因 if 分支跳过一次 all_reduce（或多做一次）；之后它第 k+1 步的调用会和别人第 k 步的配对 | 各 rank 停在不同的步上；按 `collective_seq_id` 对齐时，rank 2 在该序号上顶着下一步的形状；若各次大小恰好相同则要到最后一次才 hang，这时 rank 2 的 `collective_seq_id` 比别人少 1 |
+| C send/recv 不配对 | rank 0 send 给 1，rank 1 没有 recv（或 recv 自 2）；流水线并行的 stage 边界最常见 | 只有涉及的 rank 先停；其他 rank 走到下一次集合通信后被连锁拖住；Flight Recorder 里 `is_p2p` 条目找不到配对 |
+| D 两个 communicator 交叉等待 | rank A 先在 comm1 上 all_reduce 再在 comm2 上；rank B 顺序反过来；两个 kernel 各占着 SM 等对方 | 经典死锁；各 rank 各自"合法"，只是顺序不同；py-spy 看到不同 rank 停在不同 PG 的调用上 |
+| E 一个 rank 崩溃 / 被 kill / 卡在非通信代码 | rank 17 OOM 退出、被 OOM killer 杀、Python 异常退出但没触发 abort；或者活着但卡在 dataloader / checkpoint / GIL 死锁 / 第三方库的 mutex | ps 看进程数少了一个；dmesg 有 Killed process；py-spy 看它的栈不在 c10d 里；其他所有 rank 停在同一序号且状态一致 |
+| F 网络或硬件真的断了 | 链路 down、网卡 reset、交换机重启、GPU Xid 错误、NVLink 错误 | NCCL WARN：`Got completion from peer … with error` / `Cuda failure` / `socket closed by remote`；dmesg 有 mlx5 / Xid；ibstat 的 State 不是 Active；所有 rank 停在同一序号 |
+
+Table: 六类 hang：机制与现象特征
 
 A～D 是代码问题，出现在特定步数、可复现，且各 rank 的"最后一次操作"**不一致**；E、F 是环境问题，随机出现，各 rank 的"最后一次操作"**一致**（除了崩掉的那个没有）。这个区分是第九章决策树的第一层。
 
@@ -583,18 +545,14 @@ Flight Recorder 是 ProcessGroupNCCL 里的一个环形缓冲（`torch/csrc/dist
 
 开关与默认值（PyTorch 2.12 的 `ProcessGroupNCCL.cpp`、`FlightRecorder.hpp` 与 `FlightRecorder.cpp`；其他版本不同，注意核对）：
 
-```text title="Flight Recorder 的开关与默认值"
-TORCH_NCCL_TRACE_BUFFER_SIZE     环形缓冲条数；2.12 默认 2000（即默认开启），设 0 关闭
-                                 （别名 TORCH_FR_BUFFER_SIZE，优先于旧名）
-TORCH_NCCL_DUMP_ON_TIMEOUT       watchdog 判定 timeout 或异常时 dump；2.12 默认 true
-TORCH_NCCL_ENABLE_MONITORING     heartbeat monitor 线程，负责执行 dump 与在 watchdog 卡死时杀进程；2.12 默认 true
-TORCH_NCCL_DEBUG_INFO_TEMP_FILE  dump 文件前缀，后接全局 rank 号；2.12 默认 $XDG_CACHE_HOME/torch/comm_lib_trace_rank_
-                                 （XDG_CACHE_HOME 未设时为 ~/.cache/torch/comm_lib_trace_rank_）；别名 TORCH_FR_DUMP_TEMP_FILE
-TORCH_NCCL_TRACE_CPP_STACK       同时记录 C++ 栈（有开销），默认 false（别名 TORCH_FR_CPP_STACK）
-TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC monitor 判定 watchdog 自己卡死的时间，默认 480 秒
-TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC  dump 的时间预算，默认 15000 ms
-TORCH_NCCL_DEBUG_INFO_PIPE_FILE  设置后 monitor 在 <前缀><全局rank>.pipe 上监听一个命名管道，往里写就触发 dump——不用等 timeout
-```
+- `TORCH_NCCL_TRACE_BUFFER_SIZE`：环形缓冲条数；2.12 默认 2000（即默认开启），设 0 关闭（别名 `TORCH_FR_BUFFER_SIZE`，优先于旧名）
+- `TORCH_NCCL_DUMP_ON_TIMEOUT`：watchdog 判定 timeout 或异常时 dump；2.12 默认 true
+- `TORCH_NCCL_ENABLE_MONITORING`：heartbeat monitor 线程，负责执行 dump 与在 watchdog 卡死时杀进程；2.12 默认 true
+- `TORCH_NCCL_DEBUG_INFO_TEMP_FILE`：dump 文件前缀，后接全局 rank 号；2.12 默认 `$XDG_CACHE_HOME/torch/comm_lib_trace_rank_`（`XDG_CACHE_HOME` 未设时为 `~/.cache/torch/comm_lib_trace_rank_`）；别名 `TORCH_FR_DUMP_TEMP_FILE`
+- `TORCH_NCCL_TRACE_CPP_STACK`：同时记录 C++ 栈（有开销），默认 false（别名 `TORCH_FR_CPP_STACK`）
+- `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC`：monitor 判定 watchdog 自己卡死的时间，默认 480 秒
+- `TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC`：dump 的时间预算，默认 15000 ms
+- `TORCH_NCCL_DEBUG_INFO_PIPE_FILE`：设置后 monitor 在 `<前缀><全局rank>.pipe` 上监听一个命名管道，往里写就触发 dump——不用等 timeout
 
 生产训练建议显式写上这四个，不依赖默认值随版本变动：
 
@@ -607,42 +565,17 @@ export TORCH_NCCL_DEBUG_INFO_TEMP_FILE=/shared/fr_dumps/${JOB_ID}/trace_   # 共
 
 dump 的触发流程（`ProcessGroupNCCL.cpp` 的 `Watchdog::runLoop` 与 `HeartbeatMonitor::runLoop`）：
 
-```text title="FR dump 的触发流程"
-watchdog 发现某个 work 超时
-  → 打 "Watchdog caught collective operation timeout … " 与 "failure detected by watchdog at work sequence id: N
-     PG status: last enqueued work: N, last completed work: K"
-  → work.printTraceback() 打出这次调用的 Python 栈
-  → broadcastDumpSignal(): 在全局 TCPStore 上写 key "exception_dump"（kStoreDumpKey），通知所有 rank
-  → 本地 shouldDump_ = true；sleep 4 × TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC（默认 60 秒）给 dump 留时间
-  → 之后按 TORCH_NCCL_ASYNC_ERROR_HANDLING（默认 3 = SkipCleanUp）抛异常，进程退出
-每个 rank 的 monitor 线程每 TORCH_NCCL_COORD_CHECK_MILSEC（1 秒）检查 TCPStore 上的 "exception_dump"
-  → 看到就调用 dumpDebuggingInfo()，把 FlightRecorder 的内容 pickle 后交给 DebugInfoWriter::write 写文件
-```
+1. **超时**：watchdog 发现某个 work 超时，打 `Watchdog caught collective operation timeout …` 与 `failure detected by watchdog at work sequence id: N PG status: last enqueued work: N, last completed work: K`；`work.printTraceback()` 打出这次调用的 Python 栈。
+2. **广播**：`broadcastDumpSignal()` 在全局 TCPStore 上写 key `exception_dump`（`kStoreDumpKey`）通知所有 rank，同时把本进程的 `shouldDump_` 置 true。
+3. **等待**：watchdog sleep 4 × `TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC`（默认 60 秒），给 dump 留时间。
+4. **dump**：与第 3 步同时，每个 rank 的 monitor 线程每 `TORCH_NCCL_COORD_CHECK_MILSEC`（1 秒）轮询一次——超时的 rank 看本进程的 `shouldDump_`，其他 rank 在 TCPStore 上 check `exception_dump`；看到就调用 `dumpDebuggingInfo()`，把 FlightRecorder 的内容 pickle 后交给 `DebugInfoWriter::write` 写文件——没超时的掉队者也一样 dump。
+5. **退出**：sleep 结束后按 `TORCH_NCCL_ASYNC_ERROR_HANDLING`（默认 3 = SkipCleanUp）抛异常，进程退出。
 
 这条流程里有两个线程、两类 rank 在协作——超时的 rank 的 watchdog 只负责"喊"，真正写文件的是每个 rank 自己的 monitor 线程，包括那个没有超时的掉队者：
 
-```mermaid
-%% 图：Flight Recorder 的 dump 流程：超时 rank 的 watchdog 只负责经 TCPStore 广播信号，每个 rank 的 monitor 线程各自写文件
-sequenceDiagram
-    participant WD as rank k 的 watchdog
-    participant ST as TCPStore
-    participant MK as rank k 的 monitor
-    participant M5 as rank 5 的 monitor (掉队者)
-    Note over WD: checkTimeout() 为真：某 work 超过 opTimeout_
-    WD->>WD: 打 timeout 日志, printTraceback()
-    WD->>ST: broadcastDumpSignal() 写 key exception_dump
-    WD->>MK: shouldDump_ = true
-    loop 每 TORCH_NCCL_COORD_CHECK_MILSEC (1 s)
-        MK->>ST: 查 exception_dump
-        M5->>ST: 查 exception_dump
-    end
-    ST-->>MK: 有信号
-    ST-->>M5: 有信号
-    MK->>MK: dumpDebuggingInfo() 写 trace_k
-    M5->>M5: dumpDebuggingInfo() 写 trace_5 (没超时也 dump)
-    Note over WD,MK: watchdog sleep 4 x WAIT_TIMEOUT_DUMP_MILSEC (60 s) 给 dump 留时间
-    WD->>WD: 抛 DistBackendError (ASYNC_ERROR_HANDLING=3), 进程退出
-```
+![Flight Recorder 的 dump 流程：rank k 的 watchdog 超时后经 TCPStore 广播信号并 sleep 60 s，rank k 与掉队者 rank 5 的 monitor 线程各自轮询到信号后写 trace 文件](/img/in-post/nccl-tests-tuning-and-debugging-hangs-fr-dump.svg)
+
+图中 ①～⑤ 对应上面的五步；时间轴是示意，不按比例。
 
 于是**所有 rank**——包括那个没超时、只是掉队的 rank——都会 dump。这是它能对齐的前提。如果 TCPStore 已经不可用（rank 0 死了），其他 rank 收不到信号，就只能靠各自的 timeout 触发本地 dump。
 
@@ -664,46 +597,53 @@ python -m torch.distributed.flight_recorder.fr_trace /shared/fr_dumps/${JOB_ID}/
 #   -o db.pkl                        导出扁平数据库
 ```
 
-它的算法：把每个 rank 的条目按 PG 分组、按 `collective_seq_id` 排序，然后对每个 PG 从最小的序号开始，取所有 rank 在该序号上的条目互相比对（`utils.py` 的 `match_one_event`），得到 `types.py` 里的 `MatchState`：
+它的算法：把每个 rank 的条目按 PG 分组、按 `collective_seq_id` 排序，然后对每个 PG 从最小的序号开始，取所有 rank 在该序号上的条目互相比对（`utils.py` 的 `match_one_event`），得到 `types.py` 里的 `MatchState`，一共六种：
 
-```text title="MatchState 的五种结果与对应 hang 类别"
-FULLY_MATCHED               原语、形状、dtype、状态都一致
-COLLECTIVE_TYPE_MISMATCH    rank 3 在这个序号上是 all_gather，其他是 all_reduce    → 类 B（顺序不一致）
-SIZE_OR_SYNTAX_MISMATCH     形状不一致，或 send/recv 不配对                       → 类 A 或 C
-COLLECTIVE_DTYPE_MISMATCH   dtype 不一致                                          → 类 A
-COLLECTIVE_STATE_MISMATCH   有的 completed、有的 scheduled/started                 → 有 rank 根本没开始这次操作（类 E 的"卡在别处"）
-UNDECIDED                   alltoall 这类需要看全部 rank 才能判断
-```
+| MatchState | 含义 | 对应 hang 类别 |
+|---|---|---|
+| `FULLY_MATCHED` | 原语、形状、dtype、状态都一致 | |
+| `COLLECTIVE_TYPE_MISMATCH` | rank 3 在这个序号上是 all_gather，其他是 all_reduce | 类 B（顺序不一致） |
+| `SIZE_OR_SYNTAX_MISMATCH` | 形状不一致，或 send/recv 不配对 | 类 A 或 C |
+| `COLLECTIVE_DTYPE_MISMATCH` | dtype 不一致 | 类 A |
+| `COLLECTIVE_STATE_MISMATCH` | 有的 completed、有的 scheduled/started | 有 rank 根本没开始这次操作（类 E 的"卡在别处"） |
+| `UNDECIDED` | alltoall 这类需要看全部 rank 才能判断 | |
+
+Table: MatchState 的六种结果与对应 hang 类别
 
 输出里第一处非 `FULLY_MATCHED` 的序号和 `culprit` rank 就是答案。把 64 份账本按序号排成一张表，三大类 hang 各有一眼可辨的签名——这正是第九章决策树 hang 分支第一层"一致还是不一致"的判据：
 
-```text title="三大类 hang 在 fr_trace.py 视角下的签名"
-fr_trace.py 的视角：一行一个 rank，一格一条 entry；格内是 input_sizes（元素数）
-与状态：C = completed，S = started（kernel 已启动、在等对端）
+下面三张表是 `fr_trace.py` 的视角：一行一个 rank，一格一条 entry；格内是 input_sizes（元素数）与状态：C = completed，S = started（kernel 已启动、在等对端）。
 
-① 类 A（代码）：同一序号上形状不同 → SIZE_OR_SYNTAX_MISMATCH，culprit = rank 3
-          seq 4        seq 5        seq 6
-rank 0    [1M] C       [2M] C       [3M] S
-rank 1    [1M] C       [2M] C       [3M] S
-rank 3    [1M] C       [2M] C       [3M+1K] S   ← 只有它不同，看这条的 Python 栈
-rank 7    [1M] C       [2M] C       [3M] S
-  （类 B 的样子相同：跳过一次的 rank 在该序号上顶着"下一步"的形状 [4M]）
+| rank | seq 4 | seq 5 | seq 6 | 说明 |
+|---|---|---|---|---|
+| rank 0 | [1M] C | [2M] C | [3M] S | |
+| rank 1 | [1M] C | [2M] C | [3M] S | |
+| rank 3 | [1M] C | [2M] C | **[3M+1K] S** | ← 只有它不同，看这条的 Python 栈 |
+| rank 7 | [1M] C | [2M] C | [3M] S | |
 
-② 类 E-卡住（环境）：rank 5 比别人少一条，且它的最后一条是 C
-          seq 4        seq 5        seq 6
-rank 0    [1M] C       [2M] C       [3M] S
-rank 1    [1M] C       [2M] C       [3M] S
-rank 5    [1M] C       [2M] C         --        ← 没调用 seq 6：卡在 torch.save
-rank 7    [1M] C       [2M] C       [3M] S
-  （类 E-崩溃：rank 5 连 dump 文件都没有，fr_trace 加 --allow-incomplete-ranks）
+Table: ① 类 A（代码）：同一序号上形状不同 → `SIZE_OR_SYNTAX_MISMATCH`，culprit = rank 3
 
-③ 类 F（网络 / 硬件）：全部 rank 完全一致，都停在 seq 6、都是 S
-          seq 4        seq 5        seq 6
-rank 0    [1M] C       [2M] C       [3M] S
-rank 1    [1M] C       [2M] C       [3M] S
- ...       ...          ...          ...
-rank 63   [1M] C       [2M] C       [3M] S      ← 无 culprit：看 WARN、dmesg
-```
+类 B 的样子相同：跳过一次的 rank 在该序号上顶着"下一步"的形状 [4M]。
+
+| rank | seq 4 | seq 5 | seq 6 | 说明 |
+|---|---|---|---|---|
+| rank 0 | [1M] C | [2M] C | [3M] S | |
+| rank 1 | [1M] C | [2M] C | [3M] S | |
+| rank 5 | [1M] C | [2M] C | **—** | ← 没调用 seq 6：卡在 torch.save |
+| rank 7 | [1M] C | [2M] C | [3M] S | |
+
+Table: ② 类 E-卡住（环境）：rank 5 比别人少一条，且它的最后一条是 C
+
+类 E-崩溃：rank 5 连 dump 文件都没有，`fr_trace` 加 `--allow-incomplete-ranks`。
+
+| rank | seq 4 | seq 5 | seq 6 | 说明 |
+|---|---|---|---|---|
+| rank 0 | [1M] C | [2M] C | [3M] S | |
+| rank 1 | [1M] C | [2M] C | [3M] S | |
+| … | … | … | … | |
+| rank 63 | [1M] C | [2M] C | [3M] S | ← 无 culprit：看 WARN、dmesg |
+
+Table: ③ 类 F（网络 / 硬件）：全部 rank 完全一致，都停在 seq 6、都是 S
 
 对类 B 有一个细节：如果每一步的 all_reduce 大小完全相同，跳过一次的 rank 在后续每个序号上的形状都与别人一致，匹配会一路 `FULLY_MATCHED`，直到最后一个序号上别人有条目、它没有——这时报的是 `COLLECTIVE_STATE_MISMATCH` 或缺失条目，指向同一个 rank，只是不能告诉你它是在哪一步跳过的。真实训练里 DDP bucket、FSDP 各层参数的形状各不相同，所以这个歧义很少出现；第十章 `hang_lab/` 的脚本故意让每步大小不同，就是为了让匹配结果无歧义。
 
@@ -719,20 +659,9 @@ Flight Recorder 之前的机制，仍然可用。开启后（`ProcessGroupNCCL.c
 
 `torch/distributed/distributed_c10d.py` 的 `init_process_group(timeout=None)`：NCCL 后端默认 `default_pg_nccl_timeout` = 10 分钟（`ProcessGroupNCCL.hpp` 的 `kProcessGroupNCCLDefaultTimeout` = 10 × 60 × 1000 ms；其他后端 `kProcessGroupDefaultTimeout` = 30 分钟）。这个值成为每个 `WorkNCCL` 的 `opTimeout_`，也可以在 `new_group(timeout=)` 里按 PG 覆盖。
 
-它约束的是：**从 `WorkNCCL` 对象创建（即 CPU 线程调用 `dist.all_reduce` 的那一刻，`workStartTime_ = steady_clock::now()`）到 watchdog 观察到它的结束 event 完成之间的墙钟时间**。把 CPU 线程、NCCL stream 与 watchdog 三条时间线并排，这个区间覆盖了什么、不覆盖什么就清楚了：
+它约束的是：**从 `WorkNCCL` 对象创建（即 CPU 线程调用 `dist.all_reduce` 的那一刻，`workStartTime_ = steady_clock::now()`）到 watchdog 观察到它的结束 event 完成之间的墙钟时间**。把 CPU 线程、计算 stream、NCCL stream 与 watchdog 的时间线并排，这个区间覆盖了什么、不覆盖什么就清楚了：
 
-```text title="timeout 覆盖的区间：三条时间线并排"
-t0 = CPU 调用 dist.all_reduce：WorkNCCL 创建，workStartTime_ 起算
-│
-│ CPU 线程    ─┬─ 立即返回 ── Python 继续 ── .item()/wait() 阻塞 ─────────────▶
-│              │                              （CPU 侧等多久，timeout 不管）
-│ NCCL stream ─┴─[排在前面的 GEMM 30 s]─[NCCL kernel 自旋等对端 ……]─[end event]
-│                                                                            │
-│ watchdog     每 1 s：now − workStartTime_ > opTimeout_ 且 end event 未完成？
-│
-├──────────── opTimeout_ 计量区间（默认 10 min，含排队与等对端）──────────────┤
-t0                                                              end event 完成
-```
+![timeout 覆盖的区间：t0 时 CPU 调用 dist.all_reduce、workStartTime_ 起算；NCCL stream 先等计算 stream 上 30 s 的 GEMM，再跑自旋等对端的 NCCL kernel；watchdog 每 100 ms 检查一次；opTimeout_ 从 t0 计到 end event 完成](/img/in-post/nccl-tests-tuning-and-debugging-hangs-timeout-window.svg)
 
 注意三点：
 
@@ -754,14 +683,16 @@ watchdog 自己也可能卡——它调用 `cudaEventQuery`，在某些驱动错
 
 时间线合起来（示意；dump 由 watchdog 广播信号、monitor 线程执行，heartbeat 只监视 watchdog 自身的活性）：
 
-```text title="watchdog 与 heartbeat monitor 合起来的时间线"
-t = 0            rank 5 卡在 torch.save；其他 rank 调用 step 3001 的 all_reduce，WorkNCCL 计时开始
-t = 10 min       63 个 rank 的 watchdog：checkTimeout 为真 → 打日志 → 广播 exception_dump → 等 60 s
-t = 10 min + 1 s 各 rank 的 monitor 线程看到信号 → dumpDebuggingInfo → 写 trace_<rank>（rank 5 也写，它的 monitor 线程活着）
-t = 11 min       63 个 rank 抛 DistBackendError；SkipCleanUp 模式下不 abort comm 直接退出
-t = 15 min       rank 5 从 torch.save 回来，发现对端已退出，报错退出
-若 watchdog 自己卡住：t = 10 min + 8 min，monitor 线程 abort 进程
-```
+| 时刻 | 事件 |
+|---|---|
+| t = 0 | rank 5 卡在 `torch.save`；其他 rank 调用 step 3001 的 all_reduce，`WorkNCCL` 计时开始 |
+| t = 10 min | 63 个 rank 的 watchdog：`checkTimeout` 为真 → 打日志 → 广播 `exception_dump` → 等 60 s |
+| t = 10 min + 1 s | 各 rank 的 monitor 线程看到信号 → `dumpDebuggingInfo` → 写 `trace_<rank>`（rank 5 也写，它的 monitor 线程活着） |
+| t = 11 min | 63 个 rank 抛 `DistBackendError`；SkipCleanUp 模式下不 abort comm 直接退出 |
+| t = 15 min | rank 5 从 `torch.save` 回来，发现对端已退出，报错退出 |
+| 若 watchdog 自己卡住：t = 10 min + 8 min | monitor 线程 abort 进程 |
+
+Table: watchdog 与 heartbeat monitor 合起来的时间线
 
 ### 4. 回答核心问题
 
@@ -829,80 +760,60 @@ grep -H "Out of bounds" check.*.log     # 全部应为 "0 OK"
 
 ### 1. 慢
 
-```text title="决策树：慢"
-慢
-├─ 先做：nccl-tests 单机基线 + 多机基线 + 与第三章参考线比 + 与 cost_model 预测比
-│
-├─ 大消息 busbw 低（节点内）
-│    ├─ 查 nvidia-smi topo -m：GPU 间是 NV# 还是 PIX/PXB/SYS？NVLink 是否降级（nvidia-smi nvlink -s）
-│    ├─ 查 NCCL_DEBUG=INFO："via P2P/…" 还是 "via SHM/…"？  → SHM 说明 P2P 被禁或 level 不够：查 NCCL_P2P_LEVEL/DISABLE、IOMMU、ACS
-│    ├─ 查 channel 数（TUNING 日志的 channel{Lo..Hi} 或 "Channel NN/…" 最大编号） → 明显少于预期：试 NCCL_MAX_NCHANNELS 对照，怀疑拓扑探测（NCCL_TOPO_DUMP_FILE 看 XML）
-│    └─ H100 上低于 350 GB/s 且无 "NVLS multicast support is available"  → 驱动/Fabric Manager
-│
-├─ 大消息 busbw 低（跨机）
-│    ├─ 先单独测网络：ib_write_bw 两机之间能到多少？低 → 网络问题，不是 NCCL 的
-│    ├─ "Using network Socket"  → 没走 RDMA：libibverbs/驱动/NCCL_IB_DISABLE/容器里缺 /dev/infiniband
-│    ├─ "GPU Direct RDMA Disabled … distance N > M"  → GDR 没开：nvidia-peermem/DMA-BUF 是否加载；GPU 与网卡是否同 PCIe switch；修亲和而不是放宽 level
-│    ├─ "NET/IB : Using [...]" 列出的设备数 < GPU 数，或混入了不同链路类型  → NCCL_IB_HCA 限定
-│    ├─ "via NET/IB/<dev>" 的 dev 与 GPU 不亲和  → 拓扑探测或容器拓扑可见性问题；NCCL_TOPO_FILE 兜底
-│    ├─ RoCE：ibstat 的 port_rcv_errors / 交换机丢包计数上升  → PFC/ECN、NCCL_IB_TC 与交换机队列不一致
-│    ├─ 带宽不稳、时高时低  → ECMP 哈希不均：NCCL_IB_QPS_PER_CONNECTION=2/4；或 rail 网络上 NCCL_CROSS_NIC=0
-│    └─ 都正常但仍差 20%+  → NCCL_BUFFSIZE（高延迟链路）；NCCL 版本；固件
-│
-├─ 小消息延迟高（time 列左端偏大）
-│    ├─ NCCL_DEBUG_SUBSYS=TUNING 看 proto：小消息应为 LL/LL128；是 Simple → 查 NCCL_PROTO 是否被设置、LL128 是否被拓扑禁用
-│    ├─ 进程绑核：numactl / taskset 是否让进程与 GPU、网卡在同一 NUMA
-│    ├─ proxy 线程被抢占：top 看 CPU 是否满载；训练时预留核给 NCCL
-│    └─ 训练里小消息多而 nccl-tests 正常  → 框架没合并：DDP bucket、FSDP 的 reshard 策略、functional collective 的重排
-│
-└─ 多机远差于单机 / 节点数
-     └─ 跨机的每一项 + 检查是否每节点网卡数 < GPU 数 + NCCL_CROSS_NIC
-```
+- **先做**：nccl-tests 单机基线 + 多机基线 + 与第三章参考线比 + 与 `cost_model` 预测比
+- **大消息 busbw 低（节点内）**
+  - 查 `nvidia-smi topo -m`：GPU 间是 NV# 还是 PIX/PXB/SYS？NVLink 是否降级（`nvidia-smi nvlink -s`）
+  - 查 `NCCL_DEBUG=INFO`：`via P2P/…` 还是 `via SHM/…`？→ SHM 说明 P2P 被禁或 level 不够：查 `NCCL_P2P_LEVEL`/`DISABLE`、IOMMU、ACS
+  - 查 channel 数（TUNING 日志的 `channel{Lo..Hi}` 或 `Channel NN/…` 最大编号）→ 明显少于预期：试 `NCCL_MAX_NCHANNELS` 对照，怀疑拓扑探测（`NCCL_TOPO_DUMP_FILE` 看 XML）
+  - H100 上低于 350 GB/s 且无 `NVLS multicast support is available` → 驱动/Fabric Manager
+- **大消息 busbw 低（跨机）**
+  - 先单独测网络：`ib_write_bw` 两机之间能到多少？低 → 网络问题，不是 NCCL 的
+  - `Using network Socket` → 没走 RDMA：libibverbs/驱动/`NCCL_IB_DISABLE`/容器里缺 `/dev/infiniband`
+  - `GPU Direct RDMA Disabled … distance N > M` → GDR 没开：nvidia-peermem/DMA-BUF 是否加载；GPU 与网卡是否同 PCIe switch；修亲和而不是放宽 level
+  - `NET/IB : Using [...]` 列出的设备数 < GPU 数，或混入了不同链路类型 → `NCCL_IB_HCA` 限定
+  - `via NET/IB/<dev>` 的 dev 与 GPU 不亲和 → 拓扑探测或容器拓扑可见性问题；`NCCL_TOPO_FILE` 兜底
+  - RoCE：ibstat 的 `port_rcv_errors` / 交换机丢包计数上升 → PFC/ECN、`NCCL_IB_TC` 与交换机队列不一致
+  - 带宽不稳、时高时低 → ECMP 哈希不均：`NCCL_IB_QPS_PER_CONNECTION=2/4`；或 rail 网络上 `NCCL_CROSS_NIC=0`
+  - 都正常但仍差 20%+ → `NCCL_BUFFSIZE`（高延迟链路）；NCCL 版本；固件
+- **小消息延迟高（time 列左端偏大）**
+  - `NCCL_DEBUG_SUBSYS=TUNING` 看 proto：小消息应为 LL/LL128；是 Simple → 查 `NCCL_PROTO` 是否被设置、LL128 是否被拓扑禁用
+  - 进程绑核：numactl / taskset 是否让进程与 GPU、网卡在同一 NUMA
+  - proxy 线程被抢占：top 看 CPU 是否满载；训练时预留核给 NCCL
+  - 训练里小消息多而 nccl-tests 正常 → 框架没合并：DDP bucket、FSDP 的 reshard 策略、functional collective 的重排
+- **多机远差于单机 / 节点数**
+  - 跨机的每一项 + 检查是否每节点网卡数 < GPU 数 + `NCCL_CROSS_NIC`
 
 ### 2. hang
 
-```text title="决策树：hang"
-hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
-├─ 先做：数进程数；收集全体 py-spy dump；收集 Flight Recorder dump；grep 全体 NCCL WARN；看 dmesg
-│
-├─ 进程数少了  → 类 E-崩溃：看缺失 rank 的 stderr（OOM/异常）、dmesg（Killed process / Xid）
-│               处理：修根因；开 TORCH_NCCL_PROPAGATE_ERROR 让其他 rank 早退
-│
-├─ 所有 rank 的 FR 记录一致（同序号、同状态 started）
-│    ├─ 有 NCCL WARN（completion error / Cuda failure / socket closed）  → 类 F：网络或 GPU 硬件
-│    │      ibstat（State/Rate）· dmesg（mlx5、Xid）· nvidia-smi -q（Xid、ECC）· 交换机
-│    └─ 无 WARN  → 也可能是类 F 的静默丢失，或 NCCL bug；cuda-gdb 确认 kernel 在自旋；换 NCCL 版本对照
-│
-├─ FR 报某序号 SIZE_OR_SYNTAX / TYPE / DTYPE MISMATCH，给出 culprit
-│    → 类 A/B：代码问题。看 culprit 那条 entry 的 Python 栈，找只在该 rank 上走的分支
-│      （按 rank 的 if、按数据的 if、动态 shape、只在 rank 0 做的 eval/log）
-│
-├─ 某 rank 比别人少一条，且其最后一条是 completed
-│    → 类 E-卡住：对它 py-spy dump。常见：torch.save、DataLoader、logging、GIL 死锁、第三方锁
-│
-├─ 部分 rank 停在 send/recv、部分停在集合通信；FR 里 is_p2p 条目找不到配对
-│    → 类 C：流水线 stage 边界的 send/recv 数量或 peer 不一致；检查 micro-batch 数、warmup 阶段的调度
-│
-└─ 各 rank 停在不同 PG 的调用上
-     → 类 D：多 communicator 顺序不一致。统一各 rank 上 PG 的调用顺序；或用 batch_isend_irecv / coalescing 合并
-```
+hang 指 watchdog 报 timeout，或没有 watchdog 时进程不动：
+
+- **先做**：数进程数；收集全体 py-spy dump；收集 Flight Recorder dump；grep 全体 NCCL WARN；看 dmesg
+- **进程数少了** → 类 E-崩溃：看缺失 rank 的 stderr（OOM/异常）、dmesg（Killed process / Xid）
+  - 处理：修根因；开 `TORCH_NCCL_PROPAGATE_ERROR` 让其他 rank 早退
+- **所有 rank 的 FR 记录一致（同序号、同状态 started）**
+  - 有 NCCL WARN（completion error / Cuda failure / socket closed）→ 类 F：网络或 GPU 硬件
+    - ibstat（State/Rate）· dmesg（mlx5、Xid）· `nvidia-smi -q`（Xid、ECC）· 交换机
+  - 无 WARN → 也可能是类 F 的静默丢失，或 NCCL bug；cuda-gdb 确认 kernel 在自旋；换 NCCL 版本对照
+- **FR 报某序号 SIZE_OR_SYNTAX / TYPE / DTYPE MISMATCH，给出 culprit**
+  - → 类 A/B：代码问题。看 culprit 那条 entry 的 Python 栈，找只在该 rank 上走的分支（按 rank 的 if、按数据的 if、动态 shape、只在 rank 0 做的 eval/log）
+- **某 rank 比别人少一条，且其最后一条是 completed**
+  - → 类 E-卡住：对它 py-spy dump。常见：`torch.save`、DataLoader、logging、GIL 死锁、第三方锁
+- **部分 rank 停在 send/recv、部分停在集合通信；FR 里 `is_p2p` 条目找不到配对**
+  - → 类 C：流水线 stage 边界的 send/recv 数量或 peer 不一致；检查 micro-batch 数、warmup 阶段的调度
+- **各 rank 停在不同 PG 的调用上**
+  - → 类 D：多 communicator 顺序不一致。统一各 rank 上 PG 的调用顺序；或用 `batch_isend_irecv` / coalescing 合并
 
 ### 3. 错
 
-```text title="决策树：错"
-错
-├─ 各 rank 结果互相一致，但与预期 / 上一版本有微小差异
-│    → 浮点归约顺序：固定 NCCL_ALGO 看差异是否消失；正常现象，需要复现性时固定算法与 channel
-│
-├─ 各 rank 结果互相不一致
-│    ├─ TORCH_DISTRIBUTED_DEBUG=DETAIL 的输入哈希是否一致？不一致 → 输入就不同：数据竞争或调用不一致
-│    ├─ 加 torch.cuda.synchronize() 后消失  → stream 依赖缺失 / async_op 后过早修改输入 / allocator 回收
-│    └─ nccl-tests -c 1 也报 #wrong  → NCCL 或硬件层：NCCL_PROTO=^LL128 对照；nvidia-smi -q 看 ECC/Xid；换卡
-│
-└─ NaN
-     ├─ TORCH_NCCL_NAN_CHECK=1 → 报错的 rank 就是源头；看该 rank 的计算（溢出、除零、坏样本）
-     └─ 无 rank 报错但结果 NaN  → 通信过程中引入：数据竞争（见上）或硬件错误
-```
+- **各 rank 结果互相一致，但与预期 / 上一版本有微小差异**
+  - → 浮点归约顺序：固定 `NCCL_ALGO` 看差异是否消失；正常现象，需要复现性时固定算法与 channel
+- **各 rank 结果互相不一致**
+  - `TORCH_DISTRIBUTED_DEBUG=DETAIL` 的输入哈希是否一致？不一致 → 输入就不同：数据竞争或调用不一致
+  - 加 `torch.cuda.synchronize()` 后消失 → stream 依赖缺失 / async_op 后过早修改输入 / allocator 回收
+  - nccl-tests `-c 1` 也报 `#wrong` → NCCL 或硬件层：`NCCL_PROTO=^LL128` 对照；`nvidia-smi -q` 看 ECC/Xid；换卡
+- **NaN**
+  - `TORCH_NCCL_NAN_CHECK=1` → 报错的 rank 就是源头；看该 rank 的计算（溢出、除零、坏样本）
+  - 无 rank 报错但结果 NaN → 通信过程中引入：数据竞争（见上）或硬件错误
 
 ### 4. 一小时排障流程
 
@@ -917,38 +828,44 @@ hang（watchdog 报 timeout，或没有 watchdog 时进程不动）
 
 ### 1. 要点回顾
 
-```text title="要点回顾"
-nccl-tests      总 rank 数 = 进程 × -t × -g；-b/-e/-f 扫描，-n/-w 迭代预热（-w 默认仅 1），-c 0 关校验测性能；algo/proto/channel 看 NCCL 的 TUNING 日志
-                busbw = algbw × 系数（all_reduce 2(n-1)/n，all_gather/reduce_scatter/all_to_all (n-1)/n，broadcast 1），
-                以各 src/*.cu 的 *GetBw 为准；只有 busbw 能和硬件比
-曲线            左端斜线高度看 α（直接看 time 列），右端平台看 β，拐点 S_knee = n·α·β，到 90% 平台约 9·S_knee
-                8×H100 节点内 ≈ 10 MB 拐点、~90 MB 接近平台；64 卡跨机 ≈ 30 MB 拐点、~260 MB 接近平台（典型值，非实测）
-参考线          8×H100 NVSwitch 350–480 GB/s（NVLS 可超单向 450）；8×A100 220–280；PCIe-only 10–25；
-                2 节点 NDR 每 GPU 40–48；HDR 20–24；每节点 1 张 NDR 5–6（全部非实测）
-参数            NCCL_PARAM 整数、只读一次、优先级 env > NCCL_CONF_FILE > ~/.nccl.conf > /etc/nccl.conf > 默认；
-                字符串类走 ncclGetEnv；P2P_LEVEL/NET_GDR_LEVEL 走 ncclGetLevel 接受路径类型名
-                应设：IB_HCA、SOCKET_IFNAME、GID_INDEX/TC（RoCE）、DEBUG、DEBUG_FILE；
-                对照用：ALGO/PROTO、P2P/SHM/GDR、NCHANNELS、CROSS_NIC、QPS；几乎不动：NTHREADS、BUFFSIZE、IB_TIMEOUT
-日志            WARN 生产、INFO 排障（默认子系统 INIT,BOOTSTRAP,ENV）、TRACE 需 -DENABLE_TRACE；
-                SUBSYS 选 GRAPH/NET/TUNING/COLL；DEBUG_FILE 的 %h/%p；八行速查；RAS/ncclras 是 NCCL 侧的 opCount 对齐
-hang            kernel 自旋无超时、CPU 早已返回、唯一计时器是 c10d watchdog 的 opTimeout_（默认 10 min，从 enqueue 起算）
-                六类：参数不一致 / 次数不一致 / send-recv 不配对 / 多 comm 交叉 / rank 崩或卡在别处 / 网络硬件；
-                前四类各 rank 最后一次操作不一致，后两类一致
-工具            py-spy dump 看 Python 栈 → gdb 看 C++ → cuda-gdb 看 kernel；
-                Flight Recorder 记每次调用（seq、形状、dtype、栈、状态），timeout 时经 TCPStore 通知全体 dump，
-                fr_trace.py 按 collective_seq_id 对齐给出 MatchState 与 culprit；DESYNC_DEBUG 是轻量前身
-timeout         约束 enqueue → 结束 event 的墙钟时间；不约束 CPU；不是 NCCL 的机制；
-                checkpoint/dataloader 卡住 → 其他 rank 在下一次集合通信上等满 timeout → 表现为 NCCL timeout
-正确性          归约顺序随算法/channel 变，各 rank 间一致是语义保证；NAN_CHECK 在发送方检查输入；
-                结果不一致 + 随时序变 = stream 竞争；nccl-tests -c 1 -o all -d all 做硬件层验收
-```
+- **nccl-tests**
+  - 总 rank 数 = 进程 × `-t` × `-g`；`-b`/`-e`/`-f` 扫描，`-n`/`-w` 迭代预热（`-w` 默认仅 1），`-c 0` 关校验测性能；algo/proto/channel 看 NCCL 的 TUNING 日志
+  - busbw = algbw × 系数（all_reduce 2(n-1)/n，all_gather/reduce_scatter/all_to_all (n-1)/n，broadcast 1），以各 `src/*.cu` 的 `*GetBw` 为准；只有 busbw 能和硬件比
+- **曲线**
+  - 左端斜线高度看 α（直接看 time 列），右端平台看 β，拐点 S_knee = n·α·β，到 90% 平台约 9·S_knee
+  - 8×H100 节点内 ≈ 10 MB 拐点、~90 MB 接近平台；64 卡跨机 ≈ 30 MB 拐点、~260 MB 接近平台（典型值，非实测）
+- **参考线**（全部非实测）
+  - 节点内：8×H100 NVSwitch 350–480 GB/s（NVLS 可超单向 450）；8×A100 220–280；PCIe-only 10–25
+  - 跨机：2 节点 NDR 每 GPU 40–48；HDR 20–24；每节点 1 张 NDR 5–6
+- **参数**
+  - `NCCL_PARAM` 整数、只读一次、优先级 env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 默认
+  - 字符串类走 `ncclGetEnv`；`P2P_LEVEL`/`NET_GDR_LEVEL` 走 `ncclGetLevel` 接受路径类型名
+  - 应设：`IB_HCA`、`SOCKET_IFNAME`、`GID_INDEX`/`TC`（RoCE）、`DEBUG`、`DEBUG_FILE`
+  - 对照用：`ALGO`/`PROTO`、`P2P`/`SHM`/`GDR`、`NCHANNELS`、`CROSS_NIC`、`QPS`
+  - 几乎不动：`NTHREADS`、`BUFFSIZE`、`IB_TIMEOUT`
+- **日志**
+  - WARN 生产、INFO 排障（默认子系统 INIT,BOOTSTRAP,ENV）、TRACE 需 `-DENABLE_TRACE`
+  - SUBSYS 选 GRAPH/NET/TUNING/COLL；`DEBUG_FILE` 的 `%h`/`%p`；八行速查；RAS/ncclras 是 NCCL 侧的 opCount 对齐
+- **hang**
+  - kernel 自旋无超时、CPU 早已返回、唯一计时器是 c10d watchdog 的 `opTimeout_`（默认 10 min，从 enqueue 起算）
+  - 六类：参数不一致 / 次数不一致 / send-recv 不配对 / 多 comm 交叉 / rank 崩或卡在别处 / 网络硬件；前四类各 rank 最后一次操作不一致，后两类一致
+- **工具**
+  - py-spy dump 看 Python 栈 → gdb 看 C++ → cuda-gdb 看 kernel
+  - Flight Recorder 记每次调用（seq、形状、dtype、栈、状态），timeout 时经 TCPStore 通知全体 dump，`fr_trace.py` 按 `collective_seq_id` 对齐给出 MatchState 与 culprit；`DESYNC_DEBUG` 是轻量前身
+- **timeout**
+  - 约束 enqueue → 结束 event 的墙钟时间；不约束 CPU；不是 NCCL 的机制
+  - checkpoint/dataloader 卡住 → 其他 rank 在下一次集合通信上等满 timeout → 表现为 NCCL timeout
+- **正确性**
+  - 归约顺序随算法/channel 变，各 rank 间一致是语义保证；`NAN_CHECK` 在发送方检查输入
+  - 结果不一致 + 随时序变 = stream 竞争；`nccl-tests -c 1 -o all -d all` 做硬件层验收
 
 ### 2. 排障检查项
 
 通信层出问题时按这个顺序看：
 
-| 1 | 版本与库 | ldd 确认 libnccl.so；日志 "NCCL version"；各节点一致 |
+| # | 项 | 看什么 |
 |---|---|---|
+| 1 | 版本与库 | ldd 确认 libnccl.so；日志 "NCCL version"；各节点一致 |
 | 2 | 进程与硬件 | 进程数对不对<br/>nvidia-smi（Xid、降频、掉卡）<br/>dmesg<br/>ibstat State/Rate |
 | 3 | 路径 | INFO 日志：Using network IB？via P2P 还是 SHM？GDRDMA 有没有？网卡与 GPU 亲和对不对？ |
 | 4 | 参数 | "set by environment" 列表：有没有三年前留下的 NCCL_ALGO=Ring |
@@ -961,46 +878,39 @@ Table: 通信层排障检查项
 
 ### 3. 本篇涉及的源码与工具位置
 
-```text title="本篇涉及的源码与工具位置"
-项目          路径                                                        关键函数 / 内容
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-nccl-tests    src/common.cu                                               getopt_long 参数表与 usage；参数默认值；run()；MPI 的使用；NCCL_TESTS_MIN_BW；
-2.18.3                                                                    NCCL_TESTS_DEVICE；CheckDelta
-              src/common.h                                                NCCL_TESTS_VERSION
-              src/util.cu                                                 writeResultHeader 列名；writeResultFooter 的 "Out of bounds values" / "Avg bus bandwidth"
-              src/all_reduce.cu 等                                        *GetBw：algbw → busbw 的系数
-              verifiable/verifiable.cu                                    ncclVerifiablePrepareInput / ncclVerifiableVerify（精确校验；avg 放宽 2 ulp）
-              README.md · doc/PERFORMANCE.md                              编译选项 MPI=1；Arguments 与默认值；busbw 的推导
-NCCL 2.28.9   src/include/param.h · src/misc/param.cc                     NCCL_PARAM 宏；ncclLoadParam；initEnv 与 NCCL_CONF_FILE；ncclGetEnv
-              src/plugin/env.cc                                           NCCL_ENV_PLUGIN
-              src/debug.cc · src/include/debug.h                          ncclDebugInit：NCCL_DEBUG 级别、NCCL_DEBUG_SUBSYS、NCCL_DEBUG_FILE 的 %h/%p；
-                                                                          ncclDebugLog 行格式；TRACE 需 ENABLE_TRACE
-              src/graph/tuning.cc                                         NCCL_ALGO / NCCL_PROTO 的 parseList；NCCL_NTHREADS；TUNING 日志
-              src/graph/connect.cc                                        NCCL_MIN_NCHANNELS / NCCL_MAX_NCHANNELS
-              src/graph/paths.cc                                          ncclGetLevel；NCCL_P2P_LEVEL / NCCL_P2P_DISABLE / NCCL_NET_GDR_LEVEL；
-                                                                          "GPU Direct RDMA Enabled/Disabled"
-              src/graph/topo.cc                                           topoPathTypeStr（LOC NVL … SYS）；NCCL_TOPO_FILE
-              src/graph/search.cc                                         NCCL_CROSS_NIC；NCCL_GRAPH_DUMP_FILE
-              src/init.cc                                                 NCCL_BUFFSIZE；NCCL_COLLNET_ENABLE；NCCL_TOPO_DUMP_FILE；NCCL_NET；ncclAlgoStr/ncclProtoStr
-              src/transport/net_ib.cc                                     NCCL_IB_HCA 解析（^ 与 =）；IB_GID_INDEX / IB_TC / IB_SL / IB_QPS_PER_CONNECTION /
-                                                                          IB_SPLIT_DATA_ON_QPS / IB_TIMEOUT / IB_RETRY_CNT；"NET/IB : Using …"
-              src/transport/net.cc · p2p.cc · shm.cc                     "via NET/IB/…/GDRDMA" · "via P2P/…" · "via SHM/…"
-              src/transport/nvls.cc                                       NCCL_NVLS_ENABLE
-              src/transport/net_socket.cc · src/misc/socket.cc            NCCL_SOCKET_NTHREADS / NCCL_NSOCKS_PERTHREAD；NCCL_SOCKET_IFNAME
-              src/enqueue.cc                                              COLL 日志的 opCount 行；TUNING 日志的 "N Bytes -> Algo … proto …"
-              src/ras/ · src/bootstrap.cc                                 RAS 子系统；ncclras 客户端（client.cc）；collOpCounts 比对（client_support.cc）；NCCL_RAS_ENABLE
-PyTorch       torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp            TORCH_NCCL_* 变量定义；ErrorHandlingMode；kStoreDumpKey；DumpPipe；
-2.12                                                                      kProcessGroupNCCLDefaultTimeout
-              torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp            各 TORCH_NCCL_* 的 getCvar 默认值；WorkNCCL::checkTimeout；Watchdog::runLoop；
-                                                                          HeartbeatMonitor::runLoop；broadcastDumpSignal；dumpDebuggingInfo；DesyncDebugger；
-                                                                          checkForNan 调用点
-              torch/csrc/distributed/c10d/FlightRecorder.hpp/.cpp         Entry 字段；DebugInfoWriter 默认路径；TORCH_FR_* 别名
-              torch/csrc/distributed/c10d/FlightRecorderCuda.cpp          dump_nccl_trace
-              torch/csrc/distributed/c10d/TraceUtils.h                    retrieveDesyncReport
-              torch/csrc/distributed/c10d/NanCheck.hpp/.cu                checkForNan
-              torch/distributed/flight_recorder/fr_trace.py · components/ 分析工具；MatchState；参数
-              torch/distributed/distributed_c10d.py · constants.py        init_process_group(timeout=)；default_pg_nccl_timeout
-```
+| 项目 | 路径 | 关键函数 / 内容 |
+|---|---|---|
+| nccl-tests 2.18.3 | `src/common.cu` | `getopt_long` 参数表与 usage；参数默认值；`run()`；MPI 的使用；`NCCL_TESTS_MIN_BW`；`NCCL_TESTS_DEVICE`；`CheckDelta` |
+| ^^ | `src/common.h` | `NCCL_TESTS_VERSION` |
+| ^^ | `src/util.cu` | `writeResultHeader` 列名；`writeResultFooter` 的 "Out of bounds values" / "Avg bus bandwidth" |
+| ^^ | `src/all_reduce.cu` 等 | `*GetBw`：algbw → busbw 的系数 |
+| ^^ | `verifiable/verifiable.cu` | `ncclVerifiablePrepareInput` / `ncclVerifiableVerify`（精确校验；avg 放宽 2 ulp） |
+| ^^ | `README.md` · `doc/PERFORMANCE.md` | 编译选项 `MPI=1`；Arguments 与默认值；busbw 的推导 |
+| NCCL 2.28.9 | `src/include/param.h` · `src/misc/param.cc` | `NCCL_PARAM` 宏；`ncclLoadParam`；`initEnv` 与 `NCCL_CONF_FILE`；`ncclGetEnv` |
+| ^^ | `src/plugin/env.cc` | `NCCL_ENV_PLUGIN` |
+| ^^ | `src/debug.cc` · `src/include/debug.h` | `ncclDebugInit`：`NCCL_DEBUG` 级别、`NCCL_DEBUG_SUBSYS`、`NCCL_DEBUG_FILE` 的 `%h`/`%p`；`ncclDebugLog` 行格式；TRACE 需 `ENABLE_TRACE` |
+| ^^ | `src/graph/tuning.cc` | `NCCL_ALGO` / `NCCL_PROTO` 的 `parseList`；`NCCL_NTHREADS`；TUNING 日志 |
+| ^^ | `src/graph/connect.cc` | `NCCL_MIN_NCHANNELS` / `NCCL_MAX_NCHANNELS` |
+| ^^ | `src/graph/paths.cc` | `ncclGetLevel`；`NCCL_P2P_LEVEL` / `NCCL_P2P_DISABLE` / `NCCL_NET_GDR_LEVEL`；"GPU Direct RDMA Enabled/Disabled" |
+| ^^ | `src/graph/topo.cc` | `topoPathTypeStr`（LOC NVL … SYS）；`NCCL_TOPO_FILE` |
+| ^^ | `src/graph/search.cc` | `NCCL_CROSS_NIC`；`NCCL_GRAPH_DUMP_FILE` |
+| ^^ | `src/init.cc` | `NCCL_BUFFSIZE`；`NCCL_COLLNET_ENABLE`；`NCCL_TOPO_DUMP_FILE`；`NCCL_NET`；`ncclAlgoStr`/`ncclProtoStr` |
+| ^^ | `src/transport/net_ib.cc` | `NCCL_IB_HCA` 解析（`^` 与 `=`）；`IB_GID_INDEX` / `IB_TC` / `IB_SL` / `IB_QPS_PER_CONNECTION` / `IB_SPLIT_DATA_ON_QPS` / `IB_TIMEOUT` / `IB_RETRY_CNT`；"NET/IB : Using …" |
+| ^^ | `src/transport/net.cc` · `p2p.cc` · `shm.cc` | "via NET/IB/…/GDRDMA" · "via P2P/…" · "via SHM/…" |
+| ^^ | `src/transport/nvls.cc` | `NCCL_NVLS_ENABLE` |
+| ^^ | `src/transport/net_socket.cc` · `src/misc/socket.cc` | `NCCL_SOCKET_NTHREADS` / `NCCL_NSOCKS_PERTHREAD`；`NCCL_SOCKET_IFNAME` |
+| ^^ | `src/enqueue.cc` | COLL 日志的 opCount 行；TUNING 日志的 "N Bytes -> Algo … proto …" |
+| ^^ | `src/ras/` · `src/bootstrap.cc` | RAS 子系统；ncclras 客户端（`client.cc`）；`collOpCounts` 比对（`client_support.cc`）；`NCCL_RAS_ENABLE` |
+| PyTorch 2.12 | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | `TORCH_NCCL_*` 变量定义；`ErrorHandlingMode`；`kStoreDumpKey`；`DumpPipe`；`kProcessGroupNCCLDefaultTimeout` |
+| ^^ | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | 各 `TORCH_NCCL_*` 的 `getCvar` 默认值；`WorkNCCL::checkTimeout`；`Watchdog::runLoop`；`HeartbeatMonitor::runLoop`；`broadcastDumpSignal`；`dumpDebuggingInfo`；`DesyncDebugger`；`checkForNan` 调用点 |
+| ^^ | `torch/csrc/distributed/c10d/FlightRecorder.hpp/.cpp` | `Entry` 字段；`DebugInfoWriter` 默认路径；`TORCH_FR_*` 别名 |
+| ^^ | `torch/csrc/distributed/c10d/FlightRecorderCuda.cpp` | `dump_nccl_trace` |
+| ^^ | `torch/csrc/distributed/c10d/TraceUtils.h` | `retrieveDesyncReport` |
+| ^^ | `torch/csrc/distributed/c10d/NanCheck.hpp/.cu` | `checkForNan` |
+| ^^ | `torch/distributed/flight_recorder/fr_trace.py` · `components/` | 分析工具；`MatchState`；参数 |
+| ^^ | `torch/distributed/distributed_c10d.py` · `constants.py` | `init_process_group(timeout=)`；`default_pg_nccl_timeout` |
+
+Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：`sweep.sh` 与 `hang_lab/`
 
@@ -1103,7 +1013,7 @@ for step in range(8):
 dist.destroy_process_group()
 ```
 
-另两个脚本只改一行：`count_mismatch.py` 在第 5 步让 rank 2 跳过 all_reduce（`if not (step == 5 and rank == 2): dist.all_reduce(t)`），之后它的第 6 次调用与别人的第 5 次配对，形状不同；`unpaired_sendrecv.py` 在每步 all_reduce 之后加一段流水线式的 send/recv（rank i 发给 i+1），并在第 5 步让 rank 1 不 recv，于是 rank 0 的 send 永远等不到配对，rank 0 与 rank 1 先停，其余 rank 在第 6 步的 all_reduce 上被连锁拖住。
+另两个脚本只改一行：`count_mismatch.py` 在第 5 步让 rank 2 跳过 all_reduce（`if not (step == 5 and rank == 2): dist.all_reduce(t)`），之后它的第 6 次调用与别人的第 5 次配对，形状不同；`unpaired_sendrecv.py` 在每步 all_reduce 之后加一段流水线式的 send/recv（rank i 发给 i+1），并在第 5 步让 rank 1 不 recv，于是 rank 0 的 send 永远等不到配对，rank 0 先停；rank 1 没有可等的 recv，和其余 rank 一起走到第 6 步的 all_reduce，在那里被连锁拖住。
 
 统一的启动与诊断剧本：
 
@@ -1129,23 +1039,13 @@ python -m torch.distributed.flight_recorder.fr_trace fr/ -p trace_
 
 三种情形下 `fr_trace.py` 的预期输出与判读：
 
-```text title="三种情形下 fr_trace.py 的预期输出与判读"
-size_mismatch.py       collective_seq_id=6（第 5 步，从 1 起算）：SIZE_OR_SYNTAX_MISMATCH，culprit rank 3；
-                       该条 input_sizes 为 [394240] 而其他为 [393216]；--print_stack_trace 指到 dist.all_reduce 那一行
-                       → 类 A。修法：在 all_reduce 前 assert 形状（或在开发期开 TORCH_DISTRIBUTED_DEBUG=DETAIL 做跨 rank 形状校验）
+| 脚本 | `fr_trace.py` 的预期输出与判读 | 类别与修法 |
+|---|---|---|
+| `size_mismatch.py` | collective_seq_id=6（第 5 步，从 1 起算）：`SIZE_OR_SYNTAX_MISMATCH`，culprit rank 3<br/>该条 input_sizes 为 [394240] 而其他为 [393216]；`--print_stack_trace` 指到 `dist.all_reduce` 那一行 | 类 A。修法：在 all_reduce 前 assert 形状（或在开发期开 `TORCH_DISTRIBUTED_DEBUG=DETAIL` 做跨 rank 形状校验） |
+| `count_mismatch.py` | collective_seq_id=6：rank 2 的 input_sizes 是 [458752]（第 6 步的大小），其他是 [393216] → `SIZE_OR_SYNTAX_MISMATCH`，culprit rank 2；序号 6 上它"看起来"传了别的东西，实际是少调了一次<br/>py-spy 会看到 rank 2 停在 step 6 的 all_reduce、其他 rank 停在 step 5<br/>对照实验：把 `numel()` 改成常数，fr_trace 会一路 `FULLY_MATCHED` 直到最后一个序号才报 `STATE_MISMATCH`——这是"每步大小相同时定位不到具体哪一步"的直观演示 | 类 B。修法：找出让 rank 2 跳过的分支；集合通信必须在所有 rank 上无条件执行 |
+| `unpaired_sendrecv.py` | 集合通信条目到 seq 6（第 5 步）全部 `FULLY_MATCHED`；p2p 条目里 rank 0 有一条 send(dst=1) 无配对，rank 1 无对应 recv<br/>rank 1–7 停在 seq 7（第 6 步）的 all_reduce（等 rank 0），rank 0 停在 send<br/>py-spy 直接显示两组不同的栈（send vs all_reduce） | 类 C。修法：send/recv 成对写在同一段代码里（`batch_isend_irecv`），stage 边界的 micro-batch 数各 rank 一致 |
 
-count_mismatch.py      collective_seq_id=6：rank 2 的 input_sizes 是 [458752]（第 6 步的大小），其他是 [393216]
-                       → SIZE_OR_SYNTAX_MISMATCH，culprit rank 2；序号 6 上它"看起来"传了别的东西，实际是少调了一次
-                       py-spy 会看到 rank 2 停在 step 6 的 all_reduce、其他 rank 停在 step 5
-                       → 类 B。修法：找出让 rank 2 跳过的分支；集合通信必须在所有 rank 上无条件执行
-                       （对照实验：把 numel() 改成常数，fr_trace 会一路 FULLY_MATCHED 直到最后一个序号才报 STATE_MISMATCH——
-                       这是"每步大小相同时定位不到具体哪一步"的直观演示）
-
-unpaired_sendrecv.py   集合通信条目到 seq 5 全部 FULLY_MATCHED；p2p 条目里 rank 0 有一条 send(dst=1) 无配对，rank 1 无对应 recv；
-                       rank 2–7 停在 seq 6 的 all_reduce（等 rank 0、1），rank 0 停在 send，rank 1 停在下一步的 all_reduce
-                       py-spy 直接显示两组不同的栈（send vs all_reduce）
-                       → 类 C。修法：send/recv 成对写在同一段代码里（batch_isend_irecv），stage 边界的 micro-batch 数各 rank 一致
-```
+Table: 三种情形下 fr_trace.py 的预期输出与判读
 
 每个脚本都在 60 秒 timeout 后自动 dump 并退出，剧本第 4 步只是为了不等。跑完三个脚本，读者应当对"各 rank 最后一次操作一致还是不一致"这个判据、以及 py-spy 与 Flight Recorder 各自能回答什么问题有肌肉记忆——这是第九章决策树 hang 分支的全部基础。
 

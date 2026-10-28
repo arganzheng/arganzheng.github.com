@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="330" viewBox="0 0 760 330" role="img" aria-labelledby="fr-dump-t fr-dump-d">
+<title id="fr-dump-t">Flight Recorder 的 dump 流程</title>
+<desc id="fr-dump-d">四行共用一条时间轴：rank k 的 monitor 线程、rank k 的 watchdog 线程、全局 TCPStore、掉队者 rank 5 的 monitor 线程。① rank k 的 watchdog 发现超时，打日志与栈；② broadcastDumpSignal() 在 TCPStore 写 key exception_dump，并把本进程的 shouldDump_ 置 true；③ watchdog sleep 60 s 给 dump 留时间；④ 两个 monitor 每 1 s 轮询一次，rank k 的看到 shouldDump_，rank 5 的在 TCPStore 上 check 到 key，各自 dumpDebuggingInfo() 写 trace 文件，rank 5 没超时也 dump；⑤ sleep 结束后 watchdog 抛 DistBackendError，进程退出。</desc>
+<style>
+text { font-family: 'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif; fill: #111; font-weight: 500; }
+.s { font-size: 12px; } .m { font-size: 13px; } .l { font-size: 14px; font-weight: 600; }
+.mono { font-family: 'SF Mono',Menlo,Consolas,'Noto Sans Mono',monospace; }
+
+</style>
+<rect width="760" height="330" fill="#ffffff"/>
+
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f2f2f2"/><line x1="0" y1="0" x2="0" y2="6" stroke="#bbb" stroke-width="2"/></pattern></defs>
+<text class="l" x="16" y="62.0" text-anchor="start" >rank k：monitor</text>
+<text class="l" x="16" y="122.0" text-anchor="start" >rank k：watchdog</text>
+<text class="l" x="16" y="182.0" text-anchor="start" >TCPStore</text>
+<text class="l" x="16" y="233.0" text-anchor="start" >rank 5：monitor</text>
+<text class="m" x="16" y="251.0" text-anchor="start" >（掉队者）</text>
+<rect x="200" y="100" width="90" height="34" fill="#fde2c8" stroke="#555" stroke-width="1"/>
+<text class="m" x="245.0" y="121.5" text-anchor="middle">① 超时</text>
+<rect x="290" y="100" width="320" height="34" fill="#ececec" stroke="#555" stroke-width="1"/>
+<text class="m" x="450.0" y="121.5" text-anchor="middle">③ sleep 4 × WAIT_TIMEOUT_DUMP = 60 s</text>
+<rect x="610" y="100" width="134" height="34" fill="#f8cfcf" stroke="#555" stroke-width="1"/>
+<text class="m" x="677.0" y="121.5" text-anchor="middle">⑤ 抛异常退出</text>
+<rect x="290" y="160" width="454" height="34" fill="#d6e8f7" stroke="#555" stroke-width="1"/>
+<text class="m" x="517.0" y="181.5" text-anchor="middle">key exception_dump</text>
+<line x1="290" y1="100" x2="290" y2="75" stroke="#111" stroke-width="1.3" marker-end="url(#ah)"/>
+<line x1="290" y1="134" x2="290" y2="159" stroke="#111" stroke-width="1.3" marker-end="url(#ah)"/>
+<text class="s" x="296" y="92" text-anchor="start" >② shouldDump_ = true</text>
+<text class="s" x="296" y="152" text-anchor="start" >② 写 key</text>
+<line x1="212" y1="50.0" x2="212" y2="64.0" stroke="#555" stroke-width="1.4"/>
+<line x1="272" y1="50.0" x2="272" y2="64.0" stroke="#555" stroke-width="1.4"/>
+<line x1="227" y1="230.0" x2="227" y2="244.0" stroke="#555" stroke-width="1.4"/>
+<line x1="287" y1="230.0" x2="287" y2="244.0" stroke="#555" stroke-width="1.4"/>
+<rect x="332" y="40" width="150" height="34" fill="#d4efdf" stroke="#555" stroke-width="1"/>
+<text class="m" x="407.0" y="61.5" text-anchor="middle">④ dump → trace_k</text>
+<rect x="347" y="220" width="150" height="34" fill="#d4efdf" stroke="#555" stroke-width="1"/>
+<text class="m" x="422.0" y="241.5" text-anchor="middle">④ dump → trace_5</text>
+<line x1="347" y1="194" x2="347" y2="219" stroke="#111" stroke-width="1.3" marker-end="url(#ah)"/>
+<text class="s" x="353" y="212" text-anchor="start" >④ check() 发现 key</text>
+<line x1="190" y1="284" x2="744" y2="284" stroke="#333" stroke-width="1.2" marker-end="url(#ah)"/>
+<line x1="200" y1="279" x2="200" y2="289" stroke="#333" stroke-width="1.2"/>
+<text class="s" x="200" y="304" text-anchor="middle" >T</text>
+<line x1="332" y1="279" x2="332" y2="289" stroke="#333" stroke-width="1.2"/>
+<text class="s" x="332" y="304" text-anchor="middle" >≤ T + 1 s</text>
+<line x1="610" y1="279" x2="610" y2="289" stroke="#333" stroke-width="1.2"/>
+<text class="s" x="610" y="304" text-anchor="middle" >T + 60 s</text>
+<line x1="200" y1="94" x2="200" y2="284" stroke="#aaa" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="610" y1="94" x2="610" y2="284" stroke="#aaa" stroke-width="1" stroke-dasharray="4 3"/>
+<text class="s" x="744" y="322" text-anchor="end" style="fill:#444">示意，时长不按比例；竖短线 = monitor 的一次轮询</text>
+</svg>
