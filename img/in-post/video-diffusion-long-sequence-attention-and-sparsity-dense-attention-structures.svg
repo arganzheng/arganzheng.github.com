@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 624" width="760" height="624" role="img" aria-labelledby="t d">
+  <title id="t">视频 DiT 稠密 attention 的三种结构</title>
+  <desc id="d">（a）spatial head：分数集中在对角线上的帧块，同一帧内的 token 互相看；（b）temporal head：分数集中在等间距的斜线，每个帧块里一条对角线，跨帧同一空间位置的 token 互相看；（c）Radial 的能量衰减掩码，8 个 latent 帧：时间距离 0–1 的块全算，2–3 的块只算宽 s/2 的对角带，4–7 的块只算 s/4，时间距离每翻倍算的比例减半，块内空间窗口也随距离缩小。</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+    .head { font-size: 15px; font-weight: 700; }
+    .body { font-size: 14px; }
+    .lab { font-size: 13px; fill: #40566f; }
+    .mute { font-size: 13px; fill: #5b6b7c; }
+    .grid { fill: none; stroke: #b7c3cf; stroke-width: 1; }
+    .outer { fill: none; stroke: #40566f; stroke-width: 1.4; }
+    .hot { fill: #e8836f; }
+    .slash { fill: none; stroke: #c0392b; stroke-width: 3; stroke-linecap: butt; }
+  </style>
+  <rect width="760" height="624" fill="#fff"/>
+  <text x="20" y="26" class="head" text-anchor="start">（a）spatial head：分数集中在对角线附近的块</text>
+  <text x="56" y="46" class="mute" text-anchor="start">（同一帧内的 token 互相看）</text>
+  <text x="400" y="26" class="head" text-anchor="start">（b）temporal head：分数集中在等间距的斜线</text>
+  <text x="436" y="46" class="mute" text-anchor="start">（跨帧同一空间位置的 token 互相看）</text>
+  <rect class="hot" x="110" y="88" width="40" height="40"/>
+  <rect class="hot" x="150" y="128" width="40" height="40"/>
+  <rect class="hot" x="190" y="168" width="40" height="40"/>
+  <rect class="hot" x="230" y="208" width="40" height="40"/>
+  <text x="130.0" y="80" class="lab" text-anchor="middle">帧1</text>
+  <text x="102" y="112.5" class="lab" text-anchor="end">帧1</text>
+  <text x="170.0" y="80" class="lab" text-anchor="middle">帧2</text>
+  <text x="102" y="152.5" class="lab" text-anchor="end">帧2</text>
+  <text x="210.0" y="80" class="lab" text-anchor="middle">帧3</text>
+  <text x="102" y="192.5" class="lab" text-anchor="end">帧3</text>
+  <text x="250.0" y="80" class="lab" text-anchor="middle">帧4</text>
+  <text x="102" y="232.5" class="lab" text-anchor="end">帧4</text>
+  <path class="grid" d="M150,88V248M110,128H270M190,88V248M110,168H270M230,88V248M110,208H270"/>
+  <rect class="outer" x="110" y="88" width="160" height="160"/>
+  <path class="slash" d="M490,88l40,40M530,88l40,40M570,88l40,40M610,88l40,40M490,128l40,40M530,128l40,40M570,128l40,40M610,128l40,40M490,168l40,40M530,168l40,40M570,168l40,40M610,168l40,40M490,208l40,40M530,208l40,40M570,208l40,40M610,208l40,40"/>
+  <text x="510.0" y="80" class="lab" text-anchor="middle">帧1</text>
+  <text x="482" y="112.5" class="lab" text-anchor="end">帧1</text>
+  <text x="550.0" y="80" class="lab" text-anchor="middle">帧2</text>
+  <text x="482" y="152.5" class="lab" text-anchor="end">帧2</text>
+  <text x="590.0" y="80" class="lab" text-anchor="middle">帧3</text>
+  <text x="482" y="192.5" class="lab" text-anchor="end">帧3</text>
+  <text x="630.0" y="80" class="lab" text-anchor="middle">帧4</text>
+  <text x="482" y="232.5" class="lab" text-anchor="end">帧4</text>
+  <path class="grid" d="M530,88V248M490,128H650M570,88V248M490,168H650M610,88V248M490,208H650"/>
+  <rect class="outer" x="490" y="88" width="160" height="160"/>
+  <text x="20" y="292" class="head" text-anchor="start">（c）能量衰减：分数随时空距离衰减（Radial）</text>
+  <rect class="hot" x="80" y="332" width="34" height="34"/>
+  <rect class="hot" x="114" y="332" width="34" height="34"/>
+  <polygon class="hot" points="148,332 165,332 182,349 182,366 165,366 148,349"/>
+  <polygon class="hot" points="182,332 199,332 216,349 216,366 199,366 182,349"/>
+  <polygon class="hot" points="216,332 224.5,332 250,357.5 250,366 241.5,366 216,340.5"/>
+  <polygon class="hot" points="250,332 258.5,332 284,357.5 284,366 275.5,366 250,340.5"/>
+  <polygon class="hot" points="284,332 292.5,332 318,357.5 318,366 309.5,366 284,340.5"/>
+  <polygon class="hot" points="318,332 326.5,332 352,357.5 352,366 343.5,366 318,340.5"/>
+  <rect class="hot" x="80" y="366" width="34" height="34"/>
+  <rect class="hot" x="114" y="366" width="34" height="34"/>
+  <rect class="hot" x="148" y="366" width="34" height="34"/>
+  <polygon class="hot" points="182,366 199,366 216,383 216,400 199,400 182,383"/>
+  <polygon class="hot" points="216,366 233,366 250,383 250,400 233,400 216,383"/>
+  <polygon class="hot" points="250,366 258.5,366 284,391.5 284,400 275.5,400 250,374.5"/>
+  <polygon class="hot" points="284,366 292.5,366 318,391.5 318,400 309.5,400 284,374.5"/>
+  <polygon class="hot" points="318,366 326.5,366 352,391.5 352,400 343.5,400 318,374.5"/>
+  <polygon class="hot" points="80,400 97,400 114,417 114,434 97,434 80,417"/>
+  <rect class="hot" x="114" y="400" width="34" height="34"/>
+  <rect class="hot" x="148" y="400" width="34" height="34"/>
+  <rect class="hot" x="182" y="400" width="34" height="34"/>
+  <polygon class="hot" points="216,400 233,400 250,417 250,434 233,434 216,417"/>
+  <polygon class="hot" points="250,400 267,400 284,417 284,434 267,434 250,417"/>
+  <polygon class="hot" points="284,400 292.5,400 318,425.5 318,434 309.5,434 284,408.5"/>
+  <polygon class="hot" points="318,400 326.5,400 352,425.5 352,434 343.5,434 318,408.5"/>
+  <polygon class="hot" points="80,434 97,434 114,451 114,468 97,468 80,451"/>
+  <polygon class="hot" points="114,434 131,434 148,451 148,468 131,468 114,451"/>
+  <rect class="hot" x="148" y="434" width="34" height="34"/>
+  <rect class="hot" x="182" y="434" width="34" height="34"/>
+  <rect class="hot" x="216" y="434" width="34" height="34"/>
+  <polygon class="hot" points="250,434 267,434 284,451 284,468 267,468 250,451"/>
+  <polygon class="hot" points="284,434 301,434 318,451 318,468 301,468 284,451"/>
+  <polygon class="hot" points="318,434 326.5,434 352,459.5 352,468 343.5,468 318,442.5"/>
+  <polygon class="hot" points="80,468 88.5,468 114,493.5 114,502 105.5,502 80,476.5"/>
+  <polygon class="hot" points="114,468 131,468 148,485 148,502 131,502 114,485"/>
+  <polygon class="hot" points="148,468 165,468 182,485 182,502 165,502 148,485"/>
+  <rect class="hot" x="182" y="468" width="34" height="34"/>
+  <rect class="hot" x="216" y="468" width="34" height="34"/>
+  <rect class="hot" x="250" y="468" width="34" height="34"/>
+  <polygon class="hot" points="284,468 301,468 318,485 318,502 301,502 284,485"/>
+  <polygon class="hot" points="318,468 335,468 352,485 352,502 335,502 318,485"/>
+  <polygon class="hot" points="80,502 88.5,502 114,527.5 114,536 105.5,536 80,510.5"/>
+  <polygon class="hot" points="114,502 122.5,502 148,527.5 148,536 139.5,536 114,510.5"/>
+  <polygon class="hot" points="148,502 165,502 182,519 182,536 165,536 148,519"/>
+  <polygon class="hot" points="182,502 199,502 216,519 216,536 199,536 182,519"/>
+  <rect class="hot" x="216" y="502" width="34" height="34"/>
+  <rect class="hot" x="250" y="502" width="34" height="34"/>
+  <rect class="hot" x="284" y="502" width="34" height="34"/>
+  <polygon class="hot" points="318,502 335,502 352,519 352,536 335,536 318,519"/>
+  <polygon class="hot" points="80,536 88.5,536 114,561.5 114,570 105.5,570 80,544.5"/>
+  <polygon class="hot" points="114,536 122.5,536 148,561.5 148,570 139.5,570 114,544.5"/>
+  <polygon class="hot" points="148,536 156.5,536 182,561.5 182,570 173.5,570 148,544.5"/>
+  <polygon class="hot" points="182,536 199,536 216,553 216,570 199,570 182,553"/>
+  <polygon class="hot" points="216,536 233,536 250,553 250,570 233,570 216,553"/>
+  <rect class="hot" x="250" y="536" width="34" height="34"/>
+  <rect class="hot" x="284" y="536" width="34" height="34"/>
+  <rect class="hot" x="318" y="536" width="34" height="34"/>
+  <polygon class="hot" points="80,570 88.5,570 114,595.5 114,604 105.5,604 80,578.5"/>
+  <polygon class="hot" points="114,570 122.5,570 148,595.5 148,604 139.5,604 114,578.5"/>
+  <polygon class="hot" points="148,570 156.5,570 182,595.5 182,604 173.5,604 148,578.5"/>
+  <polygon class="hot" points="182,570 190.5,570 216,595.5 216,604 207.5,604 182,578.5"/>
+  <polygon class="hot" points="216,570 233,570 250,587 250,604 233,604 216,587"/>
+  <polygon class="hot" points="250,570 267,570 284,587 284,604 267,604 250,587"/>
+  <rect class="hot" x="284" y="570" width="34" height="34"/>
+  <rect class="hot" x="318" y="570" width="34" height="34"/>
+  <text x="97.0" y="324" class="lab" text-anchor="middle">帧1</text>
+  <text x="72" y="353.5" class="lab" text-anchor="end">帧1</text>
+  <text x="131.0" y="324" class="lab" text-anchor="middle">帧2</text>
+  <text x="72" y="387.5" class="lab" text-anchor="end">帧2</text>
+  <text x="165.0" y="324" class="lab" text-anchor="middle">帧3</text>
+  <text x="72" y="421.5" class="lab" text-anchor="end">帧3</text>
+  <text x="199.0" y="324" class="lab" text-anchor="middle">帧4</text>
+  <text x="72" y="455.5" class="lab" text-anchor="end">帧4</text>
+  <text x="233.0" y="324" class="lab" text-anchor="middle">帧5</text>
+  <text x="72" y="489.5" class="lab" text-anchor="end">帧5</text>
+  <text x="267.0" y="324" class="lab" text-anchor="middle">帧6</text>
+  <text x="72" y="523.5" class="lab" text-anchor="end">帧6</text>
+  <text x="301.0" y="324" class="lab" text-anchor="middle">帧7</text>
+  <text x="72" y="557.5" class="lab" text-anchor="end">帧7</text>
+  <text x="335.0" y="324" class="lab" text-anchor="middle">帧8</text>
+  <text x="72" y="591.5" class="lab" text-anchor="end">帧8</text>
+  <path class="grid" d="M114,332V604M80,366H352M148,332V604M80,400H352M182,332V604M80,434H352M216,332V604M80,468H352M250,332V604M80,502H352M284,332V604M80,536H352M318,332V604M80,570H352"/>
+  <rect class="outer" x="80" y="332" width="272" height="272"/>
+  <text x="392" y="354" class="body" text-anchor="start">时间距离 0–1 的块：整块全算</text>
+  <text x="392" y="380" class="body" text-anchor="start">时间距离 2–3 的块：只算对角带 |k − l| &lt; s/2</text>
+  <text x="392" y="406" class="body" text-anchor="start">时间距离 4–7 的块：只算对角带 |k − l| &lt; s/4</text>
+  <text x="392" y="458" class="body" text-anchor="start">时间距离每翻倍，算的比例减半、再减半……</text>
+  <text x="392" y="484" class="body" text-anchor="start">每块内部：对角带就是空间窗口，也随距离缩小</text>
+  <text x="392" y="536" class="mute" text-anchor="start">k、l：帧内的空间位置；s：一帧的 token 数</text>
+</svg>
