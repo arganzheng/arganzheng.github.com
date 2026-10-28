@@ -114,11 +114,11 @@ class TensorBase:
 - **Python 标准库**的所有模块（`os`、`sys`、`json`、`asyncio` 等）
 - **部分知名第三方库**（`requests`、`docutils` 等）
 
-mypy 和 pyright 都**内置了 typeshed**，所以你用标准库时不需要手动安装任何存根。
+mypy 和 pyright 都**内置了 typeshed 的标准库部分**，所以你用标准库时不需要手动安装任何存根。
 
 **types-* 独立存根包**
 
-对于 typeshed 不覆盖的第三方库，社区通过 PyPI 发布独立的存根包，命名规则为 `types-<package>`：
+typeshed 里的第三方存根不随 mypy 内置（mypy 0.900 起拆了出去），而是由 typeshed 自动发布到 PyPI，一个库一个包，命名规则为 `types-<package>`：
 
 ```bash title="安装 types-* 独立存根包"
 pip install types-requests     # requests 的类型存根
@@ -131,13 +131,18 @@ mypy 安装后会自动发现并使用这些存根。
 
 **存根文件的查找优先级**
 
-类型检查器按以下顺序查找类型信息（以 mypy 为例）：
+一个模块的类型信息去哪找、谁先谁后，[PEP 561](https://peps.python.org/pep-0561/#type-checker-module-resolution-order) 规定了顺序，mypy 1.19.1 基本照这个顺序实现（[`mypy/modulefinder.py`](https://github.com/python/mypy/blob/v1.19.1/mypy/modulefinder.py) 的 `FindModuleCache._find_module`）：
 
-1. **包内 inline 类型**：库自带的类型注解（源码中直接写的）
-2. **包内存根**：库自带的 `.pyi` 文件（如 PyTorch 的 `torch/_C/__init__.pyi`）
-3. **独立存根包**：通过 pip 安装的 `types-*` 包
-4. **typeshed**：内置的标准库和知名库存根
-5. **自定义存根**：项目内 `mypy.ini` 或 `pyproject.toml` 指定的路径
+1. **手动指定的路径**：`MYPYPATH` 环境变量，以及配置文件（`mypy.ini` 或 `pyproject.toml` 的 `[tool.mypy]`）里的 `mypy_path`。放自己写的或修过的存根，排在最前，是为了能盖掉装好的包里有问题的存根或注解
+2. **用户代码**：这次检查的源码所在目录（命令行给的文件所在目录、当前目录）
+3. **独立存根包**：site-packages 里的 `<pkg>-stubs/` 目录。`pip install types-requests` 装进去的就是 `requests-stubs/`。它排在库本身前面，库自带 `py.typed` 也一样
+4. **带 `py.typed` 的已安装包**：库自己发布的类型信息，inline 写在 `.py` 里的，或者随包发布的 `.pyi`（如 PyTorch 的 `torch/_C/__init__.pyi`），都在这一级。没有 `py.typed` 的包 mypy 不读，报 `module is installed, but missing library stubs or py.typed marker`
+5. **typeshed**：标准库存根
+
+mypy 1.19.1 里还有两处细节：
+
+- 同一个目录里 `foo.pyi` 和 `foo.py` 都在时，只用 `.pyi`（文档 [`running_mypy.rst`「How imports are found」](https://github.com/python/mypy/blob/v1.19.1/docs/source/running_mypy.rst)）。所以包内存根和 inline 注解不是先后两级，是同一级里 `.pyi` 盖住 `.py`
+- mypy 自带的 typeshed 只有标准库（外加 mypy-extensions 等几个）。查标准库模块时，它把 typeshed 提到已安装的包前面，免得 PyPI 上的 backport（比如 `dataclasses`）盖掉标准库存根
 
 对应 Java：Java 没有存根文件的概念——类型信息编译进 `.class` 文件。最接近的是 `.jar` 中不含实现的接口定义。
 
