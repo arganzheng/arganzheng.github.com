@@ -774,18 +774,18 @@ nm -C hello.o | grep minic10
 
 ### 2. Name mangling：符号名为什么长得像乱码
 
-C 的符号名就是函数名：`initModule`。C++ 支持重载、命名空间、模板，`minic10::version_string()` 和 `other::version_string(int)` 必须是不同的符号，所以编译器把命名空间、函数名、参数类型编码进符号名，这叫**名字修饰**（name mangling）：
+C 的符号名就是函数名：`initModule`。C++ 支持重载、命名空间、模板，`minic10::version_string()` 和 `other::version_string(int)` 必须是不同的符号，所以编译器把命名空间、函数名、参数类型编码进符号名，这叫**名字修饰**（name mangling）。`minic10::version_string()` 修饰后是 `_ZN7minic1014version_stringEv`，逐段拆开：
 
-```text title='一个修饰名的逐段拆解：_ZN7minic1014version_stringEv'
-_ZN7minic1014version_stringEv
- │ │ │      │ │             │└ v: 参数列表为 void
- │ │ │      │ │             └ E: 嵌套名结束
- │ │ │      │ └ 14version_string: 长度 14 的标识符
- │ │ │      └ 7minic10: 长度 7 的标识符
- │ │ └ N: 嵌套名开始
- │ └ Z: 修饰名标记
- └ _: 前缀
-```
+| 片段 | 含义 |
+|---|---|
+| `_Z` | 修饰名前缀：Itanium ABI 的修饰名都以它开头 |
+| `N` | 嵌套名开始 |
+| `7minic10` | 长度 7 的标识符 `minic10` |
+| `14version_string` | 长度 14 的标识符 `version_string` |
+| `E` | 嵌套名结束 |
+| `v` | 参数列表为 `void` |
+
+Table: 一个修饰名的逐段拆解：`_ZN7minic1014version_stringEv`
 
 这是 Itanium C++ ABI 的规则，GCC 和 Clang 在 Linux/macOS 上都用它；MSVC 用另一套（`?version_string@minic10@@YA...`）。`c++filt` 可以手工反修饰：
 
@@ -885,12 +885,12 @@ GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `_
 
 | 工具 | 用途 | 常用命令 |
 |---|---|---|
-| `nm` | 列符号表 | `nm -C foo.o`<br/>`nm -DC libfoo.so`（只看动态导出符号）<br/>`nm -DC lib.so \ | grep ' U '`（看依赖了哪些外部符号） |
-| `c++filt` | 反修饰 | `echo _ZN... \ | c++filt` |
-| `objdump` | 反汇编、看段 | `objdump -d foo.o`（反汇编）<br/>`objdump -t foo.o`（符号表）<br/>`objdump -p libfoo.so \ | grep NEEDED`（依赖库） |
+| `nm` | 列符号表 | `nm -C foo.o`<br/>`nm -DC libfoo.so`（只看动态导出符号）<br/><code>nm -DC lib.so &#124; grep ' U '</code>（看依赖了哪些外部符号） |
+| `c++filt` | 反修饰 | <code>echo _ZN... &#124; c++filt</code> |
+| `objdump` | 反汇编、看段 | `objdump -d foo.o`（反汇编）<br/>`objdump -t foo.o`（符号表）<br/><code>objdump -p libfoo.so &#124; grep NEEDED</code>（依赖库） |
 | `readelf` | 读 ELF 结构 | `readelf -d libfoo.so`（动态段：NEEDED、RPATH、RUNPATH、SONAME）；`readelf -Ws libfoo.so`（符号） |
 | `ldd` | 列运行时会加载的库及解析到的路径 | `ldd hello`；`ldd torch/lib/libtorch_python.so` |
-| `strings` | 找字符串 | `strings libtorch_cpu.so \ | grep GLIBCXX` 看依赖的 libstdc++ 版本 |
+| `strings` | 找字符串 | <code>strings libtorch_cpu.so &#124; grep GLIBCXX</code> 看依赖的 libstdc++ 版本 |
 
 Table: 二进制分析工具箱
 
