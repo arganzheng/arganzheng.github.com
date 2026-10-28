@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 258" width="760" height="258" role="img" aria-labelledby="t d">
+  <title id="t">async_op=True：CPU 线程、compute stream、NCCL stream 的时间线</title>
+  <desc id="d">一条时间轴，三行。CPU 线程连续执行五步：提交 layer L 反向 kernel、调用 all_reduce(async_op=True) 立即拿到 Work、提交 layer L-1 反向 kernel、调用 work.wait() 立即返回、提交依赖 t 的后续 kernel，全程不阻塞。compute stream 依次执行 layer L 反向、layer L-1 反向，然后等待 NCCL stream 的事件，事件完成后执行依赖 t 的 kernel。NCCL stream 的 all_reduce 先等 layer L 算完 t，随后 ncclDevKernel_AllReduce 与 layer L-1 反向同时运行，结束时的事件解除 compute stream 的等待。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f3f5f7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#c9d3de" stroke-width="2"/></pattern></defs>
+  <text x="380" y="24" class="head" text-anchor="middle">async_op=True：三个执行者的时间线</text>
+  <text x="14" y="72" class="bold">CPU 线程</text>
+  <text x="14" y="134" class="bold">compute stream</text>
+  <text x="14" y="196" class="bold">NCCL stream</text>
+  <rect x="130" y="50" width="32" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="146.0" y="71.5" class="body" text-anchor="middle">①</text>
+  <rect x="166" y="50" width="32" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="182.0" y="71.5" class="body" text-anchor="middle">②</text>
+  <rect x="202" y="50" width="32" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="218.0" y="71.5" class="body" text-anchor="middle">③</text>
+  <rect x="238" y="50" width="32" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="254.0" y="71.5" class="body" text-anchor="middle">④</text>
+  <rect x="274" y="50" width="32" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="290.0" y="71.5" class="body" text-anchor="middle">⑤</text>
+  <text x="312" y="72" class="small" fill="#5b6b7c">CPU 全程不阻塞，继续往下跑 …</text>
+  <rect x="130" y="112" width="170" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="215.0" y="133.5" class="small" text-anchor="middle">layer L 反向</text>
+  <rect x="300" y="112" width="170" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="385.0" y="133.5" class="small" text-anchor="middle">layer L-1 反向（SM）</text>
+  <rect x="470" y="112" width="130" height="34" fill="url(#hatch)" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="535.0" y="133.5" class="small" text-anchor="middle" fill="#5b6b7c">等 NCCL 事件</text>
+  <rect x="600" y="112" width="140" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="670.0" y="133.5" class="small" text-anchor="middle">依赖 t 的 kernel</text>
+  <rect x="166" y="174" width="134" height="34" fill="url(#hatch)" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="233.0" y="195.5" class="small" text-anchor="middle" fill="#5b6b7c">等 t 算完</text>
+  <rect x="300" y="174" width="300" height="34" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="450.0" y="195.5" class="small" text-anchor="middle">ncclDevKernel_AllReduce（网络 / 拷贝引擎）</text>
+  <line x1="300" y1="146" x2="300" y2="173" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="600" y1="174" x2="600" y2="147" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="306" y="164" class="tiny">t 就绪</text>
+  <text x="606" y="166" class="tiny">事件完成，t 可用</text>
+  <line x1="130" y1="226" x2="744" y2="226" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="744" y="242" class="tiny" text-anchor="end">时间</text>
+</svg>

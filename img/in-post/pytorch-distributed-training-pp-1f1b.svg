@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" width="760" height="220" role="img" aria-labelledby="t d">
+  <title id="t">1F1B 调度：K=4，M=8</title>
+  <desc id="d">4 行是 stage 0 到 3，横轴是时间，共 22 格。stage 0 先做 F₀ 到 F₃，等 stage 3、2、1 依次做完 B₀ 后才做 B₀，之后 F 和 B 交替；stage 3 在 F₀ 之后立刻做 B₀，此后每做一个 F 就接一个 B。稳态时 stage 0 每个 F 和 B 之间有等待，所有 B₇ 做完时结束。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">1F1B 调度：K=4，M=8</text>
+  <text x="380" y="44" class="tiny" text-anchor="middle">F、B 按等长画；白格是等待：stage 0 的 B₀ 要等 stage 3 的 B₀ 把梯度传回来</text>
+  <text x="70" y="81" class="monos" text-anchor="end">stage 0</text>
+  <rect x="80" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="95.0" y="80.5" class="monos" text-anchor="middle">F₀</text>
+  <rect x="110" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="125.0" y="80.5" class="monos" text-anchor="middle">F₁</text>
+  <rect x="140" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="155.0" y="80.5" class="monos" text-anchor="middle">F₂</text>
+  <rect x="170" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="185.0" y="80.5" class="monos" text-anchor="middle">F₃</text>
+  <rect x="200" y="62" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="230" y="62" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="260" y="62" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="290" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="305.0" y="80.5" class="monos" text-anchor="middle">B₀</text>
+  <rect x="320" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="335.0" y="80.5" class="monos" text-anchor="middle">F₄</text>
+  <rect x="350" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="365.0" y="80.5" class="monos" text-anchor="middle">B₁</text>
+  <rect x="380" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="395.0" y="80.5" class="monos" text-anchor="middle">F₅</text>
+  <rect x="410" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="425.0" y="80.5" class="monos" text-anchor="middle">B₂</text>
+  <rect x="440" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="455.0" y="80.5" class="monos" text-anchor="middle">F₆</text>
+  <rect x="470" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="485.0" y="80.5" class="monos" text-anchor="middle">B₃</text>
+  <rect x="500" y="62" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="515.0" y="80.5" class="monos" text-anchor="middle">F₇</text>
+  <rect x="530" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="545.0" y="80.5" class="monos" text-anchor="middle">B₄</text>
+  <rect x="560" y="62" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="590" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="605.0" y="80.5" class="monos" text-anchor="middle">B₅</text>
+  <rect x="620" y="62" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="650" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="665.0" y="80.5" class="monos" text-anchor="middle">B₆</text>
+  <rect x="680" y="62" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="710" y="62" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="725.0" y="80.5" class="monos" text-anchor="middle">B₇</text>
+  <text x="70" y="109" class="monos" text-anchor="end">stage 1</text>
+  <rect x="80" y="90" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="110" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="125.0" y="108.5" class="monos" text-anchor="middle">F₀</text>
+  <rect x="140" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="155.0" y="108.5" class="monos" text-anchor="middle">F₁</text>
+  <rect x="170" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="185.0" y="108.5" class="monos" text-anchor="middle">F₂</text>
+  <rect x="200" y="90" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="230" y="90" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="260" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="275.0" y="108.5" class="monos" text-anchor="middle">B₀</text>
+  <rect x="290" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="305.0" y="108.5" class="monos" text-anchor="middle">F₃</text>
+  <rect x="320" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="335.0" y="108.5" class="monos" text-anchor="middle">B₁</text>
+  <rect x="350" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="365.0" y="108.5" class="monos" text-anchor="middle">F₄</text>
+  <rect x="380" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="395.0" y="108.5" class="monos" text-anchor="middle">B₂</text>
+  <rect x="410" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="425.0" y="108.5" class="monos" text-anchor="middle">F₅</text>
+  <rect x="440" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="455.0" y="108.5" class="monos" text-anchor="middle">B₃</text>
+  <rect x="470" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="485.0" y="108.5" class="monos" text-anchor="middle">F₆</text>
+  <rect x="500" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="515.0" y="108.5" class="monos" text-anchor="middle">B₄</text>
+  <rect x="530" y="90" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="545.0" y="108.5" class="monos" text-anchor="middle">F₇</text>
+  <rect x="560" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="575.0" y="108.5" class="monos" text-anchor="middle">B₅</text>
+  <rect x="590" y="90" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="620" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="635.0" y="108.5" class="monos" text-anchor="middle">B₆</text>
+  <rect x="650" y="90" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="680" y="90" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="695.0" y="108.5" class="monos" text-anchor="middle">B₇</text>
+  <rect x="710" y="90" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="70" y="137" class="monos" text-anchor="end">stage 2</text>
+  <rect x="80" y="118" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="110" y="118" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="140" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="155.0" y="136.5" class="monos" text-anchor="middle">F₀</text>
+  <rect x="170" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="185.0" y="136.5" class="monos" text-anchor="middle">F₁</text>
+  <rect x="200" y="118" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="230" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="245.0" y="136.5" class="monos" text-anchor="middle">B₀</text>
+  <rect x="260" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="275.0" y="136.5" class="monos" text-anchor="middle">F₂</text>
+  <rect x="290" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="305.0" y="136.5" class="monos" text-anchor="middle">B₁</text>
+  <rect x="320" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="335.0" y="136.5" class="monos" text-anchor="middle">F₃</text>
+  <rect x="350" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="365.0" y="136.5" class="monos" text-anchor="middle">B₂</text>
+  <rect x="380" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="395.0" y="136.5" class="monos" text-anchor="middle">F₄</text>
+  <rect x="410" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="425.0" y="136.5" class="monos" text-anchor="middle">B₃</text>
+  <rect x="440" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="455.0" y="136.5" class="monos" text-anchor="middle">F₅</text>
+  <rect x="470" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="485.0" y="136.5" class="monos" text-anchor="middle">B₄</text>
+  <rect x="500" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="515.0" y="136.5" class="monos" text-anchor="middle">F₆</text>
+  <rect x="530" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="545.0" y="136.5" class="monos" text-anchor="middle">B₅</text>
+  <rect x="560" y="118" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="575.0" y="136.5" class="monos" text-anchor="middle">F₇</text>
+  <rect x="590" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="605.0" y="136.5" class="monos" text-anchor="middle">B₆</text>
+  <rect x="620" y="118" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="650" y="118" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="665.0" y="136.5" class="monos" text-anchor="middle">B₇</text>
+  <rect x="680" y="118" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="710" y="118" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="70" y="165" class="monos" text-anchor="end">stage 3</text>
+  <rect x="80" y="146" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="110" y="146" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="140" y="146" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="170" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="185.0" y="164.5" class="monos" text-anchor="middle">F₀</text>
+  <rect x="200" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="215.0" y="164.5" class="monos" text-anchor="middle">B₀</text>
+  <rect x="230" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="245.0" y="164.5" class="monos" text-anchor="middle">F₁</text>
+  <rect x="260" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="275.0" y="164.5" class="monos" text-anchor="middle">B₁</text>
+  <rect x="290" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="305.0" y="164.5" class="monos" text-anchor="middle">F₂</text>
+  <rect x="320" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="335.0" y="164.5" class="monos" text-anchor="middle">B₂</text>
+  <rect x="350" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="365.0" y="164.5" class="monos" text-anchor="middle">F₃</text>
+  <rect x="380" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="395.0" y="164.5" class="monos" text-anchor="middle">B₃</text>
+  <rect x="410" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="425.0" y="164.5" class="monos" text-anchor="middle">F₄</text>
+  <rect x="440" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="455.0" y="164.5" class="monos" text-anchor="middle">B₄</text>
+  <rect x="470" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="485.0" y="164.5" class="monos" text-anchor="middle">F₅</text>
+  <rect x="500" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="515.0" y="164.5" class="monos" text-anchor="middle">B₅</text>
+  <rect x="530" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="545.0" y="164.5" class="monos" text-anchor="middle">F₆</text>
+  <rect x="560" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="575.0" y="164.5" class="monos" text-anchor="middle">B₆</text>
+  <rect x="590" y="146" width="30" height="28" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="605.0" y="164.5" class="monos" text-anchor="middle">F₇</text>
+  <rect x="620" y="146" width="30" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="635.0" y="164.5" class="monos" text-anchor="middle">B₇</text>
+  <rect x="650" y="146" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="680" y="146" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <rect x="710" y="146" width="30" height="28" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <line x1="80" y1="188" x2="750" y2="188" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="750" y="204" class="tiny" text-anchor="end">时间</text>
+</svg>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 138" width="760" height="138" role="img" aria-labelledby="t d">
+  <title id="t">列并行接行并行：中间无需通信</title>
+  <desc id="d">从左到右：X（复制）经列并行 W₁ 得到 Yᵢ（分片），逐元素激活得到 gelu(Yᵢ)（仍分片），行并行 W₂ 得到 Zᵢ（部分和），all_reduce 后得到 Z（复制）。只有最后一步 all_reduce 是通信。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">列并行接行并行：中间无需通信</text>
+  <rect x="12" y="56" width="72" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="48.0" y="76.5" class="small" text-anchor="middle">X（复制）</text>
+  <line x1="84" y1="72" x2="158.0" y2="72" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="121.5" y="66" class="tiny" text-anchor="middle">列并行 W₁</text>
+  <rect x="159.0" y="56" width="80" height="32" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="199.0" y="76.5" class="small" text-anchor="middle">Yᵢ（分片）</text>
+  <line x1="239.0" y1="72" x2="313.0" y2="72" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="276.5" y="66" class="tiny" text-anchor="middle">逐元素激活</text>
+  <rect x="314.0" y="56" width="122" height="32" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="375.0" y="76.5" class="small" text-anchor="middle">gelu(Yᵢ)（仍分片）</text>
+  <line x1="436.0" y1="72" x2="510.0" y2="72" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="473.5" y="66" class="tiny" text-anchor="middle">行并行 W₂</text>
+  <rect x="511.0" y="56" width="90" height="32" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="556.0" y="76.5" class="small" text-anchor="middle">Zᵢ（部分和）</text>
+  <line x1="601.0" y1="72" x2="675.0" y2="72" stroke="#b4504f" stroke-width="1.4" marker-end="url(#arr)"/>
+  <text x="638.5" y="88" class="tiny" text-anchor="middle" fill="#b4504f">all_reduce</text>
+  <rect x="676.0" y="56" width="72" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="712.0" y="76.5" class="small" text-anchor="middle">Z（复制）</text>
+  <text x="380" y="122" class="tiny" text-anchor="middle">前三步各 rank 在本地算，只有最后的 all_reduce（红色）要通信</text>
+</svg>

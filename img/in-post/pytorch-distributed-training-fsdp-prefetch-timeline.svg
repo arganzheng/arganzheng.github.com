@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 244" width="760" height="244" role="img" aria-labelledby="t d">
+  <title id="t">prefetch：all-gather 流提前一层</title>
+  <desc id="d">一条时间轴，三行。前向：all-gather 流先做 AG₁，layer 1 等它完成后开始计算；layer 1 计算时 all-gather 流已在做 AG₂，layer 2 计算时做 AG₃，layer 3 计算时做 AG₄，之后每层的 all_gather 都藏在上一层计算后面。反向：layer 4 反向时 all-gather 流预取 AG₃，layer 3 反向时预取 AG₂；layer 4 反向算完，reduce-scatter 流做 RS₄，与 layer 3 反向重叠，layer 3 反向算完做 RS₃。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">prefetch：all-gather 流提前一层</text>
+  <text x="10" y="92" class="bold">计算 stream</text>
+  <text x="10" y="138" class="bold">all-gather 流</text>
+  <text x="10" y="184" class="bold">reduce-scatter 流</text>
+  <text x="285" y="58" class="bold" text-anchor="middle">前向</text>
+  <text x="605" y="58" class="bold" text-anchor="middle">反向</text>
+  <rect x="130" y="118" width="40" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="150.0" y="137.5" class="small" text-anchor="middle">AG₁</text>
+  <rect x="170" y="72" width="90" height="30" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="215.0" y="91.5" class="small" text-anchor="middle">layer 1</text>
+  <rect x="260" y="72" width="90" height="30" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="305.0" y="91.5" class="small" text-anchor="middle">layer 2</text>
+  <rect x="350" y="72" width="90" height="30" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="395.0" y="91.5" class="small" text-anchor="middle">layer 3</text>
+  <rect x="170" y="118" width="60" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="200.0" y="137.5" class="small" text-anchor="middle">AG₂</text>
+  <rect x="260" y="118" width="60" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="290.0" y="137.5" class="small" text-anchor="middle">AG₃</text>
+  <rect x="350" y="118" width="60" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="380.0" y="137.5" class="small" text-anchor="middle">AG₄</text>
+  <text x="455" y="92" class="body" text-anchor="middle">…</text>
+  <rect x="470" y="72" width="90" height="30" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="515.0" y="91.5" class="small" text-anchor="middle">layer 4 反向</text>
+  <rect x="560" y="72" width="90" height="30" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="605.0" y="91.5" class="small" text-anchor="middle">layer 3 反向</text>
+  <rect x="650" y="72" width="90" height="30" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="695.0" y="91.5" class="small" text-anchor="middle">layer 2 反向</text>
+  <rect x="470" y="118" width="60" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="500.0" y="137.5" class="small" text-anchor="middle">AG₃</text>
+  <rect x="560" y="118" width="60" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="590.0" y="137.5" class="small" text-anchor="middle">AG₂</text>
+  <rect x="650" y="118" width="60" height="30" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="680.0" y="137.5" class="small" text-anchor="middle">AG₁</text>
+  <rect x="560" y="164" width="60" height="30" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="590.0" y="183.5" class="small" text-anchor="middle">RS₄</text>
+  <rect x="650" y="164" width="60" height="30" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="680.0" y="183.5" class="small" text-anchor="middle">RS₃</text>
+  <text x="722" y="184" class="body" text-anchor="middle">…</text>
+  <line x1="130" y1="212" x2="744" y2="212" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="744" y="228" class="tiny" text-anchor="end">时间</text>
+</svg>

@@ -1,0 +1,252 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 480" width="760" height="480" role="img" aria-labelledby="t d">
+  <title id="t">集合通信原语：4 个 rank 的数据流</title>
+  <desc id="d">六个面板，每个面板 4 行对应 rank 0 到 3，左边是调用前每个 rank 上的数据，右边是调用后。颜色表示数据来自哪个 rank，深灰表示归约结果。broadcast：rank 0 的 A 发给所有人。reduce：A₀ 到 A₃ 归约到 rank 0，得到 A₀+A₁+A₂+A₃，其他 rank 为空。all_reduce：所有 rank 都得到 ΣA。all_gather：每个 rank 一片 Aᵢ，结束后所有 rank 都有 A₀ A₁ A₂ A₃。reduce_scatter：每个 rank 有 a b c d 四段，归约后 rank 0 得到 Σa，rank 1 得到 Σb，rank 2 得到 Σc，rank 3 得到 Σd。all_to_all：rank i 的第 j 段发给 rank j，相当于矩阵转置。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">集合通信原语：4 个 rank 的数据流</text>
+  <text x="10" y="58" class="bold">broadcast：一份数据发给所有人</text>
+  <text x="10" y="83" class="monos" fill="#5b6b7c">rank 0</text>
+  <rect x="60" y="68" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="76.0" y="82.5" class="monos" text-anchor="middle">A</text>
+  <rect x="234" y="68" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="250.0" y="82.5" class="monos" text-anchor="middle">A</text>
+  <text x="10" y="109" class="monos" fill="#5b6b7c">rank 1</text>
+  <rect x="60" y="94" width="32" height="20" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="76.0" y="108.5" class="monos" text-anchor="middle"></text>
+  <rect x="234" y="94" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="250.0" y="108.5" class="monos" text-anchor="middle">A</text>
+  <text x="10" y="135" class="monos" fill="#5b6b7c">rank 2</text>
+  <rect x="60" y="120" width="32" height="20" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="76.0" y="134.5" class="monos" text-anchor="middle"></text>
+  <rect x="234" y="120" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="250.0" y="134.5" class="monos" text-anchor="middle">A</text>
+  <text x="10" y="161" class="monos" fill="#5b6b7c">rank 3</text>
+  <rect x="60" y="146" width="32" height="20" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="76.0" y="160.5" class="monos" text-anchor="middle"></text>
+  <rect x="234" y="146" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="250.0" y="160.5" class="monos" text-anchor="middle">A</text>
+  <line x1="196" y1="117" x2="226" y2="117" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="388" y="58" class="bold">reduce：所有人的数据归约到一个人</text>
+  <text x="388" y="83" class="monos" fill="#5b6b7c">rank 0</text>
+  <rect x="438" y="68" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="454.0" y="82.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="612" y="68" width="96" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="660.0" y="82.5" class="monos" text-anchor="middle">A₀+A₁+A₂+A₃</text>
+  <text x="388" y="109" class="monos" fill="#5b6b7c">rank 1</text>
+  <rect x="438" y="94" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="454.0" y="108.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="612" y="94" width="32" height="20" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="628.0" y="108.5" class="monos" text-anchor="middle"></text>
+  <text x="388" y="135" class="monos" fill="#5b6b7c">rank 2</text>
+  <rect x="438" y="120" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="454.0" y="134.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="612" y="120" width="32" height="20" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="628.0" y="134.5" class="monos" text-anchor="middle"></text>
+  <text x="388" y="161" class="monos" fill="#5b6b7c">rank 3</text>
+  <rect x="438" y="146" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="454.0" y="160.5" class="monos" text-anchor="middle">A₃</text>
+  <rect x="612" y="146" width="32" height="20" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="628.0" y="160.5" class="monos" text-anchor="middle"></text>
+  <line x1="574" y1="117" x2="604" y2="117" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="10" y="208" class="bold">all_reduce：归约后所有人都拿到结果</text>
+  <text x="10" y="233" class="monos" fill="#5b6b7c">rank 0</text>
+  <rect x="60" y="218" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="76.0" y="232.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="234" y="218" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="232.5" class="monos" text-anchor="middle">ΣA</text>
+  <text x="10" y="259" class="monos" fill="#5b6b7c">rank 1</text>
+  <rect x="60" y="244" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="76.0" y="258.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="234" y="244" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="258.5" class="monos" text-anchor="middle">ΣA</text>
+  <text x="10" y="285" class="monos" fill="#5b6b7c">rank 2</text>
+  <rect x="60" y="270" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="76.0" y="284.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="234" y="270" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="284.5" class="monos" text-anchor="middle">ΣA</text>
+  <text x="10" y="311" class="monos" fill="#5b6b7c">rank 3</text>
+  <rect x="60" y="296" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="76.0" y="310.5" class="monos" text-anchor="middle">A₃</text>
+  <rect x="234" y="296" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="310.5" class="monos" text-anchor="middle">ΣA</text>
+  <line x1="196" y1="267" x2="226" y2="267" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="388" y="208" class="bold">all_gather：每人一片，拼成完整数据，所有人都拿到</text>
+  <text x="388" y="233" class="monos" fill="#5b6b7c">rank 0</text>
+  <rect x="438" y="218" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="454.0" y="232.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="612" y="218" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="232.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="644" y="218" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="232.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="676" y="218" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="232.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="708" y="218" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="232.5" class="monos" text-anchor="middle">A₃</text>
+  <text x="388" y="259" class="monos" fill="#5b6b7c">rank 1</text>
+  <rect x="438" y="244" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="454.0" y="258.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="612" y="244" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="258.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="644" y="244" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="258.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="676" y="244" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="258.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="708" y="244" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="258.5" class="monos" text-anchor="middle">A₃</text>
+  <text x="388" y="285" class="monos" fill="#5b6b7c">rank 2</text>
+  <rect x="438" y="270" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="454.0" y="284.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="612" y="270" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="284.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="644" y="270" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="284.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="676" y="270" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="284.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="708" y="270" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="284.5" class="monos" text-anchor="middle">A₃</text>
+  <text x="388" y="311" class="monos" fill="#5b6b7c">rank 3</text>
+  <rect x="438" y="296" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="454.0" y="310.5" class="monos" text-anchor="middle">A₃</text>
+  <rect x="612" y="296" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="310.5" class="monos" text-anchor="middle">A₀</text>
+  <rect x="644" y="296" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="310.5" class="monos" text-anchor="middle">A₁</text>
+  <rect x="676" y="296" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="310.5" class="monos" text-anchor="middle">A₂</text>
+  <rect x="708" y="296" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="310.5" class="monos" text-anchor="middle">A₃</text>
+  <line x1="574" y1="267" x2="604" y2="267" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="10" y="358" class="bold">reduce_scatter：归约后每人只拿自己负责的那一段</text>
+  <text x="10" y="383" class="monos" fill="#5b6b7c">rank 0</text>
+  <rect x="60" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="76.0" y="382.5" class="monos" text-anchor="middle">a₀</text>
+  <rect x="92" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="108.0" y="382.5" class="monos" text-anchor="middle">b₀</text>
+  <rect x="124" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="140.0" y="382.5" class="monos" text-anchor="middle">c₀</text>
+  <rect x="156" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="172.0" y="382.5" class="monos" text-anchor="middle">d₀</text>
+  <rect x="234" y="368" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="382.5" class="monos" text-anchor="middle">Σa</text>
+  <text x="10" y="409" class="monos" fill="#5b6b7c">rank 1</text>
+  <rect x="60" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="76.0" y="408.5" class="monos" text-anchor="middle">a₁</text>
+  <rect x="92" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="108.0" y="408.5" class="monos" text-anchor="middle">b₁</text>
+  <rect x="124" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="140.0" y="408.5" class="monos" text-anchor="middle">c₁</text>
+  <rect x="156" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="172.0" y="408.5" class="monos" text-anchor="middle">d₁</text>
+  <rect x="234" y="394" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="408.5" class="monos" text-anchor="middle">Σb</text>
+  <text x="10" y="435" class="monos" fill="#5b6b7c">rank 2</text>
+  <rect x="60" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="76.0" y="434.5" class="monos" text-anchor="middle">a₂</text>
+  <rect x="92" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="108.0" y="434.5" class="monos" text-anchor="middle">b₂</text>
+  <rect x="124" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="140.0" y="434.5" class="monos" text-anchor="middle">c₂</text>
+  <rect x="156" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="172.0" y="434.5" class="monos" text-anchor="middle">d₂</text>
+  <rect x="234" y="420" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="434.5" class="monos" text-anchor="middle">Σc</text>
+  <text x="10" y="461" class="monos" fill="#5b6b7c">rank 3</text>
+  <rect x="60" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="76.0" y="460.5" class="monos" text-anchor="middle">a₃</text>
+  <rect x="92" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="108.0" y="460.5" class="monos" text-anchor="middle">b₃</text>
+  <rect x="124" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="140.0" y="460.5" class="monos" text-anchor="middle">c₃</text>
+  <rect x="156" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="172.0" y="460.5" class="monos" text-anchor="middle">d₃</text>
+  <rect x="234" y="446" width="32" height="20" rx="0" fill="#d3dbe4" stroke="#40566f" stroke-width="1.2"/>
+  <text x="250.0" y="460.5" class="monos" text-anchor="middle">Σd</text>
+  <line x1="196" y1="417" x2="226" y2="417" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="388" y="358" class="bold">all_to_all：矩阵转置，第 i 段发给 rank i</text>
+  <text x="388" y="383" class="monos" fill="#5b6b7c">rank 0</text>
+  <rect x="438" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="454.0" y="382.5" class="monos" text-anchor="middle">a₀</text>
+  <rect x="470" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="486.0" y="382.5" class="monos" text-anchor="middle">b₀</text>
+  <rect x="502" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="518.0" y="382.5" class="monos" text-anchor="middle">c₀</text>
+  <rect x="534" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="550.0" y="382.5" class="monos" text-anchor="middle">d₀</text>
+  <rect x="612" y="368" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="382.5" class="monos" text-anchor="middle">a₀</text>
+  <rect x="644" y="368" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="382.5" class="monos" text-anchor="middle">a₁</text>
+  <rect x="676" y="368" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="382.5" class="monos" text-anchor="middle">a₂</text>
+  <rect x="708" y="368" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="382.5" class="monos" text-anchor="middle">a₃</text>
+  <text x="388" y="409" class="monos" fill="#5b6b7c">rank 1</text>
+  <rect x="438" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="454.0" y="408.5" class="monos" text-anchor="middle">a₁</text>
+  <rect x="470" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="486.0" y="408.5" class="monos" text-anchor="middle">b₁</text>
+  <rect x="502" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="518.0" y="408.5" class="monos" text-anchor="middle">c₁</text>
+  <rect x="534" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="550.0" y="408.5" class="monos" text-anchor="middle">d₁</text>
+  <rect x="612" y="394" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="408.5" class="monos" text-anchor="middle">b₀</text>
+  <rect x="644" y="394" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="408.5" class="monos" text-anchor="middle">b₁</text>
+  <rect x="676" y="394" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="408.5" class="monos" text-anchor="middle">b₂</text>
+  <rect x="708" y="394" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="408.5" class="monos" text-anchor="middle">b₃</text>
+  <text x="388" y="435" class="monos" fill="#5b6b7c">rank 2</text>
+  <rect x="438" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="454.0" y="434.5" class="monos" text-anchor="middle">a₂</text>
+  <rect x="470" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="486.0" y="434.5" class="monos" text-anchor="middle">b₂</text>
+  <rect x="502" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="518.0" y="434.5" class="monos" text-anchor="middle">c₂</text>
+  <rect x="534" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="550.0" y="434.5" class="monos" text-anchor="middle">d₂</text>
+  <rect x="612" y="420" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="434.5" class="monos" text-anchor="middle">c₀</text>
+  <rect x="644" y="420" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="434.5" class="monos" text-anchor="middle">c₁</text>
+  <rect x="676" y="420" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="434.5" class="monos" text-anchor="middle">c₂</text>
+  <rect x="708" y="420" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="434.5" class="monos" text-anchor="middle">c₃</text>
+  <text x="388" y="461" class="monos" fill="#5b6b7c">rank 3</text>
+  <rect x="438" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="454.0" y="460.5" class="monos" text-anchor="middle">a₃</text>
+  <rect x="470" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="486.0" y="460.5" class="monos" text-anchor="middle">b₃</text>
+  <rect x="502" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="518.0" y="460.5" class="monos" text-anchor="middle">c₃</text>
+  <rect x="534" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="550.0" y="460.5" class="monos" text-anchor="middle">d₃</text>
+  <rect x="612" y="446" width="32" height="20" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="628.0" y="460.5" class="monos" text-anchor="middle">d₀</text>
+  <rect x="644" y="446" width="32" height="20" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="660.0" y="460.5" class="monos" text-anchor="middle">d₁</text>
+  <rect x="676" y="446" width="32" height="20" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="692.0" y="460.5" class="monos" text-anchor="middle">d₂</text>
+  <rect x="708" y="446" width="32" height="20" rx="0" fill="#e9def3" stroke="#7f5aa6" stroke-width="1.2"/>
+  <text x="724.0" y="460.5" class="monos" text-anchor="middle">d₃</text>
+  <line x1="574" y1="417" x2="604" y2="417" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+</svg>

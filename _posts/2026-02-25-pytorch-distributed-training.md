@@ -181,40 +181,12 @@ DeviceMesh 是 FSDP2、TP、CP API 的共同输入，第三至九章会反复用
 
 以 4 个进程为例，每个进程持有一个数据块，方框表示该 rank 上的数据：
 
-```text title="五种集合通信原语：4 个 rank 的数据流"
-broadcast（一份数据发给所有人）
-  rank 0  [A]              [A]
-  rank 1  [ ]      →       [A]
-  rank 2  [ ]              [A]
-  rank 3  [ ]              [A]
+![集合通信原语：4 个 rank 的数据流](/img/in-post/pytorch-distributed-training-collectives.svg)
 
-reduce（所有人的数据归约到一个人）             all_reduce（归约后所有人都拿到结果）
-  rank 0  [A₀]         [A₀+A₁+A₂+A₃]              rank 0  [A₀]         [ΣA]
-  rank 1  [A₁]    →    [  ]                       rank 1  [A₁]    →    [ΣA]
-  rank 2  [A₂]         [  ]                       rank 2  [A₂]         [ΣA]
-  rank 3  [A₃]         [  ]                       rank 3  [A₃]         [ΣA]
+另外两个不搬数据的原语：
 
-all_gather（每人一片，拼成完整数据，所有人都拿到）
-  rank 0  [A₀]              [A₀ A₁ A₂ A₃]
-  rank 1  [A₁]      →       [A₀ A₁ A₂ A₃]
-  rank 2  [A₂]              [A₀ A₁ A₂ A₃]
-  rank 3  [A₃]              [A₀ A₁ A₂ A₃]
-
-reduce_scatter（归约后每人只拿自己负责的那一段）
-  rank 0  [a₀ b₀ c₀ d₀]              [Σa]
-  rank 1  [a₁ b₁ c₁ d₁]      →       [Σb]
-  rank 2  [a₂ b₂ c₂ d₂]              [Σc]
-  rank 3  [a₃ b₃ c₃ d₃]              [Σd]
-
-all_to_all（矩阵转置：第 i 段发给 rank i）
-  rank 0  [a₀ b₀ c₀ d₀]              [a₀ a₁ a₂ a₃]
-  rank 1  [a₁ b₁ c₁ d₁]      →       [b₀ b₁ b₂ b₃]
-  rank 2  [a₂ b₂ c₂ d₂]              [c₀ c₁ c₂ c₃]
-  rank 3  [a₃ b₃ c₃ d₃]              [d₀ d₁ d₂ d₃]
-
-barrier    所有人到齐后才继续
-send/recv  点对点，一个 rank 发给另一个
-```
+- `barrier`：所有人到齐后才继续。
+- `send` / `recv`：点对点，一个 rank 发给另一个。
 
 对应的 API（`torch.distributed` 命名空间）：
 
@@ -263,13 +235,16 @@ T(n) = α + β · n        α：延迟（固定开销，微秒级）    β：每
 
 集合通信的成本取决于算法。最常用的 **Ring** 算法把 N 个进程排成环，每个进程只和左右邻居通信。以 N=4、数据切成 4 块为例，all_reduce 的 reduce_scatter 阶段：
 
-```text title="Ring all-reduce 的 reduce_scatter 阶段：N=4 逐步"
-初始              第 1 步：每人把一块发给右邻并累加收到的       第 2 步                    第 3 步（结束）
-rank 0 [a₀ b₀ c₀ d₀]   发 a₀ → rank 1，收 d₃：[a₀ b₀ c₀ d₀+d₃]      收 c₂+c₃ → [.. c₀+c₂+c₃ ..]   收 b₁+b₂+b₃ → 持有 Σb
-rank 1 [a₁ b₁ c₁ d₁]   发 b₁ → rank 2，收 a₀：[a₀+a₁ b₁ c₁ d₁]      收 d₃+d₀ → [.. d₀+d₁+d₃]      收 c₀+c₂+c₃ → 持有 Σc
-rank 2 [a₂ b₂ c₂ d₂]   发 c₂ → rank 3，收 b₁：[a₂ b₁+b₂ c₂ d₂]      收 a₀+a₁ → [a₀+a₁+a₂ ..]      收 d₀+d₁+d₃ → 持有 Σd
-rank 3 [a₃ b₃ c₃ d₃]   发 d₃ → rank 0，收 c₂：[a₃ b₃ c₂+c₃ d₃]      收 b₁+b₂ → [.. b₁+b₂+b₃ ..]   收 a₀+a₁+a₂ → 持有 Σa
-```
+每一步每人把一块发给右邻（rank 3 的右邻是 rank 0），同时收左邻发来的一块，累加到自己那份上。第 s 步 rank i 发的是块 (i−s) mod 4，也就是上一步刚累加完的那块：
+
+| rank | 初始 | 第 1 步 | 第 2 步 | 第 3 步（结束） |
+|---|---|---|---|---|
+| rank 0 | a₀ b₀ c₀ d₀ | 发 d₀ → rank 1<br/>收 c₃：c₀+c₃ | 发 c₀+c₃ → rank 1<br/>收 b₂+b₃：b₀+b₂+b₃ | 发 b₀+b₂+b₃ → rank 1<br/>收 a₁+a₂+a₃：持有 **Σa** |
+| rank 1 | a₁ b₁ c₁ d₁ | 发 a₁ → rank 2<br/>收 d₀：d₀+d₁ | 发 d₀+d₁ → rank 2<br/>收 c₀+c₃：c₀+c₁+c₃ | 发 c₀+c₁+c₃ → rank 2<br/>收 b₀+b₂+b₃：持有 **Σb** |
+| rank 2 | a₂ b₂ c₂ d₂ | 发 b₂ → rank 3<br/>收 a₁：a₁+a₂ | 发 a₁+a₂ → rank 3<br/>收 d₀+d₁：d₀+d₁+d₂ | 发 d₀+d₁+d₂ → rank 3<br/>收 c₀+c₁+c₃：持有 **Σc** |
+| rank 3 | a₃ b₃ c₃ d₃ | 发 c₃ → rank 0<br/>收 b₂：b₂+b₃ | 发 b₂+b₃ → rank 0<br/>收 a₁+a₂：a₁+a₂+a₃ | 发 a₁+a₂+a₃ → rank 0<br/>收 d₀+d₁+d₂：持有 **Σd** |
+
+Table: Ring all-reduce 的 reduce_scatter 阶段：N=4 逐步
 
 N−1 步后，每个 rank 持有**一块**的完整归约结果——这正是 reduce_scatter 的输出。再做 N−1 步 all_gather（同样的环，只是传递而不累加），每个 rank 就有全部四块的归约结果。
 
@@ -318,27 +293,15 @@ work = dist.all_reduce(t, async_op=True)     # 立即返回 Work 句柄，通信
 work.wait()                                  # 让当前 Stream 等待通信完成（是 Stream 间的依赖，不阻塞 CPU）
 ```
 
-这三行代码涉及三个执行者——CPU 线程、计算 Stream、NCCL 通信 Stream——它们之间的关系用时序图看最清楚：
+这三行代码涉及三个执行者——CPU 线程、计算 Stream、NCCL 通信 Stream——它们之间的关系放在一条时间轴上看最清楚：
 
-```mermaid
-%% 图：通信也是异步的：CPU 线程、compute stream、NCCL stream 三个执行者，wait() 只是让计算流等一个事件
-sequenceDiagram
-    participant CPU as CPU 线程
-    participant CS as compute stream
-    participant NS as NCCL stream
-    CPU->>CS: 提交 layer L 的反向 kernel
-    CPU->>NS: all_reduce(t, async_op=True)
-    Note over CPU,NS: 立即返回 Work 句柄，CPU 不阻塞
-    CPU->>CS: 提交 layer L-1 的反向 kernel
-    par 两条 Stream 同时在 GPU 上跑
-        CS->>CS: 计算 layer L-1（占用 SM）
-        NS->>NS: ncclDevKernel_AllReduce（占用网络 / 拷贝引擎）
-    end
-    CPU->>CS: work.wait()
-    Note over CS,NS: wait() 只是让 compute stream 等待 NCCL stream 上的一个事件
-    NS-->>CS: 事件完成，t 可用
-    CPU->>CS: 提交依赖 t 的后续 kernel
-```
+![async_op=True：CPU 线程、compute stream、NCCL stream 的时间线](/img/in-post/pytorch-distributed-training-async-op-timeline.svg)
+
+1. CPU 把 layer L 的反向 kernel 提交到 compute stream。
+2. CPU 调 `all_reduce(t, async_op=True)`，立即拿到 Work 句柄，CPU 不阻塞；NCCL stream 上的 kernel 先等 layer L 把 t 算完。
+3. CPU 提交 layer L-1 的反向 kernel。之后两条 stream 同时在 GPU 上跑：compute stream 算 layer L-1（占用 SM），NCCL stream 跑 `ncclDevKernel_AllReduce`（占用网络 / 拷贝引擎）。
+4. CPU 调 `work.wait()`，同样立即返回。它只是让 compute stream 等 NCCL stream 上的一个事件。
+5. CPU 提交依赖 t 的后续 kernel。它排在等待之后，事件完成、t 可用时才开始执行。
 
 `async_op=False`（默认）等价于调用后立刻 `wait()`——注意即使如此 CPU 也**不**阻塞，只是让计算 Stream 排在通信之后。真正的 CPU 阻塞只发生在 `.item()`、`synchronize()` 这类第八篇讨论过的同步点。
 
@@ -418,15 +381,7 @@ flowchart TB
 
 在时间轴上展开就是：
 
-```text title="Reducer 的时间轴：桶就位即发起 all_reduce"
-反向传播（计算 Stream）      layer L → layer L-1 → ... → layer 1
-                                 │           │
-桶就位                        bucket 0 ready   bucket 1 ready   ...
-                                 ↓            ↓
-通信 Stream                      [all_reduce bucket 0][all_reduce bucket 1]...[all_reduce bucket k]
-                                                                                       ↑
-backward() 返回前                                                             等待所有桶完成
-```
+![Reducer 的时间轴：桶就位即发起 all_reduce](/img/in-post/pytorch-distributed-training-reducer-timeline.svg)
 
 反向是从最后一层往前算的，所以桶按参数注册顺序的**逆序**划分，让最先算完梯度的参数落在第一个桶。第一次迭代 Reducer 会记录实际的梯度就位顺序，据此重建桶的划分。
 
@@ -539,9 +494,7 @@ PyTorch 中 ZeRO-1 对应 `ZeroRedundancyOptimizer`（配合 DDP 使用），ZeR
 
 每个分片单元在 step 中经历一个状态循环：
 
-```text title="分片单元在 step 中的状态循环"
-sharded ──all_gather──► unsharded ──计算──► (前向后 reshard) sharded ──all_gather──► unsharded ──反向计算──► reshard + reduce_scatter ──► sharded
-```
+![分片单元在 step 中的状态循环](/img/in-post/pytorch-distributed-training-fsdp-unit-state-cycle.svg)
 
 FSDP2 用两条专用 Stream 驱动这个循环：一条 all-gather Stream，一条 reduce-scatter Stream；all_gather 的输出先落到一块连续的通信缓冲区，再按参数切成视图交给模块。梯度的 reduce_scatter 完成后，本地分片梯度累加到 DTensor 参数的 `.grad` 上——优化器看到的就是普通的分片参数和分片梯度。
 
@@ -617,11 +570,9 @@ Table: reshard_after_forward 的三种取值
 
 按 §2 的时间线，每层计算前要等 all_gather 完成，通信不重叠。FSDP 用 **prefetch** 解决：在计算第 i 层时，就在 all-gather Stream 上发起第 i+1 层的 all_gather。
 
-```text title="prefetch：all-gather 流提前一层"
-计算 Stream      [layer 1 计算    ][layer 2 计算    ][layer 3 计算    ]
-all-gather 流  [AG₁][AG₂          ][AG₃            ][AG₄            ]
-reduce-scatter 流                                     ...反向时 [RS₄][RS₃]...
-```
+![prefetch：all-gather 流提前一层](/img/in-post/pytorch-distributed-training-fsdp-prefetch-timeline.svg)
+
+反向同理：算 layer i 的梯度时预取 layer i−1 的参数；layer i 的梯度一算完就交给 reduce-scatter 流，和前一层的反向重叠。
 
 代价是显存中同时存在两层的完整参数。FSDP2 默认隐式 prefetch 下一层（按上一次迭代记录的执行顺序）；显式控制：
 
@@ -676,27 +627,10 @@ fully_shard(block, mesh=mesh)    # 2D mesh：在 shard 维分片，在 replicate
 
 以 4 节点 × 8 卡为例，这个 2D mesh 的排布和两类通信各走哪条链路：
 
-```text title="4 节点 × 8 卡的 2D mesh 排布与两类通信的链路"
-mesh_shape = (4, 8), mesh_dim_names = ("replicate", "shard")
+![4 节点 × 8 卡的 2D mesh 排布与两类通信的链路](/img/in-post/pytorch-distributed-training-hsdp-2d-mesh.svg)
 
-                 shard 维 →  (同一行 = 同一节点, NVLink)
-                 gpu0  gpu1  gpu2  gpu3  gpu4  gpu5  gpu6  gpu7
-               ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
-  node 0       │  0  │  1  │  2  │  3  │  4  │  5  │  6  │  7  │
-               ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
-  node 1       │  8  │  9  │ 10  │ 11  │ 12  │ 13  │ 14  │ 15  │
-               ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
-  node 2       │ 16  │ 17  │ 18  │ 19  │ 20  │ 21  │ 22  │ 23  │
-               ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤
-  node 3       │ 24  │ 25  │ 26  │ 27  │ 28  │ 29  │ 30  │ 31  │
-               └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
-  replicate 维 ↓  (同一列 = 4 个节点上编号相同的卡, IB)
-
-shard 组     = 一行，如 {0..7}         参数在组内分片
-               all_gather / reduce_scatter 在行内进行，走 NVLink
-replicate 组 = 一列，如 {0,8,16,24}    参数在组间复制
-               对自己持有的 1/8 梯度分片做 all_reduce，走 IB
-```
+- shard 组 = 一行，如 {0..7}：参数在组内分片，all_gather / reduce_scatter 在行内进行，走 NVLink。
+- replicate 组 = 一列，如 {0,8,16,24}：参数在组间复制，对自己持有的 1/8 梯度分片做 all_reduce，走 IB。
 
 参数在节点**内**分片（all_gather 和 reduce_scatter 走 NVLink），在节点**间**复制：每个节点 reduce_scatter 之后，各 rank 只对自己持有的 **1/8 梯度分片**做跨节点 all_reduce。跨 IB 的流量因此从 FSDP 的 3P 降到 2P/8，而且可以按层与反向重叠。用主线的话说：同一类状态在不同的 mesh 维上做不同的决定。代价是每个节点持有完整的一份状态，显存不再随节点数下降。
 
@@ -731,25 +665,16 @@ DDP 和 FSDP 都是**数据并行**：每个 rank 处理不同的数据，对**�
 
 一个 Linear 层 Y = XW，X 是 [tokens, H_in]，W 是 [H_in, H_out]。切 W 有两种方向：
 
-```text title="列并行与行并行的两种切法"
-列并行（Colwise）：按输出维切
-   W = [W₀ | W₁ | W₂ | W₃]         每个 rank 持有 W 的 H_out/N 列
-   Yᵢ = X Wᵢ                       输入 X 完整（复制），输出 Yᵢ 是 Y 的第 i 段列
-   Y = [Y₀ | Y₁ | Y₂ | Y₃]         各 rank 的输出互不重叠，拼起来才是 Y
-   通信：无
+| 切法 | 每个 rank 持有 | 本地计算 | 输入 | 输出 | 通信 |
+|---|---|---|---|---|---|
+| 列并行（Colwise）<br/>按输出维切 | W = [W₀ \| W₁ \| W₂ \| W₃]<br/>W 的 H_out/N 列 | Yᵢ = X Wᵢ | X 完整（复制） | Yᵢ 是 Y 的第 i 段列<br/>Y = [Y₀ \| Y₁ \| Y₂ \| Y₃]：各 rank 的输出互不重叠，拼起来才是 Y | 无 |
+| 行并行（Rowwise）<br/>按输入维切 | W = [W₀ ; W₁ ; W₂ ; W₃]<br/>W 的 H_in/N 行 | Zᵢ = Xᵢ Wᵢ | Xᵢ 是 X 的第 i 段列（分片） | Zᵢ 是完整形状的部分和<br/>Z = Z₀ + Z₁ + Z₂ + Z₃：各 rank 的输出必须相加 | all_reduce |
 
-行并行（Rowwise）：按输入维切
-   W = [W₀ ; W₁ ; W₂ ; W₃]         每个 rank 持有 W 的 H_in/N 行
-   Zᵢ = Xᵢ Wᵢ                      输入 Xᵢ 是 X 的第 i 段列（分片），输出 Zᵢ 是完整形状的部分和
-   Z = Z₀ + Z₁ + Z₂ + Z₃           各 rank 的输出必须相加
-   通信：all_reduce
-```
+Table: 列并行与行并行的两种切法
 
 列并行的输入是复制的、输出是分片的；行并行的输入是分片的、输出是部分和。**列并行的输出分片形状恰好是行并行需要的输入分片**——所以两者可以直接相连而不需要中间通信：
 
-```text title="列并行接行并行：中间无需通信"
-X（复制） ──列并行 W₁──► Yᵢ（分片） ──逐元素激活──► gelu(Yᵢ)（仍分片） ──行并行 W₂──► Zᵢ（部分和） ──all_reduce──► Z（复制）
-```
+![列并行接行并行：中间无需通信](/img/in-post/pytorch-distributed-training-tp-colwise-then-rowwise.svg)
 
 这正是 Transformer MLP 的结构：fc1（H → 4H）列并行，gelu 逐元素在分片上独立算，fc2（4H → H）行并行，末尾一次 all_reduce。中间 4H 维的激活从头到尾都是分片的，**不需要凑齐**。整个 MLP 前向只通信一次。
 
@@ -757,13 +682,14 @@ X（复制） ──列并行 W₁──► Yᵢ（分片） ──逐元素激�
 
 训练不只有前向。把列并行和行并行的边界看成两个算子 f 和 g（Megatron-LM 的记法）：
 
-```text title="f 和 g 的前向与反向"
-          f                                 g
-X ──────────► [列并行 → 本地计算 → 行并行] ──────────► Z
+![f 和 g 的前向与反向](/img/in-post/pytorch-distributed-training-tp-f-and-g.svg)
 
-f   前向：恒等（X 已复制，直接用）              反向：all_reduce（每个 rank 算出的 ∂L/∂X 只是自己分片贡献的部分，要求和）
-g   前向：all_reduce（部分和 → 完整 Z）         反向：恒等（∂L/∂Z 已复制，每个 rank 直接用）
-```
+| 算子 | 前向 | 反向 |
+|---|---|---|
+| f | 恒等（X 已复制，直接用） | all_reduce（每个 rank 算出的 ∂L/∂X 只是自己分片贡献的部分，要求和） |
+| g | all_reduce（部分和 → 完整 Z） | 恒等（∂L/∂Z 已复制，每个 rank 直接用） |
+
+Table: f 和 g 在前向与反向中的通信
 
 f 和 g 互为**共轭**：一个前向通信、反向不通信，另一个反过来。所以一个 MLP 在训练中通信两次：前向 g 处一次，反向 f 处一次。Attention 同理（下一节）。一个 Transformer 层 = Attention + MLP，**训练中每层每 step 共 4 次 all_reduce**（推理只有前向，每层 2 次）。
 
@@ -886,11 +812,9 @@ parallelize_module(block, tp_mesh, {
 
 §5 说 TP 的 all_reduce 无法重叠，这在"整块通信、整块计算"的粒度上是对的。**异步 TP**（Async TP / 微流水线）把 all_gather + 矩阵乘、矩阵乘 + reduce_scatter 各拆成若干块，块间流水：
 
-```text title="异步 TP：all_gather 与 matmul 分块流水"
-不拆     [all_gather 全部        ][matmul 全部          ]
-拆 4 块  [AG₀][AG₁][AG₂][AG₃]
-              [mm₀][mm₁][mm₂][mm₃]        ← 收到第 0 块就开始算第 0 块，通信只暴露第一块
-```
+![异步 TP：all_gather 与 matmul 分块流水](/img/in-post/pytorch-distributed-training-async-tp-all-gather-matmul.svg)
+
+拆成 4 块之后，第 0 块是本 rank 自己的分片，不用等通信，matmul 马上开算；算它的同时去拿第 1 块，之后每块的传输都藏在上一块的 matmul 后面。PyTorch 的实现（v2.10.0 `torch/distributed/_symmetric_memory/__init__.py` 的 `_pipelined_multi_all_gather_and_consume`）就是这个顺序：先 `shard_consumer(shard, rank)` 算本地分片，再按 `(step + rank) % group_size` 依次拷贝远端分片并计算。
 
 PyTorch 通过 **对称内存**（`torch.distributed._symmetric_memory`，节点内 GPU 直接读写彼此显存）实现块间的细粒度传输，Inductor 在编译时识别 SP 的 all_gather → matmul 和 matmul → reduce_scatter 模式并做替换：
 
@@ -928,28 +852,17 @@ model = torch.compile(model)
 
 **GPipe**：所有 micro-batch 先做完前向，再做反向：
 
-```text title="GPipe 调度：K=4，M=4"
-K=4, M=4，F=前向，B=反向（B 通常约 2 倍 F 的时长，图中按等长画）
-stage 0   F₀ F₁ F₂ F₃ .  .  .  .  .  .  B₃ B₂ B₁ B₀
-stage 1   .  F₀ F₁ F₂ F₃ .  .  .  .  B₃ B₂ B₁ B₀ .
-stage 2   .  .  F₀ F₁ F₂ F₃ .  .  B₃ B₂ B₁ B₀ .  .
-stage 3   .  .  .  F₀ F₁ F₂ F₃ B₃ B₂ B₁ B₀ .  .  .
+![GPipe 调度：K=4，M=4](/img/in-post/pytorch-distributed-training-pp-gpipe.svg)
 
-气泡占总时间的比例 ≈ (K-1) / (M+K-1)        M=4,K=4 → 43%     M=32,K=4 → 9%
-```
+气泡占总时间的比例 ≈ (K−1) / (M+K−1)：M=4、K=4 时是 43%，M=32、K=4 时是 9%。
 
 M 越大气泡越小，但 GPipe 要把 M 个 micro-batch 的激活全部保存到反向开始——激活显存 ∝ M。
 
 **1F1B**：进入稳态后，每个 stage 做一次前向就紧接着做一次（更早的 micro-batch 的）反向：
 
-```text title="1F1B 调度"
-stage 0   F₀ F₁ F₂ F₃ B₀ F₄ B₁ F₅ B₂ F₆ B₃ ...
-stage 1   .  F₀ F₁ F₂ B₀ F₃ B₁ F₄ B₂ F₅ B₃ ...
-stage 2   .  .  F₀ F₁ B₀ F₂ B₁ F₃ B₂ F₄ B₃ ...
-stage 3   .  .  .  F₀ B₀ F₁ B₁ F₂ B₂ F₃ B₃ ...
-```
+![1F1B 调度：K=4，M=8](/img/in-post/pytorch-distributed-training-pp-1f1b.svg)
 
-（每一行只表示该 stage **自己**的执行顺序，列不是对齐的时间刻——真实时间线上 stage 0 的 B₀ 要等 stage 3 的 B₀ 传回梯度之后才能开始，中间是等待；大规模训练系列的 GPipe vs 1F1B 图按时间轴画了这些等待。）
+（图按真实时间轴画，M 取 8 才看得到稳态。stage 0 做完 F₃ 之后，B₀ 要等 stage 3、2、1 依次把梯度传回来才能开始，中间三格就是等待；总长和 GPipe 一样是 2(M+K−1) 格。）
 
 气泡与 GPipe 相同，但任一时刻每个 stage 最多持有 K 个 micro-batch 的激活（而不是 M 个），**显存不随 M 增长**——于是可以放心增大 M 来压气泡。这是训练 PP 的默认调度。
 
@@ -1027,23 +940,21 @@ Transformer 中除了 attention，所有算子都是逐 token 的（Linear、Lay
 
 以 N=4 为例，把每个 rank 在每一步手里持有的 K/V 块列成表，ring 的传递规律一目了然——Q 不动，K/V 每步整体右移一格：
 
-```text title="Ring Attention：每步各 rank 持有的 K/V 块"
-rank i 持有 Q_i 不动；K/V 块沿 ring 传给右邻（rank 3 → rank 0 回绕）
-每一步：用手里的 K/V 块算局部 attention 并 online-softmax 累加，
-        同时把这块 K/V send 给右邻、从左邻 recv 下一块
+| | step 0 | step 1 | step 2 | step 3 |
+|---|---|---|---|---|
+| rank 0 | KV₀ | KV₃ | KV₂ | KV₁ |
+| rank 1 | KV₁ | KV₀ | KV₃ | KV₂ |
+| rank 2 | KV₂ | KV₁ | KV₀ | KV₃ |
+| rank 3 | KV₃ | KV₂ | KV₁ | KV₀ |
 
-              step 0      step 1      step 2      step 3
-            ┌───────────┬───────────┬───────────┬───────────┐
-  rank 0    │  KV₀      │  KV₃      │  KV₂      │  KV₁      │
-  rank 1    │  KV₁      │  KV₀      │  KV₃      │  KV₂      │
-  rank 2    │  KV₂      │  KV₁      │  KV₀      │  KV₃      │
-  rank 3    │  KV₃      │  KV₂      │  KV₁      │  KV₀      │
-            └───────────┴───────────┴───────────┴───────────┘
-                  │  send KV_j → rank i+1  /  recv KV_{j-1} ← rank i-1
-                  └─ 与本步的 attention 计算重叠
+Table: Ring Attention：每步各 rank 持有的 K/V 块
 
-第 j 步 rank i：(out, m, l) ← merge(out, attn(Q_i, KV_j))   # online softmax
-4 步后每个 Q_i 都见过 KV₀ ~ KV₃，得到与不切分时完全相同的结果
+- rank i 持有 Q_i 不动；K/V 块沿 ring 传给右邻（rank 3 → rank 0 回绕）。所以第 j 步 rank i 手里是 KV_{(i−j) mod 4}。
+- 每一步：用手里的 K/V 块算局部 attention 并 online-softmax 累加，同时把这块 K/V send 给右邻 rank i+1、从左邻 rank i−1 recv 下一块 KV_{(i−j−1) mod 4}。传输与本步的 attention 计算重叠。
+- 4 步后每个 Q_i 都见过 KV₀ ~ KV₃，得到与不切分时完全相同的结果。
+
+```text title="第 j 步 rank i 的累加"
+(out, m, l) ← merge(out, attn(Q_i, KV_{(i−j) mod 4}))   # online softmax
 ```
 
 "分块算、在线累加"依赖 **online softmax**：每块得到局部的 max 和 exp 和，合并时按 max 差重新缩放——与 FlashAttention 在 SRAM 分块时的技巧完全相同，只是分块跨越的是 GPU 而不是显存层级。K、V 的传输（send/recv）与当前块的 attention 计算重叠，只要每块的计算时间大于传输时间，通信就被隐藏。
@@ -1297,11 +1208,13 @@ for epoch in range(epochs):
 
 单卡 checkpoint 是 `torch.save(model.state_dict())`。分布式下问题变复杂：FSDP 的参数是分片的，每个 rank 只有 1/N；TP 的参数按列/行切开。三种选择：
 
-```text title="分布式 checkpoint 的三种选择"
-Full state_dict      在 rank 0 上 all_gather 出完整参数再保存    → 一份文件；需要 rank 0 有足够 CPU 内存放下整个模型；保存慢
-Sharded state_dict   每个 rank 保存自己的分片                    → N 份文件；快；但加载时并行度必须相同
-DCP                  torch.distributed.checkpoint：保存 DTensor 及其 Placement 元数据    → 加载时可以 reshard 到不同并行度
-```
+| 方式 | 做法 | 结果 |
+|---|---|---|
+| Full state_dict | 在 rank 0 上 all_gather 出完整参数再保存 | 一份文件；需要 rank 0 有足够 CPU 内存放下整个模型；保存慢 |
+| Sharded state_dict | 每个 rank 保存自己的分片 | N 份文件；快；但加载时并行度必须相同 |
+| DCP | `torch.distributed.checkpoint`：保存 DTensor 及其 Placement 元数据 | 加载时可以 reshard 到不同并行度 |
+
+Table: 分布式 checkpoint 的三种选择
 
 **DCP**（Distributed Checkpoint）是推荐方案。它保存每个 DTensor 的本地分片和全局 Placement，加载时根据新的 mesh 重新切分——8 卡训练的 checkpoint 可以在 16 卡上恢复，或从 FSDP+TP 的布局加载到纯 FSDP，或在单卡上加载做推理。
 

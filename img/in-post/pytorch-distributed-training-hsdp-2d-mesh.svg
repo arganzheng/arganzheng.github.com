@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 298" width="760" height="298" role="img" aria-labelledby="t d">
+  <title id="t">4 节点 × 8 卡的 2D mesh 排布与两类通信的链路</title>
+  <desc id="d">mesh_shape = (4, 8)，mesh_dim_names = (&quot;replicate&quot;, &quot;shard&quot;)。4 行是 node 0 到 node 3，8 列是 gpu0 到 gpu7，格子里是全局 rank：node 0 为 0 到 7，node 1 为 8 到 15，node 2 为 16 到 23，node 3 为 24 到 31。shard 维沿行：同一行是同一节点，走 NVLink，蓝框标出 shard 组 {0..7}。replicate 维沿列：同一列是 4 个节点上编号相同的卡，走 IB，橙框标出 replicate 组 {0,8,16,24}。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">4 节点 × 8 卡的 2D mesh 排布与两类通信的链路</text>
+  <text x="380" y="46" class="monos" text-anchor="middle" fill="#5b6b7c">mesh_shape = (4, 8), mesh_dim_names = (&quot;replicate&quot;, &quot;shard&quot;)</text>
+  <text x="170" y="72" class="small" fill="#4a78b0">shard 维 →（同一行 = 同一节点，NVLink）</text>
+  <text x="198.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu0</text>
+  <text x="254.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu1</text>
+  <text x="310.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu2</text>
+  <text x="366.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu3</text>
+  <text x="422.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu4</text>
+  <text x="478.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu5</text>
+  <text x="534.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu6</text>
+  <text x="590.0" y="98" class="monos" text-anchor="middle" fill="#5b6b7c">gpu7</text>
+  <text x="156" y="127" class="monos" text-anchor="end">node 0</text>
+  <rect x="170" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="198.0" y="126.5" class="mono" text-anchor="middle">0</text>
+  <rect x="226" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="254.0" y="126.5" class="mono" text-anchor="middle">1</text>
+  <rect x="282" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="310.0" y="126.5" class="mono" text-anchor="middle">2</text>
+  <rect x="338" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="366.0" y="126.5" class="mono" text-anchor="middle">3</text>
+  <rect x="394" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="422.0" y="126.5" class="mono" text-anchor="middle">4</text>
+  <rect x="450" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="478.0" y="126.5" class="mono" text-anchor="middle">5</text>
+  <rect x="506" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="534.0" y="126.5" class="mono" text-anchor="middle">6</text>
+  <rect x="562" y="106" width="56" height="32" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="590.0" y="126.5" class="mono" text-anchor="middle">7</text>
+  <text x="156" y="159" class="monos" text-anchor="end">node 1</text>
+  <rect x="170" y="138" width="56" height="32" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="198.0" y="158.5" class="mono" text-anchor="middle">8</text>
+  <rect x="226" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="254.0" y="158.5" class="mono" text-anchor="middle">9</text>
+  <rect x="282" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="310.0" y="158.5" class="mono" text-anchor="middle">10</text>
+  <rect x="338" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="366.0" y="158.5" class="mono" text-anchor="middle">11</text>
+  <rect x="394" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="422.0" y="158.5" class="mono" text-anchor="middle">12</text>
+  <rect x="450" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="478.0" y="158.5" class="mono" text-anchor="middle">13</text>
+  <rect x="506" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="534.0" y="158.5" class="mono" text-anchor="middle">14</text>
+  <rect x="562" y="138" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="590.0" y="158.5" class="mono" text-anchor="middle">15</text>
+  <text x="156" y="191" class="monos" text-anchor="end">node 2</text>
+  <rect x="170" y="170" width="56" height="32" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="198.0" y="190.5" class="mono" text-anchor="middle">16</text>
+  <rect x="226" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="254.0" y="190.5" class="mono" text-anchor="middle">17</text>
+  <rect x="282" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="310.0" y="190.5" class="mono" text-anchor="middle">18</text>
+  <rect x="338" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="366.0" y="190.5" class="mono" text-anchor="middle">19</text>
+  <rect x="394" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="422.0" y="190.5" class="mono" text-anchor="middle">20</text>
+  <rect x="450" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="478.0" y="190.5" class="mono" text-anchor="middle">21</text>
+  <rect x="506" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="534.0" y="190.5" class="mono" text-anchor="middle">22</text>
+  <rect x="562" y="170" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="590.0" y="190.5" class="mono" text-anchor="middle">23</text>
+  <text x="156" y="223" class="monos" text-anchor="end">node 3</text>
+  <rect x="170" y="202" width="56" height="32" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="198.0" y="222.5" class="mono" text-anchor="middle">24</text>
+  <rect x="226" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="254.0" y="222.5" class="mono" text-anchor="middle">25</text>
+  <rect x="282" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="310.0" y="222.5" class="mono" text-anchor="middle">26</text>
+  <rect x="338" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="366.0" y="222.5" class="mono" text-anchor="middle">27</text>
+  <rect x="394" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="422.0" y="222.5" class="mono" text-anchor="middle">28</text>
+  <rect x="450" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="478.0" y="222.5" class="mono" text-anchor="middle">29</text>
+  <rect x="506" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="534.0" y="222.5" class="mono" text-anchor="middle">30</text>
+  <rect x="562" y="202" width="56" height="32" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2"/>
+  <text x="590.0" y="222.5" class="mono" text-anchor="middle">31</text>
+  <rect x="170" y="106" width="448" height="32" fill="none" stroke="#4a78b0" stroke-width="3"/>
+  <rect x="170" y="106" width="56" height="128" fill="none" stroke="#c27a2c" stroke-width="3" stroke-dasharray="6 3"/>
+  <text x="628" y="127" class="small" fill="#4a78b0">shard 组 {0..7}</text>
+  <text x="170" y="256" class="small" fill="#c27a2c">↑ replicate 组 {0,8,16,24}</text>
+  <text x="170" y="280" class="small" fill="#c27a2c">replicate 维 ↓（同一列 = 4 个节点上编号相同的卡，IB）</text>
+</svg>

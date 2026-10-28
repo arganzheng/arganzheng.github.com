@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 214" width="760" height="214" role="img" aria-labelledby="t d">
+  <title id="t">Reducer 的时间轴：桶就位即发起 all_reduce</title>
+  <desc id="d">一条时间轴，两行。计算 stream 上反向依次是 layer L、layer L-1、……、layer 1。layer L 算完时 bucket 0 就位，通信 stream 立即开始 all_reduce bucket 0，与 layer L-1 的反向重叠；layer L-1 算完时 bucket 1 就位，开始 all_reduce bucket 1；依此类推。layer 1 算完时最后一个 bucket k 就位，它的 all_reduce 没有计算可以重叠，backward() 返回前等待所有桶完成。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">Reducer 的时间轴：桶就位即发起 all_reduce</text>
+  <text x="14" y="63" class="bold">计算 stream</text>
+  <text x="14" y="78" class="tiny">（反向传播）</text>
+  <text x="14" y="150" class="bold">通信 stream</text>
+  <rect x="140" y="48" width="110" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="195.0" y="69.5" class="small" text-anchor="middle">layer L</text>
+  <rect x="250" y="48" width="110" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="305.0" y="69.5" class="small" text-anchor="middle">layer L-1</text>
+  <rect x="360" y="48" width="60" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="390.0" y="69.5" class="small" text-anchor="middle">…</text>
+  <rect x="420" y="48" width="110" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="475.0" y="69.5" class="small" text-anchor="middle">layer 1</text>
+  <rect x="250" y="128" width="96" height="34" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="298.0" y="149.5" class="small" text-anchor="middle">all_reduce b0</text>
+  <rect x="360" y="128" width="96" height="34" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="408.0" y="149.5" class="small" text-anchor="middle">all_reduce b1</text>
+  <rect x="456" y="128" width="54" height="34" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="483.0" y="149.5" class="small" text-anchor="middle">…</text>
+  <rect x="530" y="128" width="96" height="34" rx="0" fill="#f8dcdc" stroke="#b4504f" stroke-width="1.2"/>
+  <text x="578.0" y="149.5" class="small" text-anchor="middle">all_reduce bk</text>
+  <line x1="250" y1="82" x2="250" y2="127" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="256" y="108" class="tiny">bucket 0 就位</text>
+  <line x1="360" y1="82" x2="360" y2="127" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="366" y="108" class="tiny">bucket 1 就位</text>
+  <line x1="530" y1="82" x2="530" y2="127" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="536" y="108" class="tiny">bucket k 就位</text>
+  <line x1="626" y1="56" x2="626" y2="170" stroke="#b4504f" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="632" y="52" class="tiny">等待所有桶完成</text>
+  <text x="632" y="68" class="tiny">backward() 返回</text>
+  <line x1="140" y1="182" x2="744" y2="182" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="744" y="198" class="tiny" text-anchor="end">时间</text>
+</svg>

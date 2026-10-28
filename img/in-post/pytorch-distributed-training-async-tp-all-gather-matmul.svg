@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 254" width="760" height="254" role="img" aria-labelledby="t d">
+  <title id="t">异步 TP：all_gather 与 matmul 分块流水</title>
+  <desc id="d">以 rank 0、TP=4 为例。不拆：先 all_gather 全部，再 matmul 全部，两段串行。拆 4 块：第 0 块是本地分片，不需要通信，matmul mm₀ 立即开始；同时拷贝远端分片 AG₁、AG₂、AG₃，每块到达时上一块 matmul 正好算完，mm₁、mm₂、mm₃ 依次接上，通信全部藏在计算后面。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">异步 TP：all_gather 与 matmul 分块流水</text>
+  <text x="12" y="62" class="bold">不拆</text>
+  <text x="12" y="154" class="bold">拆 4 块</text>
+  <text x="12" y="170" class="tiny">（rank 0）</text>
+  <text x="140" y="67" class="tiny" text-anchor="end">通信</text>
+  <text x="140" y="99" class="tiny" text-anchor="end">计算</text>
+  <text x="140" y="159" class="tiny" text-anchor="end">通信</text>
+  <text x="140" y="191" class="tiny" text-anchor="end">计算</text>
+  <rect x="150" y="48" width="288" height="28" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="294.0" y="66.5" class="small" text-anchor="middle">all_gather 全部</text>
+  <rect x="438" y="80" width="288" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="582.0" y="98.5" class="small" text-anchor="middle">matmul 全部</text>
+  <rect x="150" y="172" width="72" height="28" rx="0" fill="#d6eeee" stroke="#3d8a8a" stroke-width="1.2"/>
+  <text x="186.0" y="190.5" class="small" text-anchor="middle">mm₀ 本地</text>
+  <rect x="150" y="140" width="72" height="28" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="186.0" y="158.5" class="small" text-anchor="middle">AG₁</text>
+  <rect x="222" y="172" width="72" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="258.0" y="190.5" class="small" text-anchor="middle">mm₁</text>
+  <line x1="222" y1="168" x2="222" y2="171" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="222" y="140" width="72" height="28" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="258.0" y="158.5" class="small" text-anchor="middle">AG₂</text>
+  <rect x="294" y="172" width="72" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="330.0" y="190.5" class="small" text-anchor="middle">mm₂</text>
+  <line x1="294" y1="168" x2="294" y2="171" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="294" y="140" width="72" height="28" rx="0" fill="#fbe5cc" stroke="#c27a2c" stroke-width="1.2"/>
+  <text x="330.0" y="158.5" class="small" text-anchor="middle">AG₃</text>
+  <rect x="366" y="172" width="72" height="28" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="402.0" y="190.5" class="small" text-anchor="middle">mm₃</text>
+  <line x1="366" y1="168" x2="366" y2="171" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="150" y1="222" x2="744" y2="222" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="744" y="238" class="tiny" text-anchor="end">时间</text>
+  <line x1="438" y1="212" x2="726" y2="212" stroke="#b4504f" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="582" y="207" class="tiny" text-anchor="middle" fill="#b4504f">省下的时间</text>
+</svg>

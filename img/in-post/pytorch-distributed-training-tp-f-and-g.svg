@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 170" width="760" height="170" role="img" aria-labelledby="t d">
+  <title id="t">f 和 g 的前向与反向</title>
+  <desc id="d">X 经过算子 f 进入「列并行 → 本地计算 → 行并行」，再经过算子 g 输出 Z。f 前向是恒等，反向是 all_reduce；g 前向是 all_reduce，反向是恒等。前向箭头从左到右，反向箭头从右到左。</desc>
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b4504f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .tiny { font-size: 12px; fill: #5b6b7c; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mut { fill: #5b6b7c; }
+      .ln { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .ax { stroke: #8795a5; stroke-width: 1; fill: none; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="380" y="24" class="head" text-anchor="middle">f 和 g 的前向与反向</text>
+  <rect x="20" y="56" width="56" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="48.0" y="77.5" class="mono" text-anchor="middle">X</text>
+  <rect x="150" y="56" width="40" height="34" rx="0" fill="#fbf3c8" stroke="#b39a2a" stroke-width="1.2"/>
+  <text x="170.0" y="77.5" class="monob" text-anchor="middle">f</text>
+  <rect x="262" y="56" width="236" height="34" rx="0" fill="#dcefdc" stroke="#4f8f55" stroke-width="1.2"/>
+  <text x="380.0" y="77.5" class="small" text-anchor="middle">列并行 → 本地计算 → 行并行</text>
+  <rect x="570" y="56" width="40" height="34" rx="0" fill="#fbf3c8" stroke="#b39a2a" stroke-width="1.2"/>
+  <text x="590.0" y="77.5" class="monob" text-anchor="middle">g</text>
+  <rect x="684" y="56" width="56" height="34" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2"/>
+  <text x="712.0" y="77.5" class="mono" text-anchor="middle">Z</text>
+  <line x1="76" y1="67" x2="149" y2="67" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="150" y1="80" x2="77" y2="80" stroke="#8795a5" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="190" y1="67" x2="261" y2="67" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="262" y1="80" x2="191" y2="80" stroke="#8795a5" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="498" y1="67" x2="569" y2="67" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="570" y1="80" x2="499" y2="80" stroke="#8795a5" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="610" y1="67" x2="683" y2="67" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="684" y1="80" x2="611" y2="80" stroke="#8795a5" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="20" y="110" class="tiny">上方箭头：前向  下方灰箭头：反向</text>
+  <text x="164" y="134" class="tiny" text-anchor="end">前向</text>
+  <text x="174" y="134" class="small">恒等</text>
+  <text x="164" y="154" class="tiny" text-anchor="end">反向</text>
+  <text x="174" y="154" class="monos" fill="#b4504f">all_reduce</text>
+  <text x="584" y="134" class="tiny" text-anchor="end">前向</text>
+  <text x="594" y="134" class="monos" fill="#b4504f">all_reduce</text>
+  <text x="584" y="154" class="tiny" text-anchor="end">反向</text>
+  <text x="594" y="154" class="small">恒等</text>
+</svg>
