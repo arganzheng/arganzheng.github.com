@@ -67,9 +67,9 @@ DeepSpeed 是微软开源的训练框架，底座是 ZeRO：它沿着优化器�
 
 ## 三、核心抽象
 
-DeepSpeed 的对象按从下到上的依赖关系读。F2 把六层叠起来：最下面是进程组与通信，往上依次是构造时分片的参数、hook 与参数协调器、ZeRO 优化器包装类、`DeepSpeedEngine`；最上面是用户自己的训练循环。箭头一律指向上方，含义是「上层调用 / 依赖下层」。
+DeepSpeed 的对象按从下到上的依赖关系读。F2 把六层叠起来：最下面是进程组与通信，往上依次是构造时分片的参数、hook 与参数协调器、ZeRO 优化器包装类、`DeepSpeedEngine`；最上面是用户自己的训练循环。箭头一律指向下方，含义是「上层调用 / 依赖下层」。
 
-![F2：DeepSpeed 六层抽象的依赖关系，箭头向上表示「上层调用 / 依赖下层」](/img/in-post/deepspeed-f2-abstractions.svg)
+![F2：DeepSpeed 六层抽象的依赖关系，箭头向下表示「上层调用 / 依赖下层」](/img/in-post/deepspeed-f2-abstractions.svg)
 
 - `groups.py` / `pipe/topology.py` / `comm` 提供进程组与通信原语，详见第五章。
 - `zero.Init` / `ds_tensor` 让参数从构造起就是分片，详见第六章第 4 节。

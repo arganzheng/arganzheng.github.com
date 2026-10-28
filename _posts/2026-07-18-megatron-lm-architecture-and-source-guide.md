@@ -64,7 +64,7 @@ Megatron-LM 是 NVIDIA 面向大规模 Transformer 训练的框架。它最显�
 
 ## 三、核心抽象
 
-Megatron Core 的对象可以按从下到上的依赖关系读。F2 把六个对象叠成一层一层：最下面是 `parallel_state`，所有对象都向它要进程组；往上是模型层的 TP 模块、DDP 和它的参数 / 梯度 buffer、`DistributedOptimizer`；最上面是驱动训练的 `schedules.py`。箭头一律指向上方，含义是「上层调用 / 依赖下层」。下面逐项说明每个对象管什么。
+Megatron Core 的对象可以按从下到上的依赖关系读。F2 把六个对象叠成一层一层：最下面是 `parallel_state`，所有对象都向它要进程组；往上是模型层的 TP 模块、DDP 和它的参数 / 梯度 buffer、`DistributedOptimizer`；最上面是驱动训练的 `schedules.py`。箭头一律指向下方，含义是「上层调用 / 依赖下层」。下面逐项说明每个对象管什么。
 
 ![F2：Megatron Core 六个核心抽象的依赖关系](/img/in-post/megatron-f2-abstractions.svg)
 
