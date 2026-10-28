@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 408" width="760" height="408" role="img" aria-labelledby="t d">
+  <title id="t">GPU_UTIL、SM_ACTIVE、TENSOR_ACTIVE 的逐级差距</title>
+  <desc id="d">一张卡、一个采样窗口，100 = 全部 SM 的全部周期，三条横条共用 0–100 刻度。GPU_UTIL 78：0–78 有至少一个 kernel 在执行，78–100 差距 22 是没有 kernel 在执行——排队占位、低峰无请求、dev 挂着，以及 kernel 之间等 CPU 的空隙（launch 开销、数据加载）。SM_ACTIVE 35：0–35 SM 上有 warp 驻留，35–78 差距 43 是 kernel 在执行但这部分 SM 上没有 warp——kernel 只占少数 SM（NCCL 通信 kernel 自旋等对端、小 batch decode），kernel 末尾最后一波 CTA 填不满全部 SM。TENSOR_ACTIVE 22（示意值）：0–22 矩阵乘，22–35 差距 13 是 SM 上有 warp 但 Tensor 管线没在发指令——非矩阵乘 kernel（elementwise / softmax / KV 读写，memory-bound）、NCCL 自旋，以及矩阵乘 kernel 里 warp 在等数据的周期。</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #222; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .gapt { font-size: 13px; font-weight: 700; fill: #8a4a10; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .tick { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #333; }
+      .val { font-size: 13px; fill: #333; }
+      .busy { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .gap { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+      .rest { fill: #f1f3f6; stroke: #40566f; stroke-width: 1.2; }
+      .axis { stroke: #555; stroke-width: 1; }
+      .dim { stroke: #40566f; stroke-width: 1.2; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="760" height="408" fill="#fff"/>
+  <text class="head" x="170" y="26">一张卡、一个采样窗口：100 = 全部 SM 的全部周期</text>
+  <line class="axis" x1="170" y1="52" x2="730" y2="52"/>
+  <line class="axis" x1="170.0" y1="52" x2="170.0" y2="57"/>
+  <text class="tick" x="170.0" y="46" text-anchor="middle">0</text>
+  <line class="axis" x1="293.2" y1="52" x2="293.2" y2="57"/>
+  <text class="tick" x="293.2" y="46" text-anchor="middle">22</text>
+  <line class="axis" x1="366.0" y1="52" x2="366.0" y2="57"/>
+  <text class="tick" x="366.0" y="46" text-anchor="middle">35</text>
+  <line class="axis" x1="606.8" y1="52" x2="606.8" y2="57"/>
+  <text class="tick" x="606.8" y="46" text-anchor="middle">78</text>
+  <line class="axis" x1="730.0" y1="52" x2="730.0" y2="57"/>
+  <text class="tick" x="730.0" y="46" text-anchor="middle">100</text>
+  <text class="mono" x="20" y="82">GPU_UTIL</text>
+  <text class="val" x="20" y="98">78</text>
+  <rect class="busy" x="170.0" y="68" width="436.8" height="34"/>
+  <rect class="gap" x="606.8" y="68" width="123.2" height="34"/>
+  <text class="body" x="388.4" y="89.5" text-anchor="middle">有至少一个 kernel 在执行</text>
+  <text class="gapt" x="668.4" y="89.5" text-anchor="middle">差距 22</text>
+  <text class="body" x="170" y="122"><tspan class="gapt">差距 22</tspan> · 没有 kernel 在执行：</text>
+  <text class="body" x="170" y="140">排队占位、低峰无请求、dev 挂着</text>
+  <text class="body" x="170" y="158">kernel 之间等 CPU 的空隙（launch 开销、数据加载）</text>
+  <text class="mono" x="20" y="198">SM_ACTIVE</text>
+  <text class="val" x="20" y="214">35</text>
+  <rect class="busy" x="170.0" y="184" width="196.0" height="34"/>
+  <rect class="gap" x="366.0" y="184" width="240.8" height="34"/>
+  <rect class="rest" x="606.8" y="184" width="123.2" height="34"/>
+  <text class="body" x="268.0" y="205.5" text-anchor="middle">SM 上有 warp 驻留</text>
+  <text class="gapt" x="486.4" y="205.5" text-anchor="middle">差距 43</text>
+  <text class="body" x="170" y="238"><tspan class="gapt">差距 43</tspan> · kernel 在执行，但这部分 SM 上没有 warp：</text>
+  <text class="body" x="170" y="256">kernel 只占少数 SM（NCCL 通信 kernel 自旋等对端、小 batch decode）</text>
+  <text class="body" x="170" y="274">kernel 末尾最后一波 CTA 填不满全部 SM</text>
+  <text class="mono" x="20" y="314">TENSOR_ACTIVE</text>
+  <text class="val" x="20" y="330">22（示意值）</text>
+  <rect class="busy" x="170.0" y="300" width="123.2" height="34"/>
+  <rect class="gap" x="293.2" y="300" width="72.8" height="34"/>
+  <rect class="rest" x="366.0" y="300" width="364.0" height="34"/>
+  <text class="body" x="231.6" y="321.5" text-anchor="middle">矩阵乘</text>
+  <text class="gapt" x="329.6" y="321.5" text-anchor="middle">差距 13</text>
+  <text class="body" x="170" y="354"><tspan class="gapt">差距 13</tspan> · SM 上有 warp，但 Tensor 管线没在发指令：</text>
+  <text class="body" x="170" y="372">非矩阵乘 kernel：elementwise / softmax / KV 读写（memory-bound）、NCCL 自旋</text>
+  <text class="body" x="170" y="390">矩阵乘 kernel 里 warp 在等数据的周期</text>
+</svg>
