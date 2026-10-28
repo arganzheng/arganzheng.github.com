@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="279" viewBox="0 0 750 279" role="img" aria-labelledby="title desc">
+<title id="title">三种多 agent 模式</title><desc id="desc">三个并排的小图。orchestrator-workers：主 agent 分出 worker A、B、C 三路，结果汇到主综合；主 agent 分解、派发、综合。handoff：agent A 把控制权移交给 agent B，或者移交给 agent C；控制权在 agent 间流动。层级：主 agent 委派给三个子 agent，第一个子 agent 再委派给两个子子 agent；树状委派，每层综合下一层。</desc>
+<style>text{font-family:"Noto Sans CJK SC","PingFang SC","Hiragino Sans GB",sans-serif;font-size:13px;font-weight:600;fill:#111}
+.title{font-size:17px;font-weight:700}.ptitle{font-size:15px;font-weight:700}.cap{font-size:13px;fill:#333}
+.mono{font-family:"Noto Sans Mono CJK SC",ui-monospace,monospace;font-size:12px}
+.box{stroke:#536273;stroke-width:1.2}.dash{stroke:#536273;stroke-width:1.2;stroke-dasharray:5 4}
+.line{fill:none;stroke:#536273;stroke-width:1.4}.arrow{fill:none;stroke:#536273;stroke-width:1.4;marker-end:url(#ah)}
+.darrow{fill:none;stroke:#536273;stroke-width:1.4;stroke-dasharray:5 4;marker-end:url(#ah)}
+.axis{fill:none;stroke:#888;stroke-width:1.2;marker-end:url(#ax)}.sep{stroke:#d5dbe2;stroke-width:1}</style>
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8Z" fill="#536273"/></marker>
+<marker id="ax" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8Z" fill="#888"/></marker></defs>
+<rect width="750" height="279" fill="#fff"/>
+<text x="20.0" y="30.0" class="title" text-anchor="start">三种多 agent 模式</text>
+<path d="M48,152.0 H61.0 M61.0,112.0 V192.0" class="line"/>
+<path d="M61.0,112.0 H74" class="arrow"/>
+<path d="M61.0,152.0 H74" class="arrow"/>
+<path d="M61.0,192.0 H74" class="arrow"/>
+<path d="M149,112.0 H162.0" class="line"/>
+<path d="M149,152.0 H162.0" class="line"/>
+<path d="M149,192.0 H162.0" class="line"/>
+<path d="M162.0,112.0 V192.0 M162.0,152.0 H175" class="arrow"/>
+<rect x="20.0" y="137.0" width="28" height="30" fill="#e4edfa" class="box"/><text x="27.0" y="156.5">主</text>
+<rect x="175.0" y="137.0" width="55" height="30" fill="#e4edfa" class="box"/><text x="182.0" y="156.5">主综合</text>
+<rect x="74.0" y="97.0" width="75" height="30" fill="#fff0d6" class="box"/><text x="81.0" y="116.5">worker A</text>
+<rect x="74.0" y="137.0" width="75" height="30" fill="#fff0d6" class="box"/><text x="81.0" y="156.5">worker B</text>
+<rect x="74.0" y="177.0" width="75" height="30" fill="#fff0d6" class="box"/><text x="81.0" y="196.5">worker C</text>
+<path d="M331.5,112.0 H395.5" class="arrow"/>
+<path d="M299.0,127.0 V192.0 H395.5" class="arrow"/>
+<text x="307.0" y="161.0" text-anchor="start">（控制权移交）</text>
+<rect x="266.5" y="97.0" width="65" height="30" fill="#e4edfa" class="box"/><text x="273.5" y="116.5">agent A</text>
+<rect x="395.5" y="97.0" width="65" height="30" fill="#fff0d6" class="box"/><text x="402.5" y="116.5">agent B</text>
+<rect x="395.5" y="177.0" width="65" height="30" fill="#fff0d6" class="box"/><text x="402.5" y="196.5">agent C</text>
+<path d="M525,162.0 H538.0 M538.0,112.0 V212" class="line"/>
+<path d="M538.0,112.0 H551" class="arrow"/>
+<path d="M538.0,172.0 H551" class="arrow"/>
+<path d="M538.0,212.0 H551" class="arrow"/>
+<path d="M621,112.0 H634.0 M634.0,92 V132" class="line"/>
+<path d="M634.0,92.0 H647" class="arrow"/>
+<path d="M634.0,132.0 H647" class="arrow"/>
+<rect x="497.0" y="147.0" width="28" height="30" fill="#e4edfa" class="box"/><text x="504.0" y="166.5">主</text>
+<rect x="551.0" y="97.0" width="70" height="30" fill="#fff0d6" class="box"/><text x="558.0" y="116.5">子 agent</text>
+<rect x="551.0" y="157.0" width="70" height="30" fill="#fff0d6" class="box"/><text x="558.0" y="176.5">子 agent</text>
+<rect x="551.0" y="197.0" width="70" height="30" fill="#fff0d6" class="box"/><text x="558.0" y="216.5">子 agent</text>
+<rect x="647.0" y="77.0" width="83" height="30" fill="#ddf2e7" class="box"/><text x="654.0" y="96.5">子子 agent</text>
+<rect x="647.0" y="117.0" width="83" height="30" fill="#ddf2e7" class="box"/><text x="654.0" y="136.5">子子 agent</text>
+<text x="20.0" y="62.0" class="ptitle" text-anchor="start">orchestrator-workers</text>
+<text x="20.0" y="257.0" class="cap" text-anchor="start">主 agent 分解 · 派发 · 综合</text>
+<text x="266.5" y="62.0" class="ptitle" text-anchor="start">handoff</text>
+<text x="266.5" y="257.0" class="cap" text-anchor="start">控制权在 agent 间流动</text>
+<text x="497.0" y="62.0" class="ptitle" text-anchor="start">层级</text>
+<text x="497.0" y="257.0" class="cap" text-anchor="start">树状委派，每层综合下一层</text>
+<line x1="248.2" y1="48" x2="248.2" y2="263.0" class="sep"/>
+<line x1="478.8" y1="48" x2="478.8" y2="263.0" class="sep"/>
+</svg>

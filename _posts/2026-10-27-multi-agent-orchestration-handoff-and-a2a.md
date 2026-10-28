@@ -54,13 +54,7 @@ flowchart TB
 ```
 
 
-```text title="三种多 agent 模式"
-orchestrator-workers          handoff                      层级
-      ┌─ worker A                agent A ──→ agent B         ┌─ 子 agent ─┬─ 子子 agent
-主 ───┼─ worker B  → 主综合         │  （控制权移交）            主 ┼─ 子 agent  └─ 子子 agent
-      └─ worker C                  └──→ agent C              └─ 子 agent
-主 agent 分解 · 派发 · 综合       控制权在 agent 间流动         树状委派，每层综合下一层
-```
+![三种多 agent 模式：orchestrator-workers、handoff、层级](/img/in-post/multi-agent-orchestration-three-patterns.svg)
 
 ### 3. 本文的章节安排
 
@@ -120,22 +114,18 @@ Agents SDK 把 handoff 做成一等原语：一个 agent 的可用 handoff 列�
 
 handoff 是**串行的专业化**——一个接一个，为的是每个阶段有更聚焦的 agent；orchestrator-workers 是**并行的分解**——同时做，为的是隔离与速度。客服分流用 handoff，多方向研究用 orchestrator-workers。handoff 的一个陷阱：上下文怎么传——全部传（B 看到 A 的所有历史，隐私与预算问题）还是摘要传（B 缺信息）——要按场景设计，与第四篇的派发指令同一问题。
 
-```mermaid
-%% 图：客服 handoff 的一次对话——分流 agent 判断「这是退款」，调用 transfer_to_refund（模型眼里是一个特殊工具）把控制权交给退款 agent；退款 agent 有自己更聚焦的指令、更小的工具集与权限；同一时刻只有一个 agent 工作；传全部历史（B 看到一切，隐私与预算）还是传摘要（B 缺信息）是设计决定
-sequenceDiagram
-    participant U as 用户
-    participant A as 分流 agent（接待）
-    participant B as 退款 agent
-    participant H as 人工
-    U->>A: 我上周买的耳机坏了想退
-    A->>A: 判断：退款类 → 调用 transfer_to_refund
-    Note over A,B: 控制权 + 上下文（全部 or 摘要）移交
-    B->>U: 请提供订单号
-    U->>B: 20261015-7788
-    B->>B: 工具：查订单 · 校验退款政策
-    B->>U: 符合 7 天无理由，已提交退款
-    Note over B,H: 超出政策 / 金额过阈值 → transfer_to_human
-```
+![客服 handoff 的一次对话：用户、分流 agent、退款 agent、人工四行共用一条时间轴](/img/in-post/multi-agent-orchestration-handoff-timeline.svg)
+
+1. 用户：「我上周买的耳机坏了想退」。
+2. 分流 agent（接待）判断这是退款类，调用 `transfer_to_refund`。在模型眼里它就是一个特殊工具。
+3. 控制权和上下文（全部 or 摘要）一起移交给退款 agent。传全部历史，退款 agent 看到一切，有隐私与预算问题；传摘要，它可能缺信息。传哪种是设计决定。
+4. 退款 agent：「请提供订单号」。它有自己更聚焦的指令、更小的工具集与权限。
+5. 用户：「20261015-7788」。
+6. 退款 agent 调工具：查订单，校验退款政策。
+7. 退款 agent：「符合 7 天无理由，已提交退款」，用户收到答复。
+8. 另一分支：超出政策或金额过阈值，退款 agent 调用 `transfer_to_human` 转人工。
+
+同一时刻只有一个 agent 在工作。横轴只表示先后，不表示耗时。
 
 ## 四、层级与 agent teams
 
