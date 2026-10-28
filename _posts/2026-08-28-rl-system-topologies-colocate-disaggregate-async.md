@@ -147,13 +147,9 @@ Table: verl 的角色与默认所在的组
 
 64 张卡轮流做三件事，每一步：
 
-```text title="共置同步的一步时间线（64 卡）"
-      ├──────────── 生成 602 s ────────────┤ 切 ├── 前向 72 s ──┤├── 训练 136 s ──┤ 同步 ├
-GPU   ████████████████████████░░░░░░░░░░░░  0.2  ██████████████  ████████████████  0.3
-      ↑ 吞吐部分 406 s          ↑ 长尾 196 s：越来越少的序列在跑，其余卡空转
-                                 ↑ 显存：KV 池 → 训练状态回卡
-显存  [推理权重 16 GB + KV 池 56 GB]           [训练状态 2 GB + ref 0.25 GB + 激活……]
-```
+![共置同步的一步时间线（64 卡）](/img/in-post/rl-system-topologies-colocate-timeline.svg)
+
+横轴按秒成比例。切 0.2 秒、同步 0.3 秒太短，只画成两条竖线。
 
 一步 810 秒，全步 MFU 13%——这是上一篇的数字，也是共置形态的账。
 
@@ -197,11 +193,9 @@ $$T_{gen}(n_r) = 406 \times \frac{64}{n_r} + 196, \qquad T_{train}(n_t) = (72 + 
 
 $$T_{step} = \max\big(T_{gen}(n_r),\ T_{train}(n_t)\big) + T_{sync}$$
 
-```text title="一步流水：rollout 池与训练池"
-rollout 池 (46)  ├── 生成 batch t （用 θ_{t-1}）761 s ──┤├── 生成 batch t+1（用 θ_t）──┤
-训练池 (18)      ├── 训练 batch t-1 → θ_t  740 s ──┤ 等 ├── 训练 batch t → θ_{t+1} ──┤
-                                                    ↑ 同步 θ_t 到 rollout 池（跨机，几秒）
-```
+![一步流水：rollout 池与训练池](/img/in-post/rl-system-topologies-one-step-overlap.svg)
+
+训练池 740 秒先做完，要等 rollout 池生成完 batch $$t$$（761 秒）才能同步 $$\theta_t$$。同步只有几秒，图里放大了。
 
 46 : 18 时 $$\max(761, 740) + 3 \approx 764$$ 秒，比共置快 6%，全步 MFU 14%。收益不大，原因也清楚：**长尾还在**——rollout 池仍然要等最长的那条序列，只是这段时间训练池不再陪着等；而吞吐部分摊到 46 张卡上比 64 张慢。
 
@@ -227,12 +221,7 @@ rollout 池 (46)  ├── 生成 batch t （用 θ_{t-1}）761 s ──┤├�
 
 一步流水还有一道墙：训练池每步要等 rollout 池**整批**生成完。异步形态把批的概念在 rollout 侧拆掉：推理引擎持续运行，完成一条序列就进样本缓冲；训练器从缓冲里取满一个 mini-batch 就更新一次，每更新 $$k$$ 次向推理引擎同步一次权重；正在生成的序列不中断（或中断后用新权重继续——**部分 rollout**），完成后带着"它由哪几个版本的权重生成"的标签进缓冲。
 
-```text title="异步：流式生成与训练"
-rollout 池 (42)  ├─────────── 持续生成：完成一条进一条缓冲，换权重时在飞序列继续 ─────────────┤
-                       θ_t ↓ 同步            θ_{t+1} ↓ 同步            θ_{t+2} ↓
-训练池 (22)      ├ 取 batch → 更新 ┤├ 取 batch → 更新 ┤├ 取 batch → 更新 ┤├ ……
-缓冲             [样本按完成顺序进；训练器取；过期 > k 步的丢弃或等待]
-```
+![异步：流式生成与训练](/img/in-post/rl-system-topologies-async-streaming.svg)
 
 生成时间里**长尾消失了**：没有人等最后一条序列——它完成后进缓冲，被下一个 batch 用掉。生成时间只剩吞吐部分：$$T_{gen}(n_r) = 406 \times 64 / n_r$$；训练时间不变。平衡点 $$406 / n_r = 208 / n_t$$，$$n_r + n_t = 64$$，解出 $$n_r \approx 42$$、$$n_t \approx 22$$，两边各约 610 秒——一步（相当于 8192 条样本的更新）**619 秒**，全步 MFU 17%，比共置快 1.3 倍。
 
@@ -242,10 +231,13 @@ rollout 池 (42)  ├─────────── 持续生成：完成一�
 
 verl 的 `fully_async_policy` 文档（美团搜索团队）给了一组公开实验，Qwen2.5-Math-7B、DAPO、回答上限 28K、H20：
 
-- **卡数**：共置同步 步时间；其中生成；异步（配比）；步时间；400 步总时间；提速
-- **32**：790 s；357 s；16 : 16；295 s；3d17h → 1d9h；2.66×
-- **64**：365 s；151 s；32 : 32；189 s；1d17h → 21h；1.92×
-- **128**：356 s；178 s；64 : 64；151 s；1d16h → 17h；2.35×
+| 卡数 | 共置同步<br/>步时间 | 其中生成 | 异步<br/>配比 | 异步<br/>步时间 | 400 步总时间<br/>共置 → 异步 | 提速 |
+|---|---|---|---|---|---|---|
+| 32 | 790 s | 357 s | 16 : 16 | 295 s | 3d17h → 1d9h | 2.66× |
+| 64 | 365 s | 151 s | 32 : 32 | 189 s | 1d17h → 21h | 1.92× |
+| 128 | 356 s | 178 s | 64 : 64 | 151 s | 1d16h → 17h | 2.35× |
+
+Table: verl `fully_async_policy` 公开实验：共置同步 vs 异步
 
 两个细节值得看。第一，**共置从 32 卡加到 128 卡，步时间只从 790 降到 356**——4 倍的卡换 2.2 倍的速度，卡数翻倍到 128 时几乎没有提升（365 → 356）。这就是长尾：吞吐部分随卡数缩短，长尾不随卡数缩短，卡越多长尾占比越高。第二，异步在 128 卡上生成占步时间的比例从 50% 降到 22%（33 秒的"生成"是训练器等缓冲的时间），瓶颈转到了训练侧——配比应该再往训练那边挪。
 
@@ -277,9 +269,13 @@ verl 的 `fully_async` 文档把它们叫做 mode a–d，同一实验里从"流
 
 把生成时间拆成吞吐部分 $$T_{thr}$$ 与长尾 $$T_{tail}$$，记长尾占比 $$f = T_{tail} / (T_{thr} + T_{tail})$$，训练侧（前向 + 训练）时间 $$T_t$$。三种形态的一步墙钟（分离与异步都按最优配比、忽略同步时间）：
 
-- **共置**：T_thr + T_tail + T_t
-- **分离 + 一步流水**：解 n_r：T_thr·64/n_r + T_tail = T_t·64/(64−n_r)，墙钟 = 两边相等的值
-- **异步（流式）**：T_thr + T_t（两池各摊一部分，总卡数不变，长尾消失）
+| 形态 | 一步墙钟 |
+|---|---|
+| 共置 | $$T_{thr} + T_{tail} + T_t$$ |
+| 分离 + 一步流水 | 解 $$n_r$$：$$T_{thr} \cdot 64 / n_r + T_{tail} = T_t \cdot 64 / (64 - n_r)$$，墙钟 = 两边相等的值 |
+| 异步（流式） | $$T_{thr} + T_t$$（两池各摊一部分，总卡数不变，长尾消失） |
+
+Table: 三种形态的一步墙钟（最优配比、忽略同步）
 
 异步的墙钟是 $$T_{thr} + T_t$$——**恰好等于"共置但没有长尾"**：两池分别做两件事、卡数按时间比分配，总卡时与 64 张卡轮流做一样。这给了一个干净的结论：**异步 ≈ 共置 − 长尾**，其余一切（配比、跨机同步、staleness）都是为了拿到这一项付的代价。
 
@@ -430,16 +426,14 @@ staleness       trainer.v1.sampler.max_off_policy_threshold           轨迹最�
 
 用 verl 的计时器名字（`timing_s/*`）把三种模式的一步对上：
 
-```text title="三种模式的一步时间线（timing_s/*）"
-sync            gen ──────────────┤ reward ┤ old_log_prob ┤ ref ┤ adv ┤ update_actor ┤ update_weights ┤
-                （gen 含 sleep；update_weights 含 wake_up、显存切换）
+![三种模式的一步时间线（timing_s/*）](/img/in-post/rl-system-topologies-trainer-mode-timers.svg)
 
-colocate_async  gen（= 从缓冲取样的等待，rollout 在跑）┤ abort+sleep ┤ old_log_prob ┤ ref ┤ update_actor ┤ update_weights+resume ┤
-                （rollout 与训练仍在同一组卡上轮流，但训练器取的是缓冲里已完成的组，不等长尾；被中断的序列下一轮续接）
+段宽不按比例，只表示先后。计时器的包含关系是这样的：
 
-separate_async  gen（取样等待，通常接近 0）┤ old_log_prob ┤ ref ┤ update_actor ┤ ×k ┤ update_weights（跨机）┤
-                standalone 池：持续生成，同步权重时 abort → 接收 → resume
-```
+1. 三种模式走的都是同一个 `PPOTrainer._step_once`，`reward`、`adv` 每种模式都有；区别只在 `gen` 和 `update_weights` 里包了什么。
+2. `sync`：`on_sample_end()` 里 sleep，算在 `gen` 里；`update_weights` 走 naive 卡内同步，含 wake_up、显存切换。
+3. `colocate_async`：abort + sleep 也在 `on_sample_end()` 里，同样算进 `gen`，不单独计时。rollout 与训练仍在同一组卡上轮流，但训练器取的是缓冲里已完成的组，不等长尾；被中断的序列在 `update_weights` 之后 resume，下一轮续接。
+4. `separate_async`：`gen` 到 `update_actor` 跑 $$k$$ 次（`parameter_sync_step`，默认 4）才 `update_weights` 一次，权重跨机发给 standalone 池。standalone 池一直在生成，只在同步权重时 abort → 接收 → resume。
 
 `colocate_async` 是一个容易被忽略的中间态：它**没有分离**，rollout 与训练还是在同一组卡上轮流，收益只来自"训练器不等长尾"——生成阶段的时长由缓冲取够 $$B$$ 个组决定，最长的几条序列被中断、下一步续接。它适合卡数不多、模型放得下、但长尾严重的场景：不用定配比、不用跨机同步，就拿到异步的大部分收益。
 

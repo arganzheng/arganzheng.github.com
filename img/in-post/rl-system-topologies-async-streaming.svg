@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 204" width="760" height="204" role="img" aria-labelledby="t d">
+  <title id="t">异步：流式生成与训练</title>
+  <desc id="d">三行共用一条时间轴。rollout 池 42 张卡持续生成，完成一条序列就进一条缓冲，换权重时在飞序列继续。训练池 22 张卡一段接一段地从缓冲取 batch、更新，每段结束时把新权重 θ_t、θ_{t+1}、θ_{t+2} 同步到 rollout 池。缓冲里样本按完成顺序进、训练器取，过期超过 k 步的丢弃或等待。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; fill: #243447; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .sub { font-size: 10px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 14px; font-weight: 700; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-q { fill: #eef5ff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-mark { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; }
+      .stair { fill: #dbe8fb; stroke: none; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
+      .wall { stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; }
+    </style>
+  </defs>
+<text x="16.0" y="45.0" text-anchor="start" class="bold">rollout 池 (42)</text>
+<text x="16.0" y="113.0" text-anchor="start" class="bold">训练池 (22)</text>
+<text x="16.0" y="173.0" text-anchor="start" class="bold">缓冲</text>
+<rect class="seg-a" x="140.0" y="20" width="608.0" height="40"/><text x="444.0" y="44.5" text-anchor="middle" class="small">持续生成：完成一条进一条缓冲，换权重时在飞序列继续</text>
+<rect class="seg-b" x="140.0" y="88" width="180.0" height="40"/><text x="230.0" y="112.5" text-anchor="middle" class="small">取 batch → 更新</text>
+<path d="M320.0 88 V60" class="arrow"/>
+<text x="326.0" y="79.0" text-anchor="start" class="small">同步 θ<tspan class="sub" dy="4">t</tspan><tspan dy="-4">​</tspan></text>
+<rect class="seg-b" x="320.0" y="88" width="180.0" height="40"/><text x="410.0" y="112.5" text-anchor="middle" class="small">取 batch → 更新</text>
+<path d="M500.0 88 V60" class="arrow"/>
+<text x="506.0" y="79.0" text-anchor="start" class="small">同步 θ<tspan class="sub" dy="4">t+1</tspan><tspan dy="-4">​</tspan></text>
+<rect class="seg-b" x="500.0" y="88" width="180.0" height="40"/><text x="590.0" y="112.5" text-anchor="middle" class="small">取 batch → 更新</text>
+<path d="M680.0 88 V60" class="arrow"/>
+<text x="686.0" y="79.0" text-anchor="start" class="small">同步 θ<tspan class="sub" dy="4">t+2</tspan><tspan dy="-4">​</tspan></text>
+<text x="692.0" y="113.0" text-anchor="start" class="small">……</text>
+<rect class="seg-c" x="140.0" y="148" width="608.0" height="40"/><text x="444.0" y="172.5" text-anchor="middle" class="small">样本按完成顺序进；训练器取；过期 &gt; k 步的丢弃或等待</text>
+</svg>
