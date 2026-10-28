@@ -22,6 +22,10 @@ module WikiLinks
 
   def self.tokenize(content)
     text = content.to_s
+    encoding = text.encoding
+    # Scan a binary copy so offset access stays O(1) for multibyte text.
+    # Delimiters are ASCII; token strings are restored to the source encoding below.
+    text = text.b
     tokens = []
     cursor = 0
     line = 1
@@ -57,6 +61,13 @@ module WikiLinks
         append_token(tokens, Token.new(type: :text, raw: char, line: line))
         line += 1 if char == "\n"
         cursor += 1
+      end
+    end
+
+    tokens.each do |token|
+      [:raw, :target, :label].each do |field|
+        value = token.public_send(field)
+        value.force_encoding(encoding) if value
       end
     end
 
