@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 308" width="760" height="308" role="img" aria-labelledby="t d">
+  <title id="t">verbs 对象层级：device、context、PD、MR、QP、CQ</title>
+  <desc id="d">嵌套方框：ibv_device 内是 ibv_context；context 下有 ibv_pd 与 ibv_cq；ibv_pd 内有 ibv_mr（lkey / rkey）与 ibv_qp（SQ + RQ）。QP 的 SQ 和 RQ 分别经 send_cq、recv_cq 绑定到 CQ，一个 CQ 可被多个 QP 共享。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2d3d; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 12px; fill: #46586b; }
+      .frame { fill: #f8fafc; stroke: #9fb3c8; stroke-width: 1.4; }
+      .box { fill: #fff; stroke: #7f97b2; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #9fb3c8; stroke-width: 1.2; }
+      .hcell { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .c-gpu { fill: #d9ead3; stroke: #6a9a5b; stroke-width: 1.4; }
+      .c-host { fill: #fde8e8; stroke: #b94a48; stroke-width: 1.4; }
+      .c-kern { fill: #fff0c2; stroke: #b08a1e; stroke-width: 1.4; }
+      .c-wire { fill: #e8f0fd; stroke: #3a7bd5; stroke-width: 1.4; }
+      .c-recv { fill: #cfe2f3; stroke: #3a6ea5; stroke-width: 1.2; }
+      .c-send { fill: #fde0b8; stroke: #b9772a; stroke-width: 1.2; }
+      .c-st { fill: #eef3f8; stroke: #40566f; stroke-width: 1.4; }
+      .l0 { fill: #f3f6fa; stroke: #7f97b2; stroke-width: 1.4; }
+      .l1 { fill: #e8eff7; stroke: #7f97b2; stroke-width: 1.4; }
+      .l2 { fill: #dce7f3; stroke: #7f97b2; stroke-width: 1.4; }
+      .axis { stroke: #40566f; stroke-width: 1.2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+<rect x="10.0" y="10.0" width="740.0" height="288.0" class="l0"/>
+<text x="24.0" y="32.0" class="monob">ibv_device</text>
+<text x="112.0" y="32.0" class="mono">ibv_get_device_list()  网卡（HCA），如 mlx5_0</text>
+<rect x="26.0" y="46.0" width="708.0" height="236.0" class="l1"/>
+<text x="40.0" y="68.0" class="monob">ibv_context</text>
+<text x="135.8" y="68.0" class="mono">ibv_open_device()</text>
+<rect x="42.0" y="84.0" width="442.0" height="182.0" class="l2"/>
+<text x="56.0" y="106.0" class="monob">ibv_pd</text>
+<text x="112.8" y="106.0" class="mono">ibv_alloc_pd()  Protection Domain</text>
+<rect x="58.0" y="122.0" width="196.0" height="128.0" class="box"/>
+<text x="72.0" y="144.0" class="monob">ibv_mr</text>
+<text x="72.0" y="164.0" class="mono">ibv_reg_mr()</text>
+<text x="72.0" y="184.0" class="small">Memory Region</text>
+<text x="72.0" y="204.0" class="mono">lkey / rkey</text>
+<rect x="274.0" y="122.0" width="194.0" height="128.0" class="box"/>
+<text x="288.0" y="144.0" class="monob">ibv_qp</text>
+<text x="288.0" y="164.0" class="mono">ibv_create_qp()</text>
+<rect x="288.0" y="174.0" width="166.0" height="26.0" class="hcell"/>
+<text x="296.0" y="192.0" class="small">SQ（发送队列）</text>
+<rect x="288.0" y="210.0" width="166.0" height="26.0" class="hcell"/>
+<text x="296.0" y="228.0" class="small">RQ（接收队列）</text>
+<rect x="592.0" y="122.0" width="130.0" height="128.0" class="box"/>
+<text x="606.0" y="144.0" class="monob">ibv_cq</text>
+<text x="606.0" y="164.0" class="mono">ibv_create_cq()</text>
+<text x="606.0" y="186.0" class="small">可被多个 QP</text>
+<text x="606.0" y="204.0" class="small">共享</text>
+<line x1="454.0" y1="187.0" x2="592.0" y2="187.0" class="arrow"/>
+<text x="538.0" y="181.0" class="mono" text-anchor="middle">send_cq</text>
+<line x1="454.0" y1="223.0" x2="592.0" y2="223.0" class="arrow"/>
+<text x="538.0" y="239.0" class="mono" text-anchor="middle">recv_cq</text>
+</svg>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 226" width="760" height="226" role="img" aria-labelledby="t d">
+  <title id="t">接收方经 FIFO 告知地址与 rkey 的时序</title>
+  <desc id="d">一条时间轴，两行。接收方先 post recv WR，再用 RDMA WRITE 把 FIFO 元素写到发送方的 comm->fifo[slot]；发送方在此之前自旋等待，元素到达后校验 tag，ncclIbMultiSend 用 RDMA WRITE 写数据、末尾带 WITH_IMM；接收方 ncclIbTest 轮询 CQ，直到收到 RECV_RDMA_WITH_IMM。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2d3d; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 12px; fill: #46586b; }
+      .frame { fill: #f8fafc; stroke: #9fb3c8; stroke-width: 1.4; }
+      .box { fill: #fff; stroke: #7f97b2; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #9fb3c8; stroke-width: 1.2; }
+      .hcell { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .c-gpu { fill: #d9ead3; stroke: #6a9a5b; stroke-width: 1.4; }
+      .c-host { fill: #fde8e8; stroke: #b94a48; stroke-width: 1.4; }
+      .c-kern { fill: #fff0c2; stroke: #b08a1e; stroke-width: 1.4; }
+      .c-wire { fill: #e8f0fd; stroke: #3a7bd5; stroke-width: 1.4; }
+      .c-recv { fill: #cfe2f3; stroke: #3a6ea5; stroke-width: 1.2; }
+      .c-send { fill: #fde0b8; stroke: #b9772a; stroke-width: 1.2; }
+      .c-st { fill: #eef3f8; stroke: #40566f; stroke-width: 1.4; }
+      .l0 { fill: #f3f6fa; stroke: #7f97b2; stroke-width: 1.4; }
+      .l1 { fill: #e8eff7; stroke: #7f97b2; stroke-width: 1.4; }
+      .l2 { fill: #dce7f3; stroke: #7f97b2; stroke-width: 1.4; }
+      .axis { stroke: #40566f; stroke-width: 1.2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+<line x1="168.0" y1="28.0" x2="730.0" y2="28.0" class="axis"/>
+<text x="730.0" y="20.0" class="muted" text-anchor="end">时间</text>
+<text x="12.0" y="72.0" class="bold">接收方</text>
+<text x="12.0" y="88.0" class="mono">ncclIbIrecv / Test</text>
+<text x="12.0" y="192.0" class="bold">发送方</text>
+<text x="12.0" y="208.0" class="mono">ncclIbIsend</text>
+<rect x="168.0" y="56.0" width="132.0" height="36.0" class="c-recv"/>
+<text x="234.0" y="79.0" class="body" text-anchor="middle">1 post recv WR</text>
+<rect x="300.0" y="56.0" width="140.0" height="36.0" class="c-recv"/>
+<text x="370.0" y="79.0" class="body" text-anchor="middle">2 ncclIbPostFifo</text>
+<rect x="440.0" y="56.0" width="260.0" height="36.0" class="c-recv"/>
+<text x="570.0" y="79.0" class="body" text-anchor="middle">5 ncclIbTest 轮询 CQ</text>
+<rect x="168.0" y="176.0" width="272.0" height="36.0" class="c-send"/>
+<text x="304.0" y="199.0" class="body" text-anchor="middle">3 等 FIFO 元素（自旋）</text>
+<rect x="440.0" y="176.0" width="260.0" height="36.0" class="c-send"/>
+<text x="570.0" y="199.0" class="body" text-anchor="middle">4 校验 tag，ncclIbMultiSend</text>
+<line x1="440.0" y1="92.0" x2="440.0" y2="176.0" class="arrow"/>
+<text x="432.0" y="122.0" class="small" text-anchor="end">RDMA WRITE FIFO 元素</text>
+<text x="432.0" y="140.0" class="mono" text-anchor="end">→ 发送方 comm-&gt;fifo[slot]</text>
+<line x1="700.0" y1="176.0" x2="700.0" y2="92.0" class="arrow"/>
+<text x="692.0" y="122.0" class="small" text-anchor="end">RDMA WRITE 数据</text>
+<text x="692.0" y="140.0" class="small" text-anchor="end">末尾 WITH_IMM（imm = size）</text>
+</svg>

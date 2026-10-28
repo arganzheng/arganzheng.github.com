@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 246" width="760" height="246" role="img" aria-labelledby="t d">
+  <title id="t">QP 状态机：RESET → INIT → RTR → RTS 各需什么</title>
+  <desc id="d">QP 依次经三次 ibv_modify_qp 从 RESET 到 INIT、RTR、RTS。下面的表按转换列出要填的属性：到 INIT 是本地属性 pkey_index、port_num、qp_access_flags；到 RTR 需要对端信息 path_mtu、dest_qp_num、rq_psn、ah_attr（LID 或 GID）、max_dest_rd_atomic、min_rnr_timer；到 RTS 是本地重传参数 timeout、retry_cnt、rnr_retry、sq_psn、max_rd_atomic。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #1f2d3d; }
+      .head { font-size: 14px; font-weight: 700; }
+      .body { font-size: 13px; }
+      .bold { font-size: 13px; font-weight: 700; }
+      .small { font-size: 12px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .muted { font-size: 12px; fill: #46586b; }
+      .frame { fill: #f8fafc; stroke: #9fb3c8; stroke-width: 1.4; }
+      .box { fill: #fff; stroke: #7f97b2; stroke-width: 1.4; }
+      .cell { fill: #fff; stroke: #9fb3c8; stroke-width: 1.2; }
+      .hcell { fill: #eef3f8; stroke: #9fb3c8; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .c-gpu { fill: #d9ead3; stroke: #6a9a5b; stroke-width: 1.4; }
+      .c-host { fill: #fde8e8; stroke: #b94a48; stroke-width: 1.4; }
+      .c-kern { fill: #fff0c2; stroke: #b08a1e; stroke-width: 1.4; }
+      .c-wire { fill: #e8f0fd; stroke: #3a7bd5; stroke-width: 1.4; }
+      .c-recv { fill: #cfe2f3; stroke: #3a6ea5; stroke-width: 1.2; }
+      .c-send { fill: #fde0b8; stroke: #b9772a; stroke-width: 1.2; }
+      .c-st { fill: #eef3f8; stroke: #40566f; stroke-width: 1.4; }
+      .l0 { fill: #f3f6fa; stroke: #7f97b2; stroke-width: 1.4; }
+      .l1 { fill: #e8eff7; stroke: #7f97b2; stroke-width: 1.4; }
+      .l2 { fill: #dce7f3; stroke: #7f97b2; stroke-width: 1.4; }
+      .axis { stroke: #40566f; stroke-width: 1.2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+<rect x="28.0" y="14.0" width="84.0" height="34.0" class="c-st"/>
+<text x="70.0" y="36.0" class="monob" text-anchor="middle">RESET</text>
+<rect x="238.0" y="14.0" width="84.0" height="34.0" class="c-st"/>
+<text x="280.0" y="36.0" class="monob" text-anchor="middle">INIT</text>
+<rect x="448.0" y="14.0" width="84.0" height="34.0" class="c-st"/>
+<text x="490.0" y="36.0" class="monob" text-anchor="middle">RTR</text>
+<rect x="658.0" y="14.0" width="84.0" height="34.0" class="c-st"/>
+<text x="700.0" y="36.0" class="monob" text-anchor="middle">RTS</text>
+<line x1="112.0" y1="31.0" x2="238.0" y2="31.0" class="arrow"/>
+<text x="175.0" y="24.0" class="mono" text-anchor="middle">ibv_modify_qp</text>
+<line x1="322.0" y1="31.0" x2="448.0" y2="31.0" class="arrow"/>
+<text x="385.0" y="24.0" class="mono" text-anchor="middle">ibv_modify_qp</text>
+<line x1="532.0" y1="31.0" x2="658.0" y2="31.0" class="arrow"/>
+<text x="595.0" y="24.0" class="mono" text-anchor="middle">ibv_modify_qp</text>
+<rect x="70.0" y="66.0" width="210.0" height="24.0" class="hcell"/>
+<text x="80.0" y="83.0" class="bold">本地属性</text>
+<rect x="70.0" y="90.0" width="210.0" height="24.0" class="cell"/>
+<text x="80.0" y="107.0" class="mono">pkey_index</text>
+<rect x="70.0" y="114.0" width="210.0" height="24.0" class="cell"/>
+<text x="80.0" y="131.0" class="mono">port_num</text>
+<rect x="70.0" y="138.0" width="210.0" height="24.0" class="cell"/>
+<text x="80.0" y="155.0" class="mono">qp_access_flags</text>
+<rect x="70.0" y="162.0" width="210.0" height="24.0" class="cell"/>
+<rect x="70.0" y="186.0" width="210.0" height="24.0" class="cell"/>
+<rect x="70.0" y="210.0" width="210.0" height="24.0" class="cell"/>
+<rect x="280.0" y="66.0" width="210.0" height="24.0" class="hcell"/>
+<text x="290.0" y="83.0" class="bold">需要对端信息</text>
+<rect x="280.0" y="90.0" width="210.0" height="24.0" class="cell"/>
+<text x="290.0" y="107.0" class="mono">path_mtu</text>
+<rect x="280.0" y="114.0" width="210.0" height="24.0" class="cell"/>
+<text x="290.0" y="131.0" class="mono">dest_qp_num</text>
+<rect x="280.0" y="138.0" width="210.0" height="24.0" class="cell"/>
+<text x="290.0" y="155.0" class="mono">rq_psn</text>
+<rect x="280.0" y="162.0" width="210.0" height="24.0" class="cell"/>
+<text x="290.0" y="179.0" class="mono">ah_attr（LID 或 GID）</text>
+<rect x="280.0" y="186.0" width="210.0" height="24.0" class="cell"/>
+<text x="290.0" y="203.0" class="mono">max_dest_rd_atomic</text>
+<rect x="280.0" y="210.0" width="210.0" height="24.0" class="cell"/>
+<text x="290.0" y="227.0" class="mono">min_rnr_timer</text>
+<rect x="490.0" y="66.0" width="210.0" height="24.0" class="hcell"/>
+<text x="500.0" y="83.0" class="bold">本地重传参数</text>
+<rect x="490.0" y="90.0" width="210.0" height="24.0" class="cell"/>
+<text x="500.0" y="107.0" class="mono">timeout</text>
+<rect x="490.0" y="114.0" width="210.0" height="24.0" class="cell"/>
+<text x="500.0" y="131.0" class="mono">retry_cnt</text>
+<rect x="490.0" y="138.0" width="210.0" height="24.0" class="cell"/>
+<text x="500.0" y="155.0" class="mono">rnr_retry</text>
+<rect x="490.0" y="162.0" width="210.0" height="24.0" class="cell"/>
+<text x="500.0" y="179.0" class="mono">sq_psn</text>
+<rect x="490.0" y="186.0" width="210.0" height="24.0" class="cell"/>
+<text x="500.0" y="203.0" class="mono">max_rd_atomic</text>
+<rect x="490.0" y="210.0" width="210.0" height="24.0" class="cell"/>
+<text x="70.0" y="61.0" class="body"></text>
+</svg>
