@@ -23,7 +23,7 @@ date: 2026-07-18 18:00:00
 
 ![F1：8 张 rank 排成 dp_shard 4 × TP 2 的 DeviceMesh；每张卡常驻 fp32 参数、梯度和 Adam 状态的分片；下方显示该层 unshard 后每张卡临时持有完整 dp_shard 维、仍为 TP 一半的 bf16 参数](/img/in-post/torchtitan-f1-device-mesh.svg)
 
-同一行的两张卡组成 TP 组，行内箭头表示 TP all-reduce；同一列的四张卡组成 `dp_shard` 组，列内箭头表示参数 all-gather。每张 rank 常驻该 TP 矩阵切片在四个 `dp_shard` rank 中的一份 fp32 DTensor 参数、fp32 梯度以及 Adam 的 $$m,v$$。norm 参数在 TP 维复制，不再按 TP 切；16 层各两个 norm 加最终 norm 共 67,584 个参数，只占 tied 总量 $$N$$ 的约 0.0055%。
+同一行的两张卡组成 TP 组。开了 SP 之后，TP 组内的通信是激活的 all-gather 与 reduce-scatter：`colwise_config()` 让输出按最后一维切，`rowwise_config(output_sp=True)` 把 Partial 输出 reduce-scatter 成序列维分片（不开 SP 才是 all-reduce）。同一列的四张卡组成 `dp_shard` 组，负责参数 all-gather 与梯度 reduce-scatter。每张 rank 常驻该 TP 矩阵切片在四个 `dp_shard` rank 中的一份 fp32 DTensor 参数、fp32 梯度以及 Adam 的 $$m,v$$。norm 参数在 TP 维复制，不再按 TP 切；16 层各两个 norm 加最终 norm 共 67,584 个参数，只占 tied 总量 $$N$$ 的约 0.0055%。
 
 一个 step 可以按五步读：
 
@@ -33,7 +33,7 @@ date: 2026-07-18 18:00:00
 4. 反向前再 unshard 一次；梯度按 fp32 reduce-scatter 回各 rank 的分片，完整 bf16 参数与梯度释放。
 5. AdamW 在本地 fp32 分片上更新。更新结果已经是参数分片，不需要再做一次 all-gather；下个 step 前向时按需取回。
 
-先定义字节账里的符号：$$N$$ 是 tied 后的模型参数总数，$$N_d=4$$ 是 FSDP `dp_shard` 度数，$$N_t=2$$ 是 TP 度数。Llama 3.2 1B 的 `_1b()` 显式设置 `enable_weight_tying=True`，所以 embedding 与 lm_head 共用权重。按实际形状求和后 $$N=1,235,814,400$$；03、04 使用未绑定 embedding/head 的 $$1,498,482,688$$，差值正是词表矩阵 $$128256\times2048$$。
+先定义字节账里的符号：$$N$$ 是 tied 后的模型参数总数，$$N_d=4$$ 是 FSDP `dp_shard` 度数，$$N_t=2$$ 是 TP 度数。Llama 3.2 1B 的 `_1b()` 显式设置 `enable_weight_tying=True`，所以 embedding 与 lm_head 共用权重。按实际形状求和后 $$N=1,235,814,400$$；03、04 使用未绑定 embedding/head 的 $$1,498,482,688$$，差值正是词表矩阵 $$128256\times2048$$。`set_decoder_sharding_config()` 把 `tok_embeddings` 与 `lm_head` 的 weight 都声明为 TP `S(0)`，这块共享词表矩阵计入下面的 TP 切分部分。
 
 每个由 TP 切开的参数元素，在每张卡上对应 fp32 参数 4 字节、fp32 梯度 4 字节、Adam 的 $$m,v$$ 共 8 字节。01《状态解剖》的[混合精度字节账](/training-state-anatomy-memory-and-mfu.html#三混合精度的字节账16-与-18)推导了 16 字节这个系数。因此 TP 切开的主要参数，每卡常驻：
 
