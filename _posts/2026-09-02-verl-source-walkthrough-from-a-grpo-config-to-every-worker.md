@@ -24,21 +24,22 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 
 8 卡共置、FSDP、vLLM TP = 2（4 个实例）、`sync` 模式。第 $$t$$ 步的 `update_actor` 结束后，某一层 `q_proj.weight` 的一个 bf16 分片：
 
-```text title="一个 bf16 分片的旅程：从 update_actor 到推理引擎"
- #   在哪个进程                    函数                                                          做什么
- 1   hybrid worker（8 个 Ray actor 之一）  TrainingWorker.train_batch → engine.optimizer_step        fp32 主参数更新 → 写回 bf16 分片（FSDP2 的 DTensor，Shard(0)，1/8）
- 2   driver（单控制器）             PPOTrainerSync.on_step_end → CheckpointEngineManager.update_weights   backend == "naive" → 直接调 actor_wg.update_weights(mode="naive")
- 3   driver → 8 个 hybrid worker    RayWorkerGroup 的 update_weights（@register(ONE_TO_ALL)）       同一调用广播给全组，每个 worker 并行执行 4–9
- 4   hybrid worker                 ActorRolloutRefWorker.update_weights                            set_expandable_segments(False); aggressive_empty_cache
- 5   hybrid worker → vLLM server    rollout.resume(tags=["weights"]) → vLLMHttpServer.wake_up → engine.wake_up(["weights"])   CuMemAllocator 把权重区域挂回（空的）
- 6   hybrid worker                 FSDPEngine.get_per_tensor_param → convert_weight_keys → param.full_tensor()   分片名 → HF 名；8 卡 all-gather 成完整 [h, h] 张量（懒生成器）
- 7   hybrid worker                 vLLMRollout.update_weights → BucketedWeightSender.async_send_weights   完整张量拷进 512 MB bucket；满了 → ZMQ 发 IPC handle + meta
- 8   vLLM worker（同一张卡的另一进程） vLLMColocateWorkerExtension.update_weights_from_ipc → BucketedWeightReceiver → rebuild_ipc → model.load_weights   打开 handle，按 meta 切出 q_proj，vLLM 的 stacked_params_mapping 把它写进 qkv_proj 的对应列（TP=2 取自己的一半）
- 9   hybrid worker → vLLM server    actor.engine.to("cpu") ; rollout.resume(tags=["kv_cache"]) ; server.clear_kv_cache ; set_global_steps(t+1)   训练器参数让出；KV 池挂回；prefix cache 清；版本号推进
-10   driver                        下一步 _step_once → replay_buffer.sample → （缓冲空）→ agent loop 提交 prompt
-11   AgentLoopWorker（CPU Ray actor） AgentLoopBase.run → LLMServerClient.generate → HTTP → vLLMHttpServer.generate   请求进 vLLM
-12   vLLM EngineCore                scheduler → model_runner.execute_model → CUDA graph（地址没变，不重捕获）   decode 一步，qkv_proj 的 GEMM 用的就是 #8 写进去的字节 → 一个 token
-```
+| # | 在哪个进程 | 函数 | 做什么 |
+|---|---|---|---|
+| 1 | hybrid worker（8 个 Ray actor 之一） | <code>TrainingWorker.<wbr>train_batch</code> → `engine.optimizer_step` | fp32 主参数更新 → 写回 bf16 分片（FSDP2 的 DTensor，`Shard(0)`，1/8） |
+| 2 | driver（单控制器） | <code>PPOTrainerSync.<wbr>on_step_end</code> → <code>CheckpointEngineManager.<wbr>update_weights</code> | `backend == "naive"` → 直接调 `actor_wg.update_weights(mode="naive")` |
+| 3 | driver → 8 个 hybrid worker | `RayWorkerGroup` 的 `update_weights`（`@register(ONE_TO_ALL)`） | 同一调用广播给全组，每个 worker 并行执行 4–9 |
+| 4 | hybrid worker | <code>ActorRolloutRefWorker.<wbr>update_weights</code> | `set_expandable_segments(False)`; `aggressive_empty_cache` |
+| 5 | hybrid worker → vLLM server | `rollout.resume(tags=["weights"])` → <code>vLLMHttpServer.<wbr>wake_up</code> → `engine.wake_up(["weights"])` | CuMemAllocator 把权重区域挂回（空的） |
+| 6 | hybrid worker | <code>FSDPEngine.<wbr>get_per_tensor_param</code> → `convert_weight_keys` → `param.full_tensor()` | 分片名 → HF 名；8 卡 all-gather 成完整 [h, h] 张量（懒生成器） |
+| 7 | hybrid worker → vLLM server | <code>ServerAdapter.<wbr>update_weights</code>（`vllm_rollout.py`）→ <code>BucketedWeightSender.<wbr>async_send_weights</code> → `server.clear_kv_cache` ; <code>server.<wbr>set_global_steps(t)</code> | 完整张量拷进 bucket（`update_weights_bucket_megabytes`，默认 2048 MB，上面的脚本设成 4096）；满了 → ZMQ 发 IPC handle + meta；发完清 prefix / mm / encoder cache，版本号推进到 t |
+| 8 | vLLM worker（同一张卡的另一进程） | <code>vLLMColocateWorkerExtension.<wbr>update_weights_from_ipc</code> → `BucketedWeightReceiver` → `rebuild_ipc` → `model.load_weights` | 和 #7 同时跑（#7 先非阻塞地发起这次 `collective_rpc`）：打开 handle，按 meta 切出 q_proj，vLLM 的 `stacked_params_mapping` 把它写进 qkv_proj 里 q 那一段（输出维；TP=2 取自己的一半） |
+| 9 | hybrid worker → vLLM server | `actor.engine.to("cpu")`（只在开了 `param_offload` 时） ; `rollout.resume(tags=["kv_cache"])` → `wake_up` + `reset_prefix_cache` ; `set_expandable_segments(True)` | 训练器参数让出；KV 池挂回 |
+| 10 | driver | 下一步 `step()` → `_add_batch_to_generate()`（agent loop 提交 `train_batch_size` 个 prompt）→ `_step_once` → `replay_buffer.sample` | 等这批 prompt 的组都到终态 |
+| 11 | AgentLoopWorker（CPU Ray actor） | `AgentLoopBase.run` → <code>LLMServerClient.<wbr>generate</code> → Ray RPC（`server.generate.remote`）→ <code>vLLMHttpServer.<wbr>generate</code> | 请求进 vLLM |
+| 12 | vLLM EngineCore | scheduler → <code>model_runner.<wbr>execute_model</code> → CUDA graph（地址没变，不重捕获） | decode 一步，qkv_proj 的 GEMM 用的就是 #8 写进去的字节 → 一个 token |
+
+Table: 一个 bf16 分片的旅程：从 update_actor 到推理引擎
 
 十二步、四类进程（driver、hybrid worker、vLLM server / EngineCore、AgentLoopWorker）、三条链路（Ray RPC、NVLink all-gather、CUDA IPC + ZMQ）。分离形态下第 2 步走 `nccl` / `nixl` / `delta_sharded` 后端，第 6–8 步换成 checkpoint engine 的 `send_weights` / `receive_weights`（第四篇），其余不变。
 
@@ -75,7 +76,7 @@ flowchart TB
     CM -. sleep / wake / update .-> V0
     H0 -. CUDA IPC + ZMQ .-> V0
     H0 <-. NVLink all-gather · FSDP 集合通信 .-> H1
-    AL -. HTTP .-> V0
+    AL -. Ray RPC · generate .-> V0
     AL --> TQ
     RW --> TQ
     H0 -. 按键取样本 .-> TQ
@@ -127,8 +128,8 @@ python3 -m verl.trainer.main_ppo \
 main_ppo.main(config)
   └─ run_ppo(config, TaskRunnerV1)        # Ray init；把 TaskRunner 作为一个 Ray actor 起在 driver 侧（占 1 CPU）
        └─ TaskRunnerV1.run(config)
-            ├─ tq.init(config.transfer_queue)          # TransferQueue：元数据服务 + 存储单元（Ray actor）
             ├─ trainer_cls = get_trainer_cls(config.trainer.v1.trainer_mode)   # "sync" → PPOTrainerSync
+            ├─ tq.init(config.transfer_queue)          # TransferQueue：元数据服务 + 存储单元（Ray actor）
             ├─ trainer = trainer_cls(config); trainer.init()                    # _setup：资源池、worker 组、rollout 实例、checkpoint manager
             ├─ init_agent_loop_manager()               # AgentLoopManagerTQ.create(llm_client=trainer.get_llm_client(), ...)
             └─ trainer.fit(agent_loop_manager)         # 训练循环
@@ -164,7 +165,7 @@ class ActorRolloutRefWorker(Worker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self): ...
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     def update_actor(self, data: TensorDict) -> TensorDict: ...
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
@@ -173,13 +174,15 @@ class ActorRolloutRefWorker(Worker):
 
 装饰器只在方法上挂一个属性 `{dispatch_mode, execute_mode, blocking}`。`RayWorkerGroup` 构造时 `_bind_worker_method` 扫描 worker 类的所有方法，对带这个属性的每一个，在**组对象上生成同名方法**：
 
-- **组方法 update_actor(data)**
-  - 1. dispatch_fn(worker_group, data) → 把 data 按 DP 切成 world_size 份（nd_compute：按 "train" mesh 的 dp 维切，TP/PP 内的 rank 拿同一份）
-  - 2. execute_fn → 对每个 worker 调 worker.update_actor.remote(chunk_i)（execute_all）
-  - 3. collect_fn(worker_group, outputs) → 收回各 rank 的输出，按 mesh 拼回（只从每个 dp 组的一个 rank 收）
-  - blocking=False → 返回 futures，调用方用 ray.get 或直接传给下一个组方法（_materialize_futures 自动等待）
+组方法 `update_actor(data)`：
 
-`Dispatch.ONE_TO_ALL`：同一参数发给全组，收回列表（`init_model`、`update_weights`、`to(device)`）；`DP_COMPUTE_PROTO`：按 DP 切 `DataProto`；`make_nd_compute_dataproto_dispatch_fn(mesh_name)`：按 worker 上注册的 device mesh（"train" 是 actor 的 FSDP mesh、"ref" 是 ref 的）切，让 TP × PP × DP 的任意并行都能正确分发——这是 0.9 里 Megatron 与 FSDP 共用同一套分发的关键。**控制器代码里一行 `self.actor_rollout_wg.update_actor(batch)`，底下就是"切、发、收"三步**，算法作者不碰 rank。
+1. `dispatch_fn(worker_group, data)` → 把 data 按 DP 切成 world_size 份（nd_compute：按 "actor" mesh 的 dp 维切，TP/PP 内的 rank 拿同一份）
+2. `execute_fn` → 对每个 worker 调 `worker.update_actor.remote(chunk_i)`（execute_all）
+3. `collect_fn(worker_group, outputs)` → 收回各 rank 的输出，按 mesh 拼回（只从每个 dp 组的一个 rank 收）
+
+注册时写了 `blocking=False` 的方法（如 `update_weights`、`TrainingWorker.train_mini_batch`）不等第 3 步，直接返回 futures，调用方用 `ray.get` 或直接传给下一个组方法（`_materialize_futures` 自动等待）。
+
+`Dispatch.ONE_TO_ALL`：同一参数发给全组，收回列表（`init_model`、`update_weights`、`to(device)`）；`DP_COMPUTE_PROTO`：按 DP 切 `DataProto`；`make_nd_compute_dataproto_dispatch_fn(mesh_name)`：按 worker 上注册的 device mesh（"actor" 是 actor 的 FSDP mesh、"ref" 是 ref 的；`TrainingWorker` 自己的方法用 "train"）切，让 TP × PP × DP 的任意并行都能正确分发——这是 0.9 里 Megatron 与 FSDP 共用同一套分发的关键。**控制器代码里一行 `self.actor_rollout_wg.update_actor(batch)`，底下就是"切、发、收"三步**，算法作者不碰 rank。
 
 ### 3. 代价与绕开它的地方
 
@@ -229,31 +232,31 @@ for resource_pool, class_dict in self.resource_pool_to_cls.items():
 ```text title="角色层、训练 worker 层、引擎层"
 ActorRolloutRefWorker（verl/workers/engine_workers.py）        —— 角色层：知道 actor / ref / rollout 三者的关系与顺序
   ├── self.actor: TrainingWorker                                 —— 训练 worker 层：train_batch / infer_batch / to(device) / checkpoint；不知道 RL
-  │     └── self.engine: BaseEngine（FSDPEngine | MegatronEngine | VeOmniEngine | TorchTitanEngine | AutoModelEngine）
+  │     └── self.engine: BaseEngine（FSDPEngine | MegatronEngine | VeOmniEngine | TorchTitanEngine | AutomodelEngine）
   │                                                              —— 引擎层：build model / optimizer；forward_backward_step；get_per_tensor_param；offload
   ├── self.ref: TrainingWorker（同一引擎类，无优化器；LoRA 时 ref 复用 actor 的 base）
-  ├── self.rollout: vLLMRollout | SGLangRollout | TRTLLMRollout    —— 推理引擎的**句柄**（server 模式：指向另一个进程的 server）
-  └── self.checkpoint_engine: 按 config.rollout.checkpoint_engine.backend 建（共置下强制 naive）
+  ├── self.rollout: ServerAdapter（vllm_rollout | sglang_rollout | trtllm_rollout 各一个）  —— 推理引擎的句柄（server 模式：指向另一个进程的 server）
+  └── self.checkpoint_engine: 按 config.rollout.checkpoint_engine.backend 建（默认 naive）
 ```
 
 `TrainingWorker` 是通用的：critic 用它、蒸馏的 teacher 用它、SFT 也用它。它把一次 `train_batch(data)` 展开为：按 `ppo_micro_batch_size` 或动态 token 数（`use_dynamic_bsz` + `ppo_max_token_len_per_gpu`）切 micro-batch → 每个 micro-batch `engine.forward_backward_step`（loss_fn 由 `set_loss_fn` 注入——PPO 的 policy loss 在 `trainer/ppo/core_algos.py`，trainer 在 `_setup` 里注入）→ 梯度累积 → `engine.optimizer_step`。RL 特有的东西（哪些位置算 loss、优势怎么用）全在 loss_fn 里，worker 不知道。
 
 ### 2. `init_model`
 
-`ActorRolloutRefWorker.init_model()`（`@register(ONE_TO_ALL)`，每个 worker 并行执行）：先建 ref（若有，配置从 actor 派生、MTP 强制关）、再建 actor（`TrainingWorker(config)` → `engine.initialize()` 建 FSDP 模型与优化器）、最后建 rollout 句柄——**server 模式下这里不启动 vLLM**，只是 `vLLMRollout` 对象记下 `replica_rank / rollout_rank`，真正的 server 由 `LLMServerManager` 在 `_setup` 的后半段起（第六章），起好后 `_ensure_server_handle()` 按名字（`vllm_<replica>` 前缀）找到它。
+`ActorRolloutRefWorker.init_model()`（`@register(ONE_TO_ALL)`，每个 worker 并行执行）：先建 ref（若有，配置从 actor 派生、MTP 强制关）、再建 actor（`TrainingWorker(config)` → `engine.initialize()` 建 FSDP 模型与优化器）、最后建 rollout 句柄——**server 模式下这里不启动 vLLM**，只是 `ServerAdapter`（`vllm_rollout/vllm_rollout.py`）对象记下 `replica_rank / rollout_rank`，真正的 server 由 `LLMServerManager` 在 `_setup` 的后半段起（第六章），起好后 `_ensure_server_handle()` 按名字（`vllm_<replica>` 前缀）找到它。
 
-### 3. 三个 `@register` 方法与前六篇的对应
+### 3. `@register` 方法与前六篇的对应
 
 | 方法 | 分发 | 做什么 | 对应 |
 |---|---|---|---|
-| compute_log_prob(data) | nd_compute("train") | actor.infer_batch → 旧策略 log π | 第一篇：重算 2N；第五篇：bypass 时跳过 |
+| compute_log_prob(data) | nd_compute("actor") | actor.infer_batch → 旧策略 log π | 第一篇：重算 2N；第五篇：bypass 时跳过 |
 | compute_ref_log_prob(data) | nd_compute("ref") | ref.to(cuda) → infer → ref.to(cpu)（若 offload） | 第三篇：ref 的 8 GB 往返 |
-| update_actor(data) | nd_compute("train"), non-blocking | actor.to(cuda, optimizer=True) → train_batch → to(cpu) | 第一篇：6N；第三篇：优化器状态往返 |
+| update_actor(data) | nd_compute("actor") | actor.train_mini_batch：train_mode() 里按 offload 配置把参数 / 优化器搬上 GPU → 逐 mini-batch train_batch → 退出时搬回 CPU | 第一篇：6N；第三篇：优化器状态往返 |
 | update_weights(global_steps, mode) | ONE_TO_ALL（async） | 第一章表的 #4–#9 | 第三、四篇 |
 | save_model_to_cpu / restore_model_from_cpu（DetachActorWorker） | ONE_TO_ALL | decoupled PPO 的 π_prox 快照 | 第五篇 |
 | execute_checkpoint_engine(method) | DP_COMPUTE | 转发给 checkpoint engine（prepare / init_process_group / finalize） | 第四篇 |
 
-Table: 三个 @register 方法的分发方式与前六篇的对应
+Table: @register 方法的分发方式与前六篇的对应
 
 ### 4. 引擎的边界
 
@@ -339,10 +342,10 @@ def _step_once(self, metrics, timing_raw, sample_batch_size):
 
 ```text title="_compute_old_log_prob 与 _update_actor"
 _compute_old_log_prob(batch)
-  → self.actor_rollout_wg.compute_log_prob(batch)        # nd_compute("train") 分发；worker 从 TQ 取张量、infer_batch、写回 log_probs 列
-  → 若 rollout_log_probs 在：算 rollout_probs_diff 指标   # 第五篇的训推不一致基线
+  → self.actor_rollout_wg.compute_log_prob(batch)        # nd_compute("actor") 分发；worker 从 TQ 取张量、infer_batch、写回 log_probs 列
+  → 若 rollout.calculate_log_probs：calculate_debug_metrics 算 training/rollout_probs_diff_* 指标   # 第五篇的训推不一致基线
 _update_actor(batch)
-  → self.actor_rollout_wg.update_actor(batch)            # non-blocking；worker：to(cuda) → train_batch（micro-batch 循环、loss_fn = ppo policy loss）→ to(cpu)
+  → self.actor_rollout_wg.update_actor(batch)            # 阻塞调用；worker：train_mini_batch → train_mode()（按 offload 配置搬上 GPU）→ 逐 mini-batch train_batch（micro-batch 循环、loss_fn = ppo policy loss）→ 退出时搬回 CPU
   → 收回 actor/* 指标（pg_loss、clip 比例、grad_norm、entropy）
 ```
 
@@ -358,16 +361,16 @@ v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`�
 
 `CheckpointEngineManager`（`verl/checkpoint_engine/base.py`）在构造时按 `config.rollout.checkpoint_engine.backend` 选引擎类（`CheckpointEngineRegistry`），`update_weights()` 分两条：
 
-- **backend == "naive"（共置 sync / colocate_async）**
-  - → actor_wg.update_weights(mode="naive")：第一章表 #4–#9，进程内 IPC；manager 不做别的
-- **其他（nccl / nixl / mooncake / kimi / hccl / delta_sharded；分离）**
-  - **1 abort_replicas()**：中断在飞请求（部分 rollout）
-  - 2 临时组一个 RayWorkerGroup 包住所有 replica 的 workers
-  - **3 release_kv_cache_replicas()**：（vLLM 侧目前是 no-op，TODO）
-  - 4 build_process_group(rollout) actor_wg.execute_checkpoint_engine("prepare") 拿 master 元数据 → 两侧 init_process_group
-  - **5 ray.get(actor_wg.update_weights(mode=backend) + rollout.update_weights())**：训练侧 send_weights ∥ 推理侧 receive_weights
-  - **6 execute_checkpoint_engine("finalize")**：两侧销毁临时进程组
-  - **7 resume_kv_cache_replicas(); resume_generation_replicas()**：恢复 KV、续接请求
+- `backend == "naive"`（共置 sync / colocate_async）
+  - → `actor_wg.update_weights(mode="naive")`：第一章表 #4–#9，进程内 IPC；manager 不做别的
+- 其他（nccl / nixl / mooncake / kimi / hccl / delta_sharded；分离）
+  1. `abort_replicas()`：中断在飞请求（部分 rollout）
+  2. 临时组一个 `RayWorkerGroup` 包住所有 replica 的 workers
+  3. `release_kv_cache_replicas()`：vLLM 侧目前是 no-op（TODO）
+  4. `build_process_group(rollout)`：`actor_wg.execute_checkpoint_engine("prepare")` 拿 master 元数据 → 两侧 `init_process_group`
+  5. `ray.get(actor_wg.update_weights(mode=backend) + rollout.update_weights())`：训练侧 `send_weights` ∥ 推理侧 `receive_weights`
+  6. `execute_checkpoint_engine("finalize")`：两侧销毁临时进程组
+  7. `resume_kv_cache_replicas()`; `resume_generation_replicas()`：恢复 KV、续接请求
 
 第 5 步训练侧走 `ActorRolloutRefWorker.update_weights(mode != "naive")` 的分支：`delta_sharded` 把整个 `actor.engine` 交给引擎（它自己驱动 seed / steady 状态机与快照）；其他后端先 `get_per_tensor_param()` 拿生成器再 `checkpoint_engine.send_weights(generator)`。推理侧 `CheckpointEngineWorker.update_weights()` 在每个 rollout worker 上跑：`receive_weights()` 产出张量流 → `rollout.update_weights(流)` → IPC 进 vLLM——**最后一跳仍是第一章的 #7–#8**。
 
@@ -387,7 +390,7 @@ v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`�
 
 ### 3. 版本号
 
-`update_weights(global_steps)` 一路把 `global_steps` 带到最后：`vLLMRollout.update_weights` 末尾 `server_handle.set_global_steps.remote(global_steps)`，server 记下；agent loop 从 server 的响应里拿到版本、写进 `AgentLoopOutput` 的元数据 → TransferQueue 的 tag → `ReplayBuffer` 算 staleness（第五篇）。
+`update_weights(global_steps)` 一路把 `global_steps` 带到最后：`ServerAdapter.update_weights` 末尾 `server_handle.set_global_steps.remote(global_steps)`，server 记下；agent loop 从 server 的响应里拿到版本、写进 `AgentLoopOutput` 的元数据 → TransferQueue 的 tag → `ReplayBuffer` 算 staleness（第五篇）。
 
 ## 九、样本通路与异步
 
@@ -572,4 +575,4 @@ Table: verl 源码索引
 
    </details>
 
-[^q0]: 十二步：`train_batch` 更新本 rank 的分片 → `on_step_end` → `CheckpointEngineManager.update_weights`（naive 后端）→ `ActorRolloutRefWorker.update_weights` → 推理引擎 `wake_up(["weights"])`（只挂权重区）→ `get_per_tensor_param`（FSDP / Megatron 逐参数 all-gather 成 HF 名字与形状的张量流）→ `BucketedWeightSender`（512 MB 桶，CUDA IPC 句柄 + ZMQ 元数据）→ 同卡 vLLM 进程里的 `vLLMColocateWorkerExtension.update_weights_from_ipc`（打开句柄、取自己的 TP 分片、`load_weights`）→ 全部桶完成后 `wake_up(["kv_cache"])` → `reset_prefix_cache` → `resume` 调度 → 下一步 `generate` 的第一个 token。**进程**：driver（单控制器）、hybrid worker 进程（一个进程持有 actor / ref / rollout 多个角色对象，`create_colocated_worker_cls` 拼、`spawn` 拆句柄）、同卡的 vLLM 进程（`RolloutReplica` + `vLLMHttpServer` 包 `AsyncLLM`）。**链路**：进程内 all-gather 走 NCCL、跨进程走 CUDA IPC（共置）、非 naive 后端走 NCCL 双缓冲广播 / NIXL、Mooncake 环 / delta 稀疏 gather。详见[第三](#三单控制器rayworkergroup-与-register)至[六章](#六rollout-server实例负载均衡sleep--wake)、[第八章](#八权重同步checkpoint-engine-的三条路)。
+[^q0]: 十二步：`train_batch` 更新本 rank 的分片 → `on_step_end` → `CheckpointEngineManager.update_weights`（naive 后端）→ `ActorRolloutRefWorker.update_weights` → 推理引擎 `wake_up(["weights"])`（只挂权重区）→ `get_per_tensor_param`（FSDP / Megatron 逐参数 all-gather 成 HF 名字与形状的张量流）→ `BucketedWeightSender`（桶默认 2048 MB，CUDA IPC 句柄 + ZMQ 元数据）→ 同卡 vLLM 进程里的 `vLLMColocateWorkerExtension.update_weights_from_ipc`（打开句柄、取自己的 TP 分片、`load_weights`）→ 全部桶完成后 `wake_up(["kv_cache"])` → `reset_prefix_cache` → `resume` 调度 → 下一步 `generate` 的第一个 token。**进程**：driver（单控制器）、hybrid worker 进程（一个进程持有 actor / ref / rollout 多个角色对象，`create_colocated_worker_cls` 拼、`spawn` 拆句柄）、同卡的 vLLM 进程（`RolloutReplica` + `vLLMHttpServer` 包 `AsyncLLM`）。**链路**：进程内 all-gather 走 NCCL、跨进程走 CUDA IPC（共置）、非 naive 后端走 NCCL 双缓冲广播 / NIXL、Mooncake 环 / delta 稀疏 gather。详见[第三](#三单控制器rayworkergroup-与-register)至[六章](#六rollout-server实例负载均衡sleep--wake)、[第八章](#八权重同步checkpoint-engine-的三条路)。
