@@ -39,7 +39,16 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends webp
 
       - name: Build
-        run: ruby -v && bundle exec jekyll build --future --strict_front_matter
+        run: |
+          ruby -v
+          for i in 1 2; do
+            rm -rf .jekyll-cache
+            /usr/bin/time -f "noYJIT wall %e s, maxrss %M KB" env -u RUBY_YJIT_ENABLE bundle exec jekyll build --future --strict_front_matter -d /tmp/ab-no | grep "done in"
+            rm -rf .jekyll-cache
+            /usr/bin/time -f "YJIT wall %e s, maxrss %M KB" bundle exec jekyll build --future --strict_front_matter -d /tmp/ab-yes | grep "done in"
+          done
+          rm -rf .jekyll-cache
+          bundle exec jekyll build --future --strict_front_matter
         env:
           JEKYLL_ENV: production
           RUBY_YJIT_ENABLE: '1'
