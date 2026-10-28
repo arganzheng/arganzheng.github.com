@@ -41,14 +41,14 @@ flowchart TB
 
 面对一个大型代码库，贡献者典型的失败方式有四种，它们都源于"读法不对"而非"读不懂"：
 
-```text title="四种失败方式"
-失败方式                 表现                                                    根因
-───────────────────────  ──────────────────────────────────────────────────────  ──────────────────────────────
-从头读                   打开仓库根目录，按字母序点开子目录，一天后只看完 c10/ 的一半    没有目标；百万行不可能通读
-随便点开一个文件读        从 torch/__init__.py 往下追，被 import 链带进 20 个文件      没有先画地图，不知道哪层做什么
-被生成代码卡住            "找不到定义"、"找不到头文件"，以为仓库不完整                  不知道哪些文件是构建时生成的
-只读代码不读测试与历史     猜一个函数"应该"做什么；不知道为什么它是这样写的               忽略了测试是规格、commit 是注释
-```
+| 失败方式 | 表现 | 根因 |
+|---|---|---|
+| 从头读 | 打开仓库根目录，按字母序点开子目录，一天后只看完 `c10/` 的一半 | 没有目标；百万行不可能通读 |
+| 随便点开一个文件读 | 从 `torch/__init__.py` 往下追，被 import 链带进 20 个文件 | 没有先画地图，不知道哪层做什么 |
+| 被生成代码卡住 | "找不到定义"、"找不到头文件"，以为仓库不完整 | 不知道哪些文件是构建时生成的 |
+| 只读代码不读测试与历史 | 猜一个函数"应该"做什么；不知道为什么它是这样写的 | 忽略了测试是规格、commit 是注释 |
+
+Table: 四种失败方式
 
 四种失败的共同点是把"读代码"当成一种线性活动。在一个人能通读的规模（几万行）里这没问题；超过这个规模，阅读必须是**有目标的检索**：从一个符号、一个报错、一个 issue 出发，用工具追到底，只读路径上的东西。
 
@@ -56,16 +56,16 @@ flowchart TB
 
 六个步骤，与项目无关：
 
-```text title="六个步骤"
-步骤          做什么                                          为什么
-────────────  ──────────────────────────────────────────────  ────────────────────────────────────────────
-1 画地图      列出顶层目录与一句话职责；找到项目自带的"地图"文件   知道每一层做什么，才知道一个符号该在哪一层找
-2 找入口      从用户可见的 API 或命令出发，追到第一个"真正干活"的文件   入口点是所有追踪的起点；每个项目的入口结构固定
-3 识别生成代码 知道哪些目录/文件是构建时生成的、由什么模板生成      避免在仓库里找不存在的文件；知道去改模板而不是产物
-4 构建一次    得到 compile_commands.json、生成的头文件与 .pyi      clangd 与 IDE 跳转需要它；没有它 C++ 侧无法追踪
-5 读测试      找到与目标符号相关的测试文件与测试框架的约定         测试是最准确的行为规格；也是改动后要跑的东西
-6 读历史      git log -S / blame -w -C，顺着 PR 链接看当时的讨论   "为什么这样写"的答案在引入它的那次改动里
-```
+| 步骤 | 做什么 | 为什么 |
+|---|---|---|
+| 1 画地图 | 列出顶层目录与一句话职责；找到项目自带的"地图"文件 | 知道每一层做什么，才知道一个符号该在哪一层找 |
+| 2 找入口 | 从用户可见的 API 或命令出发，追到第一个"真正干活"的文件 | 入口点是所有追踪的起点；每个项目的入口结构固定 |
+| 3 识别生成代码 | 知道哪些目录/文件是构建时生成的、由什么模板生成 | 避免在仓库里找不存在的文件；知道去改模板而不是产物 |
+| 4 构建一次 | 得到 `compile_commands.json`、生成的头文件与 `.pyi` | clangd 与 IDE 跳转需要它；没有它 C++ 侧无法追踪 |
+| 5 读测试 | 找到与目标符号相关的测试文件与测试框架的约定 | 测试是最准确的行为规格；也是改动后要跑的东西 |
+| 6 读历史 | `git log -S` / `blame -w -C`，顺着 PR 链接看当时的讨论 | "为什么这样写"的答案在引入它的那次改动里 |
+
+Table: 六个步骤
 
 每一步的产出都写进贡献日志的"项目地图"页（第九章），下一次遇到同一项目的问题时直接从地图开始。
 
@@ -73,19 +73,19 @@ flowchart TB
 
 同一个步骤，两个项目提供的辅助不同：
 
-```text title="同一步骤在 PyTorch 与 vLLM 里的辅助"
-环节              PyTorch v2.14.0                                        vLLM v0.28.0
-────────────────  ─────────────────────────────────────────────────────  ──────────────────────────────────────────────
-自带地图          CONTRIBUTING.md 的 "Codebase structure" 一节；各子目录 README   docs/contributing/ 目录（README.md 等 16 个文件）；无目录职责表
-语言分层          c10/ aten/ torch/csrc/（C++）→ torch/（Python）           csrc/（CUDA/C++）→ vllm/（Python）；Python 占绝大多数
-算子登记表        aten/src/ATen/native/native_functions.yaml               csrc/libtorch_stable/torch_bindings.cpp 的 STABLE_TORCH_LIBRARY_FRAGMENT
-Python 入口       torch/__init__.py 从 torch._C._VariableFunctions 导入      pyproject.toml 的 [project.scripts]：vllm = vllm.entrypoints.cli.main:main
-生成代码          torchgen 生成 ATen/ops/*.h、python_torch_functions_N.cpp、.pyi   编译产物 _C_stable_libtorch.abi3.so 等；无源码级生成
-构建命令          pip install -e . -v --no-build-isolation；tools/nightly.py    VLLM_USE_PRECOMPILED=1 uv pip install -e .；incremental_build.md
-测试框架          unittest + torch/testing/_internal/（TestCase、OpInfo）     pytest；tests/ 按子系统分目录
-commit 与 PR 的链接  正文含 Pull Request resolved: 与 Approved by:              标题带 (#PR 号)；正文多为 Signed-off-by 与 Co-authored-by
-发布节奏          RELEASE.md：按日程切 release 分支，约每两个月一个 minor 版本    RELEASE.md：约每两周一版，v0.12.0 起常规发布递增 minor
-```
+| 环节 | PyTorch v2.14.0 | vLLM v0.28.0 |
+|---|---|---|
+| 自带地图 | `CONTRIBUTING.md` 的 "Codebase structure" 一节；各子目录 README | `docs/contributing/` 目录（`README.md` 等 16 个文件）；无目录职责表 |
+| 语言分层 | `c10/` `aten/` `torch/csrc/`（C++）→ `torch/`（Python） | `csrc/`（CUDA/C++）→ `vllm/`（Python）；Python 占绝大多数 |
+| 算子登记表 | `aten/src/ATen/native/native_functions.yaml` | `csrc/libtorch_stable/torch_bindings.cpp` 的 `STABLE_TORCH_LIBRARY_FRAGMENT` |
+| Python 入口 | `torch/__init__.py` 从 `torch._C._VariableFunctions` 导入 | `pyproject.toml` 的 `[project.scripts]`：`vllm = vllm.entrypoints.cli.main:main` |
+| 生成代码 | `torchgen` 生成 `ATen/ops/*.h`、`python_torch_functions_N.cpp`、`.pyi` | 编译产物 `_C_stable_libtorch.abi3.so` 等；无源码级生成 |
+| 构建命令 | `pip install -e . -v --no-build-isolation`；`tools/nightly.py` | `VLLM_USE_PRECOMPILED=1 uv pip install -e .`；`incremental_build.md` |
+| 测试框架 | unittest + `torch/testing/_internal/`（`TestCase`、OpInfo） | pytest；`tests/` 按子系统分目录 |
+| commit 与 PR 的链接 | 正文含 `Pull Request resolved:` 与 `Approved by:` | 标题带 `(#PR 号)`；正文多为 `Signed-off-by` 与 `Co-authored-by` |
+| 发布节奏 | `RELEASE.md`：按日程切 release 分支，约每两个月一个 minor 版本 | `RELEASE.md`：约每两周一版，v0.12.0 起常规发布递增 minor |
+
+Table: 同一步骤在 PyTorch 与 vLLM 里的辅助
 
 ### 4. 本文的章节安排
 
@@ -225,11 +225,14 @@ CPU kernel 是 `aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 里的 `logaddexp_
 
 把这条链写成一行，它对任何 `torch.<op>` 都适用：
 
-```text title="torch.<op> 到 kernel 的一行链"
-torch.<op>  →  torch/__init__.py 从 torch._C._VariableFunctions 导入
-            →  native_functions.yaml 的 "- func: <op>" 条目（看 dispatch: 与 structured_delegate:）
-            →  aten/src/ATen/native/<Something>.cpp 的 TORCH_IMPL_FUNC / 普通函数（常经过宏与 DEFINE_DISPATCH）
-            →  aten/src/ATen/native/{cpu,cuda,mps,...}/<Kernel>.{cpp,cu,mm} 里的 kernel，用 REGISTER_DISPATCH 注册
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
+%% 图：torch.&lt;op&gt; 到 kernel 的一行链
+flowchart TB
+    A["<b>torch.&lt;op&gt;</b>"] --> B["<b>torch/__init__.py</b><br/>从 torch._C._VariableFunctions 导入"]
+    B --> C["<b>native_functions.yaml</b> 的 #quot;- func: &lt;op&gt;#quot; 条目<br/>看 dispatch: 与 structured_delegate:"]
+    C --> D["<b>aten/src/ATen/native/&lt;Something&gt;.cpp</b><br/>TORCH_IMPL_FUNC / 普通函数（常经过宏与 DEFINE_DISPATCH）"]
+    D --> E["<b>aten/src/ATen/native/{cpu,cuda,mps,...}/&lt;Kernel&gt;.{cpp,cu,mm}</b><br/>里的 kernel，用 REGISTER_DISPATCH 注册"]
 ```
 
 中间那一层——`torch._C._VariableFunctions` 的 C++ 实现——不在仓库的静态文件里。`tools/autograd/templates/python_torch_functions.cpp` 是模板，`tools/autograd/gen_python_functions.py` 按 yaml 为每个算子生成一个 `THPVariable_<op>` 函数，分三个 shard 输出到 `torch/csrc/autograd/generated/python_torch_functions_0.cpp` 等（`num_shards=3`）；`torch/csrc/autograd/python_torch_functions_manual.cpp` 的 `gatherTorchFunctions()` 把三个 shard 收集起来，`initTorchFunctions()` 把它们注册为 `torch._C._VariableFunctions` 模块。`torch/csrc/autograd/generated/` 整个目录在 `.gitignore` 里，构建前不存在。
@@ -282,13 +285,18 @@ async_llm = AsyncLLM.from_vllm_config(...)
 
 写成一行：
 
-```text title="vllm serve 到引擎的一行链"
-vllm serve  →  pyproject.toml [project.scripts]
-            →  vllm/entrypoints/cli/main.py  main()
-            →  vllm/entrypoints/cli/serve.py  ServeSubcommand.cmd()
-            →  vllm/entrypoints/openai/api_server.py  run_server() / build_async_engine_client_from_engine_args()
-            →  vllm/v1/engine/async_llm.py  AsyncLLM  →  vllm/v1/engine/core_client.py  EngineCoreClient
-            →  vllm/v1/engine/core.py  EngineCore / EngineCoreProc  →  vllm/v1/core/sched/  调度器
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
+%% 图：vllm serve 到引擎的一行链
+flowchart TB
+    A["<b>vllm serve</b>"] --> B["<b>pyproject.toml</b><br/>[project.scripts]"]
+    B --> C["<b>vllm/entrypoints/cli/main.py</b><br/>main()"]
+    C --> D["<b>vllm/entrypoints/cli/serve.py</b><br/>ServeSubcommand.cmd()"]
+    D --> E["<b>vllm/entrypoints/openai/api_server.py</b><br/>run_server() / build_async_engine_client_from_engine_args()"]
+    E --> F["<b>vllm/v1/engine/async_llm.py</b><br/>AsyncLLM"]
+    F --> G["<b>vllm/v1/engine/core_client.py</b><br/>EngineCoreClient"]
+    G --> H["<b>vllm/v1/engine/core.py</b><br/>EngineCore / EngineCoreProc"]
+    H --> I["<b>vllm/v1/core/sched/</b><br/>调度器"]
 ```
 
 从命令到调度器六跳，全在 Python 里，`rg` 加"跳转到定义"就能走完。vLLM 的语言边界在更下面：当追到 `vllm/model_executor/layers/layernorm.py` 里调用 `ops.rms_norm(...)`（`from vllm import _custom_ops as ops`）时，`vllm/_custom_ops.py` 的 `rms_norm()` 只有一行 `torch.ops._C.rms_norm(out, input, weight, epsilon)`，这里 Python 侧到头了——`torch.ops._C` 是编译好的扩展模块注册进来的算子，下一章说怎么追。
@@ -305,16 +313,16 @@ PyTorch 有大量代码不在仓库里，而是构建时由 `torchgen/` 与 `too
 
 生成物的位置（v2.14.0 的 `.gitignore` 与 `cmake/Codegen.cmake` 为准）：
 
-```text title="torchgen 生成物的位置"
-生成物                                        位置                                          来源
-────────────────────────────────────────────  ──────────────────────────────────────────  ────────────────────────────────────────────
-ATen/ops/<op>.h、<op>_native.h、<op>_ops.h 等   build/aten/src/ATen/ops/（安装后 torch/include/ATen/ops/）   torchgen/gen.py 读 native_functions.yaml
-RegisterCPU.cpp、RegisterCUDA.cpp 等分发注册   build/aten/src/ATen/                          torchgen/gen.py
-python_torch_functions_{0,1,2}.cpp 等 Python 绑定  torch/csrc/autograd/generated/（.gitignore 整目录）  tools/autograd/gen_python_functions.py + tools/autograd/templates/
-VariableType_N.cpp 等 autograd 包装             torch/csrc/autograd/generated/                 tools/autograd/ 的模板
-torch/_C/_VariableFunctions.pyi、__init__.pyi、_nn.pyi   torch/_C/（.gitignore 逐文件列出）      tools/pyi/gen_pyi.py 从同名 .pyi.in 生成
-torch/_VF.pyi、torch/return_types.pyi、torch/nn/functional.pyi   同上                       同上
-```
+| 生成物 | 位置 | 来源 |
+|---|---|---|
+| `ATen/ops/<op>.h`、`<op>_native.h`、`<op>_ops.h` 等 | `build/aten/src/ATen/ops/`（安装后 `torch/include/ATen/ops/`） | `torchgen/gen.py` 读 `native_functions.yaml` |
+| `RegisterCPU.cpp`、`RegisterCUDA.cpp` 等分发注册 | `build/aten/src/ATen/` | `torchgen/gen.py` |
+| `python_torch_functions_{0,1,2}.cpp` 等 Python 绑定 | `torch/csrc/autograd/generated/`（`.gitignore` 整目录） | `tools/autograd/gen_python_functions.py` + `tools/autograd/templates/` |
+| `VariableType_N.cpp` 等 autograd 包装 | `torch/csrc/autograd/generated/` | `tools/autograd/` 的模板 |
+| `torch/_C/_VariableFunctions.pyi`、`__init__.pyi`、`_nn.pyi` | `torch/_C/`（`.gitignore` 逐文件列出） | `tools/pyi/gen_pyi.py` 从同名 `.pyi.in` 生成 |
+| `torch/_VF.pyi`、`torch/return_types.pyi`、`torch/nn/functional.pyi` | `torch/`、`torch/nn/`（`.gitignore` 逐文件列出） | `tools/pyi/gen_pyi.py`：`_VF.pyi` 从 `torch/_C/_VariableFunctions.pyi.in`，`return_types.pyi` 从 `torch/_C/return_types.pyi.in`，`functional.pyi` 从同名 `torch/nn/functional.pyi.in` |
+
+Table: torchgen 生成物的位置
 
 `cmake/Codegen.cmake` 里能看到这些生成物是怎么进入构建的：它先以 `--dry-run` 跑一次 `torchgen`，得到 `${CMAKE_BINARY_DIR}/aten/src/ATen/ops_generated_*.cmake` 等清单，再 `include` 进来。这也解释了为什么 `aten/src/ATen/native/BinaryOps.cpp` 能 `#include <ATen/ops/logaddexp_native.h>`：这个头文件在 `build/aten/src/ATen/ops/` 下，构建后 `torch/include/ATen/ops/` 里也有一份。
 
@@ -346,10 +354,15 @@ rg -ln 'void rms_norm\(' csrc
 
 vLLM 版的一行链：
 
-```text title="vLLM 版的一行链：_custom_ops 到 .cu"
-vllm/model_executor/layers/<layer>.py  →  vllm/_custom_ops.py  def <name>()：torch.ops._C.<name>(...)
-                                       →  csrc/libtorch_stable/torch_bindings.cpp  ops.def("<name>(...)") / ops.impl(...)
-                                       →  csrc/libtorch_stable/<kernel>.cu  或  csrc/cpu/<kernel>.cpp
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
+%% 图：vLLM 版的一行链：_custom_ops 到 .cu
+flowchart TB
+    A["<b>vllm/model_executor/layers/&lt;layer&gt;.py</b>"] --> B["<b>vllm/_custom_ops.py</b><br/>def &lt;name&gt;()：torch.ops._C.&lt;name&gt;(...)"]
+    B -->|CUDA| C["<b>csrc/libtorch_stable/torch_bindings.cpp</b><br/>ops.def(#quot;&lt;name&gt;(...)#quot;) / ops.impl(...)"]
+    B -->|CPU| D["<b>csrc/cpu/torch_bindings.cpp</b><br/>ops.def(#quot;&lt;name&gt;(...)#quot;) / ops.impl(..., torch::kCPU, ...)"]
+    C --> E["<b>csrc/libtorch_stable/&lt;kernel&gt;.cu</b>"]
+    D --> F["<b>csrc/cpu/&lt;kernel&gt;.cpp</b>"]
 ```
 
 ## 五、构建一次
@@ -426,15 +439,15 @@ cmake --build --preset release --target install   # 编译并把 _C_stable_libto
 
 ### 4. 两个项目的对照
 
-```text title="两个项目构建方式的对照"
-                   PyTorch v2.14.0                                  vLLM v0.28.0
-─────────────────  ───────────────────────────────────────────────  ────────────────────────────────────────────
-只改 Python        tools/nightly.py checkout（nightly 预编译二进制）    VLLM_USE_PRECOMPILED=1 uv pip install -e .
-改 C++/CUDA        pip install -e . -v --no-build-isolation（可用环境变量裁剪）   uv pip install -e . --no-build-isolation
-增量编译           build/ 下 ninja <target>；或 SKBUILD_EDITABLE_REBUILD  cmake --build --preset release --target install
-compile_commands   pip install -e 生成（需 ninja）                    cmake --preset 生成于 cmake-build-release/（preset 需打开导出）
-统一入口           spin（develop / clean / lint / regenerate-*）         无；uv + pre-commit
-```
+| 环节 | PyTorch v2.14.0 | vLLM v0.28.0 |
+|---|---|---|
+| 只改 Python | `tools/nightly.py checkout`（nightly 预编译二进制） | `VLLM_USE_PRECOMPILED=1 uv pip install -e .` |
+| 改 C++/CUDA | `pip install -e . -v --no-build-isolation`（可用环境变量裁剪） | `uv pip install -e . --no-build-isolation` |
+| 增量编译 | `build/` 下 `ninja <target>`；或 `SKBUILD_EDITABLE_REBUILD` | `cmake --build --preset release --target install` |
+| `compile_commands` | `pip install -e` 生成（需 ninja） | `cmake --preset` 生成于 `cmake-build-release/`（preset 需打开导出） |
+| 统一入口 | `spin`（develop / clean / lint / regenerate-*） | 无；uv + pre-commit |
+
+Table: 两个项目构建方式的对照
 
 ## 六、用测试当文档
 
@@ -512,18 +525,21 @@ BinaryUfuncInfo('logaddexp',
 
 在 v0.28.0 检出上，`tests/` 有 40 个子目录、顶层 26 个 `test_*.py`。子目录与 `vllm/` 的子系统大致一一对应：
 
-```text title="vLLM tests/ 子目录与子系统的对应"
-tests/kernels/        对应 csrc/ 与 vllm/model_executor/layers/：attention/、moe/、quantization/、mamba/、core/；test_cache_kernels.py 等
-tests/v1/             对应 vllm/v1/：engine/、core/、worker/、executor/、attention/、sample/、spec_decode/、kv_connector/、structured_output/、e2e/
-tests/entrypoints/    对应 vllm/entrypoints/：openai/、llm/、serve/、anthropic/、tool_parsers/
-tests/models/         模型正确性：与 HF transformers 对比
-tests/distributed/    多卡与多节点
-tests/quantization/   量化方案
-tests/lora/           LoRA
-tests/evals/          模型评测（AGENTS.md：模型相关改动要跑）
-tests/benchmarks/     benchmark 脚本自身的测试
-tests/basic_correctness/、tests/compile/、tests/multimodal/、tests/tool_use/、tests/weight_loading/ ……
-```
+| 测试目录 | 对应 |
+|---|---|
+| `tests/kernels/` | 对应 `csrc/` 与 `vllm/model_executor/layers/`：`attention/`、`moe/`、`quantization/`、`mamba/`、`core/`；`test_cache_kernels.py` 等 |
+| `tests/v1/` | 对应 `vllm/v1/`：`engine/`、`core/`、`worker/`、`executor/`、`attention/`、`sample/`、`spec_decode/`、`kv_connector/`、`structured_output/`、`e2e/` |
+| `tests/entrypoints/` | 对应 `vllm/entrypoints/`：`openai/`、`llm/`、`serve/`、`anthropic/`、`tool_parsers/` |
+| `tests/models/` | 模型正确性：与 HF transformers 对比 |
+| `tests/distributed/` | 多卡与多节点 |
+| `tests/quantization/` | 量化方案 |
+| `tests/lora/` | LoRA |
+| `tests/evals/` | 模型评测（`AGENTS.md`：模型相关改动要跑） |
+| `tests/benchmarks/` | benchmark 脚本自身的测试 |
+
+Table: vLLM tests/ 子目录与子系统的对应
+
+其余还有 `tests/basic_correctness/`、`tests/compile/`、`tests/multimodal/`、`tests/tool_use/`、`tests/weight_loading/` ……
 
 找一个改动对应的测试目录的规则很简单：`vllm/v1/engine/` 的改动看 `tests/v1/engine/`，`csrc/` 的 kernel 看 `tests/kernels/`，`vllm/entrypoints/openai/` 看 `tests/entrypoints/openai/`。第七章那个 vLLM commit 改了 `vllm/entrypoints/cli/serve.py` 与 `vllm/v1/engine/utils.py`，配套测试加在 `tests/v1/engine/test_startup_watch_processes.py`。
 
@@ -628,27 +644,30 @@ ab3b6d97aa 2026-07-04 [Frontend] Limit `SO_REUSEPORT` to multi-worker serving (#
 git show -s --format='%H%n%an%n%cs%n%B' 7b9f2dad89
 ```
 
-- 7b9f2dad8920f115c1caea36e096e43c04c3da68
-- Bugen Zhao
-- 2026-08-06
-- [Frontend] Watch frontend processes during engine startup (#43417)
-- Signed-off-by: Bugen Zhao <i@bugenzhao.com>
-- Signed-off-by: Nick Hill <nickhill123@gmail.com>
-- Co-authored-by: OpenAI Codex <codex@openai.com>
-- Co-authored-by: Nick Hill <nickhill123@gmail.com>
+```text title="commit 7b9f2dad89 的正文"
+7b9f2dad8920f115c1caea36e096e43c04c3da68
+Bugen Zhao
+2026-08-06
+[Frontend] Watch frontend processes during engine startup (#43417)
+
+Signed-off-by: Bugen Zhao <i@bugenzhao.com>
+Signed-off-by: Nick Hill <nickhill123@gmail.com>
+Co-authored-by: OpenAI Codex <codex@openai.com>
+Co-authored-by: Nick Hill <nickhill123@gmail.com>
+```
 
 正文里只有 trailer：`Signed-off-by`（DCO 签名，vLLM 每个 commit 必须有）、`Co-authored-by`（这里包括一个 AI 助手——`AGENTS.md` 要求 AI 辅助的提交用这个 trailer 声明）。**"为什么改"不在 commit 里，在 PR 页面上。**所以读 vLLM 历史的第二步永远是 `gh pr view <PR 号> --repo vllm-project/vllm`。截至 2026-09 查询，#43417 的描述以 "## Purpose" 开头："Fail promptly when a frontend process exits while engine cores are still initializing"，接着解释了 `launch_core_engines` 的启动屏障原来只监视本地引擎核心与 DP coordinator，API server 进程在这个窗口内退出会让父进程一直等；标签是 `frontend`、`ready`、`v1`、`rust`。改动涉及 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`，测试在 `tests/v1/engine/test_startup_watch_processes.py`。`git tag --contains 7b9f2dad89` 显示它进入了 `v0.28.0`（以及 `v0.27.2rc0`）。
 
 两个项目的对比：
 
-```text title="两个项目 commit 形态的对比"
-                      PyTorch                                              vLLM
-────────────────────  ───────────────────────────────────────────────────  ───────────────────────────────────────────────
-commit 正文            PR 描述全文 + Fixes # + Pull Request resolved: + Approved by:   通常只有 Signed-off-by / Co-authored-by trailer
-PR 号                  标题末尾 (#N)，正文 Pull Request resolved: 链接             标题末尾 (#N)
-"为什么"在哪            commit 里基本能读到；review 细节在 PR 页                    只在 PR 页；必须 gh pr view
-关联 issue             正文 Fixes #N                                          PR 描述里（commit 不带）
-```
+| 环节 | PyTorch | vLLM |
+|---|---|---|
+| commit 正文 | PR 描述全文 + `Fixes #` + `Pull Request resolved:` + `Approved by:` | 通常只有 `Signed-off-by` / `Co-authored-by` trailer |
+| PR 号 | 标题末尾 `(#N)`，正文 `Pull Request resolved:` 链接 | 标题末尾 `(#N)` |
+| "为什么"在哪 | commit 里基本能读到；review 细节在 PR 页 | 只在 PR 页；必须 `gh pr view` |
+| 关联 issue | 正文 `Fixes #N` | PR 描述里（commit 不带） |
+
+Table: 两个项目 commit 形态的对比
 
 ### 4. `RELEASE.md`：改动什么时候到用户手里
 
@@ -656,12 +675,15 @@ PR 号                  标题末尾 (#N)，正文 Pull Request resolved: 链接
 
 **PyTorch** `RELEASE.md` 的 "Release Cadence" 一节是一张表，列出每个 minor 版本的 release branch cut 日期与发布日期。v2.14.0 检出里的近几行：
 
-- | Minor Version | Release branch cut | Release date | First patch release date | Second patch release date|
-- | 2.12 | 13 Apr 2026 | 13 May 2026 | Jun 2026 | Not planned |
-- | 2.13 | 8 Jun 2026 | 8 Jul 2026 | (Aug 2026) | Not planned |
-- | 2.14 | 10 Aug 2026 | 2 Sept 2026 | (Oct 2026) | Not planned |
-- | 2.15 | 28 Sept 2026 | 28 Oct 2026 | (Nov 2026) | Not planned |
-- | 2.16 | 23 Nov 2026 | 22 Dec 2026 | (Jan 2027) | Not planned |
+| Minor Version | Release branch cut | Release date | First patch release date | Second patch release date |
+|---|---|---|---|---|
+| 2.12 | 13 Apr 2026 | 13 May 2026 | Jun 2026 | Not planned |
+| 2.13 | 8 Jun 2026 | 8 Jul 2026 | (Aug 2026) | Not planned |
+| 2.14 | 10 Aug 2026 | 2 Sept 2026 | (Oct 2026) | Not planned |
+| 2.15 | 28 Sept 2026 | 28 Oct 2026 | (Nov 2026) | Not planned |
+| 2.16 | 23 Nov 2026 | 22 Dec 2026 | (Jan 2027) | Not planned |
+
+Table: PyTorch RELEASE.md 的 Release Cadence（v2.14.0，近几行）
 
 表格上方注明 "All future dates below are tentative" 与 "Patch Releases are optional"。从表里读出的节奏：branch cut 到发布约三到四周，相邻 minor 版本相隔约两个月。"General Overview" 一节列出发布的步骤（cut release branch → drafting RCs 与 cherry-pick → final RC → promote to stable）；"Frequently Asked Questions" 解释 branch cut 之后 "new features *are not* added to the release branch"，cherry-pick 需要在 release tracker issue 里提名，可以用 `@pytorchbot cherry-pick -c [reason]` 自动化；"Cherry Picking Fixes" 一节强调 "The cherry pick process is not an invitation to add new features, it is mainly there to fix regressions"，`-c` 的取值是 `regression`、`critical`、`fixnewfeature`、`docs`、`release` 五种。
 
@@ -673,15 +695,15 @@ PR 号                  标题末尾 (#N)，正文 Pull Request resolved: 链接
 
 两个节奏放在一起：
 
-```text title="两个项目的发布节奏"
-                    PyTorch                                     vLLM
-──────────────────  ──────────────────────────────────────────  ──────────────────────────────────────────
-常规版本间隔         约 2 个月（RELEASE.md 日程表）                  约 2 周（"every 2 weeks"）
-branch cut → 发布    约 3–4 周                                    1–2 天
-版本号递增           minor（2.13 → 2.14）                         minor（0.27 → 0.28，自 v0.12.0 起）
-cherry-pick          有明确流程与 tracker issue，@pytorchbot cherry-pick  有准则；窗口极短
-patch 版本           optional，日程表列出                          new models 与紧急修复
-```
+| 环节 | PyTorch | vLLM |
+|---|---|---|
+| 常规版本间隔 | 约 2 个月（`RELEASE.md` 日程表） | 约 2 周（"every 2 weeks"） |
+| branch cut → 发布 | 约 3–4 周 | 1–2 天 |
+| 版本号递增 | minor（2.13 → 2.14） | minor（0.27 → 0.28，自 v0.12.0 起） |
+| cherry-pick | 有明确流程与 tracker issue，`@pytorchbot cherry-pick` | 有准则；窗口极短 |
+| patch 版本 | optional，日程表列出 | new models 与紧急修复 |
+
+Table: 两个项目的发布节奏
 
 ## 八、核心问题：两小时定位流程
 
@@ -689,26 +711,20 @@ patch 版本           optional，日程表列出                          new m
 
 ### 1. 流程清单
 
-```text title="两小时定位一个报错的流程清单"
-时间     步骤                          做法                                                                产出
-───────  ────────────────────────────  ──────────────────────────────────────────────────────────────────  ────────────────────
-0:00     读报错，提取符号               从 traceback / 错误信息里挑出 2–3 个最具体的标识符：函数名、类名、错误字符串     一个 grep 词表
-0:05     画顶层地图                    ls 根目录；读项目自带的地图（PyTorch CONTRIBUTING.md "Codebase structure"；      目录职责表（第二章）
-                                        vLLM 自己列 vllm/ 的顶层目录）；判断符号大概在哪一层
-0:15     rg 第一轮                     rg -n '<symbol>' 限定到最可能的目录；错误字符串直接 rg -F               候选文件 ≤ 5 个
-0:25     找登记表                      PyTorch：rg '^- func: <op>' native_functions.yaml；                    dispatch / 注册位置
-                                        vLLM：pyproject.toml [project.scripts]、csrc/libtorch_stable/torch_bindings.cpp
-0:35     沿链追到实现                  按第三章的链条走：yaml dispatch → native/*.cpp → cpu|cuda/*.cu；             目标文件 + 函数名
-                                        cli/main.py → cli/<sub>.py → openai/api_server.py → v1/engine/
-0:50     识别生成代码                  找不到的 #include <ATen/ops/...> 回 yaml；.pyi 回 .pyi.in；               不再被"找不到定义"卡住
-                                        torch.ops._C.<x> 回 torch_bindings.cpp
-1:00     读测试                        rg -l '<symbol>' test/*.py 或 tests/<subsystem>/；读断言与跳过项；            行为规格；要跑的测试文件
-                                        PyTorch 再看 OpInfo 条目
-1:20     读历史                        git log -S'<symbol>' -- <file>；git show -s 最近一次相关 commit；            为什么是这样；有没有人已经在改
-                                        PyTorch 顺 Pull Request resolved:；vLLM gh pr view <N>
-1:40     写进项目地图                  把追过的这条路径、用过的 rg 模式、找到的测试文件记入贡献日志                    第九章的一页
-2:00     （可选）开始构建               如果要改 C++/CUDA：按第五章的命令启动构建，在等待时继续读                   compile_commands.json
-```
+| 时间 | 步骤 | 做法 | 产出 |
+|---|---|---|---|
+| 0:00 | 读报错，提取符号 | 从 traceback / 错误信息里挑出 2–3 个最具体的标识符：函数名、类名、错误字符串 | 一个 grep 词表 |
+| 0:05 | 画顶层地图 | `ls` 根目录；读项目自带的地图（PyTorch `CONTRIBUTING.md` "Codebase structure"；vLLM 自己列 `vllm/` 的顶层目录）；判断符号大概在哪一层 | 目录职责表（第二章） |
+| 0:15 | rg 第一轮 | `rg -n '<symbol>'` 限定到最可能的目录；错误字符串直接 `rg -F` | 候选文件 ≤ 5 个 |
+| 0:25 | 找登记表 | PyTorch：`rg '^- func: <op>' native_functions.yaml`<br/>vLLM：`pyproject.toml` `[project.scripts]`、`csrc/libtorch_stable/torch_bindings.cpp` | dispatch / 注册位置 |
+| 0:35 | 沿链追到实现 | 按第三章的链条走：<br/>yaml `dispatch` → `native/*.cpp` → <code>cpu&#124;cuda/*.cu</code><br/>`cli/main.py` → `cli/<sub>.py` → `openai/api_server.py` → `v1/engine/` | 目标文件 + 函数名 |
+| 0:50 | 识别生成代码 | 找不到的 `#include <ATen/ops/...>` 回 yaml；`.pyi` 回 `.pyi.in`；`torch.ops._C.<x>` 回 `torch_bindings.cpp` | 不再被"找不到定义"卡住 |
+| 1:00 | 读测试 | `rg -l '<symbol>' test/*.py` 或 `tests/<subsystem>/`；读断言与跳过项；PyTorch 再看 OpInfo 条目 | 行为规格；要跑的测试文件 |
+| 1:20 | 读历史 | `git log -S'<symbol>' -- <file>`；`git show -s` 最近一次相关 commit；PyTorch 顺 `Pull Request resolved:`；vLLM `gh pr view <N>` | 为什么是这样；有没有人已经在改 |
+| 1:40 | 写进项目地图 | 把追过的这条路径、用过的 rg 模式、找到的测试文件记入贡献日志 | 第九章的一页 |
+| 2:00 | （可选）开始构建 | 如果要改 C++/CUDA：按第五章的命令启动构建，在等待时继续读 | `compile_commands.json` |
+
+Table: 两小时定位一个报错的流程清单
 
 两个小时里没有一步依赖"已经构建好"或"已经熟悉这个项目"。构建放在最后、可选，因为定位阶段用不到它；它是改动阶段的前置条件。
 
