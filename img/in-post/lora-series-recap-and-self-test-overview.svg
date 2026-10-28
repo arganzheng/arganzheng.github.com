@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 298" width="700" height="298" role="img" aria-labelledby="t d">
+<title id="t">三篇正文的骨架与共用的一组实验</title>
+<desc id="d">三个方框从左到右用箭头相连。为什么——01 低秩假设：W + (α/r)BA、梯度手算、四本账、ΔW 的谱。怎么配——02 选参：r · target · α，lr · 初始化 · DoRA，QLoRA · 选择表，十三种配置对照。怎么上线——03 工程：adapter 文件，合并 · 量化失配，多 adapter · 服务账，参考模型 · 新 token。三个方框下面是同一组实验，向上的箭头分别指向三篇：Qwen2.5-0.5B · no_robots 800 条 · 80 步；验证回复 loss（训练前 2.4936）· 普通文本 loss 变化 · s/步。</desc>
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+.head { font-size: 14px; font-weight: 700; fill: #5b6b7c; }
+.title { font-size: 15px; font-weight: 700; }
+.item { font-size: 14px; }
+.it { font-family: "Times New Roman", "Noto Serif", serif; font-style: italic; font-size: 15px; }
+.post { fill: #fff7e0; stroke: #c98a00; stroke-width: 1; }
+.exp { fill: #f4f6f8; stroke: #8a99a8; stroke-width: 1; }
+.ln { stroke: #40566f; stroke-width: 1.5; fill: none; }
+</style></defs>
+<text class="head" x="110.0" y="30" text-anchor="middle">为什么</text>
+<rect class="post" x="20" y="44" width="180" height="134"/>
+<text class="title" x="34" y="70">01 低秩假设</text>
+<text class="item" x="34" y="96"><tspan class="it">W</tspan> + (<tspan class="it">α</tspan>/<tspan class="it">r</tspan>)<tspan class="it">BA</tspan></text>
+<text class="item" x="34" y="118">梯度手算</text>
+<text class="item" x="34" y="140">四本账</text>
+<text class="item" x="34" y="162">Δ<tspan class="it">W</tspan> 的谱</text>
+<line class="ln" x1="110.0" y1="222" x2="110.0" y2="178" marker-end="url(#ar)"/>
+<line class="ln" x1="200" y1="111.0" x2="260" y2="111.0" marker-end="url(#ar)"/>
+<text class="head" x="350.0" y="30" text-anchor="middle">怎么配</text>
+<rect class="post" x="260" y="44" width="180" height="134"/>
+<text class="title" x="274" y="70">02 选参</text>
+<text class="item" x="274" y="96"><tspan class="it">r</tspan> · target · <tspan class="it">α</tspan></text>
+<text class="item" x="274" y="118">lr · 初始化 · DoRA</text>
+<text class="item" x="274" y="140">QLoRA · 选择表</text>
+<text class="item" x="274" y="162">十三种配置对照</text>
+<line class="ln" x1="350.0" y1="222" x2="350.0" y2="178" marker-end="url(#ar)"/>
+<line class="ln" x1="440" y1="111.0" x2="500" y2="111.0" marker-end="url(#ar)"/>
+<text class="head" x="590.0" y="30" text-anchor="middle">怎么上线</text>
+<rect class="post" x="500" y="44" width="180" height="134"/>
+<text class="title" x="514" y="70">03 工程</text>
+<text class="item" x="514" y="96">adapter 文件</text>
+<text class="item" x="514" y="118">合并 · 量化失配</text>
+<text class="item" x="514" y="140">多 adapter · 服务账</text>
+<text class="item" x="514" y="162">参考模型 · 新 token</text>
+<line class="ln" x1="590.0" y1="222" x2="590.0" y2="178" marker-end="url(#ar)"/>
+<rect class="exp" x="20" y="222" width="660" height="60"/>
+<text class="item" x="350.0" y="247" text-anchor="middle"><tspan font-weight="700">同一组实验：</tspan>Qwen2.5-0.5B · no_robots 800 条 · 80 步</text>
+<text class="item" x="350.0" y="269" text-anchor="middle">验证回复 loss（训练前 2.4936）· 普通文本 loss 变化 · s/步</text>
+</svg>
