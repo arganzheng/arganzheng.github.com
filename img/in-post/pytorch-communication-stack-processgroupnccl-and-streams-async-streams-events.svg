@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 332" width="760" height="332" role="img" aria-labelledby="t d">
+  <title id="t">async_op=True 时两条 stream、两个 event 与一个 Work</title>
+  <desc id="d">一条时间轴，三行。当前 stream：前序 kernel，结束处 record ncclEvents_[key]；随后是 work.wait() 插入的等待 work.ncclEndEvent_，NCCL kernel 结束后才执行后续 kernel。NCCL 内部 stream：从 all_reduce 入队起等 ncclEvents_[key]，前序 kernel 结束（block）后执行 ncclAllReduce kernel，结束处 record work.ncclEndEvent_，再 block 当前 stream。CPU：全程不停，all_reduce 返回、wait() 返回都在 kernel 执行之前。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f3f5f7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#c9d3de" stroke-width="2"/></pattern>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .monom { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .warn { font-size: 13px; font-weight: 700; fill: #b42318; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .k-comp { fill: #cfeccf; } .k-nccl { fill: #cfe2f3; } .k-bad { fill: #f9d5d3; } .k-cpu { fill: #fde0b8; }
+      .wait { fill: url(#hatch); stroke: #9fb3c8; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .race { fill: #f04438; fill-opacity: 0.12; stroke: #b42318; stroke-width: 1.2; stroke-dasharray: 5 3; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .guide { stroke: #8a9bb0; stroke-width: 1.2; stroke-dasharray: 3 3; }
+      .ev { fill: #40566f; }
+    </style>
+  </defs>
+<text x="12" y="66" text-anchor="start" class="bold">当前 stream（计算）</text>
+<text x="12" y="166" text-anchor="start" class="bold">NCCL 内部 stream</text>
+<text x="12" y="256" text-anchor="start" class="bold">CPU</text>
+<rect x="176" y="46" width="154" height="30" class="seg k-comp"/>
+<text x="253.0" y="66.0" text-anchor="middle" class="small">前序 kernel</text>
+<rect x="330" y="46" width="230" height="30" class="wait"/>
+<text x="445.0" y="66.0" text-anchor="middle" class="small">等 work.ncclEndEvent_</text>
+<rect x="560" y="46" width="140" height="30" class="seg k-comp"/>
+<text x="630.0" y="66.0" text-anchor="middle" class="small">后续 kernel</text>
+<rect x="200" y="146" width="130" height="30" class="wait"/>
+<text x="265.0" y="166.0" text-anchor="middle" class="small">等 ncclEvents_[key]</text>
+<rect x="330" y="146" width="230" height="30" class="seg k-nccl"/>
+<text x="445.0" y="166.0" text-anchor="middle" class="small">ncclAllReduce kernel</text>
+<path d="M330,41 L335,46 L330,51 L325,46 Z" class="ev"/>
+<text x="330" y="34" text-anchor="middle" class="mono">record ncclEvents_[key]</text>
+<line x1="330" y1="76" x2="330" y2="146" class="arrow"/>
+<text x="340" y="107.0" text-anchor="start" class="mono">block</text>
+<text x="340" y="125.0" text-anchor="start" class="small">syncStream：NCCL stream 等</text>
+<path d="M560,171 L565,176 L560,181 L555,176 Z" class="ev"/>
+<text x="560" y="198" text-anchor="middle" class="mono">record work.ncclEndEvent_</text>
+<line x1="560" y1="146" x2="560" y2="76" class="arrow"/>
+<text x="570" y="107.0" text-anchor="start" class="mono">block</text>
+<text x="570" y="125.0" text-anchor="start" class="small">work.wait() ⇒ 当前 stream 等</text>
+<rect x="176" y="236" width="564" height="30" class="seg k-cpu"/>
+<text x="458.0" y="256.0" text-anchor="middle" class="small">全程不停：all_reduce 返回、wait() 返回都在 kernel 执行之前</text>
+<line x1="200" y1="266" x2="200" y2="274" class="line"/>
+<text x="200" y="290" text-anchor="middle" class="small">all_reduce 返回</text>
+<line x1="290" y1="266" x2="290" y2="274" class="line"/>
+<text x="290" y="290" text-anchor="middle" class="small">wait() 返回</text>
+<line x1="176" y1="306" x2="740" y2="306" class="arrow"/>
+<text x="740" y="324" text-anchor="end" class="muted">时间</text>
+</svg>

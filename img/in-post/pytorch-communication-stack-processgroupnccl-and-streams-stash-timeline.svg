@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 500" width="760" height="500" role="img" aria-labelledby="t d">
+  <title id="t">无保护与 stash 保护下的时间线</title>
+  <desc id="d">两段时间线，每段三行：CPU 入队顺序、当前 stream、NCCL stream。无保护：CPU 依次 randn、all_reduce、del t、empty(u)、fill_(u)；del t 时引用归零，块回当前 stream 空闲池，u 复用同一块；当前 stream 上 randn 写 t 之后 fill_ 写 u，与 NCCL stream 上等完 event 后的 ncclAllReduce 读写 t 在时间上重叠，两条 stream 并发写同一地址，结果未定义。stash（2.12 默认）：all_reduce 时 stash(t)，del t 时引用未归零、块不回池；wait() 先 block 当前 stream 再 unstash；empty(u) 拿到块、fill_(u) 入队，但当前 stream 先等 endEvent，fill_ 写 u 在 ncclAllReduce 结束之后才执行。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f3f5f7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#c9d3de" stroke-width="2"/></pattern>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .monom { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .warn { font-size: 13px; font-weight: 700; fill: #b42318; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .k-comp { fill: #cfeccf; } .k-nccl { fill: #cfe2f3; } .k-bad { fill: #f9d5d3; } .k-cpu { fill: #fde0b8; }
+      .wait { fill: url(#hatch); stroke: #9fb3c8; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .race { fill: #f04438; fill-opacity: 0.12; stroke: #b42318; stroke-width: 1.2; stroke-dasharray: 5 3; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .guide { stroke: #8a9bb0; stroke-width: 1.2; stroke-dasharray: 3 3; }
+      .ev { fill: #40566f; }
+    </style>
+  </defs>
+<text x="12" y="18" text-anchor="start" class="bold">无保护：del t 让块立刻回池，u 拿到同一地址</text>
+<text x="12" y="71" text-anchor="start" class="bold">CPU</text>
+<line x1="150" y1="66" x2="748" y2="66" class="guide"/>
+<line x1="160" y1="60" x2="160" y2="72" class="line"/>
+<text x="160" y="54" text-anchor="middle" class="mono">randn</text>
+<line x1="230" y1="60" x2="230" y2="72" class="line"/>
+<text x="230" y="54" text-anchor="middle" class="mono">all_reduce</text>
+<line x1="300" y1="60" x2="300" y2="72" class="line"/>
+<text x="300" y="54" text-anchor="middle" class="mono">del t</text>
+<text x="300" y="90" text-anchor="middle" class="small">引用归零 → 块回当前 stream</text>
+<text x="300" y="107" text-anchor="middle" class="small">空闲池 → u 复用</text>
+<line x1="390" y1="60" x2="390" y2="72" class="line"/>
+<text x="390" y="54" text-anchor="middle" class="mono">empty(u)</text>
+<line x1="470" y1="60" x2="470" y2="72" class="line"/>
+<text x="470" y="54" text-anchor="middle" class="mono">fill_(u)</text>
+<text x="12" y="150" text-anchor="start" class="bold">当前 stream</text>
+<text x="12" y="194" text-anchor="start" class="bold">NCCL stream</text>
+<rect x="165" y="130" width="115" height="30" class="seg k-comp"/>
+<text x="222.5" y="150.0" text-anchor="middle" class="small">randn 写 t</text>
+<rect x="470" y="130" width="180" height="30" class="seg k-bad"/>
+<text x="560.0" y="150.0" text-anchor="middle" class="small">fill_ 写 u = 同一块显存</text>
+<rect x="230" y="174" width="50" height="30" class="wait"/>
+<rect x="280" y="174" width="465" height="30" class="seg k-nccl"/>
+<text x="512.5" y="194.0" text-anchor="middle" class="small">ncclAllReduce 读写 t ……</text>
+<rect x="470" y="126" width="180" height="82" class="race"/>
+<text x="560" y="230" text-anchor="middle" class="warn">两条 stream 并发写同一地址：未定义</text>
+<line x1="12" y1="244" x2="748" y2="244" class="guide"/>
+<text x="12" y="268" text-anchor="start" class="bold">stash（2.12 默认）：shelf 持有引用，wait() 之后才放</text>
+<text x="12" y="321" text-anchor="start" class="bold">CPU</text>
+<line x1="150" y1="316" x2="748" y2="316" class="guide"/>
+<line x1="160" y1="310" x2="160" y2="322" class="line"/>
+<text x="160" y="304" text-anchor="middle" class="mono">randn</text>
+<line x1="230" y1="310" x2="230" y2="322" class="line"/>
+<text x="230" y="304" text-anchor="middle" class="mono">all_reduce</text>
+<text x="230" y="340" text-anchor="middle" class="small">stash(t)</text>
+<line x1="300" y1="310" x2="300" y2="322" class="line"/>
+<text x="300" y="304" text-anchor="middle" class="mono">del t</text>
+<text x="300" y="340" text-anchor="middle" class="small">引用未归零</text>
+<text x="300" y="357" text-anchor="middle" class="small">块不回池</text>
+<line x1="370" y1="310" x2="370" y2="322" class="line"/>
+<text x="370" y="304" text-anchor="middle" class="mono">…</text>
+<line x1="440" y1="310" x2="440" y2="322" class="line"/>
+<text x="440" y="304" text-anchor="middle" class="mono">wait()</text>
+<text x="440" y="340" text-anchor="middle" class="small">block(cur)</text>
+<text x="440" y="357" text-anchor="middle" class="small">再 unstash</text>
+<line x1="520" y1="310" x2="520" y2="322" class="line"/>
+<text x="520" y="304" text-anchor="middle" class="mono">empty(u)</text>
+<text x="520" y="340" text-anchor="middle" class="small">拿到块</text>
+<line x1="600" y1="310" x2="600" y2="322" class="line"/>
+<text x="600" y="304" text-anchor="middle" class="mono">fill_(u)</text>
+<text x="600" y="340" text-anchor="middle" class="small">但排在屏障后</text>
+<text x="12" y="400" text-anchor="start" class="bold">当前 stream</text>
+<text x="12" y="444" text-anchor="start" class="bold">NCCL stream</text>
+<rect x="165" y="380" width="115" height="30" class="seg k-comp"/>
+<text x="222.5" y="400.0" text-anchor="middle" class="small">randn 写 t</text>
+<rect x="440" y="380" width="220" height="30" class="wait"/>
+<text x="550.0" y="400.0" text-anchor="middle" class="small">等 endEvent</text>
+<rect x="660" y="380" width="85" height="30" class="seg k-comp"/>
+<text x="702.5" y="400.0" text-anchor="middle" class="small">fill_ 写 u</text>
+<rect x="230" y="424" width="50" height="30" class="wait"/>
+<rect x="280" y="424" width="380" height="30" class="seg k-nccl"/>
+<text x="470.0" y="444.0" text-anchor="middle" class="small">ncclAllReduce 读写 t</text>
+<line x1="660" y1="424" x2="660" y2="410" class="guide"/>
+<path d="M660,434 L665,439 L660,444 L655,439 Z" class="ev"/>
+<text x="670" y="444" text-anchor="start" class="mono">endEvent</text>
+<line x1="150" y1="474" x2="748" y2="474" class="arrow"/>
+<text x="748" y="492" text-anchor="end" class="muted">时间</text>
+</svg>

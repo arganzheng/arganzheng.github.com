@@ -26,27 +26,17 @@ updated: 2026-09-14
 
 ### 1. 一次调用穿过的层次
 
-```text title="dist.all_reduce 一次调用穿过的层次"
-Python   dist.all_reduce(t, op, group, async_op)          torch/distributed/distributed_c10d.py
-            │  组装 AllreduceOptions{reduceOp, asyncOp}
-            ▼
-C++      ProcessGroup::allreduce                           torch/csrc/distributed/c10d/ProcessGroup.hpp
-            │  经 dispatcher 调 c10d::allreduce_ 算子     Ops.cpp
-            │  按 tensor 的 device 类型选 Backend
-            ▼
-C++      Backend::allreduce  (虚函数)                      Backend.hpp
-            ▼
-C++      ProcessGroupNCCL::allreduce → collective()        ProcessGroupNCCL.cpp
-            │  1. getNCCLComm / initNCCLComm     懒创建 communicator，经 Store 分发 ncclUniqueId
-            │  2. 选 stream：async_op ? 内部 ncclStreams_[key] : 当前 stream
-            │  3. syncStream：让 NCCL stream 等当前 stream 的 event
-            │  4. 创建 WorkNCCL，stash 输入输出 tensor
-            │  5. fn(...) → ncclAllReduce(..., comm, stream)
-            │  6. 在 NCCL stream 上 record ncclEndEvent_
-            │  7. workEnqueue：交给 watchdog 线程监视
-            ▼
-NCCL     ncclAllReduce → enqueue → kernel launch（上一篇）
-```
+![dist.all_reduce 一次调用穿过的层次](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-call-layers.svg)
+
+`collective()` 里的 7 步：
+
+1. `getNCCLComm` / `initNCCLComm`：懒创建 communicator，经 Store 分发 `ncclUniqueId`
+2. 选 stream：`async_op ? 内部 ncclStreams_[key] : 当前 stream`
+3. `syncStream`：让 NCCL stream 等当前 stream 的 event（只在 `async_op=True` 时）
+4. 创建 `WorkNCCL`，stash 输入输出 tensor（stash 也只在 `async_op=True` 时）
+5. `fn(...)` → `ncclAllReduce(..., comm, stream)`
+6. 在 NCCL stream 上 record `ncclEndEvent_`
+7. `workEnqueue`：交给 watchdog 线程监视
 
 第 1 步只在第一次碰到某个 device 时发生，之后是一次 map 查找。第 2～6 步是每次调用都走的热路径，全部是 host 侧的异步操作：没有一步会等待 GPU。第 7 步把一份 `WorkNCCL` 的拷贝放进 `workMetaList_`，由一条独立线程每 100 ms 轮询一次，这是超时与异步错误检测的基础。
 
@@ -54,16 +44,7 @@ NCCL     ncclAllReduce → enqueue → kernel launch（上一篇）
 
 `async_op=True` 时的运行时对象关系是本篇的主线：
 
-```text title="async_op=True 时两条 stream、两个 event 与一个 Work"
-当前 stream（计算）     ──┬── 前序 kernel ──┐(record ncclEvents_[key])
-                         │                  │
-                         │                  ▼(block)
-NCCL 内部 stream        ──┼───────────── ncclAllReduce kernel ──┐(record work.ncclEndEvent_)
-                         │                                       │
-                         │           work.wait() ⇒ 当前 stream ──▼(block)── 后续 kernel
-                         │
-CPU                      ▲ 全程不停：all_reduce 返回、wait() 返回都在 kernel 执行之前
-```
+![async_op=True 时两条 stream、两个 event 与一个 Work](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-async-streams-events.svg)
 
 三件事各自独立：**NCCL stream 等当前 stream**（保证输入已算好）、**当前 stream 等 NCCL stream**（保证输出被用前已归约完）、**CPU 不等任何人**（除非显式配置）。所谓"异步"就是第三件事；所谓"重叠"就是两条 stream 之间没有依赖的那一段时间里 GPU 同时跑两个 kernel。
 
@@ -489,23 +470,9 @@ u.fill_(0)                                  # 当前 stream 上的 kernel，与 
 
 现在的方案是不告诉 allocator 任何事情，而是**让 `WorkNCCL` 多持有一份引用**。`collective()` 里 `work->stashed_for_allocator_safety_->stash(inputs / outputs)`，`synchronizeStream()` 里先 `ncclEndEvent_->block(currentStream)` 再 `unstash()`。顺序就是安全性的全部：unstash 之后引用归零、块回到当前 stream 的空闲池，但当前 stream 已经被插了"等 NCCL 完成"的屏障，任何复用这块内存的 kernel 都排在 NCCL kernel 之后。
 
-用上一节那段代码的时间线对比两种情况（横轴是时间，`[...]` 是 GPU 上实际执行的 kernel，CPU 一行是入队顺序）：
+用上一节那段代码的时间线对比两种情况（横轴是时间，stream 行上的色块是 GPU 上实际执行的 kernel，斜线块是 stream 在等 event，CPU 一行是入队顺序）：
 
-```text title="无保护与 stash 保护下的时间线"
-无保护：del t 让块立刻回池，u 拿到同一地址
-CPU          randn  all_reduce  del t   empty(u)  fill_(u)
-                                  ▲ 引用归零 → 块回当前 stream 空闲池 → u 复用
-当前 stream  [randn 写 t]         [fill_ 写 u = 同一块显存]
-NCCL stream        (等 event)─────[ncclAllReduce 读写 t ..............]
-                                  ▲ 两条 stream 并发写同一地址：未定义
-
-stash（2.12 默认）：shelf 持有引用，wait() 之后才放
-CPU          randn  all_reduce  del t   ...   wait()   empty(u)  fill_(u)
-                    stash(t)     ▲ 引用未归零   ▲ block(cur)  ▲ 拿到块
-                                   块不回池      再 unstash    但排在屏障后
-当前 stream  [randn 写 t]                      ─(等 endEvent)─────[fill_ 写 u]
-NCCL stream        (等 event)─────[ncclAllReduce 读写 t]─endEvent
-```
+![无保护与 stash 保护下的时间线](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-stash-timeline.svg)
 
 这个方案没有 `recordStream` 的分配路径开销，块的回收也不依赖 event 查询；代价是 tensor 的生命周期被延长到 `wait()` 那一刻，用户忘了 `wait()` 就会一直占着。头文件里 `TORCH_NCCL_AVOID_RECORD_STREAMS` 的注释解释了这个取舍；构造函数则告诉我们它已经是默认。
 
@@ -555,38 +522,30 @@ $$
 
 ### 3. 重叠杀手清单
 
-```text title="重叠杀手清单"
-杀手                       机制                                                    表现
-─────────────────────────────────────────────────────────────────────────────────────────────────
-.item() / .cpu() /         cudaMemcpy 到 pageable 内存 = 当前 stream 同步 + CPU 阻塞    CPU 停在这一行，GPU 队列跑空；
-  bool(tensor) / print     后续 kernel 无法提前入队                                  trace 上 GPU 有空洞，通信独占
-torch.cuda.synchronize()   device 级同步，等所有 stream                              同上，且连 NCCL stream 一起等
-Caching Allocator 的       申请显存失败 → release_cached_blocks →                    随机出现的 cudaFree，trace 上一段
-  cudaFree                 synchronize_and_free_events + cudaFree（隐式设备同步）      几百微秒到几毫秒的全 GPU 静止
-wait() 放得太早            当前 stream 立刻等 NCCL end event，后面的 GEMM 排在通信后    CPU 不阻塞、看似异步，GPU 上却串行
-async_op=False             kernel 排在当前 stream，与前后计算串行                     同上
-同一条 stream 上做通信      多个 process group 共用 stream 或手工 with torch.cuda.stream  通信之间互相排队
-GEMM 占满 SM               NCCL block 排不进去，等 GEMM 尾部                          通信 kernel 的起点被推后
-CPU 侧 launch 太慢          Python 开销 > kernel 时间，GPU 饥饿                        两条 stream 都有空洞，不是重叠问题
-```
+| 杀手 | 机制 | 表现 |
+|---|---|---|
+| `.item()` / `.cpu()` /<br/>`bool(tensor)` / `print` | `cudaMemcpy` 到 pageable 内存 = 当前 stream 同步 + CPU 阻塞<br/>后续 kernel 无法提前入队 | CPU 停在这一行，GPU 队列跑空；<br/>trace 上 GPU 有空洞，通信独占 |
+| `torch.cuda.synchronize()` | device 级同步，等所有 stream | 同上，且连 NCCL stream 一起等 |
+| Caching Allocator 的 `cudaFree` | 申请显存失败 → `release_cached_blocks` →<br/>`synchronize_and_free_events` + `cudaFree`（隐式设备同步） | 随机出现的 `cudaFree`，trace 上一段几百微秒到几毫秒的全 GPU 静止 |
+| `wait()` 放得太早 | 当前 stream 立刻等 NCCL end event，后面的 GEMM 排在通信后 | CPU 不阻塞、看似异步，GPU 上却串行 |
+| `async_op=False` | kernel 排在当前 stream，与前后计算串行 | 同上 |
+| 同一条 stream 上做通信 | 多个 process group 共用 stream 或手工 `with torch.cuda.stream` | 通信之间互相排队 |
+| GEMM 占满 SM | NCCL block 排不进去，等 GEMM 尾部 | 通信 kernel 的起点被推后 |
+| CPU 侧 launch 太慢 | Python 开销 > kernel 时间，GPU 饥饿 | 两条 stream 都有空洞，不是重叠问题 |
+
+Table: 重叠杀手清单
 
 Caching Allocator 那一行需要解释。`c10/cuda/CUDACachingAllocator.cpp` 的分配路径在拿不到合适块时调 `release_cached_blocks`，它先 `synchronize_and_free_events`（等所有待回收块的 event），再对空闲 segment 逐个 `cudaFree`；`cudaFree` 本身隐含设备同步。所以显存碎片化、峭值逼近上限时，会在不可预测的位置插入全 GPU 同步，重叠随之消失。`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` 让 segment 可以增长而不是释放重分配，能显著减少这类 `cudaFree`。
 
 ### 4. 在 profiler trace 里怎么看
 
-`torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])` 导出的 Chrome trace 里，每条 CUDA stream 一行，kernel 按 stream 分行显示。要检查的东西：
+`torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])` 导出的 Chrome trace 里，每条 CUDA stream 一行，kernel 按 stream 分行显示。要检查五件事：
 
-```text title="profiler trace 里要检查的三件事"
-1. NCCL kernel 在哪一行     名字以 ncclDevKernel_ 开头（如 ncclDevKernel_AllReduce_Sum_f32_RING_LL），
-                             它所在的 stream id 应与 GEMM 不同；同一行说明 async_op 没生效或走了同步模式
-2. 时间轴上是否重叠          NCCL kernel 的 [start, end] 与 GEMM kernel 的 [start, end] 有交集才算重叠；
-                             紧邻但不相交 = 串行
-3. CPU 行上的同步点          cudaStreamSynchronize / cudaDeviceSynchronize / cudaMemcpy（非 Async）/ cudaFree
-                             出现在 all_reduce 与 GEMM 之间 = 杀手
-4. cudaStreamWaitEvent      每次 async all_reduce 应看到两个：一个在 NCCL 侧（syncStream），一个在 wait() 处；
-                             wait() 的那个如果紧跟在 all_reduce 后面、GEMM 之前 = wait 放早了
-5. NCCL kernel 的持续时间    远长于 α-β 预测 = 在等其他 rank（straggler）或等 SM，不是带宽问题
-```
+1. **NCCL kernel 在哪一行**：名字以 `ncclDevKernel_` 开头（如 `ncclDevKernel_AllReduce_Sum_f32_RING_LL`），它所在的 stream id 应与 GEMM 不同；同一行说明 `async_op` 没生效或走了同步模式。
+2. **时间轴上是否重叠**：NCCL kernel 的 `[start, end]` 与 GEMM kernel 的 `[start, end]` 有交集才算重叠；紧邻但不相交 = 串行。
+3. **CPU 行上的同步点**：`cudaStreamSynchronize` / `cudaDeviceSynchronize` / `cudaMemcpy`（非 Async）/ `cudaFree` 出现在 all_reduce 与 GEMM 之间 = 杀手。
+4. **`cudaStreamWaitEvent`**：每次 async all_reduce 应看到两个：一个在 NCCL 侧（`syncStream`），一个在 `wait()` 处；`wait()` 的那个如果紧跟在 all_reduce 后面、GEMM 之前 = wait 放早了。
+5. **NCCL kernel 的持续时间**：远长于 α-β 预测 = 在等其他 rank（straggler）或等 SM，不是带宽问题。
 
 第 5 点是训练排障里最有用的一条：NCCL kernel 在 trace 上"很长"往往不是通信慢，而是本 rank 先到、在自旋等别人。对照多个 rank 的 trace，看谁的 kernel 最短，那个就是最晚到的。
 
@@ -758,22 +717,21 @@ Table: TORCH_NCCL_ASYNC_ERROR_HANDLING 四个值的两个开关
 
 ### 4. heartbeat monitor：看门狗的看门狗
 
-watchdog 自己会 hang。它每轮调 `cudaEventQuery`（`finishedGPUExecutionInternal` 的注释："Although this seems to be a non-blocking call, but we did notice hangs in the past. It can hang if another thread is holding the CUDA global context lock"），`ncclCommGetAsyncError`、`ncclCommAbort` 也都可能不返回。`HeartbeatMonitor::runLoop` 每 `heartbeatTimeoutInSec_`（`TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC`，默认 `60 * 8` 即 480 秒）读一次 `pg_->getWatchdogHeartbt()`（转调 `Watchdog::getHeartbt()`），如果计数没变，说明 watchdog 卡住了：它会 dump Flight Recorder 与 C++ 栈（`TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN`，默认 true），然后 `terminateProcess` → `LOG(FATAL)` → `std::abort()`。错误信息里明确建议：如果确认是误报，"disable the heartbeat monitor (TORCH_NCCL_ENABLE_MONITORING=0)"。
+watchdog 自己会 hang。它每轮调 `cudaEventQuery`（`finishedGPUExecutionInternal` 的注释："Although this seems to be a non-blocking call, but we did notice hangs in the past. It can hang if another thread is holding the CUDA global context lock"），`ncclCommGetAsyncError`、`ncclCommAbort` 也都可能不返回。`HeartbeatMonitor::runLoop` 每 `heartbeatTimeoutInSec_`（`TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC`，默认 `60 * 8` 即 480 秒）读一次 `pg_->getWatchdogHeartbt()`（转调 `Watchdog::getHeartbt()`），如果计数和上次一样，说明 watchdog 卡住了。两次读数隔 480 秒，所以从 watchdog 卡住到被发现要 8～16 分钟。发现后它 dump Flight Recorder 与 C++ 栈（`TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN`，默认 true），再最多 sleep 一个 `heartbeatTimeoutInSec_` 等进程自己退出，还没退出才 `terminateProcess` → `LOG(FATAL)` → `std::abort()`。错误信息里明确建议：如果确认是误报，"disable the heartbeat monitor (TORCH_NCCL_ENABLE_MONITORING=0)"。
 
-所以一个 hang 的完整时间线是：集合通信入队 → 10 分钟（`timeout`）后 watchdog 报超时 → 广播 dump 信号、sleep 约 60 秒 → 抛异常进程退出；如果 watchdog 自己也卡了，再等最多 8 分钟由 heartbeat monitor 强杀。按默认配置把这条时间线摊开：
+所以一个 hang 的完整时间线是：集合通信入队 → 10 分钟（`timeout`）后 watchdog 报超时 → 广播 dump 信号、sleep 约 60 秒 → 抛异常进程退出；如果 watchdog 自己也卡了，heartbeat monitor 要 8～16 分钟才判定它卡死，dump 完再等最多 8 分钟才强杀。按默认配置把这条时间线摊开：
 
-```text title="一个 hang 的默认时间线"
-t = 0        主线程 workEnqueue(work)，workStartTime_ = now
-   │           GPU 上 NCCL kernel 自旋等 peer，没有任何错误可报
-   │         watchdog 每 100 ms：checkAndSetException / checkTimeout / isCompleted
-t = 10 min   checkTimeout 命中（opTimeout_，host 时钟）
-   │           broadcastDumpSignal → 各 rank 的 heartbeat monitor dump FR
-   │           sleep(getDumpTimeout() × 4，约 60 s) 给 dump 留时间
-t ≈ 11 min   handleException(SkipCleanUp) → 抛 DistBackendError → 进程退出
-──────────── 若 watchdog 自己卡在 cudaEventQuery / ncclCommAbort 里 ──────────
-   │           heartbeat_ 计数不再增长
-t + 8 min    HeartbeatMonitor 判定 watchdog 卡死 → dump + C++ 栈 → abort()
-```
+| 情形 | 时刻 | 发生什么 |
+|---|---|---|
+| 默认路径 | t = 0 | 主线程 `workEnqueue(work)`，`workStartTime_ = now`<br/>GPU 上 NCCL kernel 自旋等 peer，没有任何错误可报 |
+| ^^ | 0～10 min | watchdog 每 100 ms：`checkAndSetException` / `checkTimeout` / `isCompleted` |
+| ^^ | t = 10 min | `checkTimeout` 命中（`opTimeout_`，host 时钟）<br/>`broadcastDumpSignal` → 各 rank 的 heartbeat monitor dump FR<br/>`sleep(getDumpTimeout() × 4)`，约 60 s，给 dump 留时间 |
+| ^^ | t ≈ 11 min | `handleException(SkipCleanUp)` → 抛 `DistBackendError` → 进程退出 |
+| watchdog 自己卡在<br/>`cudaEventQuery` / `ncclCommAbort` 里 | 卡住起 | `heartbeat_` 计数不再增长 |
+| ^^ | 卡住后 8～16 min | heartbeat monitor 每 480 s 读一次计数，和上次相同 → 判定 watchdog 卡死 → dump FR + C++ 栈 |
+| ^^ | 再 ≤ 8 min | sleep 最多 `heartbeatTimeoutInSec_` 等进程自己退出，没退出就 `terminateProcess` → `abort()` |
+
+Table: 一个 hang 的默认时间线
 
 总纲第 6 篇的问题"为什么会等到 timeout 才暴露"，答案的一半在这里：NCCL kernel 在 GPU 上自旋没有任何错误可报，唯一的信号就是时间。
 
@@ -785,34 +743,34 @@ t + 8 min    HeartbeatMonitor 判定 watchdog 卡死 → dump + C++ 栈 → abor
 
 ### 6. 环境变量速查
 
-以下变量名均在 2.12 的 `ProcessGroupNCCL.hpp` 的 `static std::vector<std::string> TORCH_NCCL_*` 声明中核对过（最后两个例外，见备注），默认值取自 `ProcessGroupNCCL.cpp` 里对应的 `getCvarBool/getCvarInt` 调用：
+以下变量名均在 2.12 的 `ProcessGroupNCCL.hpp` 的 `static std::vector<std::string> TORCH_NCCL_*` 声明中核对过（最后两个例外，见表里的说明），默认值取自 `ProcessGroupNCCL.cpp` 里对应的 `getCvarBool/getCvarInt` 调用：
 
-```text title="TORCH_NCCL_* 环境变量速查"
-变量                                        默认            作用
-──────────────────────────────────────────────────────────────────────────────────────────────
-TORCH_NCCL_BLOCKING_WAIT                    0               wait() 阻塞 CPU 轮询；不启 watchdog
-TORCH_NCCL_ASYNC_ERROR_HANDLING             3 (SkipCleanUp) 超时/错误后的处置模式（0/1/2/3）
-TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC            480             heartbeat monitor 判定 watchdog 卡死的时间
-TORCH_NCCL_ENABLE_MONITORING                1               是否启用 heartbeat monitor
-TORCH_NCCL_DUMP_ON_TIMEOUT                  1               超时时 dump Flight Recorder
-TORCH_NCCL_TRACE_BUFFER_SIZE                2000            Flight Recorder 环形缓冲大小；0 关闭
-TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC         15000           给 dump 留的时间
-TORCH_NCCL_COORD_CHECK_MILSEC               1000            monitor 轮询 TCPStore 信号的间隔
-TORCH_NCCL_PROPAGATE_ERROR                  0               经 TCPStore 把错误传给同组其他 rank
-TORCH_NCCL_DESYNC_DEBUG                     0               超时时汇总各 rank 的 seq，定位掉队者
-TORCH_NCCL_ENABLE_TIMING                    0               创建 start event、允许 getDuration()
-TORCH_NCCL_NAN_CHECK                        0               每次集合通信前检查输入 NaN
-TORCH_NCCL_HIGH_PRIORITY                    0               NCCL 内部 stream 用高优先级
-TORCH_NCCL_AVOID_RECORD_STREAMS             (已是默认)      stash 代替 recordStream；设置它只会得到弃用警告
-TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK 0             allocator 每个 segment 都向 NCCL 注册（user buffer registration）
-TORCH_NCCL_BCAST_UNIQUEID                   1               经 Store 广播 ncclUniqueId
-TORCH_NCCL_RANKS_PER_ROOT                   128             超过则走多 root 的 scalable init
-TORCH_NCCL_RETHROW_CUDA_ERRORS              1               watchdog 遇到 CUDA 错误是否重抛
-TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN 1              强杀前打印 C++ 栈
-TORCH_NCCL_CUDA_EVENT_CACHE                 1               watchdog 用 event 缓存避免析构 event 时 hang
-TORCH_NCCL_USE_COMM_NONBLOCKING             (未设)          用 ncclCommInitRankConfig 非阻塞初始化（不在 .hpp 声明，.cpp 里用 c10::utils::check_env 读取）
-TORCH_NCCL_NONBLOCKING_TIMEOUT              1800 (秒)       非阻塞初始化 / abort 的轮询上限（不在 .hpp 声明，NCCLUtils.cpp 的 nccl_nonblocking_timeout()，默认 30 分钟）
-```
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `TORCH_NCCL_BLOCKING_WAIT` | 0 | `wait()` 阻塞 CPU 轮询；不启 watchdog |
+| `TORCH_NCCL_ASYNC_ERROR_HANDLING` | 3 (`SkipCleanUp`) | 超时/错误后的处置模式（0/1/2/3） |
+| `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC` | 480 | heartbeat monitor 读 watchdog 心跳的间隔：两次读数相同即判定卡死；判定后再等最多这么久才强杀 |
+| `TORCH_NCCL_ENABLE_MONITORING` | 1 | 是否启用 heartbeat monitor |
+| `TORCH_NCCL_DUMP_ON_TIMEOUT` | 1 | 超时时 dump Flight Recorder |
+| `TORCH_NCCL_TRACE_BUFFER_SIZE` | 2000 | Flight Recorder 环形缓冲大小；0 关闭 |
+| `TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC` | 15000 | 给 dump 留的时间（watchdog 超时后 sleep 它的 4 倍） |
+| `TORCH_NCCL_COORD_CHECK_MILSEC` | 1000 | monitor 轮询 TCPStore 信号的间隔 |
+| `TORCH_NCCL_PROPAGATE_ERROR` | 0 | 经 TCPStore 把错误传给同组其他 rank |
+| `TORCH_NCCL_DESYNC_DEBUG` | 0 | 超时时汇总各 rank 的 seq，定位掉队者 |
+| `TORCH_NCCL_ENABLE_TIMING` | 0 | 创建 start event、允许 `getDuration()` |
+| `TORCH_NCCL_NAN_CHECK` | 0 | 每次集合通信前检查输入 NaN |
+| `TORCH_NCCL_HIGH_PRIORITY` | 0 | NCCL 内部 stream 用高优先级 |
+| `TORCH_NCCL_AVOID_RECORD_STREAMS` | （已是默认） | stash 代替 `recordStream`；设置它只会得到弃用警告 |
+| `TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK` | 0 | allocator 每个 segment 都向 NCCL 注册（user buffer registration） |
+| `TORCH_NCCL_BCAST_UNIQUEID` | 1 | 经 Store 广播 `ncclUniqueId` |
+| `TORCH_NCCL_RANKS_PER_ROOT` | 128 | 超过则走多 root 的 scalable init |
+| `TORCH_NCCL_RETHROW_CUDA_ERRORS` | 1 | watchdog 遇到 CUDA 错误是否重抛 |
+| `TORCH_NCCL_LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN` | 1 | 强杀前打印 C++ 栈 |
+| `TORCH_NCCL_CUDA_EVENT_CACHE` | 1 | watchdog 用 event 缓存避免析构 event 时 hang |
+| `TORCH_NCCL_USE_COMM_NONBLOCKING` | （未设） | 用 `ncclCommInitRankConfig` 非阻塞初始化<br/>不在 .hpp 声明，.cpp 里用 `c10::utils::check_env` 读取 |
+| `TORCH_NCCL_NONBLOCKING_TIMEOUT` | 1800（秒） | 非阻塞初始化 / abort 的轮询上限<br/>不在 .hpp 声明，`NCCLUtils.cpp` 的 `nccl_nonblocking_timeout()`，默认 30 分钟 |
+
+Table: TORCH_NCCL_* 环境变量速查
 
 第 6 篇的 Flight Recorder 一节会展开 `TORCH_NCCL_TRACE_BUFFER_SIZE` 与 `TORCH_NCCL_DUMP_ON_TIMEOUT` 的用法。
 
@@ -834,7 +792,7 @@ vLLM v0.23.0 的 `vllm/distributed/device_communicators/pynccl_wrapper.py` 用 `
 
 - **stream 控制。** 推理引擎自己管理 stream，希望 all_reduce 就排在当前 stream 上（与本篇第四章的同步模式相同），不需要 `WorkNCCL`、event、stash 这些为"异步 + 重叠"设计的机制；decode 阶段每层一次几十 KB 的 all_reduce，每次多几微秒的 host 开销都算钱。
 - **CUDA Graph 捕获。** vLLM 把整个 decode step 捕获成 CUDA Graph 回放；`ProcessGroupNCCL::collective` 在捕获时会跳过 `workEnqueue`（`enqueue = ... && capture_status == None`），但 watchdog、event、Flight Recorder 这些与捕获交互的部分是额外风险面，直接调 `ncclAllReduce` 更可控。
-- **不需要 watchdog。** 推理进程的 hang 由上层的健康检查处理，不需要一个每 100 ms 轮询、8 分钟后强杀的线程。
+- **不需要 watchdog。** 推理进程的 hang 由上层的健康检查处理，不需要一个每 100 ms 轮询、卡死后还要由 heartbeat monitor 强杀的线程。
 
 代价是失去了超时检测与异步错误处理，这在训练里不可接受，在推理里由外部机制补。
 
@@ -862,35 +820,31 @@ vLLM v0.23.0 的 `vllm/distributed/device_communicators/pynccl_wrapper.py` 用 `
 - **重叠**：条件：不同 stream + 无隐式同步 + SM 有余量；杀手：.item()、synchronize、cudaFree、wait 放早、同 stream
 - **合并**：_coalescing_manager / all_reduce_coalesced → ncclGroupStart/End，一个 Work 一个 event；把 α 主导变 β 主导
 - **函数式**：_functional_collectives 让通信成为算子；AsyncCollectiveTensor 首次使用时 wait；compile 可重排
-- **超时**：watchdog 每 100 ms 查异步错误与 host 时钟超时；默认 SkipCleanUp 直接退出；heartbeat monitor 480 s 强杀
+- **超时**：watchdog 每 100 ms 查异步错误与 host 时钟超时；默认 SkipCleanUp 直接退出；heartbeat monitor 每 480 s 查一次 watchdog 心跳，卡死就强杀
 - **对照**：Gloo 是 CPU 线程池；PyNccl 直接调 libnccl 拿 stream 控制权；对称内存打 α 的账，与 NCCL 互补
 
 ### 2. 排障检查项
 
 框架这一层出问题时先看这些：
 
-```text title="排障检查项"
-现象：重叠没发生
-  □ profiler 里 NCCL kernel 与计算 kernel 是否在不同 stream 行；同一行 → async_op 没开或用了同步模式
-  □ 两者之间 CPU 行上有没有 cudaStreamSynchronize / cudaDeviceSynchronize / 非 Async 的 cudaMemcpy / cudaFree
-  □ wait() 的 cudaStreamWaitEvent 是不是紧跟 all_reduce（wait 放早了）
-  □ 显存是否逼近上限（cudaFree 频发）→ 试 expandable_segments:True
-  □ GEMM 是否占满 SM → 试 TORCH_NCCL_HIGH_PRIORITY=1 或限制 NCCL_MAX_CTAS
-  □ NCCL kernel 远长于 α-β 预测 → 对照各 rank trace 找 straggler，不是带宽问题
-
-现象：结果错 / 不稳定
-  □ async_op=True 之后 wait() 之前是否读写了参与通信的 tensor
-  □ wait() 是否在使用结果的那条 stream 上调
-  □ 输入是否在别的 stream 上产生而当前 stream 没等它
-  □ 多个 process group 是否共享 buffer 而没加依赖
-
-现象：hang / timeout
-  □ 是启动阶段（store get ncclUniqueId 超时 → rank 0 没起来或网络配置）还是运行阶段
-  □ 超时报的 seq 与 op 是什么；开 TORCH_NCCL_DESYNC_DEBUG 或看 Flight Recorder 对齐各 rank
-  □ 集合通信前面是否有长时间的 CPU 阻塞（checkpoint、数据加载）—— host 时钟超时
-  □ 是 watchdog 报的（10 分钟）还是 heartbeat monitor 报的（再 8 分钟，watchdog 自己卡了）
-  □ 想在进程内恢复 → TORCH_NCCL_ASYNC_ERROR_HANDLING=2；想尽快退出 → 保持默认 3
-```
+- **现象：重叠没发生**
+  - profiler 里 NCCL kernel 与计算 kernel 是否在不同 stream 行；同一行 → `async_op` 没开或用了同步模式
+  - 两者之间 CPU 行上有没有 `cudaStreamSynchronize` / `cudaDeviceSynchronize` / 非 Async 的 `cudaMemcpy` / `cudaFree`
+  - `wait()` 的 `cudaStreamWaitEvent` 是不是紧跟 all_reduce（wait 放早了）
+  - 显存是否逼近上限（`cudaFree` 频发）→ 试 `expandable_segments:True`
+  - GEMM 是否占满 SM → 试 `TORCH_NCCL_HIGH_PRIORITY=1` 或限制 `NCCL_MAX_CTAS`
+  - NCCL kernel 远长于 α-β 预测 → 对照各 rank trace 找 straggler，不是带宽问题
+- **现象：结果错 / 不稳定**
+  - `async_op=True` 之后 `wait()` 之前是否读写了参与通信的 tensor
+  - `wait()` 是否在使用结果的那条 stream 上调
+  - 输入是否在别的 stream 上产生而当前 stream 没等它
+  - 多个 process group 是否共享 buffer 而没加依赖
+- **现象：hang / timeout**
+  - 是启动阶段（store get `ncclUniqueId` 超时 → rank 0 没起来或网络配置）还是运行阶段
+  - 超时报的 seq 与 op 是什么；开 `TORCH_NCCL_DESYNC_DEBUG` 或看 Flight Recorder 对齐各 rank
+  - 集合通信前面是否有长时间的 CPU 阻塞（checkpoint、数据加载）—— host 时钟超时
+  - 是 watchdog 报的（10 分钟）还是 heartbeat monitor 报的（watchdog 自己卡了，卡住后 8～16 分钟判定，再等最多 8 分钟强杀）
+  - 想在进程内恢复 → `TORCH_NCCL_ASYNC_ERROR_HANDLING=2`；想尽快退出 → 保持默认 3
 
 ### 3. 本篇涉及的源码与工具位置
 

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 362" width="760" height="362" role="img" aria-labelledby="t d">
+  <title id="t">dist.all_reduce 一次调用穿过的层次</title>
+  <desc id="d">自上而下五层：Python 的 dist.all_reduce（distributed_c10d.py）组装 AllreduceOptions 后调 C++ 的 ProcessGroup::allreduce（ProcessGroup.hpp）；后者经 dispatcher 调 c10d::allreduce_ 算子（Ops.cpp），按 tensor 的 device 类型选 Backend，进入 Backend::allreduce 虚函数（Backend.hpp）；NCCL 后端是 ProcessGroupNCCL::allreduce → collective()（ProcessGroupNCCL.cpp），collective() 依次做 7 步，其中第 5 步调 ncclAllReduce，进入 NCCL 的 enqueue 与 kernel launch。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f3f5f7"/><line x1="0" y1="0" x2="0" y2="6" stroke="#c9d3de" stroke-width="2"/></pattern>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .monom { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .muted { font-size: 13px; fill: #5b6b7c; }
+      .warn { font-size: 13px; font-weight: 700; fill: #b42318; }
+      .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
+      .seg { stroke: #40566f; stroke-width: 1.2; }
+      .k-comp { fill: #cfeccf; } .k-nccl { fill: #cfe2f3; } .k-bad { fill: #f9d5d3; } .k-cpu { fill: #fde0b8; }
+      .wait { fill: url(#hatch); stroke: #9fb3c8; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .race { fill: #f04438; fill-opacity: 0.12; stroke: #b42318; stroke-width: 1.2; stroke-dasharray: 5 3; }
+      .line { stroke: #40566f; stroke-width: 1.6; fill: none; }
+      .arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+      .guide { stroke: #8a9bb0; stroke-width: 1.2; stroke-dasharray: 3 3; }
+      .ev { fill: #40566f; }
+    </style>
+  </defs>
+<text x="12" y="34.0" text-anchor="start" class="bold">Python</text>
+<rect x="78" y="12" width="670" height="34" class="box"/>
+<text x="90" y="34.0" text-anchor="start" class="monob">dist.all_reduce(t, op, group, async_op)</text>
+<text x="736" y="34.0" text-anchor="end" class="monom">torch/distributed/distributed_c10d.py</text>
+<line x1="118" y1="46" x2="118" y2="82" class="arrow"/>
+<text x="134" y="69.0" text-anchor="start" class="small">组装 AllreduceOptions{reduceOp, asyncOp}</text>
+<text x="12" y="104.0" text-anchor="start" class="bold">C++</text>
+<rect x="78" y="82" width="670" height="34" class="box"/>
+<text x="90" y="104.0" text-anchor="start" class="monob">ProcessGroup::allreduce</text>
+<text x="736" y="104.0" text-anchor="end" class="monom">torch/csrc/distributed/c10d/ProcessGroup.hpp</text>
+<line x1="118" y1="116" x2="118" y2="170" class="arrow"/>
+<text x="134" y="139.0" text-anchor="start" class="small">经 dispatcher 调 c10d::allreduce_ 算子（Ops.cpp）</text>
+<text x="134" y="157.0" text-anchor="start" class="small">按 tensor 的 device 类型选 Backend</text>
+<text x="12" y="192.0" text-anchor="start" class="bold">C++</text>
+<rect x="78" y="170" width="670" height="34" class="box"/>
+<text x="90" y="192.0" text-anchor="start" class="monob">Backend::allreduce（虚函数）</text>
+<text x="736" y="192.0" text-anchor="end" class="monom">Backend.hpp</text>
+<line x1="118" y1="204" x2="118" y2="228" class="arrow"/>
+<text x="12" y="250.0" text-anchor="start" class="bold">C++</text>
+<rect x="78" y="228" width="670" height="34" class="box"/>
+<text x="90" y="250.0" text-anchor="start" class="monob">ProcessGroupNCCL::allreduce → collective()</text>
+<text x="736" y="250.0" text-anchor="end" class="monom">ProcessGroupNCCL.cpp</text>
+<line x1="118" y1="262" x2="118" y2="316" class="arrow"/>
+<text x="134" y="285.0" text-anchor="start" class="small">collective() 依次做第 1～7 步（见图下），</text>
+<text x="134" y="303.0" text-anchor="start" class="small">第 5 步 fn(...) 调 ncclAllReduce(..., comm, stream)</text>
+<text x="12" y="338.0" text-anchor="start" class="bold">NCCL</text>
+<rect x="78" y="316" width="670" height="34" class="box"/>
+<text x="90" y="338.0" text-anchor="start" class="monob">ncclAllReduce → enqueue → kernel launch（上一篇）</text>
+</svg>
