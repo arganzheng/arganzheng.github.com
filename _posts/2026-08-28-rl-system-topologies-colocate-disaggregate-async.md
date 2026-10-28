@@ -406,19 +406,21 @@ class PPOTrainerSeparateAsync(PPOTrainer):
 
 ### 3. 配置项速查
 
-```text title="verl v1 配置项速查"
-形态选择        trainer.v1.trainer_mode = sync | colocate_async | separate_async
-资源            trainer.nnodes × trainer.n_gpus_per_node            训练池（共置下即全部）
-                actor_rollout_ref.rollout.nnodes × n_gpus_per_node  standalone rollout 池（separate_async）
-                actor_rollout_ref.rollout.tensor_model_parallel_size  推理实例 TP
-异步节奏        trainer.v1.separate_async.parameter_sync_step        几次 mini-batch 更新同步一次权重
-                trainer.v1.*.num_warmup_batches                       开训前预热几个 batch 的生成
-                data.gen_batch_size                                   流式 dataloader 每次投多少 prompt
-staleness       trainer.v1.sampler.max_off_policy_threshold           轨迹最多跨几个版本（默认 8）
-                trainer.v1.sampler.max_off_policy_strategy            drop | wait
-权重同步        actor_rollout_ref.rollout.checkpoint_engine.backend   naive（共置）| nccl | nixl | mooncake | delta_sharded
-                actor_rollout_ref.rollout.free_cache_engine           共置下是否 sleep / wake（默认 true）
-```
+| 类别 | 配置项 | 取值 / 含义 |
+|---|---|---|
+| 形态选择 | `trainer.v1.trainer_mode` | `sync` \| `colocate_async` \| `separate_async` |
+| 资源 | `trainer.nnodes` × `trainer.n_gpus_per_node` | 训练池（共置下即全部） |
+| ^^ | `actor_rollout_ref.rollout.nnodes` × `actor_rollout_ref.rollout.n_gpus_per_node` | standalone rollout 池（separate_async） |
+| ^^ | `actor_rollout_ref.rollout.tensor_model_parallel_size` | 推理实例 TP |
+| 异步节奏 | `trainer.v1.separate_async.parameter_sync_step` | 几次 mini-batch 更新同步一次权重 |
+| ^^ | `trainer.v1.*.num_warmup_batches` | 开训前预热几个 batch 的生成 |
+| ^^ | `data.gen_batch_size` | 流式 dataloader 每次投多少 prompt |
+| staleness | `trainer.v1.sampler.max_off_policy_threshold` | 轨迹最多跨几个版本（默认 `8`） |
+| ^^ | `trainer.v1.sampler.max_off_policy_strategy` | `drop` \| `wait` |
+| 权重同步 | `actor_rollout_ref.rollout.checkpoint_engine.backend` | `naive`（共置）\| `nccl` \| `nixl` \| `mooncake` \| `delta_sharded` |
+| ^^ | `actor_rollout_ref.rollout.free_cache_engine` | 共置下是否 sleep / wake（默认 `true`） |
+
+Table: verl v1 配置项速查
 
 （`verl/experimental/fully_async_policy/` 是美团团队更早的独立实现，第五章的公开实验来自它；它的 `staleness_threshold`、`trigger_parameter_sync_step`、`partial_rollout`、动态资源调度在 v0.9 里逐步并入 v1 的 `separate_async`。读那份文档时注意参数名不同。）
 
