@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 269" width="760" height="269" role="img" aria-labelledby="t d">
+  <title id="t">一个 block 处理 1024 个 BF16 的向量索引与元素</title>
+  <desc id="d">一个 block（128 线程 t）处理 1024 个 BF16，vec_size = 4（A100），每线程 2 次迭代。迭代 i=0：向量 idx = t，t=0、1、2 … 127 依次读 e0-3、e4-7、e8-11 … e508-511，连续 1024 B。迭代 i=1：向量 idx = t + 128，依次读 e512-515、e516-519、e520-523 … e1020-1023，连续 1024 B。</desc>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#334155"/></marker>
+  <style>text{font-family:-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;fill:#111;font-weight:600} .s{font-weight:500} .sec{fill:#c2410c}</style></defs>
+  <rect width="760" height="269" fill="#fff"/>
+  <text x="16.0" y="22.0" font-size="13" text-anchor="start" class="t">一个 block（128 线程 t）处理 1024 个 BF16；vec_size = 4（A100）→ 每线程 2 次迭代</text>
+  <text x="16.0" y="66.0" font-size="13" text-anchor="start" class="t">迭代 i=0</text>
+  <text x="16.0" y="86.0" font-size="12" text-anchor="start" class="s">向量 idx = t</text>
+  <rect x="180.0" y="48.0" width="92.0" height="46.0" fill="#bfdbfe" stroke="#334155" stroke-width="1" />
+  <text x="226.0" y="66.0" font-size="12" text-anchor="middle" class="t">t=0</text>
+  <text x="226.0" y="85.0" font-size="12" text-anchor="middle" class="s">e0-3</text>
+  <rect x="272.0" y="48.0" width="92.0" height="46.0" fill="#fde68a" stroke="#334155" stroke-width="1" />
+  <text x="318.0" y="66.0" font-size="12" text-anchor="middle" class="t">t=1</text>
+  <text x="318.0" y="85.0" font-size="12" text-anchor="middle" class="s">e4-7</text>
+  <rect x="364.0" y="48.0" width="92.0" height="46.0" fill="#bfdbfe" stroke="#334155" stroke-width="1" />
+  <text x="410.0" y="66.0" font-size="12" text-anchor="middle" class="t">t=2</text>
+  <text x="410.0" y="85.0" font-size="12" text-anchor="middle" class="s">e8-11</text>
+  <text x="484.0" y="76.0" font-size="14" text-anchor="middle" class="t">…</text>
+  <rect x="512.0" y="48.0" width="112.0" height="46.0" fill="#bfdbfe" stroke="#334155" stroke-width="1" />
+  <text x="568.0" y="66.0" font-size="12" text-anchor="middle" class="t">t=127</text>
+  <text x="568.0" y="85.0" font-size="12" text-anchor="middle" class="s">e508-511</text>
+  <path d="M180.0,100.0 v6 H624.0 v-6" fill="none" stroke="#334155" stroke-width="1.2"/>
+  <text x="402.0" y="122.0" font-size="12" text-anchor="middle" class="t">连续 1024 B</text>
+  <text x="16.0" y="166.0" font-size="13" text-anchor="start" class="t">迭代 i=1</text>
+  <text x="16.0" y="186.0" font-size="12" text-anchor="start" class="s">向量 idx = t + 128</text>
+  <rect x="180.0" y="148.0" width="92.0" height="46.0" fill="#bfdbfe" stroke="#334155" stroke-width="1" />
+  <text x="226.0" y="166.0" font-size="12" text-anchor="middle" class="t">t=0</text>
+  <text x="226.0" y="185.0" font-size="12" text-anchor="middle" class="s">e512-515</text>
+  <rect x="272.0" y="148.0" width="92.0" height="46.0" fill="#fde68a" stroke="#334155" stroke-width="1" />
+  <text x="318.0" y="166.0" font-size="12" text-anchor="middle" class="t">t=1</text>
+  <text x="318.0" y="185.0" font-size="12" text-anchor="middle" class="s">e516-519</text>
+  <rect x="364.0" y="148.0" width="92.0" height="46.0" fill="#bfdbfe" stroke="#334155" stroke-width="1" />
+  <text x="410.0" y="166.0" font-size="12" text-anchor="middle" class="t">t=2</text>
+  <text x="410.0" y="185.0" font-size="12" text-anchor="middle" class="s">e520-523</text>
+  <text x="484.0" y="176.0" font-size="14" text-anchor="middle" class="t">…</text>
+  <rect x="512.0" y="148.0" width="112.0" height="46.0" fill="#bfdbfe" stroke="#334155" stroke-width="1" />
+  <text x="568.0" y="166.0" font-size="12" text-anchor="middle" class="t">t=127</text>
+  <text x="568.0" y="185.0" font-size="12" text-anchor="middle" class="s">e1020-1023</text>
+  <path d="M180.0,200.0 v6 H624.0 v-6" fill="none" stroke="#334155" stroke-width="1.2"/>
+  <text x="402.0" y="222.0" font-size="12" text-anchor="middle" class="t">连续 1024 B</text>
+  <rect x="180.0" y="240.0" width="14.0" height="12.0" fill="#fde68a" stroke="#334155" stroke-width="1" />
+  <text x="200.0" y="251.0" font-size="12" text-anchor="start" class="s">同一个线程 t=1 在两次迭代里读的两个向量</text>
+</svg>

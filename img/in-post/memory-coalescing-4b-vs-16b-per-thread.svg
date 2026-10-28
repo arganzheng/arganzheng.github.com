@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 296" width="760" height="296" role="img" aria-labelledby="t d">
+  <title id="t">每线程 4 B 与 16 B 一条 warp 加载的字节数</title>
+  <desc id="d">按字节比例画。每线程 4 B（float）：线程 0…31 各 4 B，一条 warp 加载 = 128 B，正好 4 个 sector、1 条 cache line。每线程 16 B（float4）：线程 0、1 … 31 各 16 B，一条 warp 加载 = 512 B，16 个 sector、4 条 cache line。同样是 4 个 sector 一组连续，但一条指令搬 4 倍的字节，在飞的请求也多 4 倍。</desc>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#334155"/></marker>
+  <style>text{font-family:-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;fill:#111;font-weight:600} .s{font-weight:500} .sec{fill:#c2410c}</style></defs>
+  <rect width="760" height="296" fill="#fff"/>
+  <text x="16.0" y="56.0" font-size="13" text-anchor="start" class="t">每线程 4 B</text>
+  <text x="16.0" y="74.0" font-size="12" text-anchor="start" class="s">（float）</text>
+  <rect x="160.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="164.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="169.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="173.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="178.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="182.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="187.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="191.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="196.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="200.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="205.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="209.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="214.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="218.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="223.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="227.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="232.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="236.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="241.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="245.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="250.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="254.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="259.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="263.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="268.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="272.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="277.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="281.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="286.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="290.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="295.0" y="42.0" width="4.5" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="299.5" y="42.0" width="4.5" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <line x1="160.0" y1="36.0" x2="160.0" y2="68.0" stroke="#c2410c" stroke-width="2.2" />
+  <line x1="196.0" y1="42.0" x2="196.0" y2="68.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="232.0" y1="42.0" x2="232.0" y2="68.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="268.0" y1="42.0" x2="268.0" y2="68.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="304.0" y1="36.0" x2="304.0" y2="68.0" stroke="#c2410c" stroke-width="2.2" />
+  <rect x="160.0" y="42.0" width="144.0" height="20.0" fill="none" stroke="#334155" stroke-width="1" />
+  <text x="162.2" y="32.0" font-size="11" text-anchor="middle" class="t">0</text>
+  <text x="301.8" y="32.0" font-size="11" text-anchor="middle" class="t">31</text>
+  <text x="232.0" y="32.0" font-size="11" text-anchor="middle" class="t">线程 …</text>
+  <text x="178.0" y="82.0" font-size="10" text-anchor="middle" class="sec">s0</text>
+  <text x="214.0" y="82.0" font-size="10" text-anchor="middle" class="sec">s1</text>
+  <text x="250.0" y="82.0" font-size="10" text-anchor="middle" class="sec">s2</text>
+  <text x="286.0" y="82.0" font-size="10" text-anchor="middle" class="sec">s3</text>
+  <text x="324.0" y="57.0" font-size="13" text-anchor="start" class="t">一条 warp 加载 = 128 B（4 sector，1 条 cache line）</text>
+  <text x="16.0" y="146.0" font-size="13" text-anchor="start" class="t">每线程 16 B</text>
+  <text x="16.0" y="164.0" font-size="12" text-anchor="start" class="s">（float4）</text>
+  <rect x="160.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="178.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="196.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="214.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="232.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="250.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="268.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="286.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="304.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="322.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="340.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="358.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="376.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="394.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="412.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="430.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="448.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="466.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="484.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="502.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="520.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="538.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="556.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="574.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="592.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="610.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="628.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="646.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="664.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="682.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <rect x="700.0" y="132.0" width="18.0" height="20.0" fill="#bfdbfe" stroke="none" stroke-width="0" />
+  <rect x="718.0" y="132.0" width="18.0" height="20.0" fill="#93c5fd" stroke="none" stroke-width="0" />
+  <line x1="160.0" y1="126.0" x2="160.0" y2="158.0" stroke="#c2410c" stroke-width="2.2" />
+  <line x1="196.0" y1="132.0" x2="196.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="232.0" y1="132.0" x2="232.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="268.0" y1="132.0" x2="268.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="304.0" y1="126.0" x2="304.0" y2="158.0" stroke="#c2410c" stroke-width="2.2" />
+  <line x1="340.0" y1="132.0" x2="340.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="376.0" y1="132.0" x2="376.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="412.0" y1="132.0" x2="412.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="448.0" y1="126.0" x2="448.0" y2="158.0" stroke="#c2410c" stroke-width="2.2" />
+  <line x1="484.0" y1="132.0" x2="484.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="520.0" y1="132.0" x2="520.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="556.0" y1="132.0" x2="556.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="592.0" y1="126.0" x2="592.0" y2="158.0" stroke="#c2410c" stroke-width="2.2" />
+  <line x1="628.0" y1="132.0" x2="628.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="664.0" y1="132.0" x2="664.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="700.0" y1="132.0" x2="700.0" y2="158.0" stroke="#c2410c" stroke-width="1" />
+  <line x1="736.0" y1="126.0" x2="736.0" y2="158.0" stroke="#c2410c" stroke-width="2.2" />
+  <rect x="160.0" y="132.0" width="576.0" height="20.0" fill="none" stroke="#334155" stroke-width="1" />
+  <text x="169.0" y="122.0" font-size="11" text-anchor="middle" class="t">0</text>
+  <text x="187.0" y="122.0" font-size="11" text-anchor="middle" class="t">1</text>
+  <text x="205.0" y="122.0" font-size="11" text-anchor="middle" class="t">2</text>
+  <text x="223.0" y="122.0" font-size="11" text-anchor="middle" class="t">3</text>
+  <text x="727.0" y="122.0" font-size="11" text-anchor="middle" class="t">31</text>
+  <text x="475.0" y="122.0" font-size="11" text-anchor="middle" class="t">线程 …</text>
+  <text x="178.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s0</text>
+  <text x="214.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s1</text>
+  <text x="250.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s2</text>
+  <text x="286.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s3</text>
+  <text x="322.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s4</text>
+  <text x="358.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s5</text>
+  <text x="394.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s6</text>
+  <text x="430.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s7</text>
+  <text x="466.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s8</text>
+  <text x="502.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s9</text>
+  <text x="538.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s10</text>
+  <text x="574.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s11</text>
+  <text x="610.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s12</text>
+  <text x="646.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s13</text>
+  <text x="682.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s14</text>
+  <text x="718.0" y="172.0" font-size="10" text-anchor="middle" class="sec">s15</text>
+  <path d="M162.0,180.0 v6 H302.0 v-6" fill="none" stroke="#334155" stroke-width="1.2"/>
+  <text x="232.0" y="202.0" font-size="11" text-anchor="middle" class="s">cache line 0</text>
+  <path d="M306.0,180.0 v6 H446.0 v-6" fill="none" stroke="#334155" stroke-width="1.2"/>
+  <text x="376.0" y="202.0" font-size="11" text-anchor="middle" class="s">cache line 1</text>
+  <path d="M450.0,180.0 v6 H590.0 v-6" fill="none" stroke="#334155" stroke-width="1.2"/>
+  <text x="520.0" y="202.0" font-size="11" text-anchor="middle" class="s">cache line 2</text>
+  <path d="M594.0,180.0 v6 H734.0 v-6" fill="none" stroke="#334155" stroke-width="1.2"/>
+  <text x="664.0" y="202.0" font-size="11" text-anchor="middle" class="s">cache line 3</text>
+  <text x="160.0" y="226.0" font-size="13" text-anchor="start" class="t">一条 warp 加载 = 512 B（16 sector，4 条 cache line）</text>
+  <text x="160.0" y="248.0" font-size="13" text-anchor="start" class="s">同样 4 个 sector 一组连续，但一条指令搬 4 倍的字节，在飞的请求也多 4 倍</text>
+  <line x1="160.0" y1="266.0" x2="160.0" y2="280.0" stroke="#c2410c" stroke-width="1" />
+  <text x="168.0" y="278.0" font-size="12" text-anchor="start" class="s">32 B sector 边界</text>
+  <line x1="297.4" y1="266.0" x2="297.4" y2="280.0" stroke="#c2410c" stroke-width="2.2" />
+  <text x="305.4" y="278.0" font-size="12" text-anchor="start" class="s">128 B cache line 边界</text>
+  <rect x="468.3" y="267.0" width="10.0" height="12.0" fill="#bfdbfe" stroke="none" stroke-width="1" />
+  <rect x="478.3" y="267.0" width="10.0" height="12.0" fill="#93c5fd" stroke="none" stroke-width="1" />
+  <text x="494.3" y="278.0" font-size="12" text-anchor="start" class="s">深浅交替 = 相邻线程</text>
+</svg>

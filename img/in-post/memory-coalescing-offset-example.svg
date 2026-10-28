@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340" role="img" aria-labelledby="t d">
+  <title id="t">线性 i = 6 在 x 与 b 中的 offset 示例</title>
+  <desc id="d">输出 y[m=3, d=4]，线程拿到线性 i = 6，i0 = 6 / 4 = 1，i1 = 6 % 4 = 2。x 连续 [3,4]，stride (4, 1)，off_x = 1·4 + 2·1 = 6，即 x12。b 广播 [1,4]→[3,4]，stride (0, 1)，off_b = 1·0 + 2·1 = 2，即 b2，三行读同一段。x 转置 view，stride (1, 3)，off_x = 1·1 + 2·3 = 7；i0 = 1 这一行的 4 个线程落在存储 offset 1、4、7、10，相邻线程 i1 差 1 → 地址差 3 个元素，不再合并。</desc>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#334155"/></marker>
+  <style>text{font-family:-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;fill:#111;font-weight:600} .s{font-weight:500} .sec{fill:#c2410c}</style></defs>
+  <rect width="760" height="340" fill="#fff"/>
+  <text x="16.0" y="22.0" font-size="13" text-anchor="start" class="t">输出 y[m=3, d=4]，线程拿到线性 i = 6  →  i0 = 6 / 4 = 1，i1 = 6 % 4 = 2</text>
+  <text x="16.0" y="66.0" font-size="13" text-anchor="start" class="t">x 连续 [3,4]，stride (4, 1)</text>
+  <text x="16.0" y="88.0" font-size="13" text-anchor="start" class="s">off_x = 1·4 + 2·1 = 6</text>
+  <rect x="330.0" y="50.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="353.0" y="65.0" font-size="12" text-anchor="middle" class="s">x00</text>
+  <rect x="376.0" y="50.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="399.0" y="65.0" font-size="12" text-anchor="middle" class="s">x01</text>
+  <rect x="422.0" y="50.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="445.0" y="65.0" font-size="12" text-anchor="middle" class="s">x02</text>
+  <rect x="468.0" y="50.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="491.0" y="65.0" font-size="12" text-anchor="middle" class="s">x03</text>
+  <rect x="330.0" y="72.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="353.0" y="87.0" font-size="12" text-anchor="middle" class="s">x10</text>
+  <rect x="376.0" y="72.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="399.0" y="87.0" font-size="12" text-anchor="middle" class="s">x11</text>
+  <rect x="422.0" y="72.0" width="46.0" height="22.0" fill="#fde68a" stroke="#c2410c" stroke-width="2" />
+  <text x="445.0" y="87.0" font-size="12" text-anchor="middle" class="t">x12</text>
+  <rect x="468.0" y="72.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="491.0" y="87.0" font-size="12" text-anchor="middle" class="s">x13</text>
+  <rect x="330.0" y="94.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="353.0" y="109.0" font-size="12" text-anchor="middle" class="s">x20</text>
+  <rect x="376.0" y="94.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="399.0" y="109.0" font-size="12" text-anchor="middle" class="s">x21</text>
+  <rect x="422.0" y="94.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="445.0" y="109.0" font-size="12" text-anchor="middle" class="s">x22</text>
+  <rect x="468.0" y="94.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="491.0" y="109.0" font-size="12" text-anchor="middle" class="s">x23</text>
+  <text x="528.0" y="87.0" font-size="12" text-anchor="start" class="s">← x12：存储第 6 个元素</text>
+  <text x="16.0" y="156.0" font-size="13" text-anchor="start" class="t">b 广播 [1,4]→[3,4]，stride (0, 1)</text>
+  <text x="16.0" y="178.0" font-size="13" text-anchor="start" class="s">off_b = 1·0 + 2·1 = 2</text>
+  <rect x="330.0" y="140.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="353.0" y="155.0" font-size="12" text-anchor="middle" class="s">b0</text>
+  <rect x="376.0" y="140.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="399.0" y="155.0" font-size="12" text-anchor="middle" class="s">b1</text>
+  <rect x="422.0" y="140.0" width="46.0" height="22.0" fill="#fde68a" stroke="#c2410c" stroke-width="2" />
+  <text x="445.0" y="155.0" font-size="12" text-anchor="middle" class="t">b2</text>
+  <rect x="468.0" y="140.0" width="46.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="491.0" y="155.0" font-size="12" text-anchor="middle" class="s">b3</text>
+  <text x="528.0" y="155.0" font-size="12" text-anchor="start" class="s">← 三行读同一段（第 0 维 stride 0）</text>
+  <text x="16.0" y="246.0" font-size="13" text-anchor="start" class="t">x 转置 view，stride (1, 3)</text>
+  <text x="16.0" y="268.0" font-size="13" text-anchor="start" class="s">off_x = 1·1 + 2·3 = 7</text>
+  <text x="330.0" y="218.0" font-size="11" text-anchor="start" class="s">存储 offset（i0 = 1 这一行的 4 个线程）</text>
+  <rect x="330.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="346.0" y="271.0" font-size="12" text-anchor="middle" class="s">0</text>
+  <rect x="362.0" y="256.0" width="32.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="378.0" y="271.0" font-size="12" text-anchor="middle" class="t">1</text>
+  <rect x="394.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="410.0" y="271.0" font-size="12" text-anchor="middle" class="s">2</text>
+  <rect x="426.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="442.0" y="271.0" font-size="12" text-anchor="middle" class="s">3</text>
+  <rect x="458.0" y="256.0" width="32.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="474.0" y="271.0" font-size="12" text-anchor="middle" class="t">4</text>
+  <rect x="490.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="506.0" y="271.0" font-size="12" text-anchor="middle" class="s">5</text>
+  <rect x="522.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="538.0" y="271.0" font-size="12" text-anchor="middle" class="s">6</text>
+  <rect x="554.0" y="256.0" width="32.0" height="22.0" fill="#fde68a" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="570.0" y="271.0" font-size="12" text-anchor="middle" class="t">7</text>
+  <rect x="586.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="602.0" y="271.0" font-size="12" text-anchor="middle" class="s">8</text>
+  <rect x="618.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="634.0" y="271.0" font-size="12" text-anchor="middle" class="s">9</text>
+  <rect x="650.0" y="256.0" width="32.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="666.0" y="271.0" font-size="12" text-anchor="middle" class="t">10</text>
+  <rect x="682.0" y="256.0" width="32.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.8" />
+  <text x="698.0" y="271.0" font-size="12" text-anchor="middle" class="s">11</text>
+  <path d="M378.0,256.0 Q426.0,234.0 474.0,256.0" fill="none" stroke="#334155" stroke-width="1.3" marker-end="url(#ah)"/>
+  <text x="426.0" y="240.0" font-size="11" text-anchor="middle" class="t">+3</text>
+  <path d="M474.0,256.0 Q522.0,234.0 570.0,256.0" fill="none" stroke="#334155" stroke-width="1.3" marker-end="url(#ah)"/>
+  <text x="522.0" y="240.0" font-size="11" text-anchor="middle" class="t">+3</text>
+  <path d="M570.0,256.0 Q618.0,234.0 666.0,256.0" fill="none" stroke="#334155" stroke-width="1.3" marker-end="url(#ah)"/>
+  <text x="618.0" y="240.0" font-size="11" text-anchor="middle" class="t">+3</text>
+  <text x="378.0" y="293.0" font-size="11" text-anchor="middle" class="s">i1=0</text>
+  <text x="474.0" y="293.0" font-size="11" text-anchor="middle" class="s">i1=1</text>
+  <text x="570.0" y="293.0" font-size="11" text-anchor="middle" class="s">i1=2</text>
+  <text x="666.0" y="293.0" font-size="11" text-anchor="middle" class="s">i1=3</text>
+  <text x="16.0" y="322.0" font-size="13" text-anchor="start" class="t">相邻线程 i1 差 1 → 地址差 3 个元素：不再合并</text>
+</svg>

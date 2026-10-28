@@ -78,12 +78,7 @@ Table: A100 访存路径各级的粒度、延迟与带宽
 
 举最简单的例子：32 个线程每人读一个 `float`（4 字节），地址连续且起点按 128 字节对齐。总共需要 128 字节，恰好落在 4 个 sector 里，效率 100%。这是所有 elementwise kernel 应该追求的形态：
 
-```text title="连续对齐访问：4 sector、效率 100%"
-线程   0   1   2   3  ...  31
-地址   0   4   8  12  ... 124        (相对 128 B 对齐的起点)
-sector |---- 0 ----|---- 1 ----|---- 2 ----|---- 3 ----|
-       每个 sector 32 B，全部有效  →  4 sector，128 B，效率 100%
-```
+![连续对齐访问：线程 0…31 读地址 0…124，正好落在 sector 0–3，4 sector、128 B、效率 100%](/img/in-post/memory-coalescing-aligned-4-sectors.svg)
 
 ### 2. 访问模式与效率表
 
@@ -95,31 +90,22 @@ sector |---- 0 ----|---- 1 ----|---- 2 ----|---- 3 ----|
 - **未对齐起始**（起点偏移 4 B）：128 B 数据从 sector 0 的第 4 字节开始，尾巴落入第 5 个 sector，搬运 160 B，效率 80%。
 - **随机地址**：最坏 32 个 sector，效率 12.5%，且没有任何局部性可利用。
 
-前三种画出来（■ 是线程真正需要的 4 B，□ 是被一并搬来但没人用的字节，每格 32 B 一个 sector）：
+其中四种画出来，每个小格 4 B：
 
-```text title="三种访问模式触碰的 sector"
-连续、对齐        |■■■■■■■■|■■■■■■■■|■■■■■■■■|■■■■■■■■|                        4 sector   100%
-                  s0       s1       s2       s3
-
-起点偏移 4 B      |□■■■■■■■|■■■■■■■■|■■■■■■■■|■■■■■■■■|■□□□□□□□|              5 sector    80%
-                  s0       s1       s2       s3       s4
-
-跨步 2            |■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|■□■□■□■□|   8 sector    50%
-                  s0       s1       s2       s3       s4       s5       s6       s7
-
-跨步 8            |■□□□□□□□|■□□□□□□□|■□□□□□□□| … 每线程独占一个 sector …  |■□□□□□□□|         32 sector  12.5%
-                  s0       s1       s2                                    s31
-```
+![四种访问模式触碰的 sector：连续对齐 4 个 100%，起点偏移 4 B 5 个 80%，跨步 2 8 个 50%，跨步 8 每线程独占一个 sector，32 个 12.5%](/img/in-post/memory-coalescing-access-patterns.svg)
 
 汇总成表：
 
-- **访问模式（32 线程 × 4 B，有效 128 B）**：sector 数；搬运字节；效率
-- **连续、128 B 对齐**：4；128 B；100%
-- **连续、起点偏移 4 B（未对齐）**：5；160 B；80%
-- **跨步 2（每线程间隔 8 B）**：8；256 B；50%
-- **跨步 4（间隔 16 B）**：16；512 B；25%
-- **跨步 8 及以上（间隔 ≥ 32 B）**：32；1024 B；12.5%
-- **随机**：≤32；≤1024 B；≥12.5%
+| 访问模式（32 线程 × 4 B，有效 128 B） | sector 数 | 搬运字节 | 效率 |
+|---|---|---|---|
+| 连续、128 B 对齐 | 4 | 128 B | 100% |
+| 连续、起点偏移 4 B（未对齐） | 5 | 160 B | 80% |
+| 跨步 2（每线程间隔 8 B） | 8 | 256 B | 50% |
+| 跨步 4（间隔 16 B） | 16 | 512 B | 25% |
+| 跨步 8 及以上（间隔 ≥ 32 B） | 32 | 1024 B | 12.5% |
+| 随机 | ≤32 | ≤1024 B | ≥12.5% |
+
+Table: 访问模式与访存效率
 
 BF16 是 2 字节，32 个线程连续读只有 64 B，占 2 个 sector——效率仍是 100%，但每条加载指令只带回 64 B，要靠更多指令才能填满带宽。这一点是下一章向量化的动机。
 
@@ -142,13 +128,7 @@ struct Points { float* x; float* y; float* z; };   // 三个独立数组
 
 两种布局下，"warp 读 32 个点的 x 分量"触碰的内存：
 
-```text title="AoS 与 SoA 下 warp 读 x 分量触碰的内存"
-AoS  pts[i] = {x, y, z}       内存： x0 y0 z0 | x1 y1 z1 | x2 y2 z2 | x3 …          线程 i 读 x_i，间隔 12 B
-                              warp 触碰：■□□■□□■□□■□□ … 共 384 B、12 sector，有效 128 B → 33%
-
-SoA  x[], y[], z[]            内存： x0 x1 x2 x3 … x31 | … （y、z 在别处）          线程 i 读 x[i]，间隔 4 B
-                              warp 触碰：■■■■■■■■■■■■ … 共 128 B、4 sector          → 100%
-```
+![AoS 与 SoA 下 warp 读 x 分量触碰的内存：AoS 里 x 每 12 B 一个，共 384 B、12 sector，有效 33%；SoA 里 x0…x31 连续，128 B、4 sector，100%](/img/in-post/memory-coalescing-aos-vs-soa.svg)
 
 `x[i]` 连续，效率 100%。深度学习框架里的 tensor 天然是 SoA：一个 tensor 一块连续内存，dtype 单一。这也是为什么 tensor 抽象对 GPU 友好——当你在 kernel 里定义结构体数组时，要意识到你在往 AoS 的方向走。
 
@@ -166,14 +146,7 @@ SoA  x[], y[], z[]            内存： x0 x1 x2 x3 … x31 | … （y、z 在�
 
 上一节的结论是连续访问效率 100%，看起来问题已经解决。但 A100 的 2.0 TB/s 是一个很高的速率：每个 SM 每秒要吞掉 $$2.0 \times 10^{12} / 108 \approx 18.5$$ GB/s，按 1.41 GHz 折算约 13 字节/周期。一条 32 线程 × 4 B 的加载指令带回 128 B，也就是每个 SM 每 10 个周期就得发出一条加载指令并让它命中——这还没算地址计算、边界判断、类型转换和存储指令。
 
-```text title="每线程 4 B 与 16 B 一条 warp 加载的字节数"
-每线程 4 B（float）     线程  0    1    2    3   …  31          一条 warp 加载 = 128 B
-                       地址 |----|----|----|----| … |----|
-
-每线程 16 B（float4）   线程  0                1                …  31    一条 warp 加载 = 512 B
-                       地址 |----------------|----------------| … |----------------|
-                            同样 4 个 sector 一组连续，但一条指令搬 4 倍的字节，在飞的请求也多 4 倍
-```
+![每线程 4 B 与 16 B 一条 warp 加载的字节数：128 B 是 4 sector、1 条 cache line，512 B 是 16 sector、4 条 cache line](/img/in-post/memory-coalescing-4b-vs-16b-per-thread.svg)
 
 对 BF16 更糟：每线程 2 B，一条指令只带回 64 B。指令发射能力（每个 SM 4 个 warp 调度器，每周期各发一条）在 memory-bound kernel 里通常够用，但 LSU（load/store unit）的请求队列和 L1 的每周期事务数是有限资源。经验上，**每线程只搬 2–4 字节的 kernel 很难超过 70–80% 的带宽**。
 
@@ -224,19 +197,16 @@ bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 
 三个细节合在一起，就是第八章向量化 kernel 的元素 ↔ 线程映射（BF16，每格 2 B）：
 
-```text title="向量化 kernel 的元素 ↔ 线程映射与尾部"
-n = 8·n_vec + tail    例：n = 21 → n_vec = 2，tail = 5
-
-元素   e0 e1 e2 e3 e4 e5 e6 e7 | e8 … e15 | e16 e17 e18 e19 e20
-字节   0                    15 | 16    31 | 32  34  36  38  40
-       └──── int4 #0 ────────┘ └ int4 #1 ┘ └── 尾部：不足 16 B ──┘
-       线程 i=0 一条 16 B 加载   线程 i=1     block 0 的线程 0…4
-                                             各标量处理 1 个元素
+![向量化 kernel 的元素 ↔ 线程映射与尾部：n = 21 时 e0–e7 是 int4 #0、e8–e15 是 int4 #1，各由一个线程一条 16 B 加载；e16–e20 是尾部，block 0 的线程 0…4 各标量处理 1 个](/img/in-post/memory-coalescing-vectorized-tail.svg)
 
 起始地址决定整条路径能否向量化：
-  x.data_ptr()         …0000 (allocator 保证 512 B 对齐)   % 16 == 0 → int4
-  x[:, 1:].data_ptr()  …0002 (storage_offset = 1 个 BF16)  % 16 != 0 → 退回标量
-```
+
+| 指针 | 地址 | 原因 | `% 16` | 路径 |
+|---|---|---|---|---|
+| `x.data_ptr()` | `…0000` | allocator 保证 512 B 对齐 | `== 0` | `int4` |
+| `x[:, 1:].data_ptr()` | `…0002` | `storage_offset` = 1 个 BF16 | `!= 0` | 退回标量 |
+
+Table: 起始地址与向量化路径
 
 `float4` 对 FP32 是 4 个元素/线程；`__nv_bfloat162` × 4 是 8 个元素/线程；INT8 用 `int4` 是 16 个元素/线程。**每线程处理 4–8 个元素**是 elementwise kernel 最常见的配置，ATen 的默认也在这个范围。
 
@@ -253,16 +223,7 @@ for (int64_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
 }
 ```
 
-```text title="一线程一元素与 grid-stride 的元素分配"
-n = 12 个元素，grid × block = 4 个线程（T0…T3）
-
-一线程一元素（grid = 3 个 block）      T0 T1 T2 T3 | T4 T5 T6 T7 | T8 T9 T10 T11
-                                      e0 e1 e2 e3   e4 e5 e6 e7   e8 e9 e10 e11
-
-grid-stride（grid 固定 1 个 block）    第 1 轮   T0 T1 T2 T3 → e0  e1  e2  e3
-                                      第 2 轮   T0 T1 T2 T3 → e4  e5  e6  e7      步长 = 4 = 全 grid 线程数
-                                      第 3 轮   T0 T1 T2 T3 → e8  e9  e10 e11     每一轮内相邻线程仍访问相邻地址
-```
+![一线程一元素与 grid-stride 的元素分配：n = 12，一线程一元素用 3 个 block 共 12 个线程；grid-stride 只用 1 个 block 的 T0…T3，跑三轮，步长 4](/img/in-post/memory-coalescing-grid-stride.svg)
 
 这就是 **grid-stride loop**：grid 大小与 $$n$$ 解耦，每个线程处理 $$\lceil n / (\text{grid} \times \text{block}) \rceil$$ 个元素，步长是整个 grid 的线程总数。相邻线程仍然访问相邻地址，合并性质不变。
 
@@ -352,16 +313,7 @@ int64_t off_x = i0 * xs0 + i1 * xs1;
 int64_t off_b = i0 * bs0 + i1 * bs1;
 ```
 
-```text title="线性 i = 6 在 x 与 b 中的 offset 示例"
-输出 y[m=3, d=4]，线程拿到线性 i = 6   →   i0 = 6 / 4 = 1，i1 = 6 % 4 = 2
-
-x 连续 [3,4]，stride (4, 1)          off_x = 1·4 + 2·1 = 6        ┌ x00 x01 x02 x03 ┐
-                                                                  │ x10 x11 [x12] x13│
-                                                                  └ x20 x21 x22 x23 ┘
-b 广播 [1,4]→[3,4]，stride (0, 1)    off_b = 1·0 + 2·1 = 2        [ b0  b1  [b2]  b3 ]   三行读同一段
-
-x 转置 view，stride (1, 3)           off_x = 1·1 + 2·3 = 7        相邻线程 i1 差 1 → 地址差 3 个元素：不再合并
-```
+![线性 i = 6 在 x 与 b 中的 offset 示例：连续 x 落在 x12（offset 6），广播 b 落在 b2（offset 2），转置 view 落在 offset 7，相邻线程地址差 3](/img/in-post/memory-coalescing-offset-example.svg)
 
 **broadcast 就是 stride 为 0**：`b` 的形状 `[1, d]` 扩展到 `[m, d]`，第 0 维的 stride 设为 0，所有行读同一段内存。不需要物化任何数据。
 
@@ -555,19 +507,11 @@ __device__ inline void load_single_arg(accessor_t to, scalar_t *from) {
 
 注意 `index = thread_idx + i * num_threads()`：第 i 次迭代时，线程 t 读第 $$t + 128 i$$ 个向量——相邻线程读相邻向量，每次迭代 warp 覆盖连续的 $$32 \times \text{vec\_size} \times \text{sizeof}$$ 字节。BF16、vec 4 时一个 warp 一条指令 256 B、2 条 cache line；每线程 2 次迭代（8 元素 / 4）。这是第二章"连续对齐"与第三章"向量化"在源码里的直接体现。
 
-```text title="一个 block 处理 1024 个 BF16 的向量索引与元素"
-一个 block（128 线程 t）处理 1024 个 BF16；vec_size = 4（A100）→ 每线程 2 次迭代
+![一个 block 处理 1024 个 BF16 的向量索引与元素：迭代 i=0 线程 t 读向量 t（e0-3 … e508-511），迭代 i=1 读向量 t + 128（e512-515 … e1020-1023），每次迭代连续 1024 B](/img/in-post/memory-coalescing-aten-block-vectors.svg)
 
-迭代 i=0  向量 idx = t         t=0     t=1     t=2    …  t=127
-          元素                 e0-3    e4-7    e8-11  …  e508-511    连续 1024 B
-迭代 i=1  向量 idx = t + 128   t=0     t=1     t=2    …  t=127
-          元素                 e512-5  e516-9  e520-3 …  e1020-1023  连续 1024 B
-
-线程 t 的 8 个寄存器槽 to(4·i + j)： e[4t..4t+3]，e[512+4t..512+4t+3]
-一个 warp 一次迭代：32 线程 × 4 元素 × 2 B = 256 B = 2 条完整 cache line
-
-最后一个 block：remaining = N - 1024·blockIdx.x < 1024 → 整个 block 改走 unroll
-```
+- 线程 t 的 8 个寄存器槽 `to(4·i + j)`：e[4t..4t+3]，e[512+4t..512+4t+3]。
+- 一个 warp 一次迭代：32 线程 × 4 元素 × 2 B = 256 B = 2 条完整 cache line。
+- 最后一个 block：`remaining = N - 1024·blockIdx.x < 1024`，整个 block 改走 unroll。
 
 ### 4. 非向量化路径：`unrolled_elementwise_kernel` 与 `elementwise_kernel`
 
@@ -1092,32 +1036,31 @@ Table: A100 上 n = 2^28 各版本 elementwise kernel 的有效带宽（经验�
 
 数字汇总：
 
-```text title="本篇数字汇总：访存模式的 sector 与效率"
-访存模式（32 线程 × 4 B）          sector    效率
-连续、128 B 对齐                   4         100%
-连续、起点偏移 4 B                 5          80%
-跨步 2                             8          50%
-跨步 4                            16          25%
-跨步 ≥ 8（≥ 32 B）                32        12.5%
-AoS 12 B 结构体只读一个字段        12          33%
+| 访存模式（32 线程 × 4 B） | sector | 效率 |
+|---|---|---|
+| 连续、128 B 对齐 | 4 | 100% |
+| 连续、起点偏移 4 B | 5 | 80% |
+| 跨步 2 | 8 | 50% |
+| 跨步 4 | 16 | 25% |
+| 跨步 ≥ 8（≥ 32 B） | 32 | 12.5% |
+| AoS 12 B 结构体只读一个字段 | 12 | 33% |
 
-Little's law（A100）
-在飞字节 = 2.0 TB/s × 600 ns ≈ 1.2 MB；每 SM ≈ 11 KB
-128-bit 加载：512 B/warp → ≥ 22 warp/SM；32-bit 加载：128 B/warp → ≈ 88 warp/SM（超上限 64）
+Table: 本篇数字汇总：访存模式的 sector 与效率
 
-三版 BF16 add kernel（n = 2^28，理论下界 0.81 ms @ 2.0 TB/s）
-版本        每线程元素   每 warp 每指令字节   grid            常见带宽占比
-naive       1            64 B                 n/256           60–80%
-vec8        8            512 B                n/8/256         85–92%
-vec8 + gs   8 × k        512 B                SM × blk × 2    85–92%
+- **Little's law（A100）**：在飞字节 = 2.0 TB/s × 600 ns ≈ 1.2 MB，每 SM ≈ 11 KB。128-bit 加载 512 B/warp → ≥ 22 warp/SM；32-bit 加载 128 B/warp → ≈ 88 warp/SM（超上限 64）。
 
-融合（BF16，silu(x + b) * y）
-三个 kernel：5 读 3 写 = 16 B/元素；融合：3 读 1 写 = 8 B/元素 → 时间减半
+| 版本 | 每线程元素 | 每 warp 每指令字节 | grid | 常见带宽占比 |
+|---|---|---|---|---|
+| naive | 1 | 64 B | n/256 | 60–80% |
+| vec8 | 8 | 512 B | n/8/256 | 85–92% |
+| vec8 + gs | 8 × k | 512 B | SM × blk × 2 | 85–92% |
 
-ATen（v2.10.0）elementwise 配置
-num_threads = 128；vectorized 每线程 8 元素（io_size = 1 时 16）；vec_size = min(16/sizeof, 对齐)，非 sm_90/100 上 ≤ 4
-unrolled 每线程 4 元素；legacy elementwise_kernel<128, 2 或 4> + OffsetCalculator（MAX_DIMS = 25）
-```
+Table: 三版 BF16 add kernel（n = 2^28，理论下界 0.81 ms @ 2.0 TB/s）
+
+- **融合（BF16，`silu(x + b) * y`）**：三个 kernel 是 5 读 3 写 = 16 B/元素；融合后 3 读 1 写 = 8 B/元素，时间减半。
+- **ATen（v2.10.0）elementwise 配置**：
+  - `num_threads = 128`；vectorized 每线程 8 元素（`io_size = 1` 时 16）；`vec_size = min(16/sizeof, 对齐)`，非 sm_90/100 上 ≤ 4。
+  - unrolled 每线程 4 元素；legacy `elementwise_kernel<128, 2 或 4>` + `OffsetCalculator`（`MAX_DIMS = 25`）。
 
 下一篇进入需要线程之间协作的 kernel。softmax、LayerNorm、RMSNorm 都要对一行做归约，而归约的结果要被同一行的所有元素使用——这需要 shared memory、warp shuffle 与 `__syncthreads()`，也需要 online softmax 把三遍读变成一遍。它们的理论下界仍然是"读一遍写一遍"，但实现的自由度和陷阱都比 elementwise 多得多。
 

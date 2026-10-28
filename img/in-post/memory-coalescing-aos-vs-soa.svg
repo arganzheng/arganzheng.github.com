@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 247" width="760" height="247" role="img" aria-labelledby="t d">
+  <title id="t">AoS 与 SoA 下 warp 读 x 分量触碰的内存</title>
+  <desc id="d">每格 4 B。AoS：pts[i] = {x, y, z}，内存里是 x0 y0 z0 | x1 y1 z1 | x2 y2 z2 | x3 …，线程 i 读 x_i，间隔 12 B；32 B sector 的边界和结构体边界对不齐，warp 触碰共 384 B、12 sector，有效 128 B → 33%。SoA：x[]、y[]、z[] 三个数组，x0 x1 x2 … x31 连续，y、z 在别处，线程 i 读 x[i]，间隔 4 B，warp 触碰共 128 B、4 sector → 100%。</desc>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#334155"/></marker>
+  <style>text{font-family:-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;fill:#111;font-weight:600} .s{font-weight:500} .sec{fill:#c2410c}</style></defs>
+  <rect width="760" height="247" fill="#fff"/>
+  <text x="16.0" y="34.0" font-size="13" text-anchor="start" class="t">AoS</text>
+  <text x="16.0" y="52.0" font-size="12" text-anchor="start" class="s">pts[i] = {x, y, z}</text>
+  <rect x="112.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="121.5" y="45.0" font-size="10" text-anchor="middle" class="s">x0</text>
+  <rect x="131.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="140.5" y="45.0" font-size="10" text-anchor="middle" class="s">y0</text>
+  <rect x="150.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="159.5" y="45.0" font-size="10" text-anchor="middle" class="s">z0</text>
+  <line x1="112.0" y1="26.0" x2="112.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="169.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="178.5" y="45.0" font-size="10" text-anchor="middle" class="s">x1</text>
+  <rect x="188.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="197.5" y="45.0" font-size="10" text-anchor="middle" class="s">y1</text>
+  <rect x="207.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="216.5" y="45.0" font-size="10" text-anchor="middle" class="s">z1</text>
+  <line x1="169.0" y1="26.0" x2="169.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="226.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="235.5" y="45.0" font-size="10" text-anchor="middle" class="s">x2</text>
+  <rect x="245.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="254.5" y="45.0" font-size="10" text-anchor="middle" class="s">y2</text>
+  <rect x="264.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="273.5" y="45.0" font-size="10" text-anchor="middle" class="s">z2</text>
+  <line x1="226.0" y1="26.0" x2="226.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="283.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="292.5" y="45.0" font-size="10" text-anchor="middle" class="s">x3</text>
+  <rect x="302.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="311.5" y="45.0" font-size="10" text-anchor="middle" class="s">y3</text>
+  <rect x="321.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="330.5" y="45.0" font-size="10" text-anchor="middle" class="s">z3</text>
+  <line x1="283.0" y1="26.0" x2="283.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="340.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="349.5" y="45.0" font-size="10" text-anchor="middle" class="s">x4</text>
+  <rect x="359.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="368.5" y="45.0" font-size="10" text-anchor="middle" class="s">y4</text>
+  <rect x="378.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="387.5" y="45.0" font-size="10" text-anchor="middle" class="s">z4</text>
+  <line x1="340.0" y1="26.0" x2="340.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="397.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="406.5" y="45.0" font-size="10" text-anchor="middle" class="s">x5</text>
+  <rect x="416.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="425.5" y="45.0" font-size="10" text-anchor="middle" class="s">y5</text>
+  <rect x="435.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="444.5" y="45.0" font-size="10" text-anchor="middle" class="s">z5</text>
+  <line x1="397.0" y1="26.0" x2="397.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="454.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="463.5" y="45.0" font-size="10" text-anchor="middle" class="s">x6</text>
+  <rect x="473.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="482.5" y="45.0" font-size="10" text-anchor="middle" class="s">y6</text>
+  <rect x="492.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="501.5" y="45.0" font-size="10" text-anchor="middle" class="s">z6</text>
+  <line x1="454.0" y1="26.0" x2="454.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <rect x="511.0" y="30.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="520.5" y="45.0" font-size="10" text-anchor="middle" class="s">x7</text>
+  <rect x="530.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="539.5" y="45.0" font-size="10" text-anchor="middle" class="s">y7</text>
+  <rect x="549.0" y="30.0" width="19.0" height="22.0" fill="#fff" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="558.5" y="45.0" font-size="10" text-anchor="middle" class="s">z7</text>
+  <line x1="511.0" y1="26.0" x2="511.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <line x1="568.0" y1="26.0" x2="568.0" y2="52.0" stroke="#334155" stroke-width="1.6" />
+  <text x="140.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[0]</text>
+  <text x="197.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[1]</text>
+  <text x="254.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[2]</text>
+  <text x="311.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[3]</text>
+  <text x="368.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[4]</text>
+  <text x="425.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[5]</text>
+  <text x="482.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[6]</text>
+  <text x="539.5" y="23.0" font-size="10" text-anchor="middle" class="s">pts[7]</text>
+  <rect x="112.0" y="30.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="188.0" y="66.0" font-size="11" text-anchor="middle" class="sec">s0</text>
+  <rect x="264.0" y="30.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="340.0" y="66.0" font-size="11" text-anchor="middle" class="sec">s1</text>
+  <rect x="416.0" y="30.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="492.0" y="66.0" font-size="11" text-anchor="middle" class="sec">s2</text>
+  <text x="578.0" y="45.0" font-size="12" text-anchor="start" class="s">… 共 12 sector</text>
+  <text x="112.0" y="88.0" font-size="12" text-anchor="start" class="s">线程 i 读 x_i，间隔 12 B；warp 触碰共 384 B、12 sector，有效 128 B → 33%</text>
+  <text x="16.0" y="144.0" font-size="13" text-anchor="start" class="t">SoA</text>
+  <text x="16.0" y="162.0" font-size="12" text-anchor="start" class="s">x[], y[], z[]</text>
+  <rect x="112.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="121.5" y="155.0" font-size="10" text-anchor="middle" class="s">x0</text>
+  <rect x="131.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="140.5" y="155.0" font-size="10" text-anchor="middle" class="s">x1</text>
+  <rect x="150.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="159.5" y="155.0" font-size="10" text-anchor="middle" class="s">x2</text>
+  <rect x="169.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="178.5" y="155.0" font-size="10" text-anchor="middle" class="s">x3</text>
+  <rect x="188.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="197.5" y="155.0" font-size="10" text-anchor="middle" class="s">x4</text>
+  <rect x="207.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="216.5" y="155.0" font-size="10" text-anchor="middle" class="s">x5</text>
+  <rect x="226.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="235.5" y="155.0" font-size="10" text-anchor="middle" class="s">x6</text>
+  <rect x="245.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="254.5" y="155.0" font-size="10" text-anchor="middle" class="s">x7</text>
+  <rect x="264.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="273.5" y="155.0" font-size="10" text-anchor="middle" class="s">x8</text>
+  <rect x="283.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="292.5" y="155.0" font-size="10" text-anchor="middle" class="s">x9</text>
+  <rect x="302.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="311.5" y="155.0" font-size="9" text-anchor="middle" class="s">x10</text>
+  <rect x="321.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="330.5" y="155.0" font-size="9" text-anchor="middle" class="s">x11</text>
+  <rect x="340.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="349.5" y="155.0" font-size="9" text-anchor="middle" class="s">x12</text>
+  <rect x="359.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="368.5" y="155.0" font-size="9" text-anchor="middle" class="s">x13</text>
+  <rect x="378.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="387.5" y="155.0" font-size="9" text-anchor="middle" class="s">x14</text>
+  <rect x="397.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="406.5" y="155.0" font-size="9" text-anchor="middle" class="s">x15</text>
+  <rect x="416.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="425.5" y="155.0" font-size="9" text-anchor="middle" class="s">x16</text>
+  <rect x="435.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="444.5" y="155.0" font-size="9" text-anchor="middle" class="s">x17</text>
+  <rect x="454.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="463.5" y="155.0" font-size="9" text-anchor="middle" class="s">x18</text>
+  <rect x="473.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="482.5" y="155.0" font-size="9" text-anchor="middle" class="s">x19</text>
+  <rect x="492.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="501.5" y="155.0" font-size="9" text-anchor="middle" class="s">x20</text>
+  <rect x="511.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="520.5" y="155.0" font-size="9" text-anchor="middle" class="s">x21</text>
+  <rect x="530.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="539.5" y="155.0" font-size="9" text-anchor="middle" class="s">x22</text>
+  <rect x="549.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="558.5" y="155.0" font-size="9" text-anchor="middle" class="s">x23</text>
+  <rect x="568.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="577.5" y="155.0" font-size="9" text-anchor="middle" class="s">x24</text>
+  <rect x="587.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="596.5" y="155.0" font-size="9" text-anchor="middle" class="s">x25</text>
+  <rect x="606.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="615.5" y="155.0" font-size="9" text-anchor="middle" class="s">x26</text>
+  <rect x="625.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="634.5" y="155.0" font-size="9" text-anchor="middle" class="s">x27</text>
+  <rect x="644.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="653.5" y="155.0" font-size="9" text-anchor="middle" class="s">x28</text>
+  <rect x="663.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="672.5" y="155.0" font-size="9" text-anchor="middle" class="s">x29</text>
+  <rect x="682.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="691.5" y="155.0" font-size="9" text-anchor="middle" class="s">x30</text>
+  <rect x="701.0" y="140.0" width="19.0" height="22.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="710.5" y="155.0" font-size="9" text-anchor="middle" class="s">x31</text>
+  <rect x="112.0" y="140.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="188.0" y="176.0" font-size="11" text-anchor="middle" class="sec">s0</text>
+  <rect x="264.0" y="140.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="340.0" y="176.0" font-size="11" text-anchor="middle" class="sec">s1</text>
+  <rect x="416.0" y="140.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="492.0" y="176.0" font-size="11" text-anchor="middle" class="sec">s2</text>
+  <rect x="568.0" y="140.0" width="152.0" height="22.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="644.0" y="176.0" font-size="11" text-anchor="middle" class="sec">s3</text>
+  <text x="112.0" y="198.0" font-size="12" text-anchor="start" class="s">线程 i 读 x[i]，间隔 4 B；warp 触碰共 128 B、4 sector → 100%（y、z 在别处）</text>
+  <rect x="112.0" y="218.0" width="12.0" height="12.0" fill="#93c5fd" stroke="#94a3b8" stroke-width="0.7" />
+  <text x="130.0" y="229.0" font-size="12" text-anchor="start" class="s">warp 要的 x</text>
+  <line x1="223.0" y1="217.0" x2="223.0" y2="231.0" stroke="#334155" stroke-width="1.6" />
+  <text x="231.0" y="229.0" font-size="12" text-anchor="start" class="s">结构体边界</text>
+  <rect x="313.0" y="218.0" width="22.0" height="12.0" fill="none" stroke="#c2410c" stroke-width="2" />
+  <text x="341.0" y="229.0" font-size="12" text-anchor="start" class="s">32 B sector</text>
+</svg>
