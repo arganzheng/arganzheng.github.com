@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="740" height="308" viewBox="0 0 740 308" role="img" aria-labelledby="tr-sweep-t tr-sweep-d">
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="336" viewBox="0 0 740 336" role="img" aria-labelledby="tr-sweep-t tr-sweep-d">
 <title id="tr-sweep-t">阈值扫描：加速比与 PSNR 曲线的形状</title>
-<desc id="tr-sweep-d">两幅折线图，横轴都是 TeaCache 阈值 τ（0 到 0.6）。左图加速比从 τ=0 的 1.0× 上升，0.25 / 0.4 / 0.6 约 1.5 / 1.8 / 2.0×，之后趋于饱和。右图对基线图的 PSNR：τ 很小时约 40 dB 基本不变，之后下降，0.25 / 0.4 / 0.6 约 33 / 30 / 27 dB。两图在 τ=0.3–0.4 处有灰带，标为工作点。</desc>
+<desc id="tr-sweep-d">两幅折线图，横轴都是 TeaCache 阈值 τ（0 到 0.6）。实心点是正文表格的三个档位：左图加速比 0.25 / 0.4 / 0.6 约 1.5 / 1.8 / 2.0×，右图对基线图的 PSNR 约 33 / 30 / 27 dB。其余部分是虚线示意趋势，不是实测：加速比从 τ=0 的 1.0× 上升后趋于饱和；PSNR 在 τ 很小时约 40 dB 走平，之后下降。两图在 τ=0.3–0.4 处有灰带，标为工作点。</desc>
 <style>
 text{font-family:"Hiragino Sans GB","PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-weight:600;fill:#111;font-size:13px}
 .t{font-size:12px} .s{font-size:11.5px} .h{font-size:14px}
 .ax{stroke:#111;stroke-width:1.2;fill:none} .grid{stroke:#d8d8d8;stroke-width:1}
 .br{stroke:#111;stroke-width:1.2;fill:none}
 </style>
-<rect width="740" height="308" fill="#fff"/>
+<rect width="740" height="336" fill="#fff"/>
 <rect x="190.6" y="40" width="41.5" height="210" fill="#ececec"/>
 <text class="s" x="211.4" y="242" text-anchor="middle">工作点</text>
 <line class="grid" x1="66" y1="180.0" x2="336.0" y2="180.0"/>
@@ -34,20 +34,12 @@ text{font-family:"Hiragino Sans GB","PingFang SC","Noto Sans CJK SC","Microsoft 
 <line class="ax" x1="315.2" y1="250" x2="315.2" y2="254"/>
 <text class="t" x="315.2" y="268" text-anchor="middle">0.6</text>
 <text x="342.0" y="254">τ</text>
-<path d="M66.0 250.0 L86.8 231.8 L107.5 215.0 L128.3 202.4 L149.1 191.2 L169.8 180.0 L190.6 166.0 L211.4 152.0 L232.2 138.0 L273.7 121.2 L315.2 110.0" style="fill:none;stroke:#0072B2;stroke-width:2.2"/>
-<circle cx="66.0" cy="250.0" r="3" fill="#0072B2"/>
-<circle cx="86.8" cy="231.8" r="3" fill="#0072B2"/>
-<circle cx="107.5" cy="215.0" r="3" fill="#0072B2"/>
-<circle cx="128.3" cy="202.4" r="3" fill="#0072B2"/>
-<circle cx="149.1" cy="191.2" r="3" fill="#0072B2"/>
-<circle cx="169.8" cy="180.0" r="4.5" fill="#0072B2"/>
+<path d="M66.0 250.0 L86.8 231.8 L107.5 215.0 L128.3 202.4 L149.1 191.2 L169.8 180.0 L190.6 166.0 L211.4 152.0 L232.2 138.0 L273.7 121.2 L315.2 110.0" style="fill:none;stroke:#0072B2;stroke-width:2;stroke-dasharray:6 4"/>
+<circle cx="169.8" cy="180.0" r="5" fill="#0072B2"/>
 <text class="t" x="169.8" y="170.0" text-anchor="middle">1.5×</text>
-<circle cx="190.6" cy="166.0" r="3" fill="#0072B2"/>
-<circle cx="211.4" cy="152.0" r="3" fill="#0072B2"/>
-<circle cx="232.2" cy="138.0" r="4.5" fill="#0072B2"/>
+<circle cx="232.2" cy="138.0" r="5" fill="#0072B2"/>
 <text class="t" x="232.2" y="128.0" text-anchor="middle">1.8×</text>
-<circle cx="273.7" cy="121.2" r="3" fill="#0072B2"/>
-<circle cx="315.2" cy="110.0" r="4.5" fill="#0072B2"/>
+<circle cx="315.2" cy="110.0" r="5" fill="#0072B2"/>
 <text class="t" x="315.2" y="100.0" text-anchor="middle">2.0×</text>
 <text x="201.0" y="292" text-anchor="middle">加速比对 τ 先快后饱和（首末步是硬底）</text>
 <rect x="568.6" y="40" width="41.5" height="210" fill="#ececec"/>
@@ -76,19 +68,16 @@ text{font-family:"Hiragino Sans GB","PingFang SC","Noto Sans CJK SC","Microsoft 
 <line class="ax" x1="693.2" y1="250" x2="693.2" y2="254"/>
 <text class="t" x="693.2" y="268" text-anchor="middle">0.6</text>
 <text x="720.0" y="254">τ</text>
-<path d="M464.8 64.0 L485.5 70.0 L506.3 88.0 L527.1 120.4 L547.8 154.0 L568.6 166.0 L589.4 178.0 L610.2 190.0 L651.7 208.0 L693.2 226.0" style="fill:none;stroke:#D55E00;stroke-width:2.2"/>
-<circle cx="464.8" cy="64.0" r="3" fill="#D55E00"/>
-<circle cx="485.5" cy="70.0" r="3" fill="#D55E00"/>
-<circle cx="506.3" cy="88.0" r="3" fill="#D55E00"/>
-<circle cx="527.1" cy="120.4" r="3" fill="#D55E00"/>
-<circle cx="547.8" cy="154.0" r="4.5" fill="#D55E00"/>
+<path d="M464.8 64.0 L485.5 70.0 L506.3 88.0 L527.1 120.4 L547.8 154.0 L568.6 166.0 L589.4 178.0 L610.2 190.0 L651.7 208.0 L693.2 226.0" style="fill:none;stroke:#D55E00;stroke-width:2;stroke-dasharray:6 4"/>
+<circle cx="547.8" cy="154.0" r="5" fill="#D55E00"/>
 <text class="t" x="547.8" y="144.0" text-anchor="middle">33</text>
-<circle cx="568.6" cy="166.0" r="3" fill="#D55E00"/>
-<circle cx="589.4" cy="178.0" r="3" fill="#D55E00"/>
-<circle cx="610.2" cy="190.0" r="4.5" fill="#D55E00"/>
+<circle cx="610.2" cy="190.0" r="5" fill="#D55E00"/>
 <text class="t" x="610.2" y="180.0" text-anchor="middle">30</text>
-<circle cx="651.7" cy="208.0" r="3" fill="#D55E00"/>
-<circle cx="693.2" cy="226.0" r="4.5" fill="#D55E00"/>
+<circle cx="693.2" cy="226.0" r="5" fill="#D55E00"/>
 <text class="t" x="693.2" y="216.0" text-anchor="middle">27</text>
 <text x="579.0" y="292" text-anchor="middle">质量对 τ 先平后降（累积误差超过去噪能吸收的量）</text>
+<circle cx="70" cy="316" r="5" fill="#555"/>
+<text class="t" x="82" y="320">正文表格档位（0.25 / 0.4 / 0.6）</text>
+<line x1="300" y1="316" x2="330" y2="316" style="stroke:#555;stroke-width:2;stroke-dasharray:6 4"/>
+<text class="t" x="338" y="320">示意趋势：除 0.25 / 0.4 / 0.6 外均非实测（含 τ 很小时约 40 dB 走平）</text>
 </svg>
