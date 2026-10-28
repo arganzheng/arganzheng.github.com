@@ -133,21 +133,50 @@ Table: 从账推配置的六步：输入、输出与依据
 
 ### 3. 算例二：671B MoE，512 × H100
 
-DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$，代码任务（沙箱奖励）。
+DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$P = 1\text{K}$$、$$\bar L = 8\text{K}$$，代码任务（沙箱奖励）。
 
-```text title="算例二：671B MoE，512 × H100"
-1  账：FLOP 按 37B 激活算，一步 33 EFLOP；KV 按 MLA 70 KB/token，每条 0.35 GB；推理 FP8 671 GB → TP = 8 × EP = 4 的 32 卡实例，每卡权重 21 GB、KV 池 ~45 GB → c ≈ 130 / 实例
-   512 卡全部推理 = 16 实例 × 130 = 2080 并发，4 波；T_thr ≈ 1300 s；T_tail ≈ 300 s；训练侧 16N = 10.7 TB → 每卡 21 GB（512 卡）+ 激活，FP8 训练
-2  形态：MoE + 沙箱 → separate_async 是唯一选项；f 含环境等待 > 60%；配比按时间 ≈ 3 : 1 → 384 推理 : 128 训练（训练侧每卡 84 GB 训练状态 —— 放不下！）
-   → 训练侧至少 256 卡（42 GB / 卡 + FP8 优化器状态）→ 256 : 256，推理侧慢一倍，接受；或者训练侧 Megatron 的分布式优化器 + 更激进的 offload
-   沙箱：B·G = 8192 条轨迹 × 20 轮 × 30 s → 并发 4000 沙箱级
-3  训练侧（256 卡）：Megatron（mlite 或 Megatron-Bridge），TP = 4 × PP = 2 × EP = 8 = 64 卡一副本 × DP = 4；FP8 权重与优化器；CP 视 L_max 而定；dynamic CP（0.9 新特性）
-4  推理侧（256 卡）：vLLM TP = 8 × EP = 4 × DP，8 实例；FP8；MLA；EP 的负载均衡指标要开（rollout/moe/*_vio）
-5  同步：Megatron → vLLM FP8，量化传输（训练侧按推理 scheme 量化 + scale）；delta_sharded 尚不支持 Megatron → nccl 或 nixl（多源）；全量 671 GB 每次 60–80 s（单源）→ 必须与生成重叠、k 不能小
-6  异步：T_mb 大（分钟级），parameter_sync_step = 1–2；threshold 8（轨迹长、环境慢）+ wait；decoupled PPO；router replay 或 MIS 处理路由翻转
+**这是容量估算，不是跑过 512 张 H100 的配置。** 我用它演示配比怎样撞上显存约束。源码能确定分组规则和 KV 的存储口径，不能替这组硬件给出吞吐、KV 池或同步耗时。先把假设写清楚：
+
+- 本例的 K 按 1000、GB 按 $$10^9$$ B 算。推理 PP = 1，prefill / decode context parallel 都取 1；FP8 指权重量化，MLA KV 仍按 BF16 算，不启用 MTP。模型尺寸取 [DeepSeek-V3 的固定配置](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/e815299b0bcbac849fa540c768ef21845365c9eb/config.json)。
+- **32 卡是一个引擎组，不是 TP 再乘一个独立的 EP 维度**：TP = 8、组内 DP = 4，开启 EP 后专家跨这 32 卡分片，EP = 32；组内有 4 个处理不同请求的 DP 副本。verl v0.9.0 的 [`RolloutConfig.__post_init__`](https://github.com/volcengine/verl/blob/v0.9.0/verl/workers/config/rollout.py) 会校验 `expert_parallel_size = tensor_model_parallel_size × data_parallel_size`，[`RolloutReplica`](https://github.com/volcengine/verl/blob/v0.9.0/verl/workers/rollout/replica.py) 的组规模是 TP × DP × PP。vLLM v0.27.1 的 [`FusedMoEParallelConfig`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/model_executor/layers/fused_moe/config.py) 也按 TP / DP 形成专家组，不支持把这里写成 TP = 8、EP = 4。
+- **45 GB KV 池是我给每个 rank 留的预算，不是实测值**：先按 `gpu_memory_utilization = 0.9`，名义 80 GB 卡留 72 GB；再用 `671 / 32 ≈ 21 GB` 的理想权重均摊和约 6 GB 其余开销，暂记 `72 − 21 − 6 ≈ 45 GB`。这忽略了非专家权重在 DP 间的复制、未量化参数、scale 和运行时峰值，21 GB 也不等于真实的每卡权重占用。最终必须用 vLLM [`GPUWorker.determine_available_memory`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/v1/worker/gpu_worker.py) 的 profiling 结果重算。
+- **这里的 c 按组内的一个 DP 请求副本计，不是整个 32 卡组的并发**。61 层 MLA 的 BF16 KV 原始载荷为 `61 × (512 + 64) × 2 = 70,272 B/token/rank`；平均在飞上下文假设为 `P + L̄/2 = 5 K`，每条约 `0.351 GB/rank`。所以 `c = floor(45 / 0.35136) = 128`，粗略记作 130。vLLM 的 [`ModelConfig.get_num_kv_heads`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/config/model.py) 在 MLA 下每 rank 返回 1，[`MLAAttentionSpec.real_page_size_bytes`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/v1/kv_cache_interface.py) 按压缩 latent 和 RoPE 部分计字节；这里不能再把 KV 除以 TP 或 EP。该平均上下文假设没有计入 block 取整、长尾和调度限制，也不是承诺能一直维持 128 条在飞序列。
+- `16N` 是训练状态的粗算口径：BF16 参数与梯度、FP32 主权重及两份 Adam 状态各占 2、2、4、8 B/参数，暂按理想分片均摊。实际还有复制、激活、通信缓冲和量化副本；**FP8 计算不等于 FP8 优化器状态**。以下卡数只是待 profiling 的候选，不能据此保证放得下。
+
+```text title="算例二：671B MoE，512 × H100（估算 / 示例口径）"
+1  账（先假设 512 卡全部做每段）
+   FLOP 按 37B 激活参数的简化模型算：12 × 37e9 × (8192 × 9 K) ≈ 33 EFLOP，不含 MoE 路由等额外开销
+   推理：TP = 8、DP = 4、EP = 32 → 32 卡 / 组；c ≈ 128 / DP 副本（粗略记 130），不是 130 / 32 卡组
+   512 卡 = 16 组 × 4 DP 副本；容量账为 16 × 4 × 128 = 8192 并发，约 1 波，不能漏掉组内 DP 这一层
+   时延另作输入假设：有效输出吞吐 100 token/s/GPU → T_thr = 8192 × 8 K / (512 × 100) ≈ 1300 s；T_tail 暂取 300 s
+   这两个时间都不是上面的并发数推出来的，也不是实测；沙箱暴露在关键路径上的等待另计，f 不能直接写成 > 60%
+   训练状态：16N ≈ 10.7 TB → 理想均摊约 21 GB / 卡（512 卡），再加激活等开销
+2  形态与资源（候选，不是 MoE 唯一能用的形态）
+   暂试 separate_async；若另假设 T_thr : (T_fwd + T_train) ≈ 3 : 1，初分 384 推理 : 128 训练
+   128 张训练卡仅状态均摊就约 84 GB / 卡，已超名义 80 GB → 候选改为 256 : 256，约 42 GB 状态 / 训练卡，仍需实测峰值
+   若吞吐随推理卡数线性变化，T_thr 暂估翻倍到 2600 s；不是已经验证的缩放规律，也不能由此宣布 256 张训练卡足够
+   沙箱另作稳态估算：假设每 1300 s 完成 8192 条轨迹，每条 20 次调用、每次占一个沙箱 30 s
+   并发 ≈ (8192 / 1300) × 20 × 30 ≈ 3800（粗略 4000）；若周期变 2600 s 则约 1900，启动与长尾余量另留
+3  训练侧（256 卡的分组候选，静态 CP = 1）
+   Megatron：TP = 4、PP = 2、DP = 32 → 4 × 2 × 32 = 256 卡；ETP = 4、EP = 8 时，专家数据并行 EDP = 4
+   按专家分组也可写成：ETP 4 × EP 8 × PP 2 = 64 卡 / 专家组，再乘 EDP 4；EDP 不是普通 DP
+   主训练状态按 BF16 / FP32 口径保留；FP8 计算另核 kernel 和 bridge 支持。L_max 未定，CP 也待重算；不同时开启 dynamic CP 与 FP8
+4  推理侧（256 卡的分组候选）
+   rollout.tensor_model_parallel_size = 8；rollout.data_parallel_size = 4；rollout.expert_parallel_size = 32
+   256 卡 = 8 个 32 卡引擎组 = 32 个 DP 请求副本；同一 KV 预算下约 32 × 128 = 4096 并发、约 2 波，仅是容量账
+   FP8 权重、BF16 MLA KV；检查 EP 负载均衡与调度上限，再用实测 KV 池和上下文分布回填 c
+5  同步（未实测的带宽模型）
+   Megatron → vLLM FP8：先核量化 scheme、scale 和布局映射；delta_sharded 在该组合不适用，nccl / nixl 路径也需端到端验证
+   假设只传一份 671 GB 权重、聚合有效带宽 8.4–11.2 GB/s → 纯传输约 60–80 s；不含量化、重排、扇出与装载
+   用实测 T_sync / (k × T_mb) 决定是否需要重叠与增大 k，不能把 60–80 s 当成这组配置的同步保证
+6  异步（只列待试起点，不宣称已验证）
+   先测 T_mb；parameter_sync_step = 1–2、max_off_policy_threshold = 8 + wait 可作试验起点，按 staleness / reward 回调
+   decoupled 路径；router replay 或 MIS 按路由翻转与后端支持另选
 ```
 
-这个算例故意留了一个"放不下"：**配比按时间算出来的训练卡数，要用显存再校验一遍**，两个约束取交集。671B 这个规模下显存约束几乎总是先到。
+训练分组口径见 Megatron-Core [core_v0.18.0 的 `initialize_model_parallel`](https://github.com/NVIDIA/Megatron-LM/blob/core_v0.18.0/megatron/core/parallel_state.py)：普通 DP 和专家 EDP 是两套计数，EP 不能在普通 DP 之外再乘一次。verl v0.9.0 的 [`_check_dcp_unsupported_features`](https://github.com/volcengine/verl/blob/v0.9.0/verl/workers/engine/megatron/transformer_impl.py) 明确拒绝 dynamic CP 与 FP8 训练同时启用；[delta sync 的当前支持范围](https://github.com/volcengine/verl/blob/v0.9.0/docs/advance/delta_weight_sync.md) 也不包含 Megatron → vLLM FP8。
+
+这个算例保留那个“放不下”：**按时间分卡之后，还得用每卡实际显存校验**。但 256 : 256 只是下一个候选，不是从 `16N / 256` 就能证明可运行的答案。
 
 ### 4. 两套并行配置的原则
 
@@ -158,8 +187,8 @@ DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$，代码�
 | 目标 | 放下 16N + 激活；通信 / 计算比最低 | 每卡 token/s 最高 = 并发 c 最大 → 权重副本占得越少越好 |
 | TP | 尽量小（NVLink 内），dense 32B 以下不用 | dense：让 (M − 权重/tp) 最大化 KV，同时 TP 通信不进 decode 关键路径 → 8B tp=1、32B tp=2、70B tp=4 |
 | PP | 大模型放不下时用；RL 的 batch 变长让 PP 气泡更大 | 不用（延迟） |
-| EP | MoE 必需；EP 度按专家数 / 每卡显存 | MoE 必需；EP 度按"每卡专家权重 + KV 池"平衡，与训练侧不同 |
-| DP | 剩余卡数 | 实例数 = n_r / (tp × ep) |
+| EP | MoE 的一种分片方式，是否开启及分组规则取决于后端；不要和普通 DP 重复乘卡数 | 本文 vLLM 启用 EP 的口径：context parallel = 1 时，EP = TP × DP；不是额外一维 |
+| DP | 静态 CP 下，普通 DP = 总卡数 / (TP × PP × CP)；专家 EDP 另算 | PP = 1 时，组数 = n_r / (TP × DP)，每组有 DP 个请求副本；不是 n_r / (TP × EP) |
 | CP | L_max ≥ 32 K 时训练侧要；RL 的变长序列让 dynamic CP 有价值 | 不用（KV 按序列分配即可） |
 | dtype | bf16 或 FP8（MoE） | FP8 优先（权重副本减半 → KV 池变大 → c 变大） |
 | batch | 按 token 打包（dynamic bsz）；mini-batch 数 = B / mini_bs | max_num_seqs 按 c 设；chunked prefill 开 |
