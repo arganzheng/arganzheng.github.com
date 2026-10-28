@@ -662,7 +662,7 @@ ncclResult_t ncclTopoGetAlgoTime(struct ncclComm* comm, int coll, int algorithm,
 
 ### 3. 回答核心问题
 
-下面的手算是**简化模型**：只用上一节的基础公式，忽略 `treeCorrectionFactor`、多机 Ring+Simple 的 plateau 修正以及与消息大小相关的协议修正，目的是看清三台机器上各组合的相对位置；真实的调优表以 `NCCL_DEBUG_SUBSYS=TUNING` 打印出来的为准。
+下面的手算是**简化模型**：只用上一节的基础公式，忽略 `treeCorrectionFactor` 以及与消息大小相关的协议修正（多机 Ring+Simple 的 plateau ×1.4 算进去了），目的是看清三台机器上各组合的相对位置；真实的调优表以 `NCCL_DEBUG_SUBSYS=TUNING` 打印出来的为准。
 
 三台机器，同一个 8 卡（或 8 卡×N 节点）all_reduce，用上面的公式走一遍。所有数字都是模型输出（非实测），图的参数写明假设。
 
@@ -682,18 +682,24 @@ NVLS+Simple   intraBw = 60×0.85×7/8×2 = 89.3；busBw = 8×89.3 = 714 → algb
 - 如果是 **NVLink 桥接但没有 NVSwitch**（比如 4 卡两两 NVLink 桥、或 8 卡无 NVSwitch 的 HGX 老拓扑），`typeIntra = NVL/NVB`，NVLS 不可用（没有 NVS 节点），LL128 可用。假设 ring 图 nChannels = 4、bwIntra = 24（部分 GPU 对之间要经 NVB 转一跳，带宽被分摊）：Ring+Simple 96×8/14 = 55 GB/s，lat 56 µs；Ring+LL128 min(96×0.92, 4×20)=80 → 46 GB/s，lat 40.6 µs。Ring+LL128 在 $$40.6 + S/46\text{e}3 < 56 + S/55\text{e}3$$ 即 $$S \lesssim 4.3\ \text{MB}$$ 时赢——DDP 的 25 MB bucket 会落到 Simple，几 MB 以下的 TP all_reduce 落到 LL128。**这是"PCIe 机器上 Ring + LL128"的真实含义：有 NVLink 但没有 NVSwitch。**
 - 如果是**纯 PCIe**（GPU 间只有 PCIe switch 或 CPU），`typeIntra ≥ PIX`，**LL128 被禁用**，`intraHw = PCI`，NVLS 不可用。Ring+Simple（lat 8.4 + 14×5.7 = 88 µs）对大消息，Ring/Tree+LL 对小消息。此时 Tree 的每步延迟（PCI 表 Tree Simple 4.0 < Ring 5.7）和更少的步数让 Tree 在中等消息上更有竞争力。
 
-**机器三：32 节点 × 8 卡 = 256 rank，节点内 NVSwitch，节点间 IB。** 多机时 `bw = bwInter`，假设 ring 图 nChannels = 8（搜出 4 条 × 翻倍）、bwInter = 12（每 NIC 分到的每 channel 带宽），Hopper。
+**机器三：32 节点 × 8 卡 = 256 rank，节点内 NVSwitch，节点间 IB。** 多机时 `bw = bwInter`，假设 ring 图 nChannels = 8（搜出 4 条 × 翻倍）、bwInter = 12（每 NIC 分到的每 channel 带宽），Hopper。CPU 没指明，这里按 Intel 算：多机 ring 的节点内每步延迟至少取 `getNetOverhead` 的 1 µs（AMD 是 2 µs），Simple 再 ×3；LL 的带宽上限取 `llMaxBws` 里 Intel、≥ 4 节点档的 20.4。
 
 ```text title='机器三（32 节点）Ring 与 Tree 各协议的账'
 Ring+Simple   busBw = 96 → algbw = 96 × 256/510 = 48.2 GB/s
-              lat = 8.4 + (510-62)×3.4 + 62×(14+0) = 8.4 + 1523 + 868 = 2400 µs，大消息再 ×1.4（plateau）= 3360 µs
+              lat = 8.4 + (510-62)×max(3.4, 1×3) + 62×(14+0) = 8.4 + 1523 + 868 = 2400 µs，大消息再 ×1.4（plateau）= 3360 µs
+Ring+LL128    busBw = min(96×0.92, 8×36.7) = 88.3 → algbw = 88.3 × 256/510 = 44.3 GB/s
+              lat = 14 + 448×max(1.9, 1) + 62×4.0 = 14 + 851 + 248 = 1113 µs
 Tree+Simple   busBw = min(96×0.92, 8×36.0) = 88.3，×0.85（Hopper TREE pattern）= 75.1 → algbw = 37.5 GB/s
               lat = 8.4 + 2×(7×4.0 + 5×14) = 204 µs
-Tree+LL       lat = 6.8 + 2×(7×0.6 + 5×5.0) = 65 µs；bw 小
-Ring+LL       lat = 6.6 + 448×0.6 + 62×2.7 = 443 µs
+Tree+LL128    busBw = min(88.3×120/128, 8×29.0) = 82.8，×0.85 = 70.4 → algbw = 35.2 GB/s
+              lat = 14 + 2×(7×1.25 + 5×8.5) = 116.5 µs
+Tree+LL       busBw = min(88.3/3.8, 20.4) = 20.4，×0.85 = 17.3 → algbw = 8.7 GB/s
+              lat = 6.8 + 2×(7×0.6 + 5×5.0) = 65 µs
+Ring+LL       busBw = min(20.4, 96×0.5) = 20.4 → algbw = 20.4 × 256/510 = 10.2 GB/s
+              lat = 6.6 + 448×max(0.6, 1) + 62×2.7 = 6.6 + 448 + 167 = 622 µs
 ```
 
-延迟的账差了一个数量级：ring 要走 510 步，其中 62 步过网络；tree 只要节点内 7 步 + 节点间 $$\log_2 32 = 5$$ 步、再乘 2。带宽的账 ring 好 30%。交叉点：$$204 + S/37.5\text{e}3 = 3360 + S/48.2\text{e}3$$ 得 $$S \approx 533\ \text{MB}$$（还没算 `treeCorrectionFactor` 在 100 MB 附近的 0.8 折，算上后交叉点略前移）。**25 MB 的 DDP bucket、几十 MB 的梯度分片都在 Tree 的区间，只有整 GB 的消息 Ring 才回来。** 这就是"跨 32 台机器时选了 Tree"。
+延迟的账差了一个数量级：ring 要走 510 步，其中 62 步过网络；tree 只要节点内 7 步 + 节点间 $$\log_2 32 = 5$$ 步、再乘 2。带宽的账 ring 好 30%（Simple 对 Simple）。先各自比协议：Tree 这边 $$116.5 + S/35.2\text{e}3 = 204 + S/37.5\text{e}3$$ 得 $$S \approx 50\ \text{MB}$$，50 MB 以下 Tree+LL128 更快；Ring 这边 LL128 不吃 plateau，$$1113 + S/44.3\text{e}3 = 3360 + S/48.2\text{e}3$$ 得 $$S \approx 1.2\ \text{GB}$$，在这之前都是 Ring+LL128 更快。Tree 与 Ring 的交叉点：$$204 + S/37.5\text{e}3 = 1113 + S/44.3\text{e}3$$ 得 $$S \approx 222\ \text{MB}$$（还没算 `treeCorrectionFactor` 在 100 MB 附近的 0.8 折，算上后交叉点略前移）。**25 MB 的 DDP bucket、几十 MB 的梯度分片都在 Tree 的区间（50 MB 以下是 Tree+LL128），两百多 MB 以上 Ring 才回来。** 这就是"跨 32 台机器时选了 Tree"。
 
 三个决定用的是同一个公式，不同的只是输入：机器一的输入里有 NVLS 图且 NVLink 延迟低；机器二的输入里 `typeIntra` 决定 LL128 开不开、有没有 NVS 决定 NVLS 有没有；机器三的输入里 `nNodes = 32` 让 ring 的步数项爆掉。
 
@@ -705,13 +711,13 @@ Ring+LL       lat = 6.6 + 448×0.6 + 62×2.7 = 443 µs
 |---|---|---|---|---|
 | 机器一（H100 NVSwitch） | 1 GB | NVLS+Simple 25 + 2451 = 2476 µs | Ring+Simple 56 + 4566 = 4622 µs | 慢 1.9×（带宽的账：NVLink 流量 1.75S vs ~2S/n） |
 | ^^ | 64 KB | Ring+LL 15.0 + 0.8 = 15.8 µs | Ring+LL 同上 | 无代价（本来就是 Ring） |
-| 机器三（32 节点） | 25 MB | Tree+Simple 204 + 667 = 871 µs | Ring+Simple 3360 + 519 = 3879 µs | 慢 4.5×（延迟的账：510 步） |
-| ^^ | 64 KB | Tree+LL 65 + ~2 = 67 µs | Ring+LL 443 + ~1 = 444 µs | 慢 6.6× |
-| ^^ | 1 GB | Ring 3360 + 20747 = 24107 µs | Tree 204 + 26667 = 26871 µs | Ring 反而快 10% |
+| 机器三（32 节点） | 25 MB | Tree+LL128 116.5 + 710 = 827 µs | Ring+LL128 1113 + 564 = 1677 µs | 慢 2.0×（延迟的账：510 步） |
+| ^^ | 64 KB | Tree+LL 65 + 7.6 ≈ 73 µs | Ring+LL 622 + 6.4 ≈ 628 µs | 慢 8.6× |
+| ^^ | 1 GB | Ring+LL128 1113 + 22573 = 23686 µs | Ring+LL128 同上 | 无代价（本来就是 Ring，比 Tree+Simple 204 + 26667 = 26871 µs 快 12%） |
 
 Table: 强行 NCCL_ALGO=Ring 相对自动选择慢多少
 
-结论：`NCCL_ALGO=Ring` 在单机 NVSwitch 上损失的是带宽（放弃了交换机内归约），在大规模多机上损失的是延迟（$$O(n)$$ 步），只有"大规模 + 整 GB 消息"这一种情形它是对的。它常被当作"稳定性开关"使用（排除 NVLS/CollNet 的兼容性问题、或让不同 rank 数下的浮点归约顺序一致），这时要知道付的是哪本账。同理，`NCCL_PROTO=Simple` 是在放弃小消息的延迟，`NCCL_PROTO=LL` 是在放弃一半带宽。
+结论：`NCCL_ALGO=Ring` 在单机 NVSwitch 上损失的是带宽（放弃了交换机内归约），在大规模多机上损失的是延迟（$$O(n)$$ 步），只有"大规模 + 两百多 MB 以上的消息"这一种情形它是对的。它常被当作"稳定性开关"使用（排除 NVLS/CollNet 的兼容性问题、或让不同 rank 数下的浮点归约顺序一致），这时要知道付的是哪本账。同理，`NCCL_PROTO=Simple` 是在放弃小消息的延迟，`NCCL_PROTO=LL` 是在放弃一半带宽。
 
 ### 5. NCCL_ALGO / NCCL_PROTO 的语法与 tuner 插件
 
@@ -933,7 +939,7 @@ hostA:12345:12345 [0] NCCL INFO Trees [0] 1/8/-1->0->-1 [1] 1/8/-1->0->-1 … [1
 hostA:12345:12345 [0] NCCL INFO threadThresholds 8/8/64 | 128/8/64 | 512 | 512
 hostA:12345:12345 [0] NCCL INFO   Algorithm   |                    Tree                   |                    Ring                   | …
 hostA:12345:12345 [0] NCCL INFO   Protocol    |       LL |    LL128 |   Simple |       LL |    LL128 |   Simple | …
-hostA:12345:12345 [0] NCCL INFO     AllReduce |    25.2/ 11.3 |    48.5/225.0 |    92.4/220.8 |    36.2/ 12.0 |    75.2/235.5 |   131.6/256.0 | …
+hostA:12345:12345 [0] NCCL INFO     AllReduce |    25.2/ 11.3 |    48.5/225.0 |    92.4/220.8 |    68.0/ 12.0 |    78.0/235.5 |   204.4/256.0 | …
 hostA:12345:12345 [0] NCCL INFO 24 coll channels, 24 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
 hostA:12345:12345 [0] NCCL INFO ncclCommInitRank comm 0x55d0c0 rank 0 nranks 16 cudaDev 0 nvmlDev 0 busId 7000 commId 0x9a3f… - Init COMPLETE
 hostA:12345:12401 [0] NCCL INFO Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM
@@ -956,7 +962,7 @@ hostA:12345:12345 [0] NCCL INFO AllReduce: 65536 Bytes -> Algo Tree proto LL cha
 - **全局 ring**：`Channel 00/24 : 0 1 2 … 15` 是 rank 0 视角的第 0 条 ring 的完整顺序（`dumpLine`），共 24 条（12 × 2）；channel 12 与 channel 0 相同（复制）。`Ring 00 : 15 -> 0 -> 1` 是本 rank 在这条 ring 上的 prev/next——15 在另一台机器上，说明这条 ring 在这里跨机。
 - **全局 tree**：`Tree 0 : -1 -> 0 -> 1/8/-1`：rank 0 是第一棵树的根（up=-1），子节点是本机的 1（节点内链的下一个）和 hostB 的 8（节点间树的子）。`Tree 12 : 8 -> 0 -> 1/-1/-1`：第二棵树里 rank 0 的父是 8——double binary tree 的镜像。`Trees` 一行是所有 channel 的汇总，格式 `[c] down0/down1/down2->me->up`。
 - **channel 与阈值**：`24 coll channels … 32 p2p channels`；`threadThresholds 8/8/64 | 128/8/64 | 512 | 512` 依次是 Tree 的 LL/LL128/Simple、Ring 的 LL/LL128/Simple（Ring+LL 是 8 × 16 rank = 128）、CollNetDirect、CollNetChain。`[Proxy Service] Device 0 CPU core 12`（本例中省略）告诉你 proxy 线程落在哪个核。
-- **调优表**：格式见第八章，这里是两机 16 卡的版本（`hw = NET`，`nNodes ≤ 2` 时带宽仍用 `bwIntra`）。Ring+Simple 的 131.6 µs 是 $$8.4 + (30-2) \times 3.4 + 2 \times 14$$——30 步里 2 步跨网络（每步 14 µs）、28 步在 NVLink 上（每步 3.4 µs）；带宽 $$480 \times 16/30 = 256$$。Tree+Simple 的 92.4 µs 是 $$8.4 + 2 \times (7 \times 4.0 + 1 \times 14)$$。Ring+LL 的带宽被多机的 `llMaxBw`（AMD CPU、2 节点档 22.5）压到 12.0——这就是为什么多机 LL 只会出现在极小消息上。你的日志里以实际打印为准，`nccl_log_reader.py` 直接用它算预测。
+- **调优表**：格式见第八章，这里是两机 16 卡的版本（`hw = NET`，`nNodes ≤ 2` 时带宽仍用 `bwIntra`）。Ring+Simple 的 204.4 µs 是 $$8.4 + (30-2) \times 6 + 2 \times 14$$——30 步里 2 步跨网络（每步 14 µs）；28 步在 NVLink 上，每步本是 3.4 µs，但多机 ring 的节点内每步至少取 netOverhead，这台是 AMD CPU，2 µs，Simple 再 ×3 就是 6 µs。Ring+LL 的 68.0（$$6.6 + 28 \times 2 + 2 \times 2.7$$）、Ring+LL128 的 78.0（$$14 + 28 \times 2 + 2 \times 4.0$$）同理，节点内每步都取 2 µs；带宽 $$480 \times 16/30 = 256$$。Tree+Simple 的 92.4 µs 是 $$8.4 + 2 \times (7 \times 4.0 + 1 \times 14)$$。Ring+LL 的带宽被多机的 `llMaxBw`（AMD CPU、2 节点档 22.5）压到 12.0——这就是为什么多机 LL 只会出现在极小消息上。你的日志里以实际打印为准，`nccl_log_reader.py` 直接用它算预测。
 - **连接**（`Init COMPLETE` 之后、另一个 tid）：节点内 `P2P/CUMEM`，跨机 `NET/IB/0/GDRDMA`；`Connected all rings, use ring PXN 0 GDR 1` 说明所有 ring 连接都用上了 GDR、没有用 PXN。
 - **算法选择**（`TUNING` 子系统，rank 0）：1 GB → Ring+Simple 用满 24 channel；25 MB → Tree+LL128（两机时 tree 的延迟优势在几十 MB 还在）；64 KB → Tree+LL 只用 2 个 channel。这三行就是核心问题在这台机器上的答案。
 
@@ -1010,8 +1016,8 @@ Table: 改拓扑文件观察 NCCL 决策变化的实验
 - **核心问题**：
   - NVSwitch 机：NVLS 交换机内归约，NVLink 流量 ~2S/n vs ring 1.75S，延迟 25 µs 也不高 → NVLS+Simple（1 MB 左右以上）
   - 有 NVLink 无 NVSwitch：NVLS 不可用、LL128 可用 → Ring+LL128（几 MB 以下）；纯 PCIe：LL128 被禁 → Ring/Tree + Simple/LL
-  - 32 节点：ring 510 步 vs tree 2×(7+5) 步，延迟差一个量级，带宽差 30% → Tree 直到几百 MB
-- **强行 Ring**：单机 NVSwitch 大消息慢约 2×（带宽账）；32 节点中小消息慢 4～7×（延迟账）；只在大规模 + GB 级消息上正确
+  - 32 节点：ring 510 步 vs tree 2×(7+5) 步，延迟差一个量级，带宽差 30% → Tree 直到两百多 MB
+- **强行 Ring**：单机 NVSwitch 大消息慢约 2×（带宽账）；32 节点中小消息慢 2～9×（延迟账）；只在大规模 + 两百多 MB 以上的消息上正确
 - **执行期**：group 聚合 → 4 倍以内的任务合并查表 → 一个 kernel nChannels 个 block → 每 block 一条 ring/tree 用 primitives 收发
 - **proxy**：GPU 不能 post RDMA；CPU 线程按 head/tail 与 GPU 同步，替它 isend/irecv/test；单线程、被抢占即抖动；kernel 自旋等它
 - **send/recv**：必须同 group：否则 send kernel 等 recv、recv 在 send 返回后才发起 → 死锁
@@ -1196,5 +1202,5 @@ if __name__ == '__main__':
 
    </details>
 
-[^q0]: 决策在 `ncclCommInitRank` 里做完、与单次消息无关：探测拓扑（`/sys` 的 PCIe 树 + NVML 的 NVLink + net 插件的 NIC）→ 计算每对设备的路径类型与带宽 → 图搜索出 nChannels 条 ring / tree → 建 transport → 用调优模型 $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$ 为每个（算法, 协议, 消息大小）算预计时间填成表；`ncclAllReduce` 只查表选最小的（[第三](#三拓扑探测从-sys-和-nvml-到-xml-树)至[八章](#八调优模型nccl-如何估算时间)）。三个决定的账：NVSwitch 机器上 NVLS 可用——交换机内做归约，每卡 NVLink 流量约 $$2S/n$$ 而 ring 是 $$1.75S$$，所以 1 MB 左右以上选 NVLS + Simple；有 NVLink 无 NVSwitch 时 LL128 可用（依赖 NVLink 的写序保证，约 94% 效率），几 MB 以下 Ring + LL128 最快；纯 PCIe 上 LL128 被禁（PCIe 不保证写序），只剩 Simple（带宽好、延迟高）与 LL（50% 效率、延迟低）；跨 32 台机器时 ring 要 510 步、tree 只要 $$2 \times (7 + 5)$$ 步，延迟差一个数量级、带宽只差 30%，所以直到几百 MB 都选 Tree（[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)）。
-[^q1]: 单机 NVSwitch 上大消息慢约 2 倍（带宽账：ring 的 NVLink 流量是 NVLS 的近 4 倍）；32 节点上中小消息慢 4–7 倍（延迟账：步数）；只在大规模 + GB 级消息上 ring 才是对的。详见[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)。
+[^q0]: 决策在 `ncclCommInitRank` 里做完、与单次消息无关：探测拓扑（`/sys` 的 PCIe 树 + NVML 的 NVLink + net 插件的 NIC）→ 计算每对设备的路径类型与带宽 → 图搜索出 nChannels 条 ring / tree → 建 transport → 用调优模型 $$T = \text{lat} \times \text{latCount} + S / (1000 \times \text{bw})$$ 为每个（算法, 协议, 消息大小）算预计时间填成表；`ncclAllReduce` 只查表选最小的（[第三](#三拓扑探测从-sys-和-nvml-到-xml-树)至[八章](#八调优模型nccl-如何估算时间)）。三个决定的账：NVSwitch 机器上 NVLS 可用——交换机内做归约，每卡 NVLink 流量约 $$2S/n$$ 而 ring 是 $$1.75S$$，所以 1 MB 左右以上选 NVLS + Simple；有 NVLink 无 NVSwitch 时 LL128 可用（依赖 NVLink 的写序保证，约 94% 效率），几 MB 以下 Ring + LL128 最快；纯 PCIe 上 LL128 被禁（PCIe 不保证写序），只剩 Simple（带宽好、延迟高）与 LL（50% 效率、延迟低）；跨 32 台机器时 ring 要 510 步、tree 只要 $$2 \times (7 + 5)$$ 步，延迟差一个数量级、带宽只差 30%，所以直到两百多 MB 都选 Tree（[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)）。
+[^q1]: 单机 NVSwitch 上大消息慢约 2 倍（带宽账：ring 的 NVLink 流量是 NVLS 的近 4 倍）；32 节点上中小消息慢 2–9 倍（延迟账：步数）；只在大规模 + 两百多 MB 以上的消息上 ring 才是对的。详见[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)。
