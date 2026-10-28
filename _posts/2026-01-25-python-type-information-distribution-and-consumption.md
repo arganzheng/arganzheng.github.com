@@ -36,57 +36,7 @@ flowchart TB
 
 ### 1. 在三篇地图上的位置
 
-``` title="类型信息提供层的分层结构"
-                   类型信息提供层
-┌──────────────────────────────────────────────┐
-│ 类型表达                                      │
-│ ├── Python 内建注解语法                       │
-│ ├── 内建泛型：list[str]、dict[str, int]       │
-│ ├── typing                                    │
-│ └── typing_extensions                         │
-│                                               │
-│ 类型载体与分发                                 │
-│ ├── inline types：.py                         │
-│ ├── stub：.pyi                                │
-│ ├── typeshed                                  │
-│ ├── types-*                                   │
-│ └── py.typed / PEP 561                        │
-└──────────────────────────────────────────────┘
-                       │
-                       │ 读取、解释、推理、执行
-                       ▼
-                   类型信息消费层
-┌──────────────────────────────────────────────┐
-│ 静态消费                                      │
-│ ├── mypy                                      │
-│ ├── Pyright / Pylance                         │
-│ ├── IDE、CI                                   │
-│ └── 类型推断、收窄、兼容性检查                 │
-│                                               │
-│ 动态消费                                      │
-│ ├── isinstance / issubclass                   │
-│ ├── get_type_hints / __annotations__          │
-│ ├── @dataclass（读注解生成代码）               │
-│ ├── Pydantic（元类 + pydantic-core）           │
-│ ├── beartype                                  │
-│ └── Annotated 元数据解析                      │
-└──────────────────────────────────────────────┘
-                       │
-                       │ 用消费层的能力构建
-                       ▼
-                 工程落地：数据契约
-┌──────────────────────────────────────────────┐
-│ 数据建模                                      │
-│ ├── @dataclass：内部数据传递                  │
-│ ├── Pydantic BaseModel：边界校验              │
-│ └── TypedDict：字典形状约束                   │
-│                                               │
-│ 契约的输入输出                                 │
-│ ├── 序列化 / 反序列化                         │
-│ ├── JSON Schema / OpenAPI 生成                │
-│ └── BaseSettings：配置即契约                  │
-└──────────────────────────────────────────────┘
-```
+![类型信息的三层地图：提供层、消费层与数据契约](/img/in-post/python-type-information-distribution-and-consumption-type-info-map.svg)
 
 本篇讲图里中间的两格：提供层下半的**类型载体与分发**，以及整个**消费层**——静态与动态。
 
