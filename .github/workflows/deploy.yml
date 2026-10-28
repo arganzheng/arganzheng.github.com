@@ -36,9 +36,10 @@ jobs:
       - name: Install WebP tools
         run: sudo apt-get install -y --no-install-recommends webp
       - name: Build
-        run: bundle exec jekyll build --strict_front_matter
+        run: ruby -v && bundle exec jekyll build --strict_front_matter
         env:
           JEKYLL_ENV: production
+          RUBY_YJIT_ENABLE: '1'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

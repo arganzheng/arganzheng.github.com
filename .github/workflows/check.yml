@@ -39,9 +39,10 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends webp
 
       - name: Build
-        run: bundle exec jekyll build --future --strict_front_matter
+        run: ruby -v && bundle exec jekyll build --future --strict_front_matter
         env:
           JEKYLL_ENV: production
+          RUBY_YJIT_ENABLE: '1'
 
       - name: Font Awesome subset covers every icon in use
         run: python3 tools/fa-subset.py --check
