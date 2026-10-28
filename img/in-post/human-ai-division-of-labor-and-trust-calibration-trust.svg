@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="580" viewBox="0 0 760 580" role="img" aria-labelledby="trust-title trust-desc">
+  <title id="trust-title">信任与实际能力的校准</title>
+  <desc id="trust-desc">横轴是 AI 的实际能力，纵轴是用户的信任，均从低到高。对角线表示校准：信任约等于能力，放手与核对各在对的地方。对角线上方是过度信任，把错误当真，案例包括 Air Canada、虚构判例、PocketOS；下方是信任不足，没人用或全重做。坐标仅表示相对高低，不是定量测量。</desc>
+  <style>
+    text { font-family: "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 17px; fill: #263445; }
+    .axis { stroke: #526071; stroke-width: 2; fill: none; }
+    .heading { font-size: 21px; font-weight: 700; }
+    .level { font-size: 15px; fill: #5b6776; }
+    .over { fill: #9f3436; }
+    .under { fill: #285f9c; }
+    .calibrated { fill: #286842; paint-order: stroke; stroke: #fff; stroke-width: 8px; stroke-linejoin: round; text-anchor: middle; }
+  </style>
+  <defs>
+    <marker id="axis-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 L8 4 L0 8 Z" fill="#526071"/>
+    </marker>
+  </defs>
+  <rect width="760" height="580" fill="#fff"/>
+  <path d="M90 75 H550 L90 535 Z" fill="#fff0ee"/>
+  <path d="M90 535 L550 75 V535 Z" fill="#edf5ff"/>
+  <path d="M90 535 L550 75" stroke="#378257" stroke-width="3" stroke-dasharray="9 6"/>
+  <path class="axis" d="M90 535 V55" marker-end="url(#axis-arrow)"/>
+  <path class="axis" d="M90 535 H580" marker-end="url(#axis-arrow)"/>
+  <text x="30" y="29">用户的信任</text>
+  <text x="599" y="541">AI 的实际能力</text>
+  <text class="level" x="52" y="84">高</text>
+  <text class="level" x="52" y="534">低</text>
+  <text class="level" x="90" y="562">低</text>
+  <text class="level" x="535" y="562">高</text>
+  <g transform="translate(120 125)">
+    <text class="heading over">过度信任</text>
+    <text class="over" y="31">（把错误当真）</text>
+    <text y="69">Air Canada</text>
+    <text y="99">虚构判例</text>
+    <text y="129">PocketOS</text>
+  </g>
+  <g transform="translate(355 270) rotate(-45)">
+    <text class="heading calibrated" y="-22">校准：信任 ≈ 能力</text>
+    <text class="calibrated" y="6">放手 + 核对</text>
+    <text class="calibrated" y="33">各在对的地方</text>
+  </g>
+  <g transform="translate(345 443)">
+    <text class="heading under">信任不足</text>
+    <text class="under" y="32">（没人用 / 全重做）</text>
+  </g>
+</svg>
