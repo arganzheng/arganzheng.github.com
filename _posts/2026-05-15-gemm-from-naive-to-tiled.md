@@ -185,20 +185,10 @@ __global__ void sgemm_v1_naive(int M, int N, int K,
 
 一个 warp 在某个 $$k$$ 上读到的是什么，画出来一看就明白：
 
-```text title="v1 中一个 warp 在某个 k 上读到的 A、B 元素"
-              A (M×K, 行主序)                 B (K×N, 行主序)                C (M×N)
-          k →                             col →
-     row  ┌──────────────────┐          ┌────────────────────────┐        ┌────────────────────────┐
-      ↓   │                  │      k   │                        │        │                        │
-          │                  │      ↓   │  ······████████████····│ ← 行 k │                        │
-  row ───►│ ······■·········  │          │        ↑ 32 个连续 float│        │  ······████████████····│ ← warp 的
-          │        ↑ A[row][k]│          │          = 128 B       │        │        ↑ 32 个输出      │   32 个输出
-          │  同一地址，广播   │          │          1 次合并访存   │        │   C[row][col..col+31]  │
-          └──────────────────┘          └────────────────────────┘        └────────────────────────┘
+![v1 中一个 warp 在某个 k 上读到的 A、B 元素](/img/in-post/gemm-from-naive-to-tiled-v1-warp-reads.svg)
 
-  warp 的 32 个线程: threadIdx.x = 0..31 → col = col0 + 0..31, row 相同
-  每前进一个 k: 1 条 FFMA（64 FLOP） ← 1 sector 的 A（广播） + 4 sector 的 B（128 B）
-```
+- warp 的 32 个线程：`threadIdx.x = 0..31` → `col = col0 + 0..31`，`row` 相同。
+- 每前进一个 k：1 条 FFMA（64 FLOP）← 1 sector 的 A（广播）+ 4 sector 的 B（128 B）。
 
 `threadIdx.x` 映射到列而不是行是有意的：一个 warp 的 32 个线程在同一个 $$k$$ 上读 $$B[k][\text{col} \ldots \text{col}+31]$$，是连续的 128 字节，一次合并访存；而它们读的 $$A[\text{row}][k]$$ 是同一个地址，硬件广播。如果反过来把 `threadIdx.x` 映射到行，warp 内 32 个线程读 $$A$$ 的 32 个不同行，跨度 $$K \times 4 = 16$$ KB，每个线程一个 sector，带宽利用率 1/8——第三篇讲过的非合并访问。
 
@@ -238,25 +228,16 @@ L1 的命中率并不高（$$B$$ 是 64 MiB 的流式访问，一个 SM 上的 b
 
 把 $$C$$ 切成 $$BM \times BN$$ 的 tile，每个 block 负责一个 tile。计算这个 tile 需要 $$A$$ 的 $$BM \times K$$ 条带和 $$B$$ 的 $$K \times BN$$ 条带；沿 $$K$$ 再切成长度 $$BK$$ 的段，每一段把 $$A$$ 的 $$BM \times BK$$ 子块与 $$B$$ 的 $$BK \times BN$$ 子块载入 shared memory，block 内所有线程从 shared 取数做 $$BM \cdot BN \cdot BK$$ 次 FMA。
 
-```text title="分块：A 条带、B 条带与 C tile"
-                 K                                 N                              N
-        ┌───┬───┬───┬───┐                ┌────┬────┬────┬────┐          ┌────┬────┬────┬────┐
-        │   │   │   │   │                │    │▓▓▓▓│    │    │ BK       │    │    │    │    │
-   M    ├───┼───┼───┼───┤          K     ├────┼────┼────┼────┤          ├────┼────┼────┼────┤
-        │▓▓▓│▓▓▓│▓▓▓│▓▓▓│ BM             │    │▓▓▓▓│    │    │     M    │    │████│    │    │ BM
-        ├───┼───┼───┼───┤                ├────┼────┼────┼────┤          ├────┼────┼────┼────┤
-        │   │   │   │   │                │    │▓▓▓▓│    │    │          │    │    │    │    │
-        └───┴───┴───┴───┘                └────┴────┴────┴────┘          └────┴────┴────┴────┘
-         A 的 BM×K 条带                    B 的 K×BN 条带                  C 的一个 BM×BN tile
-                                                                          （一个 block 负责）
-              ─── 沿 K 每次取一段 BK ───►
+![分块：A 条带、B 条带与 C tile](/img/in-post/gemm-from-naive-to-tiled-tiling.svg)
 
-   第 t 段:  As[BM][BK] ◄── A 条带第 t 块      Bs[BK][BN] ◄── B 条带第 t 块
-             __syncthreads()
-             block 内 BM×BN 个输出各做 BK 次 FMA，操作数全部来自 As / Bs
-             __syncthreads()
-   共 K/BK 段。每个 A 元素进 shared 一次后被 BN 个输出用到，每个 B 元素被 BM 个输出用到。
-```
+深色的 t 是第 t 段。每一段做的事：
+
+1. `As[BM][BK]` ← A 条带第 t 块，`Bs[BK][BN]` ← B 条带第 t 块。
+2. `__syncthreads()`。
+3. block 内 BM×BN 个输出各做 BK 次 FMA，操作数全部来自 As / Bs。
+4. `__syncthreads()`。
+
+共 K/BK 段。每个 A 元素进 shared 一次后被 BN 个输出用到，每个 B 元素被 BM 个输出用到。
 
 数一下全局读取量。每个 tile 沿 $$K$$ 读取 $$(BM + BN) \cdot K$$ 个元素，共 $$\frac{M}{BM} \cdot \frac{N}{BN}$$ 个 tile：
 
@@ -338,20 +319,7 @@ $$
 
 A100 每个 SM 每周期能从 shared memory 取 128 字节 = 32 个 float，也就是每周期服务一个 warp 宽度的一次访问（一个"wavefront"）。一个 SM 有 64 个 FP32 单元，峰值每周期 64 次 FMA，即每周期 2 条 warp 级 FFMA 指令。按 v2 的取数模式，一条 FFMA 前面有 2 条 LDS，各占一个 wavefront（$$A$$ 的广播也是一个 wavefront，只是数据少），所以每周期 2 条 FFMA 需要 4 个 wavefront，而 shared 只能给 1 个：
 
-```text title="FFMA 需要的 wavefront 与 shared 能给的"
-  FMA 单元想要的节奏（每周期 2 条 warp 级 FFMA）:
-    周期:    1        2        3        4
-    FFMA:  ██ ██    ██ ██    ██ ██    ██ ██        ← 需要 4 个 wavefront/周期 喂数据
-
-  shared memory 能给的（每周期 1 个 wavefront）:
-    周期:    1        2        3        4
-    LDS :  ▓        ▓        ▓        ▓             ← 4 个周期只够喂 2 条 FFMA（每条要 A、B 各 1 个 wavefront）
-
-  实际节奏被 shared 拖成:
-    周期:    1        2        3        4
-           LDS A    LDS B    LDS A    LDS B
-                    FFMA              FFMA          ← 4 个周期 2 条 FFMA，峰值需要 8 条：上限 25%
-```
+![FFMA 需要的 wavefront 与 shared 能给的](/img/in-post/gemm-from-naive-to-tiled-smem-wavefront.svg)
 
 $$
 \text{shared 带宽上限} = \frac{1}{4} \times \text{FP32 峰值} = 25\%
@@ -367,28 +335,10 @@ $$
 
 让每个线程负责 $$C$$ tile 里一个 $$TM \times TN$$ 的小块。每前进一个 $$k$$，线程从 shared 读 $$A$$ 的 $$TM$$ 个数（同一列 $$k$$ 上的 $$TM$$ 行）和 $$B$$ 的 $$TN$$ 个数（同一行 $$k$$ 上的 $$TN$$ 列），做外积，$$TM \times TN$$ 次 FMA 累加到寄存器里。
 
-```text title="一个线程在一个 k 上的 TM×TN 外积"
-  一个线程、一个 k 上做的事（TM = TN = 4 示意；本文实际 8×8）:
+![一个线程在一个 k 上的 TM×TN 外积](/img/in-post/gemm-from-naive-to-tiled-outer-product.svg)
 
-        b_frag[0..TN)  ◄── Bs[k][tn*TN .. +TN)  （shared 里一行连续 TN 个，一条 LDS.128）
-        ┌────┬────┬────┬────┐
-        │ b0 │ b1 │ b2 │ b3 │
-  a_frag└────┴────┴────┴────┘
-  ┌────┐┌────┬────┬────┬────┐
-  │ a0 ││a0b0│a0b1│a0b2│a0b3│      acc[i][j] += a_frag[i] * b_frag[j]
-  ├────┤├────┼────┼────┼────┤
-  │ a1 ││a1b0│a1b1│a1b2│a1b3│      读入 TM + TN = 8 个数
-  ├────┤├────┼────┼────┼────┤      做   TM × TN = 16 次 FMA
-  │ a2 ││a2b0│a2b1│a2b2│a2b3│      每个 a 被用 TN 次，每个 b 被用 TM 次
-  ├────┤├────┼────┼────┼────┤
-  │ a3 ││a3b0│a3b1│a3b2│a3b3│      acc[TM][TN] 常驻寄存器，沿整个 K 累加
-  └────┘└────┴────┴────┴────┘
-    ▲
-    └── As[k][tm*TM .. +TM)  （A 转置存放后也是一行连续 TM 个）
-
-  v2 的一个线程:  读 2 个数 → 1 次 FMA          I_smem = 0.25
-  v3 的一个线程:  读 16 个数 → 64 次 FMA (8×8)   I_smem = 2
-```
+- v2 的一个线程：读 2 个数 → 1 次 FMA，$$I_{\text{smem}} = 0.25$$。
+- v3 的一个线程：读 16 个数 → 64 次 FMA（8×8），$$I_{\text{smem}} = 2$$。
 
 $$TM = TN = 8$$：
 
@@ -438,26 +388,13 @@ $$
 
 **向量化**。256 个线程要搬 $$128 \times 8 = 1024$$ 个 $$A$$ 元素和 1024 个 $$B$$ 元素，每人 4 + 4 个，正好一个 `float4`。128 位加载（`LDG.128`）把加载指令数降到 1/4，对 L1 的请求数也更少。前提是地址 16 字节对齐：$$K$$、$$N$$ 是 4 的倍数，基址来自 `cudaMalloc`（256 字节对齐），就满足。
 
-**转置**。计算阶段线程要读"同一列 $$k$$ 上连续 $$TM$$ 行"的 $$A$$。如果 shared 里 $$A$$ 按原样存 `As[BM][BK]`，这 8 个数的地址间隔是 $$BK$$ 个 float，不连续，只能用 8 条 32 位 `LDS`；而且按第六节的线程铺法一个 warp 里有 **2 个**不同的 `tm`（`tid / 16`），它们读同一个 `kk` 时地址相差 $$8 \times BK \times 4$$ 字节，$$BK = 8$$ 时正好是 256 字节——同一个 bank、两个不同地址，同 `tm` 的 16 个线程是广播，两组之间是 **2 路** bank conflict（早期版本按"8 个不同 tm"写成 8 路，是把每线程的 8 行与 warp 内的 tm 数混了）。两个经典解法：一是 `As[BM][BK + 1]` 的 padding，行跨度变成 9 个 float，同一列的元素错开一个 bank，conflict 消失，但 8 个数仍然不连续、不能用 `float4` 读；二是**转置存入** `As[BK][BM]`，同一 $$k$$ 的 $$BM$$ 个 $$A$$ 元素在 shared 里连续，读取阶段一条 `LDS.128` 取 4 个，两条取完 $$TM = 8$$，且 16 个共享同一个 `tm` 的线程读同一地址、是广播。转置的代价发生在写入端：`float4` 从全局读进来的 4 个 $$k$$ 连续元素要拆成 4 次标量写到 shared 的 4 个不同行。每个 tile 只写一次、读 $$BK$$ 次，把开销放在写这边是对的。
+**转置**。计算阶段线程要读"同一列 $$k$$ 上连续 $$TM$$ 行"的 $$A$$。如果 shared 里 $$A$$ 按原样存 `As[BM][BK]`，这 8 个数的地址间隔是 $$BK$$ 个 float，不连续，只能用 8 条 32 位 `LDS`；而且按第 4 小节的线程铺法一个 warp 里有 **2 个**不同的 `tm`（`tid / 16`），它们读同一个 `kk` 时地址相差 $$8 \times BK \times 4$$ 字节，$$BK = 8$$ 时正好是 256 字节——同一个 bank、两个不同地址，同 `tm` 的 16 个线程是广播，两组之间是 **2 路** bank conflict（早期版本按"8 个不同 tm"写成 8 路，是把每线程的 8 行与 warp 内的 tm 数混了）。两个经典解法：一是 `As[BM][BK + 1]` 的 padding，行跨度变成 9 个 float，两个 `tm` 组的地址相差 $$8 \times 9 = 72$$ 个 float，错开 8 个 bank，conflict 消失，但 8 个数仍然不连续、不能用 `float4` 读；二是**转置存入** `As[BK][BM]`，同一 $$k$$ 的 $$BM$$ 个 $$A$$ 元素在 shared 里连续，读取阶段一条 `LDS.128` 取 4 个，两条取完 $$TM = 8$$，且 16 个共享同一个 `tm` 的线程读同一地址、是广播。转置的代价发生在写入端：`float4` 从全局读进来的 4 个 $$k$$ 连续元素要拆成 4 次标量写到 shared 的 4 个不同行。每个 tile 只写一次、读 $$BK$$ 次，把开销放在写这边是对的。
 
-```text title="As 原样存放与转置存放的读取模式"
-  As[BM][BK]（原样存放，BK = 8）                As[BK][BM]（转置存放）
-  线程要读: 同一 k 上连续 TM = 8 行 ──►          同一 k 的 BM 个元素在一行里连续
+![As 原样存放与转置存放的读取模式](/img/in-post/gemm-from-naive-to-tiled-as-layout.svg)
 
-        k: 0  1  2  3  4  5  6  7                     m: 0  1  2  3  4  5  6  7  8 ...
-  m=0    [ ■  .  .  .  .  .  .  . ]              k=0  [ ■  ■  ■  ■  ■  ■  ■  ■  .  ... ]
-  m=1    [ ■  .  .  .  .  .  .  . ]              k=1  [ .  .  .  .  .  .  .  .  .  ... ]
-  m=2    [ ■  .  .  .  .  .  .  . ]              k=2  [ .  .  .  .  .  .  .  .  .  ... ]
-  ...      ■                                      ...
-  m=7    [ ■  .  .  .  .  .  .  . ]
-                                                 读: 2 条 LDS.128（连续 8 个 float）
-  读: 8 条标量 LDS，地址间隔 BK×4 = 32 B          写: 全局 float4 的 4 个 k 拆成 4 次标量写
-  warp 内 2 个不同 tm 的线程地址间隔 8×32 B = 256 B     （每 tile 只写 1 次、读 BK 次，代价放在写端划得来）
-  → 同一 bank、两个地址：2 路 conflict（同 tm 的 16 线程是广播）
-
-  折中方案 As[BM][BK+1]（padding）: 行跨度 9 个 float → 同列元素错开 1 个 bank，conflict 消失，
-                                   但 8 个数仍不连续，不能 float4 读
-```
+- 原样存放：warp 内 2 个不同 tm 的线程地址间隔 8 × 32 B = 256 B，同一 bank、两个地址，是 2 路 conflict（同 tm 的 16 线程是广播）。
+- 转置存放：写入时把全局 `float4` 的 4 个 k 拆成 4 次标量写。每 tile 只写 1 次、读 BK 次，代价放在写端划得来。
+- 折中方案 `As[BM][BK+1]`（padding）：行跨度 9 个 float，两个 tm 组的地址相差 8 × 9 = 72 个 float，错开 8 个 bank，conflict 消失；但 8 个数仍不连续，不能 `float4` 读。
 
 $$B$$ 不需要转置：计算阶段读"同一行 $$k$$ 上连续 $$TN$$ 列"，正好是 `Bs[BK][BN]` 的一行里连续的 8 个，`float4` 直接读。
 
@@ -571,51 +508,19 @@ sgemm_v3_regtile(int M, int N, int K,
 
 先把线程在 tile 上的铺法画出来——后面所有关于"广播"、"bank conflict"的判断都取决于一个 warp 的 32 个线程落在 $$C$$ tile 的哪些位置：
 
-```text title="256 个线程在 128×128 C tile 上的铺法"
-  128×128 的 C tile 上 256 个线程怎么铺: 16(tm) × 16(tn) 个线程，每线程 8×8
-  tid = tm*16 + tn  →  tm = tid / 16, tn = tid % 16；一个 warp = 连续 32 个 tid
+![256 个线程在 128×128 C tile 上的铺法](/img/in-post/gemm-from-naive-to-tiled-thread-layout.svg)
 
-          tn:   0     1     2    ...   15      ← 线程 tn 负责列 tn*8 .. tn*8+7
-              ┌─────┬─────┬─────┬─────┬─────┐
-  warp 0 tm=0 │ t0  │ t1  │ t2  │ ... │ t15 │ 8 行
-         tm=1 │ t16 │ t17 │ t18 │ ... │ t31 │ 8 行   1 warp = 2 个 tm × 16 个 tn
-              ├─────┼─────┼─────┼─────┼─────┤        → 覆盖 16 行 × 128 列
-  warp 1 tm=2 │ t32 │ t33 │ t34 │ ... │ t47 │
-         tm=3 │ t48 │ t49 │ t50 │ ... │ t63 │
-              ├─────┼─────┼─────┼─────┼─────┤
-   ...        │              ...             │
-              ├─────┼─────┼─────┼─────┼─────┤
-  warp 7 tm=14│t224 │t225 │t226 │ ... │t239 │
-         tm=15│t240 │t241 │t242 │ ... │t255 │
-              └─────┴─────┴─────┴─────┴─────┘
-                ◄──────── 128 列 = 16 × 8 ───────►
-
-  每个 k 步一个 warp 的 32 个线程读:
-    As[kk][tm*8 .. +8]   只有 2 个不同 tm → 2 个地址，广播，1 个 wavefront
-    Bs[kk][tn*8 .. +8]   16 个不同 tn，各 2 条 LDS.128，相邻 tn 地址相差 32 B
-```
+- `tid = tm*16 + tn` → `tm = tid / 16`，`tn = tid % 16`；一个 warp = 连续 32 个 tid。
+- 线程 tn 负责列 `tn*8 .. tn*8+7`。1 warp = 2 个 tm × 16 个 tn，覆盖 16 行 × 128 列。
+- 每个 k 步一个 warp 的 32 个线程读：
+  - `As[kk][tm*8 .. +8]`：只有 2 个不同 tm → 2 个地址，广播，1 个 wavefront。
+  - `Bs[kk][tn*8 .. +8]`：16 个不同 tn，各 2 条 LDS.128，相邻 tn 地址相差 32 B。
 
 几处索引值得对一遍。$$A$$ 的加载：`A_LOADS = 128 × 8 / 1024 = 1`，`idx` 取遍 0–255，`r = idx / 2` 覆盖 128 行，`c ∈ {0, 4}` 覆盖 8 个 $$k$$，每个元素恰好被搬一次。$$B$$ 的加载：`r = idx / 32` 覆盖 8 行，`c = (idx % 32) × 4` 覆盖 128 列。转置写入 `As[c + 0][r]` 在一个 warp 内：`r` 取 16 个连续值、`c` 取两个值，地址 `c × 128 + r`，$$c = 4$$ 的那一组偏移 512 个 float，是 32 的整倍数，与 $$c = 0$$ 落在相同的 bank——2 路 conflict。它每个 tile 只发生 4 次，对比 $$8 \times 64$$ 条 FFMA，可以忽略；要消除它，把 `As` 改成 `As[BK][BM + 4]`（行跨度 132 个 float，`c = 4` 那组错开 16 个 bank，且 528 字节的行跨度仍是 16 字节对齐）即可。
 
-读取阶段：`As[kk][tm * TM + i]` 一个 warp 里只有两个不同的 `tm`（`tid / 16`），是两个地址的广播，一个 wavefront。`Bs[kk][tn * TN + j]` 16 个不同的 `tn` 各读一个 `float4`，地址间隔 32 字节；32 字节的间隔意味着 `tn` 与 `tn + 4` 落在相同的 4 个 bank，16 个地址分成 4 组，需要 4 个 wavefront，而理想是 2 个（256 字节 / 128 字节）。这是本文实现里**有意保留的一处残余 bank conflict**：修法是把每个线程的 8 列拆成两段不相邻的 4 列（`tn * 4` 和 `BN/2 + tn * 4`），让相邻 `tn` 读相邻的 16 字节，代价是 epilogue 的写地址也要相应拆开。第八节讨论"离 cuBLAS 还差什么"时会回到它。把 16 个 `tn` 各自落在哪些 bank 列出来，conflict 在哪、修法为什么有效就很直观：
+读取阶段：`As[kk][tm * TM + i]` 一个 warp 里只有两个不同的 `tm`（`tid / 16`），是两个地址的广播，一个 wavefront。`Bs[kk][tn * TN + j]` 16 个不同的 `tn` 各读一个 `float4`，地址间隔 32 字节；32 字节的间隔意味着 `tn` 与 `tn + 4` 落在相同的 4 个 bank，16 个地址分成 4 组，需要 4 个 wavefront，而理想是 2 个（256 字节 / 128 字节）。这是本文实现里**有意保留的一处残余 bank conflict**：修法是把每个线程的 8 列拆成两段不相邻的 4 列（`tn * 4` 和 `BN/2 + tn * 4`），让相邻 `tn` 读相邻的 16 字节，代价是 epilogue 的写地址也要相应拆开。第九节讨论"离 cuBLAS 还差什么"时会回到它。把 16 个 `tn` 各自落在哪些 bank 列出来，conflict 在哪、修法为什么有效就很直观：
 
-```text title="Bs 读取的 bank 分布：现状与修法"
-  Bs[kk][·] 一行 128 个 float = 512 B；bank = float 下标 mod 32
-
-  现状: 线程 tn 的第 1 条 LDS.128 读 Bs[kk][tn*8 .. +4)（第 2 条读 +4..+8 同理）
-    tn:     0     1     2     3     4     5     6     7   ...  15
-    float:  0-3   8-11  16-19 24-27 32-35 40-43 48-51 56-59     120-123
-    bank:   0-3   8-11  16-19 24-27 0-3   8-11  16-19 24-27     24-27
-            └───────────┬──────────┘ └───────────┬──────────┘
-            只用到 16 个 bank；tn、tn+4、tn+8、tn+12 撞同一组 → 4 个 wavefront
-
-  修法: 线程 tn 的 8 列拆成不相邻的两段 4 列: [tn*4 .. +4) 与 [64 + tn*4 .. +4)
-    tn:     0     1     2     3     4     5     6     7     8   ...  15
-    float:  0-3   4-7   8-11  12-15 16-19 20-23 24-27 28-31 32-35     60-63
-    bank:   0-3   4-7   8-11  12-15 16-19 20-23 24-27 28-31 0-3       28-31
-            └──────── tn 0..7 恰好铺满 32 个 bank ─────────┘ └─ tn 8..15 ─┘
-            256 B / 128 B = 2 个 wavefront（理想值）；epilogue 写 C 的列同样拆开
-```
+![Bs 读取的 bank 分布：现状与修法](/img/in-post/gemm-from-naive-to-tiled-bs-banks.svg)
 
 ### 5. v3 在 Roofline 上的位置
 
@@ -627,20 +532,9 @@ sgemm_v3_regtile(int M, int N, int K,
 
 思路是让 tile $$k+1$$ 的加载与 tile $$k$$ 的计算重叠。先看 v3 的时间轴到底浪费在哪：
 
-```text title="v3 串行与寄存器预取的时间轴"
-  v3（串行）:  每个 tile 先加载、同步、再计算、再同步；两种单元轮流空转
-    加载单元  ██████            ██████            ██████
-    FMA 单元        ████████████      ████████████      ████████████
-              ├ load 0 ┤ sync ├ compute 0 ┤ sync ├ load 1 ┤ ...
-    时间 ────────────────────────────────────────────────────────────►
+![v3 串行与 v5 流水的时间轴](/img/in-post/gemm-from-naive-to-tiled-pipeline-timeline.svg)
 
-  v5（流水）:  tile t+1、t+2 的加载在途时算 tile t；FMA 单元几乎不停
-    加载单元  ██████ ██████ ██████ ██████ ██████ ██████
-    FMA 单元         ████████████████████████████████████████████
-              ├ L0 ┤├ L1 ┤├ L2 ┤
-                    ├ C0 ┤├ C1 ┤├ C2 ┤ ...        每 tile 只有 1 次 __syncthreads()
-    时间 ────────────────────────────────────────────────────────────►
-```
+两条时间轴用同一组时长：加载一个 tile 3 格，计算 6 格，同步 1 格。v3 每个 tile 同步两次，加载和计算轮流等。v5 的 L0、L1 在 prologue 发出，之后每轮先同步、再发出 tile t+2、再算；同步只挡计算，在途的 cp.async 照样跑。加载比计算短，加载单元会空着一段，FMA 单元只在每 tile 一次的同步处停一下。
 
 在 Ampere 之前，全局到 shared 的数据必须经过寄存器，所以流水线是三段式的：在计算 tile $$k$$ 之前，先把 tile $$k+1$$ 从全局 `LDG` 到一组临时寄存器（这些 load 是异步的，发出去就可以继续算）；算完 tile $$k$$ 之后把临时寄存器写进 shared 的**另一套** buffer；一次 `__syncthreads()`，交换 buffer 指针，进入下一轮。两套 shared buffer 就是"双缓冲"。代价是那组临时寄存器（本文配置下 8 个）和更复杂的代码；收益是加载延迟被计算掩盖，每个 tile 的同步从两次降到一次——因为写入的是另一套 buffer，不需要"读完再写"的那次同步。
 
@@ -658,24 +552,22 @@ commit_group               # 即使没有实际 copy 也 commit 一个空 group�
 compute tile t from buffer t mod S
 ```
 
-把 $$S = 3$$ 的环形 buffer 逐轮画出来，`wait_group(S-2) = wait_group(1)` 为什么恰好保证 tile $$t$$ 落地就一目了然：
+把 $$S = 3$$ 的环形 buffer 逐轮列出来，`wait_group(S-2) = wait_group(1)` 为什么恰好保证 tile $$t$$ 落地就一目了然：
 
-```text title="S = 3 环形 buffer 的逐轮状态"
-  S = 3，buffer 0/1/2 轮转。 ▓ = 正在被计算   ░ = 在途（cp.async 已发出）   · = 空闲/刚释放
+S = 3，buffer 0/1/2 轮转。▓ = 正在被计算，░ = 在途（cp.async 已发出），· = 空闲 / 刚释放。
 
-              buf0     buf1     buf2     本轮动作
-  prologue    ░tile0   ░tile1   ·        发出 tile 0、1 → commit ×2
-  ─────────────────────────────────────────────────────────────────────────────
-  t = 0       ▓tile0   ░tile1   ░tile2   wait_group(1): 允许 1 个在途(tile1) → tile0 已到
-                                          sync；发出 tile2 → buf2；算 tile0
-  t = 1       ░tile3   ▓tile1   ░tile2   wait_group(1): 允许 tile2 在途 → tile1 已到
-                                          sync（所有人算完 tile0，buf0 可复用）；发出 tile3 → buf0；算 tile1
-  t = 2       ░tile3   ░tile4   ▓tile2   发出 tile4 → buf1；算 tile2
-  t = 3       ▓tile3   ░tile4   ░tile5   发出 tile5 → buf2；算 tile3
-  ...
-  规律: 第 t 轮算 buf[t mod 3]，往 buf[(t-1) mod 3]（上一轮刚算完的）里填 tile t+2
-        永远有 S-1 = 2 个 tile 在途，每轮 1 次 __syncthreads()
-```
+| 轮次 | buf0 | buf1 | buf2 | 本轮动作 |
+|---|---|---|---|---|
+| prologue | ░tile0 | ░tile1 | · | 发出 tile 0、1 → commit ×2 |
+| t = 0 | ▓tile0 | ░tile1 | ░tile2 | `wait_group(1)`：允许 1 个在途（tile1）→ tile0 已到<br/>sync；发出 tile2 → buf2；算 tile0 |
+| t = 1 | ░tile3 | ▓tile1 | ░tile2 | `wait_group(1)`：允许 tile2 在途 → tile1 已到<br/>sync（所有人算完 tile0，buf0 可复用）；发出 tile3 → buf0；算 tile1 |
+| t = 2 | ░tile3 | ░tile4 | ▓tile2 | 发出 tile4 → buf1；算 tile2 |
+| t = 3 | ▓tile3 | ░tile4 | ░tile5 | 发出 tile5 → buf2；算 tile3 |
+| … | | | | |
+
+Table: S = 3 环形 buffer 的逐轮状态
+
+规律：第 t 轮算 `buf[t mod 3]`，往 `buf[(t-1) mod 3]`（上一轮刚算完的）里填 tile t+2；永远有 S-1 = 2 个 tile 在途，每轮 1 次 `__syncthreads()`。
 
 每个 tile 只有一次 `__syncthreads()`。shared 用量：
 
@@ -831,30 +723,19 @@ sgemm_v5_cp_async(int M, int N, int K,
 
 ### 5. v5 在 Roofline 上的位置
 
-v5 相对 v3 没有改变任何算术强度——对 HBM 仍是 32 FLOP/byte，对 shared 仍是 2 FLOP/byte。它改变的是**时间轴上的重叠**：加载不再占用 FMA 单元的空档，同步从每 tile 两次降到一次。这类实现通常能到 FP32 峰值的 70–80%，也就是 cuBLAS SGEMM 的 80–90%。再往上，就要动更精细的东西了（第八节）。
+v5 相对 v3 没有改变任何算术强度——对 HBM 仍是 32 FLOP/byte，对 shared 仍是 2 FLOP/byte。它改变的是**时间轴上的重叠**：加载不再占用 FMA 单元的空档，同步从每 tile 两次降到一次。这类实现通常能到 FP32 峰值的 70–80%，也就是 cuBLAS SGEMM 的 80–90%。再往上，就要动更精细的东西了（第九节）。
 
 ## 七、v6：边界处理
 
 前面五版都假设 $$M$$、$$N$$、$$K$$ 是 tile 的整数倍。真实形状不是这样：Llama-3-8B 的 $$d_{ff} = 14336 = 112 \times 128$$ 还好，但 batch·seq 那一维几乎从来不是 128 的倍数，$$K$$ 也未必是 $$BK$$ 的倍数。三个维度分别处理，本质上都是把矩阵"虚拟地"补齐到 tile 的整数倍：
 
-```text title="M = 300, N = 200, K = 20 的边界补齐"
-  例: M = 300, N = 200, K = 20；BM = BN = 128, BK = 8
-  grid = ⌈300/128⌉ × ⌈200/128⌉ = 3 × 2 个 block，K 走 ⌈20/8⌉ = 3 段
-  → 等价于算一个补齐到 384 × 256 × 24 的 GEMM，多出的部分全是 0
+![M = 300, N = 200, K = 20 的边界补齐](/img/in-post/gemm-from-naive-to-tiled-boundary.svg)
 
-      A: 300×20 → 384×24       B: 20×200 → 24×256        C: 300×200 → 384×256
-    k:  0        20  24      n:  0          200  256    n:  0          200  256
-  m ┌──────────┬───┐      k ┌────────────┬─────┐     m ┌────────────┬─────┐
-  0 │          │000│      0 │            │00000│     0 │            │xxxxx│
-    │  有效 A  │000│        │   有效 B   │00000│       │   有效 C   │xxxxx│
-    │          │000│     20 ├────────────┼─────┤       │  （写回）  │xxxxx│
-300 ├──────────┼───┤     24 │000000000000│00000│   300 ├────────────┼─────┤
-384 │0000000000│000│        └────────────┴─────┘   384 │xxxxxxxxxxxx│xxxxx│
-    └──────────┴───┘                                   └────────────┴─────┘
+- 例：M = 300, N = 200, K = 20；BM = BN = 128, BK = 8。
+- grid = ⌈300/128⌉ × ⌈200/128⌉ = 3 × 2 个 block，K 走 ⌈20/8⌉ = 3 段。
+- 等价于算一个补齐到 384 × 256 × 24 的 GEMM，多出的部分全是 0。
 
-  0 = predicated load 读成 0：M、N、K 方向越界的 A、B 元素（0×b = 0 不污染累加）
-  x = 只由 0 参与算出、无人读取的 C 元素，epilogue 用谓词跳过写回
-```
+图里 K 方向放大了 10 倍，不然 20 → 24 那一条补齐区看不出来。
 
 **M、N 方向**：grid 取上整 $$\lceil M / BM \rceil \times \lceil N / BN \rceil$$，边界 block 里超出的行/列在加载时用 predicated load（越界的元素补 0）、在 epilogue 时跳过越界的写。补 0 是安全的：多出来的行列只会算出无人读取的 $$C$$ 元素，而不会污染有效元素。
 
@@ -875,15 +756,16 @@ $$(BM, BN, BK, TM, TN)$$ 五个参数受四个约束互相牵制：
 - **shared memory**：$$S \cdot (BM + BN) \cdot BK \cdot 4$$ 字节，每 SM 最多 164 KB（A100）。
 - **占用率**：$$\min(\text{寄存器限制}, \text{shared 限制}, \text{线程限制}, 32\ \text{block/SM})$$。
 
-```text title="tile 参数与寄存器、shared、占用率的三角关系"
-(BM, BN, BK, TM, TN)   线程数  累加器  ≈寄存器  smem/stage  I_HBM   3-stage smem  blocks/SM（寄存器限）
-(64,  64,  8,  4, 4)    256     16     ~64      4 KB        16      12 KB         4（ridge 10 之上余量小，不推荐）
-(128, 64,  8,  8, 4)    256     32     ~80      6 KB        21.3    18 KB         3
-(128, 128, 8,  8, 8)    256     64     ~128     8 KB        32      24 KB         2  ← 本文默认
-(128, 128, 16, 8, 8)    256     64     ~128     16 KB       32      48 KB         2（同步次数减半）
-(128, 256, 8,  8, 16)   256     128    ~200+    12 KB       42.7    36 KB         1（寄存器接近 255 上限）
-(256, 128, 8,  16, 8)   256     128    ~200+    12 KB       42.7    36 KB         1
-```
+| (BM, BN, BK, TM, TN) | 线程数 | 累加器 | ≈寄存器 | smem/stage | I_HBM | 3-stage smem | blocks/SM（寄存器限） |
+|---|---|---|---|---|---|---|---|
+| (64, 64, 8, 4, 4) | 256 | 16 | ~64 | 4 KB | 16 | 12 KB | 4（ridge 10 之上余量小，不推荐） |
+| (128, 64, 8, 8, 4) | 256 | 32 | ~80 | 6 KB | 21.3 | 18 KB | 3 |
+| (128, 128, 8, 8, 8) | 256 | 64 | ~128 | 8 KB | 32 | 24 KB | 2 ← 本文默认 |
+| (128, 128, 16, 8, 8) | 256 | 64 | ~128 | 16 KB | 32 | 48 KB | 2（同步次数减半） |
+| (128, 256, 8, 8, 16) | 256 | 128 | ~200+ | 12 KB | 42.7 | 36 KB | 1（寄存器接近 255 上限） |
+| (256, 128, 8, 16, 8) | 256 | 128 | ~200+ | 12 KB | 42.7 | 36 KB | 1 |
+
+Table: tile 参数与寄存器、shared、占用率的三角关系
 
 "blocks/SM"那一列按 $$\lfloor 65536 / (256 \times R) \rfloor$$ 估算。可以看到 128×128 是一个自然的平衡点：算术强度已经跨过 ridge 一大截，寄存器正好允许 2 个 block、16 个 warp。256 宽的 tile 算术强度更高，但只能驻留 1 个 block，8 个 warp 要在 `__syncthreads()` 处一起停下，加载与计算的重叠余地更小；它们在 Tensor Core GEMM 里更常见，因为那里每个 warp 的算力更大、更需要减少访存。
 
@@ -901,19 +783,9 @@ $$
 \frac{1024}{216} \approx 4.74\ \text{waves}
 $$
 
-```text title="1024 个 block 在 216 个槽位上的 wave"
-  216 个 block 槽位（108 SM × 2）                      时间 ────►
-  ┌──────────────────────────────────────────────────┐
-  │ wave 1  ████████████████████████████████████ 216 │
-  │ wave 2  ████████████████████████████████████ 216 │
-  │ wave 3  ████████████████████████████████████ 216 │
-  │ wave 4  ████████████████████████████████████ 216 │
-  │ wave 5  ███████████████████████████░░░░░░░░░ 160 │ ← 26% 的槽位空转
-  └──────────────────────────────────────────────────┘
-  1024 block / 216 = 4.74 wave，但要付 5 个 wave 的时间 → 效率 4.74 / 5 = 94.8%
-```
+![1024 个 block 在 216 个槽位上的 wave](/img/in-post/gemm-from-naive-to-tiled-waves.svg)
 
-前 4 波满载，第 5 波只有 $$0.74 \times 216 = 160$$ 个 block，216 个驻留槽位有 26% 空着（108 个 SM 仍可以每个都至少有一个 block，所以"26% 的 SM 空转"不准确——空的是槽位，双驻留时一个 block 也可能把 SM 吃满）。如果每个 block 的时间相同、且时间只由波数决定，整体效率是 $$4.74 / 5 = 94.8\%$$，损失 5%。这叫 wave quantization（波次量化）。缓解办法有：换一个让 block 数接近 216 整数倍的 tile 尺寸（比如 128×256 → 512 个 block，每 SM 1 个 → 4.74 波，没有改善；256×128 同理；64×128 → 2048 个 block，每 SM 3 个 → 324 并发 → 6.3 波，第 7 波 32%，效率 90%——更差），或者用第九节的 stream-K 把最后一波的工作按 $$K$$ 拆碎分给所有 SM。cuBLAS 的启发式选择 kernel 时就在权衡这些，这也是为什么同一个 GEMM 换一组形状，cuBLAS 的效率会在 85% 与 95% 之间跳动。
+前 4 波满载，第 5 波只有 $$0.74 \times 216 = 160$$ 个 block，216 个驻留槽位有 26% 空着（108 个 SM 仍可以每个都至少有一个 block，所以"26% 的 SM 空转"不准确——空的是槽位，双驻留时一个 block 也可能把 SM 吃满）。如果每个 block 的时间相同、且时间只由波数决定，整体效率是 $$4.74 / 5 = 94.8\%$$，损失 5%。这叫 wave quantization（波次量化）。缓解办法有：换一个让 block 数接近 216 整数倍的 tile 尺寸（比如 128×256 → 512 个 block，每 SM 1 个 → 4.74 波，没有改善；256×128 同理；64×128 → 2048 个 block，每 SM 3 个 → 324 并发 → 6.3 波，第 7 波 32%，效率 90%——更差），或者用第十节的 stream-K 把最后一波的工作按 $$K$$ 拆碎分给所有 SM。cuBLAS 的启发式选择 kernel 时就在权衡这些，这也是为什么同一个 GEMM 换一组形状，cuBLAS 的效率会在 85% 与 95% 之间跳动。
 
 ## 九、Roofline 汇总与 CUDA Core 的极限
 
@@ -942,7 +814,7 @@ Table: GEMM 各版本的算术强度、主要瓶颈与占 FP32 峰值的经验�
 v5 与 cuBLAS 之间还有 10–20 个百分点，分散在几个地方：
 
 - **LDS 与 FFMA 的配比**。每个 warp 调度器每周期只发一条指令。v5 每个 $$k$$ 发 10 条 LDS 对 64 条 FFMA，FFMA 占 86%；cuBLAS/CUTLASS 的 SIMT kernel 用更大的 warp tile（比如每 warp 64×32 或 32×64）与更精细的 lane 映射，把 LDS 压到 4 条 LDS.128 对 64 条 FFMA，再配合双缓冲的寄存器片段（读下一个 $$k$$ 的片段时算当前 $$k$$），让 FFMA 占到 $$64 / (64 + 4) \approx 94\%$$（指令发射的占比；执行吞吐上 LDS.128 与 FFMA 又不是同一条管线，这个百分比只是发射侧的估计）。
-- **残余 bank conflict**。第四节指出的 $$B$$ 片段 4 个 wavefront 对 2 个理想值，以及 v5 里 $$A$$ 的标量读。修法是调整 lane 到片段的映射（把 8 列拆成两段 4 列）或对 shared 地址做 XOR swizzle，让一个 warp 的 32 次访问恰好覆盖 32 个 bank。下一篇的 CuTe 会把这类布局变换变成可组合的代数。
+- **残余 bank conflict**。第五节指出的 $$B$$ 片段 4 个 wavefront 对 2 个理想值，以及 v5 里 $$A$$ 的标量读。修法是调整 lane 到片段的映射（把 8 列拆成两段 4 列）或对 shared 地址做 XOR swizzle，让一个 warp 的 32 次访问恰好覆盖 32 个 bank。下一篇的 CuTe 会把这类布局变换变成可组合的代数。
 - **epilogue**。$$C$$ 的写回是 64 MiB，理论 33 µs，占 7 ms 的 0.5%；但 v5 的 epilogue 是每线程 8 行各一个 `float4`，一个 warp 一次写 2 行各 256 字节，合并度尚可但不完美。cuBLAS 会先把累加器经 shared memory 重排，再以完整 128 字节 cache line 写回，并在这里融合 $$\alpha$$、$$\beta$$、bias、激活。
 - **wave quantization** 与 tile 启发式，上一节已述。
 
@@ -962,25 +834,11 @@ $$
 
 108 个 SM 只有 32 个有活干，其余 76 个空转——不论 kernel 写得多好，上限是 30%。而且每个 block 要独自沿 $$K = 4096$$ 走完 512 个 tile，串行时间很长。
 
-```text title="小 M 大 K：普通 GEMM 与 split-K 的 SM 占用"
-  M = 8, N = K = 4096, tile 128×128 → C 只有 32 个 tile
+![小 M 大 K：普通 GEMM、split-K 与 stream-K 的 SM 占用](/img/in-post/gemm-from-naive-to-tiled-split-k.svg)
 
-  普通:      32 个 block，各自沿 K 走完 512 段            108 个 SM 中 76 个空转
-    SM 0..31   ████████████████████████████████████████  (每个 block 串行 512 个 BK)
-    SM 32..107 ·········································
-
-  split-K:   K 切 4 段，128 个 block，每个只走 128 段，再归约        全部 SM 有活干
-    SM 0..107  ██████████ ┐
-               ██████████ ├─► 4 个部分和 → atomicAdd 到 C，或写 workspace[4][M][N] 再 reduce
-               ...        ┘
-
-  stream-K:  总工作量 32 tile × 512 段 = 16384 段，均分给 108 个持久 block，每个 ~152 段
-    block 0    [tile0: 段 0..151]
-    block 1    [tile0: 段 152..303]
-    block 2    [tile0: 段 304..455]
-    block 3    [tile0: 段 456..511 │ tile1: 段 0..95]   ← 跨 tile 边界，部分和经 workspace + flag 拼回
-    ...                                                  没有"最后一波"：工作按量切而不是按 tile 切
-```
+- M = 8, N = K = 4096，tile 128×128 → C 只有 32 个 tile。
+- split-K 之后全部 SM 都有活干。
+- stream-K 的 block 3 跨过 tile 边界，部分和经 workspace + flag 拼回。没有"最后一波"：工作按量切，不是按 tile 切。
 
 **split-K** 的解法是把 $$K$$ 切成 $$S$$ 段，每段一个 block 独立算部分和，然后归约。$$S = 4$$ 时 block 数变成 128，能覆盖 108 个 SM；归约有两种做法：各 block 用 `atomicAdd` 直接加到 $$C$$ 上（简单，但 FP32 原子加的顺序不确定，结果不可复现，且要先把 $$C$$ 清零），或者写到一个 $$S \times M \times N$$ 的 workspace，再跑一个小 kernel 求和（确定性，多一次 launch 与一次 $$S \times M \times N$$ 的读写）。cuBLAS 与 CUTLASS 都提供 split-K，CUTLASS 的 `GemmSplitKParallel` 就是后一种。
 
@@ -1145,7 +1003,7 @@ report("v3", lambda: ext.sgemm_v3(A, B))
 report("v5", lambda: ext.sgemm_v5(A, B))
 ```
 
-读者跑出来的数字大致应该落在第八节表里的区间：v1 在 200–700 ms（1–3%），v2 在 35–70 ms，v3 在 10–13 ms，v5 在 8.8–10 ms，cuBLAS 在 7.4–8.2 ms。如果 v3 或 v5 明显低于区间下限，先看 `-Xptxas -v` 有没有 spill，再看 Nsight Compute 里 `smsp__sass_average_data_bytes_per_wavefront_mem_shared`（bank conflict 指标）和 `sm__inst_executed_pipe_fma` 占比——第十篇会系统讲这些指标。
+读者跑出来的数字大致应该落在第九节表里的区间：v1 在 200–700 ms（1–3%），v2 在 35–70 ms，v3 在 10–13 ms，v5 在 8.8–10 ms，cuBLAS 在 7.4–8.2 ms。如果 v3 或 v5 明显低于区间下限，先看 `-Xptxas -v` 有没有 spill，再看 Nsight Compute 里 `smsp__sass_average_data_bytes_per_wavefront_mem_shared`（bank conflict 指标）和 `sm__inst_executed_pipe_fma` 占比——第十篇会系统讲这些指标。
 
 对 L2 flush 多说一句：4096³ 的 GEMM 输入 128 MiB 超过 40 MB 的 L2，flush 与否差别不大；但形状小的时候（比如 1024³，输入 8 MiB）不 flush 会让 $$A$$、$$B$$ 全程驻留 L2，测出来的是一个偏乐观的数字。
 
@@ -1164,23 +1022,23 @@ report("v5", lambda: ext.sgemm_v5(A, B))
 9. **CUDA Core 极限**：v5 到 FP32 峰值的 70–80%、cuBLAS 的 80–90%；剩余差距在 LDS/FFMA 配比、残余 bank conflict、epilogue、tile 启发式。Tensor Core 的峰值高 16 倍，ridge 从 10 跳到 156，128×128 的 tile 在 BF16 下只有 64 FLOP/byte、又回到斜线下面——下一篇的起点。
 10. **split-K / stream-K / GEMV**：decode 阶段 $$M$$ 很小、block 数填不满 108 个 SM，split-K 沿 $$K$$ 并行再归约，stream-K 按 MAC 总量给持久 block 分工；$$M = 1$$ 的 GEMV 算术强度 0.5（FP32）/ 1（BF16）FLOP/byte，只能靠减少权重字节数（量化）加速。
 
-```text title="本篇汇总：GEMM 六版对比"
-版本   核心改动                 对 HBM 的 I    对 shared 的 I   每 tile 同步   占 FP32 峰值（经验区间）
-v1     一线程一输出，全局读       0.25          —               —             ~1–3%
-v2     shared 分块 32×32×32      8             0.25            2             ~10–20%
-v3     寄存器分块 128×128×8/8×8   32            2               2             ~40–60%
-v4     float4 加载 + A 转置       32            2               2             ~55–70%
-v5     cp.async 3-stage 流水     32            2               1             ~70–80%
-v6     边界处理（predicated）     同上          同上             同上          大形状几乎无影响
-cuBLAS                          16–21         ≥2              —             ~85–95%
+| 版本 | 核心改动 | 对 HBM 的 I | 对 shared 的 I | 每 tile 同步 | 占 FP32 峰值（经验区间） |
+|---|---|---|---|---|---|
+| v1 | 一线程一输出，全局读 | 0.25 | — | — | ~1–3% |
+| v2 | shared 分块 32×32×32 | 8 | 0.25 | 2 | ~10–20% |
+| v3 | 寄存器分块 128×128×8 / 8×8 | 32 | 2 | 2 | ~40–60% |
+| v4 | float4 加载 + A 转置 | 32 | 2 | 2 | ~55–70% |
+| v5 | cp.async 3-stage 流水 | 32 | 2 | 1 | ~70–80% |
+| v6 | 边界处理（predicated） | 同上 | 同上 | 同上 | 大形状几乎无影响 |
+| cuBLAS | | 16–21 | ≥2 | — | ~85–95% |
 
-理论下界（A100 FP32 19.5 TFLOPS）：137.4 GFLOP / 19.5 TFLOPS = 7.0 ms；HBM 下界 0.1 ms
+Table: 本篇汇总：GEMM 六版对比
 
-tile 参数（本文默认）：BM=BN=128, BK=8, TM=TN=8, 256 线程, 3 stage
-  寄存器 ≈128/线程 → 2 block/SM → 16 warp（25%）
-  shared = 3 × 256 × 8 × 4 B = 24 KB/block
-  grid = 32 × 32 = 1024 block → 4.74 wave（约 5% 量化损失）
-```
+- 理论下界（A100 FP32 19.5 TFLOPS）：137.4 GFLOP / 19.5 TFLOPS = 7.0 ms；HBM 下界 0.1 ms。
+- tile 参数（本文默认）：BM = BN = 128, BK = 8, TM = TN = 8, 256 线程, 3 stage。
+  - 寄存器 ≈128/线程 → 2 block/SM → 16 warp（25%）。
+  - shared = 3 × 256 × 8 × 4 B = 24 KB/block。
+  - grid = 32 × 32 = 1024 block → 4.74 wave（约 5% 量化损失）。
 
 ## 十三、自测
 

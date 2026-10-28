@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 284" width="760" height="284" role="img" aria-labelledby="t d">
+  <title id="t">分块：A 条带、B 条带与 C tile</title>
+  <desc id="d">A 的 BM×K 条带沿 K 切成 K/BK 段，B 的 K×BN 条带同样切成 K/BK 段，C 的一个 BM×BN tile 由一个 block 负责；第 t 段在 A、B 上用深色标出。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="284" fill="#fff"/>
+  <rect class="bx" x="60.0" y="50.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="96.0" y="50.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="50.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="168.0" y="50.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="60.0" y="86.0" width="36.0" height="36.0" fill="#dbe8fb"/>
+  <rect class="bx" x="96.0" y="86.0" width="36.0" height="36.0" fill="#9cc0ee"/>
+  <rect class="bx" x="132.0" y="86.0" width="36.0" height="36.0" fill="#dbe8fb"/>
+  <rect class="bx" x="168.0" y="86.0" width="36.0" height="36.0" fill="#dbe8fb"/>
+  <rect class="bx" x="60.0" y="122.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="96.0" y="122.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="122.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="168.0" y="122.0" width="36.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="300.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="340.0" y="50.0" width="40.0" height="36.0" fill="#dbe8fb"/>
+  <rect class="bx" x="380.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="420.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="300.0" y="86.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="340.0" y="86.0" width="40.0" height="36.0" fill="#9cc0ee"/>
+  <rect class="bx" x="380.0" y="86.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="420.0" y="86.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="300.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="340.0" y="122.0" width="40.0" height="36.0" fill="#dbe8fb"/>
+  <rect class="bx" x="380.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="420.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="300.0" y="158.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="340.0" y="158.0" width="40.0" height="36.0" fill="#dbe8fb"/>
+  <rect class="bx" x="380.0" y="158.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="420.0" y="158.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="540.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="580.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="620.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="660.0" y="50.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="540.0" y="86.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="580.0" y="86.0" width="40.0" height="36.0" fill="#f6c99a"/>
+  <rect class="bx" x="620.0" y="86.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="660.0" y="86.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="540.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="580.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="620.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <rect class="bx" x="660.0" y="122.0" width="40.0" height="36.0" fill="#fff"/>
+  <text class="b" x="132.0" y="40.0" text-anchor="middle">K</text>
+  <text class="b" x="48.0" y="108.0" text-anchor="end">M</text>
+  <text class="m" x="212.0" y="108.0">BM</text>
+  <text class="m" x="114.0" y="113.0" text-anchor="middle">t</text>
+  <text class="m" x="114.0" y="174.0" text-anchor="middle">BK</text>
+  <line class="ln" x1="60.0" y1="190.0" x2="204.0" y2="190.0" marker-end="url(#ah)"/>
+  <text x="132.0" y="210.0" text-anchor="middle">沿 K 每次取一段 BK</text>
+  <text class="b" x="380.0" y="40.0" text-anchor="middle">N</text>
+  <text class="b" x="288.0" y="126.0" text-anchor="end">K</text>
+  <text class="m" x="468.0" y="108.0">BK</text>
+  <text class="m" x="360.0" y="113.0" text-anchor="middle">t</text>
+  <text class="m" x="360.0" y="210.0" text-anchor="middle">BN</text>
+  <text class="b" x="620.0" y="40.0" text-anchor="middle">N</text>
+  <text class="b" x="528.0" y="108.0" text-anchor="end">M</text>
+  <text class="m" x="708.0" y="108.0">BM</text>
+  <text class="m" x="600.0" y="174.0" text-anchor="middle">BN</text>
+  <text x="132.0" y="246.0" text-anchor="middle">A 的 BM×K 条带</text>
+  <text x="380.0" y="246.0" text-anchor="middle">B 的 K×BN 条带</text>
+  <text x="620.0" y="246.0" text-anchor="middle">C 的一个 BM×BN tile</text>
+  <text class="s" x="620.0" y="266.0" text-anchor="middle">（一个 block 负责）</text>
+</svg>

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 340" width="760" height="340" role="img" aria-labelledby="t d">
+  <title id="t">一个线程在一个 k 上的 TM×TN 外积</title>
+  <desc id="d">TM = TN = 4 示意：b_frag 来自 Bs 的一行连续 TN 个，a_frag 来自转置存放的 As 的一行连续 TM 个，两者外积得到 4×4 的 acc，每个 a 用 TN 次，每个 b 用 TM 次。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="340" fill="#fff"/>
+  <text class="b" x="20.0" y="22.0">一个线程、一个 k 上做的事（TM = TN = 4 示意；本文实际 8×8）</text>
+  <text class="m" x="140.0" y="46.0">b_frag[0..TN)  ←  Bs[k][tn*TN .. +TN)</text>
+  <text class="s" x="140.0" y="66.0">（shared 里一行连续 TN 个，一条 LDS.128）</text>
+  <rect class="bx" x="140.0" y="76.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="168.0" y="99.0" text-anchor="middle">b0</text>
+  <rect class="bx" x="196.0" y="76.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="224.0" y="99.0" text-anchor="middle">b1</text>
+  <rect class="bx" x="252.0" y="76.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="280.0" y="99.0" text-anchor="middle">b2</text>
+  <rect class="bx" x="308.0" y="76.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="336.0" y="99.0" text-anchor="middle">b3</text>
+  <text class="m" x="128.0" y="99.0" text-anchor="end">b_frag</text>
+  <rect class="bx" x="70.0" y="124.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="98.0" y="147.0" text-anchor="middle">a0</text>
+  <rect class="bx" x="140.0" y="124.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="168.0" y="147.0" text-anchor="middle">a0b0</text>
+  <rect class="bx" x="196.0" y="124.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="224.0" y="147.0" text-anchor="middle">a0b1</text>
+  <rect class="bx" x="252.0" y="124.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="280.0" y="147.0" text-anchor="middle">a0b2</text>
+  <rect class="bx" x="308.0" y="124.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="336.0" y="147.0" text-anchor="middle">a0b3</text>
+  <rect class="bx" x="70.0" y="160.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="98.0" y="183.0" text-anchor="middle">a1</text>
+  <rect class="bx" x="140.0" y="160.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="168.0" y="183.0" text-anchor="middle">a1b0</text>
+  <rect class="bx" x="196.0" y="160.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="224.0" y="183.0" text-anchor="middle">a1b1</text>
+  <rect class="bx" x="252.0" y="160.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="280.0" y="183.0" text-anchor="middle">a1b2</text>
+  <rect class="bx" x="308.0" y="160.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="336.0" y="183.0" text-anchor="middle">a1b3</text>
+  <rect class="bx" x="70.0" y="196.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="98.0" y="219.0" text-anchor="middle">a2</text>
+  <rect class="bx" x="140.0" y="196.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="168.0" y="219.0" text-anchor="middle">a2b0</text>
+  <rect class="bx" x="196.0" y="196.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="224.0" y="219.0" text-anchor="middle">a2b1</text>
+  <rect class="bx" x="252.0" y="196.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="280.0" y="219.0" text-anchor="middle">a2b2</text>
+  <rect class="bx" x="308.0" y="196.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="336.0" y="219.0" text-anchor="middle">a2b3</text>
+  <rect class="bx" x="70.0" y="232.0" width="56.0" height="36.0" fill="#dbe8fb"/>
+  <text class="m" x="98.0" y="255.0" text-anchor="middle">a3</text>
+  <rect class="bx" x="140.0" y="232.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="168.0" y="255.0" text-anchor="middle">a3b0</text>
+  <rect class="bx" x="196.0" y="232.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="224.0" y="255.0" text-anchor="middle">a3b1</text>
+  <rect class="bx" x="252.0" y="232.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="280.0" y="255.0" text-anchor="middle">a3b2</text>
+  <rect class="bx" x="308.0" y="232.0" width="56.0" height="36.0" fill="#d9f0dc"/>
+  <text class="m" x="336.0" y="255.0" text-anchor="middle">a3b3</text>
+  <text class="m" x="98.0" y="288.0" text-anchor="middle">a_frag</text>
+  <text class="m" x="20.0" y="312.0">a_frag[0..TM)  ←  As[k][tm*TM .. +TM)</text>
+  <text class="s" x="20.0" y="332.0">（A 转置存放后也是一行连续 TM 个）</text>
+  <text class="m" x="400.0" y="152.0">acc[i][j] += a_frag[i] * b_frag[j]</text>
+  <text x="400.0" y="178.0">读入 TM + TN = 8 个数</text>
+  <text x="400.0" y="204.0">做 TM × TN = 16 次 FMA</text>
+  <text x="400.0" y="230.0">每个 a 被用 TN 次，每个 b 被用 TM 次</text>
+  <text x="400.0" y="256.0">acc[TM][TN] 常驻寄存器，沿整个 K 累加</text>
+</svg>

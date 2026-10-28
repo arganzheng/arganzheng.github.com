@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 318" width="760" height="318" role="img" aria-labelledby="t d">
+  <title id="t">FFMA 需要的 wavefront 与 shared 能给的</title>
+  <desc id="d">同一根 1–4 周期的时间轴。FMA 单元每周期想发 2 条 warp 级 FFMA，需要 4 个 wavefront；shared 每周期只给 1 个 wavefront；实际节奏是 LDS A、LDS B 交替，每 2 个周期 1 条 FFMA，4 个周期 2 条，峰值需要 8 条，上限 25%。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="318" fill="#fff"/>
+  <text class="s" x="90.0" y="24.0" text-anchor="end">周期</text>
+  <text class="m" x="177.5" y="24.0" text-anchor="middle">1</text>
+  <text class="m" x="332.5" y="24.0" text-anchor="middle">2</text>
+  <text class="m" x="487.5" y="24.0" text-anchor="middle">3</text>
+  <text class="m" x="642.5" y="24.0" text-anchor="middle">4</text>
+  <line class="gd" x1="100.0" y1="32.0" x2="100.0" y2="286.0"/>
+  <line class="gd" x1="255.0" y1="32.0" x2="255.0" y2="286.0"/>
+  <line class="gd" x1="410.0" y1="32.0" x2="410.0" y2="286.0"/>
+  <line class="gd" x1="565.0" y1="32.0" x2="565.0" y2="286.0"/>
+  <line class="gd" x1="720.0" y1="32.0" x2="720.0" y2="286.0"/>
+  <text class="b" x="20.0" y="52.0">FMA 单元想要的节奏（每周期 2 条 warp 级 FFMA）</text>
+  <text class="m" x="90.0" y="79.0" text-anchor="end">FFMA</text>
+  <rect class="bx" x="105.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="140.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="179.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="214.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="260.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="295.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="334.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="369.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="415.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="450.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="489.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="524.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="570.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="605.0" y="79.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="644.0" y="62.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="679.0" y="79.0" text-anchor="middle">FFMA</text>
+  <text class="s" x="105.0" y="106.0">← 需要 4 个 wavefront/周期 喂数据</text>
+  <text class="b" x="20.0" y="134.0">shared memory 能给的（每周期 1 个 wavefront）</text>
+  <text class="m" x="90.0" y="161.0" text-anchor="end">LDS</text>
+  <rect class="bx" x="105.0" y="144.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="177.5" y="161.0" text-anchor="middle">wavefront</text>
+  <rect class="bx" x="260.0" y="144.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="332.5" y="161.0" text-anchor="middle">wavefront</text>
+  <rect class="bx" x="415.0" y="144.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="487.5" y="161.0" text-anchor="middle">wavefront</text>
+  <rect class="bx" x="570.0" y="144.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="642.5" y="161.0" text-anchor="middle">wavefront</text>
+  <text class="s" x="105.0" y="188.0">← 4 个周期只够喂 2 条 FFMA（每条要 A、B 各 1 个 wavefront）</text>
+  <text class="b" x="20.0" y="216.0">实际节奏被 shared 拖成</text>
+  <text class="m" x="90.0" y="243.0" text-anchor="end">LDS</text>
+  <rect class="bx" x="105.0" y="226.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="177.5" y="243.0" text-anchor="middle">LDS A</text>
+  <rect class="bx" x="260.0" y="226.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="332.5" y="243.0" text-anchor="middle">LDS B</text>
+  <rect class="bx" x="415.0" y="226.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="487.5" y="243.0" text-anchor="middle">LDS A</text>
+  <rect class="bx" x="570.0" y="226.0" width="145.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="642.5" y="243.0" text-anchor="middle">LDS B</text>
+  <text class="m" x="90.0" y="275.0" text-anchor="end">FFMA</text>
+  <rect class="bx" x="260.0" y="258.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="295.0" y="275.0" text-anchor="middle">FFMA</text>
+  <rect class="bx" x="570.0" y="258.0" width="70.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="605.0" y="275.0" text-anchor="middle">FFMA</text>
+  <text class="s" x="105.0" y="304.0">← 4 个周期 2 条 FFMA，峰值需要 8 条：上限 25%</text>
+</svg>

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 372" width="760" height="372" role="img" aria-labelledby="t d">
+  <title id="t">小 M 大 K：普通 GEMM、split-K 与 stream-K 的 SM 占用</title>
+  <desc id="d">M = 8, N = K = 4096，横轴是每个 block 串行走的 BK 段数。普通 GEMM 32 个 block 各走 512 段，76 个 SM 空转；split-K 把 K 切 4 份，128 个 block 各走 128 段再归约；stream-K 把 16384 段均分给 108 个持久 block，每个约 152 段，block 3 跨过 tile0/tile1 边界。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="372" fill="#fff"/>
+  <line class="gd" x1="298.0" y1="30.0" x2="298.0" y2="316.0"/>
+  <line class="gd" x1="322.0" y1="30.0" x2="322.0" y2="316.0"/>
+  <line class="gd" x1="682.0" y1="30.0" x2="682.0" y2="316.0"/>
+  <text class="b" x="20.0" y="22.0">普通：32 个 block，各自沿 K 走完 512 段</text>
+  <text class="m" x="162.0" y="46.0" text-anchor="end">SM 0..31</text>
+  <rect class="bx" x="170.0" y="30.0" width="512.0" height="22.0" fill="#dbe8fb"/>
+  <text class="s" x="426.0" y="46.0" text-anchor="middle">每个 block 串行 512 个 BK</text>
+  <text class="m" x="162.0" y="74.0" text-anchor="end">SM 32..107</text>
+  <rect class="gd" x="170.0" y="58.0" width="512.0" height="22.0" fill="#f1f3f6"/>
+  <text class="s" x="426.0" y="74.0" text-anchor="middle">76 个 SM 空转</text>
+  <text class="b" x="20.0" y="112.0">split-K：K 切 4 份，128 个 block，每个只走 128 段，再归约</text>
+  <text class="m" x="162.0" y="136.0" text-anchor="end">128 个 block</text>
+  <rect class="bx" x="170.0" y="120.0" width="128.0" height="22.0" fill="#dbe8fb"/>
+  <rect class="bx" x="298.0" y="120.0" width="20.0" height="22.0" fill="#fde4c8"/>
+  <text class="s" x="326.0" y="136.0">归约：4 个部分和 atomicAdd 到 C，或写 workspace[4][M][N] 再 reduce</text>
+  <text class="b" x="20.0" y="174.0">stream-K：32 tile × 512 段 = 16384 段，均分给 108 个持久 block，每个约 152 段</text>
+  <text class="m" x="162.0" y="202.0" text-anchor="end">block 0</text>
+  <rect class="bx" x="170.0" y="186.0" width="152.0" height="22.0" fill="#dbe8fb"/>
+  <text class="s" x="330.0" y="202.0">tile0：段 0..151</text>
+  <text class="m" x="162.0" y="230.0" text-anchor="end">block 1</text>
+  <rect class="bx" x="170.0" y="214.0" width="152.0" height="22.0" fill="#dbe8fb"/>
+  <text class="s" x="330.0" y="230.0">tile0：段 152..303</text>
+  <text class="m" x="162.0" y="258.0" text-anchor="end">block 2</text>
+  <rect class="bx" x="170.0" y="242.0" width="152.0" height="22.0" fill="#dbe8fb"/>
+  <text class="s" x="330.0" y="258.0">tile0：段 304..455</text>
+  <text class="m" x="162.0" y="286.0" text-anchor="end">block 3</text>
+  <rect class="bx" x="170.0" y="270.0" width="56.0" height="22.0" fill="#dbe8fb"/>
+  <rect class="bx" x="226.0" y="270.0" width="96.0" height="22.0" fill="#d9f0dc"/>
+  <line class="hot" x1="226.0" y1="266.0" x2="226.0" y2="296.0"/>
+  <text class="s" x="330.0" y="286.0">tile0：段 456..511 │ tile1：段 0..95（红线 = tile 边界）</text>
+  <text class="m" x="162.0" y="316.0" text-anchor="end">…</text>
+  <text class="s" x="246.0" y="316.0" text-anchor="middle">…（block 4 .. 107）</text>
+  <line class="ln" x1="170.0" y1="330.0" x2="710.0" y2="330.0" marker-end="url(#ah)"/>
+  <line class="ln" x1="170.0" y1="330.0" x2="170.0" y2="335.0"/>
+  <text class="ms" x="170.0" y="348.0" text-anchor="middle">0</text>
+  <line class="ln" x1="298.0" y1="330.0" x2="298.0" y2="335.0"/>
+  <text class="ms" x="292.0" y="348.0" text-anchor="end">128</text>
+  <line class="ln" x1="322.0" y1="330.0" x2="322.0" y2="335.0"/>
+  <text class="ms" x="328.0" y="348.0">152</text>
+  <line class="ln" x1="682.0" y1="330.0" x2="682.0" y2="335.0"/>
+  <text class="ms" x="682.0" y="348.0" text-anchor="middle">512</text>
+  <text class="s" x="708.0" y="364.0" text-anchor="end">每个 block 串行走的 BK 段数</text>
+</svg>

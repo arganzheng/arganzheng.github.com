@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 268" width="760" height="268" role="img" aria-labelledby="t d">
+  <title id="t">v3 串行与 v5 流水的时间轴</title>
+  <desc id="d">同一组时长：加载一个 tile 3 格，计算 6 格，同步 1 格。v3 每个 tile 加载、同步、计算、同步串行，加载单元和 FMA 单元轮流空转；v5 用 3 套 buffer，tile t+2 在算 tile t 时发出，加载比计算短，加载单元有空档；FMA 单元只在每 tile 一次同步时停一下，同步只挡计算，在途的 cp.async 不受影响。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="268" fill="#fff"/>
+  <text class="b" x="20.0" y="22.0">v3（串行）：加载 → sync → 计算 → sync，两种单元轮流空转</text>
+  <text x="102.0" y="53.0" text-anchor="end">加载</text>
+  <text x="102.0" y="83.0" text-anchor="end">FMA 单元</text>
+  <rect class="bx" x="110.0" y="36.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="137.0" y="53.0" text-anchor="middle">L0</text>
+  <rect class="bx" x="308.0" y="36.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="335.0" y="53.0" text-anchor="middle">L1</text>
+  <rect class="bx" x="506.0" y="36.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="533.0" y="53.0" text-anchor="middle">L2</text>
+  <rect class="bx" x="182.0" y="66.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="236.0" y="83.0" text-anchor="middle">C0</text>
+  <rect class="bx" x="380.0" y="66.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="434.0" y="83.0" text-anchor="middle">C1</text>
+  <rect class="bx" x="578.0" y="66.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="632.0" y="83.0" text-anchor="middle">C2</text>
+  <rect class="bx" x="164.0" y="36.0" width="18.0" height="54.0" fill="#f1f3f6"/>
+  <rect class="bx" x="290.0" y="36.0" width="18.0" height="54.0" fill="#f1f3f6"/>
+  <rect class="bx" x="362.0" y="36.0" width="18.0" height="54.0" fill="#f1f3f6"/>
+  <rect class="bx" x="488.0" y="36.0" width="18.0" height="54.0" fill="#f1f3f6"/>
+  <rect class="bx" x="560.0" y="36.0" width="18.0" height="54.0" fill="#f1f3f6"/>
+  <line class="ln" x1="110.0" y1="104.0" x2="704.0" y2="104.0" marker-end="url(#ah)"/>
+  <text class="s" x="710.0" y="108.0">时间</text>
+  <text class="b" x="20.0" y="136.0">v5（3 stage 流水）：tile t+2 在算 tile t 时发出，每 tile 1 次 __syncthreads()</text>
+  <text x="102.0" y="167.0" text-anchor="end">加载</text>
+  <text x="102.0" y="197.0" text-anchor="end">FMA 单元</text>
+  <rect class="bx" x="110.0" y="150.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="137.0" y="167.0" text-anchor="middle">L0</text>
+  <rect class="bx" x="164.0" y="150.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="191.0" y="167.0" text-anchor="middle">L1</text>
+  <rect class="bx" x="218.0" y="150.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="245.0" y="167.0" text-anchor="middle">L2</text>
+  <rect class="bx" x="308.0" y="150.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="335.0" y="167.0" text-anchor="middle">L3</text>
+  <rect class="bx" x="434.0" y="150.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="461.0" y="167.0" text-anchor="middle">L4</text>
+  <rect class="bx" x="560.0" y="150.0" width="54.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="587.0" y="167.0" text-anchor="middle">L5</text>
+  <rect class="bx" x="182.0" y="180.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="236.0" y="197.0" text-anchor="middle">C0</text>
+  <rect class="bx" x="308.0" y="180.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="362.0" y="197.0" text-anchor="middle">C1</text>
+  <rect class="bx" x="434.0" y="180.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="488.0" y="197.0" text-anchor="middle">C2</text>
+  <rect class="bx" x="560.0" y="180.0" width="108.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="614.0" y="197.0" text-anchor="middle">C3</text>
+  <rect class="bx" x="164.0" y="180.0" width="18.0" height="24.0" fill="#f1f3f6"/>
+  <rect class="bx" x="290.0" y="180.0" width="18.0" height="24.0" fill="#f1f3f6"/>
+  <rect class="bx" x="416.0" y="180.0" width="18.0" height="24.0" fill="#f1f3f6"/>
+  <rect class="bx" x="542.0" y="180.0" width="18.0" height="24.0" fill="#f1f3f6"/>
+  <line class="ln" x1="110.0" y1="218.0" x2="704.0" y2="218.0" marker-end="url(#ah)"/>
+  <text class="s" x="710.0" y="222.0">时间</text>
+  <rect class="bx" x="110.0" y="246.0" width="14.0" height="14.0" fill="#dbe8fb"/>
+  <text class="s" x="130.0" y="258.0">加载 tile（v5 是 cp.async 在途）</text>
+  <rect class="bx" x="350.0" y="246.0" width="14.0" height="14.0" fill="#d9f0dc"/>
+  <text class="s" x="370.0" y="258.0">计算 tile</text>
+  <rect class="bx" x="470.0" y="246.0" width="14.0" height="14.0" fill="#f1f3f6"/>
+  <text class="s" x="490.0" y="258.0">__syncthreads()</text>
+</svg>

@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" width="760" height="300" role="img" aria-labelledby="t d">
+  <title id="t">As 原样存放与转置存放的读取模式</title>
+  <desc id="d">左：As[BM][BK] 原样存放，线程要读同一 k 上连续 8 行，是一列，地址间隔 32 B，要 8 条标量 LDS；右：As[BK][BM] 转置存放，同一 k 的元素在一行里连续，2 条 LDS.128 读完。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="300" fill="#fff"/>
+  <text class="b" x="80.0" y="24.0">As[BM][BK]（原样存放，BK = 8）</text>
+  <text class="s" x="80.0" y="46.0">线程要读：同一 k 上连续 TM = 8 行（一列）</text>
+  <text class="ms" x="93.0" y="72.0" text-anchor="middle">0</text>
+  <text class="ms" x="119.0" y="72.0" text-anchor="middle">1</text>
+  <text class="ms" x="145.0" y="72.0" text-anchor="middle">2</text>
+  <text class="ms" x="171.0" y="72.0" text-anchor="middle">3</text>
+  <text class="ms" x="197.0" y="72.0" text-anchor="middle">4</text>
+  <text class="ms" x="223.0" y="72.0" text-anchor="middle">5</text>
+  <text class="ms" x="249.0" y="72.0" text-anchor="middle">6</text>
+  <text class="ms" x="275.0" y="72.0" text-anchor="middle">7</text>
+  <text class="ms" x="74.0" y="96.0" text-anchor="end">m=0</text>
+  <rect class="bx" x="80.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="118.0" text-anchor="end">m=1</text>
+  <rect class="bx" x="80.0" y="102.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="140.0" text-anchor="end">m=2</text>
+  <rect class="bx" x="80.0" y="124.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="162.0" text-anchor="end">m=3</text>
+  <rect class="bx" x="80.0" y="146.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="184.0" text-anchor="end">m=4</text>
+  <rect class="bx" x="80.0" y="168.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="206.0" text-anchor="end">m=5</text>
+  <rect class="bx" x="80.0" y="190.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="228.0" text-anchor="end">m=6</text>
+  <rect class="bx" x="80.0" y="212.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="250.0" text-anchor="end">m=7</text>
+  <rect class="bx" x="80.0" y="234.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="106.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="132.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="158.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="184.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="210.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="236.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="262.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="74.0" y="72.0" text-anchor="end">k</text>
+  <text class="b" x="440.0" y="24.0">As[BK][BM]（转置存放）</text>
+  <text class="s" x="440.0" y="46.0">同一 k 的 BM 个元素在一行里连续</text>
+  <text class="ms" x="453.0" y="72.0" text-anchor="middle">0</text>
+  <text class="ms" x="479.0" y="72.0" text-anchor="middle">1</text>
+  <text class="ms" x="505.0" y="72.0" text-anchor="middle">2</text>
+  <text class="ms" x="531.0" y="72.0" text-anchor="middle">3</text>
+  <text class="ms" x="557.0" y="72.0" text-anchor="middle">4</text>
+  <text class="ms" x="583.0" y="72.0" text-anchor="middle">5</text>
+  <text class="ms" x="609.0" y="72.0" text-anchor="middle">6</text>
+  <text class="ms" x="635.0" y="72.0" text-anchor="middle">7</text>
+  <text class="ms" x="661.0" y="72.0" text-anchor="middle">8</text>
+  <text class="ms" x="687.0" y="72.0" text-anchor="middle">…</text>
+  <text class="ms" x="434.0" y="96.0" text-anchor="end">k=0</text>
+  <rect class="bx" x="440.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="466.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="492.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="518.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="544.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="570.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="596.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="622.0" y="80.0" width="26.0" height="22.0" fill="#f6c99a"/>
+  <rect class="bx" x="648.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="80.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="118.0" text-anchor="end">k=1</text>
+  <rect class="bx" x="440.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="102.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="140.0" text-anchor="end">k=2</text>
+  <rect class="bx" x="440.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="124.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="162.0" text-anchor="end">k=3</text>
+  <rect class="bx" x="440.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="146.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="184.0" text-anchor="end">k=4</text>
+  <rect class="bx" x="440.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="168.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="206.0" text-anchor="end">k=5</text>
+  <rect class="bx" x="440.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="190.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="228.0" text-anchor="end">k=6</text>
+  <rect class="bx" x="440.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="212.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="250.0" text-anchor="end">k=7</text>
+  <rect class="bx" x="440.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="466.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="492.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="518.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="544.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="570.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="596.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="622.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="648.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <rect class="bx" x="674.0" y="234.0" width="26.0" height="22.0" fill="#fff"/>
+  <text class="ms" x="434.0" y="72.0" text-anchor="end">m</text>
+  <text x="80.0" y="284.0">读：8 条标量 LDS，地址间隔 BK×4 = 32 B</text>
+  <text x="440.0" y="284.0">读：2 条 LDS.128（连续 8 个 float）</text>
+</svg>

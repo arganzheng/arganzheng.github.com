@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 268" width="760" height="268" role="img" aria-labelledby="t d">
+  <title id="t">1024 个 block 在 216 个槽位上的 wave</title>
+  <desc id="d">横轴是 216 个 block 槽位（108 SM × 2），纵轴是时间。wave 1 到 wave 4 各占满 216 个槽位，wave 5 只有 160 个 block，56 个槽位空着，约 26%。1024 / 216 = 4.74 个 wave，却要付 5 个 wave 的时间，效率 4.74 / 5 = 94.8%。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="268" fill="#fff"/>
+  <text class="b" x="410.0" y="20.0" text-anchor="middle">216 个 block 槽位（108 SM × 2）</text>
+  <text class="ms" x="110.0" y="42.0" text-anchor="middle">0</text>
+  <line class="ln" x1="110.0" y1="46.0" x2="110.0" y2="50.0"/>
+  <text class="ms" x="410.0" y="42.0" text-anchor="middle">108</text>
+  <line class="ln" x1="410.0" y1="46.0" x2="410.0" y2="50.0"/>
+  <text class="ms" x="710.0" y="42.0" text-anchor="middle">216</text>
+  <line class="ln" x1="710.0" y1="46.0" x2="710.0" y2="50.0"/>
+  <text class="m" x="100.0" y="70.0" text-anchor="end">wave 1</text>
+  <rect class="bx" x="110.0" y="52.0" width="600.0" height="26.0" fill="#dbe8fb"/>
+  <text class="s" x="410.0" y="70.0" text-anchor="middle">216 个 block</text>
+  <text class="m" x="100.0" y="104.0" text-anchor="end">wave 2</text>
+  <rect class="bx" x="110.0" y="86.0" width="600.0" height="26.0" fill="#dbe8fb"/>
+  <text class="s" x="410.0" y="104.0" text-anchor="middle">216 个 block</text>
+  <text class="m" x="100.0" y="138.0" text-anchor="end">wave 3</text>
+  <rect class="bx" x="110.0" y="120.0" width="600.0" height="26.0" fill="#dbe8fb"/>
+  <text class="s" x="410.0" y="138.0" text-anchor="middle">216 个 block</text>
+  <text class="m" x="100.0" y="172.0" text-anchor="end">wave 4</text>
+  <rect class="bx" x="110.0" y="154.0" width="600.0" height="26.0" fill="#dbe8fb"/>
+  <text class="s" x="410.0" y="172.0" text-anchor="middle">216 个 block</text>
+  <text class="m" x="100.0" y="206.0" text-anchor="end">wave 5</text>
+  <rect class="bx" x="110.0" y="188.0" width="444.4" height="26.0" fill="#dbe8fb"/>
+  <text class="s" x="332.2" y="206.0" text-anchor="middle">160 个 block</text>
+  <rect class="gd" x="554.4" y="188.0" width="155.6" height="26.0" fill="#f1f3f6"/>
+  <text class="s" x="632.2" y="206.0" text-anchor="middle">空 56 个（26%）</text>
+  <line class="ln" x1="40.0" y1="52.0" x2="40.0" y2="214.0" marker-end="url(#ah)"/>
+  <text class="s" x="40.0" y="230.0" text-anchor="middle">时间</text>
+  <text x="110.0" y="250.0">1024 block / 216 = 4.74 wave，但要付 5 个 wave 的时间 → 效率 4.74 / 5 = 94.8%</text>
+</svg>

@@ -1,0 +1,248 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 452" width="760" height="452" role="img" aria-labelledby="t d">
+  <title id="t">Bs 读取的 bank 分布：现状与修法</title>
+  <desc id="d">Bs[kk][·] 一行 128 个 float 按 bank = 下标 mod 32 折成 4 行。现状每个 tn 读连续 8 列，tn、tn+4、tn+8、tn+12 落在同一组 bank，只用 16 个 bank、4 个 wavefront；修法把 8 列拆成 [tn*4, +4) 和 [64 + tn*4, +4)，tn 0..7 铺满 32 个 bank，tn 8..15 是下一行，2 个 wavefront。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="452" fill="#fff"/>
+  <text class="b" x="20.0" y="20.0">Bs[kk][·] 一行 128 个 float = 512 B，按 bank = 下标 mod 32 折成 4 行</text>
+  <rect class="bx" x="20.0" y="30.0" width="14.0" height="14.0" fill="#9cc0ee"/>
+  <text class="s" x="40.0" y="42.0">第 1 条 LDS.128</text>
+  <rect class="bx" x="150.0" y="30.0" width="14.0" height="14.0" fill="#eef4fc"/>
+  <text class="s" x="170.0" y="42.0">第 2 条 LDS.128</text>
+  <text class="b" x="20.0" y="76.0">现状：线程 tn 读 Bs[kk][tn*8 .. +8)，两条 LDS.128 各读 4 个</text>
+  <text class="ms" x="92.0" y="98.0" text-anchor="end">bank</text>
+  <text class="ms" x="102.0" y="98.0">0</text>
+  <text class="ms" x="182.0" y="98.0">4</text>
+  <text class="ms" x="262.0" y="98.0">8</text>
+  <text class="ms" x="342.0" y="98.0">12</text>
+  <text class="ms" x="422.0" y="98.0">16</text>
+  <text class="ms" x="502.0" y="98.0">20</text>
+  <text class="ms" x="582.0" y="98.0">24</text>
+  <text class="ms" x="662.0" y="98.0">28</text>
+  <text class="ms" x="738.0" y="98.0" text-anchor="end">31</text>
+  <text class="ms" x="92.0" y="123.0" text-anchor="end">float 0–31</text>
+  <rect class="bx" x="100.0" y="106.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="106.0" x2="100.0" y2="132.0"/>
+  <line class="gd" x1="180.0" y1="106.0" x2="180.0" y2="132.0"/>
+  <line class="gd" x1="260.0" y1="106.0" x2="260.0" y2="132.0"/>
+  <line class="gd" x1="340.0" y1="106.0" x2="340.0" y2="132.0"/>
+  <line class="gd" x1="420.0" y1="106.0" x2="420.0" y2="132.0"/>
+  <line class="gd" x1="500.0" y1="106.0" x2="500.0" y2="132.0"/>
+  <line class="gd" x1="580.0" y1="106.0" x2="580.0" y2="132.0"/>
+  <line class="gd" x1="660.0" y1="106.0" x2="660.0" y2="132.0"/>
+  <text class="ms" x="92.0" y="149.0" text-anchor="end">float 32–63</text>
+  <rect class="bx" x="100.0" y="132.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="132.0" x2="100.0" y2="158.0"/>
+  <line class="gd" x1="180.0" y1="132.0" x2="180.0" y2="158.0"/>
+  <line class="gd" x1="260.0" y1="132.0" x2="260.0" y2="158.0"/>
+  <line class="gd" x1="340.0" y1="132.0" x2="340.0" y2="158.0"/>
+  <line class="gd" x1="420.0" y1="132.0" x2="420.0" y2="158.0"/>
+  <line class="gd" x1="500.0" y1="132.0" x2="500.0" y2="158.0"/>
+  <line class="gd" x1="580.0" y1="132.0" x2="580.0" y2="158.0"/>
+  <line class="gd" x1="660.0" y1="132.0" x2="660.0" y2="158.0"/>
+  <text class="ms" x="92.0" y="175.0" text-anchor="end">float 64–95</text>
+  <rect class="bx" x="100.0" y="158.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="158.0" x2="100.0" y2="184.0"/>
+  <line class="gd" x1="180.0" y1="158.0" x2="180.0" y2="184.0"/>
+  <line class="gd" x1="260.0" y1="158.0" x2="260.0" y2="184.0"/>
+  <line class="gd" x1="340.0" y1="158.0" x2="340.0" y2="184.0"/>
+  <line class="gd" x1="420.0" y1="158.0" x2="420.0" y2="184.0"/>
+  <line class="gd" x1="500.0" y1="158.0" x2="500.0" y2="184.0"/>
+  <line class="gd" x1="580.0" y1="158.0" x2="580.0" y2="184.0"/>
+  <line class="gd" x1="660.0" y1="158.0" x2="660.0" y2="184.0"/>
+  <text class="ms" x="92.0" y="201.0" text-anchor="end">float 96–127</text>
+  <rect class="bx" x="100.0" y="184.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="184.0" x2="100.0" y2="210.0"/>
+  <line class="gd" x1="180.0" y1="184.0" x2="180.0" y2="210.0"/>
+  <line class="gd" x1="260.0" y1="184.0" x2="260.0" y2="210.0"/>
+  <line class="gd" x1="340.0" y1="184.0" x2="340.0" y2="210.0"/>
+  <line class="gd" x1="420.0" y1="184.0" x2="420.0" y2="210.0"/>
+  <line class="gd" x1="500.0" y1="184.0" x2="500.0" y2="210.0"/>
+  <line class="gd" x1="580.0" y1="184.0" x2="580.0" y2="210.0"/>
+  <line class="gd" x1="660.0" y1="184.0" x2="660.0" y2="210.0"/>
+  <rect class="bx" x="100.0" y="106.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="140.0" y="123.0" text-anchor="middle">tn 0</text>
+  <rect class="bx" x="180.0" y="106.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="220.0" y="123.0" text-anchor="middle">tn 0</text>
+  <rect class="bx" x="260.0" y="106.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="300.0" y="123.0" text-anchor="middle">tn 1</text>
+  <rect class="bx" x="340.0" y="106.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="380.0" y="123.0" text-anchor="middle">tn 1</text>
+  <rect class="bx" x="420.0" y="106.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="460.0" y="123.0" text-anchor="middle">tn 2</text>
+  <rect class="bx" x="500.0" y="106.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="540.0" y="123.0" text-anchor="middle">tn 2</text>
+  <rect class="bx" x="580.0" y="106.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="620.0" y="123.0" text-anchor="middle">tn 3</text>
+  <rect class="bx" x="660.0" y="106.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="700.0" y="123.0" text-anchor="middle">tn 3</text>
+  <rect class="bx" x="100.0" y="132.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="140.0" y="149.0" text-anchor="middle">tn 4</text>
+  <rect class="bx" x="180.0" y="132.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="220.0" y="149.0" text-anchor="middle">tn 4</text>
+  <rect class="bx" x="260.0" y="132.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="300.0" y="149.0" text-anchor="middle">tn 5</text>
+  <rect class="bx" x="340.0" y="132.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="380.0" y="149.0" text-anchor="middle">tn 5</text>
+  <rect class="bx" x="420.0" y="132.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="460.0" y="149.0" text-anchor="middle">tn 6</text>
+  <rect class="bx" x="500.0" y="132.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="540.0" y="149.0" text-anchor="middle">tn 6</text>
+  <rect class="bx" x="580.0" y="132.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="620.0" y="149.0" text-anchor="middle">tn 7</text>
+  <rect class="bx" x="660.0" y="132.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="700.0" y="149.0" text-anchor="middle">tn 7</text>
+  <rect class="bx" x="100.0" y="158.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="140.0" y="175.0" text-anchor="middle">tn 8</text>
+  <rect class="bx" x="180.0" y="158.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="220.0" y="175.0" text-anchor="middle">tn 8</text>
+  <rect class="bx" x="260.0" y="158.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="300.0" y="175.0" text-anchor="middle">tn 9</text>
+  <rect class="bx" x="340.0" y="158.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="380.0" y="175.0" text-anchor="middle">tn 9</text>
+  <rect class="bx" x="420.0" y="158.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="460.0" y="175.0" text-anchor="middle">tn 10</text>
+  <rect class="bx" x="500.0" y="158.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="540.0" y="175.0" text-anchor="middle">tn 10</text>
+  <rect class="bx" x="580.0" y="158.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="620.0" y="175.0" text-anchor="middle">tn 11</text>
+  <rect class="bx" x="660.0" y="158.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="700.0" y="175.0" text-anchor="middle">tn 11</text>
+  <rect class="bx" x="100.0" y="184.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="140.0" y="201.0" text-anchor="middle">tn 12</text>
+  <rect class="bx" x="180.0" y="184.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="220.0" y="201.0" text-anchor="middle">tn 12</text>
+  <rect class="bx" x="260.0" y="184.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="300.0" y="201.0" text-anchor="middle">tn 13</text>
+  <rect class="bx" x="340.0" y="184.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="380.0" y="201.0" text-anchor="middle">tn 13</text>
+  <rect class="bx" x="420.0" y="184.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="460.0" y="201.0" text-anchor="middle">tn 14</text>
+  <rect class="bx" x="500.0" y="184.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="540.0" y="201.0" text-anchor="middle">tn 14</text>
+  <rect class="bx" x="580.0" y="184.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="620.0" y="201.0" text-anchor="middle">tn 15</text>
+  <rect class="bx" x="660.0" y="184.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="700.0" y="201.0" text-anchor="middle">tn 15</text>
+  <text class="s" x="20.0" y="232.0">每条 LDS.128 只用到 16 个 bank，tn、tn+4、tn+8、tn+12 撞同一组 → 4 个 wavefront</text>
+  <text class="b" x="20.0" y="264.0">修法：8 列拆成不相邻的两段 [tn*4 .. +4) 与 [64 + tn*4 .. +4)</text>
+  <text class="ms" x="92.0" y="286.0" text-anchor="end">bank</text>
+  <text class="ms" x="102.0" y="286.0">0</text>
+  <text class="ms" x="182.0" y="286.0">4</text>
+  <text class="ms" x="262.0" y="286.0">8</text>
+  <text class="ms" x="342.0" y="286.0">12</text>
+  <text class="ms" x="422.0" y="286.0">16</text>
+  <text class="ms" x="502.0" y="286.0">20</text>
+  <text class="ms" x="582.0" y="286.0">24</text>
+  <text class="ms" x="662.0" y="286.0">28</text>
+  <text class="ms" x="738.0" y="286.0" text-anchor="end">31</text>
+  <text class="ms" x="92.0" y="311.0" text-anchor="end">float 0–31</text>
+  <rect class="bx" x="100.0" y="294.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="294.0" x2="100.0" y2="320.0"/>
+  <line class="gd" x1="180.0" y1="294.0" x2="180.0" y2="320.0"/>
+  <line class="gd" x1="260.0" y1="294.0" x2="260.0" y2="320.0"/>
+  <line class="gd" x1="340.0" y1="294.0" x2="340.0" y2="320.0"/>
+  <line class="gd" x1="420.0" y1="294.0" x2="420.0" y2="320.0"/>
+  <line class="gd" x1="500.0" y1="294.0" x2="500.0" y2="320.0"/>
+  <line class="gd" x1="580.0" y1="294.0" x2="580.0" y2="320.0"/>
+  <line class="gd" x1="660.0" y1="294.0" x2="660.0" y2="320.0"/>
+  <text class="ms" x="92.0" y="337.0" text-anchor="end">float 32–63</text>
+  <rect class="bx" x="100.0" y="320.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="320.0" x2="100.0" y2="346.0"/>
+  <line class="gd" x1="180.0" y1="320.0" x2="180.0" y2="346.0"/>
+  <line class="gd" x1="260.0" y1="320.0" x2="260.0" y2="346.0"/>
+  <line class="gd" x1="340.0" y1="320.0" x2="340.0" y2="346.0"/>
+  <line class="gd" x1="420.0" y1="320.0" x2="420.0" y2="346.0"/>
+  <line class="gd" x1="500.0" y1="320.0" x2="500.0" y2="346.0"/>
+  <line class="gd" x1="580.0" y1="320.0" x2="580.0" y2="346.0"/>
+  <line class="gd" x1="660.0" y1="320.0" x2="660.0" y2="346.0"/>
+  <text class="ms" x="92.0" y="363.0" text-anchor="end">float 64–95</text>
+  <rect class="bx" x="100.0" y="346.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="346.0" x2="100.0" y2="372.0"/>
+  <line class="gd" x1="180.0" y1="346.0" x2="180.0" y2="372.0"/>
+  <line class="gd" x1="260.0" y1="346.0" x2="260.0" y2="372.0"/>
+  <line class="gd" x1="340.0" y1="346.0" x2="340.0" y2="372.0"/>
+  <line class="gd" x1="420.0" y1="346.0" x2="420.0" y2="372.0"/>
+  <line class="gd" x1="500.0" y1="346.0" x2="500.0" y2="372.0"/>
+  <line class="gd" x1="580.0" y1="346.0" x2="580.0" y2="372.0"/>
+  <line class="gd" x1="660.0" y1="346.0" x2="660.0" y2="372.0"/>
+  <text class="ms" x="92.0" y="389.0" text-anchor="end">float 96–127</text>
+  <rect class="bx" x="100.0" y="372.0" width="640.0" height="26.0" fill="#fff"/>
+  <line class="gd" x1="100.0" y1="372.0" x2="100.0" y2="398.0"/>
+  <line class="gd" x1="180.0" y1="372.0" x2="180.0" y2="398.0"/>
+  <line class="gd" x1="260.0" y1="372.0" x2="260.0" y2="398.0"/>
+  <line class="gd" x1="340.0" y1="372.0" x2="340.0" y2="398.0"/>
+  <line class="gd" x1="420.0" y1="372.0" x2="420.0" y2="398.0"/>
+  <line class="gd" x1="500.0" y1="372.0" x2="500.0" y2="398.0"/>
+  <line class="gd" x1="580.0" y1="372.0" x2="580.0" y2="398.0"/>
+  <line class="gd" x1="660.0" y1="372.0" x2="660.0" y2="398.0"/>
+  <rect class="bx" x="100.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="140.0" y="311.0" text-anchor="middle">tn 0</text>
+  <rect class="bx" x="100.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="140.0" y="363.0" text-anchor="middle">tn 0</text>
+  <rect class="bx" x="180.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="220.0" y="311.0" text-anchor="middle">tn 1</text>
+  <rect class="bx" x="180.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="220.0" y="363.0" text-anchor="middle">tn 1</text>
+  <rect class="bx" x="260.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="300.0" y="311.0" text-anchor="middle">tn 2</text>
+  <rect class="bx" x="260.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="300.0" y="363.0" text-anchor="middle">tn 2</text>
+  <rect class="bx" x="340.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="380.0" y="311.0" text-anchor="middle">tn 3</text>
+  <rect class="bx" x="340.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="380.0" y="363.0" text-anchor="middle">tn 3</text>
+  <rect class="bx" x="420.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="460.0" y="311.0" text-anchor="middle">tn 4</text>
+  <rect class="bx" x="420.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="460.0" y="363.0" text-anchor="middle">tn 4</text>
+  <rect class="bx" x="500.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="540.0" y="311.0" text-anchor="middle">tn 5</text>
+  <rect class="bx" x="500.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="540.0" y="363.0" text-anchor="middle">tn 5</text>
+  <rect class="bx" x="580.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="620.0" y="311.0" text-anchor="middle">tn 6</text>
+  <rect class="bx" x="580.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="620.0" y="363.0" text-anchor="middle">tn 6</text>
+  <rect class="bx" x="660.0" y="294.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="700.0" y="311.0" text-anchor="middle">tn 7</text>
+  <rect class="bx" x="660.0" y="346.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="700.0" y="363.0" text-anchor="middle">tn 7</text>
+  <rect class="bx" x="100.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="140.0" y="337.0" text-anchor="middle">tn 8</text>
+  <rect class="bx" x="100.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="140.0" y="389.0" text-anchor="middle">tn 8</text>
+  <rect class="bx" x="180.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="220.0" y="337.0" text-anchor="middle">tn 9</text>
+  <rect class="bx" x="180.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="220.0" y="389.0" text-anchor="middle">tn 9</text>
+  <rect class="bx" x="260.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="300.0" y="337.0" text-anchor="middle">tn 10</text>
+  <rect class="bx" x="260.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="300.0" y="389.0" text-anchor="middle">tn 10</text>
+  <rect class="bx" x="340.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="380.0" y="337.0" text-anchor="middle">tn 11</text>
+  <rect class="bx" x="340.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="380.0" y="389.0" text-anchor="middle">tn 11</text>
+  <rect class="bx" x="420.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="460.0" y="337.0" text-anchor="middle">tn 12</text>
+  <rect class="bx" x="420.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="460.0" y="389.0" text-anchor="middle">tn 12</text>
+  <rect class="bx" x="500.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="540.0" y="337.0" text-anchor="middle">tn 13</text>
+  <rect class="bx" x="500.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="540.0" y="389.0" text-anchor="middle">tn 13</text>
+  <rect class="bx" x="580.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="620.0" y="337.0" text-anchor="middle">tn 14</text>
+  <rect class="bx" x="580.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="620.0" y="389.0" text-anchor="middle">tn 14</text>
+  <rect class="bx" x="660.0" y="320.0" width="80.0" height="26.0" fill="#9cc0ee"/>
+  <text class="ms" x="700.0" y="337.0" text-anchor="middle">tn 15</text>
+  <rect class="bx" x="660.0" y="372.0" width="80.0" height="26.0" fill="#eef4fc"/>
+  <text class="ms g" x="700.0" y="389.0" text-anchor="middle">tn 15</text>
+  <text class="s" x="20.0" y="420.0">tn 0..7 恰好铺满 32 个 bank，tn 8..15 是下一行 → 256 B / 128 B = 2 个 wavefront（理想值）</text>
+  <text class="s" x="20.0" y="440.0">epilogue 写 C 的列同样拆开</text>
+</svg>

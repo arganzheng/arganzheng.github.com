@@ -1,0 +1,242 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 280" width="760" height="280" role="img" aria-labelledby="t d">
+  <title id="t">256 个线程在 128×128 C tile 上的铺法</title>
+  <desc id="d">16×16 的线程网格，tid = tm*16 + tn；每格是一个线程负责的 8×8 输出。warp 0 是 tid 0..31，占 tm = 0、1 两行；warp 1 占 tm = 2、3；warp 7 占 tm = 14、15。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="280" fill="#fff"/>
+  <text class="b" x="20.0" y="22.0">128×128 的 C tile：16 (tm) × 16 (tn) 个线程，每线程 8×8 输出</text>
+  <text class="ms" x="142.0" y="48.0" text-anchor="end">tn</text>
+  <text class="ms" x="166.0" y="48.0" text-anchor="middle">0</text>
+  <text class="ms" x="198.0" y="48.0" text-anchor="middle">1</text>
+  <text class="ms" x="230.0" y="48.0" text-anchor="middle">2</text>
+  <text class="ms" x="262.0" y="48.0" text-anchor="middle">3</text>
+  <text class="ms" x="294.0" y="48.0" text-anchor="middle">4</text>
+  <text class="ms" x="326.0" y="48.0" text-anchor="middle">5</text>
+  <text class="ms" x="358.0" y="48.0" text-anchor="middle">6</text>
+  <text class="ms" x="390.0" y="48.0" text-anchor="middle">7</text>
+  <text class="ms" x="422.0" y="48.0" text-anchor="middle">8</text>
+  <text class="ms" x="454.0" y="48.0" text-anchor="middle">9</text>
+  <text class="ms" x="486.0" y="48.0" text-anchor="middle">10</text>
+  <text class="ms" x="518.0" y="48.0" text-anchor="middle">11</text>
+  <text class="ms" x="550.0" y="48.0" text-anchor="middle">12</text>
+  <text class="ms" x="582.0" y="48.0" text-anchor="middle">13</text>
+  <text class="ms" x="614.0" y="48.0" text-anchor="middle">14</text>
+  <text class="ms" x="646.0" y="48.0" text-anchor="middle">15</text>
+  <rect class="bx" x="150.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="166.0" y="74.0" text-anchor="middle">t0</text>
+  <rect class="bx" x="182.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="198.0" y="74.0" text-anchor="middle">t1</text>
+  <rect class="bx" x="214.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="230.0" y="74.0" text-anchor="middle">t2</text>
+  <rect class="bx" x="246.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="262.0" y="74.0" text-anchor="middle">t3</text>
+  <rect class="bx" x="278.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="294.0" y="74.0" text-anchor="middle">t4</text>
+  <rect class="bx" x="310.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="326.0" y="74.0" text-anchor="middle">t5</text>
+  <rect class="bx" x="342.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="358.0" y="74.0" text-anchor="middle">t6</text>
+  <rect class="bx" x="374.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="390.0" y="74.0" text-anchor="middle">t7</text>
+  <rect class="bx" x="406.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="422.0" y="74.0" text-anchor="middle">t8</text>
+  <rect class="bx" x="438.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="454.0" y="74.0" text-anchor="middle">t9</text>
+  <rect class="bx" x="470.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="486.0" y="74.0" text-anchor="middle">t10</text>
+  <rect class="bx" x="502.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="518.0" y="74.0" text-anchor="middle">t11</text>
+  <rect class="bx" x="534.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="550.0" y="74.0" text-anchor="middle">t12</text>
+  <rect class="bx" x="566.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="582.0" y="74.0" text-anchor="middle">t13</text>
+  <rect class="bx" x="598.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="614.0" y="74.0" text-anchor="middle">t14</text>
+  <rect class="bx" x="630.0" y="58.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="646.0" y="74.0" text-anchor="middle">t15</text>
+  <text class="ms" x="142.0" y="74.0" text-anchor="end">tm=0</text>
+  <text class="s" x="670.0" y="74.0">8 行</text>
+  <text class="m" x="20.0" y="86.0">warp 0</text>
+  <rect class="bx" x="150.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="166.0" y="98.0" text-anchor="middle">t16</text>
+  <rect class="bx" x="182.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="198.0" y="98.0" text-anchor="middle">t17</text>
+  <rect class="bx" x="214.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="230.0" y="98.0" text-anchor="middle">t18</text>
+  <rect class="bx" x="246.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="262.0" y="98.0" text-anchor="middle">t19</text>
+  <rect class="bx" x="278.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="294.0" y="98.0" text-anchor="middle">t20</text>
+  <rect class="bx" x="310.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="326.0" y="98.0" text-anchor="middle">t21</text>
+  <rect class="bx" x="342.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="358.0" y="98.0" text-anchor="middle">t22</text>
+  <rect class="bx" x="374.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="390.0" y="98.0" text-anchor="middle">t23</text>
+  <rect class="bx" x="406.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="422.0" y="98.0" text-anchor="middle">t24</text>
+  <rect class="bx" x="438.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="454.0" y="98.0" text-anchor="middle">t25</text>
+  <rect class="bx" x="470.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="486.0" y="98.0" text-anchor="middle">t26</text>
+  <rect class="bx" x="502.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="518.0" y="98.0" text-anchor="middle">t27</text>
+  <rect class="bx" x="534.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="550.0" y="98.0" text-anchor="middle">t28</text>
+  <rect class="bx" x="566.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="582.0" y="98.0" text-anchor="middle">t29</text>
+  <rect class="bx" x="598.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="614.0" y="98.0" text-anchor="middle">t30</text>
+  <rect class="bx" x="630.0" y="82.0" width="32.0" height="24.0" fill="#dbe8fb"/>
+  <text class="ms" x="646.0" y="98.0" text-anchor="middle">t31</text>
+  <text class="ms" x="142.0" y="98.0" text-anchor="end">tm=1</text>
+  <text class="s" x="670.0" y="98.0">8 行</text>
+  <rect class="bx" x="150.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="166.0" y="122.0" text-anchor="middle">t32</text>
+  <rect class="bx" x="182.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="198.0" y="122.0" text-anchor="middle">t33</text>
+  <rect class="bx" x="214.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="230.0" y="122.0" text-anchor="middle">t34</text>
+  <rect class="bx" x="246.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="262.0" y="122.0" text-anchor="middle">t35</text>
+  <rect class="bx" x="278.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="294.0" y="122.0" text-anchor="middle">t36</text>
+  <rect class="bx" x="310.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="326.0" y="122.0" text-anchor="middle">t37</text>
+  <rect class="bx" x="342.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="358.0" y="122.0" text-anchor="middle">t38</text>
+  <rect class="bx" x="374.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="390.0" y="122.0" text-anchor="middle">t39</text>
+  <rect class="bx" x="406.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="422.0" y="122.0" text-anchor="middle">t40</text>
+  <rect class="bx" x="438.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="454.0" y="122.0" text-anchor="middle">t41</text>
+  <rect class="bx" x="470.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="486.0" y="122.0" text-anchor="middle">t42</text>
+  <rect class="bx" x="502.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="518.0" y="122.0" text-anchor="middle">t43</text>
+  <rect class="bx" x="534.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="550.0" y="122.0" text-anchor="middle">t44</text>
+  <rect class="bx" x="566.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="582.0" y="122.0" text-anchor="middle">t45</text>
+  <rect class="bx" x="598.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="614.0" y="122.0" text-anchor="middle">t46</text>
+  <rect class="bx" x="630.0" y="106.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="646.0" y="122.0" text-anchor="middle">t47</text>
+  <text class="ms" x="142.0" y="122.0" text-anchor="end">tm=2</text>
+  <text class="s" x="670.0" y="122.0">8 行</text>
+  <text class="m" x="20.0" y="134.0">warp 1</text>
+  <rect class="bx" x="150.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="166.0" y="146.0" text-anchor="middle">t48</text>
+  <rect class="bx" x="182.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="198.0" y="146.0" text-anchor="middle">t49</text>
+  <rect class="bx" x="214.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="230.0" y="146.0" text-anchor="middle">t50</text>
+  <rect class="bx" x="246.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="262.0" y="146.0" text-anchor="middle">t51</text>
+  <rect class="bx" x="278.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="294.0" y="146.0" text-anchor="middle">t52</text>
+  <rect class="bx" x="310.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="326.0" y="146.0" text-anchor="middle">t53</text>
+  <rect class="bx" x="342.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="358.0" y="146.0" text-anchor="middle">t54</text>
+  <rect class="bx" x="374.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="390.0" y="146.0" text-anchor="middle">t55</text>
+  <rect class="bx" x="406.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="422.0" y="146.0" text-anchor="middle">t56</text>
+  <rect class="bx" x="438.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="454.0" y="146.0" text-anchor="middle">t57</text>
+  <rect class="bx" x="470.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="486.0" y="146.0" text-anchor="middle">t58</text>
+  <rect class="bx" x="502.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="518.0" y="146.0" text-anchor="middle">t59</text>
+  <rect class="bx" x="534.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="550.0" y="146.0" text-anchor="middle">t60</text>
+  <rect class="bx" x="566.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="582.0" y="146.0" text-anchor="middle">t61</text>
+  <rect class="bx" x="598.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="614.0" y="146.0" text-anchor="middle">t62</text>
+  <rect class="bx" x="630.0" y="130.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="646.0" y="146.0" text-anchor="middle">t63</text>
+  <text class="ms" x="142.0" y="146.0" text-anchor="end">tm=3</text>
+  <text class="s" x="670.0" y="146.0">8 行</text>
+  <rect class="bx" x="150.0" y="154.0" width="512.0" height="24.0" fill="#fff"/>
+  <text class="s" x="406.0" y="170.0" text-anchor="middle">…（warp 2 .. 6：tm = 4 .. 13）</text>
+  <rect class="bx" x="150.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="166.0" y="194.0" text-anchor="middle">t224</text>
+  <rect class="bx" x="182.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="198.0" y="194.0" text-anchor="middle">t225</text>
+  <rect class="bx" x="214.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="230.0" y="194.0" text-anchor="middle">t226</text>
+  <rect class="bx" x="246.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="262.0" y="194.0" text-anchor="middle">t227</text>
+  <rect class="bx" x="278.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="294.0" y="194.0" text-anchor="middle">t228</text>
+  <rect class="bx" x="310.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="326.0" y="194.0" text-anchor="middle">t229</text>
+  <rect class="bx" x="342.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="358.0" y="194.0" text-anchor="middle">t230</text>
+  <rect class="bx" x="374.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="390.0" y="194.0" text-anchor="middle">t231</text>
+  <rect class="bx" x="406.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="422.0" y="194.0" text-anchor="middle">t232</text>
+  <rect class="bx" x="438.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="454.0" y="194.0" text-anchor="middle">t233</text>
+  <rect class="bx" x="470.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="486.0" y="194.0" text-anchor="middle">t234</text>
+  <rect class="bx" x="502.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="518.0" y="194.0" text-anchor="middle">t235</text>
+  <rect class="bx" x="534.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="550.0" y="194.0" text-anchor="middle">t236</text>
+  <rect class="bx" x="566.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="582.0" y="194.0" text-anchor="middle">t237</text>
+  <rect class="bx" x="598.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="614.0" y="194.0" text-anchor="middle">t238</text>
+  <rect class="bx" x="630.0" y="178.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="646.0" y="194.0" text-anchor="middle">t239</text>
+  <text class="ms" x="142.0" y="194.0" text-anchor="end">tm=14</text>
+  <text class="s" x="670.0" y="194.0">8 行</text>
+  <text class="m" x="20.0" y="206.0">warp 7</text>
+  <rect class="bx" x="150.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="166.0" y="218.0" text-anchor="middle">t240</text>
+  <rect class="bx" x="182.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="198.0" y="218.0" text-anchor="middle">t241</text>
+  <rect class="bx" x="214.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="230.0" y="218.0" text-anchor="middle">t242</text>
+  <rect class="bx" x="246.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="262.0" y="218.0" text-anchor="middle">t243</text>
+  <rect class="bx" x="278.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="294.0" y="218.0" text-anchor="middle">t244</text>
+  <rect class="bx" x="310.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="326.0" y="218.0" text-anchor="middle">t245</text>
+  <rect class="bx" x="342.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="358.0" y="218.0" text-anchor="middle">t246</text>
+  <rect class="bx" x="374.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="390.0" y="218.0" text-anchor="middle">t247</text>
+  <rect class="bx" x="406.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="422.0" y="218.0" text-anchor="middle">t248</text>
+  <rect class="bx" x="438.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="454.0" y="218.0" text-anchor="middle">t249</text>
+  <rect class="bx" x="470.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="486.0" y="218.0" text-anchor="middle">t250</text>
+  <rect class="bx" x="502.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="518.0" y="218.0" text-anchor="middle">t251</text>
+  <rect class="bx" x="534.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="550.0" y="218.0" text-anchor="middle">t252</text>
+  <rect class="bx" x="566.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="582.0" y="218.0" text-anchor="middle">t253</text>
+  <rect class="bx" x="598.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="614.0" y="218.0" text-anchor="middle">t254</text>
+  <rect class="bx" x="630.0" y="202.0" width="32.0" height="24.0" fill="#d9f0dc"/>
+  <text class="ms" x="646.0" y="218.0" text-anchor="middle">t255</text>
+  <text class="ms" x="142.0" y="218.0" text-anchor="end">tm=15</text>
+  <text class="s" x="670.0" y="218.0">8 行</text>
+  <line class="hot" x1="150.0" y1="106.0" x2="662.0" y2="106.0"/>
+  <line class="hot" x1="150.0" y1="154.0" x2="662.0" y2="154.0"/>
+  <line class="hot" x1="150.0" y1="178.0" x2="662.0" y2="178.0"/>
+  <line class="ln" x1="150.0" y1="246.0" x2="662.0" y2="246.0" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <text x="406.0" y="268.0" text-anchor="middle">128 列 = 16 个 tn × 8 列</text>
+</svg>

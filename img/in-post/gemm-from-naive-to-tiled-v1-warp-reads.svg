@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 232" width="760" height="232" role="img" aria-labelledby="t d">
+  <title id="t">v1 中一个 warp 在某个 k 上读到的 A、B 元素</title>
+  <desc id="d">A 的第 row 行只读一个元素 A[row][k]，32 个线程同一地址、广播；B 的第 k 行读 32 个连续 float、128 B、一次合并访存；C 的第 row 行写 32 个输出 C[row][col..col+31]。</desc>
+  <defs><style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;fill:#111;font-size:13px}
+.b{font-weight:700}.s{font-size:12px;fill:#333}.m{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px}
+.ms{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:11px}.g{fill:#777}
+.bx{stroke:#40566f;stroke-width:1.2}.ln{stroke:#40566f;stroke-width:1.2;fill:none}.gd{stroke:#9aa5b1;stroke-width:1;stroke-dasharray:4 3;fill:none}
+.hot{stroke:#c0392b;stroke-width:2.2}</style><marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker></defs>
+  <rect x="0" y="0" width="760" height="232" fill="#fff"/>
+  <text class="b" x="145.0" y="30.0" text-anchor="middle">A（M×K，行主序）</text>
+  <rect class="bx" x="50.0" y="62.0" width="190.0" height="150.0" fill="#fff"/>
+  <rect class="bx" x="50.0" y="104.0" width="190.0" height="14.0" fill="#f1f3f6"/>
+  <rect class="bx" x="130.0" y="104.0" width="12.0" height="14.0" fill="#f6c99a"/>
+  <text class="m" x="44.0" y="115.0" text-anchor="end">row</text>
+  <text class="m" x="136.0" y="54.0" text-anchor="middle">k</text>
+  <text class="m" x="145.0" y="146.0" text-anchor="middle">A[row][k]</text>
+  <text x="145.0" y="168.0" text-anchor="middle">同一地址，广播</text>
+  <text class="b" x="405.0" y="30.0" text-anchor="middle">B（K×N，行主序）</text>
+  <rect class="bx" x="300.0" y="62.0" width="210.0" height="150.0" fill="#fff"/>
+  <rect class="bx" x="300.0" y="104.0" width="210.0" height="14.0" fill="#f1f3f6"/>
+  <rect class="bx" x="350.0" y="104.0" width="110.0" height="14.0" fill="#f6c99a"/>
+  <text class="m" x="294.0" y="115.0" text-anchor="end">k</text>
+  <text class="m" x="405.0" y="54.0" text-anchor="middle">col … col+31</text>
+  <text class="m" x="405.0" y="146.0" text-anchor="middle">B[k][col..col+31]</text>
+  <text x="405.0" y="168.0" text-anchor="middle">32 个连续 float = 128 B</text>
+  <text x="405.0" y="190.0" text-anchor="middle">1 次合并访存</text>
+  <text class="b" x="645.0" y="30.0" text-anchor="middle">C（M×N）</text>
+  <rect class="bx" x="550.0" y="62.0" width="190.0" height="150.0" fill="#fff"/>
+  <rect class="bx" x="550.0" y="104.0" width="190.0" height="14.0" fill="#f1f3f6"/>
+  <rect class="bx" x="590.0" y="104.0" width="110.0" height="14.0" fill="#f6c99a"/>
+  <text class="m" x="544.0" y="115.0" text-anchor="end">row</text>
+  <text class="m" x="645.0" y="54.0" text-anchor="middle">col … col+31</text>
+  <text class="m" x="645.0" y="146.0" text-anchor="middle">C[row][col..col+31]</text>
+  <text x="645.0" y="168.0" text-anchor="middle">warp 的 32 个输出</text>
+</svg>
