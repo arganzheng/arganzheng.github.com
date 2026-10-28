@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 192" width="760" height="192" role="img" aria-labelledby="t d">
+<title id="t">双 micro-batch 重叠的时间轴（LL kernel + return_recv_hook）</title>
+<desc id="d">上行是 SM 上在跑的 kernel：A 的 attention、A 的 dispatch send 阶段、B 的 attention、A 的 recv hook、B 的 dispatch send 阶段、A 的专家 GEMM。下行是网卡：A 的 dispatch 数据在 B 的 attention 期间在飞，B 的 dispatch 数据在 A 的专家 GEMM 期间在飞，这两段 GPU 上没有通信 kernel。send 阶段末尾敲 doorbell，箭头落在在飞段的起点。</desc>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+<style>
+text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
+.lbl { font-size: 14px; }
+.seg { font-size: 13px; }
+.small { font-size: 12px; fill: #243447; }
+.a-comp { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+.a-comm { fill: #a9c6ee; stroke: #40566f; stroke-width: 1.2; }
+.b-comp { fill: #fde4c8; stroke: #40566f; stroke-width: 1.2; }
+.b-comm { fill: #f5bf85; stroke: #40566f; stroke-width: 1.2; }
+.idle { fill: #f1f4f7; stroke: #9aa8b6; stroke-width: 1.2; }
+.a-fly { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.b-fly { fill: #fde4c8; stroke: #40566f; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.arrow { stroke: #40566f; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+.axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+</style></defs>
+<text class="lbl" x="118" y="31" text-anchor="end">时间</text>
+<line class="axis" x1="134" y1="26" x2="744" y2="26"/>
+<text class="lbl" x="118" y="77.0" text-anchor="end">SM 上在跑</text>
+<text class="lbl" x="118" y="154" text-anchor="end">网卡 / RDMA</text>
+<text class="lbl" x="118" y="172" text-anchor="end">（无 kernel）</text>
+<rect class="a-comp" x="134.0" y="46" width="117.3" height="52"/>
+<text class="seg" x="192.7" y="77.0" text-anchor="middle">A:attn</text>
+<rect class="a-comm" x="251.3" y="46" width="70.4" height="52"/>
+<text class="seg" x="286.5" y="69.0" text-anchor="middle">A:disp</text>
+<text class="seg" x="286.5" y="86.0" text-anchor="middle">send</text>
+<rect class="b-comp" x="321.7" y="46" width="117.3" height="52"/>
+<text class="seg" x="380.3" y="77.0" text-anchor="middle">B:attn</text>
+<rect class="a-comm" x="439.0" y="46" width="70.4" height="52"/>
+<text class="seg" x="474.2" y="69.0" text-anchor="middle">A:recv</text>
+<text class="seg" x="474.2" y="86.0" text-anchor="middle">hook</text>
+<rect class="b-comm" x="509.4" y="46" width="70.4" height="52"/>
+<text class="seg" x="544.6" y="69.0" text-anchor="middle">B:disp</text>
+<text class="seg" x="544.6" y="86.0" text-anchor="middle">send</text>
+<rect class="a-comp" x="579.8" y="46" width="117.3" height="52"/>
+<text class="seg" x="638.4" y="77.0" text-anchor="middle">A:expert GEMM</text>
+<rect class="idle" x="697.1" y="46" width="46.9" height="52"/>
+<text class="seg" x="720.5" y="77.0" text-anchor="middle">…</text>
+<rect class="a-fly" x="321.7" y="138" width="117.3" height="40"/>
+<text class="seg" x="380.3" y="163.0" text-anchor="middle">A:disp 在飞</text>
+<line class="arrow" x1="321.7" y1="98" x2="321.7" y2="138"/>
+<text class="small" x="327.7" y="122.0">doorbell</text>
+<rect class="b-fly" x="579.8" y="138" width="117.3" height="40"/>
+<text class="seg" x="638.4" y="163.0" text-anchor="middle">B:disp 在飞</text>
+<line class="arrow" x1="579.8" y1="98" x2="579.8" y2="138"/>
+<text class="small" x="585.8" y="122.0">doorbell</text>
+</svg>
