@@ -60,9 +60,19 @@ Table: 数字 agent 与物理世界的对照
 
 ### 1. 位置
 
-```text title="输入侧与输出侧检查的位置"
-用户输入 → [输入侧检查] → 上下文组装 → 模型 → [输出侧检查] → 工具 / 呈现
-                 ↓ 拦                              ↓ 拦 / 改写 / 重试 / 降级
+```mermaid
+%% 图：输入侧与输出侧检查的位置
+flowchart TB
+    U["用户输入"] --> I["输入侧检查"]
+    I -->|"通过"| C["上下文组装"]
+    I --> B["拦"]
+    C --> M["模型"] --> O["输出侧检查"]
+    O -->|"通过"| A["工具 / 呈现"]
+    O --> F["拦 / 改写 / 重试 / 降级"]
+    classDef check fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef stop fill:#fdecea,stroke:#c0392b,color:#222
+    class I,O check
+    class B,F stop
 ```
 
 ### 2. 输入侧
@@ -101,12 +111,15 @@ Table: 输出侧的运行时检查
 %% 图：运行时 guardrails 的位置与代价——输入侧（注入 · PII · 越界 · 长度 · 限流）在上下文组装之前拦；输出侧（schema · 业务校验 · 引用存在 · PII · 有害 · 忠实度 · 动作四层）在工具执行与呈现之前拦 / 改写 / 重试 / 降级；规则微秒级同步做，分类器几十毫秒，judge 几百毫秒只放在高风险路径同步、其余异步标记进队列
 flowchart TB
     U["用户输入 / 工具返回"] --> IN["输入侧检查<br/>注入模式（规则 + 分类器）· PII 脱敏 · 越界分类 · 长度 · 限流"]
-    IN -->|"拦 / 标记 / 降权"| CTX["上下文组装 → 模型"]
+    IN -->|"通过 / 标记或降权后继续"| CTX["上下文组装 → 模型"]
+    IN -->|"拦"| BLOCK["拒绝 / 拒答"]
     CTX --> OUT["输出侧检查<br/>schema · 业务校验 · 引用存在性 · PII / 凭据 · 有害内容"]
     OUT -->|"过"| HR{"高风险路径？<br/>对外发送 · 不可逆 · 合规敏感"}
-    HR -->|"是"| SYNC["同步：忠实度 judge（几百 ms）+ 动作四层<br/>不过就拦"]
-    HR -->|"否"| ASYNC["异步：judge 抽样标记进队列<br/>不加延迟"]
-    SYNC & ASYNC --> ACT["工具执行 / 呈现"]
+    HR -->|"是"| SYNC["同步：忠实度 judge（几百 ms）+ 动作四层"]
+    HR -->|"否"| ACT["工具执行 / 呈现"]
+    HR -. "否：异步抽样" .-> ASYNC["异步：judge 抽样标记进队列<br/>不加请求路径延迟"]
+    SYNC -->|"通过"| ACT
+    SYNC -->|"不过"| STOP["拦"]
     OUT -->|"不过"| FIX["带错误重试一次 → 降级 / 拒答出口"]
     C["代价：每项检查加延迟 + 误拦率<br/>规则 µs · 分类器几十 ms · judge 几百 ms–s"] -.-> OUT
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
@@ -116,7 +129,7 @@ flowchart TB
     class U,IN,CTX,OUT,SYNC,ASYNC n
     class HR dec
     class ACT ok
-    class FIX,C bad
+    class BLOCK,STOP,FIX,C bad
 ```
 
 ## 三、置信度、拒答与幻觉检测
