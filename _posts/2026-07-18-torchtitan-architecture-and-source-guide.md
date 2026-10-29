@@ -21,7 +21,7 @@ date: 2026-07-18 18:00:00
 
 先看 train-ledger 的 8 卡配置：FSDP 4 × TP 2，开启 sequence parallel（SP），不启用 PP。FSDP 的 `dp_shard` 组沿四张卡切分，TP 组两张卡配对。F1 画出这张网格，以及某一层 unshard 之后的参数形态。
 
-![F1：8 张 rank 排成 4×2 的 DeviceMesh，上排 tp0（rank 0/2/4/6）、下排 tp1（rank 1/3/5/7）；同一列两张卡是 TP 组，同一行四张卡是 dp_shard 组；每张卡常驻 fp32 参数、梯度和 Adam 状态的分片；下方显示某层 unshard 后沿 dp_shard 临时拼出的 bf16 参数](/img/in-post/torchtitan-f1-device-mesh.svg)
+![F1：8 张 rank 排成 4×2 的 DeviceMesh，上排 tp0（rank 0/2/4/6）、下排 tp1（rank 1/3/5/7）；卡名下方的彩色横条按 dp_shard 位着色（dp0 蓝、dp1 绿、dp2 橙、dp3 紫）；同一列两张卡是 TP 组，同一行四张卡是 dp_shard 组；每张卡常驻 fp32 参数、梯度和 Adam 状态的分片；下方显示某层 unshard 后沿 dp_shard 临时拼出的 bf16 参数](/img/in-post/torchtitan-f1-device-mesh.svg)
 
 同一列的两张卡组成 TP 组。开了 SP 之后，TP 组内的通信是激活的 all-gather 与 reduce-scatter：`colwise_config()` 让输出按最后一维切，`rowwise_config(output_sp=True)` 把 Partial 输出 reduce-scatter 成序列维分片（不开 SP 才是 all-reduce）。同一行的四张卡组成 `dp_shard` 组，负责参数 all-gather 与梯度 reduce-scatter。每张 rank 常驻该 TP 矩阵切片在四个 `dp_shard` rank 中的一份 fp32 DTensor 参数、fp32 梯度以及 Adam 的 $$m,v$$。norm 参数在 TP 维复制，不再按 TP 切；16 层各两个 norm 加最终 norm 共 67,584 个参数，只占 tied 总量 $$N$$ 的约 0.0055%。
 
