@@ -8,7 +8,7 @@ catalog: true
 date: 2026-07-29 20:00:00
 ---
 
-十一篇正文回答了一个问题：**一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒**。前六篇是静态与稳态——第一篇算一张卡上四种状态的字节数与 FLOP，第二篇把每种并行写成"切哪种状态、付哪种通信"，第三至五篇各追一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里的一生，第六篇把三者放在一起对比，第七篇从模型与集群规格推出 70B / 1024 卡的配置并拆解 MFU 损失；后五篇是长时——第八篇把状态写到磁盘并允许换布局读回，第九篇算故障之后每一秒去了哪里，第十篇让数值不跑飞、数据可回放，第十一篇把任务当作服务来运维。八篇合起来，是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)总纲里"训练引擎这一层"的全部。
+十一篇正文回答了一个问题：**一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒**。前七篇是静态与稳态——第一篇算一张卡上四种状态的字节数与 FLOP，第二篇把每种并行写成"切哪种状态、付哪种通信"，第三至五篇各追一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里的一生，第六篇把三者放在一起对比，第七篇从模型与集群规格推出 70B / 1024 卡的配置并拆解 MFU 损失；后四篇是长时——第八篇把状态写到磁盘并允许换布局读回，第九篇算故障之后每一秒去了哪里，第十篇让数值不跑飞、数据可回放，第十一篇把任务当作服务来运维。十一篇合起来，是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)总纲里"训练引擎这一层"的全部。
 
 本文不讲新内容，做三件事：把十一篇压成一张表与十一段回顾，把贯穿十一篇的四条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十一篇能不能连起来用"：拿到一份模型规格和集群规格能不能算出配置，拿到一份故障统计能不能算出有效训练时间，凌晨三点 step 时间翻三倍能不能在十分钟内定位。
 
@@ -304,8 +304,8 @@ flowchart TB
 | 开重计算后 MFU 上去了 | 重计算多算的 FLOP 只计入 HFU | MFU 不含重计算；全量重计算 HFU = 4/3 MFU | [第一篇](/training-state-anatomy-memory-and-mfu.html) |
 | TP 通信量最大所以最贵，能少就少 | 贵在关键路径上不可重叠，不只在量 | TP 锁在 NVLink 内 $$N_t \le 8$$；PP 量最小可重叠放最远 | [第二篇](/parallelism-strategies-which-state-to-shard.html) |
 | ZeRO-2 比 ZeRO-1 多通信 | all-reduce 本来就是 reduce-scatter + all-gather | ZeRO-1 / 2 都是 $$2N$$，只有 ZeRO-3 涨到 $$3N$$ | [第二篇](/parallelism-strategies-which-state-to-shard.html) |
-| FSDP2 比 FSDP1 通信少所以快 | 通信次数与量相同 | 差别是表示：每参数 DTensor 能与 TP、DCP、compile 组合 | [第三篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
-| torchtitan 常驻一份 bf16 参数 | FSDP2 常驻的是 fp32 分片 | bf16 只在一层前向、反向的几十毫秒里存在，fp32 分片就是主参数 | [第三篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
+| FSDP2 比 FSDP1 通信少所以快 | 通信次数与量相同 | 差别是表示：每参数 DTensor 能与 TP、DCP、compile 组合 | [第六篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
+| torchtitan 常驻一份 bf16 参数 | FSDP2 常驻的是 fp32 分片 | bf16 只在一层前向、反向的几十毫秒里存在，fp32 分片就是主参数 | [第六篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
 | 千卡上用 FSDP 代替 PP，没有气泡更快 | 每卡每 step 只有 4096 个 token，参数通信不随 token 摊薄 | FSDP128 每卡 175 GB / 3.5 s 盖不住；每卡 token 少选 PP + ZeRO-1 | [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) |
 | PP 加深激活就少 | 1F1B 第一个 stage 同时持有 $$p$$ 个 micro-batch 的激活 | PP 不减少激活总量；减少的是 micro-batch、SP、CP、重计算 | [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) |
 | checkpoint 大小随 TP / PP / DP 变 | 去掉 DP 复制后的唯一字节不变 | 落盘 14 或 12 字节 / 参数，与并行配置无关；这正是能重分片的前提 | [第八篇](/distributed-checkpoint-format-async-save-and-resharding.html) |

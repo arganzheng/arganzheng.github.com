@@ -1,7 +1,7 @@
 ---
 layout: post
 series: large-scale-training
-title: "大规模训练工程（09）：三个框架对比——Megatron-LM、DeepSpeed 与 torchtitan"
+title: "大规模训练工程（06）：三个框架对比——Megatron-LM、DeepSpeed 与 torchtitan"
 subtitle: "Megatron-LM, DeepSpeed and torchtitan Compared"
 tags: [Megatron, DeepSpeed, torchtitan, Distributed Training, AI, AI-Infra]
 catalog: true
