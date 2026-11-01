@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="360" viewBox="0 0 800 360" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12" role="img" aria-labelledby="t d">
+  <title id="t">激活与梯度逐层的生命周期</title>
+  <desc id="d">以 4 层模型为例，横轴是一个 step 的时间槽 F1–F4、B4–B1、optimizer.step()，每行是一层。橙色条是该层的激活：在前向 Fi 产生，一直留到反向 Bi 用完释放，先产生的后释放。绿色条是该层的梯度：在反向 Bi 产生，留到 optimizer.step() 结束清零。前向末激活最多、梯度为零；反向末梯度最多、激活为零。</desc>
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}</style>
+  <text x="240" y="30" text-anchor="middle" class="t">前向</text>
+  <text x="520" y="30" text-anchor="middle" class="t">反向</text>
+  <text x="695" y="30" text-anchor="middle" class="t">optimizer.step()</text>
+  <text x="135" y="56" text-anchor="middle" class="m">F1</text>
+  <text x="205" y="56" text-anchor="middle" class="m">F2</text>
+  <text x="275" y="56" text-anchor="middle" class="m">F3</text>
+  <text x="345" y="56" text-anchor="middle" class="m">F4</text>
+  <text x="415" y="56" text-anchor="middle" class="m">B4</text>
+  <text x="485" y="56" text-anchor="middle" class="m">B3</text>
+  <text x="555" y="56" text-anchor="middle" class="m">B2</text>
+  <text x="625" y="56" text-anchor="middle" class="m">B1</text>
+  <text x="695" y="56" text-anchor="middle" class="m">step</text>
+  <line x1="100" y1="62" x2="100" y2="254" stroke="#eee"/>
+  <line x1="170" y1="62" x2="170" y2="254" stroke="#eee"/>
+  <line x1="240" y1="62" x2="240" y2="254" stroke="#eee"/>
+  <line x1="310" y1="62" x2="310" y2="254" stroke="#eee"/>
+  <line x1="380" y1="62" x2="380" y2="254" stroke="#eee"/>
+  <line x1="450" y1="62" x2="450" y2="254" stroke="#eee"/>
+  <line x1="520" y1="62" x2="520" y2="254" stroke="#eee"/>
+  <line x1="590" y1="62" x2="590" y2="254" stroke="#eee"/>
+  <line x1="660" y1="62" x2="660" y2="254" stroke="#eee"/>
+  <line x1="730" y1="62" x2="730" y2="254" stroke="#eee"/>
+  <line x1="380" y1="16" x2="380" y2="264" stroke="#bbb" stroke-dasharray="4 3"/>
+  <line x1="660" y1="16" x2="660" y2="264" stroke="#bbb" stroke-dasharray="4 3"/>
+  <text x="86" y="96" text-anchor="end" class="m">第 1 层</text>
+  <rect x="100" y="76" width="560" height="14" fill="#fef3c7" stroke="#b45309"/>
+  <rect x="590" y="94" width="140" height="14" fill="#dcfce7" stroke="#15803d"/>
+  <text x="86" y="142" text-anchor="end" class="m">第 2 层</text>
+  <rect x="170" y="122" width="420" height="14" fill="#fef3c7" stroke="#b45309"/>
+  <rect x="520" y="140" width="210" height="14" fill="#dcfce7" stroke="#15803d"/>
+  <text x="86" y="188" text-anchor="end" class="m">第 3 层</text>
+  <rect x="240" y="168" width="280" height="14" fill="#fef3c7" stroke="#b45309"/>
+  <rect x="450" y="186" width="280" height="14" fill="#dcfce7" stroke="#15803d"/>
+  <text x="86" y="234" text-anchor="end" class="m">第 4 层</text>
+  <rect x="310" y="214" width="140" height="14" fill="#fef3c7" stroke="#b45309"/>
+  <rect x="380" y="232" width="350" height="14" fill="#dcfce7" stroke="#15803d"/>
+  <text x="380" y="282" text-anchor="middle" class="m">前向末：4 层激活都在，梯度为 0</text>
+  <text x="660" y="282" text-anchor="middle" class="m">反向末：激活已释放完，梯度全部到齐</text>
+  <rect x="100" y="300" width="18" height="12" fill="#fef3c7" stroke="#b45309"/>
+  <text x="126" y="310" class="m">激活：第 i 层在 Fi 产生，Bi 用完释放；先产生的后释放（第 1 层的激活留得最久）</text>
+  <rect x="100" y="320" width="18" height="12" fill="#dcfce7" stroke="#15803d"/>
+  <text x="126" y="330" class="m">梯度：第 i 层在 Bi 产生，留到 optimizer.step() 用完后清零（第 4 层的梯度留得最久）</text>
+</svg>

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="390" viewBox="0 0 780 390" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12" role="img" aria-labelledby="t d">
+  <title id="t">四种状态的全景</title>
+  <desc id="d">左列是两种常驻状态：bf16 参数 2N、优化器状态 12N（fp32 主参数、Adam m、v）；右列是两种瞬态：激活约 34·s·b·h·L、梯度 2N 或 4N。四个箭头构成一个 step 的循环：① 前向读参数、逐层留下激活；② 反向读参数和激活、产出梯度并释放激活；③ optimizer.step() 读梯度、更新 m、v 与主参数，然后梯度清零；④ 主参数 cast 成 bf16 覆盖计算参数。</desc>
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.a{fill:#222;font-size:11px;font-weight:600}</style>
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+  <text x="165" y="40" text-anchor="middle" class="t">常驻：大小只与 N 有关</text>
+  <text x="615" y="40" text-anchor="middle" class="t">瞬态：一个 step 内产生又释放</text>
+  <!-- params -->
+  <rect x="40" y="70" width="250" height="96" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="165" y="98" text-anchor="middle" class="t">参数 θ（bf16 计算副本）</text>
+  <text x="165" y="122" text-anchor="middle" class="m">2N 字节</text>
+  <text x="165" y="142" text-anchor="middle" class="m">每层前向、反向都要读</text>
+  <!-- activations -->
+  <rect x="490" y="70" width="250" height="96" fill="#fef3c7" stroke="#b45309"/>
+  <text x="615" y="98" text-anchor="middle" class="t">激活 A</text>
+  <text x="615" y="122" text-anchor="middle" class="m">≈ 34·s·b·h·L 字节，与 N 无关</text>
+  <text x="615" y="142" text-anchor="middle" class="m">前向逐层产生，反向逐层消费</text>
+  <!-- grads -->
+  <rect x="490" y="240" width="250" height="96" fill="#dcfce7" stroke="#15803d"/>
+  <text x="615" y="268" text-anchor="middle" class="t">梯度 ∇θ</text>
+  <text x="615" y="292" text-anchor="middle" class="m">2N（bf16）或 4N（fp32）字节</text>
+  <text x="615" y="312" text-anchor="middle" class="m">反向逐层产生，step 后清零</text>
+  <!-- optimizer -->
+  <rect x="40" y="240" width="250" height="96" fill="#ede9fe" stroke="#7e22ce"/>
+  <text x="165" y="268" text-anchor="middle" class="t">优化器状态</text>
+  <text x="165" y="292" text-anchor="middle" class="m">12N：fp32 主参数 4N + m 4N + v 4N</text>
+  <text x="165" y="312" text-anchor="middle" class="m">只在 optimizer.step() 里读写</text>
+  <!-- ① forward -->
+  <line x1="290" y1="128" x2="488" y2="128" stroke="#333" marker-end="url(#ar)"/>
+  <text x="390" y="104" text-anchor="middle" class="a">① 前向</text>
+  <text x="390" y="120" text-anchor="middle" class="m">读参数，逐层留下激活</text>
+  <!-- ② backward -->
+  <line x1="615" y1="166" x2="615" y2="238" stroke="#333" marker-end="url(#ar)"/>
+  <text x="605" y="198" text-anchor="end" class="a">② 反向</text>
+  <text x="605" y="214" text-anchor="end" class="m">读参数 + 激活，产出梯度，激活随之释放</text>
+  <!-- ③ step -->
+  <line x1="490" y1="280" x2="292" y2="280" stroke="#333" marker-end="url(#ar)"/>
+  <text x="390" y="298" text-anchor="middle" class="a">③ optimizer.step()</text>
+  <text x="390" y="314" text-anchor="middle" class="m">读梯度，更新 m、v、主参数</text>
+  <text x="390" y="330" text-anchor="middle" class="m">随后梯度清零</text>
+  <!-- ④ cast -->
+  <line x1="165" y1="240" x2="165" y2="168" stroke="#333" marker-end="url(#ar)"/>
+  <text x="175" y="198" class="a">④ cast 回 bf16</text>
+  <text x="175" y="214" class="m">主参数 → 计算参数</text>
+  <text x="40" y="372" class="m">以 70B、s = 8192、b = 1 为例：参数 141 GB，优化器状态 847 GB，梯度 141 GB（bf16）或 282 GB（fp32），激活 182 GB。</text>
+</svg>
