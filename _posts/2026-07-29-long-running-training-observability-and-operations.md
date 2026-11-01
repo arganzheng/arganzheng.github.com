@@ -32,12 +32,12 @@ updated: 2026-09-20
 
 | 概念 | 本篇沿用的结论 |
 |---|---|
-| MFU | 观测吞吐 × 每 token FLOP / (卡数 × 标称峰值)，来自 PaLM 论文的定义；不计激活重计算的 FLOP<br/>H100 SXM bf16 dense 标称 989 TFLOPS；1024 卡 70B dense 的设计目标 42%（第七篇候选 A：4.75 s/step） |
-| 七项 MFU 损失 | PP 气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler（第七篇） |
-| 三类故障 | 显式（崩溃 / XID / NCCL 报错）· 隐式（hang / 变慢）· 静默（SDC / 坏数据）（第九篇） |
-| δ、M、τ | 一次 checkpoint 的开销 · 平均故障间隔 · checkpoint 间隔；Young 公式 τ_opt ≈ √(2δM)（第八篇） |
-| 有效训练时间 | 有用训练时间 / 总时间；每次故障的代价 = 检测 + 重启 + 加载 + 回退重算（第九篇） |
-| 数值信号 | loss · grad norm · params norm · lr · loss scale · 跳过的迭代数 · num_zeros_in_grad · 注意力 logit 最大值（第十篇） |
+| MFU | 观测吞吐 × 每 token FLOP / (卡数 × 标称峰值)，来自 PaLM 论文的定义；不计激活重计算的 FLOP<br/>H100 SXM bf16 dense 标称 989 TFLOPS；1024 卡 70B dense 的设计目标 42%（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)候选 A：4.75 s/step） |
+| 七项 MFU 损失 | PP 气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)） |
+| 三类故障 | 显式（崩溃 / XID / NCCL 报错）· 隐式（hang / 变慢）· 静默（SDC / 坏数据）（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
+| δ、M、τ | 一次 checkpoint 的开销 · 平均故障间隔 · checkpoint 间隔；Young 公式 τ_opt ≈ √(2δM)（[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)） |
+| 有效训练时间 | 有用训练时间 / 总时间；每次故障的代价 = 检测 + 重启 + 加载 + 回退重算（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
+| 数值信号 | loss · grad norm · params norm · lr · loss scale · 跳过的迭代数 · num_zeros_in_grad · 注意力 logit 最大值（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)） |
 
 Table: 本篇用到的前文结论
 
@@ -55,7 +55,7 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 
 | 层 | 指标 | 采集点 | 正常形态 / 异常形态 |
 |---|---|---|---|
-| 任务 | loss（全局平均 / 全局最大） | 训练循环；跨 DP 归约后由一个 rank 写出 | 平滑下降；spike、NaN、平台（第十篇） |
+| 任务 | loss（全局平均 / 全局最大） | 训练循环；跨 DP 归约后由一个 rank 写出 | 平滑下降；spike、NaN、平台（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)） |
 | ^^ | grad norm · params norm · lr | 优化器 step 后 | grad norm 缓慢下降且抖动稳定；持续上升 = 前兆 |
 | ^^ | loss scale · 跳过 / NaN 迭代数 | fp16 时；Megatron 的 skipped / nan iterations | 为 0；连续非 0 = 数值问题 |
 | ^^ | token/s · TFLOPS/GPU · MFU | 用 6N + 12Lhs 与 step 时间算 | 平直；缓慢下滑 = 性能回归；阶跃 = straggler / 降频 |
@@ -70,7 +70,7 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 | ^^ | CPU 利用率 · dataloader 队列深度 | 进程或 node exporter | 队列满；空 = 数据跟不上 |
 | ^^ | 进程存活 · 最后一次日志时间戳 | torchrun 日志目录 | 每 rank 都在写 |
 | 硬件 | 温度 · 功耗 · SM 时钟 · 降频原因 | DCGM_FI_DEV_GPU_TEMP / POWER_USAGE / SM_CLOCK | SM 时钟贴近最大值；掉到 1.3 GHz 以下 = 降频 |
-| ^^ | XID 错误 | DCGM_FI_DEV_XID_ERRORS · dmesg | 0；出现即隔离节点（第九篇） |
+| ^^ | XID 错误 | DCGM_FI_DEV_XID_ERRORS · dmesg | 0；出现即隔离节点（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
 | ^^ | ECC 单比特 / 双比特 · 行重映射 | DCGM_FI_DEV_ECC_SBE/DBE_VOL_TOTAL · ROW_REMAP_* | SBE 缓慢增长可接受；DBE / 重映射待处理 = 换卡 |
 | ^^ | NVLink / PCIe 错误与重放 | DCGM_FI_DEV_NVLINK_*_ERROR_COUNT · PCIE_REPLAY | 不增长；增长 = 链路问题 → straggler 的常见根因 |
 | ^^ | 网卡错包 · 重传 · 链路降速 | IB 计数器（perfquery / rdma statistics） | 不增长 |
@@ -119,7 +119,7 @@ Megatron 的计时器在 `megatron/core/timers.py`。`Timers` 是一组命名计
 
 关键在 `Timers._get_elapsed_time_all_ranks()`：它把各 rank 的计时值 all-gather 成一个 `[world_size, len(names)]` 的张量，`_get_global_min_max_time()` 从中取每个计时器的最小 / 最大值及对应 rank，`_get_all_ranks_time_string()` 则逐 rank 列出。这就是三种 `log_option` 的来源：`max` 只报最慢的，`minmax` 报最快最慢的 rank 号与时间，`all` 全部列出。**`minmax` 是 straggler 的第一道探测器**——如果 `forward-compute` 的 max 与 min 相差 20% 且 max 总落在同一个 rank 上，那张卡就是嫌疑人。代价是每次 log 一次 all-gather，`--log-interval` 之外不会触发。
 
-日志行由 `megatron/training/training.py` 的 `training_log()` 拼出。它按 `timing_log_level` 决定报哪些计时器：级别 1 是 `forward-backward`、`all-grads-sync`、`params-all-gather`、`optimizer` 及其子项；级别 2 加上 `batch-generator`、`forward-compute` / `backward-compute` 与八种 PP 收发计时器。每 `log_interval` 步它调用 `timers('interval-time').elapsed(barrier=True)` 得到区间时间，除以迭代数得到 `elapsed time per iteration (ms)`；开 `--log-throughput` 时用 `num_floating_point_operations()` 除以（每迭代时间 × world_size）得到 `throughput per GPU (TFLOP/s/GPU)`——这就是第一篇的 MFU 分子，除以标称峰值即 MFU。一行典型的日志：
+日志行由 `megatron/training/training.py` 的 `training_log()` 拼出。它按 `timing_log_level` 决定报哪些计时器：级别 1 是 `forward-backward`、`all-grads-sync`、`params-all-gather`、`optimizer` 及其子项；级别 2 加上 `batch-generator`、`forward-compute` / `backward-compute` 与八种 PP 收发计时器。每 `log_interval` 步它调用 `timers('interval-time').elapsed(barrier=True)` 得到区间时间，除以迭代数得到 `elapsed time per iteration (ms)`；开 `--log-throughput` 时用 `num_floating_point_operations()` 除以（每迭代时间 × world_size）得到 `throughput per GPU (TFLOP/s/GPU)`——这就是[第一篇《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)的 MFU 分子，除以标称峰值即 MFU。一行典型的日志：
 
 ```text title="Megatron training_log 的一行典型日志"
  [2026-08-08 03:12:44.118201] iteration     1370/  100000 | consumed samples:       701440 | elapsed time per iteration (ms): 4812.3 |
@@ -145,7 +145,7 @@ tflops = self.num_flops_per_token * tps / 1e12
 mfu = None if self.has_quantization else 100 * self.num_flops_per_token * tps / self.gpu_peak_flops
 ```
 
-四个量的来源：`ntokens_since_last_log` 由 `Trainer` 的 batch 生成器在每次 `next(data_iterator)` 后累加 `labels.numel()`；`non_data_parallel_size` 是 TP × PP × CP 的乘积，除以它得到**每卡** token/s（同一个 batch 被非 DP 维度的卡共同处理，只算一份）；`num_flops_per_token` 来自模型的 `get_nparams_and_flops()`（第七篇：`6N + 12Lhs`）；`gpu_peak_flops` 来自 `torchtitan/tools/utils.py` 的 `get_peak_flops()`——按设备名查表，H100 SXM 返回 989e12、H100 PCIe 756e12、H100 NVL 835e12、A100 312e12，它还会调用 `lspci` 读真实的 PCI 设备名，因为 `torch.cuda.get_device_name()` 分不清 SXM 与 PCIe。一个细节：开 FP8 等量化时 `mfu` 置为 `None`（日志显示 `N/A`），因为按 bf16 峰值算的 MFU 在 FP8 下没有意义——这与第七篇的讨论一致。
+四个量的来源：`ntokens_since_last_log` 由 `Trainer` 的 batch 生成器在每次 `next(data_iterator)` 后累加 `labels.numel()`；`non_data_parallel_size` 是 TP × PP × CP 的乘积，除以它得到**每卡** token/s（同一个 batch 被非 DP 维度的卡共同处理，只算一份）；`num_flops_per_token` 来自模型的 `get_nparams_and_flops()`（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)：`6N + 12Lhs`）；`gpu_peak_flops` 来自 `torchtitan/tools/utils.py` 的 `get_peak_flops()`——按设备名查表，H100 SXM 返回 989e12、H100 PCIe 756e12、H100 NVL 835e12、A100 312e12，它还会调用 `lspci` 读真实的 PCI 设备名，因为 `torch.cuda.get_device_name()` 分不清 SXM 与 PCIe。一个细节：开 FP8 等量化时 `mfu` 置为 `None`（日志显示 `N/A`），因为按 bf16 峰值算的 MFU 在 FP8 下没有意义——这与[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的讨论一致。
 
 同一个 `log()` 还写：`time_metrics/end_to_end(s)`（区间时间除以 `log_freq`，即每 step 时间）、`time_metrics/data_loading(s)` 与 `data_loading(%)`（生成器里 `next()` 前后计时的累加，即数据等待），以及 `DeviceMemoryMonitor.get_peak_stats()` 的六项：`active_bytes.all.peak`、`reserved_bytes.all.peak` 各折成 GiB 与百分比、`num_alloc_retries`、`num_ooms`——后两项非零时直接 `logger.warning`。stdout 上是一行：
 
@@ -244,6 +244,26 @@ flowchart TB
 - **rank 到物理位置的映射**。`RANK` → `hostname` + `LOCAL_RANK` → GPU UUID → 机架/交换机端口。straggler 定位到 rank 之后要能落到一张具体的卡，这张映射表在开训时生成（各 rank 打印 `socket.gethostname()`、`torch.cuda.current_device()` 与 `nvidia-smi -L` 的 UUID），存进 run 的元数据里。
 
 聚合与抽样的原则：任务层聚合（一个数），进程层全采但只在异常时看（Prometheus 的 `topk(5, step_time_seconds)` 一类查询），硬件层全采全看（它是告警源）。日志则反过来：全部留存、按 rank 抽样看。
+
+为什么必须按 rank 计时，实测（`11_obs_toys.py ranks`）：4 个 gloo rank 跑 20 步，rank 1 从 step 8 起 compute 多 30ms：
+
+![rank 与 step 的 compute 时间热力图](/img/in-post/long-running-training-rank-step-heatmap.svg)
+
+```text
+compute_ms 矩阵（行=step，节选）：
+step      rank 0  rank 1  rank 2  rank 3
+   7        11.8    11.9    12.1    12.2
+   8        12.6    49.7    12.6    12.6
+  12        12.9    55.7    12.4    13.0
+  20        11.8    51.9    11.2    11.8
+
+step_ms 矩阵（节选）：
+   7        13.0    12.9    13.1    12.9
+   8        50.5    50.5    50.5    50.6
+  20        52.9    52.9    52.9    52.9
+```
+
+step 时间被 all_reduce 等齐，看不出谁慢；compute 时间里 rank 1 一眼可辨——这就是"聚合出一个数"丢掉的、必须按 rank 保留的信息。
 
 ## 三、hang 排查：Flight Recorder
 
@@ -461,7 +481,7 @@ all_reduce(input_sizes=[[1]], state=scheduled)
             _check_batch at .../train.py
 ```
 
-`-j` 模式按 rank 列出每条记录（`Op.__repr__` 的短格式：操作、输入尺寸、状态；`-v` 给出全部字段），`--print_stack_trace` 把去重后的栈按 `stack_id` 列在后面。rank 5 的第 2891 次集合通信是一个 1 元素的 `all_reduce`，来自 `train.py` 的 `_check_batch`——一段只在某个条件下执行的校验代码，在 rank 5 上被触发了（例如它那份数据里出现了一个坏样本，代码想 all-reduce 一个标志位），其他 rank 没有触发，直接进了下一层的 all-gather。两边都在等：rank 5 等别人参加它的 all_reduce，别人等 rank 5 参加 all-gather。这就是 FR 能给出的全部：**序号、操作、尺寸、状态、发起栈、缺席者**。剩下的（为什么 rank 5 走了那个分支）回到代码与第十篇的数据管线。
+`-j` 模式按 rank 列出每条记录（`Op.__repr__` 的短格式：操作、输入尺寸、状态；`-v` 给出全部字段），`--print_stack_trace` 把去重后的栈按 `stack_id` 列在后面。rank 5 的第 2891 次集合通信是一个 1 元素的 `all_reduce`，来自 `train.py` 的 `_check_batch`——一段只在某个条件下执行的校验代码，在 rank 5 上被触发了（例如它那份数据里出现了一个坏样本，代码想 all-reduce 一个标志位），其他 rank 没有触发，直接进了下一层的 all-gather。两边都在等：rank 5 等别人参加它的 all_reduce，别人等 rank 5 参加 all-gather。这就是 FR 能给出的全部：**序号、操作、尺寸、状态、发起栈、缺席者**。剩下的（为什么 rank 5 走了那个分支）回到代码与[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的数据管线。
 
 把 8 个 rank 的环形缓冲按 `collective_seq_id` 对齐，分析器看到的就是下面这张表——"第一个不一致的列"就是答案，之后 rank 5 的每条记录都会与其他 rank 错开一格：
 
@@ -476,6 +496,34 @@ Table: 8 个 rank 的环形缓冲按 seq 对齐
 
 如果第二步的输出是 "Collective sequence number: 2891 has errors ... Culprit rank 5; Error type: SIZE_OR_SYNTAX_MISMATCH"，说明 rank 5 发了同类型但尺寸不同的张量——变长序列没有 pad 到一致、或某个 rank 的 micro-batch 数不同；如果是 "No errors found"，转第 5 节末尾的硬件路径。
 
+CPU 上完整演练一遍（`11_obs_toys.py fr`）：4 个 gloo rank，rank 3 跳过第 5 次 all_reduce，超时后每个 rank 用 `_dump_fr_trace` 把环形缓冲写成 pickle，交给 `torchfrtrace` 分析：
+
+![各 rank 的 FR 环形缓冲按 seq 对齐](/img/in-post/long-running-training-fr-rings.svg)
+
+<details markdown="1"><summary>toy 输出：每 rank 的 FR 记录与 fr_trace 的诊断</summary>
+
+```text
+4 个 gloo rank；rank 3 跳过第 5 次 all_reduce；超时 4 s
+  rank 0: 6 条，seq [1, 2, 3, 4, 5, 6]
+  rank 1: 6 条，seq [1, 2, 3, 4, 5, 6]
+  rank 2: 6 条，seq [1, 2, 3, 4, 5, 6]
+  rank 3: 5 条，seq [1, 2, 3, 4, 5]
+
+===== torchfrtrace 的分析 =====
+Not all ranks joining collective, sequence number: 6
+collective: gloo:all_reduce
+missing ranks: {3}
+world size: 4
+collective state: scheduled
+collective stack trace:
+ all_reduce at .../distributed_c10d.py
+ _fr_worker at .../11_obs_toys.py
+```
+
+</details>
+
+两点实测细节值得记下。**第一，gloo 也写 FR**：torch 2.14 的 ProcessGroupGloo 同样填这个缓冲，`profiling_name` 是 `gloo:all_reduce`，字段名与正文 §三.2 的表完全一致——toy 没做任何模拟，dump 与分析都是真路径。**第二，错位会传播**：rank 3 跳过了它自己的第 5 次，于是分析器报的不一致落在 seq 6 上（它的 seq 5 对应别人的 seq 6）——"第一个不一致的列"之后每条都错开一格，与正文的表是同一个现象。唯一要补丁的地方：gloo 的 dump 把 `pg_config` 写在空串名下而 entries 里 pg_id 是 `0`，分析前把键对齐即可（toy 代码里两行）。
+
 ### 7. py-spy 与 TORCH_DISTRIBUTED_DEBUG
 
 FR 给的是 NCCL 层的视角。有两类 hang 不在那一层：训练进程卡在 Python 里（dataloader 的 worker 死锁、`.item()` 等一个永远不完成的 kernel、GIL 死锁、日志库的锁），以及 rank 之间根本没到发起通信的那一步。这时用 `py-spy dump --pid <pid>` 直接读一个正在运行的 Python 进程的栈，不需要进程配合、不需要重启：
@@ -488,7 +536,7 @@ for pid in $(pgrep -f 'train.py'); do
 done
 ```
 
-多节点用 `pdsh -w node[001-128]` 把上面的脚本推到每个节点，把输出收回来按 rank 排序。读法：所有 rank 的主线程栈**大多数**停在同一个地方（`work.wait()` / `all_gather_into_tensor`），**少数**停在别处——那少数就是嫌疑人；如果所有 rank 都停在 `DataLoader.__next__` 或 `queue.get`，问题在数据侧（第十篇）；如果栈在 `ncclCommInitRank`，是通信初始化卡住（TCPStore、网络、`NCCL_SOCKET_IFNAME`），与训练逻辑无关。`py-spy dump` 是只读的（用 `process_vm_readv` 读内存），对训练进程没有副作用，可以在生产任务上随时用；它需要与训练进程同一用户或 `CAP_SYS_PTRACE`，容器里要加这个 capability。
+多节点用 `pdsh -w node[001-128]` 把上面的脚本推到每个节点，把输出收回来按 rank 排序。读法：所有 rank 的主线程栈**大多数**停在同一个地方（`work.wait()` / `all_gather_into_tensor`），**少数**停在别处——那少数就是嫌疑人；如果所有 rank 都停在 `DataLoader.__next__` 或 `queue.get`，问题在数据侧（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）；如果栈在 `ncclCommInitRank`，是通信初始化卡住（TCPStore、网络、`NCCL_SOCKET_IFNAME`），与训练逻辑无关。`py-spy dump` 是只读的（用 `process_vm_readv` 读内存），对训练进程没有副作用，可以在生产任务上随时用；它需要与训练进程同一用户或 `CAP_SYS_PTRACE`，容器里要加这个 capability。
 
 `TORCH_DISTRIBUTED_DEBUG`（`torch/csrc/distributed/c10d/debug.cpp` 解析，取值 `OFF` / `INFO` / `DETAIL`）是另一类工具：`DETAIL` 时 `torch/distributed/distributed_c10d.py` 把每个进程组包进 `ProcessGroupWrapper`（`ProcessGroupWrapper.hpp`），**每次集合通信前先在 gloo 上做一次校验**——比较各 rank 的操作类型与张量形状，不一致就在**发起前**抛出带 rank 信息的异常，而不是等 10 分钟超时。同时 `ProcessGroupNCCL` 构造函数在 `DETAIL` 下自动打开 `TORCH_NCCL_DESYNC_DEBUG` 与 `enableTiming_`。代价大（每次通信多一次 CPU 侧的集合通信），**只用于复现阶段**：在 8 卡上开着它跑，能把"rank 相关的控制流"这类 bug 在开训前抓出来；千卡生产任务上不要开。
 
@@ -503,7 +551,7 @@ done
 | 不同 rank 上的 micro-batch 数不同 | rank 间同一 step 内集合通信次数不同 → 序号错位 | m 由 global batch 统一算，不由本地数据量算 |
 | 一个 rank 在 `.item()` 或 `print(tensor)` 上等 | FR 无异常（通信都完成了）；py-spy 停在 `.item()` | 找出并去掉训练循环里的同步点 |
 | NCCL 初始化卡住 | FR 里没有记录（还没开始）；py-spy 在 ncclCommInitRank | TCPStore 可达性、NCCL_SOCKET_IFNAME、防火墙、网卡状态 |
-| 硬件：某卡 kernel 不调度 / 网卡掉 | FR "No errors found"；dmesg 有 XID；DCGM 有 DBE/掉卡 | 隔离节点，重启（第九篇） |
+| 硬件：某卡 kernel 不调度 / 网卡掉 | FR "No errors found"；dmesg 有 XID；DCGM 有 DBE/掉卡 | 隔离节点，重启（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
 | GIL 死锁 / 日志锁 | FR 无异常；py-spy 多个线程互相等锁 | 换日志 handler；避免在 hook 里打日志 |
 | watchdog 自己卡死 | "watchdog got stuck for 480 seconds"，monitor 线程 abort | 通常是 CUDA API hang，按硬件路径处理 |
 
@@ -542,14 +590,14 @@ flowchart TB
 
 ### 1. step 时间慢慢变长的四个嫌疑
 
-hang 是阶跃，性能回归是斜坡：跑了三天，step 时间从 4.75 秒涨到 5.3 秒，MFU 从 42% 滑到 37%，没有任何报错。第七篇的七项拆解针对的是"一开始就不到预期"，本章针对"开始达标、后来变差"。四个嫌疑按出现频率：
+hang 是阶跃，性能回归是斜坡：跑了三天，step 时间从 4.75 秒涨到 5.3 秒，MFU 从 42% 滑到 37%，没有任何报错。[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的七项拆解针对的是"一开始就不到预期"，本章针对"开始达标、后来变差"。四个嫌疑按出现频率：
 
 | 嫌疑 | 机制 | 证据（哪个指标） | 处置 |
 |---|---|---|---|
 | 显存碎片 | Caching Allocator 的块被切碎，大分配找不到连续块 → cudaFree + cudaMalloc 反复（每次是设备同步）→ step 时间上涨 | inactive_split_bytes 持续上涨<br/>num_alloc_retries > 0<br/>num_device_alloc / num_device_free 稳态下仍增长 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`<br/>固定形状<br/>避免每 step 变化的临时大张量 |
 | 日志过多 | 每 step 打几十行、或某个 warning 被触发几千次 → 主线程在写 stdout（经常是同步的管道） | stdout 字节数 / step 上涨<br/>py-spy 栈频繁在 logging<br/>data_loading(%) 不变但 end_to_end 涨 | 限流 warning<br/>warning 只在 rank 0<br/>日志 handler 异步 |
-| 数据加载队列 | 数据源变慢（对象存储限流、某个 shard 大文件、在线 tokenize 遇到长文档）→ GPU 等数据 | data_loading(s) 与 data_loading(%) 上涨<br/>GPU 有空隙 | 预取深度<br/>worker 数<br/>离线 tokenize（第十篇） |
-| 温度降频 | 机房温度 / 某节点风扇 / 某卡散热片 → SM 时钟从 1.98 GHz 掉到 1.3 GHz → 该卡成为 straggler → 全体等它 | DCGM_FI_DEV_SM_CLOCK 下降<br/>CLOCK_THROTTLE_REASONS 温度位<br/>GPU_TEMP 上升<br/>该 rank 的 fwd_bwd 时间偏长 | 隔离节点（straggler，第九篇）<br/>报机房 |
+| 数据加载队列 | 数据源变慢（对象存储限流、某个 shard 大文件、在线 tokenize 遇到长文档）→ GPU 等数据 | data_loading(s) 与 data_loading(%) 上涨<br/>GPU 有空隙 | 预取深度<br/>worker 数<br/>离线 tokenize（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)） |
+| 温度降频 | 机房温度 / 某节点风扇 / 某卡散热片 → SM 时钟从 1.98 GHz 掉到 1.3 GHz → 该卡成为 straggler → 全体等它 | DCGM_FI_DEV_SM_CLOCK 下降<br/>CLOCK_THROTTLE_REASONS 温度位<br/>GPU_TEMP 上升<br/>该 rank 的 fwd_bwd 时间偏长 | 隔离节点（straggler，[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)）<br/>报机房 |
 
 Table: step 时间慢慢变长的四个嫌疑
 
@@ -557,9 +605,25 @@ Table: step 时间慢慢变长的四个嫌疑
 
 排查顺序由代价决定：先看指标（零成本）——四个嫌疑各有一个决定性的指标，一分钟内可以排除三个；再看 py-spy（几秒，无副作用）；最后才是 profiler（要重启任务或等下一个采样窗口）。
 
+"渐变慢在堆叠图上直接可见"用 toy 演示（`11_obs_toys.py timers`）：一个分阶段计时的训练循环，data 从 step 60 起每步 +2ms（模拟数据源限流），加一个回归检测器——20 步窗口中位数对基线涨 10% 就报警：
+
+![step 时间的分阶段堆叠与检测器开火](/img/in-post/long-running-training-step-time-phases.svg)
+
+```text
+阶段基准：data 12 / fwd 30 / bwd 48 / opt 10 (ms)
+  step  30  total  100.2ms  data  11.8  fwd 29.8  bwd 48.5  opt 10.2
+  step  76  total  133.5ms  data  44.5  fwd 30.6  bwd 48.5  opt  9.9
+  step 120  total  222.5ms  data 133.5  fwd 30.6  bwd 48.5  opt  9.9
+
+回归检测器：基线 100.1ms，>10% 报警 → 第 76 步开火
+step 60 占比：data 12%  step 120 占比：data 60%（其余阶段没变）
+```
+
+检测器不需要知道是哪个嫌疑——开火了再看堆叠里哪一层在变厚。这正是 torchtitan `data_loading(%)` 一类分阶段指标存在的意义：先报"慢了"，再一眼看出"哪层厚了"。
+
 ### 2. profiler 时间线对比
 
-回归的证据是"现在"与"以前"的差，所以要有"以前"的 trace。第七篇的配置纪律要求每次基准存一份 profiler trace，本章用它：用 `mfu_breakdown.py`（第七篇）把新旧两份 trace 各拆成七项，做差——哪一项涨了，就是回归所在。
+回归的证据是"现在"与"以前"的差，所以要有"以前"的 trace。[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的配置纪律要求每次基准存一份 profiler trace，本章用它：用 `mfu_breakdown.py`（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)）把新旧两份 trace 各拆成七项，做差——哪一项涨了，就是回归所在。
 
 | 项 | 基准（第 100 步） | 现在（第 51,300 步） | 差 | 结论 |
 |---|---|---|---|---|
@@ -576,7 +640,7 @@ Table: 新旧两份 trace 的七项拆解对比
 
 `cpu_launch` 涨 0.5 秒而 `compute_s` 不变，把范围缩到"CPU 侧在 step 内多做了什么"——配合 `num_alloc_retries` 的上涨，就是碎片。若是 `compute_s` 整体涨、且只在某些 rank 上涨，是降频或硬件；若是 `data_wait` 涨，是数据；若是 `comm_exposed` 涨而 `compute_s` 不变，是网络。这张差分表把四个嫌疑对应到四个不同的桶，这是它比看单一 MFU 数字有用的地方。
 
-生产任务上拿 trace 的方式：torchtitan 的 `Profiler.Config` 按 `profile_freq` 周期性采（第七篇），trace 落在 `dump_folder`；Megatron 的 `--profile-step-start/end` 只在指定步采一次，所以长时任务里要靠重启时改参数或用 Nsight 的 `cudaProfilerApi` 区间。周期性采样的代价：一个 step 的 trace 几十到几百 MB，每小时采一次、只在 3–4 个 rank 上采，一周下来几十 GB，可以接受。
+生产任务上拿 trace 的方式：torchtitan 的 `Profiler.Config` 按 `profile_freq` 周期性采（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)），trace 落在 `dump_folder`；Megatron 的 `--profile-step-start/end` 只在指定步采一次，所以长时任务里要靠重启时改参数或用 Nsight 的 `cudaProfilerApi` 区间。周期性采样的代价：一个 step 的 trace 几十到几百 MB，每小时采一次、只在 3–4 个 rank 上采，一周下来几十 GB，可以接受。
 
 ### 3. 少数 rank 上的 Nsight Systems
 
@@ -599,7 +663,7 @@ fi
 
 ### 4. 与七项拆解的衔接
 
-第七篇的七项是**空间分解**（一个 step 的时间去了哪里），本章的四个嫌疑是**时间分解**（哪一项随时间变了）。两者用同一份工具（`mfu_breakdown.py` 与 trace），区别只在于本章要两份 trace 做差。straggler 是两者的交点：第七篇说它在时间线上表现为"集合通信 kernel 时长远超字节数除以带宽"，本章补上它的**时间性**——一张卡的降频、一条链路的错误计数上涨，都是渐进的，在硬件层指标上比在 MFU 上更早可见。所以"step 时间从 12 秒变成 40 秒"这个核心问题里，先看的不是 profiler，而是：`topk(3, step_time_seconds)` 是不是集中在某几个 rank；那几个 rank 所在卡的 `DCGM_FI_DEV_SM_CLOCK` 与 `NVLINK_*_ERROR_COUNT` 有没有异常；`data_loading(%)` 有没有涨；`inactive_split_bytes` 有没有涨。四个查询，一分钟，四个嫌疑各排除或坐实一个。查询有先后：第一刀先切"少数 rank 还是全体"，因为它把硬件嫌疑与其余三个分开，后面的每一步都只在自己那一侧查：
+[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的七项是**空间分解**（一个 step 的时间去了哪里），本章的四个嫌疑是**时间分解**（哪一项随时间变了）。两者用同一份工具（`mfu_breakdown.py` 与 trace），区别只在于本章要两份 trace 做差。straggler 是两者的交点：[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)说它在时间线上表现为"集合通信 kernel 时长远超字节数除以带宽"，本章补上它的**时间性**——一张卡的降频、一条链路的错误计数上涨，都是渐进的，在硬件层指标上比在 MFU 上更早可见。所以"step 时间从 12 秒变成 40 秒"这个核心问题里，先看的不是 profiler，而是：`topk(3, step_time_seconds)` 是不是集中在某几个 rank；那几个 rank 所在卡的 `DCGM_FI_DEV_SM_CLOCK` 与 `NVLINK_*_ERROR_COUNT` 有没有异常；`data_loading(%)` 有没有涨；`inactive_split_bytes` 有没有涨。四个查询，一分钟，四个嫌疑各排除或坐实一个。查询有先后：第一刀先切"少数 rank 还是全体"，因为它把硬件嫌疑与其余三个分开，后面的每一步都只在自己那一侧查：
 
 ```mermaid
 %% 图：step 变慢的时间分解：先看是否少数 rank 拖全体，再从 DCGM 时钟、温度、链路错误区分 straggler 类型，全体变慢看数据与分配器
@@ -682,6 +746,32 @@ Prometheus 规则的形式（完整文件见第八章的 `dash/alerts.yml`）：
 
 千卡任务的告警会**成串**来：一张卡 XID → 该 rank 崩溃 → 其他 1023 个 rank 超时 → 1023 条 "step stalled"（如果按 rank 告警）→ torchrun 重启 → 1024 条 "process restarted"。三条纪律：任务级指标（step 计数、loss）**按 job 聚合后告警**，不按 rank；硬件级告警按卡，但用 Alertmanager 的 `group_by: [job]` 把同一任务 5 分钟内的告警合成一条通知；设 `inhibit_rules`——`TrainingRestarting` 活跃时抑制同一 job 的 `TrainingStepStalled`，`GpuXidError` 活跃时抑制同一节点的 `GpuClockLow`。目标是值班的人在凌晨三点收到**一条**消息："run42 的 step 停在 51,300，node037 gpu 5 在 02:58 报 XID 79，自动重启进行中（第 1 次）"——而不是一千条。
 
+把这三条纪律放在一条时间轴上看（`11_obs_toys.py alert`——规则评估的模拟，不是真的 Prometheus）：合成的吞吐曲线在 10:00–15:00 掉到 -20%，心跳在 23:30 后不再前进，25:00–28:00 有一个自动重启窗口：
+
+![告警规则评估的时间轴](/img/in-post/long-running-training-alert-timeline.svg)
+
+<details markdown="1"><summary>规则评估输出（for: 语义 + inhibit 的模拟）</summary>
+
+```text
+规则：
+  TrainingStepStalled  page   for:0m   time-last_step>90
+  ThroughputDip        record for:2m   throughput<850 持续 2 分钟
+  TrainingMfuDegraded  page   for:30m  throughput<850 持续 30 分钟
+  inhibit：TrainingRestarting 活跃时抑制 TrainingStepStalled
+
+  10:00  [record]          ThroughputDip  pending
+  10:00  [  page]    TrainingMfuDegraded  pending
+  12:00  [record]          ThroughputDip  firing
+  15:00  [record]          ThroughputDip  resolved
+  15:00  [  page]    TrainingMfuDegraded  pending 消失（expr 不再成立）
+  25:15  [  page]    TrainingStepStalled  pending
+  25:15  [  page]    TrainingStepStalled  firing（被 TrainingRestarting 抑制）
+```
+
+</details>
+
+`for:` 的作用在这张图上很清楚：5 分钟的 -20% dip 让 `MfuDegraded` 进了 pending 但没熬到 `for: 30m`，所以一次短波动不会 page 人；`StepStalled` 是 `for: 0m` 立即 firing，但落在重启窗口里被抑制——值班的人只收到重启那一条，这就是"凌晨三点一条消息"的来源。
+
 ### 4. 任务状态与告警的对应
 
 抑制规则和值班手册里的升级条件，背后是同一个东西：从运维视角看，一个运行中的任务只有几个状态，每条告警只在特定状态下有意义，每个状态迁移要么是自动的（torchrun / ft_launcher 触发）、要么要人来决定。把它画出来，抑制规则就不是零散的经验，而是"同一状态下不重复报"这一条原则的展开：
@@ -732,18 +822,18 @@ flowchart TB
 
 | 项 | 做什么 | 通过标准 | 出处 |
 |---|---|---|---|
-| 硬件自检 | 每张卡跑 gpu_sniff_test 类的自检：显存读写、GEMM 达峰、NVLink 带宽 | 达峰率 > 95% 且节点内一致<br/>无 XID | 第九篇 |
-| 节点间带宽 | 每对相邻节点的 all-reduce / all-gather 带宽（当作黑盒测） | 与标称网卡带宽差 < 15%<br/>无异常慢的节点 | 第二篇（通信量） |
+| 硬件自检 | 每张卡跑 gpu_sniff_test 类的自检：显存读写、GEMM 达峰、NVLink 带宽 | 达峰率 > 95% 且节点内一致<br/>无 XID | [第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html) |
+| 节点间带宽 | 每对相邻节点的 all-reduce / all-gather 带宽（当作黑盒测） | 与标称网卡带宽差 < 15%<br/>无异常慢的节点 | [第二篇《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)（通信量） |
 | 时钟与降频 | 满载 5 分钟，读 DCGM_FI_DEV_SM_CLOCK 与 THROTTLE_REASONS | 全部卡贴近最大时钟，无温度/功耗墙 | 本篇 |
 | 显存账对账 | 用 ledger 算出的每卡显存 vs 小规模 dry-run 的 allocated peak | 实测在计算值 ±10% 内<br/>reserved 留 10% 余量 | 第一、二、三篇 |
-| MFU 基准 | 100 步稳态，记录 step 时间 p50/p95、MFU、trace 一份 | MFU 在预期区间<br/>p95/p50 < 1.15 | 第七篇 |
+| MFU 基准 | 100 步稳态，记录 step 时间 p50/p95、MFU、trace 一份 | MFU 在预期区间<br/>p95/p50 < 1.15 | [第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html) |
 | checkpoint 保存与恢复演练 | 存一次、kill 全部进程、从 checkpoint 恢复、比对 loss 与数据位置 | loss 精确衔接<br/>数据顺序一致<br/>保存时长 δ 已记录 | 第五、七篇 |
-| 换配置加载 | 用不同 DP/TP 加载同一 checkpoint | 成功且 loss 一致 | 第八篇 |
-| 故障注入 | kill 一个 rank；人为拖慢一个 rank；篡改一个梯度 | 自动重启成功<br/>straggler 被检测<br/>SDC 被检测 | 第九篇 |
+| 换配置加载 | 用不同 DP/TP 加载同一 checkpoint | 成功且 loss 一致 | [第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html) |
+| 故障注入 | kill 一个 rank；人为拖慢一个 rank；篡改一个梯度 | 自动重启成功<br/>straggler 被检测<br/>SDC 被检测 | [第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html) |
 | Flight Recorder | TORCH_FR_DUMP_TEMP_FILE 指向持久且可收集的路径；跑一次 hang 演练 | 所有 rank 的 dump 都能收到<br/>fr_trace 指出正确 rank | 本篇 |
 | 指标与告警 | Prometheus 抓到每个 rank 的 train_*、每张卡的 DCGM_*；测试 page 通路 | 人为停止 step 计数 → 2 分钟内收到 page | 本篇 |
 | 日志 | torchrun --log-dir 落盘；rank → host/GPU 映射表已生成 | 每 rank 一个文件<br/>能从 rank 号查到物理卡 | 本篇 |
-| 配置留痕 | 启动脚本、环境变量、镜像 tag、框架 commit 进 git；启动时打印全部参数 | 变更表有条目 | 第七篇 |
+| 配置留痕 | 启动脚本、环境变量、镜像 tag、框架 commit 进 git；启动时打印全部参数 | 变更表有条目 | [第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html) |
 | 值班 | runbook 已更新；值班表已排；page 通路已测 |  | 本篇 |
 
 Table: 开训前的检查清单
@@ -816,7 +906,7 @@ runbook 的形式是"症状 → 五分钟内的检查 → 处置 → 升级条�
   - 3. rendezvous 8 min 偏长：查 TCPStore 与镜像拉取
 - **行动项：<负责人> <截止日期> ×3**
 
-模板里两处数字是可以在复盘会上直接讨论的：**检测时间**（page 距事件多久）和**恢复时间的分解**（人工 / 重启 / 加载 / 回退各占多少）——它们就是第九篇有效训练时间公式里的项，复盘的产出就是决定缩短哪一项。
+模板里两处数字是可以在复盘会上直接讨论的：**检测时间**（page 距事件多久）和**恢复时间的分解**（人工 / 重启 / 加载 / 回退各占多少）——它们就是[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)有效训练时间公式里的项，复盘的产出就是决定缩短哪一项。
 
 ## 七、成本视角
 
@@ -826,7 +916,7 @@ $$
 \text{每小时} = 1024 \times 2.5 = 2{,}560\ \text{美元}, \qquad \text{每天} \approx 61{,}000\ \text{美元}, \qquad \text{30 天} \approx 1.84\ \text{M 美元}
 $$
 
-**一个 MFU 百分点**：设计目标 42%，一个点是吞吐的 $$1/42 \approx 2.4\%$$。一个跑 30 天的任务，1 个 MFU 点等于 0.71 天，约 44,000 美元；第七篇那 10 个点就是 44 万美元，或者一周的训练时间。这解释了为什么第七篇说"MFU 从 32% 到 42% 不是锦上添花"。
+**一个 MFU 百分点**：设计目标 42%，一个点是吞吐的 $$1/42 \approx 2.4\%$$。一个跑 30 天的任务，1 个 MFU 点等于 0.71 天，约 44,000 美元；[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)那 10 个点就是 44 万美元，或者一周的训练时间。这解释了为什么[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)说"MFU 从 32% 到 42% 不是锦上添花"。
 
 **一次 hang**：从停止到 step 时间恢复基准，第六章复盘那个例子是 67 分钟（含回退重算），约 1,143 GPU 小时、2,860 美元。其中 43 分钟的停机可以拆成：检测 100 秒（有告警）或 10 分钟（只靠 NCCL 默认超时）、dump 与等待 1–2 分钟、人工决策 9 分钟（有 runbook）或 30 分钟以上（没有）、重启与 rendezvous 8 分钟、加载 7 分钟、回退重算 24 分钟。**告警与 runbook 两项合起来省下的时间（约 30 分钟 = 512 GPU 小时 = 1,280 美元）每次事故都在发生**——以每三小时一次的频率，一天 8 次，一个月就是 30 万美元。这就是本篇讨论的东西的价格。把两种情形的时间线并排（每格约 2 分钟），省下的正是最前面和中间那两段——检测靠告警、决策靠 runbook，其余四段（dump、重启、加载、回退重算）与监控无关：
 
@@ -834,7 +924,7 @@ $$
 
 两条相差约 30 分钟 × 1024 卡 ≈ 512 GPU 小时 ≈ 1,280 美元/次；每 3 h 一次，一天 8 次，≈ 30 万美元/月。
 
-**checkpoint 间隔**：第八篇的 Young 公式给出 $$\tau_{opt} \approx \sqrt{2\delta M}$$。$$\delta = 45$$ 秒（异步保存对 step 的实际干扰）、$$M = 3$$ 小时时 $$\tau_{opt} \approx 16$$ 分钟；间隔从 24 分钟缩到 16 分钟，平均回退重算从 12 分钟降到 8 分钟，每次故障省 4 分钟 × 1024 卡 = 68 GPU 小时，一天 8 次就是 550 GPU 小时，约 1,400 美元/天——而代价是每天多存 30 次 checkpoint 的存储与 I/O。
+**checkpoint 间隔**：[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 Young 公式给出 $$\tau_{opt} \approx \sqrt{2\delta M}$$。$$\delta = 45$$ 秒（异步保存对 step 的实际干扰）、$$M = 3$$ 小时时 $$\tau_{opt} \approx 16$$ 分钟；间隔从 24 分钟缩到 16 分钟，平均回退重算从 12 分钟降到 8 分钟，每次故障省 4 分钟 × 1024 卡 = 68 GPU 小时，一天 8 次就是 550 GPU 小时，约 1,400 美元/天——而代价是每天多存 30 次 checkpoint 的存储与 I/O。
 
 把这些数字放在一起，就有了优先级：
 
@@ -895,7 +985,7 @@ Table: 三项优化的投入与月度收益
 |  | `megatron/training/config/resilience_config.py` | StragglerDetectionConfig：log_straggler · straggler_ctrlr_port · straggler_minmax_count · disable_straggler_on_startup |
 |  | `megatron/core/utils.py` | StragglerDetector（configure / report） |
 |  | `megatron/training/utils/common_utils.py` | report_memory · print_rank_last |
-|  | `megatron/training/ft_integration.py` | RankMonitorClient 的接入（心跳，第九篇） |
+|  | `megatron/training/ft_integration.py` | RankMonitorClient 的接入（心跳，[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
 | torchtitan v0.3.0 | `torchtitan/components/metrics.py` | DeviceMemoryMonitor.get_peak_stats · BaseLogger / TensorBoardLogger / WandBLogger / LoggerContainer · _get_metrics_rank · MetricsProcessor（Config：log_freq / enable_tensorboard / enable_wandb / save_for_all_ranks；log；log_validation） |
 |  | `torchtitan/tools/utils.py` | get_peak_flops（按设备名查标称峰值；lspci 区分 SXM/PCIe/NVL） |
 |  | `torchtitan/trainer.py` | ntokens_since_last_log / data_loading_times 的累加；dist_sum / dist_max 归约 loss；isfinite 检查；sl.log_trace_span 埋点 |
@@ -905,7 +995,7 @@ Table: 三项优化的投入与月度收益
 |  | `torchtitan/observability/structured_logger/gantt_generator.py` | generate_gantt_trace（JSONL → Chrome trace） |
 |  | `torchtitan/distributed/utils.py` | init_distributed：强制 TORCH_NCCL_ASYNC_ERROR_HANDLING=3；按 CommConfig 设 TORCH_FR_BUFFER_SIZE / TORCH_NCCL_DUMP_ON_TIMEOUT / TORCH_FR_DUMP_TEMP_FILE |
 |  | `torchtitan/config/configs.py` | CommConfig：init_timeout_seconds（300）· train_timeout_seconds（100）· trace_buf_size（20000）· save_traces_folder · save_traces_file_prefix<br/>DebugConfig.enable_structured_logging |
-|  | `torchtitan/tools/profiler.py` | Profiler.Config（第七篇） |
+|  | `torchtitan/tools/profiler.py` | Profiler.Config（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)） |
 | DeepSpeed 0.19.2 | `deepspeed/utils/timer.py` · `deepspeed/monitor/` · `deepspeed/profiling/flops_profiler/` | SynchronizedWallClockTimer · ThroughputTimer；tensorboard/wandb/comet/csv monitor；flops profiler |
 | 工具 |  | torchfrtrace · py-spy dump · nsys profile --capture-range=cudaProfilerApi · dcgm-exporter · perfquery · Prometheus / Alertmanager / Grafana |
 
@@ -926,7 +1016,7 @@ train-ledger/
   runbook.md             值班手册骨架（第六章第 2 节的五个症状）
 ```
 
-**`dash/jsonl_exporter.py`**：第十篇的 `signals/logger.py` 每 step 追加一行 JSON（`t`、`step`、`rank`、`loss`、`grad_norm`、`param_norm`、`lr`、`loss_scale`、`skipped`、`num_zeros_in_grad`、`max_attn_logit`、`consumed_samples`），每 rank 一个文件；本篇给它再加一组性能与显存字段——`step_time_s`、`tps`、`mfu`、`data_wait_s`，以及从 `torch.cuda.memory_stats()` 取的 `mem_allocated_peak`、`mem_reserved_peak`、`mem_inactive_split`、`num_alloc_retries`——第十篇只管数值信号，这些字段属于本篇的三层指标。exporter 在每个节点上跑一个，tail 该节点所有 rank 的文件，把最新一行的数值字段变成带 `rank` 标签的 gauge，另外维护 `train_last_step_completed_timestamp_seconds` 与 `train_loss_is_finite`——前者是 hang 告警的依据，后者把 NaN 变成一个能告警的 0/1。它只依赖 `prometheus_client`：
+**`dash/jsonl_exporter.py`**：[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的 `signals/logger.py` 每 step 追加一行 JSON（`t`、`step`、`rank`、`loss`、`grad_norm`、`param_norm`、`lr`、`loss_scale`、`skipped`、`num_zeros_in_grad`、`max_attn_logit`、`consumed_samples`），每 rank 一个文件；本篇给它再加一组性能与显存字段——`step_time_s`、`tps`、`mfu`、`data_wait_s`，以及从 `torch.cuda.memory_stats()` 取的 `mem_allocated_peak`、`mem_reserved_peak`、`mem_inactive_split`、`num_alloc_retries`——[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)只管数值信号，这些字段属于本篇的三层指标。exporter 在每个节点上跑一个，tail 该节点所有 rank 的文件，把最新一行的数值字段变成带 `rank` 标签的 gauge，另外维护 `train_last_step_completed_timestamp_seconds` 与 `train_loss_is_finite`——前者是 hang 告警的依据，后者把 NaN 变成一个能告警的 0/1。它只依赖 `prometheus_client`：
 
 ```python title="dash/jsonl_exporter.py"
 #!/usr/bin/env python3
