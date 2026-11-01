@@ -10,7 +10,7 @@ updated: 2026-09-20
 
 一张 H100 有 80 GB 显存、标称 989 TFLOPS 的 bf16 算力。一个 70B 参数的模型，用 bf16 混合精度加 Adam 训练，参数、梯度和[优化器状态](# "tip: 优化器为每个参数额外维护的数：AdamW 是一阶矩 m、二阶矩 v 各一个 fp32，再加一份 fp32 主参数，共 12 字节/参数，占混合精度训练常驻显存的 3/4；第二章第 1 节展开")加在一起是 1.13 TB——是那张卡的 14 倍。序列长 8192 时，它每一层的激活值还要 2.3 GB（每层约 34·s·b·h 字节，$$34 \times 8192 \times 1 \times 8192 \approx 2.28 \times 10^9$$；系数 34 的逐项来源见[第四章第 1 节](#1-公式与各项来源)），80 层就是 180 GB。每个 token 的前向加反向要 4.5×10¹¹ 次浮点运算，一条 8192 token 的序列在一张卡上就算满了也要 3.7 秒。
 
-这几个数字是本系列后面七篇的全部起点。并行策略要解决的是"1.13 TB 放到哪些卡上"；micro-batch 与激活重计算要解决的是"180 GB 的激活怎么塞进剩下的显存"；MFU 调优要解决的是"3.7 秒的理论下限实际跑成了多少"；checkpoint 要解决的是"这 1.13 TB 里哪些必须落盘、多久落一次"；容错要解决的是"一部分卡消失后这些字节怎么重建"。不先把这些数字算出来，后面的每一个决定都只能靠试。
+这几个数字是本系列后面各篇的全部起点。并行策略要解决的是"1.13 TB 放到哪些卡上"；micro-batch 与激活重计算要解决的是"180 GB 的激活怎么塞进剩下的显存"；MFU 调优要解决的是"3.7 秒的理论下限实际跑成了多少"；checkpoint 要解决的是"这 1.13 TB 里哪些必须落盘、多久落一次"；容错要解决的是"一部分卡消失后这些字节怎么重建"。不先把这些数字算出来，后面的每一个决定都只能靠试。
 
 算这些数字不需要 GPU，只需要一套一致的记账方法：训练任务的状态只有四样——**参数、梯度、优化器状态、激活**——每一样有明确的字节数公式、明确的生命周期；算力只有一个主项——每个参数每个 token 6 FLOP（前向一次乘加 2 FLOP，反向对输入、对权重各一次乘加 4 FLOP；第六章第 1 节推导）——加一个随序列长度增长的注意力项。把它们与硬件的两个数字（显存容量、峰值 FLOPS）放在一起，就得到显存够不够、step 时间下限是多少、MFU 是多少这三个答案。
 
@@ -25,6 +25,12 @@ updated: 2026-09-20
 ## 一、总览
 
 ### 1. 四种状态与一张卡
+
+先把问题摆出来：Llama 3 的 8B，最小的那一档，bf16 混合精度加 Adam、按 Megatron 默认的 fp32 累加梯度，四种状态加上一层一层算出来的激活，再放一点非张量开销，是多少？
+
+![Llama 3 8B 的显存账放进一张 80 GB H100：bf16 参数 2N、fp32 梯度 4N、fp32 主参数 4N、Adam m 4N、Adam v 4N 合计 18N = 144.5 GB，加上激活与 logits 42.8 GB、非张量开销约 10 GiB，堆叠条约 198 GB，超出 80 GB 容量线约 118 GB](/img/in-post/training-state-budget-overview.svg)
+
+常驻状态 144.5 GB、激活 42.8 GB、非张量开销约 10 GiB，合计约 198 GB——一张 80 GB 的卡装它的三分之一都勉强。所以"一张卡装不下"不是比喻，是这一根堆叠条超出容量线两倍多的字面事实。后面每一篇做的事都可以在这张图上标出来：ZeRO 是把右边四段按 DP 切到别的卡上，TP/PP 是把每一段按张量或按层切开，重计算是把激活那一段换成再算一次，offload 是把它们暂时挪到内存。在展开这些之前，先把这根条上每一块是什么讲清楚。
 
 训练引擎围绕状态组织。一个训练任务在任一时刻持有的全部数据可以归成四类：
 
@@ -58,6 +64,10 @@ Table: 训练的四种状态及其字节数
 
 Table: 字节的账与 FLOP 的账
 
+把两本账各画成一句话，就是下面这张图：
+
+![两本账：左边字节账（状态 + 激活 + 开销 ≤ 每卡可用显存约 70 GiB，8B 的 16N = 128.5 GB 单卡放不下）；右边 FLOP 账（tokens/step × FLOP/token ÷ 卡数 × 峰值 = step 下限，70B 4M token 1024 卡下限 1.86 s，实测 4.5 s 即 MFU 41.3%）](/img/in-post/training-state-two-ledgers.svg)
+
 两本账的公式都很短，容易算错的是**系数**：每参数到底 16 字节还是 18 字节、激活里那个 34 从哪来、6N 的 N 算不算 embedding、注意力的 $$s^2$$ 项要不要乘 1/2。本篇的大部分篇幅花在把这些系数的来源讲清楚，并与 Megatron 源码里的同一个系数对上。
 
 ### 3. 记账符号
@@ -79,7 +89,7 @@ Table: 字节的账与 FLOP 的账
 | $$m$$ | 每个 DP 副本每 step 的 micro-batch 数 | 即梯度累积步数 |
 | $$B$$ | global batch，以 token 计 | $$B = s \cdot b \cdot m \cdot N_d$$ |
 | $$\delta$$ | 一次 checkpoint 的开销时间 | 第八篇 |
-| $$M$$ | 集群的平均故障间隔 MTBF | 第五、六篇 |
+| $$M$$ | 集群的平均故障间隔 MTBF | 第八、九篇 |
 
 Table: 全系列的记账符号
 
@@ -137,9 +147,9 @@ Table: 本文的章节安排
 
 ### 2. 一个 step 的时间线
 
-把四种状态在一个 step 内的占用画出来（单卡、无并行、$$m = 1$$）：
+把四种状态在一个 step 内的占用画出来（单卡、无并行、$$m = 1$$；曲线的形状由 `01_state_toys.py timeline` 在一个 L=8 的小模型上真量出来——`saved_tensors_hooks` 记激活进出、`post-accumulate` hook 记每块梯度到账，纵轴再按 8B 的表格数字线性换算）：
 
-![四种状态在一个 step 内的显存占用随时间的变化：bf16 参数 2N 与优化器状态 12N 是两条常驻的水平带；激活在前向阶段逐层堆高、在反向阶段逐层释放，形成一个峰在前向末的三角；梯度在反向阶段逐层填满、在 optimizer.step() 后清零，峰在反向末。两个峰值不在同一时刻](/img/in-post/training-state-step-timeline.svg)
+![四种状态在一个 step 内的显存占用随时间的变化：bf16 参数 2N 与 fp32 主参数加 Adam m、v 12N 是两条常驻的水平带；激活在前向阶段逐层堆高、在反向阶段逐层释放，峰在前向末；梯度在反向阶段逐层填满、在 optimizer.step() 后清零，峰在反向末。曲线形状来自 toy 的 saved_tensors_hooks 与梯度 hook，纵轴按 8B 尺寸换算](/img/in-post/training-state-step-timeline.svg)
 
 三点值得注意。第一，**峰值不在同一时刻**：激活的峰值在前向结束处，梯度的峰值在反向结束处，两者不同时达到最大。所以"参数 + 梯度 + 优化器状态 + 激活"简单相加是一个**保守的**上界；精确的峰值是 $$\max(\text{前向末}, \text{反向末})$$，取决于激活总量与梯度总量谁大。对大模型、小 micro-batch，激活往往比梯度小（70B、$$b = 1$$、有 FlashAttention 时 180 GB 激活对 141 GB 梯度——差不多），所以上界通常不算太保守。
 
@@ -185,6 +195,23 @@ bf16 有 8 位指数、7 位尾数，能表示的相对精度约 $$2^{-8} \appro
 Table: bf16 混合精度 + Adam 下每参数的常驻字节
 
 分成三类就是本篇 `StateBytes` 的三个字段：`params_bytes = 2N`、`grads_bytes = 2N`、`optim_bytes = 12N`。优化器一类占 75%，这是 ZeRO-1 只切优化器状态就能省掉 3/4 显存的原因（第二篇）。
+
+这张表可以在 CPU 上量出来：`01_state_toys.py bytes` 用一个小模型真跑一步，fp32 主参数与 Adam 两个矩照 Megatron 的方式手动维护，然后遍历所有张量统计真实字节：
+
+<details markdown="1"><summary>toy 输出：逐项对上 16N</summary>
+
+```text
+== bytes：小模型 L=2 h=256 f=688 V=1000，Megatron 式混合精度手动管理
+  bf16 参数       3.93 MB   公式 2N =  3.93 MB   一致
+  bf16 梯度       3.93 MB   公式 2N =  3.93 MB   一致
+  fp32 主参数     7.86 MB   公式 4N =  7.86 MB   一致
+  Adam m          7.86 MB   公式 4N =  7.86 MB   一致
+  Adam v          7.86 MB   公式 4N =  7.86 MB   一致
+  常驻合计       31.42 MB   16N = 31.42 MB   N = 1.96 M
+  若梯度 fp32（Megatron 默认 main_grad）：18N = 35.35 MB（多出 2N = 3.93 MB）
+```
+
+</details>
 
 这个 16 与 ZeRO 论文（Rajbhandari et al. 2020）的 $$K = 12$$ 是同一件事：论文把 fp16 参数与梯度记为 $$2N + 2N$$，把 fp32 主参数与两个矩合记为 $$KN = 12N$$，总计 $$(2 + 2 + K)N = 16N$$。
 
@@ -267,6 +294,43 @@ $$
 | **每层每 token** | 11h + 19h + 4h = 34h，外加 5as | **34h + 5as** → 每层 sbh(34 + 5as/h) |
 
 Table: 每层为反向保留的张量与每 token 字节
+
+这张表里的每一项都是"面积"：按每 token 字节数把一层的激活画成比例条，就能看出大头在哪：
+
+![一层 Transformer 激活的逐项面积：34sbh 部分（注意力、MLP、LayerNorm 各项）只占小头，5as²b 的注意力分数矩阵占大头并以灰色斜线标出——FlashAttention 不物化它](/img/in-post/training-state-activation-breakdown.svg)
+
+公式是纸面口径；PyTorch 实际为反向保存的张量可以用 `saved_tensors_hooks` 量出来。`01_state_toys.py activations` 照论文的结构搭一个 GPT 块（两个 LayerNorm、有 dropout 的多头注意力、4h GELU MLP，bf16，朴素注意力即分数矩阵物化），把每个保存下来的张量按来源分组：
+
+<details markdown="1"><summary>toy 输出：实测 1.18× 公式，差异逐项有因</summary>
+
+```text
+  ln1   激活  66.0 KB   公式 512 B/tok → 65.5 KB   除输入 2h 外还保存 mean/rstd（bf16，各 1 个/位置）
+  qkv   激活 196.6 KB   公式 512 B/tok → 65.5 KB   三个投影各自保存同一份输入；论文按共享输入计一次
+  qk^t  激活 131.1 KB   公式 1024 B/tok → 131.1 KB
+  softmax 激活 65.5 KB   公式  512 B/tok →  65.5 KB
+  attn_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  公式按 bool mask 1 B/元素；实测保存 bf16 mask（2 B/元素）
+  pv    激活 131.1 KB   公式 1024 B/tok → 131.1 KB  V + dropout 后的注意力矩阵
+  out_proj 激活 65.5 KB  公式 512 B/tok → 65.5 KB   线性层为 wgrad 保存输入
+  out_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  bf16 mask 同上
+  ln2   激活  66.0 KB   公式 512 B/tok → 65.5 KB
+  fc1   激活  65.5 KB   公式 512 B/tok → 65.5 KB
+  gelu  激活 262.1 KB   公式 2048 B/tok → 262.1 KB
+  fc2   激活 262.1 KB   公式 2048 B/tok → 262.1 KB
+  mlp_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  bf16 mask 同上
+  激活小计：实测 1508.4 KB / 层，公式 1278.0 KB，比值 1.180
+  另保存权重（是参数不是激活，不计入公式）：1574.9 KB
+```
+
+</details>
+
+实测比公式多 18%，每一项差异都能指出原因：
+
+- **QKV 三投影各存一份相同输入**（t1 保存三次而不是一次）——论文按逻辑算子记账，autograd 按节点记账。
+- **dropout mask 以 bf16 存（2 B/元素）而非论文假设的 bool（1 B/元素）**，三个 dropout 各多一倍。
+- **LayerNorm 额外保存 mean 与 rstd**（每位置两个数），公式只计输入。
+- 保存的 **1574.9 KB 权重不在公式里**——那是参数不是激活；反向的 wgrad 需要 W 在场，参数本来就是常驻的，不为反向多占。
+
+结论是论文的 34 与 5as/h 是对的口径，但 autograd 的账本更细、按节点算重复项——估算激活显存时用公式，对账时要知道这点差。
 
 34 这个系数里，**24 是可以被张量并行切开的**（Q、K、V、PV 输出、GELU 前后的 MLP 中间态——按头或按列分布在 TP 卡上），**10 是切不开的**（两个 LayerNorm 的输入 4h、注意力与 MLP 的输入各 2h、两个 dropout mask 各 1h——每张 TP 卡上都是完整的），这是第二篇讲序列并行时 "10 + 24/t" 的来源。把这些被保留的张量标在一层的数据通路上（每个节点标的是**该算子为反向保留的输入/输出**，蓝色可被 TP 切开、橙色每张 TP 卡都完整保留）：
 
@@ -459,6 +523,26 @@ flowchart TB
     class W,dW wt;
 ```
 
+把这一段画成数据流更直观：wgrad 要读前向保留的 x，这正是第四章"激活为什么留到反向"的原因。
+
+![6N 的来历：前向一个 GEMM 每参数 2 FLOP；反向 dgrad 与 wgrad 各一个 GEMM 各 2 FLOP；注意力另有 QK^T 与 PV 的 s^2 项](/img/in-post/training-state-flops-per-parameter.svg)
+
+`01_state_toys.py flops` 用 `torch.utils.flop_counter` 把一个小模型的前向加反向 FLOP 真数一遍：
+
+<details markdown="1"><summary>toy 输出：实测与 6N + 注意力项几乎精确相等</summary>
+
+```text
+== flops：小模型 L=2 h=256 f=688 V=1000，s=64 b=2
+  实测 FLOP：前向 0.454 GFLOP，反向 0.907 GFLOP，合计 1.361
+  6N·tokens（N 全部参数）:          1.508 GFLOP
+  6·N_gemm·tokens + 注意力(全 mask)： 1.362 GFLOP
+  实测 / 6N = 0.902   实测 / (6N+注意力) = 0.999
+```
+
+</details>
+
+两个读数各说明一件事：实测 / 6N = 0.90，差在输入 embedding 查表不是 GEMM、以及因果 mask 下分数矩阵只做一半；实测 / (6·N_gemm + 全 mask 注意力项) = 0.999——6N 的口径只要补上 $$N_{	ext{GEMM}}$$ 与注意力项，和硬件真实执行的 GEMM 工作量在小模型尺度上精确对应。
+
 严格地说，这里的参数数应是**参与 GEMM 的参数数** $$N_{\text{GEMM}}$$。输入 embedding 是查表，不算；输出层 $$[h, V]$$ 是一个真正的 GEMM，要算；LayerNorm、bias、RMSNorm 的权重参与的是逐元素运算，量级是 $$h$$ 而不是 $$h^2$$，忽略。对 Llama 3 70B，$$N_{\text{GEMM}} = 68.45\text{B（层）} + 1.05\text{B（输出层）} = 69.5\text{B}$$，与总参数量 $$N = 70.55\text{B}$$ 差 1.5%，所以工程上直接写 $$6N$$，本系列也不再区分。
 
 这个 6 里没有激活函数、softmax、LayerNorm、残差加法、优化器更新——它们都是 $$O(sbh)$$ 而不是 $$O(sbh^2)$$，在 $$h$$ 为几千时占比不到 1%。也没有重计算：重计算是硬件真实执行的 FLOP，但不是模型"需要"的 FLOP，第七章会用这个区别定义 MFU 与 HFU。
@@ -565,7 +649,9 @@ Table: MFU 与 HFU 的差别
 
 ### 3. 同一个例子算两遍
 
-70B、1024 张 H100、global batch 4M token，实测 step 时间 4.5 s：
+70B、1024 张 H100、global batch 4M token，实测 step 时间 4.5 s。先把两个口径的分子画出来——同一个 step，MFU 与 HFU 只在"算不算重计算"上不同：
+
+![MFU 与 HFU 的分子：模型需要的计算（MFU 分子）加选择性重计算的一小块，或全量重计算的一整段（HFU 分子）；同一例子 MFU 41.3%、HFU 42.3% 或 55.1%](/img/in-post/training-state-mfu-vs-hfu.svg)
 
 | 量 | 计算 | 结果 |
 |---|---|---:|
@@ -709,7 +795,7 @@ Table: 本篇涉及的源码位置
 
 ### 4. train-ledger 本篇增量
 
-练手项目 `train-ledger/` 的第一批文件是本篇公式的可执行版本：输入模型结构、精度、优化器、micro-batch、每 step token 数、卡数与峰值算力，输出四种状态的字节数、FLOP/token、step 时间下限、MFU 与 HFU。它不依赖 torch，后面七篇会持续给它加文件（第二篇加 `ledger/parallel.py`，它 import 的正是这里的 `ModelSpec`、`StateBytes` 与 `state_bytes()`）。
+练手项目 `train-ledger/` 的第一批文件是本篇公式的可执行版本：输入模型结构、精度、优化器、micro-batch、每 step token 数、卡数与峰值算力，输出四种状态的字节数、FLOP/token、step 时间下限、MFU 与 HFU。它不依赖 torch，后面各篇会持续给它加文件（第二篇加 `ledger/parallel.py`，它 import 的正是这里的 `ModelSpec`、`StateBytes` 与 `state_bytes()`）。配套的 `01_state_toys.py` 在 CPU 上用真实张量把同一笔账量出来，子命令 `bytes` / `activations` / `flops` / `timeline` 的输出已分别贴在第三、四、六章里，`timeline` 还给第二章的时间线提供了曲线形状。
 
 `ledger/model.py`——模型规格与参数量：
 
