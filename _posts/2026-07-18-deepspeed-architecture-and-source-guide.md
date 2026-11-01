@@ -63,6 +63,8 @@ DeepSpeed 是微软开源的训练框架，底座是 ZeRO：它沿着优化器�
 | 2023 | Jacobs、Tanaka 等 | 已有的序列并行方案通信量随序列长增长 | [DeepSpeed-Ulysses 论文](https://arxiv.org/abs/2309.14509)：attention 时用 all-to-all 换回完整序列的头分片，序列长与设备数同比增大时单卡通信量保持不变 | 论文报可训超长序列，通信近似不随序列长膨胀 | 与 ZeRO、TP 的组合要另外配置 |
 | 2023-02 | DeepSpeed 团队 | 推理侧每张卡还要手工配 TP injection policy | [AutoTP 推理教程](https://www.deepspeed.ai/tutorials/automatic-tensor-parallelism/)：不给 policy 时按模型结构自动推 TP 切分 | 推理时免手写切分配置；2025 起同一机制扩展到训练（[AutoTP 训练](https://github.com/deepspeedai/DeepSpeed/tree/master/blogs/huggingface-tp)，deepspeed ≥0.16.4） | 训练侧官方先集成 ZeRO-1/2，与 ZeRO-3 的组合当时在路线图上 |
 
+Table: DeepSpeed 的来龙去脉
+
 这张表里能看到方向的变化：先沿优化器轴逐级切状态，再把状态搬出 GPU、搬到 NVMe；随后通信本身变成要省的对象，长序列和推理也各自有了专门的并行切法。
 
 ## 三、核心抽象
@@ -383,6 +385,8 @@ step：Adam 更新各 rank 的 fp32 shard；新值仍留在 ds_tensor，不做�
 | 该层反向后 | _post_backward_module_hook → release → weight.partition() |  |
 | engine.step | 对每个 sub-group：Adam 更新 fp32 分区（1/N_d）<br/>fp32 分区 → fp16_partitioned_groups_flat（即各 ds_tensor，bf16）<br/>不 all-gather（除 ds_persist 的小参数） | stage3.py step → _optimizer_step<br/>_reassign_or_swap_out_partitioned_parameters<br/>_post_step |
 | step i+1，该层前向前 | 再 fetch_sub_module → all-gather | 回到上面 |
+
+Table: 一个 bf16 参数的一生：DeepSpeed Stage 3 源码逐时刻
 
 </details>
 

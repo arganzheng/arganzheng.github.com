@@ -62,6 +62,8 @@ date: 2026-07-18 18:00:00
 | 2025-10（v0.2.0） | TorchTitan 团队 | 新模型与 recipe 继续增长，需要扩展发布内容 | [v0.2.0 release](https://github.com/pytorch/torchtitan/releases/tag/v0.2.0)扩展支持并更新依赖 | release 页面给出明确 PyTorch / torchao 版本 | 模型、后端与配置仍快速演进 |
 | 2026-09（v0.3.0） | TorchTitan 团队 | 并行配置需要可组合、可校验；模型支持继续扩展 | [v0.3.0 release](https://github.com/pytorch/torchtitan/releases/tag/v0.3.0)将 `spmd_types` 设为默认后端，引入声明式 `ShardingConfig` 路径并扩展模型与 recipe | 默认路径描述参数与 activation 的 sharding contract，可选类型检查 | 需要理解其 SPMD layout 与 backend 的适用边界 |
 
+Table: torchtitan 的来龙去脉
+
 这几步是底层抽象逐渐统一的过程：DTensor 描述张量怎么分，DeviceMesh 描述 rank 怎么排，`fully_shard` 管参数生命周期，TorchTitan 把它们接进训练器。
 
 ## 三、核心抽象
@@ -325,7 +327,7 @@ step 后参数: DTensor 全局(16,16) 本地(4,16) dtype=torch.float32
 step 后参数 vs 单进程 fp32 参考: max|diff| = 2.00e-03
 ```
 
-bf16 计算与 fp32 参考存在舍入差；toy 用 max|diff| 展示该误差规模，不将 fp32 与 bf16 数值要求为逐位相等。
+bf16 计算与 fp32 参考存在舍入差；toy 用 `max|diff|` 展示该误差规模，不将 fp32 与 bf16 数值要求为逐位相等。
 
 ### 5. PP 与 CP
 
@@ -354,6 +356,8 @@ bf16 计算与 fp32 参考存在舍入差；toy 用 max|diff| 展示该误差规
 | 反向 | 计算 dW，`foreach_reduce()` fp32 reduce-scatter | fp32 梯度分片；完整 bf16 weight 与 dW 释放 |
 | `optimizer.step()` | AdamW 在 fp32 分片上本地更新 | 更新后的 fp32 参数分片 |
 
+Table: 一个 bf16 参数的一生：torchtitan
+
 <details markdown="1"><summary>展开：一个 feed_forward.w1.weight 的源码逐时刻表</summary>
 
 以一个 Transformer 层的 `feed_forward.w1.weight` 为例。下表采用本篇 4 × 2 配置；每个 TP rank 持该矩阵一半，FSDP 再沿 4 个 `dp_shard` rank 切分。
@@ -370,6 +374,8 @@ bf16 计算与 fp32 参考存在舍入差；toy 用 max|diff| 展示该误差规
 | 该层反向前 | 再 unshard 一次；`_backward_prefetch()` 可提前发出 | `_backward_prefetch()` |
 | 该层反向 | dW 经 `foreach_reduce()` fp32 reduce-scatter；`.grad` 回到 DTensor 分片 | `_fsdp_collectives.py` |
 | `optimizer.step()` | AdamW 在 fp32 分片上更新参数，不通信 | `torch.optim.AdamW` |
+
+Table: 一个 feed_forward.w1.weight 的源码逐时刻
 
 **常驻字节**：主要 TP 切分参数的 fp32 参数、fp32 梯度、Adam m/v 合计 16 字节/参数，再除以 $$N_dN_t$$；TP 复制的 norm 单独按 $$N_d$$ 切。**临时项**：正在计算层的完整 dp_shard bf16 参数（TP 半片约 60.8 MB），以及可能预取的下一层。**通信量**：前向 all-gather、反向 all-gather、梯度 reduce-scatter 合计约 $$3N$$；PP 下 `reshard_after_forward=False` 可复用前向参数，约 $$2N$$。通信量沿用 02 的定义，TP 复制 norm 对总数只作微小修正。
 
@@ -434,6 +440,8 @@ torchtitan 中，一个 bf16 参数的一生可以压成一句话：meta 上先�
 | PyTorch 2.14.1 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`、`_load_csv()`、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`；`PipelineStage` 的 forward / backward 与 send / recv 方法；`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
 | PyTorch 2.14.1 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`；`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`；`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
 | train-ledger `runs/titan/`、`probe_memory.py` | 本篇练手配置与探针，见第四章 |
+
+Table: 本篇涉及的源码位置
 
 ## 九、自测
 
