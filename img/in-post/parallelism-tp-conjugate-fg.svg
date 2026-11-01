@@ -4,23 +4,23 @@
   <text x="14" y="22" class="t">前向：f 是恒等（X 每卡都有），g 是 all-reduce（把 t 个部分和加起来）</text>
   <rect x="20" y="40" width="60" height="40" class="g"/><text x="50" y="64" text-anchor="middle" class="n">X 完整</text>
   <line x1="80" y1="60" x2="120" y2="60" stroke="#555" marker-end="url(#a)"/><text x="100" y="52" text-anchor="middle" class="m">f：恒等</text>
-  <rect x="120" y="40" width="110" height="40" class="b"/><text x="175" y="64" text-anchor="middle" class="n">[列切 W1ᵢ]</text>
+  <rect x="120" y="40" width="110" height="40" class="b"/><text x="175" y="64" text-anchor="middle" class="n">[列切 W1i]</text>
   <line x1="230" y1="60" x2="270" y2="60" stroke="#555" marker-end="url(#a)"/>
   <rect x="270" y="40" width="70" height="40" class="g"/><text x="305" y="64" text-anchor="middle" class="n">GELU</text>
   <line x1="340" y1="60" x2="380" y2="60" stroke="#555" marker-end="url(#a)"/>
-  <rect x="380" y="40" width="110" height="40" class="o"/><text x="435" y="64" text-anchor="middle" class="n">[行切 W2ᵢ]</text>
+  <rect x="380" y="40" width="110" height="40" class="o"/><text x="435" y="64" text-anchor="middle" class="n">[行切 W2i]</text>
   <line x1="490" y1="60" x2="560" y2="60" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)"/><text x="525" y="52" text-anchor="middle" class="m" fill="#b91c1c">g：all-reduce</text>
   <rect x="560" y="40" width="70" height="40" class="g"/><text x="595" y="64" text-anchor="middle" class="n">Y 完整</text>
   <text x="175" y="100" text-anchor="middle" class="m">各卡持 X 的完整副本</text>
-  <text x="435" y="100" text-anchor="middle" class="m">各卡持部分和 Σᵢ</text>
+  <text x="435" y="100" text-anchor="middle" class="m">各卡持部分和 Σi</text>
   <text x="14" y="140" class="t">反向：g 变成恒等（dY 每卡都有，各取自己那块），f 变成 all-reduce（各卡对 X 的部分梯度求和）</text>
   <rect x="20" y="158" width="60" height="40" class="g"/><text x="50" y="182" text-anchor="middle" class="n">dX</text>
   <line x1="120" y1="178" x2="80" y2="178" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)"/><text x="100" y="170" text-anchor="middle" class="m" fill="#b91c1c">f：all-reduce</text>
-  <rect x="120" y="158" width="110" height="40" class="b"/><text x="175" y="182" text-anchor="middle" class="n">[W1ᵢᵀ]</text>
+  <rect x="120" y="158" width="110" height="40" class="b"/><text x="175" y="182" text-anchor="middle" class="n">[W1i^T]</text>
   <line x1="270" y1="178" x2="230" y2="178" stroke="#555" marker-end="url(#a)"/>
   <rect x="270" y="158" width="70" height="40" class="g"/><text x="305" y="182" text-anchor="middle" class="n">GELU′</text>
   <line x1="380" y1="178" x2="340" y2="178" stroke="#555" marker-end="url(#a)"/>
-  <rect x="380" y="158" width="110" height="40" class="o"/><text x="435" y="182" text-anchor="middle" class="n">[W2ᵢᵀ]</text>
+  <rect x="380" y="158" width="110" height="40" class="o"/><text x="435" y="182" text-anchor="middle" class="n">[W2i^T]</text>
   <line x1="560" y1="178" x2="490" y2="178" stroke="#555" marker-end="url(#a)"/><text x="525" y="170" text-anchor="middle" class="m">g：恒等</text>
   <rect x="560" y="158" width="70" height="40" class="g"/><text x="595" y="182" text-anchor="middle" class="n">dY 完整</text>
   <text x="175" y="218" text-anchor="middle" class="m">各卡对 X 的部分梯度相加</text>

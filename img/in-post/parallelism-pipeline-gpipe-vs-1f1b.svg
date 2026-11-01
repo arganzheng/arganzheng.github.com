@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="836" height="358" viewBox="0 0 836 358" font-family="'Hiragino Sans GB', 'PingFang SC', sans-serif" font-size="12">
 <style>text{font-weight:600}.m{fill:#222;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:10px}</style>
-<text x="16" y="16" class="m">横轴是时间（反向 t_b 按前向 t_f 的 2 倍画），每行一个 stage（一张卡）；蓝 = 前向 F，绿 = 反向 B，格内数字是 micro-batch 编号，灰 = 气泡。</text>
+<text x="16" y="12" class="m">横轴是时间（反向 t_b 按前向 t_f 的 2 倍画），每行一个 stage（一张卡）；</text>
+<text x="16" y="28" class="m">蓝 = 前向 F，绿 = 反向 B，格内数字是 micro-batch 编号，灰 = 气泡。</text>
 <text x="16" y="44" class="t">GPipe：p = 4，m = 4</text>
 <text x="74" y="71" text-anchor="end" class="m">stage 0</text>
 <rect x="80" y="54" width="294" height="22" fill="#f3f4f6" stroke="#ddd"/>

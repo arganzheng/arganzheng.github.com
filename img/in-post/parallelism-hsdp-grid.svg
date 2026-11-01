@@ -28,7 +28,7 @@
     <line x1="153" y1="106" x2="153" y2="138" marker-end="url(#r)"/><line x1="225" y1="106" x2="225" y2="138" marker-end="url(#r)"/><line x1="297" y1="106" x2="297" y2="138" marker-end="url(#r)"/><line x1="369" y1="106" x2="369" y2="138" marker-end="url(#r)"/>
     <line x1="441" y1="106" x2="441" y2="138" marker-end="url(#r)"/><line x1="513" y1="106" x2="513" y2="138" marker-end="url(#r)"/><line x1="585" y1="106" x2="585" y2="138" marker-end="url(#r)"/><line x1="657" y1="106" x2="657" y2="138" marker-end="url(#r)"/>
   </g>
-  <text x="700" y="126" class="m" fill="#b91c1c">↕ 复制组 {i, 8+i}</text>
+  <text x="690" y="126" class="m" fill="#b91c1c">↕ 复制组 {i, 8+i}</text>
   <text x="14" y="200" class="m">竖向（红）：Replicate()，同一段的梯度在两个副本之间 all-reduce，每卡 ≈ 2N/N_s，走 IB——量比 3N 小了 N_s 倍。</text>
   <text x="14" y="218" class="m">横向（蓝）：ZeRO-3 的全部 3N 通信留在节点内的 NVLink 上。代价：显存只被分片组均分，每卡 16N/N_s。</text>
 </svg>
