@@ -29,7 +29,7 @@ updated: 2026-09-21
 | 符号 | 含义 |
 |---|---|
 | $$N$$ | 参数量（个数）。混合精度 + Adam 下每参数 16 字节：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + fp32 一阶矩 4 + fp32 二阶矩 4 → 常驻状态 16N 字节（fp32 累加梯度则 18N） |
-| $$N_d, N_t, N_p, N_c, N_e$$ | 五个并行度：数据 / 张量 / 流水 / 上下文 / 专家。放在一起是因为它们的乘积就是总卡数：$$N_{\text{GPU}} = N_t \cdot N_c \cdot N_p \cdot N_d$$（EP 从 DP 里划出，不另乘） |
+| $$N_d, N_t, N_p, N_c, N_e$$ | 五个并行度：数据 / 张量 / 流水 / 上下文 / 专家。放在一起是因为它们的乘积就是总卡数：$$N_{\text{GPU}} = N_t \cdot N_c \cdot N_p \cdot N_d$$。EP 不在乘积里：专家层的 $$N_e$$ 张卡就是 DP 副本里的卡，只是在专家层换一种分组（例如 $$N_d = 8$$、$$N_e = 4$$ 时，8 张卡对注意力层是 8 个 DP 副本，对专家层是 2 个 EP 组、每组 4 卡各持 1/4 的专家），所以总卡数不变，见[第六章第 6 节](#6-ep-与-dptp-的组合) |
 | $$s, b, h, a, L$$ | 序列长、micro-batch 大小、隐藏维、注意力头数、层数。放在一起是因为激活的大小由这五个数决定（第一篇的 $$34sbh$$ 每层） |
 | $$m$$ | 每个 DP 副本每 step 的 micro-batch 数（梯度累积步数） |
 
@@ -53,34 +53,40 @@ Table: 五个原语的每卡通信量
 
 把四种状态、六种并行放在同一张图上：
 
-| 策略 | 参数 | 梯度 | 优化器状态 | 激活 |
-|---|---|---|---|---|
-| DP (DDP) | 复制 | 复制→归约 | 复制 | 按 batch 切（天然） |
-| ZeRO-1 | 复制 | 复制→归约 | 切 1/N_d | 同上 |
-| ZeRO-2 | 复制 | 切 1/N_d | 切 1/N_d | 同上 |
-| ZeRO-3 / FSDP | 切 1/N_d | 切 1/N_d | 切 1/N_d | 同上；前向前临时 all-gather 一层参数 |
-| TP | 切 1/N_t | 切 1/N_t | 切 1/N_t | 按 h（头 / FFN 列）切 1/N_t，层边界处完整 |
-| SP（Megatron） | — | — | — | 层边界处也按 s 切 1/N_t |
-| CP | 复制 | 复制→归约 | 复制 | 按 s 切 1/N_c，含注意力本身 |
-| PP | 切 1/N_p | 切 1/N_p | 切 1/N_p | 只持有本 stage 的层；同时在途 ≤ N_p 个 micro-batch |
-| EP | 专家切 1/N_e | 同 | 同 | token 按路由结果 all-to-all 到专家所在卡 |
+| 系 | 策略 | 参数 | 梯度 | 优化器状态 | 激活 | 主要通信（每卡每 step） |
+|---|---|---|---|---|---|---|
+| <span style="white-space:nowrap">数据并行系</span> | DP (DDP) | 复制 | 复制→归约 | 复制 | 按 batch 切（天然） | 梯度 all-reduce ≈ 2N |
+| ^^ | ZeRO-1 | 复制 | 复制→归约 | 切 1/N_d | 按 batch 切 | 梯度 RS + 参数 AG ≈ 2N |
+| ^^ | ZeRO-2 | 复制 | 切 1/N_d | 切 1/N_d | 按 batch 切 | 梯度 RS + 参数 AG ≈ 2N |
+| ^^ | ZeRO-3 / FSDP | 切 1/N_d | 切 1/N_d | 切 1/N_d | 按 batch 切<br/>前向、反向前临时 all-gather 一层参数 | 参数 AG ×2 + 梯度 RS ≈ 3N |
+| <span style="white-space:nowrap">模型并行系</span> | TP | 切 1/N_t | 切 1/N_t | 切 1/N_t | 按 h（头 / FFN 列）切 1/N_t，层边界处完整 | 每层前向 2 次、反向 2 次 all-reduce，载荷 sbh |
+| ^^ | SP（Megatron，附在 TP 上） | 随 TP | 随 TP | 随 TP | 层边界处也按 s 切 1/N_t | 把 TP 的 all-reduce 换成 AG + RS，总量不变 |
+| ^^ | CP | 复制 | 复制→归约 | 复制 | 按 s 切 1/N_c，含注意力本身 | K/V 块沿环 send/recv |
+| ^^ | PP | 切 1/N_p | 切 1/N_p | 切 1/N_p | 只持有本 stage 的层；同时在途 ≤ N_p 个 micro-batch | stage 边界 send/recv 激活与梯度 |
+| ^^ | EP | 专家切 1/N_e | 专家切 1/N_e | 专家切 1/N_e | token 按路由结果 all-to-all 到专家所在卡 | 每层 dispatch + combine，前向、反向各 2 次 all-to-all |
 
 Table: 六种并行各切哪种状态
 
 读这张表的方式：**每一行"切"的格子越多，显存越省；每一个"切"都对应一种通信**。DP 那一行只在"梯度→归约"处有通信；ZeRO-3 在参数一格多了一次 all-gather；TP 的三个"切"是免费的（矩阵切开后梯度和优化器状态自然跟着切），它的代价在激活那一格——层内切开的激活要在层边界处拼回来。PP 同理，三个状态的"切"不产生通信，代价是 stage 之间传激活和气泡。
 
-这张图还揭示了另一件事：**DP 系的策略（DP/ZeRO/FSDP）与模型并行系的策略（TP/PP/CP/EP）是正交的**。前者决定"同一个参数的几份副本之间如何分工"，后者决定"一份模型如何被切开"。任何一个真实配置都是两者的乘积：模型被 TP/PP 切成 $$N_t N_p$$ 份，每份再有 $$N_d N_c$$ 个副本，副本之间用 ZeRO 的某一级分片。
+这张图还揭示了另一件事：**数据并行系（DP/ZeRO/FSDP）与模型并行系（TP/SP/PP/CP/EP）是正交的**，表里第一列就是这个分组：
+
+- 数据并行系决定"同一个参数的几份副本之间如何分工"：副本之间切的是数据，ZeRO 再把副本之间重复的状态分掉。
+- 模型并行系决定"一份模型如何被切开"：按矩阵的列 / 行（TP）、按层（PP）、按序列（CP）、按专家（EP）。
+- 一个真实配置是两者的乘积：模型被 TP/PP 切成 $$N_t N_p$$ 份，每份再有 $$N_d N_c$$ 个副本，副本之间用 ZeRO 的某一级分片。
+
+SP 不单独占一维：它复用 TP 的进程组，参数、梯度、优化器状态都跟着 TP 切，只是把 TP 在层边界处仍然完整的那部分激活也按序列切开，所以放在模型并行系、紧跟 TP。CP 和 EP 的卡数也不另乘：CP 对参数来说是副本（梯度在 DP × CP 上归约），EP 的卡从 DP 里划出。
 
 同一套切法在推理侧也用（vLLM 的 TP / PP / EP / DP），但账完全不同，因为**推理只有两种状态**——权重与 KV cache——没有梯度、没有优化器状态、没有为反向保存的激活。把两边放在一张表里对照，能看清每种并行在训练里多出来的那部分是什么：
 
 | 策略 | 训练侧切什么、代价是什么（本篇） | 推理侧切什么、代价是什么（[vLLM 系列第十一篇](/multi-gpu-scaling-strategies.html)） | 差别的来源 |
 |---|---|---|---|
-| DP | 复制模型，切数据；每 step 梯度 all-reduce $$2N$$，可与反向重叠 | 复制模型，各副本独立服务不同请求，**副本之间不通信**（只有调度器分发请求） | 推理没有梯度要归约，DP 退化成"多开几个实例" |
-| ZeRO / FSDP | 切优化器状态 / 梯度 / 参数，前向前 all-gather 参数 | **不存在**——没有优化器状态和梯度可切；权重放不下时用 TP / PP | ZeRO 切的三种状态推理侧有两种根本没有 |
-| TP | 切权重 + 层内激活<br/>每层前向 2 次、反向 2 次 all-reduce，载荷 $$sbh$$<br/>不可重叠 → NVLink | 切权重 + **KV cache**（按头切）；每层前向 2 次 all-reduce，decode 时 $$s = 1$$、载荷只有 $$bh$$（Llama 70B、b = 32 每次 512 KiB），但每生成一个 token 都要走 80 层 × 2 次 | 训练在意**带宽**（载荷大），推理在意**延迟**（载荷小、次数多、每次都在出 token 的关键路径上） |
+| DP | 复制模型，切数据<br/>每 step 梯度 all-reduce $$2N$$，可与反向重叠 | 复制模型，各副本独立服务不同请求<br/>**副本之间不通信**（只有调度器分发请求） | 推理没有梯度要归约，DP 退化成"多开几个实例" |
+| ZeRO / FSDP | 切优化器状态 / 梯度 / 参数<br/>前向前 all-gather 参数 | **不存在**<br/>没有优化器状态和梯度可切<br/>权重放不下时用 TP / PP | ZeRO 切的三种状态推理侧有两种根本没有 |
+| TP | 切权重 + 层内激活<br/>每层前向 2 次、反向 2 次 all-reduce，载荷 $$sbh$$<br/>不可重叠 → NVLink | 切权重 + **KV cache**（按头切）<br/>每层前向 2 次 all-reduce<br/>decode 时 $$s = 1$$、载荷只有 $$bh$$（Llama 70B、b = 32 每次 512 KiB），但每生成一个 token 都要走 80 层 × 2 次 | 训练在意**带宽**（载荷大），推理在意**延迟**（载荷小、次数多、每次都在出 token 的关键路径上） |
 | PP | 切层<br/>气泡 $$(p-1)/m$$ 用 micro-batch 填<br/>边界传激活 + 梯度 | 切层 + 对应层的 KV cache<br/>气泡用**并发请求**填，请求长短不一所以更难填满<br/>边界只传前向激活 | 训练的 $$m$$ 由 batch 决定、可控；推理的"m"是在线流量，不可控 |
-| CP | 切序列 + 注意力本身，K/V 沿环流动，前向 + 反向 | 切长 prompt 的 prefill（PCP）或 decode 时的 KV cache（DCP） | 推理侧 decode 阶段每步只有 1 个 query，切的是 KV cache 而不是激活 |
-| EP | 切专家参数 / 梯度 / 优化器状态；每层 dispatch + combine 各一次 all-to-all，反向再两次 | 切专家权重<br/>每层 dispatch + combine，无反向<br/>更在意小批次下 all-to-all 的延迟 | 反向的两次 all-to-all 与负载不均的梯度效应是训练独有的 |
+| CP | 切序列 + 注意力本身<br/>K/V 沿环流动，前向 + 反向 | 切长 prompt 的 prefill（PCP）或 decode 时的 KV cache（DCP） | 推理侧 decode 阶段每步只有 1 个 query，切的是 KV cache 而不是激活 |
+| EP | 切专家参数 / 梯度 / 优化器状态<br/>每层 dispatch + combine 各一次 all-to-all，反向再两次 | 切专家权重<br/>每层 dispatch + combine，无反向<br/>更在意小批次下 all-to-all 的延迟 | 反向的两次 all-to-all 与负载不均的梯度效应是训练独有的 |
 
 Table: 训练侧与推理侧并行策略的对照
 
@@ -132,7 +138,7 @@ Table: 本文的章节安排
 
 DP 的浪费在优化器状态：$$N_d$$ 张卡各存一份完全相同的 fp32 主参数、一阶矩、二阶矩（$$12N$$ 字节），然后各自做一遍完全相同的更新。ZeRO（Rajbhandari et al. 2020）的观察是这份状态可以按参数切成 $$N_d$$ 份，每张卡只负责更新自己那 $$1/N_d$$ 的参数。
 
-**ZeRO-1** 只切优化器状态。每卡显存从 $$16N$$ 降到 $$4N + 12N/N_d$$。通信上，梯度 all-reduce 被拆成两半：先 **reduce-scatter**，让每张卡拿到自己负责的那 $$1/N_d$$ 梯度的归约结果（$$\approxN$$ 元素）；各自更新自己的参数分片后，再 **all-gather** 把更新后的 bf16 参数拼回每张卡（$$\approxN$$ 元素）。合计仍是 $$2N$$，与 DP 完全相同——因为 all-reduce 本来就等于 reduce-scatter + all-gather，ZeRO-1 只是在两者之间插入了优化器步骤。
+**ZeRO-1** 只切优化器状态。每卡显存从 $$16N$$ 降到 $$4N + 12N/N_d$$。通信上，梯度 all-reduce 被拆成两半：先 **reduce-scatter**，让每张卡拿到自己负责的那 $$1/N_d$$ 梯度的归约结果（$$\approx N$$ 元素）；各自更新自己的参数分片后，再 **all-gather** 把更新后的 bf16 参数拼回每张卡（$$\approx N$$ 元素）。合计仍是 $$2N$$，与 DP 完全相同——因为 all-reduce 本来就等于 reduce-scatter + all-gather，ZeRO-1 只是在两者之间插入了优化器步骤。
 
 **ZeRO-2** 再切梯度。观察是：reduce-scatter 之后，每张卡只需要自己负责的那 $$1/N_d$$ 梯度，其余 $$(N_d-1)/N_d$$ 可以在 reduce-scatter 完成的瞬间释放。于是梯度显存也降到 $$2N/N_d$$，每卡 $$2N + 14N/N_d$$。通信量仍是 $$2N$$——什么都没多。实现上要求梯度按 bucket 在反向过程中即时 reduce-scatter 并释放，而不是攒到反向结束。
 
@@ -165,24 +171,37 @@ RS + AG == AR × 0.5 ?  : True
 
 Table: ZeRO-3 通信量从 2N 到 3N 的逐项
 
-把四级放到同一条 step 时间轴上，通信落在哪个阶段一眼可见（每格是该级在该阶段的每卡通信量，单位元素）：
+把四级放到同一条 step 时间轴上，通信落在哪个阶段一眼可见：
 
-| 级别 | 前向 L1…Ln | 反向 Ln…L1 | 优化器步骤之后 | 合计 |
-|---|---|---|---|---:|
-| DP (ZeRO-0) | — | AR 梯度 ≈ 2N | — | 2N |
-| ZeRO-1 / 2 | — | RS 梯度 ≈ N | AG 参数 ≈ N | 2N |
-| ZeRO-3 | 逐层 AG 参数 ≈ N（用完即释放） | 逐层 AG 参数 ≈ N + RS 梯度 ≈ N | —（下一步前向的逐层 AG 取代了它） | 3N |
-| ZeRO-3 不释放 | 逐层 AG 参数 ≈ N | —（参数仍在）+ RS 梯度 ≈ N | — | 2N |
+![四级 ZeRO 在一个 step 里的通信](/img/in-post/parallelism-zero-step-comm.svg)
 
-Table: ZeRO 四级在 step 时间轴上的通信
+推导里有一个容易漏的抵消，就是图里橙色的两格。ZeRO-1/2 的优化器步骤后为什么要 all-gather？
 
-推导里有一个容易漏的抵消：ZeRO-1/2 在优化器步骤后有一次参数 all-gather，ZeRO-3 把它省掉了，因为下一个 step 的前向本来就要逐层 all-gather——时间轴上就是 ZeRO-1 最右一格挪到了 ZeRO-3 最左一格；所以净增只有反向那一次。如果前向后**不释放**参数（FSDP 的 `reshard_after_forward=False`），反向那次 all-gather 也省掉，通信回到 $$2N$$，代价是完整的 bf16 参数 $$2N$$ 常驻——这时它的显存是 $$2N + 14N/N_d$$，与 ZeRO-2 相同。**ZeRO-3 的 $$3N$$ 是用 $$1N$$ 的通信换 $$2N(1 - 1/N_d)$$ 的显存**。
+- ZeRO-1/2 的每张卡常驻**完整**的 bf16 参数，但优化器只更新了自己那 $$1/N_d$$。不把别人更新好的部分拼回来，下一步前向就会用到旧参数，所以 step 之后必须 all-gather 一次。
+- ZeRO-3 的每张卡本来就只常驻自己那 $$1/N_d$$，更新完就是最新的，没有"旧的完整参数"需要刷新。下一步前向用到哪层，再 all-gather 哪层，拼出来的已经是新参数。
+
+所以这次 all-gather 并没有消失，而是从 ZeRO-1/2 的"step 之后"挪到了 ZeRO-3 的"下一步前向"；ZeRO-3 净增的只有反向前的再一次 all-gather。如果前向后**不释放**参数（FSDP 的 `reshard_after_forward=False`），反向那次 all-gather 也省掉，通信回到 $$2N$$，代价是完整的 bf16 参数 $$2N$$ 常驻——这时它的显存是 $$2N + 14N/N_d$$，与 ZeRO-2 相同。**ZeRO-3 的 $$3N$$ 是用 $$1N$$ 的通信换 $$2N(1 - 1/N_d)$$ 的显存**。
 
 另一点：这 $$3N$$ 的每一份都能重叠。前向的 all-gather 可以预取（算第 $$i$$ 层时 all-gather 第 $$i+1$$ 层），反向同样；reduce-scatter 与 DP 一样跟着反向走。所以 ZeRO-3 在带宽充足时 step 时间接近 DP，只是"带宽充足"的门槛比 DP 高 50%。
 
 把四级放到 4 张卡上画出来，哪一级切了哪种状态一眼可见：
 
 ![四级 ZeRO 在 4 张卡上的状态放置：DP 每卡持有整份参数 P、梯度 G、优化器状态 O；ZeRO-1 把 O 切成 4 片各持一片；ZeRO-2 再把 G 切片；ZeRO-3 把 P 也切片，每卡只剩 16N/4。每张卡的显存等于实心部分之和](/img/in-post/parallelism-zero-stages.svg)
+
+上图是静态的放置，只说明每张卡**常驻**什么。一个 step 里各卡还会临时拼出完整的状态，以 ZeRO-3 的一层为例（4 张卡）：
+
+![ZeRO-3 一层在 4 张卡上的一个 step](/img/in-post/parallelism-zero3-layer-step.svg)
+
+四级都按这个思路看：前向、反向要用完整的参数做 GEMM，反向会先算出本卡数据的完整梯度，差别只在这些完整状态是常驻的还是临时拼出来的。
+
+| 级别 | 前向时 | 反向时 | 优化器步骤 |
+|---|---|---|---|
+| DP | 完整参数常驻，不通信 | 完整梯度逐层产生<br/>按 bucket all-reduce，每卡得到完整的平均梯度 | 每卡把全部参数更新一遍（各卡算的完全一样） |
+| ZeRO-1 | 完整参数常驻，不通信 | 完整梯度逐层产生并保留<br/>reduce-scatter 后每卡只用自己那 $$1/N_d$$ | 每卡只更新自己那 $$1/N_d$$<br/>再 all-gather 拼回完整 bf16 参数 |
+| ZeRO-2 | 完整参数常驻，不通信 | 完整梯度只在一个 bucket 内临时存在<br/>reduce-scatter 后其余部分立即释放 | 同 ZeRO-1 |
+| ZeRO-3 | 每层临时 all-gather 完整参数，算完释放 | 每层再 all-gather 一次完整参数<br/>本层完整梯度临时存在，reduce-scatter 后只留 $$1/N_d$$ | 每卡只更新自己那 $$1/N_d$$<br/>不 all-gather |
+
+Table: 四级 ZeRO 在前向、反向、优化器步骤里临时需要的完整状态
 
 ### 4. 每卡显存表：70B、N_d = 64
 
@@ -201,11 +220,45 @@ Table: 70B、N_d = 64 下各 ZeRO 级别的每卡显存与通信
 
 ### 5. FSDP1 与 FSDP2：FlatParameter 与 per-parameter DTensor
 
-FSDP 是 ZeRO-3 在 PyTorch 里的原生实现，有两代。
+FSDP 是 ZeRO-3 在 PyTorch 里的原生实现，有两代。两代的差别在"按什么切"，先看一个例子：一个 wrap 单元里只有两个参数，W 形状 [4, 4]、b 形状 [4]，切到 2 张卡上。
 
-**FSDP1**（`torch/distributed/fsdp/fully_sharded_data_parallel.py` 的 `FullyShardedDataParallel`）把一个 wrap 单元（通常是一个 Transformer 层）内的所有参数**拍平拼接**成一个一维的 `FlatParameter`（`torch/distributed/fsdp/_flat_param.py`，管理它的是 `FlatParamHandle`），再把这个大一维张量均匀切成 $$N_d$$ 段。好处是每层只有一次 all-gather 和一次 reduce-scatter，通信效率最高；坏处是原始参数的形状、dtype、`requires_grad` 都被抹掉了——同一个 `FlatParameter` 里的参数必须同 dtype、要一起冻结或一起训练，和 TP 组合时要专门适配，checkpoint 里的分片也是"一维大张量的第 $$k$$ 段"，不对应任何一个具体参数。`torch/distributed/fsdp/api.py` 的 `ShardingStrategy` 枚举把 ZeRO 三级映射为 `FULL_SHARD`（ZeRO-3）、`SHARD_GRAD_OP`（ZeRO-2）、`NO_SHARD`（DDP），另有 `HYBRID_SHARD`（见下节）。
+![FSDP1 与 FSDP2 的切法](/img/in-post/parallelism-fsdp1-vs-fsdp2.svg)
 
-**FSDP2**（`torch/distributed/fsdp/_fully_shard/` 下的 `fully_shard()`）放弃了拍平：每个参数**各自**沿第 0 维切成 $$N_d$$ 份，切开后的分片是一个 `DTensor`（placement 为 `Shard(0)`）。一次 `fully_shard(module)` 调用把该 module 的参数编成一个通信组 `FSDPParamGroup`（`_fsdp_param_group.py`），组内每个参数对应一个 `FSDPParam`（`_fsdp_param.py`，维护 sharded / unsharded 两种状态的切换）。前向前 `FSDPParamGroup.unshard()` 把组内所有参数的分片拷进一个连续 buffer 做**一次** all-gather（`_fsdp_collectives.py` 的 `foreach_all_gather`），拷出后各参数恢复原形状；前向后 `reshard()` 释放；反向后 `post_backward()` 把梯度拷进连续 buffer 做一次 reduce-scatter（`foreach_reduce`）。所以通信次数与 FSDP1 相同，但参数的身份保留了：不同参数可以不同 dtype、可以单独冻结、每个参数的分片是一个自描述的 DTensor——这让 FSDP2 能与 TP 的 DTensor 自然组合（一个参数同时有 `Shard(0)` 的 FSDP 维和 `Shard(1)` 的 TP 维），checkpoint 也能按参数名重分片（第八篇）。`_fsdp_api.py` 的 `MixedPrecisionPolicy` 决定 all-gather 出来的参数用什么 dtype 计算、reduce-scatter 用什么 dtype 归约；`reshard_after_forward` 参数就是第 3 节里 $$3N$$ 与 $$2N$$ 之间的开关，它还可以是一个整数——前向后不是完全释放而是重分片到一个更小的组（例如节点内 8 卡），让反向的 all-gather 只在节点内做。
+**FSDP1：拍平再切**（`torch/distributed/fsdp/fully_sharded_data_parallel.py` 的 `FullyShardedDataParallel`）
+
+- 一个 wrap 单元（通常是一个 Transformer 层）内的所有参数拍平拼接成一个一维的 `FlatParameter`（`torch/distributed/fsdp/_flat_param.py`，由 `FlatParamHandle` 管理），再均匀切成 $$N_d$$ 段。
+- 好处是每层只有一次 all-gather 和一次 reduce-scatter，通信效率高。
+- 代价是原始参数的形状、dtype、`requires_grad` 都被抹掉了：
+  - 同一个 `FlatParameter` 里的参数必须同 dtype，要一起冻结或一起训练；
+  - 和 TP 组合时要专门适配；
+  - checkpoint 里的分片是"一维大张量的第 $$k$$ 段"，不对应任何一个具体参数。
+- `torch/distributed/fsdp/api.py` 的 `ShardingStrategy` 枚举把 ZeRO 三级映射为 `FULL_SHARD`（ZeRO-3）、`SHARD_GRAD_OP`（ZeRO-2）、`NO_SHARD`（DDP），另有 `HYBRID_SHARD`（见下节）。
+
+**FSDP2：每个参数各自切**（`torch/distributed/fsdp/_fully_shard/` 下的 `fully_shard()`）
+
+- 每个参数各自沿第 0 维切成 $$N_d$$ 份，分片是一个 placement 为 `Shard(0)` 的 `DTensor`。
+- 一次 `fully_shard(module)` 调用把该 module 的参数编成一个通信组 `FSDPParamGroup`（`_fsdp_param_group.py`），组内每个参数对应一个 `FSDPParam`（`_fsdp_param.py`，维护 sharded / unsharded 两种状态的切换）。
+- 通信次数没有因此变多，因为通信仍是按组做的：
+
+| 时机 | 调用 | 做什么 |
+|---|---|---|
+| 前向前 | `FSDPParamGroup.unshard()` | 组内所有参数的分片拷进一个连续 buffer，做**一次** all-gather（`_fsdp_collectives.py` 的 `foreach_all_gather`），拷出后各参数恢复原形状 |
+| 前向后 | `reshard()` | 释放完整参数，只留分片 |
+| 反向前 | `unshard()` | 再 all-gather 一次（前向后释放了才需要） |
+| 反向后 | `post_backward()` | 梯度拷进连续 buffer，做一次 reduce-scatter（`foreach_reduce`） |
+
+Table: FSDP2 一个通信组在一个 step 里的通信
+
+参数的身份保留下来，带来三点好处：
+
+- 不同参数可以用不同 dtype，可以单独冻结。
+- 能与 TP 的 DTensor 自然组合：一个参数同时有 `Shard(0)` 的 FSDP 维和 `Shard(1)` 的 TP 维。
+- checkpoint 能按参数名重分片（第八篇）。
+
+`_fsdp_api.py` 里还有两个常用开关：
+
+- `MixedPrecisionPolicy`：all-gather 出来的参数用什么 dtype 计算，reduce-scatter 用什么 dtype 归约。
+- `reshard_after_forward`：第 3 节里 $$3N$$ 与 $$2N$$ 之间的开关。它还可以是一个整数：前向后不完全释放，而是重分片到一个更小的组（例如节点内 8 卡），让反向的 all-gather 只在节点内做。
 
 两代的显存与通信量相同，差别在**可组合性**：FSDP2 是 torchtitan 与 PyTorch 原生 TP/PP/CP 组合的基础，下一篇的对照会反复用到。
 

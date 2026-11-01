@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="330" viewBox="0 0 800 330" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12" role="img" aria-labelledby="t d">
+  <title id="t">四级 ZeRO 在一个 step 里的通信</title>
+  <desc id="d">横轴是一个 step：前向、反向、optimizer.step()、step 之后，以及下一个 step 的前向；每行一个级别，方框是该阶段的通信及每卡通信量（元素）。DP 只在反向 all-reduce 梯度 2N。ZeRO-1/2 在反向 reduce-scatter 梯度 N，step 之后 all-gather 参数 N。ZeRO-3 前向逐层 all-gather 参数 N，反向逐层再 all-gather 参数 N 并 reduce-scatter 梯度 N，step 之后不 all-gather；ZeRO-1/2 的那次 all-gather 在 ZeRO-3 里变成了下一步前向的逐层 all-gather。前向后不释放参数时反向的 all-gather 省掉，回到 2N。</desc>
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.p{fill:#dbeafe;stroke:#1d4ed8}.g{fill:#dcfce7;stroke:#15803d}.o{fill:#ede9fe;stroke:#7e22ce}.e{fill:#fff;stroke:#bbb;stroke-dasharray:3 2}.c{fill:#fff7ed;stroke:#c2410c}.k{fill:#fef3c7;stroke:#b45309}</style>
+  <text x="16" y="20" class="t">四级 ZeRO 在一个 step 里的通信（每卡，单位：元素）</text>
+  <text x="215" y="48" text-anchor="middle" class="t">前向</text>
+  <text x="400" y="48" text-anchor="middle" class="t">反向</text>
+  <text x="535" y="48" text-anchor="middle" class="t">step</text>
+  <text x="620" y="48" text-anchor="middle" class="t">step 之后</text>
+  <text x="730" y="48" text-anchor="middle" class="m">下一 step 前向</text>
+  <line x1="300" y1="56" x2="300" y2="262" stroke="#bbb" stroke-dasharray="4 3"/>
+  <line x1="500" y1="56" x2="500" y2="262" stroke="#bbb" stroke-dasharray="4 3"/>
+  <line x1="570" y1="56" x2="570" y2="262" stroke="#bbb" stroke-dasharray="4 3"/>
+  <line x1="670" y1="56" x2="670" y2="262" stroke="#bbb" stroke-dasharray="4 3"/>
+  <rect x="670" y="56" width="120" height="206" fill="#f5f5f5"/>
+  <line x1="16" y1="106" x2="790" y2="106" stroke="#eee"/>
+  <text x="16" y="82" class="t">DP (ZeRO-0)</text>
+  <text x="16" y="97" class="m">合计 2N</text>
+  <rect x="310" y="72" width="180" height="22" rx="3" class="p"/>
+  <text x="400" y="87" text-anchor="middle" class="n">AR 梯度 ≈ 2N</text>
+  <line x1="16" y1="150" x2="790" y2="150" stroke="#eee"/>
+  <text x="16" y="126" class="t">ZeRO-1 / 2</text>
+  <text x="16" y="141" class="m">合计 2N</text>
+  <rect x="310" y="116" width="180" height="22" rx="3" class="g"/>
+  <text x="400" y="131" text-anchor="middle" class="n">RS 梯度 ≈ N</text>
+  <rect x="578" y="116" width="84" height="22" rx="3" class="c"/>
+  <text x="620" y="131" text-anchor="middle" class="n">AG 参数 ≈ N</text>
+  <line x1="16" y1="214" x2="790" y2="214" stroke="#eee"/>
+  <text x="16" y="180" class="t">ZeRO-3</text>
+  <text x="16" y="195" class="m">合计 3N</text>
+  <rect x="140" y="170" width="150" height="22" rx="3" class="p"/>
+  <text x="215" y="185" text-anchor="middle" class="n">逐层 AG 参数 ≈ N</text>
+  <rect x="310" y="158" width="180" height="22" rx="3" class="p"/>
+  <text x="400" y="173" text-anchor="middle" class="n">逐层 AG 参数 ≈ N</text>
+  <rect x="310" y="184" width="180" height="22" rx="3" class="g"/>
+  <text x="400" y="199" text-anchor="middle" class="n">逐层 RS 梯度 ≈ N</text>
+  <rect x="678" y="170" width="104" height="22" rx="3" class="c"/>
+  <text x="730" y="185" text-anchor="middle" class="n">逐层 AG 参数</text>
+  <line x1="16" y1="258" x2="790" y2="258" stroke="#eee"/>
+  <text x="16" y="234" class="t">ZeRO-3 不释放</text>
+  <text x="16" y="249" class="m">合计 2N</text>
+  <rect x="140" y="224" width="150" height="22" rx="3" class="p"/>
+  <text x="215" y="239" text-anchor="middle" class="n">逐层 AG 参数 ≈ N</text>
+  <rect x="310" y="224" width="180" height="22" rx="3" class="g"/>
+  <text x="400" y="239" text-anchor="middle" class="n">逐层 RS 梯度 ≈ N</text>
+  <text x="16" y="286" class="m">橙色两格是同一次参数 all-gather：ZeRO-1/2 更新完立刻把完整参数拼回来常驻；ZeRO-3 不常驻完整参数，</text>
+  <text x="16" y="302" class="m">等下一步前向用到哪层再拼哪层，所以 step 之后那次省掉了。ZeRO-3 真正多出来的只有反向前的再一次 all-gather。</text>
+  <text x="16" y="318" class="m">「不释放」= 前向后保留完整参数（reshard_after_forward=False），反向那次 all-gather 也省掉，代价是 2N 参数常驻。</text>
+</svg>

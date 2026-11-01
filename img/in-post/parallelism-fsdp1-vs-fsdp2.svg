@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="330" viewBox="0 0 800 330" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12" role="img" aria-labelledby="t d">
+  <title id="t">FSDP1 与 FSDP2 的切法</title>
+  <desc id="d">一个 wrap 单元里有两个参数：W 形状 [4, 4] 共 16 个元素，b 形状 [4]，N_d = 2。FSDP1 把 W 和 b 拍平拼成 20 个元素的 FlatParameter，从中间切开：GPU 0 拿到 W 的前 10 个元素（W 第 0、1 行和第 2 行的前两个），GPU 1 拿到 W 剩下 6 个和整个 b，分片不对应任何一个完整参数。FSDP2 每个参数各自沿第 0 维切：GPU 0 拿 W 的第 0、1 行和 b[0:2]，GPU 1 拿 W 的第 2、3 行和 b[2:4]，每个分片都是 placement 为 Shard(0) 的 DTensor。</desc>
+  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.p{fill:#dbeafe;stroke:#1d4ed8}.g{fill:#dcfce7;stroke:#15803d}.o{fill:#ede9fe;stroke:#7e22ce}.e{fill:#fff;stroke:#bbb;stroke-dasharray:3 2}.c{fill:#fff7ed;stroke:#c2410c}.k{fill:#fef3c7;stroke:#b45309}</style>
+  <text x="16" y="20" class="t">一个 wrap 单元：W 形状 [4, 4]、b 形状 [4]，N_d = 2（蓝 = GPU 0，橙 = GPU 1）</text>
+  <text x="16" y="56" class="t">FSDP1：拍平拼接成一个 FlatParameter，再均分</text>
+  <rect x="40" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="54" y="86" text-anchor="middle" class="n" font-size="9">W00</text>
+  <rect x="68" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="82" y="86" text-anchor="middle" class="n" font-size="9">W01</text>
+  <rect x="96" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="110" y="86" text-anchor="middle" class="n" font-size="9">W02</text>
+  <rect x="124" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="138" y="86" text-anchor="middle" class="n" font-size="9">W03</text>
+  <rect x="152" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="166" y="86" text-anchor="middle" class="n" font-size="9">W10</text>
+  <rect x="180" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="194" y="86" text-anchor="middle" class="n" font-size="9">W11</text>
+  <rect x="208" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="222" y="86" text-anchor="middle" class="n" font-size="9">W12</text>
+  <rect x="236" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="250" y="86" text-anchor="middle" class="n" font-size="9">W13</text>
+  <rect x="264" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="278" y="86" text-anchor="middle" class="n" font-size="9">W20</text>
+  <rect x="292" y="72" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="306" y="86" text-anchor="middle" class="n" font-size="9">W21</text>
+  <rect x="320" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="334" y="86" text-anchor="middle" class="n" font-size="9">W22</text>
+  <rect x="348" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="362" y="86" text-anchor="middle" class="n" font-size="9">W23</text>
+  <rect x="376" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="390" y="86" text-anchor="middle" class="n" font-size="9">W30</text>
+  <rect x="404" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="418" y="86" text-anchor="middle" class="n" font-size="9">W31</text>
+  <rect x="432" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="446" y="86" text-anchor="middle" class="n" font-size="9">W32</text>
+  <rect x="460" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="474" y="86" text-anchor="middle" class="n" font-size="9">W33</text>
+  <rect x="496" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="510" y="86" text-anchor="middle" class="n" font-size="9">b0</text>
+  <rect x="524" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="538" y="86" text-anchor="middle" class="n" font-size="9">b1</text>
+  <rect x="552" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="566" y="86" text-anchor="middle" class="n" font-size="9">b2</text>
+  <rect x="580" y="72" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="594" y="86" text-anchor="middle" class="n" font-size="9">b3</text>
+  <line x1="320" y1="64" x2="320" y2="108" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="320" y="122" text-anchor="middle" class="m" fill="#b91c1c">从第 10 个元素切开</text>
+  <text x="180" y="122" text-anchor="middle" class="m">GPU 0：W 的 10 个元素</text>
+  <text x="468" y="122" text-anchor="middle" class="m">GPU 1：W 的 6 个 + 整个 b</text>
+  <text x="40" y="142" class="m">分片是"一维大张量的第 k 段"：W 被切在第 2 行中间，b 整个落在 GPU 1，哪一段都不是一个完整参数。</text>
+  <text x="16" y="178" class="t">FSDP2：每个参数各自沿第 0 维切，分片是 Shard(0) 的 DTensor</text>
+  <rect x="40" y="194" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="54" y="207" text-anchor="middle" class="n" font-size="9">W00</text>
+  <rect x="68" y="194" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="82" y="207" text-anchor="middle" class="n" font-size="9">W01</text>
+  <rect x="96" y="194" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="110" y="207" text-anchor="middle" class="n" font-size="9">W02</text>
+  <rect x="124" y="194" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="138" y="207" text-anchor="middle" class="n" font-size="9">W03</text>
+  <rect x="40" y="222" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="54" y="235" text-anchor="middle" class="n" font-size="9">W10</text>
+  <rect x="68" y="222" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="82" y="235" text-anchor="middle" class="n" font-size="9">W11</text>
+  <rect x="96" y="222" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="110" y="235" text-anchor="middle" class="n" font-size="9">W12</text>
+  <rect x="124" y="222" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="138" y="235" text-anchor="middle" class="n" font-size="9">W13</text>
+  <rect x="40" y="250" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="54" y="263" text-anchor="middle" class="n" font-size="9">W20</text>
+  <rect x="68" y="250" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="82" y="263" text-anchor="middle" class="n" font-size="9">W21</text>
+  <rect x="96" y="250" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="110" y="263" text-anchor="middle" class="n" font-size="9">W22</text>
+  <rect x="124" y="250" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="138" y="263" text-anchor="middle" class="n" font-size="9">W23</text>
+  <rect x="40" y="278" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="54" y="291" text-anchor="middle" class="n" font-size="9">W30</text>
+  <rect x="68" y="278" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="82" y="291" text-anchor="middle" class="n" font-size="9">W31</text>
+  <rect x="96" y="278" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="110" y="291" text-anchor="middle" class="n" font-size="9">W32</text>
+  <rect x="124" y="278" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="138" y="291" text-anchor="middle" class="n" font-size="9">W33</text>
+  <text x="96" y="322" text-anchor="middle" class="m">W [4, 4]</text>
+  <rect x="192" y="194" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="206" y="207" text-anchor="middle" class="n" font-size="9">b0</text>
+  <rect x="192" y="222" width="28" height="28" fill="#dbeafe" stroke="#1d4ed8"/>
+  <text x="206" y="235" text-anchor="middle" class="n" font-size="9">b1</text>
+  <rect x="192" y="250" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="206" y="263" text-anchor="middle" class="n" font-size="9">b2</text>
+  <rect x="192" y="278" width="28" height="28" fill="#fde68a" stroke="#b45309"/>
+  <text x="206" y="291" text-anchor="middle" class="n" font-size="9">b3</text>
+  <text x="206" y="322" text-anchor="middle" class="m">b [4]</text>
+  <text x="262" y="208" class="m">GPU 0：W[0:2, :]（形状 [2, 4]）+ b[0:2]</text>
+  <text x="262" y="228" class="m">GPU 1：W[2:4, :]（形状 [2, 4]）+ b[2:4]</text>
+  <text x="262" y="252" class="m">每个分片仍是"某个参数的第几行"，可以单独设 dtype、单独冻结，</text>
+  <text x="262" y="268" class="m">也能再叠一维 TP 的 Shard(1)；checkpoint 按参数名重分片</text>
+</svg>
