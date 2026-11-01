@@ -133,6 +133,18 @@ Table: 三框架进程组管理的对照表
 
 Table: 三条时序并排：一个 DP 组内的一个参数
 
+把表里"何时完整""何时释放""更新后 all-gather"三行画到同一条时间轴上：
+
+![三框架里一个 DP 组内的一个参数在一个 step 里的时序](/img/in-post/megatron-deepspeed-torchtitan-one-step-timeline.svg)
+
+代入一个具体的数：Llama 3 8B（$$N = 8 \times 10^9$$），8 卡纯 DP（$$N_d = 8$$），每卡常驻的训练状态是：
+
+- **Megatron**：$$2 + 4 + 12/8 = 7.5$$ 字节/参数，约 60 GB。bf16 参数和 fp32 梯度都是完整的一份，只有优化器状态被切。
+- **DeepSpeed Stage 3**：$$(2 + 2 + 12)/8 = 2$$ 字节/参数，约 16 GB；梯度用 fp32 时是 $$(2 + 4 + 12)/8 = 2.25$$，约 18 GB。另加当前层临时 all-gather 出的 bf16 参数。
+- **torchtitan FSDP2**：$$16/8 = 2$$ 字节/参数，约 16 GB，同样另加当前层的临时 bf16 参数。
+
+省下来的 40 多 GB 不是白给的：每 step 的通信从 $$2N$$ 涨到 $$3N$$，而且是每层三小块，要靠预取和计算重叠才藏得住。
+
 最后两行解释了三个框架的"手感"。Megatron 的显存曲线是一条直线（常驻大、临时少），profile 里通信是两大块（reduce-scatter 跟着反向、all-gather 跟着下一步前向）；DeepSpeed 与 torchtitan 的显存曲线是锯齿（常驻小、每层一个峰），通信是每层三小块。Megatron 的 `param.data` 可以随便读——checkpoint、日志、调试都直接看；DeepSpeed 的要用 `GatheredParameters`；torchtitan 的是 DTensor，`full_tensor()` 或 `to_local()` 二选一，但它知道自己是什么。
 
 
@@ -154,6 +166,10 @@ Table: 三条时序并排：一个 DP 组内的一个参数
 | 与 TP 组合 | 要靠外部框架 | 需专门适配 | 天然（二维 DTensor） |
 
 Table: 前向前 all-gather 分片参数：Stage 3 vs FSDP1 vs FSDP2
+
+"分片单位"和"参数身份"两行用第二篇的例子最好理解：一个 wrap 单元里有 W [4, 4] 和 b [4]，切到 2 张卡上。FSDP1 把两者拍平成 20 个元素再对半切，W 被切在第 2 行中间；FSDP2 每个参数各自沿第 0 维切，每段都还是"某个参数的第几行"。DeepSpeed Stage 3 的 `ds_tensor` 也是按参数各自切，但切的是拍平后的一维碎片，不保留行的结构。
+
+![FSDP1 与 FSDP2 的切法](/img/in-post/parallelism-fsdp1-vs-fsdp2.svg)
 
 三者的通信量相同（都是每单元一次 all-gather），差别在**分片的表示**决定了什么能做、什么不能做。Stage 3 的 `ds_tensor` 是最灵活的（每参数独立，可以 offload、可以量化、可以 hpZ 二级分片），但它是 DeepSpeed 私有的约定，PyTorch 的其他组件（DCP、TP、`torch.compile`）都不认识 `ds_*` 属性。FSDP1 的 `FlatParameter` 通信效率最高、实现最简单，但抹掉了参数身份，是它被 FSDP2 取代的原因。FSDP2 的 `DTensor` 是三者中唯一"自描述"的：分片知道自己在哪个 mesh 的哪一维、全局形状多大，所以 DCP 能按参数名重分片（第八篇）、TP 能在另一维再切、`clip_grad_norm_` 能正确算范数——第二篇说的"可组合性质变"就在这里。
 

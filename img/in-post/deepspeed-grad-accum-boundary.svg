@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="268" viewBox="0 0 800 268" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="13" role="img" aria-labelledby="t d">
+  <title id="t">gradient_accumulation_steps = 4 时 engine 的三次调用</title>
+  <desc id="d">4 个 micro-step 各调用一次 engine(batch)、engine.backward(loss)、engine.step()。前 3 次 step() 只把 micro_steps 加 1；第 4 次 is_gradient_accumulation_boundary() 为真，才执行 _take_model_step：优化器更新、lr_scheduler.step()、zero_grad，global_steps 加 1。</desc>
+  <style>.t{fill:#222;font-weight:700;font-size:14px}.h{fill:#333;font-weight:700}.l{fill:#222}.m{fill:#555;font-size:12px}.w{fill:#fff;font-size:12px}</style>
+  <text x="16" y="24" class="t">gradient_accumulation_steps = 4：用户每个 micro-step 都调三次，engine 只在第 4 次真正更新</text>
+  <text x="210.0" y="54" text-anchor="middle" class="h">micro_steps = 0</text>
+  <rect x="130" y="64" width="160" height="30" rx="4" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="210" y="84" text-anchor="middle" class="l">engine(batch)</text>
+  <rect x="130" y="102" width="160" height="30" rx="4" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="210" y="122" text-anchor="middle" class="l">engine.backward(loss)</text>
+  <rect x="130" y="140" width="160" height="44" rx="4" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="210" y="159" text-anchor="middle" class="m">engine.step()</text>
+  <text x="210" y="175" text-anchor="middle" class="m">只 micro_steps += 1</text>
+  <text x="378.0" y="54" text-anchor="middle" class="h">micro_steps = 1</text>
+  <rect x="298" y="64" width="160" height="30" rx="4" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="378" y="84" text-anchor="middle" class="l">engine(batch)</text>
+  <rect x="298" y="102" width="160" height="30" rx="4" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="378" y="122" text-anchor="middle" class="l">engine.backward(loss)</text>
+  <rect x="298" y="140" width="160" height="44" rx="4" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="378" y="159" text-anchor="middle" class="m">engine.step()</text>
+  <text x="378" y="175" text-anchor="middle" class="m">只 micro_steps += 1</text>
+  <text x="546.0" y="54" text-anchor="middle" class="h">micro_steps = 2</text>
+  <rect x="466" y="64" width="160" height="30" rx="4" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="546" y="84" text-anchor="middle" class="l">engine(batch)</text>
+  <rect x="466" y="102" width="160" height="30" rx="4" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="546" y="122" text-anchor="middle" class="l">engine.backward(loss)</text>
+  <rect x="466" y="140" width="160" height="44" rx="4" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="546" y="159" text-anchor="middle" class="m">engine.step()</text>
+  <text x="546" y="175" text-anchor="middle" class="m">只 micro_steps += 1</text>
+  <text x="714.0" y="54" text-anchor="middle" class="h">micro_steps = 3</text>
+  <rect x="634" y="64" width="160" height="30" rx="4" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="714" y="84" text-anchor="middle" class="l">engine(batch)</text>
+  <rect x="634" y="102" width="160" height="30" rx="4" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="714" y="122" text-anchor="middle" class="l">engine.backward(loss)</text>
+  <rect x="634" y="140" width="160" height="44" rx="4" fill="#fde68a" stroke="#d97706"/>
+  <text x="714" y="159" text-anchor="middle" class="l">engine.step()</text>
+  <text x="714" y="175" text-anchor="middle" class="l">边界：真正更新</text>
+  <text x="16" y="83" class="l">前向</text>
+  <text x="16" y="121" class="l">反向</text>
+  <text x="16" y="166" class="l">step</text>
+  <text x="16" y="212" class="m">每次 backward 把 loss 除以 4 再反传，梯度在 4 个 micro-step 上累加。</text>
+  <text x="16" y="230" class="m">边界上的 _take_model_step 做 optimizer.step()（ZeRO 的裁剪、更新、all-gather）、lr_scheduler.step()、zero_grad，并让 global_steps += 1。</text>
+  <text x="16" y="248" class="m">边界由 micro_steps 计数判断，用户不用自己写 no_sync。</text>
+</svg>

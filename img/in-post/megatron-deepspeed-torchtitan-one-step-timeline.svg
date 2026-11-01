@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="370" viewBox="0 0 820 370" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="13" role="img" aria-labelledby="t d">
+  <title id="t">三框架里一个 DP 组内的一个参数在一个 step 里的时序</title>
+  <desc id="d">三行分别是 Megatron（DDP + 分布式优化器）、DeepSpeed Stage 3、torchtitan FSDP2。蓝条表示完整 bf16 参数在显存里的时间：Megatron 一直完整；另两个只在该层前向、反向期间完整。Megatron 反向 reduce-scatter 梯度，step 更新本卡 1/N_d 后发起参数 all-gather，下一 step 前向等它完成；另两个前向、反向各 all-gather 一次，反向 reduce-scatter，step 后不 all-gather，下一 step 前向再取回。</desc>
+  <style>.t{fill:#222;font-weight:700;font-size:14px}.h{fill:#333;font-weight:700}.l{fill:#222}.m{fill:#555;font-size:12px}.w{fill:#fff;font-size:12px}</style>
+  <text x="16" y="24" class="t">一个 DP 组内的一个参数：一个 step 里的完整 bf16 参数与通信</text>
+  <text x="265.0" y="52" text-anchor="middle" class="h">前向（该层）</text>
+  <line x1="190" y1="60" x2="190" y2="320" stroke="#e5e7eb"/>
+  <text x="435.0" y="52" text-anchor="middle" class="h">反向（该层）</text>
+  <line x1="350" y1="60" x2="350" y2="320" stroke="#e5e7eb"/>
+  <text x="595.0" y="52" text-anchor="middle" class="h">optimizer.step()</text>
+  <line x1="530" y1="60" x2="530" y2="320" stroke="#e5e7eb"/>
+  <text x="737.5" y="52" text-anchor="middle" class="h">下一 step 前向</text>
+  <line x1="670" y1="60" x2="670" y2="320" stroke="#e5e7eb"/>
+  <text x="16" y="90" class="h">Megatron</text>
+  <text x="16" y="108" class="m">DDP + 分布式优化器</text>
+  <text x="16" y="126" class="m">常驻 2 + 4 + 12/N_d</text>
+  <rect x="190" y="72" width="615" height="18" fill="#bfdbfe"/>
+  <text x="497" y="86" text-anchor="middle" class="m">完整 bf16 参数始终常驻（param_data buffer）</text>
+  <rect x="360" y="98" width="150" height="34" rx="4" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="435" y="120" text-anchor="middle" class="l">RS 梯度 ≈ N</text>
+  <rect x="540" y="98" width="120" height="34" rx="4" fill="#fde68a" stroke="#d97706"/>
+  <text x="600" y="112" text-anchor="middle" class="m">更新本卡 1/N_d</text>
+  <text x="600" y="128" text-anchor="middle" class="m">拷回 bf16 段</text>
+  <rect x="670" y="98" width="135" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="738" y="112" text-anchor="middle" class="m">AG 参数 ≈ N</text>
+  <text x="738" y="128" text-anchor="middle" class="m">step 内发起，前向等</text>
+  <text x="16" y="174" class="h">DeepSpeed</text>
+  <text x="16" y="192" class="m">Stage 3</text>
+  <text x="16" y="210" class="m">常驻 (2 + 2 + 12)/N_d</text>
+  <rect x="200" y="156" width="130" height="18" fill="#bfdbfe"/>
+  <rect x="360" y="156" width="150" height="18" fill="#bfdbfe"/>
+  <rect x="680" y="156" width="115" height="18" fill="#bfdbfe"/>
+  <text x="265" y="170" text-anchor="middle" class="m">完整 bf16（临时）</text>
+  <text x="435" y="170" text-anchor="middle" class="m">完整 bf16（临时）</text>
+  <text x="737" y="170" text-anchor="middle" class="m">完整 bf16（临时）</text>
+  <rect x="200" y="182" width="130" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="265" y="196" text-anchor="middle" class="m">AG 参数 ≈ N</text>
+  <text x="265" y="212" text-anchor="middle" class="m">取回</text>
+  <rect x="360" y="182" width="70" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="395" y="196" text-anchor="middle" class="m">AG ≈ N</text>
+  <text x="395" y="212" text-anchor="middle" class="m">取回</text>
+  <rect x="436" y="182" width="74" height="34" rx="4" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="473" y="196" text-anchor="middle" class="m">RS 梯度</text>
+  <text x="473" y="212" text-anchor="middle" class="m">≈ N</text>
+  <rect x="540" y="182" width="110" height="34" rx="4" fill="#fde68a" stroke="#d97706"/>
+  <text x="595" y="196" text-anchor="middle" class="m">更新本卡 1/N_d</text>
+  <text x="595" y="212" text-anchor="middle" class="m">不 AG</text>
+  <rect x="680" y="182" width="115" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="738" y="196" text-anchor="middle" class="m">AG 参数 ≈ N</text>
+  <text x="738" y="212" text-anchor="middle" class="m">下一 step 的</text>
+  <text x="16" y="258" class="h">torchtitan</text>
+  <text x="16" y="276" class="m">FSDP2</text>
+  <text x="16" y="294" class="m">常驻 16/N_d</text>
+  <rect x="200" y="240" width="130" height="18" fill="#bfdbfe"/>
+  <rect x="360" y="240" width="150" height="18" fill="#bfdbfe"/>
+  <rect x="680" y="240" width="115" height="18" fill="#bfdbfe"/>
+  <text x="265" y="254" text-anchor="middle" class="m">完整 bf16（临时）</text>
+  <text x="435" y="254" text-anchor="middle" class="m">完整 bf16（临时）</text>
+  <text x="737" y="254" text-anchor="middle" class="m">完整 bf16（临时）</text>
+  <rect x="200" y="266" width="130" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="265" y="280" text-anchor="middle" class="m">AG 参数 ≈ N</text>
+  <text x="265" y="296" text-anchor="middle" class="m">unshard</text>
+  <rect x="360" y="266" width="70" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="395" y="280" text-anchor="middle" class="m">AG ≈ N</text>
+  <text x="395" y="296" text-anchor="middle" class="m">unshard</text>
+  <rect x="436" y="266" width="74" height="34" rx="4" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="473" y="280" text-anchor="middle" class="m">RS 梯度</text>
+  <text x="473" y="296" text-anchor="middle" class="m">≈ N</text>
+  <rect x="540" y="266" width="110" height="34" rx="4" fill="#fde68a" stroke="#d97706"/>
+  <text x="595" y="280" text-anchor="middle" class="m">直接更新</text>
+  <text x="595" y="296" text-anchor="middle" class="m">fp32 分片</text>
+  <rect x="680" y="266" width="115" height="34" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="738" y="280" text-anchor="middle" class="m">AG 参数 ≈ N</text>
+  <text x="738" y="296" text-anchor="middle" class="m">下一 step 的</text>
+  <text x="16" y="342" class="m">蓝条 = 显存里有完整 bf16 参数的时间。Megatron 每 step 通信 RS + AG = 2N；另两个是 AG + AG + RS = 3N（下一 step 前向那次 AG 记在下一 step）。</text>
+  <text x="16" y="360" class="m">DeepSpeed 前向后、反向后的释放叫 partition，torchtitan 叫 reshard；梯度为 fp32 时 DeepSpeed 常驻是 (2 + 4 + 12)/N_d。</text>
+</svg>

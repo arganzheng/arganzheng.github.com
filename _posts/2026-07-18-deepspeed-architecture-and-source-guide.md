@@ -396,20 +396,29 @@ step：Adam 更新各 rank 的 fp32 shard；新值仍留在 ds_tensor，不做�
 
 **问题**：ZeRO 要决定什么时候 reduce、什么时候更新，但循环还是用户写的——边界怎么判断？
 
-**直觉**：engine 数 micro-step。DeepSpeed 没有训练循环——用户写循环，engine 提供三个方法：
+**直觉**：engine 数 micro-step。DeepSpeed 没有训练循环——用户写循环，engine 提供三个方法。用户要写的全部代码就是下面这几行（真实的 Python，不是伪代码）：
 
-```text title="DeepSpeed 的训练循环：forward / backward / step"
-for step in ...:
-  for micro in range(gradient_accumulation_steps):
-    loss = engine(batch)                     DeepSpeedEngine.forward：计时、flops profiler、Stage 3 的 root hook 起点
-    engine.backward(loss)                    loss / gradient_accumulation_steps；ZeRO 时 optimizer.scale_if_loss；loss.backward()
-                                             _backward_epilogue：ZeRO 时 optimizer.backward_epilogue()（清 IPG bucket、结束 reduce）
-                                                                非 ZeRO 时 allreduce_gradients()（在梯度累积边界）
-    engine.step()                            is_gradient_accumulation_boundary() 才真正 _take_model_step：
-                                               optimizer.step()（ZeRO 的 step，含裁剪、更新、all-gather）
-                                               lr_scheduler.step(); zero_grad
-                                             global_steps += 1；micro_steps += 1
+```python title="DeepSpeed 的训练循环：用户写的部分"
+for step in range(num_steps):
+    for micro in range(gradient_accumulation_steps):
+        loss = engine(batch)
+        engine.backward(loss)
+        engine.step()
 ```
+
+注意 `engine.step()` 写在内层循环里，每个 micro-step 都调用。三个调用各自在 engine 里做的事：
+
+| 用户调用 | engine 内部做什么 |
+|---|---|
+| `loss = engine(batch)` | `DeepSpeedEngine.forward`：计时、flops profiler<br/>Stage 3 下是 root hook 的起点，逐层 all-gather 参数从这里开始 |
+| `engine.backward(loss)` | loss 除以 `gradient_accumulation_steps`<br/>ZeRO 时先 `optimizer.scale_if_loss`，再 `loss.backward()`<br/>`_backward_epilogue`：ZeRO 时调 `optimizer.backward_epilogue()`（清 IPG bucket、结束 reduce）；非 ZeRO 时在梯度累积边界调 `allreduce_gradients()` |
+| `engine.step()` | `is_gradient_accumulation_boundary()` 为真才进 `_take_model_step`：`optimizer.step()`（ZeRO 的 step，含裁剪、更新、all-gather）、`lr_scheduler.step()`、`zero_grad`，`global_steps += 1`<br/>不在边界时只做 `micro_steps += 1` |
+
+Table: DeepSpeed 训练循环的三个调用
+
+以 `gradient_accumulation_steps = 4` 为例，一个 step 里的 12 次调用是这样的：
+
+![gradient_accumulation_steps = 4 时 engine 的三次调用](/img/in-post/deepspeed-grad-accum-boundary.svg)
 
 `gradient_accumulation_steps` 由 JSON 的 `train_batch_size / (train_micro_batch_size_per_gpu × dp_size)` 推出，engine 用 `micro_steps` 计数判断边界——用户不需要自己写 `no_sync`。这个设计让「零侵入」成立：现有的单卡训练脚本只要把 `model` 换成 `engine`、`loss.backward()` 换成 `engine.backward(loss)`、`optimizer.step()` 换成 `engine.step()` 就能用 ZeRO-3。代价是控制权在 engine 手里：什么时候 all-gather、什么时候 reduce、什么时候释放，都由 JSON 里的阈值决定，用户能调的是数字而不是顺序。
 
