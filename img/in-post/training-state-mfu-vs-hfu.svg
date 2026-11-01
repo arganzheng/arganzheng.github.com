@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.591139pt" height="296.39952pt" viewBox="0 0 555.591139 296.39952" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="555.59952pt" height="296.39952pt" viewBox="0 0 555.59952 296.39952" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -21,72 +21,72 @@
  <g id="figure_1">
   <g id="patch_1">
    <path d="M 0 296.39952
-L 555.591139 296.39952
-L 555.591139 0
+L 555.59952 296.39952
+L 555.59952 0
 L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
-    <path d="M 146.979609 86.801886
-L 397.456582 86.801886
-L 397.456582 62.912329
-L 146.979609 62.912329
+    <path d="M 179.529321 86.801886
+L 400.10373 86.801886
+L 400.10373 62.912329
+L 179.529321 62.912329
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
-    <path d="M 146.979609 138.562592
-L 397.456582 138.562592
-L 397.456582 114.673036
-L 146.979609 114.673036
+    <path d="M 179.529321 138.562592
+L 400.10373 138.562592
+L 400.10373 114.673036
+L 179.529321 114.673036
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
-    <path d="M 397.456582 138.562592
-L 403.5214 138.562592
-L 403.5214 114.673036
-L 397.456582 114.673036
+    <path d="M 400.10373 138.562592
+L 405.444515 138.562592
+L 405.444515 114.673036
+L 400.10373 114.673036
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #c94c4c; fill-opacity: 0.333333; stroke: #c94c4c; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #c94c4c; fill-opacity: 0.333333; stroke: #c94c4c; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
-    <path d="M 146.979609 190.323299
-L 397.456582 190.323299
-L 397.456582 166.433742
-L 146.979609 166.433742
+    <path d="M 179.529321 190.323299
+L 400.10373 190.323299
+L 400.10373 166.433742
+L 179.529321 166.433742
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
-    <path d="M 397.456582 190.323299
-L 481.151067 190.323299
-L 481.151067 166.433742
-L 397.456582 166.433742
+    <path d="M 400.10373 190.323299
+L 473.80656 190.323299
+L 473.80656 166.433742
+L 400.10373 166.433742
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #c94c4c; fill-opacity: 0.333333; stroke: #c94c4c; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #c94c4c; fill-opacity: 0.333333; stroke: #c94c4c; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
-    <path d="M 146.979609 228.14843
-L 156.221236 228.14843
-L 156.221236 217.53085
-L 146.979609 217.53085
+    <path d="M 179.529321 218.858047
+L 190.922995 218.858047
+L 190.922995 208.240466
+L 179.529321 208.240466
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #3b6fb6; fill-opacity: 0.333333; stroke: #3b6fb6; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_8">
-    <path d="M 253.835922 228.14843
-L 263.077549 228.14843
-L 263.077549 217.53085
-L 253.835922 217.53085
+    <path d="M 311.268678 218.858047
+L 322.662352 218.858047
+L 322.662352 208.240466
+L 311.268678 208.240466
 z
-" clip-path="url(#p97e3c28be1)" style="fill: #c94c4c; fill-opacity: 0.333333; stroke: #c94c4c; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p32b8c9eb94)" style="fill: #c94c4c; fill-opacity: 0.333333; stroke: #c94c4c; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- 无重计算 -->
-    <g style="fill: #111111" transform="translate(38.968093 78.657108) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(46.365755 78.657108) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-eed" d="M 3302 2630
 L 3302 166
@@ -366,7 +366,7 @@ z
    </g>
    <g id="text_2">
     <!-- MFU 41.3% -->
-    <g style="fill: #111111" transform="translate(404.965404 78.657108) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(409.361091 78.657108) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-2e" d="M 3533 -77
 C 3571 115 3686 474 3814 774
@@ -572,7 +572,7 @@ z
    </g>
    <g id="text_3">
     <!-- 选择性重计算 -->
-    <g style="fill: #111111" transform="translate(38.968093 130.417814) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(46.365755 130.417814) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-fca" d="M 1075 819
 C 979 762 602 480 474 365
@@ -825,7 +825,7 @@ z
    </g>
    <g id="text_4">
     <!-- HFU 42.3% -->
-    <g style="fill: #111111" transform="translate(411.030222 130.417814) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(414.701875 130.417814) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-29" d="M 3878 5018
 C 3917 4787 3930 4557 3930 4192
@@ -888,7 +888,7 @@ z
    </g>
    <g id="text_5">
     <!-- 全量重计算 -->
-    <g style="fill: #111111" transform="translate(38.968093 182.17852) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(46.365755 182.17852) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-c86" d="M 2906 5453
 C 2739 5165 2547 4902 2323 4678
@@ -1053,7 +1053,7 @@ z
    </g>
    <g id="text_6">
     <!-- HFU 55.1% -->
-    <g style="fill: #111111" transform="translate(488.659889 182.17852) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(483.06392 182.17852) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-16" d="M 378 1062
 C 518 704 608 550 781 365
@@ -1097,7 +1097,7 @@ z
    </g>
    <g id="text_7">
     <!-- 模型需要的计算 -->
-    <g style="fill: #111111" transform="translate(160.84205 226.25964) scale(0.09 -0.09)">
+    <g style="fill: #111111" transform="translate(196.619832 216.969257) scale(0.09 -0.09)">
      <defs>
       <path id="HiraginoSansGB-W6-b06" d="M 5491 819
 C 5734 819 5933 806 6131 781
@@ -1568,7 +1568,7 @@ z
    </g>
    <g id="text_8">
     <!-- 重计算 -->
-    <g style="fill: #111111" transform="translate(267.698362 226.25964) scale(0.09 -0.09)">
+    <g style="fill: #111111" transform="translate(328.359189 216.969257) scale(0.09 -0.09)">
      <use xlink:href="#HiraginoSansGB-W6-11d7"/>
      <use xlink:href="#HiraginoSansGB-W6-839" transform="translate(100 0)"/>
      <use xlink:href="#HiraginoSansGB-W6-dd8" transform="translate(200 0)"/>
@@ -1576,7 +1576,7 @@ z
    </g>
    <g id="text_9">
     <!-- 70B · 1024 H100 · 4M token/step · 实测 4.5 s -->
-    <g style="fill: #111111" transform="translate(95.377705 244.121651) scale(0.1 -0.1)">
+    <g style="fill: #111111" transform="translate(146.488822 251.421238) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-18" d="M 4160 5050
 C 3930 5024 3763 5018 3283 5018
@@ -2005,7 +2005,7 @@ z
    </g>
    <g id="text_10">
     <!-- MFU 41.3%  ·  HFU（选择性）42.3%  ·  HFU（全量）55.1% -->
-    <g style="fill: #111111" transform="translate(55.758096 265.50837) scale(0.11 -0.11)">
+    <g style="fill: #111111" transform="translate(106.869213 270.817161) scale(0.11 -0.11)">
      <defs>
       <path id="HiraginoSansGB-W6-10d" d="M 6214 -570
 C 5760 0 5581 282 5402 704
@@ -2082,7 +2082,7 @@ z
    </g>
    <g id="text_11">
     <!-- 重算让 GPU 更忙，不代表每秒处理的 token 更多。 -->
-    <g style="fill: #111111" transform="translate(113.980791 284.182736) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(165.091908 287.50073) scale(0.095 -0.095)">
      <defs>
       <path id="HiraginoSansGB-W6-c9e" d="M 1414 -224
 C 1485 -160 1485 -160 1600 -77
@@ -2834,7 +2834,7 @@ z
    </g>
    <g id="text_12">
     <!-- MFU 看模型做了多少有用计算，HFU 还数上重算 -->
-    <g style="fill: #111111" transform="translate(93.855205 17.76) scale(0.12 -0.12)">
+    <g style="fill: #111111" transform="translate(144.966322 17.76) scale(0.12 -0.12)">
      <defs>
       <path id="HiraginoSansGB-W3-2e" d="M 2554 710
 C 2682 422 2758 205 2790 38
@@ -3950,8 +3950,8 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p97e3c28be1">
-   <rect x="7.2" y="23.76" width="438.977285" height="265.43952"/>
+  <clipPath id="p32b8c9eb94">
+   <rect x="7.2" y="23.76" width="541.19952" height="265.43952"/>
   </clipPath>
  </defs>
 </svg>
