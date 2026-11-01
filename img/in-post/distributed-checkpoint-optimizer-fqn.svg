@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 320" width="860" height="320" role="img" aria-labelledby="t d">
+  <title id="t">优化器状态为什么要按 FQN 重新编址</title>
+  <desc id="d">PP = 2 的例子：rank 0 持有 layers 0–3，rank 1 持有 layers 4–7。两个 rank 的 optimizer.state_dict() 里都有 state[0]，但分别指第 0 层和第 4 层的 wq.weight，直接按下标合并会互相覆盖。按参数的 FQN 重新编址后，key 变成 state["layers.0.attention.wq.weight"] 等，全局唯一，m、v 与参数同形状、同分片。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+      .red { fill: #b42318; }
+      .grey { fill: #7a8b9c; }
+      .dash { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .dasharrow { stroke: #40566f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow); }
+      .red { fill: #b42318; }
+      .grey { fill: #7a8b9c; }
+      .dash { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .dasharrow { stroke: #40566f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow); }
+    </style>
+  </defs>
+<text x="20" y="24" text-anchor="start" class="head">① 各 rank 自己的 optimizer.state_dict()</text>
+<text x="360" y="24" text-anchor="start" class="head">② 直接按下标合并</text>
+<text x="560" y="24" text-anchor="start" class="head">③ 按 FQN 重新编址</text>
+<rect class="seg-a" x="20" y="44" width="310" height="108"/>
+<text x="32" y="66" text-anchor="start" class="bold">rank 0（PP stage 0，layers 0–3）</text>
+<text x="32" y="90" text-anchor="start" class="mono12">state[0]  = {exp_avg, exp_avg_sq, step}</text>
+<text x="32" y="106" text-anchor="start" class="mono12 grey">          ↳ 实际是 layers.0.attention.wq.weight</text>
+<text x="32" y="126" text-anchor="start" class="mono12">state[1]  ↳ layers.0.attention.wk.weight</text>
+<text x="32" y="144" text-anchor="start" class="mono12">…</text>
+<rect class="seg-a" x="20" y="168" width="310" height="108"/>
+<text x="32" y="190" text-anchor="start" class="bold">rank 1（PP stage 1，layers 4–7）</text>
+<text x="32" y="214" text-anchor="start" class="mono12">state[0]  = {exp_avg, exp_avg_sq, step}</text>
+<text x="32" y="230" text-anchor="start" class="mono12 grey">          ↳ 实际是 layers.4.attention.wq.weight</text>
+<text x="32" y="250" text-anchor="start" class="mono12">state[1]  ↳ layers.4.attention.wk.weight</text>
+<text x="32" y="268" text-anchor="start" class="mono12">…</text>
+<rect class="seg-hi" x="360" y="80" width="170" height="130"/>
+<text x="445" y="106" text-anchor="middle" class="bold">state[0] 有两份</text>
+<text x="445" y="128" text-anchor="middle" class="small">rank 0 的是第 0 层</text>
+<text x="445" y="146" text-anchor="middle" class="small">rank 1 的是第 4 层</text>
+<text x="445" y="176" text-anchor="middle" class="bold red">互相覆盖</text>
+<text x="445" y="196" text-anchor="middle" class="small">换了 PP 切法更对不上</text>
+<rect class="seg-b" x="560" y="44" width="290" height="232"/>
+<text x="572" y="72" text-anchor="start" class="mono12">state["layers.0.attention.wq.weight"]</text>
+<text x="572" y="94" text-anchor="start" class="mono12">  exp_avg / exp_avg_sq / step</text>
+<text x="572" y="116" text-anchor="start" class="mono12">state["layers.0.attention.wk.weight"]</text>
+<text x="572" y="138" text-anchor="start" class="mono12">  …</text>
+<text x="572" y="160" text-anchor="start" class="mono12">state["layers.4.attention.wq.weight"]</text>
+<text x="572" y="182" text-anchor="start" class="mono12">  exp_avg / exp_avg_sq / step</text>
+<text x="572" y="204" text-anchor="start" class="mono12">…</text>
+<text x="572" y="240" text-anchor="start" class="small">key 全局唯一，和 PP 怎么切无关</text>
+<text x="572" y="260" text-anchor="start" class="small">m、v 与参数同形状、同分片</text>
+<path d="M330 120 H358" class="arrow"/>
+<path d="M330 220 C 345 220, 345 180, 358 180" class="arrow"/>
+<path d="M530 145 H558" class="arrow"/>
+<text x="20" y="306" text-anchor="start" class="small">参数的 key 本来就是 FQN；优化器状态的 key 是 param_groups 里的下标，只在一个进程的一个 optimizer 对象里有意义。</text>
+</svg>

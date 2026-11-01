@@ -49,7 +49,11 @@ Table: 本篇用到的记账符号
 
 ![保存与加载的两条流水线](/img/in-post/distributed-checkpoint-save-load-pipelines.svg)
 
-三个观察决定了后面所有的设计：第一，磁盘上的内容是"全局张量的一组分片"而不是"某个 rank 的内存映像"，这样加载时的分片布局可以与保存时不同；第二，`.metadata` 是最后写的，它的出现等价于"这个 checkpoint 完整"，因此写它必须是原子的；第三，保存路径上只有 staging 那一步必须由训练进程在 GPU 空闲时做，其余全部可以挪到后台线程或进程——这就是异步保存。
+两条线的交汇点就是这个目录：保存写下的数据块和 `.metadata`，正是加载要读的东西。后面所有的设计都由三个观察决定：
+
+- **磁盘上是全局张量的一组分片**，而不是某个 rank 的内存映像。所以加载时的分片布局可以与保存时不同。
+- **`.metadata` 最后写**，它的出现就等于"这个 checkpoint 完整"，所以写它必须是原子的。
+- **只有 staging 必须由训练进程做**，而且要在 GPU 空闲时做；其余步骤都可以挪到后台线程或进程，这就是异步保存。
 
 ### 3. 三框架在 checkpoint 上的对照
 
@@ -104,21 +108,86 @@ Table: 精确恢复必需的六类内容
 
 前两行是字节的大头：Adam 的两个矩加 fp32 主参数是参数本身的 6 倍（若参数按 bf16 算）。后四行几乎不占空间，但缺了任何一样都不再是"精确恢复"，只是"从一个不错的初始化重新开始"。总纲里说"优化器状态是参数的两到三倍"，就是 12 字节比 2 到 4 字节。
 
+对照[第一篇](/training-state-anatomy-memory-and-mfu.html)的四种状态，要存的恰好是其中两种**常驻状态**：
+
+![checkpoint 要存什么：四种状态里的两种常驻状态 + 几样小东西](/img/in-post/distributed-checkpoint-what-to-save.svg)
+
+- **参数和优化器状态是常驻的**，跨 step 存活，丢了就回不来，必须存。
+- **激活和梯度是瞬态的**，每个 step 从零产生，step 结束前就被消费掉。checkpoint 发生在两个 step 之间，这时梯度已经清零、激活已经释放，重启后第一步的前向、反向会重新算出来，所以不存。
+
+代入两个模型，落盘的字节是这样分布的：
+
+| 内容 | 每参数字节 | Llama 3 8B | Llama 3 405B |
+|---|---|---|---|
+| bf16 参数 | 2 | 16 GB | 0.81 TB |
+| fp32 主参数 | 4 | 32 GB | 1.62 TB |
+| Adam m | 4 | 32 GB | 1.62 TB |
+| Adam v | 4 | 32 GB | 1.62 TB |
+| 合计（Megatron 路径） | 14 | 112 GB | 5.7 TB |
+| 合计（FSDP2 路径，没有 bf16 副本） | 12 | 96 GB | 4.9 TB |
+| 调度器、数据位置、RNG、计数、配置 | — | 每 rank KB 到 MB 级 | 同左 |
+
+Table: 落盘字节的分布：8B 与 405B
+
+为什么 m、v 不能省？举个例子。Adam 的更新量是 $$\text{lr} \cdot \hat{m} / (\sqrt{\hat{v}} + \epsilon)$$，其中 $$\hat{m}$$、$$\hat{v}$$ 是做过偏差修正的 m、v。如果重启时 m、v 和步数都从零开始，第一步的偏差修正会让 $$\hat{m} = g$$、$$\hat{v} = g^2$$，更新量就成了 $$\text{lr} \cdot \text{sign}(g)$$：
+
+- 每个参数都按满 lr 走一步，不管它过去的梯度多小、多稳定。
+- 正常训练里，v 记着很长一段历史，梯度一直很小的参数，更新量也小；重置之后这些参数会被突然推一大步。
+- 这就是表里"loss 明显上翘"的来源，要几百步 m、v 重新积累起来才会恢复。
+
 一个常被忽略的第七项是**训练配置本身**。Megatron 把整个 `args` 存进 checkpoint（`megatron/training/checkpointing.py` 的 `generate_state_dict()` 写 `state_dict['args']`），加载时 `check_checkpoint_args()` 对比关键字段，`--use-checkpoint-args` 可以直接用 checkpoint 里的模型结构参数覆盖命令行。不存配置的后果是三个月后没人知道这份 checkpoint 是用什么 `--num-layers` 训的。
 
 ### 2. 三框架各自怎么组装 state_dict
 
-三个框架把这六样东西装进一个 dict 的方式不同，但 key 的种类是一样的：
+三个框架把这六样东西装进一个 dict 的方式不同，但 key 的种类是一样的。
 
-Megatron 的 `generate_state_dict()`（`megatron/training/checkpointing.py`）产出 `args`、`checkpoint_version`（当前是 3.0）、`iteration`、`model`（PP 多个虚拟 stage 时是 `model0`、`model1`…）、`optimizer`、`opt_param_scheduler`、`rng_state`，可选 `rerun_state_machine`（第九篇的 SDC 检测状态）与 `num_floating_point_operations_so_far`。`--ckpt-format torch_dist` 时 `model` 与 `optimizer` 来自 `sharded_state_dict()`，值是 `ShardedTensor`；其他格式来自普通 `state_dict()`。RNG 由 `get_rng_state()` 收集 Python、NumPy、torch CPU、CUDA 四个生成器加 TP 组的 `CudaRNGStatesTracker`，在 `torch_dist` 格式下包成一个按 `(pp_rank, tp_rank)` 分片的 `ShardedObject`——RNG 状态是"按 TP/PP 位置存、DP 内相同"的东西，这个分片形状精确表达了它的语义。数据加载器位置走单独的文件（`maybe_save_dataloader_state()`），因为它按 DP rank 分片、与模型无关。
+**Megatron**：`generate_state_dict()`（`megatron/training/checkpointing.py`）
 
-torchtitan 的 `CheckpointManager`（`torchtitan/components/checkpointer/dcp.py`）把 `states` 字典交给 DCP：`model` 是 `ModelWrapper`、`optimizer` 是 `OptimizersContainer`、`lr_scheduler` 是 `LRSchedulersContainer`、`dataloader` 是 `ParallelAwareDataloader`（基于 `torchdata` 的 `StatefulDataLoader`），另有 `train_state`——`Trainer` 类自身实现了 `Stateful` 协议，`state_dict()` 返回 `step` 与 `ntokens_seen`。这些对象全部实现 `torch.distributed.checkpoint.stateful.Stateful`，DCP 在 `_stateful_to_state_dict()` 里逐个调用它们的 `state_dict()`。
+- 产出 `args`、`checkpoint_version`（当前是 3.0）、`iteration`、`model`（PP 多个虚拟 stage 时是 `model0`、`model1`…）、`optimizer`、`opt_param_scheduler`、`rng_state`。
+- 可选 `rerun_state_machine`（第九篇的 SDC 检测状态）与 `num_floating_point_operations_so_far`。
+- `--ckpt-format torch_dist` 时 `model` 与 `optimizer` 来自 `sharded_state_dict()`，值是 `ShardedTensor`；其他格式来自普通 `state_dict()`。
+- RNG 由 `get_rng_state()` 收集 Python、NumPy、torch CPU、CUDA 四个生成器，加 TP 组的 `CudaRNGStatesTracker`。在 `torch_dist` 格式下包成一个按 `(pp_rank, tp_rank)` 分片的 `ShardedObject`：RNG 状态是"按 TP/PP 位置存、DP 内相同"的东西，这个分片形状精确表达了它的语义。
+- 数据加载器位置走单独的文件（`maybe_save_dataloader_state()`），因为它按 DP rank 分片、与模型无关。
 
-DeepSpeed 的 `DeepSpeedEngine.save_checkpoint()`（`deepspeed/runtime/engine.py`）把模型、优化器、lr scheduler、`global_steps`、`skipped_steps`、`ds_config` 与用户传入的 `client_state` 写成每 rank 一个 `torch.save` 文件；数据加载器位置与 RNG 由用户放进 `client_state`——这是它与另两个框架最明显的分工差异。
+**torchtitan**：`CheckpointManager`（`torchtitan/components/checkpointer/dcp.py`）把 `states` 字典交给 DCP
+
+- `model` 是 `ModelWrapper`，`optimizer` 是 `OptimizersContainer`，`lr_scheduler` 是 `LRSchedulersContainer`。
+- `dataloader` 是 `ParallelAwareDataloader`（基于 `torchdata` 的 `StatefulDataLoader`）。
+- `train_state` 是 `Trainer` 自己：它实现了 `Stateful` 协议，`state_dict()` 返回 `step` 与 `ntokens_seen`。
+- 这些对象全部实现 `torch.distributed.checkpoint.stateful.Stateful`，DCP 在 `_stateful_to_state_dict()` 里逐个调用它们的 `state_dict()`。
+
+**DeepSpeed**：`DeepSpeedEngine.save_checkpoint()`（`deepspeed/runtime/engine.py`）
+
+- 把模型、优化器、lr scheduler、`global_steps`、`skipped_steps`、`ds_config` 与用户传入的 `client_state` 写成每 rank 一个 `torch.save` 文件。
+- 数据加载器位置与 RNG 由用户自己放进 `client_state`，这是它与另两个框架最明显的分工差异。
+
+放在一起看：
+
+| 内容 | Megatron | torchtitan | DeepSpeed |
+|---|---|---|---|
+| 模型参数 | `model`（或 `model0`、`model1`…） | `model` | 模型 |
+| 优化器状态 + fp32 主参数 | `optimizer` | `optimizer` | 优化器（ZeRO 时按 DP rank 另存文件） |
+| 学习率调度器 | `opt_param_scheduler` | `lr_scheduler` | lr scheduler |
+| 数据加载器位置 | 单独文件（`maybe_save_dataloader_state()`） | `dataloader` | 用户放进 `client_state` |
+| RNG 状态 | `rng_state`（按 TP/PP 位置分片） | 上面的 `states` 里没有单独一项 | 用户放进 `client_state` |
+| 迭代计数与累计量 | `iteration`、`num_floating_point_operations_so_far` | `train_state`（`step`、`ntokens_seen`） | `global_steps`、`skipped_steps` |
+| 训练配置 | `args`、`checkpoint_version` | 上面的 `states` 里没有单独一项 | `ds_config` |
+
+Table: 三框架 state_dict 的 key 对照
 
 ### 3. 优化器状态为什么最难
 
-参数的 key 是 FQN（`layers.3.attention.wq.weight`），天然全局唯一。优化器状态的 key 却是 `param_groups` 里的**下标**：`state[0]`、`state[1]`……下标只在一个进程的一个 optimizer 对象里有意义。PP 下 rank 0 的 `state[0]` 指第 0 层的某个参数，rank 1 的 `state[0]` 指第 8 层的——直接合并会互相覆盖。三个框架都要把优化器状态**重新按 FQN 编址**：
+参数的 key 是 FQN（`layers.3.attention.wq.weight`），天然全局唯一。优化器状态的 key 却是 `param_groups` 里的**下标**：`state[0]`、`state[1]`……下标只在一个进程的一个 optimizer 对象里有意义。
+
+看一个 PP = 2 的例子：8 层模型，rank 0 持有 layers 0–3，rank 1 持有 layers 4–7。
+
+![优化器状态为什么要按 FQN 重新编址](/img/in-post/distributed-checkpoint-optimizer-fqn.svg)
+
+- 两个 rank 的 `optimizer.state_dict()` 里都有 `state[0]`，rank 0 的指第 0 层的 `wq.weight`，rank 1 的指第 4 层的。直接合并，两份 `state[0]` 会互相覆盖。
+- 就算不合并、各存各的，换一种 PP 切法（比如改成 4 个 stage）之后，`state[0]` 又指向别的参数了，旧文件没法对上。
+- 按 FQN 编址之后，key 变成 `state["layers.4.attention.wq.weight"]`，和 PP 怎么切、这个参数在哪个 rank 上都无关。
+
+所以难点有三层：key 要从下标换成 FQN；每个状态张量的形状和分片要跟着对应参数走（FSDP2 下 m、v 与参数一样是 `Shard(0)` 的 DTensor）；加载时优化器可能还没跑过一步，state 是空的，要先造出来才能往里装。三个框架都要把优化器状态**重新按 FQN 编址**：
 
 - PyTorch 的 `torch/distributed/checkpoint/state_dict.py` 提供 `get_optimizer_state_dict()`，内部 `_get_optim_state_dict()` 把下标换成参数 FQN，并在 FSDP2 / TP 下让每个状态张量跟随对应参数的 DTensor 布局（`m`、`v` 与参数同形状、同分片）；`set_optimizer_state_dict()` 反向映射，且在优化器尚未跑过一步（state 为空）时先 `_init_optim_state()` 造出零状态再装。
 - torchtitan 的 `OptimizersContainer.state_dict()` 调 `torchtitan/components/optimizer/utils.py` 的 `get_flat_optim_state_dict()`，把多个 optimizer（每个 PP stage 一个）的状态拍平成一个 FQN 键的 dict；`load_flat_optim_state_dict()` 反向。
@@ -130,7 +199,13 @@ DeepSpeed 的 `DeepSpeedEngine.save_checkpoint()`（`deepspeed/runtime/engine.py
 
 ### 1. 6 TB 是怎么来的
 
-Llama 3 405B 的训练配置是 TP=8、CP=16、PP=16、DP=128，共 16384 张 H100。每参数 14 字节，$$405 \times 10^9 \times 14 \approx 5.7 \text{ TB}$$。DP=128 意味着参数在 128 个副本里各有一份，但 checkpoint 只需要一份；分布式优化器（ZeRO-1）把 fp32 主参数与两个矩切成 128 份，每张卡持有 $$1/128$$。所以每张卡"唯一持有"的字节是：bf16 参数分片 $$2 \times 405\text{B} / (8 \times 16) = 6.3 \text{ GB}$$（这份在 128 个 DP 副本上重复，只需一个副本写），加优化器分片 $$12 \times 405\text{B} / 16384 \approx 0.30 \text{ GB}$$。全部去重后每张卡平均 $$5.7 \text{ TB} / 16384 \approx 350 \text{ MB}$$。
+Llama 3 405B 在 16384 张 H100 上的训练配置是 TP=8、PP=16、DP=128（$$8 \times 16 \times 128 = 16384$$；长上下文阶段改成 CP=16、DP=8，卡数不变）。一步一步算：
+
+1. **每参数落盘字节**：bf16 参数 2 + fp32 主参数 4 + Adam m 4 + Adam v 4 = 14 字节。梯度不存（第二章第 1 节）。
+2. **总量**：$$405 \times 10^9 \times 14 \approx 5.7 \text{ TB}$$。这是去掉所有复制之后的唯一字节数，与并行配置无关。
+3. **bf16 参数怎么分布**：TP × PP 把模型切成 $$8 \times 16 = 128$$ 份，每份 $$2 \times 405 \times 10^9 / 128 \approx 6.3 \text{ GB}$$。这 128 份在 128 个 DP 副本上各有一份完全相同的拷贝，checkpoint 只需要其中一份。
+4. **优化器状态怎么分布**：分布式优化器（ZeRO-1）把 fp32 主参数和两个矩在 DP 内再切 128 份，所以 16384 张卡每张持有 $$12 \times 405 \times 10^9 / 16384 \approx 0.30 \text{ GB}$$，互不重复。
+5. **每卡要写多少**：参数分片的写入也可以在 128 个 DP 副本间均摊，每卡 $$6.3 \text{ GB} / 128 \approx 49 \text{ MB}$$；加上 0.30 GB 的优化器分片，约 350 MB。核对一下：$$5.7 \text{ TB} / 16384 \approx 350 \text{ MB}$$，正好对上。
 
 ### 2. rank-0 汇总的三个瓶颈
 
@@ -138,9 +213,9 @@ Llama 3 405B 的训练配置是 TP=8、CP=16、PP=16、DP=128，共 16384 张 H1
 
 | 瓶颈 | 算术 | 结论 |
 |---|---|---|
-| 主机内存 | rank 0 所在节点要装下 5.7 TB；一个 8 卡节点通常配 1–2 TB 内存 | 物理上放不下；即便流式处理也要分几十批 |
+| 主机内存 | rank 0 所在节点要装下 5.7 TB<br/>一个 8 卡节点通常配 1–2 TB 内存 | 物理上放不下<br/>即便流式处理也要分几十批 |
 | 接收带宽 | 全部数据经 rank 0 的一张网卡进来：5.7 TB / 50 GB/s ≈ 114 s | 仅传输就近两分钟，且期间其他 16383 张卡空转 |
-| 写入带宽 | 单个客户端写并行文件系统：标称 2–5 GB/s；torch.save 是单线程 pickle， 通常 1 GB/s 上下 | 5.7 TB / 5 GB/s ≈ 19 min；按 1 GB/s ≈ 95 min |
+| 写入带宽 | 单个客户端写并行文件系统：标称 2–5 GB/s<br/>torch.save 是单线程 pickle，通常 1 GB/s 上下 | 5.7 TB / 5 GB/s ≈ 19 min<br/>按 1 GB/s ≈ 95 min |
 
 Table: rank-0 汇总的三个瓶颈
 
@@ -148,7 +223,11 @@ Table: rank-0 汇总的三个瓶颈
 
 ### 3. 分片写的账
 
-分片写的思路是：每个 rank 写自己唯一持有的那 350 MB，DP 副本之间只写一份。2048 个节点每个写 2.8 GB，写入时间由**并行文件系统的聚合带宽**决定：聚合 500 GB/s 时 5.7 TB 要 11 s，1 TB/s 时 6 s。GPU 到主机内存那一段——350 MB 走 PCIe 5.0 x16——不到 10 ms，可以忽略。
+分片写的思路是：每个 rank 写自己唯一持有的那 350 MB，DP 副本之间只写一份。用 4 张卡缩小来看：
+
+![分片写：每个 rank 只写自己唯一持有的那部分](/img/in-post/distributed-checkpoint-sharded-write.svg)
+
+放大回 405B：2048 个节点每个写 2.8 GB，写入时间由**并行文件系统的聚合带宽**决定：聚合 500 GB/s 时 5.7 TB 要 11 s，1 TB/s 时 6 s。GPU 到主机内存那一段——350 MB 走 PCIe 5.0 x16——不到 10 ms，可以忽略。
 
 这里出现了一个新的瓶颈：**计划阶段的集合通信**。DCP 的每个 rank 要把"我打算写哪些张量的哪些块"发给 coordinator 汇总去重，16384 个 rank 每个几千个 `WriteItem`，这一次 gather 的对象序列化与反序列化在 Python 里做，可能比写数据本身还慢。Megatron 与 DCP 都为此加了**计划缓存**：结构不变时只做第一次（Megatron 的 `ckpt_assume_constant_structure`、DCP `DefaultSavePlanner(enable_plan_caching=True)`），第四章会看到实现。
 
@@ -191,6 +270,21 @@ DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程
 `torch/distributed/checkpoint/state_dict_saver.py` 的 `save()` 最终调 `_save_state_dict()`，结构是两次集合通信包着四个局部函数：
 
 ![_save_state_dict 的四步：每个 rank 与 coordinator](/img/in-post/distributed-checkpoint-save-state-dict-four-steps.svg)
+
+四个局部函数按顺序做的事：
+
+1. **`local_step()`（每个 rank）**
+   - `planner.set_up_planner()`、`storage_writer.set_up_storage_writer()`：初始化。
+   - `planner.create_local_plan()`：列出本 rank 要写的 `WriteItem`。
+   - `storage_writer.prepare_local_plan()`：`FileSystemWriter` 在这里 mkdir、检查是否覆盖。
+2. **`global_step()`（coordinator）**
+   - `planner.create_global_plan()`：去重，生成 `Metadata`。
+   - `storage_writer.prepare_global_plan()`：给每个 rank 的计划分配文件前缀 `__i_`。
+3. **`write_data()`（每个 rank）**
+   - `planner.finish_plan()`：拿到 coordinator 发回的计划，合并成最终计划。
+   - `storage_writer.write_data()`：真正的 I/O，返回 `Future[list[WriteResult]]`。
+4. **`finish_checkpoint()`（coordinator）**
+   - `storage_writer.finish()`：汇总所有 `WriteResult`，写 `.metadata`。
 
 图里两次跨列的通信是 `_DistWrapper` 的方法：`distW.reduce_scatter("plan", local_step, global_step)` 是"gather 到 coordinator、处理、scatter 回去"，`distW.all_reduce("write", write_data, finish_checkpoint)` 是"gather、处理、broadcast 结果"，都走 `process_group` 参数指定的进程组——异步保存时这个组必须是 gloo 的，因为它在后台线程里跑，不能碰 NCCL。`use_collectives=False` 时跳过全部通信，每个 rank 写自己的 `__{rank}.metadata`，这是 2.13 里标注为实验性的"无协调保存"。
 

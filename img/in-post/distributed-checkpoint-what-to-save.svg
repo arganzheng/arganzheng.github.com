@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 322" width="820" height="322" role="img" aria-labelledby="t d">
+  <title id="t">checkpoint 要存什么：四种状态里的两种常驻状态 + 几样小东西</title>
+  <desc id="d">左侧列出训练时的四种状态：参数与优化器状态常驻，要存；激活与梯度是瞬态，不存。下方五样小东西：学习率调度器、数据加载器位置、RNG 状态、迭代计数与累计量、训练配置，几乎不占字节但必须存。右侧是 Megatron 路径每参数 14 字节的构成：bf16 参数 2、fp32 主参数 4、Adam m 4、Adam v 4；8B 模型约 112 GB，405B 模型约 5.7 TB；FSDP2 路径为 12 字节。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      .head { font-size: 16px; font-weight: 700; }
+      .body { font-size: 14px; }
+      .bold { font-size: 14px; font-weight: 700; }
+      .small { font-size: 13px; }
+      .mono { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; }
+      .monob { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 13px; font-weight: 700; }
+      .mono12 { font-family: "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; font-size: 12px; }
+      .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
+      .card { fill: #fff; stroke: #c5d0dc; stroke-width: 1.2; rx: 8; }
+      .proc-a { fill: #f3f9f5; stroke: #70a582; stroke-width: 1.2; }
+      .proc-b { fill: #fff8ec; stroke: #d79a45; stroke-width: 1.2; }
+      .proc-c { fill: #eef5ff; stroke: #5880b4; stroke-width: 1.2; }
+      .seg-a { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
+      .seg-b { fill: #e3f1e8; stroke: #40566f; stroke-width: 1.2; }
+      .seg-c { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
+      .seg-wait { fill: #fff5e6; stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; }
+      .seg-free { fill: #fff; stroke: #40566f; stroke-width: 1.2; }
+      .seg-hi { fill: #ffe3c2; stroke: #d79a45; stroke-width: 1.4; }
+      .disk { fill: #e8edf2; stroke: #40566f; stroke-width: 1.2; }
+      .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .line { stroke: #40566f; stroke-width: 2; fill: none; }
+      .thin { stroke: #40566f; stroke-width: 1.2; fill: none; }
+      .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
+      .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+      .red { fill: #b42318; }
+      .grey { fill: #7a8b9c; }
+      .dash { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .dasharrow { stroke: #40566f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow); }
+      .red { fill: #b42318; }
+      .grey { fill: #7a8b9c; }
+      .dash { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; }
+      .dasharrow { stroke: #40566f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow); }
+    </style>
+  </defs>
+<text x="20" y="24" text-anchor="start" class="head">训练时的四种状态</text>
+<rect class="seg-a" x="20" y="40" width="130" height="40"/>
+<text x="85" y="65" text-anchor="middle" class="bold">参数 θ</text>
+<text x="162" y="57" text-anchor="start" class="small">常驻</text>
+<text x="162" y="75" text-anchor="start" class="small"><tspan font-weight="700">存</tspan>：bf16 参数（FSDP2 下是 fp32 分片）</text>
+<rect class="seg-a" x="20" y="92" width="130" height="40"/>
+<text x="85" y="117" text-anchor="middle" class="bold">优化器状态</text>
+<text x="162" y="109" text-anchor="start" class="small">常驻</text>
+<text x="162" y="127" text-anchor="start" class="small"><tspan font-weight="700">存</tspan>：fp32 主参数 + Adam m、v</text>
+<rect class="dash" x="20" y="144" width="130" height="40"/>
+<text x="85" y="169" text-anchor="middle" class="small">激活</text>
+<text x="162" y="161" text-anchor="start" class="small"><tspan font-weight="700">瞬态</tspan>：前向产生，反向用完即释放</text>
+<text x="162" y="179" text-anchor="start" class="small red"><tspan font-weight="700">不存</tspan>：重启后第一步前向重新算</text>
+<rect class="dash" x="20" y="196" width="130" height="40"/>
+<text x="85" y="221" text-anchor="middle" class="small">梯度</text>
+<text x="162" y="213" text-anchor="start" class="small"><tspan font-weight="700">瞬态</tspan>：反向产生，step 后清零</text>
+<text x="162" y="231" text-anchor="start" class="small red"><tspan font-weight="700">不存</tspan>：checkpoint 发生在两个 step 之间</text>
+<text x="20" y="262" text-anchor="start" class="head">另外几样不占字节、但缺了就不是精确恢复</text>
+<rect class="seg-b" x="20" y="276" width="94" height="34"/>
+<text x="67.0" y="298" text-anchor="middle" class="small">学习率调度器</text>
+<rect class="seg-b" x="120" y="276" width="107" height="34"/>
+<text x="173.5" y="298" text-anchor="middle" class="small">数据加载器位置</text>
+<rect class="seg-b" x="233" y="276" width="74" height="34"/>
+<text x="270.0" y="298" text-anchor="middle" class="small">RNG 状态</text>
+<rect class="seg-b" x="313" y="276" width="120" height="34"/>
+<text x="373.0" y="298" text-anchor="middle" class="small">迭代计数与累计量</text>
+<rect class="seg-b" x="439" y="276" width="68" height="34"/>
+<text x="473.0" y="298" text-anchor="middle" class="small">训练配置</text>
+<text x="520" y="24" text-anchor="start" class="head">落盘每参数字节（Megatron 路径）</text>
+<rect class="seg-a" x="520" y="44" width="90" height="26.0"/>
+<text x="565" y="62.0" text-anchor="middle" class="bold">2</text>
+<text x="622" y="62.0" text-anchor="start" class="small">bf16 参数</text>
+<rect class="seg-d" x="520" y="70.0" width="90" height="52.0"/>
+<text x="565" y="101.0" text-anchor="middle" class="bold">4</text>
+<text x="622" y="101.0" text-anchor="start" class="small">fp32 主参数</text>
+<rect class="seg-b" x="520" y="122.0" width="90" height="52.0"/>
+<text x="565" y="153.0" text-anchor="middle" class="bold">4</text>
+<text x="622" y="153.0" text-anchor="start" class="small">Adam m</text>
+<rect class="seg-b" x="520" y="174.0" width="90" height="52.0"/>
+<text x="565" y="205.0" text-anchor="middle" class="bold">4</text>
+<text x="622" y="205.0" text-anchor="start" class="small">Adam v</text>
+<text x="710" y="64" text-anchor="start" class="bold">8B 模型</text>
+<text x="710" y="84" text-anchor="start" class="small">16 + 32 + 32 + 32</text>
+<text x="710" y="102" text-anchor="start" class="small">= 112 GB</text>
+<text x="710" y="140" text-anchor="start" class="bold">405B 模型</text>
+<text x="710" y="160" text-anchor="start" class="small">405 × 10⁹ × 14</text>
+<text x="710" y="178" text-anchor="start" class="small">≈ 5.7 TB</text>
+<text x="520" y="256" text-anchor="start" class="small">FSDP2 路径参数本身是 fp32，不另存主参数：</text>
+<text x="520" y="274" text-anchor="start" class="small">4 + 4 + 4 = 12 字节</text>
+</svg>
