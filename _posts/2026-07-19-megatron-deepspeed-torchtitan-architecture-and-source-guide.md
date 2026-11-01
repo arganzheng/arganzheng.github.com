@@ -20,11 +20,9 @@ updated: 2026-10-27
 
 ## 一、总览：同一个 $$W_k$$，三种住法
 
-**问题**：同一个参数的同一个字，在三个框架里分别住在显存的什么地方？
+同一个参数的同一个字，在三个框架里分别住在显存的什么地方？答案可以压成一句话：**三个框架各自从四种状态中的哪一种出发来组织代码**。Megatron 从模型结构出发（TP 切矩阵、PP 切层），bf16 参数是一等公民，全程常驻；DeepSpeed 从优化器状态出发（ZeRO 逐级切 O → G → P），bf16 参数是"临时物"，fp32 分区才是持久的；torchtitan 从参数的表示出发（DTensor 的 placement），fp32 分片既是模型参数也是主参数，bf16 只是通信和计算时的临时投影。后面每一章的显存表、通信时间线、checkpoint 差别，都能从这一句话推出来。
 
-**直觉**：三个框架的架构差异可以压缩成一句话——**它们各自从四种状态中的哪一种出发来组织代码**。Megatron 从模型结构出发（TP 切矩阵、PP 切层），bf16 参数是一等公民，全程常驻；DeepSpeed 从优化器状态出发（ZeRO 逐级切 O → G → P），bf16 参数是"临时物"，fp32 分区才是持久的；torchtitan 从参数的表示出发（DTensor 的 placement），fp32 分片既是模型参数也是主参数，bf16 只是通信和计算时的临时投影。
-
-![三框架每卡参数相关常驻显存](/img/in-post/compare-f1-resident-memory.svg){: .clickable alt="三根横向堆叠条：Megatron TP2×PP2×DP2 ZeRO-1 分五段（bf16 参数 0.75、fp32 梯度 1.50、fp32 主参数 0.75、m 0.75、v 0.75）合计 4.50 GB；DeepSpeed ZeRO-3 DP8 五段各除以 8 合计 3.00 GB；torchtitan FSDP4×TP2 四段各 0.618 合计 2.47 GB（括注不绑定为 3.00）。五个分段颜色对应参数、梯度、主参数、m、v 五类状态。"}
+![三框架每卡参数相关常驻显存](/img/in-post/compare-f1-resident-memory.svg){: .clickable alt="三根横向堆叠条，每段上方标出该段的 dtype 与名称：Megatron TP2×PP2×DP2 ZeRO-1 分五段（bf16 参数 0.75、fp32 梯度 1.50、fp32 主参数 0.75、Adam m 0.75、Adam v 0.75）合计 4.50 GB；DeepSpeed ZeRO-3 DP8 五段（bf16 参数、bf16 梯度、fp32 主参数、Adam m、Adam v）合计 3.00 GB；torchtitan FSDP4×TP2 四段（fp32 参数＝主参数、fp32 梯度、Adam m、Adam v 各 0.618）合计 2.47 GB（括注不绑定为 3.00）。"}
 
 按图读，三行各一句话：Megatron 多出来的常驻是完整的 bf16 参数和完整的 fp32 梯度；DeepSpeed 把五项全部除以 $$N_d = 8$$；torchtitan 没有单独的 bf16 参数，那个 fp32 分片同时就是主参数，所以只有四段。（这张图和下面全文都只算 train-ledger 8 卡配置下**常驻**的参数相关显存，激活和每层临时 all-gather 出来的完整参数不算，那是第三章的事。）
 
@@ -54,8 +52,6 @@ Table: Megatron-LM、DeepSpeed、torchtitan 的架构差异（完整版）
 
 </details>
 
-倒数两行是本篇主线的缩影。Megatron 的 bf16 参数是一等公民，fp32 主参数是优化器私有的副本；DeepSpeed 的 bf16 参数在 Stage 3 下是"临时物"，fp32 分区才是持久的；torchtitan 把两者合一——fp32 分片既是模型参数也是主参数，bf16 只是通信和计算时的临时投影。理解了这一行，三个框架的显存表、通信时间线、checkpoint 格式的差别都能推出来。
-
 几个符号在首次出现处说明：$$N$$ 是参数个数；$$N_d$$、$$N_t$$、$$N_p$$ 是数据 / 张量 / 流水并行度（本篇不涉及上下文与专家并行）；$$N_{\text{local}} = N / (N_t \cdot N_p)$$ 是一张卡在 TP×PP 切分后持有的份额；$$s$$、$$b$$、$$h$$、$$L$$、$$m$$ 是序列长、micro-batch、隐藏维、层数、每个 DP 副本每 step 的 micro-batch 数。
 
 三个框架都建在 `torch.distributed` 上，但用到的层次不同。两个名字先说清楚：**DeviceMesh** 是一张给 rank 编号的 n 维网格，每一维有个名字，`mesh["tp"]` 就给出每张卡自己的 TP 组；**DTensor** 是一个张量加上它所在的 mesh、加上每一维的 placement（`Shard(d)` 沿该维切开 / `Replicate()` 各卡一份 / `Partial()` 各卡一个待归约的部分和），`redistribute` 换摆放方式时它自动发对应的集合通信。02 实际在用的就是这两个对象：[FSDP2 一节讲 per-parameter DTensor](/parallelism-strategies-which-state-to-shard.html#5-fsdp1-与-fsdp2flatparameter-与-per-parameter-dtensor)，[TP / SP 一节](/parallelism-strategies-which-state-to-shard.html#三张量并行与序列并行)的并行组在 torchtitan 里就是 mesh 的一维。
@@ -74,29 +70,25 @@ Table: 三框架用到的 torch.distributed 层次
 
 </details>
 
-Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了进程组管理、集合通信调用和流水线调度；torchtitan 诞生于之后，是这些原生 API 的参考用法。[05](/torchtitan-architecture-and-source-guide.html) 会看到，这条路在 v0.3.0 又往前走了一步——参数的切分方式不再由 `ColwiseParallel` 这类 API 逐个 module 指定，而是由一份声明式的 `ShardingConfig` 描述。
+Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了进程组管理、集合通信调用和流水线调度；torchtitan 诞生于之后，是这些原生 API 的参考用法。[05](/torchtitan-architecture-and-source-guide.html) 讲过，这条路在 v0.3.0 又往前走了一步：参数的切分方式不再由 `ColwiseParallel` 这类 API 逐个 module 指定，而是由一份声明式的 `ShardingConfig` 描述。
 
 源码引用版本：Megatron Core core_v0.18.0、DeepSpeed v0.19.2、torchtitan v0.3.0、PyTorch v2.14.0。各框架的目录地图与逐文件导读在 03/04/05 各自的源码导读章；torchtitan 一处与旧版用法不同要先说明：v0.2.x 用 TOML 文件配置一次运行，v0.3.0 已经不是——`torchtitan/config/README.md` 明确说一次运行由一个返回 `Trainer.Config` 的 Python 函数描述，本篇引用的配置写法都是 v0.3.0 的。
 
 ## 二、来龙去脉：三条线怎么走到今天
 
-**问题**：三个框架为什么长成三种样子？
-
-**直觉**：它们各自由一条独立的技术路线演进而来，每次演进都在解决当时新的规模瓶颈。三条线各自的完整年表在 [03 来龙去脉](/megatron-lm-architecture-and-source-guide.html#二来龙去脉)、[04 来龙去脉](/deepspeed-architecture-and-source-guide.html#二来龙去脉)、[05 来龙去脉](/torchtitan-architecture-and-source-guide.html#二来龙去脉)；这张泳道图只把每个节点压成一个短标签放在一起看。
+三个框架长成三种样子，是因为它们各自由一条独立的技术路线演进而来，每次演进都在解决当时新的规模瓶颈。三条线各自的完整年表在 [03 来龙去脉](/megatron-lm-architecture-and-source-guide.html#二来龙去脉)、[04 来龙去脉](/deepspeed-architecture-and-source-guide.html#二来龙去脉)、[05 来龙去脉](/torchtitan-architecture-and-source-guide.html#二来龙去脉)；这张泳道图只把每个节点压成一个短标签放在一起看。
 
 ![三条线的演进时间线](/img/in-post/compare-f2-timeline.svg){: .clickable alt="三条泳道 2019 到 2026：Megatron 线 2019 TP、2021 1F1B、2022 SP、2023 Core、2024 EP/分布式优化器、2026 Megatron-FSDP；DeepSpeed 线 2019 ZeRO、2020 Stage 1-3、2021 Offload、2022 MoE、2023 ZeRO++、2025 AutoTP；PyTorch+torchtitan 线 2022 DTensor RFC、2023 DTensor、2024 DeviceMesh 与 FSDP2、2024 TorchTitan 论文、2026 v0.3 ShardingConfig。"}
 
-注意三条线最后都在往同一个方向靠——**分片是数据的属性**：Megatron Core 0.18.0 把 FSDP 引进来（`ShardingStrategy` 四级），DeepSpeed 用 DeviceMesh 表达 autoTP，torchtitan 用 `ShardingConfig` 把切分方式写成声明。各自从不同的起点出发，终点却越来越像。
+三条线最后都在往同一个方向靠，方向是**分片成为数据的属性**：Megatron Core 0.18.0 把 FSDP 引进来（`ShardingStrategy` 四级），DeepSpeed 用 DeviceMesh 表达 autoTP，torchtitan 用 `ShardingConfig` 把切分方式写成声明。各自从不同的起点出发，终点却越来越像。
 
 ## 三、显存：一条平线和两条锯齿
 
-**问题**：一个 step 里，"完整 bf16 参数"这个东西在每张卡上占多少显存、什么时候占？
+一个 step 里，"完整 bf16 参数"这个东西在每张卡上占多少显存、什么时候占？Megatron 全程持有，所以它是一条平线；DeepSpeed 和 torchtitan 只有一层正在计算时才需要那份完整参数，所以它们是两条随前向、反向起伏的锯齿。[04 的参数生命周期](/deepspeed-architecture-and-source-guide.html#5-一个-bf16-参数的一生deepspeed-stage-3)和 [05 的参数生命周期](/torchtitan-architecture-and-source-guide.html#6-一个-bf16-参数的一生torchtitan)各画过一条，这里把三条用同一口径排在一起。
 
-**直觉**：Megatron 全程持有，所以是一条平线；DeepSpeed 和 torchtitan 只有一层正在计算时才需要那份完整参数，所以是一条随前向、反向起伏的锯齿。[04 的参数生命周期](/deepspeed-architecture-and-source-guide.html#5-一个-bf16-参数的一生deepspeed-stage-3)和 [05 的参数生命周期](/torchtitan-architecture-and-source-guide.html#6-一个-bf16-参数的一生torchtitan)各画过一条，这里把三条用同一口径排在一起。
+![一个 step 内完整 bf16 参数占用](/img/in-post/compare-f3-live-parameters.svg){: .clickable alt="三个小面板共享时间轴与 0–800 MB 纵轴：Megatron 一条 750 MB 平线；DeepSpeed 锯齿每层临时完整 bf16 121.6 MB、预取 1 层时峰值两层 243.2 MB；torchtitan 锯齿每层 TP 半片 60.8 MB、峰值两层 121.6 MB。只画 16 个 Transformer 层。"}
 
-![一个 step 内完整 bf16 参数占用](/img/in-post/compare-f3-live-parameters.svg){: .clickable alt="三个小面板共享时间轴，纵轴 MB：Megatron 一条 750 MB 平线；DeepSpeed 锯齿每层临时完整 bf16 121.6 MB、预取 1 层时峰值两层 243.2 MB；torchtitan 锯齿每层 TP 半片 60.8 MB、峰值两层 121.6 MB。只画 16 个 Transformer 层。"}
-
-锯齿的形状由 labs `06_compare_toys.py saw` 照 [04 toy](/deepspeed-architecture-and-source-guide.html#5-一个-bf16-参数的一生deepspeed-stage-3) 的 hook 事件语义生成（gather → compute → release，预取 1 层时下一层的 gather 与当前层 compute 重叠），16 层前向加 16 层反向，峰值正好两层同时在场。Megatron 那条平线是 16 层 bf16 参数之和（$$N_{\text{local}} = 750\text{M}$$ 元素 ×2 B ≈ 750 MB）；DeepSpeed 每个峰是一层完整 bf16（60,821,504 元素 ×2 B ≈ 121.6 MB）；torchtitan 每个峰是一层的 TP 半片 bf16（≈ 60.8 MB）。
+锯齿的形状由 labs `06_compare_toys.py saw` 照 [04 toy](/deepspeed-architecture-and-source-guide.html#5-一个-bf16-参数的一生deepspeed-stage-3) 的 hook 事件语义生成（gather → compute → release，预取 1 层时下一层的 gather 与当前层 compute 重叠）。横轴是 toy 的 hook 事件顺序：16 层前向加 16 层反向，中间的虚线是前向与反向的分界；峰值正好两层同时在场。曲线只画 16 个 Transformer 层，不含 embedding 与输出层；单位 MB（十进制）。Megatron 那条平线是 16 层 bf16 参数之和（$$N_{\text{local}} = 750\text{M}$$ 元素 ×2 B ≈ 750 MB）；DeepSpeed 每个峰是一层完整 bf16（60,821,504 元素 ×2 B ≈ 121.6 MB）；torchtitan 每个峰是一层的 TP 半片 bf16（≈ 60.8 MB）。
 
 叠在常驻上看：**常驻（F1 的数字）+ 临时（本图的峰值）≈ 每卡参数相关显存**。Megatron 是"常驻大、临时小"；另两家是"常驻小、每层一个峰"——锯齿越深，临时显存峰值越需要单独预算。
 
@@ -135,11 +127,9 @@ Table: 三条时序并排：一个 DP 组内的一个参数
 
 ## 四、通信：两大块和每层三小块
 
-**问题**：显存曲线的形状，在通信时间线上对应什么形状？
+显存曲线的形状，在通信时间线上有对应的形状。平线对应两大块：Megatron 在反向末尾一次 reduce-scatter 梯度、在下一步前向前一次 all-gather 参数，都与计算重叠；锯齿对应每层三小块：DeepSpeed 与 torchtitan 每层前向 all-gather、反向 all-gather、反向 reduce-scatter。[02 的通信账](/parallelism-strategies-which-state-to-shard.html#二数据并行与-zero切优化器状态梯度参数)给的公式是 ZeRO-1/2 与 DP 相同（$$2N$$：reduce-scatter + all-gather）、ZeRO-3 涨到 $$3N$$、前向后不释放参数则回到 $$2N$$。
 
-**直觉**：平线对应两大块——Megatron 在反向末尾一次 reduce-scatter 梯度、在下一步前向前一次 all-gather 参数，都与计算重叠；锯齿对应每层三小块——DeepSpeed 与 torchtitan 每层前向 all-gather、反向 all-gather、反向 reduce-scatter。[02 的通信账](/parallelism-strategies-which-state-to-shard.html#二数据并行与-zero切优化器状态梯度参数)给的公式是 ZeRO-1/2 与 DP 相同（$$2N$$：reduce-scatter + all-gather）、ZeRO-3 涨到 $$3N$$、前向后不释放参数则回到 $$2N$$。
-
-![DP 通信的两种形状](/img/in-post/compare-f4-communication.svg){: .clickable alt="三条泳道：Megatron 在反向末尾一次 RS 梯度、下一步前向前一次 AG 参数两块大通信（每卡约 1.1 GB，2N）；DeepSpeed 和 torchtitan 每层 前向 AG / 反向 AG / 反向 RS 三小块（每卡 7.9 GB / 3.51 GB，3N）。"}
+![DP 通信的两种形状](/img/in-post/compare-f4-communication.svg){: .clickable alt="三条泳道各分前向、反向两半：Megatron 在反向末尾一次 RS 梯度、下一步前向前一次 AG 参数两大块（每卡约 1.1 GB，2N）；DeepSpeed 和 torchtitan 每层 前向 AG / 反向 AG / 反向 RS 三小块（每卡 7.9 GB / 3.51 GB，3N）。"}
 
 图里的每卡字节数取 train-ledger 8 卡配置（[第九章](#九本文小结)有完整对账）：Megatron 每 step 发出 RS(fp32 梯度 1.5 GB) + AG(bf16 参数 0.75 GB)，$$N_d = 2$$ 各摊一半约 1.1 GB；DeepSpeed 三次通信各 3 GB、ring 系数 7/8 约 7.9 GB；torchtitan 3.51 GB 的算式在第九章逐项展开（其中 tied 的 embedding/norm/lm_head 单元不 reshard，反向不再取回，比纯 3N 少一点）。
 
@@ -147,9 +137,7 @@ Table: 三条时序并排：一个 DP 组内的一个参数
 
 ## 五、分片在内存里长什么样
 
-**问题**：同一个模型、同一个 $$N_d = 2$$，"切成两半"在四个实现里各是什么形状？
-
-**例子**：labs toy 拿同一个三个参数的小模型（`A[4,3]`、`B[2,3]`、`c[5]`，共 23 个元素）在 2 个 gloo rank 上各切一遍：
+同一个模型、同一个 $$N_d = 2$$，"切成两半"在四个实现里各是什么形状？labs toy 拿同一个三个参数的小模型（`A[4,3]`、`B[2,3]`、`c[5]`，共 23 个元素）在 2 个 gloo rank 上各切一遍：
 
 ```text title="06_compare_toys.py shard 输出（节选）"
 [rank0] -- a. Megatron 分布式优化器（一段连续 buffer + pad 到 N_d 倍数）
@@ -167,9 +155,11 @@ Table: 三条时序并排：一个 DP 组内的一个参数
 [rank0] c(5,): 全局形状 (5,)，本 rank to_local()=(3,)
 ```
 
+toy 为了能在 23 个元素上画图，只保留了每家的基本规则，真实实现里还有两处 padding 没画：Megatron 的 buffer 布局由分布式优化器算好交给 DDP（`optimizer/param_layout.py`），其中每个参数的起始偏移对齐到 64 元素边界（`pad_param_start`），每个 bucket 的末尾补到 `lcm(dp_world_size, 128)` 的倍数、打开 `pad_for_high_nccl_busbw` 时是 `lcm(dp_world_size, 128, 2**16)`（`pad_bucket_end`）——所以真实 buffer 里参数之间还有空隙，不是上图这样首尾相接；DeepSpeed 那行展示的"每参数各自 pad 到 $$N_d$$ 的倍数"就是真实规则本身（`partition_parameters.py` 按 DP 组大小补齐），只是 23 个元素太小，体现不出它按参数独立补齐后段内 padding 位置的细节。
+
 四种切法四种边界，画出来是：
 
-![23 个元素的四种切法](/img/in-post/compare-f5-shard-layouts.svg){: .clickable alt="四行条带，每格一个元素：Megatron 把 c、B、A 逆序拍平进一段 buffer、pad 到 24、12|12 均分（rank1 拿到 A[1:12] 加 1 个 pad）；DeepSpeed 每个参数各自 pad 均分（c 切成 3|2 加一个 pad）；FSDP1 全部拍平成 FlatParameter 再 12|12（rank0 正好是完整的 A）；FSDP2 每个参数沿第 0 维 DTensor Shard(0)（A 2|2 行、B 1|1 行、c 3|2）。边框蓝=r0、橙=r1。"}
+![23 个元素的四种切法](/img/in-post/compare-f5-shard-layouts.svg){: .clickable alt="四行条带，每格一个元素：Megatron 把 c、B、A 逆序拍平进一段 buffer、pad 到 24、两半各 12 均分（rank1 拿到 A[1:12] 加 1 个 pad）；DeepSpeed 每个参数各自 pad 均分（c 切成 3 和 2 加一个 pad）；FSDP1 全部拍平成 FlatParameter 再均分（rank0 正好是完整的 A）；FSDP2 每个参数沿第 0 维 DTensor Shard(0)（A 切成 2 和 2 行、B 各 1 行、c 切成 3 和 2）。边框蓝=r0、橙=r1。"}
 
 四行各对应一个取舍：
 
@@ -207,11 +197,11 @@ Table: 前向前 all-gather 分片参数：Stage 3 vs FSDP1 vs FSDP2
 
 ## 六、进程组：同样 8 张卡，三种分组
 
-**问题**：并行策略落到代码里的第一件事是进程组——每张卡属于哪一个 TP 组、哪一个 DP 组、哪一个 PP 组。三个框架用三种方式回答这个问题。
+并行策略落到代码里的第一件事是进程组：每张卡属于哪一个 TP 组、哪一个 DP 组、哪一个 PP 组。三个框架用三种方式回答这个问题。
 
 Megatron 的 `parallel_state` 是一张由模块级全局变量组成的注册表，`RankGenerator` 按 `order="tp-cp-ep-dp-pp"` 枚举 rank 填进去；DeepSpeed 的 `groups.py` 是委托优先，`mpu` 在就转发给外部，不在就克隆整个世界；torchtitan 的 `ParallelDims` 持有几张 `DeviceMesh` 视图，`build_mesh()` 把一维 world mesh `_unflatten` 成按名索引的多维网格。三个实现分别在 [03 进程组](/megatron-lm-architecture-and-source-guide.html#五进程组)、[04 进程组](/deepspeed-architecture-and-source-guide.html#五进程组groupspy-的委托与自建)、[05 进程组](/torchtitan-architecture-and-source-guide.html#五进程组paralleldims-与-devicemesh)。
 
-![8 张卡的三种分组](/img/in-post/compare-f6-process-groups.svg){: .clickable alt="三行各 8 个 rank 小卡片，卡上色条标组：Megatron TP2×PP2×DP2（TP 组 [0,1][2,3][4,5][6,7]、DP 组 [0,2][1,3][4,6][5,7]、PP 组 [0,4][1,5][2,6][3,7]）；DeepSpeed ZeRO-3 只有一个 DP8 组；torchtitan dp_shard4×TP2（TP 组 [0,1][2,3][4,5][6,7]、dp_shard 组 [0,2,4,6][1,3,5,7]）。"}
+![8 张卡的三种分组](/img/in-post/compare-f6-process-groups.svg){: .clickable alt="三行各 8 个 rank 小卡片，卡内色条含义标在每行右侧：Megatron TP2×PP2×DP2 色条＝TP 组（TP [0,1][2,3][4,5][6,7]、DP [0,2][1,3][4,6][5,7]、PP [0,4][1,5][2,6][3,7]）；DeepSpeed ZeRO-3 色条＝同一 DP 组（DP [0..7]）；torchtitan dp_shard4×TP2 色条＝dp_shard 组（TP [0,1][2,3][4,5][6,7]、dp_shard [0,2,4,6][1,3,5,7]）。"}
 
 第一行与第三行画的是 03、05 两个 toy 的真实输出：Megatron 的 rank 编码是 `rank = tp + 2·dp + 4·pp`（TP 最内），torchtitan 的 mesh 是 `rank = tp + 2·dp_shard`（TP 在最内维）；DeepSpeed ZeRO-3 只有一个 DP 组，所以八张卡一个颜色。
 
@@ -238,9 +228,7 @@ Table: 三框架进程组管理的对照表
 
 ## 七、1F1B：调度写死在哪一层
 
-**问题**：同一个 1F1B 调度（[02 的第五章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)），三个框架各写了一遍，"调度在哪一层被写死"分别是什么？
-
-**例子**：labs toy 拿 PP=2、每 stage m=4 个 micro-batch，三种表示各打一遍：
+同一个 1F1B 调度（[02 的第五章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)），三个框架各写了一遍，"调度在哪一层被写死"分别是什么？labs toy 拿 PP=2、每 stage m=4 个 micro-batch，三种表示各打一遍：
 
 ```text title="06_compare_toys.py pp 输出"
 -- Megatron：过程式三段循环产生的序列
@@ -282,9 +270,9 @@ Table: 1F1B 在三个框架里的写法
 
 ## 八、怎么选
 
-**直觉**：选型不是排行榜，先问三个问题——模型能不能改写成框架的层？显存够不够常驻完整 bf16 参数？要不要频繁改并行策略或做研究？
+选型不是排行榜，先回答两个问题：模型能不能改写成框架自己的层？能改写的话，更看重极限 MFU 还是并行策略的可组合性？
 
-![选型决策图](/img/in-post/compare-f7-decision.svg){: .clickable alt="决策树：模型能否改写成框架的层？能→显存够放完整 bf16 参数吗？够且追求极限 MFU→Megatron；不够或想要声明式组合→torchtitan。不能（已有任意 nn.Module，先要降显存）→小集群、脚本零侵入→DeepSpeed。"}
+![选型决策图](/img/in-post/compare-f7-decision.svg){: .clickable alt="决策树：问题一「模型能否改写成框架自己的层？」——不能→DeepSpeed（包裹任意 nn.Module；ZeRO-3 / offload 省显存）；能→问题二「更看重什么？」——千卡级极限 MFU→Megatron（手写通信重叠、TP/PP 最成熟），并行策略常改、PyTorch 原生可组合→torchtitan（DTensor + FSDP2，策略写成声明）。"}
 
 把"适合"一行展开成三句话，只从上面读过的机制推：
 
