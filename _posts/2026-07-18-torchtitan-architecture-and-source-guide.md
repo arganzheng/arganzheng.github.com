@@ -88,7 +88,7 @@ torchtitan 的调用链从用户配置向下进入模型并行化、FSDP 与张�
 
 ## 四、最小任务：runs/titan
 
-train-ledger 里的练手配置是 FSDP 4 × TP 2，模型取 Llama 3.2 1B 的形状（16 层、$$h=2048$$、32 个 attention 头 / 8 个 K/V 头、FFN 8192、词表 128256、序列长 $$s=8192$$）。06 的 [train-ledger 对账](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)仍用未绑定 embedding/head 的参数数；本篇按 v0.3.0 `_1b()` 的 tied 配置计数。以下保留配置函数，键名来自 torchtitan v0.3.0：
+train-ledger 里的练手配置是 FSDP 4 × TP 2，模型取 Llama 3.2 1B 的形状（16 层、$$h=2048$$、32 个 attention 头 / 8 个 K/V 头、FFN 8192、词表 128256、序列长 $$s=8192$$）。06 的 [train-ledger 对账](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)里 Megatron、DeepSpeed 两份按未绑定 embedding/head 的参数数计，torchtitan 行与本篇一样按 v0.3.0 `_1b()` 的 tied 配置计数。以下保留配置函数，键名来自 torchtitan v0.3.0：
 
 ```python title="runs/titan/ledger_llama3_1b.py"
 """train-ledger / runs/titan/ledger_llama3_1b.py -- Llama 3.2 1B shape, 8 GPUs: FSDP 4 x TP 2.
@@ -417,7 +417,7 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 
 `Schedule1F1B._get_pipeline_order()` 把过程翻译成按时间步排列的 `_Action` 表。`_ComputationType` 包含 `FORWARD`、`FULL_BACKWARD`、`BACKWARD_INPUT`、`BACKWARD_WEIGHT`、`SEND_F` / `RECV_F` / `SEND_B` / `RECV_B`、`UNSHARD` / `RESHARD`、`REDUCE_GRAD`。`_PipelineScheduleRuntime` 执行该表：`_add_send_recv()` 插入配对通信动作，`_add_unshard_reshard()` 插入 FSDP unshard / reshard，`_merge_bw()` 合并相邻的 input / weight backward。`ScheduleInterleaved1F1B`、`ScheduleInterleavedZeroBubble`、`ScheduleZBVZeroBubble`、`ScheduleDualPipeV` 通过重写 `_calculate_single_rank_operations()` 生成动作表；`_load_csv()` 也可加载手写 CSV，torchtitan 的 `pipeline_parallel_schedule_csv` 接在这里。
 
-06 并排比较三种训练循环：[Megatron、DeepSpeed 与 PyTorch pipeline](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#三对照阅读)。
+06 并排比较三种训练循环：[Megatron、DeepSpeed 与 PyTorch pipeline](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#七1f1b调度写死在哪一层)。
 
 ## 八、本文小结
 

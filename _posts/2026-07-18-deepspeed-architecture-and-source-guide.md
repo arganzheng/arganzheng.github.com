@@ -394,7 +394,7 @@ Table: 一个 bf16 参数的一生：DeepSpeed Stage 3 源码逐时刻
 
 与 Megatron 的时序放在一起，最大的差别是 **`param.data` 的身份是流动的**：Megatron 的 `weight.data` 从头到尾是 buffer 里同一段视图；DeepSpeed Stage 3 的 `weight.data` 在一个 step 里被替换四次（空 → 完整 → 空 → 完整 → 空）。这带来 Stage 3 的两个著名代价：任何在 hook 之外访问参数的代码（自定义的权重初始化、`param.data` 的手工操作、把参数当普通张量传给别的函数）都会拿到空张量，需要用 `deepspeed.zero.GatheredParameters` 显式取回；以及调试困难——参数「不在」的时候栈里看不到原因。`stage3_module_granularity_threshold` 与 `leaf_module` 配置（`DeepSpeedZeroLeafModuleConfig`）让 hook 挂在更粗的 module 上，是对这个代价的折衷。
 
-「前向前 all-gather」这个机制也就是本节说的 pre-forward hook 取回——它与 FSDP1、FSDP2 的逐项并排在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#三对照阅读)。
+「前向前 all-gather」这个机制也就是本节说的 pre-forward hook 取回——它与 FSDP1、FSDP2 的逐项并排在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五分片在内存里长什么样)。
 
 ### 6. 训练循环：forward / backward / step
 
