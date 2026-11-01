@@ -188,9 +188,16 @@ Table: ZeRO-3 通信量从 2N 到 3N 的逐项
 
 ![四级 ZeRO 在 4 张卡上的状态放置：DP 每卡持有整份参数 P、梯度 G、优化器状态 O；ZeRO-1 把 O 切成 4 片各持一片；ZeRO-2 再把 G 切片；ZeRO-3 把 P 也切片，每卡只剩 16N/4。每张卡的显存等于实心部分之和](/img/in-post/parallelism-zero-stages.svg)
 
-上图是静态的放置，只说明每张卡**常驻**什么。一个 step 里各卡还会临时拼出完整的状态，以 ZeRO-3 的一层为例（4 张卡）：
+上图是静态的放置，只说明每张卡**常驻**什么。一个 step 里各卡还会临时拼出完整的状态。以 ZeRO-3 的一层为例（4 张卡），把四种状态都画上，每一步标出发生的通信：
 
-![ZeRO-3 一层在 4 张卡上的一个 step](/img/in-post/parallelism-zero3-layer-step.svg)
+![ZeRO-3 一层在 4 张卡上的一个 step：四种状态与三次通信](/img/in-post/parallelism-zero3-layer-step.svg)
+
+从图里能直接读出 $$2N \to 3N$$ 的来历：
+
+- 参数、梯度、优化器状态都只常驻 1/4，激活按 batch 天然切开，四种状态都没有冗余。
+- 代价是参数要拼两次：① 前向前一次，③ 反向前又一次，因为 ② 前向算完就把完整参数释放了。
+- ⑤ 的梯度 reduce-scatter 和 ZeRO-1/2 一样。ZeRO-1/2 在 step 后还有一次参数 all-gather，ZeRO-3 不需要，它变成了下一 step 的 ①。
+- 所以 ZeRO-3 比 ZeRO-1/2 净多的就是 ③ 这一次 all-gather：$$N + N + N = 3N$$ 对 $$N + N = 2N$$。
 
 四级都按这个思路看：前向、反向要用完整的参数做 GEMM，反向会先算出本卡数据的完整梯度，差别只在这些完整状态是常驻的还是临时拼出来的。
 

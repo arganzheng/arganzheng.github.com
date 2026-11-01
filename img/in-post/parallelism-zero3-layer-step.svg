@@ -1,407 +1,558 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="410" viewBox="0 0 800 410" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="12" role="img" aria-labelledby="t d">
-  <title id="t">ZeRO-3 一层在 4 张卡上的一个 step</title>
-  <desc id="d">第 k 层的参数 W 分成 4 段，GPU i 常驻第 i 段（还有对应的 fp32 主参数和 Adam 矩，图中略）。① 前向前 all-gather，每卡临时拼出完整 W，算完释放；② 反向前再 all-gather 一次，每卡用完整 W 和自己的激活算出本层完整梯度（只含本卡数据的贡献）；③ reduce-scatter 把 4 张卡的梯度按段求和，GPU i 只留第 i 段，完整 W 和其余梯度释放；④ optimizer.step() 里每卡用自己那段梯度更新自己那段参数。</desc>
-  <style>.m{fill:#555;font-size:11px}.t{fill:#222;font-weight:600}.n{fill:#222;font-size:11px}.p{fill:#dbeafe;stroke:#1d4ed8}.g{fill:#dcfce7;stroke:#15803d}.o{fill:#ede9fe;stroke:#7e22ce}.e{fill:#fff;stroke:#bbb;stroke-dasharray:3 2}.c{fill:#fff7ed;stroke:#c2410c}.k{fill:#fef3c7;stroke:#b45309}</style>
-  <text x="16" y="20" class="t">ZeRO-3：第 k 层在 4 张卡上的一个 step（W = bf16 参数，G = 梯度；段 0–3 按卡着色）</text>
-  <text x="262" y="46" text-anchor="middle" class="t">GPU 0</text>
-  <text x="416" y="46" text-anchor="middle" class="t">GPU 1</text>
-  <text x="568" y="46" text-anchor="middle" class="t">GPU 2</text>
-  <text x="722" y="46" text-anchor="middle" class="t">GPU 3</text>
-  <text x="16" y="82" class="t">常驻</text>
-  <text x="16" y="98" class="m">每卡只存自己那段 W</text>
-  <text x="16" y="112" class="m">梯度还没有</text>
-  <rect x="190" y="64" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="198" y="84" class="n">W</text>
-  <rect x="214" y="72" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="84" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="72" width="28" height="16" class="e"/>
-  <text x="256" y="84" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="72" width="28" height="16" class="e"/>
-  <text x="284" y="84" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="72" width="28" height="16" class="e"/>
-  <text x="312" y="84" text-anchor="middle" class="n">3</text>
-  <text x="198" y="106" class="n">G</text>
-  <rect x="214" y="94" width="28" height="16" class="e"/>
-  <text x="228" y="106" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="94" width="28" height="16" class="e"/>
-  <text x="256" y="106" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="94" width="28" height="16" class="e"/>
-  <text x="284" y="106" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="94" width="28" height="16" class="e"/>
-  <text x="312" y="106" text-anchor="middle" class="n">3</text>
-  <rect x="343" y="64" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="351" y="84" class="n">W</text>
-  <rect x="367" y="72" width="28" height="16" class="e"/>
-  <text x="381" y="84" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="72" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="84" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="72" width="28" height="16" class="e"/>
-  <text x="437" y="84" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="72" width="28" height="16" class="e"/>
-  <text x="465" y="84" text-anchor="middle" class="n">3</text>
-  <text x="351" y="106" class="n">G</text>
-  <rect x="367" y="94" width="28" height="16" class="e"/>
-  <text x="381" y="106" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="94" width="28" height="16" class="e"/>
-  <text x="409" y="106" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="94" width="28" height="16" class="e"/>
-  <text x="437" y="106" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="94" width="28" height="16" class="e"/>
-  <text x="465" y="106" text-anchor="middle" class="n">3</text>
-  <rect x="496" y="64" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="504" y="84" class="n">W</text>
-  <rect x="520" y="72" width="28" height="16" class="e"/>
-  <text x="534" y="84" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="72" width="28" height="16" class="e"/>
-  <text x="562" y="84" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="72" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="84" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="72" width="28" height="16" class="e"/>
-  <text x="618" y="84" text-anchor="middle" class="n">3</text>
-  <text x="504" y="106" class="n">G</text>
-  <rect x="520" y="94" width="28" height="16" class="e"/>
-  <text x="534" y="106" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="94" width="28" height="16" class="e"/>
-  <text x="562" y="106" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="94" width="28" height="16" class="e"/>
-  <text x="590" y="106" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="94" width="28" height="16" class="e"/>
-  <text x="618" y="106" text-anchor="middle" class="n">3</text>
-  <rect x="649" y="64" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="657" y="84" class="n">W</text>
-  <rect x="673" y="72" width="28" height="16" class="e"/>
-  <text x="687" y="84" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="72" width="28" height="16" class="e"/>
-  <text x="715" y="84" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="72" width="28" height="16" class="e"/>
-  <text x="743" y="84" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="72" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="84" text-anchor="middle" class="n">3</text>
-  <text x="657" y="106" class="n">G</text>
-  <rect x="673" y="94" width="28" height="16" class="e"/>
-  <text x="687" y="106" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="94" width="28" height="16" class="e"/>
-  <text x="715" y="106" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="94" width="28" height="16" class="e"/>
-  <text x="743" y="106" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="94" width="28" height="16" class="e"/>
-  <text x="771" y="106" text-anchor="middle" class="n">3</text>
-  <text x="16" y="144" class="t">① 前向前 AG 参数</text>
-  <text x="16" y="160" class="m">拼出完整 W</text>
-  <text x="16" y="174" class="m">算完前向即释放</text>
-  <rect x="190" y="126" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="198" y="146" class="n">W</text>
-  <rect x="214" y="134" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="146" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="134" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="256" y="146" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="134" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="284" y="146" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="134" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="312" y="146" text-anchor="middle" class="n">3</text>
-  <text x="198" y="168" class="n">G</text>
-  <rect x="214" y="156" width="28" height="16" class="e"/>
-  <text x="228" y="168" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="156" width="28" height="16" class="e"/>
-  <text x="256" y="168" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="156" width="28" height="16" class="e"/>
-  <text x="284" y="168" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="156" width="28" height="16" class="e"/>
-  <text x="312" y="168" text-anchor="middle" class="n">3</text>
-  <rect x="343" y="126" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="351" y="146" class="n">W</text>
-  <rect x="367" y="134" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="381" y="146" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="134" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="146" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="134" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="437" y="146" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="134" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="465" y="146" text-anchor="middle" class="n">3</text>
-  <text x="351" y="168" class="n">G</text>
-  <rect x="367" y="156" width="28" height="16" class="e"/>
-  <text x="381" y="168" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="156" width="28" height="16" class="e"/>
-  <text x="409" y="168" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="156" width="28" height="16" class="e"/>
-  <text x="437" y="168" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="156" width="28" height="16" class="e"/>
-  <text x="465" y="168" text-anchor="middle" class="n">3</text>
-  <rect x="496" y="126" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="504" y="146" class="n">W</text>
-  <rect x="520" y="134" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="534" y="146" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="134" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="562" y="146" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="134" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="146" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="134" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="618" y="146" text-anchor="middle" class="n">3</text>
-  <text x="504" y="168" class="n">G</text>
-  <rect x="520" y="156" width="28" height="16" class="e"/>
-  <text x="534" y="168" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="156" width="28" height="16" class="e"/>
-  <text x="562" y="168" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="156" width="28" height="16" class="e"/>
-  <text x="590" y="168" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="156" width="28" height="16" class="e"/>
-  <text x="618" y="168" text-anchor="middle" class="n">3</text>
-  <rect x="649" y="126" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="657" y="146" class="n">W</text>
-  <rect x="673" y="134" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="687" y="146" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="134" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="715" y="146" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="134" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="743" y="146" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="134" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="146" text-anchor="middle" class="n">3</text>
-  <text x="657" y="168" class="n">G</text>
-  <rect x="673" y="156" width="28" height="16" class="e"/>
-  <text x="687" y="168" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="156" width="28" height="16" class="e"/>
-  <text x="715" y="168" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="156" width="28" height="16" class="e"/>
-  <text x="743" y="168" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="156" width="28" height="16" class="e"/>
-  <text x="771" y="168" text-anchor="middle" class="n">3</text>
-  <text x="16" y="206" class="t">② 反向前再 AG 参数</text>
-  <text x="16" y="222" class="m">完整 W + 本层完整梯度</text>
-  <text x="16" y="236" class="m">（只含本卡数据的贡献）</text>
-  <rect x="190" y="188" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="198" y="208" class="n">W</text>
-  <rect x="214" y="196" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="208" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="196" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="256" y="208" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="196" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="284" y="208" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="196" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="312" y="208" text-anchor="middle" class="n">3</text>
-  <text x="198" y="230" class="n">G</text>
-  <rect x="214" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="228" y="230" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="256" y="230" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="284" y="230" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="312" y="230" text-anchor="middle" class="n">3</text>
-  <rect x="343" y="188" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="351" y="208" class="n">W</text>
-  <rect x="367" y="196" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="381" y="208" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="196" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="208" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="196" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="437" y="208" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="196" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="465" y="208" text-anchor="middle" class="n">3</text>
-  <text x="351" y="230" class="n">G</text>
-  <rect x="367" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="381" y="230" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="409" y="230" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="437" y="230" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="465" y="230" text-anchor="middle" class="n">3</text>
-  <rect x="496" y="188" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="504" y="208" class="n">W</text>
-  <rect x="520" y="196" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="534" y="208" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="196" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="562" y="208" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="196" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="208" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="196" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="618" y="208" text-anchor="middle" class="n">3</text>
-  <text x="504" y="230" class="n">G</text>
-  <rect x="520" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="534" y="230" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="562" y="230" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="590" y="230" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="618" y="230" text-anchor="middle" class="n">3</text>
-  <rect x="649" y="188" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="657" y="208" class="n">W</text>
-  <rect x="673" y="196" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="687" y="208" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="196" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="715" y="208" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="196" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="743" y="208" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="196" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="208" text-anchor="middle" class="n">3</text>
-  <text x="657" y="230" class="n">G</text>
-  <rect x="673" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="687" y="230" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="715" y="230" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="743" y="230" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="218" width="28" height="16" fill="#f3f4f6" stroke="#6b7280"/>
-  <text x="771" y="230" text-anchor="middle" class="n">3</text>
-  <text x="16" y="268" class="t">③ RS 梯度</text>
-  <text x="16" y="284" class="m">梯度按段求和，本卡留自己那段</text>
-  <text x="16" y="298" class="m">完整 W 与其余梯度释放</text>
-  <rect x="190" y="250" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="198" y="270" class="n">W</text>
-  <rect x="214" y="258" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="270" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="258" width="28" height="16" class="e"/>
-  <text x="256" y="270" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="258" width="28" height="16" class="e"/>
-  <text x="284" y="270" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="258" width="28" height="16" class="e"/>
-  <text x="312" y="270" text-anchor="middle" class="n">3</text>
-  <text x="198" y="292" class="n">G</text>
-  <rect x="214" y="280" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="292" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="280" width="28" height="16" class="e"/>
-  <text x="256" y="292" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="280" width="28" height="16" class="e"/>
-  <text x="284" y="292" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="280" width="28" height="16" class="e"/>
-  <text x="312" y="292" text-anchor="middle" class="n">3</text>
-  <rect x="343" y="250" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="351" y="270" class="n">W</text>
-  <rect x="367" y="258" width="28" height="16" class="e"/>
-  <text x="381" y="270" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="258" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="270" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="258" width="28" height="16" class="e"/>
-  <text x="437" y="270" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="258" width="28" height="16" class="e"/>
-  <text x="465" y="270" text-anchor="middle" class="n">3</text>
-  <text x="351" y="292" class="n">G</text>
-  <rect x="367" y="280" width="28" height="16" class="e"/>
-  <text x="381" y="292" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="280" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="292" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="280" width="28" height="16" class="e"/>
-  <text x="437" y="292" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="280" width="28" height="16" class="e"/>
-  <text x="465" y="292" text-anchor="middle" class="n">3</text>
-  <rect x="496" y="250" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="504" y="270" class="n">W</text>
-  <rect x="520" y="258" width="28" height="16" class="e"/>
-  <text x="534" y="270" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="258" width="28" height="16" class="e"/>
-  <text x="562" y="270" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="258" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="270" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="258" width="28" height="16" class="e"/>
-  <text x="618" y="270" text-anchor="middle" class="n">3</text>
-  <text x="504" y="292" class="n">G</text>
-  <rect x="520" y="280" width="28" height="16" class="e"/>
-  <text x="534" y="292" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="280" width="28" height="16" class="e"/>
-  <text x="562" y="292" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="280" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="292" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="280" width="28" height="16" class="e"/>
-  <text x="618" y="292" text-anchor="middle" class="n">3</text>
-  <rect x="649" y="250" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="657" y="270" class="n">W</text>
-  <rect x="673" y="258" width="28" height="16" class="e"/>
-  <text x="687" y="270" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="258" width="28" height="16" class="e"/>
-  <text x="715" y="270" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="258" width="28" height="16" class="e"/>
-  <text x="743" y="270" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="258" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="270" text-anchor="middle" class="n">3</text>
-  <text x="657" y="292" class="n">G</text>
-  <rect x="673" y="280" width="28" height="16" class="e"/>
-  <text x="687" y="292" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="280" width="28" height="16" class="e"/>
-  <text x="715" y="292" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="280" width="28" height="16" class="e"/>
-  <text x="743" y="292" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="280" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="292" text-anchor="middle" class="n">3</text>
-  <text x="16" y="330" class="t">④ optimizer.step()</text>
-  <text x="16" y="346" class="m">用自己那段梯度</text>
-  <text x="16" y="360" class="m">更新自己那段 W</text>
-  <rect x="190" y="312" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="198" y="332" class="n">W</text>
-  <rect x="214" y="320" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="332" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="320" width="28" height="16" class="e"/>
-  <text x="256" y="332" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="320" width="28" height="16" class="e"/>
-  <text x="284" y="332" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="320" width="28" height="16" class="e"/>
-  <text x="312" y="332" text-anchor="middle" class="n">3</text>
-  <text x="198" y="354" class="n">G</text>
-  <rect x="214" y="342" width="28" height="16" fill="#dbeafe" stroke="#1d4ed8"/>
-  <text x="228" y="354" text-anchor="middle" class="n">0</text>
-  <rect x="242" y="342" width="28" height="16" class="e"/>
-  <text x="256" y="354" text-anchor="middle" class="n">1</text>
-  <rect x="270" y="342" width="28" height="16" class="e"/>
-  <text x="284" y="354" text-anchor="middle" class="n">2</text>
-  <rect x="298" y="342" width="28" height="16" class="e"/>
-  <text x="312" y="354" text-anchor="middle" class="n">3</text>
-  <rect x="343" y="312" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="351" y="332" class="n">W</text>
-  <rect x="367" y="320" width="28" height="16" class="e"/>
-  <text x="381" y="332" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="320" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="332" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="320" width="28" height="16" class="e"/>
-  <text x="437" y="332" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="320" width="28" height="16" class="e"/>
-  <text x="465" y="332" text-anchor="middle" class="n">3</text>
-  <text x="351" y="354" class="n">G</text>
-  <rect x="367" y="342" width="28" height="16" class="e"/>
-  <text x="381" y="354" text-anchor="middle" class="n">0</text>
-  <rect x="395" y="342" width="28" height="16" fill="#dcfce7" stroke="#15803d"/>
-  <text x="409" y="354" text-anchor="middle" class="n">1</text>
-  <rect x="423" y="342" width="28" height="16" class="e"/>
-  <text x="437" y="354" text-anchor="middle" class="n">2</text>
-  <rect x="451" y="342" width="28" height="16" class="e"/>
-  <text x="465" y="354" text-anchor="middle" class="n">3</text>
-  <rect x="496" y="312" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="504" y="332" class="n">W</text>
-  <rect x="520" y="320" width="28" height="16" class="e"/>
-  <text x="534" y="332" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="320" width="28" height="16" class="e"/>
-  <text x="562" y="332" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="320" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="332" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="320" width="28" height="16" class="e"/>
-  <text x="618" y="332" text-anchor="middle" class="n">3</text>
-  <text x="504" y="354" class="n">G</text>
-  <rect x="520" y="342" width="28" height="16" class="e"/>
-  <text x="534" y="354" text-anchor="middle" class="n">0</text>
-  <rect x="548" y="342" width="28" height="16" class="e"/>
-  <text x="562" y="354" text-anchor="middle" class="n">1</text>
-  <rect x="576" y="342" width="28" height="16" fill="#fde68a" stroke="#b45309"/>
-  <text x="590" y="354" text-anchor="middle" class="n">2</text>
-  <rect x="604" y="342" width="28" height="16" class="e"/>
-  <text x="618" y="354" text-anchor="middle" class="n">3</text>
-  <rect x="649" y="312" width="145" height="52" rx="4" fill="#fafafa" stroke="#999"/>
-  <text x="657" y="332" class="n">W</text>
-  <rect x="673" y="320" width="28" height="16" class="e"/>
-  <text x="687" y="332" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="320" width="28" height="16" class="e"/>
-  <text x="715" y="332" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="320" width="28" height="16" class="e"/>
-  <text x="743" y="332" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="320" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="332" text-anchor="middle" class="n">3</text>
-  <text x="657" y="354" class="n">G</text>
-  <rect x="673" y="342" width="28" height="16" class="e"/>
-  <text x="687" y="354" text-anchor="middle" class="n">0</text>
-  <rect x="701" y="342" width="28" height="16" class="e"/>
-  <text x="715" y="354" text-anchor="middle" class="n">1</text>
-  <rect x="729" y="342" width="28" height="16" class="e"/>
-  <text x="743" y="354" text-anchor="middle" class="n">2</text>
-  <rect x="757" y="342" width="28" height="16" fill="#fbcfe8" stroke="#be185d"/>
-  <text x="771" y="354" text-anchor="middle" class="n">3</text>
-  <text x="16" y="384" class="m">虚线格 = 本卡不持有；灰格 = 只含本卡数据贡献、尚未求和的梯度。fp32 主参数与 Adam 矩始终只存自己那段，图中略。</text>
-  <text x="16" y="400" class="m">每卡通信：① AG ≈ 本层 1 份参数，② 再一次 AG，③ RS ≈ 本层 1 份梯度；全部层合计 3N。</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="915" height="680" viewBox="0 0 915 680" font-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" font-size="13" role="img" aria-labelledby="t d">
+  <title id="t">ZeRO-3 一层在 4 张卡上的一个 step：四种状态与三次通信</title>
+  <desc id="d">4 张 GPU，每卡画出参数、梯度、优化器状态、激活四种状态，各切成 4 段。常驻时每卡只有自己那段参数和优化器状态。① 前向前 all-gather 参数，通信约 N；② 前向后释放完整参数，保留本卡激活；③ 反向前再 all-gather 参数，通信约 N；④ 反向后激活释放，得到本卡数据的完整梯度；⑤ reduce-scatter 梯度，通信约 N，每卡只留自己那段；⑥ optimizer.step() 更新自己那段优化器状态和参数，梯度清零。合计 AG + AG + RS = 3N；ZeRO-1/2 是 RS + AG = 2N，ZeRO-1/2 在 step 后的那次 all-gather 在 ZeRO-3 里挪到了下一 step 的 ①，净增的是 ③。</desc>
+  <style>.t{fill:#222;font-weight:700;font-size:14px}.h{fill:#333;font-weight:700}.l{fill:#222}.m{fill:#555;font-size:12px}.s{fill:#555;font-size:11px}</style>
+  <text x="16" y="24" class="t">ZeRO-3 一层在 4 张卡上的一个 step：四种状态都切 4 段，通信三次</text>
+  <rect x="16" y="38" width="14" height="10" fill="#3b82f6"/>
+  <text x="35" y="48" class="m">P 参数</text>
+  <rect x="92" y="38" width="14" height="10" fill="#16a34a"/>
+  <text x="111" y="48" class="m">G 梯度</text>
+  <rect x="168" y="38" width="14" height="10" fill="#8b5cf6"/>
+  <text x="187" y="48" class="m">O 优化器状态（fp32 主参数 + m + v）</text>
+  <rect x="461" y="38" width="14" height="10" fill="#f59e0b"/>
+  <text x="480" y="48" class="m">A 激活（按 batch 切，每卡只有自己的）</text>
+  <rect x="16" y="56" width="14" height="10" fill="#bfdbfe"/><text x="35" y="66" class="m">浅色 = 临时（AG 拼出的完整参数 / 未求和的本卡梯度）</text>
+  <rect x="380" y="56" width="14" height="10" fill="#fff" stroke="#e11d48" stroke-width="1.5"/><text x="399" y="66" class="m">红框 = 本步刚更新</text>
+  <text x="264" y="88" text-anchor="middle" class="h">GPU 0</text>
+  <text x="404" y="88" text-anchor="middle" class="h">GPU 1</text>
+  <text x="544" y="88" text-anchor="middle" class="h">GPU 2</text>
+  <text x="684" y="88" text-anchor="middle" class="h">GPU 3</text>
+  <text x="830" y="88" text-anchor="middle" class="h">通信（每卡）</text>
+  <rect x="10" y="96" width="895" height="56" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+  <text x="18" y="114" class="h">常驻（step 开始）</text>
+  <text x="18" y="130" class="s">只有自己那 1/4</text>
+  <text x="18" y="144" class="s">梯度、激活都还没有</text>
+  <text x="200" y="111" class="s">P</text>
+  <rect x="212" y="102" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="234" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="123" class="s">G</text>
+  <rect x="212" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="234" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="135" class="s">O</text>
+  <rect x="212" y="126" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="234" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="147" class="s">A</text>
+  <rect x="212" y="138" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="340" y="111" class="s">P</text>
+  <rect x="352" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="102" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="396" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="123" class="s">G</text>
+  <rect x="352" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="396" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="135" class="s">O</text>
+  <rect x="352" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="126" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="396" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="147" class="s">A</text>
+  <rect x="352" y="138" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="480" y="111" class="s">P</text>
+  <rect x="492" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="102" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="558" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="123" class="s">G</text>
+  <rect x="492" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="558" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="135" class="s">O</text>
+  <rect x="492" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="126" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="558" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="147" class="s">A</text>
+  <rect x="492" y="138" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="620" y="111" class="s">P</text>
+  <rect x="632" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="102" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="102" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <text x="620" y="123" class="s">G</text>
+  <rect x="632" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="114" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="620" y="135" class="s">O</text>
+  <rect x="632" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="126" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="126" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <text x="620" y="147" class="s">A</text>
+  <rect x="632" y="138" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <rect x="10" y="158" width="895" height="56" rx="4" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="18" y="176" class="h">① 前向前 AG 参数</text>
+  <text x="18" y="192" class="s">拼出本层完整参数</text>
+  <text x="200" y="173" class="s">P</text>
+  <rect x="212" y="164" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="234" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="256" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="278" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <text x="200" y="185" class="s">G</text>
+  <rect x="212" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="234" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="197" class="s">O</text>
+  <rect x="212" y="188" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="234" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="209" class="s">A</text>
+  <rect x="212" y="200" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="340" y="173" class="s">P</text>
+  <rect x="352" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="374" y="164" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="396" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="418" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <text x="340" y="185" class="s">G</text>
+  <rect x="352" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="396" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="197" class="s">O</text>
+  <rect x="352" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="188" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="396" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="209" class="s">A</text>
+  <rect x="352" y="200" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="480" y="173" class="s">P</text>
+  <rect x="492" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="514" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="536" y="164" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="558" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <text x="480" y="185" class="s">G</text>
+  <rect x="492" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="558" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="197" class="s">O</text>
+  <rect x="492" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="188" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="558" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="209" class="s">A</text>
+  <rect x="492" y="200" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="620" y="173" class="s">P</text>
+  <rect x="632" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="654" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="676" y="164" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="698" y="164" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <text x="620" y="185" class="s">G</text>
+  <rect x="632" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="176" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="620" y="197" class="s">O</text>
+  <rect x="632" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="188" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="188" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <text x="620" y="209" class="s">A</text>
+  <rect x="632" y="200" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <rect x="770" y="166" width="120" height="40" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="830" y="183" text-anchor="middle" class="l">AG 参数</text>
+  <text x="830" y="200" text-anchor="middle" class="m">≈ N</text>
+  <rect x="10" y="220" width="895" height="56" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+  <text x="18" y="238" class="h">② 前向算完</text>
+  <text x="18" y="254" class="s">完整参数释放</text>
+  <text x="18" y="268" class="s">本卡激活留给反向</text>
+  <text x="200" y="235" class="s">P</text>
+  <rect x="212" y="226" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="234" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="247" class="s">G</text>
+  <rect x="212" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="234" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="259" class="s">O</text>
+  <rect x="212" y="250" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="234" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="271" class="s">A</text>
+  <rect x="212" y="262" width="88" height="9" fill="#f59e0b"/>
+  <text x="256" y="270" text-anchor="middle" font-size="8" fill="#fff">batch 0</text>
+  <text x="340" y="235" class="s">P</text>
+  <rect x="352" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="226" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="396" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="247" class="s">G</text>
+  <rect x="352" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="396" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="259" class="s">O</text>
+  <rect x="352" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="250" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="396" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="271" class="s">A</text>
+  <rect x="352" y="262" width="88" height="9" fill="#f59e0b"/>
+  <text x="396" y="270" text-anchor="middle" font-size="8" fill="#fff">batch 1</text>
+  <text x="480" y="235" class="s">P</text>
+  <rect x="492" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="226" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="558" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="247" class="s">G</text>
+  <rect x="492" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="558" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="259" class="s">O</text>
+  <rect x="492" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="250" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="558" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="271" class="s">A</text>
+  <rect x="492" y="262" width="88" height="9" fill="#f59e0b"/>
+  <text x="536" y="270" text-anchor="middle" font-size="8" fill="#fff">batch 2</text>
+  <text x="620" y="235" class="s">P</text>
+  <rect x="632" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="226" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="226" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <text x="620" y="247" class="s">G</text>
+  <rect x="632" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="238" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="620" y="259" class="s">O</text>
+  <rect x="632" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="250" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="250" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <text x="620" y="271" class="s">A</text>
+  <rect x="632" y="262" width="88" height="9" fill="#f59e0b"/>
+  <text x="676" y="270" text-anchor="middle" font-size="8" fill="#fff">batch 3</text>
+  <rect x="10" y="282" width="895" height="56" rx="4" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="18" y="300" class="h">③ 反向前再 AG 参数</text>
+  <text x="18" y="316" class="s">前向后释放了，</text>
+  <text x="18" y="330" class="s">只能再拼一次</text>
+  <text x="200" y="297" class="s">P</text>
+  <rect x="212" y="288" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="234" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="256" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="278" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <text x="200" y="309" class="s">G</text>
+  <rect x="212" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="234" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="321" class="s">O</text>
+  <rect x="212" y="312" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="234" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="333" class="s">A</text>
+  <rect x="212" y="324" width="88" height="9" fill="#f59e0b"/>
+  <text x="256" y="332" text-anchor="middle" font-size="8" fill="#fff">batch 0</text>
+  <text x="340" y="297" class="s">P</text>
+  <rect x="352" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="374" y="288" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="396" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="418" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <text x="340" y="309" class="s">G</text>
+  <rect x="352" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="396" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="321" class="s">O</text>
+  <rect x="352" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="312" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="396" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="333" class="s">A</text>
+  <rect x="352" y="324" width="88" height="9" fill="#f59e0b"/>
+  <text x="396" y="332" text-anchor="middle" font-size="8" fill="#fff">batch 1</text>
+  <text x="480" y="297" class="s">P</text>
+  <rect x="492" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="514" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="536" y="288" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="558" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <text x="480" y="309" class="s">G</text>
+  <rect x="492" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="558" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="321" class="s">O</text>
+  <rect x="492" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="312" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="558" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="333" class="s">A</text>
+  <rect x="492" y="324" width="88" height="9" fill="#f59e0b"/>
+  <text x="536" y="332" text-anchor="middle" font-size="8" fill="#fff">batch 2</text>
+  <text x="620" y="297" class="s">P</text>
+  <rect x="632" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="654" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="676" y="288" width="20" height="9" fill="#bfdbfe" stroke="#d1d5db"/>
+  <rect x="698" y="288" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <text x="620" y="309" class="s">G</text>
+  <rect x="632" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="300" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="620" y="321" class="s">O</text>
+  <rect x="632" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="312" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="312" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <text x="620" y="333" class="s">A</text>
+  <rect x="632" y="324" width="88" height="9" fill="#f59e0b"/>
+  <text x="676" y="332" text-anchor="middle" font-size="8" fill="#fff">batch 3</text>
+  <rect x="770" y="290" width="120" height="40" rx="4" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="830" y="307" text-anchor="middle" class="l">AG 参数</text>
+  <text x="830" y="324" text-anchor="middle" class="m">≈ N</text>
+  <rect x="10" y="344" width="895" height="56" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+  <text x="18" y="362" class="h">④ 反向算完</text>
+  <text x="18" y="378" class="s">激活用完释放；得到本卡</text>
+  <text x="18" y="392" class="s">数据的完整梯度（未求和）</text>
+  <text x="200" y="359" class="s">P</text>
+  <rect x="212" y="350" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="234" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="371" class="s">G</text>
+  <rect x="212" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="234" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="256" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="278" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <text x="200" y="383" class="s">O</text>
+  <rect x="212" y="374" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="234" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="395" class="s">A</text>
+  <rect x="212" y="386" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="340" y="359" class="s">P</text>
+  <rect x="352" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="350" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="396" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="371" class="s">G</text>
+  <rect x="352" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="374" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="396" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="418" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <text x="340" y="383" class="s">O</text>
+  <rect x="352" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="374" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="396" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="395" class="s">A</text>
+  <rect x="352" y="386" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="480" y="359" class="s">P</text>
+  <rect x="492" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="350" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="558" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="371" class="s">G</text>
+  <rect x="492" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="514" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="536" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="558" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <text x="480" y="383" class="s">O</text>
+  <rect x="492" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="374" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="558" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="395" class="s">A</text>
+  <rect x="492" y="386" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="620" y="359" class="s">P</text>
+  <rect x="632" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="350" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="350" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <text x="620" y="371" class="s">G</text>
+  <rect x="632" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="654" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="676" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <rect x="698" y="362" width="20" height="9" fill="#bbf7d0" stroke="#d1d5db"/>
+  <text x="620" y="383" class="s">O</text>
+  <rect x="632" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="374" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="374" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <text x="620" y="395" class="s">A</text>
+  <rect x="632" y="386" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <rect x="10" y="406" width="895" height="56" rx="4" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="18" y="424" class="h">⑤ RS 梯度</text>
+  <text x="18" y="440" class="s">各卡梯度按段求和，</text>
+  <text x="18" y="454" class="s">每卡只留自己那段</text>
+  <text x="200" y="421" class="s">P</text>
+  <rect x="212" y="412" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="234" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="433" class="s">G</text>
+  <rect x="212" y="424" width="20" height="9" fill="#16a34a" stroke="#d1d5db"/>
+  <rect x="234" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="445" class="s">O</text>
+  <rect x="212" y="436" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="234" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="457" class="s">A</text>
+  <rect x="212" y="448" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="340" y="421" class="s">P</text>
+  <rect x="352" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="412" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="396" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="433" class="s">G</text>
+  <rect x="352" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="424" width="20" height="9" fill="#16a34a" stroke="#d1d5db"/>
+  <rect x="396" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="445" class="s">O</text>
+  <rect x="352" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="436" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="396" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="457" class="s">A</text>
+  <rect x="352" y="448" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="480" y="421" class="s">P</text>
+  <rect x="492" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="412" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <rect x="558" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="433" class="s">G</text>
+  <rect x="492" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="424" width="20" height="9" fill="#16a34a" stroke="#d1d5db"/>
+  <rect x="558" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="445" class="s">O</text>
+  <rect x="492" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="436" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <rect x="558" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="457" class="s">A</text>
+  <rect x="492" y="448" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="620" y="421" class="s">P</text>
+  <rect x="632" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="412" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="412" width="20" height="9" fill="#3b82f6" stroke="#d1d5db"/>
+  <text x="620" y="433" class="s">G</text>
+  <rect x="632" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="424" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="424" width="20" height="9" fill="#16a34a" stroke="#d1d5db"/>
+  <text x="620" y="445" class="s">O</text>
+  <rect x="632" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="436" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="436" width="20" height="9" fill="#8b5cf6" stroke="#d1d5db"/>
+  <text x="620" y="457" class="s">A</text>
+  <rect x="632" y="448" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <rect x="770" y="414" width="120" height="40" rx="4" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="830" y="431" text-anchor="middle" class="l">RS 梯度</text>
+  <text x="830" y="448" text-anchor="middle" class="m">≈ N</text>
+  <rect x="10" y="468" width="895" height="56" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+  <text x="18" y="486" class="h">⑥ optimizer.step()</text>
+  <text x="18" y="502" class="s">用自己那段梯度更新</text>
+  <text x="18" y="516" class="s">自己那段优化器状态和参数</text>
+  <text x="200" y="483" class="s">P</text>
+  <rect x="212" y="474" width="20" height="9" fill="#3b82f6" stroke="#e11d48" stroke-width="1.5"/>
+  <rect x="234" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="495" class="s">G</text>
+  <rect x="212" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="234" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="507" class="s">O</text>
+  <rect x="212" y="498" width="20" height="9" fill="#8b5cf6" stroke="#e11d48" stroke-width="1.5"/>
+  <rect x="234" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="256" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="278" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="200" y="519" class="s">A</text>
+  <rect x="212" y="510" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="340" y="483" class="s">P</text>
+  <rect x="352" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="474" width="20" height="9" fill="#3b82f6" stroke="#e11d48" stroke-width="1.5"/>
+  <rect x="396" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="495" class="s">G</text>
+  <rect x="352" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="396" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="507" class="s">O</text>
+  <rect x="352" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="374" y="498" width="20" height="9" fill="#8b5cf6" stroke="#e11d48" stroke-width="1.5"/>
+  <rect x="396" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="418" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="340" y="519" class="s">A</text>
+  <rect x="352" y="510" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="480" y="483" class="s">P</text>
+  <rect x="492" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="474" width="20" height="9" fill="#3b82f6" stroke="#e11d48" stroke-width="1.5"/>
+  <rect x="558" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="495" class="s">G</text>
+  <rect x="492" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="558" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="507" class="s">O</text>
+  <rect x="492" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="514" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="536" y="498" width="20" height="9" fill="#8b5cf6" stroke="#e11d48" stroke-width="1.5"/>
+  <rect x="558" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="480" y="519" class="s">A</text>
+  <rect x="492" y="510" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="620" y="483" class="s">P</text>
+  <rect x="632" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="474" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="474" width="20" height="9" fill="#3b82f6" stroke="#e11d48" stroke-width="1.5"/>
+  <text x="620" y="495" class="s">G</text>
+  <rect x="632" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="486" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <text x="620" y="507" class="s">O</text>
+  <rect x="632" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="654" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="676" y="498" width="20" height="9" fill="#fff" stroke="#d1d5db"/>
+  <rect x="698" y="498" width="20" height="9" fill="#8b5cf6" stroke="#e11d48" stroke-width="1.5"/>
+  <text x="620" y="519" class="s">A</text>
+  <rect x="632" y="510" width="88" height="9" fill="#fff" stroke="#d1d5db" stroke-dasharray="3 2"/>
+  <text x="16" y="548" class="h">一个 step 的通信量（N = 参数个数，按每卡收发的元素算）</text>
+  <text x="16" y="577" class="l">ZeRO-1 / 2</text>
+  <rect x="200" y="558" width="128" height="28" rx="3" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="264.0" y="577" text-anchor="middle" class="m">RS 梯度 ≈ N</text>
+  <rect x="332" y="558" width="128" height="28" rx="3" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="396.0" y="577" text-anchor="middle" class="m">step 后 AG 参数 ≈ N</text>
+  <text x="470" y="577" class="h">= 2N</text>
+  <text x="16" y="613" class="l">ZeRO-3</text>
+  <rect x="200" y="594" width="128" height="28" rx="3" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="264.0" y="613" text-anchor="middle" class="m">① AG 参数 ≈ N</text>
+  <rect x="332" y="594" width="128" height="28" rx="3" fill="#fed7aa" stroke="#ea580c" stroke-width="2.5"/>
+  <text x="396.0" y="613" text-anchor="middle" class="m">③ AG 参数 ≈ N</text>
+  <rect x="464" y="594" width="128" height="28" rx="3" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="528.0" y="613" text-anchor="middle" class="m">⑤ RS 梯度 ≈ N</text>
+  <text x="602" y="613" class="h">= 3N</text>
+  <text x="16" y="646" class="m">ZeRO-1/2 每卡常驻完整参数，step 后要 AG 一次把别人更新的部分拼回来；ZeRO-3 本来只存自己那段，这次 AG 挪到了下一 step 的 ①。</text>
+  <text x="16" y="664" class="m">真正多出来的只有 ③（粗框）：前向后把完整参数释放了，反向只能再拼一次。不释放（reshard_after_forward=False）就回到 2N，代价是常驻完整参数。</text>
 </svg>
