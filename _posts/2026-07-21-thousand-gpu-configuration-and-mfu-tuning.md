@@ -492,59 +492,46 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 
 ### 2. 本篇涉及的源码位置
 
-```text title="本篇涉及的源码位置"
-项目                  路径                                                          关键符号 / 内容
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Megatron Core         megatron/core/transformer/transformer_config.py               TransformerConfig：recompute_granularity / recompute_method / recompute_num_layers /
-0.18.0                                                                              recompute_modules / distribute_saved_activations；fp8 / fp8_recipe；
-                                                                                    fine_grained_activation_offloading / offload_modules；cuda_graph_impl；
-                                                                                    num_layers_in_first/last_pipeline_stage；__post_init__ 的合法性检查
-                      megatron/core/model_parallel_config.py                        ModelParallelConfig：tp_comm_overlap 及 tp_comm_overlap_ag/rs/rs_dgrad；overlap_p2p_comm；
-                                                                                    batch_p2p_comm；cpu_offloading / cpu_offloading_num_layers；sequence_parallel；
-                                                                                    num_microbatches_with_partial_activation_checkpoints；microbatch_group_size_per_vp_stage
-                      megatron/core/distributed/distributed_data_parallel_config.py DistributedDataParallelConfig：overlap_grad_reduce / overlap_param_gather / align_param_gather /
-                                                                                    bucket_size / num_buckets / pad_buckets_for_high_nccl_busbw / average_in_collective
-                      megatron/core/pipeline_parallel/schedules.py                  get_forward_backward_func；forward_backward_pipelining_without_interleaving /
-                                                                                    _with_interleaving；forward_step 的 checkpoint_activations_microbatch；disable/enable_grad_sync
-                      megatron/core/pipeline_parallel/fine_grained_activation_offload.py   细粒度激活 offload
-                      megatron/core/recompute.py · transformer_block.py             checkpointed_forward；TransformerBlock 的重计算入口
-                      megatron/core/tensor_parallel/random.py                       checkpoint / CheckpointFunction（带 TP RNG 状态）
-                      megatron/core/num_microbatches_calculator.py                  get_num_microbatches
-                      megatron/core/extensions/transformer_engine.py                TELinear / TELayerNormColumnParallelLinear / TERowParallelLinear / TEDotProductAttention
-                      megatron/training/arguments.py                                --recompute-activations 快捷方式；--checkpoint-activations 废弃提示；--tp-comm-overlap-cfg；
-                                                                                    --overlap-grad-reduce / --overlap-param-gather / --ddp-bucket-size；--no-overlap-p2p-communication；
-                                                                                    --grad-reduce-in-bf16；--decoder-first/last-pipeline-num-layers；--cuda-graph-modules；
-                                                                                    --no-bias-swiglu-fusion 等融合开关；exclude 列表（哪些字段没有 CLI）
-                      megatron/training/argument_utils.py                           ArgumentGroupFactory：dataclass 字段 → CLI 参数
-                      megatron/training/config/training_config.py · common_config.py   micro_batch_size / global_batch_size / rampup_batch_size；ProfilingConfig
-                      megatron/training/training.py                                 num_floating_point_operations；throughput 日志；profiler 区间
-                      megatron/training/theoretical_memory_usage.py                 compute_weight_and_optimizer_memory / compute_activation_memory / report_theoretical_memory
-torchtitan v0.3.0     torchtitan/distributed/activation_checkpoint.py               ActivationCheckpointing / FullAC / SelectiveAC / MemoryBudgetAC；_get_default_save_ops；
-                                                                                    _disable_dynamo_lru_cache；ActivationCheckpointingConfig 子命令
-                      torchtitan/distributed/compile.py                             apply_compile（per-block, fullgraph）；_maybe_enable_async_tp；_maybe_regional_inductor_backend
-                      torchtitan/distributed/fsdp.py                                apply_fsdp_to_decoder；reshard_after_forward 策略；EP 下的 set_modules_to_forward/backward_prefetch
-                      torchtitan/models/llama3/parallelize.py                       parallelize_llama：TP → AC → compile → FSDP 的顺序
-                      torchtitan/models/llama3/config_registry.py                   llama3_8b / llama3_70b / llama3_405b 的默认 AC、TP、compile、FP8
-                      torchtitan/config/configs.py                                  TrainingConfig（local_batch_size / global_batch_size / seq_len / disable_cuda_graphs / enable_cpu_offload）；
-                                                                                    ParallelismConfig（各 degree、pipeline_parallel_schedule、*_stage_less_layers、fsdp_reshard_after_forward）；
-                                                                                    CompileConfig（enable / components / backend / enable_async_tensor_parallel）
-                      torchtitan/config/README.md                                   Python 配置、--module/--config、CLI 冻结说明
-                      torchtitan/trainer.py                                         gradient_accumulation_steps 的推导
-                      torchtitan/tools/profiler.py                                  Profiler.Config；export_chrome_trace
-                      torchtitan/models/utils.py                                    get_dense_model_nparams_and_flops（6N + 12Lhs）
-                      torchtitan/components/metrics.py                              mfu 的计算与打印
-PyTorch v2.13.0       torch/utils/checkpoint.py                                     checkpoint（use_reentrant）；CheckpointFunction；CheckpointPolicy；
-                                                                                    create_selective_checkpoint_contexts；set_checkpoint_early_stop
-                      torch/distributed/algorithms/_checkpoint/checkpoint_wrapper.py    checkpoint_wrapper
-                      torch/distributed/fsdp/_fully_shard/_fully_shard.py           fully_shard；FSDPModule 的 set_modules_to_forward_prefetch / set_modules_to_backward_prefetch /
-                                                                                    set_requires_gradient_sync / set_reshard_after_forward / set_reshard_after_backward / set_unshard_in_backward
-                      torch/distributed/fsdp/_fully_shard/_fsdp_api.py              MixedPrecisionPolicy / OffloadPolicy / CPUOffloadPolicy
-                      torch/distributed/fsdp/_fully_shard/_fsdp_param_group.py      wait_for_unshard / reshard / _backward_prefetch / _prefetch_unshard
-                      torch/distributed/fsdp/_fully_shard/_fsdp_collectives.py      foreach_all_gather / foreach_reduce
-                      torch/distributed/pipelining/schedules.py                     Schedule1F1B / ScheduleInterleaved1F1B / ScheduleInterleavedZeroBubble / ScheduleZBVZeroBubble / ScheduleDualPipeV
-                      torch/autograd/graph.py                                       saved_tensors_hooks / save_on_cpu
-                      torch/_functorch/config.py                                    activation_memory_budget
-```
+{: style="overflow-wrap:anywhere"}
+| 项目 | 路径 | 关键符号 / 内容 |
+|---|---|---|
+| <span style="white-space:nowrap">Megatron Core 0.18.0</span> | `megatron/core/transformer/transformer_config.py` | `TransformerConfig`：`recompute_granularity` / `recompute_method` / `recompute_num_layers` / `recompute_modules` / `distribute_saved_activations`<br/>fp8 / `fp8_recipe`<br/>`fine_grained_activation_offloading` / `offload_modules`<br/>`cuda_graph_impl`<br/>`num_layers_in_first/last_pipeline_stage`<br/>`__post_init__` 的合法性检查 |
+| ^^ | `megatron/core/model_parallel_config.py` | `ModelParallelConfig`：`tp_comm_overlap` 及 `tp_comm_overlap_ag/rs/rs_dgrad`<br/>`overlap_p2p_comm`<br/>`batch_p2p_comm`<br/>`cpu_offloading` / `cpu_offloading_num_layers`<br/>`sequence_parallel`<br/>`num_microbatches_with_partial_activation_checkpoints`<br/>`microbatch_group_size_per_vp_stage` |
+| ^^ | `megatron/core/distributed/distributed_data_parallel_config.py` | `DistributedDataParallelConfig`：`overlap_grad_reduce` / `overlap_param_gather` / `align_param_gather` / `bucket_size` / `num_buckets` / `pad_buckets_for_high_nccl_busbw` / `average_in_collective` |
+| ^^ | `megatron/core/pipeline_parallel/schedules.py` | `get_forward_backward_func`<br/>`forward_backward_pipelining_without_interleaving` / `_with_interleaving`<br/>`forward_step` 的 `checkpoint_activations_microbatch`<br/>`disable/enable_grad_sync` |
+| ^^ | `megatron/core/pipeline_parallel/fine_grained_activation_offload.py` | 细粒度激活 offload |
+| ^^ | `megatron/core/recompute.py`、`transformer_block.py` | `checkpointed_forward`<br/>`TransformerBlock` 的重计算入口 |
+| ^^ | `megatron/core/tensor_parallel/random.py` | checkpoint / `CheckpointFunction`（带 TP RNG 状态） |
+| ^^ | `megatron/core/num_microbatches_calculator.py` | `get_num_microbatches` |
+| ^^ | `megatron/core/extensions/transformer_engine.py` | `TELinear` / `TELayerNormColumnParallelLinear` / `TERowParallelLinear` / `TEDotProductAttention` |
+| ^^ | `megatron/training/arguments.py` | `--recompute-activations` 快捷方式<br/>`--checkpoint-activations` 废弃提示<br/>`--tp-comm-overlap-cfg`<br/>`--overlap-grad-reduce` / `--overlap-param-gather` / `--ddp-bucket-size`<br/>`--no-overlap-p2p-communication`<br/>`--grad-reduce-in-bf16`<br/>`--decoder-first`/last-pipeline-num-layers<br/>`--cuda-graph-modules`<br/>`--no-bias-swiglu-fusion` 等融合开关<br/>exclude 列表（哪些字段没有 CLI） |
+| ^^ | `megatron/training/argument_utils.py` | `ArgumentGroupFactory`：dataclass 字段 → CLI 参数 |
+| ^^ | `megatron/training/config/training_config.py`、`common_config.py` | `micro_batch_size` / `global_batch_size` / `rampup_batch_size`<br/>`ProfilingConfig` |
+| ^^ | `megatron/training/training.py` | `num_floating_point_operations`<br/>throughput 日志<br/>profiler 区间 |
+| ^^ | `megatron/training/theoretical_memory_usage.py` | `compute_weight_and_optimizer_memory` / `compute_activation_memory` / `report_theoretical_memory` |
+| <span style="white-space:nowrap">torchtitan v0.3.0</span> | `torchtitan/distributed/activation_checkpoint.py` | `ActivationCheckpointing` / `FullAC` / `SelectiveAC` / `MemoryBudgetAC`<br/>`_get_default_save_ops`<br/>`_disable_dynamo_lru_cache`<br/>`ActivationCheckpointingConfig` 子命令 |
+| ^^ | `torchtitan/distributed/compile.py` | `apply_compile`（per-block, fullgraph）<br/>`_maybe_enable_async_tp`<br/>`_maybe_regional_inductor_backend` |
+| ^^ | `torchtitan/distributed/fsdp.py` | `apply_fsdp_to_decoder`<br/>`reshard_after_forward` 策略<br/>EP 下的 `set_modules_to_forward/backward_prefetch` |
+| ^^ | `torchtitan/models/llama3/parallelize.py` | `parallelize_llama`：TP → AC → compile → FSDP 的顺序 |
+| ^^ | `torchtitan/models/llama3/config_registry.py` | `llama3_8b` / `llama3_70b` / `llama3_405b` 的默认 AC、TP、compile、`FP8` |
+| ^^ | `torchtitan/config/configs.py` | `TrainingConfig`（`local_batch_size` / `global_batch_size` / `seq_len` / `disable_cuda_graphs` / `enable_cpu_offload`）<br/>`ParallelismConfig`（各 degree、`pipeline_parallel_schedule`、`*_stage_less_layers`、`fsdp_reshard_after_forward`）<br/>`CompileConfig`（enable / components / backend / `enable_async_tensor_parallel`） |
+| ^^ | `torchtitan/config/README.md` | Python 配置、`--module`/`--config`、CLI 冻结说明 |
+| ^^ | `torchtitan/trainer.py` | `gradient_accumulation_steps` 的推导 |
+| ^^ | `torchtitan/tools/profiler.py` | `Profiler.Config`<br/>`export_chrome_trace` |
+| ^^ | `torchtitan/models/utils.py` | `get_dense_model_nparams_and_flops`（6N + `12Lhs`） |
+| ^^ | `torchtitan/components/metrics.py` | mfu 的计算与打印 |
+| <span style="white-space:nowrap">PyTorch v2.13.0</span> | `torch/utils/checkpoint.py` | checkpoint（`use_reentrant`）<br/>`CheckpointFunction`<br/>`CheckpointPolicy`<br/>`create_selective_checkpoint_contexts`<br/>`set_checkpoint_early_stop` |
+| ^^ | `torch/distributed/algorithms/_checkpoint/checkpoint_wrapper.py` | `checkpoint_wrapper` |
+| ^^ | `torch/distributed/fsdp/_fully_shard/_fully_shard.py` | `fully_shard`<br/>`FSDPModule` 的 `set_modules_to_forward_prefetch` / `set_modules_to_backward_prefetch` / `set_requires_gradient_sync` / `set_reshard_after_forward` / `set_reshard_after_backward` / `set_unshard_in_backward` |
+| ^^ | `torch/distributed/fsdp/_fully_shard/_fsdp_api.py` | `MixedPrecisionPolicy` / `OffloadPolicy` / `CPUOffloadPolicy` |
+| ^^ | `torch/distributed/fsdp/_fully_shard/_fsdp_param_group.py` | `wait_for_unshard` / reshard / `_backward_prefetch` / `_prefetch_unshard` |
+| ^^ | `torch/distributed/fsdp/_fully_shard/_fsdp_collectives.py` | `foreach_all_gather` / `foreach_reduce` |
+| ^^ | `torch/distributed/pipelining/schedules.py` | `Schedule1F1B` / `ScheduleInterleaved1F1B` / `ScheduleInterleavedZeroBubble` / `ScheduleZBVZeroBubble` / `ScheduleDualPipeV` |
+| ^^ | `torch/autograd/graph.py` | `saved_tensors_hooks` / `save_on_cpu` |
+| ^^ | `torch/_functorch/config.py` | `activation_memory_budget` |
+
+Table: 本篇涉及的源码位置
+
 
 ### 3. train-ledger 本篇增量：`sweep/` 与 `mfu_breakdown.py`
 
