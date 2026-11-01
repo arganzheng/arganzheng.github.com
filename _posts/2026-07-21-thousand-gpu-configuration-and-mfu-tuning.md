@@ -24,7 +24,7 @@ updated: 2026-09-20
 
 ## 一、总览
 
-![70B 放进 1024 张 H100 的四步：TP、PP、DP、CP 各定了什么，以及最终的五元组与预期 MFU 区间](/img/in-post/config-70b-four-steps.svg)
+![70B 放进 1024 张 H100 的四步：TP、PP、DP、CP 各定了什么，以及最终的五元组与预期 MFU 区间](/img/in-post/thousand-gpu-configuration-70b-four-steps.svg)
 
 ### 1. 本篇用到的记账符号与结论
 
@@ -261,7 +261,7 @@ $$
 B = d \times b \times m
 $$
 
-![global batch 的积木：一格 micro-batch，m 格叠成一个 DP 副本的一步，d 列拼成 global batch](/img/in-post/config-batch-blocks.svg)
+![global batch 的积木：一格 micro-batch，m 格叠成一个 DP 副本的一步，d 列拼成 global batch](/img/in-post/thousand-gpu-configuration-batch-blocks.svg)
 
 三个量里只有 $$B$$ 是算法参数：它由训练配方定，与卡数无关；卡数变了只能动 $$d$$ 和 $$m$$，不能动 $$B$$。$$b$$ 是每次前向的序列数，由显存与 GEMM 效率决定；$$m$$ 是商，同时也是 PP 的 micro-batch 数和梯度累积步数——**在 PP 下这两个概念是同一个数**，Megatron 的 `megatron/core/num_microbatches_calculator.py` 的 `get_num_microbatches()` 返回的就是它，torchtitan 的 `Trainer` 用 `global_batch_size // (local_batch_size × dp_degree)` 算出 `gradient_accumulation_steps`，PP 下再由 `pipeline_parallel_microbatch_size` 把 `local_batch_size` 切成流水 micro-batch。
 
@@ -290,7 +290,7 @@ Table: micro-batch 大小对气泡与显存的影响
 
 所以 PP 下 $$b$$ 几乎总是 1 或 2，而"用更大的 micro-batch 提高 GEMM 效率"这条路在 PP 下是被气泡堵死的：要 GEMM 效率就得减小 $$p$$（候选 B）或不用 PP（FSDP，但通信压不住）。这是三个约束互相牵制最直接的例子。
 
-![micro-batch 的两头约束：b 太小 GEMM 效率低，b 太大激活涨、气泡翻，可行区只剩 b 等于 1 或 2](/img/in-post/config-microbatch-bounds.svg)
+![micro-batch 的两头约束：b 太小 GEMM 效率低，b 太大激活涨、气泡翻，可行区只剩 b 等于 1 或 2](/img/in-post/thousand-gpu-configuration-microbatch-bounds.svg)
 
 序列打包（[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
 
@@ -314,7 +314,7 @@ Table: 三种重计算策略与代价
 
 按层 N 是显存"差一点"时最经济的手段：候选 A 若把 $$b$$ 提到 2、激活到 54 GB 总计 76 GB，重计算 20 层里的 6 层省 6 × 285 MB × 4 ≈ 6.8 GB、多算 6/20 × 33% ≈ 10%——比全量重计算便宜三倍。
 
-![三种重计算策略的激活显存与额外计算对比，附 toy recompute 的实测比例](/img/in-post/config-recompute-bars.svg)
+![三种重计算策略的激活显存与额外计算对比，附 toy recompute 的实测比例](/img/in-post/thousand-gpu-configuration-recompute-bars.svg)
 
 toy `recompute` 在小 Transformer 块上用 `saved_tensors_hooks` 量激活字节、`FlopCounterMode` 量 FLOP：
 
@@ -502,7 +502,7 @@ Table: 缺的 10 个 MFU 点的拆解表（构造）
 
 "折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
 
-![缺的 10 个 MFU 点的瀑布图：从目标 42% 逐项扣掉七项损失到实测 32%](/img/in-post/config-mfu-waterfall.svg)
+![缺的 10 个 MFU 点的瀑布图：从目标 42% 逐项扣掉七项损失到实测 32%](/img/in-post/thousand-gpu-configuration-mfu-waterfall.svg)
 
 ## 七、融合、低精度与 torch.compile
 
