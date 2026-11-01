@@ -308,10 +308,10 @@ Table: 每层为反向保留的张量与每 token 字节
   qkv   激活 196.6 KB   公式 512 B/tok → 65.5 KB   三个投影各自保存同一份输入；论文按共享输入计一次
   qk^t  激活 131.1 KB   公式 1024 B/tok → 131.1 KB
   softmax 激活 65.5 KB   公式  512 B/tok →  65.5 KB
-  attn_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  公式按 bool mask 1 B/元素；实测保存 bf16 mask（2 B/元素）
+  attn_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  公式按 bool mask 1 B/元素；CPU 的 _dropout_impl 按输入 dtype 存 bf16（2 B）
   pv    激活 131.1 KB   公式 1024 B/tok → 131.1 KB  V + dropout 后的注意力矩阵
   out_proj 激活 65.5 KB  公式 512 B/tok → 65.5 KB   线性层为 wgrad 保存输入
-  out_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  bf16 mask 同上
+  out_dropout 激活 65.5 KB  公式 256 B/tok → 32.8 KB  同上（CUDA 的 fused native_dropout 才存 bool 1 B）
   ln2   激活  66.0 KB   公式 512 B/tok → 65.5 KB
   fc1   激活  65.5 KB   公式 512 B/tok → 65.5 KB
   gelu  激活 262.1 KB   公式 2048 B/tok → 262.1 KB
@@ -326,7 +326,7 @@ Table: 每层为反向保留的张量与每 token 字节
 实测比公式多 18%，每一项差异都能指出原因：
 
 - **QKV 三投影各存一份相同输入**（t1 保存三次而不是一次）——论文按逻辑算子记账，autograd 按节点记账。
-- **dropout mask 以 bf16 存（2 B/元素）而非论文假设的 bool（1 B/元素）**，三个 dropout 各多一倍。
+- **dropout mask 在 CPU 上按输入 dtype 存 bf16（2 B/元素）而非论文假设的 bool（1 B/元素）**，三个 dropout 各多一倍。源码看 `aten/src/ATen/native/Dropout.cpp`：`F.dropout` → `dropout()` 只有 `is_fused_kernel_acceptable`（输入在 CUDA/XPU/lazy 等加速设备上）才走 fused `native_dropout`——那个 kernel 保存的是 bool mask（1 B，正是论文口径）；CPU 落到 `_dropout_impl`，它先 `at::empty_like(input)` 造一个与输入同 dtype 的 `noise` 再 `bernoulli_`，于是 toy 在 CPU 上存的是 bf16 张量。换到 GPU 训练时这一项自动变回 1 B/元素、与公式一致。
 - **LayerNorm 额外保存 mean 与 rstd**（每位置两个数），公式只计输入。
 - 保存的 **1574.9 KB 权重不在公式里**——那是参数不是激活；反向的 wgrad 需要 W 在场，参数本来就是常驻的，不为反向多占。
 
