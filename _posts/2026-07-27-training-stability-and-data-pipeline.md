@@ -246,20 +246,20 @@ warmup 的作用上文已述（让 $$\hat v$$ 先建立起来），工程上的�
 
 **QK-LayerNorm** 针对注意力 logit 增长：Megatron `TransformerConfig.qk_layernorm`（CLI `--qk-layernorm` 由 `ArgumentGroupFactory` 从字段生成）在 $$q$$、$$k$$ 投影后各加一个 `normalization` 类型的 norm；`qk_l2_norm` 是 Llama 4 风格的 L2 归一化变体。它的代价是每层多两个小 kernel，几乎不影响 MFU；收益是把成因三从"会发生"变成"不会发生"。新开的大模型训练几乎都开着它。
 
-实测一层注意力在故意偏高的学习率下的 logit 轨迹（`10_stab_toys.py logit`）：
+实测一层注意力在 induction 任务（末位重复一个早先的 token，预测它当时的下一个 token——要解对，注意力必须尖到命中位置）+ Adam lr=0.02 无 weight decay 下的 800 步（`10_stab_toys.py logit`）：
 
-![注意力 logit 最大值：QK-LayerNorm 把它钉住](/img/in-post/training-stability-logit-qkln.svg)
+![induction 任务下的 logit 增长与 QK-LayerNorm](/img/in-post/training-stability-logit-qkln.svg)
 
 ```text
-step   不带 QK-LN    带 QK-LN
-   0         1.20         2.90
-  15         1.19         3.24
-  30         1.28         3.01
-  45         1.12         3.27
-  60         1.63         3.34
+step    不带: logit  ‖Wq‖‖Wk‖      带: logit  ‖Wq‖‖Wk‖
+    0       5.65     22.89          6.95     22.96
+   50      29.79     97.92          3.07    116.47
+  200     177.52    266.88          0.94    168.76
+  400     272.17    392.36          0.42    211.18
+  799     723.84    745.13          1.12    294.82
 ```
 
-不带 QK-LN 的一路缓慢爬升，带的被钉在 $$\sqrt{d}$$ 量级。小模型 60 步看不到§二.4 那种越过 100 的失控，但"缓慢漂移 vs 被钉住"的形状差别已经在了。
+两条曲线合在一起正是成因三的机理：**不带 QK-LN 时** $$\|W_q\| \cdot \|W_k\|$$ 随训练一路增大（23 → 745），logit 被它推着越过 ~100 的危险线一路到 724；**带上之后**权重范数照样在涨（23 → 295），但 LayerNorm 把 logit 的量级钉在 norm gain × $$\sqrt{d}$$ 附近——稳态值可能比开局高，关键是**不再增长**。这也正是"max attention logit 单调上升"作为事前指纹的依据：升的是权重范数带动的 logit，不是噪声。
 
 **z-loss** 针对输出 logit 发散：在交叉熵之外加 $$10^{-4} \cdot \log^2 Z$$（$$Z$$ 是 softmax 的归一化项），把 $$\log Z$$ 拉向 0，防止输出 logits 整体漂移。PaLM 首先使用。Megatron 0.18.0 **没有**输出层的 z-loss 选项，只有 MoE 路由器上的 `moe_z_loss_coeff`（`transformer_config.py`，推荐起始值 $$10^{-3}$$），用户需要自己在 loss 函数里加；torchtitan 的 `components/loss.py` 也没有。这是一个"框架未覆盖、配方常需要"的空白。
 

@@ -40,7 +40,7 @@ C 126.714894 162.451855 134.080519 180.939359 147.189576 194.568372
 C 160.298633 208.197385 178.080826 215.85516 196.619832 215.85516
 L 196.619832 215.85516
 z
-" clip-path="url(#p7898a6644e)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #999999; stroke-linejoin: miter"/>
+" clip-path="url(#p7a898b8da5)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #999999; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- 全局范数裁剪：方向不变，整体缩到阈值（§三.1，max_norm=1.0） -->
@@ -5133,7 +5133,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p7898a6644e">
+  <clipPath id="p7a898b8da5">
    <rect x="7.2" y="7.2" width="541.19952" height="253.19952"/>
   </clipPath>
  </defs>
