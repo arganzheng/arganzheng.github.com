@@ -14,7 +14,7 @@ Llama 3 论文（Dubey et al. 2024，*The Llama 3 Herd of Models*）第 3.3.4 �
 
 419 次除以 54 天，平均每 3.1 小时一次。这个频率下，"故障"不再是异常事件而是训练循环的一部分：一个千卡任务的工程设计必须把"每几小时坏一次"当作已知输入，像对待 step 时间和显存一样去算它。第八篇算了其中一半——checkpoint 该多久存一次（Young 公式），异步保存为什么是必需的。本篇算另一半：**故障发生之后，从"有一张卡坏了"到"训练重新在跑"之间的每一秒去了哪里，哪一段最值得压缩。**
 
-这条时间线有四段：**检测**（多久之后所有 rank 知道出事了）、**重启**（把进程组重新拉起来要多久）、**加载**（读回上一个 checkpoint）、**回退**（从上一个 checkpoint 到故障点之间白算的那段）。四段加起来是一次故障的代价，乘以故障频率就是丢掉的训练时间。每一段都对应一组具体的机制和源码：检测靠 NCCL watchdog、心跳和 step 时间告警；重启靠 `torchrun` 的 elastic agent 与 rendezvous，或者绕过进程重启的 in-process restart；加载是第八篇的内容；回退由 checkpoint 间隔决定。在这四段之外还有三个不能被这条时间线涵盖的问题：卡数变了怎么继续（弹性训练与 torchft 的副本组模型）、一张卡慢了怎么办（straggler）、一张卡算错了怎么发现（SDC）。
+这条时间线有四段：**检测**（多久之后所有 rank 知道出事了）、**重启**（把进程组重新拉起来要多久）、**加载**（读回上一个 checkpoint）、**回退**（从上一个 checkpoint 到故障点之间白算的那段）。四段加起来是一次故障的代价，乘以故障频率就是丢掉的训练时间。每一段都对应一组具体的机制和源码：检测靠 NCCL watchdog、心跳和 step 时间告警；重启靠 `torchrun` 的 elastic agent 与 rendezvous，或者绕过进程重启的 in-process restart；加载是[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的内容；回退由 checkpoint 间隔决定。在这四段之外还有三个不能被这条时间线涵盖的问题：卡数变了怎么继续（弹性训练与 torchft 的副本组模型）、一张卡慢了怎么办（straggler）、一张卡算错了怎么发现（SDC）。
 
 本篇要回答总纲提出的核心问题：
 
@@ -38,7 +38,7 @@ Llama 3 论文（Dubey et al. 2024，*The Llama 3 Herd of Models*）第 3.3.4 �
 
 Table: 本篇用到的符号
 
-第八篇的三条结论：
+[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的三条结论：
 
 - **Young 公式**：在"每 τ 时间付 δ 的保存代价"与"故障时平均丢 τ/2 的进度"之间取最小，得最优间隔 $$\tau_{opt} \approx \sqrt{2\delta M}$$。
 - **异步保存**把 δ 从"写完 6 TB 要几分钟"压到"把状态拷进 pinned memory 要几秒"，代价是每卡多一份主机内存里的状态副本和一个后台写线程。δ 缩小两个量级，τ_opt 缩小一个量级，回退损失也随之缩小一个量级——这是它成为必需品的原因。
@@ -142,7 +142,7 @@ Table: 有效训练时间公式里的五个量
 
 ### 3. Young 公式在这个式子里的位置
 
-只看与 τ 有关的两项 $$\delta/\tau + \tau/(2M)$$，对 τ 求导取零得 $$\tau_{opt} = \sqrt{2\delta M}$$，这就是第八篇的 Young 公式——它是上面 G 表达式在忽略 $$T_d, T_r, T_l$$ 时的一阶最优解。代回去，τ 两项的最小总代价是 $$\sqrt{2\delta/M}$$：
+只看与 τ 有关的两项 $$\delta/\tau + \tau/(2M)$$，对 τ 求导取零得 $$\tau_{opt} = \sqrt{2\delta M}$$，这就是[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 Young 公式——它是上面 G 表达式在忽略 $$T_d, T_r, T_l$$ 时的一阶最优解。代回去，τ 两项的最小总代价是 $$\sqrt{2\delta/M}$$：
 
 | 保存方式与 δ | 集群 MTBF M | τ_opt | τ 两项合计 |
 |---|---|---|---|
@@ -151,7 +151,7 @@ Table: 有效训练时间公式里的五个量
 
 Table: 同步保存与异步 staging 下的最优 checkpoint 间隔与开销
 
-这就是第八篇"异步保存是必需的"的定量版本：在 16K 卡的故障频率下，同步保存**无论怎么选 τ** 都要付掉 20% 以上，而且 δ 越大 τ_opt 越大、回退也越大——两头都亏。异步保存把这两项一起压到 5% 以内，剩下的 $$T_d + T_r + T_l$$ 才成为主要矛盾。
+这就是[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)"异步保存是必需的"的定量版本：在 16K 卡的故障频率下，同步保存**无论怎么选 τ** 都要付掉 20% 以上，而且 δ 越大 τ_opt 越大、回退也越大——两头都亏。异步保存把这两项一起压到 5% 以内，剩下的 $$T_d + T_r + T_l$$ 才成为主要矛盾。
 
 ### 4. 把 Llama 3 的数字代进去
 
@@ -164,6 +164,30 @@ Table: 同步保存与异步 staging 下的最优 checkpoint 间隔与开销
 | C | 异步 δ=10s；T_d=60s（心跳）；T_r=30s（进程内重启）；T_l=60s（本地） | τ_opt 31 min，G 98.9%<br/>主导项：回退 0.5%，保存 0.5% | τ_opt 7.8 min，G 94.5%<br/>主导项：回退 2.1%，保存 2.0%，检测 0.5% |
 
 Table: Llama 3 数字代入的三个场景
+
+![16K 卡上场景 B 与 C 的有效训练时间五项构成：检测项从 5.5% 缩到 0.5%](/img/in-post/fault-tolerance-five-terms.svg)
+
+`toys/09_ft_toys.py` 的 `mtbf` 子命令把这张表复算一遍（单卡 5 万小时、三场景、两个规模）：
+
+<details><summary>09_ft_toys.py mtbf：三场景五项分解</summary>
+
+```text
+单卡 M_gpu = 50000 h（≈5.7 年）
+  N=  1024: 集群 M = M_gpu/N =  48.83 h
+  N= 16384: 集群 M = M_gpu/N =   3.05 h
+
+-- 场景 A 同步 δ=300s Td=600s Tr=300s Tl=120s
+   N=  1024: τ_opt=171.2 min  G=93.8%  [检测0.3%、重启0.2%、加载0.1%、回退2.9%、保存2.7%]
+   N= 16384: τ_opt= 42.8 min  G=70.8%  [检测5.5%、重启2.7%、加载1.1%、回退11.7%、保存8.3%]
+-- 场景 B 异步 δ=10s  其余同 A
+   N=  1024: τ_opt= 31.2 min  G=98.4%
+   N= 16384: τ_opt=  7.8 min  G=86.7%  [检测5.5%、重启2.7%、加载1.1%、回退2.1%、保存1.9%]
+-- 场景 C 异步 δ=10s  Td=60s Tr=30s Tl=60s
+   N=  1024: τ_opt= 31.2 min  G=98.9%
+   N= 16384: τ_opt=  7.8 min  G=94.5%  [检测0.5%、重启0.3%、加载0.5%、回退2.1%、保存2.0%]
+```
+
+</details>
 
 三个观察：
 
@@ -196,7 +220,7 @@ Llama 3 的 419 次里，前两类占了绝大部分，第三类 6 次；但第�
 | <span style="white-space:nowrap">进程层</span> | 进程退出码；torchrun agent 的 `_monitor_workers` 每 `monitor_interval` 轮询 | agent 只知道进程活着，不知道它在做什么 | 无 |
 | <span style="white-space:nowrap">通信层</span> | NCCL 错误经 `ProcessGroupNCCL` 的 watchdog 抛出（`TORCH_NCCL_ASYNC_ERROR_HANDLING`） | watchdog：每个集合通信从 enqueue 起计时，超过 timeout 视为 hang → 抛错/abort（默认 10 分钟） | 无（归约结果正确性无法在通信层判断） |
 | <span style="white-space:nowrap">框架层</span> | Python 异常 → 进程退出 | NVRx RankMonitor 心跳 / section 超时（分钟级，按实测 step 时间自动算） | `RerunStateMachine`：重跑一个 iteration 比对；NaN/Inf/spiky loss 校验；梯度范数校验 |
-| <span style="white-space:nowrap">应用层</span> | — | step 时间告警（每 rank 计算时间 vs 等待） | loss 曲线人工/规则告警（第十篇） |
+| <span style="white-space:nowrap">应用层</span> | — | step 时间告警（每 rank 计算时间 vs 等待） | loss 曲线人工/规则告警（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)） |
 | <span style="white-space:nowrap">硬件层</span> | dmesg Xid；DCGM 事件 | DCGM 温度/频率/功耗；网卡 link_down 计数 | ECC 计数上升是 SDC 的前兆之一 |
 
 Table: 检测矩阵：显式 / 隐式 / 静默 × 五层
@@ -219,7 +243,16 @@ PyTorch 的 NCCL 后端对每一次集合通信记一个 `WorkNCCL`，`torch/csr
 
 Table: 与容错相关的四个 TORCH_NCCL_* 变量
 
-`HeartbeatMonitor::runLoop()` 解决的是"看门狗自己死了"的问题：watchdog 线程在 `cudaEventQuery` 这类调用里卡住时，谁来发现？答案是再来一个只看 watchdog 心跳的线程，8 分钟没心跳就 dump 调试信息（第十一篇的 Flight Recorder）并终止进程。这两层超时——集合通信 10 分钟、watchdog 心跳 8 分钟——是 PyTorch 自带的 hang 检测上限，**把 `timeout=` 调短是最便宜的 T_d 优化**：一个 step 若稳定在 5 秒，timeout 设 2 分钟足够覆盖 checkpoint 保存和偶发抖动；但要记住第八篇的提醒，同步 checkpoint 保存和数据加载卡顿会让其他 rank 在下一次集合通信上等，timeout 必须大于这些操作的最长时间。
+`HeartbeatMonitor::runLoop()` 解决的是"看门狗自己死了"的问题：watchdog 线程在 `cudaEventQuery` 这类调用里卡住时，谁来发现？答案是再来一个只看 watchdog 心跳的线程，8 分钟没心跳就 dump 调试信息（[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的 Flight Recorder）并终止进程。这两层超时——集合通信 10 分钟、watchdog 心跳 8 分钟——是 PyTorch 自带的 hang 检测上限，toy `watchdog` 在 gloo 上演示同一件事：2 个 rank、进程组超时 3 秒，rank 1 在 all-reduce 前睡 6 秒，rank 0 的实测是——
+
+```text
+rank 1: 睡 6s 模拟 hang（不进 all_reduce）
+rank 0: 3.0s 后捕获 RuntimeError: [gloo/transport/uv/unbound_buffer.cc:65]
+        Timed out waiting 3000ms for recv operation to complete
+rank 1: 醒来，此时 rank 0 已超时
+```
+
+这是 gloo 的 recv 超时；生产里 `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC` / watchdog 是同一思路在 NCCL 上的版本。**把 `timeout=` 调短是最便宜的 T_d 优化**：一个 step 若稳定在 5 秒，timeout 设 2 分钟足够覆盖 checkpoint 保存和偶发抖动；但要记住[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的提醒，同步 checkpoint 保存和数据加载卡顿会让其他 rank 在下一次集合通信上等，timeout 必须大于这些操作的最长时间。
 
 ### 4. 心跳与 section 超时：NVRx `fault_tolerance` 与 Megatron `ft_integration.py`
 
@@ -316,6 +349,8 @@ flowchart TB
 
 Table: 一次进程重启的时间账（数字是量级，非实测）
 
+![三种恢复路径在同一分钟轴上：进程重启约 17 分钟、进程内重启约 4.5 分钟、torchft 副本组其余不中断](/img/in-post/fault-tolerance-restart-lanes.svg)
+
 千卡下最不可控的是 NCCL communicator 初始化：进程组越多、成员越多越慢，且任何一个 rank 慢都拖住所有人。这一项加上进程和 CUDA 的固定开销，是"进程重启至少几分钟"的来源，也是下一章的动机。
 
 ## 五、进程内重启
@@ -400,6 +435,8 @@ flowchart TB
 ### 1. 问题：卡数变了怎么继续
 
 前两章的重启都假设 world size 不变（弹性重启靠 `min:max`，但重启后仍是所有 rank 一起重建全部进程组）。torchft 换了一个思路：**把数据并行的每个副本当作可独立失败的单元**。一个 DP 副本内部（TP/PP/FSDP 分片）仍是普通的 PyTorch 进程组，不容错；副本之间的梯度 all-reduce 由 torchft 接管，某个副本消失时其余副本用更小的 DP 度继续，消失的副本恢复后从活着的副本拉参数重新加入——**没有全局重启，也没有 checkpoint 加载**（参数直接从邻居拷）。
+
+![torchft 副本组三格：全组 all-reduce、副本 1 掉线缩 quorum、heal 回归](/img/in-post/fault-tolerance-replica-groups.svg)
 
 这个模型的约束是：并行度里必须有一维是"复制"（DDP 或 HSDP 的 replicate 维），且一个副本组不能太大（一个副本组内部任何故障都让整组退出）。它是 Llama 3 那种 TP8/CP16/PP16/DP128 配置的天然搭配——128 个 DP 副本每个 128 卡，一张卡坏影响 1/128 的算力而不是全部。
 
@@ -524,6 +561,21 @@ README 的例子是 8 卡单机两副本组、每组 FSDP 4 卡：先起 Lightho
 
 它们在容错语境下的意义是：**把副本之间的同步频率从每步一次降到每几十几百步一次**，于是副本间进程组的重配置、quorum、甚至跨数据中心的慢链路都变得可以承受。torchtitan 的 `semi_sync_method = "local_sgd" | "diloco"` 就是走这条路（`maybe_semi_sync_training()`，此时 `use_async_quorum=False`，quorum 在同步步同步地算）。代价是算法层面的：LocalSGD/DiLoCo 与同步 SGD 不是同一个优化过程，收敛性要单独验证——这超出本系列范围，本篇只指出它们在容错光谱上的位置：同步训练 + torchft 是"每步都要 quorum"，DiLoCo + torchft 是"每 H 步一次 quorum"，后者对故障的容忍度更高、对算法的改动也更大。
 
+`toys/09_ft_toys.py` 的 `elastic` 子命令用 3 个进程模拟这套机制（注意：这是机制的模拟——quorum、按副本数归一化、heal 从邻居拉参数三件事是真实行为，协调走共享文件而不是 Lighthouse）：
+
+```text
+step 0: quorum=[0, 1, 2]  rank0 w=-0.2000
+step 1: quorum=[0, 1, 2]  rank0 w=-0.3800
+step 2: quorum=[0, 1, 2]  rank0 w=-0.5420
+step 3: quorum=[0, 2]     rank0 w=-0.6878   # 副本 1 掉线，DP 度 3→2
+step 4: quorum=[0, 2]     rank0 w=-0.8190
+rank 1: step 5 heal，从 rank 0 拉参数 w=-0.8190
+step 5: quorum=[0, 1, 2]  rank0 w=-0.9371
+收尾：三副本 w = ['-0.9371', '-0.9371', '-0.9371']  最大差 = 0.00e+00
+```
+
+掉线期间梯度按 2 个副本归一化继续；回归副本的 heal 只复制一份参数，之后三副本完全一致。
+
 ### 7. 代价与边界
 
 torchft 不是免费的：每步一次 quorum RPC（快速路径下几毫秒，与前向重叠）；`allreduce` 多一层 Python wrapper 和 future 回调；进程组重配置时 NCCL communicator 要重建（同一个 T_r 里的大头，但只重建副本维那一个 comm，且其他副本组不受影响）；`FIXED_WITH_SPARES` 要多养备用副本；`DYNAMIC` 模式下副本数变化意味着 global batch 变化，需要训练配方能容忍。v0.2.0 的进程组 abort 路径仍标注为实验性（Baby 进程组就是为它的不可靠而设计的），torchtitan 的集成也标注为 experimental。它解决的是"DP 副本级"的容错；副本内部（TP/PP/FSDP）的故障仍然要靠前几章的重启。
@@ -551,7 +603,7 @@ Table: 三种恢复方式的对照
 
 Llama 3 的"3 次人工介入"背后是自动化的坏卡处理：一张卡坏了，重启之后如果它还在，很可能再坏一次——第二章公式里的 $$1/M$$ 不是常数，它有一部分是"同一张卡反复坏"贡献的。隔离流程在引擎侧只有两个要求：**每次故障能归因到具体的 rank / 节点**（日志里的 rank 标记、Xid 与 hostname 的对应、NCCL 错误消息里的对端信息、NVRx 的 `attribution/` 模块从日志和 Flight Recorder 归因），以及**重启时能排除这个节点**（进程重启时由调度器换节点；进程内重启时 `rank_assignment` 的 `Tree` 按节点剔除；torchft 里坏副本组不再加入 quorum）。调度器侧的排除列表、节点驱逐策略不在本系列范围。
 
-一个实用的规则：同一节点在 24 小时内造成两次不明原因中断就隔离送检。它建立在归因之上——没有按 rank 的日志与指标（第十一篇），隔离就无从谈起。
+一个实用的规则：同一节点在 24 小时内造成两次不明原因中断就隔离送检。它建立在归因之上——没有按 rank 的日志与指标（[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)），隔离就无从谈起。
 
 ### 2. 预检：`gpu_sniff_test.py` 与 NVRx 的健康检查
 
@@ -559,7 +611,7 @@ Llama 3 的"3 次人工介入"背后是自动化的坏卡处理：一张卡坏�
 
 NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML：ECC、Xid、温度、功耗状态）、`NVLHealthCheck`（NVLink 状态）、`NicHealthCheck` 与 `NicLinkStateHealthCheck`（网卡 link_downed 计数与链路状态）、`DistributedStorageHealthCheck`（存储可写）以及组合它们的 `NodeHealthCheck`。它们在两处被用：`ft_launcher` 在启动和重启前跑（`FaultToleranceConfig` 的 `enable_nic_healthcheck` 默认 True、`enable_nic_monitor` 训练中周期监视 link_down）；`inprocess.Wrapper` 重启前自动链上 GPU 与 NVLink 检查。预检发现的坏卡在开训前就被排除，不进入 $$1/M$$。
 
-第十一篇的开训检查清单会把这些与 NCCL 带宽测试、小规模 dry-run、checkpoint 恢复演练放在一起。
+[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的开训检查清单会把这些与 NCCL 带宽测试、小规模 dry-run、checkpoint 恢复演练放在一起。
 
 ## 八、straggler：没有故障但有人拖慢所有人
 
@@ -585,6 +637,17 @@ Table: straggler 的成因与特征
 判据只有一条：**慢的 rank 计算时间长、通信等待时间短；被拖的 rank 反之**。所以检测需要每个 rank 各自记录"本 step 花在计算 kernel 上的时间"与"花在集合通信里的时间"，然后跨 rank 比较——单个 rank 的时间线分不清"我慢"和"我在等别人"。
 
 ![一个 step 内各 rank 的时间线（rank 5 是 straggler）](/img/in-post/fault-tolerance-straggler-timeline.svg)
+
+toy `straggler` 把这个判据跑给你看：4 个 rank，rank 2 每步多睡 50ms，实测——
+
+```text
+rank 0: 计算  17.2 ms   all_reduce 内等待 171.8 ms
+rank 1: 计算  16.3 ms   all_reduce 内等待 171.9 ms
+rank 2: 计算 183.5 ms   all_reduce 内等待   5.0 ms
+rank 3: 计算  15.9 ms   all_reduce 内等待 171.9 ms
+```
+
+慢的 rank（2）计算时间长、等待时间几乎为零；被拖的三个 rank 反之——正是本节判据。
 
 从单个快 rank 的视角，"等待"和"通信"都发生在同一个 all-reduce 调用里，看起来只是通信变慢了；只有把所有 rank 的计算时间并排比较，才能看出谁把大家拖住了。
 
@@ -651,7 +714,7 @@ optimizer.step()
 
 - **`should_run_forward_backward(data_iterator)`**：第一次进入时保存状态（Python/NumPy/PyTorch/CUDA 的 RNG、可选的 `state_save_func()` 返回的自定义状态）并把 data iterator 包成 `RerunDataIterator`（记录取出的 batch，`rewind()` 可以倒回去重放同一批数据）；若上一轮有 rank 请求重跑（`rerun_requested` 经 `_reduce_any()` 在全局 all-reduce），恢复状态、倒回 iterator、返回 True 再跑一遍。
 - **`validate_result(result, rejection_func, message, comparison_func, tolerance, fatal)`**：在前向/反向里调用。`rejection_func(result)` 为 True 时标记可疑并请求重跑；重跑时对同一个调用点（按 `Caller` 与调用计数定位）用 `comparison_func` 比较两次结果，`tolerance=0` 要求逐位一致（前向计算在 Megatron 里是确定性的，所以可以）。`pretrain_gpt.py` 的 loss 函数里有三处：`torch.isnan` 与 `torch.isinf`（`--check-for-nan-in-loss-and-grad`，`fatal=True`）、`is_unexpectedly_large(threshold=SPIKY_LOSS_FACTOR)`（`--check-for-spiky-loss`，`fatal=False`）；`megatron/core/distributed/param_and_grad_buffer.py` 在梯度 reduce 前对每个 bucket 做 NaN/Inf 检查与 `--check-for-large-grads` 的 `is_unexpectedly_large(threshold=10)`——**这就是 SDC 校验点：错误梯度在被 all-reduce 污染所有副本之前被拦下**。
-- **状态机**（`RerunState`）：`NOT_RUNNING_YET → INITIAL_RUN → RERUNNING_IN_PLACE`（第一次重跑，同一张卡）；若重跑结果与初次**不同** → 归因 `TRANSIENT_ERROR`（瞬时错误，`RerunDiagnostic`），记录后按 `fatal` 决定退出或继续；若**相同** → `WILL_RERUN_FROM_CHECKPOINT`：`should_checkpoint_and_exit()` 返回 `(True, True, EXIT_CODE_RESUME_TO_DISAMBIGUATE)`，保存 checkpoint 并退出，**由外部调度器在不同的 GPU 上重启**；重启后进入 `RERUNNING_FROM_CHECKPOINT`，再跑一次：与初次不同 → `PERSISTENT_ERROR`（原来那张卡的持久错误，`suspicious_node / suspicious_device` 记的就是它）；相同 → `CORRECT_RESULT`（不是硬件问题，是数据或算法导致的真实 NaN/spike）；若重启落回同一张卡则 `RERUNNING_AGAIN_FROM_CHECKPOINT` 再来。`result_rejected_tracker_filename` 指定的文件记录每次事件与 `RerunValidationStatus`（`FIRST_RERUN_REPRODUCIBLE` 等），`get_skipped_iterations_from_tracker_file()` 让第十篇的"跳过坏 batch"能读它。
+- **状态机**（`RerunState`）：`NOT_RUNNING_YET → INITIAL_RUN → RERUNNING_IN_PLACE`（第一次重跑，同一张卡）；若重跑结果与初次**不同** → 归因 `TRANSIENT_ERROR`（瞬时错误，`RerunDiagnostic`），记录后按 `fatal` 决定退出或继续；若**相同** → `WILL_RERUN_FROM_CHECKPOINT`：`should_checkpoint_and_exit()` 返回 `(True, True, EXIT_CODE_RESUME_TO_DISAMBIGUATE)`，保存 checkpoint 并退出，**由外部调度器在不同的 GPU 上重启**；重启后进入 `RERUNNING_FROM_CHECKPOINT`，再跑一次：与初次不同 → `PERSISTENT_ERROR`（原来那张卡的持久错误，`suspicious_node / suspicious_device` 记的就是它）；相同 → `CORRECT_RESULT`（不是硬件问题，是数据或算法导致的真实 NaN/spike）；若重启落回同一张卡则 `RERUNNING_AGAIN_FROM_CHECKPOINT` 再来。`result_rejected_tracker_filename` 指定的文件记录每次事件与 `RerunValidationStatus`（`FIRST_RERUN_REPRODUCIBLE` 等），`get_skipped_iterations_from_tracker_file()` 让[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的"跳过坏 batch"能读它。
 - **三种模式**（`RerunMode`，配置 `resilience_config.py` 的 `RerunStateMachineConfig.rerun_mode`，默认 `validate_results`）：`DISABLED`；`VALIDATE_RESULTS`（上述全部逻辑）；`REPORT_DETERMINISM_STATS`——不触发重跑，而是每隔 `REPORTING_INTERVAL_ITERATIONS` 步**主动**重跑并用 `QuickStats` 统计两次结果的相对差异，报告这个模型在这套配置下有多不确定。它的用途是校准：如果 `tolerance=0` 下正常的非确定性就会让比较失败，`VALIDATE_RESULTS` 模式会误报，先用它测出正常的差异范围。
 - **注入**：`RerunErrorInjector(error_injection_rate, error_injection_type)`（配置 `error_injection_rate`，如 1000 表示每 1000 次校验注入一次；`error_injection_type` 取 `correct_result / transient_error / persistent_error`）在 `validate_result()` 里按概率篡改结果或让比较失败，用来演练整条归因链路。
 
@@ -690,11 +753,11 @@ flowchart TB
 
 ### 5. 确定性
 
-重跑比对、回退重放、坏 batch 定位（第十篇）都依赖一件事：**同样的输入、同样的状态，再跑一遍得到同样的结果**。三个层面：
+重跑比对、回退重放、坏 batch 定位（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）都依赖一件事：**同样的输入、同样的状态，再跑一遍得到同样的结果**。三个层面：
 
 - **kernel 层**：`torch.use_deterministic_algorithms(True)` 让 PyTorch 对有非确定性实现的 op 选确定性版本或报错；cuBLAS 需要 `CUBLAS_WORKSPACE_CONFIG=:4096:8`；`torch.backends.cudnn.deterministic = True; benchmark = False`。Megatron 的 `--deterministic-mode`（`ModelParallelConfig.deterministic_mode`；`arguments.py` 里断言不能与 FlashAttention、融合交叉熵同用，且要求 `NCCL_ALGO` 显式设为 `Tree / Ring / CollnetDirect / CollnetChain / ^NVLS` 之一）和 torchtitan 的 `debug.deterministic`（`torchtitan/distributed/utils.py` 里做上述设置，并关掉 `fill_uninitialized_memory` 以避开与通信 stream 的竞争）都是这一层的开关。
 - **通信层**：浮点归约的结果依赖顺序，而 NCCL 的归约顺序随算法、channel 数、消息大小变化——同一份梯度两次 all-reduce 可能差最后一位。要逐位可复现就得把算法固定（Megatron 的 `NCCL_ALGO` 断言就是为此），或者像 torchtitan 的 `debug.batch_invariant` 那样用"确定性归约顺序"的实现。本系列不展开通信实现，只需知道：**默认配置下跨 step 的逐位可复现是没有保证的**，`RerunStateMachine` 的 `tolerance` 参数就是给这个留的。
-- **数据层**：数据顺序与 RNG 状态可从 checkpoint 精确恢复（第八篇存了、第十篇讨论数据加载器的有状态恢复）。
+- **数据层**：数据顺序与 RNG 状态可从 checkpoint 精确恢复（[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)存了、[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)讨论数据加载器的有状态恢复）。
 
 确定性的代价是性能：FlashAttention 的反向、某些 scatter/index op、融合 kernel 的确定性版本都更慢，`NCCL_ALGO` 固定后通信也可能变慢。生产训练通常不开全局确定性，而是保证**控制流确定 + 数据顺序确定 + 校验带 tolerance**——这正是 `RerunStateMachine` 文档里那两条假设的工程含义。
 
