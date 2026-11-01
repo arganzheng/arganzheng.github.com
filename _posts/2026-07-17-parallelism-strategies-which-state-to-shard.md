@@ -71,7 +71,7 @@ Table: 六种并行各切哪种状态
 
 把表格画成图：每个格子是这一行对这一种状态的处理——实心圆是切分、空心圆是复制、橙色是"部分切分或临时拼全"；列底是这种并行的主要通信与链路。
 
-![四种状态 × 六种并行的格子图：实心圆表示该状态被切分，空心圆表示复制，橙色表示部分切分或运行时临时拼全；列底部标注每种并行的主要通信原语与链路](/img/in-post/parallelism-states-grid.svg)
+![四种状态 × 六种并行的格子图：实心圆表示切分，空心圆表示复制，橙色表示部分切分或运行时临时拼全；主通信一行按列标出各并行的通信原语与链路，图例在底部](/img/in-post/parallelism-states-grid.svg)
 
 这张图还揭示了另一件事：**数据并行系（DP/ZeRO/FSDP）与模型并行系（TP/SP/PP/CP/EP）是正交的**，表里第一列就是这个分组：
 
@@ -116,28 +116,30 @@ Table: 各并行策略的通信量、形态与是否在关键路径上
 
 第七章会给出 TP → CP → PP → DP 的组合顺序；用最小的集群先感受一下这个顺序落到 rank 上的样子——2 个节点、各 4 卡，TP = DP = PP = 2：
 
-![8 张卡排成 2 个节点，每节点 4 卡；rank 编号标出 tp、dp、pp 三个坐标，相邻 rank 组成 TP 组走节点内 NVLink，DP 组与 PP 组跨节点走 IB](/img/in-post/parallelism-mesh-8cards.svg)
+![8 张卡按 rank 连续排成两个节点，每节点 4 卡；TP 组和 DP 组都在节点内走 NVLink，PP 组跨节点走 IB；8 卡一节点且 TP=8 时，DP 组才会跨节点](/img/in-post/parallelism-mesh-8cards.svg)
 
 rank 编号不是随手排的，而是 Megatron `parallel_state.py` 的默认顺序 `"tp-cp-ep-dp-pp"` 生成的（第七章细讲）：TP 维变化最快拿到相邻 rank，PP 最慢拿到最远的卡。`02_parallelism_toys.py mesh` 按同一套规则真算出各组：
 
 ```text title="mesh toy 的输出：8 卡上 TP/DP/PP 的分组"
 world=8（2 节点 × 4 卡），parallel_size(tp,cp,ep,dp,pp)=[2, 1, 1, 2, 2]，order='tp-cp-ep-dp-pp'
-rank = tp_r + 2·dp_r + 4·pp_r；TP 最内、TP rank 相邻。物理节点按 dp XOR pp 映射，使 DP 与 PP 都跨节点。
+rank = tp_r + 2·dp_r + 4·pp_r；TP 最内、TP rank 相邻。物理节点按 rank // 4 连续映射：节点 0 是 ranks 0–3（pp=0），节点 1 是 ranks 4–7（pp=1）。
   TP 组 [0, 1]  同节点
   TP 组 [2, 3]  同节点
   TP 组 [4, 5]  同节点
   TP 组 [6, 7]  同节点
-  DP 组 [0, 2]  跨节点
-  DP 组 [1, 3]  跨节点
-  DP 组 [4, 6]  跨节点
-  DP 组 [5, 7]  跨节点
+  DP 组 [0, 2]  同节点
+  DP 组 [1, 3]  同节点
+  DP 组 [4, 6]  同节点
+  DP 组 [5, 7]  同节点
   PP 组 [0, 4]  跨节点
   PP 组 [1, 5]  跨节点
   PP 组 [2, 6]  跨节点
   PP 组 [3, 7]  跨节点
-节点 0 ranks: [0, 1, 6, 7]
-节点 1 ranks: [2, 3, 4, 5]
+节点 0 ranks: [0, 1, 2, 3]
+节点 1 ranks: [4, 5, 6, 7]
 ```
+
+如果每节点放 8 张卡、TP = 8，TP 仍在节点内；这时 DP 组才会跨节点走 IB。
 
 ### 4. 本文的章节安排
 
@@ -228,11 +230,11 @@ Table: ZeRO-3 通信量从 2N 到 3N 的逐项
 
 把四级放到 4 张卡上画出来，哪一级切了哪种状态一眼可见：
 
-![四级 ZeRO 的每卡常驻状态：DP 是 P 2N + G 2N + O 12N，ZeRO-1 的 O 降到 3N，ZeRO-2 的 G 降到 N/2，ZeRO-3 的 P 降到 N/2；右侧标出各级对应的通信量 2N 或 3N](/img/in-post/parallelism-zero-stages.svg)
+![四级 ZeRO 在 4 张卡上的每卡状态条：每张卡的 P、G、O 按字节比例排列，实色是本卡持有的片，虚线是其他卡持有的片；左侧列出每卡显存公式与通信量](/img/in-post/parallelism-zero-stages.svg)
 
 上图是静态的放置，只说明每张卡**常驻**什么。一个 step 里各卡还会临时拼出完整的状态。以 ZeRO-3 的一层为例（4 张卡），把四种状态都画上，每一步标出发生的通信：
 
-![ZeRO-3 一层在 4 张卡上的一个 step：六列依次是常驻、前向前 all-gather 参数、前向用完整参数、反向前再 all-gather、反向算梯度、reduce-scatter 后更新自己的参数分片；每行一张卡](/img/in-post/parallelism-zero3-layer-step.svg)
+![ZeRO-3 一层在 4 张卡上的一个 step：每行一个阶段，每列一张 GPU，每张卡的 P 参数、G 梯度、O 优化器状态、A 激活各用四格表示；浅色是临时拼全或未归约梯度，红框是本步更新；下方对比 ZeRO-1/2 的 2N 与 ZeRO-3 的 3N 通信](/img/in-post/parallelism-zero3-layer-step.svg)
 
 从图里能直接读出 $$2N \to 3N$$ 的来历：
 
@@ -271,7 +273,7 @@ Table: 70B、N_d = 64 下各 ZeRO 级别的每卡显存与通信
 
 FSDP 是 ZeRO-3 在 PyTorch 里的原生实现，有两代。两代的差别在"按什么切"，先看一个例子：一个 wrap 单元里只有两个参数，W 形状 [4, 4]、b 形状 [4]，切到 2 张卡上。
 
-![FSDP1 与 FSDP2 的切法](/img/in-post/parallelism-fsdp1-vs-fsdp2.svg)
+![FSDP1 将 W 与 b 展平后在第 10 个元素处切开，GPU0 得到 W 前 10 个、GPU1 得到 W 后 6 个加整个 b；FSDP2 分别按 dim 0 切 W 的两行和 b 的两个元素，保留 per-parameter DTensor 形状](/img/in-post/parallelism-fsdp1-vs-fsdp2.svg)
 
 **FSDP1：拍平再切**（`torch/distributed/fsdp/fully_sharded_data_parallel.py` 的 `FullyShardedDataParallel`）
 
@@ -315,7 +317,7 @@ Table: FSDP2 一个通信组在一个 step 里的通信
 
 ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时，这 $$3N$$ 走的是 InfiniBand，而且 all-gather 是在关键路径附近的（预取深度有限）。**HSDP**（Hybrid Sharded Data Parallel）把 DP 维拆成两层：在一个 $$N_s$$ 卡的分片组内做 ZeRO-3（通常 $$N_s = 8$$ 或几个节点），分片组之间做普通 DP 复制（$$N_r = N_d / N_s$$ 个副本）。把 $$N_d = 16$$ 张卡排成 $$N_r \times N_s = 2 \times 8$$ 的网格，两种通信各走网格的一个方向：
 
-![HSDP 网格：16 张卡排成 2 行 8 列，每行是一个节点（副本），行内 8 张卡各持参数的一段（Shard(0)），横向是分片组的 3N 通信走 NVLink；每列的两张卡持同一段，竖向红箭头是复制组之间的梯度 all-reduce，走 IB](/img/in-post/parallelism-hsdp-grid.svg)
+![HSDP 的 2×8 网格：横向每节点 8 卡构成 Shard(0) 分片组，AG + AG + RS 约 3N 走 NVLink；纵向每列的两张卡持同一段，红箭头表示复制组间 all-reduce 约 2N/Ns，走 IB](/img/in-post/parallelism-hsdp-grid.svg)
 
 | 项 | HSDP（$$N_s$$ 卡一组） | 走哪条链路 | 备注 |
 |---|---|---|---|
@@ -525,7 +527,7 @@ Ring 4 步合并后与完整注意力的最大误差（各卡）: ['6.0e-08', '1
 
 每一列四张卡用的块各不相同——同一时刻环上四个 K/V 块都在被用，没有一张卡在等；这就是下图右半那张表。
 
-![左：四张卡围成一个环，每张卡固定持有自己的 Q 块，K/V 块沿环顺时针 send/recv；右：4 步 × 4 卡的表格，每一格是该卡该步用的 K/V 块——卡 0 依次用 K/V₀、K/V₃、K/V₂、K/V₁，每一列四张卡用的块各不相同](/img/in-post/parallelism-ring-attention.svg)
+![Ring Attention 的四张卡围成顺时针环并各自持有 Q 块，中心标 K/V 块 send/recv；右侧 4 步 × 4 卡表格按块来源着色，底部说明 online softmax 合并、重叠与通信量](/img/in-post/parallelism-ring-attention.svg)
 
 通信是**点对点的 send/recv**，每步传一个 K/V 块。每卡每层：前向接收 $$N_c - 1$$ 个 K/V 块；反向再接收一遍 K/V（重算局部注意力需要）并传递累积的 dK/dV，约为前向的两倍。每个 K/V 块的大小是 $$\frac{s}{N_c} \cdot b \cdot 2 \cdot h_{kv} \cdot 2$$ 字节（K 和 V 各一份，$$h_{kv}$$ 是 K/V 的总维度：MHA 下等于 $$h$$，GQA 下是 $$\text{kv\_heads} \times \text{head\_dim}$$；再有 TP 时除以 $$N_t$$）。合计：
 
@@ -659,7 +661,7 @@ GPipe 的另一个问题是显存：stage 0 在开始反向前要保存全部 $$
 
 两种调度画在同一张图上对比（GPipe 里反向按 2 倍时长画，1F1B 按等长画以便看清交替）：
 
-![GPipe 与 1F1B 的流水线时间表对比。上：GPipe，p = 4、m = 4，每个 stage 先做完全部 4 个前向，等下游做完反向才开始自己的反向，两头各有 p−1 格气泡；下：1F1B，p = 4、m = 8，warm-up 后每个 stage 交替做一次前向、一次反向，气泡总量不变但在途 micro-batch 不超过 p](/img/in-post/parallelism-pipeline-gpipe-vs-1f1b.svg)
+![GPipe 与 1F1B 的流水线时间表：横轴按 t_b=2t_f 计，蓝色前向、绿色反向、灰色气泡，格内为 micro-batch；GPipe p=4,m=4 先填满再排空，1F1B p=4,m=8 由 Schedule1F1B.pipeline_order 生成，warm-up 后交替并有 trailing B](/img/in-post/parallelism-pipeline-gpipe-vs-1f1b.svg)
 
 气泡的总量没有变（仍是前向填充 $$p-1$$ 格、反向排空 $$p-1$$ 格，$$\frac{p-1}{m}$$），但任一时刻每个 stage 在途的 micro-batch 数不超过 $$p$$（stage $$i$$ 是 $$p - i$$），激活显存从 $$O(m)$$ 降到 $$O(p)$$，与 $$m$$ 无关——这让 $$m$$ 可以放大去压气泡。1F1B 是所有生产框架的默认调度。
 
@@ -708,7 +710,7 @@ MoE 把每层的 FFN 换成 $$E$$ 个专家，每个 token 由路由器选 $$k$$
 
 先把一个 MoE 层在 EP 下的完整流程走一遍，再算通信量。用最小的例子：$$N_e = 2$$ 张卡、$$E = 4$$ 个专家（卡 0 持 E0、E1，卡 1 持 E2、E3）、每卡 3 个 token、$$k = 1$$（每个 token 只去一个专家，便于看清；$$k = 2$$ 时每个 token 复制两份，其余不变）。
 
-![EP 下一个 MoE 层的 dispatch 与 combine：左上四个 token 各标注选中的专家编号，红色箭头是 dispatch all-to-all；右侧两张卡各持两个专家，token 按专家分组；下方红色箭头是 combine all-to-all 原路送回](/img/in-post/parallelism-ep-dispatch-combine.svg)
+![EP 的 dispatch 与 combine：N_e=2、E=4，两个虚线卡组各有 3 个 token t0–t5；红色箭头表示跨卡、灰色表示本卡 dispatch，到达后按 E0–E3 分组并标出来源，右侧虚线箭头表示 combine 原路送回，底部给出 dispatch 矩阵与每层 2+2 次 all-to-all](/img/in-post/parallelism-ep-dispatch-combine.svg)
 
 | 步 | 做什么 | 例子里发生了什么 | 通信 |
 |---|---|---|---|
