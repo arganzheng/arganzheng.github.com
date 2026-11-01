@@ -4,7 +4,7 @@
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
     <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      text { font-family: 'Hiragino Sans GB', 'PingFang SC', sans-serif; fill: #243447; font-weight: 600; }
       .head { font-size: 16px; font-weight: 700; }
       .body { font-size: 14px; }
       .bold { font-size: 14px; font-weight: 700; }
@@ -32,11 +32,11 @@
       .sep { stroke: #7a8b9c; stroke-width: 1.2; stroke-dasharray: 6 4; fill: none; }
       .cut { stroke: #d79a45; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
       .red { fill: #b42318; }
-      .grey { fill: #7a8b9c; }
+      .grey { fill: #222; }
       .dash { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; }
       .dasharrow { stroke: #40566f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow); }
       .red { fill: #b42318; }
-      .grey { fill: #7a8b9c; }
+      .grey { fill: #222; }
       .dash { fill: #fff; stroke: #9aa8b6; stroke-width: 1.2; stroke-dasharray: 5 4; }
       .dasharrow { stroke: #40566f; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow); }
     </style>
@@ -47,14 +47,14 @@
 <rect class="seg-a" x="20" y="44" width="310" height="108"/>
 <text x="32" y="66" text-anchor="start" class="bold">rank 0（PP stage 0，layers 0–3）</text>
 <text x="32" y="90" text-anchor="start" class="mono12">state[0]  = {exp_avg, exp_avg_sq, step}</text>
-<text x="32" y="106" text-anchor="start" class="mono12 grey">          ↳ 实际是 layers.0.attention.wq.weight</text>
-<text x="32" y="126" text-anchor="start" class="mono12">state[1]  ↳ layers.0.attention.wk.weight</text>
+<text x="32" y="106" text-anchor="start" class="mono12 grey">          -  实际是 layers.0.attention.wq.weight</text>
+<text x="32" y="126" text-anchor="start" class="mono12">state[1]  -  layers.0.attention.wk.weight</text>
 <text x="32" y="144" text-anchor="start" class="mono12">…</text>
 <rect class="seg-a" x="20" y="168" width="310" height="108"/>
 <text x="32" y="190" text-anchor="start" class="bold">rank 1（PP stage 1，layers 4–7）</text>
 <text x="32" y="214" text-anchor="start" class="mono12">state[0]  = {exp_avg, exp_avg_sq, step}</text>
-<text x="32" y="230" text-anchor="start" class="mono12 grey">          ↳ 实际是 layers.4.attention.wq.weight</text>
-<text x="32" y="250" text-anchor="start" class="mono12">state[1]  ↳ layers.4.attention.wk.weight</text>
+<text x="32" y="230" text-anchor="start" class="mono12 grey">          -  实际是 layers.4.attention.wq.weight</text>
+<text x="32" y="250" text-anchor="start" class="mono12">state[1]  -  layers.4.attention.wk.weight</text>
 <text x="32" y="268" text-anchor="start" class="mono12">…</text>
 <rect class="seg-hi" x="360" y="80" width="170" height="130"/>
 <text x="445" y="106" text-anchor="middle" class="bold">state[0] 有两份</text>

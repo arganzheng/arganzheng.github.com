@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 244" width="760" height="244" role="img" aria-labelledby="t d">
   <title id="t">本地 checkpoint 的副本放置（8 节点，J=2，F=3）</title>
-  <desc id="d">8 个节点一排，每个节点下面三格：本地分片 S0 到 S7（每 N₁ 步写本机 NVMe）；副本 +J 一行是 S6 S7 S0 S1 S2 S3 S4 S5；副本 +2J 一行是 S4 S5 S6 S7 S0 S1 S2 S3，副本走 NCCL / RDMA 从源节点推过来。S3 的三份高亮：节点 3 本地、节点 5 的 +J 格、节点 7 的 +2J 格，两条弧线从节点 3 指向节点 5 与节点 7。</desc>
+  <desc id="d">8 个节点一排，每个节点下面三格：本地分片 S0 到 S7（每 N1 步写本机 NVMe）；副本 +J 一行是 S6 S7 S0 S1 S2 S3 S4 S5；副本 +2J 一行是 S4 S5 S6 S7 S0 S1 S2 S3，副本走 NCCL / RDMA 从源节点推过来。S3 的三份高亮：节点 3 本地、节点 5 的 +J 格、节点 7 的 +2J 格，两条弧线从节点 3 指向节点 5 与节点 7。</desc>
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
     <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      text { font-family: 'Hiragino Sans GB', 'PingFang SC', sans-serif; fill: #243447; font-weight: 600; }
       .head { font-size: 16px; font-weight: 700; }
       .body { font-size: 14px; }
       .bold { font-size: 14px; font-weight: 700; }
@@ -104,6 +104,6 @@
 <text x="451" y="48" text-anchor="start" class="small">S3 +J</text>
 <path d="M367 70 Q523 -30 679 70" class="arrow"/>
 <text x="529" y="24" text-anchor="start" class="small">S3 +2J</text>
-<text x="20" y="212" text-anchor="start" class="small">本地分片：每 N₁ 步写本机 NVMe；副本走 NCCL / RDMA 从源节点推过来。</text>
-<text x="20" y="230" text-anchor="start" class="small">节点 i 的 +J 格放 S(i−2)、+2J 格放 S(i−4)，按 8 取模环绕（节点 0 的副本来自 6、4）。</text>
+<text x="20" y="212" text-anchor="start" class="small">本地分片：每 N1 步写本机 NVMe；副本走 NCCL / RDMA 从源节点推过来。</text>
+<text x="20" y="230" text-anchor="start" class="small">节点 i 的 +J 格放 S(i-2)、+2J 格放 S(i-4)，按 8 取模环绕（节点 0 的副本来自 6、4）。</text>
 </svg>
