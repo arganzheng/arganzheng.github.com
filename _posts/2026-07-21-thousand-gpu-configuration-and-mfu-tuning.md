@@ -24,6 +24,8 @@ updated: 2026-09-20
 
 ## 一、总览
 
+![70B 放进 1024 张 H100 的四步：TP、PP、DP、CP 各定了什么，以及最终的五元组与预期 MFU 区间](/img/in-post/config-70b-four-steps.svg)
+
 ### 1. 本篇用到的记账符号与结论
 
 第一、二篇建立的符号，本篇只用下面这些，在此复述以求自治：
@@ -44,7 +46,7 @@ Table: 本篇用到的符号
 - **每 token 6N FLOP**（前向 2、反向 4），再加注意力的 $$12Lhs$$。Megatron `megatron/training/training.py` 的 `num_floating_point_operations()` 与 torchtitan `torchtitan/models/utils.py` 的 `get_dense_model_nparams_and_flops()` 都是这个式子（后者不计输入 embedding 的参数）。MFU 按 PaLM 论文的定义，不计重计算的 FLOP。
 - **每层激活**：Korthikanti et al. 2022 给出无并行时每层 $$sbh\left(34 + 5\frac{as}{h}\right)$$ 字节；TP 加序列并行后除以 $$t$$；用 FlashAttention 后 $$5as/h$$ 项基本消失，本篇取 $$34sbh/t$$。**流水线气泡率** $$\frac{p-1}{m}$$，交错（interleaved）调度下再除以每卡的虚拟 stage 数 $$v$$。
 
-四种并行的每 step 每卡通信量（第二篇的五元组只取"量"这一列）：
+四种并行的每 step 每卡通信量（[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)的五元组只取"量"这一列）：
 
 | 并行方式 | 通信量 | 说明 |
 |---|---|---|
@@ -196,6 +198,42 @@ Table: 候选 A 与候选 B 的推导表
 
 A 与 B 的差别在于把显存换成了 DP 通信：B 每卡多 13 GB 静态状态、DP 通信翻倍、气泡略低。两者都是合理的起点。本篇后文以 A 为主线，因为它的显存余量允许后续加 CP 或把 $$s$$ 拉长而不必重新设计。
 
+这套过滤可以在 CPU 上枚举一遍：TP 取 {1, 2, 4, 8}、PP 取整除 L 的值、CP 取 {1, 2}、DP 补满 1024，按同一张显存公式过滤——`large-scale-training/07_config_toys.py config` 的输出：
+
+<details><summary>07_config_toys.py config：40 组枚举里 20 组过显存线</summary>
+
+```text
+===== config =====
+70B / 1024 H100，L=80，过滤口径：static+act(不重计算)+8GB 开销 < 80 GB
+ tp  pp   dp  cp | static GB  act GB total GB
+  8  16    8   1 |       4.1    26.7     38.8
+  8  16    4   2 |       4.9    26.7     39.6
+  4  16   16   1 |       7.4    26.7     42.1
+  8   8   16   1 |       7.4    26.7     42.1
+  4  16    8   2 |       8.2    26.7     42.9
+  8   8    8   2 |       8.2    26.7     42.9
+  2  16   32   1 |      13.9    26.7     48.7
+  4   8   32   1 |      13.9    26.7     48.7
+  8   4   32   1 |      13.9    26.7     48.7  <- 候选 A
+  2  16   16   2 |      14.8    26.7     49.5
+  4   8   16   2 |      14.8    26.7     49.5
+  8   4   16   2 |      14.8    26.7     49.5
+  1  16   64   1 |      27.1    26.7     61.8
+  2   8   64   1 |      27.1    26.7     61.8
+  4   4   64   1 |      27.1    26.7     61.8
+  8   2   64   1 |      27.1    26.7     61.8  <- 候选 B
+  1  16   32   2 |      27.9    26.7     62.6
+  2   8   32   2 |      27.9    26.7     62.6
+  4   4   32   2 |      27.9    26.7     62.6
+  8   2   32   2 |      27.9    26.7     62.6
+
+通过过滤 20/40 组；b=2 时激活翻倍，A: 76 GB 仍在界内、B: 89 GB 越界
+```
+
+</details>
+
+按总显存排序候选 A 在表内；正文没有给统一的排序口径（气泡、通信、余量各占多少权重），所以表只过滤不打分——A 与 B 都过线，差别就是上表说的显存换通信。
+
 ### 7. 预期 MFU 区间是怎么来的
 
 "预期 step 时间"一行不是拍的，是按第六章的七项各给一个正常范围加出来的：
@@ -223,7 +261,18 @@ $$
 B = d \times b \times m
 $$
 
+![global batch 的积木：一格 micro-batch，m 格叠成一个 DP 副本的一步，d 列拼成 global batch](/img/in-post/config-batch-blocks.svg)
+
 三个量里只有 $$B$$ 是算法参数：它由训练配方定，与卡数无关；卡数变了只能动 $$d$$ 和 $$m$$，不能动 $$B$$。$$b$$ 是每次前向的序列数，由显存与 GEMM 效率决定；$$m$$ 是商，同时也是 PP 的 micro-batch 数和梯度累积步数——**在 PP 下这两个概念是同一个数**，Megatron 的 `megatron/core/num_microbatches_calculator.py` 的 `get_num_microbatches()` 返回的就是它，torchtitan 的 `Trainer` 用 `global_batch_size // (local_batch_size × dp_degree)` 算出 `gradient_accumulation_steps`，PP 下再由 `pipeline_parallel_microbatch_size` 把 `local_batch_size` 切成流水 micro-batch。
+
+等价性有个必须注意的细节：梯度累积里每一步的 loss 要按累积步数平均，否则梯度会大 $$m$$ 倍。CPU toy 实测（`07_config_toys.py accum`）：
+
+```text
+一次 b=16 大 batch 的 loss = 1.018233
+micro-batch × 16 累积：每步 loss/16 累加梯度，再一次 opt.step()
+两种走法参数最大误差 = 7.45e-09（只有浮点累加顺序的差别）
+注意：不除 16 的话梯度是均值的 16 倍——累积里 loss 必须按步数平均
+```
 
 ### 2. micro-batch 的两头约束
 
@@ -241,7 +290,9 @@ Table: micro-batch 大小对气泡与显存的影响
 
 所以 PP 下 $$b$$ 几乎总是 1 或 2，而"用更大的 micro-batch 提高 GEMM 效率"这条路在 PP 下是被气泡堵死的：要 GEMM 效率就得减小 $$p$$（候选 B）或不用 PP（FSDP，但通信压不住）。这是三个约束互相牵制最直接的例子。
 
-序列打包（第十篇）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
+![micro-batch 的两头约束：b 太小 GEMM 效率低，b 太大激活涨、气泡翻，可行区只剩 b 等于 1 或 2](/img/in-post/config-microbatch-bounds.svg)
+
+序列打包（[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）是绕开这个矛盾的手段之一：$$b=1$$ 但一条"序列"里装多个文档，M 维不变、token 利用率上去。Megatron 的 `--micro-batch-size 1` 配 packed sequence 是标准写法（`arguments.py` 里有对应断言：sequence packing 要求 micro_batch_size 为 1）。
 
 ### 3. batch 渐增
 
@@ -262,6 +313,18 @@ Table: 三种重计算策略与代价
 选择性重计算的论点是：注意力的 softmax、dropout、分数矩阵占激活的大头（$$5as/h$$ 项）但算力占比小，重算它们几乎不花时间。这个论点在 FlashAttention 普及后要重新审视：FlashAttention 本身就不存分数矩阵，反向时在 kernel 内重算，所以"重算注意力"的收益已经被 kernel 拿走了，选择性重计算剩下的收益很小。Megatron 0.18.0 的 `recompute_modules` 默认仍是 `["core_attn"]`，在 TE fused attention 下开它的收益要用 `torch.cuda.memory_stats` 实测确认，否则只是多花了 3–5% 算力。
 
 按层 N 是显存"差一点"时最经济的手段：候选 A 若把 $$b$$ 提到 2、激活到 54 GB 总计 76 GB，重计算 20 层里的 6 层省 6 × 285 MB × 4 ≈ 6.8 GB、多算 6/20 × 33% ≈ 10%——比全量重计算便宜三倍。
+
+![三种重计算策略的激活显存与额外计算对比，附 toy recompute 的实测比例](/img/in-post/config-recompute-bars.svg)
+
+toy `recompute` 在小 Transformer 块上用 `saved_tensors_hooks` 量激活字节、`FlopCounterMode` 量 FLOP：
+
+```text
+     none: 反向期保存的激活    113.0 MiB（100.0%），FLOP  57.98 G（100.0%）
+selective: 反向期保存的激活     41.0 MiB（ 36.3%），FLOP  66.57 G（114.8%）
+     full: 反向期保存的激活     24.0 MiB（ 21.2%），FLOP  77.31 G（133.3%）
+```
+
+实测比例与正文数字不必逐项相等（toy 块里没有真正的注意力 softmax、也没有 FlashAttention），但方向一致：全量重计算省约八成激活、多算约三分之一 FLOP——+33% 与正文全量行吻合。
 
 ### 2. Megatron 的参数族
 
@@ -404,7 +467,7 @@ flowchart TB
 
 ### 5. 数据等待
 
-两个 `ProfilerStep` 之间、优化器 kernel 结束到下一个 step 第一个 kernel 开始的空隙，且 CPU 线程正处在 DataLoader 的 `__next__`（trace 里是 `enumerate(DataLoader)#_MultiProcessingDataLoaderIter.__next__` 一类的 op），就是数据等待。健康状态下这个空隙应当接近零：DataLoader 有 worker 进程预取，GPU 算这个 step 时下一个 batch 早已就位。出现等待的原因几乎都在 CPU 侧：worker 数不够、在线 tokenize、对象存储的流式读取抖动、`pin_memory` 没开、CPU 被 NCCL proxy 线程和 worker 争抢。第十篇讨论数据管线；本篇只需要知道怎么把它从 MFU 账里分离出来——它和 CPU 发射开销都是"GPU 全空"，区别只在 CPU 线程当时在做什么。
+两个 `ProfilerStep` 之间、优化器 kernel 结束到下一个 step 第一个 kernel 开始的空隙，且 CPU 线程正处在 DataLoader 的 `__next__`（trace 里是 `enumerate(DataLoader)#_MultiProcessingDataLoaderIter.__next__` 一类的 op），就是数据等待。健康状态下这个空隙应当接近零：DataLoader 有 worker 进程预取，GPU 算这个 step 时下一个 batch 早已就位。出现等待的原因几乎都在 CPU 侧：worker 数不够、在线 tokenize、对象存储的流式读取抖动、`pin_memory` 没开、CPU 被 NCCL proxy 线程和 worker 争抢。[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)讨论数据管线；本篇只需要知道怎么把它从 MFU 账里分离出来——它和 CPU 发射开销都是"GPU 全空"，区别只在 CPU 线程当时在做什么。
 
 ### 6. kernel 效率与 GEMM 形状
 
@@ -432,12 +495,14 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 | 4 数据等待 | 0 | 0.05 s | +0.05 | ~0.5 | 在线 tokenize，2 个 worker | 离线 tokenize；worker 数 ≥ 4；pin_memory |
 | 5 kernel 效率 | 3.2 s | 3.4 s | +0.2 | ~1.5 | --no-bias-swiglu-fusion / --no-rope-fusion 被示例脚本带进来；词表未 pad | 去掉两个 no-fusion；--make-vocab-size-divisible-by 128 |
 | 6 CPU 发射开销 | 0.2 s | 0.45 s | +0.25 | ~1.5 | b=1、无 CUDA Graph、每 step 数千个小 kernel | cuda_graph_impl=local；或 b=2 配 v 更大 |
-| 7 straggler | 0.1 s | 0.45 s | +0.35 | ~2 | 节点 37 一张卡持续降频，所有 DP reduce-scatter 等它 | 隔离该节点（第九篇）；开训前跑 gpu_sniff_test |
+| 7 straggler | 0.1 s | 0.45 s | +0.35 | ~2 | 节点 37 一张卡持续降频，所有 DP reduce-scatter 等它 | 隔离该节点（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)）；开训前跑 gpu_sniff_test |
 | 合计 | 4.75 s → 42% | 6.2 s → 32% | +1.45 | ~10 |  |  |
 
 Table: 缺的 10 个 MFU 点的拆解表（构造）
 
-"折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠第九篇的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归第十篇。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
+"折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
+
+![缺的 10 个 MFU 点的瀑布图：从目标 42% 逐项扣掉七项损失到实测 32%](/img/in-post/config-mfu-waterfall.svg)
 
 ## 七、融合、低精度与 torch.compile
 
@@ -475,7 +540,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 
 **每次改动前后各跑一段基准**。基准是同一份数据、同一个 seed、至少 100 个稳态 step（跳过 warmup 和 batch 渐增期），记录 step 时间的中位数与 p95、token/s、MFU、`max_memory_allocated`、loss 曲线，加一份 profiler trace 存档。只改一个变量。MFU 变化小于 1 个点视为噪声——千卡任务的 step 时间本身有 1–2% 的抖动。
 
-**变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。第十一篇的值班手册会引用这张表；第九篇的故障复盘也会。
+**变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的值班手册会引用这张表；[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的故障复盘也会。
 
 ## 九、本文小结
 
@@ -486,7 +551,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 - **三个 batch**：B = d·b·m；B 是算法参数；PP 下 m 既是 micro-batch 数也是梯度累积步；b 小 GEMM 差、b 大气泡大，通常 1 或 2。
 - **重计算**：全量 +33% FLOP 省 94% 激活；选择性在 FlashAttention 下几乎不省；按层 N 是「差一点」时最经济；先确认放不下再开。
 - **重叠**：DP 靠 bucket 与反向重叠、all-gather 与下一前向重叠，只在最后一个 micro-batch 发生；TP 靠分块流水（TE userbuffers / async TP），须开 SP；PP 靠 isend/irecv；失败五因：没开 / bucket 太大 / 多余同步 / SM 争抢 / CPU 发得晚。
-- **七项拆解**：气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项。缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（第十篇）。
+- **七项拆解**：气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项。缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）。
 - **FP8 / 融合 / 编译**：FP8 只快 GEMM，step 时间降 20–25%；融合是无风险基线；per-block compile 顺序 TP → AC → compile → FSDP；CUDA Graph 只治 CPU 开销。
 - **纪律**：配置进 git、启动时打印全部参数；改一个变量、前后各 100 step 基准 + trace；变更表。
 
@@ -739,7 +804,7 @@ if __name__ == "__main__":
 
 ### 4. 外推到 1024 卡
 
-8 卡的结论有两类。**比率类**（compile 减少多少 CPU 开销、全量重计算多算多少、TP 独占能藏多少）随规模基本不变，可以直接搬到千卡的预算表里。**绝对量类**（通信时间、气泡、显存）随并行度变化，要用账本重算。`sweep/extrapolate.py` 做的就是后一件事——它不跑任何 GPU 代码，只调用第二篇的 `ledger.parallel`：
+8 卡的结论有两类。**比率类**（compile 减少多少 CPU 开销、全量重计算多算多少、TP 独占能藏多少）随规模基本不变，可以直接搬到千卡的预算表里。**绝对量类**（通信时间、气泡、显存）随并行度变化，要用账本重算。`sweep/extrapolate.py` 做的就是后一件事——它不跑任何 GPU 代码，只调用[第二篇《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)的 `ledger.parallel`：
 
 ```python title="sweep/extrapolate.py：8 卡校准量 + 账本 → 1024 卡预算"
 # train-ledger/sweep/extrapolate.py（节选）— 8 卡校准量 + 账本 → 1024 卡预算
