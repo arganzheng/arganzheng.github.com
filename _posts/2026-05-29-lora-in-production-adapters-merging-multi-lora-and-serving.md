@@ -210,7 +210,7 @@ with disable_adapter(): 验证回复 loss 2.4936（base 是 2.4936）
 
 Table: 合并模型与 multi-LoRA 两种服务方案
 
-后一种方案的关键是最后一行：同一个 batch 里的请求各自走不同的 $$B_i A_i$$，不能写成一个普通的 GEMM。vLLM 的做法（Punica 的 SGMV / BGMV kernel）是把 batch 里的 token 按 adapter 分组，一个 kernel 里对每组做各自的瘦矩阵乘——一次 kernel 处理所有 adapter，而不是循环 $$N$$ 次。显存上 vLLM 用 `--max-loras` 与 `--max-lora-rank` 预留槽位：
+后一种方案的关键是最后一行：同一个 batch 里的请求各自走不同的 $$B_i A_i$$，不能写成一个普通的 GEMM。vLLM 的做法（Punica 的 SGMV（Segmented Gather Matrix-Vector multiplication，按 adapter 分段、一次算完各组瘦矩阵乘的 kernel）/ BGMV（Batched Gather Matrix-Vector multiplication，每个请求取自己的 adapter 做矩阵–向量乘的 kernel））是把 batch 里的 token 按 adapter 分组，一个 kernel 里对每组做各自的瘦矩阵乘——一次 kernel 处理所有 adapter，而不是循环 $$N$$ 次。显存上 vLLM 用 `--max-loras` 与 `--max-lora-rank` 预留槽位：
 
 $$
 \text{槽位显存} = \texttt{max\_loras} \times \sum_{\text{挂 LoRA 的矩阵}} \texttt{max\_lora\_rank} \times (d_{in} + d_{out}) \times 2\ \text{字节}
@@ -218,7 +218,7 @@ $$
 
 8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
 
-什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大——8B 上 decode $$B = 1$$ 每层除了原来的 7 个 GEMV 多出 14 个极小的 GEMV，$$A$$、$$B$$ 各 $$r \times d$$，$$W_Q$$ 上 $$16 \times 4096 \times 2$$ B = 128 KB，字节数可忽略，但 32 层 × 14 = 448 次额外 kernel 启动，每次几微秒，加起来与 4.8 ms 的 decode 下界同量级：小 kernel 的固定开销比它的 FLOPs 和字节都贵）；或推理框架不支持 LoRA（大多数边缘部署格式）。
+什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大——8B 上 decode $$B = 1$$ 每层除了原来的 7 个 GEMV（general matrix–vector multiply，矩阵乘向量） 多出 14 个极小的 GEMV，$$A$$、$$B$$ 各 $$r \times d$$，$$W_Q$$ 上 $$16 \times 4096 \times 2$$ B = 128 KB，字节数可忽略，但 32 层 × 14 = 448 次额外 kernel 启动，每次几微秒，加起来与 4.8 ms 的 decode 下界同量级：小 kernel 的固定开销比它的 FLOPs 和字节都贵）；或推理框架不支持 LoRA（大多数边缘部署格式）。
 
 ## 六、新加的 token 为什么学不会
 

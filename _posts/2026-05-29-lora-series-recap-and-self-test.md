@@ -192,7 +192,7 @@ Table: 常见误区
 - 继续后训练：[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第二篇起的偏好数据、DPO、GRPO，本系列第三篇的 `disable_adapter()` 会在那里再出现。
 - 读实现：[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列第一、三篇的一个公式。
 - 服务侧：[vLLM 系列第十一篇](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列第三篇只算了账。
-- 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ / AWQ / FP8，本系列第二篇的 NF4 是其中面向训练的一种。
+- 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ（逐层用二阶信息补偿误差的训练后权重量化方法） / AWQ（Activation-aware Weight Quantization，按激活大小保护重要通道的权重量化方法） / FP8，本系列第二篇的 NF4 是其中面向训练的一种。
 
 ## 七、延伸阅读
 
@@ -204,5 +204,5 @@ Table: 常见误区
 - Hayou 等 2024，*LoRA+: Efficient Low Rank Adaptation of Large Models*——$$B$$ 的 lr 比例。
 - Liu 等 2024，*DoRA: Weight-Decomposed Low-Rank Adaptation*。
 - Meng 等 2024，*PiSSA*；Paischer 等 2024，*EVA*；Li 等 2023，*LoftQ*——三种初始化。
-- Sheng 等 2023，*S-LoRA: Serving Thousands of Concurrent LoRA Adapters*；Chen 等 2023，*Punica*——multi-LoRA 服务的 kernel 与内存管理。
+- Sheng 等 2023，*S-LoRA（Scalable LoRA，同时服务上千个 adapter 的系统）: Serving Thousands of Concurrent LoRA Adapters*；Chen 等 2023，*Punica*——multi-LoRA 服务的 kernel 与内存管理。
 - `peft` 文档的 *LoRA* 与 *Merging adapters* 两页——`LoraConfig` 每个字段的当前语义，比任何博客都准。
