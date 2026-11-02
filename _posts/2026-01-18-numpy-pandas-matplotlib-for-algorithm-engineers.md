@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-20
 ---
 
-算法工作里的代码，十行里有八行在跟**形状**打交道：这个张量是 `[batch, seq, hidden]` 还是 `[seq, batch, hidden]`（后者不是错的——RNN（recurrent neural network，循环神经网络） 时代与 `nn.MultiheadAttention(batch_first=False)` 的默认布局把序列维放在最前面，两种布局都在用，本系列统一用前者）、softmax 沿哪一维、mask 怎么加到 score 上、多头 attention 的 reshape 与 transpose 是什么顺序。PyTorch 的 Tensor 语义与 NumPy 的 ndarray 一致，所以形状直觉先在 NumPy 上建立——它没有 GPU、没有自动求导、没有任何干扰，只有形状。本篇用 NumPy 把 L0 讲过的 attention 从公式写成代码并与 PyTorch 对数值；然后讲另外两件天天要做的事：用 Pandas 分析评测结果，用 Matplotlib 看训练曲线。
+算法工作里的代码，十行里有八行在跟**形状**打交道：这个张量是 `[batch, seq, hidden]` 还是 `[seq, batch, hidden]`（后者不是错的——<span class="inline-tip" data-tip="recurrent neural network，循环神经网络">RNN</span> 时代与 `nn.MultiheadAttention(batch_first=False)` 的默认布局把序列维放在最前面，两种布局都在用，本系列统一用前者）、softmax 沿哪一维、mask 怎么加到 score 上、多头 attention 的 reshape 与 transpose 是什么顺序。PyTorch 的 Tensor 语义与 NumPy 的 ndarray 一致，所以形状直觉先在 NumPy 上建立——它没有 GPU、没有自动求导、没有任何干扰，只有形状。本篇用 NumPy 把 L0 讲过的 attention 从公式写成代码并与 PyTorch 对数值；然后讲另外两件天天要做的事：用 Pandas 分析评测结果，用 Matplotlib 看训练曲线。
 
 全篇的核心问题是：
 
