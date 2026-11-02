@@ -1,226 +1,201 @@
 ---
 - term: TFLOPS
   full: tera floating point operations per second
+  zh: 每秒万亿次浮点运算
+  say: "「T-FLOPS」"
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
 - term: HBM3
   full: High Bandwidth Memory 3
+  zh: H100 用的第三代高带宽显存
+  say: H-B-M 3
   desc: H100 用的第三代高带宽显存
 - term: SXM
   full: Server PCI Express Module
+  zh: NVIDIA 板载模组形态
+  say: 逐字母 S-X-M
   desc: NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡
 - term: KL
   full: Kullback–Leibler divergence
+  zh: KL 散度
+  say: 逐字母 K-L
   desc: KL 散度，衡量两个分布差多远
-- term: NaN
-  full: not a number
-  desc: 非数值，数值溢出或 0/0 的结果
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行：每份副本处理不同数据
 - term: CP
   full: context parallelism
+  zh: 上下文并行
+  say: 逐字母 C-P
   desc: 上下文并行：长序列按长度切到多张卡
 - term: DAPO
   full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  zh: clip-higher、过滤全对 / 全错组等
+  say: D-A-P-O
   desc: 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样
 - term: TIS
   full: truncated importance sampling
+  zh: 权重超过上限就截到上限
+  say: T-I-S
   desc: 截断重要性采样：权重超过上限就截到上限
 - term: MTP
   full: multi-token prediction
+  zh: 多 token 预测
+  say: 逐字母 M-T-P
   desc: 多 token 预测；推理时可当投机解码的草稿头
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 混合专家：每个 token 只激活一部分专家
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 只训练低秩增量矩阵的参数高效微调
-- term: MXFP4
-  full: microscaling FP4
-  desc: 按小块共享缩放因子的 4 位浮点格式
 - term: RDMA
   full: remote direct memory access
+  zh: 远程直接内存访问
+  say: 逐字母 R-D-M-A
   desc: 远程直接内存访问，跨机传输不经过 CPU
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: CPU 与 GPU 之间的总线
 - term: SPMD
   full: single program, multiple data
+  zh: 每个进程跑同一份程序、处理不同数据
+  say: S-P-M-D
   desc: 每张卡跑同一份程序、处理不同数据
 - term: RM
   full: reward model
+  zh: 奖励模型
+  say: R-M
   desc: 奖励模型，给回答打分
 - term: FLOP
   full: floating point operation
+  zh: 一次浮点运算
+  say: F-L-O-P
   desc: 一次浮点运算；文中算力账按 FLOP 记
 - term: PPO
   full: Proximal Policy Optimization
+  zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
+  say: P-P-O
   desc: 近端策略优化：用 clip 限制每步更新幅度
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型 FLOP 利用率：有效算力占峰值的比例
-- term: OOM
-  full: out of memory
-  desc: 显存不够，分配失败
-- term: GSM8K
-  full: Grade School Math 8K
-  desc: 约 8.5K 道小学数学应用题的数据集
-- term: IPC
-  full: inter-process communication
-  desc: 进程间通信；CUDA IPC 让别的进程直接映射这块显存
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点，rollout 侧常用的低精度格式
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行：MoE 的专家分到不同卡
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行：按层切到多张卡
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行：一层的矩阵切到多张卡
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力开销单位
 - term: GLM
   full: General Language Model
+  zh: 智谱的大模型系列
+  say: G-L-M
   desc: 智谱的大模型系列
 - term: NIXL
   full: NVIDIA Inference Xfer Library
+  zh: NVIDIA 推理传输库
+  say: "「尼-克瑟」"
   desc: NVIDIA 面向推理的点对点数据传输库
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的 GPU 集合通信库
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘，训练算力的主体
 - term: SFT
   full: supervised fine-tuning
+  zh: 监督微调
+  say: 逐字母 S-F-T
   desc: 监督微调
-- term: verl
-  full: Volcano Engine Reinforcement Learning
-  desc: 字节 Seed 发起的开源 RL 后训练框架，本系列的源码对象
 - term: GRPO
   full: Group Relative Policy Optimization
+  zh: 同一 prompt 采一组回答
+  say: G-R-P-O
   desc: 组内回答互相比较算优势的 PPO 变体，不需要 critic
 - term: RLHF
   full: reinforcement learning from human feedback
+  zh: 基于人类反馈的强化学习
+  say: R-L-H-F
   desc: 基于人类反馈的强化学习
 - term: FSDP
   full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
   desc: PyTorch 的全分片数据并行：参数、梯度、优化器状态按卡切分
 - term: HBM
   full: high bandwidth memory
+  zh: 高带宽显存
+  say: 逐字母 H-B-M
   desc: GPU 上的高带宽显存
 - term: DPO
   full: Direct Preference Optimization
+  zh: 直接偏好优化
+  say: 逐字母 D-P-O
   desc: 直接偏好优化：离线学偏好对，不需要 rollout
 - term: MLA
   full: multi-head latent attention
+  zh: 多头隐注意力
+  say: 逐字母 M-L-A
   desc: DeepSeek 的注意力，把 KV 压成一个低秩向量
 - term: EFLOP
   full: exa floating point operations
+  zh: 10^18 次浮点运算
+  say: E-F-L-O-P
   desc: 10^18 次浮点运算
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 query 头共享一组 KV 头
-- term: TFLOP
-  full: tera floating point operations
-  desc: 10^12 次浮点运算
 - term: IB
   full: InfiniBand
+  zh: InfiniBand
+  say: 逐字母 I-B
   desc: 机间高速网络，支持 RDMA
-- term: NPU
-  full: neural processing unit
-  desc: 神经网络处理器，这里指昇腾等非 NVIDIA 加速卡
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 旋转位置编码
 - term: H2D
   full: host to device
+  zh: 主机到设备
+  say: 逐字母 H-2-D
   desc: 主机内存拷到显存
 - term: D2H
   full: device to host
+  zh: 设备到主机
+  say: 逐字母 D-2-H
   desc: 显存拷回主机内存
-- term: NUMA
-  full: non-uniform memory access
-  desc: 非一致内存访问：内存离哪颗 CPU 近，访问就快
-- term: UPI
-  full: Ultra Path Interconnect
-  desc: Intel 多路 CPU 之间的互联
-- term: PFLOP
-  full: peta floating point operations
-  desc: 10^15 次浮点运算
-- term: ZMQ
-  full: ZeroMQ
-  desc: 轻量消息库，常用来在进程间传控制消息
-- term: ACK
-  full: acknowledgement
-  desc: 确认消息
-- term: MLP
-  full: multi-layer perceptron
-  desc: 多层感知机，Transformer 层里的前馈网络
-- term: HCCL
-  full: Huawei Collective Communication Library
-  desc: 华为昇腾的集合通信库
-- term: UCX
-  full: Unified Communication X
-  desc: 统一的高性能通信框架，支持 RDMA
-- term: UCCL
-  full: "—"
-  desc: 伯克利开源的 GPU 通信库，覆盖集合通信、P2P 与 EP
-- term: P2P
-  full: peer-to-peer
-  desc: 点对点传输
-- term: SM
-  full: streaming multiprocessor
-  desc: GPU 的流式多处理器
 - term: MIS
   full: masked importance sampling
+  zh: 权重越界的 token 直接不算梯度
+  say: M-I-S
   desc: 屏蔽式重要性采样：权重越界的 token 直接不算梯度
-- term: FP16
-  full: 16-bit floating point
-  desc: 半精度浮点，尾数比 BF16 多
-- term: AIME
-  full: American Invitational Mathematics Examination
-  desc: 美国数学邀请赛，常用的推理评测集
 - term: IS
   full: importance sampling
+  zh: 用两个分布的概率比修正样本
+  say: I-S
   desc: 重要性采样：用两个分布的概率比修正样本
-- term: LRU
-  full: least recently used
-  desc: 最近最少使用：先淘汰最久没用的
-- term: HPA
-  full: Horizontal Pod Autoscaler
-  desc: Kubernetes 按指标自动增减副本数
-- term: VLM
-  full: vision-language model
-  desc: 视觉语言模型
-- term: RPC
-  full: remote procedure call
-  desc: 远程过程调用
-- term: ABC
-  full: abstract base class
-  desc: 抽象基类
-- term: GSPO
-  full: Group Sequence Policy Optimization
-  desc: 用序列级重要性比做 clip 的 GRPO 变体
-- term: RS
-  full: rejection sampling
-  desc: 拒绝采样：比值越界的样本直接丢掉
-- term: RNG
-  full: random number generator
-  desc: 随机数生成器
-- term: TTL
-  full: time to live
-  desc: 存活时间，到期自动清除
-- term: GC
-  full: garbage collection
-  desc: 垃圾回收
-- term: PD
-  full: prefill–decode
-  desc: PD 分离：prefill 与 decode 放在不同实例
-- term: VLA
-  full: vision-language-action
-  desc: 视觉-语言-动作模型，输出机器人动作

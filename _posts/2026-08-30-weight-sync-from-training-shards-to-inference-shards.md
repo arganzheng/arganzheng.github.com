@@ -123,7 +123,7 @@ verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering T
 
 **MLA**：DeepSeek 的注意力把 K / V 压成一个低秩的 `kv_a_proj`（$$d_c = 512$$）加 `kv_b_proj`，Q 也有 `q_a / q_b` 两段；vLLM 为了 decode 效率会把 `kv_b_proj` 吸收进 Q / O 投影（weight absorption），这是加载时做的**推理侧变换**——权重同步只需送 HF 形状的 `kv_b_proj`，vLLM 自己重新吸收。但这意味着 `load_weights` 之后有一段推理侧的计算，且吸收后的张量不在 HF 命名里、每次同步都要重算。
 
-**共享专家与 dense 层**：DeepSeek-V3 前 3 层是 dense MLP、每层有 1 个共享专家，这些走注意力 / dense 层的 TP 路径。同一个模型里两条路径并存，映射表要分别覆盖。
+**共享专家与 dense 层**：DeepSeek-V3 前 3 层是 dense MLP（multi-layer perceptron，多层感知机）、每层有 1 个共享专家，这些走注意力 / dense 层的 TP 路径。同一个模型里两条路径并存，映射表要分别覆盖。
 
 ## 三、布局之二：从分片到完整再到分片
 
@@ -178,8 +178,8 @@ verl 的 checkpoint engine 把传输抽象成三个接口——`send_weights`（
 |---|---|---|---|---|
 | naive | torch.distributed | 进程内 / 同卡 CUDA IPC | 共置同步（第三篇） | — |
 | nccl | NCCL | all_gather + 广播 | 分离、固定集群 | 低：换实例要重建 NCCL 组 |
-| hccl | HCCL | 同上 | Ascend | 低 |
-| nixl | NIXL（UCX / UCCL / Mooncake 后端） | all_gather + 环形点对点 | 分离、弹性 rollout、异构硬件 | 高：环拓扑可动态调 |
+| hccl | <span class="inline-tip" data-tip="Huawei Collective Communication Library，华为昇腾的集合通信库">HCCL</span> | 同上 | Ascend | 低 |
+| nixl | NIXL（<span class="inline-tip" data-tip="Unified Communication X，统一的高性能通信框架">UCX</span> / UCCL / Mooncake 后端） | all_gather + 环形点对点 | 分离、弹性 rollout、异构硬件 | 高：环拓扑可动态调 |
 | mooncake | Mooncake Transfer Engine | all_gather + 环形点对点 | 分离、固定集群 | 高 |
 | kimi_ckpt_engine | Mooncake P2P + NCCL 广播 | 先 offload 到 CPU，P2P 到一个推理 worker，再组内广播 | 分离、顺带落 checkpoint | 低 |
 | delta_sharded | NCCL（稀疏负载） | 分片 diff + 稀疏 gather + 广播 | 分离异步、FSDP 训练侧 | 低 |
@@ -197,13 +197,13 @@ Table: 五条链路
 训练 rank 0 建一个临时的 NCCL 进程组，成员是它自己加所有推理 rank（`build_topology`：world = 1 + 推理总卡数），逐 bucket `broadcast`。要点：
 
 - **进程组是临时的**：每次同步 `init_process_group` → 广播 → `finalize`；因为推理实例集合变了（弹性、故障）就要重建，NCCL 建组是秒级的固定开销；
-- **与训练 / 推理各自的 NCCL 通信不能撞**：训练器的 FSDP 进程组、推理引擎的 TP 进程组、同步用的广播组，三套通信器共存于同一批卡；同步时训练器空闲（它刚更新完）、推理侧被 abort（第九章），所以不会同时发 collective——但如果异步形态下推理引擎正在 decode（TP all-reduce 在跑）又收到广播，两套通信器在同一张卡上争 SM 与网卡，轻则慢、重则死锁（第八篇的 hang 一类）；
+- **与训练 / 推理各自的 NCCL 通信不能撞**：训练器的 FSDP 进程组、推理引擎的 TP 进程组、同步用的广播组，三套通信器共存于同一批卡；同步时训练器空闲（它刚更新完）、推理侧被 abort（第九章），所以不会同时发 collective——但如果异步形态下推理引擎正在 decode（TP all-reduce 在跑）又收到广播，两套通信器在同一张卡上争 SM（streaming multiprocessor，GPU 的流式多处理器） 与网卡，轻则慢、重则死锁（第八篇的 hang 一类）；
 - **元数据走 ZMQ**：bucket 里有哪些张量、各自的 offset / shape / dtype，用 ZMQ pub-sub 单独发（`MasterMetadata`），NCCL 只传字节；
 - **`magic_recv` 缓冲**：0.9 修了一个"广播缓冲被复用导致权重损坏"的问题，加了独立的接收缓冲与广播完成后的 stream 同步——bucket 复用与异步 NCCL 之间的竞争是这条路径的典型 bug。
 
 ### 4. NIXL / Mooncake（点对点 + 环）
 
-NVIDIA 的 NIXL（Dynamo 项目的传输库，底层 UCX / UCCL / Mooncake）与 Mooncake Transfer Engine 提供 RDMA 的**单边写**：发送方把 bucket 直接写进接收方注册好的显存，不需要接收方参与 collective。verl 的两个引擎用它做"all-gather + 环形点对点"：训练 rank 0 gather 出 bucket → 写给第一个推理 rank → 它写给下一个 → 环。相比 NCCL 广播：
+NVIDIA 的 NIXL（Dynamo 项目的传输库，底层 UCX / UCCL（伯克利开源的 GPU 通信库） / Mooncake）与 Mooncake Transfer Engine 提供 RDMA 的**单边写**：发送方把 bucket 直接写进接收方注册好的显存，不需要接收方参与 collective。verl 的两个引擎用它做"all-gather + 环形点对点"：训练 rank 0 gather 出 bucket → 写给第一个推理 rank → 它写给下一个 → 环。相比 NCCL 广播：
 
 - **不需要进程组**：加减实例只是改环的成员表，适合弹性 rollout 与故障恢复（一个实例挂了，环绕过它）；
 - **异构**：训练侧 H100、推理侧 H20 或别的卡，只要 RDMA 可达；

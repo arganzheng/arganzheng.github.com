@@ -238,7 +238,7 @@ Table: 8B 推理场景的 MFU 损失分解
 
 ### 1. 训练状态之外
 
-预训练的 checkpoint 是模型 + 优化器 + dataloader 位置 + RNG。RL 系统多出的状态：
+预训练的 checkpoint 是模型 + 优化器 + dataloader 位置 + RNG（random number generator，随机数生成器）。RL 系统多出的状态：
 
 | 状态 | 在哪 | 存不存 | 不存的后果 |
 |---|---|---|---|

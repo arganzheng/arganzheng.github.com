@@ -506,7 +506,7 @@ Table: 掌握程度的判据
 
 - **RL 算法本身**（目标函数、PPO / GRPO 及其变体、奖励模型、可验证奖励、Agent RL 的公式与 mask）在算法地图的[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列只用了"一步里生成多少 token、要几个模型、样本怎样进 loss"这些结论，讨论 off-policy 修正时只讨论它对系统的要求。
 - **训练引擎内部**（并行策略、FSDP / Megatron 的实现、分布式 checkpoint、容错与弹性）在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列把训练器当作"能按给定并行配置跑一步、能导出分片权重"的黑盒。
-- **推理引擎内部**（调度、KV cache 管理、连续批处理、PagedAttention、投机解码、PD 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列只用它的三个接口与吞吐特性。
+- **推理引擎内部**（调度、KV cache 管理、连续批处理、PagedAttention、投机解码、PD（prefill–decode，prefill 与 decode 放在不同实例） 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列只用它的三个接口与吞吐特性。
 - **集群资源层**（Kubernetes / Ray 的调度、gang scheduling、沙箱平台）在[《AI 平台工程》](/ai-platform-engineering.html)——第八篇末尾给出的是引擎对平台的要求，平台怎样满足在那里。
 
 本系列在 Infra 学习路径里的位置，以及训练与推理两条主线为什么在这里会合，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。Infra 地图上与它相邻的下一块是扩散模型的推理基础设施——没有 KV cache、每步全量前向，是另一张完全不同的账。
@@ -523,7 +523,7 @@ Table: 掌握程度的判据
 - **集合通信的实现**：NCCL 的算法与调优、RDMA。本系列只用广播、all-gather、点对点的语义与带宽。
 - **集群资源层**：Kubernetes / Ray 的调度、gang scheduling、容器运行时、沙箱平台的实现。本系列第六、八篇给出 RL 任务对它们的要求，不讨论它们自身。
 - **SFT 与离线方法**：SFT、DPO 一族在系统上与预训练同构（读数据、训练），没有 rollout；蒸馏里的 on-policy 蒸馏与在线 RL 同构，第五篇会提及。
-- **多模态与 VLA 的 RL**：图像输入让 rollout 多一个 vision encoder、环境多一类观测，系统形态不变；正文在涉及处标注，不单列。
+- **多模态与 VLA（vision-language-action，视觉-语言-动作模型） 的 RL**：图像输入让 rollout 多一个 vision encoder、环境多一类观测，系统形态不变；正文在涉及处标注，不单列。
 
 
 [^q0]: 八个，与总纲的"最终目标"一一对应：一步里生成、打分、训练各花多少 GPU·秒、上限是多少（三段的账）；该共置、分离还是异步、GPU 怎么分（三种形态的交换）；每步的显存切换搬多少字节、要几秒（让渡接口与切换代价）；新权重怎么进推理引擎、传多少、走哪条链路、几秒（布局映射与传输）；异步之后 reward 曲线变了是 staleness 还是训推不一致（off-policy 的信号）；Agent 训练的沙箱要多少并发、GPU 在等什么（环境账与长尾调度）；verl 把权重同步与样本通路实现在哪（源码导读）；利用率差在哪一项、坏了从哪查（全步 MFU 与排障）。详见[第二章](#二逐篇回顾)。

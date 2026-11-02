@@ -349,7 +349,7 @@ _update_actor(batch)
   → 收回 actor/* 指标（pg_loss、clip 比例、grad_norm、entropy）
 ```
 
-worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / GSPO / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
+worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / GSPO（Group Sequence Policy Optimization，用序列级重要性比做 clip 的 GRPO 变体） / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
 
 ### 3. 数据在哪
 
@@ -471,7 +471,7 @@ AReaL（蚂蚁，论文 Fu 等 2025）的分歧不在抽象多少，在**哪个�
 | staleness 控制点 | 消费端：replay buffer 取样时 drop / wait | 准入端：rollout controller 在请求开始时按版本落后量放行 / 阻塞 |
 | 生成 | agent loop 协程 → LLM server；abort / resume 是 checkpoint manager 的动作 | RolloutWorkflow.arun_episode 协程 → InferenceEngine.agenerate；interruptible generation 是引擎的一等能力 |
 | 权重同步 | checkpoint engine，update_weights 是 trainer 钩子 | WeightUpdateMeta（nccl 或 disk），训练引擎每步 update_weights_to(...)，推理引擎按版本接收；版本对齐是 API 的一部分 |
-| 算法 | PPO/GRPO 变体 + rollout_correction（IS / RS）opt-in | decoupled PPO 默认（use_decoupled_loss + recompute_logprobs），三份 logprob |
+| 算法 | PPO/GRPO 变体 + rollout_correction（IS / <span class="inline-tip" data-tip="rejection sampling，比值越界的样本直接丢掉">RS</span>）opt-in | decoupled PPO 默认（use_decoupled_loss + recompute_logprobs），三份 logprob |
 | 训练后端 | 多后端 | FSDP2 / Megatron / Archon（自研 MoE 引擎） |
 
 Table: verl 与 AReaL 的分歧

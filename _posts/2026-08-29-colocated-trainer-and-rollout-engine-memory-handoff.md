@@ -208,7 +208,7 @@ D2H / H2D 要达到 25 GB/s 必须走 pinned 内存，pageable 内存只有几 G
 
 Table: 8 卡 32B 共置一台机器的 pinned 内存账
 
-一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA 不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 UPI）。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
+一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA 不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 UPI（Ultra Path Interconnect，Intel 多路 CPU 之间的互联））。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
 
 ### 3. Megatron 一侧
 
@@ -338,7 +338,7 @@ vLLM 在启动时按 `cudagraph_capture_sizes`（默认从 1 到 `max_num_seqs` 
 权重换了，KV 里的内容全部作废，`reset_prefix_cache()` 是必须的。它的代价在两处：
 
 - **同一 prompt 的 $$G$$ 条回答共享 prompt 的 KV**——这是 GRPO 里 prefix cache 的主要用处（上一篇算过它省显存不省 FLOP）。一步之内不受影响，因为 reset 只在步边界。
-- **部分 rollout**（`colocate_async` 模式）：被中断的序列在新权重下续接时，已生成的前半段必须**重新 prefill**——它的 KV 是旧权重算的，不能用。一条 8K 长的序列被中断，续接时先付 8K token 的 prefill（$$2N \times 8\text{K}$$）；一步里有几百条被中断就是几个 PFLOP，不大，但它是部分 rollout 的固有开销，第五篇再算。
+- **部分 rollout**（`colocate_async` 模式）：被中断的序列在新权重下续接时，已生成的前半段必须**重新 prefill**——它的 KV 是旧权重算的，不能用。一条 8K 长的序列被中断，续接时先付 8K token 的 prefill（$$2N \times 8\text{K}$$）；一步里有几百条被中断就是几个 PFLOP（peta floating point operations，10^15 次浮点运算），不大，但它是部分 rollout 的固有开销，第五篇再算。
 
 ### 4. 两个 allocator、一块 HBM
 

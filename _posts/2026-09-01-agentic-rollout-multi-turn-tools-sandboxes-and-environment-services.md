@@ -382,7 +382,7 @@ flowchart TB
 
 ### 3. 多模态
 
-VLM 的 Agent（GUI 操作、网页浏览）在这条路上多两样：环境返回的是**图像**（截图），进上下文前要过 vision encoder（推理引擎的 `reset_mm_cache` / `reset_encoder_cache` 在权重同步后也要清）；图像 token 多（一张截图几百到上千 token），上下文涨得更快、KV 驻留更差。系统形态不变，账更重。
+VLM（vision-language model，视觉语言模型） 的 Agent（GUI 操作、网页浏览）在这条路上多两样：环境返回的是**图像**（截图），进上下文前要过 vision encoder（推理引擎的 `reset_mm_cache` / `reset_encoder_cache` 在权重同步后也要清）；图像 token 多（一张截图几百到上千 token），上下文涨得更快、KV 驻留更差。系统形态不变，账更重。
 
 ## 九、本文小结
 
