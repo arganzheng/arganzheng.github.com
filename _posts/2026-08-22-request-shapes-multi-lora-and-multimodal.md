@@ -164,7 +164,7 @@ ram = tl.load(token_indices_sorted_by_lora_ids + lora_m_indices_start + cta_m_of
 
 调用链：`BaseLinearLayerWithLoRA.apply()`（`vllm/lora/layers/base_linear.py`）→ 基座 `quant_method.apply()` 出 `output` → `punica_wrapper.add_lora_linear(output, x, lora_a_stacked, lora_b_stacked, ...)`（`PunicaWrapperGPU`）→ 分配 fp32 `buffer [num_slices, tokens, r]` → `add_shrink()` → `add_expand()`。**每个带 LoRA 的线性层每步多两次 kernel launch 加一块 fp32 中间缓冲**——第 4 节算账时会回到这里。
 
-`LoRAMapping.is_prefill` 这个字段在 CUDA 上被忽略（`LoRAModelRunnerMixin._set_active_loras()` 注释："On cuda platforms we use the same kernels for prefill and decode"）——早期 Punica 区分 SGMV（prefill，按段）和 BGMV（decode，按行）两套 kernel，v0.27.1 的 Triton 实现统一了。
+`LoRAMapping.is_prefill` 这个字段在 CUDA 上被忽略（`LoRAModelRunnerMixin._set_active_loras()` 注释："On cuda platforms we use the same kernels for prefill and decode"）——早期 Punica 区分 SGMV（Segmented Gather Matrix-Vector，分段聚合矩阵-向量乘，prefill 按段）和 BGMV（Block Gather Matrix-Vector，分块聚合矩阵-向量乘，decode 按行）两套 kernel，v0.27.1 的 Triton 实现统一了。
 
 ### 3. 槽位与 LRU：adapter 在 GPU 和 CPU 之间怎么换
 

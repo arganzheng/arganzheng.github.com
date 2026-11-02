@@ -1,310 +1,307 @@
 ---
-- term: MCP
-  full: Model Context Protocol
-  desc: 模型客户端连接工具服务器的开放协议
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
-- term: RPC
-  full: remote procedure call
-  desc: 远程过程调用
-- term: gRPC
-  full: gRPC Remote Procedure Calls
-  desc: Google 开源的 RPC 框架，用 Protobuf 编码
-- term: OOM
-  full: out of memory
-  desc: 内存耗尽
-- term: E2E
-  full: end-to-end
-  desc: 端到端测试
-- term: HF
-  full: Hugging Face
-  desc: 模型与数据集托管平台
 - term: bf16
   full: bfloat16
+  zh: bfloat16 半精度
+  say: 逐字母 B-F-16
   desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
-  aliases: [BF16]
+  aliases:
+  - BF16
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力的计量单位
-  aliases: [FLOP]
+  aliases:
+  - FLOP
 - term: fp32
   full: 32-bit floating point
+  zh: 单精度浮点
+  say: 逐字母 F-P-32
   desc: 单精度浮点，每个数 4 字节
-  aliases: [FP32]
-- term: FSDP
-  full: Fully Sharded Data Parallel
-  desc: 把参数、梯度、优化器状态切到各卡的数据并行
-- term: GiB
-  full: gibibyte
-  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
+  aliases:
+  - FP32
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结原权重、只训低秩矩阵的微调方法
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
+  zh: 均方根归一化
+  say: "「RMS-Norm」"
   desc: 只按均方根缩放、不减均值的归一化
-- term: MMLU
-  full: Massive Multitask Language Understanding
-  desc: 57 个学科的多选题 benchmark
-- term: RCCL
-  full: ROCm Communication Collectives Library
-  desc: AMD 平台上与 NCCL API 一致的通信库
 - term: EPLB
   full: Expert Parallelism Load Balancer
+  zh: 专家并行负载均衡器
+  say: 逐字母 E-P-L-B
   desc: DeepSeek 的专家负载均衡，复制热门专家
-- term: MoRI
-  full: Modular RDMA Interface
-  desc: AMD 的 MoE 通信库
 - term: FP8
   full: 8-bit floating point
+  zh: 8 位浮点
+  say: 逐字母 F-P-8
   desc: 8 位浮点数
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行，把 MoE 的专家分到不同卡上
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行，每张卡一份完整模型
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行，按层切到不同卡上
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 软件栈
-- term: IPC
-  full: inter-process communication
-  desc: 进程间通信，这里指跨进程共享显存
-- term: GDR
-  full: GPUDirect RDMA
-  desc: 网卡直接读写显存的 RDMA
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘
 - term: SM
   full: streaming multiprocessor
+  zh: GPU 流多处理器
+  say: 逐字母 S-M
   desc: GPU 的计算单元，通信 kernel 也要占用
-- term: NVML
-  full: NVIDIA Management Library
-  desc: 查询 GPU 状态与拓扑的管理库
-- term: NVMe
-  full: Non-Volatile Memory Express
-  desc: 走 PCIe 的固态盘接口协议
-- term: DMA
-  full: direct memory access
-  desc: 设备不经 CPU 直接读写内存
-- term: GID
-  full: local identifier / global identifier
-  desc: InfiniBand 子网内地址 / 跨子网（RoCE 必用）地址
-- term: TCP
-  full: Transmission Control Protocol
-  desc: 传输控制协议，经内核协议栈
-- term: NDR
-  full: High Data Rate / Next Data Rate
-  desc: InfiniBand 的两代速率：200 / 400 Gb/s
-- term: P2P
-  full: peer-to-peer
-  desc: 设备之间直接互访，不经主机内存
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行，把一层的矩阵切到多张卡上
 - term: NIXL
   full: NVIDIA Inference Xfer Library
+  zh: NVIDIA 推理传输库
+  say: "「尼-克瑟」"
   desc: NVIDIA 的推理数据传输库，用来搬 KV cache
 - term: IB
   full: InfiniBand
+  zh: InfiniBand
+  say: 逐字母 I-B
   desc: InfiniBand 的简称
-- term: NUMA
-  full: non-uniform memory access
-  desc: 多路 CPU 下内存与设备按插槽分组，跨组更慢
 - term: RoCE
   full: RDMA over Converged Ethernet
+  zh: 以太网承载的 RDMA
+  say: "/ˈrɒki/「rocky」"
   desc: 在以太网上承载 RDMA
 - term: PD
   full: prefill–decode
+  zh: prefill–decode 分离
+  say: 逐字母 P-D
   desc: PD 分离：prefill 与 decode 放到不同节点上跑
-- term: ZeRO
-  full: Zero Redundancy Optimizer
-  desc: DeepSpeed 的分片优化器，去掉各卡上的冗余状态
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: NIC
-  full: network interface card
-  desc: 网卡
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: 主板上连接 GPU、网卡和 CPU 的总线
 - term: RDMA
   full: remote direct memory access
+  zh: 远程直接内存访问
+  say: 逐字母 R-D-M-A
   desc: 网卡直接读写远端内存，绕开对端 CPU 和内核
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: A/B
-  full: A/B testing
-  desc: 把流量随机分给两个版本，比较指标
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 先检索资料，再让模型据此回答
-- term: FSM
-  full: finite-state machine
-  desc: 有限状态机，每个状态对应一组允许的 token
-- term: LM
-  full: language model
-  desc: 语言模型；LM Eval 指 lm-eval 评测
 - term: PCP
   full: prefill context parallel
+  zh: prefill 上下文并行
+  say: 逐字母 P-C-P
   desc: 把一条长 prompt 的 prefill 切到多张卡上
 - term: AWQ
   full: Activation-aware Weight Quantization
+  zh: 激活感知权重量化
+  say: 逐字母 A-W-Q
   desc: 按激活大小保护关键权重的低比特量化方法
-- term: NPU
-  full: neural processing unit
-  desc: 神经网络专用处理器，这里指昇腾
 - term: CP
   full: context parallelism
+  zh: 上下文并行
+  say: 逐字母 C-P
   desc: 上下文并行：沿序列维切分长序列
-- term: 1F1B
-  full: one forward, one backward
-  desc: 流水线里前向、反向交替的调度方式
 - term: FP16
   full: 16-bit floating point
+  zh: 半精度浮点
+  say: 逐字母 F-P-16
   desc: 半精度浮点，5 位指数、10 位尾数
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
+  zh: NVIDIA 矩阵乘模板库
+  say: "「卡特拉斯」"
   desc: NVIDIA 的 C++ 矩阵乘模板库
 - term: H2D
   full: host to device
+  zh: 主机到设备
+  say: 逐字母 H-2-D
   desc: 主机内存拷到显存
-- term: CNN
-  full: convolutional neural network
-  desc: 卷积神经网络：局部感受野 + 权值共享
 - term: FFN
   full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
   desc: 前馈网络：Transformer block 里 attention 之后的子层
 - term: GELU
   full: Gaussian error linear unit
+  zh: 高斯误差线性单元
+  say: "/ˈdʒɛl.uː/「杰-路」"
   desc: 平滑的 ReLU 变体，GPT 时代的默认激活
 - term: MLP
   full: multi-layer perceptron
+  zh: 多层感知机
+  say: 逐字母 M-L-P
   desc: 多层感知机：线性层 + 非线性激活叠起来的网络
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把向量转一个角度
 - term: SiLU
   full: Sigmoid Linear Unit
+  zh: sigmoid 线性单元
+  say: "/ˈsaɪ.luː/「赛-路」"
   desc: x·sigmoid(x)，又叫 Swish；SwiGLU 的门控用它
 - term: SwiGLU
   full: Swish-Gated Linear Unit
+  zh: Swish 门控线性单元
+  say: "/ˈswɪɡ.luː/「斯威-glue」"
   desc: 用 SiLU 做门控的 FFN：两路相乘再降维
 - term: ViT
   full: Vision Transformer
+  zh: 视觉 Transformer
+  say: "/vɪt/「维特」"
   desc: 把图像切块当序列送进 Transformer
 - term: EAGLE
   full: "—"
+  zh: EAGLE 投机解码法
+  say: "/ˈiːɡəl/「伊-勾」"
   desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
 - term: GPTQ
   full: "—"
+  zh: GPTQ 量化方法
+  say: 逐字母 G-P-T-Q
   desc: 逐层用二阶信息补偿误差的训练后权重量化方法
 - term: INT4
   full: 4-bit integer
+  zh: 4 位整数量化
+  say: 逐字母 I-N-T-4
   desc: 均匀 16 格的 4 bit 整数量化
 - term: INT8
   full: 8-bit integer
+  zh: 8 位整数量化
+  say: 逐字母 I-N-T-8
   desc: 8 bit 整数量化，精度损失最小的低比特档
 - term: MLA
   full: multi-head latent attention
+  zh: 多头隐注意力
+  say: 逐字母 M-L-A
   desc: 把 KV 压成低秩隐向量的 attention，DeepSeek 用它
 - term: MTP
   full: multi-token prediction
+  zh: 多 token 预测
+  say: 逐字母 M-T-P
   desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
 - term: W4A16
   full: "—"
+  zh: 权重 4 位、激活 16 位量化
+  say: 逐字母 W-4-A-16
   desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
 - term: W8A8
   full: "—"
+  zh: 权重、激活均 8 位量化
+  say: 逐字母 W-8-A-8
   desc: 权重、激活都 8 bit 的量化档
-- term: BPE
-  full: byte-pair encoding
-  desc: 字节对编码：反复合并最常见的相邻 pair 得到词表
-- term: SSE
-  full: Server-Sent Events
-  desc: HTTP 上服务端单向推送的流式协议
-- term: QA
-  full: question answering
-  desc: 问答；抽取式 QA 从原文里划出答案
-- term: SGMV
-  full: Segmented Gather Matrix-Vector multiplication
-  desc: 按 adapter 分段、一次算完各组瘦矩阵乘的 kernel
-- term: BGMV
-  full: Batched Gather Matrix-Vector multiplication
-  desc: 每个请求取自己的 adapter 做矩阵–向量乘的 kernel
-- term: IR
-  full: intermediate representation
-  desc: 中间表示：编译器各阶段之间传递的程序形式
-- term: DFS
-  full: depth-first search
-  desc: 深度优先搜索
 - term: LLaVA
   full: large language and vision assistant
+  zh: 大语言视觉助手
+  say: "/ˈlɑːvə/「拉-瓦」"
   desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
-- term: SLO
-  full: service level objective
-  desc: 服务等级目标，如可用率、延迟的承诺值
 - term: TFLOPS
   full: tera floating point operations per second
+  zh: 每秒万亿次浮点运算
+  say: "「T-FLOPS」"
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
 - term: SXM
   full: Server PCI Express Module
+  zh: NVIDIA 板载模组形态
+  say: 逐字母 S-X-M
   desc: NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡
 - term: QKV
   full: query, key, value
+  zh: 注意力的三个投影
+  say: 逐字母 Q-K-V
   desc: 注意力的三个投影，常合并成一个矩阵
 - term: HBM
   full: high bandwidth memory
+  zh: 高带宽显存
+  say: 逐字母 H-B-M
   desc: GPU 上的高带宽显存
 - term: TFLOP
   full: tera floating point operations
+  zh: 万亿次浮点运算
+  say: "「T-FLOP」"
   desc: 10^12 次浮点运算
 - term: D2H
   full: device to host
+  zh: 设备到主机
+  say: 逐字母 D-2-H
   desc: 显存拷回主机内存
-- term: ZMQ
-  full: ZeroMQ
-  desc: 轻量消息库，常用来在进程间传控制消息
 - term: HCCL
   full: Huawei Collective Communication Library
+  zh: 华为集合通信库
+  say: 逐字母 H-C-C-L
   desc: 华为昇腾的集合通信库
-- term: LRU
-  full: least recently used
-  desc: 最近最少使用：先淘汰最久没用的
 - term: SRAM
   full: static random-access memory
+  zh: 片上静态存储
+  say: "「S-RAM」"
   desc: GPU 片上的小而快的存储
-- term: NeurIPS
-  full: Conference on Neural Information Processing Systems
-  desc: 机器学习顶级会议
 - term: TPOT
   full: time per output token
+  zh: 每输出 token 耗时
+  say: 逐字母 T-P-O-T
   desc: 每个输出 token 的耗时，decode 延迟指标
 - term: ITL
   full: inter-token latency
+  zh: token 间延迟
+  say: 逐字母 I-T-L
   desc: token 间延迟，同 TPOT
-- term: P99
-  full: 99th percentile
-  desc: 99 分位延迟
 - term: OOT
   full: out-of-tree
+  zh: 树外插件
+  say: 逐字母 O-O-T
   desc: 不编进主仓、作为插件加载的后端
 - term: MHA
   full: multi-head attention
+  zh: 多头注意力
+  say: 逐字母 M-H-A
   desc: 多头注意力：每个头独立算一份注意力再拼接
 - term: MQA
   full: multi-query attention
+  zh: 多查询注意力
+  say: 逐字母 M-Q-A
   desc: 所有 q 头共享一组 k、v 头的注意力变体

@@ -152,7 +152,7 @@ graph TD
 - 这是 NVIDIA GPU、AMD GPU，还是昇腾 NPU？
 - 底层使用 CUDA、HIP 还是 CANN？
 - 具体 Kernel 是哪个动态库？
-- 通信实现是 NCCL、RCCL 还是 HCCL？
+- 通信实现是 NCCL、RCCL（ROCm Communication Collectives Library，AMD 上的 NCCL 移植版）还是 HCCL？
 
 这些问题应该由平台层回答。
 

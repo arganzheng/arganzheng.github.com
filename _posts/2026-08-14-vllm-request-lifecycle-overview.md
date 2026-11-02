@@ -507,7 +507,7 @@ Table: 入口与引擎循环的源码导航
 
    <details markdown="1"><summary>答案</summary>
 
-   detokenize 是纯 CPU 且要维护每请求的字符串状态，放引擎里会拖慢 step；坑：BPE 的 token 边界与 UTF-8 字符边界不对齐，一个多字节字符可能跨两个 token，`IncrementalDetokenizer` 要缓存到能安全输出的完整字符再发。
+   detokenize 是纯 CPU 且要维护每请求的字符串状态，放引擎里会拖慢 step；坑：BPE（Byte Pair Encoding，字节对编码）的 token 边界与 UTF-8 字符边界不对齐，一个多字节字符可能跨两个 token，`IncrementalDetokenizer` 要缓存到能安全输出的完整字符再发。
 
    </details>
 

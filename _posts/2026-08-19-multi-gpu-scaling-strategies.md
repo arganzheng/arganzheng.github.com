@@ -34,7 +34,7 @@ Table: 五种并行策略的选择表
 
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
 
-这五种切法训练侧也全都在用，但训练多出三种状态——梯度、优化器状态、为反向保存的激活——所以训练侧还有 ZeRO / FSDP 这一族（切优化器状态与梯度），TP / PP / EP 也各多一半反向的通信。本篇只讲推理侧；训练侧的完整账（四种状态 × 六种切法、每 step 通信量、Llama 3 405B 的代入）在[大规模训练系列第二篇《并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html)，那篇开头有一张两侧逐项对照的表。
+这五种切法训练侧也全都在用，但训练多出三种状态——梯度、优化器状态、为反向保存的激活——所以训练侧还有 <span class="inline-tip" data-tip="Zero Redundancy Optimizer：零冗余优化器，把优化器状态/梯度/参数分片到各卡">ZeRO</span> / <span class="inline-tip" data-tip="Fully Sharded Data Parallel：全分片数据并行，PyTorch 自带的 ZeRO 式实现">FSDP</span> 这一族（切优化器状态与梯度），TP / PP / EP 也各多一半反向的通信。本篇只讲推理侧；训练侧的完整账（四种状态 × 六种切法、每 step 通信量、Llama 3 405B 的代入）在[大规模训练系列第二篇《并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html)，那篇开头有一张两侧逐项对照的表。
 
 下面按 DP → TP → PP → EP → CP 的顺序展开，再汇总为组合策略，最后进入多 GPU 推理的性能深水区——通信优化。
 
@@ -603,7 +603,7 @@ PP 既可以用于训练，也可以用于推理，但两者关注的问题不�
 - backward 梯度传递；
 - 多个 microbatch 的梯度累积；
 - 参数更新；
-- 1F1B 等调度策略；
+- 1F1B（one-forward-one-backward，前向/反向交错的微批调度）等调度策略；
 - 激活显存优化。
 
 训练 PP 的主要目标通常是：
