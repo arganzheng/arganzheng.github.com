@@ -1,73 +1,101 @@
 ---
-- term: AIME
-  full: American Invitational Mathematics Examination
-  desc: 美国数学邀请赛；推理模型评测常用的难题集
 - term: BoN
   full: best-of-n
+  zh: 同一 prompt 采 n 个回答、用 RM 挑…
+  say: "「BoN」"
   desc: 同一 prompt 采 n 个回答、用 RM 挑最好的那个
 - term: DAPO
   full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  zh: clip-higher、过滤全对 / 全错组等
+  say: D-A-P-O
   desc: GRPO 的改进：clip-higher、过滤全对/全错组等
 - term: DPO
   full: Direct Preference Optimization
+  zh: 直接偏好优化
+  say: 逐字母 D-P-O
   desc: 不训奖励模型、直接从偏好数据推 loss 的偏好训练方法
 - term: GAE
   full: generalized advantage estimation
+  zh: 在偏差与方差间折中的优势算法
+  say: G-A-E
   desc: 广义优势估计：在偏差与方差间折中的优势算法
 - term: GRPO
   full: Group Relative Policy Optimization
+  zh: 同一 prompt 采一组回答
+  say: G-R-P-O
   desc: 用组内均值替代价值模型的策略梯度方法
-- term: GSM8K
-  full: Grade School Math 8K
-  desc: 小学数学文字题 benchmark，8.5K 题
 - term: IPO
   full: Identity Preference Optimization
+  zh: DPO 的变体
+  say: I-P-O
   desc: DPO 的变体，防止确定性偏好下过拟合
 - term: KL
   full: Kullback–Leibler divergence
+  zh: KL 散度
+  say: 逐字母 K-L
   desc: 衡量两个分布差多少；RL 里约束策略别离参考太远
 - term: KTO
   full: Kahneman–Tversky Optimization
+  zh: 只要单样本好坏标签、不要成对偏好的方法
+  say: K-T-O
   desc: 只要单样本好坏标签、不要成对偏好的方法
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结主干、只训低秩增量的微调方法
-- term: MMLU
-  full: Massive Multitask Language Understanding
-  desc: 57 学科的多选题 benchmark
 - term: NLL
   full: negative log-likelihood
+  zh: 负对数似然
+  say: N-L-L
   desc: 负对数似然，SFT 实际优化的 loss
 - term: ORM
   full: outcome reward model
+  zh: 只看最终答案对错的奖励模型
+  say: O-R-M
   desc: 只看最终答案对错的奖励模型
 - term: ORPO
   full: Odds Ratio Preference Optimization
+  zh: 把偏好项并入 SFT loss、不用参考模型的方…
+  say: O-R-P-O
   desc: 把偏好项并入 SFT loss、不用参考模型的方法
 - term: PPO
   full: Proximal Policy Optimization
+  zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
+  say: P-P-O
   desc: 带裁剪目标、防步子过大的策略梯度方法
 - term: PRM
   full: process reward model
+  zh: 逐步给推导打分的 RM
+  say: P-R-M
   desc: 过程奖励模型：逐步给推导打分的 RM
 - term: REINFORCE
   full: "—"
+  zh: loss = −A·log π
+  say: R-E-I-N-F-O-R-C-E
   desc: 最早的策略梯度算法，用 score function 估计梯度
 - term: RLHF
   full: reinforcement learning from human feedback
+  zh: 基于人类反馈的强化学习
+  say: R-L-H-F
   desc: 用人类反馈的奖励做强化学习微调
 - term: RLOO
   full: REINFORCE Leave-One-Out
+  zh: 用组内留一均值做 baseline 的 REIN…
+  say: R-L-O-O
   desc: 用组内留一均值做 baseline 的 REINFORCE
 - term: RLVR
   full: RL with verifiable rewards
+  zh: 用可验证奖励（数学答案、代码测试）做的强化学习
+  say: R-L-V-R
   desc: 用可验证奖励（数学答案、代码测试）做的强化学习
 - term: RM
   full: reward model
+  zh: 奖励模型
+  say: R-M
   desc: 奖励模型，给回答打分的小模型
 - term: SFT
   full: supervised fine-tuning
+  zh: 监督微调
+  say: 逐字母 S-F-T
   desc: 用标注答案做监督微调
-- term: verl
-  full: Volcano Engine Reinforcement Learning
-  desc: 字节开源的 LLM 强化学习训练框架
