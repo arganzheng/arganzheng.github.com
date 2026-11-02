@@ -444,7 +444,7 @@ LoRA、量化、内存管理以及平台特有的执行组件，也可能走类�
 
 | 后端 | Platform 类 | Worker / ModelRunner | Attention Backend | `import_kernels()` 加载 | Device Communicator |
 |---|---|---|---|---|---|
-| CUDA | `CudaPlatform`（`cuda.py`，按 NVML 可用性选 `NvmlCudaPlatform` / `NonNvmlCudaPlatform`） | `gpu_worker.Worker` + `GPUModelRunner` | FlashAttention / FlashInfer / Triton 等，按 compute capability 与配置排优先级 | `_C_stable_libtorch`、`_moe_C_stable_libtorch`、可选 `_qutlass_C` | `CudaCommunicator`（NCCL） |
+| CUDA | `CudaPlatform`（`cuda.py`，按 <span class="inline-tip" data-tip="NVIDIA Management Library：查询 GPU 状态与拓扑的管理库">NVML</span> 可用性选 `NvmlCudaPlatform` / `NonNvmlCudaPlatform`） | `gpu_worker.Worker` + `GPUModelRunner` | FlashAttention / FlashInfer / Triton 等，按 compute capability 与配置排优先级 | `_C_stable_libtorch`、`_moe_C_stable_libtorch`、可选 `_qutlass_C` | `CudaCommunicator`（NCCL） |
 | ROCm | `RocmPlatform`（`rocm.py`） | 复用 `gpu_worker.Worker` + `GPUModelRunner` | `ROCM_AITER_FA` / `ROCM_ATTN` / `TRITON_ATTN` 等 | 继承 CUDA 列表，再加 `_rocm_C` | 复用 `CudaCommunicator`（底层为 RCCL） |
 | CPU | `CpuPlatform`（`cpu.py`；`ZenCpuPlatform` 子类） | `CPUWorker` + `CPUModelRunner` | 固定 `CPU_ATTN`（`CPUAttentionBackend`） | `_C`（按 AVX2 / AVX512 选库） | `CpuCommunicator` |
 | XPU | `XPUPlatform`（`xpu.py`） | `XPUWorker` + `XPUModelRunner` | `FLASH_ATTN` / `TRITON_ATTN` 等 | 只导入 `_moe_C`，不导入 `_C` | `XpuCommunicator`（XCCL） |

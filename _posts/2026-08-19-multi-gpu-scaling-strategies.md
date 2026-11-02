@@ -1720,7 +1720,7 @@ CPU-GPU 通信通常经过 PCIe。典型数据包括：
 |---|---:|---|
 | NVLink / NVSwitch | 数百 GB/s，具体取决于 GPU、代际和拓扑 | 通常是机内 GPU 通信的首选路径 |
 | PCIe Gen5 x16 | 约 64 GB/s，单向理论值 | 实际有效带宽低于理论值 |
-| InfiniBand NDR 400 Gb/s | 约 50 GB/s，原始线速折算 | 实际有效带宽受协议和实现影响 |
+| InfiniBand <span class="inline-tip" data-tip="Next Data Rate：InfiniBand 速率代际，NDR = 400 Gb/s">NDR</span> 400 Gb/s | 约 50 GB/s，原始线速折算 | 实际有效带宽受协议和实现影响 |
 | RoCE | 取决于网卡和网络配置 | 对拥塞控制、交换机配置更敏感 |
 
 Table: 典型链路的带宽量级
@@ -1895,7 +1895,7 @@ NCCL 的调优应遵循“先确认拓扑，再定位瓶颈，最后修改参数
 | `NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET` | 限定调试信息类别 | 查看拓扑和网络选择 |
 | `NCCL_SOCKET_IFNAME` | 指定 Socket 网卡接口 | 多网卡环境中明确通信网卡 |
 | `NCCL_IB_HCA` | 指定 InfiniBand HCA | 多 HCA 环境中避免选错设备 |
-| `NCCL_IB_GID_INDEX` | 指定 RoCE GID | 按实际网络配置设置 |
+| `NCCL_IB_GID_INDEX` | 指定 RoCE <span class="inline-tip" data-tip="Global Identifier：InfiniBand 跨子网（RoCE 必用）地址">GID</span> | 按实际网络配置设置 |
 | `NCCL_P2P_LEVEL` | 控制 GPU P2P 的使用范围 | 不建议无依据修改 |
 | `NCCL_NET_GDR_LEVEL` | 控制 GPUDirect RDMA 使用条件 | 跨节点排查时关注 |
 | `NCCL_ALGO` | 指定通信算法 | 适合基准测试和针对性实验 |
@@ -2080,7 +2080,7 @@ NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET
 | 小消息延迟高 | 启动和同步开销占比高 | Stream、调用次数、CustomAllreduce |
 | 大消息带宽低 | 链路未充分利用 | 拓扑、算法、协议、消息切分 |
 | 机内通信慢 | NVLink/P2P 未生效 | `nvidia-smi topo -m`、NCCL 日志 |
-| 跨节点通信慢 | 网络或 GDR 配置问题 | NIC、HCA、GPUDirect RDMA |
+| 跨节点通信慢 | 网络或 <span class="inline-tip" data-tip="GPUDirect RDMA：网卡直接读写显存的 RDMA">GDR</span> 配置问题 | NIC、HCA、GPUDirect RDMA |
 | NCCL 测试正常但端到端慢 | 应用依赖未重叠 | CUDA Event、Stream 和算子依赖 |
 | MoE 通信抖动明显 | Token 分布不均 | 路由、Expert 负载和 Token 分桶 |
 | Decode 吞吐低 | 小消息和同步占主导 | 通信融合、低延迟实现和批处理 |

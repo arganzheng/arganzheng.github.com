@@ -396,7 +396,7 @@ vLLM 的多级 KV 复用 `KVConnector` 这同一个抽象：`offloading_connecto
 | PD 分离的形态 | `KVConnector` 钩子 + 普通实例 | `disaggregation/` 模块 + `--disaggregation-mode` |
 | P / D 配对与路由 | 外部 proxy | `sgl-model-gateway` 原生，`bootstrap_room` |
 | D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（第九篇） | `PreallocQueue` → `TransferQueue` 两级队列 |
-| 传输实现 | NIXL、Mooncake、LMCache、MoRI IO 等 connector | Mooncake（默认）、NIXL、Mori、Ascend |
+| 传输实现 | NIXL、Mooncake、LMCache、<span class="inline-tip" data-tip="Modular RDMA Interface：AMD 的 MoE 通信库">MoRI</span> IO 等 connector | Mooncake（默认）、NIXL、Mori、Ascend |
 | CPU 卸载 | `offloading_connector.py` | `HiRadixCache`（L2） |
 | 外部存储 | LMCache、Mooncake、HF3FS connector | `mem_cache/storage/` 多个 backend（L3） |
 
@@ -429,7 +429,7 @@ Table: 解码扩展的清单对照
 |---|---|---|
 | OpenAI 兼容 API | chat / completions / responses（`entrypoints/openai/`），embed / classify / score 在 `entrypoints/pooling/`，transcription 在 `speech_to_text/`；另有 Anthropic、Cohere 兼容入口 | chat / completions / responses / embedding / rerank / score / classify / tokenize / transcription（`entrypoints/openai/`）；另有 Anthropic、Ollama 兼容入口 |
 | 原生 API | `LLM` / `AsyncLLM` Python 类，gRPC server | `/generate` HTTP 接口、`Engine` 类、gRPC server |
-| 网关 / 路由 | 外部项目（production-stack、llm-d、AIBrix 等） | `sgl-model-gateway`（Rust）：worker 注册、cache-aware / power-of-two 负载均衡、PD 路由、重试与熔断、多模型、MCP |
+| 网关 / 路由 | 外部项目（production-stack、llm-d、AIBrix 等） | `sgl-model-gateway`（Rust）：worker 注册、cache-aware / power-of-two 负载均衡、PD 路由、重试与熔断、多模型、<span class="inline-tip" data-tip="Model Context Protocol：模型客户端连接工具服务器的开放协议">MCP</span> |
 | 硬件 | `platforms/`：CUDA、ROCm、TPU、XPU、CPU；外部插件（Ascend 等） | `hardware_backend/`：GPU（CUDA / ROCm）、NPU、XPU、MUSA、CPU、MLX |
 | 模型清单 | `model_executor/models/` 287 个 `.py` | `models/` 216 个 `.py` |
 | 指标 | Prometheus `/metrics`，`vllm bench` | Prometheus `/metrics`，`sglang.bench_serving` |
