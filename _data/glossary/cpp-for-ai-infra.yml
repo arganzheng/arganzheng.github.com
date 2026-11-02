@@ -1,157 +1,136 @@
 ---
-- term: RFC
-  full: Request for Comments
-  desc: IETF 发布互联网标准的文档系列
-- term: LSP
-  full: Language Server Protocol
-  desc: 编辑器与语言服务器之间的协议，MCP 借鉴了它
-- term: gRPC
-  full: gRPC Remote Procedure Calls
-  desc: Google 开源的 RPC 框架，用 Protobuf 编码
-- term: OOM
-  full: out of memory
-  desc: 内存耗尽
-- term: GIL
-  full: global interpreter lock
-  desc: 全局解释器锁，同一时刻只有一个线程跑 Python 字节码
-- term: JDK
-  full: Java Development Kit
-  desc: Java 的开发工具包，含编译器与运行时
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 软件栈
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: ABI
-  full: application binary interface
-  desc: 二进制接口，编译产物之间的调用约定
-- term: AD
-  full: automatic differentiation
-  desc: 自动微分；forward AD 指前向模式
-- term: BC
-  full: backward compatibility
-  desc: 向后兼容；BC-breaking 指破坏旧用法的改动
-- term: AOT
-  full: ahead-of-time
-  desc: 提前编译；这里指 torch.compile 的 AOT 缓存
 - term: RAII
   full: resource acquisition is initialization
+  zh: C++ 用对象生命周期管理资源的惯用法
+  say: R-A-I-I
   desc: C++ 用对象生命周期管理资源的惯用法
-- term: OpenMP
-  full: Open Multi-Processing
-  desc: C/C++ 共享内存多线程并行的编译指令标准
-- term: GC
-  full: garbage collection
-  desc: 垃圾回收：自动释放不再可达的对象
 - term: CRTP
   full: curiously recurring template pattern
+  zh: C++ 派生类把自己当模板参数传给基类的写法
+  say: C-R-T-P
   desc: C++ 派生类把自己当模板参数传给基类的写法
 - term: SASS
   full: "—（NVIDIA 未给出官方全称）"
+  zh: NVIDIA GPU 真正执行的机器指令
+  say: S-A-S-S
   desc: NVIDIA GPU 真正执行的机器指令
-- term: ISA
-  full: instruction set architecture
-  desc: 指令集架构
-- term: AST
-  full: abstract syntax tree
-  desc: 抽象语法树：源码解析后的树形结构
-- term: JIT
-  full: just-in-time compilation
-  desc: 运行时即时编译
 - term: PTX
   full: Parallel Thread Execution
+  zh: NVIDIA 的虚拟 GPU 指令集
+  say: P-T-X
   desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
-- term: LLVM
-  full: "—（最初是 Low Level Virtual Machine，现已不作缩写）"
-  desc: 通用编译器基础设施，CPU / GPU 后端共用
-- term: PEP
-  full: Python Enhancement Proposal
-  desc: Python 的改进提案，语言和生态规范都以它为准
-- term: PyPI
-  full: Python Package Index
-  desc: 官方的 Python 包仓库，types-* 存根包也发在这里
-- term: XML
-  full: Extensible Markup Language
-  desc: Office 文件内部用的标记格式
 - term: TLS
   full: thread-local storage
+  zh: 每个线程各有一份的变量
+  say: T-L-S
   desc: 线程局部存储：每个线程各有一份的变量
-- term: GCC
-  full: GNU Compiler Collection
-  desc: GNU 的 C/C++ 编译器
-- term: JNI
-  full: Java Native Interface
-  desc: Java 调 C/C++ 代码的接口
 - term: ODR
   full: one definition rule
+  zh: 同一实体全程序只能有一处定义
+  say: O-D-R
   desc: 单一定义规则：同一实体全程序只能有一处定义
 - term: RPATH
   full: run-time search path
+  zh: 可执行文件里写死的动态库搜索路径
+  say: R-P-A-T-H
   desc: 可执行文件里写死的动态库搜索路径
-- term: MSVC
-  full: Microsoft Visual C++
-  desc: 微软的 C++ 编译器
 - term: NRVO
   full: named return value optimization
+  zh: 返回局部变量省掉拷贝
+  say: N-R-V-O
   desc: 具名返回值优化：返回局部变量省掉拷贝
 - term: RVO
   full: return value optimization
+  zh: 返回值优化的统称
+  say: R-V-O
   desc: 返回值优化的统称，NRVO 是常见情形
 - term: SFINAE
   full: substitution failure is not an error
+  zh: 模板替换失败不算错、换下一个候选重载的规则
+  say: S-F-I-N-A-E
   desc: 模板替换失败不算错、换下一个候选重载的规则
-- term: MKL
-  full: Math Kernel Library
-  desc: Intel 的数学计算库，PyTorch 的 CPU 算子走它
-- term: UB
-  full: undefined behavior
-  desc: 未定义行为：标准没规定的写法，结果任意
 - term: IIFE
   full: immediately invoked function expression
+  zh: 定义完立刻调用的函数表达式
+  say: I-I-F-E
   desc: 定义完立刻调用的函数表达式
 - term: RUNPATH
   full: "—"
+  zh: ELF 里另一种动态库搜索路径字段
+  say: R-U-N-P-A-T-H
   desc: ELF 里另一种动态库搜索路径字段，优先级低于 RPATH
 - term: AVX2
   full: Advanced Vector Extensions 2
+  zh: Intel 的 256 位 SIMD 指令集
+  say: A-V-X 2
   desc: Intel 的 256 位 SIMD 指令集
 - term: AVX
   full: Advanced Vector Extensions
+  zh: Intel 的 SIMD 指令集总称
+  say: A-V-X
   desc: Intel 的 SIMD 指令集总称
 - term: AVX512
   full: Advanced Vector Extensions 512
+  zh: 512 位的 AVX 指令集
+  say: A-V-X 512
   desc: 512 位的 AVX 指令集
 - term: SIMD
   full: single instruction, multiple data
+  zh: 一条指令算一批元素
+  say: S-I-M-D
   desc: 单指令多数据：一条指令算一批元素
 - term: HIP
   full: "—"
+  zh: AMD 的类 CUDA 编程接口
+  say: H-I-P
   desc: AMD 的类 CUDA 编程接口，ROCm 用它
 - term: RTTI
   full: run-time type information
+  zh: 运行时类型信息
+  say: R-T-T-I
   desc: 运行时类型信息，dynamic_cast 靠它
-- term: ELF
-  full: Executable and Linkable Format
-  desc: Linux 的可执行文件与动态库格式
 - term: DWARF
   full: "—"
+  zh: ELF 里的调试信息格式
+  say: D-W-A-R-F
   desc: ELF 里的调试信息格式
 - term: POD
   full: plain old data
+  zh: 可以按位拷贝的普通数据类型
+  say: P-O-D
   desc: 可以按位拷贝的普通数据类型
 - term: SONAME
   full: shared object name
+  zh: 动态库的 soname
+  say: S-O-N-A-M-E
   desc: 动态库的 soname，链接时记进依赖
 - term: JDWP
   full: Java Debug Wire Protocol
+  zh: Java 调试器 attach 用的协议
+  say: J-D-W-P
   desc: Java 调试器 attach 用的协议
 - term: CTAD
   full: class template argument deduction
+  zh: 类模板参数推导
+  say: C-T-A-D
   desc: 类模板参数推导，C++17 起
 - term: JMM
   full: Java Memory Model
+  zh: 规定多线程间的可见性
+  say: J-M-M
   desc: Java 内存模型：规定多线程间的可见性
 - term: CAS
   full: compare-and-swap
+  zh: 比较并交换
+  say: C-A-S
   desc: 比较并交换，无锁并发的基础指令

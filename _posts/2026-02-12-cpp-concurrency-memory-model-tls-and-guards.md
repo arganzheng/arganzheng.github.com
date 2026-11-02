@@ -911,7 +911,7 @@ struct TORCH_API AutoDispatchBelowADInplaceOrView {
 | 守卫 | 管理的状态 | 存储位置 | 定义文件 |
 |---|---|---|---|
 | `c10::AutoGradMode` / `NoGradGuard` | grad mode | TLS `autograd_state_tls` | `c10/core/GradMode.h` |
-| `c10::AutoFwGradMode` | forward-mode AD 开关 | 同上 | `c10/core/GradMode.h` |
+| `c10::AutoFwGradMode` | forward-mode <span class="inline-tip" data-tip="automatic differentiation，自动微分">AD</span> 开关 | 同上 | `c10/core/GradMode.h` |
 | `c10::InferenceMode` | grad mode + dispatch key set | 两份 TLS | `c10/core/InferenceMode.h` |
 | `c10::impl::IncludeDispatchKeyGuard` / `ExcludeDispatchKeyGuard` | dispatch key 的 included/excluded 集合 | TLS `raw_local_dispatch_key_set` | `c10/core/impl/LocalDispatchKeySet.h` |
 | `c10::impl::ForceDispatchKeyGuard` | 整份 dispatch key set 快照 | 同上 | 同上 |
