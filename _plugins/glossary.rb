@@ -123,7 +123,8 @@ module Glossary
       e = s[:entry]
       full = e['full'].to_s.strip
       zh = e['zh'].to_s.strip
-      tip = "**#{e['term']}**#{full == '—' || full.empty? ? '' : "（#{full}）"}#{zh.empty? ? '' : "（#{zh}）"}：#{e['desc']}"
+      name = [full == '—' || full.empty? ? nil : full, zh.empty? ? nil : zh].compact.join('，')
+      tip = "**#{e['term']}**#{name.empty? ? '' : "（#{name}）"}：#{e['desc']}"
       url = e['see'].to_s.empty? ? "#{overview}#glossary" : e['see']
       span = %(<span class="inline-tip glossary-term" data-tip="#{esc_attr(tip)}" data-url="#{esc_attr(url)}">#{s[:text]}</span>)
       html[s[:range]] = span.b
