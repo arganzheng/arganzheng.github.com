@@ -39,7 +39,7 @@ Table: 从 RNN 到 attention 的四个节点
 | 七 | RNN 的两个致命缺点与 Transformer 的回答 | 串行 vs 并行（实测硬件利用率差 4.5 倍）、路径长度、`O(n²)` 的代价、RNN 的回声 |
 | 九 | 案例：字符级 LSTM 写莎士比亚 | 与 Transformer 系列第五篇的 nanoGPT 同一份语料、同一预算：val loss 1.71 vs 1.66<br/>生成样例<br/>seq2seq + attention 的对齐矩阵热力图<br/>其余实验的代码与结果 |
 | 九 | 本文小结 |  |
-| 十 | 自测 | 5 道题 |
+| 十 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -119,6 +119,22 @@ Table: RNN 梯度随距离的衰减实测
 
 即使 $$W$$ 的最大奇异值接近 3（$$c = 1.5$$），tanh 的导数把它拉回来：以距离 0 的 8.0 为基准，20 步之外的梯度只剩 $$0.40 / 8 = 5\%$$，40 步外是 $$7.3 \times 10^{-3} / 8 \approx 0.09\%$$（表里的数是绝对值，比例要除以 8）。$$c = 1.0$$（标准初始化）时 20 步外是 $$4.0 \times 10^{-3} / 8 = 0.05\%$$，60 步外是 $$10^{-11}$$ 量级。这就是"RNN 记不住 20 步之外的东西"的全部含义：不是它的状态装不下，是**训练信号传不到那么远**——第 $$t$$ 步的输入对 loss 的影响梯度几乎为零，$$U$$ 与 $$W$$ 学不到"保留第 $$t$$ 步信息"这件事。另一边，$$W$$ 稍大就会爆炸；Pascanu 等 2013 系统分析了这两种失败，并提出用梯度裁剪对付爆炸——《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「梯度裁剪」介绍了今天 LLM 训练的这个标配，它最初就是为 RNN 发明的。
 
+再用一个标量 RNN 把这条连乘摆成曲线：$$h_t = \tanh(w h_{t-1} + u x_t)$$、$$T=30$$，每个 $$w$$ 一条线，$$\partial h_T/\partial h_t = \prod w\cdot\tanh'$$：
+
+![标量 RNN 的 BPTT 梯度随距离衰减：横轴距离 T−t、纵轴对数刻度，w=0.5 的线 10 步掉到 1e-6 以下，w=1.5 到 20 步也只剩 1e-9 上下——再大的 w 也被 tanh' 拉回](/img/in-post/rnn-bptt-decay.svg)
+
+```text title='标量与矩阵版的连乘衰减（case_10_rnn_toys.py bptt-decay）'
+ w=0.5  ∂h_T/∂h_t 随 T−t：0:1.00e+00  5:3.15e-03  10:6.03e-06  20:1.73e-13  30:8.49e-19
+ w=0.9  ∂h_T/∂h_t 随 T−t：0:1.00e+00  5:3.07e-02  10:3.11e-04  20:3.12e-11  30:2.70e-14
+ w=1.0  ∂h_T/∂h_t 随 T−t：0:1.00e+00  5:4.59e-02  10:5.17e-04  20:4.07e-11  30:6.66e-14
+ w=1.5  ∂h_T/∂h_t 随 T−t：0:1.00e+00  5:4.56e-01  10:3.36e-02  20:3.04e-10  30:3.51e-13
+ 谱半径=0.9: ‖J‖ 距离1=3.37e+00 10=1.60e-01 20=4.56e-03 30=4.63e-04
+ 谱半径=1.0: ‖J‖ 距离1=3.35e+00 10=5.92e-01 20=5.63e-02 30=9.25e-03
+ 谱半径=1.5: ‖J‖ 距离1=4.26e+00 10=2.69e+00 20=2.31e+00 30=1.74e+01
+```
+
+读数：标量版里即使 $$w=1.5$$，20 步外也只剩 $$10^{-10}$$ 量级——tanh' 把连乘拉回；但 $$d=16$$ 的矩阵版在谱半径 1.5 时沿某些方向增长到 17.4：标量只能看到一条曲线，矩阵里各方向的连乘是谱半径控制的，既有衰减的方向也有放大的方向，这正是「消失与爆炸同时存在」。
+
 ### 3. 实测：记忆长度
 
 一个直接的任务：随机 token 序列，要求在第 $$T$$ 步输出**第一个** token。信息必须穿过 $$T$$ 步。第八章的结果（Adam、裁剪、1500 步，之后延长到 6000 步）：
@@ -187,6 +203,21 @@ flowchart LR
 ```
 
 黄色是细胞状态 $$c$$ 走的那条路：从 $$c_{t-1}$$ 到 $$c_t$$ 只经过一次逐元素乘（遗忘门）和一次加法，没有矩阵乘、没有 tanh——下一节说它为什么就是残差。四组权重（$$f, i, c, o$$），每组 $$d \times 2d$$，参数量是 vanilla RNN 的 4 倍。GRU（Cho 等 2014）合并成两个门、去掉独立的细胞状态，参数 3 倍，效果相近。
+
+给这套门放一组具体的数字走一遍：$$f=0.9, i=0.2, \tilde c=0.5, o=0.8$$、$$c_{t-1}=1.0$$——
+
+![LSTM 一个时间步的数字流：c_{t−1}=1.0 先乘遗忘门 0.9，再加输入门写进来的 0.2×0.5=0.1，得到 c_t=1.0；tanh 后乘输出门 0.8 得 h_t=0.61](/img/in-post/rnn-lstm-cell.svg)
+
+```text title='单步数字流与遗忘门的长程衰减（case_10_rnn_toys.py lstm-gate）'
+  f·c_{t-1} = 0.9×1.0 = 0.9
+  i·g        = 0.2×0.5 = 0.1
+  c_t = 0.9 + 0.1 = 1.0
+  h_t = o·tanh(c_t) = 0.8×0.7616 = 0.6093
+== f≈1 时 ∂c_T/∂c_t = ∏f，30 步：
+  0.9^30 = 0.0424   0.99^30 = 0.7397
+```
+
+读数：恰好 $$c_t = 1.0$$ 纯属这组手工门值的巧合（$$0.9 + 0.1$$），但两条支路的分工是真实的——遗忘门缩放旧状态，输入门决定写入多少；$$c$$ 从 $$c_{t-1}$$ 到 $$c_t$$ 只经过「乘 $$f$$ → 加 $$i\cdot\tilde c$$」。而 $$0.9^{30}=0.042$$ vs $$0.99^{30}=0.740$$ 说明 $$f$$ 从 0.9 到 0.99 之间隔着 17 倍的残存梯度：遗忘门偏置初始化为 1 就是为了让这条通路一开始打开（下一节）。
 
 ### 2. 细胞状态的更新式就是残差
 
@@ -406,7 +437,7 @@ for t in range(T, 0, -1):
 
 - **案例**：与 nanoGPT 同一份莎士比亚、同一预算，2 层 LSTM val loss 1.71 vs 1.66——这个规模上看不出 Transformer 的优势，差别在顺序 vs 并行；倒序任务的对齐矩阵是一条反对角线（偏一格），从数据里学出来的。
 
-配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)（`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验）与 [`case_06_char_lstm_and_alignment.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_char_lstm_and_alignment.py)（第八章案例，MPS 上半分钟）。
+配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)（`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验）、[`case_10_rnn_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_10_rnn_toys.py)（`bptt-decay` / `lstm-gate` 两个玩具与本文插图）与 [`case_06_char_lstm_and_alignment.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_char_lstm_and_alignment.py)（第八章案例，MPS 上半分钟）。
 
 本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；[Transformer 原理与实现（01）](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
 
@@ -449,6 +480,14 @@ for t in range(T, 0, -1):
    <details markdown="1"><summary>答案</summary>
 
    训练时 RNN 是串行的（$$T$$ 步依赖），Transformer 全部位置并行，同样算力下能训的数据多几倍；任意两个位置之间的路径长度 RNN 是 $$O(n)$$、attention 是 1，长依赖直接可学。推理侧的 $$O(n)$$ 用 KV cache 与系统优化（现代 LLM 结构系列）换回来；SSM / 线性 attention 在试图两头都要。
+
+   </details>
+
+6. 遗忘门恒为 $$f = 0.99$$，沿细胞状态经过 100 步，梯度还剩多少？为什么是恒等通路？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\partial c_T / \partial c_t = f^{100} = 0.99^{100} \approx 0.366$$——一百步后还剩三分之一；对比 vanilla RNN 标准初始化下 20 步就剩千分之四、60 步 $$10^{-10}$$。因为沿 $$c$$ 的 Jacobian 第一项是 $$\text{diag}(f)$$，$$f \approx 1$$ 时它近似恒等矩阵：每步只乘一次逐元素的门，不经过权重矩阵与 tanh（[第四章](#四lstm-与-gru)）。
 
    </details>
 
