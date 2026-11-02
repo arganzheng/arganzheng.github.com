@@ -120,7 +120,7 @@ xychart-beta
 |---|---|---|---|
 | HNSW | 多层图，贪心导航 | 百万级、高召回、低延迟；多数向量库的默认 | 内存驻留（每向量几百字节到几 KB）；构建慢 |
 | IVF（倒排文件） | 聚类成若干桶，查最近的几个桶 | 千万到亿级、可放磁盘 | 召回随桶数权衡；聚类要重训 |
-| 量化（PQ / SQ / 二值） | 压缩向量（int8、二值） | 降内存与带宽 4–32 倍 | 精度损失；配 rerank 弥补 |
+| 量化（<span class="inline-tip" data-tip="product quantization / scalar quantization，乘积量化 / 标量量化">PQ / SQ</span> / 二值） | 压缩向量（int8、二值） | 降内存与带宽 4–32 倍 | 精度损失；配 rerank 弥补 |
 | DiskANN 一类 | 图 + 磁盘 | 十亿级单机 | 延迟比内存 HNSW 高 |
 
 Table: ANN 索引结构对照
@@ -199,7 +199,7 @@ flowchart LR
 
 ### 3. 三路
 
-BGE-M3 一类模型同时输出稠密向量、稀疏（学习到的词权重，类似 SPLADE）与多向量（ColBERT 式）；三路 RRF 在多语言语料上常再提一截。代价是索引与查询成本三倍。
+BGE-M3 一类模型同时输出稠密向量、稀疏（学习到的词权重，类似 SPLADE（SParse Lexical AnD Expansion model，学出词权重的稀疏检索模型））与多向量（ColBERT 式）；三路 RRF 在多语言语料上常再提一截。代价是索引与查询成本三倍。
 
 ## 五、rerank
 
