@@ -210,9 +210,9 @@ Table: 贯穿十篇的三条线索
 这一篇会覆盖：
 
 - 最小二乘、交叉熵、Huber、focal、InfoNCE、DPO 各自的概率假设与适用任务；
-- 分类不用 MSE 的梯度原因：MSE 对 logit 的梯度多乘一个 $$\sigma'(z)$$，$$z=-6$$ 时只剩 CE 的 $$1/405$$，饱和区基本不学；
+- 分类不用 MSE 的梯度原因：MSE 对 logit 的梯度多乘一个 $$\sigma'(z)$$，$$z=-6$$ 时只剩 CE 的 $$1/405$$，饱和区基本不学；而 softmax + 平均交叉熵对 logit 的梯度 $$G_Z = (P - Y)/m$$，正是下一篇反向传播的起点；
 - 不均衡与过度自信的两种修法：weighted CE 与 focal 的 $$(1-p_t)^\gamma$$、label smoothing 的有限最优点；
-- 语言模型的初始 loss $$\approx \ln V$$ 与 z-loss，对比学习的 InfoNCE，偏好学习的 Bradley–Terry 与 DPO——它的 $$G_Z = (P - Y)/m$$ 正是下一篇反向传播的起点。
+- 语言模型的初始 loss $$\approx \ln V$$ 与 z-loss，对比学习的 InfoNCE，偏好学习的 Bradley–Terry 与 DPO。
 
 案例在同一份 MNIST 上跑三个对照实验（784-256-10 两层 MLP、SGD、一个 epoch）：CE 94.50% 对 MSE 91.40%，前 50 步梯度范数差 3 倍；类 9 砍到 0.2% 时 focal 把少数类召回从 7.4% 拉到 21.6%；label smoothing 把平均置信度 93.6% 压到 81.4%。
 
