@@ -1,118 +1,146 @@
 ---
 - term: AdamW
   full: Adam with decoupled weight decay
+  zh: Adam 加解耦权重衰减
+  say: "「亚当-W」"
   desc: 把 weight decay 从梯度里拆出来的 Adam
 - term: ARI
   full: adjusted Rand index
+  zh: 调整兰德指数
+  say: A-R-I
   desc: 调整兰德指数，聚类结果与真实标签的一致程度，修正了随机一致
 - term: AUC
   full: area under the curve
+  zh: ROC 曲线下面积
+  say: A-U-C
   desc: ROC 曲线下面积，阈值无关的排序质量指标
-- term: BLAS
-  full: Basic Linear Algebra Subprograms
-  desc: 底层线性代数库接口
 - term: DBSCAN
   full: Density-Based Spatial Clustering of Applications with Noise
+  zh: 核心是找密集连通块
+  say: D-B-S-C-A-N
   desc: 按密度聚类：核心是找密集连通块，噪声点不算类
 - term: DPO
   full: Direct Preference Optimization
+  zh: 直接偏好优化
+  say: 逐字母 D-P-O
   desc: 直接偏好优化，不训奖励模型、直接用偏好对训策略
 - term: ECE
   full: expected calibration error
+  zh: 期望校准误差
+  say: E-C-E
   desc: 期望校准误差，预测概率和实际频率的差
-- term: FICO
-  full: Fair Isaac Corporation
-  desc: 美国信用评分公司，FICO 分是逻辑回归的经典应用
 - term: GBDT
   full: gradient-boosted decision tree
+  zh: 串行加树、每棵拟合残差
+  say: G-B-D-T
   desc: 梯度提升树：串行加树、每棵拟合残差
 - term: GD
   full: gradient descent
+  zh: 梯度下降
+  say: G-D
   desc: 梯度下降，沿负梯度一步步走
-- term: GSM8K
-  full: Grade School Math 8K
-  desc: 约 8.5K 道小学数学应用题的 benchmark
 - term: KNN
   full: k-nearest neighbors
+  zh: k 近邻
+  say: K-N-N
   desc: k 近邻，按最近的 k 个样本预测
-- term: LAPACK
-  full: Linear Algebra PACKage
-  desc: 建在 BLAS 上的矩阵分解与解方程库
 - term: Lasso
   full: least absolute shrinkage and selection operator
+  zh: 在损失里加权重绝对值和
+  say: "「Lasso」"
   desc: 在损失里加权重绝对值和，会把系数压成 0
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 低秩适配，只训一个低秩增量矩阵
 - term: LSH
   full: locality-sensitive hashing
+  zh: 局部敏感哈希
+  say: L-S-H
   desc: 局部敏感哈希，让相似的文本落进同一个桶
-- term: MMLU
-  full: Massive Multitask Language Understanding
-  desc: 57 个学科的多选题 benchmark
-- term: MNIST
-  full: "—"
-  desc: 手写数字数据集，经典机器学习的入门 benchmark
 - term: MSE
   full: mean squared error
+  zh: 均方误差
+  say: 逐字母 M-S-E
   desc: 均方误差，预测值减真实值的平方再平均
-- term: NaN
-  full: not a number
-  desc: 浮点里的缺失值标记
 - term: OOB
   full: out-of-bag
+  zh: 随机森林里没被某棵树抽中的样本
+  say: O-O-B
   desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
 - term: PCA
   full: principal component analysis
+  zh: 主成分分析
+  say: P-C-A
   desc: 主成分分析，一种线性降维
 - term: RBF
   full: radial basis function
+  zh: 相似度随距离指数衰减的核函数
+  say: R-B-F
   desc: 径向基核：相似度随距离指数衰减的核函数
 - term: RLHF
   full: reinforcement learning from human feedback
+  zh: 基于人类反馈的强化学习
+  say: R-L-H-F
   desc: 基于人类反馈的强化学习
 - term: RM
   full: reward model
+  zh: 奖励模型
+  say: R-M
   desc: 奖励模型，给回答打分的分类器
 - term: RMSE
   full: root mean squared error
+  zh: 均方根误差
+  say: R-M-S-E
   desc: 均方根误差，和目标同单位
 - term: ROC
   full: receiver operating characteristic
+  zh: 随阈值变化的 TPR-FPR 曲线
+  say: R-O-C
   desc: 随阈值变化的 TPR-FPR 曲线，线下面积即 AUC
 - term: SFT
   full: supervised fine-tuning
+  zh: 监督微调
+  say: 逐字母 S-F-T
   desc: 监督微调，用指令数据训练模型
 - term: SGD
   full: stochastic gradient descent
+  zh: 随机梯度下降
+  say: 逐字母 S-G-D
   desc: 随机梯度下降，每步只用一小批样本
-- term: SMS
-  full: short message service
-  desc: 手机短信；SMS Spam Collection 是垃圾短信数据集
 - term: KL
   full: Kullback–Leibler divergence
+  zh: KL 散度
+  say: 逐字母 K-L
   desc: KL 散度；RLHF 里用它拉住策略别离参考模型太远
 - term: SVD
   full: singular value decomposition
+  zh: 奇异值分解
+  say: S-V-D
   desc: 奇异值分解，lstsq 求解时用的分解
 - term: SVM
   full: support vector machine
+  zh: 支持向量机
+  say: S-V-M
   desc: 支持向量机
 - term: TF-IDF
   full: term frequency–inverse document frequency
+  zh: 按词频和稀有度给词加权的文本特征
+  say: T-F I-D-F
   desc: 按词频和稀有度给词加权的文本特征
 - term: t-SNE
   full: t-distributed stochastic neighbor embedding
+  zh: 把高维点压到二维、保住近邻关系的可视化降维
+  say: "「t-SNE」"
   desc: 把高维点压到二维、保住近邻关系的可视化降维
-- term: UCI
-  full: University of California, Irvine
-  desc: UCI 机器学习数据集仓库
 - term: UMAP
   full: Uniform Manifold Approximation and Projection
+  zh: 另一类保邻域结构的降维
+  say: U-M-A-P
   desc: 另一类保邻域结构的降维，比 t-SNE 快、保全局结构更好
 - term: VC
   full: Vapnik–Chervonenkis
+  zh: VC 维
+  say: V-C
   desc: VC 维，衡量一类模型能拟合多复杂的划分
-- term: XGBoost
-  full: eXtreme Gradient Boosting
-  desc: 工业界最常用的 GBDT 实现
