@@ -233,7 +233,14 @@ EngineCore 先发 `HELLO` 注册，启动器返回地址和配置；初始化完
 
 ![vLLM V1 一个 decode step 在 API Server、EngineCoreProc 与 WorkerProc 间的时序](/img/in-post/vllm-request-lifecycle-decode-step.svg)
 
-EngineCore 收到请求后，主线程调度并广播这一轮的 `SchedulerOutput`。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
+EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，广播给所有 Worker。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
+
+这里的广播是一写多读：
+
+- Executor 只写一次，写进 `rpc_broadcast_mq`（`MessageQueue`）。同机的 Worker 从共享内存环形缓冲里读，跨机的经 ZMQ 发布订阅收，每个 WorkerProc 读到的是同一份 `SchedulerOutput`。
+- 要发给每个 Worker，是因为 TP / PP 下每个 Worker 只有一部分权重和自己那份 KV cache，大家要一起算同一个 batch：这一轮跑哪些请求、每个请求几个 token、KV 写进哪些 block，所有 rank 必须一致，前向里的 all-reduce 等 collective 才对得上。
+- 调度器只在 EngineCore 里有一份，决定只做一次，所以是一发多收。
+- 回程反过来，只收一份：只有 `output_rank`（最后一个 PP stage 的第一个 TP rank）回传 `ModelRunnerOutput`。最后一个 stage 的各 TP rank 采样结果相同，前面的 stage 没有 logits。
 
 ## 五、部署/物理视图：进程怎样落到 GPU 和节点上
 

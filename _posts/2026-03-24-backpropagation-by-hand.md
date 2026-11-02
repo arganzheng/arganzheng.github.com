@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-10-13
 ---
 
-`loss.backward()` 是训练代码里最短的一行。它沿计算图反向应用链式法则，一次得到 loss 对所有参数的梯度。理解它要抓住三件事：**梯度的形状与被求导的量相同**、**反向矩阵乘的计算量约为前向的两倍**、**前向中间结果要留到反向使用**。第一件帮助读梯度公式，第二件连接到训练 FLOPs 等于 $$6ND$$，第三件解释激活显存与重算。
+`loss.backward()` 是训练代码里最短的一行。它沿计算图反向应用链式法则，一次得到 loss 对所有参数的梯度。理解它要抓住三件事：**梯度的形状与自变量相同**、**反向矩阵乘的计算量约为前向的两倍**、**前向中间结果要留到反向使用**。第一件帮助读梯度公式，第二件连接到训练 FLOPs 等于 $$6ND$$，第三件解释激活显存与重算。
 
 上一篇《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》给出了优化目标；本篇从梯度怎样计算开始。
 
@@ -75,13 +75,52 @@ updated: 2026-10-13
 
 ### 1. 计算图：局部导数怎样相乘
 
-取一个神经元：$$z=wx+b$$，误差 $$e=z-y$$，损失 $$L=e^2$$。代入 $$x=2,w=3,b=-1,y=4$$，前向得到 $$z=5,e=1,L=1$$。图上绿色是前向值，橙色是反向梯度：
+取一个神经元：$$z=wx+b$$，误差 $$e=z-y$$，损失 $$L=e^2$$，代入 $$x=2,w=3,b=-1,y=4$$。下图是它的计算图，蓝色箭头是前向计算，橙色虚线箭头是反向传回的梯度：
 
-![标量例子计算图：x 为 2，z 为 5，e 为 1，L 为 1；节点下方标出反向梯度，边上标出局部导数](/img/in-post/backprop-scalar-graph.svg)
+![标量例子计算图：前向得到 z=5、e=1、L=1，反向每过一条边乘一次局部导数，得到 dL/dw=4、dL/db=2、dL/dx=6](/img/in-post/backprop-scalar-graph.svg)
 
-从末端开始，$$\partial L/\partial e=2e=2$$；向前一条边，$$\partial L/\partial z=2$$；再乘局部导数，得到 $$\partial L/\partial w=2x=4$$、$$\partial L/\partial b=2$$、$$\partial L/\partial x=2w=6$$。
+反向传播只有一条规则：从损失往回走，每经过一条边，就把上游梯度乘以这条边的局部导数。
 
-中心差分不必依赖反向公式：把 $$w$$ 增加 $$0.001$$，脚本实测 $$L=1.004004$$，差分得到 $$dL/dw\approx4.004$$，接近解析值 4。脚本输出：
+**前向：算出每个节点的值。** 也就是图中节点里的绿色数字：
+
+$$
+z=wx+b=3\cdot2-1=5,\qquad e=z-y=5-4=1,\qquad L=e^2=1
+$$
+
+**反向：从损失开始传梯度。** 起点是 $$\partial L/\partial L=1$$。先经过 $$L=e^2$$：
+
+$$
+\frac{\partial L}{\partial e}=2e=2
+$$
+
+再经过 $$e=z-y$$，它对 $$z$$ 的局部导数是 1，对 $$y$$ 是 −1：
+
+$$
+\frac{\partial L}{\partial z}=\frac{\partial L}{\partial e}\frac{\partial e}{\partial z}=2\cdot1=2,\qquad
+\frac{\partial L}{\partial y}=\frac{\partial L}{\partial e}\frac{\partial e}{\partial y}=2\cdot(-1)=-2
+$$
+
+最后经过 $$z=wx+b$$：
+
+$$
+\frac{\partial L}{\partial w}=\frac{\partial L}{\partial z}\frac{\partial z}{\partial w}=2\cdot x=4,\qquad
+\frac{\partial L}{\partial b}=\frac{\partial L}{\partial z}\frac{\partial z}{\partial b}=2\cdot1=2,\qquad
+\frac{\partial L}{\partial x}=\frac{\partial L}{\partial z}\frac{\partial z}{\partial x}=2\cdot w=6
+$$
+
+图里橙色的数是各个量对最终损失 $$L$$ 的梯度，比如 $$\partial L/\partial w=4$$。它不是节点本身的值，意思是：$$w$$ 增加一点点 $$\Delta$$，$$L$$ 大约增加 $$4\Delta$$。
+
+**用差分验证。** 不用任何反向公式，直接把 $$w$$ 增加 $$h=0.001$$，再算一次前向：
+
+$$
+z=3.001\cdot2-1=5.002,\qquad e=1.002,\qquad L=1.002^2=1.004004
+$$
+
+$$
+\frac{L(w+h)-L(w)}{h}=\frac{1.004004-1}{0.001}=4.004
+$$
+
+和解析值 4 很接近。这里用的是前向差分；中心差分还要多算一次 $$L(w-h)$$，取 $$\bigl(L(w+h)-L(w-h)\bigr)/(2h)$$，误差通常更小，第八章做梯度检查用的就是它。脚本输出：
 
 ```text
 标量神经元：z=w*x+b, e=z-y, L=e^2
@@ -90,19 +129,7 @@ dL/de=2, dL/dz=2, dL/dw=4, dL/db=2, dL/dx=6
 前向有限差分 eps=0.001: w+eps=3.001, L(w+eps)=1.004004, dL/dw≈4.004000
 ```
 
-<details markdown="1"><summary>推导</summary>
-
-链式法则逐节点相乘：
-
-$$
-\frac{\partial L}{\partial e}=2e=2,\quad
-\frac{\partial L}{\partial z}=\frac{\partial L}{\partial e}\frac{\partial e}{\partial z}=2,\quad
-\frac{\partial L}{\partial w}=\frac{\partial L}{\partial z}\frac{\partial z}{\partial w}=2x=4.
-$$
-
-同理，$$\partial L/\partial b=2$$、$$\partial L/\partial x=2w=6$$。
-
-</details>
+一句话：前向算数值，反向按链式法则逐边相乘，把损失的梯度传回每个输入和参数。
 
 ### 2. 每个节点只做一件事
 
@@ -118,6 +145,12 @@ $$
 
 ![分叉计算图：x 经乘法和直接加法两条路径影响 f，两路梯度 3 和 1 在 x 汇合为 4](/img/in-post/backprop-fanout.svg)
 
+图里把 $$xy$$ 记成中间节点 $$q$$，于是 $$f=q+x$$。橙色的乘法都是同一个格式：乘号前面是上游梯度，也就是 $$f$$ 对这条边输出端那个节点的梯度；乘号后面是这条边的局部导数。
+
+- 路径 ①：$$f$$ 先把梯度传给 $$q$$，加法的局部导数是 1，得 $$1\times1=1$$；$$q$$ 再传给 $$x$$，乘法对 $$x$$ 的局部导数是另一个输入 $$y=3$$，得 $$1\times3=3$$。
+- 路径 ②：$$f=q+x$$ 里直接有 $$x$$，局部导数是 1，得 $$1\times1=1$$。
+- 两路回到 $$x$$ 相加：$$df/dx=3+1=4$$。$$y$$ 只有一条路：$$1\times x=1\times2=2$$。
+
 这也解释两个常见现象：一个 batch 中每个样本都使用同一组 $$W$$，所以 $$dW$$ 是样本贡献之和；PyTorch 的 `.grad` 默认按调用累加。toy 实际输出：
 
 ```text
@@ -132,15 +165,21 @@ f=8; 路径 x*y 的梯度贡献 y=3; 路径 x 的贡献 1; 汇合后 df/dx=4
 
 ## 三、从标量到矩阵：梯度长什么样
 
-### 1. 梯度和被求导的量同形
+### 1. 梯度和自变量同形
 
-| 被求导的函数 | 对什么求导 | 结果 | 形状与例子 |
+先说清楚「$$L$$ 对 $$x$$ 求导」这几个字：$$L$$ 是被求导的输出，叫因变量；$$x$$ 是对它求导的输入，叫自变量。「对」不是相乘也不是相加，只是说明对谁求导。梯度长什么样，由这两者的形状决定：
+
+| 输出（因变量） | 对谁求导（自变量） | 结果 | 形状与例子 |
 |---|---|---|---|
-| 标量 $$L$$ | 向量 $$x$$ | 梯度 $$\nabla_x L$$ | 与 $$x$$ 同形；例：$$x=(1,2,3)$$ 得 $$\nabla_xL=(2,4,6)$$ |
-| 标量 $$L$$ | 矩阵 $$W$$ | 梯度 $$\partial L/\partial W$$ | 与 $$W$$ 同形；$$W$$ 为 2×2，结果也是 2×2 |
-| 向量 $$y$$ | 向量 $$x$$ | Jacobian $$J=\partial y/\partial x$$ | 若 $$y$$ 2 维、$$x$$ 3 维，则 $$J$$ 为 2×3 |
+| 标量 $$L=\sum_i x_i^2$$ | 向量 $$x$$ | 梯度 $$\nabla_x L=2x$$ | 与 $$x$$ 同形；$$x=(1,2,3)$$ 得 $$(2,4,6)$$ |
+| 标量 $$L=\sum_{i,j} W_{ij}^2$$ | 矩阵 $$W$$ | 梯度 $$\partial L/\partial W=2W$$ | 与 $$W$$ 同形；$$W$$ 为 2×2，结果也是 2×2 |
+| 向量 $$y=(x_1+x_2,\ x_2x_3)$$ | 向量 $$x$$ | Jacobian $$J=\partial y/\partial x$$ | $$y$$ 2 维、$$x$$ 3 维，$$J$$ 为 2×3 |
 
-![梯度形状三个例子：标量对向量、标量对矩阵、向量对向量，展示梯度和被求导量的形状关系](/img/in-post/backprop-gradient-shapes.svg)
+Table: 三种求导的结果形状
+
+第一列是函数本身，按它输出一个数还是一组数分成标量、向量。$$L$$ 和 $$y$$ 都是 $$x$$（或 $$W$$）的函数，结果的形状只取决于输出和输入各有几个数：输入有几个数，梯度就有几格；输出也是向量时，每个输出各占一行，就成了 Jacobian。
+
+![梯度形状三个例子：标量对向量求导、标量对矩阵求导、向量对向量求导，结果与自变量同形，向量对向量得到 Jacobian](/img/in-post/backprop-gradient-shapes.svg)
 
 第二行容易误解：$$L$$ 虽是一个数，但 $$W$$ 有四个元素，每个元素各有一个导数，所以结果是与 $$W$$ 同形的矩阵，而不是向量。更新 $$W\leftarrow W-\eta dW$$ 时，每个梯度元素都要和对应参数一一相乘。
 
