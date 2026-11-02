@@ -522,7 +522,7 @@ flowchart TB
 | ① 编程接口与应用表达 | Tensor、Autograd 接口、`nn.Module` / Parameter / Buffer、Optimizer、Dataset / DataLoader、`state_dict`；用户基于这些抽象组织模型、训练与推理逻辑 | 用户用什么抽象表达计算、管理状态并组织任务 |
 | ② 图表示与编译 | TorchDynamo、FX Graph、AOTAutograd、TorchInductor、Guard / Graph Break / 编译缓存 | 程序中的计算区域如何被捕获、表示、变换并编译优化 |
 | ③ 算子与分发运行时 | Operator Schema、Dispatcher / DispatchKeySet、ATen 算子体系、后端实现注册、Autograd 包装与 Composite / Meta 实现 | 算子的接口契约是什么，在当前上下文中如何选择处理者 |
-| ④ 设备与通信支撑 | 设备运行时、内存分配器、Stream / Event / 同步、H2D / D2H 数据迁移、进程组与通信后端（NCCL / Gloo） | 设备资源和数据如何管理，计算如何同步，多设备如何协同 |
+| ④ 设备与通信支撑 | 设备运行时、内存分配器、Stream / Event / 同步、<span class="inline-tip" data-tip="host to device / device to host，主机内存到显存 / 显存回主机内存的拷贝">H2D / D2H</span> 数据迁移、进程组与通信后端（NCCL / Gloo） | 设备资源和数据如何管理，计算如何同步，多设备如何协同 |
 | ⑤ 计算内核与底层库 | 原生 CPU / CUDA Kernel、编译生成的内核（如 Triton Kernel）、cuBLAS / cuDNN 等计算库 | 具体的数值计算由哪些内核或计算库完成 |
 
 Table: PyTorch 逻辑分层与职责

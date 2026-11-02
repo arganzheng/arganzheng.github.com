@@ -1,115 +1,91 @@
 ---
-- term: RC
-  full: release candidate
-  desc: 发布候选版
-- term: BC / FC
-  full: backward / forward compatibility
-  desc: 向后 / 向前兼容：新旧版本互相能用
 - term: RAII
   full: resource acquisition is initialization
+  zh: C++ 用对象生命周期管理资源的惯用法
+  say: R-A-I-I
   desc: C++ 用对象生命周期管理资源的惯用法
-- term: GIL
-  full: global interpreter lock
-  desc: CPython 的全局解释器锁，同一时刻只有一个线程跑字节码
 - term: AMP
   full: automatic mixed precision
+  zh: 部分算子用低精度跑
+  say: A-M-P
   desc: 自动混合精度：部分算子用低精度跑
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行：MoE 的不同专家放在不同卡
 - term: CP
   full: context parallelism
+  zh: 上下文并行
+  say: 逐字母 C-P
   desc: 上下文并行：沿序列维切分长序列
 - term: 1F1B
   full: one forward, one backward
+  zh: 流水线里前向、反向交替的调度方式
+  say: 1 F 1 B
   desc: 流水线里前向、反向交替的调度方式
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行：按层切模型，micro-batch 流过各段
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行：把一个层的权重切到多张卡
 - term: HSDP
   full: Hybrid Sharded Data Parallel
+  zh: 机内分片、机间复制的 FSDP 变体
+  say: H-S-D-P
   desc: 机内分片、机间复制的 FSDP 变体
 - term: ZeRO
   full: Zero Redundancy Optimizer
+  zh: DeepSpeed 的分片优化器
+  say: "「ZeRO」"
   desc: 把优化器状态、梯度、参数分片，去掉数据并行的冗余
-- term: P2P
-  full: peer-to-peer
-  desc: 两个进程之间的点对点收发
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的 GPU 集合通信库
 - term: SPMD
   full: single program, multiple data
+  zh: 每个进程跑同一份程序、处理不同数据
+  say: S-P-M-D
   desc: 每个进程跑同一份程序、处理不同数据
-- term: TF32
-  full: TensorFloat-32
-  desc: Ampere 起 Tensor Core 用的 19 位精度矩阵乘格式
-- term: BF16
-  full: bfloat16
-  desc: 8 位指数的 16 位浮点，范围同 FP32
-- term: FP16
-  full: 16-bit floating point
-  desc: 半精度浮点，5 位指数、10 位尾数
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，衡量计算量
-- term: ABI
-  full: application binary interface
-  desc: 编译后的二进制之间的调用约定
-- term: OOM
-  full: out of memory
-  desc: 显存不够，分配失败
 - term: FSDP
   full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
   desc: 把参数、梯度、优化器状态分片到各卡的数据并行
 - term: DDP
   full: Distributed Data Parallel
+  zh: 每卡一份完整模型
+  say: D-D-P
   desc: 数据并行：每卡一份模型，反向时同步梯度
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 计算平台，对应 NVIDIA 的 CUDA
-- term: MPS
-  full: Metal Performance Shaders
-  desc: 苹果芯片上的 GPU 后端
-- term: XLA
-  full: Accelerated Linear Algebra
-  desc: Google 的线性代数编译器，TensorFlow / JAX 用它编译
-- term: H2D / D2H
-  full: host to device / device to host
-  desc: 主机内存到显存 / 显存回主机内存的拷贝
-- term: AOP
-  full: aspect-oriented programming
-  desc: 面向切面编程：在原逻辑外围织入横切逻辑
-- term: CUTLASS
-  full: CUDA Templates for Linear Algebra Subroutines
-  desc: NVIDIA 的 C++ 矩阵乘模板库
-- term: OpenMP
-  full: Open Multi-Processing
-  desc: C/C++ 共享内存多线程并行的编译指令标准
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘，深度学习里最主要的计算
-- term: MPI
-  full: Message Passing Interface
-  desc: 高性能计算里的进程间通信标准
 - term: H2D
   full: host to device
+  zh: 主机到设备
+  say: 逐字母 H-2-D
   desc: 主机内存拷到显存
-- term: FP32
-  full: 32-bit floating point
-  desc: 单精度浮点，深度学习的默认精度
 - term: ulp
   full: unit in the last place
+  zh: 浮点数最低位一格代表的数值间隔
+  say: "「ulp」"
   desc: 浮点数最低位一格代表的数值间隔
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: CPU 与 GPU 之间的主板总线
-- term: GC
-  full: garbage collection
-  desc: 垃圾回收：自动释放不再可达的对象
-- term: DMA
-  full: direct memory access
-  desc: 不经 CPU、由设备直接搬运内存

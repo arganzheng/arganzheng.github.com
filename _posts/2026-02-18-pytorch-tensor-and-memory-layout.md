@@ -46,7 +46,7 @@ updated: 2026-09-14
 | 六 | Contiguous：连续布局与数据拷贝 | contiguous 的定义、Kernel 为何关心它、其他 layout |
 | 七 | Storage、Storage Offset 与共享内存 | Storage、offset、切片 view、view 的生命周期影响 |
 | 八 | dtype：如何解释每个元素 | FP16 与 BF16、dtype promotion、转换的拷贝成本 |
-| 九 | Device：数据到底在哪里执行 | .to() 的两个维度、H2D 搬运、device mismatch、Meta device |
+| 九 | Device：数据到底在哪里执行 | .to() 的两个维度、<span class="inline-tip" data-tip="host to device / device to host，主机内存到显存 / 显存回主机内存的拷贝">H2D</span> 搬运、device mismatch、Meta device |
 | 十 | View、Clone、Detach 与 In-place | 四组操作的语义边界及其与 Autograd 的关系 |
 | 十一 | Broadcasting | expand 与 repeat、广播不等于复制、排查方式 |
 | 十二 | 从 Tensor 视角理解内存问题 | 数据 / 缓存 / 计算图内存、生命周期、成本模型 |
