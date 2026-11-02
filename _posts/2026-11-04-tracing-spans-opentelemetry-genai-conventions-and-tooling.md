@@ -67,7 +67,7 @@ flowchart TB
 
 ### 3. 检索
 
-查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的三个数字要从这里算。
+查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF（reciprocal rank fusion，按排名倒数合并两路检索结果） 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的三个数字要从这里算。
 
 ### 4. 事件
 
@@ -79,7 +79,7 @@ flowchart TB
 
 ### 6. 子 agent
 
-子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，《[工具、Agent 与 harness（07）：多 agent——编排、handoff 与 A2A](/multi-agent-orchestration-handoff-and-a2a.html)》的树状追溯靠这两个引用。
+子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，《[工具、Agent 与 harness（07）：多 agent——编排、handoff 与 <span class="inline-tip" data-tip="Agent2Agent：Google 提出的 agent 之间互相调用的开放协议">A2A</span>](/multi-agent-orchestration-handoff-and-a2a.html)》的树状追溯靠这两个引用。
 
 ```mermaid
 %% 图：一条模型调用 span 的完整属性与它们各服务于谁——完整输入输出（或可重建的引用）服务录制回放与 bad case 复现；五项 usage 服务成本分析；模型快照与 effort 服务版本 diff 与 A/B 归因；stop_reason 与 TTFT 服务截断率与延迟排查；请求 id 服务向供应商报障；缺任何一项就有一件事做不了

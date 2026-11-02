@@ -1,70 +1,46 @@
 ---
-- term: pp
-  full: percentage point
-  desc: 百分点
-- term: CARLA
-  full: Car Learning to Act
-  desc: 开源的自动驾驶仿真器
-- term: SLA
-  full: service level agreement
-  desc: 服务等级约定，这里指处理时限
 - term: nDCG
   full: normalized discounted cumulative gain
+  zh: 按排名位置打折、再归一化的排序质量分
+  say: "「nDCG」"
   desc: 按排名位置打折、再归一化的排序质量分
 - term: MRR
   full: mean reciprocal rank
+  zh: 第一个相关结果排名倒数的平均
+  say: M-R-R
   desc: 第一个相关结果排名倒数的平均
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发请求到收到第一个 token 的时间
 - term: APM
   full: application performance monitoring
+  zh: 请求、耗时、错误率面板
+  say: A-P-M
   desc: 应用性能监控：请求、耗时、错误率面板
 - term: SIL
   full: software-in-the-loop
+  zh: 软件接仿真环境测试
+  say: S-I-L
   desc: 软件在环：软件接仿真环境测试，不上真硬件
 - term: HIL
   full: hardware-in-the-loop
+  zh: 真硬件接仿真环境测试
+  say: H-I-L
   desc: 硬件在环：真硬件接仿真环境测试
-- term: OTel
-  full: OpenTelemetry
-  desc: OpenTelemetry 的简称
-- term: A/B
-  full: A/B testing
-  desc: 分流对照实验：两组流量各用一个版本比指标
-- term: GenAI
-  full: generative AI
-  desc: 生成式 AI；OTel 用它命名大模型相关的约定
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 检索增强生成：先检索资料再让模型回答
 - term: kappa
   full: Cohen's kappa
+  zh: 校正了机遇一致之后的标注一致性系数
+  say: "「kappa」"
   desc: 校正了机遇一致之后的标注一致性系数
-- term: p50 / p95
-  full: 50th / 95th percentile
-  desc: 第 50 / 95 百分位，看中位数和长尾
 - term: ROUGE
   full: Recall-Oriented Understudy for Gisting Evaluation
+  zh: 按与参考文本的词重叠给摘要打分
+  say: R-O-U-G-E
   desc: 按与参考文本的词重叠给摘要打分
-- term: MMLU
-  full: Massive Multitask Language Understanding
-  desc: 57 个学科的多选题知识基准
-- term: BEIR
-  full: Benchmarking IR
-  desc: 跨多个领域的零样本检索评测基准
-- term: RRF
-  full: reciprocal rank fusion
-  desc: 按排名倒数合并两路检索结果
-- term: A2A
-  full: Agent2Agent
-  desc: Google 提出的 agent 之间互相调用的协议
-- term: PII
-  full: personally identifiable information
-  desc: 能识别到具体个人的信息
-- term: DDL
-  full: data definition language
-  desc: 建表、改表、删表这类改结构的 SQL
-- term: SAE
-  full: Society of Automotive Engineers
-  desc: 国际汽车工程师学会，定了自动驾驶 0–5 级
