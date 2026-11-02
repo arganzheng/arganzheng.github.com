@@ -208,7 +208,7 @@ D2H / H2D 要达到 25 GB/s 必须走 pinned 内存，pageable 内存只有几 G
 
 Table: 8 卡 32B 共置一台机器的 pinned 内存账
 
-一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA 不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 UPI（Ultra Path Interconnect，Intel 多路 CPU 之间的互联））。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
+一台 8 卡 H100 机器通常 1–2 TB 内存，520 GB 的 pinned 分配在 Linux 上需要 `ulimit -l` 放开、可能触发 NUMA 不均衡（8 张卡挂在两个 socket 上，pinned 缓冲落在哪个 NUMA 节点决定 PCIe 拷贝走不走 <span class="inline-tip" data-tip="Ultra Path Interconnect，Intel 多路 CPU 之间的互联">UPI</span>）。70B 在 8 卡上 16N = 1.1 TB 的训练状态，pinned 内存本身就放不下——这已经是共置的硬边界（第八章）。
 
 ### 3. Megatron 一侧
 

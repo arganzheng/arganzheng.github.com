@@ -349,7 +349,7 @@ _update_actor(batch)
   → 收回 actor/* 指标（pg_loss、clip 比例、grad_norm、entropy）
 ```
 
-worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / GSPO（Group Sequence Policy Optimization，用序列级重要性比做 clip 的 GRPO 变体） / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
+worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / <span class="inline-tip" data-tip="Group Sequence Policy Optimization，用序列级重要性比做 clip 的 GRPO 变体">GSPO</span> / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
 
 ### 3. 数据在哪
 

@@ -506,7 +506,7 @@ Table: 掌握程度的判据
 
 - **RL 算法本身**（目标函数、PPO / GRPO 及其变体、奖励模型、可验证奖励、Agent RL 的公式与 mask）在算法地图的[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列只用了"一步里生成多少 token、要几个模型、样本怎样进 loss"这些结论，讨论 off-policy 修正时只讨论它对系统的要求。
 - **训练引擎内部**（并行策略、FSDP / Megatron 的实现、分布式 checkpoint、容错与弹性）在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列把训练器当作"能按给定并行配置跑一步、能导出分片权重"的黑盒。
-- **推理引擎内部**（调度、KV cache 管理、连续批处理、PagedAttention、投机解码、PD（prefill–decode，prefill 与 decode 放在不同实例） 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列只用它的三个接口与吞吐特性。
+- **推理引擎内部**（调度、KV cache 管理、连续批处理、PagedAttention、投机解码、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放在不同实例">PD</span> 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列只用它的三个接口与吞吐特性。
 - **集群资源层**（Kubernetes / Ray 的调度、gang scheduling、沙箱平台）在[《AI 平台工程》](/ai-platform-engineering.html)——第八篇末尾给出的是引擎对平台的要求，平台怎样满足在那里。
 
 本系列在 Infra 学习路径里的位置，以及训练与推理两条主线为什么在这里会合，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。Infra 地图上与它相邻的下一块是扩散模型的推理基础设施——没有 KV cache、每步全量前向，是另一张完全不同的账。
