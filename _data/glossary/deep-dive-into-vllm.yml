@@ -4,13 +4,6 @@
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
-- term: bf16
-  full: bfloat16
-  zh: bfloat16 半精度
-  say: 逐字母 B-F-16
-  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
-  aliases:
-  - BF16
 - term: FLOPs
   full: floating-point operations
   zh: 浮点运算次数
@@ -18,13 +11,6 @@
   desc: 浮点运算次数，算力的计量单位
   aliases:
   - FLOP
-- term: fp32
-  full: 32-bit floating point
-  zh: 单精度浮点
-  say: 逐字母 F-P-32
-  desc: 单精度浮点，每个数 4 字节
-  aliases:
-  - FP32
 - term: LoRA
   full: Low-Rank Adaptation
   zh: 低秩适配
@@ -40,11 +26,6 @@
   zh: 专家并行负载均衡器
   say: 逐字母 E-P-L-B
   desc: DeepSeek 的专家负载均衡，复制热门专家
-- term: FP8
-  full: 8-bit floating point
-  zh: 8 位浮点
-  say: 逐字母 F-P-8
-  desc: 8 位浮点数
 - term: EP
   full: expert parallelism
   zh: 专家并行
@@ -135,11 +116,6 @@
   zh: 上下文并行
   say: 逐字母 C-P
   desc: 上下文并行：沿序列维切分长序列
-- term: FP16
-  full: 16-bit floating point
-  zh: 半精度浮点
-  say: 逐字母 F-P-16
-  desc: 半精度浮点，5 位指数、10 位尾数
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
   zh: NVIDIA 矩阵乘模板库
@@ -200,16 +176,6 @@
   zh: GPTQ 量化方法
   say: 逐字母 G-P-T-Q
   desc: 逐层用二阶信息补偿误差的训练后权重量化方法
-- term: INT4
-  full: 4-bit integer
-  zh: 4 位整数量化
-  say: 逐字母 I-N-T-4
-  desc: 均匀 16 格的 4 bit 整数量化
-- term: INT8
-  full: 8-bit integer
-  zh: 8 位整数量化
-  say: 逐字母 I-N-T-8
-  desc: 8 bit 整数量化，精度损失最小的低比特档
 - term: MLA
   full: multi-head latent attention
   zh: 多头隐注意力
@@ -220,16 +186,6 @@
   zh: 多 token 预测
   say: 逐字母 M-T-P
   desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
-- term: W4A16
-  full: "—"
-  zh: 权重 4 位、激活 16 位量化
-  say: 逐字母 W-4-A-16
-  desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
-- term: W8A8
-  full: "—"
-  zh: 权重、激活均 8 位量化
-  say: 逐字母 W-8-A-8
-  desc: 权重、激活都 8 bit 的量化档
 - term: LLaVA
   full: large language and vision assistant
   zh: 大语言视觉助手
