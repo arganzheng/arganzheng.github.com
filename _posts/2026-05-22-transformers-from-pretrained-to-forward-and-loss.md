@@ -160,7 +160,7 @@ Table: 加载时三类对不上的键
 
 ### 1. 与结构图对照
 
-《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → FFN（feed-forward network，前馈网络） → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
+《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → <span class="inline-tip" data-tip="feed-forward network，前馈网络">FFN</span> → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
 
 | 图里的方框 | 类 / 函数 | 参数 |
 |---|---|---|
