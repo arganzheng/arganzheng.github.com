@@ -32,6 +32,12 @@ date: 2026-03-23 21:00:00
 
 Table: 任务 → loss → 概率假设
 
+上表还能往右再延两列：每种任务输出层怎么配、loss 对输出 logit 的梯度长什么样——后者正是反向传播的起点（下一篇）。一张图把五类任务各配一个正文里的具体数字例：
+
+![横排五行：任务 → 输出层 → loss → 对 logit 的梯度，每行一个数字例——回归 e=2.0 给 grad 4.0，分类 -log 0.62 = 0.478 对应 p-y，LM 初始 ln V = 10.82，InfoNCE 5.96，DPO -log 0.532 = 0.630](/img/in-post/dl-loss-overview.svg)
+
+读法：左边「输出层」一列决定梯度的形状——softmax 家族（分类 / LM / InfoNCE）的梯度全是「行内概率 − 目标」的形式，连续输出与偏好的两条不走 softmax，各自是 $$2e$$ 和 $$\pm\beta(1-\sigma)$$。
+
 ### 1. 来龙去脉：从最小二乘到 DPO
 
 | 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留问题 |
@@ -128,6 +134,28 @@ $$L = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$
 - **z-loss**（ST-MoE 2021 / PaLM 2022）：给 loss 加一项 $$\lambda \log^2 Z$$，惩罚 logsumexp 过大——logits 无界漂移是大模型训练 loss spike 的一个来源。
 - **MTP 辅助 loss**：DeepSeek-V3 等多预测几步，每一步一个 CE，主 loss 加辅助项；推理时丢掉辅助头或用于投机解码。
 
+$$-\log(1/V) = \ln V$$ 的结论可以真跑一遍验证：拿两组接近均匀的 logits（$$V = 50257$$ 与 toy $$V = 8$$）各算一次 next-token CE：
+
+```text
+== 均匀初始化时 next-token CE = ln V ==
+  V =  50257: 实测 CE = 10.826，ln V = 10.825
+  V =      8: 实测 CE = 2.076，ln V = 2.079
+```
+
+理论值与实测在小数点后两位内吻合——第一屏 loss 不是这个量级就该查初始化。再拆到单句层面：loss 就是逐位置 $$-\log p$$ 的平均：
+
+![一句话 4 个 token：每个位置模型给正确 token 的概率 p_i 取 -log 后求平均得 loss = 0.536，标出 perplexity = e^loss = 1.71](/img/in-post/dl-loss-lm-tokens.svg)
+
+```text
+  位置 1: p = 0.65   -log p = 0.431
+  位置 2: p = 0.40   -log p = 0.916
+  位置 3: p = 0.82   -log p = 0.198
+  位置 4: p = 0.55   -log p = 0.598
+  loss = 平均 = 0.536   perplexity = e^loss = 1.71
+```
+
+读数：位置 2 的 $$p=0.40$$ 贡献最大单项 0.916——平均 loss 高时常是少数「难位置」在拉，而不是整体都很差。
+
 **效果与遗留**：next-token CE 简单、好求导、和 MLE 一致，代价是**它只管下一个 token**——长程一致性、事实性、风格都不在这个数里，那是后训练（RLHF / DPO）要补的事，见第七章。
 
 ## 六、对比与度量学习
@@ -157,6 +185,21 @@ $$L = -\frac{1}{T}\sum_t \log p_\theta(x_t \mid x_{<t})$$
 $$L_{DPO} = -\log \sigma\!\left(\beta\big[\log \tfrac{\pi_\theta(y_w|x)}{\pi_{ref}(y_w|x)} - \log \tfrac{\pi_\theta(y_l|x)}{\pi_{ref}(y_l|x)}\big]\right)$$
 
 梯度直觉：对 $$r_\theta = \beta \log(\pi_\theta / \pi_{ref})$$ 做 logistic 回归，赢的样本概率升、输的降，同时被 $$\beta$$ 拉住不偏离参考模型太远。推导见《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)》；实现在《[面试手撕代码（17）：手撕损失函数与训练算法](/coding-interview-losses-and-training-algorithms.html)》，RLHF 全貌在《[后训练（04）：offline RL——DPO 与它的家族](/offline-rl-dpo-and-its-family.html)》。
+
+拿一对自定的 log p 代进去走一遍：chosen 在 policy 下比 reference 高（$$-1.2$$ vs $$-1.5$$），rejected 相反（$$-2.0$$ vs $$-1.0$$），$$\beta = 0.1$$：
+
+![DPO 一对样本：两条回答各自 log πθ - log πref 得 ratio +0.30 / -1.00，差 1.30 × β 进 sigmoid 得 0.532，loss = -log σ = 0.630；梯度符号把 chosen 推高、rejected 压低](/img/in-post/dl-loss-dpo.svg)
+
+```text
+== DPO：一对 (chosen y_w, rejected y_l) ==
+  log πθ(y_w) = -1.2，log πref(y_w) = -1.5   → log ratio_w = +0.30
+  log πθ(y_l) = -2.0，log πref(y_l) = -1.0   → log ratio_l = -1.00
+  margin = ratio_w - ratio_l = +1.30，β = 0.1
+  z = β·margin = 0.130，σ(z) = 0.5325，DPO loss = -log σ(z) = 0.6303
+  梯度符号：dL/d logπθ(y_w) = -0.0468（负 → 下降让 log p 升），dL/d logπθ(y_l) = +0.0468（正 → 下降让 log p 降）
+```
+
+读数：sigmoid 的输入是**两个 log 比值之差**——即使 chosen 本身概率不高，只要它比 reference 相对更赢 margin 就为正；梯度大小对称（$$\pm 0.047$$），chosen 被推高的力与 rejected 被压低的力完全一样。
 
 **效果与遗留**：DPO 把 RLHF 的三段式（RM → PPO → KL 约束）压成一个 loss，成为最普及的偏好 baseline；代价是离线偏好数据不能在线纠错，且对分布外回答的置信度外推很差——这些是 PPO / GRPO 一派继续存在的理由，见《[后训练（03）：online RL——PPO、GRPO 与 RLHF 三件套](/online-rl-ppo-grpo-and-the-rlhf-trio.html)》。
 
@@ -228,6 +271,7 @@ MSE 的"loss 更小"是假象——它的梯度从第一步就小 3 倍，学习
 4. 一个新的 200K 词表语言模型，第一步 loss 应该大约是多少？loss 是 4 说明什么？
 5. InfoNCE 的 batch 为什么越大越好？$$\tau$$ 变大时 softmax 是更锐还是更平？
 6. DPO 相比"训奖励模型 + PPO"省掉了什么，又放弃了什么？
+7. GPT-2 的 $$V = 50257$$，第一步 loss 大约是多少？凭哪条公式不用跑模型就能报这个数？
 
 <details><summary>参考答案</summary>
 
@@ -237,6 +281,7 @@ MSE 的"loss 更小"是假象——它的梯度从第一步就小 3 倍，学习
 4. $$\ln 200000 \approx 12.21$$；4 远低于它，说明标签泄漏、初始化就是某个训练过的权重，或算错了。
 5. InfoNCE 的分母是 batch 内全部样本，batch 大负例才多、才逼近真实分布；$$\tau$$ 大 softmax 更平、梯度更散。
 6. 省掉了奖励模型 rollout 与 PPO 的在线采样；放弃了在线纠错能力与分布外置信度——离线偏好学到什么就是什么。
+7. $$\ln 50257 \approx 10.82$$：随机初始化输出接近均匀，每个位置贡献 $$-\log(1/V) = \ln V$$，实测 10.826 与公式吻合。
 
 </details>
 
