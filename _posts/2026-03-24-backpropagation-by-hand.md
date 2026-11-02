@@ -185,7 +185,9 @@ $$
 
 ## 四、两层网络逐层推导
 
-把三章的规则串起来。前向五步、反向五步，每一步标出形状（$$m = 128$$）：
+把三章的规则串起来。前向五步、反向五步，每一步标出形状（$$m = 128$$）。先把一次迭代在时间轴上摊开——loss 在什么时候算、梯度在什么时候齐、激活什么时候释放：
+
+![一次迭代的时间轴：前向逐层留下激活，末端算 loss，反向逐层算梯度并释放激活，step 更新后梯度清零](/img/in-post/backprop-one-iteration.svg)
 
 ```mermaid
 %% 前向五步与反向五步：上排前向，下排反向的 VJP，虚线是反向用到的前向保存量
@@ -266,11 +268,44 @@ Table: 两层网络前向与反向的 FLOPs
 
 Table: 反向需要保存的激活及其字节数
 
+用 PyTorch 的 `saved_tensors_hooks` 把这个两层网络挂出来，autograd 实际保存的清单是（labs `deep-learning-foundations/case_03_activation_memory.py saved`）：
+
+```text
+== saved：MLP 784->256(ReLU)->10，CE，batch 128，fp32
+ # 算子节点                         shape          dtype          字节  归类
+ 0 MmBackward:self              (128, 784)     float32    401408  输入 X
+ 1 MmBackward:self              (128, 256)     float32    131072  ReLU 输出 A
+ 2 MmBackward:mat2              (256, 10)      float32     10240  参数 W2
+ 3 ReluBackward:result          (128, 256)     float32    131072  ReLU 输出 A
+ 4 NllLossBackward:self         (128, 10)      float32      5120  Z / softmax 输出
+ 5 LogSoftmaxBackward:result    (128, 10)      float32      5120  Z / softmax 输出
+ 6 NllLossBackward:target       (128,)         int64        1024  标签 Y
+ 7 NllLossBackward:total_weight ()             float32         4  其他（CE 内部）
+
+激活合计 659 KiB；参数合计 10 KiB
+```
+
+和上表对得上，但有两个诚实的差别。一是 PyTorch 的 ReLU 保存的是**输出** $$A$$（128 KiB）而不是 $$H$$ 的 mask——反向时用 `A > 0` 判符号，信息等价但多占 96 KiB。二是框架多存了几样上表没列的：$$W_2$$（算 $$\partial L/\partial A = G_Z W_2^T$$ 要读，但它是参数不是激活）、log_softmax 的输出和 CE 的 target、total_weight。注意 $$W_1$$ 没有出现在清单里：$$X$$ 是数据、不求 $$\partial L/\partial X$$，所以第一个 mm 只存了 $$X$$ 一份就够算 $$dW_1$$。
+
 batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$ 是 batch × 序列长度，所以长上下文训练的激活显存会远超权重——[L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)给过 Llama-3-8B 在 4096 长度下仅残差流一份就是 1 GiB / 序列的锚点，精确公式在 Infra 地图 08 系列第一篇。
 
 ### 2. 激活重算：用计算换存储
 
 既然激活是前向算出来的，可以不存、反向时重算。**gradient checkpointing** 的做法是只保存每个块（比如 Transformer 的一层）的输入，反向走到这一块时先用保存的输入重新前向一次得到块内所有中间量，再做反向。代价是多一次前向，即上一章说的 $$6N \to 8N$$，约 33% 的额外计算；收益是激活显存从"所有中间量"降到"每块一个输入"。这是训练长序列或大 batch 时的标准开关，`model.gradient_checkpointing_enable()` 一行。
+
+拿一个 8 层、宽 1024 的 MLP 实测（batch 256，fp32，`torch.utils.checkpoint` 每 4 层一块，`use_reentrant=False`）：
+
+![激活重算：全存 vs 每 4 层只存块输入并反向前重算；实测保存 46 MB 降到 4 MB](/img/in-post/backprop-checkpointing.svg)
+
+```text
+== ckpt：8 层 MLP（宽 1024），batch 256，fp32
+方案                            总保存         峰值 每 Linear 前向次数
+全部保存                      46.00 MB    46.00 MB  [1, 1, 1, 1, 1, 1, 1, 1]
+每 4 层 checkpoint           4.00 MB     4.00 MB  [2, 2, 2, 2, 2, 2, 2, 2]
+梯度 max|diff| = 0.000e+00
+```
+
+保存量降到 9%，代价是每个 Linear 前向 2 次——也就是把全量重算拆成了 1/2 档：checkpoint 每 4 层一块时，重算的花费约等于半次前向。梯度逐位相同（max|diff| = 0），因为这个玩具的浮点运算顺序两次完全一样；真实网络里差通常在 1e-6 内。
 
 FlashAttention 做的是同一件事的算子级版本：不保存 $$[\text{seq}, \text{seq}]$$ 的 attention 矩阵，反向时分块重算——[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)讲它的 IO 复杂度。
 
