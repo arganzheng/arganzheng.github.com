@@ -160,7 +160,7 @@ Table: 加载时三类对不上的键
 
 ### 1. 与结构图对照
 
-《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → FFN → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
+《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》的结构图（自下而上：embedding → N × [RMSNorm → attention → 残差 → RMSNorm → FFN（feed-forward network，前馈网络） → 残差] → 最后的 RMSNorm → lm_head）在 `modeling_llama.py` 里就是这几个类：
 
 | 图里的方框 | 类 / 函数 | 参数 |
 |---|---|---|
@@ -168,7 +168,7 @@ Table: 加载时三类对不上的键
 | 位置信息 | `LlamaRotaryEmbedding` 算 cos / sin；`apply_rotary_pos_emb` 作用到 q、k 上 | 无参数（`inv_freq` 是 buffer） |
 | RMSNorm | `LlamaRMSNorm` | $$d$$ |
 | attention 子层 | `LlamaAttention`：`q_proj`、`k_proj`、`v_proj`、`o_proj` | 四个矩阵（GQA 时 k、v 更窄） |
-| FFN 子层 | `LlamaMLP`：`gate_proj`、`up_proj`、`down_proj` + SiLU | 三个矩阵 |
+| <span class="inline-tip" data-tip="feed-forward network，前馈网络">FFN</span> 子层 | `LlamaMLP`：`gate_proj`、`up_proj`、`down_proj` + <span class="inline-tip" data-tip="Sigmoid Linear Unit，激活函数 x·sigmoid(x)">SiLU</span> | 三个矩阵 |
 | 一个 block | `LlamaDecoderLayer`：两个 RMSNorm + 上面两个子层 + 两条残差 | |
 | 最后的 RMSNorm | `LlamaModel.norm` | $$d$$ |
 | lm_head | `LlamaForCausalLM.lm_head = nn.Linear(hidden_size, vocab_size, bias=False)` | $$d \times V$$，常与 embedding 共享 |

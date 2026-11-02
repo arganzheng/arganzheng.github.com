@@ -141,7 +141,7 @@ nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight, a=math.sqrt(5))    # 
 nn.init.zeros_(self.lora_B[adapter_name].weight)                               # B 全零
 ```
 
-配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA 就是这里的一个分支。
+配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA（Principal Singular values and Singular vectors Adaptation，用 W 的前 r 个奇异向量初始化 A、B） 就是这里的一个分支。
 
 ### 2. `forward`：一行
 
@@ -303,7 +303,7 @@ $$
 \mathcal{L}_{\text{DPO}} = -\log\sigma\!\left(\beta\left[\log\frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \log\frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\right]\right)
 $$
 
-就是 `sigmoid` 那一行：两个 logratio 相减是方括号，乘 $$\beta$$，`logsigmoid` 取负。`label_smoothing` 把它变成 $$-(1-\epsilon)\log\sigma(\beta\Delta) - \epsilon\log\sigma(-\beta\Delta)$$（cDPO，对标注噪声鲁棒）。`loss_type` 可以是一个列表配 `loss_weights`——`["sigmoid", "sft"]` 就是 RPO（加一项 chosen 的 SFT loss 防止 chosen 概率也一起掉，后训练第三篇讨论的那个现象）。`f_divergence_type` 换掉 KL 时改的是 logratio 到 score 的映射（`js_divergence`、`alpha_divergence`），loss 形式不变。`chosen_rewards - rejected_rewards > 0` 的比例就是日志里的 `rewards/accuracies`。
+就是 `sigmoid` 那一行：两个 logratio 相减是方括号，乘 $$\beta$$，`logsigmoid` 取负。`label_smoothing` 把它变成 $$-(1-\epsilon)\log\sigma(\beta\Delta) - \epsilon\log\sigma(-\beta\Delta)$$（cDPO（conservative DPO，给 DPO 加标签平滑），对标注噪声鲁棒）。`loss_type` 可以是一个列表配 `loss_weights`——`["sigmoid", "sft"]` 就是 RPO（加一项 chosen 的 SFT loss 防止 chosen 概率也一起掉，后训练第三篇讨论的那个现象）。`f_divergence_type` 换掉 KL 时改的是 logratio 到 score 的映射（`js_divergence`、`alpha_divergence`），loss 形式不变。`chosen_rewards - rejected_rewards > 0` 的比例就是日志里的 `rewards/accuracies`。
 
 ## 七、trl：GRPO
 
@@ -321,7 +321,7 @@ if self.scale_rewards != "none":
     advantages = advantages / (std_rewards + 1e-4)
 ```
 
-`rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（Dr. GRPO 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO 的 dynamic sampling 要把它们过滤掉的原因。
+`rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（Dr. GRPO（GRPO Done Right，去掉按长度、按组标准差归一的 GRPO 修正版） 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO 的 dynamic sampling 要把它们过滤掉的原因。
 
 ### 3. `_compute_loss`
 
@@ -342,7 +342,7 @@ elif self.loss_type == "dr_grpo":
 elif self.loss_type == "dapo": ...
 ```
 
-`epsilon_high` 与 `epsilon_low` 分开（DAPO 的 clip-higher）；`importance_sampling_level="sequence"` 时 `log_importance_weights` 先对 token 求和再广播（GSPO）。三种归一方式对应后训练第四篇讨论的长度偏差：`grpo` 每条按自己长度平均，长回答里每个 token 权重小；`dr_grpo` 除以常数，去掉这个偏差；`bnpo` 按 batch 总 token 平均。GRPO 论文里的公式一条一条对应到 `loss_type` 的分支，改哪一行就是哪篇后续论文。当 `num_iterations=1` 时 $$\pi_\theta = \pi_{old}$$、`coef_1 = 1`，裁剪不起作用，loss 退化为 $$-A \cdot \log\pi$$ 的 REINFORCE 形式——`coef_1` 的计算用了 `per_token_logps - per_token_logps.detach()` 保梯度，这是读这段代码时最容易困惑的一行。
+`epsilon_high` 与 `epsilon_low` 分开（DAPO 的 clip-higher）；`importance_sampling_level="sequence"` 时 `log_importance_weights` 先对 token 求和再广播（GSPO（Group Sequence Policy Optimization，重要性比按整条序列算））。三种归一方式对应后训练第四篇讨论的长度偏差：`grpo` 每条按自己长度平均，长回答里每个 token 权重小；`dr_grpo` 除以常数，去掉这个偏差；`bnpo` 按 batch 总 token 平均。GRPO 论文里的公式一条一条对应到 `loss_type` 的分支，改哪一行就是哪篇后续论文。当 `num_iterations=1` 时 $$\pi_\theta = \pi_{old}$$、`coef_1 = 1`，裁剪不起作用，loss 退化为 $$-A \cdot \log\pi$$ 的 REINFORCE（loss = −A·log π） 形式——`coef_1` 的计算用了 `per_token_logps - per_token_logps.detach()` 保梯度，这是读这段代码时最容易困惑的一行。
 
 ## 八、本文小结
 
