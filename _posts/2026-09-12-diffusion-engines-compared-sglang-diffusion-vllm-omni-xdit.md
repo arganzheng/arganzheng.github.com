@@ -196,7 +196,7 @@ DecodingStage 调 VAE（tiling 配置来自 `--vae-config`），`postprocess/` �
   - offload：`offloader/`（sequential / layerwise / distributed layerwise）
   - 因果模型：`diffusion_kv/`（KV manager、PagedAttention 适配）
 
-stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni：文本 + 图 → LLM → 语音）经过多个 stage，每个 stage 是一个独立的引擎（AR 的用 vLLM 本体，扩散的用 `DiffusionEngine`），stage 间用 OmniConnector 传张量、可以放在不同的 GPU 上独立扩缩。对纯扩散模型这套结构看起来"过重"（只有一个 stage，默认还 inline 在 API 进程里），但它让第七篇的三段分离几乎免费：把文本编码器或 VAE 做成另一个 stage 就是加一段 yaml。
+stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni：文本 + 图 → LLM → 语音）经过多个 stage，每个 stage 是一个独立的引擎（AR（all-reduce，各卡数据求和后再分发回每张卡的集合通信） 的用 vLLM 本体，扩散的用 `DiffusionEngine`），stage 间用 OmniConnector 传张量、可以放在不同的 GPU 上独立扩缩。对纯扩散模型这套结构看起来"过重"（只有一个 stage，默认还 inline 在 API 进程里），但它让第七篇的三段分离几乎免费：把文本编码器或 VAE 做成另一个 stage 就是加一段 yaml。
 
 ### 2. 引擎
 

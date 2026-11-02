@@ -192,7 +192,7 @@ Ring Attention（Liu 等 2023）不换 head，换 K / V：每卡持有自己 $$N
 
 ### 3. USP：两者的组合
 
-USP（Fang & Zhao 2024，xDiT 的"Unified Sequence Parallelism"）把两者做成二维：$$p = p_\text{ulysses} \times p_\text{ring}$$，节点内用 Ulysses（NVLink 上 all-to-all 快）、跨节点用 Ring（P2P 跨 IB / 以太网）。它也解除了 Ulysses 的 head 整除限制（Ulysses 度只需整除 head 数，Ring 度任意）。xDiT 的表里 Ulysses-2 × Ring-2（1.80 s）介于 Ulysses-4 与 Ring-4 之间——单节点 NVLink 上纯 Ulysses 最优，USP 的价值在跨节点：SGLang 的跨节点 SP 文档明确"节点内 Ulysses、跨节点 Ring"。
+USP（Fang & Zhao 2024，xDiT 的"Unified Sequence Parallelism"）把两者做成二维：$$p = p_\text{ulysses} \times p_\text{ring}$$，节点内用 Ulysses（NVLink 上 all-to-all 快）、跨节点用 Ring（P2P 跨 IB（InfiniBand，高带宽低延迟的 RDMA 网络）/ 以太网）。它也解除了 Ulysses 的 head 整除限制（Ulysses 度只需整除 head 数，Ring 度任意）。xDiT 的表里 Ulysses-2 × Ring-2（1.80 s）介于 Ulysses-4 与 Ring-4 之间——单节点 NVLink 上纯 Ulysses 最优，USP 的价值在跨节点：SGLang 的跨节点 SP 文档明确"节点内 Ulysses、跨节点 Ring"。
 
 ### 4. SP 下的其他部件
 
@@ -304,7 +304,7 @@ Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 
 
 | 机制 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT | diffusers v0.40 |
 |---|---|---|---|---|
-| 并行组 | `runtime/distributed/parallel_state.py`、`group_coordinator.py`、`parallel_groups.py` | `diffusion/distributed/parallel_state.py`、`group_coordinator.py`、`sp_plan.py` | `xfuser/core/distributed/parallel_state.py`、`group_coordinator.py`、`runtime_state.py` | `hooks/context_parallel.py`（实验性 CP） |
+| 并行组 | `runtime/distributed/parallel_state.py`、`group_coordinator.py`、`parallel_groups.py` | `diffusion/distributed/parallel_state.py`、`group_coordinator.py`、`sp_plan.py` | `xfuser/core/distributed/parallel_state.py`、`group_coordinator.py`、`runtime_state.py` | `hooks/context_parallel.py`（实验性 <span class="inline-tip" data-tip="context parallelism，沿序列维切分长序列">CP</span>） |
 | Ulysses / Ring | `--ulysses-degree` / `--ring-degree`；`runtime/layers/usp.py`、`sp_shard_utils.py` | `--usp` / `--ring`；`distributed/a2a_permute.py`、`sp_sharding.py`、`hooks/sequence_parallel.py` | `--ulysses_degree` / `--ring_degree`；`core/long_ctx_attention/{hybrid,ring}/` | — |
 | CFG 并行 | `--enable-cfg-parallel`；`distributed/cfg_parallel_utils.py`、`cfg_policy.py` | `--cfg-parallel`；`distributed/cfg_parallel.py` | `--use_cfg_parallel` | — |
 | PipeFusion | — | `distributed/pipeline_parallel.py`（PP） | `--pipefusion_parallel_degree --num_pipeline_patch`；`model_executor/pipelines/base_pipeline.py` | — |

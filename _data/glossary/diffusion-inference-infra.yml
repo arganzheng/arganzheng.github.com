@@ -1,235 +1,196 @@
 ---
-- term: OOM
-  full: out of memory
-  desc: 内存耗尽
-- term: bf16
-  full: bfloat16
-  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力的计量单位
-- term: fp32
-  full: 32-bit floating point
-  desc: 单精度浮点，每个数 4 字节
 - term: FSDP
   full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
   desc: 把参数、梯度、优化器状态切到各卡的数据并行
-- term: GiB
-  full: gibibyte
-  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结原权重、只训低秩矩阵的微调方法
-- term: RMSNorm
-  full: Root Mean Square Layer Normalization
-  desc: 只按均方根缩放、不减均值的归一化
-- term: NaN
-  full: not a number
-  desc: 浮点里的缺失值标记
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点数
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行，每张卡一份完整模型
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行，按层切到不同卡上
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘
-- term: NVMe
-  full: Non-Volatile Memory Express
-  desc: 走 PCIe 的固态盘接口协议
-- term: P2P
-  full: peer-to-peer
-  desc: 设备之间直接互访，不经主机内存
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行，把一层的矩阵切到多张卡上
-- term: IB
-  full: InfiniBand
-  desc: InfiniBand 的简称
 - term: PD
   full: prefill–decode
+  zh: prefill–decode 分离
+  say: 逐字母 P-D
   desc: PD 分离：prefill 与 decode 放到不同节点上跑
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: 主板上连接 GPU、网卡和 CPU 的总线
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: A/B
-  full: A/B testing
-  desc: 把流量随机分给两个版本，比较指标
 - term: CFG
   full: context-free grammar
+  zh: 上下文无关文法
+  say: C-F-G
   desc: 上下文无关文法，能表达递归的嵌套结构
-- term: MPS
-  full: Metal Performance Shaders
-  desc: 苹果 GPU 的计算后端
-- term: AWQ
-  full: Activation-aware Weight Quantization
-  desc: 按激活大小保护关键权重的低比特量化方法
-- term: AR
-  full: all-reduce
-  desc: 各卡数据求和后再分发回每张卡的集合通信
-- term: NPU
-  full: neural processing unit
-  desc: 神经网络专用处理器，这里指昇腾
-- term: CP
-  full: context parallelism
-  desc: 上下文并行：沿序列维切分长序列
 - term: HSDP
   full: Hybrid Sharded Data Parallel
+  zh: 机内分片、机间复制的 FSDP 变体
+  say: H-S-D-P
   desc: 机内分片、机间复制的 FSDP 变体
 - term: SPMD
   full: single program, multiple data
+  zh: 每个进程跑同一份程序、处理不同数据
+  say: S-P-M-D
   desc: 每个进程跑同一份程序、处理不同数据
-- term: BF16
-  full: bfloat16
-  desc: 8 位指数的 16 位浮点，范围同 FP32
-- term: FP16
-  full: 16-bit floating point
-  desc: 半精度浮点，5 位指数、10 位尾数
 - term: H2D
   full: host to device
+  zh: 主机到设备
+  say: 逐字母 H-2-D
   desc: 主机内存拷到显存
 - term: CLIP
   full: Contrastive Language–Image Pre-training
+  zh: 对比语言-图像预训练
+  say: "/klɪp/「可利普」"
   desc: OpenAI 的图文对比模型，把图和文嵌进同一空间
 - term: FFN
   full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
   desc: 前馈网络：Transformer block 里 attention 之后的子层
 - term: GELU
   full: Gaussian error linear unit
+  zh: 高斯误差线性单元
+  say: "/ˈdʒɛl.uː/「杰-路」"
   desc: 平滑的 ReLU 变体，GPT 时代的默认激活
 - term: MLP
   full: multi-layer perceptron
+  zh: 多层感知机
+  say: 逐字母 M-L-P
   desc: 多层感知机：线性层 + 非线性激活叠起来的网络
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把向量转一个角度
 - term: SiLU
   full: Sigmoid Linear Unit
+  zh: sigmoid 线性单元
+  say: "/ˈsaɪ.luː/「赛-路」"
   desc: x·sigmoid(x)，又叫 Swish；SwiGLU 的门控用它
 - term: VAE
   full: variational autoencoder
+  zh: 变分自编码器
+  say: 逐字母 V-A-E
   desc: 变分自编码器：带概率隐空间的生成模型
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
-- term: GPTQ
-  full: "—"
-  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
-- term: INT4
-  full: 4-bit integer
-  desc: 均匀 16 格的 4 bit 整数量化
-- term: INT8
-  full: 8-bit integer
-  desc: 8 bit 整数量化，精度损失最小的低比特档
-- term: KIVI
-  full: "—"
-  desc: KV cache 量化方法：key 按通道、value 按 token 量化
-- term: W4A16
-  full: "—"
-  desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
-- term: W4A4
-  full: "—"
-  desc: 权重、激活都 4 bit 的量化档，收益最大、最难保精度
-- term: W8A8
-  full: "—"
-  desc: 权重、激活都 8 bit 的量化档
 - term: SDPA
   full: scaled dot-product attention
+  zh: PyTorch 的融合 attention 函数
+  say: S-D-P-A
   desc: PyTorch 的融合 attention 函数，自选 kernel
-- term: NF4
-  full: 4-bit NormalFloat
-  desc: 按正态分布分位数取 16 个格点的 4 bit 格式
-- term: S-LoRA
-  full: Scalable LoRA
-  desc: 同时服务上千个 adapter 的系统（Sheng 等 2023）
-- term: TMA
-  full: Tensor Memory Accelerator
-  desc: Hopper 起的异步张量搬运单元
-- term: wgmma
-  full: warpgroup MMA
-  desc: Hopper 上以 4 个 warp 为单位的异步 MMA
 - term: DDIM
   full: denoising diffusion implicit model
+  zh: 把采样改成非马尔可夫的扩散采样器
+  say: D-D-I-M
   desc: 把采样改成非马尔可夫的扩散采样器，可以跳步
 - term: DDPM
   full: denoising diffusion probabilistic model
+  zh: 逐步加噪再学逐步去噪的生成框架
+  say: D-D-P-M
   desc: 去噪扩散概率模型：逐步加噪再学逐步去噪的生成框架
 - term: DiT
   full: diffusion transformer
+  zh: 用 Transformer 替代 U-Net 的…
+  say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
 - term: FID
   full: Fréchet inception distance
+  zh: 用 Inception 特征比较生成分布与真实分…
+  say: F-I-D
   desc: 用 Inception 特征比较生成分布与真实分布的指标
 - term: ODE
   full: ordinary differential equation
+  zh: 常微分方程
+  say: O-D-E
   desc: 常微分方程；flow matching / 确定性采样把它当生成路径
-- term: SigLIP
-  full: Sigmoid Loss for Language-Image Pre-training
-  desc: CLIP 的 sigmoid 损失版，对 batch 大小不敏感
 - term: TTS
   full: text-to-speech
+  zh: 语音合成
+  say: T-T-S
   desc: 语音合成；全双工模型把它和听（ASR）放进同一个网络
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
-- term: BCG
-  full: Boston Consulting Group
-  desc: 波士顿咨询，和哈佛合做了 758 名顾问的实验
-- term: SLO
-  full: service level objective
-  desc: 服务等级目标，如可用率、延迟的承诺值
-- term: QPS
-  full: queries per second
-  desc: 每秒查询数
 - term: TFLOPS
   full: tera floating point operations per second
+  zh: 每秒万亿次浮点运算
+  say: "「T-FLOPS」"
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
 - term: FLOP
   full: floating point operation
+  zh: 一次浮点运算
+  say: F-L-O-P
   desc: 一次浮点运算；文中算力账按 FLOP 记
-- term: ZMQ
-  full: ZeroMQ
-  desc: 轻量消息库，常用来在进程间传控制消息
-- term: T5
-  full: Text-to-Text Transfer Transformer
-  desc: Google 的 encoder-decoder 模型，把任务都写成文本到文本
 - term: SP
   full: sequence parallelism
+  zh: 沿序列维切分激活
+  say: S-P
   desc: 序列并行：沿序列维切分激活
 - term: PSNR
   full: peak signal-to-noise ratio
+  zh: 峰值信噪比
+  say: P-S-N-R
   desc: 峰值信噪比，重建质量指标
 - term: USP
   full: unified sequence parallelism
+  zh: DiT 推理用的统一序列并行方案
+  say: U-S-P
   desc: DiT 推理用的统一序列并行方案
-- term: SD3
-  full: Stable Diffusion 3
-  desc: Stability AI 的第三代扩散模型
 - term: SSIM
   full: structural similarity
+  zh: 结构相似度
+  say: S-S-I-M
   desc: 结构相似度，图像质量指标
 - term: LPIPS
   full: learned perceptual image patch similarity
+  zh: 学习到的感知相似度指标
+  say: L-P-I-P-S
   desc: 学习到的感知相似度指标
 - term: DMD
   full: distribution matching distillation
+  zh: 把多步扩散蒸成少步
+  say: D-M-D
   desc: 分布匹配蒸馏：把多步扩散蒸成少步
-- term: SD
-  full: Stable Diffusion
-  desc: Stability AI 的扩散模型系列
-- term: NVFP4
-  full: "—"
-  desc: 4 位浮点量化格式，Blackwell 支持
 - term: VSA
   full: "—"
+  zh: 视频扩散模型里的稀疏注意力机制
+  say: V-S-A
   desc: 视频扩散模型里的稀疏注意力机制
 - term: STA
   full: "—"
+  zh: 视频扩散里的稀疏时空注意力
+  say: S-T-A
   desc: 视频扩散里的稀疏时空注意力

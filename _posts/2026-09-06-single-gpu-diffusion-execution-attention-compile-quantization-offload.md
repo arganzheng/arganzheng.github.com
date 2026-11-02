@@ -158,8 +158,8 @@ DiT 的 attention 是标准的双向 self-attention（无因果 mask），$$N = 
 | 后端 | 实现 | H100 上 FLUX 一层 attention 的效率 | 备注 |
 |---|---|---|---|
 | PyTorch SDPA（`native`） | 按硬件分派到 FA2 / cuDNN / math | 与 FA2 相当 | diffusers 默认 |
-| FlashAttention-2（`flash`） | 分块、不物化分数矩阵 | 峰值的 35–45%（Hopper 上 FA2 用不到 wgmma） | Ampere 的最优 |
-| **FlashAttention-3**（`_flash_3_hub` / SGLang `fa`） | Hopper 专用：warp 特化、TMA、FP8 | 峰值的 60–75%，比 FA2 快 1.5–2× | Hopper 的最优；attention 占 20% → 端到端 5–10% |
+| FlashAttention-2（`flash`） | 分块、不物化分数矩阵 | 峰值的 35–45%（Hopper 上 FA2 用不到 <span class="inline-tip" data-tip="warpgroup MMA：Hopper 上以 4 个 warp 为单位的异步 MMA 指令">wgmma</span>） | Ampere 的最优 |
+| **FlashAttention-3**（`_flash_3_hub` / SGLang `fa`） | Hopper 专用：warp 特化、<span class="inline-tip" data-tip="Tensor Memory Accelerator，Hopper 起的异步张量搬运单元">TMA</span>、FP8 | 峰值的 60–75%，比 FA2 快 1.5–2× | Hopper 的最优；attention 占 20% → 端到端 5–10% |
 | xformers | 旧 | 不再推荐 | |
 | **SageAttention**（`sage`） | Q·K 量化到 INT8 / FP8，PV 保留 FP16 / FP8 累加 | 比 FA2 快 2–3×（Ampere / Ada 上收益最大） | **有损**；SageAttention 3 用 Blackwell 的 FP4 |
 
@@ -180,7 +180,7 @@ SageAttention 把 $$Q$$、$$K$$ 按 block 平滑后量化到 INT8，用 INT8 Ten
 
 ### 1. eager 的时间去哪了
 
-FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate，6 个 $$[1, d]$$ 向量）、LayerNorm、调制乘加、QKV 投影（GEMM）、QK RMSNorm、RoPE、attention、输出投影（GEMM）、gate 乘、残差加、LayerNorm、调制、MLP 上投影（GEMM）、GELU、MLP 下投影（GEMM）、gate 乘、残差加——**四个 GEMM 加一个 attention，周围十几个逐元素 / 归一化算子**。eager 下每个算子一次 kernel launch（5–10 μs 的 CPU 开销）、各自读写一遍 $$[4608, 3072]$$ 的 bf16 张量（27 MiB，8 μs @ 3.35 TB/s）。57 层 × 15 个算子 = 855 次 launch，每步 5–10 ms 的纯开销，加上这些算子本身 memory-bound 的读写：这就是 eager 的 MFU 停在 0.31 而 GEMM 本身能到 0.7 的原因。
+FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate，6 个 $$[1, d]$$ 向量）、LayerNorm、调制乘加、QKV 投影（GEMM）、QK RMSNorm（Root Mean Square Layer Normalization，只按均方根缩放、不减均值的归一化）、RoPE、attention、输出投影（GEMM）、gate 乘、残差加、LayerNorm、调制、MLP 上投影（GEMM）、GELU、MLP 下投影（GEMM）、gate 乘、残差加——**四个 GEMM 加一个 attention，周围十几个逐元素 / 归一化算子**。eager 下每个算子一次 kernel launch（5–10 μs 的 CPU 开销）、各自读写一遍 $$[4608, 3072]$$ 的 bf16 张量（27 MiB，8 μs @ 3.35 TB/s）。57 层 × 15 个算子 = 855 次 launch，每步 5–10 ms 的纯开销，加上这些算子本身 memory-bound 的读写：这就是 eager 的 MFU 停在 0.31 而 GEMM 本身能到 0.7 的原因。
 
 ### 2. `torch.compile`
 
@@ -267,7 +267,7 @@ Q(X̂) · Q(R)（INT4 Tensor Core）"]
 
 ### 4. 图像为什么对 W4 更敏感、怎么评
 
-LLM 的 W4（GPTQ / AWQ）几乎无损，扩散的 W4 却要 SVDQuant 这样的方法才可用——因为扩散的输出是连续值、误差在 28 步里累积成可见的纹理 / 颜色偏移，且 DiT 的激活离群值比 LLM 更极端（adaLN 调制放大了某些通道）。评测也不同：
+LLM 的 W4（GPTQ（逐层用二阶信息补偿误差的训练后权重量化方法） / AWQ（Activation-aware Weight Quantization，按激活大小保护关键权重的低比特量化方法））几乎无损，扩散的 W4 却要 SVDQuant 这样的方法才可用——因为扩散的输出是连续值、误差在 28 步里累积成可见的纹理 / 颜色偏移，且 DiT 的激活离群值比 LLM 更极端（adaLN 调制放大了某些通道）。评测也不同：
 
 | LLM 量化评测 | 扩散量化评测 |
 |---|---|

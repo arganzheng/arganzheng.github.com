@@ -227,7 +227,7 @@ Parallel VAE / 独立卡
 |---|---|---|---|---|
 | **merge** | $$W' = W + BA$$ 合并进权重 | 合并 / 卸载各一次全权重的读写（FLUX 22 GiB，几百 ms） | 0 | 一个实例长期服务一个 LoRA |
 | **unmerged** | 每个线性层多算 $$x B A$$ | 加载 $$BA$$（几十到几百 MB） | 低秩分支的 GEMM（rank 32：约 +2–5%） | 按请求切换 |
-| **多 LoRA batch** | batch 里不同请求用不同 LoRA，按请求索引选 adapter（LLM 的 S-LoRA / Punica 思路） | — | 分组 GEMM 的开销 | 高并发多 LoRA |
+| **多 LoRA batch** | batch 里不同请求用不同 LoRA，按请求索引选 adapter（LLM 的 <span class="inline-tip" data-tip="Scalable LoRA：同时服务上千个 adapter 的系统（Sheng 等 2023）">S-LoRA</span> / Punica 思路） | — | 分组 GEMM 的开销 | 高并发多 LoRA |
 
 Table: LoRA 的三种服务方式
 
@@ -239,7 +239,7 @@ ControlNet 是一个与基座部分同构的网络（U-Net 时代是 encoder 的
 
 ### 3. IP-Adapter 与参考图
 
-参考图经一个图像编码器（CLIP / SigLIP）一次前向得到 embedding，注入 DiT 的 attention——多一个几百 M 参数的编码器、一次前向、几十毫秒；embedding 同样可以按参考图哈希缓存。
+参考图经一个图像编码器（CLIP / SigLIP（Sigmoid Loss for Language-Image Pre-training，CLIP 的 sigmoid 损失版））一次前向得到 embedding，注入 DiT 的 attention——多一个几百 M 参数的编码器、一次前向、几十毫秒；embedding 同样可以按参考图哈希缓存。
 
 ## 七、模型级联与路由
 

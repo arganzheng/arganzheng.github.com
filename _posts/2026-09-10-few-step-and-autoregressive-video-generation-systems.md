@@ -282,7 +282,7 @@ Table: 自回归视频的 KV 字节数
 
 ### 3. KV 量化
 
-窗口 6–27 GB 的 KV 在长会话里是显存的主项。SGLang 对 LingBot World 的 causal 服务提供 `--kv-cache-quant int4 | int2`（Quant-VideoGen 的 PRQ）：**已完成的 chunk** 的 K / V 量化到 INT4 / INT2，**当前与最近的 chunk** 留 bf16——因为最近的 chunk 对当前生成影响最大、且它们的 K / V 还会被"重算 clean 版本"覆盖。与 LLM 的 KV 量化（KIVI 一类）同构，粒度是 chunk 而不是 token。
+窗口 6–27 GB 的 KV 在长会话里是显存的主项。SGLang 对 LingBot World 的 causal 服务提供 `--kv-cache-quant int4 | int2`（Quant-VideoGen 的 PRQ）：**已完成的 chunk** 的 K / V 量化到 INT4 / INT2，**当前与最近的 chunk** 留 bf16——因为最近的 chunk 对当前生成影响最大、且它们的 K / V 还会被"重算 clean 版本"覆盖。与 LLM 的 KV 量化（KIVI（key 按通道、value 按 token 量化） 一类）同构，粒度是 chunk 而不是 token。
 
 ## 八、服务形态：从批任务到会话
 
