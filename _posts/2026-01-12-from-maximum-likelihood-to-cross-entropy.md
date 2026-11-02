@@ -164,7 +164,7 @@ $$
 \mathcal{L}(\theta) = -\frac{1}{T_{\text{total}}} \sum_{i, t} \log p_\theta\big(x^{(i)}_t \mid x^{(i)}_{<t}\big)
 $$
 
-——**每个 token 的负对数似然**（negative log-likelihood，NLL（negative log-likelihood，负对数似然））的平均。上一章表格的最后一列算的正是它：$$\theta_1$$ 是 $$3.62 / 5 = 0.72$$。
+——**每个 token 的负对数似然**（negative log-likelihood，NLL）的平均。上一章表格的最后一列算的正是它：$$\theta_1$$ 是 $$3.62 / 5 = 0.72$$。
 
 ### 2. 逐字读它：$$-\log p$$ 的形状
 
