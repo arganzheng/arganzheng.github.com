@@ -51,7 +51,7 @@ LLM 预训练在第二行：每个参数只"分到"两千个 token，模型远�
 | 八 | 诊断 | 三个信号：gap、held-out 拐点、记忆探针<br/>loss 涨而准确率不变的含义 |
 | 九 | 案例：1,000 张图的过拟合与解药 | 训练 loss 归零、测试 loss 掉头的曲线<br/>weight decay / dropout / 早停各怎么改变它<br/>宽度扫描画出 double descent<br/>小语言模型的逐字记忆 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -175,9 +175,23 @@ Table: 五种显式正则化手段总览
 
 **问题**：参数没有约束地涨，拟合出来的函数越来越扭曲。
 
-**怎么解决**：给参数一个均值 0、方差 $$\sigma^2$$ 的高斯先验 $$p(\theta) \propto \exp(-\|\theta\|^2 / 2\sigma^2)$$，最大后验估计（L0 数学系列第五篇的 MAP）在负对数似然上多出一项 $$\frac{1}{2\sigma^2}\|\theta\|^2$$——这就是 $$L_2$$ 正则，$$\lambda = 1/\sigma^2$$。它说的先验是"参数应该小"，也就是"函数应该平缓"。《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别」讨论了它在 Adam 下的正确形式与它在 LLM 里作为"范数平衡点"的含义。
+**怎么解决**：给参数一个均值 0、方差 $$\sigma^2$$ 的高斯先验 $$p(\theta) \propto \exp(-\|\theta\|^2 / 2\sigma^2)$$，最大后验估计（L0 数学系列第五篇的 MAP）在负对数似然上多出一项 $$\frac{1}{2\sigma^2}\|\theta\|^2$$——这就是 $$L_2$$ 正则，$$\lambda = 1/\sigma^2$$。它说的先验是"参数应该小"，也就是"函数应该平缓"。上面的写法把噪声方差折进了似然项；如果把负对数似然除以 $$\sigma_{noise}^2$$ 还原成平方误差加惩罚的形式 $$\sum_i(y_i - f_\theta(x_i))^2/2 + \lambda\|\theta\|^2$$，同一个高斯先验对应的系数是 $$\lambda = \sigma_{noise}^2 / \sigma_{prior}^2$$——噪声越大，相对地需要越强的正则。《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别」讨论了它在 Adam 下的正确形式与它在 LLM 里作为"范数平衡点"的含义。
 
 一个数字感受它的力度：AdamW 的解耦衰减是每步把参数乘 $$1 - \eta\lambda$$。$$\eta = 10^{-3}$$、$$\lambda = 0.5$$ 时这个因子是 $$0.9995$$；如果梯度是零，一个权重 1000 步后收缩到 $$0.9995^{1000} \approx 0.606$$——衰减不依赖 loss，它一直把参数往零点拉。
+
+为什么"参数小 = 函数平缓"可以用一个最小的实验直接看见：10 个带噪点（$$y = \sin(2\pi x) + \mathcal{N}(0, 0.2^2)$$），用一个 9 次多项式做最小二乘加 $$L_2$$，$$\lambda$$ 取 0、$$10^{-3}$$、$$10^{-1}$$ 三档：
+
+![9 次多项式拟合 10 个带噪点：λ=0 的红曲线穿过每个点但在点间剧烈震荡（‖w‖=3.9e+07，测试 MSE=7.29e+04）；λ=0.001 的绿曲线贴着真函数（‖w‖=10.5，测试 MSE=0.040）；λ=0.1 的蓝曲线过平欠拟合（‖w‖=2.29，测试 MSE=0.115）](/img/in-post/dl-reg-weight-decay.svg)
+
+```text
+== 10 个带噪点、9 次多项式、L2 三档 ==
+  数据：y = sin(2πx) + N(0, 0.2^2)，训练/测试 MSE 与 ‖w‖：
+  λ = 0.0   : 训练 MSE = 0.0054，测试 MSE = 7.286e+04，‖w‖ = 3.915e+07
+  λ = 0.001 : 训练 MSE = 0.0711，测试 MSE = 0.04014，‖w‖ = 10.54
+  λ = 0.1   : 训练 MSE = 0.1178，测试 MSE = 0.1155，‖w‖ = 2.289
+```
+
+读数：$$\lambda=0$$ 时多项式把每个含噪点都插进去——训练误差最小、权重范数冲到 $$4\times10^7$$、测试误差爆炸；$$\lambda=10^{-3}$$ 把范数压到 10，测试误差最小；$$\lambda=10^{-1}$$ 压过头，连训练误差都涨（欠拟合）。先验越强，解越平。
 
 **效果**：第九章的实验里，1000 个样本、AdamW $$\lambda = 0.5$$，300 个 epoch 后测试 loss 是 0.42，不加是 0.55——weight decay 把训练后期测试 loss 的上升压平了大半。
 
@@ -189,7 +203,28 @@ Table: 五种显式正则化手段总览
 
 **怎么解决**：Dropout（Srivastava 等 2014）训练时以概率 $$p$$ 把每个激活置零，并把剩下的乘 $$1 / (1 - p)$$（inverted dropout，让期望不变：$$\mathbb{E}[\tilde a] = (1 - p) \cdot a / (1 - p) = a$$）；推理时什么都不做。
 
-一个具体例子看乘性缩放：激活 $$h = [2, 4, 6, 8]$$、$$p = 0.5$$、这一步的 mask 是 $$[1, 0, 1, 0]$$，那么训练时的输出是 $$[2, 0, 6, 0] \times 2 = [4, 0, 12, 0]$$——被保留的单元放大一倍，被丢掉的输出零；每个单元的期望不变，推理时既不做 mask 也不做缩放。两种理解：
+一个具体例子看乘性缩放：激活 $$h = [2, 4, 6, 8]$$、$$p = 0.5$$、这一步的 mask 是 $$[1, 0, 1, 0]$$，那么训练时的输出是 $$[2, 0, 6, 0] \times 2 = [4, 0, 12, 0]$$——被保留的单元放大一倍，被丢掉的输出零；每个单元的期望不变，推理时既不做 mask 也不做缩放。换成一个 $$4\times8$$ 的全 1 张量真跑一遍，看到的就是这样：
+
+![inverted dropout：输入全 1 的 4×8 张量，p=0.5 时 mask 的 1/0 格子逐元素决定输出格子是 2 还是 0；幸存单元 ×2 使期望不变，eval 输出等于输入，大样本训练输出均值约 1.0](/img/in-post/dl-reg-dropout.svg)
+
+```text
+== inverted dropout：x 全 1、p = 0.5，训练时输出 = mask × 2 ==
+  mask（1 = 保留）:
+    1 1 1 0 0 1 0 1
+    1 0 0 0 0 0 1 1
+    1 1 1 1 0 0 1 0
+    0 1 0 1 1 1 0 0
+  训练时输出 = x ⊙ mask / (1-p):
+    2 2 2 0 0 2 0 2
+    2 0 0 0 0 0 2 2
+    2 2 2 2 0 0 2 0
+    0 2 0 2 2 2 0 0
+  大样本训练输出均值 = 0.9974（≈ 1.0 = 输入）   eval 输出 = x = 全 1
+```
+
+读数：训练时每个位置不是 $$0$$ 就是 $$2$$——单看一步输出方差很大，但大样本均值 $$0.9974 \approx 1.0$$ 说明期望确实不变，这正是 $$1/(1-p)$$ 这个系数的目的。
+
+两种理解：
 
 ![Srivastava 等 2014《Dropout》图 1：左边是一个两层隐藏层的标准网络，右边是训练时随机丢掉一部分神经元（画 ×）之后的"瘦网络"——每个 batch 用一个不同的瘦网络。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-dropout-fig1.webp)
 
@@ -365,7 +400,7 @@ Table: 小语言模型 2 万字符逐 epoch 的 loss 与记忆率
 - 诊断：训练 / 验证 gap、held-out 拐点、**测试 loss 涨而准确率不变 = 过度自信**、记忆探针。
 - 下一篇进入结构史：[《深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT》](/cnn-from-lenet-to-resnet-and-vit.html)，看卷积网络解决了什么、ResNet 留下了什么、ViT 怎么把图切成 token。
 
-配套代码：[`deep-learning-foundations/04_regularization.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/04_regularization.py)——`dd` / `reg` / `lm` 三个子实验，完整跑约 15 分钟，`--quick` 两分钟；字符级语料用的是 Python 自带的标准库源码，不需要下载。第三、五章的曲线由 [`case_04_regularization_plots.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_04_regularization_plots.py) 画出，第一、三、四、五、七章的概念图与工作实例由 [`case_04_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_04_concept_figures.py) 画出（不需要训练）。
+配套代码：[`deep-learning-foundations/04_regularization.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/04_regularization.py)——`dd` / `reg` / `lm` 三个子实验，完整跑约 15 分钟，`--quick` 两分钟；字符级语料用的是 Python 自带的标准库源码，不需要下载。第三、五章的曲线由 [`case_04_regularization_plots.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_04_regularization_plots.py) 画出，第一、三、四、五、七章的概念图与工作实例由 [`case_04_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_04_concept_figures.py) 画出（不需要训练）。第五章两个数字小实验（多项式 + L2、inverted dropout 的 mask 与缩放）由 [`case_07_reg_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_07_reg_toys.py) 跑出并配图。
 
 ## 十一、自测
 
@@ -406,6 +441,14 @@ Table: 小语言模型 2 万字符逐 epoch 的 loss 与记忆率
    <details markdown="1"><summary>答案</summary>
 
    过度自信：模型对答对的题给出越来越极端的概率，错的题也越来越自信，交叉熵被少数极端错误拉高而 argmax 不变。看校准（预测概率 vs 实际正确率）与记忆探针（逐字复现训练样本的比例）。
+
+   </details>
+
+6. inverted dropout $$p = 0.5$$ 时，训练输出里存活的单元为什么乘 2 而不是保持原值？不乘会怎样？
+
+   <details markdown="1"><summary>答案</summary>
+
+   乘 $$1/(1-p) = 2$$ 是为了让期望不变：训练时每步只有一半单元输出，若不再放大，输出的期望就只剩 $$0.5\,a$$，和推理时全量工作的网络差一倍，训练与推理对不上。乘 2 后 $$\mathbb{E}[\tilde a] = (1-p)\cdot 2a = a$$——实测大样本训练输出均值 $$0.9974 \approx 1.0$$ 就是输入。
 
    </details>
 
