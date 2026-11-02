@@ -615,7 +615,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(
 
 ### 1. 三个 kernel 与一个 kernel
 
-回到核心问题。假设 `add` 已经跑到 90% 带宽，要做的运算是一个典型的 MLP 尾部：
+回到核心问题。假设 `add` 已经跑到 90% 带宽，要做的运算是一个典型的 MLP（multi-layer perceptron，线性层 + 非线性激活叠起来的网络） 尾部：
 
 $$
 \text{out} = \text{silu}(x + b) \odot y

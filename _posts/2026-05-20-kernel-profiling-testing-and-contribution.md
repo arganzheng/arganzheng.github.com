@@ -1057,7 +1057,7 @@ if __name__ == "__main__":
 - `test_schema`：schema 与实现是否一致——声明为可变的参数确实被修改了、声明返回新 tensor 的确实返回了新 tensor 而不是输入的 view；
 - `test_autograd_registration`：如果算子支持训练，autograd 公式是否通过 `register_autograd` 或 Autograd dispatch key 正确注册；本文的算子没有注册反向，在 `requires_grad=False` 的输入上这项通过；
 - `test_faketensor`：fake kernel 是否存在、其输出的 metadata 是否与真实运行一致；
-- `test_aot_dispatch_dynamic`：在 `torch.compile` 的 AOTAutograd 路径下（含 functionalization、动态 shape）算子的输出是否与 eager 相同。
+- `test_aot_dispatch_dynamic`：在 `torch.compile` 的 AOTAutograd（ahead-of-time Autograd，编译前提前把前向、反向图都生成出来） 路径下（含 functionalization、动态 shape）算子的输出是否与 eager 相同。
 
 docstring 建议"用一组有代表性的输入多次调用 opcheck"——不同 shape、不同 stride、每个支持的设备。这就是第六章测试文件里 `test_rms_norm_opcheck` 参数化 layout 的原因。
 

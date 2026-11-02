@@ -51,7 +51,7 @@ CUDA 的执行模型有三层：grid、block、thread。程序员写的是**一�
 - **program** 对应 CUDA 的一个 block，用 `tl.program_id(axis)` 拿到自己的坐标（对应 `blockIdx.x/y/z`）；
 - **没有 thread**。一个 program 的代码操作的是**块级张量**（block-level tensor）——形状固定、在编译期已知的一小块数据，比如 `[BLOCK_SIZE]` 或 `[BLOCK_M, BLOCK_N]`。
 
-一个 program 底层仍然由 `num_warps × 32` 个线程执行（`num_warps` 默认 4，即 128 线程），但这些线程如何分摊张量里的元素，程序员看不到、也不能指定。这就是 Triton 与 CUDA 最本质的区别：**CUDA 是 SIMT（每个线程一份标量代码），Triton 是 SPMD 之上的块级张量语言（每个 block 一份张量代码）**。
+一个 program 底层仍然由 `num_warps × 32` 个线程执行（`num_warps` 默认 4，即 128 线程），但这些线程如何分摊张量里的元素，程序员看不到、也不能指定。这就是 Triton 与 CUDA 最本质的区别：**CUDA 是 SIMT（每个线程一份标量代码），Triton 是 SPMD（single program, multiple data，每个进程跑同一份程序、处理不同数据） 之上的块级张量语言（每个 block 一份张量代码）**。
 
 用最小的 elementwise 例子对照两者：
 

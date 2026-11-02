@@ -487,7 +487,7 @@ flowchart TB
 
 最简单的模式：GEMM 输出 $$y$$，接 $$\text{act}(y + b)$$。分开做是 GEMM 写 $$y$$（2 B）、bias kernel 读写（4 B）、act kernel 读写（4 B），融合进 GEMM 的 epilogue 之后只有 GEMM 写一次（2 B）。这在 CUTLASS 里是 epilogue functor 的事，属于第六篇。
 
-Llama 系模型的 FFN 用 SwiGLU：`gate_up` GEMM 一次输出 $$[T, 2d_{ff}]$$（前一半是 gate，后一半是 up），然后
+Llama 系模型的 FFN 用 SwiGLU（Swish-Gated Linear Unit，两路相乘再降维）：`gate_up` GEMM 一次输出 $$[T, 2d_{ff}]$$（前一半是 gate，后一半是 up），然后
 
 $$
 h = \text{silu}(x[:, :d]) \odot x[:, d:], \qquad \text{silu}(z) = \frac{z}{1 + e^{-z}}

@@ -1,247 +1,251 @@
 ---
-- term: RFC
-  full: Request for Comments
-  desc: IETF 发布互联网标准的文档系列
-- term: bf16
-  full: bfloat16
-  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力的计量单位
-- term: GiB
-  full: gibibyte
-  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
+  zh: 均方根归一化
+  say: "「RMS-Norm」"
   desc: 只按均方根缩放、不减均值的归一化
-- term: GSM8K
-  full: Grade School Math 8K
-  desc: 约 8.5K 道小学数学应用题的 benchmark
-- term: NaN
-  full: not a number
-  desc: 浮点里的缺失值标记
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点数
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 软件栈
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘
 - term: SM
   full: streaming multiprocessor
+  zh: GPU 流多处理器
+  say: 逐字母 S-M
   desc: GPU 的计算单元，通信 kernel 也要占用
-- term: DMA
-  full: direct memory access
-  desc: 设备不经 CPU 直接读写内存
-- term: PD
-  full: prefill–decode
-  desc: PD 分离：prefill 与 decode 放到不同节点上跑
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: RDMA
-  full: remote direct memory access
-  desc: 网卡直接读写远端内存，绕开对端 CPU 和内核
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: A/B
-  full: A/B testing
-  desc: 把流量随机分给两个版本，比较指标
 - term: DCO
   full: Developer Certificate of Origin
+  zh: 开发者原创声明
+  say: D-C-O
   desc: 开发者原创声明，每个 commit 带 Signed-off-by
 - term: AWQ
   full: Activation-aware Weight Quantization
+  zh: 激活感知权重量化
+  say: 逐字母 A-W-Q
   desc: 按激活大小保护关键权重的低比特量化方法
-- term: NPU
-  full: neural processing unit
-  desc: 神经网络专用处理器，这里指昇腾
-- term: FP64
-  full: 64-bit floating point
-  desc: 双精度浮点
 - term: RAII
   full: resource acquisition is initialization
+  zh: C++ 用对象生命周期管理资源的惯用法
+  say: R-A-I-I
   desc: C++ 用对象生命周期管理资源的惯用法
-- term: SPMD
-  full: single program, multiple data
-  desc: 每个进程跑同一份程序、处理不同数据
-- term: TF32
-  full: TensorFloat-32
-  desc: Ampere 起 Tensor Core 用的 19 位精度矩阵乘格式
-- term: BF16
-  full: bfloat16
-  desc: 8 位指数的 16 位浮点，范围同 FP32
-- term: FP16
-  full: 16-bit floating point
-  desc: 半精度浮点，5 位指数、10 位尾数
-- term: AOTAutograd
-  full: ahead-of-time Autograd
-  desc: 编译前提前把前向、反向图都生成出来
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
+  zh: NVIDIA 矩阵乘模板库
+  say: "「卡特拉斯」"
   desc: NVIDIA 的 C++ 矩阵乘模板库
 - term: H2D
   full: host to device
+  zh: 主机到设备
+  say: 逐字母 H-2-D
   desc: 主机内存拷到显存
-- term: FP32
-  full: 32-bit floating point
-  desc: 单精度浮点，深度学习的默认精度
 - term: ulp
   full: unit in the last place
+  zh: 浮点数最低位一格代表的数值间隔
+  say: "「ulp」"
   desc: 浮点数最低位一格代表的数值间隔
 - term: FFN
   full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
   desc: 前馈网络：Transformer block 里 attention 之后的子层
-- term: MLP
-  full: multi-layer perceptron
-  desc: 多层感知机：线性层 + 非线性激活叠起来的网络
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把向量转一个角度
 - term: SiLU
   full: Sigmoid Linear Unit
+  zh: sigmoid 线性单元
+  say: "/ˈsaɪ.luː/「赛-路」"
   desc: x·sigmoid(x)，又叫 Swish；SwiGLU 的门控用它
-- term: SwiGLU
-  full: Swish-Gated Linear Unit
-  desc: 用 SiLU 做门控的 FFN：两路相乘再降维
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
 - term: GPTQ
   full: "—"
+  zh: GPTQ 量化方法
+  say: 逐字母 G-P-T-Q
   desc: 逐层用二阶信息补偿误差的训练后权重量化方法
-- term: INT4
-  full: 4-bit integer
-  desc: 均匀 16 格的 4 bit 整数量化
-- term: INT8
-  full: 8-bit integer
-  desc: 8 bit 整数量化，精度损失最小的低比特档
-- term: MLA
-  full: multi-head latent attention
-  desc: 把 KV 压成低秩隐向量的 attention，DeepSeek 用它
-- term: W4A16
-  full: "—"
-  desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
-- term: W8A8
-  full: "—"
-  desc: 权重、激活都 8 bit 的量化档
 - term: SDPA
   full: scaled dot-product attention
+  zh: PyTorch 的融合 attention 函数
+  say: S-D-P-A
   desc: PyTorch 的融合 attention 函数，自选 kernel
 - term: GEMV
   full: general matrix–vector multiply
+  zh: 矩阵乘向量
+  say: G-E-M-V
   desc: 矩阵乘向量，decode 时 batch 为 1 的线性层
-- term: CTA
-  full: cooperative thread array
-  desc: CUDA 里的线程块
-- term: TMEM
-  full: Tensor Memory
-  desc: Blackwell 上 Tensor Core 专用的片上存储
 - term: SASS
   full: "—（NVIDIA 未给出官方全称）"
+  zh: NVIDIA GPU 真正执行的机器指令
+  say: S-A-S-S
   desc: NVIDIA GPU 真正执行的机器指令
-- term: ISA
-  full: instruction set architecture
-  desc: 指令集架构
 - term: TMA
   full: Tensor Memory Accelerator
+  zh: Hopper 起的异步张量搬运单元
+  say: T-M-A
   desc: Hopper 起的异步张量搬运单元
-- term: AST
-  full: abstract syntax tree
-  desc: 抽象语法树：源码解析后的树形结构
-- term: JIT
-  full: just-in-time compilation
-  desc: 运行时即时编译
 - term: wgmma
   full: warpgroup MMA
+  zh: Hopper 上以 4 个 warp 为单位的异…
+  say: "「wgmma」"
   desc: Hopper 上以 4 个 warp 为单位的异步 MMA
 - term: MMA
   full: matrix multiply-accumulate
+  zh: 矩阵乘加
+  say: M-M-A
   desc: 矩阵乘加，Tensor Core 指令的统称
 - term: cubin
   full: CUDA binary
+  zh: GPU 上直接加载执行的二进制文件
+  say: "「cubin」"
   desc: GPU 上直接加载执行的二进制文件
 - term: PTX
   full: Parallel Thread Execution
+  zh: NVIDIA 的虚拟 GPU 指令集
+  say: P-T-X
   desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
-- term: IR
-  full: intermediate representation
-  desc: 中间表示：编译器各阶段之间传递的程序形式
-- term: LLVM
-  full: "—（最初是 Low Level Virtual Machine，现已不作缩写）"
-  desc: 通用编译器基础设施，CPU / GPU 后端共用
 - term: TTGIR
   full: TritonGPU IR
+  zh: 带 layout 的 Triton GPU 方言
+  say: T-T-G-I-R
   desc: 带 layout 的 Triton GPU 方言
 - term: TTIR
   full: Triton IR
+  zh: Triton 最上层的 MLIR 方言
+  say: T-T-I-R
   desc: Triton 最上层的 MLIR 方言，还没有 layout
 - term: FMA
   full: fused multiply-add
+  zh: 融合乘加指令
+  say: F-M-A
   desc: 融合乘加指令，不走 Tensor Core 的路径
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
 - term: TFLOPS
   full: tera floating point operations per second
+  zh: 每秒万亿次浮点运算
+  say: "「T-FLOPS」"
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
 - term: HBM3
   full: High Bandwidth Memory 3
+  zh: H100 用的第三代高带宽显存
+  say: H-B-M 3
   desc: H100 用的第三代高带宽显存
 - term: SXM
   full: Server PCI Express Module
+  zh: NVIDIA 板载模组形态
+  say: 逐字母 S-X-M
   desc: NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡
 - term: FLOP
   full: floating point operation
+  zh: 一次浮点运算
+  say: F-L-O-P
   desc: 一次浮点运算；文中算力账按 FLOP 记
 - term: D2H
   full: device to host
+  zh: 设备到主机
+  say: 逐字母 D-2-H
   desc: 显存拷回主机内存
 - term: SRAM
   full: static random-access memory
+  zh: 片上静态存储
+  say: "「S-RAM」"
   desc: GPU 片上的小而快的存储
 - term: ILP
   full: instruction-level parallelism
+  zh: 无依赖的指令填满流水线
+  say: I-L-P
   desc: 指令级并行：无依赖的指令填满流水线
 - term: SOL
   full: speed of light
+  zh: 理论上能跑到的峰值
+  say: S-O-L
   desc: "「光速」上限：理论上能跑到的峰值"
 - term: FFMA
   full: fused float multiply-add
+  zh: GPU 的单精度融合乘加指令
+  say: F-F-M-A
   desc: GPU 的单精度融合乘加指令
 - term: DRAM
   full: dynamic random-access memory
+  zh: 动态内存
+  say: D-R-A-M
   desc: 动态内存，这里指显存颗粒
 - term: LDS
   full: load shared
+  zh: PTX 里读 shared memory 的指令
+  say: L-D-S
   desc: PTX 里读 shared memory 的指令
 - term: FA2
   full: FlashAttention 2
+  zh: FlashAttention 的第二代实现
+  say: F-A 2
   desc: FlashAttention 的第二代实现
 - term: FA3
   full: FlashAttention 3
+  zh: FlashAttention 的第三代实现
+  say: F-A 3
   desc: FlashAttention 的第三代实现，面向 Hopper
 - term: SIMT
   full: single instruction, multiple threads
+  zh: warp 齐步执行同一条指令
+  say: S-I-M-T
   desc: 单指令多线程：warp 齐步执行同一条指令
 - term: SFU
   full: special function unit
+  zh: GPU 上算超越函数（exp、sin）的专用单元
+  say: S-F-U
   desc: GPU 上算超越函数（exp、sin）的专用单元
 - term: ALU
   full: arithmetic logic unit
+  zh: 算术逻辑单元
+  say: A-L-U
   desc: 算术逻辑单元
 - term: GFLOP
   full: giga floating point operations
+  zh: 10⁹ 次浮点运算
+  say: G-F-L-O-P
   desc: 10⁹ 次浮点运算
 - term: CANN
   full: Compute Architecture for Neural Networks
+  zh: 华为昇腾的计算平台
+  say: C-A-N-N
   desc: 华为昇腾的计算平台，对应 CUDA
 - term: SGEMM
   full: single-precision GEMM
+  zh: 单精度矩阵乘
+  say: S-G-E-M-M
   desc: 单精度矩阵乘
 - term: TN
   full: transposed–normal
+  zh: A 转置、B 不转置
+  say: T-N
   desc: cuBLAS 的转置标记：A 转置、B 不转置
