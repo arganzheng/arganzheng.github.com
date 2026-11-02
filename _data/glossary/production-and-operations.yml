@@ -1,79 +1,46 @@
 ---
 - term: CSAM
   full: child sexual abuse material
+  zh: 儿童性虐待材料
+  say: C-S-A-M
   desc: 儿童性虐待材料
-- term: RCE
-  full: remote code execution
-  desc: 远程代码执行
-- term: PII
-  full: personally identifiable information
-  desc: 能识别到个人的信息，如姓名、手机号
 - term: RPM / TPM
   full: requests per minute / tokens per minute
+  zh: 每分钟请求数 / 每分钟 token 数的限额
+  say: "「RPM / TPM」"
   desc: 每分钟请求数 / 每分钟 token 数的限额
-- term: SRE
-  full: site reliability engineering
-  desc: 负责线上可靠性的工程实践与岗位
-- term: SLO
-  full: service level objective
-  desc: 服务水平目标，如 p95 延迟、可用性、质量
 - term: GPAI
   full: general-purpose AI
+  zh: AI Act 里的通用模型
+  say: G-P-A-I
   desc: AI Act 里的通用模型，有单独的义务
 - term: ZDR
   full: zero data retention
+  zh: 供应商不存请求与响应数据
+  say: Z-D-R
   desc: 供应商不保存请求与响应内容的选项
-- term: CVE
-  full: Common Vulnerabilities and Exposures
-  desc: 公开漏洞的统一编号
-- term: CSP
-  full: Content Security Policy
-  desc: 浏览器按白名单限制页面能加载的资源
 - term: XPIA
   full: cross-prompt injection attack
+  zh: Microsoft 对间接 prompt inj…
+  say: X-P-I-A
   desc: Microsoft 对间接 prompt injection 的叫法
 - term: PTC
   full: programmatic tool calling
+  zh: 模型写程序调多个工具
+  say: P-T-C
   desc: 让模型写代码一次调多个工具，把多轮变一轮
-- term: FinOps
-  full: financial operations
-  desc: 云成本的归因、预算与优化的日常运营
-- term: p50 / p95
-  full: 50th / 95th percentile
-  desc: 延迟或成本的中位数与 95 分位
-- term: OTA
-  full: over-the-air
-  desc: 通过网络远程给设备推软件更新
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个输出 token 的时间
-- term: OWASP
-  full: Open Worldwide Application Security Project
-  desc: 发布应用安全十大风险清单的开源组织
-- term: CVSS
-  full: Common Vulnerability Scoring System
-  desc: 漏洞严重度评分，满分 10
 - term: MCP
   full: Model Context Protocol
+  zh: 模型客户端连接工具服务器的开放协议
+  say: M-C-P
   desc: 模型调用外部工具与数据的开放协议
-- term: TTL
-  full: time to live
-  desc: 缓存条目多久后过期
-- term: IAM
-  full: identity and access management
-  desc: 云上的身份与权限管理
-- term: OTel
-  full: OpenTelemetry
-  desc: 开源的 trace / 指标 / 日志标准
-- term: p50 / p95 / p99
-  full: 50th / 95th / 99th percentile
-  desc: 中位数、95 分位、99 分位
-- term: RPM
-  full: requests per minute
-  desc: 每分钟请求数的限额
-- term: COGS
-  full: cost of goods sold
-  desc: 销货成本，算毛利时从收入里减掉的那部分
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 先检索资料、再让模型据此回答
