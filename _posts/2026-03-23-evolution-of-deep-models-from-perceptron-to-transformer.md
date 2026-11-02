@@ -89,6 +89,23 @@ Minsky 与 Papert 1969 年的《Perceptrons》把感知机能力边界作为几�
 
 这次低潮留下的真正问题不是“神经网络没有用”，而是怎样让模型同时具备非线性表达能力和可行的训练方法。
 
+把感知机学习规则真的跑一遍，这条边界看得更直观：四个点、学习率 1、权重从零开始，固定顺序逐点更新——
+
+![感知机与 XOR：AND 第 6 轮、OR 第 4 轮就学到一条分隔线；XOR 画不出一条直线；加一层 OR+NAND 隐藏层后，四个点在 (h1,h2) 空间里变成线性可分](/img/in-post/dl-evo-perceptron-xor.svg)
+
+```text title='感知机学习规则与手工隐藏层（case_01_history_toys.py perceptron-xor）'
+ AND  第 6 epoch 首次零误分，最终 w=(2,1), b=-2
+ OR   第 4 epoch 首次零误分，最终 w=(1,1), b=0
+ XOR  100 epoch 未收敛，末尾 5 个 epoch 误分数：[4, 4, 4, 4, 4]
+== 手工 2-2-1：h1=OR, h2=NAND, out=AND(h1,h2) ==
+ x=(0,0) → (h1,h2)=(0,1) → ŷ=0
+ x=(0,1) → (h1,h2)=(1,1) → ŷ=1
+ x=(1,0) → (h1,h2)=(1,1) → ŷ=1
+ x=(1,1) → (h1,h2)=(1,0) → ŷ=0
+```
+
+读数：AND 与 OR 几轮就收敛、各画得出一条直线；XOR 连跑 100 轮每轮仍错 4 个——不是训练不够久，是这条直线不存在（上面的代数证明）。而加一层就够了：隐藏层算 OR 与 NAND，四个输入被折进 $$(h_1, h_2)$$ 平面的三个位置，一条线分开——$$h_1 + h_2 = 1.5$$ 之上全是 1、之下全是 0。第五章第二节会把这个手工构造写成公式；第十章的案例再用反向传播真的学出它。
+
 ## 五、第二次兴起（1980–1995）
 
 ### 从视觉层级到可训练的深层网络
@@ -125,7 +142,7 @@ LeNet-5 将卷积、子采样与分类层组织成可训练的手写文档识别
 
 当视觉与语音数据仍以小型任务为主时，支持向量机给研究者一个更容易控制的选择。Cortes 与 Vapnik 的 SVM 用最大间隔分类；核函数把高维特征空间的内积写成原空间的计算，凸目标则让优化能到达全局最优解。[SVM 原论文](https://doi.org/10.1007/BF00994018) 小样本、手工特征和有限算力的组合，适合这种有明确目标函数与理论分析的路线。更多推导见[《支持向量机与核方法》](/svm-and-kernel-methods.html)。
 
-深层网络当时难在哪里？sigmoid 的饱和区会使局部导数很小，反向连乘后早期层收到的学习信号减弱；权重初始化的尺度也会影响信号在层间放大还是缩小。网络即使表达能力足够，优化器也未必能有效找到解。激活函数问题见《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；方差传播见《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》。
+深层网络当时难在哪里？sigmoid 的饱和区会使局部导数很小，反向连乘后早期层收到的学习信号减弱；权重初始化的尺度也会影响信号在层间放大还是缩小。网络即使表达能力足够，优化器也未必能有效找到解。同一台 10 层 MLP 上实测：sigmoid 的第一层权重梯度范数只有最后一层的 $$2.87 \times 10^{-6}$$、tanh 与 ReLU 基本持平——连乘的具体数字见《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》的「激活函数在反向传播里做什么」；方差传播见《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》。
 
 与此同时，手工特征、核方法、概率图模型和较小神经网络仍在解决具体问题。把 1995–2006 叫作“所有连接主义研究停止”并不准确；更准确的说法是，通用深层监督网络尚未成为主流工程工具。2004 年，Geoffrey Hinton 在 CIFAR 发起 Neural Computation and Adaptive Perception 项目，后续演变为 Learning in Machines & Brains；CIFAR 自己把这项支持描述为深度学习革命的早期催化因素。[CIFAR 项目沿革](https://cifar.ca/cifarnews/2019/04/08/cifar-announces-new-research-programs-and-ai-chairs/)
 
@@ -201,7 +218,7 @@ ADALINE 用全批量梯度下降、学习率 0.1 训练 500 轮，最终权重�
 
 ![XOR 案例：感知机、ADALINE 与成功的 H=4 MLP 决策区域，以及训练误分与 loss 曲线](/img/in-post/dl-evolution-xor.webp)
 
-完整输出见 [XOR 实验脚本](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_evolution_xor.py)。
+完整输出见 [XOR 实验脚本](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_evolution_xor.py)；第四章的小图由 [`case_01_history_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_history_toys.py)（`perceptron-xor` 子命令）生成。
 
 ## 十一、本文小结
 
@@ -257,6 +274,14 @@ ADALINE 用全批量梯度下降、学习率 0.1 训练 500 轮，最终权重�
    <details markdown="1"><summary>答案</summary>
 
    AlexNet 的 ILSVRC-2012 top-5 错误率为 15.3%，第二名为 26.2%；Transformer 报告 WMT14 英德 28.4 BLEU，并在英法任务以 8 块 P100 训练 big 模型 3.5 天。
+
+   </details>
+
+7. 单层感知机为什么解不了 XOR？加一层为什么就可以？
+
+   <details markdown="1"><summary>答案</summary>
+
+   单层感知机只能画一条直线，而 XOR 的四个点不存在能分开两类的直线（第四章的代数矛盾与 100 轮实测每轮仍错 4 个）；加一层 OR + NAND 隐藏层后，四个输入被折进 $$(h_1, h_2)$$ 平面的三个位置——(0,1) 与 (1,0) 为 0、(1,1) 重合两点为 1——直线 $$h_1 + h_2 = 1.5$$ 即可分开：隐藏层先把空间变换成线性可分的形状，输出层再做线性分类（[第四章](#四第一次寒冬19691980)）。第十章的案例进一步说明「能表示」与「能学会」仍有差别：H=2 的 MLP 只有 13/20 个种子训到 100%。
 
    </details>
 
