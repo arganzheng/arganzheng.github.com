@@ -9,13 +9,15 @@
 <summary>本系列的 {{ entries.size }} 个缩写（展开）</summary>
 <table>
 <thead>
-<tr><th>缩写</th><th>全称</th><th>一句话解释</th></tr>
+<tr><th>缩写</th><th>英文全称</th><th>中文名</th><th>常见读法</th><th>一句话</th></tr>
 </thead>
 <tbody>
 {% for e in entries %}
 <tr>
 <td>{{ e.term }}</td>
 <td>{{ e.full }}</td>
+<td>{{ e.zh }}</td>
+<td>{{ e.say }}</td>
 <td>{{ e.desc }}</td>
 </tr>
 {% endfor %}

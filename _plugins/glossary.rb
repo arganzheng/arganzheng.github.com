@@ -122,7 +122,8 @@ module Glossary
     spans.sort_by { |s| -s[:range].begin }.each do |s|
       e = s[:entry]
       full = e['full'].to_s.strip
-      tip = "**#{e['term']}**#{full == '—' || full.empty? ? '' : "（#{full}）"}：#{e['desc']}"
+      zh = e['zh'].to_s.strip
+      tip = "**#{e['term']}**#{full == '—' || full.empty? ? '' : "（#{full}）"}#{zh.empty? ? '' : "（#{zh}）"}：#{e['desc']}"
       url = e['see'].to_s.empty? ? "#{overview}#glossary" : e['see']
       span = %(<span class="inline-tip glossary-term" data-tip="#{esc_attr(tip)}" data-url="#{esc_attr(url)}">#{s[:text]}</span>)
       html[s[:range]] = span.b
