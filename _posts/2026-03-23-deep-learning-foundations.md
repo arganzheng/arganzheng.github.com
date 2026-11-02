@@ -203,7 +203,20 @@ Table: 贯穿十篇的三条线索
 
 案例用同一份 XOR 数据比较感知机、ADALINE 与两层 MLP：线性模型的限制、平方误差的最小二乘解、以及 H=2 与 H=4 在不同初始化下的训练结果，给出“能表示 ≠ 能学会”的可复现例子。
 
-### 2. 反向传播：手推一个两层网络
+### 2. 损失函数：怎样把「好」写成一个可求导的数
+
+第二篇把「任务」翻译成梯度下降能优化的那一个标量。它从最大似然出发，回答每种任务该选哪个损失、这个损失的梯度长什么样、loss 曲线不对时往哪查。
+
+这一篇会覆盖：
+
+- 最小二乘、交叉熵、Huber、focal、InfoNCE、DPO 各自的概率假设与适用任务；
+- 分类不用 MSE 的梯度原因：MSE 对 logit 的梯度多乘一个 $$\sigma'(z)$$，$$z=-6$$ 时只剩 CE 的 $$1/405$$，饱和区基本不学；
+- 不均衡与过度自信的两种修法：weighted CE 与 focal 的 $$(1-p_t)^\gamma$$、label smoothing 的有限最优点；
+- 语言模型的初始 loss $$\approx \ln V$$ 与 z-loss，对比学习的 InfoNCE，偏好学习的 Bradley–Terry 与 DPO——它的 $$G_Z = (P - Y)/m$$ 正是下一篇反向传播的起点。
+
+案例在同一份 MNIST 上跑三个对照实验（784-256-10 两层 MLP、SGD、一个 epoch）：CE 94.50% 对 MSE 91.40%，前 50 步梯度范数差 3 倍；类 9 砍到 0.2% 时 focal 把少数类召回从 7.4% 拉到 21.6%；label smoothing 把平均置信度 93.6% 压到 81.4%。
+
+### 3. 反向传播：手推一个两层网络
 
 第三篇建立整个系列的对象：梯度。它把反向传播从"框架自动做的事"变成可以手推、手算、手写的东西。
 
@@ -223,7 +236,7 @@ Table: 贯穿十篇的三条线索
 
 实验：纯 NumPy 实现两层 MLP 的前向、反向与梯度检查；在 MNIST 规模的数据上训到 97% 以上；统计前向与反向的浮点运算次数，验证 2 倍关系。这份代码是后面各篇实验的基座。
 
-### 3. 激活函数：从 sigmoid 到 SwiGLU
+### 4. 激活函数：从 sigmoid 到 SwiGLU
 
 第四篇[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)从“没有非线性时，深层 Linear 仍能折叠成一层”出发，沿 sigmoid / tanh、ReLU 及其修补、GELU / SiLU，走到 GLU 门控家族。
 
@@ -240,7 +253,7 @@ Table: 贯穿十篇的三条线索
 
 实验：固定 Kaiming-normal 初始化和 Adam，在同一 20 层 MLP 上比较六种激活函数的初始梯度、250 步后的测试准确率与 ReLU 死亡单元。
 
-### 4. 训练为什么不稳定：初始化、归一化与残差
+### 5. 训练为什么不稳定：初始化、归一化与残差
 
 第五篇讲深网络最核心的问题：信号与梯度经过很多层之后为什么会消失或爆炸，以及三十年里发展出的三种修法。
 
@@ -260,7 +273,7 @@ Table: 贯穿十篇的三条线索
 
 实验：用第三篇的 NumPy 基座搭一个 64 层 MLP，画出四种配置（随机初始化 / Kaiming / Kaiming + LayerNorm / Kaiming + LayerNorm + 残差）下各层激活方差与梯度范数随深度的曲线；观察 Pre-Norm 与 Post-Norm 在同一网络上的差别。
 
-### 5. 优化器：从 SGD 到 AdamW 与学习率调度
+### 6. 优化器：从 SGD 到 AdamW 与学习率调度
 
 第六篇讲有了梯度之后怎么更新参数。它把优化器的每一项拆开，解释各自在解决什么问题、带来什么状态与代价。
 
@@ -281,7 +294,7 @@ Table: 贯穿十篇的三条线索
 
 实验：在同一个小网络上实现 SGD、Momentum、Adam、AdamW，画训练曲线对比；关掉 warmup 与偏差修正观察前几百步；用不同 batch 验证学习率 scaling 规则的适用范围。
 
-### 6. 正则化与泛化：为什么参数比样本多却不过拟合
+### 7. 正则化与泛化：为什么参数比样本多却不过拟合
 
 第七篇讲深度学习里最反直觉的现象——参数量远大于样本量的网络照样泛化——以及什么时候这个好运会用完。
 
@@ -300,7 +313,7 @@ Table: 贯穿十篇的三条线索
 
 实验：在小数据集上扫模型宽度，画出 double descent 曲线；在同一网络上对比无正则化 / weight decay / dropout 的训练 - 验证 loss 差；用一个小语言模型对比 1 epoch 与 10 epoch 的记忆程度。
 
-### 7. CNN：从 LeNet 到 ResNet，再到 ViT
+### 8. CNN：从 LeNet 到 ResNet，再到 ViT
 
 第八篇讲卷积网络——它解决了什么问题、演化到 ResNet 留下了什么、以及 ViT 怎么把它的输入方式带进了 Transformer。
 
@@ -319,7 +332,7 @@ Table: 贯穿十篇的三条线索
 
 实验：用 NumPy 实现二维卷积并验证它等价于一个稀疏的全连接矩阵；用 PyTorch 在 CIFAR-10 上对比一个 plain 深网络与加残差的同深度网络；实现 patch embedding，验证它与 stride 卷积输出一致。
 
-### 8. Embedding 与表示学习：从查表到句向量
+### 9. Embedding 与表示学习：从查表到句向量
 
 第九篇[《深度学习基础（09）：Embedding 与表示学习——从查表到句向量》](/embedding-and-representation-learning.html)从离散 token 编号出发，解释模型怎样查表得到稠密向量，以及训练目标怎样把有用的几何结构写进向量空间。
 
@@ -337,7 +350,7 @@ Table: 贯穿十篇的三条线索
 
 实验：在完整 text8 的 17,005,207 个词上训练 100 维 skip-gram negative sampling；`min_count=5` 后词表 71,290，频率抽样后保留 5,597,324 个词。窗口半径 1–5、5 个负样本、3 个 epoch 共 6,153 步，CPU 耗时 310.0 秒；对照随机初始化近邻与训练后近邻，并把选定词向量投影到二维 PCA 平面。
 
-### 9. RNN：从 LSTM 到 attention 的诞生
+### 10. RNN：从 LSTM 到 attention 的诞生
 
 第十篇讲循环网络这条线。它是 attention 的直接来源：理解 RNN 的失败，才理解 Transformer 赢在哪。
 
@@ -357,7 +370,7 @@ Table: 贯穿十篇的三条线索
 
 实验：用 NumPy 实现一个 RNN 与 LSTM，在"记住第一个 token 并在 $$T$$ 步后输出"的任务上扫 $$T$$，画出两者能记住的最长距离；实现 Bahdanau attention 并可视化对齐矩阵；测量 RNN 与 self-attention 在同一序列长度下的前向时间随长度的变化。
 
-### 10. 系列总结与通关自测
+### 11. 系列总结与通关自测
 
 最后一篇不讲新内容：把十篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套通关自测——十道判断与计算、五道跨篇综合、若干道面试题，以及激活函数和 Embedding 的四道加试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十篇能不能连起来用；读完正文再做。
 
@@ -368,6 +381,7 @@ Table: 贯穿十篇的三条线索
 | 篇 | 框架里加的东西 |
 |---|---|
 | 第一篇 | 感知机、ADALINE 与 MLP 的 XOR 决策边界及训练曲线 |
+| 第二篇 | MSE / CE / focal / label smoothing 的 MNIST 对照实验 |
 | 第三篇 | Linear · ReLU · softmax-CE 的前向与反向<br/>梯度检查<br/>FLOPs 计数 |
 | 第四篇 | 六种激活函数<br/>逐层梯度与准确率统计<br/>ReLU 死亡单元演示 |
 | 第五篇 | 深层堆叠<br/>Kaiming 初始化<br/>LayerNorm / RMSNorm<br/>残差块<br/>逐层方差与梯度范数统计 |
@@ -385,6 +399,7 @@ Table: 各篇在 NumPy 小框架里加的东西
 | 篇 | 案例 | 数字 |
 |---|---|---|
 | 第一篇 | XOR：感知机、ADALINE 与两层 MLP | AND 第 6 轮零误分<br/>XOR 感知机最少 3 次误分<br/>ADALINE MSE 0.25<br/>H=4 为 20/20
+| 第二篇 | MNIST 三个对照：MSE vs CE、focal vs CE、label smoothing 校准 | CE 94.50% 对 MSE 91.40%<br/>少数类召回 7.4% → 21.6%<br/>平滑 ECE 0.96% → 13.00% |
 | 第三篇 | MNIST 手写数字，120 行 NumPy 从零 | 15 个 epoch 97.6%<br/>与 KNN 2.95% / SVM 1.43% 同一份数据 |
 | 第四篇 | 20 层 MLP 对比六种激活函数，三个随机种子 | sigmoid 准确率 10.64%<br/>tanh 90.48%<br/>ReLU 91.88%<br/>SiLU 92.88%<br/>ReLU 死亡单元 12.26% |
 | 第五篇 | 把 MLP 加深到 64 层，七种接法 | 只有 Pre-Norm 在两个学习率下都能训<br/>逐层激活 std / 梯度范数曲线 |
@@ -403,6 +418,7 @@ Table: 各篇的案例
 | 篇 | 论文与资料 |
 |---|---|
 | 第一篇 | McCulloch & Pitts 1943 [神经活动的逻辑演算](https://doi.org/10.1007/BF02478259) · Rosenblatt 1958 [感知机](https://doi.org/10.1037/h0042519) · Widrow & Hoff 1960 [ADALINE / LMS](https://doi.org/10.1109/IREWES.1960.4503255) · Minsky & Papert 1969 [*Perceptrons*](https://mitpress.mit.edu/9780262630221/perceptrons/) · Hinton 等 2006 [DBN](https://www.cs.toronto.edu/~hinton/absps/ncfast.pdf) · Vaswani 等 2017 [Transformer](https://arxiv.org/abs/1706.03762) |
+| 第二篇 | Lin 等 2017 [focal loss](https://arxiv.org/abs/1708.02002) · Rafailov 等 2023 [DPO](https://arxiv.org/abs/2305.18290) |
 | 第三篇 | Rumelhart 等 1986 [*Learning representations by back-propagating errors*](https://www.nature.com/articles/323533a0) · Karpathy [micrograd](https://github.com/karpathy/micrograd) · PyTorch autograd 文档 [*How autograd encodes the history*](https://pytorch.org/docs/stable/notes/autograd.html) |
 | 第四篇 | Nair & Hinton 2010 [ReLU](https://icml.cc/Conferences/2010/papers/432.pdf) · He 等 2015 [PReLU](https://arxiv.org/abs/1502.01852) · Hendrycks & Gimpel 2016 [GELU](https://arxiv.org/abs/1606.08415) · Shazeer 2020 [GLU variants](https://arxiv.org/abs/2002.05202) |
 | 第五篇 | Glorot & Bengio 2010 [Xavier](https://proceedings.mlr.press/v9/glorot10a.html) · He 等 2015 [Kaiming](https://arxiv.org/abs/1502.01852) · Ioffe & Szegedy 2015 [BatchNorm](https://arxiv.org/abs/1502.03167) · Ba 等 2016 [LayerNorm](https://arxiv.org/abs/1607.06450) · Zhang & Sennrich 2019 [RMSNorm](https://arxiv.org/abs/1910.07467) · Xiong 等 2020 [Pre-LN](https://arxiv.org/abs/2002.04745) |
@@ -436,15 +452,16 @@ Table: 各篇平行的论文与资料阅读线
 ## 章节目录
 
 1. [深度模型演进史——从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html)
-2. [反向传播：手推一个两层网络](/backpropagation-by-hand.html)
-3. [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)
-4. [训练为什么不稳定：初始化、归一化与残差](/initialization-normalization-and-residual.html)
-5. [优化器：从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)
-6. [正则化与泛化：为什么参数比样本多却不过拟合](/regularization-and-generalization.html)
-7. [CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)
-8. [Embedding 与表示学习：从查表到句向量](/embedding-and-representation-learning.html)
-9. [RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
-10. [系列总结与通关自测](/deep-learning-foundations-series-recap-and-self-test.html)
+2. [损失函数：怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)
+3. [反向传播：手推一个两层网络](/backpropagation-by-hand.html)
+4. [激活函数：从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)
+5. [训练为什么不稳定：初始化、归一化与残差](/initialization-normalization-and-residual.html)
+6. [优化器：从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)
+7. [正则化与泛化：为什么参数比样本多却不过拟合](/regularization-and-generalization.html)
+8. [CNN：从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)
+9. [Embedding 与表示学习：从查表到句向量](/embedding-and-representation-learning.html)
+10. [RNN：从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)
+11. [系列总结与通关自测](/deep-learning-foundations-series-recap-and-self-test.html)
 
 
 ## 最终目标
