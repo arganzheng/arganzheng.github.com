@@ -1,199 +1,271 @@
 ---
 - term: RCCL
   full: ROCm Communication Collectives Library
+  zh: AMD 平台上与 NCCL API 一致的通信库
+  say: R-C-C-L
   desc: AMD 平台上与 NCCL API 一致的通信库
-- term: PCI
-  full: Peripheral Component Interconnect
-  desc: PCIe 的前身，Linux 里仍沿用这个名字
 - term: EPLB
   full: Expert Parallelism Load Balancer
+  zh: 专家并行负载均衡器
+  say: 逐字母 E-P-L-B
   desc: DeepSeek 的专家负载均衡，复制热门专家
 - term: MoRI
   full: Modular RDMA Interface
+  zh: AMD 的 MoE 通信库
+  say: "「MoRI」"
   desc: AMD 的 MoE 通信库
 - term: GDAKI
   full: GPUDirect Async Kernel-Initiated
+  zh: kernel 直接驱动网卡的 GPUDirect…
+  say: G-D-A-K-I
   desc: kernel 直接驱动网卡的 GPUDirect 方式
 - term: GIN
   full: GPU-Initiated Networking
+  zh: NCCL 2.28 加入的由 GPU 发起网络通…
+  say: G-I-N
   desc: NCCL 2.28 加入的由 GPU 发起网络通信的接口
 - term: WQE
   full: work queue element
+  zh: 提交给网卡的一个工作请求
+  say: W-Q-E
   desc: 提交给网卡的一个工作请求
 - term: IBRC
   full: InfiniBand Reliable Connection
+  zh: NVSHMEM 经 CPU proxy 走 RC…
+  say: I-B-R-C
   desc: NVSHMEM 经 CPU proxy 走 RC 的传输方式
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点数
 - term: PXN
   full: PCI × NVLink
+  zh: 先经 NVLink 转到同号卡、再走它的网卡
+  say: P-X-N
   desc: 先经 NVLink 转到同号卡、再走它的网卡
 - term: NVSHMEM
   full: NVIDIA OpenSHMEM
+  zh: NVIDIA 的 GPU 版 OpenSHMEM
+  say: N-V-S-H-M-E-M
   desc: NVIDIA 的 GPU 版 OpenSHMEM，提供跨卡对称堆
 - term: AG
   full: all-gather / all-to-all
+  zh: Megatron dispatcher 名字里的…
+  say: A-G
   desc: Megatron dispatcher 名字里的两种通信
 - term: A2A
   full: all-to-all
+  zh: 每张卡给其他每张卡各发一份不同的数据
+  say: A 2 A
   desc: 每张卡给其他每张卡各发一份不同的数据，MoE 分发与回收 token 用它
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行，把 MoE 的专家分到不同卡上
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行，每张卡一份完整模型
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行，按层切到不同卡上
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 软件栈
-- term: IPC
-  full: inter-process communication
-  desc: 进程间通信，这里指跨进程共享显存
-- term: NaN
-  full: not a number
-  desc: 浮点运算出现的非法值
 - term: GDR
   full: GPUDirect RDMA
+  zh: 网卡直接读写显存的 RDMA
+  say: G-D-R
   desc: 网卡直接读写显存的 RDMA
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘
 - term: UCC
   full: Unified Collective Communication
+  zh: UCX 之上的集合通信库
+  say: U-C-C
   desc: UCX 之上的集合通信库，可作 PyTorch 后端
 - term: SM
   full: streaming multiprocessor
+  zh: GPU 流多处理器
+  say: 逐字母 S-M
   desc: GPU 的计算单元，通信 kernel 也要占用
 - term: LL / LL128
   full: low latency / low latency 128
+  zh: NCCL 的两种低延迟协议
+  say: "「LL / LL128」"
   desc: NCCL 的两种低延迟协议，用 flag 代替内存屏障
 - term: PAT
   full: Parallel Aggregated Trees
+  zh: NCCL 为大规模 all_gather / r…
+  say: P-A-T
   desc: NCCL 为大规模 all_gather / reduce_scatter 加的算法
 - term: NVLS
   full: NVLink SHARP
+  zh: 借助 NVSwitch 在交换芯片里归约
+  say: N-V-L-S
   desc: 借助 NVSwitch 在交换芯片里归约
 - term: SHM
   full: shared memory
+  zh: 经主机共享内存传数据的 NCCL transpo…
+  say: S-H-M
   desc: 经主机共享内存传数据的 NCCL transport
 - term: NVML
   full: NVIDIA Management Library
+  zh: 查询 GPU 状态与拓扑的管理库
+  say: N-V-M-L
   desc: 查询 GPU 状态与拓扑的管理库
-- term: NVMe
-  full: Non-Volatile Memory Express
-  desc: 走 PCIe 的固态盘接口协议
-- term: DMA
-  full: direct memory access
-  desc: 设备不经 CPU 直接读写内存
 - term: MR
   full: memory region
+  zh: 注册给网卡、可被 RDMA 访问的一段内存
+  say: M-R
   desc: 注册给网卡、可被 RDMA 访问的一段内存
 - term: DCQCN
   full: Data Center Quantized Congestion Notification
+  zh: RoCE 常用的基于 ECN 的拥塞控制算法
+  say: D-C-Q-C-N
   desc: RoCE 常用的基于 ECN 的拥塞控制算法
 - term: LID
   full: local identifier / global identifier
+  zh: InfiniBand 子网内地址 / 跨子网（R…
+  say: L-I-D
   desc: InfiniBand 子网内地址 / 跨子网（RoCE 必用）地址
 - term: GID
   full: local identifier / global identifier
+  zh: InfiniBand 子网内地址 / 跨子网（R…
+  say: G-I-D
   desc: InfiniBand 子网内地址 / 跨子网（RoCE 必用）地址
 - term: QP
   full: queue pair / queue pair number
+  zh: RDMA 的收发队列对及其编号
+  say: Q-P
   desc: RDMA 的收发队列对及其编号
 - term: QPN
   full: queue pair / queue pair number
+  zh: RDMA 的收发队列对及其编号
+  say: Q-P-N
   desc: RDMA 的收发队列对及其编号
 - term: RC / UC / UD
   full: reliable connection / unreliable connection / unreliable datagram
+  zh: QP 的三种传输类型
+  say: "「RC / UC / UD」"
   desc: QP 的三种传输类型
-- term: TCP
-  full: Transmission Control Protocol
-  desc: 传输控制协议，经内核协议栈
 - term: PIX
   full: "—"
+  zh: nvidia-smi topo 的路径等级
+  say: P-I-X
   desc: nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远
 - term: PXB
   full: "—"
+  zh: nvidia-smi topo 的路径等级
+  say: P-X-B
   desc: nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远
 - term: PHB
   full: "—"
+  zh: nvidia-smi topo 的路径等级
+  say: P-H-B
   desc: nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远
 - term: HDR
   full: High Data Rate / Next Data Rate
+  zh: 200 / 400 Gb/s
+  say: H-D-R
   desc: InfiniBand 的两代速率：200 / 400 Gb/s
 - term: NDR
   full: High Data Rate / Next Data Rate
+  zh: 200 / 400 Gb/s
+  say: N-D-R
   desc: InfiniBand 的两代速率：200 / 400 Gb/s
-- term: P2P
-  full: peer-to-peer
-  desc: 设备之间直接互访，不经主机内存
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行，把一层的矩阵切到多张卡上
 - term: IBGDA
   full: InfiniBand GPUDirect Async
+  zh: GPU 自己往网卡提交 RDMA 请求
+  say: I-B-G-D-A
   desc: GPU 自己往网卡提交 RDMA 请求，不经 CPU
 - term: UCX
   full: Unified Communication X
+  zh: 统一封装 RDMA、共享内存等传输的通信框架
+  say: U-C-X
   desc: 统一封装 RDMA、共享内存等传输的通信框架
 - term: NIXL
   full: NVIDIA Inference Xfer Library
+  zh: NVIDIA 推理传输库
+  say: "「尼-克瑟」"
   desc: NVIDIA 的推理数据传输库，用来搬 KV cache
 - term: PFC
   full: Priority Flow Control
+  zh: 按优先级暂停发送
+  say: P-F-C
   desc: 按优先级暂停发送，让以太网不丢包
 - term: ECN
   full: Explicit Congestion Notification
+  zh: 交换机在包上打拥塞标记
+  say: E-C-N
   desc: 交换机在包上打拥塞标记，让发送端降速
 - term: SHARP
   full: Scalable Hierarchical Aggregation and Reduction Protocol
+  zh: 在交换机里做归约的技术
+  say: S-H-A-R-P
   desc: 在交换机里做归约的技术
 - term: DDP
   full: Distributed Data Parallel
+  zh: 每卡一份完整模型
+  say: D-D-P
   desc: PyTorch 的数据并行封装
-- term: HPC
-  full: high-performance computing
-  desc: 高性能计算
 - term: IB
   full: InfiniBand
+  zh: InfiniBand
+  say: 逐字母 I-B
   desc: InfiniBand 的简称
-- term: NUMA
-  full: non-uniform memory access
-  desc: 多路 CPU 下内存与设备按插槽分组，跨组更慢
 - term: RoCE
   full: RDMA over Converged Ethernet
+  zh: 以太网承载的 RDMA
+  say: "/ˈrɒki/「rocky」"
   desc: 在以太网上承载 RDMA
 - term: PD
   full: prefill–decode
+  zh: prefill–decode 分离
+  say: 逐字母 P-D
   desc: PD 分离：prefill 与 decode 放到不同节点上跑
 - term: ZeRO
   full: Zero Redundancy Optimizer
+  zh: DeepSpeed 的分片优化器
+  say: "「ZeRO」"
   desc: DeepSpeed 的分片优化器，去掉各卡上的冗余状态
 - term: FSDP
   full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
   desc: PyTorch 的全分片数据并行
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: NIC
-  full: network interface card
-  desc: 网卡
 - term: busbw
   full: bus bandwidth / algorithm bandwidth
+  zh: 校正后的链路带宽与 S/T
+  say: "「busbw」"
   desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
 - term: algbw
   full: bus bandwidth / algorithm bandwidth
+  zh: 校正后的链路带宽与 S/T
+  say: "「algbw」"
   desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: 主板上连接 GPU、网卡和 CPU 的总线
 - term: RDMA
   full: remote direct memory access
+  zh: 远程直接内存访问
+  say: 逐字母 R-D-M-A
   desc: 网卡直接读写远端内存，绕开对端 CPU 和内核
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
