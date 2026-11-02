@@ -71,6 +71,39 @@ v ← β₂v + (1−β₂)g²
 
 黄色是两份与参数同形的状态（每参数 8 字节，第八章的账）；weight decay 那条路直接从 $$\theta$$ 出发绕过了矩的归一化——这正是 AdamW 与"在 loss 里加 $$L_2$$"的区别（第五章），后者的 $$\lambda\theta$$ 会混进 $$g$$ 再被 $$\sqrt{v}$$ 除掉。
 
+抽象归抽象，放到一个具体梯度上走一遍就一目了然了。同一个标量参数 $$\theta = 1.0$$、同一个梯度 $$g = 0.5$$、$$\eta = 0.1$$，四种优化器第一步的中间量（[`case_06_optimizer_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_optimizer_toys.py) 的 `one-step`）：
+
+![同一个梯度 g=0.5 下四种优化器的第一步：SGD 与 Momentum 都是 -0.05；Adam 先算 m=0.050、v=2.5e-04，偏差修正后 m_hat=g、v_hat=g^2，更新量 -0.100≈-η·sign(g) 与 g 大小无关；AdamW 在 Adam 项 -0.100 之外加一条不进矩的 wd 支路 -ηλθ=-0.010，合计 -0.110](/img/in-post/dl-opt-one-step.svg)
+
+读法：同一个 $$g$$，SGD 走 $$-\eta g = -0.05$$，Adam 走 $$-\eta \cdot \text{sign}(g) \approx -0.10$$——步长与 $$g$$ 的大小无关，这正是第四章要展开的差别；AdamW 的 $$-0.11$$ 里那 $$-0.01$$ 来自不经过任何矩的 weight decay 支路。四步的完整中间量（能看出 Momentum 的 $$m$$ 在梯度方向一致时累积、反向时抵消，Adam 的 $$\hat v$$ 收敛后更新量也停在 $$\approx \eta$$）：
+
+<details markdown="1"><summary>四步完整轨迹（<code>one-step</code> 实测输出）</summary>
+
+```text
+  SGD:
+    t1  g +0.50  dθ -0.0500  θ 0.9500
+    t2  g +0.50  dθ -0.0500  θ 0.9000
+    t3  g -0.10  dθ +0.0100  θ 0.9100
+    t4  g +0.40  dθ -0.0400  θ 0.8700
+  Momentum:
+    t1  g +0.50  m +0.5000  dθ -0.0500  θ 0.9500
+    t2  g +0.50  m +0.9500  dθ -0.0950  θ 0.8550
+    t3  g -0.10  m +0.7550  dθ -0.0755  θ 0.7795
+    t4  g +0.40  m +1.0795  dθ -0.1079  θ 0.6715
+  Adam:
+    t1  g +0.50  m +0.0500  v 2.50e-04  m_hat +0.5000  v_hat 0.2500  dθ -0.1000  θ 0.9000
+    t2  g +0.50  m +0.0950  v 5.00e-04  m_hat +0.5000  v_hat 0.2500  dθ -0.1000  θ 0.8000
+    t3  g -0.10  m +0.0755  v 5.09e-04  m_hat +0.2786  v_hat 0.1699  dθ -0.0676  θ 0.7324
+    t4  g +0.40  m +0.1079  v 6.69e-04  m_hat +0.3139  v_hat 0.1674  dθ -0.0767  θ 0.6557
+  AdamW:
+    t1  g +0.50  m +0.0500  v 2.50e-04  m_hat +0.5000  v_hat 0.2500  dθ -0.1100  θ 0.8900
+    t2  g +0.50  m +0.0950  v 5.00e-04  m_hat +0.5000  v_hat 0.2500  dθ -0.1089  θ 0.7811
+    t3  g -0.10  m +0.0755  v 5.09e-04  m_hat +0.2786  v_hat 0.1699  dθ -0.0754  θ 0.7057
+    t4  g +0.40  m +0.1079  v 6.69e-04  m_hat +0.3139  v_hat 0.1674  dθ -0.0838  θ 0.6219
+```
+
+</details>
+
 ### 2. 本文的章节安排
 
 | 部分 | 章 | 内容 |
@@ -83,7 +116,7 @@ v ← β₂v + (1−β₂)g²
 | 策略二：梯度裁剪 | 七 | 全局范数裁剪的公式、对 SGD 与 Adam 各做了什么、梯度范数曲线怎么读 |
 | 落地 | 八、九 | 优化器状态的账：16 字节 / 参数里的 12、8-bit Adam、Adafactor、二阶与新优化器<br/>同一个 MNIST MLP 的案例 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -151,6 +184,17 @@ for micro_step, (inputs, targets) in enumerate(loader):
 
 它用更多前向 / 反向调用换更低的峰值激活显存；激活显存随 micro-batch 大小增长，参数与优化器状态不变。BatchNorm 的均值、方差仍按每个 micro-batch 单独统计，因此不等价于一次性的大 batch；LayerNorm 与 RMSNorm 在样本 / token 内归一化，不受跨 micro-batch 统计差异影响。
 
+实测一下（`case_06_optimizer_toys.py` 的 `grad-accum`，两层 MLP、batch 64 拆成 4×16）：
+
+```text
+两层 MLP 784-256-10，batch 64 一次反向 vs 4×16 累积（loss/4）
+  累积梯度 vs 一次梯度：max|diff| = 2.235e-08（fp32 舍入量级）
+  lr 0.01 一步后参数最大差 = 7.451e-09
+  忘了除以 k=4：梯度变 4.000 倍（sum 而非 mean，恰好 k 倍），等价于学习率乘了 4
+```
+
+除以 $$k$$ 后累积梯度与一次大 batch 的梯度差在浮点舍入量级，参数更新几乎逐位相同；忘了除时梯度恰好大 $$k$$ 倍——等于把学习率偷偷乘了 $$k$$，是梯度累积最常见的 bug。
+
 ### 4. 规则在哪里失效
 
 "梯度在 $$k$$ 步内基本不变"在 $$k\eta$$ 大到一定程度后不成立：学习率超过 loss 曲面曲率允许的上限（对二次函数是 $$2/\lambda_{max}$$），一步就跨过最优点，发散。第九章的实验：SGD、$$\eta = 0.05 \times B / 32$$、固定 4 个 epoch 的样本预算，$$B = 32, 128, 512$$ 三组的最终 loss 是 0.049、0.048、0.054，准确率都在 96.1% 左右——规则成立；$$B = 2048$$（$$\eta = 3.2$$）第 32 步 NaN，$$B = 8192$$ 第 15 步 NaN——规则失效。存在一个**临界 batch**（McCandlish 等 2018），低于它加 batch 几乎免费，高于它加 batch 只是浪费样本。它由梯度噪声的尺度决定，训练过程中随 loss 下降而增大——这是 LLM 预训练用"batch 逐步增大"的 warmup 策略的依据。
@@ -208,6 +252,22 @@ $$
 **有偏差修正时，第一步每个参数都移动 $$\eta$$**（梯度非零、$$\epsilon \ll \lvert g \rvert$$、不算 weight decay 那一项时），与梯度大小无关。第九章实测最大 $$\lvert \text{更新量} \rvert / \eta = 1.00$$。没有偏差修正时是 $$(1 - \beta_1) / \sqrt{1 - \beta_2}$$：$$\beta_2 = 0.999$$ 下是 3.16（实测 3.16），$$\beta_2 = 0.95$$ 下是 0.45。
 
 这一行解释了 warmup 为什么在 Adam 下几乎不能省（第六章）：训练开始时 $$v$$ 还没有学到梯度的真实尺度，更新量 $$\approx \eta \cdot \text{sign}(g)$$，每个参数都在以满步长乱走。（"满步长"是有偏差修正时稳态下的典型上界；下一节说到 $$v$$ 反应慢、$$m/\sqrt v$$ 暂时大于 1 的情形，更新量可以超过 $$\eta$$，两处不矛盾——一个是第一步的精确值，一个是之后的瞬态。）
+
+不修正会有多偏？常数梯度下 $$v_t = g^2(1 - \beta_2^t)$$，可以直接画出来（`case_06_optimizer_toys.py` 的 `bias-correction`）：
+
+![β₂=0.999、常数梯度 g 下前 20 步：未修正的 v_t 从 0.001·g² 慢慢爬（t=20 也只有 0.02·g²），修正后的 v_hat_t 始终等于真值 g²](/img/in-post/dl-opt-bias-correction.svg)
+
+$$t = 1$$ 时未修正的 $$v$$ 只有 $$0.001\, g^2$$——偏小 1000 倍，直接拿去归一化会把步长放大 $$1/\sqrt{0.001} \approx 31.6$$ 倍；$$\beta_2 = 0.999$$ 下 $$v$$ 要近千步才爬到真值附近，偏差修正是开头几百步里不可省的一行。各步的比值：
+
+```text
+beta2=0.999、常数梯度 g=1.0：前 20 步 v_t 与 v_hat_t 对 g^2 的比值
+  v_t = g^2(1 - b2^t)，v_hat_t = g^2（修正后恒等于真值）
+  t= 1   v_t/g^2 = 0.0010   v_hat_t/g^2 = 1.0000
+  t= 2   v_t/g^2 = 0.0020   v_hat_t/g^2 = 1.0000
+  t= 5   v_t/g^2 = 0.0050   v_hat_t/g^2 = 1.0000
+  t=10   v_t/g^2 = 0.0100   v_hat_t/g^2 = 1.0000
+  t=20   v_t/g^2 = 0.0198   v_hat_t/g^2 = 1.0000
+```
 
 ### 3. β₂ 的记忆窗
 
@@ -270,6 +330,30 @@ $$W_1$$ 的梯度很小（$$\sqrt{v}$$ 均值约 $$10^{-3}$$），而 $$\lambda\
 Table: Warmup 对不同峰值学习率的影响
 
 $$\eta = 10^{-2}$$ 不加 warmup 时，前 100 步里 loss 冲到 4.59——高于随机初始化的 $$\ln 10 = 2.30$$，网络被打到比随机还差再慢慢爬回来；加 100 步 warmup 最高 1.26。小学习率下 warmup 看不出差别，学习率越大差别越大——而 LLM 训练总是想用尽可能大的学习率。
+
+伤在哪一步可以量出来。同一配置下记录每步的最大更新量 $$\max \lvert \Delta\theta \rvert / \eta_t$$（`case_06_optimizer_toys.py` 的 `warmup`）：
+
+```text
+64 层 Pre-Norm + Adam（beta2=0.95），峰值 lr 1e-2，warmup 0 vs 100 步，前 20 步实测：
+  warmup 0 步（lr_t 为当时的学习率）：
+    步   1   lr_t = 0.0100   max|dθ|/lr_t = 1.000   loss = 2.779
+    步   2   lr_t = 0.0100   max|dθ|/lr_t = 1.000   loss = 4.239
+    步   3   lr_t = 0.0100   max|dθ|/lr_t = 1.001   loss = 5.180
+    步   5   lr_t = 0.0100   max|dθ|/lr_t = 1.002   loss = 5.731
+    步  10   lr_t = 0.0100   max|dθ|/lr_t = 0.991   loss = 2.520
+    步  20   lr_t = 0.0100   max|dθ|/lr_t = 1.017   loss = 2.123
+    loss @20 2.123  @100 0.323  @200 0.454
+  warmup 100 步（lr_t 为当时的学习率）：
+    步   1   lr_t = 0.0001   max|dθ|/lr_t = 1.000   loss = 2.779
+    步   2   lr_t = 0.0002   max|dθ|/lr_t = 1.000   loss = 2.181
+    步   3   lr_t = 0.0003   max|dθ|/lr_t = 1.001   loss = 1.629
+    步   5   lr_t = 0.0005   max|dθ|/lr_t = 1.002   loss = 1.197
+    步  10   lr_t = 0.0010   max|dθ|/lr_t = 0.977   loss = 0.601
+    步  20   lr_t = 0.0020   max|dθ|/lr_t = 0.888   loss = 0.659
+    loss @20 0.659  @100 0.330  @200 0.310
+```
+
+两种配置下更新量对**当步学习率**都是满的（$$\max \lvert \Delta\theta \rvert / \eta_t \approx 1$$——Adam 的步长与梯度大小无关，warmup 改不了这个比值）；warmup 压住的是 $$\eta_t$$ 本身：无 warmup 时前 5 步每步都以峰值满步长乱跳、loss 冲到 5.73，有 warmup 时第 1 步的实际步长只有峰值的 1%。完整 loss 曲线的对比见[第九章](#九案例同一个-mnist-mlp优化器与训练策略各试一遍)那张 warmup 图。
 
 ### 2. Warmup 之后：cosine 与 WSD
 
@@ -457,7 +541,7 @@ Table: 线性 scaling 规则的完整数字
 - 混合精度 + AdamW 的 16 字节 / 参数里 12 字节是优化器的；8-bit Adam、Adafactor 各省多少；Muon 一类用更多曲率信息换步数。
 - 下一篇：有了能稳定训练的网络与优化器，为什么参数比样本多得多却不过拟合——以及什么时候会。
 
-配套代码：[`deep-learning-foundations/03_optimizers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/03_optimizers.py)——六个实验各是一个子命令（`compare` / `bias` / `warmup` / `adamw` / `scaling` / `clip`）；[`case_03_optimizers_mnist.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_03_optimizers_mnist.py) 画学习率扫描、warmup 与调度曲线；优化器实现在 `dlf/optim.py`。
+配套代码：[`deep-learning-foundations/03_optimizers.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/03_optimizers.py)——六个实验各是一个子命令（`compare` / `bias` / `warmup` / `adamw` / `scaling` / `clip`）；[`case_03_optimizers_mnist.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_03_optimizers_mnist.py) 画学习率扫描、warmup 与调度曲线；[`case_06_optimizer_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_optimizer_toys.py)——本篇各节的玩具（`one-step` / `bias-correction` / `grad-accum` / `warmup`）与配图；优化器实现在 `dlf/optim.py`。
 
 ## 十一、自测
 
@@ -498,6 +582,14 @@ Table: 线性 scaling 规则的完整数字
    <details markdown="1"><summary>答案</summary>
 
    cosine 平滑、但必须预先知道总步数 $$T$$，中途延长要重排；WSD 恒定段可随时延长、从任意点分叉出一个衰减段就能得到可用模型。下折正常：恒定学习率下 loss 在噪声决定的水平上震荡，学习率一降噪声变小，loss 立刻掉——衰减阶段才是 loss 大幅下降的阶段。
+
+   </details>
+
+6. Adam 的第一步，为什么每个参数的更新量约是 $$-\eta \cdot \text{sign}(g)$$ 而不是与 $$g$$ 成正比？
+
+   <details markdown="1"><summary>答案</summary>
+
+   因为 $$\hat m_1 = g_1$$、$$\hat v_1 = g_1^2$$，更新量 $$-\eta \cdot \hat m_1 / (\sqrt{\hat v_1} + \epsilon) = -\eta \cdot g_1 / \lvert g_1 \rvert$$——偏差修正恰好把第一步的归一化顶满，$$g$$ 的大小被 $$\sqrt{v}$$ 除掉、只剩方向。所以大学习率下所有参数同时满步长乱跳，需要 warmup（第六章实测 $$\max \lvert \Delta\theta \rvert / \eta_t = 1.000$$）。
 
    </details>
 
