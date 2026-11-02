@@ -1,31 +1,26 @@
 ---
-- term: TTL
-  full: time to live
-  desc: 缓存条目的存活时间，过期就失效
 - term: MCP
   full: Model Context Protocol
+  zh: 模型客户端连接工具服务器的开放协议
+  say: M-C-P
   desc: 给模型接工具和数据源的开放协议
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 首 token 延迟，从发请求到收到第一个 token
 - term: CoT
   full: chain-of-thought
+  zh: 让模型先写出推理步骤再回答
+  say: "「CoT」"
   desc: 让模型先写出推理步骤再回答
-- term: A/B
-  full: A/B testing
-  desc: 把流量随机分给两个版本，比较指标
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 先检索资料，再让模型据此回答
-- term: FSM
-  full: finite-state machine
-  desc: 有限状态机，每个状态对应一组允许的 token
 - term: CFG
   full: context-free grammar
+  zh: 上下文无关文法
+  say: C-F-G
   desc: 上下文无关文法，能表达递归的嵌套结构
-- term: AES
-  full: Advanced Encryption Standard
-  desc: 对称加密标准，Codex 用它加密压缩结果
-- term: JSONL
-  full: JSON Lines
-  desc: 每行一个 JSON 对象的文本格式
