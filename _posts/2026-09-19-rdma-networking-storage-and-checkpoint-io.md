@@ -740,7 +740,7 @@ flowchart TB
 
 Table: 70B 模型每个参数的训练状态
 
-70B 参数 × 14 字节 ≈ 980 GB，取整就是 **1 TB 量级**（不含 dataloader 状态、RNG（random number generator，随机数生成器） 状态和可选的梯度）。这个数字与并行策略无关：无论 TP/PP/DP 怎么切，整个任务的状态总量就是这么多，只是分布在不同 rank 上。ZeRO（Zero Redundancy Optimizer，DeepSpeed 的分片优化器）/FSDP（Fully Sharded Data Parallel，把参数、梯度、优化器状态切到各卡的数据并行） 把优化器状态分片后，每个 rank 持有的是 1/DP 份，合起来仍是 1 TB。
+70B 参数 × 14 字节 ≈ 980 GB，取整就是 **1 TB 量级**（不含 dataloader 状态、<span class="inline-tip" data-tip="random number generator，随机数生成器">RNG</span> 状态和可选的梯度）。这个数字与并行策略无关：无论 TP/PP/DP 怎么切，整个任务的状态总量就是这么多，只是分布在不同 rank 上。ZeRO（Zero Redundancy Optimizer，DeepSpeed 的分片优化器）/FSDP（Fully Sharded Data Parallel，把参数、梯度、优化器状态切到各卡的数据并行） 把优化器状态分片后，每个 rank 持有的是 1/DP 份，合起来仍是 1 TB。
 
 ### 2. 聚合带宽
 
