@@ -204,5 +204,5 @@ Table: 常见误区
 - Hayou 等 2024，*LoRA+: Efficient Low Rank Adaptation of Large Models*——$$B$$ 的 lr 比例。
 - Liu 等 2024，*DoRA: Weight-Decomposed Low-Rank Adaptation*。
 - Meng 等 2024，*PiSSA*；Paischer 等 2024，*EVA*；Li 等 2023，*LoftQ*——三种初始化。
-- Sheng 等 2023，*S-LoRA（Scalable LoRA，同时服务上千个 adapter 的系统）: Serving Thousands of Concurrent LoRA Adapters*；Chen 等 2023，*Punica*——multi-LoRA 服务的 kernel 与内存管理。
+- Sheng 等 2023，*S-LoRA: Serving Thousands of Concurrent LoRA Adapters*（S-LoRA：Scalable LoRA，同时服务上千个 adapter 的系统）；Chen 等 2023，*Punica*——multi-LoRA 服务的 kernel 与内存管理。
 - `peft` 文档的 *LoRA* 与 *Merging adapters* 两页——`LoraConfig` 每个字段的当前语义，比任何博客都准。
