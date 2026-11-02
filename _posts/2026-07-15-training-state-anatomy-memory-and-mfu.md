@@ -139,7 +139,7 @@ Table: 本文的章节安排
 
 **激活**是前向传播中为反向保留的中间结果：每个线性层的输入（算权重梯度要用）、每个非线性的输入（算它的导数要用）、注意力的 softmax 输出、dropout 的 mask……它们在前向逐层产生、在反向逐层释放，生命周期恰好与梯度**互补**：前向结束时激活最多、梯度为零；反向结束时激活为零、梯度最多。
 
-拿一个最小的例子看「谁用谁」：一个两层网络 $$X \to W_1 \to H \to \mathrm{ReLU} \to A \to W_2 \to Z \to \mathrm{CE} \to \mathrm{loss}$$，反向每一步读什么，下图一次标完。《[深度学习基础（03）：反向传播](/backpropagation-by-hand.html)》的「激活为什么要存」用手推的数验证了同一张单子。
+拿一个最小的例子看「谁用谁」：一个两层网络 $$X \to W_1 \to H \to \mathrm{ReLU} \to A \to W_2 \to Z \to \mathrm{CE} \to \mathrm{loss}$$，反向每一步读什么，下图一次标完。《[深度学习基础（03）：反向传播](/backpropagation-by-hand.html)》的「激活为什么要存」里用 PyTorch 打出了同一个网络实际保存的张量清单。
 
 ![反向要用前向的哪些量：x、ReLU 输入的符号、ReLU 输出 A；W1 W2 是常驻参数不是激活](/img/in-post/training-state-activation-who-uses.svg)
 
@@ -147,7 +147,7 @@ Table: 本文的章节安排
 
 ![激活的三个意思：激活函数、激活值、显存里的全部保存张量；狭义激活值只占 17%](/img/in-post/training-state-activation-three-meanings.svg)
 
-本系列说「激活」都指第③种；ChatGPT 式回答里的「激活 = a = f(z)」只是第②种狭义口径，按它会漏掉约 8 成显存。
+本系列说「激活」都指第③种；常见说法「激活 = a = f(z)」只是第②种狭义口径，按它算会漏掉约 8 成显存。
 
 把激活和梯度按层拆开，就能看清这种互补是怎么来的。下图以 4 层为例，每一行是一层，横轴是一个 step 的时间槽：
 
