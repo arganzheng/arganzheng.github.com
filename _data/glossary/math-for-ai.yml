@@ -1,110 +1,128 @@
-- term: "DPO"
-  full: "Direct Preference Optimization"
-  desc: "不用奖励模型、直接从偏好数据推 loss 的偏好训练方法"
-- term: "SVD"
-  full: "singular value decomposition"
-  desc: "奇异值分解，把矩阵拆成旋转-伸缩-旋转"
-- term: "KL"
-  full: "Kullback–Leibler divergence"
-  desc: "KL 散度，衡量两个分布差多少的非对称度量"
-- term: "SGD"
-  full: "stochastic gradient descent"
-  desc: "随机梯度下降，按小批数据的梯度更新参数"
-- term: "RLHF"
-  full: "reinforcement learning from human feedback"
-  desc: "用人类反馈的奖励做强化学习微调"
-- term: "GRPO"
-  full: "Group Relative Policy Optimization"
-  desc: "用组内均值替代价值模型的策略梯度方法"
-- term: "MLE"
-  full: "maximum likelihood estimation"
-  desc: "最大似然估计，让数据概率最大的参数估计"
-- term: "SFT"
-  full: "supervised fine-tuning"
-  desc: "用标注答案做监督微调"
-- term: "PPL"
-  full: "perplexity"
-  desc: "困惑度，交叉熵的指数，越小越好"
-- term: "PPO"
-  full: "Proximal Policy Optimization"
-  desc: "带裁剪目标、防步子过大的策略梯度方法"
-- term: "REINFORCE"
+---
+- term: DPO
+  full: Direct Preference Optimization
+  zh: 直接偏好优化
+  say: 逐字母 D-P-O
+  desc: 不用奖励模型、直接从偏好数据推 loss 的偏好训练方法
+- term: SVD
+  full: singular value decomposition
+  zh: 奇异值分解
+  say: S-V-D
+  desc: 奇异值分解，把矩阵拆成旋转-伸缩-旋转
+- term: KL
+  full: Kullback–Leibler divergence
+  zh: KL 散度
+  say: 逐字母 K-L
+  desc: KL 散度，衡量两个分布差多少的非对称度量
+- term: SGD
+  full: stochastic gradient descent
+  zh: 随机梯度下降
+  say: 逐字母 S-G-D
+  desc: 随机梯度下降，按小批数据的梯度更新参数
+- term: RLHF
+  full: reinforcement learning from human feedback
+  zh: 基于人类反馈的强化学习
+  say: R-L-H-F
+  desc: 用人类反馈的奖励做强化学习微调
+- term: GRPO
+  full: Group Relative Policy Optimization
+  zh: 同一 prompt 采一组回答
+  say: G-R-P-O
+  desc: 用组内均值替代价值模型的策略梯度方法
+- term: MLE
+  full: maximum likelihood estimation
+  zh: 最大似然估计
+  say: M-L-E
+  desc: 最大似然估计，让数据概率最大的参数估计
+- term: SFT
+  full: supervised fine-tuning
+  zh: 监督微调
+  say: 逐字母 S-F-T
+  desc: 用标注答案做监督微调
+- term: PPL
+  full: perplexity
+  zh: 困惑度
+  say: P-P-L
+  desc: 困惑度，交叉熵的指数，越小越好
+- term: PPO
+  full: Proximal Policy Optimization
+  zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
+  say: P-P-O
+  desc: 带裁剪目标、防步子过大的策略梯度方法
+- term: REINFORCE
   full: "—"
-  desc: "最早的策略梯度算法，用 score function 估计梯度"
-- term: "TV"
-  full: "total variation"
-  aliases: ["总变差距离"]
-  desc: "全变差距离，另一种分布间距离"
-- term: "FLOPs"
-  full: "floating-point operations"
-  desc: "浮点运算次数，算量的计量单位"
-- term: "MLP"
-  full: "multi-layer perceptron"
-  desc: "多层感知机：线性层 + 非线性激活叠起来的网络"
-- term: "GELU"
-  full: "Gaussian error linear unit"
-  desc: "一种平滑的激活函数，作用类似 ReLU"
-- term: "GLU"
-  full: "gated linear unit"
-  desc: "门控线性单元，两路线性相乘的激活结构"
-- term: "FFN"
-  full: "feed-forward network"
-  desc: "前馈网络，Transformer 里 attention 之外的另一半参数"
-- term: "CLIP"
-  full: "Contrastive Language–Image Pre-training"
-  desc: "OpenAI 的图文对比模型，把图和文嵌进同一空间"
-- term: "GPTQ"
+  zh: loss = −A·log π
+  say: R-E-I-N-F-O-R-C-E
+  desc: 最早的策略梯度算法，用 score function 估计梯度
+- term: TV
+  full: total variation
+  zh: 总变差距离
+  say: T-V
+  desc: 全变差距离，另一种分布间距离
+  aliases:
+  - 总变差距离
+- term: FLOPs
+  full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
+  desc: 浮点运算次数，算量的计量单位
+- term: MLP
+  full: multi-layer perceptron
+  zh: 多层感知机
+  say: 逐字母 M-L-P
+  desc: 多层感知机：线性层 + 非线性激活叠起来的网络
+- term: GLU
+  full: gated linear unit
+  zh: 门控线性单元
+  say: 逐字母 G-L-U，或 /ɡluː/「glue」
+  desc: 门控线性单元，两路线性相乘的激活结构
+- term: FFN
+  full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
+  desc: 前馈网络，Transformer 里 attention 之外的另一半参数
+- term: CLIP
+  full: Contrastive Language–Image Pre-training
+  zh: 对比语言-图像预训练
+  say: "/klɪp/「可利普」"
+  desc: OpenAI 的图文对比模型，把图和文嵌进同一空间
+- term: GPTQ
   full: "—"
-  desc: "一种训练后量化方法，逐层最小化量化误差"
-- term: "RoPE"
-  full: "rotary position embedding"
-  desc: "旋转位置编码，按位置把向量转一个角度"
-- term: "LoRA"
-  full: "Low-Rank Adaptation"
-  desc: "低秩适配：冻结主干、只训低秩增量的微调方法"
-- term: "PCA"
-  full: "principal component analysis"
-  desc: "主成分分析，找方差最大的方向做降维"
-- term: "MAP"
-  full: "maximum a posteriori"
-  desc: "最大后验估计，加先验的参数估计"
-- term: "VAE"
-  full: "variational autoencoder"
-  desc: "变分自编码器，带概率隐空间的生成模型"
-- term: "NLL"
-  full: "negative log-likelihood"
-  desc: "负对数似然，MLE 实际优化的 loss"
-- term: "RM"
-  full: "reward model"
-  desc: "奖励模型，给回答打分的小模型"
-- term: "IPO"
-  full: "Identity Preference Optimization"
-  desc: "DPO 的变体，防止确定性偏好下过拟合"
-- term: "KTO"
-  full: "Kahneman–Tversky Optimization"
-  desc: "只要单样本好坏标签、不要成对偏好的方法"
-- term: "VJP"
-  full: "vector–Jacobian product"
-  desc: "向量左乘雅可比，反向传播实际算的东西"
-- term: "MSE"
-  full: "mean squared error"
-  desc: "均方误差，预测与目标差的平方均值"
-- term: "RLOO"
-  full: "REINFORCE Leave-One-Out"
-  desc: "用组内留一均值做 baseline 的 REINFORCE"
-- term: "SE"
-  full: "standard error"
-  desc: "标准误，统计量自身的波动大小"
-- term: "MMLU"
-  full: "Massive Multitask Language Understanding"
-  desc: "多任务选择题为形式的常识与知识 benchmark"
-- term: "GSM8K"
-  full: "Grade School Math 8K"
-  desc: "小学数学文字题 benchmark，8.5K 题"
-- term: "BFGS"
-  full: "—"
-  aliases: ["L-BFGS"]
-  desc: "一种拟牛顿优化方法，用梯度近似二阶信息"
-- term: "CLT"
-  full: "central limit theorem"
-  desc: "中心极限定理：均值近似正态，方差随 n 收缩"
+  zh: GPTQ 量化方法
+  say: 逐字母 G-P-T-Q
+  desc: 一种训练后量化方法，逐层最小化量化误差
+- term: RoPE
+  full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
+  desc: 旋转位置编码，按位置把向量转一个角度
+- term: LoRA
+  full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
+  desc: 低秩适配：冻结主干、只训低秩增量的微调方法
+- term: PCA
+  full: principal component analysis
+  zh: 主成分分析
+  say: P-C-A
+  desc: 主成分分析，找方差最大的方向做降维
+- term: MAP
+  full: maximum a posteriori
+  zh: 最大后验估计
+  say: M-A-P
+  desc: 最大后验估计，加先验的参数估计
+- term: MSE
+  full: mean squared error
+  zh: 均方误差
+  say: 逐字母 M-S-E
+  desc: 均方误差，预测与目标差的平方均值
+- term: RLOO
+  full: REINFORCE Leave-One-Out
+  zh: 用组内留一均值做 baseline 的 REIN…
+  say: R-L-O-O
+  desc: 用组内留一均值做 baseline 的 REINFORCE
+- term: SE
+  full: standard error
+  zh: 标准误
+  say: S-E
+  desc: 标准误，统计量自身的波动大小

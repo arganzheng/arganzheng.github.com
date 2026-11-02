@@ -240,7 +240,7 @@ $$
 - loss 推动好回答的偏好增量大于坏回答的偏好增量。固定 $$\beta > 0$$，两者差得越多，loss 越小。
 - $$\beta$$ 控制“偏好增量”的尺度。在好回答的隐含奖励高于坏回答、且 loss 相同时，$$\beta$$ 越大，需要的对数比之差越小。这与第六章第一节里 $$\beta$$ 越大、最优策略越贴近参考模型的方向一致；但不能仅凭这一点断言实际 DPO 训练后一定更贴近参考模型。
 
-整条推导链——**MLE 模板 → Bradley-Terry → KL 约束的最优策略 → 反解奖励 → 代入消去 $$Z(x)$$ → DPO**——用到的全是本系列列出的概念，没有一步超出最小集。能独立走完它，L5 后训练系列里"DPO 一族"（IPO、KTO、SimPO 等）就只是在改其中某一步的假设：换掉 Bradley-Terry、去掉参考模型、改 $$\sigma$$ 的形状。
+整条推导链——**MLE 模板 → Bradley-Terry → KL 约束的最优策略 → 反解奖励 → 代入消去 $$Z(x)$$ → DPO**——用到的全是本系列列出的概念，没有一步超出最小集。能独立走完它，L5 后训练系列里"DPO 一族"（IPO（Identity Preference Optimization，DPO 的变体）、KTO（Kahneman–Tversky Optimization，只要单样本好坏标签、不要成对偏好的方法）、SimPO 等）就只是在改其中某一步的假设：换掉 Bradley-Terry、去掉参考模型、改 $$\sigma$$ 的形状。
 
 ## 七、其他两处
 

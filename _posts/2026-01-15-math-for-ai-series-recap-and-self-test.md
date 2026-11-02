@@ -239,7 +239,7 @@ Table: 本文的章节安排
 | 形状规则、$$2mnk$$ | 一、二、三、七、八 | 一定义<br/>二内积是最小情形、$$QK^T$$ 是内积表<br/>三 SVD 与 LoRA 读形状<br/>七 Jacobian 用它检查<br/>八 $$C = 6ND$$ 沿用成本规则 |
 | 独立和的方差相加 | 二、四、七、八 | 四推初始化、扩散、$$\sqrt{d_k}$$<br/>二从长度角度说 QK-norm<br/>七 SGD 噪声 $$\propto 1/B$$<br/>八 SE 与差值的 SE |
 | 条件分布 $$p(x_t \mid x_{<t})$$、策略 $$\pi$$ | 四、五、六、七 | 四定义<br/>五推 loss<br/>六把 $$\pi$$ 放进 KL 约束<br/>七对 $$\mathbb{E}_\pi$$ 求梯度 |
-| $$-\log p$$ 模板 | 五、六、七 | 五给模板与四次套用<br/>六给信息论解释、RM 与 DPO<br/>七对它求导得 $$p - y$$、策略梯度是加权 MLE |
+| $$-\log p$$ 模板 | 五、六、七 | 五给模板与四次套用<br/>六给信息论解释、<span class="inline-tip" data-tip="reward model，奖励模型">RM</span> 与 DPO<br/>七对它求导得 $$p - y$$、策略梯度是加权 MLE |
 | KL 与 $$\pi_{\text{ref}}$$ | 六、七 | 六 reverse KL、闭式解、DPO；七 PPO 的裁剪与 KL 惩罚、DPO 是离线 |
 | 拉格朗日乘子 | 六、七、八 | 七给工具<br/>六解闭式解<br/>八解 Chinchilla 的 $$N, D$$ 分配 |
 | $$\ln V$$、PPL、$$E$$ | 五、六、八 | 五初始 loss<br/>六熵、PPL、下限<br/>八 $$E = 1.69$$ 与算例 |

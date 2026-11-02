@@ -378,7 +378,7 @@ Table: 读一个"提升"时的检查表
 
    </details>
 
-配套代码：[`math-for-ai/08_inference_and_fitting.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/08_inference_and_fitting.py)（抽样噪声、CLT、置信区间、独立 vs 配对、置换检验、最小二乘、幂律 bootstrap、Chinchilla 等高线）与 [`08_multi_seed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/08_multi_seed.py)（20 次实跑训练）；输出在 `expected/`。
+配套代码：[`math-for-ai/08_inference_and_fitting.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/08_inference_and_fitting.py)（抽样噪声、CLT（central limit theorem，均值近似正态）、置信区间、独立 vs 配对、置换检验、最小二乘、幂律 bootstrap、Chinchilla 等高线）与 [`08_multi_seed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/08_multi_seed.py)（20 次实跑训练）；输出在 `expected/`。
 
 [^q0]: 分辨不出。164 题、准确率约 50% 时，标准误 $$\sqrt{0.5 \times 0.5 / 164} \approx 3.9$$ 个点，95% 区间约 $$\pm 7.7$$ 个点——3 个点在噪声里；模拟里真差 3 个点的两个模型，24% 的次数看起来是差的那个更高。配对比较（同一批题两个模型各自对错）比独立比较灵敏得多，是正确的做法。详见[第二](#二样本均值与标准误)至[四章](#四假设检验与-p-值)。
 [^q1]: 把 $$(N, D, L)$$ 的实验点代入 $$L = E + A/N^\alpha + B/D^\beta$$，在双对数坐标上幂律是直线，最小二乘拟出五个常数。$$D/N \approx 20$$：固定算力 $$C = 6ND$$，用拉格朗日乘子对 $$L$$ 求极值——几何上是等 loss 线与等算力线相切——得到 $$N^*, D^*$$ 都随 $$C$$ 的约 0.5 次幂增长，比值由 $$A, B, \alpha, \beta$$ 决定——Chinchilla 用实验方法得到约 20；拟合常数有标准误、依赖公式形式，所以 20 是一个区间不是常数。详见[第五章](#五最小二乘拟合)、[第六章](#六scaling-law-算例)。

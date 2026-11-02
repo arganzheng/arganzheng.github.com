@@ -273,7 +273,7 @@ Table: 矩阵乘法结合顺序不同的 FLOPs 对比
 
 ### 2. 逐元素运算
 
-两个**形状相同**的矩阵可以逐元素相加、相乘（记作 $$A + B$$、$$A \odot B$$，后者叫 Hadamard 积，代码里就是 `A * B`）。激活函数（ReLU、GELU、SiLU）、残差连接（$$x + f(x)$$）、门控（Llama 的 MLP 里 `silu(gate) * up`）都是逐元素运算。用 $$2 \times 2$$ 的例子看清"逐元素"三个字：
+两个**形状相同**的矩阵可以逐元素相加、相乘（记作 $$A + B$$、$$A \odot B$$，后者叫 Hadamard 积，代码里就是 `A * B`）。激活函数（ReLU、GELU（Gaussian error linear unit，一种平滑的激活函数）、SiLU）、残差连接（$$x + f(x)$$）、门控（Llama 的 MLP 里 `silu(gate) * up`）都是逐元素运算。用 $$2 \times 2$$ 的例子看清"逐元素"三个字：
 
 $$
 \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix} \odot \begin{pmatrix} 10 & 20 \\ 30 & 40 \end{pmatrix} = \begin{pmatrix} 1 \times 10 & 2 \times 20 \\ 3 \times 30 & 4 \times 40 \end{pmatrix} = \begin{pmatrix} 10 & 40 \\ 90 & 160 \end{pmatrix}
