@@ -376,7 +376,7 @@ Table: PyTorch RFC 的三步
 
 第一段是一个被忽视的切入点：**已接受但没人实现的 RFC**。每个接受的 RFC 都有一个主仓的 tracking issue，可以直接问。第二段是一个反向信号：`shelved` 的 RFC 不要去做。
 
-`gh pr list --repo pytorch/rfcs --state open`（2026-09-07）有 8 个 open PR，从 #93（2026-04-14）到 #106（2026-09-02）；最近合入的有 #104 "CUDA update policy"（2026-08-20）、#102 "Refine L3 promotion criteria for downstream repositories"（2026-08-25）。可以看到 2026 年的 RFC 主题偏向流程与外部后端（CRCR、out-of-tree CI），而不是新算子——新算子级别的改动走 feature-request issue 就够了。
+`gh pr list --repo pytorch/rfcs --state open`（2026-09-07）有 8 个 open PR，从 #93（2026-04-14）到 #106（2026-09-02）；最近合入的有 #104 "CUDA update policy"（2026-08-20）、#102 "Refine L3 promotion criteria for downstream repositories"（2026-08-25）。可以看到 2026 年的 RFC 主题偏向流程与外部后端（CRCR（Cross-Repository CI Relay，把 PyTorch 的 CI 事件转发给下游后端仓库的机制）、out-of-tree CI），而不是新算子——新算子级别的改动走 feature-request issue 就够了。
 
 ### 2. vLLM：[RFC] issue 模板与 rfc-required
 
@@ -402,7 +402,7 @@ labels: ["RFC"]
 
 Table: vLLM RFC 模板的正文字段
 
-模板顶部还有一行提示："Please take a look at previous RFCs for reference"，链到 `label:RFC sort:updated-desc`。截至查询有 207 个 open 的 `RFC` issue，2026-09-01 到 09-06 这一周新开了至少 8 个（#54477 到 #55584），主题从 "GDS kv offloading" 到 "Custom all-reduce for XPU"。
+模板顶部还有一行提示："Please take a look at previous RFCs for reference"，链到 `label:RFC sort:updated-desc`。截至查询有 207 个 open 的 `RFC` issue，2026-09-01 到 09-06 这一周新开了至少 8 个（#54477 到 #55584），主题从 "GDS kv offloading"（GDS：GPUDirect Storage，GPU 显存和存储之间直接传数据的 NVIDIA 技术）到 "Custom all-reduce for XPU"。
 
 什么时候必须先开 RFC，`docs/contributing/README.md` 的 "Notes for Large Changes" 一节写死了数字：
 
@@ -412,7 +412,7 @@ Table: vLLM RFC 模板的正文字段
 
 ### 3. roadmap 与 tracker issue
 
-两个项目都用 issue 当 roadmap，只是叫法不同。vLLM 有标题带 `[Roadmap]:` 的 issue，例如 #33702 "[Roadmap]: PD Disaggregation with `NixlConnector` Roadmap"（@NickLucche，`help wanted`）——正文是一张带复选框的清单，"Currently Supported Features" 下每一项链到对应的 PR，未勾选的项就是待做的。2026-08-31 有人评论说正在做其中 "More efficient h2d copy_blocks operations for HMA groups" 一项并给了 PR #54483 的链接。这是 roadmap issue 的标准用法：**挑一个未勾选的项，评论认领，链 PR**。
+两个项目都用 issue 当 roadmap，只是叫法不同。vLLM 有标题带 `[Roadmap]:` 的 issue，例如 #33702 "[Roadmap]: PD Disaggregation with `NixlConnector` Roadmap"（PD：prefill–decode，prefill 和 decode 放到不同实例上跑）（@NickLucche，`help wanted`）——正文是一张带复选框的清单，"Currently Supported Features" 下每一项链到对应的 PR，未勾选的项就是待做的。2026-08-31 有人评论说正在做其中 "More efficient h2d copy_blocks operations for HMA groups"（HMA：hybrid memory allocator，vLLM 给混合注意力模型分配 KV cache 的机制） 一项并给了 PR #54483 的链接。这是 roadmap issue 的标准用法：**挑一个未勾选的项，评论认领，链 PR**。
 
 PyTorch 的对应物是标题带 `Tracking:` 或 `[Tracker]` 的 issue，以及 `slowroll` 标签（描述："BC breaking changes that are being slowroll. The tag helps us avoid losing track of these"）。例如 #191236 "Tracking: staged BC rollout — SAC-saved tensors respecting user saved_tensors_hooks"（`actionable`、`slowroll`、0 评论）。tracker issue 里的子任务通常规模适中、目标明确，但要注意它们往往由 maintainer 自己按节奏推进——0 评论且 `slowroll` 的 tracker，先问再动。
 
@@ -460,7 +460,7 @@ Table: failures.md 的操作手册
 
 `450-ci-failure.yml` 模板本身（标题前缀 `[CI Failure]: `，自动标签 `ci-failure`）的字段：`Name of failing test`（input，required，placeholder 是 `path/to/test_file.py::test_name[params]`）、`Basic information`（三个复选框：Flaky test / Can reproduce locally / Caused by external libraries (e.g. bug in `transformers`)）、`🧪 Describe the failing test`（required）、`📝 History of failing test`（required，描述里给了三种定位方法：Buildkite Test Suites、`git bisect`、手动 unblock 可疑 PR 的 Buildkite step）、`CC List.`（描述："Usually, this includes those who worked on the PR that failed the test"）。
 
-截至查询有 14 个 open 的 `ci-failure` issue。它们的一个特点是**大多需要特定硬件**——"LM Eval PCP (4xB200)"、"Kimi-Linear-48B-A3B Disaggregated DP EP"、"test_deepep_moe.py SIGSEGV on ROCm"。这是 vLLM CI 失败入口的现实：能在一块消费级 GPU 上复现的失败很少留到 issue 阶段。但也有例外，例如 #43350 "Multiple tests failing with assert output_size is not None" 这类纯逻辑断言——它的评论区 2026-08-22 已有人指出在 main 上不再复现并给出了修复它的 commit，这类 issue 可做的事是确认后请求关闭。选 CI 失败当切入点时，第一件事是看 "Name of failing test" 里的路径判断硬件要求，第二件事是看最后一条评论判断它是否还活着。
+截至查询有 14 个 open 的 `ci-failure` issue。它们的一个特点是**大多需要特定硬件**——"LM Eval PCP (4xB200)"（PCP：prefill context parallel，把一条长 prompt 的 prefill 切到多张卡上）、"Kimi-Linear-48B-A3B Disaggregated DP EP"（EP：expert parallelism，把 MoE 的专家分到不同卡上）、"test_deepep_moe.py SIGSEGV on ROCm"。这是 vLLM CI 失败入口的现实：能在一块消费级 GPU 上复现的失败很少留到 issue 阶段。但也有例外，例如 #43350 "Multiple tests failing with assert output_size is not None" 这类纯逻辑断言——它的评论区 2026-08-22 已有人指出在 main 上不再复现并给出了修复它的 commit，这类 issue 可做的事是确认后请求关闭。选 CI 失败当切入点时，第一件事是看 "Name of failing test" 里的路径判断硬件要求，第二件事是看最后一条评论判断它是否还活着。
 
 ### 2. PyTorch：HUD、DISABLED issue 与 skipped 标签
 
@@ -518,7 +518,7 @@ Table: vLLM 性能 issue 模板的字段
 
 > **No one-off kernel benchmarks in `tests/`.** Put kernel perf work in `benchmarks/kernels/`; prove correctness in existing pytest suites.
 
-截至查询 `performance` 标签有 59 个 open issue，2026-09 第一周新开的几个很能说明"什么样的性能 issue 是好切入点"：#55577 "[Performance]: 100x speedup in v1 prompt_logprobs: Triton _topk_log_softmax_kernel vs native PyTorch topk/logsumexp on long contexts" 是带数字的提案；#55462 "[Performance]: AWQ CUDA GEMM kernel is heavily L1/Memory bound (Profiled on RTX 3070 Ti)" 是带 profile 的分析，而且是在消费级卡上做的。**一个带复现脚本、硬件说明、前后数字的性能 issue，即使你自己不修，也已经是一个 maintainer 会感谢的贡献**——它把"有没有问题"这个最贵的问题回答了。
+截至查询 `performance` 标签有 59 个 open issue，2026-09 第一周新开的几个很能说明"什么样的性能 issue 是好切入点"：#55577 "[Performance]: 100x speedup in v1 prompt_logprobs: Triton _topk_log_softmax_kernel vs native PyTorch topk/logsumexp on long contexts" 是带数字的提案；#55462 "[Performance]: AWQ CUDA GEMM kernel is heavily L1/Memory bound (Profiled on RTX 3070 Ti)"（AWQ：Activation-aware Weight Quantization，按激活大小保护关键权重的低比特量化方法；GEMM：general matrix multiply，通用矩阵乘） 是带 profile 的分析，而且是在消费级卡上做的。**一个带复现脚本、硬件说明、前后数字的性能 issue，即使你自己不修，也已经是一个 maintainer 会感谢的贡献**——它把"有没有问题"这个最贵的问题回答了。
 
 ### 2. PyTorch：benchmarks/ 子目录与 regression 的两条路
 
@@ -593,7 +593,7 @@ rg -n "benchmark_serving.py" docs/
 
 ### 3. 一个真实例子：Adadelta 的示例
 
-PyTorch #183036 "Adadelta uses SGD in its examples"（2026-05-09，`module: docs`、`module: optimizer`、`actionable`）是一个典型的"看起来是 typo、其实不是"的 issue。报告者发现 `torch.optim.Adadelta` 文档页的示例代码写的是 `torch.optim.SGD(...)`，问"Should i submit a PR to fix this?"。评论区的走向（截至 2026-09-07）：
+PyTorch #183036 "Adadelta uses SGD in its examples"（SGD：stochastic gradient descent，随机梯度下降优化器）（2026-05-09，`module: docs`、`module: optimizer`、`actionable`）是一个典型的"看起来是 typo、其实不是"的 issue。报告者发现 `torch.optim.Adadelta` 文档页的示例代码写的是 `torch.optim.SGD(...)`，问"Should i submit a PR to fix this?"。评论区的走向（截至 2026-09-07）：
 
 - **2026-05-11**：两位非 maintainer 确认问题存在、讨论要不要自己提
 - **2026-08-10**：@janeyx99（optimizer 维护者）：I'd review a proper fix for this that doesn't cause the same issue for all other optimizers
@@ -773,7 +773,7 @@ Table: PyTorch 的三个候选 issue
 | # | issue | 来源 | 是否已有人在做 | 预计规模 | 需先讨论? | 结论 |
 |---|---|---|---|---|---|---|
 | V1 | #50128 [Performance] Measure Transformers backend startup time vs native | `help wanted`（@hmellor，2026-07-28） | 测量部分已由两位贡献者完成（2026-08-18）<br/>maintainer 自己开了 #52766 处理 `RMSNormFuser`<br/>AOT 缓存部分 assignee Taimys，PR #53295 open（2026-08-21） | issue 本身几乎完成；剩余是 review #53295 或做 maintainer 评论里提到的"warm start"后续 | 否 | **备选**：直接可做的部分已被认领；关注 #53295 合入后 maintainer 是否开新的 follow-up |
-| V2 | #40544 [Feature]: Integrate fused `kMoEFinalizeARResidualRMSNorm` from FlashInfer | `help wanted` + `feature request`（@benchislett） | **无 open PR**<br/>2026-06-26 有人留了详细分析但未跟进<br/>2026-09-01 有模板化认领<br/>issue 作者 2026-05 评论提到 TRTLLM 可能用 MNNVL AR 后端而非此路径 | 几百行：新的 torch.compile custom pass，可能要把 `moe_finalize` 从 fused_moe op 里拆出来；需要支持 FlashInfer 的 NVIDIA 多卡 | **是**——方向本身被作者质疑过；先在 issue 里问"这条路径现在还是想要的吗" | **备选**：有价值、无竞争，但硬件门槛高且需先确认方向 |
+| V2 | #40544 [Feature]: Integrate fused `kMoEFinalizeARResidualRMSNorm` from FlashInfer | `help wanted` + `feature request`（@benchislett） | **无 open PR**<br/>2026-06-26 有人留了详细分析但未跟进<br/>2026-09-01 有模板化认领<br/>issue 作者 2026-05 评论提到 TRTLLM 可能用 <span class="inline-tip" data-tip="multi-node NVLink，跨节点的 NVLink 高速互联">MNNVL</span> AR 后端而非此路径 | 几百行：新的 torch.compile custom pass，可能要把 `moe_finalize` 从 fused_moe op 里拆出来；需要支持 FlashInfer 的 NVIDIA 多卡 | **是**——方向本身被作者质疑过；先在 issue 里问"这条路径现在还是想要的吗" | **备选**：有价值、无竞争，但硬件门槛高且需先确认方向 |
 | V3 | #31414 [Feature][Cleanup]: Unify `vllm.utils.flashinfer` and `vllm.model_executor.layers.quantization.utils.flashinfer_utils` | `good first issue` + `help wanted` | **6 个 open PR**：#35440（02-26）、#42378（05-12）、#45618（06-14）、#49867（07-26）、#51523（08-08）、#54538（08-31）；评论区 2026-08-27 有人做了"五个实现的对比" | 几十到一百行的重命名与 import 整理 | 否 | **放弃**：与 P3 同病；六个 PR 里没有一个被合入说明 maintainer 尚未决定要哪种切分，再加一个无济于事 |
 
 Table: vLLM 的三个候选 issue

@@ -133,7 +133,7 @@ Table: PyTorch v2.14.0 的目录地图
 |---|---|---|---|
 | `vllm/` | 2841 | 99.8 万 | Python 包本体，58 个顶层条目：`config/`、`engine/`、`v1/`、`model_executor/`、`entrypoints/`、`distributed/`、`compilation/`、`lora/`、`multimodal/`、`platforms/`、`_custom_ops.py` 等 |
 | `vllm/v1/` | 350 | 14.7 万 | 引擎核心：`engine/`（`AsyncLLM`、`EngineCore`、`EngineCoreClient`）、`core/`（KV cache 管理与 `sched/` 调度器）、`worker/`、`executor/`、`attention/`、`sample/`、`spec_decode/`、`metrics/` |
-| `vllm/model_executor/` | 1337 | 42.1 万 | 模型与层：`models/`（293 个条目，每个模型一个文件）、`layers/`（`linear.py`、`layernorm.py`、`fused_moe/`、`quantization/`、`rotary_embedding/`）、`model_loader/`；其中 570 个 `.json` 是 fused MoE 的 kernel 调优配置，占约 8.2 万行 |
+| `vllm/model_executor/` | 1337 | 42.1 万 | 模型与层：`models/`（293 个条目，每个模型一个文件）、`layers/`（`linear.py`、`layernorm.py`、`fused_moe/`、`quantization/`、`rotary_embedding/`）、`model_loader/`；其中 570 个 `.json` 是 fused <span class="inline-tip" data-tip="mixture of experts，每个 token 只走部分专家网络">MoE</span> 的 kernel 调优配置，占约 8.2 万行 |
 | `vllm/entrypoints/` | 197 | 4.0 万 | 用户入口：`cli/`（`vllm` 命令的子命令）、`openai/`（OpenAI 兼容 HTTP 服务，`api_server.py`）、`llm.py`（离线 `LLM` 类）、`anthropic/`、`grpc_server.py` |
 | `csrc/` | 302 | 12.4 万 | CUDA/C++ kernel：`attention/`、`moe/`、`quantization/`、`cpu/`、`rocm/`、`cutlass_extensions/`；`libtorch_stable/` 下是以 libtorch 稳定 ABI 注册的 kernel 与 `torch_bindings.cpp` |
 | `tests/` | 1926 | 50.1 万 | pytest 测试，40 个子目录按子系统组织：`kernels/`、`v1/`、`entrypoints/`、`models/`、`distributed/`、`quantization/`、`lora/`、`evals/`、`benchmarks/` |
@@ -504,7 +504,7 @@ instantiate_device_type_tests(TestBinaryUfuncsCUDA, globals(), only_for="cuda")
 
 这一行把 `TestBinaryUfuncsDevice` 变成 `TestBinaryUfuncsDeviceCPU`、`TestBinaryUfuncsDeviceCUDA` 等，测试方法的 `device` 参数由框架填入。所以在 CI 日志里看到 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 这样的名字时，要去掉后缀找源码：类名 `TestBinaryUfuncsDevice`，方法 `test_logaddexp`。`AGENTS.md` 的要求是 "For any test that checks numerics of the on-device implementation, use `instantiate_device_type_tests` to write device-generic tests"。
 
-**`common_methods_invocations.py` 的 OpInfo。** 这是 PyTorch 对每个算子的元数据登记：支持的 dtype、是否支持 forward AD、样例输入生成器、已知的跳过项。`logaddexp` 的条目：
+**`common_methods_invocations.py` 的 OpInfo。** 这是 PyTorch 对每个算子的元数据登记：支持的 dtype、是否支持 forward AD（automatic differentiation，自动微分）、样例输入生成器、已知的跳过项。`logaddexp` 的条目：
 
 ```python title="logaddexp 的 OpInfo 条目"
 BinaryUfuncInfo('logaddexp',

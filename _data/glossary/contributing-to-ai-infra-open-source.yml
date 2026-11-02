@@ -1,139 +1,31 @@
 ---
-- term: HUD
-  full: heads-up display
-  desc: PyTorch 的 CI 状态看板
-- term: CC
-  full: carbon copy
-  desc: 抄送；RFC 模板里列出要通知的人
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: 多 GPU 之间做集合通信的库
 - term: DCO
   full: Developer Certificate of Origin
+  zh: 开发者原创声明
+  say: D-C-O
   desc: 开发者原创声明，每个 commit 带 Signed-off-by
 - term: CLA
   full: Contributor License Agreement
+  zh: 贡献者许可协议
+  say: C-L-A
   desc: 贡献者许可协议，签一次即授权项目使用你的代码
-- term: RFC
-  full: Request for Comments
-  desc: 大改动动手前公开征求意见的设计文档
-- term: MoE
-  full: mixture of experts
-  desc: 混合专家：每个 token 只走部分专家网络
-- term: ABI
-  full: application binary interface
-  desc: 二进制接口，编译产物之间的调用约定
-- term: MPS
-  full: Metal Performance Shaders
-  desc: 苹果 GPU 的计算后端
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 软件栈
-- term: AD
-  full: automatic differentiation
-  desc: 自动微分；forward AD 指前向模式
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行：多份模型副本各处理一部分请求
-- term: RC
-  full: release candidate
-  desc: 正式发布前的候选版本
-- term: OSS
-  full: open source software
-  desc: 开源软件
-- term: LOC
-  full: lines of code
-  desc: 代码行数
-- term: ROI
-  full: return on investment
-  desc: 投入产出比
-- term: CRCR
-  full: Cross-Repository CI Relay
-  desc: 把 PyTorch 的 CI 事件转发给下游后端仓库的机制
-- term: GDS
-  full: GPUDirect Storage
-  desc: GPU 显存和存储之间直接传数据的 NVIDIA 技术
-- term: PD
-  full: prefill–decode
-  desc: PD 分离：prefill 和 decode 放到不同实例上跑
-- term: HMA
-  full: hybrid memory allocator
-  desc: vLLM 给混合注意力模型分配 KV cache 的机制
-- term: BC
-  full: backward compatibility
-  desc: 向后兼容；BC-breaking 指破坏旧用法的改动
-- term: LM
-  full: language model
-  desc: 语言模型；LM Eval 指 lm-eval 评测
-- term: PCP
-  full: prefill context parallel
-  desc: 把一条长 prompt 的 prefill 切到多张卡上
-- term: EP
-  full: expert parallelism
-  desc: 专家并行：把 MoE 的专家分到不同卡上
-- term: SIGSEGV
-  full: segmentation violation signal
-  desc: 段错误信号，进程非法访问内存时收到
-- term: AWQ
-  full: Activation-aware Weight Quantization
-  desc: 按激活大小保护关键权重的低比特量化方法
-- term: GEMM
-  full: general matrix multiply
-  desc: 通用矩阵乘，推理里最重的算子
-- term: TIMM
-  full: PyTorch Image Models
-  desc: 常用视觉模型库
-- term: SGD
-  full: stochastic gradient descent
-  desc: 随机梯度下降优化器
-- term: E2E
-  full: end-to-end
-  desc: 端到端
-- term: AOT
-  full: ahead-of-time
-  desc: 提前编译；这里指 torch.compile 的 AOT 缓存
-- term: TRTLLM
-  full: TensorRT-LLM
-  desc: NVIDIA 的 LLM 推理引擎
-- term: MNNVL
-  full: multi-node NVLink
-  desc: 跨节点的 NVLink 高速互联
-- term: AR
-  full: all-reduce
-  desc: 各卡数据求和后再分发回每张卡的集合通信
-- term: ONNX
-  full: Open Neural Network Exchange
-  desc: 跨框架的模型交换格式
-- term: NPU
-  full: neural processing unit
-  desc: 神经网络专用处理器，这里指昇腾
-- term: PTAL
-  full: please take a look
-  desc: "「请再看一眼」，催 review 的常用语"
-- term: ETA
-  full: estimated time of arrival
-  desc: 预计完成时间
-- term: FSDP
-  full: Fully Sharded Data Parallel
-  desc: 把参数、梯度、优化器状态分片到各卡的数据并行
-- term: UTC
-  full: Coordinated Universal Time
-  desc: 协调世界时，文中时间都按它记
 - term: LU
   full: lower–upper
+  zh: 把矩阵拆成下三角 L 和上三角 U
+  say: L-U
   desc: LU 分解：把矩阵拆成下三角 L 和上三角 U
-- term: OOM
-  full: out of memory
-  desc: 显存不够，分配失败
-- term: PP
-  full: pipeline parallelism
-  desc: 流水线并行：模型按层切到不同卡上
-- term: QR
-  full: QR decomposition
-  desc: QR 分解：把矩阵拆成正交阵 Q 和上三角阵 R
-- term: LSTSQ
-  full: least squares
-  desc: 最小二乘求解，对应 torch.linalg.lstsq
-- term: FP64
-  full: 64-bit floating point
-  desc: 双精度浮点

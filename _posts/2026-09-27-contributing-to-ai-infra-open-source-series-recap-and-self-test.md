@@ -236,7 +236,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   issue 进 `oncall: pt2` 队列；PR 触发 `ciflow/h100-distributed`。前者告诉你 issue 会被哪个 oncall 看到——没人理先查它有没有落进任何 `oncall:`；后者意味着改 FSDP 的 PR 会自动在 H100 上跑分布式任务。
+   issue 进 `oncall: pt2` 队列；PR 触发 `ciflow/h100-distributed`。前者告诉你 issue 会被哪个 oncall 看到——没人理先查它有没有落进任何 `oncall:`；后者意味着改 FSDP（Fully Sharded Data Parallel，把参数、梯度、优化器状态分片到各卡的数据并行） 的 PR 会自动在 H100 上跑分布式任务。
 
    </details>
 
