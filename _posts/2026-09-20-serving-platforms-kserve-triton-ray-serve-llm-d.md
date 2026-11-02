@@ -691,7 +691,7 @@ Table: llm-d v0.9.0 的交付物
 
 Table: llm-d 的 well-lit paths
 
-每条路径两件东西：Router 的 Helm values（EPP 的 `EndpointPickerConfig` 插件链）与模型服务器的 Kustomize overlay。PD 路径的 `router/pd-disaggregation.values.yaml` 是一个好例子：插件链里 `prefill-filter` / `decode-filter` 按角色过滤，`prefix-cache-affinity-filter` 与 `token-load-scorer` 给 prefill 打分，`active-request-scorer` 给 decode 打分，两个 `schedulingProfiles` 分别选出 prefill 与 decode 端点。PD 的"最佳实践"一节说得清楚：中大模型、长输入（10k ISL 而不是 200）、稀疏 MoE 才值得分离；prefill 用少并行多副本、decode 用多并行少副本；调 xPyD 比例。
+每条路径两件东西：Router 的 Helm values（EPP 的 `EndpointPickerConfig` 插件链）与模型服务器的 Kustomize overlay。PD 路径的 `router/pd-disaggregation.values.yaml` 是一个好例子：插件链里 `prefill-filter` / `decode-filter` 按角色过滤，`prefix-cache-affinity-filter` 与 `token-load-scorer` 给 prefill 打分，`active-request-scorer` 给 decode 打分，两个 `schedulingProfiles` 分别选出 prefill 与 decode 端点。PD 的"最佳实践"一节说得清楚：中大模型、长输入（10k ISL 而不是 200）、稀疏 MoE（mixture of experts，混合专家模型） 才值得分离；prefill 用少并行多副本、decode 用多并行少副本；调 xPyD 比例。
 
 ### 4. 与 KServe 的关系
 
@@ -870,7 +870,7 @@ prefill 与 decode 的饱和信号不同：prefill 是算力受限，合适的�
 | 调度 | 找到一台有 4 张空闲卡的节点并绑定 | 是否有空闲节点；否则要等 cluster autoscaler 加节点 | 有空闲节点：秒级；云上加节点：3–10 分钟 | 预留缓冲节点<br/>节点池 warm pool<br/>第三篇的队列优先级 |
 | 拉镜像 | vLLM 镜像 10 GB 量级 | 节点是否已缓存；镜像仓库带宽 | 已缓存：0；未缓存 100–200 MB/s：1–2 分钟 | 节点预拉（DaemonSet）、镜像瘦身（第二篇）、P2P 分发 |
 | 拉权重 | 140 GB 到本地盘或直接读 | 存储路径：对象存储 / 并行文件系统 / 节点 NVMe 缓存 / 镜像 | 对象存储 1 GB/s：2–3 分钟<br/>并行文件系统 5 GB/s：30 秒<br/>本地缓存：≈0 | `pvc://` 直挂、`LocalModelCache`、`oci://`、第五篇的分发方案 |
-| 加载到显存 | safetensors 读取、反序列化、H2D 拷贝 | 磁盘/文件系统读带宽、PCIe、CPU 解码 | 1–3 分钟 | 直接从并行文件系统 mmap；更快的 load format |
+| 加载到显存 | safetensors 读取、反序列化、<span class="inline-tip" data-tip="host to device，主机内存拷到显存">H2D</span> 拷贝 | 磁盘/文件系统读带宽、PCIe、CPU 解码 | 1–3 分钟 | 直接从并行文件系统 mmap；更快的 load format |
 | 预热 | CUDA graph 捕获、`torch.compile`、profile run 决定 KV block 数 | 模型、`--max-num-seqs`、编译缓存 | 1–3 分钟 | 持久化 compile cache（llm-d 的 recipe 挂 `/.cache` 卷）；`--enforce-eager` 换吞吐 |
 
 Table: 一个 70B TP=4 副本扩容时间的分解

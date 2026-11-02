@@ -501,7 +501,7 @@ sequenceDiagram
     D-->>GW: SSE 流
 ```
 
-网关只认识第一个 header，把请求发到 decode Pod。decode Pod 里跑着 `pd-sidecar`（`pkg/sidecar/proxy/`）：看到 `x-prefiller-host-port` 就先把请求转给 prefill Pod 做 prefill（KV 通过 NIXL、shared-storage、SGLang、Mooncake 等 connector 传输，`pkg/sidecar/constants/constants.go`），再在本地 decode；没有这个 header 就本地做完两段。所以 PD 分离对网关是透明的——这是 llm-d 把"选两个 Pod"塞进单目标 ext_proc 协议的方式。v0.9.0 还有一个实验性的 **Coordinator** 形态（`docs/coordinator_architecture.md`、`guides/coord-disaggregation`）：一个独立服务把 encode / prefill / decode 作为流水线步骤，每步再通过网关 + EPP 选 Pod，不再需要每 Pod 一个 sidecar。
+网关只认识第一个 header，把请求发到 decode Pod。decode Pod 里跑着 `pd-sidecar`（`pkg/sidecar/proxy/`）：看到 `x-prefiller-host-port` 就先把请求转给 prefill Pod 做 prefill（KV 通过 NIXL（NVIDIA Inference Xfer Library，NVIDIA 的推理数据传输库）、shared-storage、SGLang、Mooncake 等 connector 传输，`pkg/sidecar/constants/constants.go`），再在本地 decode；没有这个 header 就本地做完两段。所以 PD 分离对网关是透明的——这是 llm-d 把"选两个 Pod"塞进单目标 ext_proc 协议的方式。v0.9.0 还有一个实验性的 **Coordinator** 形态（`docs/coordinator_architecture.md`、`guides/coord-disaggregation`）：一个独立服务把 encode / prefill / decode 作为流水线步骤，每步再通过网关 + EPP 选 Pod，不再需要每 Pod 一个 sidecar。
 
 ### 6. EPP 自身的部署形态
 

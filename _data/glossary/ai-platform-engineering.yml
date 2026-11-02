@@ -1,244 +1,151 @@
 ---
-- term: JSONL
-  full: JSON Lines
-  desc: 每行一个 JSON 对象的文本格式，适合只追加写
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
-- term: RPC
-  full: remote procedure call
-  desc: 远程过程调用
-- term: gRPC
-  full: gRPC Remote Procedure Calls
-  desc: Google 开源的 RPC 框架，用 Protobuf 编码
-- term: OOM
-  full: out of memory
-  desc: 内存耗尽
-- term: bf16
-  full: bfloat16
-  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
 - term: DDP
   full: Distributed Data Parallel
+  zh: 每卡一份完整模型
+  say: D-D-P
   desc: 数据并行：每卡一份完整模型，梯度做 all-reduce
-- term: FSDP
-  full: Fully Sharded Data Parallel
-  desc: 把参数、梯度、优化器状态切到各卡的数据并行
-- term: GiB
-  full: gibibyte
-  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结原权重、只训低秩矩阵的微调方法
 - term: OOB
   full: out-of-bag
+  zh: 随机森林里没被某棵树抽中的样本
+  say: O-O-B
   desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
-- term: XGBoost
-  full: eXtreme Gradient Boosting
-  desc: 工业界最常用的 GBDT 实现
-- term: PCI
-  full: Peripheral Component Interconnect
-  desc: PCIe 的前身，Linux 里仍沿用这个名字
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点数
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行，把 MoE 的专家分到不同卡上
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行，每张卡一份完整模型
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行，按层切到不同卡上
-- term: IPC
-  full: inter-process communication
-  desc: 进程间通信，这里指跨进程共享显存
 - term: GDR
   full: GPUDirect RDMA
+  zh: 网卡直接读写显存的 RDMA
+  say: G-D-R
   desc: 网卡直接读写显存的 RDMA
 - term: SM
   full: streaming multiprocessor
+  zh: GPU 流多处理器
+  say: 逐字母 S-M
   desc: GPU 的计算单元，通信 kernel 也要占用
 - term: NVML
   full: NVIDIA Management Library
+  zh: 查询 GPU 状态与拓扑的管理库
+  say: N-V-M-L
   desc: 查询 GPU 状态与拓扑的管理库
-- term: NVMe
-  full: Non-Volatile Memory Express
-  desc: 走 PCIe 的固态盘接口协议
 - term: GID
   full: local identifier / global identifier
+  zh: InfiniBand 子网内地址 / 跨子网（R…
+  say: G-I-D
   desc: InfiniBand 子网内地址 / 跨子网（RoCE 必用）地址
-- term: TCP
-  full: Transmission Control Protocol
-  desc: 传输控制协议，经内核协议栈
-- term: P2P
-  full: peer-to-peer
-  desc: 设备之间直接互访，不经主机内存
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行，把一层的矩阵切到多张卡上
-- term: NIXL
-  full: NVIDIA Inference Xfer Library
-  desc: NVIDIA 的推理数据传输库，用来搬 KV cache
-- term: HPC
-  full: high-performance computing
-  desc: 高性能计算
 - term: IB
   full: InfiniBand
+  zh: InfiniBand
+  say: 逐字母 I-B
   desc: InfiniBand 的简称
-- term: NUMA
-  full: non-uniform memory access
-  desc: 多路 CPU 下内存与设备按插槽分组，跨组更慢
 - term: RoCE
   full: RDMA over Converged Ethernet
+  zh: 以太网承载的 RDMA
+  say: "/ˈrɒki/「rocky」"
   desc: 在以太网上承载 RDMA
 - term: PD
   full: prefill–decode
+  zh: prefill–decode 分离
+  say: 逐字母 P-D
   desc: PD 分离：prefill 与 decode 放到不同节点上跑
-- term: ZeRO
-  full: Zero Redundancy Optimizer
-  desc: DeepSpeed 的分片优化器，去掉各卡上的冗余状态
-- term: MoE
-  full: mixture of experts
-  desc: 混合专家模型，每个 token 只激活少数专家
-- term: NIC
-  full: network interface card
-  desc: 网卡
 - term: busbw
   full: bus bandwidth / algorithm bandwidth
+  zh: 校正后的链路带宽与 S/T
+  say: "「busbw」"
   desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: 主板上连接 GPU、网卡和 CPU 的总线
 - term: RDMA
   full: remote direct memory access
+  zh: 远程直接内存访问
+  say: 逐字母 R-D-M-A
   desc: 网卡直接读写远端内存，绕开对端 CPU 和内核
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: TTL
-  full: time to live
-  desc: 缓存条目的存活时间，过期就失效
-- term: A/B
-  full: A/B testing
-  desc: 把流量随机分给两个版本，比较指标
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 先检索资料，再让模型据此回答
-- term: ABI
-  full: application binary interface
-  desc: 二进制接口，编译产物之间的调用约定
-- term: MPS
-  full: Metal Performance Shaders
-  desc: 苹果 GPU 的计算后端
 - term: GDS
   full: GPUDirect Storage
+  zh: GPU 显存和存储之间直接传数据的 NVIDIA…
+  say: G-D-S
   desc: GPU 显存和存储之间直接传数据的 NVIDIA 技术
-- term: ONNX
-  full: Open Neural Network Exchange
-  desc: 跨框架的模型交换格式
-- term: BF16
-  full: bfloat16
-  desc: 8 位指数的 16 位浮点，范围同 FP32
-- term: FP16
-  full: 16-bit floating point
-  desc: 半精度浮点，5 位指数、10 位尾数
-- term: MPI
-  full: Message Passing Interface
-  desc: 高性能计算里的进程间通信标准
-- term: H2D
-  full: host to device
-  desc: 主机内存拷到显存
-- term: FP32
-  full: 32-bit floating point
-  desc: 单精度浮点，深度学习的默认精度
-- term: GC
-  full: garbage collection
-  desc: 垃圾回收：自动释放不再可达的对象
-- term: INT4
-  full: 4-bit integer
-  desc: 均匀 16 格的 4 bit 整数量化
-- term: INT8
-  full: 8-bit integer
-  desc: 8 bit 整数量化，精度损失最小的低比特档
-- term: SLA
-  full: service level agreement
-  desc: 服务等级约定，这里指处理时限
-- term: OTel
-  full: OpenTelemetry
-  desc: OpenTelemetry 的简称
-- term: SSE
-  full: Server-Sent Events
-  desc: HTTP 上服务端单向推送的流式协议
 - term: SASS
   full: "—（NVIDIA 未给出官方全称）"
+  zh: NVIDIA GPU 真正执行的机器指令
+  say: S-A-S-S
   desc: NVIDIA GPU 真正执行的机器指令
-- term: ISA
-  full: instruction set architecture
-  desc: 指令集架构
-- term: JIT
-  full: just-in-time compilation
-  desc: 运行时即时编译
 - term: PTX
   full: Parallel Thread Execution
+  zh: NVIDIA 的虚拟 GPU 指令集
+  say: P-T-X
   desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
-- term: SLO
-  full: service level objective
-  desc: 服务等级目标，如可用率、延迟的承诺值
 - term: RPM / TPM
   full: requests per minute / tokens per minute
+  zh: 每分钟请求数 / 每分钟 token 数的限额
+  say: "「RPM / TPM」"
   desc: 每分钟请求数 / 每分钟 token 数的限额
-- term: FinOps
-  full: financial operations
-  desc: 云成本的归因、预算与优化的日常运营
-- term: RPM
-  full: requests per minute
-  desc: 每分钟请求数的限额
-- term: PyPI
-  full: Python Package Index
-  desc: 官方的 Python 包仓库，types-* 存根包也发在这里
-- term: QPS
-  full: queries per second
-  desc: 每秒查询数
 - term: HBM
   full: high bandwidth memory
+  zh: 高带宽显存
+  say: 逐字母 H-B-M
   desc: GPU 上的高带宽显存
 - term: D2H
   full: device to host
+  zh: 设备到主机
+  say: 逐字母 D-2-H
   desc: 显存拷回主机内存
-- term: ZMQ
-  full: ZeroMQ
-  desc: 轻量消息库，常用来在进程间传控制消息
-- term: LRU
-  full: least recently used
-  desc: 最近最少使用：先淘汰最久没用的
-- term: HPA
-  full: Horizontal Pod Autoscaler
-  desc: Kubernetes 按指标自动增减副本数
-- term: RNG
-  full: random number generator
-  desc: 随机数生成器
 - term: MIG
   full: multi-instance GPU
+  zh: 把一张 GPU 切成多个互相隔离的实例
+  say: M-I-G
   desc: 把一张 GPU 切成多个互相隔离的实例
 - term: DRA
   full: dynamic resource allocation
+  zh: K8s 的设备资源分配机制
+  say: D-R-A
   desc: K8s 的设备资源分配机制
 - term: DCGM
   full: Data Center GPU Manager
+  zh: NVIDIA 的 GPU 监控套件
+  say: D-C-G-M
   desc: NVIDIA 的 GPU 监控套件
-- term: CRD
-  full: custom resource definition
-  desc: K8s 的自定义资源类型，调度器靠它扩展
-- term: KEDA
-  full: Kubernetes Event-driven Autoscaling
-  desc: 按事件源扩缩容的 K8s 组件
 - term: EPP
   full: Endpoint Picker
+  zh: 推理网关里挑后端实例的组件
+  say: E-P-P
   desc: 推理网关里挑后端实例的组件
-- term: K8s
-  full: Kubernetes
-  desc: 容器编排系统，平台层的底座
