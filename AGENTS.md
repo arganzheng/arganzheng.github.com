@@ -141,6 +141,29 @@ not part of `less/` or the JS bundle. In PR mode the server also answers
 login. Rendering is faithful because it *is* the site's rendering; the
 price is ~20 s per side to build.
 
+## In-post figures (SVG)
+
+Series figures are drawn with matplotlib in `ai-learning-labs`
+(`deep-learning-foundations/_plot.py` + each post's `case_*_toys.py figures`)
+and written to `img/in-post/*.svg`. Math in a figure must look like the
+post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
+
+- `_plot.py` sets `mathtext.fontset = 'cm'` (Computer Modern) and
+  `svg.fonttype = 'path'`; write every formula, symbol, subscript and
+  superscript as mathtext `$...$` in the same string as the Chinese text
+  (Hiragino Sans GB W6), e.g. `'dW1 = X^T G_H'` → `r'$dW_1 = X^\top G_H$'`,
+  `v_hat` → `$\hat v_t$`, `g^2` → `$g^2$`, `sqrt(2L)` → `$\sqrt{2L}$`,
+  `[128,256]` shapes → `$128\times256$`, Greek letters as `$\beta$`, `$\lambda$`.
+- Never fall back to `x^T`, `_hat`, `^2`, `sqrt()` or `*` because the CJK font
+  lacks the glyph: the CJK font has no `²`, `ŷ`, `−`, subscripts — that is
+  what mathtext is for. The missing-glyph check only scans non-ASCII
+  characters outside `$...$`.
+- `collide()` must pass: text–text, text–segment, box–box, text–data-line,
+  text inside the canvas. Do not clip data to fake a y-range; set `ylim` and
+  let the axes clip.
+- Check light and dark rendering in a real browser before pushing
+  (`node tools/check-render.cjs` + screenshots).
+
 ## Deploy
 
 `.github/workflows/deploy.yml` builds with the Gemfile's Jekyll (4.4) and
