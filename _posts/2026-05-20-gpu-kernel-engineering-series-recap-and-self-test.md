@@ -550,7 +550,7 @@ Table: 掌握程度的判据
 十一篇只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内，nsys 的时间线是它们与本系列的接口——当瓶颈在 kernel 之间而不是之内时，要去的是这些系列：
 
 - **框架层的运行时机制**（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何分显存、Inductor 如何决定融合哪些算子）在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)——本系列只说明"框架在 host 侧准备了什么"。
-- **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、PD（prefill–decode，prefill 与 decode 放到不同节点上跑）分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——第八篇只讨论分页之后 kernel 如何访问它。
+- **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放到不同节点上跑">PD</span> 分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——第八篇只讨论分页之后 kernel 如何访问它。
 - **多卡通信**（NCCL、集合通信与计算的重叠、通信 kernel 本身）在[《通信与互联：从 NCCL 到 <span class="inline-tip" data-tip="remote direct memory access：网卡直接读写远端内存">RDMA</span>》](/communication-and-interconnect-for-ai-infra.html)。
 - 本系列在整张学习路径上的位置见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
