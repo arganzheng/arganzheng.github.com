@@ -130,7 +130,7 @@ PP: [[0, 4], [1, 5], [2, 6], [3, 7]]
 
 ![RankGenerator 的掩码：8 卡 TP2 × DP2 × PP2](/img/in-post/megatron-deepspeed-torchtitan-rank-generator-mask.svg)
 
-源码入口是 `megatron/core/parallel_state.py` 的 `initialize_model_parallel()`、`RankGenerator` 和 `generate_masked_orthogonal_rank_groups()`。rank 次序、EP / CP 两套生成器、SHARP 的建组顺序，以及 `ProcessGroupCollection` 在下面展开。
+源码入口是 `megatron/core/parallel_state.py` 的 `initialize_model_parallel()`、`RankGenerator` 和 `generate_masked_orthogonal_rank_groups()`。rank 次序、EP / CP 两套生成器、SHARP（Scalable Hierarchical Aggregation and Reduction Protocol，在交换机里做归约的技术） 的建组顺序，以及 `ProcessGroupCollection` 在下面展开。
 
 <details markdown="1"><summary>源码细节：RankGenerator 怎样建组</summary>
 

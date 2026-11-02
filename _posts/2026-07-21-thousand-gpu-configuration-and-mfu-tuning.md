@@ -354,7 +354,7 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 
 - `FullAC`：整个 block 重算；
 - `SelectiveAC`：per-op 策略。`_get_default_save_ops()` 把 SDPA/FlexAttention、`aten.linear`、`aten.max`（低精度缩放因子）、`aten.topk`（MoE 路由稳定性）、reduce-scatter / all-to-all 等通信 op 标成 `MUST_SAVE`，其余 `PREFER_RECOMPUTE`；同时**每隔一个 mm 重算一个**（`wrapped_policy` 里的 `mm_count % 2`），在存和算之间取中；`force_recompute_mm_shapes_by_fqns` 让路由门这类小 GEMM 总是重算。它与 Megatron 的 selective 不是一回事：Megatron 按子模块（core_attn）选，torchtitan 按 op 选，并且默认就重算一半 GEMM——所以 torchtitan 的 selective 比 Megatron 的 selective 省得多、也贵得多（大约 +15% FLOP 量级，视 GEMM 占比而定）；
-- `MemoryBudgetAC`：交给编译器——设 `torch._functorch.config.activation_memory_budget`（0 到 1），由 AOTAutograd 的 partitioner 按预算决定存哪些中间量。**要求模型已 compile**（`Trainer.Config` 校验），是 `torch.compile` 才有的选项。
+- `MemoryBudgetAC`：交给编译器——设 `torch._functorch.config.activation_memory_budget`（0 到 1），由 AOTAutograd（ahead-of-time Autograd，编译前提前把前向、反向图都生成出来） 的 partitioner 按预算决定存哪些中间量。**要求模型已 compile**（`Trainer.Config` 校验），是 `torch.compile` 才有的选项。
 
 配置面是 tyro 子命令：`activation_checkpoint:selective`、`:full`、`:memory-budget`、`:none`；Python 配置里直接赋 `config.activation_checkpoint = SelectiveAC.Config()`。`llama3_8b()`（`torchtitan/models/llama3/config_registry.py`）默认 `SelectiveAC`，`llama3_70b()` 与 `llama3_405b()` 默认 `FullAC` 配 TP8——这两个默认值对 8 卡是合理的（70B 在 8 卡 TP8 上没有 PP 和 DP 可分显存，只能全量重算），但不是千卡的答案。
 

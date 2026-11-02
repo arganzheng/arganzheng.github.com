@@ -238,7 +238,7 @@ clip 后全局范数  1.000  (max_norm=1.0)
 
 ### 2. warmup 与学习率调度
 
-warmup 的作用上文已述（让 $$\hat v$$ 先建立起来），工程上的注意点是**它必须进 checkpoint**。Megatron 的 `megatron/core/optimizer_param_scheduler.py` `OptimizerParamScheduler(lr_warmup_steps, lr_decay_steps, lr_decay_style, wd_incr_style, ...)` 的 `state_dict()` 存进 checkpoint 的 `opt_param_scheduler` 键；`lr_decay_style` 支持 `WSD`。torchtitan 的 `torchtitan/components/optimizer/lr_scheduler.py` `LRSchedulersContainer`（`warmup_steps` 默认 200，`decay_type` 为 linear / sqrt / cosine，`decay_ratio` 控制 WSD 的 decay 段比例，`min_lr_factor` 下限）继承 `Stateful`，被 checkpointer 以 `LR_SCHEDULER` 键保存。恢复后 LR 不对，是"loss 曲线不衔接"最常见的原因之一。
+warmup 的作用上文已述（让 $$\hat v$$ 先建立起来），工程上的注意点是**它必须进 checkpoint**。Megatron 的 `megatron/core/optimizer_param_scheduler.py` `OptimizerParamScheduler(lr_warmup_steps, lr_decay_steps, lr_decay_style, wd_incr_style, ...)` 的 `state_dict()` 存进 checkpoint 的 `opt_param_scheduler` 键；`lr_decay_style` 支持 `WSD`。torchtitan 的 `torchtitan/components/optimizer/lr_scheduler.py` `LRSchedulersContainer`（`warmup_steps` 默认 200，`decay_type` 为 linear / sqrt / cosine，`decay_ratio` 控制 WSD（warmup–stable–decay，预热—平稳—衰减三段式学习率调度） 的 decay 段比例，`min_lr_factor` 下限）继承 `Stateful`，被 checkpointer 以 `LR_SCHEDULER` 键保存。恢复后 LR 不对，是"loss 曲线不衔接"最常见的原因之一。
 
 ### 3. z-loss 与 QK-LayerNorm
 

@@ -89,7 +89,7 @@ SP 不单独占一维：它复用 TP 的进程组，参数、梯度、优化器�
 | ZeRO / FSDP | 切优化器状态 / 梯度 / 参数<br/>前向前 all-gather 参数 | **不存在**<br/>没有优化器状态和梯度可切<br/>权重放不下时用 TP / PP | ZeRO 切的三种状态推理侧有两种根本没有 |
 | TP | 切权重 + 层内激活<br/>每层前向 2 次、反向 2 次 all-reduce，载荷 $$sbh$$<br/>不可重叠 → NVLink | 切权重 + **KV cache**（按头切）<br/>每层前向 2 次 all-reduce<br/>decode 时 $$s = 1$$、载荷只有 $$bh$$（Llama 70B、b = 32 每次 512 KiB），但每生成一个 token 都要走 80 层 × 2 次 | 训练在意**带宽**（载荷大），推理在意**延迟**（载荷小、次数多、每次都在出 token 的关键路径上） |
 | PP | 切层<br/>气泡 $$(p-1)/m$$ 用 micro-batch 填<br/>边界传激活 + 梯度 | 切层 + 对应层的 KV cache<br/>气泡用**并发请求**填，请求长短不一所以更难填满<br/>边界只传前向激活 | 训练的 $$m$$ 由 batch 决定、可控；推理的"m"是在线流量，不可控 |
-| CP | 切序列 + 注意力本身<br/>K/V 沿环流动，前向 + 反向 | 切长 prompt 的 prefill（PCP）或 decode 时的 KV cache（DCP） | 推理侧 decode 阶段每步只有 1 个 query，切的是 KV cache 而不是激活 |
+| CP | 切序列 + 注意力本身<br/>K/V 沿环流动，前向 + 反向 | 切长 prompt 的 prefill（<span class="inline-tip" data-tip="prefill context parallel：把一条长 prompt 的 prefill 切到多张卡上">PCP</span>）或 decode 时的 KV cache（DCP） | 推理侧 decode 阶段每步只有 1 个 query，切的是 KV cache 而不是激活 |
 | EP | 切专家参数 / 梯度 / 优化器状态<br/>每层 dispatch + combine 各一次 all-to-all，反向再两次 | 切专家权重<br/>每层 dispatch + combine，无反向<br/>更在意小批次下 all-to-all 的延迟 | 反向的两次 all-to-all 与负载不均的梯度效应是训练独有的 |
 
 Table: 训练侧与推理侧并行策略的对照

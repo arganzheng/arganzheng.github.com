@@ -609,7 +609,7 @@ Llama 3 的"3 次人工介入"背后是自动化的坏卡处理：一张卡坏�
 
 坏卡最好在开训前发现。Megatron 的 `megatron/training/gpu_sniff_test.py` 跑五个微基准并跨 rank 比较：GEMM（TFLOP/s）、全局进程组 all-reduce、TP 组 reduce-scatter、EP 组 all-to-all、DP 组两两 send/recv（各报 busbw），**任何一个 rank 偏离均值超过一个标准差就标为 outlier**。两种用法：独立运行 `torchrun --nproc_per_node=N megatron/training/gpu_sniff_test.py`，或 `--gpu-sniff-test-interval N`（`training_config.py` 的 `gpu_sniff_test_interval`）让 `training.py` 的 `_run_gpu_sniff_test()` 每 N 个 iteration 跑一次——后者能抓到训练中途开始降频的卡，是第八章 straggler 检测的粗粒度版本。
 
-NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML：ECC、Xid、温度、功耗状态）、`NVLHealthCheck`（NVLink 状态）、`NicHealthCheck` 与 `NicLinkStateHealthCheck`（网卡 link_downed 计数与链路状态）、`DistributedStorageHealthCheck`（存储可写）以及组合它们的 `NodeHealthCheck`。它们在两处被用：`ft_launcher` 在启动和重启前跑（`FaultToleranceConfig` 的 `enable_nic_healthcheck` 默认 True、`enable_nic_monitor` 训练中周期监视 link_down）；`inprocess.Wrapper` 重启前自动链上 GPU 与 NVLink 检查。预检发现的坏卡在开训前就被排除，不进入 $$1/M$$。
+NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（NVML（NVIDIA Management Library，查询 GPU 状态与拓扑的管理库）：ECC、Xid、温度、功耗状态）、`NVLHealthCheck`（NVLink 状态）、`NicHealthCheck` 与 `NicLinkStateHealthCheck`（网卡 link_downed 计数与链路状态）、`DistributedStorageHealthCheck`（存储可写）以及组合它们的 `NodeHealthCheck`。它们在两处被用：`ft_launcher` 在启动和重启前跑（`FaultToleranceConfig` 的 `enable_nic_healthcheck` 默认 True、`enable_nic_monitor` 训练中周期监视 link_down）；`inprocess.Wrapper` 重启前自动链上 GPU 与 NVLink 检查。预检发现的坏卡在开训前就被排除，不进入 $$1/M$$。
 
 [第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的开训检查清单会把这些与 NCCL 带宽测试、小规模 dry-run、checkpoint 恢复演练放在一起。
 
@@ -679,7 +679,7 @@ Lin et al.（OSDI 2025，*Understanding Stragglers in Large Model Training Using
 
 ### 1. 为什么静默错误最贵
 
-SDC（silent data corruption）是硬件在没有报错的情况下算出错误结果：一个 SM 的某个运算单元老化、电压边缘、宇宙射线翻转了没有 ECC 保护的寄存器或 SRAM。GPU 的 HBM 有 ECC，但计算路径上大量状态没有。Llama 3 的 6 次（1.4%）是**被发现的**次数——发现它需要校验，没被发现的不在统计里。
+SDC（silent data corruption）是硬件在没有报错的情况下算出错误结果：一个 SM 的某个运算单元老化、电压边缘、宇宙射线翻转了没有 ECC 保护的寄存器或 SRAM（static random-access memory，GPU 片上的小而快的存储）。GPU 的 HBM 有 ECC，但计算路径上大量状态没有。Llama 3 的 6 次（1.4%）是**被发现的**次数——发现它需要校验，没被发现的不在统计里。
 
 训练对 SDC 尤其敏感的原因是数据并行的 all-reduce：一张卡的错误梯度被平均进所有副本的参数里，之后每一个 checkpoint 都带着这个错误。发现得晚，就要回退到污染前的 checkpoint——如果还留着的话。loss 曲线上它可能表现为一次 spike，也可能什么都看不出来（错误足够小），后者最危险。
 

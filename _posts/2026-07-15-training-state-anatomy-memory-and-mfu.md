@@ -458,7 +458,7 @@ per_layer_memory = args.seq_length * args.micro_batch_size * args.hidden_size * 
 
 ### 2. NCCL 的 buffer
 
-每个 NCCL communicator 为每个 channel 分配收发 buffer（`NCCL_BUFFSIZE` 默认 4 MiB）以及 LL / LL128 协议的专用 buffer，一个 communicator 在几十到几百 MB 之间。一个多维并行的训练进程有多个 communicator：TP 组、DP 组、PP 的相邻 stage、CP 组、embedding 组……PyTorch 为每个 `ProcessGroup` 惰性创建 NCCL communicator，第一次在该组通信时分配。所以**NCCL 的显存在第一个 step 才出现**，几百 MB 到 2–3 GB，取决于组的数量与 channel 数。它也是通过 `cudaMalloc` 直接分配的，不在 `memory_reserved()` 里。本系列把集合通信当黑盒，但这一项在显存预算里不能漏。
+每个 NCCL communicator 为每个 channel 分配收发 buffer（`NCCL_BUFFSIZE` 默认 4 MiB）以及 LL / LL128（low latency / low latency 128，NCCL 的两种低延迟协议，用 flag 代替内存屏障）协议的专用 buffer，一个 communicator 在几十到几百 MB 之间。一个多维并行的训练进程有多个 communicator：TP 组、DP 组、PP 的相邻 stage、CP 组、embedding 组……PyTorch 为每个 `ProcessGroup` 惰性创建 NCCL communicator，第一次在该组通信时分配。所以**NCCL 的显存在第一个 step 才出现**，几百 MB 到 2–3 GB，取决于组的数量与 channel 数。它也是通过 `cudaMalloc` 直接分配的，不在 `memory_reserved()` 里。本系列把集合通信当黑盒，但这一项在显存预算里不能漏。
 
 ### 3. Caching allocator：reserved、allocated 与碎片
 
@@ -611,7 +611,7 @@ standard_self_attn_core_term = (
 )
 ```
 
-即每层 $$3 \times 2 \times h \times \tfrac{1}{2} \times 2 = 6h$$，乘 $$\sum_i L_i^2$$（默认 $$b \cdot s^2$$）——正是上一节因果减半后的 $$6Lsh$$ 每 token。0.18.0 把 $$\sum L_i^2$$ 做成参数，是为了 packed sequence（THD 布局）下按真实子序列长度计，而不是按 padding 后的 $$s^2$$ 高估。函数还覆盖 MoE（只算路由到的 top-k 专家）、MLA、MTP、Mamba 混合层，本篇不展开。
+即每层 $$3 \times 2 \times h \times \tfrac{1}{2} \times 2 = 6h$$，乘 $$\sum_i L_i^2$$（默认 $$b \cdot s^2$$）——正是上一节因果减半后的 $$6Lsh$$ 每 token。0.18.0 把 $$\sum L_i^2$$ 做成参数，是为了 packed sequence（THD 布局）下按真实子序列长度计，而不是按 padding 后的 $$s^2$$ 高估。函数还覆盖 MoE（只算路由到的 top-k 专家）、MLA（multi-head latent attention，把 KV 压成低秩隐向量的 attention）、MTP（multi-token prediction，一次预测多个 token 的模块）、Mamba 混合层，本篇不展开。
 
 注意 Megatron 的 FLOP 里**不含重计算**——`transformer_flops()` 没有任何与 `recompute_granularity` 相关的项。所以 Megatron 日志里的 TFLOP/s/GPU 是**模型 FLOP** 口径，除以峰值就是下一章的 MFU 而不是 HFU。
 

@@ -1,262 +1,276 @@
 ---
-- term: JSONL
-  full: JSON Lines
-  desc: 每行一个 JSON 对象的文本格式，适合只追加写
-- term: RPC
-  full: remote procedure call
-  desc: 远程过程调用
-- term: gRPC
-  full: gRPC Remote Procedure Calls
-  desc: Google 开源的 RPC 框架，用 Protobuf 编码
-- term: OOM
-  full: out of memory
-  desc: 内存耗尽
 - term: AdamW
   full: Adam with decoupled weight decay
+  zh: Adam 加解耦权重衰减
+  say: "「亚当-W」"
   desc: 带解耦权重衰减的 Adam 优化器，本篇训练循环默认用它
-- term: bf16
-  full: bfloat16
-  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
 - term: DDP
   full: Distributed Data Parallel
+  zh: 每卡一份完整模型
+  say: D-D-P
   desc: 数据并行：每卡一份完整模型，梯度做 all-reduce
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力的计量单位
-- term: fp16
-  full: 16-bit floating point
-  desc: 半精度浮点，混合精度训练里前向常用的格式
-- term: fp32
-  full: 32-bit floating point
-  desc: 单精度浮点，每个数 4 字节
 - term: FSDP
   full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
   desc: 把参数、梯度、优化器状态切到各卡的数据并行
-- term: GiB
-  full: gibibyte
-  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
-- term: GIL
-  full: global interpreter lock
-  desc: 全局解释器锁，同一时刻只有一个线程跑 Python 字节码
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
+  zh: 均方根归一化
+  say: "「RMS-Norm」"
   desc: 只按均方根缩放、不减均值的归一化
 - term: SFT
   full: supervised fine-tuning
+  zh: 监督微调
+  say: 逐字母 S-F-T
   desc: 监督微调，用指令和回答对训练模型
-- term: NaN
-  full: not a number
-  desc: 浮点里的缺失值标记
-- term: RLHF
-  full: reinforcement learning from human feedback
-  desc: 基于人类反馈的强化学习
 - term: SGD
   full: stochastic gradient descent
+  zh: 随机梯度下降
+  say: 逐字母 S-G-D
   desc: 随机梯度下降，每步只用一小批样本
-- term: PCI
-  full: Peripheral Component Interconnect
-  desc: PCIe 的前身，Linux 里仍沿用这个名字
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点数
 - term: AG
   full: all-gather / all-to-all
+  zh: Megatron dispatcher 名字里的…
+  say: A-G
   desc: Megatron dispatcher 名字里的两种通信
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行，把 MoE 的专家分到不同卡上
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行，每张卡一份完整模型
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行，按层切到不同卡上
-- term: IPC
-  full: inter-process communication
-  desc: 进程间通信，这里指跨进程共享显存
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘
 - term: SM
   full: streaming multiprocessor
+  zh: GPU 流多处理器
+  say: 逐字母 S-M
   desc: GPU 的计算单元，通信 kernel 也要占用
-- term: LL / LL128
-  full: low latency / low latency 128
-  desc: NCCL 的两种低延迟协议，用 flag 代替内存屏障
-- term: NVML
-  full: NVIDIA Management Library
-  desc: 查询 GPU 状态与拓扑的管理库
-- term: NVMe
-  full: Non-Volatile Memory Express
-  desc: 走 PCIe 的固态盘接口协议
 - term: NDR
   full: High Data Rate / Next Data Rate
+  zh: 200 / 400 Gb/s
+  say: N-D-R
   desc: InfiniBand 的两代速率：200 / 400 Gb/s
-- term: P2P
-  full: peer-to-peer
-  desc: 设备之间直接互访，不经主机内存
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行，把一层的矩阵切到多张卡上
-- term: SHARP
-  full: Scalable Hierarchical Aggregation and Reduction Protocol
-  desc: 在交换机里做归约的技术
 - term: IB
   full: InfiniBand
+  zh: InfiniBand
+  say: 逐字母 I-B
   desc: InfiniBand 的简称
 - term: ZeRO
   full: Zero Redundancy Optimizer
+  zh: DeepSpeed 的分片优化器
+  say: "「ZeRO」"
   desc: DeepSpeed 的分片优化器，去掉各卡上的冗余状态
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: NIC
-  full: network interface card
-  desc: 网卡
 - term: busbw
   full: bus bandwidth / algorithm bandwidth
+  zh: 校正后的链路带宽与 S/T
+  say: "「busbw」"
   desc: nccl-tests 报的两个带宽：校正后的链路带宽与 S/T
-- term: PCIe
-  full: Peripheral Component Interconnect Express
-  desc: 主板上连接 GPU、网卡和 CPU 的总线
 - term: RDMA
   full: remote direct memory access
+  zh: 远程直接内存访问
+  say: 逐字母 R-D-M-A
   desc: 网卡直接读写远端内存，绕开对端 CPU 和内核
 - term: NCCL
   full: NVIDIA Collective Communications Library
+  zh: NVIDIA 集合通信库
+  say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: PCP
-  full: prefill context parallel
-  desc: 把一条长 prompt 的 prefill 切到多张卡上
 - term: AR
   full: all-reduce
+  zh: 各卡数据求和后再分发回每张卡的集合通信
+  say: A-R
   desc: 各卡数据求和后再分发回每张卡的集合通信
-- term: UTC
-  full: Coordinated Universal Time
-  desc: 协调世界时，文中时间都按它记
 - term: CP
   full: context parallelism
+  zh: 上下文并行
+  say: 逐字母 C-P
   desc: 上下文并行：沿序列维切分长序列
 - term: 1F1B
   full: one forward, one backward
+  zh: 流水线里前向、反向交替的调度方式
+  say: 1 F 1 B
   desc: 流水线里前向、反向交替的调度方式
 - term: HSDP
   full: Hybrid Sharded Data Parallel
+  zh: 机内分片、机间复制的 FSDP 变体
+  say: H-S-D-P
   desc: 机内分片、机间复制的 FSDP 变体
 - term: SPMD
   full: single program, multiple data
+  zh: 每个进程跑同一份程序、处理不同数据
+  say: S-P-M-D
   desc: 每个进程跑同一份程序、处理不同数据
-- term: AOTAutograd
-  full: ahead-of-time Autograd
-  desc: 编译前提前把前向、反向图都生成出来
 - term: ulp
   full: unit in the last place
+  zh: 浮点数最低位一格代表的数值间隔
+  say: "「ulp」"
   desc: 浮点数最低位一格代表的数值间隔
-- term: GC
-  full: garbage collection
-  desc: 垃圾回收：自动释放不再可达的对象
 - term: FFN
   full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
   desc: 前馈网络：Transformer block 里 attention 之后的子层
 - term: GELU
   full: Gaussian error linear unit
+  zh: 高斯误差线性单元
+  say: "/ˈdʒɛl.uː/「杰-路」"
   desc: 平滑的 ReLU 变体，GPT 时代的默认激活
 - term: MLP
   full: multi-layer perceptron
+  zh: 多层感知机
+  say: 逐字母 M-L-P
   desc: 多层感知机：线性层 + 非线性激活叠起来的网络
 - term: ReLU
   full: rectified linear unit
+  zh: 修正线性单元
+  say: "/ˈrɛl.juː/「瑞-路」"
   desc: max(0, x)，现代激活函数的起点
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把向量转一个角度
 - term: SwiGLU
   full: Swish-Gated Linear Unit
+  zh: Swish 门控线性单元
+  say: "/ˈswɪɡ.luː/「斯威-glue」"
   desc: 用 SiLU 做门控的 FFN：两路相乘再降维
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
-- term: MLA
-  full: multi-head latent attention
-  desc: 把 KV 压成低秩隐向量的 attention，DeepSeek 用它
-- term: MTP
-  full: multi-token prediction
-  desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
-- term: pp
-  full: percentage point
-  desc: 百分点
 - term: SDPA
   full: scaled dot-product attention
+  zh: PyTorch 的融合 attention 函数
+  say: S-D-P-A
   desc: PyTorch 的融合 attention 函数，自选 kernel
 - term: TE
   full: Tensor Expression
+  zh: TVM 的张量表达式与调度接口
+  say: T-E
   desc: TVM 的张量表达式与调度接口
-- term: JIT
-  full: just-in-time compilation
-  desc: 运行时即时编译
-- term: LL
-  full: linear layout
-  desc: 把所有 layout 统一成 GF(2) 线性映射的表示
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
-- term: WSD
-  full: warmup–stable–decay
-  desc: 预热—平稳—衰减三段式学习率调度，DeepSeek V3 用它
 - term: RSS
   full: resident set size
+  zh: 进程实际占用的物理内存
+  say: R-S-S
   desc: 进程实际占用的物理内存
 - term: TFLOPS
   full: tera floating point operations per second
+  zh: 每秒万亿次浮点运算
+  say: "「T-FLOPS」"
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
 - term: HBM3
   full: High Bandwidth Memory 3
+  zh: H100 用的第三代高带宽显存
+  say: H-B-M 3
   desc: H100 用的第三代高带宽显存
 - term: SXM
   full: Server PCI Express Module
+  zh: NVIDIA 板载模组形态
+  say: 逐字母 S-X-M
   desc: NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡
 - term: FLOP
   full: floating point operation
+  zh: 一次浮点运算
+  say: F-L-O-P
   desc: 一次浮点运算；文中算力账按 FLOP 记
 - term: TFLOP
   full: tera floating point operations
+  zh: 万亿次浮点运算
+  say: "「T-FLOP」"
   desc: 10^12 次浮点运算
 - term: RS
   full: rejection sampling
+  zh: 比值越界的样本直接丢掉
+  say: R-S
   desc: 拒绝采样：比值越界的样本直接丢掉
 - term: RNG
   full: random number generator
+  zh: 随机数生成器
+  say: R-N-G
   desc: 随机数生成器
-- term: SRAM
-  full: static random-access memory
-  desc: GPU 片上的小而快的存储
 - term: SP
   full: sequence parallelism
+  zh: 沿序列维切分激活
+  say: S-P
   desc: 序列并行：沿序列维切分激活
 - term: DCP
   full: distributed checkpoint
+  zh: PyTorch 的分布式 checkpoint …
+  say: D-C-P
   desc: PyTorch 的分布式 checkpoint 格式
 - term: SDC
   full: silent data corruption
+  zh: 硬件出错但不报错
+  say: S-D-C
   desc: 静默数据损坏：硬件出错但不报错
 - term: MTBF
   full: mean time between failures
+  zh: 平均无故障间隔时间
+  say: M-T-B-F
   desc: 平均无故障间隔时间
 - term: XID
   full: "—"
+  zh: NVIDIA GPU 的错误码
+  say: X-I-D
   desc: NVIDIA GPU 的错误码，dmesg 和 DCGM 会报
 - term: DCGM
   full: Data Center GPU Manager
+  zh: NVIDIA 的 GPU 监控套件
+  say: D-C-G-M
   desc: NVIDIA 的数据中心 GPU 监控套件
 - term: AC
   full: activation checkpointing
+  zh: 不存中间激活、反向时重算省显存
+  say: A-C
   desc: 激活重算：不存中间激活、反向时重算省显存
 - term: ECC
   full: error-correcting code
+  zh: 纠错码显存
+  say: E-C-C
   desc: 纠错码显存，HBM 自带
 - term: PFS
   full: parallel file system
+  zh: 并行文件系统
+  say: P-F-S
   desc: 并行文件系统，如 Lustre
 - term: FQN
   full: fully qualified name
+  zh: 参数在 state_dict 里的完整路径名
+  say: F-Q-N
   desc: 参数在 state_dict 里的完整路径名
