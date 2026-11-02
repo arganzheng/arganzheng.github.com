@@ -95,6 +95,22 @@ row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
 
 代一个真实尺寸：ResNet-50 第二阶段一个 $$3 \times 3$$、$$64 \to 64$$ 通道、$$56 \times 56$$ 特征图的卷积，参数 36,864；等价的全连接矩阵是 $$(56 \times 56 \times 64)^2 = 200704^2 \approx 4 \times 10^{10}$$ 个元素——160 GB 的 fp32。两条约束把参数压了六个量级，这是 CNN 在 2012–2016 年能训、MLP 不能的算术原因。
 
+再换一个最小的例子把整个展开过程摆在眼前：一个 $$4 \times 4$$ 输入、$$3 \times 3$$ 核（数字 1–9）、stride 1 无 padding，输出 $$2 \times 2$$：
+
+![左：4×4 输入、3×3 核与 2×2 输出，数字摆在格子里；右：卷积展开成的 4×16 稀疏矩阵，同色格是同一个权重，空白是 0——每行 9 个非零，各行是同一个 3×3 模式的平移；参数量 9 对等价全连接的 64](/img/in-post/cnn-conv-as-matrix.svg)
+
+右边的 $$4 \times 16$$ 矩阵每行只有 9 个非零（局部性），且这 36 个非零位置只取自同 9 个值（参数共享）——两条约束直接长在矩阵的形状里。逐位置乘加与矩阵乘的数值对照（差为 0）：
+
+```text title='4×4 输入、3×3 核的逐位置乘加与矩阵验证（case_08_cnn_toys.py conv-as-matrix）'
+输出(0,0): 1×1 + 2×2 + 3×3 + 4×5 + 5×6 + 6×7 + 7×9 + 8×10 + 9×11 = 348
+输出(0,1): 1×2 + 2×3 + 3×4 + 4×6 + 5×7 + 6×8 + 7×10 + 8×11 + 9×12 = 393
+输出(1,0): 1×5 + 2×6 + 3×7 + 4×9 + 5×10 + 6×11 + 7×13 + 8×14 + 9×15 = 528
+输出(1,1): 1×6 + 2×7 + 3×8 + 4×10 + 5×11 + 6×12 + 7×14 + 8×15 + 9×16 = 573
+max|conv - M@x| = 0.0e+00
+矩阵形状 (4, 16)，元素 64，非零 36，不同自由参数 9
+等价全连接参数量 4×16=64，卷积只要 9
+```
+
 ### 3. 约束就是先验
 
 《[深度学习基础（07）：正则化与泛化——为什么参数比样本多却不过拟合](/regularization-and-generalization.html)》的「显式正则化」把它说成"把模型拉向某种简单解的先验"。卷积的两条约束是最强的一种：不是拉向、而是**只允许**满足局部性与平移等变性的解。在图像上这个先验几乎总是对的（一只猫在左上角和右下角是同一只猫），所以数据不多时 CNN 远胜 MLP。但它也是一个上限——长距离的关系（图像两端的两个物体）要靠堆很多层才能看到（第三章），而数据足够多时模型本可以自己学出比"局部 + 平移"更好的先验（第六章）。
@@ -115,6 +131,20 @@ row 0 of M (reshaped 6x6):          ← 输出位置 (0,0) 对输入的权重
 输入               ·  ·  ·  ●  ●  ●  ●  ●  ●  ●  ·  ·  ·        看到 7 个（RF = 7 = 1 + 2 × 3）
 ```
 5 层是 11，10 层是 21，20 层是 41——要让一个输出看到整张 $$224 \times 224$$ 的图，stride 1 需要 112 层。这就是"深"的最初动机：**感受野随深度线性增长，而任务需要全局信息**。
+
+把上面那张 ASCII 换成格子再画一遍，逐层扩张的形状一眼可见：
+
+![感受野逐层扩大：第 3 层的一个输出位置，第 2 层看 3 个格子，第 1 层看 5 个，输入看 7 个——r_l = r_{l−1} + (k−1)·∏stride](/img/in-post/cnn-receptive-field.svg)
+
+更一般的公式是 $$r_l = r_{l-1} + (k_l - 1)\prod_{i<l} s_i$$：第 $$l$$ 层核宽减一、再乘之前所有层的 stride 积。插一层 stride 2 之后，每层加宽的感受野在输入上翻倍。下面用梯度法验证——对一个输出中心像素反向传播，看输入上有多少位置拿到非零梯度，和公式算出来的完全一致：
+
+```text title='公式与梯度法实测的感受野（case_08_cnn_toys.py receptive-field）'
+  3×3 stride1 ×1 层：公式 RF=3，梯度实测=3（一致=True）
+  3×3 stride1 ×2 层：公式 RF=5，梯度实测=5（一致=True）
+  3×3 stride1 ×3 层：公式 RF=7，梯度实测=7（一致=True）
+  3×3 s1 + 3×3 s2 + 3×3 s1：公式 RF=9（1+2+4+4），梯度实测=9（一致=True）
+  stride1 要看到 224：1+2L≥224 → L=112 层
+```
 
 ### 2. Stride 与池化
 
@@ -394,7 +424,7 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
 - 卷积退到了 patch embedding、语音前端、U-Net 与 ConvNeXt；懂到"带约束的线性层 + 会算账 + 认得出 patch embedding"即可。
 - 下一篇先看[《深度学习基础（09）：Embedding 与表示学习——从查表到句向量》](/embedding-and-representation-learning.html)，再看循环网络怎样处理序列、为什么记不住远处，以及 attention 如何从它的瓶颈里被发明出来。
 
-配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟；第七章的 LeNet-5 复现是 [`case_05_lenet5.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_lenet5.py)（MPS / CPU 均可，10 秒到 1 分钟）；原论文结构图由 `tools/paper_figures.py` 从 PDF 裁出。
+配套代码：[`deep-learning-foundations/05_cnn.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/05_cnn.py)——`matrix` / `resnet` / `patch` / `deep` 四个子实验，`deep`（L=20 / 56 的 plain 与 residual）在 CPU 上约 10 分钟；第七章的 LeNet-5 复现是 [`case_05_lenet5.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_lenet5.py)（MPS / CPU 均可，10 秒到 1 分钟）；第二、三章的展开矩阵与感受野验证是 [`case_08_cnn_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_08_cnn_toys.py)（`conv-as-matrix` / `receptive-field`）；原论文结构图由 `tools/paper_figures.py` 从 PDF 裁出。
 
 ## 九、自测
 
@@ -435,6 +465,14 @@ L=56 residual: init grad norm block1 2.2e+00 vs block56 7.6e-01 (ratio 2.9)   | 
    <details markdown="1"><summary>答案</summary>
 
    不是——训练 loss 变差是优化失败（退化问题），过拟合是训练好、测试差。有 BN 的深 plain 网络梯度向输入方向爆炸：第 1 块的梯度范数是第 56 块的 2849 倍；残差把比值压到 3。
+
+   </details>
+
+6. stride 为 1 的 $$3 \times 3$$ 卷积堆 3 层，感受野多大？如果把第 2 层换成 stride 2 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$1 + 2 \times 3 = 7$$；换成 stride 2 后 $$r_3 = 1 + 2 + 4 + 4 = 9$$（第 2、3 层的增量在输入上乘 2）——实测见第三章的梯度法对照。
 
    </details>
 
