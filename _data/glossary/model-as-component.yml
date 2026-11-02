@@ -1,97 +1,31 @@
 ---
-- term: p50 / p95
-  full: 50th / 95th percentile
-  desc: 中位数 / 第 95 百分位，用来看长尾
 - term: MCP
   full: Model Context Protocol
+  zh: 模型客户端连接工具服务器的开放协议
+  say: M-C-P
   desc: 模型客户端连接工具服务器的开放协议
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
 - term: ZDR
   full: zero data retention
+  zh: 供应商不存请求与响应数据
+  say: Z-D-R
   desc: 零数据保留：供应商不存请求与响应数据
-- term: GSM8K
-  full: Grade School Math 8K
-  desc: 约 8.5K 道小学数学应用题的 benchmark
-- term: MMLU
-  full: Massive Multitask Language Understanding
-  desc: 57 个学科的多选题 benchmark
-- term: RLHF
-  full: reinforcement learning from human feedback
-  desc: 基于人类反馈的强化学习
-- term: TCP
-  full: Transmission Control Protocol
-  desc: 传输控制协议，经内核协议栈
-- term: MoE
-  full: mixture of experts
-  desc: 混合专家模型，每个 token 只激活少数专家
-- term: TTL
-  full: time to live
-  desc: 缓存条目的存活时间，过期就失效
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 先检索资料，再让模型据此回答
-- term: UTC
-  full: Coordinated Universal Time
-  desc: 协调世界时，文中时间都按它记
-- term: SLA
-  full: service level agreement
-  desc: 服务等级约定，这里指处理时限
-- term: MRR
-  full: mean reciprocal rank
-  desc: 第一个相关结果排名倒数的平均
-- term: SSE
-  full: Server-Sent Events
-  desc: HTTP 上服务端单向推送的流式协议
-- term: SLO
-  full: service level objective
-  desc: 服务等级目标，如可用率、延迟的承诺值
 - term: RPM / TPM
   full: requests per minute / tokens per minute
+  zh: 每分钟请求数 / 每分钟 token 数的限额
+  say: "「RPM / TPM」"
   desc: 每分钟请求数 / 每分钟 token 数的限额
-- term: SRE
-  full: site reliability engineering
-  desc: 负责线上可靠性的工程实践与岗位
-- term: RPM
-  full: requests per minute
-  desc: 每分钟请求数的限额
-- term: RSS
-  full: resident set size
-  desc: 进程实际占用的物理内存
-- term: MTEB
-  full: Massive Text Embedding Benchmark
-  desc: 文本 embedding 模型的综合榜单
-- term: FAQ
-  full: frequently asked questions
-  desc: 常见问题列表
-- term: QPS
-  full: queries per second
-  desc: 每秒查询数
-- term: SaaS
-  full: software as a service
-  desc: 软件即服务，这里指多租户的在线产品
-- term: HBM
-  full: high bandwidth memory
-  desc: GPU 上的高带宽显存
-- term: NeurIPS
-  full: Conference on Neural Information Processing Systems
-  desc: 机器学习顶级会议
 - term: TPOT
   full: time per output token
+  zh: 每输出 token 耗时
+  say: 逐字母 T-P-O-T
   desc: 每个输出 token 的耗时，decode 延迟指标
-- term: NIAH
-  full: needle in a haystack
-  desc: 大海捞针测试：在长上下文里藏一句看找不找得到
-- term: GPQA
-  full: Graduate-Level Google-Proof Q&A
-  desc: 研究生级别的防搜索问答 benchmark
-- term: BGE
-  full: BAAI General Embedding
-  desc: 智源的 embedding 模型系列
-- term: TLS
-  full: Transport Layer Security
-  desc: 传输层加密协议，HTTPS 用它
-- term: GA
-  full: general availability
-  desc: 正式发布、不再限量的版本状态
