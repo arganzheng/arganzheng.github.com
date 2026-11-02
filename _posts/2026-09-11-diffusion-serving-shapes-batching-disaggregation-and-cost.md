@@ -239,7 +239,7 @@ ControlNet 是一个与基座部分同构的网络（U-Net 时代是 encoder 的
 
 ### 3. IP-Adapter 与参考图
 
-参考图经一个图像编码器（CLIP / SigLIP（Sigmoid Loss for Language-Image Pre-training，CLIP 的 sigmoid 损失版））一次前向得到 embedding，注入 DiT 的 attention——多一个几百 M 参数的编码器、一次前向、几十毫秒；embedding 同样可以按参考图哈希缓存。
+参考图经一个图像编码器（CLIP / <span class="inline-tip" data-tip="Sigmoid Loss for Language-Image Pre-training，CLIP 的 sigmoid 损失版">SigLIP</span>）一次前向得到 embedding，注入 DiT 的 attention——多一个几百 M 参数的编码器、一次前向、几十毫秒；embedding 同样可以按参考图哈希缓存。
 
 ## 七、模型级联与路由
 
