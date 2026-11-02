@@ -1,60 +1,41 @@
-- term: "AdamW"
-  full: "Adam with decoupled weight decay"
-  desc: "带解耦权重衰减的 Adam 优化器，本篇训练循环默认用它"
-- term: "bf16"
-  full: "bfloat16"
-  desc: "16 位浮点，指数位与 fp32 一样多、尾数只有 7 位"
-- term: "DDP"
-  full: "Distributed Data Parallel"
-  desc: "数据并行：每卡一份完整模型，梯度做 all-reduce"
-- term: "FLOPs"
-  full: "floating-point operations"
-  desc: "浮点运算次数，算力的计量单位"
-- term: "fp16"
-  full: "16-bit floating point"
-  desc: "半精度浮点，混合精度训练里前向常用的格式"
-- term: "fp32"
-  full: "32-bit floating point"
-  desc: "单精度浮点，每个数 4 字节"
-- term: "FSDP"
-  full: "Fully Sharded Data Parallel"
-  desc: "把参数、梯度、优化器状态切到各卡的数据并行"
-- term: "GiB"
-  full: "gibibyte"
-  desc: "二进制 GB，1 GiB = 1024 MiB，显存账本里都用它"
-- term: "GIL"
-  full: "global interpreter lock"
-  desc: "全局解释器锁，同一时刻只有一个线程跑 Python 字节码"
-- term: "JDK"
-  full: "Java Development Kit"
-  desc: "Java 的开发工具包，含编译器与运行时"
-- term: "JSONL"
-  full: "JSON Lines"
-  desc: "每行一个 JSON 对象的文本格式，适合逐行流式读"
-- term: "LoRA"
-  full: "Low-Rank Adaptation"
-  desc: "冻结原权重、只训低秩矩阵的微调方法"
-- term: "LSH"
-  full: "locality-sensitive hashing"
-  desc: "局部敏感哈希，让相似的文本落进同一个桶"
-- term: "ndarray"
-  full: "N-dimensional array"
-  desc: "NumPy 的多维数组：一块内存加形状和 dtype"
-- term: "OOM"
-  full: "out of memory"
-  desc: "显存或内存不足导致的报错，账本就是为了不算它"
-- term: "pdb"
-  full: "Python debugger"
-  desc: "Python 自带的命令行调试器"
-- term: "PPL"
-  full: "perplexity"
-  desc: "困惑度，交叉熵的指数，越小越好"
-- term: "RMSNorm"
-  full: "Root Mean Square Layer Normalization"
-  desc: "只按均方根缩放、不减均值的归一化"
-- term: "RNN"
-  full: "recurrent neural network"
-  desc: "循环神经网络，按时间步逐个处理序列"
-- term: "SFT"
-  full: "supervised fine-tuning"
-  desc: "监督微调，用指令和回答对训练模型"
+---
+- term: AdamW
+  full: Adam with decoupled weight decay
+  zh: Adam 加解耦权重衰减
+  say: "「亚当-W」"
+  desc: 带解耦权重衰减的 Adam 优化器，本篇训练循环默认用它
+- term: DDP
+  full: Distributed Data Parallel
+  zh: 每卡一份完整模型
+  say: D-D-P
+  desc: 数据并行：每卡一份完整模型，梯度做 all-reduce
+- term: FLOPs
+  full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
+  desc: 浮点运算次数，算力的计量单位
+- term: FSDP
+  full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
+  desc: 把参数、梯度、优化器状态切到各卡的数据并行
+- term: LoRA
+  full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
+  desc: 冻结原权重、只训低秩矩阵的微调方法
+- term: PPL
+  full: perplexity
+  zh: 困惑度
+  say: P-P-L
+  desc: 困惑度，交叉熵的指数，越小越好
+- term: RMSNorm
+  full: Root Mean Square Layer Normalization
+  zh: 均方根归一化
+  say: "「RMS-Norm」"
+  desc: 只按均方根缩放、不减均值的归一化
+- term: SFT
+  full: supervised fine-tuning
+  zh: 监督微调
+  say: 逐字母 S-F-T
+  desc: 监督微调，用指令和回答对训练模型
