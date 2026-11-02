@@ -8,386 +8,509 @@ catalog: true
 updated: 2026-10-13
 ---
 
-`loss.backward()` 是训练代码里最短的一行，也是被理解得最少的一行。它做的事在 1986 年就已经写清楚了：沿着计算图反向应用链式法则。但只有自己推过一遍、写过一遍、用有限差分验证过一遍，才会真的知道三件后面每一篇都要用的事——**梯度的形状与被求导的量相同**、**反向的计算量是前向的两倍**、**前向的中间结果必须保留到反向**。第一件决定了怎么读任何一个梯度公式，第二件是训练 FLOPs 等于 $$6ND$$ 的来源，第三件是激活显存与激活重算的全部原因。
+`loss.backward()` 是训练代码里最短的一行。它沿计算图反向应用链式法则，一次得到 loss 对所有参数的梯度。理解它要抓住三件事：**梯度的形状与被求导的量相同**、**反向矩阵乘的计算量约为前向的两倍**、**前向中间结果要留到反向使用**。第一件帮助读梯度公式，第二件连接到训练 FLOPs 等于 $$6ND$$，第三件解释激活显存与重算。
 
-上一篇《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》给出了要优化的目标；这里转向它的梯度怎样计算。
+上一篇《[深度学习基础（02）：损失函数——怎样把「好」写成一个可求导的数](/loss-functions-from-mse-to-dpo.html)》给出了优化目标；本篇从梯度怎样计算开始。
 
-本篇用一个两层 MLP（Linear → ReLU → Linear → softmax → 交叉熵）把这三件事推到底。选它是因为它足够小——每一步的形状能写在一行里——又足够完整：Transformer 里除了 attention 之外的每个部件（Linear、激活函数、norm、loss）的反向都是同一套规则。全篇的核心问题是：
+本文用一个两层 MLP（Linear、ReLU、Linear、softmax、交叉熵）把这些规则推到底。它足够小，每一步形状都能写清楚；又足够完整，Transformer 里的 Linear、激活函数、norm 和 loss 反向都遵循同样的链式法则。
 
-> **不用框架，能不能手推并手写一个两层网络的反向传播，用有限差分验证到 $$10^{-6}$$ 以内？[^q0] 能不能由此说出为什么训练 FLOPs 是 $$6ND$$、为什么激活要存？[^q1]**
+> **不用框架，能不能手推并手写两层网络的反向传播，再用有限差分检查？能不能由此解释训练 FLOPs 为什么约为 $$6ND$$、激活为什么要存？**[^q0][^q1]
 
-## 一、总览：从链式法则到三条结论
+## 一、总览：前向算 loss，反向算梯度
 
-### 1. 本文的对象：一个两层 MLP
+### 1. 反向传播在做什么
 
-**MLP**（多层感知机，multi-layer perceptron）是最基础的前馈神经网络，四个特征把它定义清楚：
+先看计算方向。输入 $$X$$ 经过两层网络得到 loss；反向从 loss 开始，把梯度沿计算图送回参数。
 
-1. **层级结构**：一个输入层（习惯上不计入层数）、一个或多个隐藏层、一个输出层。"两层 MLP"指两个带参数的层——一个隐藏层加一个输出层。
-2. **全连接**（fully connected）：每一层的每个神经元与上一层的所有神经元相连，所以又叫 FC 层、Dense 层；数学上一层就是一次矩阵乘加偏置 $$xW + b$$。
-3. **非线性激活**：隐藏层的输出要过一个非线性函数（ReLU、sigmoid、tanh）。没有它，两个线性层叠起来 $$(xW_1)W_2 = x(W_1 W_2)$$ 仍是一个线性层，再深也只能拟合线性函数。
-4. **单向传播**：信号从输入逐层向前到输出，内部没有循环（第十篇的 RNN 有）。
+![反向传播总览：前向从输入依次经过 Linear、ReLU 和 Linear 得到 loss，反向从 loss 把参数梯度传回两层权重](/img/in-post/backprop-overview.svg)
 
-本文的 MLP 把 784 维输入（一张 28×28 的手写数字图拉直）分成 10 类：隐藏层 256 个神经元、激活 ReLU，输出层 10 个神经元、过 softmax 变成 10 个类别的概率：
+**前向算 loss，反向一次得到 loss 对所有参数的导数。**图中的 $$dW_1$$ 和 $$dW_2$$ 是两组参数的梯度；稍后会看到它们分别来自前向保存的输入与激活值。
 
-![本文的两层 MLP。左列 784 个输入，中列 256 个隐藏神经元（Linear + ReLU），右列 10 个输出（Linear + softmax）；两组全连接的边分别对应 W₁ [784, 256] 与 W₂ [256, 10]，参数总数 = 边数 + 偏置数 = 203,530](/img/in-post/backprop-two-layer-mlp.svg)
+本文的对象是一个两层 MLP（多层感知机，multi-layer perceptron）：输入层、隐藏层和输出层按层级连接；每层是全连接的矩阵乘加 $$xW+b$$；隐藏层加非线性激活 ReLU；信息从输入单向传到输出，没有循环。没有非线性时，多个 Linear 仍可合并成一个 Linear。
 
-按 batch 一次算 $$m$$ 个样本，每一步的形状是：
+![本文的两层 MLP。左列 784 个输入，中列 256 个隐藏神经元，右列 10 个输出；两组全连接边对应 W1 和 W2，参数总数为 203,530](/img/in-post/backprop-two-layer-mlp.svg)
+
+按 batch 一次算 $$m$$ 个样本：
 
 | 步 | 计算 | 输出形状 |
 |---|---|---|
-| 输入 | $$X$$ | $$[m, 784]$$ |
-| 第一层 Linear | $$H = XW_1 + b_1$$ | $$[m, 256]$$ |
-| 激活 | $$A = \text{ReLU}(H)$$ | $$[m, 256]$$ |
-| 第二层 Linear | $$Z = AW_2 + b_2$$ | $$[m, 10]$$ |
-| loss | $$L = \text{CE}(\text{softmax}(Z), Y)$$ | 标量 |
+| 输入 | $$X$$ | $$[m,784]$$ |
+| 第一层 Linear | $$H=XW_1+b_1$$ | $$[m,256]$$ |
+| 激活 | $$A=\text{ReLU}(H)$$ | $$[m,256]$$ |
+| 第二层 Linear | $$Z=AW_2+b_2$$ | $$[m,10]$$ |
+| loss | $$L=\text{CE}(\text{softmax}(Z),Y)$$ | 标量 |
 
-Table: 两层 MLP 前向每一步的形状
+参数量为 $$784\times256+256+256\times10+10=203{,}530$$。图 1 的每条边对应一个权重，每个隐藏或输出神经元对应一个偏置。
 
-参数是 $$W_1 \in \mathbb{R}^{784 \times 256}, b_1 \in \mathbb{R}^{256}, W_2 \in \mathbb{R}^{256 \times 10}, b_2 \in \mathbb{R}^{10}$$。个数就是这四个数组的元素数之和——图 1 里每条边一个权重、每个隐藏 / 输出神经元一个偏置：
-
-$$
-784 \times 256 + 256 + 256 \times 10 + 10 = 200{,}704 + 256 + 2{,}560 + 10 = 203{,}530
-$$
-
-全文要做的是：给出 $$L$$ 对这四个参数的梯度、说出每一步的计算量与需要保存的量、用数值方法验证公式没错、在 MNIST 上训到 97%。
-
-### 2. 本文的章节安排
+### 2. 章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 链式法则与计算图 | 标量对向量与矩阵的导数、Jacobian、为什么反向传播只算 VJP 从不构造 Jacobian |
-| 三 | 矩阵求导的形状规则 | Y = XW + b 的三条梯度公式与它们的推导<br/>ReLU 的反向 |
-| 四 | 两层网络逐层推导 | 从 loss 到 `W_1` 的每一步，每一步的形状 |
-| 五 | 反向为什么是前向的两倍 | 每个 Linear 反向做两个 GEMM<br/>6ND 的推导<br/>激活重算的 8ND |
-| 六 | 激活为什么要存 | dW 需要 X<br/>激活显存与 batch、序列长度成正比<br/>checkpointing 换掉它 |
-| 七 | 梯度检查 | 有限差分、相对误差、为什么要 float64<br/>两个训练前的 sanity check |
-| 八 | Autograd 做了什么 | 录带、每个算子的 backward、saved tensors、.grad 累加 |
-| 九 | 案例：MNIST 手写数字，NumPy 从零 | 120 行 NumPy 训一个 97.6% 的分类器：梯度检查 1e-7、FLOPs 比 2.00、与 PyTorch 对齐、训练曲线与错分样本 |
-| 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
-
-Table: 本文的章节安排
+| 二 | 标量例子 | 计算图、局部导数、分叉与有限差分 |
+| 三 | 梯度形状 | 标量、向量、矩阵的梯度；Jacobian 与 VJP |
+| 四 | 三类算子 | Linear、ReLU、softmax 与交叉熵的反向 |
+| 五 | 两层网络 | 迷你网络逐层计算；回到 784-256-10 |
+| 六 | 反向计算量 | Linear 的三次矩阵乘、训练 FLOPs 与 $$6ND$$ |
+| 七 | 激活保存 | PyTorch 实际保存清单与 checkpoint 重算 |
+| 八 | 梯度检查 | 有限差分与精度选择 |
+| 九 | Autograd | 动态图、backward、saved tensors 与梯度累加 |
+| 十 | MNIST 案例 | NumPy 从零训练两层 MLP |
+| 十一 | 小结 | 关键规则回顾 |
+| 十二 | 自测 | 7 道题与答案 |
 
 ### 3. 来龙去脉：一个算法，被发明了三次
 
-| 年 | 谁 | 当时的问题 | 怎么解决 | 效果 | 引入或遗留问题 |
-|---|---|---|---|---|---|
-| 1970 | Linnainmaa（赫尔辛基，硕士论文） | 一个复合函数的数值计算里，舍入误差怎么一步步累积 | **反向模式自动微分**：从输出往回、逐节点乘局部导数——就是反向传播的数学 | 给出了反向传播的完整数学形式 | 当时没人把它和神经网络连起来 |
-| 1974 / 1982 | Werbos（哈佛博士论文） | 怎么训练多层网络（当时只会训单层感知机） | 明确提出用反向模式算多层网络的梯度 | 论文几乎没人读，方法没传开 | 多层网络的训练问题在公共视野里仍待解决 |
-| 1986 | Rumelhart、Hinton、Williams，《Nature》 | 多层网络如何训练<br/>感知机的表达边界见《[深度学习基础（01）：深度模型演进史——从感知机到 Transformer](/evolution-of-deep-models-from-perceptron-to-transformer.html)》「XOR 与第一次寒冬」 | 给这个方法起名**反向传播**，并用一个多层网络学到内部表示的实验说服了整个领域（第二、四章的推导就是他们的公式） | 反向传播成为唯一的训练方式，至今没有替代者 | 每个新网络仍要手推一遍梯度 |
-| 1989 | LeCun 等（贝尔实验室） | 手写邮政编码识别 | 第一次用反向传播训卷积网络做真实任务（第八篇） | 手写邮政编码识别能上线——本篇第九章的 MNIST 是它的直系后代 | 只验证了小网络与小任务<br/>手推梯度的问题还在 |
-| 2007–2017 | Theano、Torch、TensorFlow、PyTorch autograd | 每个新网络都要手推一遍梯度、还老推错 | **自动微分框架**：写前向，反向自动生成（第八章） | 手推梯度从必修变成了"理解框架在做什么" | 框架把反向的内存账藏起来了——激活要存的量随网络变大 |
-| 2022 | FlashAttention | 反向要存的激活太大 | 激活重算（第六章） | 成为长序列训练的标配 | 反向传播的内存账在 40 年后仍是主要矛盾 |
+| 年 | 谁 | 当时的问题 | 怎么解决 | 效果与遗留问题 |
+|---|---|---|---|---|
+| 1970 | Linnainmaa（赫尔辛基，硕士论文） | 复合函数的数值计算中，舍入误差怎样累积 | 反向模式自动微分：从输出往回逐节点乘局部导数 | 给出了完整数学形式；当时没人把它和神经网络连起来 |
+| 1974 / 1982 | Werbos（哈佛博士论文） | 怎样训练多层网络 | 提出用反向模式计算多层网络梯度 | 论文几乎没人读，方法没传开 |
+| 1986 | Rumelhart、Hinton、Williams，《Nature》 | 多层网络怎样训练 | 命名反向传播，并用多层网络学到内部表示的实验说服领域 | 成为主流训练方法；每种新网络仍需实现对应梯度 |
+| 1989 | LeCun 等（贝尔实验室） | 手写邮政编码识别 | 用反向传播训练卷积网络 | 小网络进入真实任务；本篇 MNIST 是其后续案例 |
+| 2007–2017 | Theano、Torch、TensorFlow、PyTorch autograd | 新网络要手推梯度，容易推错 | 自动微分框架记录前向，再自动执行反向 | 手推从必需变成理解框架；内存账也被框架隐藏 |
+| 2022 | FlashAttention | 反向要保存的激活太大 | 不存 attention 矩阵，反向分块重算 | 激活内存仍是长序列训练的重要约束 |
 
-Table: 反向传播的来历
+三次发明说明，反向传播是复合函数求导的通用高效算法，不是神经网络专属。理解它的实际价值，是能算清反向矩阵乘的计算量，以及前向中间结果的内存成本。
 
-三次发明说明一件事：**反向传播不是神经网络专属的，它是"复合函数求导"的通用高效算法**——任何能写成计算图的东西都能用。1986 年之前没人用它训网络，不是数学没有，而是没人相信多层网络能学到东西；1986 年之后它成了唯一的训练方式，至今没有替代者（所有"不用反向传播"的尝试——目标传播、前向-前向——都没有在大模型上站住）。今天手推它的意义，不是为了自己写框架，而是第五、六章那两笔账：**反向为什么是前向的两倍算量、激活为什么要占那么多显存**——这两笔账决定了大模型训练的成本结构，而框架把它们藏起来了。
+## 二、从一个标量例子开始
 
-## 二、链式法则与计算图
+### 1. 计算图：局部导数怎样相乘
 
-### 1. 三种导数的形状
+取一个神经元：$$z=wx+b$$，误差 $$e=z-y$$，损失 $$L=e^2$$。代入 $$x=2,w=3,b=-1,y=4$$，前向得到 $$z=5,e=1,L=1$$。图上绿色是前向值，橙色是反向梯度：
 
-深度学习里只出现三种求导，各自的结果形状要先记住：
+![标量例子计算图：x 为 2，z 为 5，e 为 1，L 为 1；节点下方标出反向梯度，边上标出局部导数](/img/in-post/backprop-scalar-graph.svg)
 
-| 被求导的函数 | 对什么求导 | 结果 | 形状 |
+从末端开始，$$\partial L/\partial e=2e=2$$；向前一条边，$$\partial L/\partial z=2$$；再乘局部导数，得到 $$\partial L/\partial w=2x=4$$、$$\partial L/\partial b=2$$、$$\partial L/\partial x=2w=6$$。
+
+中心差分不必依赖反向公式：把 $$w$$ 增加 $$0.001$$，脚本实测 $$L=1.004004$$，差分得到 $$dL/dw\approx4.004$$，接近解析值 4。脚本输出：
+
+```text
+标量神经元：z=w*x+b, e=z-y, L=e^2
+x=2, w=3, b=-1, y=4 -> z=5, e=1, L=1
+dL/de=2, dL/dz=2, dL/dw=4, dL/db=2, dL/dx=6
+前向有限差分 eps=0.001: w+eps=3.001, L(w+eps)=1.004004, dL/dw≈4.004000
+```
+
+<details markdown="1"><summary>推导</summary>
+
+链式法则逐节点相乘：
+
+$$
+\frac{\partial L}{\partial e}=2e=2,\quad
+\frac{\partial L}{\partial z}=\frac{\partial L}{\partial e}\frac{\partial e}{\partial z}=2,\quad
+\frac{\partial L}{\partial w}=\frac{\partial L}{\partial z}\frac{\partial z}{\partial w}=2x=4.
+$$
+
+同理，$$\partial L/\partial b=2$$、$$\partial L/\partial x=2w=6$$。
+
+</details>
+
+### 2. 每个节点只做一件事
+
+反向经过一个节点时，只需把上游梯度乘以这个节点的局部导数。加法门把梯度原样分发；乘法门把梯度乘上另一个输入；max 或 ReLU 门只把梯度送给被选中的一路。
+
+![局部反向规则：上游梯度乘局部导数，分别展示加法、乘法和 max 门的数值例子](/img/in-post/backprop-local-vjp.svg)
+
+例如乘法 $$q=uv$$，若 $$u=2,v=3$$，那么从 $$q$$ 传给 $$u$$ 的局部导数是 $$v=3$$，传给 $$v$$ 的局部导数是 $$u=2$$。反向规则由算子本身决定，不需要重看整张网络。
+
+### 3. 一个量被用了两次，梯度相加
+
+设 $$f=xy+x$$，取 $$x=2,y=3$$。一条路径通过乘法贡献 3，另一条直接通向输出贡献 1；两条路径回到同一个 $$x$$ 时相加，得到 $$df/dx=4$$。
+
+![分叉计算图：x 经乘法和直接加法两条路径影响 f，两路梯度 3 和 1 在 x 汇合为 4](/img/in-post/backprop-fanout.svg)
+
+这也解释两个常见现象：一个 batch 中每个样本都使用同一组 $$W$$，所以 $$dW$$ 是样本贡献之和；PyTorch 的 `.grad` 默认按调用累加。toy 实际输出：
+
+```text
+f=x*y+x; x=2, y=3
+f=8; 路径 x*y 的梯度贡献 y=3; 路径 x 的贡献 1; 汇合后 df/dx=4
+若 batch 中每个样本都使用 W，则 dW 是各样本贡献之和；PyTorch .grad 也按调用累加。
+```
+
+### 4. 为什么不逐个参数求导
+
+这个网络有 203,530 个参数。有限差分逐个参数做中心差分，要对每个参数各做正负两次前向，总计 407,060 次前向。反向一次的计算量约等于两次前向，却能同时得到所有参数的梯度。
+
+## 三、从标量到矩阵：梯度长什么样
+
+### 1. 梯度和被求导的量同形
+
+| 被求导的函数 | 对什么求导 | 结果 | 形状与例子 |
 |---|---|---|---|
-| 标量 $$L$$ | 向量 $$x \in \mathbb{R}^n$$ | 梯度 $$\nabla_x L$$ | $$\mathbb{R}^n$$，与 $$x$$ 相同 |
-| 标量 $$L$$ | 矩阵 $$W \in \mathbb{R}^{k \times n}$$ | 梯度 $$\partial L / \partial W$$ | $$\mathbb{R}^{k \times n}$$，与 $$W$$ 相同 |
-| 向量 $$y \in \mathbb{R}^n$$ | 向量 $$x \in \mathbb{R}^k$$ | Jacobian $$J = \partial y / \partial x$$ | $$\mathbb{R}^{n \times k}$$，$$J_{ij} = \partial y_i / \partial x_j$$ |
+| 标量 $$L$$ | 向量 $$x$$ | 梯度 $$\nabla_x L$$ | 与 $$x$$ 同形；例：$$x=(1,2,3)$$ 得 $$\nabla_xL=(2,4,6)$$ |
+| 标量 $$L$$ | 矩阵 $$W$$ | 梯度 $$\partial L/\partial W$$ | 与 $$W$$ 同形；$$W$$ 为 2×2，结果也是 2×2 |
+| 向量 $$y$$ | 向量 $$x$$ | Jacobian $$J=\partial y/\partial x$$ | 若 $$y$$ 2 维、$$x$$ 3 维，则 $$J$$ 为 2×3 |
 
-Table: 三种导数的形状
+![梯度形状三个例子：标量对向量、标量对矩阵、向量对向量，展示梯度和被求导量的形状关系](/img/in-post/backprop-gradient-shapes.svg)
 
-前两种是训练最终要的东西——loss 对每个参数的梯度，形状与参数一样，所以可以直接 `W -= lr * dW`。第三种是中间量：每一层把输入变成输出，层的局部导数是一个 Jacobian。
+第二行容易误解：$$L$$ 虽是一个数，但 $$W$$ 有四个元素，每个元素各有一个导数，所以结果是与 $$W$$ 同形的矩阵，而不是向量。更新 $$W\leftarrow W-\eta dW$$ 时，每个梯度元素都要和对应参数一一相乘。
 
-### 2. 链式法则的向量形式
+### 2. Jacobian 与向量链式法则
 
-复合函数 $$L = \ell(y), \; y = f(x)$$，$$L$$ 对 $$x$$ 的梯度是
+取 $$x=(-1,2,0.5)$$，令 $$y=\text{ReLU}(x)$$。Jacobian 是 $$J=\operatorname{diag}(0,1,1)$$。若上游梯度 $$g_y=(0.3,-0.2,0.5)$$，则 $$g_x=J^Tg_y=(0,-0.2,0.5)$$。
 
-$$
-\nabla_x L = J^T \, \nabla_y L, \qquad J = \frac{\partial y}{\partial x} \in \mathbb{R}^{n \times k}
-$$
+![ReLU 的 3×3 对角 Jacobian 与上游梯度相乘，得到下游梯度；等价于逐元素乘 0、1 掩码](/img/in-post/backprop-relu-jacobian.svg)
 
-也就是"上游传来的梯度，左乘本层 Jacobian 的转置"。把网络看成一串函数 $$x_0 \to x_1 \to \dots \to x_l \to L$$，从 $$L$$ 出发反向逐层套用这一行，就是反向传播的全部：
+实际计算只需将上游梯度逐元素乘以 0/1 掩码，不必创建矩阵。对单样本 Linear $$y=xW$$，Jacobian 为 $$W^T$$，因此 VJP $$J^Tg=Wg$$，就是沿原来的连接把梯度送回去。
 
-$$
-\nabla_{x_{i}} L = J_i^T \, \nabla_{x_{i+1}} L, \qquad J_i = \frac{\partial x_{i+1}}{\partial x_i}
-$$
+```text
+x=(-1, 2, 0.5); y=ReLU(x)
+J=diag(0,1,1)
+g_y=(0.3, -0.2, 0.5); g_x=J^T*g_y=(0.0, -0.2, 0.5)
+等价计算：g_x = g_y 逐元素乘 (0,1,1)
+```
 
-每一层只需要知道两件事：自己的 Jacobian 是什么、上游传来的梯度是什么。它不需要知道网络其他部分长什么样——这就是为什么框架可以把任意算子拼起来自动求导。
+### 3. 为什么不构造完整 Jacobian
 
-### 3. 为什么从不构造 Jacobian
+batch 中每个样本的 Linear 输出只依赖自己的输入，所以完整 Jacobian 是分块对角矩阵：对角线上是相同的 $$W^T$$，不同样本之间的块为零。乘这个大矩阵与直接算批量 VJP $$GW^T$$ 等价。
 
-上面的公式里 Jacobian 只以"乘一个向量"的形式出现：$$J^T v$$，叫 **vector-Jacobian product（VJP）**。反向传播每一步算的是 VJP，从不把 $$J$$ 本身写出来。原因是尺寸：本文第一层 Linear 在 batch 128 下，输入 $$X \in \mathbb{R}^{128 \times 784}$$、输出 $$H \in \mathbb{R}^{128 \times 256}$$，把它们拉直后 Jacobian 是 $$(128 \times 256) \times (128 \times 784) = 32768 \times 100352$$，约 $$3.3 \times 10^9$$ 个元素，fp32 下 **13 GB**——一个 20 万参数的小网络的一层。而 VJP $$J^T v$$ 的结果只有 $$X$$ 那么大（100352 个数，392 KiB），并且对 Linear 这类结构化的层，它可以直接写成一个矩阵乘法，下一章推。
+![batch Linear 的 6×6 Jacobian 按样本分块对角；右侧对比本文第一层 batch 128 的 Jacobian、输入梯度和 W1 字节数](/img/in-post/backprop-no-full-jacobian.svg)
 
-所以"反向传播"这个词精确的含义是：**按计算图的反向拓扑序，对每个算子算一次 VJP**。每个算子的 VJP 有自己的闭式公式，框架里每个 `Function` 的 `backward` 就是那条公式。
+玩具脚本用 `torch.autograd.functional.jacobian` 实际计算 $$m=3,k=2,n=2$$ 的 Jacobian。它是 6×6，三个对角块都为 $$W^T$$，非对角样本块全为 0。本文第一层 batch 128 的完整 Jacobian 有约 $$3.3\times10^9$$ 个 fp32 元素，占 13 GB；所需的输入梯度只有 392 KiB，$$W_1$$ 是 784 KiB。反向只计算 VJP，不把这张大矩阵显式造出来。
 
-## 三、矩阵求导的形状规则
+```text
+Linear batch: m=3, k=2, n=2; W=[[1.0, 2.0], [-1.0, 0.5]]
+对 batch 输入求导得到的 Jacobian（输出展平 × 输入展平）:
+[[ 1.  -1.   0.   0.   0.   0. ]
+ [ 2.   0.5  0.   0.   0.   0. ]
+ [ 0.   0.   1.  -1.   0.   0. ]
+ [ 0.   0.   2.   0.5  0.   0. ]
+ [ 0.   0.   0.   0.   1.  -1. ]
+ [ 0.   0.   0.   0.   2.   0.5]]
+shape=(6, 6)；非对角样本块全为 0；每个对角块都是 W^T。
+对单样本 y=xW，J=W^T；VJP J^T*g = W*g。
+用于 F6 尺寸演示：m*n=6, m*k=6, Jacobian 元素=36。
+```
 
-### 1. Linear 层的三条公式
+## 四、三类算子的反向公式
 
-$$Y = XW + b$$，$$X \in \mathbb{R}^{m \times k}$$（$$m$$ 个样本、每个 $$k$$ 维），$$W \in \mathbb{R}^{k \times n}$$，$$b \in \mathbb{R}^n$$ 广播到每一行，$$Y \in \mathbb{R}^{m \times n}$$。记上游梯度 $$G = \partial L / \partial Y \in \mathbb{R}^{m \times n}$$。三条公式：
+### 1. Linear：对 batch 中的样本求和
 
-$$
-\frac{\partial L}{\partial W} = X^T G \in \mathbb{R}^{k \times n}, \qquad
-\frac{\partial L}{\partial X} = G\, W^T \in \mathbb{R}^{m \times k}, \qquad
-\frac{\partial L}{\partial b} = \sum_{i=1}^{m} G_{i,:} \in \mathbb{R}^{n}
-$$
+令 $$Y=XW+b$$，输入 $$X$$ 形状为 $$m\times k$$，权重 $$W$$ 为 $$k\times n$$，上游梯度 $$G=\partial L/\partial Y$$ 为 $$m\times n$$。以 $$m=2,k=3,n=2$$ 的真实数值为例：
 
-**推导。** 按元素写：$$Y_{ij} = \sum_r X_{ir} W_{rj} + b_j$$。$$L$$ 对 $$W_{rj}$$ 的导数，按链式法则对所有依赖 $$W_{rj}$$ 的 $$Y_{ij}$$ 求和：
+```text
+X=
+[[ 1.   2.  -1. ]
+ [ 0.5 -1.   2. ]]
+W=
+[[ 1.   -0.5 ]
+ [ 0.25  2.  ]
+ [-1.    0.75]]
+G=
+[[ 0.2 -0.3]
+ [ 1.   0.5]]
+dW=X^T G=
+[[ 0.7  -0.05]
+ [-0.6  -1.1 ]
+ [ 1.8   1.3 ]]
+dX=G W^T=
+[[ 0.35  -0.55  -0.425]
+ [ 0.75   1.25  -0.625]]
+db=sum_rows(G)=[1.2 0.2]
+逐样本外积之和误差=0.0e+00
+```
 
-$$
-\frac{\partial L}{\partial W_{rj}} = \sum_i \frac{\partial L}{\partial Y_{ij}} \frac{\partial Y_{ij}}{\partial W_{rj}} = \sum_i G_{ij} X_{ir} = (X^T G)_{rj}
-$$
+![Linear 权重梯度由两个样本的外积相加得到 dW=X^T G](/img/in-post/backprop-linear-outer-products.svg)
 
-对 $$X_{ir}$$ 同理：$$\partial L / \partial X_{ir} = \sum_j G_{ij} W_{rj} = (G W^T)_{ir}$$。对 $$b_j$$：每一行都加了 $$b_j$$，所以 $$\partial L / \partial b_j = \sum_i G_{ij}$$。
+三条公式是 $$dW=X^TG$$、$$dX=GW^T$$、$$db=\sum_iG_{i,:}$$。每个样本贡献一个外积，沿 batch 维求和正是分叉梯度汇合的矩阵版本。
 
-**循环写法。** 转置是从哪来的，把 $$\sum$$ 写成循环最清楚。前向里 `W[r][j]` 被 batch 里每个样本 `i` 用了一次；反向就把这 $$m$$ 次的影响加起来：
+<details markdown="1"><summary>推导与循环写法</summary>
 
-```python title='Linear 反向的循环写法：转置从"对 i 求和"来'
-for i in range(m):                        # 前向
+按元素写 $$Y_{ij}=\sum_rX_{ir}W_{rj}+b_j$$。于是 $$\partial L/\partial W_{rj}=\sum_iG_{ij}X_{ir}=(X^TG)_{rj}$$。对输入和偏置同理得到 $$dX=GW^T$$、$$db_j=\sum_iG_{ij}$$。
+
+```python
+for r in range(k):
     for j in range(n):
-        for r in range(k):
-            Y[i][j] += X[i][r] * W[r][j]
-
-for r in range(k):                        # 反向：dW 与 W 同形，逐个元素问"谁用过我"
-    for j in range(n):
-        for i in range(m):                # 对 i 求和
-            dW[r][j] += X[i][r] * G[i][j]  # X 的第 r 列 · G 的第 j 列
-
-for j in range(n):                        # b_j 加在每一行上，同样对 i 求和
+        for i in range(m):
+            dW[r][j] += X[i][r] * G[i][j]
+for j in range(n):
     for i in range(m):
         db[j] += G[i][j]
 ```
 
-`dW[r][j]` 用的是 `X` 的**第 r 列**——按列取就是转置，所以是 $$X^T G$$；`db[j]` 只对 $$i$$ 求和，所以是按列求和。三条公式就是这三个循环。
+对 batch 维 $$i$$ 求和，正是矩阵乘里转置出现的原因。形状检查也能重建公式：$$dW$$ 必须为 $$k\times n$$，所以由 $$X^T$$ 与 $$G$$ 相乘；$$dX$$ 必须为 $$m\times k$$，所以由 $$G$$ 与 $$W^T$$ 相乘。
 
-**形状记忆法。** 三条公式不必背，用形状就能重建：$$\partial L / \partial W$$ 必须是 $$k \times n$$，手头有 $$X$$（$$m \times k$$）和 $$G$$（$$m \times n$$），唯一能凑出 $$k \times n$$ 的乘法是 $$X^T G$$；$$\partial L / \partial X$$ 必须是 $$m \times k$$，手头有 $$G$$（$$m \times n$$）和 $$W$$（$$k \times n$$），唯一的凑法是 $$G W^T$$。**梯度的形状与被求导的量相同**这一条约束，加上"只能用手头的量做矩阵乘"，几乎总能唯一确定公式。读论文里任何一个梯度表达式时先做这个形状检查，能抓住大部分笔误。
+</details>
 
-### 2. 逐元素算子：ReLU
+### 2. ReLU：乘以逐元素掩码
 
-$$A = \text{ReLU}(H) = \max(H, 0)$$，逐元素。它的 Jacobian 是对角阵，对角线上是 $$\mathbb{1}[H > 0]$$；VJP 就是逐元素乘一个 0/1 掩码：
+$$A=\text{ReLU}(H)=\max(H,0)$$。对正数的导数为 1，对负数为 0；在零点采用框架约定。反向只需把上游梯度乘以对应掩码：
 
 $$
-\frac{\partial L}{\partial H} = \frac{\partial L}{\partial A} \odot \mathbb{1}[H > 0]
+\frac{\partial L}{\partial H}=\frac{\partial L}{\partial A}\odot\mathbb{1}[H>0]
 $$
 
-所有逐元素激活函数（GELU、SiLU、sigmoid、tanh）的反向都是"上游梯度逐元素乘导数"，区别只在导数的表达式。$$H = 0$$ 处 ReLU 不可导，实践中取 0 或 1 都行——概率为零的事件。
+因此 ReLU 的 VJP 等价于 Jacobian 对角元素的逐项乘法。$$H=0$$ 处 ReLU 不可导，框架采用约定的导数值；连续输入恰好落在零点的概率为零。GELU、SiLU、sigmoid、tanh 也采用逐元素乘导数的形式，只是导数表达式不同。
 
 ### 3. softmax 与交叉熵
 
-$$L = -\frac{1}{m}\sum_i \log p_{i, y_i}, \; p_i = \text{softmax}(z_i)$$。[L0 数学系列第八篇](/derivatives-gradients-chain-rule-and-policy-gradient.html)推过对单个样本 $$\partial L_i / \partial z_i = p_i - e_{y_i}$$（$$e_{y_i}$$ 是 one-hot）。对 batch 取平均后：
+取 logits $$z=(2,1,0.1)$$，正确类别为 0。softmax 概率约为 $$(0.659,0.242,0.099)$$，交叉熵对 logits 的梯度是概率减 one-hot 标签：$$(-0.341,0.242,0.099)$$。
 
-$$
-\frac{\partial L}{\partial Z} = \frac{1}{m}(P - Y_{\text{onehot}}) \in \mathbb{R}^{m \times 10}
-$$
+![三类 softmax 概率柱及交叉熵梯度：正确类概率被推高，其他类别按概率被压低](/img/in-post/backprop-softmax-ce.svg)
 
-这里 softmax 与交叉熵**合在一起**求导，中间不经过 $$\partial L / \partial P$$。分开算在数学上等价，但数值上更差（$$1/p$$ 在 $$p \to 0$$ 时溢出），计算上也多一步。框架里 `F.cross_entropy` 是一个融合算子，正是为此。
+batch 平均 loss 对 logits 的梯度为 $$\partial L/\partial Z=(P-Y_{\text{onehot}})/m$$。softmax 与交叉熵合在一起求导，避免先算接近零的概率再除以它，数值更稳定。toy 输出：
 
-## 四、两层网络逐层推导
-
-把三章的规则串起来。前向五步、反向五步，每一步标出形状（$$m = 128$$）。先把一次迭代在时间轴上摊开——loss 在什么时候算、梯度在什么时候齐、激活什么时候释放：
-
-![一次迭代的时间轴：前向逐层留下激活，末端算 loss，反向逐层算梯度并释放激活，step 更新后梯度清零](/img/in-post/backprop-one-iteration.svg)
-
-```mermaid
-%% 前向五步与反向五步：上排前向，下排反向的 VJP，虚线是反向用到的前向保存量
-flowchart LR
-    subgraph F["前向（带 ✱ 的量要保存到反向）"]
-        direction LR
-        X["X ✱<br/>[128, 784]"] -->|"XW₁ + b₁"| H["H ✱（存符号）<br/>[128, 256]"] -->|"ReLU"| A["A ✱<br/>[128, 256]"] -->|"AW₂ + b₂"| Z["Z<br/>[128, 10]"] -->|"softmax · CE"| L["L<br/>标量"]
-    end
-    subgraph B["反向（每一步一个 VJP，从右往左）"]
-        direction RL
-        GZ["∂L/∂Z = (P − Y)/m<br/>[128, 10]"] -->|"· W₂ᵀ"| GA["∂L/∂A<br/>[128, 256]"] -->|"⊙ 𝟙[H > 0]"| GH["∂L/∂H<br/>[128, 256]"] -->|"· W₁ᵀ（不需要）"| GX["∂L/∂X<br/>[128, 784]"]
-        GZ -->|"Aᵀ ·"| GW2["∂L/∂W₂ [256, 10]<br/>∂L/∂b₂ [10] = Σ行"]
-        GH -->|"Xᵀ ·"| GW1["∂L/∂W₁ [784, 256]<br/>∂L/∂b₁ [256] = Σ行"]
-    end
-    A -. "保存" .-> GW2
-    X -. "保存" .-> GW1
-    H -. "保存符号" .-> GH
-    classDef fw fill:#e3f2fd,stroke:#1565c0,color:#222
-    classDef bw fill:#fff3e0,stroke:#ef6c00,color:#222
-    class X,H,A,Z,L fw
-    class GZ,GA,GH,GX,GW1,GW2 bw
+```text
+softmax + cross entropy：z=(2,1,0.1)，正确类=0
+p=[0.659 0.242 0.099]
+dL/dz=p-y=[-0.341  0.242  0.099]
 ```
 
-前向五步与反向五步。上排是前向，每个箭头是一次计算，形状写在节点里；下排是反向，从 $$\partial L / \partial Z$$ 出发每一步右乘一个转置（沿主链）或左乘一个转置（分叉到参数梯度）；虚线标出反向用到前向哪个保存的量——这就是第六章"激活为什么要存"。
+## 五、两层网络逐层推导
 
-写成公式：
+### 1. 迷你网络：把每个中间量列出来
 
-| 步 | 计算 | 形状 | 用到前向保存的 |
+取一个 2→2→2 网络、单样本 $$x=(0.6,-1.2)$$，权重与偏置由玩具脚本给定。实际前向得到 $$h=a=(0.34,0.34)$$、logits $$z=(0.356,-0.066)$$、loss $$0.504244439$$；目标类别为 0。图中同时列出前向值和两层权重梯度：
+
+![2-2-2 迷你网络：输入、隐藏层、logits 和 loss 在上排，dW1 与 dW2 在下排](/img/in-post/backprop-mini-network.svg)
+
+对 $$dW_1$$、$$dW_2$$ 做中心差分，$$\epsilon=10^{-6}$$ 时最大相对误差为 $$4.515\times10^{-10}$$。所有中间值、梯度和误差都来自脚本：
+
+```text
+x=[ 0.6 -1.2]
+W1=[[ 0.5 -0.3]
+ [ 0.8  0.4]]
+b1=[1. 1.]
+h=[0.34 0.34]
+a=[0.34 0.34]
+W2=[[ 0.7 -0.5]
+ [ 0.2  0.6]]
+b2=[ 0.05 -0.1 ]
+z=[ 0.356 -0.066]
+p=[0.603962 0.396038]
+target=0; loss=0.504244439
+gz=[-0.396038  0.396038]
+dw2=[[-0.134653  0.134653]
+ [-0.134653  0.134653]]
+db2=[-0.396038  0.396038]
+ga=[-0.475246  0.158415]
+gh=[-0.475246  0.158415]
+dw1=[[-0.285148  0.095049]
+ [ 0.570295 -0.190098]]
+db1=[-0.475246  0.158415]
+中心差分 eps=1e-6：dW1、dW2 最大相对误差=4.515e-10
+```
+
+### 2. 回到 784-256-10：五步反向
+
+一次迭代按时间展开如下：
+
+![一次迭代的时间轴：前向保存激活，末端计算 loss，反向逐层释放激活，更新参数后清零梯度](/img/in-post/backprop-one-iteration.svg)
+
+下图把前向、主梯度链和参数梯度分开排列；橙色虚线标出保存边：
+
+![784-256-10 前向、主梯度链与参数梯度分三排，标出形状和保存边](/img/in-post/backprop-mlp-flow.svg)
+
+| 步 | 计算 | 形状 | 用到的前向量 |
 |---|---|---|---|
-| 反向 1 | $$G_Z = (P - Y) / m$$ | $$[128, 10]$$ | $$P$$（由 $$Z$$ 算出） |
-| 反向 2 | $$\partial L / \partial W_2 = A^T G_Z$$<br/>$$\partial L / \partial b_2 = \sum_i G_Z$$ | $$[256, 10]$$<br/>$$[10]$$ | $$A$$ |
-| 反向 3 | $$G_A = G_Z W_2^T$$ | $$[128, 256]$$ | — |
-| 反向 4 | $$G_H = G_A \odot \mathbb{1}[H > 0]$$ | $$[128, 256]$$ | $$H$$ 的符号（掩码） |
-| 反向 5 | $$\partial L / \partial W_1 = X^T G_H$$<br/>$$\partial L / \partial b_1 = \sum_i G_H$$ | $$[784, 256]$$<br/>$$[256]$$ | $$X$$ |
+| 输出层梯度 | $$G_Z=(P-Y)/m$$ | $$[128,10]$$ | $$P$$，由 $$Z$$ 得到 |
+| 第二层权重梯度 | $$dW_2=A^TG_Z$$<br/>$$db_2=\sum_iG_{Z,i,:}$$ | $$[256,10]$$<br/>$$[10]$$ | $$A$$ |
+| 对 $$A$$ 的梯度 | $$G_A=G_ZW_2^T$$ | $$[128,256]$$ | 参数 $$W_2$$ |
+| 穿过 ReLU | $$G_H=G_A\odot\mathbb{1}[H>0]$$ | $$[128,256]$$ | $$H$$ 的符号 |
+| 第一层权重梯度 | $$dW_1=X^TG_H$$<br/>$$db_1=\sum_iG_{H,i,:}$$ | $$[784,256]$$<br/>$$[256]$$ | $$X$$ |
 
-Table: 两层网络反向每一步的形状与用到的前向量
+$$dX=G_HW_1^T$$ 在数学上存在，但图片输入不是参数，无需它的梯度，框架会跳过这一步。Transformer 的 FFN 也是 Linear、激活、Linear，反向规则相同。
 
-$$\partial L / \partial X = G_H W_1^T$$ 在数学上存在，但 $$X$$ 是数据不是参数，不需要它的梯度，框架会跳过这一步。任何深度的 MLP 都是把反向 3–5 重复若干次；Transformer 的 FFN 子层就是一个两层 MLP，attention 子层多几个矩阵乘和一个 softmax，规则不变。
+## 六、反向为什么是前向的两倍
 
-## 五、反向为什么是前向的两倍
+### 1. 一个 Linear：前向一次，反向两次
 
-### 1. 每个 Linear 反向做两个 GEMM
+前向矩阵乘 $$XW$$ 的 FLOPs 为 $$2mkn$$。反向要算 $$X^TG$$ 得到 $$dW$$，还要算 $$GW^T$$ 得到 $$dX$$，各为 $$2mkn$$。反向合计 $$4mkn$$，是前向的两倍。
 
-前向一个 Linear 做一次矩阵乘 $$XW$$：$$[m, k] \times [k, n]$$，$$2mkn$$ FLOPs。反向做两次：$$X^T G$$（$$[k, m] \times [m, n]$$，$$2mkn$$）和 $$G W^T$$（$$[m, n] \times [n, k]$$，$$2mkn$$）。**反向 = 2 × 前向**，对每一个 Linear 层都严格成立。逐元素算子（ReLU、norm、softmax）的计算量与 GEMM 相比可以忽略，所以整个网络也近似成立。
+![一个 Linear 的三次矩阵乘：前向 XW、反向 X^T G 和 G W^T，各标出形状与 2mkn](/img/in-post/backprop-linear-flops.svg)
 
-代入本文的网络，batch 128：
+代入本文网络，batch 128：
 
-| | 第一层 $$784 \to 256$$ | 第二层 $$256 \to 10$$ | 合计 |
-|---|---|---|---|
-| 前向 | $$2 \times 128 \times 784 \times 256 = 51.4$$M | $$0.66$$M | **52.0 MFLOPs** |
-| 反向 | $$102.8$$M | $$1.31$$M | **104.1 MFLOPs** |
-| 比值 | | | **2.00** |
+|  | 第一层 784→256 | 第二层 256→10 | 合计 |
+|---|---:|---:|---:|
+| 前向 | 51.4 M | 0.66 M | **52.0 MFLOPs** |
+| 反向 | 102.8 M | 1.31 M | **104.1 MFLOPs** |
+| 比值 |  |  | **2.00** |
 
-Table: 两层网络前向与反向的 FLOPs
-
-第九章的实验里用计数器验证了这两个数字——它的实现**故意也算了**第一层的 $$\partial L / \partial X$$（输入是图片，这一项没人用），所以比值恰好 2.00。实践中省掉它：这个两层网络里第一层占 98.7% 的权重，省掉后反向是 $$51.4 + 1.31 = 52.7$$M，比值 1.01——对**浅而宽**的网络"反向 = 2 × 前向"差得远；层数多时第一层占比小，比值回到接近 2，$$6ND$$ 才是好的近似。
+浅而宽的网络如果不需要输入梯度，可以省掉第一层的 $$dX$$；此例省掉后反向是 52.7 M，比值 1.01。层数较多时，第一层占比小，反向计算量才接近前向两倍。
 
 ### 2. 训练 FLOPs 等于 6ND
 
-对一个参数量为 $$N$$ 的网络，前向每个 token 约 $$2N$$ FLOPs（每个参数参与一次乘加——L0 数学系列第一篇），反向 $$4N$$，一步训练合计 $$6N$$ FLOPs / token。训练 $$D$$ 个 token 就是 $$6ND$$——scaling law 论文与 [现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)用的这个数字，来源就是本章的"反向做两个 GEMM"。Llama-3-8B 训 15T token：$$6 \times 8 \times 10^9 \times 15 \times 10^{12} = 7.2 \times 10^{23}$$ FLOPs。
+参数量为 $$N$$ 的网络，前向每个 token 约需 $$2N$$ FLOPs，反向约需 $$4N$$，训练 $$D$$ 个 token 的总量约为 $$6ND$$。例如 8B 模型训练 15T token，估算为 $$6\times8\times10^9\times15\times10^{12}=7.2\times10^{23}$$ FLOPs。这里的 $$2N$$ 忽略偏置和逐元素操作；attention 的 $$QK^T$$ 与 $$PV$$ 不含参数，长序列时也不能忽略，详见《[现代 LLM 结构（02）：Transformer 的 FLOPs、显存与 Roofline](/transformer-flops-bytes-and-roofline.html)》。
 
-两点补充。第一，$$2N$$ 忽略了 attention 里 $$QK^T$$ 与 $$PV$$ 这两个与参数无关、与序列长度成正比的项，短序列下可忽略，长序列下不能（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算了）。第二，如果用了激活重算（下一章），反向前要再做一次前向，总量变成 $$8N$$ / token——训练报告里"MFU 按 $$6ND$$ 算、HFU 按 $$8ND$$ 算"的区别就在这里。
+$$2N$$ 忽略了 attention 中与参数无关、随序列长度增长的矩阵乘。启用 checkpoint 重算后，再额外执行一次前向，总量约为 $$8N$$ / token。
 
-## 六、激活为什么要存
+## 七、激活为什么要存
 
-### 1. 参数梯度需要本层的输入
+### 1. PyTorch 实际保存了什么
 
-第四章的表最后一列是关键：反向算 $$\partial L / \partial W_1 = X^T G_H$$ 需要 $$X$$，算 $$\partial L / \partial W_2 = A^T G_Z$$ 需要 $$A$$，算 ReLU 的反向需要 $$H$$ 的符号。这些都是**前向的中间结果**，反向时要用，所以前向算完不能丢，必须一直留到反向走到那一层。这就是"激活显存"。
-
-它的大小与什么成正比？每一层保存的是该层的输入，形状 $$[m, \text{宽度}]$$——与 **batch 大小** $$m$$ 成正比，与**层数**成正比，与**宽度**成正比，**与参数量无关**。本文的网络在 batch 128 下：
+第二层权重梯度 $$dW_2=A^TG_Z$$ 需要 $$A$$；第一层 $$dW_1=X^TG_H$$ 需要 $$X$$；ReLU 反向需要判断 $$H$$ 的符号。前向算出的中间量因此要留到反向走到相应层。
 
 | 保存的量 | 形状 | 字节 |
-|---|---|---|
-| $$X$$ | $$[128, 784]$$ fp32 | 392 KiB |
-| $$H$$ 的掩码 | $$[128, 256]$$ bool | 32 KiB |
-| $$A$$ | $$[128, 256]$$ fp32 | 128 KiB |
-| 合计 | | **552 KiB**（权重 795 KiB） |
+|---|---|---:|
+| $$X$$ | $$[128,784]$$ fp32 | 392 KiB |
+| $$H$$ 掩码 | $$[128,256]$$ bool | 32 KiB |
+| $$A$$ | $$[128,256]$$ fp32 | 128 KiB |
+| 合计 |  | **552 KiB**（权重 795 KiB） |
 
-Table: 反向需要保存的激活及其字节数
-
-用 PyTorch 的 `saved_tensors_hooks` 把这个两层网络挂出来，autograd 实际保存的清单是（labs `deep-learning-foundations/case_03_activation_memory.py saved`）：
+用 `saved_tensors_hooks` 实测 MLP 784→256(ReLU)→10，交叉熵，batch 128，fp32：
 
 ```text
 == saved：MLP 784->256(ReLU)->10，CE，batch 128，fp32
  # 算子节点                         shape          dtype          字节  归类
  0 MmBackward:self              (128, 784)     float32    401408  输入 X
- 1 MmBackward:self              (128, 256)     float32  131072  ReLU 输出 A
- 2 MmBackward:mat2              (256, 10)      float32   10240  参数 W2
- 3 ReluBackward:result          (128, 256)     float32  131072  ReLU 输出 A（同一块内存，不重复计）
- 4 NllLossBackward:self         (128, 10)      float32    5120  Z / softmax 输出
- 5 LogSoftmaxBackward:result    (128, 10)      float32    5120  Z / softmax 输出（同一块内存，不重复计）
- 6 NllLossBackward:target       (128,)         int64      1024  标签 Y
- 7 NllLossBackward:total_weight ()             float32        4  其他（CE 内部）
+ 1 MmBackward:self              (128, 256)     float32    131072  ReLU 输出 A
+ 2 MmBackward:mat2              (256, 10)      float32     10240  参数 W2
+ 3 ReluBackward:result          (128, 256)     float32    131072  ReLU 输出 A（同一块内存，不重复计）
+ 4 NllLossBackward:self         (128, 10)      float32      5120  Z / softmax 输出
+ 5 LogSoftmaxBackward:result    (128, 10)      float32      5120  Z / softmax 输出（同一块内存，不重复计）
+ 6 NllLossBackward:target       (128,)         int64        1024  标签 Y
+ 7 NllLossBackward:total_weight ()             float32         4  其他（CE 内部）
 
-按 storage 去重后：激活合计 526 KiB；参数合计 10 KiB
+按 storage 去重后：激活合计 526 KiB（X + ReLU 保存 + softmax 侧）；参数合计 10 KiB（autograd 为 dW/dX 保存，是参数不是激活）
+对照正文 §七.1 表：X 392 KiB + H 掩码 32 KiB + A 128 KiB = 552 KiB。PyTorch 的 ReLU 保存的是 A（输出 128 KiB）而不是 H 的 mask——反向时用 A > 0 判断符号，等价但多 96 KiB。
 ```
 
-和上表对得上，但有两处差别。一是 PyTorch 的 ReLU 保存的是**输出** $$A$$（128 KiB）而不是 $$H$$ 的 mask——反向时用 `A > 0` 判符号，信息等价但多占 96 KiB。二是框架多存了几样上表没列的：$$W_2$$（算 $$\partial L/\partial A = G_Z W_2^T$$ 要读，但它是参数不是激活）、log_softmax 的输出和 CE 的 target、total_weight。注意 $$W_1$$ 没有出现在清单里：$$X$$ 是数据、不求 $$\partial L/\partial X$$，所以第一个 mm 只存了 $$X$$ 一份就够算 $$dW_1$$。另外清单里 $$A$$ 被存了两次（算 $$dW_2$$ 的 mm 存一次、ReLU 反向又存一次），同一块内存按 storage 去重后只计一次——去重后的激活合计是 526 KiB。
-
-batch 换成 4096，激活变成 17.3 MiB，权重不变。序列模型里 $$m$$ 是 batch × 序列长度，所以长上下文训练的激活显存会远超权重——[L1 工具箱系列](/tooling-for-ai-algorithm-engineers.html)给过 Llama-3-8B 在 4096 长度下仅残差流一份就是 1 GiB / 序列的锚点，精确公式在 Infra 地图 08 系列第一篇。
+表格是按反向公式列出的逻辑保存量，PyTorch 实际列表按 storage 去重后是 526 KiB，二者不能直接说数值相同。两处差别：ReLU 保存输出 $$A$$ 而不是 bool 掩码，另有 softmax / loss 相关张量；此外 $$W_2$$ 是为求 $$dX$$ 保存的参数，不计入激活。列表中 $$A$$ 由两个算子引用，但同一块内存只计一次。本文小网络 batch 增至 4096 时，逻辑激活表按 batch 放大；序列模型中 batch 还要乘序列长度。
 
 ### 2. 激活重算：用计算换存储
 
-既然激活是前向算出来的，可以不存、反向时重算。**gradient checkpointing** 的做法是只保存每个块（比如 Transformer 的一层）的输入，反向走到这一块时先用保存的输入重新前向一次得到块内所有中间量，再做反向。代价是多一次前向，即上一章说的 $$6N \to 8N$$，约 33% 的额外计算；收益是激活显存从"所有中间量"降到"每块一个输入"。这是训练长序列或大 batch 时的标准开关，`model.gradient_checkpointing_enable()` 一行。
+checkpointing 保存每个块的输入，反向走到块时重新前向，恢复块内中间结果再计算梯度。实测 8 层、宽 1024、batch 256、fp32，每 4 层一块，`use_reentrant=False`：
 
-拿一个 8 层、宽 1024 的 MLP 实测（batch 256，fp32，`torch.utils.checkpoint` 每 4 层一块，`use_reentrant=False`）：
-
-![激活重算：全存 vs 每 4 层只存块输入并反向前重算；实测保存 46 MB 降到 4 MB](/img/in-post/backprop-checkpointing.svg)
+![checkpointing 对比：全存与每四层 checkpoint 的前向、重算、反向顺序；全存 46 MB，每块只存输入 4 MB](/img/in-post/backprop-checkpointing.svg)
 
 ```text
 == ckpt：8 层 MLP（宽 1024），batch 256，fp32
 方案                            总保存         峰值 每 Linear 前向次数
 全部保存                      46.00 MB    46.00 MB  [1, 1, 1, 1, 1, 1, 1, 1]
 每 4 层 checkpoint           4.00 MB     4.00 MB  [2, 2, 2, 2, 2, 2, 2, 2]
-梯度 max|diff| = 0.000e+00
+梯度最大差值为 0.000e+00（本玩具两次前向浮点顺序相同，逐位一致）
+保存降到 9%，8 个 Linear 各前向 2 次 = 恰好一次额外前向（8 次 Linear），与全量重算同量；分块大小只改存什么
 ```
 
-保存量降到 9%，代价是 8 个 Linear 各前向 2 次——也就是恰好一次额外前向，和全量重算的计算量相同；分块大小只改变存什么、不改变重算量。梯度逐位相同（max|diff| = 0），因为这个玩具的浮点运算顺序两次完全一样。
+8 个 Linear 各执行两次前向，意味着恰好多做一次完整前向，约增加 step FLOPs 的三分之一，与全量重算的计算量相同。每四层一块保留两个块输入，减少保存量；分块大小改变保存什么，不改变每层重算一次的计算成本。这个玩具的梯度逐位一致。
 
-FlashAttention 做的是同一件事的算子级版本：不保存 $$[\text{seq}, \text{seq}]$$ 的 attention 矩阵，反向时分块重算——[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)讲它的 IO 复杂度。
+FlashAttention 也用重算换存储：不保存完整 attention 矩阵，反向分块重算。详见《[现代 LLM 结构（04）：Attention 变体与 KV Cache](/attention-variants-and-kv-cache.html)》。
 
-## 七、梯度检查
+## 八、梯度检查
 
-### 1. 有限差分
+### 1. 有限差分与相对误差
 
-手推的公式对不对，用数值导数验证。对参数 $$\theta$$ 的某一个元素 $$\theta_j$$，中心差分
+对参数元素 $$\theta_j$$，中心差分近似为
 
 $$
-\frac{\partial L}{\partial \theta_j} \approx \frac{L(\theta + \epsilon e_j) - L(\theta - \epsilon e_j)}{2\epsilon}
+\frac{L(\theta+\epsilon e_j)-L(\theta-\epsilon e_j)}{2\epsilon}
 $$
 
-的截断误差是 $$O(\epsilon^2)$$（单侧差分是 $$O(\epsilon)$$，所以用中心）。把它与解析梯度比，用**相对误差** $$\lvert g_{\text{num}} - g_{\text{ana}} \rvert / (\lvert g_{\text{num}} \rvert + \lvert g_{\text{ana}} \rvert)$$——绝对误差在梯度本身很小的元素上没有意义。
+截断误差为 $$O(\epsilon^2)$$，低于单侧差分的 $$O(\epsilon)$$。把数值梯度与解析梯度比较时，使用相对误差
 
-### 2. 为什么必须 float64
+$$
+\frac{|g_{num}-g_{ana}|}{|g_{num}|+|g_{ana}|}
+$$
 
-$$\epsilon$$ 有两头约束：太大截断误差大，太小舍入误差大——$$L(\theta + \epsilon) - L(\theta - \epsilon)$$ 是两个相近数相减，误差约为 $$L$$ 的机器精度除以 $$2\epsilon$$。fp32 机器精度约 $$10^{-7}$$，取 $$\epsilon = 10^{-6}$$ 时舍入误差约 $$10^{-7} / 10^{-6} = 0.1$$，检查毫无意义；fp64 机器精度约 $$10^{-16}$$，同样的 $$\epsilon$$ 舍入误差 $$10^{-10}$$，截断误差 $$10^{-12}$$，可以把相对误差压到 $$10^{-7}$$ 以下。所以梯度检查一定在 float64 上做、用小网络、随机抽几十个元素（全部检查要做 $$2 \times 203530$$ 次前向）。第九章的结果：最大相对误差 $$1.1 \times 10^{-7}$$。
+避免梯度本身很小时绝对误差失去意义。经验上小于 $$10^{-6}$$ 可通过；$$10^{-4}$$ 量级需排查（例如 ReLU 在零点附近被扰动翻转）；大于 $$10^{-2}$$ 通常表示有错误。
 
-判断标准：相对误差 $$< 10^{-6}$$ 通过；$$10^{-4}$$ 量级要怀疑（常见于 ReLU 在 0 附近被 $$\epsilon$$ 翻转符号，属于正常）；$$> 10^{-2}$$ 一定有错。
+### 2. 步长与数值精度
 
-### 3. 两个训练前的 sanity check
+$$\epsilon$$ 太大时截断误差占主导，太小时两个相近数相减会放大舍入误差。脚本用 $$f(x)=e^x\sin x$$ 在 $$x=0.7$$ 扫描 $$10^{-1}$$ 到 $$10^{-10}$$：
 
-梯度对了，训练前还有两个几乎免费的检查。**初始 loss 应接近 $$\ln C$$**：10 类是 $$\ln 10 = 2.30$$，本文实验初始 2.46（Kaiming 初始化让 logits 方差略大于 1，比均匀分布稍差，正常）；远大于它说明初始化太大，远小于它说明数据泄漏或 loss 算错。LLM 上对应 $$\ln V \approx 11.8$$（L0 数学系列第六篇）。**能过拟合一个小 batch**：拿 16 个样本反复训，loss 应能降到接近 0；降不下去说明梯度没传到某处，或学习率不对。这两个检查在框架里同样适用。
+![fp32 与 fp64 中心差分相对误差随 epsilon 变化：大步长截断误差和小步长舍入误差形成 U 形趋势](/img/in-post/backprop-epsilon-sweep.svg)
 
-## 八、Autograd 做了什么
+真实输出显示 fp32 在 $$10^{-6}$$ 的相对误差为 $$2.45\times10^{-2}$$，而不是预期的约 0.1；fp64 在同一处为 $$6.24\times10^{-12}$$，而不是预期的约 $$10^{-10}$$。这组实测说明精度与步长共同决定误差；不同函数、实现和硬件会改变曲线数值。
 
-本文手写的东西，框架用四个机制自动化了：
+```text
+float32 1e-01 1.410237e-04
+float32 1e-02 8.491775e-07
+float32 1e-03 1.389727e-05
+float32 1e-04 4.916069e-05
+float32 1e-05 2.040566e-03
+float32 1e-06 2.453433e-02
+float32 1e-07 2.453433e-02
+float32 1e-08 1.000000e+00
+float64 1e-01 1.409907e-04
+float64 1e-02 1.426604e-06
+float64 1e-03 1.426771e-08
+float64 1e-04 1.424019e-10
+float64 1e-05 3.714701e-13
+float64 1e-06 6.240573e-12
+float64 1e-07 3.459009e-10
+float64 1e-08 1.806075e-09
+float64 1e-09 2.167002e-08
+float64 1e-10 2.167002e-08
+```
+
+一般梯度检查使用 float64、小网络、中心差分，并随机抽取参数元素；检查全部 203,530 个参数需要 407,060 次前向。本文 NumPy 小网络的最大相对误差为 $$1.11\times10^{-7}$$。float32 与 float64 的相对误差随步长扫描见图，最合适的 $$\epsilon$$ 取决于数值函数和精度，不能只由机器精度估算一个固定答案。
+
+### 3. 训练前的两个检查
+
+初始 loss 应接近 $$\ln C$$：10 类的均匀猜测为 $$\ln 10=2.30$$，本文初始 loss 为 2.46。还可以拿 16 个样本反复训练，确认 loss 能接近 0；不能过拟合小 batch 时，应检查梯度路径与学习率。
+
+## 九、Autograd 做了什么
+
+PyTorch 自动化了四件事：前向记录动态图；每个算子实现 backward；保存反向需要的张量；叶子张量的 `.grad` 累加。
 
 | 机制 | 本文对应 | PyTorch 里 |
 |---|---|---|
-| 录带 | 前向时按顺序记住每个算子 | `requires_grad=True` 的张量参与的每个算子被记进动态图，输出张量的 `grad_fn` 指向它 |
-| 每个算子的 backward | 第三章的三类 VJP 公式 | 每个 `Function` 有 `forward` 与 `backward`，后者接收上游梯度、返回对每个输入的 VJP |
-| saved tensors | 第六章要保存的 $$X$$、掩码、$$A$$ | `ctx.save_for_backward(...)`<br/>`backward()` 后释放，所以同一个图不能反向两次（除非 `retain_graph=True`） |
-| 梯度累加 | `dW[...] = X.T @ dY` | 叶子张量的 `.grad` 是**累加**而不是覆盖，所以每步要 `zero_grad()`<br/>梯度累积正是利用这一点 |
+| 录带 | 前向按顺序记录算子 | 有梯度需求的张量参与运算后，输出的 `grad_fn` 指向动态图节点 |
+| 算子 backward | Linear、ReLU、softmax 的 VJP | `Function.backward` 接收上游梯度并返回对输入的 VJP |
+| saved tensors | 前向中间量供反向使用 | `ctx.save_for_backward(...)`；反向后通常释放 |
+| 梯度累加 | 多条路径的贡献相加 | 叶子张量 `.grad` 累加，每步通常先 `zero_grad()` |
 
-Table: Autograd 自动化的四个机制及本文对应
+下面不是手画的示意图，而是脚本从真实 `loss.grad_fn` 沿 `next_functions` 广度优先遍历得到的节点：
 
-`torch.no_grad()` 关掉录带（推理与评测时省激活显存）；`.detach()` 把一个张量从图上摘下来（RL 里对 old logprobs 常用）；`torch.utils.checkpoint` 就是第六章的激活重算。第九章的实验把手写梯度与 PyTorch autograd 的结果对了一遍，差在 $$10^{-8}$$ 量级——两边算的是同一组公式，差异只是浮点求和顺序。
+![PyTorch 两层 MLP 的真实 Autograd 反向图，从 NllLossBackward 沿 next_functions 展开到 AccumulateGrad](/img/in-post/backprop-autograd-graph.svg)
 
-Autograd 引擎的实现——图怎么存、多线程怎么调度、hook 在哪里——属于 Infra 地图 [03 系列第四篇](/pytorch-autograd-and-dynamic-computation-graph.html)。算法工程师到这一层就够：知道它记了什么、存了什么、什么时候释放。
+```text
+loss=0.441257387; BFS 遍历 loss.grad_fn.next_functions：
+00 NllLossBackward0
+01 LogSoftmaxBackward0
+02 AddmmBackward0
+03 torch::autograd::AccumulateGrad
+04 ReluBackward0
+05 TBackward0
+06 AddmmBackward0
+07 torch::autograd::AccumulateGrad
+08 torch::autograd::AccumulateGrad
+09 TBackward0
+10 torch::autograd::AccumulateGrad
+edges=0->1, 1->2, 2->3, 2->4, 2->5, 4->6, 5->7, 6->8, 6->9, 9->10
+unique autograd nodes=11
+```
 
-## 九、案例：MNIST 手写数字，NumPy 从零
+`torch.no_grad()` 关闭录带，推理时节省内存；`.detach()` 将张量从图上摘下（例如不让 old logprobs 参与后续梯度）；`torch.utils.checkpoint` 用前向重算换保存空间。本文 NumPy 手写梯度与 PyTorch autograd 在同一权重和 batch 上对拍，参数梯度差约 $$10^{-8}$$，差异来自浮点求和顺序。自动微分引擎的图存储、调度和 hook 细节见《[Infra 地图：PyTorch Autograd 与动态图](/pytorch-autograd-and-dynamic-computation-graph.html)》。
 
-**问题与数据**：MNIST——60,000 张训练、10,000 张测试的手写数字（28×28 灰度），1998 年 LeCun 等为比较分类器造的数据集，《[LLM 时代的经典机器学习（04）：三个基础分类器——朴素贝叶斯、KNN 与决策树](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)》、《[LLM 时代的经典机器学习（05）：SVM 与核方法——最大间隔、核技巧与 attention 的远亲](/svm-and-kernel-methods.html)》已经用 KNN（2.95% 错误率）和 SVM（1.43%）做过它。这一章不用任何框架，把前八章推出来的公式写成 120 行 NumPy，训一个两层 MLP，看它能到多少、每一步的算量和内存是多少、以及公式有没有推错。**它是整个系列的基座**：后面五篇的每个实验都在这 120 行上加东西。
+## 十、案例：MNIST 手写数字，NumPy 从零
 
-**思路**：`Linear` / `ReLU` / `softmax_ce` 三个类各自实现 `forward`（存下反向要用的量）和 `backward`（第三章的三条公式）；`MLP` 把它们串起来；训练循环就是 `forward → loss → backward → 参数 -= lr × 梯度`。训之前先做两件事：梯度检查（第七章：公式对不对）和 FLOPs / 激活计数（第五、六章：账对不对）。
+MNIST 有 60,000 张训练图和 10,000 张测试图，每张是 28×28 灰度手写数字。此前 KNN 的错误率是 2.95%，RBF-SVM 是 1.43%；本例不用框架，把前面推导的公式写成约 120 行 NumPy，训练两层 MLP，记录准确率、算量和内存。
 
-### 1. 代码
+`Linear`、`ReLU`、`softmax_ce` 分别实现 `forward`（保存反向要用的量）与 `backward`（使用前面推导的公式）；`MLP` 把它们串起来，训练循环是前向、loss、反向、参数更新。Linear 与 ReLU 的核心如下：
 
-约 120 行 NumPy，是整个系列的基座，后面每篇往上加。核心的三个类：
-
-```python title='NumPy 基座的核心类：Linear 的 forward 与 backward'
+```python
 class Linear:
     def forward(self, X):
-        self.X = X                                  # 保存激活
+        self.X = X
         return X @ self.W + self.b
     def backward(self, dY):
-        self.dW[...] = self.X.T @ dY                # X^T G      2mkn
+        self.dW[...] = self.X.T @ dY
         self.db[...] = dY.sum(0)
-        return dY @ self.W.T                        # G W^T      2mkn
+        return dY @ self.W.T
 
 class ReLU:
     def forward(self, X): self.mask = X > 0; return X * self.mask
     def backward(self, dY): return dY * self.mask
+```
 
+softmax-CE 先减每行最大 logit 保证数值稳定，再计算概率与梯度：
+
+```python
 def softmax_ce(logits, y):
-    z = logits - logits.max(1, keepdims=True)       # 数值稳定
+    z = logits - logits.max(1, keepdims=True)
     p = np.exp(z); p /= p.sum(1, keepdims=True)
     m = logits.shape[0]
     loss = -np.log(p[np.arange(m), y]).mean()
-    d = p.copy(); d[np.arange(m), y] -= 1.0         # p - y
+    d = p.copy(); d[np.arange(m), y] -= 1.0
     return loss, d / m, p
 ```
 
-一个数值细节：这里先算 softmax 再取 log，正确类的 logit 比最大值低 700 以上时 `exp` 会下溢成 0、`log(0) = -inf`（配套脚本加了 `1e-12` 兜底，代价是 loss 被截在 27.6 上下——《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》的实验里 logits 到 $$10^9$$ 时打印的 loss 就是这个上限，不是真实值）。生产实现（PyTorch 的 `cross_entropy`）用 log-sum-exp 形式 `logp = z - log(sum(exp(z)))` 直接算对数概率，没有这一步下溢。
+这里先算 softmax 再取 log；正确类 logit 比最大值低很多时，指数可能下溢为 0，配套脚本用小量兜底。生产实现使用 log-sum-exp 直接计算对数概率。
 
-网络是 `MLP([784, 256, 10])`，训练循环就是 `forward → softmax_ce → backward → 对每个参数 P -= lr * dP`。梯度检查在一个 `[20, 16, 5]` 的 float64 小网络上做，每个参数随机抽 30 个元素、$$\epsilon = 10^{-6}$$、中心差分。FLOPs 用一个全局计数器在每次矩阵乘处累加。
+网络为 `MLP([784, 256, 10])`，梯度检查用 `[20,16,5]` 的 float64 小网络。训练前检查中心差分梯度与解析梯度，并计数 FLOPs 和保存激活。实测输出：
 
-### 2. 结果
-
-```text title='运行结果：梯度检查、参数量、fwd/bwd FLOPs、激活占用'
+```text
 grad check worst rel err: 1.11e-07
 params: 203530
 batch 128: fwd 52.0 MFLOPs  bwd 104.1 MFLOPs  ratio 2.00
@@ -395,94 +518,99 @@ batch 128: fwd 52.0 MFLOPs  bwd 104.1 MFLOPs  ratio 2.00
   saved activations: 552 KiB  vs weights 795 KiB
 ```
 
-与 PyTorch autograd 对齐（同一份权重、同一个 batch）：
+与 PyTorch autograd 对拍，同一权重、同一 batch：
 
-```text title='与 PyTorch autograd 对拍：loss 与 dW 的差'
+```text
 loss numpy 2.460904 torch 2.460904
 dW1 max abs diff 5.59e-09
 dW2 max abs diff 7.45e-09
 ```
 
-MNIST 上 SGD、学习率 0.1、batch 128：
+![MNIST NumPy 两层 MLP：首个 epoch 的 batch loss、15 个 epoch 的训练曲线与测试准确率、错分样本](/img/in-post/dl-case-01-training.svg)
 
-```text title='MNIST 上 SGD 训练 15 个 epoch'
-epoch 1   train loss 0.4477  test acc 92.52%
-epoch 5   train loss 0.1416  test acc 96.01%
-epoch 10  train loss 0.0842  test acc 97.26%
-epoch 15  train loss 0.0585  test acc 97.61%
-```
+| Epoch | 训练 loss | 测试准确率 |
+|---|---:|---:|
+| 1 | 0.4477 | 92.52% |
+| 5 | 0.1416 | 96.01% |
+| 10 | 0.0842 | 97.26% |
+| 15 | 0.0585 | 97.61% |
 
-每个 epoch 在笔记本 CPU 上约 0.1 秒。四个数字各验证了本文的一个结论：$$10^{-7}$$ 的相对误差说明第三、四章的公式没错；2.00 的比值是第五章；552 KiB 与 795 KiB 的对比是第六章——这个小网络的激活已经与权重同量级，batch 再大 32 倍就是权重的 22 倍；97% 说明这一套确实能训。
+初始 loss 2.46 接近 10 类随机猜测的 $$\ln10=2.30$$。第一个 epoch 的 batch loss 在 100 步内从约 2.3 降到 0.5；首个 epoch 结束测试准确率 92.52%，再训练 14 个 epoch 达到 97.61%。10,000 张测试图错 239 张，常见错分是形状相近的数字，例如 7 与 2、9 与 7、9 与 4。KNN、RBF-SVM 和 MLP 在同一数据集上的错误率分别为 2.95%、1.43% 和 2.39%；MLP 的特点是能继续堆叠层、学习可复用特征。每个 epoch 在笔记本 CPU 上约 0.1 秒。
 
-**训练过程长什么样**（[`case_01_mnist_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_mnist_mlp.py) 把它画出来）：
+训练还留下三个可复现实验：把 ReLU 换成 GELU 或 SiLU 后重跑梯度检查；加一层观察 FLOPs 比值与激活增长；用 float32 做梯度检查观察舍入误差。MNIST 上的 97.6% 是小型基线，卷积、初始化、归一化、优化器、正则化与 attention 是后续内容要补足的部分。生产训练使用成熟框架；这段 NumPy 基座的价值是让前向、反向、算量和保存量都能逐行对应。
 
-![左：第 1 个 epoch 469 步的 batch loss，从 ln 10 = 2.30 的瞎猜水平在 100 步内掉到 0.5；中：15 个 epoch 的训练 loss 与测试准确率，92.5% → 97.6%；右：错分的 239 张里的前 16 张，多是 5↔6、4↔9、7↔2](/img/in-post/dl-case-01-training.svg)
+训练曲线由 [`case_01_mnist_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_mnist_mlp.py) 生成；NumPy 基础训练脚本为 [`01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)，配套玩具输出与图由 [`case_03_backprop_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_03_backprop_toys.py) 生成。
 
-初始 loss 2.46——接近 $$\ln 10 = 2.30$$（10 类瞎猜），第七章说的 sanity check 之一：如果初始 loss 远大于它，是初始化太大；远小于它，是标签泄漏。前 100 步 loss 就从 2.3 掉到 0.5，之后越来越慢——第一个 epoch 结束 92.5%，再训 14 个 epoch 才到 97.6%。10,000 张测试图错 239 张（2.39%），最常混的是 7→2（12 次）、9→7、9→4（各 11 次）——和 《[LLM 时代的经典机器学习（05）：SVM 与核方法——最大间隔、核技巧与 attention 的远亲](/svm-and-kernel-methods.html)》 KNN 错的是同一批字。
+## 十一、小结
 
-**和 L2 的两个分类器比**：KNN 2.95%、RBF-SVM 1.43%、这个两层 MLP 2.39%——三种完全不同的方法在同一份数据上落在同一个量级。MLP 的优势不在这个数字上，在于**它学出来的特征可以继续堆**：加深、加卷积（第八篇的 LeNet-5 到 0.9% 以下）、换数据（同一份代码换成文本、语音），而 KNN 和 SVM 到这里就到顶了。这也是为什么后面八篇都在这 120 行上加东西，而不是换方法。
+- 反向传播按计算图的反向拓扑序逐算子计算 VJP，不必创建完整 Jacobian。
+- 标量对参数的梯度与参数同形；Linear 的 $$dW=X^TG$$、$$dX=GW^T$$、$$db=\sum_iG_{i,:}$$ 可从形状与元素求和推出来。
+- Linear 反向做两个矩阵乘，训练计算量约为 $$6ND$$；重算时约为 $$8ND$$。
+- 前向输入与中间激活要留给反向；checkpointing 以额外前向换更低的保存量。
+- 梯度检查比较解析梯度与中心差分，步长和浮点精度都会影响误差。
+- Autograd 记录计算图、调用算子 backward、管理保存张量，并累加叶子梯度。
 
-### 3. 三个值得自己动手的扩展
+下一篇《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》继续看激活函数如何改变反向梯度；后续再讨论初始化、归一化与残差。
 
-- 把 ReLU 换成 GELU 或 SiLU，只改 `backward` 里的导数表达式，梯度检查应仍通过；
-- 加一层，看 FLOPs 比值仍是 2、激活线性增长；
-- 把梯度检查改在 float32 上做，观察相对误差跳到 $$10^{-2}$$ 量级——第七章的论证。
+配套代码：[`case_03_backprop_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_03_backprop_toys.py) 可运行本文的小例子、梯度检查和图；MNIST 训练脚本为 [`case_01_mnist_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_mnist_mlp.py)。
 
-**落地还差什么**：97.6% 在 MNIST 上是 1998 年的水平（LeNet-5 0.95%，今天的最好结果 0.2% 以下）；这 120 行没有的东西每一样都是后面文章要补的：激活函数为何不可少（第四篇）、深了训不动（第五篇）、SGD 太慢太挑学习率（第六篇）、数据少了过拟合（第七篇）、把图拉直成 784 维丢掉了"相邻像素相关"这个信息（第八篇的卷积）、离散 token 怎样成为向量（第九篇）、循环网络与 attention（第十篇）。生产里没有人用 NumPy 写反向传播——但读懂了这 120 行，第八章的 `loss.backward()` 就不再是黑盒，第五、六章的两笔账（反向两倍算量、激活占显存）就是你看训练日志时脑子里的第一反应。
+## 十二、自测
 
-## 十、本文小结
-
-- 反向传播 = 按计算图反向拓扑序对每个算子算一次 **VJP** $$J^T v$$；从不构造 Jacobian（本文第一层的 Jacobian 有 13 GB）。
-- **梯度的形状与被求导的量相同。** Linear 的三条公式 $$\partial L / \partial W = X^T G$$、$$\partial L / \partial X = G W^T$$、$$\partial L / \partial b = \sum_i G_{i,:}$$ 可以从形状唯一重建；逐元素算子的反向是上游梯度乘导数；softmax 与交叉熵合并求导得 $$(P - Y) / m$$。
-- **反向 = 2 × 前向**：每个 Linear 反向做两个 GEMM。由此训练 FLOPs $$= 6N$$ / token，激活重算下 $$8N$$；本文实测比值 2.00。
-- **激活必须保存到反向**，因为 $$\partial L / \partial W$$ 需要该层的输入。激活显存与 batch × 序列长度 × 层数 × 宽度成正比、与参数量无关；gradient checkpointing 用一次额外前向换掉它。
-- 梯度检查用 **float64、中心差分、相对误差**，$$< 10^{-6}$$ 通过；训练前看初始 loss 是否接近 $$\ln C$$、能否过拟合一个小 batch。
-- Autograd 做的是录带、每个算子的 backward、saved tensors、`.grad` 累加；手写结果与它差 $$10^{-8}$$。
-- 下一篇先看激活函数怎样改变反向传播中的导数：《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》；再接着看深网络的初始化、归一化与残差。
-
-配套代码：[`deep-learning-foundations/01_backprop.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/01_backprop.py)——本文的全部数字由它跑出（梯度检查、FLOPs、与 autograd 对齐、15 个 epoch 的训练），`--quick` 一分钟内跑完；第九章的训练曲线与错分样本由 [`case_01_mnist_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_01_mnist_mlp.py) 画出；三个扩展可以直接在上面改。
-
-## 十一、自测
-
-1. 一个 Linear 层输入 $$X \in \mathbb{R}^{128 \times 784}$$、权重 $$W \in \mathbb{R}^{784 \times 256}$$，上游梯度 $$G = \partial L / \partial Y$$。$$\partial L / \partial W$$、$$\partial L / \partial X$$、$$\partial L / \partial b$$ 各是什么形状、怎么算？
+1. Linear 输入 $$X\in\mathbb{R}^{128\times784}$$，权重 $$W\in\mathbb{R}^{784\times256}$$。$$dW$$、$$dX$$、$$db$$ 各是什么形状？
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\partial L/\partial W = X^T G$$，形状 $$[784, 256]$$（与 $$W$$ 同形）；$$\partial L/\partial X = G W^T$$，形状 $$[128, 784]$$（与 $$X$$ 同形）；$$\partial L/\partial b = \sum_i G_{i,:}$$，形状 $$[256]$$。三条都能从"梯度与被求导的量同形"倒推出来。
+   $$dW=X^TG$$，形状为 $$[784,256]$$；$$dX=GW^T$$，形状为 $$[128,784]$$；$$db=\sum_iG_{i,:}$$，形状为 $$[256]$$。
 
    </details>
 
-2. softmax + 交叉熵对 logits $$Z$$ 的梯度是什么？batch 大小 $$m$$ 在哪里？
+2. softmax 与交叉熵对 logits 的梯度是什么？batch 平均在哪里体现？
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\partial L / \partial Z = (P - Y) / m$$：$$P$$ 是 softmax 输出、$$Y$$ 是 one-hot 标签；除以 $$m$$ 是因为 loss 对 batch 取了平均。
+   $$dZ=(P-Y)/m$$，其中 $$Y$$ 是 one-hot 标签，除以 $$m$$ 来自 batch 平均。
 
    </details>
 
-3. 一个 7B 模型训练 1T token，前向、反向、合计各多少 FLOPs？开了 gradient checkpointing 呢？
+3. 7B 模型训练 1T token，前向、反向和合计 FLOPs 各是多少？启用 checkpointing 呢？
 
    <details markdown="1"><summary>答案</summary>
 
-   前向 $$2N D = 2 \times 7 \times 10^9 \times 10^{12} = 1.4 \times 10^{22}$$；反向是前向两倍 $$2.8 \times 10^{22}$$；合计 $$6ND = 4.2 \times 10^{22}$$。开 checkpointing 多一次前向，$$8ND = 5.6 \times 10^{22}$$，多 33%。
+   前向 $$2ND=1.4\times10^{22}$$；反向 $$4ND=2.8\times10^{22}$$；合计 $$6ND=4.2\times10^{22}$$。checkpointing 多一次前向，总量约 $$8ND=5.6\times10^{22}$$。
 
    </details>
 
-4. 本文的两层网络在 batch 128 下激活占 552 KiB、权重 795 KiB。batch 换成 4096，两者各变成多少？
+4. $$f=xy+x$$，取 $$x=2,y=3$$，求 $$df/dx$$。为什么不是只取乘法路径的梯度？
 
    <details markdown="1"><summary>答案</summary>
 
-   激活与 batch 成正比：$$552 \times 32 = 17{,}664$$ KiB $$\approx 17.3$$ MiB；权重不变，仍是 795 KiB。激活可以远超权重，序列模型里更是如此。
+   乘法路径贡献 $$y=3$$，直接路径贡献 1，同一输入的梯度汇合相加，$$df/dx=3+1=4$$。
 
    </details>
 
-5. 梯度检查为什么必须用 float64、用中心差分、看相对误差而不是绝对误差？
+5. batch Linear 的 Jacobian 为什么是分块对角？
 
    <details markdown="1"><summary>答案</summary>
 
-   float32 只有 7 位有效数字，有限差分的截断误差与舍入误差加起来在 $$10^{-3}$$ 量级，分不清"对"与"错"；中心差分 $$(f(x+h) - f(x-h)) / 2h$$ 的误差是 $$O(h^2)$$，比单侧差分的 $$O(h)$$ 准；相对误差 $$\lvert a - b \rvert / (\lvert a \rvert + \lvert b \rvert)$$ 不受梯度绝对量级影响——梯度是 $$10^{-8}$$ 时绝对误差 $$10^{-9}$$ 已经是 10% 的错。
+   每个样本的输出只依赖相同样本的输入，跨样本导数为 0；每个对角块都是单样本 Linear 的 $$W^T$$。因此 VJP 可直接批量矩阵乘，无需构造完整 Jacobian。
 
    </details>
 
-[^q0]: 能。反向传播是沿计算图反向拓扑序对每个算子做一次 VJP（上游梯度 × 局部 Jacobian）；Linear 的三条公式 $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$\partial L/\partial b = \sum_i G_{i,:}$$ 可以从「梯度与被求导量同形」唯一重建，softmax + 交叉熵合并求导是 $$(P - Y)/m$$（[第三章](#三矩阵求导的形状规则)、[第四章](#四两层网络逐层推导)）。用 float64 的中心差分做梯度检查，相对误差 $$< 10^{-6}$$ 通过，本文实测与 autograd 差 $$10^{-8}$$（[第七章](#七梯度检查)、[第八章](#八autograd-做了什么)）。
-[^q1]: **$$6ND$$**：前向每个参数用一次乘加（$$2N$$ / token），反向每个 Linear 做两个 GEMM——一个算 $$\partial L/\partial W$$、一个算 $$\partial L/\partial X$$——所以是前向的两倍（$$4N$$），合计 $$6N$$ / token，实测比值 2.00（[第五章](#五反向为什么是前向的两倍)）。**激活要存**：$$\partial L/\partial W = X^T G$$ 需要本层的输入 $$X$$，它是前向的中间结果，不存就得重算——这就是 gradient checkpointing 用 33% 额外计算换掉的东西（[第六章](#六激活为什么要存)）。
+6. batch 从 128 增至 4096，本文逻辑激活表的 552 KiB 会怎样变化？权重呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   batch 放大 32 倍，逻辑表约为 17.3 MiB；权重不随 batch 变化，仍为 795 KiB。实际框架保存清单与逻辑表的项目有所不同，本文实测去重后是 526 KiB。
+
+   </details>
+
+7. 梯度检查为什么用 float64、中心差分和相对误差？
+
+   <details markdown="1"><summary>答案</summary>
+
+   float64 降低舍入误差；中心差分截断误差为 $$O(\epsilon^2)$$；相对误差能按梯度自身量级衡量偏差，避免小梯度被绝对误差误导。
+
+   </details>
+
+[^q0]: 反向传播沿计算图反向拓扑序对算子计算 VJP；Linear 的三条梯度公式可从形状重建，softmax 与交叉熵合并后的梯度为 $$(P-Y)/m$$。迷你网络中心差分对 $$dW_1,dW_2$$ 的最大相对误差为 $$4.515\times10^{-10}$$。
+[^q1]: Linear 前向约 $$2N$$ FLOPs / token，反向约 $$4N$$，合计 $$6N$$；激活要保存，因为权重梯度需要前向输入，checkpointing 用额外计算换保存空间。
