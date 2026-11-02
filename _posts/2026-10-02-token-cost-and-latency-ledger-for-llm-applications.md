@@ -54,7 +54,7 @@ Table: 四家的价目
 
 - **跨度三个量级**。同样一百万输入 token，GPT-6 Astra 与 Fable 5.1 是 10 美元，DeepSeek 闲时是 0.15 美元，命中缓存是 0.003 美元。选型（第五篇）的第一问不是"哪个最好"，是"这个任务值多少钱"。
 - **输出价是输入价的 4–6 倍**。Sonnet 5 是 5 倍，GPT-5.6 Sol 是 5 倍，Gemini 3.8 Flash 是 5 倍，DeepSeek 是 4 倍，Astra 是 5 倍。思考 token 按输出价，所以推理模型让这个比例更致命。
-- **缓存读价是输入价的 1/10 到 1/50**。OpenAI 与 Anthropic 多数模型 0.1×，Fable 5.1 0.025×，DeepSeek 0.02×。Anthropic 说 Fable 5.1 降读价的动机是 agent 场景里"缓存命中的费用往往占比最高"——DeepSeek 发布 V4.1 时说了同一句话，并把 KV cache 的压缩（HBM（high bandwidth memory，GPU 上的高带宽显存） 需求减到 1/4、SSD 减到 1/8）作为降价的技术原因。
+- **缓存读价是输入价的 1/10 到 1/50**。OpenAI 与 Anthropic 多数模型 0.1×，Fable 5.1 0.025×，DeepSeek 0.02×。Anthropic 说 Fable 5.1 降读价的动机是 agent 场景里"缓存命中的费用往往占比最高"——DeepSeek 发布 V4.1 时说了同一句话，并把 KV cache 的压缩（<span class="inline-tip" data-tip="high bandwidth memory，GPU 上的高带宽显存">HBM</span> 需求减到 1/4、SSD 减到 1/8）作为降价的技术原因。
 
 ### 3. 本文的章节安排
 
