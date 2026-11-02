@@ -164,7 +164,7 @@ encoder 输出 $$n_p$$ 个 $$d_{vit}$$ 维向量，decoder 需要 $$n_{img}$$ �
 |---|---|---|---|---|
 | MLP projector | LLaVA-1.5 | 每个 patch 向量独立过 2 层 MLP（1024 → 4096 → 4096） | $$= n_p$$，576 | $$d_{vit} d + d^2 \approx 21$$ M |
 | 空间合并 | Qwen2-VL（2×2 merge）、InternVL（pixel-shuffle） | 相邻 2×2 个 patch 的向量拼接成 $$4 d_{vit}$$ 维，再过 MLP | $$= n_p / 4$$ | Qwen2-VL：5120 → 5120 → 3584，约 45 M |
-| 重采样 | Flamingo 的 Perceiver Resampler、BLIP-2 的 Q-Former、MiniCPM-V | 固定数量的可学习 query 对 patch 向量做 cross-attention | 固定 64 / 96 / 256 | 数十到数百 M |
+| 重采样 | Flamingo 的 Perceiver Resampler、BLIP-2 的 <span class="inline-tip" data-tip="querying Transformer：BLIP-2 的 connector，K 个可学习 query 做 cross-attention">Q-Former</span>、MiniCPM-V | 固定数量的可学习 query 对 patch 向量做 cross-attention | 固定 64 / 96 / 256 | 数十到数百 M |
 
 Table: 三类 connector 的做法、token 数与参数量
 

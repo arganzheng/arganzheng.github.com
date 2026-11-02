@@ -1,271 +1,261 @@
 ---
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
-- term: bf16
-  full: bfloat16
-  desc: 16 位浮点，指数位与 fp32 一样多、尾数只有 7 位
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力的计量单位
-- term: fp16
-  full: 16-bit floating point
-  desc: 半精度浮点，混合精度训练里前向常用的格式
 - term: FSDP
   full: Fully Sharded Data Parallel
+  zh: 把参数、梯度、优化器状态切到各卡的数据并行
+  say: F-S-D-P
   desc: 把参数、梯度、优化器状态切到各卡的数据并行
-- term: GiB
-  full: gibibyte
-  desc: 二进制 GB，1 GiB = 1024 MiB，显存账本里都用它
 - term: LoRA
   full: Low-Rank Adaptation
+  zh: 低秩适配
+  say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结原权重、只训低秩矩阵的微调方法
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
+  zh: 均方根归一化
+  say: "「RMS-Norm」"
   desc: 只按均方根缩放、不减均值的归一化
-- term: RNN
-  full: recurrent neural network
-  desc: 循环神经网络，按时间步逐个处理序列
-- term: SFT
-  full: supervised fine-tuning
-  desc: 监督微调，用指令和回答对训练模型
-- term: NaN
-  full: not a number
-  desc: 浮点里的缺失值标记
-- term: RLHF
-  full: reinforcement learning from human feedback
-  desc: 基于人类反馈的强化学习
-- term: SGD
-  full: stochastic gradient descent
-  desc: 随机梯度下降，每步只用一小批样本
-- term: FP8
-  full: 8-bit floating point
-  desc: 8 位浮点数
 - term: EP
   full: expert parallelism
+  zh: 专家并行
+  say: 逐字母 E-P
   desc: 专家并行，把 MoE 的专家分到不同卡上
 - term: DP
   full: data parallelism
+  zh: 数据并行
+  say: 逐字母 D-P
   desc: 数据并行，每张卡一份完整模型
 - term: PP
   full: pipeline parallelism
+  zh: 流水线并行
+  say: 逐字母 P-P
   desc: 流水线并行，按层切到不同卡上
 - term: GEMM
   full: general matrix multiply
+  zh: 通用矩阵乘
+  say: "/dʒɛm/「jem」"
   desc: 通用矩阵乘
 - term: SM
   full: streaming multiprocessor
+  zh: GPU 流多处理器
+  say: 逐字母 S-M
   desc: GPU 的计算单元，通信 kernel 也要占用
 - term: TP
   full: tensor parallelism
+  zh: 张量并行
+  say: 逐字母 T-P
   desc: 张量并行，把一层的矩阵切到多张卡上
 - term: IB
   full: InfiniBand
+  zh: InfiniBand
+  say: 逐字母 I-B
   desc: InfiniBand 的简称
 - term: PD
   full: prefill–decode
+  zh: prefill–decode 分离
+  say: 逐字母 P-D
   desc: PD 分离：prefill 与 decode 放到不同节点上跑
 - term: ZeRO
   full: Zero Redundancy Optimizer
+  zh: DeepSpeed 的分片优化器
+  say: "「ZeRO」"
   desc: DeepSpeed 的分片优化器，去掉各卡上的冗余状态
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 混合专家模型，每个 token 只激活少数专家
-- term: RAG
-  full: retrieval-augmented generation
-  desc: 先检索资料，再让模型据此回答
 - term: AWQ
   full: Activation-aware Weight Quantization
+  zh: 激活感知权重量化
+  say: 逐字母 A-W-Q
   desc: 按激活大小保护关键权重的低比特量化方法
-- term: FP64
-  full: 64-bit floating point
-  desc: 双精度浮点
-- term: AMP
-  full: automatic mixed precision
-  desc: 自动混合精度：部分算子用低精度跑
-- term: TF32
-  full: TensorFloat-32
-  desc: Ampere 起 Tensor Core 用的 19 位精度矩阵乘格式
-- term: BF16
-  full: bfloat16
-  desc: 8 位指数的 16 位浮点，范围同 FP32
-- term: FP16
-  full: 16-bit floating point
-  desc: 半精度浮点，5 位指数、10 位尾数
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
+  zh: NVIDIA 矩阵乘模板库
+  say: "「卡特拉斯」"
   desc: NVIDIA 的 C++ 矩阵乘模板库
-- term: FP32
-  full: 32-bit floating point
-  desc: 单精度浮点，深度学习的默认精度
 - term: ulp
   full: unit in the last place
+  zh: 浮点数最低位一格代表的数值间隔
+  say: "「ulp」"
   desc: 浮点数最低位一格代表的数值间隔
-- term: BERT
-  full: Bidirectional Encoder Representations from Transformers
-  desc: 双向编码器模型，对照 decoder-only 的 GPT
 - term: CLIP
   full: Contrastive Language–Image Pre-training
+  zh: 对比语言-图像预训练
+  say: "/klɪp/「可利普」"
   desc: OpenAI 的图文对比模型，把图和文嵌进同一空间
 - term: FFN
   full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
   desc: 前馈网络：Transformer block 里 attention 之后的子层
 - term: GELU
   full: Gaussian error linear unit
+  zh: 高斯误差线性单元
+  say: "/ˈdʒɛl.uː/「杰-路」"
   desc: 平滑的 ReLU 变体，GPT 时代的默认激活
-- term: GLU
-  full: gated linear unit
-  desc: 门控线性单元：两路相乘做门控，SwiGLU 的原型
-- term: LSTM
-  full: long short-term memory
-  desc: 带门控记忆的 RNN，Transformer 之前的序列主力
 - term: MLP
   full: multi-layer perceptron
+  zh: 多层感知机
+  say: 逐字母 M-L-P
   desc: 多层感知机：线性层 + 非线性激活叠起来的网络
 - term: ReLU
   full: rectified linear unit
+  zh: 修正线性单元
+  say: "/ˈrɛl.juː/「瑞-路」"
   desc: max(0, x)，现代激活函数的起点
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把向量转一个角度
 - term: SiLU
   full: Sigmoid Linear Unit
+  zh: sigmoid 线性单元
+  say: "/ˈsaɪ.luː/「赛-路」"
   desc: x·sigmoid(x)，又叫 Swish；SwiGLU 的门控用它
 - term: SwiGLU
   full: Swish-Gated Linear Unit
+  zh: Swish 门控线性单元
+  say: "/ˈswɪɡ.luː/「斯威-glue」"
   desc: 用 SiLU 做门控的 FFN：两路相乘再降维
 - term: ViT
   full: Vision Transformer
+  zh: 视觉 Transformer
+  say: "/vɪt/「维特」"
   desc: 把图像切块当序列送进 Transformer
 - term: EAGLE
   full: "—"
+  zh: EAGLE 投机解码法
+  say: "/ˈiːɡəl/「伊-勾」"
   desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
-- term: GPTQ
-  full: "—"
-  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
-- term: INT4
-  full: 4-bit integer
-  desc: 均匀 16 格的 4 bit 整数量化
-- term: INT8
-  full: 8-bit integer
-  desc: 8 bit 整数量化，精度损失最小的低比特档
 - term: MLA
   full: multi-head latent attention
+  zh: 多头隐注意力
+  say: 逐字母 M-L-A
   desc: 把 KV 压成低秩隐向量的 attention，DeepSeek 用它
 - term: MTP
   full: multi-token prediction
+  zh: 多 token 预测
+  say: 逐字母 M-T-P
   desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
-- term: W4A16
-  full: "—"
-  desc: 权重 4 bit、激活 16 bit 的量化档，PTQ 的常用配置
-- term: W8A8
-  full: "—"
-  desc: 权重、激活都 8 bit 的量化档
-- term: SDPA
-  full: scaled dot-product attention
-  desc: PyTorch 的融合 attention 函数，自选 kernel
-- term: BPE
-  full: byte-pair encoding
-  desc: 字节对编码：反复合并最常见的相邻 pair 得到词表
 - term: GEMV
   full: general matrix–vector multiply
+  zh: 矩阵乘向量
+  say: G-E-M-V
   desc: 矩阵乘向量，decode 时 batch 为 1 的线性层
-- term: MMA
-  full: matrix multiply-accumulate
-  desc: 矩阵乘加，Tensor Core 指令的统称
-- term: FMA
-  full: fused multiply-add
-  desc: 融合乘加指令，不走 Tensor Core 的路径
-- term: BLIP-2
-  full: bootstrapped language-image pre-training
-  desc: Salesforce 的 VLM，connector 是 Q-Former
 - term: DiT
   full: diffusion transformer
+  zh: 用 Transformer 替代 U-Net 的…
+  say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
 - term: LLaVA
   full: large language and vision assistant
+  zh: 大语言视觉助手
+  say: "/ˈlɑːvə/「拉-瓦」"
   desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: M-RoPE
   full: multimodal RoPE
+  zh: Qwen2-VL 的三维（时间/高/宽）位置编码
+  say: "「M-RoPE」"
   desc: Qwen2-VL 的三维（时间/高/宽）位置编码
-- term: OCR
-  full: optical character recognition
-  desc: 光学字符识别，读出图里的文字
-- term: Q-Former
-  full: querying Transformer
-  desc: BLIP-2 的 connector：K 个可学习 query 做 cross-attention
 - term: VLM
   full: vision-language model
+  zh: 能看图回答问题的语言模型
+  say: V-L-M
   desc: 能看图回答问题的语言模型
 - term: MFU
   full: model FLOPs utilization
+  zh: 模型算力利用率
+  say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
 - term: TFLOPS
   full: tera floating point operations per second
+  zh: 每秒万亿次浮点运算
+  say: "「T-FLOPS」"
   desc: 每秒 10^12 次浮点运算，卡的峰值算力单位
 - term: HBM3
   full: High Bandwidth Memory 3
+  zh: H100 用的第三代高带宽显存
+  say: H-B-M 3
   desc: H100 用的第三代高带宽显存
 - term: SXM
   full: Server PCI Express Module
+  zh: NVIDIA 板载模组形态
+  say: 逐字母 S-X-M
   desc: NVIDIA 的板载模组形态，功耗与带宽高于 PCIe 卡
-- term: MXFP4
-  full: microscaling FP4
-  desc: 按小块共享缩放因子的 4 位浮点格式
 - term: FLOP
   full: floating point operation
+  zh: 一次浮点运算
+  say: F-L-O-P
   desc: 一次浮点运算；文中算力账按 FLOP 记
 - term: TFLOP
   full: tera floating point operations
+  zh: 万亿次浮点运算
+  say: "「T-FLOP」"
   desc: 10^12 次浮点运算
 - term: PFLOP
   full: peta floating point operations
+  zh: 10^15 次浮点运算
+  say: P-F-L-O-P
   desc: 10^15 次浮点运算
-- term: T5
-  full: Text-to-Text Transfer Transformer
-  desc: Google 的 encoder-decoder 模型，把任务都写成文本到文本
 - term: SRAM
   full: static random-access memory
+  zh: 片上静态存储
+  say: "「S-RAM」"
   desc: GPU 片上的小而快的存储
 - term: MHA
   full: multi-head attention
+  zh: 多头注意力
+  say: 逐字母 M-H-A
   desc: 多头注意力：每个头独立算一份注意力再拼接
 - term: MQA
   full: multi-query attention
+  zh: 多查询注意力
+  say: 逐字母 M-Q-A
   desc: 所有 q 头共享一组 k、v 头的注意力变体
 - term: NTK
   full: Neural Tangent Kernel
+  zh: 神经正切核
+  say: N-T-K
   desc: 神经正切核；NTK-aware 是 RoPE 外推的插值方式
 - term: PI
   full: position interpolation
+  zh: 把长窗口压回 RoPE 训练范围
+  say: P-I
   desc: 位置插值：把长窗口压回 RoPE 训练范围
-- term: E4M3
-  full: "—"
-  desc: FP8 的一种格式：4 位指数 3 位尾数，精度优先
-- term: E5M2
-  full: "—"
-  desc: FP8 的一种格式：5 位指数 2 位尾数，范围优先
 - term: SSM
   full: state-space model
+  zh: 状态空间模型
+  say: S-S-M
   desc: 状态空间模型，Mamba 一类的序列模型
 - term: HFU
   full: hardware FLOPs utilization
+  zh: 硬件算力利用率
+  say: H-F-U
   desc: 硬件算力利用率，不含重算的 MFU 变体
-- term: TPS
-  full: tokens per second
-  desc: 每秒处理的 token 数，吞吐指标
-- term: DPO
-  full: Direct Preference Optimization
-  desc: 直接偏好优化，不训奖励模型、直接用偏好对训策略
 - term: Adam
   full: adaptive moment estimation
+  zh: 自适应矩估计
+  say: "「亚当」"
   desc: 按梯度一阶、二阶矩自适应步长的优化器
-- term: lr
-  full: learning rate
-  desc: 学习率，每步梯度更新走的步长
 - term: HBM
   full: high bandwidth memory
+  zh: 高带宽显存
+  say: 逐字母 H-B-M
   desc: GPU 上的高带宽显存

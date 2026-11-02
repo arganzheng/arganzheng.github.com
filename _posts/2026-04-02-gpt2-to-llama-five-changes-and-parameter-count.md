@@ -62,7 +62,7 @@ $$
 
 ### 3. GELU 两矩阵 FFN → SwiGLU 三矩阵
 
-sigmoid、GELU、SiLU 与 GLU 家族的公式、导数和取舍见[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。
+sigmoid、GELU、SiLU 与 GLU（gated linear unit，两路相乘做门控） 家族的公式、导数和取舍见[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。
 
 **传统 FFN。** 原始 Transformer 的 FFN 是两个矩阵夹一个非线性：
 
@@ -302,7 +302,7 @@ for i in range(s):                              # 第 i 个 token 在看
 
 `config.json` 里通常没有 `head_dim` 字段，`transformers` 的默认是 $$d_{head} = d / n_h$$。近期模型有的显式写出 `head_dim`，读 config 时要检查。
 
-为什么 $$d_{head}$$ 几乎总是 128（Llama 2/3、Mistral、Qwen2.5、DeepSeek-V3 的 V 均如此，少数模型用 64 或 256）？从模型侧看，$$d_{head}$$ 是每个 head 做点积的维度，太小则单个 head 的表达能力不够，太大则 head 数太少。从系统侧看，attention kernel 把一个 head 的 Q、K、V 分块装进 SM 的共享内存，$$d_{head}$$ 决定了每个 tile 的宽度：128 个 BF16 恰好是 256 字节，与 Tensor Core 的 MMA 指令形状和共享内存的 bank 宽度对齐得很好；FlashAttention 一类 kernel 对 64 和 128 做了专门调优，$$d_{head} = 256$$ 时共享内存压力翻倍、可用的分块策略变少。这是模型超参数与 kernel 实现互相迁就的一个典型例子：一旦主流 kernel 围绕 128 优化，新模型就倾向于沿用 128。
+为什么 $$d_{head}$$ 几乎总是 128（Llama 2/3、Mistral、Qwen2.5、DeepSeek-V3 的 V 均如此，少数模型用 64 或 256）？从模型侧看，$$d_{head}$$ 是每个 head 做点积的维度，太小则单个 head 的表达能力不够，太大则 head 数太少。从系统侧看，attention kernel 把一个 head 的 Q、K、V 分块装进 SM 的共享内存，$$d_{head}$$ 决定了每个 tile 的宽度：128 个 BF16 恰好是 256 字节，与 Tensor Core 的 MMA（matrix multiply-accumulate，矩阵乘加） 指令形状和共享内存的 bank 宽度对齐得很好；FlashAttention 一类 kernel 对 64 和 128 做了专门调优，$$d_{head} = 256$$ 时共享内存压力翻倍、可用的分块策略变少。这是模型超参数与 kernel 实现互相迁就的一个典型例子：一旦主流 kernel 围绕 128 优化，新模型就倾向于沿用 128。
 
 四个矩阵的形状与参数量：
 

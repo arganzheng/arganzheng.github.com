@@ -215,7 +215,7 @@ INT4 在 $$B < \text{ridge}/4$$ 时兑现字节收益，投机解码在 $$B < \t
 | 独立小模型 | 同 tokenizer 的小模型自回归 γ 步 | 参数量之比，~0.05–0.15 | 0.6–0.8（取决于配对） |
 | Medusa（Cai 等 2024） | 目标模型顶层加 K 个头并行预测 t+2.. | ≈0（一次前向内） | 第 1 头 ~0.6–0.7，逐头下降 |
 | EAGLE（Li 等 2024） | 一层 Transformer 在特征级自回归起草 | ~0.02–0.05 | ~0.75–0.85（论文报告） |
-| n-gram / prompt lookup | 在上下文中查找 n-gram 复制后续 token | ≈0 | 任务依赖：改写/摘要/RAG 高，自由生成低 |
+| n-gram / prompt lookup | 在上下文中查找 n-gram 复制后续 token | ≈0 | 任务依赖：改写/摘要/<span class="inline-tip" data-tip="retrieval-augmented generation，先检索资料">RAG</span> 高，自由生成低 |
 | DeepSeek-V3 MTP | 训练时联合训练的一个额外 block | 1/61 层的量级 | 第二 token 85–90%（技术报告） |
 
 Table: 常见草稿方案的形态、代价 c 与接受率 α（文献通常报告的量级）

@@ -121,7 +121,7 @@ FP16 和 BF16 都是 16 位，差别只是把 3 位从尾数挪到了指数。�
 
 一次训练迭代中至少有四类张量：权重、激活、激活梯度、权重梯度。Micikevicius 等 2017 在提出混合精度训练时给出了一个典型网络的激活梯度直方图：大部分值分布在 $$2^{-40}$$ 到 $$2^{0}$$ 之间，其中相当一部分低于 FP16 的最小正规数 $$2^{-14}$$，甚至低于最小次正规数 $$2^{-24}$$。这不是特例：反向传播中梯度是链式乘积，经过几十层之后量级漂移几个十进制数量级是常态；而在同一个张量内部，不同通道的梯度差三四个数量级也是常态。
 
-与此相对，深度学习对**相对精度**的需求非常低。权重初始化本身就是随机的，训练过程中每步更新带来的相对变化在 $$10^{-3}$$ 量级；SGD 本身是一个带噪声的优化过程，前向和反向计算中引入 $$0.4\%$$（$$2^{-8}$$）的相对舍入噪声，只是在已有的 mini-batch 噪声上再叠一层小得多的噪声。大量的经验（Kalamkar 等 2019 对 BF16 训练的系统研究）表明，前向与反向的矩阵乘用 8 位有效数字，模型的收敛曲线与 FP32 基本重合。
+与此相对，深度学习对**相对精度**的需求非常低。权重初始化本身就是随机的，训练过程中每步更新带来的相对变化在 $$10^{-3}$$ 量级；SGD（stochastic gradient descent，随机梯度下降） 本身是一个带噪声的优化过程，前向和反向计算中引入 $$0.4\%$$（$$2^{-8}$$）的相对舍入噪声，只是在已有的 mini-batch 噪声上再叠一层小得多的噪声。大量的经验（Kalamkar 等 2019 对 BF16 训练的系统研究）表明，前向与反向的矩阵乘用 8 位有效数字，模型的收敛曲线与 FP32 基本重合。
 
 所以取舍很清楚：训练需要范围，不太需要精度。3 位尾数换 3 位指数，让梯度不需要任何缩放就能直接落进可表示区间，同时 BF16 与 FP32 的转换只是对低 16 位做一次舍入。这就是核心问题前半部分的答案：**BF16 不是"精度更差却被选中"，而是它把精度花在了训练不需要的地方省下来，换成了训练需要的范围**。
 
@@ -221,13 +221,13 @@ RMSNorm 是 Llama、DeepSeek、Qwen 一类模型的选择，它只算均方 $$\f
 
 Hopper 的 FP8 Tensor Core（`wgmma` 指令）名义上也用 FP32 累加器，但 DeepSeek-V3 的技术报告（DeepSeek-AI 2024）指出，在 H800 上 FP8 GEMM 的累加实际上只保留约 14 位有效精度，而不是完整的 24 位。这个差别在 BF16 GEMM 里无关紧要，在 FP8 GEMM 里却很致命：把上面的估算重做一遍，$$k = 4096$$、随机符号，$$64 \times 2^{-14} \approx 0.4\%$$，已经与 BF16 输出的表示误差同量级；如果是同号累加，或者 $$k = 14336$$、甚至 MoE 的 $$k = 7168$$ 再乘专家数，误差就会超过 FP8 输入本身带来的误差，成为主导项。报告的原话是，对 $$k = 4096$$ 的随机数据，这个截断会带来接近 2% 的相对误差。
 
-DeepSeek-V3 的解法是**分段提升（promotion）**：Tensor Core 每累加 $$N_C = 128$$ 个 $$k$$ 方向的元素（对 FP8 `wgmma` 的 $$k = 32$$ 来说就是每 4 条 WGMMA 指令），就把累加器里的部分和搬到 CUDA core 的 FP32 寄存器上加进最终结果，然后清零 Tensor Core 累加器重新开始。这样 14 位精度的累加深度被限制在 128 项以内（$$\sqrt{128} \times 2^{-14} \approx 7 \times 10^{-4}$$），跨段的累加在真正的 FP32 中完成。128 这个数字同时也是它分块量化的块大小（第六节），两者对齐后，每一段的反量化 scale 乘法也可以在搬到 CUDA core 的同时完成。代价是 Tensor Core 与 CUDA core 之间的数据搬运和 CUDA core 的额外 FMA，报告称通过与 WGMMA 的重叠把这部分开销控制在可接受范围。
+DeepSeek-V3 的解法是**分段提升（promotion）**：Tensor Core 每累加 $$N_C = 128$$ 个 $$k$$ 方向的元素（对 FP8 `wgmma` 的 $$k = 32$$ 来说就是每 4 条 WGMMA 指令），就把累加器里的部分和搬到 CUDA core 的 FP32 寄存器上加进最终结果，然后清零 Tensor Core 累加器重新开始。这样 14 位精度的累加深度被限制在 128 项以内（$$\sqrt{128} \times 2^{-14} \approx 7 \times 10^{-4}$$），跨段的累加在真正的 FP32 中完成。128 这个数字同时也是它分块量化的块大小（第六节），两者对齐后，每一段的反量化 scale 乘法也可以在搬到 CUDA core 的同时完成。代价是 Tensor Core 与 CUDA core 之间的数据搬运和 CUDA core 的额外 FMA（fused multiply-add，融合乘加指令），报告称通过与 WGMMA 的重叠把这部分开销控制在可接受范围。
 
 ## 六、混合精度训练
 
 ### 1. 三要素
 
-Micikevicius 等 2017 提出的混合精度训练包含三个部件，后来所有 FP16/BF16 训练（Megatron、DeepSpeed、PyTorch AMP）都是这三件事的变体：
+Micikevicius 等 2017 提出的混合精度训练包含三个部件，后来所有 FP16/BF16 训练（Megatron、DeepSpeed、PyTorch AMP（automatic mixed precision，部分算子用低精度跑））都是这三件事的变体：
 
 1. **FP32 master weights**：权重的权威副本用 FP32 保存，每步更新作用于它；前向反向使用的是它的低精度副本；
 2. **低精度前向与反向**：GEMM 输入用 FP16/BF16，累加用 FP32（上一节），激活以低精度保存，梯度以低精度计算；
@@ -742,7 +742,7 @@ Table: 本篇数字汇总：三个模型的权重与训练状态
 - BF16 累加 k=4096 的相对噪声：~2^-8 · sqrt(4096) = 0.25，不可用；
 - FP32 累加 k=4096 的相对噪声：~2^-24 · 64 = 4e-6，可忽略。
 
-正文到此结束。往下有两条路：把权重、激活与 KV 压到比 BF16 更少的位——scale 的粒度、校准、GPTQ / AWQ 与 FP8 推理量化——在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起；本篇的训练状态字节数接到[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。[《系列总结与通关自测》](/transformer-and-llm-series-recap-and-self-test.html)把十篇压成一张「问题 → 结论 → 必记数字」的表。
+正文到此结束。往下有两条路：把权重、激活与 KV 压到比 BF16 更少的位——scale 的粒度、校准、GPTQ（逐层用二阶信息补偿误差的训练后权重量化方法） / AWQ 与 FP8 推理量化——在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03 篇起；本篇的训练状态字节数接到[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)与[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。[《系列总结与通关自测》](/transformer-and-llm-series-recap-and-self-test.html)把十篇压成一张「问题 → 结论 → 必记数字」的表。
 
 配套代码：第九章的四段实验分别是 [`fp_formats.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/fp_formats.py)、[`bf16_update_swallowed.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/bf16_update_swallowed.py)、[`gemm_error_vs_k.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/gemm_error_vs_k.py) 与 [`llm_cost_06_dtype_state.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_06_dtype_state.py)。
 

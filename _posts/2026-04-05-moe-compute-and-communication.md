@@ -119,7 +119,7 @@ flowchart TB
 
 对一个 token 而言，这一层只执行了 $$k$$（加共享）个 FFN 的计算，算量是 $$k \cdot 6 d d_{ff}$$，与 $$E$$ 无关。但这一层持有 $$E \cdot 3 d d_{ff}$$ 个参数，全部要放在显存里。参数量与算量的解耦就发生在这里。
 
-这个想法本身不新：Shazeer 等 2017 在 LSTM 上做过稀疏门控的 MoE 层，GShard（Lepikhin 等 2020）与 Switch Transformer（Fedus 等 2021）把它搬到 Transformer 并解决了大规模训练的均衡与并行问题。Mixtral（Jiang 等 2024）与 DeepSeek 系列让它成为开源模型的主流结构。结构层面几年没有大变，变的是粒度与规模，而正是粒度与规模决定了系统成本。
+这个想法本身不新：Shazeer 等 2017 在 LSTM（long short-term memory，带门控记忆的 RNN） 上做过稀疏门控的 MoE 层，GShard（Lepikhin 等 2020）与 Switch Transformer（Fedus 等 2021）把它搬到 Transformer 并解决了大规模训练的均衡与并行问题。Mixtral（Jiang 等 2024）与 DeepSeek 系列让它成为开源模型的主流结构。结构层面几年没有大变，变的是粒度与规模，而正是粒度与规模决定了系统成本。
 
 还要注意 MoE 只替换 FFN，attention 部分与 dense 模型完全相同。因此一个 MoE 模型里 attention 的参数、KV cache、对上下文长度的二次方算量，都和同结构的 dense 模型一样——第六至八篇的所有结论直接适用。MoE 改变的只是 FFN 那一块的参数、算量与访存之间的比例关系。
 

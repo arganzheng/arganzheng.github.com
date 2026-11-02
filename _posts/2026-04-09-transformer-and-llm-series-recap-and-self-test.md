@@ -543,7 +543,7 @@ Table: 掌握程度的判据
 本系列只讨论模型作为一个**计算对象**的结构与成本。以下内容与它紧邻，但不在范围内：
 
 - **预训练**：tokenizer 与词表、scaling law、数据工程、训练配方与稳定性——这个模型**怎么训出来**的账，在紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
-- **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法不在本系列。
+- **后训练**：SFT（supervised fine-tuning，监督微调）、RLHF（reinforcement learning from human feedback，基于人类反馈的强化学习） / DPO（Direct Preference Optimization，直接偏好优化）、蒸馏、评测。把一个基座模型变成对话模型的方法不在本系列。
 - **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。推导在算法地图的 L3 系列。
 - **kernel 实现**：FlashAttention 的分块与 online softmax 如何写、量化 GEMM 如何反量化、MoE 的 permute 与 grouped GEMM 如何实现。本系列只推导它们的 IO 复杂度与收益区间，把实现当作黑盒。
 - **推理引擎的调度与内存管理**：continuous batching、PagedAttention 的 block 管理、prefix caching、PD 分离。本系列给出这些机制所依据的数字，不讲机制本身。
