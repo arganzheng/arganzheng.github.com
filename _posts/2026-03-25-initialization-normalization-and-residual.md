@@ -135,6 +135,17 @@ $$
 
 这就是第一章里纯 Linear 情形下的 $$a_l=n_{in}\sigma_w^2$$。要让方差不变，$$\sigma_w^2 = 1 / n_{in}$$。代 $$n_{in} = 256$$ 进去看这条链有多敏感：$$\sigma_w^2 = 1/256$$ 时每层方差乘 1；$$\sigma_w^2 = 2/256$$ 时每层乘 2，64 层后是 $$2^{64} \approx 1.8 \times 10^{19}$$；$$\sigma_w^2 = 0.5/256$$ 时每层乘 0.5，64 层后是 $$2^{-64} \approx 5.4 \times 10^{-20}$$。
 
+用 NumPy 在 batch 4096、$$n_{in} = 256$$ 上实测这个公式（`case_05_init_toys.py layer-var`），并把 ReLU 的因子 2 一起看了：
+
+```text
+单层 Linear：n_in=256，batch=4096，Var(x)=1；公式 Var(y) = n_in * sigma_w^2 * Var(x)，ReLU 后二阶矩约 x1/2
+sigma_w^2 = 1/n_in  (0.00391): Var(y) 实测 0.9873 vs 公式 1.0016 | ReLU 后二阶矩 实测 0.4937 vs 公式 0.5008
+sigma_w^2 = 2/n_in  (0.00781): Var(y) 实测 2.0040 vs 公式 2.0033 | ReLU 后二阶矩 实测 1.0031 vs 公式 1.0016
+sigma_w^2 = 0.5/n_in (0.00195): Var(y) 实测 0.4925 vs 公式 0.5008 | ReLU 后二阶矩 实测 0.2467 vs 公式 0.2504
+```
+
+实测与公式逐项对上：$$\text{Var}(y) = n_{in}\sigma_w^2\sigma_x^2$$，ReLU 后二阶矩恰好剩一半——这就是第三章 Kaiming 的 $$2/n_{in}$$ 里那个 2 的来源。
+
 ### 2. 反向的方差传播
 
 反向传播里 $$\partial L / \partial x = W^T (\partial L / \partial y)$$（推导见《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的「三、矩阵求导的形状规则 · 1. Linear 层的三条公式」）。写成分量是 $$\partial L/\partial x_j=\sum_i W_{ij}\,\partial L/\partial y_i$$，是 $$n_{out}$$ 项之和，每项是一个权重乘一个上游梯度。按上一节的办法算方差，得到 $$\text{Var}(\partial L / \partial x_j) = n_{out}\, \sigma_w^2\, \text{Var}(\partial L / \partial y_i)$$，不变的条件是 $$\sigma_w^2 = 1/n_{out}$$。ReLU 网络是 $$2 / n_{out}$$：ReLU 反向只让输入为正的那一半位置的梯度通过，原因和[第三章](#三方案一初始化)第 2 节前向砍掉一半相同。
@@ -237,11 +248,36 @@ RMSNorm 去掉了减均值这一步和 $$\beta$$。省的东西可以列出来�
 
 效果上减均值本来就无关紧要：归一化的作用主要来自"固定尺度"，不来自"中心化"。用上一节的向量对照一下就清楚——$$x=[2,4,6,8]$$ 有均值，LN 与 RMSNorm 输出不同；而 $$x=[-3,-1,1,3]$$ 均值本来就是 0（$$\text{RMS}=\sqrt{5}$$），LN 与 RMSNorm 给出完全相同的输出 $$[-1.342,\,-0.447,\,0.447,\,1.342]$$。激活值一旦接近零均值，减均值就不再做功。Zhang & Sennrich 的实验与后来 Llama 系列的实践也表明质量不受影响，当前 LLM（Llama、Qwen、DeepSeek、Gemma）几乎全用 RMSNorm。
 
+上面这组手算数字用 `case_05_init_toys.py rms-vs-ln` 跑一遍完全一致：
+
+```text
+x = [2.0, 4.0, 6.0, 8.0]: LN = [-1.342, -0.447, 0.447, 1.342]   RMSNorm = [0.365, 0.73, 1.095, 1.461]
+x = [-3.0, -1.0, 1.0, 3.0]: LN = [-1.342, -0.447, 0.447, 1.342]   RMSNorm = [-1.342, -0.447, 0.447, 1.342]
+```
+
 它的反向也更简单：记 $$\hat x = x / r$$，$$r = \sqrt{\text{mean}(x^2) + \epsilon}$$，则 $$\partial L / \partial x = \frac{1}{r}\left[ g - \hat x \cdot \text{mean}(g \odot \hat x) \right]$$，其中 $$g = \gamma \odot \partial L / \partial \hat x$$。推导只有一步：$$\hat x_i=x_i/r$$ 对 $$x_j$$ 求导分两部分，分子直接给出 $$\delta_{ij}/r$$；分母 $$r$$ 也依赖 $$x_j$$，$$\partial r/\partial x_j=x_j/(d\,r)$$，贡献 $$-x_ix_j/(d\,r^3)$$。乘上 $$g_i$$ 对 $$i$$ 求和，再用 $$x/r=\hat x$$ 整理，就是上式。[第九章](#九案例把-mlp-加深到-64-层七种接法哪些能训)的代码实现了 LayerNorm 与 RMSNorm 两个类的前向反向。
 
 ### 4. 归一化的另一个作用：尺度不变性
 
 归一化之后的输出对输入的整体尺度不敏感：$$\text{Norm}(cx) = \text{Norm}(x)$$。第 1 节的向量就能验证：$$\text{Norm}([4,8,12,16]) = \text{Norm}([2,4,6,8])$$，乘 2 的输出一模一样。于是归一化层**之前**那个权重矩阵的尺度不影响前向——$$W$$ 乘 2，输出不变。这带来一个重要的副作用：该权重的梯度与它的范数成反比。设 loss 是 $$\ell(W)$$，因为 $$\ell(cW)=\ell(W)$$ 对任何 $$c>0$$ 成立，两边对 $$W$$ 求导得 $$c\,\nabla\ell(cW)=\nabla\ell(W)$$，即 $$\nabla\ell(cW)=\nabla\ell(W)/c$$：权重放大 $$c$$ 倍，梯度缩小 $$c$$ 倍，相对更新缩小 $$c^2$$ 倍。这等价于一个随权重范数自动调节的有效学习率。这是 weight decay 在有归一化的网络里仍然有用的原因之一（见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的「五、AdamW 与 L2 正则的区别 · 3. LLM 里 weight decay 的真实含义」），也是初始化常数可以不随宽度变的原因（[第三章](#三方案一初始化)第 3 节）。
+
+两个结论都能一行代码验证（`case_05_init_toys.py scale-inv`）：左边是 $$x$$ 与 $$2x$$ 过 LayerNorm 的逐元素输出，右边是同一个 Linear→LayerNorm 里把 $$W$$ 乘 2 前后梯度范数的对比：
+
+![左：x = [2,4,6,8] 与 2x 过 LayerNorm 输出逐元素相同；右：W 乘 2 前向不变、dL/dW 的范数变为一半](/img/in-post/dl-init-scale-invariance.svg)
+
+```text
+x = [2,4,6,8] 与 2x：
+  LN(x)  = [-1.3416, -0.4472, 0.4472, 1.3416]
+  LN(2x) = [-1.3416, -0.4472, 0.4472, 1.3416]  —— 相同
+  RMS(x) = [0.3651, 0.7303, 1.0954, 1.4606]
+  RMS(2x)= [0.3651, 0.7303, 1.0954, 1.4606]  —— 相同
+
+Linear -> LN：W 乘 c=2
+  前向输出相同（max|diff| = 1.19e-06）
+  ||dL/dW|| c=1: 13.7741   c=2: 6.8870   比值 0.5000 = 1/c
+```
+
+前向输出差到 $$10^{-6}$$ 量级（浮点误差），梯度范数恰好变成 $$1/2$$——尺度不变性是定理不是近似。
 
 ### 5. 归一化修不了反向的连乘
 
@@ -276,6 +312,24 @@ $$
 **没有归一化时，方差每层翻倍。** 若 $$f_l(x) = W_2\, \text{ReLU}(W_1 x)$$ 且初始化让 $$\text{Var}(f_l(x)) \approx \text{Var}(x)$$，则 $$\text{Var}(x_{l+1}) = \text{Var}(x_l) + \text{Var}(f_l(x_l)) \approx 2\,\text{Var}(x_l)$$。两项方差能直接相加，是因为初始化时 $$f_l(x_l)$$ 和 $$x_l$$ 近似不相关（$$W_1, W_2$$ 是新的随机矩阵）。因为 $$f_l$$ 对输入尺度是齐次的——$$x$$ 大一倍，$$f_l(x)$$ 也大一倍。64 层后方差是 $$2^{64}$$，标准差 $$2^{32} \approx 4 \times 10^9$$。第九章的 "res-nonorm" 配置实测第 64 块标准差 $$6.0 \times 10^9$$，第一步就 NaN。
 
 **有 Pre-Norm 时，方差线性增长。** $$f_l(x) = W_2\, \text{ReLU}(W_1\, \text{Norm}(x))$$，归一化让 $$f_l$$ 的输出方差与 $$x$$ 的尺度无关，是一个常数 $$\sigma_f^2$$。于是 $$\text{Var}(x_L) = \text{Var}(x_0) + L \sigma_f^2$$——线性，不是指数。实测 Pre-Norm 配置第 1 块标准差 1.29、第 64 块 1.46，方差从 1.66 到 2.13，几乎可以忽略。
+
+把三种接法在同一个 64 块、宽 256 的网络上逐块量一遍（`case_05_init_toys.py residual-var`，配置与第九章实验相同），三条曲线就是三个公式：
+
+![64 个残差块残差流标准差的对数纵轴曲线：无归一化一条直线冲上去（方差每层翻倍，块 64 达 6e9）；Pre-Norm 缓慢线性上抬到 8.1；Pre-Norm 加 GPT-2 缩放贴着 1.3–1.5 几乎水平](/img/in-post/dl-init-residual-var.svg)
+
+<details markdown="1"><summary>实测输出</summary>
+
+```text
+64 个残差块（宽 256，batch 256 张 MNIST）：残差流 std 实测 vs 公式
+块号      1      8     16     32     64
+无归一化（公式 std x2^(l/2)）                       1.90e+00  2.09e+01  3.24e+02  6.95e+04  6.00e+09
+Pre-Norm（公式 Var = Var0 + l*sig_f^2）         1.66e+00  3.03e+00  4.17e+00  5.51e+00  8.11e+00
+Pre-Norm + out-proj /sqrt(2L)（近似平）          1.29e+00  1.31e+00  1.33e+00  1.37e+00  1.46e+00
+```
+
+</details>
+
+对数轴上红线是一条直线——指数增长在对数坐标下的样子；蓝线是线性方差增长（块 64 实测 8.11，公式 $$\sqrt{1+64\sigma_f^2}$$ 用块 1 的 $$\sigma_f^2 = 1.744$$ 估得 10.6，同量级）；绿线就是下一节的 GPT-2 缩放，几乎水平。
 
 ### 3. GPT-2 的残差分支缩放 1/√(2L)
 
@@ -321,7 +375,7 @@ Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性�
 
 Table: 大模型上的稳定性工具
 
-loss spike——训练中 loss 突然跳高、有时能恢复有时不能——是这些工具共同的敌人。它的来源有数据（一个异常 batch）、有数值（bf16 下的溢出）、有结构（attention logits 增长）；排查从看哪一层的梯度范数先跳开始，这是下一章的内容。
+loss spike——训练中 loss 突然跳高、有时能恢复有时不能——是这些工具共同的敌人。它的来源有数据（一个异常 batch）、有数值（bf16 下的溢出）、有结构（attention logits 增长）；排查从看哪一层的梯度范数先跳开始，这是下一章的内容。QK-LayerNorm 在真实训练里的效果见《[大规模训练工程（10）：训练稳定性与数据管线](/training-stability-and-data-pipeline.html)》「[三、预防 · 3. z-loss 与 QK-LayerNorm](/training-stability-and-data-pipeline.html#3-z-loss-与-qk-layernorm)」的实测：induction 任务上不带它 logit 300 步内涨到 724、带上后钉在 norm gain $$\times \sqrt{d}$$ 附近不再增长。
 
 ## 八、诊断
 
@@ -335,7 +389,11 @@ loss spike——训练中 loss 突然跳高、有时能恢复有时不能——�
 
 Table: 训练诊断：三条曲线的健康形状与病态
 
-第一条对应第[二](#二一条链前向的方差与反向的-jacobian)、[五](#五方案三残差连接)章，第二条对应第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)、[六](#六pre-norm-与-post-norm)章，第三条是《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的内容。三条曲线加起来，第一章那张表里的每一种失败都能在几百步之内被定位到具体的层与具体的原因。
+第一条对应第[二](#二一条链前向的方差与反向的-jacobian)、[五](#五方案三残差连接)章，第二条对应第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)、[六](#六pre-norm-与-post-norm)章，第三条是《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的内容。三条曲线加起来，第一章那张表里的每一种失败都能在几百步之内被定位到具体的层与具体的原因。把第九章那批数据画出来，健康与病态的差别一眼可见：
+
+![三个小图：激活 RMS vs 层（prenorm 贴着 1、res-nonorm 冲到 1e9）；梯度范数 vs 层（prenorm 平坦、ln 无残差从 0.26 升到 1.48）；max ΔW/W vs 步（prenorm 与 ln 的对数坐标曲线，虚线标 1e-3）](/img/in-post/dl-init-diagnosis.svg)
+
+读法：左图红线（res-nonorm）指数抬升对应表里的「随深度指数增长 → 残差没有归一化」；中图红线（ln 无残差）从底层到顶层 6 倍对应「随深度变化几个量级 → 没有残差」；右图两条都在 $$10^{-3}$$ 虚线附近、ln 那条偏高，是这个量级还没失控的状态——它的问题在中图已经暴露了。
 
 ## 九、案例：把 MLP 加深到 64 层——七种接法哪些能训
 
@@ -421,7 +479,7 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
 - 规模化之后的补丁——warmup、裁剪、QK-norm、z-loss、$$\mu$$P、$$\beta_2 = 0.95$$——各针对一个具体的失稳来源；诊断看三条曲线：各层激活 RMS、各层梯度范数、更新量 / 参数比。
 - 有了稳定的梯度之后怎么用它更新参数，见《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》。
 
-配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练，[`case_02_deep_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_deep_mlp.py) 把它们画成曲线；[`case_02_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_concept_figures.py) 生成本篇的概念图与模拟数字；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`。
+配套代码：[`deep-learning-foundations/02_init_norm_residual.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/02_init_norm_residual.py)——七种接法的初始化统计与 300 步训练，[`case_02_deep_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_deep_mlp.py) 把它们画成曲线；[`case_02_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_concept_figures.py) 生成本篇的概念图与模拟数字；`dlf/layers.py` 里是 LayerNorm / RMSNorm / Residual 的实现与 `make_deep_mlp`；[`case_05_init_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_05_init_toys.py) 是本文各处公式的小验证（单层方差、残差流 std、尺度不变性、LN vs RMSNorm）与三张配图。
 
 ## 十一、自测
 
@@ -462,6 +520,14 @@ res-nonorm-scaled 要把学习率降到 0.001 才能训（300 步 loss 0.22）�
    <details markdown="1"><summary>答案</summary>
 
    Post-Norm 的特征（顶层梯度大于底层，Xiong 等 2020）；缺 warmup——初期大梯度需要小学习率压住。换 Pre-Norm 或加 warmup。
+
+   </details>
+
+6. 64 个残差块、每个块往残差流上加一个方差与输入同量级的分支，不加归一化与加 Pre-Norm，残差流的标准差在第 64 块各是多少量级？GPT-2 再乘 $$1/\sqrt{2L}$$ 后呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   无归一化：方差每层翻倍，$$\text{Var} \approx 2^{64}$$、std $$\approx 2^{32} \approx 4 \times 10^9$$（实测 $$6 \times 10^9$$），第一步就 NaN。Pre-Norm：方差线性增长 $$\text{Var} = \text{Var}_0 + L\sigma_f^2$$，std 只到个位数（实测 8.1）。再加 GPT-2 的 $$1/\sqrt{2L}$$ 缩放：几乎不随深度变（实测 1.46）。
 
    </details>
 
