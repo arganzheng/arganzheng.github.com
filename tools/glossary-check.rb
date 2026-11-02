@@ -24,7 +24,14 @@ WELL_KNOWN = %w[
   AI ML LLM GPT GPU CPU TPU API SDK CLI IDE UI UX OS I/O IO
   RAM SSD HTTP HTTPS URL JSON YAML SQL HTML CSS JS PDF CSV ID
   PR CI CD AMD NVIDIA KV NLP CV RL CUDA UTF-8 XOR
-  P99
+  P99 A/B ABI ACK AOP AOT AST B2B BC BI BLAS CC CLT CRM CSP
+  CVE CVSS DFS DMA DOM DTO E2E ELF ERP ETA F64 FAQ FSM GA GC
+  GCC GIL HPC IAM IM IPC IR ISA JDK JIT JNI JSONL JVM Jinja
+  K8s LAPACK LLVM LOC LRU MKL MPI MPS MSVC NIC NPU NUMA NVMe
+  NaN NeurIPS OCR OOM OSS OTA OTel OWASP OpenMP P2P PCI PCIe
+  PEP PII PyPI QA QPS RC RCE ROI RPC RPM RPO SaaS SIGSEGV SLA
+  SLO SMS SPI SRE SSE TCP TPS TTL UB UCI UTC WARC XML ZMQ gRPC
+  venv pdb parquet sdist ndarray KEDA FinOps ARO AIME
 ].map(&:upcase).freeze
 
 ROOT = File.expand_path('..', __dir__)
@@ -67,6 +74,8 @@ Dir.glob(File.join(ROOT, '_data', 'glossary', '*.yml')).sort.each do |file|
     failures << "#{key}.yml: duplicate term '#{term}'" if seen[term]
     seen[term] = true
     failures << "#{key}.yml '#{term}': missing full" if e['full'].to_s.strip.empty?
+    failures << "#{key}.yml '#{term}': missing zh" if e['zh'].to_s.strip.empty?
+    failures << "#{key}.yml '#{term}': missing say" if e['say'].to_s.strip.empty?
     failures << "#{key}.yml '#{term}': missing desc" if e['desc'].to_s.strip.empty?
     failures << "#{key}.yml '#{term}': well-known abbreviation, remove it" if WELL_KNOWN.include?(term.to_s.upcase.sub(/ CACHE\z/, ''))
 
