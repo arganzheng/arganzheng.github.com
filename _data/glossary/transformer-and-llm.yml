@@ -1,73 +1,61 @@
 ---
 - term: DDP
   full: Distributed Data Parallel
+  zh: 每卡一份完整模型
+  say: D-D-P
   desc: PyTorch 的多卡数据并行训练方式
 - term: FFN
   full: feed-forward network
+  zh: 前馈网络
+  say: 逐字母 F-F-N
   desc: 每层里逐 token 做「放大 → 非线性 → 压回」的前馈子层
 - term: RoPE
   full: rotary position embedding
+  zh: 旋转位置编码
+  say: "/roʊp/「柔普」"
   desc: 按位置旋转 q、k 的位置编码，Llama 采用
 - term: GELU
   full: Gaussian error linear unit
+  zh: 高斯误差线性单元
+  say: "/ˈdʒɛl.uː/「杰-路」"
   desc: ReLU 的平滑版激活函数，GPT-2 的 FFN 用它
-- term: MLP
-  full: multi-layer perceptron
-  desc: 多层感知机；在 Transformer 里就是 FFN 子层
 - term: FLOPs
   full: floating-point operations
+  zh: 浮点运算次数
+  say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力开销单位
 - term: GQA
   full: grouped-query attention
+  zh: 分组查询注意力
+  say: 逐字母 G-Q-A
   desc: 多个 query 头共享一组 K、V，缩小 KV cache
 - term: SiLU
   full: Sigmoid Linear Unit
+  zh: sigmoid 线性单元
+  say: "/ˈsaɪ.luː/「赛-路」"
   desc: x·sigmoid(x) 形式的激活函数，Llama 的 FFN 用它
-- term: d2l
-  full: Dive into Deep Learning
-  desc: "《动手学深度学习》，本文拿它的 10.7 节做术语对照"
 - term: BERT
   full: Bidirectional Encoder Representations from Transformers
+  zh: 双向编码器表示
+  say: "「伯特」"
   desc: Google 2018 年的 encoder-only 模型
-- term: T5
-  full: Text-to-Text Transfer Transformer
-  desc: Google 的 encoder-decoder 模型，把任务都写成文本到文本
-- term: BART
-  full: Bidirectional and Auto-Regressive Transformers
-  desc: Facebook 的 encoder-decoder 去噪预训练模型
-- term: SVD
-  full: singular value decomposition
-  desc: 奇异值分解
-- term: bf16
-  full: bfloat16
-  desc: 16 位浮点格式，指数位与 FP32 相同
-- term: HBM
-  full: high bandwidth memory
-  desc: GPU 的显存，容量大但比片上存储慢
-- term: SRAM
-  full: static random-access memory
-  desc: GPU 片上的小而快的存储
-- term: ReLU
-  full: rectified linear unit
-  desc: 负半轴截成 0 的激活函数
 - term: SwiGLU
   full: Swish-Gated Linear Unit
+  zh: Swish 门控线性单元
+  say: "/ˈswɪɡ.luː/「斯威-glue」"
   desc: 带门控的 FFN 激活，Llama 用三个矩阵实现
 - term: MoE
   full: mixture of experts
+  zh: 混合专家
+  say: 逐字母 M-O-E
   desc: 把 FFN 复制成多个专家、每个 token 只走其中几个
 - term: RNN
   full: recurrent neural network
+  zh: 循环神经网络
+  say: 逐字母 R-N-N
   desc: 按时间步递推的循环神经网络
-- term: CNN
-  full: convolutional neural network
-  desc: 卷积神经网络
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
+  zh: 均方根归一化
+  say: "「RMS-Norm」"
   desc: 只除均方根、不减均值的 LayerNorm 简化版
-- term: BLEU
-  full: bilingual evaluation understudy
-  desc: 机器翻译常用的自动评分指标
-- term: NeurIPS
-  full: Conference on Neural Information Processing Systems
-  desc: 机器学习顶级会议
