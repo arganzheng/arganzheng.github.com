@@ -1,73 +1,21 @@
 ---
-- term: GC
-  full: garbage collection
-  desc: 垃圾回收，这里指回收循环引用的分代回收器
-- term: ABI
-  full: application binary interface
-  desc: 二进制接口，决定编译好的扩展能否直接加载
 - term: RSS
   full: resident set size
+  zh: 进程实际占用的物理内存
+  say: R-S-S
   desc: 进程实际占用的物理内存
-- term: OOM
-  full: out of memory
-  desc: 内存或显存耗尽，进程被杀或报错
-- term: PEP
-  full: Python Enhancement Proposal
-  desc: Python 的改进提案，语言和生态规范都以它为准
 - term: MRO
   full: method resolution order
+  zh: 方法解析顺序
+  say: M-R-O
   desc: 方法解析顺序，决定 super() 和属性查找走哪个父类
-- term: ABC
-  full: abstract base class
-  desc: 抽象基类，要求子类显式继承并实现抽象方法
-- term: TGI
-  full: Text Generation Inference
-  desc: Hugging Face 的大模型推理服务
-- term: AST
-  full: abstract syntax tree
-  desc: 抽象语法树，源码解析后的树形结构
-- term: GIL
-  full: global interpreter lock
-  desc: 全局解释器锁，同一时刻只有一个线程执行 Python 字节码
 - term: LEGB
   full: Local, Enclosing, Global, Built-in
+  zh: 名称查找的四层顺序
+  say: L-E-G-B
   desc: 名称查找的四层顺序，编译期就决定了走哪一层
-- term: JVM
-  full: Java Virtual Machine
-  desc: Java 虚拟机，加载 .class 并解释或即时编译
-- term: JIT
-  full: just-in-time compilation
-  desc: 运行时把热点字节码编译成机器码
-- term: venv
-  full: virtual environment
-  desc: 标准库自带的虚拟环境，隔离一套解释器和依赖
-- term: ORM
-  full: object-relational mapping
-  desc: 对象关系映射，把数据库表映射成类，常用元类实现
-- term: AOP
-  full: aspect-oriented programming
-  desc: 面向切面编程，Java 靠动态代理在调用路径上插逻辑
-- term: JDK
-  full: Java Development Kit
-  desc: Java 开发工具包，这里指它自带的动态代理
-- term: CGLIB
-  full: Code Generation Library
-  desc: 运行时生成子类做代理的 Java 字节码库
-- term: DTO
-  full: data transfer object
-  desc: 只装数据、在层与层之间传递的对象
 - term: ROCm
   full: Radeon Open Compute
+  zh: AMD GPU 软件栈
+  say: "/ˈrɒkəm/「若康」"
   desc: AMD 的 GPU 计算平台，对应 CUDA
-- term: SPI
-  full: Service Provider Interface
-  desc: Java 的插件发现机制，用 ServiceLoader 加载实现类
-- term: PyPI
-  full: Python Package Index
-  desc: 官方的 Python 包仓库，types-* 存根包也发在这里
-- term: sdist
-  full: source distribution
-  desc: 源码分发包，安装时在本地构建
-- term: RPC
-  full: remote procedure call
-  desc: 远程过程调用，序列化后类型信息会丢失
