@@ -24,7 +24,7 @@ VLM 由四个部件组成：分辨率策略 → 视觉编码器 → connector �
 
 | 模型 | 分辨率 | 编码器 | connector | 压缩 | 注入 | 一张图的 token |
 |---|---|---|---|---|---|---|
-| Flamingo（2022） | 固定 | NFNet | Perceiver resampler | 固定 64 | cross-attention（gated） | 64（不进序列） |
+| Flamingo（2022） | 固定 | <span class="inline-tip" data-tip="normalizer-free network，Flamingo 用的无归一化 CNN 编码器">NFNet</span> | Perceiver resampler | 固定 64 | cross-attention（gated） | 64（不进序列） |
 | BLIP-2（2023） | 224 | EVA ViT-g | Q-Former（32 query） | 固定 32 | decoder 序列 | 32 |
 | LLaVA-1.5（2023） | 336 | CLIP-L/14-336 | 2 层 MLP | 无 | decoder 序列 | 576 |
 | Qwen-VL（2023） | 448 | ViT-bigG | cross-attention resampler（256 query） | 固定 256 | decoder 序列 | 256 |

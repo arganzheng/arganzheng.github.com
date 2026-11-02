@@ -30,7 +30,7 @@ updated: 2026-10-18
 |---|---|---|---|---|---|
 | 有监督分类 | ViT-L/16 (ImageNet-21k) | 人工标注的 1000 / 21K 类标签 | 类别判别性特征 | 类别之外的一切；与语言无对齐 | 早期（2021）用过，很快被替代 |
 | 对比 | CLIP、OpenCLIP、SigLIP、DFN、EVA-CLIP | 图文对是否匹配 | 与文本对齐的全局语义 | 计数、空间关系、文字、细粒度 | **主流**：LLaVA、Qwen-VL、InternVL、PaliGemma、Gemma 3 |
-| 自蒸馏 | DINOv2、iBOT | 同一张图的不同裁剪要给出一致的特征 | 局部、几何、密集特征；对细节敏感 | 无语言对齐；全局语义弱于 CLIP | 混用（Cambrian-1、Eagle：多编码器拼接）或作为 CLIP 的补充 |
+| 自蒸馏 | DINOv2、<span class="inline-tip" data-tip="image BERT pre-training with online tokenizer，自蒸馏 + patch 级掩码目标的自监督方法">iBOT</span> | 同一张图的不同裁剪要给出一致的特征 | 局部、几何、密集特征；对细节敏感 | 无语言对齐；全局语义弱于 CLIP | 混用（Cambrian-1、Eagle：多编码器拼接）或作为 CLIP 的补充 |
 | 掩码重建 | MAE、EVA 的 MIM 初始化 | 遮住大部分 patch、重建被遮住的部分 | 细节特征 | 线性可分性差；无语言对齐 | 不直接用作 VLM 编码器；价值在初始化 |
 | 端到端联合训练 | Fuyu、EVE、Chameleon | 不设独立的视觉目标，与 LLM 一起从头训 | 与 LLM 完全一致的表示 | 需要海量图文数据；效率低 | 少数模型；趋势是"预训练编码器 + 联合微调" |
 
@@ -65,7 +65,7 @@ ImageNet 预训练的 ViT 在 2021 年的 VLM（如早期的 Frozen、VisualGPT�
 | 二 | ViT 回顾 | 一张 8×8 的图手工切成 16 个 patch、乘一个矩阵变 16 个向量（代码 + 图）<br/>位置编码、[CLS]<br/>分辨率与 token 数<br/>取哪一层 |
 | 三 | 对比学习 | 3 对图文的相似度矩阵手算 InfoNCE<br/>用 30 行 PyTorch 在 toy 数据上训一个 CLIP（图）<br/>互信息与 log B<br/>为什么需要大 batch<br/>温度（图）<br/>CLIP 的训练配方与算力账 |
 | 四 | SigLIP 与后继 | sigmoid 损失（同一个 3×3 例子算一遍）<br/>为什么解耦 batch<br/>SigLIP 2 的多目标<br/>DFN 的数据过滤<br/>EVA-CLIP 的 MIM 初始化 |
-| 五 | 编码器看不到什么 | 五类盲点的实证与机制；ARO / Winoground / VSR 的测试 |
+| 五 | 编码器看不到什么 | 五类盲点的实证与机制；<span class="inline-tip" data-tip="attribute, relation, order，测属性绑定与词序敏感性的 benchmark">ARO</span> / Winoground / VSR 的测试 |
 | 六 | 自监督编码器 | DINOv2 的目标<br/>它学到的与 CLIP 的不同<br/>多编码器混合 |
 | 七 | 对比之外的目标与编码器的规模 | caption / 自回归目标保留什么（CapPa、AIMv2、SigLIP 2）<br/>分辨率 > 参数量 > 数据的消融证据<br/>300M–700M 为什么够 |
 | 八 | 分辨率与 token | patch 大小、分辨率、位置编码的插值；高分辨率的两种路径 |
@@ -278,7 +278,7 @@ Yuksekgonul 等 2023 的实验：把 caption 的词序打乱，CLIP 文本塔的
 
 DINOv2（Oquab 等 2023）不用文本。没有文本，监督信号从哪来？从**图片自己**：把同一张图裁两次——一次裁大块（全局视图，看得到整只狗）、一次裁小块（局部视图，只看到一只耳朵）——要求模型看到耳朵时给出的向量，与看到整只狗时给出的向量一致。这逼它学到"这只耳朵属于这只狗"这类结构。
 
-具体做法叫**自蒸馏**：同一张图的两个裁剪送进"学生"与"教师"两个同结构的网络，教师的参数是学生参数的[滑动平均](# "tip: EMA，exponential moving average：θ_teacher ← 0.99 θ_teacher + 0.01 θ_student，教师是学生「过去一段时间的平均」，比学生更稳定，所以能当目标用而不会两边一起漂走")（不反传、不更新），让学生在局部视图上的输出匹配教师在全局视图上的输出（iBOT 式的 patch 级目标 + DINO 式的全局目标），加上 KoLeo 正则让特征均匀分布。数据是 1.42 亿张经过筛选与去重的图（LVD-142M）。
+具体做法叫**自蒸馏**：同一张图的两个裁剪送进"学生"与"教师"两个同结构的网络，教师的参数是学生参数的[滑动平均](# "tip: EMA，exponential moving average：θ_teacher ← 0.99 θ_teacher + 0.01 θ_student，教师是学生「过去一段时间的平均」，比学生更稳定，所以能当目标用而不会两边一起漂走")（不反传、不更新），让学生在局部视图上的输出匹配教师在全局视图上的输出（iBOT 式的 patch 级目标 + DINO（self-distillation with no labels，自蒸馏自监督方法） 式的全局目标），加上 KoLeo 正则让特征均匀分布。数据是 1.42 亿张经过筛选与去重的图（LVD-142M）。
 
 它学到的是**图像自身的结构**：哪些 patch 属于同一个物体、几何对应、深度线索。在密集任务（分割、深度估计、对应点匹配）上远超 CLIP；在零样本分类上不如（没有语言）。可视化 DINOv2 的 patch 特征做 PCA，同一个物体的部件会被一致地着色——这是 CLIP 特征做不到的。
 
