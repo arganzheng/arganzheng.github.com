@@ -125,6 +125,23 @@ print(table.weight.grad.coalesce().values())
 
 输出的索引只有第 0、2 行。默认 `sparse=False` 时梯度张量是稠密的，只是未查到的行数值为零；两种情况不要混为一谈。
 
+把查表与稀疏梯度画在同一张图上：左边 $$e_2^\top \times W$$（$$5\times3$$ 的小整数表）取出第 2 行；右边对序列 $$[2,0,2]$$ 求和反向，`W.grad` 只有第 0、2 行非零：
+
+![左：one-hot 行向量 e_2ᵀ（第 2 格高亮）乘 5×3 的表 W，结果正好是 W 的第 2 行（同色高亮）；右：序列 [2,0,2] 求和反向后的 W.grad——第 0 行全 1（用一次）、第 2 行全 2（用两次、梯度相加）、其余行全 0](/img/in-post/emb-onehot-lookup.svg)
+
+```text title='one-hot 查表与稀疏梯度实测（case_09_emb_toys.py onehot-lookup）'
+e_2 = [0, 0, 1, 0, 0]
+e_2^T W = [1.0, 0.0, 2.0]   == W 的第 2 行 [1.0, 0.0, 2.0]
+nn.Embedding(2) = [1.0, 0.0, 2.0], max diff = 0.0e+00
+loss = sum(emb[2]+emb[0]+emb[2])，对 W 反向：
+  W.grad 非零行： [0, 2]
+  W.grad[0] = [1.0, 1.0, 1.0] （1 次）
+  W.grad[2] = [2.0, 2.0, 2.0] （2 次累加，每行全为 2.0）
+  其余行全 0 —— 梯度是稀疏的
+```
+
+读数：第 2 行被用到两次，梯度恰是单次的 2 倍——这正是第三篇说的「同一参数被用多次，梯度相加」；其余行一个更新都没收到，所以词表里冷门词的行可能长期停在初始值。
+
 ### tokenizer 与 embedding 表：谁给谁什么
 
 读者常问 embedding 和 tokenizer 是什么关系，其实是流水线上的两道工序：
@@ -476,7 +493,7 @@ Table: text8 词向量训练前后的近邻变化
 
 图中把训练后的 100 维词向量投影到二维 PCA 平面。PCA 只保留方差最大的两个方向，所以点之间的二维距离不能替代原始空间里的相似度。
 
-配套脚本：[`case_embedding_word2vec.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_embedding_word2vec.py)、[`case_09_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_concept_figures.py)。
+配套脚本：[`case_embedding_word2vec.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_embedding_word2vec.py)、[`case_09_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_concept_figures.py)；第二章的查表与稀疏梯度验证是 [`case_09_emb_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_emb_toys.py)（`onehot-lookup`）。
 
 ## 十三、本文小结
 
@@ -544,6 +561,12 @@ Word2Vec 用局部上下文训练静态词向量，负采样把全词表归一�
    <details markdown="1"><summary>答案</summary>
 
    预测要序列或遮盖的输入；重建要原始输入；对比要正例对加一批负例；自蒸馏只要同一输入的增广视图；有监督要人工标签。
+   </details>
+
+11. Embedding 表的梯度为什么是稀疏的？同一 token 在一个 batch 里出现两次会怎样？
+   <details markdown="1"><summary>答案</summary>
+
+   前向只按 ID 取行，没被查到的行与 loss 无关、梯度为零；被查多次的行梯度按次数相加（第二章的实测：序列 $$[2,0,2]$$ 的第 2 行梯度恰是 2 倍）。所以冷门词的行可能长期收不到更新，`sparse=True` 就是把这个事实存成稀疏张量。
    </details>
 
 ## 下一篇
