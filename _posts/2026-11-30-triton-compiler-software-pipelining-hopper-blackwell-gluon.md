@@ -360,7 +360,7 @@ ttng.wait_barrier %acc_2, %c0_i32                               // ④ 默认区
 
 ### 1. 为什么
 
-前四篇的自动 pass 在 matmul 这类规则 kernel 上工作得很好，但每一个都是启发式：Coalesce 的 128 bit 上限、`RemoveLayoutConversions` 的"Hacky resolve"、`warpsPerTileV2` 的偏向 M、`AssignLatencies` 的均分、warp 划分的固定模式。当 kernel 变得不规则（attention 的 causal mask 与在线 softmax、MoE 的分组、解码阶段的小 batch），启发式选错的概率上升，而用户**没有任何手段**去改一个 layout 或一个 stage 分配——Triton 的抽象把它们全藏起来了。同时 Hopper / Blackwell 的性能上限越来越依赖精细的编排（warp specialization 的分区形状、TMEM 的分配、mbarrier 的 phase 管理），CUTLASS 用 C++ 模板把这些暴露给专家，Triton 没有对应物。
+前四篇的自动 pass 在 matmul 这类规则 kernel 上工作得很好，但每一个都是启发式：Coalesce 的 128 bit 上限、`RemoveLayoutConversions` 的"Hacky resolve"、`warpsPerTileV2` 的偏向 M、`AssignLatencies` 的均分、warp 划分的固定模式。当 kernel 变得不规则（attention 的 causal mask 与在线 softmax、MoE（mixture of experts，每个 token 只走少数几个专家） 的分组、解码阶段的小 batch），启发式选错的概率上升，而用户**没有任何手段**去改一个 layout 或一个 stage 分配——Triton 的抽象把它们全藏起来了。同时 Hopper / Blackwell 的性能上限越来越依赖精细的编排（warp specialization 的分区形状、TMEM 的分配、mbarrier 的 phase 管理），CUTLASS 用 C++ 模板把这些暴露给专家，Triton 没有对应物。
 
 **Gluon**（Triton 3.4 起，`triton.experimental.gluon`）是这个对应物：一个与 Triton 共用前端、编译器与运行时，但 **layout、shared memory、同步与硬件指令全部显式**的子语言。
 
