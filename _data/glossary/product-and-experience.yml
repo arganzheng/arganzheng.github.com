@@ -1,46 +1,16 @@
 ---
-- term: pp
-  full: percentage point
-  desc: 百分点
 - term: MCP Apps
   full: Model Context Protocol Apps
+  zh: MCP 的扩展
+  say: "「MCP Apps」"
   desc: MCP 的扩展，让工具返回可交互的界面
-- term: CRM
-  full: customer relationship management
-  desc: 客户关系管理系统
-- term: A/B
-  full: A/B testing
-  desc: A/B 测试：用户随机分组，对比两个版本
-- term: CSAT
-  full: customer satisfaction score
-  desc: 客户满意度评分
-- term: BCG
-  full: Boston Consulting Group
-  desc: 波士顿咨询，和哈佛合做了 758 名顾问的实验
 - term: RAG
   full: retrieval-augmented generation
+  zh: 检索增强生成
+  say: "/ræɡ/「rag」"
   desc: 检索增强生成：先检索资料，再让模型据此回答
-- term: SLO
-  full: service level objective
-  desc: 服务等级目标，如可用率、延迟的承诺值
 - term: TTFT
   full: time to first token
+  zh: 首 token 时延
+  say: 逐字母 T-T-F-T
   desc: 从发出请求到第一个 token 出来的时间
-- term: IM
-  full: instant messaging
-  desc: 即时通讯工具，如 Slack、飞书
-- term: p50 / p95
-  full: 50th / 95th percentile
-  desc: 中位数 / 95 分位，看典型值和尾部
-- term: NPS
-  full: Net Promoter Score
-  desc: 净推荐值：愿不愿意推荐给别人
-- term: ROI
-  full: return on investment
-  desc: 投资回报率
-- term: PTC
-  full: programmatic tool calling
-  desc: 程序化工具调用：模型写一段程序批量调工具
-- term: PMF
-  full: product–market fit
-  desc: 产品与市场契合
