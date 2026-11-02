@@ -35,9 +35,6 @@
 - term: PP
   full: pipeline parallelism
   desc: 流水线并行，按层切到不同卡上
-- term: IPC
-  full: inter-process communication
-  desc: 进程间通信，这里指跨进程共享显存
 - term: GEMM
   full: general matrix multiply
   desc: 通用矩阵乘
