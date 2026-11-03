@@ -44,6 +44,11 @@
   zh: 前馈网络
   say: 逐字母 F-F-N
   desc: Transformer 每层里的前馈网络子层
+- term: FID
+  full: Fréchet Inception Distance
+  zh: 弗雷歇 Inception 距离
+  say: F-I-D
+  desc: 用 Inception 特征比较生成分布与真实分布的指标
 - term: FLOPs
   full: floating-point operations
   zh: 浮点运算次数
@@ -54,6 +59,16 @@
   zh: 高斯误差线性单元
   say: "/ˈdʒɛl.uː/「杰-路」"
   desc: MLP 里常用的一种平滑激活函数
+- term: InfoNCE
+  full: information noise-contrastive estimation
+  zh: 信息噪声对比估计
+  say: "「InfoNCE」"
+  desc: 对比学习损失：把正确配对当 B 选 1 的分类题
+- term: LLaVA
+  full: Large Language and Vision Assistant
+  zh: 大语言视觉助手
+  say: "/ˈlɑːvə/「拉-瓦」"
+  desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: MAE
   full: masked autoencoder
   zh: 掩码自编码器
@@ -84,6 +99,11 @@
   zh: 主成分分析
   say: P-C-A
   desc: 主成分分析，把高维特征压到两三维看结构
+- term: Q-Former
+  full: Querying Transformer
+  zh: 查询式 Transformer
+  say: "「Q-Former」"
+  desc: BLIP-2 的 connector：K 个可学习 query 做 cross-attention
 - term: RoPE
   full: rotary position embedding
   zh: 旋转位置编码
@@ -99,6 +119,11 @@
   zh: 监督微调
   say: 逐字母 S-F-T
   desc: 监督微调，用指令数据训练模型
+- term: SigLIP
+  full: Sigmoid Loss for Language-Image Pre-training
+  zh: 用于语言-图像预训练的 sigmoid 损失
+  say: "「SigLIP」"
+  desc: CLIP 的 sigmoid 损失版，对 batch 大小不敏感
 - term: TTS
   full: text-to-speech
   zh: 语音合成
@@ -124,3 +149,8 @@
   zh: 把连续向量换成码本里最近的离散码字
   say: V-Q
   desc: 向量量化：把连续向量换成码本里最近的离散码字
+- term: VSR
+  full: visual spatial reasoning
+  zh: 视觉空间推理
+  say: V-S-R
+  desc: 测空间关系（左/右/上/下）的 benchmark
