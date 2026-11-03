@@ -26,7 +26,7 @@
   desc: 用人类反馈的奖励做强化学习微调
 - term: GRPO
   full: Group Relative Policy Optimization
-  zh: 同一 prompt 采一组回答
+  zh: 组相对策略优化
   say: G-R-P-O
   desc: 用组内均值替代价值模型的策略梯度方法
 - term: MLE
@@ -46,7 +46,7 @@
   desc: 困惑度，交叉熵的指数，越小越好
 - term: PPO
   full: Proximal Policy Optimization
-  zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
+  zh: 近端策略优化
   say: P-P-O
   desc: 带裁剪目标、防步子过大的策略梯度方法
 - term: TV
@@ -81,11 +81,6 @@
   zh: 对比语言-图像预训练
   say: "/klɪp/「可利普」"
   desc: OpenAI 的图文对比模型，把图和文嵌进同一空间
-- term: GPTQ
-  full: "—"
-  zh: GPTQ 量化方法
-  say: 逐字母 G-P-T-Q
-  desc: 一种训练后量化方法，逐层最小化量化误差
 - term: RoPE
   full: rotary position embedding
   zh: 旋转位置编码
@@ -111,11 +106,6 @@
   zh: 均方误差
   say: 逐字母 M-S-E
   desc: 均方误差，预测与目标差的平方均值
-- term: RLOO
-  full: REINFORCE Leave-One-Out
-  zh: 用组内留一均值做 baseline 的 REIN…
-  say: R-L-O-O
-  desc: 用组内留一均值做 baseline 的 REINFORCE
 - term: SE
   full: standard error
   zh: 标准误
