@@ -11,7 +11,7 @@
   desc: 首 token 延迟，从发请求到收到第一个 token
 - term: CoT
   full: chain-of-thought
-  zh: 让模型先写出推理步骤再回答
+  zh: 思维链
   say: "「CoT」"
   desc: 让模型先写出推理步骤再回答
 - term: RAG
@@ -19,8 +19,3 @@
   zh: 检索增强生成
   say: "/ræɡ/「rag」"
   desc: 先检索资料，再让模型据此回答
-- term: CFG
-  full: context-free grammar
-  zh: 上下文无关文法
-  say: C-F-G
-  desc: 上下文无关文法，能表达递归的嵌套结构
