@@ -9,21 +9,11 @@
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
-- term: ZDR
-  full: zero data retention
-  zh: 供应商不存请求与响应数据
-  say: Z-D-R
-  desc: 零数据保留：供应商不存请求与响应数据
 - term: RAG
   full: retrieval-augmented generation
   zh: 检索增强生成
   say: "/ræɡ/「rag」"
   desc: 先检索资料，再让模型据此回答
-- term: RPM / TPM
-  full: requests per minute / tokens per minute
-  zh: 每分钟请求数 / 每分钟 token 数的限额
-  say: "「RPM / TPM」"
-  desc: 每分钟请求数 / 每分钟 token 数的限额
 - term: TPOT
   full: time per output token
   zh: 每输出 token 耗时
