@@ -4,6 +4,11 @@
   zh: 激活感知权重量化
   say: 逐字母 A-W-Q
   desc: 按激活大小保护重要通道的权重量化方法
+- term: EAGLE
+  full: Extrapolation Algorithm for Greater Language-model Efficiency
+  zh: 提升语言模型效率的外推算法
+  say: "/ˈiːɡəl/「伊-勾」"
+  desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
 - term: GEMM
   full: general matrix multiply
   zh: 通用矩阵乘
@@ -14,6 +19,16 @@
   zh: 分组查询注意力
   say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
+- term: GPTQ
+  full: GPT post-training quantization
+  zh: GPT 训练后量化
+  say: 逐字母 G-P-T-Q
+  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
+- term: H2O
+  full: Heavy-Hitter Oracle
+  zh: 重击球预言机
+  say: H 2 O
+  desc: 按累计注意力分数保留「重击球」token 的 KV 淘汰策略
 - term: KL
   full: Kullback–Leibler divergence
   zh: KL 散度
@@ -29,6 +44,11 @@
   zh: 多 token 预测
   say: 逐字母 M-T-P
   desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
+- term: OBS
+  full: Optimal Brain Surgeon
+  zh: 最优脑外科医生
+  say: O-B-S
+  desc: 用二阶信息补偿剪枝误差的经典方法，GPTQ 的思想源头
 - term: PTQ
   full: post-training quantization
   zh: 不再回训
