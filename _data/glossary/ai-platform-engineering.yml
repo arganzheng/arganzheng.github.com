@@ -14,6 +14,11 @@
   zh: 低秩适配
   say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结原权重、只训低秩矩阵的微调方法
+- term: OOB
+  full: out-of-bag
+  zh: 袋外
+  say: O-O-B
+  desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
 - term: EP
   full: expert parallelism
   zh: 专家并行
