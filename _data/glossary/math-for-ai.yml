@@ -49,11 +49,6 @@
   zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
   say: P-P-O
   desc: 带裁剪目标、防步子过大的策略梯度方法
-- term: REINFORCE
-  full: "—"
-  zh: loss = −A·log π
-  say: R-E-I-N-F-O-R-C-E
-  desc: 最早的策略梯度算法，用 score function 估计梯度
 - term: TV
   full: total variation
   zh: 总变差距离
