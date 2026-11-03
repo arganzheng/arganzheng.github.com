@@ -62,7 +62,7 @@ flowchart TB
 
 - **完整返回**：DeepSeek 的 `reasoning_content` 字段给出全部思考文本。你可以展示、可以记日志、可以用它调试——但**不能送回**：DeepSeek 的多轮对话文档明确要求下一轮输入里不包含 `reasoning_content`，否则返回 400。它的思考是无状态的，每轮重新想。
 - **原样返回但可能加密或摘要**：Anthropic 返回 `thinking` 块；在某些情况下返回 `redacted_thinking`（加密的思考内容，你看不到但要原样送回）。Claude 4 系列起长思考默认返回摘要而按完整思考计费。
-- **默认不返回**：OpenAI 的 Responses 默认不返回思考内容，可以用 `reasoning.summary` 要一份摘要；思考的完整状态作为 `reasoning` item 由服务端保留，或在无状态 / ZDR（zero data retention，供应商不存请求与响应数据）模式下以加密形式随请求往返。Gemini 返回 thought summary。
+- **默认不返回**：OpenAI 的 Responses 默认不返回思考内容，可以用 `reasoning.summary` 要一份摘要；思考的完整状态作为 `reasoning` item 由服务端保留，或在无状态 / ZDR 模式下以加密形式随请求往返。Gemini 返回 thought summary。
 
 对应用的含义：**不要把思考内容当作可靠的可解释性**。摘要是模型对自己思考的再描述，加密块你看不到，完整返回的也可能与最终答案不一致。它对调试有用（"它为什么调用了这个工具"），不适合作为向用户展示的"推理过程"，更不适合作为审计依据。
 

@@ -9,6 +9,11 @@
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
+- term: ZDR
+  full: zero data retention
+  zh: 零数据保留
+  say: Z-D-R
+  desc: 零数据保留：供应商不存请求与响应数据
 - term: RAG
   full: retrieval-augmented generation
   zh: 检索增强生成
