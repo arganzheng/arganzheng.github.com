@@ -1,49 +1,9 @@
 ---
-- term: AIP
-  full: Artificial Intelligence Platform
-  zh: Palantir 的 AI 平台
-  say: A-I-P
-  desc: Palantir 的 AI 平台，agent 在本体上做动作
-- term: TUI
-  full: terminal user interface
-  zh: 在终端里画出来的交互界面
-  say: T-U-I
-  desc: 在终端里画出来的交互界面
-- term: ACL
-  full: access control list
-  zh: 访问控制列表
-  say: A-C-L
-  desc: 访问控制列表，按用户 / 组列出允许的操作
-- term: SBPL
-  full: Sandbox Profile Language
-  zh: macOS Seatbelt 沙箱的策略语言
-  say: S-B-P-L
-  desc: macOS Seatbelt 沙箱的策略语言
-- term: CIMD
-  full: Client ID Metadata Document
-  zh: 用一个 URL 上的元数据文档代替客户端注册
-  say: C-I-M-D
-  desc: 用一个 URL 上的元数据文档代替客户端注册
-- term: RFC
-  full: Request for Comments
-  zh: IETF 发布互联网标准的文档系列
-  say: R-F-C
-  desc: IETF 发布互联网标准的文档系列
 - term: A2A
   full: Agent2Agent
   zh: 不同厂商的 agent 之间互相委派任务的协议
   say: A 2 A
   desc: 不同厂商的 agent 之间互相委派任务的协议
-- term: seccomp
-  full: secure computing mode
-  zh: Linux 限制进程能用哪些系统调用的机制
-  say: "「seccomp」"
-  desc: Linux 限制进程能用哪些系统调用的机制
-- term: PTC
-  full: programmatic tool calling
-  zh: 模型写程序调多个工具
-  say: P-T-C
-  desc: 模型写程序调多个工具，只把结果送回上下文
 - term: MCP
   full: Model Context Protocol
   zh: 模型客户端连接工具服务器的开放协议
@@ -54,61 +14,11 @@
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
-- term: LSP
-  full: Language Server Protocol
-  zh: 编辑器与语言服务器之间的协议
-  say: L-S-P
-  desc: 编辑器与语言服务器之间的协议，MCP 借鉴了它
-- term: stdio
-  full: standard input/output
-  zh: 标准输入输出
-  say: "「stdio」"
-  desc: 标准输入输出，本地 MCP server 的传输方式
-- term: OAuth
-  full: Open Authorization
-  zh: 授权委托标准
-  say: "「OAuth」"
-  desc: 授权委托标准，远程 MCP server 用它鉴权
-- term: DCR
-  full: Dynamic Client Registration
-  zh: OAuth 客户端运行时自动注册（RFC 759…
-  say: D-C-R
-  desc: OAuth 客户端运行时自动注册（RFC 7591）
-- term: ZDR
-  full: zero data retention
-  zh: 供应商不存请求与响应数据
-  say: Z-D-R
-  desc: 零数据保留：供应商不存请求与响应数据
-- term: VPC
-  full: virtual private cloud
-  zh: 云上隔离出来的私有网络
-  say: V-P-C
-  desc: 云上隔离出来的私有网络
 - term: ACP
   full: Agent Client Protocol
   zh: 客户端驱动外部 agent 的协议
   say: A-C-P
   desc: 客户端驱动外部 agent 的协议，如拉起 Claude Code
-- term: TS
-  full: TypeScript
-  zh: TypeScript 的简写
-  say: T-S
-  desc: TypeScript 的简写
-- term: SAE
-  full: Society of Automotive Engineers
-  zh: 国际汽车工程师学会
-  say: S-A-E
-  desc: 国际汽车工程师学会，自动驾驶 0–5 级出自它
-- term: DDL
-  full: data definition language
-  zh: 建表、删表这类改数据库结构的语句
-  say: D-D-L
-  desc: 建表、删表这类改数据库结构的语句
-- term: AAIF
-  full: Agentic AI Foundation
-  zh: Linux 基金会下治理 MCP 等项目的基金会
-  say: A-A-I-F
-  desc: Linux 基金会下治理 MCP 等项目的基金会
 - term: GenAI
   full: generative AI
   zh: 生成式 AI
