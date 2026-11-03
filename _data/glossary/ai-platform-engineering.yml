@@ -14,11 +14,6 @@
   zh: 低秩适配
   say: "/ˈlɔːrə/「洛拉」"
   desc: 冻结原权重、只训低秩矩阵的微调方法
-- term: OOB
-  full: out-of-bag
-  zh: 随机森林里没被某棵树抽中的样本
-  say: O-O-B
-  desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
 - term: EP
   full: expert parallelism
   zh: 专家并行
@@ -114,11 +109,6 @@
   zh: 模型算力利用率
   say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
-- term: RPM / TPM
-  full: requests per minute / tokens per minute
-  zh: 每分钟请求数 / 每分钟 token 数的限额
-  say: "「RPM / TPM」"
-  desc: 每分钟请求数 / 每分钟 token 数的限额
 - term: HBM
   full: high bandwidth memory
   zh: 高带宽显存
@@ -134,18 +124,8 @@
   zh: 把一张 GPU 切成多个互相隔离的实例
   say: M-I-G
   desc: 把一张 GPU 切成多个互相隔离的实例
-- term: DRA
-  full: dynamic resource allocation
-  zh: K8s 的设备资源分配机制
-  say: D-R-A
-  desc: K8s 的设备资源分配机制
 - term: DCGM
   full: Data Center GPU Manager
   zh: NVIDIA 的 GPU 监控套件
   say: D-C-G-M
   desc: NVIDIA 的 GPU 监控套件
-- term: EPP
-  full: Endpoint Picker
-  zh: 推理网关里挑后端实例的组件
-  say: E-P-P
-  desc: 推理网关里挑后端实例的组件
