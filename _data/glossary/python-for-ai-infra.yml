@@ -1,19 +1,4 @@
 ---
-- term: RSS
-  full: resident set size
-  zh: 进程实际占用的物理内存
-  say: R-S-S
-  desc: 进程实际占用的物理内存
-- term: MRO
-  full: method resolution order
-  zh: 方法解析顺序
-  say: M-R-O
-  desc: 方法解析顺序，决定 super() 和属性查找走哪个父类
-- term: LEGB
-  full: Local, Enclosing, Global, Built-in
-  zh: 名称查找的四层顺序
-  say: L-E-G-B
-  desc: 名称查找的四层顺序，编译期就决定了走哪一层
 - term: ROCm
   full: Radeon Open Compute
   zh: AMD GPU 软件栈
