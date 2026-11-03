@@ -84,11 +84,6 @@
   zh: NVIDIA 矩阵乘模板库
   say: "「卡特拉斯」"
   desc: NVIDIA 的 C++ 矩阵乘模板库
-- term: ulp
-  full: unit in the last place
-  zh: 浮点数最低位一格代表的数值间隔
-  say: "「ulp」"
-  desc: 浮点数最低位一格代表的数值间隔
 - term: CLIP
   full: Contrastive Language–Image Pre-training
   zh: 对比语言-图像预训练
@@ -134,11 +129,6 @@
   zh: 视觉 Transformer
   say: "/vɪt/「维特」"
   desc: 把图像切块当序列送进 Transformer
-- term: EAGLE
-  full: "—"
-  zh: EAGLE 投机解码法
-  say: "/ˈiːɡəl/「伊-勾」"
-  desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
 - term: GQA
   full: grouped-query attention
   zh: 分组查询注意力
@@ -161,22 +151,17 @@
   desc: 矩阵乘向量，decode 时 batch 为 1 的线性层
 - term: DiT
   full: diffusion transformer
-  zh: 用 Transformer 替代 U-Net 的…
+  zh: 扩散 Transformer
   say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
-- term: LLaVA
-  full: large language and vision assistant
-  zh: 大语言视觉助手
-  say: "/ˈlɑːvə/「拉-瓦」"
-  desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: M-RoPE
   full: multimodal RoPE
-  zh: Qwen2-VL 的三维（时间/高/宽）位置编码
+  zh: 多模态旋转位置编码
   say: "「M-RoPE」"
   desc: Qwen2-VL 的三维（时间/高/宽）位置编码
 - term: VLM
   full: vision-language model
-  zh: 能看图回答问题的语言模型
+  zh: 视觉语言模型
   say: V-L-M
   desc: 能看图回答问题的语言模型
 - term: MFU
