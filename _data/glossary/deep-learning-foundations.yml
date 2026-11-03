@@ -109,11 +109,6 @@
   zh: 旋转位置编码
   say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把向量转一个角度
-- term: seq2seq
-  full: sequence-to-sequence
-  zh: 序列到序列
-  say: "「seq-to-seq」"
-  desc: encoder–decoder 结构的序列到序列模型
 - term: SFT
   full: supervised fine-tuning
   zh: 监督微调
