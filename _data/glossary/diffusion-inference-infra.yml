@@ -124,6 +124,11 @@
   zh: 扩散 Transformer
   say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
+- term: FID
+  full: Fréchet Inception Distance
+  zh: 弗雷歇 Inception 距离
+  say: F-I-D
+  desc: 用 Inception 特征比较生成分布与真实分布的指标
 - term: TTS
   full: text-to-speech
   zh: 语音合成
@@ -164,3 +169,23 @@
   zh: 结构相似度
   say: S-S-I-M
   desc: 结构相似度，图像质量指标
+- term: LPIPS
+  full: Learned Perceptual Image Patch Similarity
+  zh: 学习感知图像块相似度
+  say: L-P-I-P-S
+  desc: 学习到的感知相似度指标
+- term: DMD
+  full: Distribution Matching Distillation
+  zh: 分布匹配蒸馏
+  say: D-M-D
+  desc: 分布匹配蒸馏：把多步扩散蒸成少步
+- term: VSA
+  full: Video Sparse Attention
+  zh: 视频稀疏注意力
+  say: V-S-A
+  desc: 视频扩散模型里的稀疏注意力机制
+- term: STA
+  full: Sliding Tile Attention
+  zh: 滑动 tile 注意力
+  say: S-T-A
+  desc: 视频扩散里的稀疏时空注意力
