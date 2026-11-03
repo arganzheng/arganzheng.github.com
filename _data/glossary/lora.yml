@@ -34,6 +34,41 @@
   zh: 浮点运算次数
   say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，计算量的单位
+- term: rsLoRA
+  full: Rank-Stabilized LoRA
+  zh: 秩稳定低秩适配
+  say: "「rsLoRA」"
+  desc: 把缩放从 α/r 改成 α/√r 的 LoRA
+- term: PiSSA
+  full: Principal Singular values and Singular vectors Adaptation
+  zh: 主奇异值与奇异向量适配
+  say: "「PiSSA」"
+  desc: 用 W 的主奇异方向初始化 A、B
+- term: DoRA
+  full: Weight-Decomposed Low-Rank Adaptation
+  zh: 权重分解低秩适配
+  say: "「DoRA」"
+  desc: 把权重拆成幅度与方向，只对方向挂 LoRA
+- term: OLoRA
+  full: Orthonormal Low-Rank Adaptation
+  zh: 正交归一化低秩适配
+  say: "「OLoRA」"
+  desc: 用 W 的 QR 分解初始化 LoRA
+- term: EVA
+  full: Explained Variance Adaptation
+  zh: 可解释方差适配
+  say: E-V-A
+  desc: 用激活的 SVD 初始化 A，并按方差重分各层的 r
+- term: LoftQ
+  full: LoRA-Fine-Tuning-aware Quantization
+  zh: 感知 LoRA 微调的量化
+  say: "「LoftQ」"
+  desc: 对着量化误差初始化 LoRA，配合 QLoRA 用
+- term: QLoRA
+  full: Quantized LoRA
+  zh: 量化低秩适配
+  say: "「QLoRA」"
+  desc: 底座量化到 4 bit、上面再挂 LoRA 的训练方法
 - term: QR
   full: QR decomposition
   zh: QR 分解
@@ -74,6 +109,11 @@
   zh: 分组查询注意力
   say: 逐字母 G-Q-A
   desc: 多个 query 头共享一组 K、V 头，k、v 投影因此很窄
+- term: CorDA
+  full: Context-oriented Decomposition Adaptation
+  zh: 上下文导向分解适配
+  say: "「CorDA」"
+  desc: 用数据协方差加权的 SVD 选初始方向
 - term: KL
   full: Kullback–Leibler divergence
   zh: KL 散度
