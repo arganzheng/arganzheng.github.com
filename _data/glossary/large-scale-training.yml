@@ -244,11 +244,6 @@
   zh: 平均无故障间隔时间
   say: M-T-B-F
   desc: 平均无故障间隔时间
-- term: XID
-  full: "—"
-  zh: NVIDIA GPU 的错误码
-  say: X-I-D
-  desc: NVIDIA GPU 的错误码，dmesg 和 DCGM 会报
 - term: DCGM
   full: Data Center GPU Manager
   zh: NVIDIA 的 GPU 监控套件
