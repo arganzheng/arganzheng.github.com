@@ -64,11 +64,6 @@
   zh: 定义完立刻调用的函数表达式
   say: I-I-F-E
   desc: 定义完立刻调用的函数表达式
-- term: RUNPATH
-  full: "—"
-  zh: ELF 里另一种动态库搜索路径字段
-  say: R-U-N-P-A-T-H
-  desc: ELF 里另一种动态库搜索路径字段，优先级低于 RPATH
 - term: AVX2
   full: Advanced Vector Extensions 2
   zh: Intel 的 256 位 SIMD 指令集
