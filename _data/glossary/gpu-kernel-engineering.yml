@@ -34,21 +34,11 @@
   zh: NVIDIA 集合通信库
   say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: DCO
-  full: Developer Certificate of Origin
-  zh: 开发者原创声明
-  say: D-C-O
-  desc: 开发者原创声明，每个 commit 带 Signed-off-by
 - term: AWQ
   full: Activation-aware Weight Quantization
   zh: 激活感知权重量化
   say: 逐字母 A-W-Q
   desc: 按激活大小保护关键权重的低比特量化方法
-- term: RAII
-  full: resource acquisition is initialization
-  zh: C++ 用对象生命周期管理资源的惯用法
-  say: R-A-I-I
-  desc: C++ 用对象生命周期管理资源的惯用法
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
   zh: NVIDIA 矩阵乘模板库
@@ -59,11 +49,6 @@
   zh: 主机到设备
   say: 逐字母 H-2-D
   desc: 主机内存拷到显存
-- term: ulp
-  full: unit in the last place
-  zh: 浮点数最低位一格代表的数值间隔
-  say: "「ulp」"
-  desc: 浮点数最低位一格代表的数值间隔
 - term: FFN
   full: feed-forward network
   zh: 前馈网络
@@ -84,14 +69,9 @@
   zh: 分组查询注意力
   say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
-- term: GPTQ
-  full: "—"
-  zh: GPTQ 量化方法
-  say: 逐字母 G-P-T-Q
-  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
 - term: SDPA
   full: scaled dot-product attention
-  zh: PyTorch 的融合 attention 函数
+  zh: 缩放点积注意力
   say: S-D-P-A
   desc: PyTorch 的融合 attention 函数，自选 kernel
 - term: GEMV
@@ -179,26 +159,11 @@
   zh: 片上静态存储
   say: "「S-RAM」"
   desc: GPU 片上的小而快的存储
-- term: ILP
-  full: instruction-level parallelism
-  zh: 无依赖的指令填满流水线
-  say: I-L-P
-  desc: 指令级并行：无依赖的指令填满流水线
-- term: SOL
-  full: speed of light
-  zh: 理论上能跑到的峰值
-  say: S-O-L
-  desc: "「光速」上限：理论上能跑到的峰值"
 - term: FFMA
   full: fused float multiply-add
   zh: GPU 的单精度融合乘加指令
   say: F-F-M-A
   desc: GPU 的单精度融合乘加指令
-- term: DRAM
-  full: dynamic random-access memory
-  zh: 动态内存
-  say: D-R-A-M
-  desc: 动态内存，这里指显存颗粒
 - term: LDS
   full: load shared
   zh: PTX 里读 shared memory 的指令
@@ -224,11 +189,6 @@
   zh: GPU 上算超越函数（exp、sin）的专用单元
   say: S-F-U
   desc: GPU 上算超越函数（exp、sin）的专用单元
-- term: ALU
-  full: arithmetic logic unit
-  zh: 算术逻辑单元
-  say: A-L-U
-  desc: 算术逻辑单元
 - term: GFLOP
   full: giga floating point operations
   zh: 10⁹ 次浮点运算
