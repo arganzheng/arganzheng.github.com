@@ -69,3 +69,13 @@
   zh: Swish 门控线性单元
   say: "/ˈswɪɡ.luː/「斯威-glue」"
   desc: 用 SiLU 做门控的 FFN：两路相乘再降维
+- term: DAPO
+  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  zh: 解耦裁剪与动态采样策略优化
+  say: D-A-P-O
+  desc: GRPO 的改进：clip-higher、过滤全对 / 全错组等
+- term: rsLoRA
+  full: Rank-Stabilized LoRA
+  zh: 秩稳定低秩适配
+  say: "「rsLoRA」"
+  desc: scaling 用 α/√r 代替 α/r，秩大时更稳
