@@ -1,41 +1,11 @@
 ---
-- term: nDCG
-  full: normalized discounted cumulative gain
-  zh: 按排名位置打折、再归一化的排序质量分
-  say: "「nDCG」"
-  desc: 按排名位置打折、再归一化的排序质量分
-- term: MRR
-  full: mean reciprocal rank
-  zh: 第一个相关结果排名倒数的平均
-  say: M-R-R
-  desc: 第一个相关结果排名倒数的平均
 - term: TTFT
   full: time to first token
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发请求到收到第一个 token 的时间
-- term: APM
-  full: application performance monitoring
-  zh: 请求、耗时、错误率面板
-  say: A-P-M
-  desc: 应用性能监控：请求、耗时、错误率面板
-- term: SIL
-  full: software-in-the-loop
-  zh: 软件接仿真环境测试
-  say: S-I-L
-  desc: 软件在环：软件接仿真环境测试，不上真硬件
-- term: HIL
-  full: hardware-in-the-loop
-  zh: 真硬件接仿真环境测试
-  say: H-I-L
-  desc: 硬件在环：真硬件接仿真环境测试
 - term: RAG
   full: retrieval-augmented generation
   zh: 检索增强生成
   say: "/ræɡ/「rag」"
   desc: 检索增强生成：先检索资料再让模型回答
-- term: ROUGE
-  full: Recall-Oriented Understudy for Gisting Evaluation
-  zh: 按与参考文本的词重叠给摘要打分
-  say: R-O-U-G-E
-  desc: 按与参考文本的词重叠给摘要打分
