@@ -1,9 +1,19 @@
 ---
+- term: AIP
+  full: Artificial Intelligence Platform
+  zh: 人工智能平台
+  say: A-I-P
+  desc: Palantir 的 AI 平台，agent 在本体上做动作
 - term: A2A
   full: Agent2Agent
   zh: 不同厂商的 agent 之间互相委派任务的协议
   say: A 2 A
   desc: 不同厂商的 agent 之间互相委派任务的协议
+- term: PTC
+  full: programmatic tool calling
+  zh: 程序化工具调用
+  say: P-T-C
+  desc: 模型写程序调多个工具，只把结果送回上下文
 - term: MCP
   full: Model Context Protocol
   zh: 模型客户端连接工具服务器的开放协议
@@ -14,11 +24,21 @@
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个 token 的时间
+- term: ZDR
+  full: zero data retention
+  zh: 零数据保留
+  say: Z-D-R
+  desc: 零数据保留：供应商不存请求与响应数据
 - term: ACP
   full: Agent Client Protocol
   zh: 客户端驱动外部 agent 的协议
   say: A-C-P
   desc: 客户端驱动外部 agent 的协议，如拉起 Claude Code
+- term: AAIF
+  full: Agentic AI Foundation
+  zh: 智能体 AI 基金会
+  say: A-A-I-F
+  desc: Linux 基金会下治理 MCP 等项目的基金会
 - term: GenAI
   full: generative AI
   zh: 生成式 AI
