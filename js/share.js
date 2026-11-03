@@ -10,7 +10,8 @@
  *     Every completed share is one POST /shares; Moments and passage shares
  *     can additionally provide a PNG card generator and a long-press / download
  *     overlay.
- *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, and Markdown.
+ *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, copy Markdown
+ *     with absolute URLs, and download Markdown.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -18,6 +19,149 @@
  */
 (function () {
   'use strict';
+
+  function absolutizeMarkdown(source, site) {
+    source = String(source == null ? '' : source);
+    var base = String(site || '').replace(/\/+$/, '');
+    var imageCount = 0;
+    var urlCount = 0;
+    var protectedValues = [];
+    var marker = '\u0000md-export-';
+    while (source.indexOf(marker) !== -1) marker += 'x';
+
+    function protect(value) {
+      var token = marker + protectedValues.length + '\u0000';
+      protectedValues.push(value);
+      return token;
+    }
+    function refKey(label) {
+      return String(label).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '').toLowerCase();
+    }
+    function isRootRelative(url) {
+      return /^\/(?!\/)/.test(url) && !/\{\{|\{%/.test(url);
+    }
+    function protectInlineCode(value) {
+      var out = '';
+      var i = 0;
+      while (i < value.length) {
+        if (value.charAt(i) !== '`') { out += value.charAt(i); i += 1; continue; }
+        var start = i;
+        while (value.charAt(i) === '`') i += 1;
+        var length = i - start;
+        var slashes = 0;
+        for (var back = start - 1; back >= 0 && value.charAt(back) === '\\'; back -= 1) slashes += 1;
+        if (slashes % 2) { out += value.slice(start, i); continue; }
+        var search = i;
+        var end = -1;
+        while (search < value.length) {
+          var next = value.indexOf('`', search);
+          if (next < 0) break;
+          var runEnd = next + 1;
+          while (value.charAt(runEnd) === '`') runEnd += 1;
+          if (runEnd - next === length) { end = runEnd; break; }
+          search = runEnd;
+        }
+        if (end < 0) out += value.slice(start, i);
+        else { out += protect(value.slice(start, end)); i = end; }
+      }
+      return out;
+    }
+    function protectMarkdown(value) {
+      value = value.replace(/\{%[ \t]*comment[ \t]*%\}[\s\S]*?\{%[ \t]*endcomment[ \t]*%\}/gi, protect);
+      value = value.replace(/<!--[\s\S]*?-->/g, protect);
+      value = value.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g, protect);
+      return protectInlineCode(value);
+    }
+    function closesFence(line, fence) {
+      var close = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      return !!(close && close[1].charAt(0) === fence.char && close[1].length >= fence.length);
+    }
+    function rewriteMarkdownChunk(value, imageRefs) {
+      value = value.replace(/(!?)\[([^\]]*)\]([ \t]*\([ \t]*)(\/(?!\/)[^\s)]*)/g, function (match, image, alt, open, url) {
+        if (!isRootRelative(url)) return match;
+        urlCount += 1;
+        if (image) imageCount += 1;
+        return image + '[' + alt + ']' + open + base + url;
+      });
+      value = value.replace(/^([ \t]{0,3}\[([^\]]+)\]:[ \t]*)(\/(?!\/)\S+)/gm, function (match, prefix, label, url) {
+        if (!isRootRelative(url)) return match;
+        urlCount += 1;
+        if (imageRefs[refKey(label)]) imageCount += 1;
+        return prefix + base + url;
+      });
+      return value.replace(/<[A-Za-z][^>]*>/g, function (tag) {
+        var tagMatch = /^<\s*([a-z][\w:-]*)/i.exec(tag);
+        var tagName = tagMatch ? tagMatch[1].toLowerCase() : '';
+        var isImageSource = tagName === 'img' || tagName === 'source';
+        tag = tag.replace(/(\s)(src|href|poster)(\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi, function (match, space, name, equals, doubleValue, singleValue, bareValue) {
+          var url = doubleValue !== undefined ? doubleValue : (singleValue !== undefined ? singleValue : bareValue);
+          if (!isRootRelative(url)) return match;
+          urlCount += 1;
+          var lowerName = name.toLowerCase();
+          if (lowerName === 'poster' || (lowerName === 'src' && isImageSource) || (lowerName === 'href' && tagName === 'image')) imageCount += 1;
+          var absolute = base + url;
+          if (doubleValue !== undefined) return space + name + equals + '"' + absolute + '"';
+          if (singleValue !== undefined) return space + name + equals + "'" + absolute + "'";
+          return space + name + equals + absolute;
+        });
+        return tag.replace(/(\s)(srcset)(\s*=\s*)(?:"([^"]*)"|'([^']*)')/gi, function (match, space, name, equals, doubleValue, singleValue) {
+          var value = doubleValue !== undefined ? doubleValue : singleValue;
+          var updated = value.replace(/(^[ \t]*|,[ \t]*)(\/(?!\/)[^\s,]+)/g, function (candidate, separator, url) {
+            if (!isRootRelative(url)) return candidate;
+            urlCount += 1;
+            imageCount += 1;
+            return separator + base + url;
+          });
+          var quote = doubleValue !== undefined ? '"' : "'";
+          return space + name + equals + quote + updated + quote;
+        });
+      });
+    }
+
+    var chunks = [];
+    var pieces = source.split(/(\r\n|\n|\r)/);
+    var markdown = '';
+    var fence = null;
+    function flushMarkdown() {
+      if (markdown) chunks.push({ markdown: protectMarkdown(markdown) });
+      markdown = '';
+    }
+    for (var i = 0; i < pieces.length; i += 2) {
+      var line = pieces[i];
+      var newline = pieces[i + 1] || '';
+      if (fence) {
+        chunks.push({ protected: line + newline });
+        if (closesFence(line, fence)) fence = null;
+      } else {
+        var open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+        if (open) {
+          flushMarkdown();
+          chunks.push({ protected: line + newline });
+          fence = { char: open[1].charAt(0), length: open[1].length };
+        } else markdown += line + newline;
+      }
+    }
+    flushMarkdown();
+
+    var allMarkdown = chunks.map(function (chunk) { return chunk.markdown || ''; }).join('');
+    var imageRefs = Object.create(null);
+    var imageReference = /!\[([^\]]*)\](?:[ \t]*\[([^\]]*)\])?/g;
+    var referenceMatch;
+    while ((referenceMatch = imageReference.exec(allMarkdown))) {
+      if (/^[ \t]*\(/.test(allMarkdown.slice(imageReference.lastIndex))) continue;
+      imageRefs[refKey(referenceMatch[2] || referenceMatch[1])] = true;
+    }
+
+    var output = chunks.map(function (chunk) {
+      return chunk.markdown != null ? rewriteMarkdownChunk(chunk.markdown, imageRefs) : chunk.protected;
+    }).join('');
+    for (var tokenIndex = 0; tokenIndex < protectedValues.length; tokenIndex += 1) {
+      output = output.split(marker + tokenIndex + '\u0000').join(protectedValues[tokenIndex]);
+    }
+    return { text: output, imageCount: imageCount, urlCount: urlCount };
+  }
+
+  if (typeof module !== 'undefined' && module.exports) module.exports = { absolutizeMarkdown: absolutizeMarkdown };
 
   var bars = Array.prototype.slice.call(document.querySelectorAll('.post-actions'));
   var strips = Array.prototype.slice.call(document.querySelectorAll('.post-stats'));
@@ -128,10 +272,27 @@
       });
     });
   }
+  function splitMarkdownFrontMatter(source) {
+    var match = /^(---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$))/.exec(source);
+    return match ? { frontMatter: match[1], body: source.slice(match[1].length) } : { frontMatter: '', body: source };
+  }
+  function markdownSite(bar) {
+    return bar.getAttribute('data-site-url') || location.origin;
+  }
+  function copyMarkdownPayload(source, bar) {
+    var parts = splitMarkdownFrontMatter(source);
+    var transformed = absolutizeMarkdown(parts.body, markdownSite(bar));
+    var title = bar.getAttribute('data-title') || '';
+    var subtitle = bar.getAttribute('data-subtitle') || '';
+    var text = '# ' + title + '\n\n';
+    if (subtitle) text += subtitle.split(/\r?\n/).map(function (line) { return '> ' + line; }).join('\n') + '\n\n';
+    text += transformed.text.replace(/^(?:\r?\n)+/, '');
+    return { text: text, imageCount: transformed.imageCount };
+  }
 
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
-  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null, downloadMarkdown = null;
+  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null, copyMarkdown = null, downloadMarkdown = null;
   var cardOverlay = null, cardObjectUrl = null;
   function bindMenuDismissal() {
     if (menuDismissalBound) return;
@@ -222,7 +383,8 @@
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="pdf"><i class="fa fa-file-pdf"></i>存为 PDF</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="wechat"><i class="fa fa-brands fa-weixin"></i>复制为公众号格式</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="html"><i class="fa fa-file-code"></i>HTML</button>' +
-      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 源文件"><i class="fa fa-file-lines"></i>Markdown 源文</button>';
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-copy" title="复制 Markdown（图片链接改为完整地址）"><i class="fa fa-copy"></i>复制 Markdown</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 文件"><i class="fa fa-file-lines"></i>下载 Markdown</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
@@ -233,6 +395,7 @@
       if (kind === 'pdf' && printPdf) printPdf(item);
       else if (kind === 'wechat' && copyWechat) copyWechat(item);
       else if (kind === 'html' && downloadHtml) downloadHtml(item);
+      else if (kind === 'md-copy' && copyMarkdown) copyMarkdown(item);
       else if (kind === 'md' && downloadMarkdown) downloadMarkdown(item);
     });
     bindMenuDismissal();
@@ -483,13 +646,51 @@
         toast(bar, '打印失败：' + (err && err.message || err), 4000);
       }
     };
+    copyMarkdown = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      var payloadPromise = fetchMarkdownSource(bar).then(function (source) {
+        return copyMarkdownPayload(source, bar);
+      });
+      function reportSuccess(payload) {
+        toast(bar, '已复制 Markdown（' + payload.imageCount + ' 张图片已换成完整地址）', 4000);
+      }
+      function reportFailure(err) {
+        toast(bar, '失败：' + (err && err.message || err), 4000);
+      }
+      function fallbackCopy() {
+        return payloadPromise.then(function (payload) {
+          return copyText(payload.text).then(function () { return payload; });
+        });
+      }
+      var copyPromise;
+      if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+        try {
+          copyPromise = navigator.clipboard.write([new window.ClipboardItem({
+            'text/plain': payloadPromise.then(function (payload) {
+              return new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
+            })
+          })]);
+        } catch (err) {
+          copyPromise = Promise.reject(err);
+        }
+        copyPromise.then(function () { return payloadPromise; }, fallbackCopy)
+          .then(reportSuccess, reportFailure)
+          .then(function () { item.disabled = false; });
+      } else {
+        fallbackCopy().then(reportSuccess, reportFailure)
+          .then(function () { item.disabled = false; });
+      }
+    };
     downloadMarkdown = function (item) {
       if (!isAuthor || item.disabled) return;
       item.disabled = true;
       fetchMarkdownSource(bar).then(function (source) {
         var sourcePath = bar.getAttribute('data-source') || '';
         var filename = sourcePath.split(/[\\/]/).pop() || 'article.md';
-        var blob = new Blob([source], { type: 'text/markdown;charset=utf-8' });
+        var parts = splitMarkdownFrontMatter(source);
+        var transformed = absolutizeMarkdown(parts.body, markdownSite(bar));
+        var blob = new Blob([parts.frontMatter, transformed.text], { type: 'text/markdown;charset=utf-8' });
         var objectUrl = URL.createObjectURL(blob);
         var link = document.createElement('a');
         link.href = objectUrl;
