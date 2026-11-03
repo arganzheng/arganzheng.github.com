@@ -16,7 +16,7 @@
   desc: 直接用好 / 差回答对训模型，不单独训奖励模型
 - term: GRPO
   full: Group Relative Policy Optimization
-  zh: 同一 prompt 采一组回答
+  zh: 组相对策略优化
   say: G-R-P-O
   desc: 同一 prompt 采一组回答，组内归一化奖励当优势
 - term: SVD
@@ -29,11 +29,6 @@
   zh: 旋转位置编码
   say: "/roʊp/「柔普」"
   desc: 旋转位置编码：按位置把 q、k 的每对维度旋转一个角度
-- term: mmap
-  full: memory map
-  zh: 把文件映射进内存
-  say: "「mmap」"
-  desc: 把文件映射进内存，读到哪页才从磁盘加载哪页
 - term: RMSNorm
   full: Root Mean Square Layer Normalization
   zh: 均方根归一化
@@ -51,12 +46,12 @@
   desc: PyTorch 的融合 attention 函数，自选 kernel
 - term: BPE
   full: byte-pair encoding
-  zh: 反复合并最常见的相邻 pair 得到词表
+  zh: 字节对编码
   say: B-P-E
   desc: 字节对编码：反复合并最常见的相邻 pair 得到词表
 - term: PPO
   full: Proximal Policy Optimization
-  zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
+  zh: 近端策略优化
   say: P-P-O
   desc: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算法
 - term: KL
@@ -74,18 +69,3 @@
   zh: Swish 门控线性单元
   say: "/ˈswɪɡ.luː/「斯威-glue」"
   desc: 用 SiLU 做门控的 FFN：两路相乘再降维
-- term: NFC
-  full: Normalization Form C
-  zh: 组合字符合成一个码位
-  say: N-F-C
-  desc: Unicode 规范化形式：组合字符合成一个码位
-- term: DAPO
-  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
-  zh: clip-higher、过滤全对 / 全错组等
-  say: D-A-P-O
-  desc: GRPO 的改进：clip-higher、过滤全对 / 全错组等
-- term: rsLoRA
-  full: Rank-Stabilized LoRA
-  zh: scaling 用 α/√r 代替 α/r
-  say: "「rsLoRA」"
-  desc: scaling 用 α/√r 代替 α/r，秩大时更稳
