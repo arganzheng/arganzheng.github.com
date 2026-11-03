@@ -9,16 +9,6 @@
   zh: NVIDIA 集合通信库
   say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
-- term: RAII
-  full: resource acquisition is initialization
-  zh: C++ 用对象生命周期管理资源的惯用法
-  say: R-A-I-I
-  desc: C++ 用对象生命周期管理资源的惯用法
-- term: CRTP
-  full: curiously recurring template pattern
-  zh: C++ 派生类把自己当模板参数传给基类的写法
-  say: C-R-T-P
-  desc: C++ 派生类把自己当模板参数传给基类的写法
 - term: SASS
   full: "—（NVIDIA 未给出官方全称）"
   zh: NVIDIA GPU 真正执行的机器指令
@@ -29,103 +19,8 @@
   zh: NVIDIA 的虚拟 GPU 指令集
   say: P-T-X
   desc: NVIDIA 的虚拟 GPU 指令集，由 ptxas 再编译
-- term: TLS
-  full: thread-local storage
-  zh: 每个线程各有一份的变量
-  say: T-L-S
-  desc: 线程局部存储：每个线程各有一份的变量
-- term: ODR
-  full: one definition rule
-  zh: 同一实体全程序只能有一处定义
-  say: O-D-R
-  desc: 单一定义规则：同一实体全程序只能有一处定义
-- term: RPATH
-  full: run-time search path
-  zh: 可执行文件里写死的动态库搜索路径
-  say: R-P-A-T-H
-  desc: 可执行文件里写死的动态库搜索路径
-- term: NRVO
-  full: named return value optimization
-  zh: 返回局部变量省掉拷贝
-  say: N-R-V-O
-  desc: 具名返回值优化：返回局部变量省掉拷贝
-- term: RVO
-  full: return value optimization
-  zh: 返回值优化的统称
-  say: R-V-O
-  desc: 返回值优化的统称，NRVO 是常见情形
-- term: SFINAE
-  full: substitution failure is not an error
-  zh: 模板替换失败不算错、换下一个候选重载的规则
-  say: S-F-I-N-A-E
-  desc: 模板替换失败不算错、换下一个候选重载的规则
-- term: IIFE
-  full: immediately invoked function expression
-  zh: 定义完立刻调用的函数表达式
-  say: I-I-F-E
-  desc: 定义完立刻调用的函数表达式
-- term: AVX2
-  full: Advanced Vector Extensions 2
-  zh: Intel 的 256 位 SIMD 指令集
-  say: A-V-X 2
-  desc: Intel 的 256 位 SIMD 指令集
-- term: AVX
-  full: Advanced Vector Extensions
-  zh: Intel 的 SIMD 指令集总称
-  say: A-V-X
-  desc: Intel 的 SIMD 指令集总称
-- term: AVX512
-  full: Advanced Vector Extensions 512
-  zh: 512 位的 AVX 指令集
-  say: A-V-X 512
-  desc: 512 位的 AVX 指令集
-- term: SIMD
-  full: single instruction, multiple data
-  zh: 一条指令算一批元素
-  say: S-I-M-D
-  desc: 单指令多数据：一条指令算一批元素
 - term: HIP
   full: "—"
   zh: AMD 的类 CUDA 编程接口
   say: H-I-P
   desc: AMD 的类 CUDA 编程接口，ROCm 用它
-- term: RTTI
-  full: run-time type information
-  zh: 运行时类型信息
-  say: R-T-T-I
-  desc: 运行时类型信息，dynamic_cast 靠它
-- term: DWARF
-  full: "—"
-  zh: ELF 里的调试信息格式
-  say: D-W-A-R-F
-  desc: ELF 里的调试信息格式
-- term: POD
-  full: plain old data
-  zh: 可以按位拷贝的普通数据类型
-  say: P-O-D
-  desc: 可以按位拷贝的普通数据类型
-- term: SONAME
-  full: shared object name
-  zh: 动态库的 soname
-  say: S-O-N-A-M-E
-  desc: 动态库的 soname，链接时记进依赖
-- term: JDWP
-  full: Java Debug Wire Protocol
-  zh: Java 调试器 attach 用的协议
-  say: J-D-W-P
-  desc: Java 调试器 attach 用的协议
-- term: CTAD
-  full: class template argument deduction
-  zh: 类模板参数推导
-  say: C-T-A-D
-  desc: 类模板参数推导，C++17 起
-- term: JMM
-  full: Java Memory Model
-  zh: 规定多线程间的可见性
-  say: J-M-M
-  desc: Java 内存模型：规定多线程间的可见性
-- term: CAS
-  full: compare-and-swap
-  zh: 比较并交换
-  say: C-A-S
-  desc: 比较并交换，无锁并发的基础指令
