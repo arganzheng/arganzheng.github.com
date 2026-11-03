@@ -1,4 +1,14 @@
 ---
+- term: nDCG
+  full: normalized discounted cumulative gain
+  zh: 归一化折损累计增益
+  say: "「nDCG」"
+  desc: 按排名位置打折、再归一化的排序质量分
+- term: MRR
+  full: mean reciprocal rank
+  zh: 平均倒数排名
+  say: M-R-R
+  desc: 第一个相关结果排名倒数的平均
 - term: TTFT
   full: time to first token
   zh: 首 token 时延
@@ -9,3 +19,8 @@
   zh: 检索增强生成
   say: "/ræɡ/「rag」"
   desc: 检索增强生成：先检索资料再让模型回答
+- term: ROUGE
+  full: Recall-Oriented Understudy for Gisting Evaluation
+  zh: 面向要点评估的召回导向指标
+  say: R-O-U-G-E
+  desc: 按与参考文本的词重叠给摘要打分
