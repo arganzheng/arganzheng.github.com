@@ -34,11 +34,6 @@
   zh: 检索增强生成
   say: "/ræɡ/「rag」"
   desc: 检索增强生成：先检索资料再让模型回答
-- term: kappa
-  full: Cohen's kappa
-  zh: 校正了机遇一致之后的标注一致性系数
-  say: "「kappa」"
-  desc: 校正了机遇一致之后的标注一致性系数
 - term: ROUGE
   full: Recall-Oriented Understudy for Gisting Evaluation
   zh: 按与参考文本的词重叠给摘要打分
