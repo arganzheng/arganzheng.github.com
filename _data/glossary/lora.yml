@@ -16,7 +16,7 @@
   desc: 直接用偏好对训练的对齐方法，需要参考模型
 - term: GRPO
   full: Group Relative Policy Optimization
-  zh: 同一 prompt 采一组回答
+  zh: 组相对策略优化
   say: G-R-P-O
   desc: 组内相对奖励的强化学习方法，KL 项要参考模型
 - term: SVD
@@ -34,44 +34,9 @@
   zh: 浮点运算次数
   say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，计算量的单位
-- term: rsLoRA
-  full: Rank-Stabilized LoRA
-  zh: scaling 用 α/√r 代替 α/r
-  say: "「rsLoRA」"
-  desc: 把缩放从 α/r 改成 α/√r 的 LoRA
-- term: PiSSA
-  full: Principal Singular values and Singular vectors Adaptation
-  zh: 用 W 的主奇异方向初始化 A、B
-  say: "「PiSSA」"
-  desc: 用 W 的主奇异方向初始化 A、B
-- term: DoRA
-  full: Weight-Decomposed Low-Rank Adaptation
-  zh: 把权重拆成幅度与方向
-  say: "「DoRA」"
-  desc: 把权重拆成幅度与方向，只对方向挂 LoRA
-- term: OLoRA
-  full: Orthonormal Low-Rank Adaptation
-  zh: 用 W 的 QR 分解初始化 LoRA
-  say: "「OLoRA」"
-  desc: 用 W 的 QR 分解初始化 LoRA
-- term: EVA
-  full: Explained Variance Adaptation
-  zh: 用激活的 SVD 初始化 A
-  say: E-V-A
-  desc: 用激活的 SVD 初始化 A，并按方差重分各层的 r
-- term: LoftQ
-  full: LoRA-Fine-Tuning-aware Quantization
-  zh: 对着量化误差初始化 LoRA
-  say: "「LoftQ」"
-  desc: 对着量化误差初始化 LoRA，配合 QLoRA 用
-- term: QLoRA
-  full: Quantized LoRA
-  zh: 底座量化到 4 bit、上面再挂 LoRA 的训…
-  say: "「QLoRA」"
-  desc: 底座量化到 4 bit、上面再挂 LoRA 的训练方法
 - term: QR
   full: QR decomposition
-  zh: 矩阵 = 正交矩阵 Q × 上三角矩阵 R
+  zh: QR 分解
   say: Q-R
   desc: QR 分解：矩阵 = 正交矩阵 Q × 上三角矩阵 R
 - term: Adam
@@ -109,18 +74,8 @@
   zh: 分组查询注意力
   say: 逐字母 G-Q-A
   desc: 多个 query 头共享一组 K、V 头，k、v 投影因此很窄
-- term: CorDA
-  full: Context-oriented Decomposition Adaptation
-  zh: 用数据协方差加权的 SVD 选初始方向
-  say: "「CorDA」"
-  desc: 用数据协方差加权的 SVD 选初始方向
 - term: KL
   full: Kullback–Leibler divergence
   zh: KL 散度
   say: 逐字母 K-L
   desc: 衡量两个分布差多远，这里约束策略别离参考太远
-- term: ulp
-  full: unit in the last place
-  zh: 浮点数最低位一格代表的数值间隔
-  say: "「ulp」"
-  desc: 浮点数最后一位的单位，更小的增量会被舍掉
