@@ -14,11 +14,6 @@
   zh: ROC 曲线下面积
   say: A-U-C
   desc: ROC 曲线下面积，阈值无关的排序质量指标
-- term: DBSCAN
-  full: Density-Based Spatial Clustering of Applications with Noise
-  zh: 核心是找密集连通块
-  say: D-B-S-C-A-N
-  desc: 按密度聚类：核心是找密集连通块，噪声点不算类
 - term: DPO
   full: Direct Preference Optimization
   zh: 直接偏好优化
@@ -44,11 +39,6 @@
   zh: k 近邻
   say: K-N-N
   desc: k 近邻，按最近的 k 个样本预测
-- term: Lasso
-  full: least absolute shrinkage and selection operator
-  zh: 在损失里加权重绝对值和
-  say: "「Lasso」"
-  desc: 在损失里加权重绝对值和，会把系数压成 0
 - term: LoRA
   full: Low-Rank Adaptation
   zh: 低秩适配
@@ -64,11 +54,6 @@
   zh: 均方误差
   say: 逐字母 M-S-E
   desc: 均方误差，预测值减真实值的平方再平均
-- term: OOB
-  full: out-of-bag
-  zh: 随机森林里没被某棵树抽中的样本
-  say: O-O-B
-  desc: 袋外样本：随机森林里没被某棵树抽中的样本，可当验证集用
 - term: PCA
   full: principal component analysis
   zh: 主成分分析
@@ -126,19 +111,9 @@
   desc: 支持向量机
 - term: TF-IDF
   full: term frequency–inverse document frequency
-  zh: 按词频和稀有度给词加权的文本特征
+  zh: 词频–逆文档频率
   say: T-F I-D-F
   desc: 按词频和稀有度给词加权的文本特征
-- term: t-SNE
-  full: t-distributed stochastic neighbor embedding
-  zh: 把高维点压到二维、保住近邻关系的可视化降维
-  say: "「t-SNE」"
-  desc: 把高维点压到二维、保住近邻关系的可视化降维
-- term: UMAP
-  full: Uniform Manifold Approximation and Projection
-  zh: 另一类保邻域结构的降维
-  say: U-M-A-P
-  desc: 另一类保邻域结构的降维，比 t-SNE 快、保全局结构更好
 - term: VC
   full: Vapnik–Chervonenkis
   zh: VC 维
