@@ -1,9 +1,4 @@
 ---
-- term: CRTP
-  full: curiously recurring template pattern
-  zh: C++ 派生类把自己当模板参数传给基类的写法
-  say: C-R-T-P
-  desc: C++ 派生类把自己当模板参数传给基类的写法
 - term: CUTLASS
   full: CUDA Templates for Linear Algebra Subroutines
   zh: NVIDIA 矩阵乘模板库
@@ -39,11 +34,6 @@
   zh: Blackwell 上 Tensor Core …
   say: T-M-E-M
   desc: Blackwell 上 Tensor Core 专用的片上存储
-- term: CSE
-  full: common subexpression elimination
-  zh: 公共子表达式消除
-  say: C-S-E
-  desc: 公共子表达式消除
 - term: PDLL
   full: PDL Language
   zh: MLIR 写 pattern 的专用语言
@@ -69,11 +59,6 @@
   zh: XLA 的高层算子 IR
   say: H-L-O
   desc: XLA 的高层算子 IR
-- term: CFG
-  full: control-flow graph
-  zh: 基本块与跳转边构成的图
-  say: C-F-G
-  desc: 控制流图：基本块与跳转边构成的图
 - term: TMA
   full: Tensor Memory Accelerator
   zh: Hopper 起的异步张量搬运单元
@@ -84,11 +69,6 @@
   zh: MLIR 用 TableGen 声明 Op 的机…
   say: O-D-S
   desc: MLIR 用 TableGen 声明 Op 的机制
-- term: GF(2)
-  full: Galois field of two elements
-  zh: 只有 0、1 的有限域
-  say: "「GF(2)」"
-  desc: 只有 0、1 的有限域，加法是异或
 - term: wgmma
   full: warpgroup MMA
   zh: Hopper 上以 4 个 warp 为单位的异…
@@ -129,11 +109,6 @@
   zh: LLVM 社区的多层 IR 框架
   say: M-L-I-R
   desc: LLVM 社区的多层 IR 框架，可以自定义方言
-- term: SSA
-  full: static single assignment
-  zh: 每个值只被赋值一次
-  say: S-S-A
-  desc: 静态单赋值：每个值只被赋值一次
 - term: LL
   full: linear layout
   zh: 把所有 layout 统一成 GF(2) 线性映…
@@ -144,23 +119,8 @@
   zh: 融合乘加指令
   say: F-M-A
   desc: 融合乘加指令，不走 Tensor Core 的路径
-- term: WAR
-  full: write after read
-  zh: 读还没完就被写覆盖
-  say: W-A-R
-  desc: 写后读冒险：读还没完就被写覆盖
 - term: SM
   full: streaming multiprocessor
   zh: GPU 流多处理器
   say: 逐字母 S-M
   desc: GPU 上执行线程块的计算单元
-- term: RAW
-  full: read after write
-  zh: 写还没落就被读
-  say: R-A-W
-  desc: 读后写冒险：写还没落就被读
-- term: WAW
-  full: write after write
-  zh: 两次写的次序不能错
-  say: W-A-W
-  desc: 写后写冒险：两次写的次序不能错
