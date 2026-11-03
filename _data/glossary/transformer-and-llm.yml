@@ -14,6 +14,16 @@
   zh: 旋转位置编码
   say: "/roʊp/「柔普」"
   desc: 按位置旋转 q、k 的位置编码，Llama 采用
+- term: ReLU
+  full: rectified linear unit
+  zh: 修正线性单元
+  say: "/ˈrɛl.juː/「瑞-路」"
+  desc: max(0, x)，现代激活函数的起点
+- term: MLP
+  full: multi-layer perceptron
+  zh: 多层感知机
+  say: 逐字母 M-L-P
+  desc: 多层感知机：线性层 + 非线性激活叠起来的网络
 - term: GELU
   full: Gaussian error linear unit
   zh: 高斯误差线性单元
