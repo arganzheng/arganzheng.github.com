@@ -121,7 +121,7 @@
   desc: 流水线里前向、反向交替的调度方式
 - term: HSDP
   full: Hybrid Sharded Data Parallel
-  zh: 机内分片、机间复制的 FSDP 变体
+  zh: 混合分片数据并行
   say: H-S-D-P
   desc: 机内分片、机间复制的 FSDP 变体
 - term: SPMD
@@ -129,11 +129,6 @@
   zh: 每个进程跑同一份程序、处理不同数据
   say: S-P-M-D
   desc: 每个进程跑同一份程序、处理不同数据
-- term: ulp
-  full: unit in the last place
-  zh: 浮点数最低位一格代表的数值间隔
-  say: "「ulp」"
-  desc: 浮点数最低位一格代表的数值间隔
 - term: FFN
   full: feed-forward network
   zh: 前馈网络
@@ -171,7 +166,7 @@
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
 - term: SDPA
   full: scaled dot-product attention
-  zh: PyTorch 的融合 attention 函数
+  zh: 缩放点积注意力
   say: S-D-P-A
   desc: PyTorch 的融合 attention 函数，自选 kernel
 - term: TE
@@ -184,11 +179,6 @@
   zh: 模型算力利用率
   say: 逐字母 M-F-U
   desc: 模型算力利用率：实际吞吐 ÷ 理论峰值，预训练看它的健康度
-- term: RSS
-  full: resident set size
-  zh: 进程实际占用的物理内存
-  say: R-S-S
-  desc: 进程实际占用的物理内存
 - term: TFLOPS
   full: tera floating point operations per second
   zh: 每秒万亿次浮点运算
@@ -216,17 +206,12 @@
   desc: 10^12 次浮点运算
 - term: RS
   full: rejection sampling
-  zh: 比值越界的样本直接丢掉
+  zh: 拒绝采样
   say: R-S
   desc: 拒绝采样：比值越界的样本直接丢掉
-- term: RNG
-  full: random number generator
-  zh: 随机数生成器
-  say: R-N-G
-  desc: 随机数生成器
 - term: SP
   full: sequence parallelism
-  zh: 沿序列维切分激活
+  zh: 序列并行
   say: S-P
   desc: 序列并行：沿序列维切分激活
 - term: DCP
@@ -239,11 +224,6 @@
   zh: 硬件出错但不报错
   say: S-D-C
   desc: 静默数据损坏：硬件出错但不报错
-- term: MTBF
-  full: mean time between failures
-  zh: 平均无故障间隔时间
-  say: M-T-B-F
-  desc: 平均无故障间隔时间
 - term: DCGM
   full: Data Center GPU Manager
   zh: NVIDIA 的 GPU 监控套件
@@ -251,19 +231,9 @@
   desc: NVIDIA 的数据中心 GPU 监控套件
 - term: AC
   full: activation checkpointing
-  zh: 不存中间激活、反向时重算省显存
+  zh: 激活检查点
   say: A-C
   desc: 激活重算：不存中间激活、反向时重算省显存
-- term: ECC
-  full: error-correcting code
-  zh: 纠错码显存
-  say: E-C-C
-  desc: 纠错码显存，HBM 自带
-- term: PFS
-  full: parallel file system
-  zh: 并行文件系统
-  say: P-F-S
-  desc: 并行文件系统，如 Lustre
 - term: FQN
   full: fully qualified name
   zh: 参数在 state_dict 里的完整路径名
