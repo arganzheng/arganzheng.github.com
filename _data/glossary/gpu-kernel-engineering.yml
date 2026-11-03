@@ -69,6 +69,11 @@
   zh: 分组查询注意力
   say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
+- term: GPTQ
+  full: GPT post-training quantization
+  zh: GPT 训练后量化
+  say: 逐字母 G-P-T-Q
+  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
 - term: SDPA
   full: scaled dot-product attention
   zh: 缩放点积注意力
