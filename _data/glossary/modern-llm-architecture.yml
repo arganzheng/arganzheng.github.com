@@ -129,6 +129,11 @@
   zh: 视觉 Transformer
   say: "/vɪt/「维特」"
   desc: 把图像切块当序列送进 Transformer
+- term: EAGLE
+  full: Extrapolation Algorithm for Greater Language-model Efficiency
+  zh: 提升语言模型效率的外推算法
+  say: "/ˈiːɡəl/「伊-勾」"
+  desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
 - term: GQA
   full: grouped-query attention
   zh: 分组查询注意力
@@ -154,6 +159,11 @@
   zh: 扩散 Transformer
   say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
+- term: LLaVA
+  full: Large Language and Vision Assistant
+  zh: 大语言视觉助手
+  say: "/ˈlɑːvə/「拉-瓦」"
+  desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: M-RoPE
   full: multimodal RoPE
   zh: 多模态旋转位置编码
