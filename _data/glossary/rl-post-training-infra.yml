@@ -29,6 +29,11 @@
   zh: 上下文并行
   say: 逐字母 C-P
   desc: 上下文并行：长序列按长度切到多张卡
+- term: DAPO
+  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  zh: 解耦裁剪与动态采样策略优化
+  say: D-A-P-O
+  desc: 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样
 - term: TIS
   full: truncated importance sampling
   zh: 权重超过上限就截到上限
@@ -99,6 +104,11 @@
   zh: 浮点运算次数
   say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力开销单位
+- term: GLM
+  full: General Language Model
+  zh: 通用语言模型
+  say: G-L-M
+  desc: 智谱的大模型系列
 - term: NIXL
   full: NVIDIA Inference Xfer Library
   zh: NVIDIA 推理传输库
