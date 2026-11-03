@@ -1,17 +1,12 @@
 ---
-- term: AnyRes
-  full: any resolution
-  zh: LLaVA-NeXT 的切 tile 方案：选网…
-  say: "「AnyRes」"
-  desc: LLaVA-NeXT 的切 tile 方案：选网格 + 全图缩略图
 - term: AR
   full: autoregressive
-  zh: 按顺序逐个生成
+  zh: 自回归
   say: A-R
   desc: 自回归：按顺序逐个生成，文本与离散化图像都能用
 - term: CFG
   full: classifier-free guidance
-  zh: 有条件的输出减去无条件的输出
+  zh: 无分类器引导
   say: C-F-G
   desc: 无分类器引导：有条件的输出减去无条件的输出，控制贴合度
 - term: CLIP
@@ -21,17 +16,17 @@
   desc: OpenAI 的图文对比模型，用「图文是否配对」训练
 - term: DDIM
   full: denoising diffusion implicit model
-  zh: 把采样改成非马尔可夫的扩散采样器
+  zh: 去噪扩散隐式模型
   say: D-D-I-M
   desc: 把采样改成非马尔可夫的扩散采样器，可以跳步
 - term: DDPM
   full: denoising diffusion probabilistic model
-  zh: 逐步加噪再学逐步去噪的生成框架
+  zh: 去噪扩散概率模型
   say: D-D-P-M
   desc: 去噪扩散概率模型：逐步加噪再学逐步去噪的生成框架
 - term: DiT
   full: diffusion transformer
-  zh: 用 Transformer 替代 U-Net 的…
+  zh: 扩散 Transformer
   say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
 - term: DPO
@@ -41,7 +36,7 @@
   desc: 直接偏好优化；图像生成里也有对应做法
 - term: EMA
   full: exponential moving average
-  zh: 滑动平均
+  zh: 指数滑动平均
   say: E-M-A
   desc: 滑动平均，教师模型取学生参数的移动平均
 - term: FFN
@@ -49,11 +44,6 @@
   zh: 前馈网络
   say: 逐字母 F-F-N
   desc: Transformer 每层里的前馈网络子层
-- term: FID
-  full: Fréchet inception distance
-  zh: 用 Inception 特征比较生成分布与真实分…
-  say: F-I-D
-  desc: 用 Inception 特征比较生成分布与真实分布的指标
 - term: FLOPs
   full: floating-point operations
   zh: 浮点运算次数
@@ -64,24 +54,14 @@
   zh: 高斯误差线性单元
   say: "/ˈdʒɛl.uː/「杰-路」"
   desc: MLP 里常用的一种平滑激活函数
-- term: InfoNCE
-  full: "—"
-  zh: 把正确配对当 B 选 1 的分类题
-  say: "「InfoNCE」"
-  desc: 对比学习损失：把正确配对当 B 选 1 的分类题
-- term: LLaVA
-  full: large language and vision assistant
-  zh: 大语言视觉助手
-  say: "/ˈlɑːvə/「拉-瓦」"
-  desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: MAE
   full: masked autoencoder
-  zh: 遮住大部分 patch 重建像素的自监督编码器
+  zh: 掩码自编码器
   say: M-A-E
   desc: 遮住大部分 patch 重建像素的自监督编码器
 - term: MIM
   full: masked image modeling
-  zh: 遮住一部分、重建被遮住的
+  zh: 掩码图像建模
   say: M-I-M
   desc: 掩码图像建模：遮住一部分、重建被遮住的
 - term: MLP
@@ -91,7 +71,7 @@
   desc: 多层感知机，VLM 里常当 connector
 - term: M-RoPE
   full: multimodal RoPE
-  zh: Qwen2-VL 的三维（时间/高/宽）位置编码
+  zh: 多模态旋转位置编码
   say: "「M-RoPE」"
   desc: Qwen2-VL 的三维（时间/高/宽）位置编码
 - term: MSE
@@ -99,26 +79,11 @@
   zh: 均方误差
   say: 逐字母 M-S-E
   desc: 均方误差，扩散与重建任务的默认损失
-- term: NaFlex
-  full: native flexible resolution
-  zh: SigLIP 2 的原生宽高比、可变分辨率变体
-  say: "「NaFlex」"
-  desc: SigLIP 2 的原生宽高比、可变分辨率变体
-- term: ODE
-  full: ordinary differential equation
-  zh: 常微分方程
-  say: O-D-E
-  desc: 常微分方程；flow matching / 确定性采样把它当生成路径
 - term: PCA
   full: principal component analysis
   zh: 主成分分析
   say: P-C-A
   desc: 主成分分析，把高维特征压到两三维看结构
-- term: Q-Former
-  full: querying Transformer
-  zh: K 个可学习 query 做 cross-att…
-  say: "「Q-Former」"
-  desc: BLIP-2 的 connector：K 个可学习 query 做 cross-attention
 - term: RoPE
   full: rotary position embedding
   zh: 旋转位置编码
@@ -134,11 +99,6 @@
   zh: 监督微调
   say: 逐字母 S-F-T
   desc: 监督微调，用指令数据训练模型
-- term: SigLIP
-  full: Sigmoid Loss for Language-Image Pre-training
-  zh: CLIP 的 sigmoid 损失版
-  say: "「SigLIP」"
-  desc: CLIP 的 sigmoid 损失版，对 batch 大小不敏感
 - term: TTS
   full: text-to-speech
   zh: 语音合成
@@ -156,7 +116,7 @@
   desc: 把图像切成 patch、每块变成一个向量送进 Transformer 的编码器
 - term: VLM
   full: vision-language model
-  zh: 能看图回答问题的语言模型
+  zh: 视觉语言模型
   say: V-L-M
   desc: 能看图回答问题的语言模型
 - term: VQ
@@ -164,8 +124,3 @@
   zh: 把连续向量换成码本里最近的离散码字
   say: V-Q
   desc: 向量量化：把连续向量换成码本里最近的离散码字
-- term: VSR
-  full: visual spatial reasoning
-  zh: 测空间关系（左/右/上/下）的 benchmar…
-  say: V-S-R
-  desc: 测空间关系（左/右/上/下）的 benchmark
