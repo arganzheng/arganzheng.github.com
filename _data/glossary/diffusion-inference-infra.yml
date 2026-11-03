@@ -45,8 +45,8 @@
   say: "/ˈnɪkəl/「nickel」"
   desc: NVIDIA 的集合通信库，多卡通信的事实标准
 - term: CFG
-  full: context-free grammar
-  zh: 上下文无关文法
+  full: classifier-free guidance
+  zh: 无分类器引导
   say: C-F-G
   desc: 上下文无关文法，能表达递归的嵌套结构
 - term: HSDP
@@ -106,34 +106,24 @@
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
 - term: SDPA
   full: scaled dot-product attention
-  zh: PyTorch 的融合 attention 函数
+  zh: 缩放点积注意力
   say: S-D-P-A
   desc: PyTorch 的融合 attention 函数，自选 kernel
 - term: DDIM
   full: denoising diffusion implicit model
-  zh: 把采样改成非马尔可夫的扩散采样器
+  zh: 去噪扩散隐式模型
   say: D-D-I-M
   desc: 把采样改成非马尔可夫的扩散采样器，可以跳步
 - term: DDPM
   full: denoising diffusion probabilistic model
-  zh: 逐步加噪再学逐步去噪的生成框架
+  zh: 去噪扩散概率模型
   say: D-D-P-M
   desc: 去噪扩散概率模型：逐步加噪再学逐步去噪的生成框架
 - term: DiT
   full: diffusion transformer
-  zh: 用 Transformer 替代 U-Net 的…
+  zh: 扩散 Transformer
   say: "「DiT」"
   desc: 用 Transformer 替代 U-Net 的扩散骨干
-- term: FID
-  full: Fréchet inception distance
-  zh: 用 Inception 特征比较生成分布与真实分…
-  say: F-I-D
-  desc: 用 Inception 特征比较生成分布与真实分布的指标
-- term: ODE
-  full: ordinary differential equation
-  zh: 常微分方程
-  say: O-D-E
-  desc: 常微分方程；flow matching / 确定性采样把它当生成路径
 - term: TTS
   full: text-to-speech
   zh: 语音合成
@@ -156,7 +146,7 @@
   desc: 一次浮点运算；文中算力账按 FLOP 记
 - term: SP
   full: sequence parallelism
-  zh: 沿序列维切分激活
+  zh: 序列并行
   say: S-P
   desc: 序列并行：沿序列维切分激活
 - term: PSNR
@@ -166,7 +156,7 @@
   desc: 峰值信噪比，重建质量指标
 - term: USP
   full: unified sequence parallelism
-  zh: DiT 推理用的统一序列并行方案
+  zh: 统一序列并行
   say: U-S-P
   desc: DiT 推理用的统一序列并行方案
 - term: SSIM
@@ -174,23 +164,3 @@
   zh: 结构相似度
   say: S-S-I-M
   desc: 结构相似度，图像质量指标
-- term: LPIPS
-  full: learned perceptual image patch similarity
-  zh: 学习到的感知相似度指标
-  say: L-P-I-P-S
-  desc: 学习到的感知相似度指标
-- term: DMD
-  full: distribution matching distillation
-  zh: 把多步扩散蒸成少步
-  say: D-M-D
-  desc: 分布匹配蒸馏：把多步扩散蒸成少步
-- term: VSA
-  full: "—"
-  zh: 视频扩散模型里的稀疏注意力机制
-  say: V-S-A
-  desc: 视频扩散模型里的稀疏注意力机制
-- term: STA
-  full: "—"
-  zh: 视频扩散里的稀疏时空注意力
-  say: S-T-A
-  desc: 视频扩散里的稀疏时空注意力
