@@ -1,9 +1,4 @@
 ---
-- term: RAII
-  full: resource acquisition is initialization
-  zh: C++ 用对象生命周期管理资源的惯用法
-  say: R-A-I-I
-  desc: C++ 用对象生命周期管理资源的惯用法
 - term: AMP
   full: automatic mixed precision
   zh: 部分算子用低精度跑
@@ -36,7 +31,7 @@
   desc: 张量并行：把一个层的权重切到多张卡
 - term: HSDP
   full: Hybrid Sharded Data Parallel
-  zh: 机内分片、机间复制的 FSDP 变体
+  zh: 混合分片数据并行
   say: H-S-D-P
   desc: 机内分片、机间复制的 FSDP 变体
 - term: ZeRO
@@ -84,8 +79,3 @@
   zh: 主机到设备
   say: 逐字母 H-2-D
   desc: 主机内存拷到显存
-- term: ulp
-  full: unit in the last place
-  zh: 浮点数最低位一格代表的数值间隔
-  say: "「ulp」"
-  desc: 浮点数最低位一格代表的数值间隔
