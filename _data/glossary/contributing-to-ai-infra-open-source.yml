@@ -4,16 +4,6 @@
   zh: NVIDIA 集合通信库
   say: "/ˈnɪkəl/「nickel」"
   desc: 多 GPU 之间做集合通信的库
-- term: DCO
-  full: Developer Certificate of Origin
-  zh: 开发者原创声明
-  say: D-C-O
-  desc: 开发者原创声明，每个 commit 带 Signed-off-by
-- term: CLA
-  full: Contributor License Agreement
-  zh: 贡献者许可协议
-  say: C-L-A
-  desc: 贡献者许可协议，签一次即授权项目使用你的代码
 - term: ROCm
   full: Radeon Open Compute
   zh: AMD GPU 软件栈
@@ -24,8 +14,3 @@
   zh: 数据并行
   say: 逐字母 D-P
   desc: 数据并行：多份模型副本各处理一部分请求
-- term: LU
-  full: lower–upper
-  zh: 把矩阵拆成下三角 L 和上三角 U
-  say: L-U
-  desc: LU 分解：把矩阵拆成下三角 L 和上三角 U
