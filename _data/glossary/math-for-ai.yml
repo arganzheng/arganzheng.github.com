@@ -81,6 +81,11 @@
   zh: 对比语言-图像预训练
   say: "/klɪp/「可利普」"
   desc: OpenAI 的图文对比模型，把图和文嵌进同一空间
+- term: GPTQ
+  full: GPT post-training quantization
+  zh: GPT 训练后量化
+  say: 逐字母 G-P-T-Q
+  desc: 一种训练后量化方法，逐层最小化量化误差
 - term: RoPE
   full: rotary position embedding
   zh: 旋转位置编码
@@ -106,6 +111,11 @@
   zh: 均方误差
   say: 逐字母 M-S-E
   desc: 均方误差，预测与目标差的平方均值
+- term: RLOO
+  full: REINFORCE Leave-One-Out
+  zh: 留一法 REINFORCE
+  say: R-L-O-O
+  desc: 用组内留一均值做 baseline 的 REINFORCE
 - term: SE
   full: standard error
   zh: 标准误
