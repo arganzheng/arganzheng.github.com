@@ -29,11 +29,6 @@
   zh: 按累计注意力分数保留「重击球」token 的 K…
   say: H 2 O
   desc: 按累计注意力分数保留「重击球」token 的 KV 淘汰策略
-- term: KIVI
-  full: "—"
-  zh: key 按通道、value 按 token 量化
-  say: K-I-V-I
-  desc: KV cache 量化方法：key 按通道、value 按 token 量化
 - term: KL
   full: Kullback–Leibler divergence
   zh: KL 散度
