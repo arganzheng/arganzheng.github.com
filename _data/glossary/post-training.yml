@@ -69,11 +69,6 @@
   zh: 逐步给推导打分的 RM
   say: P-R-M
   desc: 过程奖励模型：逐步给推导打分的 RM
-- term: REINFORCE
-  full: "—"
-  zh: loss = −A·log π
-  say: R-E-I-N-F-O-R-C-E
-  desc: 最早的策略梯度算法，用 score function 估计梯度
 - term: RLHF
   full: reinforcement learning from human feedback
   zh: 基于人类反馈的强化学习
