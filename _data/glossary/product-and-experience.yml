@@ -1,9 +1,4 @@
 ---
-- term: MCP Apps
-  full: Model Context Protocol Apps
-  zh: MCP 的扩展
-  say: "「MCP Apps」"
-  desc: MCP 的扩展，让工具返回可交互的界面
 - term: RAG
   full: retrieval-augmented generation
   zh: 检索增强生成
