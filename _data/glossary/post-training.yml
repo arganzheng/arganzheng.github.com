@@ -1,4 +1,14 @@
 ---
+- term: BoN
+  full: best-of-n
+  zh: n 选最优
+  say: "「BoN」"
+  desc: 同一 prompt 采 n 个回答、用 RM 挑最好的那个
+- term: DAPO
+  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
+  zh: 解耦裁剪与动态采样策略优化
+  say: D-A-P-O
+  desc: GRPO 的改进：clip-higher、过滤全对/全错组等
 - term: DPO
   full: Direct Preference Optimization
   zh: 直接偏好优化
@@ -14,11 +24,21 @@
   zh: 组相对策略优化
   say: G-R-P-O
   desc: 用组内均值替代价值模型的策略梯度方法
+- term: IPO
+  full: Identity Preference Optimization
+  zh: 恒等偏好优化
+  say: I-P-O
+  desc: DPO 的变体，防止确定性偏好下过拟合
 - term: KL
   full: Kullback–Leibler divergence
   zh: KL 散度
   say: 逐字母 K-L
   desc: 衡量两个分布差多少；RL 里约束策略别离参考太远
+- term: KTO
+  full: Kahneman–Tversky Optimization
+  zh: 卡尼曼–特沃斯基优化
+  say: K-T-O
+  desc: 只要单样本好坏标签、不要成对偏好的方法
 - term: LoRA
   full: Low-Rank Adaptation
   zh: 低秩适配
@@ -34,6 +54,11 @@
   zh: 结果奖励模型
   say: O-R-M
   desc: 只看最终答案对错的奖励模型
+- term: ORPO
+  full: Odds Ratio Preference Optimization
+  zh: 几率比偏好优化
+  say: O-R-P-O
+  desc: 把偏好项并入 SFT loss、不用参考模型的方法
 - term: PPO
   full: Proximal Policy Optimization
   zh: 近端策略优化
@@ -49,6 +74,11 @@
   zh: 基于人类反馈的强化学习
   say: R-L-H-F
   desc: 用人类反馈的奖励做强化学习微调
+- term: RLOO
+  full: REINFORCE Leave-One-Out
+  zh: 留一法 REINFORCE
+  say: R-L-O-O
+  desc: 用组内留一均值做 baseline 的 REINFORCE
 - term: RLVR
   full: RL with verifiable rewards
   zh: 基于可验证奖励的强化学习
