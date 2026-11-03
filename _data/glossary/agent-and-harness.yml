@@ -1,9 +1,4 @@
 ---
-- term: p50 / p95
-  full: 50th / 95th percentile
-  zh: 中位数 / 第 95 百分位
-  say: "「p50 / p95」"
-  desc: 中位数 / 第 95 百分位，用来看长尾
 - term: AIP
   full: Artificial Intelligence Platform
   zh: Palantir 的 AI 平台
