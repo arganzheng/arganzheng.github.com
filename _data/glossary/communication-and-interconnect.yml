@@ -109,11 +109,6 @@
   zh: 借助 NVSwitch 在交换芯片里归约
   say: N-V-L-S
   desc: 借助 NVSwitch 在交换芯片里归约
-- term: SHM
-  full: shared memory
-  zh: 经主机共享内存传数据的 NCCL transpo…
-  say: S-H-M
-  desc: 经主机共享内存传数据的 NCCL transport
 - term: NVML
   full: NVIDIA Management Library
   zh: 查询 GPU 状态与拓扑的管理库
@@ -154,21 +149,6 @@
   zh: QP 的三种传输类型
   say: "「RC / UC / UD」"
   desc: QP 的三种传输类型
-- term: PIX
-  full: "—"
-  zh: nvidia-smi topo 的路径等级
-  say: P-I-X
-  desc: nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远
-- term: PXB
-  full: "—"
-  zh: nvidia-smi topo 的路径等级
-  say: P-X-B
-  desc: nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远
-- term: PHB
-  full: "—"
-  zh: nvidia-smi topo 的路径等级
-  say: P-H-B
-  desc: nvidia-smi topo 的路径等级，从 NVLink 到跨 NUMA 由近到远
 - term: HDR
   full: High Data Rate / Next Data Rate
   zh: 200 / 400 Gb/s
@@ -199,16 +179,6 @@
   zh: NVIDIA 推理传输库
   say: "「尼-克瑟」"
   desc: NVIDIA 的推理数据传输库，用来搬 KV cache
-- term: PFC
-  full: Priority Flow Control
-  zh: 按优先级暂停发送
-  say: P-F-C
-  desc: 按优先级暂停发送，让以太网不丢包
-- term: ECN
-  full: Explicit Congestion Notification
-  zh: 交换机在包上打拥塞标记
-  say: E-C-N
-  desc: 交换机在包上打拥塞标记，让发送端降速
 - term: SHARP
   full: Scalable Hierarchical Aggregation and Reduction Protocol
   zh: 在交换机里做归约的技术
