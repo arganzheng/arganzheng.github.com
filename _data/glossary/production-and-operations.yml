@@ -1,44 +1,9 @@
 ---
-- term: CSAM
-  full: child sexual abuse material
-  zh: 儿童性虐待材料
-  say: C-S-A-M
-  desc: 儿童性虐待材料
-- term: RPM / TPM
-  full: requests per minute / tokens per minute
-  zh: 每分钟请求数 / 每分钟 token 数的限额
-  say: "「RPM / TPM」"
-  desc: 每分钟请求数 / 每分钟 token 数的限额
-- term: GPAI
-  full: general-purpose AI
-  zh: AI Act 里的通用模型
-  say: G-P-A-I
-  desc: AI Act 里的通用模型，有单独的义务
-- term: ZDR
-  full: zero data retention
-  zh: 供应商不存请求与响应数据
-  say: Z-D-R
-  desc: 供应商不保存请求与响应内容的选项
-- term: XPIA
-  full: cross-prompt injection attack
-  zh: Microsoft 对间接 prompt inj…
-  say: X-P-I-A
-  desc: Microsoft 对间接 prompt injection 的叫法
-- term: PTC
-  full: programmatic tool calling
-  zh: 模型写程序调多个工具
-  say: P-T-C
-  desc: 让模型写代码一次调多个工具，把多轮变一轮
 - term: TTFT
   full: time to first token
   zh: 首 token 时延
   say: 逐字母 T-T-F-T
   desc: 从发出请求到收到第一个输出 token 的时间
-- term: MCP
-  full: Model Context Protocol
-  zh: 模型客户端连接工具服务器的开放协议
-  say: M-C-P
-  desc: 模型调用外部工具与数据的开放协议
 - term: RAG
   full: retrieval-augmented generation
   zh: 检索增强生成
