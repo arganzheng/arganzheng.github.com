@@ -161,21 +161,11 @@
   zh: 视觉 Transformer
   say: "/vɪt/「维特」"
   desc: 把图像切块当序列送进 Transformer
-- term: EAGLE
-  full: "—"
-  zh: EAGLE 投机解码法
-  say: "/ˈiːɡəl/「伊-勾」"
-  desc: 在特征层外推草稿的投机解码方法，接受率比 Medusa 高
 - term: GQA
   full: grouped-query attention
   zh: 分组查询注意力
   say: 逐字母 G-Q-A
   desc: 多个 q 头共用一组 k、v 头，KV cache 更小
-- term: GPTQ
-  full: "—"
-  zh: GPTQ 量化方法
-  say: 逐字母 G-P-T-Q
-  desc: 逐层用二阶信息补偿误差的训练后权重量化方法
 - term: MLA
   full: multi-head latent attention
   zh: 多头隐注意力
@@ -186,11 +176,6 @@
   zh: 多 token 预测
   say: 逐字母 M-T-P
   desc: 一次预测多个 token 的模块，训练出的头可投给投机解码
-- term: LLaVA
-  full: large language and vision assistant
-  zh: 大语言视觉助手
-  say: "/ˈlɑːvə/「拉-瓦」"
-  desc: 早期主流 VLM，connector 是线性层 / MLP
 - term: MFU
   full: model FLOPs utilization
   zh: 模型算力利用率
@@ -246,11 +231,6 @@
   zh: token 间延迟
   say: 逐字母 I-T-L
   desc: token 间延迟，同 TPOT
-- term: OOT
-  full: out-of-tree
-  zh: 树外插件
-  say: 逐字母 O-O-T
-  desc: 不编进主仓、作为插件加载的后端
 - term: MHA
   full: multi-head attention
   zh: 多头注意力
