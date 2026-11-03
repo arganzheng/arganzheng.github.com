@@ -29,11 +29,6 @@
   zh: 上下文并行
   say: 逐字母 C-P
   desc: 上下文并行：长序列按长度切到多张卡
-- term: DAPO
-  full: Decoupled Clip and Dynamic sAmpling Policy Optimization
-  zh: clip-higher、过滤全对 / 全错组等
-  say: D-A-P-O
-  desc: 字节 Seed 的 GRPO 改进：非对称 clip 加动态采样
 - term: TIS
   full: truncated importance sampling
   zh: 权重超过上限就截到上限
@@ -76,7 +71,7 @@
   desc: 一次浮点运算；文中算力账按 FLOP 记
 - term: PPO
   full: Proximal Policy Optimization
-  zh: 把新旧策略的概率比裁剪在 1±ε 内的策略梯度算…
+  zh: 近端策略优化
   say: P-P-O
   desc: 近端策略优化：用 clip 限制每步更新幅度
 - term: MFU
@@ -104,11 +99,6 @@
   zh: 浮点运算次数
   say: "/flɒps/「弗拉普斯」"
   desc: 浮点运算次数，算力开销单位
-- term: GLM
-  full: General Language Model
-  zh: 智谱的大模型系列
-  say: G-L-M
-  desc: 智谱的大模型系列
 - term: NIXL
   full: NVIDIA Inference Xfer Library
   zh: NVIDIA 推理传输库
@@ -131,7 +121,7 @@
   desc: 监督微调
 - term: GRPO
   full: Group Relative Policy Optimization
-  zh: 同一 prompt 采一组回答
+  zh: 组相对策略优化
   say: G-R-P-O
   desc: 组内回答互相比较算优势的 PPO 变体，不需要 critic
 - term: RLHF
