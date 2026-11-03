@@ -1,69 +1,19 @@
 ---
-- term: RAGAS
-  full: Retrieval Augmented Generation Assessment
-  zh: RAG 评测框架
-  say: R-A-G-A-S
-  desc: RAG 评测框架，定义了一组常用指标
-- term: AIP
-  full: Artificial Intelligence Platform
-  zh: Palantir 的 AI 平台
-  say: A-I-P
-  desc: Palantir 建在本体之上的 AI 平台
-- term: HyDE
-  full: Hypothetical Document Embeddings
-  zh: 先让模型写一段假想答案
-  say: "「HyDE」"
-  desc: 先让模型写一段假想答案，再用它去检索
 - term: ANN
   full: approximate nearest neighbor
   zh: 近似最近邻搜索
   say: A-N-N
   desc: 近似最近邻搜索，用一点精度换速度
-- term: RAFT
-  full: Retrieval-Augmented Fine-Tuning
-  zh: 用带干扰文档的检索结果做微调
-  say: R-A-F-T
-  desc: 用带干扰文档的检索结果做微调，让模型更会用检索
 - term: SFT
   full: supervised fine-tuning
   zh: 监督微调
   say: 逐字母 S-F-T
   desc: 有监督微调：用（输入，期望输出）对训练模型
-- term: ColBERT
-  full: Contextualized Late Interaction over BERT
-  zh: 按 token 存多向量、查询时晚交互的检索模型
-  say: "「ColBERT」"
-  desc: 按 token 存多向量、查询时晚交互的检索模型
-- term: nDCG
-  full: normalized discounted cumulative gain
-  zh: 按排名位置打折、再归一化的排序质量分
-  say: "「nDCG」"
-  desc: 按位置打折、能用分级相关性的排序指标
-- term: MRR
-  full: mean reciprocal rank
-  zh: 第一个相关结果排名倒数的平均
-  say: M-R-R
-  desc: 第一个相关结果排名倒数的平均值
-- term: RRF
-  full: reciprocal rank fusion
-  zh: 只按排名合并多路结果
-  say: R-R-F
-  desc: 倒数排名融合：只按排名合并多路结果
 - term: IVF
   full: inverted file index
-  zh: 先聚类、只搜最近几个簇的向量索引
+  zh: 倒排索引
   say: I-V-F
   desc: 先聚类、只搜最近几个簇的向量索引
-- term: HNSW
-  full: Hierarchical Navigable Small World
-  zh: 分层的近邻图索引
-  say: H-N-S-W
-  desc: 分层的近邻图索引，多数向量库的默认结构
-- term: BM25
-  full: Best Matching 25
-  zh: 按词频和文档长度打分的经典关键词检索算法
-  say: B-M 25
-  desc: 按词频和文档长度打分的经典关键词检索算法
 - term: RAG
   full: retrieval-augmented generation
   zh: 检索增强生成
@@ -76,6 +26,6 @@
   desc: 只训练低秩增量矩阵的轻量微调方法
 - term: VLM
   full: vision-language model
-  zh: 能看图回答问题的语言模型
+  zh: 视觉语言模型
   say: V-L-M
   desc: 能看图的语言模型，这里用来读文档图像
