@@ -39,11 +39,6 @@
   zh: scaling 用 α/√r 代替 α/r
   say: "「rsLoRA」"
   desc: 把缩放从 α/r 改成 α/√r 的 LoRA
-- term: LoRA+
-  full: "—"
-  zh: 给 B 设比 A 更大学习率的 LoRA 变体
-  say: "「LoRA+」"
-  desc: 给 B 设比 A 更大学习率的 LoRA 变体
 - term: PiSSA
   full: Principal Singular values and Singular vectors Adaptation
   zh: 用 W 的主奇异方向初始化 A、B
