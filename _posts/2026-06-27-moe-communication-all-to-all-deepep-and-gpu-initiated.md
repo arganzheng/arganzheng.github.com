@@ -241,7 +241,7 @@ flowchart TB
 
 ### 4. 为什么变长 split 要先交换 counts：两步、两次 α、一次 host 同步
 
-`output_split_sizes` 是一个 Python 列表——**必须在 CPU 上**。而"我会从每个对端收到多少 token"只有对端知道（它的 router 决定的），并且结果在 GPU 上。所以任何用 `all_to_all_single` 做 MoE dispatch 的框架都要走这四步：
+`output_split_sizes` 是一个 Python 列表——**必须在 CPU 上**。而"会从每个对端收到多少 token"只有对端知道（它的 router 决定的），并且结果在 GPU 上。所以任何用 `all_to_all_single` 做 MoE dispatch 的框架都要走这四步：
 
 | 步 | 做什么 | 怎么做 |
 |---|---|---|
@@ -422,7 +422,7 @@ flowchart TB
     class D1,D3,D5 nvl;
 ```
 
-红色节点是经网卡到达的，绿色是经 NVLink 到达的：平坦算法三份都过网卡（50 GB/s 的那段），去重后网卡只过一份，其余两跳落在 NVLink 上——第二章第 2 节"7 份压到 4.6 份"的算术就是这张图对全部 token 求期望。这正是第二章说的"网卡上只走一份、到节点内再 NVLink 分发"；`Buffer.dispatch` 的文档写明了它的拓扑要求："节点内的 rank 经 NVLink 可见，**同 GPU 序号**的 rank 经 RDMA 可见"——和第四篇 PXN（GPU 经 NVLink 借同节点另一张 GPU 的 NIC）以及第二篇 rail-optimized 网络（同号 GPU 的网卡在同一个 rail 上）是同一件事的三个侧面。RDMA 侧的对称 buffer 也是每 channel 一段环形队列（`rdma_channel_data`、`rdma_channel_head` / `rdma_channel_tail`），`SymBuffer` 模板按 "channel × 对端 RDMA rank" 切片；元数据 `rdma_channel_meta` 每 channel 每对端 `NUM_MAX_NVL_PEERS * 2 + 2` 个 int，就是"我这一 channel 要给你们节点每张卡多少 token"。
+红色节点是经网卡到达的，绿色是经 NVLink 到达的：平坦算法三份都过网卡（50 GB/s 的那段），去重后网卡只过一份，其余两跳落在 NVLink 上——第二章第 2 节"7 份压到 4.6 份"的算术就是这张图对全部 token 求期望。这正是第二章说的"网卡上只走一份、到节点内再 NVLink 分发"；`Buffer.dispatch` 的文档写明了它的拓扑要求："节点内的 rank 经 NVLink 可见，**同 GPU 序号**的 rank 经 RDMA 可见"——和第四篇 PXN（GPU 经 NVLink 借同节点另一张 GPU 的 NIC）以及第二篇 rail-optimized 网络（同号 GPU 的网卡在同一个 rail 上）是同一件事的三个侧面。RDMA 侧的对称 buffer 也是每 channel 一段环形队列（`rdma_channel_data`、`rdma_channel_head` / `rdma_channel_tail`），`SymBuffer` 模板按 "channel × 对端 RDMA rank" 切片；元数据 `rdma_channel_meta` 每 channel 每对端 `NUM_MAX_NVL_PEERS * 2 + 2` 个 int，就是"本 channel 要给对端节点每张卡多少 token"。
 
 combine 是镜像：`kNVLSender`（本地专家输出经 NVLink 送到同节点负责该来源节点的 GPU）、`kNVLAndRDMAForwarder`（把本节点 8 张卡送来的、同一个目标节点的结果**先归约**再 RDMA 发回去——combine 的加权求和一部分在转发点完成）、`kRDMAReceiver`、`kCoordinator`。
 
@@ -611,7 +611,7 @@ NCCL 也在走这条路。2.28.9 的源码树里有一套**设备端 API**（`sr
 - symm_mem.all_to_all_vdev_2d(input, out, in_splits, out_splits_offsets, group_name, major_align=None)
 - symm_mem.all_to_all_vdev_2d_offset(input, out, in_splits_offsets, out_splits_offsets, group_name)
 
-名字里的 `vdev` 是 "v（变长）+ splits on device"：**split 信息是设备端张量，不是 Python 列表**。`all_to_all_vdev` 启动两个 kernel：`exchangeSplitAndOffset` 一个 block，前 `npes` 个线程各用 `nvshmem_int64_p` 把"我发给你多少"和"我的数据在我 buffer 里的偏移"写到对端的 `out_splits_offsets`，`nvshmemx_barrier_block` 同步；然后 `allToAllV` 用 `nvshmemx_getmem_nbi_block` 按对端写来的偏移**去对端读**（RDMA READ 语义的 get），每个对端分若干 block 并行。两个 kernel 都在同一条 stream 上、用 `nvshmemx_collective_launch` 启动，中间没有 host 同步——counts 交换从"集合通信 + D2H + sync"变成了"一个 kernel 里几次 8 字节的远端写加一次 barrier"。这正是第三章第 4 节那两次 α 与一次同步的对称内存解法，代价是 `out` 要按最坏情况分配（测试 `test/distributed/test_nvshmem.py` 里 `max_out_numel = max_inp_numel × world_size`）。
+名字里的 `vdev` 是 "v（变长）+ splits on device"：**split 信息是设备端张量，不是 Python 列表**。`all_to_all_vdev` 启动两个 kernel：`exchangeSplitAndOffset` 一个 block，前 `npes` 个线程各用 `nvshmem_int64_p` 把"发给对端多少"和"数据在本 buffer 里的偏移"写到对端的 `out_splits_offsets`，`nvshmemx_barrier_block` 同步；然后 `allToAllV` 用 `nvshmemx_getmem_nbi_block` 按对端写来的偏移**去对端读**（RDMA READ 语义的 get），每个对端分若干 block 并行。两个 kernel 都在同一条 stream 上、用 `nvshmemx_collective_launch` 启动，中间没有 host 同步——counts 交换从"集合通信 + D2H + sync"变成了"一个 kernel 里几次 8 字节的远端写加一次 barrier"。这正是第三章第 4 节那两次 α 与一次同步的对称内存解法，代价是 `out` 要按最坏情况分配（测试 `test/distributed/test_nvshmem.py` 里 `max_out_numel = max_inp_numel × world_size`）。
 
 `all_to_all_vdev_2d` 是它的 MoE 版：splits 是 `[world_size × ne]`（`ne` 为每 rank 专家数），输入按 (rank, expert) 分块，输出按 (expert, rank) 排列——一次通信把 token 直接落成**按本地专家分组**的布局，省掉 Megatron `dispatch_postprocess` 里的 `sort_chunks_by_idxs`；`major_align` 让每个专家段的起始对齐到给定倍数，对应 DeepEP 的 `expert_alignment`。`all_to_all_vdev_2d_offset` 是它的逆操作（源码注释："reverse operation to the all_to_all_vdev_2d"），供 combine 使用。
 

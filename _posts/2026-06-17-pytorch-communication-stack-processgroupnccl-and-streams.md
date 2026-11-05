@@ -474,7 +474,7 @@ u.fill_(0)                                  # 当前 stream 上的 kernel，与 
 
 ![无保护与 stash 保护下的时间线](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-stash-timeline.svg)
 
-这个方案没有 `recordStream` 的分配路径开销，块的回收也不依赖 event 查询；代价是 tensor 的生命周期被延长到 `wait()` 那一刻，用户忘了 `wait()` 就会一直占着。头文件里 `TORCH_NCCL_AVOID_RECORD_STREAMS` 的注释解释了这个取舍；构造函数则告诉我们它已经是默认。
+这个方案没有 `recordStream` 的分配路径开销，块的回收也不依赖 event 查询；代价是 tensor 的生命周期被延长到 `wait()` 那一刻，用户忘了 `wait()` 就会一直占着。头文件里 `TORCH_NCCL_AVOID_RECORD_STREAMS` 的注释解释了这个取舍；构造函数则说明它已经是默认。
 
 ### 4. 不调 `wait()` 会怎样
 

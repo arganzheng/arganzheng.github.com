@@ -201,7 +201,7 @@ NCCLCHECK(kvConvertToInt(str, &speed, kvDictPciGen)); // Values in 100Mbps, per 
 NCCLCHECK(ncclTopoConnectNodes(node, parent, LINK_PCI, width*speed/80.0));
 ```
 
-`width*speed/80` 对 PCIe 3.0 x16 是 $$16 \times 60 / 80 = 12$$ GB/s，4.0 x16 是 24 GB/s，5.0 x16 是 48 GB/s——恰好是理论值 16/32/64 的 75%。`src/graph/topo.h` 里也定义了 `#define PCI_BW 12.0  // PCI Gen3 x16` 作为默认值。这告诉我们两件事：NCCL 假设 PCIe 能达到理论值的四分之三；它对 PCIe 的估算只用来**比较路径**和**搜索 ring/tree**（第四篇），不是性能承诺。同一个文件里跨 CPU 的互联带宽按 CPU 型号取常量：`BDW_QPI_BW 6.0`、`SKL_QPI_BW 10.0`、`SRP_QPI_BW 22.0`、`ERP_QPI_BW 40.0`（Intel 各代）、`AMD_BW 16.0`、`ARM_BW 6.0`——这就是第一章表里"跨 socket 路径 NCCL 按 6–40 GB/s 估算"的来源。
+`width*speed/80` 对 PCIe 3.0 x16 是 $$16 \times 60 / 80 = 12$$ GB/s，4.0 x16 是 24 GB/s，5.0 x16 是 48 GB/s——恰好是理论值 16/32/64 的 75%。`src/graph/topo.h` 里也定义了 `#define PCI_BW 12.0  // PCI Gen3 x16` 作为默认值。这说明两件事：NCCL 假设 PCIe 能达到理论值的四分之三；它对 PCIe 的估算只用来**比较路径**和**搜索 ring/tree**（第四篇），不是性能承诺。同一个文件里跨 CPU 的互联带宽按 CPU 型号取常量：`BDW_QPI_BW 6.0`、`SKL_QPI_BW 10.0`、`SRP_QPI_BW 22.0`、`ERP_QPI_BW 40.0`（Intel 各代）、`AMD_BW 16.0`、`ARM_BW 6.0`——这就是第一章表里"跨 socket 路径 NCCL 按 6–40 GB/s 估算"的来源。
 
 ## 三、NVLink 与 NVSwitch
 

@@ -298,7 +298,7 @@ sequenceDiagram
     Note over RP,SP: 双方 ncclIbTest 各 poll 到一个完成，接收方由 wc.imm_data 得知收了多少字节
 ```
 
-`ncclIbSendFifo` 每个元素 64 字节（`static_assert` 保证 32 字节对齐），含 `addr`、`size`、`rkeys[NCCL_IB_MAX_DEVS_PER_NIC]`（合并多网卡时每设备一个 rkey）、`nreqs`、`tag`、`idx`。这是一个"接收方驱动"（receiver-driven）的设计：接收方先说"我准备好了，这里是地址"，发送方才写。它也是 NCCL 的一种流控——发送方永远不会写到接收方没准备好的地方，channel buffer 里的 `NCCL_STEPS` 个 slot 通过这个 FIFO 循环复用。
+`ncclIbSendFifo` 每个元素 64 字节（`static_assert` 保证 32 字节对齐），含 `addr`、`size`、`rkeys[NCCL_IB_MAX_DEVS_PER_NIC]`（合并多网卡时每设备一个 rkey）、`nreqs`、`tag`、`idx`。这是一个"接收方驱动"（receiver-driven）的设计：接收方先说"准备好了，这里是地址"，发送方才写。它也是 NCCL 的一种流控——发送方永远不会写到接收方没准备好的地方，channel buffer 里的 `NCCL_STEPS` 个 slot 通过这个 FIFO 循环复用。
 
 在两本账上：一次数据传输的延迟是"FIFO 写（一次 RDMA WRITE，约 1–2 µs）+ 数据写 + 完成"，比纯 SEND/RECV 多一个 α，但 NCCL 的 FIFO 是流水化的——接收方总是提前 post 好多个 slot，稳态下 FIFO 写不在关键路径上。带宽上，每次数据传输额外的开销只有 64 字节的 FIFO 元素和一个 0 字节的 IMM，可以忽略。
 
@@ -325,7 +325,7 @@ RTR 需要对端的信息，所以在 INIT 和 RTR 之间必须有一次**带外
 - **GID**：128 位全局标识（RoCE 必需；IB 跨子网时用），对端填到 ah_attr.grh.dgid
 - **MTU**：本端口的 active_mtu，双方取最小
 - **PSN**：起始包序号（可以都用 0）
-- **rkey + 地址**：如果对端要做单边操作，还要告诉它我的 buffer 地址和 rkey
+- **rkey + 地址**：如果对端要做单边操作，还要告诉它自己的 buffer 地址和 rkey
 
 状态机的三步和这次带外交换是交错的，哪一步必须等对端、哪一步可以先做，用时间轴看更直观——尤其是"为什么 recv WR 要在交换之前就 post 好"：
 

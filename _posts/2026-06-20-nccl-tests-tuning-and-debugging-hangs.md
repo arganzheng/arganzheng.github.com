@@ -728,7 +728,7 @@ LL 和 LL128 协议在传输时把数据与 flag 打包（LL 8 字节数据 + 8 
 
 一个 rank 的梯度里出现 NaN，all_reduce 之后所有 rank 的梯度都是 NaN——归约把 NaN 传染给所有人，事后无法知道源头是谁。`TORCH_NCCL_NAN_CHECK=1`（`ProcessGroupNCCL.cpp` 的 `enableNanCheck_`）让 ProcessGroupNCCL 在每次集合通信与 send **之前**在 NCCL stream 上跑一个 `checkForNan` kernel（`torch/csrc/distributed/c10d/NanCheck.cu`）检查输入；发现 NaN 就在**发送方**报错，错误里带 rank 与操作名。它有开销（每次通信多一个扫描 kernel，约等于多读一遍输入），只在追 NaN 时开。
 
-它检查的是输入不是输出，所以能区分"我这边产生了 NaN"与"别人传给我 NaN"：前者本 rank 报错，后者本 rank 不报、别的 rank 报。NaN 的来源通常在计算侧（溢出、除零、坏数据），通信层只是传播者；但有一类通信层引入的 NaN 值得知道——第 4 小节的数据竞争让 all_reduce 读到了尚未写完的 buffer，读到的垃圾恰好是 NaN 模式。
+它检查的是输入不是输出，所以能区分"本 rank 产生了 NaN"与"别的 rank 传来的 NaN"：前者本 rank 报错，后者本 rank 不报、别的 rank 报。NaN 的来源通常在计算侧（溢出、除零、坏数据），通信层只是传播者；但有一类通信层引入的 NaN 值得知道——第 4 小节的数据竞争让 all_reduce 读到了尚未写完的 buffer，读到的垃圾恰好是 NaN 模式。
 
 ### 4. 多 communicator 与多 stream 的数据竞争
 

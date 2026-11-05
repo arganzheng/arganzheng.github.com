@@ -112,7 +112,7 @@ Table: NCCL 2.28.9 `ncclTunerConstantsDefaults` 的小消息延迟常数（µs�
 
 Table: 8 卡单节点各算法与协议组合的 all_reduce 延迟估算
 
-这些数字是 NCCL 的模型，不是测量，但它告诉我们 NCCL 自己认为 8 卡 128 KB 的 all_reduce 在 NVLink 上最好也要 15 µs 左右，而且这 15 µs 由两部分组成：约 6～8 µs 的基础开销，加上 14 步每步 0.6 µs 的串行同步。把这个 15 µs 拆开，NCCL 在这个区间要付的固定成本有：
+这些数字是 NCCL 的模型，不是测量，但它说明 NCCL 自己认为 8 卡 128 KB 的 all_reduce 在 NVLink 上最好也要 15 µs 左右，而且这 15 µs 由两部分组成：约 6～8 µs 的基础开销，加上 14 步每步 0.6 µs 的串行同步。把这个 15 µs 拆开，NCCL 在这个区间要付的固定成本有：
 
 - **host 侧入队与 kernel 启动。** `src/enqueue.cc` 的 `ncclLaunchPrepare` 构建 kernel plan、`ncclLaunchKernel` 用 `cuLaunchKernelEx` 启动 `ncclDevKernel_AllReduce_*`；在 ProcessGroupNCCL 之上还有 Work 对象、event 记录、stream 依赖的建立（第五篇）。这是几微秒的 CPU 时间，并且在 CPU 侧串行，和 GPU 上前一个 kernel 的尾部不一定重叠。
 - **算法的步数。** ring 的 $$2(n-1) = 14$$ 步、tree 的 $$2 \log_2 n$$ 级，每一步都是一次"等对端 flag 到达→读数据→归约→写给下一个→写 flag"，NVLink 上每步 0.6 µs 是 LL 协议下的最优值。

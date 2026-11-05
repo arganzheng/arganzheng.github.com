@@ -120,7 +120,7 @@ bootstrap 还提供 `bootstrapSend/Recv`（点对点，按需建 socket）和 `b
 
 第一次 AllGather 交换 `ncclPeerInfo`：rank、cudaDev、busId（PCI 地址）、hostHash、pidHash、NCCL 版本、是否支持 GDR、shmDev 等。收齐后每个 rank 能算出 `nNodes`（有几个不同的 hostHash）、检查版本一致（不一致直接 `WARN("Mismatched NCCL version detected")` 退出）、检查有没有两个 rank 用了同一张 GPU。
 
-第一次和第二次之间是本地计算：拓扑探测、路径、图搜索。第二次 AllGather 交换每个 rank 搜出来的图信息（每种算法的 `nChannels`、`bwIntra/bwInter`、`typeIntra/typeInter`、`crossNic`）和 `ncclTopoRanks`（我在节点内 ring 里的 prev/next、tree 的 parent/child）。收齐后所有 rank 对每种图取**最小 channel 数、最小带宽、最大路径类型**——保证所有 rank 的调优模型一致，否则不同 rank 可能选出不同的算法，那就是 hang。然后 `ncclTopoPostset` 把各节点的局部图拼成全局 ring 和 tree。
+第一次和第二次之间是本地计算：拓扑探测、路径、图搜索。第二次 AllGather 交换每个 rank 搜出来的图信息（每种算法的 `nChannels`、`bwIntra/bwInter`、`typeIntra/typeInter`、`crossNic`）和 `ncclTopoRanks`（本 rank 在节点内 ring 里的 prev/next、tree 的 parent/child）。收齐后所有 rank 对每种图取**最小 channel 数、最小带宽、最大路径类型**——保证所有 rank 的调优模型一致，否则不同 rank 可能选出不同的算法，那就是 hang。然后 `ncclTopoPostset` 把各节点的局部图拼成全局 ring 和 tree。
 
 整个初始化的最后是 `ncclTopoTuneModel`、`devCommSetup`（把 channel、peer 连接信息拷到设备内存）和一次节点内 barrier。
 
@@ -323,7 +323,7 @@ flowchart TB
 
 ### 3. 从节点内图到全局 ring 与 tree：connect.cc
 
-`ncclTopoPreset`（`src/graph/connect.cc`）在第二次 AllGather 前，把本节点每个 channel 的 `intra[]` 翻译成"我在这条 ring 里的 prev/next、这条 ring 在本节点的入口 rank（`ringRecv`）和出口 rank（`ringSend`）、tree 的本节点父/子候选"，装进 `ncclTopoRanks` 发出去。
+`ncclTopoPreset`（`src/graph/connect.cc`）在第二次 AllGather 前，把本节点每个 channel 的 `intra[]` 翻译成"本 rank 在这条 ring 里的 prev/next、这条 ring 在本节点的入口 rank（`ringRecv`）和出口 rank（`ringSend`）、tree 的本节点父/子候选"，装进 `ncclTopoRanks` 发出去。
 
 `ncclTopoPostset` 收齐所有节点后：
 
@@ -410,7 +410,7 @@ struct ncclTransport* ncclTransports[NTRANSPORTS+1] = {
 };
 ```
 
-`selectTransport` 对一对 (我, peer) 按顺序调各 transport 的 `canConnect`，第一个说行的就用。P2P 的 `canConnect` 依赖第四章的 `ncclTopoCheckP2p`；SHM 要求同 host（`hostHash` 相同）且未 `NCCL_SHM_DISABLE`；NET 总是可以。所以同机默认 P2P，P2P 不行（跨 root complex 且没放宽 `NCCL_P2P_LEVEL`）落 SHM，跨机 NET。每个 transport 有 `send`/`recv` 两个 `ncclTransportComm`，各含 `setup`（分配 buffer、准备连接信息）、`connect`（拿到对端信息后建立连接）、`proxyProgress`（proxy 线程的推进函数，只有 NET/CollNet 有实质内容）等回调。
+`selectTransport` 对一对 (self, peer) 按顺序调各 transport 的 `canConnect`，第一个说行的就用。P2P 的 `canConnect` 依赖第四章的 `ncclTopoCheckP2p`；SHM 要求同 host（`hostHash` 相同）且未 `NCCL_SHM_DISABLE`；NET 总是可以。所以同机默认 P2P，P2P 不行（跨 root complex 且没放宽 `NCCL_P2P_LEVEL`）落 SHM，跨机 NET。每个 transport 有 `send`/`recv` 两个 `ncclTransportComm`，各含 `setup`（分配 buffer、准备连接信息）、`connect`（拿到对端信息后建立连接）、`proxyProgress`（proxy 线程的推进函数，只有 NET/CollNet 有实质内容）等回调。
 
 日志里每条连接一行，格式随 transport（`src/transport/p2p.cc` / `shm.cc` / `net.cc` 的 `INFO(NCCL_INIT|…)`）：
 
@@ -903,7 +903,7 @@ GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` �
 
 ### 1. 日志格式
 
-`src/debug.cc` 决定每行的前缀。`NCCL_DEBUG` 取 `VERSION`/`WARN`/`INFO`/`ABORT`/`TRACE`；`NCCL_DEBUG_SUBSYS` 是逗号分隔的子系统列表，可用值 `INIT COLL P2P SHM NET GRAPH TUNING ENV ALLOC CALL PROXY NVLS BOOTSTRAP REG PROFILE RAS ALL`，前缀 `^` 表示排除；默认掩码是 `INIT|BOOTSTRAP|ENV`。每个环境变量被 `NCCL_PARAM` 宏（`src/include/param.h` → `src/misc/param.cc: ncclLoadParam`）第一次读取时都会打一行 `%s set by environment to %lld`（子系统 ENV），所以 `NCCL_DEBUG_SUBSYS=ENV` 是"我设的变量到底生效了没"的直接答案。`NCCL_DEBUG_FILE` 可以按 `%h`（hostname）、`%p`（pid）分文件。`~/.nccl.conf` 与 `/etc/nccl.conf`（`NCCL_CONF_FILE`）里的键值会被当成环境变量读入。
+`src/debug.cc` 决定每行的前缀。`NCCL_DEBUG` 取 `VERSION`/`WARN`/`INFO`/`ABORT`/`TRACE`；`NCCL_DEBUG_SUBSYS` 是逗号分隔的子系统列表，可用值 `INIT COLL P2P SHM NET GRAPH TUNING ENV ALLOC CALL PROXY NVLS BOOTSTRAP REG PROFILE RAS ALL`，前缀 `^` 表示排除；默认掩码是 `INIT|BOOTSTRAP|ENV`。每个环境变量被 `NCCL_PARAM` 宏（`src/include/param.h` → `src/misc/param.cc: ncclLoadParam`）第一次读取时都会打一行 `%s set by environment to %lld`（子系统 ENV），所以 `NCCL_DEBUG_SUBSYS=ENV` 是"设的变量到底生效了没"的直接答案。`NCCL_DEBUG_FILE` 可以按 `%h`（hostname）、`%p`（pid）分文件。`~/.nccl.conf` 与 `/etc/nccl.conf`（`NCCL_CONF_FILE`）里的键值会被当成环境变量读入。
 
 INFO 行的格式是 `hostname:pid:tid [cudaDev] NCCL INFO <消息>`。`tid` 值得留意：主线程、proxy service 线程、progress 线程、异步连接线程的 tid 不同，`Connected all rings` 常由另一个 tid 打出（异步预连接线程）。
 
