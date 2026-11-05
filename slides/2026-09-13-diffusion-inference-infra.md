@@ -61,13 +61,18 @@ flowchart TB
 | H100 时间（η 0.45） | 4.8 s | **24 min** |
 | 算术强度 | 3,100（拐点 295） | |
 
-- 「一次前向的 FLOPs 按参数量算」——双流块每 token 只走一条流：用 $$P_{tok}$$ 6.45B 而非 11.9B，用 P 高估 85%
-- 「扩散推理与 LLM 一样有 KV cache」——每步 K/V 由本步带噪输入算出、用完即弃；只有 cross-attn 的文本 K/V 可缓存
-
 <aside class="notes" markdown="1">
 原文 /diffusion-inference-workload-anatomy-and-cost-ledger.html。与 LLM 比：150× FLOPs、0.8× 时间。
 结论原文：三段里**算力全在 DiT**，一次前向就是 compute-bound；**图像模型是 GEMM 负载，视频模型是 attention 负载**。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「一次前向的 FLOPs 按参数量算」——双流块每 token 只走一条流：用 $$P_{tok}$$ 6.45B 而非 11.9B，用 P 高估 85%
+- 「扩散推理与 LLM 一样有 KV cache」——每步 K/V 由本步带噪输入算出、用完即弃；只有 cross-attn 的文本 K/V 可缓存
 
 ---
 
@@ -82,14 +87,25 @@ flowchart TB
 | + FP8 | ÷ 1.3–1.5 | |
 | SVDQuant INT4 | 22 → 6.5 GiB；4090 上 3×；**Hopper 无 INT4 Tensor Core，只省显存** | |
 
-- 可见性门限：PSNR > 35 dB 不可见、30–35 细看可见
-- 逐层 offload：Wan 免费（每层算 0.7 s vs 搬 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms）
-- 「权重量化减半，每步时间减半」——单请求在算力屋顶上，字节不是瓶颈
-
 <aside class="notes" markdown="1">
 原文 /single-gpu-diffusion-execution-attention-compile-quantization-offload.html。
 结论原文：**编译是最大的无损收益**；**量化的收益来自 Tensor Core 峰值而不来自字节**（FP8 GEMM 2× → 端到端 1.3–1.5×）；逐层 offload 的判据是每层计算 / 搬运之比。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 可见性门限：PSNR > 35 dB 不可见、30–35 细看可见
+- 逐层 offload：Wan 免费（每层算 0.7 s vs 搬 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms）
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「权重量化减半，每步时间减半」——单请求在算力屋顶上，字节不是瓶颈
 
 ---
 
@@ -104,14 +120,25 @@ flowchart TB
 | 0.6 | 2.0× | |
 | 视频 | 到 4.4× | |
 
-- $$T \to T_{full} + T_{hit}\,\epsilon$$，speedup ≈ $$T / T_{full}$$
-- CFG 两份状态；SP 下决策要全局一致
-- 「跨步缓存是无损的、蒸馏模型也能开」——4 步模型每步都在转折点，零命中或图坏
-
 <aside class="notes" markdown="1">
 原文 /timestep-redundancy-caching-and-step-skipping.html。
 结论原文：便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；**本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥**——在 schnell 的 4 步上一步都省不下来。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- $$T \to T_{full} + T_{hit}\,\epsilon$$，speedup ≈ $$T / T_{full}$$
+- CFG 两份状态；SP 下决策要全局一致
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「跨步缓存是无损的、蒸馏模型也能开」——4 步模型每步都在转折点，零命中或图坏
 
 ---
 
@@ -128,13 +155,18 @@ $$
 | 17 → 129 帧 | 每步 FLOPs 21× |
 | 叠加全部优化 | 24 min → **40 s** |
 
-- 「attention 稀疏 80% 端到端快 5×」——28% 的线性项不动
-- 「稀疏就是把小分数置零」——不能物化，要整块跳、模式与 layout 对齐
-
 <aside class="notes" markdown="1">
 原文 /video-diffusion-long-sequence-attention-and-sparsity.html。
 结论原文：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「attention 稀疏 80% 端到端快 5×」——28% 的线性项不动
+- 「稀疏就是把小分数置零」——不能物化，要整块跳、模式与 layout 对齐
 
 ---
 
@@ -149,13 +181,24 @@ $$
 | CFG 并行 | 0.6 MB |
 | PipeFusion | 28 MB |
 
-- 4×H100 1.63 s（2.63×）；Wan 8 卡一步 29 → 4 s；CFG × SP × PP 乘积 = 卡数
-- 「用 SP 切请求能减少服务的卡数」——SP 只减延迟，GPU·秒不变、效率不到线性；只要吞吐就 DP
-
 <aside class="notes" markdown="1">
 原文 /multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html。
 结论原文：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 4×H100 1.63 s（2.63×）；Wan 8 卡一步 29 → 4 s；CFG × SP × PP 乘积 = 卡数
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「用 SP 切请求能减少服务的卡数」——SP 只减延迟，GPU·秒不变、效率不到线性；只要吞吐就 DP
 
 ---
 
@@ -169,13 +212,18 @@ $$
 | 每张 | 4.8 s | 0.80 s、1.25 张/s |
 | 另两段占比 | 2.6% | 15.6% |
 
-- 自回归视频 KV 每 token $$2dL \times 2$$ 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB
-- SD-Turbo 在 4090 上约 90 fps
-
 <aside class="notes" markdown="1">
 原文 /few-step-and-autoregressive-video-generation-systems.html。
 结论原文：蒸馏拿走了「几十步里大半是保守余量」——**依赖相邻步相似的优化全部失效**（缓存、PipeFusion、CFG 并行），CUDA graph 变必需，VAE 占比升到 15%；**因果化让视频生成向 LLM serving 收敛**——KV cache 回来了。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 自回归视频 KV 每 token $$2dL \times 2$$ 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB
+- SD-Turbo 在 4090 上约 90 fps
 
 ---
 
@@ -191,13 +239,24 @@ $$
 | + TeaCache | 170 | |
 | schnell | **80** | **\$0.0006** |
 
-- 抢占状态只有 latent 0.6 MB；Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22；LoRA 前 k ≤ 4 步不挂
-- 「吞吐不随并发增长是引擎的 bug」——compute-bound 下 batch 2 ≈ 2× 时间，正常；加实例或换少步模型
-
 <aside class="notes" markdown="1">
 原文 /diffusion-serving-shapes-batching-disaggregation-and-cost.html。
 结论原文：**batch 不参与、SP 只减延迟**；时长收到请求时即确定 → 分池、SJF、SLO 准入、**事前定价**；视频必须异步 job。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 抢占状态只有 latent 0.6 MB；Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22；LoRA 前 k ≤ 4 步不挂
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「吞吐不随并发增长是引擎的 bug」——compute-bound 下 batch 2 ≈ 2× 时间，正常；加实例或换少步模型
 
 ---
 
@@ -230,13 +289,24 @@ $$
 | 伪影 | 有损项：缓存阈值、量化、稀疏——对基线图 PSNR / SSIM / LPIPS |
 | 告警 | 每步 +20%、缓存命中率 ±30%、抽检 −3 dB |
 
-- 门限 PSNR > 35 / 30 dB；同一部署内确定、跨部署不保证
-- 「评优化用 FID」——FID 对单图细节与模式坍缩不敏感、需几千张；用 PSNR / SSIM / LPIPS + 偏好模型 + 人工 A/B
-
 <aside class="notes" markdown="1">
 原文 /diffusion-inference-configuration-evaluation-and-troubleshooting.html。
 结论原文：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；**无损先于有损、切卡先于换模型、卡数由 GPU·秒决定**；评「开不开某项优化」不能用 FID。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 门限 PSNR > 35 / 30 dB；同一部署内确定、跨部署不保证
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「评优化用 FID」——FID 对单图细节与模式坍缩不敏感、需几千张；用 PSNR / SSIM / LPIPS + 偏好模型 + 人工 A/B
 
 ---
 
