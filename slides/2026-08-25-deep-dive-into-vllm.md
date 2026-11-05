@@ -44,14 +44,17 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 110}}}%%
 flowchart LR
-    A["01 Serving 为什么难"] --> B["02 用什么衡量"] --> C["03 请求全景"]
-    subgraph ONE["单机：调度 · 内存 · 执行"]
-        direction TB
-        D["04 Scheduler"] --> E["05 KV Cache"] --> F["06 GPU 执行"]
-    end
-    C --> ONE
-    F --> G["07 解码扩展"] --> H["08 Multi-GPU"] --> I["09 PD 分离"]
-    I -. "10–15：适配与形态（下图）" .-> J["10 模型适配"]
+    A["01 为什么难"] --> B["02 衡量"] --> C["03 请求全景"] --> D["04 Scheduler"] --> E["05 KV Cache"] --> F["06 GPU 执行"] --> NX["07–15 扩展与适配<br/>（下图）"]
+```
+
+<!-- v -->
+
+### 07–09：扩展
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
+flowchart LR
+    G["07 解码扩展"] --> H["08 Multi-GPU"] --> I["09 PD 分离"] --> J["10–15<br/>（下图）"]
 ```
 
 <!-- v -->
