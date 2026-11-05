@@ -37,7 +37,7 @@ flowchart TB
 
 ## 01 · 评测集：AI 应用的单元测试
 
-**结论**：从**真实流量按类型采**（高频 / 边界 / 失败过的）+ 红队，不按流量比例；四字段、期望可检验、含状态；**几十条起、跑 k 次**；hold-out、六元组绑定、随 bad case 长。
+**评测集从真实流量按类型采、不按比例——几十条起，随 bad case 生长**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
@@ -77,7 +77,7 @@ flowchart LR
 
 ## 02 · 评分：规则、LLM-as-judge 与人
 
-**结论**：**能规则不 judge、能 judge 不人**；judge 四类偏差（风格最大）；**报 kappa 不报一致率**（未校正机遇，虚高 33–41 pp）；一致 ≠ 正确；八步校准。
+**能规则不 judge、能 judge 不人；judge 报 kappa——一致率虚高 33–41 pp**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -115,7 +115,7 @@ flowchart LR
 
 ## 03 · 评什么：指标矩阵
 
-**结论**：**形态 × 维度**——单步 / RAG / agent / 多轮 / 代码 × 结果 / 过程 / 成本 / 安全；**过程与结果并列**；多轮以**会话**为单位、模拟器要校准；生产看 **pass^k** 不看 pass@k。
+**形态 × 结果/过程/成本/安全的矩阵——过程与结果并列；生产看 \(\text{pass}^k\)**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
@@ -150,7 +150,7 @@ flowchart LR
 
 ## 04 · 回归与门禁：改动 = 发布
 
-**结论**：分层 ≥ 基线 − 噪声、逐条 diff；**钉快照 + 探针集每日**（探针集是模型指纹，发现供应商静默升级）；影子 → 灰度 → 回滚；A/B 一因素；隐式反馈带 trace id；**季度校验离线—在线相关性**。
+**改动 = 发布：钉快照 + 探针集每日，发现供应商静默升级；影子 → 灰度 → 回滚**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
@@ -192,7 +192,7 @@ flowchart LR
 
 ## 05 · trace：记什么、按什么约定
 
-**结论**：三级树（会话 / 轮 / 调用）+ 事件 + 子会话链接；OTel `gen_ai.*` 全部 Development 状态、迁独立仓库、属性改名（`system` → `provider.name`）、**钉 opt-in**；业务属性用 `app.*`；元数据全量、内容采样、bad case 全量。
+**trace 三级树 + OTel `gen_ai.*`；元数据全量、内容采样、bad case 全量**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
@@ -227,7 +227,7 @@ flowchart TB
 
 ## 06 · 可追溯：从坏结果追到那一步并变成用例
 
-**结论**：**录制回放**（输入哈希守卫，非模型改动零成本回归）、**决策点日志**、**失败分类十一类**（「技术对产品错」单列）、版本 diff 同轴、反馈带 trace id 进队列、事后分析五段。
+**bad case → 决策点日志 → 失败分类十一类 → 录制回放或评测用例**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
@@ -265,7 +265,7 @@ flowchart LR
 
 ## 07 · 运行时可靠性与物理世界的仿真
 
-**结论**：guardrails **同步只放高风险**；高风险断言必须有依据（不要模型自报置信度）；fallback 四级；仿真六层、**闭环才测决策**、sim-to-real、放大长尾、影子、SIL / HIL；数字与物理世界同构。
+**运行时检查 = 评测发现的失效模式；仿真六层，闭环才测决策**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
