@@ -26,11 +26,11 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    X1["01 上下文的解剖<br/>七层、增长规律、注意力预算"] --> X2["02 prompt 设计<br/>第一层：稳定的模式与不稳定的措辞"]
-    X1 --> X3["03 结构化输出<br/>约束解码、schema 设计"]
-    X1 --> X4["04 预算与压缩<br/>隔离 → 卸载 → 清理 → 压缩"]
-    X1 & X4 --> X5["05 prompt caching 与排列<br/>前缀逐字节相同才命中"]
-    X2 & X3 & X5 --> X6["06 prompt 当代码管<br/>版本、评测门禁、A/B；上下文 vs 检索"]
+    X1["01 上下文的解剖"] --> X2["02 prompt 设计"]
+    X1 --> X3["03 结构化输出"]
+    X1 --> X4["04 预算与压缩"]
+    X1 & X4 --> X5["05 prompt caching 与排列"]
+    X2 & X3 & X5 --> X6["06 prompt 当代码管"]
 ```
 
 ---
@@ -43,6 +43,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /anatomy-of-the-context-window.html。Claude Code 自动记忆 ≤ 25 KB、auto-compact 约 83.5%（预留 33K）；Manus 约 50 次工具调用、输入输出 100 : 1；50 步填满 200K。
+各篇关键词：01 七层 / 增长规律 / 注意力预算；02 第一层：稳定的模式与不稳定的措辞；03 约束解码 / schema；04 隔离 → 卸载 → 清理 → 压缩；05 前缀逐字节相同才命中；06 版本 / 评测门禁 / A/B、上下文 vs 检索。
 </aside>
 
 ---
@@ -53,21 +54,16 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart TB
-    subgraph SP["六部分（随模型不变）"]
-        direction TB
-        A["① 身份与任务边界"] --> B["② 可检验的规则"]
-        B --> C["③ 分区与结构标记"]
-        C --> D["④ 工具使用政策"]
-        D --> E["⑤ 输出格式与出口"]
-        E --> F["⑥ 知识与时间"]
-    end
-    SP -. "换模型时只调这些" .-> W["措辞（随模型变）"]
+flowchart LR
+    SP["六部分（不变）<br/>身份 · 规则 · 分区<br/>工具 · 输出 · 知识"] -. "只调" .-> W["措辞<br/>（随模型变）"]
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /prompt-design-patterns-vs-wording.html。
+六部分：身份与任务边界 / 可检验的规则 / 分区与结构标记 / 工具使用政策 / 输出格式与出口 / 知识与时间。
+换模型时只调措辞。
+六部分不变；换模型时只调措辞（随模型变）。
 </aside>
 
 <!-- v -->
@@ -107,15 +103,14 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart TB
+flowchart LR
     IN["新内容"] --> Q1{"进主窗口？"}
-    Q1 -->|"大量读"| ISO["隔离"]
+    Q1 -->|"读"| ISO["隔离"]
     Q1 -->|"大"| OFF["卸载"]
     Q1 -->|"小"| ADD["原样进"]
-    ADD --> Q2{"接近清理线？"}
-    OFF --> Q2
+    ADD & OFF --> Q2{"近清理线？"}
     Q2 -->|"否"| GO(["继续"])
-    Q2 -. "是 → 清理 / 压缩（下图）" .-> CLR["清理 → 压缩"]
+    Q2 -. "是（下图）" .-> CLR["清理→压缩"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -134,11 +129,11 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart LR
-    Q2{"接近清理线？"} -->|"是"| CLR["清理：删掉已被消费的旧返回<br/>保留调用记录与引用"]
-    Q2 -->|"否"| GO(["继续下一步"])
-    CLR --> Q3{"仍接近压缩线？"}
+    Q2{"接近清理线？"} -->|"是"| CLR["清理：删已消费的旧返回<br/>保留调用记录"]
+    Q2 -->|"否"| GO(["继续"])
+    CLR --> Q3{"接近压缩线？"}
     Q3 -->|"否"| GO
-    Q3 -->|"是"| CMP["压缩：一次模型调用把历史摘要成一段<br/>常驻层重注入 · 目标复述到末尾"]
+    Q3 -->|"是"| CMP["压缩：模型调用摘要历史<br/>常驻层重注入"]
     CMP --> GO
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -151,6 +146,8 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /context-budget-isolation-offload-cleanup-and-compression.html。隔离 = 子 agent 在自己的窗口做、只带摘要回来；卸载 = 内容写文件 / 存储、上下文只留引用 + 预览。
+压缩后目标复述到末尾。
+大量读的内容隔离。
 </aside>
 
 <aside class="notes" markdown="1">
@@ -199,16 +196,13 @@ flowchart LR
 **prompt 当代码管：不可变版本 + 评测门禁 + 标签发布 + 回滚路径**
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart TB
-    E["编辑 prompt"] --> V["新版本（不可变）"]
-    V --> T["离线评测 × k 次"]
+%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
+flowchart LR
+    E["编辑 prompt"] --> V["新版本<br/>（不可变）"] --> T["离线评测 ×k"]
     T -->|"回归"| E
-    T -->|"通过"| L1["打标签 staging"]
-    L1 --> G["灰度 canary 1%"]
-    G -->|"回归"| RB["回滚到 N-1"]
-    G -->|"通过"| L2["打标签 production → 100%"]
-    L2 --> M["监控指标"]
+    T -->|"通过"| L1["staging"] --> G["灰度 1%"]
+    G -->|"回归"| RB["回滚 N-1"]
+    G -->|"通过"| L2["prod → 100%"] --> M["监控"]
     M -->|"模型升级"| T
     RB --> E
 
