@@ -51,7 +51,7 @@ flowchart TB
 
 ## 01 · 什么是学习：划分、泛化、偏差-方差
 
-**结论**：测试集只能看一次，参与过决策的数据就不再是测试集；过拟合是容量相对于数据太大；reward hacking = 在一个过拟合的评估器上做优化。
+**测试集只能看一次；过拟合 = 容量相对数据太大；reward hacking 是优化过拟合的评估器**
 
 ![30 个点拟合正弦：1 次欠拟合、4 次刚好、15 次穿过每个训练点却在点之间乱跳](/img/in-post/classical-ml-01-fit-three-degrees.svg){: style="max-height: 440px"}
 
@@ -72,17 +72,17 @@ flowchart TB
 
 ### 案例：加州房价，随机划分 vs 按地区划分
 
-![左：测试点混在训练点里；右：整块地区留出](/img/in-post/classical-ml-case-01-split-map.svg){: style="max-height: 400px"}
+![左：测试点混在训练点里；右：整块地区留出](/img/in-post/classical-ml-case-01-split-map.svg){: style="max-height: 320px"}
 
 - 只用经纬度的 KNN：随机划分 RMSE **5.2 万**，按地区划分 **8.6 万**——分数是抄邻居抄出来的
-- 划分方式必须模仿上线后的数据；近重复随机切 CV 0.060 vs 真实 0.10
-- 选超参数只碰开发集：一次划分选次数 3–12 之间跳、5 折 CV 只在 5–8；只有用到 $$y$$ 的特征选择泄漏把 CV 从 0.32 抬到 0.53
+- 划分方式要模仿上线后的数据；近重复随机切 CV 0.060 vs 真实 0.10
+- 超参数只碰开发集：一次划分选次数 3–12 跳；用到 $$y$$ 的特征选择把 CV 从 0.32 抬到 0.53
 
 ---
 
 ## 02 · 线性回归：最小二乘、梯度下降与 Ridge / Lasso
 
-**结论**：正规方程 $$X^\top Xw = X^\top y$$ 是把 $$y$$ 投影到特征平面；损失是一条斜沟，学习率上限 $$2/\lambda_{\max}$$；**Ridge = weight decay**。
+**正规方程把 $$y$$ 投影到特征平面；Ridge 就是 weight decay**
 
 ![损失的等高线是一组倾斜的椭圆：学习率小时先冲到沟底再慢慢爬，大了在沟壁上来回弹](/img/in-post/classical-ml-02-loss-surface-gd-path.svg){: style="max-height: 440px"}
 
@@ -112,7 +112,7 @@ flowchart TB
 
 ## 03 · 逻辑回归与奖励模型：每个分类头的原型
 
-**结论**：线性部分过 sigmoid，交叉熵的梯度是 $$(p - y)x$$；语言模型的输出层是 softmax 回归；**奖励模型 = 逻辑回归作用在特征差上、无偏置**；准确率的上限是标注一致性。
+**奖励模型 = 特征差上的逻辑回归；准确率上限是标注一致性**
 
 ![sigmoid 与交叉熵：z = 0 处 0.5；预测越错 loss 越大且梯度不消失](/img/in-post/classical-ml-03-sigmoid-and-cross-entropy.svg){: style="max-height: 420px"}
 
@@ -142,7 +142,7 @@ flowchart TB
 
 ## 04 · 三个基础分类器：朴素贝叶斯、KNN 与决策树
 
-**结论**：「朴素」= 类内特征独立，不成立时证据重复计数；KNN 就是检索，前提是有好的 embedding；决策树容量随深度指数增长，不加停止条件会长到训练集全对——剪枝才是它的正则化。
+**KNN 就是检索、靠好 embedding；树不修停会长到全对——剪枝是正则化**
 
 ![同一份月牙数据上七种分类器的边界：直线、折线、横竖线段、平滑曲线](/img/in-post/classical-ml-04-seven-boundaries.svg){: style="max-height: 440px"}
 
@@ -173,7 +173,7 @@ flowchart TB
 
 ## 05 · SVM 与核方法：从最大间隔到 attention
 
-**结论**：只有支持向量决定边界（hinge 在间隔 ≥ 1 处为零）；核 = 不升维算高维内积；**核回归的三步就是 attention 的三步**。
+**只有支持向量定边界；核 = 不升维算内积；核回归三步 = attention 三步**
 
 ![三条都能分开的直线里 SVM 选间隔最大的；两个圈出的点是支持向量](/img/in-post/classical-ml-05-max-margin.svg){: style="max-height: 440px"}
 
@@ -203,7 +203,7 @@ flowchart TB
 
 ## 06 · 集成：随机森林与梯度提升
 
-**结论**：bagging **只降方差**；残差 = 负梯度，梯度提升是函数空间的梯度下降；数据过滤用小模型不是因为它更准，是**只有它跑得起**。
+**bagging 只降方差；梯度提升 = 函数空间的梯度下降**
 
 ![梯度提升的前三棵树：预测从一条水平线变成一个、两个、三个台阶，贴近数据的起伏](/img/in-post/classical-ml-06-boosting-steps.svg){: style="max-height: 440px"}
 
@@ -233,7 +233,7 @@ flowchart TB
 
 ## 07 · 聚类：K-Means、DBSCAN 与「这批语料里有什么」
 
-**结论**：两步都不增簇内平方和、划分有限，所以有限步内收敛，但到**局部最优**；聚类是探索不是预测，不需要「正确」。
+**K-Means 收敛到局部最优；聚类是探索不是预测，不需要「正确」**
 
 ![K-Means 的迭代：初始化两个中心落在同一团里，第 6 步各自停在三团中心](/img/in-post/classical-ml-07-kmeans-iterations.svg){: style="max-height: 400px"}
 
@@ -263,7 +263,7 @@ flowchart TB
 
 ## 08 · 降维：PCA、SVD、t-SNE 与 embedding 的各向异性
 
-**结论**：PCA = 中心化数据的 SVD；t-SNE 保的是邻域不是全局距离，二维图上的距离不能信；**各向异性——所有向量挤在窄锥里，任意两句余弦都在 0.7 以上，先减均值**。
+**PCA = 中心化的 SVD；t-SNE 只保邻域；向量挤在窄锥（余弦 0.7+），先减均值**
 
 ![原始向量上同 / 异主题的余弦全在 0.5–1.0 重叠；减均值后分开](/img/in-post/classical-ml-08-anisotropy.svg){: style="max-height: 420px"}
 
@@ -275,7 +275,7 @@ flowchart TB
 
 ### PCA 看全局，t-SNE 看局部
 
-![手写数字：PCA 前两维中间混成一片；t-SNE 十种颜色各成一团](/img/in-post/classical-ml-08-pca-vs-tsne.svg){: style="max-height: 380px"}
+![手写数字：PCA 前两维中间混成一片；t-SNE 十种颜色各成一团](/img/in-post/classical-ml-08-pca-vs-tsne.svg){: style="max-height: 330px"}
 
 - PCA 2 维 KNN 0.60 vs t-SNE 0.98；64 维里 29 维解释 95%
 - 真实权重 90% 能量要 299/896 维——**W 本身不低秩**，LoRA 的低秩假设是关于 $$\Delta W$$ 的
@@ -293,7 +293,7 @@ flowchart TB
 
 ## 09 · 去重：MinHash 与 LSH 的概率
 
-**结论**：MinHash 相等的概率恰好等于 Jaccard；LSH 的 S 曲线过 50% 的位置就是阈值——「Jaccard > 0.7 算重复」不是经验值，是 $$b = 14, r = 8$$ 算出来的 0.685。
+**MinHash 相等概率 = Jaccard；阈值 0.7 是 $$b=14,r=8$$ 算出的 0.685**
 
 ![四组 (b, r) 的 S 曲线：候选概率 1 − (1 − s^r)^b 随 Jaccard 的变化](/img/in-post/deduplication-lsh-s-curve.svg){: style="max-height: 440px"}
 
@@ -314,7 +314,7 @@ flowchart TB
 
 ## 10 · 评估：从混淆矩阵到 judge 的一致性
 
-**结论**：不平衡时准确率没有信息；AUC 不看概率、校准要单独查；κ 扣掉随机一致、系统偏差平均不掉；同一套题用配对检验；多个 benchmark 要多重比较。
+**不平衡时准确率没有信息；校准要单独查；系统偏差平均不掉**
 
 ![阈值扫描：精确率升、召回降、F1 中间最高；右侧 ROC](/img/in-post/classical-ml-10-threshold-sweep-and-roc.svg){: style="max-height: 420px"}
 
@@ -326,12 +326,11 @@ flowchart TB
 
 ### AUC 高不等于概率可信：校准
 
-![过度自信的模型偏离对角线；Platt / isotonic 校准后贴回](/img/in-post/classical-ml-10-calibration-platt-isotonic.svg){: style="max-height: 380px"}
+![过度自信的模型偏离对角线；Platt / isotonic 校准后贴回](/img/in-post/classical-ml-10-calibration-platt-isotonic.svg){: style="max-height: 310px"}
 
-- 过度自信 ECE 0.069 → 0.019，AUC 不变
-- judge：永远选 A 可以 92% 一致、κ = 0；对换顺序量出位置偏差 **21 个点**
-- 20 个 benchmark 领先 12 个：两个相同模型的随机期望 10 ± 2.2，12 在一个标准差以内
-- 阈值与校准在验证集上定、测试集只评一次；配对 bootstrap 区间含 0 ≠ 一样好；同来源的题按簇重抽（公式区间覆盖 61% vs 簇 bootstrap 94%）
+- 过度自信 ECE 0.069 → 0.019，AUC 不变；永远选 A 有 92% 一致、κ = 0
+- 20 个 benchmark 领先 12 个：随机期望 10 ± 2.2，在一个标准差内
+- 阈值在验证集上定；同来源的题按簇重抽（公式区间覆盖 61% vs 簇 94%）
 
 <!-- v -->
 
