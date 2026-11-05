@@ -1101,7 +1101,7 @@ try {
 }
 ```
 
-`Thread.currentThread().interrupt()` 这行的作用，和 Python 里那句 `raise` 完全一致：把"我被要求停止"这个信号继续往上传，否则调用栈上层永远不知道发生过取消。两个语言里最经典的并发代码坏味道，都是空的 catch 块：
+`Thread.currentThread().interrupt()` 这行的作用，和 Python 里那句 `raise` 完全一致：把"被要求停止"这个信号继续往上传，否则调用栈上层永远不知道发生过取消。两个语言里最经典的并发代码坏味道，都是空的 catch 块：
 
 ```java title="Java 反模式：空的 catch InterruptedException"
 catch (InterruptedException e) { }        // Java 反模式

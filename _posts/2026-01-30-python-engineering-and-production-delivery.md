@@ -117,7 +117,7 @@ dependencies = [
 几个关键字段：
 
 - **`requires-python`**：声明解释器版本要求。这一项比看起来重要——它决定了 pip 会不会把包装到不兼容的环境里，也决定了 mypy / Ruff 按哪个版本的语法规则检查。
-- **`dependencies`**：**抽象依赖**（abstract dependencies），只声明"我需要什么"，不锁定具体版本。锁定是另一件事，见第四章。
+- **`dependencies`**：**抽象依赖**（abstract dependencies），只声明"需要什么"，不锁定具体版本。锁定是另一件事，见第四章。
 - **`version`**：也可以交给构建后端动态生成（`dynamic = ["version"]`），从 `__init__.py` 的 `__version__` 或 git tag 读取。
 
 对应 Java：`dependencies` 相当于 `pom.xml` 的 `<dependencies>`，`requires-python` 相当于 `maven.compiler.source`。
@@ -416,7 +416,7 @@ Table: 依赖管理的五件事：Maven 与 Python 的对应
 
 这是整章最重要的概念区分，也是 `pip install -r requirements.txt` 给人虚假安全感的根源。
 
-**抽象依赖**（abstract）回答"我的代码需要什么"：
+**抽象依赖**（abstract）回答"代码需要什么"：
 
 ```toml title="抽象依赖：pyproject.toml 里只写下界"
 # pyproject.toml
@@ -535,7 +535,7 @@ uv run pytest                  # 在项目环境里执行命令，无需激活
 
 ### 5. 版本约束：上界该不该加
 
-这是个有争议的话题，我给出的判断是**分情况**：
+这是个有争议的话题，判断是**分情况**：
 
 ```toml title="四种版本约束写法的含义"
 # 语义化版本约束
@@ -551,7 +551,7 @@ uv run pytest                  # 在项目环境里执行命令，无需激活
 
 **库**：这里才是真问题。加上界（`<3`）看似安全，实际会造成**依赖地狱的传播**——如果你的库写 `pydantic<3`，而下游项目还依赖另一个库要求 `pydantic>=3`，那两个库就无法共存，即使你的代码其实兼容 v3。
 
-我的建议：
+建议：
 
 - **默认不加上界**；
 - 只在**已知**不兼容时加，且用 `!=` 排除具体版本而不是砍掉整个未来；
@@ -751,7 +751,7 @@ docker run --rm -v "$PWD:/app" -w /app python:3.11-slim \
 
 ### 5. 实践建议：把 torch 从项目依赖里摘出去
 
-这是我认为对 AI-Infra 项目最有价值的一条建议，也和第八章的容器化直接衔接。
+这是对 AI-Infra 项目最有价值的一条建议，也和第八章的容器化直接衔接。
 
 **问题**：如果 `pyproject.toml` 里写着 `torch==2.4.0`，那么：
 
@@ -759,7 +759,7 @@ docker run --rm -v "$PWD:/app" -w /app python:3.11-slim \
 - Docker 构建时 torch 和业务依赖在同一层，改一行业务代码就要重装 torch；
 - 锁文件绑死了 CUDA 目标，换 GPU 环境就得重新锁。
 
-**做法**：把 torch 及其 CUDA 依赖交给**基础镜像**，项目依赖里只声明"我需要 torch，但别帮我装"。
+**做法**：把 torch 及其 CUDA 依赖交给**基础镜像**，项目依赖里只声明"需要 torch，但别帮我装"。
 
 ```dockerfile title="Dockerfile 用自带 torch 的 NGC 基础镜像"
 # 基础镜像已经带好了对应 CUDA 版本的 torch
@@ -1712,7 +1712,7 @@ Table: Java 与 Python 工程化工具链对照
 
 这份自由度是 Python 能在 AI 领域胜出的原因之一——它让 Python 可以做薄薄的一层壳，把重活交给 CUDA、C++ 和专用引擎，而不被框架的假设绑住。但同样的自由度也意味着，**一个没有工程纪律的 Python 项目会比同等的 Java 项目腐化得更快**。
 
-如果这一篇只留三条，我会选：
+如果这一篇只留三条，选：
 
 1. **锁文件必须有，且必须进 CI 强制。** `uv sync --frozen` 是可复现的底线。抽象依赖表达兼容范围，锁文件保证这次装的和上次一样，两者不能互相替代。
 2. **把 torch 和 CUDA 交给固定 tag 的基础镜像。** 这一条同时解决了依赖体积、构建缓存、跨平台锁文件三个问题。代价是可复现性的责任从锁文件转移到镜像 tag——它没消失，只是换了地方，所以 tag 绝不能用 `latest`。

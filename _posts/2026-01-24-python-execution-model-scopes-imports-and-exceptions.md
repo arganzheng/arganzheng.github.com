@@ -641,7 +641,7 @@ sys.meta_path.insert(0, Blocker({"numpy"}))
 import numpy    # ModuleNotFoundError: numpy blocked for testing
 ```
 
-`find_spec` 返回 `None` 表示"不归我管，问下一个"；返回 spec 或抛异常则终结查找。把 `Blocker` 换成一个记录 `fullname` 的 finder，就能看到 `import xml.dom.minidom` 实际请求了 `xml`、`xml.dom`、`xml.dom.domreg`、`xml.dom.minidom`、`copy`……——这是排查"启动时到底导入了什么"的最直接手段。
+`find_spec` 返回 `None` 表示"不归它管，问下一个"；返回 spec 或抛异常则终结查找。把 `Blocker` 换成一个记录 `fullname` 的 finder，就能看到 `import xml.dom.minidom` 实际请求了 `xml`、`xml.dom`、`xml.dom.domreg`、`xml.dom.minidom`、`copy`……——这是排查"启动时到底导入了什么"的最直接手段。
 
 ③ **手工构造 spec 就能加载任意位置的文件**。PyTorch 的 JIT 扩展编译（`torch.utils.cpp_extension.load`）编译出 `.so` 之后，通过 `_import_module_from_library` 把它变成模块（`torch/utils/cpp_extension.py`）：
 

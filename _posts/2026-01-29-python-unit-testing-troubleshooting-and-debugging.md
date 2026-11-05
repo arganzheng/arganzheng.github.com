@@ -572,7 +572,7 @@ pytest -s tests/test_scheduler.py::test_timeout_request
 
 ## 八、日志：从调试打印到生产配置
 
-日志有两个不同的使用场景：**调试期**临时开 `DEBUG` 看清执行路径，和**生产期**作为常态的可观测性手段。前者关心"我现在想看什么"，后者关心"出问题时能不能查到"。本章先讲前者，再讲后者的配置。
+日志有两个不同的使用场景：**调试期**临时开 `DEBUG` 看清执行路径，和**生产期**作为常态的可观测性手段。前者关心"现在想看什么"，后者关心"出问题时能不能查到"。本章先讲前者，再讲后者的配置。
 
 ### 1. 用日志替代盲目打印
 
@@ -667,7 +667,7 @@ handler.setFormatter(
 logger.addHandler(handler)
 ```
 
-注意**级别有两道关卡**：`Logger` 的级别和 `Handler` 的级别。日志要先通过 logger 的级别，再通过 handler 的级别才会被输出。一个常见困惑是"我设了 `logger.setLevel(DEBUG)` 但看不到 DEBUG 日志"——通常是**根 logger** 的级别还停在默认的 `WARNING`（`Handler` 的默认级别是 `NOTSET` = 0，放行一切；`logging.basicConfig` 不带 `level` 时设置的也是 root logger 的 WARNING），或者 `propagate` 后被上层 logger 的 handler 过滤。
+注意**级别有两道关卡**：`Logger` 的级别和 `Handler` 的级别。日志要先通过 logger 的级别，再通过 handler 的级别才会被输出。一个常见困惑是"设了 `logger.setLevel(DEBUG)` 但看不到 DEBUG 日志"——通常是**根 logger** 的级别还停在默认的 `WARNING`（`Handler` 的默认级别是 `NOTSET` = 0，放行一切；`logging.basicConfig` 不带 `level` 时设置的也是 root logger 的 WARNING），或者 `propagate` 后被上层 logger 的 handler 过滤。
 
 ### 3. logger 的树结构与 propagate
 

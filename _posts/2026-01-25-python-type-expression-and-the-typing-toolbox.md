@@ -301,7 +301,7 @@ def process(data: Any) -> Any:
 
 `Any` 类似 Java 的裸类型（raw type）：`List` 而不是 `List<String>`。它告诉类型检查器"不要管这个"。
 
-**使用场景**：和无类型注解的第三方库交互、快速原型阶段。**不要**把它当作"我不知道该写什么类型"的默认选择。
+**使用场景**：和无类型注解的第三方库交互、快速原型阶段。**不要**把它当作"不知道写什么类型"时的默认选择。
 
 **真实项目中的 Any**
 
@@ -841,7 +841,7 @@ Table: 实例类型与类对象类型：Python 与 Java 对照
 两个实质差异：
 
 1. **构造是一等操作。** Java 拿到 `Class<T>` 后要经过反射才能 `newInstance()`，还要处理一堆受检异常；Python 里 `c()` 就是普通调用，类型检查器甚至会**校验构造参数**——传错参数是静态错误，不是运行时才炸的 `NoSuchMethodException`。
-2. **没有类型擦除。** Java 的 `Class<T>` 之所以常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），正是因为泛型被擦除了，运行时拿不到 `T`。Python 没有擦除问题——注解本身在运行时就可以读取（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)）——所以 `type[C]` 的用途更纯粹：它就是"我需要一个类，而不是一个实例"。
+2. **没有类型擦除。** Java 的 `Class<T>` 之所以常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），正是因为泛型被擦除了，运行时拿不到 `T`。Python 没有擦除问题——注解本身在运行时就可以读取（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)）——所以 `type[C]` 的用途更纯粹：它就是"需要一个类，而不是一个实例"。
 
 **典型用途：工厂与注册表**
 
