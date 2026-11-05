@@ -42,14 +42,15 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    A["01 演进史<br/>能表示 ≠ 能学会"] --> B["02 损失函数<br/>把任务写成可求导标量"] --> C["03 反向传播<br/>逐算子计算 VJP"]
-    C --> D["04 激活函数<br/>非线性与梯度通路"] --> E["05 初始化 / 归一化 / 残差<br/>稳定深层连乘"] --> F["06 优化器<br/>步长与更新"]
-    F --> G["07 正则化与泛化<br/>优化器怎样挑解"]
-    E --> H["08 CNN<br/>局部性与共享"] --> I["09 Embedding<br/>离散 ID 到向量"] --> J["10 RNN<br/>BPTT 衰减与 attention"]
+    A["01 演进史"] --> B["02 损失函数"] --> C["03 反向传播"]
+    C --> D["04 激活函数"] --> E["05 初始化 / 归一化 / 残差"] --> F["06 优化器"]
+    F --> G["07 正则化与泛化"]
+    E --> H["08 CNN"] --> I["09 Embedding"] --> J["10 RNN"]
 ```
 
 <aside class="notes" markdown="1">
 每篇正文链接：01 [/evolution-of-deep-models-from-perceptron-to-transformer.html](/evolution-of-deep-models-from-perceptron-to-transformer.html)；02 [/loss-functions-from-mse-to-dpo.html](/loss-functions-from-mse-to-dpo.html)；03 [/backpropagation-by-hand.html](/backpropagation-by-hand.html)；04 [/activation-functions-from-sigmoid-to-swiglu.html](/activation-functions-from-sigmoid-to-swiglu.html)；05 [/initialization-normalization-and-residual.html](/initialization-normalization-and-residual.html)；06 [/optimizers-from-sgd-to-adamw.html](/optimizers-from-sgd-to-adamw.html)；07 [/regularization-and-generalization.html](/regularization-and-generalization.html)；08 [/cnn-from-lenet-to-resnet-and-vit.html](/cnn-from-lenet-to-resnet-and-vit.html)；09 [/embedding-and-representation-learning.html](/embedding-and-representation-learning.html)；10 [/rnn-lstm-and-the-birth-of-attention.html](/rnn-lstm-and-the-birth-of-attention.html)。
+各篇一句话：01 能表示 ≠ 能学会；02 把任务写成可求导标量；03 逐算子计算 VJP；04 非线性与梯度通路；05 稳定深层连乘；06 步长与更新；07 优化器怎样挑解；08 局部性与共享；09 离散 ID 到向量；10 BPTT 衰减与 attention。
 </aside>
 
 ---
