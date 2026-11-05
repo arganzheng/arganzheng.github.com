@@ -81,12 +81,13 @@ encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder �
 
 ## 02 · 一个 token 的旅程：训练侧与推理侧
 
-**结论**：causal mask + teacher forcing 让一句话 = T 个训练样本；推理时旧 token 的 K、V 不变，**算一次存下来就是 KV cache**——训练 / prefill / decode 是三种形态。
+**训练 / prefill / decode 是三种形态——KV cache = 算一次存下来**
 
 ![训练的一步：五个位置一次前向同时得到五个分布，目标是输入右移一位，五个交叉熵取平均](/img/in-post/transformer-02-training-step-teacher-forcing.svg){: style="max-height: 380px"}
 
 <aside class="notes" markdown="1">
 原文 /transformer-token-journey-training-and-inference.html。随机初始化 loss ≈ ln V：16 词 2.78、GPT-2 词表 10.8、65 字符 4.17。反向要用前向中间量，激活与 B × T 成正比。
+结论原文：**：causal mask + teacher forcing 让一句话 = T 个训练样本；推理时旧 token 的 K、V 不变，**算一次存下来就是 KV cache**——训练 / prefill / decode 是三种形态。
 </aside>
 
 <!-- v -->
@@ -114,7 +115,7 @@ encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder �
 
 ## 03 · 手搓 GPT（上）：nanoGPT model.py 逐行
 
-**结论**：330 行、6 个类，结构本身（LayerNorm、CausalSelfAttention、MLP、Block）**不到 90 行**；与 HF GPT-2 对拍相对差 $$9 \times 10^{-5}$$。
+**结构本身不到 90 行；对拍 HF GPT-2 相对差 9e-5**
 
 ```python
 class Block(nn.Module):
@@ -132,6 +133,7 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 
 <aside class="notes" markdown="1">
 原文 /nanogpt-model-py-line-by-line.html。`wte.weight` = `lm_head.weight` 共享省 31% 参数；所有权重 \(N(0, 0.02)\)02²)，写回残差流的 c_proj 再除 √(2L)；forward 传 targets 算全部位置，不传只算最后一个位置的 lm_head（省 99.9%）。
+结论原文：**：330 行、6 个类，结构本身（LayerNorm、CausalSelfAttention、MLP、Block）**不到 90 行**；与 HF GPT-2 对拍相对差 $$9 \times 10^{-5}$$。
 </aside>
 
 <!-- v -->
@@ -153,12 +155,13 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 
 ## 04 · 手搓 GPT（下）：train.py 与训一个会续写的模型
 
-**结论**：1.1 MB 莎士比亚、0.8M 参数、2000 步 7 分钟，loss 从 **ln 65 = 4.17 → 1.66**；层是串行的——参数与耗时线性、loss 收益递减。
+**0.8M 参数 2000 步 7 分钟，loss 4.17 → 1.66**
 
 ![只改层数在 shakespeare_char 上 2000 步的 loss：2 / 4 / 8 层 val 1.82 / 1.66 / 1.59，每步耗时约 0.5× / 1× / 2×](/img/in-post/transformer-04-shakespeare-loss-by-depth.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /nanogpt-train-py-and-training-a-model-that-writes.html。默认配置每次迭代 40 × 12 × 1024 = 491,520 token；8 卡时每卡累积 5 次。MFU 0.2%：小 batch 在 MPS 上 launch-bound。
+结论原文：**：1.1 MB 莎士比亚、0.8M 参数、2000 步 7 分钟，loss 从 **ln 65 = 4.17 → 1.66**；层是串行的——参数与耗时线性、loss 收益递减。
 </aside>
 
 <!-- v -->
