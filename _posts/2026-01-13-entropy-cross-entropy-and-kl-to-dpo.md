@@ -98,7 +98,7 @@ $$
 H(p, q) = -\sum_x p(x) \log q(x) = \mathbb{E}_{x \sim p}\big[-\log q(x)\big]
 $$
 
-与熵的差别只在 $$\log$$ 里面是 $$q$$ 不是 $$p$$：数据按 $$p$$ 出现，但我们用 $$q$$ 给它们编码。用错了分布会多付码长，多付的那部分就是 **KL 散度**（Kullback–Leibler divergence，相对熵）：
+与熵的差别只在 $$\log$$ 里面是 $$q$$ 不是 $$p$$：数据按 $$p$$ 出现，但用 $$q$$ 给它们编码。用错了分布会多付码长，多付的那部分就是 **KL 散度**（Kullback–Leibler divergence，相对熵）：
 
 $$
 D_{\mathrm{KL}}(p \,\Vert\, q) = \sum_x p(x) \log \frac{p(x)}{q(x)} = H(p, q) - H(p)
