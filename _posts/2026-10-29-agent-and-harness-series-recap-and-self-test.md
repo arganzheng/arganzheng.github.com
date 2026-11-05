@@ -361,7 +361,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 四层：权限档（Codex 三档 / Claude Code 规则）、审批策略（`AskForApproval`）、执行策略（`execpolicy` Starlark 前缀规则 allow / prompt / forbidden 带 `match` / `not_match`；Guardian 模型先审）、沙箱（Seatbelt / bubblewrap + Landlock / 受限令牌；接缝可换；云沙箱）；(2) 缺一层的事故原型；(3) Claude Code 六步与 deny 高于一切；(4) 沙箱管不了合法凭据对外部系统的动作——token 范围与环境隔离是基础设施的事；(5) 工具返回不可信；(6) 审批疲劳用策略化授权；(7) 我的选择：默认 `workspace`、执行策略覆盖删除 / 强推 / 对外写、沙箱不自动升级、PocketOS 五环自检。
+   **答案要点**：(1) 四层：权限档（Codex 三档 / Claude Code 规则）、审批策略（`AskForApproval`）、执行策略（`execpolicy` Starlark 前缀规则 allow / prompt / forbidden 带 `match` / `not_match`；Guardian 模型先审）、沙箱（Seatbelt / bubblewrap + Landlock / 受限令牌；接缝可换；云沙箱）；(2) 缺一层的事故原型；(3) Claude Code 六步与 deny 高于一切；(4) 沙箱管不了合法凭据对外部系统的动作——token 范围与环境隔离是基础设施的事；(5) 工具返回不可信；(6) 审批疲劳用策略化授权；(7) 选择：默认 `workspace`、执行策略覆盖删除 / 强推 / 对外写、沙箱不自动升级、PocketOS 五环自检。
    **追问方向**：PTC 下的审批粒度；子 agent 的权限继承。
    **好答案与一般答案的区别**：一般答案说"要有审批"；好答案分四层、给三家的具体机制、说出沙箱的边界与基础设施侧的责任。
 
