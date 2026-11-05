@@ -57,7 +57,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /reading-a-million-line-codebase.html。
-结论原文：**：靠**有目标的检索**——提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；**构建是为了工具链，可选、放最后**。
+结论原文：靠**有目标的检索**——提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；**构建是为了工具链，可选、放最后**。
 </aside>
 
 ---
@@ -78,7 +78,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /finding-your-entry-point-in-open-source.html。
-结论原文：**：**他们已决定要做、写清了要什么、自己没时间做的事**；预测「一周后会不会被关」看六个信号：标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策。
+结论原文：**他们已决定要做、写清了要什么、自己没时间做的事**；预测「一周后会不会被关」看六个信号：标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策。
 </aside>
 
 ---
@@ -99,7 +99,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /landing-a-mergeable-change.html。
-结论原文：**：**改了什么且只改了这一件**（diff）、**为什么改怎么验证**（描述）、**怎么证明对怎么防回归**（测试）、**有没有弄坏别的**（CI）——四样各答一个问题。
+结论原文：**改了什么且只改了这一件**（diff）、**为什么改怎么验证**（描述）、**怎么证明对怎么防回归**（测试）、**有没有弄坏别的**（CI）——四样各答一个问题。
 </aside>
 
 ---
@@ -120,7 +120,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /two-real-prs-pytorch-and-vllm.html。
-结论原文：**：小 PR 的时间**不在写代码**——PyTorch 那个在**数据**（正常成本），vLLM 那个在**等待**（大半可省）。
+结论原文：小 PR 的时间**不在写代码**——PyTorch 那个在**数据**（正常成本），vLLM 那个在**等待**（大半可省）。
 </aside>
 
 ---
