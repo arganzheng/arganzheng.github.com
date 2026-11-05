@@ -33,17 +33,17 @@ transition: slide
 flowchart TB
     subgraph L["语言核心"]
         direction TB
-        C1a["01 上 编译模型<br/>四阶段、ODR、符号、.so"] --> C1b["01 下 工程布局<br/>命名空间、库分层、CMake"]
-        C1a --> C2["02 值、引用与所有权<br/>at::Tensor 是 8 字节句柄、RAII"]
-        C2 --> C3["03 模板与泛型<br/>AT_DISPATCH、编译期实例化"]
-        C2 --> C4["04 多态与类型擦除<br/>Dispatcher 怎么选实现"]
+        C1a["01 上 编译模型"] --> C1b["01 下 工程布局"]
+        C1a --> C2["02 值与所有权"]
+        C2 --> C3["03 模板与泛型"]
+        C2 --> C4["04 多态与类型擦除"]
     end
     subgraph E["工程实践"]
         direction TB
-        C5["05 宏、静态注册与代码生成"]
-        C6["06 并发、内存模型、TLS"]
-        C7["07 与 Python 之间"]
-        C8["08 构建、调试与测试"]
+        C5["05 宏与静态注册"]
+        C6["06 并发与内存"]
+        C7["07 与 Python"]
+        C8["08 构建与调试"]
     end
     C3 & C4 --> C5
     C2 --> C6
@@ -151,10 +151,10 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
 flowchart TB
-    M["TORCH_LIBRARY(myops, m) { m.def(...); }"] --> S["展开：static TorchLibraryInit<br/>myops_init(&fn)"]
-    S --> SO["编进 .so 的 .init_array"]
-    SO -- "import myops_ext → dlopen" --> INIT["加载器跑构造函数"]
-    INIT --> D[("Dispatcher 登记<br/>myops::scale")]
+    M["TORCH_LIBRARY(myops, m)"] --> S["static TorchLibraryInit"]
+    S --> SO[".so 的 .init_array"]
+    SO -- "dlopen" --> INIT["跑构造函数"]
+    INIT --> D[("Dispatcher 登记")]
     D --> PY["torch.ops.myops.scale 可用"]
     classDef hot fill:#fde68a,stroke:#b45309
     class INIT hot
@@ -203,10 +203,10 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
 flowchart TB
-    PY["torch.Tensor（PyObject）"] -- "① THPVariable → at::Tensor<br/>refcount 1 → 2" --> CPP["at::Tensor 参数"]
-    CPP -- "② 释放 GIL<br/>py::gil_scoped_release" --> K["kernel 运行<br/>只碰 C++ 对象"]
-    K -- "③ 重新拿 GIL" --> OUT["at::Tensor 返回值"]
-    OUT -- "④ 包成 PyObject<br/>已有则 Py_INCREF" --> PY2["torch.Tensor"]
+    PY["torch.Tensor"] -- "① 转成 C++" --> CPP["at::Tensor 参数"]
+    CPP -- "② 释放 GIL" --> K["kernel 运行"]
+    K -- "③ 拿 GIL" --> OUT["返回值"]
+    OUT -- "④ 包 PyObject" --> PY2["torch.Tensor"]
     classDef gil fill:#fde2e2,stroke:#c0392b
     class K gil
 ```
