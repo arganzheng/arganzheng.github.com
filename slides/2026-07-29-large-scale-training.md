@@ -52,12 +52,13 @@ flowchart TB
 
 ## 01 · 状态解剖：三种是 N 的线性函数，一种是 token 数的
 
-**结论**：每参数 **16 字节**（Megatron fp32 累加梯度 18）——70B 常驻 **1.13 TB**、405B 6.49 TB，是一张 80 GB 卡的 14 倍；激活每层 $$sbh(34 + 5as/h)$$，FlashAttention 后 $$34sbh$$；每 token $$6N + 6Lsh$$ FLOP。
+**每参数 16 字节——70B 常驻 1.13 TB，一张 80 GB 卡的 14 倍**
 
 ![四种状态在一个 step 内的显存占用随时间变化：bf16 参数 2N 与优化器状态 12N 是两条常驻的水平带；激活在前向逐层堆高、反向逐层释放，峰在前向末](/img/in-post/training-state-step-timeline.svg){: style="max-height: 340px"}
 
 <aside class="notes" markdown="1">
 原文 /training-state-anatomy-memory-and-mfu.html。70B 每层激活 2.28 GB；每 token 449 GFLOP。
+结论原文：**：每参数 **16 字节**（Megatron fp32 累加梯度 18）——70B 常驻 **1.13 TB**、405B 6.49 TB，是一张 80 GB 卡的 14 倍；激活每层 $$sbh(34 + 5as/h)$$，FlashAttention 后 $$34sbh$$；每 token $$6N + 6Lsh$$ FLOP。
 </aside>
 
 <!-- v -->
@@ -73,12 +74,13 @@ flowchart TB
 
 ## 02 · 并行策略全景：每一个「切」对应一种通信
 
-**结论**：并行是**状态的放置方案**；不可重叠且量大的放最近（TP 锁在 NVLink 内，$$N_t \le 8$$），可重叠的放远（PP 量最小放最远）；组合顺序 **TP → CP → PP → DP**。
+**并行是状态的放置方案——TP 锁 NVLink、PP 放最远**
 
 ![四级 ZeRO 在 4 张卡上的状态放置：DP 每卡持有整份 P、G、O；ZeRO-1 切 O；ZeRO-2 再切 G；ZeRO-3 再切 P](/img/in-post/parallelism-zero-stages.svg){: style="max-height: 360px"}
 
 <aside class="notes" markdown="1">
 原文 /parallelism-strategies-which-state-to-shard.html。Llama 3 405B TP 8 / PP 16 / DP 128 每 step：TP 220 GB NVLink、DP 12.6 GB IB、PP 1 GB IB。
+结论原文：**：并行是**状态的放置方案**；不可重叠且量大的放最近（TP 锁在 NVLink 内，$$N_t \le 8$$），可重叠的放远（PP 量最小放最远）；组合顺序 **TP → CP → PP → DP**。
 </aside>
 
 <!-- v -->
@@ -148,7 +150,7 @@ flowchart TB
 
 ## 06 · 三个框架对比：通信量相同，表示决定一切
 
-**结论**：三者通信量相同（2N 或 3N），差别在分片的**表示**——`ds_tensor` 灵活但私有、`FlatParameter` 高效但抹掉身份、`DTensor` 自描述可组合。
+**通信量相同，差别在分片的表示——DTensor 自描述可组合**
 
 | 框架 | 每参数常驻 | 每 step 通信 | 进程组 |
 |---|---|---|---|
@@ -161,13 +163,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /megatron-deepspeed-torchtitan-architecture-and-source-guide.html。
+结论原文：**：三者通信量相同（2N 或 3N），差别在分片的**表示**——`ds_tensor` 灵活但私有、`FlatParameter` 高效但抹掉身份、`DTensor` 自描述可组合。
 </aside>
 
 ---
 
 ## 07 · 千卡配置实战：70B、1024 张 H100，先算
 
-**结论**：推导顺序 **TP → PP → DP → CP**；每卡 token 少时选 **PP + ZeRO-1 不选 FSDP**（FSDP128 每卡每 step 175 GB 节点间通信、3.5 s 盖不住）；MFU 损失拆成七项各自标价，先修配置错误。
+**每卡 token 少时选 PP + ZeRO-1 不选 FSDP**
 
 | 候选 A | 值 |
 |---|---|
@@ -182,6 +185,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /thousand-gpu-configuration-and-mfu-tuning.html。s = 8192、global batch 4M。
+结论原文：**：推导顺序 **TP → PP → DP → CP**；每卡 token 少时选 **PP + ZeRO-1 不选 FSDP**（FSDP128 每卡每 step 175 GB 节点间通信、3.5 s 盖不住）；MFU 损失拆成七项各自标价，先修配置错误。
 </aside>
 
 ---
@@ -252,7 +256,7 @@ $$
 
 ## 11 · 可观测与运维：「step 是否前进」是 hang 唯一可靠的信号
 
-**结论**：三层指标（任务 / 进程 / 硬件）、**按 rank 看、以 step 为时钟**；GPU 利用率 100% 时照样可能在 hang（NCCL kernel 自旋）；Flight Recorder 指出哪个 rank 缺席哪次集合通信。
+**利用率 100% 照样可能在 hang——NCCL kernel 自旋**
 
 | 凌晨三点 step 12 s → 40 s，四个嫌疑 | 决定性指标 |
 |---|---|
@@ -266,6 +270,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /long-running-training-observability-and-operations.html。
+结论原文：**：三层指标（任务 / 进程 / 硬件）、**按 rank 看、以 step 为时钟**；GPU 利用率 100% 时照样可能在 hang（NCCL kernel 自旋）；Flight Recorder 指出哪个 rank 缺席哪次集合通信。
 </aside>
 
 ---
