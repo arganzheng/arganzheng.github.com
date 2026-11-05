@@ -117,7 +117,7 @@ flowchart TB
 ![sigmoid 与交叉熵：z = 0 处 0.5；预测越错 loss 越大且梯度不消失](/img/in-post/classical-ml-03-sigmoid-and-cross-entropy.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
-原文 /linear-and-logistic-regression-the-skeleton-of-reward-models.html。P(A ≻ B) = σ(wᵀ(x_A − x_B))。
+原文 /linear-and-logistic-regression-the-skeleton-of-reward-models.html。\(P(A \succ B) = \sigma\big(w^\top(x_A - x_B)\big)\)。
 </aside>
 
 <!-- v -->
