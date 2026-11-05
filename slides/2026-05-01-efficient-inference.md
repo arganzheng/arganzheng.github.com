@@ -50,12 +50,13 @@ flowchart TB
 
 ## 01 · 解码策略：采样参数本身就在改分布
 
-**结论**：pass@1 奖励稳定走最可能的路（最优低温），pass@k 奖励至少一次走到（最优中高温）——**两者不能用同一组参数报告**；温度只改比值不置零，**截断才把尾部置零**；推理模型不用 greedy。
+**pass@1 与 pass@k 不能用同一组参数报告**
 
 ![同一个排好序的分布上，top-k、top-p、min-p 三种截断各砍在哪里](/img/in-post/decoding-strategies-top-k-top-p-min-p.svg){: style="max-height: 300px"}
 
 <aside class="notes" markdown="1">
 原文 /decoding-strategies-sampling-and-constrained-generation.html。R1 / Qwen3 模型卡：T = 0.6、top-p 0.95、无重复惩罚。greedy 路径未被训练，长输出下重复退化被放大。
+结论原文：**：pass@1 奖励稳定走最可能的路（最优低温），pass@k 奖励至少一次走到（最优中高温）——**两者不能用同一组参数报告**；温度只改比值不置零，**截断才把尾部置零**；推理模型不用 greedy。
 </aside>
 
 <!-- v -->
@@ -103,12 +104,13 @@ flowchart TB
 
 ## 03 · 训练后量化：崩掉几乎总是分布形状
 
-**结论**：4-bit **快在 memory-bound 的 decode、慢在 prefill 与大 batch**；崩掉来自权重重尾与激活的固定通道离群——GPTQ 补偿、AWQ 保护、SmoothQuant 迁移、旋转摊平。
+**4-bit 快在 decode 慢在 prefill；崩掉来自固定通道离群**
 
 ![INT4 均匀量化：一行权重吸附到 15 个格点；范围 α 取 max 时格点被离群值撑开，取小则离群值被裁剪](/img/in-post/post-training-quantization-uniform-grid-and-clipping.svg){: style="max-height: 340px"}
 
 <aside class="notes" markdown="1">
 原文 /post-training-quantization-gptq-awq-and-rotation.html。70B 权重 141 → 39.8 GB。高吞吐用 W8A8 / FP8（字节 ÷ 2、算力 × 2、近无损）或 W4A4（需旋转）。
+结论原文：**：4-bit **快在 memory-bound 的 decode、慢在 prefill 与大 batch**；崩掉来自权重重尾与激活的固定通道离群——GPTQ 补偿、AWQ 保护、SmoothQuant 迁移、旋转摊平。
 </aside>
 
 <!-- v -->
@@ -133,12 +135,13 @@ flowchart TB
 
 ## 04 · QAT 与评测：困惑度是平均，任务看关键 token
 
-**结论**：困惑度 +0.36 的 W4 模型 GSM8K 掉 3–6、needle 掉 10 以上——**先掉的是多步推理、长上下文、多语言与指令细节**；逐 token KL 是直接度量；末段 QAT 以全精度的自己为教师把退化压回一半。
+**PPL +0.36 的代价：GSM8K 掉 3–6、needle 掉 10+**
 
 ![STE：前向走 round 的台阶，反向当作 y = x；fp32 主权重被更新，跨过格点时量化值才跳一格](/img/in-post/quantization-aware-training-straight-through-estimator.svg){: style="max-height: 320px"}
 
 <aside class="notes" markdown="1">
 原文 /quantization-aware-training-low-bit-and-evaluating-quantized-models.html。ŵ = w + sg(Q(w) − w)。Gemma 3 QAT 5000 步；NF4 双重量化 4.127 bit。
+结论原文：**：困惑度 +0.36 的 W4 模型 GSM8K 掉 3–6、needle 掉 10 以上——**先掉的是多步推理、长上下文、多语言与指令细节**；逐 token KL 是直接度量；末段 QAT 以全精度的自己为教师把退化压回一半。
 </aside>
 
 <!-- v -->
@@ -161,12 +164,13 @@ flowchart TB
 
 ## 05 · KV cache 压缩：key 与 value 不一样
 
-**结论**：**key 有固定通道离群、value 没有**——key per-channel、value per-token，2 bit 下选错崩掉；FP8 KV 永远是第一步；驱逐假设「过去不重要 = 将来不重要」，在问题未知、信息密度高的任务上不成立。
+**key 有通道离群、value 没有——key per-channel、value per-token**
 
 ![三种 KV 驱逐策略在 24 个 token 上各保留哪些：StreamingLLM 留 sink 与窗口，H2O 留累计注意力高的与窗口，SnapKV 按问题选](/img/in-post/kv-cache-compression-eviction-policies.svg){: style="max-height: 320px"}
 
 <aside class="notes" markdown="1">
 原文 /kv-cache-compression-quantization-eviction-and-sparse-attention.html。attention sink：massive activation 落在第一个 token 上，它的 key 与所有 query 点积都大，吃 30–50% 注意力，驱逐它就崩。
+结论原文：**：**key 有固定通道离群、value 没有**——key per-channel、value per-token，2 bit 下选错崩掉；FP8 KV 永远是第一步；驱逐假设「过去不重要 = 将来不重要」，在问题未知、信息密度高的任务上不成立。
 </aside>
 
 <!-- v -->
@@ -189,12 +193,13 @@ flowchart TB
 
 ## 06 · 剪枝与深度缩放：赢的是 token 效率不是精度上限
 
-**结论**：中后层是残差流上的小修正——删掉对平均预测影响小、对**关键位置的多步组合与后训练能力**破坏大（删 25% 层 PPL +0.3、GSM8K 50 → 10 以下）；**剪枝必须蒸馏恢复**。
+**删 25% 层 PPL +0.3、GSM8K 50→10——剪枝必须蒸馏恢复**
 
 ![剪枝的三种粒度：非结构化零散分布、2:4 半结构化、结构化整列删除；越规整硬件越容易兑现](/img/in-post/pruning-granularity-unstructured-2-4-structured.svg){: style="max-height: 280px"}
 
 <aside class="notes" markdown="1">
 原文 /pruning-depth-scaling-and-small-model-recipes.html。中后层余弦相似度 0.85–0.95；悬崖 70B 约 40%、13B 约 30%。
+结论原文：**：中后层是残差流上的小修正——删掉对平均预测影响小、对**关键位置的多步组合与后训练能力**破坏大（删 25% 层 PPL +0.3、GSM8K 50 → 10 以下）；**剪枝必须蒸馏恢复**。
 </aside>
 
 <!-- v -->
