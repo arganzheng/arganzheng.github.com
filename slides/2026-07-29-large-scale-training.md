@@ -106,11 +106,11 @@ flowchart TB
 
 ## 03 · Megatron-LM：bf16 参数常驻完整
 
-**结论**：一个 DP 副本内的全部 bf16 参数拍进 `_ParamAndGradBuffer` 的连续内存、**从不释放**；`DistributedOptimizer` 按字节区间切优化器状态与 fp32 主参数。
+**bf16 参数拍进连续 buffer 从不释放；优化器状态按字节区间切到 DP**
+
+![_ParamAndGradBuffer：param_data、grad_data 与 bucket 的布局](/img/in-post/megatron-deepspeed-torchtitan-param-and-grad-buffer.svg){: style="max-height: 330px}
 
 - 每参数常驻 2 + 4 + 12/N_d；通信 RS + AG = 2N，两处都与计算重叠
-- 进程组：`RankGenerator(order="tp-cp-ep-dp-pp")` 填全局变量
-- 1F1B 是过程式三段循环，`P2PCommunicator` 合并收发
 
 <aside class="notes" markdown="1">
 原文 /megatron-lm-architecture-and-source-guide.html。
@@ -120,11 +120,11 @@ flowchart TB
 
 ## 04 · DeepSpeed：参数是空壳，碎片是常态
 
-**结论**：Stage 3 下 bf16 参数常驻 **1/N_d 碎片**（`ds_tensor`），`param.data` 一个 step 换四次身份；fp32 主参数是扁平分区。
+**Stage 3：bf16 参数常驻 1/N_d 碎片，`param.data` 一个 step 换四次身份**
 
-- 每参数常驻 (16 或 18)/N_d + 临时层；通信 AG + AG + RS = 3N
-- `zero.Init` 从构造起就只有分片；hook + trace 预取把通信藏进计算
-- 「ZeRO-3 参数在显存里」——只有 1/N_d 在，hook 外拿到的是空张量
+![上排是 W_k 的 8 个常驻分片；下排是前向 pre-hook all-gather 后每卡临时持有的完整 bf16 W_k](/img/in-post/deepspeed-f1-8-gpus-zero3.svg){: style="max-height: 330px}
+
+- 每参数常驻 (16 或 18)/N_d + 临时层；通信 3N；hook 外拿到空张量
 
 <aside class="notes" markdown="1">
 原文 /deepspeed-architecture-and-source-guide.html。
@@ -134,11 +134,11 @@ flowchart TB
 
 ## 05 · torchtitan：fp32 分片既是参数也是主参数
 
-**结论**：bf16 **不常驻**——`fully_shard` 让参数成为 `Shard(0)` fp32 DTensor，unshard 出临时 bf16；fp32 分片本身就是主参数。
+**bf16 不常驻：参数是 `Shard(0)` fp32 DTensor，unshard 出临时 bf16**
+
+![fully_shard 参数生命周期三泳道：fp32 Shard(0) 常驻，计算用临时完整 bf16](/img/in-post/torchtitan-f5-param-lifecycle.svg){: style="max-height: 330px}
 
 - 每参数常驻 16/N_d + 临时 bf16；通信 3N（不 reshard 则 2N）
-- `ShardingConfig` 声明 TP；`Schedule1F1B` 是动作表
-- 「torchtitan 常驻一份 bf16 参数」——bf16 只在几十毫秒里存在
 
 <aside class="notes" markdown="1">
 原文 /torchtitan-architecture-and-source-guide.html。
@@ -188,7 +188,7 @@ flowchart TB
 
 ## 08 · 分布式 checkpoint：磁盘上是「全局张量的一组分片」
 
-**结论**：不是某个 rank 的内存映像，所以能**零通信重分片**；落盘每参数 14 或 12 字节、**与并行配置无关**；异步保存把 δ 从写入时间变成 staging 时间——**不是优化是必需**。
+**与并行配置无关的唯一字节 → 零通信重分片；异步保存是必需不是优化**
 
 $$
 \tau_{opt} = \sqrt{2\,\delta\,M},\qquad \text{最小浪费} = \sqrt{2\delta / M}
@@ -199,8 +199,7 @@ $$
 | 同步写单文件 | 10 min | **33%** |
 | 分片异步写 | 2 s | **1.9%** |
 
-- 405B 5.7 TB：单文件 19–95 分钟，分片写每卡 350 MB 秒级；staging 内存 = 每卡唯一字节 × (1–2)
-- 「checkpoint 大小随 TP / PP / DP 变」——去掉 DP 复制后的唯一字节不变，这正是能重分片的前提
+- 405B 5.7 TB：分片写每卡 350 MB 秒级；「大小随并行配置变」不成立——去掉 DP 复制的唯一字节不变
 
 <aside class="notes" markdown="1">
 原文 /distributed-checkpoint-format-async-save-and-resharding.html。Young 公式。
@@ -210,7 +209,7 @@ $$
 
 ## 09 · 容错与弹性：故障是常态，有效时间是五项公式
 
-**结论**：$$M = M_{gpu}/N$$——16K 卡 54 天 **419 次意外中断**、M ≈ 3.1 h；缩短顺序：**先 δ（异步保存），再 $$T_d$$（hang 检测），再 $$T_r$$（重启），$$T_l$$ 最后**。
+**缩短有效时间：先 δ（异步保存）、再检测与重启、间隔最后**
 
 $$
 G = \frac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}
@@ -218,13 +217,11 @@ $$
 
 | Llama 3 405B | 数 |
 |---|---|
-| 中断成因 | 78% 硬件、58.7% GPU、1.4% SDC；3 次人工 |
-| 有效训练时间 | > 90% |
+| 中断成因 | 78% 硬件、58.7% GPU；M = $$M_{gpu}/N$$，16K 卡 M ≈ 3.1 h |
 | 16K 卡：同步 → 异步 → 压检测与重启 | 71% → 87% → 94% |
-| NCCL watchdog / 进程重启 | 10 min / 2–5 min |
 
-- 「有效时间低先缩短 checkpoint 间隔」——间隔由 $$\sqrt{2\delta M}$$ 决定，δ 不变缩间隔只是多付保存代价
-- 「straggler = 坏卡」——多数是序列长度 / stage 不均衡，**每步换 rank**；先看是否换 rank
+- 间隔由 $$\sqrt{2\delta M}$$ 决定：δ 不变缩间隔只是多付保存代价
+- 「straggler = 坏卡」——多数是序列长度 / stage 不均衡、每步换 rank
 
 <aside class="notes" markdown="1">
 原文 /fault-tolerance-and-elastic-training.html。
@@ -234,7 +231,7 @@ $$
 
 ## 10 · 稳定性与数据管线：五种成因各有信号指纹
 
-**结论**：第 137,000 步 loss 2.1 → 4.8——三种形态（瞬时 / 可恢复 / 发散）× 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态），靠**事前记录的原始值**归因；处理是**回退 + 跳过**，前提是 checkpoint 密度与数据管线确定性。
+**三种形态 × 五种成因，靠事前记录的原始值归因；处理 = 回退 + 跳过**
 
 | 成因 | 指纹 |
 |---|---|
@@ -244,8 +241,7 @@ $$
 | 坏数据 | 换 seed / 跳 batch 后不复现 |
 | 优化器状态 | 恢复 checkpoint 后仍在同一步附近 |
 
-- PaLM：回退约 100 步 + 跳过 200–500 batch，代价约 250–300 步 / 次
-- 数据位置：Megatron = `consumed_train_samples` 可换 DP；torchtitan `StatefulDataLoader` 不可换
+- PaLM：回退约 100 步 + 跳过 200–500 batch，约 250–300 步 / 次
 - 「loss spike 就是脏数据」——五种里两种是模型内部数值问题
 
 <aside class="notes" markdown="1">
