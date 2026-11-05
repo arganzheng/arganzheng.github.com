@@ -70,6 +70,11 @@ flowchart TB
 | CLIP ViT-L/14-336 | 336² | 576 |
 | SigLIP-SO400M-384 | 384² | 729 |
 
+<!-- v -->
+
+
+### 要点
+
 - MM1 消融：**分辨率 > 编码器参数量 > 训练数据**——ViT-H 比 ViT-L 不到 1 点，336² 比 224² 约 3 点
 - DINOv2 特征更好但没有语言对齐；Cambrian-1 与 CLIP 类拼接，SigLIP 2 把自监督目标加进对比编码器
 
@@ -123,8 +128,19 @@ flowchart TB
 | 阶段 2 的规模 | Qwen2-VL 1.4T token ≈ 一次 8B 预训练 |
 | 幻觉（POPE） | 共现型 85 → 90；顽固的约 10% 来自编码器缺失与解码惯性 |
 
-- 「多模态微调不影响文本能力」——只用多模态数据训会让 MMLU 掉几个点，代码与数学掉更多；回归 MMLU / GSM8K
+<!-- v -->
+
+
+### 要点
+
 - 三源三治：数据（去共现偏置）/ 编码器（分辨率、拼接）/ 解码（对比解码、视觉锚定）
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「多模态微调不影响文本能力」——只用多模态数据训会让 MMLU 掉几个点，代码与数学掉更多；回归 MMLU / GSM8K
 
 ---
 
@@ -176,6 +192,11 @@ flowchart TB
 | 全双工（Moshi） | 80 ms 帧，160–200 ms |
 | 成本 | 每路半张 H100，持续运行 |
 
+<!-- v -->
+
+
+### 常见误区
+
 - 「低时延靠更快的硬件」——四段里帧长与语义决策不是算力问题
 
 ---
@@ -204,6 +225,11 @@ x_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1 - \bar\alpha_t}\,\epsilon,\qquad
 \mathcal L_{simple} = \mathbb E\big\lVert \epsilon - \epsilon_\theta(x_t, t)\big\rVert^2
 $$
 
+<!-- v -->
+
+
+### 要点
+
 - 训练：随机取 t、加噪、预测噪声——loss 从约 1 几百步降到 0.21
 - 采样：每步用预测的噪声估 $$x_0$$ 的方向走一小步；DDPM 每步加随机噪声（SDE），DDIM 不加（ODE）所以能跳步
 
@@ -225,7 +251,18 @@ $$
 
 ![三张图，每张 12 条从噪声到数据的轨迹：DDIM 中等弯曲；flow matching 有几条先绕一段再拐、末端打卷；reflow 之后几乎是直线](/img/in-post/multimodal-07-trajectories.svg){: style="max-height: 260px"}
 
+<!-- v -->
+
+
+### 要点
+
 - toy reflow：直线度 0.49 → **1.00**，一步采样可用
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「flow matching 是新方法」——全部是加权 ELBO；直线路径让步数少、调度直观
 
 <!-- v -->
@@ -237,6 +274,11 @@ $$
 $$
 \tilde\epsilon = \epsilon_\theta(x_t, \varnothing) + w\,\big(\epsilon_\theta(x_t, c) - \epsilon_\theta(x_t, \varnothing)\big)
 $$
+
+<!-- v -->
+
+
+### 要点
 
 - w = 7.5 ⇒ $$2^{7.5} \approx 180$$：终点**不是**干净分布的幂，是逐层锐化的结果
 - 不可跨模型比较：SD 1.x 7.5、SD3 3.5–7、FLUX.1-dev 3.5；配动态阈值 / rescale / 区间 guidance
@@ -260,6 +302,11 @@ $$
 
 ![60 张 8×8 的生成图：大多是可辨认的手写数字，笔画粗细与真实数据相近，少数像两个数字的混合](/img/in-post/multimodal-08-latent-samples.svg){: style="max-height: 300px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 扩散只在 16 维上工作，算力约为像素空间的 1/10；DiT-XL/2 FID 2.27，FID 随 GFLOPs 平滑下降、与深度 / 宽度分配无关
 
 <!-- v -->
@@ -273,7 +320,18 @@ $$
 | 墙钟 | 相近——compute-bound 多步并行 | memory-bound 串行 decode |
 | 5 s 720p 视频 | ≈ 115K token、600 PFLOPs | |
 
+<!-- v -->
+
+
+### 要点
+
 - 扩散无自回归 KV cache、每步形状相同（文本 cross-attn 的 K/V 可缓存）；服务按步数 / 分辨率组 batch
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「扩散的推理优化照搬 LLM」——加速靠步数蒸馏（LCM 4 步、Turbo 1–4 步）与求解器
 
 ---
@@ -299,6 +357,11 @@ $$
 | VAR（next-scale） | 10 尺度 680 token；FID **1.73** vs DiT-XL/2 2.27 |
 | Janus-Pro | GenEval 0.80，理解 / 生成分开编码器 |
 | BAGEL | 14B MoT：共享 attention、分开 FFN |
+
+<!-- v -->
+
+
+### 常见误区
 
 - 「AR 图像生成已被扩散淘汰」——ImageNet 上平手或领先，文生图上仍落后一档；最优形式可能是混合
 
