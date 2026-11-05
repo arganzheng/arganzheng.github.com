@@ -361,7 +361,7 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 |---|---|
 | 01 · 02 | -O2 119 项 pass；NVPTX 不分配寄存器；align 16 → v4 |
 | 03 · 04 | Block 参数 = φ；layout 在 encoding 槽位；conversion 的 materialization = `convert_layout` |
-| 05 · 06 | 特化 key 四项；divisibility 16 从实参来；vec = min(128/位宽, contiguity, alignment) |
+| 05 · 06 | 特化 key 四项；`divisibility` 16 从实参来；\(\text{vec}=\min(128/\text{位宽},\ \text{contiguity},\ \text{alignment})\) |
 | 07 · 08 | Linear Layout = GF(2)；23 → 1 个 convert；`[4, 1]` 零 shared |
 | 09 · 10 | 缓冲数 = stage 差；rowsum 7 加 + 5 shuffle；matmul 64 mma / 32 KB |
 | 11 · 12 · 13 | key 含 libtriton 哈希；TVM 1089 → 52 μs；lit 9.5 s、不需 GPU |
