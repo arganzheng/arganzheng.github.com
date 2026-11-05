@@ -267,14 +267,14 @@ EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，
 | 部署 | 进程 | 落位 |
 |---|---|---|
 | 单卡 | 1 × API Server、1 × EngineCoreProc（`UniProcExecutor`，Worker 在 EngineCore 进程内，没有 WorkerProc） | 1 台节点，EngineCoreProc 占 1 张 GPU |
-
-> 单卡真的没有 WorkerProc——不是“单卡不至于”，是配置就是这么写的：`ParallelConfig.__post_init__` 里 `world_size == 1` 时把 `distributed_executor_backend` 置为 `"uni"`（`vllm/config/parallel.py`），`Executor.get_class` 再把 `"uni"` 映射到 `UniProcExecutor`（`vllm/v1/executor/abstract.py`）；它的 `_init_executor` 直接在 EngineCore 进程内 `WorkerWrapperBase.init_worker()`、`init_device()`、`load_model()`（`vllm/v1/executor/uniproc_executor.py`），全程没有 `make_worker_process`。单卡时连 A→B 的边界都可能取消（`InprocClient`），但那是另一层选择。
 | 单机 TP=4 | 1 × API Server、1 × EngineCoreProc、4 × WorkerProc | 1 台节点，4 个 WorkerProc 各占 1 张 GPU，组内集合通信 |
 | 多机 TP×PP | 1 × API Server、1 × EngineCoreProc、world_size 个 WorkerProc | 默认 `MultiprocExecutor` 配合 `--nnodes`，每台节点起自己的 WorkerProc；`--distributed-executor-backend ray` 时用 `RayExecutorV2` / `RayDistributedExecutor`（`RayWorkerProc`），rank 间 TP/PP collective 跨机 |
 | DP=2 | 1 × API Server、2 × EngineCoreProc（rank 0 可能再带 `DPCoordinator`）、每 rank 各自一组 WorkerProc | 两个 EngineCore rank 各管自己的 Scheduler 与 Executor，共用一个 API 入口 |
 | 多 API Server | `--api-server-count > 1`，N × API Server 子进程 | 只增加前端进程，模型侧 rank 数不变；P/D 分离部署则把 prefill 与 decode 拆到不同 EngineCore 实例、连 KV 传输层 |
 
 Table: 部署方式到进程、GPU、节点的映射
+
+> 单卡时没有 WorkerProc，Worker 直接跑在 EngineCoreProc 里，源码依据（v0.27.1）：`ParallelConfig.__post_init__` 里 `world_size == 1` 时把 `distributed_executor_backend` 置为 `"uni"`（`vllm/config/parallel.py`），`Executor.get_class` 再把 `"uni"` 映射到 `UniProcExecutor`（`vllm/v1/executor/abstract.py`）；它的 `_init_executor` 直接在 EngineCore 进程内 `WorkerWrapperBase.init_worker()`、`init_device()`、`load_model()`（`vllm/v1/executor/uniproc_executor.py`），全程没有 `make_worker_process`。单卡时连 A→B 的边界都可能取消（`InprocClient`），但那是另一层选择。
 
 部署方式怎么改变进程图，对应关系如下：
 
