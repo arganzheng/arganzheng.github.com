@@ -75,13 +75,24 @@ flowchart TB
 | IB HDR / NDR | 25 / 50 GB/s | 200 / 400 Gb/s |
 | 整机 NVLink 容量 | 网卡总带宽的 **9 倍** | 跨机是瓶颈的根源 |
 
-- 选网卡的规则：带宽最大、其次路径最近——GPU0 配 NIC0 不配 NIC4
-- 「拓扑是 `PIX` 所以 P2P 一定快」——ACS / IOMMU 可能把 switch 内 P2P 重定向到 root complex；`p2pBandwidthLatencyTest` 对比、查 `ACSCtl`
-
 <aside class="notes" markdown="1">
 原文 /hardware-interconnect-pcie-nvlink-and-topology.html。
 结论原文：NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十；`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入；**厂商标的 NVLink 带宽是双向合计，β 要用单向**。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 选网卡的规则：带宽最大、其次路径最近——GPU0 配 NIC0 不配 NIC4
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「拓扑是 `PIX` 所以 P2P 一定快」——ACS / IOMMU 可能把 switch 内 P2P 重定向到 root complex；`p2pBandwidthLatencyTest` 对比、查 `ACSCtl`
 
 ---
 
@@ -106,6 +117,11 @@ flowchart TB
 | `NCCL_NET_GDR_LEVEL` | 默认 `PXB`（同一 switch 下才开 GDR） |
 | `NCCL_IB_TIMEOUT=20` | 4.3 s × 7 次重传 ≈ 30 s 后 status=12 |
 
+<!-- v -->
+
+
+### 常见误区
+
 - 「RDMA 不开 GDR 也差不了多少」——A100 上 D2H 与 NIC DMA 共享主机内存，8 卡合计 800 GB/s 顶到内存带宽
 - 「`GPU Direct RDMA Disabled` 就设 `GDR_LEVEL=SYS`」——跨 root complex 的 P2P 可能只有几 GB/s；先修亲和，再用 `ib_write_bw --use_cuda` 证明路径能跑
 
@@ -122,13 +138,24 @@ flowchart TB
 | PCIe 机 | Simple / LL | LL 50% 载荷，小消息延迟低 |
 | 32 节点 | Tree | ring 510 步 vs tree 2 × (7 + 5) 步 |
 
-- 强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍
-- 「设 `NCCL_ALGO` / `NCCL_PROTO` 是常规调优」——常是三年前留下的 env；先看 TUNING 日志与 nccl-tests 扫描，再写 tuner 配置
-
 <aside class="notes" markdown="1">
 原文 /nccl-architecture-topology-channels-algorithms-and-protocols.html。T = lat × latCount + S / (1000 × bw)。
 结论原文：`ncclCommInitRank` 里拓扑 → 路径 → 图搜索 → channel → **调优表**；`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑算出的 lat 与 bw——所以同一次 8 卡 all_reduce 在不同机器选不同算法。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「设 `NCCL_ALGO` / `NCCL_PROTO` 是常规调优」——常是三年前留下的 env；先看 TUNING 日志与 nccl-tests 扫描，再写 tuner 配置
 
 ---
 
@@ -151,6 +178,11 @@ flowchart TB
 | watchdog | 每 100 ms 轮询；`opTimeout_` 默认 10 分钟；heartbeat monitor 480 s 强杀 |
 | DDP bucket 25 MiB | 节点内带宽项约 97 µs、跨机约 875 µs |
 | 1000 个 25 KB 各做一次 vs 合并一次 | 延迟项差 1000 倍——bucket 存在的理由 |
+
+<!-- v -->
+
+
+### 常见误区
 
 - 「`work.wait()` 阻塞 CPU 到通信完成」——CPU 只在 `TORCH_NCCL_BLOCKING_WAIT`、barrier、显式 synchronize 时阻塞
 - 「trace 里 NCCL kernel 很长 = 带宽不够」——本 rank 先到、在自旋等别人；**kernel 最短的是最晚到的 straggler**
@@ -178,10 +210,19 @@ flowchart TB
 | 2 节点 NDR，每 GPU | 40–48 GB/s |
 | 参数优先级 | env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` |
 
+<!-- v -->
+
+### hang 的六类
+
 | hang 类型 | 各 rank 最后一次操作 |
 |---|---|
 | 少一次调用 / 多一次调用 / 顺序不同 / 形状不同 | **不一致**——Flight Recorder 对齐序号找出谁 |
 | 网络断 / 某 rank 死在计算里 | 一致——看 dmesg 与 py-spy |
+
+<!-- v -->
+
+
+### 常见误区
 
 - 「所有 rank 停在 all_reduce 是 NCCL 的 bug」——kernel 自旋无超时，唯一计时器是 c10d 的 watchdog；任何 rank 掉队都表现为全体 timeout
 
@@ -198,13 +239,24 @@ flowchart TB
 | custom AR | 36 个 block；8 卡 < 256 KB one-shot；上限 8 MB；只能节点内 |
 | Llama-3-70B KV | 每 token 320 KB；4096 token 1.25 GiB；TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms |
 
-- 「custom all-reduce 在所有小消息上都赢」——36 个 block 的启动与两次 flag 交换也是固定成本；8 卡优势区间 (16 KB, 128 KB)，更小的消息 NCCL 对称内存更快
-- 不能用在梯度同步上：一致性模型只保证 one-shot 内，且 25 MB bucket 在带宽账上
-
 <aside class="notes" markdown="1">
 原文 /inference-communication-custom-all-reduce-and-kv-transfer.html。
 结论原文：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs——省在 launch 路径、**14 步 → 2 步**、无 channel buffer 中转、可捕获进 CUDA Graph；**KV 传输是纯 β 的点对点账**，单边 RDMA 比 NCCL 更自然。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 不能用在梯度同步上：一致性模型只保证 one-shot 内，且 25 MB bucket 在带宽账上
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「custom all-reduce 在所有小消息上都赢」——36 个 block 的启动与两次 flag 交换也是固定成本；8 卡优势区间 (16 KB, 128 KB)，更小的消息 NCCL 对称内存更快
 
 ---
 
@@ -220,13 +272,24 @@ flowchart TB
 | prefill 一层 | 5.6–12.5 ms |
 | decode 一层 | 理论 429 µs、DeepEP README 487 µs；3/4 是字节、40–60 µs 是 α |
 
-- 「MoE 的 decode 通信是纯延迟问题」——EP=64 时 6.6 MB 过 50 GB/s 网卡本身就要 132 µs；瓶颈是发起速率
-- NCCL 的 all_to_all 在 decode 不够用：CPU proxy 每条消息一次响应
-
 <aside class="notes" markdown="1">
 原文 /moe-communication-all-to-all-deepep-and-gpu-initiated.html。
 结论原文：通信矩阵由路由决定、每步不同、最慢的 rank 决定时间；prefill **按节点去重**把网卡上的份数从 7 压到 3.2；decode 是 1024 条 7.4 KB 的消息，**CPU proxy 给不了发起速率，IBGDA 让 warp 自己写 WQE 与 doorbell**。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- NCCL 的 all_to_all 在 decode 不够用：CPU proxy 每条消息一次响应
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「MoE 的 decode 通信是纯延迟问题」——EP=64 时 6.6 MB 过 50 GB/s 网卡本身就要 132 µs；瓶颈是发起速率
 
 ---
 
