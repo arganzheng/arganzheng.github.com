@@ -81,8 +81,8 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    O["一条输出"] --> R{"能用规则判吗？"}
-    R -- "能：确定、免费" --> RR["规则打分"]
+    O["一条输出"] --> R{"规则能判？"}
+    R -- "能：确定免费" --> RR["规则打分"]
     R -- "不能" --> J["<b>LLM-as-judge</b><br/>rubric、换序去偏"]
     J --> C{"校准过吗？"}
     C -- "一致率 ≥ 85%" --> OK["可用"]
@@ -211,7 +211,7 @@ flowchart TB
 flowchart TB
     T["trace = 一次会话 / 一个任务<br/>trace_id · 用户 · prompt 版本 · 模型快照 · 总成本"]
     T --> S1["span：第 1 步"] & S2["span：第 2 步"] & S3["span：第 k 步"]
-    S2 --> M["模型调用 span<br/>完整输入（或可重建的引用）、输出、<br/>四类 token、effort、TTFT、stop_reason"]
+    S2 --> M["模型调用 span<br/>完整输入 / 输出<br/>四类 token · effort · TTFT · stop"]
     S2 --> TO["工具调用 span<br/>名称、参数、结果引用、耗时、<br/>沙箱决定、审批人与时间"]
     S2 --> RT["检索 span<br/>改写前后的查询、过滤条件、两路候选、<br/>RRF / rerank 排序、最终块 id"]
     M & TO & RT -. "评测集从这里采；bad case 带 trace_id；<br/>供应商静默升级从指标曲线看出来" .-> U["下游用途"]
@@ -220,6 +220,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /tracing-spans-opentelemetry-genai-conventions-and-tooling.html。
+span 完整输入可重建引用；stop_reason。
 </aside>
 
 <!-- v -->
@@ -244,19 +245,20 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    B["一个坏结果"] -- "绑定 trace_id" --> TR["打开完整轨迹"]
+    B["一个坏结果"] -- "绑 trace" --> TR["打开完整轨迹"]
     TR --> D["决策点日志"]
     D --> C["失败打类"]
     C --> F{"改哪侧？"}
     F -- "应用侧" --> RP["<b>录制回放</b>"]
     F -- "模型侧" --> EV["变成评测用例"]
-    RP & EV --> V["版本 diff：对齐指标曲线"]
+    RP & EV --> V["版本 diff"]
 
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html。
+版本 diff 对齐指标曲线。
 </aside>
 
 <!-- v -->
@@ -318,7 +320,7 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
     T["trace（05）"] --> S["评测集（01）"] --> J["评分（02、03）"] --> G["门禁（04）"]
-    T --> B["bad case → 失败分类 → 用例（06）"] --> S
+    T --> B["bad → 用例（06）"] --> S
     G --> R["运行时检查（07）"] --> T
 ```
 
