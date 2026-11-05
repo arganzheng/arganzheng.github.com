@@ -42,12 +42,29 @@ transition: slide
 ## 全景：从请求问题到第二套系统
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 110}}}%%
+flowchart LR
+    A["01 Serving 为什么难"] --> B["02 用什么衡量"] --> C["03 请求全景"]
+    subgraph ONE["单机：调度 · 内存 · 执行"]
+        direction TB
+        D["04 Scheduler"] --> E["05 KV Cache"] --> F["06 GPU 执行"]
+    end
+    C --> ONE
+    F --> G["07 解码扩展"] --> H["08 Multi-GPU"] --> I["09 PD 分离"]
+    I -. "10–15：适配与形态（下图）" .-> J["10 模型适配"]
+```
+
+<!-- v -->
+
+### 10–15：从适配到形态
+
+**后半程回答「一个引擎怎么长成一个系统」——适配模型、变体负载、异构硬件，最后对照同类**
+
+```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    A["01–03 问题 · 指标 · 请求全景"] --> B["04–06 单机三件套<br/>Scheduler · KV Cache · GPU 执行"]
-    B --> C["07–09 解码扩展 · Multi-GPU · PD 分离"]
-    C --> D["10–12 模型适配 · multi-LoRA · 硬件解耦"]
-    D --> E["13–15 下一站 · 源码请求 · 对照 SGLang"]
+    J["10 模型适配"] --> K["11 multi-LoRA / 多模态"] --> L["12 硬件解耦"]
+    L --> M["13 下一站"] --> N["14 源码中的一次请求"] --> O["15 对照 SGLang"]
 ```
 
 <aside class="notes" markdown="1">
