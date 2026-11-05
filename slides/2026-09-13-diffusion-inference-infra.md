@@ -135,7 +135,7 @@ $$
 
 ## 05 · 多卡并行：为什么不是张量并行
 
-**结论**：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 1/p，PipeFusion 是 TP 的 1/L；NVLink 用 USP、弱互联加 PipeFusion。
+**结论**：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
 
 | FLUX，p = 4，每步通信 | 量 |
 |---|---|
@@ -268,7 +268,7 @@ flowchart TB
 ## 常见误区（二）
 
 - 「稀疏 80% 端到端 5×」——Amdahl 2.06×
-- 「多卡默认 TP」——SP 通信是 TP 的 1/p
+- 「多卡默认 TP」——SP 通信是 TP 的 \(1/p\)
 - 「SP 能减少卡数」——只减延迟
 - 「少步模型照搬前几篇优化」——缓存、PipeFusion、CFG 并行失效
 - 「吞吐不随并发增长是 bug」——compute-bound 的正常现象
