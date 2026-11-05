@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="620" viewBox="0 0 760 620" role="img" aria-labelledby="title desc">
+  <title id="title">一个 token 的回程：从 GPU 采样到 SSE</title>
+  <desc id="desc">ModelRunner 采样 D2H 后 EngineCore 主线程立刻回到 schedule()；序列化在输出线程，detokenize 与 stop 检查在进程 A。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#40566f"/>
+    </marker>
+    <marker id="arrow-g" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#2b7a78"/>
+    </marker>
+    <style>
+      text { font-family: Arial, "Noto Sans CJK SC", sans-serif; fill: #182535; }
+      .heading { font-size: 21px; font-weight: 700; }
+      .label { font-size: 14.5px; font-weight: 700; }
+      .body { font-size: 13.5px; }
+      .small { font-size: 12px; }
+      .actor { fill: #eff9f4; stroke: #4b9477; stroke-width: 2; rx: 10; }
+      .actor-b { fill: #fff6e9; stroke: #c6873d; stroke-width: 2; rx: 10; }
+      .actor-a { fill: #eef5ff; stroke: #5880b4; stroke-width: 2; rx: 10; }
+      .lifeline { stroke: #aebdce; stroke-width: 1.5; stroke-dasharray: 6 6; }
+    </style>
+  </defs>
+  <rect width="760" height="620" fill="#fff"/>
+  <text x="380" y="34" text-anchor="middle" class="heading">一个 token 的回程：detokenize 在哪、谁不等人</text>
+
+  <rect x="20" y="56" width="128" height="58" class="actor"/>
+  <text x="84" y="81" text-anchor="middle" class="label">ModelRunner</text>
+  <text x="84" y="101" text-anchor="middle" class="small">WorkerProc · GPU</text>
+  <rect x="182" y="56" width="128" height="58" class="actor-b"/>
+  <text x="246" y="81" text-anchor="middle" class="label">主线程</text>
+  <text x="246" y="101" text-anchor="middle" class="small">EngineCore · 进程 B</text>
+  <rect x="344" y="56" width="128" height="58" class="actor-b"/>
+  <text x="408" y="81" text-anchor="middle" class="label">输出线程</text>
+  <text x="408" y="101" text-anchor="middle" class="small">EngineCore · 进程 B</text>
+  <rect x="506" y="56" width="118" height="58" class="actor-a"/>
+  <text x="565" y="81" text-anchor="middle" class="label">output_handler</text>
+  <text x="565" y="101" text-anchor="middle" class="small">进程 A · 协程</text>
+  <rect x="652" y="56" width="96" height="58" class="actor-a"/>
+  <text x="700" y="81" text-anchor="middle" class="label">generate()</text>
+  <text x="700" y="101" text-anchor="middle" class="small">进程 A · →SSE</text>
+
+  <line x1="84" y1="114" x2="84" y2="560" class="lifeline"/>
+  <line x1="246" y1="114" x2="246" y2="560" class="lifeline"/>
+  <line x1="408" y1="114" x2="408" y2="560" class="lifeline"/>
+  <line x1="565" y1="114" x2="565" y2="560" class="lifeline"/>
+  <line x1="700" y1="114" x2="700" y2="560" class="lifeline"/>
+
+  <!-- 1 MR bookkeeping -->
+  <rect x="64" y="134" width="40" height="62" fill="#d8ecdf" stroke="#4b9477" stroke-width="1.2" rx="5"/>
+  <text x="112" y="150" text-anchor="start" class="label">1 · 采样 + D2H</text>
+  <text x="112" y="170" text-anchor="start" class="small">token ids → Python list</text>
+
+  <!-- 2 MR->EC -->
+  <line x1="106" y1="216" x2="236" y2="216" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="171" y="202" text-anchor="middle" class="label">2 · ModelRunnerOutput</text>
+  <text x="171" y="238" text-anchor="middle" class="small">worker_response_mq · 仅 token ids</text>
+
+  <!-- 3 EC update -->
+  <rect x="231" y="256" width="30" height="66" fill="#f0e2cd" stroke="#c6873d" stroke-width="1.2" rx="5"/>
+  <text x="222" y="278" text-anchor="end" class="label">3 · update_from_output()</text>
+  <text x="222" y="296" text-anchor="end" class="small">追加 token ids · 判 stop</text>
+
+  <!-- 4 EC main -> OT -->
+  <line x1="263" y1="342" x2="396" y2="342" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="330" y="328" text-anchor="middle" class="label">4 · output_queue.put</text>
+  <text x="330" y="364" text-anchor="middle" class="small">EngineCoreOutputs · 同进程队列</text>
+
+  <!-- 5 EC main goes back to schedule (self) -->
+  <text x="246" y="400" text-anchor="middle" class="small">主线程立刻回到 schedule() 第 N+1 步，不等 A</text>
+
+  <!-- 6 OT -> OH -->
+  <line x1="420" y1="432" x2="553" y2="432" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="487" y="418" text-anchor="middle" class="label">6 · msgspec 序列化 + ZMQ</text>
+
+  <!-- 7 OH detokenize -->
+  <rect x="548" y="452" width="34" height="88" fill="#dbe7f5" stroke="#5880b4" stroke-width="1.2" rx="5"/>
+  <text x="540" y="472" text-anchor="end" class="label">7 · detokenize + stop 检查</text>
+  <text x="540" y="490" text-anchor="end" class="small">IncrementalDetokenizer 增量文本</text>
+  <text x="540" y="508" text-anchor="end" class="small">stop 字符串命中 → abort 回 B</text>
+
+  <!-- 8 OH -> GEN -->
+  <line x1="584" y1="556" x2="688" y2="556" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="636" y="542" text-anchor="middle" class="label">8 · RequestOutput</text>
+  <text x="636" y="578" text-anchor="middle" class="small">Collector.put（慢端合并 delta）</text>
+
+  <!-- 9 SSE -->
+  <text x="595" y="600" text-anchor="middle" class="small">collector.get() → SSE chunk → 客户端</text>
+</svg>

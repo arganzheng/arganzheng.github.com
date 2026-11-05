@@ -25,12 +25,12 @@
 
   <rect x="430" y="58" width="290" height="74" class="box" fill="#eef5ff" stroke="#5880b4"/>
   <text x="450" y="82" class="pkg">vllm/v1/engine/</text>
-  <text x="450" y="102" class="body">async_llm · input_processor · output_processor</text>
+  <text x="450" y="102" class="body">async_llm · input/output_processor</text>
   <text x="450" y="121" class="small">core.py / core_client.py：A↔B 两侧都在这里</text>
 
   <rect x="60" y="178" width="300" height="74" class="box" fill="#fff6e9" stroke="#c6873d"/>
   <text x="80" y="202" class="pkg">vllm/v1/core/</text>
-  <text x="80" y="222" class="body">sched/（Scheduler）· kv_cache_manager · block_pool</text>
+  <text x="80" y="222" class="body">sched/ · kv_cache_manager · block_pool</text>
   <text x="80" y="241" class="small">进程 B：调度与 KV 状态</text>
 
   <rect x="430" y="178" width="290" height="74" class="box" fill="#fff6e9" stroke="#c6873d"/>
@@ -40,12 +40,12 @@
 
   <rect x="60" y="298" width="300" height="74" class="box" fill="#eff9f4" stroke="#4b9477"/>
   <text x="80" y="322" class="pkg">vllm/v1/worker/</text>
-  <text x="80" y="342" class="body">gpu_worker · gpu_model_runner · gpu_input_batch</text>
-  <text x="80" y="361" class="small">进程 C：每 rank 一个 WorkerProc</text>
+  <text x="80" y="342" class="body">gpu_worker · gpu_model_runner</text>
+  <text x="80" y="361" class="small">+ gpu_input_batch · 进程 C：每 rank 一个</text>
 
   <rect x="430" y="298" width="290" height="74" class="box" fill="#eff9f4" stroke="#4b9477"/>
   <text x="450" y="322" class="pkg">vllm/model_executor/ + v1/attention/</text>
-  <text x="450" y="342" class="body">models/：各模型定义；backends/：attention 实现</text>
+  <text x="450" y="342" class="body">models/ 各模型定义 · attention backends</text>
   <text x="450" y="361" class="small">被 GPUModelRunner 调用</text>
 
   <rect x="60" y="418" width="300" height="66" class="box" fill="#f2eefb" stroke="#7a68a6"/>
@@ -53,15 +53,15 @@
   <text x="80" y="462" class="body">parallel_state · pynccl · shm_broadcast</text>
   <text x="80" y="479" class="small">Worker 间 collective 与 B→C 共享内存通道</text>
 
-  <rect x="430" y="418" width="290" height="66" class="box" fill="#f2eefb" stroke="#7a68a6"/>
+  <rect x="430" y="418" width="290" height="72" class="box" fill="#f2eefb" stroke="#7a68a6"/>
   <text x="450" y="442" class="pkg">csrc/ → vllm._C / vllm._moe_C</text>
-  <text x="450" y="462" class="body">CUDA/C++ kernel，setup.py + CMake 编译进 wheel</text>
-  <text x="450" y="479" class="small">被 attention backend 与模型层调用</text>
+  <text x="450" y="462" class="body">CUDA/C++ kernel → 编译进 wheel</text>
+  <text x="450" y="481" class="small">setup.py + CMake 编译产物</text>
 
   <line x1="360" y1="95" x2="428" y2="95" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
   <path d="M575 134 V160 H210 V176" fill="none" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
   <path d="M595 134 V176" fill="none" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
-  <line x1="360" y1="335" x2="428" y2="335" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <line x1="362" y1="312" x2="428" y2="312" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
   <line x1="575" y1="252" x2="575" y2="296" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
   <line x1="210" y1="252" x2="210" y2="296" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>
   <line x1="210" y1="372" x2="210" y2="416" stroke="#40566f" stroke-width="1.8" marker-end="url(#arrow)"/>

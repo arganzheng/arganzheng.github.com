@@ -26,11 +26,15 @@ const CHECK = `(() => {
   const errs=[];
   for(const t of texts){
     if(t.b.x0<vb.x-1||t.b.y0<vb.y-1||t.b.x1>vb.x+vb.width+1||t.b.y1>vb.y+vb.height+1) errs.push('viewBox 越界: '+t.t);
-    const enc=rects.filter(r=>r.x0<=t.b.x0+1&&r.y0<=t.b.y0+1&&r.x1>=t.b.x1-1&&r.y1>=t.b.y1-1).sort((a,b)=>(a.x1-a.x0)*(a.y1-a.y0)-(b.x1-b.x0)*(b.y1-b.y0))[0];
-    if(enc&&(t.b.x0<enc.x0+3||t.b.x1>enc.x1-3||t.b.y0<enc.y0+3||t.b.y1>enc.y1-3)) errs.push('文字贴边/出框: '+t.t);
-    else if(!enc){
-      const host=rects.filter(r=>r.x0<=t.b.x0&&r.y0<=t.b.y0&&r.x1>=t.b.x1&&r.y1>=t.b.y1)[0];
-      if(host&&(t.b.x0<host.x0+3||t.b.x1>host.x1-3||t.b.y0<host.y0+3||t.b.y1>host.y1-3)) errs.push('文字出宿主框: '+t.t);
+    // enclosing rect = smallest rect containing the text's centre (not the whole
+    // bbox — text often overflows the box it labels, which is exactly what we catch)
+    const cx=(t.b.x0+t.b.x1)/2, cy=(t.b.y0+t.b.y1)/2;
+    const host=rects.filter(r=>r.x0<=cx&&cx<=r.x1&&r.y0<=cy&&cy<=r.y1)
+      .sort((a,b)=>(a.x1-a.x0)*(a.y1-a.y0)-(b.x1-b.x0)*(b.y1-b.y0))[0];
+    if(host){
+      const full=rects.find(r=>r===host)||host;
+      const isbg=full.x0<=vb.x+2&&full.y0<=vb.y+2&&full.x1>=vb.x+vb.width-2&&full.y1>=vb.y+vb.height-2;
+      if(!isbg&&(t.b.x0<host.x0+3||t.b.x1>host.x1-3||t.b.y0<host.y0+3||t.b.y1>host.y1-3)) errs.push('文字出框: '+t.t);
     }
   }
   for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++)

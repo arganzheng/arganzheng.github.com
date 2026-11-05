@@ -379,33 +379,7 @@ sequenceDiagram
 
 上面的时序图把 EngineCore 和 AsyncLLM 之间画成了同步的请求-应答，实际上它们跨进程、各自有独立的循环。下面把 decode 循环中**一个 token 的回程**放大，重点看两件事：detokenize 发生在哪个进程，以及引擎循环为什么不需要等它。
 
-```mermaid
-%% 图：一个 token 的回程：ModelRunner 采样后 D2H，EngineCore 主线程立刻回到 schedule()，序列化与 detokenize 分别在输出线程与进程 A 完成
-sequenceDiagram
-    participant MR as ModelRunner<br/>(Worker 进程, GPU)
-    participant EC as EngineCore 主线程<br/>(进程 B)
-    participant OT as EngineCore 输出线程<br/>(进程 B)
-    participant OH as AsyncLLM output_handler<br/>(进程 A)
-    participant GEN as generate() → SSE<br/>(进程 A)
-
-    Note over MR: 第 N 步 forward 结束, logits 已在 GPU
-    MR->>MR: _sample(): sampled_token_ids (GPU tensor)
-    MR->>MR: _bookkeeping_sync(): D2H 拷贝 → Python 嵌套 list
-    MR-->>EC: ModelRunnerOutput (仅 token ids, 经 worker_response_mq)
-    EC->>EC: Scheduler.update_from_output(): 追加 output_token_ids, 判 max_tokens / stop_token_ids
-    EC->>OT: output_queue.put(EngineCoreOutputs)
-    par 进程 B 继续下一步
-        EC->>EC: schedule() 第 N+1 步, 下发 execute_model
-        MR->>MR: 第 N+1 步 forward 已在 GPU 上运行
-    and 进程 A 处理第 N 步的 token
-        OT->>OH: ZMQ 发送 msgspec 序列化的 EngineCoreOutputs
-        OH->>OH: OutputProcessor.process_outputs(): IncrementalDetokenizer.update() → 文本增量
-        OH->>OH: 检查 stop 字符串, 命中则 abort_requests_async 通知进程 B
-        OH->>GEN: RequestOutputCollector.put(RequestOutput)
-        GEN->>GEN: await collector.get(), 序列化为 SSE chunk 写回客户端
-    end
-    Note over OH,GEN: 若消费端慢于生产端, Collector 会把多个 delta 合并成一个 RequestOutput
-```
+![一个 token 的回程：ModelRunner 采样 D2H 后 EngineCore 主线程立刻回到 schedule()；序列化在输出线程，detokenize 与 stop 检查在进程 A](/img/in-post/vllm-request-lifecycle-token-return.svg)
 
 这张图解释了第四章的进程边界怎样影响流式输出：进程 B 的主线程把 `EngineCoreOutputs` 放进 `output_queue` 后立刻回到 `schedule()`，序列化由输出线程做，detokenize 和 stop 字符串检查由进程 A 的 `output_handler` 协程做，三者互不等待。代价是 stop **字符串**（而非 stop token id）的判定要晚一步——进程 A 检测到后反向发 abort，GPU 可能已经为这个请求多算了一步。另外，`RequestOutputCollector` 在 `DELTA` 模式下会把积压的输出合并，因此客户端收到的一个 SSE chunk 不一定恰好对应一个 decode 步。
 
