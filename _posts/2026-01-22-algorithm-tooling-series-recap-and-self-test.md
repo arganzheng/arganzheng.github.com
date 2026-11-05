@@ -93,7 +93,7 @@ Table: 本文的章节安排
 
 **核心问题**：不用 `Trainer`，能不能从零写一个训练循环、在小数据集上训一个小 Transformer、并解释每一行为什么在那里？
 
-**结论**：PyTorch 的使用层只有五个对象——`Tensor`（ndarray + `device` + `dtype` + `requires_grad`）、Autograd、`nn.Module`、`Dataset` / `DataLoader`、`Optimizer`——在一步训练里各站一个位置，数据沿一个环流动：取数组 batch → 前向算 logits → `cross_entropy` → `backward()` 累加到 `.grad` → `step()` 更新。Autograd 只需要知道三件事：前向记图；`backward()` 把梯度**累加**到 `.grad`（所以每步要 `zero_grad`，也因此梯度累积不需要额外代码）；`no_grad` 下不建图（推理评测必加，否则中间量堆到 OOM）。`nn.Module` 两个方法：`__init__` 里赋给 `self` 的子模块自动注册（`super().__init__()` 必须调；Python list 不注册要用 `ModuleList`），`forward` 只写前向；`state_dict()` 就是 checkpoint。二十行训练循环比教程的五行多出四样，少一样迟早出事：`autocast`、`.float()` 与 `ignore_index=-100`、`clip_grad_norm_`、warmup + cosine 调度。`Trainer` / `SFTTrainer` 做的是同一件事加日志、评估、checkpoint、分布式——行为不符合预期时回到这二十行想"它在我这张表的哪一行做了不同的事"。
+**结论**：PyTorch 的使用层只有五个对象——`Tensor`（ndarray + `device` + `dtype` + `requires_grad`）、Autograd、`nn.Module`、`Dataset` / `DataLoader`、`Optimizer`——在一步训练里各站一个位置，数据沿一个环流动：取数组 batch → 前向算 logits → `cross_entropy` → `backward()` 累加到 `.grad` → `step()` 更新。Autograd 只需要知道三件事：前向记图；`backward()` 把梯度**累加**到 `.grad`（所以每步要 `zero_grad`，也因此梯度累积不需要额外代码）；`no_grad` 下不建图（推理评测必加，否则中间量堆到 OOM）。`nn.Module` 两个方法：`__init__` 里赋给 `self` 的子模块自动注册（`super().__init__()` 必须调；Python list 不注册要用 `ModuleList`），`forward` 只写前向；`state_dict()` 就是 checkpoint。二十行训练循环比教程的五行多出四样，少一样迟早出事：`autocast`、`.float()` 与 `ignore_index=-100`、`clip_grad_norm_`、warmup + cosine 调度。`Trainer` / `SFTTrainer` 做的是同一件事加日志、评估、checkpoint、分布式——行为不符合预期时回到这二十行想"它在这张表的哪一行做了不同的事"。
 
 **必记**：
 
@@ -177,7 +177,7 @@ Table: 本文的章节安排
 
 总纲把第三种能力叫追溯：从高层封装回到二十行，从报错回到四块，从慢回到 profiler 表。第一篇给第一层地图：PyTorch 的每个 API 建在哪个 Python 协议上，traceback 从下往上读、跳过 `_call_impl`、找自己文件的最后一帧。第三篇给第二层：二十行的每一行对应一个概念，`Trainer` 的 `compute_loss` 是[前向 + 算 loss 那两行](/pytorch-in-use-five-objects-and-a-training-loop.html#forward)、`training_step` 是[反向到清零那三行](/pytorch-in-use-five-objects-and-a-training-loop.html#backward)，行为不对时回到这张表想"它在哪一行做了不同的事"。第五篇给第三层：六行 SFT 背后的六件事各落在二十行的哪一行（chat template 在 `__getitem__`、loss mask 在 `ignore_index=-100`、packing 在 `collate_fn`、LoRA 在 `requires_grad`），然后从 `compute_loss` 往下追源码——答案学会了却不会停这种问题只有读源码才能定位。
 
-第四篇与第六篇给另外两条：OOM 按爆的时机归到四块之一；慢按 profiler 表归到 GEMM、attention、`copy_`、launch 开销或 GPU 空转。四条路径的共同点是都有一张"我这一层的表"——协议对照表、二十行、四块、profiler 前几行——问题先落到表上的某一格，再往下一层去。越过表能解释的范围（一个算子太慢、一个并行策略框架不支持、一个 OOM 调参绕不过）就是进 Infra 地图的信号。
+第四篇与第六篇给另外两条：OOM 按爆的时机归到四块之一；慢按 profiler 表归到 GEMM、attention、`copy_`、launch 开销或 GPU 空转。四条路径的共同点是都有一张"本层的表"——协议对照表、二十行、四块、profiler 前几行——问题先落到表上的某一格，再往下一层去。越过表能解释的范围（一个算子太慢、一个并行策略框架不支持、一个 OOM 调参绕不过）就是进 Infra 地图的信号。
 
 ### 5. 一个数字不算结论：置信区间、多 seed 与七项记录
 
@@ -346,7 +346,7 @@ Table: 常见误区与正确说法
 
 ### C. 面试题（7 题）
 
-1. 让你微调一个 70B 模型，全量还是 LoRA、几张 80 GB 卡？把账算给我看。
+1. 让你微调一个 70B 模型，全量还是 LoRA、几张 80 GB 卡？把账算清楚。
 
    <details markdown="1"><summary>答案</summary>
 

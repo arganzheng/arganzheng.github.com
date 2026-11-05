@@ -487,7 +487,7 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 ### 7. 与 `Trainer` 的关系
 
-`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事，对应到上面的代码：`compute_loss` 是[前向](#forward) + [算 loss](#loss)两行，`training_step` 是[反向](#backward)、[裁剪](#clip)、[更新与清零](#update)三行，`autocast` 由 `TrainingArguments(bf16=True)` 打开，学习率曲线由 `lr_scheduler_type` 与 `warmup_steps` 决定，外面再包上日志、评估、checkpoint 与分布式。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在第几行做了和我不一样的事"，然后去读它的源码（第五篇给入口）。
+`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事，对应到上面的代码：`compute_loss` 是[前向](#forward) + [算 loss](#loss)两行，`training_step` 是[反向](#backward)、[裁剪](#clip)、[更新与清零](#update)三行，`autocast` 由 `TrainingArguments(bf16=True)` 打开，学习率曲线由 `lr_scheduler_type` 与 `warmup_steps` 决定，外面再包上日志、评估、checkpoint 与分布式。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在第几行做了和预期不一样的事"，然后去读它的源码（第五篇给入口）。
 
 ## 七、本文小结
 
