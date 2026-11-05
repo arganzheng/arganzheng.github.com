@@ -4,6 +4,8 @@
 // Env: SITE (default http://localhost:4000), CDP (default http://localhost:9222).
 // Needs the `ws` module: a local ./node_modules/ws (CI: `npm i --no-save ws`) or the browser skill's copy.
 const http = require('http');
+const fs = require('fs');
+const { spawnSync } = require('child_process');
 let WebSocket;
 try { WebSocket = require('ws'); } catch { WebSocket = require(require('os').homedir() + '/.claude/skills/browser/node_modules/ws'); }
 const SITE = (process.env.SITE || 'http://localhost:4000').replace(/\/$/, '');
@@ -121,7 +123,19 @@ async function check(slug) {
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length && !out.overlap.length && !out.smalltext.length ? 'PASS' : 'FAIL';
+  // static mermaid lint for slide decks: slides/<key>/play -> slides/*-<key>.md
+  let mlint = [];
+  if (slug.startsWith('slides/')) {
+    const key = slug.split('/')[1];
+    const files = fs.readdirSync('slides').filter(f => f.endsWith(`-${key}.md`));
+    if (files.length === 1) {
+      try {
+        const r = spawnSync('python3', ['tools/mermaid-lint.py', `slides/${files[0]}`], { encoding: 'utf8' });
+        mlint = (r.stdout || '').split('\n').filter(l => l.includes(':mermaid#'));
+      } catch { /* lint unavailable — skip */ }
+    }
+  }
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length && !out.overlap.length && !out.smalltext.length && !mlint.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
@@ -129,6 +143,7 @@ async function check(slug) {
   if (out.overflow.length) console.log('overflow (slide content taller than 720 px — split the slide or move detail to a `<!-- v -->` sub-slide):', JSON.stringify(out.overflow));
   if (out.overlap.length) console.log('overlap (two sibling blocks collide on the slide — give the slide one block or re-layout):', JSON.stringify(out.overlap));
   if (out.smalltext.length) console.log('smalltext (mermaid/svg text renders < 14 px — too wide a diagram; make it TB, split it, or use a post figure):', JSON.stringify(out.smalltext));
+  if (mlint.length) console.log('mlint (mermaid source problem — bare-id node label, isolated node, or dead-end decision):', JSON.stringify(mlint));
   if (out.shrunk.length) console.log('WARN shrunk (svg <img> under 55% of natural width — text inside it shrinks the same amount; not failing):', JSON.stringify(out.shrunk));
   if (out.pending) console.log(`pending: ${out.pending} diagram(s) / image(s) never finished loading (readyState ${out.ready}) — CDN slow or blocked; rerun before trusting anything else on this page`);
   if (out.katexErrors.length) console.log('katexErrors:', JSON.stringify(out.katexErrors));
