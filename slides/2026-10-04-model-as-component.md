@@ -213,17 +213,16 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    A["全部候选（20+）"] -->|"硬约束过滤：数据驻留 · 上下文 · 多模态 · 延迟 · 推理"| C["可行候选（8–12）"]
-    C -->|"榜单与同类经验，只做缩小范围"| E["短名单（3–5）"]
-    E --> F["在自己的评测集上跑<br/>每模型 × 每 effort 档 × k 次"]
-    F --> G{"过质量门限？"}
-    G -->|"否"| H["放宽约束 / 加检索或微调（L3）/ 改任务形态（L7）"]
-    G -->|"是"| I["按每任务成本排序"]
-    I -->|"供应商风险：弃用周期 · 替代路径 · 多云"| K["选定主模型 + 替代模型<br/>写进配置，不写进代码"]
+    A["20+ 候选 → 硬约束 → 8–12"] -->|"榜单"| E["短名单"]
+    E --> F["自家评测集跑 → 过门限？"]
+    F --> G{"过？"}
+    G -->|"否"| H["放宽约束"]
+    G -->|"是"| I["按每任务成本排"]
+    I -->|"供应商风险"| K["选定 + 替代模型"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
-    class A,C,E,F,I,K,H step
+    class A,E,F,I,K,H step
     class G dec
 ```
 
@@ -253,25 +252,18 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    S(["业务层发起调用"]) --> CNT["数 token<br/>超过上下文或预算 → 先压缩 / 拒绝，不发"]
-    CNT --> SLOT["取并发槽 / 令牌<br/>按模型 · 按租户的限流器"]
-    SLOT --> SEND["发送（流式或非流式）<br/>四层超时：连接 · 首事件 · 事件间 · 总"]
-    SEND --> OK{"成功？"}
-    OK -->|"是"| PARSE["解析：拼接增量 · 工具参数等 done · 读 usage · 读 stop_reason"]
-    PARSE --> DONE(["返回业务层 + 记 trace"])
+    S(["业务层发起调用"]) --> CNT["数 token + 并发槽 → 发送"]
+    CNT --> OK{"四层超时 → 成功？"}
+    OK -->|"是"| PARSE["解析 → 返回"]
     OK -->|"否"| CLS{"错误分类"}
-    CLS -->|"可重试：429 / 5xx / 529 / 超时 / 连接断"| BACK["退避（指数 + 抖动，遵守 Retry-After）<br/>重试预算未耗尽？"]
-    BACK -->|"是"| SLOT
-    BACK -->|"否"| FB
-    CLS -->|"不可重试：400 · 401 · 配额不足 · 内容过滤"| FB{"有 fallback？"}
-    FB -->|"换模型 / 换供应商 / 降级"| SLOT
-    FB -->|"无"| FAIL(["失败返回业务层 + 记 trace"])
+    CLS -->|"可重试"| CNT
+    CLS -->|"不可重试"| FAIL(["失败 / 降级返回"])
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef stop fill:#f0f0f0,stroke:#888,color:#222
-    class CNT,SLOT,SEND,PARSE,BACK step
-    class OK,CLS,FB dec
+    class CNT,PARSE step
+    class OK,CLS dec
     class S,DONE,FAIL stop
 ```
 
