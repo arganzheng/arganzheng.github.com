@@ -1177,6 +1177,9 @@ or one table per slide. `tools/check-render.cjs slides/<key>/play` (it
 shows every slide while measuring — reveal keeps the others
 `display:none`) reports `overflow` = slides whose content is taller than
 720 px and FAILs on it; split the slide or push detail down a sub-slide.
+`hoverflow` = any element whose box sticks out past its slide's right or
+left edge (a bold line that does not wrap) — shorten the line; FAILs the
+same way.
 Mermaid on a slide: a wide LR graph renders ~280 px tall with unreadable
 labels — prefer TB inside subgraphs with subgraph-to-subgraph edges
 (Mermaid ignores `direction` once node-to-node edges cross subgraphs),

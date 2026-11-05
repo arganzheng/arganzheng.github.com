@@ -39,6 +39,9 @@ const CHECK = `(() => {
       return /\\]\\(\\/img\\/in-post\\//.test(clone.textContent);
     }).map(e=>e.textContent.trim().slice(0,80)),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
+    hoverflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{const sr=s.getBoundingClientRect();
+      return [...s.querySelectorAll('*')].map(e=>({e,b:e.getBoundingClientRect()})).filter(x=>x.b.width>0&&(x.b.right>sr.right+2||x.b.left<sr.left-2))
+        .map(x=>"#"+(i+1)+" "+x.e.tagName+" "+x.e.textContent.trim().slice(0,30)+" (right "+Math.round(x.b.right-sr.right)+"px over)");}).flat(),
     overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
       .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
@@ -71,10 +74,11 @@ async function check(slug) {
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
+  if (out.hoverflow.length) console.log('hoverflow (element wider than its slide — shorten the line or wrap it):', JSON.stringify(out.hoverflow));
   if (out.overflow.length) console.log('overflow (slide content taller than 720 px — split the slide or move detail to a `<!-- v -->` sub-slide):', JSON.stringify(out.overflow));
   if (out.pending) console.log(`pending: ${out.pending} diagram(s) / image(s) never finished loading (readyState ${out.ready}) — CDN slow or blocked; rerun before trusting anything else on this page`);
   if (out.katexErrors.length) console.log('katexErrors:', JSON.stringify(out.katexErrors));
