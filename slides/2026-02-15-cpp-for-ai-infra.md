@@ -75,8 +75,16 @@ flowchart TB
 | `ld.so` 搜索顺序 | RPATH → `LD_LIBRARY_PATH` → RUNPATH → 系统 |
 | `import torch` 的库链 | `libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
 
+<aside class="notes" markdown="1">
+补充要点：库分层：依赖只能向下（第一篇的四层源码在 .so 上的形态）
+</aside>
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「`-ltorch_cpu` 已经依赖 `libc10.so`，不用再写 `-lc10`」——GNU ld 默认 `--no-copy-dt-needed-entries`，引用了 `c10::` 就显式 `-lc10`
-- 库分层：依赖只能向下（第一篇的四层源码在 .so 上的形态）
 
 ---
 
@@ -92,10 +100,14 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- `clone()` 才是新的一块数据；`Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块：400M 个活 tensor 每加一个字多 3.2 GB
-- 只读参数用 `const Tensor&` 省掉两次原子操作；但 `Tensor` 的 `const` 是**浅的**——in-place 算子的输出参数就是 `const Tensor&`
+**8 字节句柄；`=` 只拷句柄计数 +1**
+
+| 要点 | 细节 |
+|---|---|
+| `clone()` 才是新的一块数据 | `Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块：400M 个活 tensor 每加一个字多 3.2 GB |
+| 只读参数用 `const Tensor&` 省掉两次原子操作 | 但 `Tensor` 的 `const` 是**浅的**——in-place 算子的输出参数就是 `const Tensor&` |
 
 ---
 
@@ -117,12 +129,17 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 | `AT_DISPATCH_ALL_TYPES_AND_HALF` | 十几份 |
 | vLLM 的 kernel | 3 dtype × 2 width = 6 份 |
 
-- 「`TORCH_CHECK(x.is_floating_point())` 之后 `FLOATING_TYPES` 一定能处理」——Half / BFloat16 也是浮点，但不在那两个 `case` 里
-
 <aside class="notes" markdown="1">
 原文 /cpp-templates-and-generic-programming.html。
 结论原文：模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda——**N 个 dtype 就编 N 份**；运行期只有一个 `switch`。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「`TORCH_CHECK(x.is_floating_point())` 之后 `FLOATING_TYPES` 一定能处理」——Half / BFloat16 也是浮点，但不在那两个 `case` 里
 
 ---
 
@@ -137,13 +154,18 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 | `std::function` | 32 字节 + 可能的堆分配 |
 | `IValue` | 16 字节（4 tag + 8 payload） |
 
-- 「Dispatcher 是 `Map<DispatchKey, Kernel>` 加接口虚调用」——签名一致性靠 `CppSignature` 校验，不靠接口
-- 虚函数 / CRTP / 类型擦除 / `std::variant` 四种多态各在 PyTorch 哪里用
-
 <aside class="notes" markdown="1">
 原文 /cpp-polymorphism-and-type-erasure.html。
 结论原文：`KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed——**函数指针 + 模板生成的适配器**的手工类型擦除；`lookup` 一次数组下标，全程无虚调用；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次。
+补充要点：虚函数 / CRTP / 类型擦除 / `std::variant` 四种多态各在 PyTorch 哪里用
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「Dispatcher 是 `Map<DispatchKey, Kernel>` 加接口虚调用」——签名一致性靠 `CppSignature` 校验，不靠接口
 
 ---
 
@@ -170,12 +192,16 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 四种链接方式里只有「静态库直接链」注册表为空——未被引用的 .o 被链接器静默丢弃
-- 宏三种用途：粘贴代码、拿源码位置、生成标识符；`TORCH_CHECK` 必须是宏的两个理由（`__FILE__/__LINE__`、惰性求值消息）
-- `native_functions.yaml` 2,666 条目、一条生成十几处代码；跨库类型要 `C10_API` 导出 typeinfo
-- 排查：`nm -C libmyops.so | grep TORCH_LIBRARY`；静态库用 `--whole-archive` / `-force_load`
+**注册者是加载器——静态库静默丢 .o**
+
+| 要点 | 细节 |
+|---|---|
+| 四种链接方式里只有「静态库直接链」注册表为空 | 未被引用的 .o 被链接器静默丢弃 |
+| 宏三种用途：粘贴代码、拿源码位置、生成标识符 | `TORCH_CHECK` 必须是宏的两个理由（`__FILE__/__LINE__`、惰性求值消息） |
+| `native_functions.yaml` 2,666 条目、一条生成十几处代码 | 跨库类型要 `C10_API` 导出 typeinfo |
+| 排查：`nm -C libmyops.so &#124; grep TORCH_LIBRARY` | 静态库用 `--whole-archive` / `-force_load` |
 
 ---
 
@@ -191,13 +217,18 @@ flowchart TB
 | 线程数优先级 | `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数 |
 | `GRAIN_SIZE` | 32,768——`parallel_for` 少于它不切 |
 
-- 「主线程 `no_grad` 里启动的线程也在 `no_grad` 下」——不是
-- DataLoader worker、autograd 引擎线程、`at::launch` 都要传 TLS
-
 <aside class="notes" markdown="1">
 原文 /cpp-concurrency-memory-model-tls-and-guards.html。
 结论原文：改的是一个 **`thread_local` 变量**；每线程一份、**新线程不继承**——worker 读到默认值 `True`，要跨线程必须用 `at::ThreadLocalState` + `ThreadLocalStateGuard` 显式传播。
+补充要点：DataLoader worker、autograd 引擎线程、`at::launch` 都要传 TLS
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「主线程 `no_grad` 里启动的线程也在 `no_grad` 下」——不是
 
 ---
 
@@ -223,11 +254,15 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 引用三种：new / borrowed / stolen
-- ABI 三层：CPython、libstdc++、PyTorch；2.7 起 Linux wheel 全部 CXX11 ABI，**v2.10.0 开关已删**——显式传 `-D_GLIBCXX_USE_CXX11_ABI=0` 反而制造 `__cxx11` 类 undefined symbol
-- `cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本
+**五次转换零拷贝；GIL 转参持有、跑 kernel 释放**
+
+| 要点 | 细节 |
+|---|---|
+| 引用三种 | new / borrowed / stolen |
+| ABI 三层：CPython、libstdc++、PyTorch | 2.7 起 Linux wheel 全部 CXX11 ABI，**v2.10.0 开关已删**——显式传 `-D_GLIBCXX_USE_CXX11_ABI=0` 反而制造 `__cxx11` 类 undefined symbol |
+| `cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本 | |
 
 ---
 
@@ -243,12 +278,10 @@ flowchart TB
 | `detect_leaks=0` | 跑 PyTorch 时必开（解释器退出的假阳性） |
 | CI 矩阵 | GCC ≥ 9.3、CUDA ≥ 12.0、C++17；`intrusive_ptr_test.cpp` 325 个测试 |
 
-- 三张栈：Python 栈、C++ 栈、CUDA 栈——`gdb` + `py-bt` 拼起来看
-- CI 里先跑「故意崩」自检确认 ASan 生效
-
 <aside class="notes" markdown="1">
 原文 /cpp-build-debug-and-test-toolchain.html。
 结论原文：一个 C++ 改动的八步清单：clangd → clang-format → Debug 构建 → gtest / pytest → clang-tidy → **ASan + UBSan** → **TSan** → CI 矩阵；未定义行为默认什么都不发生、数据悄悄错——**测试过了不等于没有内存错误**。
+补充要点：三张栈：Python 栈、C++ 栈、CUDA 栈——`gdb` + `py-bt` 拼起来看；CI 里先跑「故意崩」自检确认 ASan 生效
 </aside>
 
 ---
