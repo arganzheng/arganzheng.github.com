@@ -81,19 +81,9 @@ flowchart TB
 
 ## 02 · 对象模型：`Tensor y = x;` 之后发生了什么
 
-**结论**：`Tensor` 是 **8 字节值句柄**，`=` 拷贝句柄、计数 +1；数据在所有句柄与 view 的计数归零那一刻释放。
+**`Tensor` = 8 字节值句柄；`=` 拷句柄计数 +1，计数归零才释放数据**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
-    X["at::Tensor x<br/>8 字节：intrusive_ptr"] --> TI["TensorImpl<br/>refcount · sizes · strides · dtype"]
-    Y["at::Tensor y = x<br/>同一个 TensorImpl，计数 +1"] --> TI
-    V["auto v = x.view(...)<br/>新 TensorImpl"] --> TI2["TensorImpl'<br/>不同 sizes / strides"]
-    TI --> ST["StorageImpl<br/>refcount · data_ptr · allocator"]
-    TI2 --> ST
-    classDef data fill:#fde68a,stroke:#b45309
-    class ST data
-```
+![shared_ptr 与 intrusive_ptr 的内存布局对比](/img/in-post/cpp-value-semantics-ownership-and-raii-shared-intrusive-layout.svg){: style="max-height: 380px}
 
 <aside class="notes" markdown="1">
 原文 /cpp-value-semantics-ownership-and-raii.html。del 后显存未降的四步排查：别的 Python 引用 → autograd 保存 → view 活着 → 在缓存池。
