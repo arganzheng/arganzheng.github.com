@@ -48,12 +48,17 @@ flowchart TB
 | 02 双指针与滑动窗口 | 单调性：右扩不会让违规变合法、左收不会让合法变违规 | **含负数的「和 = k」不满足**——用前缀和 |
 | 03 单调栈与单调队列 | 弹出时结算：被弹出者的右侧第一个更大 = 当前元素、左侧 = 新栈顶 | 两端哨兵 0；窗口最值用单调队列 \(O(n)\) 不用堆 \(O(n\log k)\) |
 
-- LC 76 用 `missing` 计数使每步 \(O(1)\)；接雨水水位 = \(\min(\text{leftMax},\text{rightMax})\)
-
 <aside class="notes" markdown="1">
 识别信号图细节：全正数子数组 → 滑动窗口（02）；含负数 → 前缀和 + 哈希（01）；下一个更大 → 单调栈（03）；链表用哑节点与快慢指针（04）；树看返回什么 vs 更新什么（05）；图 BFS / DFS / 拓扑 / 并查集 / Dijkstra（06）；单调谓词 → 二分（07）、第 K → 堆（08）、枚举 → 回溯（09）、末步可分解 → DP（11、12）。
 原文 /coding-interview-arrays-hashing-prefix-sum.html、/coding-interview-two-pointers-and-sliding-window.html、/coding-interview-stack-monotonic-stack-and-queue.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- LC 76 用 `missing` 计数使每步 \(O(1)\)；接雨水水位 = \(\min(\text{leftMax},\text{rightMax})\)
 
 ---
 
@@ -65,11 +70,16 @@ flowchart TB
 | 05 二叉树 | **返回给父节点的是能继续向上延伸的链，答案在拐点处用全局变量更新** | 层序先记 `len(q)`；BST 验证带上下界 `(lo, hi)` 不是比父子 |
 | 06 图 | 五个算法：BFS、DFS、Kahn、并查集、Dijkstra；**BFS 入队时标记** | Kahn 出队数 < n 即有环；Dijkstra 堆 + 懒删除 \(O(E\log E)\) |
 
-- 并查集路径压缩 + 按大小合并 \(O(\alpha(n))\)；双向 BFS $$O(b^{d/2})$$
-
 <aside class="notes" markdown="1">
 原文 /coding-interview-linked-list.html、/coding-interview-binary-tree.html、/coding-interview-graph-bfs-dfs-topological-union-find.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 并查集路径压缩 + 按大小合并 \(O(\alpha(n))\)；双向 BFS $$O(b^{d/2})$$
 
 ---
 
@@ -81,11 +91,16 @@ flowchart TB
 | 08 堆、Top-K、区间、贪心 | **第 K 大用大小为 K 的最小堆**；区间按起点排一趟扫、选最多不重叠按终点；贪心靠交换论证 | 双堆先进 `small` 再倒；会议室 = 起点排序 + 结束时间最小堆 |
 | 09 回溯 | 做选择 → 递归 → 撤销；排列用 `used[]`、组合用 `start` | `out.append(path[:])` 必须拷贝；**剪枝不改量级**：排列仍 \(O(n\cdot n!)\) |
 
-- 子集 $$O(n \cdot 2^n)$$、括号 $$O(4^n/\sqrt n)$$、单词搜索 $$O(mn \cdot 3^L)$$
-
 <aside class="notes" markdown="1">
 原文 /coding-interview-binary-search.html、/coding-interview-heap-topk-intervals-greedy.html、/coding-interview-backtracking.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 子集 $$O(n \cdot 2^n)$$、括号 $$O(4^n/\sqrt n)$$、单词搜索 $$O(mn \cdot 3^L)$$
 
 ---
 
@@ -173,11 +188,16 @@ p -= lr * (m/(1-b1**t)) / ((v/(1-b2**t)).sqrt() + eps)
 p -= lr * wd * p                      # 解耦：直接加在更新里
 ```
 
-- Adam 第一步移动约 η · sign(g)；每参数 16 字节训练状态；LoRA 参数 $$r(\text{in} + \text{out})$$
-
 <aside class="notes" markdown="1">
 原文 /coding-interview-losses-and-training-algorithms.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- Adam 第一步移动约 η · sign(g)；每参数 16 字节训练状态；LoRA 参数 $$r(\text{in} + \text{out})$$
 
 ---
 
