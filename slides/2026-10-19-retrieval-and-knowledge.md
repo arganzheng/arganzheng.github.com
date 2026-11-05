@@ -119,7 +119,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart LR
+flowchart TB
     F["文件<br/>PDF · Office · HTML · 扫描件 · 图片"] --> P{"解析梯级"}
     P -->|"数字原生 PDF · HTML"| R1["① 规则抽取<br/>读文本层 → markdown<br/>毫秒 · 免费 · 无 GPU"]
     P -->|"复杂表格 · 多栏 · 混合"| R2["② 布局模型<br/>Docling · Marker · MinerU<br/>布局检测 + 表格结构 · 本地"]
