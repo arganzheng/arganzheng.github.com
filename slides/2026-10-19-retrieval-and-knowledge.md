@@ -128,7 +128,8 @@ flowchart TB
     R2 --> S
     R3 --> S
     S --> C["分块 + contextual 前缀"]
-    C --> M["元数据 → 索引"]
+    C --> M["元数据"]
+    M --> I["索引（第四篇）"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
