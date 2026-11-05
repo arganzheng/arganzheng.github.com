@@ -26,13 +26,13 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 flowchart TB
-    A1["01 最小循环<br/>40 行 + 四个卫士 + 出口"] --> A2["02 工具与 MCP<br/>工具从哪来、怎么被发现"]
-    A1 --> A3["03 运行时<br/>会话日志、durable execution"]
-    A1 --> A4["04 长任务的上下文与子 agent"]
-    A2 & A3 --> A5["05 权限与沙箱<br/>权限范围是错误的上限"]
-    A1 & A2 & A3 & A4 & A5 --> A6["06 源码对照<br/>Codex / DeepSeek Harness / Claude Code / OpenHarness"]
-    A4 --> A7["07 多 agent<br/>编排、handoff、A2A"]
-    A3 & A5 --> A8["08 记忆与 human-in-the-loop"]
+    A1["01 最小循环"] --> A2["02 工具与 MCP"]
+    A1 --> A3["03 运行时"]
+    A1 --> A4["04 上下文与子 agent"]
+    A2 & A3 --> A5["05 权限与沙箱"]
+    A1 & A2 & A3 & A4 & A5 --> A6["06 源码对照"]
+    A4 --> A7["07 多 agent"]
+    A3 & A5 --> A8["08 记忆与人审"]
     A5 & A7 & A8 --> A9["09 可靠性、评测与运营"]
 ```
 
@@ -44,15 +44,13 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
-flowchart TB
-    A["① 组装上下文"] --> B["② 调模型"]
-    B --> C{"③ 解析输出"}
-    C -- "最终回答" --> END1["出口一：正常结束"]
-    C -- "tool_call" --> D["④ 权限 → 沙箱执行"]
-    D --> E["⑤ 写回结果"] --> A
-    G["四个卫士：步数 / token / 美元 / 时间"] -. 每圈都查 .-> A
-    G -- "预算耗尽" --> END2["出口二：交付部分结果"]
-    G -- "卫士触发" --> END3["出口三：降级给人"]
+flowchart LR
+    A["① 组装上下文"] --> B["② 调模型"] --> C{"③ 解析输出"}
+    C --> D["④ 权限 → 沙箱"] --> E["⑤ 写回结果"] --> A
+    C --> END1["出口一<br/>正常结束"]
+    G["卫士<br/>步数/token/美元/时间"] -.-> A
+    G -- "耗尽" --> END2["出口二<br/>部分结果"]
+    G -- "触发" --> END3["出口三<br/>降级给人"]
     style END2 fill:#fff3e0,stroke:#c98a00
     style END3 fill:#fde8e8,stroke:#c0392b
 
@@ -60,6 +58,11 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /anatomy-of-the-agent-loop.html。
+各篇关键词：01 40 行 + 四个卫士 + 出口；02 工具从哪来、怎么被发现；03 会话日志 / durable execution；05 权限范围是错误的上限；06 Codex / DeepSeek Harness / Claude Code / OpenHarness；07 编排 / handoff / A2A。
+③ 解析输出分两类：最终回答 → 出口一；tool_call → ④ 权限 → 沙箱执行。
+③ 解析输出分两类：最终回答 → 出口一；tool_call → ④ 权限 → 沙箱执行。
+卫士每圈查步数 / token / 美元 / 时间。
+③ 的输出若是 tool_call 走 ④⑤ 循环，最终回答走出口一。
 </aside>
 
 <!-- v -->
@@ -87,12 +90,12 @@ while True:                                   # 四个卫士在这里：步数 /
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
-    subgraph SRC["工具从哪来（模型眼里都是一组带 schema 的定义）"]
+    subgraph SRC["工具从哪来"]
         direction LR
         S1["应用函数"] --- S2["MCP server"] --- S3["供应商内置"] --- S4["技能 / 脚本"]
     end
     SRC --> REG["工具注册表：schema"]
-    REG -- "全塞上下文" --> CTX1["② 定义层（第一篇）"]
+    REG -- "全塞上下文" --> CTX1["② 定义层"]
     REG -- "tool search" --> CTX2["按需加载"]
     CTX1 & CTX2 --> MD["模型：返回 tool_call"]
     MD -- "程序化调用" --> EX["执行层"]
@@ -133,18 +136,18 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart TB
-    subgraph LOG["会话日志（只追加）"]
-        direction LR
-        E1["1 用户"] --> E2["2 模型"] --> E3["3 结果"] --> E4["4 审批"] --> E5["5 模型"] --> E6["6 压缩"] --> E7["7 …"]
-    end
-    E3 -. "重放" .-> D["当时上下文"]
-    E4 -. "分叉" .-> F["新会话"]
-    E7 -. "重放" .-> C["当前上下文"]
+flowchart LR
+    E1["1 用户"] --> E2["2 模型"] --> E3["3 结果"] --> E4["4 审批"] --> E5["5 模型"] --> E6["6 压缩"] --> E7["7 …"]
+    E3 -.-> D["当时上下文"]
+    E4 -.-> F["新会话"]
+    E7 -.-> C["当前上下文"]
 ```
 
 <aside class="notes" markdown="1">
 原文 /agent-runtime-sessions-persistence-and-durable-execution.html。
+resume / fork / replay 都是同一条流的重放。
+E3 → 当时上下文 与 E7 → 当前上下文 都是重放；E4 → 新会话是分叉。
+链条是会话日志（只追加）；E3→当时上下文、E7→当前上下文是重放，E4→新会话是分叉。
 </aside>
 
 <!-- v -->
@@ -168,9 +171,9 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart LR
-    A["<b>隔离</b>：子 agent 在自己的上下文里干活，只把摘要带回来<br/>代价几乎为零"] --> B["<b>卸载</b>：大的工具返回存到外面，上下文里留一个可取回的定位符<br/>（DeepSeek Harness 的 spill）"]
-    B --> C["<b>清理</b>：读过的、过期的工具输出直接修剪掉<br/>（compaction-tool-result-pruner）"]
-    C --> D["<b>压缩</b>：用一次模型调用把旧历史摘要成一段<br/>最贵、最有损、缓存全失效（Codex compact*，Claude Code auto-compact）"]
+    A["<b>隔离</b>：子 agent 自带上下文<br/>只回摘要，代价≈0"] --> B["<b>卸载</b>：大返回存外面<br/>上下文留定位符"]
+    B --> C["<b>清理</b>：修剪过期<br/>工具输出"]
+    C --> D["<b>压缩</b>：模型调用摘要旧历史<br/>最贵、有损、缓存失效"]
     style A fill:#eefaf0,stroke:#4d9a5c
     style D fill:#fde8e8,stroke:#c0392b
 
@@ -178,6 +181,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /long-horizon-context-management-and-subagents.html。
+卸载 = DeepSeek Harness 的 spill；清理 = compaction-tool-result-pruner；压缩 = Codex compact* / Claude Code auto-compact。
 </aside>
 
 <!-- v -->
@@ -270,16 +274,17 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
-    H["一个 harness 的五个组件：循环（一）· 工具协议（二）· 运行时（三）· 上下文管理（四）· 权限与沙箱（五）"]
-    H --> C1["<b>Codex</b>（Rust，开源）<br/>单核大工作区 · 状态在对象 · 专用策略语言 · 三平台原生沙箱"]
-    H --> C2["<b>DeepSeek Harness</b>（TS，MIT）<br/>一切都是插件 · 日志即状态 · 可读事件 · 沙箱是接缝"]
-    C1 --> C3["<b>Claude Code</b>（TS，产品闭源）<br/>Agent SDK 对外 · 规则 + 模式审批 · auto-compact"]
-    C2 --> C4["<b>OpenHarness</b><br/>对 Claude Code 的开源复刻，读它看结构"]
+    H["harness 五组件：循环 · 工具协议 · 运行时 · 上下文管理 · 权限沙箱"]
+    H --> C1["<b>Codex</b>（Rust）<br/>单核工作区 · 状态在对象 · 策略语言"]
+    H --> C2["<b>DeepSeek Harness</b>（TS）<br/>一切插件 · 日志即状态"]
+    C1 --> C3["<b>Claude Code</b>（TS，闭源）<br/>Agent SDK · 模式审批 · auto-compact"]
+    C2 --> C4["<b>OpenHarness</b><br/>Claude Code 的开源复刻"]
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html。
+Codex 三平台原生沙箱；DeepSeek Harness 可读事件、沙箱是接缝；OpenHarness 读它看结构。
 </aside>
 
 <!-- v -->
@@ -331,17 +336,18 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 flowchart TB
-    S["一次会话结束"] --> W{"写什么？下次会用到、且别处不易取回"}
+    S["一次会话结束"] --> W{"写什么？"}
     W -- "偏好、坑、进度" --> ST["存储：带来源与时间戳"]
     W -- "能重查的" --> X["不写"]
-    ST --> R["下次<b>取</b>：进上下文 ③ 层<br/>（硬上限 25 KB）"]
+    ST --> R["<b>取</b>：进上下文 ③ 层<br/>（硬上限 25 KB）"]
     ST --> F["<b>忘</b>：过期 / 冲突 / 要求 → 删"]
-    R -. "错记忆会跨会话当事实" .-> S
+    R -. "错记忆跨会话当事实" .-> S
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /agent-memory-and-human-in-the-loop.html。
+写：下次会用到、且别处不易取回。
 </aside>
 
 <!-- v -->
@@ -372,14 +378,16 @@ flowchart TB
     O -- "任一到顶" --> P["交付部分结果"]
     O -- "卫士触发" --> H["降级给人"]
     V & P & H --> TR["每步进 trace"]
-    TR --> C["失败打类<br/>（十类，每类有药）"]
-    C --> E["坏轨迹 → 评测用例<br/>（轨迹评测看过程）"]
+    TR --> C["失败打类"]
+    C --> E["坏轨迹 → 评测用例"]
     E -. "改动先过门禁" .-> R
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /agent-reliability-evaluation-and-operations.html。
+十类失败每类有药；轨迹评测看过程。
+十类失败每类有药。
 </aside>
 
 <!-- v -->
