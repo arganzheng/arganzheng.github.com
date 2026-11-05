@@ -234,7 +234,7 @@ flowchart TB
 
 ![模型宽度增加时训练与测试误差的 double descent](/img/in-post/dl-case-04-double-descent.svg){: style="max-height: 400px"}
 
-**测试误差在宽度 8 的插值阈值出现尖峰；宽度 2048 时参数是样本的 407 倍。**
+**宽度 8–16 处测试 loss 从 2.07 冲到 5.48；参数是样本 407 倍时泛化最好。**
 
 <aside class="notes" markdown="1">
 原文：[/regularization-and-generalization.html](/regularization-and-generalization.html)。不要只看参数量；同时看训练/验证 gap、held-out 拐点与记忆探针。
