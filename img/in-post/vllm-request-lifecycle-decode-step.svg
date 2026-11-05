@@ -44,8 +44,8 @@
   <text x="355" y="270" text-anchor="end" class="small">Executor.execute_model()</text>
   <text x="355" y="286" text-anchor="end" class="small">（进程 B 内对象，非进程）</text>
   <line x1="390" y1="268" x2="627" y2="268" stroke="#2b7a78" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="508" y="254" text-anchor="middle" class="label">3 · Executor 广播</text>
-  <text x="508" y="289" text-anchor="middle" class="small">SchedulerOutput · collective_rpc → MessageQueue</text>
+  <text x="560" y="250" text-anchor="middle" class="label">3 · Executor 广播</text>
+  <text x="560" y="289" text-anchor="middle" class="small">SchedulerOutput · collective_rpc → MessageQueue</text>
 
   <rect x="542" y="308" width="190" height="88" fill="#eff9f4" stroke="#4b9477" rx="8"/>
   <text x="637" y="332" text-anchor="middle" class="label">4 · 执行</text>

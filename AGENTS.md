@@ -161,6 +161,10 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
 - `collide()` must pass: text–text, text–segment, box–box, text–data-line,
   text inside the canvas. Do not clip data to fake a y-range; set `ylim` and
   let the axes clip.
+- Hand-written SVGs have no `collide()` — run `node tools/svg-collide.cjs
+  img/in-post/<name>.svg` (same CDP/Chrome setup as check-render; flags text
+  leaving its enclosing rect or the viewBox, text–text overlap, and
+  non-dashed lines/paths crossing text) and make it pass.
 - Check light and dark rendering in a real browser before pushing
   (`node tools/check-render.cjs` + screenshots).
 

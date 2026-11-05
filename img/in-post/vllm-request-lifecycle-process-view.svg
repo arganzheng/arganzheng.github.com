@@ -57,7 +57,8 @@
   <text x="200" y="619" class="body">output_queue → MsgpackEncoder → ZMQ</text>
   <rect x="48" y="648" width="664" height="48" class="thread" fill="#fdf1e3"/>
   <text x="66" y="677" class="label">Executor</text>
-  <text x="200" y="677" class="body">MultiprocExecutor：进程内对象（非进程），collective_rpc 经 MessageQueue 驱动 WorkerProc</text>
+  <text x="200" y="670" class="body">MultiprocExecutor：进程内对象（非进程）</text>
+  <text x="200" y="690" class="small">collective_rpc 经 MessageQueue 驱动 WorkerProc</text>
 
   <line x1="220" y1="705" x2="220" y2="815" stroke="#2b7a78" stroke-width="2.2" marker-end="url(#arrow-green)"/>
   <text x="238" y="744" class="label">EngineCore → Worker</text>

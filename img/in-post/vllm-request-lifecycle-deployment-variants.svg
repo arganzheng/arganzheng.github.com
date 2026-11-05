@@ -69,7 +69,8 @@
   <line x1="476" y1="266" x2="476" y2="277" stroke="#40566f" stroke-width="1.6" marker-end="url(#arrow)"/>
   <line x1="640" y1="266" x2="640" y2="277" stroke="#40566f" stroke-width="1.6" marker-end="url(#arrow)"/>
   <text x="570" y="365" text-anchor="middle" class="body">每个 DP rank 都有自己的 EngineCore 和 KV state。</text>
-  <text x="570" y="386" text-anchor="middle" class="small">可选的 DPCoordinator 会向 API Server 提供负载统计，并协调 MoE waves。</text>
+  <text x="570" y="380" text-anchor="middle" class="small">可选的 DPCoordinator 向 API Server 提供负载统计，</text>
+  <text x="570" y="398" text-anchor="middle" class="small">并协调 MoE waves。</text>
 
   <text x="380" y="443" text-anchor="middle" class="small">UniProcExecutor 不会创建 WorkerProc；Ray 改变 Worker 的启动与放置方式。两者是不同的执行选择。</text>
   <text x="380" y="465" text-anchor="middle" class="small">源码：vLLM v0.27.1 · cli/serve.py · engine/utils.py · engine/coordinator.py</text>
