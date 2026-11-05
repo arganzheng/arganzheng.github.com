@@ -269,16 +269,16 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart TB
+flowchart LR
     U["使用"] --> F["反馈"]
-    F --> Q["bad case 队列"]
+    F --> Q["坏例队列"]
     Q --> E["评测集"]
     E --> I["改进"]
-    I --> G["门禁 → 灰度"]
+    I --> G["门禁·灰度"]
     G --> U
     U -->|"授权·脱敏"| D["数据治理"]
     D -.-> F
-    E -->|"真实对"| FT["微调小模型"]
+    E -->|"真实对"| FT["微调"]
     FT --> G
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
