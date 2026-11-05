@@ -131,7 +131,7 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 ```
 
 <aside class="notes" markdown="1">
-原文 /nanogpt-model-py-line-by-line.html。wte.weight = lm_head.weight 共享省 31% 参数；所有权重 N(0, 0.02²)，写回残差流的 c_proj 再除 √(2L)；forward 传 targets 算全部位置，不传只算最后一个位置的 lm_head（省 99.9%）。
+原文 /nanogpt-model-py-line-by-line.html。`wte.weight` = `lm_head.weight` 共享省 31% 参数；所有权重 \(N(0, 0.02)\)02²)，写回残差流的 c_proj 再除 √(2L)；forward 传 targets 算全部位置，不传只算最后一个位置的 lm_head（省 99.9%）。
 </aside>
 
 <!-- v -->
@@ -173,6 +173,6 @@ flowchart LR
 
 - `get_batch`：`memmap` + 随机窗口 + `stack`，`y` 是 `x` 右移一位，没有 epoch
 - 不除累积步数 ≠ 只是尺度不同：等价于学习率放大 k 倍；DDP 只在最后一个 micro-batch 同步
-- checkpoint 五样：model、optimizer、model_args、iter_num、config——续训不带优化器状态，前几百步抖
+- checkpoint 五样：`model`、`optimizer`、`model_args`、`iter_num`、`config`——续训不带优化器状态，前几百步抖
 
 ---
