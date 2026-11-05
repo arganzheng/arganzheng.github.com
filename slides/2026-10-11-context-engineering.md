@@ -54,15 +54,13 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    subgraph SP["一份 system prompt 的六个部分（模式：随模型不变）"]
+    subgraph SP["六部分（随模型不变）"]
         direction TB
-        A["① 身份与任务边界<br/>是什么、为谁、做什么、<b>不做什么</b>"] --> B["② 可检验的规则<br/>每条都能判定「违反了没有」→ 直接变评测用例"]
-        B --> C["③ 分区与结构标记<br/>指令 / 资料 / 示例 / 格式分开放，有边界就行"]
-        C --> D["④ 工具的使用政策<br/>什么时候先搜再答、哪些操作先确认、失败重试几次"]
-        D --> E["⑤ 输出格式与出口<br/>不知道时怎么说、超出边界怎么说——没有出口就会编"]
-        E --> F["⑥ 知识与时间<br/>当前日期、知识截止、「以下资料比你的记忆新」"]
+        A["① 身份边界 + 可检验规则"] --> C["② 分区与结构标记"]
+        C --> D["③ 工具使用政策"]
+        D --> E["④ 输出格式与出口"]
     end
-    SP -. "换模型时只调这些" .-> W["措辞（随模型变）<br/>具体句子、例子、语气、要不要写「一步步想」<br/>依据：供应商的模型专属 prompting 指南 + 你的评测集"]
+    SP -. "换模型时只调这些" .-> W["措辞（随模型变）"]
 
 ```
 
@@ -108,24 +106,19 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    IN["新内容要进入上下文<br/>（工具返回 · 检索结果 · 子任务）"] --> Q1{"必须进主窗口吗？"}
-    Q1 -->|"探索性 / 大量读取"| ISO["隔离：子 agent 在自己的窗口做<br/>只带摘要回来"]
-    Q1 -->|"是，但很大"| OFF["卸载：内容写文件 / 存储<br/>上下文只留引用 + 预览"]
-    Q1 -->|"是，且不大"| ADD["原样进入"]
-    ADD --> Q2{"总量接近清理线？"}
-    OFF --> Q2
-    Q2 -->|"是"| CLR["清理：删掉旧的、已被消费的工具返回<br/>保留调用记录与引用"]
-    Q2 -->|"否"| GO(["继续下一步"])
-    CLR --> Q3{"仍接近压缩线？"}
-    Q3 -->|"是"| CMP["压缩：一次模型调用把历史摘要成一段<br/>常驻层重注入 · 目标复述到末尾"]
-    Q3 -->|"否"| GO
-    CMP --> GO
+    IN["新内容"] --> Q1{"进主窗口？"}
+    Q1 -->|"大量读"| ISO["隔离"]
+    Q1 -->|"大"| OFF["卸载"]
+    Q1 -->|"小"| ADD["原样进"]
+    ADD --> GO(["循环：进下一步再评估"])
+    OFF --> GO
+    GO -. "接近清理线 → 清理旧返回，更深 → 压缩历史" .-> IN
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef stop fill:#f0f0f0,stroke:#888,color:#222
-    class IN,ISO,OFF,ADD,CLR,CMP step
-    class Q1,Q2,Q3 dec
+    class IN,ISO,OFF,ADD,CLR step
+    class Q1,Q2 dec
     class GO stop
 ```
 
@@ -177,15 +170,15 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    E["编辑：prompt 文本 · 变量模板 · 绑定的模型与参数"] --> V["新版本（不可变）<br/>version N"]
-    V --> T["离线评测：评测集 × k 次<br/>格式遵循率 · 任务指标 · 成本 · 延迟"]
+    E["编辑 prompt"] --> V["新版本（不可变）"]
+    V --> T["离线评测 × k 次"]
     T -->|"回归"| E
     T -->|"通过"| L1["打标签 staging"]
-    L1 --> G["灰度：标签 prod-canary → 1% 流量<br/>在线指标 · trace 绑定版本"]
-    G -->|"回归"| RB["回滚：把 production 标签指回 N-1"]
+    L1 --> G["灰度 canary 1%"]
+    G -->|"回归"| RB["回滚到 N-1"]
     G -->|"通过"| L2["打标签 production → 100%"]
-    L2 --> M["监控：遵循率 · 出口使用率 · 命中率 · 成本 / 任务"]
-    M -->|"模型升级 / 供应商通知"| T
+    L2 --> M["监控指标"]
+    M -->|"模型升级"| T
     RB --> E
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
