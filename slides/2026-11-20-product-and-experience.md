@@ -42,18 +42,31 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 flowchart TB
     S["候选场景"] --> D1{"可验证吗？"}
-    D1 -- "自动验证+可撤销" --> AUTO["自主循环几十步"]
-    D1 -- "只能人判断" --> H["人在环内"]
-    D1 -- "自动验证+不可逆" --> GATE["确认门 / 仿真"]
-    AUTO & H & GATE --> W{"价值 × 频率？"}
-    W -- "高频高值" --> GO["做"]
-    W -- "低频" --> NO["不做"]
+    D1 -- "自动验证" --> D2{"可撤销？"}
+    D1 -- "只能人判断" --> H["人在环内：copilot"]
+    D2 -- "能回滚" --> AUTO["自主循环几十步"]
+    D2 -- "不可逆" --> GATE["确认门 / 仿真"]
+    AUTO & H & GATE --> W["价值 × 频率？<br/>（下图）"]
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html。
 </aside>
+
+<!-- v -->
+
+### 最后一问：值不值得做
+
+**高频 × 高单次价值才值得做；低频低值宁可不做或先 demo**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+flowchart TB
+    AUTO["自主循环几十步"] & H["人在环内"] & GATE["确认门 / 仿真"] --> W{"价值 × 频率"}
+    W -- "高频 + 高值" --> GO["做"]
+    W -- "低频 / 低值" --> NO["不做，或先 demo 验证"]
+```
 
 <!-- v -->
 
