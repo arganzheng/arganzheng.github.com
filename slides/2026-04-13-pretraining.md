@@ -59,7 +59,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pretraining-end-to-end-from-web-pages-to-a-model.html。两个 Common Crawl WET 文件，486 MB，英文 46%。过滤主要不是为了省算力，是决定模型学什么：数据里垃圾的比例就是输出里垃圾的比例。
-结论原文：**：原料是网页，大部分不是「文章」——四道过滤留下 **16%**，C4 行级一道就删掉一半字符（全是导航栏和页脚）；Llama 3 的 240T → 15T 也是约 6%。
+结论原文：原料是网页，大部分不是「文章」——四道过滤留下 **16%**，C4 行级一道就删掉一半字符（全是导航栏和页脚）；Llama 3 的 240T → 15T 也是约 6%。
 </aside>
 
 <!-- v -->
@@ -99,7 +99,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /tokenizer-vocabulary-and-token-efficiency.html。字符级序列长；词级词表大且遇生词丢信息；子词在中间。byte-level 初始词表保证任何字节串可切分；预分词正则决定数字与空格怎么切。
-结论原文：**：词表 32K → 128K 每 token 贵 5.6%，但同一段英文的 token 少 24%——**每字符便宜 15%、KV 少 20%**；前提是词表针对目标语言训练。
+结论原文：词表 32K → 128K 每 token 贵 5.6%，但同一段英文的 token 少 24%——**每字符便宜 15%、KV 少 20%**；前提是词表针对目标语言训练。
 </aside>
 
 <!-- v -->
@@ -142,7 +142,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /scaling-laws-and-compute-optimal-training.html。E = 1.82、α = 0.35、β = 0.37（Besiroglu 等 2024 重拟合）。Kaplan 的 N ∝ C^0.73 与 Chinchilla 的差异：不数输出层算力、固定 warmup、超参不随规模调。
-结论原文：**：$$L = E + A/N^\alpha + B/D^\beta$$，在 C = 6ND 下最优 D/N ≈ 20；但 Chinchilla 只最小化**训练算力**——把推理 $$2ND_{inf}$$ 算进去，最优点移向**小模型、多数据**。
+结论原文：$$L = E + A/N^\alpha + B/D^\beta$$，在 C = 6ND 下最优 D/N ≈ 20；但 Chinchilla 只最小化**训练算力**——把推理 $$2ND_{inf}$$ 算进去，最优点移向**小模型、多数据**。
 </aside>
 
 <!-- v -->
@@ -179,7 +179,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pretraining-data-pipeline-dedup-filtering-and-mixture.html。管线成本按文档数增长，贵在最上游的抽取（约 70 万核·小时）≫ 去重 ≈ tokenize；训练读带宽只要 9–46 MB/s。
-结论原文：**：240T → 15T（6%）→ 模型打分后 1.3–5.4T；启发式规则零成本只清明显垃圾，**模型打分要两级**（大模型标几十万篇、小分类器跑全量）；**跨快照全局去重反而更差**——重复是控制分布，不是消灭。
+结论原文：240T → 15T（6%）→ 模型打分后 1.3–5.4T；启发式规则零成本只清明显垃圾，**模型打分要两级**（大模型标几十万篇、小分类器跑全量）；**跨快照全局去重反而更差**——重复是控制分布，不是消灭。
 </aside>
 
 <!-- v -->
@@ -216,7 +216,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pretraining-recipe-and-training-stability.html。V3 的 2.2e-4 高是因为 MoE 激活参数只有 37B 且 batch 更大。fp32 小模型上 lr 大 50 倍只是终点差 0.08 不会崩——太大的代价在大模型 / 低精度上才变成 spike。
-结论原文：**：峰值 lr 随宽度降（μP ∝ 1/d、经验律 $$0.31\,C^{-0.125}$$）：7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 的 6e-5 在同一条线上；batch 由梯度噪声尺度定、随训练 ramp。
+结论原文：峰值 lr 随宽度降（μP ∝ 1/d、经验律 $$0.31\,C^{-0.125}$$）：7B 3e-4 → 70B 1.5e-4 → 405B 8e-5，GPT-3 的 6e-5 在同一条线上；batch 由梯度噪声尺度定、随训练 ramp。
 </aside>
 
 <!-- v -->
