@@ -41,7 +41,7 @@ flowchart TB
 
 ## 01 · SFT：只教格式，不加知识
 
-**结论**：SFT 是「表面对齐」——分布差异集中在少数格式 token 上；**格式是低秩的、知识是高秩的**，所以 LoRA 够用；遗忘看 lr 与更新的秩，用一份无关文本的 loss 度量。
+**SFT 只教格式：格式是低秩、知识是高秩，所以 LoRA 够用**
 
 | 实验（Qwen2.5-0.5B） | 数字 |
 |---|---|
@@ -87,7 +87,7 @@ flowchart LR
 
 ## 02 · 偏好数据与奖励模型：一个逻辑回归
 
-**结论**：RM 就是 Bradley-Terry 的逻辑回归，给的是**梯度方向不是判决**；准确率停在 65–75% 够用；问题不是「不够准」而是「**偏在哪**」——失效在分布外，训 RL 前用 best-of-N 免费预演。
+**RM = Bradley-Terry 逻辑回归；准确率 65–75% 够用，失效在分布外**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 240}}}%%
@@ -122,7 +122,7 @@ flowchart LR
 
 ## 03 · 在线 RL：PPO 四个模型、GRPO 三个
 
-**结论**：$$\max\ \mathbb E[r] - \beta\,\text{KL}(\pi_\theta \Vert \pi_{ref})$$；baseline 不依赖当前样本就无偏——GRPO 的组内均值含自己、带 (1 − 1/G) 的小偏差；**FLOPs 训练占一半，墙钟生成占一半以上**。
+**目标 $$\max\mathbb E[r]-\beta\text{KL}$$；墙钟上生成占一半以上**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -161,7 +161,7 @@ flowchart LR
 
 ## 04 · 离线 RL：DPO 四步推出来
 
-**结论**：$$\hat r = \beta\log(\pi_\theta/\pi_{ref})$$ **就是一个与策略共享参数的 RM**，只在数据分布上受约束——所以似然同降、过优化、偏长。
+**DPO 的隐式奖励就是共享参数的 RM——似然同降、过优化、偏长**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
@@ -193,7 +193,7 @@ flowchart TB
 
 ## 05 · 推理模型与可验证奖励：R1 的四阶段
 
-**结论**：验证器正确时**难 hack** → 可以撤 KL、让探索走极远；规则奖励对长度中立，长思维链是策略自己找到的；RL **放大基座已有的推理模式**（pass@k 大 k 端基座追上）。
+**验证器难 hack → 可撤 KL；RL 放大基座已有的推理模式**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
@@ -233,21 +233,9 @@ flowchart LR
 
 ## 06 · Agent 与工具调用的 RL：瓶颈在环境
 
-**结论**：对数概率变成 T 段之和、环境转移不含 θ；**工具输出必须 mask**（否则学会编造工具结果）；轨迹八成 token 是环境的；异步 rollout 从优化变成**必需**。
+**工具输出必须 mask；轨迹八成 token 是环境的；异步 rollout 从优化变成必需**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
-flowchart TB
-    S["s_0：system + schema + 任务"] --> G["引擎生成 a_t"] --> P{"工具调用？"}
-    P -- 是 --> E["环境执行<br/>沙箱 / 检索 / 模拟用户"] --> O["渲染 o_t 拼回上下文<br/><b>mask = 0</b>"] --> C{"超长 / 超步数？"}
-    C -- 否 --> G
-    C -- 是 --> V
-    P -- "否：最终回答" --> V["验证器算 R"] --> T["轨迹 + mask + R → 训练器"]
-    classDef env fill:#fee2e2,stroke:#b91c1c
-    classDef model fill:#e0e7ff,stroke:#4338ca
-    class E,V env
-    class G model
-```
+![多轮工具调用的上下文布局：模型段与工具段交替，工具段 mask = 0](/img/in-post/agentic-rl-tool-use-environments-and-trajectories-context-layout.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /agentic-rl-tool-use-environments-and-trajectories.html。KL ≈ 0；落后 k = 1–4 步几乎无损。
@@ -271,29 +259,19 @@ flowchart TB
 
 ## 07 · 蒸馏：三种形态，差别只在谁生成序列
 
-**结论**：**logits 级学分布、序列级学模式、on-policy 修暴露偏差**——采样像 RL、梯度是 token 级散度（不经采样反传）；前向 KL 覆盖、反向 KL 集中，反向 KL 里学生的熵项不能丢。
+**logits 级学分布、序列级学模式、on-policy 修暴露偏差**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
-    subgraph A["logits 级"]
-        direction TB
-        A1["数据 / 教师的 y"] --> AK["每位置 KL(p_T ‖ p_S)"]
-    end
-    subgraph B["序列级"]
-        direction TB
-        BT["教师<b>生成</b> y"] --> BS["学生在 y 上 SFT（硬标签）"]
-    end
-    subgraph C["on-policy"]
-        direction TB
-        CS["学生<b>采样</b> y"] --> CK["D(p_T ‖ p_S)<br/>在学生会去的地方纠正"]
-    end
-    A --- B --- C
-    classDef t fill:#eef6ff,stroke:#5b8fd6
-    classDef s fill:#fff7e0,stroke:#c98a00,stroke-width:2px
-    class A1,BT t
-    class BS,CS s
-```
+![三种蒸馏粒度：谁在生成序列、在每个位置学什么](/img/in-post/knowledge-distillation-for-llms-distillation-granularity.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文 /knowledge-distillation-for-llms.html。前向 KL 覆盖、反向 KL 集中；反向 KL 里学生的熵项不能丢。
+</aside>
+
+<!-- v -->
+
+### 前向 KL 覆盖、反向 KL 集中
+
+![同一目标分布上前向 KL 与反向 KL 拟合的形状差异](/img/in-post/knowledge-distillation-for-llms-forward-reverse-kl.svg){: style="max-height: 380px"}
 
 <aside class="notes" markdown="1">
 原文 /knowledge-distillation-for-llms.html。R1-Distill 一两千 GPU 小时 vs RL 几万；1.5B 29% / 7B 55% / 32B 72.6%（AIME）；Minitron 940 亿 token、少 40 倍。
@@ -317,7 +295,7 @@ flowchart LR
 
 ## 08 · 评测：分数 = 能力 + 协议 + 噪声 + 污染
 
-**结论**：三关都过才是能力——**协议**相同（差 5–15 点）、超出**置信区间**（1000 题 ±3）、新题复测不掉（**污染**子集高 10–30 点）；judge 有位置、长度、自我偏好三种偏差，要用长度控制的 win rate。
+**分数 = 能力 + 协议 + 噪声 + 污染；judge 偏位置、长度、自己**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
