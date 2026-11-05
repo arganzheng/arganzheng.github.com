@@ -53,7 +53,7 @@ flowchart TB
 
 ## 01 · 编译器的骨架：IR、SSA 与 pass
 
-**结论**：**渐进式下降每层丢一类信息**——标量 IR 丢了「这是矩阵乘」，所以 ML 编译器另起块级 IR。
+**标量 IR 丢了「这是矩阵乘」——所以另起块级 IR**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -65,6 +65,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /compiler-skeleton-ir-ssa-and-passes.html。
+结论原文：**：**渐进式下降每层丢一类信息**——标量 IR 丢了「这是矩阵乘」，所以 ML 编译器另起块级 IR。
 </aside>
 
 <!-- v -->
@@ -78,7 +79,7 @@ flowchart TB
 
 ## 02 · LLVM：所有 ML 编译器共同的后端
 
-**结论**：一切是 `Value`；后端三件事——但 **NVPTX 不做寄存器分配，`ptxas` 是第二个编译器**；`align` 决定向量宽度；内联汇编让 LLVM 对 `mma` 无知。
+**NVPTX 不做寄存器分配——`ptxas` 是第二个编译器**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -90,6 +91,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /llvm-the-shared-backend-and-nvptx.html。AMD 直接打印 NumVgprs / Occupancy。
+结论原文：**：一切是 `Value`；后端三件事——但 **NVPTX 不做寄存器分配，`ptxas` 是第二个编译器**；`align` 决定向量宽度；内联汇编让 LLVM 对 `mma` 无知。
 </aside>
 
 <!-- v -->
@@ -104,7 +106,7 @@ flowchart TB
 
 ## 03 · MLIR（上）：Operation、Region、Dialect
 
-**结论**：**基础设施 / 内容分离**；Operation 是唯一单位，Region / Block / Value；通用形式 = 数据结构打印；ODS 十几行生成五百行；Trait 静态、Interface 动态；**Block 参数代替 φ**；Type / Attribute 唯一化不可变 → **改 layout 只能建新 op**。
+**基础设施 / 内容分离；Block 参数代替 φ**
 
 | MLIR | 对应 LLVM |
 |---|---|
@@ -118,13 +120,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /mlir-ir-structure-dialects-and-ods.html。
+结论原文：基础设施 / 内容分离**；Operation 是唯一单位，Region / Block / Value；通用形式 = 数据结构打印；ODS 十几行生成五百行；Trait 静态、Interface 动态；**Block 参数代替 φ**；Type / Attribute 唯一化不可变 → **改 layout 只能建新 op**。
 </aside>
 
 ---
 
 ## 04 · MLIR（下）：怎样改 IR
 
-**结论**：三种机制——**pass**（`builtin.module(func.func(...))` 嵌套、analysis 默认失效）、**pattern rewrite**（改动全经 rewriter、greedy 到不动点、`fold` 不建 op）、**dialect conversion**（类型一起变、adaptor、materialization、延迟提交 / 回滚）。
+**pass + pattern rewrite + dialect conversion 三种机制**
 
 | 机制 | Triton 里的例子 |
 |---|---|
@@ -137,13 +140,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /mlir-passes-pattern-rewriting-and-dialect-conversion.html。linalg.matmul 在笔记本上跑出 16。
+结论原文：三种机制——**pass**（`builtin.module(func.func(...))` 嵌套、analysis 默认失效）、**pattern rewrite**（改动全经 rewriter、greedy 到不动点、`fold` 不建 op）、**dialect conversion**（类型一起变、adaptor、materialization、延迟提交 / 回滚）。
 </aside>
 
 ---
 
 ## 05 · Triton 前端：Python AST → TTIR
 
-**结论**：`JITFunction` 保存源码不执行；**特化 key**（dtype、constexpr、16 的倍数、等于 1）；`CodeGenerator` 是 `ast.NodeVisitor`，每个节点一次 builder 调用；`for` → `scf.for`（空跑找携带值）。
+**`JITFunction` 存源码不执行；特化 key 四成分**
 
 ```python
 @triton.jit
@@ -159,13 +163,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-frontend-python-ast-to-ttir.html。
+结论原文：`JITFunction` 保存源码不执行；**特化 key**（dtype、constexpr、16 的倍数、等于 1）；`CodeGenerator` 是 `ast.NodeVisitor`，每个节点一次 builder 调用；`for` → `scf.for`（空跑找携带值）。
 </aside>
 
 ---
 
 ## 06 · AxisInfo：编译器凭什么知道一条 load 可以 128 bit
 
-**结论**：三个量 **contiguity / divisibility / constancy** 的格与 gcd join，逐 op 传递；`splat + arange` 是 contiguity 的唯一来源，参数属性是 divisibility 的来源；$$\text{vec} = \min(128/\text{位宽},\ \text{contiguity},\ \text{alignment})$$，mask 用 constancy。
+**三量逐 op 传递——`splat + arange` 是 contiguity 唯一来源**
 
 | 表达式 | contiguity, divisibility, constancy | 结果 |
 |---|---|---|
@@ -178,13 +183,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-ttir-analysis-axisinfo.html。
+结论原文：三个量 **contiguity / divisibility / constancy** 的格与 gcd join，逐 op 传递；`splat + arange` 是 contiguity 的唯一来源，参数属性是 divisibility 的来源；$$\text{vec} = \min(128/\text{位宽},\ \text{contiguity},\ \text{alignment})$$，mask 用 constancy。
 </aside>
 
 ---
 
 ## 07 · layout 系统与 Linear Layout
 
-**结论**：**layout = 硬件位置（寄存器、lane、warp）→ 张量下标的函数，写在类型里**；`#blocked` / `#slice` / `#mma` / `#dot_op`；**Linear Layout = GF(2) 上的线性映射**，基向量表；转换代价由 $$dst^{-1} \circ src$$ 逐维 `quotient` 判定；Coalesce 按 AxisInfo 定 `order` 与 `sizePerThread`。
+**layout 写在类型里；Linear Layout = GF(2) 线性映射**
 
 | `[64, 64]` 默认 `#blocked` | 哪些位管什么 |
 |---|---|
@@ -198,13 +204,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-layouts-and-linear-layout.html。
+结论原文：layout = 硬件位置（寄存器、lane、warp）→ 张量下标的函数，写在类型里**；`#blocked` / `#slice` / `#mma` / `#dot_op`；**Linear Layout = GF(2) 上的线性映射**，基向量表；转换代价由 $$dst^{-1} \circ src$$ 逐维 `quotient` 判定；Coalesce 按 AxisInfo 定 `order` 与 `sizePerThread`。
 </aside>
 
 ---
 
 ## 08 · layout 优化与 Tensor Core 路径
 
-**结论**：`RemoveLayoutConversions` 两阶段——锚点前向传播 + 冲突消解 + 后向重物化（代价模型）+ 三种 hoist：**23 → 3 → 7 → 3 → 1** 个 `convert_layout`；`AccelerateMatmul` 选 MMA 版本、`warpsPerCTA` 偏向 M、`kWidth = 32 / 位宽`。
+**两阶段把 convert_layout 从 23 个压到 1 个**
 
 | 量 | 数 |
 |---|---|
@@ -217,13 +224,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-layout-optimization-and-tensor-cores.html。
+结论原文：`RemoveLayoutConversions` 两阶段——锚点前向传播 + 冲突消解 + 后向重物化（代价模型）+ 三种 hoist：**23 → 3 → 7 → 3 → 1** 个 `convert_layout`；`AccelerateMatmul` 选 MMA 版本、`warpsPerCTA` 偏向 M、`kWidth = 32 / 位宽`。
 </aside>
 
 ---
 
 ## 09 · 软件流水：`num_stages` 变成了什么
 
-**结论**：`AssignLatencies`（提前 (S−1)/(层级+1) 个迭代）→ `ScheduleLoops`（最长 latency 路径分 stage）→ `LowerLoops`（**缓冲数 = stage 差**）→ `PipelineExpander`；Hopper `wgmma` 异步 +1 缓冲、TMA + mbarrier；Blackwell TMEM + `tcgen05`；`warp_specialize` 三区；**Gluon 跳过全部自动 pass**。
+**软件流水：缓冲数 = stage 差；Gluon 跳过全部自动 pass**
 
 | `num_stages = 3` | Ampere | Hopper |
 |---|---|---|
@@ -237,13 +245,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-software-pipelining-hopper-blackwell-gluon.html。
+结论原文：`AssignLatencies`（提前 (S−1)/(层级+1) 个迭代）→ `ScheduleLoops`（最长 latency 路径分 stage）→ `LowerLoops`（**缓冲数 = stage 差**）→ `PipelineExpander`；Hopper `wgmma` 异步 +1 缓冲、TMA + mbarrier；Blackwell TMEM + `tcgen05`；`warp_specialize` 三区；**Gluon 跳过全部自动 pass**。
 </aside>
 
 ---
 
 ## 10 · TritonGPU 到 LLVM：tile 级 op 怎样变成每线程指令
 
-**结论**：张量 → 每线程 struct；`applyLinearLayout` 把基向量 XOR 成地址算术；`load` 按 `vec` 发谓词 `ld.global.vN`；`reduce` 三级由规约维落在 register / lane / warp 位决定；`convert_layout` 三条路；`AllocateSharedMemory` **着色复用**；`Membar` 区间相交插 barrier——**TTGIR 里一个 barrier 都没有**。
+**layout 编译成 XOR 地址算术；TTGIR 里一个 barrier 都没有**
 
 | kernel | 生成的指令 |
 |---|---|
@@ -255,13 +264,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-lowering-tritongpu-to-llvm.html。
+结论原文：张量 → 每线程 struct；`applyLinearLayout` 把基向量 XOR 成地址算术；`load` 按 `vec` 发谓词 `ld.global.vN`；`reduce` 三级由规约维落在 register / lane / warp 位决定；`convert_layout` 三条路；`AllocateSharedMemory` **着色复用**；`Membar` 区间相交插 barrier——**TTGIR 里一个 barrier 都没有**。
 </aside>
 
 ---
 
 ## 11 · 编译流水线的组织、缓存、运行时与 AMD
 
-**结论**：`compile()` 按阶段表逐级、`metadata` 累积、缓存组原子；**key 五成分**（含 `libtriton.so` 哈希）；惰性加载、运行时生成的 C launcher、`cuLaunchKernelEx`；AMD：layout pass 共用、`#amd_mfma`、自己的流水器、**LLVM 直出 ISA、无第二编译器**。
+**缓存组原子、key 五成分；AMD 直出 ISA 无第二编译器**
 
 | 量 | 数 |
 |---|---|
@@ -274,13 +284,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /triton-compiler-ptx-cubin-cache-runtime-and-amd.html。
+结论原文：`compile()` 按阶段表逐级、`metadata` 累积、缓存组原子；**key 五成分**（含 `libtriton.so` 哈希）；惰性加载、运行时生成的 C launcher、`cuLaunchKernelEx`；AMD：layout pass 共用、`#amd_mfma`、自己的流水器、**LLVM 直出 ISA、无第二编译器**。
 </aside>
 
 ---
 
 ## 12 · TVM：调度语言与自动调优，另一条路
 
-**结论**：**算法 / 调度分离**——block 是算法、循环是调度；原语带形式化前置条件（写错只会慢、不会算错）；DLight 规则 = Triton 自动决定的显式版；MetaSchedule 搜带采样点的 trace；设计空间是一条轴。
+**算法 / 调度分离——写错只会慢、不会算错**
 
 | 量 | 数 |
 |---|---|
@@ -293,13 +304,14 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /tvm-schedule-language-and-auto-tuning.html。
+结论原文：算法 / 调度分离**——block 是算法、循环是调度；原语带形式化前置条件（写错只会慢、不会算错）；DLight 规则 = Triton 自动决定的显式版；MetaSchedule 搜带采样点的 trace；设计空间是一条轴。
 </aside>
 
 ---
 
 ## 13 · 编译器开发者的工作台
 
-**结论**：**macOS 可构建**，假 `ptxas` 编到 PTX；lit 277 文件 9.5 s、gtest 毫秒、pytest 需 GPU；`MLIR_ENABLE_DUMP` 74 份；二分八步；加 pass 七步；读 PR 倒序——**改编译器不必有 GPU**。
+**改编译器不必有 GPU——二分八步、加 pass 七步**
 
 | 工具 | 用途 |
 |---|---|
@@ -313,6 +325,7 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 <aside class="notes" markdown="1">
 原文 /ml-compiler-developer-workbench.html。
+结论原文：macOS 可构建**，假 `ptxas` 编到 PTX；lit 277 文件 9.5 s、gtest 毫秒、pytest 需 GPU；`MLIR_ENABLE_DUMP` 74 份；二分八步；加 pass 七步；读 PR 倒序——**改编译器不必有 GPU**。
 </aside>
 
 ---
