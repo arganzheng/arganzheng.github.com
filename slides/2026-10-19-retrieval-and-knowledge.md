@@ -37,7 +37,7 @@ flowchart TB
 
 ## 01 · 进上下文还是进权重
 
-**结论**：**微调不是灌知识的工具**（不可靠、遗忘、不可引用、不可更新与过滤）；默认顺序 **prompt → few-shot → 检索 / 工具 → 微调 → 继续预训练**，每步在评测集上证明前一步不够。
+**事实进上下文、行为进权重——微调学分布不学事实，默认先 prompt 再检索**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 230}}}%%
@@ -71,7 +71,7 @@ flowchart LR
 
 ## 02 · 三类检索：coding agent 为什么只用 grep
 
-**结论**：按前提选——**词法三前提**（精确标识符、可枚举、能迭代）、**向量**解决词汇不匹配、**结构化**独占关系；coding agent 的分歧是**过期税由写路径还是读路径付**。
+**词法、向量、结构化各有前提——coding agent 只用 grep 是前提全中**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
@@ -115,7 +115,7 @@ flowchart TB
 
 ## 03 · 文档解析与分块：检索失败的上游
 
-**结论**：解析三个梯级（**规则 → 布局模型 → VLM**）先低后高；三个**静默失败**（阅读顺序、表格、页眉页脚）；**按结构切**、父子块；contextual retrieval；**权限进元数据**。
+**解析规则→布局模型→VLM 按需升级；三个静默失败在检索之前**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -159,7 +159,7 @@ flowchart LR
 
 ## 04 · 索引、混合检索与 rerank
 
-**结论**：MTEB 缩范围、**自己的查询集决定**，换模型 = 全量重建；百万级 HNSW + 现有数据库就够；**BM25 + 向量用 RRF 是默认**；**rerank 性价比最高**；权限在召回时过滤。
+**BM25 + 向量 RRF 是默认形态；rerank 只精排 top-20 是性价比最高一步**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -179,7 +179,7 @@ flowchart LR
 
 ## 05 · 从流水线到 agentic retrieval
 
-**结论**：流水线**可预测、召回压力高、无多跳**；agentic **召回压力低、多跳、成本不定**；中间有改写 / HyDE / 多查询 / 路由 / 自检；**最常见是级联**——流水线默认、agentic 兜底。
+**流水线可控无多跳、agentic 多跳但成本不定——最常见是级联兜底**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
@@ -218,7 +218,7 @@ flowchart TB
 
 ## 06 · 结构化知识：SQL、本体与 GraphRAG
 
-**结论**：text-to-SQL 对裸 schema 企业级**只有两成**（Spider 2.0），用**语义层**；**本体 = 对象 + 关系 + 动作 + 权限，是 harness 不是检索**；GraphRAG 答全局与多跳，**索引贵几十到几百倍**，LazyGraphRAG 推到查询时。
+**text-to-SQL 裸 schema 只有两成要语义层；GraphRAG 只对全局/多跳**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 440}}}%%
@@ -250,19 +250,9 @@ flowchart TB
 
 ## 07 · 检索评测与运营：没找到 vs 找到了没说对
 
-**结论**：分开评——**recall@50 / @5 分层**、固定检索评生成；评测集从**真实查询**采（50–100 条起）；在线信号带 trace；新鲜度与重建预算；**权限泄漏是评测项**。
+**检索与生成分开评——没找到 vs 找到了没说对，药完全不同**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
-    E["一个 RAG 答错了"] --> D{"正确的块在上下文里吗？"}
-    D -- "不在：<b>没找到</b>" --> R["检索侧的病<br/>指标：recall@50（召回够不够）、recall@5（rerank 后够不够）、nDCG<br/>评测集：（查询，相关块）——标注便宜"]
-    D -- "在：<b>找到了没说对</b>" --> G["生成侧的病<br/>指标：faithfulness（有没有编）、answer relevance、引用准确<br/>评测集：（查询，正确块，理想答案）——标注贵"]
-    R --> RF["药：分块、embedding、混合、rerank"]
-    G --> GF["药：prompt、引用约束、guardrails、换模型"]
-    G -. "评生成时<b>固定检索</b>：直接喂正确块，<br/>再跑一次真实检索，两者之差就是检索造成的损失" .-> R
-
-```
+![检索侧与生成侧的两段评测](/img/in-post/retrieval-eval-two-stage-evaluation.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /retrieval-evaluation-and-operations.html。
