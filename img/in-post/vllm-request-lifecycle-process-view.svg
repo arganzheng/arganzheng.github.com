@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1060" viewBox="0 0 760 1060" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1120" viewBox="0 0 760 1120" role="img" aria-labelledby="title desc">
   <title id="title">默认部署：vllm serve + AsyncMPClient + MultiprocExecutor</title>
   <desc id="desc">API Server、EngineCoreProc 和 WorkerProc 的模块、线程与消息通道。</desc>
   <defs>
@@ -19,7 +19,7 @@
       .thread { fill: #fff; stroke: #b8c7d8; stroke-width: 1.4; rx: 9; }
     </style>
   </defs>
-  <rect width="760" height="1060" fill="#fff"/>
+  <rect width="760" height="1120" fill="#fff"/>
   <text x="380" y="34" text-anchor="middle" class="title">默认部署：vllm serve + AsyncMPClient + MultiprocExecutor</text>
 
   <rect x="28" y="54" width="704" height="218" class="box" fill="#eef5ff" stroke="#5880b4"/>
@@ -40,7 +40,7 @@
   <text x="552" y="316" class="small">ZMQ / msgpack</text>
   <text x="552" y="334" class="small">只有 token ids</text>
 
-  <rect x="28" y="356" width="704" height="300" class="box" fill="#fff6e9" stroke="#c6873d"/>
+  <rect x="28" y="356" width="704" height="348" class="box" fill="#fff6e9" stroke="#c6873d"/>
   <text x="50" y="386" class="process">进程 B · EngineCoreProc</text>
   <rect x="48" y="400" width="664" height="54" class="thread"/>
   <text x="66" y="423" class="label">输入线程</text>
@@ -55,24 +55,27 @@
   <rect x="48" y="590" width="664" height="48" class="thread"/>
   <text x="66" y="619" class="label">输出线程</text>
   <text x="200" y="619" class="body">output_queue → MsgpackEncoder → ZMQ</text>
+  <rect x="48" y="648" width="664" height="48" class="thread" fill="#fdf1e3"/>
+  <text x="66" y="677" class="label">Executor</text>
+  <text x="200" y="677" class="body">MultiprocExecutor：进程内对象（非进程），collective_rpc 经 MessageQueue 驱动 WorkerProc</text>
 
-  <line x1="220" y1="657" x2="220" y2="755" stroke="#2b7a78" stroke-width="2.2" marker-end="url(#arrow-green)"/>
-  <text x="238" y="684" class="label">EngineCore → Worker</text>
-  <text x="238" y="704" class="small">MessageQueue 广播</text>
-  <text x="238" y="722" class="small">SchedulerOutput · 同机共享内存</text>
-  <line x1="535" y1="755" x2="535" y2="657" stroke="#2b7a78" stroke-width="2.2" marker-end="url(#arrow-green)"/>
-  <text x="552" y="684" class="label">Worker → EngineCore</text>
-  <text x="552" y="704" class="small">response queue</text>
-  <text x="552" y="722" class="small">ModelRunnerOutput</text>
-  <text x="552" y="740" class="small">仅 output_rank 回传</text>
+  <line x1="220" y1="705" x2="220" y2="815" stroke="#2b7a78" stroke-width="2.2" marker-end="url(#arrow-green)"/>
+  <text x="238" y="744" class="label">EngineCore → Worker</text>
+  <text x="238" y="764" class="small">MessageQueue 广播</text>
+  <text x="238" y="782" class="small">SchedulerOutput · 同机共享内存</text>
+  <line x1="535" y1="815" x2="535" y2="705" stroke="#2b7a78" stroke-width="2.2" marker-end="url(#arrow-green)"/>
+  <text x="552" y="744" class="label">Worker → EngineCore</text>
+  <text x="552" y="764" class="small">response queue</text>
+  <text x="552" y="782" class="small">ModelRunnerOutput</text>
+  <text x="552" y="800" class="small">仅 output_rank 回传</text>
 
-  <rect x="28" y="757" width="704" height="270" class="box" fill="#eff9f4" stroke="#4b9477"/>
-  <text x="50" y="787" class="process">进程 C · WorkerProc × N（TP × PP ranks）</text>
-  <rect x="48" y="801" width="664" height="158" class="thread"/>
-  <text x="66" y="827" class="label">WorkerProc 主线程 · MessageQueue 出队 → Worker</text>
-  <text x="66" y="852" class="body">GPUModelRunner（ModelRunner）· Attention Backend</text>
-  <text x="66" y="877" class="body">模型权重分片 · GPU KV cache tensors</text>
-  <text x="66" y="907" class="small">各 rank 之间的 TP / PP collective 走 NCCL / PyTorch distributed</text>
-  <text x="66" y="928" class="small">rank 直接通信，不经过 EngineCore</text>
-  <text x="50" y="984" class="small">跨机时 worker 控制队列走远程传输；共享内存只适用于同机 worker。</text>
+  <rect x="28" y="817" width="704" height="270" class="box" fill="#eff9f4" stroke="#4b9477"/>
+  <text x="50" y="847" class="process">进程 C · WorkerProc × N（TP × PP ranks）</text>
+  <rect x="48" y="861" width="664" height="158" class="thread"/>
+  <text x="66" y="887" class="label">WorkerProc 主线程 · MessageQueue 出队 → Worker</text>
+  <text x="66" y="912" class="body">GPUModelRunner（ModelRunner）· Attention Backend</text>
+  <text x="66" y="937" class="body">模型权重分片 · GPU KV cache tensors</text>
+  <text x="66" y="967" class="small">各 rank 之间的 TP / PP collective 走 NCCL / PyTorch distributed</text>
+  <text x="66" y="988" class="small">rank 直接通信，不经过 EngineCore</text>
+  <text x="50" y="1044" class="small">跨机时 worker 控制队列走远程传输；共享内存只适用于同机 worker。</text>
 </svg>

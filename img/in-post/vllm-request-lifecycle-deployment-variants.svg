@@ -22,7 +22,7 @@
   </defs>
   <rect width="760" height="500" fill="#fff"/>
   <text x="380" y="34" text-anchor="middle" class="heading">不同部署方式会在不同层增加进程</text>
-  <line x1="380" y1="58" x2="380" y2="462" stroke="#d2dbe5" stroke-width="1.5"/>
+  <line x1="380" y1="58" x2="380" y2="345" stroke="#d2dbe5" stroke-width="1.5"/>
 
   <text x="190" y="76" text-anchor="middle" class="heading">多个 API Server</text>
   <rect x="34" y="104" width="142" height="57" class="api"/>

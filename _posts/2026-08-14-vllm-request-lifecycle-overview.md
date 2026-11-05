@@ -20,7 +20,7 @@ updated: 2026-10-18
 
 ### 1. Kruchten 4+1：五个视角看同一个系统
 
-借用软件架构里的 Kruchten 4+1 视图模型来看 vLLM V1。**逻辑视图**说明模块分工（第二章的静态拓扑）；**开发视图**把模块放回源码目录，说明去哪读代码（第三章）；**进程视图**说明模块在哪个进程、怎样交互（第四章）；**部署/物理视图**说明进程怎么落到 GPU 和节点上（第五章）。最后的 **+1 场景视图**沿时间轴追踪一次请求（第六章），数据流（第七章）是它的另一半——它把前四个视图串成一条线。
+借用软件架构里的 Kruchten 4+1 视图模型来看 vLLM V1。**逻辑视图**说明模块分工（第二章的静态拓扑）；**开发视图**把模块放回源码目录，说明去哪读代码（第三章）；**进程视图**说明模块在哪个进程、怎样交互（第四章）；**部署/物理视图**说明进程怎么落到 GPU 和节点上（第五章）。最后的 **+1 场景视图**沿时间轴追踪一次请求（第六章，含请求流与数据流两个子场景）——它把前四个视图串成一条线。
 
 这样可以分清谁保存请求状态、谁决定这一步跑什么，以及 token 和调度结果怎样跨进程移动。
 
@@ -32,10 +32,9 @@ updated: 2026-10-18
 | 三 | 开发视图 | 模块 ↔ 源码目录 ↔ 所在进程的对照表 |
 | 四 | 进程视图 | API Server、EngineCoreProc、WorkerProc 的职责与 IPC |
 | 五 | 部署/物理视图 | 进程到 GPU、节点的映射；会改变进程图的部署方式 |
-| 六 | 场景视图（+1） | 一次请求的完整生命周期：从 HTTP 请求到 SSE [DONE] 的时序图 |
-| 七 | 场景视图（+1） | 数据流：Token 如何穿过整个 Serving 栈 |
-| 八 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
-| 九 | 自测 | 7 道题 |
+| 六 | 场景视图（+1） | 两个子场景：1. 请求流（一次请求的完整生命周期，HTTP → SSE [DONE]）；2. 数据流（Token 如何穿过整个 Serving 栈） |
+| 七 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
+| 八 | 自测 | 7 道题 |
 
 Table: 本文的章节安排
 
@@ -199,6 +198,23 @@ Table: 模块、源码位置与进程的映射（vLLM v0.27.1）
 
 一个值得记住的边界：`vllm/v1/engine/` 下的文件分属两个进程——`async_llm` / `input_processor` / `output_processor` 在 A，`core` / `core_client` 的服务端在 B，目录按功能分不按进程分。
 
+### 1. 子系统划分与包图
+
+UML 的开发视图看的是子系统划分与包依赖。把上表按子系统归组，服务一条请求真正相关的包就六组，依赖单向向下：
+
+![vLLM v0.27.1 的包图：entrypoints、v1.engine、v1.core、v1.executor、v1.worker、model_executor/distributed/csrc 六组子系统及依赖方向](/img/in-post/vllm-request-lifecycle-package-view.svg)
+
+- **entrypoints**（`vllm/entrypoints/openai/`）：协议层。FastAPI 路由、`ChatCompletionRequest` 等 msgspec/pydantic 模型、`serve` CLI 都在这里，只依赖 `v1.engine` 的客户端侧。
+- **v1.engine**（`vllm/v1/engine/`）：引擎壳。`async_llm` / `input_processor` / `output_processor` / `detokenizer` 是 A 侧；`core.py`（`EngineCore` / `EngineCoreProc` / `DPEngineCoreProc`）与 `core_client.py` 的服务端是 B 侧；`coordinator.py`、`utils.py` 管 DP 协调与进程启动。
+- **v1.core**（`vllm/v1/core/`）：调度域。`sched/`（Scheduler、`SchedulerOutput`）、`kv_cache_manager`、`block_pool`、`encoder_cache_manager`，全部活在 B。
+- **v1.executor**（`vllm/v1/executor/`）：执行抽象。`abstract.py` 的 `Executor` 基类派生 `UniProcExecutor` / `MultiprocExecutor` / `RayExecutorV2` / `RayDistributedExecutor`，是 B 内拉起并驱动 C 的唯一通道。
+- **v1.worker**（`vllm/v1/worker/`）：设备域。`gpu_worker`、`gpu_model_runner`、`gpu_input_batch`，每个 C 进程一份。
+- **执行依赖**：`vllm/model_executor/models/`（各模型定义）、`vllm/v1/attention/backends/`（FA/Triton 等 backend）、`vllm/distributed/`（`parallel_state`、`pynccl`、`shm_broadcast`）、`csrc/`（CUDA/C++ kernel）。
+
+### 2. 构建与打包：Python 包 + 编译扩展
+
+发布物是一个 wheel：`vllm` 是纯 Python 包，`csrc/` 下的 CUDA/C++ 源码由 `setup.py` 驱动 CMake 编译成 CPython 扩展 `vllm._C`（自定义 kernel：paged attention、量化、moe 等）与 `vllm._moe_C`（MoE 专用 kernel），随 wheel 分发；另有 `vllm/attention/_fa3` 等 FlashAttention/flashinfer 编译产物作可选 backend。模型权重、attention backend、kernel dispatch 全在 C 侧进程按需 dlopen/import 它们，A、B 两侧进程从不碰 `csrc` 产物。
+
 ## 四、进程视图：谁在什么进程里，如何交互
 
 静态拓扑图画模块之间的调用；这张图把它们放回默认部署的进程和线程里。API Server 处理协议和文本，`EngineCoreProc` 管请求状态和调度，每个 `WorkerProc` rank 执行模型。
@@ -213,6 +229,8 @@ FastAPI 的 OpenAI route 调用同进程里的 `AsyncLLM`。`InputProcessor` 产
 
 `EngineCoreProc` 运行 `EngineCore`：输入、输出 socket I/O 各有线程，主线程循环调度与更新。`Scheduler` 持有权威 `Request` 状态和 `KVCacheManager` 元数据；默认 `MultiprocExecutor` 下，GPU forward 留在 Worker 侧（`vllm/v1/engine/core.py`、`vllm/v1/core/sched/scheduler.py`）。
 
+注意 **Executor 不是一个进程**：它是 `EngineCore` 构造时创建的一个进程内对象（`vllm/v1/engine/core.py` 里 `self.model_executor = executor_class(vllm_config)`），活在进程 B 的主线程里。所以逻辑视图里的 Executor 在这张进程图里落在 B 内部——它不占进程，它的作用是封装“怎么把一轮调度交给 Worker”：`UniProc` 在本进程直接调，`Multiproc` 经共享内存 MessageQueue 广播给 `WorkerProc`，`Ray` 走 actor。换一个部署形态时 EngineCore 的代码一行不改，改的只是这个对象。
+
 ### 3. WorkerProc：一个模型并行 rank
 
 `MultiprocExecutor` 为每个模型并行 rank 启动 `WorkerProc`。每个进程初始化 `Worker` 和 `GPUModelRunner`，加载本 rank 的权重分片，并在 GPU 上读写 KV cache；TP/PP 通信由 Worker ranks 直接完成，不经过 EngineCore（`vllm/v1/executor/multiproc_executor.py`、`vllm/v1/worker/gpu_worker.py`、`vllm/v1/worker/gpu_model_runner.py`、`vllm/distributed/communication_op.py`、`vllm/distributed/parallel_state.py`、`vllm/distributed/device_communicators/pynccl.py`）。
@@ -225,7 +243,7 @@ API 边界传 `EngineCoreRequest` 与 `EngineCoreOutputs`；执行边界传 `Sch
 
 ### 5. 启动顺序与就绪握手
 
-单 API Server 时，`vllm serve` 在当前进程运行 `run_server()`；`AsyncLLM` 创建 `AsyncMPClient`，后者绑定 ZMQ sockets 并通过 `launch_core_engines()` 启动 EngineCore 进程。`--api-server-count > 1` 时，`run_multi_api_server()` 先启动 EngineCore，再由 `APIServerProcessManager` 启动 API Server 子进程。每个 EngineCore 初始化自己的 Executor，`MultiprocExecutor` 再启动 Worker 进程。
+单 API Server 时，`vllm serve` 在当前进程运行 `run_server()`；`AsyncLLM` 创建 `AsyncMPClient`，后者绑定 ZMQ sockets 并通过 `launch_core_engines()` 启动 EngineCore 进程。`--api-server-count > 1` 时，`run_multi_api_server()` 先启动 EngineCore，再由 `APIServerProcessManager` 启动 API Server 子进程。每个 EngineCore 在自己进程内构造 Executor（`EngineCore.__init__`），`MultiprocExecutor.__init__` 再为每个 rank fork 出 `WorkerProc`（`WorkerProc.make_worker_process`）。
 
 EngineCore 先发 `HELLO` 注册，启动器返回地址和配置；初始化完成后，EngineCore 报告 `READY`。API client 还会等 EngineCore 在输入 socket 上发送 `EngineCoreReadyResponse`。Worker 初始化完成后通过 ready pipe 报告 `READY` 并交回 response queue 的 handle；Executor 随后等待各队列的 ready barrier（`vllm/entrypoints/cli/serve.py`、`vllm/entrypoints/openai/api_server.py`、`vllm/v1/engine/async_llm.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`、`vllm/v1/engine/core.py`、`vllm/v1/executor/multiproc_executor.py`、`vllm/v1/utils.py`）。
 
@@ -233,7 +251,7 @@ EngineCore 先发 `HELLO` 注册，启动器返回地址和配置；初始化完
 
 ![vLLM V1 一个 decode step 在 API Server、EngineCoreProc 与 WorkerProc 间的时序](/img/in-post/vllm-request-lifecycle-decode-step.svg)
 
-EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，广播给所有 Worker。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
+EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，交给进程内对象 `Executor`（默认 `MultiprocExecutor`）广播给所有 Worker——这条链路是 `EngineCore → Executor → WorkerProc`，图 3 里 Executor 画在进程 B 内部，图 5 里它是 B 侧时序上的一小段激活。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
 
 这里的广播是一写多读：
 
@@ -249,6 +267,8 @@ EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，
 | 部署 | 进程 | 落位 |
 |---|---|---|
 | 单卡 | 1 × API Server、1 × EngineCoreProc（`UniProcExecutor`，Worker 在 EngineCore 进程内，没有 WorkerProc） | 1 台节点，EngineCoreProc 占 1 张 GPU |
+
+> 单卡真的没有 WorkerProc——不是“单卡不至于”，是配置就是这么写的：`ParallelConfig.__post_init__` 里 `world_size == 1` 时把 `distributed_executor_backend` 置为 `"uni"`（`vllm/config/parallel.py`），`Executor.get_class` 再把 `"uni"` 映射到 `UniProcExecutor`（`vllm/v1/executor/abstract.py`）；它的 `_init_executor` 直接在 EngineCore 进程内 `WorkerWrapperBase.init_worker()`、`init_device()`、`load_model()`（`vllm/v1/executor/uniproc_executor.py`），全程没有 `make_worker_process`。单卡时连 A→B 的边界都可能取消（`InprocClient`），但那是另一层选择。
 | 单机 TP=4 | 1 × API Server、1 × EngineCoreProc、4 × WorkerProc | 1 台节点，4 个 WorkerProc 各占 1 张 GPU，组内集合通信 |
 | 多机 TP×PP | 1 × API Server、1 × EngineCoreProc、world_size 个 WorkerProc | 默认 `MultiprocExecutor` 配合 `--nnodes`，每台节点起自己的 WorkerProc；`--distributed-executor-backend ray` 时用 `RayExecutorV2` / `RayDistributedExecutor`（`RayWorkerProc`），rank 间 TP/PP collective 跨机 |
 | DP=2 | 1 × API Server、2 × EngineCoreProc（rank 0 可能再带 `DPCoordinator`）、每 rank 各自一组 WorkerProc | 两个 EngineCore rank 各管自己的 Scheduler 与 Executor，共用一个 API 入口 |
@@ -265,9 +285,13 @@ Table: 部署方式到进程、GPU、节点的映射
 - `--api-server-count > 1` 会启动多个 API Server 进程，并为它们分配各自的 ZMQ 地址；它增加的是前端进程数，不等于增加模型并行 rank。未显式指定时，参数默认值会根据 DP 配置决定（`vllm/entrypoints/cli/serve.py`、`vllm/entrypoints/openai/cli_args.py`）。
 - Ray 改变 Worker 的启动和放置方式。`RayExecutorV2` 用 Ray actor 承载 `RayWorkerProc`，并复用 MessageQueue 控制面与 Worker 间的 collective；旧 `RayDistributedExecutor` 是另一套 Ray executor 实现（`vllm/v1/executor/ray_executor_v2.py`、`vllm/v1/executor/ray_executor.py`）。
 
-## 六、场景视图（+1）：一次请求的完整生命周期
+把这张表翻成两条规则：**进程数由两类并行度分别决定**——data parallel size 决定 `EngineCoreProc` 的数量（`launch_core_engines` 对每个 dp rank 起一个 EngineCore 进程，`vllm/v1/engine/utils.py`、`vllm/v1/engine/core.py`）；`world_size = TP × PP`（×PCP，context parallel）决定每个 EngineCore 内 `MultiprocExecutor` 拉起的 `WorkerProc` 数（`vllm/v1/executor/multiproc_executor.py` 的断言 `world_size == tp_size * pp_size * pcp_size`）。expert parallel 不新增进程：EP 复用 DP×TP 的已有 rank（MoE 权重按 EP 组切分在已有 Worker 上）。DP rank 之间互不共享 KV state，每 rank 一套 Scheduler/Executor/Worker 组。
 
-这一章是 +1 场景：它把前四个视图里的模块、目录、进程和部署位置串起来，沿时间轴走一遍一条请求实际经过的路径。第七章的数据流是同一场景按对象视角再看一遍。
+## 六、场景视图（+1）
+
+Kruchten 4+1 的“+1”就是场景视图：逻辑、开发、进程、物理四个视图各看一个切面，场景把四个切面串起来——沿时间轴走一遍真实发生的交互，验证前四张图能对上同一件事。这里放两个子场景：先看一条请求的完整生命周期（谁经手、什么顺序），再只看 token 这个对象在四个进程之间怎么变形（数据流）。
+
+### 1. 请求流：一次请求的完整生命周期
 
 
 ```mermaid
@@ -349,7 +373,9 @@ sequenceDiagram
     API-->>C: SSE: data: [DONE]
 ```
 
-### 1. 流式输出：一个 token 从 GPU 到客户端
+### 2. 数据流：Token 如何穿过整个 Serving 栈
+
+#### 放大：一个 token 的回程（流式输出）
 
 上面的时序图把 EngineCore 和 AsyncLLM 之间画成了同步的请求-应答，实际上它们跨进程、各自有独立的循环。下面把 decode 循环中**一个 token 的回程**放大，重点看两件事：detokenize 发生在哪个进程，以及引擎循环为什么不需要等它。
 
@@ -383,35 +409,9 @@ sequenceDiagram
 
 这张图解释了第四章的进程边界怎样影响流式输出：进程 B 的主线程把 `EngineCoreOutputs` 放进 `output_queue` 后立刻回到 `schedule()`，序列化由输出线程做，detokenize 和 stop 字符串检查由进程 A 的 `output_handler` 协程做，三者互不等待。代价是 stop **字符串**（而非 stop token id）的判定要晚一步——进程 A 检测到后反向发 abort，GPU 可能已经为这个请求多算了一步。另外，`RequestOutputCollector` 在 `DELTA` 模式下会把积压的输出合并，因此客户端收到的一个 SSE chunk 不一定恰好对应一个 decode 步。
 
-## 七、数据流：Token 如何穿过整个 Serving 栈
+去程把文本变成 token ids 送到 GPU，回程只带 token ids，到 API Server 才变回文本。四条泳道对应四类实体：
 
-```mermaid
-%% 图：一个 token 穿过 Serving 栈的数据流：去程把文本变成 token ids 送到 GPU，回程只带 token ids，到 API Server 才变回文本
-sequenceDiagram
-    participant C as Client
-    box rgb(232,241,252) API Server 进程
-    participant A as API Server / AsyncLLM
-    end
-    box rgb(253,243,228) EngineCoreProc
-    participant E as EngineCore / Scheduler
-    participant X as Executor
-    end
-    box rgb(232,246,238) WorkerProc × N
-    participant W as Worker / GPUModelRunner
-    end
-    C->>A: HTTP JSON: "Hello, tell me a joke"
-    Note over A: add_request(text)<br/>InputProcessor / Tokenizer<br/>[15496, 11, 2425, 757, 257, 9707]
-    A->>E: EngineCoreRequest(token_ids)，ZMQ / msgpack
-    Note over E: Scheduler.schedule()
-    E->>X: SchedulerOutput
-    Note over X,W: scheduled_new_reqs[NewRequestData: prompt_token_ids, block_ids, …]<br/>scheduled_cached_reqs[new_block_ids]<br/>num_scheduled_tokens{req_id: n}<br/>finished_req_ids, …
-    X->>W: MessageQueue 广播 SchedulerOutput
-    Note over W: GPUModelRunner._prepare_inputs()<br/>→ input_ids, positions, block_table, slot_mapping<br/>GPU Forward Pass → logits [vocab_size]<br/>Sampling（top-p / top-k / temp）→ sampled_token_id
-    W-->>E: ModelRunnerOutput（response queue，只有 output_rank 回传）
-    E-->>A: EngineCoreOutputs（只有 token ids，ZMQ）
-    Note over A: OutputProcessor / Detokenizer → "Sure"
-    A-->>C: SSE Stream: "Sure, here's a joke…"
-```
+![一个 token 穿过 Serving 栈的泳道图：Client、API Server、EngineCoreProc、WorkerProc，标注每一跳传的是文本、token ids 还是调度元数据](/img/in-post/vllm-request-lifecycle-token-dataflow.svg)
 
 注意 Detokenizer 不在 GPU 那一侧，而是在 API Server 进程的 `OutputProcessor` 里：EngineCore 回传的只有 token ids，文本是到这里才拼出来的。上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们定义在不同文件、活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
 
@@ -431,7 +431,7 @@ Table: 一个请求在各层的对象
 
 表里有两条规律。第一，**状态只在 B 和 C 各有一份**：`Request` 是权威，`CachedRequestState` 是靠每步增量同步的镜像；所有跨进程的载荷（`EngineCoreRequest`、`SchedulerOutput`、`ModelRunnerOutput`、`EngineCoreOutputs`）都是无状态的一次性消息，读完即弃，也因此可以随意序列化、走任何 IPC 通道。第二，**文本只在进程 A 出现**：从 `EngineCoreRequest` 到 `EngineCoreOutputs` 全程都是 token ids，进程 B、C 完全不需要 tokenizer。
 
-## 八、本文小结
+## 七、本文小结
 
 读 trace 时，先分清两种流量：请求、token ids 和 `SchedulerOutput` 属于控制流；TP/PP 的激活张量在 Worker 间走 collective，不经 EngineCore 转发。
 
@@ -469,7 +469,7 @@ Table: 入口与引擎循环的源码导航
 
 </details>
 
-## 九、自测
+## 八、自测
 
 1. vLLM V1 里 `AsyncLLM` 与 `EngineCore` 为什么分成两个进程？中间传什么？
 
@@ -527,4 +527,4 @@ Table: 入口与引擎循环的源码导航
 
    </details>
 
-[^q0]: 链路是固定的：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM` → `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token，产出 `SchedulerOutput`；**Executor 分发**到一个或多个 Worker；**ModelRunner 执行**——准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`；EngineCore 把结果交回 Scheduler 更新请求状态，并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是元数据——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。详见[第二](#二逻辑视图静态系统拓扑自顶向下)至[七章](#七数据流token-如何穿过整个-serving-栈)。
+[^q0]: 链路是固定的：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM` → `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token，产出 `SchedulerOutput`；**Executor 分发**到一个或多个 Worker；**ModelRunner 执行**——准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`；EngineCore 把结果交回 Scheduler 更新请求状态，并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是元数据——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。详见[第二](#二逻辑视图静态系统拓扑自顶向下)至[第六章](#六场景视图1)（数据流在 6.2）。
