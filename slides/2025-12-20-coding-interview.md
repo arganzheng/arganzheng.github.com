@@ -105,7 +105,7 @@ flowchart TB
 
 ## 14 · 手撕 attention 家族
 
-**结论**：四次形状变换 + softmax 减最大值；**mask 用 −∞ 或 `finfo.min`**；KV 只缓存 K、V。
+**mask 用 −∞ 或 `finfo.min`；KV 只缓存 K、V**
 
 ```python
 q = self.wq(x).view(B, T, H, d).transpose(1, 2)          # [B, H, T, d]
@@ -127,7 +127,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 15 · 手撕 Transformer block 与反向传播
 
-**结论**：一层参数约 \(12D^2\)、训练 \(6N\)；**CE 的梯度就是 \(p-y\)**；micrograd 累加要 `+=`。
+**一层参数 \(12D^2\)；CE 的梯度就是 \(p-y\)**
 
 | 量 | 数 / 公式 |
 |---|---|
@@ -144,7 +144,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 16 · 手撕 tokenizer 与解码
 
-**结论**：BPE 按 merge 顺序不贪心；采样流水线 penalty → T → top-k → top-p → min-p。
+**BPE 按 merge 顺序不贪心；采样是 penalty → T → top-k/p → min-p**
 
 | 边界 | |
 |---|---|
@@ -160,7 +160,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 17 · 手撕损失函数与训练算法
 
-**结论**：GAE 从末尾递推 \(A_t = \delta_t + \gamma\lambda A_{t+1}\)；**AdamW 衰减解耦**，L2 会被 \(\sqrt{\hat v}\) 归一化。
+**GAE 从末尾递推；AdamW 衰减解耦，L2 会被 \(\sqrt{\hat v}\) 归一化**
 
 ```python
 # AdamW：衰减不进 m、v
@@ -179,7 +179,7 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 
 ## 18 · 手撕经典 ML 与评测指标
 
-**结论**：**模型 = 目标 + 优化**——逻辑回归梯度 $$X^\top(p - y)/n$$、k-means 每步目标单调不增所以收敛；**AUC = （正样本秩和 − $$n_+(n_+ + 1)/2$$）/ $$n_+ n_-$$**，\(O(n\log n)\)；conv = im2col + GEMM。
+**模型 = 目标 + 优化——k-means 单调不增所以收敛**
 
 | 量 | 公式 |
 |---|---|
@@ -195,7 +195,7 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 
 ## 19 · Infra 岗手撕：并发与系统
 
-**结论**：**一把锁保护什么、条件变量为什么 `while`**；异常进 Future；分块先测。
+**一把锁保护什么、条件变量为什么 `while`**
 
 | 题 | 一句话 |
 |---|---|
