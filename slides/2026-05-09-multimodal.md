@@ -50,12 +50,13 @@ flowchart TB
 
 ## 01 · 视觉编码器：为什么是 CLIP 而不是 ImageNet ViT
 
-**结论**：对比学习把图像投到**已与文本对齐的语义空间**，connector 只需小映射；但它只保留「文本能描述且需要区分图文对」的信息——**计数、空间、绑定、小字是结构性盲点**。
+**CLIP 投到已对齐的语义空间；计数、空间、小字是结构性盲点**
 
 ![左：训练前 120 张图 × 120 段文本的余弦矩阵杂乱；中：400 步后对角线上出现四个深红方块（同概念图文余弦接近 1）；右：温度的影响](/img/in-post/multimodal-01-toy-contrastive.svg){: style="max-height: 300px"}
 
 <aside class="notes" markdown="1">
 原文 /vision-encoders-clip-siglip-and-self-supervised-vit.html。I ≥ log B − L，CLIP 32K batch；温度学到 0.01（×100）；CLIP 训练 6.4e21 FLOPs ≈ 7B LLM 150B token。
+结论原文：**：对比学习把图像投到**已与文本对齐的语义空间**，connector 只需小映射；但它只保留「文本能描述且需要区分图文对」的信息——**计数、空间、绑定、小字是结构性盲点**。
 </aside>
 
 <!-- v -->
@@ -76,12 +77,13 @@ flowchart TB
 
 ## 02 · VLM 的结构：一张图值多少 token
 
-**结论**：LLaVA 的 MLP **无损保空间**、Q-Former 32 个内容无关的 query 装不下细节；2×2 merge 4× 几乎无损，28 × 28 像素/token 是文字甜点；**原生分辨率让 token ∝ 像素**，解决 tile 的边界、失真、效率三问题。
+**MLP 无损保空间、Q-Former 装不下细节；原生分辨率让 token ∝ 像素**
 
 ![横轴正方形图的边长 64–2048 像素，纵轴进 LLM 的 token 数：固定策略是 576 的水平线；AnyRes 是台阶；原生分辨率是一条 HW/28² 的曲线](/img/in-post/multimodal-02-token-budget.svg){: style="max-height: 290px"}
 
 <aside class="notes" markdown="1">
 原文 /vlm-architecture-connectors-injection-and-dynamic-resolution.html。576 token 在 7B 里 prefill 8 TFLOPs、KV 72 MB。MM1：connector 类型的影响远小于分辨率与 token 数。
+结论原文：**：LLaVA 的 MLP **无损保空间**、Q-Former 32 个内容无关的 query 装不下细节；2×2 merge 4× 几乎无损，28 × 28 像素/token 是文字甜点；**原生分辨率让 token ∝ 像素**，解决 tile 的边界、失真、效率三问题。
 </aside>
 
 <!-- v -->
@@ -102,12 +104,13 @@ flowchart TB
 
 ## 03 · VLM 的训练：为什么先冻结 LLM
 
-**结论**：随机初始化的 connector 送进噪声梯度，**LLM 会学会忽略视觉 token**——所以先冻结 LLM 只训 connector；幻觉来自数据共现、编码器缺失、解码惯性三处，各有对应手段。
+**随机 connector 会被 LLM 忽略——先冻结 LLM 只训 connector**
 
 ![左：三种训法下视觉任务准确率都在 50 步内升到接近 1；右：文本任务准确率——冻结与两阶段贴着 0.978 不动，一起训的红线在前 50 步掉到 0.87 再也没回来](/img/in-post/multimodal-03-freeze-vs-joint.svg){: style="max-height: 320px"}
 
 <aside class="notes" markdown="1">
 原文 /vlm-training-recipe-data-stages-and-evaluation.html。LLaVA-1.5 558K + 665K；MM1 配比 45 / 45 / 10（交错 / 图文对 / 纯文本）。
+结论原文：**：随机初始化的 connector 送进噪声梯度，**LLM 会学会忽略视觉 token**——所以先冻结 LLM 只训 connector；幻觉来自数据共现、编码器缺失、解码惯性三处，各有对应手段。
 </aside>
 
 <!-- v -->
@@ -127,12 +130,13 @@ flowchart TB
 
 ## 04 · 语音（上）：一秒声音在模型眼里是什么
 
-**结论**：波形 → log-mel（100 帧/秒 × 80）→ 编码器特征；语音**要生成**，所以主流让 LLM 生成短的离散序列再由 codec 还原波形；**RVQ 用几个小码本得到巨大的等效码本**。
+**RVQ 用几个小码本得到巨大的等效码本**
 
 ![左：波形的前 50 ms，橙色阴影标出一帧 25 ms；中：80 个 mel 三角滤波器，低频窄而密、高频宽；右：log-mel 谱](/img/in-post/multimodal-04-wave-to-mel.svg){: style="max-height: 280px"}
 
 <aside class="notes" markdown="1">
 原文 /speech-and-omni-models-audio-encoders-codecs-and-duplex.html。log-mel 25 ms 窗 / 10 ms 步。Whisper 30 s → 1500 位置。
+结论原文：**：波形 → log-mel（100 帧/秒 × 80）→ 编码器特征；语音**要生成**，所以主流让 LLM 生成短的离散序列再由 codec 还原波形；**RVQ 用几个小码本得到巨大的等效码本**。
 </aside>
 
 <!-- v -->
@@ -151,12 +155,13 @@ flowchart TB
 
 ## 05 · 语音（下）：说与想分开，全双工的时延
 
-**结论**：直接生成语音 token 伤文本能力（**模态竞争**）→ 内心独白 / Thinker-Talker 把说与想分开；时延 = 分帧 + 首 token + 解码 + 语义决策，**全双工把串联四段压成一个模型的一步**。
+**模态竞争 → 内心独白把说与想分开；全双工四段压一步**
 
 ![上：半双工——用户说完后依次是 VAD 等待静音、ASR、LLM 首 token、TTS 首帧四段等待，模型的语音 1–3 秒后才开始；下：全双工——模型持续听、持续决定说不说，160–200 ms](/img/in-post/multimodal-05-duplex-timeline.svg){: style="max-height: 340px"}
 
 <aside class="notes" markdown="1">
 原文 /speech-understanding-generation-and-full-duplex.html。Moshi 80 ms 帧、160 / 200 ms；半双工 1–3 s；每路半张 H100——代价是持续运行。
+结论原文：**：直接生成语音 token 伤文本能力（**模态竞争**）→ 内心独白 / Thinker-Talker 把说与想分开；时延 = 分帧 + 首 token + 解码 + 语义决策，**全双工把串联四段压成一个模型的一步**。
 </aside>
 
 <!-- v -->
@@ -177,7 +182,7 @@ flowchart TB
 
 ## 06 · 扩散模型（上）：去噪为什么等于学会生成
 
-**结论**：猜噪声的网络知道每个带噪点「**数据在哪个方向**」；ELBO 的高斯 KL 只剩均值差，用噪声表示后就是**一行 MSE**。
+**ELBO 用噪声表示后只剩一行 MSE**
 
 ![五张散点图：t = 0 是两个清晰的月牙；t = 100 略发毛；t = 300 只剩模糊两团；t = 600 与 999 是圆形高斯点云](/img/in-post/multimodal-06-forward-noising.svg){: style="max-height: 170px"}
 
@@ -185,6 +190,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /diffusion-models-ddpm-score-matching-and-flow-matching.html。闭式 x_t = √ᾱ_t x_0 + √(1−ᾱ_t) ε；β 1e-4 → 0.02，1000 步。
+结论原文：**：猜噪声的网络知道每个带噪点「**数据在哪个方向**」；ELBO 的高斯 KL 只剩均值差，用噪声表示后就是**一行 MSE**。
 </aside>
 
 <!-- v -->
@@ -239,12 +245,13 @@ $$
 
 ## 08 · Latent diffusion 与 DiT：一张图与一次 LLM 推理怎么比
 
-**结论**：VAE 接管感知压缩（f8 4ch 48×），扩散只做语义（1/10 算力）；DiT 的 FID 随 GFLOPs 平滑下降、与分配无关；**扩散 compute-bound 多步并行，LLM memory-bound 串行**——加速手段是步数蒸馏。
+**扩散 compute-bound 多步并行，LLM memory-bound 串行**
 
 ![上排六张原始手写数字 0–5，下排是各自压成 16 个数再解码的重建：形状与笔画都在，边缘略模糊——VAE 接管了感知压缩](/img/in-post/multimodal-08-pca-vae.svg){: style="max-height: 260px"}
 
 <aside class="notes" markdown="1">
 原文 /latent-diffusion-dit-and-text-to-image-recipes.html。DiT-XL/2 FID 2.27；LCM 4 步、Turbo 1–4 步。
+结论原文：**：VAE 接管感知压缩（f8 4ch 48×），扩散只做语义（1/10 算力）；DiT 的 FID 随 GFLOPs 平滑下降、与分配无关；**扩散 compute-bound 多步并行，LLM memory-bound 串行**——加速手段是步数蒸馏。
 </aside>
 
 <!-- v -->
@@ -273,12 +280,13 @@ $$
 
 ## 09 · 自回归图像生成与统一模型
 
-**结论**：AR 赢在**与 LLM 共享一切**和「一切皆 token」的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛。
+**AR 赢在共享一切，扩散赢在质量与生态——方向是收敛**
 
 ![三行六列：上排原始手写数字；中排每张图对应的 4×4 token 网格，每格一个 0–31 的编号；下排查码本重建出的图，与原图几乎一样](/img/in-post/multimodal-09-vq-tokens.svg){: style="max-height: 320px"}
 
 <aside class="notes" markdown="1">
 原文 /autoregressive-image-generation-and-unified-models.html。VQ commitment β = 0.25；LlamaGen 16384 码本利用率 97%。AR 生成的 60 张数字约一半可辨认——同预算下比 latent 扩散差。
+结论原文：**：AR 赢在**与 LLM 共享一切**和「一切皆 token」的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛。
 </aside>
 
 <!-- v -->
