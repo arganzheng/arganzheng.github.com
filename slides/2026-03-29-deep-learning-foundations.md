@@ -41,11 +41,18 @@ transition: slide
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart TB
-    A["01 演进史"] --> B["02 损失函数"] --> C["03 反向传播"]
-    C --> D["04 激活函数"] --> E["05 初始化 / 归一化 / 残差"] --> F["06 优化器"]
-    F --> G["07 正则化与泛化"]
-    E --> H["08 CNN"] --> I["09 Embedding"] --> J["10 RNN"]
+flowchart LR
+    A["01 演进史"] --> B["02 损失"] --> C["03 反向传播"] --> D["04 激活"] --> E["05 初始化"] --> F["06 优化器"] --> G["07 正则化"]
+    E --> H["08–10（下图）"]
+```
+
+<!-- v -->
+
+### 全景（下）
+
+```mermaid
+flowchart LR
+    E["05 初始化"] --> H["08 CNN"] --> I["09 Embedding"] --> J["10 RNN"]
 ```
 
 <aside class="notes" markdown="1">
