@@ -37,12 +37,12 @@ $$
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    C["一步 decode 的成本 = （权重字节 + KV 字节 + 算力）÷ 每次前向产出的 token 数"]
-    C --> D1["改解码过程<br/>01 采样与约束"] --> D2["02 投机解码<br/>唯一不改变输出分布的方法"]
-    C --> W3["改权重表示<br/>03 训练后量化"] --> W4["04 量化感知训练与低比特评测"]
-    C --> K5["改 KV<br/>05 量化、驱逐、稀疏 attention"]
-    C --> P6["改结构<br/>06 剪枝、深度缩放、小模型"]
-    W4 & P6 -. "恢复靠蒸馏" .-> X["评测：退化集中在困惑度看不到的地方"]
+    C["一步 decode 成本<br/>=（权重 + KV + 算力）÷ 产出 token 数"]
+    C --> D1["改解码<br/>01 采样与约束"] --> D2["02 投机解码"]
+    C --> W3["改权重<br/>03 训练后量化"] --> W4["04 QAT 与低比特评测"]
+    C --> K5["改 KV<br/>05 量化、驱逐、稀疏"]
+    C --> P6["改结构<br/>06 剪枝、缩放"]
+    W4 & P6 -. "恢复靠蒸馏" .-> X["评测：退化在困惑度看不到处"]
     D2 & K5 -.-> X
 ```
 
@@ -56,7 +56,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /decoding-strategies-sampling-and-constrained-generation.html。R1 / Qwen3 模型卡：T = 0.6、top-p 0.95、无重复惩罚。greedy 路径未被训练，长输出下重复退化被放大。
-结论原文：**：pass@1 奖励稳定走最可能的路（最优低温），pass@k 奖励至少一次走到（最优中高温）——**两者不能用同一组参数报告**；温度只改比值不置零，**截断才把尾部置零**；推理模型不用 greedy。
+结论原文：pass@1 奖励稳定走最可能的路（最优低温），pass@k 奖励至少一次走到（最优中高温）——**两者不能用同一组参数报告**；温度只改比值不置零，**截断才把尾部置零**；推理模型不用 greedy。
+02 投机解码是唯一不改变输出分布的方法。
 </aside>
 
 <!-- v -->
@@ -110,7 +111,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /post-training-quantization-gptq-awq-and-rotation.html。70B 权重 141 → 39.8 GB。高吞吐用 W8A8 / FP8（字节 ÷ 2、算力 × 2、近无损）或 W4A4（需旋转）。
-结论原文：**：4-bit **快在 memory-bound 的 decode、慢在 prefill 与大 batch**；崩掉来自权重重尾与激活的固定通道离群——GPTQ 补偿、AWQ 保护、SmoothQuant 迁移、旋转摊平。
+结论原文：4-bit **快在 memory-bound 的 decode、慢在 prefill 与大 batch**；崩掉来自权重重尾与激活的固定通道离群——GPTQ 补偿、AWQ 保护、SmoothQuant 迁移、旋转摊平。
 </aside>
 
 <!-- v -->
@@ -141,7 +142,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /quantization-aware-training-low-bit-and-evaluating-quantized-models.html。ŵ = w + sg(Q(w) − w)。Gemma 3 QAT 5000 步；NF4 双重量化 4.127 bit。
-结论原文：**：困惑度 +0.36 的 W4 模型 GSM8K 掉 3–6、needle 掉 10 以上——**先掉的是多步推理、长上下文、多语言与指令细节**；逐 token KL 是直接度量；末段 QAT 以全精度的自己为教师把退化压回一半。
+结论原文：困惑度 +0.36 的 W4 模型 GSM8K 掉 3–6、needle 掉 10 以上——**先掉的是多步推理、长上下文、多语言与指令细节**；逐 token KL 是直接度量；末段 QAT 以全精度的自己为教师把退化压回一半。
 </aside>
 
 <!-- v -->
@@ -170,7 +171,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /kv-cache-compression-quantization-eviction-and-sparse-attention.html。attention sink：massive activation 落在第一个 token 上，它的 key 与所有 query 点积都大，吃 30–50% 注意力，驱逐它就崩。
-结论原文：**：**key 有固定通道离群、value 没有**——key per-channel、value per-token，2 bit 下选错崩掉；FP8 KV 永远是第一步；驱逐假设「过去不重要 = 将来不重要」，在问题未知、信息密度高的任务上不成立。
+结论原文：**key 有固定通道离群、value 没有**——key per-channel、value per-token，2 bit 下选错崩掉；FP8 KV 永远是第一步；驱逐假设「过去不重要 = 将来不重要」，在问题未知、信息密度高的任务上不成立。
 </aside>
 
 <!-- v -->
@@ -199,7 +200,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pruning-depth-scaling-and-small-model-recipes.html。中后层余弦相似度 0.85–0.95；悬崖 70B 约 40%、13B 约 30%。
-结论原文：**：中后层是残差流上的小修正——删掉对平均预测影响小、对**关键位置的多步组合与后训练能力**破坏大（删 25% 层 PPL +0.3、GSM8K 50 → 10 以下）；**剪枝必须蒸馏恢复**。
+结论原文：中后层是残差流上的小修正——删掉对平均预测影响小、对**关键位置的多步组合与后训练能力**破坏大（删 25% 层 PPL +0.3、GSM8K 50 → 10 以下）；**剪枝必须蒸馏恢复**。
 </aside>
 
 <!-- v -->
