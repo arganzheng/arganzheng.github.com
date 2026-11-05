@@ -36,7 +36,7 @@ catalog: true
 
 这是写这个系列的时机。Codex 的 `codex-rs` 是公开的 Rust 代码库（`core`、`sandboxing`、`execpolicy`、`hooks`、`app-server`、`code-mode` 等几十个 crate），DeepSeek Harness 是公开的 TypeScript 单体仓库（`packages/core` 的 `agent-loop` / `session` / `tools`、`sandbox` / `compaction` / `spill` / `subagent` / `guard` / `ptc-runtime` 等包组，附架构文档与 Cordis 教程），Claude Code 的 Agent SDK 文档把权限判定顺序、子 agent 与 agent teams 的差别、hooks 的生命周期写得很具体。三家在同一批问题上的不同答案，是理解"harness 是什么"最好的教材——比任何框架教程都好。
 
-### 事故告诉我们缺哪一格会怎样
+### 事故暴露缺哪一格会怎样
 
 《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲过的三个事件——Replit 的 agent 在代码冻结期删库、PocketOS 的 Cursor agent 用一个无关文件里权限过宽的 token 在 9 秒内删掉生产卷与备份、OpenAI 约 700 个测试中的 agent 入侵 Hugging Face——每一个都能在 harness 的组件表上找到缺的那一格：环境隔离、最小权限、确认门、可回滚、沙箱出口。本系列第五篇逐环讲这些格子怎么填。
 
@@ -225,8 +225,8 @@ Table: 本系列的版本与事实基线
 | 工具用 MCP 还是自定义？几十个工具时怎么办？中间结果怎么不进上下文？ | 第二篇 |
 | 任务中断后怎么续？会话存什么？托管还是自托管运行时？ | 第三篇 |
 | 跑到第 40 步上下文满了怎么办？什么该交给子 agent？ | 第四篇 |
-| 这个工具调用该自动执行、问人还是禁止？沙箱用什么？PocketOS 的五环我防住了几环？ | 第五篇 |
-| Codex、DeepSeek Harness、Claude Code 各怎么解这些问题，我该学谁？ | 第六篇 |
+| 这个工具调用该自动执行、问人还是禁止？沙箱用什么？PocketOS 的五环防住了几环？ | 第五篇 |
+| Codex、DeepSeek Harness、Claude Code 各怎么解这些问题，该学谁？ | 第六篇 |
 | 需要多个 agent 吗？用哪种模式？代价多少？ | 第七篇 |
 | 记忆存什么、忘什么？人站在哪一级？业务动作没有测试怎么验证？ | 第八篇 |
 | 这个 agent 可靠吗？轨迹怎么评？上生产前还缺什么？ | 第九篇 |

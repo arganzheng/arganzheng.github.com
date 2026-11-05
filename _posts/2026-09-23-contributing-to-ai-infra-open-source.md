@@ -74,7 +74,7 @@ PyTorch 的源码树有几百万行，`test/` 目录下有两百多个条目；v
 
 - **项目自己的贡献文档**是权威来源，但它们假设读者已经知道开源怎么运作，只讲本项目的特殊之处，而且分散在 `CONTRIBUTING.md`、wiki、issue 模板、CI 配置里；
 - **通用的开源贡献指南**讲 fork、branch、PR 的基本操作，不涉及百万行项目的阅读方法，也不涉及 benchmark 数据、CI 硬件矩阵这些 AI-Infra 特有的要求；
-- **"我的第一个 PyTorch PR"类博客**记录了一次经历，缺少可迁移的方法。
+- **"第一个 PyTorch PR"类博客**记录了一次经历，缺少可迁移的方法。
 
 本系列想填补的是从"会用 git 和 GitHub"到"能在 PyTorch 或 vLLM 里独立完成一次从 issue 到合入的全流程"之间的那段路。
 
@@ -150,7 +150,7 @@ Table: 三条交织的线索
 
 这一篇会覆盖：
 
-- issue 标签体系：vLLM 的 `good first issue` 与 `new-model` 标签、`docs/contributing/README.md` 里的 "Job Board" 与 onboarding 任务看板；PyTorch 以 `module:` 前缀的模块标签（`.github/labeler.yml`、`label_to_label.yml` 定义了自动打标规则）、`actionable` 标签的含义；标签是 maintainer 表达"我们想要什么"的主要渠道；
+- issue 标签体系：vLLM 的 `good first issue` 与 `new-model` 标签、`docs/contributing/README.md` 里的 "Job Board" 与 onboarding 任务看板；PyTorch 以 `module:` 前缀的模块标签（`.github/labeler.yml`、`label_to_label.yml` 定义了自动打标规则）、`actionable` 标签的含义；标签是 maintainer 表达"想要什么"的主要渠道；
 - RFC 与 roadmap：PyTorch 的大改动走 `pytorch/rfcs` 仓库，vLLM 用 `.github/ISSUE_TEMPLATE/750-RFC.yml` 模板（Motivation、Proposed Change、Feedback Period 通常至少一周、CC List），超过 500 行的架构改动要求先有 RFC（`docs/contributing/README.md` 提到会打 `rfc-required` 标签，但截至 2026-09 该标签并不在仓库标签列表中——文档与实践不同步是这类项目的常态，正文会讨论怎么对待）；roadmap issue 是找"maintainer 想做但没人手"的工作的地方；
 - CI 失败：vLLM 的 `docs/contributing/ci/failures.md` 描述了 CI 失败看板和 `[CI Failure]` issue 模板；PyTorch 的 HUD 显示 main 上哪些任务在红；修一个已知的 flaky test 是低风险、高感谢度的切入点；
 - 性能回归：vLLM 的 `700-performance-discussion.yml` issue 模板与 `benchmarks/` 目录；PyTorch 的 `benchmarks/` 下按子系统组织的 benchmark 套件；一个带复现脚本和数字的回归报告本身就是贡献；
@@ -296,7 +296,7 @@ NCCL、Megatron-LM、FlashAttention、Triton、SGLang 等项目在正文中只�
 - 有人在做同样的事吗？：→ 第二篇：查重
 - 这个改动要不要先讨论？：→ 第二篇：规模与风险的判断
 - reviewer 十分钟内能确认它正确吗？：→ 第三篇：最小 diff、测试、benchmark、描述
-- CI 红了是我的问题吗？：→ 第三篇：CI 矩阵与日志
+- CI 红了是自己的问题吗？：→ 第三篇：CI 矩阵与日志
 - review 三周没动，怎么办？：→ 第三篇：review 文化与沟通
 - 用了 AI 辅助，该怎么声明？：→ 第三篇：项目政策
 - 一个真实的 PR 从头到尾长什么样？：→ 第四篇：两个走读

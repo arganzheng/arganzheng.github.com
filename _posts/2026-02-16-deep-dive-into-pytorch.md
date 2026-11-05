@@ -783,7 +783,7 @@ loss.backward()
 4. Dispatcher 如何选择算子？（第五篇）
 5. 自定义算子如何接入 Dispatcher 与 Autograd？（第六篇）
 6. Compiler 如何对计算进行变换？（第七篇）
-7. Profiler 如何告诉我们瓶颈在哪里？（第八篇）
+7. Profiler 如何暴露瓶颈在哪里？（第八篇）
 8. Distributed Runtime 如何让多卡协同？（第九篇）
 9. Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
 
