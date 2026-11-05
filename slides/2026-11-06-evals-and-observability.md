@@ -80,15 +80,15 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart TB
+flowchart LR
     O["一条输出"] --> R{"规则能判？"}
     R -- "能：确定免费" --> RR["规则打分"]
-    R -- "不能" --> J["<b>LLM-as-judge</b><br/>rubric、换序去偏"]
+    R -- "不能" --> J["<b>LLM judge</b><br/>rubric、去偏"]
     J --> C{"校准过吗？"}
     C -- "一致率 ≥ 85%" --> OK["可用"]
     C -- "不够" --> H["<b>人</b>：重标、改 rubric"]
     H --> J
-    OK -. "改 judge 要重新校准" .-> C
+    OK -. "改 judge 重校准" .-> C
 
 ```
 
@@ -256,13 +256,13 @@ span 完整输入可重建引用；stop_reason。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart TB
+flowchart LR
     B["一个坏结果"] -- "绑 trace" --> TR["打开完整轨迹"]
     TR --> D["决策点日志"]
-    D --> C["失败打类"]
+    D --> C["失败分类"]
     C --> F{"改哪侧？"}
     F -- "应用侧" --> RP["<b>录制回放</b>"]
-    F -- "模型侧" --> EV["变成评测用例"]
+    F -- "模型侧" --> EV["评测用例"]
     RP & EV --> V["版本 diff"]
 
 
