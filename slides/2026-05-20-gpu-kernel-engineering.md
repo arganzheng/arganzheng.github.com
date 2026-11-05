@@ -67,7 +67,7 @@ flowchart TB
 
 | 算子 | I（FLOP / Byte） | vs ridge 156（A100 BF16） |
 |---|---|---|
-| elementwise（add） | 1/6 | memory-bound，差三个数量级 |
+| elementwise（add） | \(I=1/6\) | memory-bound，差三个数量级 |
 | RMSNorm | ≈ 1 | memory-bound |
 | decode attention（GQA g = 4） | ≈ 4 | memory-bound |
 | GEMM 4096³ BF16 | ≈ 1365 | compute-bound |
@@ -338,7 +338,7 @@ Table: CUDA 与 Ascend C 的核心映射
 ### 账本不是性能报告
 
 - 固定 FP16 `[8,2048]`：8 个逻辑块，每块 16 轮 × 128 元素。
-- 三队列各两块 buffer：payload **1536 B**；逻辑全局流量 **98304 B**；I = **1/6**。
+- 三队列各两块 buffer：payload **1536 B**；逻辑全局流量 **98304 B**；\(I=1/6\)。
 - NumPy 账本只验证覆盖与参考值；CANN CPU 调试、仿真、真机不能互相冒充。
 - 本篇未编译或运行 Ascend C；**没有真实 NPU 性能数据**。
 
