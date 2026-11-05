@@ -47,16 +47,9 @@ flowchart TB
 
 ## 01 · 负载画像：一步 RL 里发生什么
 
-**结论**：8B、64 张 H100 做 GRPO——**FLOP 上训练占一半、生成六分之一；时间上生成占四分之三**；全步 MFU 13%。
+**FLOP 训练占一半、时间上生成占四分之三；全步 MFU 13%**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
-flowchart TB
-    P["512 个 prompt"] --> G["<b>① 生成</b>：推理引擎，每 prompt 采 16 条<br/>decode、memory-bound、最长那条决定墙钟——<b>602 s</b>（长尾 196 s）"]
-    G --> R["<b>② 打分 + 前向</b>：奖励 + 策略、参考模型 logprob<br/>prefill 形态、compute-bound——72 s"]
-    R --> T["<b>③ 训练</b>：反向 + 优化器更新，6N × token——136 s"]
-    T -- "新权重同步回推理引擎（04）" --> G
-```
+![一步 RL：生成 rollout、打分、训练三段，生成 602 s、打分 72 s、训练 136 s](/img/in-post/rl-step-anatomy-three-jobs.svg){: style="max-height: 420px}
 
 <aside class="notes" markdown="1">
 原文 /rl-step-anatomy-rollout-reward-train.html。每 token 约 12N_a；一步 6.8 EFLOP；KV 9.3 TB、分 1.4 波；decode 步 ≈ 36 ms。
