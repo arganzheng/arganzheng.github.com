@@ -325,8 +325,8 @@ flowchart LR
 
 | 策略 | 每 rank 静态显存 | 每步通信 | 范围 |
 |---|---|---|---|
-| DDP | 16P | 2P（梯度 all_reduce，按桶与反向重叠） | 任意 |
-| FSDP | **16P / N** | 3P（all_gather 参数 ×2 + reduce_scatter 梯度） | 任意 |
+| DDP | \(16P\) | \(2P\)（梯度 all_reduce，按桶与反向重叠） | 任意 |
+| FSDP | **\(16P/N\)** | \(3P\)（all_gather 参数 ×2 + reduce_scatter 梯度） | 任意 |
 | TP | 参数 / N | 每层 4 次 all_reduce | 节点内 |
 | PP | 参数 / K | 层间激活 | 气泡 $$(K-1)/(M+K-1)$$ |
 
@@ -406,7 +406,7 @@ flowchart LR
 | 06 | blocks = (n + 255) / 256；stride 2 带宽 50% |
 | 07 | Dynamo → AOTAutograd → Inductor；Guard；缓存 8 |
 | 08 | CPU 每算子 10–30 µs；ridge A100 BF16 ≈ 156；13 倍 |
-| 09 | ring all_reduce 2n；DDP 2P / FSDP 3P；PP 气泡 (K−1)/(M+K−1) |
+| 09 | ring all_reduce \(2n\)；DDP \(2P\) / FSDP \(3P\)；PP 气泡 \((K-1)/(M+K-1)\) |
 | 10 | 2000+ 算子 × 15 dtype × …；cut 距发布 6 周 |
 
 ---
