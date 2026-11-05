@@ -626,7 +626,7 @@ flops = 2 * M * N * K
 print(f"ours {flops / (ms * 1e-3) / 1e12:.1f} TFLOPS, cuBLAS {flops / (ms_ref * 1e-3) / 1e12:.1f} TFLOPS")  # ms 要先换成秒
 ```
 
-`atol` 从默认的 1e-5 调大到 1e-2：$$K = 4096$$ 项 FP32 累加、再舍入到 BF16（8 位尾数），我们的累加顺序与 cuBLAS 不同，绝对误差在 $$10^{-2}$$ 量级是正常的；`rtol` 保持 1.6e-2。
+`atol` 从默认的 1e-5 调大到 1e-2：$$K = 4096$$ 项 FP32 累加、再舍入到 BF16（8 位尾数），这个累加顺序与 cuBLAS 不同，绝对误差在 $$10^{-2}$$ 量级是正常的；`rtol` 保持 1.6e-2。
 
 ### 5. 预期与差距
 
@@ -696,7 +696,7 @@ Ampere kernel 中每个 warp 既搬数据又算矩阵，两种工作交织在同
 - **Producer warpgroup**（4 个 warp，实际只有 1 个线程干活）：循环地等待某个 stage 变空、发出 TMA 装载 A 和 B 到该 stage、`arrive.expect_tx`；
 - **Consumer warpgroup(s)**（1 或 2 个，各 4 个 warp）：循环地等待某个 stage 装满、对它发 `wgmma`、算完后通知该 stage 已空。
 
-同步用两组 mbarrier，每个 stage 一对：`full_barrier[s]`（producer 到 consumer："数据到了"）和 `empty_barrier[s]`（consumer 到 producer："我读完了，可以覆盖"）。两个角色围着 stage 环形 buffer 转，时序如下（2 个 stage 示意）：
+同步用两组 mbarrier，每个 stage 一对：`full_barrier[s]`（producer 到 consumer："数据到了"）和 `empty_barrier[s]`（consumer 到 producer："读完了，可以覆盖"）。两个角色围着 stage 环形 buffer 转，时序如下（2 个 stage 示意）：
 
 ![warp specialization 的时序：producer 发 TMA，consumer 做 wgmma](/img/in-post/tensor-cores-cutlass-and-cute-warp-specialization-timeline.svg)
 
@@ -833,7 +833,7 @@ flowchart TB
     class h1,h2,h3,h4,h5,h6,h7 h
 ```
 
-对应到第四章的手写 kernel：`bf16_gemm_tn()` 是 device 层；`bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；k 循环加流水是 `CollectiveMma`；`MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；`swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替我们表达的东西。
+对应到第四章的手写 kernel：`bf16_gemm_tn()` 是 device 层；`bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；k 循环加流水是 `CollectiveMma`；`MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；`swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替人表达的东西。
 
 ### 3. CuTe：Layout 是从坐标到偏移的函数
 

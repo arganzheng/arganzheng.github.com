@@ -245,7 +245,7 @@ host 侧 `uint32_t blockDim = 8;`，kernel 侧 `GetBlockIdx()` 返回 0–7。�
 | CUDA | Ascend C | 说明 |
 |---|---|---|
 | `gridDim.x` | `blockDim`（launch 参数） | 都是"切成几份" |
-| `blockIdx.x` | `GetBlockIdx()` | 都是"我是第几份" |
+| `blockIdx.x` | `GetBlockIdx()` | 都是"是第几份" |
 | `blockDim.x` / `threadIdx.x` | 无对应物 | 核内并行由 Vector API 的向量长度表达 |
 
 Table: CUDA 与 Ascend C 的并行维度对照

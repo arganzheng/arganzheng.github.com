@@ -79,7 +79,7 @@ $$
 
 Table: Llama-3-8B 一层 decoder 在 M = 8192 prefill 下每个 kernel 的字节数、FLOPs 与 A100 理论时间
 
-GEMM 的理论时间按 312 TFLOPS 算，memory-bound kernel 按 2.0 TB/s 算，attention 的 FLOPs 已经乘了因果掩码的 1/2。这张表有两个用途：一是给后面每一个 profiler 数字一个参照——RMSNorm 实测 180 µs 就是 74% 的带宽利用率，可以接受；实测 400 µs 就一定有问题；二是告诉我们 profiler 应该先看谁：如果 GEMM 与 attention 各自达到峰值的 70% 以上，整层的时间就由它们主导，memory-bound kernel 加起来不到 1 ms，融合它们的收益上限就是这 1 ms 的一部分。
+GEMM 的理论时间按 312 TFLOPS 算，memory-bound kernel 按 2.0 TB/s 算，attention 的 FLOPs 已经乘了因果掩码的 1/2。这张表有两个用途：一是给后面每一个 profiler 数字一个参照——RMSNorm 实测 180 µs 就是 74% 的带宽利用率，可以接受；实测 400 µs 就一定有问题；二是给出 profiler 应该先看谁：如果 GEMM 与 attention 各自达到峰值的 70% 以上，整层的时间就由它们主导，memory-bound kernel 加起来不到 1 ms，融合它们的收益上限就是这 1 ms 的一部分。
 
 decode 阶段（$$M = 1$$ 或几十）这张表会完全翻转：所有 GEMM 的算术强度都变成 $$M$$ 量级，全部 memory-bound，时间由读权重决定，整层理论时间约为权重字节 / 带宽。那时 profiler 要回答的问题变成"GEMV 类 kernel 的带宽利用率是多少"以及"kernel 之间的空隙有多大"。同一个 layer、两种形状、两套完全不同的瓶颈，这是 Nsight Systems 与 Nsight Compute 分工的起点。
 
@@ -218,7 +218,7 @@ ncu-ui rms_full.ncu-rep
 - **Compute 高、Memory 低**：compute-bound。接下来看 Compute Workload Analysis 里到底是哪个 pipe 饱和——如果是 FMA/ALU 而不是 Tensor pipe，说明 GEMM 没有用上 Tensor Core 或者 Tensor Core 之外的工作（fragment 转换、softmax、地址计算）太多。
 - **两者都低（<40–50%）**：latency-bound。硬件两种资源都没喂饱，问题在延迟没有被隐藏——这是最常见的情况，也是 Warp State Statistics 与 Occupancy 两节要回答的。
 
-`--set full` 里还包含一张 **Roofline chart**（`SpeedOfLight_RooflineChart` section），横轴算术强度、纵轴实测 FLOP/s，把这个 kernel 画成一个点。它用的是硬件计数器测出的 FLOPs 与 DRAM 字节数，因此点的横坐标是"实际算术强度"（包含所有重复读取），与我们按最小流量算出的理论强度之差，本身就是一个诊断信息：GEMM 实际强度远低于理论强度，说明 tile 复用做得不够。
+`--set full` 里还包含一张 **Roofline chart**（`SpeedOfLight_RooflineChart` section），横轴算术强度、纵轴实测 FLOP/s，把这个 kernel 画成一个点。它用的是硬件计数器测出的 FLOPs 与 DRAM 字节数，因此点的横坐标是"实际算术强度"（包含所有重复读取），与按最小流量算出的理论强度之差，本身就是一个诊断信息：GEMM 实际强度远低于理论强度，说明 tile 复用做得不够。
 
 要注意 SOL 的一个陷阱：它是"峰值可持续吞吐"的百分比，分子是整个 kernel 运行期间的平均值。一个前 80% 时间满带宽、最后 20% 只有几个 block 在跑的 kernel，SOL Memory 会显示 80% 左右，但问题其实在 tail。这要结合 Launch Statistics 的 waves 一起看。
 
@@ -448,7 +448,7 @@ Table: 按 dtype 定的 tolerance
 
 `torch.testing.assert_close` 的 BF16 默认值就是 rtol=1.6e-2、atol=1e-5。归约类 kernel（norm、softmax、attention）通常要把 atol 调大到 1e-2 左右——归一化后的输出量级在 1 附近，1e-5 的 atol 在 rtol 面前几乎不起作用，但对接近 0 的输出元素（相对误差无意义）需要绝对容差兜底。vLLM 的 `test_layernorm.py` 对 RMSNorm 用 `atol=1e-2, rtol=1e-2` 并注释了原因："LayerNorm operators typically have larger numerical errors than other operators because they involve reductions"。量化 kernel 的对照对象是"量化过程本身的参考实现"：把权重按同样的 scale 反量化成 FP32 再做 GEMM，与 kernel 输出比；不要与原始 FP32 权重的结果比，那个差异是量化误差而不是 kernel 错误。
 
-tolerance 调大之前要问一句：是我的 kernel 累加顺序不同带来的合理误差，还是有 bug？一个经验判断：合理误差在所有元素上是随机分布的、量级与 ulp 相当；bug 通常集中在某些行（边界行）、某些列（最后一个不完整的 tile）或者是系统性的（全部偏小一个因子）。`(y - ref).abs().max()` 的位置比大小更有信息量。
+tolerance 调大之前要问一句：是 kernel 累加顺序不同带来的合理误差，还是有 bug？一个经验判断：合理误差在所有元素上是随机分布的、量级与 ulp 相当；bug 通常集中在某些行（边界行）、某些列（最后一个不完整的 tile）或者是系统性的（全部偏小一个因子）。`(y - ref).abs().max()` 的位置比大小更有信息量。
 
 ### 2. 边界 shape、非连续输入与其他维度
 
@@ -638,7 +638,7 @@ benchmark 的目标是给出一个**可复现、可比较**的数字。四个来
 
 **L2 flush**：A100 的 L2 是 40 MB，H100 是 50 MB。一个 128 MiB 的 RMSNorm 输入不会被 L2 装下，但一个 decode 阶段 16 MiB 的权重可以——连续测 100 次，后 99 次都从 L2 读，测出的"带宽"会超过 HBM 峰值。本系列第二篇的脚手架 `bench(fn, warmup=10, iters=100, flush_l2=True)` 在两次计时之间对一个 128 MB 缓冲区做 `cudaMemsetAsync` 把 L2 冲掉。Python 侧 `triton.testing.do_bench` 默认做同样的事（它在每次调用前写一个 256 MB 的缓冲区）。测"热 L2"还是"冷 L2"取决于生产环境里这个 kernel 前面跑的是什么，但**要说明测的是哪种**。
 
-**计时方式**：用 `torch.cuda.Event(enable_timing=True)` 在 GPU 时间线上打点，而不是 host 侧 `time.perf_counter()` 加 `synchronize()`——后者把 launch 开销与同步延迟算进去，对几微秒的 kernel误差是 100% 量级。vLLM 的 `benchmarks/kernels/benchmark_layernorm.py` 用的是 host 计时加 `synchronize`，配合 `--profile` 开关用 `cudaProfilerStart/Stop` 框定采集范围；它把多次迭代取平均，对几十微秒以上的 kernel 是够的，但对本文的目的我们用更细的工具。
+**计时方式**：用 `torch.cuda.Event(enable_timing=True)` 在 GPU 时间线上打点，而不是 host 侧 `time.perf_counter()` 加 `synchronize()`——后者把 launch 开销与同步延迟算进去，对几微秒的 kernel误差是 100% 量级。vLLM 的 `benchmarks/kernels/benchmark_layernorm.py` 用的是 host 计时加 `synchronize`，配合 `--profile` 开关用 `cudaProfilerStart/Stop` 框定采集范围；它把多次迭代取平均，对几十微秒以上的 kernel 是够的，但对本文的目用更细的工具。
 
 **统计量**：报告**中位数**（p50），必要时加 p90；不要报平均值——GPU 的时钟调整、其他进程的干扰会产生长尾，平均值被它们拉偏，中位数不会。`triton.testing.do_bench(fn, warmup=25, rep=100, return_mode="median")` 直接给中位数；`quantiles=[0.5, 0.9]` 返回 p50 与 p90。`torch.utils.benchmark.Timer(stmt, globals).blocked_autorange(min_run_time=1.0)` 是 PyTorch 自带的版本，返回 `Measurement` 对象，`.median` 是中位数、`.iqr` 是四分位距，它会自动调整每块的迭代数使总时间达到 `min_run_time`。
 

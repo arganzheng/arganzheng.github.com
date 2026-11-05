@@ -191,7 +191,7 @@ bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 
 不满足时退回标量路径。ATen 的 `can_vectorize_up_to` 做的就是这件事，第六章会读它。
 
-第二，**`reinterpret_cast` 的语义**。`reinterpret_cast<const int4*>(x)[i]` 表示"把 `x` 看成 `int4` 数组，取第 i 个"，也就是从 `x` 起第 $$16i$$ 字节处读 16 字节。它要求 `x` 本身 16 字节对齐，而不只是 `x + 16i`。这一点很容易被"我只在 i 为 8 的倍数处访问"的直觉误导。
+第二，**`reinterpret_cast` 的语义**。`reinterpret_cast<const int4*>(x)[i]` 表示"把 `x` 看成 `int4` 数组，取第 i 个"，也就是从 `x` 起第 $$16i$$ 字节处读 16 字节。它要求 `x` 本身 16 字节对齐，而不只是 `x + 16i`。这一点很容易被"只在 i 为 8 的倍数处访问"的直觉误导。
 
 第三，**尾部**。$$n$$ 不是 8 的倍数时，最后 $$n \bmod 8$$ 个元素不能用 `int4` 读（会越界读取，甚至越界写入）。常见做法是：主循环只处理前 $$\lfloor n / 8 \rfloor \times 8$$ 个元素，剩余的由某个 block 的前几个线程用标量方式补齐。第八章的代码会给出完整写法。
 
@@ -809,7 +809,7 @@ add_bf16_strided2d(const __nv_bfloat16* __restrict__ x,
 }
 ```
 
-这个版本没有向量化：一般 stride 下无法保证 8 个相邻元素在内存里连续。它的性能取决于 `xs1`、`bs1`：等于 1 时访存合并，能接近版本一；`x` 是转置 view（`xs1 = size0`）时效率掉到 6.25%，慢一个数量级——这时正确的做法是先 `contiguous()`。`i / size1` 是 64 位除法，每次约几十条指令，在 memory-bound 下通常被访存延迟掩盖；追求极致时改用 ATen 的 `IntDivider` 思路预计算魔数。ATen 的 `TensorIterator` 还会把 `size1` 连续的情况直接合并为一维、走向量化路径，我们这里为了展示 stride 机制没有做。
+这个版本没有向量化：一般 stride 下无法保证 8 个相邻元素在内存里连续。它的性能取决于 `xs1`、`bs1`：等于 1 时访存合并，能接近版本一；`x` 是转置 view（`xs1 = size0`）时效率掉到 6.25%，慢一个数量级——这时正确的做法是先 `contiguous()`。`i / size1` 是 64 位除法，每次约几十条指令，在 memory-bound 下通常被访存延迟掩盖；追求极致时改用 ATen 的 `IntDivider` 思路预计算魔数。ATen 的 `TensorIterator` 还会把 `size1` 连续的情况直接合并为一维、走向量化路径，这里为了展示 stride 机制没有做。
 
 ### 6. host 侧 launch 与 `load_inline` 测试
 
