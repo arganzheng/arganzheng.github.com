@@ -56,7 +56,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /vision-encoders-clip-siglip-and-self-supervised-vit.html。I ≥ log B − L，CLIP 32K batch；温度学到 0.01（×100）；CLIP 训练 6.4e21 FLOPs ≈ 7B LLM 150B token。
-结论原文：**：对比学习把图像投到**已与文本对齐的语义空间**，connector 只需小映射；但它只保留「文本能描述且需要区分图文对」的信息——**计数、空间、绑定、小字是结构性盲点**。
+结论原文：对比学习把图像投到**已与文本对齐的语义空间**，connector 只需小映射；但它只保留「文本能描述且需要区分图文对」的信息——**计数、空间、绑定、小字是结构性盲点**。
 </aside>
 
 <!-- v -->
@@ -83,7 +83,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /vlm-architecture-connectors-injection-and-dynamic-resolution.html。576 token 在 7B 里 prefill 8 TFLOPs、KV 72 MB。MM1：connector 类型的影响远小于分辨率与 token 数。
-结论原文：**：LLaVA 的 MLP **无损保空间**、Q-Former 32 个内容无关的 query 装不下细节；2×2 merge 4× 几乎无损，28 × 28 像素/token 是文字甜点；**原生分辨率让 token ∝ 像素**，解决 tile 的边界、失真、效率三问题。
+结论原文：LLaVA 的 MLP **无损保空间**、Q-Former 32 个内容无关的 query 装不下细节；2×2 merge 4× 几乎无损，28 × 28 像素/token 是文字甜点；**原生分辨率让 token ∝ 像素**，解决 tile 的边界、失真、效率三问题。
 </aside>
 
 <!-- v -->
@@ -110,7 +110,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /vlm-training-recipe-data-stages-and-evaluation.html。LLaVA-1.5 558K + 665K；MM1 配比 45 / 45 / 10（交错 / 图文对 / 纯文本）。
-结论原文：**：随机初始化的 connector 送进噪声梯度，**LLM 会学会忽略视觉 token**——所以先冻结 LLM 只训 connector；幻觉来自数据共现、编码器缺失、解码惯性三处，各有对应手段。
+结论原文：随机初始化的 connector 送进噪声梯度，**LLM 会学会忽略视觉 token**——所以先冻结 LLM 只训 connector；幻觉来自数据共现、编码器缺失、解码惯性三处，各有对应手段。
 </aside>
 
 <!-- v -->
@@ -136,7 +136,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /speech-and-omni-models-audio-encoders-codecs-and-duplex.html。log-mel 25 ms 窗 / 10 ms 步。Whisper 30 s → 1500 位置。
-结论原文：**：波形 → log-mel（100 帧/秒 × 80）→ 编码器特征；语音**要生成**，所以主流让 LLM 生成短的离散序列再由 codec 还原波形；**RVQ 用几个小码本得到巨大的等效码本**。
+结论原文：波形 → log-mel（100 帧/秒 × 80）→ 编码器特征；语音**要生成**，所以主流让 LLM 生成短的离散序列再由 codec 还原波形；**RVQ 用几个小码本得到巨大的等效码本**。
 </aside>
 
 <!-- v -->
@@ -161,7 +161,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /speech-understanding-generation-and-full-duplex.html。Moshi 80 ms 帧、160 / 200 ms；半双工 1–3 s；每路半张 H100——代价是持续运行。
-结论原文：**：直接生成语音 token 伤文本能力（**模态竞争**）→ 内心独白 / Thinker-Talker 把说与想分开；时延 = 分帧 + 首 token + 解码 + 语义决策，**全双工把串联四段压成一个模型的一步**。
+结论原文：直接生成语音 token 伤文本能力（**模态竞争**）→ 内心独白 / Thinker-Talker 把说与想分开；时延 = 分帧 + 首 token + 解码 + 语义决策，**全双工把串联四段压成一个模型的一步**。
 </aside>
 
 <!-- v -->
@@ -190,7 +190,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /diffusion-models-ddpm-score-matching-and-flow-matching.html。闭式 x_t = √ᾱ_t x_0 + √(1−ᾱ_t) ε；β 1e-4 → 0.02，1000 步。
-结论原文：**：猜噪声的网络知道每个带噪点「**数据在哪个方向**」；ELBO 的高斯 KL 只剩均值差，用噪声表示后就是**一行 MSE**。
+结论原文：猜噪声的网络知道每个带噪点「**数据在哪个方向**」；ELBO 的高斯 KL 只剩均值差，用噪声表示后就是**一行 MSE**。
 </aside>
 
 <!-- v -->
@@ -251,7 +251,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /latent-diffusion-dit-and-text-to-image-recipes.html。DiT-XL/2 FID 2.27；LCM 4 步、Turbo 1–4 步。
-结论原文：**：VAE 接管感知压缩（f8 4ch 48×），扩散只做语义（1/10 算力）；DiT 的 FID 随 GFLOPs 平滑下降、与分配无关；**扩散 compute-bound 多步并行，LLM memory-bound 串行**——加速手段是步数蒸馏。
+结论原文：VAE 接管感知压缩（f8 4ch 48×），扩散只做语义（1/10 算力）；DiT 的 FID 随 GFLOPs 平滑下降、与分配无关；**扩散 compute-bound 多步并行，LLM memory-bound 串行**——加速手段是步数蒸馏。
 </aside>
 
 <!-- v -->
@@ -286,7 +286,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /autoregressive-image-generation-and-unified-models.html。VQ commitment β = 0.25；LlamaGen 16384 码本利用率 97%。AR 生成的 60 张数字约一半可辨认——同预算下比 latent 扩散差。
-结论原文：**：AR 赢在**与 LLM 共享一切**和「一切皆 token」的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛。
+结论原文：AR 赢在**与 LLM 共享一切**和「一切皆 token」的统一，扩散赢在质量、效率、编辑生态；表示目前部分共享（共享 attention、分开 FFN），方向是收敛。
 </aside>
 
 <!-- v -->
