@@ -22,8 +22,8 @@ $$
 
 | 账 | 看什么 |
 |---|---|
-| 带宽 β | 链路速率、算法的带宽效率、协议的有效载荷比例 |
-| 延迟 α | 步数、握手次数、kernel 启动、proxy 线程响应；MoE decode 再加**发起速率** |
+| 带宽 \(\beta\) | 链路速率、算法的带宽效率、协议的有效载荷比例 |
+| 延迟 \(\alpha\) | 步数、握手次数、kernel 启动、proxy 线程响应；MoE decode 再加**发起速率** |
 
 八篇同一个四段法：算一算 → 看一看 → 测一测 → 比一比；留下诊断工具集 comm-probe。
 
@@ -57,7 +57,7 @@ flowchart TB
 ![ring all_reduce 的 T(S) 双对数曲线：延迟项水平渐近线与带宽项斜线在 S* = nαβ 处相交；n 变大整条曲线左端抬高、拐点右移，链路变快只压低右半段](/img/in-post/collective-communication-primitives-and-cost-model-alpha-beta-regimes.svg){: style="max-height: 360px"}
 
 <aside class="notes" markdown="1">
-原文 /collective-communication-primitives-and-cost-model.html。busbw = algbw × 2(n−1)/n；8 卡 IB 拐点约 2 MB；tree 2⌈log₂n⌉ 步。「通信慢就换更快的网卡」——延迟主导的小消息对 β 不敏感。
+原文 /collective-communication-primitives-and-cost-model.html。`busbw` = `algbw` × \(2(n-1)/n\)；8 卡 IB 拐点约 2 MB；tree 2⌈log₂n⌉ 步。「通信慢就换更快的网卡」——延迟主导的小消息对 β 不敏感。
 </aside>
 
 ---
@@ -182,7 +182,7 @@ flowchart TB
 
 ---
 
-## 07 · 推理侧的通信：decode TP 是纯 α 的账
+## 07 · 推理侧的通信：decode TP 是纯 \(\alpha\) 的账
 
 **结论**：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs——省在 launch 路径、**14 步 → 2 步**、无 channel buffer 中转、可捕获进 CUDA Graph；**KV 传输是纯 β 的点对点账**，单边 RDMA 比 NCCL 更自然。
 
