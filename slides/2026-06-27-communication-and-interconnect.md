@@ -84,28 +84,9 @@ flowchart TB
 
 ## 03 · RDMA 与 GPUDirect：显存到对端显存的三条路
 
-**结论**：TCP 每端 2 次拷贝、跑不满 400 Gb/s；RDMA 无 GDR 1 次拷贝；**RDMA + GDR 0 次拷贝、PCIe switch 内一跳**，上限 min(NIC, PCIe)。
+**TCP 2 次拷贝、RDMA 1 次、RDMA + GDR 0 次——上限 min(NIC, PCIe)**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
-flowchart TB
-    subgraph host["主机侧"]
-        CPU["CPU：协议栈 + memcpy（仅路径 A）"] <--> MEM["主机内存：staging / socket buffer"]
-    end
-    RC["PCIe root complex"]
-    subgraph sw["PCIe switch（GPU 与 NIC 同挂其下）"]
-        GPU["GPU HBM（BAR1 映射）"]
-        NIC["NIC DMA 引擎"]
-    end
-    MEM <--> RC
-    GPU -- "A / B：D2H 上行到主机内存" --> RC -- "NIC 从主机内存读走" --> NIC
-    GPU -- "C（GDR）：NIC 直接 DMA 显存，switch 内折返" --> NIC
-    NIC --> NET["InfiniBand / RoCE"]
-    classDef hostc fill:#fde8e8,stroke:#b94a48
-    classDef swc fill:#e8f4fd,stroke:#3a7bd5
-    class CPU,MEM,RC hostc
-    class GPU,NIC swc
-```
+![显存到对端显存的三条路径：TCP、RDMA、RDMA + GDR](/img/in-post/rdma-and-gpudirect-three-paths.svg){: style="max-height: 420px}
 
 <aside class="notes" markdown="1">
 原文 /rdma-and-gpudirect.html。
@@ -149,22 +130,9 @@ flowchart TB
 
 ## 05 · PyTorch 的通信栈：三个「不一定」
 
-**结论**：`async_op=True` 返回时通信**不一定**开始、`wait()` 返回时**不一定**完成、期间改 `t` **不一定**安全——全部换成 stream 与 event 的精确陈述：NCCL stream 等当前 stream 的 event，`wait()` 是当前 stream 等 end event，**CPU 全程不停**。
+**`wait()` 不是等通信完成，是当前 stream 等 end event；CPU 全程不停**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
-flowchart LR
-    subgraph CS["compute stream"]
-        direction LR
-        K1["layer L 反向"] --> K2["layer L−1 反向"] --> W["wait()：等 end event"] --> K3["依赖 t 的 kernel"]
-    end
-    subgraph NS["NCCL stream"]
-        direction LR
-        E1["等 compute 的 event"] --> AR["ncclAllReduce(t)"] --> E2["记 end event"]
-    end
-    K1 -. "start event" .-> E1
-    E2 -. "end event" .-> W
-```
+![async_op=True 时两条 stream、两个 event 与一个 Work](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-async-streams-events.svg){: style="max-height: 420px}
 
 <aside class="notes" markdown="1">
 原文 /pytorch-communication-stack-processgroupnccl-and-streams.html。重叠的来源与失效的来源是同一套编排。
