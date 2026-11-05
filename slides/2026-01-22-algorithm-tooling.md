@@ -124,21 +124,11 @@ out = np.einsum("bts,bsd->btd", p, v)                      # [B, T, D]
 
 ## 03 · PyTorch 使用层（上）：五个对象与二十行
 
-**只有五个对象、二十行循环；lr 调度 = warmup 后 cosine 降到峰值的 1/10**
-
-![warmup 再 cosine 衰减：几百步升到峰值，再降到峰值的 1/10](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg){: style="max-height: 420px"}
-
-<aside class="notes" markdown="1">
-原文 /pytorch-in-use-five-objects-and-a-training-loop.html。Autograd 做三件事：记图、累加、no_grad。
-</aside>
-
-<!-- v -->
-
-### 五个对象的数据流
+**只有五个对象、二十行循环；`Trainer` 是二十行加外壳**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 120}}}%%
-flowchart LR
+flowchart TB
     DS["<b>Dataset</b><br/>__getitem__ 取一条"] --> DL["<b>DataLoader</b><br/>组 batch、打乱、预取"]
     DL -- "batch" --> M["<b>nn.Module</b><br/>forward：参数 × 输入"]
     M -- "logits" --> L["<b>loss</b><br/>cross_entropy(logits, labels)"]
@@ -154,7 +144,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文 /pytorch-in-use-five-objects-and-a-training-loop.html
+原文 /pytorch-in-use-five-objects-and-a-training-loop.html。Autograd 做三件事：记图、累加、no_grad。
 </aside>
 
 <!-- v -->
@@ -178,9 +168,13 @@ for step, (x, y) in enumerate(loader):
 
 <!-- v -->
 
-### 调度与 autocast 的两个实测坑
+### 学习率调度：warmup + cosine
 
-- `loss.item()` 为什么慢：CPU 异步发 kernel，`.item()` 要等 GPU 队列清空——别每步都取
+![warmup 再 cosine 衰减：几百步升到峰值，再降到峰值的 1/10](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg){: style="max-height: 380px"}
+
+**lr 调度 = warmup 后 cosine 降到峰值的 1/10**
+
+- `loss.item()` 慢：CPU 异步发 kernel，`.item()` 要等 GPU 队列清空
 - CPU 上开 bf16 `autocast` 慢 30 倍：精度的收益来自硬件
 
 ---
@@ -227,21 +221,11 @@ flowchart LR
 
 ## 05 · Hugging Face 生态：六个库与六行 LoRA SFT
 
-**六个库各管一段；safetensors = JSON 索引 + 字节区，可 mmap 只读一层**
-
-![safetensors 的布局：头部 JSON 索引 + 连续的张量字节，可以 mmap 只读一部分](/img/in-post/hf-safetensors-layout.svg){: style="max-height: 380px"}
-
-<aside class="notes" markdown="1">
-原文 /hugging-face-ecosystem-six-libraries-and-a-lora-sft.html。六行组装；compute_loss 往下追源码。
-</aside>
-
-<!-- v -->
-
-### 六个库的依赖关系
+**六个库各管一段，六行组装**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
+flowchart TB
     HUB["`**Hub**
 config.json · safetensors · tokenizer.json`"]
     DS["`**datasets**
@@ -274,8 +258,12 @@ launch · DDP / FSDP`"]
 
 ### Hub 上的三个文件
 
-- `config.json` 里的数字就是结构：Qwen2.5-0.5B 24 层、hidden 896、词表 151936、`tie_word_embeddings`
-- `tokenizer.json` + chat template：对话怎么变成 token、哪些 token 算 loss
+![safetensors 的布局：头部 JSON 索引 + 连续的张量字节，可以 mmap 只读一部分](/img/in-post/hf-safetensors-layout.svg){: style="max-height: 320px"}
+
+**safetensors = JSON 索引 + 字节区，可 mmap 只读一层**
+
+- `config.json`：Qwen2.5-0.5B 24 层、hidden 896、词表 151936、`tie_word_embeddings`
+- `tokenizer.json` + chat template：哪些 token 算 loss
 
 <!-- v -->
 
