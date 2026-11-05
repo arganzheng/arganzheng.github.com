@@ -35,15 +35,15 @@ transition: slide
 flowchart TB
     subgraph FE["前端（05）"]
         direction LR
-        PY["Python AST"] --> TTIR["TTIR<br/>tt 方言，块级张量"]
+        PY["Python AST"] --> TTIR["TTIR"]
     end
     subgraph MID["TritonGPU（06–09）"]
         direction LR
-        TTGIR["TTGIR<br/>类型里带 layout"] --> OPT["Coalesce · RemoveLayoutConversions<br/>AccelerateMatmul · Pipeline"]
+        TTGIR["TTGIR<br/>类型带 layout"] --> OPT["Coalesce · Matmul · Pipeline"]
     end
     subgraph BE["后端（10–11）"]
         direction LR
-        LL["LLVM 方言 → LLVM IR"] --> PTX["PTX<br/>NVPTX 不分配寄存器"] --> SASS["SASS<br/>ptxas 是第二个编译器"]
+        LL["LLVM IR"] --> PTX["PTX"] --> SASS["SASS"]
     end
     FE --> MID --> BE
     AX["AxisInfo 分析（06）"] -. "contiguity / divisibility / constancy" .-> MID
@@ -58,7 +58,7 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 flowchart TB
-    src["源码"] --> fe["前端<br/>词法 · 语法 · 语义"] --> ir1["IR"] --> me["中端<br/>与目标无关的优化"] --> ir2["IR（优化后）"] --> be["后端<br/>指令选择 · 调度 · 寄存器分配"] --> mc["机器码"]
+    src["源码"] --> fe["前端"] --> ir1["IR"] --> me["中端优化"] --> ir2["IR（优化后）"] --> be["后端"] --> mc["机器码"]
     classDef ir fill:#dde9f7,stroke:#2e6da4
     class ir1,ir2 ir
 ```
