@@ -28,9 +28,9 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    S1["01 SFT 造「策略」"] --> R2["02 偏好数据与奖励模型"]
-    S1 & R2 --> O3["03 在线 RL：PPO/GRPO"]
-    O3 --> D4["04 离线 RL：DPO"]
+    S1["01 SFT"] --> R2["02 偏好数据与奖励模型"]
+    S1 & R2 --> O3["03 在线 RL"]
+    O3 --> D4["04 离线 RL"]
     O3 --> V5["05 可验证奖励"]
     V5 --> A6["06 Agent 的 RL"]
     O3 --> K7["07 蒸馏"]
@@ -53,6 +53,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /sft-data-chat-template-loss-mask-and-peft.html。InstructGPT 验证 loss 1 epoch 就过拟合，人评却涨到 16 epoch——看下游指标与无关文本 loss，不看 SFT 验证 loss。
+各篇关键词：01 SFT 造「策略」；03 PPO / GRPO；04 DPO。
 </aside>
 
 <!-- v -->
@@ -197,13 +198,13 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
-flowchart TB
+flowchart LR
     B["V3-Base"] -->|"长思维链"| S1["1 冷启动 SFT"]
     S1 -->|"GRPO"| S2["2 推理 RL"]
     S2 -->|"拒绝采样"| D["80 万条数据"]
     D --> S3["3 全能力 SFT"]
     S3 -->|"GRPO"| S4["4 全场景 RL"] --> R1["R1"]
-    D -->|"直接 SFT"| DIST["R1-Distill 1.5B–70B"]
+    D -->|"直接 SFT"| DIST["R1-Distill<br/>1.5B–70B"]
     classDef rl fill:#fde68a,stroke:#b45309
     classDef sft fill:#e0e7ff,stroke:#4338ca
     class S2,S4 rl
