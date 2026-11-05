@@ -135,11 +135,11 @@ Table: 从账推配置的六步：输入、输出与依据
 
 DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$P = 1\text{K}$$、$$\bar L = 8\text{K}$$，代码任务（沙箱奖励）。
 
-**这是容量估算，不是跑过 512 张 H100 的配置。** 我用它演示配比怎样撞上显存约束。源码能确定分组规则和 KV 的存储口径，不能替这组硬件给出吞吐、KV 池或同步耗时。先把假设写清楚：
+**这是容量估算，不是跑过 512 张 H100 的配置。** 用它演示配比怎样撞上显存约束。源码能确定分组规则和 KV 的存储口径，不能替这组硬件给出吞吐、KV 池或同步耗时。先把假设写清楚：
 
 - 本例的 K 按 1000、GB 按 $$10^9$$ B 算。推理 PP = 1，prefill / decode context parallel 都取 1；FP8 指权重量化，MLA KV 仍按 BF16 算，不启用 MTP。模型尺寸取 [DeepSeek-V3 的固定配置](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/e815299b0bcbac849fa540c768ef21845365c9eb/config.json)。
 - **32 卡是一个引擎组，不是 TP 再乘一个独立的 EP 维度**：TP = 8、组内 DP = 4，开启 EP 后专家跨这 32 卡分片，EP = 32；组内有 4 个处理不同请求的 DP 副本。verl v0.9.0 的 [`RolloutConfig.__post_init__`](https://github.com/volcengine/verl/blob/v0.9.0/verl/workers/config/rollout.py) 会校验 `expert_parallel_size = tensor_model_parallel_size × data_parallel_size`，[`RolloutReplica`](https://github.com/volcengine/verl/blob/v0.9.0/verl/workers/rollout/replica.py) 的组规模是 TP × DP × PP。vLLM v0.27.1 的 [`FusedMoEParallelConfig`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/model_executor/layers/fused_moe/config.py) 也按 TP / DP 形成专家组，不支持把这里写成 TP = 8、EP = 4。
-- **45 GB KV 池是我给每个 rank 留的预算，不是实测值**：先按 `gpu_memory_utilization = 0.9`，名义 80 GB 卡留 72 GB；再用 `671 / 32 ≈ 21 GB` 的理想权重均摊和约 6 GB 其余开销，暂记 `72 − 21 − 6 ≈ 45 GB`。这忽略了非专家权重在 DP 间的复制、未量化参数、scale 和运行时峰值，21 GB 也不等于真实的每卡权重占用。最终必须用 vLLM [`GPUWorker.determine_available_memory`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/v1/worker/gpu_worker.py) 的 profiling 结果重算。
+- **45 GB KV 池是给每个 rank 留的预算，不是实测值**：先按 `gpu_memory_utilization = 0.9`，名义 80 GB 卡留 72 GB；再用 `671 / 32 ≈ 21 GB` 的理想权重均摊和约 6 GB 其余开销，暂记 `72 − 21 − 6 ≈ 45 GB`。这忽略了非专家权重在 DP 间的复制、未量化参数、scale 和运行时峰值，21 GB 也不等于真实的每卡权重占用。最终必须用 vLLM [`GPUWorker.determine_available_memory`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/v1/worker/gpu_worker.py) 的 profiling 结果重算。
 - **这里的 c 按组内的一个 DP 请求副本计，不是整个 32 卡组的并发**。61 层 MLA 的 BF16 KV 原始载荷为 `61 × (512 + 64) × 2 = 70,272 B/token/rank`；平均在飞上下文假设为 `P + L̄/2 = 5 K`，每条约 `0.351 GB/rank`。所以 `c = floor(45 / 0.35136) = 128`，粗略记作 130。vLLM 的 [`ModelConfig.get_num_kv_heads`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/config/model.py) 在 MLA 下每 rank 返回 1，[`MLAAttentionSpec.real_page_size_bytes`](https://github.com/vllm-project/vllm/blob/v0.27.1/vllm/v1/kv_cache_interface.py) 按压缩 latent 和 RoPE 部分计字节；这里不能再把 KV 除以 TP 或 EP。该平均上下文假设没有计入 block 取整、长尾和调度限制，也不是承诺能一直维持 128 条在飞序列。
 - `16N` 是训练状态的粗算口径：BF16 参数与梯度、FP32 主权重及两份 Adam 状态各占 2、2、4、8 B/参数，暂按理想分片均摊。实际还有复制、激活、通信缓冲和量化副本；**FP8 计算不等于 FP8 优化器状态**。以下卡数只是待 profiling 的候选，不能据此保证放得下。
 

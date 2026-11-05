@@ -242,7 +242,7 @@ verl 0.9 的 **uni-agent** 走到了这一步：一个网关（Uni-Agent Gateway
 - reward 在 harness 之外算（测试结果），要与会话对上；
 - harness 的行为（重试、并行工具调用、子 agent）让"一条轨迹"的定义变模糊——子 agent 的调用是同一条轨迹的分支还是另一条样本？
 
-slime 的 `slime/agent` 模块、AReaL 的 `RolloutWorkflow`（`arun_episode`）是同一方向的不同形态：前者把 agent 逻辑作为 rollout 函数插进 Data Buffer 通路，后者把它作为工作流类。三者共同的结论是：**agent 逻辑不属于训练框架**，框架只提供"给我一条轨迹"的接口。
+slime 的 `slime/agent` 模块、AReaL 的 `RolloutWorkflow`（`arun_episode`）是同一方向的不同形态：前者把 agent 逻辑作为 rollout 函数插进 Data Buffer 通路，后者把它作为工作流类。三者共同的结论是：**agent 逻辑不属于训练框架**，框架只提供"给一条轨迹"的接口。
 
 ### 3. 三种 reward，一条通路
 
