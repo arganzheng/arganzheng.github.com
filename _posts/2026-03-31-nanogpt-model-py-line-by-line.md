@@ -524,7 +524,7 @@ class GPT(nn.Module):
 3. [四个要转置的矩阵](#fp-transposed)：OpenAI 原版用 TensorFlow 的 `Conv1D`，权重存成 `[in, out]`；PyTorch `Linear` 是 `[out, in]`。所以 `c_attn`、`c_proj`、`c_fc`、`c_proj` 四个矩阵要 `.t()` 后再拷；LayerNorm、embedding 不用。
 4. [逐键拷贝](#fp-copy)：先 `assert` 形状对得上，再 `copy_` 进当前模型的参数（`with torch.no_grad()` 避免被 Autograd 记录）。
 
-`nanogpt_walkthrough.py` 第 4 步的对拍：对同一句话，nanoGPT 与 HF 的最后一个位置 logits 相对差 $$9 \times 10^{-5}$$，argmax 相同，下一个 token 的前五名 `so / too / a / hungry / the`。这个数字是"我写的结构和 OpenAI 的一模一样"的证明。
+`nanogpt_walkthrough.py` 第 4 步的对拍：对同一句话，nanoGPT 与 HF 的最后一个位置 logits 相对差 $$9 \times 10^{-5}$$，argmax 相同，下一个 token 的前五名 `so / too / a / hungry / the`。这个数字是"写的结构和 OpenAI 的一模一样"的证明。
 
 [`crop_block_size`](#crop) 是配套的"手术"：加载的 GPT-2 上下文是 1024，如果想用更短的上下文微调，把 `wpe` 表切到前 `block_size` 行、mask 也切小——位置表就是一张普通的表，可以切。
 
