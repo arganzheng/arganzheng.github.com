@@ -39,6 +39,16 @@ const CHECK = `(() => {
   }
   for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++)
     if(hit(texts[i].b,texts[j].b)) errs.push('文字相交: '+texts[i].t+' × '+texts[j].t);
+  // text overlapping a rect that is NOT its host (e.g. activation bars): depth >3px on any side
+  for(const t of texts){
+    const cx=(t.b.x0+t.b.x1)/2, cy=(t.b.y0+t.b.y1)/2;
+    for(const r of rects){
+      const inside=cx>=r.x0&&cx<=r.x1&&cy>=r.y0&&cy<=r.y1;
+      if(inside) continue;
+      const dx=Math.min(t.b.x1,r.x1)-Math.max(t.b.x0,r.x0), dy=Math.min(t.b.y1,r.y1)-Math.max(t.b.y0,r.y0);
+      if(dx>3&&dy>3) { errs.push('文字压非宿主框: '+t.t); break; }
+    }
+  }
   const segs=[];
   [...svg.querySelectorAll('line')].forEach(l=>{if(l.getAttribute('stroke-dasharray')||/lifeline/.test(l.getAttribute('class')||'')) return; const x1=+l.getAttribute('x1'),y1=+l.getAttribute('y1'),x2=+l.getAttribute('x2'),y2=+l.getAttribute('y2');segs.push([[x1,y1],[x2,y2]]);});
   [...svg.querySelectorAll('path')].forEach(p=>{

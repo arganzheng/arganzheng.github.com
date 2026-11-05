@@ -52,7 +52,7 @@
 
   <!-- 2 MR->EC -->
   <line x1="106" y1="216" x2="236" y2="216" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="171" y="202" text-anchor="middle" class="label">2 · ModelRunnerOutput</text>
+  <text x="195" y="202" text-anchor="middle" class="label">2 · ModelRunnerOutput</text>
   <text x="171" y="238" text-anchor="middle" class="small">worker_response_mq · 仅 token ids</text>
 
   <!-- 3 EC update -->
@@ -62,7 +62,7 @@
 
   <!-- 4 EC main -> OT -->
   <line x1="263" y1="342" x2="396" y2="342" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="330" y="328" text-anchor="middle" class="label">4 · output_queue.put</text>
+  <text x="345" y="328" text-anchor="middle" class="label">4 · output_queue.put</text>
   <text x="330" y="364" text-anchor="middle" class="small">EngineCoreOutputs · 同进程队列</text>
 
   <!-- 5 EC main goes back to schedule (self) -->
@@ -80,8 +80,8 @@
 
   <!-- 8 OH -> GEN -->
   <line x1="584" y1="556" x2="688" y2="556" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="636" y="542" text-anchor="middle" class="label">8 · RequestOutput</text>
-  <text x="636" y="578" text-anchor="middle" class="small">Collector.put（慢端合并 delta）</text>
+  <text x="668" y="542" text-anchor="middle" class="label">8 · RequestOutput</text>
+  <text x="668" y="578" text-anchor="middle" class="small">Collector.put（慢端合并 delta）</text>
 
   <!-- 9 SSE -->
   <text x="595" y="600" text-anchor="middle" class="small">collector.get() → SSE chunk → 客户端</text>
