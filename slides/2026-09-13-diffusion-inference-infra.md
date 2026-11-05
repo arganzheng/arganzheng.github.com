@@ -36,14 +36,14 @@ $$t = t_{txt} + g \cdot T_{eff} \cdot \dfrac{2P_{tok}N + 4LN^2d \cdot s^{-1}}{\t
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 flowchart TB
-    F1["01 负载画像：三段——文本编码 / DiT × 步数 × CFG / VAE；单请求就 compute-bound"]
-    F1 --> F2["02 单卡执行：attention 后端、编译、FP8 / INT4 → 提 MFU（η）"]
-    F2 --> F3["03 跨步冗余：TeaCache 一族 → 减有效步数（T_eff）"]
-    F1 --> F4["04 视频：attention 占七成之后的稀疏化（s）"]
-    F4 --> F5["05 多卡并行：序列 / CFG / PipeFusion，切短单请求墙钟（p·e(p)）"]
-    F1 --> F6["06 少步与自回归：把步数变成系统参数（T、g）"]
-    F3 & F5 & F6 --> F7["07 serving 形态：卡数 = QPS × GPU·秒"]
-    F7 --> F8["08 三个引擎对照"] --> F9["09 配置、评测与排障"]
+    F1["01 负载画像：三段<br/>编码 / DiT × 步数 / VAE"]
+    F1 --> F2["02 单卡：提 MFU"]
+    F2 --> F3["03 跨步冗余：减步数"]
+    F1 --> F4["04 视频：稀疏化"]
+    F4 --> F5["05 多卡：切短墙钟"]
+    F1 --> F6["06 少步：步数变参数"]
+    F3 & F5 & F6 --> F7["07 serving 形态"]
+    F7 --> F8["08 引擎对照"] --> F9["09 评测排障"]
 ```
 
 ---
