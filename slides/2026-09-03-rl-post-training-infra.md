@@ -67,7 +67,7 @@ flowchart TB
 
 ## 02 · 系统形态：同一张账上的三种交换
 
-**结论**：**同步分离比共置更差**（两池轮流、任一时刻只有一个池在干活）；**异步 ≈ 共置 − 长尾**；共置对长尾线性敏感、异步不敏感；rollout : train **按时间配**不按 FLOP，异步 2 : 1。
+**同步分离比共置更差；异步 ≈ 共置 − 长尾**
 
 | 64 卡 | 墙钟 | 利用率 |
 |---|---|---|
@@ -81,13 +81,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /rl-system-topologies-colocate-disaggregate-async.html。
+结论原文：**：**同步分离比共置更差**（两池轮流、任一时刻只有一个池在干活）；**异步 ≈ 共置 − 长尾**；共置对长尾线性敏感、异步不敏感；rollout : train **按时间配**不按 FLOP，异步 2 : 1。
 </aside>
 
 ---
 
 ## 03 · 共置：两次显存换手搬多少字节
 
-**结论**：让渡有**搬 / 丢 / 不动**三种；`CuMemAllocator` 摘物理页保虚拟地址——CUDA graph、模型对象、块表都幸存；**切换 < 2%，真实代价是常驻部分挤掉的 KV 池**。
+**让渡切换 < 2%，真实代价是挤掉的 KV 池**
 
 | 32B、8 卡 | 数 |
 |---|---|
@@ -100,13 +101,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /colocated-trainer-and-rollout-engine-memory-handoff.html。
+结论原文：**：让渡有**搬 / 丢 / 不动**三种；`CuMemAllocator` 摘物理页保虚拟地址——CUDA graph、模型对象、块表都幸存；**切换 < 2%，真实代价是常驻部分挤掉的 KV 池**。
 </aside>
 
 ---
 
 ## 04 · 权重同步：从训练分片到推理分片
 
-**结论**：同步 = **布局 + 传输**两半，中间是 HF 名字的 `(name, tensor)` 流；「**谁持有完整模型**」比链路快慢重要；**增量同步让没有人持有完整模型**。
+**「谁持有完整模型」比链路快慢重要——增量同步谁都没有**
 
 | Megatron TP4 / PP2 / EP8 → vLLM TP8 / EP4，671B FP8 | 时间 |
 |---|---|
@@ -120,13 +122,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /weight-sync-from-training-shards-to-inference-shards.html。
+结论原文：**：同步 = **布局 + 传输**两半，中间是 HF 名字的 `(name, tensor)` 流；「**谁持有完整模型**」比链路快慢重要；**增量同步让没有人持有完整模型**。
 </aside>
 
 ---
 
 ## 05 · 异步与 off-policy：「样本过期」是三个东西
 
-**结论**：**staleness、训推不一致、缓冲淘汰**三者机制不同、信号不同——在 reward 曲线上不可分，要**事前记录**三组信号；修正的系统要求是 **logprob 的份数**。
+**三者 reward 曲线上不可分——要事前记录三组信号**
 
 | 量 | 数 |
 |---|---|
@@ -140,13 +143,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /async-rl-staleness-partial-rollout-and-off-policy-correction.html。
+结论原文：**：**staleness、训推不一致、缓冲淘汰**三者机制不同、信号不同——在 reward 曲线上不可分，要**事前记录**三组信号；修正的系统要求是 **logprob 的份数**。
 </aside>
 
 ---
 
 ## 06 · Agentic rollout：rollout 变成分布式系统
 
-**结论**：500 任务 × G = 8 × 20 轮 = **8 万次容器执行、667–1300 CPU·h、1300–1800 并发沙箱**；KV 驻留决定 prefill 是二次还是线性；**沙箱是第三个池**；环境方差让异步成必需。
+**500 任务 = 8 万次容器执行、1300–1800 并发沙箱**
 
 | 32 卡 30 分钟 | 数 |
 |---|---|
@@ -160,13 +164,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html。
+结论原文：**：500 任务 × G = 8 × 20 轮 = **8 万次容器执行、667–1300 CPU·h、1300–1800 并发沙箱**；KV 驻留决定 prefill 是二次还是线性；**沙箱是第三个池**；环境方差让异步成必需。
 </aside>
 
 ---
 
 ## 07 · verl 源码导读：一个 bf16 参数的十二步
 
-**结论**：从优化器更新完成到推理引擎用它生成下一个 token：**十二步、四类进程、三条链路**；共置 = 一个进程持有多个角色对象；TransferQueue 是同步与异步统一的解耦点；slime 薄、AReaL 异步优先——**三家趋同的四段是必然**。
+**十二步、四类进程、三条链路——三家趋同的四段是必然**
 
 | 机制 | 在 verl 的哪里 |
 |---|---|
@@ -178,13 +183,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /verl-source-walkthrough-from-a-grpo-config-to-every-worker.html。
+结论原文：**：从优化器更新完成到推理引擎用它生成下一个 token：**十二步、四类进程、三条链路**；共置 = 一个进程持有多个角色对象；TransferQueue 是同步与异步统一的解耦点；slime 薄、AReaL 异步优先——**三家趋同的四段是必然**。
 </aside>
 
 ---
 
 ## 08 · 配置、可观测与排障：全步 MFU 瀑布
 
-**结论**：六步推导配置、**全步 MFU 瀑布**、RL 状态的 checkpoint、确定性、必采指标、故障表；凌晨两点 reward 平台的排查顺序是**数据 → 版本 → 异步 → 实现**。
+**reward 平台的排查顺序：数据 → 版本 → 异步 → 实现**
 
 | 32B / 128 卡算例 | 数 |
 |---|---|
@@ -198,6 +204,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /rl-post-training-configuration-observability-and-troubleshooting.html。
+结论原文：**：六步推导配置、**全步 MFU 瀑布**、RL 状态的 checkpoint、确定性、必采指标、故障表；凌晨两点 reward 平台的排查顺序是**数据 → 版本 → 异步 → 实现**。
 </aside>
 
 ---
