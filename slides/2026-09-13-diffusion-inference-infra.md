@@ -25,6 +25,7 @@ transition: slide
 
 <aside class="notes" markdown="1">
 总纲：/diffusion-model-inference-infrastructure.html。
+01 三段：编码 / DiT × 步数 / VAE。
 </aside>
 
 ---
@@ -36,9 +37,9 @@ $$t = t_{txt} + g \cdot T_{eff} \cdot \dfrac{2P_{tok}N + 4LN^2d \cdot s^{-1}}{\t
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 flowchart TB
-    F1["01 负载画像：三段<br/>编码 / DiT × 步数 / VAE"]
+    F1["01 负载画像"]
     F1 --> F2["02 单卡：提 MFU"]
-    F2 --> F3["03 跨步冗余：减步数"]
+    F2 --> F3["03 跨步冗余"]
     F1 --> F4["04 视频：稀疏化"]
     F4 --> F5["05 多卡：切短墙钟"]
     F1 --> F6["06 少步：步数变参数"]
@@ -65,7 +66,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /diffusion-inference-workload-anatomy-and-cost-ledger.html。与 LLM 比：150× FLOPs、0.8× 时间。
-结论原文：**：三段里**算力全在 DiT**，一次前向就是 compute-bound；**图像模型是 GEMM 负载，视频模型是 attention 负载**。
+结论原文：三段里**算力全在 DiT**，一次前向就是 compute-bound；**图像模型是 GEMM 负载，视频模型是 attention 负载**。
 </aside>
 
 ---
@@ -87,7 +88,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /single-gpu-diffusion-execution-attention-compile-quantization-offload.html。
-结论原文：**：**编译是最大的无损收益**；**量化的收益来自 Tensor Core 峰值而不来自字节**（FP8 GEMM 2× → 端到端 1.3–1.5×）；逐层 offload 的判据是每层计算 / 搬运之比。
+结论原文：**编译是最大的无损收益**；**量化的收益来自 Tensor Core 峰值而不来自字节**（FP8 GEMM 2× → 端到端 1.3–1.5×）；逐层 offload 的判据是每层计算 / 搬运之比。
 </aside>
 
 ---
@@ -109,7 +110,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /timestep-redundancy-caching-and-step-skipping.html。
-结论原文：**：便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；**本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥**——在 schnell 的 4 步上一步都省不下来。
+结论原文：便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；**本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥**——在 schnell 的 4 步上一步都省不下来。
 </aside>
 
 ---
@@ -132,7 +133,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /video-diffusion-long-sequence-attention-and-sparsity.html。
-结论原文：**：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
+结论原文：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
 </aside>
 
 ---
@@ -153,7 +154,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html。
-结论原文：**：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
+结论原文：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
 </aside>
 
 ---
@@ -173,7 +174,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /few-step-and-autoregressive-video-generation-systems.html。
-结论原文：**：蒸馏拿走了「几十步里大半是保守余量」——**依赖相邻步相似的优化全部失效**（缓存、PipeFusion、CFG 并行），CUDA graph 变必需，VAE 占比升到 15%；**因果化让视频生成向 LLM serving 收敛**——KV cache 回来了。
+结论原文：蒸馏拿走了「几十步里大半是保守余量」——**依赖相邻步相似的优化全部失效**（缓存、PipeFusion、CFG 并行），CUDA graph 变必需，VAE 占比升到 15%；**因果化让视频生成向 LLM serving 收敛**——KV cache 回来了。
 </aside>
 
 ---
@@ -195,7 +196,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /diffusion-serving-shapes-batching-disaggregation-and-cost.html。
-结论原文：**：**batch 不参与、SP 只减延迟**；时长收到请求时即确定 → 分池、SJF、SLO 准入、**事前定价**；视频必须异步 job。
+结论原文：**batch 不参与、SP 只减延迟**；时长收到请求时即确定 → 分池、SJF、SLO 准入、**事前定价**；视频必须异步 job。
 </aside>
 
 ---
@@ -213,7 +214,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html。
-结论原文：**：**SGLang** 把扩散塞进 LLM serving 的结构；**vLLM-Omni** 把扩散做成全模态流水线的一个 stage；**xDiT** 只做并行、包装 diffusers；三者共用 diffusers 底座与 vLLM 式并行组。
+结论原文：**SGLang** 把扩散塞进 LLM serving 的结构；**vLLM-Omni** 把扩散做成全模态流水线的一个 stage；**xDiT** 只做并行、包装 diffusers；三者共用 diffusers 底座与 vLLM 式并行组。
 </aside>
 
 ---
@@ -234,7 +235,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /diffusion-inference-configuration-evaluation-and-troubleshooting.html。
-结论原文：**：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；**无损先于有损、切卡先于换模型、卡数由 GPU·秒决定**；评「开不开某项优化」不能用 FID。
+结论原文：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；**无损先于有损、切卡先于换模型、卡数由 GPU·秒决定**；评「开不开某项优化」不能用 FID。
 </aside>
 
 ---
