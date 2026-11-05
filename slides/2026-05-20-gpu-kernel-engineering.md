@@ -36,17 +36,21 @@ $$
 ```mermaid
 %% 图：CUDA 主线与 Ascend C 独立对照的十一篇路径
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart LR
+    G1["01 硬件与<br/>Roofline"] --> G2["02 CUDA<br/>编程模型"] --> G3["03 访存合并<br/>elementwise"]
+    G3 --> G4["04 shared<br/>reduction"] & G5["05 GEMM"]
+    G4 & G5 --> NX["06–11 进阶<br/>（下图）"]
+```
+
+<!-- v -->
+
+### 06–11：进阶
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    G1["01 硬件结构与 Roofline<br/>字节数、FLOPs、ridge point"] --> G2["02 CUDA 编程模型与第一个 kernel<br/>怎么写、怎么测"]
-    G2 --> G3["03 访存合并与 elementwise<br/>把带宽用满"]
-    G3 --> G4["04 shared memory 与 reduction<br/>softmax、LayerNorm、online softmax"]
-    G3 --> G5["05 GEMM：naive → 分块<br/>复用让强度过 ridge"]
-    G5 --> G6["06 Tensor Core、CUTLASS、CuTe<br/>把分块接到 mma"]
-    G4 & G5 --> G7["07 Triton<br/>编译器替你做前六篇的一半"]
-    G4 & G6 --> G8["08 Attention kernel<br/>FlashAttention、PagedAttention——汇合点"]
-    G6 & G7 --> G9["09 量化与融合 kernel"]
-    G8 & G9 --> G10["10 剖析、测试与贡献"]
-    G10 --> G11["11 从 CUDA 到昇腾：Ascend C Add"]
+    G6["06 Tensor Core<br/>CUTLASS · CuTe"] & G7["07 Triton"] --> G8["08 Attention"] & G9["09 量化融合"]
+    G8 & G9 --> G10["10 剖析测试"] --> G11["11 昇腾"]
 ```
 
 ---
@@ -59,7 +63,9 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /gpu-architecture-and-roofline.html。延迟：寄存器 0 / shared 20–30 / L2 200 / HBM 400–800 周期。
-结论原文：**：GPU 用**零开销 warp 切换**而非乱序执行隐藏延迟——芯片面积给了 ALU 而不是缓存与预测器；一段计算理论上最快多快由 $$T = \max(F/P_{peak},\ B/BW)$$ 决定。
+结论原文：GPU 用**零开销 warp 切换**而非乱序执行隐藏延迟——芯片面积给了 ALU 而不是缓存与预测器；一段计算理论上最快多快由 $$T = \max(F/P_{peak},\ B/BW)$$ 决定。
+各篇关键词：01 字节数 / FLOPs / ridge point；02 怎么写、怎么测；03 把带宽用满；04 softmax / LayerNorm / online softmax；05 复用让强度过 ridge；06 把分块接到 mma；07 编译器替你做前六篇的一半；08 FlashAttention / PagedAttention——汇合点。
+全称：05 GEMM：naive→分块；08 Attention kernel；09 量化与融合 kernel；10 剖析、测试与贡献；11 从 CUDA 到昇腾。
 </aside>
 
 <!-- v -->
@@ -98,7 +104,7 @@ __global__ void add(const float* a, const float* b, float* c, int n) {
 
 <aside class="notes" markdown="1">
 原文 /cuda-programming-model-and-first-kernel.html。
-结论原文：**：**80–92%**；DRAM 可达带宽只有标称的 85–92%，其余在每线程工作量太小、launch 与尾部、SM 填充。
+结论原文：**80–92%**；DRAM 可达带宽只有标称的 85–92%，其余在每线程工作量太小、launch 与尾部、SM 填充。
 </aside>
 
 ---
@@ -162,7 +168,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /shared-memory-reduction-and-softmax.html。online softmax 的合并公式是 FlashAttention 的核心（第八篇）。
-结论原文：**：4096 维 RMSNorm 是 memory-bound 的，naive 慢 10 倍是**归约的形态**；shared 汇总跨 warp 的部分和，**warp shuffle 在寄存器里 5 步完成 warp 内归约**，sync 10 次 → 1 次；online softmax 让一次遍历就够。
+结论原文：4096 维 RMSNorm 是 memory-bound 的，naive 慢 10 倍是**归约的形态**；shared 汇总跨 warp 的部分和，**warp shuffle 在寄存器里 5 步完成 warp 内归约**，sync 10 次 → 1 次；online softmax 让一次遍历就够。
 </aside>
 
 ---
@@ -175,7 +181,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /gemm-from-naive-to-tiled.html。137.4 GFLOP、192 MiB。「25% 占用率一定没压满硬件」——寄存器分块用 128 个寄存器换 ILP，compute-bound GEMM 的常态是低占用率 + 高 ILP。
-结论原文：**：4096³ FP32 的理论 I = 683、下界 7.0 ms；naive 实际读 512 GiB、I = 0.25、只到峰值 1–3%；**分块 $$MNK(1/BM + 1/BN)$$**：128 × 128 → 4 GiB、I = 32；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令，寄存器分块靠 ILP。
+结论原文：4096³ FP32 的理论 I = 683、下界 7.0 ms；naive 实际读 512 GiB、I = 0.25、只到峰值 1–3%；**分块 $$MNK(1/BM + 1/BN)$$**：128 × 128 → 4 GiB、I = 32；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令，寄存器分块靠 ILP。
 </aside>
 
 ---
@@ -197,7 +203,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /tensor-cores-cutlass-and-cute.html。
-结论原文：**：Tensor Core **不是更快的 FMA**——累加器从属于线程变成属于 warp、布局由指令规定；`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 **swizzle**；Hopper 交给 TMA + `wgmma`。
+结论原文：Tensor Core **不是更快的 FMA**——累加器从属于线程变成属于 warp、布局由指令规定；`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 **swizzle**；Hopper 交给 TMA + `wgmma`。
 </aside>
 
 ---
@@ -218,7 +224,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /triton-block-level-programming.html。
-结论原文：**：编译器替你做了合并、流水、`ldmatrix`、swizzle、mma 选择——matmul **少 80% 代码、到 cuBLAS 80–95%**；差的 10% 在 warp specialization、epilogue 布局转换、小 shape tile、指令调度。
+结论原文：编译器替你做了合并、流水、`ldmatrix`、swizzle、mma 选择——matmul **少 80% 代码、到 cuBLAS 80–95%**；差的 10% 在 warp specialization、epilogue 布局转换、小 shape tile、指令调度。
 </aside>
 
 ---
@@ -246,7 +252,7 @@ flowchart TB
     end
     subgraph fa["FlashAttention：一个 kernel，S / P 只在片上"]
         direction LR
-        q2["Q_i, K_j, V_j tile"] --> g3["S_ij 寄存器"] --> sm2["online softmax<br/>更新 m, l"] --> g4["O_i += P̃_ij V_j"] -- "遍历完写 1 次" --> o2["O 1 MiB"]
+        q2["Qᵢ, Kⱼ, Vⱼ tile"] --> g3["Sᵢⱼ 寄存器"] --> sm2["online softmax<br/>更新 m, l"] --> g4["Oᵢ += P̃ᵢⱼ Vⱼ"] -- "遍历完写 1 次" --> o2["O 1 MiB"]
     end
     std ~~~ fa
     classDef hbm fill:#fde2e2,stroke:#c0392b
@@ -282,7 +288,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /quantization-and-fused-kernels.html。BF16 I ≈ M、W4A16 I ≈ 4M；E4M3 max 448 无 inf。
-结论原文：**：INT4 weight-only GEMM **字节 ÷ 4、FLOPs 不变、多一条反量化指令**——decode 在斜线上受益（8 → 约 2 ms），prefill 在屋顶上不动甚至下沉；FP8 字节与 FLOPs **同时**减半。
+结论原文：INT4 weight-only GEMM **字节 ÷ 4、FLOPs 不变、多一条反量化指令**——decode 在斜线上受益（8 → 约 2 ms），prefill 在屋顶上不动甚至下沉；FP8 字节与 FLOPs **同时**减半。
 </aside>
 
 <!-- v -->
@@ -317,7 +323,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /kernel-profiling-testing-and-contribution.html。
-结论原文：**：ncu 先看 **Speed-of-Light**：访存或算力任一接近 90% 就什么都不用改；**两者都低才是 latency-bound**，再看占用率的限制因素、加 ILP、改完重测。
+结论原文：ncu 先看 **Speed-of-Light**：访存或算力任一接近 90% 就什么都不用改；**两者都低才是 latency-bound**，再看占用率的限制因素、加 ILP、改完重测。
 </aside>
 
 ---
