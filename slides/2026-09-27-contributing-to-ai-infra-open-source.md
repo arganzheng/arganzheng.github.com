@@ -52,13 +52,18 @@ flowchart TB
 | 登记表 | `native_functions.yaml` | `pyproject.toml` / `torch_bindings.cpp` |
 | 生成代码 | `ATen/ops/*.h`、`.pyi` 由 `torchgen` 生成 | `torch.ops._C.<op>` 在 `.so` 里 |
 
-- 引言案例：四十分钟得出「已在 v2.11.0 修复」
-- 「`rg` 找不到 `def`、头文件不存在，说明仓库不完整」——是生成代码；回登记表
-
 <aside class="notes" markdown="1">
 原文 /reading-a-million-line-codebase.html。
 结论原文：靠**有目标的检索**——提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；**构建是为了工具链，可选、放最后**。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 引言案例：四十分钟得出「已在 v2.11.0 修复」
+- 「`rg` 找不到 `def`、头文件不存在，说明仓库不完整」——是生成代码；回登记表
 
 ---
 
@@ -73,13 +78,18 @@ flowchart TB
 | stale | 90 + 30 天 | |
 | 查重 | #191394 下挂着 5 个 open PR | |
 
-- 「issue 还 open 就是没人在做」——三条查重命令看 open PR 数与最后一条评论；`good first issue` 是最挤的池子
-- 「typo PR 是最安全的第一个 PR」——vLLM 明文不接受 busywork；做成有范围、有依据、能说出「怎么找全」的 systematic 批次
-
 <aside class="notes" markdown="1">
 原文 /finding-your-entry-point-in-open-source.html。
 结论原文：**他们已决定要做、写清了要什么、自己没时间做的事**；预测「一周后会不会被关」看六个信号：标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「issue 还 open 就是没人在做」——三条查重命令看 open PR 数与最后一条评论；`good first issue` 是最挤的池子
+- 「typo PR 是最安全的第一个 PR」——vLLM 明文不接受 busywork；做成有范围、有依据、能说出「怎么找全」的 systematic 批次
 
 ---
 
@@ -95,12 +105,17 @@ flowchart TB
 | 催 | 4 个工作日 | 2–3 天 / 7 天 |
 | 签名 | CLA | DCO 每个 commit |
 
-- 「vLLM 的 PR 开出来 CI 是灰的，等它自己跑」——本地 `pre-commit run --all-files`；等 reviewer 敲 `/ci run`；每次 push 后重新敲
-
 <aside class="notes" markdown="1">
 原文 /landing-a-mergeable-change.html。
 结论原文：**改了什么且只改了这一件**（diff）、**为什么改怎么验证**（描述）、**怎么证明对怎么防回归**（测试）、**有没有弄坏别的**（CI）——四样各答一个问题。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「vLLM 的 PR 开出来 CI 是灰的，等它自己跑」——本地 `pre-commit run --all-files`；等 reviewer 敲 `/ci run`；每次 push 后重新敲
 
 ---
 
@@ -115,13 +130,18 @@ flowchart TB
 | review | 3 小时 42 分收到；三条意见全是注释与来源 | 6 个自己引入的 CI 失败 |
 | 合入 | `merge -i`，进 v2.13.0 | 合入 08-20，**不在 v0.28.0**（分支 08-17 切出） |
 
-- 「review 意见是在检查算法对不对」——提交前用描述里的数字校对代码注释；署名放描述不放代码
-- 「合入了就在最新版里」——`git tag --contains <sha>`；`merge-base --is-ancestor` 核对
-
 <aside class="notes" markdown="1">
 原文 /two-real-prs-pytorch-and-vllm.html。
 结论原文：小 PR 的时间**不在写代码**——PyTorch 那个在**数据**（正常成本），vLLM 那个在**等待**（大半可省）。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「review 意见是在检查算法对不对」——提交前用描述里的数字校对代码注释；署名放描述不放代码
+- 「合入了就在最新版里」——`git tag --contains <sha>`；`merge-base --is-ancestor` 核对
 
 ---
 
