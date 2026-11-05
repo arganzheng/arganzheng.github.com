@@ -95,6 +95,23 @@ const CHECK = `(() => {
         return (min<14&&min<999)?"#"+(i+1)+" min "+min.toFixed(1)+"px":null;
       }).filter(Boolean);
     }).flat(),
+    // consecutive visible block children crammed together: <8 px of air between a
+    // block's bottom edge and the next block's top edge means the slide reads as
+    // one wall (e.g. table's last row touching the first bullet)
+    gap: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
+      const D='p,ul,ol,table,img,.mermaid,pre,blockquote,h1,h2,h3,figure';
+      const kids=[...s.children].filter(e=>e.matches(D)&&!(e.closest('aside.notes')||e.matches('aside.notes')))
+        .filter(e=>{const cs=getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden'||cs.opacity==='0')return false;
+          const b=e.getBoundingClientRect(); return b.width>0&&b.height>0;})
+        .sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top);
+      const hits=[];
+      for(let k=0;k+1<kids.length;k++){
+        const A=kids[k].getBoundingClientRect(),B=kids[k+1].getBoundingClientRect();
+        const g=B.top-A.bottom;
+        if(g>-2&&g<8) hits.push("#"+(i+1)+" "+kids[k].tagName.toLowerCase()+"/"+kids[k+1].tagName.toLowerCase()+" "+g.toFixed(0)+"px");
+      }
+      return hits;
+    }).flat(),
     // <img> svg squeezed below 55% of natural width: its text shrinks proportionally
     shrunk: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
       return [...s.querySelectorAll('img')].filter(im=>im.src.endsWith('.svg')&&im.naturalWidth>0)
@@ -104,6 +121,31 @@ const CHECK = `(() => {
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
       + document.querySelectorAll("pre code.language-mermaid, div.language-mermaid pre code").length
   };
+  secs.forEach((s,i)=>{ s.style.display=saved[i]; });
+  return JSON.stringify(out);
+})()`;
+
+// dark pass: flip the deck to dark theme and measure WCAG contrast of every
+// visible text element against its effective background. Mermaid is excluded —
+// its light backing card is intentional (nodes stay dark-on-light). Inline code,
+// table cells, links and blockquote text are the usual casualties.
+const DARK = `(() => {
+  const secs=[...document.querySelectorAll(".reveal .slides section")]; const saved=secs.map(s=>s.style.display); secs.forEach(s=>{ s.style.display="block"; });
+  document.querySelectorAll(".fragment").forEach(f=>f.classList.add("visible"));
+  const lum=c=>{const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};return 0.2126*f(c[0])+0.7152*f(c[1])+0.0722*f(c[2]);};
+  const rgba=cs=>{const m=cs.match(/rgba?\\((\\d+)[, ]+(\\d+)[, ]+(\\d+)(?:[, /]+([\\d.]+))?\\)/);return m?{c:[+m[1],+m[2],+m[3]],a:m[4]==null?1:+m[4]}:null;};
+  const bg=e=>{let n=e;while(n&&n!==document.documentElement){const r=rgba(getComputedStyle(n).backgroundColor);if(r&&r.a>0.5)return r.c;n=n.parentElement;}return [255,255,255];};
+  const out=secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
+    return [...s.querySelectorAll('p,li,td,th,h1,h2,h3,code,span,a,blockquote,strong,b,em,dt,dd,figcaption')].map(e=>{
+      if(e.closest('aside.notes,style,script,template,.mermaid,svg')||e.closest('svg'))return null;
+      const cs=getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden'||cs.opacity==='0')return null;
+      const b=e.getBoundingClientRect(); if(b.width<=0||b.height<=0)return null;
+      if(!(e.textContent||'').trim())return null;
+      const fg=rgba(cs.color); if(!fg)return null;
+      const L1=lum(fg.c),L2=lum(bg(e)); const ratio=(Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05);
+      return ratio<4.5?"#"+(i+1)+" "+e.tagName.toLowerCase()+" '"+(e.textContent||'').trim().slice(0,24)+"' "+ratio.toFixed(1)+":1":null;
+    }).filter(Boolean);
+  }).flat();
   secs.forEach((s,i)=>{ s.style.display=saved[i]; });
   return JSON.stringify(out);
 })()`;
@@ -129,6 +171,20 @@ async function check(slug) {
     // a snapshot taken while the reload is still in flight has no images and no diagrams — keep waiting
     if (out.pending === 0 && out.ready === 'complete' && out.populated && !out.href.includes('about:blank')) break;
   }
+  // dark pass: contrast < 4.5 on visible text -> FAIL (decks only; posts keep their own theme handling)
+  let contrast = [];
+  if (slug.startsWith('slides/')) {
+    await send('Runtime.evaluate', { expression: `document.documentElement.setAttribute('data-theme','dark');document.body&&document.body.setAttribute('data-theme','dark');document.querySelectorAll('link[rel=stylesheet]').forEach(l=>{if(/theme\\/(white|black)\\.css/.test(l.href)) l.href=l.href.replace(/theme\\/(white|black)/,'theme/black')})` });
+    // the swapped-in black.css needs a beat to load and apply
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 400));
+      const r = await send('Runtime.evaluate', { expression: `getComputedStyle(document.body).backgroundColor`, returnByValue: true });
+      if (r.result && r.result.value && !/255/.test(r.result.value)) break;
+    }
+    const r = await send('Runtime.evaluate', { expression: DARK, returnByValue: true });
+    try { contrast = JSON.parse(r.result.value) || []; } catch { contrast = []; }
+    await send('Runtime.evaluate', { expression: `document.documentElement.setAttribute('data-theme','light');document.body&&document.body.setAttribute('data-theme','light');document.querySelectorAll('link[rel=stylesheet]').forEach(l=>{if(/theme\\/(white|black)\\.css/.test(l.href)) l.href=l.href.replace(/theme\\/(white|black)/,'theme/white')})` });
+  }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
   // static mermaid lint for slide decks: slides/<key>/play -> slides/*-<key>.md
@@ -145,7 +201,7 @@ async function check(slug) {
       } catch { /* lint unavailable — skip */ }
     }
   }
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length && !out.overlap.length && !out.smalltext.length && !mlint.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length && !out.overlap.length && !out.smalltext.length && !(out.gap||[]).length && !contrast.length && !mlint.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
@@ -153,6 +209,8 @@ async function check(slug) {
   if (out.overflow.length) console.log('overflow (slide content taller than 720 px — split the slide or move detail to a `<!-- v -->` sub-slide):', JSON.stringify(out.overflow));
   if (out.overlap.length) console.log('overlap (two sibling blocks collide on the slide — give the slide one block or re-layout):', JSON.stringify(out.overlap));
   if (out.smalltext.length) console.log('smalltext (mermaid/svg text renders < 14 px — too wide a diagram; make it TB, split it, or use a post figure):', JSON.stringify(out.smalltext));
+  if ((out.gap||[]).length) console.log('gap (consecutive blocks < 8 px apart — the slide reads as one wall; split or move a block to a `<!-- v -->` sub-slide):', JSON.stringify(out.gap));
+  if (contrast.length) console.log('contrast (dark-mode text under WCAG 4.5:1 — fix the dark theme rule in _layouts/deck.html):', JSON.stringify(contrast.slice(0,12))+(contrast.length>12?` … ${contrast.length} total`:''));
   if (mlint.length) console.log('mlint (mermaid source problem — bare-id node label, isolated node, or dead-end decision):', JSON.stringify(mlint));
   if (out.shrunk.length) console.log('WARN shrunk (svg <img> under 55% of natural width — text inside it shrinks the same amount; not failing):', JSON.stringify(out.shrunk));
   if (out.pending) console.log(`pending: ${out.pending} diagram(s) / image(s) never finished loading (readyState ${out.ready}) — CDN slow or blocked; rerun before trusting anything else on this page`);

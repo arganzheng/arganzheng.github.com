@@ -125,6 +125,16 @@ Front matter knobs (all optional):
            keeps dark-on-light node text, edges and labels readable */
         html[data-theme="dark"] .reveal .mermaid { background: #f4f5f7; border-radius: 6px; padding: 4px; }
         html[data-theme="dark"] .reveal .mermaid svg { background: transparent; }
+        /* dark overrides for the light-only surfaces above: inline code, pre,
+           blockquote, table cells, links — same dark surface family as the
+           blog's dark theme (less/dark.less) */
+        html[data-theme="dark"] .reveal :not(pre) > code { background: #2d333b; color: #e6edf3; }
+        html[data-theme="dark"] .reveal pre { border-color: #444c56; background: #1c2128; }
+        html[data-theme="dark"] .reveal pre code { background: #1c2128; color: #e6edf3; }
+        html[data-theme="dark"] .reveal blockquote { background: #22272e; color: #e6edf3; }
+        html[data-theme="dark"] .reveal table th,
+        html[data-theme="dark"] .reveal table td { border-color: #444c56; color: #e6edf3; }
+        html[data-theme="dark"] .reveal a { color: #6cb6ff; }
         .reveal .mermaid svg {
             /* mermaid pins an inline `max-width` to the diagram's natural size,
                which leaves it tiny on a 1280px slide; let it scale up instead.
