@@ -80,11 +80,11 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    B["月底账单：一个总数"] -- "没有归因就没有优化" --> T["每次调用打标签：<br/>租户 · 功能 · prompt 版本 · 模型快照 · 任务 id"]
-    T --> L["按天的账本：标签 × 五项 usage × 美元<br/>（未缓存输入 / 缓存读 / 缓存写 / 输出含思考 / 工具费）"]
-    L --> V["按<b>任务</b>看，不按调用看：<br/>p50 与 p95 的每任务成本"]
-    V --> F["发现：5% 的任务跑到 40 步 × 100K 上下文，<br/>花了 60% 的钱（长尾占大头）"]
-    F --> A["药：每任务预算与降级（第三章）、缓存与排列、<br/>小模型分流、批处理……九种手段各有量级（第四章）"]
+    B["月底账单：一个总数"] -- "没归因就没优化" --> T["每次调用打标签<br/>租户 · 功能 · 版本 · 任务"]
+    T --> L["按天账本"]
+    L --> V["按任务看 p50/p95"]
+    V --> F["发现：5% 的任务花 60% 的钱"]
+    F --> A["药：预算降级 · 缓存 · 分流 · 批处理"]
 
 ```
 
@@ -144,11 +144,11 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    IN["① 输入侧：来源标记与分区<br/>外部内容标为数据 · 分区标记 · 过滤（只降概率）"] --> M["模型"]
-    M --> P["② 权限与沙箱（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》四层）<br/>注入让模型想做 · 四层让它做不到"]
-    P --> O["③ 输出处理<br/>渲染前脱敏链接 / 图片 / HTML · 执行前检查命令 / SQL · CSP"]
-    O --> D["④ 数据流控制<br/>读了敏感数据的会话不能对外发 · 跨资源边界要审批 · 工具间数据流"]
-    D --> R["⑤ 监控与红队<br/>异常动作检测 · 注入用例进评测集 · 持续红队"]
+    IN["① 输入侧：来源标记与分区"] --> M["模型"]
+    M --> P["② 权限与沙箱四层<br/>想做 → 做不到"]
+    P --> O["③ 输出处理<br/>脱敏 · 执行前检查"]
+    O --> D["④ 数据流控制<br/>敏感数据不出边界"]
+    D --> R["⑤ 监控与红队"]
     R -.->|"发现新链路"| IN
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -180,12 +180,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
-    Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件日志）"]
-    O --> M["模型 id + 快照、prompt 版本"]
-    O --> R["检索到的文档 id 与当时的权限"]
-    O --> A["谁批准了这版 prompt 上线（发布记录）"]
-    M & R & A --> E["审计链 = 前几层已经记下的东西串起来，<br/>治理只是定期抽一条<b>验证</b>证据拿得出来"]
-    E -. "还要回答：数据存在哪、存多久、供应商能不能拿去训练；<br/>AI 生成内容有没有按法规标识" .-> Q
+    Q["这条回复依据什么给出的？"] --> O["输出 → trace_id → 事件日志"]
+    O --> M["模型快照 · prompt 版本"]
+    O --> R["文档 id · 当时权限"]
+    O --> A["发布审批记录"]
+    M & R & A --> E["审计链 = 已有记录串起来<br/>定期抽一条验证"]
+    E -. "数据存留 · 供应商训练 · 内容标识" .-> Q
 
 ```
 
@@ -216,13 +216,13 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
-    C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
-    V --> G["门禁：评测集（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）"]
+    C["任何改变模型行为的改动"] -- "改动 = 发布" --> V["不可变版本 + 标签"]
+    V --> G["门禁：评测集"]
     G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
-    CN -- "在线指标正常" --> PR["production"]
+    CN -- "正常" --> PR["production"]
     CN -- "回归" --> RB["一键回滚到上一个版本"]
-    PR -. "供应商别名指向新快照：钉住快照 + 依赖变更单独发布，<br/>两个变化不叠在一起" .-> V
-    K["kill switch：供应商宕机 40 分钟 → 关掉 AI 功能走降级路径<br/>runbook 写清谁在什么信号下按"] -.-> PR
+    PR -. "钉快照、变更单独发" .-> V
+    K["kill switch：宕机走降级"] -.-> PR
 
 ```
 
@@ -252,21 +252,19 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    U["使用<br/>真实流量"] --> F["反馈<br/>隐式（采纳 / 修改 / 重试 / 放弃）· 显式（点踩）· 系统（错误 / 卫士 / 拒答）<br/>全部带 trace id"]
-    F --> Q["bad case 队列<br/>owner · SLA · 分类 · 去重"]
-    Q --> E["评测集<br/>每周补 · hold-out · 版本绑定"]
-    E --> I["改进<br/>prompt · 检索 · 工具描述 · 策略 · 路由"]
-    I --> G["门禁 → 影子 → 灰度<br/>（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》 · 第六篇）"]
+    U["使用"] --> F["反馈<br/>全部带 trace id"]
+    F --> Q["bad case 队列"]
+    Q --> E["评测集"]
+    E --> I["改进"]
+    I --> G["门禁 → 灰度"]
     G --> U
-    E -->|"几千条真实（输入，理想输出）对"| FT["微调小模型<br/>行为优化：编译规则、降成本、提一致性"]
+    E -->|"真实（输入，输出）对"| FT["微调小模型"]
     FT --> G
-    U -->|"授权 · 隔离 · 脱敏 · 可退出"| D["用户数据治理（第五篇）"]
-    D -.-> F
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
     class U,F,Q,E,I,FT step
-    class G,D gate
+    class G gate
 ```
 
 <aside class="notes" markdown="1">
