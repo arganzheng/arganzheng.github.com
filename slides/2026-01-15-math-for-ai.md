@@ -47,7 +47,7 @@ transition: slide
 ## 四个分支、八个出口
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph LA["线性代数"]
     direction TB
     P1["一 · 形状与 2mnk"] --> P2["二 · 内积 / 范数 / 余弦"] --> P3["三 · 正交 / 旋转 / SVD"]
