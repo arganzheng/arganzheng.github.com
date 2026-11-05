@@ -26,11 +26,11 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    K1["01 进上下文还是进权重<br/>事实进上下文、行为进权重"] --> K2["02 三类检索<br/>词法 / 向量 / 结构化，按前提选"]
-    K2 --> K3["03 解析与分块<br/>检索失败的上游"] --> K4["04 索引、混合与 rerank"]
-    K4 --> K5["05 流水线 → agentic retrieval"]
-    K2 --> K6["06 结构化知识<br/>SQL + 语义层、本体、GraphRAG"]
-    K3 & K4 & K5 & K6 --> K7["07 检索评测与运营<br/>没找到 vs 找到了没说对"]
+    K1["01 上下文还是权重"] --> K2["02 三类检索"]
+    K2 --> K3["03 解析与分块"] --> K4["04 索引、混合与 rerank"]
+    K4 --> K5["05 → agentic retrieval"]
+    K2 --> K6["06 结构化知识"]
+    K3 & K4 & K5 & K6 --> K7["07 评测与运营"]
 ```
 
 ---
@@ -51,6 +51,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /knowledge-in-context-or-in-weights.html。知识类型表六行。
+各篇关键词：01 事实进上下文、行为进权重；02 词法 / 向量 / 结构化、按前提选；03 检索失败的上游；06 SQL + 语义层 / 本体 / GraphRAG；07 没找到 vs 找到了没说对。
 </aside>
 
 <!-- v -->
@@ -119,17 +120,16 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart TB
-    F["文件<br/>PDF · Office · 扫描件"] --> P{"梯级"}
-    P -->|"数字原生"| R1["① 规则抽取"]
-    P -->|"复杂表格"| R2["② 布局模型"]
-    P -->|"扫描"| R3["③ 视觉 OCR"]
-    R1 --> S["结构化文本"]
-    R2 --> S
-    R3 --> S
-    S --> C["分块 + contextual 前缀"]
-    C --> M["元数据"]
-    M --> I["索引（第四篇）"]
+flowchart LR
+    subgraph PARSE["解析梯级"]
+        direction TB
+        F["文件<br/>PDF · Office · 扫描件"] --> P{"梯级"}
+        P -->|"数字"| R1["① 规则抽取"]
+        P -->|"表格"| R2["② 布局模型"]
+        P -->|"扫描"| R3["③ 视觉 OCR"]
+        R1 & R2 & R3 --> S["结构化文本"]
+    end
+    S --> C["分块+前缀"] --> M["元数据"] --> I["索引（第四篇）"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -139,6 +139,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /document-parsing-and-chunking-for-retrieval.html。
+分块带 contextual 前缀。
+梯级分支：数字原生 → 规则抽取；复杂表格 → 布局模型；扫描 → 视觉 OCR。
 </aside>
 
 <!-- v -->
@@ -184,22 +186,23 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
-    subgraph P["流水线 RAG（2023 起的标准形态）"]
+    subgraph P["流水线 RAG"]
         direction TB
         P1["query"] --> P2["混合召回 + rerank"] --> P3["top-k 进 prompt"] --> P4["生成"]
     end
-    subgraph AG["agentic retrieval（检索是 agent 的一个工具）"]
+    subgraph AG["agentic retrieval"]
         direction TB
-        A1["决定先查什么"] --> A2["调 search_docs / sql"] --> A3["够不够？不够再查"] --> A1
+        A1["决定先查什么"] --> A2["调 search_docs / sql"] --> A3["够不够？"] --> A1
         A3 -- "够了" --> A4["生成（带引用）"]
     end
     P -. "确定、成本固定" .-> X["取舍"]
-    AG -. "能多跳、不可预测" .-> X
+    AG -. "多跳、不可预测" .-> X
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /from-rag-pipelines-to-agentic-retrieval.html。
+流水线 RAG 是 2023 起的标准形态；agentic 中检索是 agent 的一个工具。
 </aside>
 
 <!-- v -->
@@ -223,16 +226,17 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 flowchart TB
-    Q["答案在「关系」里，不在任何一个块里"] --> W{"数据长什么样？"}
-    W -- "有 schema<br/>「Q3 营收」" --> S["<b>text-to-SQL + 语义层</b>"]
+    Q["答案在「关系」里"] --> W{"数据什么样？"}
+    W -- "有 schema" --> S["<b>text-to-SQL + 语义层</b>"]
     W -- "对象关系 + 动作" --> O["<b>本体</b><br/>对象导航替代 join"]
-    W -- "文档抽出的实体关系" --> G["<b>GraphRAG</b><br/>实体关系建图"]
-    S & O & G --> C["都不替代向量检索：<br/>先检索线索，再结构导航"]
+    W -- "实体关系" --> G["<b>GraphRAG</b><br/>实体关系建图"]
+    S & O & G --> C["不替代向量检索：<br/>先线索，再结构导航"]
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /structured-knowledge-sql-ontology-and-graphrag.html。
+例：「Q3 营收」走 schema。
 </aside>
 
 <!-- v -->
