@@ -112,6 +112,11 @@ flowchart LR
 | 全模型 | 8.03B 参数，一个 token 前向约 15 GFLOPs |
 | 训练总算力 | $$C \approx 6ND$$（第八篇 Chinchilla 直接沿用） |
 
+<!-- v -->
+
+
+### 要点
+
 - 张量与广播：训练代码里的形状操作都是这两条规则的变体
 - 读结构图第一反应：**先对形状，再数 FLOPs**
 
@@ -132,6 +137,11 @@ flowchart LR
 ### 它们在 LLM 里长什么样
 
 ![内积 = 投影 × 长度；余弦只看夹角](/img/in-post/inner-product-norms-and-cosine-similarity-geometry.svg){: style="max-height: 360px"}
+
+<!-- v -->
+
+
+### 要点
 
 - **内积**：attention score $$q^\top k$$，$$QK^\top$$ 是一张内积表；**余弦**：embedding 检索、CLIP——1024 维随机向量的余弦标准差只有 $$1/\sqrt d \approx 0.03$$
 - **范数 = 正则项**：weight decay $$\frac{\lambda}{2}\lVert W\rVert_F^2$$；**范数 = 误差**：GPTQ 最小化 $$\lVert WX - \hat WX\rVert_F$$ 而不是 $$\lVert W - \hat W\rVert_F$$
@@ -154,6 +164,11 @@ flowchart LR
 
 ![二维旋转：正交矩阵保内积，两次旋转等于角度相加](/img/in-post/orthogonal-rotation-2d-example.svg){: style="max-height: 340px"}
 
+<!-- v -->
+
+
+### 要点
+
 - $$(R_{m\theta}q)^\top(R_{n\theta}k) = q^\top R_{(n-m)\theta}\,k$$；频率 $$\theta_i = \text{base}^{-2i/d_h}$$，128 维的头拆成 64 对
 - LoRA：$$\Delta W = BA$$，Llama-3-8B 上 $$r = 16$$ 只有 **41.9M 参数、0.52%**；$$x \to xB \to (xB)A$$ 与先算 $$BA$$ 差约两千倍——**读形状**就能看出
 
@@ -174,6 +189,11 @@ flowchart LR
 ### 常见分布与它们的出场
 
 ![伯努利 / 二项、类别、高斯、均匀：形状与在 AI 里的出场](/img/in-post/probability-basics-common-distributions-shapes.svg){: style="max-height: 420px"}
+
+<!-- v -->
+
+
+### 要点
 
 - 评测每道题对错是伯努利 → 第八篇的标准误；next-token 是类别分布；初始化与扩散是高斯
 
@@ -208,6 +228,11 @@ flowchart LR
 
 ![nanoGPT 莎士比亚：首步 loss 4.1676 vs ln 65 = 4.174，以及三种 bug 的曲线](/img/in-post/math-05-lnv-and-bugs.svg){: style="max-height: 450px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 随机初始化的模型是均匀分布，交叉熵 $$= \ln V$$：Llama-3 词表 128256 → **11.8**
 - 远高：初始化太大；**远低：泄漏或 mask 算错**——没学之前就知道答案
 
@@ -216,6 +241,11 @@ flowchart LR
 ### softmax、温度与采样（GPT-2 真实分布）
 
 ![GPT-2 在一个开放位置的真实分布：温度、top-k、top-p 的效果](/img/in-post/math-05-gpt2-sampling.svg){: style="max-height: 400px"}
+
+<!-- v -->
+
+
+### 要点
 
 - softmax 里差值决定比值：logit 差 1 是 2.7 倍，差 5 是 148 倍
 - 温度改变的是**分布**，greedy 与 T=0.6 / top-p 0.95 的分数不能直接比
@@ -278,6 +308,11 @@ $$
 
 ![计算图上的链式法则：手算、autograd、有限差分三方对拍](/img/in-post/math-07-chain-rule-graph.svg){: style="max-height: 420px"}
 
+<!-- v -->
+
+
+### 常见误区
+
 - 反向传播是它的逐层套用；工程上算「上游梯度 × Jacobian」，从不构造 $$[4096, 4096]$$ 的 Jacobian
 
 <!-- v -->
@@ -300,6 +335,11 @@ $$
 
 ![奖励上升、模型坍缩、KL 惩罚刹车](/img/in-post/math-07-rl-nanogpt.svg){: style="max-height: 420px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 不加 KL：奖励一路涨，模型坍缩成一串元音，val loss 从 1.66 飙到 6–9
 - $$\beta = 0.5$$ 的 KL 惩罚把它拉回 3.2——**这就是 RLHF 里 KL 项存在的理由**
 
@@ -321,6 +361,11 @@ $$
 
 ![164 题上评 1000 次：观测正确率从 0.70 散到 0.89](/img/in-post/math-08-sampling-noise.svg){: style="max-height: 420px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 标准误就是这团散布的标准差：$$\sqrt{0.8 \times 0.2 / 164} = 3.1\%$$
 
 <!-- v -->
@@ -333,15 +378,31 @@ $$
 | GSM8K | 1319 / 0.90 | 0.8% | ±1.6% | 2.3 个点 |
 | MMLU | 14042 / 0.70 | 0.4% | ±0.8% | 1.1 个点 |
 
-- 「HumanEval 80.0%」的真实含义是 **74% 到 86%**
+<!-- v -->
+
+
+### 要点
+
 - 差值的 SE $$= \sqrt{\text{SE}_1^2 + \text{SE}_2^2}$$；配对检验只看分歧题，更灵敏但量级不变
 - 训练有随机性：**实跑 20 次**，+20% 学习率显著、+2% 分不出来、单种子对比 8% 会反向
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「HumanEval 80.0%」的真实含义是 **74% 到 86%**
 
 <!-- v -->
 
 ### Chinchilla：等 loss 线与等算力线相切
 
 ![等 loss 线与等算力线相切给出最优 N、D](/img/in-post/math-08-chinchilla-isoflop.svg){: style="max-height: 380px"}
+
+<!-- v -->
+
+
+### 要点
 
 - $$L = E + A/N^\alpha + B/D^\beta$$，约束 $$6ND = C$$ → $$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$
 - 8B 配 160B token 是 2.16，配 15T 是 1.95：**94 倍数据换 0.21 nat**，值不值看推理成本
