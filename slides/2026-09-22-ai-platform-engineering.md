@@ -121,7 +121,7 @@ flowchart TB
 | HAMi | 软（拦截 kernel） | 软（拦截 `cudaMalloc`，不切带宽与 L2） | 整卡 | `deviceSplitCount` 默认 10 |
 | MIG | 硬 | 硬 | slice（Xid 隔离） | 几何刚性 |
 
-- A100：7 个计算 slice、8 个显存 slice；`3g.20gb` = 3/7 算力 + 4/8 带宽；`3g.20gb × 2` 已用尽 8 个显存 slice——**塞不进 `1g.5gb`**，浪费 1 个计算 slice
+- A100：7 个计算 slice、8 个显存 slice；`3g.20gb` = \(3/7\) 算力 + \(4/8\) 带宽；`3g.20gb × 2` 已用尽 8 个显存 slice——**塞不进 `1g.5gb`**，浪费 1 个计算 slice
 
 <aside class="notes" markdown="1">
 原文 /gpu-sharing-and-partitioning-mig-mps-hami.html。
