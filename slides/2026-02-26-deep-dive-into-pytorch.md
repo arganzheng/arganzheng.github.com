@@ -128,6 +128,12 @@ flowchart TB
 - `[B, 4096]` 的一层若物化 Jacobian 每样本 $$4096^2$$ 个数；VJP 只算 $$v^\top J$$
 - `.grad` 是累加，所以要 `zero_grad()`；version counter 抓 in-place；`gradcheck` 必须 float64
 
+<!-- v -->
+
+### 自定义 Function：apply 立即执行，引擎回调 backward
+
+![自定义 Function 的时间线：forward 由 apply 立即执行，backward 由引擎回调，ctx 在两者之间传状态](/img/in-post/pytorch-autograd-custom-function-timeline.svg){: style="max-height: 380px"}
+
 ---
 
 ## 04 · nn.Module 与训练系统：一切状态都在 `state_dict` 里
@@ -160,7 +166,17 @@ flowchart LR
 
 ## 05 · Dispatcher：开发态填表、运行态查表
 
-**结论**：开发态（定义 → 注册 → 实现）与运行态（入口 → 分发 → 执行）**交汇于 Operator Table**；DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级；**包装 Key 做完事再次分发**——一次 `add` 两次经过 Dispatcher。
+**一次 `add` 两次经过 Dispatcher：包装 Key 做完事再次分发**
+
+![一次 add 调用两次经过 Dispatcher：先命中 AutogradCUDA 包装，去掉 Autograd 后再分发到 CUDA kernel](/img/in-post/pytorch-dispatcher-add-two-dispatches.svg){: style="max-height: 380px}
+
+<aside class="notes" markdown="1">
+原文 /pytorch-dispatcher-and-operator-system.html。DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级。
+</aside>
+
+<!-- v -->
+
+### 开发态填表、运行态查表：交汇于 Operator Table
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -240,11 +256,27 @@ flowchart LR
 - 热路径：3 次分发 → 0 次、3 次 launch → 2 次；Guard `size[0] == 128` → `s0 > 64`；缓存条目上限 8
 - 「换 batch size 变慢是编译器 bug」——静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译；`dynamic=True` / `mark_dynamic`
 
+<!-- v -->
+
+### Inductor 的内存规划：三个逻辑值共用一次分配
+
+![call() 里 buffer 的生命周期：三个逻辑值共用一次分配](/img/in-post/pytorch-compilation-and-graph-optimization-buffer-lifetime.svg){: style="max-height: 380px}
+
 ---
 
 ## 08 · 性能优化：CPU 与 GPU 是两条异步时间线
 
-**结论**：五类瓶颈——launch / Python / sync-bound（CPU 侧）、memory / compute-bound（GPU 侧）——**优化是把瓶颈从一类推到另一类**。
+**CPU 提交与 GPU 执行是两条异步时间线；优化是把瓶颈从一类推到另一类**
+
+![CPU 提交与 GPU 执行的两条时间线](/img/in-post/pytorch-performance-optimization-and-debugging-cpu-gpu-queue.svg){: style="max-height: 360px"}
+
+<aside class="notes" markdown="1">
+原文 /pytorch-performance-optimization-and-debugging.html。五类瓶颈：launch / Python / sync-bound（CPU 侧）、memory / compute-bound（GPU 侧）。
+</aside>
+
+<!-- v -->
+
+### 按 GPU 泳道形态定瓶颈类别
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
