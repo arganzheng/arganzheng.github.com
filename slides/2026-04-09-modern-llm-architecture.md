@@ -66,7 +66,18 @@ $$
 | 真正的约束 | B × s ≤ 52 万 token（64 GB / 128 KiB） |
 | prefill 8K | 因果三角约 140 TFLOP；峰值 0.14–0.16 s 是物理下限，60% MFU 约 0.24–0.27 s |
 
+<!-- v -->
+
+
+### 要点
+
 - 训练 6ND（激活重算 8ND）；激活 $$sbh(34 + 5as/h)$$，8K 时每层 11 GiB 其中 10 GiB 是 s² 项
+
+<!-- v -->
+
+
+### 常见误区
+
 - 对 decode，「模型多大」的度量是字节不是 FLOPs：FFN 砍一半下界不变，INT4（量化专题）才降到 1.3 ms
 
 ---
@@ -120,6 +131,11 @@ flowchart TB
     class CKV,KR cache
 ```
 
+<!-- v -->
+
+
+### 要点
+
 - decode 吸收 $$W_{UK}$$/$$W_{UV}$$：等价 128 头共享 576 维 KV 头的 MQA，强度 242；FLOPs 3.4 倍，prefill 走非吸收
 
 <!-- v -->
@@ -142,13 +158,18 @@ flowchart TB
 | 128K prefill（60% MFU） | 6.5 PFLOP，约 **11 s** | 41 PFLOP，约 69 s |
 | 128K 一条请求的 KV | 16 GiB | 40 GiB |
 
-- 滑窗使 KV / 单步 attention 为 \(O(W)\)，整段 prefill 为 \(O(sW)\)（Mistral \(W=4096\)）但丢信息；sink + 滑窗保留开头 4 个 token
-- 交错局部 / 全局把系数变 \(1/k\)；MLA 减系数不减阶——两者正交可叠加
-- 对 Infra：KV 定并发、二次项定 TTFT、chunked prefill 防一条 128K 请求独占 GPU 11 s
-
 <aside class="notes" markdown="1">
 原文 /long-context-cost-and-structural-remedies.html。结构手段分三类：降复杂度（稀疏 / 线性）、省 KV（MLA / GQA / 量化）、外推（位置编码改造）。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 滑窗使 KV / 单步 attention 为 \(O(W)\)，整段 prefill 为 \(O(sW)\)（Mistral \(W=4096\)）但丢信息；sink + 滑窗保留开头 4 个 token
+- 交错局部 / 全局把系数变 \(1/k\)；MLA 减系数不减阶——两者正交可叠加
+- 对 Infra：KV 定并发、二次项定 TTFT、chunked prefill 防一条 128K 请求独占 GPU 11 s
 
 ---
 
@@ -241,8 +262,19 @@ flowchart LR
 | 主任务 | 大规模上有收益（13B 以上明显） | 1.9375 对 1.9364，**不变** |
 | MTP 头 | 当投机 draft：接受率 85–90%、TPS 约 1.8 倍 | t+2 命中 45%（知道 t+1 且多一层） |
 
-- 「MTP 头 loss 更低所以更强」——条件不同；「小模型没收益所以无效」——规模依赖
+<!-- v -->
+
+
+### 要点
+
 - 顺序模块 vs 并行头是两条路线：并行头跳过中间 token 会干扰主干
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「MTP 头 loss 更低所以更强」——条件不同；「小模型没收益所以无效」——规模依赖
 
 ---
 ## 08 · 投机解码：草稿、验证与收益条件
@@ -286,6 +318,11 @@ Table: 投机解码的正确性、收益与边界
 | connector | 决定 token 数 | MLP 不压缩 576 · 2×2 merge 1369 · resampler 定长；同一张图 576–6404 差 11 倍 |
 | decoder | prefill + KV | 193 TFLOP；**KV 428 MiB**，是 encoder 输出 21 MiB 的 **20 倍** |
 
+<!-- v -->
+
+
+### 要点
+
 - 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8
 - cross-attention 注入（Llama 3.2 Vision）用 0.5B 参数换序列长度，图片 KV 800 → 200 MiB
 - 一分钟 720p 1 fps 视频 35,880 token；按像素预算，不按张数
@@ -324,6 +361,11 @@ Table: 投机解码的正确性、收益与边界
 
 ![各浮点格式可表示正数的范围（对数轴），浅色为次正规区，橙色带为训练中激活梯度的典型分布——FP16 的下界切进了这条带](/img/in-post/floating-point-formats-and-mixed-precision-ranges.svg){: style="max-height: 340px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 训练状态 **16 B / 参数**（bf16 权重 2 + 梯度 2 + fp32 主权重 4 + Adam m、v 8）：8B 128 GB、70B 1.1 TB、671B 10.7 TB
 - FP8 分工：E4M3 存权重与激活、E5M2 存梯度；V3 每 128 项提升到 FP32 累加，与 1 × 128 / 128 × 128 的分块 scale 对齐
 
@@ -337,6 +379,11 @@ Table: 投机解码的正确性、收益与边界
 | 长求和 | k = 4096 的点积在 BF16 累加噪声 ε√k ≈ 25% | FP32 累加器 |
 | 指数溢出 | softmax 的 e^x，x > 11 在 FP16 溢出 | 减最大值 |
 | 相消 | 方差 = E[x²] − E[x]² | Welford |
+
+<!-- v -->
+
+
+### 要点
 
 - 两个 kernel 的差异在 ε 到 ε√k 之间是噪声（BF16 GEMM 相对 FP32 参考 10⁻³–10⁻²）；大几个数量级或有系统性符号才是 bug
 - QK-norm 把 attention logit 上界压到 $$\sqrt{d_{head}}\,g_q g_k \approx 11.3\,g_q g_k$$
