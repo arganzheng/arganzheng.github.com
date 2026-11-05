@@ -36,14 +36,14 @@ transition: slide
 flowchart TB
     subgraph U["理解线：其他模态 → token → LLM"]
         direction TB
-        V1["01 视觉编码器<br/>CLIP / SigLIP / 自监督 ViT"] --> V2["02 VLM 的结构<br/>connector、注入、动态分辨率"] --> V3["03 VLM 的训练<br/>数据、阶段、评测"]
-        A4["04 语音（上）<br/>mel 谱、Whisper、codec"] --> A5["05 语音（下）<br/>理解、生成、全双工"]
+        V1["01 视觉编码器"] --> V2["02 VLM 结构"] --> V3["03 VLM 训练"]
+        A4["04 语音（上）"] --> A5["05 语音（下）"]
     end
     subgraph G["生成线：从噪声去噪"]
         direction TB
-        G6["06 DDPM<br/>加噪、去噪、预测噪声"] --> G7["07 score / flow matching、CFG"] --> G8["08 Latent diffusion、DiT、文生图配方"]
+        G6["06 DDPM"] --> G7["07 score / flow"] --> G8["08 Latent diffusion"]
     end
-    V2 & G8 --> M9["09 自回归图像生成与统一模型"]
+    V2 & G8 --> M9["09 自回归图像生成"]
 ```
 
 ---
