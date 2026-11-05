@@ -230,7 +230,7 @@ clip 后全局范数  1.000  (max_norm=1.0)
 
 - **哪些梯度参与范数。** `optimizer.py` 的 `MegatronOptimizer.get_main_grads_for_grad_norm()` 过滤掉两类会被重复计数的参数：`param_is_not_shared()`（被首尾 PP stage 共享的 embedding 只算一次）和 `param_is_not_tensor_parallel_duplicate()`（LayerNorm 权重这类在 TP 组内复制的参数只在 TP rank 0 计入）。漏掉这个过滤，$$\|g\|$$ 会被高估 $$t$$ 倍的一部分，clip 变得过于激进——这是自己写多维并行时最常见的 bug。
 - **在哪个组上归约。** `get_grad_stats_parallel_group()`：非分布式优化器时，DP 组的梯度 all-reduce 已经完成、每个 DP rank 手里是完整的 DP 平均梯度，所以只需在**模型并行组**（TP × PP）上归约；分布式优化器（`distrib_optimizer.py` 覆盖此方法）时每个 rank 只持有自己那一分片的主梯度，必须在**整个 world** 上归约。Megatron-FSDP 的 DTensor 梯度还要先在 DP 组上归约（`get_data_parallel_group_if_dtensor()`）。
-- **调用时序。** `MixedPrecisionOptimizer.step()` 的顺序是 `prepare_grads()`（拷到 fp32 主梯度、fp16 时 unscale 并查 inf）→ `clip_grad_norm()` → `count_zeros()`（若 `log_num_zeros_in_grad`）→ `step_with_ready_grads()`；返回 `(success, grad_norm, num_zeros_in_grad)`，`train_step()` 再用 `reduce_max_stat_across_model_parallel_group()` 把没有可训练参数的 rank 上的 None 补齐。所以 Megatron 日志里的 `grad norm` 是 **clip 之前**的全局范数——这正是我们要记的那个信号。
+- **调用时序。** `MixedPrecisionOptimizer.step()` 的顺序是 `prepare_grads()`（拷到 fp32 主梯度、fp16 时 unscale 并查 inf）→ `clip_grad_norm()` → `count_zeros()`（若 `log_num_zeros_in_grad`）→ `step_with_ready_grads()`；返回 `(success, grad_norm, num_zeros_in_grad)`，`train_step()` 再用 `reduce_max_stat_across_model_parallel_group()` 把没有可训练参数的 rank 上的 None 补齐。所以 Megatron 日志里的 `grad norm` 是 **clip 之前**的全局范数——这正是要记的那个信号。
 
 **torchtitan** 的 `torchtitan/distributed/utils.py` `clip_grad_norm_(parameters, max_norm, norm_type, error_if_nonfinite, foreach, pp_mesh, ep_enabled)` 走 PyTorch 原生路径：`torch.nn.utils.get_total_norm(grads)`（`torch/nn/utils/clip_grad.py`，2.13 把 `_get_total_norm` 与 `_clip_grads_with_norm_` 以公开名导出）对一列 DTensor 梯度返回一个 placement 为 `_NormPartial` 的 DTensor（`torch/distributed/tensor/_ops/_math_ops.py`），`.full_tensor()` 触发按 $$p$$ 范数语义的归约——FSDP 与 TP 两个维度一次搞定；PP 不在 DTensor 的 mesh 里，所以再显式地在 `pp_mesh` 上 all-reduce $$p$$ 次幂之和。最后 `torch.nn.utils.clip_grads_with_norm_()` 缩放。EP 开启时走 `_clip_grad_norm_with_ep()`，因为专家参数与稠密参数在不同的 mesh 上。`trainer.py` 的 `train_step()` 把返回值 `grad_norm.item()` 交给 `MetricsProcessor.log()`。
 
@@ -541,7 +541,7 @@ torchtitan 的对应物是 `torchtitan/hf_datasets/interleaved.py` 的 `Interlea
 - 显式打包（thd，`micro_batch_size = 1`）：`cu_seqlens = [0, 5, 8]`；段 0 = 位置 `[0,5)`，doc 12 的尾；段 1 = 位置 `[5,8)`，doc 3 的头。
 - torchtitan：`positions = [0,1,2,3,4,0,1,2]`；`positions == 0` 处即段起点，cumsum 得文档 id → FlexAttention 块对角 mask。
 
-右侧的块对角 mask 就是 `reset_attention_mask` 的效果：`u0` 之后的 token 看不到 EOD 及其之前的任何 token；左侧默认设置下 `u0` 能看到整段 doc 12，模型要自己学会"EOD 之前的内容与我无关"。
+右侧的块对角 mask 就是 `reset_attention_mask` 的效果：`u0` 之后的 token 看不到 EOD 及其之前的任何 token；左侧默认设置下 `u0` 能看到整段 doc 12，模型要自己学会"EOD 之前的内容与后面无关"。
 
 显式的打包——变长序列拼成一条、注意力 kernel 按 `cu_seqlens` 分段——走 `megatron/core/packed_seq_params.py` 的 `PackedSeqParams(qkv_format="thd", cu_seqlens_q, cu_seqlens_kv, cu_seqlens_q_padded, cu_seqlens_kv_padded, max_seqlen_q, max_seqlen_kv, ...)`，传给 TE 的 fused attention 与 RoPE kernel；`thd` 格式（token-major，没有 batch 维）让一个 micro-batch 就是一条打包序列，这就是[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)说"sequence packing 要求 `micro_batch_size = 1`"的原因。0.18.0 里造 `cu_seqlens` 的是 SFT 路径：`megatron/training/datasets/sft_dataset.py` 的 `SFTDataset.__getitem__()` 贪心地把对话塞进 `pack_length`，记录每条的累计长度到 `cu_seqlens`，CP 开启时把每条 pad 到 `2 × cp_size` 的倍数（CP 的负载均衡切分要求）；`pretrain_gpt.py` 的 `get_batch()` 拿到 `cu_seqlens` 与 `cu_seqlens_padded` 后构造 `PackedSeqParams`，并调 `update_seqlen_stats_from_cu_seqlens()` 让 FLOPs 计算按真实长度而不是 pad 后长度算——打包后 MFU 的分子要用真实 token 数。
 

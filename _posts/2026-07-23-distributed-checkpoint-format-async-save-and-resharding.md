@@ -231,7 +231,7 @@ Table: rank-0 汇总的三个瓶颈
 
 放大回 405B：2048 个节点每个写 2.8 GB，写入时间由**并行文件系统的聚合带宽**决定：聚合 500 GB/s 时 5.7 TB 要 11 s，1 TB/s 时 6 s。GPU 到主机内存那一段——350 MB 走 PCIe 5.0 x16——不到 10 ms，可以忽略。
 
-这里出现了一个新的瓶颈：**计划阶段的集合通信**。DCP 的每个 rank 要把"我打算写哪些张量的哪些块"发给 coordinator 汇总去重，16384 个 rank 每个几千个 `WriteItem`，这一次 gather 的对象序列化与反序列化在 Python 里做，可能比写数据本身还慢。Megatron 与 DCP 都为此加了**计划缓存**：结构不变时只做第一次（Megatron 的 `ckpt_assume_constant_structure`、DCP `DefaultSavePlanner(enable_plan_caching=True)`），第四章会看到实现。
+这里出现了一个新的瓶颈：**计划阶段的集合通信**。DCP 的每个 rank 要把"打算写哪些张量的哪些块"发给 coordinator 汇总去重，16384 个 rank 每个几千个 `WriteItem`，这一次 gather 的对象序列化与反序列化在 Python 里做，可能比写数据本身还慢。Megatron 与 DCP 都为此加了**计划缓存**：结构不变时只做第一次（Megatron 的 `ckpt_assume_constant_structure`、DCP `DefaultSavePlanner(enable_plan_caching=True)`），第四章会看到实现。
 
 ### 4. 三种目录长什么样
 

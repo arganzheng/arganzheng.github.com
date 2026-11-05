@@ -467,7 +467,7 @@ collective stack trace:
   ...
 ```
 
-读法：序号 2891 这次 all-gather，7 个 rank 发起了、都停在 `scheduled`（kernel 已入队但没开始——NCCL 的 kernel 在等最后一个参与者），**rank 5 没有发起它**。栈告诉我们这是 FSDP 某个参数组的前向 unshard。第三步，看 rank 5 在干什么——用 `-j --selected-ranks 5` 只打它的记录：
+读法：序号 2891 这次 all-gather，7 个 rank 发起了、都停在 `scheduled`（kernel 已入队但没开始——NCCL 的 kernel 在等最后一个参与者），**rank 5 没有发起它**。栈说明这是 FSDP 某个参数组的前向 unshard。第三步，看 rank 5 在干什么——用 `-j --selected-ranks 5` 只打它的记录：
 
 ```text title="只看 rank 5 的记录"
 $ torchfrtrace /work/run42/comm_traces -p rank_ -j --selected-ranks 5 --print_stack_trace | tail -8

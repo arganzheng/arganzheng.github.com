@@ -379,7 +379,7 @@ Table: 一次进程重启的时间账（数字是量级，非实测）
 | `progress_watchdog_interval` | 1 s | `ProgressWatchdog`：自动时间戳（通过 CUDA stream callback），不需要用户报进度 |
 | `soft_timeout` / `hard_timeout` | 60 s / 90 s | 进度停滞 60 s → 该 rank 执行 abort 并参与重启；90 s → 直接终止该 rank |
 | `barrier_timeout` / `completion_timeout` | 120 s / 120 s | 重启 barrier 与完成 barrier 的超时 |
-| `last_call_wait` | 1 s | 给其他 rank 报"我也出错了"的窗口，把并发故障合并成一次重启 |
+| `last_call_wait` | 1 s | 给其他 rank 报"也出错了"的窗口，把并发故障合并成一次重启 |
 | `termination_grace_time` | 5 s | hard timeout 时 SIGTERM 到 SIGKILL 的间隔 |
 
 Table: inprocess.Wrapper 的组件清单
@@ -476,7 +476,7 @@ flowchart TB
 `LighthouseOpt` 四个参数：`--min_replicas`（多少副本才成 quorum）、`--join_timeout_ms`（默认 60000：等还在心跳但没来参加的副本多久）、`--quorum_tick_ms`（默认 100：多久检查一次）、`--heartbeat_timeout_ms`（默认 5000：多久没心跳算死）。`quorum_compute()` 是核心规则，按顺序：
 
 - **1  healthy_replicas    = 最近 heartbeat_timeout_ms 内有心跳的副本**
-  - healthy_participants = 其中已经发了 quorum 请求（"我准备好进入下一步"）的副本
+  - healthy_participants = 其中已经发了 quorum 请求（"准备好进入下一步"）的副本
 - **2  若上一轮 quorum 存在，且它的全部成员都在 healthy_participants 里  → "Fast quorum"：立即以候选者成立（不等别人）**
   - （若任一参与者带 shrink_only，候选者只能是上一轮成员的子集——只缩不扩）
 - **3  healthy_participants < min_replicas                                → 不成立，等**
@@ -634,7 +634,7 @@ Table: straggler 的成因与特征
 
 ### 2. 检测原理：每 rank 的计算时间 vs 等待时间
 
-判据只有一条：**慢的 rank 计算时间长、通信等待时间短；被拖的 rank 反之**。所以检测需要每个 rank 各自记录"本 step 花在计算 kernel 上的时间"与"花在集合通信里的时间"，然后跨 rank 比较——单个 rank 的时间线分不清"我慢"和"我在等别人"。
+判据只有一条：**慢的 rank 计算时间长、通信等待时间短；被拖的 rank 反之**。所以检测需要每个 rank 各自记录"本 step 花在计算 kernel 上的时间"与"花在集合通信里的时间"，然后跨 rank 比较——单个 rank 的时间线分不清"自己慢"和"在等别人"。
 
 ![一个 step 内各 rank 的时间线（rank 5 是 straggler）](/img/in-post/fault-tolerance-straggler-timeline.svg)
 
