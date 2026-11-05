@@ -171,7 +171,7 @@ flowchart TB
 
 ## 05 · KV Cache：管理增长中的状态
 
-**block_size=16；2,050 token 占 129 块，Prefix Cache 只复用满块**
+**`block_size`=16；2,050 token 占 129 块，Prefix Cache 只复用满块**
 
 ![KV Cache 从 Prefill 写入、Decode 追加到完成或抢占归还的生命周期](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg){: style="max-height: 400px"}
 
