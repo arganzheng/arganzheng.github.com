@@ -71,7 +71,7 @@ Widrow 与 Hoff 的 ADALINE（adaptive linear element）把训练目标放在阈
 
 两种更新规则的差异不只是换了一个名字：感知机看离散分类，犯错才动；ADALINE 看阈值前的数值误差，每一步都沿着梯度调整。线性输出与 LMS 后来成为自适应信号处理的重要工具，Widrow 等人的自适应噪声抵消工作展示了这条路线的应用。[自适应噪声抵消原论文](https://doi.org/10.1109/PROC.1975.10036) MADALINE 则把多个 ADALINE 单元组合成更复杂的判别器；它增加了组合能力，却仍受早期训练规则与硬件规模限制。
 
-纽约时报 1958 年 7 月 8 日的报道标题是 “New Navy Device Learns By Doing; Psychologist Shows Embryo of Computer Designed to Read and Grow Wiser”。它记录了当时对可学习机器的乐观想象；标题中的“embryo”也提醒我们，媒体报道并不等于机器已经具备通用视觉能力。[《纽约时报》原报道](https://www.nytimes.com/1958/07/08/archives/new-navy-device-learns-by-doing-psychologist-shows-embryo-of.html)
+纽约时报 1958 年 7 月 8 日的报道标题是 “New Navy Device Learns By Doing; Psychologist Shows Embryo of Computer Designed to Read and Grow Wiser”。它记录了当时对可学习机器的乐观想象；标题中的“embryo”也提醒，媒体报道并不等于机器已经具备通用视觉能力。[《纽约时报》原报道](https://www.nytimes.com/1958/07/08/archives/new-navy-device-learns-by-doing-psychologist-shows-embryo-of.html)
 
 ## 四、第一次寒冬（1969–1980）
 
