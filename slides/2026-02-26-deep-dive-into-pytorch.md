@@ -50,7 +50,7 @@ flowchart TB
 
 ## 01 · 整体介绍：`torch.add(x, y)` 经过了哪几层
 
-**结论**：六个职责层、一条动态调用路径、四层源码；**Autograd 只是 Operator Table 上优先级更高的一个 Key**。
+**Autograd 只是 Operator Table 上优先级更高的一个 Key**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 420}}}%%
@@ -60,6 +60,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-overall-introduction.html。PyTorch 2.0 于 2023 年 3 月 15 日发布。
+结论原文：**：六个职责层、一条动态调用路径、四层源码；**Autograd 只是 Operator Table 上优先级更高的一个 Key**。
 </aside>
 
 <!-- v -->
@@ -73,12 +74,13 @@ flowchart TB
 
 ## 02 · Tensor 与内存布局：view 只改元数据
 
-**结论**：Tensor = 数据 + 形状 + 布局 + 类型 + 设备 + 生命周期；$$\text{offset} = \text{storage\_offset} + \sum_k i_k \cdot \text{stride}_k$$；**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**。
+**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**
 
 ![x 与 y = x.t() 共享同一份 storage：x 的 stride (3, 1) 按逻辑顺序访问连续；y 的 stride (1, 3) 访问跳着走](/img/in-post/pytorch-tensor-transpose-shared-storage.svg){: style="max-height: 360px"}
 
 <aside class="notes" markdown="1">
 原文 /pytorch-tensor-and-memory-layout.html。[2,3,4] 连续 strides (12, 4, 1)；fp16 最大 65504、bf16 尾数 7 位。
+结论原文：**：Tensor = 数据 + 形状 + 布局 + 类型 + 设备 + 生命周期；$$\text{offset} = \text{storage\_offset} + \sum_k i_k \cdot \text{stride}_k$$；**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**。
 </aside>
 
 <!-- v -->
@@ -101,7 +103,7 @@ flowchart TB
 
 ## 03 · Autograd：链式法则变成一次沿图的反向遍历
 
-**结论**：前向就地建图，每个 `Node.apply` 算一次 **VJP**（不物化 Jacobian），梯度 `+=` 到叶子的 `.grad`；**保存一个输出等于保存整张图**。
+**保存一个输出等于保存整张图**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -119,6 +121,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-autograd-and-dynamic-computation-graph.html。「把 loss 存进 list 只是保存一个数」——loss 通过 grad_fn 持有整张图与所有激活；用 .item() 或 .detach()。
+结论原文：**：前向就地建图，每个 `Node.apply` 算一次 **VJP**（不物化 Jacobian），梯度 `+=` 到叶子的 `.grad`；**保存一个输出等于保存整张图**。
 </aside>
 
 <!-- v -->
@@ -138,12 +141,13 @@ flowchart TB
 
 ## 04 · nn.Module 与训练系统：一切状态都在 `state_dict` 里
 
-**结论**：`__setattr__` 的注册机制决定框架能否发现对象（**list 不是 Module**，用 `ModuleList`）；Adam 训练**每参数 16 字节**——7B 模型 112 GB，一张卡放不下的根源。
+**Adam 每参数 16 字节——7B = 112 GB 放不下的根源**
 
 ![FP32 + Adam(W) 下每个参数的 16 字节：param、grad 各 4 B 由 Module 持有，exp_avg、exp_avg_sq 各 4 B 由 Optimizer 持有](/img/in-post/pytorch-module-16-bytes-per-parameter.svg){: style="max-height: 340px"}
 
 <aside class="notes" markdown="1">
 原文 /pytorch-module-and-training-system.html。GradScaler 初始 65536、溢出 ÷2、连续 2000 步 ×2；prefetch_factor 默认 2；DataLoader worker 是进程。
+结论原文：**：`__setattr__` 的注册机制决定框架能否发现对象（**list 不是 Module**，用 `ModuleList`）；Adam 训练**每参数 16 字节**——7B 模型 112 GB，一张卡放不下的根源。
 </aside>
 
 <!-- v -->
@@ -207,7 +211,7 @@ flowchart TB
 
 ## 06 · C++ 扩展与自定义算子：三步、两种接入、四个阶段
 
-**结论**：定义 / 注册 / 实现三步；`torch.library` 或 `TORCH_LIBRARY` 接入；Python → C++ CPU → CUDA → Autograd 与 Meta 四阶段；实现层必须处理 **device、dtype、stride、生命周期**四件事。
+**三步接入；实现层管 device、dtype、stride、生命周期**
 
 | 阶段 | 做什么 | 要处理的 |
 |---|---|---|
@@ -221,6 +225,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-cpp-extension-and-custom-operators.html。「自定义 Kernel 处理连续 float32 就够了」——dtype、device、stride、空 Tensor、生命周期、backward 都要处理。
+结论原文：**：定义 / 注册 / 实现三步；`torch.library` 或 `TORCH_LIBRARY` 接入；Python → C++ CPU → CUDA → Autograd 与 Meta 四阶段；实现层必须处理 **device、dtype、stride、生命周期**四件事。
 </aside>
 
 ---
@@ -328,7 +333,7 @@ flowchart LR
 
 ## 09 · 分布式：五类状态各做一个决定
 
-**结论**：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
+**五类状态各选复制还是分片——ring all_reduce 每 rank 收发 → 2n**
 
 | 策略 | 每 rank 静态显存 | 每步通信 | 范围 |
 |---|---|---|---|
@@ -342,13 +347,14 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /pytorch-distributed-training.html。DDP Reducer 的桶按注册顺序逆序划分、每桶约 25 MB；compute stream 与 NCCL stream 两条 stream 重叠。
+结论原文：**：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
 </aside>
 
 ---
 
 ## 10 · 工程体系：一次改动过七关
 
-**结论**：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例，五种 oracle。
+**2000+ 算子 × 15 dtype × 设备 × 布局——在组合爆炸下求可行**
 
 | 关 | 内容 |
 |---|---|
@@ -363,6 +369,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /pytorch-engineering-system.html。
+结论原文：**：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例，五种 oracle。
 </aside>
 
 ---
