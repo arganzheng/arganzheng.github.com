@@ -46,9 +46,9 @@ flowchart TB
 |---|---|---|
 | 01 哈希与前缀和 | 「把见过的记下来」：$$\text{sum}(i, j] = \text{pre}[j] - \text{pre}[i]$$ | `count[0] = 1`；原地哈希值 v 放下标 v − 1 |
 | 02 双指针与滑动窗口 | 单调性：右扩不会让违规变合法、左收不会让合法变违规 | **含负数的「和 = k」不满足**——用前缀和 |
-| 03 单调栈与单调队列 | 弹出时结算：被弹出者的右侧第一个更大 = 当前元素、左侧 = 新栈顶 | 两端哨兵 0；窗口最值用单调队列 O(n) 不用堆 O(n log k) |
+| 03 单调栈与单调队列 | 弹出时结算：被弹出者的右侧第一个更大 = 当前元素、左侧 = 新栈顶 | 两端哨兵 0；窗口最值用单调队列 \(O(n)\) 不用堆 \(O(n\log k)\) |
 
-- LC 76 用 `missing` 计数使每步 O(1)；接雨水水位 = min(leftMax, rightMax)
+- LC 76 用 `missing` 计数使每步 \(O(1)\)；接雨水水位 = \(\min(\text{leftMax},\text{rightMax})\)
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-arrays-hashing-prefix-sum.html、/coding-interview-two-pointers-and-sliding-window.html、/coding-interview-stack-monotonic-stack-and-queue.html。
@@ -62,9 +62,9 @@ flowchart TB
 |---|---|---|
 | 04 链表 | 哑节点统一头特判；三指针反转先存 `nxt`；快慢指针找中点 / 判环 | Floyd $$a = (k-1)c + (c-b)$$；归并切分 `fast = head.next` |
 | 05 二叉树 | **返回给父节点的是能继续向上延伸的链，答案在拐点处用全局变量更新** | 层序先记 `len(q)`；BST 验证带上下界 `(lo, hi)` 不是比父子 |
-| 06 图 | 五个算法：BFS、DFS、Kahn、并查集、Dijkstra；**BFS 入队时标记** | Kahn 出队数 < n 即有环；Dijkstra 堆 + 懒删除 O(E log E) |
+| 06 图 | 五个算法：BFS、DFS、Kahn、并查集、Dijkstra；**BFS 入队时标记** | Kahn 出队数 < n 即有环；Dijkstra 堆 + 懒删除 \(O(E\log E)\) |
 
-- 并查集路径压缩 + 按大小合并 O(α(n))；双向 BFS $$O(b^{d/2})$$
+- 并查集路径压缩 + 按大小合并 \(O(\alpha(n))\)；双向 BFS $$O(b^{d/2})$$
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-linked-list.html、/coding-interview-binary-tree.html、/coding-interview-graph-bfs-dfs-topological-union-find.html。
@@ -76,9 +76,9 @@ flowchart TB
 
 | 篇 | 一句话骨架 | 必错边界 |
 |---|---|---|
-| 07 二分 | **只有一个模板**：在「假假假真真真」的单调谓词上找第一个真；`[lo, hi)`、真收 `hi = mid`、假收 `lo = mid + 1` | 「有序数组找值」只是谓词 `a[i] >= t` 的特例；答案二分 O(n log V) |
+| 07 二分 | **只有一个模板**：在「假假假真真真」的单调谓词上找第一个真；`[lo, hi)`、真收 `hi = mid`、假收 `lo = mid + 1` | 「有序数组找值」只是谓词 `a[i] >= t` 的特例；答案二分 \(O(n\log V)\) |
 | 08 堆、Top-K、区间、贪心 | **第 K 大用大小为 K 的最小堆**；区间按起点排一趟扫、选最多不重叠按终点；贪心靠交换论证 | 双堆先进 `small` 再倒；会议室 = 起点排序 + 结束时间最小堆 |
-| 09 回溯 | 做选择 → 递归 → 撤销；排列用 `used[]`、组合用 `start` | `out.append(path[:])` 必须拷贝；**剪枝不改量级**：排列仍 O(n · n!) |
+| 09 回溯 | 做选择 → 递归 → 撤销；排列用 `used[]`、组合用 `start` | `out.append(path[:])` 必须拷贝；**剪枝不改量级**：排列仍 \(O(n\cdot n!)\) |
 
 - 子集 $$O(n \cdot 2^n)$$、括号 $$O(4^n/\sqrt n)$$、单词搜索 $$O(mn \cdot 3^L)$$
 
@@ -95,7 +95,7 @@ flowchart TB
 | 10 字符串 | 中心扩展（2n − 1 个中心）、KMP `lps`、状态机解析、竖式 `res[i + j + 1]`、`a + b` vs `b + a` | atoi 溢出在乘 10 之前判 |
 | 11 DP（一） | 五步法：定义状态（「前 i 个」还是「以 i 结尾」）→ 枚举最后一步 → 初始 → 顺序 → 答案 | LIS `tails` 只有长度是对的、不是子序列；`INF = amount + 1` |
 | 12 DP（二） | **倒序 = 一次、正序 = 无限**；区间枚举最后被处理的元素；状态机画图再写 | 组合数外层物品、排列数外层容量（LC 377）；`hold` 初值 −∞ |
-| 13 设计题 | 单一结构做不到的复杂度用**两个结构互相索引**：哈希 → 双向链表（LRU）、频次桶 + `min_freq`（LFU）、数组 + 值到下标（O(1) 随机集） | LFU `min_freq` 最多 +1 或重置为 1；树状数组 `lowbit` |
+| 13 设计题 | 单一结构做不到的复杂度用**两个结构互相索引**：哈希 → 双向链表（LRU）、频次桶 + `min_freq`（LFU）、数组 + 值到下标（\(O(1)\) 随机集） | LFU `min_freq` 最多 +1 或重置为 1；树状数组 `lowbit` |
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-strings.html、/coding-interview-dynamic-programming-linear-and-grid.html、/coding-interview-dynamic-programming-knapsack-interval-state-machine.html、/coding-interview-design-problems-lru-lfu-trie.html。
@@ -105,7 +105,7 @@ flowchart TB
 
 ## 14 · 手撕 attention 家族
 
-**结论**：multi-head 的四次形状变换——先 `reshape(B, T, H, d)` 再 `transpose`；softmax 减最大值；**mask 用 −∞ 或 `finfo.min`**（0 经 softmax 仍有权重、fp16 下 −1e4 不够小）；online softmax 最大值变时重缩放；KV cache 缓存 K、V 不缓存 Q。
+**结论**：四次形状变换 + softmax 减最大值；**mask 用 −∞ 或 `finfo.min`**；KV 只缓存 K、V。
 
 ```python
 q = self.wq(x).view(B, T, H, d).transpose(1, 2)          # [B, H, T, d]
@@ -127,7 +127,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 15 · 手撕 Transformer block 与反向传播
 
-**结论**：一层参数约 **12D²**（attention 4 + FFN 8）；每参数一次乘加 → 前向 2N、训练 6N；**CE 的梯度就是 p − y**；反向 = 局部导数 × 上游梯度，写完用形状自查；micrograd 里梯度累加要 `+=`。
+**结论**：一层参数约 \(12D^2\)、训练 \(6N\)；**CE 的梯度就是 \(p-y\)**；micrograd 累加要 `+=`。
 
 | 量 | 数 / 公式 |
 |---|---|
@@ -144,7 +144,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 16 · 手撕 tokenizer 与解码
 
-**结论**：BPE 编码**按 merge 顺序**而不是贪心最长匹配，tie-break `(频次, 字典序)`；采样流水线 **penalty → T → softmax → top-k → top-p → min-p**；投机解码的输出分布恰为 p。
+**结论**：BPE 按 merge 顺序不贪心；采样流水线 penalty → T → top-k → top-p → min-p。
 
 | 边界 | |
 |---|---|
@@ -160,7 +160,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 ## 17 · 手撕损失函数与训练算法
 
-**结论**：论文公式落成十行正确代码——DPO 四个序列 log 概率、初值 ln 2；**GAE 从末尾递推** $$A_t = \delta_t + \gamma\lambda A_{t+1}$$；PPO 取 `min`；**AdamW 衰减解耦**（加进梯度的是 L2，会被 $$\sqrt{\hat v}$$ 归一化）；LoRA `B = 0` 初始化。
+**结论**：GAE 从末尾递推 \(A_t = \delta_t + \gamma\lambda A_{t+1}\)；**AdamW 衰减解耦**，L2 会被 \(\sqrt{\hat v}\) 归一化。
 
 ```python
 # AdamW：衰减不进 m、v
@@ -179,7 +179,7 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 
 ## 18 · 手撕经典 ML 与评测指标
 
-**结论**：**模型 = 目标 + 优化**——逻辑回归梯度 $$X^\top(p - y)/n$$、k-means 每步目标单调不增所以收敛；**AUC = （正样本秩和 − $$n_+(n_+ + 1)/2$$）/ $$n_+ n_-$$**，O(n log n)；conv = im2col + GEMM。
+**结论**：**模型 = 目标 + 优化**——逻辑回归梯度 $$X^\top(p - y)/n$$、k-means 每步目标单调不增所以收敛；**AUC = （正样本秩和 − $$n_+(n_+ + 1)/2$$）/ $$n_+ n_-$$**，\(O(n\log n)\)；conv = im2col + GEMM。
 
 | 量 | 公式 |
 |---|---|
@@ -195,7 +195,7 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 
 ## 19 · Infra 岗手撕：并发与系统
 
-**结论**：**一把锁保护什么、条件变量为什么 `while`**——`get` 也要锁；两个条件变量各叫各的；异常进 Future；内存池的空闲链表嵌在块内；**分块要测了再说**。
+**结论**：**一把锁保护什么、条件变量为什么 `while`**；异常进 Future；分块先测。
 
 | 题 | 一句话 |
 |---|---|
@@ -226,7 +226,7 @@ p -= lr * wd * p                      # 解耦：直接加在更新里
 ## 常见误区（一）
 
 - 「子数组和等于 k 用滑动窗口」——含负数不单调；前缀和 + 哈希
-- 「滑动窗口最大值用堆」——单调队列 O(n)
+- 「滑动窗口最大值用堆」——单调队列 \(O(n)\)
 - 「验证 BST 比较父子即可」——带上下界
 - 「BFS 出队时标记」——入队时标记
 - 「二分是在有序数组里找值」——单调谓词找第一个真
