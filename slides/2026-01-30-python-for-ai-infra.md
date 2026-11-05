@@ -91,11 +91,21 @@ flowchart LR
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 版本：`Protocol` 3.8、`X | Y` 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事（解析字符串、合并 MRO、去 Optional）
+**`get_type_hints()` 比 `__annotations__` 多做三件事**
+
+| 要点 | 细节 |
+|---|---|
+| 版本：`Protocol` 3.8、`X &#124; Y` 3.10、`ParamSpec` 3.10、`Self` 3.11 | `get_type_hints()` 比 `__annotations__` 多做三件事（解析字符串、合并 MRO、去 Optional） |
+| `@runtime_checkable` 只查方法存在，不查签名 | |
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「过了 mypy 就是被检查过了」——默认不检查没标注的函数体；`check_untyped_defs` 或 `strict`
-- `@runtime_checkable` 只查方法存在，不查签名
 
 ---
 
@@ -140,7 +150,14 @@ flowchart TB
 | `/dev/shm` | 默认 64 MB——DataLoader worker 常撞 |
 | FastAPI `def` 端点 | 线程池 40 |
 
-- 队列默认无界；`asyncio.Lock` 不可重入；`CancelledError` 是 `BaseException`
+<aside class="notes" markdown="1">
+补充要点：队列默认无界；`asyncio.Lock` 不可重入；`CancelledError` 是 `BaseException`。
+</aside>
+
+<!-- v -->
+
+### 常见误区
+
 - 「`Future.cancel()` 能停掉运行中的线程」——线程不能取消、进程只能 kill、协程在下一个 `await` 点协作式取消
 - 「在协程里调 `requests.get()` 没问题」——事件循环整个停摆；用异步客户端或 `asyncio.to_thread()`
 
@@ -163,13 +180,18 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 三种发现机制：显式导入（默认）→ 包扫描（多到难维护）→ 入口点（要让别人扩展）；最灵活的失败定位最难
-- 注册表为空 ⇔ 模块未被导入——第一篇的 import 副作用在这里兑现
-- 用户输入能**选**名字、不能**造**名字（`getattr(module, user_input)` 是漏洞）
-- 「子类自动注册应该用元类」——元类改变类的类型、语义隐式、让 mypy 失效；`__init_subclass__` 或类装饰器
+**三种发现机制：越灵活失败定位越难**
 
+| 要点 | 细节 |
+|---|---|
+| 注册表为空 ⇔ 模块未被导入 | 第一篇的 import 副作用在这里兑现 |
+| 用户输入能**选**名字、不能**造**名字（`getattr(module, user_input)` 是漏洞） | |
+
+<aside class="notes" markdown="1">
+补充要点：三种发现机制——显式导入（默认）→ 包扫描（多到难维护）→ 入口点（要让别人扩展）。
+</aside>
 ---
 
 ## 05 · 内存管理：多数不是「泄漏」，是「被意外长期持有」
@@ -190,10 +212,19 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 定位：**先分三类**（仍被引用 / 分配器保留 / 原生或设备持有）再找源——`tracemalloc`、`gc.get_referrers`、`torch.cuda.memory_summary`
-- 「RSS 不降就是泄漏」——先分类
+**先分三类再找源——释放 ≠ RSS 下降**
+
+| 要点 | 细节 |
+|---|---|
+| 定位：**先分三类**（仍被引用 / 分配器保留 / 原生或设备持有）再找源 | `tracemalloc`、`gc.get_referrers`、`torch.cuda.memory_summary` |
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「用 `__del__` 释放 GPU 句柄」——时机不可控、可能在解释器关闭时才调；用 `with` 或 `weakref.finalize`
 
 ---
@@ -209,6 +240,10 @@ flowchart TB
 | 进程卡死 / 段错误 | `python -X faulthandler`、`py-spy dump` |
 | 内存增长 | `PYTHONTRACEMALLOC=25` 记录分配栈 |
 | 动态调用看不到 | `inspect`、`sys.settrace`、结构化日志 |
+
+<!-- v -->
+
+### 常见误区
 
 - 「在库里 `logging.basicConfig()`」——它配置 root logger，篡改了应用的全局配置；库只 `getLogger(__name__)`，最多加 `NullHandler`
 
@@ -231,13 +266,18 @@ flowchart TB
 | 4 个 worker × 14 GB 模型 | 56 GB 显存——「多开 worker 提吞吐」的代价 |
 | tag | 不能是 `latest` |
 
-- 「`requirements.txt` 全写 `==` 就可复现」——传递依赖仍浮动、无 hash；锁文件带 hash，`--frozen` 不做一致性检查
-- 镜像分层：基础镜像（CUDA + torch）→ 依赖层 → 代码层，改代码不重装 torch
-
 <aside class="notes" markdown="1">
 原文 /python-engineering-and-production-delivery.html。
 结论原文：**锁文件进 CI**（`uv sync --locked`）、**torch 交给固定 tag 的基础镜像**、静态检查是编译器的替代品；**GPU 服务每 GPU 一个 worker**，进程内靠 asyncio + 批处理。
+补充要点：镜像分层：基础镜像（CUDA + torch）→ 依赖层 → 代码层，改代码不重装 torch
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「`requirements.txt` 全写 `==` 就可复现」——传递依赖仍浮动、无 hash；锁文件带 hash，`--frozen` 不做一致性检查
 
 ---
 
