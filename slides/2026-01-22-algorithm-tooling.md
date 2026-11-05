@@ -205,7 +205,7 @@ for step, (x, y) in enumerate(loader):
 ### 混合精度下一步训练的数据流
 
 ```mermaid
-flowchart LR
+flowchart TB
     W32["fp32 主权重 W<br/>4 字节 / 参数，常驻"] -- "① autocast 转 bf16" --> W16["bf16 权重副本<br/>2 字节"]
     W16 -- "② 矩阵乘（Tensor Core）" --> ACT["bf16 激活"]
     ACT -- "③ reduction 升回 fp32" --> LOSS["fp32 loss"]
