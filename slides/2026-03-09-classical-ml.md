@@ -36,15 +36,15 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 240}}}%%
 flowchart TB
-    L1["01 什么是学习：划分、泛化、偏差-方差"] --> L2["02 线性回归：最小二乘、梯度下降、Ridge"]
-    L2 --> L3["03 逻辑回归与奖励模型：sigmoid、交叉熵、Bradley-Terry"]
-    L3 --> L4["04 朴素贝叶斯、KNN、决策树"]
-    L3 --> L5["05 SVM 与核方法：核 = 相似度加权 → attention"]
-    L4 --> L6["06 集成：随机森林、梯度提升"]
-    L4 --> L7["07 聚类：K-Means、DBSCAN"]
-    L7 --> L8["08 降维：PCA = SVD、embedding 各向异性"]
-    L8 --> L9["09 去重：MinHash、LSH 的 S 曲线"]
-    L6 & L5 --> L10["10 评估：混淆矩阵、校准、judge 一致率"]
+    L1["01 什么是学习"] --> L2["02 线性回归"]
+    L2 --> L3["03 逻辑回归与奖励模型"]
+    L3 --> L4["04 朴素贝叶斯 · KNN · 决策树"]
+    L3 --> L5["05 SVM 与核方法"]
+    L4 --> L6["06 集成"]
+    L4 --> L7["07 聚类"]
+    L7 --> L8["08 降维"]
+    L8 --> L9["09 去重"]
+    L6 & L5 --> L10["10 评估"]
 ```
 
 ---
@@ -57,6 +57,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /what-is-learning-splits-generalization-and-bias-variance.html。次数 25：训练 MSE 0.040 低于噪声方差 0.09、验证 0.313。
+各篇关键词：01 划分 / 泛化 / 偏差-方差；02 最小二乘 / 梯度下降 / Ridge；03 sigmoid / 交叉熵 / Bradley-Terry；05 核 = 相似度加权 → attention；06 随机森林 / 梯度提升；07 K-Means / DBSCAN；08 PCA = SVD / embedding 各向异性；09 MinHash / LSH 的 S 曲线；10 混淆矩阵 / 校准 / judge 一致率。
 </aside>
 
 <!-- v -->
