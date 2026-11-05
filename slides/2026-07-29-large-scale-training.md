@@ -68,8 +68,19 @@ flowchart TB
 
 ![最外层是驱动看到的本进程占用（上限约 79.6 GiB）；其中 CUDA context + 库 kernel（0.5–1 GiB）与 NCCL buffer；PyTorch 的 reserved 里是 allocated + 碎片](/img/in-post/training-state-memory-nesting.svg){: style="max-height: 330px"}
 
-- **MFU 不含重计算、HFU 含**；全量重计算 \(\text{HFU}=\tfrac43\,\text{MFU}\)——「开重计算后 MFU 上去了」是误区
+<!-- v -->
+
+
+### 要点
+
 - 千卡 dense ≥ 40% MFU 是好成绩
+
+<!-- v -->
+
+
+### 常见误区
+
+- **MFU 不含重计算、HFU 含**；全量重计算 \(\text{HFU}=\tfrac43\,\text{MFU}\)——「开重计算后 MFU 上去了」是误区
 
 ---
 
@@ -113,11 +124,16 @@ flowchart TB
 
 ![_ParamAndGradBuffer：param_data、grad_data 与 bucket 的布局](/img/in-post/megatron-deepspeed-torchtitan-param-and-grad-buffer.svg){: style="max-height: 330px}
 
-- 每参数常驻 \(2+4+12/N_d\)；通信 \(\text{RS}+\text{AG}=2N\)，两处都与计算重叠
-
 <aside class="notes" markdown="1">
 原文 /megatron-lm-architecture-and-source-guide.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 每参数常驻 \(2+4+12/N_d\)；通信 \(\text{RS}+\text{AG}=2N\)，两处都与计算重叠
 
 ---
 
@@ -127,11 +143,16 @@ flowchart TB
 
 ![上排是 W_k 的 8 个常驻分片；下排是前向 pre-hook all-gather 后每卡临时持有的完整 bf16 W_k](/img/in-post/deepspeed-f1-8-gpus-zero3.svg){: style="max-height: 330px}
 
-- 每参数常驻 \((16\text{ 或 }18)/N_d\) + 临时层；通信 \(3N\)；hook 外拿到空张量
-
 <aside class="notes" markdown="1">
 原文 /deepspeed-architecture-and-source-guide.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 每参数常驻 \((16\text{ 或 }18)/N_d\) + 临时层；通信 \(3N\)；hook 外拿到空张量
 
 ---
 
@@ -141,11 +162,16 @@ flowchart TB
 
 ![fully_shard 参数生命周期三泳道：fp32 Shard(0) 常驻，计算用临时完整 bf16](/img/in-post/torchtitan-f5-param-lifecycle.svg){: style="max-height: 330px}
 
-- 每参数常驻 \(16/N_d\) + 临时 bf16；通信 \(3N\)（不 reshard 则 \(2N\)）
-
 <aside class="notes" markdown="1">
 原文 /torchtitan-architecture-and-source-guide.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 每参数常驻 \(16/N_d\) + 临时 bf16；通信 \(3N\)（不 reshard 则 \(2N\)）
 
 ---
 
@@ -159,13 +185,24 @@ flowchart TB
 | DeepSpeed 0.19 Stage 3 | \((16\text{ 或 }18)/N_d\) + 临时层 | AG + AG + RS = \(3N\) | `mpu` 委托 |
 | torchtitan v0.3（FSDP2） | \(16/N_d\) + 临时层 | \(3N\) | `DeviceMesh` + DTensor |
 
-- 选型：千卡 MFU → Megatron；零侵入放大 → DeepSpeed；新组合并行 → torchtitan
-- 「FSDP2 比 FSDP1 通信少所以快」——次数与量相同；差别是可组合性
-
 <aside class="notes" markdown="1">
 原文 /megatron-deepspeed-torchtitan-architecture-and-source-guide.html。
 结论原文：三者通信量相同（2N 或 3N），差别在分片的**表示**——`ds_tensor` 灵活但私有、`FlatParameter` 高效但抹掉身份、`DTensor` 自描述可组合。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 选型：千卡 MFU → Megatron；零侵入放大 → DeepSpeed；新组合并行 → torchtitan
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「FSDP2 比 FSDP1 通信少所以快」——次数与量相同；差别是可组合性
 
 ---
 
@@ -181,13 +218,24 @@ flowchart TB
 | 理论 step | 2.0 s；目标 42% MFU ≈ 4.75 s ≈ **88 万 token/s** |
 | 只有 32% 时缺的 10 个点 | 配置约 6、硬件约 2、结构约 0.5、管线约 0.5 |
 
-- 全量重计算 +33% FLOP 省 94% 激活；FP8 step 时间降 20–25%
-- 「PP 加深激活就少」——1F1B 第一个 stage 同时持有 p 个 micro-batch 的激活；减激活靠 micro-batch、SP、CP、重计算
-
 <aside class="notes" markdown="1">
 原文 /thousand-gpu-configuration-and-mfu-tuning.html。s = 8192、global batch 4M。
 结论原文：推导顺序 **TP → PP → DP → CP**；每卡 token 少时选 **PP + ZeRO-1 不选 FSDP**（FSDP128 每卡每 step 175 GB 节点间通信、3.5 s 盖不住）；MFU 损失拆成七项各自标价，先修配置错误。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 全量重计算 +33% FLOP 省 94% 激活；FP8 step 时间降 20–25%
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「PP 加深激活就少」——1F1B 第一个 stage 同时持有 p 个 micro-batch 的激活；减激活靠 micro-batch、SP、CP、重计算
 
 ---
 
@@ -204,11 +252,16 @@ $$
 | 同步写单文件 | 10 min | **33%** |
 | 分片异步写 | 2 s | **1.9%** |
 
-- 405B 5.7 TB：分片写每卡 350 MB 秒级；「大小随并行配置变」不成立——去掉 DP 复制的唯一字节不变
-
 <aside class="notes" markdown="1">
 原文 /distributed-checkpoint-format-async-save-and-resharding.html。Young 公式。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 405B 5.7 TB：分片写每卡 350 MB 秒级；「大小随并行配置变」不成立——去掉 DP 复制的唯一字节不变
 
 ---
 
@@ -225,12 +278,23 @@ $$
 | 中断成因 | 78% 硬件、58.7% GPU；M = $$M_{gpu}/N$$，16K 卡 M ≈ 3.1 h |
 | 16K 卡：同步 → 异步 → 压检测与重启 | 71% → 87% → 94% |
 
-- 间隔由 $$\sqrt{2\delta M}$$ 决定：δ 不变缩间隔只是多付保存代价
-- 「straggler = 坏卡」——多数是序列长度 / stage 不均衡、每步换 rank
-
 <aside class="notes" markdown="1">
 原文 /fault-tolerance-and-elastic-training.html。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 间隔由 $$\sqrt{2\delta M}$$ 决定：δ 不变缩间隔只是多付保存代价
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「straggler = 坏卡」——多数是序列长度 / stage 不均衡、每步换 rank
 
 ---
 
@@ -246,12 +310,23 @@ $$
 | 坏数据 | 换 seed / 跳 batch 后不复现 |
 | 优化器状态 | 恢复 checkpoint 后仍在同一步附近 |
 
-- PaLM：回退约 100 步 + 跳过 200–500 batch，约 250–300 步 / 次
-- 「loss spike 就是脏数据」——五种里两种是模型内部数值问题
-
 <aside class="notes" markdown="1">
 原文 /training-stability-and-data-pipeline.html。裁剪阈值 1.0。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- PaLM：回退约 100 步 + 跳过 200–500 batch，约 250–300 步 / 次
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「loss spike 就是脏数据」——五种里两种是模型内部数值问题
 
 ---
 
@@ -266,13 +341,18 @@ $$
 | 通信 | 通信等待 + IB 端口计数器 |
 | 降频 | `SM_CLOCK` |
 
-- Flight Recorder 2.13.0 默认开（buffer 2000）；把 dump 路径接好、缓冲加到 2 万
-- 2.5 美元 / 卡时下 1 个 MFU 点 ≈ 30 天任务的 0.71 天 ≈ **4.4 万美元**
-
 <aside class="notes" markdown="1">
 原文 /long-running-training-observability-and-operations.html。
 结论原文：三层指标（任务 / 进程 / 硬件）、**按 rank 看、以 step 为时钟**；GPU 利用率 100% 时照样可能在 hang（NCCL kernel 自旋）；Flight Recorder 指出哪个 rank 缺席哪次集合通信。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- Flight Recorder 2.13.0 默认开（buffer 2000）；把 dump 路径接好、缓冲加到 2 万
+- 2.5 美元 / 卡时下 1 个 MFU 点 ≈ 30 天任务的 0.71 天 ≈ **4.4 万美元**
 
 ---
 
