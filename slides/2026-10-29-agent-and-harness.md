@@ -45,13 +45,13 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
-    A["① 组装上下文<br/>七层拼成一次请求，历史只追加"] --> B["② 调模型<br/>流式、带工具定义、有超时"]
+    A["① 组装上下文"] --> B["② 调模型"]
     B --> C{"③ 解析输出"}
     C -- "最终回答" --> END1["出口一：正常结束"]
-    C -- "tool_call（模型的「决定」）" --> D["④ 权限 → 沙箱里执行<br/>要问人的先问人"]
-    D --> E["⑤ 写回<br/>每个 call_id 一条结果，错误也是结果"] --> A
-    G["四个卫士：步数 / token / 美元 / 时间预算<br/>+ 重复调用与连续失败检测"] -. 每一圈都检查 .-> A
-    G -- "预算耗尽" --> END2["出口二：交付部分结果 + 未完成清单"]
+    C -- "tool_call" --> D["④ 权限 → 沙箱执行"]
+    D --> E["⑤ 写回结果"] --> A
+    G["四个卫士：步数 / token / 美元 / 时间"] -. 每圈都查 .-> A
+    G -- "预算耗尽" --> END2["出口二：交付部分结果"]
     G -- "卫士触发" --> END3["出口三：降级给人"]
     style END2 fill:#fff3e0,stroke:#c98a00
     style END3 fill:#fde8e8,stroke:#c0392b
@@ -89,13 +89,13 @@ while True:                                   # 四个卫士在这里：步数 /
 flowchart TB
     subgraph SRC["工具从哪来（模型眼里都是一组带 schema 的定义）"]
         direction LR
-        S1["应用自己写的函数"] --- S2["MCP server<br/>（别人写的，按协议接入）"] --- S3["供应商内置<br/>（web search 等）"] --- S4["技能 / 脚本<br/>（SKILL.md）"]
+        S1["应用函数"] --- S2["MCP server"] --- S3["供应商内置"] --- S4["技能 / 脚本"]
     end
-    SRC --> REG["工具注册表：名字 · 描述 · 参数 schema"]
-    REG -- "全部塞进上下文<br/>几十个工具 = 几千到上万 token" --> CTX1["② 工具定义层（第一篇）"]
-    REG -- "tool search：只放名字<br/>用到时再加载完整 schema" --> CTX2["按需加载的定义"]
+    SRC --> REG["工具注册表：schema"]
+    REG -- "全塞上下文" --> CTX1["② 定义层（第一篇）"]
+    REG -- "tool search" --> CTX2["按需加载"]
     CTX1 & CTX2 --> MD["模型：返回 tool_call"]
-    MD -- "程序化工具调用：写一段程序调多个工具，<br/>中间结果不进上下文" --> EX["执行层"]
+    MD -- "程序化调用" --> EX["执行层"]
 
 ```
 
@@ -134,13 +134,13 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    subgraph LOG["会话日志（只追加、不可改）"]
+    subgraph LOG["会话日志（只追加）"]
         direction TB
-        E1["1 用户消息"] --> E2["2 模型输出（含 tool_call）"] --> E3["3 工具结果"] --> E4["4 审批：通过"] --> E5["5 模型输出"] --> E6["6 压缩摘要"] --> E7["7 …"]
+        E1["1 用户"] --> E2["2 模型"] --> E3["3 结果"] --> E4["4 审批"] --> E7["7 …"]
     end
-    E3 -. "重放 1–3" .-> D["第 3 步时模型看到的上下文<br/>（调试：它当时为什么这么做）"]
-    E4 -. "复制 1–4 再追加" .-> F["从第 4 步分叉的新会话<br/>（换一个审批结果试试）"]
-    E7 -. "重放 1–7" .-> C["当前上下文<br/>（派生出来的，不单独存）"]
+    E3 -. "重放" .-> D["当时的上下文<br/>（调试）"]
+    E4 -. "分叉" .-> F["新会话"]
+    E7 -. "重放" .-> C["当前上下文"]
 ```
 
 <aside class="notes" markdown="1">
@@ -184,13 +184,13 @@ flowchart LR
 
 ### 要点
 
-| 规则 | |
+**「子 agent 只回摘要所以便宜」——token 不进主窗口，但都在账单上**
+
+| 规则 | 为什么 |
 |---|---|
 | 「无 > 10K token 的项」 | 任何单项超过就 spill 到文件 |
 | subagent vs agent teams | 前者回摘要、后者共享目标 |
 | 串行任务 | **不拆**子 agent——没有并行收益，多派发与摘要开销 |
-
-- 「子 agent 只回摘要所以便宜」——token 不进主窗口但都在账单上
 
 ---
 
@@ -201,25 +201,21 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    CALL["模型返回一个工具调用<br/>shell: rm -rf ./build · write: src/x.py · http: DELETE /volumes/7"] --> L1{"① 权限档<br/>这个会话能碰什么？"}
-    L1 -->|"超出档位：写只读区、访问网络"| DENY1["拒绝（不问人）"]
-    L1 -->|"在档位内"| L2{"② 审批策略 + ③ 执行策略<br/>这类动作要问人吗？"}
-    L2 -->|"forbidden"| DENY2["拒绝"]
-    L2 -->|"prompt / 需审批"| ASK["挂起，请求人批准（第三篇）<br/>可选：Guardian 模型先审"]
-    ASK -->|"拒绝"| DENY3["拒绝，结果送回模型"]
+    CALL["工具调用 → ① 权限档"] --> L1{"② 审批③执行"}
+    CALL -->|"超档"| DENY["拒绝"]
+    L2 -->|"forbidden"| DENY
+    L2 -->|"需审批 → 人批"| ASK["挂起请人批"]
+    ASK -->|"拒绝"| DENY
     ASK -->|"批准"| SB
-    L2 -->|"allow / 自动"| SB["④ 沙箱<br/>在受限的文件系统 / 网络 / 进程里执行"]
-    SB -->|"被沙箱拦住"| ESC{"允许升级？"}
-    ESC -->|"never / on-request：不"| DENY4["返回沙箱拒绝说明"]
-    ESC -->|"是：新审批"| ASK
-    SB -->|"成功"| OUT["结果写回（不可信输入）"]
+    L2 -->|"自动"| SB["④ 沙箱执行"]
+    SB -->|"成功"| OUT["结果写回"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef deny fill:#fdecea,stroke:#c0392b,color:#222
     class CALL,ASK,SB,OUT step
-    class L1,L2,ESC dec
-    class DENY1,DENY2,DENY3,DENY4 deny
+    class L1,L2 dec
+    class DENY deny
 ```
 
 <aside class="notes" markdown="1">
@@ -311,11 +307,11 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 flowchart TB
     S["一次会话结束"] --> W{"写什么？下次会用到、且别处不易取回"}
-    W -- "用户偏好、踩过的坑、长期任务进度" --> ST["存储：文件 / 事件 / 向量库，每条带来源与时间戳"]
-    W -- "临时细节、能重新查到的" --> X["不写"]
-    ST --> R["下次会话：<b>取</b>——小而稳定的全放，多的按相关性检索，<br/>进上下文第 ③ 层（有硬上限，如 25 KB）"]
-    ST --> F["<b>忘</b>——过期 → 删；冲突 → 新覆盖旧；用户要求 → 删"]
-    R -. "记忆里的错会跨会话反复被当事实用：给模型看来源，让用户能纠正" .-> S
+    W -- "偏好、坑、进度" --> ST["存储：带来源与时间戳"]
+    W -- "能重查的" --> X["不写"]
+    ST --> R["下次<b>取</b>：进上下文 ③ 层<br/>（硬上限 25 KB）"]
+    ST --> F["<b>忘</b>：过期 / 冲突 / 要求 → 删"]
+    R -. "错记忆会跨会话当事实" .-> S
 
 ```
 
@@ -346,14 +342,14 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
-    R["agent 跑一个任务"] --> O{"结束方式"}
-    O -- "模型给出最终回答" --> V["结果校验：文件真改了？测试真过了？<br/>（「已完成」要有佐证）"]
-    O -- "步数 / token / 美元 / 时间任一到顶" --> P["交付部分结果：<br/>done · pending · blocker"]
-    O -- "卫士：重复调用、连续失败" --> H["降级给人"]
-    V & P & H --> TR["每一步进 trace（第五篇）"]
-    TR --> C["失败打类（十类里只有一类是异常）<br/>分布进面板，每类有药"]
-    C --> E["坏轨迹 → 评测集用例<br/>轨迹评测：结果之外看过程<br/>（步数、越权、工具选择、成本）"]
-    E -. "下次改动先过这一关" .-> R
+    R["agent 跑任务"] --> O{"结束方式"}
+    O -- "回答" --> V["结果校验"]
+    O -- "任一到顶" --> P["交付部分结果"]
+    O -- "卫士触发" --> H["降级给人"]
+    V & P & H --> TR["每步进 trace"]
+    TR --> C["失败打类<br/>（十类，每类有药）"]
+    C --> E["坏轨迹 → 评测用例<br/>（轨迹评测看过程）"]
+    E -. "改动先过门禁" .-> R
 
 ```
 
