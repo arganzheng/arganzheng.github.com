@@ -129,11 +129,11 @@ out = np.einsum("bts,bsd->btd", p, v)                      # [B, T, D]
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 120}}}%%
 flowchart TB
-    DS["<b>Dataset</b><br/>__getitem__ 取一条"] --> DL["<b>DataLoader</b><br/>组 batch、打乱、预取"]
-    DL -- "batch" --> M["<b>nn.Module</b><br/>forward：参数 × 输入"]
-    M -- "logits" --> L["<b>loss</b><br/>cross_entropy(logits, labels)"]
-    L -- "backward()" --> AG["<b>Autograd</b><br/>沿图反向，梯度累加到 .grad"]
-    AG -- ".grad" --> OPT["<b>Optimizer</b><br/>step() 更新、zero_grad() 清零"]
+    DS["<b>Dataset</b>"] --> DL["<b>DataLoader</b>"]
+    DL -- "batch" --> M["<b>nn.Module</b>"]
+    M -- "logits" --> L["<b>loss</b>"]
+    L -- "backward()" --> AG["<b>Autograd</b>"]
+    AG -- ".grad" --> OPT["<b>Optimizer</b>"]
     OPT -- "新参数" --> M
     classDef data fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef model fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -205,13 +205,13 @@ for step, (x, y) in enumerate(loader):
 ### 混合精度下一步训练的数据流
 
 ```mermaid
-flowchart TB
-    W32["fp32 主权重 W<br/>4 字节 / 参数，常驻"] -- "① autocast 转 bf16" --> W16["bf16 权重副本<br/>2 字节"]
+flowchart LR
+    W32["fp32 主权重"] -- "① autocast 转 bf16" --> W16["bf16 副本"]
     W16 -- "② 矩阵乘（Tensor Core）" --> ACT["bf16 激活"]
     ACT -- "③ reduction 升回 fp32" --> LOSS["fp32 loss"]
     LOSS -- "④ backward" --> G["梯度"]
-    G -- "⑤" --> OPT["AdamW 状态 m、v<br/>4 + 4 字节，fp32 常驻"]
-    OPT -- "⑥ W ← W − lr·m̂/(√v̂+ε)，在 fp32 上加" --> W32
+    G -- "⑤" --> OPT["AdamW m,v"]
+    OPT -- "⑥ fp32 上加" --> W32
 ```
 
 - `autocast` **不**把参数变成 bf16：减半的是矩阵乘的中间结果，训练状态仍是 16 字节 / 参数
