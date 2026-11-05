@@ -60,7 +60,7 @@ flowchart TB
 
 ## 01 · Python 使用层
 
-**结论**：训练代码里反复出现的那一小撮语法各是一个 Python **协议**，PyTorch 建在上面；生成器让峰值内存与文件大小无关；GIL 让 CPU 密集的线程不并行，进程池才有用。
+**这一撮语法各是一个 Python 协议，PyTorch 建在上面；GIL 下只有进程池真并行**
 
 | 语法 | 它是什么 | 对应的 PyTorch API |
 |---|---|---|
@@ -88,7 +88,7 @@ flowchart TB
 
 ## 02 · 数据科学三剑客
 
-**结论**：所有「沿哪个维度」是一个概念——轴；广播太宽容所以**形状错误常不报错**；与参考实现对数值到浮点精度，是验证手写算子的标准。
+**「沿哪个维度」= 轴；与参考实现对到浮点精度才算对了**
 
 ![ndarray 与 DataFrame 在内存里长什么样](/img/in-post/numpy-pandas-ndarray-vs-dataframe-memory.svg){: style="max-height: 420px"}
 
@@ -124,7 +124,17 @@ out = np.einsum("bts,bsd->btd", p, v)                      # [B, T, D]
 
 ## 03 · PyTorch 使用层（上）：五个对象与二十行
 
-**结论**：使用层只有五个对象；Autograd 做三件事（记图、累加、`no_grad`）；二十行训练循环里每一行对应一个概念，`Trainer` 是它加外壳。
+**只有五个对象、二十行循环；lr 调度 = warmup 后 cosine 降到峰值的 1/10**
+
+![warmup 再 cosine 衰减：几百步升到峰值，再降到峰值的 1/10](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg){: style="max-height: 420px"}
+
+<aside class="notes" markdown="1">
+原文 /pytorch-in-use-five-objects-and-a-training-loop.html。Autograd 做三件事：记图、累加、no_grad。
+</aside>
+
+<!-- v -->
+
+### 五个对象的数据流
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 120}}}%%
@@ -168,9 +178,7 @@ for step, (x, y) in enumerate(loader):
 
 <!-- v -->
 
-### 学习率调度：warmup + cosine
-
-![warmup 再 cosine 衰减：几百步升到峰值，再降到峰值的 1/10](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg){: style="max-height: 400px"}
+### 调度与 autocast 的两个实测坑
 
 - `loss.item()` 为什么慢：CPU 异步发 kernel，`.item()` 要等 GPU 队列清空——别每步都取
 - CPU 上开 bf16 `autocast` 慢 30 倍：精度的收益来自硬件
@@ -179,7 +187,7 @@ for step, (x, y) in enumerate(loader):
 
 ## 04 · PyTorch 使用层（下）：显存的账
 
-**结论**：每个可训练参数 **16 字节**；激活是账外的一块、与参数量无关；「全量还是 LoRA」的第一道约束是有几张卡。
+**每个可训练参数 16 字节；激活另算；第一道约束是有几张卡**
 
 | 每个可训练参数 | bf16 副本 | 梯度 | fp32 主权重 | Adam m、v | 合计 |
 |---|---|---|---|---|---|
@@ -219,7 +227,17 @@ flowchart LR
 
 ## 05 · Hugging Face 生态：六个库与六行 LoRA SFT
 
-**结论**：六个库各管一段，六行组装；背后的每件事都在二十行里有位置；从 `compute_loss` 往下追源码是学后训练最快的路。
+**六个库各管一段；safetensors = JSON 索引 + 字节区，可 mmap 只读一层**
+
+![safetensors 的布局：头部 JSON 索引 + 连续的张量字节，可以 mmap 只读一部分](/img/in-post/hf-safetensors-layout.svg){: style="max-height: 380px"}
+
+<aside class="notes" markdown="1">
+原文 /hugging-face-ecosystem-six-libraries-and-a-lora-sft.html。六行组装；compute_loss 往下追源码。
+</aside>
+
+<!-- v -->
+
+### 六个库的依赖关系
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
@@ -256,8 +274,6 @@ launch · DDP / FSDP`"]
 
 ### Hub 上的三个文件
 
-![safetensors 的布局：头部 JSON 索引 + 连续的张量字节，可以 mmap 只读一部分](/img/in-post/hf-safetensors-layout.svg){: style="max-height: 380px"}
-
 - `config.json` 里的数字就是结构：Qwen2.5-0.5B 24 层、hidden 896、词表 151936、`tie_word_embeddings`
 - `tokenizer.json` + chat template：对话怎么变成 token、哪些 token 算 loss
 
@@ -281,7 +297,7 @@ trainer.train()                                             # 二十行加外壳
 
 ## 06 · GPU 直觉与实验管理
 
-**结论**：两个上限（算力、带宽）之比是 ridge；decode 强度 ≈ 1 远低于 295，是 memory-bound，所以 batch 大才快；显存四块；七项记录齐了才谈复现。
+**ridge ≈ 295；decode 强度 ≈ 1 是 memory-bound，batch 大才快**
 
 ![H100 的 roofline：ridge ≈ 295 FLOP/字节；decode 在最左边、prefill 在右边](/img/in-post/gpu-intuition-roofline-h100.svg){: style="max-height: 420px"}
 
