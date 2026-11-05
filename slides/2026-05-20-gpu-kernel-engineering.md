@@ -79,6 +79,11 @@ flowchart TB
 | decode attention（GQA g = 4） | ≈ 4 | memory-bound |
 | GEMM 4096³ BF16 | ≈ 1365 | compute-bound |
 
+<!-- v -->
+
+
+### 常见误区
+
 - 「GPU 利用率 90% 说明 kernel 跑得好」——利用率只说明有 kernel 在跑；访存糟糕的 kernel 可以占满 SM 只用 10% 带宽
 
 ---
@@ -142,10 +147,14 @@ flowchart LR
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 16 B / 线程的向量化加载；「memory-bound 不需要高占用率」——1.2 MB 必须在飞
-- 三个 elementwise kernel 各读写 16 B → 融合成一个 8 B
+**合并到 32 B sector；90% 之后只能减字节**
+
+| 要点 | 细节 |
+|---|---|
+| 16 B / 线程的向量化加载 | 「memory-bound 不需要高占用率」——1.2 MB 必须在飞 |
+| 三个 elementwise kernel 各读写 16 B → 融合成一个 8 B | |
 
 ---
 
@@ -164,12 +173,17 @@ $$
 m = \max(m_a, m_b),\qquad l = l_a e^{m_a - m} + l_b e^{m_b - m}
 $$
 
-- 「用 `atomicAdd` 做行归约最简单」——同地址串行化；float 加法不满足结合律、不可复现；树形归约 + shuffle，跨 block 只用原子计数
-
 <aside class="notes" markdown="1">
 原文 /shared-memory-reduction-and-softmax.html。online softmax 的合并公式是 FlashAttention 的核心（第八篇）。
 结论原文：4096 维 RMSNorm 是 memory-bound 的，naive 慢 10 倍是**归约的形态**；shared 汇总跨 warp 的部分和，**warp shuffle 在寄存器里 5 步完成 warp 内归约**，sync 10 次 → 1 次；online softmax 让一次遍历就够。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「用 `atomicAdd` 做行归约最简单」——同地址串行化；float 加法不满足结合律、不可复现；树形归约 + shuffle，跨 block 只用原子计数
 
 ---
 
@@ -198,12 +212,10 @@ $$
 | 未 swizzle 的 64 B 行 | 4 路 bank conflict |
 | 手写到 cuBLAS | 80–90% |
 
-- CuTe 的 Layout = Shape + Stride：把 fragment 布局、swizzle、分块写成可组合的代数
-- CUTLASS 三层：collective（mma + 装载）→ kernel（分块调度）→ device（launch）
-
 <aside class="notes" markdown="1">
 原文 /tensor-cores-cutlass-and-cute.html。
 结论原文：Tensor Core **不是更快的 FMA**——累加器从属于线程变成属于 warp、布局由指令规定；`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 **swizzle**；Hopper 交给 TMA + `wgmma`。
+补充要点：CuTe 的 Layout = Shape + Stride：把 fragment 布局、swizzle、分块写成可组合的代数；CUTLASS 三层：collective（mma + 装载）→ kernel（分块调度）→ device（launch）
 </aside>
 
 ---
@@ -218,14 +230,18 @@ $$
 | softmax | 25 行 | 100–150 行 |
 | matmul | 60 行 | 200–300 行 |
 
-- 两个旋钮：`num_warps`、`num_stages`；`tl.arange` 要 2 的幂——都是执行模型的影子
-- 何时手写：热点 GEMM / attention、特殊指令、Hopper 特性、跨 block 协作
-- 「用 Triton 就不必理解执行模型」——性能直觉全来自 CUDA；出问题读 TTGIR 与 PTX
-
 <aside class="notes" markdown="1">
 原文 /triton-block-level-programming.html。
 结论原文：编译器替你做了合并、流水、`ldmatrix`、swizzle、mma 选择——matmul **少 80% 代码、到 cuBLAS 80–95%**；差的 10% 在 warp specialization、epilogue 布局转换、小 shape tile、指令调度。
+补充要点：两个旋钮：`num_warps`、`num_stages`；`tl.arange` 要 2 的幂——都是执行模型的影子；何时手写：热点 GEMM / attention、特殊指令、Hopper 特性、跨 block 协作
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「用 Triton 就不必理解执行模型」——性能直觉全来自 CUDA；出问题读 TTGIR 与 PTX
 
 ---
 
@@ -276,6 +292,11 @@ flowchart TB
 | PagedAttention | block 表把逻辑块映射到物理块：**只改地址不改字节**，解决碎片与共享前缀 |
 | FlashDecoding | 沿序列维切 split-K，让小 batch 也填满 SM |
 
+<!-- v -->
+
+
+### 常见误区
+
 - 「FlashAttention 快是因为算得少」——FLOPs 略多，快在不物化 N² 矩阵
 
 ---
@@ -302,6 +323,11 @@ flowchart TB
 | SiLU × up（SwiGLU 激活） | 三读一写 → 两读一写 |
 | RoPE + KV 写入 | 省一次往返 |
 
+<!-- v -->
+
+
+### 常见误区
+
 - 「INT4 量化全面提速」——只在 decode（M 小于约 40）赢；prefill 要 FP8
 
 ---
@@ -317,14 +343,18 @@ flowchart TB
 | 寄存器 > 32 | 压占用率；128+ 是 GEMM 常态 |
 | stall long scoreboard 60% + 占用 25% | 等 HBM 且 warp 不够——加 ILP 或提占用 |
 
-- 测试：BF16 rtol 1.6e-2；边界 shape 0、1、769、5125（非 2 的幂、非 tile 倍数）
-- 接入：`TORCH_LIBRARY` + `register_fake` + `opcheck`——才能进 compile 与 vLLM
-- 「stall 原因是 profiler 最有用的信息」——SOL 已满时等访存是正常的
-
 <aside class="notes" markdown="1">
 原文 /kernel-profiling-testing-and-contribution.html。
 结论原文：ncu 先看 **Speed-of-Light**：访存或算力任一接近 90% 就什么都不用改；**两者都低才是 latency-bound**，再看占用率的限制因素、加 ILP、改完重测。
+补充要点：测试：BF16 rtol 1.6e-2；边界 shape 0、1、769、5125（非 2 的幂、非 tile 倍数）；接入：`TORCH_LIBRARY` + `register_fake` + `opcheck`——才能进 compile 与 vLLM
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「stall 原因是 profiler 最有用的信息」——SOL 已满时等访存是正常的
 
 ---
 
