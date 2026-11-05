@@ -39,21 +39,9 @@ flowchart LR
 
 先看本系列要拆解的 GPT-2 small 总览；接着回到 2017 年的论文，解释 encoder-decoder、三条路线与 GPT-2 的来历。
 
-**结论**：GPT-2 走 decoder-only 路线。embedding 查表 → **attention（唯一让 token 互相看的地方）** → FFN（逐 token 的非线性，知识在这，占一层 2/3）→ 残差 + LayerNorm → lm_head；attention 不知道顺序，位置必须显式给。
+**GPT-2 走 decoder-only；attention 不知道顺序，位置必须显式给**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
-flowchart LR
-    IN["token 编号<br/>[464, 3797, 3332, 319, 262]"] --> EMB["embedding 查表<br/>50257 × 768 → 5 个 768 维向量<br/>+ 位置表"]
-    EMB --> B
-    subgraph B["× 12 个 block"]
-        direction TB
-        A["LayerNorm → causal self-attention → 加回"]
-        F["LayerNorm → FFN 768→3072→768 → 加回"]
-        A --> F
-    end
-    B --> HEAD["LayerNorm → lm_head 768 × 50257<br/>softmax → p(mat) = 0.31"]
-```
+![GPT-2 small 的 decoder-only 栈：embedding + 位置表 → 12 个 block（causal attention + FFN）→ lm_head](/img/in-post/transformer-01-decoder-only-stack.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。GPT-2 small：12 × 7.09M + embedding 38.6M + 位置表 0.79M = 124,439,808；FFN 占一层 66.6%。原始 Transformer 是 encoder-decoder，GPT 去掉 encoder 与 cross-attention。
@@ -63,16 +51,9 @@ flowchart LR
 
 ## 01 · 回到原始 Transformer：encoder-decoder 的两半
 
-《Attention Is All You Need》里的 Transformer 是为机器翻译设计的 encoder-decoder：encoder 双向读取源句，decoder 用 causal self-attention 生成目标句，再以 cross-attention 读取 encoder 输出。GPT-2 属于后来常见的 decoder-only 路线（[原始论文](https://arxiv.org/html/1706.03762v4)）。
+encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder 输出；GPT-2 走 decoder-only。
 
-```mermaid
-flowchart LR
-    X["源句"] --> E["Encoder<br/>双向 self-attention + FFN"]
-    E --> M["Encoder 输出"]
-    Y["已生成目标前缀"] --> D["Decoder<br/>causal self-attention<br/>cross-attention + FFN"]
-    M -->|K、V| D
-    D --> P["下一个目标 token"]
-```
+![encoder-decoder 与 decoder-only 的两条路线对比](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg){: style="max-height: 340px}
 
 <aside class="notes" markdown="1">
 原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。原始论文 base 配置：encoder、decoder 各 6 层，d_model = 512、8 heads、d_ff = 2048（[来源](https://arxiv.org/html/1706.03762v4)）。
