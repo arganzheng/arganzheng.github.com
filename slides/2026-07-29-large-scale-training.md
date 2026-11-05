@@ -66,7 +66,7 @@ flowchart TB
 
 ![最外层是驱动看到的本进程占用（上限约 79.6 GiB）；其中 CUDA context + 库 kernel（0.5–1 GiB）与 NCCL buffer；PyTorch 的 reserved 里是 allocated + 碎片](/img/in-post/training-state-memory-nesting.svg){: style="max-height: 330px"}
 
-- **MFU 不含重计算、HFU 含**；全量重计算 HFU = 4/3 MFU——「开重计算后 MFU 上去了」是误区
+- **MFU 不含重计算、HFU 含**；全量重计算 \(\text{HFU}=\tfrac43\,\text{MFU}\)——「开重计算后 MFU 上去了」是误区
 - 千卡 dense ≥ 40% MFU 是好成绩
 
 ---
@@ -110,7 +110,7 @@ flowchart TB
 
 ![_ParamAndGradBuffer：param_data、grad_data 与 bucket 的布局](/img/in-post/megatron-deepspeed-torchtitan-param-and-grad-buffer.svg){: style="max-height: 330px}
 
-- 每参数常驻 2 + 4 + 12/N_d；通信 RS + AG = 2N，两处都与计算重叠
+- 每参数常驻 \(2+4+12/N_d\)；通信 \(\text{RS}+\text{AG}=2N\)，两处都与计算重叠
 
 <aside class="notes" markdown="1">
 原文 /megatron-lm-architecture-and-source-guide.html。
@@ -120,11 +120,11 @@ flowchart TB
 
 ## 04 · DeepSpeed：参数是空壳，碎片是常态
 
-**Stage 3：bf16 参数常驻 1/N_d 碎片，`param.data` 一个 step 换四次身份**
+**Stage 3：bf16 参数常驻 \(1/N_d\) 碎片，`param.data` 一个 step 换四次身份**
 
 ![上排是 W_k 的 8 个常驻分片；下排是前向 pre-hook all-gather 后每卡临时持有的完整 bf16 W_k](/img/in-post/deepspeed-f1-8-gpus-zero3.svg){: style="max-height: 330px}
 
-- 每参数常驻 (16 或 18)/N_d + 临时层；通信 3N；hook 外拿到空张量
+- 每参数常驻 \((16\text{ 或 }18)/N_d\) + 临时层；通信 \(3N\)；hook 外拿到空张量
 
 <aside class="notes" markdown="1">
 原文 /deepspeed-architecture-and-source-guide.html。
@@ -138,7 +138,7 @@ flowchart TB
 
 ![fully_shard 参数生命周期三泳道：fp32 Shard(0) 常驻，计算用临时完整 bf16](/img/in-post/torchtitan-f5-param-lifecycle.svg){: style="max-height: 330px}
 
-- 每参数常驻 16/N_d + 临时 bf16；通信 3N（不 reshard 则 2N）
+- 每参数常驻 \(16/N_d\) + 临时 bf16；通信 \(3N\)（不 reshard 则 \(2N\)）
 
 <aside class="notes" markdown="1">
 原文 /torchtitan-architecture-and-source-guide.html。
@@ -152,9 +152,9 @@ flowchart TB
 
 | 框架 | 每参数常驻 | 每 step 通信 | 进程组 |
 |---|---|---|---|
-| Megatron Core 0.18 | 2 + 4 + 12/N_d | RS + AG = 2N | `RankGenerator(order="tp-cp-ep-dp-pp")` |
-| DeepSpeed 0.19 Stage 3 | (16 或 18)/N_d + 临时层 | AG + AG + RS = 3N | mpu 委托 |
-| torchtitan v0.3（FSDP2） | 16/N_d + 临时层 | 3N | `DeviceMesh` + DTensor |
+| Megatron Core 0.18 | \(2+4+12/N_d\) | RS + AG = \(2N\) | `RankGenerator(order="tp-cp-ep-dp-pp")` |
+| DeepSpeed 0.19 Stage 3 | \((16\text{ 或 }18)/N_d\) + 临时层 | AG + AG + RS = \(3N\) | `mpu` 委托 |
+| torchtitan v0.3（FSDP2） | \(16/N_d\) + 临时层 | \(3N\) | `DeviceMesh` + DTensor |
 
 - 选型：千卡 MFU → Megatron；零侵入放大 → DeepSpeed；新组合并行 → torchtitan
 - 「FSDP2 比 FSDP1 通信少所以快」——次数与量相同；差别是可组合性
@@ -298,7 +298,7 @@ $$
 - 「PP 加深激活就少」——1F1B 持有 p 份
 - 「checkpoint 大小随并行配置变」——唯一字节不变
 - 「异步 checkpoint 是锦上添花」——同步最小浪费 ≥ 10%
-- 「有效时间低先缩间隔」——先 δ、再 T_d、再 T_r
+- 「有效时间低先缩间隔」——先 \(\delta\)、再 \(T_d\)、再 \(T_r\)
 - 「straggler = 坏卡」——多数每步换 rank
 - 「GPU 利用率 100% 说明训练正常」——hang 时也 100%
 {: .fragments}
