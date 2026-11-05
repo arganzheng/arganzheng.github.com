@@ -136,6 +136,10 @@ Front matter knobs (all optional):
                the diagram on the 720 px canvas (480 overflowed by ~25 px) */
             max-height: 420px;
         }
+        /* slides with no table/image can afford a taller diagram (470 vs 420);
+           560 overflowed title+conclusion+figure slides by ~46 px */
+        .reveal .slides section:not(:has(> table)):not(:has(> img)) .mermaid svg { max-height: 470px; }
+        .reveal .slides > section > section:not(:has(> table)):not(:has(> img)) .mermaid svg { max-height: 500px; }
         /* vertical sub-slides carry only an h3 — a bit more headroom than
            420, but 500+ made several existing slides overflow 720 */
         .reveal .slides > section > section .mermaid svg { max-height: 470px; }
