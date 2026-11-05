@@ -32,10 +32,10 @@ transition: slide
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
     Q{"题面里出现什么？"}
-    Q -- "子数组 / 子串 / 配对" --> A["全正数 → 滑动窗口（02）<br/>含负数 → 前缀和 + 哈希（01）<br/>下一个更大 → 单调栈（03）"]
-    Q -- "链式 / 树形 / 图" --> B["链表：哑节点、快慢指针（04）<br/>树：返回什么 vs 更新什么（05）<br/>图：BFS / DFS / 拓扑 / 并查集 / Dijkstra（06）"]
-    Q -- "求最值 / 可行性 / 方案数" --> C["单调谓词 → 二分（07）<br/>第 K → 堆（08）<br/>枚举所有 → 回溯（09）<br/>最后一步可分解 → DP（11、12）"]
-    Q -- "设计一个支持若干操作的结构" --> D["两个结构互相索引（13）"]
+    Q -- "子数组 / 配对" --> A["滑动窗口（02）· 前缀和（01）<br/>单调栈（03）"]
+    Q -- "链式 / 树 / 图" --> B["链表（04）· 树（05）<br/>图遍历 / 拓扑（06）"]
+    Q -- "最值 / 方案数" --> C["二分（07）· 堆（08）<br/>回溯（09）· DP（11、12）"]
+    Q -- "多操作结构" --> D["两结构互索引（13）"]
 ```
 
 ---
@@ -51,6 +51,7 @@ flowchart TB
 - LC 76 用 `missing` 计数使每步 \(O(1)\)；接雨水水位 = \(\min(\text{leftMax},\text{rightMax})\)
 
 <aside class="notes" markdown="1">
+识别信号图细节：全正数子数组 → 滑动窗口（02）；含负数 → 前缀和 + 哈希（01）；下一个更大 → 单调栈（03）；链表用哑节点与快慢指针（04）；树看返回什么 vs 更新什么（05）；图 BFS / DFS / 拓扑 / 并查集 / Dijkstra（06）；单调谓词 → 二分（07）、第 K → 堆（08）、枚举 → 回溯（09）、末步可分解 → DP（11、12）。
 原文 /coding-interview-arrays-hashing-prefix-sum.html、/coding-interview-two-pointers-and-sliding-window.html、/coding-interview-stack-monotonic-stack-and-queue.html。
 </aside>
 
@@ -121,6 +122,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-attention-from-scratch.html。
+结论原文：四次形状变换 + softmax 减最大值；**mask 用 −∞ 或 `finfo.min`**；KV 只缓存 K、V。
 </aside>
 
 ---
@@ -138,6 +140,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-transformer-block-and-backprop.html。
+结论原文：一层参数约 \(12D^2\)、训练 \(6N\)；**CE 的梯度就是 \(p-y\)**；micrograd 累加要 `+=`。
 </aside>
 
 ---
@@ -154,6 +157,7 @@ y = (att @ v).transpose(1, 2).contiguous().view(B, T, D)  # 拼回去要 contigu
 
 <aside class="notes" markdown="1">
 原文 /coding-interview-tokenizer-and-decoding.html。
+结论原文：BPE 按 merge 顺序不贪心；采样流水线 penalty → T → top-k → top-p → min-p。
 </aside>
 
 ---
