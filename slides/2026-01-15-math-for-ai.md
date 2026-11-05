@@ -47,29 +47,29 @@ transition: slide
 ## 四个分支、八个出口
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph LA["线性代数"]
     direction TB
-    P1["一 · 形状与 2mnk"] --> P2["二 · 内积 / 范数 / 余弦"] --> P3["三 · 正交 / 旋转 / SVD"]
+    P1["一 · 形状"] --> P2["二 · 内积"] --> P3["三 · SVD"]
   end
   subgraph PR["概率"]
     direction TB
-    P4["四 · 条件分布"] --> P5["五 · MLE → 交叉熵"]
+    P4["四 · 条件分布"] --> P5["五 · MLE"]
   end
   subgraph IT["信息论"]
-    P6["六 · 熵 / KL → DPO"]
+    P6["六 · 熵 / KL"]
   end
   subgraph CA["微积分与优化"]
-    P7["七 · 链式法则 → 策略梯度"]
+    P7["七 · 链式法则"]
   end
   subgraph ST["统计推断"]
-    P8["八 · 置信区间、拟合"]
+    P8["八 · 置信区间"]
   end
-  LA -- "内积的方差 → 除以 √d_k" --> PR
-  PR -- "NLL 是交叉熵特例" --> IT
-  PR -- "softmax 梯度 p − y" --> CA
-  IT -- "KL 进入 RL 目标" --> CA
-  PR -- "二项分布 → 标准误" --> ST
+  LA --> PR
+  PR --> IT
+  PR --> CA
+  IT --> CA
+  PR --> ST
   classDef la fill:#e8f1f8,stroke:#5b8db8
   classDef pr fill:#fdf1e0,stroke:#d1913c
   classDef it fill:#eaf5e6,stroke:#6aa84f
