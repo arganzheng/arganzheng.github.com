@@ -40,7 +40,7 @@ flowchart TB
 
 ## 01 · 最小 agent 循环：从 40 行到生产级
 
-**结论**：40 行 + **四个卫士**（步数、预算、超时、重复检测）+ **两个出口**（完成、放弃）才能上生产；Codex 三层（`submission_loop` → turn → 编排器），DeepSeek Harness 日志驱动；**能用工作流就不用 agent**。
+**40 行循环 + 四个卫士 + 两个出口才够生产——能用工作流就不用 agent**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
@@ -82,7 +82,7 @@ while True:                                   # 四个卫士在这里：步数 /
 
 ## 02 · 工具调用与 MCP：工具从哪来、怎么被发现
 
-**结论**：MCP 2026-07-28 **无状态核心、扩展框架、授权加固**；描述从模型视角写；**tool search 换预算付缓存**（按需定义不在前缀里）；**PTC（程序化工具调用）让中间结果不进上下文**。
+**工具按 schema 进注册表；tool search 按需加载、PTC 让中间结果不进上下文**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
@@ -117,11 +117,19 @@ flowchart TB
 - 「MCP 只是一个有会话的 RPC」——已改为无状态核心
 - 「tool search 一定提高缓存命中率」——命中率可能降，看绝对量
 
+<!-- v -->
+
+### 传统调用 vs 程序化工具调用（PTC）
+
+![传统调用每个中间结果都回上下文；PTC 写一段程序调多个工具，只有最终结果进上下文](/img/in-post/tool-calling-mcp-traditional-vs-ptc.svg){: style="max-height: 340px"}
+
+- 中间结果不进上下文——长工具链省掉的是上下文预算与延迟，四家都有
+
 ---
 
 ## 03 · agent 运行时：第三种服务形态
 
-**结论**：**事件溯源的会话日志是核心**——resume / fork / replay 是同一条流；**durable execution**：任务不随连接消失；**挂起要释放 worker**；托管 / 库 / 自托管三种交付。
+**会话日志只追加是核心——resume / fork / replay 都是同一条流的重放**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
@@ -155,7 +163,7 @@ flowchart LR
 
 ## 04 · 长任务的上下文管理与子 agent
 
-**结论**：`spill` / 截断规则 → 修剪 → `compact*` / `compaction` 五包；plan / todo / goal 对抗漂移；子 agent 三形态；**多 agent 约 15 倍 token**；DeepSeek Harness 能拉起 Claude Code 与 Codex。
+**隔离 → 卸载 → 清理 → 压缩；子 agent 只回摘要，但多 agent 约 15 倍 token**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -188,7 +196,7 @@ flowchart LR
 
 ## 05 · 权限、沙箱与安全边界：压低错误的上限
 
-**结论**：**四层缺一不可**——权限档、审批策略、执行策略（`execpolicy` Starlark + Guardian）、沙箱（三平台）；Claude Code 六步 **deny 高于一切**；PocketOS 五环里三环在基础设施。
+**权限四层缺一不可——权限档、审批、执行策略、沙箱；deny 高于一切**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
@@ -236,7 +244,7 @@ flowchart LR
 
 ## 06 · 源码级对照：四个 harness 各怎么选
 
-**结论**：十二维表；取舍主轴——**状态在对象 / 日志、压缩加密 / 可读、权限策略语言 / 规则 / 插件、沙箱原生 / 接缝、模型耦合深 / 浅**；每个选择换一样付一样，没有最好的 harness。
+**四个 harness 换一样付一样——状态、压缩、策略语言、沙箱、模型耦合五个轴**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
@@ -269,28 +277,9 @@ flowchart TB
 
 ## 07 · 多 agent：编排、handoff 与 A2A
 
-**结论**：只为三个理由——**隔离、并行、专业化**；orchestrator-workers / handoff / 层级三种模式；**15 倍 token、缓存不共享（只有分叉前的相同前缀能命中）、trace 是树**；MCP 管工具、A2A 管 agent——协议未收敛，组织内用 harness 子 agent。
+**多 agent 只为隔离、并行、专业化——代价 15 倍 token、缓存不共享**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
-flowchart LR
-    subgraph O["orchestrator-workers：分解 → 并行 → 综合"]
-        direction TB
-        O1["主 agent"] --> W1["worker A"] & W2["worker B"] & W3["worker C"]
-        W1 & W2 & W3 --> O2["主 agent 综合"]
-    end
-    subgraph HD["handoff：控制权移交"]
-        direction TB
-        A1["agent A：接待"] -- "这事该 B 做" --> B1["agent B：退款"] -- "要人工" --> C1["人 / agent C"]
-    end
-    subgraph HI["层级：经理管小组"]
-        direction TB
-        M1["经理 agent"] --> T1["组长 1"] & T2["组长 2"]
-        T1 --> E1["执行者"] & E2["执行者"]
-    end
-    O ~~~ HD ~~~ HI
-
-```
+![orchestrator-workers 并行综合、handoff 移交控制权、层级经理管小组——三种多 agent 模式](/img/in-post/multi-agent-orchestration-three-patterns.svg){: style="max-height: 360px"}
 
 <aside class="notes" markdown="1">
 原文 /multi-agent-orchestration-handoff-and-a2a.html。三层评测。
@@ -304,11 +293,19 @@ flowchart LR
 - 「并行 agent 共享缓存」——只有分叉前的前缀
 - 「现在就要接 A2A」——组织内先用子 agent
 
+<!-- v -->
+
+### handoff 的一条时间线
+
+![客服 handoff：分流 agent 判断退款 → transfer_to_refund 移交控制权与上下文，超阈值再移交人工](/img/in-post/multi-agent-orchestration-handoff-timeline.svg){: style="max-height: 340px"}
+
+- handoff 移交的是**控制权 + 上下文**——移交什么上下文是设计点，不是默认值
+
 ---
 
 ## 08 · memory 与 human-in-the-loop
 
-**结论**：**记忆是检索**（写 / 取 / 忘、带来源、设上限 25 KB）；**六级人机分工每级换验证**；不可逆且不能自动验证的动作不该无人在环；**本体把验证前移到结构**，业务 agent 可到 4–5 级。
+**记忆是检索（写 / 取 / 忘、上限 25 KB）；人机分工六级、每级换验证方式**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 480}}}%%
@@ -344,7 +341,7 @@ flowchart TB
 
 ## 09 · 可靠性、评测与运营
 
-**结论**：**十类失败只有一类是异常**；幂等 / 预算 / 部分结果 / 校验；**轨迹评测六维**（不只完成率）；基准只缩范围；三级 trace + 面板十项 + 门禁。
+**十类失败只有一类是异常；轨迹评测看六维——不只完成率**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
