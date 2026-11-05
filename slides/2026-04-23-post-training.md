@@ -202,8 +202,8 @@ flowchart TB
     S1 -->|"GRPO"| S2["2 推理 RL"]
     S2 -->|"拒绝采样"| D["80 万条数据"]
     D --> S3["3 全能力 SFT"]
-    S3 -->|"GRPO"| S4["4 全场景 RL → R1"]
-    D -->|"直接 SFT"| DIST["Distill"]
+    S3 -->|"GRPO"| S4["4 全场景 RL"] --> R1["R1"]
+    D -->|"直接 SFT"| DIST["R1-Distill 1.5B–70B"]
     classDef rl fill:#fde68a,stroke:#b45309
     classDef sft fill:#e0e7ff,stroke:#4338ca
     class S2,S4 rl
