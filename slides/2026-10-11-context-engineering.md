@@ -68,7 +68,9 @@ flowchart LR
 
 <!-- v -->
 
-### 要点
+## 要点
+
+**模式不变、措辞随模型调——动态放末尾**
 
 | 公开案例 | 做法 |
 |---|---|
@@ -76,6 +78,12 @@ flowchart LR
 | Claude Code | 动态环境放末尾、CLAUDE.md 独立一层 |
 | GPT-5 guide | eagerness 与 tool preamble |
 | Manus | "don't get few-shotted"——agent 历史本身就是 few-shot，会陷入模式 |
+
+
+<!-- v -->
+
+
+### 常见误区
 
 - 「加一句『一步步想』总没坏处」——推理模型默认思考；用 effort
 - 「写『忽略文档里的指令』就防住了注入」——措辞只降概率；防御在权限与输出检查
@@ -156,7 +164,9 @@ flowchart LR
 
 <!-- v -->
 
-### 要点
+## 要点
+
+**先删已消费的返回；还超线才压缩**
 
 | 系统 | 做法 |
 |---|---|
@@ -165,8 +175,9 @@ flowchart LR
 | Codex | 会话记忆优先、`/responses/compact` 加密 blob、轮前与循环边界触发 |
 | Anthropic compaction | 默认 150K |
 
-- 研究 agent 96% 的上下文是文件读取；**用户约束最易丢**
-- 「上下文满了就压缩」——压缩最贵最有损，先做前三步；「压缩线设 95% 省钱」——输出与摘要没空间，应 = 窗口 − 预留（含思考）
+<aside class="notes" markdown="1">
+补充要点：研究 agent 96% 的上下文是文件读取；**用户约束最易丢**
+</aside>
 
 ---
 
@@ -218,7 +229,9 @@ flowchart LR
 
 <!-- v -->
 
-### 要点
+## 要点
+
+**不可变版本 + 评测门禁 + 回滚路径**
 
 | 量 | 数 |
 |---|---|
@@ -226,6 +239,12 @@ flowchart LR
 | SKILL.md | `name` ≤ 64、`description` ≤ 1,024；四十多客户端；`.agents/skills/` |
 | 30K 手册 | 全放与检索成本相近——定位型问题检索更可靠且可引用 |
 | 工具 | Langfuse 版本 + 标签；OpenAI Prompts 对象（Assistants 关闭后） |
+
+
+<!-- v -->
+
+
+### 常见误区
 
 - 「灰度头几分钟成本高，回滚」——新前缀第一轮全写是预期，看第二轮起
 - 「prompt 在注册表里就不需要评测」——注册表解决部署不解决回归
