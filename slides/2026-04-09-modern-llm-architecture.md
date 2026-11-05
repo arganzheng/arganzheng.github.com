@@ -105,13 +105,15 @@ $$
 %%{init: {"flowchart": {"wrappingWidth": 260, "rankSpacing": 28, "nodeSpacing": 16}}}%%
 flowchart TB
     H["h_t (7168)"] --> DKV["W_DKV + W_KR<br/>7168→576"]
-    DKV --> CKV["c^KV_t (512) + k^R_t (64)<br/>RoPE，都进 cache"]
+    DKV --> CKV["c^KV_t (512)<br/>进 cache"]
+    DKV --> KR["k^R_t (64) + RoPE<br/>128 head 共享，进 cache"]
     CKV --> UKV["W_UK / W_UV<br/>512→128头×128"]
     UKV --> ATT["attention<br/>q·[k^C;k^R]/√192"]
+    KR --> ATT
     H --> Q["W_DQ→W_UQ+W_QR<br/>q^C+q^R"] --> ATT
     ATT --> WO["W_O"]
     classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3
-    class CKV cache
+    class CKV,KR cache
 ```
 
 - decode 吸收 $$W_{UK}$$/$$W_{UV}$$：等价 128 头共享 576 维 KV 头的 MQA，强度 242；FLOPs 3.4 倍，prefill 走非吸收
