@@ -135,10 +135,10 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
     subgraph LOG["会话日志（只追加）"]
-        direction TB
-        E1["1 用户"] --> E2["2 模型"] --> E3["3 结果"] --> E4["4 审批"] --> E7["7 …"]
+        direction LR
+        E1["1 用户"] --> E2["2 模型"] --> E3["3 结果"] --> E4["4 审批"] --> E5["5 模型"] --> E6["6 压缩"] --> E7["7 …"]
     end
-    E3 -. "重放" .-> D["当时的上下文<br/>（调试）"]
+    E3 -. "重放" .-> D["当时上下文"]
     E4 -. "分叉" .-> F["新会话"]
     E7 -. "重放" .-> C["当前上下文"]
 ```
@@ -199,16 +199,18 @@ flowchart LR
 **权限四层缺一不可——权限档、审批、执行策略、沙箱；deny 高于一切**
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart TB
-    CALL["工具调用 → ① 权限档"] --> L1{"② 审批③执行"}
-    CALL -->|"超档"| DENY["拒绝"]
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+flowchart LR
+    CALL["模型返回<br/>工具调用"] --> L1{"① 权限档"}
+    L1 -->|"超档"| DENY["拒绝"]
+    L1 -->|"在档内"| L2{"② 审批 · ③ 执行"}
     L2 -->|"forbidden"| DENY
-    L2 -->|"需审批 → 人批"| ASK["挂起请人批"]
+    L2 -->|"需审批"| ASK["请人批"]
     ASK -->|"拒绝"| DENY
-    ASK -->|"批准"| SB
-    L2 -->|"自动"| SB["④ 沙箱执行"]
+    ASK -->|"批准"| SB["④ 沙箱"]
+    L2 -->|"自动"| SB
     SB -->|"成功"| OUT["结果写回"]
+    SB -. "被拦 → 升级（下图）" .-> ASK
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -218,8 +220,31 @@ flowchart TB
     class DENY deny
 ```
 
+<!-- v -->
+
+### 沙箱拦住以后：升级回到审批
+
+**「never / on-request」决定拦截后是死路还是新审批——升级不是绕开沙箱，是重新问人**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    SB["④ 沙箱执行"] -->|"被沙箱拦住"| ESC{"允许升级？"}
+    ESC -->|"never / on-request：不"| DNO["返回沙箱拒绝说明"]
+    ESC -->|"是：新审批"| ASK["挂起请人批"]
+    ASK -->|"拒绝"| DENY["拒绝，结果送回模型"]
+    ASK -->|"批准"| SB
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef deny fill:#fdecea,stroke:#c0392b,color:#222
+    class SB,ASK step
+    class ESC dec
+    class DNO,DENY deny
+```
+
 <aside class="notes" markdown="1">
-原文 /permissions-sandboxes-and-security-boundaries-for-agents.html。
+原文 /permissions-sandboxes-and-security-boundaries-for-agents.html。调用示例：shell: rm -rf ./build · write: src/x.py · http: DELETE /volumes/7；审批可选 Guardian 模型先审；沙箱在受限的文件系统 / 网络 / 进程里执行。
 </aside>
 
 <!-- v -->
