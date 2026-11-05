@@ -79,7 +79,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     B["月底账单：一个总数"] -- "没有归因就没有优化" --> T["每次调用打标签：<br/>租户 · 功能 · prompt 版本 · 模型快照 · 任务 id"]
     T --> L["按天的账本：标签 × 五项 usage × 美元<br/>（未缓存输入 / 缓存读 / 缓存写 / 输出含思考 / 工具费）"]
     L --> V["按<b>任务</b>看，不按调用看：<br/>p50 与 p95 的每任务成本"]
@@ -143,7 +143,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     IN["① 输入侧：来源标记与分区<br/>外部内容标为数据 · 分区标记 · 过滤（只降概率）"] --> M["模型"]
     M --> P["② 权限与沙箱（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》四层）<br/>注入让模型想做 · 四层让它做不到"]
     P --> O["③ 输出处理<br/>渲染前脱敏链接 / 图片 / HTML · 执行前检查命令 / SQL · CSP"]
@@ -251,7 +251,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     U["使用<br/>真实流量"] --> F["反馈<br/>隐式（采纳 / 修改 / 重试 / 放弃）· 显式（点踩）· 系统（错误 / 卫士 / 拒答）<br/>全部带 trace id"]
     F --> Q["bad case 队列<br/>owner · SLA · 分类 · 去重"]
     Q --> E["评测集<br/>每周补 · hold-out · 版本绑定"]
