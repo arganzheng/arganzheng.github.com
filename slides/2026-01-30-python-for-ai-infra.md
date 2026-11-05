@@ -64,6 +64,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /python-execution-model-scopes-imports-and-exceptions.html 与 /python-object-model-protocols-decorators-and-generators.html。
+结论原文：`import` 是**运行时动作**（执行模块顶层代码，注册与 CUDA 初始化都在这一步）；`obj.attr` 是一个固定算法；`model(x)` 查类型上的 `__call__`——**直接调 `forward` 绕过全部 hook**；装饰器在定义时执行一次；生成器是挂起的帧。
 </aside>
 
 ---
@@ -85,6 +86,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文三篇：/python-type-expression-and-the-typing-toolbox.html、/python-type-information-distribution-and-consumption.html、/python-data-contract-design-dataclass-pydantic-and-settings.html。
+结论原文：**解释器只把注解存进 `__annotations__`**，谁读、怎么用由消费者决定——`@dataclass` 只当字段清单，**Pydantic 在类创建时构建验证树**。
 </aside>
 
 <!-- v -->
@@ -105,15 +107,17 @@ flowchart LR
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
     Q{"瓶颈？"} -- "等 I/O" --> IO{"并发数？"}
-    IO -- "几十个" --> TH["<b>线程</b><br/>GIL 等待时释放"]
-    IO -- "几千连接" --> AS["<b>asyncio</b><br/>事件循环"]
-    Q -- "纯 Python 计算" --> PR["<b>进程</b><br/>每进程一把 GIL"]
+    IO -- "几十个" --> TH["<b>线程</b>"]
+    IO -- "几千连接" --> AS["<b>asyncio</b>"]
+    Q -- "纯 Python 计算" --> PR["<b>进程</b>"]
     Q -- "矩阵 / 卷积" --> NAT["不用并发<br/>原生库已多线程"]
     TH & AS & PR --> C["组合：asyncio 收 → 线程跑阻塞 → 进程预处理"]
 ```
 
 <aside class="notes" markdown="1">
 原文 /python-concurrency-asynchrony-and-task-collaboration.html。
+线程：GIL 等待时释放；asyncio：事件循环；进程：每进程一把 GIL。
+结论原文：**线程管阻塞 I/O**，**进程绕开 GIL**，**asyncio 管大量 I/O 协作**；背压、超时、取消、批处理是过载时的稳定手段。
 </aside>
 
 <!-- v -->
@@ -154,6 +158,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /python-reflection-metaprogramming-and-plugin-architecture.html。
+结论原文：反射观察、元编程改造、动态加载导入；**插件化 = 注册表 + 发现 + 契约 + 边界**；侵入性递增：显式注册 → 装饰器 → 描述符 → `__init_subclass__` → 元类——**元类几乎总是最后的选择**。
 </aside>
 
 <!-- v -->
@@ -180,6 +185,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /python-memory-management-and-optimization.html。
+结论原文：三块内存——Python 对象、原生缓冲区（NumPy / torch CPU）、设备显存——边界不同、归还方式不同；**对象释放不等于 RSS 下降**（pymalloc 的 arena 只在全部 pool 释放后才归还 OS）。
 </aside>
 
 <!-- v -->
@@ -208,6 +214,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /python-unit-testing-troubleshooting-and-debugging.html。
+结论原文：工具不难，难在**按症状选工具**；`raise ... from` 与带上下文的日志是所有工具的前提；日志分调试期与生产期，logger 与 handler 两道级别关卡。
 </aside>
 
 ---
@@ -229,6 +236,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /python-engineering-and-production-delivery.html。
+结论原文：**锁文件进 CI**（`uv sync --locked`）、**torch 交给固定 tag 的基础镜像**、静态检查是编译器的替代品；**GPU 服务每 GPU 一个 worker**，进程内靠 asyncio + 批处理。
 </aside>
 
 ---
@@ -238,14 +246,14 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
 flowchart TB
-    A["import 是运行时动作（01）"] --> B["顶层代码的副作用：注册、CUDA 初始化（01）"]
-    B --> C["注册表为空 ⇔ 模块未被导入（04）"]
-    C --> D["发现机制：显式导入 / 包扫描 / 入口点（04）"]
-    A --> H["spawn 重新导入主模块 → __main__ 保护（03）"]
-    E["GIL：同一时刻一个线程执行字节码（03）"] --> F["多进程是唯一绕开手段（03）"]
+    A["import 是运行时动作（01）"] --> B["顶层副作用：注册 · CUDA 初始化（01）"]
+    B --> C["注册表为空 ⇔ 模块未导入（04）"]
+    C --> D["发现：显式导入 / 包扫描 / 入口点（04）"]
+    A --> H["spawn 重导主模块 → __main__（03）"]
+    E["GIL：同一刻一个线程跑字节码（03）"] --> F["多进程是唯一绕开（03）"]
     F --> H
-    F --> G["每进程各自 sys.modules、各自一份模型（03、05）"]
-    G --> I["GPU 服务每 GPU 一个 worker（07）"]
+    F --> G["每进程各自 sys.modules（03、05）"]
+    G --> I["每 GPU 一个 worker（07）"]
 ```
 
 ---
