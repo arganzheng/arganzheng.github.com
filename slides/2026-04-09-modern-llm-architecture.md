@@ -94,12 +94,12 @@ $$
 | V3 若用 MHA | 128 头 × 128 | 3.81 MiB | 477 GiB | 1 |
 
 <aside class="notes" markdown="1">
-原文 /attention-variants-and-kv-cache.html。判断 MLA 看 kv_lora_rank；num_key_value_heads: 128 不能套 GQA 公式。容量四乘子：结构定元素个数、量化定 bytes/elem、分页定碎片率、prefix 共享定复用倍数。
+原文 /attention-variants-and-kv-cache.html。判断 MLA 看 `kv_lora_rank`；`num_key_value_heads`: 128 不能套 GQA 公式。容量四乘子：结构定元素个数、量化定 bytes/elem、分页定碎片率、prefix 共享定复用倍数。
 </aside>
 
 <!-- v -->
 
-### MLA：只有 c^KV 与 k^R 进 cache
+### MLA：只有 \(c^{KV}\) 与 \(k^R\) 进 cache
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -121,7 +121,7 @@ flowchart LR
 
 <!-- v -->
 
-### 物化的 S = QKᵀ 有多大，FlashAttention 省了什么
+### 物化的 \(S = QK^\top\) 有多大，FlashAttention 省了什么
 
 - 8K 上下文、32 头：每层 $$s \times s$$ 的 logits **4 GiB**（BF16），写出 HBM 再读回
 - FlashAttention：分块 + online softmax，从不物化 S，HBM 流量降到 $$O(s^2 d^2 / M)$$；算量不变
@@ -139,8 +139,8 @@ flowchart LR
 | 128K prefill（60% MFU） | 6.5 PFLOP，约 **11 s** | 41 PFLOP，约 69 s |
 | 128K 一条请求的 KV | 16 GiB | 40 GiB |
 
-- 滑窗使 KV / 单步 attention 为 O(W)，整段 prefill 为 O(sW)（Mistral W = 4096）但丢信息；sink + 滑窗保留开头 4 个 token
-- 交错局部 / 全局把系数变 1/k；MLA 减系数不减阶——两者正交可叠加
+- 滑窗使 KV / 单步 attention 为 \(O(W)\)，整段 prefill 为 \(O(sW)\)（Mistral \(W=4096\)）但丢信息；sink + 滑窗保留开头 4 个 token
+- 交错局部 / 全局把系数变 \(1/k\)；MLA 减系数不减阶——两者正交可叠加
 - 对 Infra：KV 定并发、二次项定 TTFT、chunked prefill 防一条 128K 请求独占 GPU 11 s
 
 ---
