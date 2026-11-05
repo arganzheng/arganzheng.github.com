@@ -108,14 +108,13 @@ flowchart TB
     DKV --> CKV["c^KV_t (512) + k^R_t (64)<br/>RoPE，都进 cache"]
     CKV --> UKV["W_UK / W_UV<br/>512→128头×128"]
     UKV --> ATT["attention<br/>q·[k^C;k^R]/√192"]
-    H --> Q["W_DQ→W_UQ+W_QR<br/>q^C 128 + q^R 64"] --> ATT
-    ATT --> WO["W_O 16384→7168"]
+    H --> Q["W_DQ→W_UQ+W_QR<br/>q^C+q^R"] --> ATT
+    ATT --> WO["W_O"]
     classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3
     class CKV cache
 ```
 
-- 解耦 RoPE：位置相关的旋转吸不进与位置无关的升维矩阵，所以单独留 64 维
-- decode 吸收 $$W_{UK}$$/$$W_{UV}$$：等价 128 头共享 576 维 KV 头的 MQA，强度约 242；FLOPs 约 3.4 倍，prefill 走非吸收
+- decode 吸收 $$W_{UK}$$/$$W_{UV}$$：等价 128 头共享 576 维 KV 头的 MQA，强度 242；FLOPs 3.4 倍，prefill 走非吸收
 
 <!-- v -->
 
@@ -338,19 +337,19 @@ Table: 投机解码的正确性、收益与边界
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 flowchart TB
-    S["结构：L、d、d_ff、n_kv、E、k<br/>（01、06）"] --> N["参数量 N、激活参数量（01、06）"]
-    S --> K["KV / token = 2 L n_kv d_head · bytes/elem（04）"]
-    D["数值：bytes/param、bytes/elem（10、量化专题）"] --> W["权重字节 = N · bytes/param"]
+    S["结构超参<br/>（01、06）"] --> N["参数量 N"]
+    S --> K["KV / token（04）"]
+    D["数值格式（10）"] --> W["权重字节"]
     N --> W
     D --> K
-    N --> F["FLOPs / token ≈ 2N + 4dLs（02、05）"]
-    R["运行点：B、s、prefill / decode（02、05、06、08、09）"] --> F
-    R --> H["每步字节 = 权重字节 + B · s · KV/token"]
+    N --> F["FLOPs / token（02、05）"]
+    R["运行点 B、s（02–09）"] --> F
+    R --> H["每步字节"]
     K --> H
     W --> H
     F --> I["算术强度 I = FLOPs / 字节"]
     H --> I
-    I --> T["与 ridge ≈ 295 比较 → memory / compute-bound → 时间下界"]
+    I --> T["对比 ridge → 时间下界"]
 ```
 
 <!-- v -->
