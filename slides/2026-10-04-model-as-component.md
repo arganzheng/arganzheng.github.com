@@ -252,20 +252,48 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    S(["业务层发起调用"]) --> CNT["数 token + 并发槽 → 发送"]
-    CNT --> OK{"四层超时 → 成功？"}
-    OK -->|"是"| PARSE["解析 → 返回"]
-    OK -->|"否"| CLS{"错误分类"}
-    CLS -->|"可重试"| CNT
-    CLS -->|"不可重试"| FAIL(["失败 / 降级返回"])
+    S(["业务层发起调用"]) --> CNT["数 token + 取并发槽"]
+    CNT --> SEND["发送（四层超时）"]
+    SEND --> OK{"成功？"}
+    OK -->|"是"| PARSE["解析增量 · 读 usage"]
+    PARSE --> DONE(["返回业务层 + 记 trace"])
+    OK -->|"否"| CLS["错误分类<br/>→ 重试 / fallback（下图）"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef stop fill:#f0f0f0,stroke:#888,color:#222
-    class CNT,PARSE step
-    class OK,CLS dec
-    class S,DONE,FAIL stop
+    class CNT,SEND,PARSE,CLS step
+    class OK dec
+    class S,DONE stop
 ```
+
+<!-- v -->
+
+### 失败之后：先分类，再决定退避还是兜底
+
+**可重试走「退避 + 预算」，不可重试看有没有 fallback——两条路最终都回到发送或失败**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart TB
+    CLS{"错误分类"} -->|"可重试：429 / 5xx / 超时"| BACK["退避（指数 + 抖动，遵守 Retry-After）"]
+    BACK -->|"预算未耗尽"| SEND["回到发送"]
+    BACK -->|"耗尽"| FB{"有 fallback？"}
+    CLS -->|"不可重试：400 / 401 / 配额"| FB
+    FB -->|"换模型 / 降级"| SEND
+    FB -->|"无"| FAIL(["失败返回业务层 + 记 trace"])
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef stop fill:#f0f0f0,stroke:#888,color:#222
+    class BACK,SEND step
+    class CLS,FB dec
+    class FAIL stop
+```
+
+<aside class="notes" markdown="1">
+原文 /client-side-engineering-for-model-apis.html。四层超时：连接 · 首事件 · 事件间 · 总；解析 = 拼接增量 · 工具参数等 done · 读 usage · 读 stop_reason。
+</aside>
 
 <aside class="notes" markdown="1">
 原文 /llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html。
