@@ -152,7 +152,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
-flowchart LR
+flowchart TB
     A["nn.Module 树<br/>__init__ 定结构、forward 定数据流"] --> B["注册机制<br/>__setattr__ 登记 Parameter / 子 Module / Buffer"] --> C["state_dict<br/>属性路径 → Tensor"]
     C --> E["Optimizer<br/>拿 parameters() 用 .grad 更新"]
     F["Dataset → Sampler → DataLoader<br/>pin_memory / non_blocking"] --> G["循环：取 batch → forward → loss → backward → step"]
@@ -180,7 +180,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
+flowchart TB
     subgraph DEV["开发态"]
         direction TB
         A1["定义 Schema<br/>native_functions.yaml / torch.library"] --> A2["注册到各 DispatchKey"] --> A3["编写实现"]
@@ -231,14 +231,14 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     subgraph RT["运行时：每次调用"]
-        direction LR
+        direction TB
         CALL["调用"] --> GD{"Guard 成立?"} -->|是| RUN["执行产物"]
         GD -->|否| CA{"缓存命中?"} -->|否| TRIG["触发编译"]
     end
     subgraph CP["编译器：触发时跑一次"]
-        direction LR
+        direction TB
         DY["Dynamo 捕获<br/>Graph Break 定边界"] --> FX1[("FX Graph<br/>torch 级")] --> AOT["AOTAutograd<br/>反向展开 · 函数化 · 分解"] --> FX2[("FX × 2<br/>ATen 级")] --> IND["Inductor<br/>融合 · 内存规划"] --> CODE["Triton / C++"]
     end
     TRIG --> DY
