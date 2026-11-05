@@ -68,10 +68,14 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- Python 只是表达和控制层；C++ 是运行时和抽象；CUDA 是设备执行——「PyTorch 是一个 Python 库」是第一个误区
-- 源码四层 `torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`，依赖只能向下
+**三层分工：Python 表达、C++ 运行、CUDA 执行**
+
+| 要点 | 细节 |
+|---|---|
+| Python 只是表达和控制层 | C++ 是运行时和抽象；CUDA 是设备执行——「PyTorch 是一个 Python 库」是第一个误区 |
+| 源码四层 `torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`，依赖只能向下 | |
 
 ---
 
@@ -129,10 +133,14 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- `[B, 4096]` 的一层若物化 Jacobian 每样本 $$4096^2$$ 个数；VJP 只算 $$v^\top J$$
-- `.grad` 是累加，所以要 `zero_grad()`；version counter 抓 in-place；`gradcheck` 必须 float64
+**VJP 只算 \(v^\top J\)——不物化 Jacobian**
+
+| 要点 | 细节 |
+|---|---|
+| `[B, 4096]` 的一层若物化 Jacobian 每样本 $$4096^2$$ 个数 | VJP 只算 $$v^\top J$$ |
+| `.grad` 是累加，所以要 `zero_grad()` | version counter 抓 in-place；`gradcheck` 必须 float64 |
 
 <!-- v -->
 
@@ -166,7 +174,9 @@ flowchart LR
     G --> H["autocast · Hook<br/>· ckpt"]
 ```
 
-- `model.eval()` 只切换 dropout / BN，**不关梯度**——评估要 `eval()` + `inference_mode()` 一起用
+<aside class="notes" markdown="1">
+补充要点：`model.eval()` 只切换 dropout / BN，**不关梯度**——评估要 `eval()` + `inference_mode()` 一起用
+</aside>
 
 ---
 
@@ -206,9 +216,13 @@ flowchart TB
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- AutocastCUDA → AutogradCUDA → CUDA：autocast 先 cast，autograd 记图，最后 kernel；「Dispatcher 是按 device 的 if/else」是误区
+**多维可多次分发——不是按 device 的 if/else**
+
+| 要点 | 细节 |
+|---|---|
+| AutocastCUDA → AutogradCUDA → CUDA：autocast 先 cast，autograd 记图，最后 kernel | 「Dispatcher 是按 device 的 if/else」是误区 |
 
 ---
 
@@ -223,12 +237,10 @@ flowchart TB
 | 三 · CUDA | `blocks = (n + 255) / 256`；`CUDAGuard` 切设备 | 合并访存：warp 32 线程按 32 B 扇区取数 |
 | 四 · Autograd 与 Meta | `autograd.Function` 或 `register_autograd`；`register_fake` 给 compile | `gradcheck` 用 float64 |
 
-- stride 2 访问带宽利用 50%，最坏多搬 8 倍
-- ABI：`_GLIBCXX_USE_CXX11_ABI` 与 torch 一致，否则符号找不到
-
 <aside class="notes" markdown="1">
 原文 /pytorch-cpp-extension-and-custom-operators.html。「自定义 Kernel 处理连续 float32 就够了」——dtype、device、stride、空 Tensor、生命周期、backward 都要处理。
 结论原文：定义 / 注册 / 实现三步；`torch.library` 或 `TORCH_LIBRARY` 接入；Python → C++ CPU → CUDA → Autograd 与 Meta 四阶段；实现层必须处理 **device、dtype、stride、生命周期**四件事。
+补充要点：stride 2 访问带宽利用 50%，最坏多搬 8 倍；ABI：`_GLIBCXX_USE_CXX11_ABI` 与 torch 一致，否则符号找不到
 </aside>
 
 ---
@@ -266,9 +278,19 @@ flowchart LR
 
 <!-- v -->
 
-### 要点
+## 要点
 
-- 热路径：3 次分发 → 0 次、3 次 launch → 2 次；Guard `size[0] == 128` → `s0 > 64`；缓存条目上限 8
+**热路径 3 分发 → 0、3 launch → 2**
+
+| 要点 | 细节 |
+|---|---|
+| 热路径：3 次分发 → 0 次、3 次 launch → 2 次 | Guard `size[0] == 128` → `s0 > 64`；缓存条目上限 8 |
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「换 batch size 变慢是编译器 bug」——静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译；`dynamic=True` / `mark_dynamic`
 
 <!-- v -->
@@ -322,6 +344,11 @@ flowchart LR
 
 ![案例五步的 step 时间（柱）与峰值显存（折线）：基线 48.2 ms / 3.1 GB → batch=64 118 ms / 19.6 GB → bf16 → 融合 / compile → 数据加载](/img/in-post/pytorch-performance-optimization-and-debugging-case-steps.svg){: style="max-height: 380px"}
 
+<!-- v -->
+
+
+### 常见误区
+
 - 「低精度总能加速」——launch-bound 下 Kernel 数不变，autocast 还插入 cast Kernel；**先解决 CPU 侧问题，再上 bf16**
 
 <!-- v -->
@@ -330,7 +357,9 @@ flowchart LR
 
 ![A100 Roofline：横轴算术强度，纵轴可达算力，斜线是 HBM 2.0 TB/s，两条水平线分别是 FP32 19.5 TFLOPS 与 BF16 312 TFLOPS；逐元素算子在斜线上，GEMM 在平台上](/img/in-post/pytorch-performance-optimization-and-debugging-roofline.svg){: style="max-height: 400px"}
 
-- 融合把 5N 访存变 2N；ridge FP32 ≈ 10、BF16 ≈ 156 FLOP/Byte
+<aside class="notes" markdown="1">
+补充要点：融合把 5N 访存变 2N；ridge FP32 ≈ 10、BF16 ≈ 156 FLOP/Byte
+</aside>
 
 ---
 
@@ -345,13 +374,18 @@ flowchart LR
 | TP | 参数 / N | 每层 4 次 all_reduce | 节点内 |
 | PP | 参数 / K | 层间激活 | 气泡 $$(K-1)/(M+K-1)$$ |
 
-- 「FSDP 比 DDP 省显存也省通信」——通信 3P 对 2P 多 50%；省的是 16P → 16P/N
-- 「加卡就该线性加速」——带宽项通信量不随 N 减少，per-rank 计算随 N 缩小；藏不住就换策略
-
 <aside class="notes" markdown="1">
 原文 /pytorch-distributed-training.html。DDP Reducer 的桶按注册顺序逆序划分、每桶约 25 MB；compute stream 与 NCCL stream 两条 stream 重叠。
 结论原文：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「FSDP 比 DDP 省显存也省通信」——通信 3P 对 2P 多 50%；省的是 16P → 16P/N
+- 「加卡就该线性加速」——带宽项通信量不随 N 减少，per-rank 计算随 N 缩小；藏不住就换策略
 
 ---
 
@@ -367,12 +401,10 @@ flowchart LR
 | 兼容性 | 弃用保留至少一个小版本（通常两个）；ABI 检查 |
 | 发布 | 小版本每三到四个月，cut 距发布约 6 周 |
 
-- flaky 测试：自动开 disable issue 隔离、定期重跑、连续通过后恢复——不是让作者重跑到过
-- `gradcheck`：数值 Jacobian（float64、中心差分）对解析 Jacobian 逐元素比
-
 <aside class="notes" markdown="1">
 原文 /pytorch-engineering-system.html。
 结论原文：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例，五种 oracle。
+补充要点：flaky 测试：自动开 disable issue 隔离、定期重跑、连续通过后恢复——不是让作者重跑到过；`gradcheck`：数值 Jacobian（float64、中心差分）对解析 Jacobian 逐元素比
 </aside>
 
 ---
