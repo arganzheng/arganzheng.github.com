@@ -53,9 +53,9 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     subgraph SP["一份 system prompt 的六个部分（模式：随模型不变）"]
-        direction LR
+        direction TB
         A["① 身份与任务边界<br/>是什么、为谁、做什么、<b>不做什么</b>"] --> B["② 可检验的规则<br/>每条都能判定「违反了没有」→ 直接变评测用例"]
         B --> C["③ 分区与结构标记<br/>指令 / 资料 / 示例 / 格式分开放，有边界就行"]
         C --> D["④ 工具的使用政策<br/>什么时候先搜再答、哪些操作先确认、失败重试几次"]
@@ -107,7 +107,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart LR
+flowchart TB
     IN["新内容要进入上下文<br/>（工具返回 · 检索结果 · 子任务）"] --> Q1{"必须进主窗口吗？"}
     Q1 -->|"探索性 / 大量读取"| ISO["隔离：子 agent 在自己的窗口做<br/>只带摘要回来"]
     Q1 -->|"是，但很大"| OFF["卸载：内容写文件 / 存储<br/>上下文只留引用 + 预览"]
@@ -176,7 +176,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     E["编辑：prompt 文本 · 变量模板 · 绑定的模型与参数"] --> V["新版本（不可变）<br/>version N"]
     V --> T["离线评测：评测集 × k 次<br/>格式遵循率 · 任务指标 · 成本 · 延迟"]
     T -->|"回归"| E
