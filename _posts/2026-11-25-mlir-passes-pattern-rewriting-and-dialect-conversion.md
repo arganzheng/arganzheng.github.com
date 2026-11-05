@@ -68,7 +68,7 @@ Triton 在 Python 里构造的 `pm = ir.pass_manager(ctx); passes.ttgpuir.add_co
 
 ### 3. Analysis：缓存与失效
 
-Pass 可以向框架要一个 analysis：`getAnalysis<DominanceInfo>()`。框架按 Op 缓存它——同一个 Op 上的多个 pass 依次请求同一个 analysis 时只算一次。**默认规则是：一个 pass 跑完之后，它作用的 Op 上的所有 analysis 全部失效**（下个 pass 再要就重算），除非这个 pass 显式调用 `markAnalysesPreserved<DominanceInfo>()` 或 `markAllAnalysesPreserved()`（后者用于"我什么都没改"的情况，通常在 `runOnOperation` 判断无事可做时）。这比 LLVM 的 `PreservedAnalyses` 保守——LLVM 要求每个 pass 声明保留了什么，声明错了就是静默的错误；MLIR 默认全丢，代价是重算，安全性高。
+Pass 可以向框架要一个 analysis：`getAnalysis<DominanceInfo>()`。框架按 Op 缓存它——同一个 Op 上的多个 pass 依次请求同一个 analysis 时只算一次。**默认规则是：一个 pass 跑完之后，它作用的 Op 上的所有 analysis 全部失效**（下个 pass 再要就重算），除非这个 pass 显式调用 `markAnalysesPreserved<DominanceInfo>()` 或 `markAllAnalysesPreserved()`（后者用于"什么都没改"的情况，通常在 `runOnOperation` 判断无事可做时）。这比 LLVM 的 `PreservedAnalyses` 保守——LLVM 要求每个 pass 声明保留了什么，声明错了就是静默的错误；MLIR 默认全丢，代价是重算，安全性高。
 
 Triton 的 `ModuleAxisInfoAnalysis` **不是**通过这个机制缓存的——它在每个需要它的 pass 里重新构造（`ModuleAxisInfoAnalysis axisInfoAnalysis(m);` 出现在 `Coalesce.cpp`、`LoadStoreOpToLLVM` 等处），因为它的输入（IR）在两次使用之间几乎总是变了。
 

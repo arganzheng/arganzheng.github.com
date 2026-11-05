@@ -281,7 +281,7 @@ Table: rowsum_kernel 归约三级生成的指令
 
 `local_load`（shared memory → `#dot_op` 寄存器）的 lowering 在 `MemoryOpToLLVM.cpp` 的 `lowerLdStMatrix`：当目标 layout 是 `#dot_op`、元素 16 位、shared layout 满足条件时，用 `ldmatrix.sync.aligned.m8n8.x4.b16`——一条指令让 32 个 lane 各提供一个 8 元素行的地址，硬件按 `mma` 的 fragment 布局把 4 个 8×8 矩阵分发进各 lane 的 4 个寄存器。matmul 的 LLVM IR 里 `@llvm.nvvm.ldmatrix.sync.aligned.m8n8.x4.b16.p3` 13 次、`.trans` 版本 13 次——B 是 `[K, N]` 行优先存的，`mma` 要它列优先，`.trans` 让硬件在分发时转置，**第八篇 `OptimizeDotOperands` 说的"转置折进 `ldmatrix.trans`"就是这里**。
 
-每个 lane 提供的地址由两个 LL 复合得到：`#dot_op` 的 LL 说"我这个 lane 的这个寄存器要 `T[i, j]`"，`#swizzled_shared` 的 LL 说"`T[i, j]` 在缓冲的第几个字节"——`compose` 之后按 §三.1 展开成算术，XOR swizzle 变成几条 `xor` 指令。这就是第七篇 §七.1 说的"swizzle 参数按 `ldmatrix` 的读取模式算出"的兑现：读的一侧与写的一侧（`cp.async` 的目标地址）用同一个 LL，所以数据能对上。
+每个 lane 提供的地址由两个 LL 复合得到：`#dot_op` 的 LL 说"本 lane 的这个寄存器要 `T[i, j]`"，`#swizzled_shared` 的 LL 说"`T[i, j]` 在缓冲的第几个字节"——`compose` 之后按 §三.1 展开成算术，XOR swizzle 变成几条 `xor` 指令。这就是第七篇 §七.1 说的"swizzle 参数按 `ldmatrix` 的读取模式算出"的兑现：读的一侧与写的一侧（`cp.async` 的目标地址）用同一个 LL，所以数据能对上。
 
 ### 3. `wgmma` 与 `tcgen05`
 
@@ -340,7 +340,7 @@ matmul 的 `ttg.shared = 32768`：流水线的两个缓冲 `2 × 128 × 32 × 2 
 
 ### 1. 问题
 
-回答核心问题第一问。shared memory 是 block 内所有线程共享的，一个线程写、另一个线程读，中间必须有 `bar.sync`（所有线程到齐、之前的写对所有人可见）。TTGIR 从不写 barrier——`convert_layout`、`reduce`、`local_load`、`async_wait` 各自只说"我读 / 写这段 shared memory"。`Membar` 分析（`lib/Analysis/Membar.cpp`，在 `TritonGPUToLLVM` pass 开头运行，用 `AllocateSharedMemory` 的结果）在 op 之间插 `gpu.barrier`（lowering 成 `bar.sync 0` / `llvm.nvvm.barrier.cta.sync.aligned.all`）。
+回答核心问题第一问。shared memory 是 block 内所有线程共享的，一个线程写、另一个线程读，中间必须有 `bar.sync`（所有线程到齐、之前的写对所有人可见）。TTGIR 从不写 barrier——`convert_layout`、`reduce`、`local_load`、`async_wait` 各自只说"读 / 写这段 shared memory"。`Membar` 分析（`lib/Analysis/Membar.cpp`，在 `TritonGPUToLLVM` pass 开头运行，用 `AllocateSharedMemory` 的结果）在 op 之间插 `gpu.barrier`（lowering 成 `bar.sync 0` / `llvm.nvvm.barrier.cta.sync.aligned.all`）。
 
 ### 2. 算法
 

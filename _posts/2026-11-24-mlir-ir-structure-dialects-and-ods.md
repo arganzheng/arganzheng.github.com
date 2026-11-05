@@ -308,7 +308,7 @@ public:
 
 ### 3. 自定义汇编格式
 
-`` assemblyFormat = "$ptr `,` $offset attr-dict `:` type($result) `,` type($offset)" `` 是一个小型 DSL：`$名字` 打印该操作数 / 属性，反引号里是字面量，`type(...)` 打印类型，`attr-dict` 打印剩余的可丢弃属性，`(`…`^)?` 是可选段，`oilist(...)` 是无序可选段列表。它同时生成 `parse` 和 `print`，保证往返一致。`hasCustomAssemblyFormat = 1` 则是"我自己手写 parse / print"——`scf.for` 那种 `%i = %lb to %ub step %s iter_args(...)` 的复杂语法就是手写的。
+`` assemblyFormat = "$ptr `,` $offset attr-dict `:` type($result) `,` type($offset)" `` 是一个小型 DSL：`$名字` 打印该操作数 / 属性，反引号里是字面量，`type(...)` 打印类型，`attr-dict` 打印剩余的可丢弃属性，`(`…`^)?` 是可选段，`oilist(...)` 是无序可选段列表。它同时生成 `parse` 和 `print`，保证往返一致。`hasCustomAssemblyFormat = 1` 则是"自己手写 parse / print"——`scf.for` 那种 `%i = %lb to %ub step %s iter_args(...)` 的复杂语法就是手写的。
 
 ## 六、Trait 与 Interface
 

@@ -70,7 +70,7 @@ Table: Triton 的三层测试
 MLIR_ENABLE_DUMP=1 TRITON_ALWAYS_COMPILE=1 python my_kernel.py 2> dump.log
 ```
 
-我拿第五篇那个 BF16 `matmul_kernel` 实测：Triton v3.8.0，第五篇的 `ASTSource` 写法，`sm_80`，`BLOCK_M=BLOCK_N=128`、`BLOCK_K=32`、`num_warps=4`、`num_stages=3`。`dump.log` 里有 **72 次** `IR Dump Before …`，每个 pass 之前一次。另外还有 2 段 `SoftwarePipeliner internal IR Dump After: LowerLoops / ExpandLoops`，是 Pipeline pass 自己打的中间结果，`grep -c "IR Dump"` 会数成 74。
+拿第五篇那个 BF16 `matmul_kernel` 实测：Triton v3.8.0，第五篇的 `ASTSource` 写法，`sm_80`，`BLOCK_M=BLOCK_N=128`、`BLOCK_K=32`、`num_warps=4`、`num_stages=3`。`dump.log` 里有 **72 次** `IR Dump Before …`，每个 pass 之前一次。另外还有 2 段 `SoftwarePipeliner internal IR Dump After: LowerLoops / ExpandLoops`，是 Pipeline pass 自己打的中间结果，`grep -c "IR Dump"` 会数成 74。
 
 72 次按顺序去掉重复，就是 `make_ttir` + `make_ttgir` + `make_llir` 的完整 pass 表，共 70 个。多出来的 2 次是 Inliner 内嵌的 canonicalize（`default-pipeline=canonicalize`）：它按 `tt.func` 逐个 dump，这个 kernel 上是 `@matmul_kernel` 两次、被内联的 `tl.zeros` helper 一次，表里只记一次。所以这个数随 kernel 变。`MLIR_ENABLE_DUMP=matmul_kernel` 只 dump 这个 kernel，实测 70 次，helper 那次和 `CanonicalizeLLVMIR` 都不在里面：
 

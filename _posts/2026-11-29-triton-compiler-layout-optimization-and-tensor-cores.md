@@ -194,7 +194,7 @@ Table: 三种 hoist
 
 Table: 各 compute capability 的 MMA 版本偏好
 
-不合法时发一条 MLIR remark：`MMA version 3 acceleration not applied due to unsupported shapes or data types`——用 `triton-opt` 跑 `--tritongpu-accelerate-matmul` 时能看到，是"为什么我的 kernel 没走 wgmma"的第一手诊断。`supportMMA` 检查的是：M、N、K 是 `instrShape` 的倍数、dtype 在硬件支持的组合里（v3 不支持某些 FP8 组合、不支持 K 太小等）。
+不合法时发一条 MLIR remark：`MMA version 3 acceleration not applied due to unsupported shapes or data types`——用 `triton-opt` 跑 `--tritongpu-accelerate-matmul` 时能看到，是"为什么 kernel 没走 wgmma"的第一手诊断。`supportMMA` 检查的是：M、N、K 是 `instrShape` 的倍数、dtype 在硬件支持的组合里（v3 不支持某些 FP8 组合、不支持 K 太小等）。
 
 `BlockedToMMA::matchAndRewrite` 开头还有两条门槛：compute capability < 80 直接退回 FMA 路径（v1 已弃用）；F64 只在 80 / 90 / 100–119 上用 Tensor Core。
 
