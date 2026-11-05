@@ -26,11 +26,11 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    C1["01 失效模式<br/>七条可检测的性质"] --> C2["02 API 契约（一）<br/>消息、工具、结构化输出、流式"]
-    C2 --> C3["03 API 契约（二）<br/>推理模型：thinking、effort、跨轮状态"]
-    C2 & C3 --> C4["04 成本与延迟的账<br/>四种输入价、TTFT 分解"]
-    C1 & C4 --> C5["05 选型<br/>榜单失真、自己的评测集、弃用周期"]
-    C1 & C2 & C4 --> C6["06 客户端工程<br/>重试、超时、幂等、限流、流式解析"]
+    C1["01 失效模式"] --> C2["02 API 契约（一）"]
+    C2 --> C3["03 API 契约（二）"]
+    C2 & C3 --> C4["04 成本与延迟的账"]
+    C1 & C4 --> C5["05 选型"]
+    C1 & C2 & C4 --> C6["06 客户端工程"]
 ```
 
 ---
@@ -40,28 +40,35 @@ flowchart TB
 **七条失效性质，每条可检测——每条对应后面某一层的应对**
 
 ```mermaid
-flowchart TB
-    CTX["组装上下文<br/>system·历史·检索·工具"] --> PRE["prefill：模型读上下文"]
-    PRE --> SAMP["逐 token 采样"]
-    SAMP --> OUT["输出：文本 / JSON / tool_call"]
-    OUT --> ACT["执行动作（有工具时）"]
+flowchart LR
+    CTX["组装上下文<br/>system·历史·检索·工具"] --> PRE["prefill<br/>读上下文"] --> SAMP["逐 token<br/>采样"] --> OUT["输出<br/>文本/JSON/tool_call"] --> ACT["执行动作"]
+```
+
+<!-- v -->
+
+### 七条失效性质挂在哪一步
+
+```mermaid
+flowchart LR
+    PRE["prefill"] & SAMP["采样"] & ACT["执行"]
     F4["④ 上下文标称 ≠ 有效"] -.-> PRE
     F5["⑤ 知识截止"] -.-> PRE
     F3["③ 指令遵循"] -.-> PRE
-    F1["① 非确定性<br/>采样随机"] -.-> SAMP
+    F1["① 非确定性"] -.-> SAMP
     F2["② 幻觉"] -.-> SAMP
     F6["⑥ 供应商变更"] -.-> PRE
-    F6 -.-> SAMP
     F7["⑦ 越界"] -.-> ACT
 
     classDef stage fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef fail fill:#fdecea,stroke:#c0392b,color:#222
-    class CTX,PRE,SAMP,OUT,ACT stage
+    class PRE,SAMP,ACT stage
     class F1,F2,F3,F4,F5,F6,F7 fail
 ```
 
 <aside class="notes" markdown="1">
 原文 /llm-failure-modes-nondeterminism-hallucination-and-context.html。
+各篇关键词：01 七条可检测的性质；02 消息 / 工具 / 结构化输出 / 流式；03 thinking / effort / 跨轮状态；04 四种输入价、TTFT 分解；05 榜单失真、自己的评测集、弃用周期；06 重试、超时、幂等、限流、流式解析。
+F6 供应商变更同时影响 prefill 与采样。
 </aside>
 
 <!-- v -->
@@ -84,22 +91,24 @@ flowchart TB
 **块列表进出；工具调用是协议不是功能；结构化输出保证语法不保证语义**
 
 ```mermaid
-sequenceDiagram
-    participant App as 应用（你的代码）
-    participant API as 模型 API
-    participant Tool as 工具（你的函数 / 外部服务）
-    App->>API: 请求：messages + tools（name、description、JSON schema）
-    API-->>App: 响应：assistant 消息，含 1..n 个 tool_call（id、name、arguments）
-    Note over App: 校验参数 → 权限检查 → 决定执行哪些
-    App->>Tool: 执行（可并行）
-    Tool-->>App: 结果 / 错误
-    App->>API: 请求：完整历史 + 每个 tool_call 对应一条 tool result（引用 id）
-    API-->>App: 响应：最终回答，或又一批 tool_call
-    Note over App,API: 循环直到模型不再返回 tool_call，或预算耗尽
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart LR
+    App["应用"] -->|"req"| API["模型 API"]
+    API -->|"asst + tc"| CHK{"校验·权限"}
+    CHK -->|"执行"| Tool["工具"]
+    Tool -->|"res/err"| App
+    App -->|"hist+res"| API
+    API -->|"ans"| Done(["结束"])
+    CHK -->|"循环到无 tc<br/>或预算尽"| API
 ```
 
 <aside class="notes" markdown="1">
 原文 /llm-api-contract-messages-tools-structured-output-and-streaming.html。
+tools 带 name / description / JSON schema；tool_call 带 id / name / arguments；tool result 引用 id。工具 = 你的函数 / 外部服务。
+assistant 消息含 1..n 个 tool_call；下轮携带历史 + tool result（引用 id）。
+工具可并行执行；assistant 可含多个 tool_call；循环直到模型不再返回 tool_call 或预算耗尽。
+req = messages + tools；tc = tool_call；asst = assistant 消息（可含多个 tool_call）；res = tool result（引用 id）；ans = 最终回答。
+req = messages + tools；asst = assistant 消息（含 1..n 个 tool_call）；tc = tool_call；res = tool result（引用 id）；ans = 最终回答；工具可并行执行。
 </aside>
 
 <!-- v -->
@@ -125,11 +134,11 @@ sequenceDiagram
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
-    IN["输入：完整历史（含上一轮的 thinking / reasoning 状态）+ 本轮 user 或 tool result"] --> THINK["思考阶段<br/>生成 thinking token：不可见 / 摘要<br/>按输出价计费 · 占 TTFT"]
-    THINK --> OUT["可见输出<br/>文本 或 tool_call"]
-    OUT --> STATE["返回给应用的状态<br/>thinking block（Anthropic）/ reasoning item（OpenAI）/ thought signature（Gemini）"]
-    STATE --> NEXT["下一轮请求必须携带它<br/>（DeepSeek 例外：不携带）"]
-    EFF["effort / thinking_level"] -.->|"控制思考 token 的量级"| THINK
+    IN["输入：完整历史<br/>（含上轮 thinking）"] --> THINK["思考阶段<br/>thinking 不可见<br/>输出价计费 · 占 TTFT"]
+    THINK --> OUT["可见输出<br/>文本 / tool_call"]
+    OUT --> STATE["返回状态<br/>thinking block 等"]
+    STATE --> NEXT["下轮必须携带<br/>（DeepSeek 例外）"]
+    EFF["effort"] -.->|"控制思考量级"| THINK
     NEXT -.-> IN
 
     classDef stage fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -140,6 +149,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /reasoning-models-as-components-thinking-effort-and-state.html。
+状态名：thinking block（Anthropic）/ reasoning item（OpenAI）/ thought signature（Gemini）。effort / thinking_level 控制量级。
 </aside>
 
 <!-- v -->
@@ -165,11 +175,11 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    Q["排队<br/>供应商侧的负载 · 你的限流队列"] --> P["prefill<br/>读完整上下文，∝ 未缓存输入长度<br/>命中缓存的前缀跳过"]
-    P --> T["思考<br/>∝ 思考 token 数 × 每 token 时间<br/>由 effort 决定"]
-    T --> F(["首个可见 token（TTFT 在此结束）"])
-    F --> D["decode<br/>每 token 一步，速度由内存带宽决定<br/>总时长 ∝ 输出 token 数"]
-    D --> E(["最后一个 token（总时长）"])
+    Q["排队"] --> P["prefill<br/>∝ 未缓存输入"]
+    P --> T["思考<br/>∝ 思考 token"]
+    T --> F(["首个可见 token<br/>（TTFT）"])
+    F --> D["decode<br/>每 token 一步"]
+    D --> E(["最后 token<br/>（总时长）"])
 
     classDef seg fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef mark fill:#f0f0f0,stroke:#888,color:#222
@@ -179,6 +189,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /token-cost-and-latency-ledger-for-llm-applications.html。
+prefill 命中缓存前缀跳过；思考时长由 effort 决定；decode ∝ 输出 token 数。
+排队 = 供应商负载 · 限流队列；decode 由带宽决定。
 </aside>
 
 <!-- v -->
@@ -213,12 +225,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    A["20+ 候选 → 硬约束 → 8–12"] -->|"榜单"| E["短名单"]
-    E --> F["自家评测集跑 → 过门限？"]
+    A["20+ 候选 → 硬约束"] -->|"榜单"| E["短名单"]
+    E --> F["自家评测集"]
     F --> G{"过？"}
     G -->|"否"| H["放宽约束"]
     G -->|"是"| I["按每任务成本排"]
-    I -->|"供应商风险"| K["选定 + 替代模型"]
+    I --> K["选定 + 替代模型"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -228,6 +240,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /model-selection-beyond-leaderboards.html。
+按供应商风险加替代模型。
 </aside>
 
 <!-- v -->
@@ -252,12 +265,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    S(["业务层发起调用"]) --> CNT["数 token + 取并发槽"]
+    S(["业务层发起调用"]) --> CNT["数 token + 并发槽"]
     CNT --> SEND["发送（四层超时）"]
     SEND --> OK{"成功？"}
-    OK -->|"是"| PARSE["解析增量 · 读 usage"]
-    PARSE --> DONE(["返回业务层 + 记 trace"])
-    OK -->|"否"| CLS["错误分类<br/>→ 重试 / fallback（下图）"]
+    OK -->|"是"| PARSE["解析 · 读 usage"]
+    PARSE --> DONE(["返回 + 记 trace"])
+    OK -->|"否"| CLS["错误分类<br/>（下图）"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -276,12 +289,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    CLS{"错误分类"} -->|"可重试：429 / 5xx / 超时"| BACK["退避（指数 + 抖动，遵守 Retry-After）"]
+    CLS{"错误分类"} -->|"可重试"| BACK["退避<br/>指数 + 抖动"]
     BACK -->|"预算未耗尽"| SEND["回到发送"]
     BACK -->|"耗尽"| FB{"有 fallback？"}
-    CLS -->|"不可重试：400 / 401 / 配额"| FB
+    CLS -->|"不可重试"| FB
     FB -->|"换模型 / 降级"| SEND
-    FB -->|"无"| FAIL(["失败返回业务层 + 记 trace"])
+    FB -->|"无"| FAIL(["失败返回 + 记 trace"])
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -293,6 +306,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /client-side-engineering-for-model-apis.html。四层超时：连接 · 首事件 · 事件间 · 总；解析 = 拼接增量 · 工具参数等 done · 读 usage · 读 stop_reason。
+可重试：429 / 5xx / 超时；不可重试：400 / 401 / 配额；退避遵守 Retry-After。
 </aside>
 
 <aside class="notes" markdown="1">
