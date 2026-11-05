@@ -99,25 +99,23 @@ $$
 
 <!-- v -->
 
-### MLA：只有 \(c^{KV}\) 与 \(k^R\) 进 cache
+### MLA：进 cache 的两项
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
-flowchart LR
-    H["h_t (7168)"] --> DKV["W_DKV + W_KR<br/>7168 → 576"]
-    DKV --> CKV["c^KV_t (512)<br/>进 cache"]
-    DKV --> KR["k^R_t (64)，RoPE<br/>128 个 head 共享，进 cache"]
-    CKV --> UKV["W_UK / W_UV 升维<br/>512 → 128 head × 128"]
-    UKV --> ATT["attention<br/>q·[k^C ; k^R] / √192"]
-    KR --> ATT
-    H --> Q["W_DQ → W_UQ + W_QR<br/>q^C 128 维 + q^R 64 维"] --> ATT
-    ATT --> WO["W_O 16384 → 7168"]
+%%{init: {"flowchart": {"wrappingWidth": 260, "rankSpacing": 28, "nodeSpacing": 16}}}%%
+flowchart TB
+    H["h_t (7168)"] --> DKV["W_DKV + W_KR<br/>7168→576"]
+    DKV --> CKV["c^KV_t (512) + k^R_t (64)<br/>RoPE，都进 cache"]
+    CKV --> UKV["W_UK / W_UV<br/>512→128头×128"]
+    UKV --> ATT["attention<br/>q·[k^C;k^R]/√192"]
+    H --> Q["W_DQ→W_UQ+W_QR<br/>q^C 128 + q^R 64"] --> ATT
+    ATT --> WO["W_O 16384→7168"]
     classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3
-    class CKV,KR cache
+    class CKV cache
 ```
 
 - 解耦 RoPE：位置相关的旋转吸不进与位置无关的升维矩阵，所以单独留 64 维
-- decode 把 $$W_{UK}$$、$$W_{UV}$$ 吸收进 $$W_Q$$、$$W_O$$：等价于 128 头共享一个 576 维 KV 头的 MQA，强度约 242；代价 attention FLOPs 约 3.4 倍，所以 prefill 走非吸收路径
+- decode 吸收 $$W_{UK}$$/$$W_{UV}$$：等价 128 头共享 576 维 KV 头的 MQA，强度约 242；FLOPs 约 3.4 倍，prefill 走非吸收
 
 <!-- v -->
 
