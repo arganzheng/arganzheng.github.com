@@ -16,7 +16,7 @@ transition: slide
 > 每种推理优化都改了**成本公式的一项**；除投机解码之外每一种都**改变了输出分布**；而退化是**不均匀**的——集中在困惑度看不到的地方。
 
 $$
-\text{一步 decode 的成本} = \frac{\text{权重字节} + \text{KV 字节}}{\text{带宽}} \div \text{每次前向产出的 token 数} + \text{算力项}
+\text{一步成本} = \frac{\text{权重} + \text{KV}}{\text{带宽} \times \text{每步 token}} + \text{算力}
 $$
 
 | 改哪一项 | 篇 |
@@ -77,20 +77,9 @@ flowchart TB
 
 ## 02 · 投机解码：接受率 = 1 − TV，训草稿就是蒸馏
 
-**结论**：唯一**不改变输出分布**的方法（拒绝采样保证严格等于目标分布）；EAGLE 赢在条件依赖与特征输入；树用宽度换深度但受 ridge 约束；**投机是延迟工具不是吞吐工具**。
+**草稿 γ 步、目标一次前向验证 γ+1 个；拒绝采样严格等于目标分布**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
-flowchart LR
-    P["前缀"] --> D["<b>草稿 q</b><br/>自回归 γ 步，时间 γ·c"] --> V["<b>目标 p</b><br/>一次前向验证 γ+1 个位置<br/>= 一步普通 decode 的时间"]
-    V --> ACC{"逐位置以 min(1, p/q) 接受"}
-    ACC -- "全部接受" --> O1["γ 个草稿 + 1 个从 p 采的"]
-    ACC -- "第 k 个被拒" --> O2["前 k−1 个 + 1 个从 norm(max(0, p−q)) 重采"]
-    classDef draft fill:#eef6ff,stroke:#5b8fd6
-    classDef target fill:#fff7e0,stroke:#c98a00,stroke-width:2px
-    class D draft
-    class V target
-```
+![投机解码的时间线：草稿自回归 γ 步，目标模型一次前向验证 γ+1 个位置](/img/in-post/speculative-decoding-drafters-acceptance-and-trees-overview-timeline.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /speculative-decoding-drafters-acceptance-and-trees.html。Pinsker：TV ≤ √(KL/2)——训草稿用前向 KL 蒸馏的依据；DistillSpec 把加速比再提高 10–45%。
