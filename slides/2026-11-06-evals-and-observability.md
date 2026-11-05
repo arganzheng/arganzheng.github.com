@@ -152,20 +152,36 @@ flowchart LR
 **改动 = 发布：钉快照 + 探针集每日，发现供应商静默升级；影子 → 灰度 → 回滚**
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart TB
+%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
+flowchart LR
     CH["改动：prompt · 模型 · 工具 · harness"] --> V["新版本（不可变）"]
     V --> G{"门禁：分层指标 ≥ 基线 − 噪声"}
     G -->|"不过"| CH
-    G -->|"过"| C["灰度 → 全量"]
+    G -->|"过"| S["影子模式（下图）"]
+    S --> C["灰度 1–5% → 全量"]
     C -->|"退化"| RB["回滚"]
-    C -->|"正常"| P["监控"]
-    P -. "漂移" .-> G
+    C -->|"正常"| P["全量"]
+    P --> M["监控 + 探针集"]
+    M -. "漂移" .-> G
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
-    class CH,V,S,C,P,M,RB,AB step
+    class CH,V,S,C,P,M,RB step
     class G gate
+```
+
+<!-- v -->
+
+### 影子模式与 A/B：上线前先并行跑
+
+**影子 = 新旧并跑只记录不生效、比差异；A/B = 两个版本分流、按版本聚合在线指标**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    V["新版本"] --> S["影子模式<br/>新旧并跑 · 只记录不生效 · 比差异"]
+    S --> C["灰度 1–5%"]
+    AB["A/B：两个版本并行分流<br/>按版本聚合在线指标"] -.-> C
 ```
 
 <aside class="notes" markdown="1">
@@ -234,6 +250,7 @@ flowchart TB
     C --> F{"改哪侧？"}
     F -- "应用侧" --> RP["<b>录制回放</b>"]
     F -- "模型侧" --> EV["变成评测用例"]
+    RP & EV --> V["版本 diff：对齐指标曲线"]
 
 
 ```
