@@ -53,9 +53,9 @@ Table: 执行链路上的三个隐含假设与谁打破它
 
 Table: multi-LoRA 与多模态惊动的模块
 
-### 3. 回到我们的例子
+### 3. 回到前面的例子
 
-**回到我们的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token，每 token KV 320 KB、每卡 40 KB）。本篇会给它加两样东西：
+**回到前面的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token，每 token KV 320 KB、每卡 40 KB）。本篇会给它加两样东西：
 
 - **8 个 rank-16 的 LoRA 槽位**：静态显存约 **1.44 GB / 卡**——相当于每卡 36K token 的 KV，或者 15 个这样的请求；每步多 1120 次 kernel launch；
 - **把 2000 token 的 system prompt 换成一张图**：LLaVA 类 336×336 → 576 个 token，Qwen2-VL 类 1024×1024 → 1369 个 token（37×37）。encoder 输出 9–22 MB，但这些 token 的 KV 是 184–438 MB——**图片贵的不是 encoder 输出，是它占的 KV**。
@@ -214,7 +214,7 @@ Table: 两层 LRU 下一段请求流的换入换出
 
 ### 4. 显存账：`max_loras` × `max_lora_rank` 买了什么
 
-**回到我们的例子**：Llama-3-70B、TP=8、`max_loras=8`、`max_lora_rank=16`、adapter 覆盖 q/k/v/o/gate/up/down 七个投影。逐层算每张卡上一个槽位的参数量（默认 `fully_sharded_loras=False`：列并行层 A 不切、B 按输出切；行并行层 A 按输入切、B 不切）：
+**回到前面的例子**：Llama-3-70B、TP=8、`max_loras=8`、`max_lora_rank=16`、adapter 覆盖 q/k/v/o/gate/up/down 七个投影。逐层算每张卡上一个槽位的参数量（默认 `fully_sharded_loras=False`：列并行层 A 不切、B 按输出切；行并行层 A 按输入切、B 不切）：
 
 | 模块 | 基座形状（in → out） | 本卡 A（`r × in`） | 本卡 B（`out × r`） | 合计 |
 |---|---|---|---|---|
@@ -229,7 +229,7 @@ Table: 两层 LRU 下一段请求流的换入换出
 
 Table: 一个 LoRA 槽位每层每卡的参数量
 
-80 层 → 90 M 参数 → bf16 **≈ 180 MB / 槽 / 卡**；8 个槽 **≈ 1.44 GB / 卡**，在 `create_lora_weights()` 时一次性 `torch.zeros` 出来，无论实际加载了几个 adapter、实际 rank 是多少。对比：这 1.44 GB 等于每卡 36K token 的 KV（40 KB/token），或者 **15 个我们例子里的请求**（2350 token 各 94 MB/卡）。`max_lora_rank` 从 16 提到 64，这个数字乘 4。
+80 层 → 90 M 参数 → bf16 **≈ 180 MB / 槽 / 卡**；8 个槽 **≈ 1.44 GB / 卡**，在 `create_lora_weights()` 时一次性 `torch.zeros` 出来，无论实际加载了几个 adapter、实际 rank 是多少。对比：这 1.44 GB 等于每卡 36K token 的 KV（40 KB/token），或者 **15 个前面例子的请求**（2350 token 各 94 MB/卡）。`max_lora_rank` 从 16 提到 64，这个数字乘 4。
 
 再看 CPU 侧：一个完整的 rank-16 adapter（不切分）约 207 M 参数、414 MB bf16；`max_cpu_loras` 默认等于 `max_loras`，即 8 × 414 MB ≈ 3.3 GB 主机内存，**每个 worker 进程各一份**（TP=8 就是 8 份，每份存的是切分前的完整权重再切）。
 
@@ -454,7 +454,7 @@ flowchart TB
 
 ### 6. 显存账：encoder 输出与 KV 之争
 
-**回到我们的例子**，把 2000 token 的 system prompt 换成一张图：
+**回到前面的例子**，把 2000 token 的 system prompt 换成一张图：
 
 | | LLaVA 类（336×336，14 px patch，24×24=576 token） | Qwen2-VL 类（1024×1024，14 px patch，2×2 合并，1369 token） |
 |---|---|---|
@@ -508,7 +508,7 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 
 ### 4. 两个扩展的开销对照
 
-把第二章第 4 节和第三章第 6 节的账放到一张表里，回答开头问的"代价是多少"（数字仍是我们的例子：Llama-3-70B、8×H100、TP=8）：
+把第二章第 4 节和第三章第 6 节的账放到一张表里，回答开头问的"代价是多少"（数字仍是前面的例子：Llama-3-70B、8×H100、TP=8）：
 
 | | multi-LoRA | 多模态 |
 |---|---|---|

@@ -30,9 +30,9 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 Table: GPU 上的四种浪费形态
 
 
-### 2. 回到我们的例子：一笔账
+### 2. 回到前面的例子：一笔账
 
-**回到我们的例子**（Llama-3-70B、8×H100、TP=8）：每张卡持有 17.6 GB 权重，H100 HBM 带宽 3.35 TB/s，于是**一次 decode 的权重读取下界约 5.3 ms**；加上 KV 读取、80 层 × 2 次 All-Reduce 和 kernel 开销，实测一步大约在 10 ms 量级。
+**回到前面的例子**（Llama-3-70B、8×H100、TP=8）：每张卡持有 17.6 GB 权重，H100 HBM 带宽 3.35 TB/s，于是**一次 decode 的权重读取下界约 5.3 ms**；加上 KV 读取、80 层 × 2 次 All-Reduce 和 kernel 开销，实测一步大约在 10 ms 量级。
 
 那么这个请求的账就清楚了：
 
@@ -193,7 +193,7 @@ FlashAttention 和 Kernel Fusion 减少的是"搬运次数"（别让中间结果
 
 **1.1 vLLM的 Attention 后端与动态算子路由**
 
-在进入到 FlashAttention 之前，我们还是要先介绍一下 vLLM 的 Attention Backend 和 Selector 机制。
+在进入到 FlashAttention 之前，还是要先介绍一下 vLLM 的 Attention Backend 和 Selector 机制。
 
 Attention 算子的硬件执行效率高度依赖于工作负载（Workload）形态、硬件架构及数据类型（dtype）。vLLM 在 vllm/v1/attention/backends/ 下集成了数十种 Attention 后端，并在 registry.py 中通过 Selector 机制，根据 Head Size、dtype、硬件算力以及运行时特征（Prefill / Decode / Mixed / MLA）进行动态算子路由（Kernel Selection）。
 

@@ -348,7 +348,7 @@ $$
 
 **Decode 阶段通常 (S=1)**。
 
-以我们前面的例子为例：
+以前面的例子为例：
 
 * Batch=32
 * S=1
@@ -1813,7 +1813,7 @@ Table: vLLM 通信后端的三层抽象
 
 其中，`CudaCommunicator` 通常对应 NCCL 路径；`CpuCommunicator` 可用于 CPU 通信；在特定硬件和场景下，还可能使用 FlashInfer 或其他专门优化的实现。
 
-这种分层的意义在于：上层模型代码只表达“我要做一次 All-Reduce”，而不必关心底层是通过 NVLink、PCIe、InfiniBand，还是某种专用 Kernel 完成的。
+这种分层的意义在于：上层模型代码只表达“要做一次 All-Reduce”，而不必关心底层是通过 NVLink、PCIe、InfiniBand，还是某种专用 Kernel 完成的。
 
 这三层解决的是"GPU 之间的数据怎么走"。还有一个前置问题：TP 组里的多个进程是怎样拿到**同一份输入**、又由谁把结果交回调度器的？这条控制路径在 vLLM v1 里不走 NCCL。`MultiprocExecutor`（`vllm/v1/executor/multiproc_executor.py`）为每个 TP × PP rank 拉起一个 `WorkerProc` 进程，进程之间靠两类基于共享内存的 `MessageQueue`（`vllm/distributed/device_communicators/shm_broadcast.py`）通信：
 

@@ -50,9 +50,9 @@ Table: 三种解码扩展惊动的模块
 
 这张表就是本篇的路线图：每一章讲一种扩展，先说它给三个核心战场加了什么约束，再看 vLLM 的实现，最后算账。
 
-### 3. 回到我们的例子：这一步有多贵？
+### 3. 回到前面的例子：这一步有多贵？
 
-**回到我们的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token）。Llama-3 的词表是 128256，一行 fp32 logits 是 `128256 × 4 B ≈ 513 KB`；batch=64 时整个 logits 张量约 33 MB，按 3.35 TB/s 算读一遍只要 0.01 ms。和第六篇里"一步 decode 约 10 ms"相比，**Sampler 本身的成本是可以忽略的**——这正是我们能在这一步塞进那么多花样的原因。
+**回到前面的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token）。Llama-3 的词表是 128256，一行 fp32 logits 是 `128256 × 4 B ≈ 513 KB`；batch=64 时整个 logits 张量约 33 MB，按 3.35 TB/s 算读一遍只要 0.01 ms。和第六篇里"一步 decode 约 10 ms"相比，**Sampler 本身的成本是可以忽略的**——这正是能在这塞进那么多花样的原因。
 
 但有三个东西不便宜，本篇会逐个点名：
 
@@ -301,7 +301,7 @@ if request.spec_token_ids:
 
 **② 给 KV 预留 lookahead 槽位。** `allocate_slots(request, num_new_tokens, num_lookahead_tokens=self.num_lookahead_tokens)`。第五篇 `allocate_slots()` 注释里那个布局图的最右边一段 `lookahead` 就是它。`num_lookahead_tokens` 在 `Scheduler.__init__` 里按方法设定：EAGLE / MTP / draft model 为 `num_spec_tokens`；DFlash 因为要多一个 query 位置是 `num_spec_tokens + 1`；n-gram 一族为 0——它们不跑模型，不需要为 draft 写 KV。为什么 draft 模型需要 lookahead？因为 draft 模型在**这一步的 forward 之后**才跑，它要为下一步的 K 个候选写自己那份 KV，位置必须现在就分好。
 
-**回到我们的例子**：K=3，`num_lookahead_tokens=3`，每张卡每 token 40 KB，预留 120 KB；`block_size=16` 时绝大多数步骤这 3 个槽位落在当前块里，偶尔多占一块（每卡 640 KB）。对一个 734 MB 的请求来说是零头——**lookahead 的代价不在显存，而在它让 `allocate_slots()` 更早触碰 watermark**。
+**回到前面的例子**：K=3，`num_lookahead_tokens=3`，每张卡每 token 40 KB，预留 120 KB；`block_size=16` 时绝大多数步骤这 3 个槽位落在当前块里，偶尔多占一块（每卡 640 KB）。对一个 734 MB 的请求来说是零头——**lookahead 的代价不在显存，而在它让 `allocate_slots()` 更早触碰 watermark**。
 
 **③ step 之后按接受数回滚。** `update_from_output()` 里：
 
@@ -429,7 +429,7 @@ Table: 不同 batch 与 K 下验证是否免费
 
 **每步的总时间**再加上 draft：EAGLE 头一层、TP=8 下每卡权重不到 0.3 GB，一次 forward 的权重读取不到 0.1 ms，但 K 步串行、每步几十个 kernel，launch 与同步开销主导，估 0.5–1 ms/步；独立 1B draft model 大约 1–2 ms/步。
 
-**回到我们的例子**（batch=1，300 个输出 token）：
+**回到前面的例子**（batch=1，300 个输出 token）：
 
 | 配置 | 步数 | 每步 | Decode 总时间 | 相对 |
 |---|---|---|---|---|
@@ -525,7 +525,7 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 
 注意它作用在**进 Sampler 之前的原始 logits** 上。掩码是硬 `-inf`，放在温度、penalties 之前或之后对"哪些 token 可能被选中"没有影响，但会影响 logprobs：`raw_logprobs` 模式下返回的 logprobs 是打掩码之后、其他处理之前的分布。
 
-**回到我们的例子**：batch=64 全部开 JSON 约束、不开投机：每步 CPU 填 64 行、H2D 传 `64 × 16 KB = 1 MB`、GPU 一个掩码 kernel 扫 33 MB logits。三项都在百微秒量级。
+**回到前面的例子**：batch=64 全部开 JSON 约束、不开投机：每步 CPU 填 64 行、H2D 传 `64 × 16 KB = 1 MB`、GPU 一个掩码 kernel 扫 33 MB logits。三项都在百微秒量级。
 
 ### 4. 与投机解码同时开启
 

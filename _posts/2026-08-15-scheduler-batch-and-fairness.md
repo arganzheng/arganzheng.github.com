@@ -10,7 +10,7 @@ updated: 2026-09-14
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-第三篇的全景图把几个核心问题放在一张图里。我先从调度开始：这一轮 GPU 给谁用，每个请求推进多少 token？KV Cache 会随生成 token 增长，Scheduler 按 block 申请空间；详细管理留到第五篇。
+第三篇的全景图把几个核心问题放在一张图里。先从调度开始：这一轮 GPU 给谁用，每个请求推进多少 token？KV Cache 会随生成 token 增长，Scheduler 按 block 申请空间；详细管理留到第五篇。
 
 > **GPU 这一轮到底给谁用？[^q0] 每个请求这一轮应该推进多少？[^q1]**
 
@@ -300,7 +300,7 @@ vLLM 中有两个非常关键的量：
 - num_tokens_with_spec
 - num_computed_tokens
 
-它们可以帮助我们理解 Scheduler 的工作方式。
+它们可以帮助理解 Scheduler 的工作方式。
 
 
 **`num_computed_tokens`**

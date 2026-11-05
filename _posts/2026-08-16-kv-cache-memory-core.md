@@ -32,7 +32,7 @@ PagedAttention 的核心思想，用一句话就能说完：
 
 ### 1. 三个层面的问题
 
-下面我们从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的：先看 PagedAttention 的数学本质与 vLLM 中对应的数据结构；再沿一次请求的生命周期看 KV 块如何被分配、写入、读取和归还；最后回答"KV Cache 还能更小吗"——系统管理层的 Prefix Cache 复用、模型架构层的 GQA / MLA 瘦身、数值层的量化压缩，以及显存之外的分层存储。这三层解决的是不同的问题，可以叠加。
+下面从传统做法的具体代价讲起，再看这套页表思想是怎么被搬到 GPU 上的：先看 PagedAttention 的数学本质与 vLLM 中对应的数据结构；再沿一次请求的生命周期看 KV 块如何被分配、写入、读取和归还；最后回答"KV Cache 还能更小吗"——系统管理层的 Prefix Cache 复用、模型架构层的 GQA / MLA 瘦身、数值层的量化压缩，以及显存之外的分层存储。这三层解决的是不同的问题，可以叠加。
 
 ### 2. 本文的章节安排
 
@@ -115,7 +115,7 @@ kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
 
 顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；它通过 KVCacheManager 对应一个 KVCacheBlocks，里面按 KV Cache Group 存着物理块序列；block_id 直接当下标索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。每个 KVCacheBlock 还带着 ref_cnt、block_hash 和一对前后指针：块被持有时（ref_cnt > 0）只挂在请求的块序列里；ref_cnt 归零后靠这对指针串进 FreeBlockQueue 这条双向链表，等着被重新分配或被 Prefix Cache 命中。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
 
-> **回到我们的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
+> **回到前面的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
 >
 > 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。第四章的 Prefix Cache 一节就用这一点算账。
 
@@ -287,7 +287,7 @@ vLLM 使用链式哈希确保前缀匹配的正确性——每个块的哈希值
 
 由此可见"命中"不是单块比对，而是从链头开始的一段连续匹配：分叉点之前的块共享同一份物理块（`ref_cnt` 累加），分叉点及之后各自申请新块；而链头一旦不同，后面再像也没用——这正是链式哈希保证正确性的方式，代价是命中的粒度只能是"前缀"。
 
-> **回到我们的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
+> **回到前面的例子**：那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
 >
 > 省下多少？按第一篇「一个贯穿全文的例子」的量算：
 >
