@@ -143,7 +143,6 @@ flowchart TB
 - 「typo PR 最安全」——vLLM 不接受 busywork
 - 「vLLM 的 CI 会自己跑」——要 `/ci run`
 - 「review 是在检查算法」——多半是注释、来源、范围
-- 「合入了就在最新版里」——看分支切出时间
 {: .fragments}
 
 ---
