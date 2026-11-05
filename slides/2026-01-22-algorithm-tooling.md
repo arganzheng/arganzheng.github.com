@@ -31,16 +31,17 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    P1["01 Python 使用层<br/>生成器、dataclass、协议方法"] --> P2["02 NumPy / Pandas / Matplotlib<br/>形状、轴、广播；错误分析；看曲线"]
-    P2 --> P3["03 PyTorch（上）<br/>五个对象、二十行训练循环"]
-    P3 --> P4["04 PyTorch（下）<br/>混合精度、16 字节 / 参数、多卡"]
-    P3 & P4 --> P5["05 Hugging Face<br/>三个文件、六个库、六行 LoRA SFT"]
-    P4 --> P6["06 GPU 直觉与实验管理<br/>两个上限、四块显存、能复现"]
+    P1["01 Python 使用层"] --> P2["02 NumPy / Pandas / Matplotlib"]
+    P2 --> P3["03 PyTorch（上）"]
+    P3 --> P4["04 PyTorch（下）"]
+    P3 & P4 --> P5["05 Hugging Face"]
+    P4 --> P6["06 GPU 直觉与实验管理"]
     P1 -. "@dataclass 配置、协议方法" .-> P3
 ```
 
 <aside class="notes" markdown="1">
 语言 → 框架（形状 → 训练循环 → 资源）→ 生态 → 硬件与管理。结论出来后改数据或配方，再来一轮。
+各篇关键词：01 生成器 / dataclass / 协议方法；02 形状 / 轴 / 广播、错误分析、看曲线；03 五个对象、二十行训练循环；04 混合精度、16 字节 / 参数、多卡；05 三个文件、六个库、六行 LoRA SFT；06 两个上限、四块显存、能复现。
 </aside>
 
 ---
@@ -207,11 +208,11 @@ for step, (x, y) in enumerate(loader):
 ```mermaid
 flowchart LR
     W32["fp32 主权重"] -- "① autocast 转 bf16" --> W16["bf16 副本"]
-    W16 -- "② 矩阵乘（Tensor Core）" --> ACT["bf16 激活"]
-    ACT -- "③ reduction 升回 fp32" --> LOSS["fp32 loss"]
+    W16 -- "② 矩阵乘" --> ACT["bf16 激活"]
+    ACT -- "③ 升回 fp32" --> LOSS["fp32 loss"]
     LOSS -- "④ backward" --> G["梯度"]
-    G -- "⑤" --> OPT["AdamW m,v"]
-    OPT -- "⑥ fp32 上加" --> W32
+    G --> OPT["AdamW m、v"]
+    OPT -- "⑤ fp32 上加" --> W32
 ```
 
 - `autocast` **不**把参数变成 bf16：减半的是矩阵乘的中间结果，训练状态仍是 16 字节 / 参数
@@ -226,20 +227,13 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
-    HUB["`**Hub**
-config.json · safetensors · tokenizer.json`"]
-    DS["`**datasets**
-load · map · streaming`"]
-    TOK["`**tokenizers**
-BPE 编码（Rust）`"]
-    TF["`**transformers**
-AutoModel · generate · Trainer`"]
-    PEFT["`**peft**
-LoraConfig · get_peft_model`"]
-    TRL["`**trl**
-SFTTrainer · DPOTrainer · GRPOTrainer`"]
-    ACC["`**accelerate**
-launch · DDP / FSDP`"]
+    HUB["`**Hub**`"]
+    DS["`**datasets**`"]
+    TOK["`**tokenizers**`"]
+    TF["`**transformers**`"]
+    PEFT["`**peft**`"]
+    TRL["`**trl**`"]
+    ACC["`**accelerate**`"]
     HUB --> DS & TF
     DS --> TOK --> TRL
     TF --> PEFT --> TRL
@@ -252,6 +246,7 @@ launch · DDP / FSDP`"]
 
 <aside class="notes" markdown="1">
 原文 /hugging-face-ecosystem-six-libraries-and-a-lora-sft.html
+六个库内容：Hub = config.json · safetensors · tokenizer.json；datasets = load · map · streaming；tokenizers = Rust BPE；transformers = AutoModel · generate · Trainer；peft = LoraConfig · get_peft_model；trl = SFTTrainer · DPOTrainer · GRPOTrainer；accelerate = launch · DDP / FSDP。
 </aside>
 
 <!-- v -->
