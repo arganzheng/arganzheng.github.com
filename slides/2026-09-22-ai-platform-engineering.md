@@ -34,16 +34,15 @@ transition: slide
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
-flowchart TB
+flowchart LR
     P1["01 需求与架构"]
     subgraph RES["资源层"]
-        direction TB
-        P2["02 GPU 进容器"] --> P3["03 任务调度"] --> P4["04 GPU 共享"]
-        P2 --> P5["05 网络与存储"]
+        direction LR
+        P2["02 GPU·容器"] --> P3["03 调度"] --> P4["04 共享"] --> P5["05 网络·存储"]
     end
     subgraph DEL["交付层"]
-        direction TB
-        P6["06 Serving"] --> P7["07 网关"] --> P8["08 观测成本"]
+        direction LR
+        P6["06 Serving"] --> P7["07 网关"] --> P8["08 观测"]
     end
     P1 --> P2
     P1 --> P6
@@ -61,13 +60,24 @@ flowchart TB
 | 7B | 14 GB | 约 60 GB |
 | 30B | 60 GB | 约 14 GB |
 
-- 扩容一个副本 5–10 分钟（拉镜像 + 加载权重 + 预热）——第六篇扩缩容的全部难点
-- 「`Insufficient nvidia.com/gpu` 说明卡不够」——调度器把「键不存在」与「等于 0」当同一回事；是没有组件把 GPU 上报给 kubelet
-
 <aside class="notes" markdown="1">
 原文 /ai-platform-engine-requirements-and-architecture.html。
 结论原文：训练 15 条原生满足 **1 条**、推理 15 条满足 **2 条**；空缺分**缺插件、缺概念、缺信号**三种；训练卡在调度与网络，推理卡在扩缩容与路由，唯一共同的空缺是「**GPU 是不透明整数**」；平台分资源层与交付层，分界线是「Pod 能跑了」。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 扩容一个副本 5–10 分钟（拉镜像 + 加载权重 + 预热）——第六篇扩缩容的全部难点
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「`Insufficient nvidia.com/gpu` 说明卡不够」——调度器把「键不存在」与「等于 0」当同一回事；是没有组件把 GPU 上报给 kubelet
 
 ---
 
@@ -82,14 +92,25 @@ flowchart TB
 | 基线 | 12.x ≥ 525.60.13；13.x ≥ 580.65.06 |
 | 错误码 | 35 驱动太旧 / 36 API 不支持 / 222 PTX 版本 |
 
-- device plugin **只计数、无属性、不跨 Pod 共享**；DRA `resource.k8s.io/v1` 自 1.34 GA 才有属性与共享
-- 10 GB 镜像冷拉 2–3 分钟
-- 「`nvidia-smi` 与 `torch.version.cuda` 不一致就有问题」——前者是驱动上限，后者是 Toolkit 版本
-
 <aside class="notes" markdown="1">
 原文 /gpu-in-containers-driver-cuda-device-plugin.html。
 结论原文：驱动（宿主）/ CUDA runtime（镜像）/ 库 / 应用；**向后兼容无条件**（新驱动跑旧 Toolkit）；**minor version** 同大版本内旧驱动跑新 Toolkit（新驱动 API 与 PTX JIT 除外）；**forward** 跨大版本只有数据中心 GPU + cuda-compat 包。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- device plugin **只计数、无属性、不跨 Pod 共享**；DRA `resource.k8s.io/v1` 自 1.34 GA 才有属性与共享
+- 10 GB 镜像冷拉 2–3 分钟
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「`nvidia-smi` 与 `torch.version.cuda` 不一致就有问题」——前者是驱动上限，后者是 Toolkit 版本
 
 ---
 
@@ -103,13 +124,18 @@ flowchart TB
 | Kueue | cohort 借用起；默认 `reclaimWithinCohort: Never`——不还 |
 | Slurm | 排队等 A 自己的配额 |
 
-- Volcano：`guarantee ≤ deserved ≤ capability`；Kueue：`nominalQuota` / `borrowingLimit` / `lendingLimit` + 三个抢占开关
-- 抢占代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$；30/32 死锁：两个任务各占一半卡等对方
-
 <aside class="notes" markdown="1">
 原文 /ai-job-scheduling-gang-queue-topology.html。
 结论原文：Volcano 在 Pod **之后**做节点级 gang，Kueue 在 Pod **之前**做配额级 gang；**默认值下 Volcano 与 Kueue 借了不还、Slurm 不借**；「Pod 起不来靠应用层重试」——已起的 Pod 占着卡等同伴，gang 只能在调度 / 准入层做。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- Volcano：`guarantee ≤ deserved ≤ capability`；Kueue：`nominalQuota` / `borrowingLimit` / `lendingLimit` + 三个抢占开关
+- 抢占代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$；30/32 死锁：两个任务各占一半卡等对方
 
 ---
 
@@ -124,12 +150,17 @@ flowchart TB
 | HAMi | 软（拦截 kernel） | 软（拦截 `cudaMalloc`，不切带宽与 L2） | 整卡 | `deviceSplitCount` 默认 10 |
 | MIG | 硬 | 硬 | slice（Xid 隔离） | 几何刚性 |
 
-- A100：7 个计算 slice、8 个显存 slice；`3g.20gb` = \(3/7\) 算力 + \(4/8\) 带宽；`3g.20gb × 2` 已用尽 8 个显存 slice——**塞不进 `1g.5gb`**，浪费 1 个计算 slice
-
 <aside class="notes" markdown="1">
 原文 /gpu-sharing-and-partitioning-mig-mps-hami.html。
 结论原文：都是「device plugin 把一张卡复制成 N 个逻辑设备」的不同底座——**时间片无隔离、HAMi 软件隔离但故障域整卡、MIG 连 Xid 都隔离但几何刚性**；训练不切。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- A100：7 个计算 slice、8 个显存 slice；`3g.20gb` = \(3/7\) 算力 + \(4/8\) 带宽；`3g.20gb × 2` 已用尽 8 个显存 slice——**塞不进 `1g.5gb`**，浪费 1 个计算 slice
 
 ---
 
@@ -142,13 +173,24 @@ flowchart TB
 | 30 分钟一次、同步 1 分钟写完 | 聚合 **16.7 GB/s**、每节点 2.1、每 rank 260 MB/s |
 | 异步 | **0.56 GB/s**；代价每节点约 125 GB pinned 内存 |
 
-- `NCCL_DEBUG=INFO` 看 `Using network IB/Socket` 与 `/GDRDMA`；`NCCL_NET_GDR_LEVEL` 默认 `PXB`
-- 「checkpoint 写不完只能买更快的存储」——先改形态：分片 + `dcp.async_save`
-
 <aside class="notes" markdown="1">
 原文 /rdma-networking-storage-and-checkpoint-io.html。
 结论原文：容器里 `nccl-tests` 只有裸机三分之一——Pod 网络、device plugin、NCCL 环境变量三层任一缺项都**不报错**；Multus 给第二张网卡、RDMA device plugin 给 `/dev/infiniband`、`IPC_LOCK` 与 peermem / DMA-BUF 给 GDR。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- `NCCL_DEBUG=INFO` 看 `Using network IB/Socket` 与 `/GDRDMA`；`NCCL_NET_GDR_LEVEL` 默认 `PXB`
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「checkpoint 写不完只能买更快的存储」——先改形态：分片 + `dcp.async_save`
 
 ---
 
@@ -163,13 +205,24 @@ flowchart TB
 | 常驻 6 副本 | 328 卡时 / 天 |
 | 信号延迟 | 约 1 分钟 |
 
-- 从 InferenceService（KServe）到 LeaderWorkerSet（多卡一个副本）到 llm-d（InferencePool + EPP）
-- 「阈值调准了就不会过配」——反应式的结构性代价
-
 <aside class="notes" markdown="1">
 原文 /serving-platforms-kserve-triton-ray-serve-llm-d.html。
 结论原文：CPU 无意义；**领先指标 `num_requests_running` / `kv_cache_usage_perc`**，`waiting` 只兜底；**纯反应式阈值 = 峰值过配**（为 9 分钟就绪预留的 headroom 在稳态也被保留）；可预测的高峰用 cron 提前。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 从 InferenceService（KServe）到 LeaderWorkerSet（多卡一个副本）到 llm-d（InferencePool + EPP）
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「阈值调准了就不会过配」——反应式的结构性代价
 
 ---
 
@@ -183,12 +236,17 @@ flowchart TB
 | 64 会话 × 8k 对 4 副本 × 160k | 前缀亲和让 TTFT 从 0.5 s 级到几十 ms |
 | TPM 预扣 | 输入估算 + min(max_completion_tokens, 上限) |
 
-- 「给 A 更高 priority 就是 3:1 的配额」——flow control 无加权公平；比例只能在外层 TPM / 并发桶上体现，饱和时 B 先撞 429
-
 <aside class="notes" markdown="1">
 原文 /model-gateway-multi-tenancy-and-quota.html。
 结论原文：外层按 RPM / TPM / 并发 429，内层 EPP 按 priority **严格优先、同级 round-robin，无按权重公平**；选副本与租户无关；配额是 token + 并发 + RPM，GPU 时间只做内部成本。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「给 A 更高 priority 就是 3:1 的配额」——flow control 无加权公平；比例只能在外层 TPM / 并发桶上体现，饱和时 B 先撞 429
 
 ---
 
@@ -206,12 +264,17 @@ flowchart TB
 | ~2 | 冷启动 | 02 |
 | ~5 | 测量上限 | — |
 
-- 每百万 token 成本：U 从 100% 到 40% 贵 2.5 倍（1.39 → 3.47 美元）
-
 <aside class="notes" markdown="1">
 原文 /ai-platform-observability-cost-and-finops.html。
 结论原文：分配率 A = 85%、`SM_ACTIVE` U = 35%，$$E \approx A \times U$$；四层指标靠 `pod` / `namespace` join；**`GPU_UTIL` 只表示「有 kernel 在跑」**（NCCL 自旋也是 100%）；**按分配计费让闲置有主**。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 每百万 token 成本：U 从 100% 到 40% 贵 2.5 倍（1.39 → 3.47 美元）
 
 ---
 
