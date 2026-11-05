@@ -103,7 +103,17 @@ __global__ void add(const float* a, const float* b, float* c, int n) {
 
 ## 03 · 访存合并：跑到 90% 之后只能减字节
 
-**结论**：一个 warp 32 线程的访问按 **32 B sector** 合并——连续 100%、跨步 2 50%、跨步 ≥ 32 B 12.5%；90% 贴着物理上限，**之后唯一的优化是融合减少总字节数**。
+**按 32 B sector 合并：连续 100%、跨步 2 是 50%、跨步 ≥32 B 是 12.5%**
+
+![四种访问模式触碰的 sector：连续对齐 4 个 100%，起点偏移 4 B 5 个 80%，跨步 2 8 个 50%，跨步 8 每线程独占一个 sector，32 个 12.5%](/img/in-post/memory-coalescing-access-patterns.svg){: style="max-height: 400px}
+
+<aside class="notes" markdown="1">
+原文 /memory-coalescing-and-elementwise-kernels.html。90% 贴着物理上限，之后唯一优化是融合减少总字节数。
+</aside>
+
+<!-- v -->
+
+### 在飞字节与需要多少 warp
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
@@ -209,7 +219,17 @@ $$
 
 ## 08 · FlashAttention：省的是 IO 不是 FLOPs
 
-**结论**：不物化 S、P，靠 online softmax 逐块累加，**HBM 132 MiB → 66 MiB（实际近 4 MiB）**，从 memory-bound 变 compute-bound；FLOPs 略多于标准实现；decode 每步读全部 KV，**分页只改地址不改字节**。
+**不物化 S、P：online softmax 逐块累加，HBM 132 → 66 MiB（近 4 MiB）**
+
+![一个 block 沿 K/V 块扫过去做了什么：逐块算 S_ij、更新 m 与 l、累加进 O_i](/img/in-post/attention-kernels-flash-tile-scan.svg){: style="max-height: 400px}
+
+<aside class="notes" markdown="1">
+原文 /attention-kernels-flashattention-and-pagedattention.html。FLOPs 略多；decode 每步读全部 KV，分页只改地址不改字节。
+</aside>
+
+<!-- v -->
+
+### 标准三个 kernel 往返 HBM vs 一个 kernel
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
