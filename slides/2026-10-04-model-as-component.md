@@ -41,18 +41,18 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    CTX["组装上下文<br/>system · 历史 · 检索 · 工具定义"] --> PRE["prefill：模型读上下文"]
+    CTX["组装上下文<br/>system·历史·检索·工具"] --> PRE["prefill：模型读上下文"]
     PRE --> SAMP["逐 token 采样"]
     SAMP --> OUT["输出：文本 / JSON / tool_call"]
     OUT --> ACT["执行动作（有工具时）"]
-    F4["④ 上下文：标称 ≠ 有效<br/>中间遗忘、腐化"] -.-> PRE
+    F4["④ 上下文标称 ≠ 有效"] -.-> PRE
     F5["⑤ 知识截止"] -.-> PRE
-    F3["③ 指令遵循 / prompt 敏感"] -.-> PRE
-    F1["① 非确定性<br/>采样随机 + batch 不变性缺失"] -.-> SAMP
-    F2["② 幻觉<br/>高概率续写 ≠ 真"] -.-> SAMP
-    F6["⑥ 供应商变更<br/>权重 / 默认值 / tokenizer"] -.-> PRE
+    F3["③ 指令遵循"] -.-> PRE
+    F1["① 非确定性<br/>采样随机"] -.-> SAMP
+    F2["② 幻觉"] -.-> SAMP
+    F6["⑥ 供应商变更"] -.-> PRE
     F6 -.-> SAMP
-    F7["⑦ 越界<br/>权限范围 = 错误上限"] -.-> ACT
+    F7["⑦ 越界"] -.-> ACT
 
     classDef stage fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef fail fill:#fdecea,stroke:#c0392b,color:#222
@@ -124,7 +124,7 @@ sequenceDiagram
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
+flowchart TB
     IN["输入：完整历史（含上一轮的 thinking / reasoning 状态）+ 本轮 user 或 tool result"] --> THINK["思考阶段<br/>生成 thinking token：不可见 / 摘要<br/>按输出价计费 · 占 TTFT"]
     THINK --> OUT["可见输出<br/>文本 或 tool_call"]
     OUT --> STATE["返回给应用的状态<br/>thinking block（Anthropic）/ reasoning item（OpenAI）/ thought signature（Gemini）"]
@@ -164,7 +164,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     Q["排队<br/>供应商侧的负载 · 你的限流队列"] --> P["prefill<br/>读完整上下文，∝ 未缓存输入长度<br/>命中缓存的前缀跳过"]
     P --> T["思考<br/>∝ 思考 token 数 × 每 token 时间<br/>由 effort 决定"]
     T --> F(["首个可见 token（TTFT 在此结束）"])
@@ -212,7 +212,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     A["全部候选（20+）"] -->|"硬约束过滤：数据驻留 · 上下文 · 多模态 · 延迟 · 推理"| C["可行候选（8–12）"]
     C -->|"榜单与同类经验，只做缩小范围"| E["短名单（3–5）"]
     E --> F["在自己的评测集上跑<br/>每模型 × 每 effort 档 × k 次"]
@@ -252,7 +252,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     S(["业务层发起调用"]) --> CNT["数 token<br/>超过上下文或预算 → 先压缩 / 拒绝，不发"]
     CNT --> SLOT["取并发槽 / 令牌<br/>按模型 · 按租户的限流器"]
     SLOT --> SEND["发送（流式或非流式）<br/>四层超时：连接 · 首事件 · 事件间 · 总"]
