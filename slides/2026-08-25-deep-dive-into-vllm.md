@@ -1,416 +1,359 @@
 ---
 layout: slides
 title: "大模型推理系统揭秘：从 vLLM 看 LLM Serving 核心技术"
-subtitle: "系列精华 · 十四篇正文每篇一页，围绕「动态请求 + KV 状态 + GPU 资源」"
+subtitle: "系列精华 · 十五篇正文逐篇看图，第十六篇总结与自测"
 permalink: /slides/deep-dive-into-vllm.html
 series: deep-dive-into-vllm
 date: 2026-08-25 23:30:00 +0800
 author: arganzheng
-description: "《大模型推理系统揭秘》系列的分享用幻灯片：为什么 LLM Serving 难、TTFT / TPOT / Goodput、vLLM 的控制面与数据面、调度的单位是 token、KV Cache 是一切约束的源头、GPU 执行的四种浪费、解码扩展、Multi-GPU、模型与硬件适配、multi-LoRA 与多模态、PD 分离、Serving 的下一站、源码里的一次请求。"
+description: "大模型推理系统揭秘系列分享：从 Serving 难点与指标，到调度、KV、GPU、多卡、PD、模型与请求适配、硬件抽象、未来架构、源码请求路径和 SGLang 对照。"
 theme: white
 transition: slide
 ---
 
-## 这个系列的一句话主张
+## 大模型推理系统揭秘
 
-> LLM Serving 的本质，是围绕**生成过程**对请求、Token、计算资源和中间状态进行**持续协调**；vLLM 不是一堆优化技术的集合，而是一套围绕「**动态请求 + KV 状态 + GPU 资源**」构建起来的**推理操作系统**。
+### 从动态请求到推理操作系统
 
-两条贯穿全系列的判断：
+**十五篇正文 · 一条请求路径 · 一切围绕动态请求、KV 状态与 GPU 资源**
 
-1. **KV Cache 是一切约束的源头**——它是唯一随时间增长的状态
-2. **调度的单位是 token，不是 request**
+![一次请求从入口、调度、KV 到 GPU 执行的路径](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
-总纲：/deep-dive-into-vllm.html。主线：问题定义 → 指标体系 → 系统全景 → 单机三个战场（调度 / 内存 / 执行）→ 多卡与集群扩展 → 模型、请求与硬件适配 → 未来演进 → 源码落地。
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行 → 多卡和 PD → 模型、请求、硬件适配 → 未来、源码与 SGLang 对照。
 </aside>
 
 ---
 
-## 十四篇怎么连起来
+## 这个系列回答一个问题
+
+> 一个持续生成的请求，如何在 SLO、KV 显存与 GPU 算力之间被系统持续协调？
+
+- KV Cache 是随生成增长的状态；调度的单位是 token。
+- 01–15：定义问题、建立指标、逐层拆系统，再用源码和第二个引擎检验分析框架。
+- 目标不是最大 batch，而是在 SLO 约束下选择合适的执行规模。
+
+<aside class="notes" markdown="1">
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
+</aside>
+
+---
+
+## 全景：从请求问题到第二套系统
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    V1["01 为什么 LLM Serving 难"] --> V2["02 怎么衡量：TTFT / TPOT / 吞吐"] --> V3["03 鸟瞰 vLLM：一个请求的路径"]
-    subgraph ONE["单机三个战场"]
-        direction LR
-        V4["04 Scheduler<br/>这一轮给谁用"] --- V5["05 KV Cache<br/>一切约束的源头"] --- V6["06 GPU 执行<br/>每个 token 算得更快"]
-    end
-    V3 --> ONE
-    V6 --> V7["07 解码的扩展<br/>采样、投机、结构化输出"]
-    subgraph SCALE["多卡与集群"]
-        direction LR
-        V8["08 Multi-GPU"] --> V9["09 PD 分离"]
-    end
-    subgraph ADAPT["模型、请求与硬件适配"]
-        direction LR
-        V10["10 模型适配"] --- V11["11 请求形态：LoRA、多模态"] --- V12["12 硬件解耦"]
-    end
-    ONE --> SCALE
-    V5 --> V9
-    ONE --> ADAPT
-    SCALE --> V13["13 下一站：分布式智能操作系统"]
-    V3 -. "带着前十三篇再走一遍" .-> V14["14 回到源码"]
-```
-
----
-
-## 01 · 为什么 LLM Serving 比传统 DL 推理难
-
-**结论**：服务对象从「一次前向、一次返回」变成**持续生成过程**——动态执行、带状态、Prefill / Decode 混合 workload；目标是 **SLO 约束下的执行规模**而非最大 batch。
-
-| Llama-3-70B、TP8、H100 | 数 |
-|---|---|
-| 每 token KV | 320 KB（每层 4 KB）；一条 2300 token 的请求 734 MB |
-| 权重 | 每卡 17.6 GB |
-| Prefill 2050 token | 算力下界 37 ms |
-| Decode 一步 | 带宽下界 5.3 ms；batch 1 → 64 只从 5.3 → 7.0 ms |
-| ridge | 295 FLOP/B |
-
-- 「LLM 推理难是因为模型大」——参数多只让每步更慢；难在三个根本变化
-
-<aside class="notes" markdown="1">
-原文 /why-llm-serving-is-hard.html。
-</aside>
-
----
-
-## 02 · 如何衡量：吞吐量系统做了多少，延迟量用户等了多久
-
-**结论**：四个维度（延迟 / 吞吐 / 效率 / 质量）；**Goodput 量 SLO 内的有效工作**——按请求计、ttft / tpot / e2el 三项「与」；一条 300 token 的回答 E2E ≈ 0.3 + 299 × 0.03 ≈ 9.3 s，**decode 占 97%**。
-
-| 指标 | 定义 | 陷阱 |
-|---|---|---|
-| TTFT | 从 t0 起算，**含排队** | 「TTFT = Prefill 时间」——高了先看 waiting 队列、`max_num_seqs`、抢占 |
-| TPOT | (E2E − TTFT) / (N − 1)，不含首 token | |
-| 吞吐 | token/s 或 req/s | 超 SLO 的吞吐不算 Goodput |
-| GPU 利用率 | SM 上有 kernel | decode memory-bound 时 MFU 只有几个百分点；看带宽利用率 |
-
-<aside class="notes" markdown="1">
-原文 /how-to-measure-llm-serving.html。
-</aside>
-
----
-
-## 03 · 鸟瞰 vLLM：一个请求穿过整个系统
-
-**结论**：**控制面 / 数据面分离**——EngineCore 驱动循环，Scheduler 决策，Executor 分发，ModelRunner 执行；Scheduler 与 ModelRunner 之间**传元数据不传 tensor**。
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
-    subgraph A["进程 A：API Server"]
+    A["01 Serving 为什么难"] --> B["02 用什么衡量"] --> C["03 vLLM 请求全景"]
+    subgraph ONE["单机：调度 · 内存 · 执行"]
         direction TB
-        API["FastAPI + uvicorn"] --> ASY["AsyncLLM"]
+        D["04 Scheduler"] --> E["05 KV Cache"] --> F["06 GPU 执行"]
     end
-    subgraph B["进程 B：EngineCore"]
-        direction TB
-        EC["核心调度循环"] --> SCH["Scheduler<br/>+ KVCacheManager / BlockPool"]
-    end
-    subgraph C["进程 C…：GPU Worker"]
-        direction TB
-        MR["ModelRunner<br/>prepare_inputs → forward → sample"] --> ATT["Attention Backend<br/>+ GPU KV Cache"]
-    end
-    A -- "ZMQ + msgspec<br/>token id" --> B
-    B -- "共享内存 MessageQueue<br/>SchedulerOutput 广播" --> C
-    C -. "只有 output_rank 回传" .-> B
+    C --> ONE
+    F --> G["07 解码扩展"] --> H["08 Multi-GPU"] --> I["09 PD 分离"]
+    I --> J["10 模型适配"] --> K["11 multi-LoRA 与多模态"] --> L["12 硬件解耦"]
+    L --> M["13 Serving 的下一站"] --> N["14 源码中的一次请求"] --> O["15 对照 SGLang"]
 ```
 
 <aside class="notes" markdown="1">
-原文 /vllm-request-lifecycle-overview.html。Scheduler 约 3000 行。
+01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/decoding-extensions-sampling-speculative-and-structured-output.html](/decoding-extensions-sampling-speculative-and-structured-output.html)；08 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；09 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；10 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；11 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)；15 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
 </aside>
 
 ---
 
-## 04 · Scheduler：GPU 这一轮到底给谁用
+## 01 · 为什么 LLM Serving 比传统推理难
 
-**结论**：**调度单位是 token**——每步先服务 running（至少 1 token），再按 FCFS 准入 waiting，直到 token budget、`max_num_seqs` 或 KV 块用尽；KV 不够按 **LIFO 抢占、重算**。Scheduler 没有「阶段」：Continuous Batching、Chunked Prefill、混合批次、投机解码是同一模型的四种取值。
+**Llama-3-70B、8×H100：每 token KV 为 320 KB；2,300 token 请求约 734 MB。**
 
-| 例子 | 数 |
-|---|---|
-| 2050 token 的 prompt，chunk 512 | 4 × 512 + 2，共 5 段 |
-| budget 2048 | 200 decode + 1800 prefill 用掉 2000 |
-| decode 为主 | `max_num_seqs` 先于 budget 卡住（256 请求只用 12.5% 预算） |
-| 抢占 | `running.pop()` + `num_computed_tokens = 0` + `prepend_request` |
-
-- 「抢占重算一定很贵，应该 swap」——Prefix Cache 让前缀块大多还在，重算远低于理论最坏
+![LLM Serving 中一个请求的持续生成、状态与资源关系](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文 /scheduler-batch-and-fairness.html。
-</aside>
-
----
-
-## 05 · KV Cache：LLM Serving 的第一号内存问题
-
-**结论**：显存是被「不确定性」浪费的（旧系统有效 KV 只占 20–38%）——**按块分页**，块满才进 Prefix Cache；让 KV 更小有**系统 / 架构 / 数值**三个正交层面。
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 210}}}%%
-flowchart TB
-    KV["KV Cache：唯一随时间增长的状态"]
-    KV --> ADM["准入 / 抢占 / Watermark（04）"]
-    KV --> CAP["并发上限 = KV 池 ÷ 每请求 KV（01）"]
-    KV --> XFER["PD 交接的数据量与就绪时机（09）"]
-    CAP --> STEP["decode 每步时间 = 权重读取 + KV 读取（06）"]
-    SHRINK["GQA / MLA / FP8 缩小每 token KV（05、10）"] --> KV
-    SPEC["投机解码 lookahead 预留与回滚（07）"] --> KV
-    PREFIX["Prefix Cache 与 extra_keys（05、11）"] --> ADM
-```
-
-<aside class="notes" markdown="1">
-原文 /kv-cache-memory-core.html。
+原文：[/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)。难点从一次性静态前向，变成动态执行、带状态生成和 Prefill/Decode 混合 workload；同一组算账基于 Llama-3-70B、8×H100。
 </aside>
 
 <!-- v -->
 
-### 数字
+### Prefill 与 Decode 争用不同资源
 
-| 量 | 数 |
-|---|---|
-| `block_size` | 16 token；每卡一块 640 KB |
-| 2050 token | 129 块；2000 token 前缀 125 块全部命中——**复用粒度是块**，2005 token 最后 5 个要重算 |
-| 每 token KV | MHA 64 头 2.56 MB → GQA-8 320 KB → FP8 160 KB（**16 倍**） |
-| MLA | 每 token 每层 (512 + 64) × 2 B ≈ 1.1 KB vs 4 KB |
+![Prefill 与 Decode 的算力、权重读取和 KV 读取路径](/img/in-post/why-llm-serving-is-hard-prefill-decode-dataflow.svg){: style="max-height: 390px"}
 
-- 三个层面：系统（分页、前缀共享、抢占）/ 架构（GQA、MLA）/ 数值（FP8 KV）
-
----
-
-## 06 · GPU 执行：浪费只有四种
-
-**结论**：**等 CPU 发指令**（CUDA Graph）、**等 HBM**（FlashAttention、融合）、**每个数太胖**（量化）、**轮次太多**（投机解码）；一步约 10 ms，权重读取下界 5.3 ms。
-
-| 量 | 数 |
-|---|---|
-| Prefill 92 ms（40% MFU） | 占 3% |
-| 300 步 decode 3000 ms | 占 **97%** |
-| CUDA Graph capture sizes | [1, 2, 4] + 8 步进到 256 + 16 步进到 512；默认 `FULL_AND_PIECEWISE`，80 层切成约 81 段图 |
-| FP8 vs BF16 | 1979 vs 989 TFLOPS |
-
-- 「CUDA Graph 把 forward 融成一个超级 kernel」——图只记录 kernel 序列一次重放，减少的是 launch 开销与间隙；每个 kernel 内部时间不变；与 `torch.compile` 正交
+**Prefill 偏计算密集，Decode 偏内存带宽；两者竞争同一组 GPU 资源。**
 
 <aside class="notes" markdown="1">
-原文 /gpu-execution-kernels-and-graphs.html。
+原文：[/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)。Decode 从 batch 1 到 64，单步时间从 5.3 ms 到 7.0 ms；batch 256 时 KV 读取达到 24 GB。
 </aside>
 
 ---
 
-## 07 · 解码的扩展：为什么不只改 Sampler
+## 02 · 如何衡量：吞吐、延迟与 Goodput
 
-**结论**：采样改**分布本身**、投机改**每步决定的位置数**（1 → 1 + K）、结构化输出改**分布的支撑集**；都要改调度、KV、runner——因为 batch 是持久的、token 数是调度出来的、KV 是预分配的、图是捕获好的。
+**吞吐量衡量完成多少工作；延迟衡量用户等多久；Goodput 只计满足 SLO 的有效工作。**
 
-| 量 | 数 |
-|---|---|
-| 一行 fp32 logits | 513 KB；penalties 每步两张 [B, V+1] int64 直方图 |
-| 投机的临界点 | 约 300 token / 步 / 卡：batch × (1 + K) 超过它验证不再免费 |
-| batch 1、接受长度 2.5 | 约 2.1× |
-| batch 128 | 每步慢 1.9 倍、吞吐反降 |
-| 结构化输出 bitmask | 每行 16 KB（4008 个 int32） |
-
-- 「投机解码打破了 token 依赖」——依赖在 draft 内部照样串行
+![一次请求的 TTFT、TPOT、ITL 与 E2E 时间线](/img/in-post/how-to-measure-llm-serving-request-timeline.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
-原文 /decoding-extensions-sampling-speculative-and-structured-output.html。
+原文：[/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)。指标覆盖延迟（TTFT、TPOT、ITL、E2E）、吞吐（Tokens/s、Requests/s、Goodput）、效率和质量；对比 benchmark 前需先统一统计口径。
 </aside>
 
 ---
 
-## 08 · Multi-GPU：一张卡不够时怎么切
+## 03 · 鸟瞰 vLLM：4+1 视图落到一次请求
 
-**结论**：单层放不下 **TP**、整个模型太大 **PP**、专家太多 **EP**、上下文太长 **CP**、装得下要更多吞吐 **DP**——前四个解决「装不下」，DP 解决「想要更多」且**永远最外层**。
+**Executor 是 EngineCoreProc 内的对象；DP 决定 EngineCoreProc 数，TP×PP 决定每个 EngineCoreProc 的 WorkerProc 数，EP 不新增进程。**
 
-| 并行 | 通信 | 放哪 |
-|---|---|---|
-| TP | 每层 2 次 all-reduce（Attention 后 + MLP 后），80 层每步 160 次，**关键路径不可重叠** | 只放 NVLink 内 |
-| PP8 | 每 stage 10 层、每步 7 次 P2P | 可跨机 |
-| EP | all-to-all；TP × EP = 总 GPU 数 | |
-| CP | 适合 64K–1M token | |
-| rank 排布 | DP × PP × PCP × TP（TP 最内层） | |
-
-- 「TP 卡数翻倍单请求延迟减半」——all-reduce 在关键路径上
+![进程视图：API Server、EngineCoreProc、Executor 与 WorkerProc 的职责和通信](/img/in-post/vllm-request-lifecycle-process-view.svg){: style="max-height: 390px"}
 
 <aside class="notes" markdown="1">
-原文 /multi-gpu-scaling-strategies.html。
-</aside>
-
----
-
-## 09 · PD 分离：从资源混部走向计算解耦
-
-**结论**：三个设计问题——**计算如何拆、状态如何交接、系统如何协同**；「匹配不等于就绪」、「计算结束不等于块可回收」；共置 / 分离描述资源域不描述物理位置；PD 不会自动产生全局调度器或分布式缓存管理器。
-
-| 70B、TP8 | 数 |
-|---|---|
-| 每 token KV | 320 KiB |
-| 2048 token | 640 MiB，每 rank 80 MiB；400 Gb/s 共享一条链路 13.42 ms、八路并行 1.68 ms |
-| 4096 token | 1.25 GiB，每 rank 160 MiB，**3.4 ms ≈ 一步 decode 量级** |
-| D 侧状态 | `WAITING_FOR_REMOTE_KVS` |
-| P 待交接 KV | 20000 tok/s × 0.2 s ≈ 1.22 GiB——P 侧的块不能在计算结束时回收 |
-
-<aside class="notes" markdown="1">
-原文 /prefill-decode-disaggregation.html。
-</aside>
-
----
-
-## 10 · 模型适配：模型剧变时引擎在哪一层吸收
-
-**结论**：三层适配——**模型层**吸收「算什么」、**运行时层**吸收「状态长什么样」（最贵）、**算子层**吸收「怎么算」；通用抽象扩大范围，特化 kernel 守住性能。
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
-flowchart LR
-    Q{"新模型改了什么？"}
-    Q -- "算什么：层的结构、激活、归一化" --> M["模型层<br/>一个文件 + 注册 ModelRegistry"]
-    Q -- "状态长什么样：KV 的形状（MLA 512 + 64）" --> R["运行时层<br/>KVCacheManager、block 布局、attention metadata——最贵"]
-    Q -- "怎么算：量化、新 kernel" --> K["算子层<br/>QuantizationConfig + LinearMethod、Attention Backend"]
-    classDef hot fill:#fde2e2,stroke:#b91c1c
-    class R hot
-```
-
-<aside class="notes" markdown="1">
-原文 /model-adaptation-architecture.html。
-</aside>
-
----
-
-## 11 · 请求形态的扩展：multi-LoRA 与多模态
-
-**结论**：三个假设被破——**同一份权重、embedding 是查表、相同前缀相同 KV**；LoRA 靠一个 kernel 处理全部 adapter + 槽位静态预分配 + 两层 LRU；多模态靠 encoder 独立预算 + 占位符 + 布尔掩码散射；两者都往块哈希加 `extra_keys`。
-
-![multi-LoRA kernel 的 gather：token 不动，按排序后的行号名单分组取行——一个 kernel 处理全部 adapter](/img/in-post/request-shapes-multi-lora-and-multimodal-lora-gather.svg){: style="max-height: 320px"}
-
-<aside class="notes" markdown="1">
-原文 /request-shapes-multi-lora-and-multimodal.html。
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。Kruchten 4+1：逻辑、开发、进程、部署/物理四个视图，加上串联它们的场景。vLLM v0.27.1：world_size=1 默认选 UniProcExecutor，Worker 在 EngineCore 进程内初始化，没有 WorkerProc；多进程模式下 Executor 进程内调度 WorkerProc。DP size 对应 EngineCoreProc 数；每个 EngineCoreProc 内按 TP×PP×PCP rank 启动 WorkerProc；EP 复用已有 rank、不新增进程。
 </aside>
 
 <!-- v -->
 
-### 数字
+### 4+1：部署视图
 
-| 量 | 数 |
-|---|---|
-| 8 个 rank-16 LoRA 槽位 | ≈ 1.44 GB / 卡 = 15 个请求的 KV，**与实际加载几个无关** |
-| LoRA 的代价 | 每步多 1120 次 launch、FLOPs 只多 0.2% |
-| 一张图 | 576 / 1369 个 token；encoder 输出 9–22 MB 但 **KV 184–438 MB（约 20 倍）** |
-| `encoder_compute_budget` | = `max_num_batched_tokens` |
+![API Server、数据并行 EngineCoreProc 与各自 Worker ranks 的部署变体](/img/in-post/vllm-request-lifecycle-deployment-variants.svg){: style="max-height: 410px"}
 
-![占位区间、is_embed 掩码、encoder 输出下标与两个 chunk 窗口的对齐](/img/in-post/request-shapes-multi-lora-and-multimodal-placeholder-align.svg){: style="max-height: 260px"}
-
----
-
-## 12 · 硬件解耦：不让芯片差异污染 Serving 核心
-
-**结论**：Serving 核心**依赖抽象能力不依赖具体芯片**；Platform 是能力中心但**不是所有底层组件的唯一父类**；Out-of-Tree 独立演进的前提是主仓库提供稳定契约。
-
-| 五层边界 | 内容 |
-|---|---|
-| Serving Core | Scheduler、KV Cache、请求生命周期——不知道芯片 |
-| 抽象契约 | `get_attn_backend_cls`、`get_device_communicator_cls`、`get_worker_cls`、`check_and_update_config` |
-| 平台实现 | CUDA / ROCm / TPU / XPU 的 Platform 类 |
-| 硬件运行时 | 驱动、通信库 |
-| Kernel | attention、GEMM、量化 |
-
-- 插件经 `vllm.platform_plugins` entry point 注册
-- 「Attention Backend 应该继承 Platform」——一个平台多个 backend，继承会组合爆炸；Platform 按条件派发一个类
+**DP rank 各有一个 EngineCoreProc；每个执行 rank 对应一个 WorkerProc。**
 
 <aside class="notes" markdown="1">
-原文 /hardware-abstraction-and-portability.html。
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。源码版本 v0.27.1。EP 在既有 DP×TP rank 上执行，不额外创建进程。
+</aside>
+
+<!-- v -->
+
+### 4+1：token 如何穿过 Serving 栈
+
+![Client、API Server、EngineCore 与 GPU 之间的 token 数据流](/img/in-post/vllm-request-lifecycle-token-dataflow.svg){: style="max-height: 410px"}
+
+**跨进程传递的是请求元数据、token IDs 与调度结果，不是完整模型状态。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。文本在 API Server tokenize，进程边界上传 token IDs；采样结果返回后在 API Server detokenize。
+</aside>
+
+<!-- v -->
+
+### 4+1：一个 token 的回程
+
+![ModelRunner、EngineCore 主线程、输出线程、output_handler 与 SSE 的 token 回程](/img/in-post/vllm-request-lifecycle-token-return.svg){: style="max-height: 410px"}
+
+**主线程立即回到 schedule；序列化走输出线程，detokenize 与 stop 检查在进程 A。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。stop 字符命中后 abort_requests_async 回到 B；RequestOutputCollector 合并 deltas，再由 generate() 发 SSE。
+</aside>
+
+<!-- v -->
+
+### 4+1：开发视图与包依赖
+
+![vLLM v0.27.1 的源码子系统、依赖关系与构建产物](/img/in-post/vllm-request-lifecycle-package-view.svg){: style="max-height: 410px"}
+
+**包图沿实际 import 展开；csrc 经 CMake / setup.py 编译进 Python wheel。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。模块覆盖 entrypoints、v1/engine、core、executor、worker、model_executor、attention、distributed 与 csrc；包图和构建说明以 v0.27.1 源码为准。
 </aside>
 
 ---
 
-## 13 · 下一站：从模型执行器到分布式智能操作系统
+## 04 · Scheduler：每轮按 token 推进请求
 
-**结论**：四个转变——手工配置 → **自动执行计划**、本地缓存 → **分布式状态平面**、单体推理 → **多阶段分布式执行**、GPU 利用率 → **Goodput / SLO / 成本**；vLLM 是执行引擎层。
+**每轮结合 token budget、请求状态与 KV 空间，决定运行哪些请求、每个请求推进多少 token。**
 
-| OS 类比 | Serving |
-|---|---|
-| 进程 | 请求 |
-| 页 | KV 块 |
-| 内核里的调度器 + 内存管理器 | vLLM |
-| 集群资源管理器 | llm-d / Dynamo / Mooncake 一类 |
-| 系统调用契约 | KV 传输、能力发现、指标 |
-
-- 三个平面：计算 / 状态 / 调度
+![Scheduler 的统一资源调度模型与请求流转](/img/in-post/scheduler-overview.svg){: style="max-height: 410px"}
 
 <aside class="notes" markdown="1">
-原文 /future-of-serving-infra.html。
+原文：[/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)。Continuous Batching、Chunked Prefill 与 Mixed Batch 都是同一资源调度模型的结果；KV 不足时按策略抢占并重算。
+</aside>
+
+---
+
+## 05 · KV Cache：管理增长中的状态
+
+**block_size=16；2,050 token 请求占 129 块，Prefix Cache 只复用写满的块。**
+
+![KV Cache 从 Prefill 写入、Decode 追加到完成或抢占归还的生命周期](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/kv-cache-memory-core.html](/kv-cache-memory-core.html)。固定大小的块按需分配；请求持 block table。示例中 2,000 token 前缀对应 125 个整块，可由后续请求复用。
+</aside>
+
+---
+
+## 06 · GPU 执行：减少等待、搬运与轮次
+
+**Llama-3-70B、8×H100、TP=8：Decode 权重读取下界约 5.3 ms，实测一步约 10 ms。**
+
+![标准 Attention 与 FlashAttention 的 HBM 读写和分块计算](/img/in-post/gpu-execution-kernels-and-graphs-standard-vs-flash.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)。Prefill 2,050 token 约 92 ms；300 步 decode 约 3,000 ms，占总时间 97%。四种浪费是 CPU launch、HBM 等待、数值过胖与解码轮次过多。
+</aside>
+
+---
+
+## 07 · 解码扩展：不只改 Sampler
+
+**batch=1、接受长度 2.5 时投机解码约 2.1×；batch=128 时每步慢 1.9×、吞吐反降。**
+
+![Proposer、Scheduler 与 Target 在投机解码中的角色和约束](/img/in-post/decoding-extensions-spec-decode-roles.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/decoding-extensions-sampling-speculative-and-structured-output.html](/decoding-extensions-sampling-speculative-and-structured-output.html)。投机解码改变每步决定的位置数，并牵动预算、KV 预留和 CUDA Graph；结构化输出改变分布的支撑集与请求状态。
+</aside>
+
+---
+
+## 08 · Multi-GPU：按瓶颈切分模型与请求
+
+**TP/PP/EP/CP 解决“装不下”；DP 解决“想要更多吞吐”，并处于最外层。**
+
+![TP、PP、EP、CP 与 DP 的 rank 布局及适用问题](/img/in-post/multi-gpu-scaling-strategies-tp-pp-dp-rank-layout.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)。TP decode 每步每层需要同步，80 层共 160 次 all-reduce，通信在关键路径上；PP 只在 stage 边界传激活。
+</aside>
+
+---
+
+## 09 · PD 分离：状态交接需要明确契约
+
+**匹配不等于就绪，计算结束也不等于 KV 块可回收；分离会增加交接与编排工作。**
+
+![Prefill 与 Decode 分离下的 KV 传输、执行与资源干扰时间线](/img/in-post/prefill-decode-disaggregation-overlap-timelines.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)。分离后 P、D 两侧仍各自管理本地计算与内存；Connector 管状态交接，外围编排连接请求与池级资源。
+</aside>
+
+---
+
+## 10 · 模型适配：变化落在哪一层
+
+**模型层管结构，运行时层管调度、Cache 与并行，算子层管 Kernel、量化与通信。**
+
+![模型适配中的 KV Cache 与 latent 表示变化](/img/in-post/model-adaptation-kv-vs-latent.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/model-adaptation-architecture.html](/model-adaptation-architecture.html)。适配分为模型、运行时和算子三层；运行时层往往最贵，因为新状态形状会影响调度、缓存布局与执行路径。
+</aside>
+
+---
+
+## 11 · 请求形态：multi-LoRA 与多模态
+
+**8 个 rank-16 LoRA 槽位静态占用约 1.44 GB/卡，与实际加载几个 adapter 无关。**
+
+![一个 kernel 按排序后的 token 索引 gather 不同 LoRA adapter 的权重行](/img/in-post/request-shapes-multi-lora-and-multimodal-lora-gather.svg){: style="max-height: 390px"}
+
+<aside class="notes" markdown="1">
+原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。LoRA FLOPs 只多 0.2%，但每步多 1,120 次 kernel launch；图片贵在持续驻留的 KV，而不是短命的 encoder 输出。
+</aside>
+
+<!-- v -->
+
+### 多模态：图片 token 的 KV 成本
+
+![占位区间、embedding 掩码、encoder 输出下标与 chunk 窗口对齐](/img/in-post/request-shapes-multi-lora-and-multimodal-placeholder-align.svg){: style="max-height: 400px"}
+
+**一张图 encoder 输出为 9–22 MB，相关 KV 为 184–438 MB，约 20 倍。**
+
+<aside class="notes" markdown="1">
+原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。图片示例 576 或 1,369 个 token；encoder 输出短命，KV 在生成期间持续驻留。
+</aside>
+
+---
+
+## 12 · 硬件解耦：Platform 是边界，不是万能胶
+
+**Serving 核心依赖抽象能力而非具体芯片；稳定契约让 Out-of-Tree 适配独立演进。**
+
+![Platform 按硬件与能力派发 Attention Backend、Worker 与算子实现](/img/in-post/hardware-abstraction-platform-dispatch.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)。Platform 是硬件能力中心，不是所有底层组件的唯一父类；Serving Core、抽象契约、平台实现、硬件运行时与 Kernel 形成多层边界。
+</aside>
+
+---
+
+## 13 · Serving 的下一站：分布式智能操作系统
+
+**四个转变：手工配置→自动计划、本地缓存→分布式状态、单体推理→多阶段执行、GPU 利用率→Goodput/SLO/成本。**
+
+![AI Serving Operating System 的计算、状态与编排层次](/img/in-post/future-of-serving-infra-ai-serving-os-layers.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/future-of-serving-infra.html](/future-of-serving-infra.html)。未来系统还要管理可编排计算、可迁移状态、可恢复请求、异构资源和动态执行计划；vLLM 当前代表 Runtime 层。
 </aside>
 
 ---
 
 ## 14 · 回到源码：一次请求的真实旅程
 
-**结论**：Python 控制面 / C++·CUDA 数据面分离；四个域（请求 / 调度 / 显存 / 模型）；`RequestStatus` 状态机；翻译层 `prepare_inputs()` 把 `SchedulerOutput` 变成 `slot_mapping` / `block_table`；**Python 开销 0.15 ms / 15 ms ≈ 1%**，且被 batch queue 流水线化。
+**同一个请求跨五篇算账：KV 734 MB、chunked prefill 5 段、decode 3,000 ms、跨节点 KV 641 MB。**
 
-| 五笔账（7B / A100 与 70B / H100） | 数 |
-|---|---|
-| 显存 | 147 块 / 734 MB |
-| 调度 | 5 段 chunk |
-| 时间 | 92 + 3000 ms |
-| 每步同步 | 2.5 MB |
-| 跨节点搬 KV | 641 MB ≈ 13 ms |
-
-- 7B / A100：权重读取 13.5 GB ÷ 2.0 TB/s ≈ 6.6 ms；decode 一步 batch 1 8–12 ms、batch 32 10–18 ms，吞吐 100 → 2000 tok/s
+![一个请求从调度迭代到 GPU kernel 的源码调用与时间线](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文 /source-code-request-walkthrough.html。
+原文：[/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)。完整数字来自正文汇总表：KV 147 块/734 MB；chunk=512 时 2,050 token 分 5 段；92 ms Prefill + 3,000 ms Decode；每 token 每步 8 卡同步约 2.5 MB；跨节点搬 KV 641 MB、约 13 ms。
 </aside>
 
 ---
 
-## 两条判断在十四篇里
+## 15 · vLLM 与 SGLang：同一请求，两种状态组织
 
-| 判断 | 落点 |
-|---|---|
-| **KV 是一切约束的源头** | 01 并发上限 = KV 池 ÷ 每请求 KV → 04 准入 / 抢占 → 05 分页与前缀 → 06 每步时间 = 权重 + KV 读取 → 07 lookahead 预留 → 09 PD 交接的就是 KV → 10 MLA 是运行时层的变化 → 11 图片 KV 20 倍、extra_keys |
-| **调度单位是 token** | 04 budget 与 chunk → 06 capture sizes 按 token 数 → 07 投机 1 + K、临界 300 token → 09 P 侧按 token 交接 → 11 encoder 预算 → 14 `SchedulerOutput` 里只有 token 数与块表 |
+| 维度 | vLLM v0.27.1 | SGLang v0.5.18 |
+|---|---|---|
+| 出发点 | PagedAttention：显存碎片 → 块 | RadixAttention：前缀复用 → 树 |
+| 调度 | 一个调度器，token 预算，无阶段 | 每 rank 一份调度器，prefill 优先 |
+| KV | block hash、`block_table` | RadixCache、`req_to_token` |
+| 进程 | SchedulerOutput 跨进程到 WorkerProc | Scheduler 与 ModelRunner 同进程 |
+
+**一句话：vLLM 是“一个调度器 + 块”，SGLang 是“N 个相同调度器 + 树”。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-vs-sglang.html](/vllm-vs-sglang.html)。两边功能面已重叠；结构差异来自状态归属与最初要解决的问题，而非单一 benchmark 排名。版本以正文标注的 vLLM v0.27.1 与 SGLang v0.5.18 为准。
+</aside>
 
 ---
 
-## 常见误区（一）
+## 两条判断贯穿十五篇
 
-- 「LLM 推理难是因为模型大」——难在动态、带状态、混合 workload
-- 「最大 batch 就是目标」——SLO 下的执行规模
-- 「TTFT 等于 Prefill 时间」——含排队
-- 「GPU 利用率高 = 系统高效」——decode 时 MFU 只有几个点
-- 「Scheduler 先跑 prefill 再跑 decode」——没有阶段，只有 token 推进
-- 「抢占重算一定很贵」——前缀块还在
-- 「Prefix Cache 按 token 复用」——按块
+![一个请求从 Scheduler、KV 管理与执行器进入 GPU 的完整路径](/img/in-post/source-code-request-walkthrough-request-to-kernel-chain.svg){: style="max-height: 400px"}
+
+- **KV 是一切约束的源头**：并发上限、抢占、前缀复用、Decode 带宽与 PD 交接。
+- **调度单位是 token**：budget、chunk、投机 lookahead 与 encoder 预算都围绕 token 推进。
+
+<aside class="notes" markdown="1">
+系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。第 16 篇回顾十五篇正文并提供通关自测。
+</aside>
+
+---
+
+## 常见误区
+
+- “最大 batch 就是目标”——目标是在 SLO 下的 Goodput。
+- “TTFT 等于 Prefill 时间”——TTFT 包含排队。
+- “Prefix Cache 按 token 复用”——复用单位是完整块。
+- “CUDA Graph 把 forward 融成超级 kernel”——它重放 kernel 序列，主要减少 launch 开销。
+- “投机解码总能加速”——batch 与 draft 负载可能抵消验证收益。
+- “图片贵在 encoder”——持续驻留的图片 KV 更大。
 {: .fragments}
 
----
-
-## 常见误区（二）
-
-- 「CUDA Graph 融成一个超级 kernel」——只省 launch
-- 「投机解码总能加速」——batch × (1 + K) > 300 后不再免费
-- 「TP 卡数翻倍延迟减半」——all-reduce 在关键路径
-- 「只加载一个 LoRA 就只占一个槽」——静态买断
-- 「多模态贵在 encoder」——贵在图片 token 的 KV
-- 「PD 分离 = 两台机器；分离后干扰消失」——资源域不是位置；D 内干扰仍在
-{: .fragments}
-
----
-
-## 十四个出口
-
-| 篇 | 一个公式 / 一个数 |
-|---|---|
-| 01 · 02 | KV 320 KB / token；decode 下界 5.3 ms；TPOT = (E2E − TTFT)/(N − 1)；decode 占 97% |
-| 03 · 04 | 三类进程两道 IPC；2050 → 5 段；`max_num_seqs` 先卡；LIFO 抢占重算 |
-| 05 · 06 | block 16、640 KB；2.56 MB → 320 → 160 KB；四种浪费；81 段图 |
-| 07 · 08 | 临界 300 token / 步；2.1× vs 慢 1.9 倍；TP 每步 160 次 all-reduce |
-| 09 · 10 · 11 | 4096 token 3.4 ms；匹配 ≠ 就绪；三层适配；LoRA 1.44 GB 买断；图片 KV 20 倍 |
-| 12 · 13 · 14 | 五层边界；三个平面；Python 1% |
+<aside class="notes" markdown="1">
+对应原文：[/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)、[/kv-cache-memory-core.html](/kv-cache-memory-core.html)、[/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)、[/decoding-extensions-sampling-speculative-and-structured-output.html](/decoding-extensions-sampling-speculative-and-structured-output.html)、[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。
+</aside>
 
 ---
 
 ## 下一步
 
-- **往下**：《GPU Kernel 工程》第 8 篇——FlashAttention / PagedAttention 本身；《通信与互联》第 7 篇——custom all-reduce 与 KV 传输
-- **往旁**：《扩散模型推理 Infra》——没有 KV cache 的另一种 Serving；《RL 后训练 Infra》——推理引擎进训练循环
-- **算法侧**：《高效推理与压缩》——量化、投机、KV 压缩的算法侧；《现代 LLM 结构》第 02 篇的 Roofline
-- 原文总纲：`/deep-dive-into-vllm.html`；通关自测在系列总结
+- **系列总结**：第 16 篇 [/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)
+- **往下**：《GPU Kernel 工程》与《通信与互联》——继续看 FlashAttention、PagedAttention、All-Reduce 与 KV 传输。
+- **往旁**：《扩散模型推理 Infra》与《RL 后训练 Infra》——比较另一种 Serving 工作负载及训练中的推理引擎。
+- **回看总纲**：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)
+
+<aside class="notes" markdown="1">
+正文顺序为 01–15；系列总结与自测编号为 16。所有结论与数字以对应正文为准。
+</aside>
