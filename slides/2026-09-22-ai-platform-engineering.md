@@ -35,19 +35,13 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 flowchart TB
-    P1["01 引擎的需求清单与整体架构<br/>K8s 的四个假设被 AI 负载逐条违背"]
-    subgraph RES["资源层：引擎之下"]
-        direction TB
-        P2["02 容器里的 GPU<br/>驱动、CUDA、device plugin"] --> P3["03 AI 任务调度<br/>gang、队列、拓扑感知"] --> P4["04 GPU 共享与切分<br/>MIG、时间片、HAMi"]
-        P2 --> P5["05 网络与存储<br/>RDMA 进容器、checkpoint I/O"]
-    end
-    subgraph DEL["交付层：引擎之侧"]
-        direction TB
-        P6["06 Serving 平台<br/>InferenceService → llm-d"] --> P7["07 模型网关与多租户"] --> P8["08 可观测、成本与 FinOps"]
-    end
+    P1["01 需求与架构"]
+    P2["02 GPU 进容器"] --> P3["03 任务调度"] --> P4["04 GPU 共享"]
+    P2 --> P5["05 网络与存储"]
+    P6["06 Serving"] --> P7["07 网关"] --> P8["08 观测成本"]
     P1 --> P2
     P1 --> P6
-    P4 & P5 -. "推理服务也跑在这些资源上" .-> P6
+    P4 & P5 -.-> P6
 ```
 
 ---
