@@ -37,7 +37,7 @@ flowchart TB
 
 ## 01 · 上下文的解剖：模型这一步看到什么
 
-**结论**：七层——系统指令、工具与技能、长期记忆、历史、检索、**工具返回**、当前输入——按变化频率、维护者、可压缩性分；agent 会话按 $$S + (k-1)(r+o)$$ 增长，**工具返回主导，目标漂到中间是算术必然**。
+**七层按变化频率分；会话按 \(S+(k-1)(r+o)\) 长——目标漂到中间是算术必然**
 
 ![七层在第 1 步与第 30 步的体积：常驻层不变，工具返回长成大头，当前输入被挤到最底下](/img/in-post/anatomy-of-the-context-window-seven-layers-growth.svg){: style="max-height: 330px"}
 
@@ -49,7 +49,7 @@ flowchart TB
 
 ## 02 · prompt 设计：稳定的模式与不稳定的措辞
 
-**结论**：**模式不变**（身份与边界、可检验规则、分区、工具政策、格式与出口、知识与时间），**措辞随模型调**；推理模型上 CoT 指令冗余、大量 few-shot 有害、夸奖无增量、矛盾指令浪费思考。
+**六部分模式不变、措辞随模型调——推理模型上 CoT 冗余、大量 few-shot 有害**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
@@ -88,7 +88,7 @@ flowchart LR
 
 ## 03 · 结构化输出：约束解码与 schema 设计
 
-**结论**：自动机屏蔽不合法 token 是**数学保证**（Outlines 正则 → FSM；XGrammar CFG → 下推自动机）；strict 的限制来自状态空间；**字段顺序即生成顺序，推理字段前置**（提 2–5 个百分点）；显式拒答出口；解析层二次校验 + 带错误重试一次。
+**约束解码是数学保证；字段顺序即生成顺序——推理字段前置提 2–5 个百分点**
 
 ![约束解码的一步：schema 允许的候选保留，其余 logit 置为负无穷，剩下的重新归一化后采样](/img/in-post/structured-output-constrained-decoding-mask.svg){: style="max-height: 220px"}
 
@@ -103,7 +103,7 @@ flowchart LR
 
 ## 04 · 上下文预算与压缩：超了先做什么
 
-**结论**：**隔离 → 卸载 → 清理 → 压缩**，代价递增；压缩有损、**只在思考链结束处做**、缓存全失效；复述对抗漂移；评测用探针问题前后对比。
+**超预算先隔离、再卸载、再清理、最后压缩——压缩有损且让缓存全失效**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -151,12 +151,12 @@ flowchart LR
 
 ## 05 · prompt caching 与上下文的排列
 
-**结论**：**前缀逐字节相同才命中**，tools → system → messages，改动处起失效；按变化频率排四层、四个断点；**屏蔽工具不删除、不删失败、不整理历史**；看命中率 + 未缓存绝对量 + 节省美元。
+**前缀逐字节相同才命中：按变化频率排四层，改动处起全部失效**
 
 ![按变化频率排四层、断点放在每层末尾；system 开头一个时间戳或中途删一个工具，就让后面全部失效](/img/in-post/prompt-caching-prefix-layout-and-invalidation.svg){: style="max-height: 300px"}
 
 <aside class="notes" markdown="1">
-原文 /prompt-caching-and-context-layout.html。Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时；OpenAI 1,024、128 倍数、prompt_cache_key；Gemini 存储费按小时；DeepSeek 64 粒度；稳态 70–90%、单轮 30–60%。
+原文 /prompt-caching-and-context-layout.html。Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时；OpenAI 1,024、128 倍数、`prompt_cache_key`；Gemini 存储费按小时；DeepSeek 64 粒度；稳态 70–90%、单轮 30–60%。
 </aside>
 
 <!-- v -->
@@ -172,7 +172,7 @@ flowchart LR
 
 ## 06 · prompt 当代码管：版本、评测、A/B，上下文 vs 检索
 
-**结论**：**不可变版本 + 绑定模型 + 评测门禁 + 标签发布 + trace 绑定**；AGENTS.md 常驻、SKILL.md 按需；全放 / 流水线检索 / agentic 按四维选。
+**prompt 当代码管：不可变版本 + 评测门禁 + 标签发布 + 回滚路径**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
