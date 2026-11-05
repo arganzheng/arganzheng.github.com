@@ -1560,7 +1560,7 @@ std::function<void()> make_task(const Tensor& x) {
 }
 ```
 
-判断规则只有一条：**lambda 会不会在当前作用域结束后还被调用？** 会——只能按值捕获或初始化捕获（`[x, scale]`、`[x = std::move(x)]`）；不会——`[&]` 安全且更快。一个很好的信号是参数类型：接收 `std::function<void()>` 的接口（`aten/src/ATen/Parallel.h` 里的 `TORCH_API void launch(std::function<void()> func);` 是异步提交到线程池）通常意味着"我会把它存起来稍后调用"，此时 `[&]` 几乎一定是错的；接收 `const F&` 模板参数并立即调用的接口（`parallel_for`、`AT_DISPATCH`）则可以放心 `[&]`。
+判断规则只有一条：**lambda 会不会在当前作用域结束后还被调用？** 会——只能按值捕获或初始化捕获（`[x, scale]`、`[x = std::move(x)]`）；不会——`[&]` 安全且更快。一个很好的信号是参数类型：接收 `std::function<void()>` 的接口（`aten/src/ATen/Parallel.h` 里的 `TORCH_API void launch(std::function<void()> func);` 是异步提交到线程池）通常意味着"会把它存起来稍后调用"，此时 `[&]` 几乎一定是错的；接收 `const F&` 模板参数并立即调用的接口（`parallel_for`、`AT_DISPATCH`）则可以放心 `[&]`。
 
 另一个隐蔽的陷阱是 `[=]` 捕获 `this`：`[=]` 会隐式捕获 `this` 指针（按值拷贝的是指针本身），对象析构后调用闭包同样悬垂。C++20 已废弃 `[=]` 隐式捕获 `this`，要写 `[=, this]` 或 `[=, *this]` 明示。
 

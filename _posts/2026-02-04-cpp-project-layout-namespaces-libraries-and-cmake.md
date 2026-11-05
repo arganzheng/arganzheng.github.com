@@ -35,9 +35,9 @@ PyMODINIT_FUNC PyInit__C(void)
 
 本文要回答的核心问题是：
 
-> **`import torch` 时加载了哪些 `.so`？[^q0] 它们之间是什么依赖关系？[^q1] 我写的扩展链接到哪一个？[^q2]**
+> **`import torch` 时加载了哪些 `.so`？[^q0] 它们之间是什么依赖关系？[^q1] 自定义扩展链接到哪一个？[^q2]**
 
-PyTorch 在本篇里是被拆开看的样本，与系列其他篇一样——目的不是记住它的目录，而是学会看任何一个大 C++ 项目的目录时该问的三个问题：这个命名空间对应哪些库？这个目录编进哪个 `.so`？我的代码要用它，得链接哪一个？
+PyTorch 在本篇里是被拆开看的样本，与系列其他篇一样——目的不是记住它的目录，而是学会看任何一个大 C++ 项目的目录时该问的三个问题：这个命名空间对应哪些库？这个目录编进哪个 `.so`？代码要用它，得链接哪一个？
 
 ## 一、总览
 
@@ -332,7 +332,7 @@ print(open("/proc/self/maps").read().count("libtorch_cpu.so") > 0)
 
 （`torch/__init__.py` 自己就在 `_load_global_deps` 里读 `/proc/self/maps` 判断 `libcudart.so` 是否已加载。）
 
-### 4. 我写的扩展链接到哪一个
+### 4. 自定义扩展链接到哪一个
 
 一个 C++ 扩展（用 `torch.utils.cpp_extension` 编出来的 `.so`）会引用三类符号：
 
@@ -478,7 +478,7 @@ if(NOT BUILD_LIBTORCHLESS)
   endif()
 ```
 
-`PUBLIC` 表示"我依赖它，链接我的人也自动依赖它"；`PRIVATE` 表示"只有我内部用"。`headeronly` 是 `PUBLIC`（使用者需要它的头文件路径），`fmt`、`nlohmann`（JSON）、`moodycamel`（无锁队列）是 `PRIVATE`（实现细节，不暴露）。`dl` 是 `dlopen` 所在的库。这些关键字的完整语义在第八篇。
+`PUBLIC` 表示"依赖它，链接者也自动依赖它"；`PRIVATE` 表示"只有内部用"。`headeronly` 是 `PUBLIC`（使用者需要它的头文件路径），`fmt`、`nlohmann`（JSON）、`moodycamel`（无锁队列）是 `PRIVATE`（实现细节，不暴露）。`dl` 是 `dlopen` 所在的库。这些关键字的完整语义在第八篇。
 
 ```cmake title='c10 的头文件搜索路径：源码树根'
   target_include_directories(
@@ -1019,7 +1019,7 @@ Table: 按编译阶段定位错误
 
 **它们之间是什么依赖关系？** 单向的四层：`c10` 不依赖任何 PyTorch 代码；`torch_cpu` 依赖 `c10`；`torch_cuda` 依赖 `torch_cpu` 和 `c10_cuda`；`torch` 是把 CPU 和 CUDA 打包的空壳；`torch_python` 依赖 `torch` 和 Python；`_C` 是 15 行 stub 到 `torch_python` 的转接头。命名空间 `c10::`/`at::`/`torch::` 大致对应前三层，但 `torch::` 横跨 `libtorch_cpu.so` 和 `libtorch_python.so`。
 
-**我写的扩展链接到哪一个？** 用了 `c10::` 的类型链 `-lc10`；用了 `at::Tensor`、算子、`TORCH_LIBRARY` 链 `-ltorch_cpu`（或 `-ltorch`）；用了 CUDA 链 `-lc10_cuda -ltorch_cuda`；用了 pybind11 的 Tensor 转换链 `-ltorch_python`。`torch.utils.cpp_extension` 默认全加；vLLM 为了 Python 稳定 ABI 只链 `torch`，不链 `torch_python`。
+**自定义扩展链接到哪一个？** 用了 `c10::` 的类型链 `-lc10`；用了 `at::Tensor`、算子、`TORCH_LIBRARY` 链 `-ltorch_cpu`（或 `-ltorch`）；用了 CUDA 链 `-lc10_cuda -ltorch_cuda`；用了 pybind11 的 Tensor 转换链 `-ltorch_python`。`torch.utils.cpp_extension` 默认全加；vLLM 为了 Python 稳定 ABI 只链 `torch`，不链 `torch_python`。
 
 上篇的机制表里还差一行，本篇补上：
 

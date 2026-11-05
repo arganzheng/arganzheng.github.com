@@ -1232,7 +1232,7 @@ static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
 }
 ```
 
-`tp_traverse` 的契约是"报告我持有的所有 Python 强引用"。前两个 `Py_VISIT` 是直接字段，没有疑问。`grad_fn` 那段是难点：`grad_fn` 是 C++ 对象（`Node`，它自己有一个 `pyobj_` 字段指向它的 Python 包装），它的 Python 包装是否算"被这个 `THPVariable` 持有"，取决于 C++ 侧的所有权——只有当这个 Python 对象是 `TensorImpl` 的唯一持有者（`tensor.use_count() == 1`），且 `TensorImpl` 是 `grad_fn` 的唯一持有者（`grad_fn.use_count() == 1`），才能说"这条链上的 Python 对象是我独占的，可以报告给 GC"。报告一个并非独占的引用，GC 可能错误地清掉别人正在用的对象——注释里那个 gist 就是这样一个 bug。
+`tp_traverse` 的契约是"报告持有的所有 Python 强引用"。前两个 `Py_VISIT` 是直接字段，没有疑问。`grad_fn` 那段是难点：`grad_fn` 是 C++ 对象（`Node`，它自己有一个 `pyobj_` 字段指向它的 Python 包装），它的 Python 包装是否算"被这个 `THPVariable` 持有"，取决于 C++ 侧的所有权——只有当这个 Python 对象是 `TensorImpl` 的唯一持有者（`tensor.use_count() == 1`），且 `TensorImpl` 是 `grad_fn` 的唯一持有者（`grad_fn.use_count() == 1`），才能说"这条链上的 Python 对象被独占，可以报告给 GC"。报告一个并非独占的引用，GC 可能错误地清掉别人正在用的对象——注释里那个 gist 就是这样一个 bug。
 
 函数上方的 `NOTE [ PyObject Traversal ]` 把这个规则一般化了：
 
@@ -1630,7 +1630,7 @@ Java 对照：一次 JNI 调用 `nativeScale(tensorObj, 2.0)`：`jobject` 进来
 - **pybind11**：`PYBIND11_MODULE(my_ext, m) { m.def("scale", &scale_cpu); }`，Python 侧 `import my_ext; my_ext.scale(t, 2.0)`。
 - **`TORCH_LIBRARY`**：`TORCH_LIBRARY(myops, m) { m.def("scale(Tensor x, float alpha) -> Tensor"); }` + `TORCH_LIBRARY_IMPL`，Python 侧 `torch.ops.myops.scale(t, 2.0)`。
 
-前者是"我写了一个 Python 函数，恰好用 C++ 实现"；后者是"我向 PyTorch 的算子表登记了一个算子"。第八章走的是后者的调用路径。vLLM 全部使用后者，`csrc/torch_bindings.cpp` 是它的主注册文件（`csrc/moe/torch_bindings.cpp`、`csrc/cpu/torch_bindings.cpp` 等是同一写法的分册）。
+前者是"写了一个 Python 函数，恰好用 C++ 实现"；后者是"向 PyTorch 的算子表登记了一个算子"。第八章走的是后者的调用路径。vLLM 全部使用后者，`csrc/torch_bindings.cpp` 是它的主注册文件（`csrc/moe/torch_bindings.cpp`、`csrc/cpu/torch_bindings.cpp` 等是同一写法的分册）。
 
 ### 1. vLLM `csrc/torch_bindings.cpp`：只注册，不定义 Python 函数
 

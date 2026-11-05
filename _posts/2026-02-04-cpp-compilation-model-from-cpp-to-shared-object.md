@@ -46,7 +46,7 @@ PyMODINIT_FUNC PyInit__C(void)
 
 > **一个 `.cpp` 文件是怎么变成机器码、再变成一个能被加载的 `.so` 的？每个阶段各做什么，"找不到"的错误分别发生在哪个阶段？[^q4]**
 
-本篇讲编译模型本身——四个阶段、翻译单元、ODR、符号与库、动态链接——最后手写一遍编译命令把一个程序链接到 PyTorch 的库上。几千个翻译单元怎么组织成 `libc10.so`、`libtorch_cpu.so`、`libtorch_python.so` 这几个库、`import torch` 到底加载了什么、我写的扩展该链接到哪一个，是[下篇](/cpp-project-layout-namespaces-libraries-and-cmake.html)的内容。
+本篇讲编译模型本身——四个阶段、翻译单元、ODR、符号与库、动态链接——最后手写一遍编译命令把一个程序链接到 PyTorch 的库上。几千个翻译单元怎么组织成 `libc10.so`、`libtorch_cpu.so`、`libtorch_python.so` 这几个库、`import torch` 到底加载了什么、自定义扩展该链接到哪一个，是[下篇](/cpp-project-layout-namespaces-libraries-and-cmake.html)的内容。
 
 ## 一、总览
 
@@ -220,7 +220,7 @@ clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
 
 链接器（`ld`、`lld`、`gold`、macOS 的 `ld64`）收集所有 `.o` 和库，做两件事：
 
-1. **符号解析**（symbol resolution）：每个"我引用了 X 但没定义"的地方，都要找到唯一一个"我定义了 X"；
+1. **符号解析**（symbol resolution）：每个"引用了 X 但没定义"的地方，都要找到唯一一个"定义了 X"；
 2. **重定位**（relocation）：确定每段代码和数据的最终地址，把所有引用处的占位地址改成真实地址。
 
 ![链接做的两件事。左：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它，地址都从 0 起；右：链接后的可执行文件装进进程的虚拟地址空间——代码段、数据段、堆、栈、动态库映射区各占一段——① 符号解析把每个 U 对到恰好一个 T，② 重定位把占位地址改成最终地址](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg)
@@ -1166,7 +1166,7 @@ U c10::UndefinedTensorImpl::_singleton
 U c10::AutogradMetaInterface::~AutogradMetaInterface()
 ```
 
-（为了可读，去掉了 libc++ 的 `std::__1::` 前缀。）`torch::ones`、`t * 2.5`、`+ 1.0`、`.sum()` 这四个源码里的调用，变成了四个 `at::_ops::*::call` 的 `U`——`torch::ones` 是头文件里的 inline 函数，最终调到 `at::_ops::ones::call`；后三个 `c10::` 符号来自 `Tensor` 构造与析构走过的头文件里的 inline 代码。这就是"我写的扩展依赖哪些符号"的精确答案：前五个在 `libtorch_cpu`，后三个在 `libc10`。
+（为了可读，去掉了 libc++ 的 `std::__1::` 前缀。）`torch::ones`、`t * 2.5`、`+ 1.0`、`.sum()` 这四个源码里的调用，变成了四个 `at::_ops::*::call` 的 `U`——`torch::ones` 是头文件里的 inline 函数，最终调到 `at::_ops::ones::call`；后三个 `c10::` 符号来自 `Tensor` 构造与析构走过的头文件里的 inline 代码。这就是"自定义扩展依赖哪些符号"的精确答案：前五个在 `libtorch_cpu`，后三个在 `libc10`。
 
 ### 4. 链接
 
@@ -1279,7 +1279,7 @@ Table: 本篇涉及的 C++ 机制及其在 PyTorch 里的体现
 
 Java 工程师需要放弃的两个直觉：**"编译器能看到整个项目"**（不能，只能看到一个翻译单元，头文件是手写的接口）；**"找不到类是运行时异常"**（在 C++ 里它是构建失败或进程起不来，三个阶段都在业务代码运行之前）。第三个直觉——"一个包就是一个 jar"——留给下篇：命名空间、目录、库是三个独立的维度。
 
-下篇把镜头从一个翻译单元拉远到整个 PyTorch：几千个 `.cpp` 怎么分层成几个库、`import torch` 加载了哪些 `.so`、我写的扩展链接到哪一个。
+下篇把镜头从一个翻译单元拉远到整个 PyTorch：几千个 `.cpp` 怎么分层成几个库、`import torch` 加载了哪些 `.so`、自定义扩展链接到哪一个。
 
 ## 九、自测
 

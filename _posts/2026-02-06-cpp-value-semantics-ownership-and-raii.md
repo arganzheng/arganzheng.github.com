@@ -173,7 +173,7 @@ Table: * 与 & 在声明与表达式中的两种含义
 | `= delete` | 显式禁止某个函数，调用它编译失败 | 第五章 |
 | `noexcept` | 承诺这个函数不抛异常；对移动构造有性能意义 | 第六章 |
 | `virtual` | 虚函数，通过基类指针调用时按实际类型分派（Java 方法默认就是虚的） | 第四篇 |
-| `override` | 标记"我在覆写基类的虚函数"，写错签名时编译器报错（同 Java 的 `@Override`） | 第四篇 |
+| `override` | 标记"在覆写基类的虚函数"，写错签名时编译器报错（同 Java 的 `@Override`） | 第四篇 |
 | `final` | 类不能再被继承，或虚函数不能再被覆写（同 Java） | 第四篇 |
 | `static` | 类里的 `static` 成员属于类而不属于对象（同 Java）；函数里的 `static` 局部变量只初始化一次、寿命到进程结束 | 第九、十章 |
 | `friend` | 允许另一个类或函数访问本类的私有成员 | 第九章 |
@@ -262,7 +262,7 @@ heap object at 0x104f4dc30, pointer variable itself at 0x16b3fec90
 - `hp` 的**值**等于 `p` 的地址。`hp->x` 就是"顺着 `hp` 找到那个对象，取它的 `x`"，所以是 `p.x` 的 1，不是 `q.x` 的 3。
 - 堆对象的地址（`0x104f...`）与栈上变量的地址（`0x16b3...`）明显在不同的区域。指针变量 `heap` 自己在栈上，它指向的 `Point` 在堆上。`delete heap` 释放的是堆上那 16 字节，`heap` 这个 8 字节的指针变量要等 `main` 返回、栈帧弹出时才消失。
 
-我把快照取在 `delete heap` **之前**，这时栈和堆上的对象都还活着：
+快照取在 `delete heap` **之前**，这时栈和堆上的对象都还活着：
 
 ![delete heap 前的栈帧与堆](/img/in-post/cpp-value-semantics-ownership-and-raii-stack-heap.svg)
 
@@ -441,7 +441,7 @@ void f(at::Tensor& t);         // 按非常量引用：零开销，函数内可�
 
 Table: 三种传参方式与选择规则
 
-为什么 `T&` 不能接受临时对象？因为 `T&` 的语义是"我要修改调用方的对象"，而临时对象在语句结束就消失了，修改它没有意义，编译器干脆禁止。`const T&` 承诺不修改，所以允许绑定临时对象（编译器会让临时对象活到引用失效为止）。
+为什么 `T&` 不能接受临时对象？因为 `T&` 的语义是"要修改调用方的对象"，而临时对象在语句结束就消失了，修改它没有意义，编译器干脆禁止。`const T&` 承诺不修改，所以允许绑定临时对象（编译器会让临时对象活到引用失效为止）。
 
 回到 `scale_shift_cpu(const at::Tensor& x, double alpha, double beta)`：`x` 只读，用 `const at::Tensor&`；`alpha`、`beta` 是 8 字节的 `double`，按值传比按引用传还便宜（引用底层是指针，也是 8 字节，还多一次解引用）。这正是 PyTorch 生成的算子签名的约定：Tensor 用 `const Tensor&`，标量按值。
 
@@ -560,7 +560,7 @@ error: 'this' argument to member function 'get' has type 'const Counter',
 
 有了引用和智能指针（第八章）之后，现代 C++ 里裸指针 `T*` 主要保留两个用途。
 
-**第一，表达"非拥有"（non-owning）关系**：我知道这个对象在哪，但我不负责它的生死。`StorageImpl` 持有的 `Allocator*` 就是典型（`c10/core/StorageImpl.h`，私有成员）：
+**第一，表达"非拥有"（non-owning）关系**：知道这个对象在哪，但不负责它的生死。`StorageImpl` 持有的 `Allocator*` 就是典型（`c10/core/StorageImpl.h`，私有成员）：
 
 ```cpp title="StorageImpl 用裸指针 Allocator* 表达非拥有"
   DataPtr data_ptr_;
@@ -573,7 +573,7 @@ error: 'this' argument to member function 'get' has type 'const Counter',
 
 **第二，表达"可以为空"**：引用不能为空，需要"可能没有"的语义时用指针（或者 `std::optional`）。`nullptr` 是 C++11 引入的空指针字面量，对应 Java 的 `null`；旧代码里的 `NULL` 和 `0` 是同一个意思。
 
-裸指针**不**再用来表达所有权。看到 `T*` 就应该默认它不拥有对象；拥有关系用 `unique_ptr`、`shared_ptr`、`intrusive_ptr` 表达。PyTorch 源码里凡是名字带 `unsafe` 的、返回裸指针的方法——`unsafeGetTensorImpl()`、`unsafeGetStorageImpl()`——都是在说"我把内部指针借给你看一眼，你别拿它做所有权操作"。
+裸指针**不**再用来表达所有权。看到 `T*` 就应该默认它不拥有对象；拥有关系用 `unique_ptr`、`shared_ptr`、`intrusive_ptr` 表达。PyTorch 源码里凡是名字带 `unsafe` 的、返回裸指针的方法——`unsafeGetTensorImpl()`、`unsafeGetStorageImpl()`——都是在说"把内部指针借出去看一眼，别拿它做所有权操作"。
 
 ### 5. 悬垂引用：C++ 没有 GC 兜底
 
@@ -1578,7 +1578,7 @@ class C10_API intrusive_ptr_target {
   }
 ```
 
-骨架和玩具版的 `++refcount_` / `--refcount_ == 0 → delete` 完全一致，多出来的是三件事：原子操作和 `std::memory_order_*` 参数（第六篇的内容，这里只需知道它们保证多线程正确性）；一个快速路径——如果强弱计数都是 1，说明只有我一个人持有，不需要原子减，直接 `delete`；以及弱引用存在时的分支。`delete target` 通过虚析构调到 `~TensorImpl`，第七章那条析构链由此开始。
+骨架和玩具版的 `++refcount_` / `--refcount_ == 0 → delete` 完全一致，多出来的是三件事：原子操作和 `std::memory_order_*` 参数（第六篇的内容，这里只需知道它们保证多线程正确性）；一个快速路径——如果强弱计数都是 1，说明只有一个持有者，不需要原子减，直接 `delete`；以及弱引用存在时的分支。`delete target` 通过虚析构调到 `~TensorImpl`，第七章那条析构链由此开始。
 
 `NullType::singleton()` 是"空值是什么"，玩具版里就是 `nullptr`，真实版本允许指定别的东西，9.8 节解释。
 
@@ -1636,7 +1636,7 @@ inline intrusive_ptr<TTarget, NullType> make_intrusive(Args&&... args) {
 |---|---|---|---|
 | `release()` | 不变 | 智能指针放手，把"一个引用"交给裸指针的持有者 | 返回 new reference（调用方负责 decref） |
 | `reclaim(p)` | 不变 | 从裸指针接回"一个引用"，恢复成智能指针 | 接管一个 new reference |
-| `reclaim_copy(p)` | +1 | 裸指针继续持有它的引用，我再加一个 | 对 borrowed reference 做 `Py_INCREF` |
+| `reclaim_copy(p)` | +1 | 裸指针继续持有它的引用，再加一个 | 对 borrowed reference 做 `Py_INCREF` |
 | `unsafe_reclaim_from_nonowning(p)` | +1 | 同上，但 `p` 是非拥有的（相当于 `shared_from_this`） | 同上 |
 | `unsafe_steal_from_new(p)` | 0→1 | 接管一个刚 `new` 出来、还没有任何引用的对象 | — |
 
@@ -2161,11 +2161,11 @@ Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两�
 
 上面每一步都是同步的、确定的、发生在最后那个 `Tensor` 析构的那条语句里。没有 GC 的延迟，也没有 finalizer 的不确定性。这就是 C++ 能精确控制显存生命周期的原因，也是为什么 PyTorch 可以在 Python 端 `del` 一个 tensor 后立刻把显存给下一个 tensor 用。
 
-一个常见的困惑："我 `del x` 了，为什么显存没释放？"按上面四步逐条排查：还有别的 Python 变量引用它（步骤 1，Python 端引用）；它被 autograd 图保存了（步骤 1，`SavedVariable`）；它的某个 view 还活着（步骤 2）；释放了但在缓存池里（步骤 4）。每一种都对应链上的一个环节。
+一个常见的困惑："`del x` 了，为什么显存没释放？"按上面四步逐条排查：还有别的 Python 变量引用它（步骤 1，Python 端引用）；它被 autograd 图保存了（步骤 1，`SavedVariable`）；它的某个 view 还活着（步骤 2）；释放了但在缓存池里（步骤 4）。每一种都对应链上的一个环节。
 
 ### 11. 借用：`MaybeOwned` 与 `ExclusivelyOwned`（进阶）
 
-最后提一下两个为了**省掉引用计数**而存在的工具类型。`c10::MaybeOwned<Tensor>` 表示"可能拥有、可能只是借用"，4.5 节的 `expect_contiguous()` 用它：已经连续时借用 `*this`（不加计数），不连续时拥有新建的 tensor。它通过 `TensorBase` 一个 protected 的构造函数创建一个 +0 引用计数的 `Tensor`，并在析构时用 `unsafeReleaseTensorImpl()` "泄漏"它，从而抵消——这正是 9.7 节 `release()`/`reclaim()` 那对操作在库内部的用法。`c10::ExclusivelyOwned<Tensor>` 表示"我确定我是唯一的持有者"，析构时可以跳过原子减直接 `delete`。读到它们时，只需要知道它们是 `Tensor` 的"零成本借用视图"和"确定独占视图"，不用深究实现。
+最后提一下两个为了**省掉引用计数**而存在的工具类型。`c10::MaybeOwned<Tensor>` 表示"可能拥有、可能只是借用"，4.5 节的 `expect_contiguous()` 用它：已经连续时借用 `*this`（不加计数），不连续时拥有新建的 tensor。它通过 `TensorBase` 一个 protected 的构造函数创建一个 +0 引用计数的 `Tensor`，并在析构时用 `unsafeReleaseTensorImpl()` "泄漏"它，从而抵消——这正是 9.7 节 `release()`/`reclaim()` 那对操作在库内部的用法。`c10::ExclusivelyOwned<Tensor>` 表示"确定自己是唯一持有者"，析构时可以跳过原子减直接 `delete`。读到它们时，只需要知道它们是 `Tensor` 的"零成本借用视图"和"确定独占视图"，不用深究实现。
 
 ## 十一、mini-c10：让第一个 Tensor 跑起来
 

@@ -177,7 +177,7 @@ add_subdirectory(benchmark)
 
 Table: PUBLIC、PRIVATE、INTERFACE 的传播规则
 
-判断标准只有一个：**这个属性是否出现在我的头文件里**。`c10` 的头文件 `#include <torch/headeronly/...>`，所以 `headeronly` 是 `PUBLIC`——任何 include 了 c10 头文件的下游都需要它的路径。`fmt` 只在 `c10/util/*.cpp` 里用，所以 `PRIVATE`——下游不需要知道 fmt 存在。`-fvisibility=hidden` 是 c10 自己怎么编的问题，`PRIVATE`——如果写成 `PUBLIC`，所有链接 c10 的目标都会变成 hidden 可见性，扩展模块的 `PyInit_*` 会消失。
+判断标准只有一个：**这个属性是否出现在当前头文件里**。`c10` 的头文件 `#include <torch/headeronly/...>`，所以 `headeronly` 是 `PUBLIC`——任何 include 了 c10 头文件的下游都需要它的路径。`fmt` 只在 `c10/util/*.cpp` 里用，所以 `PRIVATE`——下游不需要知道 fmt 存在。`-fvisibility=hidden` 是 c10 自己怎么编的问题，`PRIVATE`——如果写成 `PUBLIC`，所有链接 c10 的目标都会变成 hidden 可见性，扩展模块的 `PyInit_*` 会消失。
 
 传递是链式的：`torch_cpu` 链接 `c10`（`PUBLIC`），`torch_python` 链接 `torch_cpu`，于是 `torch_python` 自动拿到 c10 的头文件路径和 `headeronly`。这也是为什么 `find_package(Torch)` 之后只需要 `target_link_libraries(my_ext torch)` 一行——所有传递属性自动带过来。
 
@@ -1718,7 +1718,7 @@ CheckOptions:
 
 `HeaderFilterRegex: '^(aten/|c10/|torch/).*$'` 让 clang-tidy 也报告头文件里的问题，但只报 PyTorch 自己的头文件，不报 `third_party/`；`LineFilter` 再把系统头文件 `/usr/include/` 里的行排除掉。`WarningsAsErrors: '*'` 让所有开启的检查都是错误——lint 不通过就不能合并。
 
-`NOLINT` 注释族是逃生口：`// NOLINTNEXTLINE(check-name)` 压制下一行的指定检查，`// NOLINT` 压制本行所有检查，`// NOLINTBEGIN(...)`/`// NOLINTEND(...)` 压制一段（`intrusive_ptr_test.cpp` 开头有 `// NOLINTBEGIN(clang-analyzer-cplusplus*)`——测试里故意做 self-move、use-after-move 之类的事）。每一个 `NOLINT` 都应该带检查名，说明"我知道这条规则，我有理由违反它"。
+`NOLINT` 注释族是逃生口：`// NOLINTNEXTLINE(check-name)` 压制下一行的指定检查，`// NOLINT` 压制本行所有检查，`// NOLINTBEGIN(...)`/`// NOLINTEND(...)` 压制一段（`intrusive_ptr_test.cpp` 开头有 `// NOLINTBEGIN(clang-analyzer-cplusplus*)`——测试里故意做 self-move、use-after-move 之类的事）。每一个 `NOLINT` 都应该带检查名，说明"知道这条规则，有理由违反它"。
 
 ### 4. `.lintrunner.toml`
 
@@ -1901,7 +1901,7 @@ linux-jammy-aarch64-py3.10            # linux-aarch64.yml，镜像是 gcc13
 
 Table: 版本不匹配的典型症状
 
-Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上第七篇的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在我机器上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
+Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上第七篇的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在开发机上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
 
 ## 十二、回到源码
 

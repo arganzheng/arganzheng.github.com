@@ -76,7 +76,7 @@ Table: 本文的章节安排
 
 （拆成[上：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html)与[下：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html)两篇。）
 
-**核心问题**：`import torch` 时加载了哪些 `.so`？它们之间是什么依赖关系？我写的扩展链接到哪一个？
+**核心问题**：`import torch` 时加载了哪些 `.so`？它们之间是什么依赖关系？自定义扩展链接到哪一个？
 
 **结论**：一个 `.cpp` 经预处理、编译、汇编、链接四个阶段变成二进制，加载是运行时的第五步；编译器只看得见一个翻译单元（一个 20 行的例子预处理后是 40222 行），符号的地址由链接器（链接期）与 `ld.so`（加载期）两次解析，所以每类错误只在一个阶段出现：`not declared` 是编译期、`undefined reference` 是链接期、`undefined symbol` 是加载期。ODR 规定非 inline 实体全程序一个定义，`inline`、模板、类可多份但必须逐字相同，`static` 与匿名命名空间是真正没有外部名字的内部链接。`-fvisibility=hidden` 加逐库的 `C10_API`/`TORCH_API` 决定 `.so` 导出什么；`.a` 在链接期裁剪拷贝、`.so` 只记一条 `DT_NEEDED` 到加载期递归解析——不管用不用，找不到任何一个就整个失败。`import torch` 先以 `RTLD_GLOBAL` 加载空壳 `libtorch_global_deps.so`，再加载 15 行 stub 编成的 `torch/_C.cpython-*.so`，后者沿 `$ORIGIN/lib` 的 RUNPATH 拉起 `libtorch_python.so` → `libtorch.so`（空壳）→ `libtorch_cpu.so`（+ `libtorch_cuda.so`）→ `libc10.so`（+ `libc10_cuda.so`）。命名空间 `c10::`/`at::`/`torch::` 大致对应前三层，但 `torch::` 横跨两个库——命名空间、目录、库是三个独立维度。
 
@@ -234,7 +234,7 @@ Table: 本文的章节安排
 
 三段合起来是一条完整的路：Python 值 → `IValue`（运行期、类型擦除）→ `KernelFunction`（运行期、按 device）→ `AT_DISPATCH`（运行期到编译期的桥）→ `scalar_t` 专用循环（编译期）。每一段的"份数"都是代价：dtype 集合越大二进制越大，`case` 之外用 `data_ptr<T>()` 就要在运行期检查。
 
-### 4. 符号、链接与 ABI：为什么"在我机器上能跑"不成立
+### 4. 符号、链接与 ABI：为什么"在开发机上能跑"不成立
 
 第一篇给出全部基本概念：翻译单元、ODR、四种链接属性、name mangling、`-fvisibility=hidden` 与 `C10_API`、`.a` 的链接期裁剪与 `.so` 的 `DT_NEEDED`、RUNPATH 与 `$ORIGIN`。第五篇把它们用在静态注册的失效条件上：静态库丢弃没被引用的 `.o` 让注册消失，`--whole-archive` 是解药；跨 `.so` 的 `catch (const c10::Error&)` 要求 typeinfo 同一份，所以异常类必须 `C10_API` 导出。
 

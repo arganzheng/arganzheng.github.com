@@ -124,7 +124,7 @@ struct Square : Shape {
 几个关键字的含义：
 
 - `virtual`：声明这个函数参与运行期分派。派生类里覆盖它时可以不重写 `virtual`（继承下来的虚性不会丢），但习惯上写 `override`。
-- `override`（C++11）：告诉编译器"我要覆盖基类的一个虚函数"。如果基类里没有签名一致的虚函数，编译报错。它相当于 Java 的 `@Override`，但不是注解而是关键字——写错签名（比如漏了 `const`）在 Java 里是静默地新建了一个方法，在 C++ 里加 `override` 后会直接报错。PyTorch 的 clang-tidy 规则要求所有覆盖都写 `override`。
+- `override`（C++11）：告诉编译器"要覆盖基类的一个虚函数"。如果基类里没有签名一致的虚函数，编译报错。它相当于 Java 的 `@Override`，但不是注解而是关键字——写错签名（比如漏了 `const`）在 Java 里是静默地新建了一个方法，在 C++ 里加 `override` 后会直接报错。PyTorch 的 clang-tidy 规则要求所有覆盖都写 `override`。
 - `final`：用在类上表示不能被继承，用在虚函数上表示不能再被覆盖。它对编译器有实际意义：调用一个 `final` 类的虚函数时，编译器知道实际类型就是这个类，可以去掉虚调用（devirtualization）。`c10::KernelFunction`、`c10::BoxedKernel`、`c10::IValue`、`OperatorEntry` 都标了 `final`——不是为了防止别人继承，而是明确"这是值类型 / 实体类型，不是接口"。
 - `= 0`：纯虚函数。有至少一个纯虚函数的类是抽象类，不能实例化，只能作为基类。Java 的 `interface` 和 `abstract class` 都对应到这里；C++ 没有单独的 `interface` 关键字，"全是纯虚函数、没有数据成员的抽象类"就是接口。
 
@@ -1415,7 +1415,7 @@ inline at::Tensor& IValue::toTensor() & {
 }
 ```
 
-（`aten/src/ATen/core/ivalue_inl.h`。）`std::move(ivalue).toTensor()` 把 `Tensor` **搬出来**，`IValue` 变成 `None`——用于"这个 `IValue` 我不再需要了"，零拷贝零计数变化。`ivalue.toTensor()` 返回**引用**，`IValue` 仍然拥有它——用于 6.4 节 `ivalue_to_arg<const Tensor&>` 那种"借一下"的场景。两者都不会触发引用计数的原子操作。Java 里没有 ref-qualifier 这种东西，因为 Java 没有"这个对象是临时的、可以被掏空"的概念。
+（`aten/src/ATen/core/ivalue_inl.h`。）`std::move(ivalue).toTensor()` 把 `Tensor` **搬出来**，`IValue` 变成 `None`——用于"这个 `IValue` 不再需要了"，零拷贝零计数变化。`ivalue.toTensor()` 返回**引用**，`IValue` 仍然拥有它——用于 6.4 节 `ivalue_to_arg<const Tensor&>` 那种"借一下"的场景。两者都不会触发引用计数的原子操作。Java 里没有 ref-qualifier 这种东西，因为 Java 没有"这个对象是临时的、可以被掏空"的概念。
 
 `reportToTensorTypeError` 被声明为 `[[noreturn]]` 并放到 `.cpp` 里，注释说明了理由："Outlined error path so that toTensor() can be inlined"——把冷路径（抛异常，需要格式化字符串）挪出去，热路径就只剩一个比较和一个返回，可以被内联。这是 PyTorch 源码里反复出现的手法，`OperatorEntry::reportError` 也是。
 

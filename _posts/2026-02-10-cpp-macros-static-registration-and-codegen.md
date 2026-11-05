@@ -839,7 +839,7 @@ Library::Library(Kind kind, std::string ns, std::optional<c10::DispatchKey> k, c
   }
 ```
 
-`DEF` 类型（来自 `TORCH_LIBRARY`）会先调 `c10::Dispatcher::singleton().registerLibrary(ns, ...)`——向 Dispatcher 声明"命名空间 `myops` 归我"，同一个命名空间第二次 `TORCH_LIBRARY` 会报错，这就是头文件注释说的 "There may only be one TORCH_LIBRARY() for any given namespace"。`debugString(file_, line_)` 生成 `"registered at ext.cpp:7"`，之后所有相关报错都会带上它——这是 `__FILE__`/`__LINE__` 穿过两层对象最终的去处。
+`DEF` 类型（来自 `TORCH_LIBRARY`）会先调 `c10::Dispatcher::singleton().registerLibrary(ns, ...)`——向 Dispatcher 声明"命名空间 `myops` 归这次注册"，同一个命名空间第二次 `TORCH_LIBRARY` 会报错，这就是头文件注释说的 "There may only be one TORCH_LIBRARY() for any given namespace"。`debugString(file_, line_)` 生成 `"registered at ext.cpp:7"`，之后所有相关报错都会带上它——这是 `__FILE__`/`__LINE__` 穿过两层对象最终的去处。
 
 `ERROR_CONTEXT` 是这个 `.cpp` 私有的宏：
 
@@ -1337,7 +1337,7 @@ ldd my_ext.so | grep torch_cpu
 
 ## 九、平台与编译器宏
 
-这一节把散落在前面各节的"条件编译"用途集中起来，看 PyTorch/vLLM 靠哪几个宏判断"我现在在哪个平台、被哪个编译器编、编的是哪段代码"。
+这一节把散落在前面各节的"条件编译"用途集中起来，看 PyTorch/vLLM 靠哪几个宏判断"当前在哪个平台、被哪个编译器编、编的是哪段代码"。
 
 ### 1. 编译器：`__GNUC__`、`__clang__`、`_MSC_VER`
 
@@ -1463,7 +1463,7 @@ bfloat16 的硬件转换指令从 Ampere（800）开始才有；给更老的架�
 
 Table: 构建系统传入的配置宏
 
-排查"我的机器上这段代码为什么没生效"时，第一步是确认这些宏在那次构建里的值。`ninja -v` 或 `compile_commands.json`（第八篇）能看到完整的 `-D` 列表。
+排查"这台机器上这段代码为什么没生效"时，第一步是确认这些宏在那次构建里的值。`ninja -v` 或 `compile_commands.json`（第八篇）能看到完整的 `-D` 列表。
 
 ### 5. Java 对照：一份字节码 vs 多份二进制
 
