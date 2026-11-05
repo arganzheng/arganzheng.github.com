@@ -47,6 +47,11 @@ flowchart TB
     T --> M["一个会续写英文、但不是助手的模型 → 交给后训练"]
 ```
 
+<!-- v -->
+
+
+### 要点
+
 - 02 展开 ④，03 展开 ⑥，04 展开 ①②③，05 展开 ⑦
 
 ---
@@ -68,6 +73,11 @@ flowchart TB
 
 ![左：LSH 找到的近重复对的 Jaccard 分布；右：LSH 的 S 曲线——真实相似度越高、成为候选对的概率越接近 1](/img/in-post/pretrain-e2e-3-dedup.svg){: style="max-height: 380px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 精确去重删 169 篇、MinHash（128 个哈希、16 段 × 8）/ LSH 再删 311 篇，剩 **38 MB**（原始的 8%）
 - tokenizer 是训练语料的化石：英文网页上训的 BPE 4096，英文 3.46 字符/token，**中文每字 3 个 token**
 
@@ -76,6 +86,11 @@ flowchart TB
 ### 选尺寸：固定算力下模型大小有最优点，且随预算右移
 
 ![三条 iso-FLOP 曲线：横轴模型大小 N，纵轴 val loss；★ 是各预算下的最优点：0.15M → 0.24M → 0.33M](/img/in-post/pretrain-e2e-6-isoflop.svg){: style="max-height: 380px"}
+
+<!-- v -->
+
+
+### 要点
 
 - 迷你实验的 D/N 是 72–155 而不是 20——小数据上的实验偏向小模型，**不能直接外推**
 - 数据只有 10.9M token 时硬约束是数据：定 3 epoch 再选模型（2×128 vs 4×192：4.79 vs 4.63）
@@ -86,7 +101,18 @@ flowchart TB
 
 ![七条曲线：train/val loss、学习率、梯度范数、参数范数、attention logit 最大值、吞吐、train − val；step 833 有一次小 spike](/img/in-post/pretrain-e2e-7-curves.svg){: style="max-height: 400px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 4 层 × 192 宽，12 分钟：loss 从 ln 4096 = 8.32 → 4.6；attention logit 最大值从 0.4 涨到 78
+
+<!-- v -->
+
+
+### 常见误区
+
 - 评：**bits/byte 1.88** 对 GPT-2 small 的 1.06——差在参数（48 倍）与数据（1,000 倍）；生成「像英文不像话」，当助手用完全不行
 
 ---
@@ -108,6 +134,11 @@ flowchart TB
 
 ![BPE 训练 8 步：第 1 步 e+s（9 次）→ es，第 2 步 es+t → est，第 3–5 步把 ␣low 合成一个 token](/img/in-post/pretrain-02-bpe-steps.svg){: style="max-height: 400px"}
 
+<!-- v -->
+
+
+### 常见误区
+
 - 词表翻倍压缩率只涨 0.4–0.5 字符/token（对数增长），与 lm_head 的线性成本相交于「最优词表」；128K–256K 是这条曲线上的一段
 
 <!-- v -->
@@ -115,6 +146,11 @@ flowchart TB
 ### 同一段话，四个 tokenizer
 
 ![英文四家 9–10 个 token；中文 GPT-2 47 个（几乎全是字节碎片）、cl100k 30 个、Qwen 15 个、DeepSeek-V3 更少](/img/in-post/pretrain-02-tokenizers-side-by-side.svg){: style="max-height: 440px"}
+
+<!-- v -->
+
+
+### 要点
 
 - 中文：cl100k 每字 1.46 token，DeepSeek-V3 0.69——差 **2.1 倍**，差在训练语料不在 V
 
@@ -129,7 +165,18 @@ flowchart TB
 | decode 字节 | 每步读一遍 `lm_head` | 1 GB / 步 |
 | 训练显存 | logits = tokens × V × 4 B | 8K 序列 **3.9 GiB**，softmax 前后两份 |
 
+<!-- v -->
+
+
+### 要点
+
 - 跨 tokenizer 比 loss 要换算 $$\text{bits/byte} = \frac{L}{\ln 2}\cdot\frac{T}{B}$$；同等 bits/byte 下 Llama 3 的 per-token loss 应比 Llama 2 高 24%
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「1 token ≈ 0.75 个英文词」只对英文成立；中文 0.4–1.5 字符/token 视词表而定
 
 ---
@@ -151,6 +198,11 @@ flowchart TB
 
 ![loss 随 N：左为 CPU 实验的拟合与外推——6 个点拟出一条线，第 7 个点落在延长线附近；右为固定算力下的 IsoFLOP 曲线](/img/in-post/scaling-laws-loss-vs-n.svg){: style="max-height: 340px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 双对数坐标下是直线；最优 loss 随算力 $$L_{opt} - E \propto C^{-0.178}$$：算力 ×10 可约 loss ×0.66，**减半要 ×49**
 - 拟合最常见的失败：cosine 中途的 loss 不可比、tokenizer 不一致、超参没随尺寸调、外推太远
 
@@ -164,6 +216,11 @@ flowchart TB
 | 推理成本 | **1/10** |
 | 服务 100T token 的最优点 | 81B / 1.5T → **24B / 13.8T** |
 | 2024 年后的 D/N | 200–2000（「过训练」） |
+
+<!-- v -->
+
+
+### 要点
 
 - 数据不够就重复：$$D' = U + UR^*(1 - e^{-R/R^*})$$，4 epoch 值 93%、16 epoch 值 66%，上限约 16 倍
 - 超参也要 scaling：$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$——算力 ×10，lr −25%、batch ×2.1
@@ -193,6 +250,11 @@ flowchart TB
 | C4 行级 | 只留以句末标点结尾、≥ 3 词、不含 `{` / javascript 的行 | **导航、按钮、页脚、版权行**——删掉一半字符 |
 | Gopher 重复度 | 重复行 ≤ 30%、高频 n-gram 占比上限 | 关键词堆砌、模板文字 |
 
+<!-- v -->
+
+
+### 要点
+
 - MinHash 112 个哈希估 Jaccard 到 ±0.04；LSH 14 × 8 阈值 0.72：J = 0.6 时 21% 成候选、0.8 时 92%
 - 模型打分的账：用 8B 给 15T 打分 $$2.4 \times 10^{23}$$ FLOPs 是训练的 1/3——所以标注只花约 $$7 \times 10^{19}$$
 
@@ -202,9 +264,20 @@ flowchart TB
 
 ![代码占比从 0 到 100%：网页 val loss 单调上升、代码 val loss 单调下降；第一份 25% 的代码让代码 loss 5.64 → 3.15，网页只 +0.11](/img/in-post/pretrain-e2e-mixture.svg){: style="max-height: 340px"}
 
-- 配比换算 $$w_i D / U_i$$：25% × 15T ÷ 约 0.5T 的独立数学数据 ≈ **7.5 epoch**——「15T」不是 15T 条不同的文本
+<!-- v -->
+
+
+### 要点
+
 - 一次配比消融 1.8B × 350B token ≈ **2700 H100 小时**，差距常达 3–5 分；预算预留 1–3% 算力做消融
 - 领域数据靠分类器迭代召回：DeepSeekMath 四轮 14.7B → 120B
+
+<!-- v -->
+
+
+### 常见误区
+
+- 配比换算 $$w_i D / U_i$$：25% × 15T ÷ 约 0.5T 的独立数学数据 ≈ **7.5 epoch**——「15T」不是 15T 条不同的文本
 
 ---
 
@@ -233,6 +306,11 @@ flowchart TB
 | AdamW | β = (0.9, 0.95)、wd 0.1、clip 1.0 | 同 | 同 |
 | 精度 | FP32 | BF16 + FP32 主权重 | FP8 分块 + FP32 累加 |
 
+<!-- v -->
+
+
+### 要点
+
 - weight decay 时间尺度 $$\tau = 1/(\eta\lambda)$$：7B 33K 步（7%）、405B 125K 步（13%）
 - 调度实验：WSD 1.464 < 常数 1.536 < cosine 1.578
 
@@ -254,8 +332,19 @@ flowchart TB
 
 ![step 833 附近：train loss 5.05 跳到 5.65 又回到 5.06，val 没动；梯度范数从 0.5 冲到 3.5 被裁剪挡住](/img/in-post/pretrain-05-real-spike.svg){: style="max-height: 300px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 大模型的处理：回退 100 步、跳 200–500 个 batch；405B 一次 8 千–1.6 万 GPU 小时
 - 硬件故障每 3 小时一次：checkpoint 5.7 TB，间隔 $$T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}$$，异步保存让间隔短到 4–5 分钟、有效时间 > 90%
+
+<!-- v -->
+
+
+### 常见误区
+
 - 「spike 是脏数据」——三个机制里两个是模型内部的数值问题
 
 ---
