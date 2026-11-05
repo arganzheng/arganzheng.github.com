@@ -299,7 +299,7 @@ trainer.train()                                             # 二十行加外壳
 
 | 问题 | 算术 |
 |---|---|
-| decode 每 token 多久 | 搬 16.06 GB 权重 ÷ 3.35 TB/s ≈ **4.8 ms** → 209 token/s；4-bit 量化字节 1/4、时间也 1/4 |
+| decode 每 token 多久 | \(16.06\,\text{GB} \div 3.35\,\text{TB/s} \approx 4.8\,\text{ms}\) → 209 token/s；4-bit 量化字节 1/4、时间也 1/4 |
 | prefill 4096 token | 2 × 8B × 4096 ≈ 66 TFLOP ÷ 989 TFLOPS ≈ **67 ms**，compute-bound |
 | 训练 MFU | 40–50% 算正常；反向 ≈ 2 × 前向 |
 | 显存四块 | 权重 · 梯度与优化器状态 · 激活 · **KV cache**（131 KB / token） |
