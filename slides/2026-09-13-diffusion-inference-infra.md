@@ -233,18 +233,18 @@ $$
 ## 两个根、一个破坏者
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    CB["单请求 compute-bound（01）"] --> NB["batch 不提吞吐；卡数 = QPS × GPU·秒（07）"]
-    CB --> QP["量化收益来自 Tensor Core 峰值（02）"]
-    CB --> SP["多卡为延迟：SP / CFG 并行而非 TP（05）"]
-    SIM["相邻步输出相似（03）"] --> CACHE["跨步缓存 T_eff（03）"]
-    SIM --> PF["PipeFusion 的 stale K/V（05）"]
-    SIM --> TOL["容忍近似：8-bit attention、稀疏（02 / 04）"]
-    FEW["少步蒸馏（06）"] -. "失效" .-> CACHE
+    CB["单请求 compute-bound"] --> NB["batch 不提吞吐"]
+    CB --> QP["量化收益 = Tensor Core 峰值"]
+    CB --> SP["多卡为延迟：SP/CFG"]
+    SIM["相邻步输出相似"] --> CACHE["跨步缓存（03）"]
+    SIM --> PF["stale K/V（05）"]
+    SIM --> TOL["容忍近似（02 / 04）"]
+    FEW["少步蒸馏"] -. "失效" .-> CACHE
     FEW -. "失效" .-> PF
-    FEW --> AR["因果 chunk：KV cache 回归（06）"]
-    AR -. "前提不再成立" .-> NB
+    FEW --> AR["因果 chunk（06）"]
+    AR -. "前提失效" .-> NB
     classDef root fill:#eef6ff,stroke:#5b8fd6
     classDef bad fill:#fff0f0,stroke:#c0504d
     class CB,SIM root
