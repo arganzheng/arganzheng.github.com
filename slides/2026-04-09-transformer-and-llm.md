@@ -65,6 +65,11 @@ encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder �
 
 ![① x 乘三个矩阵得到 Q、K、V；② S = QKᵀ；③ 除 √d；④ 加 causal mask；⑤ softmax；⑥ 乘 V](/img/in-post/transformer-01-attention-by-hand.svg){: style="max-height: 400px"}
 
+<!-- v -->
+
+
+### 要点
+
 - $$\text{Attention}(Q,K,V) = \text{softmax}(QK^\top/\sqrt d + M)\,V$$；t2 的权重 (0.27, 0.27, 0.45)，与 PyTorch 对拍差 $$6 \times 10^{-8}$$
 - 随机 $$q \cdot k$$ 的标准差是 $$\sqrt d$$：不除，d = 128 时 softmax 一个 token 独占
 
@@ -73,6 +78,11 @@ encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder �
 ### GPT-2 真实的头在看什么
 
 ![GPT-2 small 处理 The cat sat on the mat because it was tired：第 4 层第 11 头看上一个词，第 3 头把 it 指回 cat（0.84）](/img/in-post/transformer-01-gpt2-attention-heads.svg){: style="max-height: 400px"}
+
+<!-- v -->
+
+
+### 要点
 
 - 多头不增加算量：h 个小乘法 = 一个大乘法，只多一个 $$W_O$$
 - 换序实验：把输入打乱，attention 输出跟着换位——所以位置必须另给（GPT-2 查表 / Llama RoPE）
@@ -148,6 +158,11 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 | `Block` | 10 | 上面两行 pre-norm |
 | `GPT` | 200+ | 拼结构、共享权重、初始化、`generate`、`from_pretrained`、`configure_optimizers`、`estimate_mfu` |
 
+<!-- v -->
+
+
+### 要点
+
 - Llama 相对 GPT-2 只改五处：RMSNorm、RoPE、SwiGLU、GQA、去 bias（lm_head 不共享）
 - 三个独立 Linear 与一个 `c_attn` 数学等价，合并只为一次 GEMM
 
@@ -173,6 +188,11 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 flowchart LR
     LR["设 lr<br/>warmup + cosine"] --> EV["到点评估<br/>存 checkpoint 五样"] --> ACC["k 个 micro-batch<br/>loss ÷ k 累积"] --> CL["unscale<br/>+ 梯度裁剪"] --> ST["optimizer.step()<br/>zero_grad()"] --> LR
 ```
+
+<!-- v -->
+
+
+### 要点
 
 - `get_batch`：`memmap` + 随机窗口 + `stack`，`y` 是 `x` 右移一位，没有 epoch
 - 不除累积步数 ≠ 只是尺度不同：等价于学习率放大 k 倍；DDP 只在最后一个 micro-batch 同步
