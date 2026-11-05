@@ -33,17 +33,19 @@ transition: slide
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart LR
+    P1["01 整体介绍"] --> T2["02 Tensor<br/>与内存"] --> A3["03 Autograd<br/>动态图"] --> M4["04 nn.Module"] --> NX["05–10 系统与工程<br/>（下图）"]
+```
+
+<!-- v -->
+
+### 05–10：系统与工程
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    P1["01 整体介绍：三层运行时链路"] --> T2["02 Tensor 与内存布局<br/>Storage · shape · stride"]
-    T2 --> A3["03 Autograd 与动态图"]
-    A3 --> M4["04 nn.Module 与训练系统"]
-    T2 --> D5["05 Dispatcher 与算子系统<br/>一切能力建立在它之上"]
-    A3 --> D5
-    D5 --> X6["06 C++ 扩展与自定义算子"]
-    D5 --> C7["07 编译执行与图优化<br/>torch.compile"]
-    M4 & C7 --> P8["08 性能优化与调试<br/>profiler、Roofline"]
-    P8 --> D9["09 分布式 PyTorch<br/>DDP / FSDP / 并行"]
-    X6 & D9 --> E10["10 工程体系<br/>一次改动怎么到达用户"]
+    D5["05 Dispatcher"] --> X6["06 C++ 扩展"] & C7["07 编译与图优化"]
+    X6 & C7 --> P8["08 性能与调试"] --> D9["09 分布式"] --> E10["10 工程体系"]
 ```
 
 ---
@@ -60,7 +62,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-overall-introduction.html。PyTorch 2.0 于 2023 年 3 月 15 日发布。
-结论原文：**：六个职责层、一条动态调用路径、四层源码；**Autograd 只是 Operator Table 上优先级更高的一个 Key**。
+结论原文：六个职责层、一条动态调用路径、四层源码；**Autograd 只是 Operator Table 上优先级更高的一个 Key**。
+各篇关键词：01 三层运行时链路；02 Storage / shape / stride；05 一切能力建立在算子系统上；07 torch.compile；08 profiler / Roofline；09 DDP / FSDP / 并行；10 一次改动怎么到达用户。
 </aside>
 
 <!-- v -->
@@ -80,7 +83,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-tensor-and-memory-layout.html。[2,3,4] 连续 strides (12, 4, 1)；fp16 最大 65504、bf16 尾数 7 位。
-结论原文：**：Tensor = 数据 + 形状 + 布局 + 类型 + 设备 + 生命周期；$$\text{offset} = \text{storage\_offset} + \sum_k i_k \cdot \text{stride}_k$$；**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**。
+结论原文：Tensor = 数据 + 形状 + 布局 + 类型 + 设备 + 生命周期；$$\text{offset} = \text{storage\_offset} + \sum_k i_k \cdot \text{stride}_k$$；**view 只改元数据，`contiguous` / `.to()` / `clone` 才复制**。
 </aside>
 
 <!-- v -->
@@ -121,7 +124,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-autograd-and-dynamic-computation-graph.html。「把 loss 存进 list 只是保存一个数」——loss 通过 grad_fn 持有整张图与所有激活；用 .item() 或 .detach()。
-结论原文：**：前向就地建图，每个 `Node.apply` 算一次 **VJP**（不物化 Jacobian），梯度 `+=` 到叶子的 `.grad`；**保存一个输出等于保存整张图**。
+结论原文：前向就地建图，每个 `Node.apply` 算一次 **VJP**（不物化 Jacobian），梯度 `+=` 到叶子的 `.grad`；**保存一个输出等于保存整张图**。
 </aside>
 
 <!-- v -->
@@ -147,7 +150,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-module-and-training-system.html。GradScaler 初始 65536、溢出 ÷2、连续 2000 步 ×2；prefetch_factor 默认 2；DataLoader worker 是进程。
-结论原文：**：`__setattr__` 的注册机制决定框架能否发现对象（**list 不是 Module**，用 `ModuleList`）；Adam 训练**每参数 16 字节**——7B 模型 112 GB，一张卡放不下的根源。
+结论原文：`__setattr__` 的注册机制决定框架能否发现对象（**list 不是 Module**，用 `ModuleList`）；Adam 训练**每参数 16 字节**——7B 模型 112 GB，一张卡放不下的根源。
 </aside>
 
 <!-- v -->
@@ -156,12 +159,11 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
-flowchart TB
-    A["nn.Module 树<br/>__init__ 定结构、forward 定数据流"] --> B["注册机制<br/>__setattr__ 登记 Parameter / 子 Module / Buffer"] --> C["state_dict<br/>属性路径 → Tensor"]
-    C --> E["Optimizer<br/>拿 parameters() 用 .grad 更新"]
-    F["Dataset → Sampler → DataLoader<br/>pin_memory / non_blocking"] --> G["循环：取 batch → forward → loss → backward → step"]
+flowchart LR
+    A["nn.Module 树"] --> B["__setattr__<br/>注册 P/M/B"] --> C["state_dict<br/>路径 → Tensor"] --> E["Optimizer<br/>.grad 更新"]
+    F["Dataset<br/>→ DataLoader"] --> G["循环 fwd→loss<br/>→bwd→step"]
     E --> G
-    G --> H["autocast / GradScaler · Hook · checkpoint"]
+    G --> H["autocast · Hook<br/>· ckpt"]
 ```
 
 - `model.eval()` 只切换 dropout / BN，**不关梯度**——评估要 `eval()` + `inference_mode()` 一起用
@@ -176,6 +178,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-dispatcher-and-operator-system.html。DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级。
+__setattr__ 注册 Param / Module / Buffer；循环 batch → fwd → loss → bwd → step；autocast · Hook · checkpoint。
 </aside>
 
 <!-- v -->
@@ -187,7 +190,7 @@ flowchart TB
 flowchart TB
     subgraph DEV["开发态"]
         direction TB
-        A1["定义 Schema<br/>yaml / torch.library"] --> A2["注册 DispatchKey"] --> A3["编写实现"]
+        A1["定义 Schema"] --> A2["注册 DispatchKey"] --> A3["编写实现"]
     end
     OT[("Operator Table<br/>算子 → Key → Kernel")]
     subgraph RUN["运行态"]
@@ -225,7 +228,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-cpp-extension-and-custom-operators.html。「自定义 Kernel 处理连续 float32 就够了」——dtype、device、stride、空 Tensor、生命周期、backward 都要处理。
-结论原文：**：定义 / 注册 / 实现三步；`torch.library` 或 `TORCH_LIBRARY` 接入；Python → C++ CPU → CUDA → Autograd 与 Meta 四阶段；实现层必须处理 **device、dtype、stride、生命周期**四件事。
+结论原文：定义 / 注册 / 实现三步；`torch.library` 或 `TORCH_LIBRARY` 接入；Python → C++ CPU → CUDA → Autograd 与 Meta 四阶段；实现层必须处理 **device、dtype、stride、生命周期**四件事。
 </aside>
 
 ---
@@ -236,10 +239,10 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart TB
+flowchart LR
     CALL["调用"] --> GD{"Guard 成立?"} -->|是| RUN["执行产物"]
     GD -->|否| CA{"缓存命中?"} -->|是| RUN
-    CA -->|否| TRIG["触发编译"] --> DY["编译器链（下图）"]
+    CA -->|否| TRIG["触发编译"] --> DY["编译器链<br/>（下图）"]
     DY --> RUN
 ```
 
@@ -250,10 +253,10 @@ flowchart TB
 **Dynamo 定边界 → AOTAutograd 展开反向 → Inductor 融合出 Triton/C++，共享 FX Graph**
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart TB
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+flowchart LR
     DY["Dynamo 捕获<br/>Graph Break 定边界"] --> FX1[("FX Graph<br/>torch 级")]
-    FX1 --> AOT["AOTAutograd<br/>反向展开 · 函数化 · 分解"] --> FX2[("FX × 2<br/>ATen 级")]
+    FX1 --> AOT["AOTAutograd<br/>反向展开 · 分解"] --> FX2[("FX × 2<br/>ATen 级")]
     FX2 --> IND["Inductor<br/>融合 · 内存规划"] --> CODE["Triton / C++"]
 ```
 
@@ -347,7 +350,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /pytorch-distributed-training.html。DDP Reducer 的桶按注册顺序逆序划分、每桶约 25 MB；compute stream 与 NCCL stream 两条 stream 重叠。
-结论原文：**：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
+结论原文：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
 </aside>
 
 ---
@@ -369,7 +372,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /pytorch-engineering-system.html。
-结论原文：**：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例，五种 oracle。
+结论原文：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例，五种 oracle。
 </aside>
 
 ---
