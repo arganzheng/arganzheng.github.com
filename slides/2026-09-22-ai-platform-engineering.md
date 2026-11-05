@@ -54,7 +54,7 @@ flowchart TB
 
 ## 01 · 需求清单：原生 K8s 满足不了哪几条
 
-**结论**：训练 15 条原生满足 **1 条**、推理 15 条满足 **2 条**；空缺分**缺插件、缺概念、缺信号**三种；训练卡在调度与网络，推理卡在扩缩容与路由，唯一共同的空缺是「**GPU 是不透明整数**」；平台分资源层与交付层，分界线是「Pod 能跑了」。
+**训练 15 条满足 1 条、推理满足 2 条——GPU 是不透明整数**
 
 | 80 GB 卡 × 0.92 可用 | 权重 | 留给 KV |
 |---|---|---|
@@ -66,13 +66,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /ai-platform-engine-requirements-and-architecture.html。
+结论原文：**：训练 15 条原生满足 **1 条**、推理 15 条满足 **2 条**；空缺分**缺插件、缺概念、缺信号**三种；训练卡在调度与网络，推理卡在扩缩容与路由，唯一共同的空缺是「**GPU 是不透明整数**」；平台分资源层与交付层，分界线是「Pod 能跑了」。
 </aside>
 
 ---
 
 ## 02 · 容器里的 GPU：四层栈、三条规则
 
-**结论**：驱动（宿主）/ CUDA runtime（镜像）/ 库 / 应用；**向后兼容无条件**（新驱动跑旧 Toolkit）；**minor version** 同大版本内旧驱动跑新 Toolkit（新驱动 API 与 PTX JIT 除外）；**forward** 跨大版本只有数据中心 GPU + cuda-compat 包。
+**向后兼容无条件；forward 只有数据中心 GPU + cuda-compat**
 
 | 问题 | 答案 |
 |---|---|
@@ -87,13 +88,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /gpu-in-containers-driver-cuda-device-plugin.html。
+结论原文：**：驱动（宿主）/ CUDA runtime（镜像）/ 库 / 应用；**向后兼容无条件**（新驱动跑旧 Toolkit）；**minor version** 同大版本内旧驱动跑新 Toolkit（新驱动 API 与 PTX JIT 除外）；**forward** 跨大版本只有数据中心 GPU + cuda-compat 包。
 </aside>
 
 ---
 
 ## 03 · AI 任务调度：gang、队列与借用
 
-**结论**：Volcano 在 Pod **之后**做节点级 gang，Kueue 在 Pod **之前**做配额级 gang；**默认值下 Volcano 与 Kueue 借了不还、Slurm 不借**；「Pod 起不来靠应用层重试」——已起的 Pod 占着卡等同伴，gang 只能在调度 / 准入层做。
+**gang 只能在调度 / 准入层做——已起的 Pod 占卡等同伴**
 
 | A、B 各 16 卡配额，A 提交 32 卡，B 空闲 | 结果 |
 |---|---|
@@ -106,13 +108,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /ai-job-scheduling-gang-queue-topology.html。
+结论原文：**：Volcano 在 Pod **之后**做节点级 gang，Kueue 在 Pod **之前**做配额级 gang；**默认值下 Volcano 与 Kueue 借了不还、Slurm 不借**；「Pod 起不来靠应用层重试」——已起的 Pod 占着卡等同伴，gang 只能在调度 / 准入层做。
 </aside>
 
 ---
 
 ## 04 · GPU 共享与切分：四档取舍
 
-**结论**：都是「device plugin 把一张卡复制成 N 个逻辑设备」的不同底座——**时间片无隔离、HAMi 软件隔离但故障域整卡、MIG 连 Xid 都隔离但几何刚性**；训练不切。
+**时间片无隔离、HAMi 故障域整卡、MIG 硬隔离但刚性——训练不切**
 
 | 方式 | 算力隔离 | 显存隔离 | 故障域 | 弹性 |
 |---|---|---|---|---|
@@ -125,13 +128,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /gpu-sharing-and-partitioning-mig-mps-hami.html。
+结论原文：**：都是「device plugin 把一张卡复制成 N 个逻辑设备」的不同底座——**时间片无隔离、HAMi 软件隔离但故障域整卡、MIG 连 Xid 都隔离但几何刚性**；训练不切。
 </aside>
 
 ---
 
 ## 05 · 网络与存储：NCCL 找不到 RDMA 就静默回落
 
-**结论**：容器里 `nccl-tests` 只有裸机三分之一——Pod 网络、device plugin、NCCL 环境变量三层任一缺项都**不报错**；Multus 给第二张网卡、RDMA device plugin 给 `/dev/infiniband`、`IPC_LOCK` 与 peermem / DMA-BUF 给 GDR。
+**容器 nccl-tests 只有裸机 1/3——三层任一缺项都不报错**
 
 | checkpoint I/O：70B、14 字节 / 参数 ≈ 1 TB | 带宽 |
 |---|---|
@@ -143,13 +147,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /rdma-networking-storage-and-checkpoint-io.html。
+结论原文：**：容器里 `nccl-tests` 只有裸机三分之一——Pod 网络、device plugin、NCCL 环境变量三层任一缺项都**不报错**；Multus 给第二张网卡、RDMA device plugin 给 `/dev/infiniband`、`IPC_LOCK` 与 peermem / DMA-BUF 给 GDR。
 </aside>
 
 ---
 
 ## 06 · Serving 平台：扩缩容看什么、提前多久
 
-**结论**：CPU 无意义；**领先指标 `num_requests_running` / `kv_cache_usage_perc`**，`waiting` 只兜底；**纯反应式阈值 = 峰值过配**（为 9 分钟就绪预留的 headroom 在稳态也被保留）；可预测的高峰用 cron 提前。
+**领先指标是 running 与 KV 占用；反应式阈值 = 峰值过配**
 
 | TP=4 的 70B，晚高峰 2 → 6 副本，就绪 8 分钟 | 结果 |
 |---|---|
@@ -163,13 +168,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /serving-platforms-kserve-triton-ray-serve-llm-d.html。
+结论原文：**：CPU 无意义；**领先指标 `num_requests_running` / `kv_cache_usage_perc`**，`waiting` 只兜底；**纯反应式阈值 = 峰值过配**（为 9 分钟就绪预留的 headroom 在稳态也被保留）；可预测的高峰用 cron 提前。
 </aside>
 
 ---
 
 ## 07 · 模型网关与多租户：「配额」是什么
 
-**结论**：外层按 RPM / TPM / 并发 429，内层 EPP 按 priority **严格优先、同级 round-robin，无按权重公平**；选副本与租户无关；配额是 token + 并发 + RPM，GPU 时间只做内部成本。
+**EPP 严格优先、同级轮询、无权重公平**
 
 | 量 | 数 |
 |---|---|
@@ -181,13 +187,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /model-gateway-multi-tenancy-and-quota.html。
+结论原文：**：外层按 RPM / TPM / 并发 429，内层 EPP 按 priority **严格优先、同级 round-robin，无按权重公平**；选副本与租户无关；配额是 token + 并发 + RPM，GPU 时间只做内部成本。
 </aside>
 
 ---
 
 ## 08 · 可观测、成本与 FinOps：50 个点去了哪里
 
-**结论**：分配率 A = 85%、`SM_ACTIVE` U = 35%，$$E \approx A \times U$$；四层指标靠 `pod` / `namespace` join；**`GPU_UTIL` 只表示「有 kernel 在跑」**（NCCL 自旋也是 100%）；**按分配计费让闲置有主**。
+**`GPU_UTIL` 只表示「有 kernel 在跑」——自旋也算 100%**
 
 | 50 个点 | 去向 | 对应篇 |
 |---|---|---|
@@ -203,6 +210,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /ai-platform-observability-cost-and-finops.html。
+结论原文：**：分配率 A = 85%、`SM_ACTIVE` U = 35%，$$E \approx A \times U$$；四层指标靠 `pod` / `namespace` join；**`GPU_UTIL` 只表示「有 kernel 在跑」**（NCCL 自旋也是 100%）；**按分配计费让闲置有主**。
 </aside>
 
 ---
