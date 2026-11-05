@@ -132,6 +132,8 @@ async function check(slug) {
       try {
         const r = spawnSync('python3', ['tools/mermaid-lint.py', `slides/${files[0]}`], { encoding: 'utf8' });
         mlint = (r.stdout || '').split('\n').filter(l => l.includes(':mermaid#'));
+        const r2 = spawnSync('python3', ['tools/deck-lint.py', `slides/${files[0]}`], { encoding: 'utf8' });
+        mlint = mlint.concat((r2.stdout || '').split('\n').filter(l => l.includes(': concl-')));
       } catch { /* lint unavailable — skip */ }
     }
   }
