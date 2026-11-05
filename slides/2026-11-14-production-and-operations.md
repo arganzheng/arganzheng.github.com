@@ -38,7 +38,7 @@ flowchart TB
 
 ## 01 · 模型网关：所有调用经过的一层
 
-**预防的事故**：key 散落、锁死供应商、无归因。**结论**：七项职责——密钥、路由 / fallback、限流 / 配额、缓存、归因、日志 / 脱敏、抽象；**不做业务逻辑、不改请求体、不默认语义缓存**、要高可用。
+**预防的事故**：key 散落、锁死供应商、无归因。**七项职责全走一层；不做业务逻辑、不改请求体、不默认语义缓存**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 420}}}%%
@@ -75,7 +75,7 @@ flowchart TB
 
 ## 02 · 成本工程：从账单到每任务成本
 
-**预防的事故**：账单吓一跳。**结论**：归因三视图（用户 / 功能 / 模型）；预算 80 / 95 / 100% + **六级降级梯子**；九种手段各有量级；**按任务算 p50 / p95**；单位经济学三决策；FinOps 节奏。
+**预防的事故**：账单吓一跳。**没有归因就没有优化——按任务看 p50/p95，长尾 5% 任务花 60% 的钱**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
@@ -110,22 +110,9 @@ flowchart LR
 
 ## 03 · 延迟工程：从 TTFT 到 agent 的多步
 
-**预防的事故**：用户等。**结论**：**七段分解各有药**；感知 ≠ 绝对、流式三层；p95 预算分段 + 四层超时；agent 上 **减步数 > 并行 > 级联 > 每步更快 > 后台**。
+**预防的事故**：用户等。**七段分解各有药；agent 延迟减步数 > 并行 > 每步更快**
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
-flowchart TB
-    Q["请求"] --> A["应用侧准备：检索 1.2 s（rerank 50 个候选）"]
-    A --> N["网络 + 排队：1 s（峰值时段）"]
-    N --> P["prefill / TTFT：2.5 s（60K 上下文，前缀有时间戳 → 缓存未命中）"]
-    P --> D["输出：3 s（400 token，不流式）"]
-    D --> U["用户看到：p95 = 9 s，但 4 s 时已经关了页面"]
-    A -. "rerank 候选 50 → 20、两路召回并行" .-> A
-    P -. "去掉时间戳让缓存命中" .-> P
-    D -. "流式：首字 1 s 就出现" .-> D
-    style U fill:#fde8e8,stroke:#c0392b
-
-```
+![一次请求的七段分解：检索 1.2 s、排队 1 s、prefill 2.5 s、输出 3 s——用户在 4 s 已离开](/img/in-post/latency-engineering-request-breakdown.svg){: style="max-height: 400px}
 
 <aside class="notes" markdown="1">
 原文 /latency-engineering-from-ttft-to-multi-step-agents.html。
@@ -152,7 +139,7 @@ flowchart TB
 
 ## 04 · 安全：注入、供应链与数据泄漏
 
-**预防的事故**：EchoLeak、MCP 投毒、沙箱逃逸。**结论**：OWASP 十条里七条已有机制；四个事件的链路**逐环有层拦**；**五层防御**；**MCP server 是权限主体**；密钥七条；红队进门禁。
+**预防的事故**：EchoLeak、MCP 投毒。**注入链路逐环有层拦——防御在架构的五层，不在措辞**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
@@ -188,7 +175,7 @@ flowchart LR
 
 ## 05 · 治理与合规：审计链、保留、AI Act 与内容标识
 
-**预防的事故**：审计拿不出、数据被训、罚款、未标识。**结论**：**审计链 = 会话日志 + trace + 决策点 + 保留 / 不可篡改 / 导出**；数据流图核合同；AI Act 推迟的只是高风险；标识一套两格式；责任矩阵。
+**预防的事故**：审计拿不出。**审计链是把已记下的东西串起来——还要保留、不可篡改、能导出**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
@@ -224,7 +211,7 @@ flowchart TB
 
 ## 06 · 发布工程：改动 = 发布
 
-**结论**：**十类算发布**（prompt、模型、工具、schema、检索索引……）；开关三态 + **kill switch 上线前存在并演练**；钉一切；依赖变更进同一流程；五本 runbook；四类 SLO。
+**十类改动都算发布：钉一切 + 开关三态 + kill switch 上线前就存在**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
@@ -260,7 +247,7 @@ flowchart TB
 
 ## 07 · 数据飞轮与物理世界的上线
 
-**预防的事故**：系统不变好；车队更新出事。**结论**：飞轮六环三判据；**微调在末端做行为优化**（bad case 不直接微调，筛过的好例子）；四道门；物理世界**分阶段准入 + 安全案例 + 分批 OTA**；高风险 agent 的发布应更像 OTA。
+**预防的事故**：系统不变好。**飞轮六环——bad case 进评测集不直接微调；物理发布学分批 OTA**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
