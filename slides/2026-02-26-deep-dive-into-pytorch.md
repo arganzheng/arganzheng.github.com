@@ -183,12 +183,12 @@ flowchart TB
 flowchart TB
     subgraph DEV["开发态"]
         direction TB
-        A1["定义 Schema<br/>native_functions.yaml / torch.library"] --> A2["注册到各 DispatchKey"] --> A3["编写实现"]
+        A1["定义 Schema<br/>yaml / torch.library"] --> A2["注册 DispatchKey"] --> A3["编写实现"]
     end
     OT[("Operator Table<br/>算子 → Key → Kernel")]
     subgraph RUN["运行态"]
         direction TB
-        B1["入口 torch.add → at::add"] --> B2["分发：查表<br/>KeySet / 包装 Key 再分发"] --> B3["执行：TensorIterator → Kernel"]
+        B1["入口 at::add"] --> B2["分发：查表"] --> B3["执行 Kernel"]
     end
     A2 -->|填表| OT -->|查表| B2
 ```
@@ -227,22 +227,13 @@ flowchart TB
 
 ## 07 · 编译执行：`torch.compile` 到底做了什么
 
-**结论**：前端 **Dynamo** 捕获、中端 **AOTAutograd** 变换、后端 **Inductor** 生成，共享 FX Graph；运行时靠 **Guard** 决定复用——能确定的固化进代码，不能确定的变成运行时检查，捕获不了就 graph break 退回 Eager。
+**Dynamo 捕获 → AOTAutograd 变换 → Inductor 生成**，共享 FX Graph；运行时 **Guard** 定复用，捕获不了就 graph break 退 Eager。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    subgraph RT["运行时：每次调用"]
-        direction TB
-        CALL["调用"] --> GD{"Guard 成立?"} -->|是| RUN["执行产物"]
-        GD -->|否| CA{"缓存命中?"} -->|否| TRIG["触发编译"]
-    end
-    subgraph CP["编译器：触发时跑一次"]
-        direction TB
-        DY["Dynamo 捕获<br/>Graph Break 定边界"] --> FX1[("FX Graph<br/>torch 级")] --> AOT["AOTAutograd<br/>反向展开 · 函数化 · 分解"] --> FX2[("FX × 2<br/>ATen 级")] --> IND["Inductor<br/>融合 · 内存规划"] --> CODE["Triton / C++"]
-    end
-    TRIG --> DY
-    CODE --> RUN
+    CALL["调用"] --> GD{"Guard 成立?"} -->|是| RUN["执行产物"]
+    GD -->|否| DY["Dynamo"] --> IND["Inductor"] --> RUN
 ```
 
 <aside class="notes" markdown="1">
@@ -281,14 +272,14 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 flowchart LR
-    tl["时间线<br/>torch.profiler / nsys"] --> q1{"GPU 泳道形态？"}
+    tl["profiler 时间线"] --> q1{"GPU 泳道？"}
     q1 -->|"稀疏，大段空闲"| q2{"CPU 在忙什么？"}
-    q1 -->|"与 CPU 交替空洞"| sync["Sync-bound<br/>批量 .item()、pinned + non_blocking"]
-    q1 -->|"密集，首尾相接"| q3{"CUDA 时间被谁占？"}
-    q2 -->|"cudaLaunchKernel 占大头"| launch["Launch-bound<br/>增大 batch、融合、CUDA Graphs"]
-    q2 -->|"Python / 框架逻辑"| py["Python-bound<br/>向量化、compile"]
-    q3 -->|"逐元素与归约"| mem["Memory-bound<br/>融合 / SDPA、bf16"]
-    q3 -->|"mm / bmm / conv"| comp["Compute-bound<br/>Tensor Core、减少计算量"]
+    q1 -->|"与 CPU 交替空洞"| sync["Sync-bound<br/>.item() 过多"]
+    q1 -->|"密集"| q3{"时间被谁占？"}
+    q2 -->|"launch 占大头"| launch["Launch-bound<br/>增大 batch"]
+    q2 -->|"框架逻辑"| py["Python-bound<br/>向量化"]
+    q3 -->|"逐元素"| mem["Memory-bound<br/>融合 / bf16"]
+    q3 -->|"mm / conv"| comp["Compute-bound<br/>Tensor Core"]
     classDef cpu fill:#fde9d9,stroke:#c0392b
     classDef gpu fill:#e8f5e9,stroke:#1e8449
     classDef mid fill:#fff4d6,stroke:#b9770e
