@@ -133,7 +133,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     subgraph LOG["会话日志（只追加、不可改）"]
         direction TB
         E1["1 用户消息"] --> E2["2 模型输出（含 tool_call）"] --> E3["3 工具结果"] --> E4["4 审批：通过"] --> E5["5 模型输出"] --> E6["6 压缩摘要"] --> E7["7 …"]
@@ -200,7 +200,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     CALL["模型返回一个工具调用<br/>shell: rm -rf ./build · write: src/x.py · http: DELETE /volumes/7"] --> L1{"① 权限档<br/>这个会话能碰什么？"}
     L1 -->|"超出档位：写只读区、访问网络"| DENY1["拒绝（不问人）"]
     L1 -->|"在档位内"| L2{"② 审批策略 + ③ 执行策略<br/>这类动作要问人吗？"}
