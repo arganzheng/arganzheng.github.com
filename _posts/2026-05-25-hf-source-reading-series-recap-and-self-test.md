@@ -118,7 +118,7 @@ Table: 贯穿全系列的概念及其关系
 | 加载模型峰值内存是权重的两倍 | meta device 骨架不占内存，safetensors mmap 逐个赋值 | 峰值约等于权重本身 |
 | `attn_implementation` 换了结果就不一样、说明有 bug | 两种实现数学相同，差异来自求和顺序与精度 | fp32 差 $$10^{-4}$$、argmax 一致才是正常；bf16 下差 1.0 也正常 |
 | 传了 `temperature` 就在采样 | warper 只在 `do_sample=True` 时装配 | 看模型 `generation_config.json` 的 `do_sample` 默认值 |
-| `top_k` 与 `top_p` 的顺序看我传参的顺序 | `_get_logits_processor` 按代码里 `append` 的顺序 | 固定 temperature → top-k → top-p |
+| `top_k` 与 `top_p` 的顺序看传参的顺序 | `_get_logits_processor` 按代码里 `append` 的顺序 | 固定 temperature → top-k → top-p |
 | `len(tok) == config.vocab_size` | 一个是 tokenizer 的词条数，一个是 embedding 行数 | 151665 ≠ 151936，后者为对齐补大；加少量 token 不需要 resize |
 | `map` 不会重跑，datasets 有缓存 | 缓存键是 fingerprint，函数体一变就失效 | 改任何一行（含 print）都重跑；用 `new_fingerprint=` 或模块级函数 |
 | `shuffle` 之后 `map` 应该一样快 | `shuffle` 只改 `_indices`，之后是随机访问 Arrow | 先 `map` 再 `shuffle`，或 `flatten_indices()` |

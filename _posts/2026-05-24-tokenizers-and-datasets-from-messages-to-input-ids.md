@@ -182,7 +182,7 @@ ds2 = ds.map(lambda ex: {"n_tok": len(tok.apply_chat_template(ex["messages"], to
 
 ### 2. fingerprint：文件名就是缓存键
 
-`cache-a89dbbef0b763772.arrow` 里的十六进制是 **fingerprint**（`fingerprint.py`）：`update_fingerprint(old_fingerprint, transform, transform_args)` 把上一个 dataset 的 fingerprint、`"map"` 这个变换名、以及全部参数（包括你传的函数）一起哈希。函数怎么哈希？`dill` 把函数对象序列化（字节码 + 闭包里引用的对象 + 默认参数），再 hash 字节串——所以**同一个 lambda 写两遍能命中缓存**（配套脚本第二次相同的 `map` 只花 0.7 秒，是校验与打开文件的开销），改了函数体里任何一个字符或闭包引用的 tokenizer 就是新 fingerprint、新文件。哈希失败（函数引用了不可序列化的对象）时 datasets 会打警告并用随机 fingerprint——这就是"为什么我的 `map` 每次都重跑"最常见的原因，修法是 `new_fingerprint=` 手动指定，或把不可序列化的东西移出函数。`@fingerprint_transform(inplace=False)` 装饰器贴在 `map`、`filter`、`select`、`shuffle`、`sort`、`rename_column` 等每一个返回新 dataset 的方法上——**每个 `Dataset` 对象都有唯一的 fingerprint，它是这个对象的"内容地址"**。
+`cache-a89dbbef0b763772.arrow` 里的十六进制是 **fingerprint**（`fingerprint.py`）：`update_fingerprint(old_fingerprint, transform, transform_args)` 把上一个 dataset 的 fingerprint、`"map"` 这个变换名、以及全部参数（包括你传的函数）一起哈希。函数怎么哈希？`dill` 把函数对象序列化（字节码 + 闭包里引用的对象 + 默认参数），再 hash 字节串——所以**同一个 lambda 写两遍能命中缓存**（配套脚本第二次相同的 `map` 只花 0.7 秒，是校验与打开文件的开销），改了函数体里任何一个字符或闭包引用的 tokenizer 就是新 fingerprint、新文件。哈希失败（函数引用了不可序列化的对象）时 datasets 会打警告并用随机 fingerprint——这就是"为什么 `map` 每次都重跑"最常见的原因，修法是 `new_fingerprint=` 手动指定，或把不可序列化的东西移出函数。`@fingerprint_transform(inplace=False)` 装饰器贴在 `map`、`filter`、`select`、`shuffle`、`sort`、`rename_column` 等每一个返回新 dataset 的方法上——**每个 `Dataset` 对象都有唯一的 fingerprint，它是这个对象的"内容地址"**。
 
 ### 3. `select` / `shuffle` 不拷数据
 
