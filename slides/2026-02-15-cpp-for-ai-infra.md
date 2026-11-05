@@ -61,6 +61,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /cpp-compilation-model-from-cpp-to-shared-object.html 与 /cpp-project-layout-namespaces-libraries-and-cmake.html。20 行源文件预处理后 40222 行。
+结论原文：编译器只看得见**一个翻译单元**，符号由链接器与动态加载器在两个时刻解析；每类「找不到」只出现在一个阶段——`not declared`（编译）/ `undefined reference`（链接）/ `undefined symbol`（加载）。
 </aside>
 
 <!-- v -->
@@ -120,6 +121,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 
 <aside class="notes" markdown="1">
 原文 /cpp-templates-and-generic-programming.html。
+结论原文：模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda——**N 个 dtype 就编 N 份**；运行期只有一个 `switch`。
 </aside>
 
 ---
@@ -140,6 +142,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 
 <aside class="notes" markdown="1">
 原文 /cpp-polymorphism-and-type-erasure.html。
+结论原文：`KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed——**函数指针 + 模板生成的适配器**的手工类型擦除；`lookup` 一次数组下标，全程无虚调用；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次。
 </aside>
 
 ---
@@ -162,6 +165,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /cpp-macros-static-registration-and-codegen.html。
+结论原文：`TORCH_LIBRARY` 展开成**静态对象**，`dlopen` 执行 `.init_array` 时其构造函数向 `Dispatcher` 登记——**调用者是加载器，不是用户代码**。
 </aside>
 
 <!-- v -->
@@ -192,6 +196,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /cpp-concurrency-memory-model-tls-and-guards.html。
+结论原文：改的是一个 **`thread_local` 变量**；每线程一份、**新线程不继承**——worker 读到默认值 `True`，要跨线程必须用 `at::ThreadLocalState` + `ThreadLocalStateGuard` 显式传播。
 </aside>
 
 ---
@@ -213,6 +218,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /cpp-pybind11-python-c-api-and-abi.html。
+结论原文：输入 3 次、输出 2 次类型转换，**无一步拷贝数据**；**GIL 转参数时持有、跑 kernel 时释放**——放掉 GIL 后 C++ 值随便用，不能碰 `PyObject*`。
 </aside>
 
 <!-- v -->
@@ -242,6 +248,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /cpp-build-debug-and-test-toolchain.html。
+结论原文：一个 C++ 改动的八步清单：clangd → clang-format → Debug 构建 → gtest / pytest → clang-tidy → **ASan + UBSan** → **TSan** → CI 矩阵；未定义行为默认什么都不发生、数据悄悄错——**测试过了不等于没有内存错误**。
 </aside>
 
 ---
