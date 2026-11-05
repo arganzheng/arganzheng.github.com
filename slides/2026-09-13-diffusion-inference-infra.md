@@ -50,7 +50,7 @@ flowchart TB
 
 ## 01 · 负载画像：一次生成在 GPU 上发生什么
 
-**结论**：三段里**算力全在 DiT**，一次前向就是 compute-bound；**图像模型是 GEMM 负载，视频模型是 attention 负载**。
+**算力全在 DiT：图像是 GEMM 负载，视频是 attention 负载**
 
 | | FLUX.1-dev 1024² 28 步 | Wan 5 秒 720p |
 |---|---|---|
@@ -65,13 +65,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /diffusion-inference-workload-anatomy-and-cost-ledger.html。与 LLM 比：150× FLOPs、0.8× 时间。
+结论原文：**：三段里**算力全在 DiT**，一次前向就是 compute-bound；**图像模型是 GEMM 负载，视频模型是 attention 负载**。
 </aside>
 
 ---
 
 ## 02 · 单卡执行：无损先有损后
 
-**结论**：**编译是最大的无损收益**；**量化的收益来自 Tensor Core 峰值而不来自字节**（FP8 GEMM 2× → 端到端 1.3–1.5×）；逐层 offload 的判据是每层计算 / 搬运之比。
+**编译是最大的无损收益；量化收益来自峰值不来自字节**
 
 | FLUX 每步 | 时间 | η |
 |---|---|---|
@@ -86,13 +87,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /single-gpu-diffusion-execution-attention-compile-quantization-offload.html。
+结论原文：**：**编译是最大的无损收益**；**量化的收益来自 Tensor Core 峰值而不来自字节**（FP8 GEMM 2× → 端到端 1.3–1.5×）；逐层 offload 的判据是每层计算 / 搬运之比。
 </aside>
 
 ---
 
 ## 03 · 跨步冗余：TeaCache 一族
 
-**结论**：便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；**本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥**——在 schnell 的 4 步上一步都省不下来。
+**缓存 = 自适应少步采样，上限约 2×，与蒸馏互斥**
 
 | FLUX 28 步，阈值 | 加速 | 质量 |
 |---|---|---|
@@ -107,13 +109,14 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /timestep-redundancy-caching-and-step-skipping.html。
+结论原文：**：便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；**本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥**——在 schnell 的 4 步上一步都省不下来。
 </aside>
 
 ---
 
 ## 04 · 视频：N 到十万后 attention 压过线性项
 
-**结论**：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
+**Wan 一步 attention 72%——分数矩阵 425 GiB 不可物化**
 
 $$
 \text{speedup} = \frac{1}{(1-a)+a/s}\qquad a=0.72,\ s=3.5 \to 2.06\times
@@ -129,13 +132,14 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /video-diffusion-long-sequence-attention-and-sparsity.html。
+结论原文：**：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
 </aside>
 
 ---
 
 ## 05 · 多卡并行：为什么不是张量并行
 
-**结论**：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
+**多卡为延迟、吞吐永远 DP 最优**
 
 | FLUX，p = 4，每步通信 | 量 |
 |---|---|
@@ -149,13 +153,14 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html。
+结论原文：**：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
 </aside>
 
 ---
 
 ## 06 · 少步与自回归：把步数变成系统参数
 
-**结论**：蒸馏拿走了「几十步里大半是保守余量」——**依赖相邻步相似的优化全部失效**（缓存、PipeFusion、CFG 并行），CUDA graph 变必需，VAE 占比升到 15%；**因果化让视频生成向 LLM serving 收敛**——KV cache 回来了。
+**蒸馏后相邻步相似失效，因果化让视频向 LLM serving 收敛**
 
 | | dev 28 步 | schnell 4 步 |
 |---|---|---|
@@ -168,13 +173,14 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /few-step-and-autoregressive-video-generation-systems.html。
+结论原文：**：蒸馏拿走了「几十步里大半是保守余量」——**依赖相邻步相似的优化全部失效**（缓存、PipeFusion、CFG 并行），CUDA graph 变必需，VAE 占比升到 15%；**因果化让视频生成向 LLM serving 收敛**——KV cache 回来了。
 </aside>
 
 ---
 
 ## 07 · serving 形态：卡数 = QPS × GPU·秒
 
-**结论**：**batch 不参与、SP 只减延迟**；时长收到请求时即确定 → 分池、SJF、SLO 准入、**事前定价**；视频必须异步 job。
+**时长请求时即确定——分池、SJF、SLO 准入、事前定价**
 
 | 100 QPS 的 FLUX 1024² | 张 H100 | 每张成本 |
 |---|---|---|
@@ -189,13 +195,14 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /diffusion-serving-shapes-batching-disaggregation-and-cost.html。
+结论原文：**：**batch 不参与、SP 只减延迟**；时长收到请求时即确定 → 分池、SJF、SLO 准入、**事前定价**；视频必须异步 job。
 </aside>
 
 ---
 
 ## 08 · 三个引擎：同一张图的请求各走过什么
 
-**结论**：**SGLang** 把扩散塞进 LLM serving 的结构；**vLLM-Omni** 把扩散做成全模态流水线的一个 stage；**xDiT** 只做并行、包装 diffusers；三者共用 diffusers 底座与 vLLM 式并行组。
+**SGLang 塞进 serving 结构、vLLM-Omni 做成 stage、xDiT 只做并行**
 
 | | SGLang Diffusion | vLLM-Omni | xDiT |
 |---|---|---|---|
@@ -206,13 +213,14 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html。
+结论原文：**：**SGLang** 把扩散塞进 LLM serving 的结构；**vLLM-Omni** 把扩散做成全模态流水线的一个 stage；**xDiT** 只做并行、包装 diffusers；三者共用 diffusers 底座与 vLLM 式并行组。
 </aside>
 
 ---
 
 ## 09 · 配置、评测与排障：八步推导
 
-**结论**：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；**无损先于有损、切卡先于换模型、卡数由 GPU·秒决定**；评「开不开某项优化」不能用 FID。
+**无损先于有损、切卡先于换模型、卡数由 GPU·秒决定**
 
 | 症状 | 先查 |
 |---|---|
@@ -226,6 +234,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /diffusion-inference-configuration-evaluation-and-troubleshooting.html。
+结论原文：**：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；**无损先于有损、切卡先于换模型、卡数由 GPU·秒决定**；评「开不开某项优化」不能用 FID。
 </aside>
 
 ---
