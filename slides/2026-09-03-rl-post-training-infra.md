@@ -34,13 +34,13 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    R1["01 负载画像<br/>三个作业 + 两次同步，FLOP · 字节 · 秒"] --> R2["02 系统形态<br/>共置 / 分离 / 异步"]
-    R2 --> R3["03 共置<br/>训练状态与 KV 池怎么共存"]
-    R2 --> R4["04 权重同步<br/>训练分片 → 推理分片"]
-    R2 --> R5["05 异步与 off-policy<br/>拆掉墙之后要补什么"]
-    R1 --> R6["06 Agentic rollout<br/>多轮、沙箱、环境服务"]
-    R3 & R4 & R5 & R6 --> R7["07 verl 源码导读<br/>每个机制在哪个 worker"]
-    R7 --> R8["08 配置、可观测与排障"]
+    R1["01 负载画像"] --> R2["02 系统形态"]
+    R2 --> R3["03 共置"]
+    R2 --> R4["04 权重同步"]
+    R2 --> R5["05 异步"]
+    R1 --> R6["06 Agentic rollout"]
+    R3 & R4 & R5 & R6 --> R7["07 verl 源码"]
+    R7 --> R8["08 配置与排障"]
 ```
 
 ---
