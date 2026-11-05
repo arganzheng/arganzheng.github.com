@@ -143,7 +143,7 @@ forward 定义的数据流是 `x → fc1 → activation → fc2 → output`。
 
 `nn.Module` 的价值不只是提供一个可以继承的基类，而是定义了一套模型对象协议。
 
-**TIPS** 对于上面这个简单的 MLP，其实我们可以直接使用 `Sequential`：
+**TIPS** 对于上面这个简单的 MLP，其实可以直接使用 `Sequential`：
 
 ```python title='用 nn.Sequential 改写同一个 MLP'
 class SequentialMLP(nn.Module):

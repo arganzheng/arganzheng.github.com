@@ -159,7 +159,7 @@ Table: 本文的章节安排
 - 错误定位原则：编译期看头文件与类型；链接期看 ABI 与库版本；加载期看注册；运行期 `NotImplementedError` 看 DispatchKey 槽位。
 - 一个算子完成的七条标准：Schema 与 mutability、后端实现、Autograd、Fake / Meta、`opcheck` + `gradcheck`、Benchmark 证明有价值、构建与 ABI 可复现。
 
-**常见误解**："用 pybind11 导出一个函数就是自定义算子"——那只是普通函数，不进 Operator Table，Autograd、Meta、`torch.compile` 都看不见它。另一个："在我机器上能跑就能交付"——PyTorch 版本、CUDA 版本、C++ ABI、编译器、GPU 架构任一不一致都可能加载失败或静默崩溃。
+**常见误解**："用 pybind11 导出一个函数就是自定义算子"——那只是普通函数，不进 Operator Table，Autograd、Meta、`torch.compile` 都看不见它。另一个："在开发机上能跑就能交付"——PyTorch 版本、CUDA 版本、C++ ABI、编译器、GPU 架构任一不一致都可能加载失败或静默崩溃。
 
 ### 7. 第七篇：编译执行与图优化
 

@@ -10,7 +10,7 @@ updated: 2026-09-14
 
 上一篇讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
 
-但当我们写下：
+但写下：
 
 ```python title='一行 z = x + y'
 z = x + y

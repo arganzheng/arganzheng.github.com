@@ -14,7 +14,7 @@ updated: 2026-09-14
 
 这是从“阅读框架”走向“扩展框架”的关键一步。AI-Infra 工作中大量的实际需求都落在这里：一个融合 Kernel、一个新硬件的后端适配、一个推理引擎的定制算子，最终都要经过同样的路径。
 
-本文用一个刻意简单的算子贯穿全文：`scale_shift(x, alpha, beta) = alpha * x + beta`。它简单到不会分散注意力，又足够涉及 Tensor 元数据、dtype、device、Autograd 和构建系统的全部问题。通过这个实际例子，我们可以了解到一个算子是怎么正确完成定义、注册与实现，并能通过 Autograd、Meta、测试和构建检验的完整过程。
+本文用一个刻意简单的算子贯穿全文：`scale_shift(x, alpha, beta) = alpha * x + beta`。它简单到不会分散注意力，又足够涉及 Tensor 元数据、dtype、device、Autograd 和构建系统的全部问题。通过这个实际例子，可以了解一个算子是怎么正确完成定义、注册与实现，并能通过 Autograd、Meta、测试和构建检验的完整过程。
 
 ## 一、总览：三个概念与本文主线
 
@@ -711,7 +711,7 @@ y = torch.ops.myops.scale_shift(x, 2.0, 1.0)
 torch.testing.assert_close(y, 2.0 * x + 1.0)
 ```
 
-阶段一结束时我们有了一条 Schema 和一个对所有后端可用的 Python 实现。接下来把实现下沉到 C++，并切换到第三章的“C++ 定义 + Python 补 Autograd/Fake”组合——因此从第六章起，Schema 改由 C++ 的 `TORCH_LIBRARY` 定义，上面的 `custom_op` 版本不再使用。
+阶段一结束时已有了一条 Schema 和一个对所有后端可用的 Python 实现。接下来把实现下沉到 C++，并切换到第三章的“C++ 定义 + Python 补 Autograd/Fake”组合——因此从第六章起，Schema 改由 C++ 的 `TORCH_LIBRARY` 定义，上面的 `custom_op` 版本不再使用。
 
 ## 六、阶段二：C++ CPU 实现
 
@@ -895,7 +895,7 @@ NotImplementedError: Could not run 'myops::scale_shift' with arguments from the 
 | `blockIdx.x` | block 在 grid 内的编号 | `0 .. gridDim.x - 1` |
 | `blockDim.x` | 每个 block 的线程数 | launch 时给定 |
 
-Table: CUDA Kernel 里区分"我是谁"的三个内建变量
+Table: CUDA Kernel 里区分"是哪个线程"的三个内建变量
 
 于是 `blockIdx.x * blockDim.x + threadIdx.x` 就是一个全局唯一的线程编号，最常见的用法就是让第 `i` 个线程处理第 `i` 个元素——下面的 Kernel 正是这样。`n` 通常不是 `threads` 的整数倍，最后一个 block 会有多余线程，所以 Kernel 里必须有 `if (i < n)` 的边界检查。
 
@@ -1252,7 +1252,7 @@ print(t_native.timeit(100))
 
 ## 十、构建、ABI 与分发
 
-第四章解决的是“在我的机器上编译起来”；这一章解决“交给别人也能用”。
+第四章解决的是“在本机上编译起来”；这一章解决“交给别人也能用”。
 
 ### 1. 从 JIT `load` 到 `setup.py`
 
@@ -1276,7 +1276,7 @@ torch.library.register_fake("myops::scale_shift")(_fake)
 scale_shift = torch.ops.myops.scale_shift   # 提供一个友好的别名
 ```
 
-### 2. ABI：为什么“在我机器上能跑”经常不成立
+### 2. ABI：为什么“在开发机上能跑”经常不成立
 
 C++ 扩展与 PyTorch 之间是二进制接口。以下任何一项不一致，都可能在加载时报符号错误，或运行时静默崩溃：
 
