@@ -40,8 +40,14 @@ const CHECK = `(() => {
     }).map(e=>e.textContent.trim().slice(0,80)),
     widePre: [...document.querySelectorAll("pre")].filter(p=>p.scrollWidth>p.clientWidth+2).map(p=>p.textContent.trim().split("\\n")[0].slice(0,60)),
     hoverflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{const sr=s.getBoundingClientRect();
-      return [...s.querySelectorAll('*')].map(e=>({e,b:e.getBoundingClientRect()})).filter(x=>x.b.width>0&&(x.b.right>sr.right+2||x.b.left<sr.left-2))
-        .map(x=>"#"+(i+1)+" "+x.e.tagName+" "+x.e.textContent.trim().slice(0,30)+" (right "+Math.round(x.b.right-sr.right)+"px over)");}).flat(),
+      return [...s.querySelectorAll('*')].filter(e=>{
+        if(e.closest('.katex-mathml'))return false;               // hidden MathML annotation
+        if(e.tagName.toLowerCase()!=='svg'&&e.closest('svg'))return false; // measure the svg, not its children
+        const cs=getComputedStyle(e);
+        if(cs.opacity==='0'||cs.visibility==='hidden')return false;
+        const b=e.getBoundingClientRect();return b.width>0&&(b.right>sr.right+2||b.left<sr.left-2);
+      }).map(e=>{const b=e.getBoundingClientRect();
+        return "#"+(i+1)+" "+e.tagName+" "+e.textContent.trim().slice(0,30)+" (right "+Math.round(b.right-sr.right)+"px over)";});}).flat(),
     overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
       .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
