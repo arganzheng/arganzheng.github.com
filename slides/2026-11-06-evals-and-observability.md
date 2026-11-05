@@ -26,11 +26,10 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    E1["01 评测集<br/>AI 应用的单元测试"] --> E2["02 评分<br/>规则 / judge / 人"] --> E3["03 评什么<br/>指标矩阵"] --> E4["04 回归与门禁<br/>CI、静默升级、A/B、在线评测"]
-    E5["05 trace<br/>span、OTel GenAI 约定"] --> E6["06 可追溯<br/>录制回放、决策点日志、失败分类"]
-    E5 -- "评测集从 trace 里采" --> E1
-    E6 -- "bad case → 用例" --> E1
-    E4 & E6 --> E7["07 运行时可靠性与物理世界的仿真<br/>评测发现的失效模式做成运行时检查"]
+    E1["01 评测集"] --> E2["02 评分"] --> E3["03 评什么"] --> E4["04 门禁"]
+    E5["05 trace"] --> E6["06 追溯"]
+    E5 & E6 -.-> E1
+    E4 & E6 --> E7["07 运行时检查"]
 ```
 
 ---
@@ -42,16 +41,16 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    L["生产流量（trace）"] -- "按<b>类型</b>采样，不按流量比例" --> S["候选用例"]
-    R["红队 / 安全用例<br/>（流量里不会自然出现，专门写）"] --> S
-    S --> A["标注：期望是<b>分布</b>不是值<br/>通过率 ≥ 80%、必含 / 必不含、schema"]
+    L["生产流量（trace）"] -- "按类型采样" --> S["候选用例"]
+    R["红队 / 安全用例"] --> S
+    S --> A["标注：期望是分布"]
     A --> T{"分层"}
-    T --> T1["冒烟集：几十条，每次改动都跑"]
-    T --> T2["全量集：几百到几千条，发布前跑"]
-    T --> T3["hold-out：不给调 prompt 的人看，防过拟合评测集"]
-    T1 & T2 --> G["门禁（第四篇）<br/>绑定 prompt 版本 + 模型快照"]
-    G -- "线上 bad case" --> S
-    G -. "模型升级 → 依赖变了，全量重跑" .-> T2
+    T --> T1["冒烟集<br/>每次改动都跑"]
+    T --> T2["全量集<br/>发布前跑"]
+    T --> T3["hold-out<br/>防过拟合"]
+    T1 & T2 --> G["门禁（第四篇）"]
+    G -- "bad case" --> S
+    
 
 ```
 
@@ -82,14 +81,14 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    O["一条输出"] --> R{"能用<b>规则</b>判吗？<br/>字段齐不齐、枚举、容差、引用 id 是否存在"}
+    O["一条输出"] --> R{"能用规则判吗？"}
     R -- "能：确定、免费" --> RR["规则打分"]
-    R -- "不能：「解释清楚吗」「忠实吗」" --> J["<b>LLM-as-judge</b> 打分<br/>rubric、pairwise 换序去偏"]
-    J --> C{"judge 校准过吗？"}
-    C -- "抽 30–50 条与人比，一致率 ≥ 85%" --> OK["可用"]
-    C -- "一致率不够" --> H["<b>人</b>：重标、改 rubric、换 judge 模型"]
+    R -- "不能" --> J["<b>LLM-as-judge</b><br/>rubric、换序去偏"]
+    J --> C{"校准过吗？"}
+    C -- "一致率 ≥ 85%" --> OK["可用"]
+    C -- "不够" --> H["<b>人</b>：重标、改 rubric"]
     H --> J
-    OK -. "每次改 judge 的 prompt / 模型重新校准；<br/>人之间也要量一致率（两个 80% 正确的人只有 68% 一致）" .-> C
+    OK -. "改 judge 要重新校准" .-> C
 
 ```
 
@@ -120,11 +119,11 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
 flowchart LR
-    F{"应用形态"} --> S["<b>单步</b><br/>结果：准确率 / F1 / rubric<br/>形式：格式遵循率、schema 通过率、拒答正确率"]
-    F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）"]
-    F --> AG["<b>agent</b><br/>结果之外看过程：步数、越权、<br/>工具选择、部分结果、成本<br/>（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）"]
-    F --> MT["<b>多轮</b><br/>策略遵循、轮数、目标达成、<br/>上下文丢失点"]
-    S & RG & AG & MT --> X["所有形态都并列报：<br/>成本 / 任务 · p95 延迟 · 安全（红队通过率）<br/>按分布看（跑 n 次），按类型分层"]
+    F{"应用形态"} --> S["<b>单步</b><br/>准确率 · 格式遵循 · schema 通过率"]
+    F --> RG["<b>RAG</b><br/>检索 recall@k · 生成 faithfulness"]
+    F --> AG["<b>agent</b><br/>过程：步数 · 越权 · 成本"]
+    F --> MT["<b>多轮</b><br/>策略遵循 · 目标达成"]
+    S & RG & AG & MT --> X["都并列报：成本 · p95 · 安全<br/>按分布、按类型分层"]
 
 ```
 
@@ -155,16 +154,13 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    CH["改动：prompt · 模型 / effort · schema · 工具集 · 检索配置 · harness 版本 · judge / rubric"] --> V["新版本（不可变）+ 六元组记录"]
-    V --> G{"门禁：评测集 × k<br/>分层指标 ≥ 基线 − 噪声阈值<br/>逐条 diff · 成本 / 延迟不退化 · 红队集通过"}
+    CH["改动：prompt · 模型 · 工具 · harness"] --> V["新版本（不可变）"]
+    V --> G{"门禁：分层指标 ≥ 基线 − 噪声"}
     G -->|"不过"| CH
-    G -->|"过"| S["影子模式（高风险改动）<br/>新旧并跑 · 只记录不生效 · 比差异"]
-    S --> C["灰度 canary 1–5%<br/>trace 绑定版本 · 在线指标 · 隐式反馈"]
-    C -->|"退化"| RB["回滚：标签指回旧版本"]
-    C -->|"正常"| P["全量 production"]
-    P --> M["监控 + 探针集每日跑<br/>供应商静默升级 · 分布漂移"]
-    M -->|"漂移"| G
-    AB["A/B：两个版本并行分流<br/>按版本聚合在线指标"] -.-> C
+    G -->|"过"| C["灰度 → 全量"]
+    C -->|"退化"| RB["回滚"]
+    C -->|"正常"| P["监控"]
+    P -. "漂移" .-> G
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -232,13 +228,13 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    B["一个坏结果（用户 👎 / 存疑 / 客服工单）"] -- "反馈绑定 trace_id" --> TR["打开完整轨迹"]
-    TR --> D["决策点日志：第几步、看到了什么、为什么这么选"]
-    D --> C["失败打类（检索没找到 / 幻觉 / 越权 / 忘目标 / …）"]
-    C --> F{"改哪一侧？"}
-    F -- "应用侧：工具、解析、卫士阈值" --> RP["<b>录制回放</b>：模型输出录下来，改完应用重放，不再花模型的钱"]
-    F -- "模型侧：prompt、模型、effort" --> EV["变成评测用例，进门禁"]
-    RP & EV --> V["版本 diff：变更时间线与指标曲线对齐"]
+    B["一个坏结果"] -- "绑定 trace_id" --> TR["打开完整轨迹"]
+    TR --> D["决策点日志"]
+    D --> C["失败打类"]
+    C --> F{"改哪侧？"}
+    F -- "应用侧" --> RP["<b>录制回放</b>"]
+    F -- "模型侧" --> EV["变成评测用例"]
+
 
 ```
 
@@ -304,9 +300,9 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
-    T["trace（05）<br/>会话日志的投影"] --> S["采样成评测集（01）"] --> J["评分：规则 / judge / 人（02）<br/>指标矩阵（03）"] --> G["门禁（04）<br/>改动 = 发布"]
+    T["trace（05）"] --> S["评测集（01）"] --> J["评分（02、03）"] --> G["门禁（04）"]
     T --> B["bad case → 失败分类 → 用例（06）"] --> S
-    G --> R["运行时检查（07）<br/>评测发现的失效模式"] --> T
+    G --> R["运行时检查（07）"] --> T
 ```
 
 ---
