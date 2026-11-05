@@ -39,13 +39,13 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
-    L1["01 状态解剖<br/>参数 / 梯度 / 优化器状态 / 激活的字节数与 MFU"] --> L2["02 并行策略全景<br/>每种并行切哪种状态、付哪种通信"]
-    L2 --> L3["03 三个框架<br/>Megatron / DeepSpeed / torchtitan 里找同一个系数"]
-    L2 & L3 --> L4["04 千卡配置实战<br/>先算再试：并行搭配、micro-batch、重计算"]
-    L1 & L2 --> L5["05 分布式 checkpoint<br/>把三样状态写到持久存储、重分片恢复"]
-    L5 --> L6["06 容错与弹性<br/>故障率数学、straggler、SDC"]
-    L1 --> L7["07 训练稳定性与数据管线<br/>让数值不跑飞"]
-    L4 & L6 & L7 --> L8["08 可观测与运维<br/>让字节数与位置成为指标，hang 排查"]
+    L1["01 状态解剖"] --> L2["02 并行策略全景"]
+    L2 --> L3["03 三个框架"]
+    L2 & L3 --> L4["04 千卡配置实战"]
+    L1 & L2 --> L5["05 分布式 checkpoint"]
+    L5 --> L6["06 容错与弹性"]
+    L1 --> L7["07 训练稳定性与数据管线"]
+    L4 & L6 & L7 --> L8["08 可观测与运维"]
 ```
 
 ---
@@ -58,7 +58,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /training-state-anatomy-memory-and-mfu.html。70B 每层激活 2.28 GB；每 token 449 GFLOP。
-结论原文：**：每参数 **16 字节**（Megatron fp32 累加梯度 18）——70B 常驻 **1.13 TB**、405B 6.49 TB，是一张 80 GB 卡的 14 倍；激活每层 $$sbh(34 + 5as/h)$$，FlashAttention 后 $$34sbh$$；每 token $$6N + 6Lsh$$ FLOP。
+结论原文：每参数 **16 字节**（Megatron fp32 累加梯度 18）——70B 常驻 **1.13 TB**、405B 6.49 TB，是一张 80 GB 卡的 14 倍；激活每层 $$sbh(34 + 5as/h)$$，FlashAttention 后 $$34sbh$$；每 token $$6N + 6Lsh$$ FLOP。
+各篇关键词：01 参数 / 梯度 / 优化器状态 / 激活的字节数与 MFU；02 每种并行切哪种状态、付哪种通信；03 Megatron / DeepSpeed / torchtitan 里找同一个系数；04 先算再试：并行搭配、micro-batch、重计算；05 三样状态写到持久存储、重分片恢复；06 故障率数学、straggler、SDC；07 让数值不跑飞；08 让字节数与位置成为指标、hang 排查。
 </aside>
 
 <!-- v -->
@@ -80,7 +81,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /parallelism-strategies-which-state-to-shard.html。Llama 3 405B TP 8 / PP 16 / DP 128 每 step：TP 220 GB NVLink、DP 12.6 GB IB、PP 1 GB IB。
-结论原文：**：并行是**状态的放置方案**；不可重叠且量大的放最近（TP 锁在 NVLink 内，$$N_t \le 8$$），可重叠的放远（PP 量最小放最远）；组合顺序 **TP → CP → PP → DP**。
+结论原文：并行是**状态的放置方案**；不可重叠且量大的放最近（TP 锁在 NVLink 内，$$N_t \le 8$$），可重叠的放远（PP 量最小放最远）；组合顺序 **TP → CP → PP → DP**。
 </aside>
 
 <!-- v -->
@@ -163,7 +164,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /megatron-deepspeed-torchtitan-architecture-and-source-guide.html。
-结论原文：**：三者通信量相同（2N 或 3N），差别在分片的**表示**——`ds_tensor` 灵活但私有、`FlatParameter` 高效但抹掉身份、`DTensor` 自描述可组合。
+结论原文：三者通信量相同（2N 或 3N），差别在分片的**表示**——`ds_tensor` 灵活但私有、`FlatParameter` 高效但抹掉身份、`DTensor` 自描述可组合。
 </aside>
 
 ---
@@ -185,7 +186,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /thousand-gpu-configuration-and-mfu-tuning.html。s = 8192、global batch 4M。
-结论原文：**：推导顺序 **TP → PP → DP → CP**；每卡 token 少时选 **PP + ZeRO-1 不选 FSDP**（FSDP128 每卡每 step 175 GB 节点间通信、3.5 s 盖不住）；MFU 损失拆成七项各自标价，先修配置错误。
+结论原文：推导顺序 **TP → PP → DP → CP**；每卡 token 少时选 **PP + ZeRO-1 不选 FSDP**（FSDP128 每卡每 step 175 GB 节点间通信、3.5 s 盖不住）；MFU 损失拆成七项各自标价，先修配置错误。
 </aside>
 
 ---
@@ -270,7 +271,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /long-running-training-observability-and-operations.html。
-结论原文：**：三层指标（任务 / 进程 / 硬件）、**按 rank 看、以 step 为时钟**；GPU 利用率 100% 时照样可能在 hang（NCCL kernel 自旋）；Flight Recorder 指出哪个 rank 缺席哪次集合通信。
+结论原文：三层指标（任务 / 进程 / 硬件）、**按 rank 看、以 step 为时钟**；GPU 利用率 100% 时照样可能在 hang（NCCL kernel 自旋）；Flight Recorder 指出哪个 rank 缺席哪次集合通信。
 </aside>
 
 ---
