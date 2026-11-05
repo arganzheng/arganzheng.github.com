@@ -79,17 +79,17 @@ flowchart TB
     Q["一条查询"] --> L & V & S
     subgraph L["词法 / 精确：grep、BM25"]
         direction TB
-        L1["前提：语料里有精确标识符<br/>函数名、错误码、条款编号"] --> L2["买到：零过期、不出机器、可解释"] --> L3["付出：词汇不匹配<br/>问「支付失败」找不到 handleDeclined"]
+        L1["前提：有精确标识符"] --> L2["买到：零过期、可解释"] --> L3["付出：词汇不匹配"]
     end
     subgraph V["向量 / 语义：embedding + ANN"]
         direction TB
-        V1["前提：问法与写法不同<br/>同义、改述、跨语言"] --> V2["买到：语义相近也能召回"] --> V3["付出：索引会过期、要维护<br/>X-200 与 X-2000 分不清"]
+        V1["前提：问法 ≠ 写法"] --> V2["买到：语义召回"] --> V3["付出：索引要维护"]
     end
     subgraph S["结构化：SQL、API、图谱"]
         direction TB
-        S1["前提：数据有 schema、问的是关系<br/>「这个客户的未完成订单」"] --> S2["买到：精确的关系查询与动作"] --> S3["付出：要有 schema / 语义层<br/>非结构化文档用不上"]
+        S1["前提：有 schema、问关系"] --> S2["买到：精确关系查询"] --> S3["付出：要 schema"]
     end
-    L & V & S --> H["生产系统几乎总是混用：<br/>各自的前提成立时用哪类，第四篇讲怎么合"]
+    L & V & S --> H["生产系统几乎总是混用"]
 
 ```
 
@@ -120,16 +120,15 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    F["文件<br/>PDF · Office · HTML · 扫描件 · 图片"] --> P{"解析梯级"}
-    P -->|"数字原生 PDF · HTML"| R1["① 规则抽取<br/>读文本层 → markdown<br/>毫秒 · 免费 · 无 GPU"]
-    P -->|"复杂表格 · 多栏 · 混合"| R2["② 布局模型<br/>Docling · Marker · MinerU<br/>布局检测 + 表格结构 · 本地"]
-    P -->|"扫描 · 手写 · 公式 · 密集表格"| R3["③ 视觉语言模型<br/>Mistral OCR 4 · PaddleOCR-VL · DeepSeek-OCR 2 · LlamaParse<br/>逐页读图 → 结构化文本"]
-    R1 --> S["结构化文本<br/>标题层级 · 段落 · 表格 · 图片位置 · 阅读顺序"]
+    F["文件<br/>PDF · Office · 扫描件"] --> P{"梯级"}
+    P -->|"数字原生"| R1["① 规则抽取"]
+    P -->|"复杂表格"| R2["② 布局模型"]
+    P -->|"扫描"| R3["③ 视觉 OCR"]
+    R1 --> S["结构化文本"]
     R2 --> S
     R3 --> S
-    S --> C["分块<br/>按结构 / 递归 / 语义 / 固定<br/>+ contextual 前缀"]
-    C --> M["元数据<br/>来源 · 时间 · 章节路径 · 页码 · 权限"]
-    M --> I["索引（第四篇）"]
+    S --> C["分块 + contextual 前缀"]
+    C --> M["元数据 → 索引"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -186,15 +185,15 @@ flowchart LR
 flowchart TB
     subgraph P["流水线 RAG（2023 起的标准形态）"]
         direction TB
-        P1["query"] --> P2["embedding → 混合召回 → rerank"] --> P3["top-k 放进 prompt"] --> P4["生成"]
+        P1["query"] --> P2["混合召回 + rerank"] --> P3["top-k 进 prompt"] --> P4["生成"]
     end
     subgraph AG["agentic retrieval（检索是 agent 的一个工具）"]
         direction TB
-        A1["模型读问题，决定先查什么"] --> A2["调 search_docs / grep / sql / read"] --> A3["看结果：够不够？<br/>不够 → 换查询再查 / 顺着线索查下一跳"] --> A1
+        A1["决定先查什么"] --> A2["调 search_docs / sql"] --> A3["够不够？不够再查"] --> A1
         A3 -- "够了" --> A4["生成（带引用）"]
     end
-    P -. "每步确定、延迟可控、成本固定<br/>一次没找到就没找到，多跳做不到" .-> X["取舍"]
-    AG -. "召回压力小、能多跳、能自纠<br/>延迟与 token 不可预测，要预算与上限" .-> X
+    P -. "确定、成本固定" .-> X["取舍"]
+    AG -. "能多跳、不可预测" .-> X
 
 ```
 
@@ -224,10 +223,10 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 flowchart TB
     Q["答案在「关系」里，不在任何一个块里"] --> W{"数据长什么样？"}
-    W -- "有 schema 的业务表<br/>「华东区 Q3 营收」" --> S["text-to-SQL + <b>语义层</b><br/>业务概念定义一次、编译成 SQL、可审查"]
-    W -- "对象、关系、还要<b>做动作</b><br/>「这个客户未完成订单的设备，改派」" --> O["<b>本体</b><br/>对象导航替代 join；动作与权限在本体里定义"]
-    W -- "从大量文档里抽出来的实体关系<br/>「这批文档整体在说什么」" --> G["<b>GraphRAG</b><br/>抽实体与关系建图 + 社区摘要；贵，先用 LazyGraphRAG"]
-    S & O & G --> C["都不替代向量 / 词法检索：<br/>先用检索找到相关的对象与文档线索，再用结构精确导航"]
+    W -- "有 schema<br/>「Q3 营收」" --> S["<b>text-to-SQL + 语义层</b>"]
+    W -- "对象关系 + 动作" --> O["<b>本体</b><br/>对象导航替代 join"]
+    W -- "文档抽出的实体关系" --> G["<b>GraphRAG</b><br/>实体关系建图"]
+    S & O & G --> C["都不替代向量检索：<br/>先检索线索，再结构导航"]
 
 ```
 
