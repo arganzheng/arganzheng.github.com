@@ -339,7 +339,7 @@ Table: Kueue 的五个对象
 
 **ResourceFlavor 是 Kueue 表达异构的方式。** `ResourceFlavorSpec.NodeLabels` 是一组标签，比如 `nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3`（第二篇讲过这个标签由 GPU Feature Discovery 打上）。ClusterQueue 里每个 flavor 单独给配额：H100 flavor 16 张、A100 flavor 32 张。Workload 准入时 Kueue 按 flavor 在 ClusterQueue 里的**顺序**尝试（`FlavorFungibility` 控制"当前 flavor 要借用/抢占才能放下时，是先试下一个 flavor 还是就地借"），选中后把该 flavor 的 `nodeLabels` 作为 `nodeSelector` 写进 Pod——这是 Kueue 影响 Pod 落点的唯一方式（TAS 之前）。
 
-**cohort 是借用的边界。** `ClusterQueueSpec.CohortName` 只是一个名字，同名的 ClusterQueue 组成一个 cohort，彼此可以借用未使用的 `nominalQuota`。每个 `ResourceQuota` 上有两个限制借用的字段：`BorrowingLimit`（我最多从别人那里借多少；null = 不限）和 `LendingLimit`（我最多借给别人多少，等价于"我为自己保留 `nominalQuota - lendingLimit`"；null = 全部可借）。对照 Volcano：`nominalQuota` ≈ `deserved`，`nominalQuota + borrowingLimit` ≈ `capability`，`nominalQuota - lendingLimit` ≈ `guarantee`。如果创建了显式的 `Cohort` 对象，还可以用 `CohortSpec.ParentName` 组成树、在 cohort 层持有不属于任何 ClusterQueue 的公共配额。
+**cohort 是借用的边界。** `ClusterQueueSpec.CohortName` 只是一个名字，同名的 ClusterQueue 组成一个 cohort，彼此可以借用未使用的 `nominalQuota`。每个 `ResourceQuota` 上有两个限制借用的字段：`BorrowingLimit`（最多从别人那里借多少；null = 不限）和 `LendingLimit`（最多借给别人多少，等价于"我为自己保留 `nominalQuota - lendingLimit`"；null = 全部可借）。对照 Volcano：`nominalQuota` ≈ `deserved`，`nominalQuota + borrowingLimit` ≈ `capability`，`nominalQuota - lendingLimit` ≈ `guarantee`。如果创建了显式的 `Cohort` 对象，还可以用 `CohortSpec.ParentName` 组成树、在 cohort 层持有不属于任何 ClusterQueue 的公共配额。
 
 **queueingStrategy 决定队头阻塞。** `StrictFIFO`：同优先级按创建时间严格排序，队头放不下则后面的也不准入——保证公平但会让小任务等大任务；`BestEffortFIFO`（默认）：队头放不下就跳过看下一个——吞吐高但大任务可能饥饿。
 
@@ -356,7 +356,7 @@ Workload 的 `status.conditions` 里有一串 reason 常量（`workload_types.go
 | 开关 | 场景 | 取值 |
 |---|---|---|
 | `withinClusterQueue` | 同一个 ClusterQueue 内，待准入的 Workload 放不进 nominalQuota 时能否抢占已准入的低优先级 Workload | `Never`（默认）/ `LowerPriority` / `LowerOrNewerEqualPriority` |
-| `reclaimWithinCohort` | 待准入的 Workload 在自己的 nominalQuota 之内，但配额被 cohort 里别的 ClusterQueue 借走了——能否抢回来 | `Never`（默认）/ `LowerPriority` / `Any`（不看优先级，是我的就抢回来） |
+| `reclaimWithinCohort` | 待准入的 Workload 在自己的 nominalQuota 之内，但配额被 cohort 里别的 ClusterQueue 借走了——能否抢回来 | `Never`（默认）/ `LowerPriority` / `Any`（不看优先级，是自己的就抢回来） |
 | `borrowWithinCohort` | 待准入的 Workload 需要借用才能放下，能否为此抢占 cohort 里别的 ClusterQueue 的低优先级 Workload | `policy`: `Never`（默认）/ `LowerPriority`；`maxPriorityThreshold` 限制受害者的优先级上限 |
 
 Table: ClusterQueuePreemption 的三个开关
@@ -559,7 +559,7 @@ Table: Kubeflow Trainer v2 的三个 CRD
 
 ### 2. torch 插件与 rendezvous 的落地
 
-`torchrun` 需要每个节点知道四件事：一共几个节点、每节点几个进程、我是第几个节点、rendezvous 的地址。`trainer pkg/runtime/framework/plugins/torch/torch.go` 的 `Torch.EnforceMLPolicy` 把它们变成环境变量注入 `node` 容器（常量在 `pkg/constants/constants.go`）：
+`torchrun` 需要每个节点知道四件事：一共几个节点、每节点几个进程、是第几个节点、rendezvous 的地址。`trainer pkg/runtime/framework/plugins/torch/torch.go` 的 `Torch.EnforceMLPolicy` 把它们变成环境变量注入 `node` 容器（常量在 `pkg/constants/constants.go`）：
 
 | 环境变量 | 取值 |
 |---|---|

@@ -26,19 +26,19 @@ updated: 2026-09-14
 
 平台之上跑的是两类引擎，它们对平台的要求可以各自压缩成一句话。
 
-**训练框架**：给我 $$W$$ 个进程，每个进程一张卡，让它们**同时**起来、能互相找到、之间有高带宽网络，再给我一个能周期性写几百 GB 的地方——然后别打断我。这句话里的每个词都是一条需求：
+**训练框架**：给它 $$W$$ 个进程，每个进程一张卡，让它们**同时**起来、能互相找到、之间有高带宽网络，再给它一个能周期性写几百 GB 的地方——然后别打断它。这句话里的每个词都是一条需求：
 
 - W 个进程同时起来：→ 整数个 GPU；全员到齐才能开始（gang）
 - 互相找到：→ 稳定的地址（MASTER_ADDR）与编号（RANK / WORLD_SIZE）
 - 高带宽网络：→ 节点内 NVLink、节点间 RDMA；拓扑接近
 - 周期性写几百 GB：→ checkpoint 的突发顺序写带宽
-- 别打断我：→ 抢占要考虑上次 checkpoint 之后的损失；一个进程挂了要整组重启
+- 别打断它：→ 抢占要考虑上次 checkpoint 之后的损失；一个进程挂了要整组重启
 
-**推理引擎**：给我一张（或几张）显存够放权重加 KV cache 的卡，让我把权重加载完再接流量，副本多少按**我内部的**队列长度来定，请求别用轮询发给我。同样拆开：
+**推理引擎**：给它一张（或几张）显存够放权重加 KV cache 的卡，让它把权重加载完再接流量，副本多少按**它内部的**队列长度来定，请求别用轮询发给同一副本。同样拆开：
 
 - 显存够放：→ 显存是硬约束，不能超卖；小模型只需要一张卡的一部分
 - 加载完再接流量：→ 扩容时间由权重加载决定，就绪探针要等它
-- 按我内部的队列长度：→ 扩缩容信号是 vllm:num_requests_waiting 这类引擎指标，不是 CPU
+- 按它内部的队列长度：→ 扩缩容信号是 vllm:num_requests_waiting 这类引擎指标，不是 CPU
 - 别轮询：→ 路由要知道每个副本的 KV cache 与队列状态
 
 第二、三章把这两句话展开成两张需求清单，第四章把两张清单放在一起看它们的冲突。
@@ -312,7 +312,7 @@ kube-scheduler 也不知道拓扑。它有 `nodeAffinity` 与 `podAffinity`，�
 
 节点上 `allocatable` 里的 `nvidia.com/gpu` 是 device plugin 上报的。机制的核心是两个 gRPC 调用（Kubernetes v1.37.0 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto`）：`ListAndWatch` 把设备列表流式推给 kubelet，kubelet 据此更新节点 `status.capacity` / `status.allocatable`；`Allocate` 在 Pod 启动时被调用，返回要注入容器的设备文件与环境变量。kubelet 侧的 `pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl` 维护每个资源名的设备集合与已分配映射。
 
-这个模型的表达能力是**每种资源名一个整数**。它能说"这个节点有 8 个 `nvidia.com/gpu`"，不能说"其中 4 个是 A100、4 个是 H100"、"这 8 个的 NVLink 拓扑是什么"、"每个有多少显存"。Pod 侧也只能说"我要 2 个"，不能说"我要 2 个有 NVLink 直连的"或"我要 1 个显存 ≥ 40 GB 的"。要区分型号只能靠节点 label 加 `nodeSelector`，把属性从设备挪到节点上，前提是节点内的卡同构。
+这个模型的表达能力是**每种资源名一个整数**。它能说"这个节点有 8 个 `nvidia.com/gpu`"，不能说"其中 4 个是 A100、4 个是 H100"、"这 8 个的 NVLink 拓扑是什么"、"每个有多少显存"。Pod 侧也只能说"要 2 个"，不能说"要 2 个有 NVLink 直连的"或"要 1 个显存 ≥ 40 GB 的"。要区分型号只能靠节点 label 加 `nodeSelector`，把属性从设备挪到节点上，前提是节点内的卡同构。
 
 它也不能共享：一个设备 ID 只能分配给一个容器。要让两个 Pod 用同一张卡，device plugin 只能"撒谎"——把一张卡上报成 N 个虚拟设备（时间片模式），代价是没有任何隔离。
 
@@ -368,7 +368,7 @@ Table: 原生 Kubernetes 的三种空缺
 
 交付层的任务是**把一组能跑的引擎 Pod 变成一个可以卖给用户的服务**。
 
-- **输入**：资源层交出的引擎 Pod（或声明式的"我要 N 个这样的副本"）；请求流量；租户与配额策略
+- **输入**：资源层交出的引擎 Pod（或声明式的"要 N 个这样的副本"）；请求流量；租户与配额策略
 - **输出**：一个稳定的服务端点：按模型名路由、按租户限流、副本随负载伸缩、有 TTFT/TPOT 的 SLO、有按 token 的账单
 
 三个子层自内向外对应第六到第八篇：
@@ -759,7 +759,7 @@ kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable
 # GPU 列全部为 <none>
 ```
 
-这就是第五章第 2 节说的"默认情况下 GPU 在 Kubernetes 里是一个不透明的整数"的零值形态。下一篇装上 GPU Operator，`allocatable` 里出现 `nvidia.com/gpu: 1`，同一个 Pod 被调度、`nvidia-smi -L` 打印出一张卡——然后我们再问：它是怎么知道容器里该有哪些设备文件和哪几个 `.so` 的。
+这就是第五章第 2 节说的"默认情况下 GPU 在 Kubernetes 里是一个不透明的整数"的零值形态。下一篇装上 GPU Operator，`allocatable` 里出现 `nvidia.com/gpu: 1`，同一个 Pod 被调度、`nvidia-smi -L` 打印出一张卡——然后问：它是怎么知道容器里该有哪些设备文件和哪几个 `.so` 的。
 
 清理：
 

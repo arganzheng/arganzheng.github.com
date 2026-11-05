@@ -476,7 +476,7 @@ Dynamic Resource Allocation 在 Kubernetes 1.34 把 `resource.k8s.io/v1` 升为 
 
 | 对象 | 谁创建 | 关键字段 |
 |---|---|---|
-| `ResourceSlice` | 驱动发布 | "我这个节点/池里有哪些设备，每个设备有什么属性和容量"<br/>`spec.driver`（如 `gpu.nvidia.com`）、`spec.pool`、`spec.nodeName` / `nodeSelector` / `allNodes`、<br/>`spec.devices[]`：`name`、`attributes{}`（`DeviceAttribute`：`int` / `bool` / `string` / `version` 之一）、`capacity{}`（`DeviceCapacity`：`Quantity`）<br/>可选：`sharedCounters` / `consumesCounters`（可分区设备）、`taints`、`allowMultipleAllocations`（可共享设备） |
+| `ResourceSlice` | 驱动发布 | "这个节点/池里有哪些设备，每个设备有什么属性和容量"<br/>`spec.driver`（如 `gpu.nvidia.com`）、`spec.pool`、`spec.nodeName` / `nodeSelector` / `allNodes`、<br/>`spec.devices[]`：`name`、`attributes{}`（`DeviceAttribute`：`int` / `bool` / `string` / `version` 之一）、`capacity{}`（`DeviceCapacity`：`Quantity`）<br/>可选：`sharedCounters` / `consumesCounters`（可分区设备）、`taints`、`allowMultipleAllocations`（可共享设备） |
 | `DeviceClass` | 管理员定义 | "一类设备"：`spec.selectors[].cel.expression` 预筛选（如"驱动是 `gpu.nvidia.com` 且 `type` 是 `gpu`"）、<br/>`spec.config[]` 给驱动的默认参数；`spec.extendedResourceName` 让传统 `nvidia.com/gpu` 请求映射到这个类（v1.37 GA） |
 | `ResourceClaim` | 用户申请 | `spec.devices.requests[]`：每个请求 `exactly`{`deviceClassName`, `selectors[]`, `allocationMode`（`ExactCount` \| `All`）, `count`, `capacity`}<br/>或 `firstAvailable[]`（按优先顺序列出多个子请求，取第一个能满足的）；<br/>`spec.devices.constraints[]`：`matchAttribute`（多设备的某属性必须相同，如同一 NVLink 域）/ `distinctAttribute`；<br/>`status.allocation.devices.results[]`：`driver` / `pool` / `device`，即分到了哪张卡；`status.reservedFor`：哪个 Pod 在用 |
 | `ResourceClaimTemplate` | Pod 模板 | `spec.spec` 是一个 `ResourceClaimSpec`；Pod 引用模板时，每个 Pod 实例自动生成一个 `ResourceClaim`，Pod 删除时随之删除 |
