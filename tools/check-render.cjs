@@ -76,13 +76,21 @@ const CHECK = `(() => {
       return hits;
     }).flat(),
     // mermaid / inline svg text rendered below ~14 px is unreadable at 1280x720.
-    // Measure the rendered glyph box (getBoundingClientRect().height of each <text>/<tspan>/
-    // foreignObject label): it already includes every transform and the max-height downscale,
-    // so no viewBox arithmetic can lie about it.
+    // getBoundingClientRect() on foreignObject children lies when the svg is height-bound
+    // (max-height + preserveAspectRatio=meet): it reports the label's local-space layout
+    // height, not the downscaled render. Use computed font-size x the svg's effective
+    // content scale = min(renderedW/vbW, renderedH/vbH) instead — both dims can bind.
     smalltext: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
       return [...s.querySelectorAll('.mermaid svg, section > svg')].map(sv=>{
+        const vb=(sv.getAttribute('viewBox')||'').split(/[ \t]+/).map(Number);
+        if(vb.length<4||!vb[2]||!vb[3]) return null;
+        const r=sv.getBoundingClientRect();
+        const sc=Math.min(r.width/vb[2], r.height/vb[3]);
+        if(!(sc>0)) return null;
         const hs=[...sv.querySelectorAll('text,tspan,foreignObject div,foreignObject span,foreignObject p')]
-          .map(e=>e.getBoundingClientRect().height).filter(h=>h>0);
+          .map(e=>{const h=e.getBoundingClientRect().height; if(h<=0) return null;
+            const fs=parseFloat(getComputedStyle(e).fontSize)||16; return fs*sc;})
+          .filter(x=>x!=null);
         const min=Math.min(...hs,999);
         return (min<14&&min<999)?"#"+(i+1)+" min "+min.toFixed(1)+"px":null;
       }).filter(Boolean);
