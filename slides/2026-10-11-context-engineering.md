@@ -56,9 +56,11 @@ flowchart TB
 flowchart TB
     subgraph SP["六部分（随模型不变）"]
         direction TB
-        A["① 身份边界 + 可检验规则"] --> C["② 分区与结构标记"]
-        C --> D["③ 工具使用政策"]
-        D --> E["④ 输出格式与出口"]
+        A["① 身份与任务边界"] --> B["② 可检验的规则"]
+        B --> C["③ 分区与结构标记"]
+        C --> D["④ 工具使用政策"]
+        D --> E["⑤ 输出格式与出口"]
+        E --> F["⑥ 知识与时间"]
     end
     SP -. "换模型时只调这些" .-> W["措辞（随模型变）"]
 
@@ -110,9 +112,10 @@ flowchart TB
     Q1 -->|"大量读"| ISO["隔离"]
     Q1 -->|"大"| OFF["卸载"]
     Q1 -->|"小"| ADD["原样进"]
-    ADD --> GO(["循环：进下一步再评估"])
-    OFF --> GO
-    GO -. "接近清理线 → 清理旧返回，更深 → 压缩历史" .-> IN
+    ADD --> Q2{"接近清理线？"}
+    OFF --> Q2
+    Q2 -->|"否"| GO(["继续"])
+    Q2 -. "是 → 清理 / 压缩（下图）" .-> CLR["清理 → 压缩"]
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -121,6 +124,34 @@ flowchart TB
     class Q1,Q2 dec
     class GO stop
 ```
+
+<!-- v -->
+
+### 第二道闸：清理在前，压缩在后
+
+**先删「已被消费的工具返回」；还超线才压缩——摘要成一段，常驻层重注入、目标复述到末尾**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+flowchart LR
+    Q2{"接近清理线？"} -->|"是"| CLR["清理：删掉已被消费的旧返回<br/>保留调用记录与引用"]
+    Q2 -->|"否"| GO(["继续下一步"])
+    CLR --> Q3{"仍接近压缩线？"}
+    Q3 -->|"否"| GO
+    Q3 -->|"是"| CMP["压缩：一次模型调用把历史摘要成一段<br/>常驻层重注入 · 目标复述到末尾"]
+    CMP --> GO
+
+    classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef stop fill:#f0f0f0,stroke:#888,color:#222
+    class CLR,CMP step
+    class Q2,Q3 dec
+    class GO stop
+```
+
+<aside class="notes" markdown="1">
+原文 /context-budget-isolation-offload-cleanup-and-compression.html。隔离 = 子 agent 在自己的窗口做、只带摘要回来；卸载 = 内容写文件 / 存储、上下文只留引用 + 预览。
+</aside>
 
 <aside class="notes" markdown="1">
 原文 /context-budgeting-offloading-and-compaction.html。
