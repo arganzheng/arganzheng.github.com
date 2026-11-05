@@ -72,7 +72,7 @@ Table: 问题：这个环节典型的失败方式
 | 性能改动必须带数字 | 没有数字的"更快"要 reviewer 自己去测；他不会 |
 | 先过本地 lint 再推 | CI 的 lint 挂了，其他任务根本不跑；每一次红色的 push 都在消耗信任 |
 | 按模板写描述 | 模板的每一栏都是 reviewer 要问的一个问题；空着等于让他问 |
-| 把 CI 变绿是作者的责任 | reviewer 不会替你看日志；分清"我的失败"和"main 的失败"是基本功 |
+| 把 CI 变绿是作者的责任 | reviewer 不会替你看日志；分清"自己的失败"和"main 的失败"是基本功 |
 
 Table: 六条通用做法与理由
 
@@ -331,7 +331,7 @@ Python 语义  ERROR_PRONE_ISINSTANCE ISINSTANCE_FAKE_TENSOR EXEC ROOT_LOGGING D
 稳定 ABI     STABLE_SHIM_VERSION STABLE_SHIM_USAGE GENERATED_SHIMS_VERSION UNSPECIFIED_BACKEND GB_REGISTRY
 ```
 
-其中 12 个标了 `is_formatter = true`，可以自动修复。很多 linter 是 PyTorch 自己写的（`tools/linter/adapters/` 下），检查的是项目特有的约定：`NATIVEFUNCTIONS` 检查 `native_functions.yaml` 的格式，`WORKFLOWSYNC` 检查 `.github/workflows/` 是否与模板同步，`RAWCUDA` 禁止裸的 `cudaXxx` 调用。这解释了为什么"我本地 flake8 过了"不够——CI 跑的是这 61 个。
+其中 12 个标了 `is_formatter = true`，可以自动修复。很多 linter 是 PyTorch 自己写的（`tools/linter/adapters/` 下），检查的是项目特有的约定：`NATIVEFUNCTIONS` 检查 `native_functions.yaml` 的格式，`WORKFLOWSYNC` 检查 `.github/workflows/` 是否与模板同步，`RAWCUDA` 禁止裸的 `cudaXxx` 调用。这解释了为什么"本地 flake8 过了"不够——CI 跑的是这 61 个。
 
 v2.14.0 推荐的入口是 `spin`（`CONTRIBUTING.md` 的 "Spin" 一节与 "Linting before committing" 一节）。`pyproject.toml` 的 `[tool.spin.commands]` 注册了这些子命令：`develop`、`editable`、`install`、`clean`、`lint`、`fixlint`、`quicklint`、`quickfix`、`regenerate-version`、`regenerate-type-stubs`、`regenerate-clangtidy-files`、`regenerate-github-workflows`、`docs`、`pyrefly`，实现都在 `.spin/cmds.py`。CONTRIBUTING 的 "Linting" 表格列出的是 `lint`、`quicklint`、`quickfix` 三个；`fixlint` 在表格里没有，但 `pyproject.toml` 里注册了，三个 PR 模板的 checklist 也都写着 `Passes lint (spin fixlint)`，根目录 `AGENTS.md` 的 "Linting" 一节说 "use `spin lint` as to run the lint and `spin fixlint` to apply automatic fixes"。以 `pyproject.toml` 为准，四个都能用：
 
@@ -617,7 +617,7 @@ pre-commit 也有门槛。`.github/workflows/pre-commit.yml` 的 `pre-run-check`
 
 Table: PyTorch 与 vLLM 的 CI 系统对照
 
-## 八、读 CI 日志：这是我的问题吗
+## 八、读 CI 日志：是自己的问题吗
 
 ### 1. 先回答一个问题
 
@@ -656,19 +656,19 @@ PyTorch 的失败日志有固定的结构：每个 test job 末尾会打印失�
 
 "Investigating a CI Test Failure" 一节的方法就是二分：到 Buildkite 的 main 分支构建列表里找第一个出现该失败的 build，把发现写进 issue。如果你顺手修了这个 CI 失败，"Submitting a PR" 一节要求描述里写 `Closes #12345` 并打 `ci-failure` 标签（截至 2026-09 查询该标签存在，描述 "Issue about an unexpected test failure in CI"）。
 
-### 4. 分辨"我的"与"main 的"：一张判断表
+### 4. 分辨"自己的"与"main 的"：一张判断表
 
 | 现象 | 判断 | 动作 |
 |---|---|---|
 | main 上同一 job 最近几次也红 | main 的问题 | PyTorch：留言 "unrelated, failing on main (HUD link)"；vLLM：Dashboard 找到 issue 留言 +1 |
-| main 绿，我红，重跑一次就绿 | flaky，可能是我触发的也可能不是 | 重跑（PyTorch 请 reviewer re-run 该 job / vLLM /ci retry）；连续两次红就当自己的问题 |
-| main 绿，我红，失败测试在我改的文件附近 | 我的问题 | 本地按日志里的复现命令跑<br/>修<br/>push<br/>vLLM 再敲 /ci run |
-| main 绿，我红，失败在完全无关的模块 | 可能是我的改动有非局部影响 | 先读 traceback 找到调用链是否经过我的 diff；确实无关再当 flaky 处理 |
+| main 绿，PR 红，重跑一次就绿 | flaky，可能是改动触发的也可能不是 | 重跑（PyTorch 请 reviewer re-run 该 job / vLLM /ci retry）；连续两次红就当自己的问题 |
+| main 绿，PR 红，失败测试在改动的文件附近 | 自己的问题 | 本地按日志里的复现命令跑<br/>修<br/>push<br/>vLLM 再敲 /ci run |
+| main 绿，PR 红，失败在完全无关的模块 | 可能是改动有非局部影响 | 先读 traceback 找到调用链是否经过这次 diff；确实无关再当 flaky 处理 |
 | job 根本没跑（灰色 / skipped） | 不是失败 | PyTorch：该 workflow 需要 ciflow 标签；vLLM：source_file_dependencies 不相交，或没人敲 /ci run |
-| lint / pre-commit 红 | 一定是我的问题 | 本地 spin fixlint / pre-commit run -a，修完再推 |
-| DCO / EasyCLA 红 | 一定是我的问题 | vLLM：补签名并 force-push；PyTorch：按机器人链接签 CLA |
+| lint / pre-commit 红 | 一定是自己的问题 | 本地 spin fixlint / pre-commit run -a，修完再推 |
+| DCO / EasyCLA 红 | 一定是自己的问题 | vLLM：补签名并 force-push；PyTorch：按机器人链接签 CLA |
 
-Table: 分辨「我的」与「main 的」CI 失败：判断表
+Table: 分辨「自己的」与「main 的」CI 失败：判断表
 
 ## 九、review 往返
 
@@ -708,7 +708,7 @@ Table: 两个项目的 review 分派、状态与升级通道
 
 ### 2. 怎么回应 review 意见
 
-review 意见分几类，每类的正确回应不同。原则只有一条：**让 reviewer 下一次打开 PR 时，用最少的时间确认"我提的每一条都被处理了"**。
+review 意见分几类，每类的正确回应不同。原则只有一条：**让 reviewer 下一次打开 PR 时，用最少的时间确认"提的每一条都被处理了"**。
 
 | 意见类型 | 正确回应 | 错误回应 |
 |---|---|---|
@@ -773,7 +773,7 @@ Table: @pytorchbot 评论写法与 trymerge.py 参数的对应
   - pull
 ```
 
-`patterns` 是文件 glob，`approved_by` 是有权批准这些文件改动的人或团队，`mandatory_checks_name` 是必须通过的 check（几乎所有规则都是 `EasyCLA`、`Lint`、`pull` 三项，个别加 `inductor` 或 `slow`）。`find_matching_merge_rule` 遍历所有规则，找一条**PR 改动的每个文件都匹配其 `patterns`、且至少一个 approver 在 `approved_by` 里**的规则。最后一条 `Core Maintainers` 的 `patterns` 是 `'*'`，`approved_by` 是核心维护者名单，作为兜底。这解释了一个常见困惑："我的 PR 被 approve 了为什么合不进"——approve 你的人不在你改动文件对应规则的 `approved_by` 里。拒绝信息会告诉你差哪条规则（`reject_reason` 按匹配文件数排序，只报最相关的一条）。
+`patterns` 是文件 glob，`approved_by` 是有权批准这些文件改动的人或团队，`mandatory_checks_name` 是必须通过的 check（几乎所有规则都是 `EasyCLA`、`Lint`、`pull` 三项，个别加 `inductor` 或 `slow`）。`find_matching_merge_rule` 遍历所有规则，找一条**PR 改动的每个文件都匹配其 `patterns`、且至少一个 approver 在 `approved_by` 里**的规则。最后一条 `Core Maintainers` 的 `patterns` 是 `'*'`，`approved_by` 是核心维护者名单，作为兜底。这解释了一个常见困惑："PR 被 approve 了为什么合不进"——approve 你的人不在你改动文件对应规则的 `approved_by` 里。拒绝信息会告诉你差哪条规则（`reject_reason` 按匹配文件数排序，只报最相关的一条）。
 
 **标签检查**——`ensure_mergeable_labels` 要求 PR 有 `release notes:` 开头的标签或 `topic: not user facing`。`.github/scripts/label_utils.py` 的 `LABEL_ERR_MSG`：
 
@@ -847,7 +847,7 @@ Table: 合入机制对照
 
 Table: 三类拒绝与正确反应
 
-前两类的信号是拒绝里**没有任何关于代码的具体意见**。如果 reviewer 谈的是"我们要不要做这件事"，无论你把代码写得多好都没用；继续 push 只会消耗双方的耐心。第三类的信号是意见都指向 diff 的具体位置，这时每一条都是可以完成的任务。
+前两类的信号是拒绝里**没有任何关于代码的具体意见**。如果 reviewer 谈的是"要不要做这件事"，无论你把代码写得多好都没用；继续 push 只会消耗双方的耐心。第三类的信号是意见都指向 diff 的具体位置，这时每一条都是可以完成的任务。
 
 ### 2. 几种特殊情况
 
@@ -932,13 +932,13 @@ reviewer 打开 PR 的十分钟里，脑子里依次出现的问题大致是固�
 
 | 分钟 | reviewer 的问题 | 谁来回答 | PyTorch 的机制 | vLLM 的机制 |
 |---|---|---|---|---|
-| 0–1 | 这是什么？该我看吗？ | 标题 + 标签 | release notes: / module: 标签（labeler.yml 自动） | 标题前缀 [Kernel] 等 + mergify 自动标签 |
+| 0–1 | 这是什么？该自己看吗？ | 标题 + 标签 | release notes: / module: 标签（labeler.yml 自动） | 标题前缀 [Kernel] 等 + mergify 自动标签 |
 | 1–2 | 为什么要改？有人讨论过吗？ | 描述的 Issue/Purpose | Fixes #（无 issue 可能被自动关）；Summary 指向 issue | Purpose 栏链接 issue；>500 行要 RFC |
 | 2–3 | 这改动会不会弄坏别的东西？ | CI 状态 | pull + Lint 绿；需要时 ciflow/trunk | pre-commit 绿；相关 test_area 经 /ci run 绿 |
 | 3–6 | 改动本身对不对？ | diff | ≤2000 行；一叠 ghstack 每层可单独读 | 一个 PR 一件事；无关 import 重排为零 |
 | 6–8 | 怎么证明它对？ | 测试 | test/ 下的 TestCase；instantiate_device_type_tests | tests/ 下的 pytest<br/>AGENTS.md 四个问题<br/>opcheck |
 | 8–9 | 值不值？（性能 PR） | benchmark | checklist "Included benchmark results" | Test Result 栏的前后对比表；vllm bench / benchmarks/kernels |
-| 9–10 | 有没有我该担心的？ | BC-breaking / 风险 | 模板的 BC-breaking? 栏 | deprecation_policy.md；Test Plan 写清没测的部分 |
+| 9–10 | 有没有该担心的？ | BC-breaking / 风险 | 模板的 BC-breaking? 栏 | deprecation_policy.md；Test Plan 写清没测的部分 |
 | — | 这个人可信吗？ | 签名 + AI 声明 | EasyCLA；AI_POLICY.md 的声明方式 | DCO；Co-authored-by + 描述里的 AI 声明 |
 
 Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目的机制
@@ -998,7 +998,7 @@ Table: 本地检查步骤与结果模板
 （按目标项目模板填写，见下）
 
 ### CI 记录
-| push | 触发方式 | 跑了什么 | 结果 | 红的是不是我的（依据） |
+| push | 触发方式 | 跑了什么 | 结果 | 红的是不是自己的（依据） |
 |---|---|---|---|---|
 
 Table: CI 运行与失败归因模板
@@ -1263,4 +1263,4 @@ GitHub 标签（截至 2026-09 查询）：PyTorch 存在 `actionable`、`skip-p
    </details>
 
 [^q0]: 四件事：改了什么、是不是只改了这一件事；为什么改、怎么验证的；怎么证明对、以后怎么防回归；有没有把别的东西弄坏。PR 的四个部分各替他回答一个（下一条），做到了，reviewer 的十分钟花在判断设计上而不是找信息上。签名是门票：PyTorch 的 EasyCLA、vLLM 的 DCO（`git commit -s`，每个 commit）。详见[第十三章](#十三回答核心问题reviewer-的十分钟)。
-[^q1]: **diff 回答「改了什么、是不是只改了这一件事」**：一个 PR 一件事、最小 diff——PyTorch `pr-sanity-check.sh` 2000 行硬上限、大改动用 ghstack 叠成一串小 PR；vLLM > 500 行架构改动要 RFC、6 个 open PR 上限；lint 干净（PyTorch `lintrunner -a`；vLLM `.pre-commit-config.yaml`）让 reviewer 不用看格式（[第二章](#二最小-diff一个-pr-只做一件事)、[第五章](#五本地-lintci-的第一道门)）。**描述回答「为什么改、怎么验证的」**：PyTorch 的 `Fixes #N` / Summary / Checklist / BC-breaking?；vLLM 的 Purpose / Test Plan / Test Result 加标题前缀 `[Bugfix]` `[Kernel]` `[Core]`；benchmark 要有基线、对比、硬件、shape、命令、不利 case（[第四章](#四benchmark性能改动必须带数字)、[第六章](#六pr-描述与签名)）。**测试回答「怎么证明对、以后怎么防回归」**：PyTorch 用 `TestCase` / `@parametrize` / `instantiate_device_type_tests`；vLLM 用 pytest，`AGENTS.md` 的四个问题 + 五条规则，kernel 用 `torch.library.opcheck`（[第三章](#三测试改动必须带测试)）。**CI 状态回答「没有把别的东西弄坏」**：PyTorch PR 自动跑 `pull` + `Lint`，`trunk` / `periodic` / `slow` 靠 `ciflow/*` 标签触发；vLLM PR 默认只跑 pre-commit，需要 maintainer 打 `ready` 或 `/ci run`；红了先看 main 是否也红（[第七章](#七ci-矩阵什么会跑什么不会)、[第八章](#八读-ci-日志这是我的问题吗)）。
+[^q1]: **diff 回答「改了什么、是不是只改了这一件事」**：一个 PR 一件事、最小 diff——PyTorch `pr-sanity-check.sh` 2000 行硬上限、大改动用 ghstack 叠成一串小 PR；vLLM > 500 行架构改动要 RFC、6 个 open PR 上限；lint 干净（PyTorch `lintrunner -a`；vLLM `.pre-commit-config.yaml`）让 reviewer 不用看格式（[第二章](#二最小-diff一个-pr-只做一件事)、[第五章](#五本地-lintci-的第一道门)）。**描述回答「为什么改、怎么验证的」**：PyTorch 的 `Fixes #N` / Summary / Checklist / BC-breaking?；vLLM 的 Purpose / Test Plan / Test Result 加标题前缀 `[Bugfix]` `[Kernel]` `[Core]`；benchmark 要有基线、对比、硬件、shape、命令、不利 case（[第四章](#四benchmark性能改动必须带数字)、[第六章](#六pr-描述与签名)）。**测试回答「怎么证明对、以后怎么防回归」**：PyTorch 用 `TestCase` / `@parametrize` / `instantiate_device_type_tests`；vLLM 用 pytest，`AGENTS.md` 的四个问题 + 五条规则，kernel 用 `torch.library.opcheck`（[第三章](#三测试改动必须带测试)）。**CI 状态回答「没有把别的东西弄坏」**：PyTorch PR 自动跑 `pull` + `Lint`，`trunk` / `periodic` / `slow` 靠 `ciflow/*` 标签触发；vLLM PR 默认只跑 pre-commit，需要 maintainer 打 `ready` 或 `/ci run`；红了先看 main 是否也红（[第七章](#七ci-矩阵什么会跑什么不会)、[第八章](#八读-ci-日志是自己的问题吗)）。

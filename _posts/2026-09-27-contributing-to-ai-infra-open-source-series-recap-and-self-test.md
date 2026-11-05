@@ -8,7 +8,7 @@ catalog: true
 date: 2026-09-27 20:00:00
 ---
 
-四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"我们想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR 的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
+四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR 的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
 
 本文不讲新内容，做三件事：把四篇压成一张表与四段回顾，把贯穿四篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"四篇能不能连起来用"。第四篇末尾「系列总结」讲的三样东西（贡献日志、两套流程的对照、看 PR 的眼光）与三种能力，本文第三章完整覆盖。
 
@@ -96,7 +96,7 @@ Table: 本文的章节安排
 - benchmark 六要素：基线、对比、硬件、shape、方法与命令、不利 case；vLLM kernel 脚本放 `benchmarks/kernels/`，端到端用 `vllm bench`（`benchmarks/benchmark_*.py` 在 v0.28.0 只是弃用桩）。
 - 签名与 review：CLA 签一次 vs DCO 每个 commit `-s`（漏签要 rebase 重写）；PyTorch 4 个工作日无回应留言、再去每周五 Office Hours；vLLM 7 天可 ping、`pr-review-request@vllm.ai` 加急。
 
-**常见误解**："我的 PR 被 approve 了为什么合不进"——approve 的人不在改动文件对应规则的 `approved_by` 里，或缺 `release notes:` 标签，或 `pull` 里有失败项；拒绝信息会告诉你差哪条。另一个："CI 是绿的"在两边含义不同——vLLM 新贡献者的 PR 默认连 pre-commit 都不跑，一片灰色不等于绿。
+**常见误解**："PR 被 approve 了为什么合不进"——approve 的人不在改动文件对应规则的 `approved_by` 里，或缺 `release notes:` 标签，或 `pull` 里有失败项；拒绝信息会告诉你差哪条。另一个："CI 是绿的"在两边含义不同——vLLM 新贡献者的 PR 默认连 pre-commit 都不跑，一片灰色不等于绿。
 
 ### 4. 第四篇：两个真实 PR 的完整走读——PyTorch 与 vLLM
 
@@ -266,7 +266,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-3. 用户问你："我的修复合进 vLLM main 了，什么时候能 `pip install` 到？"第一篇与第四篇各给了你什么工具回答这个问题？如果是 PyTorch 呢？
+3. 用户问你："修复合进 vLLM main 了，什么时候能 `pip install` 到？"第一篇与第四篇各给了你什么工具回答这个问题？如果是 PyTorch 呢？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -286,7 +286,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇判断表：docs 任务与一个只改 `.cpp` 的 PR 无关、Dr. CI 归为脚本错误 → "与改动无关"，处理是 `@pytorchbot merge -i` 忽略；六个 Buildkite 失败成对出现（`mirror: amd`）、失败测试都把 KV 池开在新边界上 → "main 绿我红且在改动附近 → 我的问题"，处理是修三个测试并再 `/ci run`。第二篇：如果 docs 任务在 main 上也持续红，它本身就是一个 CI 失败切入点（HUD 与 `DISABLED` issue；Project 20 看板与 `450-ci-failure.yml`）——分辨"我的"与"main 的"是同一套动作的两个用途。
+   第三篇判断表：docs 任务与一个只改 `.cpp` 的 PR 无关、Dr. CI 归为脚本错误 → "与改动无关"，处理是 `@pytorchbot merge -i` 忽略；六个 Buildkite 失败成对出现（`mirror: amd`）、失败测试都把 KV 池开在新边界上 → "main 绿 PR 红且在改动附近 → 自己的问题"，处理是修三个测试并再 `/ci run`。第二篇：如果 docs 任务在 main 上也持续红，它本身就是一个 CI 失败切入点（HUD 与 `DISABLED` issue；Project 20 看板与 `450-ci-failure.yml`）——分辨"自己的"与"main 的"是同一套动作的两个用途。
 
    </details>
 
@@ -316,7 +316,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 标题与标签——这是什么、该我看吗；(2) 描述——为什么改、讨论过吗（`Fixes #` / Purpose）；(3) CI——会不会弄坏别的；(4) diff——改动对不对，一个 PR 一件事、≤2000 行、无顺手重构；(5) 测试——怎么证明对、怎么防回归（`instantiate_device_type_tests`；`AGENTS.md` 四问；`opcheck`）；(6) benchmark——值不值（六要素）；(7) 风险与签名——BC-breaking?、EasyCLA / DCO、AI 声明。任何一格空着，PR 就回到队列末尾。
+   **答案要点**：(1) 标题与标签——这是什么、该自己看吗；(2) 描述——为什么改、讨论过吗（`Fixes #` / Purpose）；(3) CI——会不会弄坏别的；(4) diff——改动对不对，一个 PR 一件事、≤2000 行、无顺手重构；(5) 测试——怎么证明对、怎么防回归（`instantiate_device_type_tests`；`AGENTS.md` 四问；`opcheck`）；(6) benchmark——值不值（六要素）；(7) 风险与签名——BC-breaking?、EasyCLA / DCO、AI 声明。任何一格空着，PR 就回到队列末尾。
    **追问方向**：PyTorch 把信息放元数据、vLLM 放正文，各自的后果；review 意见怎么回（改 / 争 / 问）。
    **好答案与一般答案的区别**：一般答案列"写清描述、加测试"；好答案按分钟对应到 reviewer 的问题，并说出两个项目各用什么机制保证每一格有东西。
 
@@ -392,7 +392,7 @@ Table: 掌握程度的判据
 - **任何一层的技术原理**：算子怎么分发、kernel 怎么写、调度器怎么工作、通信怎么走。第四篇走读 PR 时会解释那两个改动本身在做什么，但只到读懂这个 diff 所需的程度，不展开背后的机制。
 - **git 与 GitHub 的基本操作**：fork、branch、rebase、解决冲突、开 PR。假设读者作为工程师已经熟练；本系列只讲这些操作在两个项目里的特殊约定（如 `ghstack`、`Signed-off-by`）。
 - **开源许可、CLA/DCO 的法律含义**：只说明两个项目各自要求什么，不讨论为什么。
-- **成为 maintainer 之后的工作**：triage、release management、governance。PyTorch 的 `docs/source/community/governance.md` 描述了 module maintainer 与 core maintainer 的机制，本系列只把它作为"谁有权批准我的 PR"的背景来读。
+- **成为 maintainer 之后的工作**：triage、release management、governance。PyTorch 的 `docs/source/community/governance.md` 描述了 module maintainer 与 core maintainer 的机制，本系列只把它作为"谁有权批准 PR"的背景来读。
 - **PyTorch 与 vLLM 之外项目的具体流程**：NCCL、Megatron-LM、FlashAttention、Triton、SGLang 在正文中只做定性提及；它们的贡献规则请以各自仓库的文档为准。
 
 

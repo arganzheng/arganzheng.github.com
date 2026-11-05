@@ -187,7 +187,7 @@ rg -n -A6 '^- func: logaddexp' aten/src/ATen/native/native_functions.yaml
   tags: pointwise
 ```
 
-这十行告诉我们四件事：`logaddexp` 是一个 structured kernel（`structured: True`），它的实现委托给 `logaddexp.out`（`structured_delegate`）；CPU、CUDA、MPS、XPU 四个后端共用一个 C++ 函数名 `logaddexp_out`（`dispatch:`）；它同时是方法与函数（`variants`），所以 `x.logaddexp(y)` 与 `torch.logaddexp(x, y)` 都存在。每个字段的含义在 `aten/src/ATen/native/README.md` 里有解释。
+这十行说明四件事：`logaddexp` 是一个 structured kernel（`structured: True`），它的实现委托给 `logaddexp.out`（`structured_delegate`）；CPU、CUDA、MPS、XPU 四个后端共用一个 C++ 函数名 `logaddexp_out`（`dispatch:`）；它同时是方法与函数（`variants`），所以 `x.logaddexp(y)` 与 `torch.logaddexp(x, y)` 都存在。每个字段的含义在 `aten/src/ATen/native/README.md` 里有解释。
 
 **第三步：找 `dispatch:` 指向的 C++ 函数。**
 
@@ -671,7 +671,7 @@ Table: 两个项目 commit 形态的对比
 
 ### 4. `RELEASE.md`：改动什么时候到用户手里
 
-两个项目根目录都有 `RELEASE.md`，回答"我的改动合入之后什么时候进到一个版本"。
+两个项目根目录都有 `RELEASE.md`，回答"改动合入之后什么时候进版本"。
 
 **PyTorch** `RELEASE.md` 的 "Release Cadence" 一节是一张表，列出每个 minor 版本的 release branch cut 日期与发布日期。v2.14.0 检出里的近几行：
 

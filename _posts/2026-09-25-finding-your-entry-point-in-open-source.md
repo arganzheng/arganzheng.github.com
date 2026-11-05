@@ -24,9 +24,9 @@ updated: 2026-09-14
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
-%% 图：找切入点：maintainer 写出的「我们想要什么」在标签、RFC、CI 失败、性能回归里
+%% 图：找切入点：maintainer 写出的「想要什么」在标签、RFC、CI 失败、性能回归里
 flowchart TB
-    W["想给 PyTorch / vLLM 提第一个 PR"] --> Q{"maintainer 已经写出了「我们想要什么」——去哪读？"}
+    W["想给 PyTorch / vLLM 提第一个 PR"] --> Q{"maintainer 已经写出了「想要什么」——去哪读？"}
     Q --> L["<b>标签</b>（第二章）：good first issue / help wanted / triaged——每个项目的标签体系与它的含义"]
     L --> RFC["<b>RFC 与 roadmap</b>（第三章）：大改动从讨论开始，不从 PR 开始"]
     RFC --> CI["<b>CI 失败</b>（第四章）：低风险、高感谢度——flaky 测试、平台特有的失败"]
@@ -54,13 +54,13 @@ Table: 选题的四类失败方式
 
 ### 2. 方法
 
-与项目无关的通用做法只有一条主线：**maintainer 已经用标签、模板、看板、政策文件把"我们想要什么"写出来了，选题就是去读它们，然后在动手前核对一次没有人在做**。展开为五步：
+与项目无关的通用做法只有一条主线：**maintainer 已经用标签、模板、看板、政策文件把"想要什么"写出来了，选题就是去读它们，然后在动手前核对一次没有人在做**。展开为五步：
 
 1. **读"想要什么"**：标签体系（哪些标签表示"欢迎外部 PR"）、Job Board / 看板、roadmap 与 tracker issue
 2. **读"不要什么"**：CONTRIBUTING / AI_POLICY / AGENTS.md 里的否定句：不要 typo PR、不要没 RFC 的大改、不要没 actionable 的 PR
 3. **找信号源**：除 issue 以外的四个来源：RFC、CI 失败看板、性能回归报告、文档/类型/测试缺口
 4. **查重**：gh issue view --comments；gh pr list --search；看 assignee；看最近一条评论的日期
-5. **估规模并决定是否先讨论**：几行 / 几十行 / 几百行；要不要硬件；maintainer 有没有说过"我会 review 什么样的 PR"
+5. **估规模并决定是否先讨论**：几行 / 几十行 / 几百行；要不要硬件；maintainer 有没有说过"会 review 什么样的 PR"
 
 背后的理由和整个系列一样：reviewer 的时间是项目最稀缺的资源。一个已经有 5 个 PR 的 issue，第 6 个 PR 消耗 reviewer 的时间却几乎不增加价值；一个没有 RFC 的千行 PR，reviewer 要先在 PR 里补上本该在 issue 里发生的设计讨论；一个 typo PR 要走完 CI、review、merge 的全部开销，收益是一个字母。反过来，maintainer 最希望有人来做的，是**他们已经决定要做、写清楚了要什么、但自己没时间做**的事——在 PyTorch 是 `actionable` 加上 maintainer 一句"I'd review a PR that ..."，在 vLLM 是 `help wanted` 加上 issue 正文里的分步骤说明。
 
@@ -99,7 +99,7 @@ Table: 选题各环节的 PyTorch 与 vLLM 对照（标签规模（2026-09-07）
 
 Table: 本文的章节安排
 
-## 二、标签：maintainer 表达"我们想要什么"的主渠道
+## 二、标签：maintainer 表达"想要什么"的主渠道
 
 ### 1. PyTorch：682 个标签的分层
 
@@ -342,7 +342,7 @@ issue 侧的自动打标在 `.github/workflows/issue_autolabel.yml`，按 issue 
 - **module: accelerator**：与共享 accelerator API 有关——暗示 maintainer 想要设备无关的解法
 - **bot-triaged**：模块标签是 bot 打的，准确度打折
 
-再读评论：@malfet 2026-08-24 留了两条，"It would be good to have a generic test for it ... rather than write an MPS-specific test"，"Will accept a PR that adds a non-MPS specific test to validate for it (or enable the existing test for MPS platform)"。这就是 maintainer 把"我要什么"写得最清楚的形态——不仅说了要做，还说了怎么做才收。当天有人开了 PR #194396（MPS 专用测试）被关闭，改开 #194631（设备通用测试，`allow_mps=True, allow_xpu=True`）保持 open。**读标签 + 读 maintainer 的最后一条评论**，五分钟内就能判断这个 issue 还有没有位置、位置在哪。
+再读评论：@malfet 2026-08-24 留了两条，"It would be good to have a generic test for it ... rather than write an MPS-specific test"，"Will accept a PR that adds a non-MPS specific test to validate for it (or enable the existing test for MPS platform)"。这就是 maintainer 把"要什么"写得最清楚的形态——不仅说了要做，还说了怎么做才收。当天有人开了 PR #194396（MPS 专用测试）被关闭，改开 #194631（设备通用测试，`allow_mps=True, allow_xpu=True`）保持 open。**读标签 + 读 maintainer 的最后一条评论**，五分钟内就能判断这个 issue 还有没有位置、位置在哪。
 
 ## 三、RFC 与 roadmap：大改动从哪里开始
 
@@ -432,13 +432,13 @@ PyTorch 的对应物是标题带 `Tracking:` 或 `[Tracker]` 的 issue，以及 
 
 Table: 什么改动需要 RFC
 
-一个常见误判：把"我写了很多代码"当成"需要 RFC"的唯一标准。判断标准其实是**有没有需要 maintainer 拍板的设计决策**——一个 800 行的纯 kernel 优化（不算入 500 行）可以不走 RFC，一个 200 行但引入了新配置项和新公开接口的改动应该走。
+一个常见误判：把"写了很多代码"当成"需要 RFC"的唯一标准。判断标准其实是**有没有需要 maintainer 拍板的设计决策**——一个 800 行的纯 kernel 优化（不算入 500 行）可以不走 RFC，一个 200 行但引入了新配置项和新公开接口的改动应该走。
 
 ## 四、CI 失败：低风险、高感谢度的切入点
 
 ### 1. vLLM：Dashboard、failures.md 与 [CI Failure] 模板
 
-vLLM 把 CI 失败的处理流程完整写在 `docs/contributing/ci/failures.md`。它的第一段回答的是 PR 作者的问题——"我的 PR 上 CI 红了，但我觉得不是我弄的"：
+vLLM 把 CI 失败的处理流程完整写在 `docs/contributing/ci/failures.md`。它的第一段回答的是 PR 作者的问题——"PR 上 CI 红了，但觉得不是自己弄的"：
 
 > - Check the dashboard of current CI test failures: CI Failures Dashboard
 > - If your failure **is already listed**, it's likely unrelated to your PR. Help fixing it is always welcome!
@@ -581,7 +581,7 @@ PyTorch `CONTRIBUTING.md` 的 "AI-Assisted Development" 一节第 1 条：
 
 Table: 成体系做文档与类型缺口的几种形态
 
-关键是 PR 描述里能说出"**这是一个什么范围、为什么这个范围、我怎么找全的**"。找全的方法就是第一篇讲的 `rg`：
+关键是 PR 描述里能说出"**这是一个什么范围、为什么这个范围、怎么找全的**"。找全的方法就是第一篇讲的 `rg`：
 
 ```bash title="用 rg 找全一批同类缺口"
 # 在 pytorch 检出根目录：找所有 optimizer 文档里用了 SGD 做示例的地方
@@ -680,7 +680,7 @@ vLLM 把查重写成了可以直接复制的命令。`AGENTS.md` 的 "Duplicate-
 
 > If work is duplicate/trivial busywork, **do not proceed**. Return a short explanation of what is missing.
 
-三条命令分别查三样东西：issue 评论里有没有人说"我在做 / 我开了 #xxx"；有没有 PR 在正文里引用了这个 issue 号；有没有 PR 在标题或正文里提到了同一块代码（关键词要短，例如 `flashinfer_utils`、`mkstemp`、`_create_file_store`）。第三条最容易被省掉，但正是它能抓到那些**没有链 issue 的重复 PR**——PyTorch #191394 的 5 个 PR 里，用关键词 `mkstemp` 搜能全部找到，用 issue 号搜会漏掉标题里没写编号的。
+三条命令分别查三样东西：issue 评论里有没有人说"在做 / 已开 #xxx"；有没有 PR 在正文里引用了这个 issue 号；有没有 PR 在标题或正文里提到了同一块代码（关键词要短，例如 `flashinfer_utils`、`mkstemp`、`_create_file_store`）。第三条最容易被省掉，但正是它能抓到那些**没有链 issue 的重复 PR**——PyTorch #191394 的 5 个 PR 里，用关键词 `mkstemp` 搜能全部找到，用 issue 号搜会漏掉标题里没写编号的。
 
 同样的命令换个 `--repo` 就能用在 PyTorch 上。本篇第九章的清单就是这样查出来的。
 
@@ -701,9 +701,9 @@ I'd like to take this one (`<issue title 截断>`). I'll dig into the root cause
 
 一条好的认领留言的要素：
 
-- **1**：我核对过：已有的 PR 是 #a、#b（或：没有找到相关 PR）
-- **2**：我理解的问题在 <文件>::<函数>，原因是 ...
-- **3**：我打算 <方案概要，两三句>；与 #a 的区别是 ...（如有）
+- **1**：核对过：已有的 PR 是 #a、#b（或：没有找到相关 PR）
+- **2**：理解的问题在 <文件>::<函数>，原因是 ...
+- **3**：打算 <方案概要，两三句>；与 #a 的区别是 ...（如有）
 - **4**：预计 <规模>；需要 <硬件>（如有）
 - **5**：一个明确的问题：这个方向可以吗？/ 需要先开 RFC 吗？
 
@@ -895,5 +895,5 @@ Table: 本篇涉及的文件位置
 
    </details>
 
-[^q0]: 他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC（[第二章](#二标签maintainer-表达我们想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)）。另外两类稳定的需求：CI 失败（vLLM 的 Project 20 看板 + `failures.md` 操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，修好自动重新启用）（[第四章](#四ci-失败低风险高感谢度的切入点)）与性能回归（带数字的报告本身就是贡献）（[第五章](#五性能回归带数字的报告本身就是贡献)）。不受欢迎的：单个 typo、纯格式改动（[第六章](#六文档类型与不欢迎单个-typo)）。
-[^q1]: 看几个预测器：**标签状态**——PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手；**maintainer 最后一条评论**是「欢迎 PR」还是「需要先讨论」；**同一 issue 下已有的 open PR 数**（有人在做就别重复）；**规模与 RFC 门槛**（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库）；**硬件**（你没有的 GPU 上的 bug 修不了）；**项目政策**（vLLM 6 个 open PR 上限、stale bot）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签。原则：从 maintainer 已表达的需求出发，比自己想一个「好主意」被接受的概率高一个量级。详见[第二章](#二标签maintainer-表达我们想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)、[第八章](#八先讨论再动手以及查重)。
+[^q0]: 他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC（[第二章](#二标签maintainer-表达想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)）。另外两类稳定的需求：CI 失败（vLLM 的 Project 20 看板 + `failures.md` 操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，修好自动重新启用）（[第四章](#四ci-失败低风险高感谢度的切入点)）与性能回归（带数字的报告本身就是贡献）（[第五章](#五性能回归带数字的报告本身就是贡献)）。不受欢迎的：单个 typo、纯格式改动（[第六章](#六文档类型与不欢迎单个-typo)）。
+[^q1]: 看几个预测器：**标签状态**——PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手；**maintainer 最后一条评论**是「欢迎 PR」还是「需要先讨论」；**同一 issue 下已有的 open PR 数**（有人在做就别重复）；**规模与 RFC 门槛**（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库）；**硬件**（你没有的 GPU 上的 bug 修不了）；**项目政策**（vLLM 6 个 open PR 上限、stale bot）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签。原则：从 maintainer 已表达的需求出发，比自己想一个「好主意」被接受的概率高一个量级。详见[第二章](#二标签maintainer-表达想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)、[第八章](#八先讨论再动手以及查重)。
