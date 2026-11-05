@@ -38,14 +38,14 @@ $$
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    N1["01 α-β 模型与 ring all-reduce<br/>造一把尺子：T = α + S/β"]
-    N1 --> N2["02 硬件互联<br/>给 β 填上真实数字：PCIe / NVLink / IB"]
-    N1 --> N3["03 RDMA 与 GPUDirect<br/>给 α 填上真实数字：绕过 CPU"]
-    N2 & N3 --> N4["04 NCCL 架构<br/>在探测到的拓扑上选 ring / tree、channel、协议"]
-    N4 --> N5["05 PyTorch 的通信栈<br/>ProcessGroupNCCL、stream、重叠"]
-    N5 --> N6["06 nccl-tests、调优与排障"]
-    N4 & N5 --> N7["07 推理侧的通信<br/>custom all-reduce、KV 传输"]
-    N4 & N5 --> N8["08 MoE 的通信<br/>all-to-all、DeepEP、GPU 发起"]
+    N1["01 α-β 模型与 ring all-reduce"]
+    N1 --> N2["02 硬件互联"]
+    N1 --> N3["03 RDMA 与 GPUDirect"]
+    N2 & N3 --> N4["04 NCCL 架构"]
+    N4 --> N5["05 PyTorch 的通信栈"]
+    N5 --> N6["06 nccl-tests 与排障"]
+    N4 & N5 --> N7["07 推理侧的通信"]
+    N4 & N5 --> N8["08 MoE 的通信"]
 ```
 
 ---
@@ -58,7 +58,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /collective-communication-primitives-and-cost-model.html。`busbw` = `algbw` × \(2(n-1)/n\)；8 卡 IB 拐点约 2 MB；tree 2⌈log₂n⌉ 步。「通信慢就换更快的网卡」——延迟主导的小消息对 β 不敏感。
-结论原文：**：$$T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$——带宽项与 n 无关、延迟项随 n 线性增长；8 卡 IB 上 **1 GB 约 70 ms（延迟占 0.2%）、64 KB 约 145 µs（带宽占 3%）**。
+结论原文：$$T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$——带宽项与 n 无关、延迟项随 n 线性增长；8 卡 IB 上 **1 GB 约 70 ms（延迟占 0.2%）、64 KB 约 145 µs（带宽占 3%）**。
+各篇关键词：01 造一把尺子 T = α + S/β；02 给 β 填真实数字 PCIe / NVLink / IB；03 给 α 填真实数字——绕过 CPU；04 在探测到的拓扑上选 ring / tree、channel、协议；05 ProcessGroupNCCL、stream、重叠；07 custom all-reduce、KV 传输；08 all-to-all、DeepEP、GPU 发起。
 </aside>
 
 ---
@@ -79,7 +80,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /hardware-interconnect-pcie-nvlink-and-topology.html。
-结论原文：**：NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十；`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入；**厂商标的 NVLink 带宽是双向合计，β 要用单向**。
+结论原文：NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十；`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入；**厂商标的 NVLink 带宽是双向合计，β 要用单向**。
 </aside>
 
 ---
@@ -126,7 +127,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /nccl-architecture-topology-channels-algorithms-and-protocols.html。T = lat × latCount + S / (1000 × bw)。
-结论原文：**：`ncclCommInitRank` 里拓扑 → 路径 → 图搜索 → channel → **调优表**；`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑算出的 lat 与 bw——所以同一次 8 卡 all_reduce 在不同机器选不同算法。
+结论原文：`ncclCommInitRank` 里拓扑 → 路径 → 图搜索 → channel → **调优表**；`ncclAllReduce` 只查表；调优表就是 α-β 模型按算法 × 协议 × 拓扑算出的 lat 与 bw——所以同一次 8 卡 all_reduce 在不同机器选不同算法。
 </aside>
 
 ---
@@ -164,7 +165,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /nccl-tests-tuning-and-debugging-hangs.html。8×H100 节点内拐点约 10 MB、64 卡跨机约 30 MB；参考线 8×H100 350–480 GB/s、2 节点 NDR 每 GPU 40–48。
-结论原文：**：曲线**左端看 α、右端看 β**、拐点 $$S_{knee} = n\alpha\beta$$，到 90% 平台约 9 倍拐点；hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致；**Flight Recorder 按 `collective_seq_id` 对齐给出 culprit**。
+结论原文：曲线**左端看 α、右端看 β**、拐点 $$S_{knee} = n\alpha\beta$$，到 90% 平台约 9 倍拐点；hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致；**Flight Recorder 按 `collective_seq_id` 对齐给出 culprit**。
 </aside>
 
 <!-- v -->
@@ -202,7 +203,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /inference-communication-custom-all-reduce-and-kv-transfer.html。
-结论原文：**：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs——省在 launch 路径、**14 步 → 2 步**、无 channel buffer 中转、可捕获进 CUDA Graph；**KV 传输是纯 β 的点对点账**，单边 RDMA 比 NCCL 更自然。
+结论原文：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs——省在 launch 路径、**14 步 → 2 步**、无 channel buffer 中转、可捕获进 CUDA Graph；**KV 传输是纯 β 的点对点账**，单边 RDMA 比 NCCL 更自然。
 </aside>
 
 ---
@@ -224,7 +225,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /moe-communication-all-to-all-deepep-and-gpu-initiated.html。
-结论原文：**：通信矩阵由路由决定、每步不同、最慢的 rank 决定时间；prefill **按节点去重**把网卡上的份数从 7 压到 3.2；decode 是 1024 条 7.4 KB 的消息，**CPU proxy 给不了发起速率，IBGDA 让 warp 自己写 WQE 与 doorbell**。
+结论原文：通信矩阵由路由决定、每步不同、最慢的 rank 决定时间；prefill **按节点去重**把网卡上的份数从 7 压到 3.2；decode 是 1024 条 7.4 KB 的消息，**CPU proxy 给不了发起速率，IBGDA 让 warp 自己写 WQE 与 doorbell**。
 </aside>
 
 ---
