@@ -157,7 +157,7 @@ strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答�
 
 ### 4. 描述是 prompt
 
-每个字段的 `description` 是模型填值时唯一的说明。"客户的意图"不如"客户这条消息想让我们做的一件事，取自 enum；无法判断时用 cannot_classify"。字段名也是：`amt` 不如 `refund_amount_cny`。
+每个字段的 `description` 是模型填值时唯一的说明。"客户的意图"不如"客户这条消息想做的一件事，取自 enum；无法判断时用 cannot_classify"。字段名也是：`amt` 不如 `refund_amount_cny`。
 
 ### 5. 限制深度与数量
 
@@ -169,7 +169,7 @@ strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答�
 
 ### 7. 用工具 schema 还是输出 schema
 
-结构化输出成熟前的替代做法是定义一个 `report_result` 工具并强制调用；现在两者语义不同：**输出 schema**用于"这一步的最终结果"，**工具 schema**用于"我要调用某个动作"。混用的代价 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲过（Fable 5.1 起强制工具调用报错）；原则是结果用 `output_config.format` / `text.format`，动作用 tools。
+结构化输出成熟前的替代做法是定义一个 `report_result` 工具并强制调用；现在两者语义不同：**输出 schema**用于"这一步的最终结果"，**工具 schema**用于"要调用某个动作"。混用的代价 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲过（Fable 5.1 起强制工具调用报错）；原则是结果用 `output_config.format` / `text.format`，动作用 tools。
 
 ## 四、解析层
 
