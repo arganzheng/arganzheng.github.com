@@ -118,6 +118,14 @@ flowchart TB
 
 <!-- v -->
 
+### 并发 vs 并行
+
+![并发与并行的时间线示意](/img/in-post/python-concurrency-asynchrony-and-task-collaboration-concurrency-vs-parallelism.svg){: style="max-height: 380px"}
+
+**并发是交错推进、并行是同时执行；GIL 让 Python 的并行只在多进程**
+
+<!-- v -->
+
 ### 数字与陷阱
 
 | 量 | 数 |
