@@ -92,7 +92,7 @@ flowchart LR
 
 ## 一 · 向量、矩阵与形状
 
-**结论**：两条规则够用——形状规则 $$[m,k]\times[k,n]\to[m,n]$$、成本规则 $$2mnk$$；一个 token 过整个模型约 $$2N$$ FLOPs，训练约 $$6ND$$。
+**形状 $$[m,k]\times[k,n]\to[m,n]$$、成本 $$2mnk$$；一个 token 前向约 $$2N$$、训练 $$6ND$$
 
 ![矩阵乘法：形状规则与成本规则](/img/in-post/vectors-matrices-shapes-and-flops-matmul.svg){: style="max-height: 440px"}
 
@@ -119,7 +119,7 @@ flowchart LR
 
 ## 二 · 内积、范数与余弦相似度
 
-**结论**：三个词一套语言——**内积**含方向与大小、**范数**只量大小、**余弦**只比方向；范数有长度 / 正则化项 / 误差度量三个身份。
+**内积含方向与大小、范数只量大小、余弦只比方向；范数兼作正则项与误差度量**
 
 ![内积、范数、余弦：三个词](/img/in-post/inner-product-norms-cosine-three-words.svg){: style="max-height: 440px"}
 
@@ -140,7 +140,7 @@ flowchart LR
 
 ## 三 · 正交、旋转与 SVD：从 RoPE 到 LoRA
 
-**结论**：正交保内积，所以旋转 $$m\theta$$ 与 $$n\theta$$ 后的内积只剩 $$n-m$$——RoPE 编码相对位置；截断 SVD 是最好的低秩近似，LoRA 的参数省在 $$r(m+n) \ll mn$$。
+**正交保内积：RoPE 靠旋转把相对位置放进内积；LoRA 省在 $$r(m+n)\ll mn$$**
 
 ![SVD 的形状图：截断后参数量从 mn 降到 r(m+n)](/img/in-post/orthogonal-rotation-svd-block-shapes.svg){: style="max-height: 440px"}
 
@@ -161,7 +161,7 @@ flowchart LR
 
 ## 四 · 语言模型是一个条件分布
 
-**结论**：语言模型是链式法则 $$p(x_{1:T}) = \prod_t p(x_t \mid x_{<t})$$ 里每一项的参数化；这个定义决定了 next-token 目标、逐 token 生成、KV cache、评测依赖采样设置。
+**语言模型 = 链式法则每一项的参数化：决定 next-token、逐 token 生成与 KV cache**
 
 ![next-token 分布与链式法则](/img/in-post/probability-basics-next-token-distribution-and-chain-rule.svg){: style="max-height: 440px"}
 
@@ -194,7 +194,7 @@ flowchart LR
 
 ## 五 · 从最大似然到交叉熵
 
-**结论**：取对数 → 取负 → 除以 token 数，得到每 token 负对数似然 $$\mathcal L = -\frac1T\sum_t \log p_\theta(x_t\mid x_{<t})$$；所有 loss 都是这个模板换一个概率。
+**所有 loss 都是每 token 负对数似然 $$-\frac1T\sum_t\log p(x_t\mid x_{<t})$$**
 
 ![抛硬币 10 次 7 正：似然曲线引出最大似然](/img/in-post/math-05-coin-likelihood.svg){: style="max-height: 440px"}
 
@@ -225,7 +225,7 @@ flowchart LR
 
 ## 六 · 熵、交叉熵与 KL：从困惑度到 DPO
 
-**结论**：$$H(p,q) = H(p) + D_{\mathrm{KL}}(p\Vert q)$$——交叉熵是熵加上「多付的那部分」；KL 不对称，**方向决定行为**；从 KL 约束的最优策略四步推出 DPO。
+**交叉熵 = 熵 + KL；KL 不对称、方向决定行为；四步从 KL 约束推出 DPO**
 
 ![KL 的方向：forward 覆盖模式，reverse 寻找模式](/img/in-post/entropy-cross-entropy-and-kl-direction-mode-covering-vs-seeking.svg){: style="max-height: 440px"}
 
@@ -264,7 +264,7 @@ $$
 
 ## 七 · 梯度、链式法则与策略梯度
 
-**结论**：梯度与参数同形；softmax + 交叉熵的梯度是 $$p - y$$；期望的梯度用 $$\nabla\pi = \pi\nabla\log\pi$$ 写回期望——策略梯度是「按奖励加权的最大似然」，减 baseline 期望不变。
+**softmax+CE 的梯度是 $$p-y$$；策略梯度 = 按奖励加权的最大似然**
 
 ![softmax + 交叉熵的梯度 p − y](/img/in-post/math-07-softmax-ce-gradient.svg){: style="max-height: 440px"}
 
@@ -307,7 +307,7 @@ $$
 
 ## 八 · 统计推断：置信区间与 scaling law
 
-**结论**：95% 区间 $$= \hat p \pm 1.96\,\text{SE}$$，**HumanEval 164 题分辨不出 3 个点**；幂律在双对数上是直线；固定 $$C = 6ND$$ 求极值，$$N$$、$$D$$ 同步增长。
+**95% 区间 $$= \hat p \pm 1.96\cdot$$SE；HumanEval 164 题分辨不出 3 个点**
 
 ![100 个置信区间约 95 个盖住真值](/img/in-post/math-08-confidence-intervals.svg){: style="max-height: 440px"}
 
