@@ -46,7 +46,7 @@ flowchart TB
         LL["LLVM IR"] --> PTX["PTX"] --> SASS["SASS"]
     end
     FE --> MID --> BE
-    AX["AxisInfo 分析（06）"] -. "contiguity / divisibility / constancy" .-> MID
+    AX["AxisInfo（06）"] -. "三量传播" .-> MID
 ```
 
 ---
@@ -65,7 +65,8 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /compiler-skeleton-ir-ssa-and-passes.html。
-结论原文：**：**渐进式下降每层丢一类信息**——标量 IR 丢了「这是矩阵乘」，所以 ML 编译器另起块级 IR。
+结论原文：**渐进式下降每层丢一类信息**——标量 IR 丢了「这是矩阵乘」，所以 ML 编译器另起块级 IR。
+AxisInfo 传播 contiguity / divisibility / constancy。
 </aside>
 
 <!-- v -->
@@ -84,14 +85,14 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 flowchart TB
-    cu[".cu / Triton"] --> nvvm["NVVM IR<br/>（LLVM IR 方言）"] --> nvopt["libnvvm / LLVM<br/>中端 + 后端 1"] --> ptx["PTX<br/>虚拟 ISA"] --> ptxas["ptxas<br/>后端 2：寄存器分配"] --> sass["SASS"]
+    cu[".cu / Triton"] --> nvvm["NVVM IR<br/>（LLVM 方言）"] --> nvopt["libnvvm / LLVM<br/>中端 + 后端 1"] --> ptx["PTX<br/>虚拟 ISA"] --> ptxas["ptxas<br/>后端 2：寄存器分配"] --> sass["SASS"]
     classDef ir fill:#dde9f7,stroke:#2e6da4
     class nvvm,ptx ir
 ```
 
 <aside class="notes" markdown="1">
 原文 /llvm-the-shared-backend-and-nvptx.html。AMD 直接打印 NumVgprs / Occupancy。
-结论原文：**：一切是 `Value`；后端三件事——但 **NVPTX 不做寄存器分配，`ptxas` 是第二个编译器**；`align` 决定向量宽度；内联汇编让 LLVM 对 `mma` 无知。
+结论原文：一切是 `Value`；后端三件事——但 **NVPTX 不做寄存器分配，`ptxas` 是第二个编译器**；`align` 决定向量宽度；内联汇编让 LLVM 对 `mma` 无知。
 </aside>
 
 <!-- v -->
