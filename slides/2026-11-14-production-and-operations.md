@@ -258,13 +258,15 @@ flowchart TB
     E --> I["改进"]
     I --> G["门禁 → 灰度"]
     G --> U
-    E -->|"真实（输入，输出）对"| FT["微调小模型"]
+    U -->|"授权 · 脱敏"| D["数据治理（第五篇）"]
+    D -.-> F
+    E -->|"几千条真实对"| FT["微调小模型"]
     FT --> G
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef gate fill:#eef6ff,stroke:#5b8fd6,color:#222
     class U,F,Q,E,I,FT step
-    class G gate
+    class G,D gate
 ```
 
 <aside class="notes" markdown="1">
