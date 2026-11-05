@@ -26,10 +26,10 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
-    U1["01 场景选择<br/>锯齿状边界、demo–产品鸿沟"] --> U2["02 形态<br/>copilot → agent → 后台 → 自动化"]
-    U1 & U2 --> U3["03 人机分工与信任校准"]
-    U3 --> U4["04 不确定性的呈现与非对话形态"]
-    U2 & U3 & U4 --> U5["05 产品指标与回流<br/>北极星 / 护栏 / 反指标 → 评测集与飞轮"]
+    U1["01 场景选择"] --> U2["02 形态"]
+    U1 & U2 --> U3["03 人机分工与信任"]
+    U3 --> U4["04 不确定性呈现"]
+    U2 & U3 & U4 --> U5["05 产品指标与回流"]
 ```
 
 ---
@@ -41,10 +41,10 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 flowchart TB
-    S["候选场景"] --> D1{"可验证吗？"}
-    D1 -- "自动验证" --> D2{"可撤销？"}
-    D1 -- "只能人判断" --> H["人在环内：copilot"]
-    D2 -- "能回滚" --> AUTO["自主循环几十步"]
+    S["候选场景"] --> D1{"可验证？"}
+    D1 -- "自动验" --> D2{"可撤销？"}
+    D1 -- "人判断" --> H["人在环内：copilot"]
+    D2 -- "能回滚" --> AUTO["自主几十步"]
     D2 -- "不可逆" --> GATE["确认门 / 仿真"]
     AUTO & H & GATE --> W["价值 × 频率？<br/>（下图）"]
 
@@ -52,6 +52,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html。
+各篇关键词：01 锯齿状边界 / demo–产品鸿沟；02 copilot → agent → 后台 → 自动化；05 北极星 / 护栏 / 反指标 → 评测集与飞轮。
 </aside>
 
 <!-- v -->
@@ -195,16 +196,18 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 flowchart TB
-    W["消息数 +40%、占比 65%——都可能在说一个失败的产品"] --> Q{"量「用了」还是「有用」？"}
-    Q --> N["<b>北极星</b>：用户真得到的价值<br/>（一次解决率、合入率）"]
-    Q --> G["<b>护栏</b>：错误率 · 成本 p95 · 越权 · 转人工率"]
-    N & G --> F["<b>反指标</b>：重试暴涨 · 接受率趋 100%"]
-    F --> B["回流：坏结果 → 评测集 → 飞轮"]
+    W["消息 +40% 或说失败"] --> Q{"「用了」还是「有用」？"}
+    Q --> N["<b>北极星</b>：真正的价值<br/>（一次解决率、合入率）"]
+    Q --> G["<b>护栏</b>：错误率 · 成本 p95 · 越权"]
+    N & G --> F["<b>反指标</b>：重试暴涨 · 接受率 ~100%"]
+    F --> B["回流：坏结果 → 评测集"]
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /ai-product-metrics-and-feeding-back-into-the-system.html。
+护栏还含转人工率；回流到飞轮。
+消息量 +40% 也可能在说失败产品。
 </aside>
 
 <!-- v -->
