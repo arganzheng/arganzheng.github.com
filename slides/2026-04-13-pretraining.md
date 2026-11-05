@@ -123,8 +123,8 @@ flowchart TB
 | 位置 | 公式 | Llama-3-8B |
 |---|---|---|
 | 参数 | 2Vd（tied 为 Vd） | 1.05B，13.1%；训练状态 16.8 GB |
-| lm_head FLOPs | 每 token 2Vd | 7.0%；Qwen2.5-0.5B 占 **28%** |
-| decode 字节 | 每步读一遍 lm_head | 1 GB / 步 |
+| `lm_head` FLOPs | 每 token \(2Vd\) | 7.0%；Qwen2.5-0.5B 占 **28%** |
+| decode 字节 | 每步读一遍 `lm_head` | 1 GB / 步 |
 | 训练显存 | logits = tokens × V × 4 B | 8K 序列 **3.9 GiB**，softmax 前后两份 |
 
 - 跨 tokenizer 比 loss 要换算 $$\text{bits/byte} = \frac{L}{\ln 2}\cdot\frac{T}{B}$$；同等 bits/byte 下 Llama 3 的 per-token loss 应比 Llama 2 高 24%
@@ -284,9 +284,9 @@ flowchart TB
 |---|---|
 | 01 | 68,834 网页 → 16% → 38 MB；bits/byte 1.88 vs GPT-2 的 1.06 |
 | 02 | $$\text{FLOPs/字符} = \text{FLOPs/token} \div \text{字符/token}$$；128K 词表每字符 −15% |
-| 03 | $$L = E + A/N^\alpha + B/D^\beta$$、C = 6ND；k = 10 时 +0.053 nats、推理 1/10 |
+| 03 | $$L = E + A/N^\alpha + B/D^\beta$$、\(C=6ND\)；k = 10 时 +0.053 nats、推理 1/10 |
 | 04 | 240T → 15T → 1.3–5.4T；LSH 14 × 8 阈值 0.72；25% ≈ 7.5 epoch |
-| 05 | lr ∝ 1/d；$$\tau = 1/(\eta\lambda)$$；QK-norm 12,592 → 22；$$T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}$$ |
+| 05 | lr ∝ \(1/d\)；$$\tau = 1/(\eta\lambda)$$；QK-norm 12,592 → 22；$$T_{opt} = \sqrt{2\delta\cdot\text{MTBF}}$$ |
 
 ---
 
