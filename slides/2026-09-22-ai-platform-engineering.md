@@ -36,9 +36,15 @@ transition: slide
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 flowchart TB
     P1["01 需求与架构"]
-    P2["02 GPU 进容器"] --> P3["03 任务调度"] --> P4["04 GPU 共享"]
-    P2 --> P5["05 网络与存储"]
-    P6["06 Serving"] --> P7["07 网关"] --> P8["08 观测成本"]
+    subgraph RES["资源层：引擎之下"]
+        direction TB
+        P2["02 GPU 进容器"] --> P3["03 任务调度"] --> P4["04 GPU 共享"]
+        P2 --> P5["05 网络与存储"]
+    end
+    subgraph DEL["交付层：引擎之侧"]
+        direction TB
+        P6["06 Serving"] --> P7["07 网关"] --> P8["08 观测成本"]
+    end
     P1 --> P2
     P1 --> P6
     P4 & P5 -.-> P6
