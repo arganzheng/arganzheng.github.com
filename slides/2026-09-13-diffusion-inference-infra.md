@@ -116,7 +116,7 @@ flowchart TB
 **结论**：交叉点 $$N \approx 6d$$；Wan 一步 attention 4.7 P / 6.5 P = **72%**；分数矩阵 425 GiB **不可物化**——稀疏必须落到 FlashAttention 的 128 块粒度；收益受 **Amdahl** 约束。
 
 $$
-\text{speedup} = \frac{1}{(1 - a) + a/s}：\quad a = 0.72,\ s = 3.5 \Rightarrow 2.06\times,\qquad \text{上限 } 3.57\times
+\text{speedup} = \frac{1}{(1-a)+a/s}\qquad a=0.72,\ s=3.5 \to 2.06\times
 $$
 
 | 量 | 数 |
