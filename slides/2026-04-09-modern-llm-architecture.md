@@ -141,6 +141,10 @@ flowchart TB
 - 交错局部 / 全局把系数变 \(1/k\)；MLA 减系数不减阶——两者正交可叠加
 - 对 Infra：KV 定并发、二次项定 TTFT、chunked prefill 防一条 128K 请求独占 GPU 11 s
 
+<aside class="notes" markdown="1">
+原文 /long-context-cost-and-structural-remedies.html。结构手段分三类：降复杂度（稀疏 / 线性）、省 KV（MLA / GQA / 量化）、外推（位置编码改造）。
+</aside>
+
 ---
 
 ## Attention 的替代路线：固定状态与混合架构
@@ -287,6 +291,10 @@ Table: 投机解码的正确性、收益与边界
 - 语音输出：[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)的 Thinker-Talker 生成语音 token，再经流式音频解码；论文没有给出通用 tokens/s 或 forward-passes/s
 - 成本分别按 AR token 步、diffusion 迭代或实测实时率核算；没有一手来源支持时不填固定数字
 - 结构来源：[Chameleon](https://arxiv.org/html/2405.09818)、[Emu3](https://arxiv.org/html/2409.18869v1)、[Transfusion](https://arxiv.org/html/2408.11039)、[Janus](https://arxiv.org/html/2410.13848)、[Qwen2.5-Omni](https://arxiv.org/html/2503.20215v1)
+
+<aside class="notes" markdown="1">
+本页无对应系列文章，来源为文中链接的各论文（Chameleon、Emu3、Transfusion、Janus、Qwen2.5-Omni）。
+</aside>
 
 ---
 
