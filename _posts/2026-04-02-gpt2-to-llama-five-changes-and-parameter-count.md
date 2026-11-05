@@ -334,7 +334,7 @@ $$
 
 注意 $$W_Q$$ 和 $$W_O$$ 随 $$d^2$$ 增长，而 $$W_K$$、$$W_V$$ 只随 $$d \cdot d_{kv}$$ 增长；70B 把 $$d$$ 翻倍、$$n_{kv}$$ 不变，K/V 投影在 attention 里的占比从 20% 降到 11%。
 
-$$QK^\top$$、softmax、$$PV$$ 这几步没有任何可学习参数，它们的算量与上下文长度 $$s$$ 成正比（每层每 token $$4 d s$$ FLOPs，第二篇推导），但对本篇的参数量没有贡献。RoPE 位置编码也没有参数，它只是对 Q、K 做一个由位置决定的旋转（第三篇）。这提醒我们：**参数量只衡量权重，不衡量 attention 对上下文的那部分计算**，两者在长上下文下会严重分离。
+$$QK^\top$$、softmax、$$PV$$ 这几步没有任何可学习参数，它们的算量与上下文长度 $$s$$ 成正比（每层每 token $$4 d s$$ FLOPs，第二篇推导），但对本篇的参数量没有贡献。RoPE 位置编码也没有参数，它只是对 Q、K 做一个由位置决定的旋转（第三篇）。这提醒：**参数量只衡量权重，不衡量 attention 对上下文的那部分计算**，两者在长上下文下会严重分离。
 
 ### 3. FFN 的三个矩阵
 
@@ -436,7 +436,7 @@ $$
 
 Table: Llama-3-8B 参数量逐项代入
 
-Meta 公布的 Llama-3-8B 参数量是 8.03B，与我们算出的 8,030,261,248 一致到小数点后两位。这个数字是精确的，不是估算：dense Transformer 的每一个参数都在上面的表里。
+Meta 公布的 Llama-3-8B 参数量是 8.03B，与算出的 8,030,261,248 一致到小数点后两位。这个数字是精确的，不是估算：dense Transformer 的每一个参数都在上面的表里。
 
 ### 7. 逐项代入 Llama-3-70B
 
@@ -890,7 +890,7 @@ total                    70.554B    70,553,706,496
 }
 ```
 
-八个字段决定了全部 8,030,261,248 个参数：`hidden_size`、`intermediate_size`、`num_hidden_layers`、`num_attention_heads`、`num_key_value_heads`、`vocab_size`、`tie_word_embeddings`，以及隐含的 `head_dim = 4096 / 32`。`rope_theta = 500000` 是第三篇的主角（线 1），`max_position_embeddings = 8192` 是它的训练上下文长度，`torch_dtype` 告诉我们权重以 BF16 存储、每参数 2 字节。
+八个字段决定了全部 8,030,261,248 个参数：`hidden_size`、`intermediate_size`、`num_hidden_layers`、`num_attention_heads`、`num_key_value_heads`、`vocab_size`、`tie_word_embeddings`，以及隐含的 `head_dim = 4096 / 32`。`rope_theta = 500000` 是第三篇的主角（线 1），`max_position_embeddings = 8192` 是它的训练上下文长度，`torch_dtype` 标明权重以 BF16 存储、每参数 2 字节。
 
 可以试着把其他模型的 `config.json` 喂给脚本。几个 7B 级 dense 模型的关键字段与脚本输出如下，同一个公式对它们全部适用，差别只在字段取值：
 
