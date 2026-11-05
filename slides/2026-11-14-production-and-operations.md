@@ -26,12 +26,12 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    O1["01 模型网关<br/>所有调用经过的一层：密钥、路由、归因"] --> O2["02 成本工程<br/>从账单到每任务成本"]
-    O1 --> O3["03 延迟工程<br/>TTFT 到 agent 的多步"]
-    O1 --> O4["04 安全<br/>注入、供应链、数据泄漏"]
-    O1 & O4 --> O5["05 治理与合规<br/>审计链、保留、AI Act、内容标识"]
-    O2 & O3 & O4 --> O6["06 发布工程<br/>开关、钉版本、runbook、SLO"]
-    O6 --> O7["07 数据飞轮与物理世界的上线"]
+    O1["01 模型网关"] --> O2["02 成本工程"]
+    O1 --> O3["03 延迟工程"]
+    O1 --> O4["04 安全"]
+    O1 & O4 --> O5["05 治理与合规"]
+    O2 & O3 & O4 --> O6["06 发布工程"]
+    O6 --> O7["07 数据飞轮与上线"]
 ```
 
 ---
@@ -47,14 +47,16 @@ flowchart TB
         direction LR
         A1["客服"] --- A2["搜索"] --- A3["报告 agent"] --- A4["…"]
     end
-    APPS -- "逻辑模型名 chat-default<br/>网关凭据（按服务 / 租户发）" --> GW["<b>模型网关</b><br/>① 认证与密钥 ② 路由与 fallback ③ 限流与配额<br/>④ 成本归因 ⑤ 日志 / trace ⑥ 缓存 ⑦ 内容检查"]
+    APPS -- "逻辑模型名 + 网关凭据" --> GW["<b>模型网关</b><br/>认证 · 路由 · 限流 · 归因<br/>日志 · 缓存 · 内容检查"]
     GW -- "供应商 key 只在这里" --> P1["OpenAI"] & P2["Anthropic"] & P3["自托管 vLLM"]
-    GW -. "限流时统一退避，不是十二个服务各自重试" .-> P1
+    GW -. "限流统一退避" .-> P1
 
 ```
 
 <aside class="notes" markdown="1">
 原文 /model-gateway-the-layer-every-call-goes-through.html。
+各篇关键词：01 所有调用经过的一层——密钥 / 路由 / 归因；02 从账单到每任务成本；03 TTFT 到 agent 多步；04 注入 / 供应链 / 数据泄漏；05 审计链 / 保留 / AI Act / 内容标识；06 开关 / 钉版本 / runbook / SLO。
+凭据按服务 / 租户发；限流时统一退避、不是十二服务各自重试。
 </aside>
 
 <!-- v -->
@@ -80,11 +82,11 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    B["月底账单：一个总数"] -- "没归因就没优化" --> T["每次调用打标签<br/>租户 · 功能 · 版本 · 任务"]
+    B["月底账单"] -- "没归因就没优化" --> T["每次调用打标签<br/>租户 · 功能 · 版本 · 任务"]
     T --> L["按天账本"]
     L --> V["按任务看 p50/p95"]
-    V --> F["发现：5% 的任务花 60% 的钱"]
-    F --> A["药：预算降级 · 缓存 · 分流 · 批处理"]
+    V --> F["5% 任务花 60% 钱"]
+    F --> A["预算降级 · 缓存 · 分流 · 批处理"]
 
 ```
 
@@ -144,12 +146,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
-    IN["① 输入侧：来源标记与分区"] --> M["模型"]
-    M --> P["② 权限与沙箱四层<br/>想做 → 做不到"]
+    IN["① 输入侧<br/>来源标记与分区"] --> M["模型"]
+    M --> P["② 权限与沙箱四层"]
     P --> O["③ 输出处理<br/>脱敏 · 执行前检查"]
     O --> D["④ 数据流控制<br/>敏感数据不出边界"]
     D --> R["⑤ 监控与红队"]
-    R -.->|"发现新链路"| IN
+    R -.->|"新链路"| IN
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     class IN,M,P,O,D,R step
@@ -252,15 +254,15 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    U["使用"] --> F["反馈<br/>全部带 trace id"]
+    U["使用"] --> F["反馈<br/>带 trace id"]
     F --> Q["bad case 队列"]
     Q --> E["评测集"]
     E --> I["改进"]
     I --> G["门禁 → 灰度"]
     G --> U
-    U -->|"授权 · 脱敏"| D["数据治理（第五篇）"]
+    U -->|"授权·脱敏"| D["数据治理"]
     D -.-> F
-    E -->|"几千条真实对"| FT["微调小模型"]
+    E -->|"真实对"| FT["微调小模型"]
     FT --> G
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -271,6 +273,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /data-flywheel-and-deploying-to-the-physical-world.html。
+反馈全部带 trace id；微调用几千条真实对。
 </aside>
 
 <!-- v -->
