@@ -19,6 +19,8 @@ const CHECK = `(() => {
   [...document.images].forEach(i=>{ if(i.loading==='lazy') i.loading='eager'; });
   // reveal.js decks keep every slide but the current one display:none — show them all while measuring
   const secs=[...document.querySelectorAll(".reveal .slides section")]; const saved=secs.map(s=>s.style.display); secs.forEach(s=>{ s.style.display="block"; });
+  // hidden fragments would be invisible to the block checks — show them like a fully-stepped slide
+  document.querySelectorAll(".fragment").forEach(f=>f.classList.add("visible"));
   const m=[...document.querySelectorAll(".mermaid")];
   const errs=[...document.querySelectorAll(".mermaid-error")];
   const out={
@@ -50,29 +52,37 @@ const CHECK = `(() => {
         return "#"+(i+1)+" "+e.tagName+" "+e.textContent.trim().slice(0,30)+" (right "+Math.round(b.right-sr.right)+"px over)";});}).flat(),
     overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
       .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
-    // sibling blocks that physically collide (table row over bullet, figure over heading): intersect >4 px both ways
+    // visible leaf blocks that physically collide (table row over bullet, figure over heading):
+    // intersect >2 px both ways. Descendants, not just direct children — a bullet's <li> and a
+    // table's <tr> never appear at section level. Tables are compared by row rects.
     overlap: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
-      const kids=[...s.children].filter(e=>{
-        if(e.matches('aside.notes, style, script')) return false;
+      const BS='p,ul,ol,table,tr,img,.mermaid,pre,blockquote,h1,h2,h3,figure,figcaption,li';
+      const vis=e=>{
+        if(e.closest('aside.notes')||e.matches('aside.notes,style,script,template')) return false;
+        if(e.closest('svg')) return false;                       // measure the svg via its .mermaid host
         const cs=getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden'||cs.opacity==='0') return false;
         const b=e.getBoundingClientRect(); return b.width>0&&b.height>0;
-      }).map(e=>{const b=e.getBoundingClientRect();return {t:e.tagName.toLowerCase()+'.'+(e.className&&e.className.baseVal===undefined?(''+e.className).split(' ')[0]:'svg'),b};});
+      };
+      const leafs=[...s.querySelectorAll(BS)].filter(e=>vis(e)&&!e.querySelector(BS));
+      const tag=e=>e.tagName.toLowerCase()+'.'+(e.className&&e.className.baseVal===undefined?(''+e.className).split(' ')[0]:'');
       const hits=[];
-      for(let a=0;a<kids.length;a++)for(let c=a+1;c<kids.length;c++){
-        const A=kids[a].b,B=kids[c].b;
+      for(let a=0;a<leafs.length;a++)for(let c=a+1;c<leafs.length;c++){
+        const A=leafs[a].getBoundingClientRect(),B=leafs[c].getBoundingClientRect();
         const ox=Math.min(A.right,B.right)-Math.max(A.left,B.left), oy=Math.min(A.bottom,B.bottom)-Math.max(A.top,B.top);
-        if(ox>4&&oy>4) hits.push("#"+(i+1)+" "+kids[a].t+"/"+kids[c].t+" ("+Math.round(ox)+"x"+Math.round(oy)+"px)");
+        if(ox>2&&oy>2) hits.push("#"+(i+1)+" "+tag(leafs[a])+"/"+tag(leafs[c])+" ("+Math.round(ox)+"x"+Math.round(oy)+"px)");
       }
       return hits;
     }).flat(),
-    // mermaid / inline svg text rendered below ~14 px is unreadable at 1280x720
+    // mermaid / inline svg text rendered below ~14 px is unreadable at 1280x720.
+    // Measure the rendered glyph box (getBoundingClientRect().height of each <text>/<tspan>/
+    // foreignObject label): it already includes every transform and the max-height downscale,
+    // so no viewBox arithmetic can lie about it.
     smalltext: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
       return [...s.querySelectorAll('.mermaid svg, section > svg')].map(sv=>{
-        const vb=sv.viewBox&&sv.viewBox.baseVal&&sv.viewBox.baseVal.width?sv.viewBox.baseVal.width:sv.getBoundingClientRect().width;
-        const scale=vb>0?sv.getBoundingClientRect().width/vb:1;
-        const sizes=[...sv.querySelectorAll('text, tspan, .label')].map(e=>parseFloat(getComputedStyle(e).fontSize)||0).filter(f=>f>0);
-        const min=Math.min(...sizes,99);
-        return (min*scale<14&&min<99)?"#"+(i+1)+" min "+(min*scale).toFixed(1)+"px":null;
+        const hs=[...sv.querySelectorAll('text,tspan,foreignObject div,foreignObject span,foreignObject p')]
+          .map(e=>e.getBoundingClientRect().height).filter(h=>h>0);
+        const min=Math.min(...hs,999);
+        return (min<14&&min<999)?"#"+(i+1)+" min "+min.toFixed(1)+"px":null;
       }).filter(Boolean);
     }).flat(),
     // <img> svg squeezed below 55% of natural width: its text shrinks proportionally

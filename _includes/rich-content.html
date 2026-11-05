@@ -70,6 +70,9 @@
           startOnLoad: false,
           theme: 'default',
           securityLevel: 'loose',
+          // reveal decks get a larger base font: the svg is then scaled to the
+          // slide, and 16px mermaid labels land under ~10px rendered
+          themeVariables: { fontSize: document.querySelector('.reveal .slides') ? '20px' : '16px' },
           // subGraphTitleMargin keeps cross-subgraph edges from being drawn
           // straight through the subgraph title text
           flowchart: {
