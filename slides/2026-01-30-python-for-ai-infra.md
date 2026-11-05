@@ -38,13 +38,13 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    P1["01 语言机制与运行时<br/>执行模型、作用域、import、对象模型、协议"] --> P2["02 类型系统与数据契约<br/>typing、存根、静态 / 动态消费"]
-    P1 --> P3["03 并发、异步与任务协作<br/>GIL、线程 / 进程 / asyncio"]
-    P1 -- "import 的副作用" --> P4["04 动态机制与插件<br/>反射、元编程、注册表"]
-    P1 --> P5["05 内存管理与优化<br/>对象开销、缓冲区、三块内存的边界"]
-    P3 & P4 & P5 --> P6["06 单元测试、定位与调试"]
-    P2 -- "注解被 Pydantic 消费" --> P7["07 工程化与生产交付"]
-    P3 -- "GIL 决定起几个 worker" --> P7
+    P1["01 语言机制"] --> P2["02 类型系统"]
+    P1 --> P3["03 并发与异步"]
+    P1 --> P4["04 动态机制"]
+    P1 --> P5["05 内存管理"]
+    P3 & P4 & P5 --> P6["06 测试与调试"]
+    P2 --> P7["07 工程化交付"]
+    P3 --> P7
     P6 --> P7
 ```
 
@@ -104,12 +104,12 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart TB
-    Q{"瓶颈在哪种资源上？"} -- "等 I/O：网络、磁盘、等 GPU" --> IO{"并发数？"}
-    IO -- "几十个" --> TH["<b>线程</b><br/>GIL 等待时释放；写法最接近 Java"]
-    IO -- "几千个连接、流式" --> AS["<b>asyncio</b><br/>单线程事件循环，await 处切换"]
-    Q -- "算：tokenize、正则（纯 Python）" --> PR["<b>进程</b><br/>每进程一把 GIL；代价：序列化、各自一份模型"]
-    Q -- "算：矩阵、卷积" --> NAT["不用 Python 并发<br/>原生库已多线程 / 在 GPU 上"]
-    TH & AS & PR --> C["组合：asyncio 收请求 → 线程池跑阻塞 → 进程池跑预处理 → GPU<br/>有界队列连接，下游慢了上游要停（背压）"]
+    Q{"瓶颈？"} -- "等 I/O" --> IO{"并发数？"}
+    IO -- "几十个" --> TH["<b>线程</b><br/>GIL 等待时释放"]
+    IO -- "几千连接" --> AS["<b>asyncio</b><br/>事件循环"]
+    Q -- "纯 Python 计算" --> PR["<b>进程</b><br/>每进程一把 GIL"]
+    Q -- "矩阵 / 卷积" --> NAT["不用并发<br/>原生库已多线程"]
+    TH & AS & PR --> C["组合：asyncio 收 → 线程跑阻塞 → 进程预处理"]
 ```
 
 <aside class="notes" markdown="1">
