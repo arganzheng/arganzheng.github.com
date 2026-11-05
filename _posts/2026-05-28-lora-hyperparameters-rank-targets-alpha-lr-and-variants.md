@@ -77,7 +77,7 @@ Table: target_modules：只挂 attention 对全部线性层，与"参数同样�
 
 前向是 $$W x + \frac{\alpha}{r} B A x$$，$$\alpha / r$$ 是一个不训练的常数（`scaling`）。它的作用是让**改 $$r$$ 时不必重调学习率**：Adam 的更新量与梯度尺度无关，每步 $$B$$、$$A$$ 的每个元素大约动 lr 那么多，$$B A x$$ 的尺度随 $$r$$ 增长（$$r$$ 个方向的贡献相加），除以 $$r$$ 把它拉回来。所以固定 $$\alpha$$、改 $$r$$，大致能用同一个 lr。
 
-三个例子：$$r = 16$$、$$\alpha = 32$$ → scaling 2；$$r = 64$$、$$\alpha = 32$$ → scaling 0.5；$$r = 64$$、$$\alpha = 128$$ → scaling 2。社区惯例 $$\alpha = 2r$$ 就是让 scaling 恒为 2——这等于说"$$\alpha / r$$ 这个设计根本没起作用，我们手动固定了它"。
+三个例子：$$r = 16$$、$$\alpha = 32$$ → scaling 2；$$r = 64$$、$$\alpha = 32$$ → scaling 0.5；$$r = 64$$、$$\alpha = 128$$ → scaling 2。社区惯例 $$\alpha = 2r$$ 就是让 scaling 恒为 2——这等于说"$$\alpha / r$$ 这个设计根本没起作用，手动固定了它"。
 
 ### 4.2 rsLoRA：α / √r
 
