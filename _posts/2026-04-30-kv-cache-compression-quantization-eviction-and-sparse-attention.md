@@ -67,7 +67,7 @@ Table: 本文的章节安排
 
 ### 1. key 与 value 的分布不同
 
-我先用一组合成张量看这个差别。K 的第 3 个通道在所有 token 上都放大 12 倍；V 没有固定的离群通道，只让不同 token 的整体幅度变化。图里用同一套 signed INT4 量化器比较 per-channel 和 per-token 的重建误差。它是构造出来的例子，不是模型测量。
+先用一组合成张量看这个差别。K 的第 3 个通道在所有 token 上都放大 12 倍；V 没有固定的离群通道，只让不同 token 的整体幅度变化。图里用同一套 signed INT4 量化器比较 per-channel 和 per-token 的重建误差。它是构造出来的例子，不是模型测量。
 
 ![合成 K 与 V 的通道热图，以及 signed INT4 按通道或按 token 分组时的 RMSE 对比](/img/in-post/kv-cache-compression-kivi-granularity.svg)
 
@@ -219,7 +219,7 @@ Mixture of Block Attention（Lu 等 2025，Moonshot）把 MoE 的路由思路用
 
 ### 4. 为什么它们是精确的
 
-NSA / MoBA 训练时就按这个模式计算 attention，模型学到的一切都建立在"我只看这些块"的前提上；推理时执行同样的计算，得到的就是模型的输出，没有近似。与驱逐的区别是本质的：驱逐是在一个假设"看到全部"的模型上强行遮掉一部分；稀疏 attention 是一个从来就只看一部分的模型。
+NSA / MoBA 训练时就按这个模式计算 attention，模型学到的一切都建立在"只看这些块"的前提上；推理时执行同样的计算，得到的就是模型的输出，没有近似。与驱逐的区别是本质的：驱逐是在一个假设"看到全部"的模型上强行遮掉一部分；稀疏 attention 是一个从来就只看一部分的模型。
 
 代价：（1）需要重新训练（或至少继续预训练几百 B token）；（2）需要专门的 kernel（块选择 + gather + attention，NSA 论文自己写了 Triton kernel）；（3）它是训练时的结构决定，属于 L4 的"结构选择"，对已经训好的模型无用——所以在本篇的位置是"如果驱逐不安全而你有训练能力，这是正确的方向"。
 

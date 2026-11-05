@@ -276,7 +276,7 @@ RTN 在 INT8 per-channel 下几乎无损、零成本，是 W8A16 与 FP8 的默�
 
 ### 1. OBS 的推导
 
-GPTQ 一次处理一列权重。它先把这一列量化到整数格点，再调整还没量化的列，抵消由此产生的层输出误差。输入通道在校准数据里越相关，Hessian $$H=2XX^\top$$ 越能告诉我们哪些列可以互相补偿。
+GPTQ 一次处理一列权重。它先把这一列量化到整数格点，再调整还没量化的列，抵消由此产生的层输出误差。输入通道在校准数据里越相关，Hessian $$H=2XX^\top$$ 越能标明哪些列可以互相补偿。
 
 ![GPTQ 量化第一列后，用输入通道的相关性调整剩余列](/img/in-post/post-training-quantization-gptq-awq-and-rotation-gptq-error-compensation.svg)
 

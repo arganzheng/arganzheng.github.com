@@ -365,7 +365,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-2. 我们在 vLLM 上开了投机解码，吞吐反而降了。怎么排查？
+2. 在 vLLM 上开了投机解码，吞吐反而降了。怎么排查？
 
    <details markdown="1"><summary>答案</summary>
 
