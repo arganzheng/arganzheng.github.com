@@ -233,7 +233,23 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
     CALL["调用"] --> GD{"Guard 成立?"} -->|是| RUN["执行产物"]
-    GD -->|否| DY["Dynamo"] --> IND["Inductor"] --> RUN
+    GD -->|否| CA{"缓存命中?"} -->|是| RUN
+    CA -->|否| TRIG["触发编译"] --> DY["编译器链（下图）"]
+    DY --> RUN
+```
+
+<!-- v -->
+
+### 编译器：触发时跑一次
+
+**Dynamo 定边界 → AOTAutograd 展开反向 → Inductor 融合出 Triton/C++，共享 FX Graph**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart TB
+    DY["Dynamo 捕获<br/>Graph Break 定边界"] --> FX1[("FX Graph<br/>torch 级")]
+    FX1 --> AOT["AOTAutograd<br/>反向展开 · 函数化 · 分解"] --> FX2[("FX × 2<br/>ATen 级")]
+    FX2 --> IND["Inductor<br/>融合 · 内存规划"] --> CODE["Triton / C++"]
 ```
 
 <aside class="notes" markdown="1">
