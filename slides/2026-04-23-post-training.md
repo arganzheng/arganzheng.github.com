@@ -28,13 +28,13 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 flowchart TB
-    S1["01 SFT<br/>造出「策略」：会按格式回答"] --> R2["02 偏好数据与奖励模型<br/>造出「奖励」：Bradley-Terry"]
-    S1 & R2 --> O3["03 在线 RL：PPO / GRPO<br/>策略 + 奖励 + 参考，三件套"]
-    O3 -- "同一目标，不采样、不打分" --> D4["04 离线 RL：DPO 及其变体"]
-    O3 -- "奖励不再学，直接验" --> V5["05 推理模型与可验证奖励"]
-    V5 -- "验证器推到多轮环境" --> A6["06 Agent 与工具调用的 RL"]
-    O3 -- "奖励换成教师的分布" --> K7["07 蒸馏：logits / 序列 / on-policy"]
-    S1 & O3 & D4 & V5 & A6 & K7 --> E8["08 评测<br/>每一篇的「变好了」都要靠它证明"]
+    S1["01 SFT 造「策略」"] --> R2["02 偏好数据与奖励模型"]
+    S1 & R2 --> O3["03 在线 RL：PPO/GRPO"]
+    O3 --> D4["04 离线 RL：DPO"]
+    O3 --> V5["05 可验证奖励"]
+    V5 --> A6["06 Agent 的 RL"]
+    O3 --> K7["07 蒸馏"]
+    S1 & O3 & D4 & V5 & A6 & K7 --> E8["08 评测"]
 ```
 
 ---
@@ -166,11 +166,11 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
-    A["RLHF 目标：max E[r] − β·KL(π ‖ π_ref)"] --> B["① 闭式解 π* = π_ref · exp(r/β) / Z(x)"]
-    B --> C["② 反解奖励 r = β·log(π*/π_ref) + β·log Z(x)"]
-    C --> D["③ 代入 Bradley-Terry：同一 prompt 两项相减，β·log Z(x) 抵消"]
-    D --> E["④ DPO loss = −log σ(β·log π_θ(y_w)/π_ref(y_w) − β·log π_θ(y_l)/π_ref(y_l))"]
-    RM["显式奖励模型 r"] -. "被 β·log(π_θ/π_ref) 替代" .-> E
+    A["RLHF：max E[r] − β·KL"] --> B["① 闭式解 π*"]
+    B --> C["② 反解奖励 r"]
+    C --> D["③ 代入 Bradley-Terry"]
+    D --> E["④ DPO loss"]
+    RM["显式 RM"] -. "被替代" .-> E
     classDef gone fill:#f0f0f0,stroke:#888,stroke-dasharray:5 3,color:#666
     class RM gone
 ```
@@ -198,12 +198,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 flowchart TB
-    B["V3-Base"] -->|"几千条长思维链"| S1["阶段 1 冷启动 SFT<br/>修可读性、格式、语言"]
-    S1 -->|"GRPO · 规则 + 语言一致性奖励"| S2["阶段 2 推理 RL<br/>训到顶且不混语言"]
-    S2 -->|"拒绝采样 60 万推理 + 20 万非推理"| D["80 万条 SFT 数据"]
-    D --> S3["阶段 3 全能力 SFT<br/>推理与通用合到一个模型"]
-    S3 -->|"GRPO · 推理规则、通用 RM"| S4["阶段 4 全场景 RL"] --> R1["R1"]
-    D -->|"直接 SFT"| DIST["R1-Distill 1.5B–70B"]
+    B["V3-Base"] -->|"长思维链"| S1["1 冷启动 SFT"]
+    S1 -->|"GRPO"| S2["2 推理 RL"]
+    S2 -->|"拒绝采样"| D["80 万条数据"]
+    D --> S3["3 全能力 SFT"]
+    S3 -->|"GRPO"| S4["4 全场景 RL → R1"]
+    D -->|"直接 SFT"| DIST["Distill"]
     classDef rl fill:#fde68a,stroke:#b45309
     classDef sft fill:#e0e7ff,stroke:#4338ca
     class S2,S4 rl
@@ -300,11 +300,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    A["① 题目集"] --> B["② 协议<br/>few-shot、模板、温度、正则"] --> C["③ 输出<br/>采样 1 次或 n 次"] --> D["④ 评分<br/>匹配 / 跑测试 / judge / 人"] --> E["⑤ 统计<br/>正确率 ± 区间"] --> F["榜单上的一个数"]
+    A["① 题目集"] --> B["② 协议"] --> C["③ 输出"] --> D["④ 评分"] --> E["⑤ 统计"] --> F["榜单的数"]
     A -. "污染 10–30 点" .-> F
-    B -. "换 few-shot 数差 3–5 点" .-> F
-    D -. "judge 偏长、偏位置、偏自己" .-> F
-    E -. "1000 题 ±3 是噪声" .-> F
+
+    B -. "协议差 3–5 点" .-> F
+    D -. "judge 有偏" .-> F
+    E -. "±3 是噪声" .-> F
 ```
 
 <aside class="notes" markdown="1">
