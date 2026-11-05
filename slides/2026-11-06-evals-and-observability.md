@@ -41,7 +41,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     L["生产流量（trace）"] -- "按<b>类型</b>采样，不按流量比例" --> S["候选用例"]
     R["红队 / 安全用例<br/>（流量里不会自然出现，专门写）"] --> S
     S --> A["标注：期望是<b>分布</b>不是值<br/>通过率 ≥ 80%、必含 / 必不含、schema"]
@@ -81,7 +81,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart LR
+flowchart TB
     O["一条输出"] --> R{"能用<b>规则</b>判吗？<br/>字段齐不齐、枚举、容差、引用 id 是否存在"}
     R -- "能：确定、免费" --> RR["规则打分"]
     R -- "不能：「解释清楚吗」「忠实吗」" --> J["<b>LLM-as-judge</b> 打分<br/>rubric、pairwise 换序去偏"]
@@ -154,7 +154,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
-flowchart LR
+flowchart TB
     CH["改动：prompt · 模型 / effort · schema · 工具集 · 检索配置 · harness 版本 · judge / rubric"] --> V["新版本（不可变）+ 六元组记录"]
     V --> G{"门禁：评测集 × k<br/>分层指标 ≥ 基线 − 噪声阈值<br/>逐条 diff · 成本 / 延迟不退化 · 红队集通过"}
     G -->|"不过"| CH
@@ -231,7 +231,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart LR
+flowchart TB
     B["一个坏结果（用户 👎 / 存疑 / 客服工单）"] -- "反馈绑定 trace_id" --> TR["打开完整轨迹"]
     TR --> D["决策点日志：第几步、看到了什么、为什么这么选"]
     D --> C["失败打类（检索没找到 / 幻觉 / 越权 / 忘目标 / …）"]
@@ -303,7 +303,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-flowchart LR
+flowchart TB
     T["trace（05）<br/>会话日志的投影"] --> S["采样成评测集（01）"] --> J["评分：规则 / judge / 人（02）<br/>指标矩阵（03）"] --> G["门禁（04）<br/>改动 = 发布"]
     T --> B["bad case → 失败分类 → 用例（06）"] --> S
     G --> R["运行时检查（07）<br/>评测发现的失效模式"] --> T
