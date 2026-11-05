@@ -38,7 +38,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /gpt2-to-llama-five-changes-and-parameter-count.html；完整路线图见 /llm-architecture-evolution-roadmap-from-gpt2.html。
-结论原文：**：沿着 GPT-2 的槽位比较现代模型，配置中的五处关键改动解释了 Llama 的结构选择；逐项计数得到 Llama-3-8B 的 **8,030,261,248** 个参数。
+结论原文：沿着 GPT-2 的槽位比较现代模型，配置中的五处关键改动解释了 Llama 的结构选择；逐项计数得到 Llama-3-8B 的 **8,030,261,248** 个参数。
 </aside>
 
 ---
@@ -50,7 +50,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /transformer-flops-bytes-and-roofline.html。T ≥ max(FLOPs / P_peak, Bytes / BW)；ridge H100 295、A100 156、FP8 590。算力增长快于带宽，同一模型同一 batch 在新一代 GPU 上更容易 memory-bound。
-结论原文：**：每参数每 token 2 FLOPs；decode 每步把 16 GB 权重读一遍、**算术强度在数值上就等于 B**，ridge 是 989 / 3.35 ≈ **295**——这就是「decode 是 memory-bound」的全部含义。
+结论原文：每参数每 token 2 FLOPs；decode 每步把 16 GB 权重读一遍、**算术强度在数值上就等于 B**，ridge 是 989 / 3.35 ≈ **295**——这就是「decode 是 memory-bound」的全部含义。
 </aside>
 
 <!-- v -->
@@ -79,7 +79,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /positional-encoding-and-long-context.html。λ_i = 2π · base^(2i/d_head)：base 10000、d_head 128 时从 6.28 到 5.4 万；base 500000 把最低频拉到 256 万，让 128K 可区分，但「见过」仍靠长序列训练。
-结论原文：**：RoPE 把 $$d_{head}$$ 维向量看成 64 对复数，每对以自己的波长旋转；8K 训练时 **14 对低频维度没转完一圈**——推到 32K 出现从未见过的相位。**不是装不下，是没见过。
+结论原文：RoPE 把 $$d_{head}$$ 维向量看成 64 对复数，每对以自己的波长旋转；8K 训练时 **14 对低频维度没转完一圈**——推到 32K 出现从未见过的相位。**不是装不下，是没见过。
 </aside>
 
 ---
@@ -98,7 +98,7 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /attention-variants-and-kv-cache.html。判断 MLA 看 `kv_lora_rank`；`num_key_value_heads`: 128 不能套 GQA 公式。容量四乘子：结构定元素个数、量化定 bytes/elem、分页定碎片率、prefix 共享定复用倍数。
-结论原文：**：KV cache 每 token = $$2\,L\,n_{kv}\,d_{head} \cdot$$ bytes/elem，公式里**没有 $$n_h$$**——V3 128 头 61 层的 KV（68.6 KiB）比 8B 32 头（128 KiB）还小。
+结论原文：KV cache 每 token = $$2\,L\,n_{kv}\,d_{head} \cdot$$ bytes/elem，公式里**没有 $$n_h$$**——V3 128 头 61 层的 KV（68.6 KiB）比 8B 32 头（128 KiB）还小。
 </aside>
 
 <!-- v -->
@@ -108,13 +108,13 @@ $$
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260, "rankSpacing": 28, "nodeSpacing": 16}}}%%
 flowchart TB
-    H["h_t (7168)"] --> DKV["W_DKV + W_KR<br/>7168→576"]
-    DKV --> CKV["c^KV_t (512)<br/>进 cache"]
-    DKV --> KR["k^R_t (64) + RoPE<br/>128 head 共享，进 cache"]
-    CKV --> UKV["W_UK / W_UV<br/>512→128头×128"]
-    UKV --> ATT["attention<br/>q·[k^C;k^R]/√192"]
+    H["hₜ（7168）"] --> DKV["W_DKV + W_KR<br/>7168 → 576"]
+    DKV --> CKV["cᵏⱽₜ（512）<br/>进 cache"]
+    DKV --> KR["kᴿₜ（64）+ RoPE<br/>128 head 共享，进 cache"]
+    CKV --> UKV["W_UK / W_UV<br/>512 → 128 头 × 128"]
+    UKV --> ATT["attention<br/>q · [kᶜ; kᴿ] / √192"]
     KR --> ATT
-    H --> Q["W_DQ→W_UQ+W_QR<br/>q^C+q^R"] --> ATT
+    H --> Q["W_DQ → W_UQ + W_QR<br/>qᶜ + qᴿ"] --> ATT
     ATT --> WO["W_O"]
     classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3
     class CKV,KR cache
@@ -174,7 +174,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /moe-compute-and-communication.html。Mixtral 8x7B：8 × 14336 取 top-2，总 46.7B、激活 12.9B，B = 8 就几乎读全部。V3 每专家 44.04M，58 个 MoE 层 + 1 共享专家。
-结论原文：**：**总参数定显存**（671B，FP8 也放不进 8 卡 640 GB）、**激活参数定 FLOPs**（37B，是 70B 的一半）、**每步实际读取的参数定 decode 带宽**——中等 batch 下几乎读全部专家，稀疏省了算量没省访存。
+结论原文：**总参数定显存**（671B，FP8 也放不进 8 卡 640 GB）、**激活参数定 FLOPs**（37B，是 70B 的一半）、**每步实际读取的参数定 decode 带宽**——中等 batch 下几乎读全部专家，稀疏省了算量没省访存。
 </aside>
 
 <!-- v -->
@@ -184,12 +184,12 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 240}}}%%
 flowchart LR
-    TOK["token x（d 维）"] --> RT["router W_r x<br/>E 个分数 → top-k（k = 8）"]
-    RT -->|"g_1"| E1["FFN_1 选中"]
-    RT -.->|"g_2 = 0"| E2["FFN_2 不计算"]
+    TOK["token x（d 维）"] --> RT["router Wᵣ x<br/>E 个分数 → top-k（k = 8）"]
+    RT -->|"g₁"| E1["FFN₁ 选中"]
+    RT -.->|"g₂ = 0"| E2["FFN₂ 不计算"]
     RT -->|"g_E"| EE["… FFN_E 选中"]
     TOK --> SH["共享专家<br/>不经 router"]
-    E1 & EE & SH --> SUM["y = Σ g_i · FFN_i(x) + FFN_shared(x)<br/>算了 k + 1 个，持有 E + 1 个"]
+    E1 & EE & SH --> SUM["y = Σ gᵢ · FFNᵢ(x) + FFN_shared(x)<br/>算 k + 1 个，持有 E + 1 个"]
     classDef active fill:#dff0d8,stroke:#3c763d
     classDef idle fill:#f5f5f5,stroke:#aaa,color:#888
     classDef sh fill:#fcf8e3,stroke:#8a6d3b
@@ -217,17 +217,17 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
 flowchart LR
-    T["主干 Transformer<br/>h_i"] --> H0["lm_head → 预测 t_{i+1}<br/>L_main"]
-    T --> C["RMSNorm(h_i) ‖ RMSNorm(emb(t_{i+1}))<br/>投影 2d → d"]
-    E["真实 t_{i+1}"] --> C
-    C --> BLK["一个 Transformer block"] --> H1["共享 lm_head → 预测 t_{i+2}<br/>λ · L_MTP"]
+    T["主干 Transformer<br/>hᵢ"] --> H0["lm_head → 预测 tᵢ₊₁<br/>L_main"]
+    T --> C["RMSNorm(hᵢ) ‖ RMSNorm(emb(tᵢ₊₁))<br/>投影 2d → d"]
+    E["真实 tᵢ₊₁"] --> C
+    C --> BLK["一个 Transformer block"] --> H1["共享 lm_head → 预测 tᵢ₊₂<br/>λ · L_MTP"]
     classDef mtp fill:#e0e7ff,stroke:#4338ca
     class C,BLK,H1 mtp
 ```
 
 <aside class="notes" markdown="1">
 原文 /multi-token-prediction-mtp.html。自有参数：2 个 RMSNorm + 2d→d 投影 + 1 个 block，对 671B 不到 2%；λ 0.3 → 0.1。
-结论原文：**：每个位置额外预测 $$t_{i+2}$$，信号密度 ×(1 + D)，主干被逼编码更远的未来；模块**顺序**喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）；推理时**丢弃**或当投机 draft。
+结论原文：每个位置额外预测 $$t_{i+2}$$，信号密度 ×(1 + D)，主干被逼编码更远的未来；模块**顺序**喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）；推理时**丢弃**或当投机 draft。
 </aside>
 
 <!-- v -->
@@ -260,7 +260,7 @@ Table: 投机解码的正确性、收益与边界
 
 <aside class="notes" markdown="1">
 原文 /speculative-decoding-draft-verify-and-payoff.html。单步：q(x)·min(1, p/q) = min(p, q)，拒绝后从 norm(max(0, p − q)) 重采样，两项相加恰好 p(x)。KV 回退要精确到位置：被拒绝位置本身的 KV 也要丢。
-结论原文：**：先猜 γ 个 token、再用一次前向验证，接受 / 拒绝重采样让输出分布**严格等于**目标模型；验证 γ+1 个 token 只在 memory-bound 区间几乎免费。
+结论原文：先猜 γ 个 token、再用一次前向验证，接受 / 拒绝重采样让输出分布**严格等于**目标模型；验证 γ+1 个 token 只在 memory-bound 区间几乎免费。
 </aside>
 
 ---
@@ -273,7 +273,7 @@ Table: 投机解码的正确性、收益与边界
 
 <aside class="notes" markdown="1">
 原文 /multimodal-vision-encoder-cost-and-image-token-kv.html。n_img = ⌈H/28⌉⌈W/28⌉：336² → 144、1024² → 1369、1920×1080 → 2691。
-结论原文：**：图片贵的**不是 encoder**（一次性、compute-bound、12 ms），是它变成的 token 在 decoder 里占的 **KV**——与同长文本同价、活到请求结束；1024² 在 Qwen2-VL 里 = 1369 个 token，一段无法被 tokenizer 压短的 system prompt。
+结论原文：图片贵的**不是 encoder**（一次性、compute-bound、12 ms），是它变成的 token 在 decoder 里占的 **KV**——与同长文本同价、活到请求结束；1024² 在 Qwen2-VL 里 = 1369 个 token，一段无法被 tokenizer 压短的 system prompt。
 </aside>
 
 <!-- v -->
@@ -315,7 +315,7 @@ Table: 投机解码的正确性、收益与边界
 
 <aside class="notes" markdown="1">
 原文 /floating-point-formats-and-mixed-precision.html。FP16 最大 65504、e^x 在 x > 11.09 溢出（BF16 / FP32 阈值 88.7）；E4M3 最大 448 无 inf。
-结论原文：**：前向反向要**范围**、权重更新要**精度**——所以 BF16 计算 + **FP32 master weights**；$$\Delta w / w \sim 10^{-4}$$ 低于 BF16 的单位舍入 $$2^{-8} = 0.004$$，1.0 + 0.001 会被舍回 1.0。
+结论原文：前向反向要**范围**、权重更新要**精度**——所以 BF16 计算 + **FP32 master weights**；$$\Delta w / w \sim 10^{-4}$$ 低于 BF16 的单位舍入 $$2^{-8} = 0.004$$，1.0 + 0.001 会被舍回 1.0。
 </aside>
 
 <!-- v -->
