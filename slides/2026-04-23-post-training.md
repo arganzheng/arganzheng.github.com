@@ -197,7 +197,7 @@ flowchart TB
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
-flowchart LR
+flowchart TB
     B["V3-Base"] -->|"几千条长思维链"| S1["阶段 1 冷启动 SFT<br/>修可读性、格式、语言"]
     S1 -->|"GRPO · 规则 + 语言一致性奖励"| S2["阶段 2 推理 RL<br/>训到顶且不混语言"]
     S2 -->|"拒绝采样 60 万推理 + 20 万非推理"| D["80 万条 SFT 数据"]
@@ -299,7 +299,7 @@ flowchart LR
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
-flowchart LR
+flowchart TB
     A["① 题目集"] --> B["② 协议<br/>few-shot、模板、温度、正则"] --> C["③ 输出<br/>采样 1 次或 n 次"] --> D["④ 评分<br/>匹配 / 跑测试 / judge / 人"] --> E["⑤ 统计<br/>正确率 ± 区间"] --> F["榜单上的一个数"]
     A -. "污染 10–30 点" .-> F
     B -. "换 few-shot 数差 3–5 点" .-> F
