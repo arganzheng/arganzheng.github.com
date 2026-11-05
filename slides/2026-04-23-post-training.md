@@ -139,7 +139,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文 /online-rl-ppo-grpo-and-the-rlhf-trio.html。β 0.01–0.05，规则奖励下 0；GAE γ = 1、λ = 0.95；clip 0.2（DAPO 0.2 / 0.28）。
+原文 /online-rl-ppo-grpo-and-the-rlhf-trio.html。\(\beta\) 0.01–0.05，规则奖励下 0；GAE \(\gamma=1\)、\(\lambda=0.95\)；clip 0.2（DAPO 0.2 / 0.28）。
 </aside>
 
 <!-- v -->
@@ -176,7 +176,7 @@ flowchart TB
 ```
 
 <aside class="notes" markdown="1">
-原文 /offline-rl-dpo-and-its-family.html。β 0.1；8N/token，10 万对 9 GPU 小时；两模型 128 GB，LoRA 约 20 GB；Llama 3 六轮、RPO α = 0.2。
+原文 /offline-rl-dpo-and-its-family.html。\(\beta=0.1\)；\(8N\)/token，10 万对 9 GPU 小时；两模型 128 GB，LoRA 约 20 GB；Llama 3 六轮、RPO α = 0.2。
 </aside>
 
 <!-- v -->
@@ -375,8 +375,8 @@ flowchart LR
 |---|---|
 | 01 | lr 1e-5；LoRA r = 16 差 0.001；遗忘 +0.02 / +0.62 / +0.01 |
 | 02 | $$P(y_w \succ y_l) = \sigma(r_w - r_l)$$；$$\text{KL}_{BoN} = \log N - (N-1)/N$$ |
-| 03 | $$\max \mathbb E[r] - \beta\,\text{KL}$$；PPO 288 GB / GRPO 160 GB；(1 − 1/G) |
-| 04 | $$\hat r = \beta\log(\pi_\theta/\pi_{ref})$$；β 0.1；9 GPU 小时 |
+| 03 | $$\max \mathbb E[r] - \beta\,\text{KL}$$；PPO 288 GB / GRPO 160 GB；\((1-1/G)\) |
+| 04 | $$\hat r = \beta\log(\pi_\theta/\pi_{ref})$$；\(\beta=0.1\)；9 GPU 小时 |
 | 05 | AIME 15.6 → 71.0；一步 1.3 亿 token；蒸馏 72.6 vs RL 47 |
 | 06 | 48K token 八成是环境；320 CPU·小时 vs 7 GPU·小时 |
 | 07 | 软标签几十 bit vs < 1 bit；on-policy ≈ RL 的 1/10 |
