@@ -50,6 +50,37 @@ const CHECK = `(() => {
         return "#"+(i+1)+" "+e.tagName+" "+e.textContent.trim().slice(0,30)+" (right "+Math.round(b.right-sr.right)+"px over)";});}).flat(),
     overflow: secs.filter(s=>!s.querySelector("section")).map((s,i)=>[i+1,s.scrollHeight,(s.querySelector("h1,h2,h3")||s).textContent.trim().slice(0,40)])
       .filter(x=>x[1]>720).map(x=>"#"+x[0]+" "+x[1]+"px "+x[2]),
+    // sibling blocks that physically collide (table row over bullet, figure over heading): intersect >4 px both ways
+    overlap: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
+      const kids=[...s.children].filter(e=>{
+        if(e.matches('aside.notes, style, script')) return false;
+        const cs=getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden'||cs.opacity==='0') return false;
+        const b=e.getBoundingClientRect(); return b.width>0&&b.height>0;
+      }).map(e=>{const b=e.getBoundingClientRect();return {t:e.tagName.toLowerCase()+'.'+(e.className&&e.className.baseVal===undefined?(''+e.className).split(' ')[0]:'svg'),b};});
+      const hits=[];
+      for(let a=0;a<kids.length;a++)for(let c=a+1;c<kids.length;c++){
+        const A=kids[a].b,B=kids[c].b;
+        const ox=Math.min(A.right,B.right)-Math.max(A.left,B.left), oy=Math.min(A.bottom,B.bottom)-Math.max(A.top,B.top);
+        if(ox>4&&oy>4) hits.push("#"+(i+1)+" "+kids[a].t+"/"+kids[c].t+" ("+Math.round(ox)+"x"+Math.round(oy)+"px)");
+      }
+      return hits;
+    }).flat(),
+    // mermaid / inline svg text rendered below ~14 px is unreadable at 1280x720
+    smalltext: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
+      return [...s.querySelectorAll('.mermaid svg, section > svg')].map(sv=>{
+        const vb=sv.viewBox&&sv.viewBox.baseVal&&sv.viewBox.baseVal.width?sv.viewBox.baseVal.width:sv.getBoundingClientRect().width;
+        const scale=vb>0?sv.getBoundingClientRect().width/vb:1;
+        const sizes=[...sv.querySelectorAll('text, tspan, .label')].map(e=>parseFloat(getComputedStyle(e).fontSize)||0).filter(f=>f>0);
+        const min=Math.min(...sizes,99);
+        return (min*scale<14&&min<99)?"#"+(i+1)+" min "+(min*scale).toFixed(1)+"px":null;
+      }).filter(Boolean);
+    }).flat(),
+    // <img> svg squeezed below 55% of natural width: its text shrinks proportionally
+    shrunk: secs.filter(s=>!s.querySelector("section")).map((s,i)=>{
+      return [...s.querySelectorAll('img')].filter(im=>im.src.endsWith('.svg')&&im.naturalWidth>0)
+        .map(im=>{const r=im.getBoundingClientRect().width/im.naturalWidth;
+          return r<0.55?"#"+(i+1)+" "+im.src.split('/').pop()+" "+(r*100).toFixed(0)+"%":null;}).filter(Boolean);
+    }).flat(),
     pending: m.filter(e=>!e.querySelector("svg")&&!e.classList.contains("mermaid-error")).length + [...document.images].filter(i=>!i.complete).length
       + document.querySelectorAll("pre code.language-mermaid, div.language-mermaid pre code").length
   };
@@ -80,12 +111,15 @@ async function check(slug) {
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
-  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length ? 'PASS' : 'FAIL';
+  const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length && !out.overlap.length && !out.smalltext.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
   if (out.hoverflow.length) console.log('hoverflow (element wider than its slide — shorten the line or wrap it):', JSON.stringify(out.hoverflow));
   if (out.overflow.length) console.log('overflow (slide content taller than 720 px — split the slide or move detail to a `<!-- v -->` sub-slide):', JSON.stringify(out.overflow));
+  if (out.overlap.length) console.log('overlap (two sibling blocks collide on the slide — give the slide one block or re-layout):', JSON.stringify(out.overlap));
+  if (out.smalltext.length) console.log('smalltext (mermaid/svg text renders < 14 px — too wide a diagram; make it TB, split it, or use a post figure):', JSON.stringify(out.smalltext));
+  if (out.shrunk.length) console.log('WARN shrunk (svg <img> under 55% of natural width — text inside it shrinks the same amount; not failing):', JSON.stringify(out.shrunk));
   if (out.pending) console.log(`pending: ${out.pending} diagram(s) / image(s) never finished loading (readyState ${out.ready}) — CDN slow or blocked; rerun before trusting anything else on this page`);
   if (out.katexErrors.length) console.log('katexErrors:', JSON.stringify(out.katexErrors));
   if (out.rawMd.length) console.log('rawMd (an image line swallowed into a table cell — a `|` in the alt text; use 「」or 竖线 instead):', JSON.stringify(out.rawMd));
