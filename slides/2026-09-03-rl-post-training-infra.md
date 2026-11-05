@@ -81,7 +81,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /rl-system-topologies-colocate-disaggregate-async.html。
-结论原文：**：**同步分离比共置更差**（两池轮流、任一时刻只有一个池在干活）；**异步 ≈ 共置 − 长尾**；共置对长尾线性敏感、异步不敏感；rollout : train **按时间配**不按 FLOP，异步 2 : 1。
+结论原文：**同步分离比共置更差**（两池轮流、任一时刻只有一个池在干活）；**异步 ≈ 共置 − 长尾**；共置对长尾线性敏感、异步不敏感；rollout : train **按时间配**不按 FLOP，异步 2 : 1。
 </aside>
 
 ---
@@ -101,7 +101,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /colocated-trainer-and-rollout-engine-memory-handoff.html。
-结论原文：**：让渡有**搬 / 丢 / 不动**三种；`CuMemAllocator` 摘物理页保虚拟地址——CUDA graph、模型对象、块表都幸存；**切换 < 2%，真实代价是常驻部分挤掉的 KV 池**。
+结论原文：让渡有**搬 / 丢 / 不动**三种；`CuMemAllocator` 摘物理页保虚拟地址——CUDA graph、模型对象、块表都幸存；**切换 < 2%，真实代价是常驻部分挤掉的 KV 池**。
 </aside>
 
 ---
@@ -122,7 +122,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /weight-sync-from-training-shards-to-inference-shards.html。
-结论原文：**：同步 = **布局 + 传输**两半，中间是 HF 名字的 `(name, tensor)` 流；「**谁持有完整模型**」比链路快慢重要；**增量同步让没有人持有完整模型**。
+结论原文：同步 = **布局 + 传输**两半，中间是 HF 名字的 `(name, tensor)` 流；「**谁持有完整模型**」比链路快慢重要；**增量同步让没有人持有完整模型**。
 </aside>
 
 ---
@@ -143,7 +143,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /async-rl-staleness-partial-rollout-and-off-policy-correction.html。
-结论原文：**：**staleness、训推不一致、缓冲淘汰**三者机制不同、信号不同——在 reward 曲线上不可分，要**事前记录**三组信号；修正的系统要求是 **logprob 的份数**。
+结论原文：**staleness、训推不一致、缓冲淘汰**三者机制不同、信号不同——在 reward 曲线上不可分，要**事前记录**三组信号；修正的系统要求是 **logprob 的份数**。
 </aside>
 
 ---
@@ -164,7 +164,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html。
-结论原文：**：500 任务 × G = 8 × 20 轮 = **8 万次容器执行、667–1300 CPU·h、1300–1800 并发沙箱**；KV 驻留决定 prefill 是二次还是线性；**沙箱是第三个池**；环境方差让异步成必需。
+结论原文：500 任务 × G = 8 × 20 轮 = **8 万次容器执行、667–1300 CPU·h、1300–1800 并发沙箱**；KV 驻留决定 prefill 是二次还是线性；**沙箱是第三个池**；环境方差让异步成必需。
 </aside>
 
 ---
@@ -183,7 +183,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /verl-source-walkthrough-from-a-grpo-config-to-every-worker.html。
-结论原文：**：从优化器更新完成到推理引擎用它生成下一个 token：**十二步、四类进程、三条链路**；共置 = 一个进程持有多个角色对象；TransferQueue 是同步与异步统一的解耦点；slime 薄、AReaL 异步优先——**三家趋同的四段是必然**。
+结论原文：从优化器更新完成到推理引擎用它生成下一个 token：**十二步、四类进程、三条链路**；共置 = 一个进程持有多个角色对象；TransferQueue 是同步与异步统一的解耦点；slime 薄、AReaL 异步优先——**三家趋同的四段是必然**。
 </aside>
 
 ---
@@ -204,7 +204,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /rl-post-training-configuration-observability-and-troubleshooting.html。
-结论原文：**：六步推导配置、**全步 MFU 瀑布**、RL 状态的 checkpoint、确定性、必采指标、故障表；凌晨两点 reward 平台的排查顺序是**数据 → 版本 → 异步 → 实现**。
+结论原文：六步推导配置、**全步 MFU 瀑布**、RL 状态的 checkpoint、确定性、必采指标、故障表；凌晨两点 reward 平台的排查顺序是**数据 → 版本 → 异步 → 实现**。
 </aside>
 
 ---
@@ -214,16 +214,16 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
 flowchart TB
-    L["回答长度 L̄ 与 L_max<br/>随训练变长"] --> KV["在飞 KV 量"]
+    L["回答长度 L̄ 与 Lₘₐₓ<br/>随训练变长"] --> KV["在飞 KV 量"]
     L --> F["长尾占比 f"]
     KV --> C["单实例并发 c"]
-    U["gpu_memory_utilization 与常驻部分"] --> C
+    U["gpu_memory_utilization 与常驻"] --> C
     C --> TG["生成吞吐时间"]
-    F --> TOPO["形态：sync / colocate_async / separate_async"]
-    TG --> R["配比 n_r : n_t"]
+    F --> TOPO["形态<br/>sync / colocate_async / separate_async"]
+    TG --> R["配比 nᵣ : nₜ"]
     TOPO --> S["staleness 分布"]
-    TS["同步时间 T_sync"] --> K["parameter_sync_step k"] --> S
-    S --> LP["logprob 份数与修正<br/>2 份 / 3 份 · TIS / MIS · wait"]
+    TS["同步时间 Tₛync"] --> K["sync_step k"] --> S
+    S --> LP["logprob 份数与修正<br/>2 份 / 3 份 · TIS / MIS"]
 ```
 
 ---
