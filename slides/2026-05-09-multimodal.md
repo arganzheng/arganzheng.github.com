@@ -205,7 +205,7 @@ $$
 
 ## 07 · 扩散模型（下）：DDPM、score、flow matching 是同一件事
 
-**结论**：在高斯路径 $$x_t = a_t x_0 + b_t\epsilon$$ 下三者是**同一个分数 $$\nabla_x \log p_t$$ 的线性参数化**，损失差一个 t 权重，采样解同一个概率流 ODE；reflow 拉直轨迹一步采样；**CFG 逐噪声层把 $$p_t(c\mid x)$$ 升到 w 次幂**。
+**三者是同一分数场的线性参数化；reflow 拉直轨迹；CFG 逐层锐化 w 次**
 
 ![三张箭头图：t = 600 箭头几乎全指向中心；t = 300 开始朝两个月牙弯；t = 80 精确指向最近的月牙——这就是分数场](/img/in-post/multimodal-07-score-field.svg){: style="max-height: 260px"}
 
