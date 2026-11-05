@@ -76,13 +76,18 @@ flowchart TB
 | 一步流水 | 764 s | 14% |
 | 异步 | **619 s** | 17% |
 
-- 长尾占比 f 从 10% 到 70%：异步 / 共置 1.07× → 2.55×；verl 实验 2.35–2.67×
-- 配比 $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$；FLOP 上训练是生成的 3 倍、时间上生成是训练的 2 倍——且随回答变长而漂
-
 <aside class="notes" markdown="1">
 原文 /rl-system-topologies-colocate-disaggregate-async.html。
 结论原文：**同步分离比共置更差**（两池轮流、任一时刻只有一个池在干活）；**异步 ≈ 共置 − 长尾**；共置对长尾线性敏感、异步不敏感；rollout : train **按时间配**不按 FLOP，异步 2 : 1。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 长尾占比 f 从 10% 到 70%：异步 / 共置 1.07× → 2.55×；verl 实验 2.35–2.67×
+- 配比 $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$；FLOP 上训练是生成的 3 倍、时间上生成是训练的 2 倍——且随回答变长而漂
 
 ---
 
@@ -97,12 +102,17 @@ flowchart TB
 | `gpu_memory_utilization` 0.85 → 0.5 | 8B 生成 610 → **745 s**——KV 池只有半张卡 |
 | 边界 | $$16N / n \le 70$$ GB 才能共置 |
 
-- 「sleep 之后 CUDA graph 要重捕获、块表要重建」——只摘物理页；要补的是 `named_buffers`、fp8 KV scale、prefix cache
-
 <aside class="notes" markdown="1">
 原文 /colocated-trainer-and-rollout-engine-memory-handoff.html。
 结论原文：让渡有**搬 / 丢 / 不动**三种；`CuMemAllocator` 摘物理页保虚拟地址——CUDA graph、模型对象、块表都幸存；**切换 < 2%，真实代价是常驻部分挤掉的 KV 池**。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「sleep 之后 CUDA graph 要重捕获、块表要重建」——只摘物理页；要补的是 `named_buffers`、fp8 KV scale、prefix cache
 
 ---
 
@@ -117,13 +127,24 @@ flowchart TB
 | 235B 全量 vs delta | 246–266 s vs **11–15 s（21×）** |
 | 每步变化的参数 | dense 1–3%、MoE 0.02–0.05% |
 
-- bucket 512 MB、峰值 2 bucket；bubble = $$T_{sync} / (kT_{mb} + T_{sync})$$
-- 「权重同步慢是网络带宽不够」——大部分与网络无关；「增量省的是传输字节」——0.5B 上也快 1.3 倍，省的是全量 all-gather 与 rank 0 物化
-
 <aside class="notes" markdown="1">
 原文 /weight-sync-from-training-shards-to-inference-shards.html。
 结论原文：同步 = **布局 + 传输**两半，中间是 HF 名字的 `(name, tensor)` 流；「**谁持有完整模型**」比链路快慢重要；**增量同步让没有人持有完整模型**。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- bucket 512 MB、峰值 2 bucket；bubble = $$T_{sync} / (kT_{mb} + T_{sync})$$
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「权重同步慢是网络带宽不够」——大部分与网络无关；「增量省的是传输字节」——0.5B 上也快 1.3 倍，省的是全量 all-gather 与 rank 0 物化
 
 ---
 
@@ -139,12 +160,17 @@ flowchart TB
 | 部分 rollout 重 prefill | ≈ 一步 FLOP 的 6% |
 | decoupled PPO | 3 份 logprob（生成时、参考、当前） |
 
-- 「drop 掉过期样本是中性随机丢弃」——staleness 与回答长度正相关，drop 系统性地丢长回答；用 wait 或部分 rollout
-
 <aside class="notes" markdown="1">
 原文 /async-rl-staleness-partial-rollout-and-off-policy-correction.html。
 结论原文：**staleness、训推不一致、缓冲淘汰**三者机制不同、信号不同——在 reward 曲线上不可分，要**事前记录**三组信号；修正的系统要求是 **logprob 的份数**。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「drop 掉过期样本是中性随机丢弃」——staleness 与回答长度正相关，drop 系统性地丢长回答；用 wait 或部分 rollout
 
 ---
 
@@ -160,12 +186,17 @@ flowchart TB
 | 训练侧 | 15 EFLOP |
 | token 来源 | 八成来自环境 |
 
-- 「开了前缀缓存，多轮 prefill 就是线性的」——命中要 KV 块还在显存；等环境的 30 秒里被逐出；KV 卸载是出路
-
 <aside class="notes" markdown="1">
 原文 /agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html。
 结论原文：500 任务 × G = 8 × 20 轮 = **8 万次容器执行、667–1300 CPU·h、1300–1800 并发沙箱**；KV 驻留决定 prefill 是二次还是线性；**沙箱是第三个池**；环境方差让异步成必需。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「开了前缀缓存，多轮 prefill 就是线性的」——命中要 KV 块还在显存；等环境的 30 秒里被逐出；KV 卸载是出路
 
 ---
 
@@ -200,12 +231,17 @@ flowchart TB
 | 671B checkpoint | 10.7 TB 写 18 分钟 |
 | 确定性 | `full_determinism` 要求 `use_v1=false` |
 
-- 「reward 为 0 就是环境出错」——0 是合法 reward；服务应返回错误码，reward 按源分组监控
-
 <aside class="notes" markdown="1">
 原文 /rl-post-training-configuration-observability-and-troubleshooting.html。
 结论原文：六步推导配置、**全步 MFU 瀑布**、RL 状态的 checkpoint、确定性、必采指标、故障表；凌晨两点 reward 平台的排查顺序是**数据 → 版本 → 异步 → 实现**。
 </aside>
+
+<!-- v -->
+
+
+### 常见误区
+
+- 「reward 为 0 就是环境出错」——0 是合法 reward；服务应返回错误码，reward 按源分组监控
 
 ---
 
