@@ -103,6 +103,11 @@ flowchart TB
 
 ![单个 seed 一路抖动、与另一方法交叉；5 个 seed 的均值加阴影带到后期才分开](/img/in-post/tooling-loss-curves-seeds-logx.webp){: style="max-height: 420px"}
 
+<!-- v -->
+
+
+### 要点
+
 - 评测表带上 `ci95 = 1.96 √(p(1−p)/n)`：80 道题 ±10.9，5 个点的差分辨不出
 - loss 曲线：对数 x 轴、多 seed 阴影带；不重叠才算差别
 
@@ -118,7 +123,18 @@ p = p / p.sum(-1, keepdims=True)
 out = np.einsum("bts,bsd->btd", p, v)                      # [B, T, D]
 ```
 
+<!-- v -->
+
+
+### 要点
+
 - 广播三条规则；`(3,) + (3, 1)` 悄悄变成 `(3, 3)`——关键处 `assert` 形状
+
+<!-- v -->
+
+
+### 常见误区
+
 - 与 `F.scaled_dot_product_attention` 最大误差 **2.65 × 10⁻⁷**：float32 约 1e-6、float64 约 1e-12 才叫「对了」
 
 ---
@@ -163,6 +179,11 @@ for step, (x, y) in enumerate(loader):
     opt.zero_grad(set_to_none=True)                     # 所以要清零
 ```
 
+<!-- v -->
+
+
+### 要点
+
 - 不 `zero_grad` 不是 bug 就是**梯度累积**（小 batch 模拟大 batch）
 - 评测不加 `no_grad`：中间量等一个不会来的 `backward`，显存涨到 OOM
 - 首步 loss 应 ≈ ln V：84 万参数、V = 128 → 5.07 ✓；一分钟 PPL 128 → 9.6
@@ -174,6 +195,11 @@ for step, (x, y) in enumerate(loader):
 ![warmup 再 cosine 衰减：几百步升到峰值，再降到峰值的 1/10](/img/in-post/pytorch-in-use-warmup-cosine-lr-schedule.svg){: style="max-height: 380px"}
 
 **lr 调度 = warmup 后 cosine 降到峰值的 1/10**
+
+<!-- v -->
+
+
+### 要点
 
 - `loss.item()` 慢：CPU 异步发 kernel，`.item()` 要等 GPU 队列清空
 - CPU 上开 bf16 `autocast` 慢 30 倍：精度的收益来自硬件
@@ -188,18 +214,27 @@ for step, (x, y) in enumerate(loader):
 |---|---|---|---|---|---|
 | 字节 | 2 | 2 | 4 | 4 + 4 | **16** |
 
+<!-- v -->
+
+### Llama-3-8B：三种微调的显存账
+
 | Llama-3-8B | 算法 | 显存（不含激活） |
 |---|---|---|
 | 全量微调 | 16 字节 × 8.03B | **128.5 GB** |
 | LoRA（r = 16，可训练 0.5%） | 底座 bf16 16 GB + 14 字节 × 42M | **16.7 GB** |
 | QLoRA（4-bit 底座） | 底座 4 GB + 同上 | **5.1 GB** |
 
-- 激活另算：B = 1、T = 4096 约 **16.5 GiB**；gradient checkpointing 多 30% 计算换 16.5 → 1 GiB
-- FSDP 8 卡切状态：每卡 16 GB 放得下全量
-
 <aside class="notes" markdown="1">
 原文 /pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html。16 = 2（bf16 副本）+ 2（梯度，Megatron 配方）+ 4（fp32 主权重）+ 4 + 4（Adam 两个矩）。
 </aside>
+
+<!-- v -->
+
+
+### 要点
+
+- 激活另算：B = 1、T = 4096 约 **16.5 GiB**；gradient checkpointing 多 30% 计算换 16.5 → 1 GiB
+- FSDP 8 卡切状态：每卡 16 GB 放得下全量
 
 <!-- v -->
 
@@ -214,6 +249,11 @@ flowchart LR
     G --> OPT["AdamW m、v"]
     OPT -- "⑤ fp32 上加" --> W32
 ```
+
+<!-- v -->
+
+
+### 要点
 
 - `autocast` **不**把参数变成 bf16：减半的是矩阵乘的中间结果，训练状态仍是 16 字节 / 参数
 - OOM 按爆的时机归因：加载后 → 权重；第一步 `backward` 后 → 梯度 + 状态；加了 LoRA 还 OOM → **看激活**
@@ -257,6 +297,11 @@ flowchart TB
 
 **safetensors = JSON 索引 + 字节区，可 mmap 只读一层**
 
+<!-- v -->
+
+
+### 要点
+
 - `config.json`：Qwen2.5-0.5B 24 层、hidden 896、词表 151936、`tie_word_embeddings`
 - `tokenizer.json` + chat template：哪些 token 算 loss
 
@@ -272,6 +317,11 @@ model = get_peft_model(model, LoraConfig(r=16, lora_alpha=32, ...))  # ΔW = (α
 trainer = SFTTrainer(model, train_dataset=ds, args=SFTConfig(...))   # loss mask = ignore_index=-100
 trainer.train()                                             # 二十行加外壳
 ```
+
+<!-- v -->
+
+
+### 要点
 
 - Qwen2.5-0.5B：494M 参数、可训练 8.80M（1.78%）、训练状态 141 MB——CPU 都能微调
 - 一条对话 85% 的 token 被 mask；20 步 loss 5.3 → 1.7，**答案对了却不会停**——结束符要进 loss
@@ -298,6 +348,11 @@ trainer.train()                                             # 二十行加外壳
 | prefill 4096 token | 2 × 8B × 4096 ≈ 66 TFLOP ÷ 989 TFLOPS ≈ **67 ms**，compute-bound |
 | 训练 MFU | 40–50% 算正常；反向 ≈ 2 × 前向 |
 | 显存四块 | 权重 · 梯度与优化器状态 · 激活 · **KV cache**（131 KB / token） |
+
+<!-- v -->
+
+
+### 要点
 
 - 量化对推理有效、对训练用处不大，根本原因就是 decode 在 ridge 左边、训练在右边
 
