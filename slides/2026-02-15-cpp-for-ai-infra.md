@@ -55,7 +55,7 @@ flowchart TB
 
 ## 01 · 编译模型：`import torch` 加载了哪些 .so
 
-**结论**：编译器只看得见**一个翻译单元**，符号由链接器与动态加载器在两个时刻解析；每类「找不到」只出现在一个阶段——`not declared`（编译）/ `undefined reference`（链接）/ `undefined symbol`（加载）。
+**每类「找不到」只属于一个阶段：编译 / 链接 / 加载**
 
 ![链接做的两件事：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它；链接后合并、重定位，地址填实](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg){: style="max-height: 340px"}
 
@@ -100,7 +100,7 @@ flowchart TB
 
 ## 03 · 模板：`AT_DISPATCH` 里的 lambda 被编译了几次
 
-**结论**：模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda——**N 个 dtype 就编 N 份**；运行期只有一个 `switch`。
+**N 个 dtype 就编 N 份；运行期只有一个 switch**
 
 ```cpp
 AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [&] {
@@ -126,7 +126,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 
 ## 04 · 多态与类型擦除：Dispatcher 不是虚函数
 
-**结论**：`KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed——**函数指针 + 模板生成的适配器**的手工类型擦除；`lookup` 一次数组下标，全程无虚调用；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次。
+**类型擦除 = 函数指针 + 模板适配器，无虚调用**
 
 | 可调用对象 | 大小 |
 |---|---|
@@ -146,7 +146,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 
 ## 05 · 宏与静态注册：算子怎么出现在 `torch.ops` 下
 
-**结论**：`TORCH_LIBRARY` 展开成**静态对象**，`dlopen` 执行 `.init_array` 时其构造函数向 `Dispatcher` 登记——**调用者是加载器，不是用户代码**。
+**注册者是加载器不是用户——静态对象在 dlopen 时登记**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
@@ -177,7 +177,7 @@ flowchart TB
 
 ## 06 · 并发、内存模型、TLS：`with torch.no_grad()` 在 C++ 层做了什么
 
-**结论**：改的是一个 **`thread_local` 变量**；每线程一份、**新线程不继承**——worker 读到默认值 `True`，要跨线程必须用 `at::ThreadLocalState` + `ThreadLocalStateGuard` 显式传播。
+**`no_grad` 是 thread_local：每线程一份、新线程不继承**
 
 | 机制 | 数 / 规则 |
 |---|---|
@@ -198,7 +198,7 @@ flowchart TB
 
 ## 07 · 与 Python 之间：一个 Tensor 来回几次转换
 
-**结论**：输入 3 次、输出 2 次类型转换，**无一步拷贝数据**；**GIL 转参数时持有、跑 kernel 时释放**——放掉 GIL 后 C++ 值随便用，不能碰 `PyObject*`。
+**5 次类型转换零拷贝；GIL 转参持有、跑 kernel 释放**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
@@ -227,7 +227,7 @@ flowchart TB
 
 ## 08 · 工具链：不靠推理，靠矩阵
 
-**结论**：一个 C++ 改动的八步清单：clangd → clang-format → Debug 构建 → gtest / pytest → clang-tidy → **ASan + UBSan** → **TSan** → CI 矩阵；未定义行为默认什么都不发生、数据悄悄错——**测试过了不等于没有内存错误**。
+**测试过了 ≠ 没有内存错误——ASan/UBSan/TSan 必跑**
 
 | 工具 | 代价 |
 |---|---|
