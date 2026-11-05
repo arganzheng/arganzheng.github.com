@@ -369,7 +369,6 @@ flowchart TB
 - 「FFN 中间维度就是 4d」——Llama 是三矩阵 SwiGLU，14336 = 2/3 · 4d × 1.3 对齐
 - 「每 token FLOPs = 2 × 全部参数」——embedding 是查表，8B 是 2 × 7.5B
 - 「head 越多 KV 越大」——公式里只有 $$n_{kv}$$；V3 128 头 68.6 KiB
-- 「decode 慢是算力不够」——B = 1 算力 0.02 ms、访存 4.8 ms，距 ridge 两个数量级
 {: .fragments}
 
 ---
