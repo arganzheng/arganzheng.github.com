@@ -63,7 +63,7 @@ flowchart TB
 
 ## 01 · 为什么 LLM Serving 比传统推理难
 
-**Llama-3-70B、8×H100：每 token KV 为 320 KB；2,300 token 请求约 734 MB。**
+**Llama-3-70B、8×H100：每 token KV 320 KB、每请求约 734 MB**
 
 ![LLM Serving 中一个请求的持续生成、状态与资源关系](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 400px"}
 
@@ -87,7 +87,7 @@ flowchart TB
 
 ## 02 · 如何衡量：吞吐、延迟与 Goodput
 
-**吞吐量衡量完成多少工作；延迟衡量用户等多久；Goodput 只计满足 SLO 的有效工作。**
+**吞吐算系统做了多少，延迟算用户等多久，Goodput 算 SLO 内有效工作**
 
 ![一次请求的 TTFT、TPOT、ITL 与 E2E 时间线](/img/in-post/how-to-measure-llm-serving-request-timeline.svg){: style="max-height: 420px"}
 
@@ -99,7 +99,7 @@ flowchart TB
 
 ## 03 · 鸟瞰 vLLM：4+1 视图落到一次请求
 
-**Executor 是 EngineCoreProc 内的对象；DP 决定 EngineCoreProc 数，TP×PP 决定每个 EngineCoreProc 的 WorkerProc 数，EP 不新增进程。**
+**Executor 是引擎内对象：DP 定 EngineCoreProc 数、TP×PP 定 WorkerProc 数**
 
 ![进程视图：API Server、EngineCoreProc、Executor 与 WorkerProc 的职责和通信](/img/in-post/vllm-request-lifecycle-process-view.svg){: style="max-height: 390px"}
 
@@ -171,7 +171,7 @@ flowchart TB
 
 ## 05 · KV Cache：管理增长中的状态
 
-**block_size=16；2,050 token 请求占 129 块，Prefix Cache 只复用写满的块。**
+**block_size=16；2,050 token 占 129 块，Prefix Cache 只复用满块**
 
 ![KV Cache 从 Prefill 写入、Decode 追加到完成或抢占归还的生命周期](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg){: style="max-height: 400px"}
 
@@ -183,7 +183,7 @@ flowchart TB
 
 ## 06 · GPU 执行：减少等待、搬运与轮次
 
-**Llama-3-70B、8×H100、TP=8：Decode 权重读取下界约 5.3 ms，实测一步约 10 ms。**
+**Decode 权重读取下界约 5.3 ms、实测约 10 ms；decode 占总时 97%**
 
 ![标准 Attention 与 FlashAttention 的 HBM 读写和分块计算](/img/in-post/gpu-execution-kernels-and-graphs-standard-vs-flash.svg){: style="max-height: 400px"}
 
@@ -195,7 +195,7 @@ flowchart TB
 
 ## 07 · 解码扩展：不只改 Sampler
 
-**batch=1、接受长度 2.5 时投机解码约 2.1×；batch=128 时每步慢 1.9×、吞吐反降。**
+**接受长度 2.5、batch 1 时约 2.1×；batch 128 时每步慢 1.9 倍**
 
 ![Proposer、Scheduler 与 Target 在投机解码中的角色和约束](/img/in-post/decoding-extensions-spec-decode-roles.svg){: style="max-height: 400px"}
 
@@ -207,7 +207,7 @@ flowchart TB
 
 ## 08 · Multi-GPU：按瓶颈切分模型与请求
 
-**TP/PP/EP/CP 解决“装不下”；DP 解决“想要更多吞吐”，并处于最外层。**
+**TP/PP/EP/CP 解决装不下，DP 解决要更多吞吐且在最外层**
 
 ![TP、PP、EP、CP 与 DP 的 rank 布局及适用问题](/img/in-post/multi-gpu-scaling-strategies-tp-pp-dp-rank-layout.svg){: style="max-height: 400px"}
 
@@ -219,7 +219,7 @@ flowchart TB
 
 ## 09 · PD 分离：状态交接需要明确契约
 
-**匹配不等于就绪，计算结束也不等于 KV 块可回收；分离会增加交接与编排工作。**
+**匹配≠就绪、算完≠可回收；分离换来配置自由与交接成本**
 
 ![Prefill 与 Decode 分离下的 KV 传输、执行与资源干扰时间线](/img/in-post/prefill-decode-disaggregation-overlap-timelines.svg){: style="max-height: 400px"}
 
@@ -231,7 +231,7 @@ flowchart TB
 
 ## 10 · 模型适配：变化落在哪一层
 
-**模型层管结构，运行时层管调度、Cache 与并行，算子层管 Kernel、量化与通信。**
+**模型层管结构，运行时层管调度/Cache/并行，算子层管 Kernel**
 
 ![模型适配中的 KV Cache 与 latent 表示变化](/img/in-post/model-adaptation-kv-vs-latent.svg){: style="max-height: 400px"}
 
@@ -243,7 +243,7 @@ flowchart TB
 
 ## 11 · 请求形态：multi-LoRA 与多模态
 
-**8 个 rank-16 LoRA 槽位静态占用约 1.44 GB/卡，与实际加载几个 adapter 无关。**
+**8 个 rank-16 槽位静态占 1.44 GB/卡，与实际加载数无关**
 
 ![一个 kernel 按排序后的 token 索引 gather 不同 LoRA adapter 的权重行](/img/in-post/request-shapes-multi-lora-and-multimodal-lora-gather.svg){: style="max-height: 390px"}
 
@@ -257,7 +257,7 @@ flowchart TB
 
 ![占位区间、embedding 掩码、encoder 输出下标与 chunk 窗口对齐](/img/in-post/request-shapes-multi-lora-and-multimodal-placeholder-align.svg){: style="max-height: 400px"}
 
-**一张图 encoder 输出为 9–22 MB，相关 KV 为 184–438 MB，约 20 倍。**
+**一张图 encoder 输出 9–22 MB，它占的 KV 184–438 MB，约 20 倍**
 
 <aside class="notes" markdown="1">
 原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。图片示例 576 或 1,369 个 token；encoder 输出短命，KV 在生成期间持续驻留。
@@ -267,7 +267,7 @@ flowchart TB
 
 ## 12 · 硬件解耦：Platform 是边界，不是万能胶
 
-**Serving 核心依赖抽象能力而非具体芯片；稳定契约让 Out-of-Tree 适配独立演进。**
+**核心依赖抽象能力而非具体芯片；OOT 靠主仓库的稳定契约**
 
 ![Platform 按硬件与能力派发 Attention Backend、Worker 与算子实现](/img/in-post/hardware-abstraction-platform-dispatch.svg){: style="max-height: 400px"}
 
@@ -279,7 +279,7 @@ flowchart TB
 
 ## 13 · Serving 的下一站：分布式智能操作系统
 
-**四个转变：手工配置→自动计划、本地缓存→分布式状态、单体推理→多阶段执行、GPU 利用率→Goodput/SLO/成本。**
+**四转变：配置→自动计划、缓存→分布式状态、执行→多阶段、目标→Goodput**
 
 ![AI Serving Operating System 的计算、状态与编排层次](/img/in-post/future-of-serving-infra-ai-serving-os-layers.svg){: style="max-height: 400px"}
 
@@ -291,7 +291,7 @@ flowchart TB
 
 ## 14 · 回到源码：一次请求的真实旅程
 
-**同一个请求跨五篇算账：KV 734 MB、chunked prefill 5 段、decode 3,000 ms、跨节点 KV 641 MB。**
+**同一请求五笔账：734 MB KV、5 段 chunk、decode 3,000 ms**
 
 ![一个请求从调度迭代到 GPU kernel 的源码调用与时间线](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg){: style="max-height: 400px"}
 
