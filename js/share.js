@@ -11,24 +11,32 @@
  *     can additionally provide a PNG card generator and a long-press / download
  *     overlay.
  *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, plain Markdown,
- *     rich HTML with embedded images/formula images, and download Markdown.
+ *     rich HTML with embedded images/formula images, Markdown download, and a
+ *     Markdown ZIP with relative image paths.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
- *     WeChat and HTML modules are lazy-loaded on first use.
+ *     WeChat, HTML, rich clipboard, and Markdown ZIP modules are lazy-loaded on
+ *     first use.
  */
 (function () {
   'use strict';
 
-  function absolutizeMarkdown(source, site) {
+  function rewriteMarkdownUrls(source, rewrite) {
     source = String(source == null ? '' : source);
-    var base = String(site || '').replace(/\/+$/, '');
+    rewrite = typeof rewrite === 'function' ? rewrite : function (url) { return url; };
     var imageCount = 0;
     var urlCount = 0;
     var protectedValues = [];
     var marker = '\u0000md-export-';
     while (source.indexOf(marker) !== -1) marker += 'x';
 
+    function replaceUrl(url, kind) {
+      urlCount += 1;
+      if (kind === 'image') imageCount += 1;
+      var replacement = rewrite(url, kind);
+      return replacement == null ? url : String(replacement);
+    }
     function protect(value) {
       var token = marker + protectedValues.length + '\u0000';
       protectedValues.push(value);
@@ -79,15 +87,11 @@
     function rewriteMarkdownChunk(value, imageRefs) {
       value = value.replace(/(!?)\[([^\]]*)\]([ \t]*\([ \t]*)(\/(?!\/)[^\s)]*)/g, function (match, image, alt, open, url) {
         if (!isRootRelative(url)) return match;
-        urlCount += 1;
-        if (image) imageCount += 1;
-        return image + '[' + alt + ']' + open + base + url;
+        return image + '[' + alt + ']' + open + replaceUrl(url, image ? 'image' : 'link');
       });
       value = value.replace(/^([ \t]{0,3}\[([^\]]+)\]:[ \t]*)(\/(?!\/)\S+)/gm, function (match, prefix, label, url) {
         if (!isRootRelative(url)) return match;
-        urlCount += 1;
-        if (imageRefs[refKey(label)]) imageCount += 1;
-        return prefix + base + url;
+        return prefix + replaceUrl(url, imageRefs[refKey(label)] ? 'image' : 'link');
       });
       return value.replace(/<[A-Za-z][^>]*>/g, function (tag) {
         var tagMatch = /^<\s*([a-z][\w:-]*)/i.exec(tag);
@@ -96,21 +100,19 @@
         tag = tag.replace(/(\s)(src|href|poster)(\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi, function (match, space, name, equals, doubleValue, singleValue, bareValue) {
           var url = doubleValue !== undefined ? doubleValue : (singleValue !== undefined ? singleValue : bareValue);
           if (!isRootRelative(url)) return match;
-          urlCount += 1;
           var lowerName = name.toLowerCase();
-          if (lowerName === 'poster' || (lowerName === 'src' && isImageSource) || (lowerName === 'href' && tagName === 'image')) imageCount += 1;
-          var absolute = base + url;
-          if (doubleValue !== undefined) return space + name + equals + '"' + absolute + '"';
-          if (singleValue !== undefined) return space + name + equals + "'" + absolute + "'";
-          return space + name + equals + absolute;
+          var kind = lowerName === 'poster' || (lowerName === 'src' && isImageSource) ||
+            (lowerName === 'href' && tagName === 'image') ? 'image' : 'link';
+          var replacement = replaceUrl(url, kind);
+          if (doubleValue !== undefined) return space + name + equals + '"' + replacement + '"';
+          if (singleValue !== undefined) return space + name + equals + "'" + replacement + "'";
+          return space + name + equals + replacement;
         });
         return tag.replace(/(\s)(srcset)(\s*=\s*)(?:"([^"]*)"|'([^']*)')/gi, function (match, space, name, equals, doubleValue, singleValue) {
           var value = doubleValue !== undefined ? doubleValue : singleValue;
           var updated = value.replace(/(^[ \t]*|,[ \t]*)(\/(?!\/)[^\s,]+)/g, function (candidate, separator, url) {
             if (!isRootRelative(url)) return candidate;
-            urlCount += 1;
-            imageCount += 1;
-            return separator + base + url;
+            return separator + replaceUrl(url, 'image');
           });
           var quote = doubleValue !== undefined ? '"' : "'";
           return space + name + equals + quote + updated + quote;
@@ -161,7 +163,19 @@
     return { text: output, imageCount: imageCount, urlCount: urlCount };
   }
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = { absolutizeMarkdown: absolutizeMarkdown };
+  function absolutizeMarkdown(source, site) {
+    var base = String(site || '').replace(/\/+$/, '');
+    return rewriteMarkdownUrls(source, function (url) { return base + url; });
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { rewriteMarkdownUrls: rewriteMarkdownUrls, absolutizeMarkdown: absolutizeMarkdown };
+  }
+  window.MarkdownExport = {
+    buildPayload: buildMarkdownPayload,
+    rewriteMarkdownUrls: rewriteMarkdownUrls
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports.buildMarkdownPayload = buildMarkdownPayload;
 
   var bars = Array.prototype.slice.call(document.querySelectorAll('.post-actions'));
   var strips = Array.prototype.slice.call(document.querySelectorAll('.post-stats'));
@@ -279,15 +293,23 @@
   function markdownSite(bar) {
     return bar.getAttribute('data-site-url') || location.origin;
   }
-  function copyMarkdownPayload(source, bar) {
+  function buildMarkdownPayload(source, site, title, subtitle, transform) {
     var parts = splitMarkdownFrontMatter(source);
-    var transformed = absolutizeMarkdown(parts.body, markdownSite(bar));
-    var title = bar.getAttribute('data-title') || '';
-    var subtitle = bar.getAttribute('data-subtitle') || '';
+    var transformed = transform ? transform(parts.body, site) : absolutizeMarkdown(parts.body, site);
+    title = String(title || '');
+    subtitle = String(subtitle || '');
     var text = '# ' + title + '\n\n';
     if (subtitle) text += subtitle.split(/\r?\n/).map(function (line) { return '> ' + line; }).join('\n') + '\n\n';
     text += transformed.text.replace(/^(?:\r?\n)+/, '');
-    return { text: text, imageCount: transformed.imageCount };
+    return { text: text, imageCount: transformed.imageCount, urlCount: transformed.urlCount };
+  }
+  function copyMarkdownPayload(source, bar) {
+    return buildMarkdownPayload(
+      source,
+      markdownSite(bar),
+      bar.getAttribute('data-title') || '',
+      bar.getAttribute('data-subtitle') || ''
+    );
   }
   function richPlainText(html) {
     var doc = new DOMParser().parseFromString(html, 'text/html');
@@ -309,7 +331,8 @@
 
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
-  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null, copyMarkdown = null, copyRich = null, downloadMarkdown = null;
+  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null;
+  var copyMarkdown = null, copyRich = null, downloadMarkdown = null, downloadMarkdownZip = null;
   var cardOverlay = null, cardObjectUrl = null;
   function bindMenuDismissal() {
     if (menuDismissalBound) return;
@@ -402,7 +425,8 @@
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="html"><i class="fa fa-file-code"></i>HTML</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-copy" title="复制 Markdown（图片链接改为完整地址）"><i class="fa fa-copy"></i>复制 Markdown</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="rich" title="复制富文本（带图片）"><i class="fa fa-copy"></i>复制富文本（带图片）</button>' +
-      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 文件"><i class="fa fa-file-lines"></i>下载 Markdown</button>';
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 文件"><i class="fa fa-file-lines"></i>下载 Markdown</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-zip" title=".md + images/ 文件夹（相对路径），用于导入 Markdown"><i class="fa fa-download"></i>下载 Markdown 压缩包</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
@@ -416,6 +440,7 @@
       else if (kind === 'md-copy' && copyMarkdown) copyMarkdown(item);
       else if (kind === 'rich' && copyRich) copyRich(item);
       else if (kind === 'md' && downloadMarkdown) downloadMarkdown(item);
+      else if (kind === 'md-zip' && downloadMarkdownZip) downloadMarkdownZip(item);
     });
     bindMenuDismissal();
     return exportPop;
@@ -739,6 +764,43 @@
         try {
           link.click();
           toast(bar, '已下载 ' + filename, 4000);
+        } finally {
+          if (link.parentNode) link.parentNode.removeChild(link);
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        }
+      }).catch(function (err) {
+        toast(bar, '失败：' + (err && err.message || err), 4000);
+      }).then(function () { item.disabled = false; });
+    };
+    downloadMarkdownZip = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      var sourcePath = bar.getAttribute('data-source') || '';
+      var filename = sourcePath.split(/[\\/]/).pop() || 'article.md';
+      fetchMarkdownSource(bar).then(function (source) {
+        var ready = window.MdZipExport ? Promise.resolve() : loadScript('/js/md-zip-export.js');
+        return ready.then(function () {
+          if (!window.MdZipExport) throw new Error('Markdown ZIP module unavailable');
+          return window.MdZipExport.build({
+            source: source,
+            site: markdownSite(bar),
+            title: bar.getAttribute('data-title') || '',
+            subtitle: bar.getAttribute('data-subtitle') || '',
+            filename: filename
+          });
+        });
+      }).then(function (result) {
+        var objectUrl = URL.createObjectURL(result.blob);
+        var link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = result.name;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        try {
+          link.click();
+          var message = '已下载 ' + result.name + '（' + result.images + ' 张图片）';
+          if (result.failed > 0) message += '，' + result.failed + ' 张图片没下载成功，保留了完整地址';
+          toast(bar, message, 5000);
         } finally {
           if (link.parentNode) link.parentNode.removeChild(link);
           setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
